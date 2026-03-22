@@ -2575,7 +2575,7 @@ int	CSequencer::Load( CIcarus* icarus, IGameInterface* game )
 	pIcarus->BufferRead( &numTasks, sizeof( numTasks ) );
 
 	//Read in, and reassociate the tasks to the sequences
-	for ( i = 0; i < numTasks; i++ )
+	for ( int i = 0; i < numTasks; i++ )
 	{
 		//Read in the task's ID
 		pIcarus->BufferRead( &taskID, sizeof( taskID ) );

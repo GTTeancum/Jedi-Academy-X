@@ -133,7 +133,7 @@ public:
 
 		// No slot found, so scan thru the client info to see if a slot can be killed
 		bool bFound;
-		for(i = 0; i < MAX_MODEL_SLOTS; i++)
+		for(int i = 0; i < MAX_MODEL_SLOTS; i++)
 		{
 			// The server NEVER throws out kyle
 			if(com_sv_running->integer && !strcmp(modelSlot[i].name, "models/players/kyle/model.glm"))
@@ -164,7 +164,7 @@ public:
 			}
 		}   
 
-		for(i = 0; i < MAX_MODEL_SLOTS; i++)
+		for(int i = 0; i < MAX_MODEL_SLOTS; i++)
 		{
 			if(modelSlot[i].inUse == false)
 			{
@@ -183,7 +183,7 @@ public:
 				to allocate memory for a new model: %s.  But all my model \
 				slots are already in use.  Here's what's using them.  Good \
 				luck!\n\n", name);
-		for(i=0; i<MAX_MODEL_SLOTS; i++) {
+		for(int i = 0; i < MAX_MODEL_SLOTS; i++) {
 			if(modelSlot[i].inUse) {
 				Com_PrintfAlways("%s\n", modelSlot[i].name);
 			}

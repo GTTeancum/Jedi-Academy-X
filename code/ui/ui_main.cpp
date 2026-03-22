@@ -2711,9 +2711,9 @@ static void UI_HandleLoadSelection()
 	char directoryInfo[filepathlength];
 	char psLocalFilename[filepathlength];
 
-	mbstowcs(saveGameName, s_savedata[s_savegame.currentLine].currentSaveFileName, filepathlength);
+	mbstowcs((wchar_t*)saveGameName, s_savedata[s_savegame.currentLine].currentSaveFileName, filepathlength);
 
-	if (ERROR_SUCCESS ==XCreateSaveGame("U:\\", saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength))
+	if (ERROR_SUCCESS ==XCreateSaveGame( "U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength))
 	{
 		strcpy (psLocalFilename , directoryInfo);
 		strcat (psLocalFilename , "screenshot.xbx");

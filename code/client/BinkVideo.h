@@ -2,6 +2,7 @@
 #define NS_BINKVIDEO
 
 #include "bink.h"
+#include "RAD.h"
 #define NS_BV_DEFAULT_CIN_BPS (4)
 #define MAX_WIDTH			512
 #define MAX_HEIGHT			512
@@ -34,9 +35,9 @@ private:
 	float   x2;
 	float	y2;
 
-	bool	loadScreenOnStop;	// Set to true when we play the logos, so we know to show the loading screen
+	bool	loadScreenOnStop;
 
-	bool	stopNextFrame;		// Used to stop movies with *correct* timing
+	bool	stopNextFrame;
 
 	OVERLAYINFO	Image[2];
 
@@ -60,7 +61,7 @@ public:
 	void*	GetBinkData(void);
 	int		GetBinkWidth(void) { return this->bink->Width; }
 	int		GetBinkHeight(void) { return this->bink->Height; }
-	void	SetMasterVolume(s32 volume);
+	void	SetMasterVolume(S32 volume);
 	void	AllocateXboxMem(void);
 	void	FreeXboxMem(void);
 	static void*	Allocate(U32 size);

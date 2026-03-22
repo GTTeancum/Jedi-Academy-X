@@ -335,7 +335,8 @@ static qboolean G_InitRoff( char *file, unsigned char *data )
 			roffs[num_roffs].type = 2; //rww - any reason this wasn't being set already?
 
 			// Copy all of the goods into our ROFF cache
-			for ( int i = 0; i < count; i++ )
+			int i;
+			for ( i = 0; i < count; i++ )
 			{
 				VectorCopy( roff_data[i].origin_delta, mem[i].origin_delta );
 				VectorCopy( roff_data[i].rotate_delta, mem[i].rotate_delta );
@@ -352,7 +353,7 @@ static qboolean G_InitRoff( char *file, unsigned char *data )
 				ptr = start = (char *)&roff_data[i];
 				size = 0;
 
-				for( i = 0; i < hdr->mNumNotes; i++ )
+				for ( int j = 0; j < hdr->mNumNotes; j++ )
 				{
 					size += strlen(ptr) + 1;
 					ptr += strlen(ptr) + 1;
@@ -363,10 +364,10 @@ static qboolean G_InitRoff( char *file, unsigned char *data )
 				ptr = roffs[num_roffs].mNoteTrackIndexes[0] = new char[size];
 				memcpy(roffs[num_roffs].mNoteTrackIndexes[0], start, size);
 
-				for( i = 1; i < hdr->mNumNotes; i++ )
+				for ( int j = 1; j < hdr->mNumNotes; j++ )
 				{
 					ptr += strlen(ptr) + 1;
-					roffs[num_roffs].mNoteTrackIndexes[i] = ptr;
+					roffs[num_roffs].mNoteTrackIndexes[j] = ptr;
 				}
 			}
 			return qtrue;

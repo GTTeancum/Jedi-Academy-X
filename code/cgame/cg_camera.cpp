@@ -1449,7 +1449,7 @@ void CGCam_UpdateShake( vec3_t origin, vec3_t angles )
 	//Move the camera
 	VectorAdd( origin, moveDir, origin );
 
-	for ( i=0; i < 2; i++ ) // Don't do ROLL
+	for ( int i=0; i < 2; i++ ) // Don't do ROLL
 		moveDir[i] = ( crandom() * intensity );
 
 	//FIXME: Lerp
@@ -1491,8 +1491,7 @@ void CGCam_UpdateSmooth( vec3_t origin, vec3_t angles )
 		factor+=(1.0f-client_camera.smooth_intensity)*
 			(100.0f-(client_camera.smooth_start + client_camera.smooth_duration-cg.time))/100.0f;
 	}
-	int i;
-	for (i=0;i<3;i++)
+	for (int i=0;i<3;i++)
 	{
 		client_camera.smooth_origin[i]*=(1.0f-factor);
 		client_camera.smooth_origin[i]+=factor*origin[i];

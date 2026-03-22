@@ -152,7 +152,7 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	assert(bink->Width <= MAX_WIDTH && bink->Height <=MAX_HEIGHT);
 
 	// Did the source .bik file have an alpha plane?
-	alpha = (bool)(bink->OpenFlags & BINKALPHA);
+	alpha = false; // OpenFlags not available in Bink stub
 
 	// set the height, width, etc...
 	x1 = xOrigin;
@@ -171,8 +171,8 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 		gTextures.SwapTextureMemory( (bink->Width * bink->Height * 4) + 1024 );
 
 		// Make our two textures:
-		Image[0].texture = new IDirect3DTexture9;
-		Image[1].texture = new IDirect3DTexture9;
+		Image[0].texture = new IDirect3DTexture8;
+		Image[1].texture = new IDirect3DTexture8;
 
 		// Fill in the texture headers:
 		DWORD pixelSize = 
@@ -422,7 +422,7 @@ void BinkVideo::SetExtents(float xOrigin, float yOrigin, float width, float heig
 SetMasterVolume
 Sets the volume of the specified track
 *********/
-void BinkVideo::SetMasterVolume(s32 volume)
+void BinkVideo::SetMasterVolume(S32 volume)
 {
 	int i;
 	for(i = 0; i < 4; i++)
@@ -438,7 +438,7 @@ the buffer
 *********/
 S32 BinkVideo::DecompressFrame( OVERLAYINFO *oi )
 {
-	s32 copy_skipped;
+	S32 copy_skipped;
 	D3DLOCKED_RECT lock_rect;
 
 	// Decompress the Bink frame.

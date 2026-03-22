@@ -253,7 +253,7 @@ public:
 private:
 	ClientManager() {}
 	~ClientManager() {}
-	operator =(const ClientManager&);
+	ClientManager& operator =(const ClientManager&);
 
 private:
 //	static tvector(ClientData*)		clientData;

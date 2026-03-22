@@ -2475,7 +2475,7 @@ static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoi
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
-	for(i = 0; i < 5; i++)
+	for(int i = 0; i < 5; i++)
 	{
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}

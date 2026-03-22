@@ -298,6 +298,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         v1 *= fHeightScale;
 	}
     
+    int xx;
     xx = 0; // current texture stage
     D3DCOLOR rColor[4];
     DWORD rPSInput[4];

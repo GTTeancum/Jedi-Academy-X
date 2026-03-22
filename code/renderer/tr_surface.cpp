@@ -643,7 +643,7 @@ static void RB_SurfaceCylinder( void )
 }
 
 static vec3_t sh1, sh2;
-static f_count;
+static int f_count;
 
 // Up front, we create a random "shape", then apply that to each line segment...and then again to each of those segments...kind of like a fractal
 //----------------------------------------------------------------------------
@@ -1818,7 +1818,7 @@ void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 			h = rows - 1;
 			w = lodWidth - 1;
 			numIndexes = tess.numIndexes;
-			for (i = 0 ; i < h ; i++) {
+			for ( int i = 0 ; i < h ; i++) {
 				for (j = 0 ; j < w ; j++) {
 					int		v1, v2, v3, v4;
 			

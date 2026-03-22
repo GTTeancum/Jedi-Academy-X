@@ -230,10 +230,10 @@ void SG_WipeSavegame( LPCSTR psPathlessBaseName )
 	else
 	{
 		unsigned short namebuffer[filepathlength];
-		mbstowcs(namebuffer, psPathlessBaseName,filepathlength);
+		mbstowcs((wchar_t*)namebuffer, psPathlessBaseName,filepathlength);
 		//kill the whole directory
 		//remove it
-		XDeleteSaveGame( "U:\\", namebuffer);
+		XDeleteSaveGame( "U:\\", (LPCWSTR)namebuffer);
 	}
 #endif
 }
@@ -259,12 +259,12 @@ static qboolean SG_Move( LPCSTR psPathlessBaseName_Src, LPCSTR psPathlessBaseNam
 	char psLocalFilenameSrc[filepathlength];
 	char psLocalFilenameDest[filepathlength];
 	unsigned short widecharstring[filepathlength];
-	mbstowcs(widecharstring, psPathlessBaseName_Dst, filepathlength);
+	mbstowcs((wchar_t*)widecharstring, psPathlessBaseName_Dst, filepathlength);
 
-	if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", widecharstring, OPEN_ALWAYS, 0, psLocalFilenameDest, filepathlength))
+	if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)widecharstring, OPEN_ALWAYS, 0, psLocalFilenameDest, filepathlength))
 		return qfalse;
-	mbstowcs(widecharstring, psPathlessBaseName_Src, filepathlength);
-	if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", widecharstring, OPEN_EXISTING, 0, psLocalFilenameSrc, filepathlength))
+	mbstowcs((wchar_t*)widecharstring, psPathlessBaseName_Src, filepathlength);
+	if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)widecharstring, OPEN_EXISTING, 0, psLocalFilenameSrc, filepathlength))
 	{
 		return qfalse;
 	}
@@ -288,12 +288,12 @@ qboolean SG_Exists(LPCSTR psPathlessBaseName)
 {
 	char psLocalFilename[filepathlength];
 	unsigned short widecharstring[filepathlength];
-	mbstowcs(widecharstring, psPathlessBaseName, filepathlength);
-	if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", widecharstring, CREATE_NEW, 0, psLocalFilename, filepathlength))
+	mbstowcs((wchar_t*)widecharstring, psPathlessBaseName, filepathlength);
+	if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)widecharstring, CREATE_NEW, 0, psLocalFilename, filepathlength))
 	{
 		return qtrue;
 	}
-	if ( ERROR_SUCCESS == XDeleteSaveGame("U:\\", widecharstring))
+	if ( ERROR_SUCCESS == XDeleteSaveGame("U:\\", (LPCWSTR)widecharstring))
 	{
 		return qfalse;
 	}
@@ -363,8 +363,8 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 	else
 	{
 		bSavingCheckpoint = false;
-		mbstowcs(widecharstring, psPathlessBaseName, filepathlength);
-		if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", widecharstring, OPEN_ALWAYS, 0, psLocalFilename, filepathlength))
+		mbstowcs((wchar_t*)widecharstring, psPathlessBaseName, filepathlength);
+		if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)widecharstring, OPEN_ALWAYS, 0, psLocalFilename, filepathlength))
 			return qfalse;
 
 		// create the path for the screenshot file
@@ -708,9 +708,9 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 	}
 	else
 	{
-		mbstowcs(saveGameName, psPathlessBaseName,filepathlength);
+		mbstowcs((wchar_t*)saveGameName, psPathlessBaseName,filepathlength);
 	
-		XCreateSaveGame("U:\\", saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength);
+		XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength);
 
 		strcpy (psLocalFilename , directoryInfo);
 		strcat (psLocalFilename , "JK3SG.xsv");		
@@ -1272,7 +1272,7 @@ void SG_ReadServerConfigStrings( void )
 
 	Com_DPrintf( "Reading %d configstrings...\n",iCount);
 
-	for (i=0; i<iCount; i++)
+	for (int i=0; i<iCount; i++)
 	{
 		int iIndex;
 		char *psName;
@@ -1460,9 +1460,9 @@ qboolean SG_GetSaveImage( const char *psPathlessBaseName, void *pvAddress )
 	char psLocalFilename[filepathlength];
 	DWORD bytesRead;
 	
-	mbstowcs(saveGameName, psPathlessBaseName,filepathlength);
+	mbstowcs((wchar_t*)saveGameName, psPathlessBaseName,filepathlength);
 	
-	XCreateSaveGame("U:\\", saveGameName, OPEN_ALWAYS, 0,directoryInfo, filepathlength);
+	XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_ALWAYS, 0,directoryInfo, filepathlength);
 
 	strcpy (psLocalFilename , directoryInfo);
 	strcat (psLocalFilename , "saveimage.xbx");
@@ -2960,9 +2960,9 @@ unsigned long getGameBlocks(char * psPathlessBaseName)
 	}
 	else
 	{
-		mbstowcs(saveGameName, psPathlessBaseName,filepathlength);
+		mbstowcs((wchar_t*)saveGameName, psPathlessBaseName,filepathlength);
 	
-		XCreateSaveGame("U:\\", saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength);
+		XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength);
 
 		strcpy (psLocalFilename , directoryInfo);
 		strcat (psLocalFilename , "JK3SG.xsv");		

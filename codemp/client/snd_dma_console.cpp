@@ -1093,6 +1093,7 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	{
 		// Check if we are playing a 'charging' sound, if so, stop it now ..
 		ch = s_channels + 1;
+  int i;
 		for (i = 1; i < s_numChannels; i++, ch++)
 		{
 			unsigned int weaponSoundFlags;
@@ -1114,6 +1115,7 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	else
 	{
 		ch = s_channels + 1;
+			int i;
 		for (i = 1; i < s_numChannels; i++, ch++)
 		{
 			unsigned int fallSoundFlags;

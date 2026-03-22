@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?><?xml-stylesheet type='text/xsl' href='_UpgradeReport_Files/UpgradeReport.xslt'?><UpgradeLog>
+<Properties><Property Name="Solution" Value="JediAcademy">
+</Property><Property Name="Solution File" Value="D:\Programming\GitHub\Jedi-Academy-X\code\JediAcademy.sln">
+</Property><Property Name="Date" Value="Thursday, March 19, 2026">
+</Property><Property Name="Time" Value="9:07 AM">
+</Property><Property Name="Log Number" Value="5">
+</Property></Properties><Event ErrorLevel="0" Project="x_exe" Source="x_exe\x_exe.vcproj" Description="Visual C++ now supports a secure version of the C Runtime Library. Use of this library is turned on by default. You may see some warnings about deprecated functions when you build your project. It is advised that you correct these warnings, in order to make your code more secure.">
+</Event><Event ErrorLevel="0" Project="x_exe" Source="x_exe\x_exe.vcproj" Description="The C/C++ compiler default settings have been modified to be more compliant with ISO Standard C++. Included in those changes are enforcing Standard C++ for loop scoping and supporting wchar_t as a native type. These changes may cause existing code to no longer compile without changes to the code or the compiler options with which it is built.">
+</Event><Event ErrorLevel="2" Project="x_exe" Source="x_exe\x_exe.vcproj" Description="The following error has occurred during XML parsing:&#xA;&#xA;File: D:\Programming\GitHub\Jedi-Academy-X\code\x_exe\x_exe.vcproj&#xA;Line: 50&#xA;Column: 19&#xA;Error Message:&#xA;Whitespace expected.&#xA;&#xA;The file 'D:\Programming\GitHub\Jedi-Academy-X\code\x_exe\x_exe.vcproj' has failed to load.">
+</Event><Event ErrorLevel="2" Project="x_exe" Source="x_exe\x_exe.vcproj" Description="Project upgrade failed.">
+</Event><Event ErrorLevel="3" Project="x_exe" Source="x_exe\x_exe.vcproj" Description="Not Converted">
+</Event><Event ErrorLevel="0" Project="goblib" Source="goblib\goblib.vcproj" Description="Project upgraded successfully.">
+</Event><Event ErrorLevel="3" Project="goblib" Source="goblib\goblib.vcproj" Description="Converted">
+</Event><Event ErrorLevel="0" Project="x_game" Source="x_game\x_game.vcproj" Description="Project upgraded successfully.">
+</Event><Event ErrorLevel="3" Project="x_game" Source="x_game\x_game.vcproj" Description="Converted">
+</Event><Event ErrorLevel="0" Project="" Source="JediAcademy.sln" Description="The solution file does not require conversion.">
+</Event><Event ErrorLevel="3" Project="" Source="JediAcademy.sln" Description="No Conversion Required">
+</Event></UpgradeLog>

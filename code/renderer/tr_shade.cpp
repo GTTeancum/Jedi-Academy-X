@@ -428,7 +428,7 @@ static void DrawNormals (shaderCommands_t *input) {
 	GL_State( GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE );
 
 	qglBegin (GL_LINES);
-	for (i = 0 ; i < input->numVertexes ; i++) {
+	for ( int i = 0 ; i < input->numVertexes ; i++) {
 		qglVertex3fv (input->xyz[i]);
 		VectorMA (input->xyz[i], 2, input->normal[i], temp);
 		qglVertex3fv (temp);
@@ -604,7 +604,7 @@ static void BuildTangentVectors( void ) {
 		tess.tangent[tess.indexes[i+2]][2] += du[2];
 	}
 	
-	for(i = 0; i < tess.numVertexes; i++)
+	for ( int i = 0; i < tess.numVertexes; i++)
 	{
 		VectorNormalizeFast(tess.tangent[i]);
 	}
@@ -1569,7 +1569,7 @@ static void ComputeColors( shaderStage_t *pStage, alphaGen_t forceAlphaGen, colo
 		}
 		break;
 	case CGEN_EXACT_VERTEX:
-		for( i = 0; i < tess.numVertexes; i++ )
+		for ( i = 0; i < tess.numVertexes; i++ )
 		{
 			tess.svars.colors[i] = D3DCOLOR_RGBA( (int)(tess.vertexColors[i][0]),
 												  (int)(tess.vertexColors[i][1]),
@@ -1588,7 +1588,7 @@ static void ComputeColors( shaderStage_t *pStage, alphaGen_t forceAlphaGen, colo
 	case CGEN_VERTEX:
 		if ( tr.identityLight == 1 )
 		{
-			for( i = 0; i < tess.numVertexes; i++ )
+			for ( i = 0; i < tess.numVertexes; i++ )
 			{
 				tess.svars.colors[i] = D3DCOLOR_RGBA( (int)(tess.vertexColors[i][0]),
 					(int)(tess.vertexColors[i][1]),

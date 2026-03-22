@@ -1,0 +1,9 @@
+;------------------------------------------------------------------------------
+; yellow.psh
+; Outputs a yellow-tinted modulation of input texture.
+; Part of the HDR bloom pipeline.
+;------------------------------------------------------------------------------
+xps.1.1
+tex t0
+; Modulate texture by yellow constant set via D3D SetPixelShaderConstant
+mul r0, t0, c0

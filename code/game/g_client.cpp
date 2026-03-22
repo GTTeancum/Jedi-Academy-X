@@ -116,7 +116,7 @@ qboolean SpotWouldTelefrag( gentity_t *spot, team_t checkteam )
 
 	num = gi.EntitiesInBox( mins, maxs, touch, MAX_GENTITIES );
 
-	for (i=0 ; i<num ; i++) 
+	for ( int i =0 ; i<num ; i++) 
 	{
 		hit = touch[i];
 		if ( hit != spot && hit->client && hit->client->ps.stats[STAT_HEALTH] > 0 ) 
@@ -144,7 +144,7 @@ qboolean SpotWouldTelefrag2( gentity_t *mover, vec3_t dest )
 	VectorAdd( dest, mover->maxs, maxs );
 	num = gi.EntitiesInBox( mins, maxs, touch, MAX_GENTITIES );
 
-	for (i=0 ; i<num ; i++) 
+	for ( int i =0 ; i<num ; i++) 
 	{
 		hit = touch[i];
 		if ( hit == mover )
@@ -331,7 +331,7 @@ void SetClientViewAngle( gentity_t *ent, vec3_t angle ) {
 	int			i;
 
 	// set the delta angle
-	for (i=0 ; i<3 ; i++) 
+	for ( int i =0 ; i<3 ; i++) 
 	{
 		ent->client->ps.delta_angles[i] = (ANGLE2SHORT(angle[i]) - ent->client->pers.cmd_angles[i])&0xffff;
 	}
@@ -657,7 +657,7 @@ void Player_CacheFromPrevLevel(void)
 
 extern gitem_t	*FindItemForInventory( int inv );
 
-		for ( i = 1 ; i < 16 ; i++ ) 
+		for ( int i = 1 ; i < 16 ; i++ ) 
 		{
 			if ( ibits & ( 1 << i ) ) 
 			{
@@ -2087,7 +2087,7 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 
 		client->airOutTime = level.time + 12000;
 
-		for (i=0; i<3; i++)
+		for ( int i =0; i<3; i++)
 		{
 			ent->client->pers.cmd_angles[i] = 0.0f;
 		}

@@ -359,6 +359,7 @@ bool LightEffects::RenderDynamicLights()
 		
 		// build a list of triangles that need light
 		numIndexes = 0;
+  int i;
 		for ( i = 0 ; i < tess.numIndexes ; i += 3 ) 
 		{
 			int		a, b, c;

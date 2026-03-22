@@ -1458,7 +1458,7 @@ void UI_SetSiegeTeams(void);
 extern qboolean UI_SaberModelForSaber( const char *saberName, char *saberModel );
 void UI_SiegeSetCvarsForClass(siegeClass_t *scl);
 int UI_SiegeClassNum(siegeClass_t *scl);
-void UI_UpdateCvarsForClass(const int team,const baseClass,const int index);
+void UI_UpdateCvarsForClass(const int team,const int baseClass,const int index);
 void	UI_UpdateSiegeStatusIcons(void);
 void UI_ClampMaxPlayers(void);
 static void UI_CheckServerName( void );
@@ -6702,7 +6702,8 @@ const char *UI_ModelNameToPlayerName( const char *model )
 		strcpy( s_Name, "Jaden" );
 	else {
 		//Standard case.  Loop through ui_botInfos and try to match the model.
-		for(int i=0; i<UI_GetNumBots(); i++) {
+		int i;
+		for(i=0; i<UI_GetNumBots(); i++) {
 			const char *info = Info_ValueForKey(UI_GetBotInfoByNumber(i), 
 					"model");
 			if(!Q_stricmp(info, s_Name)) {
@@ -10983,7 +10984,7 @@ void UI_SiegeSetCvarsForClass(siegeClass_t *scl)
 
 int g_siegedFeederForcedSet = 0;
 
-void UI_UpdateCvarsForClass(const int team,const baseClass,const int index)
+void UI_UpdateCvarsForClass(const int team,const int baseClass,const int index)
 {
 	siegeClass_t *holdClass=0;
 	char *holdBuf;

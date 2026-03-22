@@ -371,7 +371,8 @@ void Syslink_PacketEvent( msg_t *msg )
 	StringToXnAddr( &tempAddr, Info_ValueForKey(infoString, "xnaddr") );
 
 	// Find a slot for it in the localServers array:
-	for ( int i = 0 ; i < MAX_OTHER_SERVERS ; i++ )
+ int i;
+	for(i = 0 ; i < MAX_OTHER_SERVERS ; i++ )
 	{
 		// Empty slot - this ordering is ok, as we always fill in order:
 		if ( !cls.localServers[i].lastUpdate )

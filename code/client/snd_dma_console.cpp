@@ -1253,7 +1253,7 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	{
 		// Check if we are playing a 'charging' sound, if so, stop it now ..
 		ch = s_channels + 1;
-		for (i = 1; i < s_numChannels; i++, ch++)
+		for (int i = 1; i < s_numChannels; i++, ch++)
 		{
 			unsigned int weaponSoundFlags;
 
@@ -1274,7 +1274,7 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	else
 	{
 		ch = s_channels + 1;
-		for (i = 1; i < s_numChannels; i++, ch++)
+		for (int i = 1; i < s_numChannels; i++, ch++)
 		{
 			unsigned int fallSoundFlags;
 

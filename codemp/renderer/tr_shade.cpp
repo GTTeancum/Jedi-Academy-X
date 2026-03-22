@@ -518,6 +518,7 @@ static void BuildTangentVectors( void ) {
 		tess.tangent[tess.indexes[i+2]][2] += du[2];
 	}
 	
+ int i;
 	for(i = 0; i < tess.numVertexes; i++)
 	{
 		VectorNormalizeFast(tess.tangent[i]);

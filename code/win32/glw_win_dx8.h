@@ -1,12 +1,11 @@
-
 /*
- * UNPUBLISHED -- Rights  reserved  under  the  copyright  laws  of the 
- * United States.  Use  of a copyright notice is precautionary only and 
- * does not imply publication or disclosure.                            
- *                                                                      
- * THIS DOCUMENTATION CONTAINS CONFIDENTIAL AND PROPRIETARY INFORMATION 
- * OF    VICARIOUS   VISIONS,  INC.    ANY  DUPLICATION,  MODIFICATION, 
- * DISTRIBUTION, OR DISCLOSURE IS STRICTLY PROHIBITED WITHOUT THE PRIOR 
+ * UNPUBLISHED -- Rights  reserved  under  the  copyright  laws  of the
+ * United States.  Use  of a copyright notice is precautionary only and
+ * does not imply publication or disclosure.
+ *
+ * THIS DOCUMENTATION CONTAINS CONFIDENTIAL AND PROPRIETARY INFORMATION
+ * OF    VICARIOUS   VISIONS,  INC.    ANY  DUPLICATION,  MODIFICATION,
+ * DISTRIBUTION, OR DISCLOSURE IS STRICTLY PROHIBITED WITHOUT THE PRIOR
  * EXPRESS WRITTEN PERMISSION OF VICARIOUS VISIONS, INC.
  */
 
@@ -15,159 +14,162 @@
 
 #include <map>
 
-#include <d3d9.h>
-#ifdef _WIN32
-#include <d3dx9.h>
-#endif 
+#ifdef _XBOX
+#include <xtl.h>
+#include <xgraphics.h>
+#else
+#include <d3d8.h>
+#include <d3dx8.h>
+#endif
 
 #include "../renderer/qgl_console.h"
 #include "../game/q_shared.h"
 #include "../qcommon/qfiles.h"
 
 #define GLW_MAX_TEXTURE_STAGES 2
-#define GLW_MAX_STRIPS 2048 
+#define GLW_MAX_STRIPS 2048
 
 
 struct glwstate_t
 {
-	// Interface to DX
-	IDirect3DDevice9* device;
+        // Interface to DX
+        IDirect3DDevice8* device;
 
-	// Matrix stuff
-	enum MatrixMode
-	{
-		MatrixMode_Model = 0,
-		MatrixMode_Projection = 1,
-		MatrixMode_Texture0 = 2,
-		MatrixMode_Texture1 = 3,
-		MatrixMode_Texture2 = 4,
-		MatrixMode_Texture3 = 5,
+        // Matrix stuff
+        enum MatrixMode
+        {
+                MatrixMode_Model = 0,
+                MatrixMode_Projection = 1,
+                MatrixMode_Texture0 = 2,
+                MatrixMode_Texture1 = 3,
+                MatrixMode_Texture2 = 4,
+                MatrixMode_Texture3 = 5,
 
-		Num_MatrixModes
-	};
-	
-	ID3DXMatrixStack* matrixStack[Num_MatrixModes];
-	MatrixMode matrixMode;
+                Num_MatrixModes
+        };
 
-	// Current primitive mode (triangles/quads/strips)
-	D3DPRIMITIVETYPE primitiveMode;
+        ID3DXMatrixStack* matrixStack[Num_MatrixModes];
+        MatrixMode matrixMode;
 
-	// Are we in a glBegin/glEnd block? (Used for sanity checks.)
-	bool inDrawBlock;
-	
-	// Texturing
-	bool textureStageDirty[GLW_MAX_TEXTURE_STAGES];
-	bool textureStageEnable[GLW_MAX_TEXTURE_STAGES];
-	GLuint currentTexture[GLW_MAX_TEXTURE_STAGES];
-	D3DTEXTUREOP textureEnv[GLW_MAX_TEXTURE_STAGES];
-	
-	struct TextureInfo
-	{
-		IDirect3DTexture9* mipmap;
-		D3DTEXTUREFILTERTYPE minFilter, mipFilter, magFilter;
-		D3DTEXTUREADDRESS wrapU, wrapV;
-		float anisotropy;
+        // Current primitive mode (triangles/quads/strips)
+        D3DPRIMITIVETYPE primitiveMode;
 
-		// I only need this for ONE texture, but it's easier than adding more hacks:
-		void *data;
-	};
+        // Are we in a glBegin/glEnd block? (Used for sanity checks.)
+        bool inDrawBlock;
 
-	typedef std::map<GLuint, TextureInfo> texturexlat_t;
-	texturexlat_t textureXlat;
+        // Texturing
+        bool textureStageDirty[GLW_MAX_TEXTURE_STAGES];
+        bool textureStageEnable[GLW_MAX_TEXTURE_STAGES];
+        GLuint currentTexture[GLW_MAX_TEXTURE_STAGES];
+        D3DTEXTUREOP textureEnv[GLW_MAX_TEXTURE_STAGES];
 
-	GLuint textureBindNum;
+        struct TextureInfo
+        {
+                IDirect3DTexture8* mipmap;
+                D3DTEXTUREFILTERTYPE minFilter, mipFilter, magFilter;
+                D3DTEXTUREADDRESS wrapU, wrapV;
+                float anisotropy;
 
-	GLuint serverTU, clientTU;
+                // I only need this for ONE texture, but it's easier than adding more hacks:
+                void *data;
+        };
 
-	// Pointers to various draw buffers
-	const void* vertexPointer;
-	const void* normalPointer;
-	const void* texCoordPointer[GLW_MAX_TEXTURE_STAGES];
-	const void* colorPointer;
+        typedef std::map<GLuint, TextureInfo> texturexlat_t;
+        texturexlat_t textureXlat;
+
+        GLuint textureBindNum;
+
+        GLuint serverTU, clientTU;
+
+        // Pointers to various draw buffers
+        const void* vertexPointer;
+        const void* normalPointer;
+        const void* texCoordPointer[GLW_MAX_TEXTURE_STAGES];
+        const void* colorPointer;
 
 #ifdef _WINDOWS
-	// Temporary storage used when rendering quads
-	const void* vertexPointerBack;
-	const void* normalPointerBack;
-	const void* texCoordPointerBack[GLW_MAX_TEXTURE_STAGES];
-	const void* colorPointerBack;
+        // Temporary storage used when rendering quads
+        const void* vertexPointerBack;
+        const void* normalPointerBack;
+        const void* texCoordPointerBack[GLW_MAX_TEXTURE_STAGES];
+        const void* colorPointerBack;
 #endif
 
-	// State of draw buffers
-	bool colorArrayState;
-	bool texCoordArrayState[GLW_MAX_TEXTURE_STAGES];
-	bool vertexArrayState;
-	bool normalArrayState;
-	
-	// Stride of various draw buffers
-	int vertexStride;
-	int texCoordStride[GLW_MAX_TEXTURE_STAGES];
-	int colorStride;
-	int normalStride;
+        // State of draw buffers
+        bool colorArrayState;
+        bool texCoordArrayState[GLW_MAX_TEXTURE_STAGES];
+        bool vertexArrayState;
+        bool normalArrayState;
 
-	// Current number of verts in this packet
-	int numVertices;
+        // Stride of various draw buffers
+        int vertexStride;
+        int texCoordStride[GLW_MAX_TEXTURE_STAGES];
+        int colorStride;
+        int normalStride;
 
-	// Max verts allowed in this packet
-	int maxVertices;
+        // Current number of verts in this packet
+        int numVertices;
 
-	// Total verts to draw (may take multiple packets)
-	int totalVertices;
+        // Max verts allowed in this packet
+        int maxVertices;
 
-	// Current number of indices in this packet
-	int numIndices;
+        // Total verts to draw (may take multiple packets)
+        int totalVertices;
 
-	// Max indices allowed in this packet
-	int maxIndices;
+        // Current number of indices in this packet
+        int numIndices;
 
-	// Total indices to draw
-	int totalIndices;
+        // Max indices allowed in this packet
+        int maxIndices;
 
-	// Culling
-	bool cullEnable;
-	D3DCULL cullMode;
+        // Total indices to draw
+        int totalIndices;
 
-	// Viewport
-	D3DVIEWPORT9 viewport;
+        // Culling
+        bool cullEnable;
+        D3DCULL cullMode;
 
-	// Clearing info
-	D3DCOLOR clearColor;
-	float clearDepth;
-	int clearStencil;
+        // Viewport
+        D3DVIEWPORT8 viewport;
 
-	// Widescreen mode
-	bool isWidescreen;
+        // Clearing info
+        D3DCOLOR clearColor;
+        float clearDepth;
+        int clearStencil;
 
-	// Global color
-	D3DCOLOR currentColor;
+        // Widescreen mode
+        bool isWidescreen;
 
-	// Scissoring
-	bool scissorEnable;
-	D3DRECT scissorBox;
+        // Global color
+        D3DCOLOR currentColor;
 
-	// Directional Light
-	D3DLIGHT9	dirLight;
-	D3DMATERIAL9 mtrl;
+        // Scissoring
+        bool scissorEnable;
+        D3DRECT scissorBox;
 
-	// Description of current shader
-	DWORD shaderMask;
+        // Directional Light
+        D3DLIGHT8       dirLight;
+        D3DMATERIAL8 mtrl;
 
-	// Should we reset matrices on next draw?
-	bool matricesDirty[Num_MatrixModes];
+        // Description of current shader
+        DWORD shaderMask;
 
-	// Render commands go here
-	DWORD* drawArray;
-	DWORD drawStride;
+        // Should we reset matrices on next draw?
+        bool matricesDirty[Num_MatrixModes];
 
-	// This is designed to be an optimization for triangle strips
-	// as well as making life easier for the flare effect
-	GLushort strip_dest[SHADER_MAX_INDEXES];
-	GLuint strip_lengths[GLW_MAX_STRIPS];
-	GLsizei num_strip_lengths;
+        // Render commands go here
+        DWORD* drawArray;
+        DWORD drawStride;
+
+        // This is designed to be an optimization for triangle strips
+        // as well as making life easier for the flare effect
+        GLushort strip_dest[SHADER_MAX_INDEXES];
+        GLuint strip_lengths[GLW_MAX_STRIPS];
+        GLsizei num_strip_lengths;
 
 #ifdef _XBOX
-//	class FlareEffect*	flareEffect;
-	class LightEffects* lightEffects;
+//      class FlareEffect*      flareEffect;
+        class LightEffects* lightEffects;
 #endif
 };
 

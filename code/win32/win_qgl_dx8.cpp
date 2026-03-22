@@ -67,7 +67,7 @@ int texMemSize = 0;
 
 #if MEMORY_PROFILE
  
-static int getTexMemSize(IDirect3DTexture9* mipmap)
+static int getTexMemSize(IDirect3DTexture8* mipmap)
 {
 	int levels = mipmap->GetLevelCount();
 	int size = 0;
@@ -2535,7 +2535,7 @@ static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoi
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
-	for(i = 0; i < 5; i++)
+	for ( int i = 0; i < 5; i++)
 	{
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
@@ -3250,7 +3250,7 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 	// Tangent
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
 
-	for(i = 0; i < 12; i++)
+	for ( int i = 0; i < 12; i++)
 	{
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
@@ -3345,7 +3345,7 @@ void renderObject_Shadow( int primType, int numIndexes, const unsigned short *in
 	// Extrusion determinant
 	*glw_state->drawArray++ = (4 << 8)|D3DVSDT_FLOAT1;
 
-	for(i = 0; i < 14; i++)
+	for ( int i = 0; i < 14; i++)
 	{
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
@@ -5047,7 +5047,7 @@ static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei
 	if( numlevels == 0)
 		numlevels = 1;
 
-	info->mipmap = new IDirect3DTexture9;
+	info->mipmap = new IDirect3DTexture8;
 	DWORD pixelSize = XGSetTextureHeader( width,
 						height,
 						numlevels,
@@ -5194,7 +5194,7 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 	srcRect.right = width;
 	srcRect.bottom = height;
 
-	info->mipmap = new IDirect3DTexture9;
+	info->mipmap = new IDirect3DTexture8;
 	DWORD pixelSize = XGSetTextureHeader( width,
 						height,
 						numlevels,
@@ -6683,7 +6683,7 @@ void GLW_Shutdown(void)
 struct XprImageHeader
 {
     XPR_HEADER        xpr;           // Standard XPR struct
-    IDirect3DTexture9 txt;           // Standard D3D texture struct
+    IDirect3DTexture8 txt;           // Standard D3D texture struct
     DWORD             dwEndOfHeader; // 0xFFFFFFFF
 };
 

@@ -448,6 +448,7 @@ void Huff_DecodeHuff( huff_t *huff )
 	Huff_LoadPointer( huff, (void **)&huff->freelist );
 
 	// The node pointers in the loc array:
+ int i;
 	for( i = 0; i < HMAX+1; ++i )
 		Huff_LoadPointer( huff, (void **)&huff->loc[i] );
 

@@ -1,1373 +1,1862 @@
-<?xml version="1.0" encoding = "Windows-1252"?>
+<?xml version="1.0" encoding="Windows-1252"?>
 <VisualStudioProject
 	ProjectType="Visual C++"
-	Version="7.00"
+	Version="8.00"
 	Name="x_jk2cgame"
 	ProjectGUID="{C79C9037-8F32-4833-A276-96B2FB96CCA5}"
-	Keyword="XboxProj">
+	Keyword="Win32Proj"
+	>
 	<Platforms>
 		<Platform
-			Name="Xbox"/>
+			Name="Win32"
+		/>
 	</Platforms>
+	<ToolFiles>
+	</ToolFiles>
 	<Configurations>
 		<Configuration
-			Name="Debug|Xbox"
+			Name="Debug|Win32"
 			OutputDirectory=".\..\x_exe\Debug"
 			IntermediateDirectory=".\..\x_exe\Debug\jk2cgame"
 			ConfigurationType="4"
-			CharacterSet="2">
+			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
+			CharacterSet="2"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCustomBuildTool"
+			/>
+			<Tool
+				Name="VCXMLDataGeneratorTool"
+			/>
+			<Tool
+				Name="VCWebServiceProxyGeneratorTool"
+			/>
+			<Tool
+				Name="VCMIDLTool"
+			/>
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="..,./../game"
-				PreprocessorDefinitions="_DEBUG;WIN32;MISSIONPACK;CGAME;_JK2;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED"
-				MinimalRebuild="TRUE"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..,./../game"
+				PreprocessorDefinitions="_DEBUG;WIN32;MISSIONPACK;CGAME;_JK2;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				MinimalRebuild="true"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
 				UsePrecompiledHeader="0"
 				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
 				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="4"/>
+				Detect64BitPortabilityProblems="false"
+				DebugInformationFormat="4"
+			/>
 			<Tool
-				Name="VCCustomBuildTool"/>
+				Name="VCManagedResourceCompilerTool"
+			/>
+			<Tool
+				Name="VCResourceCompilerTool"
+			/>
+			<Tool
+				Name="VCPreLinkEventTool"
+			/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/$(ProjectName).lib"/>
+				OutputFile="$(OutDir)/$(ProjectName).lib"
+			/>
 			<Tool
-				Name="VCPostBuildEventTool"/>
+				Name="VCALinkTool"
+			/>
 			<Tool
-				Name="VCPreBuildEventTool"/>
+				Name="VCXDCMakeTool"
+			/>
 			<Tool
-				Name="VCPreLinkEventTool"/>
+				Name="VCBscMakeTool"
+			/>
+			<Tool
+				Name="VCFxCopTool"
+			/>
+			<Tool
+				Name="VCPostBuildEventTool"
+			/>
 		</Configuration>
 		<Configuration
-			Name="Release|Xbox"
+			Name="Release|Win32"
 			OutputDirectory=".\..\x_exe\Release"
 			IntermediateDirectory=".\..\x_exe\Release\jk2cgame"
 			ConfigurationType="4"
-			CharacterSet="2">
+			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
+			CharacterSet="2"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCustomBuildTool"
+			/>
+			<Tool
+				Name="VCXMLDataGeneratorTool"
+			/>
+			<Tool
+				Name="VCWebServiceProxyGeneratorTool"
+			/>
+			<Tool
+				Name="VCMIDLTool"
+			/>
 			<Tool
 				Name="VCCLCompilerTool"
 				AdditionalOptions="/Oy-"
 				Optimization="2"
 				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="TRUE"
+				EnableIntrinsicFunctions="true"
 				FavorSizeOrSpeed="1"
-				OmitFramePointers="FALSE"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="..,./../game"
-				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED"
-				StringPooling="TRUE"
+				OmitFramePointers="false"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..,./../game"
+				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				StringPooling="true"
 				RuntimeLibrary="0"
-				BufferSecurityCheck="TRUE"
-				EnableFunctionLevelLinking="TRUE"
-				UsePrecompiledHeader="3"
+				BufferSecurityCheck="false"
+				EnableFunctionLevelLinking="true"
+				UsePrecompiledHeader="2"
 				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
 				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"/>
+				Detect64BitPortabilityProblems="false"
+				DebugInformationFormat="3"
+			/>
 			<Tool
-				Name="VCCustomBuildTool"/>
+				Name="VCManagedResourceCompilerTool"
+			/>
+			<Tool
+				Name="VCResourceCompilerTool"
+			/>
+			<Tool
+				Name="VCPreLinkEventTool"
+			/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/$(ProjectName).lib"/>
+				OutputFile="$(OutDir)/$(ProjectName).lib"
+			/>
 			<Tool
-				Name="VCPostBuildEventTool"/>
+				Name="VCALinkTool"
+			/>
 			<Tool
-				Name="VCPreBuildEventTool"/>
+				Name="VCXDCMakeTool"
+			/>
 			<Tool
-				Name="VCPreLinkEventTool"/>
+				Name="VCBscMakeTool"
+			/>
+			<Tool
+				Name="VCFxCopTool"
+			/>
+			<Tool
+				Name="VCPostBuildEventTool"
+			/>
 		</Configuration>
 		<Configuration
-			Name="FinalBuild|Xbox"
+			Name="FinalBuild|Win32"
 			OutputDirectory=".\..\x_exe\FinalBuild"
 			IntermediateDirectory=".\..\x_exe\FinalBuild\jk2cgame"
 			ConfigurationType="4"
-			CharacterSet="2">
+			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
+			CharacterSet="2"
+			>
+			<Tool
+				Name="VCPreBuildEventTool"
+			/>
+			<Tool
+				Name="VCCustomBuildTool"
+			/>
+			<Tool
+				Name="VCXMLDataGeneratorTool"
+			/>
+			<Tool
+				Name="VCWebServiceProxyGeneratorTool"
+			/>
+			<Tool
+				Name="VCMIDLTool"
+			/>
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="3"
-				GlobalOptimizations="TRUE"
 				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="TRUE"
+				EnableIntrinsicFunctions="true"
 				FavorSizeOrSpeed="1"
-				OmitFramePointers="TRUE"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="..,./../game"
-				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;FINAL_BUILD;_FINAL"
-				StringPooling="TRUE"
+				OmitFramePointers="true"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..,./../game"
+				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;FINAL_BUILD;_FINAL;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				StringPooling="true"
 				RuntimeLibrary="0"
-				BufferSecurityCheck="TRUE"
-				EnableFunctionLevelLinking="TRUE"
+				BufferSecurityCheck="false"
+				EnableFunctionLevelLinking="true"
 				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="3"
+				UsePrecompiledHeader="2"
 				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
 				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"/>
+				Detect64BitPortabilityProblems="false"
+				DebugInformationFormat="3"
+			/>
 			<Tool
-				Name="VCCustomBuildTool"/>
+				Name="VCManagedResourceCompilerTool"
+			/>
+			<Tool
+				Name="VCResourceCompilerTool"
+			/>
+			<Tool
+				Name="VCPreLinkEventTool"
+			/>
 			<Tool
 				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/$(ProjectName).lib"/>
+				OutputFile="$(OutDir)/$(ProjectName).lib"
+			/>
 			<Tool
-				Name="VCPostBuildEventTool"/>
+				Name="VCALinkTool"
+			/>
 			<Tool
-				Name="VCPreBuildEventTool"/>
+				Name="VCXDCMakeTool"
+			/>
 			<Tool
-				Name="VCPreLinkEventTool"/>
+				Name="VCBscMakeTool"
+			/>
+			<Tool
+				Name="VCFxCopTool"
+			/>
+			<Tool
+				Name="VCPostBuildEventTool"
+			/>
 		</Configuration>
 	</Configurations>
+	<References>
+	</References>
 	<Files>
 		<Filter
-			Name="Source Files">
+			Name="Source Files"
+			>
 			<File
-				RelativePath="..\game\AnimalNPC.c">
+				RelativePath="..\game\AnimalNPC.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\FighterNPC.c">
+				RelativePath="..\game\bg_g2_utils.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\game\SpeederNPC.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\WalkerNPC.c">
+				RelativePath="..\game\bg_misc.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\game\bg_g2_utils.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\bg_misc.c">
+				RelativePath="..\game\bg_panimate.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\game\bg_panimate.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\bg_pmove.c">
+				RelativePath="..\game\bg_pmove.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\game\bg_saber.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\bg_saberLoad.c">
+				RelativePath="..\game\bg_saber.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\game\bg_saga.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\bg_slidemove.c">
+				RelativePath="..\game\bg_saberLoad.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\game\bg_vehicleLoad.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\bg_weapons.c">
+				RelativePath="..\game\bg_saga.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\cgame\cg_consolecmds.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_draw.c">
+				RelativePath="..\game\bg_slidemove.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\cgame\cg_drawtools.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_effects.c">
+				RelativePath="..\game\bg_vehicleLoad.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\cgame\cg_ents.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_event.c">
+				RelativePath="..\game\bg_weapons.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-			</File>
-			<File
-				RelativePath="..\cgame\cg_info.c">
-				<FileConfiguration
-					Name="Debug|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="Release|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Xbox">
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_light.c">
+				RelativePath="..\cgame\cg_consolecmds.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_localents.c">
+				RelativePath="..\cgame\cg_draw.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_main.c">
+				RelativePath="..\cgame\cg_drawtools.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_marks.c">
+				RelativePath="..\cgame\cg_effects.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_newDraw.c">
+				RelativePath="..\cgame\cg_ents.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_players.c">
+				RelativePath="..\cgame\cg_event.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_playerstate.c">
+				RelativePath="..\cgame\cg_info.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_predict.c">
+				RelativePath="..\cgame\cg_light.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_saga.c">
+				RelativePath="..\cgame\cg_localents.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_scoreboard.c">
+				RelativePath="..\cgame\cg_main.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_servercmds.c">
+				RelativePath="..\cgame\cg_marks.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_snapshot.c">
+				RelativePath="..\cgame\cg_newDraw.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_strap.c">
+				RelativePath="..\cgame\cg_players.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_syscalls.c">
+				RelativePath="..\cgame\cg_playerstate.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_turret.c">
+				RelativePath="..\cgame\cg_predict.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_view.c">
+				RelativePath="..\cgame\cg_saga.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_weaponinit.c">
+				RelativePath="..\cgame\cg_scoreboard.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_weapons.c">
+				RelativePath="..\cgame\cg_servercmds.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_blaster.c">
+				RelativePath="..\cgame\cg_snapshot.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_bowcaster.c">
+				RelativePath="..\cgame\cg_strap.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_bryarpistol.c">
+				RelativePath="..\cgame\cg_syscalls.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_demp2.c">
+				RelativePath="..\cgame\cg_turret.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_disruptor.c">
+				RelativePath="..\cgame\cg_view.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_flechette.c">
+				RelativePath="..\cgame\cg_weaponinit.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_force.c">
+				RelativePath="..\cgame\cg_weapons.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_heavyrepeater.c">
+				RelativePath="..\game\FighterNPC.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_rocketlauncher.c">
+				RelativePath="..\cgame\fx_blaster.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\q_math.c">
+				RelativePath="..\cgame\fx_bowcaster.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\game\q_shared.c">
+				RelativePath="..\cgame\fx_bryarpistol.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\ui\ui_shared.c">
+				RelativePath="..\cgame\fx_demp2.c"
+				>
 				<FileConfiguration
-					Name="Debug|Xbox">
+					Name="Debug|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="Release|Xbox">
+					Name="Release|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="FinalBuild|Xbox">
+					Name="FinalBuild|Win32"
+					>
 					<Tool
 						Name="VCCLCompilerTool"
 						UsePrecompiledHeader="0"
-						CompileAs="2"/>
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cgame\fx_disruptor.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cgame\fx_flechette.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cgame\fx_force.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cgame\fx_heavyrepeater.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cgame\fx_rocketlauncher.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\game\q_math.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\game\q_shared.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\game\SpeederNPC.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\ui\ui_shared.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\game\WalkerNPC.c"
+				>
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
 				</FileConfiguration>
 			</File>
 		</Filter>
 		<Filter
-			Name="Header Files">
+			Name="Header Files"
+			>
 			<File
-				RelativePath="..\game\anims.h">
+				RelativePath="..\game\anims.h"
+				>
 			</File>
 			<File
-				RelativePath="..\cgame\animtable.h">
+				RelativePath="..\cgame\animtable.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\bg_local.h">
+				RelativePath="..\game\bg_local.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\bg_public.h">
+				RelativePath="..\game\bg_public.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\bg_saga.h">
+				RelativePath="..\game\bg_saga.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\bg_strap.h">
+				RelativePath="..\game\bg_strap.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\bg_weapons.h">
+				RelativePath="..\game\bg_weapons.h"
+				>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_lights.h">
+				RelativePath="..\cgame\cg_lights.h"
+				>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_local.h">
+				RelativePath="..\cgame\cg_local.h"
+				>
 			</File>
 			<File
-				RelativePath="..\cgame\cg_public.h">
+				RelativePath="..\cgame\cg_public.h"
+				>
 			</File>
 			<File
-				RelativePath="..\qcommon\disablewarnings.h">
+				RelativePath="..\qcommon\disablewarnings.h"
+				>
 			</File>
 			<File
-				RelativePath="..\cgame\fx_local.h">
+				RelativePath="..\cgame\fx_local.h"
+				>
 			</File>
 			<File
-				RelativePath="..\ghoul2\g2.h">
+				RelativePath="..\ghoul2\g2.h"
+				>
 			</File>
 			<File
-				RelativePath="..\ui\keycodes.h">
+				RelativePath="..\ui\keycodes.h"
+				>
 			</File>
 			<File
-				RelativePath="..\..\ui\menudef.h">
+				RelativePath="..\..\ui\menudef.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\q_shared.h">
+				RelativePath="..\game\q_shared.h"
+				>
 			</File>
 			<File
-				RelativePath="..\qcommon\qfiles.h">
+				RelativePath="..\qcommon\qfiles.h"
+				>
 			</File>
 			<File
-				RelativePath="..\game\surfaceflags.h">
+				RelativePath="..\game\surfaceflags.h"
+				>
 			</File>
 			<File
-				RelativePath="..\qcommon\tags.h">
+				RelativePath="..\qcommon\tags.h"
+				>
 			</File>
 			<File
-				RelativePath="..\cgame\tr_types.h">
+				RelativePath="..\cgame\tr_types.h"
+				>
 			</File>
 			<File
-				RelativePath="..\ui\ui_shared.h">
+				RelativePath="..\ui\ui_shared.h"
+				>
 			</File>
 		</Filter>
 		<File
-			RelativePath="..\namespace_begin.h">
+			RelativePath="..\namespace_begin.h"
+			>
 		</File>
 		<File
-			RelativePath="..\namespace_end.h">
+			RelativePath="..\namespace_end.h"
+			>
 		</File>
 	</Files>
 	<Globals>

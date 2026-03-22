@@ -87,10 +87,10 @@ bool XBSettings::Save( void )
 
 	// Build the settings directory:
 	unsigned short wideName[128];
-	mbstowcs( wideName, SETTINGS_DIRNAME, sizeof(wideName) );
+	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Open/create the settings directory:
-	if (XCreateSaveGame( "U:\\", wideName, OPEN_ALWAYS, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
+	if (XCreateSaveGame( "U:\\", (LPCWSTR)wideName, OPEN_ALWAYS, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
 	{
 		SettingsStatus = SETTINGS_FAILED;
 		return false;
@@ -157,10 +157,10 @@ bool XBSettings::Load( void )
 
 	// Build the settings directory:
 	unsigned short wideName[128];
-	mbstowcs( wideName, SETTINGS_DIRNAME, sizeof(wideName) );
+	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Open the settings directory:
-	if( XCreateSaveGame( "U:\\", wideName, OPEN_EXISTING, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
+	if( XCreateSaveGame( "U:\\", (LPCWSTR)wideName, OPEN_EXISTING, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
 	{
 		SettingsStatus = SETTINGS_MISSING;
 		return false;
@@ -241,10 +241,10 @@ void XBSettings::Delete( void )
 {
 	// Build the settings directory:
 	unsigned short wideName[128];
-	mbstowcs( wideName, SETTINGS_DIRNAME, sizeof(wideName) );
+	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Delete the game:
-	XDeleteSaveGame( "U:\\", wideName );
+	XDeleteSaveGame( "U:\\", (LPCWSTR)wideName );
 }
 
 bool XBSettings::Corrupt( void )
