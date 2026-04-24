@@ -15,36 +15,6 @@ struct FilterSample
 };
 class VVHighDynamicRange
 {
-    // The blur filters are multipass and need temporary space.
-#define BLUR_COUNT 2
-    D3DTexture *m_rpHotImage;           // hot image
-    D3DTexture *m_rpBlur[BLUR_COUNT];   // bluring textures of decreasing size
-    D3DTexture *m_pBlur;                // current blur texture, set by Blur()
-    // Light blend intensity scale factor
-    float m_fBloomScale;
-    // Pixel shader handles
-    DWORD m_dwHotBlurPixelShader;      // blur the hot image
-    DWORD m_dwExtractHotPixelShader;   // extract hot image
-        bool  m_bInitialized;
-    // Filtering routine that draws the source texture multiple
-    // times, with sub-pixel offsets and filter coefficients.
-    void FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
-                        LPDIRECT3DTEXTURE8 pTextureSrc,
-                        UINT nSample,
-                        FilterSample rSample[],
-                        UINT nSuperSampleX,
-                        UINT nSuperSampleY,
-                        bool bCrap,
-                        RECT *pRectDst = NULL,
-                        RECT *pRectSrc = NULL );
-    // extract hot image with downsamping
-    void ExtractHot( LPDIRECT3DTEXTURE8 pTextureDst,
-                        LPDIRECT3DTEXTURE8 pTextureSrc,
-                        UINT nSuperSampleX, UINT nSuperSampleY,
-                        RECT* pRectDst = NULL,
-                        RECT* pRectSrc = NULL );
-    void HotBlur();
-    void DrawHotBlur();
 public:
     virtual void Initialize();
     virtual void Render();

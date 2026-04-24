@@ -8,6 +8,7 @@
 #ifdef _XBOX
 #include "../win32/win_file.h"
 #include "../ui/ui_splash.h"
+#include "../win32/xb_log.h"
 #endif
 
 #include "platform.h"
@@ -143,6 +144,10 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 
 	// echo to dedicated console and early console
 	Sys_Print( msg );
+
+#ifdef _XBOX
+	XBLog_Write(msg);
+#endif
 
 #ifdef OUTPUT_TO_BUILD_WINDOW
 	OutputDebugString(msg);
@@ -347,8 +352,10 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 
 		SV_Shutdown (va("Server crashed: %s\n",  com_errorMessage));
 		CL_Disconnect();
-		CL_FlushMemory();
-		CL_StartHunkUsers();
+		if ( com_cl_running && com_cl_running->integer ) {
+			CL_FlushMemory();
+			CL_StartHunkUsers();
+		}
 		Com_Printf (S_COLOR_RED"********************\n"S_COLOR_MAGENTA"ERROR: %s\n"S_COLOR_RED"********************\n", com_errorMessage);
 		com_errorEntered = qfalse;
 		throw ("DROPPED\n");
@@ -1003,69 +1010,97 @@ extern void R_InitWorldEffects();
 void Com_Init( char *commandLine ) {
 	char	*s;
 
+	XBLog_Write("JA: Com_Init entered");
 	Com_Printf( "%s %s %s\n", Q3_VERSION, CPUSTRING, __DATE__ );
 
 	try {
 		// Grab the user's langauge preference from the dashboard right away!
-		// We only support french/german/english (with english as default)
+		XBLog_Write("JA: XGetLanguage...");
 		g_dwLanguage = XGetLanguage();
 		if( g_dwLanguage != XC_LANGUAGE_FRENCH && g_dwLanguage != XC_LANGUAGE_GERMAN )
 			g_dwLanguage = XC_LANGUAGE_ENGLISH;
+		XBLog_Write("JA: XGetLanguage done");
 
 		// prepare enough of the subsystems to handle
 		// cvar and command buffer management
+		XBLog_Write("JA: Com_ParseCommandLine...");
 		Com_ParseCommandLine( commandLine );
 
+		XBLog_Write("JA: Swap_Init...");
 		Swap_Init ();
+		XBLog_Write("JA: Cbuf_Init...");
 		Cbuf_Init ();
 
+		XBLog_Write("JA: Com_InitZoneMemory...");
 		Com_InitZoneMemory();
+		XBLog_Write("JA: Com_InitZoneMemory done");
 
 #ifdef _XBOX
+		XBLog_Write("JA: WF_Init...");
 		WF_Init();
+		XBLog_Write("JA: WF_Init done");
+		XBLog_Write("JA: CL_InitRef...");
 		// set up ri
 		extern void CL_InitRef( void );
 		CL_InitRef();
-
+		XBLog_Write("JA: CL_InitRef done");
+		XBLog_Write("JA: R_Register...");
 		// register renderer cvars
 		extern void R_Register(void);
 		R_Register();
-
+		XBLog_Write("JA: R_Register done");
+		XBLog_Write("JA: GLimp_Init...");
 		// start the gl render layer
 		extern void GLimp_Init(void);
 		GLimp_Init();
-
+		XBLog_Write("JA: GLimp_Init done");
 		// put up the license screen
+		XBLog_Write("JA: SP_DoLicense...");
 		SP_DoLicense();
+		XBLog_Write("JA: SP_DoLicense done");
 #endif
 
+		XBLog_Write("JA: Cmd_Init...");
 		Cmd_Init ();
+		XBLog_Write("JA: Cvar_Init...");
 		Cvar_Init ();
 
 		// get the commandline cvars set
+		XBLog_Write("JA: Com_StartupVariable...");
 		Com_StartupVariable( NULL );
 
 		// done early so bind command exists
+		XBLog_Write("JA: CL_InitKeyCommands...");
 		CL_InitKeyCommands();
 
 #ifdef _XBOX
+		XBLog_Write("JA: Sys_InitFileCodes...");
 		extern void Sys_FilecodeScan_f();
 		Sys_InitFileCodes();
 		Cmd_AddCommand("filecodes", Sys_FilecodeScan_f);
+		XBLog_Write("JA: Sys_InitFileCodes done");
 
+		XBLog_Write("JA: Sys_StreamInit...");
 		extern void Sys_StreamInit();
 		Sys_StreamInit();
+		XBLog_Write("JA: Sys_StreamInit done");
 
 		// This just forces the static singleton in the function to call
 		// its constructor, which allocates a stupid 12 byte block of
 		// memory that never gets freed. Otherwise, it ends up stranded in
 		// the middle of the zone:
+		XBLog_Write("JA: TheGhoul2InfoArray...");
 		TheGhoul2InfoArray();
+		XBLog_Write("JA: TheGhoul2InfoArray done");
 #endif
 
+		XBLog_Write("JA: FS_InitFilesystem...");
 		FS_InitFilesystem ();	//uses z_malloc
+		XBLog_Write("JA: FS_InitFilesystem done");
+		XBLog_Write("JA: R_InitWorldEffects...");
 		R_InitWorldEffects();   // this doesn't do much but I want to be sure certain variables are intialized.
 		
+		XBLog_Write("JA: exec default.cfg...");
 		Cbuf_AddText ("exec default.cfg\n");
 
 		// skip the jaconfig.cfg if "safe" is on the command line
@@ -1074,14 +1109,18 @@ void Com_Init( char *commandLine ) {
 		}
 
 		Cbuf_AddText ("exec autoexec.cfg\n");
-		
+
+		XBLog_Write("JA: Cbuf_Execute (configs)...");
 		Cbuf_Execute ();
+		XBLog_Write("JA: Config execution done");
 
 		// override anything from the config files with command line args
 		Com_StartupVariable( NULL );
-		
+
 		// allocate the stack based hunk allocator
+		XBLog_Write("JA: Com_InitHunkMemory...");
 		Com_InitHunkMemory();
+		XBLog_Write("JA: Com_InitHunkMemory done");
 
 		// if any archived cvars are modified after this, we will trigger a writing
 		// of the config file
@@ -1140,29 +1179,41 @@ void Com_Init( char *commandLine ) {
 			Cvar_SetValue( "ui_allowDemoQuit", 0 );
 #endif
 
+		XBLog_Write("JA: SE_Init...");
 		SE_Init();	// Initialize StringEd
-	
-		Sys_Init();	// this also detects CPU type, so I can now do this CPU check below...
+		XBLog_Write("JA: SE_Init done");
 
+		XBLog_Write("JA: Sys_Init...");
+		Sys_Init();	// this also detects CPU type, so I can now do this CPU check below...
+		XBLog_Write("JA: Sys_Init done");
+
+		XBLog_Write("JA: Netchan_Init...");
 		Netchan_Init( Com_Milliseconds() & 0xffff );	// pick a port value that should be nice and random
 //	VM_Init();
+		XBLog_Write("JA: SV_Init...");
 		SV_Init();
-		
+		XBLog_Write("JA: SV_Init done");
+
+		XBLog_Write("JA: CL_Init...");
 		CL_Init();
+		XBLog_Write("JA: CL_Init done");
 
 #ifdef _XBOX
 		// Experiment. Sound memory never gets freed, move it earlier. This
 		// will also let us play movies sooner, if we need to.
+		XBLog_Write("JA: CL_StartSound...");
 		extern void CL_StartSound(void);
 		CL_StartSound();
+		XBLog_Write("JA: CL_StartSound done");
 #endif
 
 		Sys_ShowConsole( com_viewlog->integer, qfalse );
-		
+
 		// set com_frameTime so that if a map is started on the
 		// command line it will still be able to count on com_frameTime
 		// being random enough for a serverid
 		com_frameTime = Com_Milliseconds();
+		XBLog_Write("JA: Com_Init fully initialized");
 
 		// add + commands from command line
 #ifndef _XBOX
@@ -1346,11 +1397,16 @@ void G2Time_ReportTimers(void);
 
 #pragma warning (disable: 4701)	//local may have been used without init (timing info vars)
 void Com_Frame( void ) {
-try 
+try
 {
 	int		timeBeforeFirstEvents, timeBeforeServer, timeBeforeEvents, timeBeforeClient, timeAfter;
 	int		msec, minMsec;
 	static int	lastTime;
+	static int	frameCount = 0;
+	if (frameCount < 3) {
+		XBLog_Write(va("JA: Com_Frame #%d", frameCount));
+	}
+	frameCount++;
 
 	// write config file if anything changed
 #ifndef _XBOX

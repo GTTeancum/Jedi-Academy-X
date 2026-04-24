@@ -17,8 +17,8 @@ typedef enum {
 
 struct OVERLAYINFO
 {
-	D3DTexture *texture;
-	D3DSurface *surface;
+	void *texture;
+	void *surface;
 };
 
 class BinkVideo

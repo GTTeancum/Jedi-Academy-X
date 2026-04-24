@@ -2003,8 +2003,6 @@ static void setPresent(bool vsync)
 	pp.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 	pp.FullScreen_PresentationInterval = 
 		vsync ? D3DPRESENT_INTERVAL_DEFAULT : D3DPRESENT_INTERVAL_IMMEDIATE;
-	pp.BufferSurfaces[0] = pp.BufferSurfaces[1] = pp.BufferSurfaces[2] = 0;
-	pp.DepthStencilSurface = 0;
 	glw_state->device->PersistDisplay();
 	glw_state->device->Reset(&pp);
 
@@ -3990,7 +3988,7 @@ static void dllMaterialfv(GLenum face, GLenum pname, const GLfloat *params)
 		break;
 	}
 
-	glw_state->device->SetMaterial(&glw_state->mtrl);
+	if (glw_state->device) glw_state->device->SetMaterial(&glw_state->mtrl);
 }
 
 static void dllMateriali(GLenum face, GLenum pname, GLint param)
@@ -4182,13 +4180,13 @@ static void dllPolygonMode(GLenum face, GLenum mode)
 		break;
 	case GL_BACK:
 #ifdef _XBOX
-		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, m);
+		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, (DWORD)m);
 #endif
 		break;
 	case GL_FRONT_AND_BACK:
 		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
 #ifdef _XBOX
-		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, m);
+		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, (DWORD)m);
 #endif
 		break;
 	}
@@ -4494,7 +4492,7 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 							1,
 							0,
 							desc.Format,
-							0,
+							(D3DPOOL)0,
 							info->mipmap,
 							0,
 							0 );
@@ -4516,7 +4514,7 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 													 1,
 													 0,
 													 D3DFMT_LIN_X8R8G8B8,
-													 0,
+													 (D3DPOOL)0,
 													 &pRenderTex ), "CreateTexture");
 	}
 	else
@@ -5051,11 +5049,11 @@ static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei
 	DWORD pixelSize = XGSetTextureHeader( width,
 						height,
 						numlevels,
-						0,
+						(D3DPOOL)0,
 						f,
-						0,
+						(D3DPOOL)0,
 						info->mipmap,
-						0,
+						(D3DPOOL)0,
 						0 );
 
 	DWORD fileSize = Z_Size(const_cast<void*>(pixels));
@@ -5200,7 +5198,7 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 						numlevels,
 						0,
 						dstFormat,
-						0,
+						(D3DPOOL)0,
 						info->mipmap,
 						0,
 						0 );
@@ -6571,10 +6569,6 @@ D3DPRESENT_PARAMETERS present;
 
 	present.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 	present.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
-	present.BufferSurfaces[0] = NULL;
-	present.BufferSurfaces[1] = NULL;
-	present.BufferSurfaces[2] = NULL;
-	present.DepthStencilSurface = NULL;
 
 	if (IDirect3D8::CreateDevice(D3DADAPTER_DEFAULT,
 								D3DDEVTYPE_HAL,
@@ -6938,19 +6932,14 @@ bool CreatePixelShader( const CHAR* strFilename, DWORD* pdwPixelShader )
     if( hFile == INVALID_HANDLE_VALUE )
         return false;
 
-    // Load the pre-compiled pixel shader microcode
-    D3DPIXELSHADERDEF_FILE psdf;
-    ReadFile( hFile, &psdf, sizeof(D3DPIXELSHADERDEF_FILE), &dwNumBytesRead, NULL );
-    
-    // Make sure the pixel shader is valid
-    if( psdf.FileID != D3DPIXELSHADERDEF_FILE_ID )
-    {
-        CloseHandle( hFile );
-        return false;
-    }
+    // Load the pre-compiled pixel shader microcode directly.
+    D3DPIXELSHADERDEF psdf;
+    ZeroMemory( &psdf, sizeof( psdf ) );
+    ReadFile( hFile, &psdf, sizeof( psdf ), &dwNumBytesRead, NULL );
 
     // Create the pixel shader
-    if( FAILED( hr = glw_state->device->CreatePixelShader( &(psdf.Psd), pdwPixelShader ) ) )
+    if( dwNumBytesRead != sizeof( psdf ) ||
+        FAILED( hr = glw_state->device->CreatePixelShader( &psdf, pdwPixelShader ) ) )
     {
         CloseHandle( hFile );
         return false;

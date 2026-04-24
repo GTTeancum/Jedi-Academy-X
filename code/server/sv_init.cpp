@@ -3,11 +3,12 @@
 //
 #include "../server/exe_headers.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 #include "../client/snd_music.h"	// didn't want to put this in snd_local because of rebuild times etc.
 #include "server.h"
-#include "../win32/xbox_texture_man.h"
-#include <xgraphics.h>
-
 /*
 Ghoul2 Insert Start
 */
@@ -271,8 +272,8 @@ void Cvar_Defrag(void);
 // Load-time animation hackery:
 struct OVERLAYINFO
 {
-	D3DTexture *texture;
-	D3DSurface *surface;
+	void *texture;
+	void *surface;
 };
 
 OVERLAYINFO Image;
@@ -368,6 +369,8 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	char		server[64];
 
 	Q_strncpyz( server, iServer, sizeof(server), qtrue );
+	XBLog_Write("JA: SV_SpawnServer entered:");
+	XBLog_Write(server);
 
 #ifdef XBOX_DEMO
 	// Pause the timer if "someone is playing"
@@ -526,12 +529,17 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	G2API_SetTime(sv.time,G2T_SV_TIME);
 
 #ifdef _XBOX
+	XBLog_Write("JA: CL_StartHunkUsers...");
 	UpdateLoadingAnimation();
 	CL_StartHunkUsers();
 	UpdateLoadingAnimation();
+	XBLog_Write("JA: CM_LoadMap...");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
+	XBLog_Write("JA: CM_LoadMap done");
 	UpdateLoadingAnimation();
+	XBLog_Write("JA: RE_LoadWorldMap...");
 	RE_LoadWorldMap(va("maps/%s.bsp", server));
+	XBLog_Write("JA: RE_LoadWorldMap done");
 	UpdateLoadingAnimation();
 #else
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum, qfalse );
@@ -548,14 +556,16 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 	// clear physics interaction links
 	SV_ClearWorld ();
-	
+
 	// media configstring setting should be done during
 	// the loading stage, so connected clients don't have
 	// to load during actual gameplay
 	sv.state = SS_LOADING;
 
 	// load and spawn all other entities
+	XBLog_Write("JA: SV_InitGameProgs...");
 	SV_InitGameProgs();
+	XBLog_Write("JA: SV_InitGameProgs done");
 
 	// run a few frames to allow everything to settle
 	for ( i = 0 ;i < 3 ; i++ ) {
@@ -633,6 +643,7 @@ Only called at main exe startup, not for each game
 ===============
 */
 void SV_Init (void) {
+	XBLog_Write("JA: SV_Init entered");
 	SV_AddOperatorCommands ();
 
 	// serverinfo vars

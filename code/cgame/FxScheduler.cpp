@@ -123,11 +123,20 @@ void CFxScheduler::LoadSave_Write()
 			//
 			for (TEffectID::iterator it = mEffectIDs.begin(); it != mEffectIDs.end(); ++it)
 			{
+#ifdef _XBOX
+				// ratl map_vs: *it gives value; it.key() gives key
+				if ( *it == iID )
+				{
+					Q_strncpyz( sFX_Filename, it.key().c_str(), sizeof(sFX_Filename) );
+					break;
+				}
+#else
 				if ( (*it).second == iID )
 				{
 					Q_strncpyz( sFX_Filename, (*it).first.c_str(), sizeof(sFX_Filename) );
 					break;
 				}
+#endif
 			}
 		}
 
@@ -210,7 +219,11 @@ void CFxScheduler::StopEffect( const char *file, int boltInfo, bool isPortal )
 
 	// Get an extenstion stripped version of the file
 	COM_StripExtension( file, sfile );
+#ifdef _XBOX
+	const int id = LookupEffectID(sfile);	// ratl map_vs has no operator[]
+#else
 	const int id = mEffectIDs[sfile];
+#endif
 #ifndef FINAL_BUILD
 	if ( id == 0 )
 	{
@@ -347,16 +360,28 @@ void CFxScheduler::Clean(bool bRemoveTemplates /*= true*/, int idToPreserve /*= 
 
 			for (iter = mEffectIDs.begin(); iter != mEffectIDs.end(); ++iter)
 			{
+#ifdef _XBOX
+				if (*iter == idToPreserve)			// ratl map_vs: *iter is value
+				{
+					str = iter.key();				// ratl map_vs: iter.key() is the key
+					break;
+				}
+#else
 				if ((*iter).second == idToPreserve)
 				{
 					str = (*iter).first;
 					break;
 				}
+#endif
 			}
 
 			mEffectIDs.clear();
 
+#ifdef _XBOX
+			mEffectIDs.insert(str, idToPreserve);	// ratl map_vs: no operator[]
+#else
 			mEffectIDs[str] = idToPreserve;
+#endif
 		}
 	}
 }
@@ -411,7 +436,11 @@ int CFxScheduler::RegisterEffect( const char *file, bool bHasCorrectPath /*= fal
 
 	if ( itr != mEffectIDs.end() )
 	{
+#ifdef _XBOX
+		return *itr;				// ratl map_vs: operator* returns the value
+#else
 		return (*itr).second;
+#endif
 	}
 
 	CGenericParser2	parser;
@@ -657,7 +686,11 @@ SEffectTemplate *CFxScheduler::GetNewEffectTemplate( int *id, const char *file )
 			// If we are a copy, we really won't have a name that we care about saving for later
 			if ( file )
 			{
+#ifdef _XBOX
+				mEffectIDs.insert(file, i);		// ratl map_vs: no operator[]
+#else
 				mEffectIDs[file] = i;
+#endif
 				strcpy( effect->mEffectName, file );
 			}
 
@@ -687,7 +720,11 @@ SEffectTemplate *CFxScheduler::GetNewEffectTemplate( int *id, const char *file )
 //------------------------------------------------------
 SEffectTemplate *CFxScheduler::GetEffectCopy( const char *file, int *newHandle )
 {
+#ifdef _XBOX
+	return ( GetEffectCopy( LookupEffectID(file), newHandle ) );	// ratl map_vs: no operator[]
+#else
 	return ( GetEffectCopy( mEffectIDs[file], newHandle ) );
+#endif
 }
 
 //------------------------------------------------------
@@ -867,12 +904,20 @@ void CFxScheduler::PlayEffect( const char *file, int clientNum, vec3_t origin, v
 	// Get an extenstion stripped version of the file
 	COM_StripExtension( file, sfile );
 
+#ifdef _XBOX
+	PlayEffect( LookupEffectID(sfile), clientNum, origin, forward, isPortal );
+#else
 	PlayEffect( mEffectIDs[sfile], clientNum, origin, forward, isPortal );
+#endif
 
 #ifndef FINAL_BUILD
+#ifdef _XBOX
+	if ( LookupEffectID(sfile) == 0 )
+#else
 	if ( mEffectIDs[sfile] == 0 )
+#endif
 	{
-		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );		
+		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );
 	}
 #endif
 }
@@ -907,13 +952,21 @@ void CFxScheduler::PlayEffect( const char *file, vec3_t origin, vec3_t axis[3], 
 	}
 
 #ifndef FINAL_BUILD
+#ifdef _XBOX
+	if ( LookupEffectID(sfile) == 0 )
+#else
 	if ( mEffectIDs[sfile] == 0 )
+#endif
 	{
-		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", sfile );		
+		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", sfile );
 	}
 #endif
 
+#ifdef _XBOX
+	PlayEffect( LookupEffectID(sfile), origin, axis, boltInfo, entNum, isPortal, iLoopTime, isRelative );
+#else
 	PlayEffect( mEffectIDs[sfile], origin, axis, boltInfo, entNum, isPortal, iLoopTime, isRelative );
+#endif
 }
 
 //------------------------------------------------------
@@ -936,12 +989,16 @@ void CFxScheduler::PlayEffect( const char *file, int clientID, bool isPortal )
 
 	// Get an extenstion stripped version of the file
 	COM_StripExtension( file, sfile );
+#ifdef _XBOX
+	id = LookupEffectID(sfile);		// ratl map_vs: no operator[]
+#else
 	id = mEffectIDs[sfile];
+#endif
 
 #ifndef FINAL_BUILD
 	if ( id == 0 )
 	{
-		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );		
+		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );
 	}
 #endif
 
@@ -1416,12 +1473,20 @@ void CFxScheduler::PlayEffect( const char *file, vec3_t origin, bool isPortal )
 	// Get an extenstion stripped version of the file
 	COM_StripExtension( file, sfile );
 
+#ifdef _XBOX
+	PlayEffect( LookupEffectID(sfile), origin, isPortal );
+#else
 	PlayEffect( mEffectIDs[sfile], origin, isPortal );
+#endif
 
 #ifndef FINAL_BUILD
+#ifdef _XBOX
+	if ( LookupEffectID(sfile) == 0 )
+#else
 	if ( mEffectIDs[sfile] == 0 )
+#endif
 	{
-		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );		
+		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );
 	}
 #endif
 }
@@ -1431,7 +1496,7 @@ void CFxScheduler::PlayEffect( const char *file, vec3_t origin, bool isPortal )
 //	Handles scheduling an effect so all the components
 //	happen at the specified time.  Takes a forward vector
 //	and uses this to complete the axis field.
-//	
+//
 // Input:
 //	Effect file name, the origin, and a forward vector
 //
@@ -1445,12 +1510,20 @@ void CFxScheduler::PlayEffect( const char *file, vec3_t origin, vec3_t forward, 
 	// Get an extenstion stripped version of the file
 	COM_StripExtension( file, sfile );
 
+#ifdef _XBOX
+	PlayEffect( LookupEffectID(sfile), origin, forward, isPortal );
+#else
 	PlayEffect( mEffectIDs[sfile], origin, forward, isPortal );
+#endif
 
 #ifndef FINAL_BUILD
+#ifdef _XBOX
+	if ( LookupEffectID(sfile) == 0 )
+#else
 	if ( mEffectIDs[sfile] == 0 )
+#endif
 	{
-		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );		
+		theFxHelper.Print( "CFxScheduler::PlayEffect unregistered/non-existent effect: %s\n", file );
 	}
 #endif
 }

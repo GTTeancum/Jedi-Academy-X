@@ -2,6 +2,8 @@
 #ifndef BINK_H
 #define BINK_H
 
+#include <stddef.h>
+
 #define BINKALPHA       0x00800000
 #define BINKSNDTRACK    0x00002000
 #define BINKCOPYALL     0x00000080

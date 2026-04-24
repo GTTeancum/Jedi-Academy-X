@@ -16,6 +16,20 @@ typedef sstring_t fxString_t;
 
 using namespace std;
 
+#ifdef _XBOX
+// On Xbox, std::map and std::list allocate sentinel nodes in their default constructors.
+// Since CFxScheduler is a file-scope global, this happens during _cinit before zone memory
+// is initialised, crashing via the custom operator new -> Z_Malloc -> D3D path.
+// Use fixed-capacity ratl containers instead: their constructors are trivially safe.
+#if !defined(RATL_MAP_VS_INC)
+	#include "../ratl/map_vs.h"
+#endif
+#if !defined(RATL_LIST_VS_INC)
+	#include "../ratl/list_vs.h"
+#endif
+#define FX_SCHEDULED_EFFECT_CAPACITY	512	// max simultaneously-pending delayed effects
+#endif // _XBOX
+
 
 #define FX_FILE_PATH	"effects"
 
@@ -426,9 +440,14 @@ private:
 
 
 	// this makes looking up the index based on the string name much easier
+#ifdef _XBOX
+	// ratl fixed-capacity containers: no heap allocation in default ctor, safe during _cinit.
+	typedef ratl::map_vs<fxString_t, int, FX_MAX_EFFECTS>							TEffectID;
+	typedef ratl::list_vs<SScheduledEffect*, FX_SCHEDULED_EFFECT_CAPACITY>			TScheduledEffect;
+#else
 	typedef map<fxString_t, int>			TEffectID;
-
 	typedef list<SScheduledEffect*>			TScheduledEffect;
+#endif
 
 	// Effects
 	SEffectTemplate		mEffectTemplates[FX_MAX_EFFECTS];
@@ -437,6 +456,16 @@ private:
 	// List of scheduled effects that will need to be created at the correct time.
 	TScheduledEffect	mFxSchedule;
 
+
+#ifdef _XBOX
+	// ratl::map_vs has no operator[] — provide a lookup helper that returns 0 when not found,
+	// matching std::map<K,int>::operator[] default-construction behaviour for missing keys.
+	int LookupEffectID( const fxString_t &key ) const
+	{
+		TEffectID::const_iterator it = mEffectIDs.find( key );
+		return (it != mEffectIDs.end()) ? *it : 0;
+	}
+#endif
 
 	// Private function prototypes
 	SEffectTemplate *GetNewEffectTemplate( int *id, const char *file );

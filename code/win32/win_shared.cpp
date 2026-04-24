@@ -9,6 +9,10 @@
 #include "../qcommon/qcommon.h"
 #include "win_local.h"
 
+#ifdef _XBOX
+#define timeGetTime GetTickCount
+#endif
+
 /*
 ================
 Sys_Milliseconds

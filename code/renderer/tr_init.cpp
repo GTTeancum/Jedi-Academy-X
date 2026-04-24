@@ -11,6 +11,9 @@
 #include "tr_jpeg_interface.h"
 #include "tr_font.h"
 #include "tr_WorldEffects.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 glconfig_t	glConfig;
 glstate_t	glState;
@@ -1311,11 +1314,11 @@ R_Init
 ===============
 */
 extern void R_InitWorldEffects();
-void R_Init( void ) {	
+void R_Init( void ) {
 	int	err;
 	int i;
 
-	//VID_Printf( PRINT_ALL, "----- R_Init -----\n" );
+	XBL("R_Init: entered\n");
 #ifdef _XBOX
 	extern qboolean vidRestartReloadMap;
 	if (!vidRestartReloadMap)
@@ -1383,9 +1386,7 @@ void R_Init( void ) {
 	}
 
 	R_InitFogTable();
-
 	R_NoiseInit();
-
 	R_Register();
 
 	backEndData = (backEndData_t *) Hunk_Alloc( sizeof( backEndData_t ), qtrue );
@@ -1397,23 +1398,29 @@ void R_Init( void ) {
 		RE_SetLightStyle(i, *(int*)color);
 	}
 
+	XBL("R_Init: InitOpenGL...\n");
 	InitOpenGL();
+	XBL("R_Init: InitOpenGL done\n");
 
+	XBL("R_Init: R_InitImages...\n");
 	R_InitImages();
+	XBL("R_Init: R_InitShaders...\n");
 	R_InitShaders();
+	XBL("R_Init: R_InitSkins...\n");
 	R_InitSkins();
 #ifndef _XBOX
 	R_TerrainInit();
 #endif
+	XBL("R_Init: R_ModelInit...\n");
 	R_ModelInit();
 //	R_InitWorldEffects();
+	XBL("R_Init: R_InitFonts...\n");
 	R_InitFonts();
+	XBL("R_Init: done\n");
 
 	err = qglGetError();
 	if ( err != GL_NO_ERROR )
 		VID_Printf (PRINT_ALL, "glGetError() = 0x%x\n", err);
-
-	//VID_Printf( PRINT_ALL, "----- finished R_Init -----\n" );
 }
 
 /*

@@ -257,7 +257,9 @@ void Com_InitZoneMemory(void)
 				status.dwAvailPhys);
 
 	// Allocate the texture pool:
+	OutputDebugStringA("JA: gTextures.Initialize...\n");
 	gTextures.Initialize( TEXTURE_POOL_SIZE );
+	OutputDebugStringA("JA: gTextures.Initialize done\n");
 
 	GlobalMemoryStatus(&status);
 
@@ -280,10 +282,20 @@ void Com_InitZoneMemory(void)
 	size = status.dwAvailPhys - ZONE_HEAP_FREE;
 #	endif
 
-	s_PoolBase = GlobalAlloc(0, size);
+	// Cap pool size to 64MB for emulator compatibility
+	if (size > 64 * 1024 * 1024) size = 64 * 1024 * 1024;
+	OutputDebugStringA("JA: VirtualAlloc...\n");
+	s_PoolBase = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	if (!s_PoolBase) {
+		OutputDebugStringA("JA: VirtualAlloc FAILED - trying smaller size\n");
+		size = 32 * 1024 * 1024;
+		s_PoolBase = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+	}
+	OutputDebugStringA("JA: VirtualAlloc done\n");
 	s_PoolSize = size;
 
 	// Setup the initial free block
+	OutputDebugStringA("JA: Zone block setup...\n");
 	ZoneFreeBlock* base = (ZoneFreeBlock*)s_PoolBase;
 	base->m_Address = (unsigned int)s_PoolBase;
 	base->m_Size = size;
@@ -355,7 +367,7 @@ void Com_ShutdownZoneMemory(void)
 
 	// Free the pool
 #ifndef _GAMECUBE
-	GlobalFree(s_PoolBase);
+	VirtualFree(s_PoolBase, 0, MEM_RELEASE);
 	CloseHandle(s_Mutex);
 #endif
 

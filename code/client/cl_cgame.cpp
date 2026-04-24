@@ -3,6 +3,11 @@
 // leave this as first line for PCH reasons...
 //
 #include "../server/exe_headers.h"
+
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 #include "../ui/ui_shared.h"
 
 #include "../RMG/RM_Headers.h"
@@ -1033,6 +1038,8 @@ void CL_InitCGame( void ) {
 	const char			*mapname;
 	int		t1, t2;
 
+	XBLog_Write("JA: CL_InitCGame entered");
+
 	t1 = Sys_Milliseconds();
 
 	// put away the console
@@ -1042,15 +1049,21 @@ void CL_InitCGame( void ) {
 	info = cl.gameState.stringData + cl.gameState.stringOffsets[ CS_SERVERINFO ];
 	mapname = Info_ValueForKey( info, "mapname" );
 	Com_sprintf( cl.mapname, sizeof( cl.mapname ), "maps/%s.bsp", mapname );
+	XBLog_Write("JA: Loading map:");
+	XBLog_Write(cl.mapname);
 
 	cls.state = CA_LOADING;
+	XBLog_Write("JA: cls.state = CA_LOADING");
 
 	// init for this gamestate
+	XBLog_Write("JA: VM_Call(CG_INIT)...");
 	VM_Call( CG_INIT, clc.serverCommandSequence );
+	XBLog_Write("JA: VM_Call(CG_INIT) done");
 
 	// we will send a usercmd this frame, which
 	// will cause the server to send us the first snapshot
 	cls.state = CA_PRIMED;
+	XBLog_Write("JA: cls.state = CA_PRIMED");
 
 	t2 = Sys_Milliseconds();
 
@@ -1223,10 +1236,12 @@ CL_FirstSnapshot
 ==================
 */
 void CL_FirstSnapshot( void ) {
+	XBLog_Write("JA: CL_FirstSnapshot entered");
 
 	RE_RegisterMedia_LevelLoadEnd();
 
 	cls.state = CA_ACTIVE;
+	XBLog_Write("JA: cls.state = CA_ACTIVE - GAME IS RUNNING");
 
 	// set the timedelta so we are exactly on this first frame
 	cl.serverTimeDelta = cl.frame.serverTime - cls.realtime;

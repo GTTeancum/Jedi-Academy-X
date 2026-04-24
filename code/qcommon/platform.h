@@ -3,7 +3,11 @@
 #define _PLATFORM_H
 
 #if defined(_XBOX)
+#define NOD3D
+#define NODSOUND
 #include <xtl.h>
+#undef NODSOUND
+#undef NOD3D
 #endif
 
 #ifdef _WIN32

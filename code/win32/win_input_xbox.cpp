@@ -6,7 +6,6 @@
 // #include "../server/exe_headers.h"
 
 #include <xtl.h>
-#include "glw_win_dx8.h"
 
 #include "../client/client.h"
 

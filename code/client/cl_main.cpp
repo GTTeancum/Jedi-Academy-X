@@ -4,6 +4,9 @@
 //
 #include "../server/exe_headers.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #include "client.h"
 #include "client_ui.h"
@@ -23,7 +26,7 @@
 #ifdef _XBOX
 #include "../ui/ui_splash.h"
 
-#ifndef FINAL_BUILD
+#if !defined(FINAL_BUILD) && !defined(_XBOX_VC71_MIGRATION)
 #include <d3d8perf.h>
 #endif
 
@@ -203,6 +206,7 @@ memory on the hunk from cgame, ui, and renderer
 =====================
 */
 void CL_MapLoading( void ) {
+	XBLog_Write("JA: CL_MapLoading entered");
 	if ( !com_cl_running->integer ) {
 		return;
 	}
@@ -289,27 +293,33 @@ This is also called on Com_Error and Com_Quit, so it shouldn't cause any errors
 =====================
 */
 void CL_Disconnect( void ) {
+	XBLog_Write("JA: CL_Disconnect entered");
 	if ( !com_cl_running || !com_cl_running->integer ) {
+		XBLog_Write("JA: CL_Disconnect - cl not running, early return");
 		return;
 	}
 
 #ifdef _XBOX
+	XBLog_Write("JA: CL_Disconnect - Cvar_Set r_norefresh");
 	Cvar_Set("r_norefresh", "0");
 
 	// Make sure to stop all rumbling! - Prevents bug when quitting game during rumble:
+	XBLog_Write("JA: CL_Disconnect - IN_KillRumbleScripts");
 	extern void IN_KillRumbleScripts( void );
 	IN_KillRumbleScripts();
 #endif
 
+	XBLog_Write("JA: CL_Disconnect - UI_SetActiveMenu");
 	if (cls.uiStarted)
 		UI_SetActiveMenu( NULL,NULL );
 
+	XBLog_Write("JA: CL_Disconnect - SCR_StopCinematic");
 	SCR_StopCinematic ();
+	XBLog_Write("JA: CL_Disconnect - S_ClearSoundBuffer");
 	S_ClearSoundBuffer();
 
 #ifdef _XBOX
-//	extern qboolean RE_RegisterImages_LevelLoadEnd(void);
-//	RE_RegisterImages_LevelLoadEnd();
+	XBLog_Write("JA: CL_Disconnect - R_DeleteTextures");
 	R_DeleteTextures();
 #endif
 
@@ -321,7 +331,8 @@ void CL_Disconnect( void ) {
 		CL_WritePacket();
 		CL_WritePacket();
 	}
-	
+
+	XBLog_Write("JA: CL_Disconnect - CL_ClearState");
 	CL_ClearState ();
 
 	CL_FreeReliableCommands();
@@ -336,6 +347,7 @@ void CL_Disconnect( void ) {
 	// allow cheats locally
 	Cvar_Set( "timescale", "1" );//jic we were skipping
 	Cvar_Set( "skippingCinematic", "0" );//jic we were skipping
+	XBLog_Write("JA: CL_Disconnect done");
 }
 
 
@@ -1048,7 +1060,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		// update the screen
 		SCR_UpdateScreen();
 
-#if defined(_XBOX) && !defined(FINAL_BUILD)
+#if defined(_XBOX) && !defined(FINAL_BUILD) && !defined(_XBOX_VC71_MIGRATION)
 		if (D3DPERF_QueryRepeatFrame())
 			SCR_UpdateScreen();
 #endif
@@ -1263,13 +1275,16 @@ CL_Init
 ====================
 */
 void CL_Init( void ) {
+	XBLog_Write("JA: CL_Init entered");
 	Com_Printf( "----- Client Initialization -----\n" );
-	
+
+	XBLog_Write("JA: Con_Init...");
 	Con_Init ();
 
 	CL_ClearState ();
 
 	cls.state = CA_DISCONNECTED;	// no longer CA_UNINITIALIZED
+	XBLog_Write("JA: cls.state = CA_DISCONNECTED");
 	cls.keyCatchers = KEYCATCH_CONSOLE;
 	cls.realtime = 0;
 	cls.realtimeFraction=0.0f;	// fraction of a msec accumulated

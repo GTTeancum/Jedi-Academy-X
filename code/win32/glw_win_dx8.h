@@ -15,7 +15,14 @@
 #include <map>
 
 #ifdef _XBOX
+#define NOD3D
+#define NODSOUND
 #include <xtl.h>
+#undef NODSOUND
+#undef NOD3D
+#include <d3d8-xbox.h>
+#include <objbase.h>
+#include <d3dx8.h>
 #include <xgraphics.h>
 #else
 #include <d3d8.h>

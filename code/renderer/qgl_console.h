@@ -11,8 +11,12 @@
 #endif
 
 #ifdef _XBOX
-
+#define NOD3D
+#define NODSOUND
 #include <Xtl.h>
+#undef NODSOUND
+#undef NOD3D
+#include "../win32/d3d8types-xbox.h"
 #endif
 
 #ifdef _GAMECUBE

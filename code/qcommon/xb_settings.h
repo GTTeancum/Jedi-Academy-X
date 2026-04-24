@@ -2,7 +2,11 @@
 #ifndef __XB_SETTINGS_H
 #define __XB_SETTINGS_H
 
+#define NOD3D
+#define NODSOUND
 #include <xtl.h>
+#undef NODSOUND
+#undef NOD3D
 
 enum XBStartupState
 {

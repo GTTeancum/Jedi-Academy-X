@@ -22,6 +22,9 @@
 #include "../renderer/tr_local.h"
 #include "../qcommon/qcommon.h"
 #include "win_local.h"
+#ifdef _XBOX
+#include "xb_log.h"
+#endif
 
 #if defined(_WINDOWS) || defined(_XBOX)
 #include "glw_win_dx8.h"
@@ -58,9 +61,12 @@ glwstate_t *glw_state = NULL;
 */
 static qboolean GLW_CreateWindow( int width, int height, int colorbits, qboolean cdsFullscreen )
 {
+	XBL("GLW_CreateWindow: GLW_Init...\n");
 	GLW_Init(width, height, colorbits, cdsFullscreen);
+	XBL("GLW_CreateWindow: GLW_Init done\n");
+	XBL("GLW_CreateWindow: IN_Init...\n");
 	IN_Init();
-
+	XBL("GLW_CreateWindow: IN_Init done\n");
 	return qtrue;
 }
 
@@ -128,17 +134,18 @@ static qboolean GLW_LoadOpenGL()
 
 	strlwr( strcpy( buffer, OPENGL_DRIVER_NAME ) );
 
-	//
-	// load the driver and bind our function pointers to it
-	// 
-	if ( QGL_Init( buffer ) ) 
+	XBLF("GLW_LoadOpenGL: QGL_Init('%s')...\n", buffer);
+	if ( QGL_Init( buffer ) )
 	{
+		XBL("GLW_LoadOpenGL: QGL_Init OK\n");
+		XBL("GLW_LoadOpenGL: GLW_CreateWindow...\n");
 		GLW_CreateWindow(640, 480, 24, 1);
+		XBL("GLW_LoadOpenGL: GLW_CreateWindow done\n");
 		return qtrue;
 	}
 
+	XBL("GLW_LoadOpenGL: QGL_Init FAILED\n");
 	QGL_Shutdown();
-
 	return qfalse;
 }
 
@@ -177,30 +184,36 @@ static void GLW_StartOpenGL( void )
 */
 void GLimp_Init( void )
 {
-	// load appropriate DLL and initialize subsystem
+	XBL("GLimp_Init: GLW_StartOpenGL...\n");
 	GLW_StartOpenGL();
+	XBL("GLimp_Init: GLW_StartOpenGL done\n");
 
 	// get our config strings
-	glConfig.vendor_string = (const char *) qglGetString (GL_VENDOR);
-	glConfig.renderer_string = (const char *) qglGetString (GL_RENDERER);
-	glConfig.version_string = (const char *) qglGetString (GL_VERSION);
-	glConfig.extensions_string = (const char *) qglGetString (GL_EXTENSIONS);
-	
+	XBL("GLimp_Init: qglGetString...\n");
+	glConfig.vendor_string     = (const char *) qglGetString(GL_VENDOR);
+	glConfig.renderer_string   = (const char *) qglGetString(GL_RENDERER);
+	glConfig.version_string    = (const char *) qglGetString(GL_VERSION);
+	glConfig.extensions_string = (const char *) qglGetString(GL_EXTENSIONS);
+
 	if (!glConfig.vendor_string || !glConfig.renderer_string || !glConfig.version_string || !glConfig.extensions_string)
 	{
+		XBL("GLimp_Init: ERROR - null GL string\n");
 		Com_Error( ERR_FATAL, "GLimp_Init() - Invalid GL Driver\n" );
 	}
+	XBLF("GLimp_Init: vendor='%s' renderer='%s'\n",
+		glConfig.vendor_string, glConfig.renderer_string);
 
 	// OpenGL driver constants
 	qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.maxTextureSize );
-	// stubbed or broken drivers may have reported 0...
-	if ( glConfig.maxTextureSize <= 0 ) 
-	{
+	if ( glConfig.maxTextureSize <= 0 )
 		glConfig.maxTextureSize = 0;
-	}
+	XBLF("GLimp_Init: maxTextureSize=%d\n", glConfig.maxTextureSize);
 
+	XBL("GLimp_Init: GLW_InitExtensions...\n");
 	GLW_InitExtensions();
+	XBL("GLimp_Init: WG_CheckHardwareGamma...\n");
 	WG_CheckHardwareGamma();
+	XBL("GLimp_Init: done\n");
 }
 
 /*

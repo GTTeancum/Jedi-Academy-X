@@ -746,7 +746,6 @@ void FS_Startup( const char *gameName )
 		extern void ERR_DiscFail(bool);
 		ERR_DiscFail(false);
 #else
-		//Com_Error( ERR_FATAL, "Could not initialize GOB" );
 		Cvar_Set("fs_openorder", "1");
 #endif
 	}

@@ -1,13 +1,12 @@
 ; xbox_asm_stubs.asm
-; Confirmed symbol names via dumpbin:
-;   callers need  __ftol2_sse        (2 underscores)
-;   callers need  ___CxxFrameHandler3 (3 underscores)
-;   linker needs  _WinMainCRTStartup  (1 underscore)
-; .model flat does NOT prepend underscores - write exact names.
-
 .386
 .model flat
 OPTION CASEMAP:NONE
+
+EXTERN _mainCRTStartup:NEAR
+
+.data
+default_fpu_cw dw 027Fh
 
 .code
 
@@ -53,10 +52,20 @@ ___CxxFrameHandler3 PROC NEAR
     ret
 ___CxxFrameHandler3 ENDP
 
-; _WinMainCRTStartup - exact 1-underscore name the linker expects
-; Just spin forever; real Xbox startup is in xapilibd.lib
+PUBLIC __except_handler4
+__except_handler4 PROC NEAR
+    xor     eax, eax
+    ret
+__except_handler4 ENDP
+
+; Entry points - initialize FPU, then hand off to the CRT startup.
+; This preserves our early Xbox-specific setup while still letting the
+; CRT initialize stdio and other runtime state before main() runs.
 PUBLIC _WinMainCRTStartup
 _WinMainCRTStartup PROC NEAR
+    finit                   ; Initialize FPU - fixes R6002
+    fldcw   default_fpu_cw  ; Load the standard x87 control word
+    call    _mainCRTStartup     ; CRT + XAPI init, then main()
 @@spin:
     jmp     @@spin
 _WinMainCRTStartup ENDP

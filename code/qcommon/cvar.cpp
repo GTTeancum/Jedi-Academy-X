@@ -17,6 +17,103 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force);
 static char *lastMemPool = NULL;
 static int memPoolSize;
 
+static double Cvar_ParseFloat( const char *string ) {
+	double sign;
+	double value;
+	int c;
+
+	if ( !string ) {
+		return 0;
+	}
+
+	while ( *string <= ' ' ) {
+		if ( !*string ) {
+			return 0;
+		}
+		string++;
+	}
+
+	switch ( *string ) {
+	case '+':
+		string++;
+		sign = 1;
+		break;
+	case '-':
+		string++;
+		sign = -1;
+		break;
+	default:
+		sign = 1;
+		break;
+	}
+
+	value = 0;
+	do {
+		c = *string++;
+		if ( c < '0' || c > '9' ) {
+			break;
+		}
+		value = value * 10 + ( c - '0' );
+	} while ( 1 );
+
+	if ( c == '.' ) {
+		double fraction = 0.1;
+
+		do {
+			c = *string++;
+			if ( c < '0' || c > '9' ) {
+				break;
+			}
+			value += ( c - '0' ) * fraction;
+			fraction *= 0.1;
+		} while ( 1 );
+	}
+
+	return value * sign;
+}
+
+static int Cvar_ParseInt( const char *string ) {
+	int sign;
+	int value;
+	int c;
+
+	if ( !string ) {
+		return 0;
+	}
+
+	while ( *string <= ' ' ) {
+		if ( !*string ) {
+			return 0;
+		}
+		string++;
+	}
+
+	switch ( *string ) {
+	case '+':
+		string++;
+		sign = 1;
+		break;
+	case '-':
+		string++;
+		sign = -1;
+		break;
+	default:
+		sign = 1;
+		break;
+	}
+
+	value = 0;
+	do {
+		c = *string++;
+		if ( c < '0' || c > '9' ) {
+			break;
+		}
+		value = value * 10 + ( c - '0' );
+	} while ( 1 );
+
+	return value * sign;
+}
+
 
 //If the string came from the memory pool, don't really free it.  The entire
 //memory pool will be wiped during the next level load.
@@ -297,8 +394,8 @@ cvar_t *Cvar_Get( const char *var_name, const char *var_value, int flags ) {
 	var->string = CopyString (var_value);
 	var->modified = qtrue;
 	var->modificationCount = 1;
-	var->value = atof (var->string);
-	var->integer = atoi(var->string);
+	var->value = (float)Cvar_ParseFloat( var->string );
+	var->integer = Cvar_ParseInt( var->string );
 	var->resetString = CopyString( var_value );
 
 	// link the variable in
@@ -412,8 +509,8 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force ) {
 	Cvar_FreeString (var->string);	// free the old value string
 	
 	var->string = CopyString(value);
-	var->value = atof (var->string);
-	var->integer = atoi (var->string);
+	var->value = (float)Cvar_ParseFloat( var->string );
+	var->integer = Cvar_ParseInt( var->string );
 
 	return var;
 }

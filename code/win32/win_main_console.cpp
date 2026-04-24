@@ -12,6 +12,8 @@
 
 #ifdef _XBOX
 #include <IO.h>
+#include <xtl.h>
+#include "../win32/xb_log.h"
 #define NEWDECL __cdecl
 
 #ifndef FINAL_BUILD
@@ -255,7 +257,9 @@ HANDLE Sys_FileStreamMutex = INVALID_HANDLE_VALUE;
 void Win_Init(void)
 {
 #ifdef _XBOX
+	XBL("Win_Init: CreateMutex...\n");
 	Sys_FileStreamMutex = CreateMutex(NULL, FALSE, NULL);
+	XBLF("Win_Init: mutex handle=0x%x\n", (unsigned)Sys_FileStreamMutex);
 #endif
 }
 
@@ -547,29 +551,41 @@ int main(int argc, char* argv[])
 {
 //	Z_SetFreeOSMem();
 
-	// I'm going to kill someone. This should not be necessary. No, really.
+	XBLog_Init();
+	XBLF("Log: %s\n", XBLog_GetPath() ? XBLog_GetPath() : "(none)");
+	XBL("main() entered\n");
+
 	Direct3D_SetPushBufferSize(1024*1024, 128*1024);
+	XBL("Direct3D_SetPushBufferSize done\n");
 
 	// get the initial time base
 	Sys_Milliseconds();
 
-	// Need to fetch this stuff REALLY early so that path re-mappnig works
-	// for renderer startup. Bleh.
+	// Fetch game settings early — path remapping required before renderer start.
 	Sys_QuickStart();
+	XBL("Sys_QuickStart done\n");
 
 	Win_Init();
-	Com_Init( "" );
+	XBL("Win_Init done\n");
 
-	// Run one frame, to finish loading (calls CL_StartHunkUsers)...
+	Com_Init( "" );
+	XBL("Com_Init done\n");
+
+	// Run one frame to finish loading (calls CL_StartHunkUsers).
 	IN_Frame();
 	Com_Frame();
+	XBL("First frame done\n");
 
 	extern void G_AllocGentities( void );
 	G_AllocGentities();
+	XBL("G_AllocGentities done\n");
 
-	// And then quickly copy all the planet binks to the Z: drive
+	// Copy planet bink videos to Z: drive.
 	extern void Sys_BinkCopyInit(void);
 	Sys_BinkCopyInit();
+	XBL("Sys_BinkCopyInit done\n");
+
+	XBL("Entering main game loop\n");
 
 	// main game loop
 	while( 1 ) {

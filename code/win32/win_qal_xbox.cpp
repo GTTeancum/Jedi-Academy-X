@@ -20,6 +20,9 @@
 #include "../client/openal/al.h"
 #include "../client/openal/alc.h"
 
+#include <objbase.h>
+#include <d3d8.h>
+#include <xgmath.h>
 #include <dsound.h>
 //#include <dsstdfx.h>
 #include "snd_fx_img.h"
