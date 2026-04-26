@@ -1,0 +1,282 @@
+
+========================================================================
+XBE HEADER
+========================================================================
+  File:             C:\Programming\GitHub\Jedi-Academy-X\Star Wars Jedi Academy game\default.xbe
+  File size:        4,743,168 bytes  (0x486000)
+  Base address:     0x00010000
+  Image size:       0x00C148C0  (12,667,072 bytes)
+  Header size:      0x00000ED8
+  Timestamp:        2003-10-17 13:15:01 UTC
+  Init flags:       0x00000005
+  Entry point:      0x000C2765  [retail decrypt]
+  Entry point dbg:  0x3C75ED85  [debug decrypt]
+  Kernel thunk:     0x002CCFE0  [retail decrypt]
+  Kernel thunk dbg: 0xB4F07E04  [debug decrypt]
+  Debug pathname:   'c:\\dev\\ja\\code\\x_exe\\finalbuild\\ja-final.exe'
+  Debug filename:   'ja-final.exe'
+  Sections:         31
+  Library versions: 9
+
+========================================================================
+CERTIFICATE
+========================================================================
+  TitleID:     0x4C41000B
+  Timestamp:   0x3F983B1E
+  Region:      0x00000001
+  AllowedMedia:0x00000002
+  GameRatings: 0x00000003
+  Version:     0x00000001
+  DiskNumber:  0x00000000
+  TitleName:   'Jedi Knight: Jedi Academy'
+  LANKey:      af47a50fc839665dab6eecea60754338
+
+========================================================================
+SECTION TABLE
+========================================================================
+   #  Name                      VA     VSize   FileOff  FileSize  Flags
+   0  .text             0x00011000  0x22AF94  0x001000  0x22AF94  0x00000016 R--P
+   1  D3D               0x0023BFA0  0x013CB0  0x22C000  0x0103E8  0x00000007 -W-P
+   2  D3DX              0x0024FC60  0x020748  0x23D000  0x020740  0x00000007 -W-P
+   3  XGRPH             0x002703C0  0x00B160  0x25E000  0x006B10  0x00000007 -W-P
+   4  DSOUND            0x0027B520  0x01E374  0x265000  0x01E10C  0x00000007 -W-P
+   5  BINK              0x002998A0  0x00D010  0x284000  0x00D010  0x00000026 R--P
+   6  BINK32            0x002A68C0  0x001265  0x292000  0x001264  0x00000036 R--P
+   7  BINK32A           0x002A7B40  0x001579  0x294000  0x001578  0x00000036 R--P
+   8  BINK16            0x002A90C0  0x00131C  0x296000  0x00131C  0x00000036 R--P
+   9  BINK4444          0x002AA3E0  0x0015A0  0x298000  0x0015A0  0x00000036 R--P
+  10  BINK5551          0x002AB980  0x001134  0x29A000  0x001134  0x00000036 R--P
+  11  BINKYUY2          0x002ACAC0  0x000CAC  0x29C000  0x000CAC  0x00000036 R--P
+  12  BINKYUY2          0x002AD780  0x00009C  0x29D000  0x00009C  0x00000036 R--P
+  13  BINKYUY2          0x002AD820  0x0000B8  0x29E000  0x0000B8  0x00000036 R--P
+  14  BINKYUY2          0x002AD8E0  0x000088  0x29F000  0x000088  0x00000036 R--P
+  15  BINK16MX          0x002AD980  0x000130  0x2A0000  0x000130  0x00000036 R--P
+  16  BINK16X2          0x002ADAC0  0x000558  0x2A1000  0x000558  0x00000036 R--P
+  17  BINK16M           0x002AE020  0x0001F8  0x2A2000  0x0001F8  0x00000036 R--P
+  18  BINK32MX          0x002AE220  0x0001BC  0x2A3000  0x0001BC  0x00000036 R--P
+  19  BINK32X2          0x002AE3E0  0x00058C  0x2A4000  0x00058C  0x00000036 R--P
+  20  BINK32M           0x002AE980  0x00014C  0x2A5000  0x00014C  0x00000036 R--P
+  21  XONLINE           0x002AEAE0  0x008974  0x2A6000  0x008974  0x00000036 R--P
+  22  XNET              0x002B7460  0x00E380  0x2AF000  0x00E380  0x00000016 R--P
+  23  XPP               0x002C57E0  0x0077E4  0x2BE000  0x0077E4  0x00000007 -W-P
+  24  .rdata            0x002CCFE0  0x03BDC0  0x2C6000  0x03BDB0  0x00000006 R--P
+  25  .data             0x00308DA0  0x90CE1C  0x302000  0x17198C  0x00000007 -W-P
+  26  DOLBY             0x00C15BC0  0x007180  0x474000  0x00716C  0x00000006 R--P
+  27  BINKDATA          0x00C1CD40  0x0041B4  0x47C000  0x0041B0  0x00000007 -W-P
+  28  XON_RD            0x00C20F00  0x000B11  0x481000  0x000B10  0x00000026 R--P
+  29  $$XTIMAGE         0x00C21A20  0x002800  0x482000  0x002800  0x00000038 R-X-
+  30  .XTLID            0x00C24220  0x000690  0x485000  0x000690  0x00000038 R-X-
+      TOTAL                         0xC13763            0x470120
+
+========================================================================
+LIBRARY VERSIONS
+========================================================================
+  Name         Major Minor  Build   QFE Flags
+  XAPILIB          1     0   5558     1  0x2
+  D3D8             1     0   5558     4  0x2
+  D3DX8            1     0   5558     1  0x2
+  XGRAPHC          1     0   5558     1  0x2
+  DSOUND           1     0   5558     1  0x2
+  XBOXKRNL         1     0   5558     1  0x2
+  XONLINES         1     0   5558     2  0x1
+  LIBCPMT          1     0   5558     1  0x2
+  LIBCMT           1     0   5558     1  0x2
+
+========================================================================
+TLS DIRECTORY
+========================================================================
+  TLS data:  0x00000000 – 0x00000000  (0 bytes)
+  Index VA:  0x008BBCF4
+  Callbacks: 0x00000000
+  SizeOfZeroFill: 144
+  Flags:     0x00000000
+
+========================================================================
+KERNEL THUNK TABLE
+========================================================================
+  Thunk table VA: 0x002CCFE0  (file offset 0x2C6000)
+  Index  Ordinal  Name
+      0      187  NtCreateDirectoryObject
+      1      233  NtWaitForMultipleObjectsEx
+      2      219  NtReadFileScatter
+      3      236  NtYieldExecution
+      4      226  NtSetIoCompletion
+      5      211  NtQueryIoCompletion
+      6      218  NtReadFile
+      7      198  NtFreeVirtualMemory
+      8      200  NtOpenDirectoryObject
+      9      196  NtDuplicateObject
+     10      250  PhyGetLinkState
+     11      246  ObReferenceObjectByPointer
+     12       71  IoDestroyDevice
+     13      190  NtCreateIoCompletion
+     14      289  RtlInitializeCriticalSection
+     15      172  MmGetPhysicalAddress
+     16      202  NtOpenSymbolicLinkObject
+     17      167  MmClaimGpuInstanceMemory
+     18      294  RtlLowerChar
+     19      277  RtlEqualString
+     20      259  RtlAppendStringToString
+     21      224  NtSetEvent
+     22      302  RtlTimeFieldsToTime
+     23      258  RtlAnsiStringToUnicodeString
+     24      255  PsSetCreateThreadNotifyRoutine
+     25       24  ExQueryPoolBlockSize
+     26      128  KeQueryPerformanceFrequency
+     27      301  RtlRaiseStatus
+     28      207  NtQueryDirectoryObject
+     29      336  XcRC4Key
+     30      335  XcSHAFinal
+     31      337  XcRC4Crypt
+     32      323  XboxSignatureKey
+     33      325  XeLoadSection
+     34      354  HalBootSMCVideoMode
+     35       40  HalDisableSystemInterrupt
+     36       67  IoCompletionObjectType
+     37      215  NtQueryTimer
+     38      203  NtProtectVirtualMemory
+     39       69  IoCreateFile
+     40      189  NtCreateFile
+     41       16  ExAllocatePoolWithTag
+     42      225  NtSetInformationFile
+     43      193  NtCreateTimer
+     44      222  NtRemoveIoCompletion
+     45      192  NtCreateSemaphore
+     46      221  NtReleaseSemaphore
+     47      234  NtWriteFile
+     48      235  NtWriteFileGather
+     49       99  KeBugCheckEx
+     50      161  KiApcList
+     51      129  KeQuerySystemTime
+     52      178  MmQueryAddressProtect
+     53      165  MmAllocateContiguousMemoryEx
+     54      164  MmAllocateContiguousMemory
+     55      171  MmFreeSystemMemory
+     56       49  HalRequestSoftwareInterrupt
+     57      166  MmAllocateSystemMemory
+     58      180  MmQueryStatistics
+     59      182  MmUnmapIoSpace
+     60      179  MmQueryAllocationSize
+     61      305  RtlUlongByteSwap
+     62      156  KeTimeIncrement
+     63      304  RtlTryEnterCriticalSection
+     64      184  NtCancelTimer
+     65      199  NtFsControlFile
+     66      217  NtQueryVolumeInformationFile
+     67      181  MmSetAddressProtect
+     68      344  XcDESKeyParity
+     69      355  IdexChannelObject
+     70      322  XboxKrnlVersion
+     71       47  HalReadWritePCISpace
+     72      113  KeInitializeQueue
+     73      149  KeSetTimerEx
+     74       97  KeBoostPriorityThread
+     75      145  KeSetEventBoostPriority
+     76      159  KfAcquireSpinLock
+     77      107  KeInitializeApc
+     78      326  XeUnloadSection
+     79      269  RtlCompareUnicodeString
+     80      291  RtlIntegerToUnicodeString
+     81      356  HalIsResetOrShutdownPending
+     82      324  XeImageFileName
+     83      279  RtlExtendedIntegerMultiply
+     84      327  READ_PORT_BUFFER_UCHAR
+     85      328  READ_PORT_BUFFER_USHORT
+     86      360  RtlSprintf
+     87      357  IoMarkIrpMustComplete
+     88       15  ExAllocatePool
+     89       17  ExEventObjectType
+     90       44  HalEnableSystemInterrupt
+     91      160  KfReleaseSpinLock
+     92       98  KeBugCheck
+     93      109  KeInitializeDpc
+     94      151  KeSuspendThread
+     95      340  XcPKDecPrivate
+     96      173  MmIsAddressValid
+     97      175  MmLockUnlockPhysicalPage
+     98      119  KeInsertQueue
+     99      176  MmMapIoSpace
+    100        4  AvSetSavedDataAddress
+    101        1  AvGetSavedDataAddress
+    102        2  AvSendTVEncoderOption
+    103        3  AvSetDisplayMode
+    104       46  HalReadSMBusValue
+    105      100  KeConnectInterrupt
+    106      168  MmCreateKernelStack
+    107        8  DbgLoadImageSymbols
+    108      142  KeSetBasePriorityThread
+    109      139  KeResumeThread
+    110       23  ExMutantObjectType
+    111      137  KeResetEvent
+    112      153  KeSystemTime
+    113      349  XcUpdateCrypto
+    114      347  XcBlockCryptCBC
+    115      346  XcBlockCrypt
+    116      339  XcPKEncPublic
+    117      338  XcHMAC
+    118      345  XcKeyTable
+    119      252  PsCreateSystemThread
+    120      253  PsCreateSystemThreadEx
+    121      150  KeStallExecutionProcessor
+    122      353  XePublicKeyData
+    123      126  KeQueryInterruptTime
+    124      127  KeQueryPerformanceCounter
+    125       42  HalDiskModelNumber
+    126       41  HalDiskCachePartitionCount
+    127      312  RtlUpcaseUnicodeString
+    128       95  KeAlertResumeThread
+    129      260  RtlAppendUnicodeStringToString
+    130      308  RtlUnicodeToMultiByteN
+    131       87  IoSynchronousDeviceIoControlRequest
+    132       65  IoCancelIrp
+    133       74  IoFileObjectType
+    134       83  IoSetShareAccess
+    135       81  IoRemoveShareAccess
+    136      359  RtlSnprintf
+    137      358  HalInitiateShutdown
+  Total: 138 thunks
+
+========================================================================
+ENTRY POINT
+========================================================================
+  VA: 0x000C2765  section: .text
+  First 64 bytes:
+    0x000C2765:  8B 0D 18 01 01 00 A1 08 01 01 00 2B C1 05 00 00   ...........+....
+    0x000C2775:  01 00 3B 01 73 02 89 01 A1 C0 53 2E 00 2B 05 B0   ..;.s.....S..+..
+    0x000C2785:  53 2E 00 8B 0D B4 53 2E 00 56 8D 44 08 0F 57 83   S.....S..V.D..W.
+    0x000C2795:  E0 F0 6A FC 59 83 C0 04 A3 28 58 C1 00 99 F7 F9   ..j.Y....(X.....
+
+========================================================================
+SECTION CONTENT SUMMARY (code/data bytes, entropy hint)
+========================================================================
+  .text             unique_bytes=256/256  null=11%  printable=29%  file_sz=0x22AF94
+  D3D               unique_bytes=256/256  null=16%  printable=25%  file_sz=0x103E8
+  D3DX              unique_bytes=256/256  null=9%  printable=29%  file_sz=0x20740
+  XGRPH             unique_bytes=256/256  null=7%  printable=30%  file_sz=0x6B10
+  DSOUND            unique_bytes=256/256  null=7%  printable=28%  file_sz=0x1E10C
+  BINK              unique_bytes=256/256  null=11%  printable=28%  file_sz=0xD010
+  BINK32            unique_bytes=189/256  null=10%  printable=30%  file_sz=0x1264
+  BINK32A           unique_bytes=195/256  null=10%  printable=30%  file_sz=0x1578
+  BINK16            unique_bytes=166/256  null=11%  printable=30%  file_sz=0x131C
+  BINK4444          unique_bytes=178/256  null=11%  printable=31%  file_sz=0x15A0
+  BINK5551          unique_bytes=177/256  null=10%  printable=31%  file_sz=0x1134
+  BINKYUY2          unique_bytes=160/256  null=10%  printable=29%  file_sz=0xCAC
+  BINKYUY2          unique_bytes=64/256  null=13%  printable=33%  file_sz=0x9C
+  BINKYUY2          unique_bytes=73/256  null=8%  printable=35%  file_sz=0xB8
+  BINKYUY2          unique_bytes=53/256  null=13%  printable=33%  file_sz=0x88
+  BINK16MX          unique_bytes=82/256  null=7%  printable=27%  file_sz=0x130
+  BINK16X2          unique_bytes=109/256  null=10%  printable=23%  file_sz=0x558
+  BINK16M           unique_bytes=95/256  null=13%  printable=27%  file_sz=0x1F8
+  BINK32MX          unique_bytes=94/256  null=4%  printable=24%  file_sz=0x1BC
+  BINK32X2          unique_bytes=117/256  null=6%  printable=26%  file_sz=0x58C
+  BINK32M           unique_bytes=86/256  null=6%  printable=25%  file_sz=0x14C
+  XONLINE           unique_bytes=256/256  null=9%  printable=30%  file_sz=0x8974
+  XNET              unique_bytes=256/256  null=11%  printable=27%  file_sz=0xE380
+  XPP               unique_bytes=256/256  null=11%  printable=28%  file_sz=0x77E4
+  .rdata            unique_bytes=256/256  null=17%  printable=78%  file_sz=0x3BDB0
+  .data             unique_bytes=256/256  null=92%  printable=3%  file_sz=0x17198C
+  DOLBY             unique_bytes=253/256  null=46%  printable=21%  file_sz=0x716C
+  BINKDATA          unique_bytes=256/256  null=8%  printable=33%  file_sz=0x41B0
+  XON_RD            unique_bytes=157/256  null=38%  printable=41%  file_sz=0xB10
+  $$XTIMAGE         unique_bytes=247/256  null=8%  printable=27%  file_sz=0x2800
+  .XTLID            unique_bytes=219/256  null=37%  printable=24%  file_sz=0x690

@@ -1,0 +1,543 @@
+Phase 1 — Filtered strings (id Tech 3 / Raven / Xbox identifiers)
+Total strings scanned: 15636  Matching: 538
+
+          VA  Section           String
+--------------------------------------------------------------------------------
+  file+0xB5B  ???               @D3D8
+  file+0xB6B  ???               @D3DX8
+  0x0024B5B4  D3D               createfile error - st=%08x
+  0x0024C1D8  D3D               GPU generated an error!
+  0x0024C1F0  D3D               Try reproing with D3D8I.LIB or D3D8D.LIB for more debugging help.
+  0x0026D3A0  D3DX              buffer error
+  0x0026D3C4  D3DX              data error
+  0x0026D3D0  D3DX              stream error
+  0x0026D3E0  D3DX              file error
+  0x0026DE30  D3DX              read error
+  0x0026E654  D3DX              Start Of Frame 0x%02x: width=%u, height=%u, components=%d
+  0x0026EFC4  D3DX              Output file write error --- out of disk space?
+  0x0026EFF4  D3DX              Input file read error
+  0x0026F55C  D3DX              zlib version error
+  0x0026F570  D3DX              zlib memory error
+  0x0026F584  D3DX              Unknown zlib error
+  0x0026F658  D3DX              Decompression error
+  0x0026F7A0  D3DX              It's an error to set both read_data_fn and write_data_fn in the 
+  0x0026FB00  D3DX              CRC error
+  0x0026FF24  D3DX              Decompression Error
+  0x002A3F3A  BINK              Copyright (C) 1994-2002 RAD Game Tools, Inc.
+  0x002CCF94  XPP               \Device\MU_0
+  0x002CD4A8  .rdata            Z:\texswap
+  0x002CD4BC  .rdata            D:\base\video\zonju.bik
+  0x002CD4D4  .rdata            Z:\zonju.bik
+  0x002CD4E4  .rdata            D:\base\video\yalara.bik
+  0x002CD500  .rdata            Z:\yalara.bik
+  0x002CD510  .rdata            D:\base\video\tatooine.bik
+  0x002CD52C  .rdata            Z:\tatooine.bik
+  0x002CD53C  .rdata            D:\base\video\tanaab.bik
+  0x002CD558  .rdata            Z:\tanaab.bik
+  0x002CD568  .rdata            D:\base\video\ordman.bik
+  0x002CD584  .rdata            Z:\ordman.bik
+  0x002CD594  .rdata            D:\base\video\narkreeta.bik
+  0x002CD5B0  .rdata            Z:\narkreeta.bik
+  0x002CD5C4  .rdata            D:\base\video\krildor.bik
+  0x002CD5E0  .rdata            Z:\krildor.bik
+  0x002CD5F0  .rdata            D:\base\video\dosunn.bik
+  0x002CD60C  .rdata            Z:\dosunn.bik
+  0x002CD61C  .rdata            D:\base\video\ast.bik
+  0x002CD634  .rdata            Z:\ast.bik
+  0x002CD640  .rdata            D:\base\video\core.bik
+  0x002CD658  .rdata            Z:\core.bik
+  0x002CD664  .rdata            D:\base\video\chandrila.bik
+  0x002CD680  .rdata            Z:\chandrila.bik
+  0x002CD694  .rdata            D:\base\video\blenjeel.bik
+  0x002CD6B0  .rdata            Z:\blenjeel.bik
+  0x002CD6C0  .rdata            D:\base\video\bakura.bik
+  0x002CD6DC  .rdata            Z:\bakura.bik
+  0x002CD6EC  .rdata            D:\base\video\cos.bik
+  0x002CD704  .rdata            Z:\cos.bik
+  0x002CD710  .rdata            CL_GetUserCmd: %i >= %i
+  0x002CD728  .rdata            CL_GetSnapshot: truncated %i entities to %i
+  0x002CD758  .rdata            CL_GetSnapshot: snapshotNumber > cl.frame.messageNum
+  0x002CD85C  .rdata            CL_GetServerCommand: requested a command not received
+  0x002CD894  .rdata            CL_GetServerCommand: a reliable command was cycled out
+  0x002CD8CC  .rdata            Bad cgame system trap: %i
+  0x002CD8F0  .rdata            ERROR: Terrain unsupported on Xbox.
+  0x002CDAD4  .rdata            cl.frame.serverTime < cl.oldFrameServerTime
+  0x002CDB00  .rdata            CL_SetCGameTime: !cl.snap.valid
+  0x002CDB2C  .rdata            d:\base\video\
+  0x002CDC56  .rdata            v?CL_JoystickEvent: bad axis %i
+  0x002CE780  .rdata            CL_CheckForResend: bad cls.state
+  0x002CE9FC  .rdata            ----- Initializing Renderer ----
+  0x002CEAB8  .rdata            ----- CL_Shutdown -----
+  0x002CEB5F  .rdata            AFrame rate=%f LOD=%d
+  0x002CEBF4  .rdata            ----- Client Initialization Complete -----
+  0x002CEC20  .rdata            Initializing Cinematics...
+  0x002CEEA4  .rdata            ----- Client Initialization -----
+  0x002CEF88  .rdata            CL_ParsePacketEntities: end of message
+  0x002CF070  .rdata            CL_ParseGamestate: bad command byte
+  0x002CF0BC  .rdata            CL_ParseServerMessage: read past end of server message
+  0x002CF0F4  .rdata            CL_ParseServerMessage: Illegible server message
+  0x002CF350  .rdata            CM_ClipHandleToModel: bad handle %i < %i < %i
+  0x002CF380  .rdata            CM_ClipHandleToModel: bad handle %i
+  0x002CF3A4  .rdata            CM_InlineModel: bad number (may need to re-BSP map?)
+  0x002CF3DC  .rdata            CM_LeafCluster: bad number
+  0x002CF3F8  .rdata            CM_LeafArea: bad number
+  0x002CF414  .rdata            CM_LoadSubBSP: too many unique sub BSPs
+  0x002CF4F0  .rdata            CM_LoadMap( %s, %i )
+  0x002CF534  .rdata            CM_LoadMap: NULL name
+  0x002CF5B4  .rdata            WARNING: CM_GridPlane unresolvable
+  0x002CF5DB  .rdata            @WARNING: CM_SetBorderInward: mixed plane sides
+  0x002CF60C  .rdata            CM_SetBorderInward: bad parameter
+  0x002CF637  .rdata            GWARNING: CM_AddFacetBevels... invalid bevel
+  0x002CF668  .rdata            WARNING: bevel plane already used
+  0x002CF6B4  .rdata            CM_GeneratePatchFacets: source is > CM_MAX_GRID_SIZE
+  0x002CF6F0  .rdata            CM_GeneratePatchFacets: even sizes are invalid for quadratic meshes
+  0x002CF734  .rdata            CM_GeneratePatchFacets: bad parameters: (%i, %i, %p)
+  0x002CF84C  .rdata            CM_AdjustAreaPortalState: negative reference count
+  0x002CF880  .rdata            CM_ChangeAreaPortalState: bad area number
+  0x002CF92C  .rdata            Cmd_AddCommand: %s already defined
+  0x002CF950  .rdata            Cmd_AddCommand: Too many commands registered
+  0x002CFB34  .rdata            com_errorMessage
+  0x002CFB48  .rdata            recursive error after: %s
+  0x002CFB74  .rdata            Com_EventLoop: bad event type %i
+  0x002CFB98  .rdata            Testing fatal error
+  0x002CFBAC  .rdata            Testing drop error
+  0x002CFBC0  .rdata            Error during initialization %s
+  0x002CFC4C  .rdata            error
+  0x002CFDE0  .rdata            Cvar_Set2: %s %s
+  0x002CFF1C  .rdata            Cvar_Update: handle out of range
+  0x002CFF84  .rdata            Cvar_Get: NULL parameter
+  0x002D00D0  .rdata            FS_HandleForFile: none free
+  0x002D00F4  .rdata            FS_HandleForFile: all handles taken:
+  0x002D0184  .rdata            fs_game
+  0x002D018C  .rdata            fs_basepath
+  0x002D0198  .rdata            fs_cdpath
+  0x002D0218  .rdata            FS_FOpenFileRead: NULL 'filename' parameter passed
+  0x002D024C  .rdata            FS_FOpenFileRead: NULL 'file' parameter passed
+  0x002D027C  .rdata            FS_Read: Invalid handle %d
+  0x002D0298  .rdata            FS_Write: Cannot write to GOB files %d
+  0x002D02C0  .rdata            FS_ReadFile with empty name
+  0x002D02E0  .rdata            FS_FreeFile( NULL )
+  0x002D0364  .rdata            ----- FS_Startup -----
+  0x002D11D8  .rdata            S_HashName: empty name
+  0x002D11F0  .rdata            S_HashName: NULL
+  0x002D1204  .rdata            S_PickChannel: entchannel<0
+  0x002D1250  .rdata            ^3WARNING: Invalid format in %s
+  0x002D1274  .rdata            ^3WARNING: couldn't open music file %s
+  0x002D1430  .rdata            WARNING: Trying to play music file %s through S_StartSound!
+  0x002D1478  .rdata            S_StartAmbientSound: bad entitynum %i
+  0x002D14AC  .rdata            S_StartSound: bad entitynum %i
+  0x002D1574  .rdata            S_StartBackgroundTrack: Found dynamic music tracks
+  0x002D15B0  .rdata            S_StartBackgroundTrack: Found/using non-dynamic music track '%s'
+  0x002D1854  .rdata            DirectSound3D
+  0x002D1A4B  .rdata            >^1Error parsing music data ( in "%s" ):
+  0x002D1C40  .rdata            Error using GP to parse file
+  0x002D1DB8  .rdata            Error parsing file: Unexpected "LANG_"
+  0x002D1EF0  .rdata            SE_Load(): Couldn't load "%s"!
+  0x002D1F10  .rdata            Error: "%s"
+  0x002D22C4  .rdata            WARNING: GameState overflowed for %s
+  0x002D22EC  .rdata            SV_SendGameState() for %s
+  0x002D2308  .rdata            SV_ClientEnterWorld() from %s
+  0x002D2540  .rdata            SV_SvEntityForGentity: bad gEnt
+  0x002D2560  .rdata            SV_SetBrushModel: %s isn't a brush model (ent %d)
+  0x002D2594  .rdata            SV_SetBrushModel: NULL model for ent number %d
+  0x002D25C4  .rdata            SV_GetServerinfo: bufferSize == %i
+  0x002D2644  .rdata            SV_SetConfigstring: bad index %i
+  0x002D2668  .rdata            SV_GetConfigstring: bad index %i
+  0x002D268C  .rdata            SV_GetConfigstring: bufferSize == %i
+  0x002D26B4  .rdata            SV_SetUserinfo: bad index %i
+  0x002D26D4  .rdata            SV_GetUserinfo: bad index %i
+  0x002D26F4  .rdata            SV_GetUserinfo: bufferSize == %i
+  0x002D2718  .rdata            SV_Startup: svs.initialized
+  0x002D2780  .rdata            ------ Server Initialization ------
+  0x002D2828  .rdata            sv_fps
+  0x002D2884  .rdata            sv_maxclients
+  0x002D28F4  .rdata            SV_ReadPackets: fixing up a translated port
+  0x002D29A0  .rdata            SV_Frame: Truncating msec of %i to 1000
+  0x002D29E0  .rdata            Z:\Checkpoint.xsv
+  0x002D2A70  .rdata            ZLib Error: input Corrupted Data
+  0x002D2A94  .rdata            ZLib Error: not enough room in output buffer
+  0x002D2AC4  .rdata            ZLib Error: not enough memory
+  0x002D2BA0  .rdata            d:\base\media\defaultsaveimage.xbx
+  0x002D2E60  .rdata            xbox_error_popup
+  0x002D2F4C  .rdata            SV_QsortEntityStates: duplicated entity
+  0x002D2F98  .rdata            WARNING: msg overflowed for %s
+  0x002D2FB8  .rdata            WARNING: SV_UnlinkEntity: not found in worldSector
+  0x002D3014  .rdata            SV_AreaEntities: reached maxcount (%d)
+  0x002D31A4  .rdata            Sys_QueEvent: overflow
+  0x002D323C  .rdata            WARNING: List file %s not found
+  0x002D3278  .rdata            d:\base\
+  0x002D3304  .rdata            d:\base\soundbank\sound.tbl
+  0x002D3320  .rdata            d:\base\soundbank\sound.bnk
+  0x002D33E3  .rdata            <d:\base\media\settings.xbx
+  0x002D3410  .rdata            WARNING: TempAlloc pool full!
+  0x002D3674  .rdata            Initialising zone memory .....
+  0x002D36BC  .rdata            (Repeat): Z_Malloc(): %s : %d bytes and tag %d !!!!
+  0x002D36F4  .rdata            Z_Malloc(): %s : %d bytes and tag %d !!!!
+  0x002D3750  .rdata            Ghoul2 Model has no mdxa (gla) %s
+  0x002D3778  .rdata            Ghoul2 model was reloaded and has changed, map must be restarted.
+  0x002D37E4  .rdata            Out of ghoul2 info slots
+  0x002D3A58  .rdata            Ran out of transform space for Ghoul2 Models. Adjust MiniHeapSize in SV_SpawnServer.
+  0x002D3B9C  .rdata            WARNING: No Weather Zones Encountered
+  0x002D4288  .rdata            WARNING: light grid array mismatch
+  0x002D4393  .rdata            >RE_BeginFrame: Stereo is disabled, but stereoFrame was %i
+  0x002D43D0  .rdata            RE_BeginFrame: Stereo is enabled, but stereoFrame was %i
+  0x002D440C  .rdata            RE_BeginFrame() - glGetError() failed (0x%x)!
+  0x002D4838  .rdata            Z:\humanoidglaswap
+  0x002D484C  .rdata            Z:\cinematicglaswap
+  0x002D486E  .rdata            @@R_LoadMDXM: %s has more than %i triangles on a surface (%i)
+  0x002D48AC  .rdata            R_LoadMDXM: %s has more than %i verts on a surface (%i)
+  0x002D48EC  .rdata            R_LoadMDXM: %s has different bones than anim (%i != %i)
+  0x002D4928  .rdata            R_LoadMDXM: converting jk2 model %s
+  0x002D4950  .rdata            R_LoadMDXM: missing animation file %s for mesh %s
+  0x002D49EC  .rdata            R_LoadMDXM: %s has wrong version (%i should be %i)
+  0x002D4A2C  .rdata            R_LoadMDXA: %s has no frames
+  0x002D4A4C  .rdata            R_LoadMDXA: %s has wrong version (%i should be %i)
+  0x002D4B80  .rdata            WARNING: RE_RegisterSkin( '%s' ) more than %d surfaces!
+  0x002D4BC4  .rdata            WARNING: RE_RegisterSkin( '%s' ) failed to load!
+  0x002D4C40  .rdata            WARNING: RE_RegisterSkin( '%s' ) MAX_SKINS hit
+  0x002D4E54  .rdata            WARNING: reused image %s with mixed mipmap parm
+  0x002D4E90  .rdata            R_CreateImage: %s dimensions (%i x %i) not power of 2!
+  0x002D4EC8  .rdata            R_CreateImage: "%s" is too long
+  0x002D4F3C  .rdata            WARNING: cvar '%s' must be multiple of 2(%f)
+  0x002D4F6C  .rdata            WARNING: cvar '%s' out of range (%f > %f)
+  0x002D4F98  .rdata            WARNING: cvar '%s' out of range (%f < %f)
+  0x002D4FC8  .rdata            WARNING: cvar '%s' must be integral (%f)
+  0x002D4FF4  .rdata            GL_CheckErrors: %s
+  0x002D543C  .rdata            R_FogDistance_f: Invalid number of arguments to set distance
+  0x002D547C  .rdata            R_FogDistance_f: Current Distance: %.0f
+  0x002D54AE  .rdata             @R_FogDistance_f: World does not have a global fog
+  0x002D54E4  .rdata            R_FogDistance_f: World is not initialized
+  0x002D5510  .rdata            R_FogColor_f: Invalid number of arguments to set color
+  0x002D5548  .rdata            R_FogColor_f: Current Color: %0f %0f %0f
+  0x002D557E  .rdata            p?R_FogColor_f: World does not have a global fog
+  0x002D55B0  .rdata            R_FogColor_f: World is not initialized
+  0x002D5680  .rdata            r_modelpoolmegs
+  0x002D5794  .rdata            r_ghoul2unsquashaftersmooth
+  0x002D57B0  .rdata            r_ghoul2blendmultiplier
+  0x002D57C8  .rdata            r_ghoul2noblend
+  0x002D57D8  .rdata            r_ghoul2nolerp
+  0x002D57E8  .rdata            r_ghoul2timebase
+  0x002D57FC  .rdata            r_ghoul2unsquash
+  0x002D5810  .rdata            r_ghoul2animsmooth
+  0x002D5824  .rdata            r_noghoul2
+  0x002D5B70  .rdata            r_ignoreGLErrors
+  0x002D5BC0  .rdata            r_lodCurveError
+  0x002D5C68  .rdata            r_fullscreen
+  0x002D5C78  .rdata            r_mode
+  0x002D5F5C  .rdata            glGetError() = 0x%x
+  0x002D5F8F  .rdata            BWARNING: no light parms file found
+  0x002D5FF3  .rdata            ;(knNWARNING: recursive mirror/portal found
+  0x002D6040  .rdata            R_AddEntitySurfaces: Bad reType
+  0x002D6060  .rdata            R_AddEntitySurfaces: Bad modeltype
+  0x002D6098  .rdata            R_AddMD3Surfaces: no such frame %d to %d for '%s'
+  0x002D62C4  .rdata            R_LoadMD3: %s has more than %i triangles on a surface (%i)
+  0x002D6300  .rdata            R_LoadMD3: %s has more than %i verts on a surface (%i)
+  0x002D6338  .rdata            R_LoadMD3: %s has no frames
+  0x002D6358  .rdata            R_LoadMD3: %s has wrong version (%i should be %i)
+  0x002D63FC  .rdata            R_LoadMD3: %s has LOD %d but is missing LOD %d ('%s')!
+  0x002D6444  .rdata            RE_RegisterModel: R_AllocModel() failed for '%s'
+  0x002D64FC  .rdata            R_RenderScene: NULL worldmodel
+  0x002D66C1  .rdata            Q8=Raven Software
+  0x002D6B14  .rdata            WARNING: missing vector element in shader '%s'
+  0x002D6B44  .rdata            WARNING: missing parenthesis in shader '%s'
+  0x002D6B74  .rdata            WARNING: invalid alphaFunc name '%s' in shader '%s'
+  0x002D6BC8  .rdata            WARNING: unknown blend mode '%s' in shader '%s', substituting GL_ONE
+  0x002D6CD8  .rdata            WARNING: invalid genfunc name '%s' in shader '%s'
+  0x002D6D50  .rdata            WARNING: missing waveform parm in shader '%s'
+  0x002D6D80  .rdata            WARNING: unknown tcMod '%s' in shader '%s'
+  0x002D6DBC  .rdata            WARNING: missing tcMod rotate parms in shader '%s'
+  0x002D6DF8  .rdata            WARNING: missing transform parms in shader '%s'
+  0x002D6E38  .rdata            WARNING: missing stretch parms in shader '%s'
+  0x002D6E70  .rdata            WARNING: missing scale scroll parms in shader '%s'
+  0x002D6EAC  .rdata            WARNING: missing scale parms in shader '%s'
+  0x002D6EE4  .rdata            WARNING: missing tcMod turb in shader '%s'
+  0x002D6F10  .rdata            WARNING: missing tcMod turb parms in shader '%s'
+  0x002D6F7C  .rdata            WARNING: invalid type in shader '%s'
+  0x002D6FAF  .rdata            ?WARNING: invalid fadedist (%f < 32) in shader '%s'
+  0x002D6FE4  .rdata            WARNING: missing surfaceSprites params in shader '%s'
+  0x002D701C  .rdata            WARNING: invalid density in shader '%s'
+  0x002D7048  .rdata            WARNING: invalid height in shader '%s'
+  0x002D7070  .rdata            WARNING: invalid width in shader '%s'
+  0x002D70C8  .rdata            WARNING: invalid optional surfacesprite param '%s' in shader '%s'
+  0x002D7110  .rdata            WARNING: weather applied to non-effect surfacesprite in shader '%s'
+  0x002D7164  .rdata            WARNING: invalid surfacesprite fxalpha start in shader '%s'
+  0x002D71A4  .rdata            WARNING: invalid surfacesprite fxalpha end in shader '%s'
+  0x002D71E0  .rdata            WARNING: missing surfacesprite fxalpha end in shader '%s'
+  0x002D721C  .rdata            WARNING: missing surfacesprite fxalpha start in shader '%s'
+  0x002D726C  .rdata            WARNING: invalid surfacesprite grow height in shader '%s'
+  0x002D72A8  .rdata            WARNING: missing surfacesprite grow height in shader '%s'
+  0x002D72E4  .rdata            WARNING: invalid surfacesprite grow width in shader '%s'
+  0x002D7320  .rdata            WARNING: missing surfacesprite grow width in shader '%s'
+  0x002D7368  .rdata            WARNING: invalid surfacesprite duration in shader '%s'
+  0x002D73A0  .rdata            WARNING: missing surfacesprite duration in shader '%s'
+  0x002D73E8  .rdata            WARNING: invalid surfacesprite vertskew in shader '%s'
+  0x002D7420  .rdata            WARNING: missing surfacesprite vertskew in shader '%s'
+  0x002D7464  .rdata            WARNING: invalid surfacesprite windidle in shader '%s'
+  0x002D749C  .rdata            WARNING: missing surfacesprite windidle in shader '%s'
+  0x002D74E0  .rdata            WARNING: invalid surfacesprite wind in shader '%s'
+  0x002D7514  .rdata            WARNING: missing surfacesprite wind in shader '%s'
+  0x002D7550  .rdata            WARNING: Faceup facing overrides previous facing in shader '%s'
+  0x002D75A0  .rdata            WARNING: Anyangle facing overrides previous facing in shader '%s'
+  0x002D75F0  .rdata            WARNING: Hangdown facing overrides previous facing in shader '%s'
+  0x002D7640  .rdata            WARNING: invalid surfacesprite variance height in shader '%s'
+  0x002D7680  .rdata            WARNING: missing surfacesprite variance height in shader '%s'
+  0x002D76C0  .rdata            WARNING: invalid surfacesprite variance width in shader '%s'
+  0x002D7700  .rdata            WARNING: missing surfacesprite variance width in shader '%s'
+  0x002D774C  .rdata            WARNING: missing surfacesprite fadescale in shader '%s'
+  0x002D7798  .rdata            WARNING: invalid surfacesprite fademax (%.2f <= fadeDist(%.2f)) in shader '%s'
+  0x002D77E8  .rdata            WARNING: missing surfacesprite fademax in shader '%s'
+  0x002D782C  .rdata            WARNING: missing parameter for '%s' keyword in shader '%s'
+  0x002D7868  .rdata            WARNING: unknown parameter '%s' in shader '%s'
+  0x002D7898  .rdata            WARNING: missing parameter for 'depthfunc' keyword in shader '%s'
+  0x002D78E0  .rdata            WARNING: missing parameter for 'alphaFunc' keyword in shader '%s'
+  0x002D7928  .rdata            WARNING: missing parameter for 'bumpmap' keyword in shader '%s'
+  0x002D7970  .rdata            WARNING: missing parameter for 'videoMap' keyword in shader '%s'
+  0x002D79B8  .rdata            WARNING: missing parameter for 'clampmap' keyword in shader '%s'
+  0x002D7A00  .rdata            WARNING: missing parameter for 'specularmap' keyword in shader '%s'
+  0x002D7A48  .rdata            WARNING: missing parameter for 'map' keyword in shader '%s'
+  0x002D7A88  .rdata            WARNING: no matching '}' found
+  0x002D7AA8  .rdata            WARNING: unknown texgen parm in shader '%s'
+  0x002D7B00  .rdata            WARNING: missing texgen parm in shader '%s'
+  0x002D7B70  .rdata            WARNING: unknown alphaGen parameter '%s' in shader '%s'
+  0x002D7BB0  .rdata            WARNING: missing range parameter for alphaGen portal in shader '%s', defaulting to 256
+  0x002D7C3E  .rdata            o@WARNING: missing parameters for alphaGen in shader '%s'
+  0x002D7E20  .rdata            WARNING: missing parameters for rgbGen in shader '%s'
+  0x002D7E74  .rdata            WARNING: missing parm for blendFunc in shader '%s'
+  0x002D7EB4  .rdata            WARNING: unknown depthfunc '%s' in shader '%s'
+  0x002D7F68  .rdata            WARNING: R_FindImageFile could not find '%s' in shader '%s'
+  0x002D7FD0  .rdata            WARNING: unknown deformVertexes subtype '%s' found in shader '%s'
+  0x002D8028  .rdata            WARNING: illegal div value of 0 in deformVertexes command for shader '%s'
+  0x002D8074  .rdata            WARNING: missing deformVertexes parm in shader '%s'
+  0x002D80AC  .rdata            WARNING: missing deformVertexes bulge parm in shader '%s'
+  0x002D8124  .rdata            WARNING: MAX_SHADER_DEFORMS in '%s'
+  0x002D814C  .rdata            WARNING: missing deform parm in shader '%s'
+  0x002D817C  .rdata            WARNING: in shader '%s' 'skyParms', innerbox is not supported!
+  0x002D81BC  .rdata            WARNING: 'skyParms' missing cloudheight in shader '%s'
+  0x002D81F4  .rdata            WARNING: 'skyParms' missing parameter in shader '%s'
+  0x002D82BC  .rdata            WARNING: missing sort parameter in shader '%s'
+  0x002D82EC  .rdata            ^3WARNING: missing material in shader '%s'
+  0x002D8318  .rdata            WARNING: no concluding '}' in shader %s
+  0x002D8344  .rdata            WARNING: unknown general shader parameter '%s' in '%s'
+  0x002D839C  .rdata            WARNING: invalid cull parm '%s' in shader '%s'
+  0x002D83F8  .rdata            WARNING: missing cull parms in shader '%s'
+  0x002D8440  .rdata            WARNING: missing parm for 'fogParms' keyword in shader '%s'
+  0x002D8538  .rdata            WARNING: expecting '{', found '%s' instead in shader '%s'
+  0x002D85C0  .rdata            WARNING: GeneratePermanentShader - MAX_SHADERS (%d) hit (overflowed by %d)
+  0x002D86D4  .rdata            WARNING: Couldn't find image for shader %s
+  0x002D8734  .rdata            R_GetShaderByHandle: out of range hShader '%d'
+  0x002D87D0  .rdata            WARNING: no shader files found
+  0x002D8E6F  .rdata            ?R_PointInLeaf: bad model
+  0x002D8F34  .rdata            GLimp_Init() - Invalid GL Driver
+  0x002D8F80  .rdata            D:\base\media\extracthot.xpu
+  0x002D8FA0  .rdata            D:\base\media\hotblur.xpu
+  0x002D8FD7  .rdata            =D:\base\media\diffspec.dds
+  0x002D8FF4  .rdata            D:\base\media\defaultbump.dds
+  0x002D9014  .rdata            D:\base\media\bump.xpu
+  0x002D902C  .rdata            D:\base\media\specular_static.xpu
+  0x002D9050  .rdata            D:\base\media\specular_dynamic.xpu
+  0x002D9074  .rdata            D:\base\media\dlight.xpu
+  0x002D9090  .rdata            D:\base\media\environment.xvu
+  0x002D90B0  .rdata            D:\base\media\bump.xvu
+  0x002D90C8  .rdata            D:\base\media\specular_static.xvu
+  0x002D90EC  .rdata            D:\base\media\specular_dynamic.xvu
+  0x002D9110  .rdata            D:\base\media\dlight.xvu
+  0x002D91BC  .rdata            Vicarious Visions
+  0x002D91E8  .rdata            Z:\saveimage.xbx
+  0x002D920C  .rdata            Z:\screenshot.xbx
+  0x002D9260  .rdata            D:\base\media\shadow.xvu
+  0x002D927C  .rdata            WARNING: MAX_EDGE_DEFS overflow!
+  0x002D96F8  .rdata            g_char_model
+  0x002D973E  .rdata            a?Bad UI_API_VERSION: expected %i, got %i
+  0x002D9C0C  .rdata            ui_char_model
+  0x002DAA14  .rdata            @MENUS_T1_FATAL
+  0x002DB3B0  .rdata            UI_ParseAnimationFile: File %s too long
+  0x002DB3F8  .rdata            UI_ParseAnimFileSet: %d == MAX_ANIM_FILES == %d
+  0x002DB500  .rdata            UI_BuildPlayerModel_List: Errors parsing '%s'
+  0x002DB574  .rdata            UI_ParseMenu: Unable to load menu %s
+  0x002DBC80  .rdata            ui_r_mode
+  0x002DBFF4  .rdata            ui_r_fullscreen
+  0x002DC318  .rdata            UI_UpdateCharacterSkin: Could not find item (character) in menu (%s)
+  0x002DC36C  .rdata            UI_UpdateSaberHilt: Could not find item (%s) in menu (%s)
+  0x002DC3C8  .rdata            ^3WARNING: No videoMenu was found. Video data could not be checked
+  0x002DC7EC  .rdata            error_popmenu
+  0x002DC908  .rdata            uiscript genericpopup saving ; delay 1 ;  uiScript deletegame ; uiScript savegame ; defer always ; close xbox_error_popu
+  0x002DCA20  .rdata            UI_UpdateCharacter: Could not find item (character) in menu (%s)
+  0x002DCD14  .rdata            xboxErrorResponse
+  0x002DD4C0  .rdata            clearError
+  0x002DD778  .rdata            UI_SaberLoadParms: ran out of space before reading %s
+  0x002DD7D8  .rdata            UI_SaberLoadParms: error reading %s
+  0x002DE250  .rdata            ITEM_TYPE_RADIOBUTTON
+  0x002DE2D0  .rdata            WINDOW_STYLE_GRADIENT
+  0x002E4860  .rdata            ^3WARNING: item has neither name or group
+  0x002E4890  .rdata            ^3WARNING: Menu_SetItemDecorationByName - unable to locate any items named :%s
+  0x002E48E0  .rdata            ^3WARNING: Menu_ShowItemByName - unable to locate any items named :%s
+  0x002E492B  .rdata            ?^3WARNING: %s Line #%d of File '%s'
+  0x002E4987  .rdata            ?^3WARNING: No menu was found. Could not show items.
+  0x002E4B40  .rdata            WARNING: Ran out of strPool space
+  0x002E4B64  .rdata            ^3WARNING: Script_Delay: error parsing
+  0x002E4EA4  .rdata            Error parsing cvarIfEqual
+  0x002E4EC0  .rdata            ^3WARNING: Script_Transition: error parsing '%s'
+  0x002E4EF4  .rdata            ^3WARNING: Script_Transition2: error parsing '%s'
+  0x002E5004  .rdata            ^3WARNING: Menus_ActivateByName: Unable to find menu '%s'
+  0x002E5098  .rdata            d:\base\media\LicenseScreen
+  0x002E50B4  .rdata            d:\base\media\LoadMP
+  0x002E50CC  .rdata            d:\base\media\LoadSP
+  0x002E50E4  .rdata            d:\base\media\DiscErr
+  0x002E5324  .rdata            \Device\Harddisk0\Partition%d\
+  0x002E534C  .rdata            \Device\Harddisk0\partition0
+  0x002E5394  .rdata            \Device\Cdrom0
+  0x002E53E4  .rdata            \Device\Harddisk0\partition1\UDATA
+  0x002E5410  .rdata            \Device\Harddisk0\partition1\TDATA
+  0x002E543C  .rdata            \Device\Harddisk0\partition1\
+  0x002E545C  .rdata            \Device\CdRom0
+  0x002E5584  .rdata            \Device\Cdrom0
+  0x002E55C0  .rdata            y:\xboxdash.xbe
+  0x002E5724  .rdata            T:\$C\%08X%08X
+  0x002E5937  .rdata            ?Unable to open file (%s):  error %x
+  0x002E5B74  .rdata            Not a Bink file.
+  0x002E5B88  .rdata            Error opening file.
+  0x002EACFC  .rdata            CG_DrawActive: Undefined stereoView
+  0x002EB840  .rdata            cg_errordecay
+  0x002EBBEC  .rdata            CG_ConfigString: bad index: %i
+  0x002EBF90  .rdata            CG_RegisterEffects: %i Effects failed to load.  Please fix, or ask Aurelio.
+  0x002EDB20  .rdata            g_delayedShutdown
+  0x002EDC50  .rdata            ------- Game Initialization -------
+  0x002EDD14  .rdata            Game Errors. Scroll up the console to read them.
+  0x002EED64  .rdata            SET_RENDER_CULL_RADIUS
+  0x002F0460  .rdata            ^3WARNING: %s
+  0x002F37C0  .rdata            Q3_SetStartFrame: invalid entID %d
+  0x002F37E4  .rdata            Q3_SetEndFrame: command not valid on players/NPCs!
+  0x002F3818  .rdata            Q3_SetEndFrame: invalid entID %d
+  0x002F3840  .rdata            Q3_SetAnimFrame: value must be valid number between StartFrame and EndFrame.
+  0x002F3890  .rdata            Q3_SetAnimFrame: command not valid on players/NPCs!
+  0x002F38C8  .rdata            Q3_SetAnimFrame: invalid entID %d
+  0x002F4C74  .rdata            error reading file
+  0x002F5514  .rdata            ^3WARNING: Event out of range on %s in %s
+  0x002F5540  .rdata            ^3WARNING: Unknown ANIM %s in file %s
+  0x002F59B4  .rdata            NPC_LoadParms: error reading file %s
+  0x002F5B18  .rdata            ^1WARNING: Unable to use skin (%s)
+  0x002F5B3C  .rdata            WARNING: unknown keyword '%s' while parsing '%s'
+  0x002F5B7C  .rdata            ^3WARNING: bad saber2Radius '%s' in %s
+  0x002F5BB4  .rdata            ^3WARNING: bad saberRadius '%s' in %s
+  0x002F5BDC  .rdata            ^3WARNING: bad saber2Length '%s' in %s
+  0x002F5C14  .rdata            ^3WARNING: bad saberLength '%s' in %s
+  0x002F5C3C  .rdata            ^3WARNING: bad saber2Color '%s' in %s
+  0x002F5C70  .rdata            ^3WARNING: bad saberColor '%s' in %s
+  0x002F5ED8  .rdata            ^3WARNING: bad %s in NPC '%s'
+  0x002F5FF0  .rdata            WARNING: More than one point named (%s).  Going to first one./n
+  0x002F75A0  .rdata            endFrame
+  0x002F79A0  .rdata            Errors loading map, check the console for them.
+  0x002F7A54  .rdata            ^1Error: "%s" has an invalid ROFF framerate (%d < 50)
+  0x002F7B37  .rdata            ?CG_AddCEntity: cg.nextSnap == NULL
+  0x002F7ED0  .rdata            CG_FireWeapon: ent->weapon >= WP_NUM_WEAPONS
+  0x002F819C  .rdata            sound/weapons/detpack/warning.wav
+  0x002F8244  .rdata            sound/weapons/laser_trap/warning.wav
+  0x002F82A4  .rdata            sound/weapons/thermal/warning.wav
+  0x002F8E68  .rdata            WP_SaberLoadParms: error reading %s
+  0x002F8F54  .rdata            BG_CanItemBeGrabbed: index out of range
+  0x002FB057  .rdata            ?CG_DrawSkyBoxPortal: error parsing skybox configstring.  No fog state
+  0x002FB0A0  .rdata            CG_DrawSkyBoxPortal: error parsing skybox configstring.  No fog[2]
+  0x002FB0E8  .rdata            CG_DrawSkyBoxPortal: error parsing skybox configstring.  No fog[1]
+  0x002FB130  .rdata            CG_DrawSkyBoxPortal: error parsing skybox configstring.  No fog[0]
+  0x002FB174  .rdata            CG_DrawSkyBoxPortal: error parsing skybox configstring
+  0x002FB7F8  .rdata            T1_FATAL_OBJ6
+  0x002FB808  .rdata            T1_FATAL_OBJ5
+  0x002FB818  .rdata            T1_FATAL_OBJ4
+  0x002FB828  .rdata            T1_FATAL_OBJ3
+  0x002FB838  .rdata            T1_FATAL_OBJ2
+  0x002FB848  .rdata            T1_FATAL_OBJ1
+  0x002FBDC4  .rdata            CG_FreeLocalEntity: not active
+  0x002FBDE4  .rdata            CG_ImpactMark called with <= 0 radius
+  0x002FC044  .rdata            theFxHelper.mFrameTime = %i
+  0x002FC188  .rdata            FxScheduler:  Error--too many primitives in an effect
+  0x002FC220  .rdata            FxScheduler:  Error--reached max effects
+  0x002FC3C0  .rdata            CG_LCARSText() being called. Tell Ste
+  0x002FCB08  .rdata            WARNING: bad itemname in external item data '%s'
+  0x002FD0B8  .rdata            WARNING: weaponclass too long in external ITEMS.DAT '%s'
+  0x002FD0F4  .rdata            WARNING: world model too long in external ITEMS.DAT '%s'
+  0x002FD130  .rdata            WARNING: bad tagname in external item data '%s'
+  0x002FD270  .rdata            WARNING: icon too long in external ITEMS.DAT '%s'
+  0x002FD2A4  .rdata            WARNING: bad Count in external item data '%d'
+  0x002FD2D4  .rdata            WARNING: Pickup Sound too long in external ITEMS.DAT '%s'
+  0x002FD6A4  .rdata            WARNING: trigger_location with no message!
+  0x00300168  .rdata            NULL PS in BG_FighterUpdate (%s)
+  0x003003F4  .rdata            ^1Error, Expected:
+  0x0030046C  .rdata            ^1NPC_Kill Error: 'npc kill team' requires a team name!
+  0x003004D4  .rdata            ^1NPC_Kill Error: team '%s' not recognized
+  0x00300C00  .rdata            ^1Error, expected:
+  0x00300C4C  .rdata            ^1Error, expected:
+  0x00300C88  .rdata            ^1NPC_Spawn Error: Out of entities!
+  0x003034CC  .rdata            ^3WARNING: bad weapontype in external weapon data '%s'
+  0x00303504  .rdata            ^3WARNING: weaponclass too long in external WEAPONS.DAT '%s'
+  0x00303544  .rdata            ^3WARNING: weaponMdl too long in external WEAPONS.DAT '%s'
+  0x00303580  .rdata            ^3WARNING: weaponIcon too long in external WEAPONS.DAT '%s'
+  0x003035C0  .rdata            ^3WARNING: bad Ammotype in external weapon data '%d'
+  0x003035F8  .rdata            ^3WARNING: bad Ammolowcount in external weapon data '%d'
+  0x00303634  .rdata            ^3WARNING: firingSnd too long in external WEAPONS.DAT '%s'
+  0x00303670  .rdata            ^3WARNING: altFiringSnd too long in external WEAPONS.DAT '%s'
+  0x003036B0  .rdata            ^3WARNING: stopSnd too long in external WEAPONS.DAT '%s'
+  0x003036EC  .rdata            ^3WARNING: chargeSnd too long in external WEAPONS.DAT '%s'
+  0x00303728  .rdata            ^3WARNING: altChargeSnd too long in external WEAPONS.DAT '%s'
+  0x00303768  .rdata            ^3WARNING: selectSnd too long in external WEAPONS.DAT '%s'
+  0x003037A4  .rdata            ^3WARNING: firingFrc too long in external WEAPONS.DAT '%s'
+  0x003037E0  .rdata            ^3WARNING: altFiringFrc too long in external WEAPONS.DAT '%s'
+  0x00303820  .rdata            ^3WARNING: chargeFrc too long in external WEAPONS.DAT '%s'
+  0x0030385C  .rdata            ^3WARNING: altChargeFrc too long in external WEAPONS.DAT '%s'
+  0x0030389C  .rdata            ^3WARNING: stopFrc too long in external WEAPONS.DAT '%s'
+  0x003038D8  .rdata            ^3WARNING: selectFrc too long in external WEAPONS.DAT '%s'
+  0x00303914  .rdata            ^3WARNING: bad Firetime in external weapon data '%d'
+  0x0030394C  .rdata            ^3WARNING: bad Range in external weapon data '%d'
+  0x00303980  .rdata            ^3WARNING: bad EnergyPerShot in external weapon data '%d'
+  0x003039BC  .rdata            ^3WARNING: bad altFireTime in external weapon data '%d'
+  0x003039F8  .rdata            ^3WARNING: bad AltRange in external weapon data '%d'
+  0x00303A30  .rdata            ^3WARNING: bad AltEnergyPerShot in external weapon data '%d'
+  0x00303A70  .rdata            ^3WARNING: bad ammotype in external weapon data '%s'
+  0x00303AB4  .rdata            ^3WARNING: ammoicon too long in external WEAPONS.DAT '%s'
+  0x00303AF0  .rdata            ^3WARNING: bad Ammo Max in external weapon data '%d'
+  0x00303B28  .rdata            ^3WARNING: MissileName too long in external WEAPONS.DAT '%s'
+  0x00303B68  .rdata            ^3WARNING: AltMissileName too long in external WEAPONS.DAT '%s'
+  0x00303BB0  .rdata            ^3WARNING: MissileHitSound too long in external WEAPONS.DAT '%s'
+  0x00303BF8  .rdata            ^3WARNING: AltMissileHitSound too long in external WEAPONS.DAT '%s'
+  0x00303C40  .rdata            ^3WARNING: MissileSound too long in external WEAPONS.DAT '%s'
+  0x00303C80  .rdata            ^3WARNING: AltMissileSound too long in external WEAPONS.DAT '%s'
+  0x00303CC4  .rdata            ^3WARNING: bad missilelightcolor in external weapon data '%f'
+  0x00303D08  .rdata            ^3WARNING: bad altmissilelightcolor in external weapon data '%f'
+  0x00303D4C  .rdata            ^3WARNING: bad missilelight in external weapon data '%f'
+  0x00303D88  .rdata            ^3WARNING: bad altmissilelight in external weapon data '%f'
+  0x00303DC8  .rdata            ^3WARNING: FuncName '%s' in external WEAPONS.DAT does not exist
+  0x00303E0C  .rdata            ^3WARNING: FuncName '%s' too long in external WEAPONS.DAT
+  0x00303E48  .rdata            ^3WARNING: AltFuncName %s in external WEAPONS.DAT does not exist
+  0x00303E8C  .rdata            ^3WARNING: AltFuncName '%s' too long in external WEAPONS.DAT
+  0x00303ECC  .rdata            ^3WARNING: MuzzleEffect '%s' too long in external WEAPONS.DAT
+  0x00303F10  .rdata            ^3WARNING: AltMuzzleEffect '%s' too long in external WEAPONS.DAT
+  0x00303F90  .rdata            CG_TransitionSnapshot: NULL cg.nextSnap
+  0x00303FB8  .rdata            CG_TransitionSnapshot: NULL cg.snap
+  0x00304000  .rdata            CG_ProcessSnapshots: cg.nextSnap->serverTime <= cg.time
+  0x00304038  .rdata            CG_ProcessSnapshots: cg.snap->serverTime > cg.time
+  0x0030406C  .rdata            CG_ProcessSnapshots: n < cg.latestSnapshotNum
+  0x00304128  .rdata            ghoul2Decals
+  0x00304138  .rdata            ghoul2Collision
+  0x003055F8  .rdata            error : unable to allocate a new task group
+  0x00305890  .rdata            A security error of unknown cause has been detected which has
+  0x00306230  .rdata            runtime error 
+  0x00306240  .rdata            TLOSS error
+  0x00306250  .rdata            SING error
+  0x0030625C  .rdata            DOMAIN error
+  0x00306422  .rdata            - unexpected heap error
+  0x00306442  .rdata            - unexpected multithread lock error
+  0x0030C620  .data             .?AVlogic_error@std@@
+  0x0030C660  .data             .?AVlength_error@std@@
+  0x00470B94  .data             \Device\Harddisk0\Partition2\
+  0x00470BB4  .data             \Device\Harddisk0\Partition1\TDATA\%08x\$u\%s
+  0x004711E0  .data             \Device\Harddisk0\Partition1\devkit\xbmovie.dat
+  0x00471A90  .data             FrameTransformMatrix
+  0x00471AE4  .data             Frame
+  0x00473634  .data             \Device\Harddisk0\Partition2\
+  0x00473664  .data             \Device\Harddisk0\Partition1\TDATA\%08x\$u\%s
+  0x00C20F70  XON_RD            \Device\Cdrom0\XODASH
+  0x00C20F88  XON_RD            \Device\Cdrom0\XODash\xonlinedash.xbe
+  0x00C20FB0  XON_RD            \Device\Harddisk0\partition2\XODash
+  0x00C20FD4  XON_RD            \Device\Harddisk0\partition2\XODash\xonlinedash.xbe
+  0x00C21434  XON_RD            \Device\Harddisk0\partition1\CACHE\LocalCache%02d.bin
+  0x00C2146C  XON_RD            \Device\Harddisk0\partition1\CACHE\
+  0x00C21588  XON_RD            UPnPError
