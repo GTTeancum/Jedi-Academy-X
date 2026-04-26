@@ -1,0 +1,400 @@
+
+========================================================================
+=== Input string search ===
+========================================================================
+  "controller" in D3DX @ 0x0026EADA
+  "Controller" in .rdata @ 0x002CFBE0
+    xref @ 0x00023B02  fn ~ 0x000237A8
+    xref @ 0x00023B03  fn ~ 0x000237A8
+    xref @ 0x00043B72  fn ~ ???
+    xref @ 0x00043B73  fn ~ ???
+  "Controller" in .rdata @ 0x002D312A
+  "Controller" in .rdata @ 0x002D3139
+  "Controller" in .rdata @ 0x002D3155
+
+========================================================================
+=== XONLINE section (may contain XInput) ===
+========================================================================
+  XONLINE: VA=0x002AEAE0 vsz=0x00008974 roff=0x002A6000
+
+========================================================================
+XONLINE_start  @ 0x002AEAE0
+========================================================================
+  0x002AEAE0:  mov      ecx, dword ptr [0x8c9780]
+  0x002AEAE6:  jmp      0x2af54e
+  0x002AEAEB:  push     ebp
+  0x002AEAEC:  mov      ebp, esp
+  0x002AEAEE:  sub      esp, 0x1ec
+  0x002AEAF4:  mov      eax, dword ptr [ebp + 8]
+  0x002AEAF7:  push     ebx
+  0x002AEAF8:  push     edi
+  0x002AEAF9:  xor      edi, edi
+  0x002AEAFB:  cmp      eax, edi
+  0x002AEAFD:  mov      ebx, ecx
+  0x002AEAFF:  je       0x2aeb0a
+  0x002AEB01:  mov      eax, dword ptr [eax]
+  0x002AEB03:  cmp      eax, edi
+  0x002AEB05:  je       0x2aeb0a
+  0x002AEB07:  push     eax
+  0x002AEB08:  jmp      0x2aeb0f
+  0x002AEB0A:  push     0x20000
+  0x002AEB0F:  push     0x1000
+  0x002AEB14:  push     edi
+  0x002AEB15:  call     0xc25d1  -> .text 0x000C25D1
+  0x002AEB1A:  cmp      eax, edi
+  0x002AEB1C:  mov      dword ptr [ebx + 0x8c], eax
+  0x002AEB22:  jne      0x2aeb2e
+  0x002AEB24:  mov      eax, 0x8007000e
+  0x002AEB29:  jmp      0x2aec45
+  0x002AEB2E:  mov      eax, dword ptr [0x10118]
+  0x002AEB33:  mov      ecx, dword ptr [eax + 8]
+  0x002AEB36:  mov      dword ptr [ebx + 4], ecx
+  0x002AEB39:  mov      ecx, dword ptr [eax + 0xac]
+  0x002AEB3F:  mov      dword ptr [ebx + 8], ecx
+  0x002AEB42:  mov      ecx, dword ptr [eax + 0xa0]
+  0x002AEB48:  mov      dword ptr [ebx + 0xc], ecx
+  0x002AEB4B:  mov      eax, dword ptr [eax + 0x1d4]
+  0x002AEB51:  cmp      eax, edi
+  0x002AEB53:  je       0x2aeb58
+  0x002AEB55:  mov      dword ptr [ebx + 0x10], eax
+  0x002AEB58:  lea      eax, [ebx + 0x580]
+  0x002AEB5E:  push     esi
+  0x002AEB5F:  lea      esi, [ebx + 0x10]
+  0x002AEB62:  mov      dword ptr [ebp + 8], eax
+  0x002AEB65:  cmp      byte ptr [esi], 0
+  0x002AEB68:  mov      eax, 0x2cdad1
+  0x002AEB6D:  je       0x2aeb74
+  0x002AEB6F:  mov      eax, 0x2d11bc
+  0x002AEB74:  push     esi
+  0x002AEB75:  push     eax
+  0x002AEB76:  push     dword ptr [edi + 0x473628]
+  0x002AEB7C:  push     0x18
+  0x002AEB7E:  push     dword ptr [ebp + 8]
+  0x002AEB81:  call     0x2b459a  -> XONLINE 0x002B459A
+  0x002AEB86:  add      dword ptr [ebp + 8], 0x44
+  0x002AEB8A:  add      edi, 4
+  0x002AEB8D:  add      esp, 0x14
+  0x002AEB90:  cmp      edi, 0xc
+  0x002AEB93:  jb       0x2aeb65
+  0x002AEB95:  call     0x2b7460  -> XNET 0x002B7460
+  0x002AEB9A:  cmp      eax, -1
+  0x002AEB9D:  mov      dword ptr [ebx + 0x88], eax
+  0x002AEBA3:  jne      0x2aebaf
+  [60 insns]
+  XPP: VA=0x002C57E0 vsz=0x000077E4
+
+========================================================================
+XPP_start  @ 0x002C57E0
+========================================================================
+  0x002C57E0:  add      byte ptr [eax], al
+  0x002C57E2:  add      byte ptr [eax], al
+  0x002C57E4:  dec      eax
+  0x002C57E5:  pop      eax
+  0x002C57E6:  sub      al, 0
+  0x002C57E8:  nop      
+  0x002C57E9:  pop      eax
+  0x002C57EA:  sub      al, 0
+  0x002C57EC:  add      byte ptr [eax], al
+  0x002C57EE:  add      byte ptr [eax], al
+  0x002C57F0:  add      byte ptr [eax], al
+  0x002C57F2:  add      byte ptr [eax], al
+  0x002C57F4:  push     eax
+  0x002C57F5:  pop      ecx
+  0x002C57F6:  sub      al, 0
+  0x002C57F8:  rcr      byte ptr [eax + 0x2c], 0
+  0x002C57FC:  fcomp    dword ptr [eax + 0x2c]
+  0x002C57FF:  add      byte ptr [eax], cl
+  0x002C5801:  pop      ecx
+  0x002C5802:  sub      al, 0
+  0x002C5804:  add      byte ptr [eax], al
+  0x002C5806:  add      byte ptr [eax], al
+  0x002C5808:  add      byte ptr [eax], al
+  0x002C580A:  add      byte ptr [eax], al
+  0x002C580C:  add      byte ptr [eax], al
+  0x002C580E:  add      byte ptr [eax], al
+  0x002C5810:  add      byte ptr [eax], al
+  0x002C5812:  add      byte ptr [eax], al
+  0x002C5814:  add      byte ptr [eax], al
+  0x002C5816:  add      byte ptr [eax], al
+  0x002C5818:  add      byte ptr [eax], al
+  0x002C581A:  add      byte ptr [eax], al
+  0x002C581C:  add      byte ptr [eax], al
+  0x002C581E:  add      byte ptr [eax], al
+  0x002C5820:  add      byte ptr [eax], al
+  0x002C5822:  add      byte ptr [eax], al
+  0x002C5824:  add      byte ptr [eax], al
+  0x002C5826:  add      byte ptr [eax], al
+  0x002C5828:  add      byte ptr [eax], al
+  0x002C582A:  add      byte ptr [eax], al
+  0x002C582C:  add      byte ptr [eax], al
+  0x002C582E:  add      byte ptr [eax], al
+  0x002C5830:  adc      bl, byte ptr [eax + ebx*2]
+  0x002C5833:  sub      al, 0
+  0x002C5835:  add      byte ptr [eax], al
+  0x002C5837:  add      byte ptr [eax], al
+  0x002C5839:  add      byte ptr [eax], al
+  0x002C583B:  add      byte ptr [eax + edi], al
+  0x002C583E:  pop      eax
+  0x002C583F:  sub      al, 0
+  0x002C5841:  add      byte ptr [eax], al
+  0x002C5843:  add      byte ptr [ecx], al
+  0x002C5845:  or       byte ptr [eax], al
+  0x002C5847:  add      byte ptr [ecx], al
+  0x002C5849:  add      al, 0
+  0x002C584B:  add      byte ptr [eax], dl
+  0x002C584D:  pop      eax
+  0x002C584E:  sub      al, 0
+  0x002C5850:  xor      byte ptr [eax + 0x2c], bl
+  0x002C5853:  add      byte ptr [eax + ebx*2], bh
+  0x002C5856:  sub      al, 0
+  0x002C5858:  inc      esp
+  0x002C5859:  pop      eax
+  0x002C585A:  sub      al, 0
+  0x002C585C:  add      byte ptr [eax], al
+  0x002C585E:  add      byte ptr [eax], al
+  0x002C5860:  add      byte ptr [eax], al
+  0x002C5862:  add      byte ptr [eax], al
+  0x002C5864:  add      byte ptr [eax], al
+  0x002C5866:  add      byte ptr [eax], al
+  0x002C5868:  add      byte ptr [eax], al
+  0x002C586A:  add      byte ptr [eax], al
+  0x002C586C:  in       eax, dx
+  0x002C586D:  insb     byte ptr es:[edi], dx
+  0x002C586E:  sub      al, 0
+  0x002C5870:  add      byte ptr [eax], al
+  0x002C5872:  add      byte ptr [eax], al
+  0x002C5874:  add      byte ptr [eax], al
+  0x002C5876:  add      byte ptr [eax], al
+  0x002C5878:  add      byte ptr [eax], al
+  [80 insns]
+
+========================================================================
+=== Discovered input fn anchors: 1 ===
+========================================================================
+  0x000237A8  IN_Controller
+
+========================================================================
+IN_Controller  @ 0x000237A8
+========================================================================
+  0x000237A8:  sub      esp, 8
+  0x000237AB:  push     ebx
+  0x000237AC:  push     esi
+  0x000237AD:  push     edi
+  0x000237AE:  mov      dword ptr [ebp - 0x10], esp
+  0x000237B1:  mov      dword ptr [ebp - 4], 0
+  0x000237B8:  call     0xc07b0  -> .text 0x000C07B0
+  0x000237BD:  cmp      eax, 4
+  0x000237C0:  mov      dword ptr [0x4b7ba4], eax
+  0x000237C5:  je       0x237d6
+  0x000237C7:  cmp      eax, 3
+  0x000237CA:  je       0x237d6
+  0x000237CC:  mov      dword ptr [0x4b7ba4], 1
+  0x000237D6:  mov      eax, dword ptr [ebp + 8]
+  0x000237D9:  push     eax
+  0x000237DA:  call     0x22b60  -> .text 0x00022B60
+  0x000237DF:  add      esp, 4
+  0x000237E2:  call     0x2c4b0  -> .text 0x0002C4B0
+  0x000237E7:  call     0x21f20  -> .text 0x00021F20
+  0x000237EC:  call     0x49940  -> .text 0x00049940
+  0x000237F1:  call     0x42960  -> .text 0x00042960
+  0x000237F6:  call     0x17320  -> .text 0x00017320
+  0x000237FB:  call     0x750a0  -> .text 0x000750A0
+  0x00023800:  call     0x98310  -> .text 0x00098310
+  0x00023805:  call     0xbf960  -> .text 0x000BF960
+  0x0002380A:  call     0x22a40  -> .text 0x00022A40
+  0x0002380F:  call     0x24f50  -> .text 0x00024F50
+  0x00023814:  push     0
+  0x00023816:  call     0x22c30  -> .text 0x00022C30
+  0x0002381B:  add      esp, 4
+  0x0002381E:  call     0x15d50  -> .text 0x00015D50
+  0x00023823:  call     0x43200  -> .text 0x00043200
+  0x00023828:  push     0x43320
+  0x0002382D:  push     0x2cfd40  ; "filecodes"
+  0x00023832:  call     0x222b0  -> .text 0x000222B0
+  0x00023837:  add      esp, 8
+  0x0002383A:  call     0x48380  -> .text 0x00048380
+  0x0002383F:  call     0x4d070  -> .text 0x0004D070
+  0x00023844:  call     0x25610  -> .text 0x00025610
+  0x00023849:  call     0x5b6f0  -> .text 0x0005B6F0
+  0x0002384E:  push     0x2cfd2c  ; "exec default.cfg
+"
+  0x00023853:  call     0x21f40  -> .text 0x00021F40
+  0x00023858:  add      esp, 4
+  0x0002385B:  call     0x22bc0  -> .text 0x00022BC0
+  0x00023860:  test     eax, eax
+  0x00023862:  jne      0x23871
+  0x00023864:  push     0x2cfd18  ; "exec jaconfig.cfg
+"
+  0x00023869:  call     0x21f40  -> .text 0x00021F40
+  0x0002386E:  add      esp, 4
+  0x00023871:  push     0x2cfd04  ; "exec autoexec.cfg
+"
+  0x00023876:  call     0x21f40  -> .text 0x00021F40
+  0x0002387B:  add      esp, 4
+  0x0002387E:  call     0x227d0  -> .text 0x000227D0
+  0x00023883:  push     0
+  0x00023885:  call     0x22c30  -> .text 0x00022C30
+  0x0002388A:  add      esp, 4
+  0x0002388D:  push     1
+  0x0002388F:  call     0x4a060  -> .text 0x0004A060
+  0x00023894:  add      esp, 4
+  0x00023897:  call     0x12e90  -> .text 0x00012E90
+  0x0002389C:  call     0x75e30  -> .text 0x00075E30
+  0x000238A1:  mov      esi, dword ptr [0x4b7bec]
+  0x000238A7:  push     0x234c0
+  0x000238AC:  and      esi, 0xfffffffe
+  0x000238AF:  push     0x2cfcfc  ; "quit"
+  0x000238B4:  mov      dword ptr [0x4b7bec], esi
+  0x000238BA:  call     0x222b0  -> .text 0x000222B0
+  0x000238BF:  add      esp, 8
+  0x000238C2:  push     0x231a0
+  0x000238C7:  push     0x2cfcf0  ; "writeconfig"
+  0x000238CC:  call     0x222b0  -> .text 0x000222B0
+  0x000238D1:  add      esp, 8
+  0x000238D4:  push     1
+  0x000238D6:  push     0x2cfcec
+  0x000238DB:  push     0x2cfce0  ; "com_maxfps"
+  0x000238E0:  call     0x24cc0  -> .text 0x00024CC0
+  0x000238E5:  add      esp, 0xc
+  0x000238E8:  push     0
+  0x000238EA:  push     0x2cdcec
+  0x000238EF:  push     0x2cfcd4  ; "developer"
+  0x000238F4:  mov      dword ptr [0x4b7bc4], eax
+  0x000238F9:  call     0x24cc0  -> .text 0x00024CC0
+  0x000238FE:  add      esp, 0xc
+  0x00023901:  push     0
+  0x00023903:  push     0x2cdcec
+  0x00023908:  push     0x2cfccc  ; "logfile"
+  0x0002390D:  mov      dword ptr [0x4b63ec], eax
+  0x00023912:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023917:  add      esp, 0xc
+  0x0002391A:  push     0
+  0x0002391C:  push     0x2cdcec
+  0x00023921:  push     0x2cfcc0  ; "speedslog"
+  0x00023926:  mov      dword ptr [0x4b6400], eax
+  0x0002392B:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023930:  add      esp, 0xc
+  0x00023933:  push     0x200
+  0x00023938:  push     0x2ce640
+  0x0002393D:  push     0x2ce634  ; "timescale"
+  0x00023942:  mov      dword ptr [0x4b63f0], eax
+  0x00023947:  call     0x24cc0  -> .text 0x00024CC0
+  0x0002394C:  add      esp, 0xc
+  0x0002394F:  push     0x200
+  0x00023954:  push     0x2cdcec
+  0x00023959:  push     0x2cfcb4  ; "fixedtime"
+  0x0002395E:  mov      dword ptr [0x4b640c], eax
+  0x00023963:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023968:  add      esp, 0xc
+  0x0002396B:  push     0x200
+  0x00023970:  push     0x2cdcec
+  0x00023975:  push     0x2cfca4  ; "com_showtrace"
+  0x0002397A:  mov      dword ptr [0x4b63fc], eax
+  0x0002397F:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023984:  add      esp, 0xc
+  0x00023987:  push     0x200
+  0x0002398C:  push     0x2ce640
+  0x00023991:  push     0x2cfc90  ; "com_terrainPhysics"
+  0x00023996:  mov      dword ptr [0x4b7b94], eax
+  0x0002399B:  call     0x24cc0  -> .text 0x00024CC0
+  0x000239A0:  add      esp, 0xc
+  0x000239A3:  push     0
+  0x000239A5:  push     0x2cdcec
+  0x000239AA:  push     0x2cfc88  ; "viewlog"
+  0x000239AF:  mov      dword ptr [0x4b6404], eax
+  0x000239B4:  call     0x24cc0  -> .text 0x00024CC0
+  0x000239B9:  add      esp, 0xc
+  0x000239BC:  push     0
+  0x000239BE:  push     0x2cdcec
+  0x000239C3:  push     0x2cfc7c  ; "com_speeds"
+  0x000239C8:  mov      dword ptr [0x4b63f4], eax
+  0x000239CD:  call     0x24cc0  -> .text 0x00024CC0
+  0x000239D2:  add      esp, 0xc
+  0x000239D5:  push     0x40
+  0x000239D7:  push     0x2cdcec
+  0x000239DC:  push     0x2ce9b0  ; "cl_paused"
+  0x000239E1:  mov      dword ptr [0x4b757c], eax
+  0x000239E6:  call     0x24cc0  -> .text 0x00024CC0
+  0x000239EB:  add      esp, 0xc
+  0x000239EE:  push     0x40
+  0x000239F0:  push     0x2cdcec
+  0x000239F5:  push     0x2cfc70  ; "sv_paused"
+  0x000239FA:  mov      dword ptr [0x4b6408], eax
+  0x000239FF:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023A04:  add      esp, 0xc
+  0x00023A07:  push     0x40
+  0x00023A09:  push     0x2cdcec
+  0x00023A0E:  push     0x2cfc64  ; "sv_running"
+  0x00023A13:  mov      dword ptr [0x4b7580], eax
+  0x00023A18:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023A1D:  add      esp, 0xc
+  0x00023A20:  push     0x40
+  0x00023A22:  push     0x2cdcec
+  0x00023A27:  push     0x2cea3c  ; "cl_running"
+  0x00023A2C:  mov      dword ptr [0x4b6418], eax
+  0x00023A31:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023A36:  add      esp, 0xc
+  0x00023A39:  push     0x40
+  0x00023A3B:  push     0x2cdcec
+  0x00023A40:  push     0x2ce620  ; "skippingCinematic"
+  0x00023A45:  mov      dword ptr [0x4b7bbc], eax
+  0x00023A4A:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023A4F:  add      esp, 0xc
+  0x00023A52:  push     0
+  0x00023A54:  push     0x2cdcec
+  0x00023A59:  push     0x2cfc54  ; "com_buildScript"
+  0x00023A5E:  mov      dword ptr [0x4b63e8], eax
+  0x00023A63:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023A68:  mov      dword ptr [0x4b6414], eax
+  0x00023A6D:  mov      eax, dword ptr [0x4b63ec]
+  0x00023A72:  add      esp, 0xc
+  0x00023A75:  test     eax, eax
+  0x00023A77:  je       0x23ab6
+  0x00023A79:  mov      ecx, dword ptr [eax + 0x20]
+  0x00023A7C:  test     ecx, ecx
+  0x00023A7E:  je       0x23ab6
+  0x00023A80:  push     0x23760
+  0x00023A85:  push     0x2cfc4c  ; "error"
+  0x00023A8A:  call     0x222b0  -> .text 0x000222B0
+  0x00023A8F:  add      esp, 8
+  0x00023A92:  push     0x23190
+  0x00023A97:  push     0x2cfc44  ; "crash"
+  0x00023A9C:  call     0x222b0  -> .text 0x000222B0
+  0x00023AA1:  add      esp, 8
+  0x00023AA4:  push     0x23130
+  0x00023AA9:  push     0x2cfc3c  ; "freeze"
+  0x00023AAE:  call     0x222b0  -> .text 0x000222B0
+  0x00023AB3:  add      esp, 8
+  0x00023AB6:  push     0x2cfc30  ; "Oct 16 2003"
+  0x00023ABB:  push     0x2cfc28  ; "win-x86"
+  0x00023AC0:  push     0x2cfc18  ; "JA: v1.0.0.0"
+  0x00023AC5:  push     0x2cfc0c  ; "%s %s %s"
+  0x00023ACA:  call     0x2cab0  -> .text 0x0002CAB0
+  0x00023ACF:  add      esp, 0x10
+  0x00023AD2:  push     0x44
+  0x00023AD4:  push     eax
+  0x00023AD5:  push     0x2cfc04  ; "version"
+  0x00023ADA:  call     0x24cc0  -> .text 0x00024CC0
+  0x00023ADF:  add      esp, 0xc
+  0x00023AE2:  push     0
+  0x00023AE4:  push     0x2ce640
+  0x00023AE9:  push     0x2cfbf4  ; "inSplashMenu"
+  [200 insns]
+
+========================================================================
+=== XInput button mask pattern scan ===
+========================================================================
+  test_A_button_0x1000 @ 0x00109CFB
+  test_A_button_0x1000 @ 0x0011AE29
+  test_B_button_0x2000 @ 0x001605B6  fn~0x00160430
+  test_X_button_0x4000 @ 0x0011AEA4
+  test_Y_button_0x8000 @ 0x002372A0  fn~0x0023728E
+  test_Y_button_0x8000 @ 0x00238DB5  fn~0x00238DA3
+
+========================================================================
+=== XInput/gamepad device strings ===
+========================================================================
+
+========================================================================
+=== Potential IN_Frame candidates (short fns 0x10000-0x20000) ===
+========================================================================

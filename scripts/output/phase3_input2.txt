@@ -1,0 +1,456 @@
+
+========================================================================
+=== .rdata input strings @ 0x2D3120-0x2D3200 ===
+========================================================================
+  0x002D3120: "opup"
+  0x002D3121: "pup"
+  0x002D3128: "noController"
+  0x002D3129: "oController"
+  0x002D312A: "Controller"
+  0x002D312B: "ontroller"
+  0x002D312C: "ntroller"
+  0x002D312D: "troller"
+  0x002D312E: "roller"
+  0x002D312F: "oller"
+  0x002D3130: "ller"
+  0x002D3131: "ler"
+  0x002D3139: "Controller %d unplugged
+"
+  0x002D313A: "ontroller %d unplugged
+"
+  0x002D313B: "ntroller %d unplugged
+"
+  0x002D313C: "troller %d unplugged
+"
+  0x002D313D: "roller %d unplugged
+"
+  0x002D313E: "oller %d unplugged
+"
+  0x002D313F: "ller %d unplugged
+"
+  0x002D3140: "ler %d unplugged
+"
+  0x002D3141: "er %d unplugged
+"
+  0x002D3142: "r %d unplugged
+"
+  0x002D3143: " %d unplugged
+"
+  0x002D3144: "%d unplugged
+"
+  0x002D3145: "d unplugged
+"
+  0x002D3146: " unplugged
+"
+  0x002D3147: "unplugged
+"
+  0x002D3148: "nplugged
+"
+  0x002D3149: "plugged
+"
+  0x002D314A: "lugged
+"
+  0x002D314B: "ugged
+"
+  0x002D314C: "gged
+"
+  0x002D314D: "ged
+"
+  0x002D314E: "ed
+"
+  0x002D3155: "Controller %d plugged
+"
+  0x002D3156: "ontroller %d plugged
+"
+  0x002D3157: "ntroller %d plugged
+"
+  0x002D3158: "troller %d plugged
+"
+  0x002D3159: "roller %d plugged
+"
+  0x002D315A: "oller %d plugged
+"
+  0x002D315B: "ller %d plugged
+"
+  0x002D315C: "ler %d plugged
+"
+  0x002D315D: "er %d plugged
+"
+  0x002D315E: "r %d plugged
+"
+  0x002D315F: " %d plugged
+"
+  0x002D3160: "%d plugged
+"
+  0x002D3161: "d plugged
+"
+  0x002D3162: " plugged
+"
+  0x002D3163: "plugged
+"
+  0x002D3164: "lugged
+"
+  0x002D3165: "ugged
+"
+  0x002D3166: "gged
+"
+  0x002D3167: "ged
+"
+  0x002D3168: "ed
+"
+  0x002D316C: "in_useRumble"
+  0x002D316D: "n_useRumble"
+  0x002D316E: "_useRumble"
+  0x002D316F: "useRumble"
+  0x002D3170: "seRumble"
+  0x002D3171: "eRumble"
+  0x002D3172: "Rumble"
+  0x002D3173: "umble"
+  0x002D3174: "mble"
+  0x002D3175: "ble"
+  0x002D3187: "?	Controller %d initialized
+"
+  0x002D3189: "Controller %d initialized
+"
+  0x002D318A: "ontroller %d initialized
+"
+  0x002D318B: "ntroller %d initialized
+"
+  0x002D318C: "troller %d initialized
+"
+  0x002D318D: "roller %d initialized
+"
+  0x002D318E: "oller %d initialized
+"
+  0x002D318F: "ller %d initialized
+"
+  0x002D3190: "ler %d initialized
+"
+  0x002D3191: "er %d initialized
+"
+  0x002D3192: "r %d initialized
+"
+  0x002D3193: " %d initialized
+"
+  0x002D3194: "%d initialized
+"
+  0x002D3195: "d initialized
+"
+  0x002D3196: " initialized
+"
+  0x002D3197: "initialized
+"
+  0x002D3198: "nitialized
+"
+  0x002D3199: "itialized
+"
+  0x002D319A: "tialized
+"
+  0x002D319B: "ialized
+"
+  0x002D319C: "alized
+"
+  0x002D319D: "lized
+"
+  0x002D319E: "ized
+"
+  0x002D319F: "zed
+"
+  0x002D31A0: "ed
+"
+  0x002D31A4: "Sys_QueEvent: overflow
+"
+  0x002D31A5: "ys_QueEvent: overflow
+"
+  0x002D31A6: "s_QueEvent: overflow
+"
+  0x002D31A7: "_QueEvent: overflow
+"
+  0x002D31A8: "QueEvent: overflow
+"
+  0x002D31A9: "ueEvent: overflow
+"
+  0x002D31AA: "eEvent: overflow
+"
+  0x002D31AB: "Event: overflow
+"
+  0x002D31AC: "vent: overflow
+"
+  0x002D31AD: "ent: overflow
+"
+  0x002D31AE: "nt: overflow
+"
+  0x002D31AF: "t: overflow
+"
+  0x002D31B0: ": overflow
+"
+  0x002D31B1: " overflow
+"
+  0x002D31B2: "overflow
+"
+  0x002D31B3: "verflow
+"
+  0x002D31B4: "erflow
+"
+  0x002D31B5: "rflow
+"
+  0x002D31B6: "flow
+"
+  0x002D31B7: "low
+"
+  0x002D31B8: "ow
+"
+  0x002D31C0: "J3D1"
+  0x002D31C1: "3D1"
+  0x002D31C8: "ERROR: XLaunchNewImage returned
+"
+  0x002D31C9: "RROR: XLaunchNewImage returned
+"
+  0x002D31CA: "ROR: XLaunchNewImage returned
+"
+  0x002D31CB: "OR: XLaunchNewImage returned
+"
+  0x002D31CC: "R: XLaunchNewImage returned
+"
+  0x002D31CD: ": XLaunchNewImage returned
+"
+  0x002D31CE: " XLaunchNewImage returned
+"
+  0x002D31CF: "XLaunchNewImage returned
+"
+  0x002D31D0: "LaunchNewImage returned
+"
+  0x002D31D1: "aunchNewImage returned
+"
+  0x002D31D2: "unchNewImage returned
+"
+  0x002D31D3: "nchNewImage returned
+"
+  0x002D31D4: "chNewImage returned
+"
+  0x002D31D5: "hNewImage returned
+"
+  0x002D31D6: "NewImage returned
+"
+  0x002D31D7: "ewImage returned
+"
+  0x002D31D8: "wImage returned
+"
+  0x002D31D9: "Image returned
+"
+  0x002D31DA: "mage returned
+"
+  0x002D31DB: "age returned
+"
+  0x002D31DC: "ge returned
+"
+  0x002D31DD: "e returned
+"
+  0x002D31DE: " returned
+"
+  0x002D31DF: "returned
+"
+  0x002D31E0: "eturned
+"
+  0x002D31E1: "turned
+"
+  0x002D31E2: "urned
+"
+  0x002D31E3: "rned
+"
+  0x002D31E4: "ned
+"
+  0x002D31E5: "ed
+"
+  0x002D31EC: "Unknown reboot code %s
+"
+  0x002D31ED: "nknown reboot code %s
+"
+  0x002D31EE: "known reboot code %s
+"
+  0x002D31EF: "nown reboot code %s
+"
+  0x002D31F0: "own reboot code %s
+"
+  0x002D31F1: "wn reboot code %s
+"
+  0x002D31F2: "n reboot code %s
+"
+  0x002D31F3: " reboot code %s
+"
+  0x002D31F4: "reboot code %s
+"
+  0x002D31F5: "eboot code %s
+"
+  0x002D31F6: "boot code %s
+"
+  0x002D31F7: "oot code %s
+"
+  0x002D31F8: "ot code %s
+"
+  0x002D31F9: "t code %s
+"
+  0x002D31FA: " code %s
+"
+  0x002D31FB: "code %s
+"
+  0x002D31FC: "ode %s
+"
+  0x002D31FD: "de %s
+"
+  0x002D31FE: "e %s
+"
+  0x002D31FF: " %s
+"
+
+========================================================================
+=== PUSH imm32 xrefs to 0x2D312A, 0x2D3139, 0x2D3155 ===
+========================================================================
+  String @ 0x002D312A: "Controller"
+  String @ 0x002D3139: "Controller %d unplugged
+"
+  String @ 0x002D3155: "Controller %d plugged
+"
+  String @ 0x002D3164: "lugged
+"
+  String @ 0x002D3179: ""
+
+========================================================================
+=== Input fn anchors discovered: 0 ===
+========================================================================
+
+========================================================================
+=== .text calls into XONLINE/XPP sections ===
+========================================================================
+  Calls from .text into XONLINE: 0
+  Calls from .text into XPP: 0
+
+========================================================================
+XPP section full scan (VA=0x002C57E0 vsz=0x000077E4)
+========================================================================
+  roff=0x002BE000
+  First non-zero byte at offset 0x4 (VA 0x002C57E4)
+
+========================================================================
+XPP code @ 0x002C57E4
+========================================================================
+  0x002C57E4:  dec      eax
+  0x002C57E5:  pop      eax
+  0x002C57E6:  sub      al, 0
+  0x002C57E8:  nop      
+  0x002C57E9:  pop      eax
+  0x002C57EA:  sub      al, 0
+  0x002C57EC:  add      byte ptr [eax], al
+  0x002C57EE:  add      byte ptr [eax], al
+  0x002C57F0:  add      byte ptr [eax], al
+  0x002C57F2:  add      byte ptr [eax], al
+  0x002C57F4:  push     eax
+  0x002C57F5:  pop      ecx
+  0x002C57F6:  sub      al, 0
+  0x002C57F8:  rcr      byte ptr [eax + 0x2c], 0
+  0x002C57FC:  fcomp    dword ptr [eax + 0x2c]
+  0x002C57FF:  add      byte ptr [eax], cl
+  0x002C5801:  pop      ecx
+  0x002C5802:  sub      al, 0
+  0x002C5804:  add      byte ptr [eax], al
+  0x002C5806:  add      byte ptr [eax], al
+  0x002C5808:  add      byte ptr [eax], al
+  0x002C580A:  add      byte ptr [eax], al
+  0x002C580C:  add      byte ptr [eax], al
+  0x002C580E:  add      byte ptr [eax], al
+  0x002C5810:  add      byte ptr [eax], al
+  0x002C5812:  add      byte ptr [eax], al
+  0x002C5814:  add      byte ptr [eax], al
+  0x002C5816:  add      byte ptr [eax], al
+  0x002C5818:  add      byte ptr [eax], al
+  0x002C581A:  add      byte ptr [eax], al
+  0x002C581C:  add      byte ptr [eax], al
+  0x002C581E:  add      byte ptr [eax], al
+  0x002C5820:  add      byte ptr [eax], al
+  0x002C5822:  add      byte ptr [eax], al
+  0x002C5824:  add      byte ptr [eax], al
+  0x002C5826:  add      byte ptr [eax], al
+  0x002C5828:  add      byte ptr [eax], al
+  0x002C582A:  add      byte ptr [eax], al
+  0x002C582C:  add      byte ptr [eax], al
+  0x002C582E:  add      byte ptr [eax], al
+  0x002C5830:  adc      bl, byte ptr [eax + ebx*2]
+  0x002C5833:  sub      al, 0
+  0x002C5835:  add      byte ptr [eax], al
+  0x002C5837:  add      byte ptr [eax], al
+  0x002C5839:  add      byte ptr [eax], al
+  0x002C583B:  add      byte ptr [eax + edi], al
+  0x002C583E:  pop      eax
+  0x002C583F:  sub      al, 0
+  0x002C5841:  add      byte ptr [eax], al
+  0x002C5843:  add      byte ptr [ecx], al
+  0x002C5845:  or       byte ptr [eax], al
+  0x002C5847:  add      byte ptr [ecx], al
+  0x002C5849:  add      al, 0
+  0x002C584B:  add      byte ptr [eax], dl
+  0x002C584D:  pop      eax
+  0x002C584E:  sub      al, 0
+  0x002C5850:  xor      byte ptr [eax + 0x2c], bl
+  0x002C5853:  add      byte ptr [eax + ebx*2], bh
+  0x002C5856:  sub      al, 0
+  0x002C5858:  inc      esp
+  0x002C5859:  pop      eax
+  0x002C585A:  sub      al, 0
+  0x002C585C:  add      byte ptr [eax], al
+  0x002C585E:  add      byte ptr [eax], al
+  0x002C5860:  add      byte ptr [eax], al
+  0x002C5862:  add      byte ptr [eax], al
+  0x002C5864:  add      byte ptr [eax], al
+  0x002C5866:  add      byte ptr [eax], al
+  0x002C5868:  add      byte ptr [eax], al
+  0x002C586A:  add      byte ptr [eax], al
+  0x002C586C:  in       eax, dx
+  0x002C586D:  insb     byte ptr es:[edi], dx
+  0x002C586E:  sub      al, 0
+  0x002C5870:  add      byte ptr [eax], al
+  0x002C5872:  add      byte ptr [eax], al
+  0x002C5874:  add      byte ptr [eax], al
+  0x002C5876:  add      byte ptr [eax], al
+  0x002C5878:  add      byte ptr [eax], al
+  0x002C587A:  add      byte ptr [eax], al
+  0x002C587C:  add      byte ptr [eax], al
+  0x002C587E:  add      byte ptr [eax], al
+  0x002C5880:  add      byte ptr [eax], al
+  0x002C5882:  add      byte ptr [eax], al
+  0x002C5884:  add      al, 0x80
+  0x002C5886:  pop      eax
+  0x002C5887:  sub      al, 0
+  0x002C5889:  add      byte ptr [eax], al
+  0x002C588B:  add      byte ptr [ecx], al
+  0x002C588D:  adc      byte ptr [eax], al
+  0x002C588F:  add      byte ptr [ebx], al
+  0x002C5891:  add      dword ptr [eax], eax
+  0x002C5893:  add      byte ptr [eax + ebx*2 + 0x2c], dh
+  0x002C5897:  add      byte ptr [eax + ebx*2 + 0x2c], al
+  0x002C589E:  add      byte ptr [eax], al
+  0x002C58A0:  mov      word ptr [eax + 0x2c], ds
+  0x002C58A3:  add      byte ptr [eax], al
+  0x002C58A5:  add      byte ptr [eax], al
+  0x002C58A7:  add      byte ptr [eax], al
+  0x002C58A9:  add      byte ptr [eax], al
+  0x002C58AB:  add      byte ptr [eax], al
+  0x002C58AD:  add      byte ptr [eax], al
+  0x002C58AF:  add      byte ptr [eax], al
+  0x002C58B1:  add      byte ptr [eax], al
+  0x002C58B3:  add      byte ptr [edi], bh
+  0x002C58B5:  insd     dword ptr es:[edi], dx
+  0x002C58B6:  sub      al, 0
+  0x002C58B8:  add      byte ptr [eax], al
+  0x002C58BA:  add      byte ptr [eax], al
+  0x002C58BC:  add      byte ptr [eax], al
+  0x002C58BE:  add      byte ptr [eax], al
+  0x002C58C0:  sbb      byte ptr [eax - 1], 0xff
+  0x002C58C4:  mov      esp, 0x41002c59
+  0x002C58C9:  ja       0x2c58f7
+  0x002C58CB:  add      byte ptr [edx], ah
+  0x002C58CD:  jno      0x2c58fb
+  0x002C58CF:  add      byte ptr [ecx], al
+  0x002C58D1:  add      byte ptr [eax], al
+  0x002C58D3:  add      byte ptr [eax], al
+  0x002C58D5:  add      byte ptr [eax], al
+  0x002C58D7:  add      byte ptr [edx - 0x430000fd], al

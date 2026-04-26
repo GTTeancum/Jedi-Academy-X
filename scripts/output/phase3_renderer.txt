@@ -1,0 +1,839 @@
+
+========================================================================
+=== R_Init area (Com_Init calls 0x17320) ===
+========================================================================
+
+========================================================================
+R_Init_context  @ 0x00017320
+========================================================================
+  0x00017320:  push     esi
+  0x00017321:  push     edi
+  0x00017322:  push     0x2ce9fc  ; "----- Initializing Renderer ----
+"
+  0x00017327:  call     0x9d770  -> .text 0x0009D770
+  0x0001732C:  push     9
+  0x0001732E:  call     0x75fa0  -> .text 0x00075FA0
+  0x00017333:  push     0x2ce9d8  ; "-------------------------------
+"
+  0x00017338:  mov      esi, eax
+  0x0001733A:  call     0x9d770  -> .text 0x0009D770
+  0x0001733F:  add      esp, 0xc
+  0x00017342:  test     esi, esi
+  0x00017344:  jne      0x17354
+  0x00017346:  push     0x2ce9bc  ; "Couldn't initialize refresh"
+  0x0001734B:  push     esi
+  0x0001734C:  call     0x23310  -> .text 0x00023310
+  0x00017351:  add      esp, 8
+  0x00017354:  push     0x2cdcec
+  0x00017359:  mov      ecx, 0x2d
+  0x0001735E:  mov      edi, 0x47e168
+  0x00017363:  push     0x2ce9b0  ; "cl_paused"
+  0x00017368:  rep movsd dword ptr es:[edi], dword ptr [esi]
+  0x0001736A:  call     0x24290  -> .text 0x00024290
+  0x0001736F:  add      esp, 8
+  0x00017372:  pop      edi
+  0x00017373:  pop      esi
+  0x00017374:  ret      
+  [26 insns]
+
+========================================================================
+Callees of R_Init_context (4 unique):
+========================================================================
+  0x00023310  
+  0x00024290  
+  0x00075FA0  
+  0x0009D770  
+
+========================================================================
+R_Init_callee  @ 0x00023310
+========================================================================
+  0x00023310:  mov      eax, dword ptr [0x4b6414]
+  0x00023315:  test     eax, eax
+  0x00023317:  push     esi
+  0x00023318:  je       0x23325
+  0x0002331A:  mov      ecx, dword ptr [eax + 0x20]
+  0x0002331D:  test     ecx, ecx
+  0x0002331F:  je       0x23325
+  0x00023321:  xor      esi, esi
+  0x00023323:  jmp      0x23329
+  0x00023325:  mov      esi, dword ptr [esp + 8]
+  0x00023329:  mov      eax, dword ptr [0x4b7bcc]
+  0x0002332E:  test     eax, eax
+  0x00023330:  je       0x23344
+  0x00023332:  push     0x4b6578
+  0x00023337:  push     0x2cfb48  ; "recursive error after: %s"
+  0x0002333C:  call     0x44eb0  -> .text 0x00044EB0
+  0x00023341:  add      esp, 8
+  0x00023344:  mov      ecx, dword ptr [esp + 0xc]
+  0x00023348:  lea      eax, [esp + 0x10]
+  0x0002334C:  push     eax
+  0x0002334D:  push     ecx
+  0x0002334E:  push     0x4b6578
+  0x00023353:  mov      dword ptr [0x4b7bcc], 1
+  0x0002335D:  call     0x22ec1d  -> .text 0x0022EC1D
+  0x00023362:  add      esp, 0xc
+  0x00023365:  cmp      esi, 2
+  0x00023368:  je       0x2338d
+  0x0002336A:  push     0x40
+  0x0002336C:  push     0x2cdad1
+  0x00023371:  push     0x2cfb34  ; "com_errorMessage"
+  0x00023376:  call     0x24cc0  -> .text 0x00024CC0
+  0x0002337B:  push     0x4b6578
+  0x00023380:  push     0x2cfb34  ; "com_errorMessage"
+  0x00023385:  call     0x24290  -> .text 0x00024290
+  0x0002338A:  add      esp, 0x14
+  0x0002338D:  call     0x3de10  -> .text 0x0003DE10
+  0x00023392:  cmp      esi, 2
+  0x00023395:  jne      0x233d4
+  0x00023397:  push     0x2cfb28  ; "Disconnect"
+  0x0002339C:  call     0x3d100  -> .text 0x0003D100
+  0x000233A1:  add      esp, 4
+  0x000233A4:  call     0x16840  -> .text 0x00016840
+  0x000233A9:  call     0x167c0  -> .text 0x000167C0
+  0x000233AE:  call     0x171e0  -> .text 0x000171E0
+  0x000233B3:  push     0x3066fc
+  0x000233B8:  lea      edx, [esp + 0xc]
+  0x000233BC:  push     edx
+  0x000233BD:  mov      dword ptr [0x4b7bcc], 0
+  0x000233C7:  mov      dword ptr [esp + 0x10], 0x2cfb18
+  0x000233CF:  call     0x22f3ab  -> .text 0x0022F3AB
+  0x000233D4:  cmp      esi, 1
+  0x000233D7:  jne      0x23421
+  0x000233D9:  push     0x4b6578
+  0x000233DE:  push     0x2cfb04  ; "Server crashed: %s
+"
+  0x000233E3:  call     0x2cab0  -> .text 0x0002CAB0
+  0x000233E8:  push     eax
+  0x000233E9:  call     0x3d100  -> .text 0x0003D100
+  0x000233EE:  add      esp, 0xc
+  0x000233F1:  call     0x16840  -> .text 0x00016840
+  0x000233F6:  call     0x167c0  -> .text 0x000167C0
+  0x000233FB:  call     0x171e0  -> .text 0x000171E0
+  0x00023400:  push     0x3066fc
+  0x00023405:  lea      eax, [esp + 0xc]
+  0x00023409:  push     eax
+  0x0002340A:  mov      dword ptr [0x4b7bcc], 0
+  0x00023414:  mov      dword ptr [esp + 0x10], 0x2cfaf8
+  0x0002341C:  call     0x22f3ab  -> .text 0x0022F3AB
+  0x00023421:  cmp      esi, 3
+  0x00023424:  jne      0x23473
+  0x00023426:  push     0x2cfae0  ; "Server didn't have CD
+"
+  0x0002342B:  call     0x3d100  -> .text 0x0003D100
+  0x00023430:  mov      eax, dword ptr [0x4b7bbc]
+  0x00023435:  add      esp, 4
+  0x00023438:  test     eax, eax
+  0x0002343A:  je       0x2345c
+  0x0002343C:  mov      ecx, dword ptr [eax + 0x20]
+  0x0002343F:  test     ecx, ecx
+  0x00023441:  je       0x2345c
+  0x00023443:  call     0x16840  -> .text 0x00016840
+  0x00023448:  call     0x167c0  -> .text 0x000167C0
+  0x0002344D:  call     0x171e0  -> .text 0x000171E0
+  0x00023452:  mov      dword ptr [0x4b7bcc], 0
+  0x0002345C:  push     0x3066fc
+  0x00023461:  lea      ecx, [esp + 0xc]
+  0x00023465:  push     ecx
+  0x00023466:  mov      dword ptr [esp + 0x10], 0x2cfad4
+  0x0002346E:  call     0x22f3ab  -> .text 0x0022F3AB
+  0x00023473:  call     0x17380  -> .text 0x00017380
+  0x00023478:  push     0x4b6578
+  0x0002347D:  push     0x2cfab8  ; "^1Server fatal crashed: %s
+"
+  0x00023482:  call     0x2cab0  -> .text 0x0002CAB0
+  0x00023487:  push     eax
+  0x00023488:  call     0x3d100  -> .text 0x0003D100
+  0x0002348D:  call     0x19cd0  -> .text 0x00019CD0
+  0x00023492:  call     0x48710  -> .text 0x00048710
+  0x00023497:  call     0x43280  -> .text 0x00043280
+  0x0002349C:  call     0x29cf0  -> .text 0x00029CF0
+  0x000234A1:  push     0x4b6578
+  0x000234A6:  push     0x2cd790
+  0x000234AB:  call     0x44eb0  -> .text 0x00044EB0
+  0x000234B0:  add      esp, 0x14
+  0x000234B3:  pop      esi
+  0x000234B4:  ret      
+  [103 insns]
+
+========================================================================
+R_Init_callee  @ 0x00024290
+========================================================================
+  0x00024290:  mov      eax, dword ptr [esp + 8]
+  0x00024294:  mov      ecx, dword ptr [esp + 4]
+  0x00024298:  push     1
+  0x0002429A:  push     eax
+  0x0002429B:  push     ecx
+  0x0002429C:  call     0x23fd0  -> .text 0x00023FD0
+  0x000242A1:  add      esp, 0xc
+  0x000242A4:  ret      
+  [8 insns]
+
+========================================================================
+R_Init_callee  @ 0x00075FA0
+========================================================================
+  0x00075FA0:  push     edi
+  0x00075FA1:  xor      eax, eax
+  0x00075FA3:  mov      ecx, 0x2d
+  0x00075FA8:  mov      edi, 0x7d3378
+  0x00075FAD:  rep stosd dword ptr es:[edi], eax
+  0x00075FAF:  mov      eax, dword ptr [esp + 8]
+  0x00075FB3:  cmp      eax, 9
+  0x00075FB6:  pop      edi
+  0x00075FB7:  je       0x75fce
+  0x00075FB9:  push     eax
+  0x00075FBA:  push     9
+  0x00075FBC:  push     0x2d5f28  ; "Mismatched REF_API_VERSION: expected %i, got %i
+"
+  0x00075FC1:  push     0
+  0x00075FC3:  call     0x170e0  -> .text 0x000170E0
+  0x00075FC8:  add      esp, 0x10
+  0x00075FCB:  xor      eax, eax
+  0x00075FCD:  ret      
+  [17 insns]
+
+========================================================================
+R_Init_callee  @ 0x0009D770
+========================================================================
+  0x0009D770:  ret      
+  0x0009D771:  int3     
+  0x0009D772:  int3     
+  0x0009D773:  int3     
+  0x0009D774:  int3     
+  0x0009D775:  int3     
+  0x0009D776:  int3     
+  0x0009D777:  int3     
+  0x0009D778:  int3     
+  0x0009D779:  int3     
+  0x0009D77A:  int3     
+  0x0009D77B:  int3     
+  0x0009D77C:  int3     
+  0x0009D77D:  int3     
+  0x0009D77E:  int3     
+  0x0009D77F:  int3     
+  0x0009D780:  mov      ecx, dword ptr [esp + 4]
+  0x0009D784:  mov      al, 1
+  0x0009D786:  jmp      0x9d0d0
+  0x0009D78B:  int3     
+  0x0009D78C:  int3     
+  0x0009D78D:  int3     
+  0x0009D78E:  int3     
+  0x0009D78F:  int3     
+  0x0009D790:  mov      eax, dword ptr [esp + 4]
+  0x0009D794:  add      eax, 0xffff7f8c
+  0x0009D799:  cmp      eax, 4
+  0x0009D79C:  ja       0x9d7d1
+  0x0009D79E:  jmp      dword ptr [eax*4 + 0x9d7d4]
+  0x0009D7A5:  mov      eax, dword ptr [0x81c8a4]
+  0x0009D7AA:  mov      byte ptr [eax + 0x68], 1
+  0x0009D7AE:  ret      
+  [32 insns]
+
+========================================================================
+GLimp_Init (enclosing fn @ 0x00097DA5)  @ 0x00097DA5
+========================================================================
+  0x00097DA5:  sub      esp, 8
+  0x00097DA8:  test     eax, eax
+  0x00097DAA:  jne      0x97dbb
+  0x00097DAC:  push     0x2d8e70  ; "R_PointInLeaf: bad model"
+  0x00097DB1:  push     1
+  0x00097DB3:  call     0x23310  -> .text 0x00023310
+  0x00097DB8:  add      esp, 8
+  0x00097DBB:  mov      eax, dword ptr [0x7d7924]
+  0x00097DC0:  mov      eax, dword ptr [eax + 0x9c]
+  0x00097DC6:  cmp      byte ptr [eax], 0xff
+  0x00097DC9:  jne      0x97e36
+  0x00097DCB:  xorps    xmm3, xmm3
+  0x00097DCE:  mov      edi, edi
+  0x00097DD0:  mov      ecx, dword ptr [eax + 0x15]
+  0x00097DD3:  mov      edx, dword ptr [0x7d7924]
+  0x00097DD9:  mov      edx, dword ptr [edx + 0x90]
+  0x00097DDF:  lea      ecx, [ecx + ecx*4]
+  0x00097DE2:  lea      ecx, [edx + ecx*4]
+  0x00097DE5:  mov      dword ptr [esp], ecx
+  0x00097DE8:  mov      edx, dword ptr [esp + 0xc]
+  0x00097DEC:  movss    xmm1, dword ptr [edx]
+  0x00097DF0:  movhps   xmm1, qword ptr [edx + 4]
+  0x00097DF4:  mov      edx, dword ptr [esp]
+  0x00097DF7:  movss    xmm2, dword ptr [edx]
+  0x00097DFB:  movhps   xmm2, qword ptr [edx + 4]
+  0x00097DFF:  mulps    xmm1, xmm2
+  0x00097E02:  movaps   xmm0, xmm1
+  0x00097E05:  shufps   xmm0, xmm0, 0x32
+  0x00097E09:  addps    xmm1, xmm0
+  0x00097E0C:  shufps   xmm0, xmm0, 0x32
+  0x00097E10:  addps    xmm1, xmm0
+  0x00097E13:  movss    dword ptr [esp + 4], xmm1
+  0x00097E19:  movss    xmm0, dword ptr [esp + 4]
+  0x00097E1F:  subss    xmm0, dword ptr [ecx + 0xc]
+  0x00097E24:  comiss   xmm0, xmm3
+  0x00097E27:  jbe      0x97e2e
+  0x00097E29:  mov      eax, dword ptr [eax + 0x19]
+  0x00097E2C:  jmp      0x97e31
+  0x00097E2E:  mov      eax, dword ptr [eax + 0x1d]
+  0x00097E31:  cmp      byte ptr [eax], 0xff
+  0x00097E34:  je       0x97dd0
+  0x00097E36:  add      esp, 8
+  0x00097E39:  ret      
+  [43 insns]
+
+========================================================================
+VV_ident_fn  @ 0x0009D9C7
+========================================================================
+  0x0009D9C7:  sub      esp, 0x18
+  0x0009D9CA:  fstp     dword ptr [esp + 0x14]
+  0x0009D9CE:  lea      eax, [esp + 0x18]
+  0x0009D9D2:  fld      qword ptr [esp + 0x7c]
+  0x0009D9D6:  fstp     dword ptr [esp + 0x10]
+  0x0009D9DA:  fld      qword ptr [esp + 0x74]
+  0x0009D9DE:  fstp     dword ptr [esp + 0xc]
+  0x0009D9E2:  fld      qword ptr [esp + 0x6c]
+  0x0009D9E6:  fstp     dword ptr [esp + 8]
+  0x0009D9EA:  fld      qword ptr [esp + 0x64]
+  0x0009D9EE:  fstp     dword ptr [esp + 4]
+  0x0009D9F2:  fld      qword ptr [esp + 0x5c]
+  0x0009D9F6:  fstp     dword ptr [esp]
+  0x0009D9F9:  push     eax
+  0x0009D9FA:  call     0x2518ba  -> D3DX 0x002518BA
+  0x0009D9FF:  mov      eax, dword ptr [0x81c8a4]
+  0x0009DA04:  mov      ecx, dword ptr [eax + 0x1c]
+  0x0009DA07:  mov      eax, dword ptr [eax + ecx*4 + 4]
+  0x0009DA0B:  mov      edx, dword ptr [eax]
+  0x0009DA0D:  lea      ecx, [esp]
+  0x0009DA10:  push     ecx
+  0x0009DA11:  push     eax
+  0x0009DA12:  call     dword ptr [edx + 0x1c]
+  0x0009DA15:  mov      eax, dword ptr [0x81c8a4]
+  0x0009DA1A:  mov      edx, dword ptr [eax + 0x1c]
+  0x0009DA1D:  mov      byte ptr [edx + eax + 0x194], 1
+  0x0009DA25:  add      esp, 0x40
+  0x0009DA28:  ret      
+  [28 insns]
+
+========================================================================
+GLW_Init_CreateDevice  @ 0x000A4245
+========================================================================
+  0x000A4245:  sub      esp, 0x48
+  0x000A4248:  push     ebx
+  0x000A4249:  push     esi
+  0x000A424A:  push     edi
+  0x000A424B:  push     0x508c
+  0x000A4250:  call     0x44e50  -> .text 0x00044E50
+  0x000A4255:  mov      edi, eax
+  0x000A4257:  add      esp, 4
+  0x000A425A:  mov      dword ptr [esp + 0xc], edi
+  0x000A425E:  xor      ebx, ebx
+  0x000A4260:  cmp      edi, ebx
+  0x000A4262:  mov      dword ptr [esp + 0x5c], ebx
+  0x000A4266:  je       0xa428f
+  0x000A4268:  lea      esi, [edi + 0x3c]
+  0x000A426B:  mov      ecx, esi
+  0x000A426D:  call     0xa0be0  -> .text 0x000A0BE0
+  0x000A4272:  mov      dword ptr [esi + 4], eax
+  0x000A4275:  mov      byte ptr [eax + 0x31], 1
+  0x000A4279:  mov      eax, dword ptr [esi + 4]
+  0x000A427C:  mov      dword ptr [eax + 4], eax
+  0x000A427F:  mov      eax, dword ptr [esi + 4]
+  0x000A4282:  mov      dword ptr [eax], eax
+  0x000A4284:  mov      eax, dword ptr [esi + 4]
+  0x000A4287:  mov      dword ptr [eax + 8], eax
+  0x000A428A:  mov      dword ptr [esi + 8], ebx
+  0x000A428D:  jmp      0xa4291
+  0x000A428F:  xor      edi, edi
+  0x000A4291:  push     ebp
+  0x000A4292:  or       ebp, 0xffffffff
+  0x000A4295:  mov      dword ptr [0x81c8a4], edi
+  0x000A429B:  mov      dword ptr [esp + 0x60], ebp
+  0x000A429F:  mov      dword ptr [esp + 0x10], ebx
+  0x000A42A3:  mov      byte ptr [edi + 0xc8], bl
+  0x000A42A9:  call     0xc26a8  -> .text 0x000C26A8
+  0x000A42AE:  test     al, 1
+  0x000A42B0:  je       0xa42db
+  0x000A42B2:  mov      eax, dword ptr [0x81c8a4]
+  0x000A42B7:  mov      byte ptr [eax + 0xc8], 1
+  0x000A42BE:  mov      esi, 0x280
+  0x000A42C3:  call     0xc26a8  -> .text 0x000C26A8
+  0x000A42C8:  test     al, 8
+  0x000A42CA:  je       0xa42df
+  0x000A42CC:  mov      edi, 0x1e0
+  0x000A42D1:  mov      dword ptr [esp + 0x10], 1
+  0x000A42D9:  jmp      0xa42e3
+  0x000A42DB:  mov      esi, dword ptr [esp + 0x68]
+  0x000A42DF:  mov      edi, dword ptr [esp + 0x6c]
+  0x000A42E3:  mov      ecx, dword ptr [esp + 0x70]
+  0x000A42E7:  push     edi
+  0x000A42E8:  push     esi
+  0x000A42E9:  call     0xa04c0  -> .text 0x000A04C0
+  0x000A42EE:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A42F4:  mov      dword ptr [ecx + 0x1c], ebx
+  0x000A42F7:  mov      edx, dword ptr [0x81c8a4]
+  0x000A42FD:  mov      byte ptr [edx + 0x24], bl
+  0x000A4300:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4305:  mov      dword ptr [eax + 0x4c], ebx
+  0x000A4308:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A430E:  mov      dword ptr [ecx + 0x50], ebx
+  0x000A4311:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4317:  mov      byte ptr [edx + 0x68], bl
+  0x000A431A:  mov      eax, dword ptr [0x81c8a4]
+  0x000A431F:  mov      byte ptr [eax + 0x6b], bl
+  0x000A4322:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4328:  mov      byte ptr [ecx + 0x6c], bl
+  0x000A432B:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4331:  mov      byte ptr [edx + 0x9c], 1
+  0x000A4338:  mov      eax, dword ptr [0x81c8a4]
+  0x000A433D:  mov      dword ptr [eax + 0xa0], 0x901
+  0x000A4347:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A434D:  mov      byte ptr [ecx + 0xd0], bl
+  0x000A4353:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4359:  mov      dword ptr [edx + 0xd4], ebx
+  0x000A435F:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4364:  mov      dword ptr [eax + 0xd8], ebx
+  0x000A436A:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4370:  mov      edx, dword ptr [0x7d3304]
+  0x000A4376:  movss    xmm0, dword ptr [0x2cd938]
+  0x000A437E:  mov      dword ptr [ecx + 0xdc], edx
+  0x000A4384:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4389:  mov      ecx, dword ptr [0x7d3308]
+  0x000A438F:  mov      dword ptr [eax + 0xe0], ecx
+  0x000A4395:  mov      edx, dword ptr [0x81c8a4]
+  0x000A439B:  xorps    xmm1, xmm1
+  0x000A439E:  mov      dword ptr [edx + 0x190], ebx
+  0x000A43A4:  mov      eax, dword ptr [0x81c8a4]
+  0x000A43A9:  mov      dword ptr [eax + 0xbc], ebp
+  0x000A43AF:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A43B5:  movss    dword ptr [ecx + 0xc0], xmm0
+  0x000A43BD:  mov      edx, dword ptr [0x81c8a4]
+  0x000A43C3:  mov      dword ptr [edx + 0xc4], ebx
+  0x000A43C9:  mov      eax, dword ptr [0x81c8a4]
+  0x000A43CE:  mov      dword ptr [eax + 0xcc], ebp
+  0x000A43D4:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A43DA:  movss    dword ptr [ecx + 0xb4], xmm1
+  0x000A43E2:  mov      edx, dword ptr [0x81c8a4]
+  0x000A43E8:  add      esp, 8
+  0x000A43EB:  movss    dword ptr [edx + 0xb8], xmm0
+  0x000A43F3:  xor      ecx, ecx
+  0x000A43F5:  mov      eax, 0x2c
+  0x000A43FA:  mov      edx, 4
+  0x000A43FF:  nop      
+  0x000A4400:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A4406:  mov      dword ptr [eax + ebp + 8], edx
+  0x000A440A:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A4410:  mov      byte ptr [ecx + ebp + 0x69], bl
+  0x000A4414:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A441A:  mov      dword ptr [eax + ebp], ebx
+  0x000A441D:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A4423:  mov      byte ptr [ecx + ebp + 0x25], bl
+  0x000A4427:  add      eax, edx
+  0x000A4429:  inc      ecx
+  0x000A442A:  cmp      eax, 0x34
+  0x000A442D:  jl       0xa4400
+  0x000A442F:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4434:  mov      ebp, 1
+  0x000A4439:  mov      dword ptr [eax + 0x48], ebp
+  0x000A443C:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4442:  mov      dword ptr [esp + 0x14], esi
+  0x000A4446:  mov      dword ptr [esp + 0x18], edi
+  0x000A444A:  mov      dword ptr [esp + 0x1c], 6
+  0x000A4452:  mov      dword ptr [esp + 0x20], ebp
+  0x000A4456:  mov      dword ptr [esp + 0x24], 0x11
+  0x000A445E:  mov      dword ptr [esp + 0x28], ebp
+  0x000A4462:  mov      dword ptr [esp + 0x2c], ebx
+  0x000A4466:  mov      dword ptr [esp + 0x30], ebx
+  0x000A446A:  mov      dword ptr [esp + 0x34], ebp
+  0x000A446E:  mov      dword ptr [esp + 0x38], 0x2e
+  0x000A4476:  mov      dword ptr [esp + 0x3c], ebx
+  0x000A447A:  cmp      byte ptr [ecx + 0xc8], bl
+  0x000A4480:  je       0xa44a2
+  0x000A4482:  cmp      dword ptr [esp + 0x10], ebp
+  0x000A4486:  mov      eax, 0x10
+  0x000A448B:  jne      0xa4492
+  0x000A448D:  mov      eax, 0x50
+  0x000A4492:  or       eax, 0x10
+  0x000A4495:  push     ebp
+  0x000A4496:  mov      dword ptr [esp + 0x40], eax
+  0x000A449A:  call     0xe45f0  -> .text 0x000E45F0
+  0x000A449F:  add      esp, 4
+  0x000A44A2:  mov      edx, dword ptr [0x81c8a4]
+  0x000A44A8:  push     edx
+  0x000A44A9:  lea      eax, [esp + 0x18]
+  0x000A44AD:  push     eax
+  0x000A44AE:  push     0x40
+  0x000A44B0:  push     ebx
+  0x000A44B1:  push     ebp
+  0x000A44B2:  push     ebx
+  0x000A44B3:  mov      dword ptr [esp + 0x58], ebx
+  0x000A44B7:  mov      dword ptr [esp + 0x5c], ebx
+  0x000A44BB:  mov      dword ptr [esp + 0x60], ebx
+  0x000A44BF:  mov      dword ptr [esp + 0x64], ebx
+  0x000A44C3:  mov      dword ptr [esp + 0x68], ebx
+  0x000A44C7:  mov      dword ptr [esp + 0x6c], ebx
+  0x000A44CB:  call     0x23f570  -> D3D 0x0023F570
+  0x000A44D0:  test     eax, eax
+  0x000A44D2:  je       0xa44e1
+  0x000A44D4:  push     0x2d9238  ; "Failed to create device. That's bad.
+"
+  0x000A44D9:  call     0x9d770  -> .text 0x0009D770
+  0x000A44DE:  add      esp, 4
+  0x000A44E1:  call     0x23d560  -> D3D 0x0023D560
+  0x000A44E6:  cmp      eax, ebx
+  0x000A44E8:  setne    cl
+  0x000A44EB:  mov      byte ptr [0x81ce15], cl
+  0x000A44F1:  xor      esi, esi
+  0x000A44F3:  mov      edx, dword ptr [0x81c8a4]
+  0x000A44F9:  lea      eax, [edx + esi*4 + 4]
+  0x000A44FD:  push     eax
+  0x000A44FE:  push     ebx
+  0x000A44FF:  call     0x252dc6  -> D3DX 0x00252DC6
+  0x000A4504:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A450A:  mov      eax, dword ptr [ecx + esi*4 + 4]
+  0x000A450E:  mov      edx, dword ptr [eax]
+  0x000A4510:  push     eax
+  0x000A4511:  call     dword ptr [edx + 0x14]
+  0x000A4514:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4519:  mov      byte ptr [esi + eax + 0x194], bl
+  0x000A4520:  inc      esi
+  0x000A4521:  cmp      esi, 6
+  0x000A4524:  jl       0xa44f3
+  0x000A4526:  mov      edx, dword ptr [0x24cfc8]
+  0x000A452C:  mov      edi, dword ptr [0x81c8a4]
+  0x000A4532:  movss    xmm0, dword ptr [0x2cd938]
+  0x000A453A:  mov      dword ptr [0x24d368], ebx
+  0x000A4540:  or       edx, 0x1200
+  0x000A4546:  mov      dword ptr [0x24cfc8], edx
+  0x000A454C:  xor      eax, eax
+  0x000A454E:  mov      ecx, 0x11
+  0x000A4553:  add      edi, 0x14c
+  0x000A4559:  rep stosd dword ptr es:[edi], eax
+  0x000A455B:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4561:  movss    dword ptr [ecx + 0x15c], xmm0
+  0x000A4569:  mov      edx, dword ptr [0x81c8a4]
+  0x000A456F:  movss    dword ptr [edx + 0x14c], xmm0
+  0x000A4577:  mov      eax, dword ptr [0x81c8a4]
+  0x000A457C:  movss    dword ptr [eax + 0x160], xmm0
+  0x000A4584:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A458A:  movss    dword ptr [ecx + 0x150], xmm0
+  0x000A4592:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4598:  movss    dword ptr [edx + 0x164], xmm0
+  0x000A45A0:  mov      eax, dword ptr [0x81c8a4]
+  0x000A45A5:  movss    dword ptr [eax + 0x154], xmm0
+  0x000A45AD:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A45B3:  movss    dword ptr [ecx + 0x168], xmm0
+  0x000A45BB:  mov      edx, dword ptr [0x81c8a4]
+  0x000A45C1:  movss    dword ptr [edx + 0x158], xmm0
+  0x000A45C9:  mov      eax, dword ptr [0x81c8a4]
+  0x000A45CE:  add      eax, 0x14c
+  0x000A45D3:  push     eax
+  0x000A45D4:  call     0x23d420  -> D3D 0x0023D420
+  0x000A45D9:  push     0x3fa66666
+  0x000A45DE:  call     0x980c0  -> .text 0x000980C0
+  0x000A45E3:  mov      edi, dword ptr [0x81c8a4]
+  0x000A45E9:  movss    xmm0, dword ptr [0x2cd938]
+  0x000A45F1:  xorps    xmm1, xmm1
+  0x000A45F4:  xor      eax, eax
+  0x000A45F6:  mov      ecx, 0x1a
+  0x000A45FB:  add      edi, 0xe4
+  0x000A4601:  rep stosd dword ptr es:[edi], eax
+  0x000A4603:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4608:  mov      dword ptr [eax + 0xe4], 3
+  0x000A4612:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4618:  movss    dword ptr [ecx + 0xe8], xmm0
+  0x000A4620:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4626:  movss    dword ptr [edx + 0xec], xmm0
+  0x000A462E:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4633:  movss    dword ptr [eax + 0xf0], xmm0
+  0x000A463B:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4641:  movss    dword ptr [ecx + 0x124], xmm0
+  0x000A4649:  mov      edx, dword ptr [0x81c8a4]
+  0x000A464F:  movss    dword ptr [edx + 0x128], xmm1
+  0x000A4657:  mov      eax, dword ptr [0x81c8a4]
+  0x000A465C:  movss    dword ptr [eax + 0x12c], xmm1
+  0x000A4664:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A466A:  movss    dword ptr [ecx + 0x138], xmm0
+  0x000A4672:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4678:  movss    xmm0, dword ptr [0x2cdbbc]
+  0x000A4680:  movss    dword ptr [edx + 0x130], xmm0
+  0x000A4688:  mov      eax, dword ptr [0x81c8a4]
+  0x000A468D:  push     0x3c
+  0x000A468F:  mov      dword ptr [eax + 0x19c], ebx
+  0x000A4695:  call     0x44e50  -> .text 0x00044E50
+  0x000A469A:  add      esp, 8
+  0x000A469D:  mov      dword ptr [esp + 0x6c], eax
+  0x000A46A1:  cmp      eax, ebx
+  0x000A46A3:  mov      dword ptr [esp + 0x60], ebp
+  0x000A46A7:  pop      ebp
+  0x000A46A8:  je       0xa46b3
+  0x000A46AA:  mov      ecx, eax
+  0x000A46AC:  call     0x9a650  -> .text 0x0009A650
+  0x000A46B1:  jmp      0xa46b5
+  0x000A46B3:  xor      eax, eax
+  0x000A46B5:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A46BB:  mov      dword ptr [ecx + 0x5088], eax
+  0x000A46C1:  mov      ecx, 0x81ce30
+  0x000A46C6:  mov      dword ptr [esp + 0x5c], 0xffffffff
+  0x000A46CE:  call     0xa4750  -> .text 0x000A4750
+  0x000A46D3:  mov      ecx, dword ptr [esp + 0x54]
+  0x000A46D7:  pop      edi
+  0x000A46D8:  pop      esi
+  0x000A46D9:  pop      ebx
+  0x000A46DA:  mov      dword ptr fs:[0], ecx
+  0x000A46E1:  add      esp, 0x54
+  0x000A46E4:  ret      
+  [264 insns]
+
+========================================================================
+R_RenderScene  @ 0x00080E90
+========================================================================
+  0x00080E90:  push     ebp
+  0x00080E91:  mov      ebp, esp
+  0x00080E93:  and      esp, 0xfffffff8
+  0x00080E96:  sub      esp, 0x20c
+  0x00080E9C:  mov      eax, dword ptr [0x479750]
+  0x00080EA1:  push     ebx
+  0x00080EA2:  mov      dword ptr [esp + 0x20c], eax
+  0x00080EA9:  mov      eax, dword ptr [0x7d7908]
+  0x00080EAE:  test     eax, eax
+  0x00080EB0:  push     esi
+  0x00080EB1:  push     edi
+  0x00080EB2:  je       0x812c2
+  0x00080EB8:  push     0x2d651c  ; "====== RE_RenderScene =====
+"
+  0x00080EBD:  call     0x9d770  -> .text 0x0009D770
+  0x00080EC2:  mov      eax, dword ptr [0x7d30fc]
+  0x00080EC7:  mov      ecx, dword ptr [eax + 0x20]
+  0x00080ECA:  add      esp, 4
+  0x00080ECD:  test     ecx, ecx
+  0x00080ECF:  jne      0x812c2
+  0x00080ED5:  call     0x47e00  -> .text 0x00047E00
+  0x00080EDA:  mov      esi, dword ptr [ebp + 8]
+  0x00080EDD:  mov      dword ptr [esp + 0xc], eax
+  0x00080EE1:  mov      eax, dword ptr [0x7d7924]
+  0x00080EE6:  test     eax, eax
+  0x00080EE8:  jne      0x80eff
+  0x00080EEA:  test     byte ptr [esi + 0x50], 1
+  0x00080EEE:  jne      0x80eff
+  0x00080EF0:  push     0x2d64fc  ; "R_RenderScene: NULL worldmodel"
+  0x00080EF5:  push     1
+  0x00080EF7:  call     0x23310  -> .text 0x00023310
+  0x00080EFC:  add      esp, 8
+  0x00080EFF:  mov      ebx, dword ptr [esi]
+  0x00080F01:  mov      dword ptr [0x7d8128], ebx
+  0x00080F07:  mov      ecx, dword ptr [esi + 4]
+  0x00080F0A:  mov      dword ptr [0x7d812c], ecx
+  0x00080F10:  mov      edx, dword ptr [esi + 8]
+  0x00080F13:  mov      dword ptr [0x7d8130], edx
+  0x00080F19:  mov      edx, dword ptr [esi + 0xc]
+  0x00080F1C:  mov      dword ptr [0x7d8134], edx
+  0x00080F22:  movss    xmm0, dword ptr [esi + 0x10]
+  0x00080F27:  movss    dword ptr [0x7d8138], xmm0
+  0x00080F2F:  movss    xmm1, dword ptr [esi + 0x14]
+  0x00080F34:  movss    dword ptr [0x7d813c], xmm1
+  0x00080F3C:  movss    xmm2, dword ptr [esi + 0x18]
+  0x00080F41:  movss    dword ptr [0x7d8140], xmm2
+  0x00080F49:  movss    xmm2, dword ptr [esi + 0x1c]
+  0x00080F4E:  movss    dword ptr [0x7d8144], xmm2
+  0x00080F56:  movss    xmm2, dword ptr [esi + 0x20]
+  0x00080F5B:  movss    dword ptr [0x7d8148], xmm2
+  0x00080F63:  movss    xmm2, dword ptr [esi + 0x24]
+  0x00080F68:  mov      edi, dword ptr [0x7f4620]
+  0x00080F6E:  movss    dword ptr [0x7d814c], xmm2
+  0x00080F76:  movss    xmm2, dword ptr [esi + 0x28]
+  0x00080F7B:  movss    dword ptr [0x7d8150], xmm2
+  0x00080F83:  movss    xmm2, dword ptr [esi + 0x2c]
+  0x00080F88:  movss    dword ptr [0x7d8154], xmm2
+  0x00080F90:  movss    xmm2, dword ptr [esi + 0x30]
+  0x00080F95:  movss    dword ptr [0x7d8158], xmm2
+  0x00080F9D:  movss    xmm2, dword ptr [esi + 0x34]
+  0x00080FA2:  movss    dword ptr [0x7d815c], xmm2
+  0x00080FAA:  movss    xmm2, dword ptr [esi + 0x38]
+  0x00080FAF:  movss    dword ptr [0x7d8160], xmm2
+  0x00080FB7:  movss    xmm2, dword ptr [esi + 0x3c]
+  0x00080FBC:  movss    dword ptr [0x7d8164], xmm2
+  0x00080FC4:  movss    xmm2, dword ptr [esi + 0x40]
+  0x00080FC9:  movss    dword ptr [0x7d8168], xmm2
+  0x00080FD1:  movss    xmm2, dword ptr [esi + 0x44]
+  0x00080FD6:  movss    dword ptr [0x7d816c], xmm2
+  0x00080FDE:  mov      eax, dword ptr [esi + 0x4c]
+  0x00080FE1:  mov      dword ptr [0x7d8170], eax
+  0x00080FE6:  mov      ecx, dword ptr [esi + 0x4c]
+  0x00080FE9:  sub      ecx, edi
+  0x00080FEB:  mov      dword ptr [0x7d8174], ecx
+  0x00080FF1:  mov      eax, dword ptr [esi + 0x50]
+  0x00080FF4:  mov      dword ptr [0x7d8178], eax
+  0x00080FF9:  test     byte ptr [esi + 0x50], 8
+  0x00080FFD:  je       0x8100b
+  0x00080FFF:  mov      dword ptr [0x7f461c], 1
+  0x00081009:  jmp      0x81014
+  0x0008100B:  mov      ecx, dword ptr [esi + 0x4c]
+  0x0008100E:  mov      dword ptr [0x7f4620], ecx
+  0x00081014:  movsx    ecx, byte ptr [esi + 0x50]
+  0x00081018:  and      ecx, 0x10
+  0x0008101B:  shr      ecx, 4
+  0x0008101E:  test     al, 1
+  0x00081020:  mov      dword ptr [0x7f45f8], ecx
+  0x00081026:  mov      dword ptr [0x7d819c], 0
+  0x00081030:  jne      0x810d7
+  0x00081036:  mov      ecx, dword ptr [esi + 0x54]
+  0x00081039:  mov      eax, dword ptr [0x7d817c]
+  0x0008103E:  mov      edi, dword ptr [0x7d8180]
+  0x00081044:  xor      eax, ecx
+  0x00081046:  mov      dword ptr [0x7d817c], ecx
+  0x0008104C:  mov      ecx, dword ptr [esi + 0x58]
+  0x0008104F:  xor      edi, ecx
+  0x00081051:  or       eax, edi
+  0x00081053:  mov      edi, dword ptr [0x7d8184]
+  0x00081059:  mov      dword ptr [0x7d8180], ecx
+  0x0008105F:  mov      ecx, dword ptr [esi + 0x5c]
+  0x00081062:  xor      edi, ecx
+  0x00081064:  or       eax, edi
+  0x00081066:  mov      edi, dword ptr [0x7d8188]
+  0x0008106C:  mov      dword ptr [0x7d8184], ecx
+  0x00081072:  mov      ecx, dword ptr [esi + 0x60]
+  0x00081075:  xor      edi, ecx
+  0x00081077:  or       eax, edi
+  0x00081079:  mov      edi, dword ptr [0x7d818c]
+  0x0008107F:  mov      dword ptr [0x7d8188], ecx
+  0x00081085:  mov      ecx, dword ptr [esi + 0x64]
+  0x00081088:  xor      edi, ecx
+  0x0008108A:  or       eax, edi
+  0x0008108C:  mov      edi, dword ptr [0x7d8190]
+  0x00081092:  mov      dword ptr [0x7d818c], ecx
+  0x00081098:  mov      ecx, dword ptr [esi + 0x68]
+  0x0008109B:  xor      edi, ecx
+  0x0008109D:  or       eax, edi
+  0x0008109F:  mov      edi, dword ptr [0x7d8194]
+  0x000810A5:  mov      dword ptr [0x7d8190], ecx
+  0x000810AB:  mov      ecx, dword ptr [esi + 0x6c]
+  0x000810AE:  xor      edi, ecx
+  0x000810B0:  or       eax, edi
+  0x000810B2:  mov      edi, dword ptr [0x7d8198]
+  0x000810B8:  mov      dword ptr [0x7d8194], ecx
+  0x000810BE:  mov      ecx, dword ptr [esi + 0x70]
+  0x000810C1:  xor      edi, ecx
+  0x000810C3:  or       eax, edi
+  0x000810C5:  mov      dword ptr [0x7d8198], ecx
+  0x000810CB:  je       0x810d7
+  0x000810CD:  mov      dword ptr [0x7d819c], 1
+  0x000810D7:  mov      eax, dword ptr [0x7f4610]
+  0x000810DC:  fild     dword ptr [0x7d8170]
+  0x000810E2:  mov      edi, dword ptr [0x7f45fc]
+  0x000810E8:  mov      dword ptr [0x7d81b4], eax
+  0x000810ED:  mov      eax, dword ptr [0x7f4614]
+  0x000810F2:  fmul     qword ptr [0x2cdbc0]
+  0x000810F8:  mov      ecx, dword ptr [0x7cba08]
+  0x000810FE:  sub      edi, eax
+  0x00081100:  imul     eax, eax, 0xf0
+  0x00081106:  fstp     dword ptr [0x7d81a0]
+  0x0008110C:  mov      dword ptr [0x7d81a4], edi
+  0x00081112:  mov      edi, dword ptr [0x7f4618]
+  0x00081118:  lea      eax, [eax + ecx + 0x20000]
+  0x0008111F:  mov      dword ptr [0x7d81a8], eax
+  0x00081124:  mov      eax, dword ptr [0x7f460c]
+  0x00081129:  mov      dword ptr [0x7d81b8], ecx
+  0x0008112F:  sub      edi, eax
+  0x00081131:  mov      dword ptr [0x7d81ac], edi
+  0x00081137:  mov      edi, dword ptr [0x7d7914]
+  0x0008113D:  lea      eax, [eax + eax*4]
+  0x00081140:  lea      ecx, [ecx + eax*4 + 0x5c000]
+  0x00081147:  mov      eax, dword ptr [0x7d791c]
+  0x0008114C:  mov      dword ptr [0x7d81b0], ecx
+  0x00081152:  inc      eax
+  0x00081153:  mov      dword ptr [0x7d791c], eax
+  0x00081158:  inc      edi
+  0x00081159:  mov      dword ptr [0x7d7914], edi
+  0x0008115F:  xor      eax, eax
+  0x00081161:  mov      ecx, 0x80
+  0x00081166:  lea      edi, [esp + 0x10]
+  0x0008116A:  rep stosd dword ptr es:[edi], eax
+  0x0008116C:  movss    dword ptr [esp + 0x148], xmm0
+  0x00081175:  movss    xmm0, dword ptr [esi + 0x18]
+  0x0008117A:  mov      eax, dword ptr [0x7d3308]
+  0x0008117F:  movss    dword ptr [esp + 0x10], xmm0
+  0x00081185:  movss    xmm0, dword ptr [esi + 0x1c]
+  0x0008118A:  movss    dword ptr [esp + 0x14], xmm0
+  0x00081190:  movss    xmm0, dword ptr [esi + 0x20]
+  0x00081195:  movss    dword ptr [esp + 0x18], xmm0
+  0x0008119B:  movss    xmm0, dword ptr [esi + 0x24]
+  0x000811A0:  mov      ecx, dword ptr [0x7d8130]
+  0x000811A6:  movss    dword ptr [esp + 0x1c], xmm0
+  0x000811AC:  movss    xmm0, dword ptr [esi + 0x28]
+  0x000811B1:  movss    dword ptr [esp + 0x20], xmm0
+  0x000811B7:  movss    xmm0, dword ptr [esi + 0x2c]
+  0x000811BC:  movss    dword ptr [esp + 0x24], xmm0
+  0x000811C2:  movss    xmm0, dword ptr [esi + 0x30]
+  0x000811C7:  movss    dword ptr [esp + 0x28], xmm0
+  0x000811CD:  movss    xmm0, dword ptr [esi + 0x34]
+  0x000811D2:  movss    dword ptr [esp + 0x2c], xmm0
+  0x000811D8:  movss    xmm0, dword ptr [esi + 0x38]
+  0x000811DD:  movss    dword ptr [esp + 0x30], xmm0
+  0x000811E3:  movss    xmm0, dword ptr [esi + 0x3c]
+  0x000811E8:  movss    dword ptr [esp + 0x34], xmm0
+  0x000811EE:  movss    xmm0, dword ptr [esi + 0x40]
+  0x000811F3:  movss    dword ptr [esp + 0x38], xmm0
+  0x000811F9:  movss    xmm0, dword ptr [esi + 0x44]
+  0x000811FE:  sub      eax, edx
+  0x00081200:  mov      dword ptr [esp + 0x138], ebx
+  0x00081207:  mov      ebx, dword ptr [0x7d812c]
+  0x0008120D:  movss    dword ptr [esp + 0x3c], xmm0
+  0x00081213:  movss    xmm0, dword ptr [esi + 0x18]
+  0x00081218:  sub      eax, ebx
+  0x0008121A:  movss    dword ptr [esp + 0x108], xmm0
+  0x00081223:  movss    xmm0, dword ptr [esi + 0x1c]
+  0x00081228:  mov      dword ptr [esp + 0x144], edx
+  0x0008122F:  mov      dword ptr [esp + 0x13c], eax
+  0x00081236:  xor      eax, eax
+  0x00081238:  lea      edx, [esp + 0x10]
+  0x0008123C:  movss    dword ptr [esp + 0x10c], xmm0
+  0x00081245:  movss    xmm0, dword ptr [esi + 0x20]
+  0x0008124A:  push     edx
+  0x0008124B:  mov      dword ptr [esp + 0x144], ecx
+  0x00081252:  mov      dword ptr [esp + 0x118], eax
+  0x00081259:  movss    dword ptr [esp + 0x150], xmm1
+  0x00081262:  movss    dword ptr [esp + 0x114], xmm0
+  0x0008126B:  mov      dword ptr [0x7e914c], eax
+  0x00081270:  call     0x7ba10  -> .text 0x0007BA10
+  0x00081275:  mov      eax, dword ptr [0x7d81b4]
+  0x0008127A:  add      esp, 4
+  0x0008127D:  mov      dword ptr [0x7f4610], eax
+  0x00081282:  mov      ecx, dword ptr [0x7f45fc]
+  0x00081288:  mov      edx, dword ptr [0x7f4600]
+  0x0008128E:  mov      eax, dword ptr [0x7f4618]
+  0x00081293:  mov      dword ptr [0x7f4614], ecx
+  0x00081299:  mov      dword ptr [0x7f4604], edx
+  0x0008129F:  mov      dword ptr [0x7f460c], eax
+  0x000812A4:  call     0x47e00  -> .text 0x00047E00
+  0x000812A9:  mov      edx, dword ptr [esp + 0xc]
+  0x000812AD:  mov      ecx, dword ptr [0x7d8224]
+  0x000812B3:  sub      eax, edx
+  0x000812B5:  add      ecx, eax
+  0x000812B7:  mov      dword ptr [0x7d8224], ecx
+  0x000812BD:  call     0x62100  -> .text 0x00062100
+  0x000812C2:  mov      ecx, dword ptr [esp + 0x214]
+  0x000812C9:  call     0x22e6b3  -> .text 0x0022E6B3
+  0x000812CE:  pop      edi
+  0x000812CF:  pop      esi
+  0x000812D0:  pop      ebx
+  0x000812D1:  mov      esp, ebp
+  0x000812D3:  pop      ebp
+  0x000812D4:  ret      
+  [231 insns]
+
+========================================================================
+AvSetDisplayMode callers (thunk @ 0x002CD17C)
+========================================================================
+  Total call sites: 0
+
+========================================================================
+AvSendTVEncoderOption callers (thunk @ 0x002CD178)
+========================================================================
+  Total call sites: 0
+
+========================================================================
+MmAllocateContiguousMemory callers (thunk @ 0x002CD0B8)
+========================================================================
+  Total call sites: 0
+
+========================================================================
+=== D3D vtable indirect call pattern scan (call [reg+N]) ===
+========================================================================
+D3D section: VA=0x0023BFA0 size=0x00013CB0
+  string "SetTexture" @ 0x0024C354
+  string "Initializing Renderer" @ 0x002CEA02
