@@ -20,6 +20,8 @@
 extern "C" {
 #endif
 
+void XBLog_PreCRTProbe(void);  /* called from ASM before _mainCRTStartup */
+void XBLog_PostCRTProbe(void); /* called from ASM after  _mainCRTStartup returns */
 void XBLog_Init(void);
 void XBLog_Shutdown(void);
 void XBLog_Print(const char *msg);

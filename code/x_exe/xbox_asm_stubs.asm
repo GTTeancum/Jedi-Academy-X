@@ -4,6 +4,8 @@
 OPTION CASEMAP:NONE
 
 EXTERN _mainCRTStartup:NEAR
+EXTERN _XBLog_PreCRTProbe:NEAR
+EXTERN _XBLog_PostCRTProbe:NEAR
 
 .data
 default_fpu_cw dw 027Fh
@@ -65,7 +67,9 @@ PUBLIC _WinMainCRTStartup
 _WinMainCRTStartup PROC NEAR
     finit                   ; Initialize FPU - fixes R6002
     fldcw   default_fpu_cw  ; Load the standard x87 control word
-    call    _mainCRTStartup     ; CRT + XAPI init, then main()
+    call    _XBLog_PreCRTProbe  ; write "precrt_ok" before _mainCRTStartup runs
+    call    _mainCRTStartup     ; spawns game thread + returns (or calls XapiBootToDash)
+    call    _XBLog_PostCRTProbe ; write "post_crt" if _mainCRTStartup returned normally
 @@spin:
     jmp     @@spin
 _WinMainCRTStartup ENDP

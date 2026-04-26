@@ -1,0 +1,116 @@
+
+================================================================================
+_mainCRTStartup  @ 0x004C503F
+================================================================================
+  0x004C503F:  mov        ecx, dword ptr [0x10118]
+  0x004C5045:  mov        eax, dword ptr [0x10108]
+  0x004C504A:  sub        eax, ecx
+  0x004C504C:  add        eax, 0x10000
+  0x004C5051:  cmp        eax, dword ptr [ecx]
+  0x004C5053:  jae        0x4c5057
+  0x004C5055:  mov        dword ptr [ecx], eax
+  0x004C5057:  mov        eax, dword ptr [0x71c29c]
+  0x004C505C:  sub        eax, dword ptr [0x71c28c]
+  0x004C5062:  mov        ecx, dword ptr [0x71c290]
+  0x004C5068:  push       esi
+  0x004C5069:  lea        eax, [eax + ecx + 0xf]
+  0x004C506D:  push       edi
+  0x004C506E:  and        eax, 0xfffffff0
+  0x004C5071:  push       -4
+  0x004C5073:  pop        ecx
+  0x004C5074:  add        eax, 4
+  0x004C5077:  mov        dword ptr [0x107ddb8], eax
+  0x004C507C:  cdq        
+  0x004C507D:  idiv       ecx
+  0x004C507F:  mov        ecx, dword ptr [0x71c294]
+  0x004C5085:  xor        esi, esi
+  0x004C5087:  push       esi
+  0x004C5088:  push       esi
+  0x004C5089:  push       esi
+  0x004C508A:  push       0x4c4fcb
+  0x004C508F:  push       esi
+  0x004C5090:  push       esi
+  0x004C5091:  mov        dword ptr [ecx], eax
+  0x004C5093:  call       0x4c0b4a  -> _CreateThread@24  [.text]
+  0x004C5098:  mov        edi, eax
+  0x004C509A:  cmp        edi, esi
+  0x004C509C:  jne        0x4c50a8
+  0x004C509E:  push       esi
+  0x004C509F:  push       1
+  0x004C50A1:  push       1
+  0x004C50A3:  call       0x4c5f2e  -> _XapiBootToDash@12  [.text]
+  0x004C50A8:  push       edi
+  0x004C50A9:  call       0x4c10b0  -> _CloseHandle@4  [.text]
+  0x004C50AE:  pop        edi
+  0x004C50AF:  pop        esi
+  0x004C50B0:  ret        
+
+================================================================================
+XoSetupLiveSignatureEntryPoints  @ 0x006CF063
+================================================================================
+  0x006CF063:  mov        dword ptr [0xd26a30], 0x6cef4c
+  0x006CF06D:  mov        dword ptr [0xd26a34], 0x6cefa5
+  0x006CF077:  mov        dword ptr [0xd26a38], 0x6cefe0
+  0x006CF081:  xor        eax, eax
+  0x006CF083:  ret        
+
+================================================================================
+___onexitinit  @ 0x004CBEA9
+================================================================================
+  0x004CBEA9:  push       0x80
+  0x004CBEAE:  call       0x4cf45e  -> _malloc  [.text]
+  0x004CBEB3:  test       eax, eax
+  0x004CBEB5:  pop        ecx
+  0x004CBEB6:  mov        dword ptr [0x107def0], eax
+  0x004CBEBB:  jne        0x4cbec1
+  0x004CBEBD:  push       0x18
+  0x004CBEBF:  pop        eax
+  0x004CBEC0:  ret        
+
+================================================================================
+___initstdio  @ 0x004CF29C
+================================================================================
+  0x004CF29C:  mov        eax, dword ptr [0x107dee4]
+  0x004CF2A1:  test       eax, eax
+  0x004CF2A3:  push       esi
+  0x004CF2A4:  push       0x14
+  0x004CF2A6:  pop        esi
+  0x004CF2A7:  jne        0x4cf2b0
+  0x004CF2A9:  mov        eax, 0x200
+  0x004CF2AE:  jmp        0x4cf2b6  -> 0x004CF2B6  [.text]
+  0x004CF2B0:  cmp        eax, esi
+  0x004CF2B2:  jge        0x4cf2bb
+  0x004CF2B4:  mov        eax, esi
+  0x004CF2B6:  mov        dword ptr [0x107dee4], eax
+  0x004CF2BB:  push       4
+  0x004CF2BD:  push       eax
+  0x004CF2BE:  call       0x4d3995  -> _calloc  [.text]
+  0x004CF2C3:  test       eax, eax
+  0x004CF2C5:  pop        ecx
+  0x004CF2C6:  pop        ecx
+  0x004CF2C7:  mov        dword ptr [0x107dee0], eax
+  0x004CF2CC:  jne        0x4cf2ec
+  0x004CF2CE:  push       4
+  0x004CF2D0:  push       esi
+  0x004CF2D1:  mov        dword ptr [0x107dee4], esi
+  0x004CF2D7:  call       0x4d3995  -> _calloc  [.text]
+  0x004CF2DC:  test       eax, eax
+  0x004CF2DE:  pop        ecx
+  0x004CF2DF:  pop        ecx
+  0x004CF2E0:  mov        dword ptr [0x107dee0], eax
+  0x004CF2E5:  jne        0x4cf2ec
+  0x004CF2E7:  push       0x1a
+  0x004CF2E9:  pop        eax
+  0x004CF2EA:  pop        esi
+  0x004CF2EB:  ret        
+
+================================================================================
+__ioinit  @ 0x004D37DB
+================================================================================
+  0x004D37DB:  push       0x100
+  0x004D37E0:  call       0x4cf45e  -> _malloc  [.text]
+  0x004D37E5:  test       eax, eax
+  0x004D37E7:  pop        ecx
+  0x004D37E8:  jne        0x4d37ee
+  0x004D37EA:  or         eax, 0xffffffff
+  0x004D37ED:  ret        

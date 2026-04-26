@@ -1,0 +1,556 @@
+Static ctor disassembly for 62 ctors
+================================================================================
+
+[ 1] 0x0065D990  _$E1  (.text)
+  0x0065D990:  push       0
+  0x0065D992:  mov        ecx, 0x8b0598
+  0x0065D997:  call       0x404f90  -> ??0HotSwapManager@@QAE@H@Z  [.text]
+  0x0065D99C:  ret        
+
+[ 2] 0x0065D9A0  _$E3  (.text)
+  0x0065D9A0:  push       1
+  0x0065D9A2:  mov        ecx, 0x8b058c
+  0x0065D9A7:  call       0x404f90  -> ??0HotSwapManager@@QAE@H@Z  [.text]
+  0x0065D9AC:  ret        
+
+[ 3] 0x0065D9B0  _$E5  (.text)
+  0x0065D9B0:  push       2
+  0x0065D9B2:  mov        ecx, 0x8b0580
+  0x0065D9B7:  call       0x404f90  -> ??0HotSwapManager@@QAE@H@Z  [.text]
+  0x0065D9BC:  ret        
+
+[ 4] 0x0065D9C0  _$E1  (.text)
+  0x0065D9C0:  push       0x65e060
+  0x0065D9C5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065D9CA:  pop        ecx
+  0x0065D9CB:  ret        
+
+[ 5] 0x0065D9D0  _$E1  (.text)
+  0x0065D9D0:  mov        eax, 0x8e4ad8
+  0x0065D9D5:  mov        edx, 0x10
+  0x0065D9DA:  xor        ecx, ecx
+  0x0065D9DC:  lea        esp, [esp]
+  0x0065D9E0:  mov        dword ptr [eax - 8], ecx
+  0x0065D9E3:  mov        dword ptr [eax - 4], ecx
+  0x0065D9E6:  mov        dword ptr [eax], ecx
+  0x0065D9E8:  mov        dword ptr [eax + 4], ecx
+  0x0065D9EB:  add        eax, 0x10
+  0x0065D9EE:  dec        edx
+  0x0065D9EF:  jne        0x65d9e0
+  0x0065D9F1:  ret        
+
+[ 6] 0x0065DA00  _$E1  (.text)
+  0x0065DA00:  mov        ecx, 0x8fbbc0
+  0x0065DA05:  call       0x431a00  -> ??0CStringEdPackage@@QAE@XZ  [.text]
+  0x0065DA0A:  push       0x65e110
+  0x0065DA0F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DA14:  pop        ecx
+  0x0065DA15:  ret        
+
+[ 7] 0x0065DA20  _$E1  (.text)
+  0x0065DA20:  push       edi
+  0x0065DA21:  mov        ecx, 0x200
+  0x0065DA26:  xor        eax, eax
+  0x0065DA28:  mov        edi, 0x741a30
+  0x0065DA2D:  rep stosd  dword ptr es:[edi], eax
+  0x0065DA2F:  pop        edi
+  0x0065DA30:  ret        
+
+[ 8] 0x0065DA40  _$E1  (.text)
+  0x0065DA40:  push       0x65e190
+  0x0065DA45:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DA4A:  pop        ecx
+  0x0065DA4B:  ret        
+
+[ 9] 0x0065DA50  _$E4  (.text)
+  0x0065DA50:  mov        eax, 0xc34aec
+  0x0065DA55:  mov        ecx, 0x20
+  0x0065DA5A:  xor        edx, edx
+  0x0065DA5C:  lea        esp, [esp]
+  0x0065DA60:  mov        byte ptr [eax], dl
+  0x0065DA62:  add        eax, 0x4c
+  0x0065DA65:  dec        ecx
+  0x0065DA66:  jne        0x65da60
+  0x0065DA68:  mov        ecx, 0xc34ae0
+  0x0065DA6D:  mov        dword ptr [0xc354e8], edx
+  0x0065DA73:  mov        dword ptr [0xc354ec], edx
+  0x0065DA79:  mov        dword ptr [0xc354f0], edx
+  0x0065DA7F:  mov        dword ptr [0xc354f4], edx
+  0x0065DA85:  mov        dword ptr [0xc354f8], edx
+  0x0065DA8B:  call       0x462040  -> ?FillFreeList@?$pool_root@U?$value_semantics_node@V?$sstring@$0EA@@@$0CA@Vtree_node@ratl@@@storage@ratl@@@ratl@@AAEXXZ  [.text]
+  0x0065DA90:  push       0x65e1d0
+  0x0065DA95:  mov        dword ptr [0xc354fc], 0x3fffffff
+  0x0065DA9F:  mov        dword ptr [0xc35500], 0xffffffff
+  0x0065DAA9:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DAAE:  pop        ecx
+  0x0065DAAF:  ret        
+
+[10] 0x0065DAB0  _$E3  (.text)
+  0x0065DAB0:  mov        eax, 0xc35f00
+  0x0065DAB5:  mov        ecx, 0x800
+  0x0065DABA:  xor        edx, edx
+  0x0065DABC:  lea        esp, [esp]
+  0x0065DAC0:  mov        dword ptr [eax - 8], 8
+  0x0065DAC7:  mov        dword ptr [eax - 4], edx
+  0x0065DACA:  mov        dword ptr [eax], edx
+  0x0065DACC:  add        eax, 0xc
+  0x0065DACF:  dec        ecx
+  0x0065DAD0:  jne        0x65dac0
+  0x0065DAD2:  ret        
+
+[11] 0x0065DAE0  _$E5  (.text)
+  0x0065DAE0:  mov        ecx, 0x742c08
+  0x0065DAE5:  jmp        0x4668d0  -> ?Clear@vvBonePoolManager@@QAEXXZ  [.text]
+
+[12] 0x0065DAF0  _$E3  (.text)
+  0x0065DAF0:  mov        ecx, 0xc3c114
+  0x0065DAF5:  call       0x46d200  -> ?_Buynode@?$_Tree@V?$_Tmap_traits@V?$sstring@$0EA@@@PADU?$less@V?$sstring@$0EA@@@@std@@V?$allocator@U?$pair@$$CBV?$sstring@$0EA@@@PAD@std@@@3@$0A@@std@@@std@@IAEPAU_Node@?$_Tree_nod@V?$_Tmap_traits@V?$sstring@$0EA@@@PADU?$less@V?$sstring@$0EA@@@@std@@V?$allocator@U?$pair@$$CBV?$sstring@$0EA@@@PAD@std@@@3@$0A@@std@@@2@XZ  [.text]
+  0x0065DAFA:  mov        dword ptr [0xc3c118], eax
+  0x0065DAFF:  mov        byte ptr [eax + 0x51], 1
+  0x0065DB03:  mov        eax, dword ptr [0xc3c118]
+  0x0065DB08:  mov        dword ptr [eax + 4], eax
+  0x0065DB0B:  mov        eax, dword ptr [0xc3c118]
+  0x0065DB10:  mov        dword ptr [eax], eax
+  0x0065DB12:  mov        eax, dword ptr [0xc3c118]
+  0x0065DB17:  mov        dword ptr [eax + 8], eax
+  0x0065DB1A:  push       0x65e1e0
+  0x0065DB1F:  mov        dword ptr [0xc3c11c], 0
+  0x0065DB29:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DB2E:  pop        ecx
+  0x0065DB2F:  ret        
+
+[13] 0x0065DB30  _$E1  (.text)
+  0x0065DB30:  mov        ecx, 0xc53e28
+  0x0065DB35:  call       0x47b7e0  -> ??0CQuickSpriteSystem@@QAE@XZ  [.text]
+  0x0065DB3A:  push       0x65e220
+  0x0065DB3F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DB44:  pop        ecx
+  0x0065DB45:  ret        
+
+[14] 0x0065DB50  _$E1  (.text)
+  0x0065DB50:  fld        qword ptr [0x70b7f0]
+  0x0065DB56:  fldln2     
+  0x0065DB58:  fxch       st(1)
+  0x0065DB5A:  fyl2x      
+  0x0065DB5C:  fchs       
+  0x0065DB5E:  fsqrt      
+  0x0065DB60:  fstp       dword ptr [0xc7dff8]
+  0x0065DB66:  ret        
+
+[15] 0x0065DB70  _$E5  (.text)
+  0x0065DB70:  push       0x65e230
+  0x0065DB75:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DB7A:  pop        ecx
+  0x0065DB7B:  ret        
+
+[16] 0x0065DB80  _$E8  (.text)
+  0x0065DB80:  push       0x65e240
+  0x0065DB85:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DB8A:  pop        ecx
+  0x0065DB8B:  ret        
+
+[17] 0x0065DB90  _$E11  (.text)
+  0x0065DB90:  mov        ecx, 0xc86810
+  0x0065DB95:  call       0x494b30  -> ?Reset@COutside@@QAEXXZ  [.text]
+  0x0065DB9A:  push       0x65e250
+  0x0065DB9F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DBA4:  pop        ecx
+  0x0065DBA5:  ret        
+
+[18] 0x0065DBB0  _$E14  (.text)
+  0x0065DBB0:  mov        ecx, 0xc86278
+  0x0065DBB5:  call       0x4946a0  -> ??0?$array_base@U?$value_semantics@VCParticleCloud@@$04@storage@ratl@@@ratl@@QAE@XZ  [.text]
+  0x0065DBBA:  push       0x65e260
+  0x0065DBBF:  mov        dword ptr [0xc86808], 0
+  0x0065DBC9:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DBCE:  pop        ecx
+  0x0065DBCF:  ret        
+
+[19] 0x0065DBD0  _$E1  (.text)
+  0x0065DBD0:  push       edi
+  0x0065DBD1:  mov        eax, 0x3f800000
+  0x0065DBD6:  mov        ecx, 0x1f4
+  0x0065DBDB:  mov        edi, 0xc9b3b4
+  0x0065DBE0:  push       0x65e290
+  0x0065DBE5:  rep stosd  dword ptr es:[edi], eax
+  0x0065DBE7:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DBEC:  add        esp, 4
+  0x0065DBEF:  pop        edi
+  0x0065DBF0:  ret        
+
+[20] 0x00683B72  _$E1  (DSOUND)
+  0x00683B72:  mov        dword ptr [0x6a21a4], 0x6a1acc
+  0x00683B7C:  ret        
+
+[21] 0x00683B7D  _$E3  (DSOUND)
+  0x00683B7D:  mov        dword ptr [0x6a21a0], 0x6a1ad0
+  0x00683B87:  ret        
+
+[22] 0x00687607  _$E1  (DSOUND)
+  0x00687607:  mov        dword ptr [0x6a224c], 0x6a1ad4
+  0x00687611:  ret        
+
+[23] 0x00687612  _$E3  (DSOUND)
+  0x00687612:  mov        dword ptr [0x6a2248], 0x6a1ad8
+  0x0068761C:  ret        
+
+[24] 0x0065DC00  _$E1  (.text)
+  0x0065DC00:  push       0x65e2a0
+  0x0065DC05:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DC0A:  pop        ecx
+  0x0065DC0B:  ret        
+
+[25] 0x0065DC10  _$E1  (.text)
+  0x0065DC10:  push       esi
+  0x0065DC11:  push       edi
+  0x0065DC12:  mov        esi, 0xebfee0
+  0x0065DC17:  mov        edi, 0x28
+  0x0065DC1C:  lea        esp, [esp]
+  0x0065DC20:  mov        ecx, esi
+  0x0065DC22:  call       0x526bb0  -> ??0hstring@dllNamespace@@QAE@XZ  [.text]
+  0x0065DC27:  add        esi, 4
+  0x0065DC2A:  dec        edi
+  0x0065DC2B:  jne        0x65dc20
+  0x0065DC2D:  pop        edi
+  0x0065DC2E:  pop        esi
+  0x0065DC2F:  ret        
+
+[26] 0x0065DC30  _$E1  (.text)
+  0x0065DC30:  mov        ecx, 0xf220b0
+  0x0065DC35:  call       0x550190  -> ??0?$graph_vs@VCWayNode@@$0DIE@VCWayEdge@@$0KIM@$0BE@@ragl@@QAE@XZ  [.text]
+  0x0065DC3A:  push       0x65e330
+  0x0065DC3F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DC44:  pop        ecx
+  0x0065DC45:  ret        
+
+[27] 0x0065DC50  _$E4  (.text)
+  0x0065DC50:  push       0xf220b0
+  0x0065DC55:  mov        ecx, 0xf51a28
+  0x0065DC5A:  call       0x551920  -> ??0?$graph_region@VCWayNode@@$0DIE@VCWayEdge@@$0KIM@$0BE@$0BCM@$0BCM@@ragl@@QAE@AAV?$graph_vs@VCWayNode@@$0DIE@VCWayEdge@@$0KIM@$0BE@@1@@Z  [.text]
+  0x0065DC5F:  push       0x65e340
+  0x0065DC64:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DC69:  pop        ecx
+  0x0065DC6A:  ret        
+
+[28] 0x0065DC70  _$E7  (.text)
+  0x0065DC70:  mov        ecx, 0xedd274
+  0x0065DC75:  mov        dword ptr [0xedd270], 0xf220b0
+  0x0065DC7F:  call       0x5502d0  -> ??0?$grid2_vs@USCell@?$cells@$0DM@$0CA@$0CA@@?$graph_vs@VCWayNode@@$0DIE@VCWayEdge@@$0KIM@$0BE@@ragl@@$0CA@$0CA@@ratl@@QAE@XZ  [.text]
+  0x0065DC84:  push       0x65e360
+  0x0065DC89:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DC8E:  pop        ecx
+  0x0065DC8F:  ret        
+
+[29] 0x0065DC90  _$E10  (.text)
+  0x0065DC90:  push       0
+  0x0065DC92:  push       0
+  0x0065DC94:  mov        ecx, 0xf1d298
+  0x0065DC99:  call       0x54b450  -> ??0search@?$graph_vs@VCWayNode@@$0DIE@VCWayEdge@@$0KIM@$0BE@@ragl@@QAE@HH@Z  [.text]
+  0x0065DC9E:  push       0x65e300
+  0x0065DCA3:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DCA8:  pop        ecx
+  0x0065DCA9:  ret        
+
+[30] 0x0065DCB0  _$E15  (.text)
+  0x0065DCB0:  mov        ecx, 0xfab528
+  0x0065DCB5:  call       0x550330  -> ??0?$map_base@U?$value_semantics_node@Vhstring@dllNamespace@@$0DIE@Vtree_node@ratl@@@storage@ratl@@U?$value_semantics@V?$vector_vs@H$0BO@@ratl@@$0DIE@@23@$0A@@ratl@@QAE@XZ  [.text]
+  0x0065DCBA:  push       0x65e370
+  0x0065DCBF:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DCC4:  pop        ecx
+  0x0065DCC5:  ret        
+
+[31] 0x0065DCD0  _$E18  (.text)
+  0x0065DCD0:  mov        ecx, 0xfcbe10
+  0x0065DCD5:  call       0x549360  -> ?FillFreeList@?$pool_root@U?$value_semantics_node@H$0GE@Vtree_node@ratl@@@storage@ratl@@@ratl@@AAEXXZ  [.text]
+  0x0065DCDA:  mov        dword ptr [0xfcc608], 0x3fffffff
+  0x0065DCE4:  mov        dword ptr [0xfcc60c], 0xffffffff
+  0x0065DCEE:  mov        eax, 0xfcc63c
+  0x0065DCF3:  mov        ecx, 0x64
+  0x0065DCF8:  jmp        0x65dd00  -> 0x0065DD00  [.text]
+
+[32] 0x0065DD20  _$E21  (.text)
+  0x0065DD20:  push       0x65e2f0
+  0x0065DD25:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DD2A:  pop        ecx
+  0x0065DD2B:  ret        
+
+[33] 0x0065DD30  _$E24  (.text)
+  0x0065DD30:  mov        ecx, 0xec01b0
+  0x0065DD35:  call       0x54ef20  -> ??0?$pool_root@U?$value_semantics@USPathUser@@$0DM@@storage@ratl@@@ratl@@QAE@XZ  [.text]
+  0x0065DD3A:  push       0x65e350
+  0x0065DD3F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DD44:  pop        ecx
+  0x0065DD45:  ret        
+
+[34] 0x0065DD50  _$E27  (.text)
+  0x0065DD50:  push       0x65e2e0
+  0x0065DD55:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DD5A:  pop        ecx
+  0x0065DD5B:  ret        
+
+[35] 0x0065DD60  _$E30  (.text)
+  0x0065DD60:  push       0x65e310
+  0x0065DD65:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DD6A:  pop        ecx
+  0x0065DD6B:  ret        
+
+[36] 0x0065DD70  _$E33  (.text)
+  0x0065DD70:  mov        eax, 0xedbeac
+  0x0065DD75:  mov        ecx, 4
+  0x0065DD7A:  xor        edx, edx
+  0x0065DD7C:  lea        esp, [esp]
+  0x0065DD80:  mov        dword ptr [eax], edx
+  0x0065DD82:  add        eax, 0xfc
+  0x0065DD87:  dec        ecx
+  0x0065DD88:  jne        0x65dd80
+  0x0065DD8A:  mov        ecx, 0xedbe48
+  0x0065DD8F:  mov        dword ptr [0xedc250], edx
+  0x0065DD95:  mov        dword ptr [0xedc254], edx
+  0x0065DD9B:  mov        dword ptr [0xedc258], edx
+  0x0065DDA1:  mov        dword ptr [0xedc25c], edx
+  0x0065DDA7:  mov        dword ptr [0xedc260], edx
+  0x0065DDAD:  call       0x548710  -> ?FillFreeList@?$pool_root@U?$value_semantics@USSteerUser@@$03@storage@ratl@@@ratl@@AAEXXZ  [.text]
+  0x0065DDB2:  push       0x65e390
+  0x0065DDB7:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DDBC:  pop        ecx
+  0x0065DDBD:  ret        
+
+[37] 0x0065DDC0  _$E36  (.text)
+  0x0065DDC0:  push       0x65e2d0
+  0x0065DDC5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DDCA:  pop        ecx
+  0x0065DDCB:  ret        
+
+[38] 0x0065DDD0  _$E39  (.text)
+  0x0065DDD0:  push       0x65e320
+  0x0065DDD5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DDDA:  pop        ecx
+  0x0065DDDB:  ret        
+
+[39] 0x0065DDE0  _$E42  (.text)
+  0x0065DDE0:  mov        eax, 0xfe3028
+  0x0065DDE5:  mov        ecx, 0x10
+  0x0065DDEA:  or         edx, 0xffffffff
+  0x0065DDED:  lea        ecx, [ecx]
+  0x0065DDF0:  mov        dword ptr [eax], 0x47c35000
+  0x0065DDF6:  mov        dword ptr [eax + 4], edx
+  0x0065DDF9:  add        eax, 0x40
+  0x0065DDFC:  dec        ecx
+  0x0065DDFD:  jne        0x65ddf0
+  0x0065DDFF:  ret        
+
+[40] 0x0065DE00  _$E44  (.text)
+  0x0065DE00:  mov        eax, 0xfcd910
+  0x0065DE05:  mov        ecx, 0x10
+  0x0065DE0A:  or         edx, 0xffffffff
+  0x0065DE0D:  lea        ecx, [ecx]
+  0x0065DE10:  mov        dword ptr [eax], 0x47c35000
+  0x0065DE16:  mov        dword ptr [eax + 4], edx
+  0x0065DE19:  add        eax, 0x40
+  0x0065DE1C:  dec        ecx
+  0x0065DE1D:  jne        0x65de10
+  0x0065DE1F:  ret        
+
+[41] 0x0065DE20  _$E1  (.text)
+  0x0065DE20:  fld        qword ptr [0x70fb18]
+  0x0065DE26:  fsqrt      
+  0x0065DE28:  fstp       dword ptr [0xfed9a0]
+  0x0065DE2E:  ret        
+
+[42] 0x0065DE30  _$E1  (.text)
+  0x0065DE30:  push       esi
+  0x0065DE31:  push       edi
+  0x0065DE32:  mov        esi, 0xfeea20
+  0x0065DE37:  mov        edi, 0x4000
+  0x0065DE3C:  lea        esp, [esp]
+  0x0065DE40:  mov        ecx, esi
+  0x0065DE42:  call       0x526bb0  -> ??0hstring@dllNamespace@@QAE@XZ  [.text]
+  0x0065DE47:  add        esi, 0xc
+  0x0065DE4A:  dec        edi
+  0x0065DE4B:  jne        0x65de40
+  0x0065DE4D:  pop        edi
+  0x0065DE4E:  pop        esi
+  0x0065DE4F:  ret        
+
+[43] 0x0065DE50  _$E1  (.text)
+  0x0065DE50:  mov        eax, 0x101eb34
+  0x0065DE55:  mov        ecx, 0x10
+  0x0065DE5A:  or         edx, 0xffffffff
+  0x0065DE5D:  lea        ecx, [ecx]
+  0x0065DE60:  mov        dword ptr [eax], 0x47c35000
+  0x0065DE66:  mov        dword ptr [eax + 4], edx
+  0x0065DE69:  add        eax, 0x40
+  0x0065DE6C:  dec        ecx
+  0x0065DE6D:  jne        0x65de60
+  0x0065DE6F:  ret        
+
+[44] 0x0065DE70  _$E1  (.text)
+  0x0065DE70:  mov        ecx, 0x102834c
+  0x0065DE75:  call       0x5b3790  -> ?_Buynode@?$list@UCreditCard_t@@V?$allocator@UCreditCard_t@@@std@@@std@@IAEPAU_Node@?$_List_nod@UCreditCard_t@@V?$allocator@UCreditCard_t@@@std@@@2@XZ  [.text]
+  0x0065DE7A:  mov        ecx, 0x1028358
+  0x0065DE7F:  mov        dword ptr [0x1028350], eax
+  0x0065DE84:  mov        dword ptr [0x1028354], 0
+  0x0065DE8E:  call       0x5b3820  -> ?_Buynode@?$list@UCreditLine_t@@V?$allocator@UCreditLine_t@@@std@@@std@@IAEPAU_Node@?$_List_nod@UCreditLine_t@@V?$allocator@UCreditLine_t@@@std@@@2@XZ  [.text]
+  0x0065DE93:  push       0x65e3a0
+  0x0065DE98:  mov        dword ptr [0x102835c], eax
+  0x0065DE9D:  mov        dword ptr [0x1028360], 0
+  0x0065DEA7:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DEAC:  pop        ecx
+  0x0065DEAD:  ret        
+
+[45] 0x0065DEB0  _$E1  (.text)
+  0x0065DEB0:  mov        ecx, 0x104a5c0
+  0x0065DEB5:  call       0x5c2320  -> ??0CFxScheduler@@QAE@XZ  [.text]
+  0x0065DEBA:  push       0x65e430
+  0x0065DEBF:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DEC4:  pop        ecx
+  0x0065DEC5:  ret        
+
+[46] 0x0065DED0  _$E4  (.text)
+  0x0065DED0:  push       0x65e3f0
+  0x0065DED5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DEDA:  pop        ecx
+  0x0065DEDB:  ret        
+
+[47] 0x0065DEE0  _$E1  (.text)
+  0x0065DEE0:  mov        eax, 0x105a2c0
+  0x0065DEE5:  mov        ecx, 0x10
+  0x0065DEEA:  or         edx, 0xffffffff
+  0x0065DEED:  lea        ecx, [ecx]
+  0x0065DEF0:  mov        dword ptr [eax], 0x47c35000
+  0x0065DEF6:  mov        dword ptr [eax + 4], edx
+  0x0065DEF9:  add        eax, 0x40
+  0x0065DEFC:  dec        ecx
+  0x0065DEFD:  jne        0x65def0
+  0x0065DEFF:  ret        
+
+[48] 0x0065DF00  _$E3  (.text)
+  0x0065DF00:  push       0x65e440
+  0x0065DF05:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF0A:  pop        ecx
+  0x0065DF0B:  ret        
+
+[49] 0x0065DF10  _$E1  (.text)
+  0x0065DF10:  mov        ecx, 0x105a6c0
+  0x0065DF15:  call       0x5c7e00  -> ??0?$handle_pool_base@U?$value_semantics@VCTroop@@$0GE@@storage@ratl@@@ratl@@QAE@XZ  [.text]
+  0x0065DF1A:  push       0x65e450
+  0x0065DF1F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF24:  pop        ecx
+  0x0065DF25:  ret        
+
+[50] 0x0065DF30  _$E1  (.text)
+  0x0065DF30:  mov        ecx, 0x1061df8
+  0x0065DF35:  call       0x5c9be0  -> ??0?$array_base@U?$value_semantics@VCRailTrack@@$03@storage@ratl@@@ratl@@QAE@XZ  [.text]
+  0x0065DF3A:  push       0x65e4d0
+  0x0065DF3F:  mov        dword ptr [0x106ebfc], 0
+  0x0065DF49:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF4E:  pop        ecx
+  0x0065DF4F:  ret        
+
+[51] 0x0065DF50  _$E4  (.text)
+  0x0065DF50:  mov        ecx, 0x106ec58
+  0x0065DF55:  call       0x5c88e0  -> ??0?$vector_base@U?$value_semantics@VCRailLane@@$07@storage@ratl@@@ratl@@QAE@XZ  [.text]
+  0x0065DF5A:  push       0x65e480
+  0x0065DF5F:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF64:  pop        ecx
+  0x0065DF65:  ret        
+
+[52] 0x0065DF70  _$E7  (.text)
+  0x0065DF70:  push       0x65e490
+  0x0065DF75:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF7A:  pop        ecx
+  0x0065DF7B:  ret        
+
+[53] 0x0065DF80  _$E10  (.text)
+  0x0065DF80:  push       0x65e4a0
+  0x0065DF85:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF8A:  pop        ecx
+  0x0065DF8B:  ret        
+
+[54] 0x0065DF90  _$E13  (.text)
+  0x0065DF90:  push       0x65e460
+  0x0065DF95:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DF9A:  pop        ecx
+  0x0065DF9B:  ret        
+
+[55] 0x0065DFA0  _$E16  (.text)
+  0x0065DFA0:  push       0x65e4b0
+  0x0065DFA5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DFAA:  pop        ecx
+  0x0065DFAB:  ret        
+
+[56] 0x0065DFB0  _$E19  (.text)
+  0x0065DFB0:  push       0x65e470
+  0x0065DFB5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DFBA:  pop        ecx
+  0x0065DFBB:  ret        
+
+[57] 0x0065DFC0  _$E22  (.text)
+  0x0065DFC0:  push       0x65e4c0
+  0x0065DFC5:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065DFCA:  pop        ecx
+  0x0065DFCB:  ret        
+
+[58] 0x0065DFD0  _$E1  (.text)
+  0x0065DFD0:  mov        ecx, 0x1070670
+  0x0065DFD5:  call       0x5ce6f0  -> ?_Buynode@?$_Tree@V?$_Tmap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PAUtagOwner_s@@U?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PAUtagOwner_s@@@std@@@2@$0A@@std@@@std@@IAEPAU_Node@?$_Tree_nod@V?$_Tmap_traits@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PAUtagOwner_s@@U?$less@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@V?$allocator@U?$pair@$$CBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@PAUtagOwner_s@@@std@@@2@$0A@@std@@@2@XZ  [.text]
+  0x0065DFDA:  mov        dword ptr [0x1070674], eax
+  0x0065DFDF:  mov        byte ptr [eax + 0x2d], 1
+  0x0065DFE3:  mov        eax, dword ptr [0x1070674]
+  0x0065DFE8:  mov        dword ptr [eax + 4], eax
+  0x0065DFEB:  mov        eax, dword ptr [0x1070674]
+  0x0065DFF0:  mov        dword ptr [eax], eax
+  0x0065DFF2:  mov        eax, dword ptr [0x1070674]
+  0x0065DFF7:  mov        dword ptr [eax + 8], eax
+  0x0065DFFA:  push       0x65e4e0
+  0x0065DFFF:  mov        dword ptr [0x1070678], 0
+  0x0065E009:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065E00E:  pop        ecx
+  0x0065E00F:  ret        
+
+[59] 0x0065E010  _$E1  (.text)
+  0x0065E010:  mov        eax, 0x107a368
+  0x0065E015:  mov        ecx, 0x10
+  0x0065E01A:  or         edx, 0xffffffff
+  0x0065E01D:  lea        ecx, [ecx]
+  0x0065E020:  mov        dword ptr [eax], 0x47c35000
+  0x0065E026:  mov        dword ptr [eax + 4], edx
+  0x0065E029:  add        eax, 0x40
+  0x0065E02C:  dec        ecx
+  0x0065E02D:  jne        0x65e020
+  0x0065E02F:  ret        
+
+[60] 0x0065E030  _$E3  (.text)
+  0x0065E030:  mov        eax, 0x1079f10
+  0x0065E035:  mov        ecx, 0x10
+  0x0065E03A:  or         edx, 0xffffffff
+  0x0065E03D:  lea        ecx, [ecx]
+  0x0065E040:  mov        dword ptr [eax], 0x47c35000
+  0x0065E046:  mov        dword ptr [eax + 4], edx
+  0x0065E049:  add        eax, 0x40
+  0x0065E04C:  dec        ecx
+  0x0065E04D:  jne        0x65e040
+  0x0065E04F:  ret        
+
+[61] 0x0065E050  _$E1  (.text)
+  0x0065E050:  push       0x65e520
+  0x0065E055:  call       0x4cbe97  -> _atexit  [.text]
+  0x0065E05A:  pop        ecx
+  0x0065E05B:  ret        
+
+[62] 0x006FB122  _$E1  (XPP)
+  0x006FB122:  mov        eax, dword ptr [0x7022a8]
+  0x006FB127:  mov        dword ptr [0x6f41a4], eax
+  0x006FB12C:  mov        dword ptr [0x6f41a8], eax
+  0x006FB131:  mov        dword ptr [0x6f41b4], eax
+  0x006FB136:  mov        dword ptr [0x6f41b8], eax
+  0x006FB13B:  mov        dword ptr [0x6f41bc], eax
+  0x006FB140:  mov        dword ptr [0x6f41c0], eax
+  0x006FB145:  mov        dword ptr [0x6f41c4], eax
+  0x006FB14A:  mov        dword ptr [0x6f41c8], eax
+  0x006FB14F:  mov        dword ptr [0x6f41d4], eax
+  0x006FB154:  mov        dword ptr [0x6f41d8], eax
+  0x006FB159:  ret        
+
+================================================================================
+Done.
