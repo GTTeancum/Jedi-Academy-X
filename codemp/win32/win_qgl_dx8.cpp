@@ -1557,6 +1557,7 @@ static void dllBegin(GLenum mode)
 // EXTENSION: Start a new drawing frame
 GLboolean dllBeginFrame(void)
 {
+	if (!glw_state->device) return GL_FALSE;
 	GLboolean result = glw_state->device->BeginScene() == D3D_OK;
 	return result;
 }
@@ -3750,7 +3751,7 @@ static void dllMaterialfv(GLenum face, GLenum pname, const GLfloat *params)
 		break;
 	}
 
-	glw_state->device->SetMaterial(&glw_state->mtrl);
+	if (glw_state->device) glw_state->device->SetMaterial(&glw_state->mtrl);
 }
 
 static void dllMateriali(GLenum face, GLenum pname, GLint param)
@@ -6380,7 +6381,7 @@ D3DPRESENT_PARAMETERS present;
 	glw_state->mtrl.Diffuse.g = glw_state->mtrl.Ambient.g = 1.0f;
 	glw_state->mtrl.Diffuse.b = glw_state->mtrl.Ambient.b = 1.0f;
 	glw_state->mtrl.Diffuse.a = glw_state->mtrl.Ambient.a = 1.0f;
-	glw_state->device->SetMaterial( &glw_state->mtrl );
+	if (glw_state->device) glw_state->device->SetMaterial( &glw_state->mtrl );
 	// Gamma hack
 	GLimp_SetGamma(1.3f);
 
@@ -6433,7 +6434,7 @@ void GLW_Shutdown(void)
 		glw_state->matrixStack[m]->Release();
 	}
 
-	glw_state->device->Release();
+	if (glw_state->device) glw_state->device->Release();
 
 #ifdef _XBOX
 //	delete glw_state->flareEffect;

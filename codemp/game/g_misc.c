@@ -11,8 +11,8 @@
 #define MAX_AMMO_GIVE 2
 #define STATION_RECHARGE_TIME 100
 
-//void HolocronThink(gentity_t *ent);
-//extern vmCvar_t g_MaxHolocronCarry;
+void HolocronThink(gentity_t *ent);
+extern vmCvar_t g_MaxHolocronCarry;
 
 /*QUAKED func_group (0 0 0) ?
 Used to group brushes together just for editor convenience.  They are turned into normal brushes by the utilities.
@@ -759,11 +759,204 @@ count	Set to type of holocron (based on force power value)
 	"models/chunks/rock/rock_big.md3"//FP_SABERTHROW
 };*/
 
+void HolocronRespawn(gentity_t *self)
+{
+	self->s.modelindex = (self->count - 128);
+}
+
+void HolocronPopOut(gentity_t *self)
+{
+	if (Q_irand(1, 10) < 5)
+	{
+		self->s.pos.trDelta[0] = 150 + Q_irand(1, 100);
+	}
+	else
+	{
+		self->s.pos.trDelta[0] = -150 - Q_irand(1, 100);
+	}
+	if (Q_irand(1, 10) < 5)
+	{
+		self->s.pos.trDelta[1] = 150 + Q_irand(1, 100);
+	}
+	else
+	{
+		self->s.pos.trDelta[1] = -150 - Q_irand(1, 100);
+	}
+	self->s.pos.trDelta[2] = 150 + Q_irand(1, 100);
+}
+
+void HolocronTouch(gentity_t *self, gentity_t *other, trace_t *trace)
+{
+	int i = 0;
+	int othercarrying = 0;
+	float time_lowest = 0;
+	int index_lowest = -1;
+	int hasall = 1;
+	int forceReselect = WP_NONE;
+
+	if (trace)
+	{
+		self->s.groundEntityNum = trace->entityNum;
+	}
+
+	if (!other || !other->client || other->health < 1)
+	{
+		return;
+	}
+
+	if (!self->s.modelindex)
+	{
+		return;
+	}
+
+	if (self->enemy)
+	{
+		return;
+	}
+
+	if (other->client->ps.holocronsCarried[self->count])
+	{
+		return;
+	}
+
+	if (other->client->ps.holocronCantTouch == self->s.number && other->client->ps.holocronCantTouchTime > level.time)
+	{
+		return;
+	}
+
+	while (i < NUM_FORCE_POWERS)
+	{
+		if (other->client->ps.holocronsCarried[i])
+		{
+			othercarrying++;
+
+			if (index_lowest == -1 || other->client->ps.holocronsCarried[i] < time_lowest)
+			{
+				index_lowest = i;
+				time_lowest = other->client->ps.holocronsCarried[i];
+			}
+		}
+		else if (i != self->count)
+		{
+			hasall = 0;
+		}
+		i++;
+	}
+
+	if (!(other->client->ps.fd.forcePowersActive & (1 << other->client->ps.fd.forcePowerSelected)))
+	{ //If the player isn't using his currently selected force power, select this one
+		if (self->count != FP_SABER_OFFENSE && self->count != FP_SABER_DEFENSE && self->count != FP_SABERTHROW && self->count != FP_LEVITATION)
+		{
+			other->client->ps.fd.forcePowerSelected = self->count;
+		}
+	}
+
+	if (g_MaxHolocronCarry.integer && othercarrying >= g_MaxHolocronCarry.integer)
+	{ //make the oldest holocron carried by the player pop out to make room for this one
+		other->client->ps.holocronsCarried[index_lowest] = 0;
+	}
+
+	G_AddEvent( other, EV_ITEM_PICKUP, self->s.number );
+
+	other->client->ps.holocronsCarried[self->count] = level.time;
+	self->s.modelindex = 0;
+	self->enemy = other;
+
+	self->pos2[0] = 1;
+	self->pos2[1] = level.time + HOLOCRON_RESPAWN_TIME;
+
+	if (forceReselect != WP_NONE)
+	{
+		G_AddEvent(other, EV_NOAMMO, forceReselect);
+	}
+}
+
+void HolocronThink(gentity_t *ent)
+{
+	if (ent->pos2[0] && (!ent->enemy || !ent->enemy->client || ent->enemy->health < 1))
+	{
+		if (ent->enemy && ent->enemy->client)
+		{
+			HolocronRespawn(ent);
+			VectorCopy(ent->enemy->client->ps.origin, ent->s.pos.trBase);
+			VectorCopy(ent->enemy->client->ps.origin, ent->s.origin);
+			VectorCopy(ent->enemy->client->ps.origin, ent->r.currentOrigin);
+			HolocronPopOut(ent);
+			ent->enemy->client->ps.holocronsCarried[ent->count] = 0;
+			ent->enemy = NULL;
+
+			goto justthink;
+		}
+	}
+	else if (ent->pos2[0] && ent->enemy && ent->enemy->client)
+	{
+		ent->pos2[1] = level.time + HOLOCRON_RESPAWN_TIME;
+	}
+
+	if (ent->enemy && ent->enemy->client)
+	{
+		if (!ent->enemy->client->ps.holocronsCarried[ent->count])
+		{
+			ent->enemy->client->ps.holocronCantTouch = ent->s.number;
+			ent->enemy->client->ps.holocronCantTouchTime = level.time + 5000;
+
+			HolocronRespawn(ent);
+			VectorCopy(ent->enemy->client->ps.origin, ent->s.pos.trBase);
+			VectorCopy(ent->enemy->client->ps.origin, ent->s.origin);
+			VectorCopy(ent->enemy->client->ps.origin, ent->r.currentOrigin);
+			HolocronPopOut(ent);
+			ent->enemy = NULL;
+
+			goto justthink;
+		}
+
+		if (!ent->enemy->inuse || (ent->enemy->client && ent->enemy->client->ps.fallingToDeath))
+		{
+			if (ent->enemy->inuse && ent->enemy->client)
+			{
+				ent->enemy->client->ps.holocronBits &= ~(1 << ent->count);
+				ent->enemy->client->ps.holocronsCarried[ent->count] = 0;
+			}
+			ent->enemy = NULL;
+			HolocronRespawn(ent);
+			VectorCopy(ent->s.origin2, ent->s.pos.trBase);
+			VectorCopy(ent->s.origin2, ent->s.origin);
+			VectorCopy(ent->s.origin2, ent->r.currentOrigin);
+
+			ent->s.pos.trTime = level.time;
+
+			ent->pos2[0] = 0;
+
+			trap_LinkEntity(ent);
+
+			goto justthink;
+		}
+	}
+
+	if (ent->pos2[0] && ent->pos2[1] < level.time)
+	{ //isn't in original place and has been there for HOLOCRON_RESPAWN_TIME without being picked up
+		VectorCopy(ent->s.origin2, ent->s.pos.trBase);
+		VectorCopy(ent->s.origin2, ent->s.origin);
+		VectorCopy(ent->s.origin2, ent->r.currentOrigin);
+
+		ent->s.pos.trTime = level.time;
+
+		ent->pos2[0] = 0;
+
+		trap_LinkEntity(ent);
+	}
+
+justthink:
+	ent->nextthink = level.time + 50;
+
+	if (ent->s.pos.trDelta[0] || ent->s.pos.trDelta[1] || ent->s.pos.trDelta[2])
+	{
+		G_RunObject(ent);
+	}
+}
+
 void SP_misc_holocron(gentity_t *ent)
 {
-	assert( 0 );	// No holocron!
-
-#ifndef _XBOX
 
 	vec3_t dest;
 	trace_t tr;
@@ -785,7 +978,7 @@ void SP_misc_holocron(gentity_t *ent)
 		}
 	}
 
-//	ent->s.isJediMaster = qtrue;
+	ent->s.isJediMaster = qtrue;
 
 	VectorSet( ent->r.maxs, 8, 8, 8 );
 	VectorSet( ent->r.mins, -8, -8, -8 );
@@ -867,8 +1060,6 @@ void SP_misc_holocron(gentity_t *ent)
 
 	ent->think = HolocronThink;
 	ent->nextthink = level.time + 50;
-
-#endif	// _XBOX
 }
 
 /*

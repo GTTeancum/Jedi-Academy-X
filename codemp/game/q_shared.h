@@ -2194,7 +2194,7 @@ typedef struct playerState_s {
 	int			emplacedIndex;
 	float		emplacedTime;
 
-//	qboolean	isJediMaster;
+	qboolean	isJediMaster;
 	qboolean	forceRestricted;
 	qboolean	trueJedi;
 	qboolean	trueNonJedi;
@@ -2208,12 +2208,10 @@ typedef struct playerState_s {
 
 	qboolean	hasDetPackPlanted; //better than taking up an eFlag isn't it?
 
-/*
 	float		holocronsCarried[NUM_FORCE_POWERS];
 	int			holocronCantTouch;
 	float		holocronCantTouchTime; //for keeping track of the last holocron that just popped out of me (if any)
 	int			holocronBits;
-*/
 
 	int			electrifyTime;
 
@@ -2638,7 +2636,7 @@ typedef struct entityState_s {
 	int			forcePowersActive;
 	int			saberHolstered;//sent in only only 2 bits - should be 0, 1 or 2
 
-//	qboolean	isJediMaster;
+	qboolean	isJediMaster;
 
 	qboolean	isPortalEnt; //this needs to be seperate for all entities I guess, which is why I couldn't reuse another value.
 
@@ -2855,7 +2853,7 @@ typedef struct entityState_s {
 	byte	modelindex2;
 	byte	saberInFlight;
 	byte	saberMove;
-//	byte	isJediMaster;
+	byte	isJediMaster;
 	byte	saberHolstered;//sent in only 2 bytes, should be 0, 1 or 2
 
 	byte	isPortalEnt; //this needs to be seperate for all entities I guess, which is why I couldn't reuse another value.

@@ -471,8 +471,8 @@ void WP_InitForcePowers( gentity_t *ent )
 		if (/*warnClient ||*/ !ent->client->sess.setForce)
 //#endif
 		{ //the client's rank is too high for the server and has been autocapped, so tell them
-//			if (g_gametype.integer != GT_HOLOCRON && g_gametype.integer != GT_JEDIMASTER &&
-//				g_gametype.integer != GT_DUEL && g_gametype.integer != GT_POWERDUEL)
+			if (g_gametype.integer != GT_HOLOCRON && g_gametype.integer != GT_JEDIMASTER &&
+				g_gametype.integer != GT_DUEL && g_gametype.integer != GT_POWERDUEL)
 			{
 #ifdef EVENT_FORCE_RANK
 				gentity_t *te = G_TempEntity( vec3_origin, EV_GIVE_NEW_RANK );
@@ -604,7 +604,6 @@ void WP_SpawnInitForcePowers( gentity_t *ent )
 	ent->client->ps.fd.forceMindtrickTargetIndex3 = 0;
 	ent->client->ps.fd.forceMindtrickTargetIndex4 = 0;
 
-/*
 	ent->client->ps.holocronBits = 0;
 
 	i = 0;
@@ -635,7 +634,6 @@ void WP_SpawnInitForcePowers( gentity_t *ent )
 			}
 		}
 	}
-*/
 
 	i = 0;
 
@@ -4865,7 +4863,6 @@ void SeekerDroneUpdate(gentity_t *self)
 	}
 }
 
-/*
 void HolocronUpdate(gentity_t *self)
 { //keep holocron status updated in holocron mode
 	int i = 0;
@@ -4953,7 +4950,6 @@ void HolocronUpdate(gentity_t *self)
 		}
 	}
 }
-*/
 
 void JediMasterUpdate(gentity_t *self)
 { //keep jedi master status updated for JM gametype
@@ -4963,7 +4959,6 @@ void JediMasterUpdate(gentity_t *self)
 
 	while (i < NUM_FORCE_POWERS)
 	{
-/*
 		if (self->client->ps.isJediMaster)
 		{
 			self->client->ps.fd.forcePowersKnown |= (1 << i);
@@ -4986,7 +4981,6 @@ void JediMasterUpdate(gentity_t *self)
 			}
 		}
 		else
-*/
 		{
 			if ((self->client->ps.fd.forcePowersKnown & (1 << i)) && i != FP_LEVITATION)
 			{
@@ -5258,12 +5252,10 @@ void WP_ForcePowersUpdate( gentity_t *self, usercmd_t *ucmd )
 		}
 	}
 
-	/*
 	if (g_gametype.integer == GT_HOLOCRON)
 	{
 		HolocronUpdate(self);
 	}
-	*/
 	if (g_gametype.integer == GT_JEDIMASTER)
 	{
 		JediMasterUpdate(self);
@@ -5579,7 +5571,7 @@ void WP_ForcePowersUpdate( gentity_t *self, usercmd_t *ucmd )
 		if ( !self->client->ps.saberInFlight && self->client->ps.fd.forcePowerRegenDebounceTime < level.time &&
 			(self->client->ps.weapon != WP_SABER || !BG_SaberInSpecial(self->client->ps.saberMove)) )
 		{
-			if ( 1 ) //g_gametype.integer != GT_HOLOCRON || g_MaxHolocronCarry.value)
+			if ( g_gametype.integer != GT_HOLOCRON || g_MaxHolocronCarry.value)
 			{
 				//if (!g_trueJedi.integer || self->client->ps.weapon == WP_SABER)
 				//let non-jedi force regen since we're doing a more strict jedi/non-jedi thing... this gives dark jedi something to drain
@@ -5588,12 +5580,10 @@ void WP_ForcePowersUpdate( gentity_t *self, usercmd_t *ucmd )
 					{
 						WP_ForcePowerRegenerate( self, 6 );
 					}
-/*
 					else if (self->client->ps.isJediMaster && g_gametype.integer == GT_JEDIMASTER)
 					{
 						WP_ForcePowerRegenerate( self, 4 ); //jedi master regenerates 4 times as fast
 					}
-*/
 					else
 					{
 						WP_ForcePowerRegenerate( self, 0 );
@@ -5606,7 +5596,6 @@ void WP_ForcePowersUpdate( gentity_t *self, usercmd_t *ucmd )
 				}
 				*/
 			}
-			/*
 			else
 			{ //regenerate based on the number of holocrons carried
 				holoregen = 0;
@@ -5622,7 +5611,6 @@ void WP_ForcePowersUpdate( gentity_t *self, usercmd_t *ucmd )
 
 				WP_ForcePowerRegenerate(self, holoregen);
 			}
-			*/
 
 			if (g_gametype.integer == GT_SIEGE)
 			{

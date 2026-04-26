@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include "../game/g_public.h"
 #include "../xbox/XBLive.h"
+#include "xb_log.h"
 
 #include "../qcommon/files.h"
 #include "win_file.h"
@@ -737,32 +738,49 @@ int main(int argc, char* argv[])
 #endif
 {
 	// I'm going to kill someone. This should not be necessary. No, really.
+	OutputDebugStringA("JAMP: main() entered\n");
+	OutputDebugStringA("JAMP: Direct3D_SetPushBufferSize...\n");
 	Direct3D_SetPushBufferSize(1024*1024, 128*1024);
 
 	// get the initial time base
+	OutputDebugStringA("JAMP: Sys_Milliseconds...\n");
 	Sys_Milliseconds();
 
+	OutputDebugStringA("JAMP: Win_Init...\n");
 	Win_Init();
+
+	OutputDebugStringA("JAMP: XBLog_Init...\n");
+	XBLog_Init();
+	XBLog_Write("JAMP: XBLog_Init done - log file open");
+
+	XBLog_Write("JAMP: Com_Init starting...");
 	Com_Init( "" );
+	XBLog_Write("JAMP: Com_Init done");
 
 	//Start sound early.  The STL inside will allocate memory and we don't
 	//want that memory in the middle of the zone.
+	XBLog_Write("JAMP: S_BeginRegistration...");
 	if ( !cls.soundRegistered ) {
 		cls.soundRegistered = qtrue;
 		S_BeginRegistration(ClientManager::NumClients());
 	}
+	XBLog_Write("JAMP: S_BeginRegistration done");
 
 //	NET_Init();
 	// At this point, we NEED our local address:
+	XBLog_Write("JAMP: NET_GetLocalAddress...");
 	extern void NET_GetLocalAddress( bool force );
 	NET_GetLocalAddress( true );
+	XBLog_Write("JAMP: NET_GetLocalAddress done");
 
 	// A sample does this, seems un-necessary though:
 //	XNetGetBroadcastVersionStatus( TRUE );
 
 	// Check for a pending invitation on the HD. We call this now to
 	// force the result to be retrieved and cached inside the func.
+	XBLog_Write("JAMP: Sys_AcceptedInvite...");
 	Sys_AcceptedInvite();
+	XBLog_Write("JAMP: Entering main game loop");
 
 	// main game loop
 	while( 1 ) {

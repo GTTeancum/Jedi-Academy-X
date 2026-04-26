@@ -248,11 +248,19 @@ void Sys_InitFileCodes(void)
 	{
 		// There was no filelist cache, make one
 		if( !Sys_SaveFileCodes() )
-			Com_Error( ERR_DROP, "ERROR: Couldn't create filecode cache\n" );
+		{
+			Com_Printf("WARNING: Couldn't create filecode cache - continuing without it\n");
+			s_Mutex = CreateMutex(NULL, FALSE, NULL);
+			return;
+		}
 
 		// Now re-read it
 		if( !_buildFileListFromSavedList() )
-			Com_Error( ERR_DROP, "ERROR: Couldn't re-read filecode cache\n" );
+		{
+			Com_Printf("WARNING: Couldn't re-read filecode cache - continuing without it\n");
+			s_Mutex = CreateMutex(NULL, FALSE, NULL);
+			return;
+		}
 	}
 	s_Files->Sort();
 

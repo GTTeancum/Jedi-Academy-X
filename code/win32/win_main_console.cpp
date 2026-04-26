@@ -16,6 +16,13 @@
 #include "../win32/xb_log.h"
 #define NEWDECL __cdecl
 
+/* NT kernel prototypes for the early main() probe (file-scope required by VC71) */
+extern "C" long __stdcall NtCreateFile(void**, unsigned long, void*, void*,
+    void*, unsigned long, unsigned long, unsigned long, unsigned long);
+extern "C" long __stdcall NtWriteFile(void*, void*, void*, void*, void*,
+    void*, unsigned long, void*);
+extern "C" long __stdcall NtClose(void*);
+
 #ifndef FINAL_BUILD
 #include "dbg_console_xbox.h"
 #endif
@@ -550,6 +557,26 @@ int main(int argc, char* argv[])
 #endif
 {
 //	Z_SetFreeOSMem();
+
+#ifdef _XBOX
+	/* Raw NT probe — appends "main_reached" to ja_sp_log.txt before XBLog_Init.
+	   If ja_sp_log.txt only has "precrt_ok", a static ctor crashed before main(). */
+	{
+		struct { unsigned short Len, MaxLen; char *Buf; } oname;
+		struct { void *Root; void *Name; unsigned long Attr; } oa;
+		struct { union { long Status; void *Ptr; }; unsigned long Info; } iosb;
+		static const char path[] = "\\Device\\Harddisk0\\Partition1\\ja_sp_log.txt";
+		static const char data[] = "main_reached\n";
+		void *h = (void*)-1;
+		oname.Buf = (char*)path; oname.Len = sizeof(path)-1; oname.MaxLen = sizeof(path);
+		oa.Root = 0; oa.Name = &oname; oa.Attr = 0x40;
+		/* FILE_OPEN_IF (3) + FILE_APPEND_DATA — append after precrt_ok line */
+		if (NtCreateFile(&h, 0x00100004, &oa, &iosb, 0, 0x80, 0, 3, 0x62) >= 0) {
+			NtWriteFile(h, 0, 0, 0, &iosb, (void*)data, sizeof(data)-1, 0);
+			NtClose(h);
+		}
+	}
+#endif
 
 	XBLog_Init();
 	XBLF("Log: %s\n", XBLog_GetPath() ? XBLog_GetPath() : "(none)");

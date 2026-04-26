@@ -15,9 +15,11 @@
 
 gametypes {
   { "Free For All" 0 }
+  { "Holocron FFA" 1 }
+  { "Jedi Master" 2 }
   { "Duel" 3 }
   { "Power Duel" 4 }
-  { "Team FFA" 6 } 
+  { "Team FFA" 6 }
   { "Siege" 7 }
   { "Capture the Flag" 8 }
 }
@@ -26,9 +28,11 @@ gametypes {
 joingametypes {
   { "All" -1 }
   { "Free For All" 0 }
+  { "Holocron FFA" 1 }
+  { "Jedi Master" 2 }
   { "Duel" 3 }
   { "Power Duel" 4 }
-  { "Team FFA" 6 } 
+  { "Team FFA" 6 }
   { "Siege" 7 }
   { "Capture the Flag" 8 }
 }

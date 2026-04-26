@@ -1159,7 +1159,7 @@ static void G_UpdateJediMasterBroadcasts ( gentity_t *self )
 	{
 		return;
 	}
-/*
+
 	// This client isnt the jedi master so it shouldnt broadcast
 	if ( !self->client->ps.isJediMaster )
 	{
@@ -1187,7 +1187,7 @@ static void G_UpdateJediMasterBroadcasts ( gentity_t *self )
 		{
 			continue;
 		}
-		
+
 		// If not within the field of view then forget it
 		if ( !InFieldOfVision ( ent->client->ps.viewangles, MAX_JEDIMASTER_FOV, angles ) )
 		{
@@ -1198,7 +1198,6 @@ static void G_UpdateJediMasterBroadcasts ( gentity_t *self )
 		// master we are done
 		self->r.broadcastClients[ent->s.clientNum/32] |= (1 << (ent->s.clientNum%32));
 	}
-*/
 }
 
 void G_UpdateClientBroadcasts ( gentity_t *self )

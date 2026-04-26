@@ -380,7 +380,7 @@ void JMSaberTouch(gentity_t *self, gentity_t *other, trace_t *trace)
 
 	trap_SendServerCommand( -1, va("cp \"%s %s\n\"", other->client->pers.netname, G_GetStringEdString("MP_SVGAME", "BECOMEJM")) );
 
-//	other->client->ps.isJediMaster = qtrue;
+	other->client->ps.isJediMaster = qtrue;
 	other->client->ps.saberIndex = self->s.number;
 
 	if (other->health < 200 && other->health > 0)
@@ -3595,7 +3595,7 @@ void ClientSpawn(gentity_t *ent) {
 	//such)
 	client->ps.genericEnemyIndex = -1;
 
-//	client->ps.isJediMaster = qfalse;
+	client->ps.isJediMaster = qfalse;
 
 	if (client->ps.fallingToDeath)
 	{

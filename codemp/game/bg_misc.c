@@ -2220,12 +2220,10 @@ qboolean BG_CanItemBeGrabbed( int gametype, const entityState_t *ent, const play
 				return qfalse;
 			}
 		}
-/*
 		if ( ps->isJediMaster && item && (item->giType == IT_WEAPON || item->giType == IT_AMMO))
 		{//jedi master cannot pick up weapons
 			return qfalse;
 		}
-*/
 		if ( ps->duelInProgress )
 		{ //no picking stuff up while in a duel, no matter what the type is
 			return qfalse;
@@ -3016,10 +3014,9 @@ void BG_PlayerStateToEntityState( playerState_t *ps, entityState_t *s, qboolean 
 
 	VectorCopy(ps->lastHitLoc, s->origin2);
 
-//	s->isJediMaster = ps->isJediMaster;
+	s->isJediMaster = ps->isJediMaster;
 
-//	s->time2 = ps->holocronBits;
-	s->time2 = 0;	// ???
+	s->time2 = ps->holocronBits;
 
 	s->fireflag = ps->fd.saberAnimLevel;
 
@@ -3169,10 +3166,9 @@ void BG_PlayerStateToEntityStateExtraPolate( playerState_t *ps, entityState_t *s
 
 	VectorCopy(ps->lastHitLoc, s->origin2);
 
-//	s->isJediMaster = ps->isJediMaster;
+	s->isJediMaster = ps->isJediMaster;
 
-//	s->time2 = ps->holocronBits;
-	s->time2 = 0;	// ???
+	s->time2 = ps->holocronBits;
 
 	s->fireflag = ps->fd.saberAnimLevel;
 

@@ -38,6 +38,7 @@
 #include "win_lighteffects.h"
 #include "win_highdynamicrange.h"
 #include "win_stencilshadow.h"
+#include "xb_log.h"
 
 #ifndef FINAL_BUILD
 #include <d3d8perf.h>
@@ -1991,14 +1992,14 @@ static void setPresent(bool vsync)
 	D3DPRESENT_PARAMETERS pp;
 	pp.BackBufferWidth = glConfig.vidWidth;
 	pp.BackBufferHeight = glConfig.vidHeight;
-	pp.BackBufferFormat = D3DFMT_X8R8G8B8;
+	pp.BackBufferFormat = D3DFMT_A8R8G8B8;
 	pp.BackBufferCount = 1;
-	pp.MultiSampleType  = D3DMULTISAMPLE_NONE; //D3DMULTISAMPLE_4_SAMPLES_SUPERSAMPLE_LINEAR;
+	pp.MultiSampleType  = D3DMULTISAMPLE_NONE;
 	pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
 	pp.hDeviceWindow = 0;
 	pp.Windowed  = FALSE;
 	pp.EnableAutoDepthStencil = TRUE;
-	pp.AutoDepthStencilFormat = D3DFMT_D24S8;
+	pp.AutoDepthStencilFormat = D3DFMT_LIN_D24S8;  /* confirmed from RE: 0x2E */
 	pp.Flags = 0;
 	pp.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 	pp.FullScreen_PresentationInterval = 
@@ -6570,17 +6571,44 @@ D3DPRESENT_PARAMETERS present;
 	present.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 	present.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
 
-	if (IDirect3D8::CreateDevice(D3DADAPTER_DEFAULT,
+#ifdef _XBOX
+	XBLF("GLW_Init: CreateDevice %dx%d fmt=%d depth=0x%x flags=0x%x\n",
+		width, height, (int)present.BackBufferFormat,
+		(int)present.AutoDepthStencilFormat, (unsigned)present.Flags);
+#endif
+
+	HRESULT hrCD = IDirect3D8::CreateDevice(D3DADAPTER_DEFAULT,
 								D3DDEVTYPE_HAL,
 								NULL,
 								D3DCREATE_HARDWARE_VERTEXPROCESSING,
 								&present,
-								&glw_state->device) != D3D_OK)
+								&glw_state->device);
+	if (hrCD != D3D_OK)
 	{
+#ifdef _XBOX
+		XBLF("GLW_Init: CreateDevice FAILED hr=0x%08x device=%p\n",
+			(unsigned)hrCD, (void*)glw_state->device);
+#endif
 		Com_Printf("Failed to create device. That's bad.\n");
+		/* device pointer is NULL — everything below requires it; bail out */
+		return;
 	}
+
+#ifdef _XBOX
+	XBL("GLW_Init: CreateDevice OK\n");
+#endif
+
 //	qglEnable(GL_VSYNC);
-	
+
+	/* Guard: device must be non-NULL before vtable calls */
+	if (!glw_state->device)
+	{
+#ifdef _XBOX
+		XBL("GLW_Init: device NULL after CreateDevice — aborting\n");
+#endif
+		return;
+	}
+
 	// Immediately check to see if there's 1.2MB being wasted on a persisted surface:
 	IDirect3DSurface8 *pPersistedSurf;
 	glw_state->device->GetPersistedSurface( &pPersistedSurf );

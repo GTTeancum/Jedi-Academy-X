@@ -15,6 +15,7 @@
 #include "../xbox/XBLive.h"
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
+#include "../win32/xb_log.h"
 #endif
 
 #define	MAXPRINTMSG	4096
@@ -146,42 +147,47 @@ A raw string should NEVER be passed as fmt, because of "%f" type crashers.
 =============
 */
 void QDECL Com_Printf( const char *fmt, ... ) {
-#ifdef _DEBUG
 	va_list		argptr;
 	char		msg[MAXPRINTMSG];
-	qboolean	silent;
 
 	va_start (argptr,fmt);
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
 
+#ifdef _XBOX
+	XBLog_Write(msg);
+#endif
+
+#ifdef _DEBUG
 	if ( rd_buffer ) {
 		if ((strlen (msg) + strlen(rd_buffer)) > (rd_buffersize - 1)) {
 			rd_flush(rd_buffer);
 			*rd_buffer = 0;
 		}
 		Q_strcat(rd_buffer, rd_buffersize, msg);
-		rd_flush(rd_buffer);			
+		rd_flush(rd_buffer);
 		*rd_buffer = 0;
 		return;
 	}
 
-	// * means dont draw this console message on the player screen
-	// but put it on the console
-	silent = qfalse;
-	if ( msg[0] == '*' )
 	{
-		strcpy ( msg, msg + 1 );
-
-		if ( msg[1] != '*' )
+		// * means dont draw this console message on the player screen
+		// but put it on the console
+		qboolean silent = qfalse;
+		if ( msg[0] == '*' )
 		{
-			silent = qtrue;
-		}
-	}
+			strcpy ( msg, msg + 1 );
 
-	// echo to console if we're not a dedicated server
-	if ( com_dedicated && !com_dedicated->integer ) {
-		CL_ConsolePrint( msg, silent );
+			if ( msg[1] != '*' )
+			{
+				silent = qtrue;
+			}
+		}
+
+		// echo to console if we're not a dedicated server
+		if ( com_dedicated && !com_dedicated->integer ) {
+			CL_ConsolePrint( msg, silent );
+		}
 	}
 
 	// echo to dedicated console and early console
@@ -211,7 +217,7 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 	}
 #endif
 
-#if defined(_WIN32) && defined(_DEBUG) && !defined(_XBOX)	
+#if defined(_WIN32) && defined(_DEBUG) && !defined(_XBOX)
 	if ( *msg )
 	{
 		OutputDebugString ( Q_CleanStr(msg) );
@@ -354,7 +360,9 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 		Com_Printf ("********************\nERROR: %s\n********************\n", com_errorMessage);
 		SV_Shutdown (va("Server crashed: %s\n",  com_errorMessage));
 		CL_Disconnect( qtrue );
-		CL_FlushMemory( );
+		if ( com_cl_running && com_cl_running->integer ) {
+			CL_FlushMemory( );
+		}
 		com_errorEntered = qfalse;
 
 #ifdef _XBOX
@@ -1317,12 +1325,13 @@ Com_Init
 void Com_Init( char *commandLine ) {
 	char	*s;
 
+	XBLog_Write("JAMP: Com_Init entered");
 	Com_Printf( "%s %s %s\n", Q3_VERSION, CPUSTRING, __DATE__ );
 
 	try
 	{
 		// Grab the user's langauge preference from the dashboard right away!
-		// We only support french/german/english (with english as default)
+		XBLog_Write("JAMP: XGetLanguage...");
 		g_dwLanguage = XGetLanguage();
 		if( g_dwLanguage != XC_LANGUAGE_FRENCH && g_dwLanguage != XC_LANGUAGE_GERMAN )
 			g_dwLanguage = XC_LANGUAGE_ENGLISH;
@@ -1330,6 +1339,7 @@ void Com_Init( char *commandLine ) {
 	  // bk001129 - do this before anything else decides to push events
 	  Com_InitPushEvent();
 
+		XBLog_Write("JAMP: Cvar_Init...");
 		Cvar_Init ();
 
 		// prepare enough of the subsystems to handle
@@ -1337,28 +1347,36 @@ void Com_Init( char *commandLine ) {
 		Com_ParseCommandLine( commandLine );
 
 	//	Swap_Init ();
+		XBLog_Write("JAMP: Cbuf_Init...");
 		Cbuf_Init ();
 
+		XBLog_Write("JAMP: Com_InitZoneMemory...");
 		Com_InitZoneMemory();
+		XBLog_Write("JAMP: Com_InitZoneMemory done");
 
 #ifdef _XBOX
 		// We get a big head-start on getting our IP address (which can take a while)
-		// Our version no lnoger blocks during DHCP negotiation, and we use another
-		// function to force the process to finish later (in main())
+		XBLog_Write("JAMP: NET_Init...");
 		NET_Init();
+		XBLog_Write("JAMP: NET_Init done");
 
+		XBLog_Write("JAMP: WF_Init...");
 		extern void WF_Init();
 		WF_Init();
+		XBLog_Write("JAMP: WF_Init done");
 
 		// Init client manager stuff
+		XBLog_Write("JAMP: ClientManager::Init...");
 		ClientManager::Init(1);
 
 		ClientManager::ActivateClient(0);
 		ClientManager::SetMainClient(0);
-		
+
 		ClientManager::splitScreenMode = qfalse;
+		XBLog_Write("JAMP: ClientManager::Init done");
 #endif
 
+		XBLog_Write("JAMP: Cmd_Init...");
 		Cmd_Init ();
 
 		// override anything from the config files with command line args
@@ -1371,19 +1389,24 @@ void Com_Init( char *commandLine ) {
 		Com_StartupVariable( "developer" );
 
 		// done early so bind command exists
+		XBLog_Write("JAMP: CL_InitKeyCommands...");
 		CL_InitKeyCommands();
 
 #ifdef _XBOX
+		XBLog_Write("JAMP: Sys_InitFileCodes...");
 		extern void Sys_InitFileCodes();
 		extern void Sys_FilecodeScan_f();
 		Sys_InitFileCodes();
 		Cmd_AddCommand("filecodes", Sys_FilecodeScan_f);
 
+		XBLog_Write("JAMP: Sys_StreamInit...");
 		extern void Sys_StreamInit();
 		Sys_StreamInit();
 #endif
 
+		XBLog_Write("JAMP: FS_InitFilesystem...");
 		FS_InitFilesystem ();
+		XBLog_Write("JAMP: FS_InitFilesystem done");
 
 		Com_InitJournaling();
 
@@ -1511,22 +1534,31 @@ void Com_Init( char *commandLine ) {
 		s = va("%s %s %s", Q3_VERSION, CPUSTRING, __DATE__ );
 		com_version = Cvar_Get ("version", s, CVAR_ROM | CVAR_SERVERINFO );
 
+		XBLog_Write("JAMP: SE_Init...");
 		SE_Init();
 
+		XBLog_Write("JAMP: Sys_Init...");
 		Sys_Init();
+		XBLog_Write("JAMP: Netchan_Init...");
 		Netchan_Init( Com_Milliseconds() & 0xffff );	// pick a port value that should be nice and random
+		XBLog_Write("JAMP: VM_Init...");
 		VM_Init();
+		XBLog_Write("JAMP: SV_Init...");
 		SV_Init();
+		XBLog_Write("JAMP: SV_Init done");
 #ifdef _XBOX
 		//Load this earlier so it doesn't create a fragment in the middle of
 		//the zone.
+		XBLog_Write("JAMP: PC_LoadGlobalDefines...");
 		extern int PC_LoadGlobalDefines(const char*);
 		PC_LoadGlobalDefines("ui/jamp/menudef.h");
 #endif
 
 		com_dedicated->modified = qfalse;
 		if ( !com_dedicated->integer ) {
+			XBLog_Write("JAMP: CL_Init...");
 			CL_Init();
+			XBLog_Write("JAMP: CL_Init done");
 			Sys_ShowConsole( com_viewlog->integer, qfalse );
 		}
 
@@ -1534,6 +1566,7 @@ void Com_Init( char *commandLine ) {
 		// command line it will still be able to count on com_frameTime
 		// being random enough for a serverid
 		com_frameTime = Com_Milliseconds();
+		XBLog_Write("JAMP: Com_Init fully initialized");
 
 
 		// add + commands from command line

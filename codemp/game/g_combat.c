@@ -1748,12 +1748,11 @@ gentity_t *G_GetJediMaster(void)
 	while (i < MAX_CLIENTS)
 	{
 		ent = &g_entities[i];
-/*
 		if (ent && ent->inuse && ent->client && ent->client->ps.isJediMaster)
 		{
 			return ent;
 		}
-*/
+
 		i++;
 	}
 
@@ -2470,7 +2469,7 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 		ent->s.otherEntityNum = self->s.number;
 		ent->s.otherEntityNum2 = killer;
 		ent->r.svFlags = SVF_BROADCAST;	// send to everyone
-//		ent->s.isJediMaster = wasJediMaster;
+		ent->s.isJediMaster = wasJediMaster;
 	}
 
 	self->enemy = attacker;
@@ -2515,7 +2514,6 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 			{
 				AddScore( attacker, self->r.currentOrigin, -1 );
 			}
-/*
 			if (g_gametype.integer == GT_JEDIMASTER)
 			{
 				if (self->client && self->client->ps.isJediMaster)
@@ -2526,16 +2524,14 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 					self->client->ps.isJediMaster = qfalse;
 				}
 			}
-*/
 		} else {
-/*
 			if (g_gametype.integer == GT_JEDIMASTER)
 			{
 				if ((attacker->client && attacker->client->ps.isJediMaster) ||
 					(self->client && self->client->ps.isJediMaster))
 				{
 					AddScore( attacker, self->r.currentOrigin, 1 );
-					
+
 					if (self->client && self->client->ps.isJediMaster)
 					{
 						ThrowSaberToAttacker(self, attacker);
@@ -2553,7 +2549,6 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 				}
 			}
 			else
-*/
 			{
 				AddScore( attacker, self->r.currentOrigin, 1 );
 			}
@@ -2581,7 +2576,6 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 
 		}
 	} else {
-/*
 		if (self->client && self->client->ps.isJediMaster)
 		{ //killed ourself so return the saber to the original position
 		  //(to avoid people jumping off ledges and making the saber
@@ -2589,7 +2583,6 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 			ThrowSaberToAttacker(self, NULL);
 			self->client->ps.isJediMaster = qfalse;
 		}
-*/
 		if (g_gametype.integer == GT_DUEL)
 		{ //in duel, if you kill yourself, the person you are dueling against gets a kill for it
 			int otherClNum = -1;
@@ -4313,12 +4306,11 @@ qboolean G_ThereIsAMaster(void)
 	while (i < MAX_CLIENTS)
 	{
 		ent = &g_entities[i];
-/*
 		if (ent && ent->client && ent->client->ps.isJediMaster)
 		{
 			return qtrue;
 		}
-*/
+
 		i++;
 	}
 
@@ -4751,7 +4743,6 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 				return;
 			}
 		}
-/*
 		if (g_gametype.integer == GT_JEDIMASTER && !g_friendlyFire.integer &&
 			targ && targ->client && attacker && attacker->client &&
 			targ != attacker && !targ->client->ps.isJediMaster && !attacker->client->ps.isJediMaster &&
@@ -4759,7 +4750,7 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		{
 			return;
 		}
-*/
+
 		if (targ->s.number >= MAX_CLIENTS && targ->client 
 			&& targ->s.shouldtarget && targ->s.teamowner &&
 			attacker && attacker->inuse && attacker->client && targ->s.owner >= 0 && targ->s.owner < MAX_CLIENTS)

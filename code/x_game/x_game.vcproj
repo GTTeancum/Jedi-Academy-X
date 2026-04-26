@@ -14,49 +14,7 @@
 	<ToolFiles>
 	</ToolFiles>
 	<Configurations>
-		<Configuration
-			Name="Debug|Win32"
-			OutputDirectory=".\..\x_exe\Debug"
-			IntermediateDirectory=".\..\x_exe\Debug\game"
-			ConfigurationType="4"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="0"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..\ICARUS"
-				PreprocessorDefinitions="_DEBUG;_XBOX;_LIB;WIN32;GAME_HARD_LINKED;VV_LIGHTING"
-				MinimalRebuild="FALSE"
-				RuntimeLibrary="1"
-				BufferSecurityCheck="FALSE"
-				UsePrecompiledHeader="0"
-				PrecompiledHeaderThrough="g_headers.h"
-				PrecompiledHeaderFile=".\..\x_exe\Debug\game/game.pch"
-				BrowseInformation="1"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"
-				FastCAP="FALSE"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile=".\..\x_exe\Debug\x_game.lib"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-		</Configuration>
-		<Configuration
+				<Configuration
 			Name="Release|Win32"
 			OutputDirectory=".\..\x_exe\Release"
 			IntermediateDirectory=".\..\x_exe\Release\game"
@@ -103,189 +61,7 @@
 				Name="VCPreLinkEventTool"
 			/>
 		</Configuration>
-		<Configuration
-			Name="FinalBuild|Win32"
-			OutputDirectory=".\..\x_exe\FinalBuild"
-			IntermediateDirectory=".\..\x_exe\FinalBuild\game"
-			ConfigurationType="4"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="3"
-				GlobalOptimizations="TRUE"
-				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="TRUE"
-				FavorSizeOrSpeed="1"
-				OmitFramePointers="TRUE"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..\ICARUS"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_LIB;WIN32;GAME_HARD_LINKED;FINAL_BUILD;_FINAL"
-				StringPooling="TRUE"
-				RuntimeLibrary="0"
-				BufferSecurityCheck="FALSE"
-				EnableFunctionLevelLinking="TRUE"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile=".\..\x_exe\FinalBuild\x_game.lib"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-		</Configuration>
-		<Configuration
-			Name="DemoRelease|Win32"
-			OutputDirectory=".\..\x_exe\DemoRelease"
-			IntermediateDirectory=".\..\x_exe\DemoRelease\game"
-			ConfigurationType="4"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="3"
-				GlobalOptimizations="TRUE"
-				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="TRUE"
-				FavorSizeOrSpeed="1"
-				OmitFramePointers="TRUE"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..\ICARUS"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_LIB;WIN32;GAME_HARD_LINKED;XBOX_DEMO"
-				StringPooling="TRUE"
-				RuntimeLibrary="0"
-				BufferSecurityCheck="FALSE"
-				EnableFunctionLevelLinking="TRUE"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"
-				FastCAP="FALSE"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile=".\..\x_exe\DemoRelease\x_game.lib"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-		</Configuration>
-		<Configuration
-			Name="DemoFinal|Win32"
-			OutputDirectory=".\..\x_exe\DemoFinal"
-			IntermediateDirectory=".\..\x_exe\DemoFinal\game"
-			ConfigurationType="4"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="3"
-				GlobalOptimizations="TRUE"
-				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="TRUE"
-				FavorSizeOrSpeed="1"
-				OmitFramePointers="TRUE"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..\ICARUS"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_LIB;WIN32;GAME_HARD_LINKED;FINAL_BUILD;_FINAL;XBOX_DEMO"
-				StringPooling="TRUE"
-				RuntimeLibrary="0"
-				BufferSecurityCheck="FALSE"
-				EnableFunctionLevelLinking="TRUE"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile=".\..\x_exe\DemoFinal\x_game.lib"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-		</Configuration>
-		<Configuration
-			Name="DemoDebug|Win32"
-			OutputDirectory=".\..\x_exe\DemoDebug"
-			IntermediateDirectory=".\..\x_exe\DemoDebug\game"
-			ConfigurationType="4"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="0"
-				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..\ICARUS"
-				PreprocessorDefinitions="_DEBUG;_XBOX;_LIB;WIN32;GAME_HARD_LINKED;VV_LIGHTING;XBOX_DEMO"
-				MinimalRebuild="FALSE"
-				RuntimeLibrary="1"
-				BufferSecurityCheck="FALSE"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				PrecompiledHeaderThrough="g_headers.h"
-				PrecompiledHeaderFile=".\..\x_exe\Debug\game/game.pch"
-				BrowseInformation="1"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="FALSE"
-				DebugInformationFormat="3"
-				FastCAP="FALSE"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile=".\..\x_exe\DemoDebug\x_game.lib"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-		</Configuration>
-	</Configurations>
+									</Configurations>
 	<References>
 	</References>
 	<Files>
@@ -631,15 +407,7 @@
 			<File
 				RelativePath="..\qcommon\tri_coll_test.cpp"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						AdditionalIncludeDirectories="../game"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -647,39 +415,7 @@
 						AdditionalIncludeDirectories="../game"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						AdditionalIncludeDirectories="../game"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						AdditionalIncludeDirectories="../game"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						AdditionalIncludeDirectories="../game"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						AdditionalIncludeDirectories="../game"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 			<File
 				RelativePath="..\game\wp_saber.cpp"
 				>
@@ -695,15 +431,7 @@
 			<File
 				RelativePath="..\game\AnimalNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -711,51 +439,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 			<File
 				RelativePath="..\game\bg_vehicleLoad.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -763,51 +451,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 			<File
 				RelativePath="..\game\FighterNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -815,51 +463,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 			<File
 				RelativePath="..\game\g_vehicles.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -867,39 +475,7 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 			<File
 				RelativePath="..\game\g_vehicles.h"
 				>
@@ -907,15 +483,7 @@
 			<File
 				RelativePath="..\game\SpeederNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -923,51 +491,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 			<File
 				RelativePath="..\game\WalkerNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -975,39 +503,7 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoRelease|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoFinal|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
-					Name="DemoDebug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+																			</File>
 		</Filter>
 		<Filter
 			Name="Header Files"

@@ -15,97 +15,10 @@
 	</ToolFiles>
 	<Configurations>
 		<Configuration
-			Name="Debug|Win32"
-			OutputDirectory="Debug"
-			IntermediateDirectory="Debug\exe"
-			ConfigurationType="1"
-			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCXMLDataGeneratorTool"
-			/>
-			<Tool
-				Name="VCWebServiceProxyGeneratorTool"
-			/>
-			<Tool
-				Name="VCMIDLTool"
-			/>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="0"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include"
-				PreprocessorDefinitions="_DEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
-				MinimalRebuild="true"
-				BasicRuntimeChecks="3"
-				RuntimeLibrary="1"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="false"
-				DebugInformationFormat="4"
-			/>
-			<Tool
-				Name="VCManagedResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-			<Tool
-				Name="VCLinkerTool"
-				AdditionalOptions="/FORCE:MULTIPLE"
-				AdditionalDependencies=".\Debug\exe\xbox_crt_stubs.obj .\Debug\exe\xbox_asm_stubs.obj xapilibd.lib libcd.lib d3d8d.lib d3dx8dt.lib xgraphicsd.lib dsoundd.lib dmusicd.lib xboxkrnl.lib goblib.lib xbdm.lib xvoiced.lib xonlinesd.lib"
-				OutputFile=".\Debug\jamp-debug.exe"
-				LinkIncremental="2"
-				AdditionalLibraryDirectories=".\Debug;C:\XDK\lib"
-				IgnoreDefaultLibraryNames="msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
-				GenerateDebugInformation="true"
-				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
-				SubSystem="2"
-				OptimizeForWindows98="1"
-				TargetMachine="1"
-			/>
-			<Tool
-				Name="VCALinkTool"
-			/>
-			<Tool
-				Name="VCManifestTool"
-			/>
-			<Tool
-				Name="VCXDCMakeTool"
-			/>
-			<Tool
-				Name="VCBscMakeTool"
-			/>
-			<Tool
-				Name="VCFxCopTool"
-			/>
-			<Tool
-				Name="VCAppVerifierTool"
-			/>
-			<Tool
-				Name="VCWebDeploymentTool"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-				Description="Building XBE..."
-				CommandLine="&quot;C:\XDK\xbox\bin\imagebld.exe&quot; /IN:&quot;.\Debug\jamp-debug.exe&quot; /OUT:&quot;.\Debug\jamp-debug.xbe&quot; /TESTID:0x4C41000B /TESTLANKEY:4C41000B4C41000B4C41000B4C41000B /STACK:0x40000 /NOLIBWARN /TESTNAME:&quot;Jedi Knight: Jedi Academy&quot; /DEBUG&#x0D;&#x0A;"
-			/>
-		</Configuration>
-		<Configuration
 			Name="Release|Win32"
 			OutputDirectory="Release"
 			IntermediateDirectory="Release\exe"
-			ConfigurationType="1"
+			ConfigurationType="0"
 			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
 			CharacterSet="2"
 			>
@@ -125,56 +38,19 @@
 				Name="VCMIDLTool"
 			/>
 			<Tool
-				Name="VCCLCompilerTool"
-				AdditionalOptions="/Oy-"
-				Optimization="2"
-				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="true"
-				FavorSizeOrSpeed="1"
-				OmitFramePointers="false"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include"
+				Name="VCNMakeTool"
+				BuildCommandLine="$(SolutionDir)..\build_xbox.bat mp"
+				ReBuildCommandLine="$(SolutionDir)..\build_xbox.bat mp clean &amp;&amp; $(SolutionDir)..\build_xbox.bat mp"
+				CleanCommandLine="$(SolutionDir)..\build_xbox.bat mp clean"
+				Output="$(OutDir)\jamp.exe"
 				PreprocessorDefinitions="_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
-				StringPooling="true"
-				RuntimeLibrary="0"
-				BufferSecurityCheck="false"
-				EnableFunctionLevelLinking="true"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="false"
-				DebugInformationFormat="3"
+				IncludeSearchPath="C:\XDK\xbox\include;C:\XDK\include"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
 			/>
 			<Tool
 				Name="VCResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-			<Tool
-				Name="VCLinkerTool"
-				AdditionalOptions="/FORCE:MULTIPLE"
-				AdditionalDependencies=".\Release\exe\xbox_crt_stubs.obj .\Release\exe\xbox_asm_stubs.obj xapilib.lib libc.lib d3d8i.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib goblib.lib xvoice.lib xbdm.lib xonlines.lib"
-				OutputFile=".\Release\jamp-release.exe"
-				LinkIncremental="1"
-				AdditionalLibraryDirectories=".\Release;C:\XDK\lib"
-				IgnoreDefaultLibraryNames="msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
-				GenerateDebugInformation="true"
-				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
-				SubSystem="2"
-				OptimizeReferences="2"
-				EnableCOMDATFolding="2"
-				OptimizeForWindows98="1"
-				SetChecksum="true"
-				TargetMachine="1"
-			/>
-			<Tool
-				Name="VCALinkTool"
-			/>
-			<Tool
-				Name="VCManifestTool"
 			/>
 			<Tool
 				Name="VCXDCMakeTool"
@@ -191,108 +67,8 @@
 			<Tool
 				Name="VCWebDeploymentTool"
 			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-				Description="Building XBE..."
-				CommandLine="&quot;C:\XDK\xbox\bin\imagebld.exe&quot; /IN:&quot;.\Release\jamp-release.exe&quot; /OUT:&quot;.\Release\jamp-release.xbe&quot; /TESTID:0x4C41000B /TESTLANKEY:4C41000B4C41000B4C41000B4C41000B /STACK:0x40000 /NOLIBWARN /TESTNAME:&quot;Jedi Knight: Jedi Academy&quot;&#x0D;&#x0A;"
-			/>
 		</Configuration>
-		<Configuration
-			Name="FinalBuild|Win32"
-			OutputDirectory="FinalBuild"
-			IntermediateDirectory="FinalBuild\exe"
-			ConfigurationType="1"
-			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCXMLDataGeneratorTool"
-			/>
-			<Tool
-				Name="VCWebServiceProxyGeneratorTool"
-			/>
-			<Tool
-				Name="VCMIDLTool"
-			/>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="3"
-				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="true"
-				FavorSizeOrSpeed="1"
-				OmitFramePointers="true"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include"
-				PreprocessorDefinitions="_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;FINAL_BUILD;_FINAL;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
-				StringPooling="true"
-				RuntimeLibrary="0"
-				BufferSecurityCheck="false"
-				EnableFunctionLevelLinking="true"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="0"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="false"
-				DebugInformationFormat="3"
-			/>
-			<Tool
-				Name="VCManagedResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-			<Tool
-				Name="VCLinkerTool"
-				AdditionalOptions="/FORCE:MULTIPLE"
-				AdditionalDependencies=".\FinalBuild\exe\xbox_crt_stubs.obj .\FinalBuild\exe\xbox_asm_stubs.obj xapilib.lib libc.lib d3d8i.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib goblib.lib xvoice.lib xonlines.lib"
-				OutputFile=".\FinalBuild\jamp-final.exe"
-				LinkIncremental="1"
-				AdditionalLibraryDirectories=".\FinalBuild;C:\XDK\lib"
-				IgnoreDefaultLibraryNames="msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
-				GenerateDebugInformation="true"
-				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
-				SubSystem="2"
-				OptimizeReferences="2"
-				EnableCOMDATFolding="2"
-				OptimizeForWindows98="1"
-				SetChecksum="true"
-				TargetMachine="1"
-			/>
-			<Tool
-				Name="VCALinkTool"
-			/>
-			<Tool
-				Name="VCManifestTool"
-			/>
-			<Tool
-				Name="VCXDCMakeTool"
-			/>
-			<Tool
-				Name="VCBscMakeTool"
-			/>
-			<Tool
-				Name="VCFxCopTool"
-			/>
-			<Tool
-				Name="VCAppVerifierTool"
-			/>
-			<Tool
-				Name="VCWebDeploymentTool"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-				Description="Building XBE..."
-				CommandLine="&quot;C:\XDK\xbox\bin\imagebld.exe&quot; /IN:&quot;.\FinalBuild\jamp-final.exe&quot; /OUT:&quot;.\FinalBuild\jamp-final.xbe&quot; /TESTID:0x4C41000B /TESTLANKEY:4C41000B4C41000B4C41000B4C41000B /STACK:0x40000 /NOLIBWARN /TESTNAME:&quot;Jedi Knight: Jedi Academy&quot;&#x0D;&#x0A;"
-			/>
-		</Configuration>
-	</Configurations>
+			</Configurations>
 	<References>
 	</References>
 	<Files>
@@ -598,15 +374,7 @@
 			<File
 				RelativePath="..\game\q_math.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -614,15 +382,7 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\qcommon\q_math.cpp"
 				>
@@ -630,15 +390,7 @@
 			<File
 				RelativePath="..\game\q_shared.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -646,15 +398,7 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\q_shared.h"
 				>
@@ -738,27 +482,11 @@
 			<File
 				RelativePath="..\win32\dbg_console_xbox.cpp"
 				>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					ExcludedFromBuild="true"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\win32\dbg_console_xbox.h"
 				>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					ExcludedFromBuild="true"
-					>
-					<Tool
-						Name="VCCustomBuildTool"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\win32\glw_win_dx8.h"
 				>
@@ -817,6 +545,14 @@
 			</File>
 			<File
 				RelativePath="..\win32\win_stream_dx8.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\win32\xb_log.cpp"
+				>
+			</File>
+			<File
+				RelativePath="xbox_crt_stubs.cpp"
 				>
 			</File>
 		</Filter>
@@ -1294,14 +1030,7 @@
 			<File
 				RelativePath="..\xbox\match.h"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCustomBuildTool"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1316,14 +1045,7 @@
 			<File
 				RelativePath="..\xbox\XBLive.h"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCustomBuildTool"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1346,14 +1068,7 @@
 			<File
 				RelativePath="..\xbox\XBoxCommon.h"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCustomBuildTool"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1384,14 +1099,7 @@
 			<File
 				RelativePath="..\xbox\XBVoice.h"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCustomBuildTool"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1406,14 +1114,7 @@
 			<File
 				RelativePath="..\xbox\XHVVoiceManager.h"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCustomBuildTool"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool

@@ -41,7 +41,7 @@ qboolean gDuelExit = qfalse;
 vmCvar_t	g_trueJedi;
 
 vmCvar_t	g_gametype;
-//vmCvar_t	g_MaxHolocronCarry;
+vmCvar_t	g_MaxHolocronCarry;
 vmCvar_t	g_ff_objectives;
 vmCvar_t	g_autoMapCycle;
 vmCvar_t	g_dmflags;
@@ -248,7 +248,7 @@ static cvarTable_t		gameCvarTable[] = {
 
 	// latched vars
 	{ &g_gametype, "g_gametype", "0", CVAR_SERVERINFO | CVAR_USERINFO | CVAR_LATCH, 0, qfalse  },
-//	{ &g_MaxHolocronCarry, "g_MaxHolocronCarry", "3", CVAR_SERVERINFO | CVAR_USERINFO | CVAR_LATCH, 0, qfalse  },
+	{ &g_MaxHolocronCarry, "g_MaxHolocronCarry", "3", CVAR_SERVERINFO | CVAR_USERINFO | CVAR_LATCH, 0, qfalse  },
 
 	{ &g_maxclients, "sv_maxclients", "8", CVAR_SERVERINFO | CVAR_LATCH | CVAR_ARCHIVE, 0, qfalse  },
 	{ &g_maxGameClients, "g_maxGameClients", "0", CVAR_SERVERINFO | CVAR_LATCH | CVAR_ARCHIVE, 0, qfalse  },
@@ -819,16 +819,6 @@ void G_RegisterCvars( void ) {
 	// check some things
 	if ( g_gametype.integer < 0 || g_gametype.integer >= GT_MAX_GAME_TYPE ) {
 		G_Printf( "g_gametype %i is out of range, defaulting to 0\n", g_gametype.integer );
-		trap_Cvar_Set( "g_gametype", "0" );
-	}
-	else if (g_gametype.integer == GT_HOLOCRON)
-	{
-		G_Printf( "This gametype is not supported.\n" );
-		trap_Cvar_Set( "g_gametype", "0" );
-	}
-	else if (g_gametype.integer == GT_JEDIMASTER)
-	{
-		G_Printf( "This gametype is not supported.\n" );
 		trap_Cvar_Set( "g_gametype", "0" );
 	}
 	else if (g_gametype.integer == GT_CTY)
