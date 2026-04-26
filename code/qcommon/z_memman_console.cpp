@@ -55,6 +55,12 @@
 #ifdef _XBOX
 #include <Xtl.h>
 #include "../win32/xbox_texture_man.h"
+// RE Phase 3 finding: shipped binary (XDK 5558) uses D3D_AllocContiguousMemory
+// for the zone pool rather than VirtualAlloc.  Declare it here so we can
+// match the binary exactly in Com_InitZoneMemory below.
+extern "C" void* __cdecl D3D_AllocContiguousMemory(DWORD Size, DWORD Alignment);
+// Fixed zone pool size as used by the shipped binary: 16 MB
+#define ZONE_POOL_SIZE_BINARY (16 * 1024 * 1024)
 #endif
 
 // Used to mark the start and end of blocks in debug mode
@@ -269,6 +275,20 @@ void Com_InitZoneMemory(void)
 				status.dwTotalPhys-status.dwAvailPhys,
 				status.dwAvailPhys);
 	SIZE_T size;
+#ifdef _XBOX
+	// RE Phase 3 (phase3_memory.cpp): shipped binary always allocates a fixed
+	// 16 MB zone pool via D3D_AllocContiguousMemory(0x1000000, 0).
+	// This matches binary @ 0x499AC: push 0 / push 0x1000000 / call D3D_section.
+	// D3D_AllocContiguousMemory is available before the D3D device is created.
+	size = ZONE_POOL_SIZE_BINARY;
+	OutputDebugStringA("JA: D3D_AllocContiguousMemory...\n");
+	s_PoolBase = D3D_AllocContiguousMemory((DWORD)size, 0);
+	if (!s_PoolBase) {
+		OutputDebugStringA("JA: D3D_AllocContiguousMemory FAILED\n");
+		Com_Error(ERR_FATAL, "Zone: D3D_AllocContiguousMemory(%d) failed", (int)size);
+	}
+	OutputDebugStringA("JA: D3D_AllocContiguousMemory done\n");
+#else
 #	if ZONE_EMULATE_SPACE
 #ifdef _DEBUG
 	//Emulated space is always about 6 megs off from release build.  Try
@@ -292,6 +312,7 @@ void Com_InitZoneMemory(void)
 		s_PoolBase = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	}
 	OutputDebugStringA("JA: VirtualAlloc done\n");
+#endif
 	s_PoolSize = size;
 
 	// Setup the initial free block
