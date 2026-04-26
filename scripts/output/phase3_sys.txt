@@ -1,0 +1,1326 @@
+
+========================================================================
+FS_Startup  @ 0x00025F90
+========================================================================
+  0x00025F90:  sub      esp, 0x54
+  0x00025F93:  push     0x2d0364  ; "----- FS_Startup -----
+"
+  0x00025F98:  call     0x9d770  → .text 0x0009D770
+  0x00025F9D:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00025F9F:  push     0x2cdcec  ; "0"
+  0x00025FA4:  push     0x2d0354  ; "fs_openorder"
+  0x00025FA9:  call     0x24cc0  → .text 0x00024CC0
+  0x00025FAE:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00025FB0:  push     0x2cdcec  ; "0"
+  0x00025FB5:  push     0x2d0348  ; "fs_debug"
+  0x00025FBA:  mov      dword ptr [0x4c286c], eax
+  0x00025FBF:  call     0x24cc0  → .text 0x00024CC0
+  0x00025FC4:  push     0x10  ; "<VA 0x00000010 unmapped>"
+  0x00025FC6:  push     0x2cdcec  ; "0"
+  0x00025FCB:  push     0x2d0174  ; "fs_copyfiles"
+  0x00025FD0:  mov      dword ptr [0x4c2088], eax
+  0x00025FD5:  call     0x24cc0  → .text 0x00024CC0
+  0x00025FDA:  add      esp, 0x28
+  0x00025FDD:  push     0x10  ; "<VA 0x00000010 unmapped>"
+  0x00025FDF:  mov      dword ptr [0x4c1ff8], eax
+  0x00025FE4:  call     0x44da0  → .text 0x00044DA0
+  0x00025FE9:  push     eax
+  0x00025FEA:  push     0x2d0198  ; "fs_cdpath"
+  0x00025FEF:  call     0x24cc0  → .text 0x00024CC0
+  0x00025FF4:  add      esp, 0xc
+  0x00025FF7:  push     0x10  ; "<VA 0x00000010 unmapped>"
+  0x00025FF9:  mov      dword ptr [0x4c1ffc], eax
+  0x00025FFE:  call     0x44db0  → .text 0x00044DB0
+  0x00026003:  push     eax
+  0x00026004:  push     0x2d018c  ; "fs_basepath"
+  0x00026009:  call     0x24cc0  → .text 0x00024CC0
+  0x0002600E:  push     0x14  ; "<VA 0x00000014 unmapped>"
+  0x00026010:  push     0x2d0160  ; "base"
+  0x00026015:  push     0x2d0184  ; "fs_game"
+  0x0002601A:  mov      dword ptr [0x4c208c], eax
+  0x0002601F:  call     0x24cc0  → .text 0x00024CC0
+  0x00026024:  push     0x10  ; "<VA 0x00000010 unmapped>"
+  0x00026026:  push     0x2cdad1
+  0x0002602B:  push     0x2d0168  ; "fs_restrict"
+  0x00026030:  mov      dword ptr [0x4c2090], eax
+  0x00026035:  call     0x24cc0  → .text 0x00024CC0
+  0x0002603A:  push     0x80  ; "<VA 0x00000080 unmapped>"
+  0x0002603F:  mov      dword ptr [0x4c2080], eax
+  0x00026044:  call     0x44e50  → .text 0x00044E50
+  0x00026049:  add      esp, 0x28
+  0x0002604C:  mov      dword ptr [0x4c2878], eax
+  0x00026051:  mov      ecx, 0x4c2104
+  0x00026056:  add      eax, 4
+  0x00026059:  lea      esp, [esp]
+  0x00026060:  mov      dword ptr [ecx], 0
+  0x00026066:  mov      byte ptr [eax], 0
+  0x00026069:  add      ecx, 0x6c
+  0x0002606C:  add      eax, 8
+  0x0002606F:  cmp      ecx, 0x4c27c4
+  0x00026075:  jl       0x26060
+  0x00026077:  push     4  ; "<VA 0x00000004 unmapped>"
+  0x00026079:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x0002607B:  push     3  ; "<VA 0x00000003 unmapped>"
+  0x0002607D:  push     0x10000  ; "<VA 0x00010000 unmapped>"
+  0x00026082:  call     0x49c90  → .text 0x00049C90
+  0x00026087:  mov      dword ptr [0x4c2874], eax
+  0x0002608C:  mov      eax, 0x3e8
+  0x00026091:  mov      dword ptr [esp + 0x48], eax
+  0x00026095:  mov      dword ptr [esp + 0x58], eax
+  0x00026099:  lea      eax, [esp + 0x18]
+  0x0002609D:  push     eax
+  0x0002609E:  lea      ecx, [esp + 0x44]
+  0x000260A2:  push     ecx
+  0x000260A3:  lea      edx, [esp + 0x34]
+  0x000260A7:  push     edx
+  0x000260A8:  lea      eax, [esp + 0x1c]
+  0x000260AC:  push     eax
+  0x000260AD:  mov      dword ptr [esp + 0x20], 0x257b0
+  0x000260B5:  mov      dword ptr [esp + 0x24], 0x19180
+  0x000260BD:  mov      dword ptr [esp + 0x40], 0x25710
+  0x000260C5:  mov      dword ptr [esp + 0x3c], 0x25680
+  0x000260CD:  mov      dword ptr [esp + 0x44], 0x25740
+  0x000260D5:  mov      dword ptr [esp + 0x4c], 0x25770
+  0x000260DD:  mov      dword ptr [esp + 0x48], 0
+  0x000260E5:  mov      dword ptr [esp + 0x2c], 0x25850
+  0x000260ED:  mov      dword ptr [esp + 0x28], 0x257d0
+  0x000260F5:  mov      dword ptr [esp + 0x30], 0x25880
+  0x000260FD:  mov      dword ptr [esp + 0x38], 0x258e0
+  0x00026105:  mov      dword ptr [esp + 0x34], 0x258b0
+  0x0002610D:  mov      dword ptr [esp + 0x50], 2
+  0x00026115:  mov      byte ptr [esp + 0x54], 0x7a
+  0x0002611A:  mov      dword ptr [esp + 0x5c], 0
+  0x00026122:  mov      dword ptr [esp + 0x60], 0x25920
+  0x0002612A:  mov      byte ptr [esp + 0x64], 0x30
+  0x0002612F:  mov      dword ptr [esp + 0x6c], 0
+  0x00026137:  mov      dword ptr [esp + 0x70], 0x259d0
+  0x0002613F:  call     0xcd8f0  → .text 0x000CD8F0
+  0x00026144:  add      esp, 0x20
+  0x00026147:  test     eax, eax
+  0x00026149:  je       0x2615a
+  0x0002614B:  push     0x2d032c  ; "Could not initialize GOB"
+  0x00026150:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00026152:  call     0x23310  → .text 0x00023310
+  0x00026157:  add      esp, 8
+  0x0002615A:  push     0x2d0324  ; "assets"
+  0x0002615F:  call     0x25550  → .text 0x00025550
+  0x00026164:  push     1  ; "<VA 0x00000001 unmapped>"
+  0x00026166:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00026168:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x0002616A:  push     eax
+  0x0002616B:  call     0xcca70  → .text 0x000CCA70
+  0x00026170:  add      esp, 0x14
+  0x00026173:  test     eax, eax
+  0x00026175:  je       0x26181
+  0x00026177:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00026179:  call     0xbfa30  → .text 0x000BFA30
+  0x0002617E:  add      esp, 4
+  0x00026181:  push     1  ; "<VA 0x00000001 unmapped>"
+  0x00026183:  call     0xcd7d0  → .text 0x000CD7D0
+  0x00026188:  push     0x8000  ; "<VA 0x00008000 unmapped>"
+  0x0002618D:  call     0xcd880  → .text 0x000CD880
+  0x00026192:  push     0x2d030c  ; "----------------------
+"
+  0x00026197:  call     0x9d770  → .text 0x0009D770
+  0x0002619C:  add      esp, 0x60
+  0x0002619F:  ret      
+  [120 insns]
+
+========================================================================
+FS_basepath_init  @ 0x00045080
+========================================================================
+  0x00045080:  push     ebp
+  0x00045081:  mov      ebp, esp
+  0x00045083:  and      esp, 0xfffffff8
+  0x00045086:  sub      esp, 0xc0c
+  0x0004508C:  mov      eax, dword ptr [0x479750]
+  0x00045091:  push     ebx
+  0x00045092:  push     esi
+  0x00045093:  push     edi
+  0x00045094:  mov      dword ptr [esp + 0xc14], eax
+  0x0004509B:  xor      eax, eax
+  0x0004509D:  mov      ecx, 0x300
+  0x000450A2:  lea      edi, [esp + 0x10]
+  0x000450A6:  xor      ebx, ebx
+  0x000450A8:  rep stosd dword ptr es:[edi], eax
+  0x000450AA:  call     0x43610  → .text 0x00043610
+  0x000450AF:  push     eax
+  0x000450B0:  push     0x2d3224
+  0x000450B5:  mov      byte ptr [esp + 0x18], al
+  0x000450B9:  call     0x9d770  → .text 0x0009D770
+  0x000450BE:  mov      esi, dword ptr [ebp + 8]
+  0x000450C1:  push     0x2d3218  ; "multiplayer"
+  0x000450C6:  push     esi
+  0x000450C7:  call     0x2310de  → .text 0x002310DE
+  0x000450CC:  add      esp, 0x10
+  0x000450CF:  test     eax, eax
+  0x000450D1:  jne      0x450f7
+  0x000450D3:  mov      ebx, 0x2d320c
+  0x000450D8:  call     0xbf9b0  → .text 0x000BF9B0
+  0x000450DD:  mov      ecx, 0x30c7d0
+  0x000450E2:  call     0x48c60  → .text 0x00048C60
+  0x000450E7:  test     al, al
+  0x000450E9:  je       0x450f0
+  0x000450EB:  mov      byte ptr [esp + 0x11], 0x42
+  0x000450F0:  mov      byte ptr [esp + 0x12], 0
+  0x000450F5:  jmp      0x4514b
+  0x000450F7:  push     0x2d3204  ; "invite"
+  0x000450FC:  push     esi
+  0x000450FD:  call     0x2310de  → .text 0x002310DE
+  0x00045102:  add      esp, 8
+  0x00045105:  test     eax, eax
+  0x00045107:  jne      0x4513b
+  0x00045109:  mov      ebx, 0x2d320c
+  0x0004510E:  call     0xbf9b0  → .text 0x000BF9B0
+  0x00045113:  mov      ecx, 0x30c7d0
+  0x00045118:  call     0x48c60  → .text 0x00048C60
+  0x0004511D:  test     al, al
+  0x0004511F:  je       0x45126
+  0x00045121:  mov      byte ptr [esp + 0x11], 0x42
+  0x00045126:  mov      esi, dword ptr [ebp + 0xc]
+  0x00045129:  mov      ecx, 0x27
+  0x0004512E:  lea      edi, [esp + 0x13]
+  0x00045132:  mov      byte ptr [esp + 0x12], 1
+  0x00045137:  rep movsd dword ptr es:[edi], dword ptr [esi]
+  0x00045139:  jmp      0x4514b
+  0x0004513B:  push     esi
+  0x0004513C:  push     0x2d31ec  ; "Unknown reboot code %s
+"
+  0x00045141:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00045143:  call     0x23310  → .text 0x00023310
+  0x00045148:  add      esp, 0xc
+  0x0004514B:  call     0x31fe0  → .text 0x00031FE0
+  0x00045150:  call     0x48710  → .text 0x00048710
+  0x00045155:  call     0x23ebf0  → D3D 0x0023EBF0
+  0x0004515A:  lea      eax, [esp + 0x10]
+  0x0004515E:  push     eax
+  0x0004515F:  push     ebx
+  0x00045160:  call     0xc1de7  → .text 0x000C1DE7
+  0x00045165:  push     0x2d31c8  ; "ERROR: XLaunchNewImage returned
+"
+  0x0004516A:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x0004516C:  call     0x23310  → .text 0x00023310
+  0x00045171:  mov      ecx, dword ptr [esp + 0xc1c]
+  0x00045178:  add      esp, 8
+  0x0004517B:  call     0x22e6b3  → .text 0x0022E6B3
+  0x00045180:  pop      edi
+  0x00045181:  pop      esi
+  0x00045182:  pop      ebx
+  0x00045183:  mov      esp, ebp
+  0x00045185:  pop      ebp
+  0x00045186:  ret      
+  [78 insns]
+
+========================================================================
+Z_Init  @ 0x00049945
+========================================================================
+  0x00049945:  sub      esp, 0x20
+  0x00049948:  push     ebx
+  0x00049949:  xor      ebx, ebx
+  0x0004994B:  cmp      al, bl
+  0x0004994D:  jne      0x49aed
+  0x00049953:  push     esi
+  0x00049954:  push     edi
+  0x00049955:  push     0x2d3674  ; "Initialising zone memory .....
+"
+  0x0004995A:  call     0x9d770  → .text 0x0009D770
+  0x0004995F:  xor      eax, eax
+  0x00049961:  mov      ecx, 0x40
+  0x00049966:  mov      edi, 0x7bc2f0
+  0x0004996B:  rep stosd dword ptr es:[edi], eax
+  0x0004996D:  mov      ecx, 0x4000
+  0x00049972:  mov      edi, 0x7ac2f0
+  0x00049977:  rep stosd dword ptr es:[edi], eax
+  0x00049979:  add      esp, 4
+  0x0004997C:  lea      eax, [esp + 0xc]
+  0x00049980:  push     eax
+  0x00049981:  mov      dword ptr [0x52c1a0], ebx
+  0x00049987:  mov      dword ptr [0x7bc3f4], ebx
+  0x0004998D:  call     0xc2582  → .text 0x000C2582
+  0x00049992:  mov      eax, dword ptr [esp + 0x18]
+  0x00049996:  mov      ecx, dword ptr [esp + 0x14]
+  0x0004999A:  push     eax
+  0x0004999B:  sub      ecx, eax
+  0x0004999D:  push     ecx
+  0x0004999E:  push     0x2d3654  ; "*** PhysRAM: %d used, %d free
+"
+  0x000499A3:  call     0x9d770  → .text 0x0009D770
+  0x000499A8:  add      esp, 0xc
+  0x000499AB:  push     ebx
+  0x000499AC:  push     0x1000000  ; "<VA 0x01000000 unmapped>"
+  0x000499B1:  call     0x23f620  → D3D 0x0023F620
+  0x000499B6:  lea      edx, [esp + 0xc]
+  0x000499BA:  push     edx
+  0x000499BB:  mov      dword ptr [0x81ce18], eax
+  0x000499C0:  mov      dword ptr [0x81ce1c], ebx
+  0x000499C6:  mov      dword ptr [0x81ce20], 0x1000000
+  0x000499D0:  mov      dword ptr [0x81ce24], ebx
+  0x000499D6:  mov      dword ptr [0x81ce28], ebx
+  0x000499DC:  mov      dword ptr [0x81ce2c], ebx
+  0x000499E2:  call     0xc2582  → .text 0x000C2582
+  0x000499E7:  mov      eax, dword ptr [esp + 0x18]
+  0x000499EB:  mov      ecx, dword ptr [esp + 0x14]
+  0x000499EF:  push     eax
+  0x000499F0:  sub      ecx, eax
+  0x000499F2:  push     ecx
+  0x000499F3:  push     0x2d3654  ; "*** PhysRAM: %d used, %d free
+"
+  0x000499F8:  call     0x9d770  → .text 0x0009D770
+  0x000499FD:  mov      esi, dword ptr [esp + 0x24]
+  0x00049A01:  add      esp, 0xc
+  0x00049A04:  add      esi, 0xff930000
+  0x00049A0A:  push     esi
+  0x00049A0B:  push     ebx
+  0x00049A0C:  call     0xc268b  → .text 0x000C268B
+  0x00049A11:  mov      edx, eax
+  0x00049A13:  mov      dword ptr [edx], edx
+  0x00049A15:  mov      dword ptr [edx + 4], esi
+  0x00049A18:  mov      dword ptr [edx + 8], 0x7ac2dc
+  0x00049A1F:  mov      dword ptr [edx + 0xc], 0x7ac1c0
+  0x00049A26:  xor      eax, eax
+  0x00049A28:  mov      ecx, 0x40
+  0x00049A2D:  mov      edi, 0x7ac1d8
+  0x00049A32:  rep stosd dword ptr es:[edi], eax
+  0x00049A34:  mov      eax, esi
+  0x00049A36:  shr      eax, 6
+  0x00049A39:  inc      eax
+  0x00049A3A:  mov      dword ptr [0x7ac1d0], eax
+  0x00049A3F:  mov      eax, 1
+  0x00049A44:  push     0x495b0
+  0x00049A49:  push     0x2d3648  ; "zone_stats"
+  0x00049A4E:  mov      dword ptr [0x7bc3f0], edx
+  0x00049A54:  mov      dword ptr [0x7ac2d8], esi
+  0x00049A5A:  mov      dword ptr [0x7ac1d8], edx
+  0x00049A60:  mov      dword ptr [0x7ac1c0], ebx
+  0x00049A66:  mov      dword ptr [0x7ac1c4], ebx
+  0x00049A6C:  mov      dword ptr [0x7ac1c8], edx
+  0x00049A72:  mov      dword ptr [0x7ac1cc], ebx
+  0x00049A78:  mov      dword ptr [0x7ac2dc], 0xffffffff
+  0x00049A82:  mov      dword ptr [0x7ac2e0], ebx
+  0x00049A88:  mov      dword ptr [0x7ac2e4], ebx
+  0x00049A8E:  mov      dword ptr [0x7ac2e8], edx
+  0x00049A94:  mov      dword ptr [0x7bc300], eax
+  0x00049A99:  mov      dword ptr [0x7bc304], esi
+  0x00049A9F:  mov      byte ptr [0x7bc3fc], al
+  0x00049AA4:  call     0x222b0  → .text 0x000222B0
+  0x00049AA9:  push     0x49650
+  0x00049AAE:  push     0x2d3638  ; "zone_details"
+  0x00049AB3:  call     0x222b0  → .text 0x000222B0
+  0x00049AB8:  push     0x49730
+  0x00049ABD:  push     0x2d362c  ; "zone_memmap"
+  0x00049AC2:  call     0x222b0  → .text 0x000222B0
+  0x00049AC7:  push     0x49510
+  0x00049ACC:  push     0x2d3620  ; "zone_cstats"
+  0x00049AD1:  call     0x222b0  → .text 0x000222B0
+  0x00049AD6:  add      esp, 0x20
+  0x00049AD9:  push     ebx
+  0x00049ADA:  push     ebx
+  0x00049ADB:  push     ebx
+  0x00049ADC:  call     0xc1a23  → .text 0x000C1A23
+  0x00049AE1:  mov      dword ptr [0x30c878], eax
+  0x00049AE6:  call     0xec6d0  → .text 0x000EC6D0
+  0x00049AEB:  pop      edi
+  0x00049AEC:  pop      esi
+  0x00049AED:  pop      ebx
+  0x00049AEE:  add      esp, 0x20
+  0x00049AF1:  ret      
+  [107 insns]
+
+========================================================================
+Sys_QueEvent  @ 0x00044CB5
+========================================================================
+  0x00044CB5:  sub      esp, 8
+  0x00044CB8:  test     eax, eax
+  0x00044CBA:  je       0x44d8e
+  0x00044CC0:  lea      eax, [esp]
+  0x00044CC3:  push     eax
+  0x00044CC4:  lea      ecx, [esp + 8]
+  0x00044CC8:  push     ecx
+  0x00044CC9:  push     0x2c5810
+  0x00044CCE:  call     0x2c6925  → XPP 0x002C6925
+  0x00044CD3:  test     eax, eax
+  0x00044CD5:  je       0x44ce8
+  0x00044CD7:  mov      edx, dword ptr [esp]
+  0x00044CDA:  mov      eax, dword ptr [esp + 4]
+  0x00044CDE:  push     edx
+  0x00044CDF:  push     eax
+  0x00044CE0:  call     0x448e0  → .text 0x000448E0
+  0x00044CE5:  add      esp, 8
+  0x00044CE8:  mov      eax, dword ptr [0x30c7a0]
+  0x00044CED:  test     eax, eax
+  0x00044CEF:  je       0x44d30
+  0x00044CF1:  call     0x44fc0  → .text 0x00044FC0
+  0x00044CF6:  test     al, al
+  0x00044CF8:  je       0x44d26
+  0x00044CFA:  mov      ecx, dword ptr [0x52c0ec]
+  0x00044D00:  push     ecx
+  0x00044D01:  push     0x2d3188
+  0x00044D06:  call     0x9d770  → .text 0x0009D770
+  0x00044D0B:  mov      edx, dword ptr [0x52c0ec]
+  0x00044D11:  push     edx
+  0x00044D12:  call     0x43af0  → .text 0x00043AF0
+  0x00044D17:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00044D19:  push     0x2cfbf4  ; "inSplashMenu"
+  0x00044D1E:  call     0x242b0  → .text 0x000242B0
+  0x00044D23:  add      esp, 0x14
+  0x00044D26:  mov      dword ptr [0x30c7a0], 0
+  0x00044D30:  mov      eax, dword ptr [0x52626c]
+  0x00044D35:  test     eax, eax
+  0x00044D37:  je       0x44d5b
+  0x00044D39:  call     0x435d0  → .text 0x000435D0
+  0x00044D3E:  test     eax, eax
+  0x00044D40:  je       0x44d5b
+  0x00044D42:  mov      eax, dword ptr [0x835894]
+  0x00044D47:  test     eax, eax
+  0x00044D49:  jge      0x44d5b
+  0x00044D4B:  mov      eax, dword ptr [0x52626c]
+  0x00044D50:  push     eax
+  0x00044D51:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00044D53:  call     0x448e0  → .text 0x000448E0
+  0x00044D58:  add      esp, 8
+  0x00044D5B:  push     esi
+  0x00044D5C:  push     edi
+  0x00044D5D:  xor      edi, edi
+  0x00044D5F:  xor      esi, esi
+  0x00044D61:  mov      ecx, dword ptr [0x526438]
+  0x00044D67:  cmp      dword ptr [esi + ecx], 0
+  0x00044D6B:  je       0x44d76
+  0x00044D6D:  push     edi
+  0x00044D6E:  call     0x44a40  → .text 0x00044A40
+  0x00044D73:  add      esp, 4
+  0x00044D76:  add      esi, 0x60
+  0x00044D79:  inc      edi
+  0x00044D7A:  cmp      esi, 0x180
+  0x00044D80:  jl       0x44d61
+  0x00044D82:  call     0x434c0  → .text 0x000434C0
+  0x00044D87:  call     0x44880  → .text 0x00044880
+  0x00044D8C:  pop      edi
+  0x00044D8D:  pop      esi
+  0x00044D8E:  add      esp, 8
+  0x00044D91:  ret      
+  [69 insns]
+
+========================================================================
+Com_Init_arg_handler  @ 0x00022B60
+========================================================================
+  0x00022B60:  mov      eax, dword ptr [esp + 4]
+  0x00022B64:  mov      edx, 1
+  0x00022B69:  mov      dword ptr [0x4b6420], eax
+  0x00022B6E:  mov      dword ptr [0x4b7578], edx
+  0x00022B74:  cmp      byte ptr [eax], 0
+  0x00022B77:  je       0x22bb3
+  0x00022B79:  lea      esp, [esp]
+  0x00022B80:  mov      cl, byte ptr [eax]
+  0x00022B82:  cmp      cl, 0x2b
+  0x00022B85:  je       0x22b8c
+  0x00022B87:  cmp      cl, 0xa
+  0x00022B8A:  jne      0x22bab
+  0x00022B8C:  cmp      edx, 0x20
+  0x00022B8F:  je       0x22bb3
+  0x00022B91:  lea      ecx, [eax + 1]
+  0x00022B94:  mov      dword ptr [edx*4 + 0x4b6420], ecx
+  0x00022B9B:  inc      edx
+  0x00022B9C:  mov      dword ptr [0x4b7578], edx
+  0x00022BA2:  mov      byte ptr [eax], 0
+  0x00022BA5:  mov      edx, dword ptr [0x4b7578]
+  0x00022BAB:  mov      cl, byte ptr [eax + 1]
+  0x00022BAE:  inc      eax
+  0x00022BAF:  test     cl, cl
+  0x00022BB1:  jne      0x22b80
+  0x00022BB3:  ret      
+  [25 insns]
+
+========================================================================
+Com_Init_call2  @ 0x0002C4B0
+========================================================================
+  0x0002C4B0:  push     ecx
+  0x0002C4B1:  mov      eax, 1
+  0x0002C4B6:  mov      byte ptr [esp], al
+  0x0002C4B9:  mov      byte ptr [esp + 1], 0
+  0x0002C4BE:  cmp      word ptr [esp], ax
+  0x0002C4C2:  jne      0x2c502
+  0x0002C4C4:  mov      dword ptr [0x4c3a2c], 0x2c3f0
+  0x0002C4CE:  mov      dword ptr [0x4c3a28], 0x2c410
+  0x0002C4D8:  mov      dword ptr [0x4c3a30], 0x2c420
+  0x0002C4E2:  mov      dword ptr [0x4c3620], 0x2c450
+  0x0002C4EC:  mov      dword ptr [0x4c3a34], 0x2c460
+  0x0002C4F6:  mov      dword ptr [0x4c3624], 0x2c4a0
+  0x0002C500:  pop      ecx
+  0x0002C501:  ret      
+  [14 insns]
+
+========================================================================
+Com_Init_call3_time?  @ 0x00021F20
+========================================================================
+  0x00021F20:  push     0x2000  ; "<VA 0x00002000 unmapped>"
+  0x00021F25:  push     0x4af2c8
+  0x00021F2A:  push     0x4b3bcc
+  0x00021F2F:  call     0x276e0  → .text 0x000276E0
+  0x00021F34:  add      esp, 0xc
+  0x00021F37:  ret      
+  [6 insns]
+
+========================================================================
+Com_Init_sub1  @ 0x00049940
+========================================================================
+  0x00049940:  mov      al, byte ptr [0x7bc3fc]
+  0x00049945:  sub      esp, 0x20
+  0x00049948:  push     ebx
+  0x00049949:  xor      ebx, ebx
+  0x0004994B:  cmp      al, bl
+  0x0004994D:  jne      0x49aed
+  0x00049953:  push     esi
+  0x00049954:  push     edi
+  0x00049955:  push     0x2d3674  ; "Initialising zone memory .....
+"
+  0x0004995A:  call     0x9d770  → .text 0x0009D770
+  0x0004995F:  xor      eax, eax
+  0x00049961:  mov      ecx, 0x40
+  0x00049966:  mov      edi, 0x7bc2f0
+  0x0004996B:  rep stosd dword ptr es:[edi], eax
+  0x0004996D:  mov      ecx, 0x4000
+  0x00049972:  mov      edi, 0x7ac2f0
+  0x00049977:  rep stosd dword ptr es:[edi], eax
+  0x00049979:  add      esp, 4
+  0x0004997C:  lea      eax, [esp + 0xc]
+  0x00049980:  push     eax
+  0x00049981:  mov      dword ptr [0x52c1a0], ebx
+  0x00049987:  mov      dword ptr [0x7bc3f4], ebx
+  0x0004998D:  call     0xc2582  → .text 0x000C2582
+  0x00049992:  mov      eax, dword ptr [esp + 0x18]
+  0x00049996:  mov      ecx, dword ptr [esp + 0x14]
+  0x0004999A:  push     eax
+  0x0004999B:  sub      ecx, eax
+  0x0004999D:  push     ecx
+  0x0004999E:  push     0x2d3654  ; "*** PhysRAM: %d used, %d free
+"
+  0x000499A3:  call     0x9d770  → .text 0x0009D770
+  0x000499A8:  add      esp, 0xc
+  0x000499AB:  push     ebx
+  0x000499AC:  push     0x1000000  ; "<VA 0x01000000 unmapped>"
+  0x000499B1:  call     0x23f620  → D3D 0x0023F620
+  0x000499B6:  lea      edx, [esp + 0xc]
+  0x000499BA:  push     edx
+  0x000499BB:  mov      dword ptr [0x81ce18], eax
+  0x000499C0:  mov      dword ptr [0x81ce1c], ebx
+  0x000499C6:  mov      dword ptr [0x81ce20], 0x1000000
+  0x000499D0:  mov      dword ptr [0x81ce24], ebx
+  0x000499D6:  mov      dword ptr [0x81ce28], ebx
+  0x000499DC:  mov      dword ptr [0x81ce2c], ebx
+  0x000499E2:  call     0xc2582  → .text 0x000C2582
+  0x000499E7:  mov      eax, dword ptr [esp + 0x18]
+  0x000499EB:  mov      ecx, dword ptr [esp + 0x14]
+  0x000499EF:  push     eax
+  0x000499F0:  sub      ecx, eax
+  0x000499F2:  push     ecx
+  0x000499F3:  push     0x2d3654  ; "*** PhysRAM: %d used, %d free
+"
+  0x000499F8:  call     0x9d770  → .text 0x0009D770
+  0x000499FD:  mov      esi, dword ptr [esp + 0x24]
+  0x00049A01:  add      esp, 0xc
+  0x00049A04:  add      esi, 0xff930000
+  0x00049A0A:  push     esi
+  0x00049A0B:  push     ebx
+  0x00049A0C:  call     0xc268b  → .text 0x000C268B
+  0x00049A11:  mov      edx, eax
+  0x00049A13:  mov      dword ptr [edx], edx
+  0x00049A15:  mov      dword ptr [edx + 4], esi
+  0x00049A18:  mov      dword ptr [edx + 8], 0x7ac2dc
+  0x00049A1F:  mov      dword ptr [edx + 0xc], 0x7ac1c0
+  0x00049A26:  xor      eax, eax
+  0x00049A28:  mov      ecx, 0x40
+  0x00049A2D:  mov      edi, 0x7ac1d8
+  0x00049A32:  rep stosd dword ptr es:[edi], eax
+  0x00049A34:  mov      eax, esi
+  0x00049A36:  shr      eax, 6
+  0x00049A39:  inc      eax
+  0x00049A3A:  mov      dword ptr [0x7ac1d0], eax
+  0x00049A3F:  mov      eax, 1
+  0x00049A44:  push     0x495b0
+  0x00049A49:  push     0x2d3648  ; "zone_stats"
+  0x00049A4E:  mov      dword ptr [0x7bc3f0], edx
+  0x00049A54:  mov      dword ptr [0x7ac2d8], esi
+  0x00049A5A:  mov      dword ptr [0x7ac1d8], edx
+  0x00049A60:  mov      dword ptr [0x7ac1c0], ebx
+  0x00049A66:  mov      dword ptr [0x7ac1c4], ebx
+  0x00049A6C:  mov      dword ptr [0x7ac1c8], edx
+  0x00049A72:  mov      dword ptr [0x7ac1cc], ebx
+  0x00049A78:  mov      dword ptr [0x7ac2dc], 0xffffffff
+  [80 insns]
+
+========================================================================
+Com_Init_sub2  @ 0x00042960
+========================================================================
+  0x00042960:  push     0x40  ; "<VA 0x00000040 unmapped>"
+  0x00042962:  call     0x44e50  → .text 0x00044E50
+  0x00042967:  add      esp, 4
+  0x0004296A:  mov      dword ptr [0x52621c], eax
+  0x0004296F:  xor      eax, eax
+  0x00042971:  mov      ecx, dword ptr [0x52621c]
+  0x00042977:  mov      byte ptr [eax + ecx], 0
+  0x0004297B:  add      eax, 8
+  0x0004297E:  cmp      eax, 0x40
+  0x00042981:  jl       0x42971
+  0x00042983:  ret      
+  [11 insns]
+
+========================================================================
+CL_Init_area  @ 0x00017320
+========================================================================
+  0x00017320:  push     esi
+  0x00017321:  push     edi
+  0x00017322:  push     0x2ce9fc  ; "----- Initializing Renderer ----
+"
+  0x00017327:  call     0x9d770  → .text 0x0009D770
+  0x0001732C:  push     9  ; "<VA 0x00000009 unmapped>"
+  0x0001732E:  call     0x75fa0  → .text 0x00075FA0
+  0x00017333:  push     0x2ce9d8  ; "-------------------------------
+"
+  0x00017338:  mov      esi, eax
+  0x0001733A:  call     0x9d770  → .text 0x0009D770
+  0x0001733F:  add      esp, 0xc
+  0x00017342:  test     esi, esi
+  0x00017344:  jne      0x17354
+  0x00017346:  push     0x2ce9bc  ; "Couldn't initialize refresh"
+  0x0001734B:  push     esi
+  0x0001734C:  call     0x23310  → .text 0x00023310
+  0x00017351:  add      esp, 8
+  0x00017354:  push     0x2cdcec  ; "0"
+  0x00017359:  mov      ecx, 0x2d
+  0x0001735E:  mov      edi, 0x47e168
+  0x00017363:  push     0x2ce9b0  ; "cl_paused"
+  0x00017368:  rep movsd dword ptr es:[edi], dword ptr [esi]
+  0x0001736A:  call     0x24290  → .text 0x00024290
+  0x0001736F:  add      esp, 8
+  0x00017372:  pop      edi
+  0x00017373:  pop      esi
+  0x00017374:  ret      
+  [26 insns]
+
+========================================================================
+Com_Init_call7  @ 0x000750A0
+========================================================================
+  0x000750A0:  push     esi
+  0x000750A1:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x000750A3:  push     0x2ce640  ; "1"
+  0x000750A8:  push     0x2d5eb8  ; "r_allowExtensions"
+  0x000750AD:  call     0x24cc0  → .text 0x00024CC0
+  0x000750B2:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x000750B4:  push     0x2ce640  ; "1"
+  0x000750B9:  push     0x2d5ea0  ; "r_ext_compress_textures"
+  0x000750BE:  mov      dword ptr [0x7d3138], eax
+  0x000750C3:  call     0x24cc0  → .text 0x00024CC0
+  0x000750C8:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x000750CA:  push     0x2cdcec  ; "0"
+  0x000750CF:  push     0x2d5e84  ; "r_ext_compress_lightmaps"
+  0x000750D4:  mov      dword ptr [0x7d3220], eax
+  0x000750D9:  call     0x24cc0  → .text 0x00024CC0
+  0x000750DE:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x000750E0:  push     0x2cdcec  ; "0"
+  0x000750E5:  push     0x2d5e68  ; "r_ext_preferred_tc_method"
+  0x000750EA:  mov      dword ptr [0x7d31f0], eax
+  0x000750EF:  call     0x24cc0  → .text 0x00024CC0
+  0x000750F4:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x000750F6:  push     0x2ce640  ; "1"
+  0x000750FB:  push     0x2d5e54  ; "r_ext_gamma_control"
+  0x00075100:  mov      dword ptr [0x7d31b0], eax
+  0x00075105:  call     0x24cc0  → .text 0x00024CC0
+  0x0007510A:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x0007510C:  push     0x2ce640  ; "1"
+  0x00075111:  push     0x2d5e40  ; "r_ext_multitexture"
+  0x00075116:  mov      dword ptr [0x7d3248], eax
+  0x0007511B:  call     0x24cc0  → .text 0x00024CC0
+  0x00075120:  add      esp, 0x48
+  0x00075123:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x00075125:  push     0x2ce640  ; "1"
+  0x0007512A:  push     0x2d5e24  ; "r_ext_compiled_vertex_array"
+  0x0007512F:  mov      dword ptr [0x7d3114], eax
+  0x00075134:  call     0x24cc0  → .text 0x00024CC0
+  0x00075139:  push     0x21  ; "<VA 0x00000021 unmapped>"
+  0x0007513B:  push     0x2ce640  ; "1"
+  0x00075140:  push     0x2d5e0c  ; "r_ext_texture_env_add"
+  0x00075145:  mov      dword ptr [0x7d3338], eax
+  0x0007514A:  call     0x24cc0  → .text 0x00024CC0
+  0x0007514F:  push     1  ; "<VA 0x00000001 unmapped>"
+  0x00075151:  push     0x2d5e08  ; "16"
+  0x00075156:  push     0x2d4c90  ; "r_ext_texture_filter_anisotropic"
+  0x0007515B:  mov      dword ptr [0x7d3324], eax
+  0x00075160:  call     0x24cc0  → .text 0x00024CC0
+  0x00075165:  push     1  ; "<VA 0x00000001 unmapped>"
+  0x00075167:  push     0x2ce640  ; "1"
+  0x0007516C:  push     0x2d5df8  ; "r_DynamicGlow"
+  0x00075171:  mov      dword ptr [0x7d3320], eax
+  0x00075176:  call     0x24cc0  → .text 0x00024CC0
+  0x0007517B:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x00075180:  push     0x2cdce8  ; "5"
+  0x00075185:  push     0x2d5de4  ; "r_DynamicGlowPasses"
+  0x0007518A:  mov      dword ptr [0x7d323c], eax
+  0x0007518F:  call     0x24cc0  → .text 0x00024CC0
+  0x00075194:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x00075199:  push     0x2d5ddc  ; "0.8f"
+  0x0007519E:  push     0x2d5dc8  ; "r_DynamicGlowDelta"
+  0x000751A3:  mov      dword ptr [0x7d311c], eax
+  0x000751A8:  call     0x24cc0  → .text 0x00024CC0
+  0x000751AD:  add      esp, 0x48
+  0x000751B0:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x000751B5:  push     0x2d5dc0  ; "1.13f"
+  0x000751BA:  push     0x2d5da8  ; "r_DynamicGlowIntensity"
+  0x000751BF:  mov      dword ptr [0x7d31a0], eax
+  0x000751C4:  call     0x24cc0  → .text 0x00024CC0
+  0x000751C9:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x000751CE:  push     0x2ce640  ; "1"
+  0x000751D3:  push     0x2d5d94  ; "r_DynamicGlowSoft"
+  0x000751D8:  mov      dword ptr [0x7d3198], eax
+  0x000751DD:  call     0x24cc0  → .text 0x00024CC0
+  0x000751E2:  push     0x220  ; "<VA 0x00000220 unmapped>"
+  0x000751E7:  push     0x2d5d90  ; "320"
+  0x000751EC:  push     0x2d5d7c  ; "r_DynamicGlowWidth"
+  0x000751F1:  mov      dword ptr [0x7d3124], eax
+  0x000751F6:  call     0x24cc0  → .text 0x00024CC0
+  0x000751FB:  push     0x220  ; "<VA 0x00000220 unmapped>"
+  0x00075200:  push     0x2d5d78  ; "240"
+  0x00075205:  mov      dword ptr [0x7d3178], eax
+  [80 insns]
+
+========================================================================
+Com_Init_call8  @ 0x00098310
+========================================================================
+  0x00098310:  call     0x98270  → .text 0x00098270
+  0x00098315:  test     eax, eax
+  0x00098317:  jne      0x98327
+  0x00098319:  push     0x2d8efc  ; "GLW_StartOpenGL() - could not load OpenGL subsystem
+"
+  0x0009831E:  push     eax
+  0x0009831F:  call     0x23310  → .text 0x00023310
+  0x00098324:  add      esp, 8
+  0x00098327:  push     0x1f00  ; "<VA 0x00001F00 unmapped>"
+  0x0009832C:  call     dword ptr [0x81c9f8]  → [0x0081C9F8] ?
+  0x00098332:  push     0x1f01  ; "<VA 0x00001F01 unmapped>"
+  0x00098337:  mov      dword ptr [0x7d32cc], eax
+  0x0009833C:  call     dword ptr [0x81c9f8]  → [0x0081C9F8] ?
+  0x00098342:  push     0x1f02  ; "<VA 0x00001F02 unmapped>"
+  0x00098347:  mov      dword ptr [0x7d32c8], eax
+  0x0009834C:  call     dword ptr [0x81c9f8]  → [0x0081C9F8] ?
+  0x00098352:  push     0x1f03  ; "<VA 0x00001F03 unmapped>"
+  0x00098357:  mov      dword ptr [0x7d32d0], eax
+  0x0009835C:  call     dword ptr [0x81c9f8]  → [0x0081C9F8] ?
+  0x00098362:  mov      ecx, dword ptr [0x7d32cc]
+  0x00098368:  add      esp, 0x10
+  0x0009836B:  test     ecx, ecx
+  0x0009836D:  mov      dword ptr [0x7d32d4], eax
+  0x00098372:  je       0x9838c
+  0x00098374:  mov      ecx, dword ptr [0x7d32c8]
+  0x0009837A:  test     ecx, ecx
+  0x0009837C:  je       0x9838c
+  0x0009837E:  mov      ecx, dword ptr [0x7d32d0]
+  0x00098384:  test     ecx, ecx
+  0x00098386:  je       0x9838c
+  0x00098388:  test     eax, eax
+  0x0009838A:  jne      0x9839b
+  0x0009838C:  push     0x2d8f34  ; "GLimp_Init() - Invalid GL Driver
+"
+  0x00098391:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x00098393:  call     0x23310  → .text 0x00023310
+  0x00098398:  add      esp, 8
+  0x0009839B:  push     0x7d32d8
+  0x000983A0:  push     0xd33  ; "<VA 0x00000D33 unmapped>"
+  0x000983A5:  call     dword ptr [0x81ca88]  → [0x0081CA88] ?
+  0x000983AB:  mov      eax, dword ptr [0x7d32d8]
+  0x000983B0:  add      esp, 8
+  0x000983B3:  test     eax, eax
+  0x000983B5:  jg       0x983c1
+  0x000983B7:  mov      dword ptr [0x7d32d8], 0
+  0x000983C1:  call     0x981a0  → .text 0x000981A0
+  0x000983C6:  jmp      0x980b0
+  0x000983CB:  int3     
+  0x000983CC:  int3     
+  0x000983CD:  int3     
+  0x000983CE:  int3     
+  0x000983CF:  int3     
+  0x000983D0:  push     edi
+  0x000983D1:  push     0x2d8f58  ; "Shutting down OpenGL subsystem
+"
+  0x000983D6:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x000983D8:  call     0x170e0  → .text 0x000170E0
+  0x000983DD:  add      esp, 8
+  0x000983E0:  call     0x449b0  → .text 0x000449B0
+  0x000983E5:  call     0xa46f0  → .text 0x000A46F0
+  0x000983EA:  call     0x9fc80  → .text 0x0009FC80
+  0x000983EF:  xor      eax, eax
+  0x000983F1:  mov      ecx, 0x14
+  0x000983F6:  mov      edi, 0x7d32c8
+  0x000983FB:  rep stosd dword ptr es:[edi], eax
+  0x000983FD:  mov      dword ptr [0x7d324c], eax
+  0x00098402:  mov      dword ptr [0x7d3250], eax
+  0x00098407:  mov      dword ptr [0x7d3254], eax
+  0x0009840C:  mov      dword ptr [0x7d3258], eax
+  0x00098411:  mov      dword ptr [0x7d325c], eax
+  0x00098416:  mov      dword ptr [0x7d3260], eax
+  0x0009841B:  mov      dword ptr [0x7d3264], eax
+  0x00098420:  mov      dword ptr [0x7d3268], eax
+  0x00098425:  pop      edi
+  0x00098426:  ret      
+  [72 insns]
+
+========================================================================
+Com_Init_call9  @ 0x000BF960
+========================================================================
+  0x000BF960:  call     0x44fc0  → .text 0x00044FC0
+  0x000BF965:  test     al, al
+  0x000BF967:  jne      0xbf9a0
+  0x000BF969:  push     esi
+  0x000BF96A:  push     0x2e5098  ; "d:\base\media\LicenseScreen"
+  0x000BF96F:  call     0xbf8d0  → .text 0x000BF8D0
+  0x000BF974:  mov      esi, eax
+  0x000BF976:  add      esp, 4
+  0x000BF979:  test     esi, esi
+  0x000BF97B:  je       0xbf998
+  0x000BF97D:  push     0  ; "<VA 0x00000000 unmapped>"
+  0x000BF97F:  push     0x44000000  ; "<VA 0x44000000 unmapped>"
+  0x000BF984:  push     0x44000000  ; "<VA 0x44000000 unmapped>"
+  0x000BF989:  push     esi
+  0x000BF98A:  call     0xbf320  → .text 0x000BF320
+  0x000BF98F:  push     esi
+  0x000BF990:  call     0x49f00  → .text 0x00049F00
+  0x000BF995:  add      esp, 0x14
+  0x000BF998:  mov      byte ptr [0x8bbcdc], 1
+  0x000BF99F:  pop      esi
+  0x000BF9A0:  ret      
+  [21 insns]
+
+========================================================================
+NtCreateFile callers (thunk slot 0x002CD080)
+========================================================================
+  Total: 1 call sites
+  call @ 0x000C1952  fn ≈ 0x000C1924
+
+========================================================================
+NtReadFile callers (thunk slot 0x002CCFF8)
+========================================================================
+  Total: 2 call sites
+  call @ 0x000C1574  fn ≈ 0x000C1500
+  call @ 0x000C2D9B  fn ≈ 0x000C2D53
+
+========================================================================
+XeLoadSection callers (thunk slot 0x002CD064)
+========================================================================
+  Total: 0 call sites
+
+========================================================================
+PsCreateSystemThreadEx callers (thunk slot 0x002CD1C0)
+========================================================================
+  Total: 0 call sites
+
+========================================================================
+GLW_Init_CreateDevice_area  @ 0x000A4245
+========================================================================
+  0x000A4245:  sub      esp, 0x48
+  0x000A4248:  push     ebx
+  0x000A4249:  push     esi
+  0x000A424A:  push     edi
+  0x000A424B:  push     0x508c  ; "<VA 0x0000508C unmapped>"
+  0x000A4250:  call     0x44e50  → .text 0x00044E50
+  0x000A4255:  mov      edi, eax
+  0x000A4257:  add      esp, 4
+  0x000A425A:  mov      dword ptr [esp + 0xc], edi
+  0x000A425E:  xor      ebx, ebx
+  0x000A4260:  cmp      edi, ebx
+  0x000A4262:  mov      dword ptr [esp + 0x5c], ebx
+  0x000A4266:  je       0xa428f
+  0x000A4268:  lea      esi, [edi + 0x3c]
+  0x000A426B:  mov      ecx, esi
+  0x000A426D:  call     0xa0be0  → .text 0x000A0BE0
+  0x000A4272:  mov      dword ptr [esi + 4], eax
+  0x000A4275:  mov      byte ptr [eax + 0x31], 1
+  0x000A4279:  mov      eax, dword ptr [esi + 4]
+  0x000A427C:  mov      dword ptr [eax + 4], eax
+  0x000A427F:  mov      eax, dword ptr [esi + 4]
+  0x000A4282:  mov      dword ptr [eax], eax
+  0x000A4284:  mov      eax, dword ptr [esi + 4]
+  0x000A4287:  mov      dword ptr [eax + 8], eax
+  0x000A428A:  mov      dword ptr [esi + 8], ebx
+  0x000A428D:  jmp      0xa4291
+  0x000A428F:  xor      edi, edi
+  0x000A4291:  push     ebp
+  0x000A4292:  or       ebp, 0xffffffff
+  0x000A4295:  mov      dword ptr [0x81c8a4], edi
+  0x000A429B:  mov      dword ptr [esp + 0x60], ebp
+  0x000A429F:  mov      dword ptr [esp + 0x10], ebx
+  0x000A42A3:  mov      byte ptr [edi + 0xc8], bl
+  0x000A42A9:  call     0xc26a8  → .text 0x000C26A8
+  0x000A42AE:  test     al, 1
+  0x000A42B0:  je       0xa42db
+  0x000A42B2:  mov      eax, dword ptr [0x81c8a4]
+  0x000A42B7:  mov      byte ptr [eax + 0xc8], 1
+  0x000A42BE:  mov      esi, 0x280
+  0x000A42C3:  call     0xc26a8  → .text 0x000C26A8
+  0x000A42C8:  test     al, 8
+  0x000A42CA:  je       0xa42df
+  0x000A42CC:  mov      edi, 0x1e0
+  0x000A42D1:  mov      dword ptr [esp + 0x10], 1
+  0x000A42D9:  jmp      0xa42e3
+  0x000A42DB:  mov      esi, dword ptr [esp + 0x68]
+  0x000A42DF:  mov      edi, dword ptr [esp + 0x6c]
+  0x000A42E3:  mov      ecx, dword ptr [esp + 0x70]
+  0x000A42E7:  push     edi
+  0x000A42E8:  push     esi
+  0x000A42E9:  call     0xa04c0  → .text 0x000A04C0
+  0x000A42EE:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A42F4:  mov      dword ptr [ecx + 0x1c], ebx
+  0x000A42F7:  mov      edx, dword ptr [0x81c8a4]
+  0x000A42FD:  mov      byte ptr [edx + 0x24], bl
+  0x000A4300:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4305:  mov      dword ptr [eax + 0x4c], ebx
+  0x000A4308:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A430E:  mov      dword ptr [ecx + 0x50], ebx
+  0x000A4311:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4317:  mov      byte ptr [edx + 0x68], bl
+  0x000A431A:  mov      eax, dword ptr [0x81c8a4]
+  0x000A431F:  mov      byte ptr [eax + 0x6b], bl
+  0x000A4322:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4328:  mov      byte ptr [ecx + 0x6c], bl
+  0x000A432B:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4331:  mov      byte ptr [edx + 0x9c], 1
+  0x000A4338:  mov      eax, dword ptr [0x81c8a4]
+  0x000A433D:  mov      dword ptr [eax + 0xa0], 0x901
+  0x000A4347:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A434D:  mov      byte ptr [ecx + 0xd0], bl
+  0x000A4353:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4359:  mov      dword ptr [edx + 0xd4], ebx
+  0x000A435F:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4364:  mov      dword ptr [eax + 0xd8], ebx
+  0x000A436A:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4370:  mov      edx, dword ptr [0x7d3304]
+  0x000A4376:  movss    xmm0, dword ptr [0x2cd938]
+  0x000A437E:  mov      dword ptr [ecx + 0xdc], edx
+  0x000A4384:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4389:  mov      ecx, dword ptr [0x7d3308]
+  0x000A438F:  mov      dword ptr [eax + 0xe0], ecx
+  0x000A4395:  mov      edx, dword ptr [0x81c8a4]
+  0x000A439B:  xorps    xmm1, xmm1
+  0x000A439E:  mov      dword ptr [edx + 0x190], ebx
+  0x000A43A4:  mov      eax, dword ptr [0x81c8a4]
+  0x000A43A9:  mov      dword ptr [eax + 0xbc], ebp
+  0x000A43AF:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A43B5:  movss    dword ptr [ecx + 0xc0], xmm0
+  0x000A43BD:  mov      edx, dword ptr [0x81c8a4]
+  0x000A43C3:  mov      dword ptr [edx + 0xc4], ebx
+  0x000A43C9:  mov      eax, dword ptr [0x81c8a4]
+  0x000A43CE:  mov      dword ptr [eax + 0xcc], ebp
+  0x000A43D4:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A43DA:  movss    dword ptr [ecx + 0xb4], xmm1
+  0x000A43E2:  mov      edx, dword ptr [0x81c8a4]
+  0x000A43E8:  add      esp, 8
+  0x000A43EB:  movss    dword ptr [edx + 0xb8], xmm0
+  0x000A43F3:  xor      ecx, ecx
+  0x000A43F5:  mov      eax, 0x2c
+  0x000A43FA:  mov      edx, 4
+  0x000A43FF:  nop      
+  0x000A4400:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A4406:  mov      dword ptr [eax + ebp + 8], edx
+  0x000A440A:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A4410:  mov      byte ptr [ecx + ebp + 0x69], bl
+  0x000A4414:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A441A:  mov      dword ptr [eax + ebp], ebx
+  0x000A441D:  mov      ebp, dword ptr [0x81c8a4]
+  0x000A4423:  mov      byte ptr [ecx + ebp + 0x25], bl
+  0x000A4427:  add      eax, edx
+  0x000A4429:  inc      ecx
+  0x000A442A:  cmp      eax, 0x34
+  0x000A442D:  jl       0xa4400
+  0x000A442F:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4434:  mov      ebp, 1
+  0x000A4439:  mov      dword ptr [eax + 0x48], ebp
+  0x000A443C:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4442:  mov      dword ptr [esp + 0x14], esi
+  0x000A4446:  mov      dword ptr [esp + 0x18], edi
+  0x000A444A:  mov      dword ptr [esp + 0x1c], 6
+  0x000A4452:  mov      dword ptr [esp + 0x20], ebp
+  0x000A4456:  mov      dword ptr [esp + 0x24], 0x11
+  0x000A445E:  mov      dword ptr [esp + 0x28], ebp
+  0x000A4462:  mov      dword ptr [esp + 0x2c], ebx
+  0x000A4466:  mov      dword ptr [esp + 0x30], ebx
+  0x000A446A:  mov      dword ptr [esp + 0x34], ebp
+  0x000A446E:  mov      dword ptr [esp + 0x38], 0x2e
+  0x000A4476:  mov      dword ptr [esp + 0x3c], ebx
+  0x000A447A:  cmp      byte ptr [ecx + 0xc8], bl
+  0x000A4480:  je       0xa44a2
+  0x000A4482:  cmp      dword ptr [esp + 0x10], ebp
+  0x000A4486:  mov      eax, 0x10
+  0x000A448B:  jne      0xa4492
+  0x000A448D:  mov      eax, 0x50
+  0x000A4492:  or       eax, 0x10
+  0x000A4495:  push     ebp
+  0x000A4496:  mov      dword ptr [esp + 0x40], eax
+  0x000A449A:  call     0xe45f0  → .text 0x000E45F0
+  0x000A449F:  add      esp, 4
+  0x000A44A2:  mov      edx, dword ptr [0x81c8a4]
+  0x000A44A8:  push     edx
+  0x000A44A9:  lea      eax, [esp + 0x18]
+  0x000A44AD:  push     eax
+  0x000A44AE:  push     0x40  ; "<VA 0x00000040 unmapped>"
+  0x000A44B0:  push     ebx
+  0x000A44B1:  push     ebp
+  0x000A44B2:  push     ebx
+  0x000A44B3:  mov      dword ptr [esp + 0x58], ebx
+  0x000A44B7:  mov      dword ptr [esp + 0x5c], ebx
+  0x000A44BB:  mov      dword ptr [esp + 0x60], ebx
+  0x000A44BF:  mov      dword ptr [esp + 0x64], ebx
+  0x000A44C3:  mov      dword ptr [esp + 0x68], ebx
+  0x000A44C7:  mov      dword ptr [esp + 0x6c], ebx
+  0x000A44CB:  call     0x23f570  → D3D 0x0023F570
+  0x000A44D0:  test     eax, eax
+  0x000A44D2:  je       0xa44e1
+  0x000A44D4:  push     0x2d9238  ; "Failed to create device. That's bad.
+"
+  0x000A44D9:  call     0x9d770  → .text 0x0009D770
+  0x000A44DE:  add      esp, 4
+  0x000A44E1:  call     0x23d560  → D3D 0x0023D560
+  0x000A44E6:  cmp      eax, ebx
+  0x000A44E8:  setne    cl
+  0x000A44EB:  mov      byte ptr [0x81ce15], cl
+  0x000A44F1:  xor      esi, esi
+  0x000A44F3:  mov      edx, dword ptr [0x81c8a4]
+  0x000A44F9:  lea      eax, [edx + esi*4 + 4]
+  0x000A44FD:  push     eax
+  0x000A44FE:  push     ebx
+  0x000A44FF:  call     0x252dc6  → D3DX 0x00252DC6
+  0x000A4504:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A450A:  mov      eax, dword ptr [ecx + esi*4 + 4]
+  0x000A450E:  mov      edx, dword ptr [eax]
+  0x000A4510:  push     eax
+  0x000A4511:  call     dword ptr [edx + 0x14]
+  0x000A4514:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4519:  mov      byte ptr [esi + eax + 0x194], bl
+  0x000A4520:  inc      esi
+  0x000A4521:  cmp      esi, 6
+  0x000A4524:  jl       0xa44f3
+  0x000A4526:  mov      edx, dword ptr [0x24cfc8]
+  0x000A452C:  mov      edi, dword ptr [0x81c8a4]
+  0x000A4532:  movss    xmm0, dword ptr [0x2cd938]
+  0x000A453A:  mov      dword ptr [0x24d368], ebx
+  0x000A4540:  or       edx, 0x1200
+  0x000A4546:  mov      dword ptr [0x24cfc8], edx
+  0x000A454C:  xor      eax, eax
+  0x000A454E:  mov      ecx, 0x11
+  0x000A4553:  add      edi, 0x14c
+  0x000A4559:  rep stosd dword ptr es:[edi], eax
+  0x000A455B:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4561:  movss    dword ptr [ecx + 0x15c], xmm0
+  0x000A4569:  mov      edx, dword ptr [0x81c8a4]
+  0x000A456F:  movss    dword ptr [edx + 0x14c], xmm0
+  0x000A4577:  mov      eax, dword ptr [0x81c8a4]
+  0x000A457C:  movss    dword ptr [eax + 0x160], xmm0
+  0x000A4584:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A458A:  movss    dword ptr [ecx + 0x150], xmm0
+  0x000A4592:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4598:  movss    dword ptr [edx + 0x164], xmm0
+  0x000A45A0:  mov      eax, dword ptr [0x81c8a4]
+  0x000A45A5:  movss    dword ptr [eax + 0x154], xmm0
+  0x000A45AD:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A45B3:  movss    dword ptr [ecx + 0x168], xmm0
+  0x000A45BB:  mov      edx, dword ptr [0x81c8a4]
+  0x000A45C1:  movss    dword ptr [edx + 0x158], xmm0
+  0x000A45C9:  mov      eax, dword ptr [0x81c8a4]
+  0x000A45CE:  add      eax, 0x14c
+  0x000A45D3:  push     eax
+  0x000A45D4:  call     0x23d420  → D3D 0x0023D420
+  0x000A45D9:  push     0x3fa66666  ; "<VA 0x3FA66666 unmapped>"
+  0x000A45DE:  call     0x980c0  → .text 0x000980C0
+  0x000A45E3:  mov      edi, dword ptr [0x81c8a4]
+  0x000A45E9:  movss    xmm0, dword ptr [0x2cd938]
+  0x000A45F1:  xorps    xmm1, xmm1
+  0x000A45F4:  xor      eax, eax
+  0x000A45F6:  mov      ecx, 0x1a
+  0x000A45FB:  add      edi, 0xe4
+  0x000A4601:  rep stosd dword ptr es:[edi], eax
+  0x000A4603:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4608:  mov      dword ptr [eax + 0xe4], 3
+  0x000A4612:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4618:  movss    dword ptr [ecx + 0xe8], xmm0
+  0x000A4620:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4626:  movss    dword ptr [edx + 0xec], xmm0
+  0x000A462E:  mov      eax, dword ptr [0x81c8a4]
+  0x000A4633:  movss    dword ptr [eax + 0xf0], xmm0
+  0x000A463B:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A4641:  movss    dword ptr [ecx + 0x124], xmm0
+  0x000A4649:  mov      edx, dword ptr [0x81c8a4]
+  0x000A464F:  movss    dword ptr [edx + 0x128], xmm1
+  0x000A4657:  mov      eax, dword ptr [0x81c8a4]
+  0x000A465C:  movss    dword ptr [eax + 0x12c], xmm1
+  0x000A4664:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A466A:  movss    dword ptr [ecx + 0x138], xmm0
+  0x000A4672:  mov      edx, dword ptr [0x81c8a4]
+  0x000A4678:  movss    xmm0, dword ptr [0x2cdbbc]
+  0x000A4680:  movss    dword ptr [edx + 0x130], xmm0
+  0x000A4688:  mov      eax, dword ptr [0x81c8a4]
+  0x000A468D:  push     0x3c  ; "<VA 0x0000003C unmapped>"
+  0x000A468F:  mov      dword ptr [eax + 0x19c], ebx
+  0x000A4695:  call     0x44e50  → .text 0x00044E50
+  0x000A469A:  add      esp, 8
+  0x000A469D:  mov      dword ptr [esp + 0x6c], eax
+  0x000A46A1:  cmp      eax, ebx
+  0x000A46A3:  mov      dword ptr [esp + 0x60], ebp
+  0x000A46A7:  pop      ebp
+  0x000A46A8:  je       0xa46b3
+  0x000A46AA:  mov      ecx, eax
+  0x000A46AC:  call     0x9a650  → .text 0x0009A650
+  0x000A46B1:  jmp      0xa46b5
+  0x000A46B3:  xor      eax, eax
+  0x000A46B5:  mov      ecx, dword ptr [0x81c8a4]
+  0x000A46BB:  mov      dword ptr [ecx + 0x5088], eax
+  0x000A46C1:  mov      ecx, 0x81ce30
+  0x000A46C6:  mov      dword ptr [esp + 0x5c], 0xffffffff
+  0x000A46CE:  call     0xa4750  → .text 0x000A4750
+  0x000A46D3:  mov      ecx, dword ptr [esp + 0x54]
+  0x000A46D7:  pop      edi
+  0x000A46D8:  pop      esi
+  0x000A46D9:  pop      ebx
+  0x000A46DA:  mov      dword ptr fs:[0], ecx
+  0x000A46E1:  add      esp, 0x54
+  0x000A46E4:  ret      
+  [264 insns]
+
+========================================================================
+SV_Init  @ 0x0003CBC0
+========================================================================
+  0x0003CBC0:  sub      esp, 0x48
+  0x0003CBC3:  mov      eax, dword ptr [0x479750]
+  0x0003CBC8:  push     ebx
+  0x0003CBC9:  push     ebp
+  0x0003CBCA:  push     edi
+  0x0003CBCB:  mov      ebp, 1
+  0x0003CBD0:  push     ebp
+  0x0003CBD1:  mov      dword ptr [esp + 0x54], eax
+  0x0003CBD5:  mov      eax, dword ptr [esp + 0x5c]
+  0x0003CBD9:  push     0x40  ; "<VA 0x00000040 unmapped>"
+  0x0003CBDB:  push     eax
+  0x0003CBDC:  lea      ecx, [esp + 0x1c]
+  0x0003CBE0:  push     ecx
+  0x0003CBE1:  call     0x2c8c0  → .text 0x0002C8C0
+  0x0003CBE6:  xor      ebx, ebx
+  0x0003CBE8:  mov      dword ptr [0xa05470], ebx
+  0x0003CBEE:  mov      dword ptr [0xa26940], ebx
+  0x0003CBF4:  mov      dword ptr [0xb821e0], ebx
+  0x0003CBFA:  call     0x440a0  → .text 0x000440A0
+  0x0003CBFF:  mov      edx, dword ptr [esp + 0x70]
+  0x0003CC03:  mov      eax, dword ptr [esp + 0x6c]
+  0x0003CC07:  push     edx
+  0x0003CC08:  push     eax
+  0x0003CC09:  lea      ecx, [esp + 0x28]
+  0x0003CC0D:  push     ecx
+  0x0003CC0E:  call     0x7f230  → .text 0x0007F230
+  0x0003CC13:  push     ebx
+  0x0003CC14:  push     0x2ce9b0  ; "cl_paused"
+  0x0003CC19:  call     0x242b0  → .text 0x000242B0
+  0x0003CC1E:  push     0x2ce640  ; "1"
+  0x0003CC23:  push     0x2ce634  ; "timescale"
+  0x0003CC28:  call     0x24290  → .text 0x00024290
+  0x0003CC2D:  push     ebp
+  0x0003CC2E:  call     0x3c130  → .text 0x0003C130
+  0x0003CC33:  mov      edx, dword ptr [0x4b64a0]
+  0x0003CC39:  mov      eax, dword ptr [edx + 4]
+  0x0003CC3C:  push     eax
+  0x0003CC3D:  push     0x2d2780  ; "------ Server Initialization ------
+%s
+"
+  0x0003CC42:  call     0x9d770  → .text 0x0009D770
+  0x0003CC47:  lea      ecx, [esp + 0x48]
+  0x0003CC4B:  push     ecx
+  0x0003CC4C:  push     0x2ce6f4  ; "Server: %s
+"
+  0x0003CC51:  call     0x9d770  → .text 0x0009D770
+  0x0003CC56:  add      esp, 0x40
+  0x0003CC59:  lea      edx, [esp + 0x10]
+  0x0003CC5D:  push     edx
+  0x0003CC5E:  push     0x2d2774  ; "ui_mapname"
+  0x0003CC63:  call     0x24290  → .text 0x00024290
+  0x0003CC68:  push     0x813f  ; "<VA 0x0000813F unmapped>"
+  0x0003CC6D:  call     dword ptr [0x81c950]  → [0x0081C950] ?
+  0x0003CC73:  mov      eax, dword ptr [0x5210b8]
+  0x0003CC78:  mov      dword ptr [0x9b4e24], eax
+  0x0003CC7D:  call     0x17560  → .text 0x00017560
+  0x0003CC82:  lea      ecx, [esp + 0x1c]
+  0x0003CC86:  push     ecx
+  0x0003CC87:  call     0x19c90  → .text 0x00019C90
+  0x0003CC8C:  add      esp, 0x10
+  0x0003CC8F:  test     eax, eax
+  0x0003CC91:  jne      0x3cc98
+  0x0003CC93:  call     0x19cd0  → .text 0x00019CD0
+  0x0003CC98:  mov      eax, dword ptr [0x4c6734]
+  0x0003CC9D:  mov      edx, dword ptr [eax]
+  0x0003CC9F:  mov      dword ptr [eax + 4], edx
+  0x0003CCA2:  call     0x74580  → .text 0x00074580
+  0x0003CCA7:  call     0x22f50  → .text 0x00022F50
+  0x0003CCAC:  mov      eax, dword ptr [0x518fd8]
+  0x0003CCB1:  cmp      eax, ebx
+  0x0003CCB3:  je       0x3ccc4
+  0x0003CCB5:  push     eax
+  0x0003CCB6:  call     0x49f00  → .text 0x00049F00
+  0x0003CCBB:  add      esp, 4
+  0x0003CCBE:  mov      dword ptr [0x518fd8], ebx
+  0x0003CCC4:  push     esi
+  0x0003CCC5:  mov      esi, 0x4c6b64
+  0x0003CCCA:  lea      ebx, [ebx]
+  0x0003CCD0:  mov      eax, dword ptr [esi]
+  0x0003CCD2:  cmp      eax, ebx
+  0x0003CCD4:  je       0x3cce1
+  0x0003CCD6:  push     eax
+  0x0003CCD7:  call     0x49f00  → .text 0x00049F00
+  0x0003CCDC:  add      esp, 4
+  0x0003CCDF:  mov      dword ptr [esi], ebx
+  0x0003CCE1:  add      esi, 4
+  0x0003CCE4:  cmp      esi, 0x4c7fb4
+  0x0003CCEA:  jl       0x3ccd0
+  0x0003CCEC:  call     0x3cab0  → .text 0x0003CAB0
+  0x0003CCF1:  call     0x24a50  → .text 0x00024A50
+  0x0003CCF6:  call     0x4d0e0  → .text 0x0004D0E0
+  0x0003CCFB:  call     0x49730  → .text 0x00049730
+  0x0003CD00:  call     0x49650  → .text 0x00049650
+  0x0003CD05:  push     0x2cfc64  ; "sv_running"
+  0x0003CD0A:  call     0x23df0  → .text 0x00023DF0
+  0x0003CD0F:  add      esp, 4
+  0x0003CD12:  test     eax, eax
+  0x0003CD14:  jne      0x3cd62
+  0x0003CD16:  cmp      dword ptr [0x518fc8], ebx
+  0x0003CD1C:  je       0x3cd2c
+  0x0003CD1E:  push     0x2d2718  ; "SV_Startup: svs.initialized"
+  0x0003CD23:  push     ebx
+  0x0003CD24:  call     0x23310  → .text 0x00023310
+  0x0003CD29:  add      esp, 8
+  0x0003CD2C:  push     4  ; "<VA 0x00000004 unmapped>"
+  0x0003CD2E:  push     ebp
+  0x0003CD2F:  push     7  ; "<VA 0x00000007 unmapped>"
+  0x0003CD31:  push     0x68c0  ; "<VA 0x000068C0 unmapped>"
+  0x0003CD36:  call     0x49c90  → .text 0x00049C90
+  0x0003CD3B:  push     0x2ce640  ; "1"
+  0x0003CD40:  push     0x2cfc64  ; "sv_running"
+  0x0003CD45:  mov      dword ptr [0x518fcc], eax
+  0x0003CD4A:  mov      dword ptr [0x518fd0], 0x200
+  0x0003CD54:  mov      dword ptr [0x518fc8], ebp
+  0x0003CD5A:  call     0x24290  → .text 0x00024290
+  0x0003CD5F:  add      esp, 0x18
+  0x0003CD62:  mov      eax, dword ptr [0x518fd0]
+  0x0003CD67:  imul     eax, eax, 0x110
+  0x0003CD6D:  push     4  ; "<VA 0x00000004 unmapped>"
+  0x0003CD6F:  push     ebp
+  0x0003CD70:  push     7  ; "<VA 0x00000007 unmapped>"
+  0x0003CD72:  push     eax
+  0x0003CD73:  call     0x49c90  → .text 0x00049C90
+  0x0003CD78:  lea      ecx, [esp + 0x24]
+  0x0003CD7C:  push     ecx
+  0x0003CD7D:  mov      dword ptr [0x518fd8], eax
+  0x0003CD82:  call     0x34510  → .text 0x00034510
+  0x0003CD87:  lea      edx, [esp + 0x28]
+  0x0003CD8B:  push     edx
+  0x0003CD8C:  push     0x2d276c  ; "map %s"
+  0x0003CD91:  call     0x2cab0  → .text 0x0002CAB0
+  0x0003CD96:  push     eax
+  0x0003CD97:  push     0x2ceb08  ; "nextmap"
+  0x0003CD9C:  call     0x24290  → .text 0x00024290
+  0x0003CDA1:  add      esp, 0x24
+  0x0003CDA4:  mov      ecx, 0x14a1f
+  0x0003CDA9:  xor      eax, eax
+  0x0003CDAB:  mov      edi, 0x4c6748
+  0x0003CDB0:  rep stosd dword ptr es:[edi], eax
+  0x0003CDB2:  mov      esi, 0x4c6b64
+  0x0003CDB7:  jmp      0x3cdc0
+  0x0003CDB9:  lea      esp, [esp]
+  0x0003CDC0:  push     0x2cdad1
+  0x0003CDC5:  call     0x4a0a0  → .text 0x0004A0A0
+  0x0003CDCA:  mov      dword ptr [esi], eax
+  0x0003CDCC:  add      esi, 4
+  0x0003CDCF:  add      esp, 4
+  0x0003CDD2:  cmp      esi, 0x4c7fb4
+  0x0003CDD8:  jl       0x3cdc0
+  0x0003CDDA:  push     ebx
+  0x0003CDDB:  push     0x3e8  ; "<VA 0x000003E8 unmapped>"
+  0x0003CDE0:  mov      dword ptr [0x4c6754], 0x3e8
+  0x0003CDEA:  call     0x4a100  → .text 0x0004A100
+  [150 insns]
+
+========================================================================
+S_DirectSound3D_init  @ 0x00033885
+========================================================================
+  0x00033885:  sub      esp, 0x10
+  0x00033888:  push     ebx
+  0x00033889:  push     esi
+  0x0003388A:  push     0x2d1964
+  0x0003388F:  call     0x9d770  → .text 0x0009D770
+  0x00033894:  call     0x30140  → .text 0x00030140
+  0x00033899:  mov      ebx, 1
+  0x0003389E:  push     ebx
+  0x0003389F:  push     0x2d1960  ; "1.0"
+  0x000338A4:  push     0x2d194c  ; "s_effects_volume"
+  0x000338A9:  call     0x24cc0  → .text 0x00024CC0
+  0x000338AE:  push     ebx
+  0x000338AF:  push     0x2d1960  ; "1.0"
+  0x000338B4:  push     0x2d193c  ; "s_voice_volume"
+  0x000338B9:  mov      dword ptr [0x4c5718], eax
+  0x000338BE:  call     0x24cc0  → .text 0x00024CC0
+  0x000338C3:  push     ebx
+  0x000338C4:  push     0x2ced08  ; "0.25"
+  0x000338C9:  push     0x2d192c  ; "s_music_volume"
+  0x000338CE:  mov      dword ptr [0x4c57bc], eax
+  0x000338D3:  call     0x24cc0  → .text 0x00024CC0
+  0x000338D8:  push     ebx
+  0x000338D9:  push     0x2d1928  ; "0.5"
+  0x000338DE:  push     0x2d1918  ; "s_separation"
+  0x000338E3:  mov      dword ptr [0x4c5754], eax
+  0x000338E8:  call     0x24cc0  → .text 0x00024CC0
+  0x000338ED:  push     ebx
+  0x000338EE:  push     0x2ce640  ; "1"
+  0x000338F3:  push     0x2d1904  ; "s_allowDynamicMusic"
+  0x000338F8:  mov      dword ptr [0x4c575c], eax
+  0x000338FD:  call     0x24cc0  → .text 0x00024CC0
+  0x00033902:  add      esp, 0x40
+  0x00033905:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x0003390A:  push     0x2cdcec  ; "0"
+  0x0003390F:  push     0x2d18fc  ; "s_show"
+  0x00033914:  mov      dword ptr [0x4c57cc], eax
+  0x00033919:  call     0x24cc0  → .text 0x00024CC0
+  0x0003391E:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x00033923:  push     0x2cdcec  ; "0"
+  0x00033928:  push     0x2d18f0  ; "s_testsound"
+  0x0003392D:  mov      dword ptr [0x4c57c8], eax
+  0x00033932:  call     0x24cc0  → .text 0x00024CC0
+  0x00033937:  push     0x200  ; "<VA 0x00000200 unmapped>"
+  0x0003393C:  push     0x2cdcec  ; "0"
+  0x00033941:  push     0x2d18e0  ; "s_debugdynamic"
+  0x00033946:  mov      dword ptr [0x4c57c0], eax
+  0x0003394B:  call     0x24cc0  → .text 0x00024CC0
+  0x00033950:  xor      esi, esi
+  0x00033952:  push     esi
+  0x00033953:  push     0x2cdad1
+  0x00033958:  push     0x2d18d4  ; "sys_cpuid"
+  0x0003395D:  mov      dword ptr [0x4c5758], eax
+  0x00033962:  call     0x24cc0  → .text 0x00024CC0
+  0x00033967:  push     ebx
+  0x00033968:  push     0x2d18d0  ; "6"
+  0x0003396D:  push     0x2d18c0  ; "s_soundpoolmegs"
+  0x00033972:  mov      dword ptr [0x4c5710], eax
+  0x00033977:  call     0x24cc0  → .text 0x00024CC0
+  0x0003397C:  push     0x40  ; "<VA 0x00000040 unmapped>"
+  0x0003397E:  push     0x2ce640  ; "1"
+  0x00033983:  push     0x2d10fc  ; "s_initsound"
+  0x00033988:  mov      dword ptr [0x4c57c4], eax
+  0x0003398D:  call     0x24cc0  → .text 0x00024CC0
+  0x00033992:  mov      ecx, dword ptr [eax + 0x20]
+  0x00033995:  add      esp, 0x48
+  0x00033998:  cmp      ecx, esi
+  0x0003399A:  jne      0x339ca
+  0x0003399C:  push     0x2d18ac  ; "not initializing.
+"
+  0x000339A1:  mov      dword ptr [0x4c5768], esi
+  0x000339A7:  call     0x9d770  → .text 0x0009D770
+  0x000339AC:  push     0x2d1884  ; "------------------------------------
+"
+  0x000339B1:  call     0x9d770  → .text 0x0009D770
+  0x000339B6:  add      esp, 8
+  0x000339B9:  pop      esi
+  0x000339BA:  pop      ebx
+  0x000339BB:  mov      ecx, dword ptr [esp + 0x10]
+  0x000339BF:  mov      dword ptr fs:[0], ecx
+  0x000339C6:  add      esp, 0x1c
+  0x000339C9:  ret      
+  [79 insns]
