@@ -6,6 +6,66 @@
 
 #include "../Icarus/IcarusInterface.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+
+static void Xbox_BroadcastScriptedMover( gentity_t *ent, const char *reason )
+{
+	static int s_xboxScriptedMoverBroadcastLogBudget = 128;
+
+	if ( !ent )
+	{
+		return;
+	}
+
+	ent->svFlags |= SVF_BROADCAST;
+	if ( s_xboxScriptedMoverBroadcastLogBudget > 0 )
+	{
+		XBLF("JA: MOVER_BROADCAST reason=%s ent=%d class='%s' model='%s' target='%s' script='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x origin=%d,%d,%d",
+			reason ? reason : "<null>",
+			ent->s.number,
+			ent->classname ? ent->classname : "<null>",
+			ent->model ? ent->model : "<null>",
+			ent->targetname ? ent->targetname : "<null>",
+			ent->script_targetname ? ent->script_targetname : "<null>",
+			ent->spawnflags,
+			ent->svFlags,
+			ent->s.eFlags,
+			(int)ent->currentOrigin[0],
+			(int)ent->currentOrigin[1],
+			(int)ent->currentOrigin[2]);
+		--s_xboxScriptedMoverBroadcastLogBudget;
+	}
+}
+
+static void Xbox_BroadcastDoor( gentity_t *ent, const char *reason )
+{
+	static int s_xboxDoorBroadcastLogBudget = 64;
+
+	if ( !ent )
+	{
+		return;
+	}
+
+	ent->svFlags |= (SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN);
+	if ( s_xboxDoorBroadcastLogBudget > 0 )
+	{
+		XBLF("JA: DOOR_BROADCAST reason=%s ent=%d model='%s' target='%s' script='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x pos1=%d,%d,%d pos2=%d,%d,%d origin=%d,%d,%d",
+			reason ? reason : "<null>",
+			ent->s.number,
+			ent->model ? ent->model : "<null>",
+			ent->targetname ? ent->targetname : "<null>",
+			ent->script_targetname ? ent->script_targetname : "<null>",
+			ent->spawnflags,
+			ent->svFlags,
+			ent->s.eFlags,
+			(int)ent->pos1[0], (int)ent->pos1[1], (int)ent->pos1[2],
+			(int)ent->pos2[0], (int)ent->pos2[1], (int)ent->pos2[2],
+			(int)ent->currentOrigin[0], (int)ent->currentOrigin[1], (int)ent->currentOrigin[2]);
+		--s_xboxDoorBroadcastLogBudget;
+	}
+}
+#endif
 
 int	BMS_START = 0;
 int	BMS_MID = 1;
@@ -1486,6 +1546,9 @@ void SP_func_door (gentity_t *ent)
 		ent->s.frame = 0;//first stage of anim
 	}
 	InitMover( ent );
+#ifdef _XBOX
+	Xbox_BroadcastDoor( ent, "spawn" );
+#endif
 
 	ent->nextthink = level.time + FRAMETIME;
 
@@ -2181,6 +2244,13 @@ void SP_func_static( gentity_t *ent )
 		ent->svFlags |= SVF_BROADCAST; // I need to rotate something that is huge and it's touching too many area portals...
 	}
 
+#ifdef _XBOX
+	if ( (ent->targetname && ent->targetname[0]) || (ent->script_targetname && ent->script_targetname[0]) )
+	{
+		Xbox_BroadcastScriptedMover( ent, "func_static_spawn_scripted" );
+	}
+#endif
+
 	if ( ent->spawnflags & 4/*SWITCH_SHADER*/ )
 	{
 		ent->s.eFlags |= EF_SHADER_ANIM;//use frame-controlled shader anim
@@ -2212,6 +2282,9 @@ void func_static_use ( gentity_t *self, gentity_t *other, gentity_t *activator )
 	{
 		self->s.frame = self->s.frame ? 0 : 1;//toggle frame
 	}
+#ifdef _XBOX
+	Xbox_BroadcastScriptedMover( self, "func_static_use" );
+#endif
 	G_UseTargets( self, activator );
 }
 
@@ -2515,6 +2588,9 @@ void use_wall( gentity_t *ent, gentity_t *other, gentity_t *activator )
 		{//START_OFF doesn't effect area portals
 			gi.AdjustAreaPortalState( ent, qfalse );
 		}
+#ifdef _XBOX
+		Xbox_BroadcastScriptedMover( ent, "func_wall_on" );
+#endif
 	}
 	// Make it go away
 	else
@@ -2578,6 +2654,13 @@ void SP_func_wall( gentity_t *ent )
 		ent->s.eFlags |= EF_ANIM_ALLFAST;
 	}
 	ent->e_UseFunc = useF_use_wall;
+
+#ifdef _XBOX
+	if ( ent->count && ((ent->targetname && ent->targetname[0]) || (ent->script_targetname && ent->script_targetname[0])) )
+	{
+		Xbox_BroadcastScriptedMover( ent, "func_wall_spawn_scripted_on" );
+	}
+#endif
 
 	gi.linkentity (ent);
 

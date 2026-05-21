@@ -10,6 +10,7 @@
 
 #ifdef _XBOX
 #include "../qcommon/sparc.h"
+#include "../win32/xb_log.h"
 #endif
 
 static bool lookingForWorstLeaf = false;
@@ -151,6 +152,17 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 	if ( shader->cullType == CT_TWO_SIDED ) {
 		return qfalse;
 	}
+
+#ifdef _XBOX
+	/*
+	 * The packed Xbox BSP path stores face data differently from the PC
+	 * renderer.  This CPU-side face-plane cull is only an optimization, but
+	 * bad packed plane data can drop otherwise visible world polygons while
+	 * moving, showing up as HOM/grey gaps.  Let the BSP/PVS traversal and D3D
+	 * cull state decide visibility for faces instead.
+	 */
+	return qfalse;
+#endif
 
 	// face culling
 	if ( !r_facePlaneCull->integer ) {
@@ -348,8 +360,45 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 
 	// try to cull before dlighting or adding
 	if ( R_CullSurface( surf->data, surf->shader ) ) {
+#ifdef _XBOX
+		{
+			static int s_xboxWorldCullLogBudget = 160;
+			if (s_xboxWorldCullLogBudget > 0 &&
+				(surf->shader && (surf->shader->sky || surf->shader->sort == SS_PORTAL)))
+			{
+				XBLF("JA: R_AddWorldSurface culled special shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x",
+					surf->shader ? surf->shader->name : "<null>",
+					(int)(surf->shader && surf->shader->sky != NULL),
+					surf->shader ? (double)surf->shader->sort : -1.0,
+					surf->data ? (int)*surf->data : -1,
+					surf->fogIndex,
+					dlightBits);
+				--s_xboxWorldCullLogBudget;
+			}
+		}
+#endif
 		return;
 	}
+
+#ifdef _XBOX
+	{
+		static int s_xboxWorldAddLogBudget = 220;
+		if (s_xboxWorldAddLogBudget > 0 &&
+			(surf->shader && (surf->shader->sky || surf->shader->sort == SS_PORTAL)))
+		{
+			XBLF("JA: R_AddWorldSurface add special shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d",
+				surf->shader ? surf->shader->name : "<null>",
+				(int)(surf->shader && surf->shader->sky != NULL),
+				surf->shader ? (double)surf->shader->sort : -1.0,
+				surf->data ? (int)*surf->data : -1,
+				surf->fogIndex,
+				dlightBits,
+				(int)noViewCount,
+				surf->viewCount);
+			--s_xboxWorldAddLogBudget;
+		}
+	}
+#endif
 
 	// check for dlighting
 	if ( dlightBits ) {
@@ -382,24 +431,91 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 	int			clip;
 	model_t		*pModel;
 	int			i;
+#ifdef _XBOX
+	static int s_xboxBmodelLogBudget = 0;
+	static int s_xboxBmodelFocusLogBudget = 80;
+	qboolean xboxLogBmodel = (s_xboxBmodelLogBudget > 0 && cls.state == CA_ACTIVE);
+	qboolean xboxFocusBmodel;
+	int xboxBmodelDrawSurfsBefore;
+#endif
 
 	pModel = R_GetModelByHandle( ent->e.hModel );
 
 	bmodel = pModel->bmodel;
+#ifdef _XBOX
+	xboxFocusBmodel = (s_xboxBmodelFocusLogBudget > 0 && cls.state == CA_ACTIVE &&
+		((ent->e.hModel >= 129 && ent->e.hModel <= 156) ||
+		 (ent->e.hModel >= 170 && ent->e.hModel <= 176) ||
+		 ent->e.hModel == 175 ||
+		 ent->e.hModel == 196 ||
+		 ent->e.hModel == 200 ||
+		 ent->e.hModel == 205 ||
+		 ent->e.hModel == 206));
+	xboxBmodelDrawSurfsBefore = tr.refdef.numDrawSurfs;
+	if (xboxLogBmodel)
+	{
+		XBLF("JA: R_BMODEL ent=%d hModel=%d model='%s' bsp=%d surfaces=%d mins=%g,%g,%g maxs=%g,%g,%g origin=%g,%g,%g",
+			ent->e.number,
+			ent->e.hModel,
+			pModel ? pModel->name : "<null>",
+			pModel ? (int)pModel->bspInstance : -1,
+			bmodel ? bmodel->numSurfaces : -1,
+			bmodel ? bmodel->bounds[0][0] : 0.0f,
+			bmodel ? bmodel->bounds[0][1] : 0.0f,
+			bmodel ? bmodel->bounds[0][2] : 0.0f,
+			bmodel ? bmodel->bounds[1][0] : 0.0f,
+			bmodel ? bmodel->bounds[1][1] : 0.0f,
+			bmodel ? bmodel->bounds[1][2] : 0.0f,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2]);
+		s_xboxBmodelLogBudget--;
+	}
+#endif
 
 	clip = R_CullLocalBox( bmodel->bounds );
 	if ( clip == CULL_OUT ) {
+#ifdef _XBOX
+		if ( ent->e.renderfx & RF_XBOX_NOCULL_BMODEL )
+		{
+			static int s_xboxBmodelNoCullLogBudget = 64;
+			if ( s_xboxBmodelNoCullLogBudget > 0 )
+			{
+				XBLF("JA: R_BMODEL_FORCE_NOCULL ent=%d hModel=%d model='%s' renderfx=0x%x",
+					ent->e.number,
+					ent->e.hModel,
+					pModel ? pModel->name : "<null>",
+					ent->e.renderfx);
+				--s_xboxBmodelNoCullLogBudget;
+			}
+		}
+		else
+		{
+		if (xboxLogBmodel)
+		{
+			XBLF("JA: R_BMODEL_CULL_OUT ent=%d hModel=%d model='%s'",
+				ent->e.number,
+				ent->e.hModel,
+				pModel ? pModel->name : "<null>");
+		}
+		if (xboxFocusBmodel)
+		{
+			XBLF("JA: R_BMODEL_FOCUS_CULL_OUT ent=%d hModel=%d model='%s'",
+				ent->e.number,
+				ent->e.hModel,
+				pModel ? pModel->name : "<null>");
+			s_xboxBmodelFocusLogBudget--;
+		}
 		return;
-	}
-	
-	if(pModel->bspInstance)
-	{
-#ifdef VV_LIGHTING
-		VVLightMan.R_SetupEntityLighting(&tr.refdef, ent);
+		}
 #else
-		R_SetupEntityLighting(&tr.refdef, ent);
+		return;
 #endif
 	}
+	
+#ifdef VV_LIGHTING
+	VVLightMan.R_SetupEntityLighting(&tr.refdef, ent);
+#else
+	R_SetupEntityLighting(&tr.refdef, ent);
+#endif
 
 #ifdef VV_LIGHTING
 	VVLightMan.R_DlightBmodel( bmodel, qfalse );
@@ -408,8 +524,38 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 #endif
 
 	for ( i = 0 ; i < bmodel->numSurfaces ; i++ ) {
+#ifdef _XBOX
+		if (xboxFocusBmodel && i < 8)
+		{
+			msurface_t *surf = bmodel->firstSurface + i;
+			shader_t *shader = surf ? surf->shader : NULL;
+			XBLF("JA: R_BMODEL_FOCUS_SURF ent=%d hModel=%d model='%s' surf=%d shader='%s' lm0=%d passes=%d type=%d fog=%d",
+				ent->e.number,
+				ent->e.hModel,
+				pModel ? pModel->name : "<null>",
+				i,
+				shader ? shader->name : "<null>",
+				shader ? shader->lightmapIndex[0] : -999,
+				shader ? shader->numUnfoggedPasses : -1,
+				(surf && surf->data) ? (int)*surf->data : -1,
+				surf ? surf->fogIndex : -1);
+		}
+#endif
 		R_AddWorldSurface( bmodel->firstSurface + i, tr.currentEntity->dlightBits, qtrue );
 	}
+#ifdef _XBOX
+	if (xboxFocusBmodel)
+	{
+		XBLF("JA: R_BMODEL_FOCUS_ADD ent=%d hModel=%d model='%s' surfaces=%d drawSurfsAdded=%d totalDrawSurfs=%d",
+			ent->e.number,
+			ent->e.hModel,
+			pModel ? pModel->name : "<null>",
+			bmodel ? bmodel->numSurfaces : -1,
+			tr.refdef.numDrawSurfs - xboxBmodelDrawSurfsBefore,
+			tr.refdef.numDrawSurfs);
+		s_xboxBmodelFocusLogBudget--;
+	}
+#endif
 }
 
 float GetQuadArea( vec3_t v1, vec3_t v2, vec3_t v3, vec3_t v4 )
@@ -820,6 +966,12 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
    	mnode_s	*parent;
 	int		i;
 	int		cluster;
+#ifdef _XBOX
+	int		pvsRejected = 0;
+	int		areaRejected = 0;
+	int		markedLeaves = 0;
+	int		negativeCluster = 0;
+#endif
 
 	// lockpvs lets designers walk around to determine the
 	// extent of the current pvs
@@ -841,6 +993,19 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	// hasn't changed, we don't need to mark everything again
 
 	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
+#ifdef _XBOX
+		{
+			static int s_xboxMarkLeavesSameLogBudget = 6;
+			if (s_xboxMarkLeavesSameLogBudget > 0)
+			{
+				XBLF("JA: R_MarkLeaves same cluster=%d visCount=%d areaModified=%d",
+					cluster,
+					tr.visCount,
+					tr.refdef.areamaskModified);
+				--s_xboxMarkLeavesSameLogBudget;
+			}
+		}
+#endif
 		return;
 	}
 
@@ -861,20 +1026,33 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	for (i=0,leaf=tr.world->leafs ; i<tr.world->numleafs ; i++, leaf++) {
 		cluster = leaf->cluster;
 		if ( cluster < 0 || cluster >= tr.world->numClusters ) {
+#ifdef _XBOX
+			negativeCluster++;
+#endif
 			continue;
 		}
 
 		// check general pvs
 		if ( !(vis[cluster>>3] & (1<<(cluster&7))) ) {
+#ifdef _XBOX
+			pvsRejected++;
+#endif
 			continue;
 		}
 
 		// check for door connection
 		if (!lookingForWorstLeaf &&
+			   leaf->area >= 0 &&
 			   (tr.refdef.areamask[leaf->area>>3] & (1<<(leaf->area&7)) ) ) {
+#ifdef _XBOX
+			areaRejected++;
+#endif
 			continue;		// not visible
 		}
 
+#ifdef _XBOX
+		markedLeaves++;
+#endif
 		parent = (mnode_t*)leaf;
 		assert(leaf->contents != -1);
 		do {
@@ -884,6 +1062,24 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			parent = parent->parent;
 		} while (parent);
 	}
+#ifdef _XBOX
+	{
+		static int s_xboxMarkLeavesLogBudget = 32;
+		if (s_xboxMarkLeavesLogBudget > 0)
+		{
+			XBLF("JA: R_MarkLeaves cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d",
+				tr.viewCluster,
+				tr.visCount,
+				tr.world ? tr.world->numleafs : -1,
+				markedLeaves,
+				pvsRejected,
+				areaRejected,
+				negativeCluster,
+				tr.refdef.areamaskModified);
+			--s_xboxMarkLeavesLogBudget;
+		}
+	}
+#endif
 }
 #else // _XBOX
 
@@ -987,7 +1183,39 @@ void R_AddWorldSurfaces (void) {
 		VVLightMan.num_dlights = MAX_DLIGHTS ;
 	}
 
+#ifdef _XBOX
+	{
+		static int s_xboxAddWorldLogBudget = 32;
+		if (s_xboxAddWorldLogBudget > 0)
+		{
+			XBLF("JA: R_AddWorldSurfaces before recursive visCount=%d viewCluster=%d dlights=%d rdflags=0x%x",
+				tr.visCount,
+				tr.viewCluster,
+				VVLightMan.num_dlights,
+				tr.refdef.rdflags);
+			--s_xboxAddWorldLogBudget;
+		}
+	}
+#endif
 	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
+#ifdef _XBOX
+	{
+		static int s_xboxAddWorldLogBudget = 32;
+		if (s_xboxAddWorldLogBudget > 0)
+		{
+			XBLF("JA: R_AddWorldSurfaces after recursive leafs=%d drawSurfs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
+				tr.pc.c_leafs,
+				tr.refdef.numDrawSurfs,
+				tr.viewParms.visBounds[0][0],
+				tr.viewParms.visBounds[0][1],
+				tr.viewParms.visBounds[0][2],
+				tr.viewParms.visBounds[1][0],
+				tr.viewParms.visBounds[1][1],
+				tr.viewParms.visBounds[1][2]);
+			--s_xboxAddWorldLogBudget;
+		}
+	}
+#endif
 }
 
 #else // _XBOX

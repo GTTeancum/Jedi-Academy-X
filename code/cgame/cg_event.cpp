@@ -11,6 +11,7 @@
 
 #ifdef _XBOX
 #include "..\client\fffx.h"
+#include "../win32/xb_log.h"
 #endif
 
 #ifdef _IMMERSION
@@ -277,6 +278,27 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	es = &cent->currentState;
 	event = es->event & ~EV_EVENT_BITS;
+#ifdef _XBOX
+	{
+		static int s_xboxEventLogBudget = 160;
+		if ( s_xboxEventLogBudget > 0 &&
+			(event == EV_FIRE_WEAPON || event == EV_ALT_FIRE ||
+			 event == EV_MISSILE_STICK || event == EV_MISSILE_HIT || event == EV_MISSILE_MISS ||
+			 event == EV_DISRUPTOR_MAIN_SHOT || event == EV_DISRUPTOR_SNIPER_SHOT ||
+			 event == EV_CONC_ALT_SHOT || event == EV_CONC_ALT_MISS) )
+		{
+			XBLF("JA: CG_EntityEvent weaponish ent=%d event=%d weapon=%d parm=%d gent=%p origin=%g,%g,%g lerp=%g,%g,%g",
+				es->number,
+				event,
+				es->weapon,
+				es->eventParm,
+				cent->gent,
+				es->origin[0], es->origin[1], es->origin[2],
+				cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
+			--s_xboxEventLogBudget;
+		}
+	}
+#endif
 
 	if ( cg_debugEvents.integer ) {
 		CG_Printf( "ent:%3i  event:%3i ", es->number, event );

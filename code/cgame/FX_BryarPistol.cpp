@@ -6,6 +6,9 @@
 //#include "cg_local.h"
 #include "cg_media.h"
 #include "FxScheduler.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 /*
 -------------------------
@@ -19,6 +22,10 @@ FX_BryarProjectileThink
 void FX_BryarProjectileThink(  centity_t *cent, const struct weaponInfo_s *weapon )
 {
 	vec3_t forward;
+#ifdef _XBOX
+	static int s_xboxBryarProjectileLogBudget = 64;
+	qboolean xboxLogBryar = (s_xboxBryarProjectileLogBudget > 0);
+#endif
 
 	if ( VectorNormalize2( cent->gent->s.pos.trDelta, forward ) == 0.0f )
 	{
@@ -43,6 +50,25 @@ void FX_BryarProjectileThink(  centity_t *cent, const struct weaponInfo_s *weapo
 		VectorScale( forward, scale, forward );
 	}
 
+#ifdef _XBOX
+	if ( xboxLogBryar )
+	{
+		XBLF("JA: FX_BryarProjectileThink ent=%d owner=%d effect=%d origin=%g,%g,%g forward=%g,%g,%g trDelta=%g,%g,%g dif=%d",
+			cent ? cent->currentState.number : -1,
+			(cent && cent->gent && cent->gent->owner) ? cent->gent->owner->s.number : -1,
+			cgs.effects.bryarShotEffect,
+			cent ? cent->lerpOrigin[0] : 0.0f,
+			cent ? cent->lerpOrigin[1] : 0.0f,
+			cent ? cent->lerpOrigin[2] : 0.0f,
+			forward[0], forward[1], forward[2],
+			cent ? cent->currentState.pos.trDelta[0] : 0.0f,
+			cent ? cent->currentState.pos.trDelta[1] : 0.0f,
+			cent ? cent->currentState.pos.trDelta[2] : 0.0f,
+			dif);
+		--s_xboxBryarProjectileLogBudget;
+	}
+#endif
+
 	if ( cent->gent && cent->gent->owner && cent->gent->owner->s.number > 0 )
 	{
 		theFxScheduler.PlayEffect( "bryar/NPCshot", cent->lerpOrigin, forward );
@@ -60,6 +86,17 @@ FX_BryarHitWall
 */
 void FX_BryarHitWall( vec3_t origin, vec3_t normal )
 {
+#ifdef _XBOX
+	static int s_xboxBryarHitWallLogBudget = 32;
+	if ( s_xboxBryarHitWallLogBudget > 0 )
+	{
+		XBLF("JA: FX_BryarHitWall effect=%d origin=%g,%g,%g normal=%g,%g,%g",
+			cgs.effects.bryarWallImpactEffect,
+			origin[0], origin[1], origin[2],
+			normal[0], normal[1], normal[2]);
+		--s_xboxBryarHitWallLogBudget;
+	}
+#endif
 	theFxScheduler.PlayEffect( cgs.effects.bryarWallImpactEffect, origin, normal );
 }
 
@@ -70,6 +107,18 @@ FX_BryarHitPlayer
 */
 void FX_BryarHitPlayer( vec3_t origin, vec3_t normal, qboolean humanoid )
 {
+#ifdef _XBOX
+	static int s_xboxBryarHitPlayerLogBudget = 32;
+	if ( s_xboxBryarHitPlayerLogBudget > 0 )
+	{
+		XBLF("JA: FX_BryarHitPlayer effect=%d humanoid=%d origin=%g,%g,%g normal=%g,%g,%g",
+			cgs.effects.bryarFleshImpactEffect,
+			(int)humanoid,
+			origin[0], origin[1], origin[2],
+			normal[0], normal[1], normal[2]);
+		--s_xboxBryarHitPlayerLogBudget;
+	}
+#endif
 	theFxScheduler.PlayEffect( cgs.effects.bryarFleshImpactEffect, origin, normal );
 }
 

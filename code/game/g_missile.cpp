@@ -12,6 +12,9 @@
 #endif //_DEBUG
 
 #include "../client/fffx.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern qboolean InFront( vec3_t spot, vec3_t from, vec3_t fromAngles, float threshHold = 0.0f );
 qboolean LogAccuracyHit( gentity_t *target, gentity_t *attacker );
@@ -1322,6 +1325,10 @@ void G_RunMissile( gentity_t *ent )
 	vec3_t		oldOrg;
 	trace_t		tr;
 	int			trHitLoc=HL_NONE;
+#ifdef _XBOX
+	static int s_xboxRunMissileBudget = 160;
+	qboolean xboxLogMissile = qfalse;
+#endif
 
 	if ( (ent->s.eFlags&EF_HELD_BY_SAND_CREATURE) )
 	{//in a sand creature's mouth
@@ -1345,6 +1352,23 @@ void G_RunMissile( gentity_t *ent )
 	}
 
 	VectorCopy( ent->currentOrigin, oldOrg );
+#ifdef _XBOX
+	xboxLogMissile = (s_xboxRunMissileBudget > 0);
+	if ( xboxLogMissile )
+	{
+		XBLF("JA: G_RunMissile enter ent=%d weapon=%d owner=%d linked=%d sv=0x%x eFlags=0x%x pos=%g,%g,%g trBase=%g,%g,%g trDelta=%g,%g,%g",
+			ent->s.number,
+			ent->s.weapon,
+			ent->owner ? ent->owner->s.number : -1,
+			(int)ent->linked,
+			ent->svFlags,
+			ent->s.eFlags,
+			ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+			ent->s.pos.trBase[0], ent->s.pos.trBase[1], ent->s.pos.trBase[2],
+			ent->s.pos.trDelta[0], ent->s.pos.trDelta[1], ent->s.pos.trDelta[2]);
+		--s_xboxRunMissileBudget;
+	}
+#endif
 
 	// get current position
 	if ( ent->s.pos.trType == TR_INTERPOLATE )
@@ -1412,8 +1436,23 @@ void G_RunMissile( gentity_t *ent )
 			}
 		}
 
-		VectorCopy( tr.endpos, ent->currentOrigin );
+	VectorCopy( tr.endpos, ent->currentOrigin );
 	}
+
+#ifdef _XBOX
+	if ( xboxLogMissile )
+	{
+		XBLF("JA: G_RunMissile trace ent=%d weapon=%d fraction=%g startsolid=%d allsolid=%d hit=%d surf=0x%x end=%g,%g,%g",
+			ent->s.number,
+			ent->s.weapon,
+			tr.fraction,
+			(int)tr.startsolid,
+			(int)tr.allsolid,
+			tr.entityNum,
+			tr.surfaceFlags,
+			tr.endpos[0], tr.endpos[1], tr.endpos[2]);
+	}
+#endif
 
 	// get current angles
 	VectorMA( ent->s.apos.trBase, (level.time - ent->s.apos.trTime) * 0.001, ent->s.apos.trDelta, ent->s.apos.trBase );
@@ -1467,6 +1506,12 @@ void G_RunMissile( gentity_t *ent )
 
 	if ( ent->s.eType != ET_MISSILE ) 
 	{
+#ifdef _XBOX
+		if ( xboxLogMissile )
+		{
+			XBLF("JA: G_RunMissile post-think no-longer-missile ent=%d eType=%d", ent->s.number, ent->s.eType);
+		}
+#endif
 		return;		// exploded
 	}
 
@@ -1518,6 +1563,16 @@ void G_RunMissile( gentity_t *ent )
 
 	if ( tr.fraction == 1 ) 
 	{
+#ifdef _XBOX
+		if ( xboxLogMissile )
+		{
+			XBLF("JA: G_RunMissile clear-flight ent=%d weapon=%d linked=%d current=%g,%g,%g",
+				ent->s.number,
+				ent->s.weapon,
+				(int)ent->linked,
+				ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+		}
+#endif
 		if ( ent->s.weapon == WP_THERMAL && ent->s.pos.trType == TR_INTERPOLATE )
 		{//a rolling thermal that didn't hit anything
 			G_MissileAddAlerts( ent );
@@ -1528,9 +1583,21 @@ void G_RunMissile( gentity_t *ent )
 	// never explode or bounce on sky
 	if ( tr.surfaceFlags & SURF_NOIMPACT ) 
 	{
+#ifdef _XBOX
+		if ( xboxLogMissile )
+		{
+			XBLF("JA: G_RunMissile free-noimpact ent=%d weapon=%d surface=0x%x", ent->s.number, ent->s.weapon, tr.surfaceFlags);
+		}
+#endif
 		G_FreeEntity( ent );
 		return;
 	}
 
+#ifdef _XBOX
+	if ( xboxLogMissile )
+	{
+		XBLF("JA: G_RunMissile impact ent=%d weapon=%d hit=%d fraction=%g", ent->s.number, ent->s.weapon, tr.entityNum, tr.fraction);
+	}
+#endif
 	G_MissileImpact( ent, &tr, trHitLoc );
 }

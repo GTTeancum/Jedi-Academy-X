@@ -7,6 +7,10 @@
 #include "..\client\vmachine.h"
 #include "server.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 
 /*
 =============================================================================
@@ -237,24 +241,75 @@ SV_AddEntToSnapshot
 ===============
 */
 static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEntityNumbers_t *eNums ) {
+#ifdef _XBOX
+	static int s_xboxAddMissileBudget = 96;
+	qboolean xboxLogMissile = (gEnt && gEnt->s.eType == ET_MISSILE && s_xboxAddMissileBudget > 0);
+#endif
 	// if we have already added this entity to this snapshot, don't add again
 	if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
+#ifdef _XBOX
+		if (xboxLogMissile)
+		{
+			XBLF("JA: SV_AddEntToSnapshot missile duplicate ent=%d weapon=%d snapshot=%d",
+				gEnt->s.number,
+				gEnt->s.weapon,
+				sv.snapshotCounter);
+			--s_xboxAddMissileBudget;
+		}
+#endif
 		return;
 	}
 	svEnt->snapshotCounter = sv.snapshotCounter;
 
 	// if we are full, silently discard entities
 	if ( eNums->numSnapshotEntities == MAX_SNAPSHOT_ENTITIES ) {
+#ifdef _XBOX
+		if (xboxLogMissile)
+		{
+			XBLF("JA: SV_AddEntToSnapshot missile full ent=%d weapon=%d num=%d max=%d",
+				gEnt->s.number,
+				gEnt->s.weapon,
+				eNums->numSnapshotEntities,
+				MAX_SNAPSHOT_ENTITIES);
+			--s_xboxAddMissileBudget;
+		}
+#endif
 		return;
 	}
 
 	if (sv.snapshotCounter &1 && eNums->numSnapshotEntities == svs.numSnapshotEntities-1)
 	{	//we're full, and about to wrap around and stomp ents, so half the time send the first set without stomping.
+#ifdef _XBOX
+		if (xboxLogMissile)
+		{
+			XBLF("JA: SV_AddEntToSnapshot missile ring-full ent=%d weapon=%d num=%d ring=%d",
+				gEnt->s.number,
+				gEnt->s.weapon,
+				eNums->numSnapshotEntities,
+				svs.numSnapshotEntities);
+			--s_xboxAddMissileBudget;
+		}
+#endif
 		return;
 	}
 
 	eNums->snapshotEntities[ eNums->numSnapshotEntities ] = gEnt->s.number;
 	eNums->numSnapshotEntities++;
+#ifdef _XBOX
+	if (xboxLogMissile)
+	{
+		XBLF("JA: SV_AddEntToSnapshot missile add ent=%d weapon=%d snapshotIndex=%d sv=0x%x area=%d/%d clusters=%d last=%d",
+			gEnt->s.number,
+			gEnt->s.weapon,
+			eNums->numSnapshotEntities - 1,
+			gEnt->svFlags,
+			svEnt->areanum,
+			svEnt->areanum2,
+			svEnt->numClusters,
+			svEnt->lastCluster);
+		--s_xboxAddMissileBudget;
+	}
+#endif
 }
 
 //rww - bg_public.h won't cooperate in here
@@ -321,6 +376,111 @@ qboolean SV_PlayerCanSeeEnt( gentity_t *ent, int sightLevel )
 SV_AddEntitiesVisibleFromPoint
 ===============
 */
+#ifdef _XBOX
+typedef struct xboxMoverFocusStats_s {
+	int candidate;
+	int sent;
+	int skippedSnapshot;
+	int areaReject;
+	int pvsReject;
+	int noClusters;
+	int unlinked;
+	int noClient;
+	int broadcastSent;
+	int portalSent;
+	int sightSent;
+	int lastEnt;
+	int lastArea;
+	int lastArea2;
+	int lastClientArea;
+	int lastClientCluster;
+} xboxMoverFocusStats_t;
+
+static const int s_xboxMoverFocusModels[] = {
+	139, 140, 141, 142, 143, 144, 145, 146,
+	147, 148, 149, 150, 151, 152,
+	172, 193, 197, 202, 203
+};
+
+static xboxMoverFocusStats_t s_xboxMoverFocusStats[sizeof(s_xboxMoverFocusModels) / sizeof(s_xboxMoverFocusModels[0])];
+static int s_xboxMoverFocusLastPrintTime = 0;
+static int s_xboxMoverFocusPrintBudget = 0;
+
+static int XboxMoverFocusIndex( int modelindex )
+{
+	int i;
+	for ( i = 0; i < (int)(sizeof(s_xboxMoverFocusModels) / sizeof(s_xboxMoverFocusModels[0])); i++ )
+	{
+		if ( s_xboxMoverFocusModels[i] == modelindex )
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+
+static void XboxMoverFocusRecord( int idx, gentity_t *ent, svEntity_t *svEnt, int clientarea, int clientcluster, int fieldOffset )
+{
+	xboxMoverFocusStats_t *stats;
+	if ( idx < 0 )
+	{
+		return;
+	}
+	stats = &s_xboxMoverFocusStats[idx];
+	*((int *)stats + fieldOffset) += 1;
+	stats->lastEnt = ent ? ent->s.number : -1;
+	stats->lastArea = svEnt ? svEnt->areanum : -999;
+	stats->lastArea2 = svEnt ? svEnt->areanum2 : -999;
+	stats->lastClientArea = clientarea;
+	stats->lastClientCluster = clientcluster;
+}
+
+#define XBOX_MOVER_STAT_FIELD(field) ((int)(&((xboxMoverFocusStats_t *)0)->field) / (int)sizeof(int))
+
+static void XboxMoverFocusMaybePrintSummary( int clientarea, int clientcluster )
+{
+	int i;
+	if ( s_xboxMoverFocusPrintBudget <= 0 )
+	{
+		return;
+	}
+	if ( sv.time - s_xboxMoverFocusLastPrintTime < 1000 )
+	{
+		return;
+	}
+	s_xboxMoverFocusLastPrintTime = sv.time;
+	s_xboxMoverFocusPrintBudget--;
+	for ( i = 0; i < (int)(sizeof(s_xboxMoverFocusModels) / sizeof(s_xboxMoverFocusModels[0])); i++ )
+	{
+		xboxMoverFocusStats_t *stats = &s_xboxMoverFocusStats[i];
+		if ( stats->candidate || stats->sent || stats->areaReject || stats->pvsReject || stats->noClusters )
+		{
+			XBLF("JA: SV_MOVER_MODEL_SUMMARY time=%d model=%d cand=%d sent=%d area=%d pvs=%d noClusters=%d unlinked=%d noClient=%d snapSkip=%d broadcast=%d portal=%d sight=%d lastEnt=%d entArea=%d/%d clientArea=%d/%d clientCluster=%d/%d",
+				sv.time,
+				s_xboxMoverFocusModels[i],
+				stats->candidate,
+				stats->sent,
+				stats->areaReject,
+				stats->pvsReject,
+				stats->noClusters,
+				stats->unlinked,
+				stats->noClient,
+				stats->skippedSnapshot,
+				stats->broadcastSent,
+				stats->portalSent,
+				stats->sightSent,
+				stats->lastEnt,
+				stats->lastArea,
+				stats->lastArea2,
+				clientarea,
+				stats->lastClientArea,
+				clientcluster,
+				stats->lastClientCluster);
+		}
+	}
+}
+#endif
+
 static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *frame, 
 									snapshotEntityNumbers_t *eNums, qboolean portal ) {
 	int		e, i;
@@ -333,6 +493,21 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	const byte *clientpvs;
 	const byte *bitvector;
 	qboolean sightOn = qfalse;
+#ifdef _XBOX
+	static int s_xboxSnapshotMoverFrameBudget = 0;
+	static int s_xboxSnapshotMoverDetailBudget = 0;
+	static int s_xboxSnapshotMoverFocusBudget = 0;
+	static int s_xboxSnapshotMissileBudget = 160;
+	int xboxMoverTotal = 0;
+	int xboxMoverSent = 0;
+	int xboxMoverUnlinked = 0;
+	int xboxMoverNoClient = 0;
+	int xboxMoverAreaRejected = 0;
+	int xboxMoverPvsRejected = 0;
+	int xboxMoverNoClusters = 0;
+	qboolean xboxTraceMovers = (s_xboxSnapshotMoverFrameBudget > 0 && !portal);
+	int xboxFocusIndex = -1;
+#endif
 
 	// during an error shutdown message we may need to transmit
 	// the shutdown message after the server has shutdown, so
@@ -362,10 +537,40 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 
 	for ( e = 0 ; e < ge->num_entities ; e++ ) {
 		ent = SV_GentityNum(e);
+#ifdef _XBOX
+		qboolean xboxIsMover = qfalse;
+		qboolean xboxFocusMover = qfalse;
+		qboolean xboxIsMissile = qfalse;
+		qboolean xboxLogMissile = qfalse;
+#endif
 
 		if (!ent->inuse) {
 			continue;
 		}
+#ifdef _XBOX
+		xboxIsMover = (ent->s.eType == ET_MOVER);
+		xboxIsMissile = (ent->s.eType == ET_MISSILE);
+		xboxLogMissile = (xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
+		if (xboxIsMover && xboxTraceMovers)
+		{
+			xboxMoverTotal++;
+			if (s_xboxSnapshotMoverDetailBudget > 0)
+			{
+				XBLF("JA: SV_SNAPSHOT_MOVER candidate ent=%d linked=%d bmodel=%d svFlags=0x%x eFlags=0x%x solid=%d model=%d model2=%d contents=0x%x origin=%g,%g,%g",
+					e,
+					(int)ent->linked,
+					(int)ent->bmodel,
+					ent->svFlags,
+					ent->s.eFlags,
+					ent->s.solid,
+					ent->s.modelindex,
+					ent->s.modelindex2,
+					ent->contents,
+					ent->s.origin[0], ent->s.origin[1], ent->s.origin[2]);
+				s_xboxSnapshotMoverDetailBudget--;
+			}
+		}
+#endif
 
 		if (ent->s.eFlags & EF_PERMANENT)
 		{	// he's permanent, so don't send him down!
@@ -379,30 +584,135 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 
 		// never send entities that aren't linked in
 		if ( !ent->linked ) {
+#ifdef _XBOX
+			if (xboxIsMover && xboxTraceMovers) xboxMoverUnlinked++;
+			if (xboxLogMissile)
+			{
+				XBLF("JA: SV_SNAPSHOT_MISSILE reject-unlinked ent=%d weapon=%d sv=0x%x origin=%g,%g,%g",
+					e, ent->s.weapon, ent->svFlags,
+					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+				--s_xboxSnapshotMissileBudget;
+			}
+			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
+			if (xboxFocusIndex >= 0 && !portal)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, NULL, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(unlinked) );
+			}
+#endif
 			continue;
 		}
 
 		// entities can be flagged to explicitly not be sent to the client
 		if ( ent->svFlags & SVF_NOCLIENT ) {
+#ifdef _XBOX
+			if (xboxIsMover && xboxTraceMovers) xboxMoverNoClient++;
+			if (xboxLogMissile)
+			{
+				XBLF("JA: SV_SNAPSHOT_MISSILE reject-noclient ent=%d weapon=%d sv=0x%x",
+					e, ent->s.weapon, ent->svFlags);
+				--s_xboxSnapshotMissileBudget;
+			}
+			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
+			if (xboxFocusIndex >= 0 && !portal)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, SV_SvEntityForGentity( ent ), clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(noClient) );
+			}
+#endif
 			continue;
 		}
 
 		svEnt = SV_SvEntityForGentity( ent );
+#ifdef _XBOX
+		if (xboxLogMissile)
+		{
+			XBLF("JA: SV_SNAPSHOT_MISSILE candidate ent=%d weapon=%d linked=%d sv=0x%x area=%d/%d clusters=%d last=%d clientArea=%d clientCluster=%d origin=%g,%g,%g",
+				e,
+				ent->s.weapon,
+				(int)ent->linked,
+				ent->svFlags,
+				svEnt->areanum,
+				svEnt->areanum2,
+				svEnt->numClusters,
+				svEnt->lastCluster,
+				clientarea,
+				clientcluster,
+				ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+			--s_xboxSnapshotMissileBudget;
+		}
+		xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
+		if (xboxFocusIndex >= 0 && !portal)
+		{
+			XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(candidate) );
+		}
+		xboxFocusMover = (xboxTraceMovers && xboxIsMover && s_xboxSnapshotMoverFocusBudget > 0 &&
+			((ent->s.modelindex >= 139 && ent->s.modelindex <= 152) ||
+			 ent->s.modelindex == 172 ||
+			 ent->s.modelindex == 193 ||
+			 ent->s.modelindex == 197 ||
+			 ent->s.modelindex == 202 ||
+			 ent->s.modelindex == 203));
+		if (xboxFocusMover)
+		{
+			XBLF("JA: SV_MOVER_FOCUS candidate ent=%d model=%d flags=0x%x sv=0x%x area=%d/%d clusters=%d last=%d clientArea=%d clientCluster=%d",
+				e,
+				ent->s.modelindex,
+				ent->s.eFlags,
+				ent->svFlags,
+				svEnt->areanum,
+				svEnt->areanum2,
+				svEnt->numClusters,
+				svEnt->lastCluster,
+				clientarea,
+				clientcluster);
+			s_xboxSnapshotMoverFocusBudget--;
+		}
+#endif
 
 		// don't double add an entity through portals
 		if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
+#ifdef _XBOX
+			if (xboxLogMissile)
+			{
+				XBLF("JA: SV_SNAPSHOT_MISSILE skip-duplicate ent=%d weapon=%d", e, ent->s.weapon);
+				--s_xboxSnapshotMissileBudget;
+			}
+			if (xboxFocusIndex >= 0 && !portal)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(skippedSnapshot) );
+			}
+			if (xboxFocusMover)
+			{
+				XBLF("JA: SV_MOVER_FOCUS_SKIP_SNAPSHOT ent=%d model=%d", e, ent->s.modelindex);
+			}
+#endif
 			continue;
 		}
 
 		// broadcast entities are always sent, and so is the main player so we don't see noclip weirdness
 		if ( ent->svFlags & SVF_BROADCAST || !e) {
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
+#ifdef _XBOX
+			if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
+			if (xboxFocusIndex >= 0 && !portal)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(sent) );
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(broadcastSent) );
+			}
+#endif
 			continue;
 		}
 
 		if (ent->s.isPortalEnt)
 		{ //rww - portal entities are always sent as well
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
+#ifdef _XBOX
+			if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
+			if (xboxFocusIndex >= 0 && !portal)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(sent) );
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(portalSent) );
+			}
+#endif
 			continue;
 		}
 
@@ -411,6 +721,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			if ( SV_PlayerCanSeeEnt( ent, frame->ps.forcePowerLevel[FP_SEE] ) )
 			{//entity is visible
 				SV_AddEntToSnapshot( svEnt, ent, eNums );
+#ifdef _XBOX
+				if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
+				if (xboxFocusIndex >= 0 && !portal)
+				{
+					XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(sent) );
+					XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(sightSent) );
+				}
+#endif
 				continue;
 			}
 		}
@@ -421,6 +739,28 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			// doors can legally straddle two areas, so
 			// we may need to check another one
 			if ( !CM_AreasConnected( clientarea, svEnt->areanum2 ) ) {
+#ifdef _XBOX
+				if (xboxIsMover && xboxTraceMovers) xboxMoverAreaRejected++;
+				if (xboxLogMissile)
+				{
+					XBLF("JA: SV_SNAPSHOT_MISSILE reject-area ent=%d weapon=%d clientArea=%d entArea=%d/%d",
+						e, ent->s.weapon, clientarea, svEnt->areanum, svEnt->areanum2);
+					--s_xboxSnapshotMissileBudget;
+				}
+				if (xboxFocusIndex >= 0 && !portal)
+				{
+					XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(areaReject) );
+				}
+				if (xboxFocusMover)
+				{
+					XBLF("JA: SV_MOVER_FOCUS_REJECT_AREA ent=%d model=%d clientArea=%d entArea=%d/%d",
+						e,
+						ent->s.modelindex,
+						clientarea,
+						svEnt->areanum,
+						svEnt->areanum2);
+				}
+#endif
 				continue;		// blocked by a door
 			}
 		}
@@ -429,6 +769,23 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 
 		// check individual leafs
 		if ( !svEnt->numClusters ) {
+#ifdef _XBOX
+			if (xboxIsMover && xboxTraceMovers) xboxMoverNoClusters++;
+			if (xboxLogMissile)
+			{
+				XBLF("JA: SV_SNAPSHOT_MISSILE reject-noclusters ent=%d weapon=%d area=%d/%d",
+					e, ent->s.weapon, svEnt->areanum, svEnt->areanum2);
+				--s_xboxSnapshotMissileBudget;
+			}
+			if (xboxFocusIndex >= 0 && !portal)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(noClusters) );
+			}
+			if (xboxFocusMover)
+			{
+				XBLF("JA: SV_MOVER_FOCUS_REJECT_NOCLUSTERS ent=%d model=%d", e, ent->s.modelindex);
+			}
+#endif
 			continue;
 		}
 		l = 0;
@@ -459,15 +816,66 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					}
 				}
 				if ( l == svEnt->lastCluster ) {
+#ifdef _XBOX
+					if (xboxIsMover && xboxTraceMovers) xboxMoverPvsRejected++;
+					if (xboxLogMissile)
+					{
+						XBLF("JA: SV_SNAPSHOT_MISSILE reject-pvs-overflow ent=%d weapon=%d last=%d",
+							e, ent->s.weapon, svEnt->lastCluster);
+						--s_xboxSnapshotMissileBudget;
+					}
+					if (xboxFocusIndex >= 0 && !portal)
+					{
+						XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(pvsReject) );
+					}
+					if (xboxFocusMover)
+					{
+						XBLF("JA: SV_MOVER_FOCUS_REJECT_PVS_OVERFLOW ent=%d model=%d last=%d",
+							e,
+							ent->s.modelindex,
+							svEnt->lastCluster);
+					}
+#endif
 					continue;		// not visible
 				}
 			} else {
+#ifdef _XBOX
+				if (xboxIsMover && xboxTraceMovers) xboxMoverPvsRejected++;
+				if (xboxLogMissile)
+				{
+					XBLF("JA: SV_SNAPSHOT_MISSILE reject-pvs ent=%d weapon=%d clusters=%d",
+						e, ent->s.weapon, svEnt->numClusters);
+					--s_xboxSnapshotMissileBudget;
+				}
+				if (xboxFocusIndex >= 0 && !portal)
+				{
+					XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(pvsReject) );
+				}
+				if (xboxFocusMover)
+				{
+					XBLF("JA: SV_MOVER_FOCUS_REJECT_PVS ent=%d model=%d clusters=%d",
+						e,
+						ent->s.modelindex,
+						svEnt->numClusters);
+				}
+#endif
 				continue;
 			}
 		}
 
 		// add it
 		SV_AddEntToSnapshot( svEnt, ent, eNums );
+#ifdef _XBOX
+		if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
+		if (xboxFocusIndex >= 0 && !portal)
+		{
+			XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(sent) );
+		}
+		if (xboxFocusMover)
+		{
+			XBLF("JA: SV_MOVER_FOCUS_SENT ent=%d model=%d", e, ent->s.modelindex);
+		}
+#endif
 
 		// if its a portal entity, add everything visible from its camera position
 		if ( ent->svFlags & SVF_PORTAL ) {
@@ -478,6 +886,27 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 #endif
 		}
 	}
+#ifdef _XBOX
+	if (!portal)
+	{
+		XboxMoverFocusMaybePrintSummary( clientarea, clientcluster );
+	}
+	if (xboxTraceMovers)
+	{
+		XBLF("JA: SV_SNAPSHOT_MOVER_SUMMARY origin=%g,%g,%g area=%d cluster=%d total=%d sent=%d unlinked=%d noclient=%d areaReject=%d pvsReject=%d noClusters=%d",
+			origin[0], origin[1], origin[2],
+			clientarea,
+			clientcluster,
+			xboxMoverTotal,
+			xboxMoverSent,
+			xboxMoverUnlinked,
+			xboxMoverNoClient,
+			xboxMoverAreaRejected,
+			xboxMoverPvsRejected,
+			xboxMoverNoClusters);
+		s_xboxSnapshotMoverFrameBudget--;
+	}
+#endif
 }
 
 /*

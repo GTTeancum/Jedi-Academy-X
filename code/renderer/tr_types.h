@@ -50,6 +50,10 @@
 
 #define	RF_DISTORTION	   0x400000	//area distortion effect -rww
 
+#ifdef _XBOX
+#define RF_XBOX_NOCULL_BMODEL 0x800000 // local brush-model cull is unreliable for some moving BSP entities
+#endif
+
 // refdef flags
 #define RDF_NOWORLDMODEL	1		// used for player configuration screen
 #define RDF_HYPERSPACE		4		// teleportation effect

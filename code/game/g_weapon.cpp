@@ -12,6 +12,9 @@
 #include "b_local.h"
 #include "wp_saber.h"
 #include "g_vehicles.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 static	vec3_t	forward, vright, up;
 static	vec3_t	muzzle;
@@ -332,6 +335,9 @@ gentity_t *CreateMissile( vec3_t org, vec3_t dir, float vel, int life, gentity_t
 //-----------------------------------------------------------------------------
 {
 	gentity_t	*missile;
+#ifdef _XBOX
+	static int s_xboxCreateMissileLogBudget = 128;
+#endif
 
 	missile = G_Spawn();
 	
@@ -339,6 +345,13 @@ gentity_t *CreateMissile( vec3_t org, vec3_t dir, float vel, int life, gentity_t
 	missile->e_ThinkFunc = thinkF_G_FreeEntity;
 	missile->s.eType = ET_MISSILE;
 	missile->owner = owner;
+#ifdef _XBOX
+	if ( owner && owner->classname && !Q_stricmp( owner->classname, "misc_weapon_shooter" ) )
+	{
+		// Scripted cinematic shooters can live outside the player's current BSP area.
+		missile->svFlags |= SVF_BROADCAST;
+	}
+#endif
 
 	Vehicle_t*	pVeh = G_IsRidingVehicle(owner);
 
@@ -357,6 +370,26 @@ gentity_t *CreateMissile( vec3_t org, vec3_t dir, float vel, int life, gentity_t
 
 	VectorCopy( org, missile->currentOrigin);
 	gi.linkentity( missile );
+#ifdef _XBOX
+	if ( s_xboxCreateMissileLogBudget > 0 )
+	{
+		XBLF("JA: CreateMissile ent=%d owner=%d ownerClass='%s' weapon=%d alt=%d vel=%g life=%d sv=0x%x origin=%g,%g,%g dir=%g,%g,%g trDelta=%g,%g,%g",
+			missile->s.number,
+			owner ? owner->s.number : -1,
+			owner && owner->classname ? owner->classname : "<null>",
+			owner ? owner->s.weapon : -1,
+			(int)altFire,
+			vel,
+			life,
+			missile->svFlags,
+			org[0], org[1], org[2],
+			dir[0], dir[1], dir[2],
+			missile->s.pos.trDelta[0],
+			missile->s.pos.trDelta[1],
+			missile->s.pos.trDelta[2]);
+		--s_xboxCreateMissileLogBudget;
+	}
+#endif
 
 	return missile;
 }

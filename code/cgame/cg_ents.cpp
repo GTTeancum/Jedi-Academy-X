@@ -10,6 +10,9 @@
 #include "FxScheduler.h"
 #include "..\game\wp_saber.h"
 #include "..\game\g_vehicles.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern void CG_AddSaberBlade( centity_t *cent, centity_t *scent, refEntity_t *saber, int renderfx, int modelIndex, vec3_t origin, vec3_t angles);
 extern void CG_CheckSaberInWater( centity_t *cent, centity_t *scent, int modelIndex, vec3_t origin, vec3_t angles );
@@ -362,6 +365,31 @@ Ghoul2 Insert End
 
 	ent.hModel = cgs.model_draw[s1->modelindex];
 
+#ifdef _XBOX
+	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "misc_model_breakable" ) )
+	{
+		static int s_xboxMiscBreakableGeneralLogBudget = 64;
+		if ( s_xboxMiscBreakableGeneralLogBudget > 0 )
+		{
+			XBLF("JA: CG_GENERAL_MISC_BREAKABLE ent=%d model=%d hModel=%d eFlags=0x%x sv=0x%x origin=%d,%d,%d lerp=%d,%d,%d target='%s' script='%s'",
+				s1->number,
+				s1->modelindex,
+				ent.hModel,
+				s1->eFlags,
+				cent->gent->svFlags,
+				(int)s1->origin[0],
+				(int)s1->origin[1],
+				(int)s1->origin[2],
+				(int)cent->lerpOrigin[0],
+				(int)cent->lerpOrigin[1],
+				(int)cent->lerpOrigin[2],
+				cent->gent->targetname ? cent->gent->targetname : "<null>",
+				cent->gent->script_targetname ? cent->gent->script_targetname : "<null>");
+			--s_xboxMiscBreakableGeneralLogBudget;
+		}
+	}
+#endif
+
 	if ( !ent.radius )
 	{// Set default g2 cull radius.
 		ent.radius = 60;
@@ -379,6 +407,29 @@ Ghoul2 Insert End
 	{
 		ent.renderfx |= RF_THIRD_PERSON;	// only draw from mirrors
 	}
+
+#ifdef _XBOX
+	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "func_door" ) )
+	{
+		static int s_xboxDoorNoCullLogBudget = 64;
+		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
+		if ( s_xboxDoorNoCullLogBudget > 0 )
+		{
+			XBLF("JA: CG_DOOR_NOCULL ent=%d model=%d hModel=%d eFlags=0x%x origin=%d,%d,%d lerp=%d,%d,%d",
+				s1->number,
+				s1->modelindex,
+				ent.hModel,
+				s1->eFlags,
+				(int)s1->origin[0],
+				(int)s1->origin[1],
+				(int)s1->origin[2],
+				(int)cent->lerpOrigin[0],
+				(int)cent->lerpOrigin[1],
+				(int)cent->lerpOrigin[2]);
+			--s_xboxDoorNoCullLogBudget;
+		}
+	}
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -1067,6 +1118,10 @@ static void CG_Missile( centity_t *cent ) {
 	entityState_t		*s1;
 	const weaponInfo_t	*weapon;
 	const weaponData_t  *wData;
+#ifdef _XBOX
+	static int s_xboxMissileLogCount = 0;
+	qboolean xboxLogMissile;
+#endif
 
 	if ( !cent->gent->inuse )
 		return;
@@ -1077,6 +1132,29 @@ static void CG_Missile( centity_t *cent ) {
 	}
 	weapon = &cg_weapons[s1->weapon];
 	wData = &weaponData[s1->weapon];
+#ifdef _XBOX
+	xboxLogMissile = (s_xboxMissileLogCount < 96);
+	if ( xboxLogMissile )
+	{
+		XBLF("JA: CG_Missile #%d ent=%d weapon=%d alt=%d trType=%d origin=%g,%g,%g delta=%g,%g,%g model=%d altModel=%d trail=%p altTrail=%p",
+			s_xboxMissileLogCount,
+			s1->number,
+			s1->weapon,
+			cent->gent ? (int)cent->gent->alt_fire : -1,
+			s1->pos.trType,
+			cent->lerpOrigin[0],
+			cent->lerpOrigin[1],
+			cent->lerpOrigin[2],
+			s1->pos.trDelta[0],
+			s1->pos.trDelta[1],
+			s1->pos.trDelta[2],
+			weapon ? weapon->missileModel : 0,
+			weapon ? weapon->alt_missileModel : 0,
+			weapon ? weapon->missileTrailFunc : NULL,
+			weapon ? weapon->alt_missileTrailFunc : NULL);
+		++s_xboxMissileLogCount;
+	}
+#endif
 
 	if ( s1->pos.trType != TR_INTERPOLATE )
 	{
@@ -1101,7 +1179,15 @@ static void CG_Missile( centity_t *cent ) {
 
 		//Don't draw something without a model
 		if ( weapon->alt_missileModel == NULL )
+		{
+#ifdef _XBOX
+			if ( xboxLogMissile )
+			{
+				XBLF("JA: CG_Missile ent=%d weapon=%d alt return no model", s1->number, s1->weapon);
+			}
+#endif
 			return;
+		}
 	}
 	else
 	{
@@ -1120,7 +1206,15 @@ static void CG_Missile( centity_t *cent ) {
 
 		//Don't draw something without a model
 		if ( weapon->missileModel == NULL )
+		{
+#ifdef _XBOX
+			if ( xboxLogMissile )
+			{
+				XBLF("JA: CG_Missile ent=%d weapon=%d return no model", s1->number, s1->weapon);
+			}
+#endif
 			return;
+		}
 	}
 
 	// create the render entity
@@ -1175,6 +1269,12 @@ Ghoul2 Insert End
 
 	// add to refresh list, possibly with quad glow
 	CG_AddRefEntityWithPowerups( &ent, s1->powerups, NULL );
+#ifdef _XBOX
+	if ( xboxLogMissile )
+	{
+		XBLF("JA: CG_Missile ent=%d weapon=%d added hModel=%d renderfx=0x%x", s1->number, s1->weapon, ent.hModel, ent.renderfx);
+	}
+#endif
 
 	if ((cg.snap->ps.forcePowersActive & (1 << FP_SEE)) 
 		&& cg.snap->ps.clientNum != cent->currentState.number 
@@ -1204,6 +1304,10 @@ CG_Mover
 static void CG_Mover( centity_t *cent ) {
 	refEntity_t			ent;
 	entityState_t		*s1;
+#ifdef _XBOX
+	static int s_xboxMoverLogBudget = 220;
+	qboolean xboxLogMover = (s_xboxMoverLogBudget > 0);
+#endif
 
 	s1 = &cent->currentState;
 
@@ -1233,10 +1337,59 @@ Ghoul2 Insert End
 	} else {
 		ent.hModel = cgs.model_draw[s1->modelindex];
 	}
+#ifdef _XBOX
+	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "func_door" ) )
+	{
+		static int s_xboxMoverDoorNoCullLogBudget = 64;
+		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
+		if ( s_xboxMoverDoorNoCullLogBudget > 0 )
+		{
+			XBLF("JA: CG_MOVER_DOOR_NOCULL ent=%d model=%d hModel=%d eFlags=0x%x origin=%d,%d,%d lerp=%d,%d,%d",
+				s1->number,
+				s1->modelindex,
+				ent.hModel,
+				s1->eFlags,
+				(int)s1->origin[0],
+				(int)s1->origin[1],
+				(int)s1->origin[2],
+				(int)cent->lerpOrigin[0],
+				(int)cent->lerpOrigin[1],
+				(int)cent->lerpOrigin[2]);
+			--s_xboxMoverDoorNoCullLogBudget;
+		}
+	}
+	if (xboxLogMover)
+	{
+		XBLF("JA: CG_MOVER ent=%d class='%s' solid=%d model=%d model2=%d hModel=%d inlineH=%d drawH=%d eFlags=0x%x origin=%g,%g,%g lerp=%g,%g,%g",
+			s1->number,
+			cent->gent && cent->gent->classname ? cent->gent->classname : "<null>",
+			s1->solid,
+			s1->modelindex,
+			s1->modelindex2,
+			ent.hModel,
+			(s1->modelindex >= 0 && s1->modelindex < MAX_MODELS) ? cgs.inlineDrawModel[s1->modelindex] : 0,
+			(s1->modelindex >= 0 && s1->modelindex < MAX_MODELS) ? cgs.model_draw[s1->modelindex] : 0,
+			s1->eFlags,
+			s1->origin[0], s1->origin[1], s1->origin[2],
+			cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
+		s_xboxMoverLogBudget--;
+	}
+#endif
 
 	// If there isn't an hModel for this mover, an RGB axis model will get drawn.
 	if ( !ent.hModel )
 	{
+#ifdef _XBOX
+		if (xboxLogMover)
+		{
+			XBLF("JA: CG_MOVER_DROP_NO_HMODEL ent=%d class='%s' solid=%d model=%d model2=%d",
+				s1->number,
+				cent->gent && cent->gent->classname ? cent->gent->classname : "<null>",
+				s1->solid,
+				s1->modelindex,
+				s1->modelindex2);
+		}
+#endif
 		return;
 	}
 
@@ -1278,6 +1431,17 @@ Ghoul2 Insert End
 	//	the movers for the shooting gallery on doom_detention will break.
 	if ( (s1->eFlags & EF_NODRAW) )
 	{
+#ifdef _XBOX
+		if (xboxLogMover)
+		{
+			XBLF("JA: CG_MOVER_DROP_NODRAW ent=%d class='%s' hModel=%d model=%d model2=%d",
+				s1->number,
+				cent->gent && cent->gent->classname ? cent->gent->classname : "<null>",
+				ent.hModel,
+				s1->modelindex,
+				s1->modelindex2);
+		}
+#endif
 		return;
 	}
 	//fall through and render the hModel or...
@@ -1309,6 +1473,17 @@ Ghoul2 Insert End
 	// add to refresh list
 #ifdef _XBOX
 	ent.number = cent->currentState.number;
+	if (xboxLogMover)
+	{
+		XBLF("JA: CG_MOVER_ADD ent=%d class='%s' hModel=%d model=%d model2=%d reType=%d frame=%d",
+			s1->number,
+			cent->gent && cent->gent->classname ? cent->gent->classname : "<null>",
+			ent.hModel,
+			s1->modelindex,
+			s1->modelindex2,
+			ent.reType,
+			ent.frame);
+	}
 #endif
 	CG_AddRefEntWithTransportEffect( cent, &ent );
 
@@ -2298,21 +2473,62 @@ CG_AddCEntity
 */
 static void CG_AddCEntity( centity_t *cent ) 
 {
+#ifdef _XBOX
+	static int s_xboxAddCEntityTraceBudget = 64;
+	const qboolean xboxTraceEnt = (s_xboxAddCEntityTraceBudget > 0 && cent != NULL &&
+		(cent->currentState.number == 0 || cent->currentState.eType == ET_MOVER));
+	if ( xboxTraceEnt )
+	{
+		XBLF("JA: CG_AddCEntity enter ent=%d type=%d gent=%p valid=%d currentValid=%d weapon=%d",
+			cent ? cent->currentState.number : -1,
+			cent ? cent->currentState.eType : -1,
+			cent ? cent->gent : NULL,
+			cent ? cent->currentState.eType < ET_EVENTS : 0,
+			cent ? cent->currentValid : 0,
+			cent ? cent->currentState.weapon : -1);
+		s_xboxAddCEntityTraceBudget--;
+	}
+#endif
 	// event-only entities will have been dealt with already
 	if ( cent->currentState.eType >= ET_EVENTS ) {
+#ifdef _XBOX
+		if ( xboxTraceEnt )
+		{
+			XBLF("JA: CG_AddCEntity event-only return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+		}
+#endif
 		return;
 	}
 
 	//we must have restarted the game
 	if (!cent->gent)
 	{
+#ifdef _XBOX
+		if ( xboxTraceEnt )
+		{
+			XBLF("JA: CG_AddCEntity no gent return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+		}
+#endif
 		return;
 	}
 
 	cent->snapShotTime = cg.time;
 
 	// calculate the current origin
+#ifdef _XBOX
+	if ( xboxTraceEnt )
+	{
+		XBLF("JA: CG_AddCEntity before lerp ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+	}
+#endif
 	CG_CalcEntityLerpPositions( cent );
+#ifdef _XBOX
+	if ( xboxTraceEnt )
+	{
+		XBLF("JA: CG_AddCEntity after lerp ent=%d origin=%g,%g,%g", cent->currentState.number,
+			cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
+	}
+#endif
 
 	// add automatic effects
 	CG_EntityEffects( cent );
@@ -2328,7 +2544,20 @@ Ghoul2 Insert Start
 	// do this before we copy the data to refEnts
 	if (cent->gent->ghoul2.IsValid())
 	{
+#ifdef _XBOX
+		if ( xboxTraceEnt )
+		{
+			XBLF("JA: CG_AddCEntity before SetGhoul2ModelIndexes ent=%d ghoul2=%d",
+				cent->currentState.number, cent->gent->ghoul2.size());
+		}
+#endif
 		trap_G2_SetGhoul2ModelIndexes(cent->gent->ghoul2, cgs.model_draw, cgs.skins);
+#ifdef _XBOX
+		if ( xboxTraceEnt )
+		{
+			XBLF("JA: CG_AddCEntity after SetGhoul2ModelIndexes ent=%d", cent->currentState.number);
+		}
+#endif
 	}
 
 /*
@@ -2380,6 +2609,12 @@ Ghoul2 Insert End
 		CG_Clouds( cent );
 		break;
 	}
+#ifdef _XBOX
+	if ( xboxTraceEnt )
+	{
+		XBLF("JA: CG_AddCEntity exit ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+	}
+#endif
 }
 
 /*
@@ -2392,6 +2627,10 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 	int					num;
 	centity_t			*cent;
 	playerState_t		*ps;
+#ifdef _XBOX
+	static int s_xboxPacketEntTraceFrames = 0;
+	const qboolean xboxTracePacketEnts = (s_xboxPacketEntTraceFrames < 2);
+#endif
 
 	if (isPortal)
 	{
@@ -2401,7 +2640,21 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 
 			if (cent->currentState.isPortalEnt)
 			{
+#ifdef _XBOX
+				if ( xboxTracePacketEnts )
+				{
+					XBLF("JA: CG_AddPacketEntities portal before index=%d ent=%d type=%d",
+						num, cent->currentState.number, cent->currentState.eType);
+				}
+#endif
 				CG_AddCEntity( cent );
+#ifdef _XBOX
+				if ( xboxTracePacketEnts )
+				{
+					XBLF("JA: CG_AddPacketEntities portal after index=%d ent=%d",
+						num, cent->currentState.number);
+				}
+#endif
 			}
 		}
 		return;
@@ -2448,11 +2701,32 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 //	cent = &cg_entities[ ps->clientNum ];	// not needed now that player is in the snap packet
 //	CG_AddCEntity( cent );					//
 
+#ifdef _XBOX
+	if ( xboxTracePacketEnts )
+	{
+		XBLF("JA: CG_AddPacketEntities main time=%d numEntities=%d permanents=%d psClient=%d",
+			cg.time, cg.snap->numEntities, cg_numpermanents, ps->clientNum);
+	}
+#endif
 	// add each entity sent over by the server
 	for ( num = 0 ; num < cg.snap->numEntities ; num++ ) {
 		cent = &cg_entities[ cg.snap->entities[ num ].number ];
 
+#ifdef _XBOX
+		if ( xboxTracePacketEnts )
+		{
+			XBLF("JA: CG_AddPacketEntities before snap index=%d ent=%d type=%d weapon=%d",
+				num, cent->currentState.number, cent->currentState.eType, cent->currentState.weapon);
+		}
+#endif
 		CG_AddCEntity( cent );
+#ifdef _XBOX
+		if ( xboxTracePacketEnts )
+		{
+			XBLF("JA: CG_AddPacketEntities after snap index=%d ent=%d type=%d",
+				num, cent->currentState.number, cent->currentState.eType);
+		}
+#endif
 	}
 
 	for(num=0;num<cg_numpermanents;num++)
@@ -2460,9 +2734,33 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 		cent = cg_permanents[num];
 		if (cent->currentValid)
 		{
+#ifdef _XBOX
+			if ( xboxTracePacketEnts )
+			{
+				XBLF("JA: CG_AddPacketEntities before permanent index=%d ent=%d type=%d",
+					num, cent->currentState.number, cent->currentState.eType);
+			}
+#endif
 			CG_AddCEntity( cent );
+#ifdef _XBOX
+			if ( xboxTracePacketEnts )
+			{
+				XBLF("JA: CG_AddPacketEntities after permanent index=%d ent=%d",
+					num, cent->currentState.number);
+			}
+#endif
 		}
 	}
+#ifdef _XBOX
+	if ( xboxTracePacketEnts )
+	{
+		XBLF("JA: CG_AddPacketEntities exit time=%d", cg.time);
+	}
+	if (!isPortal)
+	{
+		s_xboxPacketEntTraceFrames++;
+	}
+#endif
 }
 
 //rww - This function is not currently called. Use it as the client-side ROFF
