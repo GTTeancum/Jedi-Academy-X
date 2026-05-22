@@ -888,15 +888,15 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	}
 
 #if defined (_XBOX)// && !defined(_DEBUG)
-	// Boot directly into a map while the logo/menu path is still under repair.
-	// Do this before CL_StartHunkUsers so the first renderer init happens for
-	// the map load, not for a throwaway disconnected client frame.
+	// Optional test harness: if D:\ja_sp_level.txt names a map, boot straight
+	// into it before the normal UI path does any renderer work. Empty/missing
+	// file means a normal menu boot.
 	extern bool Sys_QuickStart( void );
 	static bool firstRun = true;
 	if(firstRun)
 	{
 		char startupMap[MAX_QPATH];
-		Q_strncpyz(startupMap, "taspir2", sizeof(startupMap));
+		startupMap[0] = '\0';
 		FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
 		if (startupMapFile)
 		{
@@ -911,6 +911,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			}
 			fclose(startupMapFile);
 		}
+
 		FILE *startupCommandFile = fopen("D:\\ja_sp_commands.txt", "r");
 		if (startupCommandFile)
 		{
@@ -927,10 +928,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			}
 			fclose(startupCommandFile);
 		}
-		XBLF("JA: CL_Frame firstRun: queue devmap %s before CL_StartHunkUsers", startupMap);
-		Cbuf_AddText(va("devmap %s\n", startupMap));
-		firstRun = false;
-		return;
+		if (startupMap[0])
+		{
+			XBLF("JA: CL_Frame firstRun: ja_sp_level.txt requested devmap %s before CL_StartHunkUsers", startupMap);
+			Cbuf_AddText(va("devmap %s\n", startupMap));
+			firstRun = false;
+			return;
+		}
+		XBLog_Write("JA: CL_Frame firstRun: no ja_sp_level.txt map, continuing normal UI boot");
 	}
 	
 #endif
