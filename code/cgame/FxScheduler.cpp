@@ -18,6 +18,10 @@
 	#include "../game/q_shared.h"
 #endif
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 
 CFxScheduler	theFxScheduler;
 
@@ -406,6 +410,9 @@ int CFxScheduler::RegisterEffect( const char *file, bool bHasCorrectPath /*= fal
 	//
 
 	char sfile[MAX_QPATH];
+#ifdef _XBOX
+	XBLF("JA: FX RegisterEffect enter file='%s' hasPath=%d", file ? file : "<null>", bHasCorrectPath);
+#endif
 
 	// Get an extension stripped version of the file
 	if (bHasCorrectPath)
@@ -437,6 +444,7 @@ int CFxScheduler::RegisterEffect( const char *file, bool bHasCorrectPath /*= fal
 	if ( itr != mEffectIDs.end() )
 	{
 #ifdef _XBOX
+		XBLF("JA: FX RegisterEffect cache hit file='%s' sfile='%s' id=%d", file ? file : "<null>", sfile, *itr);
 		return *itr;				// ratl map_vs: operator* returns the value
 #else
 		return (*itr).second;
@@ -463,6 +471,9 @@ int CFxScheduler::RegisterEffect( const char *file, bool bHasCorrectPath /*= fal
 	}
 
 	len = theFxHelper.OpenFile( pfile, &fh, FS_READ );
+#ifdef _XBOX
+	XBLF("JA: FX RegisterEffect opened file='%s' pfile='%s' len=%d", file ? file : "<null>", pfile ? pfile : "<null>", len);
+#endif
 
 	if ( len < 0 )
 	{
@@ -487,7 +498,13 @@ int CFxScheduler::RegisterEffect( const char *file, bool bHasCorrectPath /*= fal
 	bufParse = data;
 
 	// Let the generic parser process the whole file
+#ifdef _XBOX
+	XBLF("JA: FX RegisterEffect parse begin sfile='%s' pfile='%s' len=%d", sfile, pfile ? pfile : "<null>", len);
+#endif
 	parser.Parse( &bufParse );
+#ifdef _XBOX
+	XBLF("JA: FX RegisterEffect parse done sfile='%s'", sfile);
+#endif
 
 	theFxHelper.CloseFile( fh );
 
@@ -495,7 +512,11 @@ int CFxScheduler::RegisterEffect( const char *file, bool bHasCorrectPath /*= fal
 	delete [] data;
 
 	// Lets convert the effect file into something that we can work with
-	return ParseEffect( sfile, parser.GetBaseParseGroup() );
+	int result = ParseEffect( sfile, parser.GetBaseParseGroup() );
+#ifdef _XBOX
+	XBLF("JA: FX RegisterEffect done file='%s' sfile='%s' id=%d", file ? file : "<null>", sfile, result);
+#endif
+	return result;
 }
 
 
@@ -521,8 +542,14 @@ int CFxScheduler::ParseEffect( const char *file, CGPGroup *base )
 	EPrimType			type;
 	int					handle;
 	CGPValue			*pair;
+#ifdef _XBOX
+	XBLF("JA: FX ParseEffect enter file='%s' base=%p", file ? file : "<null>", base);
+#endif
 
 	effect = GetNewEffectTemplate( &handle, file );
+#ifdef _XBOX
+	XBLF("JA: FX ParseEffect template file='%s' handle=%d effect=%p", file ? file : "<null>", handle, effect);
+#endif
 
 	if ( !handle || !effect )
 	{
@@ -548,6 +575,9 @@ int CFxScheduler::ParseEffect( const char *file, CGPGroup *base )
 	while ( primitiveGroup )
 	{
 		grpName = primitiveGroup->GetName();
+#ifdef _XBOX
+		XBLF("JA: FX ParseEffect primitive file='%s' group='%s'", file ? file : "<null>", grpName ? grpName : "<null>");
+#endif
 
 		// Huge stricmp lists suxor
 		if ( !stricmp( grpName, "particle" ))
@@ -618,7 +648,13 @@ int CFxScheduler::ParseEffect( const char *file, CGPGroup *base )
 			prim = new CPrimitiveTemplate;
 
 			prim->mType = type;
+#ifdef _XBOX
+			XBLF("JA: FX ParseEffect before ParsePrimitive file='%s' group='%s' type=%d prim=%p", file ? file : "<null>", grpName ? grpName : "<null>", type, prim);
+#endif
 			prim->ParsePrimitive( primitiveGroup );
+#ifdef _XBOX
+			XBLF("JA: FX ParseEffect after ParsePrimitive file='%s' group='%s' type=%d prim=%p", file ? file : "<null>", grpName ? grpName : "<null>", type, prim);
+#endif
 
 			// Add our primitive template to the effect list
 			AddPrimitiveToEffect( effect, prim );
@@ -627,6 +663,9 @@ int CFxScheduler::ParseEffect( const char *file, CGPGroup *base )
 		primitiveGroup = (CGPGroup *)primitiveGroup->GetNext();
 	}
 
+#ifdef _XBOX
+	XBLF("JA: FX ParseEffect done file='%s' handle=%d primitives=%d", file ? file : "<null>", handle, effect ? effect->mPrimitiveCount : -1);
+#endif
 	return handle;
 }
 

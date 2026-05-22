@@ -12,6 +12,7 @@
 #else
 #include "../qcommon/sstring.h"
 #include "../zlib/zlib.h"
+#include "../win32/xb_log.h"
 #endif
 #include "../png/png.h"
 #include "../qcommon/sstring.h"
@@ -137,14 +138,14 @@ void GL_TextureMode( const char *string ) {
 		if ( glt->mipmap ) {
 #endif
 			GL_Bind (glt);
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 
 			if(glConfig.maxTextureFilterAnisotropy>0) {
 				if(r_ext_texture_filter_anisotropic->integer>1) {
-					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, r_ext_texture_filter_anisotropic->value);
+					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, r_ext_texture_filter_anisotropic->value);
 				} else {
-					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
+					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
 				}
 			}
 		}
@@ -536,7 +537,11 @@ Upload32
 
 ===============
 */
-static void Upload32( unsigned *data, 
+#ifdef _XBOX
+extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
+#endif
+
+static void Upload32( const char *debugName, unsigned *data, 
 						  int img_width, int img_height, 
 						  GLenum format,
 						  int mipcount, 
@@ -544,6 +549,16 @@ static void Upload32( unsigned *data,
 						  qboolean isLightmap, 
 						  int *pformat )
 {
+#ifdef _XBOX
+	XBLF("JA: Upload32 image='%s' size=%dx%d format=0x%08x mipcount=%d picmip=%d lightmap=%d\n",
+		debugName ? debugName : "<null>",
+		img_width,
+		img_height,
+		format,
+		mipcount,
+		picmip,
+		isLightmap);
+#endif
 	if (format == GL_RGBA)
 	{
 		int			samples;
@@ -643,7 +658,7 @@ static void Upload32( unsigned *data,
 		// copy or resample data as appropriate for first MIP level
 		if (!mipcount)
 		{
-			qglTexImage2D (GL_TEXTURE_2D, 0, *pformat, width, height, 0, 
+			glTexImage2D (GL_TEXTURE_2D, 0, *pformat, width, height, 0, 
 				GL_RGBA, GL_UNSIGNED_BYTE, data);
 		}
 		else
@@ -660,7 +675,7 @@ static void Upload32( unsigned *data,
 					++total;
 				}
 				
-				qglTexImage2DEXT (GL_TEXTURE_2D, 0, total, *pformat, width, height, 
+				glTexImage2DEXT (GL_TEXTURE_2D, 0, total, *pformat, width, height, 
 					0, GL_RGBA, GL_UNSIGNED_BYTE, data );
 			}
 		}
@@ -669,33 +684,48 @@ static void Upload32( unsigned *data,
 	{
 		*pformat = format;
 
-		qglTexImage2DEXT (GL_TEXTURE_2D, 0, mipcount,
+#ifdef _XBOX
+		JkaFakeglSetDDSUploadPicmip(picmip ? r_picmip->integer : 0);
+#endif
+		glTexImage2DEXT (GL_TEXTURE_2D, 0, mipcount,
 			format, img_width, img_height, 0, format, 
 			GL_UNSIGNED_BYTE, data);
+#ifdef _XBOX
+		JkaFakeglSetDDSUploadPicmip(0);
+#endif
 	}
 
 	if (mipcount)
 	{
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 		if(glConfig.textureFilterAnisotropicAvailable)
 		{
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 2.0f);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 2.0f);
 		}
 	}
 	else
 	{
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 	}
 
 	GL_CheckErrors();
+#ifdef _XBOX
+	XBLF("JA: Upload32 done image='%s' pformat=0x%08x\n",
+		debugName ? debugName : "<null>",
+		pformat ? *pformat : 0);
+#endif
 }
 
 
 typedef tmap (int, image_t *)	AllocatedImages_t;
 								AllocatedImages_t* AllocatedImages = NULL;
 								AllocatedImages_t::iterator itAllocatedImages;
+#ifdef _XBOX
+typedef tmap (sstring_t, image_t *)	AllocatedImageNames_t;
+								AllocatedImageNames_t* AllocatedImageNames = NULL;
+#endif
 
 int giTextureBindNum = 1024;	// will be set to this anyway at runtime, but wtf?
 
@@ -732,7 +762,15 @@ static void R_Images_DeleteImageContents( image_t *pImage )
 	assert(pImage);	// should never be called with NULL
 	if (pImage)
 	{
-		qglDeleteTextures( 1, &pImage->texnum );
+#ifdef _XBOX
+		if (AllocatedImageNames)
+		{
+			char canonicalName[MAX_QPATH];
+			Q_strncpyz(canonicalName, GenerateImageMappingName(pImage->imgName), sizeof(canonicalName));
+			AllocatedImageNames->erase(sstring_t(canonicalName));
+		}
+#endif
+		glDeleteTextures( 1, &pImage->texnum );
 		Z_Free(pImage);
 	}
 }
@@ -740,18 +778,18 @@ static void R_Images_DeleteImageContents( image_t *pImage )
 static void GL_ResetBinds(void)
 {
 	memset( glState.currenttextures, 0, sizeof( glState.currenttextures ) );
-	if ( qglBindTexture ) 
+	if ( glBindTexture ) 
 	{
-		if ( qglActiveTextureARB ) 
+		if ( glActiveTextureARB ) 
 		{
 			GL_SelectTexture( 1 );
-			qglBindTexture( GL_TEXTURE_2D, 0 );
+			glBindTexture( GL_TEXTURE_2D, 0 );
 			GL_SelectTexture( 0 );
-			qglBindTexture( GL_TEXTURE_2D, 0 );
+			glBindTexture( GL_TEXTURE_2D, 0 );
 		} 
 		else 
 		{
-			qglBindTexture( GL_TEXTURE_2D, 0 );
+			glBindTexture( GL_TEXTURE_2D, 0 );
 		}
 	}
 }
@@ -795,6 +833,17 @@ void R_Images_DeleteImage(image_t *pImage)
 	}
 	else
 	{
+#ifdef _XBOX
+		for (itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+		{
+			if ((*itImage).second == pImage)
+			{
+				R_Images_DeleteImageContents(pImage);
+				AllocatedImages->erase(itImage);
+				return;
+			}
+		}
+#endif
 		assert(0);
 	}
 }
@@ -818,6 +867,14 @@ void R_Images_Clear(void)
 		delete AllocatedImages;
 		AllocatedImages = NULL;
 	}
+#ifdef _XBOX
+	if( AllocatedImageNames )
+	{
+		AllocatedImageNames->clear();
+		delete AllocatedImageNames;
+		AllocatedImageNames = NULL;
+	}
+#endif
 
 	giTextureBindNum = 1024;
 
@@ -896,25 +953,37 @@ static image_t *R_FindImageFile_NoLoad(const char *name, int mipcount, qboolean 
 		return NULL;
 	}
 
-	char *pName = GenerateImageMappingName(name);
+	char canonicalName[MAX_QPATH];
+	Q_strncpyz(canonicalName, GenerateImageMappingName(name), sizeof(canonicalName));
+#ifdef _XBOX
+	qboolean probeImage = ( !Q_stricmp( canonicalName, "*white" ) || !Q_stricmp( canonicalName, "white" ) );
+	if ( probeImage ) {
+		XBLF("R_FindImageFile_NoLoad: name='%s' mapped='%s'\n", name, canonicalName);
+	}
+#endif
 
 	//
 	// see if the image is already loaded
 	//
-	int code = crc32(0, (const Bytef *)pName, strlen(pName));
+	int code = crc32(0, (const Bytef *)canonicalName, strlen(canonicalName));
 	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages->find(code);
+#ifdef _XBOX
+	if ( probeImage ) {
+		XBLF("R_FindImageFile_NoLoad: code=0x%08x found=%d\n", code, itAllocatedImage != AllocatedImages->end());
+	}
+#endif
 	if (itAllocatedImage != AllocatedImages->end())
 	{	
 		image_t *pImage = (*itAllocatedImage).second;
 
 		// the white image can be used with any set of parms, but other mismatches are errors...
 		//
-		if ( strcmp( pName, "*white" ) ) {
+		if ( strcmp( canonicalName, "*white" ) ) {
 			if ( !!pImage->mipcount != !!mipcount ) {
-				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", pName );
+				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", canonicalName );
 			}
 //			if ( pImage->allowPicmip != !!allowPicmip ) {
-//				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", pName );
+//				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", canonicalName );
 //			}
 		}
 
@@ -922,6 +991,53 @@ static image_t *R_FindImageFile_NoLoad(const char *name, int mipcount, qboolean 
 			  
 		return pImage;
 	}
+
+#ifdef _XBOX
+	if (AllocatedImageNames)
+	{
+		AllocatedImageNames_t::iterator itNamedImage = AllocatedImageNames->find(sstring_t(canonicalName));
+		if (itNamedImage != AllocatedImageNames->end())
+		{
+			image_t *pImage = (*itNamedImage).second;
+			if (pImage)
+			{
+				pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+				return pImage;
+			}
+		}
+	}
+
+	// Retail de-dupes images by canonical name.  If the primary lookup misses
+	// because an older entry was keyed differently, reclaim the existing entry
+	// and normalize its key instead of allocating another image_t.
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	{
+		image_t *pImage = (*itImage).second;
+		if (!pImage)
+		{
+			continue;
+		}
+
+		char existingName[MAX_QPATH];
+		Q_strncpyz(existingName, GenerateImageMappingName(pImage->imgName), sizeof(existingName));
+		if (!Q_stricmp(existingName, canonicalName))
+		{
+			if (itImage->first != code)
+			{
+				AllocatedImages->erase(itImage);
+				pImage->imgCode = code;
+				(*AllocatedImages)[code] = pImage;
+			}
+			pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+			if (AllocatedImageNames)
+			{
+				(*AllocatedImageNames)[sstring_t(canonicalName)] = pImage;
+			}
+			XBLF("JA: image cache recovered duplicate name='%s' tex=%d\n", canonicalName, pImage->texnum);
+			return pImage;
+		}
+	}
+#endif
 
 	return NULL;
 }
@@ -949,7 +1065,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		glWrapClampMode = GL_CLAMP_TO_EDGE;
 	}
 
-	if (name[0] == '$')
+	if (name[0] == '$' || strstr(name, "/lightmap") || strstr(name, "\\lightmap"))
 	{
 		isLightmap = qtrue;
 	}
@@ -966,7 +1082,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 
 	image = (image_t*) Z_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
 
-	qglGenTextures(1, (GLuint*)&image->texnum);
+	glGenTextures(1, (GLuint*)&image->texnum);
 
 	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
 
@@ -988,23 +1104,30 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 
 	GL_Bind(image);
 
-	Upload32( (unsigned *)pic,	image->width, image->height, 
+	Upload32( name, (unsigned *)pic,	image->width, image->height, 
 								format,
 								image->mipcount,
 								allowPicmip, 
 								isLightmap, 
 								&image->internalFormat );
 
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
 
-	qglBindTexture( GL_TEXTURE_2D, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
+	glBindTexture( GL_TEXTURE_2D, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
 	glState.currenttextures[glState.currenttmu] = 0;	//mark it not bound
 
 	const char* psNewName = GenerateImageMappingName(name);
 	image->imgCode = crc32(0, (const Bytef *)psNewName, strlen(psNewName));
 
 	(*AllocatedImages)[ image->imgCode ] = image;
+#ifdef _XBOX
+	if (!AllocatedImageNames)
+	{
+		AllocatedImageNames = new AllocatedImageNames_t;
+	}
+	(*AllocatedImageNames)[sstring_t(psNewName)] = image;
+#endif
 
 	return image;
 }
@@ -1961,7 +2084,7 @@ float	R_FogFactor( float s, float t ) {
 	float	d;
 
 	s -= 1.0/512;
-	if ( s < 0 ) {
+	if ( s <= 0 ) {
 		return 0;
 	}
 	if ( t < 1.0/32 ) {
@@ -1974,6 +2097,9 @@ float	R_FogFactor( float s, float t ) {
 	// we need to leave a lot of clamp range
 	s *= 8;
 
+	if ( s < 0 ) {
+		s = 0;
+	}
 	if ( s > 1.0 ) {
 		s = 1.0;
 	}
@@ -1990,6 +2116,47 @@ R_CreateFogImage
 */
 #define	FOG_S	256
 #define	FOG_T	32
+#ifdef _XBOX
+static byte R_FogTextureAlphaForTexel( int x, int y ) {
+	int index;
+	int value;
+	int root;
+	int bit;
+
+	if ( x <= 0 || y <= 0 ) {
+		return 0;
+	}
+
+	if ( y < FOG_T - 1 ) {
+		index = ( x * 8 * ( ( y * 2 ) - 1 ) * ( FOG_TABLE_SIZE - 1 ) ) / ( FOG_S * 60 );
+	} else {
+		index = ( x * 8 * ( FOG_TABLE_SIZE - 1 ) ) / FOG_S;
+	}
+
+	if ( index < 0 ) {
+		index = 0;
+	} else if ( index > FOG_TABLE_SIZE - 1 ) {
+		index = FOG_TABLE_SIZE - 1;
+	}
+
+	value = index * 255;
+	root = 0;
+	for ( bit = 1 << 14; bit > 0; bit >>= 2 ) {
+		if ( value >= root + bit ) {
+			value -= root + bit;
+			root = ( root >> 1 ) + bit;
+		} else {
+			root >>= 1;
+		}
+	}
+
+	if ( root > 255 ) {
+		root = 255;
+	}
+	return (byte)root;
+}
+#endif
+
 static void R_CreateFogImage( void ) {
 	int		x,y;
 	byte	*data;
@@ -1997,10 +2164,16 @@ static void R_CreateFogImage( void ) {
 	float	d;
 	float	borderColor[4];
 
+#ifdef _XBOX
+	XBL("R_CreateFogImage: alloc...\n");
+#endif
 	data = (byte*) Z_Malloc( FOG_S * FOG_T * 4, TAG_TEMP_WORKSPACE, qfalse );
 
 	g = 2.0;
 
+#ifdef _XBOX
+	XBL("R_CreateFogImage: fill...\n");
+#endif
 	// S is distance, T is depth
 	for (x=0 ; x<FOG_S ; x++) {
 		for (y=0 ; y<FOG_T ; y++) {
@@ -2015,15 +2188,31 @@ static void R_CreateFogImage( void ) {
 	// standard openGL clamping doesn't really do what we want -- it includes
 	// the border color at the edges.  OpenGL 1.2 has clamp-to-edge, which does
 	// what we want.
+#ifdef _XBOX
+	XBL("R_CreateFogImage: R_CreateImage...\n");
+#endif
 	tr.fogImage = R_CreateImage("*fog", (byte *)data, FOG_S, FOG_T, GL_RGBA, qfalse, qfalse, GL_CLAMP);
+#ifdef _XBOX
+	XBLF("R_CreateFogImage: R_CreateImage done image=%p\n", (void*)tr.fogImage);
+	XBL("R_CreateFogImage: Z_Free...\n");
+#endif
 	Z_Free( data );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: Z_Free done\n");
+#endif
 
 	borderColor[0] = 1.0;
 	borderColor[1] = 1.0;
 	borderColor[2] = 1.0;
 	borderColor[3] = 1;
 
-	qglTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: glTexParameterfv BORDER_COLOR...\n");
+#endif
+	glTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: complete\n");
+#endif
 }
 
 /*
@@ -2073,34 +2262,45 @@ void R_CreateBuiltinImages( void ) {
 	int		x;
 	byte	*data = (byte *) Z_Malloc( SCREEN_IMAGE_MAX_WIDTH * SCREEN_IMAGE_MAX_HEIGHT * 4, TAG_TEMP_WORKSPACE, qfalse, 4 );
 
+	XBL("R_CreateBuiltinImages: *default...\n");
 	R_CreateDefaultImage();
 
 	// we use a solid white image instead of disabling texturing
 	memset( data, 255, Z_Size( data ) );
 
+	XBL("R_CreateBuiltinImages: *white...\n");
 	tr.whiteImage = R_CreateImage("*white", data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
 
 	// Make these the right size the first time!
+	XBL("R_CreateBuiltinImages: *screen...\n");
 	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_RGBA, 1, qfalse, GL_REPEAT );
+	XBL("R_CreateBuiltinImages: *savegame placeholder...\n");
 	tr.saveGameImage = R_CreateImage("*savegame", data, SAVE_GAME_IMAGE_W, SAVE_GAME_IMAGE_H, GL_DDS1_EXT, 1, qfalse, GL_REPEAT );
 
+	XBL("R_CreateBuiltinImages: *identityLight...\n");
 	tr.identityLightImage = R_CreateImage("*identityLight", data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
 
 	// load the last saveimage
+	XBL("R_CreateBuiltinImages: R_UpdateSaveGameImage...\n");
 	R_UpdateSaveGameImage("z:\\screenshot.xbx");
+	XBL("R_CreateBuiltinImages: R_UpdateSaveGameImage done\n");
 
 
 	// scratchimage is usually used for cinematic drawing
 	for(x=0;x<NUM_SCRATCH_IMAGES;x++) {
 		// scratchimage is usually used for cinematic drawing
 		// XBOX - Only used for planet movies, which are all 128x128
+		XBLF("R_CreateBuiltinImages: *scratch%d...\n", x);
 		tr.scratchImage[x] = R_CreateImage(va("*scratch%d",x), data, 128, 128, GL_RGBA, qfalse, qfalse, GL_CLAMP);
 	}
 
 	Z_Free( data );
 
+	XBL("R_CreateBuiltinImages: R_CreateDlightImage...\n");
 	R_CreateDlightImage();
+	XBL("R_CreateBuiltinImages: R_CreateFogImage...\n");
 	R_CreateFogImage();
+	XBL("R_CreateBuiltinImages: done\n");
 }
 
 
@@ -2183,17 +2383,39 @@ R_InitImages
 ===============
 */
 void	R_InitImages( void ) {
+#ifdef _XBOX
+	XBL("R_InitImages: entered\n");
+#endif
 	//memset(hashTable, 0, sizeof(hashTable));	// DO NOT DO THIS NOW (because of image cacheing)	-ste.
 	if (!AllocatedImages)
 	{
+#ifdef _XBOX
+		XBL("R_InitImages: new AllocatedImages_t...\n");
+#endif
 		AllocatedImages = new AllocatedImages_t;
+#ifdef _XBOX
+		if (!AllocatedImageNames)
+		{
+			AllocatedImageNames = new AllocatedImageNames_t;
+		}
+		XBLF("R_InitImages: AllocatedImages=%p\n", (void*)AllocatedImages);
+#endif
 	}
 
+#ifdef _XBOX
+	XBL("R_InitImages: R_SetColorMappings...\n");
+#endif
 	// build brightness translation tables
 	R_SetColorMappings();
 
+#ifdef _XBOX
+	XBL("R_InitImages: R_CreateBuiltinImages (first D3D textures)...\n");
+#endif
 	// create default texture and white texture
 	R_CreateBuiltinImages();
+#ifdef _XBOX
+	XBL("R_InitImages: COMPLETE\n");
+#endif
 }
 
 /*
@@ -2675,4 +2897,3 @@ bool R_UpdateSaveGameImage(const char* filename)
 }
 
 #endif // _XBOX
-

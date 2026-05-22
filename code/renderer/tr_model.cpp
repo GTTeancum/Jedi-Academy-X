@@ -45,6 +45,9 @@ struct CachedEndianedModelBinary_s
 {
 	void	*pModelDiskImage;
 	int		iAllocSize;		// may be useful for mem-query, but I don't actually need it
+#ifdef _XBOX
+	qboolean bHeapAllocated;
+#endif
 	ShaderRegisterData_t ShaderRegisterData;
 
 	int		iLastLevelUsedOn;
@@ -54,12 +57,37 @@ struct CachedEndianedModelBinary_s
 		pModelDiskImage = 0;
 		iLastLevelUsedOn    = -1;
 		iAllocSize = 0;
+#ifdef _XBOX
+		bHeapAllocated = qfalse;
+#endif
 		ShaderRegisterData.clear();
 	}
 };
 typedef struct CachedEndianedModelBinary_s CachedEndianedModelBinary_t;
 typedef map <sstring_t,CachedEndianedModelBinary_t>	CachedModels_t;
 													CachedModels_t *CachedModels = NULL;	// the important cache item.
+
+#ifdef _XBOX
+static void RE_RegisterModels_FreeDiskImage(CachedEndianedModelBinary_t &cachedModel)
+{
+	if (!cachedModel.pModelDiskImage)
+	{
+		return;
+	}
+
+	if (cachedModel.bHeapAllocated)
+	{
+		HeapFree(GetProcessHeap(), 0, cachedModel.pModelDiskImage);
+	}
+	else
+	{
+		Z_Free(cachedModel.pModelDiskImage);
+	}
+
+	cachedModel.pModelDiskImage = NULL;
+	cachedModel.bHeapAllocated = qfalse;
+}
+#endif
 
 void RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const char *psShaderName, const int *piShaderIndexPoke)
 {
@@ -174,7 +202,7 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 		//
 		// ... groan, but not if doing a limb hierarchy creation (some VV stuff?), in which case it's NULL
 		//			
-#ifndef _XBOX	// GODDAMN - No, we can't do this.
+#ifndef _XBOX
 		if ( pvDiskBufferIfJustLoaded )
 		{
 			Z_MorphMallocTag( pvDiskBufferIfJustLoaded, eTag );
@@ -182,7 +210,25 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 		else
 #endif
 		{
+#ifdef _XBOX
+			if (eTag == TAG_MODEL_MD3 || eTag == TAG_MODEL_GLM || eTag == TAG_MODEL_GLA)
+			{
+				pvDiskBufferIfJustLoaded = HeapAlloc(GetProcessHeap(), 0, iSize);
+				if (!pvDiskBufferIfJustLoaded)
+				{
+					pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
+					ModelBin.bHeapAllocated = qfalse;
+				}
+				else
+				{
+					ModelBin.bHeapAllocated = qtrue;
+				}
+			}
+			else
+#endif
+			{
 			pvDiskBufferIfJustLoaded =  Z_Malloc(iSize,eTag, qfalse );
+			}
 		}
 
 		ModelBin.pModelDiskImage= pvDiskBufferIfJustLoaded;
@@ -191,6 +237,13 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 	}
 	else
 	{
+#ifdef _XBOX
+		if (eTag == TAG_MODEL_GLA && strstr(sModelName, "_humanoid"))
+		{
+			Com_PrintfAlways("JA: RE_RegisterModels_Malloc cache hit '%s' size=%d tag=%d\n",
+				sModelName, ModelBin.iAllocSize, eTag);
+		}
+#endif
 		// if we already had this model entry, then re-register all the shaders it wanted...
 		//
 		const int iEntries = ModelBin.ShaderRegisterData.size();
@@ -275,7 +328,11 @@ qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 	#endif				
 
 				if (CachedModel.pModelDiskImage) {
+#ifdef _XBOX
+					RE_RegisterModels_FreeDiskImage(CachedModel);
+#else
 					Z_Free(CachedModel.pModelDiskImage);	
+#endif
 					//CachedModel.pModelDiskImage = NULL;	// REM for reference, erase() call below negates the need for it.
 					bAtLeastoneModelFreed = qtrue;
 				}
@@ -327,7 +384,11 @@ static void RE_RegisterModels_DeleteAll(void)
 		CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
 
 		if (CachedModel.pModelDiskImage) {
+#ifdef _XBOX
+			RE_RegisterModels_FreeDiskImage(CachedModel);
+#else
 			Z_Free(CachedModel.pModelDiskImage);					
+#endif
 		}
 
 		itModel = CachedModels->erase(itModel);			
@@ -811,8 +872,7 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		// Aaaargh. Kill me now...
 		//
 #ifdef _XBOX
-		// Yeah. Unless we're on Xbox. Where we don't try and re-tag memory after allocation.
-		memcpy( mod->md3[lod], buffer, size );	// and don't do this now, since it's the same thing
+		memcpy( mod->md3[lod], buffer, size );
 #else
 		bAlreadyCached = qtrue;
 		assert( mod->md3[lod] == buffer );
@@ -963,6 +1023,15 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 void ShaderTableCleanup();
 void CM_LoadShaderText(bool forceReload);
 void CM_SetupShaderProperties(void);
+
+void R_HunkClearCrap(void)
+{
+	ShaderTableCleanup();
+	tr.numModels = 0;
+	memset(tr.models, 0, sizeof(tr.models));
+	tr.numShaders = 0;
+	tr.numSkins = 0;
+}
 
 /*
 ** RE_BeginRegistration

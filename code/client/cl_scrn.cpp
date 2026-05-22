@@ -7,6 +7,9 @@
 
 #include "client.h"
 #include "client_ui.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern console_t con;
 
@@ -357,8 +360,25 @@ This will be called twice if rendering in stereo mode
 ==================
 */
 void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
+#ifdef _XBOX
+	static int s_xboxDrawScreenTraceCount = 0;
+	static int s_xboxDrawScreenActiveTraceCount = 0;
+	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
+		? (s_xboxDrawScreenActiveTraceCount < 16 || ((s_xboxDrawScreenActiveTraceCount & 255) == 0))
+		: (s_xboxDrawScreenTraceCount < 8);
+	if (xboxTraceScreen)
+	{
+		XBLF("JA: SCR_DrawScreenField enter state=%d serverTime=%d stereo=%d", (int)cls.state, cl.serverTime, (int)stereoFrame);
+	}
+#endif
 
+	#ifdef _XBOX
+	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: re.BeginFrame...");
+	#endif
 	re.BeginFrame( stereoFrame );
+#ifdef _XBOX
+	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: re.BeginFrame done");
+#endif
 
 	// wide aspect ratio screens need to have the sides cleared
 	// unless they are displaying game renderings
@@ -409,7 +429,13 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			}
 			else
 			{
+				#ifdef _XBOX
+				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering...");
+				#endif
 				CL_CGameRendering( stereoFrame );
+				#ifdef _XBOX
+				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering done");
+				#endif
 			}
 			break;
 		}
@@ -422,7 +448,25 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// draw downloading progress bar
 
 	// the menu draws next
+	#ifdef _XBOX
+	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: _UI_Refresh...");
+	#endif
 	_UI_Refresh( cls.realtime );
+#ifdef _XBOX
+	if (xboxTraceScreen)
+	{
+		XBLog_Write("JA: SCR_DrawScreenField: _UI_Refresh done");
+		XBLog_Write("JA: SCR_DrawScreenField done");
+		if (cls.state == CA_ACTIVE)
+		{
+			s_xboxDrawScreenActiveTraceCount++;
+		}
+		else
+		{
+			s_xboxDrawScreenTraceCount++;
+		}
+	}
+#endif
 
 	// console draws next
 //	Con_DrawConsole ();
@@ -458,19 +502,63 @@ void SCR_UpdateScreen( void ) {
 	}
 	recursive = qtrue;
 
+#ifdef _XBOX
+	static int s_xboxUpdateScreenTraceCount = 0;
+	static int s_xboxUpdateScreenActiveTraceCount = 0;
+	const int xboxTraceScreenTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
+	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
+		? (s_xboxUpdateScreenActiveTraceCount < 16 || ((s_xboxUpdateScreenActiveTraceCount & 255) == 0))
+		: (s_xboxUpdateScreenTraceCount < 8);
+#endif
+
 	// if running in stereo, we need to draw the frame twice
 	if ( cls.glconfig.stereoEnabled ) {
+#ifdef _XBOX
+		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw left");
+		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw left...");
+#endif
 		SCR_DrawScreenField( STEREO_LEFT );
+#ifdef _XBOX
+		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw right");
+		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw right...");
+#endif
 		SCR_DrawScreenField( STEREO_RIGHT );
 	} else {
+#ifdef _XBOX
+		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before draw center");
+		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw center...");
+#endif
 		SCR_DrawScreenField( STEREO_CENTER );
 	}
+#ifdef _XBOX
+	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw done");
+	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw done");
+#endif
 
+#ifdef _XBOX
+	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before re.EndFrame");
+	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: re.EndFrame...");
+#endif
 	if ( com_speeds->integer ) {
 		re.EndFrame( &time_frontend, &time_backend );
 	} else {
 		re.EndFrame( NULL, NULL );
 	}
+#ifdef _XBOX
+	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT after re.EndFrame");
+	if (xboxTraceScreen)
+	{
+		XBLog_Write("JA: SCR_UpdateScreen: re.EndFrame done");
+		if (cls.state == CA_ACTIVE)
+		{
+			s_xboxUpdateScreenActiveTraceCount++;
+		}
+		else
+		{
+			s_xboxUpdateScreenTraceCount++;
+		}
+	}
+#endif
 
 	recursive = 0;
 }

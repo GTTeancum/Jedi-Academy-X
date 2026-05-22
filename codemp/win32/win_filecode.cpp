@@ -17,6 +17,7 @@
 #include "../qcommon/fixedmap.h"
 #include "../zlib/zlib.h"
 #include "../qcommon/files.h"
+#include "xb_log.h"
 
 /***********************************************
 *
@@ -117,18 +118,23 @@ int _buildFileList(const char* path, bool insert, bool buildList)
 
 bool _buildFileListFromSavedList(void)
 {
+	XBLog_Write("JAMP: _buildFileListFromSavedList enter");
 	// open the file up for reading
 	FILE*	in;
+	XBLog_Write("JAMP: _buildFileListFromSavedList before fopen");
 	in = fopen("d:\\xbx_filelist","rb");
 	if(!in)
 	{
+		XBLog_Write("JAMP: _buildFileListFromSavedList fopen failed");
 		return false;
 	}
 
 	// read in the number of files
 	int count;
+	XBLog_Write("JAMP: _buildFileListFromSavedList before count read");
 	if(!(fread(&count,sizeof(count),1,in)))
 	{
+		XBLog_Write("JAMP: _buildFileListFromSavedList count read failed");
 		fclose(in);
 		return false;
 	}
@@ -137,22 +143,29 @@ bool _buildFileListFromSavedList(void)
 	byte*	baseAddr;
 	int bufferSize;
 	bufferSize	= count * ( 2 * sizeof(int) + MAX_OSPATH );
+	XBLog_Write("JAMP: _buildFileListFromSavedList before Z_Malloc");
 	buffer		= (byte*)Z_Malloc(bufferSize,TAG_TEMP_WORKSPACE,qtrue,32);
+	XBLog_Write("JAMP: _buildFileListFromSavedList after Z_Malloc");
 	baseAddr	= buffer;
 
 	// read the rest of the file into a big buffer
+	XBLog_Write("JAMP: _buildFileListFromSavedList before data read");
 	if(!(fread(buffer,bufferSize,1,in)))
 	{
+		XBLog_Write("JAMP: _buildFileListFromSavedList data read failed");
 		fclose(in);
 		Z_Free(baseAddr);
 		return false;
 	}
 
 	// allocate some memory for s_Files
+	XBLog_Write("JAMP: _buildFileListFromSavedList before map new");
 	s_Files = new VVFixedMap<FileInfo, unsigned int>(count);
+	XBLog_Write("JAMP: _buildFileListFromSavedList after map new");
 
 	// loop through all the files write out the codes
 	int i;
+	XBLog_Write("JAMP: _buildFileListFromSavedList before insert loop");
 	for(i = 0; i < count; i++)
 	{
 		FileInfo info;
@@ -173,26 +186,33 @@ bool _buildFileListFromSavedList(void)
 		// save the data - optimization: don't check for dupes!
 		s_Files->InsertUnsafe(info, code);
 	}
+	XBLog_Write("JAMP: _buildFileListFromSavedList after insert loop");
 
 	fclose(in);
 	Z_Free(baseAddr);
+	XBLog_Write("JAMP: _buildFileListFromSavedList exit true");
 	return true;
 }
 
 bool Sys_SaveFileCodes(void)
 {
+	XBLog_Write("JAMP: Sys_SaveFileCodes enter");
 	bool ret;
 	int res;
 
 	// get the number of files
 	int count;
+	XBLog_Write("JAMP: Sys_SaveFileCodes before count build");
 	count = _buildFileList(Sys_Cwd(), false, false);
+	XBLog_Write("JAMP: Sys_SaveFileCodes after count build");
 
 	// open a file for writing
 	FILE* out;
+	XBLog_Write("JAMP: Sys_SaveFileCodes before fopen");
 	out = fopen("d:\\xbx_filelist","wb");
 	if(!out)
 	{
+		XBLog_Write("JAMP: Sys_SaveFileCodes fopen failed");
 		return false;
 	}
 
@@ -201,7 +221,9 @@ bool Sys_SaveFileCodes(void)
 	int		bufferSize;
 	
 	bufferSize	= sizeof(int) + ( count * ( 2 * sizeof(int) + MAX_OSPATH ) );
+	XBLog_Write("JAMP: Sys_SaveFileCodes before Z_Malloc");
 	baseAddr	= (byte*)Z_Malloc(bufferSize,TAG_TEMP_WORKSPACE,qtrue,32);
+	XBLog_Write("JAMP: Sys_SaveFileCodes after Z_Malloc");
 	buffer		= baseAddr;
 
 	// write the number of files to the buffer
@@ -209,20 +231,25 @@ bool Sys_SaveFileCodes(void)
 	buffer			+= sizeof(count);
 
 	// fill up the rest of the buffer
+	XBLog_Write("JAMP: Sys_SaveFileCodes before list build");
 	ret = _buildFileList(Sys_Cwd(), false, true);
+	XBLog_Write("JAMP: Sys_SaveFileCodes after list build");
 
 	if(!ret)
 	{
 		// there was a problem
+		XBLog_Write("JAMP: Sys_SaveFileCodes list build failed");
 		fclose(out);
 		Z_Free(baseAddr);
 		return false;
 	}
 
 	// attempt to write out the data
+	XBLog_Write("JAMP: Sys_SaveFileCodes before fwrite");
 	if(!(fwrite(baseAddr,bufferSize,1,out)))
 	{
 		// there was a problem
+		XBLog_Write("JAMP: Sys_SaveFileCodes fwrite failed");
 		fclose(out);
 		Z_Free(baseAddr);
 		return false;
@@ -231,41 +258,54 @@ bool Sys_SaveFileCodes(void)
 	// everything went ok
 	fclose(out);
 	Z_Free(baseAddr);
+	XBLog_Write("JAMP: Sys_SaveFileCodes exit true");
 	return true;
 }
 
 void Sys_InitFileCodes(void)
 {
+	XBLog_Write("JAMP: Sys_InitFileCodes enter");
 	bool ret;
 	int count = 0;
 
 	// First: try to load an existing filecode cache
+	XBLog_Write("JAMP: Sys_InitFileCodes before saved list");
 	ret = _buildFileListFromSavedList();
+	XBLog_Write("JAMP: Sys_InitFileCodes after saved list");
 
 	// if we had trouble building the list that way
 	// we need to do it by searching the files
 	if( !ret )
 	{
 		// There was no filelist cache, make one
+		XBLog_Write("JAMP: Sys_InitFileCodes before save filecodes");
 		if( !Sys_SaveFileCodes() )
 		{
 			Com_Printf("WARNING: Couldn't create filecode cache - continuing without it\n");
+			XBLog_Write("JAMP: Sys_InitFileCodes save failed nonfatal");
 			s_Mutex = CreateMutex(NULL, FALSE, NULL);
 			return;
 		}
+		XBLog_Write("JAMP: Sys_InitFileCodes after save filecodes");
 
 		// Now re-read it
+		XBLog_Write("JAMP: Sys_InitFileCodes before reread saved list");
 		if( !_buildFileListFromSavedList() )
 		{
 			Com_Printf("WARNING: Couldn't re-read filecode cache - continuing without it\n");
+			XBLog_Write("JAMP: Sys_InitFileCodes reread failed nonfatal");
 			s_Mutex = CreateMutex(NULL, FALSE, NULL);
 			return;
 		}
+		XBLog_Write("JAMP: Sys_InitFileCodes after reread saved list");
 	}
+	XBLog_Write("JAMP: Sys_InitFileCodes before sort");
 	s_Files->Sort();
+	XBLog_Write("JAMP: Sys_InitFileCodes after sort");
 
 	// make it thread safe
 	s_Mutex = CreateMutex(NULL, FALSE, NULL);
+	XBLog_Write("JAMP: Sys_InitFileCodes exit");
 }
 
 void Sys_ShutdownFileCodes(void)

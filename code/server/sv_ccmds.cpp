@@ -9,6 +9,10 @@
 #include "..\game\g_items.h"
 #include "..\game\statindex.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 
 /*
 ===============================================================================
@@ -49,7 +53,13 @@ static void SV_Map_( ForceReload_e eForceReload )
 //	char	expanded[MAX_QPATH];
 
 	map = Cmd_Argv(1);
+#ifdef _XBOX
+	XBLog_Write(va("JA: SV_Map_: requested '%s'", map ? map : "(null)"));
+#endif
 	if ( !*map ) {
+#ifdef _XBOX
+		XBLog_Write("JA: SV_Map_: empty map arg, return");
+#endif
 		return;
 	}
 
@@ -78,7 +88,13 @@ static void SV_Map_( ForceReload_e eForceReload )
 		SG_WipeSavegame("Checkpoint");
 	}
 
+#ifdef _XBOX
+	XBLog_Write("JA: SV_Map_: calling SV_SpawnServer");
+#endif
 	SV_SpawnServer( map, eForceReload, qtrue );	// start up the map
+#ifdef _XBOX
+	XBLog_Write("JA: SV_Map_: SV_SpawnServer returned");
+#endif
 }
 
 

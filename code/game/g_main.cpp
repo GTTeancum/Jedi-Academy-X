@@ -11,6 +11,9 @@
 #include "g_navigator.h"
 #include "b_local.h"
 #include "anims.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 #include "objectives.h"
 #include "../cgame/cg_local.h"	// yeah I know this is naughty, but we're shipping soon...
 
@@ -2266,7 +2269,13 @@ void G_ReserveZoneGentities( void )
 
 void G_AllocGentities( void )
 {
+#ifdef _XBOX
+	XBLog_Write("JA: G_AllocGentities: HeapAlloc...");
+#endif
 	g_entities = (gentity_t *) HeapAlloc( GetProcessHeap(), 0, sizeof(gentity_t) * MAX_GENTITIES );
+#ifdef _XBOX
+	XBLog_Writef("JA: G_AllocGentities: g_entities=%p bHadPersistedSurface=%d", (void*)g_entities, bHadPersistedSurface);
+#endif
 
 	// If it worked...
 	if( g_entities )

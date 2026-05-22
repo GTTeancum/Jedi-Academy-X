@@ -181,6 +181,10 @@ void SV_SendClientGameState( client_t *client ) {
 	byte		msgBuffer[MAX_MSGLEN];
 
 	Com_DPrintf ("SV_SendGameState() for %s\n", client->name);
+#ifdef _XBOX
+	Com_PrintfAlways("JA: SV_SendClientGameState enter client=%s outgoing=%d\n",
+		client ? client->name : "(null)", client ? client->netchan.outgoingSequence : -1);
+#endif
 	client->state = CS_PRIMED;
 
 	// when we receive the first packet from the client, we will
@@ -215,7 +219,14 @@ void SV_SendClientGameState( client_t *client ) {
 	}
 
 	// deliver this to the client
+#ifdef _XBOX
+	Com_PrintfAlways("JA: SV_SendClientGameState send size=%d overflow=%d configEnd=%d\n",
+		msg.cursize, (int)msg.overflowed, start);
+#endif
 	SV_SendMessageToClient( &msg, client );
+#ifdef _XBOX
+	Com_PrintfAlways("JA: SV_SendClientGameState done\n");
+#endif
 }
 
 
@@ -554,6 +565,17 @@ Parse a client packet
 void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 	int			c;
 
+#ifdef _XBOX
+	static int s_xboxExecClientLogs = 0;
+	if (s_xboxExecClientLogs < 32)
+	{
+		Com_PrintfAlways("JA: SV_ExecuteClientMessage enter client=%s state=%d msgSize=%d read=%d\n",
+			cl ? cl->name : "(null)", cl ? cl->state : -1,
+			msg ? msg->cursize : -1, msg ? msg->readcount : -1);
+		++s_xboxExecClientLogs;
+	}
+#endif
+
 	while( 1 ) {
 		if ( msg->readcount > msg->cursize ) {
 			SV_DropClient (cl, "had a badread");
@@ -574,10 +596,26 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 			break;
 
 		case clc_move:
+#ifdef _XBOX
+			if (s_xboxExecClientLogs < 32)
+			{
+				Com_PrintfAlways("JA: SV_ExecuteClientMessage clc_move client=%s state=%d\n",
+					cl ? cl->name : "(null)", cl ? cl->state : -1);
+				++s_xboxExecClientLogs;
+			}
+#endif
 			SV_UserMove( cl, msg );
 			break;
 
 		case clc_clientCommand:
+#ifdef _XBOX
+			if (s_xboxExecClientLogs < 32)
+			{
+				Com_PrintfAlways("JA: SV_ExecuteClientMessage clc_clientCommand client=%s state=%d\n",
+					cl ? cl->name : "(null)", cl ? cl->state : -1);
+				++s_xboxExecClientLogs;
+			}
+#endif
 			SV_ClientCommand( cl, msg );
 			if (cl->state == CS_ZOMBIE) {
 				return;	// disconnect command

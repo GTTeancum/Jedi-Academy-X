@@ -300,6 +300,23 @@ void G_SoundOnEnt( gentity_t *ent, soundChannel_t channel, const char *soundPath
 	{
 		return;
 	}
+#ifdef _XBOX
+	{
+		static int s_xboxSoundOnEntLogs = 0;
+		if (s_xboxSoundOnEntLogs < 64 &&
+			(channel == CHAN_VOICE || channel == CHAN_VOICE_ATTEN || channel == CHAN_VOICE_GLOBAL))
+		{
+			Com_Printf("JA: G_SoundOnEnt voice ent=%d client=%d chan=%d index=%d precache=%d path='%s'\n",
+				ent->s.number,
+				ent->s.clientNum,
+				channel,
+				index,
+				(index >= 0 && index < MAX_SOUNDS && cgs.sound_precache[index]) ? cgs.sound_precache[index] : 0,
+				soundPath ? soundPath : "<null>");
+			++s_xboxSoundOnEntLogs;
+		}
+	}
+#endif
 	if ( g_timescale->integer > 50 )
 	{//Skip the sound!
 		return;

@@ -108,17 +108,12 @@ static void GLW_InitExtensions( void )
 	// GL_ARB_multitexture
 	if ( strstr( glConfig.extensions_string, "GL_ARB_multitexture" )  )
 	{
-		if ( qglActiveTextureARB )
-		{
-			qglGetIntegerv( GL_MAX_ACTIVE_TEXTURES_ARB, &glConfig.maxActiveTextures );
-			
-			if ( glConfig.maxActiveTextures < 2 )
-			{
-				qglMultiTexCoord2fARB = NULL;
-				qglActiveTextureARB = NULL;
-				qglClientActiveTextureARB = NULL;
-			}
-		}
+		/* Plan-B: glActiveTextureARB is now a real function (not a
+		 * function-pointer that could be NULL'd to disable multitexture).
+		 * glGetIntegerv(GL_MAX_ACTIVE_TEXTURES_ARB, ...) still works to
+		 * query the cap; we just can't disable multitexture by NULLing
+		 * the function pointer.  Querying the cap is harmless. */
+		glGetIntegerv( GL_MAX_ACTIVE_TEXTURES_ARB, &glConfig.maxActiveTextures );
 	}
 }
 
@@ -153,12 +148,16 @@ static qboolean GLW_LoadOpenGL()
 /*
 ** GLimp_EndFrame
 */
+extern "C" void FakeSwapBuffers(void);
+
 void GLimp_EndFrame (void)
 {
-	// don't flip if drawing to front buffer
-//	if ( stricmp( r_drawBuffer->string, "GL_FRONT" ) != 0 )
-	{
-	}
+	/* Plan-B (OpenJKDF2 1:1): GLimp_EndFrame was a no-op originally
+	 * because pre-Plan-B the renderer did its own present via direct
+	 * D3D8 calls.  Under Plan-B, fakeglx owns the device — we MUST
+	 * call FakeSwapBuffers() here (which does EndScene + Present and
+	 * arms m_needBeginScene for the next frame). */
+	FakeSwapBuffers();
 }
 
 static void GLW_StartOpenGL( void )
@@ -189,11 +188,11 @@ void GLimp_Init( void )
 	XBL("GLimp_Init: GLW_StartOpenGL done\n");
 
 	// get our config strings
-	XBL("GLimp_Init: qglGetString...\n");
-	glConfig.vendor_string     = (const char *) qglGetString(GL_VENDOR);
-	glConfig.renderer_string   = (const char *) qglGetString(GL_RENDERER);
-	glConfig.version_string    = (const char *) qglGetString(GL_VERSION);
-	glConfig.extensions_string = (const char *) qglGetString(GL_EXTENSIONS);
+	XBL("GLimp_Init: glGetString...\n");
+	glConfig.vendor_string     = (const char *) glGetString(GL_VENDOR);
+	glConfig.renderer_string   = (const char *) glGetString(GL_RENDERER);
+	glConfig.version_string    = (const char *) glGetString(GL_VERSION);
+	glConfig.extensions_string = (const char *) glGetString(GL_EXTENSIONS);
 
 	if (!glConfig.vendor_string || !glConfig.renderer_string || !glConfig.version_string || !glConfig.extensions_string)
 	{
@@ -204,7 +203,7 @@ void GLimp_Init( void )
 		glConfig.vendor_string, glConfig.renderer_string);
 
 	// OpenGL driver constants
-	qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.maxTextureSize );
+	glGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.maxTextureSize );
 	if ( glConfig.maxTextureSize <= 0 )
 		glConfig.maxTextureSize = 0;
 	XBLF("GLimp_Init: maxTextureSize=%d\n", glConfig.maxTextureSize);

@@ -163,6 +163,14 @@ qboolean			s_soundMuted;
 int					s_loopEnabled;
 int					s_updateTime;
 
+#ifdef _XBOX
+static qboolean s_xboxSilentAudio = qfalse;
+static qboolean s_xboxLipDataLoaded = qfalse;
+static int s_xboxSilentVoiceStartsLogged = 0;
+static int s_xboxSilentVoiceUpdatesLogged = 0;
+static void S_XboxUpdateSilentVoiceVolumes(void);
+#endif
+
 struct listener_t
 {
 	ALuint handle;
@@ -246,6 +254,60 @@ void TrashSounds_f( void )
 	SND_FreeOldestSound( NULL );
 }
 
+static void S_LoadLipSyncTables(void)
+{
+	extern DWORD g_dwLanguage;
+	const char *langSuffix;
+	void *buffer;
+
+	switch( g_dwLanguage )
+	{
+#ifndef XBOX_DEMO	// Demo has no foreign audio
+		case XC_LANGUAGE_FRENCH:
+			langSuffix = "_f";
+			break;
+		case XC_LANGUAGE_GERMAN:
+			langSuffix = "_d";
+			break;
+#endif
+		case XC_LANGUAGE_ENGLISH:
+		default:
+			langSuffix = "_e";
+			break;
+	}
+
+	int len = FS_ReadFile(va("lipdata%s.idx", langSuffix), &buffer);
+	if( len == -1 )
+		Com_Error(ERR_DROP, "ERROR: No lip sync index file\n");
+	int numLipFiles = len / sizeof(LipFileInfo);
+	LipFileInfo *lbuf = (LipFileInfo *)buffer;
+
+	Z_PushNewDeleteTag( TAG_LIPSYNC );
+	s_lipSyncMap = new VVFixedMap< unsigned int, unsigned int >(numLipFiles);
+	Z_PopNewDeleteTag();
+
+	for( int i = 0; i < numLipFiles; ++i )
+		s_lipSyncMap->Insert(lbuf[i].offset, lbuf[i].crc);
+	FS_FreeFile(buffer);
+
+	len = FS_ReadFile(va("lipdata%s.dat", langSuffix), &buffer);
+	if( len == -1 )
+		Com_Error(ERR_DROP, "ERROR: No lip sync data file\n");
+
+	Z_PushNewDeleteTag( TAG_LIPSYNC );
+	s_lipSyncData = new char[len];
+	Z_PopNewDeleteTag();
+
+	memcpy(s_lipSyncData, buffer, len);
+	FS_FreeFile(buffer);
+
+#ifdef _XBOX
+	s_xboxLipDataLoaded = qtrue;
+	Com_Printf("JA: Xbox lip-sync tables loaded suffix=%s files=%d bytes=%d\n",
+		langSuffix, numLipFiles, len);
+#endif
+}
+
 /*
 ================
 S_Init
@@ -275,6 +337,12 @@ void S_Init( void ) {
 	s_soundpoolmegs = Cvar_Get("s_soundpoolmegs", "6", CVAR_ARCHIVE);
 
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
+
+#ifdef _XBOX
+	s_xboxSilentAudio = qtrue;
+	s_soundMuted = qtrue;
+	Com_Printf("JA: Xbox audio playback disabled; keeping silent lip-sync metadata alive.\n");
+#endif
 
 	cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
 	if ( !cv->integer ) {
@@ -327,6 +395,16 @@ void S_Init( void ) {
 	s_soundMuted = 1;
 	s_loopEnabled = 0;
 	s_updateTime = 0;
+
+#ifdef _XBOX
+	s_numChannels = 0;
+	Com_Printf("JA: Xbox silent audio metadata allocated: sfx=%d channels=%d entities=%d\n",
+		MAX_SFX, MAX_CHANNELS, MAX_GENTITIES);
+	Com_Printf("------------------------------------\n");
+	S_InitLoad();
+	S_LoadLipSyncTables();
+	return;
+#endif
 
 	S_SoundInfo_f();
 
@@ -653,6 +731,20 @@ void S_BeginRegistration( void )
 {
 	if (!s_soundStarted) return;
 
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		s_soundMuted = qtrue;
+		if (!s_registered)
+		{
+			s_defaultSound = S_RegisterSound("sound/null.wav");
+			s_registered = true;
+		}
+		Com_Printf("JA: Xbox silent S_BeginRegistration complete lipData=%d\n", s_xboxLipDataLoaded);
+		return;
+	}
+#endif
+
 	int i;
 	int num_listeners = 1;
 
@@ -855,6 +947,17 @@ sfxHandle_t	S_RegisterSound(const char *name)
 
 		// load up the lip sync data
 		S_LoadLips(sfx, fixedName);
+#ifdef _XBOX
+		{
+			static int s_xboxVoiceRegistersLogged = 0;
+			if (s_xboxSilentAudio && s_xboxVoiceRegistersLogged < 24)
+			{
+				Com_Printf("JA: Xbox silent voice register handle=%d lip=%d name='%s'\n",
+					handle, sfx->pLipSyncData ? 1 : 0, fixedName);
+				s_xboxVoiceRegistersLogged++;
+			}
+		}
+#endif
 	}
 
 	if ( sfx->iFlags & SFX_FLAG_DEFAULT )
@@ -1086,8 +1189,16 @@ void S_StartAmbientSound( const vec3_t origin, int entityNum, unsigned char volu
 	if( volume == 0)
 		return;
 
-	if ( !s_soundStarted || s_soundMuted ) {
+	if ( !s_soundStarted ) {
 		return;
+	}
+
+	if ( s_soundMuted ) {
+#ifdef _XBOX
+		return;
+#else
+		return;
+#endif
 	}
 	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return;
@@ -1192,8 +1303,17 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	channel_t	*ch;
 	/*const*/ sfx_t *sfx;
 
-	if ( !s_soundStarted || s_soundMuted ) {
+	if ( !s_soundStarted ) {
 		return;
+	}
+
+	if ( s_soundMuted ) {
+#ifdef _XBOX
+		if (!s_xboxSilentAudio)
+			return;
+#else
+		return;
+#endif
 	}
 
 	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
@@ -1205,6 +1325,54 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
+
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		if (entchannel == CHAN_AUTO && (sfx->iFlags & SFX_FLAG_VOICE))
+			entchannel = CHAN_VOICE;
+
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN || entchannel == CHAN_VOICE_GLOBAL)
+		{
+			channel_t *silent = NULL;
+			channel_t *freeSilent = NULL;
+			for (int i = 0; i < MAX_CHANNELS; ++i)
+			{
+				channel_t *candidate = &s_channels[i];
+				if (candidate->thesfx && candidate->entnum == entityNum &&
+					(candidate->entchannel == CHAN_VOICE ||
+					 candidate->entchannel == CHAN_VOICE_ATTEN ||
+					 candidate->entchannel == CHAN_VOICE_GLOBAL))
+				{
+					silent = candidate;
+					break;
+				}
+				if (!freeSilent && !candidate->thesfx)
+					freeSilent = candidate;
+			}
+			if (!silent)
+				silent = freeSilent ? freeSilent : &s_channels[0];
+
+			memset(silent, 0, sizeof(*silent));
+			silent->entnum = entityNum;
+			silent->entchannel = entchannel;
+			silent->thesfx = sfx;
+			silent->bPlaying = true;
+			silent->iLastPlayTime = Sys_Milliseconds();
+			if (entityNum >= 0 && entityNum < MAX_GENTITIES)
+				s_entityWavVol[entityNum] = -1;
+
+			if (s_xboxSilentVoiceStartsLogged < 32)
+			{
+				int lipLength = sfx->pLipSyncData ? *(int*)sfx->pLipSyncData : 0;
+				Com_Printf("JA: Xbox silent voice start ent=%d chan=%d handle=%d lip=%d samples=%d\n",
+					entityNum, entchannel, sfxHandle, sfx->pLipSyncData ? 1 : 0, lipLength);
+				s_xboxSilentVoiceStartsLogged++;
+			}
+		}
+		return;
+	}
+#endif
 
 	if(Sys_GetSoundFileCodeSize(sfx->iFileCode) == -1) {
 		return;
@@ -1773,6 +1941,13 @@ void S_Update( void ) {
 	s_updateTime = now;
 	
 	if ( s_soundMuted ) {
+#ifdef _XBOX
+		if (s_xboxSilentAudio)
+		{
+			S_XboxUpdateSilentVoiceVolumes();
+			return;
+		}
+#endif
 		alUpdate();
 		return;
 	}
@@ -2098,6 +2273,66 @@ void _UpdateLipSyncData( channel_t*	ch)
 	}
 
 }
+
+#ifdef _XBOX
+static void S_XboxUpdateSilentVoiceVolumes(void)
+{
+	if (!s_entityWavVol || !s_channels)
+		return;
+
+	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
+
+	int now = Sys_Milliseconds();
+	for (int i = 0; i < MAX_CHANNELS; ++i)
+	{
+		channel_t *ch = &s_channels[i];
+		if (!ch->thesfx || !ch->bPlaying)
+			continue;
+
+		if (ch->entchannel != CHAN_VOICE &&
+			ch->entchannel != CHAN_VOICE_ATTEN &&
+			ch->entchannel != CHAN_VOICE_GLOBAL)
+			continue;
+
+		if (ch->entnum < 0 || ch->entnum >= MAX_GENTITIES)
+			continue;
+
+		if (ch->thesfx->pLipSyncData)
+		{
+			int length = *(int*)ch->thesfx->pLipSyncData;
+			int samples = ((now - (int)ch->iLastPlayTime) * 22050) / 1000;
+			if (samples >= length)
+			{
+				s_entityWavVol[ch->entnum] = 0;
+				ch->bPlaying = false;
+				ch->thesfx = NULL;
+				continue;
+			}
+			_UpdateLipSyncData(ch);
+		}
+		else
+		{
+			int elapsed = now - (int)ch->iLastPlayTime;
+			if (elapsed > 1200)
+			{
+				s_entityWavVol[ch->entnum] = 0;
+				ch->bPlaying = false;
+				ch->thesfx = NULL;
+				continue;
+			}
+			s_entityWavVol[ch->entnum] = 4;
+		}
+
+		if (s_xboxSilentVoiceUpdatesLogged < 48)
+		{
+			Com_Printf("JA: Xbox silent voice update ent=%d chan=%d vol=%d age=%d lip=%d\n",
+				ch->entnum, ch->entchannel, s_entityWavVol[ch->entnum],
+				now - (int)ch->iLastPlayTime, ch->thesfx->pLipSyncData ? 1 : 0);
+			s_xboxSilentVoiceUpdatesLogged++;
+		}
+	}
+}
+#endif
 
 void S_Update_(void)
 {
@@ -3020,6 +3255,7 @@ void SND_update(sfx_t *sfx)
 static int SND_FreeSFXMem(sfx_t *sfx)
 {
 	int iOrgMem = SND_GetMemoryUsed();
+	int iZoneFreed = 0;
 
 	alGetError();
 	if (sfx->Buffer)
@@ -3028,10 +3264,17 @@ static int SND_FreeSFXMem(sfx_t *sfx)
 		sfx->Buffer = 0;
 	}
 
+	if (sfx->pSoundData)
+	{
+		Com_DPrintf("JA: SND_FreeSFXMem freeing raw sound copy bytes=%d\n", sfx->iSoundLength);
+		iZoneFreed += Z_Free(sfx->pSoundData);
+		sfx->pSoundData = NULL;
+	}
+
 	sfx->iFlags &= ~(SFX_FLAG_RESIDENT | SFX_FLAG_LOADING);
 	sfx->iFlags |= SFX_FLAG_UNLOADED;
 
-	return iOrgMem - SND_GetMemoryUsed();
+	return iZoneFreed + iOrgMem - SND_GetMemoryUsed();
 }
 
 void S_DisplayFreeMemory() 

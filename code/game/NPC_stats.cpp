@@ -1066,6 +1066,9 @@ int		G_ParseAnimFileSet(const char *skeletonName, const char *modelName=0)
 			}
 			char  skeletonMapName[MAX_QPATH];
 			Com_sprintf(skeletonMapName, MAX_QPATH, "_humanoid_%s", mapName);
+#ifdef _XBOX
+			gi.Printf("JA: G_ParseAnimFileSet: precache normal humanoid GLA\n");
+#endif
 			const int normalGLAIndex = gi.G2API_PrecacheGhoul2Model("models/players/_humanoid/_humanoid.gla");//double check this always comes first!
 
 			// Make Sure To Precache The GLAs (both regular and cinematic), And Remember Their Indicies
@@ -1073,16 +1076,23 @@ int		G_ParseAnimFileSet(const char *skeletonName, const char *modelName=0)
 			G_ParseAnimationFile(0,    skeletonName, fileIndex);
 			G_ParseAnimationEvtFile(0, skeletonName, fileIndex, normalGLAIndex, false/*flag for model specific*/);	
 
+#ifdef _XBOX
+			gi.Printf("JA: G_ParseAnimFileSet: precache cinematic humanoid GLA %s\n", skeletonMapName);
+#endif
 			const int cineGLAIndex = gi.G2API_PrecacheGhoul2Model( va("models/players/%s/%s.gla", skeletonMapName, skeletonMapName));
 			if (cineGLAIndex)
 			{
-				assert(cineGLAIndex == normalGLAIndex+1);
-				if (cineGLAIndex != normalGLAIndex+1)
+				const int cineGLAOffset = cineGLAIndex - normalGLAIndex;
+#ifdef _XBOX
+				gi.Printf("JA: G_ParseAnimFileSet normalGLA=%d cineGLA=%d cineOffset=%d\n", normalGLAIndex, cineGLAIndex, cineGLAOffset);
+#endif
+				assert(cineGLAOffset > 0);
+				if (cineGLAOffset <= 0 || cineGLAOffset > 255)
 				{
 					Com_Error(ERR_DROP,"Cinematic GLA was not loaded after the normal GLA.  Cannot continue safely.");
 				}
-				G_ParseAnimationFile(1,    skeletonMapName, fileIndex);
-				G_ParseAnimationEvtFile(1, skeletonMapName, fileIndex, cineGLAIndex, false/*flag for model specific*/);
+				G_ParseAnimationFile(cineGLAOffset,    skeletonMapName, fileIndex);
+				G_ParseAnimationEvtFile(cineGLAOffset, skeletonMapName, fileIndex, cineGLAIndex, false/*flag for model specific*/);
 			}
 		}
 		else

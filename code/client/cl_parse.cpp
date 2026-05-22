@@ -338,15 +338,41 @@ void CL_ParseGamestate( msg_t *msg ) {
 	int				cmd;
 	char			*s;
 
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate enter read=%d size=%d\n", msg ? msg->readcount : -1, msg ? msg->cursize : -1);
+	Com_PrintfAlways("JA: CL_ParseGamestate before Con_Close\n");
+#endif
 	Con_Close();
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate after Con_Close uiStarted=%d\n", (int)cls.uiStarted);
+#endif
 
+#ifdef _XBOX
+	if (cls.uiStarted) {
+		Com_PrintfAlways("JA: CL_ParseGamestate before UI_UpdateConnectionString\n");
+		UI_UpdateConnectionString( "" );
+		Com_PrintfAlways("JA: CL_ParseGamestate after UI_UpdateConnectionString\n");
+	} else {
+		Com_PrintfAlways("JA: CL_ParseGamestate skip UI_UpdateConnectionString; ui not started\n");
+	}
+#else
 	UI_UpdateConnectionString( "" );
+#endif
 
 	// wipe local client state
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate before CL_ClearState\n");
+#endif
 	CL_ClearState();
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate after CL_ClearState\n");
+#endif
 
 	// a gamestate always marks a server command sequence
 	clc.serverCommandSequence = MSG_ReadLong( msg );
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate serverCommandSequence=%d\n", clc.serverCommandSequence);
+#endif
 
 	// parse all the configstrings and baselines
 	cl.gameState.dataCount = 1;	// leave a 0 at the beginning for uninitialized configstrings
@@ -384,9 +410,16 @@ void CL_ParseGamestate( msg_t *msg ) {
 			Com_Error( ERR_DROP, "CL_ParseGamestate: bad command byte" );
 		}
 	}
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate configstrings done dataCount=%d read=%d\n",
+		cl.gameState.dataCount, msg->readcount);
+#endif
 
 	// parse serverId and other cvars
 	CL_SystemInfoChanged();
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate CL_SystemInfoChanged done serverId=%d\n", cl.serverId);
+#endif
 
 	// reinitialize the filesystem if the game directory has changed
 #if 0
@@ -396,8 +429,15 @@ void CL_ParseGamestate( msg_t *msg ) {
 
 	// let the client game init and load data
 	cls.state = CA_LOADING;
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate set CA_LOADING; CL_StartHunkUsers\n");
+#endif
 
 	CL_StartHunkUsers();
+#ifdef _XBOX
+	Com_PrintfAlways("JA: CL_ParseGamestate CL_StartHunkUsers returned state=%d cgame=%d\n",
+		(int)cls.state, (int)cls.cgameStarted);
+#endif
 
 	// make sure the game starts
 	Cvar_Set( "cl_paused", "0" );
@@ -457,6 +497,15 @@ CL_ParseServerMessage
 void CL_ParseServerMessage( msg_t *msg ) {
 	int			cmd;
 
+#ifdef _XBOX
+	static int s_xboxParseServerLogs = 0;
+	if (s_xboxParseServerLogs < 64)
+	{
+		Com_PrintfAlways("JA: CL_ParseServerMessage enter read=%d size=%d state=%d\n",
+			msg ? msg->readcount : -1, msg ? msg->cursize : -1, (int)cls.state);
+		++s_xboxParseServerLogs;
+	}
+#endif
 	if ( cl_shownet->integer == 1 ) {
 		Com_Printf ("%i ",msg->cursize);
 	} else if ( cl_shownet->integer >= 2 ) {
@@ -473,6 +522,14 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		}
 
 		cmd = MSG_ReadByte( msg );
+#ifdef _XBOX
+		if (s_xboxParseServerLogs < 64)
+		{
+			Com_PrintfAlways("JA: CL_ParseServerMessage cmd=%d read=%d size=%d\n",
+				cmd, msg->readcount, msg->cursize);
+			++s_xboxParseServerLogs;
+		}
+#endif
 
 		if ( cmd == -1 ) {
 			SHOWNET( msg, "END OF MESSAGE" );

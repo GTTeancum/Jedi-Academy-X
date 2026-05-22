@@ -4,6 +4,10 @@
 // cl_main.c  -- client main loop
 
 #include "client.h"
+
+#if defined(_XBOX) && !defined(JAMP_CXBX_SMOKE_SKIP_SOUND)
+#define JAMP_CXBX_SMOKE_SKIP_SOUND 1
+#endif
 #include "../qcommon/stringed_ingame.h"
 #include <limits.h>
 #ifdef _XBOX
@@ -1698,17 +1702,36 @@ static unsigned int frameCount;
 static float avgFrametime=0.0;
 extern void SE_CheckForLanguageUpdates(void);
 void CL_Frame ( int msec ) {
+	qboolean jampCLTrace = qfalse;
+#ifdef _XBOX
+	char jampCLTraceMsg[96];
+	jampCLTrace = (frameCount < 12 || (frameCount >= 190 && frameCount <= 230));
+	if (jampCLTrace)
+	{
+		_snprintf(jampCLTraceMsg, sizeof(jampCLTraceMsg) - 1, "JAMP: CL_Frame enter frame=%u state=%d msec=%d", frameCount, cls.state, msec);
+		jampCLTraceMsg[sizeof(jampCLTraceMsg) - 1] = '\0';
+		Com_PrintfAlways("%s\n", jampCLTraceMsg);
+	}
+#endif
 
 	if ( !com_cl_running->integer ) {
 		// If a client isn't running, then we're running a dedicated
 		// server - we still need the UI.
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+		if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame S_Update skipped dedicated\n");
+#else
 		S_Update();
+#endif
 
+		if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SCR_UpdateScreen dedicated\n");
 		SCR_UpdateScreen();
+		if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SCR_UpdateScreen dedicated\n");
 		return;
 	}
 
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SE_CheckForLanguageUpdates\n");
 	SE_CheckForLanguageUpdates();	// will take zero time to execute unless language changes, then will reload strings.
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SE_CheckForLanguageUpdates\n");
 									//	of course this still doesn't work for menus...
 
 #ifdef _XBOX
@@ -1829,36 +1852,60 @@ void CL_Frame ( int msec ) {
 
 #ifdef _XBOX
 	//Check on the hot swappable button states.
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_UpdateHotSwap\n");
 	CL_UpdateHotSwap();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_UpdateHotSwap\n");
 #endif
 
 	// see if we need to update any userinfo
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckUserinfo\n");
 	CL_CheckUserinfo();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckUserinfo\n");
 
 	//JLF
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckDeferedCmds\n");
 	CL_CheckDeferedCmds();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckDeferedCmds\n");
 	
 	// if we haven't gotten a packet in a long time,
 	// drop the connection
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckTimeout\n");
 	CL_CheckTimeout();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckTimeout\n");
 
 	// send intentions now
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_SendCmd\n");
 	CL_SendCmd();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_SendCmd\n");
 
 	// resend a connection request if necessary
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckForResend\n");
 	CL_CheckForResend();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckForResend\n");
 
 	// decide on the serverTime to render
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_SetCGameTime\n");
 	CL_SetCGameTime();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_SetCGameTime\n");
 
 	// update the screen
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SCR_UpdateScreen\n");
 	SCR_UpdateScreen();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SCR_UpdateScreen\n");
 
 	// update audio
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame S_Update skipped\n");
+#else
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before S_Update\n");
 	S_Update();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after S_Update\n");
+#endif
 
 	// advance local effects for next frame
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SCR_RunCinematic\n");
 	SCR_RunCinematic();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SCR_RunCinematic\n");
 
 //	Con_RunConsole();
 
@@ -1869,8 +1916,10 @@ void CL_Frame ( int msec ) {
 	}
 
 	CL_UpdateTeamCount();
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_UpdateTeamCount\n");
 
 	cls.framecount++;
+	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame exit\n");
 }
 
 
@@ -1958,15 +2007,23 @@ void CL_StartHunkUsers( void ) {
 
 	if ( !cls.soundStarted ) {
 		cls.soundStarted = qtrue;
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+		Com_PrintfAlways("JAMP: CL_StartHunkUsers S_Init skipped for Cxbx smoke testing\n");
+#else
 		S_Init();
+#endif
 	}
 
 	if ( !cls.soundRegistered ) {
 		cls.soundRegistered = qtrue;
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+		Com_PrintfAlways("JAMP: CL_StartHunkUsers S_BeginRegistration skipped for Cxbx smoke testing\n");
+#else
 #ifdef _XBOX
 		S_BeginRegistration(ClientManager::NumClients());
 #else
 		S_BeginRegistration();
+#endif
 #endif
 	}
 

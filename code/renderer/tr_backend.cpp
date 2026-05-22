@@ -12,6 +12,7 @@
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/win_highdynamicrange.h"
+#include "../win32/xb_log.h"
 #endif
 
 backEndData_t	*backEndData;
@@ -67,12 +68,21 @@ void GL_Bind( image_t *image ) {
 	}
 #endif
 
-	if ( glState.currenttextures[glState.currenttmu] != texnum ) {
+	if ( glState.currenttextures[glState.currenttmu] != texnum
+#ifdef _XBOX
+		|| qtrue
+#endif
+		) {
 #ifndef _XBOX
 		image->frameUsed = tr.frameCount;
+#else
+		/* fakegl's Xbox end-frame reset disables GL_TEXTURE_2D before
+		 * Present.  The renderer usually assumes texturing stays enabled
+		 * and only binds the next image, so restore the active stage here. */
+		glEnable( GL_TEXTURE_2D );
 #endif
 		glState.currenttextures[glState.currenttmu] = texnum;
-		qglBindTexture (GL_TEXTURE_2D, texnum);
+		glBindTexture (GL_TEXTURE_2D, texnum);
 	}
 }
 
@@ -83,35 +93,37 @@ void GL_SelectTexture( int unit )
 {
 	if ( glState.currenttmu == unit )
 	{
+#ifndef _XBOX
 		return;
+#endif
 	}
 
 	if ( unit == 0 )
 	{
-		qglActiveTextureARB( GL_TEXTURE0_ARB );
+		glActiveTextureARB( GL_TEXTURE0_ARB );
 		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE0_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE0_ARB );
+		glClientActiveTextureARB( GL_TEXTURE0_ARB );
 		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE0_ARB )\n" );
 	}
 	else if ( unit == 1 )
 	{
-		qglActiveTextureARB( GL_TEXTURE1_ARB );
+		glActiveTextureARB( GL_TEXTURE1_ARB );
 		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE1_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE1_ARB );
+		glClientActiveTextureARB( GL_TEXTURE1_ARB );
 		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE1_ARB )\n" );
 	}
 	else if ( unit == 2 )
 	{
-		qglActiveTextureARB( GL_TEXTURE2_ARB );
+		glActiveTextureARB( GL_TEXTURE2_ARB );
 		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE2_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE2_ARB );
+		glClientActiveTextureARB( GL_TEXTURE2_ARB );
 		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE2_ARB )\n" );
 	}
 	else if ( unit == 3 )
 	{
-		qglActiveTextureARB( GL_TEXTURE3_ARB );
+		glActiveTextureARB( GL_TEXTURE3_ARB );
 		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE3_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE3_ARB );
+		glClientActiveTextureARB( GL_TEXTURE3_ARB );
 		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE3_ARB )\n" );
 	}
 	else {
@@ -136,32 +148,32 @@ void GL_Cull( int cullType ) {
 
 	if ( cullType == CT_TWO_SIDED ) 
 	{
-		qglDisable( GL_CULL_FACE );
+		glDisable( GL_CULL_FACE );
 	} 
 	else 
 	{
-		qglEnable( GL_CULL_FACE );
+		glEnable( GL_CULL_FACE );
 
 		if ( cullType == CT_BACK_SIDED )
 		{
 			if ( backEnd.viewParms.isMirror )
 			{
-				qglCullFace( GL_FRONT );
+				glCullFace( GL_FRONT );
 			}
 			else
 			{
-				qglCullFace( GL_BACK );
+				glCullFace( GL_BACK );
 			}
 		}
 		else
 		{
 			if ( backEnd.viewParms.isMirror )
 			{
-				qglCullFace( GL_BACK );
+				glCullFace( GL_BACK );
 			}
 			else
 			{
-				qglCullFace( GL_FRONT );
+				glCullFace( GL_FRONT );
 			}
 		}
 	}
@@ -174,7 +186,9 @@ void GL_TexEnv( int env )
 {
 	if ( env == glState.texEnv[glState.currenttmu] )
 	{
+#ifndef _XBOX
 		return;
+#endif
 	}
 
 	glState.texEnv[glState.currenttmu] = env;
@@ -183,20 +197,20 @@ void GL_TexEnv( int env )
 	switch ( env )
 	{
 	case GL_MODULATE:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
 		break;
 	case GL_REPLACE:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
+		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
 		break;
 	case GL_DECAL:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL );
+		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL );
 		break;
 	case GL_ADD:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_ADD );
+		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_ADD );
 		break;
 #ifdef _XBOX
 	case GL_NONE:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_NONE );
+		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_NONE );
 		break;
 #endif
 	default:
@@ -215,6 +229,20 @@ void GL_State( unsigned long stateBits )
 {
 	unsigned long diff = stateBits ^ glState.glStateBits;
 
+#ifdef _XBOX
+	/*
+	 * fakegl and a few Xbox-side renderer paths can mutate the real D3D
+	 * state outside this Q3 cache.  Re-apply the draw-order critical states
+	 * whenever GL_State is called so stale cached bits cannot leave depth
+	 * testing, depth writes, alpha test, or blending in the previous pass.
+	 */
+	diff |= GLS_DEPTHFUNC_EQUAL;
+	diff |= ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS );
+	diff |= GLS_DEPTHMASK_TRUE;
+	diff |= GLS_DEPTHTEST_DISABLE;
+	diff |= GLS_ATEST_BITS;
+#endif
+
 	if ( !diff )
 	{
 		return;
@@ -227,11 +255,11 @@ void GL_State( unsigned long stateBits )
 	{
 		if ( stateBits & GLS_DEPTHFUNC_EQUAL )
 		{
-			qglDepthFunc( GL_EQUAL );
+			glDepthFunc( GL_EQUAL );
 		}
 		else
 		{
-			qglDepthFunc( GL_LEQUAL );
+			glDepthFunc( GL_LEQUAL );
 		}
 	}
 
@@ -311,12 +339,12 @@ void GL_State( unsigned long stateBits )
 				break;
 			}
 
-			qglEnable( GL_BLEND );
-			qglBlendFunc( srcFactor, dstFactor );
+			glEnable( GL_BLEND );
+			glBlendFunc( srcFactor, dstFactor );
 		}
 		else
 		{
-			qglDisable( GL_BLEND );
+			glDisable( GL_BLEND );
 		}
 	}
 
@@ -327,11 +355,11 @@ void GL_State( unsigned long stateBits )
 	{
 		if ( stateBits & GLS_DEPTHMASK_TRUE )
 		{
-			qglDepthMask( GL_TRUE );
+			glDepthMask( GL_TRUE );
 		}
 		else
 		{
-			qglDepthMask( GL_FALSE );
+			glDepthMask( GL_FALSE );
 		}
 	}
 
@@ -342,11 +370,11 @@ void GL_State( unsigned long stateBits )
 	{
 		if ( stateBits & GLS_POLYMODE_LINE )
 		{
-			qglPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+			glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 		}
 		else
 		{
-			qglPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 		}
 	}
 
@@ -357,11 +385,11 @@ void GL_State( unsigned long stateBits )
 	{
 		if ( stateBits & GLS_DEPTHTEST_DISABLE )
 		{
-			qglDisable( GL_DEPTH_TEST );
+			glDisable( GL_DEPTH_TEST );
 		}
 		else
 		{
-			qglEnable( GL_DEPTH_TEST );
+			glEnable( GL_DEPTH_TEST );
 		}
 	}
 
@@ -373,23 +401,23 @@ void GL_State( unsigned long stateBits )
 		switch ( stateBits & GLS_ATEST_BITS )
 		{
 		case 0:
-			qglDisable( GL_ALPHA_TEST );
+			glDisable( GL_ALPHA_TEST );
 			break;
 		case GLS_ATEST_GT_0:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_GREATER, 0.0f );
+			glEnable( GL_ALPHA_TEST );
+			glAlphaFunc( GL_GREATER, 0.0f );
 			break;
 		case GLS_ATEST_LT_80:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_LESS, 0.5f );
+			glEnable( GL_ALPHA_TEST );
+			glAlphaFunc( GL_LESS, 0.5f );
 			break;
 		case GLS_ATEST_GE_80:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_GEQUAL, 0.5f );
+			glEnable( GL_ALPHA_TEST );
+			glAlphaFunc( GL_GEQUAL, 0.5f );
 			break;
 		case GLS_ATEST_GE_C0:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_GEQUAL, 0.75f );
+			glEnable( GL_ALPHA_TEST );
+			glAlphaFunc( GL_GEQUAL, 0.75f );
 			break;
 		default:
 			assert( 0 );
@@ -417,22 +445,37 @@ static void RB_Hyperspace( void ) {
 	}
 
 	c = ( backEnd.refdef.time & 255 ) / 255.0f;
-	qglClearColor( c, c, c, 1 );
-	qglClear( GL_COLOR_BUFFER_BIT );
+	glClearColor( c, c, c, 1 );
+	glClear( GL_COLOR_BUFFER_BIT );
 
 	backEnd.isHyperspace = qtrue;
 }
 
 
 void SetViewportAndScissor( void ) {
-	qglMatrixMode(GL_PROJECTION);
-	qglLoadMatrixf( backEnd.viewParms.projectionMatrix );
-	qglMatrixMode(GL_MODELVIEW);
+#ifdef _XBOX
+	static int s_xboxViewportLogBudget = 12;
+	if (s_xboxViewportLogBudget > 0)
+	{
+		XBLF("JA: SetViewportAndScissor rdflags=0x%x skyboxportal=%d drawsky=%d vp=%d,%d %dx%d",
+			backEnd.refdef.rdflags,
+			skyboxportal,
+			drawskyboxportal,
+			backEnd.viewParms.viewportX,
+			backEnd.viewParms.viewportY,
+			backEnd.viewParms.viewportWidth,
+			backEnd.viewParms.viewportHeight);
+		--s_xboxViewportLogBudget;
+	}
+#endif
+	glMatrixMode(GL_PROJECTION);
+	glLoadMatrixf( backEnd.viewParms.projectionMatrix );
+	glMatrixMode(GL_MODELVIEW);
 
 	// set the window clipping
-	qglViewport( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
+	glViewport( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-	qglScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
+	glScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, 
 		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 }
 
@@ -449,7 +492,7 @@ void RB_BeginDrawingView (void) {
 
 	// sync with gl if needed
 	if ( r_finish->integer == 1 && !glState.finishCalled ) {
-		qglFinish ();
+		glFinish ();
 		glState.finishCalled = qtrue;
 	}
 	if ( r_finish->integer == 0 ) {
@@ -486,11 +529,11 @@ void RB_BeginDrawingView (void) {
 				if (tr.world && tr.world->globalFog != -1)
 				{
 					const fog_t		*fog = &tr.world->fogs[tr.world->globalFog];
-					qglClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
+					glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
 				}
 				else
 				{
-					qglClearColor ( 0.3f, 0.3f, 0.3f, 1.0 );
+					glClearColor ( 0.3f, 0.3f, 0.3f, 1.0 );
 				}
 			}			
 		}
@@ -502,26 +545,28 @@ void RB_BeginDrawingView (void) {
 			if (tr.world && tr.world->globalFog != -1)
 			{
 				const fog_t		*fog = &tr.world->fogs[tr.world->globalFog];
-				qglClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
+				glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
 			}
 			else
 			{
-				qglClearColor( 0.3f, 0.3f, 0.3f, 1 );	// FIXME: get color of sky
+				glClearColor( 0.3f, 0.3f, 0.3f, 1 );	// FIXME: get color of sky
 			}
 			clearBits |= GL_COLOR_BUFFER_BIT;	// FIXME: only if sky shaders have been used
 		}
 	}
 
+#ifndef _XBOX
 	if ( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && ( r_DynamicGlow->integer && !g_bRenderGlowingObjects ) )
 	{
 		if (tr.world && tr.world->globalFog != -1)
 		{ //this is because of a bug in multiple scenes I think, it needs to clear for the second scene but it doesn't normally.
 			const fog_t		*fog = &tr.world->fogs[tr.world->globalFog];
 
-			qglClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
+			glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
 			clearBits |= GL_COLOR_BUFFER_BIT;
 		}
 	}
+#endif
 	// If this pass is to just render the glowing objects, don't clear the depth buffer since
 	// we're sharing it with the main scene (since the main scene has already been rendered). -AReis
 	if ( g_bRenderGlowingObjects )
@@ -529,9 +574,28 @@ void RB_BeginDrawingView (void) {
 		clearBits &= ~GL_DEPTH_BUFFER_BIT;
 	}
 
+#ifdef _XBOX
+	{
+		static int s_xboxBeginViewLogBudget = 24;
+		if (s_xboxBeginViewLogBudget > 0)
+		{
+			XBLF("JA: RB_BeginDrawingView clearBits=0x%x rdflags=0x%x skyboxportal=%d drawsky=%d fastsky=%d noworld=%d glow=%d scene=%d",
+				clearBits,
+				backEnd.refdef.rdflags,
+				skyboxportal,
+				drawskyboxportal,
+				r_fastsky ? r_fastsky->integer : -1,
+				(int)((backEnd.refdef.rdflags & RDF_NOWORLDMODEL) != 0),
+				(int)g_bRenderGlowingObjects,
+				tr.sceneCount);
+			--s_xboxBeginViewLogBudget;
+		}
+	}
+#endif
+
 	if (clearBits)
 	{
-		qglClear( clearBits );
+		glClear( clearBits );
 	}
 
 	if ( ( backEnd.refdef.rdflags & RDF_HYPERSPACE ) )
@@ -564,11 +628,11 @@ void RB_BeginDrawingView (void) {
 		plane2[2] = DotProduct (backEnd.viewParms.or.axis[2], plane);
 		plane2[3] = DotProduct (plane, backEnd.viewParms.or.origin) - plane[3];
 
-		qglLoadMatrixf( s_flipMatrix );
-		qglClipPlane (GL_CLIP_PLANE0, plane2);
-		qglEnable (GL_CLIP_PLANE0);
+		glLoadMatrixf( s_flipMatrix );
+		glClipPlane (GL_CLIP_PLANE0, plane2);
+		glEnable (GL_CLIP_PLANE0);
 	} else {
-		qglDisable (GL_CLIP_PLANE0);
+		glDisable (GL_CLIP_PLANE0);
 	}
 }
 
@@ -660,6 +724,17 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	trRefEntity_t	*curEnt;
 	postRender_t	*pRender;
 	bool			didShadowPass = false;
+#ifdef _XBOX
+	static int s_xboxRenderDrawSurfListCount = 0;
+	const qboolean xboxActiveDrawList = (cls.state == CA_ACTIVE);
+	const qboolean xboxTraceDrawList = qfalse;
+	int xboxLoggedSurfs = 0;
+	if (xboxTraceDrawList)
+	{
+		XBLF("JA: RB_RenderDrawSurfList #%d enter numDrawSurfs=%d",
+			s_xboxRenderDrawSurfListCount, numDrawSurfs);
+	}
+#endif
 #ifdef __MACOS__
 	int				macEventTime;
 
@@ -679,7 +754,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	originalTime = backEnd.refdef.floatTime;
 
 	// clear the z buffer, set the modelview, etc
+#ifdef _XBOX
+	if (xboxTraceDrawList) XBLog_Write("JA: RB_RenderDrawSurfList: RB_BeginDrawingView...");
+#endif
 	RB_BeginDrawingView ();
+#ifdef _XBOX
+	if (xboxTraceDrawList) XBLog_Write("JA: RB_RenderDrawSurfList: RB_BeginDrawingView done");
+#endif
 
 	// draw everything
 	oldEntityNum = -1;
@@ -695,13 +776,44 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++)
 	{
+#ifdef _XBOX
+		if (xboxActiveDrawList && s_xboxRenderDrawSurfListCount < 16 && ((i & 127) == 0 || i == numDrawSurfs - 1))
+		{
+			XBLF("JA: RB_RenderDrawSurfList #%d checkpoint surf=%d/%d type=%d ptr=%p sort=0x%08x",
+				s_xboxRenderDrawSurfListCount, i, numDrawSurfs,
+				(int)*drawSurf->surface, drawSurf->surface, drawSurf->sort);
+		}
+#endif
 		if ( drawSurf->sort == oldSort )
 		{
+#ifdef _XBOX
+			if (xboxTraceDrawList && xboxLoggedSurfs < 512)
+			{
+				XBLF("JA: RB_RenderDrawSurfList #%d surf=%d fast type=%d ptr=%p sort=0x%08x",
+					s_xboxRenderDrawSurfListCount, i, (int)*drawSurf->surface, drawSurf->surface, drawSurf->sort);
+			}
+#endif
 			// fast path, same as previous sort
 			rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+#ifdef _XBOX
+			if (xboxTraceDrawList && xboxLoggedSurfs < 512)
+			{
+				XBLF("JA: RB_RenderDrawSurfList #%d surf=%d fast done",
+					s_xboxRenderDrawSurfListCount, i);
+				xboxLoggedSurfs++;
+			}
+#endif
 			continue;
 		}
 		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
+#ifdef _XBOX
+		if (xboxTraceDrawList && xboxLoggedSurfs < 512)
+		{
+			XBLF("JA: RB_RenderDrawSurfList #%d surf=%d type=%d ptr=%p ent=%d shader='%s' fog=%d dlight=%d sort=0x%08x",
+				s_xboxRenderDrawSurfListCount, i, (int)*drawSurf->surface, drawSurf->surface,
+				entityNum, shader ? shader->name : "<null>", fogNum, dlighted, drawSurf->sort);
+		}
+#endif
 
 #ifdef _XBOX
 		tr.currentEntityNum = entityNum;
@@ -787,7 +899,21 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					Sys_PumpEvents();
 				}
 #endif
+#ifdef _XBOX
+				if (xboxTraceDrawList && xboxLoggedSurfs < 512)
+				{
+					XBLF("JA: RB_RenderDrawSurfList #%d before RB_EndSurface at surf=%d oldShader='%s'",
+						s_xboxRenderDrawSurfListCount, i, oldShader ? oldShader->name : "<null>");
+				}
+#endif
 				RB_EndSurface();
+#ifdef _XBOX
+				if (xboxTraceDrawList && xboxLoggedSurfs < 512)
+				{
+					XBLF("JA: RB_RenderDrawSurfList #%d after RB_EndSurface at surf=%d",
+						s_xboxRenderDrawSurfListCount, i);
+				}
+#endif
 
 //#ifdef _XBOX
 //				if (!didShadowPass && shader && shader->sort > SS_BANNER && shader != tr.projectionShadowShader)
@@ -846,7 +972,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #endif
 			}
 
-			qglLoadMatrixf( backEnd.ori.modelMatrix );
+			glLoadMatrixf( backEnd.ori.modelMatrix );
 
 			//
 			// change depthrange if needed
@@ -855,15 +981,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				switch ( depthRange ) {
 					default:
 					case 0:
-						qglDepthRange (0, 1);	
+						glDepthRange (0, 1);	
 						break;
 
 					case 1:
-						qglDepthRange (0, .3);	
+						glDepthRange (0, .3);	
 						break;
 
 					case 2:
-						qglDepthRange (0, 0);
+						glDepthRange (0, 0);
 						break;
 				}
 
@@ -875,11 +1001,26 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 		// add the triangles for this surface
 		rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+#ifdef _XBOX
+		if (xboxTraceDrawList && xboxLoggedSurfs < 512)
+		{
+			XBLF("JA: RB_RenderDrawSurfList #%d surf=%d draw done",
+				s_xboxRenderDrawSurfListCount, i);
+			xboxLoggedSurfs++;
+		}
+#endif
 	}
 
 	// draw the contents of the last shader batch
 	if (oldShader != NULL) {
+#ifdef _XBOX
+		if (xboxTraceDrawList) XBLF("JA: RB_RenderDrawSurfList #%d final RB_EndSurface shader='%s'",
+			s_xboxRenderDrawSurfListCount, oldShader ? oldShader->name : "<null>");
+#endif
 		RB_EndSurface();
+#ifdef _XBOX
+		if (xboxTraceDrawList) XBLog_Write("JA: RB_RenderDrawSurfList final RB_EndSurface done");
+#endif
 	}
 
 	if (tr_stencilled && tr_distortionPrePost)
@@ -917,22 +1058,22 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #endif
 			}
 
-			qglLoadMatrixf( backEnd.ori.modelMatrix );
+			glLoadMatrixf( backEnd.ori.modelMatrix );
 
 			depthRange = pRender->depthRange;
 			switch ( depthRange )
 			{
 				default:
 				case 0:
-					qglDepthRange (0, 1);	
+					glDepthRange (0, 1);	
 					break;
 
 				case 1:
-					qglDepthRange (0, .3);	
+					glDepthRange (0, .3);	
 					break;
 
 				case 2:
-					qglDepthRange (0, 0);
+					glDepthRange (0, 0);
 					break;
 			}
 
@@ -981,9 +1122,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 					//now copy a portion of the screen to this texture
 #ifdef _XBOX
-					qglCopyBackBufferToTexEXT(rad, rad, cX, (480 - cY), (cX + rad), (480 - (cY + rad)));
+					glCopyBackBufferToTexEXT(rad, rad, cX, (480 - cY), (cX + rad), (480 - (cY + rad)));
 #else
-					qglCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, cX, cY, rad, rad, 0);
+					glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, cX, cY, rad, rad, 0);
 #endif
 
 					lastPostEnt = pRender->entNum;
@@ -996,9 +1137,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	}
 
 	// go back to the world modelview matrix
-	qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
+	glLoadMatrixf( backEnd.viewParms.world.modelMatrix );
 	if ( depthRange ) {
-		qglDepthRange (0, 1);
+		glDepthRange (0, 1);
 	}
 
 #if 0
@@ -1028,6 +1169,17 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #ifdef __MACOS__
 	Sys_PumpEvents();		// crutch up the mac's limited buffer queue size
 #endif
+#ifdef _XBOX
+	if (xboxTraceDrawList)
+	{
+		XBLF("JA: RB_RenderDrawSurfList #%d exit loggedSurfs=%d numDrawSurfs=%d",
+			s_xboxRenderDrawSurfListCount, xboxLoggedSurfs, numDrawSurfs);
+	}
+	if (xboxActiveDrawList)
+	{
+		s_xboxRenderDrawSurfListCount++;
+	}
+#endif
 }
 
 
@@ -1041,6 +1193,7 @@ static unsigned short indexList[24] = { 0, 3, 2, 1,
 
 void RB_RunVisTest(int number, vec3_t bounds[2])
 {
+#if 0
 	glw_state->device->SetTransform(D3DTS_VIEW, glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
 	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Projection])
         glw_state->device->SetTransform(D3DTS_PROJECTION, glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
@@ -1107,6 +1260,7 @@ void RB_RunVisTest(int number, vec3_t bounds[2])
 	glw_state->device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
 	glw_state->device->SetRenderState(D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALL);
 	glw_state->device->SetRenderState( D3DRS_SOLIDOFFSETENABLE, FALSE );
+#endif
 }
 #endif
 
@@ -1129,28 +1283,28 @@ void	RB_SetGL2D (void) {
 	backEnd.projection2D = qtrue;
 
 	// set 2D virtual screen size
-	qglViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
-	qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
-	qglMatrixMode(GL_PROJECTION);
-    qglLoadIdentity ();
+	glViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+	glScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+	glMatrixMode(GL_PROJECTION);
+    glLoadIdentity ();
 #ifdef _XBOX
 	extern int Menus_AnyFullScreenVisible(void);
 	if(glw_state->isWidescreen && !(Menus_AnyFullScreenVisible()) && cls.state == CA_ACTIVE)
-		qglOrtho (0, 720, 0, 480, 0, 1);
+		glOrtho (0, 720, 0, 480, 0, 1);
 	else
-        qglOrtho (0, 640, 0, 480, 0, 1);
+        glOrtho (0, 640, 0, 480, 0, 1);
 #else
-	qglOrtho (0, 640, 480, 0, 0, 1);
+	glOrtho (0, 640, 480, 0, 0, 1);
 #endif
-	qglMatrixMode(GL_MODELVIEW);
-    qglLoadIdentity ();
+	glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity ();
 
 	GL_State( GLS_DEPTHTEST_DISABLE |
 			  GLS_SRCBLEND_SRC_ALPHA |
 			  GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
 
-	qglDisable( GL_CULL_FACE );
-	qglDisable( GL_CLIP_PLANE0 );
+	glDisable( GL_CULL_FACE );
+	glDisable( GL_CLIP_PLANE0 );
 
 	// set time for 2D shaders
 	backEnd.refdef.time = Sys_Milliseconds();
@@ -1274,29 +1428,29 @@ const void *RB_RotatePic ( const void *data )
 			RB_SetGL2D();
 		}
 
-		qglColor4ubv( backEnd.color2D );
-		qglPushMatrix();
+		glColor4ubv( backEnd.color2D );
+		glPushMatrix();
 
-		qglTranslatef(cmd->x+cmd->w,cmd->y,0);
-		qglRotatef(cmd->a, 0.0, 0.0, 1.0);
+		glTranslatef(cmd->x+cmd->w,cmd->y,0);
+		glRotatef(cmd->a, 0.0, 0.0, 1.0);
 		
 		GL_Bind( image );
 #ifdef _XBOX
-		qglBeginEXT (GL_QUADS, 4, 0, 0, 4, 0);
+		glBeginEXT (GL_QUADS, 4, 0, 0, 4, 0);
 #else
-		qglBegin (GL_QUADS);
+		glBegin (GL_QUADS);
 #endif
-		qglTexCoord2f( cmd->s1, cmd->t1);
-		qglVertex2f( -cmd->w, 0 );
-		qglTexCoord2f( cmd->s2, cmd->t1 );
-		qglVertex2f( 0, 0 );
-		qglTexCoord2f( cmd->s2, cmd->t2 );
-		qglVertex2f( 0, cmd->h );
-		qglTexCoord2f( cmd->s1, cmd->t2 );
-		qglVertex2f( -cmd->w, cmd->h );
-		qglEnd();
+		glTexCoord2f( cmd->s1, cmd->t1);
+		glVertex2f( -cmd->w, 0 );
+		glTexCoord2f( cmd->s2, cmd->t1 );
+		glVertex2f( 0, 0 );
+		glTexCoord2f( cmd->s2, cmd->t2 );
+		glVertex2f( 0, cmd->h );
+		glTexCoord2f( cmd->s1, cmd->t2 );
+		glVertex2f( -cmd->w, cmd->h );
+		glEnd();
 		
-		qglPopMatrix();
+		glPopMatrix();
 	}
 
 	return (const void *)(cmd + 1);
@@ -1331,33 +1485,33 @@ const void *RB_RotatePic2 ( const void *data )
 			// Get our current blend mode, etc.
 			GL_State( shader->stages[0].stateBits );
 
-			qglColor4ubv( backEnd.color2D );
-			qglPushMatrix();
+			glColor4ubv( backEnd.color2D );
+			glPushMatrix();
 
 			// rotation point is going to be around the center of the passed in coordinates
-			qglTranslatef( cmd->x, cmd->y, 0 );
-			qglRotatef( cmd->a, 0.0, 0.0, 1.0 );
+			glTranslatef( cmd->x, cmd->y, 0 );
+			glRotatef( cmd->a, 0.0, 0.0, 1.0 );
 			
 			GL_Bind( image );
 #ifdef _XBOX
-			qglBeginEXT( GL_QUADS, 4, 0, 0, 4, 0);
+			glBeginEXT( GL_QUADS, 4, 0, 0, 4, 0);
 #else
-			qglBegin( GL_QUADS );
+			glBegin( GL_QUADS );
 #endif
-				qglTexCoord2f( cmd->s1, cmd->t1);
-				qglVertex2f( -cmd->w * 0.5f, -cmd->h * 0.5f );
+				glTexCoord2f( cmd->s1, cmd->t1);
+				glVertex2f( -cmd->w * 0.5f, -cmd->h * 0.5f );
 
-				qglTexCoord2f( cmd->s2, cmd->t1 );
-				qglVertex2f( cmd->w * 0.5f, -cmd->h * 0.5f );
+				glTexCoord2f( cmd->s2, cmd->t1 );
+				glVertex2f( cmd->w * 0.5f, -cmd->h * 0.5f );
 
-				qglTexCoord2f( cmd->s2, cmd->t2 );
-				qglVertex2f( cmd->w * 0.5f, cmd->h * 0.5f );
+				glTexCoord2f( cmd->s2, cmd->t2 );
+				glVertex2f( cmd->w * 0.5f, cmd->h * 0.5f );
 
-				qglTexCoord2f( cmd->s1, cmd->t2 );
-				qglVertex2f( -cmd->w * 0.5f, cmd->h * 0.5f );
-			qglEnd();
+				glTexCoord2f( cmd->s1, cmd->t2 );
+				glVertex2f( -cmd->w * 0.5f, cmd->h * 0.5f );
+			glEnd();
 			
-			qglPopMatrix();
+			glPopMatrix();
 
 			// Hmmm, this is not too cool
 			GL_State( GLS_DEPTHTEST_DISABLE |
@@ -1397,11 +1551,11 @@ const void *RB_Scissor ( const void *data )
 
 	if (cmd->x >= 0)
 	{
-		qglScissor( cmd->x,(glConfig.vidHeight - cmd->y - cmd->h),cmd->w,cmd->h);
+		glScissor( cmd->x,(glConfig.vidHeight - cmd->y - cmd->h),cmd->w,cmd->h);
 	}
 	else
 	{
-		qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight);
+		glScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight);
 	}		
 
 	return (const void *)(cmd + 1);
@@ -1415,13 +1569,44 @@ RB_DrawSurfs
 */
 const void	*RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t	*cmd;
+#ifdef _XBOX
+	static int s_xboxDrawSurfsCommandCount = 0;
+#endif
 
 	// finish any 2D drawing if needed
 	if ( tess.numIndexes ) {
+#ifdef _XBOX
+		if (cls.state == CA_ACTIVE)
+		{
+			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface tessIndexes=%d",
+				s_xboxDrawSurfsCommandCount, tess.numIndexes);
+		}
+#endif
 		RB_EndSurface();
+#ifdef _XBOX
+		if (cls.state == CA_ACTIVE)
+		{
+			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface done",
+				s_xboxDrawSurfsCommandCount);
+		}
+#endif
 	}
 
 	cmd = (const drawSurfsCommand_t *)data;
+#ifdef _XBOX
+	const qboolean xboxTraceDrawSurfs = (cls.state == CA_ACTIVE);
+	if (xboxTraceDrawSurfs)
+	{
+		XBLF("JA: RB_DrawSurfs #%d enter numDrawSurfs=%d refdefTime=%d viewport=%d,%d %dx%d",
+			s_xboxDrawSurfsCommandCount,
+			cmd->numDrawSurfs,
+			cmd->refdef.time,
+			cmd->refdef.x,
+			cmd->refdef.y,
+			cmd->refdef.width,
+			cmd->refdef.height);
+	}
+#endif
 
 	backEnd.refdef = cmd->refdef;
 	backEnd.viewParms = cmd->viewParms;
@@ -1442,30 +1627,30 @@ const void	*RB_DrawSurfs( const void *data ) {
 	if ( !(backEnd.refdef.rdflags & RDF_NOWORLDMODEL) && g_bDynamicGlowSupported && r_DynamicGlow->integer )
 	{
 		// Copy the normal scene to texture.
-		qglDisable( GL_TEXTURE_2D );
-		qglEnable( GL_TEXTURE_RECTANGLE_EXT ); 
-		qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.sceneImage ); 
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight); 
-		qglDisable( GL_TEXTURE_RECTANGLE_EXT );
-		qglEnable( GL_TEXTURE_2D );    
+		glDisable( GL_TEXTURE_2D );
+		glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.sceneImage ); 
+		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight); 
+		glDisable( GL_TEXTURE_RECTANGLE_EXT );
+		glEnable( GL_TEXTURE_2D );    
 
 		// Just clear colors, but leave the depth buffer intact so we can 'share' it.
-		qglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
-		qglClear( GL_COLOR_BUFFER_BIT ); 
+		glClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
+		glClear( GL_COLOR_BUFFER_BIT ); 
 
 		// Render the glowing objects.
 		g_bRenderGlowingObjects = true;
 		RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );  
 		g_bRenderGlowingObjects = false;
-		qglFinish();
+		glFinish();
 
 		// Copy the glow scene to texture.
-		qglDisable( GL_TEXTURE_2D );
-		qglEnable( GL_TEXTURE_RECTANGLE_EXT ); 
-		qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.screenGlow ); 
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0,  backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight ); 
-		qglDisable( GL_TEXTURE_RECTANGLE_EXT );
-		qglEnable( GL_TEXTURE_2D );
+		glDisable( GL_TEXTURE_2D );
+		glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.screenGlow ); 
+		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0,  backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight ); 
+		glDisable( GL_TEXTURE_RECTANGLE_EXT );
+		glEnable( GL_TEXTURE_2D );
 		
 		// Resize the viewport to the blur texture size.
 		const int oldViewWidth = backEnd.viewParms.viewportWidth;
@@ -1478,23 +1663,30 @@ const void	*RB_DrawSurfs( const void *data ) {
 		RB_BlurGlowTexture();
 
 		// Copy the finished glow scene back to texture.
-		qglDisable( GL_TEXTURE_2D );
-		qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-		qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight ); 
-		qglDisable( GL_TEXTURE_RECTANGLE_EXT );
-		qglEnable( GL_TEXTURE_2D );
+		glDisable( GL_TEXTURE_2D );
+		glEnable( GL_TEXTURE_RECTANGLE_EXT );
+		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );
+		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight ); 
+		glDisable( GL_TEXTURE_RECTANGLE_EXT );
+		glEnable( GL_TEXTURE_2D );
 		
 		// Set the viewport back to normal.
 		backEnd.viewParms.viewportWidth = oldViewWidth;
 		backEnd.viewParms.viewportHeight = oldViewHeight;
 		SetViewportAndScissor();
-		qglClear( GL_COLOR_BUFFER_BIT ); 
+		glClear( GL_COLOR_BUFFER_BIT ); 
 
 		// Draw the glow additively over the screen.
 		RB_DrawGlowOverlay(); 
 	}
 #endif	// _XBOX
+#ifdef _XBOX
+	if (xboxTraceDrawSurfs)
+	{
+		XBLF("JA: RB_DrawSurfs #%d exit", s_xboxDrawSurfsCommandCount);
+		s_xboxDrawSurfsCommandCount++;
+	}
+#endif
 
 	return (const void *)(cmd + 1);
 }
@@ -1511,7 +1703,7 @@ const void	*RB_DrawBuffer( const void *data ) {
 
 	cmd = (const drawBufferCommand_t *)data;
 
-	qglDrawBuffer( cmd->buffer );
+	glDrawBuffer( cmd->buffer );
 
 		// clear screen for debugging
 	// VVFIXME - Does their new check fix our problem with hoth2 cinematic?
@@ -1520,15 +1712,15 @@ const void	*RB_DrawBuffer( const void *data ) {
 	{
 		const fog_t		*fog = &tr.world->fogs[tr.world->numfogs];
 
-		qglClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
-		qglClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	}
 	else if (!( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && tr.world && tr.world->globalFog != -1 && tr.sceneCount)//don't clear during menus, wait for real scene
 	{
 		const fog_t		*fog = &tr.world->fogs[tr.world->globalFog];
 
-		qglClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
-		qglClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+		glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
+		glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 	}
 	else if ( r_clear->integer ) 
 	{	// clear screen for debugging
@@ -1539,34 +1731,34 @@ const void	*RB_DrawBuffer( const void *data ) {
 		switch (i)
 		{
 		default:
-			qglClearColor( 1, 0, 0.5, 1 );
+			glClearColor( 1, 0, 0.5, 1 );
 			break;
 		case 1:
-			qglClearColor( 1.0, 0.0, 0.0, 1.0); //red
+			glClearColor( 1.0, 0.0, 0.0, 1.0); //red
 			break;
 		case 2:
-			qglClearColor( 0.0, 1.0, 0.0, 1.0); //green
+			glClearColor( 0.0, 1.0, 0.0, 1.0); //green
 			break;
 		case 3:
-			qglClearColor( 1.0, 1.0, 0.0, 1.0); //yellow
+			glClearColor( 1.0, 1.0, 0.0, 1.0); //yellow
 			break;
 		case 4:
-			qglClearColor( 0.0, 0.0, 1.0, 1.0); //blue
+			glClearColor( 0.0, 0.0, 1.0, 1.0); //blue
 			break;
 		case 5:
-			qglClearColor( 0.0, 1.0, 1.0, 1.0); //cyan
+			glClearColor( 0.0, 1.0, 1.0, 1.0); //cyan
 			break;
 		case 6:
-			qglClearColor( 1.0, 0.0, 1.0, 1.0); //magenta
+			glClearColor( 1.0, 0.0, 1.0, 1.0); //magenta
 			break;
 		case 7:
-			qglClearColor( 1.0, 1.0, 1.0, 1.0); //white
+			glClearColor( 1.0, 1.0, 1.0, 1.0); //white
 			break;
 		case 8:
-			qglClearColor( 0.0, 0.0, 0.0, 1.0); //black
+			glClearColor( 0.0, 0.0, 0.0, 1.0); //black
 			break;
 		}		
-		qglClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+		glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 	}
 #endif // _XBOX
 
@@ -1592,7 +1784,7 @@ void RB_ShowImages( void ) {
 		RB_SetGL2D();
 	}
 
-	qglFinish();
+	glFinish();
 
 	start = Sys_Milliseconds();
 
@@ -1614,23 +1806,23 @@ void RB_ShowImages( void ) {
 
 		GL_Bind( image );
 #ifdef _XBOX
-		qglBeginEXT (GL_QUADS, 4, 0, 0, 4, 0);
+		glBeginEXT (GL_QUADS, 4, 0, 0, 4, 0);
 #else
-		qglBegin (GL_QUADS);
+		glBegin (GL_QUADS);
 #endif
-		qglTexCoord2f( 0, 0 );
-		qglVertex2f( x, y );
-		qglTexCoord2f( 1, 0 );
-		qglVertex2f( x + w, y );
-		qglTexCoord2f( 1, 1 );
-		qglVertex2f( x + w, y + h );
-		qglTexCoord2f( 0, 1 );
-		qglVertex2f( x, y + h );
-		qglEnd();
+		glTexCoord2f( 0, 0 );
+		glVertex2f( x, y );
+		glTexCoord2f( 1, 0 );
+		glVertex2f( x + w, y );
+		glTexCoord2f( 1, 1 );
+		glVertex2f( x + w, y + h );
+		glTexCoord2f( 0, 1 );
+		glVertex2f( x, y + h );
+		glEnd();
 		i++;
 	}
 
-	qglFinish();
+	glFinish();
 
 	end = Sys_Milliseconds();
 	//VID_Printf( PRINT_ALL, "%i msec to draw all images\n", end - start );
@@ -1646,10 +1838,25 @@ RB_SwapBuffers
 extern void RB_RenderWorldEffects( void );
 const void	*RB_SwapBuffers( const void *data ) {
 	const swapBuffersCommand_t	*cmd;
+#ifdef _XBOX
+	static int s_xboxSwapCommandTraceCount = 0;
+	const qboolean xboxTraceSwapCommand = (cls.state == CA_ACTIVE);
+	if (xboxTraceSwapCommand)
+	{
+		XBLF("JA: RB_SwapBuffers #%d enter tessIndexes=%d finishCalled=%d",
+			s_xboxSwapCommandTraceCount, tess.numIndexes, (int)glState.finishCalled);
+	}
+#endif
 
 	// finish any 2D drawing if needed
 	if ( tess.numIndexes ) {
+#ifdef _XBOX
+		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: RB_EndSurface...");
+#endif
 		RB_EndSurface();
+#ifdef _XBOX
+		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: RB_EndSurface done");
+#endif
 	}
 
 	// texture swapping test
@@ -1668,7 +1875,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 		unsigned char *stencilReadback;
 
 		stencilReadback = (unsigned char *) Z_Malloc( glConfig.vidWidth * glConfig.vidHeight, TAG_TEMP_WORKSPACE, qfalse );
-		qglReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, stencilReadback );
+		glReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, stencilReadback );
 
 		for ( i = 0; i < glConfig.vidWidth * glConfig.vidHeight; i++ ) {
 			sum += stencilReadback[i];
@@ -1680,12 +1887,28 @@ const void	*RB_SwapBuffers( const void *data ) {
 #endif
 
     if ( !glState.finishCalled ) {
-        qglFinish();
+#ifdef _XBOX
+		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: glFinish...");
+#endif
+        glFinish();
+#ifdef _XBOX
+		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: glFinish done");
+#endif
 	}
 
     GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
 
+#ifdef _XBOX
+	if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: GLimp_EndFrame...");
+#endif
 	GLimp_EndFrame();
+#ifdef _XBOX
+	if (xboxTraceSwapCommand)
+	{
+		XBLog_Write("JA: RB_SwapBuffers: GLimp_EndFrame done");
+		s_xboxSwapCommandTraceCount++;
+	}
+#endif
 
 	backEnd.projection2D = qfalse;
 
@@ -1723,11 +1946,24 @@ smp extensions, or asyncronously by another thread.
 */
 void RB_ExecuteRenderCommands( const void *data ) {
 	int		t1, t2;
+#ifdef _XBOX
+	static int s_xboxRenderCommandTraceCount = 0;
+#endif
 
 	t1 = Sys_Milliseconds ();
 
 	while ( 1 ) {
-		switch ( *(const int *)data ) {
+		const int commandId = *(const int *)data;
+#ifdef _XBOX
+		const qboolean xboxTraceCommand = (cls.state == CA_ACTIVE &&
+			(commandId == RC_DRAW_SURFS || commandId == RC_SWAP_BUFFERS || commandId == RC_END_OF_LIST));
+		if (xboxTraceCommand)
+		{
+			XBLF("JA: RB_ExecuteRenderCommands #%d before cmd=%d",
+				s_xboxRenderCommandTraceCount, commandId);
+		}
+#endif
+		switch ( commandId ) {
 		case RC_SET_COLOR:
 			data = RB_SetColor( data );
 			break;
@@ -1760,8 +1996,24 @@ void RB_ExecuteRenderCommands( const void *data ) {
 			// stop rendering on this thread
 			t2 = Sys_Milliseconds ();
 			backEnd.pc.msec = t2 - t1;
+#ifdef _XBOX
+			if (xboxTraceCommand)
+			{
+				XBLF("JA: RB_ExecuteRenderCommands #%d end cmd=%d msec=%d",
+					s_xboxRenderCommandTraceCount, commandId, backEnd.pc.msec);
+				s_xboxRenderCommandTraceCount++;
+			}
+#endif
 			return;
 		}
+#ifdef _XBOX
+		if (xboxTraceCommand)
+		{
+			XBLF("JA: RB_ExecuteRenderCommands #%d after cmd=%d",
+				s_xboxRenderCommandTraceCount, commandId);
+			s_xboxRenderCommandTraceCount++;
+		}
+#endif
 	}
 
 }
@@ -1779,12 +2031,12 @@ void BeginPixelShader( GLuint uiType, GLuint uiID )
 		case GL_REGISTER_COMBINERS_NV:
 		{
 			// Just in case...
-			if ( !qglCombinerParameterfvNV)
+			if ( !glCombinerParameterfvNV)
 				return;
 
 			// Call the list with the regcom in it.
-			qglEnable( GL_REGISTER_COMBINERS_NV );
-			qglCallList( uiID );
+			glEnable( GL_REGISTER_COMBINERS_NV );
+			glCallList( uiID );
 
 			g_uiCurrentPixelShaderType = GL_REGISTER_COMBINERS_NV;
 		}
@@ -1794,11 +2046,11 @@ void BeginPixelShader( GLuint uiType, GLuint uiID )
 		case GL_FRAGMENT_PROGRAM_ARB:
 		{
 			// Just in case...
-			if ( !qglGenProgramsARB )
+			if ( !glGenProgramsARB )
 				return;
 
-			qglEnable( GL_FRAGMENT_PROGRAM_ARB );
-			qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, uiID );
+			glEnable( GL_FRAGMENT_PROGRAM_ARB );
+			glBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, uiID );
 
 			g_uiCurrentPixelShaderType = GL_FRAGMENT_PROGRAM_ARB;
 		}
@@ -1812,7 +2064,7 @@ void EndPixelShader()
 	if ( g_uiCurrentPixelShaderType == 0x0 )
 		return;
 
-	qglDisable( g_uiCurrentPixelShaderType );
+	glDisable( g_uiCurrentPixelShaderType );
 }
 
 // Hack variable for deciding which kind of texture rectangle thing to do (for some
@@ -1821,17 +2073,17 @@ extern bool g_bTextureRectangleHack;
 
 static inline void RB_BlurGlowTexture()
 {
-	qglDisable (GL_CLIP_PLANE0);
+	glDisable (GL_CLIP_PLANE0);
 	GL_Cull( CT_TWO_SIDED );
 
 	// Go into orthographic 2d mode.
-	qglMatrixMode(GL_PROJECTION);
-	qglPushMatrix();
-	qglLoadIdentity();
-	qglOrtho(0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight, 0, -1, 1);
-	qglMatrixMode(GL_MODELVIEW);
-	qglPushMatrix();
-	qglLoadIdentity();
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glOrtho(0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight, 0, -1, 1);
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
 
 	GL_State(GLS_DEPTHTEST_DISABLE);
 
@@ -1845,23 +2097,23 @@ static inline void RB_BlurGlowTexture()
 	float fBlurWeight[4] = { fBlurDistribution, fBlurDistribution, fBlurDistribution, 1.0f };
 
 	// Enable and set the Vertex Program.
-	qglEnable( GL_VERTEX_PROGRAM_ARB );
-	qglBindProgramARB( GL_VERTEX_PROGRAM_ARB, tr.glowVShader );
+	glEnable( GL_VERTEX_PROGRAM_ARB );
+	glBindProgramARB( GL_VERTEX_PROGRAM_ARB, tr.glowVShader );
 
 	// Apply Pixel Shaders.
-	if ( qglCombinerParameterfvNV )
+	if ( glCombinerParameterfvNV )
 	{
 		BeginPixelShader( GL_REGISTER_COMBINERS_NV, tr.glowPShader );
 
 		// Pass the blur weight to the regcom.
-		qglCombinerParameterfvNV( GL_CONSTANT_COLOR0_NV, (float*)&fBlurWeight );
+		glCombinerParameterfvNV( GL_CONSTANT_COLOR0_NV, (float*)&fBlurWeight );
 	}
-	else if ( qglProgramEnvParameter4fARB )
+	else if ( glProgramEnvParameter4fARB )
 	{
 		BeginPixelShader( GL_FRAGMENT_PROGRAM_ARB, tr.glowPShader );
 
 		// Pass the blur weight to the Fragment Program.
-		qglProgramEnvParameter4fARB( GL_FRAGMENT_PROGRAM_ARB, 0, fBlurWeight[0], fBlurWeight[1], fBlurWeight[2], fBlurWeight[3] );
+		glProgramEnvParameter4fARB( GL_FRAGMENT_PROGRAM_ARB, 0, fBlurWeight[0], fBlurWeight[1], fBlurWeight[2], fBlurWeight[3] );
 	}
 
 	/////////////////////////////////////////////////////////
@@ -1873,22 +2125,22 @@ static inline void RB_BlurGlowTexture()
 
 	GLuint uiTex = tr.screenGlow;  
 
-	qglActiveTextureARB( GL_TEXTURE3_ARB );  
-	qglEnable( GL_TEXTURE_RECTANGLE_EXT ); 
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+	glActiveTextureARB( GL_TEXTURE3_ARB );  
+	glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 	
-	qglActiveTextureARB( GL_TEXTURE2_ARB ); 
-	qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+	glActiveTextureARB( GL_TEXTURE2_ARB ); 
+	glEnable( GL_TEXTURE_RECTANGLE_EXT );
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 
-	qglActiveTextureARB( GL_TEXTURE1_ARB );
-	qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+	glActiveTextureARB( GL_TEXTURE1_ARB );
+	glEnable( GL_TEXTURE_RECTANGLE_EXT );
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 
-	qglActiveTextureARB(GL_TEXTURE0_ARB );
-	qglDisable( GL_TEXTURE_2D );  
-	qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
+	glActiveTextureARB(GL_TEXTURE0_ARB );
+	glDisable( GL_TEXTURE_2D );  
+	glEnable( GL_TEXTURE_RECTANGLE_EXT );
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
 	
 	/////////////////////////////////////////////////////////
 	// Draw the blur passes (each pass blurs it more, increasing the blur radius ).
@@ -1900,10 +2152,10 @@ static inline void RB_BlurGlowTexture()
 	for ( int iNumBlurPasses = 0; iNumBlurPasses < r_DynamicGlowPasses->integer; iNumBlurPasses++ )       
 	{
 		// Load the Texel Offsets into the Vertex Program.
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 0, -fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f );
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 1, -fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f );
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 2, fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f );
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 3, fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f );
+		glProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 0, -fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f );
+		glProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 1, -fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f );
+		glProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 2, fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f );
+		glProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 3, fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f );
 
 		// After first pass put the tex coords to the viewport size.
 		if ( iNumBlurPasses == 1 )
@@ -1915,45 +2167,45 @@ static inline void RB_BlurGlowTexture()
 			}
 
 			uiTex = tr.blurImage;
-			qglActiveTextureARB( GL_TEXTURE3_ARB );  
-			qglDisable( GL_TEXTURE_2D );
-			qglEnable( GL_TEXTURE_RECTANGLE_EXT ); 
-			qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
-			qglActiveTextureARB( GL_TEXTURE2_ARB ); 
-			qglDisable( GL_TEXTURE_2D );
-			qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-			qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );			
-			qglActiveTextureARB( GL_TEXTURE1_ARB );
-			qglDisable( GL_TEXTURE_2D );
-			qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-			qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
-			qglActiveTextureARB(GL_TEXTURE0_ARB );
-			qglDisable( GL_TEXTURE_2D );
-			qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-			qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
+			glActiveTextureARB( GL_TEXTURE3_ARB );  
+			glDisable( GL_TEXTURE_2D );
+			glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+			glActiveTextureARB( GL_TEXTURE2_ARB ); 
+			glDisable( GL_TEXTURE_2D );
+			glEnable( GL_TEXTURE_RECTANGLE_EXT );
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );			
+			glActiveTextureARB( GL_TEXTURE1_ARB );
+			glDisable( GL_TEXTURE_2D );
+			glEnable( GL_TEXTURE_RECTANGLE_EXT );
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+			glActiveTextureARB(GL_TEXTURE0_ARB );
+			glDisable( GL_TEXTURE_2D );
+			glEnable( GL_TEXTURE_RECTANGLE_EXT );
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
 
 			// Copy the current image over.
-			qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );     
-			qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );     
+			glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 		}
 
 		// Draw the fullscreen quad.
-		qglBegin( GL_QUADS ); 
-			qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, iTexHeight );  
-			qglVertex2f( 0, 0 );
+		glBegin( GL_QUADS ); 
+			glMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, iTexHeight );  
+			glVertex2f( 0, 0 );
 
-			qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, 0 );
-			qglVertex2f( 0, backEnd.viewParms.viewportHeight );
+			glMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, 0 );
+			glVertex2f( 0, backEnd.viewParms.viewportHeight );
 
-			qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, iTexWidth, 0 ); 
-			qglVertex2f( backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+			glMultiTexCoord2fARB( GL_TEXTURE0_ARB, iTexWidth, 0 ); 
+			glVertex2f( backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 
-			qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, iTexWidth, iTexHeight );
-			qglVertex2f( backEnd.viewParms.viewportWidth, 0 ); 
-		qglEnd();
+			glMultiTexCoord2fARB( GL_TEXTURE0_ARB, iTexWidth, iTexHeight );
+			glVertex2f( backEnd.viewParms.viewportWidth, 0 ); 
+		glEnd();
 
-		qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );       
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );    
+		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );       
+		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );    
 
 		// Increase the texel offsets.
 		// NOTE: This is possibly the most important input to the effect. Even by using an exponential function I've been able to
@@ -1965,109 +2217,109 @@ static inline void RB_BlurGlowTexture()
 	}
 
 	// Disable multi-texturing.
-	qglActiveTextureARB( GL_TEXTURE3_ARB );   
-	qglDisable( GL_TEXTURE_RECTANGLE_EXT );
+	glActiveTextureARB( GL_TEXTURE3_ARB );   
+	glDisable( GL_TEXTURE_RECTANGLE_EXT );
 
-	qglActiveTextureARB( GL_TEXTURE2_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_EXT );
+	glActiveTextureARB( GL_TEXTURE2_ARB );
+	glDisable( GL_TEXTURE_RECTANGLE_EXT );
 
-	qglActiveTextureARB( GL_TEXTURE1_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_EXT );
+	glActiveTextureARB( GL_TEXTURE1_ARB );
+	glDisable( GL_TEXTURE_RECTANGLE_EXT );
 
-	qglActiveTextureARB(GL_TEXTURE0_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_EXT );
-	qglEnable( GL_TEXTURE_2D );
+	glActiveTextureARB(GL_TEXTURE0_ARB );
+	glDisable( GL_TEXTURE_RECTANGLE_EXT );
+	glEnable( GL_TEXTURE_2D );
 
-	qglDisable( GL_VERTEX_PROGRAM_ARB );
+	glDisable( GL_VERTEX_PROGRAM_ARB );
 	EndPixelShader();
 	
-	qglMatrixMode(GL_PROJECTION);
-	qglPopMatrix();
-	qglMatrixMode(GL_MODELVIEW);
-	qglPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
 
-	qglDisable( GL_BLEND );
+	glDisable( GL_BLEND );
 	glState.currenttmu = 0;	//this matches the last one we activated
 }
 
 // Draw the glow blur over the screen additively.
 static inline void RB_DrawGlowOverlay()
 {
-	qglDisable (GL_CLIP_PLANE0);
+	glDisable (GL_CLIP_PLANE0);
 	GL_Cull( CT_TWO_SIDED );
 
 	// Go into orthographic 2d mode.
-	qglMatrixMode(GL_PROJECTION);
-	qglPushMatrix();
-	qglLoadIdentity();
-	qglOrtho(0, glConfig.vidWidth, glConfig.vidHeight, 0, -1, 1);
-	qglMatrixMode(GL_MODELVIEW);
-	qglPushMatrix();
-	qglLoadIdentity();
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glOrtho(0, glConfig.vidWidth, glConfig.vidHeight, 0, -1, 1);
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
 
 	GL_State(GLS_DEPTHTEST_DISABLE);
 
-	qglDisable( GL_TEXTURE_2D );
-	qglEnable( GL_TEXTURE_RECTANGLE_EXT );
+	glDisable( GL_TEXTURE_2D );
+	glEnable( GL_TEXTURE_RECTANGLE_EXT );
 
 	// For debug purposes.
 	if ( r_DynamicGlow->integer != 2 )
 	{
 		// Render the normal scene texture.
-		qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.sceneImage ); 
-		qglBegin(GL_QUADS);    
-			qglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
-			qglTexCoord2f( 0, glConfig.vidHeight ); 
-			qglVertex2f( 0, 0 );
+		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.sceneImage ); 
+		glBegin(GL_QUADS);    
+			glColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
+			glTexCoord2f( 0, glConfig.vidHeight ); 
+			glVertex2f( 0, 0 );
 
-			qglTexCoord2f( 0, 0 );
-			qglVertex2f( 0, glConfig.vidHeight );
+			glTexCoord2f( 0, 0 );
+			glVertex2f( 0, glConfig.vidHeight );
 
-			qglTexCoord2f( glConfig.vidWidth, 0 );
-			qglVertex2f( glConfig.vidWidth, glConfig.vidHeight );
+			glTexCoord2f( glConfig.vidWidth, 0 );
+			glVertex2f( glConfig.vidWidth, glConfig.vidHeight );
 
-			qglTexCoord2f( glConfig.vidWidth, glConfig.vidHeight );
-			qglVertex2f( glConfig.vidWidth, 0 );
-		qglEnd();
+			glTexCoord2f( glConfig.vidWidth, glConfig.vidHeight );
+			glVertex2f( glConfig.vidWidth, 0 );
+		glEnd();
 	}
 
 	// One and Inverse Src Color give a very soft addition, while one one is a bit stronger. With one one we can
 	// use additive blending through multitexture though.
 	if ( r_DynamicGlowSoft->integer )
 	{
-		qglBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_COLOR );
+		glBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_COLOR );
 	}
 	else
 	{
-		qglBlendFunc( GL_ONE, GL_ONE );
+		glBlendFunc( GL_ONE, GL_ONE );
 	}
-	qglEnable( GL_BLEND );  
+	glEnable( GL_BLEND );  
 
 	// Now additively render the glow texture.
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );     
-	qglBegin(GL_QUADS);    
-		qglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );  
-		qglTexCoord2f( 0, r_DynamicGlowHeight->integer ); 
-		qglVertex2f( 0, 0 );
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );     
+	glBegin(GL_QUADS);    
+		glColor4f( 1.0f, 1.0f, 1.0f, 1.0f );  
+		glTexCoord2f( 0, r_DynamicGlowHeight->integer ); 
+		glVertex2f( 0, 0 );
 
-		qglTexCoord2f( 0, 0 );
-		qglVertex2f( 0, glConfig.vidHeight );
+		glTexCoord2f( 0, 0 );
+		glVertex2f( 0, glConfig.vidHeight );
 
-		qglTexCoord2f( r_DynamicGlowWidth->integer, 0 );
-		qglVertex2f( glConfig.vidWidth, glConfig.vidHeight );
+		glTexCoord2f( r_DynamicGlowWidth->integer, 0 );
+		glVertex2f( glConfig.vidWidth, glConfig.vidHeight );
 
-		qglTexCoord2f( r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer );
-		qglVertex2f( glConfig.vidWidth, 0 );
-	qglEnd();
+		glTexCoord2f( r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer );
+		glVertex2f( glConfig.vidWidth, 0 );
+	glEnd();
 
-	qglDisable( GL_TEXTURE_RECTANGLE_EXT );
-	qglEnable( GL_TEXTURE_2D );
-	qglBlendFunc( GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR );
-	qglDisable( GL_BLEND );
+	glDisable( GL_TEXTURE_RECTANGLE_EXT );
+	glEnable( GL_TEXTURE_2D );
+	glBlendFunc( GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR );
+	glDisable( GL_BLEND );
 
-	qglMatrixMode(GL_PROJECTION);
-	qglPopMatrix();
-	qglMatrixMode(GL_MODELVIEW);
-	qglPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
 }
 #endif

@@ -12,6 +12,10 @@
 #include "../win32/win_lighteffects.h"
 #endif
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 /*
 
   THIS ENTIRE FILE IS BACK END
@@ -36,14 +40,14 @@ This is just for OpenGL conformance testing, it should never be the fastest
 */
 static void APIENTRY R_ArrayElementDiscrete( GLint index ) {
 #ifndef _XBOX
-	qglColor4ubv( tess.svars.colors[ index ] );
+	glColor4ubv( tess.svars.colors[ index ] );
 	if ( glState.currenttmu ) {
-		qglMultiTexCoord2fARB( 0, tess.svars.texcoords[ 0 ][ index ][0], tess.svars.texcoords[ 0 ][ index ][1] );
-		qglMultiTexCoord2fARB( 1, tess.svars.texcoords[ 1 ][ index ][0], tess.svars.texcoords[ 1 ][ index ][1] );
+		glMultiTexCoord2fARB( 0, tess.svars.texcoords[ 0 ][ index ][0], tess.svars.texcoords[ 0 ][ index ][1] );
+		glMultiTexCoord2fARB( 1, tess.svars.texcoords[ 1 ][ index ][0], tess.svars.texcoords[ 1 ][ index ][1] );
 	} else {
-		qglTexCoord2fv( tess.svars.texcoords[ 0 ][ index ] );
+		glTexCoord2fv( tess.svars.texcoords[ 0 ][ index ] );
 	}
-	qglVertex3fv( tess.xyz[ index ] );
+	glVertex3fv( tess.xyz[ index ] );
 #endif
 }
 
@@ -60,7 +64,7 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 	glIndex_t last[3];
 	qboolean even;
 
-	qglBegin( GL_TRIANGLE_STRIP );
+	glBegin( GL_TRIANGLE_STRIP );
 	c_begins++;
 
 	if ( numIndexes <= 0 ) {
@@ -96,9 +100,9 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 			// a new one
 			else
 			{
-				qglEnd();
+				glEnd();
 
-				qglBegin( GL_TRIANGLE_STRIP );
+				glBegin( GL_TRIANGLE_STRIP );
 				c_begins++;
 
 				element( indexes[i+0] );
@@ -124,9 +128,9 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 			// a new one
 			else
 			{
-				qglEnd();
+				glEnd();
 
-				qglBegin( GL_TRIANGLE_STRIP );
+				glBegin( GL_TRIANGLE_STRIP );
 				c_begins++;
 
 				element( indexes[i+0] );
@@ -144,11 +148,281 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 		last[2] = indexes[i+2];
 	}
 
-	qglEnd();
+	glEnd();
 }
 
 #ifdef _XBOX
 qboolean RB_IsCurrentShaderTransparent( void );
+
+static qboolean RB_XboxShouldTraceSurface( void )
+{
+	if (cls.state == CA_ACTIVE)
+	{
+		return qfalse;
+	}
+	if (tess.shader && tess.shader->name && strstr(tess.shader->name, "textures/taspir/trim"))
+	{
+		return qtrue;
+	}
+	if (tess.shader && tess.shader->name &&
+		(strstr(tess.shader->name, "models/players/jedi_tf") ||
+		 strstr(tess.shader->name, "models/players/alora") ||
+		 strstr(tess.shader->name, "models/players/alora2")))
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static qboolean RB_XboxForceTraceSurface( void )
+{
+	if (cls.state == CA_ACTIVE)
+	{
+		return qfalse;
+	}
+	if (tess.shader && tess.shader->name && strstr(tess.shader->name, "textures/taspir/trim"))
+	{
+		return qtrue;
+	}
+	if (tess.shader && tess.shader->name &&
+		(strstr(tess.shader->name, "models/players/jedi_tf") ||
+		 strstr(tess.shader->name, "models/players/alora") ||
+		 strstr(tess.shader->name, "models/players/alora2")))
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static const char *RB_XboxImageName( const image_t *image )
+{
+	if (!image)
+	{
+		return "<null>";
+	}
+#ifndef FINAL_BUILD
+	return image->imgName;
+#else
+	return "<image>";
+#endif
+}
+
+static qboolean RB_XboxImageLooksFallback( const image_t *image )
+{
+	if (!image)
+	{
+		return qtrue;
+	}
+	if (image == tr.defaultImage || image == tr.whiteImage)
+	{
+		return qtrue;
+	}
+	if (!image->imgName)
+	{
+		return qtrue;
+	}
+	if (!Q_stricmp(image->imgName, "*default") || !Q_stricmp(image->imgName, "*white"))
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static qboolean RB_XboxStageLooksRenderSuspect( const shaderStage_t *stage )
+{
+	if (!stage || !stage->active)
+	{
+		return qfalse;
+	}
+
+	if (stage->stateBits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS | GLS_ATEST_BITS))
+	{
+		return qtrue;
+	}
+	if (stage->bundle[0].tcGen == TCGEN_FOG || stage->bundle[1].tcGen == TCGEN_FOG)
+	{
+		return qtrue;
+	}
+	if (RB_XboxImageLooksFallback(stage->bundle[0].image) ||
+		(stage->bundle[1].image && RB_XboxImageLooksFallback(stage->bundle[1].image)))
+	{
+		return qtrue;
+	}
+	if (strstr(RB_XboxImageName(stage->bundle[0].image), "fog") ||
+		strstr(RB_XboxImageName(stage->bundle[1].image), "fog"))
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean RB_XboxIsRenderSuspectSurface( const shader_t *shader )
+{
+	int i;
+
+	if (!shader)
+	{
+		return qfalse;
+	}
+
+	if (shader->sky || shader->fogParms || (shader->fogPass && tess.fogNum))
+	{
+		return qtrue;
+	}
+
+	if (strstr(shader->name, "textures/fogs") ||
+		strstr(shader->name, "sky") ||
+		strstr(shader->name, "portal"))
+	{
+		return qtrue;
+	}
+
+	for (i = 0; i < shader->numUnfoggedPasses; ++i)
+	{
+		if (RB_XboxStageLooksRenderSuspect(&shader->stages[i]))
+		{
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static void RB_XboxLogRenderSuspectSurface( const char *where )
+{
+	static int suspectBudget = 48;
+	const shader_t *shader = tess.shader;
+	int i;
+
+	if (cls.state != CA_ACTIVE || suspectBudget <= 0 || !RB_XboxIsRenderSuspectSurface(shader))
+	{
+		return;
+	}
+
+	XBLF("JA: RENDER_SUSPECT %s shader='%s' sky=%d fogPass=%d fogNum=%d sort=%g cull=%d surf=0x%x cont=0x%x passes=%d verts=%d indexes=%d dlight=0x%x",
+		where,
+		shader ? shader->name : "<null>",
+		(int)(shader && shader->sky != NULL),
+		shader ? (int)shader->fogPass : -1,
+		tess.fogNum,
+		shader ? shader->sort : 0.0f,
+		shader ? (int)shader->cullType : -1,
+		shader ? shader->surfaceFlags : 0,
+		shader ? shader->contentFlags : 0,
+		shader ? shader->numUnfoggedPasses : -1,
+		tess.numVertexes,
+		tess.numIndexes,
+		tess.dlightBits);
+	--suspectBudget;
+
+	if (!shader)
+	{
+		return;
+	}
+
+	for (i = 0; i < shader->numUnfoggedPasses && i < 4 && suspectBudget > 0; ++i)
+	{
+		const shaderStage_t *stage = &shader->stages[i];
+		if (!RB_XboxStageLooksRenderSuspect(stage) && !shader->sky && !shader->fogPass && !shader->fogParms)
+		{
+			continue;
+		}
+		XBLF("JA: RENDER_SUSPECT_STAGE shader='%s' stage=%d active=%d state=0x%x blend=0x%x atest=0x%x depthEq=%d depthOff=%d rgb=%d alpha=%d tc0=%d tc1=%d img0='%s' tex0=%d light0=%d fallback0=%d img1='%s' tex1=%d light1=%d fallback1=%d",
+			shader->name,
+			i,
+			(int)stage->active,
+			stage->stateBits,
+			(int)(stage->stateBits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)),
+			(int)(stage->stateBits & GLS_ATEST_BITS),
+			(int)((stage->stateBits & GLS_DEPTHFUNC_EQUAL) != 0),
+			(int)((stage->stateBits & GLS_DEPTHTEST_DISABLE) != 0),
+			(int)stage->rgbGen,
+			(int)stage->alphaGen,
+			(int)stage->bundle[0].tcGen,
+			(int)stage->bundle[1].tcGen,
+			RB_XboxImageName(stage->bundle[0].image),
+			stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
+			stage->bundle[0].image ? stage->bundle[0].image->isLightmap : -1,
+			(int)RB_XboxImageLooksFallback(stage->bundle[0].image),
+			RB_XboxImageName(stage->bundle[1].image),
+			stage->bundle[1].image ? stage->bundle[1].image->texnum : -1,
+			stage->bundle[1].image ? stage->bundle[1].image->isLightmap : -1,
+			(int)RB_XboxImageLooksFallback(stage->bundle[1].image));
+		--suspectBudget;
+	}
+}
+
+static void RB_XboxRenderYield( void )
+{
+	Sleep( 0 );
+}
+
+static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
+{
+	const int maxChunkIndexes = 768;
+	int base;
+	static int traceBudget = 2048;
+	qboolean trace;
+
+	if ( numIndexes <= 0 || !indexes )
+	{
+		return;
+	}
+
+	trace = RB_XboxShouldTraceSurface();
+
+	for ( base = 0; base < numIndexes; )
+	{
+		int chunk;
+
+		chunk = numIndexes - base;
+		if ( chunk > maxChunkIndexes )
+		{
+			chunk = maxChunkIndexes;
+		}
+
+		if ( chunk > 3 )
+		{
+			chunk -= ( chunk % 3 );
+		}
+
+		if ( chunk <= 0 )
+		{
+			break;
+		}
+
+		if ( trace && traceBudget > 0 )
+		{
+			XBLF("JA: R_DrawElements chunk shader='%s' base=%d chunk=%d total=%d verts=%d pass=%d\n",
+				tess.shader ? tess.shader->name : "<null>",
+				base,
+				chunk,
+				numIndexes,
+				tess.numVertexes,
+				tess.currentPass);
+			traceBudget--;
+		}
+
+		RB_XboxRenderYield();
+		glDrawElements( GL_TRIANGLES,
+			chunk,
+			GL_INDEX_TYPE,
+			indexes + base );
+		RB_XboxRenderYield();
+
+		if ( trace && traceBudget > 0 )
+		{
+			XBLF("JA: R_DrawElements chunk done shader='%s' base=%d chunk=%d\n",
+				tess.shader ? tess.shader->name : "<null>",
+				base,
+				chunk);
+			traceBudget--;
+		}
+
+		base += chunk;
+	}
+}
 #endif
 
 /*
@@ -167,7 +441,7 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 
 	// default is to use triangles if compiled vertex arrays are present
 	if ( primitives == 0 ) {
-		if ( qglLockArraysEXT ) {
+		if ( glLockArraysEXT ) {
 			primitives = 2;
 		} else {
 			primitives = 1;
@@ -179,14 +453,18 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 #ifdef _XBOX
 //		if (tess.useConstantColor)
 //		{
-//			qglDisableClientState( GL_COLOR_ARRAY );
-//			qglColor4ubv( tess.constantColor );
+//			glDisableClientState( GL_COLOR_ARRAY );
+//			glColor4ubv( tess.constantColor );
 //		}
 #endif
-		qglDrawElements( GL_TRIANGLES, 
+#ifdef _XBOX
+		RB_XboxDrawElementsChunked( numIndexes, indexes );
+#else
+		glDrawElements( GL_TRIANGLES,
 						numIndexes,
 						GL_INDEX_TYPE,
 						indexes );
+#endif
 		return;
 	}
 
@@ -195,31 +473,28 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 	{
 //		if (tess.useConstantColor)
 //		{
-//			qglDisableClientState( GL_COLOR_ARRAY );
-//			qglColor4ubv( tess.constantColor );
+//			glDisableClientState( GL_COLOR_ARRAY );
+//			glColor4ubv( tess.constantColor );
 //		}
-		/*qglDrawElements( GL_TRIANGLES, 
+		/*glDrawElements( GL_TRIANGLES, 
 						numIndexes,
 						GL_INDEX_TYPE,
 						indexes );*/
 #if 1	// VVFIXME : Temporary solution to try and increase framerate
-		//qglIndexedTriToStrip( numIndexes, indexes );
+		//glIndexedTriToStrip( numIndexes, indexes );
 
 		if(strstr(tess.shader->name, "terrain")) {
-			qglIndexedTriToStrip( numIndexes, indexes );
+			glIndexedTriToStrip( numIndexes, indexes );
 		}
 		else
-            qglDrawElements( GL_TRIANGLES, 
-						numIndexes,
-						GL_INDEX_TYPE,
-						indexes );
+            RB_XboxDrawElementsChunked( numIndexes, indexes );
 #endif
 	
 		return;
 	}
 #else // _XBOX
 	if ( primitives == 1 ) {
-		R_DrawStripElements( numIndexes,  indexes, qglArrayElement );
+		R_DrawStripElements( numIndexes,  indexes, glArrayElement );
 		return;
 	}
 
@@ -325,34 +600,34 @@ static void DrawTris (shaderCommands_t *input)
 		switch (i)
 		{
 		case 1:
-			qglColor3f( 1.0, 0.0, 0.0); //red
+			glColor3f( 1.0, 0.0, 0.0); //red
 			break;
 		case 2:
-			qglColor3f( 0.0, 1.0, 0.0); //green
+			glColor3f( 0.0, 1.0, 0.0); //green
 			break;
 		case 3:
-			qglColor3f( 1.0, 1.0, 0.0); //yellow
+			glColor3f( 1.0, 1.0, 0.0); //yellow
 			break;
 		case 4:
-			qglColor3f( 0.0, 0.0, 1.0); //blue
+			glColor3f( 0.0, 0.0, 1.0); //blue
 			break;
 		case 5:
-			qglColor3f( 0.0, 1.0, 1.0); //cyan
+			glColor3f( 0.0, 1.0, 1.0); //cyan
 			break;
 		case 6:
-			qglColor3f( 1.0, 0.0, 1.0); //magenta
+			glColor3f( 1.0, 0.0, 1.0); //magenta
 			break;
 		case 7:
-			qglColor3f( 0.8f, 0.8f, 0.8f); //white/grey
+			glColor3f( 0.8f, 0.8f, 0.8f); //white/grey
 			break;
 		case 8:
-			qglColor3f( 0.0, 0.0, 0.0); //black
+			glColor3f( 0.0, 0.0, 0.0); //black
 			break;
 		}		
 	}
 	else
 	{
-		qglColor3f( 1.0, 1.0, 1.0); //white
+		glColor3f( 1.0, 1.0, 1.0); //white
 	}
 
 	if ( r_showtris->integer == 2 )
@@ -360,54 +635,54 @@ static void DrawTris (shaderCommands_t *input)
 		// tries to do non-xray style showtris
 		GL_State( GLS_POLYMODE_LINE );
 
-		qglEnable( GL_POLYGON_OFFSET_LINE );
-		qglPolygonOffset( -1, -2 );
+		glEnable( GL_POLYGON_OFFSET_LINE );
+		glPolygonOffset( -1, -2 );
 
-		qglDisableClientState( GL_COLOR_ARRAY );
-		qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+		glDisableClientState( GL_COLOR_ARRAY );
+		glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 
-		qglVertexPointer( 3, GL_FLOAT, 16, input->xyz );	// padded for SIMD
+		glVertexPointer( 3, GL_FLOAT, 16, input->xyz );	// padded for SIMD
 
-		if ( qglLockArraysEXT ) 
+		if ( glLockArraysEXT ) 
 		{
-			qglLockArraysEXT( 0, input->numVertexes );
+			glLockArraysEXT( 0, input->numVertexes );
 			GLimp_LogComment( "glLockArraysEXT\n" );
 		}
 
 		R_DrawElements( input->numIndexes, input->indexes );
 
-		if ( qglUnlockArraysEXT ) 
+		if ( glUnlockArraysEXT ) 
 		{
-			qglUnlockArraysEXT( );
+			glUnlockArraysEXT( );
 			GLimp_LogComment( "glUnlockArraysEXT\n" );
 		}
 
-		qglDisable( GL_POLYGON_OFFSET_LINE );
+		glDisable( GL_POLYGON_OFFSET_LINE );
 	}
 	else
 	{
 		// same old showtris
 		GL_State( GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE );
-		qglDepthRange( 0, 0 );
+		glDepthRange( 0, 0 );
 
-		qglDisableClientState (GL_COLOR_ARRAY);
-		qglDisableClientState (GL_TEXTURE_COORD_ARRAY);
+		glDisableClientState (GL_COLOR_ARRAY);
+		glDisableClientState (GL_TEXTURE_COORD_ARRAY);
 
-		qglVertexPointer (3, GL_FLOAT, 16, input->xyz);	// padded for SIMD
+		glVertexPointer (3, GL_FLOAT, 16, input->xyz);	// padded for SIMD
 
-		if (qglLockArraysEXT) {
-			qglLockArraysEXT(0, input->numVertexes);
+		if (glLockArraysEXT) {
+			glLockArraysEXT(0, input->numVertexes);
 			GLimp_LogComment( "glLockArraysEXT\n" );
 		}
 
 		R_DrawElements( input->numIndexes, input->indexes );
 
-		if (qglUnlockArraysEXT) {
-			qglUnlockArraysEXT();
+		if (glUnlockArraysEXT) {
+			glUnlockArraysEXT();
 			GLimp_LogComment( "glUnlockArraysEXT\n" );
 		}
 
-		qglDepthRange( 0, 1 );
+		glDepthRange( 0, 1 );
 	}
 }
 
@@ -423,19 +698,19 @@ static void DrawNormals (shaderCommands_t *input) {
 	vec3_t	temp;
 
 	GL_Bind( tr.whiteImage );
-	qglColor3f (1,1,1);
-	qglDepthRange( 0, 0 );	// never occluded
+	glColor3f (1,1,1);
+	glDepthRange( 0, 0 );	// never occluded
 	GL_State( GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE );
 
-	qglBegin (GL_LINES);
+	glBegin (GL_LINES);
 	for ( int i = 0 ; i < input->numVertexes ; i++) {
-		qglVertex3fv (input->xyz[i]);
+		glVertex3fv (input->xyz[i]);
 		VectorMA (input->xyz[i], 2, input->normal[i], temp);
-		qglVertex3fv (temp);
+		glVertex3fv (temp);
 	}
-	qglEnd ();
+	glEnd ();
 
-	qglDepthRange( 0, 1 );
+	glDepthRange( 0, 1 );
 }
 
 
@@ -491,24 +766,109 @@ t1 = most downstream according to spec
 */
 static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	shaderStage_t	*pStage;
+#ifdef _XBOX
+	static int traceBudget = 2048;
+	static int activeTraceBudget = 64;
+	qboolean trace = RB_XboxShouldTraceSurface();
+	qboolean forceTrace = RB_XboxForceTraceSurface();
+#endif
 
 	pStage = &tess.xstages[stage];
 
+#ifdef _XBOX
+	if (cls.state == CA_ACTIVE && activeTraceBudget > 0)
+	{
+		image_t *img0 = pStage->bundle[0].image;
+		image_t *img1 = pStage->bundle[1].image;
+		XBLF("JA: ACTIVE_MTEXTURE shader='%s' stage=%d verts=%d indexes=%d env=%d img0='%s' tex0=%d light0=%d img1='%s' tex1=%d light1=%d st0uv0=%g,%g st1uv0=%g,%g\n",
+			tess.shader ? tess.shader->name : "<null>",
+			stage,
+			input->numVertexes,
+			input->numIndexes,
+			tess.shader ? tess.shader->multitextureEnv : -1,
+			img0 ? img0->imgName : "<null>",
+			img0 ? img0->texnum : -1,
+			img0 ? img0->isLightmap : -1,
+			img1 ? img1->imgName : "<null>",
+			img1 ? img1->texnum : -1,
+			img1 ? img1->isLightmap : -1,
+			input->svars.texcoords[0][0][0],
+			input->svars.texcoords[0][0][1],
+			input->svars.texcoords[1][0][0],
+			input->svars.texcoords[1][0][1]);
+		activeTraceBudget--;
+	}
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured enter shader='%s' stage=%d verts=%d indexes=%d state=0x%x env=%d img0=%p img1=%p\n",
+			tess.shader ? tess.shader->name : "<null>",
+			stage,
+			input->numVertexes,
+			input->numIndexes,
+			pStage->stateBits,
+			tess.shader ? tess.shader->multitextureEnv : -1,
+			pStage->bundle[0].image,
+			pStage->bundle[1].image);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 	GL_State( pStage->stateBits );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured after GL_State shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	//
 	// base
 	//
 	GL_SelectTexture( 0 );
-	qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
+	glEnable( GL_TEXTURE_2D );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured before bind0 shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+	{
+		static int s_xboxMultitexCoordLogCount = 0;
+		if (trace && s_xboxMultitexCoordLogCount < 8)
+		{
+			XBLF("JA: DrawMultitextured coords shader='%s' stage=%d st0=%p st1=%p st0uv0=%g,%g st1uv0=%g,%g\n",
+				tess.shader ? tess.shader->name : "<null>",
+				stage,
+				input->svars.texcoords[0],
+				input->svars.texcoords[1],
+				input->svars.texcoords[0][0][0],
+				input->svars.texcoords[0][0][1],
+				input->svars.texcoords[1][0][0],
+				input->svars.texcoords[1][0][1]);
+			s_xboxMultitexCoordLogCount++;
+		}
+	}
+#endif
 	R_BindAnimatedImage( &pStage->bundle[0] );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured after bind0 shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	//
 	// lightmap/secondary pass
 	//
 	GL_SelectTexture( 1 );
-	qglEnable( GL_TEXTURE_2D );
-	qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glEnable( GL_TEXTURE_2D );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 
 	if ( r_lightmap->integer ) {
 		GL_TexEnv( GL_REPLACE );
@@ -516,18 +876,50 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 		GL_TexEnv( tess.shader->multitextureEnv ); 
 	}
 
-	qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[1] );
+	glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[1] );
 
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured before bind1 shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 	R_BindAnimatedImage( &pStage->bundle[1] );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured after bind1 shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured before draw shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 	R_DrawElements( input->numIndexes, input->indexes );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: DrawMultitextured after draw shader='%s' stage=%d\n",
+			tess.shader ? tess.shader->name : "<null>", stage);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	//
 	// disable texturing on TEXTURE1, then select TEXTURE0
 	//
-	qglDisable( GL_TEXTURE_2D );
+	glDisable( GL_TEXTURE_2D );
 #ifdef _XBOX
-	qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 #endif
 
 	GL_SelectTexture( 0 );
@@ -746,11 +1138,11 @@ static void ProjectDlightTexture( void ) {
 			continue;
 		}
 
-		qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-		qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
+		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+		glTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
 
-		qglEnableClientState( GL_COLOR_ARRAY );
-		qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
+		glEnableClientState( GL_COLOR_ARRAY );
+		glColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
 
 		GL_Bind( tr.dlightImage );
 
@@ -981,11 +1373,11 @@ static void ProjectDlightTexture2( void ) {
 			tr.world &&
 			(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 		{
-			fogging = qglIsEnabled(GL_FOG);
+			fogging = glIsEnabled(GL_FOG);
 
 			if (fogging)
 			{
-				qglDisable(GL_FOG);
+				glDisable(GL_FOG);
 			}
 		}
 		else
@@ -996,16 +1388,16 @@ static void ProjectDlightTexture2( void ) {
 		if (!needResetVerts)
 		{
 			needResetVerts=1;
-			if (qglUnlockArraysEXT) 
+			if (glUnlockArraysEXT) 
 			{
-				qglUnlockArraysEXT();
+				glUnlockArraysEXT();
 				GLimp_LogComment( "glUnlockArraysEXT\n" );
 			}
 		}
-		qglVertexPointer (3, GL_FLOAT, 16, vertCoordsArray);	// padded for SIMD
+		glVertexPointer (3, GL_FLOAT, 16, vertCoordsArray);	// padded for SIMD
 
 		dStage = NULL;
-		if (tess.shader && qglActiveTextureARB)
+		if (tess.shader && glActiveTextureARB)
 		{
 			int i = 0;
 			while (i < tess.shader->numUnfoggedPasses)
@@ -1026,7 +1418,7 @@ static void ProjectDlightTexture2( void ) {
 		{
 			GL_SelectTexture( 0 );
 			GL_State(0);
-			qglTexCoordPointer( 2, GL_FLOAT, 0, oldTexCoordsArray[0] );
+			glTexCoordPointer( 2, GL_FLOAT, 0, oldTexCoordsArray[0] );
 			if (dStage->bundle[0].image && !dStage->bundle[0].isLightmap && !dStage->bundle[0].numTexMods && dStage->bundle[0].tcGen != TCGEN_ENVIRONMENT_MAPPED && dStage->bundle[0].tcGen != TCGEN_FOG)
 			{
 				R_BindAnimatedImage( &dStage->bundle[0] );
@@ -1037,11 +1429,11 @@ static void ProjectDlightTexture2( void ) {
 			}
 
 			GL_SelectTexture( 1 );
-			qglEnable( GL_TEXTURE_2D );
-			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-			qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
-			qglEnableClientState( GL_COLOR_ARRAY );
-			qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
+			glEnable( GL_TEXTURE_2D );
+			glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+			glTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
+			glEnableClientState( GL_COLOR_ARRAY );
+			glColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
 			GL_Bind( tr.dlightImage );
 			GL_TexEnv( GL_MODULATE );
 
@@ -1050,16 +1442,16 @@ static void ProjectDlightTexture2( void ) {
 
 			R_DrawElements( numIndexes, hitIndexes );
 
-			qglDisable( GL_TEXTURE_2D );
+			glDisable( GL_TEXTURE_2D );
 			GL_SelectTexture(0);
 		}
 		else
 		{
-			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-			qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
+			glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+			glTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
 
-			qglEnableClientState( GL_COLOR_ARRAY );
-			qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
+			glEnableClientState( GL_COLOR_ARRAY );
+			glColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
 
 			GL_Bind( tr.dlightImage );
 			// include GLS_DEPTHFUNC_EQUAL so alpha tested surfaces don't add light
@@ -1077,7 +1469,7 @@ static void ProjectDlightTexture2( void ) {
 
 		if (fogging)
 		{
-			qglEnable(GL_FOG);
+			glEnable(GL_FOG);
 		}
 
 		backEnd.pc.c_totalIndexes += numIndexes;
@@ -1085,10 +1477,10 @@ static void ProjectDlightTexture2( void ) {
 	}
 	if (needResetVerts)
 	{
-		qglVertexPointer (3, GL_FLOAT, 16, tess.xyz);	// padded for SIMD
-		if (qglLockArraysEXT)
+		glVertexPointer (3, GL_FLOAT, 16, tess.xyz);	// padded for SIMD
+		if (glLockArraysEXT)
 		{
-			qglLockArraysEXT(0, tess.numVertexes);
+			glLockArraysEXT(0, tess.numVertexes);
 			GLimp_LogComment( "glLockArraysEXT\n" );
 		}
 	}
@@ -1332,11 +1724,11 @@ static void ProjectDlightTexture( void ) {
 			tr.world &&
 			(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 		{
-			fogging = qglIsEnabled(GL_FOG);
+			fogging = glIsEnabled(GL_FOG);
 
 			if (fogging)
 			{
-				qglDisable(GL_FOG);
+				glDisable(GL_FOG);
 			}
 		}
 		else
@@ -1346,7 +1738,7 @@ static void ProjectDlightTexture( void ) {
 
 
 		dStage = NULL;
-		if (tess.shader && qglActiveTextureARB)
+		if (tess.shader && glActiveTextureARB)
 		{
 			int i = 0;
 			while (i < tess.shader->numUnfoggedPasses)
@@ -1367,7 +1759,7 @@ static void ProjectDlightTexture( void ) {
 		{
 			GL_SelectTexture( 0 );
 			GL_State(0);
-			qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+			glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
 			if (dStage->bundle[0].image && !dStage->bundle[0].isLightmap && !dStage->bundle[0].numTexMods && dStage->bundle[0].tcGen != TCGEN_ENVIRONMENT_MAPPED && dStage->bundle[0].tcGen != TCGEN_FOG)
 			{
 				R_BindAnimatedImage( &dStage->bundle[0] );
@@ -1378,11 +1770,11 @@ static void ProjectDlightTexture( void ) {
 			}
 
 			GL_SelectTexture( 1 );
-			qglEnable( GL_TEXTURE_2D );
-			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-			qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
-			qglEnableClientState( GL_COLOR_ARRAY );
-			qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
+			glEnable( GL_TEXTURE_2D );
+			glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+			glTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
+			glEnableClientState( GL_COLOR_ARRAY );
+			glColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
 			GL_Bind( tr.dlightImage );
 			GL_TexEnv( GL_MODULATE );
 
@@ -1390,16 +1782,16 @@ static void ProjectDlightTexture( void ) {
 
 			R_DrawElements( numIndexes, hitIndexes );
 
-			qglDisable( GL_TEXTURE_2D );
+			glDisable( GL_TEXTURE_2D );
 			GL_SelectTexture(0);
 		}
 		else
 		{
-			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-			qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
+			glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+			glTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
 
-			qglEnableClientState( GL_COLOR_ARRAY );
-			qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
+			glEnableClientState( GL_COLOR_ARRAY );
+			glColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
 
 			GL_Bind( tr.dlightImage );
 			// include GLS_DEPTHFUNC_EQUAL so alpha tested surfaces don't add light
@@ -1417,7 +1809,7 @@ static void ProjectDlightTexture( void ) {
 
 		if (fogging)
 		{
-			qglEnable(GL_FOG);
+			glEnable(GL_FOG);
 		}
 
 		backEnd.pc.c_totalIndexes += numIndexes;
@@ -1438,11 +1830,15 @@ static void RB_FogPass( void ) {
 	fog_t		*fog;
 	int			i;
 
-	qglEnableClientState( GL_COLOR_ARRAY );
-	qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, tess.svars.colors );
+#ifdef _XBOX
+	RB_XboxLogRenderSuspectSurface("RB_FogPass");
+#endif
 
-	qglEnableClientState( GL_TEXTURE_COORD_ARRAY);
-	qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+	glEnableClientState( GL_COLOR_ARRAY );
+	glColorPointer( 4, GL_UNSIGNED_BYTE, 0, tess.svars.colors );
+
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY);
+	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
 
 	fog = tr.world->fogs + tess.fogNum;
 
@@ -2125,11 +2521,7 @@ static void ComputeTexCoords( shaderStage_t *pStage ) {
 			RB_CalcFogTexCoords( ( float * ) tess.svars.texcoords[b] );
 			break;
 		case TCGEN_ENVIRONMENT_MAPPED:
-#ifdef _XBOX
-			tess.shader->stages[tess.currentPass].isEnvironment = qtrue;
-#else
 			RB_CalcEnvironmentTexCoords( ( float * ) tess.svars.texcoords[b] );
-#endif
 			break;
 		case TCGEN_BAD:
 			return;
@@ -2206,6 +2598,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	bool	UseGLFog = false;
 	bool	FogColorChange = false;
 	fog_t	*fog = NULL;
+#ifdef _XBOX
+	qboolean forceTrace = RB_XboxForceTraceSurface();
+#endif
 
 	if (tess.fogNum && tess.shader->fogPass && (tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs) 
 		&& r_drawfog->value == 2) 
@@ -2241,27 +2636,27 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				}
 			}
 
-			qglFogi(GL_FOG_MODE, GL_LINEAR);
-			qglFogf(GL_FOG_START, fStart);
-			qglFogf(GL_FOG_END, fEnd);
+			glFogi(GL_FOG_MODE, GL_LINEAR);
+			glFogf(GL_FOG_START, fStart);
+			glFogf(GL_FOG_END, fEnd);
 		}
 		else
 		{
-			qglFogi(GL_FOG_MODE, GL_EXP2);
-			qglFogf(GL_FOG_DENSITY, logtestExp2 / fog->parms.depthForOpaque);
+			glFogi(GL_FOG_MODE, GL_EXP2);
+			glFogf(GL_FOG_DENSITY, logtestExp2 / fog->parms.depthForOpaque);
 		}
 
 		if ( g_bRenderGlowingObjects )
 		{
 			const float fogColor[3] = { 0.0f, 0.0f, 0.0f };
-			qglFogfv(GL_FOG_COLOR, fogColor );
+			glFogfv(GL_FOG_COLOR, fogColor );
 		}
 		else
 		{
-			qglFogfv(GL_FOG_COLOR, fog->parms.color);
+			glFogfv(GL_FOG_COLOR, fog->parms.color);
 		}
 		
-		qglEnable(GL_FOG);
+		glEnable(GL_FOG);
 		UseGLFog = true;
 	}
 
@@ -2286,6 +2681,39 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 #ifdef _XBOX
 		tess.currentPass = stage;
+		if ( stage > 0 &&
+			( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) ==
+				( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA ) &&
+			tess.xstages[stage - 1].bundle[0].tcGen == TCGEN_ENVIRONMENT_MAPPED &&
+			tess.xstages[stage - 1].bundle[0].image &&
+			pStage->bundle[0].image &&
+			!pStage->bundle[0].isLightmap )
+		{
+			static int s_xboxEnvBaseReplaceLogs = 0;
+			if ( s_xboxEnvBaseReplaceLogs < 64 )
+			{
+				XBLF("JA: XBOX_ENV_BASE_REPLACE shader='%s' stage=%d prevImg='%s' baseImg='%s' oldState=0x%x",
+					tess.shader ? tess.shader->name : "<null>",
+					stage,
+					tess.xstages[stage - 1].bundle[0].image ?
+						tess.xstages[stage - 1].bundle[0].image->imgName : "<null>",
+					pStage->bundle[0].image ? pStage->bundle[0].image->imgName : "<null>",
+					stateBits);
+				++s_xboxEnvBaseReplaceLogs;
+			}
+			stateBits &= ~( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS );
+			stateBits |= GLS_DEPTHFUNC_EQUAL;
+		}
+		if ( forceTrace )
+		{
+			XBLF("JA: RB_IterateStagesGeneric stage enter shader='%s' stage=%d active=%d state=0x%x bundle1=%p fading=%d\n",
+				tess.shader ? tess.shader->name : "<null>",
+				stage,
+				pStage->active,
+				stateBits,
+				pStage->bundle[1].image,
+				input->fading);
+		}
 #endif
 
 		// allow skipping out to show just lightmaps during development
@@ -2337,30 +2765,58 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		{
 			if (pStage->mGLFogColorOverride)
 			{
-				qglFogfv(GL_FOG_COLOR, GLFogOverrideColors[pStage->mGLFogColorOverride]);
+				glFogfv(GL_FOG_COLOR, GLFogOverrideColors[pStage->mGLFogColorOverride]);
 				FogColorChange = true;
 			}
 			else if (FogColorChange && fog)
 			{
 				FogColorChange = false;
-				qglFogfv(GL_FOG_COLOR, fog->parms.color);
+				glFogfv(GL_FOG_COLOR, fog->parms.color);
 			}
 		}
 
 #ifdef _XBOX
-		qglDisable(GL_LIGHTING);
+		glDisable(GL_LIGHTING);
 #endif
 
 		if (!input->fading)
 		{ //this means ignore this, while we do a fade-out
+#ifdef _XBOX
+			if ( forceTrace )
+			{
+				XBLF("JA: RB_IterateStagesGeneric before ComputeColors shader='%s' stage=%d\n",
+					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+#endif
 			ComputeColors( pStage, forceAlphaGen, forceRGBGen );
+#ifdef _XBOX
+			if ( forceTrace )
+			{
+				XBLF("JA: RB_IterateStagesGeneric after ComputeColors shader='%s' stage=%d\n",
+					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+#endif
 		}
+#ifdef _XBOX
+		if ( forceTrace )
+		{
+			XBLF("JA: RB_IterateStagesGeneric before ComputeTexCoords shader='%s' stage=%d\n",
+				tess.shader ? tess.shader->name : "<null>", stage);
+		}
+#endif
 		ComputeTexCoords( pStage );
+#ifdef _XBOX
+		if ( forceTrace )
+		{
+			XBLF("JA: RB_IterateStagesGeneric after ComputeTexCoords shader='%s' stage=%d\n",
+				tess.shader ? tess.shader->name : "<null>", stage);
+		}
+#endif
 
 		if ( !setArraysOnce )
 		{
-			qglEnableClientState( GL_COLOR_ARRAY );
-			qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, input->svars.colors );
+			glEnableClientState( GL_COLOR_ARRAY );
+			glColorPointer( 4, GL_UNSIGNED_BYTE, 0, input->svars.colors );
 		}
 
 		if (pStage->bundle[0].isLightmap && r_debugStyle->integer >= 0)
@@ -2380,51 +2836,51 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		if(pStage->rgbGen == CGEN_LIGHTING_DIFFUSE ||
 			pStage->rgbGen == CGEN_LIGHTING_DIFFUSE_ENTITY)
 		{
-            qglEnableClientState( GL_NORMAL_ARRAY );
-			qglNormalPointer(GL_FLOAT, 16, tess.normal );
+            glEnableClientState( GL_NORMAL_ARRAY );
+			glNormalPointer(GL_FLOAT, 16, tess.normal );
 		}
 
 		if(pStage->isSpecular)
 		{
-			qglEnableClientState( GL_NORMAL_ARRAY );
-			qglNormalPointer(GL_FLOAT, 16, tess.normal );
+			glEnableClientState( GL_NORMAL_ARRAY );
+			glNormalPointer(GL_FLOAT, 16, tess.normal );
 			if(!tess.setTangents)
                 BuildTangentVectors();
-			qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
+			glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
 			R_BindAnimatedImage( &pStage->bundle[0] );
 			GL_State( stateBits );
 			glw_state->lightEffects->RenderSpecular();
-			qglDisableClientState( GL_NORMAL_ARRAY );
+			glDisableClientState( GL_NORMAL_ARRAY );
 			continue;
 		}
 		if(pStage->isEnvironment)
 		{
-			qglEnableClientState( GL_NORMAL_ARRAY );
-			qglNormalPointer( GL_FLOAT, 16, tess.normal );
+			glEnableClientState( GL_NORMAL_ARRAY );
+			glNormalPointer( GL_FLOAT, 16, tess.normal );
 			R_BindAnimatedImage( &pStage->bundle[0] );
 			GL_State( stateBits );
 			glw_state->lightEffects->RenderEnvironment();
-			qglDisableClientState( GL_NORMAL_ARRAY );
+			glDisableClientState( GL_NORMAL_ARRAY );
 			continue;
 		}
 		if(pStage->isBumpMap)
 		{
-			qglEnableClientState( GL_NORMAL_ARRAY );
-			qglNormalPointer( GL_FLOAT, 16, tess.normal );
+			glEnableClientState( GL_NORMAL_ARRAY );
+			glNormalPointer( GL_FLOAT, 16, tess.normal );
 			if(!tess.setTangents)
                 BuildTangentVectors();
 			GL_SelectTexture( 0 );
 			R_BindAnimatedImage( &pStage->bundle[0] );
 			GL_SelectTexture( 1 );
-			qglEnable( GL_TEXTURE_2D );
-			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
+			glEnable( GL_TEXTURE_2D );
+			glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 			R_BindAnimatedImage( &pStage->bundle[1] );
 			GL_State( stateBits );
 			glw_state->lightEffects->RenderBump();
-			qglDisable( GL_TEXTURE_2D );
-			qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+			glDisable( GL_TEXTURE_2D );
+			glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 			GL_SelectTexture( 0 );
-			qglDisableClientState( GL_NORMAL_ARRAY );
+			glDisableClientState( GL_NORMAL_ARRAY );
 			continue;
 		}
 #endif // VV_LIGHTING
@@ -2433,7 +2889,21 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		if ( pStage->bundle[1].image != 0 )
 		{
+#ifdef _XBOX
+			if ( forceTrace )
+			{
+				XBLF("JA: RB_IterateStagesGeneric before DrawMultitextured shader='%s' stage=%d\n",
+					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+#endif
 			DrawMultitextured( input, stage );
+#ifdef _XBOX
+			if ( forceTrace )
+			{
+				XBLF("JA: RB_IterateStagesGeneric after DrawMultitextured shader='%s' stage=%d\n",
+					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+#endif
 		}
 		else
 		{
@@ -2441,7 +2911,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			if ( !setArraysOnce )
 			{
-				qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
+				glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
 			}
 
 			//
@@ -2459,18 +2929,34 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				GL_Bind( tr.whiteImage );
 			}
 			else 
+#ifdef _XBOX
+			{
+				if ( forceTrace )
+				{
+					XBLF("JA: RB_IterateStagesGeneric before bind single shader='%s' stage=%d\n",
+						tess.shader ? tess.shader->name : "<null>", stage);
+				}
 				R_BindAnimatedImage( &pStage->bundle[0] );
+				if ( forceTrace )
+				{
+					XBLF("JA: RB_IterateStagesGeneric after bind single shader='%s' stage=%d\n",
+						tess.shader ? tess.shader->name : "<null>", stage);
+				}
+			}
+#else
+				R_BindAnimatedImage( &pStage->bundle[0] );
+#endif
 
 			if (tess.shader == tr.distortionShader &&
 				glConfig.stencilBits >= 4)
 			{ //draw it to the stencil buffer!
 				tr_stencilled = true;
 				lStencilled = true;
-				qglEnable(GL_STENCIL_TEST);
+				glEnable(GL_STENCIL_TEST);
 				// BTO - Xbox fix: High stencil bit is reserved for glow
-				qglStencilFunc(GL_ALWAYS, 1, 0x7F); //0xFFFFFFFF);
-				qglStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-				qglColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+				glStencilFunc(GL_ALWAYS, 1, 0x7F); //0xFFFFFFFF);
+				glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+				glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
 				//don't depthmask, don't blend.. don't do anything
 				GL_State(0);
@@ -2483,29 +2969,43 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			//
 			// draw
 			//
+#ifdef _XBOX
+			if ( forceTrace )
+			{
+				XBLF("JA: RB_IterateStagesGeneric before single draw shader='%s' stage=%d\n",
+					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+#endif
 			R_DrawElements( input->numIndexes, input->indexes );
+#ifdef _XBOX
+			if ( forceTrace )
+			{
+				XBLF("JA: RB_IterateStagesGeneric after single draw shader='%s' stage=%d\n",
+					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+#endif
 
 			if (lStencilled)
 			{ //re-enable the color buffer, disable stencil test
 				lStencilled = false;
-				qglDisable(GL_STENCIL_TEST);
-				qglColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+				glDisable(GL_STENCIL_TEST);
+				glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 			}
 		}
 
 #ifdef VV_LIGHTING
 		// Lighting may have been turned on above
-		qglDisable(GL_LIGHTING);
-		qglDisableClientState( GL_NORMAL_ARRAY );
+		glDisable(GL_LIGHTING);
+		glDisableClientState( GL_NORMAL_ARRAY );
 
 		if(tess.shader == tr.projectionShadowShader) {
-			qglDisable(GL_STENCIL_TEST);
+			glDisable(GL_STENCIL_TEST);
 		}
 #endif
 	}
 	if (FogColorChange)
 	{
-		qglFogfv(GL_FOG_COLOR, fog->parms.color);
+		glFogfv(GL_FOG_COLOR, fog->parms.color);
 	}
 }
 
@@ -2546,10 +3046,41 @@ void RB_StageIteratorGeneric( void )
 {
 	shaderCommands_t *input;
 	int stage;
+#ifdef _XBOX
+	static int traceBudget = 4096;
+	qboolean trace;
+	qboolean forceTrace;
+#endif
 
 	input = &tess;
+#ifdef _XBOX
+	RB_XboxLogRenderSuspectSurface("RB_StageIteratorGeneric");
+#endif
+#ifdef _XBOX
+	trace = RB_XboxShouldTraceSurface();
+	forceTrace = RB_XboxForceTraceSurface();
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric enter shader='%s' verts=%d indexes=%d passes=%d fog=%d dlight=0x%x\n",
+			tess.shader ? tess.shader->name : "<null>",
+			tess.numVertexes,
+			tess.numIndexes,
+			tess.numPasses,
+			tess.fogNum,
+			tess.dlightBits);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	RB_DeformTessGeometry();
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric after deform shader='%s'\n",
+			tess.shader ? tess.shader->name : "<null>");
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	//
 	// log this call
@@ -2567,12 +3098,21 @@ void RB_StageIteratorGeneric( void )
 	// set face culling appropriately
 	//
 	GL_Cull( input->shader->cullType );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric after cull shader='%s' cull=%d\n",
+			tess.shader ? tess.shader->name : "<null>",
+			input->shader ? input->shader->cullType : -1);
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	// set polygon offset if necessary
 	if ( input->shader->polygonOffset )
 	{
-		qglEnable( GL_POLYGON_OFFSET_FILL );
-		qglPolygonOffset( r_offsetFactor->value, r_offsetUnits->value );
+		glEnable( GL_POLYGON_OFFSET_FILL );
+		glPolygonOffset( r_offsetFactor->value, r_offsetUnits->value );
 	}
 
 	//
@@ -2584,18 +3124,18 @@ void RB_StageIteratorGeneric( void )
 	if ( tess.numPasses > 1 || input->shader->multitextureEnv )
 	{
 		setArraysOnce = qfalse;
-		qglDisableClientState (GL_COLOR_ARRAY);
-		qglDisableClientState (GL_TEXTURE_COORD_ARRAY);
+		glDisableClientState (GL_COLOR_ARRAY);
+		glDisableClientState (GL_TEXTURE_COORD_ARRAY);
 	}
 	else
 	{
 		setArraysOnce = qtrue;
 
-		qglEnableClientState( GL_COLOR_ARRAY);
-		qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, tess.svars.colors );
+		glEnableClientState( GL_COLOR_ARRAY);
+		glColorPointer( 4, GL_UNSIGNED_BYTE, 0, tess.svars.colors );
 
-		qglEnableClientState( GL_TEXTURE_COORD_ARRAY);
-		qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+		glEnableClientState( GL_TEXTURE_COORD_ARRAY);
+		glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
 	}
 
 	// If this is a glowing surface, write the glow flag into the stencil buffer
@@ -2632,11 +3172,11 @@ void RB_StageIteratorGeneric( void )
 	//
 	// lock XYZ
 	//
-	qglVertexPointer (3, GL_FLOAT, 16, input->xyz);	// padded for SIMD
+	glVertexPointer (3, GL_FLOAT, 16, input->xyz);	// padded for SIMD
 
-	if (qglLockArraysEXT)
+	if (glLockArraysEXT)
 	{
-		qglLockArraysEXT(0, input->numVertexes);
+		glLockArraysEXT(0, input->numVertexes);
 		GLimp_LogComment( "glLockArraysEXT\n" );
 	}
 
@@ -2645,27 +3185,52 @@ void RB_StageIteratorGeneric( void )
 	//
 	if ( !setArraysOnce )
 	{
-		qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-		qglEnableClientState( GL_COLOR_ARRAY );
+		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+		glEnableClientState( GL_COLOR_ARRAY );
 	}
 
 	//
 	// call shader function
 	//
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric before iterate shader='%s'\n",
+			tess.shader ? tess.shader->name : "<null>");
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 	RB_IterateStagesGeneric( input );
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric after iterate shader='%s'\n",
+			tess.shader ? tess.shader->name : "<null>");
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	// 
 	// now do any dynamic lighting needed
 	//
 	if ( tess.dlightBits && tess.shader->sort <= SS_OPAQUE
 		&& !(tess.shader->surfaceFlags & (SURF_NODLIGHT | SURF_SKY) ) ) {
+#ifdef _XBOX
+		if ( trace && ( traceBudget > 0 || forceTrace ) )
+		{
+			XBLF("JA: RB_StageIteratorGeneric before dlight shader='%s' bits=0x%x\n",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.dlightBits);
+			if ( traceBudget > 0 ) traceBudget--;
+		}
+#endif
 #ifdef VV_LIGHTING
-		qglEnableClientState( GL_NORMAL_ARRAY );
-		qglNormalPointer(GL_FLOAT, 16, tess.normal );
+		glEnableClientState( GL_NORMAL_ARRAY );
+		glNormalPointer(GL_FLOAT, 16, tess.normal );
 		if(!tess.setTangents)
             BuildTangentVectors();
 		glw_state->lightEffects->RenderDynamicLights();
-		qglDisableClientState( GL_NORMAL_ARRAY );
+		glDisableClientState( GL_NORMAL_ARRAY );
 #else
 		if (r_dlightStyle->integer>0)
 		{
@@ -2676,6 +3241,14 @@ void RB_StageIteratorGeneric( void )
 			ProjectDlightTexture();
 		}
 #endif
+#ifdef _XBOX
+		if ( trace && ( traceBudget > 0 || forceTrace ) )
+		{
+			XBLF("JA: RB_StageIteratorGeneric after dlight shader='%s'\n",
+				tess.shader ? tess.shader->name : "<null>");
+			if ( traceBudget > 0 ) traceBudget--;
+		}
+#endif
 	}
 
 	//
@@ -2683,24 +3256,49 @@ void RB_StageIteratorGeneric( void )
 	//
 	if (tr.world && (tess.fogNum != tr.world->globalFog || r_drawfog->value != 2) && r_drawfog->value && tess.fogNum && tess.shader->fogPass)
 	{
+#ifdef _XBOX
+		if ( trace && ( traceBudget > 0 || forceTrace ) )
+		{
+			XBLF("JA: RB_StageIteratorGeneric before fog shader='%s' fog=%d\n",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.fogNum);
+			if ( traceBudget > 0 ) traceBudget--;
+		}
+#endif
 		RB_FogPass();
+#ifdef _XBOX
+		if ( trace && ( traceBudget > 0 || forceTrace ) )
+		{
+			XBLF("JA: RB_StageIteratorGeneric after fog shader='%s'\n",
+				tess.shader ? tess.shader->name : "<null>");
+			if ( traceBudget > 0 ) traceBudget--;
+		}
+#endif
 	}
 
 	// 
 	// unlock arrays
 	//
-	if (qglUnlockArraysEXT) 
+	if (glUnlockArraysEXT) 
 	{
-		qglUnlockArraysEXT();
+		glUnlockArraysEXT();
 		GLimp_LogComment( "glUnlockArraysEXT\n" );
 	}
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric after unlock shader='%s'\n",
+			tess.shader ? tess.shader->name : "<null>");
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 
 	//
 	// reset polygon offset
 	//
 	if ( input->shader->polygonOffset )
 	{
-		qglDisable( GL_POLYGON_OFFSET_FILL );
+		glDisable( GL_POLYGON_OFFSET_FILL );
 	}
 
 	// Now check for surfacesprites.
@@ -2720,8 +3318,16 @@ void RB_StageIteratorGeneric( void )
 		tess.fogNum && tess.shader->fogPass &&
 		(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 	{
-		qglDisable(GL_FOG);
+		glDisable(GL_FOG);
 	}
+#ifdef _XBOX
+	if ( trace && ( traceBudget > 0 || forceTrace ) )
+	{
+		XBLF("JA: RB_StageIteratorGeneric exit shader='%s'\n",
+			tess.shader ? tess.shader->name : "<null>");
+		if ( traceBudget > 0 ) traceBudget--;
+	}
+#endif
 }
 
 
@@ -2738,10 +3344,38 @@ void RB_EndSurface( void ) {
 	}
 
 	if (input->indexes[SHADER_MAX_INDEXES-1] != 0) {
+#ifdef _XBOX
+		XBLF("JA: RB_EndSurface index sentinel hit shader='%s' verts=%d indexes=%d fog=%d ent=%d reType=%d idxLast=%d\n",
+			input->shader ? input->shader->name : "<null>",
+			input->numVertexes,
+			input->numIndexes,
+			input->fogNum,
+			tr.currentEntityNum,
+			backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
+			input->indexes[SHADER_MAX_INDEXES-1]);
+#endif
 		Com_Error (ERR_DROP, "RB_EndSurface() - SHADER_MAX_INDEXES hit");
 	}	
-	if (input->xyz[SHADER_MAX_VERTEXES-1][0] != 0) {
+	if (input->xyz[SHADER_MAX_VERTEXES-1][0] > 0.001f || input->xyz[SHADER_MAX_VERTEXES-1][0] < -0.001f) {
+#ifdef _XBOX
+		XBLF("JA: RB_EndSurface vertex sentinel hit shader='%s' verts=%d indexes=%d fog=%d ent=%d reType=%d xyzLast=(%.3f %.3f %.3f %.3f)\n",
+			input->shader ? input->shader->name : "<null>",
+			input->numVertexes,
+			input->numIndexes,
+			input->fogNum,
+			tr.currentEntityNum,
+			backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
+			input->xyz[SHADER_MAX_VERTEXES-1][0],
+			input->xyz[SHADER_MAX_VERTEXES-1][1],
+			input->xyz[SHADER_MAX_VERTEXES-1][2],
+			input->xyz[SHADER_MAX_VERTEXES-1][3]);
+		VectorClear(input->xyz[SHADER_MAX_VERTEXES-1]);
+		input->xyz[SHADER_MAX_VERTEXES-1][3] = 0.0f;
+#else
 		Com_Error (ERR_DROP, "RB_EndSurface() - SHADER_MAX_VERTEXES hit");
+#endif
+	} else {
+		input->xyz[SHADER_MAX_VERTEXES-1][0] = 0.0f;
 	}
 
 	if ( tess.shader == tr.shadowShader ) {
@@ -2761,7 +3395,21 @@ void RB_EndSurface( void ) {
 		{
 			if(tess.currentStageIteratorFunc == RB_StageIteratorSky)
 			{	// don't process these tris at all
+#ifdef _XBOX
+				static int s_xboxSkyPortalFallbackLogBudget = 32;
+				if (s_xboxSkyPortalFallbackLogBudget > 0)
+				{
+					XBLF("JA: XBOX_SKYPORTAL_MAIN_SKY_SKIP shader='%s' verts=%d indexes=%d rdflags=0x%x",
+						tess.shader ? tess.shader->name : "<null>",
+						tess.numVertexes,
+						tess.numIndexes,
+						backEnd.refdef.rdflags);
+					--s_xboxSkyPortalFallbackLogBudget;
+				}
 				return;
+#else
+				return;
+#endif
 			}
 		}
 		// portal sky
@@ -2795,7 +3443,46 @@ void RB_EndSurface( void ) {
 	//
 	// call off to shader specific tess end function
 	//
+#ifdef _XBOX
+	{
+		static int traceBudget = 4096;
+		qboolean trace = RB_XboxShouldTraceSurface();
+
+		if ( trace && traceBudget > 0 )
+		{
+			XBLF("JA: RB_EndSurface before iterator shader='%s' verts=%d indexes=%d passes=%d currentPass=%d fog=%d dlight=0x%x ent=%d reType=%d func=%p\n",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.numVertexes,
+				tess.numIndexes,
+				tess.numPasses,
+				tess.currentPass,
+				tess.fogNum,
+				tess.dlightBits,
+				tr.currentEntityNum,
+				backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
+				tess.currentStageIteratorFunc);
+			traceBudget--;
+		}
+	}
+#endif
 	tess.currentStageIteratorFunc();
+#ifdef _XBOX
+	{
+		static int traceBudget = 4096;
+		qboolean trace = RB_XboxShouldTraceSurface();
+
+		if ( trace && traceBudget > 0 )
+		{
+			XBLF("JA: RB_EndSurface after iterator shader='%s' verts=%d indexes=%d passes=%d currentPass=%d\n",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.numVertexes,
+				tess.numIndexes,
+				tess.numPasses,
+				tess.currentPass);
+			traceBudget--;
+		}
+	}
+#endif
 
 #ifdef _XBOX
 	tess.currentPass = 0;
@@ -2818,4 +3505,3 @@ void RB_EndSurface( void ) {
 
 	GLimp_LogComment( "----------\n" );
 }
-

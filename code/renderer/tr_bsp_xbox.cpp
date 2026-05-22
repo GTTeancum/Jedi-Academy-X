@@ -8,6 +8,10 @@
 
 #include "../qcommon/cm_local.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 /*
 
 Loads and prepares a map file for scene rendering.
@@ -319,6 +323,7 @@ ShaderForShaderNum
 static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, const byte *lightmapStyles ) {
 	shader_t	*shader;
 	dshader_t	*dsh;
+	int			originalShaderNum = shaderNum;
 
 	shaderNum = shaderNum;
 	if ( shaderNum < 0 || shaderNum >= s_worldData.numShaders ) {
@@ -327,6 +332,26 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 	dsh = &s_worldData.shaders[ shaderNum ];
 
 	shader = R_FindShader( dsh->shader, lightmapNum, lightmapStyles, qtrue );
+
+#ifdef _XBOX
+	{
+		static int s_xboxShaderLogBudget = 96;
+		if (s_xboxShaderLogBudget > 0 &&
+			((dsh->surfaceFlags & SURF_SKY) || shader->sky || shader->sort == SS_PORTAL))
+		{
+			XBLF("JA: ShaderForShaderNum #%d name='%s' mapSurf=0x%x mapCont=0x%x shaderSky=%d sort=%g default=%d lm0=%d",
+				originalShaderNum,
+				dsh->shader,
+				dsh->surfaceFlags,
+				dsh->contentFlags,
+				(int)(shader->sky != NULL),
+				(double)shader->sort,
+				(int)shader->defaultShader,
+				lightmapNum ? lightmapNum[0] : -999);
+			--s_xboxShaderLogBudget;
+		}
+	}
+#endif
 
 	// if the shader had errors, just use default shader
 	if ( shader->defaultShader ) {
@@ -587,6 +612,30 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
+
+#ifdef _XBOX
+	{
+		static int s_xboxFaceShaderLogBudget = 160;
+		const dshader_t *mapShader = &s_worldData.shaders[ds->shaderNum];
+		if (s_xboxFaceShaderLogBudget > 0 &&
+			((mapShader->surfaceFlags & SURF_SKY) || surf->shader->sky || surf->shader->sort == SS_PORTAL))
+		{
+			XBLF("JA: ParseFace special shaderNum=%d name='%s' mapSurf=0x%x mapCont=0x%x shader='%s' sky=%d sort=%g fog=%d verts=%d indexes=%d lm0=%d",
+				ds->shaderNum,
+				mapShader->shader,
+				mapShader->surfaceFlags,
+				mapShader->contentFlags,
+				surf->shader ? surf->shader->name : "<null>",
+				(int)(surf->shader && surf->shader->sky != NULL),
+				surf->shader ? (double)surf->shader->sort : -1.0,
+				surf->fogIndex,
+				ds->verts & 0xFFF,
+				ds->indexes & 0xFFF,
+				lightmapNum[0]);
+			--s_xboxFaceShaderLogBudget;
+		}
+	}
+#endif
 
 	bool needVertexColors = NeedVertexColors(surf->shader); 
 	int numLightMaps = NumLightMaps(surf->shader);
@@ -1022,6 +1071,18 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	short		*indexes;
 	int			count;
 	int			i;
+#ifdef _XBOX
+	int			maxFaceVerts = 0;
+	int			maxFaceIndexes = 0;
+	int			maxFaceFirstVert = 0;
+	int			maxFaceFirstIndex = 0;
+	int			maxLocalIndex = 0;
+	int			faceVertsOverByte = 0;
+	int			faceIndexesOverShort = 0;
+	int			localIndexOverByte = 0;
+	int			localIndexOutOfRange = 0;
+	int			faceDataOverShort = 0;
+#endif
 
 	if (surfacelen == 0) {
 		return;
@@ -1047,6 +1108,62 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	for ( i = 0 ; i < count ; i++) 
 	{ 
 		in = (dface_t *)surfaces + i;
+#ifdef _XBOX
+		{
+			int numVerts = in->verts & 0xFFF;
+			int firstVert = in->verts >> 12;
+			int numIdx = in->indexes & 0xFFF;
+			int firstIdx = in->indexes >> 12;
+			int maxIdxThisFace = 0;
+			int idx;
+
+			if (numVerts > maxFaceVerts)
+			{
+				maxFaceVerts = numVerts;
+			}
+			if (numIdx > maxFaceIndexes)
+			{
+				maxFaceIndexes = numIdx;
+			}
+			if (firstVert > maxFaceFirstVert)
+			{
+				maxFaceFirstVert = firstVert;
+			}
+			if (firstIdx > maxFaceFirstIndex)
+			{
+				maxFaceFirstIndex = firstIdx;
+			}
+			if (numVerts > 255)
+			{
+				faceVertsOverByte++;
+			}
+			if (numIdx > 65535)
+			{
+				faceIndexesOverShort++;
+			}
+
+			for (idx = 0; idx < numIdx; ++idx)
+			{
+				int localIdx = indexes[firstIdx + idx];
+				if (localIdx > maxIdxThisFace)
+				{
+					maxIdxThisFace = localIdx;
+				}
+				if (localIdx > maxLocalIndex)
+				{
+					maxLocalIndex = localIdx;
+				}
+				if (localIdx > 255)
+				{
+					localIndexOverByte++;
+				}
+				if (localIdx < 0 || localIdx >= numVerts)
+				{
+					localIndexOutOfRange++;
+				}
+			}
+		}
+#endif
 
 		short lightmapNum[MAXLIGHTMAPS];
 		for(int j=0; j<4; j++) {
@@ -1061,12 +1178,32 @@ void R_LoadFaces( void *indexdata, int indexlen,
 			in->indexes & 0xFFF);
 		
 		iFaceDataSizeRequired += sfaceSize;
+#ifdef _XBOX
+		if (sfaceSize > 65535)
+		{
+			faceDataOverShort++;
+		}
+#endif
 		assert(sfaceSize < 100 * 1024);
 		if (--nToGo <= 0)
 		{
 			nToGo = nTimes;
 		}
 	}
+#ifdef _XBOX
+	XBLF("JA: R_LoadFaces summary faces=%d maxVerts=%d maxIndexes=%d maxFirstVert=%d maxFirstIndex=%d maxLocalIndex=%d vertsOverByte=%d localIndexOverByte=%d localIndexOutOfRange=%d faceDataBytes=%d faceDataOverShort=%d",
+		count,
+		maxFaceVerts,
+		maxFaceIndexes,
+		maxFaceFirstVert,
+		maxFaceFirstIndex,
+		maxLocalIndex,
+		faceVertsOverByte,
+		localIndexOverByte,
+		localIndexOutOfRange,
+		iFaceDataSizeRequired,
+		faceDataOverShort);
+#endif
 	in -= count;	// back it up, ready for loop-proper
 
 	// since this ptr is to hunk data, I can pass it in and have it advanced without worrying about losing
@@ -1160,6 +1297,21 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 	mnode_t 	*outNode;
 	mleaf_s 	*outLeaf;
 	int			numNodes, numLeafs;
+#ifdef _XBOX
+	int			minNodeBounds[3] = { 32767, 32767, 32767 };
+	int			maxNodeBounds[3] = { -32768, -32768, -32768 };
+	int			minLeafBounds[3] = { 32767, 32767, 32767 };
+	int			maxLeafBounds[3] = { -32768, -32768, -32768 };
+	int			maxLeafArea = 0;
+	int			negativeLeafAreas = 0;
+	int			maxLeafCluster = -1;
+	int			maxFirstMarkSurf = 0;
+	int			maxLeafMarkCount = 0;
+	int			maxLeafMarkEnd = 0;
+	int			leafMarkEndOverflow = 0;
+	int			leafMarkCountSignedOverflow = 0;
+	int			nodeChildShortRisk = 0;
+#endif
 
 	in = (dnode_t *)(nodes);
 	if (nodelen % sizeof(dnode_t) ||
@@ -1184,6 +1336,16 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 		{
 			outNode->mins[j] = in->mins[j];
 			outNode->maxs[j] = in->maxs[j];
+#ifdef _XBOX
+			if (in->mins[j] < minNodeBounds[j])
+			{
+				minNodeBounds[j] = in->mins[j];
+			}
+			if (in->maxs[j] > maxNodeBounds[j])
+			{
+				maxNodeBounds[j] = in->maxs[j];
+			}
+#endif
 		}
 	
 		outNode->planeNum = in->planeNum;
@@ -1192,6 +1354,12 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 		for (j=0 ; j<2 ; j++)
 		{
 			p = in->children[j];
+#ifdef _XBOX
+			if (p == 32767 || p == -32768)
+			{
+				nodeChildShortRisk++;
+			}
+#endif
 			if (p >= 0) {
 				if(p < numNodes) {
 					outNode->children[j] = s_worldData.nodes + p;
@@ -1218,10 +1386,34 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 		{
 			outLeaf->mins[j] = inLeaf->mins[j];
 			outLeaf->maxs[j] = inLeaf->maxs[j];
+#ifdef _XBOX
+			if (inLeaf->mins[j] < minLeafBounds[j])
+			{
+				minLeafBounds[j] = inLeaf->mins[j];
+			}
+			if (inLeaf->maxs[j] > maxLeafBounds[j])
+			{
+				maxLeafBounds[j] = inLeaf->maxs[j];
+			}
+#endif
 		}
 
 		outLeaf->cluster = inLeaf->cluster;
 		outLeaf->area = inLeaf->area;
+#ifdef _XBOX
+		if (inLeaf->cluster > maxLeafCluster)
+		{
+			maxLeafCluster = inLeaf->cluster;
+		}
+		if (inLeaf->area > maxLeafArea)
+		{
+			maxLeafArea = inLeaf->area;
+		}
+		if (inLeaf->area < 0)
+		{
+			negativeLeafAreas++;
+		}
+#endif
 
 		if ( outLeaf->cluster >= s_worldData.numClusters ) {
 			s_worldData.numClusters = outLeaf->cluster + 1;
@@ -1229,7 +1421,51 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 
 		outLeaf->firstMarkSurfNum = inLeaf->firstLeafSurface;
 		outLeaf->nummarksurfaces = inLeaf->numLeafSurfaces;
+#ifdef _XBOX
+		{
+			int markEnd = (int)inLeaf->firstLeafSurface + (int)inLeaf->numLeafSurfaces;
+			if (inLeaf->firstLeafSurface > maxFirstMarkSurf)
+			{
+				maxFirstMarkSurf = inLeaf->firstLeafSurface;
+			}
+			if (inLeaf->numLeafSurfaces > maxLeafMarkCount)
+			{
+				maxLeafMarkCount = inLeaf->numLeafSurfaces;
+			}
+			if (markEnd > maxLeafMarkEnd)
+			{
+				maxLeafMarkEnd = markEnd;
+			}
+			if (markEnd > 65535)
+			{
+				leafMarkEndOverflow++;
+			}
+			if (inLeaf->numLeafSurfaces > 32767)
+			{
+				leafMarkCountSignedOverflow++;
+			}
+		}
+#endif
 	}	
+#ifdef _XBOX
+	XBLF("JA: R_LoadNodesAndLeafs summary nodes=%d leafs=%d clusters=%d maxCluster=%d maxArea=%d negativeAreaLeafs=%d nodeBounds=(%d,%d,%d)-(%d,%d,%d) leafBounds=(%d,%d,%d)-(%d,%d,%d) maxFirstMark=%d maxMarkCount=%d maxMarkEnd=%d markEndOverU16=%d markCountOverS16=%d childShortRisk=%d",
+		numNodes,
+		numLeafs,
+		s_worldData.numClusters,
+		maxLeafCluster,
+		maxLeafArea,
+		negativeLeafAreas,
+		minNodeBounds[0], minNodeBounds[1], minNodeBounds[2],
+		maxNodeBounds[0], maxNodeBounds[1], maxNodeBounds[2],
+		minLeafBounds[0], minLeafBounds[1], minLeafBounds[2],
+		maxLeafBounds[0], maxLeafBounds[1], maxLeafBounds[2],
+		maxFirstMarkSurf,
+		maxLeafMarkCount,
+		maxLeafMarkEnd,
+		leafMarkEndOverflow,
+		leafMarkCountSignedOverflow,
+		nodeChildShortRisk);
+#endif
 
 	// chain decendants
 	R_SetParent (s_worldData.nodes, NULL);

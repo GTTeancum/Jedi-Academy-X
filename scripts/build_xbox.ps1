@@ -28,14 +28,58 @@ foreach ($tool in $requiredTools) {
     }
 }
 
+# OpenJKDF2-pattern toolchain: XDK 5558 PRIMARY, XDK 5849 FALLBACK.
+#
+# OpenJKDF2 (the FakeGL graft reference per RENDERER_GRAFT.md) successfully
+# builds against XDK 5558 with 5849 as a fallback for the few headers 5558
+# is missing (stdint.h, winsock2.h, etc.).  The 5558 SDK has the production
+# retail static D3D8 lib (xbox\public\xdk\lib\d3d8.lib, 1.8 MB) — the same
+# variant the shipped JKA Xbox uses (libv "D3D8" no suffix, qfe=4).  XDK
+# 5849's licensee distribution stripped this lib, leaving only debug and
+# instrumented variants — which we suspect causes the kernel to apply
+# restrictive shims that hang CreateDevice.
+#
+# Tool binaries (CL.Exe, Link.Exe) are vc71-era and version-agnostic — we
+# keep using C:\XDK\xbox\bin\vc71 since the same compiler shipped with
+# both XDKs.
+#
+# 5558 source (xbox source repo extract):
+#   xbox\public\xdk\inc       — primary headers (FAT 2757-line d3d8.h)
+#   xbox\public\sdk\inc       — additional 5558 headers
+#   xbox\public\xdk\lib       — primary libs (incl. retail d3d8.lib)
+#   xbox\public\sdk\lib\i386  — broader lib set (xgraphics, xnet, etc.)
+#
+# 5849 fallback (our installed XDK):
+#   C:\XDK\xbox\include       — for headers 5558 lacks (stdint, winsock2)
+#   C:\XDK\include
+#   C:\XDK\xbox\lib           — for any lib 5558 doesn't have
+#   C:\XDK\lib
+$xboxSrcXdkInc = "C:\Programming\GitHub\xbox\public\xdk\inc"
+$xboxSrcSdkInc = "C:\Programming\GitHub\xbox\public\sdk\inc"
+$xboxSrcXdkLib = "C:\Programming\GitHub\xbox\public\xdk\lib"
+$xboxSrcSdkLib = "C:\Programming\GitHub\xbox\public\sdk\lib\i386"
+
 $vcIncludeDirs = @(
-    (Join-Path $repoRoot "code\win32"),
-    "C:\XDK\xbox\include",
+    (Join-Path $repoRoot "code\win32"),  # contains 5558-d3d8 surgical override
+                                          # (d3d8.h, d3d8types.h, d3d8caps.h,
+                                          # d3d8perf.h shimmed to 5558 versions)
+    "C:\XDK\xbox\include",             # 5849 PRIMARY for everything except d3d8
     "C:\XDK\include"
 ) | Where-Object { Test-Path $_ }
+# Note: 5558-PRIMARY-everything was attempted but breaks STL (xstring) and OLE
+# headers in JKA-specific source files.  Surgical 5558-d3d8-only is enough:
+# we just need the fat d3d8.h with Xbox extensions inline, so the retail
+# d3d8.lib (also from 5558) sees the matching API surface.  All other headers
+# stay on 5849 — same as everything we've built against to date.
 
 $vcLibDirs = @(
-    "C:\XDK\xbox\lib",
+    "C:\XDK_5558\XDK\xbox\lib",        # Plan-B (OpenJKDF2 1:1): primary XDK 5558
+                                        # install path — d3d8.lib, d3dx8.lib, libc.lib
+                                        # all resolved from here (same as OpenJKDF2's
+                                        # build_xbox.bat: XDK_ROOT=C:\XDK_5558\XDK\xbox)
+    $xboxSrcXdkLib,                    # 5558 source-repo (extra Xbox-only libs)
+    $xboxSrcSdkLib,                    # 5558 SDK additions (xgraphics extras)
+    "C:\XDK\xbox\lib",                 # 5849 fallback (xonline, dmusic, etc.)
     "C:\XDK\lib"
 ) | Where-Object { Test-Path $_ }
 
@@ -93,7 +137,7 @@ function Split-VcList {
         return @()
     }
 
-    return ($Value -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    return ($Value -split '[;,]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
 function Resolve-ProjectPath {
@@ -234,9 +278,52 @@ function Apply-ProjectSourceOverrides {
             Tool         = $null
         })
 
+        # Plan-B (OpenJKDF2 1:1): d3dx8_compat.cpp removed — we now link
+        # real d3dx8.lib from XDK 5558.  Local shim no longer needed.
+
+        # Plan-B (OpenJKDF2 1:1): add OpenJKDF2's fakeglx.cpp (byte-identical
+        # copy at code\win32\openjkdf2\fakeglx.cpp).  Compiled with /FI
+        # platform_xbox.h force-include — that header is OpenJKDF2's compat
+        # shim providing stdint, snprintf, BOOL, etc. that fakeglx.cpp
+        # expects.  Replaces the prior xquake\gl_fakegl.cpp graft.
         $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\d3dx8_compat.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\d3dx8_compat.cpp"
+            RelativePath = "..\win32\openjkdf2\fakeglx.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx.cpp"
+            Extension    = ".cpp"
+            Tool         = [pscustomobject]@{
+                Name                      = "VCCLCompilerTool"
+                PrependIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
+                AdditionalOptions         = "/FI`"openjkdf2/platform_xbox.h`""
+            }
+        })
+
+        # Plan-B compat layer: gl_* functions JKA calls that fakeglx.cpp
+        # doesn't export.  Real implementations where possible; deferred
+        # for paths beyond SP_DoLicense.  See file head comment.
+        $filtered.Add([pscustomobject]@{
+            RelativePath = "..\win32\openjkdf2\fakeglx_jka_compat.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx_jka_compat.cpp"
+            Extension    = ".cpp"
+            Tool         = $null
+        })
+
+        # Plan-B D3D8 5849->5558 API shim: JKA renderer uses two 5849
+        # D3D APIs whose signatures changed between XDK versions.
+        $filtered.Add([pscustomobject]@{
+            RelativePath = "..\win32\openjkdf2\d3d8_5849_compat.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\d3d8_5849_compat.cpp"
+            Extension    = ".cpp"
+            Tool         = $null
+        })
+
+        # Plan-B DDS bridge: JKA uses DXT1/3/5 compressed textures via
+        # GL_DDS*_EXT internalformats that fakeglx can't decode.  This
+        # file's JkaGlTexImage2D detects them, decodes to RGBA, and
+        # forwards to fakegl's real glTexImage2D.  qgl_console.h
+        # #define-redirects JKA call sites to JkaGlTexImage2D.
+        $filtered.Add([pscustomobject]@{
+            RelativePath = "..\win32\openjkdf2\glteximage_dds.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\glteximage_dds.cpp"
             Extension    = ".cpp"
             Tool         = $null
         })
@@ -249,6 +336,25 @@ function Apply-ProjectSourceOverrides {
         })
 
         return $filtered
+    }
+
+    if ($ProjectPath -eq "codemp\x_exe\x_exe.vcproj") {
+        $hasAsmStub = $false
+        foreach ($source in $Sources) {
+            if ($source.RelativePath -ieq "xbox_asm_stubs.asm") {
+                $hasAsmStub = $true
+                break
+            }
+        }
+        if (-not $hasAsmStub) {
+            $Sources.Add([pscustomobject]@{
+                RelativePath = "xbox_asm_stubs.asm"
+                FullPath     = Resolve-ProjectPath -BaseDir (Join-Path $repoRoot "codemp\x_exe") -PathValue "xbox_asm_stubs.asm"
+                Extension    = ".asm"
+                Tool         = $null
+            })
+        }
+        return $Sources
     }
 
     return $Sources
@@ -344,8 +450,29 @@ function Build-Project {
 
     if (-not $compilerTool -and $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $compilerTool = [pscustomobject]@{
-            AdditionalIncludeDirectories = "$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-            PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION;_USE_XGMATH"
+            # Plan-B (OpenJKDF2 1:1): match build_xbox.bat line 48 include order
+            #   $repoRoot\code\win32       — our local shims still take precedence
+            #   C:\XDK_5558\XDK\xbox\include — primary (matches OpenJKDF2 XDK_ROOT\include)
+            #   C:\XDK\xbox\include        — 5849 fallback for headers 5558 lacks
+            #   C:\XDK\include
+            #   C:\XDK\bink_stub
+            AdditionalIncludeDirectories = "$repoRoot\code\win32;C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
+            # Plan-B: dropped _USE_XGMATH so d3dx8math.h (and ID3DXMatrixStack)
+            # are pulled in properly.  xgmath.h's #ifndef __XGMATH_H__ at the
+            # top of d3dx8math.h causes that header to skip its body if
+            # __XGMATH_H__ is defined first, leaving ID3DXMatrixStack
+            # undeclared.  Without _USE_XGMATH, xgmath.h's D3DX-compat
+            # block (line 976+) is inactive — D3DXMATRIX is the real
+            # d3dx8math.h class, ID3DXMatrixStack is declared.
+            PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
+            # Plan-B audit: REVERTED /O2 → /Ox.  The /O2-match-OpenJKDF2
+            # attempt regressed the build — wglCreateContext no longer
+            # completed on CXBX-R LLE GPU (hardware test 2026-05-17 both
+            # with D24S8 and D16 depth formats).  Last known good
+            # baseline (which reached SP_DoLicense / SDT:glEndFrame)
+            # used /Ox; reverting to that.  The OpenJKDF2 /O2 match was
+            # cosmetic — VC7.1 /Ox is a superset (/O2 + /Ob2 /Oi /Ot /Oy
+            # /Gs already set) so the divergence was minor.
             Optimization = "3"
             InlineFunctionExpansion = "2"
             EnableIntrinsicFunctions = "true"
@@ -355,27 +482,56 @@ function Build-Project {
             RuntimeLibrary = "0"
             BufferSecurityCheck = "false"
             EnableFunctionLevelLinking = "true"
-            WarningLevel = "3"
+            WarningLevel = "2"
             DebugInformationFormat = "3"
         }
         $linkTool = [pscustomobject]@{
-            AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO"
-            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8-xbox.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;x_game.lib;goblib.lib;xonline.lib"
+            AdditionalOptions = "/FIXED:NO /IGNORE:4254"
+            # Plan-B (OpenJKDF2 1:1 alignment): adopt OpenJKDF2's actual
+            # build_xbox.bat link list verbatim where physically possible.
+            # OpenJKDF2 links: d3d8.lib d3dx8.lib dsound.lib xboxkrnl.lib
+            # xgraphics.lib xonline.lib libc.lib xapilib.lib — all from
+            # C:\XDK_5558\XDK\xbox\lib (their exact XDK 5558 install path).
+            #
+            # JKA additions on top of OpenJKDF2's list:
+            #   x_game.lib, goblib.lib — JKA-specific intermediate libs
+            #   dmusic.lib            — JKA uses DirectMusic for ingame music
+            #
+            # libcmt.lib → libc.lib: matches OpenJKDF2's choice.
+            # Add d3dx8.lib (OpenJKDF2 links it; replaces our local
+            # d3dx8_compat.cpp shim, which we'll remove from the source
+            # list below).
+            # d3d8.lib path: switch from the local xbox source repo to
+            # OpenJKDF2's exact XDK 5558 install path.
+            # Plan-B (OpenJKDF2 1:1 verified divergence): bare lib names,
+            # ALL resolved from XDK 5558 via the /LIBPATH below.  The
+            # previous build's absolute paths for d3d8/d3dx8 worked but
+            # left xboxkrnl/xgraphics/xapilib/etc. resolving to XDK 5849
+            # — fakegl's Present hung because xboxkrnl 5849's push-buffer
+            # sync ABI differs from XDK 5558's expectations (fakegl was
+            # compiled against 5558 includes).  OpenJKDF2's build uses
+            # /LIBPATH:%XDK_ROOT%\lib with XDK_ROOT=C:\XDK_5558\XDK\xbox,
+            # so ALL their libs are 5558.  Matching exactly here.
+            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib;goblib.lib"
             OutputFile = ".\Release\default.exe"
-            AdditionalLibraryDirectories = ".\Release;C:\XDK\lib"
+            # XDK 5558 lib path FIRST so xboxkrnl, xgraphics, xapilib,
+            # xonline, dsound, libc all resolve from 5558 (matching
+            # OpenJKDF2).  5849 paths kept as fallback for dmusic.lib
+            # and any other lib 5558 doesn't have.
+            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             ProgramDatabaseFile = '.\Release\x_exe.pdb'
             SubSystem = "2"
-            EntryPointSymbol = "WinMainCRTStartup"
+            EntryPointSymbol = "mainCRTStartup"
             SetChecksum = "true"
         }
     }
 
     if (-not $compilerTool -and $ProjectPath -eq "codemp\x_exe\x_exe.vcproj") {
         $compilerTool = [pscustomobject]@{
-            AdditionalIncludeDirectories = "$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include"
-            PreprocessorDefinitions = "_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION;_USE_XGMATH"
+            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
+            PreprocessorDefinitions = "_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
             AdditionalOptions = "/Oy-"
             Optimization = "2"
             InlineFunctionExpansion = "2"
@@ -391,9 +547,9 @@ function Build-Project {
         }
         $linkTool = [pscustomobject]@{
             AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO"
-            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8i.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xbdm.lib;xonlines.lib"
+            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8i.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xbdm.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
             OutputFile = ".\Release\jamp.exe"
-            AdditionalLibraryDirectories = ".\Release;C:\XDK\lib"
+            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             ProgramDatabaseFile = '.\Release\x_exe.pdb'
@@ -450,6 +606,14 @@ function Build-Project {
         New-Item -ItemType Directory -Path (Split-Path -Parent $objPath) -Force | Out-Null
 
         $compileFlags = New-Object System.Collections.Generic.List[string]
+        $prependIncludes = Get-XmlAttr -Node $source.Tool -Name "PrependIncludeDirectories"
+        if (-not [string]::IsNullOrWhiteSpace($prependIncludes)) {
+            foreach ($includeDir in (Split-VcList (Expand-VcString -Value $prependIncludes -Macros $macros))) {
+                $compileFlags.Add('/I')
+                $compileFlags.Add((Resolve-ProjectPath -BaseDir $projectDir -PathValue $includeDir))
+            }
+        }
+
         foreach ($flag in $baseFlags) {
             $compileFlags.Add($flag)
         }
@@ -467,6 +631,28 @@ function Build-Project {
                 $compileFlags.Add('/I')
                 $compileFlags.Add((Resolve-ProjectPath -BaseDir $projectDir -PathValue $includeDir))
             }
+        }
+
+        $sourceAdditionalOptions = Get-XmlAttr -Node $source.Tool -Name "AdditionalOptions"
+        if (-not [string]::IsNullOrWhiteSpace($sourceAdditionalOptions)) {
+            # Split on whitespace BUT keep tokens that contain quoted paths (/FI"foo bar.h") together
+            # Simple approach: split, then re-join consecutive tokens whose quote count is unbalanced
+            $rawTokens = $sourceAdditionalOptions -split '\s+' | Where-Object { $_ }
+            $merged = New-Object System.Collections.Generic.List[string]
+            $accum = ""
+            $openQuote = $false
+            foreach ($tok in $rawTokens) {
+                $quoteCount = @($tok.ToCharArray() | Where-Object { $_ -eq '"' }).Count
+                if ($openQuote) {
+                    $accum = $accum + ' ' + $tok
+                    if (($quoteCount % 2) -eq 1) { $merged.Add($accum); $accum = ""; $openQuote = $false }
+                } else {
+                    if (($quoteCount % 2) -eq 1) { $accum = $tok; $openQuote = $true }
+                    else { $merged.Add($tok) }
+                }
+            }
+            if ($openQuote) { $merged.Add($accum) }
+            foreach ($opt in $merged) { $compileFlags.Add($opt) }
         }
 
         $compileAs = Get-XmlAttr -Node $source.Tool -Name "CompileAs"

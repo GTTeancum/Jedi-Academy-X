@@ -13,6 +13,9 @@
 #include "../ff/ff.h"
 #endif // _IMMERSION
 #include "../qcommon/sstring.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 //NOTENOTE: Be sure to change the mirrored code in g_shared.h
 typedef	map< sstring_t, unsigned char, less<sstring_t>, allocator< unsigned char >  >	namePrecache_m;
 extern namePrecache_m	*as_preCacheMap;
@@ -1518,6 +1521,9 @@ static void CG_RegisterGraphics( void ) {
 	
 	// Chunk models
 	//FIXME: jfm:? bother to conditionally load these if an ent has this material type?
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics skipping effect chunk model precache on Xbox");
+#else
 	for ( i = 0; i < NUM_CHUNK_MODELS; i++ )
 	{
 		cgs.media.chunkModels[CHUNK_METAL2][i]	= cgi_R_RegisterModel( va( "models/chunks/metal/metal1_%i.md3", i+1 ) ); //_ /switched\ _
@@ -1529,6 +1535,7 @@ static void CG_RegisterGraphics( void ) {
 		cgs.media.chunkModels[CHUNK_CRATE2][i]	= cgi_R_RegisterModel( va( "models/chunks/crate/crate2_%i.md3", i+1 ) );
 		cgs.media.chunkModels[CHUNK_WHITE_METAL][i]	= cgi_R_RegisterModel( va( "models/chunks/metal/wmetal1_%i.md3", i+1 ) );
 	}
+#endif
 
 	cgs.media.chunkSound			= cgi_S_RegisterSound("sound/weapons/explosions/glasslcar");
 	cgs.media.grateSound			= cgi_S_RegisterSound( "sound/effects/grate_destroy" );
@@ -2209,6 +2216,9 @@ Called after every level change or subsystem restart
 =================
 */
 void CG_Init( int serverCommandSequence ) {
+#ifdef _XBOX
+	XBLog_Write(va("JA: CG_Init enter serverCommandSequence=%d", serverCommandSequence));
+#endif
 	cgs.serverCommandSequence = serverCommandSequence;
 
 	cgi_Cvar_Set( "cg_drawHUD", "1" );
@@ -2216,13 +2226,22 @@ void CG_Init( int serverCommandSequence ) {
 	// fonts...
 	//
 	cgs.media.charsetShader = cgi_R_RegisterShaderNoMip("gfx/2d/charsgrid_med");
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init charset shader done");
+#endif
 
 //	cgs.media.qhFontSmall = cgi_R_RegisterFont("ocr_a");
 	cgs.media.qhFontSmall = cgi_R_RegisterFont("ergoec");
 	cgs.media.qhFontMedium= cgi_R_RegisterFont("ergoec");
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init fonts done");
+#endif
 
 	cgs.media.whiteShader   = cgi_R_RegisterShader( "white" );
 	cgs.media.loadTick		= cgi_R_RegisterShaderNoMip( "gfx/menus/newFront/GlowLoad" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init base shaders done");
+#endif
 //	cgs.media.loadTickCap	= cgi_R_RegisterShaderNoMip( "gfx/hud/load_tick_cap" );
 	
 	const char	*force_icon_files[NUM_FORCE_POWERS] = 
@@ -2250,24 +2269,61 @@ void CG_Init( int serverCommandSequence ) {
 	{
 		if (force_icon_files[i])
 		{
+#ifdef _XBOX
+			XBLog_Write(va("JA: CG_Init force icon %d begin %s", i, force_icon_files[i]));
+#endif
 			force_icons[i] = cgi_R_RegisterShaderNoMip( force_icon_files[i] );
+#ifdef _XBOX
+			XBLog_Write(va("JA: CG_Init force icon %d done handle=%d", i, force_icons[i]));
+#endif
 		}
 	}
 
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init before CG_LoadHudMenu");
+	XBLog_Write("JA: CG_Init skipping CG_LoadHudMenu on Xbox during level bootstrap");
+#else
 	CG_LoadHudMenu();      // load new hud stuff
+#endif
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init after CG_LoadHudMenu");
+#endif
 
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init before UI_Menu_OpenByName loadscreen");
+	XBLog_Write("JA: CG_Init skipping UI_Menu_OpenByName loadscreen on Xbox during level bootstrap");
+#else
 	cgi_UI_Menu_OpenByName("loadscreen");
+#endif
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init after UI_Menu_OpenByName loadscreen");
+#endif
 
 	//rww - Moved from CG_GameStateReceived (we don't want to clear perm ents)
 	memset( cg_entities, 0, sizeof(cg_entities) );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init after memset cg_entities");
+#endif
 
 	CG_TransitionPermanent();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init after CG_TransitionPermanent");
+#endif
 
 	cg.loadLCARSStage		= 0;
 
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init before CG_GameStateReceived");
+#endif
 	CG_GameStateReceived();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init after CG_GameStateReceived");
+#endif
 
 	CG_InitConsoleCommands();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_Init after CG_InitConsoleCommands");
+#endif
 
 	//
 	// the game server will interpret these commands, which will be automatically
@@ -2901,6 +2957,9 @@ void CG_ParseMenu(const char *menuFile)
 	char			*buf,*p;
 
 	//Com_Printf("Parsing menu file:%s\n", menuFile);
+#ifdef _XBOX
+	XBLog_Write(va("JA: CG_ParseMenu begin file=%s", menuFile ? menuFile : "<null>"));
+#endif
 
 	result = cgi_UI_StartParseSession((char *) menuFile,&buf);
 
@@ -2963,6 +3022,9 @@ void CG_ParseMenu(const char *menuFile)
 	}
 
 	cgi_UI_EndParseSession(buf);
+#ifdef _XBOX
+	XBLog_Write(va("JA: CG_ParseMenu done file=%s", menuFile ? menuFile : "<null>"));
+#endif
 
 }
 
@@ -2998,6 +3060,9 @@ qboolean CG_Load_Menu( const char **p)
 			return qfalse;
 		}
 
+#ifdef _XBOX
+		XBLog_Write(va("JA: CG_Load_Menu include=%s", token));
+#endif
 		CG_ParseMenu(token); 
 	}
 	return qfalse;
@@ -3018,6 +3083,9 @@ void CG_LoadMenus(const char *menuFile)
 	char buf[MAX_MENUDEFFILE];
 
 	start = cgi_Milliseconds();
+#ifdef _XBOX
+	XBLog_Write(va("JA: CG_LoadMenus begin file=%s", menuFile ? menuFile : "<null>"));
+#endif
 
 	len = cgi_FS_FOpenFile( menuFile, &f, FS_READ );
 	if ( !f ) 
@@ -3074,6 +3142,9 @@ void CG_LoadMenus(const char *menuFile)
 	}
 
 	//Com_Printf("UI menu load time = %d milli seconds\n", cgi_Milliseconds() - start);
+#ifdef _XBOX
+	XBLog_Write(va("JA: CG_LoadMenus done file=%s ms=%d", menuFile ? menuFile : "<null>", cgi_Milliseconds() - start));
+#endif
 }
 
 /*
@@ -3141,7 +3212,13 @@ void CG_LoadHudMenu(void)
 		hudSet = "ui/jahud.txt";
 	}
 
+#ifdef _XBOX
+	XBLog_Write(va("JA: CG_LoadHudMenu begin hudSet=%s", hudSet));
+#endif
 	CG_LoadMenus(hudSet);
+#ifdef _XBOX
+	XBLog_Write("JA: CG_LoadHudMenu done");
+#endif
 }
 
 

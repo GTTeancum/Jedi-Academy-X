@@ -6,6 +6,9 @@
 #include "cg_local.h"
 #include "cg_media.h"
 #include "FxScheduler.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 /*
 -------------------------
@@ -16,6 +19,10 @@ FX_BlasterProjectileThink
 void FX_BlasterProjectileThink( centity_t *cent, const struct weaponInfo_s *weapon )
 {
 	vec3_t forward;
+#ifdef _XBOX
+	static int s_xboxBlasterProjectileLogCount = 0;
+	const qboolean xboxLogProjectile = (s_xboxBlasterProjectileLogCount < 96);
+#endif
 
  	if (cent->currentState.eFlags & EF_USE_ANGLEDELTA)
 	{
@@ -31,6 +38,25 @@ void FX_BlasterProjectileThink( centity_t *cent, const struct weaponInfo_s *weap
 			}
 		}
 	}
+#ifdef _XBOX
+	if ( xboxLogProjectile )
+	{
+		XBLF("JA: FX_BlasterProjectileThink #%d ent=%d owner=%d alt=%d origin=%g,%g,%g forward=%g,%g,%g effectMain=%d weaponTrail=%p",
+			s_xboxBlasterProjectileLogCount,
+			cent ? cent->currentState.number : -1,
+			(cent && cent->gent && cent->gent->owner) ? cent->gent->owner->s.number : -1,
+			(cent && cent->gent) ? (int)cent->gent->alt_fire : -1,
+			cent ? cent->lerpOrigin[0] : 0.0f,
+			cent ? cent->lerpOrigin[1] : 0.0f,
+			cent ? cent->lerpOrigin[2] : 0.0f,
+			forward[0],
+			forward[1],
+			forward[2],
+			cgs.effects.blasterShotEffect,
+			weapon ? weapon->missileTrailFunc : NULL);
+		++s_xboxBlasterProjectileLogCount;
+	}
+#endif
 
 	// hack the scale of the forward vector if we were just fired or bounced...this will shorten up the tail for a split second so tails don't clip so harshly
 	int dif = cg.time - cent->gent->s.pos.trTime;

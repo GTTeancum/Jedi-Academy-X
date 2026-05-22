@@ -29,7 +29,7 @@
 
 #include "../game/q_shared.h"
 #include "../qcommon/qcommon.h"
-#include "../win32/win_input.h"
+/* win_input.h omitted — re_input.cpp only documents API calls, not types. */
 
 #ifdef _XBOX
 #include <xtl.h>

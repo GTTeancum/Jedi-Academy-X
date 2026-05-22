@@ -814,6 +814,12 @@ qboolean CL_ReadyToSendPacket( void ) {
 		return qfalse;
 	}
 
+	// send every frame for loopbacks
+	if (clc.netchan.remoteAddress.type == NA_LOOPBACK)
+	{
+		return qtrue;
+	}
+
 	// if we don't have a valid gamestate yet, only send
 	// one packet a second
 	if ( cls.state != CA_ACTIVE && cls.state != CA_PRIMED
@@ -821,7 +827,6 @@ qboolean CL_ReadyToSendPacket( void ) {
 		return qfalse;
 	}
 
-	// send every frame for loopbacks
 	return qtrue;
 }
 
@@ -964,6 +969,18 @@ void CL_SendCmd( void ) {
 		return;
 	}
 
+#ifdef _XBOX
+	{
+		static int s_xboxSendLogs = 0;
+		if (s_xboxSendLogs < 16 || cls.state < CA_LOADING)
+		{
+			Com_PrintfAlways("JA: CL_SendCmd write state=%d cmd=%d serverId=%d remoteType=%d realtime=%d lastSent=%d\n",
+				(int)cls.state, cl.cmdNumber, cl.serverId,
+				(int)clc.netchan.remoteAddress.type, cls.realtime, clc.lastPacketSentTime);
+			++s_xboxSendLogs;
+		}
+	}
+#endif
 	CL_WritePacket();
 }
 

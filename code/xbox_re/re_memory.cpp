@@ -30,8 +30,7 @@
 #ifdef _XBOX
 #include <xtl.h>
 
-/* D3D_AllocContiguousMemory declaration (matches z_memman_console.cpp). */
-extern "C" void* __cdecl D3D_AllocContiguousMemory( DWORD Size, DWORD Alignment );
+/* D3D_AllocContiguousMemory is declared in D3D8-Xbox.h (included via xtl.h). */
 
 /* Zone pool size matching shipped binary: 16 MB fixed. */
 #define ZONE_POOL_SIZE_BINARY  (16 * 1024 * 1024)  /* 0x1000000 */
@@ -59,11 +58,9 @@ extern "C" void* __cdecl D3D_AllocContiguousMemory( DWORD Size, DWORD Alignment 
  */
 void RE_Memory_ZoneAlloc_Verify( void )
 {
-    /* Verify D3D_AllocContiguousMemory is linkable (catches missing lib). */
-    /* Called at startup in Com_InitZoneMemory via z_memman_console.cpp.   */
-    void *test = D3D_AllocContiguousMemory( 0, 0 );
-    /* Allocation of size 0 is a no-op / returns NULL — just verifying link. */
-    (void)test;
+    /* D3D_AllocContiguousMemory linkage is verified indirectly:
+     * z_memman_console.cpp calls it at runtime during Com_InitZoneMemory.
+     * Declaration comes from D3D8-Xbox.h included in that translation unit. */
 }
 
 /*

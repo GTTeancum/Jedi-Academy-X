@@ -7,6 +7,10 @@
 
 #include "tr_local.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 #define SKY_SUBDIVISIONS		8
 #define HALF_SKY_SUBDIVISIONS	(SKY_SUBDIVISIONS/2)
 
@@ -359,27 +363,32 @@ static void DrawSkySide( struct image_s *image, const int mins[2], const int max
 	for ( t = mins[1]+HALF_SKY_SUBDIVISIONS; t < maxs[1]+HALF_SKY_SUBDIVISIONS; t++ )
 	{
 #ifdef _XBOX
-		qglBeginEXT( GL_TRIANGLE_STRIP, verts, 0, 0, verts, 0);
+		glBeginEXT( GL_TRIANGLE_STRIP, verts, 0, 0, verts, 0);
 #else
-		qglBegin( GL_TRIANGLE_STRIP );
+		glBegin( GL_TRIANGLE_STRIP );
 #endif
 
 		for ( s = mins[0]+HALF_SKY_SUBDIVISIONS; s <= maxs[0]+HALF_SKY_SUBDIVISIONS; s++ )
 		{
-			qglTexCoord2fv( s_skyTexCoords[t][s] );
-			qglVertex3fv( s_skyPoints[t][s] );
+			glTexCoord2fv( s_skyTexCoords[t][s] );
+			glVertex3fv( s_skyPoints[t][s] );
 
-			qglTexCoord2fv( s_skyTexCoords[t+1][s] );
-			qglVertex3fv( s_skyPoints[t+1][s] );
+			glTexCoord2fv( s_skyTexCoords[t+1][s] );
+			glVertex3fv( s_skyPoints[t+1][s] );
 		}
 
-		qglEnd();
+		glEnd();
 	}
 }
 
 static void DrawSkyBox( shader_t *shader )
 {
 	int		i;
+#ifdef _XBOX
+	static int s_xboxSkyBoxLogBudget = 36;
+	const qboolean xboxForceFullPortalSky =
+		(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL) ? qtrue : qfalse;
+#endif
 
 	sky_min = 0.0f;
 	sky_max = 1.0f;
@@ -390,6 +399,15 @@ static void DrawSkyBox( shader_t *shader )
 	{
 		int sky_mins_subd[2], sky_maxs_subd[2];
 		int s, t;
+#ifdef _XBOX
+		if (xboxForceFullPortalSky)
+		{
+			sky_mins[0][i] = -1.0f;
+			sky_mins[1][i] = -1.0f;
+			sky_maxs[0][i] = 1.0f;
+			sky_maxs[1][i] = 1.0f;
+		}
+#endif
 
 		sky_mins[0][i] = floor( sky_mins[0][i] * HALF_SKY_SUBDIVISIONS ) / HALF_SKY_SUBDIVISIONS;
 		sky_mins[1][i] = floor( sky_mins[1][i] * HALF_SKY_SUBDIVISIONS ) / HALF_SKY_SUBDIVISIONS;
@@ -399,6 +417,16 @@ static void DrawSkyBox( shader_t *shader )
 		if ( ( sky_mins[0][i] >= sky_maxs[0][i] ) ||
 			 ( sky_mins[1][i] >= sky_maxs[1][i] ) )
 		{
+#ifdef _XBOX
+			if (s_xboxSkyBoxLogBudget > 0 && cls.state == CA_ACTIVE)
+			{
+				XBLF("JA: SKYBOX side=%d skipped mins=%g,%g maxs=%g,%g image='%s' fallback=%d",
+					i, sky_mins[0][i], sky_mins[1][i], sky_maxs[0][i], sky_maxs[1][i],
+					shader->sky->outerbox[i] ? shader->sky->outerbox[i]->imgName : "<null>",
+					(int)(shader->sky->outerbox[i] == tr.defaultImage));
+				--s_xboxSkyBoxLogBudget;
+			}
+#endif
 			continue;
 		}
 
@@ -443,6 +471,18 @@ static void DrawSkyBox( shader_t *shader )
 		DrawSkySide( shader->sky->outerbox[i],
 			         sky_mins_subd,
 					 sky_maxs_subd );
+#ifdef _XBOX
+		if (s_xboxSkyBoxLogBudget > 0 && cls.state == CA_ACTIVE)
+		{
+			XBLF("JA: SKYBOX side=%d drawn subdMin=%d,%d subdMax=%d,%d image='%s' tex=%d fallback=%d fullPortal=%d",
+				i, sky_mins_subd[0], sky_mins_subd[1], sky_maxs_subd[0], sky_maxs_subd[1],
+				shader->sky->outerbox[i] ? shader->sky->outerbox[i]->imgName : "<null>",
+				shader->sky->outerbox[i] ? shader->sky->outerbox[i]->texnum : -1,
+				(int)(shader->sky->outerbox[i] == tr.defaultImage),
+				(int)xboxForceFullPortalSky);
+			--s_xboxSkyBoxLogBudget;
+		}
+#endif
 	}
 
 }
@@ -699,8 +739,8 @@ void RB_DrawSun( void ) {
 	if ( !r_drawSun->integer ) {
 		return;
 	}
-	qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
-	qglTranslatef (backEnd.viewParms.or.origin[0], backEnd.viewParms.or.origin[1], backEnd.viewParms.or.origin[2]);
+	glLoadMatrixf( backEnd.viewParms.world.modelMatrix );
+	glTranslatef (backEnd.viewParms.or.origin[0], backEnd.viewParms.or.origin[1], backEnd.viewParms.or.origin[2]);
 
 	dist = 	backEnd.viewParms.zFar / 1.75;		// div sqrt(3)
 	size = dist * 0.4;
@@ -713,7 +753,7 @@ void RB_DrawSun( void ) {
 	VectorScale( vec2, size, vec2 );
 
 	// farthest depth range
-	qglDepthRange( 1.0, 1.0 );
+	glDepthRange( 1.0, 1.0 );
 
 	// FIXME: use quad stamp
 	RB_BeginSurface( tr.sunShader, tess.fogNum );
@@ -771,7 +811,7 @@ void RB_DrawSun( void ) {
 	RB_EndSurface();
 
 	// back to normal depth range
-	qglDepthRange( 0.0, 1.0 );
+	glDepthRange( 0.0, 1.0 );
 }
 
 
@@ -787,49 +827,104 @@ Other things could be stuck in here, like birds in the sky, etc
 ================
 */
 void RB_StageIteratorSky( void ) {
+#ifdef _XBOX
+	static int s_xboxSkyIterLogBudget = 64;
+#endif
 	if ( r_fastsky->integer ) {
+#ifdef _XBOX
+		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+		{
+			XBLF("JA: SKY_ITER skip fastsky shader='%s'", tess.shader ? tess.shader->name : "<null>");
+			--s_xboxSkyIterLogBudget;
+		}
+#endif
 		return;
 	}
 
 	if (skyboxportal && !(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL))
 	{
+#ifdef _XBOX
+		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+		{
+			XBLF("JA: SKY_ITER xbox main-view portal skip shader='%s' rdflags=0x%x",
+				tess.shader ? tess.shader->name : "<null>", backEnd.refdef.rdflags);
+			--s_xboxSkyIterLogBudget;
+		}
 		return;
+#else
+		return;
+#endif
 	}
 
 	// go through all the polygons and project them onto
 	// the sky box to see which blocks on each side need
 	// to be drawn
 	RB_ClipSkyPolygons( &tess );
+#ifdef _XBOX
+	if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+	{
+		XBLF("JA: SKY_ITER clipped shader='%s' verts=%d indexes=%d outer0='%s' fallback0=%d rdflags=0x%x skyportal=%d",
+			tess.shader ? tess.shader->name : "<null>",
+			tess.numVertexes,
+			tess.numIndexes,
+			(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0]) ? tess.shader->sky->outerbox[0]->imgName : "<null>",
+			(int)(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0] == tr.defaultImage),
+			backEnd.refdef.rdflags,
+			(int)skyboxportal);
+		--s_xboxSkyIterLogBudget;
+	}
+#endif
 
 	// r_showsky will let all the sky blocks be drawn in
 	// front of everything to allow developers to see how
 	// much sky is getting sucked in
 	if ( r_showsky->integer ) {
-		qglDepthRange( 0.0, 0.0 );
+		glDepthRange( 0.0, 0.0 );
 	} else {
 #ifdef _XBOX
-		qglDepthRange( 0.99, 1.0 );
+		glDepthRange( 0.99, 1.0 );
 #else
-		qglDepthRange( 1.0, 1.0 );
+		glDepthRange( 1.0, 1.0 );
 #endif
 	}
 
 	// draw the outer skybox
 	if ( tess.shader->sky->outerbox[0] && tess.shader->sky->outerbox[0] != tr.defaultImage ) {
-		qglColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
+		glColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
 
-		qglPushMatrix ();
+		glPushMatrix ();
 		GL_State( 0 );
-		qglTranslatef (backEnd.viewParms.or.origin[0], backEnd.viewParms.or.origin[1], backEnd.viewParms.or.origin[2]);
+		glTranslatef (backEnd.viewParms.or.origin[0], backEnd.viewParms.or.origin[1], backEnd.viewParms.or.origin[2]);
 
 		DrawSkyBox( tess.shader );
 
-		qglPopMatrix();
+		glPopMatrix();
 	}
+#ifdef _XBOX
+	else if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+	{
+		XBLF("JA: SKY_ITER no outer skybox shader='%s' outer0='%s' fallback0=%d",
+			tess.shader ? tess.shader->name : "<null>",
+			(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0]) ? tess.shader->sky->outerbox[0]->imgName : "<null>",
+			(int)(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0] == tr.defaultImage));
+		--s_xboxSkyIterLogBudget;
+	}
+#endif
 
 	// generate the vertexes for all the clouds, which will be drawn
 	// by the generic shader routine
 	R_BuildCloudData( &tess );
+#ifdef _XBOX
+	if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+	{
+		XBLF("JA: SKY_ITER clouddata shader='%s' verts=%d indexes=%d passes=%d",
+			tess.shader ? tess.shader->name : "<null>",
+			tess.numVertexes,
+			tess.numIndexes,
+			tess.shader ? tess.shader->numUnfoggedPasses : -1);
+		--s_xboxSkyIterLogBudget;
+	}
+#endif
 
 	RB_StageIteratorGeneric();
 
@@ -837,9 +932,8 @@ void RB_StageIteratorSky( void ) {
 
 
 	// back to normal depth range
-	qglDepthRange( 0.0, 1.0 );
+	glDepthRange( 0.0, 1.0 );
 
 	// note that sky was drawn so we will draw a sun later
 	backEnd.skyRenderedThisView = qtrue;
 }
-

@@ -16,6 +16,7 @@
 
 
 #include "win_local.h"
+#include "xb_log.h"
 
 #include "../client/openal/al.h"
 #include "../client/openal/alc.h"
@@ -164,8 +165,11 @@ LPDSEFFECTIMAGEDESC getEffectsImageDesc(void)
 
 ALCdevice* alcOpenDevice(ALCubyte *deviceName)
 {
+	XBLog_Write("JAMP: alcOpenDevice enter");
 	if (s_pState) return NULL;
+	XBLog_Write("JAMP: alcOpenDevice before state new");
 	s_pState = new QALState;
+	XBLog_Write("JAMP: alcOpenDevice after state new");
 
 	s_pState->m_Gain = 1.f;
 	s_pState->m_Error = AL_NO_ERROR;
@@ -176,19 +180,27 @@ ALCdevice* alcOpenDevice(ALCubyte *deviceName)
 	s_pState->m_Stream.m_Valid = false;
 	
 	// init the sound hardware
+	XBLog_Write("JAMP: alcOpenDevice before DirectSoundCreate");
 	if (DirectSoundCreate(NULL, &s_pState->m_SoundObject, NULL) != DS_OK)
 	{
+		XBLog_Write("JAMP: alcOpenDevice DirectSoundCreate failed");
 		delete s_pState;
 		return NULL;
 	}
+	XBLog_Write("JAMP: alcOpenDevice after DirectSoundCreate");
 
+	XBLog_Write("JAMP: alcOpenDevice before DirectSoundUseFullHRTF");
 	DirectSoundUseFullHRTF();
+	XBLog_Write("JAMP: alcOpenDevice after DirectSoundUseFullHRTF");
 
 	// download effects image to hardware
 	void* image;
+	XBLog_Write("JAMP: alcOpenDevice before FS_ReadFile dsstdfx");
 	int len = FS_ReadFile("sound/dsstdfx.bin", &image);
+	XBLog_Write("JAMP: alcOpenDevice after FS_ReadFile dsstdfx");
 	if (len <= 0)
 	{
+		XBLog_Write("JAMP: alcOpenDevice missing dsstdfx");
 		delete s_pState;
 		return NULL;
 	}
@@ -196,14 +208,19 @@ ALCdevice* alcOpenDevice(ALCubyte *deviceName)
 	DSEFFECTIMAGELOC effect;
 	effect.dwI3DL2ReverbIndex = GraphI3DL2_I3DL2Reverb;
 	effect.dwCrosstalkIndex = GraphXTalk_XTalk;
+	XBLog_Write("JAMP: alcOpenDevice before DownloadEffectsImage");
 	s_pState->m_SoundObject->DownloadEffectsImage(image, len, &effect, &s_pState->m_ImageDesc);
+	XBLog_Write("JAMP: alcOpenDevice after DownloadEffectsImage");
 
 	Z_Free(image);
 
 	// setup default reverb
 	DSI3DL2LISTENER reverb = { DSI3DL2_ENVIRONMENT_PRESET_NOREVERB };
+	XBLog_Write("JAMP: alcOpenDevice before SetI3DL2Listener");
 	s_pState->m_SoundObject->SetI3DL2Listener(&reverb, DS3D_DEFERRED);
+	XBLog_Write("JAMP: alcOpenDevice after SetI3DL2Listener");
 
+	XBLog_Write("JAMP: alcOpenDevice exit");
 	return (ALCdevice*)s_pState->m_SoundObject;
 }
 

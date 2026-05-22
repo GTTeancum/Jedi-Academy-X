@@ -40,6 +40,115 @@ extern "C" long __stdcall NtWriteFile(HANDLE, HANDLE, void*, void*, XBL_IOSB*,
 static HANDLE g_hLogFile     = INVALID_HANDLE_VALUE;
 static int    g_logIsNt      = 0;   /* 1 = NtCreateFile handle, 0 = CreateFileA */
 static const char *g_logPath = NULL;
+static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+static const char *g_mirrorLogPath = NULL;
+
+static int xbl_starts_with(const char *msg, const char *prefix)
+{
+    while (*prefix) {
+        if (*msg++ != *prefix++) return 0;
+    }
+    return 1;
+}
+
+static int xbl_ShouldDropVerbose(const char *msg)
+{
+    static int s_playerBudget = 160;
+    static int s_frameBudget = 256;
+    static int s_renderBudget = 128;
+    static int s_cgameBudget = 128;
+    static int s_assetBudget = 96;
+
+    if (!msg) return 1;
+    if (strstr(msg, "FRAME_HEARTBEAT") ||
+        strstr(msg, "FATAL") ||
+        strstr(msg, "ERROR") ||
+        strstr(msg, "Out of memory") ||
+        strstr(msg, "texture allocation failures")) {
+        return 0;
+    }
+
+    if (xbl_starts_with(msg, "JA: CG_Player ") ||
+        xbl_starts_with(msg, "JA: CG_AddSaberBladeGo ")) {
+        if (s_playerBudget > 0) {
+            s_playerBudget--;
+            return 0;
+        }
+        return 1;
+    }
+
+    if (xbl_starts_with(msg, "JA: RB_RenderDrawSurfList") ||
+        xbl_starts_with(msg, "JA: fakegl DrawPrimitiveUP submit") ||
+        xbl_starts_with(msg, "JA: fakegl SwapBuffers") ||
+        xbl_starts_with(msg, "JA: compat glEndFrame") ||
+        xbl_starts_with(msg, "JA: fakegl stage state") ||
+        xbl_starts_with(msg, "JA: fakegl SetTexture") ||
+        xbl_starts_with(msg, "JA: DrawMultitextured") ||
+        xbl_starts_with(msg, "JA: RB_StageIteratorGeneric") ||
+        xbl_starts_with(msg, "JA: R_DrawElements chunk")) {
+        if (s_renderBudget > 0) {
+            s_renderBudget--;
+            return 0;
+        }
+        return 1;
+    }
+
+    if (xbl_starts_with(msg, "JA: CG_AddPacketEntities") ||
+        xbl_starts_with(msg, "JA: CG_AddCEntity") ||
+        xbl_starts_with(msg, "JA: CG_AddMarks") ||
+        xbl_starts_with(msg, "JA: CG_G2") ||
+        xbl_starts_with(msg, "JA: CG_RegisterWeapon") ||
+        xbl_starts_with(msg, "JA: Com_EventLoop") ||
+        xbl_starts_with(msg, "JA: CL_PacketEvent") ||
+        xbl_starts_with(msg, "JA: CL_ParseServerMessage") ||
+        xbl_starts_with(msg, "JA: SV_ExecuteClientMessage")) {
+        if (s_cgameBudget > 0) {
+            s_cgameBudget--;
+            return 0;
+        }
+        return 1;
+    }
+
+    if (xbl_starts_with(msg, "JA: Upload32") ||
+        xbl_starts_with(msg, "JkaGlTexImage2D:") ||
+        xbl_starts_with(msg, "JA: fakegl DDS top-mip skip") ||
+        xbl_starts_with(msg, "JA: fakegl DDS single-mip cap") ||
+        xbl_starts_with(msg, "JA: fakegl DDS CreateTexture pre") ||
+        xbl_starts_with(msg, "JA: fakegl DDS CreateTexture post") ||
+        xbl_starts_with(msg, "JA: fakegl DDS registered direct copy") ||
+        xbl_starts_with(msg, "JA: RE_RegisterModels_Malloc") ||
+        xbl_starts_with(msg, "JA: FX RegisterEffect") ||
+        xbl_starts_with(msg, "JA: FX ParseEffect")) {
+        if (s_assetBudget > 0) {
+            s_assetBudget--;
+            return 0;
+        }
+        return 1;
+    }
+
+    if (xbl_starts_with(msg, "JA: RE_EndFrame") ||
+        xbl_starts_with(msg, "JA: RE_BeginFrame") ||
+        xbl_starts_with(msg, "JA: CL_Frame") ||
+        xbl_starts_with(msg, "JA: CL_StartHunkUsers") ||
+        xbl_starts_with(msg, "JA: CL_SendCmd") ||
+        xbl_starts_with(msg, "JA: R_IssueRenderCommands") ||
+        xbl_starts_with(msg, "JA: RB_ExecuteRenderCommands") ||
+        xbl_starts_with(msg, "JA: RB_DrawSurfs") ||
+        xbl_starts_with(msg, "JA: RB_SwapBuffers") ||
+        xbl_starts_with(msg, "JA: SCR_DrawScreenField") ||
+        xbl_starts_with(msg, "JA: SCR_UpdateScreen") ||
+        xbl_starts_with(msg, "JA: CG_DrawActiveFrame") ||
+        xbl_starts_with(msg, "JA: CL_CGameRendering") ||
+        xbl_starts_with(msg, "JA: VM_Call ")) {
+        if (s_frameBudget > 0) {
+            s_frameBudget--;
+            return 0;
+        }
+        return 1;
+    }
+
+    return 0;
+}
 
 static long xbl_NtCreate(const char *path, HANDLE *out)
 {
@@ -68,6 +177,20 @@ void XBLog_Init(void)
     g_hLogFile = INVALID_HANDLE_VALUE;
     g_logIsNt  = 0;
     g_logPath  = NULL;
+    g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+    g_mirrorLogPath = NULL;
+
+    /*
+     * CXBX-R maps D: to the title directory.  Retail D: is read-only, so this
+     * quietly fails there, but on emulator it gives us a log beside default.xbe
+     * like the Unreal Tournament Xbox port does.
+     */
+    g_hMirrorLogFile = CreateFileA("D:\\ja_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
+        NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
+    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        SetFilePointer(g_hMirrorLogFile, 0, NULL, FILE_END);
+        g_mirrorLogPath = "D:\\ja_sp_log.txt";
+    }
 
     /*
      * Strategy 1: NtCreateFile to raw device paths (retail hw + CXBX-R).
@@ -137,21 +260,31 @@ void XBLog_Init(void)
 void XBLog_Shutdown(void)
 {
     XBL("=== log end ===\n");
+    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_hMirrorLogFile);
+        g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+    }
     if (g_hLogFile != INVALID_HANDLE_VALUE) {
         if (g_logIsNt) NtClose(g_hLogFile);
         else           CloseHandle(g_hLogFile);
         g_hLogFile = INVALID_HANDLE_VALUE;
     }
     g_logPath = NULL;
+    g_mirrorLogPath = NULL;
 }
 
 void XBLog_Print(const char *msg)
 {
     DWORD len;
     if (!msg) return;
+    if (xbl_ShouldDropVerbose(msg)) return;
     OutputDebugStringA(msg);
-    if (g_hLogFile == INVALID_HANDLE_VALUE) return;
     len = (DWORD)strlen(msg);
+    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        DWORD written;
+        WriteFile(g_hMirrorLogFile, msg, len, &written, NULL);
+    }
+    if (g_hLogFile == INVALID_HANDLE_VALUE) return;
     if (g_logIsNt) {
         XBL_IOSB iosb;
         NtWriteFile(g_hLogFile, NULL, NULL, NULL, &iosb, (void*)msg, len, NULL);

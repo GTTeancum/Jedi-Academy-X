@@ -14,73 +14,7 @@
 	<ToolFiles>
 	</ToolFiles>
 	<Configurations>
-		<Configuration
-			Name="Debug|Win32"
-			OutputDirectory=".\..\x_exe\Debug"
-			IntermediateDirectory=".\..\x_exe\Debug\jk2cgame"
-			ConfigurationType="4"
-			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCXMLDataGeneratorTool"
-			/>
-			<Tool
-				Name="VCWebServiceProxyGeneratorTool"
-			/>
-			<Tool
-				Name="VCMIDLTool"
-			/>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="0"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..,./../game"
-				PreprocessorDefinitions="_DEBUG;WIN32;MISSIONPACK;CGAME;_JK2;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
-				MinimalRebuild="true"
-				BasicRuntimeChecks="3"
-				RuntimeLibrary="1"
-				UsePrecompiledHeader="0"
-				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="false"
-				DebugInformationFormat="4"
-			/>
-			<Tool
-				Name="VCManagedResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/$(ProjectName).lib"
-			/>
-			<Tool
-				Name="VCALinkTool"
-			/>
-			<Tool
-				Name="VCXDCMakeTool"
-			/>
-			<Tool
-				Name="VCBscMakeTool"
-			/>
-			<Tool
-				Name="VCFxCopTool"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-		</Configuration>
-		<Configuration
+				<Configuration
 			Name="Release|Win32"
 			OutputDirectory=".\..\x_exe\Release"
 			IntermediateDirectory=".\..\x_exe\Release\jk2cgame"
@@ -152,79 +86,7 @@
 				Name="VCPostBuildEventTool"
 			/>
 		</Configuration>
-		<Configuration
-			Name="FinalBuild|Win32"
-			OutputDirectory=".\..\x_exe\FinalBuild"
-			IntermediateDirectory=".\..\x_exe\FinalBuild\jk2cgame"
-			ConfigurationType="4"
-			InheritedPropertySheets="$(VCInstallDir)VCProjectDefaults\UpgradeFromVC70.vsprops"
-			CharacterSet="2"
-			>
-			<Tool
-				Name="VCPreBuildEventTool"
-			/>
-			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="VCXMLDataGeneratorTool"
-			/>
-			<Tool
-				Name="VCWebServiceProxyGeneratorTool"
-			/>
-			<Tool
-				Name="VCMIDLTool"
-			/>
-			<Tool
-				Name="VCCLCompilerTool"
-				Optimization="3"
-				InlineFunctionExpansion="2"
-				EnableIntrinsicFunctions="true"
-				FavorSizeOrSpeed="1"
-				OmitFramePointers="true"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..,./../game"
-				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;FINAL_BUILD;_FINAL;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
-				StringPooling="true"
-				RuntimeLibrary="0"
-				BufferSecurityCheck="false"
-				EnableFunctionLevelLinking="true"
-				EnableEnhancedInstructionSet="1"
-				UsePrecompiledHeader="2"
-				PrecompiledHeaderFile="$(OutDir)/$(ProjectName).pch"
-				WarningLevel="3"
-				Detect64BitPortabilityProblems="false"
-				DebugInformationFormat="3"
-			/>
-			<Tool
-				Name="VCManagedResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCResourceCompilerTool"
-			/>
-			<Tool
-				Name="VCPreLinkEventTool"
-			/>
-			<Tool
-				Name="VCLibrarianTool"
-				OutputFile="$(OutDir)/$(ProjectName).lib"
-			/>
-			<Tool
-				Name="VCALinkTool"
-			/>
-			<Tool
-				Name="VCXDCMakeTool"
-			/>
-			<Tool
-				Name="VCBscMakeTool"
-			/>
-			<Tool
-				Name="VCFxCopTool"
-			/>
-			<Tool
-				Name="VCPostBuildEventTool"
-			/>
-		</Configuration>
-	</Configurations>
+			</Configurations>
 	<References>
 	</References>
 	<Files>
@@ -234,15 +96,7 @@
 			<File
 				RelativePath="..\game\AnimalNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -251,28 +105,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_g2_utils.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -281,28 +118,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_misc.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -311,28 +131,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_panimate.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -341,28 +144,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_pmove.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -371,28 +157,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_saber.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -401,28 +170,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_saberLoad.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -431,28 +183,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_saga.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -461,28 +196,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_slidemove.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -491,28 +209,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_vehicleLoad.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -521,28 +222,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\bg_weapons.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -551,28 +235,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_consolecmds.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -581,28 +248,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_draw.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -611,28 +261,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_drawtools.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -641,28 +274,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_effects.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -671,28 +287,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_ents.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -701,28 +300,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_event.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -731,28 +313,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_info.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -761,28 +326,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_light.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -791,28 +339,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_localents.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -821,28 +352,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_main.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -851,28 +365,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_marks.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -881,28 +378,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_newDraw.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -911,28 +391,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_players.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -941,28 +404,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_playerstate.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -971,28 +417,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_predict.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1001,28 +430,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_saga.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1031,28 +443,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_scoreboard.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1061,28 +456,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_servercmds.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1091,28 +469,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_snapshot.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1121,28 +482,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_strap.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1151,28 +495,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_syscalls.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1181,28 +508,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_turret.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1211,28 +521,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_view.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1241,28 +534,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_weaponinit.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1271,28 +547,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\cg_weapons.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1301,28 +560,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\FighterNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1331,28 +573,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_blaster.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1361,28 +586,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_bowcaster.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1391,28 +599,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_bryarpistol.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1421,28 +612,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_demp2.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1451,28 +625,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_disruptor.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1481,28 +638,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_flechette.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1511,28 +651,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_force.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1541,28 +664,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_heavyrepeater.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1571,28 +677,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\cgame\fx_rocketlauncher.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1601,28 +690,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\q_math.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1631,28 +703,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\q_shared.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1661,28 +716,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\SpeederNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1691,28 +729,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\ui\ui_shared.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1721,28 +742,11 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 			<File
 				RelativePath="..\game\WalkerNPC.c"
 				>
-				<FileConfiguration
-					Name="Debug|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-				<FileConfiguration
+								<FileConfiguration
 					Name="Release|Win32"
 					>
 					<Tool
@@ -1751,16 +755,7 @@
 						CompileAs="2"
 					/>
 				</FileConfiguration>
-				<FileConfiguration
-					Name="FinalBuild|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-			</File>
+							</File>
 		</Filter>
 		<Filter
 			Name="Header Files"

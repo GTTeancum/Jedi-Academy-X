@@ -582,8 +582,54 @@ int main(int argc, char* argv[])
 	XBLF("Log: %s\n", XBLog_GetPath() ? XBLog_GetPath() : "(none)");
 	XBL("main() entered\n");
 
-	Direct3D_SetPushBufferSize(1024*1024, 128*1024);
-	XBL("Direct3D_SetPushBufferSize done\n");
+#ifdef _XBOX
+	/* Plan-B (OpenJKDF2 1:1): XInitDevices MUST come before Direct3D
+	 * init.  Per OpenJKDF2's main_xbox.c comment (lines 58-64): "XDK
+	 * requirement: XInitDevices must be called before
+	 * Direct3D_CreateDevice (ordering required by the USB host
+	 * controller initialisation sequence on NV2A hardware)."
+	 *
+	 * JKA's original IN_Init calls XInitDevices AFTER GLW_Init has
+	 * already done CreateDevice — wrong order — which causes
+	 * FakeSwapBuffers / Present to hang in the stability loop (USB
+	 * host controller never properly armed, GPU never advances).
+	 *
+	 * Match OpenJKDF2's preallocation: 4 gamepads + 8 memory units. */
+	{
+		XDEVICE_PREALLOC_TYPE xdpt[2];
+		xdpt[0].DeviceType      = XDEVICE_TYPE_GAMEPAD;
+		xdpt[0].dwPreallocCount = 4;
+		xdpt[1].DeviceType      = XDEVICE_TYPE_MEMORY_UNIT;
+		xdpt[1].dwPreallocCount = 8;
+		XBL("Plan-B: calling XInitDevices BEFORE D3D init\n");
+		XInitDevices(2, xdpt);
+		XBL("Plan-B: XInitDevices done\n");
+	}
+	/* Mark in win_input_xbox.cpp's static flag so IN_Init doesn't
+	 * call XInitDevices again (the XDK only allows ONE call). */
+	{
+		extern bool g_XInitDevicesAlreadyCalled;
+		g_XInitDevicesAlreadyCalled = true;
+	}
+#endif
+
+	/* Plan-B: Direct3D_SetPushBufferSize removed.
+	 *
+	 * Original justification (plan v1-v2 era) was to fix a CDevice::Init
+	 * KickOff/HwGet spin-loop hang when JKA's pre-Plan-B renderer created
+	 * its own D3D8 device.  Under Plan-B fakegl owns the device and
+	 * fakeglx.cpp:1098 calls m_pD3D->SetPushBufferSize(768K, 128K) ITSELF
+	 * inside InitD3DX (between Direct3DCreate8 and CreateDevice — the
+	 * correct ordering).
+	 *
+	 * Calling SetPushBufferSize HERE (before fakegl runs) sets it once,
+	 * then fakegl sets it AGAIN with different values inside InitD3DX.
+	 * Two competing push-buffer configs leaves the GPU in a state where
+	 * Present's push-buffer flush never completes — observed as the
+	 * SDT: glEndFrame hang on CXBX-R 2026-05-16 22:33.  OpenJKDF2 does
+	 * NOT call SetPushBufferSize from main (only fakegl does internally);
+	 * matching that pattern. */
+	XBL("Plan-B: SetPushBufferSize delegated to fakegl InitD3DX\n");
 
 	// get the initial time base
 	Sys_Milliseconds();
@@ -615,14 +661,25 @@ int main(int argc, char* argv[])
 	XBL("Entering main game loop\n");
 
 	// main game loop
+	int xboxMainLoopCount = 0;
 	while( 1 ) {
+		const bool xboxTraceMainLoop = false;
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before IN_Frame", xboxMainLoopCount);
 		IN_Frame();
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after IN_Frame", xboxMainLoopCount);
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame", xboxMainLoopCount);
 		Com_Frame();
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame", xboxMainLoopCount);
+		Sleep(1);
 
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before DebugConsoleHandleCommands", xboxMainLoopCount);
 		DebugConsoleHandleCommands();
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after DebugConsoleHandleCommands", xboxMainLoopCount);
 #endif
+		Sleep(1);
+		xboxMainLoopCount++;
 	}
 
 	return 0;

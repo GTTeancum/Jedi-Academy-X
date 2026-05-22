@@ -9,6 +9,7 @@
 
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
+#include "../win32/xb_log.h"
 #endif
 
 /*
@@ -928,9 +929,20 @@ inline static ulong ComputeFinalVertexColor(const byte *colors)
 {
 	int			k;
 	byte		result[4];
+	byte		original[4];
 	ulong		r, g, b;
+#ifdef _XBOX
+	qboolean	xboxBlendBmodelLight;
+	int			xboxAmbient;
+#endif
 
 	*(int *)result = *(int *)colors;
+#ifdef _XBOX
+	*(int *)original = *(int *)colors;
+	xboxBlendBmodelLight = ( backEnd.currentEntity && backEnd.currentEntity != &tr.worldEntity &&
+		backEnd.currentEntity->e.hModel && tess.shader->lightmapIndex[0] == LIGHTMAP_BY_VERTEX );
+	xboxAmbient = xboxBlendBmodelLight ? backEnd.currentEntity->ambientLightInt : 0;
+#endif
 	if (tess.shader->lightmapIndex[0] != LIGHTMAP_BY_VERTEX )
 	{
 		return *(ulong *)result;
@@ -982,7 +994,49 @@ inline static ulong ComputeFinalVertexColor(const byte *colors)
 	result[0] = Com_Clamp(0, 255, r >> 8);
 	result[1] = Com_Clamp(0, 255, g >> 8);
 	result[2] = Com_Clamp(0, 255, b >> 8);
-	
+
+#ifdef _XBOX
+	if ( xboxBlendBmodelLight )
+	{
+		static int s_xboxBmodelColorLogBudget = 32;
+		const byte xboxBmodelLightFloor = 64;
+		byte *ambient = (byte *)&xboxAmbient;
+		byte effectiveAmbient[3];
+		byte baked[4];
+
+		*(int *)baked = *(int *)result;
+		effectiveAmbient[0] = max( ambient[0], xboxBmodelLightFloor );
+		effectiveAmbient[1] = max( ambient[1], xboxBmodelLightFloor );
+		effectiveAmbient[2] = max( ambient[2], xboxBmodelLightFloor );
+		result[0] = max( result[0], effectiveAmbient[0] );
+		result[1] = max( result[1], effectiveAmbient[1] );
+		result[2] = max( result[2], effectiveAmbient[2] );
+		result[3] = original[3];
+		if ( s_xboxBmodelColorLogBudget > 0 )
+		{
+			XBLF("JA: BMODEL_VERTEX_LIGHT_BLEND ent=%d hModel=%d shader='%s' ambient=%u,%u,%u floor=%u,%u,%u baked=%u,%u,%u src=%u,%u,%u out=%u,%u,%u",
+				backEnd.currentEntity->e.number,
+				backEnd.currentEntity->e.hModel,
+				tess.shader ? tess.shader->name : "<null>",
+				(unsigned int)ambient[0],
+				(unsigned int)ambient[1],
+				(unsigned int)ambient[2],
+				(unsigned int)effectiveAmbient[0],
+				(unsigned int)effectiveAmbient[1],
+				(unsigned int)effectiveAmbient[2],
+				(unsigned int)baked[0],
+				(unsigned int)baked[1],
+				(unsigned int)baked[2],
+				(unsigned int)original[0],
+				(unsigned int)original[1],
+				(unsigned int)original[2],
+				(unsigned int)result[0],
+				(unsigned int)result[1],
+				(unsigned int)result[2]);
+			--s_xboxBmodelColorLogBudget;
+		}
+	}
+#endif
 
 	return *(ulong *)result;
 }
@@ -994,12 +1048,22 @@ inline ulong ComputeFinalVertexColor16(const byte *colors)
 	int			k;
 	byte		result[4];
 	byte		color32[4];
+	byte		original[2];
 	ulong		r, g, b;
+#ifdef _XBOX
+	qboolean	xboxBlendBmodelLight;
+	int			xboxAmbient;
+#endif
 
 	result[0] = colors[0] & 0xF0;
 	result[1] = colors[0] << 4;
 	result[2] = colors[1] & 0xF0;
 	result[3] = colors[1] << 4;
+	original[0] = colors[0];
+	original[1] = colors[1];
+	xboxBlendBmodelLight = ( backEnd.currentEntity && backEnd.currentEntity != &tr.worldEntity &&
+		backEnd.currentEntity->e.hModel && tess.shader->lightmapIndex[0] == LIGHTMAP_BY_VERTEX );
+	xboxAmbient = xboxBlendBmodelLight ? backEnd.currentEntity->ambientLightInt : 0;
 	if (tess.shader->lightmapIndex[0] != LIGHTMAP_BY_VERTEX || r_fullbright->integer )
 	{
 		result[0] = 255;
@@ -1031,6 +1095,47 @@ inline ulong ComputeFinalVertexColor16(const byte *colors)
 	result[0] = Com_Clamp(0, 255, r >> 8);
 	result[1] = Com_Clamp(0, 255, g >> 8);
 	result[2] = Com_Clamp(0, 255, b >> 8);
+#ifdef _XBOX
+	if ( xboxBlendBmodelLight )
+	{
+		static int s_xboxBmodelColor16LogBudget = 32;
+		const byte xboxBmodelLightFloor = 64;
+		byte *ambient = (byte *)&xboxAmbient;
+		byte effectiveAmbient[3];
+		byte baked[4];
+
+		*(int *)baked = *(int *)result;
+		effectiveAmbient[0] = max( ambient[0], xboxBmodelLightFloor );
+		effectiveAmbient[1] = max( ambient[1], xboxBmodelLightFloor );
+		effectiveAmbient[2] = max( ambient[2], xboxBmodelLightFloor );
+		result[0] = max( result[0], effectiveAmbient[0] );
+		result[1] = max( result[1], effectiveAmbient[1] );
+		result[2] = max( result[2], effectiveAmbient[2] );
+		result[3] = original[1] << 4;
+		if ( s_xboxBmodelColor16LogBudget > 0 )
+		{
+			XBLF("JA: BMODEL_VERTEX_LIGHT16_BLEND ent=%d hModel=%d shader='%s' ambient=%u,%u,%u floor=%u,%u,%u baked=%u,%u,%u src16=%u,%u out=%u,%u,%u",
+				backEnd.currentEntity->e.number,
+				backEnd.currentEntity->e.hModel,
+				tess.shader ? tess.shader->name : "<null>",
+				(unsigned int)ambient[0],
+				(unsigned int)ambient[1],
+				(unsigned int)ambient[2],
+				(unsigned int)effectiveAmbient[0],
+				(unsigned int)effectiveAmbient[1],
+				(unsigned int)effectiveAmbient[2],
+				(unsigned int)baked[0],
+				(unsigned int)baked[1],
+				(unsigned int)baked[2],
+				(unsigned int)original[0],
+				(unsigned int)original[1],
+				(unsigned int)result[0],
+				(unsigned int)result[1],
+				(unsigned int)result[2]);
+			--s_xboxBmodelColor16LogBudget;
+		}
+	}
+#endif
 
 	return *(ulong *)result;
 }
@@ -1218,23 +1323,23 @@ static void RB_SurfaceBeam( void )
 	switch(e->skinNum)
 	{
 	case 1://Green
-		qglColor3f( 0, 1, 0 );
+		glColor3f( 0, 1, 0 );
 		break;
 	case 2://Blue
-		qglColor3f( 0.5, 0.5, 1 );
+		glColor3f( 0.5, 0.5, 1 );
 		break;
 	case 0://red
 	default:
-		qglColor3f( 1, 0, 0 );
+		glColor3f( 1, 0, 0 );
 		break;
 	}
 
-	qglBegin( GL_TRIANGLE_STRIP );
+	glBegin( GL_TRIANGLE_STRIP );
 	for ( i = 0; i <= NUM_BEAM_SEGS; i++ ) {
-		qglVertex3fv( start_points[ i % NUM_BEAM_SEGS] );
-		qglVertex3fv( end_points[ i % NUM_BEAM_SEGS] );
+		glVertex3fv( start_points[ i % NUM_BEAM_SEGS] );
+		glVertex3fv( end_points[ i % NUM_BEAM_SEGS] );
 	}
-	qglEnd();
+	glEnd();
 }
 
 
@@ -1428,6 +1533,18 @@ void RB_SurfaceMesh(md3Surface_t *surface) {
 	vec3_t		bounds[2], v;
 	trRefEntity_t *ent = backEnd.currentEntity;
 
+	if (ent)
+	{
+		ent->visible = 1;
+		if (ent->e.number >= 0 && ent->e.number < (MAX_GENTITIES + 1000 + 256))
+		{
+			entityVisList[ent->e.number] = 1;
+		}
+	}
+
+	// Cxbx-R does not reliably complete the Xbox D3D visibility query path here.
+	// Treat MD3 entities as visible so the renderer does not hang inside HLE.
+#if 0
 	if(ent->e.number == 0)
 	{
 		entityVisList[0] = 1;
@@ -1495,6 +1612,7 @@ void RB_SurfaceMesh(md3Surface_t *surface) {
 
 	if(ent->visible == -2)
 		return;
+#endif
 #endif
 
 	if (  backEnd.currentEntity->e.oldframe == backEnd.currentEntity->e.frame ) {
@@ -2194,23 +2312,23 @@ Draws x/y/z lines from the origin for orientation debugging
 */
 static void RB_SurfaceAxis( void ) {
 	GL_Bind( tr.whiteImage );
-	qglLineWidth( 3 );
+	glLineWidth( 3 );
 #ifdef _XBOX
-	qglBeginEXT( GL_LINES, 6, 3, 0, 0, 0);
+	glBeginEXT( GL_LINES, 6, 3, 0, 0, 0);
 #else
-	qglBegin( GL_LINES );
+	glBegin( GL_LINES );
 #endif
-	qglColor3f( 1,0,0 );
-	qglVertex3f( 0,0,0 );
-	qglVertex3f( 16,0,0 );
-	qglColor3f( 0,1,0 );
-	qglVertex3f( 0,0,0 );
-	qglVertex3f( 0,16,0 );
-	qglColor3f( 0,0,1 );
-	qglVertex3f( 0,0,0 );
-	qglVertex3f( 0,0,16 );
-	qglEnd();
-	qglLineWidth( 1 );
+	glColor3f( 1,0,0 );
+	glVertex3f( 0,0,0 );
+	glVertex3f( 16,0,0 );
+	glColor3f( 0,1,0 );
+	glVertex3f( 0,0,0 );
+	glVertex3f( 0,16,0 );
+	glColor3f( 0,0,1 );
+	glVertex3f( 0,0,0 );
+	glVertex3f( 0,0,16 );
+	glEnd();
+	glLineWidth( 1 );
 }
 
 //===========================================================================
@@ -2344,7 +2462,7 @@ static bool RB_TestZFlare( vec3_t point) {
 	// doing a readpixels is as good as doing a glFinish(), so
 	// don't bother with another sync
 	glState.finishCalled = qfalse;
-	qglReadPixels( backEnd.viewParms.viewportX + window[0],backEnd.viewParms.viewportY + window[1], 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
+	glReadPixels( backEnd.viewParms.viewportX + window[0],backEnd.viewParms.viewportY + window[1], 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
 
 	screenZ = backEnd.viewParms.projectionMatrix[14] / 
 		( ( 2*depth - 1 ) * backEnd.viewParms.projectionMatrix[11] - backEnd.viewParms.projectionMatrix[10] );
@@ -2367,6 +2485,14 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 	}
 
 #ifdef _XBOX
+	static int s_xboxSkipFlareTraceCount = 0;
+	if ( s_xboxSkipFlareTraceCount < 64 ) {
+		XBLF("JA: RB_SurfaceFlare Xbox skip number=%d r_flares=%d visible=%d",
+			(int)surf->number, r_flares->integer, (int)surf->visible);
+		s_xboxSkipFlareTraceCount++;
+	}
+	return;
+
 	vec3_t     sorigin, snormal;
 
 	Q_CastShort2Float(&sorigin[0], (short*)&surf->origin[0]);
@@ -2442,7 +2568,7 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 void RB_SurfaceDisplayList( srfDisplayList_t *surf ) {
 	// all apropriate state must be set in RB_BeginSurface
 	// this isn't implemented yet...
-	qglCallList( surf->listNum );
+	glCallList( surf->listNum );
 }
 
 void RB_SurfaceSkip( void *surf ) {

@@ -28,6 +28,7 @@ extern stringID_table_t animTable [MAX_ANIMATIONS+1];
 
 #ifdef _XBOX
 #include <xtl.h>
+#include "../win32/xb_log.h"
 #define filepathlength 120
 #endif
 
@@ -3551,14 +3552,29 @@ UI_Init
 */
 void _UI_Init( qboolean inGameLoad ) 
 {
+#ifdef _XBOX
+	XBLF("JA: _UI_Init entered inGameLoad=%d", (int)inGameLoad);
+#endif
 	uiInfo.inGameLoad = inGameLoad;
 
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: UI_RegisterCvars...");
+#endif
 	UI_RegisterCvars();
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: UI_RegisterCvars done; UI_InitMemory...");
+#endif
 
 	UI_InitMemory();
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: UI_InitMemory done; trap_GetGlconfig...");
+#endif
 
 	// cache redundant calulations
 	trap_GetGlconfig( &uiInfo.uiDC.glconfig );
+#ifdef _XBOX
+	XBLF("JA: _UI_Init: uiDC glconfig %dx%d", uiInfo.uiDC.glconfig.vidWidth, uiInfo.uiDC.glconfig.vidHeight);
+#endif
 
 	// for 640x480 virtualized screen
 	uiInfo.uiDC.yscale = uiInfo.uiDC.glconfig.vidHeight * (1.0/480.0);
@@ -3575,6 +3591,9 @@ void _UI_Init( qboolean inGameLoad )
 	}
 
 	Init_Display(&uiInfo.uiDC);
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: Init_Display done; assigning display callbacks...");
+#endif
 
 	uiInfo.uiDC.drawText			= &Text_Paint;
 	uiInfo.uiDC.drawHandlePic		= &UI_DrawHandlePic;
@@ -3635,9 +3654,18 @@ void _UI_Init( qboolean inGameLoad )
 
 	uiInfo.uiDC.g2hilev_SetAnim = UI_G2SetAnim;
 
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: UI_BuildPlayerModel_List...");
+#endif
 	UI_BuildPlayerModel_List(inGameLoad);
+#ifdef _XBOX
+	XBLF("JA: _UI_Init: UI_BuildPlayerModel_List done count=%d; String_Init...", uiInfo.playerSpeciesCount);
+#endif
 
 	String_Init();
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: String_Init done; selecting menu set...");
+#endif
 
 	char *menuSet = UI_Cvar_VariableString("ui_menuFiles");
 
@@ -3647,18 +3675,36 @@ void _UI_Init( qboolean inGameLoad )
 	}
 	if (inGameLoad)
 	{
+#ifdef _XBOX
+		XBLog_Write("JA: _UI_Init: UI_LoadMenus ui/ingame.txt...");
+#endif
 		UI_LoadMenus("ui/ingame.txt", qtrue);
 	}
 	else 
 	{
+#ifdef _XBOX
+		XBLF("JA: _UI_Init: UI_LoadMenus %s...", menuSet);
+#endif
 		UI_LoadMenus(menuSet, qtrue);
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: UI_LoadMenus done; Menus_CloseAll...");
+#endif
 
 	Menus_CloseAll();
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: Menus_CloseAll done; registering whiteShader...");
+#endif
 
 	uiInfo.uiDC.whiteShader = ui.R_RegisterShaderNoMip( "white" );
+#ifdef _XBOX
+	XBLF("JA: _UI_Init: whiteShader=%d; AssetCache...", uiInfo.uiDC.whiteShader);
+#endif
 
 	AssetCache();
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: AssetCache done; setting defaults...");
+#endif
 
 	uis.debugMode = qfalse;
 	
@@ -3679,9 +3725,18 @@ void _UI_Init( qboolean inGameLoad )
 	uiInfo.selectedWeapon2 = NOWEAPON;
 	uiInfo.selectedThrowWeapon = NOWEAPON;
 
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init: trap_S_RegisterSound sound/null...");
+#endif
 	uiInfo.uiDC.Assets.nullSound = trap_S_RegisterSound("sound/null", qfalse);
+#ifdef _XBOX
+	XBLF("JA: _UI_Init: nullSound=%d; trap_S_RegisterSound weapon_deselect...", uiInfo.uiDC.Assets.nullSound);
+#endif
 
 	trap_S_RegisterSound("sound/interface/weapon_deselect", qfalse);
+#ifdef _XBOX
+	XBLog_Write("JA: _UI_Init done");
+#endif
 
 
 }
@@ -3737,19 +3792,29 @@ void UI_ParseMenu(const char *menuFile)
 {
 	char	*buffer,*holdBuffer,*token2;
 	int len;
+	int menuDefs = 0;
 //	pc_token_t token;
 
 	//Com_DPrintf("Parsing menu file:%s\n", menuFile);
 
+#ifdef _XBOX
+	XBLF("JA: UI_ParseMenu enter file=%s", menuFile ? menuFile : "(null)");
+#endif
 	len = PC_StartParseSession(menuFile,&buffer);
 
 	holdBuffer = buffer;
 
 	if (len<=0) 
 	{
+#ifdef _XBOX
+		XBLF("JA: UI_ParseMenu missing file=%s len=%d", menuFile ? menuFile : "(null)", len);
+#endif
 		Com_Printf("UI_ParseMenu: Unable to load menu %s\n", menuFile);
 		return;
 	}
+#ifdef _XBOX
+	XBLF("JA: UI_ParseMenu loaded file=%s len=%d", menuFile ? menuFile : "(null)", len);
+#endif
 
 	while ( 1 ) 
 	{
@@ -3777,19 +3842,35 @@ void UI_ParseMenu(const char *menuFile)
 		}
 		else if (Q_stricmp(token2, "assetGlobalDef") == 0) 
 		{
+#ifdef _XBOX
+			XBLF("JA: UI_ParseMenu assetGlobalDef file=%s", menuFile ? menuFile : "(null)");
+#endif
 			if (Asset_Parse(&holdBuffer)) 
 			{
+#ifdef _XBOX
+				XBLF("JA: UI_ParseMenu assetGlobalDef done file=%s", menuFile ? menuFile : "(null)");
+#endif
 				continue;
 			} 
 			else 
 			{
+#ifdef _XBOX
+				XBLF("JA: UI_ParseMenu assetGlobalDef failed file=%s", menuFile ? menuFile : "(null)");
+#endif
 				break;
 			}
 		}
 		else if (Q_stricmp(token2, "menudef") == 0) 
 		{
 			// start a new menu
+#ifdef _XBOX
+			XBLF("JA: UI_ParseMenu Menu_New begin file=%s local=%d", menuFile ? menuFile : "(null)", menuDefs);
+#endif
 			Menu_New(holdBuffer);
+			menuDefs++;
+#ifdef _XBOX
+			XBLF("JA: UI_ParseMenu Menu_New done file=%s local=%d", menuFile ? menuFile : "(null)", menuDefs);
+#endif
 			continue;
 		}
 
@@ -3797,6 +3878,9 @@ void UI_ParseMenu(const char *menuFile)
 	}
 
 	PC_EndParseSession(buffer);
+#ifdef _XBOX
+	XBLF("JA: UI_ParseMenu exit file=%s menus=%d", menuFile ? menuFile : "(null)", menuDefs);
+#endif
 	
 }
 
@@ -3840,7 +3924,15 @@ qboolean Load_Menu(const char **holdBuffer)
 //		extern void UI_Debug_AddMenuFilePath(const char *);
 //		UI_Debug_AddMenuFilePath(token2);
 //#endif
-		UI_ParseMenu(token2); 
+		char includeName[MAX_QPATH];
+		Q_strncpyz(includeName, token2, sizeof(includeName));
+#ifdef _XBOX
+		XBLF("JA: Load_Menu include begin file=%s", includeName);
+#endif
+		UI_ParseMenu(includeName); 
+#ifdef _XBOX
+		XBLF("JA: Load_Menu include done file=%s", includeName);
+#endif
 
 	}
 	return qfalse;
@@ -3864,12 +3956,21 @@ void UI_LoadMenus(const char *menuFile, qboolean reset)
 
 	start = Sys_Milliseconds();
 
+#ifdef _XBOX
+	XBLF("JA: UI_LoadMenus enter file=%s reset=%d", menuFile ? menuFile : "(null)", (int)reset);
+#endif
 	len = ui.FS_ReadFile(menuFile,(void **) &buffer);
+#ifdef _XBOX
+	XBLF("JA: UI_LoadMenus read file=%s len=%d", menuFile ? menuFile : "(null)", len);
+#endif
 
 	if (len<1) 
 	{
 		Com_Printf( va( S_COLOR_YELLOW "menu file not found: %s, using default\n", menuFile ) );
 		len = ui.FS_ReadFile("ui/menus.txt",(void **) &buffer);
+#ifdef _XBOX
+		XBLF("JA: UI_LoadMenus fallback ui/menus.txt len=%d", len);
+#endif
 
 		if (len<1) 
 		{
@@ -3904,12 +4005,21 @@ void UI_LoadMenus(const char *menuFile, qboolean reset)
 		}
 		else if (Q_stricmp(token2, "loadmenu") == 0) 
 		{
+#ifdef _XBOX
+			XBLog_Write("JA: UI_LoadMenus Load_Menu begin");
+#endif
 			if (Load_Menu(&holdBuffer)) 
 			{
+#ifdef _XBOX
+				XBLog_Write("JA: UI_LoadMenus Load_Menu done");
+#endif
 				continue;
 			} 
 			else 
 			{
+#ifdef _XBOX
+				XBLog_Write("JA: UI_LoadMenus Load_Menu failed");
+#endif
 				break;
 			}
 		} 
@@ -3922,6 +4032,9 @@ void UI_LoadMenus(const char *menuFile, qboolean reset)
 	//Com_Printf("UI menu load time = %d milli seconds\n", Sys_Milliseconds() - start);
 
 	ui.FS_FreeFile( buffer );	//let go of the buffer
+#ifdef _XBOX
+	XBLF("JA: UI_LoadMenus exit file=%s elapsed=%d", menuFile ? menuFile : "(null)", Sys_Milliseconds() - start);
+#endif
 }
 
 /*
@@ -4561,14 +4674,38 @@ AssetCache
 void AssetCache(void) 
 {
 //	int n;
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: scrollbar...");
+#endif
 	uiInfo.uiDC.Assets.scrollBar = ui.R_RegisterShaderNoMip( ASSET_SCROLLBAR );
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: arrow down...");
+#endif
 	uiInfo.uiDC.Assets.scrollBarArrowDown = ui.R_RegisterShaderNoMip( ASSET_SCROLLBAR_ARROWDOWN );
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: arrow up...");
+#endif
 	uiInfo.uiDC.Assets.scrollBarArrowUp = ui.R_RegisterShaderNoMip( ASSET_SCROLLBAR_ARROWUP );
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: arrow left...");
+#endif
 	uiInfo.uiDC.Assets.scrollBarArrowLeft = ui.R_RegisterShaderNoMip( ASSET_SCROLLBAR_ARROWLEFT );
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: arrow right...");
+#endif
 	uiInfo.uiDC.Assets.scrollBarArrowRight = ui.R_RegisterShaderNoMip( ASSET_SCROLLBAR_ARROWRIGHT );
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: thumb...");
+#endif
 	uiInfo.uiDC.Assets.scrollBarThumb = ui.R_RegisterShaderNoMip( ASSET_SCROLL_THUMB );
 
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache: slider...");
+#endif
 	uiInfo.uiDC.Assets.sliderBar = ui.R_RegisterShaderNoMip( "gfx/menus/newFront/slider" );
+#ifdef _XBOX
+	XBLog_Write("JA: AssetCache done");
+#endif
 //	uiInfo.uiDC.Assets.sliderThumb = ui.R_RegisterShaderNoMip( "menu/new/sliderthumb");
 
 	

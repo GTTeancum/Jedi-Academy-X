@@ -33,7 +33,7 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 //===========
 	// Q3Final added this:
 	// we definately want to sync every frame for the cinematics
-	//qglFinish();
+	//glFinish();
 
 #ifdef TIMEBIND
 	int start, end;
@@ -60,18 +60,18 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 		}
 #endif
 
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
+		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
 		
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
 
 #ifdef TIMEBIND
 		if ( r_ignore->integer ) 
 		{
 			end = Sys_Milliseconds();
-			VID_Printf( PRINT_ALL, "qglTexImage2D %i, %i: %i msec\n", cols, rows, end - start );
+			VID_Printf( PRINT_ALL, "glTexImage2D %i, %i: %i msec\n", cols, rows, end - start );
 		}
 #endif
 	} 
@@ -89,13 +89,13 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 			}
 	#endif
 
-			qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );				
+			glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );				
 
 	#ifdef TIMEBIND
 			if ( r_ignore->integer ) 
 			{
 				end = Sys_Milliseconds();
-				VID_Printf( PRINT_ALL, "qglTexSubImage2D %i, %i: %i msec\n", cols, rows, end - start );
+				VID_Printf( PRINT_ALL, "glTexSubImage2D %i, %i: %i msec\n", cols, rows, end - start );
 			}
 	#endif
 		}
@@ -107,30 +107,30 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 	{
 		RB_SetGL2D();	
 	}
-	qglColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
+	glColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
 
 #ifdef _XBOX
-	qglBeginEXT (GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0);//, 0, 0);
-	qglTexCoord2f ( 0.5 / cols,  0.5 / rows );
-	qglVertex2f (x, y);
-	qglTexCoord2f ( ( cols - 0.5 ) / cols ,  0.5 / rows );
-	qglVertex2f (x+w, y);
-	qglTexCoord2f ( 0.5 / cols, ( rows - 0.5 ) / rows );
-	qglVertex2f (x, y+h);
-	qglTexCoord2f ( ( cols - 0.5 ) / cols, ( rows - 0.5 ) / rows );
-	qglVertex2f (x+w, y+h);
-	qglEnd ();
+	glBeginEXT (GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0);//, 0, 0);
+	glTexCoord2f ( 0.5 / cols,  0.5 / rows );
+	glVertex2f (x, y);
+	glTexCoord2f ( ( cols - 0.5 ) / cols ,  0.5 / rows );
+	glVertex2f (x+w, y);
+	glTexCoord2f ( 0.5 / cols, ( rows - 0.5 ) / rows );
+	glVertex2f (x, y+h);
+	glTexCoord2f ( ( cols - 0.5 ) / cols, ( rows - 0.5 ) / rows );
+	glVertex2f (x+w, y+h);
+	glEnd ();
 #else
-	qglBegin (GL_QUADS);
-	qglTexCoord2f ( 0.5 / cols,  0.5 / rows );
-	qglVertex2f (x, y);
-	qglTexCoord2f ( ( cols - 0.5 ) / cols ,  0.5 / rows );
-	qglVertex2f (x+w, y);
-	qglTexCoord2f ( ( cols - 0.5 ) / cols, ( rows - 0.5 ) / rows );
-	qglVertex2f (x+w, y+h);
-	qglTexCoord2f ( 0.5 / cols, ( rows - 0.5 ) / rows );
-	qglVertex2f (x, y+h);
-	qglEnd ();
+	glBegin (GL_QUADS);
+	glTexCoord2f ( 0.5 / cols,  0.5 / rows );
+	glVertex2f (x, y);
+	glTexCoord2f ( ( cols - 0.5 ) / cols ,  0.5 / rows );
+	glVertex2f (x+w, y);
+	glTexCoord2f ( ( cols - 0.5 ) / cols, ( rows - 0.5 ) / rows );
+	glVertex2f (x+w, y+h);
+	glTexCoord2f ( 0.5 / cols, ( rows - 0.5 ) / rows );
+	glVertex2f (x, y+h);
+	glEnd ();
 #endif
 
 #endif	// _XBOX
@@ -147,20 +147,20 @@ void RE_UploadCinematic (int cols, int rows, const byte *data, int client, qbool
 		tr.scratchImage[client]->width = cols;
 		tr.scratchImage[client]->height = rows;
 #ifdef _XBOX
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, cols, rows, 0, GL_LIN_RGBA, GL_UNSIGNED_BYTE, data );
+		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, cols, rows, 0, GL_LIN_RGBA, GL_UNSIGNED_BYTE, data );
 #else
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
+		glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
 #endif
 
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
+		glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
 	} else {
 		if (dirty) {
 			// otherwise, just subimage upload it so that drivers can tell we are going to be changing
 			// it and don't try and do a texture compression
-			qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );
+			glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );
 		}
 	}
 }
@@ -182,7 +182,7 @@ void RE_GetScreenShot(byte *data, int w, int h)
 	{
 		return;
 	}
-	qglReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, buffer ); 
+	glReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, buffer ); 
 	
 	xstep = (glConfig.vidWidth << 16) / w;
 	ystep = (glConfig.vidHeight << 16) / h;
@@ -216,14 +216,14 @@ void RE_GetScreenShot(byte *buffer, int w, int h)
 	float		xScale, yScale;
 	int			xx, yy;
 
-    qglFinish();	// try and fix broken Radeon cards (7500 & 8500) that don't read screen pixels properly
+    glFinish();	// try and fix broken Radeon cards (7500 & 8500) that don't read screen pixels properly
 
 	source = (byte *)Z_Malloc(glConfig.vidWidth * glConfig.vidHeight * 3, TAG_TEMP_WORKSPACE, qfalse);
 	if(!source)
 	{
 		return;
 	}
-	qglReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, source ); 
+	glReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, source ); 
 	
 	assert (w == h);
 	int count = 0;
@@ -473,46 +473,46 @@ static void RE_Blit(float fX0, float fY0, float fX1, float fY1, float fX2, float
 	//
 	R_SyncRenderThread();
 //#ifndef _XBOX
-//	qglFinish();
+//	glFinish();
 //#endif // _XBOX
 
 	GL_Bind( pImage );
 	GL_State(iGLState);
 	GL_Cull( CT_TWO_SIDED ) ;
 
-	qglColor3f( 1.0f, 1.0f, 1.0f );
+	glColor3f( 1.0f, 1.0f, 1.0f );
 
 #ifdef _XBOX
-	qglBeginEXT(GL_QUADS,4,0,0,4,0);
+	glBeginEXT(GL_QUADS,4,0,0,4,0);
 #else
-	qglBegin (GL_QUADS);
+	glBegin (GL_QUADS);
 #endif // _XBOX
 	{
 		// TL...
 		//
-//		qglTexCoord2f( fU0 / (float)pImage->width,  fV0 / (float)pImage->height );
-		qglTexCoord2f( 0,0 );
-		qglVertex2f( fX0, fY0 );
+//		glTexCoord2f( fU0 / (float)pImage->width,  fV0 / (float)pImage->height );
+		glTexCoord2f( 0,0 );
+		glVertex2f( fX0, fY0 );
 
 		// TR...
 		//
-//		qglTexCoord2f( fU1 / (float)pImage->width,  fV1 / (float)pImage->height );
-		qglTexCoord2f( 1,0 );
-		qglVertex2f( fX1, fY1 );
+//		glTexCoord2f( fU1 / (float)pImage->width,  fV1 / (float)pImage->height );
+		glTexCoord2f( 1,0 );
+		glVertex2f( fX1, fY1 );
 
 		// BR...
 		//
-//		qglTexCoord2f( fU2 / (float)pImage->width,  fV2 / (float)pImage->height );
-		qglTexCoord2f( 1,1 );
-		qglVertex2f( fX2, fY2);
+//		glTexCoord2f( fU2 / (float)pImage->width,  fV2 / (float)pImage->height );
+		glTexCoord2f( 1,1 );
+		glVertex2f( fX2, fY2);
 
 		// BL...
 		//
-//		qglTexCoord2f( fU3 / (float)pImage->width,  fV3 / (float)pImage->height );
-		qglTexCoord2f( 0,1 );
-		qglVertex2f( fX3, fY3);
+//		glTexCoord2f( fU3 / (float)pImage->width,  fV3 / (float)pImage->height );
+		glTexCoord2f( 0,1 );
+		glVertex2f( fX3, fY3);
 	}
-	qglEnd ();
+	glEnd ();
 }
 
 static void RE_KillDissolve(void)
@@ -563,10 +563,10 @@ qboolean RE_ProcessDissolve(void)
 			RB_SetGL2D();			
 
 //			GLdouble glD;
-//			qglGetDoublev(GL_DEPTH_CLEAR_VALUE,&glD);
-//			qglClearColor(0,0,0,1);
-			qglClearDepth(1.0f);
-			qglClear( GL_DEPTH_BUFFER_BIT );
+//			glGetDoublev(GL_DEPTH_CLEAR_VALUE,&glD);
+//			glClearColor(0,0,0,1);
+			glClearDepth(1.0f);
+			glClear( GL_DEPTH_BUFFER_BIT );
 			
 			float fXScaleFactor;
 #ifdef _XBOX
@@ -858,9 +858,9 @@ static void RE_GetCompressedBackbuffer()
 	GL_Bind(Dissolve.pImage);
 
 	/*if(glw_state->isWidescreen)
-		qglCopyBackBufferToTexEXT(256.0f, 256.0f, 0.0f, 0.0f, 720.0f, 480.0f);
+		glCopyBackBufferToTexEXT(256.0f, 256.0f, 0.0f, 0.0f, 720.0f, 480.0f);
 	else*/
-	qglCopyBackBufferToTexEXT(256.0f, 256.0f, 2.0f, 2.0f, 640.0f, 480.0f);
+	glCopyBackBufferToTexEXT(256.0f, 256.0f, 2.0f, 2.0f, 640.0f, 480.0f);
 }
 #endif
 
@@ -886,7 +886,7 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 		{ // Silly if(1) to match up with control flow below, as the #ifdef ends inside the block
 
 			GL_Bind(tr.screenImage);
-			qglCopyBackBufferToTexEXT(512.0f, 256.0f, 1.0f, 1.0f, 640.0f, 480.0f);
+			glCopyBackBufferToTexEXT(512.0f, 256.0f, 1.0f, 1.0f, 640.0f, 480.0f);
 			Dissolve.pImage = tr.screenImage;
 
 //			RE_GetCompressedBackbuffer();
@@ -904,7 +904,7 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 		{
 			// read current screen image...  (GL_RGBA should work even on 3DFX in that the RGB parts will be valid at least)
 			//
-			qglReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGBA, GL_UNSIGNED_BYTE, pBuffer );
+			glReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGBA, GL_UNSIGNED_BYTE, pBuffer );
 			//
 			// now expand the pic over the top of itself so that it has a stride value of {PowerOf2(glConfig.vidWidth)}
 			//	(for GL power-of-2 rules)

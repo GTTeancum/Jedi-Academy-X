@@ -196,35 +196,37 @@ Ghoul2 Insert End
 */
 
 
-void ( APIENTRY * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
-void ( APIENTRY * qglActiveTextureARB )( GLenum texture );
-void ( APIENTRY * qglClientActiveTextureARB )( GLenum texture );
-
-void ( APIENTRY * qglLockArraysEXT)( GLint, GLint);
-void ( APIENTRY * qglUnlockArraysEXT) ( void );
-
-void ( APIENTRY * qglPointParameterfEXT)( GLenum, GLfloat);
-void ( APIENTRY * qglPointParameterfvEXT)( GLenum, GLfloat *);
+/* Plan-B: function-pointer storage for these qgl_* extensions (renamed
+ * to gl* by mass sed) is no longer needed — they're now real functions
+ * declared in qgl_console.h and implemented in fakeglx_jka_compat.cpp.
+ * Original storage was:
+ *   void (APIENTRY *qglMultiTexCoord2fARB)(...);
+ *   void (APIENTRY *qglActiveTextureARB)(...);
+ *   void (APIENTRY *qglClientActiveTextureARB)(...);
+ *   void (APIENTRY *qglLockArraysEXT)(...);
+ *   void (APIENTRY *qglUnlockArraysEXT)(...);
+ *   void (APIENTRY *qglPointParameterfEXT)(...);
+ *   void (APIENTRY *qglPointParameterfvEXT)(...); */
 
 // Added 10/23/02 by Aurelio Reis.
-void ( APIENTRY * qglPointParameteriNV)( GLenum, GLint);
-void ( APIENTRY * qglPointParameterivNV)( GLenum, const GLint *);
+void ( APIENTRY * glPointParameteriNV)( GLenum, GLint);
+void ( APIENTRY * glPointParameterivNV)( GLenum, const GLint *);
 
 #ifndef _XBOX	// GLOWXXX
 // Declare Register Combiners function pointers.
-PFNGLCOMBINERPARAMETERFVNV				qglCombinerParameterfvNV = NULL;
-PFNGLCOMBINERPARAMETERIVNV				qglCombinerParameterivNV = NULL;
-PFNGLCOMBINERPARAMETERFNV				qglCombinerParameterfNV = NULL;
-PFNGLCOMBINERPARAMETERINV				qglCombinerParameteriNV = NULL;
-PFNGLCOMBINERINPUTNV					qglCombinerInputNV = NULL;
-PFNGLCOMBINEROUTPUTNV					qglCombinerOutputNV = NULL;
-PFNGLFINALCOMBINERINPUTNV				qglFinalCombinerInputNV = NULL;
-PFNGLGETCOMBINERINPUTPARAMETERFVNV		qglGetCombinerInputParameterfvNV = NULL;
-PFNGLGETCOMBINERINPUTPARAMETERIVNV		qglGetCombinerInputParameterivNV = NULL;
-PFNGLGETCOMBINEROUTPUTPARAMETERFVNV		qglGetCombinerOutputParameterfvNV = NULL;
-PFNGLGETCOMBINEROUTPUTPARAMETERIVNV		qglGetCombinerOutputParameterivNV = NULL;
-PFNGLGETFINALCOMBINERINPUTPARAMETERFVNV	qglGetFinalCombinerInputParameterfvNV = NULL;
-PFNGLGETFINALCOMBINERINPUTPARAMETERIVNV	qglGetFinalCombinerInputParameterivNV = NULL;
+PFNGLCOMBINERPARAMETERFVNV				glCombinerParameterfvNV = NULL;
+PFNGLCOMBINERPARAMETERIVNV				glCombinerParameterivNV = NULL;
+PFNGLCOMBINERPARAMETERFNV				glCombinerParameterfNV = NULL;
+PFNGLCOMBINERPARAMETERINV				glCombinerParameteriNV = NULL;
+PFNGLCOMBINERINPUTNV					glCombinerInputNV = NULL;
+PFNGLCOMBINEROUTPUTNV					glCombinerOutputNV = NULL;
+PFNGLFINALCOMBINERINPUTNV				glFinalCombinerInputNV = NULL;
+PFNGLGETCOMBINERINPUTPARAMETERFVNV		glGetCombinerInputParameterfvNV = NULL;
+PFNGLGETCOMBINERINPUTPARAMETERIVNV		glGetCombinerInputParameterivNV = NULL;
+PFNGLGETCOMBINEROUTPUTPARAMETERFVNV		glGetCombinerOutputParameterfvNV = NULL;
+PFNGLGETCOMBINEROUTPUTPARAMETERIVNV		glGetCombinerOutputParameterivNV = NULL;
+PFNGLGETFINALCOMBINERINPUTPARAMETERFVNV	glGetFinalCombinerInputParameterfvNV = NULL;
+PFNGLGETFINALCOMBINERINPUTPARAMETERIVNV	glGetFinalCombinerInputParameterivNV = NULL;
 
 // Declare Pixel Format function pointers.
 PFNWGLGETPIXELFORMATATTRIBIVARBPROC		qwglGetPixelFormatAttribivARB = NULL;
@@ -244,37 +246,54 @@ PFNWGLRELEASETEXIMAGEARBPROC			qwglReleaseTexImageARB = NULL;
 PFNWGLSETPBUFFERATTRIBARBPROC			qwglSetPbufferAttribARB = NULL;
 
 // Declare Vertex and Fragment Program function pointers.
-PFNGLPROGRAMSTRINGARBPROC qglProgramStringARB = NULL;
-PFNGLBINDPROGRAMARBPROC qglBindProgramARB = NULL;
-PFNGLDELETEPROGRAMSARBPROC qglDeleteProgramsARB = NULL;
-PFNGLGENPROGRAMSARBPROC qglGenProgramsARB = NULL;
-PFNGLPROGRAMENVPARAMETER4DARBPROC qglProgramEnvParameter4dARB = NULL;
-PFNGLPROGRAMENVPARAMETER4DVARBPROC qglProgramEnvParameter4dvARB = NULL;
-PFNGLPROGRAMENVPARAMETER4FARBPROC qglProgramEnvParameter4fARB = NULL;
-PFNGLPROGRAMENVPARAMETER4FVARBPROC qglProgramEnvParameter4fvARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4DARBPROC qglProgramLocalParameter4dARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4DVARBPROC qglProgramLocalParameter4dvARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4FARBPROC qglProgramLocalParameter4fARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4FVARBPROC qglProgramLocalParameter4fvARB = NULL;
-PFNGLGETPROGRAMENVPARAMETERDVARBPROC qglGetProgramEnvParameterdvARB = NULL;
-PFNGLGETPROGRAMENVPARAMETERFVARBPROC qglGetProgramEnvParameterfvARB = NULL;
-PFNGLGETPROGRAMLOCALPARAMETERDVARBPROC qglGetProgramLocalParameterdvARB = NULL;
-PFNGLGETPROGRAMLOCALPARAMETERFVARBPROC qglGetProgramLocalParameterfvARB = NULL;
-PFNGLGETPROGRAMIVARBPROC qglGetProgramivARB = NULL;
-PFNGLGETPROGRAMSTRINGARBPROC qglGetProgramStringARB = NULL;
-PFNGLISPROGRAMARBPROC qglIsProgramARB = NULL;
+PFNGLPROGRAMSTRINGARBPROC glProgramStringARB = NULL;
+PFNGLBINDPROGRAMARBPROC glBindProgramARB = NULL;
+PFNGLDELETEPROGRAMSARBPROC glDeleteProgramsARB = NULL;
+PFNGLGENPROGRAMSARBPROC glGenProgramsARB = NULL;
+PFNGLPROGRAMENVPARAMETER4DARBPROC glProgramEnvParameter4dARB = NULL;
+PFNGLPROGRAMENVPARAMETER4DVARBPROC glProgramEnvParameter4dvARB = NULL;
+PFNGLPROGRAMENVPARAMETER4FARBPROC glProgramEnvParameter4fARB = NULL;
+PFNGLPROGRAMENVPARAMETER4FVARBPROC glProgramEnvParameter4fvARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4DARBPROC glProgramLocalParameter4dARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4DVARBPROC glProgramLocalParameter4dvARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4FARBPROC glProgramLocalParameter4fARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4FVARBPROC glProgramLocalParameter4fvARB = NULL;
+PFNGLGETPROGRAMENVPARAMETERDVARBPROC glGetProgramEnvParameterdvARB = NULL;
+PFNGLGETPROGRAMENVPARAMETERFVARBPROC glGetProgramEnvParameterfvARB = NULL;
+PFNGLGETPROGRAMLOCALPARAMETERDVARBPROC glGetProgramLocalParameterdvARB = NULL;
+PFNGLGETPROGRAMLOCALPARAMETERFVARBPROC glGetProgramLocalParameterfvARB = NULL;
+PFNGLGETPROGRAMIVARBPROC glGetProgramivARB = NULL;
+PFNGLGETPROGRAMSTRINGARBPROC glGetProgramStringARB = NULL;
+PFNGLISPROGRAMARBPROC glIsProgramARB = NULL;
 #endif
 
 void RE_SetLightStyle(int style, int color);
 
 static void AssertCvarRange( cvar_t *cv, float minVal, float maxVal, qboolean shouldBeIntegral,  qboolean shouldBeMult2)
 {
+#ifdef _XBOX
+	extern void XBLog_Write(const char*);
+	XBLog_Write("ACR: enter\n");
+	if (cv && cv->name) { XBLog_Write("ACR: cv->name="); XBLog_Write(cv->name); XBLog_Write("\n"); }
+	else { XBLog_Write("ACR: cv or cv->name is NULL!\n"); return; }
+#endif
 	if ( shouldBeIntegral )
 	{
 		if ( ( int ) cv->value != cv->integer )
 		{
+#ifdef _XBOX
+			XBLog_Write("ACR: integral mismatch, calling VID_Printf\n");
+#endif
 			VID_Printf( PRINT_WARNING, "WARNING: cvar '%s' must be integral (%f)\n", cv->name, cv->value );
+#ifdef _XBOX
+			XBLog_Write("ACR: VID_Printf done, calling va()\n");
+			const char *s = va( "%d", cv->integer );
+			XBLog_Write("ACR: va done, calling Cvar_Set\n");
+			Cvar_Set( cv->name, s );
+			XBLog_Write("ACR: Cvar_Set done\n");
+#else
 			Cvar_Set( cv->name, va( "%d", cv->integer ) );
+#endif
 		}
 	}
 
@@ -335,16 +354,16 @@ void R_Splash()
 	const float y2 = 240 + height / 2;
 
 
-	qglBegin (GL_TRIANGLE_STRIP);
-		qglTexCoord2f( 0,  0 );
-		qglVertex2f(x1, y1);
-		qglTexCoord2f( 1 ,  0 );
-		qglVertex2f(x2, y1);
-		qglTexCoord2f( 0, 1 );
-		qglVertex2f(x1, y2);
-		qglTexCoord2f( 1, 1 );
-		qglVertex2f(x2, y2);
-	qglEnd();
+	glBegin (GL_TRIANGLE_STRIP);
+		glTexCoord2f( 0,  0 );
+		glVertex2f(x1, y1);
+		glTexCoord2f( 1 ,  0 );
+		glVertex2f(x2, y1);
+		glTexCoord2f( 0, 1 );
+		glVertex2f(x1, y2);
+		glTexCoord2f( 1, 1 );
+		glVertex2f(x2, y2);
+	glEnd();
 
 	GLimp_EndFrame();
 #endif
@@ -396,7 +415,7 @@ void GL_CheckErrors( void ) {
     int		err;
     char	s[64];
 
-    err = qglGetError();
+    err = glGetError();
     if ( err == GL_NO_ERROR ) {
         return;
     }
@@ -528,7 +547,7 @@ void R_TakeScreenshot( int x, int y, int width, int height, char *fileName ) {
 		// JPG saver expects to be fed RGBA data, though it presumably ignores 'A'...
 		//
 		buffer = (unsigned char *) Z_Malloc(glConfig.vidWidth*glConfig.vidHeight*4, TAG_TEMP_WORKSPACE, qfalse);
-		qglReadPixels( x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer ); 
+		glReadPixels( x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer ); 
 
 		// gamma correct
 		if ( tr.overbrightBits>0 && glConfig.deviceSupportsGamma ) {
@@ -550,7 +569,7 @@ void R_TakeScreenshot( int x, int y, int width, int height, char *fileName ) {
 		buffer[15] = height >> 8;
 		buffer[16] = 24;	// pixel size
 
-		qglReadPixels( x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer+18 ); 
+		glReadPixels( x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer+18 ); 
 
 		// swap rgb to bgr
 		c = 18 + width * height * 3;
@@ -629,7 +648,7 @@ void R_LevelShot( void ) {
 	buffer[15] = LEVELSHOTSIZE >> 8;
 	buffer[16] = 24;	// pixel size
 
-	qglReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, source ); 
+	glReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, source ); 
 
 	// resample from source
 	xScale = glConfig.vidWidth / (4.0*LEVELSHOTSIZE);
@@ -815,48 +834,48 @@ void R_ScreenShotTGA_f (void) {
 */
 void GL_SetDefaultState( void )
 {
-	qglClearDepth( 1.0f );
+	glClearDepth( 1.0f );
 
-	qglCullFace(GL_FRONT);
+	glCullFace(GL_FRONT);
 
-	qglColor4f (1,1,1,1);
+	glColor4f (1,1,1,1);
 
 	// initialize downstream texture unit if we're running
 	// in a multitexture environment
-	if ( qglActiveTextureARB ) {
+	if ( glActiveTextureARB ) {
 		GL_SelectTexture( 1 );
 		GL_TextureMode( r_textureMode->string );
 		GL_TexEnv( GL_MODULATE );
-		qglDisable( GL_TEXTURE_2D );
+		glDisable( GL_TEXTURE_2D );
 		GL_SelectTexture( 0 );
 	}
 
-	qglEnable(GL_TEXTURE_2D);
+	glEnable(GL_TEXTURE_2D);
 	GL_TextureMode( r_textureMode->string );
 	GL_TexEnv( GL_MODULATE );
 
-	qglShadeModel( GL_SMOOTH );
-	qglDepthFunc( GL_LEQUAL );
+	glShadeModel( GL_SMOOTH );
+	glDepthFunc( GL_LEQUAL );
 
 	// the vertex array is always enabled, but the color and texture
 	// arrays are enabled and disabled around the compiled vertex array call
-	qglEnableClientState (GL_VERTEX_ARRAY);
+	glEnableClientState (GL_VERTEX_ARRAY);
 
 	//
 	// make sure our GL state vector is set correctly
 	//
 	glState.glStateBits = GLS_DEPTHTEST_DISABLE | GLS_DEPTHMASK_TRUE;
 
-	qglPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	qglDepthMask( GL_TRUE );
-	qglDisable( GL_DEPTH_TEST );
-	qglEnable( GL_SCISSOR_TEST );
-	qglDisable( GL_CULL_FACE );
-	qglDisable( GL_BLEND );
-	qglDisable( GL_ALPHA_TEST );
-	qglBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
+	glDepthMask( GL_TRUE );
+	glDisable( GL_DEPTH_TEST );
+	glEnable( GL_SCISSOR_TEST );
+	glDisable( GL_CULL_FACE );
+	glDisable( GL_BLEND );
+	glDisable( GL_ALPHA_TEST );
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
 #ifdef _XBOX
-	qglDisable( GL_LIGHTING );
+	glDisable( GL_LIGHTING );
 #endif
 }
 
@@ -921,7 +940,7 @@ void GfxInfo_f( void )
 		VID_Printf( PRINT_ALL, "rendering primitives: " );
 		primitives = r_primitives->integer;
 		if ( primitives == 0 ) {
-			if ( qglLockArraysEXT ) {
+			if ( glLockArraysEXT ) {
 				primitives = 2;
 			} else {
 				primitives = 1;
@@ -942,8 +961,8 @@ void GfxInfo_f( void )
 	VID_Printf( PRINT_ALL, "picmip: %d\n", r_picmip->integer );
 	VID_Printf( PRINT_ALL, "texture bits: %d\n", r_texturebits->integer );
 	VID_Printf( PRINT_ALL, "lightmap texture bits: %d\n", r_texturebitslm->integer );
-	VID_Printf( PRINT_ALL, "multitexture: %s\n", enablestrings[qglActiveTextureARB != 0] );
-	VID_Printf( PRINT_ALL, "compiled vertex arrays: %s\n", enablestrings[qglLockArraysEXT != 0 ] );
+	VID_Printf( PRINT_ALL, "multitexture: %s\n", enablestrings[glActiveTextureARB != 0] );
+	VID_Printf( PRINT_ALL, "compiled vertex arrays: %s\n", enablestrings[glLockArraysEXT != 0 ] );
 	VID_Printf( PRINT_ALL, "texenv add: %s\n", enablestrings[glConfig.textureEnvAddAvailable != 0] );
 	VID_Printf( PRINT_ALL, "compressed textures: %s\n", enablestrings[glConfig.textureCompression != TC_NONE] );
 	VID_Printf( PRINT_ALL, "compressed lightmaps: %s\n", enablestrings[(r_ext_compressed_lightmaps->integer != 0 && glConfig.textureCompression != TC_NONE)] );
@@ -1098,7 +1117,12 @@ void R_Register( void )
 	r_ext_texture_env_add = Cvar_Get( "r_ext_texture_env_add", "1", CVAR_ARCHIVE | CVAR_LATCH);
 	r_ext_texture_filter_anisotropic = Cvar_Get( "r_ext_texture_filter_anisotropic", "16", CVAR_ARCHIVE );
  
+#ifdef _XBOX
+	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "0", CVAR_ARCHIVE );
+	Cvar_Set( "r_DynamicGlow", "0" );
+#else
 	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "1", CVAR_ARCHIVE );
+#endif
 	r_DynamicGlowPasses = Cvar_Get( "r_DynamicGlowPasses", "5", CVAR_CHEAT );
 	r_DynamicGlowDelta  = Cvar_Get( "r_DynamicGlowDelta", "0.8f", CVAR_CHEAT );
 	r_DynamicGlowIntensity = Cvar_Get( "r_DynamicGlowIntensity", "1.13f", CVAR_CHEAT );
@@ -1111,6 +1135,9 @@ void R_Register( void )
 	r_ext_nv_point_sprite = Cvar_Get( "r_ext_nv_point_sprite", "1", CVAR_ARCHIVE );
 
 	r_picmip = Cvar_Get ("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH );
+#ifdef _XBOX
+	Cvar_Set( "r_picmip", "0" );
+#endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
 	AssertCvarRange( r_picmip, 0, 16, qtrue, qfalse );
 	r_detailTextures = Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1418,7 +1445,7 @@ void R_Init( void ) {
 	R_InitFonts();
 	XBL("R_Init: done\n");
 
-	err = qglGetError();
+	err = glGetError();
 	if ( err != GL_NO_ERROR )
 		VID_Printf (PRINT_ALL, "glGetError() = 0x%x\n", err);
 }
@@ -1460,32 +1487,32 @@ void RE_Shutdown( qboolean destroyWindow ) {
 			// Release the Glow Vertex Shader.
 			if ( tr.glowVShader )
 			{
-				qglDeleteProgramsARB( 1, &tr.glowVShader );
+				glDeleteProgramsARB( 1, &tr.glowVShader );
 			}
 
 			// Release Pixel Shader.
 			if ( tr.glowPShader )
 			{
-				if ( qglCombinerParameteriNV  )
+				if ( glCombinerParameteriNV  )
 				{
 					// Release the Glow Regcom call list.
-					qglDeleteLists( tr.glowPShader, 1 );
+					glDeleteLists( tr.glowPShader, 1 );
 				}
-				else if ( qglGenProgramsARB )
+				else if ( glGenProgramsARB )
 				{
 					// Release the Glow Fragment Shader.
-					qglDeleteProgramsARB( 1, &tr.glowPShader );
+					glDeleteProgramsARB( 1, &tr.glowPShader );
 				}
 			}
 
 			// Release the scene glow texture.
-			qglDeleteTextures( 1, &tr.screenGlow );
+			glDeleteTextures( 1, &tr.screenGlow );
 
 			// Release the scene texture.
-			qglDeleteTextures( 1, &tr.sceneImage );
+			glDeleteTextures( 1, &tr.sceneImage );
 
 			// Release the blur texture.
-			qglDeleteTextures( 1, &tr.blurImage );
+			glDeleteTextures( 1, &tr.blurImage );
 		}
 #endif
 		R_SyncRenderThread();
@@ -1637,4 +1664,3 @@ refexport_t *GetRefAPI ( int apiVersion ) {
 
 	return &re;
 }
-

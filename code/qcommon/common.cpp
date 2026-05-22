@@ -202,6 +202,10 @@ void QDECL Com_PrintfAlways( const char *fmt, ... ) {
 #endif
 #endif
 
+#ifdef _XBOX
+	XBLog_Write(msg);
+#endif
+
 #ifndef _XBOX
 	// logfile
 	if ( com_logfile && com_logfile->integer ) {
@@ -333,6 +337,10 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 	vsprintf (com_errorMessage,fmt,argptr);
 	va_end (argptr);	
 
+#ifdef _XBOX
+	XBLF("JA: Com_Error code=%d message=%s", code, com_errorMessage);
+#endif
+
 	if ( code != ERR_DISCONNECT ) {
 		Cvar_Get("com_errorMessage", "", CVAR_ROM);	//give com_errorMessage a default so it won't come back to life after a resetDefaults
 		Cvar_Set("com_errorMessage", com_errorMessage);
@@ -390,6 +398,9 @@ do the apropriate things.
 =============
 */
 void Com_Quit_f( void ) {
+#ifdef _XBOX
+	XBLog_Write("JA: Com_Quit_f entered");
+#endif
 	// don't try to shutdown if we are in a recursive error
 	if ( !com_errorEntered ) {
 		SV_Shutdown ("Server quit\n");
@@ -671,6 +682,7 @@ int Com_Filter(char *filter, char *name, int casesensitive) {
 Com_InitHunkMemory
 =================
 */
+#if !defined(_XBOX)
 void Com_InitHunkMemory( void )
 {
 	Hunk_Clear();
@@ -731,6 +743,7 @@ void Hunk_Clear( void )
 	extern void R_ClearStuffToStopGhoul2CrashingThings(void);
 				R_ClearStuffToStopGhoul2CrashingThings();
 }
+#endif
 
 
 
@@ -856,12 +869,28 @@ int Com_EventLoop( void ) {
 		if ( ev.evType == SE_NONE ) {
 			// manually send packet events for the loopback channel
 			while ( NET_GetLoopPacket( NS_CLIENT, &evFrom, &buf ) ) {
+#ifdef _XBOX
+				static int s_xboxClientLoopLogs = 0;
+				if (s_xboxClientLoopLogs < 16)
+				{
+					Com_PrintfAlways("JA: Com_EventLoop dispatch NS_CLIENT loop packet size=%d\n", buf.cursize);
+					++s_xboxClientLoopLogs;
+				}
+#endif
 				CL_PacketEvent( evFrom, &buf );
 			}
 
 			while ( NET_GetLoopPacket( NS_SERVER, &evFrom, &buf ) ) {
 				// if the server just shut down, flush the events
 				if ( com_sv_running->integer ) {
+#ifdef _XBOX
+					static int s_xboxServerLoopLogs = 0;
+					if (s_xboxServerLoopLogs < 16)
+					{
+						Com_PrintfAlways("JA: Com_EventLoop dispatch NS_SERVER loop packet size=%d\n", buf.cursize);
+						++s_xboxServerLoopLogs;
+					}
+#endif
 					Com_RunAndTimeServerPacket( &evFrom, &buf );
 				}
 			}
@@ -1403,8 +1432,20 @@ try
 	int		msec, minMsec;
 	static int	lastTime;
 	static int	frameCount = 0;
-	if (frameCount < 3) {
-		XBLog_Write(va("JA: Com_Frame #%d", frameCount));
+	bool firstFrames = (frameCount < 3);
+#ifdef _XBOX
+	static int s_xboxLastComPhaseTime = 0;
+	static bool s_xboxTraceComPhase = false;
+	const int xboxPhaseNow = Sys_Milliseconds();
+	s_xboxTraceComPhase = qfalse;
+	if (s_xboxTraceComPhase)
+	{
+		s_xboxLastComPhaseTime = xboxPhaseNow;
+		XBLF("JA: COM_PHASE frame=%d enter realtime=%d", frameCount, com_frameTime);
+	}
+#endif
+	if (firstFrames) {
+		XBLog_Write(va("JA: Com_Frame #%d entered", frameCount));
 	}
 	frameCount++;
 
@@ -1433,13 +1474,25 @@ try
 		minMsec = 1;
 	}
 	do {
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before first Com_EventLoop");
+#endif
 		com_frameTime = Com_EventLoop();
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after first Com_EventLoop");
+#endif
 		if ( lastTime > com_frameTime ) {
 			lastTime = com_frameTime;		// possible on first frame
 		}
 		msec = com_frameTime - lastTime;
 	} while ( msec < minMsec );
+#ifdef _XBOX
+	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before first Cbuf_Execute");
+#endif
 	Cbuf_Execute ();
+#ifdef _XBOX
+	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after first Cbuf_Execute");
+#endif
 
 	lastTime = com_frameTime;
 
@@ -1455,7 +1508,15 @@ try
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
+	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame...");
+#ifdef _XBOX
+	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before SV_Frame");
+#endif
 	SV_Frame (msec, fractionMsec);
+#ifdef _XBOX
+	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after SV_Frame");
+#endif
+	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame done");
 
 
 	//
@@ -1478,8 +1539,20 @@ try
 		if ( com_speeds->integer ) {
 			timeBeforeEvents = Sys_Milliseconds ();
 		}
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Com_EventLoop");
+#endif
 		Com_EventLoop();
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Com_EventLoop");
+#endif
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Cbuf_Execute");
+#endif
 		Cbuf_Execute ();
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Cbuf_Execute");
+#endif
 
 
 		//
@@ -1489,12 +1562,24 @@ try
 			timeBeforeClient = Sys_Milliseconds ();
 		}
 
+		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame...");
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before CL_Frame");
+#endif
 		CL_Frame (msec, fractionMsec);
+#ifdef _XBOX
+		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after CL_Frame");
+#endif
+		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame done");
 
 		if ( com_speeds->integer ) {
 			timeAfter = Sys_Milliseconds ();
 		}
 	}
+	if (firstFrames) XBLog_Write(va("JA: Com_Frame #%d returning", frameCount-1));
+#ifdef _XBOX
+	if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE frame=%d exit", frameCount - 1);
+#endif
 
 
 	//
@@ -1715,4 +1800,3 @@ CGenericParser2 *Com_ParseTextFile(const char *file, bool cleanFirst, bool write
 
 	return parse;
 }
-

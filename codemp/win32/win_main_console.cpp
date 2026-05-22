@@ -28,6 +28,10 @@
 
 #endif
 
+#ifndef JAMP_CXBX_SMOKE_STARTUP_COMMAND
+#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set g_gametype 0 +devmap mp/ffa5"
+#endif
+
 extern int eventHead, eventTail;
 extern sysEvent_t eventQue[MAX_QUED_EVENTS];
 extern byte		sys_packetReceived[MAX_MSGLEN];
@@ -725,6 +729,46 @@ XONLINE_ACCEPTED_GAMEINVITE *Sys_AcceptedInvite( void )
 	return (XONLINE_ACCEPTED_GAMEINVITE *) &s_ld.Data[3];
 }
 
+static void JAMP_LogSEHValue( const char *label, unsigned int value )
+{
+	char msg[128];
+	_snprintf( msg, sizeof( msg ), "JAMP: SEH %s=0x%08X", label, value );
+	msg[sizeof( msg ) - 1] = 0;
+	XBLog_Write( msg );
+}
+
+static int JAMP_LogSEHException( const char *phase, EXCEPTION_POINTERS *exceptionInfo )
+{
+	char msg[160];
+	_snprintf( msg, sizeof( msg ), "JAMP: SEH exception in %s", phase );
+	msg[sizeof( msg ) - 1] = 0;
+	XBLog_Write( msg );
+
+	if ( exceptionInfo && exceptionInfo->ExceptionRecord )
+	{
+		JAMP_LogSEHValue( "code", (unsigned int)exceptionInfo->ExceptionRecord->ExceptionCode );
+		JAMP_LogSEHValue( "address", (unsigned int)exceptionInfo->ExceptionRecord->ExceptionAddress );
+	}
+
+#if defined(_M_IX86)
+	if ( exceptionInfo && exceptionInfo->ContextRecord )
+	{
+		CONTEXT *context = exceptionInfo->ContextRecord;
+		JAMP_LogSEHValue( "EIP", (unsigned int)context->Eip );
+		JAMP_LogSEHValue( "EAX", (unsigned int)context->Eax );
+		JAMP_LogSEHValue( "EBX", (unsigned int)context->Ebx );
+		JAMP_LogSEHValue( "ECX", (unsigned int)context->Ecx );
+		JAMP_LogSEHValue( "EDX", (unsigned int)context->Edx );
+		JAMP_LogSEHValue( "ESI", (unsigned int)context->Esi );
+		JAMP_LogSEHValue( "EDI", (unsigned int)context->Edi );
+		JAMP_LogSEHValue( "ESP", (unsigned int)context->Esp );
+		JAMP_LogSEHValue( "EBP", (unsigned int)context->Ebp );
+	}
+#endif
+
+	return EXCEPTION_EXECUTE_HANDLER;
+}
+
 /*
 ==================
 WinMain
@@ -738,23 +782,33 @@ int main(int argc, char* argv[])
 #endif
 {
 	// I'm going to kill someone. This should not be necessary. No, really.
+	XBLog_MainProbe();
 	OutputDebugStringA("JAMP: main() entered\n");
 	OutputDebugStringA("JAMP: Direct3D_SetPushBufferSize...\n");
+	XBLog_StartupProbe("before Direct3D_SetPushBufferSize");
 	Direct3D_SetPushBufferSize(1024*1024, 128*1024);
+	XBLog_StartupProbe("after Direct3D_SetPushBufferSize");
 
 	// get the initial time base
 	OutputDebugStringA("JAMP: Sys_Milliseconds...\n");
+	XBLog_StartupProbe("before Sys_Milliseconds");
 	Sys_Milliseconds();
+	XBLog_StartupProbe("after Sys_Milliseconds");
 
 	OutputDebugStringA("JAMP: Win_Init...\n");
+	XBLog_StartupProbe("before Win_Init");
 	Win_Init();
+	XBLog_StartupProbe("after Win_Init");
 
 	OutputDebugStringA("JAMP: XBLog_Init...\n");
+	XBLog_StartupProbe("before XBLog_Init");
 	XBLog_Init();
 	XBLog_Write("JAMP: XBLog_Init done - log file open");
 
 	XBLog_Write("JAMP: Com_Init starting...");
-	Com_Init( "" );
+	XBLog_Write("JAMP: startup command " JAMP_CXBX_SMOKE_STARTUP_COMMAND);
+	static char jampStartupCommand[] = JAMP_CXBX_SMOKE_STARTUP_COMMAND;
+	Com_Init( jampStartupCommand );
 	XBLog_Write("JAMP: Com_Init done");
 
 	//Start sound early.  The STL inside will allocate memory and we don't
@@ -783,20 +837,92 @@ int main(int argc, char* argv[])
 	XBLog_Write("JAMP: Entering main game loop");
 
 	// main game loop
+	int jampFrameHeartbeat = 0;
 	while( 1 ) {
 		/*
 		extern void PrintMem(void);
 		PrintMem();
 		*/
-		IN_Frame();
-		Com_Frame();
+		qboolean jampLoopTrace = (jampFrameHeartbeat < 5 || (jampFrameHeartbeat >= 190 && jampFrameHeartbeat <= 230));
+		if (jampLoopTrace)
+		{
+			char traceMsg[96];
+			_snprintf(traceMsg, sizeof(traceMsg), "JAMP: main loop frame=%i before IN_Frame", jampFrameHeartbeat);
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write(traceMsg);
+		}
+		__try
+		{
+			IN_Frame();
+		}
+		__except( JAMP_LogSEHException( "IN_Frame", GetExceptionInformation() ) )
+		{
+			return 1;
+		}
+		if (jampLoopTrace)
+		{
+			char traceMsg[96];
+			_snprintf(traceMsg, sizeof(traceMsg), "JAMP: main loop frame=%i after IN_Frame", jampFrameHeartbeat);
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write(traceMsg);
+		}
+		if (jampLoopTrace)
+		{
+			char traceMsg[96];
+			_snprintf(traceMsg, sizeof(traceMsg), "JAMP: main loop frame=%i before Com_Frame", jampFrameHeartbeat);
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write(traceMsg);
+		}
+		__try
+		{
+			Com_Frame();
+		}
+		__except( JAMP_LogSEHException( "Com_Frame", GetExceptionInformation() ) )
+		{
+			return 1;
+		}
+		if (jampLoopTrace)
+		{
+			char traceMsg[96];
+			_snprintf(traceMsg, sizeof(traceMsg), "JAMP: main loop frame=%i after Com_Frame", jampFrameHeartbeat);
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write(traceMsg);
+		}
+		jampFrameHeartbeat++;
 
 		// Do any XBL stuff
 //		XBL_Tick();
 
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD
-		DebugConsoleHandleCommands();
+#if defined(_XBOX)
+		// Retail Xbox testing has no debug monitor channel. Cxbx-R also crashes
+		// in this path after the game loop is already healthy, so keep logging
+		// as the diagnostic channel and leave XBDM command polling disabled.
+		static int jampSkippedDebugConsole = 0;
+		if ( !jampSkippedDebugConsole )
+		{
+			XBLog_Write("JAMP: DebugConsoleHandleCommands skipped on Xbox");
+			jampSkippedDebugConsole = 1;
+		}
+#else
+		if (jampFrameHeartbeat < 5 || !(jampFrameHeartbeat & 511))
+		{
+			XBLog_Write("JAMP: main loop before DebugConsoleHandleCommands");
+		}
+		__try
+		{
+			DebugConsoleHandleCommands();
+		}
+		__except( JAMP_LogSEHException( "DebugConsoleHandleCommands", GetExceptionInformation() ) )
+		{
+			return 1;
+		}
+		if (jampFrameHeartbeat < 5 || !(jampFrameHeartbeat & 511))
+		{
+			XBLog_Write("JAMP: main loop after DebugConsoleHandleCommands");
+		}
+#endif
 #endif
 	}
 

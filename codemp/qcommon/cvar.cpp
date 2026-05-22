@@ -17,6 +17,8 @@ int			cvar_numIndexes;
 static	cvar_t*		hashTable[FILE_HASH_SIZE];
 
 cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force);
+extern "C" void XBLog_Write(const char *msg);
+#define CVAR_TRACE(msg) ((void)0)
 
 
 static char *lastMemPool = NULL;
@@ -191,10 +193,12 @@ cvar_t *Cvar_Get( const char *var_name, const char *var_value, int flags ) {
 	cvar_t	*var;
 	long	hash;
 
+	CVAR_TRACE("JAMP: Cvar_Get enter");
     if ( !var_name || ! var_value ) {
 		Com_Error( ERR_FATAL, "Cvar_Get: NULL parameter" );
     }
 
+	CVAR_TRACE("JAMP: Cvar_Get validate name");
 	if ( !Cvar_ValidateString( var_name ) ) {
 		Com_Printf("invalid cvar name string: %s\n", var_name );
 		var_name = "BADNAME";
@@ -207,7 +211,9 @@ cvar_t *Cvar_Get( const char *var_name, const char *var_value, int flags ) {
 	}
 #endif
 
+	CVAR_TRACE("JAMP: Cvar_Get find");
 	var = Cvar_FindVar (var_name);
+	CVAR_TRACE("JAMP: Cvar_Get find done");
 	if ( var ) {
 		// if the C code is now specifying a variable that the user already
 		// set a value for, take the new value as the reset value
@@ -261,17 +267,23 @@ cvar_t *Cvar_Get( const char *var_name, const char *var_value, int flags ) {
 	if ( cvar_numIndexes >= MAX_CVARS ) {
 		Com_Error( ERR_FATAL, "MAX_CVARS" );
 	}
+	CVAR_TRACE("JAMP: Cvar_Get alloc slot");
 	var = &cvar_indexes[cvar_numIndexes];
 	cvar_numIndexes++;
+	CVAR_TRACE("JAMP: Cvar_Get copy name");
 	var->name = CopyString (var_name);
+	CVAR_TRACE("JAMP: Cvar_Get copy string");
 	var->string = CopyString (var_value);
+	CVAR_TRACE("JAMP: Cvar_Get set values");
 	var->modified = qtrue;
 	var->modificationCount = 1;
 	var->value = atof (var->string);
 	var->integer = atoi(var->string);
+	CVAR_TRACE("JAMP: Cvar_Get copy reset");
 	var->resetString = CopyString( var_value );
 
 	// link the variable in
+	CVAR_TRACE("JAMP: Cvar_Get link");
 	var->next = cvar_vars;
 	cvar_vars = var;
 
@@ -281,6 +293,7 @@ cvar_t *Cvar_Get( const char *var_name, const char *var_value, int flags ) {
 	var->hashNext = hashTable[hash];
 	hashTable[hash] = var;
 
+	CVAR_TRACE("JAMP: Cvar_Get exit");
 	return var;
 }
 
@@ -961,16 +974,28 @@ Reads in all archived cvars
 ============
 */
 void Cvar_Init (void) {
+	XBLog_Write("JAMP: Cvar_Init enter");
+	XBLog_Write("JAMP: Cvar_Init before sv_cheats");
 	cvar_cheats = Cvar_Get("sv_cheats", "0", CVAR_ROM | CVAR_SYSTEMINFO );
+	XBLog_Write("JAMP: Cvar_Init after sv_cheats");
 
+	XBLog_Write("JAMP: Cvar_Init add toggle");
 	Cmd_AddCommand ("toggle", Cvar_Toggle_f);
+	XBLog_Write("JAMP: Cvar_Init add set");
 	Cmd_AddCommand ("set", Cvar_Set_f);
+	XBLog_Write("JAMP: Cvar_Init add sets");
 	Cmd_AddCommand ("sets", Cvar_SetS_f);
+	XBLog_Write("JAMP: Cvar_Init add setu");
 	Cmd_AddCommand ("setu", Cvar_SetU_f);
+	XBLog_Write("JAMP: Cvar_Init add seta");
 	Cmd_AddCommand ("seta", Cvar_SetA_f);
+	XBLog_Write("JAMP: Cvar_Init add reset");
 	Cmd_AddCommand ("reset", Cvar_Reset_f);
+	XBLog_Write("JAMP: Cvar_Init add cvarlist");
 	Cmd_AddCommand ("cvarlist", Cvar_List_f);
+	XBLog_Write("JAMP: Cvar_Init add cvar_restart");
 	Cmd_AddCommand ("cvar_restart", Cvar_Restart_f);
+	XBLog_Write("JAMP: Cvar_Init exit");
 }
 
 

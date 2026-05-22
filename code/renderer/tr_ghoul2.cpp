@@ -9,6 +9,7 @@
 
 #ifdef _XBOX
 #include "../qcommon/miniheap.h"
+#include "../win32/xb_log.h"
 #endif
 						  
 #if !defined(TR_LOCAL_H)
@@ -3646,9 +3647,56 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	bool isPlayer = false;
 	vec3_t		bounds[2];
 	float		radius, largestScale;
+	qboolean xboxTraceGhoul;
+	int xboxEntNum;
+	const char *xboxShaderName;
+
+	xboxEntNum = ent ? ent->e.number : -1;
+	xboxShaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "<null>";
+	xboxTraceGhoul = (qfalse &&
+		cls.state == CA_ACTIVE &&
+		(xboxEntNum == 5 ||
+		 xboxEntNum == 2 ||
+		 strstr(xboxShaderName, "models/players/alora") ||
+		 strstr(xboxShaderName, "models/players/alora2") ||
+		 strstr(xboxShaderName, "models/players/jedi_tf")));
 
 	isPlayer = strstr(tess.shader->name, "players") > 0 ? true : false;
 
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul enter ent=%d shader='%s' surf=%p surfaceData=%p boneCache=%p tessVerts=%d tessIndexes=%d",
+			xboxEntNum,
+			xboxShaderName,
+			surf,
+			surf ? surf->surfaceData : NULL,
+			surf ? surf->boneCache : NULL,
+			tess.numVertexes,
+			tess.numIndexes);
+	}
+	if (ent)
+	{
+		ent->visible = 1;
+		if (ent->e.number >= 0 && ent->e.number < (MAX_GENTITIES + 1000 + 256))
+		{
+			entityVisList[ent->e.number] = 1;
+		}
+	}
+	if (tess.shader == tr.shadowShader)
+	{
+		static int s_xboxGhoulShadowSkipTraceCount = 0;
+		if (s_xboxGhoulShadowSkipTraceCount < 4)
+		{
+			XBLF("JA: RB_SurfaceGhoul Xbox skip stencil shadow ent=%d",
+				ent ? ent->e.number : -1);
+			s_xboxGhoulShadowSkipTraceCount++;
+		}
+		return;
+	}
+
+	// Cxbx-R does not reliably complete the Xbox D3D visibility query path here.
+	// Treat Ghoul2 entities as visible so the renderer does not hang inside HLE.
+#if 0
 	// The main player will always be visible
 	if(ent->e.number == 0 || strstr(tess.shader->name, "rancor"))
 	{
@@ -3767,6 +3815,7 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 
 	if(ent->visible == -2)
 		return;
+#endif
 #endif
 
 #ifdef _G2_GORE
@@ -3887,6 +3936,22 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 
 	CBoneCache *bones = surf->boneCache;
 
+#ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul surface ent=%d shader='%s' surface=%p verts=%d tris=%d ofsTri=%d ofsVerts=%d ofsBoneRefs=%d bones=%p",
+			xboxEntNum,
+			xboxShaderName,
+			surface,
+			surface ? surface->numVerts : -1,
+			surface ? surface->numTriangles : -1,
+			surface ? surface->ofsTriangles : -1,
+			surface ? surface->ofsVerts : -1,
+			surface ? surface->ofsBoneReferences : -1,
+			bones);
+	}
+#endif
+
 
 #ifdef VV_LIGHTING
 	// Set any dynamic lighting needed
@@ -3897,7 +3962,21 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 #endif
 
 	// first up, sanity check our numbers
+#ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul before RB_CheckOverflow ent=%d shader='%s' addVerts=%d addTris=%d",
+			xboxEntNum, xboxShaderName, surface->numVerts, surface->numTriangles);
+	}
+#endif
 	RB_CheckOverflow( surface->numVerts, surface->numTriangles );
+#ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul after RB_CheckOverflow ent=%d shader='%s'",
+			xboxEntNum, xboxShaderName);
+	}
+#endif
 
 	//
 	// deform the vertexes by the lerped bones
@@ -3907,6 +3986,13 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	baseVertex = tess.numVertexes;
 	triangles = (int *) ((byte *)surface + surface->ofsTriangles);
 	baseIndex = tess.numIndexes;
+#ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul before indexes ent=%d shader='%s' baseVertex=%d baseIndex=%d tris=%d triPtr=%p",
+			xboxEntNum, xboxShaderName, baseVertex, baseIndex, surface->numTriangles, triangles);
+	}
+#endif
 #if 0
 	indexes = surface->numTriangles * 3;
 	for (j = 0 ; j < indexes ; j++) {
@@ -3923,11 +4009,28 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	}
 	tess.numIndexes += indexes*3;
 #endif
+#ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul after indexes ent=%d shader='%s' tessIndexes=%d",
+			xboxEntNum, xboxShaderName, tess.numIndexes);
+	}
+#endif
 
 	numVerts = surface->numVerts;
 
 #ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul before TransformRenderSurface ent=%d shader='%s' verts=%d",
+			xboxEntNum, xboxShaderName, numVerts);
+	}
 	TransformRenderSurface(surface, surf->boneCache, &tess);
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul after TransformRenderSurface ent=%d shader='%s'",
+			xboxEntNum, xboxShaderName);
+	}
 
 
 #else
@@ -4113,6 +4216,13 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	extern bool g_bDynamicGlowSupported;
 #endif
 	tess.numVertexes += surface->numVerts;
+#ifdef _XBOX
+	if (xboxTraceGhoul)
+	{
+		XBLF("JA: RB_SurfaceGhoul exit ent=%d shader='%s' tessVerts=%d tessIndexes=%d",
+			xboxEntNum, xboxShaderName, tess.numVertexes, tess.numIndexes);
+	}
+#endif
 
 #ifdef G2_PERFORMANCE_ANALYSIS
 	G2Time_RB_SurfaceGhoul += G2PerformanceTimer_RB_SurfaceGhoul.End();
@@ -4539,8 +4649,7 @@ qboolean R_LoadMDXM( model_t *mod, void *buffer, const char *mod_name, qboolean 
 		// Aaaargh. Kill me now...
 		//
 #ifdef _XBOX
-		// We don't support re-tagging memory
-		memcpy( mdxm, buffer, size );	// and don't do this now, since it's the same thing
+		memcpy( mdxm, buffer, size );
 #else
 		bAlreadyCached = qtrue;
 		assert( mdxm == buffer );
@@ -4836,8 +4945,7 @@ qboolean R_LoadMDXA( model_t *mod, void *buffer, const char *mod_name, qboolean 
 		// Aaaargh. Kill me now...
 		//
 #ifdef _XBOX
-		// No re-tagging
-		memcpy( mdxa, buffer, size );	// and don't do this now, since it's the same thing
+		memcpy( mdxa, buffer, size );
 #else
 		bAlreadyCached = qtrue;
 		assert( mdxa == buffer );

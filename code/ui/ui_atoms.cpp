@@ -12,6 +12,9 @@
 #include "ui_local.h"
 #include "gameinfo.h"
 #include "../qcommon/stv_version.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 uiimport_t	ui;
 uiStatic_t	uis;
@@ -267,6 +270,13 @@ UI_Init
 */
 void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad ) 
 {
+#ifdef _XBOX
+	XBLF("JA: UI_Init entered api=%d expected=%d inGameLoad=%d uiimport=%p",
+		apiVersion,
+		UI_API_VERSION,
+		(int)inGameLoad,
+		(void*)uiimport);
+#endif
 	ui = *uiimport;
 
 	if ( apiVersion != UI_API_VERSION ) {
@@ -274,12 +284,24 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 	}
 
 	// get static data (glconfig, media)
+#ifdef _XBOX
+	XBLog_Write("JA: UI_Init: GetGlconfig...");
+#endif
 	ui.GetGlconfig( &uis.glconfig );
+#ifdef _XBOX
+	XBLF("JA: UI_Init: glconfig %dx%d", uis.glconfig.vidWidth, uis.glconfig.vidHeight);
+#endif
 
 	uis.scaley = uis.glconfig.vidHeight * (1.0/480.0);
 	uis.scalex = uis.glconfig.vidWidth * (1.0/640.0);
 
+#ifdef _XBOX
+	XBLog_Write("JA: UI_Init: Menu_Cache...");
+#endif
 	Menu_Cache( );
+#ifdef _XBOX
+	XBLog_Write("JA: UI_Init: Menu_Cache done; creating cvars...");
+#endif
 
 	ui.Cvar_Create( "cg_drawCrosshair", "1", CVAR_ARCHIVE );
 	ui.Cvar_Create( "cg_marks", "1", CVAR_ARCHIVE );
@@ -321,7 +343,13 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 
 	
 
+#ifdef _XBOX
+	XBLog_Write("JA: UI_Init: calling _UI_Init...");
+#endif
 	_UI_Init(inGameLoad);
+#ifdef _XBOX
+	XBLog_Write("JA: UI_Init done");
+#endif
 }
 
 // these are only here so the functions in q_shared.c can link

@@ -16,6 +16,10 @@ Ghoul2 Insert Start
 
 #include "../qcommon/stringed_ingame.h"
 
+#ifndef JAMP_CXBX_SMOKE_SKIP_VOICE
+#define JAMP_CXBX_SMOKE_SKIP_VOICE 1
+#endif
+
 #ifdef _XBOX
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
@@ -556,10 +560,13 @@ void SV_SpawnServer( char *server, qboolean killBots, ForceReload_e eForceReload
 
 	SV_SendMapChange();
 
+	Com_Printf("JAMP: SV_SpawnServer begin %s\n", server);
 	RE_RegisterMedia_LevelLoadBegin(server, eForceReload);
+	Com_Printf("JAMP: SV_SpawnServer after RE_RegisterMedia_LevelLoadBegin\n");
 
 	// shut down the existing game if it is running
 	SV_ShutdownGameProgs();
+	Com_Printf("JAMP: SV_SpawnServer after SV_ShutdownGameProgs\n");
 
 	Com_Printf ("------ Server Initialization ------\n");
 	Com_Printf ("Server: %s\n",server);
@@ -581,34 +588,53 @@ Ghoul2 Insert End
 
 #ifdef _XBOX
 	// disable vsync during load for speed
+	Com_Printf("JAMP: SV_SpawnServer before qglDisable VSYNC\n");
 	qglDisable(GL_VSYNC);
+	Com_Printf("JAMP: SV_SpawnServer after qglDisable VSYNC\n");
 #endif
 
 	// if not running a dedicated server CL_MapLoading will connect the client to the server
 	// also print some status stuff
+	Com_Printf("JAMP: SV_SpawnServer before CL_MapLoading\n");
 	CL_MapLoading();
+	Com_Printf("JAMP: SV_SpawnServer after CL_MapLoading\n");
 
 #ifndef DEDICATED
 	// make sure all the client stuff is unloaded
+	Com_Printf("JAMP: SV_SpawnServer before CL_ShutdownAll\n");
 	CL_ShutdownAll();
+	Com_Printf("JAMP: SV_SpawnServer after CL_ShutdownAll\n");
 #endif
 
+	Com_Printf("JAMP: SV_SpawnServer before CM_ClearMap\n");
 	CM_ClearMap();
+	Com_Printf("JAMP: SV_SpawnServer after CM_ClearMap\n");
 
 #ifdef _XBOX
+	Com_Printf("JAMP: SV_SpawnServer before R_DeleteTextures\n");
 	R_DeleteTextures();
+	Com_Printf("JAMP: SV_SpawnServer after R_DeleteTextures\n");
 #endif
 
 	// clear the whole hunk because we're (re)loading the server
+	Com_Printf("JAMP: SV_SpawnServer before Hunk_Clear\n");
 	Hunk_Clear();
+	Com_Printf("JAMP: SV_SpawnServer after Hunk_Clear\n");
 
 #ifdef _XBOX
+	Com_Printf("JAMP: SV_SpawnServer before SV_ClearLastLevel\n");
 	SV_ClearLastLevel();
+	Com_Printf("JAMP: SV_SpawnServer after SV_ClearLastLevel\n");
 	ClientManager::ActivateClient(0);
+	Com_Printf("JAMP: SV_SpawnServer after ActivateClient\n");
 #endif
 
+	Com_Printf("JAMP: SV_SpawnServer before R_InitSkins\n");
 	R_InitSkins();
+	Com_Printf("JAMP: SV_SpawnServer after R_InitSkins\n");
+	Com_Printf("JAMP: SV_SpawnServer before R_InitShaders\n");
 	R_InitShaders(qtrue);
+	Com_Printf("JAMP: SV_SpawnServer after R_InitShaders\n");
 
 	// This was in SV_DedicatedSpawn, but it gets in the way of my memory maps:
 	if( com_dedicated->integer )
@@ -620,6 +646,7 @@ Ghoul2 Insert End
 	}
 
 	ClientManager::ClientActiveRelocate( !com_dedicated->integer && !ClientManager::splitScreenMode );
+	Com_Printf("JAMP: SV_SpawnServer after ClientActiveRelocate\n");
 
 #if defined(_XBOX) && !defined(FINAL_BUILD)
 	//Useful for memory debugging.  Please don't delete.  Comment out if
@@ -627,12 +654,19 @@ Ghoul2 Insert End
 	extern void Z_DisplayLevelMemory(int, int, int);
 	extern void Z_Details_f(void);
 	extern void Z_TagPointers(memtag_t);
+	Com_Printf("JAMP: SV_SpawnServer before Z_DisplayLevelMemory\n");
 	Z_DisplayLevelMemory(0, 0, 0);
+	Com_Printf("JAMP: SV_SpawnServer after Z_DisplayLevelMemory\n");
+	Com_Printf("JAMP: SV_SpawnServer before Z_TagPointers\n");
 	Z_TagPointers( TAG_ALL );
+	Com_Printf("JAMP: SV_SpawnServer after Z_TagPointers\n");
+	Com_Printf("JAMP: SV_SpawnServer before Z_Details_f\n");
 	Z_Details_f();
+	Com_Printf("JAMP: SV_SpawnServer after Z_Details_f\n");
 #endif
 
 	// init client structures and svs.numSnapshotEntities 
+	Com_Printf("JAMP: SV_SpawnServer before SV_Startup/ChangeMaxClients\n");
 	if ( !Cvar_VariableValue("sv_running") ) {
 		SV_Startup();
 	} else {
@@ -641,6 +675,7 @@ Ghoul2 Insert End
 			SV_ChangeMaxClients();
 		}
 	}
+	Com_Printf("JAMP: SV_SpawnServer after SV_Startup/ChangeMaxClients\n");
 
 	// Do dedicated server-specific startup
 	if ( com_dedicated->integer )
@@ -651,6 +686,7 @@ Ghoul2 Insert End
 	// Xbox - Correct various problems with broken rules settings when people
 	// change gametype in-game, etc...
 	SV_FixBrokenRules();
+	Com_Printf("JAMP: SV_SpawnServer after SV_FixBrokenRules\n");
 
 	SV_SendMapChange();
 
@@ -681,6 +717,7 @@ Ghoul2 Insert Start
 
 	// clear pak references
 	FS_ClearPakReferences(0);
+	Com_Printf("JAMP: SV_SpawnServer after FS_ClearPakReferences\n");
 
 /*
 Ghoul2 Insert Start
@@ -693,6 +730,7 @@ Ghoul2 Insert Start
 	svs.snapshotEntities = new entityState_s[svs.numSnapshotEntities];
 	// we CAN afford to do this here, since we know the STL vectors in Ghoul2 are empty
 	memset(svs.snapshotEntities, 0, sizeof(entityState_t)*svs.numSnapshotEntities);
+	Com_Printf("JAMP: SV_SpawnServer after snapshotEntities alloc\n");
 
 /*
 Ghoul2 Insert End
@@ -724,20 +762,34 @@ Ghoul2 Insert End
 	srand(Com_Milliseconds());
 	sv.checksumFeed = ( ((int) rand() << 16) ^ rand() ) ^ Com_Milliseconds();
 	FS_Restart( sv.checksumFeed );
+	Com_Printf("JAMP: SV_SpawnServer after FS_Restart\n");
 
 #ifdef _XBOX
+	Com_Printf("JAMP: SV_SpawnServer before CL_StartHunkUsers\n");
 	CL_StartHunkUsers();
+	Com_Printf("JAMP: SV_SpawnServer after CL_StartHunkUsers\n");
+	Com_Printf("JAMP: SV_SpawnServer before CM_LoadMap\n");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
+	Com_Printf("JAMP: SV_SpawnServer after CM_LoadMap checksum=%i\n", checksum);
 //	RE_LoadWorldMap(va("maps/%s.bsp", server));
 
 	// Start up voice system if it isn't running yet. (ie, if we're on syslink)
 	if( !logged_on )
+	{
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_VOICE
+		Com_Printf("JAMP: SV_SpawnServer g_Voice.Initialize skipped for Cxbx smoke testing\n");
+#else
+		Com_Printf("JAMP: SV_SpawnServer before g_Voice.Initialize\n");
 		g_Voice.Initialize();
+		Com_Printf("JAMP: SV_SpawnServer after g_Voice.Initialize\n");
+#endif
+	}
 #else
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
 #endif
 
 	SV_SendMapChange();
+	Com_Printf("JAMP: SV_SpawnServer after post-CM SV_SendMapChange\n");
 
 	// set serverinfo visible name
 	Cvar_Set( "mapname", server );
@@ -758,7 +810,9 @@ Ghoul2 Insert End
 	sv.state = SS_LOADING;
 
 	// load and spawn all other entities
+	Com_Printf("JAMP: SV_SpawnServer before SV_InitGameProgs\n");
 	SV_InitGameProgs();
+	Com_Printf("JAMP: SV_SpawnServer after SV_InitGameProgs\n");
 
 	// don't allow a map_restart if game is modified
 	sv_gametype->modified = qfalse;

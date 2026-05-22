@@ -18,8 +18,14 @@
 
 #include "win_local.h"
 #include "win_input.h"
+#include "xb_log.h"
 
 #define IN_MAX_CONTROLLERS 4
+
+/* Plan-B (OpenJKDF2 1:1): set TRUE by main() after it calls XInitDevices
+ * BEFORE D3D init (per OpenJKDF2's NV2A USB-host-controller ordering
+ * requirement).  IN_Init checks this and skips the redundant call. */
+bool g_XInitDevicesAlreadyCalled = false;
 
 void IN_UIEmptyQueue();
 void IN_CheckForNoControllers();
@@ -175,10 +181,14 @@ void IN_Init( void )
 
     // Initialize the peripherals. We can only ever
 	// call XInitDevices once, no matter what.
-	static bool bInputInitialized = false;
-	if (!bInputInitialized)
+	// Plan-B: main() now calls XInitDevices early (before D3D init,
+	// per OpenJKDF2's NV2A ordering requirement) and sets the global
+	// g_XInitDevicesAlreadyCalled.  This block re-uses that flag.
+	extern bool g_XInitDevicesAlreadyCalled;
+	if (!g_XInitDevicesAlreadyCalled) {
 		XInitDevices( sizeof(xdpt) / sizeof(XDEVICE_PREALLOC_TYPE), xdpt );
-	bInputInitialized = true;
+		g_XInitDevicesAlreadyCalled = true;
+	}
 
 		// Zero all of our data, including handles
 		memset(in_state->controllers, 0, sizeof(in_state->controllers));
@@ -298,6 +308,13 @@ extern vmCvar_t ControllerOutNum;
 void IN_Frame (void)
 {
 	static qboolean first = qtrue;
+	static int callCount = 0;
+	const qboolean xboxTraceInput = qfalse;
+	if (xboxTraceInput) XBLF("JA: IN_TIGHT #%d enter in_state=%p", callCount, (void*)in_state);
+	if (callCount < 2) {
+		XBLog_Write(va("JA: IN_Frame #%d entered, in_state=%p", callCount, (void*)in_state));
+	}
+	callCount++;
 	if (in_state)
 	{
 		// First, check for changes in device status (removed/inserted pads)
@@ -329,10 +346,16 @@ void IN_Frame (void)
 
 		// Generate callbacks for each controller that's plugged in
 		for (int port = 0; port < IN_MAX_CONTROLLERS; ++port)
+		{
+			if (xboxTraceInput) XBLF("JA: IN_TIGHT #%d port=%d handle=%p", callCount - 1, port, (void*)in_state->controllers[port].handle);
 			if (in_state->controllers[port].handle)
 				IN_UpdateGamepad(port);
+		}
 
+		if (xboxTraceInput) XBLF("JA: IN_TIGHT #%d before IN_UIEmptyQueue", callCount - 1);
 		IN_UIEmptyQueue();
+		if (xboxTraceInput) XBLF("JA: IN_TIGHT #%d before IN_RumbleFrame", callCount - 1);
 		IN_RumbleFrame();
+		if (xboxTraceInput) XBLF("JA: IN_TIGHT #%d exit", callCount - 1);
 	}
 }

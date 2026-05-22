@@ -15,6 +15,10 @@ displayContextDef_t cgDC;
 #include "../client/cl_data.h"
 #endif
 
+#if defined(_XBOX) && !defined(JAMP_CXBX_SMOKE_SKIP_SOUND)
+#define JAMP_CXBX_SMOKE_SKIP_SOUND 1
+#endif
+
 extern int cgSiegeRoundState;
 extern int cgSiegeRoundTime;
 /*
@@ -3749,6 +3753,9 @@ void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum )
 	const char	*s;
 	int i = 0;
 
+	CG_PrintfAlways("JAMP: CG_Init enter serverMsg=%d serverCmd=%d client=%d\n",
+		serverMessageNum, serverCommandSequence, clientNum);
+
 	if( !cg_entities )
 		cg_entities = new centity_t[MAX_GENTITIES];
 
@@ -3756,14 +3763,17 @@ void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum )
 	if(ClientManager::ActiveClientNum() != 1)
 #endif
 	BG_InitAnimsets(); //clear it out
+	CG_PrintfAlways("JAMP: CG_Init after BG_InitAnimsets\n");
 
 	trap_CG_RegisterSharedMemory(cg->sharedBuffer);
+	CG_PrintfAlways("JAMP: CG_Init after RegisterSharedMemory\n");
 
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() != 1)
 #endif
 	//Load external vehicle data
 	BG_VehicleLoadParms();
+	CG_PrintfAlways("JAMP: CG_Init after BG_VehicleLoadParms\n");
 
 	// clear everything
 /*
@@ -3772,19 +3782,24 @@ Ghoul2 Insert Start
 
 //	memset( cg_entities, 0, sizeof( cg_entities ) );
 	CG_Init_CGents();
+	CG_PrintfAlways("JAMP: CG_Init after CG_Init_CGents\n");
 // this is a No-No now we have stl vector classes in here.
 //	memset( &cg, 0, sizeof( cg ) );
 	CG_Init_CG();
+	CG_PrintfAlways("JAMP: CG_Init after CG_Init_CG\n");
 
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() != 1) {
 #endif
 	CG_InitItems();
+	CG_PrintfAlways("JAMP: CG_Init after CG_InitItems\n");
 
 	//create the global jetpack instance
 	CG_InitJetpackGhoul2();
+	CG_PrintfAlways("JAMP: CG_Init after CG_InitJetpackGhoul2\n");
 
 	CG_PmoveClientPointerUpdate();
+	CG_PrintfAlways("JAMP: CG_Init after CG_PmoveClientPointerUpdate\n");
 
 /*
 Ghoul2 Insert End
@@ -3792,6 +3807,7 @@ Ghoul2 Insert End
 
 	//Load sabers.cfg data
 	WP_SaberLoadParms();
+	CG_PrintfAlways("JAMP: CG_Init after WP_SaberLoadParms\n");
 
 	// this is kinda dumb as well, but I need to pre-load some fonts in order to have the text available
 	//	to say I'm loading the assets.... which includes loading the fonts. So I'll set these up as reasonable
@@ -3803,6 +3819,7 @@ Ghoul2 Insert End
 	cgDC.Assets.qhSmallFont  = trap_R_RegisterFont("ergoec");	// Xbox - use ergoec here too!
 	cgDC.Assets.qhMediumFont = trap_R_RegisterFont("ergoec");
 	cgDC.Assets.qhBigFont = cgDC.Assets.qhMediumFont;
+	CG_PrintfAlways("JAMP: CG_Init after font registration\n");
 
 	memset( &cgs, 0, sizeof( cgs ) );
 	memset( cg_weapons, 0, sizeof(cg_weapons) );
@@ -3841,6 +3858,7 @@ Ghoul2 Insert End
 
 	cgs.media.loadTick			= trap_R_RegisterShaderNoMip( "gfx/menus/newFront/GlowLoad" );
 	cgs.media.levelLoad			= trap_R_RegisterShaderNoMip( "gfx/menus/newFront/SaberLoad" );
+	CG_PrintfAlways("JAMP: CG_Init after early shaders\n");
 
 	// Force HUD set up
 	cg->forceHUDActive = qtrue;
@@ -3867,6 +3885,7 @@ Ghoul2 Insert End
 		}
 		i++;
 	}
+	CG_PrintfAlways("JAMP: CG_Init after weapon icons\n");
 	trap_Cvar_VariableStringBuffer("com_buildscript", buf, sizeof(buf));
 	if (atoi(buf))
 	{
@@ -3897,6 +3916,7 @@ Ghoul2 Insert End
 
 		i++;
 	}
+	CG_PrintfAlways("JAMP: CG_Init after inventory icons\n");
 
 	//rww - precache force power icons here
 	i = 0;
@@ -3908,6 +3928,7 @@ Ghoul2 Insert End
 		i++;
 	}
 	cgs.media.rageRecShader = trap_R_RegisterShaderNoMip("gfx/mp/f_icon_ragerec");
+	CG_PrintfAlways("JAMP: CG_Init after force icons\n");
 
 
 	//body decal shaders -rww
@@ -3917,8 +3938,10 @@ Ghoul2 Insert End
 	cgs.media.mSaberDamageGlow = trap_R_RegisterShader("gfx/effects/saberDamageGlow");
 
 	CG_RegisterCvars();
+	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterCvars\n");
 
 	CG_InitConsoleCommands();
+	CG_PrintfAlways("JAMP: CG_Init after CG_InitConsoleCommands\n");
 
 #ifdef _XBOX
 	}
@@ -3935,6 +3958,7 @@ Ghoul2 Insert End
 
 	// get the rendering configuration from the client system
 	trap_GetGlconfig( &cgs.glconfig );
+	CG_PrintfAlways("JAMP: CG_Init after GetGlconfig\n");
 #ifdef _XBOX
 	if(cg->widescreen)
 		cgs.screenXScale = cgs.glconfig.vidWidth / 720.0;
@@ -3945,8 +3969,10 @@ Ghoul2 Insert End
 
 	// get the gamestate from the client system
 	trap_GetGameState( &cgs.gameState );
+	CG_PrintfAlways("JAMP: CG_Init after GetGameState\n");
 
 	CG_TransitionPermanent(); //rwwRMG - added
+	CG_PrintfAlways("JAMP: CG_Init after CG_TransitionPermanent\n");
 
 	// check version
 	s = CG_ConfigString( CS_GAME_VERSION );
@@ -3958,20 +3984,29 @@ Ghoul2 Insert End
 	cgs.levelStartTime = atoi( s );
 
 	CG_ParseServerinfo();
+	CG_PrintfAlways("JAMP: CG_Init after CG_ParseServerinfo map=%s\n", cgs.mapname);
 
 	// load the new map
 //	CG_LoadingString( "collision map" );
 
 	trap_CM_LoadMap( cgs.mapname, qfalse );
+	CG_PrintfAlways("JAMP: CG_Init after trap_CM_LoadMap\n");
 
 	String_Init();
+	CG_PrintfAlways("JAMP: CG_Init after String_Init\n");
 
 	cg->loading = qtrue;		// force players to load instead of defer
 
 	//make sure saber data is loaded before this! (so we can precache the appropriate hilts)
 	CG_InitSiegeMode();
+	CG_PrintfAlways("JAMP: CG_Init after CG_InitSiegeMode\n");
 
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+	CG_PrintfAlways("JAMP: CG_Init CG_RegisterSounds skipped for Cxbx smoke testing\n");
+#else
 	CG_RegisterSounds();
+	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterSounds\n");
+#endif
 
 //	CG_LoadingString( "graphics" );
 
@@ -3980,6 +4015,7 @@ Ghoul2 Insert End
 #endif
 
 	CG_RegisterGraphics();
+	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterGraphics\n");
 
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() != 1) {
@@ -3987,15 +4023,20 @@ Ghoul2 Insert End
 //	CG_LoadingString( "clients" );
 
 	CG_RegisterClients();		// if low on memory, some clients will be deferred
+	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterClients\n");
 
 	CG_AssetCache();
+	CG_PrintfAlways("JAMP: CG_Init after CG_AssetCache\n");
 	CG_LoadHudMenu();      // load new hud stuff
+	CG_PrintfAlways("JAMP: CG_Init after CG_LoadHudMenu\n");
 
 	cg->loading = qfalse;	// future players will be deferred
 
 	CG_InitLocalEntities();
+	CG_PrintfAlways("JAMP: CG_Init after CG_InitLocalEntities\n");
 
 	CG_InitMarkPolys();
+	CG_PrintfAlways("JAMP: CG_Init after CG_InitMarkPolys\n");
 
 	// remove the last loading update
 	cg->infoScreenText[0] = 0;
@@ -4003,10 +4044,16 @@ Ghoul2 Insert End
 	// Make sure we have update values (scores)
 	CG_SetConfigValues();
 
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+	CG_PrintfAlways("JAMP: CG_Init CG_StartMusic skipped for Cxbx smoke testing\n");
+#else
 	CG_StartMusic(qfalse);
+	CG_PrintfAlways("JAMP: CG_Init after CG_StartMusic\n");
+#endif
 
 //	CG_LoadingString( "Clearing light styles" );
 	CG_ClearLightStyles();
+	CG_PrintfAlways("JAMP: CG_Init after CG_ClearLightStyles\n");
 
 //	CG_LoadingString( "Creating automap data" );
 	//init automap
@@ -4017,8 +4064,10 @@ Ghoul2 Insert End
 	CG_LoadingString( "" );
 
 	CG_ShaderStateChanged();
+	CG_PrintfAlways("JAMP: CG_Init after CG_ShaderStateChanged\n");
 
 	trap_S_ClearLoopingSounds();
+	CG_PrintfAlways("JAMP: CG_Init after ClearLoopingSounds\n");
 
 #ifdef _XBOX
 	}
@@ -4031,6 +4080,7 @@ Ghoul2 Insert End
 #endif
 	//now get all the cgame only cents
 	CG_SpawnCGameOnlyEnts();
+	CG_PrintfAlways("JAMP: CG_Init exit\n");
 }
 
 //makes sure returned string is in localized format

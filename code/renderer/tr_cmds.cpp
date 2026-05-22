@@ -4,6 +4,9 @@
 
 
 #include "tr_local.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 
 /*
@@ -94,6 +97,17 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 	renderCommandList_t	*cmdList;
 
 	cmdList = &backEndData->commands;
+#ifdef _XBOX
+	static int s_xboxIssueCommandTraceCount = 0;
+	const qboolean xboxTraceIssueCommands = (cls.state == CA_ACTIVE)
+		? (s_xboxIssueCommandTraceCount < 16)
+		: qtrue;
+	if (xboxTraceIssueCommands)
+	{
+		XBLF("JA: R_IssueRenderCommands enter used=%d perf=%d skip=%d",
+			cmdList->used, runPerformanceCounters, r_skipBackEnd ? r_skipBackEnd->integer : -1);
+	}
+#endif
 
 	// add an end-of-list command
 	*(int *)(cmdList->cmds + cmdList->used) = RC_END_OF_LIST;
@@ -112,6 +126,13 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 		// let it start on the new batch
 		RB_ExecuteRenderCommands( cmdList->cmds );
 	}
+#ifdef _XBOX
+	if (xboxTraceIssueCommands)
+	{
+		XBLog_Write("JA: R_IssueRenderCommands done");
+		s_xboxIssueCommandTraceCount++;
+	}
+#endif
 }
 
 
@@ -351,12 +372,35 @@ for each RE_EndFrame
 */
 void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	drawBufferCommand_t	*cmd;
+#ifdef _XBOX
+	static int s_xboxBeginFrameCount = 0;
+	const qboolean xboxTraceBeginFrame = qtrue;
+	if (xboxTraceBeginFrame)
+	{
+		XBLF("JA: RE_BeginFrame #%d enter stereo=%d registered=%d frameCount=%d backEndData=%p cmdUsed=%d",
+			s_xboxBeginFrameCount, (int)stereoFrame, tr.registered, tr.frameCount,
+			(void*)backEndData, backEndData ? backEndData->commands.used : -1);
+	}
+#endif
 
 	if ( !tr.registered ) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame)
+		{
+			XBLog_Write("JA: RE_BeginFrame: not registered return");
+			s_xboxBeginFrameCount++;
+		}
+#endif
 		return;
 	}
+#ifdef _XBOX
+	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: clear finish flag");
+#endif
 	glState.finishCalled = qfalse;
 
+#ifdef _XBOX
+	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: bump frame counters");
+#endif
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
@@ -381,11 +425,11 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		else
 		{
 			R_SyncRenderThread();
-			qglEnable( GL_STENCIL_TEST );
-			qglStencilMask( ~0U );
-			qglClearStencil( 0U );
-			qglStencilFunc( GL_ALWAYS, 0U, ~0U );
-			qglStencilOp( GL_KEEP, GL_INCR, GL_INCR );
+			glEnable( GL_STENCIL_TEST );
+			glStencilMask( ~0U );
+			glClearStencil( 0U );
+			glStencilFunc( GL_ALWAYS, 0U, ~0U );
+			glStencilOp( GL_KEEP, GL_INCR, GL_INCR );
 		}
 		r_measureOverdraw->modified = qfalse;
 	}
@@ -394,7 +438,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		// this is only reached if it was on and is now off
 		if ( r_measureOverdraw->modified ) {
 			R_SyncRenderThread();
-			qglDisable( GL_STENCIL_TEST );
+			glDisable( GL_STENCIL_TEST );
 			r_measureOverdraw->modified = qfalse;
 		}
 	}
@@ -404,40 +448,86 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	// texturemode stuff
 	//
 	if ( r_textureMode->modified || r_ext_texture_filter_anisotropic->modified) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: GL_TextureMode...");
+#endif
 		R_SyncRenderThread();
 		GL_TextureMode( r_textureMode->string );
 		r_textureMode->modified = qfalse;
 		r_ext_texture_filter_anisotropic->modified = qfalse;
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: GL_TextureMode done");
+#endif
 	}
 
 	//
 	// gamma stuff
 	//
 	if ( r_gamma->modified ) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: R_SetColorMappings...");
+#endif
 		r_gamma->modified = qfalse;
 
 		R_SyncRenderThread();
 		R_SetColorMappings();
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: R_SetColorMappings done");
+#endif
 	}
 
     // check for errors
     if ( !r_ignoreGLErrors->integer ) {
         int	err;
 
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: glGetError...");
+#endif
 		R_SyncRenderThread();
-        if ( ( err = qglGetError() ) != GL_NO_ERROR ) {
+        if ( ( err = glGetError() ) != GL_NO_ERROR ) {
             Com_Error( ERR_FATAL, "RE_BeginFrame() - glGetError() failed (0x%x)!\n", err );
         }
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: glGetError done");
+#endif
     }
 
 	//
 	// draw buffer stuff
 	//
+#ifdef _XBOX
+	if (xboxTraceBeginFrame)
+	{
+		XBLF("JA: RE_BeginFrame: R_GetCommandBuffer draw buffer bytes=%d used=%d",
+			(int)sizeof(*cmd), backEndData ? backEndData->commands.used : -1);
+	}
+#endif
 	cmd = (drawBufferCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame)
+		{
+			XBLog_Write("JA: RE_BeginFrame: R_GetCommandBuffer returned null");
+			s_xboxBeginFrameCount++;
+		}
+#endif
 		return;
 	}
+#ifdef _XBOX
+	if (xboxTraceBeginFrame)
+	{
+		XBLF("JA: RE_BeginFrame: command buffer ok cmd=%p used=%d",
+			(void*)cmd, backEndData ? backEndData->commands.used : -1);
+	}
+#endif
 	cmd->commandId = RC_DRAW_BUFFER;
+
+#ifdef _XBOX
+	if ( glConfig.stereoEnabled ) {
+		VID_Printf( PRINT_ALL, "JA: RE_BeginFrame forcing stereo off on Xbox\n" );
+		glConfig.stereoEnabled = qfalse;
+	}
+#endif
 
 	if ( glConfig.stereoEnabled ) {
 		if ( stereoFrame == STEREO_LEFT ) {
@@ -448,6 +538,16 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
 		}
 	} else {
+#ifdef _XBOX
+		cmd->buffer = (int)GL_BACK;
+		if (xboxTraceBeginFrame)
+		{
+			XBLF("JA: RE_BeginFrame #%d done buffer=%d frameCount=%d used=%d",
+				s_xboxBeginFrameCount, cmd->buffer, tr.frameCount,
+				backEndData ? backEndData->commands.used : -1);
+		}
+		s_xboxBeginFrameCount++;
+#else
 		if ( stereoFrame != STEREO_CENTER ) {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is disabled, but stereoFrame was %i", stereoFrame );
 		}
@@ -457,6 +557,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		{
 			cmd->buffer = (int)GL_BACK;
 		}
+#endif
 	}
 }
 
@@ -470,6 +571,20 @@ Returns the number of msec spent in the back end
 */
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
+#ifdef _XBOX
+	static int s_xboxEndFrameCount = 0;
+	static int s_xboxActiveEndFrameCount = 0;
+	const int xboxTraceEndFrameTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
+	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
+		? (s_xboxActiveEndFrameCount < 16 || ((s_xboxActiveEndFrameCount & 255) == 0))
+		: (s_xboxEndFrameCount < 4);
+	if (xboxTraceEndFrame)
+	{
+		XBLF("JA: RE_EndFrame #%d active=%d enter registered=%d",
+			(cls.state == CA_ACTIVE) ? s_xboxActiveEndFrameCount : s_xboxEndFrameCount,
+			(int)(cls.state == CA_ACTIVE), tr.registered);
+	}
+#endif
 
 	if ( !tr.registered ) {
 		return;
@@ -481,19 +596,49 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
-	if (!qglBeginFrame()) return;
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glBeginFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame...");
+	if (!glBeginFrame()) return;
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glBeginFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame done");
 #endif
 
+	#ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_IssueRenderCommands");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands...");
+#endif
 	R_IssueRenderCommands( qtrue );
+#ifdef _XBOX
+	Sleep(0);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_IssueRenderCommands");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands done");
+#endif
 
 #ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before RE_ProcessDissolve");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve...");
 	RE_ProcessDissolve(); // render the disolve now
-	qglEndFrame();
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after RE_ProcessDissolve");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve done");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame...");
+	glEndFrame();
+	Sleep(0);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glEndFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame done");
 #endif
 
 	// use the other buffers next frame, because another CPU
 	// may still be rendering into the current ones
+	#ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_ToggleSmpFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame...");
+	#endif
 	R_ToggleSmpFrame();
+#ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_ToggleSmpFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame done");
+#endif
 
 	if ( frontEndMsec ) {
 		*frontEndMsec = tr.frontEndMsec;
@@ -508,5 +653,20 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		styleUpdated[i] = false;
 	}
+#ifdef _XBOX
+	if (xboxTraceEndFrame)
+	{
+		XBLF("JA: RE_EndFrame #%d active=%d done",
+			(cls.state == CA_ACTIVE) ? s_xboxActiveEndFrameCount : s_xboxEndFrameCount,
+			(int)(cls.state == CA_ACTIVE));
+	}
+	if (cls.state == CA_ACTIVE)
+	{
+		s_xboxActiveEndFrameCount++;
+	}
+	else
+	{
+		s_xboxEndFrameCount++;
+	}
+#endif
 }
-

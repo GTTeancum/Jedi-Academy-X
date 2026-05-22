@@ -4,10 +4,36 @@
 
 #include "g_local.h"
 #include "g_functions.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern void	InitMover( gentity_t *ent );
 
 extern gentity_t	*G_TestEntityPosition( gentity_t *ent );
+
+#ifdef _XBOX
+static void Xbox_BroadcastFuncUsable( gentity_t *ent, const char *reason )
+{
+	static int s_xboxFuncUsableBroadcastBudget = 96;
+
+	ent->svFlags |= SVF_BROADCAST;
+	if ( s_xboxFuncUsableBroadcastBudget > 0 )
+	{
+		XBLF("JA: FUNC_USABLE_BROADCAST reason=%s ent=%d model='%s' target='%s' script='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x",
+			reason ? reason : "<null>",
+			ent->s.number,
+			ent->model ? ent->model : "<null>",
+			ent->targetname ? ent->targetname : "<null>",
+			ent->script_targetname ? ent->script_targetname : "<null>",
+			ent->spawnflags,
+			ent->svFlags,
+			ent->s.eFlags);
+		--s_xboxFuncUsableBroadcastBudget;
+	}
+}
+#endif
+
 void func_wait_return_solid( gentity_t *self )
 {
 	//once a frame, see if it's clear.
@@ -26,6 +52,9 @@ void func_wait_return_solid( gentity_t *self )
 		gi.linkentity( self );
 		self->svFlags &= ~SVF_NOCLIENT;
 		self->s.eFlags &= ~EF_NODRAW;
+#ifdef _XBOX
+		Xbox_BroadcastFuncUsable( self, "return_solid" );
+#endif
 		self->e_UseFunc = useF_func_usable_use;
 		self->clipmask = 0;
 		if ( self->target2 && self->target2[0] )
@@ -237,6 +266,13 @@ void SP_func_usable( gentity_t *self )
 	}
 
 	gi.linkentity (self);
+
+#ifdef _XBOX
+	if ( (self->targetname && self->targetname[0]) || (self->script_targetname && self->script_targetname[0]) )
+	{
+		Xbox_BroadcastFuncUsable( self, "spawn_scripted" );
+	}
+#endif
 
 	int forceVisible = 0;
 	G_SpawnInt( "forcevisible", "0", &forceVisible );

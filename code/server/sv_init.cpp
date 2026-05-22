@@ -416,7 +416,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 #ifdef _XBOX
 	// disable vsync during load for speed
-	qglDisable(GL_VSYNC);
+	glDisable(GL_VSYNC);
 #endif
 
 	// Hope this is correct - InitGame gets called later, which does this,
@@ -533,6 +533,16 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	UpdateLoadingAnimation();
 	CL_StartHunkUsers();
 	UpdateLoadingAnimation();
+	XBLog_Write("JA: SV_SpawnServer: precache humanoid GLA before BSP load...");
+	{
+		const qhandle_t normalHumanoid = RE_RegisterModel("models/players/_humanoid/_humanoid.gla");
+		char cinematicHumanoid[MAX_QPATH];
+		Com_sprintf(cinematicHumanoid, sizeof(cinematicHumanoid),
+			"models/players/_humanoid_%s/_humanoid_%s.gla", server, server);
+		const qhandle_t cinematicHumanoidHandle = RE_RegisterModel(cinematicHumanoid);
+		XBLF("JA: SV_SpawnServer: humanoid GLA handles normal=%d cinematic=%d path='%s'",
+			normalHumanoid, cinematicHumanoidHandle, cinematicHumanoid);
+	}
 	XBLog_Write("JA: CM_LoadMap...");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
 	XBLog_Write("JA: CM_LoadMap done");
@@ -760,4 +770,3 @@ void SV_Shutdown( char *finalmsg ) {
 
 	//Com_Printf( "---------------------------\n" );
 }
-

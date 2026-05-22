@@ -357,9 +357,9 @@ void StencilShadow::RenderShadow()
 	glw_state->device->SetVertexShader(m_dwVertexShaderShadow);
 
 #ifdef _STENCIL_REVERSE
-	qglCullFace( GL_FRONT );
+	glCullFace( GL_FRONT );
 #else
-	qglCullFace( GL_BACK );
+	glCullFace( GL_BACK );
 #endif
 
 	BuildEdges();
@@ -374,9 +374,9 @@ void StencilShadow::RenderShadow()
 
 	// Now reverse cull order so back sides of shadow volume are written.
 #ifdef _STENCIL_REVERSE
-	qglCullFace( GL_BACK );
+	glCullFace( GL_BACK );
 #else
-    qglCullFace( GL_FRONT );
+    glCullFace( GL_FRONT );
 #endif
 
     // Decrement stencil buffer value

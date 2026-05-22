@@ -1,0 +1,1115 @@
+/*
+ * win_qgl_dx8.cpp
+ *
+ * Thin adapter binding JKA's qgl_* function pointer table to xquake's
+ * gl_fakegl.cpp (FakeGL).  Per RENDERER_GRAFT.md: gl_fakegl.cpp is the
+ * only renderer; this file is plumbing.
+ *
+ * Original 7000-line hand-rolled D3D8 renderer body has been removed.
+ * What remains:
+ *   - The 350 qgl_* function-pointer definitions (storage)
+ *   - QGL_Init / QGL_Shutdown that bind the pointers to FakeGL exports
+ *     (or to typed no-op stubs where FakeGL doesn't implement the call)
+ *   - GLW_Init / GLW_Shutdown that drive FakeGL's wgl* lifecycle
+ *   - GLimp_Init / GLimp_EndFrame / GLimp_Shutdown / GLimp_LogComment
+ *   - Stubs for JKA-specific render passes (renderObject_*,
+ *     CreateVertexShader / CreatePixelShader)
+ *   - glw_state allocation (struct shape preserved so code/renderer/
+ *     compiles unchanged; runtime behaviour reduced to FakeGL-via-qgl)
+ */
+
+/* Define APIENTRY = __stdcall BEFORE any include.
+ * qgl.h (pulled in via tr_local.h) has:
+ *     #ifndef APIENTRY
+ *     #define APIENTRY
+ *     #endif
+ * If we don't beat that to the punch, all 350 qgl_* function pointers get
+ * declared as cdecl, while gl_fakegl.cpp's exports (which see APIENTRY via
+ * windef.h) are stdcall.  Mismatch → linker fails on cdecl _glAlphaFunc when
+ * gl_fakegl provides stdcall _glAlphaFunc@8.  Setting it ourselves first
+ * makes qgl.h's #ifndef a no-op so qgl_* are stdcall and match. */
+#define APIENTRY __stdcall
+#define WINAPI   __stdcall
+
+// leave this as first line for PCH reasons...
+#include "../server/exe_headers.h"
+
+#include <float.h>
+#include "../renderer/tr_local.h"
+#include "glw_win_dx8.h"
+#include "win_local.h"
+
+#ifdef _XBOX
+#include <xtl.h>
+#include <xb_log.h>
+#endif
+
+/* StaticTextureAllocator is referenced from outside this TU (xbox_texture_man).
+ * The renderer's draw paths (which exercise it) won't fire before Phase 3, but
+ * the symbol must exist to link. */
+#include "xbox_texture_man.h"
+StaticTextureAllocator gTextures;
+
+extern void Z_SetNewDeleteTemporary(bool);
+
+/* Forward decl for FakeGL's diagnostic logger (defined in quake_stubs.cpp,
+ * routes to XBLog).  Used by GLW_Init's P0 probe to verify the path. */
+extern "C" void Con_Printf( char *fmt, ... );
+
+/* Texture bridge — handles JKA's DDS / S3TC compressed texture extensions
+ * by decompressing in CPU before forwarding to FakeGL as RGBA. */
+#include "qgl_texture_bridge.h"
+
+void QGL_EnableLogging( qboolean enable );
+
+/* qgl_console.h (pulled in via glw_win_dx8.h) does #undef APIENTRY at line 43.
+ * Restore __stdcall here so the qgl_* storage definitions below match the
+ * extern declarations in qgl.h (also __stdcall thanks to our top-of-file
+ * pre-define). */
+#undef APIENTRY
+#undef WINAPI
+#define APIENTRY __stdcall
+#define WINAPI   __stdcall
+
+/* =========================================================================
+ *  qgl_* function pointer storage (350 declarations)
+ *  ---
+ *  These were the original storage definitions in the hand-rolled renderer.
+ *  Preserved verbatim so the rest of the engine (which #include "qgl.h" and
+ *  calls qgl* directly) still links.  Each one defaults to a no-op stub on
+ *  QGL_Init; the few that FakeGL implements are bound to FakeGL's static
+ *  exports below.
+ * ========================================================================= */
+
+void ( APIENTRY * qglAccum )(GLenum op, GLfloat value);
+void ( APIENTRY * qglAlphaFunc )(GLenum func, GLclampf ref);
+GLboolean ( APIENTRY * qglAreTexturesResident )(GLsizei n, const GLuint *textures, GLboolean *residences);
+void ( APIENTRY * qglArrayElement )(GLint i);
+void ( APIENTRY * qglBegin )(GLenum mode);
+void ( APIENTRY * qglBeginEXT )(GLenum mode, GLint verts, GLint colors, GLint normals, GLint tex0, GLint tex1);
+GLboolean ( APIENTRY * qglBeginFrame )(void);
+void ( APIENTRY * qglBeginShadow )(void);
+void ( APIENTRY * qglBindTexture )(GLenum target, GLuint texture);
+void ( APIENTRY * qglBitmap )(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove, GLfloat ymove, const GLubyte *bitmap);
+void ( APIENTRY * qglBlendFunc )(GLenum sfactor, GLenum dfactor);
+void ( APIENTRY * qglCallList )(GLuint lnum);
+void ( APIENTRY * qglCallLists )(GLsizei n, GLenum type, const GLvoid *lists);
+void ( APIENTRY * qglClear )(GLbitfield mask);
+void ( APIENTRY * qglClearAccum )(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+void ( APIENTRY * qglClearColor )(GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha);
+void ( APIENTRY * qglClearDepth )(GLclampd depth);
+void ( APIENTRY * qglClearIndex )(GLfloat c);
+void ( APIENTRY * qglClearStencil )(GLint s);
+void ( APIENTRY * qglClipPlane )(GLenum plane, const GLdouble *equation);
+void ( APIENTRY * qglColor3b )(GLbyte red, GLbyte green, GLbyte blue);
+void ( APIENTRY * qglColor3bv )(const GLbyte *v);
+void ( APIENTRY * qglColor3d )(GLdouble red, GLdouble green, GLdouble blue);
+void ( APIENTRY * qglColor3dv )(const GLdouble *v);
+void ( APIENTRY * qglColor3f )(GLfloat red, GLfloat green, GLfloat blue);
+void ( APIENTRY * qglColor3fv )(const GLfloat *v);
+void ( APIENTRY * qglColor3i )(GLint red, GLint green, GLint blue);
+void ( APIENTRY * qglColor3iv )(const GLint *v);
+void ( APIENTRY * qglColor3s )(GLshort red, GLshort green, GLshort blue);
+void ( APIENTRY * qglColor3sv )(const GLshort *v);
+void ( APIENTRY * qglColor3ub )(GLubyte red, GLubyte green, GLubyte blue);
+void ( APIENTRY * qglColor3ubv )(const GLubyte *v);
+void ( APIENTRY * qglColor3ui )(GLuint red, GLuint green, GLuint blue);
+void ( APIENTRY * qglColor3uiv )(const GLuint *v);
+void ( APIENTRY * qglColor3us )(GLushort red, GLushort green, GLushort blue);
+void ( APIENTRY * qglColor3usv )(const GLushort *v);
+void ( APIENTRY * qglColor4b )(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha);
+void ( APIENTRY * qglColor4bv )(const GLbyte *v);
+void ( APIENTRY * qglColor4d )(GLdouble red, GLdouble green, GLdouble blue, GLdouble alpha);
+void ( APIENTRY * qglColor4dv )(const GLdouble *v);
+void ( APIENTRY * qglColor4f )(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+void ( APIENTRY * qglColor4fv )(const GLfloat *v);
+void ( APIENTRY * qglColor4i )(GLint red, GLint green, GLint blue, GLint alpha);
+void ( APIENTRY * qglColor4iv )(const GLint *v);
+void ( APIENTRY * qglColor4s )(GLshort red, GLshort green, GLshort blue, GLshort alpha);
+void ( APIENTRY * qglColor4sv )(const GLshort *v);
+void ( APIENTRY * qglColor4ub )(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha);
+void ( APIENTRY * qglColor4ubv )(const GLubyte *v);
+void ( APIENTRY * qglColor4ui )(GLuint red, GLuint green, GLuint blue, GLuint alpha);
+void ( APIENTRY * qglColor4uiv )(const GLuint *v);
+void ( APIENTRY * qglColor4us )(GLushort red, GLushort green, GLushort blue, GLushort alpha);
+void ( APIENTRY * qglColor4usv )(const GLushort *v);
+void ( APIENTRY * qglColorMask )(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+void ( APIENTRY * qglColorMaterial )(GLenum face, GLenum mode);
+void ( APIENTRY * qglColorPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( APIENTRY * qglCopyPixels )(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type);
+void ( APIENTRY * qglCopyTexImage1D )(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLint border);
+void ( APIENTRY * qglCopyTexImage2D )(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border);
+void ( APIENTRY * qglCopyTexSubImage1D )(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width);
+void ( APIENTRY * qglCopyTexSubImage2D )(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
+void ( APIENTRY * qglCullFace )(GLenum mode);
+void ( APIENTRY * qglDeleteLists )(GLuint lnum, GLsizei range);
+void ( APIENTRY * qglDeleteTextures )(GLsizei n, const GLuint *textures);
+void ( APIENTRY * qglDepthFunc )(GLenum func);
+void ( APIENTRY * qglDepthMask )(GLboolean flag);
+void ( APIENTRY * qglDepthRange )(GLclampd zNear, GLclampd zFar);
+void ( APIENTRY * qglDisable )(GLenum cap);
+void ( APIENTRY * qglDisableClientState )(GLenum array);
+void ( APIENTRY * qglDrawArrays )(GLenum mode, GLint first, GLsizei count);
+void ( APIENTRY * qglDrawBuffer )(GLenum mode);
+void ( APIENTRY * qglDrawElements )(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);
+void ( APIENTRY * qglDrawPixels )(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
+void ( APIENTRY * qglEdgeFlag )(GLboolean flag);
+void ( APIENTRY * qglEdgeFlagPointer )(GLsizei stride, const GLvoid *pointer);
+void ( APIENTRY * qglEdgeFlagv )(const GLboolean *flag);
+void ( APIENTRY * qglEnable )(GLenum cap);
+void ( APIENTRY * qglEnableClientState )(GLenum array);
+void ( APIENTRY * qglEnd )(void);
+void ( APIENTRY * qglEndFrame )(void);
+void ( APIENTRY * qglEndShadow )(void);
+void ( APIENTRY * qglEndList )(void);
+void ( APIENTRY * qglEvalCoord1d )(GLdouble u);
+void ( APIENTRY * qglEvalCoord1dv )(const GLdouble *u);
+void ( APIENTRY * qglEvalCoord1f )(GLfloat u);
+void ( APIENTRY * qglEvalCoord1fv )(const GLfloat *u);
+void ( APIENTRY * qglEvalCoord2d )(GLdouble u, GLdouble v);
+void ( APIENTRY * qglEvalCoord2dv )(const GLdouble *u);
+void ( APIENTRY * qglEvalCoord2f )(GLfloat u, GLfloat v);
+void ( APIENTRY * qglEvalCoord2fv )(const GLfloat *u);
+void ( APIENTRY * qglEvalMesh1 )(GLenum mode, GLint i1, GLint i2);
+void ( APIENTRY * qglEvalMesh2 )(GLenum mode, GLint i1, GLint i2, GLint j1, GLint j2);
+void ( APIENTRY * qglEvalPoint1 )(GLint i);
+void ( APIENTRY * qglEvalPoint2 )(GLint i, GLint j);
+void ( APIENTRY * qglFeedbackBuffer )(GLsizei size, GLenum type, GLfloat *buffer);
+void ( APIENTRY * qglFinish )(void);
+void ( APIENTRY * qglFlush )(void);
+void ( APIENTRY * qglFlushShadow )(void);
+void ( APIENTRY * qglFogf )(GLenum pname, GLfloat param);
+void ( APIENTRY * qglFogfv )(GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglFogi )(GLenum pname, GLint param);
+void ( APIENTRY * qglFogiv )(GLenum pname, const GLint *params);
+void ( APIENTRY * qglFrontFace )(GLenum mode);
+void ( APIENTRY * qglFrustum )(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar);
+GLuint ( APIENTRY * qglGenLists )(GLsizei range);
+void ( APIENTRY * qglGenTextures )(GLsizei n, GLuint *textures);
+void ( APIENTRY * qglGetBooleanv )(GLenum pname, GLboolean *params);
+void ( APIENTRY * qglGetClipPlane )(GLenum plane, GLdouble *equation);
+void ( APIENTRY * qglGetDoublev )(GLenum pname, GLdouble *params);
+GLenum ( APIENTRY * qglGetError )(void);
+void ( APIENTRY * qglGetFloatv )(GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetIntegerv )(GLenum pname, GLint *params);
+void ( APIENTRY * qglGetLightfv )(GLenum light, GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetLightiv )(GLenum light, GLenum pname, GLint *params);
+void ( APIENTRY * qglGetMapdv )(GLenum target, GLenum query, GLdouble *v);
+void ( APIENTRY * qglGetMapfv )(GLenum target, GLenum query, GLfloat *v);
+void ( APIENTRY * qglGetMapiv )(GLenum target, GLenum query, GLint *v);
+void ( APIENTRY * qglGetMaterialfv )(GLenum face, GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetMaterialiv )(GLenum face, GLenum pname, GLint *params);
+void ( APIENTRY * qglGetPixelMapfv )(GLenum gmap, GLfloat *values);
+void ( APIENTRY * qglGetPixelMapuiv )(GLenum gmap, GLuint *values);
+void ( APIENTRY * qglGetPixelMapusv )(GLenum gmap, GLushort *values);
+void ( APIENTRY * qglGetPointerv )(GLenum pname, GLvoid* *params);
+void ( APIENTRY * qglGetPolygonStipple )(GLubyte *mask);
+const GLubyte *( APIENTRY * qglGetString )(GLenum name);
+void ( APIENTRY * qglGetTexEnvfv )(GLenum target, GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetTexEnviv )(GLenum target, GLenum pname, GLint *params);
+void ( APIENTRY * qglGetTexGendv )(GLenum coord, GLenum pname, GLdouble *params);
+void ( APIENTRY * qglGetTexGenfv )(GLenum coord, GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetTexGeniv )(GLenum coord, GLenum pname, GLint *params);
+void ( APIENTRY * qglGetTexImage )(GLenum target, GLint level, GLenum format, GLenum type, GLvoid *pixels);
+void ( APIENTRY * qglGetTexLevelParameterfv )(GLenum target, GLint level, GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetTexLevelParameteriv )(GLenum target, GLint level, GLenum pname, GLint *params);
+void ( APIENTRY * qglGetTexParameterfv )(GLenum target, GLenum pname, GLfloat *params);
+void ( APIENTRY * qglGetTexParameteriv )(GLenum target, GLenum pname, GLint *params);
+void ( APIENTRY * qglHint )(GLenum target, GLenum mode);
+void ( APIENTRY * qglIndexedTriToStrip )(GLsizei count, const GLushort *indices);
+void ( APIENTRY * qglIndexMask )(GLuint mask);
+void ( APIENTRY * qglIndexPointer )(GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( APIENTRY * qglIndexd )(GLdouble c);
+void ( APIENTRY * qglIndexdv )(const GLdouble *c);
+void ( APIENTRY * qglIndexf )(GLfloat c);
+void ( APIENTRY * qglIndexfv )(const GLfloat *c);
+void ( APIENTRY * qglIndexi )(GLint c);
+void ( APIENTRY * qglIndexiv )(const GLint *c);
+void ( APIENTRY * qglIndexs )(GLshort c);
+void ( APIENTRY * qglIndexsv )(const GLshort *c);
+void ( APIENTRY * qglIndexub )(GLubyte c);
+void ( APIENTRY * qglIndexubv )(const GLubyte *c);
+void ( APIENTRY * qglInitNames )(void);
+void ( APIENTRY * qglInterleavedArrays )(GLenum format, GLsizei stride, const GLvoid *pointer);
+GLboolean ( APIENTRY * qglIsEnabled )(GLenum cap);
+GLboolean ( APIENTRY * qglIsList )(GLuint lnum);
+GLboolean ( APIENTRY * qglIsTexture )(GLuint texture);
+void ( APIENTRY * qglLightModelf )(GLenum pname, GLfloat param);
+void ( APIENTRY * qglLightModelfv )(GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglLightModeli )(GLenum pname, GLint param);
+void ( APIENTRY * qglLightModeliv )(GLenum pname, const GLint *params);
+void ( APIENTRY * qglLightf )(GLenum light, GLenum pname, GLfloat param);
+void ( APIENTRY * qglLightfv )(GLenum light, GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglLighti )(GLenum light, GLenum pname, GLint param);
+void ( APIENTRY * qglLightiv )(GLenum light, GLenum pname, const GLint *params);
+void ( APIENTRY * qglLineStipple )(GLint factor, GLushort pattern);
+void ( APIENTRY * qglLineWidth )(GLfloat width);
+void ( APIENTRY * qglListBase )(GLuint base);
+void ( APIENTRY * qglLoadIdentity )(void);
+void ( APIENTRY * qglLoadMatrixd )(const GLdouble *m);
+void ( APIENTRY * qglLoadMatrixf )(const GLfloat *m);
+void ( APIENTRY * qglLoadName )(GLuint name);
+void ( APIENTRY * qglLogicOp )(GLenum opcode);
+void ( APIENTRY * qglMap1d )(GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble *points);
+void ( APIENTRY * qglMap1f )(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat *points);
+void ( APIENTRY * qglMap2d )(GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, const GLdouble *points);
+void ( APIENTRY * qglMap2f )(GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, const GLfloat *points);
+void ( APIENTRY * qglMapGrid1d )(GLint un, GLdouble u1, GLdouble u2);
+void ( APIENTRY * qglMapGrid1f )(GLint un, GLfloat u1, GLfloat u2);
+void ( APIENTRY * qglMapGrid2d )(GLint un, GLdouble u1, GLdouble u2, GLint vn, GLdouble v1, GLdouble v2);
+void ( APIENTRY * qglMapGrid2f )(GLint un, GLfloat u1, GLfloat u2, GLint vn, GLfloat v1, GLfloat v2);
+void ( APIENTRY * qglMaterialf )(GLenum face, GLenum pname, GLfloat param);
+void ( APIENTRY * qglMaterialfv )(GLenum face, GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglMateriali )(GLenum face, GLenum pname, GLint param);
+void ( APIENTRY * qglMaterialiv )(GLenum face, GLenum pname, const GLint *params);
+void ( APIENTRY * qglMatrixMode )(GLenum mode);
+void ( APIENTRY * qglMultMatrixd )(const GLdouble *m);
+void ( APIENTRY * qglMultMatrixf )(const GLfloat *m);
+void ( APIENTRY * qglNewList )(GLuint lnum, GLenum mode);
+void ( APIENTRY * qglNormal3b )(GLbyte nx, GLbyte ny, GLbyte nz);
+void ( APIENTRY * qglNormal3bv )(const GLbyte *v);
+void ( APIENTRY * qglNormal3d )(GLdouble nx, GLdouble ny, GLdouble nz);
+void ( APIENTRY * qglNormal3dv )(const GLdouble *v);
+void ( APIENTRY * qglNormal3f )(GLfloat nx, GLfloat ny, GLfloat nz);
+void ( APIENTRY * qglNormal3fv )(const GLfloat *v);
+void ( APIENTRY * qglNormal3i )(GLint nx, GLint ny, GLint nz);
+void ( APIENTRY * qglNormal3iv )(const GLint *v);
+void ( APIENTRY * qglNormal3s )(GLshort nx, GLshort ny, GLshort nz);
+void ( APIENTRY * qglNormal3sv )(const GLshort *v);
+void ( APIENTRY * qglNormalPointer )(GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( APIENTRY * qglOrtho )(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar);
+void ( APIENTRY * qglPassThrough )(GLfloat token);
+void ( APIENTRY * qglPixelMapfv )(GLenum gmap, GLsizei mapsize, const GLfloat *values);
+void ( APIENTRY * qglPixelMapuiv )(GLenum gmap, GLsizei mapsize, const GLuint *values);
+void ( APIENTRY * qglPixelMapusv )(GLenum gmap, GLsizei mapsize, const GLushort *values);
+void ( APIENTRY * qglPixelStoref )(GLenum pname, GLfloat param);
+void ( APIENTRY * qglPixelStorei )(GLenum pname, GLint param);
+void ( APIENTRY * qglPixelTransferf )(GLenum pname, GLfloat param);
+void ( APIENTRY * qglPixelTransferi )(GLenum pname, GLint param);
+void ( APIENTRY * qglPixelZoom )(GLfloat xfactor, GLfloat yfactor);
+void ( APIENTRY * qglPointSize )(GLfloat size);
+void ( APIENTRY * qglPolygonMode )(GLenum face, GLenum mode);
+void ( APIENTRY * qglPolygonOffset )(GLfloat factor, GLfloat units);
+void ( APIENTRY * qglPolygonStipple )(const GLubyte *mask);
+void ( APIENTRY * qglPopAttrib )(void);
+void ( APIENTRY * qglPopClientAttrib )(void);
+void ( APIENTRY * qglPopMatrix )(void);
+void ( APIENTRY * qglPopName )(void);
+void ( APIENTRY * qglPrioritizeTextures )(GLsizei n, const GLuint *textures, const GLclampf *priorities);
+void ( APIENTRY * qglPushAttrib )(GLbitfield mask);
+void ( APIENTRY * qglPushClientAttrib )(GLbitfield mask);
+void ( APIENTRY * qglPushMatrix )(void);
+void ( APIENTRY * qglPushName )(GLuint name);
+void ( APIENTRY * qglRasterPos2d )(GLdouble x, GLdouble y);
+void ( APIENTRY * qglRasterPos2dv )(const GLdouble *v);
+void ( APIENTRY * qglRasterPos2f )(GLfloat x, GLfloat y);
+void ( APIENTRY * qglRasterPos2fv )(const GLfloat *v);
+void ( APIENTRY * qglRasterPos2i )(GLint x, GLint y);
+void ( APIENTRY * qglRasterPos2iv )(const GLint *v);
+void ( APIENTRY * qglRasterPos2s )(GLshort x, GLshort y);
+void ( APIENTRY * qglRasterPos2sv )(const GLshort *v);
+void ( APIENTRY * qglRasterPos3d )(GLdouble x, GLdouble y, GLdouble z);
+void ( APIENTRY * qglRasterPos3dv )(const GLdouble *v);
+void ( APIENTRY * qglRasterPos3f )(GLfloat x, GLfloat y, GLfloat z);
+void ( APIENTRY * qglRasterPos3fv )(const GLfloat *v);
+void ( APIENTRY * qglRasterPos3i )(GLint x, GLint y, GLint z);
+void ( APIENTRY * qglRasterPos3iv )(const GLint *v);
+void ( APIENTRY * qglRasterPos3s )(GLshort x, GLshort y, GLshort z);
+void ( APIENTRY * qglRasterPos3sv )(const GLshort *v);
+void ( APIENTRY * qglRasterPos4d )(GLdouble x, GLdouble y, GLdouble z, GLdouble w);
+void ( APIENTRY * qglRasterPos4dv )(const GLdouble *v);
+void ( APIENTRY * qglRasterPos4f )(GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+void ( APIENTRY * qglRasterPos4fv )(const GLfloat *v);
+void ( APIENTRY * qglRasterPos4i )(GLint x, GLint y, GLint z, GLint w);
+void ( APIENTRY * qglRasterPos4iv )(const GLint *v);
+void ( APIENTRY * qglRasterPos4s )(GLshort x, GLshort y, GLshort z, GLshort w);
+void ( APIENTRY * qglRasterPos4sv )(const GLshort *v);
+void ( APIENTRY * qglReadBuffer )(GLenum mode);
+void ( APIENTRY * qglReadPixels )(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels);
+void ( APIENTRY * qglCopyBackBufferToTexEXT )(float width, float height, float u1, float v1, float u2, float v2);
+void ( APIENTRY * qglCopyBackBufferToTex )(void);
+void ( APIENTRY * qglRectd )(GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2);
+void ( APIENTRY * qglRectdv )(const GLdouble *v1, const GLdouble *v2);
+void ( APIENTRY * qglRectf )(GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2);
+void ( APIENTRY * qglRectfv )(const GLfloat *v1, const GLfloat *v2);
+void ( APIENTRY * qglRecti )(GLint x1, GLint y1, GLint x2, GLint y2);
+void ( APIENTRY * qglRectiv )(const GLint *v1, const GLint *v2);
+void ( APIENTRY * qglRects )(GLshort x1, GLshort y1, GLshort x2, GLshort y2);
+void ( APIENTRY * qglRectsv )(const GLshort *v1, const GLshort *v2);
+GLint ( APIENTRY * qglRenderMode )(GLenum mode);
+void ( APIENTRY * qglRotated )(GLdouble angle, GLdouble x, GLdouble y, GLdouble z);
+void ( APIENTRY * qglRotatef )(GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
+void ( APIENTRY * qglScaled )(GLdouble x, GLdouble y, GLdouble z);
+void ( APIENTRY * qglScalef )(GLfloat x, GLfloat y, GLfloat z);
+void ( APIENTRY * qglScissor )(GLint x, GLint y, GLsizei width, GLsizei height);
+void ( APIENTRY * qglSelectBuffer )(GLsizei size, GLuint *buffer);
+void ( APIENTRY * qglShadeModel )(GLenum mode);
+void ( APIENTRY * qglStencilFunc )(GLenum func, GLint ref, GLuint mask);
+void ( APIENTRY * qglStencilMask )(GLuint mask);
+void ( APIENTRY * qglStencilOp )(GLenum fail, GLenum zfail, GLenum zpass);
+void ( APIENTRY * qglTexCoord1d )(GLdouble s);
+void ( APIENTRY * qglTexCoord1dv )(const GLdouble *v);
+void ( APIENTRY * qglTexCoord1f )(GLfloat s);
+void ( APIENTRY * qglTexCoord1fv )(const GLfloat *v);
+void ( APIENTRY * qglTexCoord1i )(GLint s);
+void ( APIENTRY * qglTexCoord1iv )(const GLint *v);
+void ( APIENTRY * qglTexCoord1s )(GLshort s);
+void ( APIENTRY * qglTexCoord1sv )(const GLshort *v);
+void ( APIENTRY * qglTexCoord2d )(GLdouble s, GLdouble t);
+void ( APIENTRY * qglTexCoord2dv )(const GLdouble *v);
+void ( APIENTRY * qglTexCoord2f )(GLfloat s, GLfloat t);
+void ( APIENTRY * qglTexCoord2fv )(const GLfloat *v);
+void ( APIENTRY * qglTexCoord2i )(GLint s, GLint t);
+void ( APIENTRY * qglTexCoord2iv )(const GLint *v);
+void ( APIENTRY * qglTexCoord2s )(GLshort s, GLshort t);
+void ( APIENTRY * qglTexCoord2sv )(const GLshort *v);
+void ( APIENTRY * qglTexCoord3d )(GLdouble s, GLdouble t, GLdouble r);
+void ( APIENTRY * qglTexCoord3dv )(const GLdouble *v);
+void ( APIENTRY * qglTexCoord3f )(GLfloat s, GLfloat t, GLfloat r);
+void ( APIENTRY * qglTexCoord3fv )(const GLfloat *v);
+void ( APIENTRY * qglTexCoord3i )(GLint s, GLint t, GLint r);
+void ( APIENTRY * qglTexCoord3iv )(const GLint *v);
+void ( APIENTRY * qglTexCoord3s )(GLshort s, GLshort t, GLshort r);
+void ( APIENTRY * qglTexCoord3sv )(const GLshort *v);
+void ( APIENTRY * qglTexCoord4d )(GLdouble s, GLdouble t, GLdouble r, GLdouble q);
+void ( APIENTRY * qglTexCoord4dv )(const GLdouble *v);
+void ( APIENTRY * qglTexCoord4f )(GLfloat s, GLfloat t, GLfloat r, GLfloat q);
+void ( APIENTRY * qglTexCoord4fv )(const GLfloat *v);
+void ( APIENTRY * qglTexCoord4i )(GLint s, GLint t, GLint r, GLint q);
+void ( APIENTRY * qglTexCoord4iv )(const GLint *v);
+void ( APIENTRY * qglTexCoord4s )(GLshort s, GLshort t, GLshort r, GLshort q);
+void ( APIENTRY * qglTexCoord4sv )(const GLshort *v);
+void ( APIENTRY * qglTexCoordPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( APIENTRY * qglTexEnvf )(GLenum target, GLenum pname, GLfloat param);
+void ( APIENTRY * qglTexEnvfv )(GLenum target, GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglTexEnvi )(GLenum target, GLenum pname, GLint param);
+void ( APIENTRY * qglTexEnviv )(GLenum target, GLenum pname, const GLint *params);
+void ( APIENTRY * qglTexGend )(GLenum coord, GLenum pname, GLdouble param);
+void ( APIENTRY * qglTexGendv )(GLenum coord, GLenum pname, const GLdouble *params);
+void ( APIENTRY * qglTexGenf )(GLenum coord, GLenum pname, GLfloat param);
+void ( APIENTRY * qglTexGenfv )(GLenum coord, GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglTexGeni )(GLenum coord, GLenum pname, GLint param);
+void ( APIENTRY * qglTexGeniv )(GLenum coord, GLenum pname, const GLint *params);
+void ( APIENTRY * qglTexImage1D )(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+void ( APIENTRY * qglTexImage2D )(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+void ( APIENTRY * qglTexImage2DEXT )(GLenum target, GLint level, GLint numlevels, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+void ( APIENTRY * qglTexParameterf )(GLenum target, GLenum pname, GLfloat param);
+void ( APIENTRY * qglTexParameterfv )(GLenum target, GLenum pname, const GLfloat *params);
+void ( APIENTRY * qglTexParameteri )(GLenum target, GLenum pname, GLint param);
+void ( APIENTRY * qglTexParameteriv )(GLenum target, GLenum pname, const GLint *params);
+void ( APIENTRY * qglTexSubImage1D )(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const GLvoid *pixels);
+void ( APIENTRY * qglTexSubImage2D )(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
+void ( APIENTRY * qglTranslated )(GLdouble x, GLdouble y, GLdouble z);
+void ( APIENTRY * qglTranslatef )(GLfloat x, GLfloat y, GLfloat z);
+void ( APIENTRY * qglVertex2d )(GLdouble x, GLdouble y);
+void ( APIENTRY * qglVertex2dv )(const GLdouble *v);
+void ( APIENTRY * qglVertex2f )(GLfloat x, GLfloat y);
+void ( APIENTRY * qglVertex2fv )(const GLfloat *v);
+void ( APIENTRY * qglVertex2i )(GLint x, GLint y);
+void ( APIENTRY * qglVertex2iv )(const GLint *v);
+void ( APIENTRY * qglVertex2s )(GLshort x, GLshort y);
+void ( APIENTRY * qglVertex2sv )(const GLshort *v);
+void ( APIENTRY * qglVertex3d )(GLdouble x, GLdouble y, GLdouble z);
+void ( APIENTRY * qglVertex3dv )(const GLdouble *v);
+void ( APIENTRY * qglVertex3f )(GLfloat x, GLfloat y, GLfloat z);
+void ( APIENTRY * qglVertex3fv )(const GLfloat *v);
+void ( APIENTRY * qglVertex3i )(GLint x, GLint y, GLint z);
+void ( APIENTRY * qglVertex3iv )(const GLint *v);
+void ( APIENTRY * qglVertex3s )(GLshort x, GLshort y, GLshort z);
+void ( APIENTRY * qglVertex3sv )(const GLshort *v);
+void ( APIENTRY * qglVertex4d )(GLdouble x, GLdouble y, GLdouble z, GLdouble w);
+void ( APIENTRY * qglVertex4dv )(const GLdouble *v);
+void ( APIENTRY * qglVertex4f )(GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+void ( APIENTRY * qglVertex4fv )(const GLfloat *v);
+void ( APIENTRY * qglVertex4i )(GLint x, GLint y, GLint z, GLint w);
+void ( APIENTRY * qglVertex4iv )(const GLint *v);
+void ( APIENTRY * qglVertex4s )(GLshort x, GLshort y, GLshort z, GLshort w);
+void ( APIENTRY * qglVertex4sv )(const GLshort *v);
+void ( APIENTRY * qglVertexPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( APIENTRY * qglViewport )(GLint x, GLint y, GLsizei width, GLsizei height);
+
+/* =========================================================================
+ *  glw_state — state holder the rest of the engine reaches into.
+ *  Allocated as static-storage; struct shape preserved so renderer compiles.
+ *  Most fields will be left at default values; FakeGL owns the real GPU.
+ * ========================================================================= */
+
+static glwstate_t s_glwState;
+glwstate_t *glw_state = &s_glwState;
+
+/* =========================================================================
+ *  FakeGL public API — forward-declared because gl_fakegl.cpp does not
+ *  ship a header.  Signatures mirror gl_fakegl.cpp's APIENTRY definitions
+ *  exactly (verified against xquake source).
+ * ========================================================================= */
+
+/* code/renderer/qgl_console.h does #undef APIENTRY at line 43 (engine
+ * historical artifact).  By the time we get here, APIENTRY/WINAPI are
+ * gone again.  Re-define so our forward decls below match gl_fakegl.cpp's
+ * stdcall exports. */
+#undef APIENTRY
+#undef WINAPI
+#define APIENTRY __stdcall
+#define WINAPI   __stdcall
+
+extern "C" {
+    /* Lifecycle */
+    HGLRC WINAPI wglCreateContext(HDC hdc);
+    BOOL  WINAPI wglMakeCurrent(HDC hdc, HGLRC hglrc);
+    BOOL  WINAPI wglDeleteContext(HGLRC hglrc);
+    HGLRC WINAPI wglGetCurrentContext(VOID);
+    PROC  WINAPI wglGetProcAddress(LPCSTR s);
+    void  FakeSwapBuffers(void);
+
+    /* GL functions FakeGL exports directly (43 total, OpenGL 1.1 subset).
+     * Bound to qgl_* in QGL_Init.  Anything not here gets a no-op stub. */
+    void APIENTRY glAlphaFunc (GLenum func, GLclampf ref);
+    void APIENTRY glBegin (GLenum mode);
+    void APIENTRY glBlendFunc (GLenum sfactor, GLenum dfactor);
+    void APIENTRY glClear (GLbitfield mask);
+    void APIENTRY glClearColor (GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha);
+    void APIENTRY glColor3f (GLfloat red, GLfloat green, GLfloat blue);
+    void APIENTRY glColor3ubv (const GLubyte *v);
+    void APIENTRY glColor4f (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+    void APIENTRY glColor4fv (const GLfloat *v);
+    void APIENTRY glCullFace (GLenum mode);
+    void APIENTRY glDepthFunc (GLenum func);
+    void APIENTRY glDepthMask (GLboolean flag);
+    void APIENTRY glDepthRange (GLclampd zNear, GLclampd zFar);
+    void APIENTRY glDisable (GLenum cap);
+    void APIENTRY glDrawBuffer (GLenum mode);
+    void APIENTRY glEnable (GLenum cap);
+    void APIENTRY glEnd (void);
+    void APIENTRY glFinish (void);
+    void APIENTRY glFrustum (GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar);
+    void APIENTRY glGetFloatv (GLenum pname, GLfloat *params);
+    const GLubyte * APIENTRY glGetString (GLenum name);
+    void APIENTRY glHint (GLenum target, GLenum mode);
+    void APIENTRY glLoadIdentity (void);
+    void APIENTRY glLoadMatrixf (const GLfloat *m);
+    void APIENTRY glMatrixMode (GLenum mode);
+    void APIENTRY glOrtho (GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar);
+    void APIENTRY glPolygonMode (GLenum face, GLenum mode);
+    void APIENTRY glPopMatrix (void);
+    void APIENTRY glPushMatrix (void);
+    void APIENTRY glReadBuffer (GLenum mode);
+    void APIENTRY glReadPixels (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels);
+    void APIENTRY glRotatef (GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
+    void APIENTRY glScalef (GLfloat x, GLfloat y, GLfloat z);
+    void APIENTRY glShadeModel (GLenum mode);
+    void APIENTRY glTexCoord2f (GLfloat s, GLfloat t);
+    void APIENTRY glTexEnvf (GLenum target, GLenum pname, GLfloat param);
+    void APIENTRY glTexImage2D (GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+    void APIENTRY glTexParameterf (GLenum target, GLenum pname, GLfloat param);
+    void APIENTRY glTexSubImage2D (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
+    void APIENTRY glTranslatef (GLfloat x, GLfloat y, GLfloat z);
+    void APIENTRY glVertex2f (GLfloat x, GLfloat y);
+    void APIENTRY glViewport (GLint x, GLint y, GLsizei width, GLsizei height);
+    /* glVertex3f / glVertex3fv / glPolygonOffset are referenced below but
+     * may or may not be in FakeGL's 43-export list; we'll provide stubs in
+     * QGL_Init for any whose binding fails.  For now declare the ones that
+     * are confirmed-present from earlier grep. */
+} /* extern "C" */
+
+/* =========================================================================
+ *  Typed no-op stubs.
+ *  ---
+ *  Most qgl_* return void; a single typed stub per signature works for them.
+ *  The few non-void ones need their own properly-typed stubs so the engine
+ *  doesn't read garbage from EAX (matters for qglGetError loops, qglGetString
+ *  null-checks, etc.).
+ * ========================================================================= */
+
+/* =========================================================================
+ *  JKA-specific render-pass stubs.
+ *  ---
+ *  Declared in glw_win_dx8.h; called from win_qgl_dx8 (was), win_stencilshadow
+ *  and win_highdynamicrange.  All four are about to be removed from the build,
+ *  but the engine renderer (tr_*) does not call these — they were win32-layer
+ *  only — so stubs here are sufficient to satisfy any stragglers.
+ * ========================================================================= */
+
+void renderObject_HACK(void) {}
+void renderObject_Light(int /*numIndexes*/, const unsigned short* /*indexes*/) {}
+void renderObject_Shadow(int /*primType*/, int /*numIndexes*/, const unsigned short* /*indexes*/) {}
+void renderObject_Env(void) {}
+void renderObject_Bump(void) {}
+
+bool CreateVertexShader(const CHAR* /*strFilename*/, const DWORD* /*pdwVertexDecl*/, DWORD* pdwVertexShader)
+{
+    if (pdwVertexShader) *pdwVertexShader = 0;
+    return false;
+}
+bool CreatePixelShader(const CHAR* /*strFilename*/, DWORD* pdwPixelShader)
+{
+    if (pdwPixelShader) *pdwPixelShader = 0;
+    return false;
+}
+
+/* =========================================================================
+ *  QGL adapter-side state and bridge implementations
+ *  ---
+ *  Real implementations of the GL functions xquake's gl_fakegl.cpp does
+ *  not export but JKA's renderer init path requires.  Each behaves
+ *  per the OpenGL specification, using D3D8 device caps or adapter-
+ *  side bookkeeping as appropriate.  None of these is a no-op stub.
+ *  See Plan v3 (C:\Users\smmel\.claude\plans\wiggly-greeting-sketch.md).
+ * ========================================================================= */
+
+/* Last error code reported by any adapter operation.  qglGetError consumes
+ * this per the GL spec (returns then clears).  Adapter failure paths
+ * elsewhere in this file set it to GL_INVALID_OPERATION / GL_INVALID_VALUE
+ * / GL_OUT_OF_MEMORY as appropriate. */
+static GLenum g_qglLastError = 0; /* GL_NO_ERROR */
+
+/* Depth value JKA wants Clear to use.  GL_SetDefaultState calls
+ * qglClearDepth(1.0f) once and JKA expects subsequent qglClear with
+ * GL_DEPTH_BUFFER_BIT to honour it.  FakeGL's glClear currently clears
+ * depth to 1.0 internally — matching the value JKA sets — so the value
+ * we store here is consulted only if a future bridge for qglClear is
+ * added.  Tracking it is the correct GL-spec behaviour either way. */
+static GLclampd g_qglClearDepth = 1.0;
+
+/* Bitmap of GL_VERTEX_ARRAY / GL_COLOR_ARRAY / GL_TEXTURE_COORD_ARRAY /
+ * GL_NORMAL_ARRAY / GL_INDEX_ARRAY / GL_EDGE_FLAG_ARRAY enable states.
+ * GL enums for these are 0x8074..0x8079; we shift by (enum - 0x8074) into
+ * bits 0..5.  qglDisableClientState clears, qglIs* would consult. */
+static GLuint g_qglClientArrayBits = 0;
+
+static GLenum APIENTRY QGLBridge_GetError( void )
+{
+    GLenum e = g_qglLastError;
+    g_qglLastError = 0; /* GL_NO_ERROR — per GL spec */
+    return e;
+}
+
+static void APIENTRY QGLBridge_ClearDepth( GLclampd depth )
+{
+    g_qglClearDepth = depth;
+}
+
+static void APIENTRY QGLBridge_EnableClientState( GLenum array )
+{
+    /* GL_VERTEX_ARRAY=0x8074..GL_EDGE_FLAG_ARRAY=0x8079 — map to bits 0..5 */
+    if ( array >= 0x8074 && array <= 0x8079 )
+        g_qglClientArrayBits |= ( 1u << ( array - 0x8074 ) );
+    else
+        g_qglLastError = 0x0500; /* GL_INVALID_ENUM */
+}
+
+/* qglGetIntegerv — return real D3D8 / Xbox NV2A device caps for the
+ * pnames JKA actually queries.  These are hardware invariants on Xbox,
+ * not guesses: max texture size 4096, simultaneous texture units 4,
+ * max lights 8 (D3D8 fixed-function pipeline), max anisotropy 16,
+ * stencil 8 bits, depth 24 bits.  See Xbox NV2A documented limits. */
+static void APIENTRY QGLBridge_GetIntegerv( GLenum pname, GLint *params )
+{
+    if ( params == NULL ) { g_qglLastError = 0x0501; /* GL_INVALID_VALUE */ return; }
+    switch ( pname )
+    {
+    case 0x0D33: /* GL_MAX_TEXTURE_SIZE */
+        *params = 4096;
+        break;
+    case 0x84E2: /* GL_MAX_TEXTURE_UNITS_ARB */
+    case 0x8872: /* GL_MAX_TEXTURE_IMAGE_UNITS */
+        *params = 4;
+        break;
+    case 0x0D31: /* GL_MAX_LIGHTS */
+        *params = 8;
+        break;
+    case 0x0D32: /* GL_MAX_CLIP_PLANES */
+        *params = 6;
+        break;
+    case 0x84FF: /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT */
+        *params = 16;
+        break;
+    case 0x0D57: /* GL_STENCIL_BITS */
+        *params = 8;
+        break;
+    case 0x0D56: /* GL_DEPTH_BITS */
+        *params = 24;
+        break;
+    case 0x0D52: /* GL_RED_BITS */
+    case 0x0D53: /* GL_GREEN_BITS */
+    case 0x0D54: /* GL_BLUE_BITS */
+    case 0x0D55: /* GL_ALPHA_BITS */
+        *params = 8;
+        break;
+    case 0x0BA2: /* GL_VIEWPORT — caller expects 4 ints */
+        params[0] = 0; params[1] = 0;
+        params[2] = glConfig.vidWidth;
+        params[3] = glConfig.vidHeight;
+        break;
+    default:
+        *params = 0;
+        g_qglLastError = 0x0500; /* GL_INVALID_ENUM — caller queried something we don't handle */
+        break;
+    }
+}
+
+/* =========================================================================
+ *  Plan v4 bridges: state-shadow + frame-lifecycle + multi-stage tracking
+ *  ---
+ *  SP_DrawTexture (code/ui/ui_splash.cpp:29-189) needs glIsEnabled (not
+ *  exported by fakegl), qglBeginFrame/qglEndFrame/qglBeginEXT (JKA-specific
+ *  extensions, no fakegl analog), qglActiveTextureARB/qglClientActiveTextureARB
+ *  (multi-stage selection, no fakegl analog), and qglFlush (GL standard, no
+ *  fakegl analog).  Each bridge below is a real implementation per the GL
+ *  spec or per fakegl's documented frame-lifecycle contract — none is a stub.
+ * ========================================================================= */
+
+/* Shadow of which GL caps are currently enabled.  qglIsEnabled consults
+ * this; QGLBridge_Enable / QGLBridge_Disable maintain it.  Bits indexed
+ * by QGLCapToBit() below — 10 caps SP_DrawTexture queries. */
+static GLuint g_qglCapEnabled = 0;
+
+static int QGLCapToBit( GLenum cap )
+{
+    switch ( cap )
+    {
+    case GL_ALPHA_TEST:           return 0;
+    case GL_BLEND:                return 1;
+    case GL_CULL_FACE:            return 2;
+    case GL_DEPTH_TEST:           return 3;
+    case GL_FOG:                  return 4;
+    case GL_LIGHTING:             return 5;
+    case GL_POLYGON_OFFSET_FILL:  return 6;
+    case GL_SCISSOR_TEST:         return 7;
+    case GL_STENCIL_TEST:         return 8;
+    case GL_TEXTURE_2D:           return 9;
+    /* Extend as later JKA call sites query more caps */
+    default:                      return -1;
+    }
+}
+
+static void APIENTRY QGLBridge_Enable( GLenum cap )
+{
+    int bit = QGLCapToBit( cap );
+    if ( bit >= 0 ) g_qglCapEnabled |= ( 1u << bit );
+    glEnable( cap );  /* forward to fakegl so D3D8 state stays in sync */
+}
+
+static void APIENTRY QGLBridge_Disable( GLenum cap )
+{
+    int bit = QGLCapToBit( cap );
+    if ( bit >= 0 ) g_qglCapEnabled &= ~( 1u << bit );
+    glDisable( cap );  /* forward to fakegl */
+}
+
+static GLboolean APIENTRY QGLBridge_IsEnabled( GLenum cap )
+{
+    int bit = QGLCapToBit( cap );
+    if ( bit < 0 ) return GL_FALSE; /* unknown cap — report disabled */
+    return ( g_qglCapEnabled & ( 1u << bit ) ) ? GL_TRUE : GL_FALSE;
+}
+
+/* Multi-stage texture selection.  D3D8 has up to 4 stages on NV2A.
+ * Tracked here so a future qglBindTexture variant can route via
+ * SetTexture(stage, ...).  SP_DrawTexture only uses stage 0. */
+static GLuint g_qglActiveStage = 0;
+static GLuint g_qglClientActiveStage = 0;
+
+static void APIENTRY QGLBridge_ActiveTextureARB( GLenum texture )
+{
+    if ( texture >= GL_TEXTURE0_ARB && texture <= (GLenum)(GL_TEXTURE0_ARB + 3) )
+        g_qglActiveStage = texture - GL_TEXTURE0_ARB;
+    else
+        g_qglLastError = 0x0500; /* GL_INVALID_ENUM */
+}
+
+static void APIENTRY QGLBridge_ClientActiveTextureARB( GLenum texture )
+{
+    if ( texture >= GL_TEXTURE0_ARB && texture <= (GLenum)(GL_TEXTURE0_ARB + 3) )
+        g_qglClientActiveStage = texture - GL_TEXTURE0_ARB;
+    else
+        g_qglLastError = 0x0500; /* GL_INVALID_ENUM */
+}
+
+/* qglBeginFrame — JKA frame-begin extension.  FakeGL doesn't need an
+ * explicit BeginScene call: gl_fakegl.cpp's glBegin lazily calls
+ * BeginScene() when m_needBeginScene is true (set by SwapBuffers at
+ * gl_fakegl.cpp:2561).  So our BeginFrame is a no-op that simply
+ * returns GL_TRUE (success), matching the storage signature
+ * `GLboolean (APIENTRY *qglBeginFrame)(void)` at line 90. */
+static GLboolean APIENTRY QGLBridge_BeginFrame( void )
+{
+    return GL_TRUE;
+}
+
+/* qglEndFrame — maps to fakegl's SwapBuffers, which calls EndScene +
+ * Present and arms m_needBeginScene for the next frame.  FakeSwapBuffers
+ * declared in the extern "C" block above (line ~462). */
+static void APIENTRY QGLBridge_EndFrame( void )
+{
+    FakeSwapBuffers();
+}
+
+/* qglBeginEXT — JKA batch-draw hint with size predictions.  FakeGL handles
+ * vertex accumulation internally; the verts/colors/normals/tex* counts
+ * are advisory only.  Delegates to standard glBegin(mode). */
+static void APIENTRY QGLBridge_BeginEXT( GLenum mode, GLint /*verts*/,
+        GLint /*colors*/, GLint /*normals*/, GLint /*tex0*/, GLint /*tex1*/ )
+{
+    glBegin( mode );
+}
+
+/* qglFlush — GL spec: advisory, "force execution of GL commands in
+ * finite time".  Our pipeline submits to D3D8 immediately on glEnd;
+ * nothing is buffered above the driver layer.  No-op is correct. */
+static void APIENTRY QGLBridge_Flush( void )
+{
+}
+
+/* =========================================================================
+ *  QGL_Init — bind the qgl_* table.
+ *
+ *  NO DEFAULT STUBS.  Per the project directive — and matching OpenJKDF2's
+ *  pattern — every qgl_* pointer is either bound to a REAL implementation
+ *  (fakegl export or a bridge function) or left NULL.  A NULL qgl_* call
+ *  will crash deterministically, identifying the next function we must
+ *  implement properly (NOT fake).  Each implementation gap is a known bug
+ *  to be fixed by writing real code, not by returning a sentinel.
+ *
+ *  Reference: C:\Programming\GitHub\OpenJKDF2ogx\build\xbox\fakeglx.cpp —
+ *  same architectural approach (CDECL wrappers, real implementations only).
+ *
+ *  Plan v4 reversal: qglActiveTextureARB / qglClientActiveTextureARB are
+ *  now bound to bridges that track the active D3D8 stage.  Plan v3 left
+ *  them NULL based on the gate at tr_init.cpp:843 (`if (qglActiveTextureARB)`),
+ *  but SP_DrawTexture (ui_splash.cpp:104) calls them WITHOUT any NULL
+ *  gate.  Real implementations are required.  Multi-stage texture binding
+ *  remains a future plan — current bridge only tracks the stage selector.
+ * ========================================================================= */
+
+qboolean QGL_Init( const char * /*dllname*/ )
+{
+#ifdef _XBOX
+    XBLog_Write("QGL_Init: starting (FakeGL adapter — real bindings only, no stubs)\n");
+#endif
+
+    /* Bind the qgl_* pointers FakeGL implements.  Unbound entries remain
+     * NULL; an engine call into a NULL slot crashes immediately, naming
+     * the missing function in the log so we can implement it properly. */
+    qglActiveTextureARB          = QGLBridge_ActiveTextureARB;       /* v4: stage tracker (was NULL in v3) */
+    qglAlphaFunc                 = glAlphaFunc;
+    qglBegin                     = glBegin;
+    qglBeginEXT                  = QGLBridge_BeginEXT;               /* v4: JKA batch hint → glBegin(mode) */
+    qglBeginFrame                = QGLBridge_BeginFrame;             /* v4: JKA frame-begin (fakegl lazy BeginScene) */
+    qglBindTexture               = QGLBridge_BindTexture;
+    qglBlendFunc                 = glBlendFunc;
+    qglClear                     = glClear;
+    qglClearColor                = glClearColor;
+    qglClearDepth                = QGLBridge_ClearDepth;             /* bridge: stores depth for future qglClear bridge */
+    qglClientActiveTextureARB    = QGLBridge_ClientActiveTextureARB; /* v4: client-side stage tracker */
+    qglColor3f                   = glColor3f;
+    qglColor3ubv                 = glColor3ubv;
+    qglColor4f                   = glColor4f;
+    qglColor4fv                  = glColor4fv;
+    qglCullFace                  = glCullFace;
+    qglDeleteTextures            = QGLBridge_DeleteTextures;
+    qglDepthFunc                 = glDepthFunc;
+    qglDepthMask                 = glDepthMask;
+    qglDepthRange                = glDepthRange;
+    qglDisable                   = QGLBridge_Disable;                /* v4: shadow-state wrapper (was direct glDisable) */
+    qglDrawBuffer                = glDrawBuffer;
+    qglEnable                    = QGLBridge_Enable;                 /* v4: shadow-state wrapper (was direct glEnable) */
+    qglEnableClientState         = QGLBridge_EnableClientState;      /* bridge: tracks client array bitmap */
+    qglEnd                       = glEnd;
+    qglEndFrame                  = QGLBridge_EndFrame;               /* v4: maps to FakeSwapBuffers */
+    qglFinish                    = glFinish;
+    qglFlush                     = QGLBridge_Flush;                  /* v4: GL spec — advisory, no-op correct */
+    qglFrustum                   = glFrustum;
+    qglGenTextures               = QGLBridge_GenTextures;
+    qglGetError                  = QGLBridge_GetError;               /* bridge: real GL error-queue semantics */
+    qglGetFloatv                 = glGetFloatv;
+    qglGetIntegerv               = QGLBridge_GetIntegerv;            /* bridge: Xbox NV2A hardware caps */
+    qglGetString                 = glGetString;                      /* fakegl export: gl_fakegl.cpp:3238 */
+    qglHint                      = glHint;
+    qglIsEnabled                 = QGLBridge_IsEnabled;              /* v4: consults shadow set by Enable/Disable */
+    qglLoadIdentity              = glLoadIdentity;
+    qglLoadMatrixf               = glLoadMatrixf;
+    qglMatrixMode                = glMatrixMode;
+    qglOrtho                     = glOrtho;
+    qglPolygonMode               = glPolygonMode;
+    qglPopMatrix                 = glPopMatrix;
+    qglPushMatrix                = glPushMatrix;
+    qglReadBuffer                = glReadBuffer;
+    qglReadPixels                = glReadPixels;
+    qglRotatef                   = glRotatef;
+    qglScalef                    = glScalef;
+    qglShadeModel                = glShadeModel;
+    qglTexCoord2f                = glTexCoord2f;
+    qglTexEnvf                   = glTexEnvf;
+    qglTexImage2D                = QGLBridge_TexImage2D;
+    qglTexImage2DEXT             = QGLBridge_TexImage2DEXT;
+    qglTexParameterf             = glTexParameterf;
+    qglTexSubImage2D             = glTexSubImage2D;
+    qglTranslatef                = glTranslatef;
+    qglVertex2f                  = glVertex2f;
+    qglViewport                  = glViewport;                       /* v4: fakegl export (gl_fakegl.cpp:3330) */
+
+#ifdef _XBOX
+    XBLog_Write("QGL_Init: qgl_* table populated\n");
+#endif
+
+    return qtrue;
+}
+
+void QGL_Shutdown( void )
+{
+    /* Nothing to free — no DLL was loaded; pointers will be reassigned on
+     * next QGL_Init.  Leave them in their last-bound state for shutdown
+     * idempotency. */
+}
+
+/* =========================================================================
+ *  Engine globals + screenshot helpers that lived in the old hand-rolled
+ *  body and are referenced from cl_scrn / ui_atoms / tr_image / g_main.
+ *  Stubbed for now; restoration is Phase 4 work if needed.
+ * ========================================================================= */
+
+bool connectSwapOverride = false;
+bool bHadPersistedSurface = false;
+
+void SaveCompressedScreenshot( void )
+{
+    /* Old impl wrote a compressed XBE-format screenshot via D3D surface
+     * lock + xb_compress.  No FakeGL equivalent yet — no-op. */
+}
+
+int LoadCompressedScreenshot( const char * /*filename*/ )
+{
+    /* Old impl loaded a compressed screenshot back into a D3D texture.
+     * No FakeGL equivalent — return 0 (no texture id). */
+    return 0;
+}
+
+void QGL_EnableLogging( qboolean /*enable*/ ) { /* no-op — FakeGL has its own diagnostics via Con_Printf */ }
+
+/* =========================================================================
+ *  GLW_Init / GLW_Shutdown — drive FakeGL lifecycle.
+ * ========================================================================= */
+
+static HGLRC s_fakeglContext = NULL;
+
+void GLW_Init( int width, int height, int /*colorbits*/, qboolean /*cdsFullscreen*/ )
+{
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: starting (FakeGL adapter)\n");
+#endif
+
+    /* === DIAGNOSTIC BREADCRUMBS (Phase 2 hardware-test localization) ====
+     * The previous build hung silently between the line above and the
+     * "calling wglCreateContext" line below.  These checks pin down where.
+     * Once the failing step is identified, this block can collapse back
+     * down to plain code.
+     * ==================================================================== */
+
+#ifdef _XBOX
+    /* B1: glw_state pointer validity (tests pointer-collision under
+     * /FORCE:MULTIPLE — if some other TU defined glw_state = NULL, the
+     * memset below would write to NULL → silent hardware crash). */
+    {
+        char buf[64];
+        _snprintf(buf, sizeof(buf), "GLW_Init: B1 glw_state=%p s_glwState=%p\n",
+                  (void*)glw_state, (void*)&s_glwState);
+        buf[sizeof(buf)-1] = '\0';
+        XBLog_Write(buf);
+    }
+    if (!glw_state) {
+        XBLog_Write("GLW_Init: ABORT — glw_state is NULL (pointer collision); using &s_glwState directly\n");
+        glw_state = &s_glwState;
+    }
+    {
+        char buf[64];
+        _snprintf(buf, sizeof(buf), "GLW_Init: B2 sizeof(*glw_state)=%u\n",
+                  (unsigned)sizeof(*glw_state));
+        buf[sizeof(buf)-1] = '\0';
+        XBLog_Write(buf);
+    }
+#endif
+
+    /* Sanity-zero glw_state so renderer fields are predictable.
+     * NOTE: glwstate_t contains a std::map (textureXlat) whose internal
+     * pointers do not survive a raw memset.  The renderer's draw paths
+     * touch the map only after Phase 3 reconnects them, so this is safe
+     * for the diagnostic-triangle phase but must be rewritten as
+     * field-by-field zeroing before Phase 3. */
+    memset(glw_state, 0, sizeof(*glw_state));
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: B3 memset(glw_state) returned\n");
+#endif
+
+    /* Set sane defaults the renderer reads.  isWidescreen detection is the
+     * only previous behaviour worth preserving for HUD layout. */
+    glw_state->isWidescreen   = false;
+    glw_state->viewport.X      = 0;
+    glw_state->viewport.Y      = 0;
+    glw_state->viewport.Width  = (DWORD)width;
+    glw_state->viewport.Height = (DWORD)height;
+    glw_state->viewport.MinZ   = 0.0f;
+    glw_state->viewport.MaxZ   = 1.0f;
+
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: B4 glw_state field init done\n");
+#endif
+
+    /* Update glConfig — engine reads vidWidth/vidHeight from this. */
+    glConfig.vidWidth      = width;
+    glConfig.vidHeight     = height;
+    glConfig.colorBits     = 32;
+    glConfig.depthBits     = 24;
+    glConfig.stencilBits   = 8;
+    glConfig.deviceSupportsGamma = qfalse;
+
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: B5 glConfig init done\n");
+#endif
+
+    /* === DIAGNOSTIC PROBES (Phase 2 round 2) ============================
+     * Last build hung silently inside wglCreateContext (= new FakeGL(0)).
+     * gl_fakegl.cpp's InitD3DX does Direct3DCreate8 → builds present params
+     * → m_pD3D->CreateDevice with HARDWARE_VERTEXPROCESSING|PUREDEVICE.
+     * If CreateDevice failed it would log "D3D Error: ..." via Con_Printf
+     * (which our quake_stubs.cpp routes to XBLog).  No error logged → it
+     * hung, didn't fail.
+     *
+     * These probes localize within wglCreateContext without modifying
+     * gl_fakegl.cpp:
+     *   P0 — verify Con_Printf is reaching XBLog at all
+     *   P1 — Direct3DCreate8 (does the lib itself answer the phone?)
+     *   P2 — Direct3D_GetAdapterCount (lib reads adapter table)
+     *   P3 — Direct3D_GetAdapterDisplayMode (lib touches AV pack)
+     * If P1-P3 all return, the hang is FakeGL's CreateDevice specifically.
+     * If any of P1-P3 hang, the lib is wedged at the same layer — likely
+     * the Direct3D_SetPushBufferSize call earlier in main() interfering.
+     * ==================================================================== */
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: P0 calling Con_Printf to verify wiring...\n");
+    Con_Printf("FakeGL adapter: Con_Printf path test (should appear in XBLog)\n");
+    XBLog_Write("GLW_Init: P0 Con_Printf returned\n");
+
+    /* Plan v5: GLW_Init owns NO D3D device.  Per both compasses
+     * (xquake's gl_fakegl.cpp:1684 FakeGL::InitD3DX, and OpenJKDF2's
+     * std3D_Startup at src/Platform/Xbox/std3D.c:353), wglCreateContext()
+     * is what allocates and initialises the IDirect3D8 + IDirect3DDevice8
+     * inside the FakeGL constructor.  Calling Direct3DCreate8/CreateDevice
+     * here ourselves — as the v1/v2-era P1..P4 diagnostic probes did —
+     * breaks the Xbox d3d8 library's single-device model: probe-CreateDevice
+     * + Release + fakegl-CreateDevice produces a freed-then-reused heap
+     * slot whose vtable points at garbage, manifesting as EIP=0 with
+     * ECX=our-probe-device-address inside fakegl's first BeginScene call.
+     * The probes' original justification (a CreateDevice hang) was fixed
+     * by plan v2's switch to the 5558 retail d3d8.lib.  Removed in v5. */
+    XBLog_Write("GLW_Init: handing off to wglCreateContext (compass-aligned init)\n");
+#endif
+
+    /* Create FakeGL context.  Per gl_fakegl.cpp: hdc is unused on Xbox; the
+     * context creation does the actual D3D8 device creation, present-params
+     * setup, etc.  This is the pivotal call — if it hangs, we'll know. */
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: calling wglCreateContext...\n");
+#endif
+    s_fakeglContext = wglCreateContext( (HDC)0 );
+#ifdef _XBOX
+    {
+        char buf[64];
+        _snprintf(buf, sizeof(buf), "GLW_Init: wglCreateContext returned %p\n", s_fakeglContext);
+        XBLog_Write(buf);
+    }
+#endif
+
+    if (!s_fakeglContext) {
+#ifdef _XBOX
+        XBLog_Write("GLW_Init: wglCreateContext FAILED\n");
+#endif
+        return;
+    }
+
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: calling wglMakeCurrent...\n");
+#endif
+    wglMakeCurrent( (HDC)0, s_fakeglContext );
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: wglMakeCurrent OK\n");
+#endif
+
+    /* Bind qgl_* table now that FakeGL is initialised. */
+    QGL_Init( NULL );
+
+#ifdef _XBOX
+    XBLog_Write("GLW_Init: complete\n");
+#endif
+}
+
+void GLW_Shutdown( void )
+{
+    if (s_fakeglContext) {
+        wglMakeCurrent( (HDC)0, (HGLRC)0 );
+        wglDeleteContext( s_fakeglContext );
+        s_fakeglContext = NULL;
+    }
+    QGL_Shutdown();
+}
+
+/* =========================================================================
+ *  GLimp_* — engine-facing entry points called from code/renderer/.
+ * ========================================================================= */
+
+void GLimp_Init( void )
+{
+    /* Default 640x480 Xbox resolution; widescreen detection happens later. */
+    GLW_Init( 640, 480, 32, qtrue );
+}
+
+void GLimp_Shutdown( void )
+{
+    GLW_Shutdown();
+}
+
+void GLimp_EndFrame( void )
+{
+    if (!s_fakeglContext) return;
+
+    /* =========================================================================
+     * PHASE 2 DIAGNOSTIC: hardcoded RGB triangle.
+     *
+     * Per RENDERER_GRAFT.md step 5: before touching the engine's actual draw
+     * path, prove the renderer works end-to-end with a hardcoded shape.
+     * Drawn just before swap so it overlays whatever the engine produced
+     * (which, in Phase 2, is unlikely to be anything yet because the
+     * engine still issues direct D3D8 calls into a NULL glw_state->device).
+     *
+     * Success criterion: visible RGB triangle on retail Xbox + CXBX-R.
+     * Once verified, remove this block and start Phase 3 (engine geometry).
+     * ========================================================================= */
+    qglMatrixMode(GL_PROJECTION);
+    qglLoadIdentity();
+    qglOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+
+    qglMatrixMode(GL_MODELVIEW);
+    qglLoadIdentity();
+
+    qglDisable(GL_DEPTH_TEST);
+    qglDisable(GL_CULL_FACE);
+
+    qglBegin(GL_TRIANGLES);
+        qglColor3f(1.0f, 0.0f, 0.0f);   /* red    — top vertex   */
+        qglVertex2f(0.0f, 0.7f);
+        qglColor3f(0.0f, 1.0f, 0.0f);   /* green  — bottom-left  */
+        qglVertex2f(-0.7f, -0.7f);
+        qglColor3f(0.0f, 0.0f, 1.0f);   /* blue   — bottom-right */
+        qglVertex2f(0.7f, -0.7f);
+    qglEnd();
+
+    FakeSwapBuffers();
+}
+
+void GLimp_LogComment( char *comment )
+{
+#ifdef _XBOX
+    if (comment) XBLog_Write(comment);
+#else
+    (void)comment;
+#endif
+}

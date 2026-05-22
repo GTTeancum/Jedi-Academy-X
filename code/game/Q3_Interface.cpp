@@ -21,6 +21,9 @@
 #include "..\cgame\cg_local.h"
 #include "wp_saber.h"
 #include "g_vehicles.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern	cvar_t	*com_buildScript;
 
@@ -38,6 +41,62 @@ extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
 //extern void FX_BorgTeleport( vec3_t org );
 static void Q3_SetWeapon (int entID, const char *wp_name);
 static void Q3_SetItem (int entID, const char *item_name);
+
+#ifdef _XBOX
+static qboolean Xbox_ScriptVisualEntity( const gentity_t *ent )
+{
+	if ( !ent || ent->client )
+	{
+		return qfalse;
+	}
+	if ( ent->s.eType == ET_MOVER )
+	{
+		return qtrue;
+	}
+	if ( ent->model && ent->model[0] )
+	{
+		return qtrue;
+	}
+	if ( ent->s.modelindex )
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static void Xbox_ScriptBroadcastVisual( gentity_t *ent, const char *reason )
+{
+	static int s_scriptBroadcastLogBudget = 160;
+	int oldFlags;
+
+	if ( !Xbox_ScriptVisualEntity( ent ) )
+	{
+		return;
+	}
+
+	oldFlags = ent->svFlags;
+	ent->svFlags |= (SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN);
+
+	if ( s_scriptBroadcastLogBudget > 0 )
+	{
+		XBLF("JA: SCRIPT_BROADCAST reason=%s ent=%d class='%s' model='%s' target='%s' script='%s' sv=0x%x->0x%x eFlags=0x%x eType=%d origin=%d,%d,%d",
+			reason ? reason : "<null>",
+			ent->s.number,
+			ent->classname ? ent->classname : "<null>",
+			ent->model ? ent->model : "<null>",
+			ent->targetname ? ent->targetname : "<null>",
+			ent->script_targetname ? ent->script_targetname : "<null>",
+			oldFlags,
+			ent->svFlags,
+			ent->s.eFlags,
+			ent->s.eType,
+			(int)ent->currentOrigin[0],
+			(int)ent->currentOrigin[1],
+			(int)ent->currentOrigin[2]);
+		--s_scriptBroadcastLogBudget;
+	}
+}
+#endif
 extern void CG_ChangeWeapon( int num );
 extern int	TAG_GetOrigin2( const char *owner, const char *name, vec3_t origin );
 extern void G_TeamRetaliation ( gentity_t *targ, gentity_t *attacker, qboolean stopIcarus );
@@ -1048,6 +1107,9 @@ static void Q3_SetAngles( int entID, vec3_t angles )
 		VectorCopy( angles, ent->s.angles );
 		VectorCopy( angles, ent->s.apos.trBase );
 		VectorCopy( angles, ent->currentAngles );
+#ifdef _XBOX
+		Xbox_ScriptBroadcastVisual( ent, "set_angles" );
+#endif
 	}
 	gi.linkentity( ent );
 }
@@ -1088,6 +1150,9 @@ static void Q3_SetOrigin( int entID, vec3_t origin )
 	else
 	{
 		G_SetOrigin( ent, origin );
+#ifdef _XBOX
+		Xbox_ScriptBroadcastVisual( ent, "set_origin" );
+#endif
 	}
 
 	gi.linkentity( ent );
@@ -2928,6 +2993,9 @@ static void Q3_SetInvisible( int entID, qboolean invisible )
 		{
 			self->client->ps.eFlags &= ~EF_NODRAW;
 		}
+#ifdef _XBOX
+		Xbox_ScriptBroadcastVisual( self, "set_invisible_false" );
+#endif
 	}
 }
 
@@ -4728,6 +4796,9 @@ static void Q3_SetFuncUsableVisible(int entID, qboolean visible )
 	{
 		ent->svFlags &= ~SVF_NOCLIENT;
 		ent->s.eFlags &= ~EF_NODRAW;
+#ifdef _XBOX
+		Xbox_ScriptBroadcastVisual( ent, "func_usable_visible_true" );
+#endif
 	}
 	else
 	{
@@ -5652,6 +5723,9 @@ static qboolean Q3_SetSolid( int entID, qboolean solid)
 			return qfalse;
 		}
 		ent->clipmask |= CONTENTS_BODY;
+#ifdef _XBOX
+		Xbox_ScriptBroadcastVisual( ent, "set_solid_true" );
+#endif
 	}
 	else
 	{//FIXME: Presumption
@@ -7909,6 +7983,25 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 
 	if ( type_voice )
 	{
+#ifdef _XBOX
+		{
+			static int s_xboxPlaySoundVoiceLogs = 0;
+			if (s_xboxPlaySoundVoiceLogs < 64)
+			{
+				Com_Printf("JA: Q3_PlaySound voice task=%d ent=%d client=%d chan='%s' final='%s' handle=%d broadcast=%d in_camera=%d timescale=%g\n",
+					taskID,
+					entID,
+					ent ? ent->s.clientNum : -1,
+					channel ? channel : "<null>",
+					finalName,
+					soundHandle,
+					(int)bBroadcast,
+					(int)in_camera,
+					g_timescale->value);
+				++s_xboxPlaySoundVoiceLogs;
+			}
+		}
+#endif
 		if ( g_timescale->value > 1.0f )
 		{//Skip the damn sound!
 			return qtrue;

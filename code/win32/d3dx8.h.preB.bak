@@ -1,0 +1,135 @@
+/*
+ * Local Xbox-friendly D3DX8 compatibility header.
+ * This intentionally exposes only the D3DX surface area used by this repo.
+ */
+
+#ifndef __LOCAL_JA_D3DX8_H__
+#define __LOCAL_JA_D3DX8_H__
+
+#include <limits.h>
+#include "d3d8-xbox.h"
+#include <objbase.h>
+#include <xgmath.h>
+
+#ifndef D3DX_DEFAULT
+#define D3DX_DEFAULT ULONG_MAX
+#endif
+
+#ifndef D3DX_FILTER_LINEAR
+#define D3DX_FILTER_LINEAR (3 << 0)
+#endif
+
+typedef XGCOLOR D3DXCOLOR;
+
+#ifndef _PALETTEENTRY_DEFINED
+#define _PALETTEENTRY_DEFINED
+typedef struct tagPALETTEENTRY {
+    BYTE peRed;
+    BYTE peGreen;
+    BYTE peBlue;
+    BYTE peFlags;
+} PALETTEENTRY, *PPALETTEENTRY, *LPPALETTEENTRY;
+#endif
+
+class ID3DXMatrixStack;
+typedef ID3DXMatrixStack *LPD3DXMATRIXSTACK;
+
+// {E3357330-CC5E-11d2-A434-00A0C90629A8}
+DEFINE_GUID(IID_ID3DXMatrixStack,
+0xe3357330, 0xcc5e, 0x11d2, 0xa4, 0x34, 0x00, 0xa0, 0xc9, 0x06, 0x29, 0xa8);
+
+class ID3DXMatrixStack : public IUnknown
+{
+public:
+    virtual HRESULT WINAPI Pop() = 0;
+    virtual HRESULT WINAPI Push() = 0;
+    virtual HRESULT WINAPI LoadIdentity() = 0;
+    virtual HRESULT WINAPI LoadMatrix(CONST D3DXMATRIX* pM) = 0;
+    virtual HRESULT WINAPI MultMatrix(CONST D3DXMATRIX* pM) = 0;
+    virtual HRESULT WINAPI MultMatrixLocal(CONST D3DXMATRIX* pM) = 0;
+    virtual HRESULT WINAPI RotateAxis(CONST D3DXVECTOR3* pV, FLOAT Angle) = 0;
+    virtual HRESULT WINAPI RotateAxisLocal(CONST D3DXVECTOR3* pV, FLOAT Angle) = 0;
+    virtual HRESULT WINAPI Scale(FLOAT x, FLOAT y, FLOAT z) = 0;
+    virtual HRESULT WINAPI ScaleLocal(FLOAT x, FLOAT y, FLOAT z) = 0;
+    virtual HRESULT WINAPI Translate(FLOAT x, FLOAT y, FLOAT z) = 0;
+    virtual HRESULT WINAPI TranslateLocal(FLOAT x, FLOAT y, FLOAT z) = 0;
+    virtual D3DXMATRIX* WINAPI GetTop() = 0;
+};
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+HRESULT WINAPI D3DXCreateMatrixStack(DWORD Flags, LPD3DXMATRIXSTACK *ppStack);
+
+HRESULT WINAPI D3DXCreateTextureFromFileExA(
+    LPDIRECT3DDEVICE8 pDevice,
+    LPCSTR pSrcFile,
+    UINT Width,
+    UINT Height,
+    UINT MipLevels,
+    DWORD Usage,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    DWORD Filter,
+    DWORD MipFilter,
+    D3DCOLOR ColorKey,
+    void *pSrcInfo,
+    PALETTEENTRY *pPalette,
+    LPDIRECT3DTEXTURE8 *ppTexture);
+
+HRESULT WINAPI D3DXCreateTextureFromFileExW(
+    LPDIRECT3DDEVICE8 pDevice,
+    LPCWSTR pSrcFile,
+    UINT Width,
+    UINT Height,
+    UINT MipLevels,
+    DWORD Usage,
+    D3DFORMAT Format,
+    D3DPOOL Pool,
+    DWORD Filter,
+    DWORD MipFilter,
+    D3DCOLOR ColorKey,
+    void *pSrcInfo,
+    PALETTEENTRY *pPalette,
+    LPDIRECT3DTEXTURE8 *ppTexture);
+
+#ifdef UNICODE
+#define D3DXCreateTextureFromFileEx D3DXCreateTextureFromFileExW
+#else
+#define D3DXCreateTextureFromFileEx D3DXCreateTextureFromFileExA
+#endif
+
+HRESULT WINAPI D3DXLoadSurfaceFromSurface(
+    LPDIRECT3DSURFACE8 pDestSurface,
+    CONST PALETTEENTRY* pDestPalette,
+    CONST RECT* pDestRect,
+    LPDIRECT3DSURFACE8 pSrcSurface,
+    CONST PALETTEENTRY* pSrcPalette,
+    CONST RECT* pSrcRect,
+    DWORD Filter,
+    D3DCOLOR ColorKey);
+
+HRESULT WINAPI D3DXLoadSurfaceFromMemory(
+    LPDIRECT3DSURFACE8 pDestSurface,
+    CONST PALETTEENTRY* pDestPalette,
+    CONST RECT* pDestRect,
+    LPCVOID pSrcMemory,
+    D3DFORMAT SrcFormat,
+    UINT SrcPitch,
+    CONST PALETTEENTRY* pSrcPalette,
+    CONST RECT* pSrcRect,
+    DWORD Filter,
+    D3DCOLOR ColorKey);
+
+HRESULT WINAPI D3DXFilterTexture(
+    LPDIRECT3DTEXTURE8 pTexture,
+    CONST PALETTEENTRY* pPalette,
+    UINT SrcLevel,
+    DWORD Filter);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

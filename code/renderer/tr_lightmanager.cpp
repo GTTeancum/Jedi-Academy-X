@@ -11,6 +11,9 @@
 
 #include "../win32/glw_win_dx8.h"
 #include "../win32/win_lighteffects.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 
 VVLightManager VVLightMan;
@@ -462,7 +465,7 @@ int VVLightManager::BoxOnPlaneSide (const short emins[3], const short emaxs[3], 
 	vec3_t maxs;
 	ShortToVec3(emins, mins);
 	ShortToVec3(emaxs, maxs);
-	return ::BoxOnPlaneSide(mins, maxs, &tr.viewParms.frustum[0]);
+	return ::BoxOnPlaneSide(mins, maxs, p);
 }
 
 
@@ -480,6 +483,18 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 		// inside can be visible OPTIMIZE: don't do this all the way to leafs?
 
 		if ( !r_nocull->integer ) {
+#ifdef _XBOX
+			static int s_xboxNodeCullBypassLogBudget = 12;
+			if (s_xboxNodeCullBypassLogBudget > 0)
+			{
+				XBLF("JA: XBOX_NODE_CULL_BYPASS visCount=%d planeBits=0x%x nodeMins=(%d,%d,%d) nodeMaxs=(%d,%d,%d)",
+					tr.visCount,
+					planeBits,
+					node->mins[0], node->mins[1], node->mins[2],
+					node->maxs[0], node->maxs[1], node->maxs[2]);
+				--s_xboxNodeCullBypassLogBudget;
+			}
+#else
 			int		r;
 
 			if ( planeBits & 1 ) {
@@ -522,6 +537,7 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 				}
 			}
 
+#endif
 		}
 
 		if ( node->contents != -1 ) {
@@ -627,7 +643,7 @@ void VVLightManager::RB_CalcDiffuseColorWorld()
 	{
 		if ( ( tess.dlightBits & ( 1 << i ) ) ) 
 		{
-			qglEnable(GL_LIGHTING);
+			glEnable(GL_LIGHTING);
 			dl = &dlights[i];
 
 			vec3_t newColor;
@@ -635,18 +651,18 @@ void VVLightManager::RB_CalcDiffuseColorWorld()
 			newColor[1] = dl->color[1] * 255.0f;
 			newColor[2] = dl->color[2] * 255.0f;
 
-			qglLightfv(l, GL_DIFFUSE, newColor);
+			glLightfv(l, GL_DIFFUSE, newColor);
 
 /*			vec3_t ambient;
 			ambient[0] = ambient[1] = ambient[2] = 128;
 
-			qglLightfv(l, GL_AMBIENT, ambient);//ent->ambientLight);*/
+			glLightfv(l, GL_AMBIENT, ambient);//ent->ambientLight);*/
 			
 			if(dl->type == LT_POINT) {
-				qglLightfv(l, GL_SPOT_CUTOFF, &dl->radius);
-				qglLightfv(l, GL_POSITION, dl->origin);
+				glLightfv(l, GL_SPOT_CUTOFF, &dl->radius);
+				glLightfv(l, GL_POSITION, dl->origin);
 			} else if(dl->type == LT_DIRECTIONAL) {
-				qglLightfv(l, GL_SPOT_DIRECTION, dl->direction);
+				glLightfv(l, GL_SPOT_DIRECTION, dl->direction);
 			}
 
 			l++;
@@ -658,7 +674,7 @@ void VVLightManager::RB_CalcDiffuseColorWorld()
 	color[1] = 255;
 	color[2] = 255;
 	color[3] = 255;
-	qglMaterialfv( GL_FRONT, GL_AMBIENT, color );
+	glMaterialfv( GL_FRONT, GL_AMBIENT, color );
 }
 
 
@@ -669,10 +685,10 @@ void VVLightManager::RB_CalcDiffuseColor( DWORD *colors )
 	ent = backEnd.currentEntity;
 
 	// Make sure to turn lighting on....
-	qglEnable(GL_LIGHTING);
+	glEnable(GL_LIGHTING);
 
-	qglLightfv(0, GL_AMBIENT, ent->ambientLight);
-	qglLightfv(0, GL_DIFFUSE, ent->directedLight);
+	glLightfv(0, GL_AMBIENT, ent->ambientLight);
+	glLightfv(0, GL_DIFFUSE, ent->directedLight);
 
 	VectorNormalize(ent->lightDir);
 
@@ -688,7 +704,7 @@ void VVLightManager::RB_CalcDiffuseColor( DWORD *colors )
 		vLight[2] = 0.0f;
 	}
 	
-	qglLightfv(0, GL_SPOT_DIRECTION, vLight);
+	glLightfv(0, GL_SPOT_DIRECTION, vLight);
 
 	memset(colors, 0xffffffff, sizeof(DWORD) * tess.numVertexes);
 }
@@ -706,15 +722,15 @@ void VVLightManager::RB_CalcDiffuseEntityColor( DWORD *colors )
 	ent = backEnd.currentEntity;
 
 	// Make sure to turn lighting on....
-	qglEnable(GL_LIGHTING);
+	glEnable(GL_LIGHTING);
 
 	// Modulate ambient by entity color:
 	vec3_t ambient;
 	ambient[0] = ent->ambientLight[0] * (ent->e.shaderRGBA[0]/255.0);
 	ambient[1] = ent->ambientLight[1] * (ent->e.shaderRGBA[1]/255.0);
 	ambient[2] = ent->ambientLight[2] * (ent->e.shaderRGBA[2]/255.0);
-	qglLightfv(0, GL_AMBIENT, ambient);
-	qglLightfv(0, GL_DIFFUSE, ent->directedLight);
+	glLightfv(0, GL_AMBIENT, ambient);
+	glLightfv(0, GL_DIFFUSE, ent->directedLight);
 
 	VectorNormalize(ent->lightDir);
 
@@ -730,7 +746,7 @@ void VVLightManager::RB_CalcDiffuseEntityColor( DWORD *colors )
 		vLight[2] = 0.0f;
 	}
 
-	qglLightfv(0, GL_SPOT_DIRECTION, vLight);
+	glLightfv(0, GL_SPOT_DIRECTION, vLight);
 
 	DWORD color = D3DCOLOR_RGBA(backEnd.currentEntity->e.shaderRGBA[0],
 								backEnd.currentEntity->e.shaderRGBA[1],

@@ -5,14 +5,14 @@
 	Name="x_exe"
 	ProjectGUID="{FD1DA207-0D4A-47A8-A6AD-B81AE1BA28DA}"
 	RootNamespace="x_exe"
-	Keyword="XboxProj">
+	Keyword="Win32Proj">
 	<Platforms>
 		<Platform
-			Name="Xenon"/>
+			Name="Win32"/>
 	</Platforms>
 	<Configurations>
 		<Configuration
-			Name="Debug|Xenon"
+			Name="Debug|Win32"
 			OutputDirectory=".\Debug"
 			IntermediateDirectory=".\Debug\exe"
 			ConfigurationType="1"
@@ -21,8 +21,8 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-				PreprocessorDefinitions="_DEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING"
+				AdditionalIncludeDirectories="$(BINK_XBOX_ROOT)"
+				PreprocessorDefinitions="_DEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				MinimalRebuild="TRUE"
 				BasicRuntimeChecks="0"
 				RuntimeLibrary="1"
@@ -39,7 +39,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="xapilibd.lib d3d8d.lib d3dx8d.lib xgraphicsd.lib dsoundd.lib dmusicd.lib xboxkrnl.lib x_game.lib xbdm.lib goblib.lib xonlined.lib"
+				AdditionalDependencies=".\Debug\exe\xbox_crt_stubs.obj .\Debug\exe\xbox_asm_stubs.obj xapilibd.lib libcd.lib d3d8d.lib d3dx8d.lib xgraphicsd.lib dsoundd.lib dmusicd.lib xboxkrnl.lib x_game.lib xbdm.lib goblib.lib xonlined.lib"
 				OutputFile=".\Debug\ja-debug.exe"
 				LinkIncremental="2"
 				AdditionalLibraryDirectories=".\Debug;C:\XDK\lib"
@@ -47,20 +47,26 @@
 				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
 				SubSystem="2"
 				OptimizeForWindows98="1"
-				TargetMachine="1"/>
+				TargetMachine="1"
+				IgnoreDefaultLibraryNames="msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
+				AdditionalOptions="/FORCE:MULTIPLE"/>
 			<Tool
-				Name="VCPostBuildEventTool"/>
+				Name="VCPostBuildEventTool"
+				CommandLine="&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\editbin.exe&quot; /SUBSYSTEM:XBOX &quot;.\Debug\ja-debug.exe&quot;&#x0D;&#x0A;&quot;C:\XDK\xbox\bin\imagebld.exe&quot; /IN:&quot;.\Debug\ja-debug.exe&quot; /OUT:&quot;.\Debug\ja-debug.xbe&quot; /TESTID:0x4C41000B /TESTLANKEY:4C41000B4C41000B4C41000B4C41000B /STACK:0x40000 /NOLIBWARN /TESTNAME:&quot;Jedi Knight: Jedi Academy&quot;&#x0D;&#x0A;"
+				Description="Building XBE..."/>
 			<Tool
 				Name="VCPreBuildEventTool"/>
 			<Tool
-				Name="VCPreLinkEventTool"/>
+				Name="VCPreLinkEventTool"
+				CommandLine="if not exist .\Debug\exe mkdir .\Debug\exe&#x0D;&#x0A;&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\ml.exe&quot; /c /Cx /coff /Zi /Fo &quot;.\Debug\exe\xbox_asm_stubs.obj&quot; xbox_asm_stubs.asm&#x0D;&#x0A;&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\cl.exe&quot; /c /Fo&quot;.\Debug\exe\xbox_crt_stubs.obj&quot; xbox_crt_stubs.cpp&#x0D;&#x0A;"
+				Description="Assembling stubs..."/>
 			<Tool
-				Name="XboxDeploymentTool"
+				Name="Win32DeploymentTool"
 				RemotePath="xe:\JK3\$(TargetName).xbe"
 				AdditionalFiles="xe:\JK3\base\media=$(SolutionDir)x_shaders"/>
 		</Configuration>
 		<Configuration
-			Name="Release|Xenon"
+			Name="Release|Win32"
 			OutputDirectory=".\Release"
 			IntermediateDirectory=".\Release\exe"
 			ConfigurationType="1"
@@ -74,11 +80,11 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="TRUE"
 				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING"
+				AdditionalIncludeDirectories="$(BINK_XBOX_ROOT)"
+				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="TRUE"
 				RuntimeLibrary="0"
-				BufferSecurityCheck="TRUE"
+				BufferSecurityCheck="FALSE"
 				EnableFunctionLevelLinking="TRUE"
 				EnableEnhancedInstructionSet="1"
 				UsePrecompiledHeader="0"
@@ -90,7 +96,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="xapilib.lib d3d8i.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib x_game.lib goblib.lib xbdm.lib xonline.lib"
+				AdditionalDependencies=".\Release\exe\xbox_crt_stubs.obj .\Release\exe\xbox_asm_stubs.obj xapilib.lib libc.lib d3d8i.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib x_game.lib goblib.lib binkxbox.lib xbdm.lib xonline.lib"
 				OutputFile=".\Release\ja-release.exe"
 				LinkIncremental="1"
 				AdditionalLibraryDirectories=".\Release;C:\XDK\lib"
@@ -101,20 +107,26 @@
 				EnableCOMDATFolding="2"
 				OptimizeForWindows98="1"
 				SetChecksum="TRUE"
-				TargetMachine="1"/>
+				TargetMachine="1"
+				IgnoreDefaultLibraryNames="msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
+				AdditionalOptions="/FORCE:MULTIPLE"/>
 			<Tool
-				Name="VCPostBuildEventTool"/>
+				Name="VCPostBuildEventTool"
+				CommandLine="&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\editbin.exe&quot; /SUBSYSTEM:XBOX &quot;.\Release\ja-release.exe&quot;&#x0D;&#x0A;&quot;C:\XDK\xbox\bin\imagebld.exe&quot; /IN:&quot;.\Release\ja-release.exe&quot; /OUT:&quot;.\Release\ja-release.xbe&quot; /TESTID:0x4C41000B /TESTLANKEY:4C41000B4C41000B4C41000B4C41000B /STACK:0x40000 /NOLIBWARN /TESTNAME:&quot;Jedi Knight: Jedi Academy&quot;&#x0D;&#x0A;"
+				Description="Building XBE..."/>
 			<Tool
 				Name="VCPreBuildEventTool"/>
 			<Tool
-				Name="VCPreLinkEventTool"/>
+				Name="VCPreLinkEventTool"
+				CommandLine="if not exist .\Release\exe mkdir .\Release\exe&#x0D;&#x0A;&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\ml.exe&quot; /c /Cx /coff /Zi /Fo &quot;.\Release\exe\xbox_asm_stubs.obj&quot; xbox_asm_stubs.asm&#x0D;&#x0A;&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\cl.exe&quot; /c /Fo&quot;.\Release\exe\xbox_crt_stubs.obj&quot; xbox_crt_stubs.cpp&#x0D;&#x0A;"
+				Description="Assembling stubs..."/>
 			<Tool
-				Name="XboxDeploymentTool"
+				Name="Win32DeploymentTool"
 				RemotePath="xe:\JK3\$(TargetName).xbe"
 				AdditionalFiles="xe:\JK3\base\media=$(SolutionDir)x_shaders"/>
 		</Configuration>
 		<Configuration
-			Name="FinalBuild|Xenon"
+			Name="FinalBuild|Win32"
 			OutputDirectory=".\FinalBuild"
 			IntermediateDirectory=".\FinalBuild\exe"
 			ConfigurationType="1"
@@ -128,11 +140,11 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="TRUE"
 				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;FINAL_BUILD;VV_LIGHTING;_FINAL"
+				AdditionalIncludeDirectories="$(BINK_XBOX_ROOT)"
+				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;FINAL_BUILD;VV_LIGHTING;_FINAL;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="TRUE"
 				RuntimeLibrary="0"
-				BufferSecurityCheck="TRUE"
+				BufferSecurityCheck="FALSE"
 				EnableFunctionLevelLinking="TRUE"
 				EnableEnhancedInstructionSet="1"
 				UsePrecompiledHeader="0"
@@ -143,7 +155,7 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="xapilib.lib d3d8.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib xonlines.lib"
+				AdditionalDependencies=".\FinalBuild\exe\xbox_crt_stubs.obj .\FinalBuild\exe\xbox_asm_stubs.obj xapilib.lib libc.lib d3d8i.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib xonlines.lib"
 				OutputFile=".\FinalBuild\ja-final.exe"
 				LinkIncremental="1"
 				AdditionalLibraryDirectories=".\FinalBuild;C:\XDK\lib"
@@ -154,20 +166,26 @@
 				EnableCOMDATFolding="2"
 				OptimizeForWindows98="1"
 				SetChecksum="TRUE"
-				TargetMachine="1"/>
+				TargetMachine="1"
+				IgnoreDefaultLibraryNames="msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
+				AdditionalOptions="/FORCE:MULTIPLE"/>
 			<Tool
-				Name="VCPostBuildEventTool"/>
+				Name="VCPostBuildEventTool"
+				CommandLine="&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\editbin.exe&quot; /SUBSYSTEM:XBOX &quot;.\FinalBuild\ja-final.exe&quot;&#x0D;&#x0A;&quot;C:\XDK\xbox\bin\imagebld.exe&quot; /IN:&quot;.\FinalBuild\ja-final.exe&quot; /OUT:&quot;.\FinalBuild\ja-final.xbe&quot; /TESTID:0x4C41000B /TESTLANKEY:4C41000B4C41000B4C41000B4C41000B /STACK:0x40000 /NOLIBWARN /TESTNAME:&quot;Jedi Knight: Jedi Academy&quot;&#x0D;&#x0A;"
+				Description="Building XBE..."/>
 			<Tool
 				Name="VCPreBuildEventTool"/>
 			<Tool
-				Name="VCPreLinkEventTool"/>
+				Name="VCPreLinkEventTool"
+				CommandLine="if not exist .\FinalBuild\exe mkdir .\FinalBuild\exe&#x0D;&#x0A;&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\ml.exe&quot; /c /Cx /coff /Zi /Fo &quot;.\FinalBuild\exe\xbox_asm_stubs.obj&quot; xbox_asm_stubs.asm&#x0D;&#x0A;&quot;C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\cl.exe&quot; /c /Fo&quot;.\FinalBuild\exe\xbox_crt_stubs.obj&quot; xbox_crt_stubs.cpp&#x0D;&#x0A;"
+				Description="Assembling stubs..."/>
 			<Tool
-				Name="XboxDeploymentTool"
+				Name="Win32DeploymentTool"
 				RemotePath="xe:\JK3\$(TargetName).xbe"
 				AdditionalFiles="xe:\JK3\base\media=$(SolutionDir)x_shaders"/>
 		</Configuration>
 		<Configuration
-			Name="DemoRelease|Xenon"
+			Name="DemoRelease|Win32"
 			OutputDirectory=".\DemoRelease"
 			IntermediateDirectory=".\DemoRelease\exe"
 			ConfigurationType="1"
@@ -181,11 +199,11 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="TRUE"
 				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;XBOX_DEMO"
+				AdditionalIncludeDirectories="$(BINK_XBOX_ROOT)"
+				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;XBOX_DEMO;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="TRUE"
 				RuntimeLibrary="0"
-				BufferSecurityCheck="TRUE"
+				BufferSecurityCheck="FALSE"
 				EnableFunctionLevelLinking="TRUE"
 				EnableEnhancedInstructionSet="1"
 				UsePrecompiledHeader="0"
@@ -197,10 +215,10 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="xapilib.lib d3d8i.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib x_game.lib goblib.lib xbdm.lib"
+				AdditionalDependencies="xapilib.lib d3d8I.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib x_game.lib goblib.lib binkxbox.lib xbdm.lib"
 				OutputFile=".\DemoRelease\ja-release.exe"
 				LinkIncremental="1"
-				AdditionalLibraryDirectories=".\DemoRelease;C:\XDK\lib"
+				AdditionalLibraryDirectories=".\DemoRelease;&quot;$(BINK_XBOX_ROOT)&quot;"
 				GenerateDebugInformation="TRUE"
 				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
 				SubSystem="2"
@@ -216,12 +234,12 @@
 			<Tool
 				Name="VCPreLinkEventTool"/>
 			<Tool
-				Name="XboxDeploymentTool"
+				Name="Win32DeploymentTool"
 				RemotePath="xe:\JK3\$(TargetName).xbe"
 				AdditionalFiles="xe:\JK3\base\media=$(SolutionDir)x_shaders"/>
 		</Configuration>
 		<Configuration
-			Name="DemoFinal|Xenon"
+			Name="DemoFinal|Win32"
 			OutputDirectory=".\DemoFinal"
 			IntermediateDirectory=".\DemoFinal\exe"
 			ConfigurationType="1"
@@ -235,11 +253,11 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="TRUE"
 				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;FINAL_BUILD;VV_LIGHTING;_FINAL;XBOX_DEMO"
+				AdditionalIncludeDirectories="$(BINK_XBOX_ROOT)"
+				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;FINAL_BUILD;VV_LIGHTING;_FINAL;XBOX_DEMO;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="TRUE"
 				RuntimeLibrary="0"
-				BufferSecurityCheck="TRUE"
+				BufferSecurityCheck="FALSE"
 				EnableFunctionLevelLinking="TRUE"
 				EnableEnhancedInstructionSet="1"
 				UsePrecompiledHeader="0"
@@ -250,10 +268,10 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="xapilib.lib d3d8.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib"
+				AdditionalDependencies="xapilib.lib d3d8.lib d3dx8.lib xgraphics.lib dsound.lib dmusic.lib xboxkrnl.lib binkxbox.lib"
 				OutputFile=".\DemoFinal\ja-final.exe"
 				LinkIncremental="1"
-				AdditionalLibraryDirectories=".\DemoFinal;C:\XDK\lib"
+				AdditionalLibraryDirectories=".\DemoFinal;&quot;$(BINK_XBOX_ROOT)&quot;"
 				GenerateDebugInformation="TRUE"
 				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
 				SubSystem="2"
@@ -269,12 +287,12 @@
 			<Tool
 				Name="VCPreLinkEventTool"/>
 			<Tool
-				Name="XboxDeploymentTool"
+				Name="Win32DeploymentTool"
 				RemotePath="xe:\JK3\$(TargetName).xbe"
 				AdditionalFiles="xe:\JK3\base\media=$(SolutionDir)x_shaders"/>
 		</Configuration>
 		<Configuration
-			Name="DemoDebug|Xenon"
+			Name="DemoDebug|Win32"
 			OutputDirectory=".\DemoDebug"
 			IntermediateDirectory=".\DemoDebug\exe"
 			ConfigurationType="1"
@@ -283,8 +301,8 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				OptimizeForProcessor="2"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
-				PreprocessorDefinitions="_DEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;XBOX_DEMO"
+				AdditionalIncludeDirectories="&quot;$(BINK_XBOX_ROOT)&quot;"
+				PreprocessorDefinitions="_DEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;XBOX_DEMO;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				MinimalRebuild="TRUE"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
@@ -301,10 +319,10 @@
 				Name="VCCustomBuildTool"/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalDependencies="xapilibd.lib d3d8d.lib d3dx8d.lib xgraphicsd.lib dsoundd.lib dmusicd.lib xboxkrnl.lib x_game.lib xbdm.lib goblib.lib"
+				AdditionalDependencies="xapilibd.lib d3d8d.lib d3dx8d.lib xgraphicsd.lib dsoundd.lib dmusicd.lib xboxkrnl.lib x_game.lib xbdm.lib goblib.lib  binkxbox.lib"
 				OutputFile=".\DemoDebug\ja-debug.exe"
 				LinkIncremental="2"
-				AdditionalLibraryDirectories=".\DemoDebug;C:\XDK\lib"
+				AdditionalLibraryDirectories=".\DemoDebug;&quot;$(BINK_XBOX_ROOT)&quot;"
 				GenerateDebugInformation="TRUE"
 				ProgramDatabaseFile="$(OutDir)/$(ProjectName).pdb"
 				SubSystem="2"
@@ -317,7 +335,7 @@
 			<Tool
 				Name="VCPreLinkEventTool"/>
 			<Tool
-				Name="XboxDeploymentTool"
+				Name="Win32DeploymentTool"
 				RemotePath="xe:\JK3\$(TargetName).xbe"
 				AdditionalFiles="xe:\JK3\base\media=$(SolutionDir)x_shaders"/>
 		</Configuration>
@@ -328,6 +346,66 @@
 		<Filter
 			Name="Source Files">
 			<File
+				RelativePath=".\xbox_crt_stubs.cpp">
+			</File>
+			<File
+				RelativePath=".\xbox_asm_stubs.asm">
+				<FileConfiguration
+					Name="Debug|Win32"
+					>
+					<Tool
+						Name="VCCustomBuildTool"
+						CommandLine="ml.exe /c /Cx /coff /Zi /Fo &quot;$(IntDir)\xbox_asm_stubs.obj&quot; &quot;$(InputPath)&quot;&#x0D;&#x0A;"
+						Outputs="$(IntDir)\xbox_asm_stubs.obj"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCustomBuildTool"
+						CommandLine="ml.exe /c /Cx /coff /Zi /Fo &quot;$(IntDir)\xbox_asm_stubs.obj&quot; &quot;$(InputPath)&quot;&#x0D;&#x0A;"
+						Outputs="$(IntDir)\xbox_asm_stubs.obj"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="FinalBuild|Win32"
+					>
+					<Tool
+						Name="VCCustomBuildTool"
+						CommandLine="ml.exe /c /Cx /coff /Zi /Fo &quot;$(IntDir)\xbox_asm_stubs.obj&quot; &quot;$(InputPath)&quot;&#x0D;&#x0A;"
+						Outputs="$(IntDir)\xbox_asm_stubs.obj"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="DemoRelease|Win32"
+					>
+					<Tool
+						Name="VCCustomBuildTool"
+						CommandLine="ml.exe /c /Cx /coff /Zi /Fo &quot;$(IntDir)\xbox_asm_stubs.obj&quot; &quot;$(InputPath)&quot;&#x0D;&#x0A;"
+						Outputs="$(IntDir)\xbox_asm_stubs.obj"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="DemoFinal|Win32"
+					>
+					<Tool
+						Name="VCCustomBuildTool"
+						CommandLine="ml.exe /c /Cx /coff /Zi /Fo &quot;$(IntDir)\xbox_asm_stubs.obj&quot; &quot;$(InputPath)&quot;&#x0D;&#x0A;"
+						Outputs="$(IntDir)\xbox_asm_stubs.obj"
+					/>
+				</FileConfiguration>
+				<FileConfiguration
+					Name="DemoDebug|Win32"
+					>
+					<Tool
+						Name="VCCustomBuildTool"
+						CommandLine="ml.exe /c /Cx /coff /Zi /Fo &quot;$(IntDir)\xbox_asm_stubs.obj&quot; &quot;$(InputPath)&quot;&#x0D;&#x0A;"
+						Outputs="$(IntDir)\xbox_asm_stubs.obj"
+					/>
+				</FileConfiguration>
+			</File>
+<File
 				RelativePath="..\client\BinkVideo.cpp">
 			</File>
 			<File
@@ -393,13 +471,13 @@
 			<File
 				RelativePath="..\win32\dbg_console_xbox.cpp">
 				<FileConfiguration
-					Name="FinalBuild|Xenon"
+					Name="FinalBuild|Win32"
 					ExcludedFromBuild="TRUE">
 					<Tool
 						Name="VCCLCompilerTool"/>
 				</FileConfiguration>
 				<FileConfiguration
-					Name="DemoFinal|Xenon"
+					Name="DemoFinal|Win32"
 					ExcludedFromBuild="TRUE">
 					<Tool
 						Name="VCCLCompilerTool"/>
@@ -918,7 +996,7 @@
 				<File
 					RelativePath="..\x_shaders\bump.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -927,7 +1005,7 @@
 							Outputs="$(InputDir)bump.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -935,7 +1013,7 @@
 							Outputs="$(InputDir)bump.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -943,7 +1021,7 @@
 							Outputs="$(InputDir)bump.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -954,7 +1032,7 @@
 				<File
 					RelativePath="..\x_shaders\bump.vsh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -963,7 +1041,7 @@
 							Outputs="$(InputDir)bump.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -971,7 +1049,7 @@
 							Outputs="$(InputDir)bump.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -979,7 +1057,7 @@
 							Outputs="$(InputDir)bump.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -990,7 +1068,7 @@
 				<File
 					RelativePath="..\x_shaders\dlight.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -999,7 +1077,7 @@
 							Outputs="$(InputDir)dlight.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1007,7 +1085,7 @@
 							Outputs="$(InputDir)dlight.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1015,7 +1093,7 @@
 							Outputs="$(InputDir)dlight.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1026,7 +1104,7 @@
 				<File
 					RelativePath="..\x_shaders\dlight.vsh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1035,7 +1113,7 @@
 							Outputs="$(InputDir)dlight.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1043,7 +1121,7 @@
 							Outputs="$(InputDir)dlight.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1051,7 +1129,7 @@
 							Outputs="$(InputDir)dlight.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1062,7 +1140,7 @@
 				<File
 					RelativePath="..\x_shaders\environment.vsh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1071,7 +1149,7 @@
 							Outputs="$(InputDir)environment.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1079,7 +1157,7 @@
 							Outputs="$(InputDir)environment.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1087,7 +1165,7 @@
 							Outputs="$(InputDir)environment.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1098,7 +1176,7 @@
 				<File
 					RelativePath="..\x_shaders\extracthot.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1107,7 +1185,7 @@
 							Outputs="$(InputDir)extracthot.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1115,7 +1193,7 @@
 							Outputs="$(InputDir)extracthot.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1123,7 +1201,7 @@
 							Outputs="$(InputDir)extracthot.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1134,7 +1212,7 @@
 				<File
 					RelativePath="..\x_shaders\hotblur.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1143,7 +1221,7 @@
 							Outputs="$(InputDir)hotblur.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1151,7 +1229,7 @@
 							Outputs="$(InputDir)hotblur.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1159,7 +1237,7 @@
 							Outputs="$(InputDir)hotblur.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1170,7 +1248,7 @@
 				<File
 					RelativePath="..\x_shaders\shadow.vsh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1179,7 +1257,7 @@
 							Outputs="$(InputDir)shadow.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1187,7 +1265,7 @@
 							Outputs="$(InputDir)shadow.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1195,7 +1273,7 @@
 							Outputs="$(InputDir)shadow.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1206,7 +1284,7 @@
 				<File
 					RelativePath="..\x_shaders\specular_dynamic.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1215,7 +1293,7 @@
 							Outputs="$(InputDir)specular_dynamic.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1223,7 +1301,7 @@
 							Outputs="$(InputDir)specular_dynamic.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1231,7 +1309,7 @@
 							Outputs="$(InputDir)specular_dynamic.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1242,7 +1320,7 @@
 				<File
 					RelativePath="..\x_shaders\specular_dynamic.vsh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1251,7 +1329,7 @@
 							Outputs="$(InputDir)specular_dynamic.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1259,7 +1337,7 @@
 							Outputs="$(InputDir)specular_dynamic.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1267,7 +1345,7 @@
 							Outputs="$(InputDir)specular_dynamic.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1278,7 +1356,7 @@
 				<File
 					RelativePath="..\x_shaders\specular_static.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1287,7 +1365,7 @@
 							Outputs="$(InputDir)specular_static.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1295,7 +1373,7 @@
 							Outputs="$(InputDir)specular_static.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1303,7 +1381,7 @@
 							Outputs="$(InputDir)specular_static.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1314,7 +1392,7 @@
 				<File
 					RelativePath="..\x_shaders\specular_static.vsh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1323,7 +1401,7 @@
 							Outputs="$(InputDir)specular_static.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1331,7 +1409,7 @@
 							Outputs="$(InputDir)specular_static.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1339,7 +1417,7 @@
 							Outputs="$(InputDir)specular_static.xvu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1350,7 +1428,7 @@
 				<File
 					RelativePath="..\x_shaders\yellow.psh">
 					<FileConfiguration
-						Name="Debug|Xenon"
+						Name="Debug|Win32"
 						ExcludedFromBuild="TRUE">
 						<Tool
 							Name="VCCustomBuildTool"
@@ -1359,7 +1437,7 @@
 							Outputs="$(InputDir)yellow.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="Release|Xenon">
+						Name="Release|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1367,7 +1445,7 @@
 							Outputs="$(InputDir)yellow.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="FinalBuild|Xenon">
+						Name="FinalBuild|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1375,7 +1453,7 @@
 							Outputs="$(InputDir)yellow.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoRelease|Xenon">
+						Name="DemoRelease|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1383,7 +1461,7 @@
 							Outputs="$(InputDir)yellow.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoFinal|Xenon">
+						Name="DemoFinal|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"
@@ -1391,7 +1469,7 @@
 							Outputs="$(InputDir)yellow.xpu"/>
 					</FileConfiguration>
 					<FileConfiguration
-						Name="DemoDebug|Xenon">
+						Name="DemoDebug|Win32">
 						<Tool
 							Name="VCCustomBuildTool"
 							Description="Assembling vertex/pixel shaders"

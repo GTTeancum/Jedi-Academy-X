@@ -874,7 +874,17 @@ Ghoul2 Insert End
 		return 0;
 
 	case CG_UI_STARTPARSESESSION:
-		return(PC_StartParseSession((char *) VMA(1),(char **) VMA(2)));
+	{
+#ifdef _XBOX
+		const char *parseName = (const char *) VMA(1);
+		Com_PrintfAlways("JA: CG trap UI_STARTPARSE begin file=%s\n", parseName ? parseName : "(null)");
+#endif
+		int parseLen = PC_StartParseSession((char *) VMA(1),(char **) VMA(2));
+#ifdef _XBOX
+		Com_PrintfAlways("JA: CG trap UI_STARTPARSE done file=%s len=%d\n", parseName ? parseName : "(null)", parseLen);
+#endif
+		return parseLen;
+	}
 
 	case CG_UI_ENDPARSESESSION:
 		PC_EndParseSession((char *) VMA(1));
@@ -1115,13 +1125,35 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 		}
 	}
 #endif
+#ifdef _XBOX
+	static int s_xboxCGameRenderCount = 0;
+	const int xboxLogThisFrame = ((s_xboxCGameRenderCount < 96) || (cls.state == CA_ACTIVE && (s_xboxCGameRenderCount < 128 || cl.serverTime > 90000)));
+	if (xboxLogThisFrame)
+	{
+		XBLF("JA: CL_CGameRendering #%d enter state=%d serverTime=%d stereo=%d",
+			s_xboxCGameRenderCount, (int)cls.state, cl.serverTime, (int)stereo);
+	}
+#endif
 	int timei=cl.serverTime;
 	if (timei>60)
 	{
 		timei-=0;
 	}
 	G2API_SetTime(cl.serverTime,G2T_CG_TIME);
+#ifdef _XBOX
+	if (xboxLogThisFrame)
+	{
+		XBLog_Write("JA: CL_CGameRendering: VM_Call(CG_DRAW_ACTIVE_FRAME)...");
+	}
+#endif
 	VM_Call( CG_DRAW_ACTIVE_FRAME,timei, stereo, qfalse );
+#ifdef _XBOX
+	if (xboxLogThisFrame)
+	{
+		XBLog_Write("JA: CL_CGameRendering: VM_Call(CG_DRAW_ACTIVE_FRAME) returned");
+	}
+	s_xboxCGameRenderCount++;
+#endif
 //	VM_Debug( 0 );
 }
 
@@ -1260,7 +1292,7 @@ void CL_FirstSnapshot( void ) {
 
 #ifdef _XBOX
 	// turn vsync back on - tearing is ugly
-	qglEnable(GL_VSYNC);
+	glEnable(GL_VSYNC);
 #endif
 
 #ifdef XBOX_DEMO
@@ -1396,4 +1428,3 @@ void CL_SetCGameTime( void ) {
 		CL_AdjustTimeDelta();
 	}
 }
-

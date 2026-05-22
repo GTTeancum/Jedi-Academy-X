@@ -10,6 +10,9 @@
 #if !defined(G2_H_INC)
 	#include "../ghoul2/G2.h"
 #endif
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 void R_AddTerrainSurfaces(void);
 
@@ -1358,10 +1361,8 @@ void R_SortDrawSurfs( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #endif
 	}
 
-#ifndef _XBOX
 	// sort the drawsurfs by sort type, then orientation, then shader
 	qsortFast (drawSurfs, numDrawSurfs, sizeof(drawSurf_t) );
-#endif
 
 	// check for any pass through drawing, which
 	// may cause another view to be rendered first
@@ -1379,6 +1380,15 @@ void R_SortDrawSurfs( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 		// if the mirror was completely clipped away, we may need to check another surface
 		if ( R_MirrorViewBySurface( (drawSurfs+i), entityNum) ) {
+#ifdef _XBOX
+			static int s_xboxPortalLogCount = 0;
+			if (s_xboxPortalLogCount < 16)
+			{
+				XBLF("JA: R_SortDrawSurfs portal view rendered shader='%s' index=%d entity=%d",
+					shader ? shader->name : "<null>", i, entityNum);
+				++s_xboxPortalLogCount;
+			}
+#endif
 			// this is a debug option to see exactly what is being mirrored
 			if ( r_portalOnly->integer ) {
 				return;
@@ -1386,10 +1396,6 @@ void R_SortDrawSurfs( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			break;		// only one mirror view at a time
 		}
 	}
-
-#ifdef _XBOX
-	qsortFast (drawSurfs, numDrawSurfs, sizeof(drawSurf_t) );
-#endif
 
 	R_AddDrawSurfCmd( drawSurfs, numDrawSurfs );
 }
@@ -1576,23 +1582,23 @@ void R_DebugPolygon( int color, int numPoints, float *points ) {
 
 	// draw solid shade
 
-	qglColor3f( color&1, (color>>1)&1, (color>>2)&1 );
-	qglBegin( GL_POLYGON );
+	glColor3f( color&1, (color>>1)&1, (color>>2)&1 );
+	glBegin( GL_POLYGON );
 	for ( i = 0 ; i < numPoints ; i++ ) {
-		qglVertex3fv( points + i * 3 );
+		glVertex3fv( points + i * 3 );
 	}
-	qglEnd();
+	glEnd();
 
 	// draw wireframe outline
 	GL_State( GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
-	qglDepthRange( 0, 0 );
-	qglColor3f( 1, 1, 1 );
-	qglBegin( GL_POLYGON );
+	glDepthRange( 0, 0 );
+	glColor3f( 1, 1, 1 );
+	glBegin( GL_POLYGON );
 	for ( i = 0 ; i < numPoints ; i++ ) {
-		qglVertex3fv( points + i * 3 );
+		glVertex3fv( points + i * 3 );
 	}
-	qglEnd();
-	qglDepthRange( 0, 1 );
+	glEnd();
+	glDepthRange( 0, 1 );
 }
 
 /*

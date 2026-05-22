@@ -18,6 +18,15 @@
 #include "animtable.h"
 
 extern vmCvar_t	cg_debugHealthBars;
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+static int s_xboxCgPlayerLogCount = 0;
+static int s_xboxCgG2AnglesLogCount = 0;
+static int s_xboxCgNonLocalG2LogCount = 0;
+#define XBOX_CG_PLAYER_TRACE_LIMIT 64
+#define XBOX_CG_G2_TRACE_LIMIT 16
+#define XBOX_CG_NONLOCAL_G2_TRACE_LIMIT 0
+#endif
 /*
 
 player entities generate a great deal of information from implicit ques
@@ -1633,6 +1642,25 @@ static void CG_BreathPuffs( centity_t *cent, vec3_t angles, vec3_t origin )
 #define LOOK_DEFAULT_SPEED	0.15f
 #define LOOK_TALKING_SPEED	0.15f	
 
+static int CG_GetVoiceVolumeForCent( centity_t *cent )
+{
+	int entityVolume = 0;
+	int clientVolume = 0;
+	const int entityNum = cent ? cent->currentState.number : -1;
+	const int clientNum = (cent && cent->gent) ? cent->gent->s.clientNum : -1;
+
+	if (entityNum >= 0 && entityNum < MAX_GENTITIES)
+		entityVolume = gi.VoiceVolume[entityNum];
+
+	if (clientNum >= 0 && clientNum < MAX_GENTITIES)
+		clientVolume = gi.VoiceVolume[clientNum];
+
+	if (entityNum != clientNum && entityVolume)
+		return entityVolume;
+
+	return clientVolume;
+}
+
 static qboolean CG_CheckLookTarget( centity_t *cent, vec3_t	lookAngles, float *lookingSpeed )
 {
 	if ( !cent->gent->ghoul2.size() )
@@ -1737,7 +1765,7 @@ CG_AddHeadBob
 static qboolean CG_AddHeadBob( centity_t *cent, vec3_t addTo ) 
 {
 	renderInfo_t	*renderInfo	= &cent->gent->client->renderInfo;
-	const int		volume		= gi.VoiceVolume[cent->gent->s.clientNum];
+	const int		volume		= CG_GetVoiceVolumeForCent( cent );
 	const int		volChange	= volume - renderInfo->lastVoiceVolume;//was *3 because voice fromLA was too low
 	int				i;
 
@@ -1947,6 +1975,29 @@ static int				dummyHipsBolt;
 static void CG_G2ClientSpineAngles( centity_t *cent, vec3_t viewAngles, const vec3_t angles, vec3_t thoracicAngles, vec3_t ulAngles, vec3_t llAngles )
 {
 	vec3_t	motionBoneCorrectAngles = {0};
+#ifdef _XBOX
+	const bool xboxTraceNonLocal = (cent && cent->currentState.number != 0 && s_xboxCgNonLocalG2LogCount < XBOX_CG_NONLOCAL_G2_TRACE_LIMIT);
+	const bool xboxTraceLocal = (cent && cent->currentState.number == 0 && s_xboxCgG2AnglesLogCount < XBOX_CG_G2_TRACE_LIMIT);
+	const bool xboxLogG2Spine = xboxTraceNonLocal || xboxTraceLocal;
+	if (xboxLogG2Spine) {
+		XBLF("JA: CG_G2ClientSpineAngles enter ent=%d npc=%d motionComp=%d legs=%d torso=%d bones root=%d hips=%d motion=%d ul=%d ll=%d",
+			cent && cent->gent ? cent->gent->s.number : -1,
+			cent && cent->gent && cent->gent->client ? cent->gent->client->NPC_class : -1,
+			cg_motionBoneComp.integer,
+			cent ? cent->currentState.legsAnim : -1,
+			cent ? cent->currentState.torsoAnim : -1,
+			cent && cent->gent ? cent->gent->rootBone : -1,
+			cent && cent->gent ? cent->gent->hipsBone : -1,
+			cent && cent->gent ? cent->gent->motionBolt : -1,
+			cent && cent->gent ? cent->gent->upperLumbarBone : -1,
+			cent && cent->gent ? cent->gent->lowerLumbarBone : -1);
+		if (xboxTraceLocal) {
+			s_xboxCgG2AnglesLogCount++;
+		} else {
+			s_xboxCgNonLocalG2LogCount++;
+		}
+	}
+#endif
 	cent->pe.torso.pitchAngle = viewAngles[PITCH];
 	viewAngles[YAW] = AngleDelta( cent->lerpAngles[YAW], angles[YAW] );
 	cent->pe.torso.yawAngle = viewAngles[YAW];
@@ -2105,6 +2156,15 @@ static void CG_G2ClientSpineAngles( centity_t *cent, vec3_t viewAngles, const ve
 			ulAngles[PITCH] = llAngles[PITCH] = 0;
 		}
 	}
+#ifdef _XBOX
+	if (xboxLogG2Spine) {
+		XBLF("JA: CG_G2ClientSpineAngles before lumbar bones ent=%d badBones=%d ulBone=%d llBone=%d",
+			cent->currentState.number,
+			G_ClassHasBadBones( cent->gent->client->NPC_class ),
+			cent->gent->upperLumbarBone,
+			cent->gent->lowerLumbarBone);
+	}
+#endif
 	//thoracic is added modified again by neckAngle calculations, so don't set it until then
 	if ( G_ClassHasBadBones( cent->gent->client->NPC_class ) )
 	{
@@ -2115,15 +2175,44 @@ static void CG_G2ClientSpineAngles( centity_t *cent, vec3_t viewAngles, const ve
 			ulAngles[YAW] = ulAngles[ROLL] = 0.0f;
 		}
 		G_BoneOrientationsForClass( cent->gent->client->NPC_class, "upper_lumbar", &oUp, &oRt, &oFwd );
+#ifdef _XBOX
+		if (xboxLogG2Spine) {
+			XBLF("JA: CG_G2ClientSpineAngles badbones before upper BG_G2SetBoneAngles ent=%d bone=%d",
+				cent->currentState.number, cent->gent->upperLumbarBone);
+		}
+#endif
 		BG_G2SetBoneAngles( cent, cent->gent, cent->gent->upperLumbarBone, ulAngles, BONE_ANGLES_POSTMULT, oUp, oRt, oFwd, cgs.model_draw); 
 		G_BoneOrientationsForClass( cent->gent->client->NPC_class, "lower_lumbar", &oUp, &oRt, &oFwd );
+#ifdef _XBOX
+		if (xboxLogG2Spine) {
+			XBLF("JA: CG_G2ClientSpineAngles badbones before lower BG_G2SetBoneAngles ent=%d bone=%d",
+				cent->currentState.number, cent->gent->lowerLumbarBone);
+		}
+#endif
 		BG_G2SetBoneAngles( cent, cent->gent, cent->gent->lowerLumbarBone, llAngles, BONE_ANGLES_POSTMULT, oUp, oRt, oFwd, cgs.model_draw); 
 	}
 	else
 	{
+#ifdef _XBOX
+		if (xboxLogG2Spine) {
+			XBLF("JA: CG_G2ClientSpineAngles before upper BG_G2SetBoneAngles ent=%d bone=%d",
+				cent->currentState.number, cent->gent->upperLumbarBone);
+		}
+#endif
 		BG_G2SetBoneAngles( cent, cent->gent, cent->gent->upperLumbarBone, ulAngles, BONE_ANGLES_POSTMULT, POSITIVE_X, NEGATIVE_Y, NEGATIVE_Z, cgs.model_draw); 
+#ifdef _XBOX
+		if (xboxLogG2Spine) {
+			XBLF("JA: CG_G2ClientSpineAngles before lower BG_G2SetBoneAngles ent=%d bone=%d",
+				cent->currentState.number, cent->gent->lowerLumbarBone);
+		}
+#endif
 		BG_G2SetBoneAngles( cent, cent->gent, cent->gent->lowerLumbarBone, llAngles, BONE_ANGLES_POSTMULT, POSITIVE_X, NEGATIVE_Y, NEGATIVE_Z, cgs.model_draw); 
 	}
+#ifdef _XBOX
+	if (xboxLogG2Spine) {
+		XBLF("JA: CG_G2ClientSpineAngles exit ent=%d", cent->currentState.number);
+	}
+#endif
 }
 
 static void CG_G2ClientNeckAngles( centity_t *cent, const vec3_t lookAngles, vec3_t headAngles, vec3_t neckAngles, vec3_t thoracicAngles, vec3_t headClampMinAngles, vec3_t headClampMaxAngles )
@@ -2422,10 +2511,40 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 	//float		swing, scale;
 	//int			i;
 	qboolean	looking = qfalse, talking = qfalse;
+#ifdef _XBOX
+	const bool xboxTraceNonLocal = (cent && cent->currentState.number != 0 && s_xboxCgNonLocalG2LogCount < XBOX_CG_NONLOCAL_G2_TRACE_LIMIT);
+	const bool xboxTraceLocal = (cent && cent->currentState.number == 0 && s_xboxCgG2AnglesLogCount < XBOX_CG_G2_TRACE_LIMIT);
+	const bool xboxLogG2Angles = xboxTraceNonLocal || xboxTraceLocal;
+	if (xboxLogG2Angles) {
+		XBLF("JA: CG_G2PlayerAngles enter ent=%d gent=%p client=%p health=%d flags=0x%x npc=%d ghoul2=%d playerModel=%d hips=%d",
+			cent ? cent->currentState.number : -1,
+			cent ? cent->gent : NULL,
+			cent && cent->gent ? cent->gent->client : NULL,
+			cent && cent->gent ? cent->gent->health : -9999,
+			cent && cent->gent ? cent->gent->flags : 0,
+			cent && cent->gent && cent->gent->client ? cent->gent->client->NPC_class : -1,
+			cent && cent->gent ? cent->gent->ghoul2.size() : -1,
+			cent && cent->gent ? cent->gent->playerModel : -1,
+			cent && cent->gent ? cent->gent->hipsBone : -1);
+		if (xboxTraceLocal) {
+			s_xboxCgG2AnglesLogCount++;
+		} else {
+			s_xboxCgNonLocalG2LogCount++;
+		}
+	}
+#endif
 
 	if ( cent->gent 
 		&& (cent->gent->flags&FL_NO_ANGLES) )
 	{//flatten out all bone angles we might have been overriding
+#ifdef _XBOX
+		if (xboxLogG2Angles) {
+			XBLF("JA: CG_G2PlayerAngles FL_NO_ANGLES branch ent=%d flags=0x%x bones c=%d cv=%d th=%d ul=%d ll=%d",
+				cent->currentState.number, cent->gent->flags, cent->gent->craniumBone,
+				cent->gent->cervicalBone, cent->gent->thoracicBone,
+				cent->gent->upperLumbarBone, cent->gent->lowerLumbarBone);
+		}
+#endif
 		cent->lerpAngles[PITCH] = cent->lerpAngles[ROLL] = 0;
 		VectorCopy( cent->lerpAngles, angles );
 
@@ -2450,6 +2569,13 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 	// Dead entity
 	if ( cent->gent && cent->gent->health <= 0 )
 	{
+#ifdef _XBOX
+		if (xboxLogG2Angles) {
+			XBLF("JA: CG_G2PlayerAngles dead branch ent=%d health=%d hips=%d playerModel=%d",
+				cent->currentState.number, cent->gent->health, cent->gent->hipsBone,
+				cent->gent->playerModel);
+		}
+#endif
 		if ( cent->gent->hipsBone != -1 )
 		{
 			gi.G2API_StopBoneAnimIndex( &cent->gent->ghoul2[cent->gent->playerModel], cent->gent->hipsBone );
@@ -2495,6 +2621,18 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 
 		if ( cent->gent->client )
 		{
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles main branch ent=%d ground=%d pmFlags=0x%x legsAnim=%d velocity=%g,%g,%g",
+					cent->currentState.number,
+					cent->gent->client->ps.groundEntityNum,
+					cent->gent->client->ps.pm_flags,
+					cent->currentState.legsAnim,
+					cent->gent->client->ps.velocity[0],
+					cent->gent->client->ps.velocity[1],
+					cent->gent->client->ps.velocity[2]);
+			}
+#endif
 			if ( cent->gent->client->NPC_class != CLASS_ATST )
 			{
 				if ( !PM_SpinningSaberAnim( cent->currentState.legsAnim ) )
@@ -2584,6 +2722,14 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 			viewAngles[PITCH] *= 0.5;
 		}
 		VectorCopy( viewAngles, lookAngles );
+#ifdef _XBOX
+		if (xboxLogG2Angles) {
+			XBLF("JA: CG_G2PlayerAngles before cranium/turn/spine ent=%d angles=%g,%g,%g view=%g,%g,%g",
+				cent->currentState.number,
+				angles[0], angles[1], angles[2],
+				viewAngles[0], viewAngles[1], viewAngles[2]);
+		}
+#endif
 
 	//	if ( cent->gent && !Q_stricmp( "atst", cent->gent->NPC_type ) )
 		if ( cent->gent && cent->gent->client && cent->gent->client->NPC_class == CLASS_ATST )
@@ -2596,10 +2742,22 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 		{
 			if ( cg_turnAnims.integer && !in_camera && cent->gent->hipsBone >= 0 )
 			{
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles turnAnims before GetAnimRange ent=%d hips=%d",
+						cent->currentState.number, cent->gent->hipsBone);
+				}
+#endif
 				//override the hips bone with a turn anim when turning
 				//and clear it when we're not... does blend from and to parent actually work?
 				int startFrame, endFrame;
 				const qboolean animatingHips = gi.G2API_GetAnimRangeIndex( &cent->gent->ghoul2[cent->gent->playerModel], cent->gent->hipsBone, &startFrame, &endFrame );
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles turnAnims after GetAnimRange ent=%d animating=%d start=%d end=%d",
+						cent->currentState.number, animatingHips, startFrame, endFrame);
+				}
+#endif
 
 				//FIXME: make legs lag behind when turning in place, only play turn anim when legs have to catch up
 				if ( angles[YAW] == cent->pe.legs.yawAngle )
@@ -2633,7 +2791,17 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 				}
 			}
 
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles before CG_G2ClientSpineAngles ent=%d", cent->currentState.number);
+			}
+#endif
 			CG_G2ClientSpineAngles( cent, viewAngles, angles, thoracicAngles, ulAngles, llAngles );
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles after CG_G2ClientSpineAngles ent=%d", cent->currentState.number);
+			}
+#endif
 		}
 
 		vec3_t	trailingLegsAngles;
@@ -2685,6 +2853,13 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 		}
 		else
 		{
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles normal legs branch ent=%d peYaw=%g anglesYaw=%g psFlags=0x%x ground=%d",
+					cent->currentState.number, cent->pe.legs.yawAngle, angles[YAW],
+					cent->gent->client->ps.eFlags, cent->gent->client->ps.groundEntityNum);
+			}
+#endif
 
 			//set the legs.yawing field so we play the turning anim when turning in place
 			if ( angles[YAW] == cent->pe.legs.yawAngle )
@@ -2733,6 +2908,12 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 			}
 			AnglesToAxis( angles, legs );
 		}
+#ifdef _XBOX
+		if (xboxLogG2Angles) {
+			XBLF("JA: CG_G2PlayerAngles before look/neck ent=%d npc=%d",
+				cent->currentState.number, cent->gent->client->NPC_class);
+		}
+#endif
 
 		//clamp relative to forward of cervical bone!
 		if ( cent->gent && cent->gent->client && cent->gent->client->NPC_class == CLASS_ATST )
@@ -2744,9 +2925,39 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 		{
 			//look at lookTarget!
 			float	lookingSpeed = 0.3f;
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles before CG_CheckLookTarget ent=%d lookTarget=%d lookMode=%d eye=%g,%g,%g",
+					cent->currentState.number,
+					cent->gent->client->renderInfo.lookTarget,
+					cent->gent->client->renderInfo.lookMode,
+					cent->gent->client->renderInfo.eyePoint[0],
+					cent->gent->client->renderInfo.eyePoint[1],
+					cent->gent->client->renderInfo.eyePoint[2]);
+			}
+#endif
 			looking = CG_CheckLookTarget( cent, lookAngles, &lookingSpeed );
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles after CG_CheckLookTarget ent=%d looking=%d speed=%g look=%g,%g,%g",
+					cent->currentState.number, looking, lookingSpeed,
+					lookAngles[0], lookAngles[1], lookAngles[2]);
+			}
+#endif
 			//Now add head bob when talking
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles before CG_AddHeadBob ent=%d voicePtr=%p clientNum=%d",
+					cent->currentState.number, gi.VoiceVolume, cent->gent->s.clientNum);
+			}
+#endif
 			talking = CG_AddHeadBob( cent, lookAngles );
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles after CG_AddHeadBob ent=%d talking=%d look=%g,%g,%g",
+					cent->currentState.number, talking, lookAngles[0], lookAngles[1], lookAngles[2]);
+			}
+#endif
 
 			//NOTE: previously, lookAngleSpeed was always 0.25f for the player
 			//Figure out how fast head should be turning
@@ -2788,7 +2999,22 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 			{//always use the viewAngles we calced
 				VectorCopy( viewAngles, lookAngles );
 			}
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles before CG_UpdateLookAngles ent=%d debounce=%d cgtime=%d speed=%g",
+					cent->currentState.number,
+					cent->gent->client->renderInfo.lookingDebounceTime,
+					cg.time,
+					lookAngleSpeed);
+			}
+#endif
 			CG_UpdateLookAngles( cent, lookAngles, lookAngleSpeed, -50.0f, 50.0f, -70.0f, 70.0f, -30.0f, 30.0f );
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles after CG_UpdateLookAngles ent=%d look=%g,%g,%g",
+					cent->currentState.number, lookAngles[0], lookAngles[1], lookAngles[2]);
+			}
+#endif
 		}
 
 		if ( cent->gent && cent->gent->client && cent->gent->client->NPC_class == CLASS_ATST )
@@ -2801,13 +3027,33 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 		else
 		{
 			vec3_t headClampMinAngles = {-25,-55,-10}, headClampMaxAngles = {50,50,10};
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles before CG_G2ClientNeckAngles ent=%d look=%g,%g,%g",
+					cent->currentState.number, lookAngles[0], lookAngles[1], lookAngles[2]);
+			}
+#endif
 			CG_G2ClientNeckAngles( cent, lookAngles, headAngles, neckAngles, thoracicAngles, headClampMinAngles, headClampMaxAngles );
 		}
+#ifdef _XBOX
+		if (xboxLogG2Angles) {
+			XBLF("JA: CG_G2PlayerAngles return main ent=%d angles=%g,%g,%g",
+				cent->currentState.number, angles[0], angles[1], angles[2]);
+		}
+#endif
 		return;
 	}
 	// All other entities
 	else if ( cent->gent && cent->gent->client )
 	{
+#ifdef _XBOX
+		if (xboxLogG2Angles) {
+			XBLF("JA: CG_G2PlayerAngles other-client branch ent=%d npc=%d ground=%d flags=0x%x bones c=%d cv=%d th=%d",
+				cent->currentState.number, cent->gent->client->NPC_class,
+				cent->gent->client->ps.groundEntityNum, cent->gent->flags,
+				cent->gent->craniumBone, cent->gent->cervicalBone, cent->gent->thoracicBone);
+		}
+#endif
 		if ( (cent->gent->client->NPC_class == CLASS_PROBE ) 
 			|| (cent->gent->client->NPC_class == CLASS_R2D2 ) 
 			|| (cent->gent->client->NPC_class == CLASS_R5D2) 
@@ -2815,18 +3061,46 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 			|| (cent->gent->client->NPC_class == CLASS_WAMPA) 
 			|| (cent->gent->client->NPC_class == CLASS_ATST) )
 		{
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles droid branch enter ent=%d npc=%d velocity=%g,%g,%g lerpYaw=%g legsYaw=%g",
+					cent->currentState.number, cent->gent->client->NPC_class,
+					cent->gent->client->ps.velocity[0],
+					cent->gent->client->ps.velocity[1],
+					cent->gent->client->ps.velocity[2],
+					cent->lerpAngles[YAW], cent->pe.legs.yawAngle);
+			}
+#endif
 			VectorCopy( cent->lerpAngles, angles );
 			angles[PITCH] = 0;
 
 			//FIXME: use actual swing/clamp tolerances?
 			if ( cent->gent->client->ps.groundEntityNum != ENTITYNUM_NONE )
 			{//on the ground
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles droid before legs yaw moving ent=%d yaw=%g",
+						cent->currentState.number, angles[YAW]);
+				}
+#endif
 				CG_PlayerLegsYawFromMovement( cent, cent->gent->client->ps.velocity, &angles[YAW], cent->lerpAngles[YAW], -60, 60, qtrue );
 			}
 			else
 			{//face legs to front
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles droid before legs yaw stationary ent=%d yaw=%g",
+						cent->currentState.number, angles[YAW]);
+				}
+#endif
 				CG_PlayerLegsYawFromMovement( cent, vec3_origin, &angles[YAW], cent->lerpAngles[YAW], -60, 60, qtrue );
 			}
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles droid after legs yaw ent=%d yaw=%g",
+					cent->currentState.number, angles[YAW]);
+			}
+#endif
 
 			VectorCopy( cent->lerpAngles, viewAngles );
 //			viewAngles[YAW] = viewAngles[ROLL] = 0;
@@ -2884,7 +3158,24 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 			{	//look at lookTarget!
 				//FIXME: snaps to side when lets go of lookTarget... ?
 				float	lookingSpeed = 0.3f;
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles droid before CheckLookTarget ent=%d target=%d mode=%d eye=%g,%g,%g",
+						cent->currentState.number,
+						cent->gent->client->renderInfo.lookTarget,
+						cent->gent->client->renderInfo.lookMode,
+						cent->gent->client->renderInfo.eyePoint[0],
+						cent->gent->client->renderInfo.eyePoint[1],
+						cent->gent->client->renderInfo.eyePoint[2]);
+				}
+#endif
 				looking = CG_CheckLookTarget( cent, lookAngles, &lookingSpeed );
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles droid after CheckLookTarget ent=%d looking=%d lookYaw=%g speed=%g",
+						cent->currentState.number, looking, lookAngles[YAW], lookingSpeed);
+				}
+#endif
 				lookAngles[PITCH] = lookAngles[ROLL] = 0;//droids can't pitch or roll their heads
 				if ( looking )
 				{//want to keep doing this lerp behavior for a full second after stopped looking (so don't snap)
@@ -2935,8 +3226,20 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 			}
 			else
 			{
+#ifdef _XBOX
+				if (xboxLogG2Angles) {
+					XBLF("JA: CG_G2PlayerAngles droid before cranium BG_G2SetBoneAngles ent=%d bone=%d look=%g,%g,%g",
+						cent->currentState.number, cent->gent->craniumBone,
+						lookAngles[0], lookAngles[1], lookAngles[2]);
+				}
+#endif
 				BG_G2SetBoneAngles( cent, cent->gent, cent->gent->craniumBone, lookAngles, BONE_ANGLES_POSTMULT, POSITIVE_X, NEGATIVE_Y, NEGATIVE_Z, cgs.model_draw); 
 			}
+#ifdef _XBOX
+			if (xboxLogG2Angles) {
+				XBLF("JA: CG_G2PlayerAngles droid branch exit ent=%d", cent->currentState.number);
+			}
+#endif
 			//return;
 		}
 		else//if ( (cent->gent->client->NPC_class == CLASS_GONK ) || (cent->gent->client->NPC_class == CLASS_INTERROGATOR) || (cent->gent->client->NPC_class == CLASS_SENTRY) )
@@ -5109,21 +5412,50 @@ static qboolean CG_G2PlayerHeadAnims( centity_t *cent )
 		}
 		
 
-		if (gi.VoiceVolume[cent->gent->s.clientNum] > 0)	// if we aren't talking, then it will be 0, -1 for talking but paused
+		int voiceVolume = CG_GetVoiceVolumeForCent( cent );
+#ifdef _XBOX
 		{
-			anim = FACE_TALK1 + gi.VoiceVolume[cent->gent->s.clientNum] -1;
+			static int s_xboxFaceVoiceLogs = 0;
+			static int s_xboxLastFaceVoice[MAX_GENTITIES];
+			static qboolean s_xboxFaceVoiceInit = qfalse;
+			if (!s_xboxFaceVoiceInit)
+			{
+				memset(s_xboxLastFaceVoice, 0x7f, sizeof(s_xboxLastFaceVoice));
+				s_xboxFaceVoiceInit = qtrue;
+			}
+			if (s_xboxFaceVoiceLogs < 64 &&
+				cent->currentState.number >= 0 &&
+				cent->currentState.number < MAX_GENTITIES &&
+				s_xboxLastFaceVoice[cent->currentState.number] != voiceVolume)
+			{
+				Com_Printf("JA: CG_G2PlayerHeadAnims voice ent=%d client=%d vol=%d entVol=%d clientVol=%d health=%d\n",
+					cent->currentState.number,
+					cent->gent->s.clientNum,
+					voiceVolume,
+					(cent->currentState.number >= 0 && cent->currentState.number < MAX_GENTITIES) ? gi.VoiceVolume[cent->currentState.number] : -999,
+					(cent->gent->s.clientNum >= 0 && cent->gent->s.clientNum < MAX_GENTITIES) ? gi.VoiceVolume[cent->gent->s.clientNum] : -999,
+					cent->gent->health);
+				s_xboxLastFaceVoice[cent->currentState.number] = voiceVolume;
+				++s_xboxFaceVoiceLogs;
+			}
+		}
+#endif
+
+		if (voiceVolume > 0)	// if we aren't talking, then it will be 0, -1 for talking but paused
+		{
+			anim = FACE_TALK1 + voiceVolume -1;
 			cent->gent->client->facial_timer = cg.time + Q_flrand(2000.0, 7000.0);
 			if ( cent->gent->client->breathPuffTime > cg.time + 300 )
 			{//when talking, do breath puff
 				cent->gent->client->breathPuffTime = cg.time;
 			} 
 		}
-		else if (gi.VoiceVolume[cent->gent->s.clientNum] == -1 )
+		else if (voiceVolume == -1 )
 		{//talking but silent
 			anim = FACE_TALK0;
 			cent->gent->client->facial_timer = cg.time + Q_flrand(2000.0, 7000.0);
 		}
-		else if (gi.VoiceVolume[cent->gent->s.clientNum] == 0)	//don't do aux if in a slient part of speech
+		else if (voiceVolume == 0)	//don't do aux if in a slient part of speech
 		{//not talking
 			if (cent->gent->client->facial_timer < 0)	// are we auxing ?
 			{	//yes
@@ -5839,8 +6171,23 @@ static void CG_AddSaberBladeGo( centity_t *cent, centity_t *scent, refEntity_t *
 
 	gclient_s *client = cent->gent->client;
 
+#ifdef _XBOX
+	if ( cent && cent->gent && cent->currentState.number == 0 )
+	{
+		XBLF("JA: CG_AddSaberBladeGo enter ent=%d scent=%p saber=%p renderfx=0x%x modelIndex=%d saber=%d blade=%d ghoul2=%d playerModel=%d weaponModel=%d",
+			cent->currentState.number, scent, saber, renderfx, modelIndex, saberNum, bladeNum,
+			cent->gent->ghoul2.size(), cent->gent->playerModel, cent->gent->weaponModel[saberNum]);
+	}
+#endif
+
 	if ( !client )
 	{
+#ifdef _XBOX
+		if ( cent && cent->currentState.number == 0 )
+		{
+			XBLF("JA: CG_AddSaberBladeGo early return no client ent=%d", cent->currentState.number);
+		}
+#endif
 		return;
 	}
 /*
@@ -5855,6 +6202,15 @@ Ghoul2 Insert Start
 			scent->gent->ghoul2.size() <= modelIndex ||
 			scent->gent->ghoul2[modelIndex].mModelindex == -1 )
 		{
+#ifdef _XBOX
+			if ( cent && cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_AddSaberBladeGo validation return ent=%d scent=%p modelIndex=%d scentGhoul2=%d mModel=%d",
+					cent->currentState.number, scent, modelIndex,
+					(scent && scent->gent) ? scent->gent->ghoul2.size() : -1,
+					(scent && scent->gent && modelIndex >= 0 && scent->gent->ghoul2.size() > modelIndex) ? scent->gent->ghoul2[modelIndex].mModelindex : -999);
+			}
+#endif
 			return;
 		}
 
@@ -5905,6 +6261,14 @@ Ghoul2 Insert Start
 			char *tagName = va( "*blade%d", bladeNum+1 );
 			bolt = gi.G2API_AddBolt( &scent->gent->ghoul2[modelIndex], tagName );
 
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_AddSaberBladeGo AddBolt tag=%s bolt=%d ent=%d modelIndex=%d",
+					tagName, bolt, cent->currentState.number, modelIndex);
+			}
+#endif
+
 			if ( bolt == -1 )
 			{
 				tagHack = qtrue;//use the hacked switch statement below to position and orient the blades
@@ -5915,6 +6279,13 @@ Ghoul2 Insert Start
 					bolt = 0;
 				}
 			}
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_AddSaberBladeGo before saber GetBoltMatrix ent=%d modelIndex=%d bolt=%d tagHack=%d origin=%g,%g,%g",
+					cent->currentState.number, modelIndex, bolt, tagHack, origin[0], origin[1], origin[2]);
+			}
+#endif
 			gi.G2API_GetBoltMatrix(scent->gent->ghoul2, modelIndex, bolt, &boltMatrix, angles, origin, cg.time, cgs.model_draw, scent->currentState.modelScale);
 
 			// work the matrix axis stuff into the original axis and origins used.
@@ -5922,6 +6293,13 @@ Ghoul2 Insert Start
 			gi.G2API_GiveMeVectorFromMatrix(boltMatrix, NEGATIVE_X, axis_[0]);//front (was NEGATIVE_Y, but the md3->glm exporter screws up this tag somethin' awful)
 			gi.G2API_GiveMeVectorFromMatrix(boltMatrix, NEGATIVE_Y, axis_[1]);//right
 			gi.G2API_GiveMeVectorFromMatrix(boltMatrix, POSITIVE_Z, axis_[2]);//up
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_AddSaberBladeGo after saber GetBoltMatrix ent=%d org=%g,%g,%g axis0=%g,%g,%g",
+					cent->currentState.number, org_[0], org_[1], org_[2], axis_[0][0], axis_[0][1], axis_[0][2]);
+			}
+#endif
 		}
 
 		//Now figure out where this info will be next frame
@@ -6195,6 +6573,15 @@ Ghoul2 Insert End
 		length = cent->gent->client->ps.saber[saberNum].blade[bladeNum].length;
 	}
 	VectorMA( org_, length, axis_[0], end );
+#ifdef _XBOX
+	if ( cent->currentState.number == 0 )
+	{
+		XBLF("JA: CG_AddSaberBladeGo before root trace ent=%d saber=%d blade=%d length=%g max=%g org=%g,%g,%g end=%g,%g,%g inFlight=%d",
+			cent->currentState.number, saberNum, bladeNum, length,
+			cent->gent->client->ps.saber[saberNum].blade[bladeNum].lengthMax,
+			org_[0], org_[1], org_[2], end[0], end[1], end[2], cent->gent->client->ps.saberInFlight);
+	}
+#endif
 
 	// Now store where the saber will be after next frame.
 	//VectorCopy(org_future, cent->gent->client->renderInfo.muzzlePointNext);
@@ -6224,6 +6611,13 @@ Ghoul2 Insert End
 		}
 		gi.trace( &trace, rootOrigin, NULL, NULL, cent->gent->client->ps.saber[saberNum].blade[bladeNum].muzzlePoint, cent->currentState.number, CONTENTS_SOLID );
 	}
+#ifdef _XBOX
+	if ( cent->currentState.number == 0 )
+	{
+		XBLF("JA: CG_AddSaberBladeGo after root trace ent=%d frac=%g contents=0x%x entity=%d",
+			cent->currentState.number, trace.fraction, trace.contents, trace.entityNum);
+	}
+#endif
 
 	if ( trace.fraction < 1.0f )
 	{
@@ -6730,11 +7124,32 @@ Ghoul2 Insert Start
 			ent.renderfx |= RF_MORELIGHT;			//bigger than normal min light
 		}
 
+	#ifdef _XBOX
+		const bool xboxLogPlayer = (s_xboxCgPlayerLogCount < XBOX_CG_PLAYER_TRACE_LIMIT);
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player before early RegisterWeapon ent=%d weapon=%d gent=%p client=%p eFlags=0x%x",
+				cent->currentState.number, cent->currentState.weapon, cent->gent,
+				cent->gent ? cent->gent->client : NULL, cent->currentState.eFlags);
+			s_xboxCgPlayerLogCount++;
+		}
+	#endif
 		CG_RegisterWeapon( cent->currentState.weapon );
+	#ifdef _XBOX
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player after early RegisterWeapon ent=%d weapon=%d", cent->currentState.number, cent->currentState.weapon);
+		}
+	#endif
 
 //---------------
-		Vehicle_t *pVeh;
+		Vehicle_t *pVeh = NULL;
 
+	#ifdef _XBOX
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player before locked/vehicle branch ent=%d eFlags=0x%x vehicleNum=%d",
+				cent->currentState.number, cent->currentState.eFlags,
+				cent->gent && cent->gent->client ? cent->gent->s.m_iVehicleNum : -1);
+		}
+	#endif
 		if ( cent->currentState.eFlags & EF_LOCKED_TO_WEAPON && cent->gent && cent->gent->health > 0 && cent->gent->owner )
 		{
 			centity_t	*chair = &cg_entities[cent->gent->owner->s.number];
@@ -6812,11 +7227,64 @@ Ghoul2 Insert Start
 	//			VectorMA( cent->gent->client->renderInfo.eyePoint, 40, chair->gent->pos4, cent->gent->client->renderInfo.eyePoint );
 			}
 		}
-		else if ( ( pVeh = G_IsRidingVehicle( cent->gent ) ) != NULL )
+		else
+		{
+			pVeh = NULL;
+			if (cent->gent && cent->gent->client && cent->gent->client->NPC_class != CLASS_VEHICLE)
+			{
+				const int vehicleNum = cent->gent->s.m_iVehicleNum;
+				if (vehicleNum > 0 && vehicleNum < MAX_GENTITIES)
+				{
+	#ifdef _XBOX
+					if (xboxLogPlayer) {
+						XBLF("JA: CG_Player before G_IsRidingVehicle ent=%d vehicleNum=%d",
+							cent->currentState.number, vehicleNum);
+					}
+	#endif
+					pVeh = G_IsRidingVehicle( cent->gent );
+	#ifdef _XBOX
+					if (xboxLogPlayer) {
+						XBLF("JA: CG_Player after G_IsRidingVehicle ent=%d pVeh=%p",
+							cent->currentState.number, pVeh);
+					}
+	#endif
+				}
+				else if (vehicleNum != 0)
+				{
+	#ifdef _XBOX
+					if (xboxLogPlayer) {
+						XBLF("JA: CG_Player invalid vehicleNum ent=%d vehicleNum=%d, skipping vehicle path",
+							cent->currentState.number, vehicleNum);
+					}
+	#endif
+				}
+			}
+		}
+		if ( pVeh != NULL )
 		{//rider
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player rider path before CG_G2PlayerAngles ent=%d", cent->currentState.number);
+			}
+	#endif
 			CG_G2PlayerAngles( cent, ent.axis, tempAngles);
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player rider path after CG_G2PlayerAngles ent=%d", cent->currentState.number);
+			}
+	#endif
 			//Deal with facial expressions
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player rider path before CG_G2PlayerHeadAnims ent=%d", cent->currentState.number);
+			}
+	#endif
 			CG_G2PlayerHeadAnims( cent );
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player rider path after CG_G2PlayerHeadAnims ent=%d", cent->currentState.number);
+			}
+	#endif
 
 			centity_t *vehEnt = &cg_entities[cent->gent->owner->s.number];
 			CG_CalcEntityLerpPositions( vehEnt );
@@ -6842,6 +7310,12 @@ Ghoul2 Insert Start
 		else if ( ( (cent->gent->client->ps.eFlags&EF_HELD_BY_RANCOR)||(cent->gent->client->ps.eFlags&EF_HELD_BY_WAMPA) )
 			&& cent->gent && cent->gent->activator )
 		{
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player held rancor/wampa path ent=%d psFlags=0x%x activator=%p",
+					cent->currentState.number, cent->gent->client->ps.eFlags, cent->gent->activator);
+			}
+	#endif
 			centity_t	*monster = &cg_entities[cent->gent->activator->s.number];
 			if ( monster && monster->gent && monster->gent->inuse && monster->gent->health > 0 )
 			{
@@ -6914,6 +7388,12 @@ Ghoul2 Insert Start
 			&& cent->gent 
 			&& cent->gent->activator )
 		{
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player held sand path ent=%d psFlags=0x%x activator=%p",
+					cent->currentState.number, cent->gent->client->ps.eFlags, cent->gent->activator);
+			}
+	#endif
 			centity_t	*sand_creature = &cg_entities[cent->gent->activator->s.number];
 			if ( sand_creature && sand_creature->gent )
 			{
@@ -6952,9 +7432,32 @@ Ghoul2 Insert Start
 		else
 		{
 //---------------		
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player normal path before CG_G2PlayerAngles ent=%d playerModel=%d ghoul2=%d modelScale=%g,%g,%g",
+					cent->currentState.number, cent->gent->playerModel, cent->gent->ghoul2.size(),
+					cent->currentState.modelScale[0], cent->currentState.modelScale[1], cent->currentState.modelScale[2]);
+			}
+	#endif
 			CG_G2PlayerAngles( cent, ent.axis, tempAngles);
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player normal path after CG_G2PlayerAngles ent=%d tempYaw=%g",
+					cent->currentState.number, tempAngles[YAW]);
+			}
+	#endif
 			//Deal with facial expressions
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player normal path before CG_G2PlayerHeadAnims ent=%d", cent->currentState.number);
+			}
+	#endif
 			CG_G2PlayerHeadAnims( cent );
+	#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player normal path after CG_G2PlayerHeadAnims ent=%d", cent->currentState.number);
+			}
+	#endif
 			
 			/*
 			if ( cent->gent->client->ps.eFlags & EF_FORCE_DRAINED 
@@ -6980,7 +7483,18 @@ Ghoul2 Insert Start
 		{
 			cent->gent->client->ps.legsYaw = tempAngles[YAW];
 		}
+	#ifdef _XBOX
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player before ScaleModelAxis ent=%d origin=%g,%g,%g tempYaw=%g",
+				cent->currentState.number, ent.origin[0], ent.origin[1], ent.origin[2], tempAngles[YAW]);
+		}
+	#endif
 		ScaleModelAxis(&ent);
+	#ifdef _XBOX
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player after ScaleModelAxis ent=%d", cent->currentState.number);
+		}
+	#endif
 
 //HACK - add swoop model
 		/*
@@ -7030,7 +7544,18 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				CG_AddHealthBarEnt( cent->currentState.clientNum );
 			} 
 		}
+	#ifdef _XBOX
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player before AddRef body ent=%d hModel=%d renderfx=0x%x powerups=0x%x",
+				cent->currentState.number, ent.hModel, ent.renderfx, cent->currentState.powerups);
+		}
+	#endif
 		CG_AddRefEntityWithPowerups( &ent, cent->currentState.powerups, cent );
+	#ifdef _XBOX
+		if (xboxLogPlayer) {
+			XBLF("JA: CG_Player after AddRef body ent=%d", cent->currentState.number);
+		}
+	#endif
 		VectorCopy( tempAngles, cent->renderAngles );
 
 		//Initialize all these to *some* valid data
@@ -7064,35 +7589,97 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 		if ( cent->gent->handRBolt != -1 )
 		{
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player before handR bolt ent=%d model=%d ghoul2=%d bolt=%d origin=%g,%g,%g scale=%g,%g,%g",
+					cent->currentState.number, cent->gent->playerModel, cent->gent->ghoul2.size(), cent->gent->handRBolt,
+					ent.origin[0], ent.origin[1], ent.origin[2],
+					cent->currentState.modelScale[0], cent->currentState.modelScale[1], cent->currentState.modelScale[2]);
+			}
+#endif
 			//Get handRPoint		
 			gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->handRBolt, 
 							&boltMatrix, G2Angles, ent.origin, cg.time, 
 							cgs.model_draw, cent->currentState.modelScale );
 			gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.handRPoint );
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player after handR bolt ent=%d point=%g,%g,%g",
+					cent->currentState.number,
+					cent->gent->client->renderInfo.handRPoint[0],
+					cent->gent->client->renderInfo.handRPoint[1],
+					cent->gent->client->renderInfo.handRPoint[2]);
+			}
+#endif
 		}
 		if ( cent->gent->handLBolt != -1 )
 		{
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player before handL bolt ent=%d model=%d ghoul2=%d bolt=%d",
+					cent->currentState.number, cent->gent->playerModel, cent->gent->ghoul2.size(), cent->gent->handLBolt);
+			}
+#endif
 			//always get handLPoint too...?
 			gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->handLBolt, 
 							&boltMatrix, G2Angles, ent.origin, cg.time, 
 							cgs.model_draw, cent->currentState.modelScale );
 			gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.handLPoint );
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player after handL bolt ent=%d point=%g,%g,%g",
+					cent->currentState.number,
+					cent->gent->client->renderInfo.handLPoint[0],
+					cent->gent->client->renderInfo.handLPoint[1],
+					cent->gent->client->renderInfo.handLPoint[2]);
+			}
+#endif
 		}
 		if ( cent->gent->footLBolt != -1 )
 		{
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player before footL bolt ent=%d model=%d ghoul2=%d bolt=%d",
+					cent->currentState.number, cent->gent->playerModel, cent->gent->ghoul2.size(), cent->gent->footLBolt);
+			}
+#endif
 			//get the feet
 			gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->footLBolt, 
 							&boltMatrix, G2Angles, ent.origin, cg.time, 
 							cgs.model_draw, cent->currentState.modelScale );
 			gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.footLPoint );
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player after footL bolt ent=%d point=%g,%g,%g",
+					cent->currentState.number,
+					cent->gent->client->renderInfo.footLPoint[0],
+					cent->gent->client->renderInfo.footLPoint[1],
+					cent->gent->client->renderInfo.footLPoint[2]);
+			}
+#endif
 		}
 		
 		if ( cent->gent->footRBolt != -1 )
 		{
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player before footR bolt ent=%d model=%d ghoul2=%d bolt=%d",
+					cent->currentState.number, cent->gent->playerModel, cent->gent->ghoul2.size(), cent->gent->footRBolt);
+			}
+#endif
 			gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->footRBolt, 
 							&boltMatrix, G2Angles, ent.origin, cg.time, 
 							cgs.model_draw, cent->currentState.modelScale );
 			gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.footRPoint );
+#ifdef _XBOX
+			if (xboxLogPlayer) {
+				XBLF("JA: CG_Player after footR bolt ent=%d point=%g,%g,%g",
+					cent->currentState.number,
+					cent->gent->client->renderInfo.footRPoint[0],
+					cent->gent->client->renderInfo.footRPoint[1],
+					cent->gent->client->renderInfo.footRPoint[2]);
+			}
+#endif
 		}
 
 		//Handle saber
@@ -7107,15 +7694,68 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			{
 				numSabers = 2;
 			}
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player saber block enter ent=%d weapon=%d inFlight=%d dual=%d numSabers=%d class=%d flags=0x%x health=%d weaponTime=%d weaponState=%d saberEntity=%d model0=%d model1=%d blades0=%d blades1=%d",
+					cent->currentState.number, cent->currentState.weapon, cent->gent->client->ps.saberInFlight,
+					cent->gent->client->ps.dualSabers, numSabers, cent->gent->client->NPC_class,
+					cent->gent->client->ps.saberEventFlags, cent->gent->client->ps.stats[STAT_HEALTH],
+					cent->gent->client->ps.weaponTime, cent->gent->client->ps.weaponstate,
+					cent->gent->client->ps.saberEntityNum, cent->gent->weaponModel[0], cent->gent->weaponModel[1],
+					cent->gent->client->ps.saber[0].numBlades, cent->gent->client->ps.saber[1].numBlades);
+			}
+#endif
 			for ( int saberNum = 0; saberNum < numSabers; saberNum++ )
 			{
 				if ( cent->gent->client->ps.saberEventFlags&SEF_INWATER )
 				{
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player saber before Deactivate ent=%d saber=%d flags=0x%x",
+							cent->currentState.number, saberNum, cent->gent->client->ps.saberEventFlags);
+					}
+#endif
 					cent->gent->client->ps.saber[saberNum].Deactivate();
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player saber after Deactivate ent=%d saber=%d blades=%d len0=%g active0=%d",
+							cent->currentState.number, saberNum,
+							cent->gent->client->ps.saber[saberNum].numBlades,
+							cent->gent->client->ps.saber[saberNum].blade[0].length,
+							cent->gent->client->ps.saber[saberNum].blade[0].active);
+					}
+#endif
 				}
 				//loop this and do for both blades
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player saber loop ent=%d saber=%d numBlades=%d type=%d len0=%g max0=%g active0=%d color0=%d",
+						cent->currentState.number, saberNum,
+						cent->gent->client->ps.saber[saberNum].numBlades,
+						cent->gent->client->ps.saber[saberNum].type,
+						cent->gent->client->ps.saber[saberNum].blade[0].length,
+						cent->gent->client->ps.saber[saberNum].blade[0].lengthMax,
+						cent->gent->client->ps.saber[saberNum].blade[0].active,
+						cent->gent->client->ps.saber[saberNum].blade[0].color);
+				}
+#endif
 				for ( int bladeNum = 0; bladeNum < cent->gent->client->ps.saber[saberNum].numBlades; bladeNum++ )
 				{
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player saber blade enter ent=%d saber=%d blade=%d active=%d length=%g max=%g radius=%g",
+							cent->currentState.number, saberNum, bladeNum,
+							cent->gent->client->ps.saber[saberNum].blade[bladeNum].active,
+							cent->gent->client->ps.saber[saberNum].blade[bladeNum].length,
+							cent->gent->client->ps.saber[saberNum].blade[bladeNum].lengthMax,
+							cent->gent->client->ps.saber[saberNum].blade[bladeNum].radius);
+					}
+#endif
 					if ( !cent->gent->client->ps.saber[saberNum].blade[bladeNum].active || 
 						cent->gent->client->ps.saber[saberNum].blade[bladeNum].length > cent->gent->client->ps.saber[saberNum].blade[bladeNum].lengthMax )//hack around network lag for now
 					{//saber blade is off
@@ -7198,7 +7838,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 					if ( cent->gent->client->ps.saber[saberNum].blade[bladeNum].length > 0 )
 					{
-						if ( !cent->gent->client->ps.saberInFlight || saberNum != 0 )//&& cent->gent->client->ps.saberActive)
+							if ( !cent->gent->client->ps.saberInFlight || saberNum != 0 )//&& cent->gent->client->ps.saberActive)
 						{//holding the saber in-hand
 		//						CGhoul2Info *currentModel = &cent->gent->ghoul2[1]; 
 		//						CGhoul2Info *nextModel = &cent->gent->ghoul2[1]; 
@@ -7208,20 +7848,76 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 							if ( saberNum == 0 )
 							{
 								//this returns qfalse if it doesn't exist or isn't being rendered
+#ifdef _XBOX
+								if ( cent->currentState.number == 0 )
+								{
+									XBLF("JA: CG_Player saber before root surf ent=%d saber=%d blade=%d surf=r_hand weaponModel=%d",
+										cent->currentState.number, saberNum, bladeNum, cent->gent->weaponModel[saberNum]);
+								}
+#endif
 								if ( G_GetRootSurfNameWithVariant( cent->gent, "r_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
 								{
+#ifdef _XBOX
+									if ( cent->currentState.number == 0 )
+									{
+										XBLF("JA: CG_Player saber root surf yes ent=%d hand=%s before AddSaberBladeGo",
+											cent->currentState.number, handName);
+									}
+#endif
 									CG_AddSaberBladeGo( cent, cent, NULL, ent.renderfx, cent->gent->weaponModel[saberNum], ent.origin, tempAngles, saberNum, bladeNum );
+#ifdef _XBOX
+									if ( cent->currentState.number == 0 )
+									{
+										XBLF("JA: CG_Player saber after AddSaberBladeGo ent=%d saber=%d blade=%d",
+											cent->currentState.number, saberNum, bladeNum);
+									}
+#endif
 									//CG_AddSaberBlades( cent, ent.renderfx, ent.origin, tempAngles, saberNum );
 								}//else, the limb will draw the blade itself
+#ifdef _XBOX
+								else if ( cent->currentState.number == 0 )
+								{
+									XBLF("JA: CG_Player saber root surf no ent=%d surf=r_hand",
+										cent->currentState.number);
+								}
+#endif
 							}
 							else if ( saberNum == 1 )
 							{
 								//this returns qfalse if it doesn't exist or isn't being rendered
+#ifdef _XBOX
+								if ( cent->currentState.number == 0 )
+								{
+									XBLF("JA: CG_Player saber before root surf ent=%d saber=%d blade=%d surf=l_hand weaponModel=%d",
+										cent->currentState.number, saberNum, bladeNum, cent->gent->weaponModel[saberNum]);
+								}
+#endif
 								if ( G_GetRootSurfNameWithVariant( cent->gent, "l_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "l_hand" ) )//surf is still on
 								{
+#ifdef _XBOX
+									if ( cent->currentState.number == 0 )
+									{
+										XBLF("JA: CG_Player saber root surf yes ent=%d hand=%s before AddSaberBladeGo",
+											cent->currentState.number, handName);
+									}
+#endif
 									CG_AddSaberBladeGo( cent, cent, NULL, ent.renderfx, cent->gent->weaponModel[saberNum], ent.origin, tempAngles, saberNum, bladeNum );
+#ifdef _XBOX
+									if ( cent->currentState.number == 0 )
+									{
+										XBLF("JA: CG_Player saber after AddSaberBladeGo ent=%d saber=%d blade=%d",
+											cent->currentState.number, saberNum, bladeNum);
+									}
+#endif
 									//CG_AddSaberBlades( cent, ent.renderfx, ent.origin, tempAngles, saberNum );
 								}//else, the limb will draw the blade itself
+#ifdef _XBOX
+								else if ( cent->currentState.number == 0 )
+								{
+									XBLF("JA: CG_Player saber root surf no ent=%d surf=l_hand",
+										cent->currentState.number);
+								}
+#endif
 							}
 						}//in-flight saber draws it's own blade
 					}
@@ -7233,7 +7929,21 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 						}
 						//if ( cent->gent->client->ps.saberEventFlags&SEF_INWATER )
 						{
+#ifdef _XBOX
+							if ( cent->currentState.number == 0 )
+							{
+								XBLF("JA: CG_Player saber before CheckSaberInWater ent=%d saber=%d blade=%d weaponModel=%d",
+									cent->currentState.number, saberNum, bladeNum, cent->gent->weaponModel[saberNum]);
+							}
+#endif
 							CG_CheckSaberInWater( cent, cent, cent->gent->weaponModel[saberNum], ent.origin, tempAngles );
+#ifdef _XBOX
+							if ( cent->currentState.number == 0 )
+							{
+								XBLF("JA: CG_Player saber after CheckSaberInWater ent=%d saber=%d blade=%d flags=0x%x",
+									cent->currentState.number, saberNum, bladeNum, cent->gent->client->ps.saberEventFlags);
+							}
+#endif
 						}
 					}
 					if ( cent->currentState.weapon == WP_SABER 
@@ -7244,6 +7954,16 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				}
 			}
 			//add the light
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player saber before light ent=%d dual=%d len0=%g blades0=%d len1=%g blades1=%d inFlight=%d",
+					cent->currentState.number, cent->gent->client->ps.dualSabers,
+					cent->gent->client->ps.saber[0].Length(), cent->gent->client->ps.saber[0].numBlades,
+					cent->gent->client->ps.saber[1].Length(), cent->gent->client->ps.saber[1].numBlades,
+					cent->gent->client->ps.saberInFlight);
+			}
+#endif
 			if ( cent->gent->client->ps.dualSabers )
 			{
 				if ( cent->gent->client->ps.saber[0].Length() > 0.0f 
@@ -7251,14 +7971,38 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				{
 					if ( cent->gent->client->ps.saber[0].numBlades > 2 )
 					{// add blended light
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player saber before DoSaberLight ent=%d saber=0", cent->currentState.number);
+						}
+#endif
 						CG_DoSaberLight( &cent->gent->client->ps.saber[0] );
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player saber after DoSaberLight ent=%d saber=0", cent->currentState.number);
+						}
+#endif
 					}
 				}
 				if ( cent->gent->client->ps.saber[1].Length() > 0.0f )
 				{
 					if ( cent->gent->client->ps.saber[1].numBlades > 2 )
 					{// add blended light
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player saber before DoSaberLight ent=%d saber=1", cent->currentState.number);
+						}
+#endif
 						CG_DoSaberLight( &cent->gent->client->ps.saber[1] );
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player saber after DoSaberLight ent=%d saber=1", cent->currentState.number);
+						}
+#endif
 					}
 				}
 			}
@@ -7267,9 +8011,27 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			{
 				if ( cent->gent->client->ps.saber[0].numBlades > 2 )
 				{// add blended light
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player saber before DoSaberLight ent=%d saber=0 single", cent->currentState.number);
+					}
+#endif
 					CG_DoSaberLight( &cent->gent->client->ps.saber[0] );
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player saber after DoSaberLight ent=%d saber=0 single", cent->currentState.number);
+					}
+#endif
 				}
 			}
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player saber block exit ent=%d calcedMp=%d", cent->currentState.number, calcedMp);
+			}
+#endif
 		}
 
 		if ( cent->currentState.number != 0 
@@ -7278,6 +8040,15 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			|| ( !cg.renderingThirdPerson && (cg.snap->ps.weapon == WP_SABER||cg.snap->ps.weapon == WP_MELEE) )//First person saber
 			)
 		{//if NPC, third person, or dead, unless using saber
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player post-saber renderInfo enter ent=%d third=%d snapWeapon=%d health=%d head=%d chest=%d crotch=%d calcedMp=%d",
+					cent->currentState.number, cg.renderingThirdPerson, cg.snap->ps.weapon,
+					cg.snap->ps.stats[STAT_HEALTH], cent->gent->headBolt, cent->gent->chestBolt,
+					cent->gent->crotchBolt, calcedMp);
+			}
+#endif
 			//Get eyePoint & eyeAngles
 			/*
 			if ( cg.snap->ps.viewEntity > 0 
@@ -7291,12 +8062,26 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			else 
 			*/if ( cent->gent->headBolt == -1 )
 			{//no headBolt
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player renderInfo head fallback ent=%d", cent->currentState.number);
+				}
+#endif
 				VectorCopy( ent.origin, cent->gent->client->renderInfo.eyePoint );
 				VectorCopy( tempAngles, cent->gent->client->renderInfo.eyeAngles );
 				VectorCopy( ent.origin, cent->gent->client->renderInfo.headPoint );
 			}
 			else
 			{
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player before head GetBoltMatrix ent=%d model=%d bolt=%d origin=%g,%g,%g",
+						cent->currentState.number, cent->gent->playerModel, cent->gent->headBolt,
+						ent.origin[0], ent.origin[1], ent.origin[2]);
+				}
+#endif
 				//FIXME: if head is missing, we should let the dismembered head set our eyePoint...
 				gi.G2API_GetBoltMatrix(cent->gent->ghoul2, cent->gent->playerModel, cent->gent->headBolt, &boltMatrix, tempAngles, ent.origin, cg.time, cgs.model_draw, cent->currentState.modelScale );
 				gi.G2API_GiveMeVectorFromMatrix(boltMatrix, ORIGIN, cent->gent->client->renderInfo.eyePoint);
@@ -7315,28 +8100,82 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 				// Play the breath puffs (or not).
 				CG_BreathPuffs( cent, tempAngles, ent.origin );
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player after head GetBoltMatrix ent=%d eye=%g,%g,%g",
+						cent->currentState.number,
+						cent->gent->client->renderInfo.eyePoint[0],
+						cent->gent->client->renderInfo.eyePoint[1],
+						cent->gent->client->renderInfo.eyePoint[2]);
+				}
+#endif
 			}
 			//Get torsoPoint & torsoAngles
 			if (cent->gent->chestBolt>=0)
 			{
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player before chest GetBoltMatrix ent=%d bolt=%d", cent->currentState.number, cent->gent->chestBolt);
+				}
+#endif
 				gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->chestBolt, &boltMatrix, tempAngles, ent.origin, cg.time, cgs.model_draw, cent->currentState.modelScale );
 				gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.torsoPoint );
 				gi.G2API_GiveMeVectorFromMatrix( boltMatrix, NEGATIVE_Z, tempAxis );
 				vectoangles( tempAxis, cent->gent->client->renderInfo.torsoAngles );
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player after chest GetBoltMatrix ent=%d torso=%g,%g,%g",
+						cent->currentState.number,
+						cent->gent->client->renderInfo.torsoPoint[0],
+						cent->gent->client->renderInfo.torsoPoint[1],
+						cent->gent->client->renderInfo.torsoPoint[2]);
+				}
+#endif
 			}
 			else
 			{
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player renderInfo chest fallback ent=%d", cent->currentState.number);
+				}
+#endif
 				VectorCopy( ent.origin, cent->gent->client->renderInfo.torsoPoint);
 				VectorClear(cent->gent->client->renderInfo.torsoAngles);
 			}
 			//get crotchPoint
 			if (cent->gent->crotchBolt>=0)
 			{
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player before crotch GetBoltMatrix ent=%d bolt=%d", cent->currentState.number, cent->gent->crotchBolt);
+				}
+#endif
 				gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->crotchBolt, &boltMatrix, tempAngles, ent.origin, cg.time, cgs.model_draw, cent->currentState.modelScale );
 				gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.crotchPoint );
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player after crotch GetBoltMatrix ent=%d crotch=%g,%g,%g",
+						cent->currentState.number,
+						cent->gent->client->renderInfo.crotchPoint[0],
+						cent->gent->client->renderInfo.crotchPoint[1],
+						cent->gent->client->renderInfo.crotchPoint[2]);
+				}
+#endif
 			}
 			else
 			{
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player renderInfo crotch fallback ent=%d", cent->currentState.number);
+				}
+#endif
 				VectorCopy( ent.origin, cent->gent->client->renderInfo.crotchPoint);
 			}
 			//NOTE: these are used for any case where an NPC fires and the next shot needs to come out
@@ -7347,6 +8186,15 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 			if( !calcedMp )
 			{
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player muzzle calc enter ent=%d class=%d weapon=%d weaponModel0=%d weaponModel1=%d ghoul2=%d",
+						cent->currentState.number, cent->gent->client->NPC_class,
+						cent->gent->s.weapon, cent->gent->weaponModel[0], cent->gent->weaponModel[1],
+						cent->gent->ghoul2.size());
+				}
+#endif
 				if ( cent->gent && cent->gent->client && cent->gent->client->NPC_class == CLASS_ATST)
 				{//FIXME: different for the three different weapon positions
 					mdxaBone_t		boltMatrix;
@@ -7498,19 +8346,48 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 					( cent->gent->ghoul2.size() > cent->gent->weaponModel[0] ) &&
 					( cent->gent->ghoul2[cent->gent->weaponModel[0]].mModelindex != -1))
 				{
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player before weapon muzzle GetBoltMatrix ent=%d model=%d",
+							cent->currentState.number, cent->gent->weaponModel[0]);
+					}
+#endif
 					mdxaBone_t	boltMatrix;
 					// figure out where the actual model muzzle is
 					gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->weaponModel[0], 0, &boltMatrix, tempAngles, ent.origin, cg.time, cgs.model_draw, cent->currentState.modelScale );
 					// work the matrix axis stuff into the original axis and origins used.
 					gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.muzzlePoint );
 					gi.G2API_GiveMeVectorFromMatrix( boltMatrix, NEGATIVE_Y, cent->gent->client->renderInfo.muzzleDir );
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player after weapon muzzle GetBoltMatrix ent=%d muzzle=%g,%g,%g",
+							cent->currentState.number,
+							cent->gent->client->renderInfo.muzzlePoint[0],
+							cent->gent->client->renderInfo.muzzlePoint[1],
+							cent->gent->client->renderInfo.muzzlePoint[2]);
+					}
+#endif
 				}
 				else
 				{
+#ifdef _XBOX
+					if ( cent->currentState.number == 0 )
+					{
+						XBLF("JA: CG_Player muzzle fallback to eye ent=%d", cent->currentState.number);
+					}
+#endif
 					VectorCopy( cent->gent->client->renderInfo.eyePoint, cent->gent->client->renderInfo.muzzlePoint );
 					AngleVectors( cent->gent->client->renderInfo.eyeAngles, cent->gent->client->renderInfo.muzzleDir, NULL, NULL );
 				}
 				cent->gent->client->renderInfo.mPCalcTime = cg.time;
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player muzzle calc exit ent=%d mPCalcTime=%d", cent->currentState.number, cent->gent->client->renderInfo.mPCalcTime);
+				}
+#endif
 			}
 
 			// Draw Vehicle Muzzle Flashs.
@@ -7599,7 +8476,19 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 			if ( cent->gent->client && cent->gent->forcePushTime > cg.time )
 			{//being pushed
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player before ForcePushBodyBlur ent=%d", cent->currentState.number);
+				}
+#endif
 				CG_ForcePushBodyBlur( cent, ent.origin, tempAngles );
+#ifdef _XBOX
+				if ( cent->currentState.number == 0 )
+				{
+					XBLF("JA: CG_Player after ForcePushBodyBlur ent=%d", cent->currentState.number);
+				}
+#endif
 			}
 			
 			//This is now being done via an effect and the animevents.cfg
@@ -7702,11 +8591,35 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		//"refraction" effect -rww
 		if ( cent->gent->client->ps.powerups[PW_FORCE_PUSH] > cg.time )
 		{ 
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player before ForcePushRefraction L ent=%d", cent->currentState.number);
+			}
+#endif
 			CG_ForcePushRefraction(cent->gent->client->renderInfo.handLPoint, cent);
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player after ForcePushRefraction L ent=%d", cent->currentState.number);
+			}
+#endif
 		}
 		else if ( cent->gent->client->ps.powerups[PW_FORCE_PUSH_RHAND] > cg.time )
 		{
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player before ForcePushRefraction R ent=%d", cent->currentState.number);
+			}
+#endif
 			CG_ForcePushRefraction(cent->gent->client->renderInfo.handRPoint, cent);
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player after ForcePushRefraction R ent=%d", cent->currentState.number);
+			}
+#endif
 		}
 		else
 		{
@@ -7714,14 +8627,49 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		}
 
 		//bolted effects
+#ifdef _XBOX
+		if ( cent->currentState.number == 0 )
+		{
+			XBLF("JA: CG_Player before CG_BoltedEffects ent=%d", cent->currentState.number);
+		}
+#endif
 		CG_BoltedEffects( cent, ent.origin, tempAngles );
+#ifdef _XBOX
+		if ( cent->currentState.number == 0 )
+		{
+			XBLF("JA: CG_Player after CG_BoltedEffects ent=%d", cent->currentState.number);
+		}
+#endif
 		//As good a place as any, I suppose, to do this keyframed sound thing
+#ifdef _XBOX
+		if ( cent->currentState.number == 0 )
+		{
+			XBLF("JA: CG_Player before CGG2_AnimEvents ent=%d", cent->currentState.number);
+		}
+#endif
 		CGG2_AnimEvents( cent );
+#ifdef _XBOX
+		if ( cent->currentState.number == 0 )
+		{
+			XBLF("JA: CG_Player after CGG2_AnimEvents ent=%d", cent->currentState.number);
+		}
+#endif
 		//setup old system for gun to look at
 		//CG_RunLerpFrame( ci, &cent->pe.torso, cent->gent->client->ps.torsoAnim, cent->gent->client->renderInfo.torsoFpsMod, cent->gent->s.number );
 		if ( cent->gent && cent->gent->client && cent->gent->client->ps.weapon == WP_SABER )
 		{
 extern qboolean PM_KickingAnim( int anim );
+#ifdef _XBOX
+			if ( cent->currentState.number == 0 )
+			{
+				XBLF("JA: CG_Player saber damage branch ent=%d torsoAnim=%d debounce=%d time=%d timescale=%f",
+					cent->currentState.number,
+					cent->gent->client->ps.torsoAnim,
+					cent->gent->client->ps.saberDamageDebounceTime,
+					cg.time,
+					cg_timescale.value);
+			}
+#endif
 			if ( !PM_KickingAnim( cent->gent->client->ps.torsoAnim ) 
 				|| cent->gent->client->ps.torsoAnim == BOTH_A7_KICK_S )
 			{//not kicking (unless it's the spinning kick)
@@ -7738,13 +8686,38 @@ extern qboolean PM_KickingAnim( int anim );
 extern void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects );
 extern void WP_SaberUpdateOldBladeData( gentity_t *ent );
 						//FIXME: this causes an ASSLOAD of effects
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player before WP_SabersDamageTrace ent=%d debounce=%d time=%d",
+								cent->currentState.number, cent->gent->client->ps.saberDamageDebounceTime, cg.time);
+						}
+#endif
 						WP_SabersDamageTrace( cent->gent, qtrue );
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player after WP_SabersDamageTrace ent=%d", cent->currentState.number);
+						}
+#endif
 						WP_SaberUpdateOldBladeData( cent->gent );
+#ifdef _XBOX
+						if ( cent->currentState.number == 0 )
+						{
+							XBLF("JA: CG_Player after WP_SaberUpdateOldBladeData ent=%d", cent->currentState.number);
+						}
+#endif
 						cent->gent->client->ps.saberDamageDebounceTime = cg.time + floor((float)wait*cg_timescale.value);
 					}
 				}
 			}
 		}
+#ifdef _XBOX
+		if ( cent->currentState.number == 0 )
+		{
+			XBLF("JA: CG_Player ghoul2 player path exit ent=%d calcedMp=%d", cent->currentState.number, calcedMp);
+		}
+#endif
 	}
 	else
 	{
@@ -7969,10 +8942,29 @@ Ghoul2 Insert End
 		//
 		// add the gun
 		//
+	#ifdef _XBOX
+		const bool xboxLogPlayerGun = (s_xboxCgPlayerLogCount < XBOX_CG_PLAYER_TRACE_LIMIT);
+		if (xboxLogPlayerGun) {
+			XBLF("JA: CG_Player before gun RegisterWeapon ent=%d weapon=%d torsoModel=%d",
+				cent->currentState.number, cent->currentState.weapon, torso.hModel);
+			s_xboxCgPlayerLogCount++;
+		}
+	#endif
 		CG_RegisterWeapon( cent->currentState.weapon );
+	#ifdef _XBOX
+		if (xboxLogPlayerGun) {
+			XBLF("JA: CG_Player after gun RegisterWeapon ent=%d weapon=%d", cent->currentState.number, cent->currentState.weapon);
+		}
+	#endif
 		weapon = &cg_weapons[cent->currentState.weapon];
 
 		gun.hModel = weapon->weaponWorldModel;
+	#ifdef _XBOX
+		if (xboxLogPlayerGun) {
+			XBLF("JA: CG_Player gun model ent=%d weapon=%d world=%d torso=%d",
+				cent->currentState.number, cent->currentState.weapon, gun.hModel, torso.hModel);
+		}
+	#endif
 		if (gun.hModel) 
 		{
 			qboolean drawGun = qtrue;
@@ -7982,7 +8974,17 @@ Ghoul2 Insert End
 			//FIXME: allow it to be put anywhere and move this out of if(torso.hModel)
 			//Will have to call CG_PositionRotatedEntityOnTag
 			
+	#ifdef _XBOX
+			if (xboxLogPlayerGun) {
+				XBLF("JA: CG_Player before PositionEntityOnTag gun ent=%d weapon=%d tag=tag_weapon", cent->currentState.number, cent->currentState.weapon);
+			}
+	#endif
 			CG_PositionEntityOnTag( &gun, &torso, torso.hModel, "tag_weapon");
+	#ifdef _XBOX
+			if (xboxLogPlayerGun) {
+				XBLF("JA: CG_Player after PositionEntityOnTag gun ent=%d weapon=%d", cent->currentState.number, cent->currentState.weapon);
+			}
+	#endif
 
 //--------------------- start saber hacks
 /*
@@ -8208,6 +9210,12 @@ Ghoul2 Insert End
 			FX_AddSprite( cent->gent->client->renderInfo.muzzlePoint, NULL, NULL, 3.0f * val * scale, 0.0f, 0.7f, 0.7f, WHITE, WHITE, random() * 360, 0.0f, 1.0f, shader, FX_USE_ALPHA );
 		}
 	}
+#ifdef _XBOX
+	if ( cent->currentState.number == 0 )
+	{
+		XBLF("JA: CG_Player function exit ent=%d calcedMp=%d", cent->currentState.number, calcedMp);
+	}
+#endif
 }
 
 //=====================================================================

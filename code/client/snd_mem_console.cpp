@@ -338,8 +338,18 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 	
 	sfx->Buffer = Buffer;
 
-#ifdef _GAMECUBE
+#if defined(_GAMECUBE) || defined(_XBOX)
+	{
+		static int s_xboxRawSoundFreeCount = 0;
+		if (s_xboxRawSoundFreeCount < 16 || (s_xboxRawSoundFreeCount & 63) == 0)
+		{
+			Com_PrintfAlways("JA: S_EndLoadSound freeing raw sound copy count=%d bytes=%d\n",
+				s_xboxRawSoundFreeCount, sfx->iSoundLength);
+		}
+		s_xboxRawSoundFreeCount++;
+	}
 	Z_Free(sfx->pSoundData);
+	sfx->pSoundData = NULL;
 #endif
 	sfx->iFlags |= SFX_FLAG_RESIDENT;
 

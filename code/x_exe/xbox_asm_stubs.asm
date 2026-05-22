@@ -14,37 +14,33 @@ default_fpu_cw dw 027Fh
 
 PUBLIC __ftol2_sse
 __ftol2_sse PROC NEAR
-    sub     esp, 4
-    fstcw   word ptr [esp]
-    mov     ax, word ptr [esp]
+    sub     esp, 12
+    fstcw   word ptr [esp+8]
+    mov     ax, word ptr [esp+8]
     or      ax, 0C00h
-    sub     esp, 2
-    mov     word ptr [esp], ax
-    fldcw   word ptr [esp]
-    add     esp, 2
-    fld     qword ptr [esp+4+4]
-    fistp   dword ptr [esp+4+4]
-    fldcw   word ptr [esp]
-    add     esp, 4
-    mov     eax, dword ptr [esp+4]
+    mov     word ptr [esp+10], ax
+    fldcw   word ptr [esp+10]
+    fistp   qword ptr [esp]
+    fldcw   word ptr [esp+8]
+    mov     eax, dword ptr [esp]
+    mov     edx, dword ptr [esp+4]
+    add     esp, 12
     ret
 __ftol2_sse ENDP
 
 PUBLIC __ftol2
 __ftol2 PROC NEAR
-    sub     esp, 4
-    fstcw   word ptr [esp]
-    mov     ax, word ptr [esp]
+    sub     esp, 12
+    fstcw   word ptr [esp+8]
+    mov     ax, word ptr [esp+8]
     or      ax, 0C00h
-    sub     esp, 2
-    mov     word ptr [esp], ax
-    fldcw   word ptr [esp]
-    add     esp, 2
-    fld     qword ptr [esp+4+4]
-    fistp   dword ptr [esp+4+4]
-    fldcw   word ptr [esp]
-    add     esp, 4
-    mov     eax, dword ptr [esp+4]
+    mov     word ptr [esp+10], ax
+    fldcw   word ptr [esp+10]
+    fistp   qword ptr [esp]
+    fldcw   word ptr [esp+8]
+    mov     eax, dword ptr [esp]
+    mov     edx, dword ptr [esp+4]
+    add     esp, 12
     ret
 __ftol2 ENDP
 

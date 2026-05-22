@@ -10,6 +10,9 @@
 #include "cg_lights.h"
 #include "..\game\wp_saber.h"
 #include "..\game\g_vehicles.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #define MASK_CAMERACLIP (MASK_SOLID)
 #define CAMERA_SIZE	4
@@ -1765,16 +1768,36 @@ static void CG_DrawSkyBoxPortal(void)
 	refdef_t backuprefdef;
 	const char *cstr;
 	char *token;
+#ifdef _XBOX
+	static int s_xboxSkyPortalLogBudget = 48;
+#endif
 
 	cstr = CG_ConfigString(CS_SKYBOXORG);
 
 	if (!cstr || !strlen(cstr))
 	{
 		// no skybox in this map
+#ifdef _XBOX
+		if (s_xboxSkyPortalLogBudget > 0)
+		{
+			XBLog_Write("JA: CG_DrawSkyBoxPortal skipped: empty CS_SKYBOXORG");
+			--s_xboxSkyPortalLogBudget;
+		}
+#endif
 		return;
 	}
 
 	backuprefdef = cg.refdef;
+#ifdef _XBOX
+	if (s_xboxSkyPortalLogBudget > 0)
+	{
+		XBLF("JA: CG_DrawSkyBoxPortal enter cfg='%s' view=%g,%g,%g rdflags=0x%x viewport=%d,%d %dx%d",
+			cstr ? cstr : "<null>",
+			cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
+			cg.refdef.rdflags, cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height);
+		--s_xboxSkyPortalLogBudget;
+	}
+#endif
 
 	token = COM_ParseExt(&cstr, qfalse);
 	if (!token || !token[0])
@@ -1927,8 +1950,25 @@ static void CG_DrawSkyBoxPortal(void)
 	cg.refdef.rdflags |= RDF_DRAWSKYBOX;	//drawk portal skies
 
 	cgi_CM_SnapPVS( cg.refdef.vieworg, cg.refdef.areamask );	//fill in my areamask for this view origin
+#ifdef _XBOX
+	if (s_xboxSkyPortalLogBudget > 0)
+	{
+		XBLF("JA: CG_DrawSkyBoxPortal render origin=%g,%g,%g rdflags=0x%x viewport=%d,%d %dx%d",
+			cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
+			cg.refdef.rdflags, cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height);
+		--s_xboxSkyPortalLogBudget;
+	}
+#endif
 	// draw the skybox
 	cgi_R_RenderScene( &cg.refdef );
+#ifdef _XBOX
+	if (s_xboxSkyPortalLogBudget > 0)
+	{
+		XBLF("JA: CG_DrawSkyBoxPortal returned restore rdflags=0x%x viewport=%d,%d %dx%d",
+			backuprefdef.rdflags, backuprefdef.x, backuprefdef.y, backuprefdef.width, backuprefdef.height);
+		--s_xboxSkyPortalLogBudget;
+	}
+#endif
 
 	cg.refdef = backuprefdef;
 }
@@ -1984,21 +2024,45 @@ extern void CG_BuildSolidList( void );
 extern void CG_ClearHealthBarEnts( void );
 extern vec3_t	serverViewOrg;
 static qboolean cg_rangedFogging = qfalse; //so we know if we should go back to normal fog
+#ifdef _XBOX
+#define CG_XBOX_ACTIVE_LOG(msg) do { if (s_xboxDrawActiveLog) XBLog_Write(msg); } while (0)
+#endif
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
+#ifdef _XBOX
+	static int s_xboxDrawActiveFrameCount = 0;
+	const int s_xboxDrawActiveLog = (s_xboxDrawActiveFrameCount < 64 || serverTime > 90000);
+	if (s_xboxDrawActiveLog)
+	{
+		XBLF("JA: CG_DrawActiveFrame #%d enter serverTime=%d stereo=%d snap=%p next=%p",
+			s_xboxDrawActiveFrameCount, serverTime, (int)stereoView, (void*)cg.snap, (void*)cg.nextSnap);
+	}
+#endif
 
 	cg.time = serverTime;
 
 	// update cvars
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_UpdateCvars...");
 	CG_UpdateCvars();
 
 	// if we are only updating the screen as a loading
 	// pacifier, don't even try to read snapshots
 	if ( cg.infoScreenText[0] != 0 ) {
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: infoScreenText path");
 		CG_DrawInformation();
+#ifdef _XBOX
+		if (s_xboxDrawActiveLog)
+		{
+			XBLog_Write("JA: CG_DrawActiveFrame: infoScreenText returned");
+		}
+#endif
+#ifdef _XBOX
+		s_xboxDrawActiveFrameCount++;
+#endif
 		return;
 	}
 
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: pre scene setup...");
 	CG_ClearHealthBarEnts();
 
 	CG_RunLightStyles();
@@ -2013,12 +2077,22 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_BuildSolidList();
 
 	// set up cg.snap and possibly cg.nextSnap
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_ProcessSnapshots...");
 	CG_ProcessSnapshots();
 	// if we haven't received any snapshots yet, all
 	// we can draw is the information screen
 	if ( !cg.snap ) {
 		//CG_DrawInformation();
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: no cg.snap, return");
+#ifdef _XBOX
+		s_xboxDrawActiveFrameCount++;
+#endif
 		return;
+	}
+	if (s_xboxDrawActiveLog)
+	{
+		XBLF("JA: CG_DrawActiveFrame: snap ready client=%d weapon=%d health=%d",
+			cg.snap->ps.clientNum, cg.snap->ps.weapon, cg.snap->ps.stats[STAT_HEALTH]);
 	}
 
 	// make sure the lagometerSample and frame timing isn't done twice when in stereo
@@ -2074,6 +2148,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	cg.clientFrame++;
 
 	// update cg.predicted_player_state
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState...");
 	CG_PredictPlayerState();
 
 	if (cg.snap->ps.eFlags&EF_HELD_BY_SAND_CREATURE)
@@ -2101,8 +2176,10 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	else
 	{		
 		//Finish any fading that was happening
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CGCam_UpdateFade...");
 		CGCam_UpdateFade();
 		// build cg.refdef
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_CalcViewValues...");
 		inwater = CG_CalcViewValues();
 	}
 
@@ -2120,9 +2197,11 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	cg.refdef.time = cg.time;
 
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawSkyBoxPortal...");
 	CG_DrawSkyBoxPortal();
 
 	// NOTE: this may completely override the camera
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_RunEmplacedWeapon...");
 	CG_RunEmplacedWeapon();
 
 	// first person blend blobs, done after AnglesToAxis
@@ -2132,10 +2211,18 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	// build the render lists
 	if ( !cg.hyperspace ) {
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddPacketEntities...");
 		CG_AddPacketEntities(qfalse);			// adter calcViewValues, so predicted player state is correct
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddPacketEntities done");
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddMarks...");
 		CG_AddMarks();
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddMarks done");
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddLocalEntities...");
 		CG_AddLocalEntities();
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddLocalEntities done");
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawMiscEnts...");
 		CG_DrawMiscEnts();
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawMiscEnts done");
 	}
 
 	//check for opaque water
@@ -2174,7 +2261,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	//if ( !VectorCompare2( cg.refdef.vieworg, cg.snap->ps.serverViewOrg ) && !gi.inPVS( cg.refdef.vieworg, cg.snap->ps.serverViewOrg ) )
 	{//actual view org and server's view org don't match and aren't same PVS, rebuild the areamask
 		//Com_Printf( S_COLOR_RED"%s != %s\n", vtos(cg.refdef.vieworg), vtos(cg.snap->ps.serverViewOrg) );
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CM_SnapPVS...");
 		cgi_CM_SnapPVS( cg.refdef.vieworg, cg.snap->areamask );
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CM_SnapPVS done");
 	}
 
 	// Don't draw the in-view weapon when in camera mode
@@ -2183,13 +2272,20 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		&& cg.snap->ps.weapon != WP_SABER
 		&& ( cg.snap->ps.viewEntity == 0 || cg.snap->ps.viewEntity >= ENTITYNUM_WORLD ) )
 	{
+		if (s_xboxDrawActiveLog)
+		{
+			XBLF("JA: CG_DrawActiveFrame: CG_AddViewWeapon weapon=%d...", cg.predicted_player_state.weapon);
+		}
 		CG_AddViewWeapon( &cg.predicted_player_state );
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddViewWeapon done");
 	}
 
 	if ( !cg.hyperspace && fx_freeze.integer<2 ) 
 	{
 		//Add all effects
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: AddScheduledEffects...");
 		theFxScheduler.AddScheduledEffects( false );
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: AddScheduledEffects done");
 	}
 
 	// finish up the rest of the refdef
@@ -2201,7 +2297,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	// update audio positions
 	//This is done from the vieworg to get origin for non-attenuated sounds
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_UpdateAmbientSet...");
 	cgi_S_UpdateAmbientSet( CG_ConfigString( CS_AMBIENT_SET ), cg.refdef.vieworg );
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_UpdateAmbientSet done");
 	//NOTE: if we want to make you be able to hear far away sounds with electrobinoculars, add the hacked-in positional offset here (base on fov)
 	/*
 	vec3_t listener_origin;
@@ -2223,10 +2321,14 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 	cgi_S_Respatialize( cg.snap->ps.clientNum, listener_origin, cg.refdef.viewaxis, inwater );
 	*/
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_Respatialize...");
 	cgi_S_Respatialize( cg.snap->ps.clientNum, cg.refdef.vieworg, cg.refdef.viewaxis, inwater );
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_Respatialize done");
 
 	// warning sounds when powerup is wearing off
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PowerupTimerSounds...");
 	CG_PowerupTimerSounds();
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PowerupTimerSounds done");
 
 	if ( cg_pano.integer ) {	// let's grab a panorama!
 		cg.levelShot = qtrue;  //hide the 2d
@@ -2237,8 +2339,14 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		cg.levelShot = qfalse;
 	} 	else {
 		// actually issue the rendering calls
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawActive...");
 		CG_DrawActive( stereoView );
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawActive done");
 	}
+#ifdef _XBOX
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame done");
+	s_xboxDrawActiveFrameCount++;
+#endif
 	/*
 	if ( in_camera && !cg_skippingcin.integer )
 	{
@@ -2246,4 +2354,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 	*/
 }
+#ifdef _XBOX
+#undef CG_XBOX_ACTIVE_LOG
+#endif
 

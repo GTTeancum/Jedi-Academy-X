@@ -3432,8 +3432,24 @@ qboolean ItemParse_asset_model_go( itemDef_t *item, const char *name )
 	Item_ValidateTypeData(item);
 	modelPtr = (modelDef_t*)item->typeData;
 
+#ifdef _XBOX
+	Com_PrintfAlways("JA: UI asset_model begin item=%s asset=%s\n",
+		item && item->window.name ? item->window.name : "(unnamed)",
+		name ? name : "(null)");
+#endif
+
 	if (!Q_stricmp(&name[strlen(name) - 4], ".glm"))
 	{ //it's a ghoul2 model then
+#ifdef _XBOX
+		if (cls.state > CA_DISCONNECTED)
+		{
+			Com_PrintfAlways("JA: UI asset_model deferred item=%s asset=%s state=%d\n",
+				item && item->window.name ? item->window.name : "(unnamed)",
+				name ? name : "(null)",
+				(int)cls.state);
+			return qtrue;
+		}
+#endif
 		if ( item->ghoul2.size() && item->ghoul2[0].mModelindex >= 0)
 		{
 			DC->g2_RemoveGhoul2Model( item->ghoul2, 0 );
@@ -3459,6 +3475,13 @@ qboolean ItemParse_asset_model_go( itemDef_t *item, const char *name )
 		item->asset = DC->registerModel(name);
 		item->flags &= ~ITF_G2VALID;
 	}
+#ifdef _XBOX
+	Com_PrintfAlways("JA: UI asset_model done item=%s asset=%s handle=%d flags=0x%x\n",
+		item && item->window.name ? item->window.name : "(unnamed)",
+		name ? name : "(null)",
+		item ? item->asset : 0,
+		item ? item->flags : 0);
+#endif
 	return qtrue;
 }
 
@@ -3477,6 +3500,15 @@ qboolean ItemParse_asset_model( itemDef_t *item )
 	
 	if (!stricmp(temp,"ui_char_model") )
 	{
+#ifdef _XBOX
+		if (cls.state > CA_DISCONNECTED)
+		{
+			Com_PrintfAlways("JA: UI asset_model deferred item=%s token=ui_char_model state=%d\n",
+				item && item->window.name ? item->window.name : "(unnamed)",
+				(int)cls.state);
+			return qtrue;
+		}
+#endif
 		Com_sprintf( modelPath, sizeof( modelPath ), "models/players/%s/model.glm", Cvar_VariableString ( "g_char_model" ) );
 	}
 	else
@@ -5363,6 +5395,22 @@ qboolean Item_Parse(itemDef_t *item)
 			continue;
 		}
 
+#ifdef _XBOX
+		if (!Q_stricmp(token, "asset_model") ||
+			!Q_stricmp(token, "asset_shader") ||
+			!Q_stricmp(token, "background") ||
+			!Q_stricmp(token, "model_g2anim") ||
+			!Q_stricmp(token, "model_g2skin") ||
+			!Q_stricmp(token, "isCharacter") ||
+			!Q_stricmp(token, "isSaber") ||
+			!Q_stricmp(token, "isSaber2"))
+		{
+			Com_PrintfAlways("JA: UI Item_Parse keyword item=%s keyword=%s\n",
+				item && item->window.name ? item->window.name : "(unnamed)",
+				token);
+		}
+#endif
+
 		if ( !key->func(item) ) 
 		{
 			PC_ParseWarning(va("Couldn't parse item keyword '%s'", token));
@@ -6113,6 +6161,12 @@ qboolean Menu_Parse(char *inbuffer, menuDef_t *menu)
 	buffer = inbuffer;
 #ifdef _XBOX
 	char * includeBuffer;
+	static int s_xboxMenuParseLogCount = 0;
+	const char *menuNameForLog = menu && menu->window.name ? menu->window.name : "(unnamed)";
+	if (s_xboxMenuParseLogCount < 400)
+	{
+		Com_PrintfAlways("JA: UI Menu_Parse begin menu=%s count=%d\n", menuNameForLog, s_xboxMenuParseLogCount);
+	}
 #endif
 
 	token2 = PC_ParseExt();
@@ -6139,6 +6193,12 @@ qboolean Menu_Parse(char *inbuffer, menuDef_t *menu)
 
 		if (*token2 == '}') 
 		{
+#ifdef _XBOX
+			if (s_xboxMenuParseLogCount < 400)
+			{
+				Com_PrintfAlways("JA: UI Menu_Parse end menu=%s\n", menuNameForLog);
+			}
+#endif
 			return qtrue;
 		}
 #ifdef _XBOX
@@ -6148,7 +6208,17 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu);
 		if (!strcmp (token2, "#include"))
 		{
 			token2 = PC_ParseExt();
+			if (s_xboxMenuParseLogCount < 400)
+			{
+				Com_PrintfAlways("JA: UI Menu_Parse include begin menu=%s file=%s\n",
+					menuNameForLog, token2 ? token2 : "(null)");
+			}
 			includeBuffer = UI_ParseInclude(token2, menu );
+			if (s_xboxMenuParseLogCount < 400)
+			{
+				Com_PrintfAlways("JA: UI Menu_Parse include loaded menu=%s file=%s buffer=%p\n",
+					menuNameForLog, token2 ? token2 : "(null)", includeBuffer);
+			}
 			//bufferize thetoken2 
 			nest = true;
 			buffer = includeBuffer;
@@ -6176,6 +6246,21 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu);
 			PC_ParseWarning(va("Couldn't parse menu keyword %s as %s",token2, key->keyword));
 			return qfalse;
 		} 
+#ifdef _XBOX
+		if (s_xboxMenuParseLogCount < 400)
+		{
+			if (!Q_stricmp(token2, "name") ||
+				!Q_stricmp(token2, "itemDef") ||
+				!Q_stricmp(token2, "background") ||
+				!Q_stricmp(token2, "ownerdraw") ||
+				!Q_stricmp(token2, "visible"))
+			{
+				Com_PrintfAlways("JA: UI Menu_Parse keyword done menu=%s keyword=%s\n",
+					menu && menu->window.name ? menu->window.name : "(unnamed)", token2);
+			}
+			s_xboxMenuParseLogCount++;
+		}
+#endif
 	}
 }
 
@@ -6190,11 +6275,21 @@ void Menu_New(char *buffer)
 
 	if (menuCount < MAX_MENUS) 
 	{
+#ifdef _XBOX
+		Com_PrintfAlways("JA: UI Menu_New begin index=%d\n", menuCount);
+#endif
 		Menu_Init(menu);
 		if (Menu_Parse(buffer, menu)) 
 		{
+#ifdef _XBOX
+			Com_PrintfAlways("JA: UI Menu_New parsed index=%d name=%s\n",
+				menuCount, menu->window.name ? menu->window.name : "(unnamed)");
+#endif
 			Menu_PostParse(menu);
 			menuCount++;
+#ifdef _XBOX
+			Com_PrintfAlways("JA: UI Menu_New done count=%d\n", menuCount);
+#endif
 		}
 	}
 }
@@ -6232,7 +6327,15 @@ int PC_StartParseSession(const char *fileName,char **buffer)
 	int	len;
 
 	// Try to open file and read it in.
+#ifdef _XBOX
+	Com_PrintfAlways("JA: UI PC_StartParseSession begin file=%s nested=%d\n",
+		fileName ? fileName : "(null)", (int)nested);
+#endif
 	len = ui.FS_ReadFile( fileName,(void **) buffer  );
+#ifdef _XBOX
+	Com_PrintfAlways("JA: UI PC_StartParseSession read done file=%s len=%d buffer=%p\n",
+		fileName ? fileName : "(null)", len, buffer ? *buffer : NULL);
+#endif
 
 	// Not there?
 	if ( len>0 ) 
@@ -6255,6 +6358,10 @@ int PC_StartParseSession(const char *fileName,char **buffer)
 #endif
 	}
 
+#ifdef _XBOX
+	Com_PrintfAlways("JA: UI PC_StartParseSession done file=%s len=%d\n",
+		fileName ? fileName : "(null)", len);
+#endif
 	return len;
 }
 

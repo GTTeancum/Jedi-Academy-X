@@ -228,7 +228,7 @@ void CL_MapLoading( void ) {
 #ifdef _XBOX	// This was done at E3 time - it's nasty, but we may just keep it.
 		connstate_t oldState = cls.state;
 		cls.state = CA_CHALLENGING;
-		SCR_UpdateScreen();
+		XBLog_Write("JA: CL_MapLoading skipping transitional SCR_UpdateScreen on Xbox");
 		cls.state = oldState;
 #endif
 		CL_Disconnect();
@@ -754,6 +754,15 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 	int		headerBytes;
 
 	clc.lastPacketTime = cls.realtime;
+#ifdef _XBOX
+	static int s_xboxCLPacketLogs = 0;
+	if (s_xboxCLPacketLogs < 32)
+	{
+		Com_PrintfAlways("JA: CL_PacketEvent enter fromType=%d size=%d state=%d read=%d\n",
+			(int)from.type, msg ? msg->cursize : -1, (int)cls.state, msg ? msg->readcount : -1);
+		++s_xboxCLPacketLogs;
+	}
+#endif
 
 	if ( msg->cursize >= 4 && *(int *)msg->data == -1 ) {
 		CL_ConnectionlessPacket( from, msg );
@@ -782,12 +791,27 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 	if (!Netchan_Process( &clc.netchan, msg) ) {
 		return;		// out of order, duplicated, etc
 	}
+#ifdef _XBOX
+	if (s_xboxCLPacketLogs < 32)
+	{
+		Com_PrintfAlways("JA: CL_PacketEvent Netchan_Process ok read=%d cursize=%d\n",
+			msg->readcount, msg->cursize);
+		++s_xboxCLPacketLogs;
+	}
+#endif
 
 	// the header is different lengths for reliable and unreliable messages
 	headerBytes = msg->readcount;
 
 	clc.lastPacketTime = cls.realtime;
 	CL_ParseServerMessage( msg );
+#ifdef _XBOX
+	if (s_xboxCLPacketLogs < 32)
+	{
+		Com_PrintfAlways("JA: CL_PacketEvent parse done state=%d\n", (int)cls.state);
+		++s_xboxCLPacketLogs;
+	}
+#endif
 }
 
 /*
@@ -848,6 +872,14 @@ extern cvar_t	*cl_newClock;
 static unsigned int frameCount;
 float avgFrametime=0.0;
 void CL_Frame ( int msec,float fractionMsec ) {
+#ifdef _XBOX
+	static int s_xboxFrameHeartbeat = 0;
+	static int s_xboxLastClPhaseTime = 0;
+	static qboolean s_xboxTraceClPhase = qfalse;
+	static qboolean s_xboxTraceClTight = qfalse;
+	s_xboxTraceClPhase = qfalse;
+	s_xboxTraceClTight = qfalse;
+#endif
 
 	checkAutoSave();	//saves the game immediately after starting a level
 
@@ -855,27 +887,59 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		return;
 	}
 
-	// load the ref / cgame if needed
-	CL_StartHunkUsers();
-
 #if defined (_XBOX)// && !defined(_DEBUG)
-	// Play the intro movies once
+	// Boot directly into a map while the logo/menu path is still under repair.
+	// Do this before CL_StartHunkUsers so the first renderer init happens for
+	// the map load, not for a throwaway disconnected client frame.
 	extern bool Sys_QuickStart( void );
 	static bool firstRun = true;
 	if(firstRun)
 	{
-	//	SP_DoLicense();
-		SP_DisplayLogos();
+		char startupMap[MAX_QPATH];
+		Q_strncpyz(startupMap, "taspir2", sizeof(startupMap));
+		FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
+		if (startupMapFile)
+		{
+			char fileMap[MAX_QPATH];
+			if (fgets(fileMap, sizeof(fileMap), startupMapFile))
+			{
+				fileMap[strcspn(fileMap, "\r\n\t ")] = '\0';
+				if (fileMap[0])
+				{
+					Q_strncpyz(startupMap, fileMap, sizeof(startupMap));
+				}
+			}
+			fclose(startupMapFile);
+		}
+		XBLF("JA: CL_Frame firstRun: queue devmap %s before CL_StartHunkUsers", startupMap);
+		Cbuf_AddText(va("devmap %s\n", startupMap));
+		firstRun = false;
+		return;
 	}
 	
 #endif
 
+	// load the ref / cgame if needed
+	CL_StartHunkUsers();
+
 #if defined (_XBOX)	//xbox doesn't load ui in StartHunkUsers, so check it here
+	XBLF("JA: CL_Frame: CL_StartHunkUsers returned state=%d ui=%d cgame=%d sv=%d",
+		(int)cls.state,
+		(int)cls.uiStarted,
+		(int)cls.cgameStarted,
+		(int)com_sv_running->integer);
 	// load ui if needed
-	if ( !cls.uiStarted && cls.state != CA_CINEMATIC) {
+	if ( !cls.uiStarted && cls.state != CA_CINEMATIC && (cls.keyCatchers & KEYCATCH_UI)) {
+		XBLog_Write("JA: CL_Frame: starting Xbox UI init path");
 		cls.uiStarted = qtrue;
+		XBLog_Write("JA: CL_Frame: SCR_StopCinematic...");
 		SCR_StopCinematic();
+		XBLog_Write("JA: CL_Frame: SCR_StopCinematic done; CL_InitUI...");
 		CL_InitUI();
+		XBLog_Write("JA: CL_Frame: CL_InitUI done");
+	} else {
+		XBLF("JA: CL_Frame: UI init skipped state=%d ui=%d keyCatchers=0x%x",
+			(int)cls.state, (int)cls.uiStarted, (unsigned int)cls.keyCatchers);
 	}
 #endif
 
@@ -917,6 +981,31 @@ void CL_Frame ( int msec,float fractionMsec ) {
 
 #ifdef _XBOX
 	firstRun = false;
+	if (qfalse && cls.state == CA_ACTIVE && cls.realtime - s_xboxLastClPhaseTime >= 5000)
+	{
+		s_xboxLastClPhaseTime = cls.realtime;
+		s_xboxTraceClPhase = qtrue;
+		XBLF("JA: CL_PHASE frame=%u enter realtime=%d serverTime=%d msec=%d",
+			frameCount, cls.realtime, cl.serverTime, msec);
+	}
+	if (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000)
+	{
+		s_xboxTraceClTight = qtrue;
+	}
+	if ((s_xboxFrameHeartbeat & 511) == 0)
+	{
+		char msg[192];
+		_snprintf(msg, sizeof(msg), "JA: CL_Frame heartbeat #%d state=%d renderer=%d cgame=%d ui=%d server='%s'\n",
+			s_xboxFrameHeartbeat,
+			(int)cls.state,
+			(int)cls.rendererStarted,
+			(int)cls.cgameStarted,
+			(int)cls.uiStarted,
+			cls.servername);
+		msg[sizeof(msg) - 1] = '\0';
+		XBLog_Write(msg);
+	}
+	s_xboxFrameHeartbeat++;
 #endif
 
 
@@ -1026,13 +1115,31 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	CL_CheckTimeout();
 
 	// send intentions now
+#ifdef _XBOX
+	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before CL_SendCmd");
+#endif
 	CL_SendCmd();
+#ifdef _XBOX
+	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after CL_SendCmd");
+#endif
 
 	// resend a connection request if necessary
+#ifdef _XBOX
+	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before CL_CheckForResend");
+#endif
 	CL_CheckForResend();
+#ifdef _XBOX
+	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after CL_CheckForResend");
+#endif
 
 	// decide on the serverTime to render
+#ifdef _XBOX
+	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before CL_SetCGameTime");
+#endif
 	CL_SetCGameTime();
+#ifdef _XBOX
+	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after CL_SetCGameTime");
+#endif
 
 	if (cl_pano->integer && cls.state == CA_ACTIVE) {	//grab some panoramic shots
 		int i = 1;
@@ -1058,14 +1165,110 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		}
 	} else {
 		// update the screen
+#ifdef _XBOX
+		if (cls.state < CA_LOADING)
+		{
+			static int s_xboxSkipPreLoadScreens = 0;
+			if (s_xboxSkipPreLoadScreens < 8)
+			{
+				XBLF("JA: CL_Frame: skipping pre-load SCR_UpdateScreen state=%d", (int)cls.state);
+				++s_xboxSkipPreLoadScreens;
+			}
+		}
+		else
+#endif
+#ifdef _XBOX
+		{
+			static int s_xboxActiveScreenBoundaryCount = 0;
+			const qboolean xboxTraceActiveScreen = qfalse;
+			if (s_xboxTraceClTight)
+			{
+				XBLF("JA: CL_TIGHT frame=%u before SCR_UpdateScreen realtime=%d serverTime=%d",
+					frameCount, cls.realtime, cl.serverTime);
+			}
+			else if (s_xboxTraceClPhase)
+			{
+				XBLF("JA: CL_PHASE before SCR_UpdateScreen realtime=%d serverTime=%d",
+					cls.realtime, cl.serverTime);
+			}
+			else if (xboxTraceActiveScreen)
+			{
+				XBLF("JA: CL_Frame: before SCR_UpdateScreen active count=%d realtime=%d serverTime=%d",
+					s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
+			}
+			SCR_UpdateScreen();
+			if (s_xboxTraceClTight)
+			{
+				XBLF("JA: CL_TIGHT frame=%u after SCR_UpdateScreen realtime=%d serverTime=%d",
+					frameCount, cls.realtime, cl.serverTime);
+			}
+			else if (s_xboxTraceClPhase)
+			{
+				XBLF("JA: CL_PHASE after SCR_UpdateScreen realtime=%d serverTime=%d",
+					cls.realtime, cl.serverTime);
+			}
+			else if (xboxTraceActiveScreen)
+			{
+				XBLF("JA: CL_Frame: after SCR_UpdateScreen active count=%d realtime=%d serverTime=%d",
+					s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
+				s_xboxActiveScreenBoundaryCount++;
+			}
+		}
+#else
 		SCR_UpdateScreen();
+#endif
 
 #if defined(_XBOX) && !defined(FINAL_BUILD) && !defined(_XBOX_VC71_MIGRATION)
-		if (D3DPERF_QueryRepeatFrame())
+		if (cls.state >= CA_LOADING && D3DPERF_QueryRepeatFrame())
 			SCR_UpdateScreen();
 #endif
 	}
 	// update audio
+#ifdef _XBOX
+	{
+		static int s_xboxActiveFrameTailCount = 0;
+		const qboolean xboxTraceActiveTail = qfalse;
+		static qboolean s_xboxLoggedAudioSkip = qfalse;
+		if (!s_xboxLoggedAudioSkip)
+		{
+			XBLog_Write("JA: CL_Frame: running silent S_Update on Xbox smoke build");
+			s_xboxLoggedAudioSkip = qtrue;
+		}
+		S_Update();
+
+#ifdef _IMMERSION
+		if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before FF_Update");
+		FF_Update();
+		if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: after FF_Update");
+#endif // _IMMERSION
+		// advance local effects for next frame
+		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u before SCR_RunCinematic", frameCount);
+		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before SCR_RunCinematic");
+		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before SCR_RunCinematic");
+		SCR_RunCinematic();
+		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u after SCR_RunCinematic", frameCount);
+		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after SCR_RunCinematic");
+		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: after SCR_RunCinematic");
+
+		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u before Con_RunConsole", frameCount);
+		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before Con_RunConsole");
+		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before Con_RunConsole");
+		Con_RunConsole();
+		if (s_xboxTraceClTight)
+		{
+			XBLF("JA: CL_TIGHT frame=%u after Con_RunConsole", frameCount);
+		}
+		else if (s_xboxTraceClPhase)
+		{
+			XBLog_Write("JA: CL_PHASE after Con_RunConsole");
+		}
+		else if (xboxTraceActiveTail)
+		{
+			XBLog_Write("JA: CL_Frame: after Con_RunConsole");
+			s_xboxActiveFrameTailCount++;
+		}
+	}
+#else
 	S_Update();
 
 #ifdef _IMMERSION
@@ -1075,8 +1278,46 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	SCR_RunCinematic();
 
 	Con_RunConsole();
+#endif
 
 	cls.framecount++;
+#ifdef _XBOX
+	if (cls.state == CA_ACTIVE)
+	{
+		static int s_xboxLastCompletedHeartbeatTime = 0;
+		static int s_xboxLastCompletedHeartbeatFrame = 0;
+		const int elapsed = cls.realtime - s_xboxLastCompletedHeartbeatTime;
+
+		if (elapsed >= 1000 || s_xboxLastCompletedHeartbeatTime == 0)
+		{
+			const int frameDelta = cls.framecount - s_xboxLastCompletedHeartbeatFrame;
+			int fps10 = 0;
+			char msg[256];
+
+			if (elapsed > 0)
+			{
+				fps10 = (frameDelta * 10000) / elapsed;
+			}
+
+			_snprintf(msg, sizeof(msg),
+				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d frameDelta=%d elapsed=%d fps=%d.%d renderer=%d cgame=%d\n",
+				cls.framecount,
+				cls.realtime,
+				cl.serverTime,
+				frameDelta,
+				elapsed,
+				fps10 / 10,
+				fps10 % 10,
+				(int)cls.rendererStarted,
+				(int)cls.cgameStarted);
+			msg[sizeof(msg) - 1] = '\0';
+			XBLog_Write(msg);
+
+			s_xboxLastCompletedHeartbeatTime = cls.realtime;
+			s_xboxLastCompletedHeartbeatFrame = cls.framecount;
+		}
+	}
+#endif
 }
 
 
@@ -1152,11 +1393,20 @@ This is the only place that any of these functions are called from
 ============================
 */
 void CL_StartHunkUsers( void ) {
+#ifdef _XBOX
+	XBLog_Write("JA: CL_StartHunkUsers entered");
+#endif
 	if ( !com_cl_running->integer ) {
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: cl_running=0, early return");
+#endif
 		return;
 	}
 
 	if ( !cls.rendererStarted ) {
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: re.BeginRegistration (calls R_Init)...");
+#endif
 #ifdef _XBOX
 		//if ((!com_sv_running->integer || com_errorEntered) && !vidRestartReloadMap)
 		//{
@@ -1168,11 +1418,21 @@ void CL_StartHunkUsers( void ) {
 
 		cls.rendererStarted = qtrue;
 		re.BeginRegistration( &cls.glconfig );
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: re.BeginRegistration done");
+		XBLog_Write("JA: CL_StartHunkUsers: RegisterShaderNoMip charsgrid_med...");
+#endif
 
 		// load character sets
 //		cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/bigchars" );
 		cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
+#ifdef _XBOX
+		XBLF("JA: CL_StartHunkUsers: charSetShader=%d, RegisterShader white...", cls.charSetShader);
+#endif
 		cls.whiteShader = re.RegisterShader( "white" );
+#ifdef _XBOX
+		XBLF("JA: CL_StartHunkUsers: whiteShader=%d", cls.whiteShader);
+#endif
 //		cls.consoleShader = re.RegisterShader( "console" );
 		g_console_field_width = cls.glconfig.vidWidth / SMALLCHAR_WIDTH - 2;
 		kg.g_consoleField.widthInChars = g_console_field_width;
@@ -1190,8 +1450,14 @@ void CL_StartHunkUsers( void ) {
 		if (!bOnceOnly)
 		{
 			bOnceOnly = qtrue;
+#ifdef _XBOX
+			XBLog_Write("JA: CL_StartHunkUsers: Sys_In_Restart_f...");
+#endif
 			extern void Sys_In_Restart_f( void );
 			Sys_In_Restart_f();
+#ifdef _XBOX
+			XBLog_Write("JA: CL_StartHunkUsers: Sys_In_Restart_f done");
+#endif
 		}
 
 #ifdef _XBOX
@@ -1209,12 +1475,24 @@ void CL_StartHunkUsers( void ) {
 
 	if ( !cls.soundStarted ) {
 		cls.soundStarted = qtrue;
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: S_Init...");
+#endif
 		S_Init();
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: S_Init done");
+#endif
 	}
 
 	if ( !cls.soundRegistered ) {
 		cls.soundRegistered = qtrue;
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: S_BeginRegistration...");
+#endif
 		S_BeginRegistration();
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: S_BeginRegistration done");
+#endif
 	}
 
 #ifdef _IMMERSION
@@ -1233,11 +1511,20 @@ void CL_StartHunkUsers( void ) {
 #endif
 
 //	if ( !cls.cgameStarted && cls.state > CA_CONNECTED && cls.state != CA_CINEMATIC ) {
-	if ( !cls.cgameStarted && cls.state > CA_CONNECTED && (cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic()) ) 
+	if ( !cls.cgameStarted && cls.state > CA_CONNECTED && (cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic()) )
 	{
 		cls.cgameStarted = qtrue;
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: CL_InitCGame...");
+#endif
 		CL_InitCGame();
+#ifdef _XBOX
+		XBLog_Write("JA: CL_StartHunkUsers: CL_InitCGame done");
+#endif
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CL_StartHunkUsers: COMPLETE");
+#endif
 }
 
 /*
@@ -1392,19 +1679,36 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("ff_restart", CL_FF_Restart_f);
 #endif // _IMMERSION
 
+#ifdef _XBOX
+	XBLog_Write("JA: CL_Init: CL_InitRef...");
+#endif
 	CL_InitRef();
+#ifdef _XBOX
+	XBLog_Write("JA: CL_Init: CL_InitRef done; CL_StartHunkUsers...");
+#endif
 
 	CL_StartHunkUsers();
+#ifdef _XBOX
+	XBLog_Write("JA: CL_Init: CL_StartHunkUsers done; SCR_Init...");
+#endif
 
 	SCR_Init ();
+#ifdef _XBOX
+	XBLog_Write("JA: CL_Init: SCR_Init done; Cbuf_Execute...");
+#endif
 
 	Cbuf_Execute ();
-	
+#ifdef _XBOX
+	XBLog_Write("JA: CL_Init: Cbuf_Execute done");
+#endif
+
 	Cvar_Set( "cl_running", "1" );
 
 #ifdef _XBOX
 	Com_Printf( "Initializing Cinematics...\n");
+	XBLog_Write("JA: CL_Init: CIN_Init (allocates Bink mem)...");
 	CIN_Init();
+	XBLog_Write("JA: CL_Init: CIN_Init done");
 #endif
 //JLF MPMOVED
 #ifdef _XBOX

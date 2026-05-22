@@ -5,6 +5,9 @@
 
 #include "client.h"
 #include "client_ui.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #include "vmachine.h"
 
@@ -197,10 +200,21 @@ CL_InitUI
 void CL_InitUI( void ) {
 	uiimport_t	uii;
 
+#ifdef _XBOX
+	XBLF("JA: CL_InitUI entered state=%d renderer=%d cgame=%d ui=%d",
+		(int)cls.state,
+		(int)cls.rendererStarted,
+		(int)cls.cgameStarted,
+		(int)cls.uiStarted);
+#endif
+
 	memset( &uii, 0, sizeof( uii ) );
 
 	uii.Printf = Com_Printf;
 	uii.Error = Com_Error;
+#ifdef _XBOX
+	XBLog_Write("JA: CL_InitUI: import table zeroed; assigning callbacks...");
+#endif
 
 	uii.Cvar_Set				= Cvar_Set;
 	uii.Cvar_VariableValue		= Cvar_VariableValue;
@@ -291,12 +305,26 @@ void CL_InitUI( void ) {
 
 	uii.Milliseconds			= Sys_Milliseconds;
 
+#ifdef _XBOX
+	XBLF("JA: CL_InitUI: callbacks ready Printf=%p Error=%p RegisterShaderNoMip=%p DrawStretchPic=%p UpdateScreen=%p",
+		(void*)uii.Printf,
+		(void*)uii.Error,
+		(void*)uii.R_RegisterShaderNoMip,
+		(void*)uii.R_DrawStretchPic,
+		(void*)uii.UpdateScreen);
+	XBLF("JA: CL_InitUI: calling UI_Init inGameLoad=%d", (int)(cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));
+#endif
 	UI_Init(UI_API_VERSION, &uii, (cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));
+#ifdef _XBOX
+	XBLog_Write("JA: CL_InitUI: UI_Init returned");
+#endif
 
 //JLF MPSKIPPED
 #ifdef _XBOX
 	extern void UpdateDemoTimer();
+	XBLog_Write("JA: CL_InitUI: UpdateDemoTimer...");
 	UpdateDemoTimer();
+	XBLog_Write("JA: CL_InitUI done");
 
 #endif
 

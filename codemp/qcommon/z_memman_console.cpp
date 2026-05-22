@@ -43,6 +43,43 @@
 #include "../game/q_shared.h"
 #include "qcommon.h"
 #include "../renderer/qgl_console.h"
+extern "C" void XBLog_Write(const char *msg);
+#define ZONE_TRACE(msg) ((void)0)
+
+#ifdef TAGDEF
+#undef TAGDEF
+#endif
+#define TAGDEF(blah) #blah
+static const char *s_ZoneTagNames[] = {
+	#include "tags.h"
+};
+#undef TAGDEF
+#define TAGDEF(blah) TAG_ ## blah
+
+static const char *Z_TagName(memtag_t tag)
+{
+	if (tag >= 0 && tag < TAG_COUNT)
+	{
+		return s_ZoneTagNames[tag];
+	}
+	return "UNKNOWN";
+}
+
+static void XBLog_WriteInt(const char *prefix, int value)
+{
+	char buf[128];
+	_snprintf(buf, sizeof(buf) - 1, "%s%d", prefix, value);
+	buf[sizeof(buf) - 1] = '\0';
+	XBLog_Write(buf);
+}
+
+static void XBLog_WriteHex(const char *prefix, unsigned int value)
+{
+	char buf[128];
+	_snprintf(buf, sizeof(buf) - 1, "%s0x%08X", prefix, value);
+	buf[sizeof(buf) - 1] = '\0';
+	XBLog_Write(buf);
+}
 
 #ifdef _GAMECUBE
 #include <dolphin/os.h>
@@ -181,6 +218,23 @@ static int s_newDeleteTagStackTop = 0;
 static HANDLE s_Mutex = INVALID_HANDLE_VALUE;
 #endif
 
+static unsigned int Z_LargestFreeBlock(void)
+{
+	unsigned int largest = 0;
+	ZoneFreeBlock *block = s_FreeStart.m_Next;
+
+	while (block && block != &s_FreeEnd)
+	{
+		if (block->m_Size > largest)
+		{
+			largest = block->m_Size;
+		}
+		block = block->m_Next;
+	}
+
+	return largest;
+}
+
 static void Z_Stats_f(void);
 void Z_Details_f(void);
 void Z_DumpMemMap_f(void);
@@ -277,6 +331,10 @@ void Com_InitZoneMemory(void)
 #	else
 	size = status.dwAvailPhys - ZONE_HEAP_FREE;
 #	endif
+	XBLog_WriteInt("JAMP: Com_InitZoneMemory total phys ", status.dwTotalPhys);
+	XBLog_WriteInt("JAMP: Com_InitZoneMemory avail phys ", status.dwAvailPhys);
+	XBLog_WriteInt("JAMP: Com_InitZoneMemory heap free reserve ", ZONE_HEAP_FREE);
+	XBLog_WriteInt("JAMP: Com_InitZoneMemory computed size ", size);
 
 #ifdef FINAL_BUILD
 	// Add in the memory that's being used up by the framebuffer from PersistDisplay:
@@ -284,6 +342,41 @@ void Com_InitZoneMemory(void)
 #endif
 
 	s_PoolBase = GlobalAlloc(0, size);
+	XBLog_WriteHex("JAMP: Com_InitZoneMemory pool ", (unsigned int)s_PoolBase);
+	if (!s_PoolBase)
+	{
+		static const SIZE_T retrySizes[] = {
+			0x04000000,
+			0x03000000,
+			0x02000000,
+			0x01800000,
+			0x01400000,
+			0x01000000
+		};
+		int retry;
+
+		for (retry = 0; retry < sizeof(retrySizes) / sizeof(retrySizes[0]); ++retry)
+		{
+			if (retrySizes[retry] >= size)
+			{
+				continue;
+			}
+
+			size = retrySizes[retry];
+			XBLog_WriteInt("JAMP: Com_InitZoneMemory retry zone ", size);
+			s_PoolBase = GlobalAlloc(0, size);
+			XBLog_WriteHex("JAMP: Com_InitZoneMemory retry pool ", (unsigned int)s_PoolBase);
+			if (s_PoolBase)
+			{
+				break;
+			}
+		}
+	}
+	if (!s_PoolBase)
+	{
+		XBLog_Write("JAMP: Com_InitZoneMemory pool allocation failed");
+		Com_Error(ERR_FATAL, "Com_InitZoneMemory: pool allocation failed");
+	}
 
 	// Setup the initial free block
 	ZoneFreeBlock* base = (ZoneFreeBlock*)s_PoolBase;
@@ -310,6 +403,7 @@ void Com_InitZoneMemory(void)
 
 	s_Stats.m_CountFree = 1;
 	s_Stats.m_SizeFree = size;
+	XBLog_Write("JAMP: Com_InitZoneMemory free block ready");
 
 	s_Initialized = true;
 
@@ -325,6 +419,7 @@ void Com_InitZoneMemory(void)
 
 #ifndef _GAMECUBE
 	s_Mutex = CreateMutex(NULL, FALSE, NULL);
+	XBLog_Write("JAMP: Com_InitZoneMemory mutex ready");
 #endif
 }
 
@@ -619,15 +714,21 @@ static void Z_LinkFreeBlock(ZoneFreeBlock* pBlock)
 
 static void* Z_SplitFree(ZoneFreeBlock* pBlock, int iSize, bool bLow)
 {
+	ZONE_TRACE("JAMP: Z_SplitFree enter");
 	assert(pBlock->m_Size >= iSize);
 	
+	ZONE_TRACE("JAMP: Z_SplitFree before remove jump");
 	Z_RemoveFromJumpTable(pBlock);
+	ZONE_TRACE("JAMP: Z_SplitFree after remove jump");
 
 	// Delink the free block
+	ZONE_TRACE("JAMP: Z_SplitFree before copy");
 	ZoneFreeBlock fblock = *pBlock;
+	ZONE_TRACE("JAMP: Z_SplitFree before delink");
 	pBlock->m_Prev->m_Next = pBlock->m_Next;
 	pBlock->m_Next->m_Prev = pBlock->m_Prev;
 	pBlock->m_Address = 0;
+	ZONE_TRACE("JAMP: Z_SplitFree after delink");
 
 	s_Stats.m_CountFree--;
 	s_Stats.m_SizeFree -= pBlock->m_Size;
@@ -687,14 +788,18 @@ static void* Z_SplitFree(ZoneFreeBlock* pBlock, int iSize, bool bLow)
 			nblock->m_Address = (unsigned int)nblock;
 			nblock->m_Size = remainder;
 			
+			ZONE_TRACE("JAMP: Z_SplitFree before link remainder");
 			Z_LinkFreeBlock(nblock);
+			ZONE_TRACE("JAMP: Z_SplitFree after link remainder");
 
+			ZONE_TRACE("JAMP: Z_SplitFree return split");
 			return ret;
 		}
 	}
 	else
 	{
 		// No need to split, just return block.
+		ZONE_TRACE("JAMP: Z_SplitFree return whole");
 		return (void*)fblock.m_Address;
 	}
 }
@@ -727,6 +832,8 @@ void Z_MallocFail(const char* pMessage, int iSize, memtag_t eTag)
 	// Report the error
 //	Com_Printf("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
 	Com_PrintfAlways("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
+	Com_PrintfAlways("Z_Malloc(): tag name %s, free %d, largest free %d !!!!\n",
+		Z_TagName(eTag), s_Stats.m_SizeFree, Z_LargestFreeBlock());
 	Z_Details_f();
 	Z_DumpMemMap_f();
 //	Com_Printf("(Repeat): Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
@@ -765,7 +872,9 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	}
 
 #ifndef _GAMECUBE
+	ZONE_TRACE("JAMP: Z_Malloc before mutex");
 	WaitForSingleObject(s_Mutex, INFINITE);
+	ZONE_TRACE("JAMP: Z_Malloc after mutex");
 #endif
 	
 	// Make new/delete memory temporary if requested
@@ -809,13 +918,21 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	}
 	else
 	{
+		ZONE_TRACE("JAMP: Z_Malloc before find first");
 		fblock = Z_FindFirstFree(real_size, header_size, footer_size, 
 			iAlign, align_pad);
+		ZONE_TRACE("JAMP: Z_Malloc after find first");
 	}
 
 	// Did we actually find some memory?
 	if (!fblock)
 	{
+		char zFailMsg[256];
+		_snprintf(zFailMsg, sizeof(zFailMsg) - 1,
+			"JAMP: Z_Malloc no free block size=%d tag=%d(%s) free=%d largest=%d",
+			iSize, eTag, Z_TagName(eTag), s_Stats.m_SizeFree, Z_LargestFreeBlock());
+		zFailMsg[sizeof(zFailMsg) - 1] = '\0';
+		XBLog_Write(zFailMsg);
 #ifndef _GAMECUBE
 		ReleaseMutex(s_Mutex);
 #endif
@@ -845,11 +962,15 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	}
 	else
 	{
+		ZONE_TRACE("JAMP: Z_Malloc before split low");
 		ablock = Z_SplitFree(fblock, real_size, true);
+		ZONE_TRACE("JAMP: Z_Malloc after split low");
 
 		// Insert align pad at block start
+		ZONE_TRACE("JAMP: Z_Malloc before align pad");
 		Z_SetupAlignmentPad(ablock, align_pad, true);
 		ablock = (void*)((char*)ablock + align_pad);
+		ZONE_TRACE("JAMP: Z_Malloc after align pad");
 	}
 
 	if (!ablock)
@@ -882,9 +1003,11 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	assert(iSize >= 0 && iSize < (1 << 25));
 	assert(eTag >= 0 && eTag < 64);
 	ZoneHeader* header = (ZoneHeader*)ablock;
+	ZONE_TRACE("JAMP: Z_Malloc before header write");
 	*header = 
 		(((unsigned int)eTag) << 25) |
 		((unsigned int)iSize);
+	ZONE_TRACE("JAMP: Z_Malloc after header write");
 
 	if (align_pad)
 	{
@@ -951,9 +1074,12 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	*/
 
 #ifndef _GAMECUBE
+	ZONE_TRACE("JAMP: Z_Malloc before release");
 	ReleaseMutex(s_Mutex);
+	ZONE_TRACE("JAMP: Z_Malloc after release");
 #endif
 
+	ZONE_TRACE("JAMP: Z_Malloc return");
 	return ablock;
 }
 
@@ -1387,6 +1513,7 @@ void Z_SetNewDeleteTemporary(bool bTemp)
 
 void *S_Malloc( int iSize ) 
 {
+	ZONE_TRACE("JAMP: S_Malloc enter");
 	return Z_Malloc(iSize, TAG_SMALL, qfalse, 0);
 }
 
@@ -1809,6 +1936,11 @@ Allocate permanent (until the hunk is cleared) memory
 */
 void *Hunk_Alloc(int size, ha_pref preference)
 {
+	if (size >= 128 * 1024)
+	{
+		Com_PrintfAlways("JAMP: Hunk_Alloc large size=%d tag=%d(%s) pref=%d free=%d largest=%d\n",
+			size, hunk_tag, Z_TagName(hunk_tag), preference, s_Stats.m_SizeFree, Z_LargestFreeBlock());
+	}
 	return Z_Malloc(size, hunk_tag, qtrue);
 }
 

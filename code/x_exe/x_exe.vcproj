@@ -802,6 +802,19 @@
 				>
 			</File>
 			<File
+				RelativePath="..\win32\quake_stubs.cpp"
+				>
+			</File>
+			<!-- Plan-B (OpenJKDF2 1:1): qgl_texture_bridge.cpp removed.
+			     It referenced the qgl_* function pointer table which no
+			     longer exists; DDS/DXT decoding now happens inside fakegl
+			     via its own texture upload path (or, where fakegl can't,
+			     in fakeglx_jka_compat.cpp's glTexImage2D wrapper). -->
+			<!-- Plan-B (OpenJKDF2 1:1): xquake/gl_fakegl.cpp removed from
+			     build.  Replaced by OpenJKDF2's fakeglx.cpp, added
+			     programmatically via scripts/build_xbox.ps1 (see Get-VcProjectSources
+			     filtered.Add for code\win32\openjkdf2\fakeglx.cpp). -->
+			<File
 				RelativePath="..\win32\win_stencilshadow.cpp"
 				>
 			</File>

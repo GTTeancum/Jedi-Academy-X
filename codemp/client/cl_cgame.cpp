@@ -1745,11 +1745,13 @@ void CL_InitCGame( void ) {
 
 	// put away the console
 	Con_Close();
+	Com_PrintfAlways("JAMP: CL_InitCGame enter\n");
 
 	// find the current mapname
 	info = cl->gameState.stringData + cl->gameState.stringOffsets[ CS_SERVERINFO ];
 	mapname = Info_ValueForKey( info, "mapname" );
 	Com_sprintf( cl->mapname, sizeof( cl->mapname ), "maps/%s.bsp", mapname );
+	Com_PrintfAlways("JAMP: CL_InitCGame map=%s\n", cl->mapname);
 
 	// load the dll or bytecode
 	if ( cl_connectedToPureServer != 0 ) {
@@ -1767,6 +1769,7 @@ void CL_InitCGame( void ) {
 	if ( !cgvm ) {
 		Com_Error( ERR_DROP, "VM_Create on cgame failed" );
 	}
+	Com_PrintfAlways("JAMP: CL_InitCGame after VM_Create\n");
 
 #ifdef _XBOX
 //	if(ClientManager::splitScreenMode == qtrue)
@@ -1778,7 +1781,9 @@ void CL_InitCGame( void ) {
 	// init for this gamestate
 	// use the lastExecutedServerCommand instead of the serverCommandSequence
 	// otherwise server commands sent just before a gamestate are dropped
+	Com_PrintfAlways("JAMP: CL_InitCGame before CG_INIT\n");
 	VM_Call( cgvm, CG_INIT, clc->serverMessageSequence, clc->lastExecutedServerCommand, clc->clientNum );
+	Com_PrintfAlways("JAMP: CL_InitCGame after CG_INIT\n");
 
 	// we will send a usercmd this frame, which
 	// will cause the server to send us the first snapshot
@@ -1795,16 +1800,21 @@ void CL_InitCGame( void ) {
 
 	// have the renderer touch all its images, so they are present
 	// on the card even if the driver does deferred loading
+	Com_PrintfAlways("JAMP: CL_InitCGame before EndRegistration\n");
 	re.EndRegistration();
+	Com_PrintfAlways("JAMP: CL_InitCGame after EndRegistration\n");
 
 	// make sure everything is paged in
 //	if (!Sys_LowPhysicalMemory()) 
 	{
+		Com_PrintfAlways("JAMP: CL_InitCGame before Com_TouchMemory\n");
 		Com_TouchMemory();
+		Com_PrintfAlways("JAMP: CL_InitCGame after Com_TouchMemory\n");
 	}
 
 	// clear anything that got printed
 	Con_ClearNotify ();
+	Com_PrintfAlways("JAMP: CL_InitCGame exit\n");
 #ifdef _DONETPROFILE_
 	ClReadProf().Reset();
 #endif

@@ -12,6 +12,11 @@
 #include "snd_local_console.h"
 #include "snd_music.h"
 #include "../zlib/zlib.h"
+#include "../win32/xb_log.h"
+
+#ifndef JAMP_CXBX_SMOKE_SKIP_SOUND
+#define JAMP_CXBX_SMOKE_SKIP_SOUND 1
+#endif
 
 // #include "../../toolbox/zlib/zlib.h"
 
@@ -252,8 +257,11 @@ void S_Init( void ) {
 
 	Com_Printf("\n------- sound initialization -------\n");
 
+	XBLog_Write("JAMP: S_Init before AS_Init");
 	AS_Init();
+	XBLog_Write("JAMP: S_Init after AS_Init");
 
+	XBLog_Write("JAMP: S_Init before cvars");
 	s_effects_volume = Cvar_Get ("s_effects_volume", "1.0", CVAR_ARCHIVE);
 	s_voice_volume= Cvar_Get ("s_voice_volume", "1.0", CVAR_ARCHIVE);
 	s_music_volume = Cvar_Get ("s_music_volume", "0.25", CVAR_ARCHIVE);
@@ -270,13 +278,24 @@ void S_Init( void ) {
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
 
 	cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
+	XBLog_Write("JAMP: S_Init after cvars");
 	if ( !cv->integer ) {
 		s_soundStarted = 0;	// needed in case you set s_initsound to 0 midgame then snd_restart (div0 err otherwise later)
 		Com_Printf ("not initializing.\n");
 		Com_Printf("------------------------------------\n");
+		XBLog_Write("JAMP: S_Init disabled");
 		return;
 	}
 
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
+	s_soundStarted = 0;
+	Com_Printf("not initializing (Cxbx smoke bypass).\n");
+	Com_Printf("------------------------------------\n");
+	XBLog_Write("JAMP: S_Init Cxbx smoke bypass - skipping DirectSoundCreate");
+	return;
+#endif
+
+	XBLog_Write("JAMP: S_Init before commands");
 	Cmd_AddCommand("play", S_Play_f);
 #ifndef _JK2MP
 	Cmd_AddCommand("playex", S_PlayEx_f);
@@ -285,44 +304,68 @@ void S_Init( void ) {
 	Cmd_AddCommand("soundlist", S_SoundList_f);
 	Cmd_AddCommand("soundinfo", S_SoundInfo_f);
 	Cmd_AddCommand("soundstop", S_StopAllSounds);
+	XBLog_Write("JAMP: S_Init after commands");
 
 	// clear out the lip synching override array
 	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
 
+	XBLog_Write("JAMP: S_Init before alcOpenDevice");
 	ALCDevice = alcOpenDevice((ALubyte*)"DirectSound3D");
 	if (!ALCDevice)
+	{
+		XBLog_Write("JAMP: S_Init alcOpenDevice failed");
 		return;
+	}
+	XBLog_Write("JAMP: S_Init after alcOpenDevice");
 
 	//Create context(s)
+	XBLog_Write("JAMP: S_Init before alcCreateContext");
 	ALCContext = alcCreateContext(ALCDevice, NULL);
 	if (!ALCContext)
+	{
+		XBLog_Write("JAMP: S_Init alcCreateContext failed");
 		return;
+	}
+	XBLog_Write("JAMP: S_Init after alcCreateContext");
 
 	//Set active context
+	XBLog_Write("JAMP: S_Init before alcMakeContextCurrent");
 	alcMakeContextCurrent(ALCContext);		
 	if (alcGetError(ALCDevice) != ALC_NO_ERROR)
+	{
+		XBLog_Write("JAMP: S_Init alcMakeContextCurrent failed");
 		return;
+	}
+	XBLog_Write("JAMP: S_Init after alcMakeContextCurrent");
 
 	memset(s_sfxCodes, INVALID_CODE, sizeof(int) * MAX_SFX);
 
+	XBLog_Write("JAMP: S_Init before S_StopAllSounds");
 	S_StopAllSounds();
+	XBLog_Write("JAMP: S_Init after S_StopAllSounds");
 
 	s_soundStarted = 1;
 	s_soundMuted = 1;
 	s_loopEnabled = 0;
 	s_updateTime = 0;
 
+	XBLog_Write("JAMP: S_Init before S_SoundInfo_f");
 	S_SoundInfo_f();
+	XBLog_Write("JAMP: S_Init after S_SoundInfo_f");
 
 	memset(s_channels, 0, sizeof(channel_t) * MAX_CHANNELS);
 	s_numChannels = 0;
 	
 	// create music channel
+	XBLog_Write("JAMP: S_Init before alGenStream");
 	alGenStream();
+	XBLog_Write("JAMP: S_Init after alGenStream");
 
 	Com_Printf("------------------------------------\n");
 
+	XBLog_Write("JAMP: S_Init before S_InitLoad");
 	S_InitLoad();
+	XBLog_Write("JAMP: S_Init after S_InitLoad");
 }
 
 // only called from snd_restart. QA request...

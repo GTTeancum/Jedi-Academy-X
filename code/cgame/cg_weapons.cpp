@@ -21,7 +21,10 @@
 #endif // _IMMERSION
 
 #ifdef _XBOX
+#include "../win32/xb_log.h"
 extern bool CL_ExtendSelectTime(void);
+static int s_xboxRegisterWeaponLogCount = 0;
+static int s_xboxAddViewWeaponLogCount = 0;
 #endif
 
 
@@ -47,14 +50,43 @@ void CG_RegisterWeapon( int weaponNum ) {
 	vec3_t			mins, maxs;
 	int				i;
 
+	if ( weaponNum < WP_NONE || weaponNum >= MAX_WEAPONS ) {
+#ifdef _XBOX
+		XBLF("JA: CG_RegisterWeapon invalid weapon=%d max=%d", weaponNum, MAX_WEAPONS);
+#endif
+		return;
+	}
+
 	weaponInfo = &cg_weapons[weaponNum];
+
+#ifdef _XBOX
+	const bool xboxLogWeapon = (s_xboxRegisterWeaponLogCount < 48);
+	if (xboxLogWeapon) {
+		const char *className = weaponData[weaponNum].classname ? weaponData[weaponNum].classname : "<null>";
+		const char *modelName = weaponData[weaponNum].weaponMdl ? weaponData[weaponNum].weaponMdl : "<null>";
+		const char *iconName = weaponData[weaponNum].weaponIcon ? weaponData[weaponNum].weaponIcon : "<null>";
+		XBLF("JA: CG_RegisterWeapon #%d enter weapon=%d registered=%d class='%s' model='%s' icon='%s'",
+			s_xboxRegisterWeaponLogCount, weaponNum, weaponInfo->registered, className, modelName, iconName);
+		s_xboxRegisterWeaponLogCount++;
+	}
+#endif
 
 	// error checking
 	if ( weaponNum == 0 ) {
+#ifdef _XBOX
+		if (xboxLogWeapon) {
+			XBLog_Write("JA: CG_RegisterWeapon: WP_NONE return");
+		}
+#endif
 		return;
 	}
 
 	if ( weaponInfo->registered ) {
+#ifdef _XBOX
+		if (xboxLogWeapon) {
+			XBLF("JA: CG_RegisterWeapon weapon=%d cache hit", weaponNum);
+		}
+#endif
 		return;
 	}
 
@@ -71,12 +103,28 @@ void CG_RegisterWeapon( int weaponNum ) {
 	}
 	// if we couldn't find which weapon this is, give us an error
 	if ( !item->classname ) {
+#ifdef _XBOX
+		if (xboxLogWeapon) {
+			XBLF("JA: CG_RegisterWeapon weapon=%d missing item; class='%s'", weaponNum, weaponData[weaponNum].classname);
+		}
+#endif
 		CG_Error( "Couldn't find item for weapon %s\nNeed to update Items.dat!", weaponData[weaponNum].classname);
 	}
 	CG_RegisterItemVisuals( item - bg_itemlist );
+#ifdef _XBOX
+	if (xboxLogWeapon) {
+		XBLF("JA: CG_RegisterWeapon weapon=%d item visuals done itemIndex=%d world='%s'",
+			weaponNum, (int)(item - bg_itemlist), item->world_model ? item->world_model : "<null>");
+	}
+#endif
 
 	// set up in view weapon model
 	weaponInfo->weaponModel = cgi_R_RegisterModel( weaponData[weaponNum].weaponMdl );
+#ifdef _XBOX
+	if (xboxLogWeapon) {
+		XBLF("JA: CG_RegisterWeapon weapon=%d weaponModel=%d", weaponNum, weaponInfo->weaponModel);
+	}
+#endif
 	{//in case the weaponmodel isn't _w, precache the _w.glm
 		char weaponModel[64];
 		
@@ -111,6 +159,12 @@ void CG_RegisterWeapon( int weaponNum ) {
 	{
 		weaponInfo->weaponIcon = cgi_R_RegisterShaderNoMip( weaponData[weaponNum].weaponIcon);
 		weaponInfo->weaponIconNoAmmo = cgi_R_RegisterShaderNoMip( va("%s_na",weaponData[weaponNum].weaponIcon));
+#ifdef _XBOX
+		if (xboxLogWeapon) {
+			XBLF("JA: CG_RegisterWeapon weapon=%d icons icon=%d noAmmo=%d",
+				weaponNum, weaponInfo->weaponIcon, weaponInfo->weaponIconNoAmmo);
+		}
+#endif
 	}
 
 	for ( ammo = bg_itemlist + 1 ; ammo->classname ; ammo++ ) {	
@@ -153,6 +207,12 @@ void CG_RegisterWeapon( int weaponNum ) {
 	if ( !weaponInfo->handsModel ) {
 		weaponInfo->handsModel = cgi_R_RegisterModel( "models/weapons2/briar_pistol/briar_pistol_hand.md3" );
 	}
+#ifdef _XBOX
+	if (xboxLogWeapon) {
+		XBLF("JA: CG_RegisterWeapon weapon=%d worldModel=%d handsModel=%d",
+			weaponNum, weaponInfo->weaponWorldModel, weaponInfo->handsModel);
+	}
+#endif
 
 	// register the sounds for the weapon
 	if (weaponData[weaponNum].firingSnd[0]) {
@@ -216,10 +276,22 @@ void CG_RegisterWeapon( int weaponNum ) {
 	if ( weaponData[weaponNum].mMuzzleEffect[0] ) 
 	{
 		weaponData[weaponNum].mMuzzleEffectID = theFxScheduler.RegisterEffect( weaponData[weaponNum].mMuzzleEffect );
+#ifdef _XBOX
+		if (xboxLogWeapon) {
+			XBLF("JA: CG_RegisterWeapon weapon=%d muzzleEffect='%s' id=%d",
+				weaponNum, weaponData[weaponNum].mMuzzleEffect, weaponData[weaponNum].mMuzzleEffectID);
+		}
+#endif
 	}
 	if ( weaponData[weaponNum].mAltMuzzleEffect[0] ) 
 	{
 		weaponData[weaponNum].mAltMuzzleEffectID = theFxScheduler.RegisterEffect( weaponData[weaponNum].mAltMuzzleEffect );
+#ifdef _XBOX
+		if (xboxLogWeapon) {
+			XBLF("JA: CG_RegisterWeapon weapon=%d altMuzzleEffect='%s' id=%d",
+				weaponNum, weaponData[weaponNum].mAltMuzzleEffect, weaponData[weaponNum].mAltMuzzleEffectID);
+		}
+#endif
 	}
 
 	//fixme: don't really need to copy these, should just use directly
@@ -232,6 +304,12 @@ void CG_RegisterWeapon( int weaponNum ) {
 	{
 		weaponInfo->alt_missileTrailFunc = (void (__cdecl *)(struct centity_s *,const struct weaponInfo_s *))weaponData[weaponNum].altfunc;
 	}
+#ifdef _XBOX
+	if (xboxLogWeapon) {
+		XBLF("JA: CG_RegisterWeapon weapon=%d funcs trail=%p altTrail=%p switch...",
+			weaponNum, weaponInfo->missileTrailFunc, weaponInfo->alt_missileTrailFunc);
+	}
+#endif
 
 	switch ( weaponNum )	//extra client only stuff
 	{
@@ -671,6 +749,11 @@ void CG_RegisterWeapon( int weaponNum ) {
 		theFxScheduler.RegisterEffect( "ships/imp_blastershot" );
 		break;
 	}
+#ifdef _XBOX
+	if (xboxLogWeapon) {
+		XBLF("JA: CG_RegisterWeapon weapon=%d done", weaponNum);
+	}
+#endif
 }
 
 /*
@@ -1032,6 +1115,34 @@ void CG_AddViewWeapon( playerState_t *ps )
 	centity_t	*cent;
 	float		fovOffset, leanOffset;
 
+#ifdef _XBOX
+	const bool xboxLogViewWeapon = (s_xboxAddViewWeaponLogCount < 32);
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon #%d enter ps=%p snap=%p weapon=%d third=%d zoom=%d drawGun=%d",
+			s_xboxAddViewWeaponLogCount, (void*)ps, (void*)cg.snap,
+			ps ? ps->weapon : -1, (int)cg.renderingThirdPerson, (int)cg.zoomMode, cg_drawGun.integer);
+		s_xboxAddViewWeaponLogCount++;
+	}
+#endif
+
+	if ( !ps || !cg.snap ) {
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLog_Write("JA: CG_AddViewWeapon null ps/snap return");
+		}
+#endif
+		return;
+	}
+
+	if ( ps->weapon < WP_NONE || ps->weapon >= MAX_WEAPONS ) {
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon invalid weapon=%d max=%d", ps->weapon, MAX_WEAPONS);
+		}
+#endif
+		return;
+	}
+
 	// no gun if in third person view
 	if ( cg.renderingThirdPerson )
 		return;
@@ -1099,6 +1210,11 @@ void CG_AddViewWeapon( playerState_t *ps )
 //		CG_LightningBolt( cent, origin );	
 
 		// We should still do muzzle flashes though...
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon weapon=%d register for muzzle-only path", ps->weapon);
+		}
+#endif
 		CG_RegisterWeapon( ps->weapon );
 		weapon = &cg_weapons[ps->weapon];
 		wData =  &weaponData[ps->weapon];
@@ -1144,8 +1260,37 @@ void CG_AddViewWeapon( playerState_t *ps )
 	}
 
 	CG_RegisterWeapon( ps->weapon );
+#ifdef _XBOX
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon after CG_RegisterWeapon weapon=%d", ps->weapon);
+	}
+#endif
 	weapon = &cg_weapons[ps->weapon];
 	wData =  &weaponData[ps->weapon];
+#ifdef _XBOX
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon weapon=%d registered=%d model=%d hands=%d icon=%d",
+			ps->weapon, weapon->registered, weapon->weaponModel, weapon->handsModel, weapon->weaponIcon);
+	}
+#endif
+	if ( !weapon || !wData || !weapon->registered ) {
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon invalid weaponInfo weapon=%d weaponPtr=%p dataPtr=%p registered=%d",
+				ps->weapon, weapon, wData, weapon ? weapon->registered : -1);
+		}
+#endif
+		return;
+	}
+	if ( !weapon->weaponModel || !weapon->handsModel ) {
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon missing model weapon=%d model=%d hands=%d",
+				ps->weapon, weapon->weaponModel, weapon->handsModel);
+		}
+#endif
+		return;
+	}
 
 	memset (&hand, 0, sizeof(hand));
 
@@ -1158,7 +1303,17 @@ void CG_AddViewWeapon( playerState_t *ps )
 	}
 
 	// set up gun position
+#ifdef _XBOX
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon before CG_CalculateWeaponPosition weapon=%d", ps->weapon);
+	}
+#endif
 	CG_CalculateWeaponPosition( hand.origin, angles );
+#ifdef _XBOX
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon after CG_CalculateWeaponPosition weapon=%d", ps->weapon);
+	}
+#endif
 
 	//VectorMA( hand.origin, cg_gun_x.value, cg.refdef.viewaxis[0], hand.origin );
 	//VectorMA( hand.origin, (cg_gun_y.value+leanOffset), cg.refdef.viewaxis[1], hand.origin );
@@ -1186,8 +1341,20 @@ void CG_AddViewWeapon( playerState_t *ps )
 		float currentFrame;
 		int startFrame,endFrame,flags;
 		float animSpeed;
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon before G2API_GetBoneAnimIndex weapon=%d gent=%p playerModel=%d lowerLumbar=%d",
+				ps->weapon, cent->gent, cent->gent ? cent->gent->playerModel : -1, cent->gent ? cent->gent->lowerLumbarBone : -1);
+		}
+#endif
 		if (cent->gent->lowerLumbarBone>=0&& gi.G2API_GetBoneAnimIndex(&cent->gent->ghoul2[cent->gent->playerModel], cent->gent->lowerLumbarBone, cg.time, &currentFrame, &startFrame, &endFrame, &flags, &animSpeed,0) )
 		{
+#ifdef _XBOX
+			if (xboxLogViewWeapon) {
+				XBLF("JA: CG_AddViewWeapon bone anim ok frame=%f start=%d end=%d flags=0x%x speed=%f",
+					currentFrame, startFrame, endFrame, flags, animSpeed);
+			}
+#endif
 			hand.oldframe = CG_MapTorsoToWeaponFrame( ci,floor(currentFrame), torsoAnim, cent->currentState.weapon, ( cent->currentState.eFlags & EF_FIRING ) );
 			hand.frame = CG_MapTorsoToWeaponFrame( ci,ceil(currentFrame), torsoAnim, cent->currentState.weapon, ( cent->currentState.eFlags & EF_FIRING ) );
 			hand.backlerp=1.0f-(currentFrame-floor(currentFrame));
@@ -1199,6 +1366,11 @@ void CG_AddViewWeapon( playerState_t *ps )
 		else
 		{
 //			assert(0); // no idea what to do here
+#ifdef _XBOX
+			if (xboxLogViewWeapon) {
+				XBLF("JA: CG_AddViewWeapon bone anim fallback weapon=%d", ps->weapon);
+			}
+#endif
 			hand.oldframe=0;
 			hand.frame=0;
 			hand.backlerp=0.0f;
@@ -1211,19 +1383,39 @@ void CG_AddViewWeapon( playerState_t *ps )
 	{
 		numSabers = 2;
 	}
+#ifdef _XBOX
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon before weapon loop weapon=%d numSabers=%d", ps->weapon, numSabers);
+	}
+#endif
 	for ( int saberNum = 0; saberNum < numSabers; saberNum++ )
 	{
 		refEntity_t	gun;
 		memset (&gun, 0, sizeof(gun));
 
 		gun.hModel = weapon->weaponModel;
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon loop saberNum=%d gunModel=%d handModel=%d", saberNum, gun.hModel, weapon->handsModel);
+		}
+#endif
 		if (!gun.hModel) 
 		{
 			return;
 		}
 
 		AnglesToAxis( angles, gun.axis );
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon before PositionEntityOnTag tag_weapon saberNum=%d", saberNum);
+		}
+#endif
 		CG_PositionEntityOnTag( &gun, &hand, weapon->handsModel, "tag_weapon");
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon after PositionEntityOnTag tag_weapon saberNum=%d", saberNum);
+		}
+#endif
 
 		gun.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON;
 
@@ -1262,7 +1454,17 @@ void CG_AddViewWeapon( playerState_t *ps )
 		//---------
 
 		//	CG_AddRefEntityWithPowerups( &gun, cent->currentState.powerups, cent->gent );
+#ifdef _XBOX
+			if (xboxLogViewWeapon) {
+				XBLF("JA: CG_AddViewWeapon before AddRefEntity gun saberNum=%d model=%d", saberNum, gun.hModel);
+			}
+#endif
 			cgi_R_AddRefEntityToScene( &gun );
+#ifdef _XBOX
+			if (xboxLogViewWeapon) {
+				XBLF("JA: CG_AddViewWeapon after AddRefEntity gun saberNum=%d", saberNum);
+			}
+#endif
 
 	/*	if ( ps->weapon == WP_STUN_BATON )
 		{
@@ -1306,9 +1508,29 @@ void CG_AddViewWeapon( playerState_t *ps )
 		memset (&flash, 0, sizeof(flash));
 
 		// Seems like we should always do this in case we have an animating muzzle flash....that way we can always store the correct muzzle dir, etc.
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon before PositionEntityOnTag tag_flash saberNum=%d model=%d", saberNum, gun.hModel);
+		}
+#endif
 		CG_PositionEntityOnTag( &flash, &gun, gun.hModel, "tag_flash");
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon after PositionEntityOnTag tag_flash saberNum=%d", saberNum);
+		}
+#endif
 
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon before CG_DoMuzzleFlash weapon=%d", ps->weapon);
+		}
+#endif
 		CG_DoMuzzleFlash( cent, flash.origin, flash.axis[0], wData );
+#ifdef _XBOX
+		if (xboxLogViewWeapon) {
+			XBLF("JA: CG_AddViewWeapon after CG_DoMuzzleFlash weapon=%d", ps->weapon);
+		}
+#endif
 
 		if ( cent->gent && cent->gent->client )
 		{
@@ -1326,6 +1548,11 @@ void CG_AddViewWeapon( playerState_t *ps )
 
 	// Do special charge bits
 	//-----------------------
+#ifdef _XBOX
+	if (xboxLogViewWeapon) {
+		XBLF("JA: CG_AddViewWeapon after weapon loop weapon=%d state=%d", ps->weapon, ps->weaponstate);
+	}
+#endif
 	if (( ps->weaponstate == WEAPON_CHARGING_ALT && ps->weapon == WP_BRYAR_PISTOL ) 
 			|| ( ps->weaponstate == WEAPON_CHARGING_ALT && ps->weapon == WP_BLASTER_PISTOL ) 
 			|| ( ps->weapon == WP_BOWCASTER && ps->weaponstate == WEAPON_CHARGING )

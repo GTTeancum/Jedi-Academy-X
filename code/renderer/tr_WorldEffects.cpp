@@ -30,6 +30,7 @@ extern void			SetViewportAndScissor( void );
 
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
+#include "../win32/xb_log.h"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1564,40 +1565,40 @@ public:
 			pointBegin(mParticleCountRender, mWidth);
 		}
 #else
-		if (mGLModeEnum==GL_POINTS && qglPointParameteriNV)
+		if (mGLModeEnum==GL_POINTS && glPointParameteriNV)
 		{
-			qglEnable(GL_POINT_SPRITE_NV);
+			glEnable(GL_POINT_SPRITE_NV);
 
-			qglPointSize(mWidth);
-			qglPointParameterfEXT( GL_POINT_SIZE_MIN_EXT, 4.0f );
-			qglPointParameterfEXT( GL_POINT_SIZE_MAX_EXT, 2047.0f );
+			glPointSize(mWidth);
+			glPointParameterfEXT( GL_POINT_SIZE_MIN_EXT, 4.0f );
+			glPointParameterfEXT( GL_POINT_SIZE_MAX_EXT, 2047.0f );
 
-			qglTexEnvi(GL_POINT_SPRITE_NV, GL_COORD_REPLACE_NV, GL_TRUE);
+			glTexEnvi(GL_POINT_SPRITE_NV, GL_COORD_REPLACE_NV, GL_TRUE);
 		}
 #endif
 		else
 		{
-			qglEnable(GL_TEXTURE_2D);
-			qglDisable(GL_CULL_FACE);
+			glEnable(GL_TEXTURE_2D);
+			glDisable(GL_CULL_FACE);
 
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (mFilterMode==0)?(GL_LINEAR):(GL_NEAREST));
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (mFilterMode==0)?(GL_LINEAR):(GL_NEAREST));
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (mFilterMode==0)?(GL_LINEAR):(GL_NEAREST));
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (mFilterMode==0)?(GL_LINEAR):(GL_NEAREST));
 
 
 			// Setup Matrix Mode And Translation
 			//-----------------------------------
-			qglMatrixMode(GL_MODELVIEW);
-			qglPushMatrix();
+			glMatrixMode(GL_MODELVIEW);
+			glPushMatrix();
 
 #ifdef _XBOX
-			qglBeginEXT(mGLModeEnum, mParticleCountRender*mVertexCount, mParticleCountRender, 0, mParticleCountRender*mVertexCount, 0);
+			glBeginEXT(mGLModeEnum, mParticleCountRender*mVertexCount, mParticleCountRender, 0, mParticleCountRender*mVertexCount, 0);
 #endif
 		}
 
 		// Begin
 		//-------
 #ifndef _XBOX
-		qglBegin(mGLModeEnum);
+		glBegin(mGLModeEnum);
 #endif
 		for (particleNum=0; particleNum<mParticleCount; particleNum++)
 		{
@@ -1630,39 +1631,39 @@ public:
 			//------------------------------------------------------
 			if (mBlendMode==0)
 			{
-				qglColor4f(mColor[0], mColor[1], mColor[2], part->mAlpha);
+				glColor4f(mColor[0], mColor[1], mColor[2], part->mAlpha);
 			}
 
 			// Otherwise Apply Alpha To All Channels
 			//---------------------------------------
 			else
 			{
-				qglColor4f(mColor[0]*part->mAlpha, mColor[1]*part->mAlpha, mColor[2]*part->mAlpha, mColor[3]*part->mAlpha);
+				glColor4f(mColor[0]*part->mAlpha, mColor[1]*part->mAlpha, mColor[2]*part->mAlpha, mColor[3]*part->mAlpha);
 			}
 
 			// Render A Point
 			//----------------
 			if (mGLModeEnum==GL_POINTS)
 			{
-				qglVertex3fv(part->mPosition.v);
+				glVertex3fv(part->mPosition.v);
 			}
 
 			// Render A Triangle
 			//-------------------
 			else if (mVertexCount==3)
 			{
- 				qglTexCoord2f(1.0, 0.0);
-				qglVertex3f(part->mPosition[0],
+ 				glTexCoord2f(1.0, 0.0);
+				glVertex3f(part->mPosition[0],
 							part->mPosition[1],
 							part->mPosition[2]);
 
-				qglTexCoord2f(0.0, 1.0);
-				qglVertex3f(part->mPosition[0] + mCameraLeft[0],
+				glTexCoord2f(0.0, 1.0);
+				glVertex3f(part->mPosition[0] + mCameraLeft[0],
 							part->mPosition[1] + mCameraLeft[1],
 							part->mPosition[2] + mCameraLeft[2]);
 				
-				qglTexCoord2f(0.0, 0.0);
-				qglVertex3f(part->mPosition[0] + mCameraLeftPlusUp[0],
+				glTexCoord2f(0.0, 0.0);
+				glVertex3f(part->mPosition[0] + mCameraLeftPlusUp[0],
 							part->mPosition[1] + mCameraLeftPlusUp[1],
 							part->mPosition[2] + mCameraLeftPlusUp[2]);
 			}
@@ -1672,45 +1673,45 @@ public:
 			else
 			{
 				// Left bottom.
-				qglTexCoord2f( 0.0, 0.0 );
-				qglVertex3f(part->mPosition[0] - mCameraLeftMinusUp[0],
+				glTexCoord2f( 0.0, 0.0 );
+				glVertex3f(part->mPosition[0] - mCameraLeftMinusUp[0],
 							part->mPosition[1] - mCameraLeftMinusUp[1],
 							part->mPosition[2] - mCameraLeftMinusUp[2] );
 
 				// Right bottom.
-				qglTexCoord2f( 1.0, 0.0 );
-				qglVertex3f(part->mPosition[0] - mCameraLeftPlusUp[0],
+				glTexCoord2f( 1.0, 0.0 );
+				glVertex3f(part->mPosition[0] - mCameraLeftPlusUp[0],
 							part->mPosition[1] - mCameraLeftPlusUp[1],
 							part->mPosition[2] - mCameraLeftPlusUp[2] );
 
 				// Right top.
-				qglTexCoord2f( 1.0, 1.0 );
-				qglVertex3f(part->mPosition[0] + mCameraLeftMinusUp[0],
+				glTexCoord2f( 1.0, 1.0 );
+				glVertex3f(part->mPosition[0] + mCameraLeftMinusUp[0],
 							part->mPosition[1] + mCameraLeftMinusUp[1],
 							part->mPosition[2] + mCameraLeftMinusUp[2] );
 
 				// Left top.
-				qglTexCoord2f( 0.0, 1.0 );
-				qglVertex3f(part->mPosition[0] + mCameraLeftPlusUp[0],
+				glTexCoord2f( 0.0, 1.0 );
+				glVertex3f(part->mPosition[0] + mCameraLeftPlusUp[0],
 							part->mPosition[1] + mCameraLeftPlusUp[1], 
 							part->mPosition[2] + mCameraLeftPlusUp[2] );
 			}
 		}
-		qglEnd();
+		glEnd();
 
 		if (mGLModeEnum==GL_POINTS)
 		{
 #ifdef _XBOX
 			pointEnd();
 #else
-			qglDisable(GL_POINT_SPRITE_NV);
-			qglTexEnvi(GL_POINT_SPRITE_NV, GL_COORD_REPLACE_NV, GL_FALSE);
+			glDisable(GL_POINT_SPRITE_NV);
+			glTexEnvi(GL_POINT_SPRITE_NV, GL_COORD_REPLACE_NV, GL_FALSE);
 #endif
 		}
 		else
 		{
-			qglEnable(GL_CULL_FACE);
-			qglPopMatrix();
+			glEnable(GL_CULL_FACE);
+			glPopMatrix();
 		}
 
 		mParticlesRendered += mParticleCountRender;
@@ -1752,6 +1753,16 @@ void R_ShutdownWorldEffects(void)
 ////////////////////////////////////////////////////////////////////////////////////////
 void RB_RenderWorldEffects(void)
 {
+#ifdef _XBOX
+	static qboolean s_xboxLoggedWorldEffectsSkip = qfalse;
+	if (!s_xboxLoggedWorldEffectsSkip)
+	{
+		XBLog_Write("JA: RB_RenderWorldEffects skipped on Xbox");
+		s_xboxLoggedWorldEffectsSkip = qtrue;
+	}
+	return;
+#endif
+
 	if (!tr.world || 
 		(tr.refdef.rdflags & RDF_NOWORLDMODEL) || 
 		(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL) || 
@@ -1762,8 +1773,8 @@ void RB_RenderWorldEffects(void)
 	}
 
 	SetViewportAndScissor();
-	qglMatrixMode(GL_MODELVIEW);
-	qglLoadMatrixf(backEnd.viewParms.world.modelMatrix);
+	glMatrixMode(GL_MODELVIEW);
+	glLoadMatrixf(backEnd.viewParms.world.modelMatrix);
 
 
 	// Calculate Elapsed Time For Scale Purposes
@@ -2289,7 +2300,5 @@ bool R_IsPuffing()
 {
 	return false;
 }
-
-
 
 

@@ -811,6 +811,16 @@ Called on the client side to load and precache all the ambient sound sets
 
 void AS_ParseSets( void )
 {
+#ifdef _XBOX
+	static qboolean s_xboxAmbientDisabledLogged = qfalse;
+	if (!s_xboxAmbientDisabledLogged)
+	{
+		Com_Printf("JA: Xbox ambient audio disabled for current smoke path.\n");
+		s_xboxAmbientDisabledLogged = qtrue;
+	}
+	return;
+#endif
+
 	cvar_t	*cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
 	if ( !cv->integer ) {
 		return;
@@ -1096,6 +1106,10 @@ Does maintenance and plays the ambient sets (two if crossfading)
 
 void S_UpdateAmbientSet ( const char *name, vec3_t origin ) 
 {
+#ifdef _XBOX
+	return;
+#endif
+
 	ambientSet_t	*current, *old;
 	if (aSets == NULL)
 	{

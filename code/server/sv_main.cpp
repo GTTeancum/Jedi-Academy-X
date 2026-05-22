@@ -273,6 +273,15 @@ SV_ReadPackets
 =================
 */
 void SV_PacketEvent( netadr_t from, msg_t *msg ) {
+#ifdef _XBOX
+	static int s_xboxSVPacketLogs = 0;
+	if (s_xboxSVPacketLogs < 16)
+	{
+		Com_PrintfAlways("JA: SV_PacketEvent enter fromType=%d size=%d read=%d\n",
+			(int)from.type, msg ? msg->cursize : -1, msg ? msg->readcount : -1);
+		++s_xboxSVPacketLogs;
+	}
+#endif
 	int			i;
 	client_t	*cl;
 	int			qport;

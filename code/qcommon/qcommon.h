@@ -619,16 +619,20 @@ qboolean Z_IsFromTempPool(void *pvAddress);
 void Hunk_Clear( void );
 void Hunk_ClearToMark( void );
 void Hunk_SetMark( void );
-// note the opposite default for 'bZeroIt' in Hunk_Alloc to Z_Malloc, since Hunk_Alloc always used to memset(0)...
-//
-inline void *Hunk_Alloc( int size, qboolean bZeroIt = qtrue) 
-{
-	return Z_Malloc(size, TAG_HUNKALLOC, bZeroIt);
-}
+qboolean Hunk_CheckMark( void );
+void Hunk_ClearTempMemory( void );
+void *Hunk_AllocateTempMemory( int size );
+void Hunk_FreeTempMemory( void *buf );
+int	Hunk_MemoryRemaining( void );
+void *Hunk_Alloc( int size, qboolean bZeroIt = qtrue );
 
 // Used to re-tag new/delete allocations:
 void Z_PushNewDeleteTag( memtag_t eTag );
 void Z_PopNewDeleteTag( void );
+void Com_InitZoneMemory(void);
+void Com_InitHunkMemory(void);
+void Com_ShutdownZoneMemory(void);
+void Com_ShutdownHunkMemory(void);
 
 void Com_TouchMemory( void );
 

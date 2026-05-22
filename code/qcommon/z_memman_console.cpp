@@ -54,14 +54,12 @@
 
 #ifdef _XBOX
 #include <Xtl.h>
+#include "../cgame/cg_local.h"
 #include "../win32/xbox_texture_man.h"
-// RE Phase 3 finding: shipped binary (XDK 5558) uses D3D_AllocContiguousMemory
-// for the zone pool rather than VirtualAlloc.  Declare it here so we can
-// match the binary exactly in Com_InitZoneMemory below.
-extern "C" void* __cdecl D3D_AllocContiguousMemory(DWORD Size, DWORD Alignment);
-// Fixed zone pool size as used by the shipped binary: 16 MB
-#define ZONE_POOL_SIZE_BINARY (16 * 1024 * 1024)
 #endif
+
+// Where do hunk allocations go?
+static memtag_t hunk_tag;
 
 // Used to mark the start and end of blocks in debug mode
 #define ZONE_MAGIC 0xfe
@@ -72,24 +70,39 @@ extern "C" void* __cdecl D3D_AllocContiguousMemory(DWORD Size, DWORD Alignment);
 // Indicates whether or not special (slow) debug code should be enabled
 #define ZONE_DEBUG 0
 
+//Amount of memory left out of the zone for use in the model memory manager.
+#define MODEL_MEM ( \
+		786740 + \
+		786740 + \
+		765912 + \
+		757852 + \
+		747412 + \
+		744960 + \
+		730924 + \
+		405040 + \
+		360840 + \
+		357468 + \
+		328984 + \
+		15000 + \
+		32000) //slack for paging memory, rounding, etc.
+/* Round up last two model slots to equal sizeof(clientActive_t) */ 
+
 // Allocate all available memory minus this amount - texture pools are
 // allocated before this, so just leave enough for framebuffer, etc...
-// Gah! I hate Bink! Stupid thing allocates physical memory (probably via
-// DSound) when starting. Need to leave just a little more.
 #ifdef FINAL_BUILD
-#	define ZONE_HEAP_FREE (1024*1024*6 + 512*1024 + 256*1024 + 64*1024)
+#	define ZONE_HEAP_FREE (1024*1024*7 + MODEL_MEM)
 #else
-#	define ZONE_HEAP_FREE (1024*1024*16 + 16*1024*1024)
+#	define ZONE_HEAP_FREE (1024*1024*16 + 16*1024*1024 + MODEL_MEM)
 #endif
 
-#ifdef FINAL_BUILD
-#define TEXTURE_POOL_SIZE	16*1024*1024
-#else
-#define TEXTURE_POOL_SIZE	20*1024*1024
+#define STATIC_TEXTURE_POOL_SIZE	(10*1024*1024)
+#define MODEL_TEXTURE_POOL_SIZE		4*1024*1024
+
+#ifdef _XBOX
+#define ZONE_POOL_SIZE_RETAIL		(24*1024*1024)
 #endif
 
-// Two systems (Bink, and Savegames) need large, contiguous allocations once things
-// are running and fragmented. They get their own sandbox:
+// SP savegames and Bink still use the original scratch sandbox.
 #define TEMP_ALLOC_POOL_SIZE	(2*1024*1024 + 512*1024)
 
 __declspec (align(32)) char s_TempAllocPool[TEMP_ALLOC_POOL_SIZE];
@@ -104,9 +117,7 @@ void *TempAlloc( unsigned long size )
 	}
 
 	void *retVal = &s_TempAllocPool[s_TempAllocPoint];
-
 	s_TempAllocPoint = (s_TempAllocPoint + size + 31) & ~31;
-
 	return retVal;
 }
 
@@ -188,7 +199,6 @@ static ZoneFreeBlock* s_FreeJumpTable[Z_JUMP_TABLE_SIZE];
 static unsigned int s_FreeJumpResolution;
 
 static void* s_PoolBase;
-static int s_PoolSize;
 static bool s_Initialized = false;
 
 static memtag_t s_newDeleteTagStack[32] = { TAG_NEWDEL };
@@ -218,9 +228,10 @@ void Z_PopNewDeleteTag( void )
 #ifdef _XBOX
 void ShowOSMemory(void)
 {
+#ifndef FINAL_BUILD
 	MEMORYSTATUS stat;
 	GlobalMemoryStatus(&stat);
-	Com_Printf("     total mem: %d, free mem: %d\n", stat.dwTotalPhys / 1024,
+	Com_PrintfAlways("     total mem: %d, free mem: %d\n", stat.dwTotalPhys / 1024,
 			stat.dwAvailPhys / 1024);
 	FILE *out = fopen("d:\\osmem.txt", "a");
 	if(out) {
@@ -228,6 +239,7 @@ void ShowOSMemory(void)
 				stat.dwAvailPhys / 1024);
 		fclose(out);
 	}
+#endif
 }
 #endif
 
@@ -236,6 +248,7 @@ int Z_MemFree(void)
 {
 	return s_Stats.m_SizeFree;
 }
+
 
 void Com_InitZoneMemory(void)
 {
@@ -258,37 +271,32 @@ void Com_InitZoneMemory(void)
 
 	// BTO : VVFIXME - Extra little note to see how much memory
 	// is being used by globals/statics
-	Com_Printf("*** PhysRAM: %d used, %d free\n",
+#ifndef FINAL_BUILD
+	Com_PrintfAlways("*** PhysRAM: %d used, %d free\n",
 				status.dwTotalPhys-status.dwAvailPhys,
 				status.dwAvailPhys);
+#endif
 
-	// Allocate the texture pool:
-	OutputDebugStringA("JA: gTextures.Initialize...\n");
-	gTextures.Initialize( TEXTURE_POOL_SIZE );
-	OutputDebugStringA("JA: gTextures.Initialize done\n");
+#if 0
+	// Allocate the two texture pools:
+	gStaticTextures.Initialize( STATIC_TEXTURE_POOL_SIZE );
+	gSkinTextures.Initialize( MODEL_TEXTURE_POOL_SIZE );
+#endif
+#ifdef _XBOX
+	OutputDebugStringA("JA: MP baseline texture pools deferred to renderer init (Cxbx-safe)\n");
+#endif
 
 	GlobalMemoryStatus(&status);
 
 	// BTO : VVFIXME - Extra little note to see how much memory
 	// is being used by globals/statics
-	Com_Printf("*** PhysRAM: %d used, %d free\n",
+#ifndef FINAL_BUILD
+	Com_PrintfAlways("*** PhysRAM: %d used, %d free\n",
 				status.dwTotalPhys-status.dwAvailPhys,
 				status.dwAvailPhys);
+#endif
+
 	SIZE_T size;
-#ifdef _XBOX
-	// RE Phase 3 (phase3_memory.cpp): shipped binary always allocates a fixed
-	// 16 MB zone pool via D3D_AllocContiguousMemory(0x1000000, 0).
-	// This matches binary @ 0x499AC: push 0 / push 0x1000000 / call D3D_section.
-	// D3D_AllocContiguousMemory is available before the D3D device is created.
-	size = ZONE_POOL_SIZE_BINARY;
-	OutputDebugStringA("JA: D3D_AllocContiguousMemory...\n");
-	s_PoolBase = D3D_AllocContiguousMemory((DWORD)size, 0);
-	if (!s_PoolBase) {
-		OutputDebugStringA("JA: D3D_AllocContiguousMemory FAILED\n");
-		Com_Error(ERR_FATAL, "Zone: D3D_AllocContiguousMemory(%d) failed", (int)size);
-	}
-	OutputDebugStringA("JA: D3D_AllocContiguousMemory done\n");
-#else
 #	if ZONE_EMULATE_SPACE
 #ifdef _DEBUG
 	//Emulated space is always about 6 megs off from release build.  Try
@@ -302,21 +310,40 @@ void Com_InitZoneMemory(void)
 	size = status.dwAvailPhys - ZONE_HEAP_FREE;
 #	endif
 
-	// Cap pool size to 64MB for emulator compatibility
-	if (size > 64 * 1024 * 1024) size = 64 * 1024 * 1024;
-	OutputDebugStringA("JA: VirtualAlloc...\n");
-	s_PoolBase = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	if (!s_PoolBase) {
-		OutputDebugStringA("JA: VirtualAlloc FAILED - trying smaller size\n");
-		size = 32 * 1024 * 1024;
-		s_PoolBase = VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-	}
-	OutputDebugStringA("JA: VirtualAlloc done\n");
+#ifdef FINAL_BUILD
+	// Add in the memory that's being used up by the framebuffer from PersistDisplay:
+	size += (640 * 480 * 4);
 #endif
-	s_PoolSize = size;
+
+#ifdef _XBOX
+	// Retail Z_Init allocates a fixed 0x1000000-byte pool with
+	// D3D_AllocContiguousMemory before renderer device creation.
+	{
+		char msg[160];
+		_snprintf(msg, sizeof(msg), "JA: retail zone D3D_AllocContiguousMemory request=%d calculated=%d\n",
+			ZONE_POOL_SIZE_RETAIL, (int)size);
+		msg[sizeof(msg) - 1] = '\0';
+		OutputDebugStringA(msg);
+	}
+	size = ZONE_POOL_SIZE_RETAIL;
+	s_PoolBase = D3D_AllocContiguousMemory(size, 0);
+	if (!s_PoolBase)
+	{
+		OutputDebugStringA("JA: retail zone D3D_AllocContiguousMemory FAILED\n");
+		Com_Error(ERR_FATAL, "Zone: D3D_AllocContiguousMemory(%d) failed", (int)size);
+	}
+	{
+		char msg[160];
+		_snprintf(msg, sizeof(msg), "JA: retail zone pool allocated base=%p size=%d\n",
+			s_PoolBase, (int)size);
+		msg[sizeof(msg) - 1] = '\0';
+		OutputDebugStringA(msg);
+	}
+#else
+	s_PoolBase = GlobalAlloc(0, size);
+#endif
 
 	// Setup the initial free block
-	OutputDebugStringA("JA: Zone block setup...\n");
 	ZoneFreeBlock* base = (ZoneFreeBlock*)s_PoolBase;
 	base->m_Address = (unsigned int)s_PoolBase;
 	base->m_Size = size;
@@ -350,18 +377,13 @@ void Com_InitZoneMemory(void)
 	Cmd_AddCommand("zone_memmap",	Z_DumpMemMap_f);
 	Cmd_AddCommand("zone_cstats",	Z_CompactStats);
 
+#if 0
+	ModelMem.AllocateModelSlots();
+#endif
+
 #ifndef _GAMECUBE
 	s_Mutex = CreateMutex(NULL, FALSE, NULL);
 #endif
-
-	// Super-size my hack. With fries. We allocate enough space for g_entities at the
-	// end of the zone now. If it turns out (somehow) that there is no persisted surface,
-	// then we need to take g_entities from the zone, but we'd normally allocate it so late
-	// that we'll have a big chunk in the middle. That's bad. And if we reserve space at the
-	// front, then we might not need it, and we've got a 1.2MB chunk of empty space there.
-	// This works perfectly, though:
-	extern void G_ReserveZoneGentities( void );
-	G_ReserveZoneGentities();
 }
 
 void Com_ShutdownZoneMemory(void)
@@ -388,7 +410,11 @@ void Com_ShutdownZoneMemory(void)
 
 	// Free the pool
 #ifndef _GAMECUBE
-	VirtualFree(s_PoolBase, 0, MEM_RELEASE);
+#ifdef _XBOX
+	D3D_FreeContiguousMemory(s_PoolBase);
+#else
+	GlobalFree(s_PoolBase);
+#endif
 	CloseHandle(s_Mutex);
 #endif
 
@@ -405,8 +431,12 @@ static bool Z_IsTagTemp(memtag_t eTag)
 		eTag == TAG_TEMP_WORKSPACE || 
 		eTag == TAG_SND_RAWDATA ||
 		eTag == TAG_ICARUS ||
+		eTag == TAG_TEXTPOOL ||
+		eTag == TAG_TEMP_HUNKALLOC ||
 		eTag == TAG_LISTFILES ||
-		eTag == TAG_GP2;
+		eTag == TAG_GP2 ||
+		eTag == TAG_LIPSYNC ||
+		eTag == TAG_FILELIST;
 }
 
 // Determine if a tag needs TagFree() support.
@@ -414,9 +444,13 @@ static bool Z_IsTagLinked(memtag_t eTag)
 {
 	return
 		eTag == TAG_BSP ||
-		eTag == TAG_HUNKALLOC ||
-//		eTag == TAG_HUNKMISCMODELS ||
+		eTag == TAG_CG_UI_ALLOC ||
+		eTag == TAG_BG_ALLOC ||
 		eTag == TAG_G_ALLOC ||
+		eTag == TAG_SAVEGAME ||
+		eTag == TAG_HUNK_MARK1 ||
+		eTag == TAG_HUNK_MARK2 ||
+		eTag == TAG_TEMP_HUNKALLOC ||
 		eTag == TAG_UI_ALLOC;
 }
 
@@ -759,20 +793,13 @@ void Z_MallocFail(const char* pMessage, int iSize, memtag_t eTag)
 {
 	// Report the error
 //	Com_Printf("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
-	Com_Printf("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
+	Com_PrintfAlways("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
 	Z_Details_f();
 	Z_DumpMemMap_f();
 //	Com_Printf("(Repeat): Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
-	Com_Printf("(Repeat): Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
+	Com_PrintfAlways("(Repeat): Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
 
-	// Clear the screen blue to indicate out of memory
-	for (;;)
-	{
-		qglBeginFrame();
-		qglClearColor(0, 0, 1, 1);
-		qglClear(GL_COLOR_BUFFER_BIT);
-		qglEndFrame();
-	}
+	Com_Error(ERR_FATAL, "Z_Malloc(): %s : %d bytes and tag %d", pMessage, iSize, eTag);
 }
 
 void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
@@ -805,6 +832,16 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	if (eTag == TAG_NEWDEL )
 	{
 		eTag = s_newDeleteTagStack[s_newDeleteTagStackTop];
+	}
+
+	// HAQ!
+	if (eTag == TAG_CLIENT_MANAGER_SPECIAL)
+	{
+		void *retVal = HeapAlloc(GetProcessHeap(), 0, iSize);
+		if (!retVal)
+			Z_MallocFail("ClientManagerSpecial Failed", iSize, eTag);
+		ReleaseMutex(s_Mutex);
+		return retVal;
 	}
 
 	// Determine how much space we need with headers and footers
@@ -967,7 +1004,7 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 		int suck = 0;
 	}
 
-	if ((unsigned)ablock >= 0x169b000 && (unsigned)ablock <= 0x169c000 && iSize == 20)
+	if ((unsigned)ablock >= 0x26e0000 && (unsigned)ablock <= 0x26e1000 && iSize == 720)
 	{
 		int suck = 0;
 	}
@@ -1018,6 +1055,83 @@ static int Z_GetAlign(const ZoneHeader* header)
 		return *ptr + 1;
 	}
 	return 0;
+}
+
+// PC model-cache support. Xbox retail allocates/copies model cache entries
+// after the humanoid bone-pool trim, so Xbox callers keep this path disabled.
+void Z_MorphMallocTag(void *pvAddress, memtag_t eDesiredTag)
+{
+	if (!pvAddress)
+	{
+		return;
+	}
+
+	if (!s_Initialized)
+	{
+		Com_Error(ERR_FATAL, "Z_MorphMallocTag(): zone not initialized");
+		return;
+	}
+
+#ifdef _DEBUG
+	ZoneDebugHeader* debug_header = (ZoneDebugHeader*)pvAddress - 1;
+	if (*debug_header != ZONE_MAGIC)
+	{
+		Com_Error(ERR_FATAL, "Z_MorphMallocTag(): Corrupt zone header!");
+		return;
+	}
+	ZoneHeader* header = (ZoneHeader*)debug_header - 1;
+	ZoneDebugFooter* debug_footer = (ZoneDebugFooter*)((char*)pvAddress + Z_GetSize(header));
+	if (*debug_footer != ZONE_MAGIC)
+	{
+		Com_Error(ERR_FATAL, "Z_MorphMallocTag(): Corrupt zone footer!");
+		return;
+	}
+#else
+	ZoneHeader* header = (ZoneHeader*)pvAddress - 1;
+#endif
+
+	memtag_t oldTag = Z_GetTag(header);
+	if (oldTag == TAG_STATIC)
+	{
+		Com_Error(ERR_FATAL, "Z_MorphMallocTag(): cannot morph static block");
+		return;
+	}
+
+	if (oldTag == eDesiredTag)
+	{
+		return;
+	}
+
+	if (Z_IsTagLinked(oldTag) != Z_IsTagLinked(eDesiredTag) ||
+		Z_IsTagTemp(oldTag) != Z_IsTagTemp(eDesiredTag))
+	{
+		Com_Error(ERR_FATAL, "Z_MorphMallocTag(): incompatible tag classes %d -> %d", oldTag, eDesiredTag);
+		return;
+	}
+
+#ifndef _GAMECUBE
+	WaitForSingleObject(s_Mutex, INFINITE);
+#endif
+
+	const int size = Z_GetSize(header);
+	s_Stats.m_SizesPerTag[oldTag] -= size;
+	s_Stats.m_CountsPerTag[oldTag]--;
+	s_Stats.m_SizesPerTag[eDesiredTag] += size;
+	s_Stats.m_CountsPerTag[eDesiredTag]++;
+
+	*header = (*header & ~0x7E000000) | (((unsigned int)eDesiredTag) << 25);
+
+#ifdef _XBOX
+	char msg[160];
+	_snprintf(msg, sizeof(msg), "JA: Z_MorphMallocTag ptr=%p size=%d tag=%d->%d\n",
+		pvAddress, size, oldTag, eDesiredTag);
+	msg[sizeof(msg) - 1] = 0;
+	OutputDebugStringA(msg);
+#endif
+
+#ifndef _GAMECUBE
+	ReleaseMutex(s_Mutex);
+#endif
 }
 
 int Z_Size(void *pvAddress)
@@ -1104,15 +1218,23 @@ static void Z_Coalasce(ZoneFreeBlock* pBlock)
 	void Z_Free(void *pvAddress)
 	#define Z_FREE_RETURN(x) return
 #else
-int Z_Free(void *pvAddress)
+	int Z_Free(void *pvAddress)
 	#define Z_FREE_RETURN(x) return (x)
 #endif
 {
 #ifdef _WINDOWS
-	if (!s_Initialized) return;
+	if (!s_Initialized) Z_FREE_RETURN(0);
 #endif
 
 	assert(s_Initialized);
+
+	// HAQ!
+	if (s_newDeleteTagStack[s_newDeleteTagStackTop] == TAG_CLIENT_MANAGER_SPECIAL)
+	{
+		if( !HeapFree( GetProcessHeap(), 0, pvAddress ) )
+			Z_MallocFail("CMSpecialFree Failed", 0, 0);
+		Z_FREE_RETURN(0);
+	}
 
 #ifdef _DEBUG
 	// check the header magic
@@ -1407,19 +1529,20 @@ void *S_Malloc( int iSize )
 
 int Z_GetLevelMemory(void)
 {
-#ifdef _JK2MP
+#if defined(_JK2MP) || defined(_XBOX)
 	return s_Stats.m_SizesPerTag[TAG_BSP];
 #else
 	return s_Stats.m_SizesPerTag[TAG_HUNKALLOC] +
-//		s_Stats.m_SizesPerTag[TAG_HUNKMISCMODELS] +
+		s_Stats.m_SizesPerTag[TAG_HUNKMISCMODELS] +
 		s_Stats.m_SizesPerTag[TAG_BSP];
 #endif
 }
 
-#ifdef _JK2MP
+#if defined(_JK2MP) || defined(_XBOX)
 int Z_GetHunkMemory(void)
 {
-	return s_Stats.m_SizesPerTag[TAG_HUNKALLOC] +
+	return s_Stats.m_SizesPerTag[TAG_HUNK_MARK1] +
+		s_Stats.m_SizesPerTag[TAG_HUNK_MARK2] +
 		s_Stats.m_SizesPerTag[TAG_TEMP_HUNKALLOC];
 }
 #endif
@@ -1428,7 +1551,7 @@ int Z_GetMiscMemory(void)
 {
 	return s_Stats.m_SizeAlloc -
 		(Z_GetLevelMemory() +
-#ifdef _JK2MP
+#if defined(_JK2MP) || defined(_XBOX)
 		Z_GetHunkMemory() +
 #endif
 		s_Stats.m_SizesPerTag[TAG_MODEL_GLM] +
@@ -1438,68 +1561,91 @@ int Z_GetMiscMemory(void)
 		s_Stats.m_SizesPerTag[TAG_SND_RAWDATA]);
 }
 
-#ifdef _GAMECUBE
+#if defined(_GAMECUBE) || defined(_XBOX)
 static int texMemSize = 0;
 #else
 extern int texMemSize;
-//extern unsigned long texturePoint;
 #endif
 void Z_CompactStats(void)
 {
-	// New and improved, super version of CompactStats:
 	assert(s_Initialized);
 
-	static int printHeader = 1;
-	if( printHeader )
+	// Quick report on all tags:
+	for( int t = 0; t < TAG_COUNT; ++t )
+		Com_PrintfAlways("%d\n", s_Stats.m_SizesPerTag[t]);
+
+	//This report is conservative.  Divides by 1000 instead of 1024 and
+	//then rounds up.
+	static int	printHeader = 1;
+	if (printHeader)
 	{
+		Sys_Log("memory-map.txt", "**Z_CompactStats Start**\n\n");
+		Sys_Log("memory-map.txt", "Map:\tOV:\tLVL:\tGLM:\tGLA:\tMD3:\tSND:\tTEX:\tHNK:\tTHNK:\tMSC:\tFrZN:\tFrPH:\n");
 		printHeader = 0;
-		Sys_Log("memory-map.txt", "Level:\tTextures:\tFreeZone:\tOverhead:\tTags...\n");
 	}
 
-	// No more being conservative and doing strange math. I want real numbers:
-	Sys_Log("memory-map.txt", va("%s\t%d\t%d\t%d",
-								 Cvar_VariableString( "mapname" ),
-								 gTextures.Size(),
-								 s_Stats.m_SizeFree,
-								 s_Stats.m_OverheadAlloc));
-	for( int t = 0; t < TAG_COUNT; ++t )
-		Sys_Log("memory-map.txt", va("\t%d", s_Stats.m_SizesPerTag[t]));
-	Sys_Log("memory-map.txt", "\n");
+	MEMORYSTATUS stat;
+	GlobalMemoryStatus(&stat);
+
+	Sys_Log("memory-map.txt", va("%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			Cvar_VariableString( "mapname" ),
+			(s_Stats.m_OverheadAlloc / 1000) + 1,
+			(Z_GetLevelMemory() / 1000) + 1,
+			(s_Stats.m_SizesPerTag[TAG_MODEL_GLM] / 1000) + 1,
+			(s_Stats.m_SizesPerTag[TAG_MODEL_GLA] / 1000) + 1,
+			(s_Stats.m_SizesPerTag[TAG_MODEL_MD3] / 1000) + 1,
+//			(Z_GetTerrainMemory() / 1000) + 1,
+			(s_Stats.m_SizesPerTag[TAG_SND_RAWDATA] / 1000) + 1,
+			(texMemSize / 1000) + 1,
+//			texturePoint,
+//			(s_Stats.m_SizesPerTag[TAG_BINK] / 1000) + 1,
+			((s_Stats.m_SizesPerTag[TAG_HUNK_MARK1] + s_Stats.m_SizesPerTag[TAG_HUNK_MARK2]) / 1000) + 1,
+			(s_Stats.m_SizesPerTag[TAG_TEMP_HUNKALLOC] / 1000) + 1,
+			(Z_GetMiscMemory() / 1000) + 1,
+			s_Stats.m_SizeFree,
+			stat.dwAvailPhys));
+
+
+	//Sys_Log("memory-map.txt", va("Free Zone: %d\n", s_Stats.m_SizeFree));
+
 }
 
 
 static void Z_Stats_f(void)
 {
+#ifndef FINAL_BUILD
 	assert(s_Initialized);
 	// Display some memory usage summary information...
 
-	Com_Printf("\nThe zone is using %d bytes (%.2fMB) in %d memory blocks\n", 
+	Com_PrintfAlways("\nThe zone is using %d bytes (%.2fMB) in %d memory blocks\n", 
 		s_Stats.m_SizeAlloc,
 		(float)s_Stats.m_SizeAlloc / 1024.0f / 1024.0f, 
 		s_Stats.m_CountAlloc);
 
-	Com_Printf("Free memory is %d bytes (%.2fMB) in %d memory blocks\n", 
+	Com_PrintfAlways("Free memory is %d bytes (%.2fMB) in %d memory blocks\n", 
 		s_Stats.m_SizeFree,
 		(float)s_Stats.m_SizeFree / 1024.0f / 1024.0f, 
 		s_Stats.m_CountFree);
 
-	Com_Printf("The zone peaked at %d bytes (%.2fMB)\n", 
+	Com_PrintfAlways("The zone peaked at %d bytes (%.2fMB)\n", 
 		s_Stats.m_PeakAlloc,
 		(float)s_Stats.m_PeakAlloc / 1024.0f / 1024.0f);
 
-	Com_Printf("The zone overhead is %d bytes (%.2fMB)\n", 
+	Com_PrintfAlways("The zone overhead is %d bytes (%.2fMB)\n", 
 		s_Stats.m_OverheadAlloc,
 		(float)s_Stats.m_OverheadAlloc / 1024.0f / 1024.0f);
+#endif
 }
 
 void Z_Details_f(void)
 {
+#ifndef FINAL_BUILD
 	assert(s_Initialized);
 	// Display some tag specific information...
 
-	Com_Printf("---------------------------------------------------------------------------\n");
-	Com_Printf("%20s %9s\n","Zone Tag","Bytes");
-	Com_Printf("%20s %9s\n","--------","-----");
+	Com_PrintfAlways("---------------------------------------------------------------------------\n");
+	Com_PrintfAlways("%20s %9s\n","Zone Tag","Bytes");
+	Com_PrintfAlways("%20s %9s\n","--------","-----");
 	for (int i=0; i<TAG_COUNT; i++)
 	{
 		int iThisCount = s_Stats.m_CountsPerTag[i];
@@ -1510,13 +1656,14 @@ void Z_Details_f(void)
 			float	fSize		= (float)(iThisSize) / 1024.0f / 1024.0f;
 			int		iSize		= fSize;
 			int		iRemainder 	= 100.0f * (fSize - floor(fSize));
-			Com_Printf("%d %9d (%2d.%02dMB) in %6d blocks (%9d average)\n", 
+			Com_PrintfAlways("%d %9d (%2d.%02dMB) in %6d blocks (%9d average)\n", 
 				i, iThisSize, iSize, iRemainder, iThisCount, iThisSize / iThisCount);
 		}
 	}
-	Com_Printf("---------------------------------------------------------------------------\n");
+	Com_PrintfAlways("---------------------------------------------------------------------------\n");
 
 	Z_Stats_f();
+#endif
 }
 
 void Z_DumpMemMap_f(void)
@@ -1661,42 +1808,123 @@ void Com_TouchMemory(void)
 	return;
 }
 
-
 qboolean Z_IsFromZone(void *pvAddress, memtag_t eTag)
 {
-	if(pvAddress >= s_PoolBase && pvAddress < (char*)s_PoolBase + s_PoolSize) {
-		return qtrue;
+	assert(s_Initialized);
+
+#ifdef _DEBUG
+	ZoneDebugHeader* debug = (ZoneDebugHeader*)pvAddress - 1;
+
+	if (*debug != ZONE_MAGIC)
+	{
+		return qfalse;
 	}
 
-	return qfalse;
-}
+	pvAddress = (void*)debug;
+#endif
 
+	ZoneHeader* header = (ZoneHeader*)pvAddress - 1;
 
-qboolean Z_IsFromTempPool(void *pvAddress)
-{
-	if(pvAddress >= s_TempAllocPool && pvAddress < s_TempAllocPool +
-			s_TempAllocPoint) {
-		return qtrue;
+	if (Z_GetTag(header) != eTag)
+	{
+		return qfalse;
 	}
-
-	return qfalse;
+	
+	return Z_GetSize(header);
 }
 
 
 /*
-   Hunk emulation
-
-   The emulation is pretty bad right now, we just use two tags:
-   TAG_HUNKALLOC and TAG_TEMP_HUNKALLOC, to represent the permanent and
-   temporary sides of the hunk respectively. We should make the
-   Hunk allocations tagged so we can do this better.
+   Hunk emulation - PC switched to system similar to ours. I made the remaining
+   changes so that the two are identical.
 */
-#ifdef _JK2MP
+#if defined(_JK2MP) || defined(_XBOX)
 
+qboolean Com_TheHunkMarkHasBeenMade(void)
+{
+	if (hunk_tag == TAG_HUNK_MARK2)
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+/*
+=================
+Com_InitHunkMemory
+=================
+*/
+void Com_InitHunkMemory(void)
+{
+	hunk_tag = TAG_HUNK_MARK1;
+	Hunk_Clear();
+}
+
+/*
+====================
+Hunk_MemoryRemaining
+====================
+*/
+int Hunk_MemoryRemaining(void)
+{
+	return 0;
+}
+
+/*
+===================
+Hunk_SetMark
+
+The server calls this after the level and game VM have been loaded
+===================
+*/
+void Hunk_SetMark(void)
+{
+	hunk_tag = TAG_HUNK_MARK2;
+}
+
+/*
+=================
+Hunk_ClearToMark
+
+The client calls this before starting a vid_restart or snd_restart
+=================
+*/
+void Hunk_ClearToMark(void)
+{
+	assert(hunk_tag == TAG_HUNK_MARK2); //if this is not true then no mark has been made
+	Z_TagFree(TAG_HUNK_MARK2);
+}
+
+/*
+=================
+Hunk_CheckMark
+=================
+*/
+qboolean Hunk_CheckMark( void )
+{
+	if (hunk_tag != TAG_HUNK_MARK1)
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+/*
+=================
+Hunk_Clear
+
+The server calls this before shutting down or loading a new map
+VVFIXME - PC version does lots of other things in here.
+=================
+*/
+void R_HunkClearCrap(void);
 void Hunk_Clear(void)
 {
-	Z_TagFree(TAG_TEMP_HUNKALLOC);
-	Z_TagFree(TAG_HUNKALLOC);
+	hunk_tag = TAG_HUNK_MARK1;
+	Z_TagFree(TAG_HUNK_MARK1);
+	Z_TagFree(TAG_HUNK_MARK2);
+
+	R_HunkClearCrap();
 /*
 	Z_TagFree(TAG_HUNKALLOC);
 	Z_TagFree(TAG_BSP_HUNK);
@@ -1709,82 +1937,58 @@ void Hunk_Clear(void)
 */
 }
 
-
-//void *Hunk_Alloc( int size, ha_pref preference, memtag_t eTag ) 
-void *Hunk_Alloc(int size, ha_pref preference)
-{
-	return Z_Malloc(size, TAG_HUNKALLOC, qtrue);
 /*
-	assert(eTag == TAG_HUNKALLOC ||
-			eTag == TAG_BSP_HUNK ||
-			eTag == TAG_BOT_HUNK ||
-			eTag == TAG_RENDERER_HUNK ||
-			eTag == TAG_SKELETON ||
-			eTag == TAG_MODEL_OTHER ||
-			eTag == TAG_MODEL_CHAR);
-	return Z_Malloc(size, eTag, qtrue);
+=================
+Hunk_Alloc
+
+Allocate permanent (until the hunk is cleared) memory
+=================
 */
+void *Hunk_Alloc(int size, qboolean bZeroIt)
+{
+	return Z_Malloc(size, hunk_tag, bZeroIt);
 }
 
+/*
+=================
+Hunk_AllocateTempMemory
 
+This is used by the file loading system.
+Multiple files can be loaded in temporary memory.
+When the files-in-use count reaches zero, all temp memory will be deleted
+=================
+*/
 void *Hunk_AllocateTempMemory(int size)
 {
-	return Z_Malloc(size, TAG_TEMP_HUNKALLOC, qtrue);
-/*
-	return Z_Malloc(size, TAG_TEMP_HUNK, qtrue);
-*/
+	// don't bother clearing, because we are going to load a file over it
+	return Z_Malloc(size, TAG_TEMP_HUNKALLOC, qfalse);
 }
 
-
+/*
+==================
+Hunk_FreeTempMemory
+==================
+*/
 void Hunk_FreeTempMemory(void *buf)
 {
 	Z_Free(buf);
 }
 
+/*
+=================
+Hunk_ClearTempMemory
 
+The temp space is no longer needed.  If we have left more
+touched but unused memory on this side, have future
+permanent allocs use this side.
+=================
+*/
 void Hunk_ClearTempMemory(void)
 {
 	Z_TagFree(TAG_TEMP_HUNKALLOC);
-//	Z_TagFree(TAG_TEMP_HUNK);
 }
 
-
-void Com_InitHunkMemory(void)
-{
-}
-
-
-int Hunk_MemoryRemaining(void)
-{
-	return 0;
-}
-
-
-void Hunk_ClearToMark(void)
-{
-}
-
-
-qboolean Hunk_CheckMark(void)
-{
-	return qfalse;
-}
-
-
-void Hunk_SetMark(void)
-{
-}
-#endif // _JK2MP
-
-/*
-XBOXAPI
-LPVOID
-WINAPI
-XMemAlloc(SIZE_T dwSize, DWORD dwAllocAttributes)
-{
-	return XMemAllocDefault(dwSize, dwAllocAttributes);
-}
-*/
+#endif // _JK2MP || _XBOX
 
 /*
 	XTL Replacement functions
@@ -1803,113 +2007,30 @@ LPVOID
 WINAPI
 XMemAlloc(SIZE_T dwSize, DWORD dwAllocAttributes)
 {
-	PXALLOC_ATTRIBUTES pAllocAttributes = (PXALLOC_ATTRIBUTES)&dwAllocAttributes;
-	LPVOID ptr = NULL;
-
-	if (pAllocAttributes->dwMemoryType == XALLOC_MEMTYPE_HEAP)
-	{ // Heap allocation
-		ptr = HeapAlloc(GetProcessHeap(),
-						pAllocAttributes->dwZeroInitialize ? HEAP_ZERO_MEMORY : 0,
-						dwSize);
-		if (pAllocAttributes->dwHeapTracksAttributes)
-			XSetAttributesOnHeapAlloc(ptr, dwAllocAttributes);
-	}
-	else
-	{ // Physical allocation
-		// Map requested alignment to real alignment
-		ULONG_PTR ulAlign = 0;
-		DWORD dwProtect = 0;
-
-		switch(pAllocAttributes->dwAlignment)
-		{
-			case XALLOC_PHYSICAL_ALIGNMENT_8K:
-				ulAlign = 8*1024;
-				break;
-
-			case XALLOC_PHYSICAL_ALIGNMENT_16K:
-				ulAlign = 16*1024;
-				break;
-
-			case XALLOC_PHYSICAL_ALIGNMENT_32K:
-				ulAlign = 32*1024;
-				break;
-
-			default:
-				ulAlign = 4*1024;
-				break;
-		}
-
-		if (pAllocAttributes->dwMemoryProtect & XALLOC_MEMPROTECT_READONLY)
-			dwProtect = PAGE_READONLY;
-		else
-			dwProtect = PAGE_READWRITE;
-
-		if (pAllocAttributes->dwMemoryProtect & XALLOC_MEMPROTECT_NOCACHE)
-			dwProtect |= PAGE_NOCACHE;
-		if (pAllocAttributes->dwMemoryProtect & XALLOC_MEMPROTECT_WRITECOMBINE)
-			dwProtect |= PAGE_WRITECOMBINE;
-
-		ptr = XPhysicalAlloc(dwSize, MAXULONG_PTR, ulAlign, dwProtect);
-	}
-
-	return ptr;
+	// We always give XTL 16 byte aligned memory
+	return Z_Malloc(dwSize, TAG_XTL, ((PXALLOC_ATTRIBUTES)&dwAllocAttributes)->dwZeroInitialize, 16);
 }
-*/
 
-/*
 XBOXAPI
 VOID
 WINAPI
 XMemFree(PVOID pAddress, DWORD dwAllocAttributes)
 {
-	XMemFreeDefault(pAddress, dwAllocAttributes);
+	Z_Free(pAddress);
 }
-*/
 
-/*
-XBOXAPI
-VOID
-WINAPI
-XMemFree(PVOID pAddress, DWORD dwAllocAttributes)
-{
-	PXALLOC_ATTRIBUTES pAllocAttributes = (PXALLOC_ATTRIBUTES)&dwAllocAttributes;
-
-	if (pAllocAttributes->dwMemoryType == XALLOC_MEMTYPE_HEAP)
-	{ // Heap pointer
-		HeapFree(GetProcessHeap(), 0, pAddress);
-	}
-	else
-	{ // Physical pointer
-		XPhysicalFree(pAddress);
-	}
-}
-*/
-
-/*
 XBOXAPI
 SIZE_T
 WINAPI
 XMemSize(PVOID pAddress, DWORD dwAllocAttributes)
 {
-	return XMemSizeDefault(pAddress, dwAllocAttributes);
+	return Z_Size(pAddress);
 }
+
 */
 
-/*
-XBOXAPI
-SIZE_T
-WINAPI
-XMemSize(PVOID pAddress, DWORD dwAllocAttributes)
+
+void PrintMem(void)
 {
-	PXALLOC_ATTRIBUTES pAllocAttributes = (PXALLOC_ATTRIBUTES)&dwAllocAttributes;
-
-	if (pAllocAttributes->dwMemoryType == XALLOC_MEMTYPE_HEAP)
-	{ // Heap pointer
-		return HeapSize(GetProcessHeap(), 0, pAddress);
-	}
-	else
-	{ // Physical pointer
-		return XPhysicalSize(pAddress);
-	}
+	Com_PrintfAlways("free mem: %d\n", (s_Stats.m_SizeFree + s_Stats.m_SizesPerTag[TAG_SND_RAWDATA]) / 1000);
 }
-*/

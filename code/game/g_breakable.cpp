@@ -5,6 +5,9 @@
 #include "g_local.h"
 #include "g_functions.h"
 #include "..\cgame\cg_media.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 //client side shortcut hacks from cg_local.h
 //extern void CG_SurfaceExplosion( vec3_t origin, vec3_t normal, float radius, float shake_speed, qboolean smoke );
@@ -247,6 +250,9 @@ static void InitBBrush ( gentity_t *ent )
 	float		light;
 	vec3_t		color;
 	qboolean	lightSet, colorSet;
+#ifdef _XBOX
+	int			xboxBrushModelIndex = -1;
+#endif
 
 	VectorCopy( ent->s.origin, ent->pos1 );
 	
@@ -299,6 +305,46 @@ static void InitBBrush ( gentity_t *ent )
 
 	ent->s.pos.trType = TR_STATIONARY;
 	VectorCopy( ent->pos1, ent->s.pos.trBase );
+
+#ifdef _XBOX
+	if ( ent->model && ent->model[0] == '*' )
+	{
+		xboxBrushModelIndex = atoi( ent->model + 1 );
+	}
+	if ( (ent->spawnflags & 1) && ent->targetname && ent->targetname[0] )
+	{
+		static int s_xboxScriptedBreakableBroadcastLogBudget = 96;
+		ent->svFlags |= (SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN);
+		if ( s_xboxScriptedBreakableBroadcastLogBudget > 0 )
+		{
+			XBLF("JA: BBRUSH_BROADCAST_SCRIPTED_INVINCIBLE ent=%d model=%s target='%s' script='%s' spawnflags=0x%x",
+				ent->s.number,
+				ent->model ? ent->model : "<null>",
+				ent->targetname ? ent->targetname : "<null>",
+				ent->script_targetname ? ent->script_targetname : "<null>",
+				ent->spawnflags);
+			s_xboxScriptedBreakableBroadcastLogBudget--;
+		}
+	}
+	if ( xboxBrushModelIndex >= 139 && xboxBrushModelIndex <= 152 )
+	{
+		XBLF("JA: BBRUSH_SPAWN_FOCUS ent=%d model=%s modelIndex=%d target='%s' script='%s' spawnflags=0x%x sv=0x%x contents=0x%x linked=%d bmodel=%d origin=%d,%d,%d current=%d,%d,%d mins=%d,%d,%d maxs=%d,%d,%d",
+			ent->s.number,
+			ent->model ? ent->model : "<null>",
+			ent->s.modelindex,
+			ent->targetname ? ent->targetname : "<null>",
+			ent->script_targetname ? ent->script_targetname : "<null>",
+			ent->spawnflags,
+			ent->svFlags,
+			ent->contents,
+			(int)ent->linked,
+			(int)ent->bmodel,
+			(int)ent->s.origin[0], (int)ent->s.origin[1], (int)ent->s.origin[2],
+			(int)ent->currentOrigin[0], (int)ent->currentOrigin[1], (int)ent->currentOrigin[2],
+			(int)ent->mins[0], (int)ent->mins[1], (int)ent->mins[2],
+			(int)ent->maxs[0], (int)ent->maxs[1], (int)ent->maxs[2]);
+	}
+#endif
 }
 
 void funcBBrushTouch( gentity_t *ent, gentity_t *other, trace_t *trace )
@@ -1229,6 +1275,32 @@ void SP_misc_model_breakable( gentity_t *ent )
 	G_SetOrigin( ent, ent->s.origin );
 	G_SetAngles( ent, ent->s.angles );
 	gi.linkentity (ent);
+
+#ifdef _XBOX
+	if ( (ent->targetname && ent->targetname[0])
+		|| (ent->script_targetname && ent->script_targetname[0])
+		|| (ent->target && ent->target[0]) )
+	{
+		static int s_xboxMiscModelBreakableBroadcastBudget = 128;
+		ent->svFlags |= (SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN);
+		if ( s_xboxMiscModelBreakableBroadcastBudget > 0 )
+		{
+			XBLF("JA: MISC_MODEL_BREAKABLE_BROADCAST reason=spawn_scripted ent=%d model='%s' target='%s' script='%s' target2='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x origin=%d,%d,%d",
+				ent->s.number,
+				ent->model ? ent->model : "<null>",
+				ent->targetname ? ent->targetname : "<null>",
+				ent->script_targetname ? ent->script_targetname : "<null>",
+				ent->target ? ent->target : "<null>",
+				ent->spawnflags,
+				ent->svFlags,
+				ent->s.eFlags,
+				(int)ent->currentOrigin[0],
+				(int)ent->currentOrigin[1],
+				(int)ent->currentOrigin[2]);
+			--s_xboxMiscModelBreakableBroadcastBudget;
+		}
+	}
+#endif
 
 	if ( ent->spawnflags & 128 )
 	{//Can be used by the player's BUTTON_USE

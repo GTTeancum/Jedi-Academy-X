@@ -5,6 +5,9 @@
 
 #include "tr_local.h"
 #include "tr_stl.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 const short lightmapsNone[MAXLIGHTMAPS] = 
 { 
@@ -206,6 +209,11 @@ static	texModInfo_t	texMods[MAX_SHADER_STAGES][TR_MAX_TEXMODS];
 
 #define FILE_HASH_SIZE		1024
 static	shader_t*		sh_hashTable[FILE_HASH_SIZE];
+
+void ShaderTableCleanup(void)
+{
+	memset(sh_hashTable, 0, sizeof(sh_hashTable));
+}
 
 static void ClearGlobalShader(void)
 {
@@ -2659,7 +2667,7 @@ static qboolean CollapseMultitexture( void ) {
 	int i;
 	textureBundle_t tmpBundle;
 
-	if ( !qglActiveTextureARB ) {
+	if ( !glActiveTextureARB ) {
 		return qfalse;
 	}
 
@@ -3470,6 +3478,12 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	const char 	*shaderText;
 	image_t		*image;
 	shader_t	*sh;
+#ifdef _XBOX
+	qboolean	probeShader = ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ) );
+	if ( probeShader ) {
+		XBLF("R_FindShader: entry name='%s' mipRaw=%d\n", name, mipRawImage);
+	}
+#endif
 
 	if ( strlen( name ) >= MAX_QPATH ) {
 		Com_Printf( S_COLOR_RED"Shader name exceeds MAX_QPATH! %s\n",name );
@@ -3488,6 +3502,11 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	lightmapIndex = R_FindLightmap(lightmapIndex);
 
 	COM_StripExtension( name, strippedName );
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("R_FindShader: stripped='%s'\n", strippedName);
+	}
+#endif
 
 	hash = generateHashValue(strippedName);
 
@@ -3501,6 +3520,11 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 		// with that same strippedName a new default shader is created.
 		if (IsShader(sh, strippedName, lightmapIndex, styles))
 		{	// match found
+#ifdef _XBOX
+			if ( probeShader ) {
+				XBLF("R_FindShader: cache hit index=%d default=%d\n", sh->index, sh->defaultShader);
+			}
+#endif
 			return sh;
 		}
 	}
@@ -3520,11 +3544,21 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	//
 	shaderText = FindShaderInShaderText( strippedName );
 	if ( shaderText ) {
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBL("R_FindShader: explicit shader text found\n");
+		}
+#endif
 		if ( !ParseShader( &shaderText ) ) {
 			// had errors, so use default shader
 			shader.defaultShader = true;
 		}
 		sh = FinishShader();
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBLF("R_FindShader: explicit FinishShader index=%d default=%d\n", sh ? sh->index : -1, sh ? sh->defaultShader : -1);
+		}
+#endif
 		return sh;
 	}
 
@@ -3533,14 +3567,43 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	// if not defined in the in-memory shader descriptions,
 	// look for a single TGA, BMP, or PCX
 	//
-	image = R_FindImageFile( name, mipRawImage, mipRawImage, qtrue, mipRawImage ? GL_REPEAT : GL_CLAMP );
+	if ( !Q_stricmp( strippedName, "*white" ) ) {
+		image = tr.whiteImage;
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBLF("R_FindShader: using built-in tr.whiteImage -> %p\n", (void*)image);
+		}
+#endif
+	} else if ( !Q_stricmp( strippedName, "*default" ) ) {
+		image = tr.defaultImage;
+	} else if ( !Q_stricmp( strippedName, "*fog" ) ) {
+		image = tr.fogImage;
+	} else {
+		image = R_FindImageFile( name, mipRawImage, mipRawImage, qtrue, mipRawImage ? GL_REPEAT : GL_CLAMP );
+	}
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("R_FindShader: R_FindImageFile -> %p\n", (void*)image);
+	}
+#endif
 	if ( !image ) {
 		if (strncmp(name, "levelshots", 10 )  && strcmp(name, "*off")) 
 		{	//hide these warnings
 			VID_Printf( PRINT_WARNING, "WARNING: Couldn't find image for shader %s\n", name );
 		}
 		shader.defaultShader = true;
-		return FinishShader();
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBL("R_FindShader: image missing; FinishShader default...\n");
+		}
+#endif
+		sh = FinishShader();
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBLF("R_FindShader: missing-image FinishShader index=%d default=%d\n", sh ? sh->index : -1, sh ? sh->defaultShader : -1);
+		}
+#endif
+		return sh;
 	}
 
 	//
@@ -3599,7 +3662,13 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 		stages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
 	}
 
-	return FinishShader();
+	sh = FinishShader();
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("R_FindShader: image FinishShader index=%d default=%d\n", sh ? sh->index : -1, sh ? sh->defaultShader : -1);
+	}
+#endif
+	return sh;
 }
 
 /* 
@@ -3615,8 +3684,19 @@ way to ask for different implicit lighting modes (vertex, lightmap, etc)
 */
 qhandle_t RE_RegisterShader( const char *name ) {
 	shader_t	*sh;
+#ifdef _XBOX
+	qboolean	probeShader = ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ) );
+	if ( probeShader ) {
+		XBLF("RE_RegisterShader: '%s'\n", name);
+	}
+#endif
 
 	sh = R_FindShader( name, lightmaps2d, stylesDefault, qtrue );
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("RE_RegisterShader: R_FindShader -> %p index=%d default=%d\n", (void*)sh, sh ? sh->index : -1, sh ? sh->defaultShader : -1);
+	}
+#endif
 
 	// we want to return 0 if the shader failed to
 	// load for some reason, but R_FindShader should
@@ -3624,9 +3704,19 @@ qhandle_t RE_RegisterShader( const char *name ) {
 	// something calls RE_RegisterShader again with
 	// the same name, we don't try looking for it again
 	if ( sh->defaultShader ) {
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBL("RE_RegisterShader: returning 0 default shader\n");
+		}
+#endif
 		return 0;
 	}
 
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("RE_RegisterShader: returning index=%d\n", sh->index);
+	}
+#endif
 	return sh->index;
 }
 
@@ -3640,8 +3730,19 @@ For menu graphics that should never be picmiped
 */
 qhandle_t RE_RegisterShaderNoMip( const char *name ) {
 	shader_t	*sh;
+#ifdef _XBOX
+	qboolean	probeShader = ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ) );
+	if ( probeShader ) {
+		XBLF("RE_RegisterShaderNoMip: '%s'\n", name);
+	}
+#endif
 
 	sh = R_FindShader( name, lightmaps2d, stylesDefault, qfalse );
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("RE_RegisterShaderNoMip: R_FindShader -> %p index=%d default=%d\n", (void*)sh, sh ? sh->index : -1, sh ? sh->defaultShader : -1);
+	}
+#endif
 
 	// we want to return 0 if the shader failed to
 	// load for some reason, but R_FindShader should
@@ -3649,9 +3750,19 @@ qhandle_t RE_RegisterShaderNoMip( const char *name ) {
 	// something calls RE_RegisterShader again with
 	// the same name, we don't try looking for it again
 	if ( sh->defaultShader ) {
+#ifdef _XBOX
+		if ( probeShader ) {
+			XBL("RE_RegisterShaderNoMip: returning 0 default shader\n");
+		}
+#endif
 		return 0;
 	}
 
+#ifdef _XBOX
+	if ( probeShader ) {
+		XBLF("RE_RegisterShaderNoMip: returning index=%d\n", sh->index);
+	}
+#endif
 	return sh->index;
 }
 
@@ -4032,15 +4143,15 @@ static void CreateInternalShaders( void ) {
 	#define GL_PROGRAM_ERROR_POSITION_ARB					0x864B
 
 	// Allocate and Load the global 'Glow' Vertex Program. - AReis
-	if ( qglGenProgramsARB )
+	if ( glGenProgramsARB )
 	{
-		qglGenProgramsARB( 1, &tr.glowVShader );
-		qglBindProgramARB( GL_VERTEX_PROGRAM_ARB, tr.glowVShader );
-		qglProgramStringARB( GL_VERTEX_PROGRAM_ARB, GL_PROGRAM_FORMAT_ASCII_ARB, strlen( ( char * ) g_strGlowVShaderARB ), g_strGlowVShaderARB );
+		glGenProgramsARB( 1, &tr.glowVShader );
+		glBindProgramARB( GL_VERTEX_PROGRAM_ARB, tr.glowVShader );
+		glProgramStringARB( GL_VERTEX_PROGRAM_ARB, GL_PROGRAM_FORMAT_ASCII_ARB, strlen( ( char * ) g_strGlowVShaderARB ), g_strGlowVShaderARB );
 
-//		const GLubyte *strErr = qglGetString( GL_PROGRAM_ERROR_STRING_ARB );
+//		const GLubyte *strErr = glGetString( GL_PROGRAM_ERROR_STRING_ARB );
 		int iErrPos = 0;
-		qglGetIntegerv( GL_PROGRAM_ERROR_POSITION_ARB, &iErrPos );
+		glGetIntegerv( GL_PROGRAM_ERROR_POSITION_ARB, &iErrPos );
 		assert( iErrPos == -1 );
 	}
 
@@ -4049,7 +4160,7 @@ static void CreateInternalShaders( void ) {
 	// if you always ask for regcoms before fragment shaders, you'll always just use regcoms (problem solved... for now). - AReis
 
 	// Load Pixel Shaders (either regcoms or fragprogs).
-	if ( qglCombinerParameteriNV )
+	if ( glCombinerParameteriNV )
 	{
 		// The purpose of this regcom is to blend all the pixels together from the 4 texture units, but with their
 		// texture coordinates offset by 1 (or more) texels, effectively letting us blend adjoining pixels. The weight is
@@ -4071,40 +4182,40 @@ static void CreateInternalShaders( void ) {
 		madd	r0, c0, t2, r0;
 		madd	r0, c0, t3, r0;
 		*/
-		tr.glowPShader = qglGenLists( 1 );
-		qglNewList( tr.glowPShader, GL_COMPILE );
-			qglCombinerParameteriNV( GL_NUM_GENERAL_COMBINERS_NV, 2 );
+		tr.glowPShader = glGenLists( 1 );
+		glNewList( tr.glowPShader, GL_COMPILE );
+			glCombinerParameteriNV( GL_NUM_GENERAL_COMBINERS_NV, 2 );
 
 			// spare0 = fBlend * tex0 + fBlend * tex1.
-			qglCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_A_NV, GL_TEXTURE0_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_B_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_C_NV, GL_TEXTURE1_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_D_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerOutputNV( GL_COMBINER0_NV, GL_RGB, GL_DISCARD_NV, GL_DISCARD_NV, GL_SPARE0_NV, GL_NONE, GL_NONE, GL_FALSE, GL_FALSE, GL_FALSE );
+			glCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_A_NV, GL_TEXTURE0_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_B_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_C_NV, GL_TEXTURE1_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerInputNV( GL_COMBINER0_NV, GL_RGB, GL_VARIABLE_D_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerOutputNV( GL_COMBINER0_NV, GL_RGB, GL_DISCARD_NV, GL_DISCARD_NV, GL_SPARE0_NV, GL_NONE, GL_NONE, GL_FALSE, GL_FALSE, GL_FALSE );
 
 			// spare1 = fBlend * tex2 + fBlend * tex3.
-			qglCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_A_NV, GL_TEXTURE2_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_B_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_C_NV, GL_TEXTURE3_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_D_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglCombinerOutputNV( GL_COMBINER1_NV, GL_RGB, GL_DISCARD_NV, GL_DISCARD_NV, GL_SPARE1_NV, GL_NONE, GL_NONE, GL_FALSE, GL_FALSE, GL_FALSE );
+			glCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_A_NV, GL_TEXTURE2_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_B_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_C_NV, GL_TEXTURE3_ARB, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerInputNV( GL_COMBINER1_NV, GL_RGB, GL_VARIABLE_D_NV, GL_CONSTANT_COLOR0_NV, GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glCombinerOutputNV( GL_COMBINER1_NV, GL_RGB, GL_DISCARD_NV, GL_DISCARD_NV, GL_SPARE1_NV, GL_NONE, GL_NONE, GL_FALSE, GL_FALSE, GL_FALSE );
 
 			// ( A * B ) + ( ( 1 - A ) * C ) + D = ( spare0 * 1 ) + ( ( 1 - spare0 ) * 0 ) + spare1 == spare0 + spare1.
-			qglFinalCombinerInputNV( GL_VARIABLE_A_NV, GL_SPARE0_NV,    GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglFinalCombinerInputNV( GL_VARIABLE_B_NV, GL_ZERO,			GL_UNSIGNED_INVERT_NV, GL_RGB );
-			qglFinalCombinerInputNV( GL_VARIABLE_C_NV, GL_ZERO,			GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-			qglFinalCombinerInputNV( GL_VARIABLE_D_NV, GL_SPARE1_NV,	GL_UNSIGNED_IDENTITY_NV, GL_RGB );
-		qglEndList();
+			glFinalCombinerInputNV( GL_VARIABLE_A_NV, GL_SPARE0_NV,    GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glFinalCombinerInputNV( GL_VARIABLE_B_NV, GL_ZERO,			GL_UNSIGNED_INVERT_NV, GL_RGB );
+			glFinalCombinerInputNV( GL_VARIABLE_C_NV, GL_ZERO,			GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+			glFinalCombinerInputNV( GL_VARIABLE_D_NV, GL_SPARE1_NV,	GL_UNSIGNED_IDENTITY_NV, GL_RGB );
+		glEndList();
 	}
-	else if ( qglGenProgramsARB )
+	else if ( glGenProgramsARB )
 	{
-		qglGenProgramsARB( 1, &tr.glowPShader );
-		qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, tr.glowPShader );
-		qglProgramStringARB( GL_FRAGMENT_PROGRAM_ARB, GL_PROGRAM_FORMAT_ASCII_ARB, strlen( ( char * ) g_strGlowPShaderARB ), g_strGlowPShaderARB );
+		glGenProgramsARB( 1, &tr.glowPShader );
+		glBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, tr.glowPShader );
+		glProgramStringARB( GL_FRAGMENT_PROGRAM_ARB, GL_PROGRAM_FORMAT_ASCII_ARB, strlen( ( char * ) g_strGlowPShaderARB ), g_strGlowPShaderARB );
 
-//		const GLubyte *strErr = qglGetString( GL_PROGRAM_ERROR_STRING_ARB );
+//		const GLubyte *strErr = glGetString( GL_PROGRAM_ERROR_STRING_ARB );
 		int iErrPos = 0;
-		qglGetIntegerv( GL_PROGRAM_ERROR_POSITION_ARB, &iErrPos );
+		glGetIntegerv( GL_PROGRAM_ERROR_POSITION_ARB, &iErrPos );
 		assert( iErrPos == -1 );
 	}
 #endif
@@ -4123,6 +4234,9 @@ R_InitShaders
 */
 void R_InitShaders( void ) {
 	//VID_Printf( PRINT_ALL, "Initializing Shaders\n" );
+#ifdef _XBOX
+	XBL("R_InitShaders: entered\n");
+#endif
 
 	memset(sh_hashTable, 0, sizeof(sh_hashTable));
 /*
@@ -4134,10 +4248,21 @@ Ghoul2 Insert Start
 Ghoul2 Insert End
 */
 
-
+#ifdef _XBOX
+	XBL("R_InitShaders: CreateInternalShaders...\n");
+#endif
 	CreateInternalShaders();
 
+#ifdef _XBOX
+	XBL("R_InitShaders: ScanAndLoadShaderFiles...\n");
+#endif
 	ScanAndLoadShaderFiles();
 
+#ifdef _XBOX
+	XBL("R_InitShaders: CreateExternalShaders...\n");
+#endif
 	CreateExternalShaders();
+#ifdef _XBOX
+	XBL("R_InitShaders: COMPLETE\n");
+#endif
 }

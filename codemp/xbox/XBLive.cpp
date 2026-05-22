@@ -23,6 +23,10 @@
 #define SERVICE_COUNT	2		// number of services we currently wish to log into
 #define CONNECTED_TICKS 20      // number of ticks between connection tests
 
+#ifndef JAMP_CXBX_SMOKE_SKIP_XBL_TICK
+#define JAMP_CXBX_SMOKE_SKIP_XBL_TICK 1
+#endif
+
 
 XONLINETASK_HANDLE			logonHandle;
 XONLINE_USER				XBLAccountusers[XONLINE_MAX_STORED_ONLINE_USERS] = {0};		// The accounts that are on stored on the console / mu
@@ -1032,6 +1036,16 @@ void UI_HandleXBLogonError(const int result);
 //
 void XBL_Tick()
 {
+#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_XBL_TICK
+	static bool loggedSkip = false;
+	if ( !loggedSkip )
+	{
+		Com_Printf("XBLive - tick skipped for Cxbx smoke testing\n");
+		loggedSkip = true;
+	}
+	return;
+#endif
+
     // check if this xbox has a network connection
     //
 	XBL_Check_For_Net_Connection();

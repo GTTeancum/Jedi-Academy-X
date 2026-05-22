@@ -130,9 +130,13 @@ void QDECL Com_PrintfAlways( const char *fmt, ... ) {
 
 	CL_ConsolePrint( msg, 0 );
 
+#ifdef _XBOX
+	XBLog_Write(msg);
+#else
 	// echo to dedicated console and early console
 #ifndef FINAL_BUILD
 	Sys_Print( msg );
+#endif
 #endif
 }
 
@@ -443,22 +447,51 @@ Break it up into multiple console lines
 ==================
 */
 void Com_ParseCommandLine( char *commandLine ) {
+#ifdef _XBOX
+	char jampParseMsg[128];
+	char *jampCommandLineBase = commandLine;
+	XBLog_Write("JAMP: Com_ParseCommandLine enter");
+	if ( !commandLine ) {
+		XBLog_Write("JAMP: Com_ParseCommandLine null commandLine");
+		return;
+	}
+	Com_sprintf(jampParseMsg, sizeof(jampParseMsg), "JAMP: Com_ParseCommandLine input '%s'", commandLine);
+	XBLog_Write(jampParseMsg);
+#endif
 	com_consoleLines[0] = commandLine;
 	com_numConsoleLines = 1;
+#ifdef _XBOX
+	XBLog_Write("JAMP: Com_ParseCommandLine line 0 set");
+#endif
 
 	while ( *commandLine ) {
 		// look for a + seperating character
 		// if commandLine came from a file, we might have real line seperators
 		if ( *commandLine == '+' || *commandLine == '\n' ) {
+#ifdef _XBOX
+			Com_sprintf(jampParseMsg, sizeof(jampParseMsg), "JAMP: Com_ParseCommandLine split offset=%d lines=%d", (int)(commandLine - jampCommandLineBase), com_numConsoleLines);
+			XBLog_Write(jampParseMsg);
+#endif
 			if ( com_numConsoleLines == MAX_CONSOLE_LINES ) {
+#ifdef _XBOX
+				XBLog_Write("JAMP: Com_ParseCommandLine max lines");
+#endif
 				return;
 			}
 			com_consoleLines[com_numConsoleLines] = commandLine + 1;
 			com_numConsoleLines++;
 			*commandLine = 0;
+#ifdef _XBOX
+			Com_sprintf(jampParseMsg, sizeof(jampParseMsg), "JAMP: Com_ParseCommandLine line added lines=%d", com_numConsoleLines);
+			XBLog_Write(jampParseMsg);
+#endif
 		}
 		commandLine++;
 	}
+#ifdef _XBOX
+	Com_sprintf(jampParseMsg, sizeof(jampParseMsg), "JAMP: Com_ParseCommandLine exit lines=%d", com_numConsoleLines);
+	XBLog_Write(jampParseMsg);
+#endif
 }
 
 
@@ -1341,14 +1374,18 @@ void Com_Init( char *commandLine ) {
 
 		XBLog_Write("JAMP: Cvar_Init...");
 		Cvar_Init ();
+		XBLog_Write("JAMP: Cvar_Init done");
 
 		// prepare enough of the subsystems to handle
 		// cvar and command buffer management
+		XBLog_Write("JAMP: Com_ParseCommandLine...");
 		Com_ParseCommandLine( commandLine );
+		XBLog_Write("JAMP: Com_ParseCommandLine done");
 
 	//	Swap_Init ();
 		XBLog_Write("JAMP: Cbuf_Init...");
 		Cbuf_Init ();
+		XBLog_Write("JAMP: Cbuf_Init done");
 
 		XBLog_Write("JAMP: Com_InitZoneMemory...");
 		Com_InitZoneMemory();
@@ -1397,11 +1434,13 @@ void Com_Init( char *commandLine ) {
 		extern void Sys_InitFileCodes();
 		extern void Sys_FilecodeScan_f();
 		Sys_InitFileCodes();
+		XBLog_Write("JAMP: Sys_InitFileCodes done");
 		Cmd_AddCommand("filecodes", Sys_FilecodeScan_f);
 
 		XBLog_Write("JAMP: Sys_StreamInit...");
 		extern void Sys_StreamInit();
 		Sys_StreamInit();
+		XBLog_Write("JAMP: Sys_StreamInit done");
 #endif
 
 		XBLog_Write("JAMP: FS_InitFilesystem...");
@@ -1429,11 +1468,15 @@ void Com_Init( char *commandLine ) {
 		// that never gets freed.
 		if ( !cls.soundStarted ) {
 			cls.soundStarted = qtrue;
+			XBLog_Write("JAMP: S_Init...");
 			S_Init();
+			XBLog_Write("JAMP: S_Init done");
 		}
 		if ( !cls.soundRegistered ) {
 			cls.soundRegistered = qtrue;
+			XBLog_Write("JAMP: S_BeginRegistration...");
 			S_BeginRegistration(ClientManager::NumClients());
+			XBLog_Write("JAMP: S_BeginRegistration done");
 		}
 
 		// Similarly, get the shadertext loaded nice and early.
@@ -1752,6 +1795,23 @@ extern timing_c G2PerformanceTimer_PreciseFrame;
 extern int G2Time_PreciseFrame;
 #endif
 
+#ifdef _XBOX
+static void JAMP_XBL_Tick_Guarded(void)
+{
+#if defined(_M_IX86)
+	__try
+	{
+		XBL_Tick();
+	}
+	__except(XBLog_Write("JAMP: SEH exception in XBL_Tick"), EXCEPTION_EXECUTE_HANDLER)
+	{
+	}
+#else
+	XBL_Tick();
+#endif
+}
+#endif
+
 /*
 =================
 Com_Frame
@@ -1767,6 +1827,11 @@ try
 	int		msec, minMsec;
 	static int	lastTime;
 	int key;
+	static int jampComFrameTrace;
+	qboolean jampTraceFrame = qfalse;
+#ifdef _XBOX
+	char jampHeartbeatMsg[128];
+#endif
  
 	int		timeBeforeFirstEvents;
 	int           timeBeforeServer;
@@ -1782,13 +1847,28 @@ try
 	timeBeforeEvents =0;
 	timeBeforeClient = 0;
 	timeAfter = 0;
+	jampTraceFrame = (jampComFrameTrace < 12 || (jampComFrameTrace >= 190 && jampComFrameTrace <= 230));
+	if (jampTraceFrame)
+	{
+		XBLog_Write("JAMP: Com_Frame enter");
+	}
+#ifdef _XBOX
+	if (jampComFrameTrace < 12 || !(jampComFrameTrace % 25))
+	{
+		_snprintf(jampHeartbeatMsg, sizeof(jampHeartbeatMsg), "JAMP: heartbeat frame=%i time=%i msec=%i", jampComFrameTrace, Sys_Milliseconds(), com_frameMsec);
+		jampHeartbeatMsg[sizeof(jampHeartbeatMsg) - 1] = 0;
+		XBLog_Write(jampHeartbeatMsg);
+	}
+#endif
 
 
 	// old net chan encryption key
 	key = 0x87243987;
 
 	// write config file if anything changed
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before Com_WriteConfiguration");
 	Com_WriteConfiguration(); 
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after Com_WriteConfiguration");
 
 	// if "viewlog" has been modified, show or hide the log console
 	if ( com_viewlog->modified ) {
@@ -1812,6 +1892,7 @@ try
 		minMsec = 1;
 	}
 	do {
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before first Com_EventLoop");
 #ifdef _XBOX
 		if(ClientManager::splitScreenMode == qtrue)
 		{
@@ -1822,12 +1903,15 @@ try
 		else
 #endif
 		com_frameTime = Com_EventLoop();
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after first Com_EventLoop");
 		if ( lastTime > com_frameTime ) {
 			lastTime = com_frameTime;		// possible on first frame
 		}
 		msec = com_frameTime - lastTime;
 	} while ( msec < minMsec );
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before first Cbuf_Execute");
 	Cbuf_Execute ();
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after first Cbuf_Execute");
 
 	lastTime = com_frameTime;
 
@@ -1842,7 +1926,9 @@ try
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before SV_Frame");
 	SV_Frame( msec );
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after SV_Frame");
 
 	// if "dedicated" has been modified, start up
 	// or shut down the client system.
@@ -1885,8 +1971,14 @@ try
 		}
 		else
 #endif
+		{
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before second Com_EventLoop");
 		Com_EventLoop();
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after second Com_EventLoop");
+		}
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before second Cbuf_Execute");
 		Cbuf_Execute ();
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after second Cbuf_Execute");
 
 
 		//
@@ -1896,7 +1988,9 @@ try
 			timeBeforeClient = Sys_Milliseconds ();
 		}
 
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before CL_Frame");
 		CL_Frame( msec );
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after CL_Frame");
 
 		if ( com_speeds->integer ) {
 			timeAfter = Sys_Milliseconds ();
@@ -1904,7 +1998,9 @@ try
 	}
 	else
 	{
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before CL_Frame dedicated");
 		CL_Frame( msec );
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after CL_Frame dedicated");
 	}
 
 	//
@@ -1944,12 +2040,19 @@ try
 	key = lastTime * 0x87243987;
 
 	com_frameNumber++;
+	jampComFrameTrace++;
 
 #ifdef _XBOX
 	// Need to do Xbox Live frame here, because it can trigger an ERR_DROP
 	if(ClientManager::splitScreenMode == false)
-        XBL_Tick();
+	{
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before XBL_Tick");
+		JAMP_XBL_Tick_Guarded();
+		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after XBL_Tick");
+	}
 #endif
+
+	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame exit");
 
 }//try
 	catch (const char* reason) {

@@ -7,6 +7,10 @@
 //#include "cg_local.h"
 #include "cg_media.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 /*
 ===================================================================
 
@@ -19,6 +23,14 @@ MARK POLYS
 markPoly_t	cg_activeMarkPolys;			// double linked list
 markPoly_t	*cg_freeMarkPolys;			// single linked list
 markPoly_t	cg_markPolys[MAX_MARK_POLYS];
+
+#ifdef _XBOX
+static qboolean CG_XboxMarkPointerValid( const markPoly_t *mark )
+{
+	return mark == &cg_activeMarkPolys ||
+		(mark >= cg_markPolys && mark < (cg_markPolys + MAX_MARK_POLYS));
+}
+#endif
 
 /*
 ===================
@@ -47,6 +59,20 @@ CG_FreeMarkPoly
 ==================
 */
 void CG_FreeMarkPoly( markPoly_t *le ) {
+#ifdef _XBOX
+	if ( !CG_XboxMarkPointerValid( le ) || le == &cg_activeMarkPolys )
+	{
+		XBLF("JA: CG_FreeMarkPoly invalid mark=%p", le);
+		CG_InitMarkPolys();
+		return;
+	}
+	if ( !CG_XboxMarkPointerValid( le->prevMark ) || !CG_XboxMarkPointerValid( le->nextMark ) )
+	{
+		XBLF("JA: CG_FreeMarkPoly corrupt links mark=%p prev=%p next=%p", le, le->prevMark, le->nextMark);
+		CG_InitMarkPolys();
+		return;
+	}
+#endif
 	if ( !le->prevMark ) {
 		CG_Error( "CG_FreeLocalEntity: not active" );
 	}
@@ -57,6 +83,7 @@ void CG_FreeMarkPoly( markPoly_t *le ) {
 
 	// the free list is only singly linked
 	le->nextMark = cg_freeMarkPolys;
+	le->prevMark = NULL;
 	cg_freeMarkPolys = le;
 }
 
@@ -212,6 +239,12 @@ void CG_AddMarks( void ) {
 	markPoly_t	*mp, *next;
 	int			t;
 	int			fade;
+#ifdef _XBOX
+	int			xboxVisited = 0;
+	int			xboxSubmitted = 0;
+	static int	s_xboxAddMarksTraceCount = 0;
+	const qboolean xboxTraceMarks = (s_xboxAddMarksTraceCount < 256);
+#endif
 
 	if ( !cg_addMarks.integer ) {
 		return;
@@ -219,9 +252,40 @@ void CG_AddMarks( void ) {
 
 	mp = cg_activeMarkPolys.nextMark;
 	for ( ; mp != &cg_activeMarkPolys ; mp = next ) {
+#ifdef _XBOX
+		if ( xboxVisited++ >= MAX_MARK_POLYS )
+		{
+			XBLF("JA: CG_AddMarks active list loop detected visited=%d mark=%p next=%p", xboxVisited, mp, mp ? mp->nextMark : NULL);
+			CG_InitMarkPolys();
+			return;
+		}
+
+		if ( !CG_XboxMarkPointerValid( mp ) )
+		{
+			XBLF("JA: CG_AddMarks invalid active mark=%p visited=%d", mp, xboxVisited);
+			CG_InitMarkPolys();
+			return;
+		}
+#endif
 		// grab next now, so if the local entity is freed we
 		// still have it
 		next = mp->nextMark;
+#ifdef _XBOX
+		if ( !CG_XboxMarkPointerValid( next ) )
+		{
+			XBLF("JA: CG_AddMarks invalid next mark=%p next=%p visited=%d", mp, next, xboxVisited);
+			CG_InitMarkPolys();
+			return;
+		}
+
+		if ( mp->poly.numVerts < 3 || mp->poly.numVerts > MAX_VERTS_ON_POLY )
+		{
+			XBLF("JA: CG_AddMarks freeing invalid verts mark=%p shader=%d verts=%d time=%d cgtime=%d",
+				mp, mp->markShader, mp->poly.numVerts, mp->time, cg.time);
+			CG_FreeMarkPoly( mp );
+			continue;
+		}
+#endif
 
 		// see if it is time to completely remove it
 		if ( cg.time > mp->time + MARK_TOTAL_TIME ) {
@@ -258,7 +322,32 @@ void CG_AddMarks( void ) {
 		}
 
 
+#ifdef _XBOX
+		if ( xboxSubmitted >= 128 )
+		{
+			if (xboxTraceMarks)
+			{
+				XBLF("JA: CG_AddMarks submit cap hit visited=%d submitted=%d", xboxVisited, xboxSubmitted);
+				s_xboxAddMarksTraceCount++;
+			}
+			continue;
+		}
+		if (xboxTraceMarks)
+		{
+			XBLF("JA: CG_AddMarks before AddPoly visited=%d submitted=%d mark=%p shader=%d verts=%d time=%d cgtime=%d",
+				xboxVisited, xboxSubmitted, mp, mp->markShader, mp->poly.numVerts, mp->time, cg.time);
+		}
+#endif
 		cgi_R_AddPolyToScene( mp->markShader, mp->poly.numVerts, mp->verts );
+#ifdef _XBOX
+		xboxSubmitted++;
+		if (xboxTraceMarks)
+		{
+			XBLF("JA: CG_AddMarks after AddPoly visited=%d submitted=%d mark=%p",
+				xboxVisited, xboxSubmitted, mp);
+			s_xboxAddMarksTraceCount++;
+		}
+#endif
 	}
 }
 
