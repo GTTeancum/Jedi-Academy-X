@@ -7,6 +7,11 @@
 
 
 #include "tr_local.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+static int s_xboxDiffuseLogCount = 0;
+static int s_xboxDiffuseEntityLogCount = 0;
+#endif
 #define	WAVEVALUE( table, base, amplitude, phase, freq )  ((base) + table[ myftol( ( ( (phase) + backEnd.refdef.floatTime * (freq) ) * FUNCTABLE_SIZE ) ) & FUNCTABLE_MASK ] * (amplitude))
 
 static float *TableForFunc( genFunc_t func ) 
@@ -1403,6 +1408,27 @@ void RB_CalcDiffuseColor( unsigned char *colors )
 
 		colors[i*4+3] = 255;
 	}
+
+#ifdef _XBOX
+	if ( s_xboxDiffuseLogCount < 64 && numVertexes > 0 ) {
+		float firstIncoming = DotProduct( tess.normal[0], lightDir );
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("JA: DIFFUSE_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0bytes=%u,%u,%u,%u out0dw=0x%08x",
+			s_xboxDiffuseLogCount,
+			shaderName,
+			numVertexes,
+			ent,
+			ent ? ent->e.hModel : 0,
+			ambientLight[0], ambientLight[1], ambientLight[2],
+			directedLight[0], directedLight[1], directedLight[2],
+			lightDir[0], lightDir[1], lightDir[2],
+			tess.normal[0][0], tess.normal[0][1], tess.normal[0][2],
+			firstIncoming,
+			colors[0], colors[1], colors[2], colors[3],
+			*(unsigned int *)&colors[0]);
+		s_xboxDiffuseLogCount++;
+	}
+#endif
 }
 
 /*
@@ -1474,6 +1500,31 @@ void RB_CalcDiffuseEntityColor( unsigned char *colors )
 
 		colors[i*4+3] = backEnd.currentEntity->e.shaderRGBA[3];
 	}
+
+#ifdef _XBOX
+	if ( s_xboxDiffuseEntityLogCount < 64 && numVertexes > 0 ) {
+		float firstIncoming = DotProduct( tess.normal[0], lightDir );
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("JA: DIFFUSE_ENTITY_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d rgba=%d,%d,%d,%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0bytes=%u,%u,%u,%u out0dw=0x%08x",
+			s_xboxDiffuseEntityLogCount,
+			shaderName,
+			numVertexes,
+			ent,
+			ent ? ent->e.hModel : 0,
+			backEnd.currentEntity->e.shaderRGBA[0],
+			backEnd.currentEntity->e.shaderRGBA[1],
+			backEnd.currentEntity->e.shaderRGBA[2],
+			backEnd.currentEntity->e.shaderRGBA[3],
+			ambientLight[0], ambientLight[1], ambientLight[2],
+			directedLight[0], directedLight[1], directedLight[2],
+			lightDir[0], lightDir[1], lightDir[2],
+			tess.normal[0][0], tess.normal[0][1], tess.normal[0][2],
+			firstIncoming,
+			colors[0], colors[1], colors[2], colors[3],
+			*(unsigned int *)&colors[0]);
+		s_xboxDiffuseEntityLogCount++;
+	}
+#endif
 }
 
 //---------------------------------------------------------

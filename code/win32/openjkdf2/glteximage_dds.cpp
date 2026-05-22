@@ -202,7 +202,7 @@ static DWORD *DownsampleRGBA2x(const DWORD *src, int width, int height,
 static void ClampXboxTexture(DWORD **rgba, int *width, int *height)
 {
 #ifdef _XBOX
-    const int maxXboxTextureSize = 128;
+    const int maxXboxTextureSize = 512;
     while (*rgba && (*width > maxXboxTextureSize || *height > maxXboxTextureSize)) {
         int newWidth, newHeight;
         DWORD *small = DownsampleRGBA2x(*rgba, *width, *height, &newWidth, &newHeight);

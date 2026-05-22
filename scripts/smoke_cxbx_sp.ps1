@@ -5,6 +5,7 @@ param(
     [string]$Junction = "C:\Games\Emulators\CXBX\Jedi Academy rebuild",
     [string]$LoaderName = "cxbxr-ldr-project2.exe",
     [string]$Level = "",
+    [string[]]$StartupCommand = @(),
     [int]$WatchdogSeconds = 300,
     [int]$ActiveSeconds = 0,
     [int]$InitialQuietGraceSeconds = 180,
@@ -138,6 +139,13 @@ if (!$NoCopy) {
 
 if ($Level) {
     Set-Content -Path (Join-Path $Game "ja_sp_level.txt") -Value $Level -Encoding ASCII
+}
+
+$startupCommandPath = Join-Path $Game "ja_sp_commands.txt"
+if ($StartupCommand -and $StartupCommand.Count -gt 0) {
+    Set-Content -Path $startupCommandPath -Value $StartupCommand -Encoding ASCII
+} else {
+    Remove-Item $startupCommandPath -Force -ErrorAction SilentlyContinue
 }
 
 @(

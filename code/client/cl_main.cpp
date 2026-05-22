@@ -911,6 +911,22 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			}
 			fclose(startupMapFile);
 		}
+		FILE *startupCommandFile = fopen("D:\\ja_sp_commands.txt", "r");
+		if (startupCommandFile)
+		{
+			char commandLine[1024];
+			while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
+			{
+				commandLine[strcspn(commandLine, "\r\n")] = '\0';
+				if (commandLine[0])
+				{
+					XBLF("JA: CL_Frame firstRun: queue startup command '%s'", commandLine);
+					Cbuf_AddText(commandLine);
+					Cbuf_AddText("\n");
+				}
+			}
+			fclose(startupCommandFile);
+		}
 		XBLF("JA: CL_Frame firstRun: queue devmap %s before CL_StartHunkUsers", startupMap);
 		Cbuf_AddText(va("devmap %s\n", startupMap));
 		firstRun = false;

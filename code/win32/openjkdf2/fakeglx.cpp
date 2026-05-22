@@ -69,6 +69,12 @@ extern "C" void* JkaStaticTextureAlloc(unsigned long size, GLuint texNum);
 #ifndef GL_ADD
 #define GL_ADD									0x0104
 #endif
+#ifndef GL_EXP
+#define GL_EXP									0x0800
+#endif
+#ifndef GL_EXP2
+#define GL_EXP2									0x0801
+#endif
 
 void LocalDebugBreak()
 {
@@ -434,6 +440,22 @@ static D3DCMPFUNC GLToDXCompare(GLenum func)
 	return result;
 }
 
+static D3DFOGMODE GLToDXFogMode(GLint mode)
+{
+	switch ( mode )
+	{
+	case GL_LINEAR:
+		return D3DFOG_LINEAR;
+	case GL_EXP:
+		return D3DFOG_EXP;
+	case GL_EXP2:
+		return D3DFOG_EXP2;
+	default:
+		break;
+	}
+	return D3DFOG_NONE;
+}
+
 /*
    OpenGL                      MinFilter           MipFilter       Comments
    GL_NEAREST                  D3DTFN_POINT        D3DTFP_NONE
@@ -490,6 +512,27 @@ static D3DTEXTUREFILTERTYPE GLToDXMagFilter(GLint filter)
 	default:
 		LocalDebugBreak();
 		break;
+	}
+	return result;
+}
+
+static D3DTEXTUREADDRESS GLToDXTextureAddress(GLint wrap)
+{
+	D3DTEXTUREADDRESS result = D3DTADDRESS_CLAMP;
+	switch ( wrap )
+	{
+		case GL_REPEAT:
+			result = D3DTADDRESS_WRAP;
+			break;
+		case GL_CLAMP:
+#ifdef GL_CLAMP_TO_EDGE
+		case GL_CLAMP_TO_EDGE:
+#endif
+			result = D3DTADDRESS_CLAMP;
+			break;
+		default:
+			LocalDebugBreak();
+			break;
 	}
 	return result;
 }
@@ -585,6 +628,11 @@ public:
 	}
 
 	int GetMaxStages() { return m_maxStages; }
+	int GetCurrentStage() { return m_currentStage; }
+	GLuint GetStageTexture(int index) { return (index >= 0 && index < MAXSTATES) ? m_stage[index].GetCurrentTexture() : 0; }
+	bool GetStageTexture2D(int index) { return (index >= 0 && index < MAXSTATES) ? m_stage[index].GetTexture2D() : false; }
+	bool GetStageDirty(int index) { return (index >= 0 && index < MAXSTATES) ? m_stage[index].GetDirty() : false; }
+	GLfloat GetStageTextEnvMode(int index) { return (index >= 0 && index < MAXSTATES) ? m_stage[index].GetTextEnvMode() : 0.0f; }
 
 	bool GetDirty() { return m_dirty; }
 
@@ -618,10 +666,54 @@ public:
 
 	void SetTexture2D(bool texture2D) { m_dirty = true; Get()->SetTexture2D(texture2D); }
 
+	void ForceStageDirty(int index)
+	{
+		if (index >= 0 && index < m_maxStages)
+		{
+			m_stage[index].SetDirty(true);
+			m_dirty = true;
+		}
+	}
+
 	void SetTextureStageState(IDirect3DDevice8* pD3DDev, TextureTable* textures)
 	{
+#ifdef _XBOX
+		{
+			static int s_xboxTextureStateEntryStage1LogCount = 0;
+			if (m_stage[1].GetTexture2D() && s_xboxTextureStateEntryStage1LogCount < 8)
+			{
+				XBLF("JA: fakegl texture state entry dirty=%d maxStages=%d currentStage=%d stage0 dirty=%d tex=%u enabled=%d env=0x%08x stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
+					m_dirty ? 1 : 0,
+					m_maxStages,
+					m_currentStage,
+					m_stage[0].GetDirty() ? 1 : 0,
+					(unsigned int)m_stage[0].GetCurrentTexture(),
+					m_stage[0].GetTexture2D() ? 1 : 0,
+					(unsigned int)m_stage[0].GetTextEnvMode(),
+					m_stage[1].GetDirty() ? 1 : 0,
+					(unsigned int)m_stage[1].GetCurrentTexture(),
+					m_stage[1].GetTexture2D() ? 1 : 0,
+					(unsigned int)m_stage[1].GetTextEnvMode());
+				++s_xboxTextureStateEntryStage1LogCount;
+			}
+		}
+#endif
 		if ( ! m_dirty )
 		{
+#ifdef _XBOX
+			static int s_xboxTextureStateCleanLogCount = 0;
+			if (s_xboxTextureStateCleanLogCount < 4)
+			{
+				XBLF("JA: fakegl texture state apply skipped dirty=0 currentStage=%d maxStages=%d stage0 tex=%u enabled=%d stage1 tex=%u enabled=%d",
+					m_currentStage,
+					m_maxStages,
+					(unsigned int)m_stage[0].GetCurrentTexture(),
+					m_stage[0].GetTexture2D() ? 1 : 0,
+					(unsigned int)m_stage[1].GetCurrentTexture(),
+					m_stage[1].GetTexture2D() ? 1 : 0);
+				++s_xboxTextureStateCleanLogCount;
+			}
+#endif
 			return;
 		}
 		static bool firstTime = true;
@@ -631,6 +723,7 @@ public:
 			for(int i = 0; i < m_maxStages; i++ ) 
 			{
 				pD3DDev->SetTextureStageState(i, D3DTSS_TEXCOORDINDEX, i);
+				pD3DDev->SetTextureStageState(i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 			}
 		}
 
@@ -638,8 +731,38 @@ public:
 
 		for(int i = 0; i < m_maxStages; i++ )
 		{
+#ifdef _XBOX
+			{
+				static int s_xboxTextureStageLoopLogCount = 0;
+				if ((i == 1 || s_xboxTextureStageLoopLogCount < 4) && s_xboxTextureStageLoopLogCount < 16)
+				{
+					XBLF("JA: fakegl texture stage loop i=%d maxStages=%d dirty=%d tex=%u enabled=%d env=0x%08x textureDirty=%d currentStage=%d",
+						i,
+						m_maxStages,
+						m_stage[i].GetDirty() ? 1 : 0,
+						(unsigned int)m_stage[i].GetCurrentTexture(),
+						m_stage[i].GetTexture2D() ? 1 : 0,
+						(unsigned int)m_stage[i].GetTextEnvMode(),
+						m_dirty ? 1 : 0,
+						m_currentStage);
+					++s_xboxTextureStageLoopLogCount;
+				}
+			}
+#endif
 			if ( ! m_stage[i].GetDirty() ) 
 			{
+#ifdef _XBOX
+				static int s_xboxStageCleanLogCount = 0;
+				if (i == 1 && s_xboxStageCleanLogCount < 8)
+				{
+					XBLF("JA: fakegl stage state stage=1 skip dirty=0 tex=%u enabled=%d env=0x%08x currentStage=%d",
+						(unsigned int)m_stage[i].GetCurrentTexture(),
+						m_stage[i].GetTexture2D() ? 1 : 0,
+						(unsigned int)m_stage[i].GetTextEnvMode(),
+						m_currentStage);
+					++s_xboxStageCleanLogCount;
+				}
+#endif
 				continue;
 			}
 			m_stage[i].SetDirty(false);
@@ -657,24 +780,50 @@ public:
 					colorOp = D3DTOP_MODULATE;
 					color1 |= D3DTA_COMPLEMENT;
 				}
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, color1);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, i == 0 ? D3DTA_DIFFUSE :  D3DTA_CURRENT);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, colorOp);
+#ifdef _XBOX
+				if (i == 1)
+				{
+					static int s_xboxStage1PreApplyLogCount = 0;
+					if (s_xboxStage1PreApplyLogCount < 8)
+					{
+						XBLF("JA: fakegl stage1 preapply tex=%u env=0x%08x colorOp=0x%08lx colorArg1=0x%08lx colorArg2=0x%08lx",
+							(unsigned int)m_stage[i].GetCurrentTexture(),
+							(unsigned int)textEnvMode,
+							(unsigned long)colorOp,
+							(unsigned long)color1,
+							(unsigned long)D3DTA_CURRENT);
+						++s_xboxStage1PreApplyLogCount;
+					}
+				}
+#endif
+				HRESULT hrColorArg1 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, color1);
+				HRESULT hrColorArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, D3DTA_CURRENT);
+				HRESULT hrColorOp = pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, colorOp);
+				HRESULT hrTexCoordIndex = pD3DDev->SetTextureStageState( i, D3DTSS_TEXCOORDINDEX, i);
+				HRESULT hrTextureTransform = pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
+				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
+#ifdef _XBOX
+				pD3DDev->SetTextureStageState( i, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE );
+				pD3DDev->SetTextureStageState( i, D3DTSS_COLORSIGN, 0 );
+				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE );
+#endif
 				DWORD alpha1 = D3DTA_TEXTURE;
-				DWORD alpha2 = i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT;
+				DWORD alpha2 = D3DTA_CURRENT;
 				DWORD alphaOp;
 				alphaOp = GLToDXTextEnvMode(textEnvMode);
 				if (i == 0 && m_mainBlend )
 				{
 					alphaOp = D3DTOP_MODULATE;	// Otherwise the console is never transparent
 				}
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, alpha1);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, alpha2);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP,   alphaOp);
+				HRESULT hrAlphaArg1 = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, alpha1);
+				HRESULT hrAlphaArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, alpha2);
+				HRESULT hrAlphaOp = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP,   alphaOp);
 #ifdef _XBOX
 				{
 					static int s_xboxStageStateLogCount = 0;
-					if (s_xboxStageStateLogCount < 24 || (i > 0 && s_xboxStageStateLogCount < 128))
+					static int s_xboxStage1StateLogCount = 0;
+					if (s_xboxStageStateLogCount < 8 || (i > 0 && s_xboxStage1StateLogCount < 8))
 					{
 						XBLF("JA: fakegl stage state stage=%d enabled=1 tex=%u env=0x%08x colorOp=0x%08lx colorArg1=0x%08lx colorArg2=0x%08lx alphaOp=0x%08lx alphaArg1=0x%08lx alphaArg2=0x%08lx",
 							i,
@@ -682,11 +831,41 @@ public:
 							(unsigned int)textEnvMode,
 							(unsigned long)colorOp,
 							(unsigned long)color1,
-							(unsigned long)(i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT),
+							(unsigned long)D3DTA_CURRENT,
 							(unsigned long)alphaOp,
 							(unsigned long)alpha1,
 							(unsigned long)alpha2);
 						++s_xboxStageStateLogCount;
+						if (i > 0)
+						{
+							++s_xboxStage1StateLogCount;
+						}
+					}
+				}
+				if (i == 1)
+				{
+					static int s_xboxStage1ApplyHrLogCount = 0;
+					if (s_xboxStage1ApplyHrLogCount < 8)
+					{
+						XBLF("JA: fakegl stage1 apply hr colorArg1=0x%08lx colorArg2=0x%08lx colorOp=0x%08lx alphaArg1=0x%08lx alphaArg2=0x%08lx alphaOp=0x%08lx",
+							(unsigned long)hrColorArg1,
+							(unsigned long)hrColorArg2,
+							(unsigned long)hrColorOp,
+							(unsigned long)hrAlphaArg1,
+							(unsigned long)hrAlphaArg2,
+							(unsigned long)hrAlphaOp);
+						++s_xboxStage1ApplyHrLogCount;
+					}
+				}
+				if (i == 1)
+				{
+					static int s_xboxStage1TexTransformLogCount = 0;
+					if (s_xboxStage1TexTransformLogCount < 8)
+					{
+						XBLF("JA: fakegl stage1 texcoord state hr index=0x%08lx transform=0x%08lx flags=COUNT2",
+							(unsigned long)hrTexCoordIndex,
+							(unsigned long)hrTextureTransform);
+						++s_xboxStage1TexTransformLogCount;
 					}
 				}
 #endif
@@ -694,10 +873,30 @@ public:
 				TextureEntry* entry = textures->GetEntry(m_stage[i].GetCurrentTexture());
 				if ( entry ) 
 				{
+#ifdef _XBOX
+					if (i == 1)
+					{
+						static int s_xboxStage1EntryLogCount = 0;
+						if (s_xboxStage1EntryLogCount < 8)
+						{
+							XBLF("JA: fakegl stage1 texture entry reqTex=%u entryId=%u ptr=%p fmt=0x%08x internal=0x%08x min=%d mag=%d",
+								(unsigned int)m_stage[i].GetCurrentTexture(),
+								(unsigned int)entry->m_id,
+								(void*)entry->m_mipMap,
+								(unsigned int)entry->m_format,
+								(unsigned int)entry->m_internalFormat,
+								entry->m_glTexParameter2DMinFilter,
+								entry->m_glTexParameter2DMagFilter);
+							++s_xboxStage1EntryLogCount;
+						}
+					}
+#endif
 					int minFilter = entry->m_glTexParameter2DMinFilter;
 					DWORD dxMinFilter = GLToDXMinFilter(minFilter);
 					DWORD dxMipFilter = GLToDXMipFilter(minFilter);
 					DWORD dxMagFilter = GLToDXMagFilter(entry->m_glTexParameter2DMagFilter);
+					DWORD dxAddressU = GLToDXTextureAddress(entry->m_glTexParameter2DWrapS);
+					DWORD dxAddressV = GLToDXTextureAddress(entry->m_glTexParameter2DWrapT);
 
 					// Avoid setting anisotropic if the user doesn't request it.
 					static bool bSetMaxAnisotropy = false;
@@ -720,6 +919,23 @@ public:
 					pD3DDev->SetTextureStageState( i, D3DTSS_MINFILTER, dxMinFilter );
 					pD3DDev->SetTextureStageState( i, D3DTSS_MIPFILTER, dxMipFilter );
 					pD3DDev->SetTextureStageState( i, D3DTSS_MAGFILTER,  dxMagFilter);
+					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSU, dxAddressU );
+					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSV, dxAddressV );
+#ifdef _XBOX
+					if (i == 1)
+					{
+						static int s_xboxStage1AddressLogCount = 0;
+						if (s_xboxStage1AddressLogCount < 8)
+						{
+							XBLF("JA: fakegl stage1 address wrapS=0x%08x wrapT=0x%08x addrU=0x%08lx addrV=0x%08lx",
+								(unsigned int)entry->m_glTexParameter2DWrapS,
+								(unsigned int)entry->m_glTexParameter2DWrapT,
+								(unsigned long)dxAddressU,
+								(unsigned long)dxAddressV);
+							++s_xboxStage1AddressLogCount;
+						}
+					}
+#endif
 					IDirect3DTexture8* pTexture = entry->m_mipMap;
 					// char buf[100];
 					// sprintf(buf,"SetTexture 0x%08x\n", pTexture);
@@ -728,7 +944,19 @@ public:
 					{
 #ifdef _XBOX
 						static int s_xboxSetTextureLogCount = 0;
-						const bool logSetTexture = (s_xboxSetTextureLogCount < 24 || (i > 0 && s_xboxSetTextureLogCount < 128));
+						static int s_xboxSetTextureStage1LogCount = 0;
+						const bool logSetTexture = (s_xboxSetTextureLogCount < 8 || (i > 0 && s_xboxSetTextureStage1LogCount < 8));
+						if (i == 1)
+						{
+							static int s_xboxStage1SetTextureDirectLogCount = 0;
+							if (s_xboxStage1SetTextureDirectLogCount < 8)
+							{
+								XBLF("JA: fakegl stage1 SetTexture direct pre texid=%d ptr=%p fmt=0x%08x internal=0x%08x",
+									entry->m_id, (void*)pTexture, (unsigned int)entry->m_format,
+									(unsigned int)entry->m_internalFormat);
+								++s_xboxStage1SetTextureDirectLogCount;
+							}
+						}
 						if (logSetTexture)
 						{
 							XBLF("JA: fakegl SetTexture stage=%d texid=%d ptr=%p fmt=0x%08x internal=0x%08x",
@@ -738,27 +966,79 @@ public:
 #endif
 						HRESULT hrSetTexture = pD3DDev->SetTexture( i, pTexture);
 #ifdef _XBOX
+						if (i == 1)
+						{
+							static int s_xboxStage1SetTextureDirectHrLogCount = 0;
+							if (s_xboxStage1SetTextureDirectHrLogCount < 8)
+							{
+								XBLF("JA: fakegl stage1 SetTexture direct post hr=0x%08lx",
+									(unsigned long)hrSetTexture);
+								++s_xboxStage1SetTextureDirectHrLogCount;
+							}
+						}
 						if (logSetTexture)
 						{
 							XBLF("JA: fakegl SetTexture stage=%d hr=0x%08lx", i,
 								(unsigned long)hrSetTexture);
 							++s_xboxSetTextureLogCount;
+							if (i > 0)
+							{
+								++s_xboxSetTextureStage1LogCount;
+							}
 						}
 #endif
 					}
 					else
+					{
+#ifdef _XBOX
+						if (i == 1)
+						{
+							static int s_xboxStage1NullTextureLogCount = 0;
+							if (s_xboxStage1NullTextureLogCount < 32)
+							{
+								XBLF("JA: fakegl stage1 texture entry missing mip reqTex=%u entryId=%u",
+									(unsigned int)m_stage[i].GetCurrentTexture(),
+									(unsigned int)entry->m_id);
+								++s_xboxStage1NullTextureLogCount;
+							}
+						}
+#endif
 						LocalDebugBreak();
+					}
+				}
+				else
+				{
+#ifdef _XBOX
+					if (i == 1)
+					{
+						static int s_xboxStage1MissingEntryLogCount = 0;
+						if (s_xboxStage1MissingEntryLogCount < 32)
+						{
+							XBLF("JA: fakegl stage1 texture entry missing reqTex=%u",
+								(unsigned int)m_stage[i].GetCurrentTexture());
+							++s_xboxStage1MissingEntryLogCount;
+						}
+					}
+#endif
 				}
 			}
 			else 
 			{
 				pD3DDev->SetTexture( i, NULL);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, i == 0 ? D3DTA_DIFFUSE :  D3DTA_CURRENT);
+				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, D3DTA_CURRENT);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, D3DTOP_DISABLE);
 				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT);
+				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
 				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+				pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
+				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
+#ifdef _XBOX
+				pD3DDev->SetTextureStageState( i, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE );
+				pD3DDev->SetTextureStageState( i, D3DTSS_COLORSIGN, 0 );
+				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE );
+#endif
 #ifdef _XBOX
 				{
 					static int s_xboxStageDisableLogCount = 0;
@@ -1160,6 +1440,35 @@ public:
 #ifdef _XBOX
 			static int s_xboxDrawLogCount = 0;
 			const bool logDraw = false;
+			{
+				static int s_xboxTwoStageVertexLogCount = 0;
+				const int textureStages = (m_vertexTypeDesc & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT;
+				if (textureStages >= 2 && m_vertexCount > 0 && s_xboxTwoStageVertexLogCount < 8)
+				{
+					const DWORD *v = (const DWORD *)m_OGLPrimitiveVertexBuffer;
+					const float x = *(const float *)&v[0];
+					const float y = *(const float *)&v[1];
+					const float z = *(const float *)&v[2];
+					const unsigned long color = (unsigned long)v[3];
+					const float s0 = *(const float *)&v[4];
+					const float t0 = *(const float *)&v[5];
+					const float s1 = *(const float *)&v[6];
+					const float t1 = *(const float *)&v[7];
+					XBLF("JA: fakegl two-stage draw sample #%d mode=0x%08x prim=%d prims=%lu verts=%lu fvf=0x%08lx stride=%d xyz=%g,%g,%g color=0x%08lx st0=%g,%g st1=%g,%g",
+						s_xboxTwoStageVertexLogCount,
+						(unsigned int)m_drawMode,
+						(int)dptPrimitiveType,
+						(unsigned long)primCount,
+						(unsigned long)m_vertexCount,
+						(unsigned long)m_vertexTypeDesc,
+						m_vertexSize,
+						x, y, z,
+						color,
+						s0, t0,
+						s1, t1);
+					++s_xboxTwoStageVertexLogCount;
+				}
+			}
 			if (logDraw)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP #%d dev=%p mode=0x%08x d3dPrim=%d primCount=%lu vertexCount=%lu vtxSize=%d fvf=0x%08lx vb=%p",
@@ -1468,6 +1777,13 @@ private:
 	float m_glClipPlane0[4];
 	bool m_glScissorTest;
 	D3DRECT m_glScissorRect;
+	bool m_glFogStateDirty;
+	bool m_glFog;
+	GLint m_glFogMode;
+	GLfloat m_glFogDensity;
+	GLfloat m_glFogStart;
+	GLfloat m_glFogEnd;
+	D3DCOLOR m_glFogColor;
 
 	GLclampd m_glDepthRangeNear;
 	GLclampd m_glDepthRangeFar;
@@ -1955,6 +2271,13 @@ public:
 		m_glScissorRect.y1 = 0;
 		m_glScissorRect.x2 = (LONG)gWidth;
 		m_glScissorRect.y2 = (LONG)gHeight;
+		m_glFogStateDirty = true;
+		m_glFog = false;
+		m_glFogMode = GL_EXP;
+		m_glFogDensity = 1.0f;
+		m_glFogStart = 0.0f;
+		m_glFogEnd = 1.0f;
+		m_glFogColor = D3DCOLOR_ARGB(0, 0, 0, 0);
 
 		m_glDepthRangeNear = 0; // not sure if this is the default
 		m_glDepthRangeFar = 1.0; // not sure if this is the default
@@ -2024,6 +2347,7 @@ public:
 		m_pD3DDev->SetRenderState( D3DRS_DITHERENABLE, 0 ); //FALSE looks worse in 16 bit mode (D3DFMT_X1R5G5B5)
 		m_pD3DDev->SetRenderState( D3DRS_SPECULARENABLE, FALSE );
 		m_pD3DDev->SetRenderState( D3DRS_LIGHTING, FALSE);
+		m_pD3DDev->SetRenderState( D3DRS_FOGENABLE, FALSE);
 	}
 	~FakeGL()
 	{
@@ -2071,6 +2395,57 @@ public:
 #endif
 		if ( m_glRenderStateDirty || ! m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) ) 
 		{
+#ifdef _XBOX
+			{
+				static int s_xboxBeginStateLogCount = 0;
+				static int s_xboxBeginStage1LogCount = 0;
+				const bool beginStage1Active = m_textureState.GetStageTexture2D(1);
+				if (s_xboxBeginStateLogCount < 96 || (beginStage1Active && s_xboxBeginStage1LogCount < 96))
+				{
+					XBLF("JA: fakegl glBegin state mode=0x%08x dirty=%d textureDirty=%d mergable=%d maxStages=%d currentStage=%d stage0 dirty=%d tex=%u enabled=%d env=0x%08x stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
+						(unsigned int)mode,
+						m_glRenderStateDirty ? 1 : 0,
+						m_textureState.GetDirty() ? 1 : 0,
+						m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) ? 1 : 0,
+						m_textureState.GetMaxStages(),
+						m_textureState.GetCurrentStage(),
+						m_textureState.GetStageDirty(0) ? 1 : 0,
+						(unsigned int)m_textureState.GetStageTexture(0),
+						m_textureState.GetStageTexture2D(0) ? 1 : 0,
+						(unsigned int)m_textureState.GetStageTextEnvMode(0),
+						m_textureState.GetStageDirty(1) ? 1 : 0,
+						(unsigned int)m_textureState.GetStageTexture(1),
+						m_textureState.GetStageTexture2D(1) ? 1 : 0,
+						(unsigned int)m_textureState.GetStageTextEnvMode(1));
+					++s_xboxBeginStateLogCount;
+					if (beginStage1Active)
+					{
+						++s_xboxBeginStage1LogCount;
+					}
+				}
+			}
+#endif
+			if (m_textureState.GetStageTexture2D(1))
+			{
+				m_textureState.ForceStageDirty(1);
+#ifdef _XBOX
+				{
+					static int s_xboxForceStage1LogCount = 0;
+					if (s_xboxForceStage1LogCount < 8)
+					{
+						XBLF("JA: fakegl force stage1 dirty before apply textureDirty=%d maxStages=%d currentStage=%d stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
+							m_textureState.GetDirty() ? 1 : 0,
+							m_textureState.GetMaxStages(),
+							m_textureState.GetCurrentStage(),
+							m_textureState.GetStageDirty(1) ? 1 : 0,
+							(unsigned int)m_textureState.GetStageTexture(1),
+							m_textureState.GetStageTexture2D(1) ? 1 : 0,
+							(unsigned int)m_textureState.GetStageTextEnvMode(1));
+						++s_xboxForceStage1LogCount;
+					}
+				}
+#endif
+			}
 			internalEnd();
 			SetGLRenderState();
 			DWORD typeDesc;
@@ -2099,6 +2474,20 @@ public:
 		}
 		if ( m_textureState.GetCurrentTexture() != texture ) 
 		{
+#ifdef _XBOX
+			{
+				static int s_xboxBindTextureLogCount = 0;
+				if (s_xboxBindTextureLogCount < 96 || (m_textureState.GetCurrentStage() == 1 && s_xboxBindTextureLogCount < 192))
+				{
+					XBLF("JA: fakegl glBindTexture stage=%d old=%u new=%u target=0x%08x",
+						m_textureState.GetCurrentStage(),
+						(unsigned int)m_textureState.GetCurrentTexture(),
+						(unsigned int)texture,
+						(unsigned int)target);
+					++s_xboxBindTextureLogCount;
+				}
+			}
+#endif
 			SetRenderStateDirty();
 			m_textureState.SetCurrentTexture(texture);
 			m_textures.BindTexture(texture);
@@ -2116,6 +2505,20 @@ public:
 		int textStage = target - TEXTURE0_SGIS;
 		m_textureState.SetCurrentStage(textStage);
 		m_textures.BindTexture(m_textureState.GetCurrentTexture());
+#ifdef _XBOX
+		{
+			static int s_xboxSelectTextureLogCount = 0;
+			if (s_xboxSelectTextureLogCount < 128 || (textStage == 1 && s_xboxSelectTextureLogCount < 256))
+			{
+				XBLF("JA: fakegl select texture target=0x%08x stage=%d currentTex=%u enabled=%d",
+					(unsigned int)target,
+					textStage,
+					(unsigned int)m_textureState.GetCurrentTexture(),
+					m_textureState.GetTexture2D() ? 1 : 0);
+				++s_xboxSelectTextureLogCount;
+			}
+		}
+#endif
 		// Does not, by itself, dirty the render state
 	}
 
@@ -2351,6 +2754,20 @@ public:
 		case GL_TEXTURE_2D:
 			if ( m_textureState.GetTexture2D() != value )
 			{
+#ifdef _XBOX
+				{
+					static int s_xboxTexture2DLogCount = 0;
+					if (s_xboxTexture2DLogCount < 64 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexture2DLogCount < 160))
+					{
+						XBLF("JA: fakegl texture2d stage=%d value=%d old=%d tex=%u",
+							m_textureState.GetCurrentStage(),
+							value ? 1 : 0,
+							m_textureState.GetTexture2D() ? 1 : 0,
+							(unsigned int)m_textureState.GetCurrentTexture());
+						++s_xboxTexture2DLogCount;
+					}
+				}
+#endif
 				SetRenderStateDirty();
 				m_textureState.SetTexture2D(value);
 			}
@@ -2368,6 +2785,29 @@ public:
 			}
 			break;
 		case GL_FOG:
+			if ( m_glFog != value )
+			{
+				SetRenderStateDirty();
+				m_glFog = value;
+				m_glFogStateDirty = true;
+#ifdef _XBOX
+				{
+					static int s_fogEnableLogCount = 0;
+					if (s_fogEnableLogCount < 24)
+					{
+						XBLF("JA: fakegl fog %s mode=0x%04x start=%g end=%g density=%g color=0x%08x",
+							value ? "enable" : "disable",
+							(unsigned int)m_glFogMode,
+							(float)m_glFogStart,
+							(float)m_glFogEnd,
+							(float)m_glFogDensity,
+							(unsigned int)m_glFogColor);
+					}
+					++s_fogEnableLogCount;
+				}
+#endif
+			}
+			break;
 		case GL_STENCIL_TEST:
 			break;
 		case GL_CLIP_PLANE0:
@@ -2427,6 +2867,85 @@ public:
 	{
 		// To Do: This is supposed to flush all pending commands
 		internalEnd();
+	}
+
+	void glFogf(GLenum pname, GLfloat param)
+	{
+		switch (pname)
+		{
+		case GL_FOG_DENSITY:
+			m_glFogDensity = param;
+			break;
+		case GL_FOG_START:
+			m_glFogStart = param;
+			break;
+		case GL_FOG_END:
+			m_glFogEnd = param;
+			break;
+		default:
+			return;
+		}
+		SetRenderStateDirty();
+		m_glFogStateDirty = true;
+#ifdef _XBOX
+		{
+			static int s_fogfLogCount = 0;
+			if (s_fogfLogCount < 24)
+			{
+				XBLF("JA: fakegl fogf pname=0x%04x param=%g", (unsigned int)pname, (float)param);
+			}
+			++s_fogfLogCount;
+		}
+#endif
+	}
+
+	void glFogfv(GLenum pname, const GLfloat *params)
+	{
+		if (!params || pname != GL_FOG_COLOR)
+		{
+			return;
+		}
+		int r = (int)(params[0] * 255.0f);
+		int g = (int)(params[1] * 255.0f);
+		int b = (int)(params[2] * 255.0f);
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		m_glFogColor = D3DCOLOR_ARGB(0, r, g, b);
+		SetRenderStateDirty();
+		m_glFogStateDirty = true;
+#ifdef _XBOX
+		{
+			static int s_fogfvLogCount = 0;
+			if (s_fogfvLogCount < 24)
+			{
+				XBLF("JA: fakegl fog color %g,%g,%g -> 0x%08x",
+					(float)params[0], (float)params[1], (float)params[2], (unsigned int)m_glFogColor);
+			}
+			++s_fogfvLogCount;
+		}
+#endif
+	}
+
+	void glFogi(GLenum pname, GLint param)
+	{
+		if (pname != GL_FOG_MODE)
+		{
+			return;
+		}
+		m_glFogMode = param;
+		SetRenderStateDirty();
+		m_glFogStateDirty = true;
+#ifdef _XBOX
+		{
+			static int s_fogiLogCount = 0;
+			if (s_fogiLogCount < 24)
+			{
+				XBLF("JA: fakegl fog mode=0x%04x", (unsigned int)param);
+			}
+			++s_fogiLogCount;
+		}
+#endif
 	}
 	
 	void glFrustum (GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar)
@@ -2498,6 +3017,7 @@ public:
 		case GL_SCISSOR_TEST:
 			return m_glScissorTest ? 1 : 0;
 		case GL_FOG:
+			return m_glFog ? 1 : 0;
 		case GL_STENCIL_TEST:
 		case GL_LIGHTING:
 		case GL_POLYGON_OFFSET_FILL:
@@ -2761,6 +3281,21 @@ public:
 		// Ignore pname, which must be GL_TEXTURE_ENV_MODE
 		if ( m_textureState.GetTextEnvMode() != param ) 
 		{
+#ifdef _XBOX
+			{
+				static int s_xboxTexEnvLogCount = 0;
+				if (s_xboxTexEnvLogCount < 64 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexEnvLogCount < 160))
+				{
+					XBLF("JA: fakegl texenv stage=%d old=0x%08x new=0x%08x tex=%u enabled=%d",
+						m_textureState.GetCurrentStage(),
+						(unsigned int)m_textureState.GetTextEnvMode(),
+						(unsigned int)param,
+						(unsigned int)m_textureState.GetCurrentTexture(),
+						m_textureState.GetTexture2D() ? 1 : 0);
+					++s_xboxTexEnvLogCount;
+				}
+			}
+#endif
 			SetRenderStateDirty();
 			m_textureState.SetTextEnvMode(param);
 		}
@@ -3842,6 +4377,32 @@ private:
 			DWORD zfunc = GLToDXCompare(m_glDepthFunc);
 			m_pD3DDev->SetRenderState( D3DRS_ZFUNC, zfunc );
 		}
+		if ( m_glFogStateDirty )
+		{
+			m_glFogStateDirty = false;
+			m_pD3DDev->SetRenderState( D3DRS_FOGENABLE, m_glFog ? TRUE : FALSE );
+			m_pD3DDev->SetRenderState( D3DRS_FOGTABLEMODE, GLToDXFogMode(m_glFogMode) );
+			m_pD3DDev->SetRenderState( D3DRS_FOGDENSITY, *(DWORD*)&m_glFogDensity );
+			m_pD3DDev->SetRenderState( D3DRS_FOGSTART, *(DWORD*)&m_glFogStart );
+			m_pD3DDev->SetRenderState( D3DRS_FOGEND, *(DWORD*)&m_glFogEnd );
+			m_pD3DDev->SetRenderState( D3DRS_FOGCOLOR, m_glFogColor );
+#ifdef _XBOX
+			{
+				static int s_fogApplyLogCount = 0;
+				if (s_fogApplyLogCount < 24)
+				{
+					XBLF("JA: fakegl fog apply enabled=%d mode=0x%04x start=%g end=%g density=%g color=0x%08x",
+						m_glFog ? 1 : 0,
+						(unsigned int)m_glFogMode,
+						(float)m_glFogStart,
+						(float)m_glFogEnd,
+						(float)m_glFogDensity,
+						(unsigned int)m_glFogColor);
+				}
+				++s_fogApplyLogCount;
+			}
+#endif
+		}
 		if ( m_modelViewMatrixStateDirty ) 
 		{
 			m_modelViewMatrixStateDirty = false;
@@ -4511,6 +5072,30 @@ void /*APIENTRY*/ glEnd (void)
 void /*APIENTRY*/ glFinish (void)
 {
 	gFakeGL->glFinish();
+}
+
+extern "C" void JkaFakeglFogf(GLenum pname, GLfloat param)
+{
+	if (gFakeGL)
+	{
+		gFakeGL->glFogf(pname, param);
+	}
+}
+
+extern "C" void JkaFakeglFogfv(GLenum pname, const GLfloat *params)
+{
+	if (gFakeGL)
+	{
+		gFakeGL->glFogfv(pname, params);
+	}
+}
+
+extern "C" void JkaFakeglFogi(GLenum pname, GLint param)
+{
+	if (gFakeGL)
+	{
+		gFakeGL->glFogi(pname, param);
+	}
 }
 
 void /*APIENTRY*/ glFrustum (GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar)

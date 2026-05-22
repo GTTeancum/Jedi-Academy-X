@@ -212,6 +212,16 @@ void SP_DrawTexture(void* pixels, float width, float height, float vShift)
 	if (logDetailed) XBLog_Write("SDT: glBeginEXT(GL_TRIANGLE_STRIP, 4)...\n");
 #endif
 	glBeginEXT (GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0);
+#ifdef _XBOX
+		glTexCoord2f( 0,  1 );
+		glVertex2f(x1, y1);
+		glTexCoord2f( 1,  1 );
+		glVertex2f(x2, y1);
+		glTexCoord2f( 0, 0 );
+		glVertex2f(x1, y2);
+		glTexCoord2f( 1, 0 );
+		glVertex2f(x2, y2);
+#else
 		glTexCoord2f( 0,  0 );
 		glVertex2f(x1, y1);
 		glTexCoord2f( 1 ,  0 );
@@ -220,6 +230,7 @@ void SP_DrawTexture(void* pixels, float width, float height, float vShift)
 		glVertex2f(x1, y2);
 		glTexCoord2f( 1, 1 );
 		glVertex2f(x2, y2);
+#endif
 #ifdef _XBOX
 	if (logDetailed) XBLog_Write("SDT: glEnd...\n");
 #endif

@@ -18,6 +18,14 @@
 
 VVLightManager VVLightMan;
 
+#ifdef _XBOX
+static int s_xboxVVEntityLightLogCount = 0;
+static int s_xboxVVDiffuseLogCount = 0;
+static int s_xboxVVDiffuseEntityLogCount = 0;
+static int s_xboxVVAddDlightLogCount = 0;
+static int s_xboxVVWorldDlightLogCount = 0;
+#endif
+
 
 VVLightManager::VVLightManager()
 {
@@ -46,6 +54,18 @@ void VVLightManager::RE_AddLightToScene( const vec3_t org, float intensity, floa
 	dl->color[0] = r;
 	dl->color[1] = g;
 	dl->color[2] = b;
+
+#ifdef _XBOX
+	if ( s_xboxVVAddDlightLogCount < 64 ) {
+		XBLF("JA: VV_ADD_DLIGHT #%d count=%d origin=%g,%g,%g radius=%g color=%g,%g,%g",
+			s_xboxVVAddDlightLogCount,
+			num_dlights,
+			org[0], org[1], org[2],
+			intensity,
+			r, g, b);
+		s_xboxVVAddDlightLogCount++;
+	}
+#endif
 }
 
 void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
@@ -68,6 +88,20 @@ void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
 	dl->attenuation = light->attenuation;
 	dl->type = light->type;
 	dl->radius = light->radius;
+
+#ifdef _XBOX
+	if ( s_xboxVVAddDlightLogCount < 64 ) {
+		XBLF("JA: VV_ADD_DLIGHT_STRUCT #%d count=%d type=%d origin=%g,%g,%g radius=%g color=%g,%g,%g attenuation=%g",
+			s_xboxVVAddDlightLogCount,
+			num_dlights,
+			(int)light->type,
+			light->origin[0], light->origin[1], light->origin[2],
+			light->radius,
+			light->color[0], light->color[1], light->color[2],
+			light->attenuation);
+		s_xboxVVAddDlightLogCount++;
+	}
+#endif
 }
 
 
@@ -445,6 +479,27 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 	ent->lightDir[0] = DotProduct( lightDir, ent->e.axis[0] );
 	ent->lightDir[1] = DotProduct( lightDir, ent->e.axis[1] );
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
+
+#ifdef _XBOX
+	if ( s_xboxVVEntityLightLogCount < 64 ) {
+		XBLF("JA: VV_ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g shadowDir=%g,%g,%g",
+			s_xboxVVEntityLightLogCount,
+			ent,
+			ent->e.hModel,
+			ent->e.reType,
+			ent->e.renderfx,
+			(refdef->rdflags & RDF_NOWORLDMODEL) ? 1 : 0,
+			(tr.world && tr.world->lightGridData) ? 1 : 0,
+			num_dlights,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			ent->ambientLight[0], ent->ambientLight[1], ent->ambientLight[2],
+			ent->directedLight[0], ent->directedLight[1], ent->directedLight[2],
+			ent->ambientLightInt,
+			ent->lightDir[0], ent->lightDir[1], ent->lightDir[2],
+			ent->shadowDir[0], ent->shadowDir[1], ent->shadowDir[2]);
+		s_xboxVVEntityLightLogCount++;
+	}
+#endif
 }
 
 inline void Short2Float(float *f, const short *s)
@@ -639,6 +694,20 @@ void VVLightManager::RB_CalcDiffuseColorWorld()
 
 	ent = backEnd.currentEntity;
 
+#ifdef _XBOX
+	if ( s_xboxVVWorldDlightLogCount < 32 ) {
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("JA: VV_WORLD_DLIGHT #%d shader='%s' bits=0x%x dlights=%d verts=%d indexes=%d",
+			s_xboxVVWorldDlightLogCount,
+			shaderName,
+			tess.dlightBits,
+			num_dlights,
+			tess.numVertexes,
+			tess.numIndexes);
+		s_xboxVVWorldDlightLogCount++;
+	}
+#endif
+
 	for(int i = 0, l = 0; i < num_dlights; i++) 
 	{
 		if ( ( tess.dlightBits & ( 1 << i ) ) ) 
@@ -680,33 +749,74 @@ void VVLightManager::RB_CalcDiffuseColorWorld()
 
 void VVLightManager::RB_CalcDiffuseColor( DWORD *colors )
 {
+	int				i, j;
+	float			*normal;
+	float			incoming;
 	trRefEntity_t	*ent;
+	vec3_t			ambientLight;
+	vec3_t			directedLight;
+	vec3_t			lightDir;
+	int				numVertexes;
 
 	ent = backEnd.currentEntity;
+	VectorCopy( ent->ambientLight, ambientLight );
+	VectorCopy( ent->directedLight, directedLight );
+	VectorCopy( ent->lightDir, lightDir );
 
-	// Make sure to turn lighting on....
-	glEnable(GL_LIGHTING);
+	normal = tess.normal[0];
+	numVertexes = tess.numVertexes;
 
-	glLightfv(0, GL_AMBIENT, ent->ambientLight);
-	glLightfv(0, GL_DIFFUSE, ent->directedLight);
+	for ( i = 0 ; i < numVertexes ; i++, normal += 4 ) {
+		incoming = DotProduct( normal, lightDir );
+		if ( incoming <= 0 ) {
+			colors[i] = D3DCOLOR_RGBA(
+				((byte *)&ent->ambientLightInt)[0],
+				((byte *)&ent->ambientLightInt)[1],
+				((byte *)&ent->ambientLightInt)[2],
+				255);
+			continue;
+		}
 
-	VectorNormalize(ent->lightDir);
+		j = myftol( ambientLight[0] + incoming * directedLight[0] );
+		if ( j > 255 ) {
+			j = 255;
+		}
+		int r = j;
 
-	vec3_t vLight;
-	vLight[0] = DotProduct( ent->lightDir, ent->e.axis[0] );
-	vLight[1] = DotProduct( ent->lightDir, ent->e.axis[1] );
-	vLight[2] = DotProduct( ent->lightDir, ent->e.axis[2] );
+		j = myftol( ambientLight[1] + incoming * directedLight[1] );
+		if ( j > 255 ) {
+			j = 255;
+		}
+		int g = j;
 
-	if(VectorLengthSquared(vLight) <= 0.0001f)
-	{
-		vLight[0] = 0.0f;
-		vLight[1] = 1.0f;
-		vLight[2] = 0.0f;
+		j = myftol( ambientLight[2] + incoming * directedLight[2] );
+		if ( j > 255 ) {
+			j = 255;
+		}
+		int b = j;
+
+		colors[i] = D3DCOLOR_RGBA( r, g, b, 255 );
 	}
-	
-	glLightfv(0, GL_SPOT_DIRECTION, vLight);
 
-	memset(colors, 0xffffffff, sizeof(DWORD) * tess.numVertexes);
+#ifdef _XBOX
+	if ( s_xboxVVDiffuseLogCount < 64 && numVertexes > 0 ) {
+		float firstIncoming = DotProduct( tess.normal[0], lightDir );
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("JA: VV_DIFFUSE_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",
+			s_xboxVVDiffuseLogCount,
+			shaderName,
+			numVertexes,
+			ent,
+			ent ? ent->e.hModel : 0,
+			ambientLight[0], ambientLight[1], ambientLight[2],
+			directedLight[0], directedLight[1], directedLight[2],
+			lightDir[0], lightDir[1], lightDir[2],
+			tess.normal[0][0], tess.normal[0][1], tess.normal[0][2],
+			firstIncoming,
+			colors[0]);
+		s_xboxVVDiffuseLogCount++;
+	}
+#endif
 }
 
 
@@ -715,48 +825,80 @@ void VVLightManager::RB_CalcDiffuseEntityColor( DWORD *colors )
 	if ( !backEnd.currentEntity )
 	{//error, use the normal lighting
 		RB_CalcDiffuseColor(colors);
+		return;
 	}
 
+	int				i;
+	float			*normal;
+	float			incoming;
+	int				numVertexes;
+	float			r, g, b;
 	trRefEntity_t	*ent;
+	vec3_t			ambientLight;
+	vec3_t			directedLight;
+	vec3_t			lightDir;
 
 	ent = backEnd.currentEntity;
+	VectorCopy( ent->ambientLight, ambientLight );
+	VectorCopy( ent->directedLight, directedLight );
+	VectorCopy( ent->lightDir, lightDir );
 
-	// Make sure to turn lighting on....
-	glEnable(GL_LIGHTING);
+	r = ent->e.shaderRGBA[0] / 255.0f;
+	g = ent->e.shaderRGBA[1] / 255.0f;
+	b = ent->e.shaderRGBA[2] / 255.0f;
 
-	// Modulate ambient by entity color:
-	vec3_t ambient;
-	ambient[0] = ent->ambientLight[0] * (ent->e.shaderRGBA[0]/255.0);
-	ambient[1] = ent->ambientLight[1] * (ent->e.shaderRGBA[1]/255.0);
-	ambient[2] = ent->ambientLight[2] * (ent->e.shaderRGBA[2]/255.0);
-	glLightfv(0, GL_AMBIENT, ambient);
-	glLightfv(0, GL_DIFFUSE, ent->directedLight);
+	normal = tess.normal[0];
+	numVertexes = tess.numVertexes;
 
-	VectorNormalize(ent->lightDir);
+	for ( i = 0 ; i < numVertexes ; i++, normal += 4 ) {
+		incoming = DotProduct( normal, lightDir );
+		float outR = ambientLight[0];
+		float outG = ambientLight[1];
+		float outB = ambientLight[2];
 
-	vec3_t vLight;
-	vLight[0] = DotProduct( ent->lightDir, ent->e.axis[0] );
-	vLight[1] = DotProduct( ent->lightDir, ent->e.axis[1] );
-	vLight[2] = DotProduct( ent->lightDir, ent->e.axis[2] );
+		if ( incoming > 0 ) {
+			outR += incoming * directedLight[0];
+			outG += incoming * directedLight[1];
+			outB += incoming * directedLight[2];
+		}
 
-	if(VectorLengthSquared(vLight) <= 0.0001f)
-	{
-		vLight[0] = 0.0f;
-		vLight[1] = 1.0f;
-		vLight[2] = 0.0f;
+		if ( outR > 255 ) {
+			outR = 255;
+		}
+		if ( outG > 255 ) {
+			outG = 255;
+		}
+		if ( outB > 255 ) {
+			outB = 255;
+		}
+
+		colors[i] = D3DCOLOR_RGBA(
+			myftol( outR * r ),
+			myftol( outG * g ),
+			myftol( outB * b ),
+			ent->e.shaderRGBA[3] );
 	}
 
-	glLightfv(0, GL_SPOT_DIRECTION, vLight);
-
-	DWORD color = D3DCOLOR_RGBA(backEnd.currentEntity->e.shaderRGBA[0],
-								backEnd.currentEntity->e.shaderRGBA[1],
-								backEnd.currentEntity->e.shaderRGBA[2],
-								backEnd.currentEntity->e.shaderRGBA[3]);
-
-	for(int i = 0; i < tess.numVertexes; i++)
-	{
-		colors[i] = color;
+#ifdef _XBOX
+	if ( s_xboxVVDiffuseEntityLogCount < 64 && numVertexes > 0 ) {
+		float firstIncoming = DotProduct( tess.normal[0], lightDir );
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("JA: VV_DIFFUSE_ENTITY_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d rgba=%d,%d,%d,%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",
+			s_xboxVVDiffuseEntityLogCount,
+			shaderName,
+			numVertexes,
+			ent,
+			ent ? ent->e.hModel : 0,
+			ent->e.shaderRGBA[0], ent->e.shaderRGBA[1], ent->e.shaderRGBA[2], ent->e.shaderRGBA[3],
+			ambientLight[0], ambientLight[1], ambientLight[2],
+			directedLight[0], directedLight[1], directedLight[2],
+			lightDir[0], lightDir[1], lightDir[2],
+			tess.normal[0][0], tess.normal[0][1], tess.normal[0][2],
+			firstIncoming,
+			colors[0]);
+		s_xboxVVDiffuseEntityLogCount++;
 	}
+#endif
 }
 
 

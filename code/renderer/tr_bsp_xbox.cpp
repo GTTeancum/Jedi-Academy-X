@@ -253,6 +253,50 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 
 		char lmapName[MAX_QPATH + 32];
 		Com_sprintf(lmapName, MAX_QPATH + 32, "*%s/lightmap%d",sMapName,i);
+#ifdef _XBOX
+		{
+			static int s_xboxLightmapStatsLogCount = 0;
+			const byte *dds = buf_p;
+			if (s_xboxLightmapStatsLogCount < 16 &&
+				size >= 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2 &&
+				dds[0] == 'D' && dds[1] == 'D' && dds[2] == 'S' && dds[3] == ' ')
+			{
+				const unsigned short *src = (const unsigned short *)(dds + 128);
+				const unsigned int rgbBits = *(const unsigned int *)(dds + 88);
+				const unsigned int rMask = *(const unsigned int *)(dds + 92);
+				const unsigned int gMask = *(const unsigned int *)(dds + 96);
+				const unsigned int bMask = *(const unsigned int *)(dds + 100);
+				int minLum = 255;
+				int maxLum = 0;
+				int sumLum = 0;
+				int p;
+				for (p = 0; p < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++p)
+				{
+					const unsigned short c = src[p];
+					const int r = ((c >> 11) & 31) * 255 / 31;
+					const int g = ((c >> 5) & 63) * 255 / 63;
+					const int b = (c & 31) * 255 / 31;
+					const int lum = (r * 30 + g * 59 + b * 11) / 100;
+					if (lum < minLum)
+						minLum = lum;
+					if (lum > maxLum)
+						maxLum = lum;
+					sumLum += lum;
+				}
+				XBLF("JA: XBOX_LIGHTMAP_STATS name='%s' size=%d bits=%u masks=%08x,%08x,%08x min=%d max=%d avg=%d",
+					lmapName,
+					size,
+					rgbBits,
+					rMask,
+					gMask,
+					bMask,
+					minLum,
+					maxLum,
+					sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
+				++s_xboxLightmapStatsLogCount;
+			}
+		}
+#endif
 		tr.lightmaps[i] = R_CreateImage( lmapName, image, 
 			LIGHTMAP_SIZE, LIGHTMAP_SIZE,
 			GL_DDS_RGB16_EXT,

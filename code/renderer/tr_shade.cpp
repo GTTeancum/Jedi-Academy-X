@@ -811,6 +811,40 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 			pStage->bundle[1].image);
 		if ( traceBudget > 0 ) traceBudget--;
 	}
+	{
+		static int s_xboxWorldStageStateLogCount = 0;
+		if ( s_xboxWorldStageStateLogCount < 32 )
+		{
+			const DWORD color0 = input->svars.colors[0];
+			const byte r = (byte)((color0 >> 16) & 0xff);
+			const byte g = (byte)((color0 >> 8) & 0xff);
+			const byte b = (byte)(color0 & 0xff);
+			const byte a = (byte)((color0 >> 24) & 0xff);
+			XBLF("JA: XBOX_WORLD_STAGE shader='%s' stage=%d ent=%p reType=%d state=0x%x rgbGen=%d alphaGen=%d lm0=%d lm1=%d vtxLm0=%d env=%d r_vertexLight=%d r_lightmap=%d r_fullbright=%d color0=%u,%u,%u,%u tc0=%g,%g tc1=%g,%g img0='%s' img1='%s'",
+				tess.shader ? tess.shader->name : "<null>",
+				stage,
+				backEnd.currentEntity,
+				backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
+				pStage->stateBits,
+				pStage->rgbGen,
+				pStage->alphaGen,
+				pStage->bundle[0].isLightmap ? 1 : 0,
+				pStage->bundle[1].isLightmap ? 1 : 0,
+				pStage->bundle[0].vertexLightmap ? 1 : 0,
+				tess.shader ? tess.shader->multitextureEnv : -1,
+				r_vertexLight ? r_vertexLight->integer : -1,
+				r_lightmap ? r_lightmap->integer : -1,
+				r_fullbright ? r_fullbright->integer : -1,
+				r, g, b, a,
+				input->svars.texcoords[0][0][0],
+				input->svars.texcoords[0][0][1],
+				input->svars.texcoords[1][0][0],
+				input->svars.texcoords[1][0][1],
+				pStage->bundle[0].image ? pStage->bundle[0].image->imgName : "<null>",
+				pStage->bundle[1].image ? pStage->bundle[1].image->imgName : "<null>");
+			++s_xboxWorldStageStateLogCount;
+		}
+	}
 #endif
 	GL_State( pStage->stateBits );
 #ifdef _XBOX
@@ -1809,6 +1843,224 @@ static void ProjectDlightTexture( void ) {
 
 		if (fogging)
 		{
+			glEnable(GL_FOG);
+		}
+
+		backEnd.pc.c_totalIndexes += numIndexes;
+		backEnd.pc.c_dlightIndexes += numIndexes;
+	}
+}
+#endif // VV_LIGHTING
+
+#ifdef VV_LIGHTING
+/*
+===================
+ProjectDlightTextureVV
+
+SP Xbox normally asks the Vicarious Visions light-effects backend to render
+dynamic lights, but that backend is stubbed in this source drop. Project the
+same VVLightMan lights with the stock software texture-coordinate pass.
+===================
+*/
+static void ProjectDlightTextureVV( void ) {
+	int		i, l;
+	vec3_t	origin;
+	float	*texCoords;
+	byte	*colors;
+	byte	clipBits[SHADER_MAX_VERTEXES];
+	MAC_STATIC float	texCoordsArray[SHADER_MAX_VERTEXES][2];
+	byte	colorArray[SHADER_MAX_VERTEXES][4];
+	glIndex_t	hitIndexes[SHADER_MAX_INDEXES];
+	int		numIndexes;
+	float	scale;
+	float	radius;
+	int		fogging;
+	vec3_t	floatColor;
+
+	if ( !VVLightMan.num_dlights || !tr.dlightImage ) {
+		return;
+	}
+
+	for ( l = 0 ; l < VVLightMan.num_dlights ; l++ ) {
+		VVdlight_t	*dl;
+
+		if ( !( tess.dlightBits & ( 1 << l ) ) ) {
+			continue;
+		}
+
+		texCoords = texCoordsArray[0];
+		colors = colorArray[0];
+
+		dl = &VVLightMan.dlights[l];
+		VectorCopy( dl->transformed, origin );
+		radius = dl->radius;
+		scale = 1.0f / radius;
+
+		floatColor[0] = dl->color[0] * 255.0f;
+		floatColor[1] = dl->color[1] * 255.0f;
+		floatColor[2] = dl->color[2] * 255.0f;
+
+		for ( i = 0 ; i < tess.numVertexes ; i++, texCoords += 2, colors += 4 ) {
+			vec3_t	dist;
+			int		clip;
+			float	modulate;
+			int		axis = 1;
+			int		bestIndex = 0;
+			float	greatest = tess.normal[i][0];
+			float	dUse = 0.0f;
+			const float maxScale = 1.5f;
+			const float maxGroundScale = 1.4f;
+			const float lightScaleTolerance = 0.1f;
+
+			backEnd.pc.c_dlightVertexes++;
+			VectorSubtract( origin, tess.xyz[i], dist );
+
+			if (greatest < 0.0f) {
+				greatest = -greatest;
+			}
+
+			if (VectorCompare(tess.normal[i], vec3_origin)) {
+				bestIndex = 2;
+			} else {
+				while (axis < 3) {
+					if ((tess.normal[i][axis] > greatest && tess.normal[i][axis] > 0.0f) ||
+						(tess.normal[i][axis] < -greatest && tess.normal[i][axis] < 0.0f)) {
+						greatest = tess.normal[i][axis];
+						if (greatest < 0.0f) {
+							greatest = -greatest;
+						}
+						bestIndex = axis;
+					}
+					axis++;
+				}
+			}
+
+			if (bestIndex == 2) {
+				dUse = Q_fabs(origin[2]-tess.xyz[i][2]);
+				dUse = (radius*0.5f)/dUse;
+				if (dUse > maxGroundScale) {
+					dUse = maxGroundScale;
+				} else if (dUse < 0.1f) {
+					dUse = 0.1f;
+				}
+				if (VectorCompare(tess.normal[i], vec3_origin) ||
+					tess.normal[i][0] > lightScaleTolerance || tess.normal[i][0] < -lightScaleTolerance ||
+					tess.normal[i][1] > lightScaleTolerance || tess.normal[i][1] < -lightScaleTolerance) {
+					scale = 1.0f / radius;
+				} else {
+					scale = 1.0f / (radius*dUse);
+				}
+				texCoords[0] = 0.5f + dist[0] * scale;
+				texCoords[1] = 0.5f + dist[1] * scale;
+			} else if (bestIndex == 1) {
+				dUse = Q_fabs(origin[1]-tess.xyz[i][1]);
+				dUse = (radius*0.5f)/dUse;
+				if (dUse > maxScale) {
+					dUse = maxScale;
+				} else if (dUse < 0.1f) {
+					dUse = 0.1f;
+				}
+				if (tess.normal[i][0] > lightScaleTolerance || tess.normal[i][0] < -lightScaleTolerance ||
+					tess.normal[i][2] > lightScaleTolerance || tess.normal[i][2] < -lightScaleTolerance) {
+					scale = 1.0f / radius;
+				} else {
+					scale = 1.0f / (radius*dUse);
+				}
+				texCoords[0] = 0.5f + dist[0] * scale;
+				texCoords[1] = 0.5f + dist[2] * scale;
+			} else {
+				dUse = Q_fabs(origin[0]-tess.xyz[i][0]);
+				dUse = (radius*0.5f)/dUse;
+				if (dUse > maxScale) {
+					dUse = maxScale;
+				} else if (dUse < 0.1f) {
+					dUse = 0.1f;
+				}
+				if (tess.normal[i][2] > lightScaleTolerance || tess.normal[i][2] < -lightScaleTolerance ||
+					tess.normal[i][1] > lightScaleTolerance || tess.normal[i][1] < -lightScaleTolerance) {
+					scale = 1.0f / radius;
+				} else {
+					scale = 1.0f / (radius*dUse);
+				}
+				texCoords[0] = 0.5f + dist[1] * scale;
+				texCoords[1] = 0.5f + dist[2] * scale;
+			}
+
+			clip = 0;
+			if ( texCoords[0] < 0.0f ) {
+				clip |= 1;
+			} else if ( texCoords[0] > 1.0f ) {
+				clip |= 2;
+			}
+			if ( texCoords[1] < 0.0f ) {
+				clip |= 4;
+			} else if ( texCoords[1] > 1.0f ) {
+				clip |= 8;
+			}
+			if ( dist[bestIndex] > radius ) {
+				clip |= 16;
+				modulate = 0.0f;
+			} else if ( dist[bestIndex] < -radius ) {
+				clip |= 32;
+				modulate = 0.0f;
+			} else {
+				dist[bestIndex] = Q_fabs(dist[bestIndex]);
+				if ( dist[bestIndex] < radius * 0.5f ) {
+					modulate = 1.0f;
+				} else {
+					modulate = 2.0f * (radius - dist[bestIndex]) * scale;
+				}
+			}
+			clipBits[i] = clip;
+
+			// The Xbox color-array shim expects packed D3D byte order in memory.
+			colors[0] = myftol(floatColor[2] * modulate);
+			colors[1] = myftol(floatColor[1] * modulate);
+			colors[2] = myftol(floatColor[0] * modulate);
+			colors[3] = 255;
+		}
+
+		numIndexes = 0;
+		for ( i = 0 ; i < tess.numIndexes ; i += 3 ) {
+			int		a = tess.indexes[i];
+			int		b = tess.indexes[i+1];
+			int		c = tess.indexes[i+2];
+
+			if ( clipBits[a] & clipBits[b] & clipBits[c] ) {
+				continue;
+			}
+			hitIndexes[numIndexes] = a;
+			hitIndexes[numIndexes+1] = b;
+			hitIndexes[numIndexes+2] = c;
+			numIndexes += 3;
+		}
+
+		if ( !numIndexes ) {
+			continue;
+		}
+
+		if (r_drawfog->value == 2 && tr.world &&
+			(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs)) {
+			fogging = glIsEnabled(GL_FOG);
+			if (fogging) {
+				glDisable(GL_FOG);
+			}
+		} else {
+			fogging = 0;
+		}
+
+		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+		glTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
+
+		glEnableClientState( GL_COLOR_ARRAY );
+		glColorPointer( 4, GL_UNSIGNED_BYTE, 0, colorArray );
+
+		GL_Bind( tr.dlightImage );
+		GL_State( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL );
+
+		R_DrawElements( numIndexes, hitIndexes );
+
+		if (fogging) {
 			glEnable(GL_FOG);
 		}
 
@@ -2840,6 +3092,22 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			glNormalPointer(GL_FLOAT, 16, tess.normal );
 		}
 
+#ifdef _XBOX
+		if ((pStage->isSpecular || pStage->isEnvironment || pStage->isBumpMap) && tess.shader)
+		{
+			static int s_xboxLightEffectsFallbackLogCount = 0;
+			if (s_xboxLightEffectsFallbackLogCount < 32)
+			{
+				XBLF("JA: XBOX_LIGHTEFFECTS_FALLBACK shader='%s' stage=%d spec=%d env=%d bump=%d",
+					tess.shader->name,
+					stage,
+					pStage->isSpecular ? 1 : 0,
+					pStage->isEnvironment ? 1 : 0,
+					pStage->isBumpMap ? 1 : 0);
+				++s_xboxLightEffectsFallbackLogCount;
+			}
+		}
+#else
 		if(pStage->isSpecular)
 		{
 			glEnableClientState( GL_NORMAL_ARRAY );
@@ -2883,6 +3151,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			glDisableClientState( GL_NORMAL_ARRAY );
 			continue;
 		}
+#endif
 #endif // VV_LIGHTING
 		//
 		// do multitexture
@@ -3229,7 +3498,41 @@ void RB_StageIteratorGeneric( void )
 		glNormalPointer(GL_FLOAT, 16, tess.normal );
 		if(!tess.setTangents)
             BuildTangentVectors();
-		glw_state->lightEffects->RenderDynamicLights();
+		{
+			bool renderedDlights = glw_state->lightEffects->RenderDynamicLights();
+#ifdef _XBOX
+			static int s_xboxDlightRenderLogCount = 0;
+			if (s_xboxDlightRenderLogCount < 64)
+			{
+				XBLF("JA: XBOX_RENDER_DLIGHT #%d shader='%s' bits=0x%x rendered=%d verts=%d indexes=%d",
+					s_xboxDlightRenderLogCount,
+					tess.shader ? tess.shader->name : "<null>",
+					tess.dlightBits,
+					renderedDlights ? 1 : 0,
+					tess.numVertexes,
+					tess.numIndexes);
+				s_xboxDlightRenderLogCount++;
+			}
+#endif
+			if (!renderedDlights)
+			{
+#ifdef _XBOX
+				static int s_xboxDlightFallbackLogCount = 0;
+				if (s_xboxDlightFallbackLogCount < 64)
+				{
+					XBLF("JA: XBOX_PROJECT_DLIGHT_FALLBACK #%d shader='%s' bits=0x%x vvLights=%d verts=%d indexes=%d",
+						s_xboxDlightFallbackLogCount,
+						tess.shader ? tess.shader->name : "<null>",
+						tess.dlightBits,
+						VVLightMan.num_dlights,
+						tess.numVertexes,
+						tess.numIndexes);
+					s_xboxDlightFallbackLogCount++;
+				}
+#endif
+				ProjectDlightTextureVV();
+			}
+		}
 		glDisableClientState( GL_NORMAL_ARRAY );
 #else
 		if (r_dlightStyle->integer>0)

@@ -1156,9 +1156,7 @@ typedef struct {
 	image_t					*defaultImage;	
 	image_t					*scratchImage[NUM_SCRATCH_IMAGES];
 	image_t					*fogImage;
-#ifndef _XBOX
 	image_t					*dlightImage;	// inverse-quare highlight for projective adding
-#endif
 	image_t					*whiteImage;			// full of 0xff
 	image_t					*identityLightImage;	// full of tr.identityLightByte
 

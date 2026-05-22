@@ -125,6 +125,9 @@ extern "C" GLboolean JkaFakeglIsEnabled(GLenum cap);
 extern "C" void JkaFakeglEnable(GLenum cap);
 extern "C" void JkaFakeglDisable(GLenum cap);
 extern "C" void JkaFakeglScissor(GLint x, GLint y, GLsizei width, GLsizei height);
+extern "C" void JkaFakeglFogf(GLenum pname, GLfloat param);
+extern "C" void JkaFakeglFogfv(GLenum pname, const GLfloat *params);
+extern "C" void JkaFakeglFogi(GLenum pname, GLint param);
 
 #define JKA_TEXTURE0_SGIS 0x835E
 
@@ -256,9 +259,9 @@ void glStencilMask(GLuint /*mask*/) {}
  *   Fog / lighting / material — D3D8 fixed-function pipeline
  * ============================================================ */
 
-void glFogf(GLenum /*pname*/, GLfloat /*param*/) {}
-void glFogfv(GLenum /*pname*/, const GLfloat * /*params*/) {}
-void glFogi(GLenum /*pname*/, GLint /*param*/) {}
+void glFogf(GLenum pname, GLfloat param) { JkaFakeglFogf(pname, param); }
+void glFogfv(GLenum pname, const GLfloat *params) { JkaFakeglFogfv(pname, params); }
+void glFogi(GLenum pname, GLint param) { JkaFakeglFogi(pname, param); }
 
 void glLightf(GLenum /*light*/, GLenum /*pname*/, GLfloat /*param*/) {}
 void glLightfv(GLenum /*light*/, GLenum /*pname*/, const GLfloat * /*params*/) {}

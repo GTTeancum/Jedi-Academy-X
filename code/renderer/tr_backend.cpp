@@ -1360,6 +1360,14 @@ const void *RB_StretchPic ( const void *data ) {
 	numVerts = tess.numVertexes;
 	numIndexes = tess.numIndexes;
 
+#ifdef _XBOX
+	const float t1 = 1.0f - cmd->t1;
+	const float t2 = 1.0f - cmd->t2;
+#else
+	const float t1 = cmd->t1;
+	const float t2 = cmd->t2;
+#endif
+
 	tess.numVertexes += 4;
 	tess.numIndexes += 6;
 
@@ -1380,28 +1388,28 @@ const void *RB_StretchPic ( const void *data ) {
 	tess.xyz[ numVerts ][2] = 0;
 
 	tess.texCoords[ numVerts ][0][0] = cmd->s1;
-	tess.texCoords[ numVerts ][0][1] = cmd->t1;
+	tess.texCoords[ numVerts ][0][1] = t1;
 
 	tess.xyz[ numVerts + 1 ][0] = cmd->x + cmd->w;
 	tess.xyz[ numVerts + 1 ][1] = cmd->y;
 	tess.xyz[ numVerts + 1 ][2] = 0;
 
 	tess.texCoords[ numVerts + 1 ][0][0] = cmd->s2;
-	tess.texCoords[ numVerts + 1 ][0][1] = cmd->t1;
+	tess.texCoords[ numVerts + 1 ][0][1] = t1;
 
 	tess.xyz[ numVerts + 2 ][0] = cmd->x + cmd->w;
 	tess.xyz[ numVerts + 2 ][1] = cmd->y + cmd->h;
 	tess.xyz[ numVerts + 2 ][2] = 0;
 
 	tess.texCoords[ numVerts + 2 ][0][0] = cmd->s2;
-	tess.texCoords[ numVerts + 2 ][0][1] = cmd->t2;
+	tess.texCoords[ numVerts + 2 ][0][1] = t2;
 
 	tess.xyz[ numVerts + 3 ][0] = cmd->x;
 	tess.xyz[ numVerts + 3 ][1] = cmd->y + cmd->h;
 	tess.xyz[ numVerts + 3 ][2] = 0;
 
 	tess.texCoords[ numVerts + 3 ][0][0] = cmd->s1;
-	tess.texCoords[ numVerts + 3 ][0][1] = cmd->t2;
+	tess.texCoords[ numVerts + 3 ][0][1] = t2;
 
 	return (const void *)(cmd + 1);
 }
@@ -1436,17 +1444,24 @@ const void *RB_RotatePic ( const void *data )
 		
 		GL_Bind( image );
 #ifdef _XBOX
+		const float t1 = 1.0f - cmd->t1;
+		const float t2 = 1.0f - cmd->t2;
+#else
+		const float t1 = cmd->t1;
+		const float t2 = cmd->t2;
+#endif
+#ifdef _XBOX
 		glBeginEXT (GL_QUADS, 4, 0, 0, 4, 0);
 #else
 		glBegin (GL_QUADS);
 #endif
-		glTexCoord2f( cmd->s1, cmd->t1);
+		glTexCoord2f( cmd->s1, t1);
 		glVertex2f( -cmd->w, 0 );
-		glTexCoord2f( cmd->s2, cmd->t1 );
+		glTexCoord2f( cmd->s2, t1 );
 		glVertex2f( 0, 0 );
-		glTexCoord2f( cmd->s2, cmd->t2 );
+		glTexCoord2f( cmd->s2, t2 );
 		glVertex2f( 0, cmd->h );
-		glTexCoord2f( cmd->s1, cmd->t2 );
+		glTexCoord2f( cmd->s1, t2 );
 		glVertex2f( -cmd->w, cmd->h );
 		glEnd();
 		
@@ -1494,20 +1509,27 @@ const void *RB_RotatePic2 ( const void *data )
 			
 			GL_Bind( image );
 #ifdef _XBOX
+			const float t1 = 1.0f - cmd->t1;
+			const float t2 = 1.0f - cmd->t2;
+#else
+			const float t1 = cmd->t1;
+			const float t2 = cmd->t2;
+#endif
+#ifdef _XBOX
 			glBeginEXT( GL_QUADS, 4, 0, 0, 4, 0);
 #else
 			glBegin( GL_QUADS );
 #endif
-				glTexCoord2f( cmd->s1, cmd->t1);
+				glTexCoord2f( cmd->s1, t1);
 				glVertex2f( -cmd->w * 0.5f, -cmd->h * 0.5f );
 
-				glTexCoord2f( cmd->s2, cmd->t1 );
+				glTexCoord2f( cmd->s2, t1 );
 				glVertex2f( cmd->w * 0.5f, -cmd->h * 0.5f );
 
-				glTexCoord2f( cmd->s2, cmd->t2 );
+				glTexCoord2f( cmd->s2, t2 );
 				glVertex2f( cmd->w * 0.5f, cmd->h * 0.5f );
 
-				glTexCoord2f( cmd->s1, cmd->t2 );
+				glTexCoord2f( cmd->s1, t2 );
 				glVertex2f( -cmd->w * 0.5f, cmd->h * 0.5f );
 			glEnd();
 			

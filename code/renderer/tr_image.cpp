@@ -2011,7 +2011,31 @@ R_CreateDlightImage
 #define	DLIGHT_SIZE	64
 static void R_CreateDlightImage( void ) 
 {
-#ifndef _XBOX
+#ifdef _XBOX
+	int		x,y;
+	byte	data[DLIGHT_SIZE][DLIGHT_SIZE][4];
+	int		b;
+
+	for (x=0 ; x<DLIGHT_SIZE ; x++) {
+		for (y=0 ; y<DLIGHT_SIZE ; y++) {
+			float	d;
+
+			d = ( DLIGHT_SIZE/2 - 0.5f - x ) * ( DLIGHT_SIZE/2 - 0.5f - x ) +
+				( DLIGHT_SIZE/2 - 0.5f - y ) * ( DLIGHT_SIZE/2 - 0.5f - y );
+			b = 4000 / d;
+			if (b > 255) {
+				b = 255;
+			} else if ( b < 75 ) {
+				b = 0;
+			}
+			data[y][x][0] =
+				data[y][x][1] =
+				data[y][x][2] = b;
+			data[y][x][3] = 255;
+		}
+	}
+	tr.dlightImage = R_CreateImage("*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
+#else
 	int		width, height;
 	byte	*pic;
 	GLenum	format;
@@ -2336,6 +2360,24 @@ void R_SetColorMappings( void ) {
 
 	tr.identityLight = 1.0 / ( 1 << tr.overbrightBits );
 	tr.identityLightByte = 255 * tr.identityLight;
+
+#ifdef _XBOX
+	{
+		static int s_xboxColorMappingLogCount = 0;
+		if (s_xboxColorMappingLogCount < 4)
+		{
+			XBLF("JA: R_SetColorMappings gammaSupport=%d fullscreen=%d overbright=%d identityLight=%g identityByte=%d r_gamma=%g r_intensity=%g",
+				glConfig.deviceSupportsGamma ? 1 : 0,
+				glConfig.isFullscreen ? 1 : 0,
+				tr.overbrightBits,
+				tr.identityLight,
+				tr.identityLightByte,
+				r_gamma ? r_gamma->value : -1.0f,
+				r_intensity ? r_intensity->value : -1.0f);
+			++s_xboxColorMappingLogCount;
+		}
+	}
+#endif
 
 
 	if ( r_intensity->value < 1.0f ) {

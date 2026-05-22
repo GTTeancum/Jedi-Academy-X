@@ -7,6 +7,10 @@
 
 #include "tr_local.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 #define	DLIGHT_AT_RADIUS		16
 // at the edge of a dlight's influence, this amount of light will be added
 
@@ -107,6 +111,11 @@ LIGHT SAMPLING
 extern	cvar_t	*r_ambientScale;
 extern	cvar_t	*r_directedScale;
 extern	cvar_t	*r_debugLight;
+
+#ifdef _XBOX
+static int s_xboxLightGridLogCount = 0;
+static int s_xboxEntityLightLogCount = 0;
+#endif
 
 /*
 =================
@@ -375,6 +384,25 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	VectorScale( ent->directedLight, r_directedScale->value, ent->directedLight );
 
 	VectorNormalize2( direction, ent->lightDir );
+
+#ifdef _XBOX
+	if ( s_xboxLightGridLogCount < 64 ) {
+		XBLF("JA: LIGHTGRID #%d ent=%p hModel=%d reType=%d origin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
+			s_xboxLightGridLogCount,
+			ent,
+			ent->e.hModel,
+			ent->e.reType,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			pos[0], pos[1], pos[2],
+			frac[0], frac[1], frac[2],
+			totalFactor,
+			ent->ambientLight[0], ent->ambientLight[1], ent->ambientLight[2],
+			ent->directedLight[0], ent->directedLight[1], ent->directedLight[2],
+			ent->lightDir[0], ent->lightDir[1], ent->lightDir[2],
+			tr.world->lightGridBounds[0], tr.world->lightGridBounds[1], tr.world->lightGridBounds[2]);
+		s_xboxLightGridLogCount++;
+	}
+#endif
 }
 
 
@@ -519,6 +547,26 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	ent->lightDir[0] = DotProduct( lightDir, ent->e.axis[0] );
 	ent->lightDir[1] = DotProduct( lightDir, ent->e.axis[1] );
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
+
+#ifdef _XBOX
+	if ( s_xboxEntityLightLogCount < 64 ) {
+		XBLF("JA: ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g",
+			s_xboxEntityLightLogCount,
+			ent,
+			ent->e.hModel,
+			ent->e.reType,
+			ent->e.renderfx,
+			(refdef->rdflags & RDF_NOWORLDMODEL) ? 1 : 0,
+			(tr.world && tr.world->lightGridData) ? 1 : 0,
+			refdef->num_dlights,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			ent->ambientLight[0], ent->ambientLight[1], ent->ambientLight[2],
+			ent->directedLight[0], ent->directedLight[1], ent->directedLight[2],
+			ent->ambientLightInt,
+			ent->lightDir[0], ent->lightDir[1], ent->lightDir[2]);
+		s_xboxEntityLightLogCount++;
+	}
+#endif
 
 #endif // VV_LIGHTING
 }
