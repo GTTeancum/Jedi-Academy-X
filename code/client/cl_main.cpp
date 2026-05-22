@@ -950,7 +950,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		(int)cls.cgameStarted,
 		(int)com_sv_running->integer);
 	// load ui if needed
-	if ( !cls.uiStarted && cls.state != CA_CINEMATIC && (cls.keyCatchers & KEYCATCH_UI)) {
+	if ( !cls.uiStarted && cls.state != CA_CINEMATIC &&
+		((cls.keyCatchers & KEYCATCH_UI) || (cls.state == CA_DISCONNECTED && !com_sv_running->integer)) ) {
 		XBLog_Write("JA: CL_Frame: starting Xbox UI init path");
 		cls.uiStarted = qtrue;
 		XBLog_Write("JA: CL_Frame: SCR_StopCinematic...");
