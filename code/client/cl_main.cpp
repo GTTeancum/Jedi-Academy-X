@@ -1188,7 +1188,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	} else {
 		// update the screen
 #ifdef _XBOX
-		if (cls.state < CA_LOADING)
+		if (cls.state < CA_LOADING && !(cls.uiStarted && (cls.keyCatchers & KEYCATCH_UI)))
 		{
 			static int s_xboxSkipPreLoadScreens = 0;
 			if (s_xboxSkipPreLoadScreens < 8)
