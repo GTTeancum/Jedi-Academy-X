@@ -1290,9 +1290,9 @@ void	RB_SetGL2D (void) {
 #ifdef _XBOX
 	extern int Menus_AnyFullScreenVisible(void);
 	if(glw_state->isWidescreen && !(Menus_AnyFullScreenVisible()) && cls.state == CA_ACTIVE)
-		glOrtho (0, 720, 0, 480, 0, 1);
+		glOrtho (0, 720, 480, 0, 0, 1);
 	else
-        glOrtho (0, 640, 0, 480, 0, 1);
+        glOrtho (0, 640, 480, 0, 0, 1);
 #else
 	glOrtho (0, 640, 480, 0, 0, 1);
 #endif
@@ -1360,13 +1360,8 @@ const void *RB_StretchPic ( const void *data ) {
 	numVerts = tess.numVertexes;
 	numIndexes = tess.numIndexes;
 
-#ifdef _XBOX
-	const float t1 = 1.0f - cmd->t1;
-	const float t2 = 1.0f - cmd->t2;
-#else
 	const float t1 = cmd->t1;
 	const float t2 = cmd->t2;
-#endif
 
 	tess.numVertexes += 4;
 	tess.numIndexes += 6;
@@ -1443,13 +1438,8 @@ const void *RB_RotatePic ( const void *data )
 		glRotatef(cmd->a, 0.0, 0.0, 1.0);
 		
 		GL_Bind( image );
-#ifdef _XBOX
-		const float t1 = 1.0f - cmd->t1;
-		const float t2 = 1.0f - cmd->t2;
-#else
 		const float t1 = cmd->t1;
 		const float t2 = cmd->t2;
-#endif
 #ifdef _XBOX
 		glBeginEXT (GL_QUADS, 4, 0, 0, 4, 0);
 #else
@@ -1508,13 +1498,8 @@ const void *RB_RotatePic2 ( const void *data )
 			glRotatef( cmd->a, 0.0, 0.0, 1.0 );
 			
 			GL_Bind( image );
-#ifdef _XBOX
-			const float t1 = 1.0f - cmd->t1;
-			const float t2 = 1.0f - cmd->t2;
-#else
 			const float t1 = cmd->t1;
 			const float t2 = cmd->t2;
-#endif
 #ifdef _XBOX
 			glBeginEXT( GL_QUADS, 4, 0, 0, 4, 0);
 #else
@@ -1593,12 +1578,13 @@ const void	*RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t	*cmd;
 #ifdef _XBOX
 	static int s_xboxDrawSurfsCommandCount = 0;
+	static int s_xboxDrawSurfsTraceBudget = 8;
 #endif
 
 	// finish any 2D drawing if needed
 	if ( tess.numIndexes ) {
 #ifdef _XBOX
-		if (cls.state == CA_ACTIVE)
+		if (cls.state == CA_ACTIVE && s_xboxDrawSurfsTraceBudget > 0)
 		{
 			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface tessIndexes=%d",
 				s_xboxDrawSurfsCommandCount, tess.numIndexes);
@@ -1616,7 +1602,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 
 	cmd = (const drawSurfsCommand_t *)data;
 #ifdef _XBOX
-	const qboolean xboxTraceDrawSurfs = (cls.state == CA_ACTIVE);
+	const qboolean xboxTraceDrawSurfs = (cls.state == CA_ACTIVE && s_xboxDrawSurfsTraceBudget > 0);
 	if (xboxTraceDrawSurfs)
 	{
 		XBLF("JA: RB_DrawSurfs #%d enter numDrawSurfs=%d refdefTime=%d viewport=%d,%d %dx%d",
@@ -1707,6 +1693,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 	{
 		XBLF("JA: RB_DrawSurfs #%d exit", s_xboxDrawSurfsCommandCount);
 		s_xboxDrawSurfsCommandCount++;
+		--s_xboxDrawSurfsTraceBudget;
 	}
 #endif
 
@@ -1862,7 +1849,8 @@ const void	*RB_SwapBuffers( const void *data ) {
 	const swapBuffersCommand_t	*cmd;
 #ifdef _XBOX
 	static int s_xboxSwapCommandTraceCount = 0;
-	const qboolean xboxTraceSwapCommand = (cls.state == CA_ACTIVE);
+	static int s_xboxSwapCommandTraceBudget = 8;
+	const qboolean xboxTraceSwapCommand = (cls.state == CA_ACTIVE && s_xboxSwapCommandTraceBudget > 0);
 	if (xboxTraceSwapCommand)
 	{
 		XBLF("JA: RB_SwapBuffers #%d enter tessIndexes=%d finishCalled=%d",
@@ -1929,6 +1917,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 	{
 		XBLog_Write("JA: RB_SwapBuffers: GLimp_EndFrame done");
 		s_xboxSwapCommandTraceCount++;
+		--s_xboxSwapCommandTraceBudget;
 	}
 #endif
 

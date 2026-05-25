@@ -279,3 +279,70 @@
 - No source changes in this cycle. The next useful evidence is a normal-mode log or visual pass from the already-copied 07:52:30 XBE.
 - New issues to test: restart/run after the command-file clear and confirm the log says `r_lightmap=0`; if UI is fixed and white spaces remain, collect the normal-mode shader evidence.
 - Next action: wait for CXBX contention to clear, then run isolated smoke; meanwhile continue source/log audit only.
+
+### Cycle 24 - 2026-05-22 22:20
+- Re-read this document and incorporated the user's new focus: concentrate on the first chronological Yavin sequence, especially the opening Yavin cutscene level, then the first 2-3 maps (`yavin1`, `yavin1b`, `yavin2`).
+- Reduced broad renderer log volume so Yavin smoke logs remain useful: world-cull/add/mark-leaves, sky iteration, stage suspect/world-stage, lightgrid/VV entity light, backend draw-surf, and swap-buffer breadcrumbs now use much smaller budgets. This was diagnostic-only; no renderer behavior was intentionally changed.
+- Rebuilt SP successfully. Fresh XBE: `code\x_exe\Release\default.xbe`, timestamp `2026-05-22 22:10:53`, size `5435392`.
+- Ran hidden isolated CXBX-R smoke tests for 8 minutes each on `yavin1`, `yavin1b`, and `yavin2` using `ja_sp_level.txt` direct-map boot.
+- Results: all three maps stayed alive until the watchdog, reached `CA_ACTIVE`, had active frame returns and hundreds of framerate heartbeats, and logged no fatal exception, no spawn error, no texture allocation failure, and no `EmuXB2PC_D3DFormat: Unknown Format (0x000000FF)` reproduction.
+- Map details: `yavin1` had 335 heartbeats and opened Bink during the intro path; `yavin1b` had 448 heartbeats; `yavin2` had 446 heartbeats. Logs were roughly 400-429 KB after the log-budget cut.
+- Current evidence says the first Yavin maps are runtime-stable in hidden smoke. Remaining Yavin work is visual correctness, especially the white/grey sky or portal-looking panels and any special shader behavior in the opening cutscene path.
+- New issues to test: human visual pass on the 22:10:53 XBE through `yavin1` opening cutscene and transition into `yavin1b`; report whether white panels/grey portal surfaces still appear, and in which exact camera/location.
+- Next action: keep investigation scoped to `yavin1`, `yavin1b`, and `yavin2`; add narrow sky/portal/special-surface diagnostics rather than broad renderer logging.
+
+### Cycle 25 - 2026-05-23 00:35
+- Re-read this document and stayed scoped to the first chronological Yavin maps: `yavin1`, `yavin1b`, and `yavin2`.
+- Backed out the broad Xbox global-fog clear experiment from `RB_DrawBuffer`; hidden logs showed `XBOX_GLOBAL_FOG_CLEAR` never fired on the Yavin maps, so it was not useful evidence for the white/grey panel issue.
+- Added one narrow visual diagnostic for the Yavin sequence only: on Xbox, `RB_StageIteratorGeneric` now skips `textures/common/gradient2` only when the active map is `yavin1`, `yavin1b`, or `yavin2`, and logs `XBOX_YAVIN_SKY_OVERLAY_SKIP`. This is intended to test whether the additive `gradient2` overlay is creating the white/grey Yavin panels.
+- Reduced a few old door/bmodel breadcrumb budgets (`CG_MOVER`, `CG_MOVER_DOOR_NOCULL`, `R_BMODEL_FORCE_NOCULL`) so logs stop ballooning while preserving the actual door/HOM behavior.
+- Rebuilt SP successfully. Fresh XBE: `code\x_exe\Release\default.xbe`, timestamp `2026-05-23 00:04:40`, size `5435392`.
+- Ran hidden isolated CXBX-R smoke tests for 8 minutes each on `yavin1`, `yavin1b`, and `yavin2` using the 00:04:40 XBE.
+- Results: all three maps stayed alive until the watchdog, reached `CA_ACTIVE`, logged active frame returns, produced hundreds of `FRAME_HEARTBEAT` entries, and had no fatal exception, no spawn error, and no `EmuXB2PC_D3DFormat: Unknown Format (0x000000FF)`.
+- Map details: `yavin1` had 339 heartbeats and 12 overlay skips; `yavin1b` had 449 heartbeats and 12 overlay skips; `yavin2` had 446 heartbeats and 12 overlay skips. Saved logs: `scripts/output/smoke_yavin1_gradient2skip_quiet_20260523_001331.log`, `scripts/output/smoke_yavin1b_gradient2skip_quiet_20260523_002136.log`, and `scripts/output/smoke_yavin2_gradient2skip_quiet_20260523_002941.log`.
+- Current evidence: the `gradient2` diagnostic is active and stable, but hidden smoke cannot confirm whether it fixes the visible white/grey panels. The remaining suspect if this does not visually help is `textures/skies/cloudlayer_yavin`, especially its additive first pass and `alphasquare` mask pass.
+- New issues to test: visually run the 00:04:40 XBE on `yavin1` first; confirm whether the white/grey Yavin sky/portal panels are gone, reduced, or unchanged. If unchanged, next pass should target `textures/skies/cloudlayer_yavin` rather than missing texture loading.
+- Next action: keep `ja_sp_level.txt` pointed at `yavin1` for the opening-cutscene-first workflow and wait for visual confirmation before making a second sky-overlay behavior change.
+
+### Cycle 26 - 2026-05-23 01:45
+- Re-read this document and kept the current Yavin visual diagnostic in place for later human testing.
+- Shifted autonomous work to things hidden smoke can prove: normal UI boot, Bink/cinematic startup, long `yavin1` progression, and control coverage on `yavin1b`/`yavin2`.
+- Smoke-tested the 00:04:40 XBE with empty `ja_sp_level.txt` for 5 minutes. Result: alive until watchdog, UI initialized, no fatal exception, and Bink opened `d:\base\video\attract.bik` twice with no Bink failure. This confirms normal UI/attract boot is stable with the current build.
+- Smoke-tested direct `yavin1` for 12 minutes. Result: alive until watchdog, reached active gameplay, 563 frame heartbeats, no fatal exception, no spawn error, no texture allocation failure, and no `EmuXB2PC_D3DFormat: Unknown Format (0x000000FF)`. The run opened `ja01_e.bik` and `ja02.bik` successfully and continued through the early Yavin sequence.
+- Smoke-tested direct `yavin1b` and `yavin2` for 5 minutes each. Results: both alive until watchdog, both reached active gameplay, both had hundreds of heartbeats, no fatal exception, no spawn error, and no unknown D3D format error.
+- Noted one nonfatal cinematic breadcrumb for later: `jk0101_sw` is requested and not found before the successful `ja01_e` playback. It did not block the run, so it is lower priority than visible Yavin rendering.
+- Reduced old high-frequency proof logs now that they have served their purpose: fakeGL begin-state, texture2D toggle, viewport-apply, and VV diffuse entity color samples now keep smaller budgets. This is diagnostic-only and should not change rendering behavior.
+- New issues to test: visually run the copied XBE on `yavin1` and report whether the Yavin white/grey panels changed. If unchanged, next likely target remains `textures/skies/cloudlayer_yavin`, especially its additive/mask passes.
+- Next action: rebuild after the log-budget cleanup, run short normal UI and Yavin smoke tests to confirm behavior stays stable and logs shrink, then leave `ja_sp_level.txt` on `yavin1` for user testing.
+
+### Cycle 27 - 2026-05-23 02:25
+- Re-read this document and completed the log-budget cleanup follow-up from Cycle 26.
+- Rebuilt SP successfully after the diagnostic log-budget changes. Fresh XBE: `code\x_exe\Release\default.xbe`, timestamp `2026-05-23 01:42:12`, size `5435392`; it has also been copied to the game directory as `default.xbe`.
+- Smoke-tested normal UI boot for 3 minutes with empty `ja_sp_level.txt`. Result: alive until watchdog, UI initialized, no fatal exception, no unknown D3D format error, and a smaller 113 KB log. This keeps normal boot/attract coverage green.
+- The first immediate direct-map retry after UI boot produced the known early CXBX-R stall signature: tiny 8 KB log ending around `Com_Frame #0`, no fatal text, and no active gameplay. After the documented 3-minute cooldown, the same `yavin1` direct boot passed normally.
+- Smoke-tested direct `yavin1` for 5 minutes after cooldown. Result: alive until watchdog, reached active gameplay, 171 heartbeats, 12 `XBOX_YAVIN_SKY_OVERLAY_SKIP` entries, no fatal exception, no spawn error, and no unknown D3D format error.
+- Smoke-tested direct `yavin1b` and `yavin2` for 3 minutes each using the cooldown-aware cadence. Results: both alive until watchdog, both reached active gameplay, both had active frame returns and more than 160 heartbeats, both logged 12 overlay skips, and neither had fatal/format errors.
+- Updated operational note: immediate back-to-back isolated CXBX-R launches can still stall before game work without producing a crash log. Treat tiny early logs ending before active state as emulator contention, wait 3 minutes, and retry before calling it a game regression.
+- New issues to test: visually run the 01:42:12 XBE on `yavin1` and check whether the Yavin white/grey panels changed. If unchanged, next likely visual diagnostic should move from `textures/common/gradient2` to `textures/skies/cloudlayer_yavin`.
+- Next action: keep `ja_sp_level.txt` on `yavin1` and avoid further visual-surface changes until the current Yavin diagnostic has a human visual result.
+
+### Cycle 28 - 2026-05-23 02:42
+- Re-read this document and worked on an autonomous testing problem rather than another visual renderer change.
+- Improved the reusable CXBX-R smoke harness. `scripts/smoke_cxbx_sp_retry.ps1` now passes through `-StartupCommand` and treats `FAIL_NOT_ACTIVE` with a tiny early log and no fatal markers as retryable emulator startup contention. `scripts/smoke_cxbx_sp.ps1` now recognizes active Bink/cinematic tail output as progress, so intro movies do not get mislabeled as gameplay heartbeat stalls.
+- Validation found an important nuance: `yavin1` can sit in a cinematic path after active state with no gameplay heartbeat yet. The harness should not call that a freeze just because `FRAME_HEARTBEAT` pauses; it should rely on cinematic progress, fatal markers, or the broader watchdog.
+- Smoke-tested the patched harness on direct `yavin1b` with `-ActiveSeconds 20`. Result: pass, active, 21 heartbeats, 20.3 active seconds, no fatal exception, no unknown D3D format error. This proves the normal gameplay heartbeat path still works after the cinematic exception.
+- Reset the game directory back to `ja_sp_level.txt = yavin1` and copied the latest 01:42:12 XBE to `default.xbe` for the next human visual test.
+- New issues to test: visually run `yavin1` and report whether the current `textures/common/gradient2` skip changes the white/grey Yavin panels. The current harness work does not alter rendering.
+- Next action: hold further Yavin visual changes until the current diagnostic has a human result; use the retry harness for future unattended smoke passes.
+
+### Cycle 29 - 2026-05-23 03:02
+- Re-read this document and chose an autonomous task that does not require human visual confirmation: make the smoke harness cover normal UI/attract boot explicitly.
+- Added `-AllowNoActive` to `scripts/smoke_cxbx_sp.ps1` and pass-through support in `scripts/smoke_cxbx_sp_retry.ps1`. This lets normal UI boot pass when UI initialization is proven and no fatal markers appear, instead of incorrectly failing because no gameplay map reached `CA_ACTIVE`.
+- Audited the current Yavin sky evidence without changing rendering. The active diagnostic still skips `textures/common/gradient2` on `yavin1`, `yavin1b`, and `yavin2`; if the human visual result is unchanged, the next likely target remains `textures/skies/cloudlayer_yavin` stage behavior rather than asset loading, because prior logs show `cloudlayer2`, `alphasquare`, and `gradient2` images all load without fallback.
+- Reduced `CIN_RunCinematic enter` budget from 96 to 16 so UI/attract logs remain useful while still preserving start/stop/failure breadcrumbs. This is diagnostic-only and should not alter playback.
+- Rebuilt SP successfully. Fresh XBE: `code\x_exe\Release\default.xbe`, timestamp `2026-05-23 02:54:49`, size `5435392`; it was copied by the smoke harness to the game directory.
+- Smoke-tested normal UI/attract boot for 3 minutes with empty `ja_sp_level.txt` using `-AllowNoActive`. Result: pass, UI initialized, active false as expected, `attract.bik` opened and stopped cleanly, no fatal exception, and no unknown D3D format error. Summary/log prefix: `scripts/output/cxbx_sp_20260523_025553.*`.
+- Smoke-tested direct `yavin2` for 60 active seconds on the same XBE. Result: pass, active, 61 heartbeats, 60.9 active seconds, no fatal exception, no texture allocation failures, and no unknown D3D format error. Summary/log prefix: `scripts/output/cxbx_sp_20260523_025934.*`.
+- Reset the game directory back to `ja_sp_level.txt = yavin1` for the user's next visual pass.
+- New issues to test: visually run the 02:54:49 XBE on `yavin1` and report whether the `textures/common/gradient2` skip changes the white/grey Yavin panels. UI/attract and `yavin2` hidden-smoke stability are green.
+- Next action: hold further visual renderer changes until that Yavin result lands; hidden-smoke work can continue with harness coverage or non-visual regressions.

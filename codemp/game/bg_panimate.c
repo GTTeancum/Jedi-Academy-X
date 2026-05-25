@@ -1990,7 +1990,16 @@ void ParseAnimationEvtBlock(const char *aeb_filename, animevent_t *animEvents, a
 				if ( !animEvents[curAnimEvent].eventData[AED_SOUNDINDEX_START] &&
 					 stringData[0] != '*')
 				{//couldn't register it - file not found
+#ifdef _XBOX
+					static int s_xboxMissingAnimSoundWarnings = 0;
+					if (s_xboxMissingAnimSoundWarnings < 8 || !(s_xboxMissingAnimSoundWarnings & 127))
+					{
+						Com_Printf( S_COLOR_RED "ParseAnimationSndBlock: sound %s does not exist (animevents.cfg %s)! count=%d\n", stringData, aeb_filename, s_xboxMissingAnimSoundWarnings );
+					}
+					s_xboxMissingAnimSoundWarnings++;
+#else
 					Com_Printf( S_COLOR_RED "ParseAnimationSndBlock: sound %s does not exist (animevents.cfg %s)!\n", stringData, aeb_filename );
+#endif
 				}
 #endif
 				animEvents[curAnimEvent].eventData[AED_SOUND_NUMRANDOMSNDS] = 0;

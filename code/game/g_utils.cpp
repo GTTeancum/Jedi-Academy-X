@@ -787,21 +787,34 @@ float vectoyaw( const vec3_t vec ) {
 
 	return yaw;
 }
+void G_ClearGentityStorage( gentity_t *e )
+{
+	byte *base = (byte *)e;
+	byte *ghoul2 = (byte *)&e->ghoul2;
+	byte *afterGhoul2 = ghoul2 + sizeof(e->ghoul2);
 
+	// gentity_t contains a C++ Ghoul2 vector. Clear the POD fields around it,
+	// but never memset the vector object itself.
+	memset(base, 0, ghoul2 - base);
+	memset(afterGhoul2, 0, sizeof(*e) - (afterGhoul2 - base));
+}
 
 void G_InitGentity( gentity_t *e, qboolean bFreeG2 ) 
 {
+	// remove any ghoul2 models here in case we're reusing
+	if (bFreeG2 && e->ghoul2.IsValid())
+	{
+		gi.G2API_CleanGhoul2Models(e->ghoul2);
+	}
+
+	G_ClearGentityStorage(e);
+
 	e->inuse = qtrue;
 	SetInUse(e);
 	e->m_iIcarusID = IIcarusInterface::ICARUS_INVALID;
 	e->classname = "noclass";
 	e->s.number = e - g_entities;
 	
-	// remove any ghoul2 models here in case we're reusing
-	if (bFreeG2 && e->ghoul2.IsValid())
-	{
-		gi.G2API_CleanGhoul2Models(e->ghoul2);
-	}
 	//Navigational setups
 	e->waypoint				= WAYPOINT_NONE;
 	e->lastWaypoint			= WAYPOINT_NONE;
@@ -830,7 +843,7 @@ gentity_t *G_Spawn( int itr )
 	gentity_t	*e;
 
 	e = NULL;	// shut up warning
-	i = 0;		// shut up warning
+	i = MAX_CLIENTS;
 	for ( force = 0 ; force < 2 ; force++ ) 
 	{
 		// if we go through all entities and can't find one to free,
@@ -913,6 +926,19 @@ gentity_t *G_Spawn( int itr )
 	// open up a new slot
 	globals.num_entities++;
 	G_InitGentity( e, qtrue );
+#ifdef _XBOX
+	static int s_xboxGSpawnLogBudget = 32;
+	if (s_xboxGSpawnLogBudget > 0)
+	{
+		Com_Printf("JA: G_Spawn new slot=%d ent=%d num_entities=%d ptr=0x%x MAX_CLIENTS=%d\n",
+			(int)(e - g_entities),
+			e->s.number,
+			globals.num_entities,
+			(unsigned int)e,
+			MAX_CLIENTS);
+		--s_xboxGSpawnLogBudget;
+	}
+#endif
 	return e;
 }
 
@@ -1067,7 +1093,7 @@ void G_FreeEntity( gentity_t *ed ) {
 	// Free any associated timers
 	TIMER_Clear(ed->s.number);
 
-	memset (ed, 0, sizeof(*ed));
+	G_ClearGentityStorage(ed);
 	ed->s.number = ENTITYNUM_NONE;
 	ed->classname = "freed";
 	ed->freetime = level.time;

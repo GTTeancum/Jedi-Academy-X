@@ -124,7 +124,23 @@ void RE_AddPolyToScene( qhandle_t hShader, int numVerts, const polyVert_t *verts
 	}
 
 	if ( !hShader ) {
-		Com_Printf (S_COLOR_YELLOW  "WARNING: RE_AddPolyToScene: NULL poly shader\n");
+		static int s_nullPolyShaderWarnings = 0;
+		if (s_nullPolyShaderWarnings < 16 || !(s_nullPolyShaderWarnings & 255))
+		{
+			if (verts && numVerts > 0)
+			{
+				Com_Printf (S_COLOR_YELLOW  "WARNING: RE_AddPolyToScene: NULL poly shader count=%d verts=%d first=(%f,%f,%f) st=(%f,%f)\n",
+					s_nullPolyShaderWarnings, numVerts,
+					verts[0].xyz[0], verts[0].xyz[1], verts[0].xyz[2],
+					verts[0].st[0], verts[0].st[1]);
+			}
+			else
+			{
+				Com_Printf (S_COLOR_YELLOW  "WARNING: RE_AddPolyToScene: NULL poly shader count=%d verts=%d\n",
+					s_nullPolyShaderWarnings, numVerts);
+			}
+		}
+		s_nullPolyShaderWarnings++;
 		return;
 	}
 

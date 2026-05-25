@@ -362,7 +362,7 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	if ( R_CullSurface( surf->data, surf->shader ) ) {
 #ifdef _XBOX
 		{
-			static int s_xboxWorldCullLogBudget = 160;
+			static int s_xboxWorldCullLogBudget = 8;
 			if (s_xboxWorldCullLogBudget > 0 &&
 				(surf->shader && (surf->shader->sky || surf->shader->sort == SS_PORTAL)))
 			{
@@ -382,7 +382,7 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 
 #ifdef _XBOX
 	{
-		static int s_xboxWorldAddLogBudget = 220;
+		static int s_xboxWorldAddLogBudget = 8;
 		if (s_xboxWorldAddLogBudget > 0 &&
 			(surf->shader && (surf->shader->sky || surf->shader->sort == SS_PORTAL)))
 		{
@@ -476,7 +476,7 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 #ifdef _XBOX
 		if ( ent->e.renderfx & RF_XBOX_NOCULL_BMODEL )
 		{
-			static int s_xboxBmodelNoCullLogBudget = 64;
+			static int s_xboxBmodelNoCullLogBudget = 8;
 			if ( s_xboxBmodelNoCullLogBudget > 0 )
 			{
 				XBLF("JA: R_BMODEL_FORCE_NOCULL ent=%d hModel=%d model='%s' renderfx=0x%x",
@@ -1064,7 +1064,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	}
 #ifdef _XBOX
 	{
-		static int s_xboxMarkLeavesLogBudget = 32;
+		static int s_xboxMarkLeavesLogBudget = 8;
 		if (s_xboxMarkLeavesLogBudget > 0)
 		{
 			XBLF("JA: R_MarkLeaves cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d",
@@ -1185,7 +1185,7 @@ void R_AddWorldSurfaces (void) {
 
 #ifdef _XBOX
 	{
-		static int s_xboxAddWorldLogBudget = 32;
+		static int s_xboxAddWorldLogBudget = 8;
 		if (s_xboxAddWorldLogBudget > 0)
 		{
 			XBLF("JA: R_AddWorldSurfaces before recursive visCount=%d viewCluster=%d dlights=%d rdflags=0x%x",
@@ -1200,7 +1200,7 @@ void R_AddWorldSurfaces (void) {
 	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
 #ifdef _XBOX
 	{
-		static int s_xboxAddWorldLogBudget = 32;
+		static int s_xboxAddWorldLogBudget = 8;
 		if (s_xboxAddWorldLogBudget > 0)
 		{
 			XBLF("JA: R_AddWorldSurfaces after recursive leafs=%d drawSurfs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",

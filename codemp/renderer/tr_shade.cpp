@@ -26,6 +26,287 @@ color4ub_t	styleColors[MAX_LIGHT_STYLES];
 
 extern bool g_bRenderGlowingObjects;
 
+#ifdef _XBOX
+static int jampShadeMetricBatches;
+static int jampShadeMetricVerts;
+static int jampShadeMetricIndexes;
+static int jampShadeMetricTotalIndexes;
+static int jampShadeMetricDlightBatches;
+static int jampShadeMetricSurfaceSpriteStages;
+static int jampShadeMetricMaxVerts;
+static int jampShadeMetricMaxIndexes;
+static int jampShadeMetricTexCoordBundles;
+static int jampShadeMetricTexCoordSkipped;
+static int jampShadeMetricTexCoordDirect;
+static int jampShadeMetricTexCoordDirectVerts;
+static int jampShadeMetricColorDirect;
+static int jampShadeMetricColorDirectVerts;
+static qboolean jampShadeMetricActive;
+
+static qboolean jampTexCoordDirect[NUM_TEXTURE_BUNDLES];
+static const GLvoid *jampTexCoordDirectPointer[NUM_TEXTURE_BUNDLES];
+static GLsizei jampTexCoordDirectStride[NUM_TEXTURE_BUNDLES];
+static qboolean jampColorDirect;
+static DWORD jampColorDirectValue;
+
+#define JAMP_XBOX_DIRECT_SHADE_SHORTCUTS 0
+
+void JAMP_ShadeMetricsReset(void)
+{
+	jampShadeMetricBatches = 0;
+	jampShadeMetricVerts = 0;
+	jampShadeMetricIndexes = 0;
+	jampShadeMetricTotalIndexes = 0;
+	jampShadeMetricDlightBatches = 0;
+	jampShadeMetricSurfaceSpriteStages = 0;
+	jampShadeMetricMaxVerts = 0;
+	jampShadeMetricMaxIndexes = 0;
+	jampShadeMetricTexCoordBundles = 0;
+	jampShadeMetricTexCoordSkipped = 0;
+	jampShadeMetricTexCoordDirect = 0;
+	jampShadeMetricTexCoordDirectVerts = 0;
+	jampShadeMetricColorDirect = 0;
+	jampShadeMetricColorDirectVerts = 0;
+}
+
+void JAMP_ShadeMetricsSetActive(qboolean active)
+{
+	jampShadeMetricActive = active;
+}
+
+void JAMP_ShadeMetricsSnapshot(int *batches, int *verts, int *indexes, int *totalIndexes,
+	int *dlightBatches, int *surfaceSpriteStages, int *maxVerts, int *maxIndexes,
+	int *texCoordBundles, int *texCoordSkipped, int *texCoordDirect, int *texCoordDirectVerts,
+	int *colorDirect, int *colorDirectVerts)
+{
+	*batches = jampShadeMetricBatches;
+	*verts = jampShadeMetricVerts;
+	*indexes = jampShadeMetricIndexes;
+	*totalIndexes = jampShadeMetricTotalIndexes;
+	*dlightBatches = jampShadeMetricDlightBatches;
+	*surfaceSpriteStages = jampShadeMetricSurfaceSpriteStages;
+	*maxVerts = jampShadeMetricMaxVerts;
+	*maxIndexes = jampShadeMetricMaxIndexes;
+	*texCoordBundles = jampShadeMetricTexCoordBundles;
+	*texCoordSkipped = jampShadeMetricTexCoordSkipped;
+	*texCoordDirect = jampShadeMetricTexCoordDirect;
+	*texCoordDirectVerts = jampShadeMetricTexCoordDirectVerts;
+	*colorDirect = jampShadeMetricColorDirect;
+	*colorDirectVerts = jampShadeMetricColorDirectVerts;
+}
+
+static ID_INLINE void JAMP_ResetTexCoordDirect(void)
+{
+	for ( int i = 0; i < NUM_TEXTURE_BUNDLES; ++i )
+	{
+		jampTexCoordDirect[i] = qfalse;
+		jampTexCoordDirectPointer[i] = NULL;
+		jampTexCoordDirectStride[i] = 0;
+	}
+}
+
+static ID_INLINE qboolean JAMP_SurfaceNeedsMaterializedTexCoords(void)
+{
+	return ( tess.dlightBits && tess.shader && tess.shader->sort <= SS_OPAQUE
+		&& !( tess.shader->surfaceFlags & ( SURF_NODLIGHT | SURF_SKY ) ) );
+}
+
+static ID_INLINE qboolean JAMP_BundleHasActiveTexMods( const textureBundle_t *bundle )
+{
+	for ( int tm = 0; tm < bundle->numTexMods; ++tm )
+	{
+		if ( bundle->texMods[tm].type == TMOD_NONE )
+		{
+			break;
+		}
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static ID_INLINE int JAMP_TexCoordIndexForGen( int tcGen )
+{
+	switch ( tcGen )
+	{
+	case TCGEN_TEXTURE: return 0;
+	case TCGEN_LIGHTMAP: return 1;
+	case TCGEN_LIGHTMAP1: return 2;
+	case TCGEN_LIGHTMAP2: return 3;
+	case TCGEN_LIGHTMAP3: return 4;
+	default: return -1;
+	}
+}
+
+static qboolean JAMP_TryDirectTexCoords( const shaderStage_t *pStage, int bundleIndex )
+{
+#if !JAMP_XBOX_DIRECT_SHADE_SHORTCUTS
+	(void)pStage;
+	(void)bundleIndex;
+	return qfalse;
+#else
+	const textureBundle_t *bundle = &pStage->bundle[bundleIndex];
+	int texCoordIndex;
+
+	if ( JAMP_SurfaceNeedsMaterializedTexCoords() || JAMP_BundleHasActiveTexMods( bundle ) )
+	{
+		return qfalse;
+	}
+
+	texCoordIndex = JAMP_TexCoordIndexForGen( bundle->tcGen );
+	if ( texCoordIndex < 0 )
+	{
+		return qfalse;
+	}
+
+	jampTexCoordDirect[bundleIndex] = qtrue;
+	jampTexCoordDirectPointer[bundleIndex] = &tess.texCoords[0][texCoordIndex][0];
+	jampTexCoordDirectStride[bundleIndex] = sizeof( tess.texCoords[0] );
+	if ( jampShadeMetricActive )
+	{
+		jampShadeMetricTexCoordDirect++;
+		jampShadeMetricTexCoordDirectVerts += tess.numVertexes;
+	}
+	return qtrue;
+#endif
+}
+
+static ID_INLINE void JAMP_TexCoordPointer( int bundleIndex, const GLvoid *fallback )
+{
+	if ( jampTexCoordDirect[bundleIndex] )
+	{
+		qglTexCoordPointer( 2, GL_FLOAT, jampTexCoordDirectStride[bundleIndex],
+			jampTexCoordDirectPointer[bundleIndex] );
+	}
+	else
+	{
+		qglTexCoordPointer( 2, GL_FLOAT, 0, fallback );
+	}
+}
+
+static ID_INLINE void JAMP_ResetColorDirect(void)
+{
+	jampColorDirect = qfalse;
+	jampColorDirectValue = D3DCOLOR_RGBA( 255, 255, 255, 255 );
+}
+
+static qboolean JAMP_TryDirectColor( const shaderStage_t *pStage, int forceRGBGen, alphaGen_t forceAlphaGen )
+{
+#if !JAMP_XBOX_DIRECT_SHADE_SHORTCUTS
+	(void)pStage;
+	(void)forceRGBGen;
+	(void)forceAlphaGen;
+	return qfalse;
+#else
+	DWORD color;
+	byte alpha;
+
+	if ( tess.fogNum && pStage->adjustColorsForFog != ACFF_NONE )
+	{
+		return qfalse;
+	}
+
+	if ( backEnd.currentEntity && ( backEnd.currentEntity->e.renderfx &
+		( RF_DISINTEGRATE1 | RF_DISINTEGRATE2 | RF_VOLUMETRIC | RF_FORCE_ENT_ALPHA ) ) )
+	{
+		return qfalse;
+	}
+
+	if ( forceAlphaGen != AGEN_IDENTITY && forceAlphaGen != AGEN_CONST && forceAlphaGen != AGEN_SKIP )
+	{
+		return qfalse;
+	}
+
+	switch ( forceRGBGen )
+	{
+	case CGEN_IDENTITY:
+		color = D3DCOLOR_RGBA( 255, 255, 255, 255 );
+		break;
+	case CGEN_IDENTITY_LIGHTING:
+		color = D3DCOLOR_RGBA( tr.identityLightByte, tr.identityLightByte, tr.identityLightByte, tr.identityLightByte );
+		break;
+	case CGEN_CONST:
+		color = D3DCOLOR_RGBA( pStage->constantColor[0], pStage->constantColor[1],
+			pStage->constantColor[2], pStage->constantColor[3] );
+		break;
+	case CGEN_FOG:
+		if ( !tr.world || !tess.fogNum )
+		{
+			return qfalse;
+		}
+		color = tr.world->fogs[tess.fogNum].colorInt;
+		break;
+	case CGEN_LIGHTMAPSTYLE:
+		color = *(DWORD *)styleColors[pStage->lightmapStyle];
+		break;
+	default:
+		return qfalse;
+	}
+
+	if ( forceAlphaGen == AGEN_IDENTITY )
+	{
+		if ( forceRGBGen != CGEN_IDENTITY && forceRGBGen != CGEN_LIGHTING_DIFFUSE )
+		{
+			color = ( color & 0x00ffffff ) | ( 255 << 24 );
+		}
+	}
+	else if ( forceAlphaGen == AGEN_CONST && forceRGBGen != CGEN_CONST )
+	{
+		alpha = pStage->constantColor[3];
+		color = ( color & 0x00ffffff ) | ( alpha << 24 );
+	}
+
+	jampColorDirect = qtrue;
+	jampColorDirectValue = color;
+	if ( jampShadeMetricActive )
+	{
+		jampShadeMetricColorDirect++;
+		jampShadeMetricColorDirectVerts += tess.numVertexes;
+	}
+	return qtrue;
+#endif
+}
+
+static ID_INLINE void JAMP_ApplyColorPointer( const GLvoid *fallback )
+{
+	if ( jampColorDirect )
+	{
+		qglDisableClientState( GL_COLOR_ARRAY );
+		qglColor4ub( ( jampColorDirectValue >> 16 ) & 0xff,
+			( jampColorDirectValue >> 8 ) & 0xff,
+			jampColorDirectValue & 0xff,
+			( jampColorDirectValue >> 24 ) & 0xff );
+	}
+	else
+	{
+		qglEnableClientState( GL_COLOR_ARRAY );
+		qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, fallback );
+	}
+}
+
+static ID_INLINE void JAMP_FillDWord( DWORD *dst, DWORD value, int count )
+{
+	int filled;
+
+	if ( count <= 0 )
+	{
+		return;
+	}
+
+	dst[0] = value;
+	filled = 1;
+	while ( filled < count )
+	{
+		int copy = filled;
+		if ( copy > count - filled )
+		{
+			copy = count - filled;
+		}
+		Com_Memcpy( dst + filled, dst, copy * sizeof( DWORD ) );
+		filled += copy;
+	}
+}
+#endif
+
 /*
 ================
 R_ArrayElementDiscrete
@@ -413,7 +694,11 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	// base
 	//
 	GL_SelectTexture( 0 );
+#ifdef _XBOX
+	JAMP_TexCoordPointer( 0, input->svars.texcoords[0] );
+#else
 	qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
+#endif
 	R_BindAnimatedImage( &pStage->bundle[0] );
 
 	//
@@ -429,7 +714,11 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 		GL_TexEnv( tess.shader->multitextureEnv );
 	}
 
+#ifdef _XBOX
+	JAMP_TexCoordPointer( 1, input->svars.texcoords[1] );
+#else
 	qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[1] );
+#endif
 
 	R_BindAnimatedImage( &pStage->bundle[1] );
 
@@ -1287,6 +1576,11 @@ static void ComputeColors( shaderStage_t *pStage, int forceRGBGen )
 		goto avoidGen;
 	}
 
+	if ( JAMP_TryDirectColor( pStage, forceRGBGen, forceAlphaGen ) )
+	{
+		return;
+	}
+
 	DWORD color;
 
 	switch ( forceRGBGen )
@@ -1324,12 +1618,12 @@ static void ComputeColors( shaderStage_t *pStage, int forceRGBGen )
 		}
 		break;
 	case CGEN_CONST:
-		for ( i = 0; i < tess.numVertexes; i++ ) {
-			tess.svars.colors[i] = D3DCOLOR_RGBA( (int)(pStage->constantColor[0]),
+		JAMP_FillDWord( (DWORD *)tess.svars.colors,
+			D3DCOLOR_RGBA( (int)(pStage->constantColor[0]),
 				(int)(pStage->constantColor[1]),
 				(int)(pStage->constantColor[2]),
-				(int)(pStage->constantColor[3]) );
-		}
+				(int)(pStage->constantColor[3]) ),
+			tess.numVertexes );
 		break;
 	case CGEN_VERTEX:
 		if ( tr.identityLight == 1 )
@@ -1378,10 +1672,7 @@ static void ComputeColors( shaderStage_t *pStage, int forceRGBGen )
 			fog_t		*fog;
 
 			fog = tr.world->fogs + tess.fogNum;
-
-			for ( i = 0; i < tess.numVertexes; i++ ) {
-				* ( int * )&tess.svars.colors[i] = fog->colorInt;
-			}
+			JAMP_FillDWord( (DWORD *)tess.svars.colors, fog->colorInt, tess.numVertexes );
 		}
 		break;
 	case CGEN_WAVEFORM:
@@ -1400,10 +1691,8 @@ static void ComputeColors( shaderStage_t *pStage, int forceRGBGen )
 		RB_CalcColorFromOneMinusEntity( tess.svars.colors );
 		break;
 	case CGEN_LIGHTMAPSTYLE:
-		for ( i = 0; i < tess.numVertexes; i++ ) 
-		{
-			tess.svars.colors[i] = *(DWORD *)styleColors[pStage->lightmapStyle];
-		}
+		JAMP_FillDWord( (DWORD *)tess.svars.colors,
+			*(DWORD *)styleColors[pStage->lightmapStyle], tess.numVertexes );
 		break;
 	}
 
@@ -1814,11 +2103,35 @@ static void ComputeTexCoords( shaderStage_t *pStage ) {
 	int		i;
 	int		b;
     float	*texcoords;
+	int		numBundles;
 
-	for ( b = 0; b < NUM_TEXTURE_BUNDLES; b++ ) {
+#ifdef _XBOX
+	JAMP_ResetTexCoordDirect();
+#endif
+	numBundles = ( pStage->bundle[1].image != 0 ) ? NUM_TEXTURE_BUNDLES : 1;
+#ifdef _XBOX
+	if ( jampShadeMetricActive )
+	{
+		jampShadeMetricTexCoordSkipped += NUM_TEXTURE_BUNDLES - numBundles;
+	}
+#endif
+
+	for ( b = 0; b < numBundles; b++ ) {
 		int tm;
 
+#ifdef _XBOX
+		if ( JAMP_TryDirectTexCoords( pStage, b ) )
+		{
+			continue;
+		}
+#endif
         texcoords = (float *)tess.svars.texcoords[b];
+#ifdef _XBOX
+		if ( jampShadeMetricActive )
+		{
+			jampShadeMetricTexCoordBundles++;
+		}
+#endif
 		//
 		// generate the texture coordinates
 		//
@@ -2080,6 +2393,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 #ifdef _XBOX
 		qglDisable(GL_LIGHTING);
+		JAMP_ResetColorDirect();
 #endif
 
 		if (!input->fading)
@@ -2090,9 +2404,19 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 		if ( !setArraysOnce )
 		{
+#ifdef _XBOX
+			JAMP_ApplyColorPointer( input->svars.colors );
+#else
 			qglEnableClientState( GL_COLOR_ARRAY );
 			qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, input->svars.colors );
+#endif
 		}
+#ifdef _XBOX
+		else if ( jampColorDirect )
+		{
+			JAMP_ApplyColorPointer( input->svars.colors );
+		}
+#endif
 
 #ifdef VV_LIGHTING
 		if(pStage->rgbGen == CGEN_LIGHTING_DIFFUSE ||
@@ -2160,8 +2484,18 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 			if ( !setArraysOnce )
 			{
+#ifdef _XBOX
+				JAMP_TexCoordPointer( 0, input->svars.texcoords[0] );
+#else
 				qglTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
+#endif
 			}
+#ifdef _XBOX
+			else if ( jampTexCoordDirect[0] )
+			{
+				JAMP_TexCoordPointer( 0, input->svars.texcoords[0] );
+			}
+#endif
 
 			//
 			// set state
@@ -2376,6 +2710,12 @@ void RB_StageIteratorGeneric( void )
 		{
 			if (tess.xstages[stage].ss && tess.xstages[stage].ss->surfaceSpriteType)
 			{	// Draw the surfacesprite
+#ifdef _XBOX
+				if ( jampShadeMetricActive )
+				{
+					jampShadeMetricSurfaceSpriteStages++;
+				}
+#endif
 				RB_DrawSurfaceSprites(&tess.xstages[stage], input);
 			}
 		}
@@ -2452,9 +2792,37 @@ void RB_EndSurface( void ) {
 	backEnd.pc.c_vertexes += tess.numVertexes;
 	backEnd.pc.c_indexes += tess.numIndexes;
 	backEnd.pc.c_totalIndexes += tess.numIndexes * tess.numPasses;
+#ifdef _XBOX
+	if ( jampShadeMetricActive )
+	{
+		jampShadeMetricBatches++;
+		jampShadeMetricVerts += tess.numVertexes;
+		jampShadeMetricIndexes += tess.numIndexes;
+		jampShadeMetricTotalIndexes += tess.numIndexes * tess.numPasses;
+		if (tess.dlightBits && tess.shader->sort <= SS_OPAQUE
+			&& !(tess.shader->surfaceFlags & (SURF_NODLIGHT | SURF_SKY)))
+		{
+			jampShadeMetricDlightBatches++;
+		}
+		if (tess.numVertexes > jampShadeMetricMaxVerts)
+		{
+			jampShadeMetricMaxVerts = tess.numVertexes;
+		}
+		if (tess.numIndexes > jampShadeMetricMaxIndexes)
+		{
+			jampShadeMetricMaxIndexes = tess.numIndexes;
+		}
+	}
+#endif
 	if (tess.fogNum && tess.shader->fogPass && r_drawfog->value == 1)
 	{	
 		backEnd.pc.c_totalIndexes += tess.numIndexes;
+#ifdef _XBOX
+		if ( jampShadeMetricActive )
+		{
+			jampShadeMetricTotalIndexes += tess.numIndexes;
+		}
+#endif
 	}
 
 	//

@@ -324,7 +324,9 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
             return;
         }
 #ifdef _XBOX
-        if (fourcc == FOURCC_DXT1 || fourcc == FOURCC_DXT3 || fourcc == FOURCC_DXT5) {
+        if (fourcc == FOURCC_DXT1 || fourcc == FOURCC_DXT3 || fourcc == FOURCC_DXT5 ||
+            internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/ ||
+            internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/) {
             int levels = (numlevels > 0) ? numlevels : ddsMipCount;
             if (levels <= 0) levels = 1;
             int picmip = s_jkaDdsUploadPicmip;

@@ -1787,13 +1787,13 @@ void CTrail::Draw()
 	verts[1].modulate[0] = mVerts[OLD_TIP].rgb[0];
 	verts[1].modulate[1] = mVerts[OLD_TIP].rgb[1];
 	verts[1].modulate[2] = mVerts[OLD_TIP].rgb[2];
-	verts[0].modulate[3] = mVerts[OLD_TIP].alpha;
+	verts[1].modulate[3] = mVerts[OLD_TIP].alpha;
 
 //	VectorScale( mVerts[NEW_TIP].curRGB, mVerts[NEW_TIP].curAlpha, color );
 	verts[2].modulate[0] = mVerts[NEW_TIP].rgb[0];
 	verts[2].modulate[1] = mVerts[NEW_TIP].rgb[1];
 	verts[2].modulate[2] = mVerts[NEW_TIP].rgb[2];
-	verts[0].modulate[3] = mVerts[NEW_TIP].alpha;
+	verts[2].modulate[3] = mVerts[NEW_TIP].alpha;
 
 	verts[0].st[0] = mVerts[OLD_MUZZLE].curST[0];
 	verts[0].st[1] = mVerts[OLD_MUZZLE].curST[1];

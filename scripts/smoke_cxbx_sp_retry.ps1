@@ -5,12 +5,15 @@ param(
     [string]$Junction = "C:\Games\Emulators\CXBX\Jedi Academy rebuild",
     [string]$LoaderName = "cxbxr-ldr-project2.exe",
     [string]$Level = "",
+    [string[]]$StartupCommand = @(),
     [int]$WatchdogSeconds = 300,
     [int]$ActiveSeconds = 0,
     [int]$InitialQuietGraceSeconds = 180,
     [int]$QuietGraceSeconds = 20,
     [int]$MaxAttempts = 2,
     [int]$StallRetryDelaySeconds = 180,
+    [int]$EarlyLogRetryBytes = 50000,
+    [switch]$AllowNoActive,
     [switch]$NoCopy
 )
 
@@ -33,12 +36,41 @@ function Stop-CxbxProjectProcesses {
 }
 
 function Get-StatusFromOutput([string[]]$Output) {
+    return Get-ValueFromOutput $Output "status"
+}
+
+function Get-ValueFromOutput([string[]]$Output, [string]$Key) {
     foreach ($line in $Output) {
-        if ($line -match '^status=(.+)$') {
+        if ($line -match "^$([regex]::Escape($Key))=(.*)$") {
             return $matches[1]
         }
     }
     return ""
+}
+
+function Test-RetryableSmokeStall([string[]]$Output, [string]$Status, [int]$ExitCode) {
+    if ($ExitCode -eq 0) {
+        return $false
+    }
+
+    if ($Status -eq "FAIL_LOG_STALLED_PROCESS_ALIVE" -or $Status -eq "FAIL_FRAME_HEARTBEAT_STALLED") {
+        return $true
+    }
+
+    if ($Status -ne "FAIL_NOT_ACTIVE") {
+        return $false
+    }
+
+    $fatalCountText = Get-ValueFromOutput $Output "fatalCount"
+    $logPath = Get-ValueFromOutput $Output "logPath"
+    $fatalCount = 0
+    [void][int]::TryParse($fatalCountText, [ref]$fatalCount)
+
+    if ($fatalCount -gt 0 -or !(Test-Path $logPath)) {
+        return $false
+    }
+
+    return ((Get-Item $logPath).Length -lt $EarlyLogRetryBytes)
 }
 
 $smokeScript = Join-Path $Repo "scripts\smoke_cxbx_sp.ps1"
@@ -61,8 +93,16 @@ while ($attempt -le $MaxAttempts) {
         "-QuietGraceSeconds", $QuietGraceSeconds
     )
 
+    if ($AllowNoActive) {
+        $args += "-AllowNoActive"
+    }
     if ($Level) {
         $args += @("-Level", $Level)
+    }
+    if ($StartupCommand -and $StartupCommand.Count -gt 0) {
+        foreach ($command in $StartupCommand) {
+            $args += @("-StartupCommand", $command)
+        }
     }
     if ($NoCopy) {
         $args += "-NoCopy"
@@ -77,7 +117,7 @@ while ($attempt -le $MaxAttempts) {
         exit 0
     }
 
-    $isStall = ($status -eq "FAIL_LOG_STALLED_PROCESS_ALIVE" -or $status -eq "FAIL_FRAME_HEARTBEAT_STALLED")
+    $isStall = Test-RetryableSmokeStall $output $status $exitCode
     if (!$isStall -or $attempt -ge $MaxAttempts) {
         exit $exitCode
     }

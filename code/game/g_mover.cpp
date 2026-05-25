@@ -11,7 +11,7 @@
 
 static void Xbox_BroadcastScriptedMover( gentity_t *ent, const char *reason )
 {
-	static int s_xboxScriptedMoverBroadcastLogBudget = 128;
+	static int s_xboxScriptedMoverBroadcastLogBudget = 32;
 
 	if ( !ent )
 	{
@@ -40,7 +40,7 @@ static void Xbox_BroadcastScriptedMover( gentity_t *ent, const char *reason )
 
 static void Xbox_BroadcastDoor( gentity_t *ent, const char *reason )
 {
-	static int s_xboxDoorBroadcastLogBudget = 64;
+	static int s_xboxDoorBroadcastLogBudget = 24;
 
 	if ( !ent )
 	{

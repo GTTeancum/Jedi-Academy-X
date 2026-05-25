@@ -5323,6 +5323,18 @@ void CG_DoSaber( vec3_t origin, vec3_t dir, float length, float lengthMax, float
 			break;
 	}
 
+#ifdef _XBOX
+	{
+		static int s_saberShaderLogCount = 0;
+		if ((!glow || !blade || s_saberShaderLogCount < 8) && s_saberShaderLogCount < 32)
+		{
+			CG_PrintfAlways("JAMP: CG_DoSaber color=%d glow=%d blade=%d len=%f max=%f radius=%f rfx=0x%x doLight=%d\n",
+				color, glow, blade, length, lengthMax, radius, rfx, doLight);
+			s_saberShaderLogCount++;
+		}
+	}
+#endif
+
 	if (doLight)
 	{	// always add a light because sabers cast a nice glow before they slice you in half!!  or something...
 		vec3_t rgb={1,1,1};
@@ -6331,7 +6343,22 @@ CheckTrail:
 						}
 						*/
 
-						trap_FX_AddPrimitive(&fx);
+						if (fx.mShader)
+						{
+							trap_FX_AddPrimitive(&fx);
+						}
+#ifdef _XBOX
+						else
+						{
+							static int s_saberTrailNullShaderLogCount = 0;
+							if (s_saberTrailNullShaderLogCount < 16)
+							{
+								CG_PrintfAlways("JAMP: saber trail skipped null shader style=%d trail=%d move=%d diff=%d kill=%d\n",
+									client->saber[saberNum].trailStyle, cg_saberTrail.integer, cent->currentState.saberMove, diff, fx.mKillTime);
+								s_saberTrailNullShaderLogCount++;
+							}
+						}
+#endif
 					}
 				}
 			}

@@ -10,6 +10,7 @@ param(
     [int]$ActiveSeconds = 0,
     [int]$InitialQuietGraceSeconds = 180,
     [int]$QuietGraceSeconds = 20,
+    [switch]$AllowNoActive,
     [switch]$NoCopy
 )
 
@@ -122,6 +123,21 @@ function Get-HeartbeatInfo([string]$Path) {
     return $result
 }
 
+function Test-CinematicTailActive([string]$Path) {
+    if (!(Test-Path $Path)) {
+        return $false
+    }
+
+    $tail = Get-Content $Path -Tail 12 -ErrorAction SilentlyContinue
+    foreach ($line in $tail) {
+        if ($line -match "CIN_RunCinematic enter|BinkVideo::Run") {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $outDir = Join-Path $Repo "scripts\output"
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
@@ -217,6 +233,8 @@ while ((Get-Date) -lt $deadline) {
                     break
                 }
             }
+        } elseif ($activeSeen -and (Test-CinematicTailActive $log)) {
+            $lastHeartbeatChange = Get-Date
         } elseif ($activeSeen -and (((Get-Date) - $lastHeartbeatChange).TotalSeconds -ge $QuietGraceSeconds)) {
             $frameHeartbeatStalled = $true
             break
@@ -236,14 +254,18 @@ while ((Get-Date) -lt $deadline) {
         $lastOutputSignature = $signature
         $lastOutputChange = Get-Date
     } else {
-        $quietLimit = if ($activeSeen) { $QuietGraceSeconds } else { $InitialQuietGraceSeconds }
+        $cinematicActive = $false
+        if (Test-Path $log) {
+            $cinematicActive = Test-CinematicTailActive $log
+        }
+        $quietLimit = if ($activeSeen -and !$cinematicActive) { $QuietGraceSeconds } else { $InitialQuietGraceSeconds }
         if (((Get-Date) - $lastOutputChange).TotalSeconds -ge $quietLimit) {
         $silentCrashSuspected = $true
         break
         }
     }
 
-    if ($activeSeen -and $lastHeartbeatFrame -ne $null -and (((Get-Date) - $lastHeartbeatChange).TotalSeconds -ge $QuietGraceSeconds)) {
+    if ($activeSeen -and $lastHeartbeatFrame -ne $null -and !(Test-CinematicTailActive $log) -and (((Get-Date) - $lastHeartbeatChange).TotalSeconds -ge $QuietGraceSeconds)) {
         $frameHeartbeatStalled = $true
         break
     }
@@ -284,6 +306,7 @@ foreach ($debugCopy in $debugCopies) {
 $consoleCombined += $debugCombined
 
 $active = Has-Match $logPath "cls.state = CA_ACTIVE - GAME IS RUNNING"
+$uiInit = Has-Match $logPath "UI_Init|UI init|VM_Create.*ui|CL_InitUI"
 $returnedFrames = Count-Matches $logPath "CG_DRAW_ACTIVE_FRAME\) returned|CL_CGameRendering: VM_Call\(CG_DRAW_ACTIVE_FRAME\) returned"
 $heartbeatCount = Count-Matches $logPath "JA: FRAME_HEARTBEAT completedFrame="
 $finalHeartbeat = Get-HeartbeatInfo $logPath
@@ -292,6 +315,11 @@ if ($finalHeartbeat.FirstRealtime -ne $null -and $finalHeartbeat.LastRealtime -n
     $activeElapsedSecondsFinal = [math]::Round(($finalHeartbeat.LastRealtime - $finalHeartbeat.FirstRealtime) / 1000.0, 1)
 }
 $failureCount = Count-Matches $logPath "texture allocation failures"
+$binkOpenCount = Count-Matches $logPath "BinkVideo::Start BinkOpen ok"
+$binkFailCount = Count-Matches $logPath "BinkVideo::Start BinkOpen failed|CIN_RunCinematic BinkVideo::Start failed"
+$missingMovieCount = Count-Matches $logPath "CIN_PlayCinematic not found"
+$unknownFormatCount = @([regex]::Matches($consoleCombined, "Unknown Format")).Count + (Count-Matches $logPath "Unknown Format")
+$yavinOverlaySkipCount = Count-Matches $logPath "XBOX_YAVIN_SKY_OVERLAY_SKIP"
 $fileFatalCount = Count-Matches $logPath "Out of memory|Received Exception|FATAL|Z_Malloc\(\): Out of memory|EIP"
 $consoleFatalCount = @([regex]::Matches($consoleCombined, "Received Exception|FATAL: X86|EIP :=|unhandled exception")).Count
 $fatalCount = $fileFatalCount + $consoleFatalCount
@@ -306,7 +334,9 @@ if ($fatalCount -gt 0) {
 } elseif (!$aliveAtEnd) {
     $status = "FAIL_EXITED_BEFORE_WATCHDOG"
 } elseif (!$active) {
-    $status = "FAIL_NOT_ACTIVE"
+    if (!($AllowNoActive -and $uiInit)) {
+        $status = "FAIL_NOT_ACTIVE"
+    }
 } elseif ($heartbeatCount -lt 5) {
     $status = "FAIL_HEARTBEAT_INSUFFICIENT"
 } elseif ($ActiveSeconds -gt 0 -and !$activeSecondsReached) {
@@ -331,6 +361,7 @@ $summary = @(
     "silentCrashSuspected=$silentCrashSuspected",
     "frameHeartbeatStalled=$frameHeartbeatStalled",
     "active=$active",
+    "uiInit=$uiInit",
     "returnedFrames=$returnedFrames",
     "heartbeatCount=$heartbeatCount",
     "activeElapsedSeconds=$activeElapsedSecondsFinal",
@@ -340,6 +371,11 @@ $summary = @(
     "lastHeartbeatRealtime=$($finalHeartbeat.LastRealtime)",
     "lastHeartbeatServerTime=$($finalHeartbeat.LastServerTime)",
     "failureCount=$failureCount",
+    "binkOpenCount=$binkOpenCount",
+    "binkFailCount=$binkFailCount",
+    "missingMovieCount=$missingMovieCount",
+    "unknownFormatCount=$unknownFormatCount",
+    "yavinOverlaySkipCount=$yavinOverlaySkipCount",
     "fileFatalCount=$fileFatalCount",
     "consoleFatalCount=$consoleFatalCount",
     "fatalCount=$fatalCount",

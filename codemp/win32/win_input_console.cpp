@@ -198,6 +198,17 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 {
 	//int clientsClosedBitField;
 	int activeClient;
+#ifdef _XBOX
+	static int jampJoyLogCount = 0;
+	static int jampJoyBlockLogCount = 0;
+	if (_UIRunning && pressed && jampJoyLogCount < 64)
+	{
+		Com_Printf("JAMP: joy ui event controller=%d button=%d mapped=%d active=%d uiClient=%d closed=0x%x controllerOut=%d uiControllerMenu=%d state=%d\n",
+			controller, button, UIJoy2Key(button), ClientManager::ActiveClientNum(), uiClientNum,
+			uiclientInputClosed, ControllerOutNum.integer, uiControllerMenu ? 1 : 0, cls.state);
+		jampJoyLogCount++;
+	}
+#endif
 	// Check for special cases for map hack
 #ifndef FINAL_BUILD
 	if (Cvar_VariableIntegerValue("cl_maphack"))
@@ -230,6 +241,14 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	int controllerout	= ControllerOutNum.integer;
 	if(controllerout != -1)
 	{
+#ifdef _XBOX
+		if (_UIRunning && pressed && jampJoyBlockLogCount < 24)
+		{
+			Com_Printf("JAMP: joy blocked controllerOut=%d controller=%d button=%d mapped=%d\n",
+				controllerout, controller, button, UIJoy2Key(button));
+			jampJoyBlockLogCount++;
+		}
+#endif
 		if( (controllerout == controller) && (button == A_JOY4) )
 			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
 		return;
@@ -264,6 +283,14 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 
 	if ((uiclientInputClosed & 0x1) && controller == ClientManager::ActiveController()&& UIJoy2Key(button) !=A_ESCAPE)
 	{
+#ifdef _XBOX
+		if (_UIRunning && pressed && jampJoyBlockLogCount < 24)
+		{
+			Com_Printf("JAMP: joy blocked client0 closed=0x%x controller=%d activeController=%d button=%d\n",
+				uiclientInputClosed, controller, ClientManager::ActiveController(), button);
+			jampJoyBlockLogCount++;
+		}
+#endif
 		ClientManager::ActivateClient(activeClient);
 		return;
 	}
@@ -274,6 +301,14 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 			ClientManager::ActivateClient(1);
 			if ((uiclientInputClosed & 0x02) && controller == ClientManager::ActiveController())
 			{
+#ifdef _XBOX
+				if (_UIRunning && pressed && jampJoyBlockLogCount < 24)
+				{
+					Com_Printf("JAMP: joy blocked client1 closed=0x%x controller=%d activeController=%d button=%d\n",
+						uiclientInputClosed, controller, ClientManager::ActiveController(), button);
+					jampJoyBlockLogCount++;
+				}
+#endif
 				ClientManager::ActivateClient(activeClient);
 				return;
 			}
@@ -282,6 +317,14 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		{
 			if (controller != ClientManager::ActiveController())
 			{
+#ifdef _XBOX
+				if (_UIRunning && pressed && jampJoyBlockLogCount < 24)
+				{
+					Com_Printf("JAMP: joy blocked inactive controller=%d activeController=%d button=%d\n",
+						controller, ClientManager::ActiveController(), button);
+					jampJoyBlockLogCount++;
+				}
+#endif
 				ClientManager::ActivateClient(activeClient);
 				return;
 			}
@@ -294,10 +337,26 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		if (_UIRunning && cls.state == CA_ACTIVE )
 		{	if (ClientManager::ActiveClientNum()!= uiClientNum)
 			{
+#ifdef _XBOX
+				if (pressed && jampJoyBlockLogCount < 24)
+				{
+					Com_Printf("JAMP: joy blocked uiClient mismatch active=%d uiClient=%d controller=%d button=%d\n",
+						ClientManager::ActiveClientNum(), uiClientNum, controller, button);
+					jampJoyBlockLogCount++;
+				}
+#endif
 				return;
 			}
 			if (ClientManager::ActiveController() != controller)
 			{
+#ifdef _XBOX
+				if (pressed && jampJoyBlockLogCount < 24)
+				{
+					Com_Printf("JAMP: joy blocked uiController mismatch activeController=%d controller=%d button=%d\n",
+						ClientManager::ActiveController(), controller, button);
+					jampJoyBlockLogCount++;
+				}
+#endif
 				return;
 			}
 		}
@@ -433,6 +492,16 @@ IN_DisplayControllerUnplugged
 *********/
 void IN_DisplayControllerUnplugged(int controller)
 {
+	if ( Cvar_VariableIntegerValue("jamp_smokeDirectMap") )
+	{
+		static int jampSmokeControllerLogCount = 0;
+		if ( jampSmokeControllerLogCount < 4 )
+		{
+			Com_Printf("JAMP: smoke direct-map suppressing noController popup controller=%d state=%d\n", controller, cls.state);
+			jampSmokeControllerLogCount++;
+		}
+		return;
+	}
 
 	int activeclient = ClientManager::ActiveClientNum();
 

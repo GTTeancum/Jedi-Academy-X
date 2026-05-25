@@ -448,24 +448,74 @@ Returns the number of msec spent in the back end
 */
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
+#ifdef _XBOX
+	static int jampREEndFrameCount = 0;
+	qboolean jampREProfile = (jampREEndFrameCount < 4 || !(jampREEndFrameCount % 300));
+	int jampFrameStart = 0;
+	int jampBeginStart;
+	int jampIssueStart;
+	int jampEndStart;
+	int jampBeginMsec = 0;
+	int jampIssueMsec = 0;
+	int jampEndMsec = 0;
+	if (jampREProfile)
+	{
+		jampFrameStart = Sys_Milliseconds();
+	}
+#endif
 
 	if ( !tr.registered ) {
 		return;
 	}
 	cmd = (swapBuffersCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		jampREEndFrameCount++;
+#endif
 		return;
 	}
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
-	if (!qglBeginFrame()) return;
+	if (jampREProfile)
+	{
+		jampBeginStart = Sys_Milliseconds();
+	}
+	if (!qglBeginFrame())
+	{
+		jampREEndFrameCount++;
+		return;
+	}
+	if (jampREProfile)
+	{
+		jampBeginMsec = Sys_Milliseconds() - jampBeginStart;
+	}
 #endif
 
+#ifdef _XBOX
+	if (jampREProfile)
+	{
+		jampIssueStart = Sys_Milliseconds();
+	}
+#endif
 	R_IssueRenderCommands( qtrue );
+#ifdef _XBOX
+	if (jampREProfile)
+	{
+		jampIssueMsec = Sys_Milliseconds() - jampIssueStart;
+	}
+#endif
 
 #ifdef _XBOX
+	if (jampREProfile)
+	{
+		jampEndStart = Sys_Milliseconds();
+	}
 	qglEndFrame();
+	if (jampREProfile)
+	{
+		jampEndMsec = Sys_Milliseconds() - jampEndStart;
+	}
 #endif
 
 	// use the other buffers next frame, because another CPU
@@ -480,5 +530,19 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		*backEndMsec = backEnd.pc.msec;
 	}
 	backEnd.pc.msec = 0;
+#ifdef _XBOX
+	if (jampREProfile)
+	{
+		Com_Printf("JAMP: re endframe profile frame=%d begin=%d issue=%d present=%d total=%d frontend=%d backend=%d\n",
+			jampREEndFrameCount,
+			jampBeginMsec,
+			jampIssueMsec,
+			jampEndMsec,
+			Sys_Milliseconds() - jampFrameStart,
+			frontEndMsec ? *frontEndMsec : tr.frontEndMsec,
+			backEndMsec ? *backEndMsec : backEnd.pc.msec);
+	}
+	jampREEndFrameCount++;
+#endif
 }
 

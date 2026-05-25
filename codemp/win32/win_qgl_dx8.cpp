@@ -677,6 +677,21 @@ Set the vertex shader based on the number
 of texture coordinates.
 =================
 */
+#ifdef _XBOX
+static void JAMP_RecordShaderUpdate(qboolean changed);
+static void JAMP_InvalidateShaderCache(void);
+static void JAMP_SetCapCache(GLenum cap, bool flag);
+static qboolean JAMP_GetCapCache(GLenum cap, GLboolean *flag);
+static void JAMP_SetRenderStateCached(DWORD type, DWORD value);
+static void JAMP_InvalidateRenderStateCache(void);
+static void JAMP_SetTransformCached(DWORD state, const D3DMATRIX *matrix);
+static void JAMP_InvalidateTransformCache(void);
+static void JAMP_SetMaterialCached(const D3DMATERIAL8 *material);
+static void JAMP_SetLightCached(DWORD light, const D3DLIGHT8 *lightDef);
+static void JAMP_LightEnableCached(DWORD light, BOOL enable);
+static void JAMP_InvalidateMaterialLightCache(void);
+#endif
+
 static void _updateShader(bool normal, bool tex0, bool tex1)//, bool tex2, bool tex3)
 {
 	DWORD mask = D3DFVF_XYZ;
@@ -685,11 +700,14 @@ static void _updateShader(bool normal, bool tex0, bool tex1)//, bool tex2, bool 
 	if (tex0 && !tex1) mask |= D3DFVF_TEX1;
 	else if (tex1) mask |= D3DFVF_TEX2;
 
-//	if (mask != glw_state->shaderMask)
-//	{
-		glw_state->device->SetVertexShader(mask);
-		glw_state->shaderMask = mask;
-//	}
+#ifdef _XBOX
+	const qboolean changed = (mask != glw_state->shaderMask) ? qtrue : qfalse;
+#endif
+	glw_state->device->SetVertexShader(mask);
+	glw_state->shaderMask = mask;
+#ifdef _XBOX
+	JAMP_RecordShaderUpdate(changed);
+#endif
 }
 
 
@@ -714,6 +732,126 @@ static glwstate_t::TextureInfo* _getCurrentTexture(int stage)
 	return info;
 }
 
+#ifdef _XBOX
+static int s_jampTexStageSets;
+static int s_jampTexStageSkips;
+static int s_jampTexStageInvalidates;
+static int s_jampTextureBindSets;
+static int s_jampTextureBindSkips;
+static int s_jampTextureBindInvalidates;
+static qboolean s_jampRenderMetricActive;
+static int s_jampRenderMetricFrame;
+
+#define JAMP_METRIC_INC(x) do { if (s_jampRenderMetricActive) { (x)++; } } while (0)
+#define JAMP_METRIC_ADD(x, v) do { if (s_jampRenderMetricActive) { (x) += (v); } } while (0)
+
+#define JAMP_XBOX_D3D_STATE_CACHE 0
+
+static IDirect3DTexture8 *s_jampTextureBindCache[GLW_MAX_TEXTURE_STAGES];
+static GLboolean s_jampTextureBindCacheValid[GLW_MAX_TEXTURE_STAGES];
+
+static void JAMP_SetTextureCached(int stage, IDirect3DTexture8 *texture)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetTexture(stage, texture);
+	JAMP_METRIC_INC(s_jampTextureBindSets);
+	return;
+#else
+	if (stage < 0 || stage >= GLW_MAX_TEXTURE_STAGES)
+	{
+		glw_state->device->SetTexture(stage, texture);
+		JAMP_METRIC_INC(s_jampTextureBindSets);
+		return;
+	}
+
+	if (s_jampTextureBindCacheValid[stage] && s_jampTextureBindCache[stage] == texture)
+	{
+		JAMP_METRIC_INC(s_jampTextureBindSkips);
+		return;
+	}
+
+	glw_state->device->SetTexture(stage, texture);
+	s_jampTextureBindCache[stage] = texture;
+	s_jampTextureBindCacheValid[stage] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampTextureBindSets);
+#endif
+}
+
+static void JAMP_InvalidateTextureBindCache(int stage)
+{
+	if (stage < 0 || stage >= GLW_MAX_TEXTURE_STAGES)
+	{
+		return;
+	}
+	s_jampTextureBindCacheValid[stage] = GL_FALSE;
+	JAMP_METRIC_INC(s_jampTextureBindInvalidates);
+}
+
+static int JAMP_TextureStageStateSlot(DWORD type)
+{
+	switch (type)
+	{
+	case D3DTSS_COLOROP: return 0;
+	case D3DTSS_COLORARG1: return 1;
+	case D3DTSS_COLORARG2: return 2;
+	case D3DTSS_ALPHAOP: return 3;
+	case D3DTSS_ALPHAARG1: return 4;
+	case D3DTSS_ALPHAARG2: return 5;
+	case D3DTSS_MAXANISOTROPY: return 6;
+	case D3DTSS_MINFILTER: return 7;
+	case D3DTSS_MIPFILTER: return 8;
+	case D3DTSS_MAGFILTER: return 9;
+	case D3DTSS_ADDRESSU: return 10;
+	case D3DTSS_ADDRESSV: return 11;
+	case D3DTSS_TEXCOORDINDEX: return 12;
+	case D3DTSS_TEXTURETRANSFORMFLAGS: return 13;
+	default: return -1;
+	}
+}
+
+static DWORD s_jampTexStageCache[GLW_MAX_TEXTURE_STAGES][14];
+static GLboolean s_jampTexStageCacheValid[GLW_MAX_TEXTURE_STAGES][14];
+
+static void JAMP_SetTextureStageStateCached(int stage, DWORD type, DWORD value)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
+	JAMP_METRIC_INC(s_jampTexStageSets);
+	return;
+#else
+	const int slot = JAMP_TextureStageStateSlot(type);
+	if (stage < 0 || stage >= GLW_MAX_TEXTURE_STAGES || slot < 0)
+	{
+		glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
+		JAMP_METRIC_INC(s_jampTexStageSets);
+		return;
+	}
+
+	if (s_jampTexStageCacheValid[stage][slot] && s_jampTexStageCache[stage][slot] == value)
+	{
+		JAMP_METRIC_INC(s_jampTexStageSkips);
+		return;
+	}
+
+	glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
+	s_jampTexStageCache[stage][slot] = value;
+	s_jampTexStageCacheValid[stage][slot] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampTexStageSets);
+#endif
+}
+
+static void JAMP_InvalidateTextureStageStateCache(int stage)
+{
+	if (stage < 0 || stage >= GLW_MAX_TEXTURE_STAGES)
+	{
+		return;
+	}
+
+	memset(s_jampTexStageCacheValid[stage], 0, sizeof(s_jampTexStageCacheValid[stage]));
+	JAMP_METRIC_INC(s_jampTexStageInvalidates);
+}
+#endif
+
 
 /*
 =================
@@ -736,7 +874,56 @@ static void _updateTextures(void)
 				glwstate_t::TextureInfo* info = _getCurrentTexture(t);
 				if (!info) continue;
 
+#ifdef _XBOX
+				JAMP_SetTextureCached(t, info->mipmap);
+#else
 				glw_state->device->SetTexture(t, info->mipmap);
+#endif
+#ifdef _XBOX
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLOROP, glw_state->textureEnv[t]);
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLORARG1, 
+						D3DTA_TEXTURE);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLORARG2, 
+						D3DTA_CURRENT);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAOP, 
+						glw_state->textureEnv[t]);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAARG1, 
+						D3DTA_TEXTURE);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAARG2, 
+						D3DTA_CURRENT);
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MAXANISOTROPY, 
+					info->anisotropy);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MINFILTER, 
+					info->minFilter);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MIPFILTER, 
+					info->mipFilter);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MAGFILTER, 
+					info->magFilter);
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ADDRESSU, 
+					info->wrapU);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ADDRESSV, 
+					info->wrapV);
+
+				DWORD texCoordIndex = t;
+
+				JAMP_SetTextureStageStateCached( t, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2 );
+
+				if(tess.shader)
+				{
+					if(tess.currentPass < tess.shader->numUnfoggedPasses)
+					{ 
+						if(tess.shader->stages[tess.currentPass].isEnvironment)
+						{
+							texCoordIndex = t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR;
+						}
+					}
+				}
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_TEXCOORDINDEX, texCoordIndex);
+#else
 				glw_state->device->SetTextureStageState(t, D3DTSS_COLOROP, glw_state->textureEnv[t]);
 
 				glw_state->device->SetTextureStageState(t, D3DTSS_COLORARG1, 
@@ -777,13 +964,23 @@ static void _updateTextures(void)
 							glw_state->device->SetTextureStageState(t, D3DTSS_TEXCOORDINDEX, t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
 						}
 					}
-				}				
+				}
+#endif
 			}
 			else
 			{
+#ifdef _XBOX
+				JAMP_SetTextureCached(t, NULL);
+#else
 				glw_state->device->SetTexture(t, NULL);
+#endif
+#ifdef _XBOX
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLOROP, D3DTOP_DISABLE);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+#else
 				glw_state->device->SetTextureStageState(t, D3DTSS_COLOROP, D3DTOP_DISABLE);
 				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+#endif
 			}
 		}
 		else
@@ -795,11 +992,170 @@ static void _updateTextures(void)
 				tess.currentPass < tess.shader->numUnfoggedPasses &&
 				tess.shader->stages[tess.currentPass].isEnvironment)
 			{
+#ifdef _XBOX
+					JAMP_SetTextureStageStateCached(t, D3DTSS_TEXCOORDINDEX, t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
+#else
 					glw_state->device->SetTextureStageState(t, D3DTSS_TEXCOORDINDEX, t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
+#endif
 			}
 		}
 	}
 }
+
+#ifdef _XBOX
+static int s_jampTransformSets;
+static int s_jampTransformSkips;
+static int s_jampTransformInvalidates;
+
+static int JAMP_TransformSlot(DWORD state)
+{
+	switch (state)
+	{
+	case D3DTS_PROJECTION: return 0;
+	case D3DTS_VIEW: return 1;
+	case D3DTS_TEXTURE0: return 2;
+	case D3DTS_TEXTURE1: return 3;
+	default: return -1;
+	}
+}
+
+static D3DMATRIX s_jampTransformCache[4];
+static GLboolean s_jampTransformCacheValid[4];
+
+static void JAMP_SetTransformCached(DWORD state, const D3DMATRIX *matrix)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetTransform((D3DTRANSFORMSTATETYPE)state, matrix);
+	JAMP_METRIC_INC(s_jampTransformSets);
+	return;
+#else
+	const int slot = JAMP_TransformSlot(state);
+	if (slot < 0)
+	{
+		glw_state->device->SetTransform((D3DTRANSFORMSTATETYPE)state, matrix);
+		JAMP_METRIC_INC(s_jampTransformSets);
+		return;
+	}
+
+	if (s_jampTransformCacheValid[slot] &&
+		memcmp(&s_jampTransformCache[slot], matrix, sizeof(D3DMATRIX)) == 0)
+	{
+		JAMP_METRIC_INC(s_jampTransformSkips);
+		return;
+	}
+
+	glw_state->device->SetTransform((D3DTRANSFORMSTATETYPE)state, matrix);
+	memcpy(&s_jampTransformCache[slot], matrix, sizeof(D3DMATRIX));
+	s_jampTransformCacheValid[slot] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampTransformSets);
+#endif
+}
+
+static void JAMP_InvalidateTransformCache(void)
+{
+	memset(s_jampTransformCacheValid, 0, sizeof(s_jampTransformCacheValid));
+	JAMP_METRIC_INC(s_jampTransformInvalidates);
+}
+
+static int s_jampMaterialSets;
+static int s_jampMaterialSkips;
+static int s_jampLightSets;
+static int s_jampLightSkips;
+static int s_jampLightEnableSets;
+static int s_jampLightEnableSkips;
+static int s_jampMaterialLightInvalidates;
+
+static D3DMATERIAL8 s_jampMaterialCache;
+static GLboolean s_jampMaterialCacheValid;
+static D3DLIGHT8 s_jampLightCache[8];
+static GLboolean s_jampLightCacheValid[8];
+static BOOL s_jampLightEnableCache[8];
+static GLboolean s_jampLightEnableCacheValid[8];
+
+static void JAMP_SetMaterialCached(const D3DMATERIAL8 *material)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetMaterial(material);
+	JAMP_METRIC_INC(s_jampMaterialSets);
+	return;
+#else
+	if (s_jampMaterialCacheValid &&
+		memcmp(&s_jampMaterialCache, material, sizeof(D3DMATERIAL8)) == 0)
+	{
+		JAMP_METRIC_INC(s_jampMaterialSkips);
+		return;
+	}
+
+	glw_state->device->SetMaterial(material);
+	memcpy(&s_jampMaterialCache, material, sizeof(D3DMATERIAL8));
+	s_jampMaterialCacheValid = GL_TRUE;
+	JAMP_METRIC_INC(s_jampMaterialSets);
+#endif
+}
+
+static void JAMP_SetLightCached(DWORD light, const D3DLIGHT8 *lightDef)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetLight(light, lightDef);
+	JAMP_METRIC_INC(s_jampLightSets);
+	return;
+#else
+	if (light >= 8)
+	{
+		glw_state->device->SetLight(light, lightDef);
+		JAMP_METRIC_INC(s_jampLightSets);
+		return;
+	}
+
+	if (s_jampLightCacheValid[light] &&
+		memcmp(&s_jampLightCache[light], lightDef, sizeof(D3DLIGHT8)) == 0)
+	{
+		JAMP_METRIC_INC(s_jampLightSkips);
+		return;
+	}
+
+	glw_state->device->SetLight(light, lightDef);
+	memcpy(&s_jampLightCache[light], lightDef, sizeof(D3DLIGHT8));
+	s_jampLightCacheValid[light] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampLightSets);
+#endif
+}
+
+static void JAMP_LightEnableCached(DWORD light, BOOL enable)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->LightEnable(light, enable);
+	JAMP_METRIC_INC(s_jampLightEnableSets);
+	return;
+#else
+	if (light >= 8)
+	{
+		glw_state->device->LightEnable(light, enable);
+		JAMP_METRIC_INC(s_jampLightEnableSets);
+		return;
+	}
+
+	if (s_jampLightEnableCacheValid[light] && s_jampLightEnableCache[light] == enable)
+	{
+		JAMP_METRIC_INC(s_jampLightEnableSkips);
+		return;
+	}
+
+	glw_state->device->LightEnable(light, enable);
+	s_jampLightEnableCache[light] = enable;
+	s_jampLightEnableCacheValid[light] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampLightEnableSets);
+#endif
+}
+
+static void JAMP_InvalidateMaterialLightCache(void)
+{
+	s_jampMaterialCacheValid = GL_FALSE;
+	memset(s_jampLightCacheValid, 0, sizeof(s_jampLightCacheValid));
+	memset(s_jampLightEnableCacheValid, 0, sizeof(s_jampLightEnableCacheValid));
+	JAMP_METRIC_INC(s_jampMaterialLightInvalidates);
+}
+#endif
 
 
 /*
@@ -814,32 +1170,52 @@ static void _updateMatrices(void)
 {
 	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Projection])
 	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_PROJECTION,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
+#else
 		glw_state->device->SetTransform(D3DTS_PROJECTION, 
 			glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
+#endif
 
 		glw_state->matricesDirty[glwstate_t::MatrixMode_Projection] = false;
 	}
 
 	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Model])
 	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_VIEW,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
+#else
 		glw_state->device->SetTransform(D3DTS_VIEW, 
 			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
+#endif
 
 		glw_state->matricesDirty[glwstate_t::MatrixMode_Model] = false;
 	}
 
 	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Texture0])
 	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_TEXTURE0,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Texture0]->GetTop());
+#else
 		glw_state->device->SetTransform(D3DTS_TEXTURE0,
 			glw_state->matrixStack[glwstate_t::MatrixMode_Texture0]->GetTop());
+#endif
 
 		glw_state->matricesDirty[glwstate_t::MatrixMode_Texture0] = false;
 	}
 
 	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Texture1])
 	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_TEXTURE1,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Texture1]->GetTop());
+#else
 		glw_state->device->SetTransform(D3DTS_TEXTURE1,
 			glw_state->matrixStack[glwstate_t::MatrixMode_Texture1]->GetTop());
+#endif
 
 		glw_state->matricesDirty[glwstate_t::MatrixMode_Texture1] = false;
 	}
@@ -1465,8 +1841,13 @@ static void dllAccum(GLenum op, GLfloat value)
 static void dllAlphaFunc(GLenum func, GLclampf ref)
 {
 	D3DCMPFUNC f = _convertCompare(func);
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_ALPHAFUNC, f);
+	JAMP_SetRenderStateCached(D3DRS_ALPHAREF, (DWORD)(ref * 255.));
+#else
 	glw_state->device->SetRenderState(D3DRS_ALPHAFUNC, f);
 	glw_state->device->SetRenderState(D3DRS_ALPHAREF, (DWORD)(ref * 255.));
+#endif
 }
 
 GLboolean dllAreTexturesResident(GLsizei n, const GLuint *textures, GLboolean *residences)
@@ -1509,6 +1890,10 @@ static void dllArrayElement(GLint i)
 	++glw_state->numVertices;
 }
 
+#ifdef _XBOX
+static void JAMP_RecordBeginExt(int vertices);
+#endif
+
 // EXTENSION: Begin a drawing block with at verts vertices
 static void dllBeginEXT(GLenum mode, GLint verts, GLint colors, GLint normals, GLint tex0, GLint tex1)//, GLint tex2, GLint tex3)
 {
@@ -1530,6 +1915,8 @@ static void dllBeginEXT(GLenum mode, GLint verts, GLint colors, GLint normals, G
 	glw_state->maxVertices = _getMaxVerts();	
 
 #ifdef _XBOX
+	JAMP_RecordBeginExt(verts);
+
 	// open a draw packet
 	//int num_packets = ((verts * glw_state->drawStride) / GLW_MAX_DRAW_PACKET_SIZE) + 1;
 	int num_packets;
@@ -1557,7 +1944,16 @@ static void dllBegin(GLenum mode)
 // EXTENSION: Start a new drawing frame
 GLboolean dllBeginFrame(void)
 {
-	if (!glw_state->device) return GL_FALSE;
+	if (!glw_state->device)
+	{
+#ifdef _XBOX
+		s_jampRenderMetricActive = qfalse;
+#endif
+		return GL_FALSE;
+	}
+#ifdef _XBOX
+	s_jampRenderMetricActive = (s_jampRenderMetricFrame < 4 || !(s_jampRenderMetricFrame % 300));
+#endif
 	GLboolean result = glw_state->device->BeginScene() == D3D_OK;
 	return result;
 }
@@ -1589,8 +1985,13 @@ static void dllBlendFunc(GLenum sfactor, GLenum dfactor)
 	D3DBLEND s = _convertBlendFactor(sfactor);
 	D3DBLEND d = _convertBlendFactor(dfactor);
 	
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_SRCBLEND, s);
+	JAMP_SetRenderStateCached(D3DRS_DESTBLEND, d);
+#else
 	glw_state->device->SetRenderState(D3DRS_SRCBLEND, s);
 	glw_state->device->SetRenderState(D3DRS_DESTBLEND, d);
+#endif
 }
 
 static void dllCallList(GLuint lnum)
@@ -1829,7 +2230,11 @@ static void dllColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboole
 	if (green) m |= D3DCOLORWRITEENABLE_GREEN;
 	if (blue) m |= D3DCOLORWRITEENABLE_BLUE;
 	if (alpha) m |= D3DCOLORWRITEENABLE_ALPHA;
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_COLORWRITEENABLE, m);
+#else
 	glw_state->device->SetRenderState(D3DRS_COLORWRITEENABLE, m);
+#endif
 }
 
 static void dllColorMaterial(GLenum face, GLenum mode)
@@ -1926,7 +2331,11 @@ static void dllCullFace(GLenum mode)
 	case GL_FRONT: glw_state->cullMode = D3DCULL_CCW; break;
 	}
 
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_CULLMODE, glw_state->cullMode);
+#else
 	glw_state->device->SetRenderState(D3DRS_CULLMODE, glw_state->cullMode);
+#endif
 }
 
 static void dllDeleteLists(GLuint lnum, GLsizei range)
@@ -1940,6 +2349,10 @@ static void dllDeleteTextures(GLsizei n, const GLuint *textures)
 	glw_state->textureStageDirty[1] = true;
 	glw_state->device->SetTexture(0, NULL);
 	glw_state->device->SetTexture(1, NULL);
+#ifdef _XBOX
+	JAMP_InvalidateTextureBindCache(0);
+	JAMP_InvalidateTextureBindCache(1);
+#endif
 //	glw_state->device->SetTexture(2, NULL);
 //	glw_state->device->SetTexture(3, NULL);
 
@@ -1963,22 +2376,299 @@ static void dllDeleteTextures(GLsizei n, const GLuint *textures)
 static void dllDepthFunc(GLenum func)
 {
 	D3DCMPFUNC f = _convertCompare(func);
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_ZFUNC, f);
+#else
 	glw_state->device->SetRenderState(D3DRS_ZFUNC, f);
+#endif
 }
 
 static void dllDepthMask(GLboolean flag)
 {
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_ZWRITEENABLE, flag);
+#else
 	glw_state->device->SetRenderState(D3DRS_ZWRITEENABLE, flag);
+#endif
 }
+
+#ifdef _XBOX
+static int s_jampViewportSets;
+static int s_jampViewportSkips;
+static bool s_jampViewportValid;
+static D3DVIEWPORT8 s_jampViewportCache;
+
+static bool JAMP_SameViewport(const D3DVIEWPORT8& a, const D3DVIEWPORT8& b)
+{
+	return a.X == b.X &&
+		a.Y == b.Y &&
+		a.Width == b.Width &&
+		a.Height == b.Height &&
+		a.MinZ == b.MinZ &&
+		a.MaxZ == b.MaxZ;
+}
+
+static void JAMP_SetViewportCached(const D3DVIEWPORT8& viewport, bool force)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	(void)force;
+	glw_state->device->SetViewport(&viewport);
+	JAMP_METRIC_INC(s_jampViewportSets);
+	return;
+#else
+	if (!force && s_jampViewportValid && JAMP_SameViewport(s_jampViewportCache, viewport))
+	{
+		JAMP_METRIC_INC(s_jampViewportSkips);
+		return;
+	}
+
+	glw_state->device->SetViewport(&viewport);
+	s_jampViewportCache = viewport;
+	s_jampViewportValid = true;
+	JAMP_METRIC_INC(s_jampViewportSets);
+#endif
+}
+
+static int s_jampScissorSets;
+static int s_jampScissorSkips;
+static bool s_jampScissorValid;
+static bool s_jampScissorEnableCache;
+static D3DRECT s_jampScissorBoxCache;
+
+static bool JAMP_SameScissor(const D3DRECT& a, const D3DRECT& b)
+{
+	return a.x1 == b.x1 &&
+		a.y1 == b.y1 &&
+		a.x2 == b.x2 &&
+		a.y2 == b.y2;
+}
+
+static void JAMP_SetScissorsCached(bool enabled, const D3DRECT& rect, bool force)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	(void)force;
+	glw_state->device->SetScissors(enabled ? 1 : 0, FALSE, &rect);
+	JAMP_METRIC_INC(s_jampScissorSets);
+	return;
+#else
+	if (!force &&
+		s_jampScissorValid &&
+		s_jampScissorEnableCache == enabled &&
+		JAMP_SameScissor(s_jampScissorBoxCache, rect))
+	{
+		JAMP_METRIC_INC(s_jampScissorSkips);
+		return;
+	}
+
+	glw_state->device->SetScissors(enabled ? 1 : 0, FALSE, &rect);
+	s_jampScissorEnableCache = enabled;
+	s_jampScissorBoxCache = rect;
+	s_jampScissorValid = true;
+	JAMP_METRIC_INC(s_jampScissorSets);
+#endif
+}
+#endif
 
 static void dllDepthRange(GLclampd zNear, GLclampd zFar)
 {
 	glw_state->viewport.MinZ = zNear;
 	glw_state->viewport.MaxZ = zFar;
+#ifdef _XBOX
+	JAMP_SetViewportCached(glw_state->viewport, false);
+#else
 	glw_state->device->SetViewport(&glw_state->viewport);
+#endif
 }
 
 #ifdef _XBOX
+static int s_jampRenderStateSets;
+static int s_jampRenderStateSkips;
+static int s_jampRenderStateInvalidates;
+
+static int JAMP_RenderStateSlot(DWORD type)
+{
+	switch (type)
+	{
+	case D3DRS_ALPHAFUNC: return 0;
+	case D3DRS_ALPHAREF: return 1;
+	case D3DRS_SRCBLEND: return 2;
+	case D3DRS_DESTBLEND: return 3;
+	case D3DRS_COLORWRITEENABLE: return 4;
+	case D3DRS_CULLMODE: return 5;
+	case D3DRS_ZFUNC: return 6;
+	case D3DRS_ZWRITEENABLE: return 7;
+	case D3DRS_ALPHATESTENABLE: return 8;
+	case D3DRS_ALPHABLENDENABLE: return 9;
+	case D3DRS_ZENABLE: return 10;
+	case D3DRS_LIGHTING: return 11;
+	case D3DRS_POINTOFFSETENABLE: return 12;
+	case D3DRS_WIREFRAMEOFFSETENABLE: return 13;
+	case D3DRS_SOLIDOFFSETENABLE: return 14;
+	case D3DRS_STENCILENABLE: return 15;
+	case D3DRS_FOGENABLE: return 16;
+	case D3DRS_FOGDENSITY: return 17;
+	case D3DRS_FOGSTART: return 18;
+	case D3DRS_FOGEND: return 19;
+	case D3DRS_FOGCOLOR: return 20;
+	case D3DRS_FOGTABLEMODE: return 21;
+	case D3DRS_POINTSCALEENABLE: return 22;
+	case D3DRS_POINTSIZE: return 23;
+	case D3DRS_FILLMODE: return 24;
+	case D3DRS_BACKFILLMODE: return 25;
+	case D3DRS_POLYGONOFFSETZOFFSET: return 26;
+	case D3DRS_POLYGONOFFSETZSLOPESCALE: return 27;
+	case D3DRS_SHADEMODE: return 28;
+	case D3DRS_STENCILFUNC: return 29;
+	case D3DRS_STENCILREF: return 30;
+	case D3DRS_STENCILMASK: return 31;
+	case D3DRS_STENCILWRITEMASK: return 32;
+	case D3DRS_STENCILFAIL: return 33;
+	case D3DRS_STENCILZFAIL: return 34;
+	case D3DRS_STENCILPASS: return 35;
+	default: return -1;
+	}
+}
+
+static DWORD s_jampRenderStateCache[36];
+static GLboolean s_jampRenderStateCacheValid[36];
+static const DWORD s_jampRenderStateTypes[36] =
+{
+	D3DRS_ALPHAFUNC,
+	D3DRS_ALPHAREF,
+	D3DRS_SRCBLEND,
+	D3DRS_DESTBLEND,
+	D3DRS_COLORWRITEENABLE,
+	D3DRS_CULLMODE,
+	D3DRS_ZFUNC,
+	D3DRS_ZWRITEENABLE,
+	D3DRS_ALPHATESTENABLE,
+	D3DRS_ALPHABLENDENABLE,
+	D3DRS_ZENABLE,
+	D3DRS_LIGHTING,
+	D3DRS_POINTOFFSETENABLE,
+	D3DRS_WIREFRAMEOFFSETENABLE,
+	D3DRS_SOLIDOFFSETENABLE,
+	D3DRS_STENCILENABLE,
+	D3DRS_FOGENABLE,
+	D3DRS_FOGDENSITY,
+	D3DRS_FOGSTART,
+	D3DRS_FOGEND,
+	D3DRS_FOGCOLOR,
+	D3DRS_FOGTABLEMODE,
+	D3DRS_POINTSCALEENABLE,
+	D3DRS_POINTSIZE,
+	D3DRS_FILLMODE,
+	D3DRS_BACKFILLMODE,
+	D3DRS_POLYGONOFFSETZOFFSET,
+	D3DRS_POLYGONOFFSETZSLOPESCALE,
+	D3DRS_SHADEMODE,
+	D3DRS_STENCILFUNC,
+	D3DRS_STENCILREF,
+	D3DRS_STENCILMASK,
+	D3DRS_STENCILWRITEMASK,
+	D3DRS_STENCILFAIL,
+	D3DRS_STENCILZFAIL,
+	D3DRS_STENCILPASS
+};
+static qboolean s_jampPresentKeepsRenderState = qtrue;
+static int s_jampPresentProbeFrames = 4;
+
+static void JAMP_SetRenderStateCached(DWORD type, DWORD value)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetRenderState((D3DRENDERSTATETYPE)type, value);
+	JAMP_METRIC_INC(s_jampRenderStateSets);
+	return;
+#else
+	const int slot = JAMP_RenderStateSlot(type);
+	if (slot < 0)
+	{
+		glw_state->device->SetRenderState((D3DRENDERSTATETYPE)type, value);
+		JAMP_METRIC_INC(s_jampRenderStateSets);
+		return;
+	}
+
+	if (s_jampRenderStateCacheValid[slot] && s_jampRenderStateCache[slot] == value)
+	{
+		JAMP_METRIC_INC(s_jampRenderStateSkips);
+		return;
+	}
+
+	glw_state->device->SetRenderState((D3DRENDERSTATETYPE)type, value);
+	s_jampRenderStateCache[slot] = value;
+	s_jampRenderStateCacheValid[slot] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampRenderStateSets);
+#endif
+}
+
+static void JAMP_InvalidateRenderStateCache(void)
+{
+	memset(s_jampRenderStateCacheValid, 0, sizeof(s_jampRenderStateCacheValid));
+	JAMP_METRIC_INC(s_jampRenderStateInvalidates);
+}
+
+static void JAMP_InvalidateRenderStateSlot(DWORD type)
+{
+	const int slot = JAMP_RenderStateSlot(type);
+	if (slot < 0)
+	{
+		JAMP_InvalidateRenderStateCache();
+		return;
+	}
+	s_jampRenderStateCacheValid[slot] = GL_FALSE;
+	JAMP_METRIC_INC(s_jampRenderStateInvalidates);
+}
+
+static void JAMP_InvalidateRenderStateAfterPresent(void)
+{
+	if (!s_jampPresentKeepsRenderState)
+	{
+		JAMP_InvalidateRenderStateCache();
+		return;
+	}
+
+	if (s_jampPresentProbeFrames > 0)
+	{
+		int mismatches = 0;
+		int nonBlendMismatches = 0;
+
+		for (int slot = 0; slot < 36; ++slot)
+		{
+			DWORD actual;
+			if (!s_jampRenderStateCacheValid[slot])
+			{
+				continue;
+			}
+			glw_state->device->GetRenderState((D3DRENDERSTATETYPE)s_jampRenderStateTypes[slot], &actual);
+			if (actual != s_jampRenderStateCache[slot])
+			{
+				mismatches++;
+				if (s_jampRenderStateTypes[slot] != D3DRS_ALPHABLENDENABLE)
+				{
+					nonBlendMismatches++;
+				}
+			}
+		}
+
+		s_jampPresentProbeFrames--;
+		if (nonBlendMismatches)
+		{
+			s_jampPresentKeepsRenderState = qfalse;
+			Com_PrintfAlways("JAMP: Present changed %d cached render states; falling back to full render-state invalidation\n",
+				nonBlendMismatches);
+			JAMP_InvalidateRenderStateCache();
+			return;
+		}
+		if (mismatches)
+		{
+			JAMP_InvalidateRenderStateSlot(D3DRS_ALPHABLENDENABLE);
+			return;
+		}
+	}
+
+	JAMP_InvalidateRenderStateSlot(D3DRS_ALPHABLENDENABLE);
+}
+
 static void setPresent(bool vsync)
 {
 	//extern void ShowOSMemory();
@@ -2003,6 +2693,9 @@ static void setPresent(bool vsync)
 	pp.DepthStencilSurface = 0;
 	glw_state->device->PersistDisplay();
 	glw_state->device->Reset(&pp);
+	JAMP_InvalidateRenderStateCache();
+	JAMP_InvalidateTransformCache();
+	JAMP_InvalidateMaterialLightCache();
 
 	//ShowOSMemory();
 }
@@ -2012,37 +2705,75 @@ static void setCap(GLenum cap, bool flag)
 {
 	switch (cap)
 	{
-	case GL_ALPHA_TEST: glw_state->device->SetRenderState(D3DRS_ALPHATESTENABLE, flag); break;
-	case GL_BLEND: glw_state->device->SetRenderState(D3DRS_ALPHABLENDENABLE, flag); break;
+	case GL_ALPHA_TEST:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_ALPHATESTENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_ALPHATESTENABLE, flag);
+#endif
+		break;
+	case GL_BLEND:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_ALPHABLENDENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_ALPHABLENDENABLE, flag);
+#endif
+		break;
 	case GL_CULL_FACE:
 		glw_state->cullEnable = flag;
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_CULLMODE, flag ? glw_state->cullMode : D3DCULL_NONE);
+#else
 		glw_state->device->SetRenderState(D3DRS_CULLMODE, 
 			flag ? glw_state->cullMode : D3DCULL_NONE);
+#endif
 		break;
-	case GL_DEPTH_TEST: glw_state->device->SetRenderState(D3DRS_ZENABLE, flag); break;
-	case GL_LIGHTING: glw_state->device->SetRenderState(D3DRS_LIGHTING, flag); break;
+	case GL_DEPTH_TEST:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_ZENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_ZENABLE, flag);
+#endif
+		break;
+	case GL_LIGHTING:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_LIGHTING, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_LIGHTING, flag);
+#endif
+		break;
 #ifdef _XBOX
 	case GL_POLYGON_OFFSET_POINT:
-		glw_state->device->SetRenderState(D3DRS_POINTOFFSETENABLE, flag);
+		JAMP_SetRenderStateCached(D3DRS_POINTOFFSETENABLE, flag);
 		break;
 	case GL_POLYGON_OFFSET_LINE:
-		glw_state->device->SetRenderState(D3DRS_WIREFRAMEOFFSETENABLE, flag);
+		JAMP_SetRenderStateCached(D3DRS_WIREFRAMEOFFSETENABLE, flag);
 		break;
 	case GL_POLYGON_OFFSET_FILL:
-		glw_state->device->SetRenderState(D3DRS_SOLIDOFFSETENABLE, flag);
+		JAMP_SetRenderStateCached(D3DRS_SOLIDOFFSETENABLE, flag);
 		break;
 	case GL_SCISSOR_TEST:
 		glw_state->scissorEnable = flag;
-		glw_state->device->SetScissors(flag ? 1 : 0, FALSE, &glw_state->scissorBox);
+		JAMP_SetScissorsCached(flag, glw_state->scissorBox, false);
 		break;
 #endif
-	case GL_STENCIL_TEST: glw_state->device->SetRenderState(D3DRS_STENCILENABLE, flag); break;
+	case GL_STENCIL_TEST:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_STENCILENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_STENCILENABLE, flag);
+#endif
+		break;
 	case GL_TEXTURE_2D: 
 		glw_state->textureStageEnable[glw_state->serverTU] = flag;
 		glw_state->textureStageDirty[glw_state->serverTU] = true;
 		break;
 	case GL_FOG:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_FOGENABLE, flag);
+#else
 		glw_state->device->SetRenderState(D3DRS_FOGENABLE, flag);
+#endif
 		break;
 #ifdef _XBOX
 	case GL_VSYNC:
@@ -2051,6 +2782,9 @@ static void setCap(GLenum cap, bool flag)
 #endif
 	default: break;
 	}
+#ifdef _XBOX
+	JAMP_SetCapCache(cap, flag);
+#endif
 }
 
 static void dllDisable(GLenum cap)
@@ -2350,6 +3084,260 @@ static void PushIndices(GLsizei count, const GLushort *indices)
 	}
 }
 
+#ifdef _XBOX
+#ifndef JAMP_USE_DRAWINDEXED_UP
+#define JAMP_USE_DRAWINDEXED_UP 1
+#endif
+
+static int s_jampUpDrawCalls;
+static int s_jampUpDrawVertices;
+static int s_jampUpDrawIndices;
+static int s_jampUpDrawBytes;
+static int s_jampUpMaxVertices;
+static int s_jampBeginExtCalls;
+static int s_jampBeginExtVertices;
+static int s_jampImmediateEndCalls;
+static int s_jampImmediateEndVertices;
+static int s_jampPushIndexedCalls;
+static int s_jampPushIndexedVertices;
+static int s_jampPushIndexedIndices;
+static int s_jampPrimitiveUPCalls;
+static int s_jampPrimitiveUPVertices;
+static int s_jampShaderSets;
+static int s_jampShaderSkips;
+static int s_jampShaderInvalidates;
+static int s_jampIsEnabledCacheHits;
+static int s_jampIsEnabledDeviceReads;
+
+static int JAMP_CapCacheSlot(GLenum cap)
+{
+	switch (cap)
+	{
+	case GL_ALPHA_TEST: return 0;
+	case GL_BLEND: return 1;
+	case GL_CULL_FACE: return 2;
+	case GL_DEPTH_TEST: return 3;
+	case GL_FOG: return 4;
+	case GL_LIGHTING: return 5;
+	case GL_POLYGON_OFFSET_FILL: return 6;
+	case GL_SCISSOR_TEST: return 7;
+	case GL_STENCIL_TEST: return 8;
+	case GL_TEXTURE_2D: return 9 + glw_state->serverTU;
+	default: return -1;
+	}
+}
+
+static GLboolean s_jampCapCache[9 + GLW_MAX_TEXTURE_STAGES];
+static GLboolean s_jampCapCacheValid[9 + GLW_MAX_TEXTURE_STAGES];
+
+static void JAMP_SetCapCache(GLenum cap, bool flag)
+{
+	const int slot = JAMP_CapCacheSlot(cap);
+	if (slot < 0)
+	{
+		return;
+	}
+	s_jampCapCache[slot] = flag ? GL_TRUE : GL_FALSE;
+	s_jampCapCacheValid[slot] = GL_TRUE;
+}
+
+static qboolean JAMP_GetCapCache(GLenum cap, GLboolean *flag)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	(void)cap;
+	(void)flag;
+	return qfalse;
+#else
+	const int slot = JAMP_CapCacheSlot(cap);
+	if (slot < 0 || !s_jampCapCacheValid[slot])
+	{
+		return qfalse;
+	}
+	*flag = s_jampCapCache[slot];
+	JAMP_METRIC_INC(s_jampIsEnabledCacheHits);
+	return qtrue;
+#endif
+}
+
+static void JAMP_RecordUPDraw(int vertices, int indices, int strideBytes)
+{
+	JAMP_METRIC_INC(s_jampUpDrawCalls);
+	JAMP_METRIC_ADD(s_jampUpDrawVertices, vertices);
+	JAMP_METRIC_ADD(s_jampUpDrawIndices, indices);
+	JAMP_METRIC_ADD(s_jampUpDrawBytes, vertices * strideBytes);
+	if (s_jampRenderMetricActive && vertices > s_jampUpMaxVertices)
+	{
+		s_jampUpMaxVertices = vertices;
+	}
+}
+
+static void JAMP_RecordBeginExt(int vertices)
+{
+	JAMP_METRIC_INC(s_jampBeginExtCalls);
+	JAMP_METRIC_ADD(s_jampBeginExtVertices, vertices);
+}
+
+static void JAMP_RecordImmediateEnd(int vertices)
+{
+	JAMP_METRIC_INC(s_jampImmediateEndCalls);
+	JAMP_METRIC_ADD(s_jampImmediateEndVertices, vertices);
+}
+
+static void JAMP_RecordPushIndexed(int vertices, int indices)
+{
+	JAMP_METRIC_INC(s_jampPushIndexedCalls);
+	JAMP_METRIC_ADD(s_jampPushIndexedVertices, vertices);
+	JAMP_METRIC_ADD(s_jampPushIndexedIndices, indices);
+}
+
+static void JAMP_RecordPrimitiveUP(int vertices)
+{
+	JAMP_METRIC_INC(s_jampPrimitiveUPCalls);
+	JAMP_METRIC_ADD(s_jampPrimitiveUPVertices, vertices);
+}
+
+static void JAMP_RecordShaderUpdate(qboolean changed)
+{
+	if (changed)
+	{
+		JAMP_METRIC_INC(s_jampShaderSets);
+	}
+	else
+	{
+		JAMP_METRIC_INC(s_jampShaderSkips);
+	}
+}
+
+static void JAMP_InvalidateShaderCache(void)
+{
+	glw_state->shaderMask = 0xffffffff;
+	JAMP_METRIC_INC(s_jampShaderInvalidates);
+}
+
+static qboolean JAMP_DrawIndexedElementsUP(GLsizei count, const GLushort *indices, int normals, int tex0, int tex1)
+{
+	int strideDwords = 4;
+	if (normals) strideDwords += 3;
+	if (tex0) strideDwords += 2;
+	if (tex1) strideDwords += 2;
+
+	static std::vector<DWORD> s_interleaved;
+	const int neededDwords = strideDwords * tess.numVertexes;
+	if ((int)s_interleaved.size() < neededDwords)
+	{
+		s_interleaved.resize(neededDwords);
+	}
+
+	const DWORD drawColor = glw_state->currentColor;
+	const int useVertexColor = glw_state->colorArrayState;
+	const BYTE *tex0Base = tex0 ? (const BYTE *)glw_state->texCoordPointer[0] : NULL;
+	const BYTE *tex1Base = tex1 ? (const BYTE *)glw_state->texCoordPointer[1] : NULL;
+	const int tex0Stride = tex0 ? glw_state->texCoordStride[0] : 0;
+	const int tex1Stride = tex1 ? glw_state->texCoordStride[1] : 0;
+
+	if (!normals && tex0 && !tex1)
+	{
+		DWORD *dst = &s_interleaved[0];
+		for (int v = 0; v < tess.numVertexes; ++v, dst += 6)
+		{
+			float *dstf = (float *)dst;
+			const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+			dstf[0] = tess.xyz[v][0];
+			dstf[1] = tess.xyz[v][1];
+			dstf[2] = tess.xyz[v][2];
+			dst[3] = useVertexColor ? tess.svars.colors[v] : drawColor;
+			dstf[4] = tc0[0];
+			dstf[5] = tc0[1];
+		}
+	}
+	else if (normals && tex0 && !tex1)
+	{
+		DWORD *dst = &s_interleaved[0];
+		for (int v = 0; v < tess.numVertexes; ++v, dst += 9)
+		{
+			float *dstf = (float *)dst;
+			const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+			dstf[0] = tess.xyz[v][0];
+			dstf[1] = tess.xyz[v][1];
+			dstf[2] = tess.xyz[v][2];
+			dstf[3] = tess.normal[v][0];
+			dstf[4] = tess.normal[v][1];
+			dstf[5] = tess.normal[v][2];
+			dst[6] = useVertexColor ? tess.svars.colors[v] : drawColor;
+			dstf[7] = tc0[0];
+			dstf[8] = tc0[1];
+		}
+	}
+	else if (normals && tex0 && tex1)
+	{
+		DWORD *dst = &s_interleaved[0];
+		for (int v = 0; v < tess.numVertexes; ++v, dst += 11)
+		{
+			float *dstf = (float *)dst;
+			const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+			const float *tc1 = tex1Base ? (const float *)(tex1Base + v * tex1Stride) : tess.svars.texcoords[1][v];
+			dstf[0] = tess.xyz[v][0];
+			dstf[1] = tess.xyz[v][1];
+			dstf[2] = tess.xyz[v][2];
+			dstf[3] = tess.normal[v][0];
+			dstf[4] = tess.normal[v][1];
+			dstf[5] = tess.normal[v][2];
+			dst[6] = useVertexColor ? tess.svars.colors[v] : drawColor;
+			dstf[7] = tc0[0];
+			dstf[8] = tc0[1];
+			dstf[9] = tc1[0];
+			dstf[10] = tc1[1];
+		}
+	}
+	else
+	{
+		for (int v = 0; v < tess.numVertexes; ++v)
+		{
+			DWORD *dst = &s_interleaved[v * strideDwords];
+			float *dstf = (float *)dst;
+			int o = 0;
+
+			dstf[o++] = tess.xyz[v][0];
+			dstf[o++] = tess.xyz[v][1];
+			dstf[o++] = tess.xyz[v][2];
+
+			if (normals)
+			{
+				dstf[o++] = tess.normal[v][0];
+				dstf[o++] = tess.normal[v][1];
+				dstf[o++] = tess.normal[v][2];
+			}
+
+			dst[o++] = useVertexColor ? tess.svars.colors[v] : drawColor;
+
+			if (tex0)
+			{
+				const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+				dstf[o++] = tc0[0];
+				dstf[o++] = tc0[1];
+			}
+
+			if (tex1)
+			{
+				const float *tc1 = tex1Base ? (const float *)(tex1Base + v * tex1Stride) : tess.svars.texcoords[1][v];
+				dstf[o++] = tc1[0];
+				dstf[o++] = tc1[1];
+			}
+		}
+	}
+
+	glw_state->device->DrawIndexedVerticesUP(
+		glw_state->primitiveMode,
+		count,
+		indices,
+		&s_interleaved[0],
+		strideDwords * 4);
+	JAMP_RecordUPDraw(tess.numVertexes, count, strideDwords * 4);
+
+	return qtrue;
+}
+#endif
+
 // NOTE: This is a core draw routine.  It should be fast.
 static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
 {
@@ -2372,6 +3360,14 @@ static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoi
 	_updateShader(normals, tex0, tex1);
 	_updateTextures();
 	_updateMatrices();
+
+#if defined(_XBOX) && JAMP_USE_DRAWINDEXED_UP
+	if (JAMP_DrawIndexedElementsUP(count, (const GLushort *)indices, normals, tex0, tex1))
+	{
+		glw_state->inDrawBlock = false;
+		return;
+	}
+#endif
 
 	glw_state->drawStride += normals ? 2 : 1;
 
@@ -2525,6 +3521,7 @@ static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoi
 	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
 
 	glw_state->device->EndPush(push);
+	JAMP_RecordPushIndexed(tess.numVertexes, count);
 }
 
 static void dllDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels)
@@ -2569,6 +3566,7 @@ static void dllEnd(void)
 		glw_state->drawStride]);
 	
 	glw_state->device->EndPush(push);
+	JAMP_RecordImmediateEnd(glw_state->numVertices);
 #else
 	// on the PC, use DrawPrimitiveUp (a little slow)
 	int num = 0;
@@ -2588,22 +3586,142 @@ static void dllEnd(void)
 #endif
 }
 
-// EXTENSION: End drawing for a frame
 static void dllEndFrame(void)
 {
+#ifdef _XBOX
+	int jampEndFrameCount = s_jampRenderMetricFrame;
+	qboolean jampEndFrameTrace = (jampEndFrameCount < 2);
+	if (jampEndFrameTrace)
+	{
+		Com_PrintfAlways("JAMP: dllEndFrame #%d enter\n", jampEndFrameCount);
+	}
+#endif
 	assert(!glw_state->inDrawBlock);
 
 	// the blend state can get reset by Present()...
 	GLboolean blend = qglIsEnabled(GL_BLEND);
 	
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d before EndScene\n", jampEndFrameCount);
+#endif
 	glw_state->device->EndScene();
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after EndScene\n", jampEndFrameCount);
+#endif
 	
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d before viewport reset\n", jampEndFrameCount);
+#endif
 	qglViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after viewport reset\n", jampEndFrameCount);
+#endif
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d before Present\n", jampEndFrameCount);
+#endif
 	glw_state->device->Present(NULL, NULL, NULL, NULL);
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after Present\n", jampEndFrameCount);
+	JAMP_InvalidateRenderStateAfterPresent();
+#endif
 
 	// restore the pre-Present state
 	if (blend) qglEnable(GL_BLEND);
 	else qglDisable(GL_BLEND);
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d exit\n", jampEndFrameCount);
+	if (s_jampRenderMetricActive)
+	{
+		Com_PrintfAlways("JAMP: render metrics frame=%d upCalls=%d upVerts=%d upIdx=%d upKB=%d maxVerts=%d beginExt=%d/%d imm=%d/%d pushIdx=%d/%d/%d primUP=%d/%d shader=%d/%d/%d isen=%d/%d texState=%d/%d/%d texBind=%d/%d/%d rs=%d/%d/%d vp=%d/%d sc=%d/%d xf=%d/%d/%d mat=%d/%d lt=%d/%d le=%d/%d mlInv=%d\n",
+			jampEndFrameCount,
+			s_jampUpDrawCalls,
+			s_jampUpDrawVertices,
+			s_jampUpDrawIndices,
+			(s_jampUpDrawBytes + 1023) / 1024,
+			s_jampUpMaxVertices,
+			s_jampBeginExtCalls,
+			s_jampBeginExtVertices,
+			s_jampImmediateEndCalls,
+			s_jampImmediateEndVertices,
+			s_jampPushIndexedCalls,
+			s_jampPushIndexedVertices,
+			s_jampPushIndexedIndices,
+			s_jampPrimitiveUPCalls,
+			s_jampPrimitiveUPVertices,
+			s_jampShaderSets,
+			s_jampShaderSkips,
+			s_jampShaderInvalidates,
+			s_jampIsEnabledCacheHits,
+			s_jampIsEnabledDeviceReads,
+			s_jampTexStageSets,
+			s_jampTexStageSkips,
+			s_jampTexStageInvalidates,
+			s_jampTextureBindSets,
+			s_jampTextureBindSkips,
+			s_jampTextureBindInvalidates,
+			s_jampRenderStateSets,
+			s_jampRenderStateSkips,
+			s_jampRenderStateInvalidates,
+			s_jampViewportSets,
+			s_jampViewportSkips,
+			s_jampScissorSets,
+			s_jampScissorSkips,
+			s_jampTransformSets,
+			s_jampTransformSkips,
+			s_jampTransformInvalidates,
+			s_jampMaterialSets,
+			s_jampMaterialSkips,
+			s_jampLightSets,
+			s_jampLightSkips,
+			s_jampLightEnableSets,
+			s_jampLightEnableSkips,
+			s_jampMaterialLightInvalidates);
+		s_jampUpDrawCalls = 0;
+		s_jampUpDrawVertices = 0;
+		s_jampUpDrawIndices = 0;
+		s_jampUpDrawBytes = 0;
+		s_jampUpMaxVertices = 0;
+		s_jampBeginExtCalls = 0;
+		s_jampBeginExtVertices = 0;
+		s_jampImmediateEndCalls = 0;
+		s_jampImmediateEndVertices = 0;
+		s_jampPushIndexedCalls = 0;
+		s_jampPushIndexedVertices = 0;
+		s_jampPushIndexedIndices = 0;
+		s_jampPrimitiveUPCalls = 0;
+		s_jampPrimitiveUPVertices = 0;
+		s_jampShaderSets = 0;
+		s_jampShaderSkips = 0;
+		s_jampShaderInvalidates = 0;
+		s_jampIsEnabledCacheHits = 0;
+		s_jampIsEnabledDeviceReads = 0;
+		s_jampTexStageSets = 0;
+		s_jampTexStageSkips = 0;
+		s_jampTexStageInvalidates = 0;
+		s_jampTextureBindSets = 0;
+		s_jampTextureBindSkips = 0;
+		s_jampTextureBindInvalidates = 0;
+		s_jampRenderStateSets = 0;
+		s_jampRenderStateSkips = 0;
+		s_jampRenderStateInvalidates = 0;
+		s_jampViewportSets = 0;
+		s_jampViewportSkips = 0;
+		s_jampScissorSets = 0;
+		s_jampScissorSkips = 0;
+		s_jampTransformSets = 0;
+		s_jampTransformSkips = 0;
+		s_jampTransformInvalidates = 0;
+		s_jampMaterialSets = 0;
+		s_jampMaterialSkips = 0;
+		s_jampLightSets = 0;
+		s_jampLightSkips = 0;
+		s_jampLightEnableSets = 0;
+		s_jampLightEnableSkips = 0;
+		s_jampMaterialLightInvalidates = 0;
+	}
+	s_jampRenderMetricFrame++;
+	s_jampRenderMetricActive = qfalse;
+#endif
 }
 
 // EXTENSION: End shadow draw mode
@@ -2720,9 +3838,27 @@ static void dllFogf(GLenum pname, GLfloat param)
 
 	switch(pname)
 	{
-	case GL_FOG_DENSITY: glw_state->device->SetRenderState( D3DRS_FOGDENSITY, *(DWORD*)&param ); break;
-	case GL_FOG_START: glw_state->device->SetRenderState( D3DRS_FOGSTART, *(DWORD*)&param ); break;
-	case GL_FOG_END: glw_state->device->SetRenderState( D3DRS_FOGEND, *(DWORD*)&param ); break;
+	case GL_FOG_DENSITY:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached( D3DRS_FOGDENSITY, *(DWORD*)&param );
+#else
+		glw_state->device->SetRenderState( D3DRS_FOGDENSITY, *(DWORD*)&param );
+#endif
+		break;
+	case GL_FOG_START:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached( D3DRS_FOGSTART, *(DWORD*)&param );
+#else
+		glw_state->device->SetRenderState( D3DRS_FOGSTART, *(DWORD*)&param );
+#endif
+		break;
+	case GL_FOG_END:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached( D3DRS_FOGEND, *(DWORD*)&param );
+#else
+		glw_state->device->SetRenderState( D3DRS_FOGEND, *(DWORD*)&param );
+#endif
+		break;
 	}
 }
 
@@ -2735,14 +3871,22 @@ static void dllFogfv(GLenum pname, const GLfloat *params)
 								  (int)(params[1] * 255.0f),
 								  (int)(params[2] * 255.0f));
 
+#ifdef _XBOX
+	JAMP_SetRenderStateCached( D3DRS_FOGCOLOR, color );
+#else
 	glw_state->device->SetRenderState( D3DRS_FOGCOLOR, color );
+#endif
 }
 
 static void dllFogi(GLenum pname, GLint param)
 {
 	assert(pname == GL_FOG_MODE);
 
+#ifdef _XBOX
+	JAMP_SetRenderStateCached( D3DRS_FOGTABLEMODE, _convertFogMode(param) );
+#else
 	glw_state->device->SetRenderState( D3DRS_FOGTABLEMODE, _convertFogMode(param) );
+#endif
 }
 
 static void dllFogiv(GLenum pname, const GLint *params)
@@ -3058,25 +4202,21 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 	glw_state->totalIndices = numIndexes;
 	glw_state->maxIndices = _getMaxIndices();
 
-	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);	
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
 
 	int vert_size = glw_state->drawStride * tess.numVertexes;
 	int index_size = numIndexes / 2;
-	
+
 	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
 
 	glw_state->drawArray = (DWORD*)*((DWORD*)glw_state->device);
 
 	DWORD *jumpaddress = 0, *stream = 0;
 
-	// Determine where the end of the vertex data is gonna be,
-	// that's where we're going to jump to
 	jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
 
-	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
 
-	// Set up our own fake vertex buffer
 	stream = glw_state->drawArray;
 
 	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
@@ -3091,20 +4231,12 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 	memcpy(glw_state->drawArray, tess.tangent, sizeof(vec4_t) * tess.numVertexes);
 	glw_state->drawArray += tess.numVertexes * 4;
 
-	// Write the vertex shader
 #define CMD_STREAM_STRIDEANDTYPE0 0x1760
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
 
-	// Position
 	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
-
-	// Normal
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
-
-	// Tex Coord
 	*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
-
-	// Tangent
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
 
 	for(i = 0; i < 12; i++)
@@ -3112,7 +4244,6 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
-	//	 Write the indicator to our vertex stream
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
 	stream += tess.numVertexes * 4;
@@ -3129,10 +4260,8 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
 	stream += tess.numVertexes * 4;
 
-	// Send thru the index data
 	PushIndices(numIndexes, (GLushort*)indexes);
 
-	// finish up the draw
 	glw_state->inDrawBlock = false;
 
 	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
@@ -3154,7 +4283,7 @@ void renderObject_Bump()
 	glw_state->totalIndices = tess.numIndexes;
 	glw_state->maxIndices = _getMaxIndices();
 
-	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);	
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
 
 	int vert_size = glw_state->drawStride * tess.numVertexes;
 	int index_size = tess.numIndexes / 2;
@@ -3165,14 +4294,10 @@ void renderObject_Bump()
 
 	DWORD *jumpaddress = 0, *stream = 0;
 
-	// Determine where the end of the vertex data is gonna be,
-	// that's where we're going to jump to
 	jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
 
-	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
 
-	// Set up our own fake vertex buffer
 	stream = glw_state->drawArray;
 
 	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
@@ -3190,23 +4315,13 @@ void renderObject_Bump()
 	memcpy(glw_state->drawArray, tess.tangent, sizeof(vec4_t) * tess.numVertexes);
 	glw_state->drawArray += tess.numVertexes * 4;
 
-	// Write the vertex shader
 #define CMD_STREAM_STRIDEANDTYPE0 0x1760
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
 
-	// Position
 	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
-
-	// Normal
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
-
-	// Tex Coord 0
 	*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
-
-	// Tex Coord 1
 	*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
-
-	// Tangent
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
 
 	for(int i = 0; i < 11; i++)
@@ -3214,7 +4329,6 @@ void renderObject_Bump()
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
-	//	 Write the indicator to our vertex stream
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
 	stream += tess.numVertexes * 4;
@@ -3235,10 +4349,8 @@ void renderObject_Bump()
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
 	stream += tess.numVertexes * 4;
 
-	// Send thru the index data
 	PushIndices(tess.numIndexes, (GLushort*)tess.indexes);
 
-	// finish up the draw
 	glw_state->inDrawBlock = false;
 
 	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
@@ -3254,14 +4366,15 @@ void renderObject_Env()
 	glw_state->inDrawBlock = true;
 	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
 
-	glw_state->drawStride = 9;
 	_updateTextures();
+
+	glw_state->drawStride = 9;
 
 	glw_state->numIndices = 0;
 	glw_state->totalIndices = tess.numIndexes;
 	glw_state->maxIndices = _getMaxIndices();
 
-	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);	
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
 
 	int vert_size = glw_state->drawStride * tess.numVertexes;
 	int index_size = tess.numIndexes / 2;
@@ -3272,36 +4385,26 @@ void renderObject_Env()
 
 	DWORD *jumpaddress = 0, *stream = 0;
 
-	// Determine where the end of the vertex data is gonna be,
-	// that's where we're going to jump to
 	jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
 
-	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
 
-	// Set up our own fake vertex buffer
 	stream = glw_state->drawArray;
 
 	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
 	glw_state->drawArray += tess.numVertexes * 4;
 
 	memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
-	glw_state->drawArray += tess.numVertexes * 4; 
+	glw_state->drawArray += tess.numVertexes * 4;
 
 	memcpy(glw_state->drawArray, tess.svars.colors, sizeof(D3DCOLOR) * tess.numVertexes);
 	glw_state->drawArray += tess.numVertexes;
- 
-	// Write the vertex shader
+
 #define CMD_STREAM_STRIDEANDTYPE0 0x1760
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
 
-	// Position
 	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
-
-	// Normal
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
-
-	// Color
 	*glw_state->drawArray++ = (4 << 8) | D3DVSDT_D3DCOLOR;
 
 	for(int i = 0; i < 13; i++)
@@ -3309,7 +4412,6 @@ void renderObject_Env()
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
-	//	 Write the indicator to our vertex stream
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
 	stream += tess.numVertexes * 4;
@@ -3322,10 +4424,8 @@ void renderObject_Env()
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
 	stream += tess.numVertexes;
 
-	// Send thru the index data
 	PushIndices(tess.numIndexes, (GLushort*)tess.indexes);
 
-	// finish up the draw
 	glw_state->inDrawBlock = false;
 
 	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
@@ -3494,12 +4594,20 @@ static void dllInterleavedArrays(GLenum format, GLsizei stride, const GLvoid *po
 
 GLboolean dllIsEnabled(GLenum cap)
 {
+#ifdef _XBOX
+	GLboolean cachedFlag;
+	if (JAMP_GetCapCache(cap, &cachedFlag))
+	{
+		return cachedFlag;
+	}
+	JAMP_METRIC_INC(s_jampIsEnabledDeviceReads);
+#endif
 	DWORD flag;
 	switch (cap)
 	{
 	case GL_ALPHA_TEST: glw_state->device->GetRenderState(D3DRS_ALPHATESTENABLE, &flag); break;
 	case GL_BLEND: glw_state->device->GetRenderState(D3DRS_ALPHABLENDENABLE, &flag); break;
-	case GL_CULL_FACE: return glw_state->cullEnable;
+	case GL_CULL_FACE: flag = glw_state->cullEnable; break;
 	case GL_DEPTH_TEST: glw_state->device->GetRenderState(D3DRS_ZENABLE, &flag); break;
 	case GL_FOG: glw_state->device->GetRenderState(D3DRS_FOGENABLE, &flag); break;
 	case GL_LIGHTING: glw_state->device->GetRenderState(D3DRS_LIGHTING, &flag); break;
@@ -3508,11 +4616,14 @@ GLboolean dllIsEnabled(GLenum cap)
 #else
 	case GL_POLYGON_OFFSET_FILL: return FALSE;
 #endif
-	case GL_SCISSOR_TEST: return glw_state->scissorEnable;
+	case GL_SCISSOR_TEST: flag = glw_state->scissorEnable; break;
 	case GL_STENCIL_TEST: glw_state->device->GetRenderState(D3DRS_STENCILENABLE, &flag); break;
-	case GL_TEXTURE_2D: return glw_state->textureStageEnable[glw_state->serverTU];
+	case GL_TEXTURE_2D: flag = glw_state->textureStageEnable[glw_state->serverTU]; break;
 	default: return FALSE;
 	}
+#ifdef _XBOX
+	JAMP_SetCapCache(cap, flag ? true : false);
+#endif
 	return flag;
 }
 
@@ -3609,12 +4720,23 @@ static void dllLightfv(GLenum light, GLenum pname, const GLfloat *params)
 		assert( 0 && "Negative light direction in SetLight!" );
 		glw_state->dirLight[light].Direction.x = 1.0f;
 	}
+#ifdef _XBOX
+	JAMP_SetLightCached(light, &glw_state->dirLight[light]);
+	JAMP_LightEnableCached(light, TRUE);
+#else
 	glw_state->device->SetLight(light, &glw_state->dirLight[light]);
 	glw_state->device->LightEnable(light, true);
+#endif
 
 	// Do this so a dynamic light that has disappeared is removed
 	if(!light)
+	{
+#ifdef _XBOX
+		JAMP_LightEnableCached(1, FALSE);
+#else
 		glw_state->device->LightEnable(1, false);
+#endif
+	}
 }
 
 static void dllLighti(GLenum light, GLenum pname, GLint param)
@@ -3751,7 +4873,14 @@ static void dllMaterialfv(GLenum face, GLenum pname, const GLfloat *params)
 		break;
 	}
 
-	if (glw_state->device) glw_state->device->SetMaterial(&glw_state->mtrl);
+	if (glw_state->device)
+	{
+#ifdef _XBOX
+		JAMP_SetMaterialCached(&glw_state->mtrl);
+#else
+		glw_state->device->SetMaterial(&glw_state->mtrl);
+#endif
+	}
 }
 
 static void dllMateriali(GLenum face, GLenum pname, GLint param)
@@ -3921,8 +5050,13 @@ static void dllPixelZoom(GLfloat xfactor, GLfloat yfactor)
 
 static void dllPointSize(GLfloat size)
 {
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_POINTSCALEENABLE, TRUE);
+	JAMP_SetRenderStateCached(D3DRS_POINTSIZE, *((DWORD*)&size));
+#else
 	glw_state->device->SetRenderState(D3DRS_POINTSCALEENABLE, TRUE);
 	glw_state->device->SetRenderState(D3DRS_POINTSIZE, *((DWORD*)&size));
+#endif
 }
 
 static void dllPolygonMode(GLenum face, GLenum mode)
@@ -3939,17 +5073,25 @@ static void dllPolygonMode(GLenum face, GLenum mode)
 	switch (face)
 	{
 	case GL_FRONT:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_FILLMODE, m);
+#else
 		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
+#endif
 		break;
 	case GL_BACK:
 #ifdef _XBOX
-		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, m);
+		JAMP_SetRenderStateCached(D3DRS_BACKFILLMODE, m);
 #endif
 		break;
 	case GL_FRONT_AND_BACK:
-		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
 #ifdef _XBOX
-		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, m);
+		JAMP_SetRenderStateCached(D3DRS_FILLMODE, m);
+#else
+		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
+#endif
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_BACKFILLMODE, m);
 #endif
 		break;
 	}
@@ -3958,8 +5100,8 @@ static void dllPolygonMode(GLenum face, GLenum mode)
 static void dllPolygonOffset(GLfloat factor, GLfloat units)
 {
 #ifdef _XBOX
-	glw_state->device->SetRenderState(D3DRS_POLYGONOFFSETZOFFSET, *((DWORD*)&factor));
-	glw_state->device->SetRenderState(D3DRS_POLYGONOFFSETZSLOPESCALE, *((DWORD*)&units));
+	JAMP_SetRenderStateCached(D3DRS_POLYGONOFFSETZOFFSET, *((DWORD*)&factor));
+	JAMP_SetRenderStateCached(D3DRS_POLYGONOFFSETZSLOPESCALE, *((DWORD*)&units));
 #endif
 }
 
@@ -4222,6 +5364,12 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->SetTexture(1, NULL);
 	glw_state->device->SetTexture(2, NULL);
 	glw_state->device->SetTexture(3, NULL);
+#ifdef _XBOX
+	JAMP_InvalidateTextureBindCache(0);
+	JAMP_InvalidateTextureBindCache(1);
+	JAMP_InvalidateTextureBindCache(2);
+	JAMP_InvalidateTextureBindCache(3);
+#endif
 	glw_state->device->GetTextureStageState(0, D3DTSS_COLOROP, &colorop);
 	glw_state->device->GetTextureStageState(0, D3DTSS_COLORARG1, &colorarg1);
 	glw_state->device->GetTextureStageState(0, D3DTSS_ADDRESSU, &addressu);
@@ -4291,6 +5439,9 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	
 	// set texture 0 to the back buffer data
 	glw_state->device->SetTexture(0,(LPDIRECT3DTEXTURE8)pBackBuffer);
+#ifdef _XBOX
+	JAMP_InvalidateTextureBindCache(0);
+#endif
 
 	// set the texture 0 state
 	glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1 );
@@ -4310,9 +5461,15 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 
 	// set our vertex shader and draw the backbuffer to the texture
 	glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX1 );
+#ifdef _XBOX
+	JAMP_InvalidateShaderCache();
+#endif
 	glw_state->device->SetPixelShader( NULL );
 	glw_state->device->Clear(NULL,NULL,D3DCLEAR_TARGET,D3DCOLOR_COLORVALUE(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, 0);
 	glw_state->device->DrawPrimitiveUP( D3DPT_QUADSTRIP, 1, q, sizeof(QUAD) );
+#ifdef _XBOX
+	JAMP_RecordPrimitiveUP(4);
+#endif
 
 	// now that everything is rendered, check again to see
 	// if we want a compressed texture
@@ -4358,11 +5515,19 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE, zwrite );
 	glw_state->device->SetRenderState( D3DRS_ZENABLE, zenable );
 	glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, colorwriteenable);
+#ifdef _XBOX
+	JAMP_InvalidateRenderStateCache();
+#endif
 
 	// Clear stage zero again. We're not being nice.
 	glw_state->device->SetTexture(0, NULL);
 	glw_state->textureStageDirty[0] = true;
 	glw_state->textureStageDirty[1] = true;
+#ifdef _XBOX
+	JAMP_InvalidateTextureBindCache(0);
+	JAMP_InvalidateTextureStageStateCache(0);
+	JAMP_InvalidateTextureStageStateCache(1);
+#endif
 
 	glw_state->device->SetTextureStageState(0, D3DTSS_COLOROP, colorop);
 	glw_state->device->SetTextureStageState(0, D3DTSS_COLORARG1, colorarg1);
@@ -4370,8 +5535,14 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->SetTextureStageState(0, D3DTSS_ADDRESSV, addressv);
 	glw_state->device->SetTextureStageState(0, D3DTSS_MINFILTER, minfilter);
 	glw_state->device->SetTextureStageState(0, D3DTSS_MAGFILTER, magfilter);
+#ifdef _XBOX
+	JAMP_InvalidateTextureStageStateCache(0);
+#endif
 
 	glw_state->device->SetVertexShader( vShader );
+#ifdef _XBOX
+	JAMP_InvalidateShaderCache();
+#endif
 	glw_state->device->SetPixelShader( pShader );
 
 	glw_state->device->SetRenderTarget( pBackBuffer, pStencilBuffer );
@@ -4380,7 +5551,11 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	pBackBuffer->Release();
 	pStencilBuffer->Release();
 
+#ifdef _XBOX
+	JAMP_SetViewportCached(glw_state->viewport, true);
+#else
 	glw_state->device->SetViewport(&glw_state->viewport);
+#endif
 }
 
 static void dllRectd(GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2)
@@ -4464,7 +5639,7 @@ static void dllScissor(GLint x, GLint y, GLsizei width, GLsizei height)
 	
 	if (glw_state->scissorEnable)
 	{
-		glw_state->device->SetScissors(1, FALSE, &glw_state->scissorBox);
+		JAMP_SetScissorsCached(true, glw_state->scissorBox, false);
 	}
 #endif
 }
@@ -4483,21 +5658,35 @@ static void dllShadeModel(GLenum mode)
 	case GL_SMOOTH: default: m = D3DSHADE_GOURAUD; break;
 	}
 	
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_SHADEMODE, m);
+#else
 	glw_state->device->SetRenderState(D3DRS_SHADEMODE, m);
+#endif
 }
 
 static void dllStencilFunc(GLenum func, GLint ref, GLuint mask)
 {
 	D3DCMPFUNC f = _convertCompare(func);
 
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_STENCILFUNC, f);
+	JAMP_SetRenderStateCached(D3DRS_STENCILREF, ref);
+	JAMP_SetRenderStateCached(D3DRS_STENCILMASK, mask);
+#else
 	glw_state->device->SetRenderState(D3DRS_STENCILFUNC, f);
 	glw_state->device->SetRenderState(D3DRS_STENCILREF, ref);
 	glw_state->device->SetRenderState(D3DRS_STENCILMASK, mask);
+#endif
 }
 
 static void dllStencilMask(GLuint mask)
 {
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_STENCILWRITEMASK, mask);
+#else
 	glw_state->device->SetRenderState(D3DRS_STENCILWRITEMASK, mask);
+#endif
 }
 
 static D3DSTENCILOP _convertStencilOp(GLenum op)
@@ -4519,9 +5708,15 @@ static void dllStencilOp(GLenum fail, GLenum zfail, GLenum zpass)
 	D3DSTENCILOP zf = _convertStencilOp(zfail);
 	D3DSTENCILOP zp = _convertStencilOp(zpass);
 
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_STENCILFAIL, f);
+	JAMP_SetRenderStateCached(D3DRS_STENCILZFAIL, zf);
+	JAMP_SetRenderStateCached(D3DRS_STENCILPASS, zp);
+#else
 	glw_state->device->SetRenderState(D3DRS_STENCILFAIL, f);
 	glw_state->device->SetRenderState(D3DRS_STENCILZFAIL, zf);
 	glw_state->device->SetRenderState(D3DRS_STENCILPASS, zp);
+#endif
 }
 
 static void dllTexCoord1d(GLdouble s)
@@ -5377,13 +6572,31 @@ static void dllVertexPointer(GLint size, GLenum type, GLsizei stride, const GLvo
 
 static void dllViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 {
+	static int viewportLogCount = 0;
+	const GLint originalX = x;
+	const GLint originalY = y;
+	const GLsizei originalWidth = width;
+	const GLsizei originalHeight = height;
 	_fixupScreenCoords(x, y, width, height);
 
 	glw_state->viewport.X = x;
 	glw_state->viewport.Y = y;
 	glw_state->viewport.Width = width;
 	glw_state->viewport.Height = height;
+#ifdef _XBOX
+	if (viewportLogCount < 4)
+	{
+		Com_PrintfAlways("JAMP: viewport in=%d,%d %dx%d out=%d,%d %dx%d vid=%dx%d\n",
+			originalX, originalY, originalWidth, originalHeight,
+			x, y, width, height, glConfig.vidWidth, glConfig.vidHeight);
+		viewportLogCount++;
+	}
+#endif
+#ifdef _XBOX
+	JAMP_SetViewportCached(glw_state->viewport, false);
+#else
 	glw_state->device->SetViewport(&glw_state->viewport);
+#endif
 }
 
 
@@ -6381,7 +7594,14 @@ D3DPRESENT_PARAMETERS present;
 	glw_state->mtrl.Diffuse.g = glw_state->mtrl.Ambient.g = 1.0f;
 	glw_state->mtrl.Diffuse.b = glw_state->mtrl.Ambient.b = 1.0f;
 	glw_state->mtrl.Diffuse.a = glw_state->mtrl.Ambient.a = 1.0f;
-	if (glw_state->device) glw_state->device->SetMaterial( &glw_state->mtrl );
+	if (glw_state->device)
+	{
+#ifdef _XBOX
+		JAMP_SetMaterialCached( &glw_state->mtrl );
+#else
+		glw_state->device->SetMaterial( &glw_state->mtrl );
+#endif
+	}
 	// Gamma hack
 	GLimp_SetGamma(1.3f);
 

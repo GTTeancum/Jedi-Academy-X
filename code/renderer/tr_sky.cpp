@@ -385,7 +385,7 @@ static void DrawSkyBox( shader_t *shader )
 {
 	int		i;
 #ifdef _XBOX
-	static int s_xboxSkyBoxLogBudget = 36;
+	static int s_xboxSkyBoxLogBudget = 8;
 	const qboolean xboxForceFullPortalSky =
 		(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL) ? qtrue : qfalse;
 #endif
@@ -828,7 +828,7 @@ Other things could be stuck in here, like birds in the sky, etc
 */
 void RB_StageIteratorSky( void ) {
 #ifdef _XBOX
-	static int s_xboxSkyIterLogBudget = 64;
+	static int s_xboxSkyIterLogBudget = 12;
 #endif
 	if ( r_fastsky->integer ) {
 #ifdef _XBOX

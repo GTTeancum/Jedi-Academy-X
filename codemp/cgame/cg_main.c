@@ -1475,6 +1475,148 @@ void CG_PrecacheNPCSounds(const char *str);
 void CG_ParseSiegeObjectiveStatus(const char *str);
 extern int cg_beatingSiegeTime;
 extern int cg_siegeWinTeam;
+
+static void CG_RegisterSaberShaders( void )
+{
+	if ( cgs.media.redSaberGlowShader &&
+		cgs.media.redSaberCoreShader &&
+		cgs.media.orangeSaberGlowShader &&
+		cgs.media.orangeSaberCoreShader &&
+		cgs.media.yellowSaberGlowShader &&
+		cgs.media.yellowSaberCoreShader &&
+		cgs.media.greenSaberGlowShader &&
+		cgs.media.greenSaberCoreShader &&
+		cgs.media.blueSaberGlowShader &&
+		cgs.media.blueSaberCoreShader &&
+		cgs.media.purpleSaberGlowShader &&
+		cgs.media.purpleSaberCoreShader &&
+		cgs.media.saberBlurShader &&
+		cgs.media.swordTrailShader )
+	{
+#ifdef _XBOX
+		CG_PrintfAlways( "JAMP: saber shaders already cached red=%d/%d green=%d/%d blur=%d trail=%d\n",
+			cgs.media.redSaberGlowShader, cgs.media.redSaberCoreShader,
+			cgs.media.greenSaberGlowShader, cgs.media.greenSaberCoreShader,
+			cgs.media.saberBlurShader, cgs.media.swordTrailShader );
+#endif
+		return;
+	}
+
+	cgs.media.redSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/red_glow" );
+	cgs.media.redSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/red_line" );
+	cgs.media.orangeSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/orange_glow" );
+	cgs.media.orangeSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/orange_line" );
+	cgs.media.yellowSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/yellow_glow" );
+	cgs.media.yellowSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/yellow_line" );
+	cgs.media.greenSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/green_glow" );
+	cgs.media.greenSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/green_line" );
+	cgs.media.blueSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/blue_glow" );
+	cgs.media.blueSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/blue_line" );
+	cgs.media.purpleSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/purple_glow" );
+	cgs.media.purpleSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/purple_line" );
+	cgs.media.saberBlurShader			= trap_R_RegisterShader( "gfx/effects/sabers/saberBlur" );
+	cgs.media.swordTrailShader			= trap_R_RegisterShader( "gfx/effects/sabers/swordTrail" );
+
+#ifdef _XBOX
+	CG_PrintfAlways( "JAMP: saber shaders red=%d/%d orange=%d/%d yellow=%d/%d green=%d/%d blue=%d/%d purple=%d/%d blur=%d trail=%d\n",
+		cgs.media.redSaberGlowShader, cgs.media.redSaberCoreShader,
+		cgs.media.orangeSaberGlowShader, cgs.media.orangeSaberCoreShader,
+		cgs.media.yellowSaberGlowShader, cgs.media.yellowSaberCoreShader,
+		cgs.media.greenSaberGlowShader, cgs.media.greenSaberCoreShader,
+		cgs.media.blueSaberGlowShader, cgs.media.blueSaberCoreShader,
+		cgs.media.purpleSaberGlowShader, cgs.media.purpleSaberCoreShader,
+		cgs.media.saberBlurShader, cgs.media.swordTrailShader );
+#endif
+}
+
+static void CG_RegisterEffectShaders( void )
+{
+	static qboolean registered = qfalse;
+	int zeroCount = 0;
+	int shaderCount = 0;
+
+	if (registered &&
+		cgs.media.hackerIconShader &&
+		cgs.media.forceCoronaShader &&
+		cgs.media.yellowDroppedSaberShader &&
+		cgs.media.rivetMarkShader)
+	{
+		return;
+	}
+
+	cgs.media.hackerIconShader			= trap_R_RegisterShaderNoMip("gfx/mp/c_icon_tech");
+
+	CG_RegisterSaberShaders();
+
+	cgs.media.forceCoronaShader			= trap_R_RegisterShaderNoMip( "gfx/hud/force_swirl" );
+	cgs.media.yellowDroppedSaberShader	= trap_R_RegisterShader("gfx/effects/yellow_glow");
+	cgs.media.rivetMarkShader			= trap_R_RegisterShader( "gfx/damage/rivetmark" );
+
+	trap_R_RegisterShader( "gfx/effects/saberFlare" );
+	trap_R_RegisterShader( "powerups/ysalimarishell" );
+	trap_R_RegisterShader( "gfx/effects/forcePush" );
+	trap_R_RegisterShader( "gfx/misc/red_dmgshield" );
+	trap_R_RegisterShader( "gfx/misc/red_portashield" );
+	trap_R_RegisterShader( "gfx/misc/blue_dmgshield" );
+	trap_R_RegisterShader( "gfx/misc/blue_portashield" );
+	trap_R_RegisterShader( "models/map_objects/imp_mine/turret_chair_dmg.tga" );
+
+#ifdef _XBOX
+#define JAMP_REGISTER_EFFECT_SHADER(name) do { \
+		qhandle_t shaderHandle = trap_R_RegisterShader( name ); \
+		shaderCount++; \
+		if (!shaderHandle) { \
+			zeroCount++; \
+			if (zeroCount <= 12) { \
+				CG_PrintfAlways( "JAMP: effect shader missing '%s'\n", name ); \
+			} \
+		} \
+	} while (0)
+
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/damage/burnmark4" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/bubble" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/caustic1" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/demp2shell" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/drained" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/drainedadd" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/flare1" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/light_cone" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/puffdark" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/snowpuff2" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/white_fire1" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/white_fire2" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/whiteFlare" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/whiteFlareMult" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/effects/whiteGlow" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/black_smoke" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/blueLine" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/Chunk" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/exp01_1" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/exp01_2" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/flaretail2" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/fxflare" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/lightningFlash" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/rline" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/spark" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/spark2" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/spark3" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/spikeb" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/steam" );
+	JAMP_REGISTER_EFFECT_SHADER( "gfx/misc/whiteLine2" );
+	JAMP_REGISTER_EFFECT_SHADER( "wake" );
+
+#undef JAMP_REGISTER_EFFECT_SHADER
+#endif
+
+	registered = qtrue;
+#ifdef _XBOX
+	CG_PrintfAlways( "JAMP: effect shaders hacker=%d forceCorona=%d droppedSaber=%d rivet=%d cached=%d missing=%d\n",
+		cgs.media.hackerIconShader, cgs.media.forceCoronaShader,
+		cgs.media.yellowDroppedSaberShader, cgs.media.rivetMarkShader,
+		shaderCount, zeroCount );
+#endif
+}
+
 static void CG_RegisterSounds( void ) {
 	int		i;
 	char	items[MAX_ITEMS+1];
@@ -1509,41 +1651,7 @@ static void CG_RegisterSounds( void ) {
 	cgs.media.count1Sound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM037" );
 	cgs.media.countFightSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM038" );
 
-	cgs.media.hackerIconShader			= trap_R_RegisterShaderNoMip("gfx/mp/c_icon_tech");
-
-	cgs.media.redSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/red_glow" );
-	cgs.media.redSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/red_line" );
-	cgs.media.orangeSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/orange_glow" );
-	cgs.media.orangeSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/orange_line" );
-	cgs.media.yellowSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/yellow_glow" );
-	cgs.media.yellowSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/yellow_line" );
-	cgs.media.greenSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/green_glow" );
-	cgs.media.greenSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/green_line" );
-	cgs.media.blueSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/blue_glow" );
-	cgs.media.blueSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/blue_line" );
-	cgs.media.purpleSaberGlowShader		= trap_R_RegisterShader( "gfx/effects/sabers/purple_glow" );
-	cgs.media.purpleSaberCoreShader		= trap_R_RegisterShader( "gfx/effects/sabers/purple_line" );
-	cgs.media.saberBlurShader			= trap_R_RegisterShader( "gfx/effects/sabers/saberBlur" );
-	cgs.media.swordTrailShader			= trap_R_RegisterShader( "gfx/effects/sabers/swordTrail" );
-
-	cgs.media.forceCoronaShader			= trap_R_RegisterShaderNoMip( "gfx/hud/force_swirl" );
-
-	cgs.media.yellowDroppedSaberShader	= trap_R_RegisterShader("gfx/effects/yellow_glow");
-
-	cgs.media.rivetMarkShader			= trap_R_RegisterShader( "gfx/damage/rivetmark" );
-
-	trap_R_RegisterShader( "gfx/effects/saberFlare" );
-
-	trap_R_RegisterShader( "powerups/ysalimarishell" );
-	
-	trap_R_RegisterShader( "gfx/effects/forcePush" );
-
-	trap_R_RegisterShader( "gfx/misc/red_dmgshield" );
-	trap_R_RegisterShader( "gfx/misc/red_portashield" );
-	trap_R_RegisterShader( "gfx/misc/blue_dmgshield" );
-	trap_R_RegisterShader( "gfx/misc/blue_portashield" );
-
-	trap_R_RegisterShader( "models/map_objects/imp_mine/turret_chair_dmg.tga" );
+	CG_RegisterEffectShaders();
 
 	for (i=1 ; i<9 ; i++)
 	{
@@ -4003,6 +4111,8 @@ Ghoul2 Insert End
 
 #if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
 	CG_PrintfAlways("JAMP: CG_Init CG_RegisterSounds skipped for Cxbx smoke testing\n");
+	CG_RegisterEffectShaders();
+	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterEffectShaders\n");
 #else
 	CG_RegisterSounds();
 	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterSounds\n");

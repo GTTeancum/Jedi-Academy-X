@@ -951,7 +951,7 @@ CLIENT INFO
 
 qhandle_t CG_RegisterHeadSkin( const char *headModelName, const char *headSkinName, qboolean *extensions )
 {
-	char		hfilename[MAX_QPATH];
+	char		hfilename[512];
 	qhandle_t	headSkin;
 
 	Com_sprintf( hfilename, sizeof( hfilename ), "models/players/%s/head_%s.skin", headModelName, headSkinName );
@@ -983,9 +983,9 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 								  const char *torsoModelName, const char *torsoSkinName,
 								  const char *legsModelName, const char *legsSkinName) 
 {
-	char		hfilename[MAX_QPATH];
-	char		tfilename[MAX_QPATH];
-	char		lfilename[MAX_QPATH];
+	char		hfilename[512];
+	char		tfilename[512];
+	char		lfilename[512];
 
 	Com_sprintf( lfilename, sizeof( lfilename ), "models/players/%s/lower_%s.skin", legsModelName, legsSkinName );
 	ci->legsSkin = cgi_R_RegisterSkin( lfilename );
@@ -1037,7 +1037,7 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 Ghoul2 Insert Start
 */
 #if 1
-	char		filename[MAX_QPATH];
+	char		filename[512];
 
 
 	if ( !legsModelName || !legsModelName[0] )
@@ -1119,17 +1119,24 @@ Ghoul2 Insert End
 void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 {
 	char			*slash;
-	char			headModelName[MAX_QPATH];
-	char			torsoModelName[MAX_QPATH];
-	char			legsModelName[MAX_QPATH];
-	char			headSkinName[MAX_QPATH];
-	char			torsoSkinName[MAX_QPATH];
-	char			legsSkinName[MAX_QPATH];
+	char			headModelName[512];
+	char			torsoModelName[512];
+	char			legsModelName[512];
+	char			headSkinName[512];
+	char			torsoSkinName[512];
+	char			legsSkinName[512];
 
 	if(!ri->legsModelName || !ri->legsModelName[0])
 	{//Must have at LEAST a legs model
 		return;
 	}
+
+#ifdef _XBOX
+	Com_Printf("JA: CG_RegisterClientRenderInfo ri legs='%s' torso='%s' head='%s'\n",
+		ri->legsModelName,
+		ri->torsoModelName,
+		ri->headModelName);
+#endif
 
 	Q_strncpyz( legsModelName, ri->legsModelName, sizeof( legsModelName ) );
 	//Legs skin
@@ -1746,9 +1753,19 @@ Ghoul2 Insert End
 		CG_NewClientinfo( i );
 	}
 
-	for (i=0 ; i < ENTITYNUM_WORLD ; i++)
+	int gameEntityLimit = globals.num_entities;
+	if ( gameEntityLimit < 0 || gameEntityLimit > ENTITYNUM_WORLD )
 	{
-		if(&g_entities[i])
+		gameEntityLimit = ENTITYNUM_WORLD;
+	}
+#ifdef _XBOX
+	Com_Printf("JA: CG_RegisterGraphics entity precache limit=%d globals.num_entities=%d\n",
+		gameEntityLimit,
+		globals.num_entities);
+#endif
+	for (i=0 ; i < gameEntityLimit ; i++)
+	{
+		if(PInUse(i) || i == 0)
 		{
 			if(g_entities[i].client)
 			{

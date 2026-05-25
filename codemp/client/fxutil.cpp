@@ -35,6 +35,22 @@ int				activeFx = 0;
 int				drawnFx;
 qboolean		fxInitialized = qfalse;	
 
+#ifdef _XBOX
+static qboolean JAMP_SkipNullFxShader( const char *type, int killTime, int flags )
+{
+	static int warningCount = 0;
+
+	warningCount++;
+	if (warningCount <= 24 || !(warningCount & 63))
+	{
+		Com_Printf( "JAMP: FX skipped null shader type=%s life=%d flags=0x%x count=%d\n",
+			type, killTime, flags, warningCount );
+	}
+
+	return qtrue;
+}
+#endif
+
 //-------------------------
 // FX_Free
 //
@@ -180,6 +196,9 @@ void FX_Add( bool portal )
 {
 	int			i;
 	SEffectList	*ef;
+#ifdef _XBOX
+	static int s_jampFxFrame = 0;
+#endif
 	
 	drawnFx = 0;
 
@@ -224,6 +243,17 @@ void FX_Add( bool portal )
 		theFxHelper.Print( "Drawn     FX: %i\n", drawnFx );
 		theFxHelper.Print( "Scheduled FX: %i\n", theFxScheduler.NumScheduledFx() );
 	}
+#ifdef _XBOX
+	if (!portal)
+	{
+		s_jampFxFrame++;
+		if (s_jampFxFrame <= 4 || !(s_jampFxFrame % 300))
+		{
+			Com_Printf("JAMP: FX metrics frame=%d active=%d drawn=%d scheduled=%d\n",
+				s_jampFxFrame, activeFx, drawnFx, theFxScheduler.NumScheduledFx());
+		}
+	}
+#endif
 }
 
 
@@ -266,6 +296,12 @@ CParticle *FX_AddParticle( vec3_t org, vec3_t vel, vec3_t accel, float size1, fl
 							EMatImpactEffect matImpactFX /*MATIMPACTFX_NONE*/, int fxParm /*-1*/,
 							int iGhoul2/*0*/, int entNum/*-1*/, int modelNum/*-1*/, int boltNum/*-1*/ )
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Particle", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding effects when the system is paused
 		return 0;
@@ -361,6 +397,12 @@ CLine *FX_AddLine( vec3_t start, vec3_t end, float size1, float size2, float siz
 									EMatImpactEffect matImpactFX /*MATIMPACTFX_NONE*/, int fxParm /*-1*/,
 									int iGhoul2/*0*/, int entNum/*-1*/, int modelNum/*-1*/, int boltNum/*-1*/)
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Line", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding new effects when the system is paused
 		return 0;
@@ -447,6 +489,12 @@ CElectricity *FX_AddElectricity( vec3_t start, vec3_t end, float size1, float si
 								EMatImpactEffect matImpactFX /*MATIMPACTFX_NONE*/, int fxParm /*-1*/,
 								int iGhoul2/*0*/, int entNum/*-1*/, int modelNum/*-1*/, int boltNum/*-1*/ )
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Electricity", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding new effects when the system is paused
 		return 0;
@@ -543,6 +591,12 @@ CTail *FX_AddTail( vec3_t org, vec3_t vel, vec3_t accel,
 							EMatImpactEffect matImpactFX /*MATIMPACTFX_NONE*/, int fxParm /*-1*/,
 							int iGhoul2/*0*/, int entNum/*-1*/, int modelNum/*-1*/, int boltNum/*-1*/ )
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Tail", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding effects when the system is paused
 		return 0;
@@ -650,6 +704,12 @@ CCylinder *FX_AddCylinder( vec3_t start, vec3_t normal,
 							int iGhoul2/*0*/, int entNum/*-1*/, int modelNum/*-1*/, int boltNum/*-1*/,
 							qboolean traceEnd)
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Cylinder", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding new effects when the system is paused
 		return 0;
@@ -931,6 +991,12 @@ COrientedParticle *FX_AddOrientedParticle( vec3_t org, vec3_t norm, vec3_t vel, 
 						EMatImpactEffect matImpactFX /*MATIMPACTFX_NONE*/, int fxParm /*-1*/,
 						int iGhoul2/*0*/, int entNum/*-1*/, int modelNum/*-1*/, int boltNum/*-1*/ )
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "OrientedParticle", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding effects when the system is paused
 		return 0;
@@ -1024,6 +1090,12 @@ CPoly *FX_AddPoly( vec3_t *verts, vec2_t *st, int numVerts,
 							vec3_t rotationDelta, float bounce, int motionDelay,
 							int killTime, qhandle_t shader, int flags )
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Poly", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 || !verts )
 	{ // disallow adding effects when the system is paused or the user doesn't pass in a vert array
 		return 0;
@@ -1180,6 +1252,12 @@ CBezier *FX_AddBezier( vec3_t start, vec3_t end,
 								vec3_t sRGB, vec3_t eRGB, float rgbParm,
 								int killTime, qhandle_t shader, int flags )
 {
+#ifdef _XBOX
+	if (!shader && JAMP_SkipNullFxShader( "Bezier", killTime, flags ))
+	{
+		return 0;
+	}
+#endif
 	if ( theFxHelper.mFrameTime < 1 )
 	{ // disallow adding new effects when the system is paused
 		return 0;

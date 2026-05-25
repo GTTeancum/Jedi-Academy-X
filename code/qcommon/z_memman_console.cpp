@@ -126,6 +126,11 @@ void TempFree( void )
 	s_TempAllocPoint = 0;
 }
 
+qboolean Z_IsFromTempPool(void *pvAddress)
+{
+	return (pvAddress >= s_TempAllocPool && pvAddress < s_TempAllocPool + s_TempAllocPoint) ? qtrue : qfalse;
+}
+
 // Should we emulate the smaller memory footprint of actual release systems?
 #define ZONE_EMULATE_SPACE 0
 

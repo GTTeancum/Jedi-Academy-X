@@ -29,7 +29,11 @@
 #endif
 
 #ifndef JAMP_CXBX_SMOKE_STARTUP_COMMAND
-#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set g_gametype 0 +devmap mp/ffa5"
+#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set jamp_smokeDirectMap 1 +set g_gametype 0 +devmap mp/ffa5 +wait 180 +team free +wait 5 +forcechanged free"
+#endif
+
+#ifndef JAMP_USE_MAINLOOP_SEH
+#define JAMP_USE_MAINLOOP_SEH 0
 #endif
 
 extern int eventHead, eventTail;
@@ -843,7 +847,7 @@ int main(int argc, char* argv[])
 		extern void PrintMem(void);
 		PrintMem();
 		*/
-		qboolean jampLoopTrace = (jampFrameHeartbeat < 5 || (jampFrameHeartbeat >= 190 && jampFrameHeartbeat <= 230));
+		qboolean jampLoopTrace = (jampFrameHeartbeat < 5);
 		if (jampLoopTrace)
 		{
 			char traceMsg[96];
@@ -851,6 +855,7 @@ int main(int argc, char* argv[])
 			traceMsg[sizeof(traceMsg) - 1] = 0;
 			XBLog_Write(traceMsg);
 		}
+#if JAMP_USE_MAINLOOP_SEH
 		__try
 		{
 			IN_Frame();
@@ -859,6 +864,9 @@ int main(int argc, char* argv[])
 		{
 			return 1;
 		}
+#else
+		IN_Frame();
+#endif
 		if (jampLoopTrace)
 		{
 			char traceMsg[96];
@@ -873,6 +881,7 @@ int main(int argc, char* argv[])
 			traceMsg[sizeof(traceMsg) - 1] = 0;
 			XBLog_Write(traceMsg);
 		}
+#if JAMP_USE_MAINLOOP_SEH
 		__try
 		{
 			Com_Frame();
@@ -881,6 +890,9 @@ int main(int argc, char* argv[])
 		{
 			return 1;
 		}
+#else
+		Com_Frame();
+#endif
 		if (jampLoopTrace)
 		{
 			char traceMsg[96];
@@ -910,6 +922,7 @@ int main(int argc, char* argv[])
 		{
 			XBLog_Write("JAMP: main loop before DebugConsoleHandleCommands");
 		}
+#if JAMP_USE_MAINLOOP_SEH
 		__try
 		{
 			DebugConsoleHandleCommands();
@@ -918,6 +931,9 @@ int main(int argc, char* argv[])
 		{
 			return 1;
 		}
+#else
+		DebugConsoleHandleCommands();
+#endif
 		if (jampFrameHeartbeat < 5 || !(jampFrameHeartbeat & 511))
 		{
 			XBLog_Write("JAMP: main loop after DebugConsoleHandleCommands");

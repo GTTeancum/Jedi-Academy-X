@@ -291,7 +291,7 @@ static qboolean RB_XboxIsRenderSuspectSurface( const shader_t *shader )
 
 static void RB_XboxLogRenderSuspectSurface( const char *where )
 {
-	static int suspectBudget = 48;
+	static int suspectBudget = 12;
 	const shader_t *shader = tess.shader;
 	int i;
 
@@ -351,6 +351,28 @@ static void RB_XboxLogRenderSuspectSurface( const char *where )
 			(int)RB_XboxImageLooksFallback(stage->bundle[1].image));
 		--suspectBudget;
 	}
+}
+
+static qboolean RB_XboxShouldSkipYavinSkyOverlay( const shader_t *shader )
+{
+	if ( !shader || !tr.world || cls.state != CA_ACTIVE )
+	{
+		return qfalse;
+	}
+
+	if ( Q_stricmp( tr.world->baseName, "yavin1" ) &&
+		Q_stricmp( tr.world->baseName, "yavin1b" ) &&
+		Q_stricmp( tr.world->baseName, "yavin2" ) )
+	{
+		return qfalse;
+	}
+
+	if ( !Q_stricmp( shader->name, "textures/common/gradient2" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
 }
 
 static void RB_XboxRenderYield( void )
@@ -768,7 +790,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	shaderStage_t	*pStage;
 #ifdef _XBOX
 	static int traceBudget = 2048;
-	static int activeTraceBudget = 64;
+	static int activeTraceBudget = 8;
 	qboolean trace = RB_XboxShouldTraceSurface();
 	qboolean forceTrace = RB_XboxForceTraceSurface();
 #endif
@@ -813,7 +835,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	}
 	{
 		static int s_xboxWorldStageStateLogCount = 0;
-		if ( s_xboxWorldStageStateLogCount < 32 )
+		if ( s_xboxWorldStageStateLogCount < 8 )
 		{
 			const DWORD color0 = input->svars.colors[0];
 			const byte r = (byte)((color0 >> 16) & 0xff);
@@ -3324,6 +3346,22 @@ void RB_StageIteratorGeneric( void )
 	input = &tess;
 #ifdef _XBOX
 	RB_XboxLogRenderSuspectSurface("RB_StageIteratorGeneric");
+	if ( RB_XboxShouldSkipYavinSkyOverlay( tess.shader ) )
+	{
+		static int s_xboxYavinSkyOverlaySkipLogBudget = 12;
+		if ( s_xboxYavinSkyOverlaySkipLogBudget > 0 )
+		{
+			XBLF("JA: XBOX_YAVIN_SKY_OVERLAY_SKIP map='%s' shader='%s' verts=%d indexes=%d rdflags=0x%x scene=%d",
+				tr.world ? tr.world->baseName : "<null>",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.numVertexes,
+				tess.numIndexes,
+				backEnd.refdef.rdflags,
+				tr.sceneCount);
+			--s_xboxYavinSkyOverlaySkipLogBudget;
+		}
+		return;
+	}
 #endif
 #ifdef _XBOX
 	trace = RB_XboxShouldTraceSurface();
@@ -3699,7 +3737,7 @@ void RB_EndSurface( void ) {
 			if(tess.currentStageIteratorFunc == RB_StageIteratorSky)
 			{	// don't process these tris at all
 #ifdef _XBOX
-				static int s_xboxSkyPortalFallbackLogBudget = 32;
+				static int s_xboxSkyPortalFallbackLogBudget = 8;
 				if (s_xboxSkyPortalFallbackLogBudget > 0)
 				{
 					XBLF("JA: XBOX_SKYPORTAL_MAIN_SKY_SKIP shader='%s' verts=%d indexes=%d rdflags=0x%x",

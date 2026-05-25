@@ -13,6 +13,10 @@ USER INTERFACE MAIN
 
 #include "../ghoul2/G2.h"
 #include "ui_local.h"
+
+#if defined(_XBOX)
+#define JAMP_XBOX_SIMPLE_PLAYER_ICONS 1
+#endif
 #include "../qcommon/qfiles.h"
 #include "../qcommon/game_version.h"
 #include "ui_force.h"
@@ -10165,6 +10169,11 @@ static const char *UI_SelectedTeamHead(int index, int *actual) {
 	char *teamname;
 	int i,c=0;
 
+	if (actual)
+	{
+		*actual = -1;
+	}
+
 	switch(uiSkinColor)
 	{
 		case TEAM_BLUE:
@@ -10186,7 +10195,10 @@ static const char *UI_SelectedTeamHead(int index, int *actual) {
 		{
 			if (c==index)
 			{
-				*actual = i;
+				if (actual)
+				{
+					*actual = i;
+				}
 				return uiInfo.q3HeadNames[i];
 			}
 			else
@@ -10542,7 +10554,7 @@ static qhandle_t UI_FeederItemImage(float feederID, int index) {
 	}
 	else if (feederID == FEEDER_Q3HEADS) 
 	{
-		int actual;
+		int actual = -1;
 		UI_SelectedTeamHead(index, &actual);
 		index = actual;
 
@@ -10560,6 +10572,16 @@ static qhandle_t UI_FeederItemImage(float feederID, int index) {
 					Menu_SetFeederSelection(NULL, FEEDER_Q3HEADS, selModel, NULL);
 				}
 			}
+
+#if defined(_XBOX) && JAMP_XBOX_SIMPLE_PLAYER_ICONS
+			static int jampSimpleIconLogged = 0;
+			if (!jampSimpleIconLogged)
+			{
+				trap_Print("JAMP: UI using simple Xbox player icon feeder\n");
+				jampSimpleIconLogged = 1;
+			}
+			return 0;
+#endif
 
 			if (!uiInfo.q3HeadIcons[index])
 			{ //this isn't the best way of doing this I guess, but I didn't want a whole seperate string array
@@ -10605,10 +10627,37 @@ static qhandle_t UI_FeederItemImage(float feederID, int index) {
 				iconNameFromSkinName[i] = 0;
 
 				//and now we are ready to register (thankfully this will only happen once)
+#ifdef _XBOX
+				{
+					static int jampHeadIconLogCount = 0;
+					if (jampHeadIconLogCount < 32)
+					{
+						trap_Print(va("JAMP: UI head icon register filtered=%d actual=%d name='%s' icon='%s'\n",
+							index, actual, uiInfo.q3HeadNames[index], iconNameFromSkinName));
+						jampHeadIconLogCount++;
+					}
+				}
+#endif
 				uiInfo.q3HeadIcons[index] = trap_R_RegisterShaderNoMip(iconNameFromSkinName);
+#ifdef _XBOX
+				{
+					static int jampHeadIconHandleLogCount = 0;
+					if (jampHeadIconHandleLogCount < 32)
+					{
+						trap_Print(va("JAMP: UI head icon registered actual=%d handle=%d\n",
+							index, uiInfo.q3HeadIcons[index]));
+						jampHeadIconHandleLogCount++;
+					}
+				}
+#endif
 			}
 			return uiInfo.q3HeadIcons[index];
 		}
+#ifdef _XBOX
+		trap_Print(va("JAMP: UI head icon invalid filtered=%d actual=%d count=%d\n",
+			index, actual, uiInfo.q3HeadCount));
+#endif
+		return 0;
     }
 	else if (feederID == FEEDER_SIEGE_TEAM1) 
 	{
@@ -11039,6 +11088,17 @@ qboolean UI_FeederSelection(float feederFloat, int index, itemDef_t *item)
 	{
 		int actual;
 		UI_SelectedTeamHead(index, &actual);
+#ifdef _XBOX
+		{
+			static int jampHeadSelectionLogCount = 0;
+			if (jampHeadSelectionLogCount < 48)
+			{
+				trap_Print(va("JAMP: UI head selection filtered=%d actual=%d count=%d activeClient=%d\n",
+					index, actual, uiInfo.q3HeadCount, ClientManager::ActiveClientNum()));
+				jampHeadSelectionLogCount++;
+			}
+		}
+#endif
 		uiInfo.q3SelectedHead = index;
 		trap_Cvar_Set("ui_selectedModelIndex", va("%i", index));
 		if(ClientManager::splitScreenMode)
@@ -11693,6 +11753,8 @@ PlayerModel_BuildList
 */
 static bool _loadCachedQ3ModelList( void )
 {
+	int i;
+
 	// New, improved Xbox version - loads the cached version of this file!
 	FILE *cacheFile = fopen( "d:\\ui_headcache", "rb" );
 	if( !cacheFile )
@@ -11705,11 +11767,29 @@ static bool _loadCachedQ3ModelList( void )
 		return false;
 	}
 
+	if ( uiInfo.q3HeadCount < 0 || uiInfo.q3HeadCount > MAX_Q3PLAYERMODELS )
+	{
+		fclose( cacheFile );
+		uiInfo.q3HeadCount = 0;
+		return false;
+	}
+
 	// Read in the head names:
 	if( !fread( &uiInfo.q3HeadNames[0][0], sizeof(uiInfo.q3HeadNames[0]) * uiInfo.q3HeadCount, 1, cacheFile ) )
 	{
 		fclose( cacheFile );
 		return false;
+	}
+
+	for ( i = 0; i < uiInfo.q3HeadCount; i++ )
+	{
+		uiInfo.q3HeadNames[i][sizeof(uiInfo.q3HeadNames[i]) - 1] = 0;
+		if ( !strchr(uiInfo.q3HeadNames[i], '/') )
+		{
+			fclose( cacheFile );
+			uiInfo.q3HeadCount = 0;
+			return false;
+		}
 	}
 
 	memset( &uiInfo.q3HeadIcons[0], 0, sizeof(uiInfo.q3HeadIcons) );
@@ -12260,6 +12340,10 @@ void _UI_KeyEvent( int key, qboolean down ) {
 	int storedclient;
 	int menuActiveClient;
 	int closedClients;
+#ifdef _XBOX
+	static int jampUIKeyLogCount = 0;
+	static int jampUIKeyBlockLogCount = 0;
+#endif
 
 	// Hack: If we're a dedicated server, then we want the X button to be "hold-to-talk"
 	if( com_dedicated->integer && key == A_DELETE )
@@ -12283,13 +12367,54 @@ void _UI_KeyEvent( int key, qboolean down ) {
 			//check to see if controller is blocked
 			closedClients = uiclientInputClosed;//Cvar_VariableIntegerValue("clientInputClosed");
 //JLF merciless hack
+#ifdef _XBOX
+			if (jampUIKeyLogCount < 48)
+			{
+				trap_Print(va("JAMP: UI key menu='%s' key=%d down=%d closed=0x%x uiClient=%d active=%d controllerOut=%d\n",
+					menu->window.name ? menu->window.name : "<null>", key, down ? 1 : 0,
+					closedClients, uiClientNum, ClientManager::ActiveClientNum(), ControllerOutNum.integer));
+				jampUIKeyLogCount++;
+			}
+
+			if (closedClients && ControllerOutNum.integer < 0)
+			{
+				if (jampUIKeyBlockLogCount < 8)
+				{
+					trap_Print(va("JAMP: UI clearing stale input block closed=0x%x menu='%s'\n",
+						closedClients, menu->window.name ? menu->window.name : "<null>"));
+					jampUIKeyBlockLogCount++;
+				}
+				uiclientInputClosed = 0;
+				closedClients = 0;
+			}
+#endif
 			if (strcmp("noController",menu->window.name)!=0)
 			{
 				uiControllerMenu = qfalse;
 				if ( closedClients & 0x1 && uiClientNum == 0)//client 0 closed
+				{
+#ifdef _XBOX
+					if (jampUIKeyBlockLogCount < 16)
+					{
+						trap_Print(va("JAMP: UI key blocked client0 menu='%s' key=%d controllerOut=%d\n",
+							menu->window.name ? menu->window.name : "<null>", key, ControllerOutNum.integer));
+						jampUIKeyBlockLogCount++;
+					}
+#endif
 					return;
+				}
 				if ( closedClients& 0x2 && uiClientNum == 1)//client1 closed
+				{
+#ifdef _XBOX
+					if (jampUIKeyBlockLogCount < 16)
+					{
+						trap_Print(va("JAMP: UI key blocked client1 menu='%s' key=%d controllerOut=%d\n",
+							menu->window.name ? menu->window.name : "<null>", key, ControllerOutNum.integer));
+						jampUIKeyBlockLogCount++;
+					}
+#endif
 					return;
+				}
 			}
 			else
 			{
@@ -12379,6 +12504,10 @@ void UI_LoadNonIngame() {
 }
 
 extern void S_StopSounds( void );
+
+#ifdef _XBOX
+static qboolean JAMP_SmokeDirectMapAutoJoin( void );
+#endif
 
 void _UI_SetActiveMenu( uiMenuCommand_t menu ) {
 	char buf[256];
@@ -12482,6 +12611,12 @@ void _UI_SetActiveMenu( uiMenuCommand_t menu ) {
 			Menus_ActivateByName("ingame");
 		  return;
 	  case UIMENU_PLAYERCONFIG:
+#ifdef _XBOX
+			if ( JAMP_SmokeDirectMapAutoJoin() )
+			{
+				return;
+			}
+#endif
 			{
 				menuDef_t * thismenu;
 				thismenu =Menus_FindByName("ingame_player");
@@ -12504,6 +12639,12 @@ void _UI_SetActiveMenu( uiMenuCommand_t menu ) {
 			}
 		  return;
 	  case UIMENU_PLAYERFORCE:
+#ifdef _XBOX
+			if ( JAMP_SmokeDirectMapAutoJoin() )
+			{
+				return;
+			}
+#endif
 		 // trap_Cvar_Set( "cl_paused", "1" );
 			trap_Key_SetCatcher( KEYCATCH_UI );
 			UI_BuildPlayerList();
@@ -12551,6 +12692,11 @@ void _UI_SetActiveMenu( uiMenuCommand_t menu ) {
 		  return;
 
 	  case UIMENU_NOCONTROLLERINGAME:
+		if ( trap_Cvar_VariableValue("jamp_smokeDirectMap") )
+		{
+			trap_Print("JAMP: smoke direct-map skipped noController ingame menu\n");
+			return;
+		}
 		//	trap_Cvar_Set( "cl_paused", "1" );
 			trap_Key_SetCatcher( KEYCATCH_UI );
 		//	trap_Cvar_Set("ui_menuProgression","ingamemenu");
@@ -12561,6 +12707,11 @@ void _UI_SetActiveMenu( uiMenuCommand_t menu ) {
 		  return;
 
 	  case UIMENU_NOCONTROLLER:
+			if ( trap_Cvar_VariableValue("jamp_smokeDirectMap") )
+			{
+				trap_Print("JAMP: smoke direct-map skipped noController menu\n");
+				return;
+			}
 			Menus_ActivateByName("noController");
 			uiControllerMenu = qtrue;
 		  return;
@@ -12606,6 +12757,31 @@ static void UI_PrintTime ( char *buf, int bufsize, int time ) {
 		Com_sprintf( buf, bufsize, "%2d sec", time );
 	}
 }
+
+#ifdef _XBOX
+static qboolean JAMP_SmokeDirectMapAutoJoin( void )
+{
+	static qboolean joinSent = qfalse;
+
+	if ( !trap_Cvar_VariableValue("jamp_smokeDirectMap") )
+	{
+		return qfalse;
+	}
+
+	if ( !joinSent )
+	{
+		trap_Print("JAMP: smoke direct-map auto-joining free team and closing player UI\n");
+		trap_Cmd_ExecuteText( EXEC_APPEND, "team free\nwait 5\nforcechanged free\n" );
+		joinSent = qtrue;
+	}
+
+	trap_Key_SetCatcher( trap_Key_GetCatcher() & ~KEYCATCH_UI );
+	trap_Cvar_Set( "cl_paused", "0" );
+	Menus_CloseAll();
+	uiControllerMenu = qfalse;
+	return qtrue;
+}
+#endif
 
 void Text_PaintCenter(float x, float y, float scale, vec4_t color, const char *text, float adjust, int iMenuFont) {
 	int len = Text_Width(text, scale, iMenuFont);

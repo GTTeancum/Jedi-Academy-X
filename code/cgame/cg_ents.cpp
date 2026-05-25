@@ -368,7 +368,7 @@ Ghoul2 Insert End
 #ifdef _XBOX
 	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "misc_model_breakable" ) )
 	{
-		static int s_xboxMiscBreakableGeneralLogBudget = 64;
+		static int s_xboxMiscBreakableGeneralLogBudget = 8;
 		if ( s_xboxMiscBreakableGeneralLogBudget > 0 )
 		{
 			XBLF("JA: CG_GENERAL_MISC_BREAKABLE ent=%d model=%d hModel=%d eFlags=0x%x sv=0x%x origin=%d,%d,%d lerp=%d,%d,%d target='%s' script='%s'",
@@ -1305,7 +1305,7 @@ static void CG_Mover( centity_t *cent ) {
 	refEntity_t			ent;
 	entityState_t		*s1;
 #ifdef _XBOX
-	static int s_xboxMoverLogBudget = 220;
+	static int s_xboxMoverLogBudget = 16;
 	qboolean xboxLogMover = (s_xboxMoverLogBudget > 0);
 #endif
 
@@ -1340,7 +1340,7 @@ Ghoul2 Insert End
 #ifdef _XBOX
 	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "func_door" ) )
 	{
-		static int s_xboxMoverDoorNoCullLogBudget = 64;
+		static int s_xboxMoverDoorNoCullLogBudget = 8;
 		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
 		if ( s_xboxMoverDoorNoCullLogBudget > 0 )
 		{

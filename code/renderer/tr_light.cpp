@@ -386,7 +386,7 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	VectorNormalize2( direction, ent->lightDir );
 
 #ifdef _XBOX
-	if ( s_xboxLightGridLogCount < 64 ) {
+	if ( s_xboxLightGridLogCount < 8 ) {
 		XBLF("JA: LIGHTGRID #%d ent=%p hModel=%d reType=%d origin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
 			s_xboxLightGridLogCount,
 			ent,

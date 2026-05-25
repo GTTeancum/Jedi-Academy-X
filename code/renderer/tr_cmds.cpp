@@ -374,7 +374,8 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	drawBufferCommand_t	*cmd;
 #ifdef _XBOX
 	static int s_xboxBeginFrameCount = 0;
-	const qboolean xboxTraceBeginFrame = qtrue;
+	static int s_xboxBeginFrameLogBudget = 12;
+	const qboolean xboxTraceBeginFrame = (s_xboxBeginFrameLogBudget > 0);
 	if (xboxTraceBeginFrame)
 	{
 		XBLF("JA: RE_BeginFrame #%d enter stereo=%d registered=%d frameCount=%d backEndData=%p cmdUsed=%d",
@@ -389,6 +390,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		{
 			XBLog_Write("JA: RE_BeginFrame: not registered return");
 			s_xboxBeginFrameCount++;
+			--s_xboxBeginFrameLogBudget;
 		}
 #endif
 		return;
@@ -509,6 +511,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		{
 			XBLog_Write("JA: RE_BeginFrame: R_GetCommandBuffer returned null");
 			s_xboxBeginFrameCount++;
+			--s_xboxBeginFrameLogBudget;
 		}
 #endif
 		return;
@@ -545,6 +548,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			XBLF("JA: RE_BeginFrame #%d done buffer=%d frameCount=%d used=%d",
 				s_xboxBeginFrameCount, cmd->buffer, tr.frameCount,
 				backEndData ? backEndData->commands.used : -1);
+			--s_xboxBeginFrameLogBudget;
 		}
 		s_xboxBeginFrameCount++;
 #else

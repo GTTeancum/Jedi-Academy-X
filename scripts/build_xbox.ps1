@@ -262,21 +262,11 @@ function Apply-ProjectSourceOverrides {
     if ($ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $filtered = New-Object System.Collections.Generic.List[object]
         foreach ($source in $Sources) {
-            if ($source.RelativePath -ieq "..\client\cl_cin_console.cpp") {
-                continue
-            }
             if ($source.RelativePath -ieq "..\win32\dbg_console_xbox.cpp") {
                 continue
             }
             $filtered.Add($source)
         }
-
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\client\cl_cin_console_stub.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\client\cl_cin_console_stub.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
 
         # Plan-B (OpenJKDF2 1:1): d3dx8_compat.cpp removed — we now link
         # real d3dx8.lib from XDK 5558.  Local shim no longer needed.
@@ -373,13 +363,28 @@ function Invoke-External {
 
     Write-Host "$([System.IO.Path]::GetFileName($Exe)) $argLine"
     Push-Location $WorkingDirectory
+    $responseFile = $null
     try {
-        & $Exe @Arguments
+        $useResponseFile =
+            ($Exe -ieq $libExe -or $Exe -ieq $linkExe) -and
+            ($argLine.Length -gt 7000)
+
+        if ($useResponseFile) {
+            $responseFile = [System.IO.Path]::GetTempFileName()
+            $Arguments | Set-Content -Path $responseFile -Encoding ASCII
+            & $Exe "@$responseFile"
+        }
+        else {
+            & $Exe @Arguments
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "$Exe failed with exit code $LASTEXITCODE"
         }
     }
     finally {
+        if ($responseFile -and (Test-Path $responseFile)) {
+            Remove-Item $responseFile -Force -ErrorAction SilentlyContinue
+        }
         Pop-Location
     }
 }
@@ -512,13 +517,13 @@ function Build-Project {
             # compiled against 5558 includes).  OpenJKDF2's build uses
             # /LIBPATH:%XDK_ROOT%\lib with XDK_ROOT=C:\XDK_5558\XDK\xbox,
             # so ALL their libs are 5558.  Matching exactly here.
-            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib;goblib.lib"
+            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib;goblib.lib;binkxbox.lib"
             OutputFile = ".\Release\default.exe"
             # XDK 5558 lib path FIRST so xboxkrnl, xgraphics, xapilib,
             # xonline, dsound, libc all resolve from 5558 (matching
             # OpenJKDF2).  5849 paths kept as fallback for dmusic.lib
             # and any other lib 5558 doesn't have.
-            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
+            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             ProgramDatabaseFile = '.\Release\x_exe.pdb'
@@ -547,7 +552,7 @@ function Build-Project {
         }
         $linkTool = [pscustomobject]@{
             AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO"
-            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8i.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xbdm.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
+            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xbdm.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
             OutputFile = ".\Release\jamp.exe"
             AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"

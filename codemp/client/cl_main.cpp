@@ -1705,7 +1705,9 @@ void CL_Frame ( int msec ) {
 	qboolean jampCLTrace = qfalse;
 #ifdef _XBOX
 	char jampCLTraceMsg[96];
-	jampCLTrace = (frameCount < 12 || (frameCount >= 190 && frameCount <= 230));
+	static unsigned int jampCLTraceFrameCount;
+	jampCLTrace = (jampCLTraceFrameCount < 4);
+	jampCLTraceFrameCount++;
 	if (jampCLTrace)
 	{
 		_snprintf(jampCLTraceMsg, sizeof(jampCLTraceMsg) - 1, "JAMP: CL_Frame enter frame=%u state=%d msec=%d", frameCount, cls.state, msec);
@@ -1789,6 +1791,7 @@ void CL_Frame ( int msec ) {
 		}
 		avgFrametime=0.0f;
 
+#ifndef _XBOX
 		if(ClientManager::splitScreenMode == qtrue)
 		{
 			// If splitscreen mode drops below 20FPS, pull down the LOD bias
@@ -1826,6 +1829,11 @@ void CL_Frame ( int msec ) {
 				lodFrameCount = -1;
 			}
 		}
+#else
+		// Preserve visual fidelity on Xbox. Runtime LOD bias changes cause
+		// obvious model popping and should not be used as a performance lever.
+		lodFrameCount = 0;
+#endif
 
 		lodFrameCount++;
 		if(lodFrameCount==5 && bias > 0)

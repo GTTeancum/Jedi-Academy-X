@@ -284,6 +284,10 @@ extern glconfig_t glConfig;
 
 void SCR_UpdateScreen( void ) {
 	static int	recursive;
+#ifdef _XBOX
+	static int jampScrLogCount = 0;
+	static int jampScrCallCount = 0;
+#endif
 
 	if ( !scr_initialized ) {
 		return;				// not initialized yet
@@ -296,6 +300,19 @@ void SCR_UpdateScreen( void ) {
 
 #ifdef _XBOX
 	qboolean rendered = qfalse;
+	qboolean jampScrTrace = (jampScrLogCount < 4);
+	if (jampScrTrace)
+	{
+		Com_PrintfAlways("JAMP: SCR_UpdateScreen call=%d state=%d split=%d clients=%d active=%d glcfg=%d,%d %dx%d vid=%dx%d\n",
+			jampScrCallCount, cls.state, ClientManager::splitScreenMode ? 1 : 0,
+			ClientManager::NumClients(), ClientManager::ActiveClientNum(), glcfgX, glcfgY, glcfgWidth, glcfgHeight,
+			glConfig.vidWidth, glConfig.vidHeight);
+	}
+	if (jampScrLogCount < 4)
+	{
+		jampScrLogCount++;
+	}
+	jampScrCallCount++;
 	if (ClientManager::splitScreenMode == qtrue) 
 	{
 //		cls.state = ClientManager::ActiveClient().state;
@@ -348,11 +365,17 @@ void SCR_UpdateScreen( void ) {
 	}
 #endif
 
+	if (jampScrTrace) Com_PrintfAlways("JAMP: SCR_UpdateScreen before EndFrame\n");
+#ifdef _XBOX
+	re.EndFrame( &time_frontend, &time_backend );
+#else
 	if ( com_speeds->integer ) {
 		re.EndFrame( &time_frontend, &time_backend );
 	} else {
 		re.EndFrame( NULL, NULL );
 	}
+#endif
+	if (jampScrTrace) Com_PrintfAlways("JAMP: SCR_UpdateScreen after EndFrame\n");
 
 	recursive = 0;
 }

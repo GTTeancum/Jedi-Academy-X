@@ -9008,11 +9008,37 @@ int Menu_Count() {
 
 void Menu_PaintAll() {
 	int i;
+#ifdef _XBOX
+	static int jampUIMenuPaintFrame = 0;
+	static const char *jampUILastFocusName = NULL;
+#endif
 	if (captureFunc) {
 		captureFunc(captureData);
 	}
 
 	bool fullScreenUI = false;
+#ifdef _XBOX
+	menuDef_t *focusedMenu = Menu_GetFocused();
+	if ((focusedMenu && focusedMenu->window.name != jampUILastFocusName)
+		|| jampUIMenuPaintFrame < 4
+		|| !((jampUIMenuPaintFrame + 1) % 300))
+	{
+		int visibleMenus = 0;
+		for (i = 0; i < menuCount; i++)
+		{
+			if (Menus[i].window.flags & WINDOW_VISIBLE)
+			{
+				visibleMenus++;
+			}
+		}
+		Com_Printf("JAMP: UI paint frame=%d focus='%s' visible=%d menus=%d realtime=%d\n",
+			jampUIMenuPaintFrame,
+			(focusedMenu && focusedMenu->window.name) ? focusedMenu->window.name : "<none>",
+			visibleMenus, menuCount, DC->realTime);
+		jampUILastFocusName = focusedMenu ? focusedMenu->window.name : NULL;
+	}
+	jampUIMenuPaintFrame++;
+#endif
 
 	for (i = 0; i < menuCount; i++) 
 	{

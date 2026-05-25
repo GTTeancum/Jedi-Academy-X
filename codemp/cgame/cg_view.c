@@ -3115,6 +3115,24 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	qboolean bUseFighterPitch = qfalse;
 	static centity_t *veh = NULL;
 	qboolean	isFighter = qfalse;
+#ifdef _XBOX
+	static int s_jampCgProfileFrame = 0;
+	int jampCgProfileFrame = s_jampCgProfileFrame++;
+	qboolean jampCgProfile = (jampCgProfileFrame < 4 || !(jampCgProfileFrame % 300));
+	int jampTStart = 0;
+	int jampTCvars = 0;
+	int jampTSnap = 0;
+	int jampTPredict = 0;
+	int jampTView = 0;
+	int jampTEntities = 0;
+	int jampTFx = 0;
+	int jampTDraw = 0;
+
+	if (jampCgProfile)
+	{
+		jampTStart = trap_Milliseconds();
+	}
+#endif
 
 	if (cgQueueLoad)
 	{ //do this before you start messing around with adding ghoul2 refents and crap
@@ -3146,11 +3164,25 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// update cvars
 	CG_UpdateCvars();
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTCvars = trap_Milliseconds();
+	}
+#endif
 
 	// if we are only updating the screen as a loading
 	// pacifier, don't even try to read snapshots
 	if ( cg->infoScreenText[0] != 0 ) {
 		CG_DrawInformation();
+#ifdef _XBOX
+		if (jampCgProfile)
+		{
+			jampTDraw = trap_Milliseconds();
+			trap_Print(va("JAMP: cg frame profile frame=%d loading total=%d cvars=%d drawInfo=%d\n",
+				jampCgProfileFrame, jampTDraw - jampTStart, jampTCvars - jampTStart, jampTDraw - jampTCvars));
+		}
+#endif
 		return;
 	}
 
@@ -3173,6 +3205,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// set up cg->snap and possibly cg->nextSnap
 	CG_ProcessSnapshots();
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTSnap = trap_Milliseconds();
+	}
+#endif
 
 	trap_ROFF_UpdateEntities();
 
@@ -3261,6 +3299,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// update cg->predictedPlayerState
 	CG_PredictPlayerState();
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTPredict = trap_Milliseconds();
+	}
+#endif
 
 	// decide on third person view
 #ifdef _XBOX
@@ -3309,6 +3353,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// build cg->refdef
 	inwater = CG_CalcViewValues();
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTView = trap_Milliseconds();
+	}
+#endif
 
 	if (cg_linearFogOverride)
 	{
@@ -3369,6 +3419,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	{
 		trap_FX_AddScheduledEffects(qfalse);
 	}
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTEntities = trap_Milliseconds();
+	}
+#endif
 
 	// add buffered sounds
 	CG_PlayBufferedSounds();
@@ -3416,6 +3472,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// update audio positions
 	trap_S_Respatialize( cg->snap->ps.clientNum, cg->refdef.vieworg, cg->refdef.viewaxis, inwater );
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTFx = trap_Milliseconds();
+	}
+#endif
 
 	// make sure the lagometerSample and frame timing isn't done twice when in stereo
 	if ( stereoView != STEREO_RIGHT ) {
@@ -3446,6 +3508,23 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	CG_DrawActive( stereoView );
 
 	CG_DrawAutoMap();
+#ifdef _XBOX
+	if (jampCgProfile)
+	{
+		jampTDraw = trap_Milliseconds();
+		trap_Print(va("JAMP: cg frame profile frame=%d total=%d cvars=%d snap=%d predict=%d view=%d ents=%d postEnt=%d draw=%d activeEnts=%d\n",
+			jampCgProfileFrame,
+			jampTDraw - jampTStart,
+			jampTCvars - jampTStart,
+			jampTSnap - jampTCvars,
+			jampTPredict - jampTSnap,
+			jampTView - jampTPredict,
+			jampTEntities - jampTView,
+			jampTFx - jampTEntities,
+			jampTDraw - jampTFx,
+			cg->snap ? cg->snap->numEntities : 0));
+	}
+#endif
 
 	if ( cg_stats.integer ) {
 		CG_Printf( "cg->clientFrame:%i\n", cg->clientFrame );

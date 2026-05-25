@@ -481,7 +481,7 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
 
 #ifdef _XBOX
-	if ( s_xboxVVEntityLightLogCount < 64 ) {
+	if ( s_xboxVVEntityLightLogCount < 8 ) {
 		XBLF("JA: VV_ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g shadowDir=%g,%g,%g",
 			s_xboxVVEntityLightLogCount,
 			ent,
@@ -880,7 +880,7 @@ void VVLightManager::RB_CalcDiffuseEntityColor( DWORD *colors )
 	}
 
 #ifdef _XBOX
-	if ( s_xboxVVDiffuseEntityLogCount < 64 && numVertexes > 0 ) {
+	if ( s_xboxVVDiffuseEntityLogCount < 16 && numVertexes > 0 ) {
 		float firstIncoming = DotProduct( tess.normal[0], lightDir );
 		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
 		XBLF("JA: VV_DIFFUSE_ENTITY_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d rgba=%d,%d,%d,%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",

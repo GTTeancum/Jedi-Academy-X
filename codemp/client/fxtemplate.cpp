@@ -7,6 +7,52 @@
 	#include "FxScheduler.h"
 #endif
 
+#ifdef _XBOX
+static qboolean JAMP_ShouldTraceFxShader( const char *shader )
+{
+	if (!shader)
+	{
+		return qfalse;
+	}
+
+	return (strstr(shader, "saber") ||
+			strstr(shader, "force") ||
+			strstr(shader, "drain") ||
+			strstr(shader, "lightning") ||
+			strstr(shader, "spark") ||
+			strstr(shader, "flare") ||
+			strstr(shader, "white") ||
+			strstr(shader, "blueLine"));
+}
+
+static void JAMP_TraceFxShader( const char *shader, int handle )
+{
+	static int traceCount = 0;
+	static int missingCount = 0;
+
+	if (!shader)
+	{
+		return;
+	}
+
+	if (!handle)
+	{
+		missingCount++;
+		if (missingCount <= 24 || !(missingCount & 63))
+		{
+			Com_Printf( "JAMP: FX shader missing '%s' count=%d\n", shader, missingCount );
+		}
+		return;
+	}
+
+	if (JAMP_ShouldTraceFxShader(shader) && traceCount < 48)
+	{
+		Com_Printf( "JAMP: FX shader '%s' handle=%d\n", shader, handle );
+		traceCount++;
+	}
+}
+#endif
+
 //------------------------------------------------------
 // CPrimitiveTemplate
 //	Set up our minimal default values
@@ -1501,6 +1547,9 @@ bool CPrimitiveTemplate::ParseShaders( CGPValue *grp )
 			val = list->GetName();
 
 			handle = theFxHelper.RegisterShader( val );
+#ifdef _XBOX
+			JAMP_TraceFxShader( val, handle );
+#endif
 			mMediaHandles.AddHandle( handle );
 
 			list = (CGPValue *)list->GetNext();
@@ -1514,6 +1563,9 @@ bool CPrimitiveTemplate::ParseShaders( CGPValue *grp )
 		if ( val )
 		{
 			handle = theFxHelper.RegisterShader( val );
+#ifdef _XBOX
+			JAMP_TraceFxShader( val, handle );
+#endif
 			mMediaHandles.AddHandle( handle );
 		}
 		else

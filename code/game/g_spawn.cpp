@@ -842,37 +842,95 @@ Finds the spawn function for the entity and calls it,
 returning qfalse if not found
 ===============
 */
-qboolean G_CallSpawn( gentity_t *ent ) {
+static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname ) {
 	spawn_t	*s;
 	gitem_t	*item;
+#ifdef _XBOX
+	static int s_xboxCallSpawnLogBudget = 128;
+#endif
 
-	if ( !ent->classname ) {
-		gi.Printf (S_COLOR_RED"G_CallSpawn: NULL classname\n");
+	if ( !classname || !classname[0] ) {
+		gi.Printf (S_COLOR_RED"G_CallSpawn: NULL classname ent=%d slot=%d ptr=0x%x\n",
+			ent ? ent->s.number : -1,
+			ent ? (int)(ent - g_entities) : -1,
+			(unsigned int)ent);
 		return qfalse;
 	}
 
+	if ( ent && !ent->classname ) {
+		ent->classname = (char *)classname;
+	}
+
+#ifdef _XBOX
+	if (s_xboxCallSpawnLogBudget > 0 &&
+		(!Q_stricmp(classname, "func_door") ||
+		!Q_stricmp(classname, "func_breakable") ||
+		!Q_strncmp(classname, "NPC_", 4) ||
+		!Q_stricmp(classname, "worldspawn")))
+	{
+		gi.Printf("JA: G_CallSpawn pre ent=%d class='%s' model='%s' target='%s' script='%s' spawnflags=0x%x origin=%d,%d,%d\n",
+			ent->s.number,
+			classname,
+			ent->model ? ent->model : "<null>",
+			ent->targetname ? ent->targetname : "<null>",
+			ent->script_targetname ? ent->script_targetname : "<null>",
+			ent->spawnflags,
+			(int)ent->s.origin[0], (int)ent->s.origin[1], (int)ent->s.origin[2]);
+		--s_xboxCallSpawnLogBudget;
+	}
+#endif
+
 	// check item spawn functions
 	for ( item=bg_itemlist+1 ; item->classname ; item++ ) {
-		if ( !strcmp(item->classname, ent->classname) ) {
+		if ( !strcmp(item->classname, classname) ) {
 			// found it
 			G_SpawnItem( ent, item );
+#ifdef _XBOX
+			if (s_xboxCallSpawnLogBudget > 0)
+			{
+				gi.Printf("JA: G_CallSpawn item done ent=%d class='%s'\n", ent->s.number, classname);
+				--s_xboxCallSpawnLogBudget;
+			}
+#endif
 			return qtrue;
 		}
 	}
 
 	// check normal spawn functions
 	for ( s=spawns ; s->name ; s++ ) {
-		if ( !strcmp(s->name, ent->classname) ) {
+		if ( !strcmp(s->name, classname) ) {
 			// found it
 			s->spawn(ent);
+#ifdef _XBOX
+			if (s_xboxCallSpawnLogBudget > 0 &&
+				(!Q_stricmp(classname, "func_door") ||
+				!Q_stricmp(classname, "func_breakable") ||
+				!Q_strncmp(classname, "NPC_", 4) ||
+				!Q_stricmp(classname, "worldspawn")))
+			{
+				gi.Printf("JA: G_CallSpawn post ent=%d class='%s' sv=0x%x eFlags=0x%x linked=%d contents=0x%x origin=%d,%d,%d\n",
+					ent->s.number,
+					classname,
+					ent->svFlags,
+					ent->s.eFlags,
+					ent->linked,
+					ent->contents,
+					(int)ent->currentOrigin[0], (int)ent->currentOrigin[1], (int)ent->currentOrigin[2]);
+				--s_xboxCallSpawnLogBudget;
+			}
+#endif
 			return qtrue;
 		}
 	}
 	char* str;
 	G_SpawnString( "origin", "?", &str );
-	gi.Printf (S_COLOR_RED"ERROR: %s is not a spawn function @(%s)\n", ent->classname, str);
+	gi.Printf (S_COLOR_RED"ERROR: %s is not a spawn function @(%s)\n", classname, str);
 	delayedShutDown = level.time + 100;
 	return qfalse;
+}
+
+qboolean G_CallSpawn( gentity_t *ent ) {
+	return G_CallSpawnForClassname( ent, ent ? ent->classname : NULL );
 }
 
 /*
@@ -916,6 +974,326 @@ char *G_NewString( const char *string ) {
 	return newb;
 }
 
+#ifdef _XBOX
+static char *G_XboxStableClassname(gentity_t *ent, const char *classname)
+{
+	static char s_classnames[MAX_GENTITIES][MAX_QPATH];
+	int slot;
+
+	if (!ent || !classname || !classname[0])
+	{
+		return NULL;
+	}
+
+	slot = (int)(ent - g_entities);
+	if (slot < 0 || slot >= MAX_GENTITIES)
+	{
+		return NULL;
+	}
+
+	Q_strncpyz(s_classnames[slot], classname, sizeof(s_classnames[slot]));
+	return s_classnames[slot];
+}
+
+enum xboxSpawnStringSlot_t
+{
+	XSS_CLASSNAME,
+	XSS_MODEL,
+	XSS_MODEL2,
+	XSS_TARGET,
+	XSS_TARGET2,
+	XSS_TARGET3,
+	XSS_TARGET4,
+	XSS_TARGETJUMP,
+	XSS_TARGETNAME,
+	XSS_MESSAGE,
+	XSS_TEAM,
+	XSS_FXFILE,
+	XSS_CAMERA_GROUP,
+	XSS_CLOSETARGET,
+	XSS_OPENTARGET,
+	XSS_PAINTARGET,
+	XSS_NPC_TARGETNAME,
+	XSS_NPC_TARGET,
+	XSS_NPC_TYPE,
+	XSS_OWNERNAME,
+	XSS_SCRIPT_TARGETNAME,
+	XSS_WEAPON,
+	XSS_MAX
+};
+
+static char *G_XboxStableSpawnString(gentity_t *ent, xboxSpawnStringSlot_t stringSlot, const char *value)
+{
+	static char s_spawnStrings[MAX_GENTITIES][XSS_MAX][MAX_QPATH];
+	int slot;
+
+	if (!ent || !value || !value[0] || stringSlot < 0 || stringSlot >= XSS_MAX)
+	{
+		return NULL;
+	}
+
+	slot = (int)(ent - g_entities);
+	if (slot < 0 || slot >= MAX_GENTITIES)
+	{
+		return NULL;
+	}
+
+	Q_strncpyz(s_spawnStrings[slot][stringSlot], value, sizeof(s_spawnStrings[slot][stringSlot]));
+	return s_spawnStrings[slot][stringSlot];
+}
+
+static qboolean G_XboxParseVec3(const char *value, vec3_t out)
+{
+	return value && sscanf(value, "%f %f %f", &out[0], &out[1], &out[2]) == 3;
+}
+
+static void G_XboxParseSpawnFieldDirect(const char *key, const char *value, gentity_t *ent)
+{
+	float v;
+
+	if (!key || !value || !ent)
+	{
+		return;
+	}
+
+	if (!Q_stricmp(key, "classname"))
+	{
+		ent->classname = G_XboxStableSpawnString(ent, XSS_CLASSNAME, value);
+		return;
+	}
+	if (!Q_stricmp(key, "origin"))
+	{
+		G_XboxParseVec3(value, ent->s.origin);
+		return;
+	}
+	if (!Q_stricmp(key, "angles") || !Q_stricmp(key, "modelAngles"))
+	{
+		vec3_t *dst = !Q_stricmp(key, "modelAngles") ? &ent->modelAngles : &ent->s.angles;
+		G_XboxParseVec3(value, *dst);
+		return;
+	}
+	if (!Q_stricmp(key, "angle"))
+	{
+		v = atof(value);
+		ent->s.angles[0] = 0.0f;
+		ent->s.angles[1] = v;
+		ent->s.angles[2] = 0.0f;
+		return;
+	}
+	if (!Q_stricmp(key, "mins"))
+	{
+		G_XboxParseVec3(value, ent->mins);
+		return;
+	}
+	if (!Q_stricmp(key, "maxs"))
+	{
+		G_XboxParseVec3(value, ent->maxs);
+		return;
+	}
+	if (!Q_stricmp(key, "model"))
+	{
+		ent->model = G_XboxStableSpawnString(ent, XSS_MODEL, value);
+		return;
+	}
+	if (!Q_stricmp(key, "model2"))
+	{
+		ent->model2 = G_XboxStableSpawnString(ent, XSS_MODEL2, value);
+		return;
+	}
+	if (!Q_stricmp(key, "model3"))
+	{
+		ent->target = G_XboxStableSpawnString(ent, XSS_TARGET, value);
+		return;
+	}
+	if (!Q_stricmp(key, "model4"))
+	{
+		ent->target2 = G_XboxStableSpawnString(ent, XSS_TARGET2, value);
+		return;
+	}
+	if (!Q_stricmp(key, "model5"))
+	{
+		ent->target3 = G_XboxStableSpawnString(ent, XSS_TARGET3, value);
+		return;
+	}
+	if (!Q_stricmp(key, "model6"))
+	{
+		ent->target4 = G_XboxStableSpawnString(ent, XSS_TARGET4, value);
+		return;
+	}
+	if (!Q_stricmp(key, "target"))
+	{
+		ent->target = G_XboxStableSpawnString(ent, XSS_TARGET, value);
+		return;
+	}
+	if (!Q_stricmp(key, "target2"))
+	{
+		ent->target2 = G_XboxStableSpawnString(ent, XSS_TARGET2, value);
+		return;
+	}
+	if (!Q_stricmp(key, "target3"))
+	{
+		ent->target3 = G_XboxStableSpawnString(ent, XSS_TARGET3, value);
+		return;
+	}
+	if (!Q_stricmp(key, "target4"))
+	{
+		ent->target4 = G_XboxStableSpawnString(ent, XSS_TARGET4, value);
+		return;
+	}
+	if (!Q_stricmp(key, "targetJump"))
+	{
+		ent->targetJump = G_XboxStableSpawnString(ent, XSS_TARGETJUMP, value);
+		return;
+	}
+	if (!Q_stricmp(key, "targetname"))
+	{
+		ent->targetname = G_XboxStableSpawnString(ent, XSS_TARGETNAME, value);
+		return;
+	}
+	if (!Q_stricmp(key, "message") || !Q_stricmp(key, "mapname"))
+	{
+		ent->message = G_XboxStableSpawnString(ent, XSS_MESSAGE, value);
+		return;
+	}
+	if (!Q_stricmp(key, "team"))
+	{
+		ent->team = G_XboxStableSpawnString(ent, XSS_TEAM, value);
+		return;
+	}
+	if (!Q_stricmp(key, "fxfile"))
+	{
+		ent->fxFile = G_XboxStableSpawnString(ent, XSS_FXFILE, value);
+		return;
+	}
+	if (!Q_stricmp(key, "fxfile2") || !Q_stricmp(key, "cameraGroup"))
+	{
+		ent->cameraGroup = G_XboxStableSpawnString(ent, XSS_CAMERA_GROUP, value);
+		return;
+	}
+	if (!Q_stricmp(key, "closetarget"))
+	{
+		ent->closetarget = G_XboxStableSpawnString(ent, XSS_CLOSETARGET, value);
+		return;
+	}
+	if (!Q_stricmp(key, "opentarget"))
+	{
+		ent->opentarget = G_XboxStableSpawnString(ent, XSS_OPENTARGET, value);
+		return;
+	}
+	if (!Q_stricmp(key, "paintarget") || !Q_stricmp(key, "soundGroup") || !Q_stricmp(key, "backwardstarget"))
+	{
+		ent->paintarget = G_XboxStableSpawnString(ent, XSS_PAINTARGET, value);
+		return;
+	}
+	if (!Q_stricmp(key, "weapon"))
+	{
+		ent->paintarget = G_XboxStableSpawnString(ent, XSS_WEAPON, value);
+		return;
+	}
+	if (!Q_stricmp(key, "NPC_targetname") || !Q_stricmp(key, "saberColor"))
+	{
+		ent->NPC_targetname = G_XboxStableSpawnString(ent, XSS_NPC_TARGETNAME, value);
+		return;
+	}
+	if (!Q_stricmp(key, "NPC_target"))
+	{
+		ent->NPC_target = G_XboxStableSpawnString(ent, XSS_NPC_TARGET, value);
+		return;
+	}
+	if (!Q_stricmp(key, "NPC_type") || !Q_stricmp(key, "saberType"))
+	{
+		ent->NPC_type = G_XboxStableSpawnString(ent, XSS_NPC_TYPE, value);
+		return;
+	}
+	if (!Q_stricmp(key, "ownername"))
+	{
+		ent->ownername = G_XboxStableSpawnString(ent, XSS_OWNERNAME, value);
+		return;
+	}
+	if (!Q_stricmp(key, "script_targetname"))
+	{
+		ent->script_targetname = G_XboxStableSpawnString(ent, XSS_SCRIPT_TARGETNAME, value);
+		return;
+	}
+
+	if (!Q_stricmp(key, "spawnflags"))
+	{
+		ent->spawnflags = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "speed") || !Q_stricmp(key, "duration"))
+	{
+		ent->speed = atof(value);
+		return;
+	}
+	if (!Q_stricmp(key, "wait") || !Q_stricmp(key, "finaltime"))
+	{
+		ent->wait = atof(value);
+		return;
+	}
+	if (!Q_stricmp(key, "random") || !Q_stricmp(key, "FOV"))
+	{
+		ent->random = atof(value);
+		return;
+	}
+	if (!Q_stricmp(key, "count"))
+	{
+		ent->count = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "type"))
+	{
+		ent->count = (int)atof(value);
+		return;
+	}
+	if (!Q_stricmp(key, "health") || !Q_stricmp(key, "interest") || !Q_stricmp(key, "friction"))
+	{
+		ent->health = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "dmg"))
+	{
+		ent->damage = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "radius") || !Q_stricmp(key, "hiderange") || !Q_stricmp(key, "starttime") || !Q_stricmp(key, "turfrange"))
+	{
+		ent->radius = atof(value);
+		return;
+	}
+	if (!Q_stricmp(key, "delay"))
+	{
+		ent->delay = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "sounds"))
+	{
+		ent->sounds = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "splashDamage"))
+	{
+		ent->splashDamage = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "splashRadius"))
+	{
+		ent->splashRadius = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "linear") || !Q_stricmp(key, "saberSolo"))
+	{
+		ent->alt_fire = atoi(value);
+		return;
+	}
+	if (!Q_stricmp(key, "noVisTime") || !Q_stricmp(key, "endFrame"))
+	{
+		ent->endFrame = atoi(value);
+		return;
+	}
+}
+#endif
+
 
 
 
@@ -942,6 +1320,13 @@ void G_ParseField( const char *key, const char *value, gentity_t *ent ) {
 
 			switch( f->type ) {
 			case F_LSTRING:
+#ifdef _XBOX
+				if (!Q_stricmp(f->name, "classname"))
+				{
+					*(char **)(b+f->ofs) = G_XboxStableClassname(ent, value);
+					break;
+				}
+#endif
 				*(char **)(b+f->ofs) = G_NewString (value);
 				break;
 			case F_VECTOR:
@@ -1060,13 +1445,54 @@ level.spawnVars[], then call the class specfic spawn function
 void G_SpawnGEntityFromSpawnVars( void ) {
 	int			i;
 	gentity_t	*ent;
+#ifdef _XBOX
+	char		*xboxParsedClassname = NULL;
+#endif
+#ifdef _XBOX
+	static int s_xboxSpawnVarLogBudget = 192;
+	static int s_xboxSpawnKeyLogBudget = 24;
+#endif
 
 	// get the next free entity
 	ent = G_Spawn();
 
 	for ( i = 0 ; i < numSpawnVars ; i++ ) {
+#ifdef _XBOX
+		if (s_xboxSpawnKeyLogBudget > 0)
+		{
+			gi.Printf("JA: spawnvar ent=%d key='%s' value='%s'\n",
+				ent ? ent->s.number : -1,
+				spawnVars[i][0] ? spawnVars[i][0] : "<null>",
+				spawnVars[i][1] ? spawnVars[i][1] : "<null>");
+			--s_xboxSpawnKeyLogBudget;
+		}
+#endif
 		G_ParseField( spawnVars[i][0], spawnVars[i][1], ent );
+#ifdef _XBOX
+		G_XboxParseSpawnFieldDirect( spawnVars[i][0], spawnVars[i][1], ent );
+#endif
 	}
+
+#ifdef _XBOX
+	ent->s.number = (int)(ent - g_entities);
+#endif
+
+#ifdef _XBOX
+	G_SpawnString("classname", "", &xboxParsedClassname);
+
+	if (!ent->classname)
+	{
+		if (xboxParsedClassname && xboxParsedClassname[0])
+		{
+			gi.Printf("JA: G_SpawnGEntityFromSpawnVars recovered classname='%s' ent=%d slot=%d ptr=0x%x\n",
+				xboxParsedClassname,
+				ent->s.number,
+				(int)(ent - g_entities),
+				(unsigned int)ent);
+			ent->classname = G_XboxStableClassname(ent, xboxParsedClassname);
+		}
+	}
+#endif
 
 	G_SpawnInt( "notsingle", "0", &i );
 	if ( i || !SpawnForCurrentDifficultySetting( ent ) ) {
@@ -1078,11 +1504,66 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	VectorCopy( ent->s.origin, ent->s.pos.trBase );
 	VectorCopy( ent->s.origin, ent->currentOrigin );
 
+#ifdef _XBOX
+	if (!ent->classname)
+	{
+		if (xboxParsedClassname && xboxParsedClassname[0])
+		{
+			gi.Printf("JA: G_SpawnGEntityFromSpawnVars late-recovered classname='%s' ent=%d slot=%d ptr=0x%x\n",
+				xboxParsedClassname,
+				ent->s.number,
+				(int)(ent - g_entities),
+				(unsigned int)ent);
+			ent->classname = G_XboxStableClassname(ent, xboxParsedClassname);
+		}
+	}
+
+	if (s_xboxSpawnVarLogBudget > 0)
+	{
+		gi.Printf("JA: G_SpawnGEntityFromSpawnVars pre ent=%d slot=%d ptr=0x%x class='%s' npc='%s' model='%s' target='%s' spawnflags=0x%x vars=%d\n",
+			ent->s.number,
+			(int)(ent - g_entities),
+			(unsigned int)ent,
+			ent->classname ? ent->classname : "<null>",
+			ent->NPC_type ? ent->NPC_type : "<null>",
+			ent->model ? ent->model : "<null>",
+			ent->targetname ? ent->targetname : "<null>",
+			ent->spawnflags,
+			numSpawnVars);
+		--s_xboxSpawnVarLogBudget;
+	}
+#endif
+
 	// if we didn't get a classname, don't bother spawning anything
+#ifdef _XBOX
+	if ( !G_CallSpawnForClassname( ent, (ent->classname && ent->classname[0]) ? ent->classname : xboxParsedClassname ) ) {
+#else
 	if ( !G_CallSpawn( ent ) ) {
+#endif
+#ifdef _XBOX
+		if (s_xboxSpawnVarLogBudget > 0)
+		{
+			gi.Printf("JA: G_SpawnGEntityFromSpawnVars free ent=%d class='%s'\n",
+				ent->s.number,
+				ent->classname ? ent->classname : "<null>");
+			--s_xboxSpawnVarLogBudget;
+		}
+#endif
 		G_FreeEntity( ent );
 		return;
 	}
+
+#ifdef _XBOX
+	if (s_xboxSpawnVarLogBudget > 0)
+	{
+		gi.Printf("JA: G_SpawnGEntityFromSpawnVars spawned ent=%d class='%s' linked=%d contents=0x%x\n",
+			ent->s.number,
+			ent->classname ? ent->classname : "<null>",
+			ent->linked,
+			ent->contents);
+		--s_xboxSpawnVarLogBudget;
+	}
+#endif
 
 	//Tag on the ICARUS scripting information only to valid recipients
 	if ( Quake3Game()->ValidEntity( ent ) )
@@ -1595,6 +2076,9 @@ void G_SubBSPSpawnEntitiesFromString(const char *entityString, vec3_t posOffset,
 
 void G_SpawnEntitiesFromString( const char *entityString ) {
 	const char		*entities;
+#ifdef _XBOX
+	int xboxSpawnCount = 0;
+#endif
 
 	entities = entityString;
 
@@ -1610,16 +2094,31 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 		G_Error( "SpawnEntities: no entities" );
 	}
 	
+#ifdef _XBOX
+	gi.Printf("JA: G_SpawnEntitiesFromString before worldspawn\n");
+#endif
 	SP_worldspawn();
+#ifdef _XBOX
+	gi.Printf("JA: G_SpawnEntitiesFromString after worldspawn\n");
+#endif
 
 	// parse ents
 	while( G_ParseSpawnVars( &entities ) ) 
 	{
+#ifdef _XBOX
+		++xboxSpawnCount;
+#endif
 		G_SpawnGEntityFromSpawnVars();
 	}	
 
 	//Search the entities for precache information
+#ifdef _XBOX
+	gi.Printf("JA: G_SpawnEntitiesFromString parsed ents=%d before G_ParsePrecaches\n", xboxSpawnCount);
+#endif
 	G_ParsePrecaches();
+#ifdef _XBOX
+	gi.Printf("JA: G_SpawnEntitiesFromString after G_ParsePrecaches\n");
+#endif
 
 
 	if( g_entities[ENTITYNUM_WORLD].behaviorSet[BSET_SPAWN] && g_entities[ENTITYNUM_WORLD].behaviorSet[BSET_SPAWN][0] )

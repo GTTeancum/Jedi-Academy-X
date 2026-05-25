@@ -835,8 +835,16 @@ Ghoul2 Insert Start
 */
 static void G_SetSkin( gentity_t *ent )
 {
-	char	skinName[MAX_QPATH];
+	char	skinName[512];
 	//ok, lets register the skin name, and then pass that name to the config strings so the client can get it too.
+#ifdef _XBOX
+	gi.Printf("JA: G_SetSkin enter ent=%d model='%s' head='%s' torso='%s' legs='%s'\n",
+		ent ? ent->s.number : -1,
+		g_char_model ? g_char_model->string : "<null>",
+		g_char_skin_head ? g_char_skin_head->string : "<null>",
+		g_char_skin_torso ? g_char_skin_torso->string : "<null>",
+		g_char_skin_legs ? g_char_skin_legs->string : "<null>");
+#endif
 	if (Q_stricmp( "hoth2", level.mapname ) == 0	//hack, is this the only map?
 		||
 		Q_stricmp( "hoth3", level.mapname ) == 0	// no! ;-)
@@ -851,6 +859,9 @@ static void G_SetSkin( gentity_t *ent )
 
 	// lets see if it's out there
 	int skin = gi.RE_RegisterSkin( skinName );
+#ifdef _XBOX
+	gi.Printf("JA: G_SetSkin register nameLen=%d skin=%d name='%s'\n", (int)strlen(skinName), skin, skinName);
+#endif
 	if ( skin )
 	{//what if this returns 0 because *one* part of a multi-skin didn't load?
 		// put it in the config strings
@@ -1708,7 +1719,7 @@ qboolean G_SetG2PlayerModelInfo( gentity_t *ent, const char *modelName, const ch
 
 void G_SetG2PlayerModel( gentity_t * const ent, const char *modelName, const char *customSkin, const char *surfOff, const char *surfOn )
 {
-	char	skinName[MAX_QPATH];
+	char	skinName[512];
 
 	//ok, lets register the skin name, and then pass that name to the config strings so the client can get it too.
 	if ( !customSkin )
@@ -1727,6 +1738,15 @@ void G_SetG2PlayerModel( gentity_t * const ent, const char *modelName, const cha
 		}
 	}
 	int skin = gi.RE_RegisterSkin( skinName );
+#ifdef _XBOX
+	gi.Printf("JA: G_SetG2PlayerModel skin ent=%d model='%s' customLen=%d nameLen=%d skin=%d name='%s'\n",
+		ent ? ent->s.number : -1,
+		modelName ? modelName : "<null>",
+		customSkin ? (int)strlen(customSkin) : 0,
+		(int)strlen(skinName),
+		skin,
+		skinName);
+#endif
 	assert(skin);
 	//now generate the ghoul2 model this client should be.
 	if ( ent->client->NPC_class == CLASS_VEHICLE )
@@ -1895,8 +1915,21 @@ void G_SetSabersFromCVars( gentity_t *ent )
 
 void G_InitPlayerFromCvars( gentity_t *ent )
 {
+	char playerModelString[512];
+
 	//set model based on cvars
-	G_ChangePlayerModel( ent, va("%s|%s|%s|%s", g_char_model->string, g_char_skin_head->string, g_char_skin_torso->string, g_char_skin_legs->string) );
+	Com_sprintf( playerModelString, sizeof( playerModelString ), "%s|%s|%s|%s",
+		g_char_model->string,
+		g_char_skin_head->string,
+		g_char_skin_torso->string,
+		g_char_skin_legs->string );
+#ifdef _XBOX
+	gi.Printf("JA: G_InitPlayerFromCvars ent=%d modelLen=%d model='%s'\n",
+		ent ? ent->s.number : -1,
+		(int)strlen(playerModelString),
+		playerModelString);
+#endif
+	G_ChangePlayerModel( ent, playerModelString );
 
 	//FIXME: parse these 2 from some cvar or require playermodel to be in a *.npc?
 	if( ent->NPC_type && gi.bIsFromZone(ent->NPC_type, TAG_G_ALLOC) ) {
@@ -1959,12 +1992,19 @@ void G_ChangePlayerModel( gentity_t *ent, const char *newModel )
 
 	if ( strchr(newModel,'|') )
 	{
-		char name[MAX_QPATH];
-		strcpy(name, newModel);
+		char name[512];
+		Q_strncpyz(name, newModel, sizeof(name));
 		char *p = strchr(name, '|');
 		*p=0;
 		p++;
 
+#ifdef _XBOX
+		gi.Printf("JA: G_ChangePlayerModel composite ent=%d fullLen=%d model='%s' skinLen=%d\n",
+			ent->s.number,
+			(int)strlen(newModel),
+			name,
+			(int)strlen(p));
+#endif
 		G_SetG2PlayerModel( ent, name, p, NULL, NULL );
 	}
 	else
@@ -2076,6 +2116,16 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 
 	index = ent - g_entities;
 	client = ent->client;
+
+#ifdef _XBOX
+	gi.Printf("JA: ClientSpawn enter ent=%d saved=%d transition=%d client=0x%x npcType='%s' class='%s'\n",
+		index,
+		eSavedGameJustLoaded,
+		g_qbLoadTransition,
+		(unsigned int)client,
+		ent->NPC_type ? ent->NPC_type : "<null>",
+		ent->classname ? ent->classname : "<null>");
+#endif
 
 	if ( eSavedGameJustLoaded == eFULL && g_qbLoadTransition == qfalse )//qbFromSavedGame)
 	{//loading up a full save game
@@ -2282,13 +2332,33 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 				ent->health = client->ps.stats[STAT_ARMOR] = client->ps.stats[STAT_HEALTH] = client->ps.stats[STAT_MAX_HEALTH];
 				ent->client->ps.forcePower = ent->client->ps.forcePowerMax;
 			}
+#ifdef _XBOX
+			gi.Printf("JA: ClientSpawn before G_InitPlayerFromCvars ent=%d\n", index);
+#endif
 			G_InitPlayerFromCvars( ent );
+#ifdef _XBOX
+			gi.Printf("JA: ClientSpawn after G_InitPlayerFromCvars ent=%d playerModel=%d weapon0=%d weapon1=%d\n",
+				index,
+				ent->playerModel,
+				ent->weaponModel[0],
+				ent->weaponModel[1]);
+#endif
 		}
 		else
 		{//autoload
+#ifdef _XBOX
+			gi.Printf("JA: ClientSpawn before autoload model setup ent=%d npcType='%s'\n", index, ent->NPC_type ? ent->NPC_type : "<null>");
+#endif
 			G_LoadAnimFileSet( ent, ent->NPC_type );
 			G_SetSkin( ent );
 			G_ReloadSaberData( ent );
+#ifdef _XBOX
+			gi.Printf("JA: ClientSpawn after autoload model setup ent=%d playerModel=%d weapon0=%d weapon1=%d\n",
+				index,
+				ent->playerModel,
+				ent->weaponModel[0],
+				ent->weaponModel[1]);
+#endif
 			//force power levels should already be set
 		}
 

@@ -1847,13 +1847,14 @@ try
 	timeBeforeEvents =0;
 	timeBeforeClient = 0;
 	timeAfter = 0;
-	jampTraceFrame = (jampComFrameTrace < 12 || (jampComFrameTrace >= 190 && jampComFrameTrace <= 230));
+	jampTraceFrame = (jampComFrameTrace < 4);
 	if (jampTraceFrame)
 	{
 		XBLog_Write("JAMP: Com_Frame enter");
 	}
 #ifdef _XBOX
-	if (jampComFrameTrace < 12 || !(jampComFrameTrace % 25))
+	qboolean jampProfileFrame = (jampComFrameTrace < 4 || !(jampComFrameTrace % 300));
+	if (jampComFrameTrace < 4 || !(jampComFrameTrace % 100))
 	{
 		_snprintf(jampHeartbeatMsg, sizeof(jampHeartbeatMsg), "JAMP: heartbeat frame=%i time=%i msec=%i", jampComFrameTrace, Sys_Milliseconds(), com_frameMsec);
 		jampHeartbeatMsg[sizeof(jampHeartbeatMsg) - 1] = 0;
@@ -1881,7 +1882,11 @@ try
 	//
 	// main event loop
 	//
-	if ( com_speeds->integer ) {
+	if ( com_speeds->integer
+#ifdef _XBOX
+		|| jampProfileFrame
+#endif
+	) {
 		timeBeforeFirstEvents = Sys_Milliseconds ();
 	}
 
@@ -1922,7 +1927,11 @@ try
 	//
 	// server side
 	//
-	if ( com_speeds->integer ) {
+	if ( com_speeds->integer
+#ifdef _XBOX
+		|| jampProfileFrame
+#endif
+	) {
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
@@ -1959,7 +1968,11 @@ try
 		// run event loop a second time to get server to client packets
 		// without a frame of latency
 		//
-		if ( com_speeds->integer ) {
+		if ( com_speeds->integer
+#ifdef _XBOX
+			|| jampProfileFrame
+#endif
+		) {
 			timeBeforeEvents = Sys_Milliseconds ();
 		}
 #ifdef _XBOX
@@ -1984,7 +1997,11 @@ try
 		//
 		// client side
 		//
-		if ( com_speeds->integer ) {
+		if ( com_speeds->integer
+#ifdef _XBOX
+			|| jampProfileFrame
+#endif
+		) {
 			timeBeforeClient = Sys_Milliseconds ();
 		}
 
@@ -1992,15 +2009,29 @@ try
 		CL_Frame( msec );
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after CL_Frame");
 
-		if ( com_speeds->integer ) {
+		if ( com_speeds->integer
+#ifdef _XBOX
+			|| jampProfileFrame
+#endif
+		) {
 			timeAfter = Sys_Milliseconds ();
 		}
 	}
 	else
 	{
+#ifdef _XBOX
+		if (jampProfileFrame) {
+			timeBeforeClient = Sys_Milliseconds ();
+		}
+#endif
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before CL_Frame dedicated");
 		CL_Frame( msec );
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after CL_Frame dedicated");
+#ifdef _XBOX
+		if (jampProfileFrame) {
+			timeAfter = Sys_Milliseconds ();
+		}
+#endif
 	}
 
 	//
@@ -2019,6 +2050,21 @@ try
 		Com_Printf ("frame:%i all:%3i sv:%3i ev:%3i cl:%3i gm:%3i rf:%3i bk:%3i\n", 
 					 com_frameNumber, all, sv, ev, cl, time_game, time_frontend, time_backend );
 	}	
+#ifdef _XBOX
+	else if ( jampProfileFrame ) {
+		int			all, sv, ev, cl;
+
+		all = timeAfter - timeBeforeServer;
+		sv = timeBeforeEvents - timeBeforeServer;
+		ev = timeBeforeServer - timeBeforeFirstEvents + timeBeforeClient - timeBeforeEvents;
+		cl = timeAfter - timeBeforeClient;
+		sv -= time_game;
+		cl -= time_frontend + time_backend;
+
+		Com_Printf ("JAMP: frame timing frame=%i all=%3i sv=%3i ev=%3i cl=%3i gm=%3i rf=%3i bk=%3i msec=%i\n",
+					 com_frameNumber, all, sv, ev, cl, time_game, time_frontend, time_backend, com_frameMsec );
+	}
+#endif
 
 	//
 	// trace optimization tracking

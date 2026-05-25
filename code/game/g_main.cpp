@@ -696,7 +696,13 @@ qboolean g_qbLoadTransition = qfalse;
 void InitGame(  const char *mapname, const char *spawntarget, int checkSum, const char *entities, int levelTime, int randomSeed, int globalTime, SavedGameJustLoaded_e eSavedGameJustLoaded, qboolean qbLoadTransition )
 {
 	//rww - default this to 0, we will auto-set it to 1 if we run into a terrain ent
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before cvar_set RMG\n");
+#endif
 	gi.cvar_set("RMG", "0");
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after cvar_set RMG\n");
+#endif
 
 	g_bCollidableRoffs = false;
 
@@ -708,11 +714,23 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	gi.Printf ("gamename: %s\n", GAMEVERSION);
 	gi.Printf ("gamedate: %s\n", __DATE__);
 
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before srand seed=%d\n", randomSeed);
+#endif
 	srand( randomSeed );
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after srand before G_InitCvars\n");
+#endif
 
 	G_InitCvars();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after G_InitCvars before G_InitMemory\n");
+#endif
 
 	G_InitMemory();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after G_InitMemory before level memset\n");
+#endif
 
 	// set some level globals
 	memset( &level, 0, sizeof( level ) );
@@ -728,17 +746,28 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 		level.spawntarget[0] = 0;
 	}
 
-
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before G_InitWorldSession\n");
+#endif
 	G_InitWorldSession();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after G_InitWorldSession before entity clear\n");
+#endif
 
 	// initialize all entities for this game
 	memset( g_entities, 0, MAX_GENTITIES * sizeof(g_entities[0]) );
 	globals.gentities = g_entities;
 	ClearAllInUse();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after entity clear before client alloc\n");
+#endif
 	// initialize all clients for this game
 	level.maxclients = 1;
 	level.clients = (struct gclient_s *) G_Alloc( level.maxclients * sizeof(level.clients[0]) );
 	memset(level.clients, 0, level.maxclients * sizeof(level.clients[0]));
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after client alloc ptr=%p\n", level.clients);
+#endif
 
 	// set client fields on player
 	g_entities[0].client = level.clients;
@@ -749,27 +778,60 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	globals.num_entities = MAX_CLIENTS;
 
 	//Load sabers.cfg data
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before WP_SaberLoadParms\n");
+#endif
 	WP_SaberLoadParms();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after WP_SaberLoadParms before NPC_InitGame\n");
+#endif
 	//Set up NPC init data
 	NPC_InitGame();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after NPC_InitGame before resets\n");
+#endif
 	
 	TIMER_Clear();
 	Rail_Reset();
 	Troop_Reset();
 	Pilot_Reset();
 
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before IT_LoadItemParms\n");
+#endif
 	IT_LoadItemParms ();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after IT_LoadItemParms before ClearRegisteredItems\n");
+#endif
 
 	ClearRegisteredItems();
 
 	// clear out old nav info, attempt to load from file
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before NAV::LoadFromFile map='%s'\n", level.mapname);
+#endif
 	NAV::LoadFromFile(level.mapname, giMapChecksum);
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after NAV::LoadFromFile\n");
+#endif
 
 	// parse the key/value pairs and spawn gentities
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before G_SpawnEntitiesFromString map='%s'\n", level.mapname);
+#endif
 	G_SpawnEntitiesFromString( entities );
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after G_SpawnEntitiesFromString num_entities=%d\n", globals.num_entities);
+#endif
 
 	// general initialization
+#ifdef _XBOX
+	gi.Printf("JA: InitGame before G_FindTeams\n");
+#endif
 	G_FindTeams();
+#ifdef _XBOX
+	gi.Printf("JA: InitGame after G_FindTeams\n");
+#endif
 
 //	SaveRegisteredItems();
 

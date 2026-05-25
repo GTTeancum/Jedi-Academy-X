@@ -379,7 +379,7 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 
 #ifdef _XBOX
 	{
-		static int s_xboxShaderLogBudget = 96;
+		static int s_xboxShaderLogBudget = 8;
 		if (s_xboxShaderLogBudget > 0 &&
 			((dsh->surfaceFlags & SURF_SKY) || shader->sky || shader->sort == SS_PORTAL))
 		{
@@ -659,7 +659,7 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 
 #ifdef _XBOX
 	{
-		static int s_xboxFaceShaderLogBudget = 160;
+		static int s_xboxFaceShaderLogBudget = 8;
 		const dshader_t *mapShader = &s_worldData.shaders[ds->shaderNum];
 		if (s_xboxFaceShaderLogBudget > 0 &&
 			((mapShader->surfaceFlags & SURF_SKY) || surf->shader->sky || surf->shader->sort == SS_PORTAL))

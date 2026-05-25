@@ -1716,15 +1716,31 @@ Ghoul2 Insert End
 		ent.shaderRGBA[2] = wv * 0;
 		trap_R_AddRefEntityToScene (&ent);
 
+#ifdef _XBOX
+		static int s_jampSaberFlightFxLog = 0;
+		if (s_jampSaberFlightFxLog < 8)
+		{
+			CG_PrintfAlways("JAMP: saber flight FX compact shader=%d glow=%d alpha=%f\n",
+				cgs.media.yellowDroppedSaberShader, cgs.media.yellowSaberGlowShader, wv);
+			s_jampSaberFlightFxLog++;
+		}
+		for ( i = -2; i < 7; i += 4 )
+#else
 		for ( i = -4; i < 10; i += 1 )
+#endif
 		{
 			VectorMA( ent.origin, -i, ent.axis[2], org );
 
 			VectorCopy(org, fxSArgs.origin);
 			VectorClear(fxSArgs.vel);
 			VectorClear(fxSArgs.accel);
+#ifdef _XBOX
+			fxSArgs.scale = 3.5f;
+			fxSArgs.dscale = 3.5f;
+#else
 			fxSArgs.scale = 5.5f;
 			fxSArgs.dscale = 5.5f;
+#endif
 			fxSArgs.sAlpha = wv;
 			fxSArgs.eAlpha = wv;
 			fxSArgs.rotation = 0.0f;
@@ -2036,10 +2052,15 @@ Ghoul2 Insert End
 
 		ent.origin[2] += 16;
 
+#ifdef _XBOX
+		// Simple item sprites are already alpha-tested by their shaders. Forcing
+		// entity alpha sends every pickup through the expensive post-render queue.
+#else
 		if (item->giType != IT_POWERUP || item->giTag != PW_FORCE_BOON)
 		{
 			ent.renderfx |= RF_FORCE_ENT_ALPHA;
 		}
+#endif
 
 		if ( es->eFlags & EF_ITEMPLACEHOLDER )
 		{
@@ -2756,15 +2777,24 @@ Ghoul2 Insert End
 		ent.shaderRGBA[2] = wv * 0;
 		trap_R_AddRefEntityToScene (&ent);
 
+#ifdef _XBOX
+		for ( i = -2; i < 7; i += 4 )
+#else
 		for ( i = -4; i < 10; i += 1 )
+#endif
 		{
 			VectorMA( ent.origin, -i, ent.axis[2], org );
 
 			VectorCopy(org, fxSArgs.origin);
 			VectorClear(fxSArgs.vel);
 			VectorClear(fxSArgs.accel);
+#ifdef _XBOX
+			fxSArgs.scale = 3.5f;
+			fxSArgs.dscale = 3.5f;
+#else
 			fxSArgs.scale = 5.5f;
 			fxSArgs.dscale = 5.5f;
+#endif
 			fxSArgs.sAlpha = wv;
 			fxSArgs.eAlpha = wv;
 			fxSArgs.rotation = 0.0f;

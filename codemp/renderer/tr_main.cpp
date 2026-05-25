@@ -1374,6 +1374,13 @@ R_AddEntitySurfaces
 void R_AddEntitySurfaces (void) {
 	trRefEntity_t	*ent;
 	shader_t		*shader;
+#ifdef _XBOX
+	static int s_jampEntityFrame = 0;
+	int jampEntityCount = 0;
+	int jampGhoulCount = 0;
+	int jampModelCount = 0;
+	int jampFxEntityCount = 0;
+#endif
 
 	if ( !r_drawentities->integer ) {
 		return;
@@ -1383,6 +1390,9 @@ void R_AddEntitySurfaces (void) {
 	      tr.currentEntityNum < tr.refdef.num_entities; 
 		  tr.currentEntityNum++ ) {
 		ent = tr.currentEntity = &tr.refdef.entities[tr.currentEntityNum];
+#ifdef _XBOX
+		jampEntityCount++;
+#endif
 
 #ifdef _XBOX
 		if(ClientManager::ActiveClientNum() == 1)
@@ -1418,6 +1428,9 @@ void R_AddEntitySurfaces (void) {
 		case RT_ORIENTEDLINE:
 		case RT_CYLINDER:
 		case RT_SABER_GLOW:
+#ifdef _XBOX
+			jampFxEntityCount++;
+#endif
 			// self blood sprites, talk balloons, etc should not be drawn in the primary
 			// view.  We can't just do this check for all entities, because md3
 			// entities may still want to cast shadows from them
@@ -1429,6 +1442,9 @@ void R_AddEntitySurfaces (void) {
 			break;
 
 		case RT_MODEL:
+#ifdef _XBOX
+			jampModelCount++;
+#endif
 			// we must set up parts of tr.ori for model culling
 			R_RotateForEntity( ent, &tr.viewParms, &tr.ori );
 
@@ -1450,6 +1466,9 @@ Ghoul2 Insert Start
   					//g2r
 					if (ent->e.ghoul2)
 					{
+#ifdef _XBOX
+						jampGhoulCount++;
+#endif
 						R_AddGhoulSurfaces( ent);
 					}
   					break;
@@ -1464,6 +1483,9 @@ Ghoul2 Insert Start
 
   					if (ent->e.ghoul2 && G2API_HaveWeGhoul2Models(*((CGhoul2Info_v *)ent->e.ghoul2)))
   					{
+#ifdef _XBOX
+						jampGhoulCount++;
+#endif
   						R_AddGhoulSurfaces( ent);
   						break;
   					}
@@ -1490,6 +1512,14 @@ Ghoul2 Insert End
 		}
 	}
 
+#ifdef _XBOX
+	s_jampEntityFrame++;
+	if (s_jampEntityFrame <= 4 || !(s_jampEntityFrame % 300))
+	{
+		Com_Printf("JAMP: entity metrics frame=%d ents=%d models=%d ghoul=%d fxEnts=%d refdefEnts=%d\n",
+			s_jampEntityFrame, jampEntityCount, jampModelCount, jampGhoulCount, jampFxEntityCount, tr.refdef.num_entities);
+	}
+#endif
 }
 
 

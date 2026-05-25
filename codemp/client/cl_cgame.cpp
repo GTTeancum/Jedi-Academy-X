@@ -1844,6 +1844,19 @@ CL_CGameRendering
 =====================
 */
 void CL_CGameRendering( stereoFrame_t stereo ) {
+#ifdef _XBOX
+	static int s_jampClCgameFrame = 0;
+	int jampClCgameFrame = s_jampClCgameFrame++;
+	qboolean jampClCgameProfile = (jampClCgameFrame < 4 || !(jampClCgameFrame % 300));
+	int jampClCgameStart = 0;
+	int jampClCgameEnd = 0;
+
+	if (jampClCgameProfile)
+	{
+		jampClCgameStart = Sys_Milliseconds();
+	}
+#endif
+
 	//rww - RAGDOLL_BEGIN
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() == 0) {
@@ -1862,6 +1875,14 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	VM_Call( cgvm, CG_DRAW_ACTIVE_FRAME, cl->serverTime, stereo, 0 );
 #else
 	VM_Call( cgvm, CG_DRAW_ACTIVE_FRAME, cl->serverTime, stereo, clc->demoplaying );
+#endif
+#ifdef _XBOX
+	if (jampClCgameProfile)
+	{
+		jampClCgameEnd = Sys_Milliseconds();
+		Com_Printf("JAMP: cl cgame render frame=%d vmMsec=%d stereo=%d serverTime=%d state=%d\n",
+			jampClCgameFrame, jampClCgameEnd - jampClCgameStart, stereo, cl->serverTime, cls.state);
+	}
 #endif
 	VM_Debug( 0 );
 }

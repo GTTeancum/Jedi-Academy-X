@@ -944,11 +944,16 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	CL_StartHunkUsers();
 
 #if defined (_XBOX)	//xbox doesn't load ui in StartHunkUsers, so check it here
-	XBLF("JA: CL_Frame: CL_StartHunkUsers returned state=%d ui=%d cgame=%d sv=%d",
-		(int)cls.state,
-		(int)cls.uiStarted,
-		(int)cls.cgameStarted,
-		(int)com_sv_running->integer);
+	static int s_xboxClFrameHunkLogBudget = 24;
+	const qboolean xboxTraceClFrameHunk = (s_xboxClFrameHunkLogBudget > 0);
+	if (xboxTraceClFrameHunk)
+	{
+		XBLF("JA: CL_Frame: CL_StartHunkUsers returned state=%d ui=%d cgame=%d sv=%d",
+			(int)cls.state,
+			(int)cls.uiStarted,
+			(int)cls.cgameStarted,
+			(int)com_sv_running->integer);
+	}
 	// load ui if needed
 	if ( !cls.uiStarted && cls.state != CA_CINEMATIC &&
 		((cls.keyCatchers & KEYCATCH_UI) || (cls.state == CA_DISCONNECTED && !com_sv_running->integer)) ) {
@@ -960,8 +965,15 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		CL_InitUI();
 		XBLog_Write("JA: CL_Frame: CL_InitUI done");
 	} else {
-		XBLF("JA: CL_Frame: UI init skipped state=%d ui=%d keyCatchers=0x%x",
-			(int)cls.state, (int)cls.uiStarted, (unsigned int)cls.keyCatchers);
+		if (xboxTraceClFrameHunk)
+		{
+			XBLF("JA: CL_Frame: UI init skipped state=%d ui=%d keyCatchers=0x%x",
+				(int)cls.state, (int)cls.uiStarted, (unsigned int)cls.keyCatchers);
+		}
+	}
+	if (xboxTraceClFrameHunk)
+	{
+		--s_xboxClFrameHunkLogBudget;
 	}
 #endif
 
@@ -1416,11 +1428,19 @@ This is the only place that any of these functions are called from
 */
 void CL_StartHunkUsers( void ) {
 #ifdef _XBOX
-	XBLog_Write("JA: CL_StartHunkUsers entered");
+	qboolean xboxTraceStartHunk = (!cls.rendererStarted || !cls.soundStarted || !cls.soundRegistered ||
+		(!cls.cgameStarted && cls.state > CA_CONNECTED && (cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic())));
+	if (xboxTraceStartHunk)
+	{
+		XBLog_Write("JA: CL_StartHunkUsers entered");
+	}
 #endif
 	if ( !com_cl_running->integer ) {
 #ifdef _XBOX
-		XBLog_Write("JA: CL_StartHunkUsers: cl_running=0, early return");
+		if (xboxTraceStartHunk)
+		{
+			XBLog_Write("JA: CL_StartHunkUsers: cl_running=0, early return");
+		}
 #endif
 		return;
 	}
@@ -1545,7 +1565,10 @@ void CL_StartHunkUsers( void ) {
 #endif
 	}
 #ifdef _XBOX
-	XBLog_Write("JA: CL_StartHunkUsers: COMPLETE");
+	if (xboxTraceStartHunk)
+	{
+		XBLog_Write("JA: CL_StartHunkUsers: COMPLETE");
+	}
 #endif
 }
 

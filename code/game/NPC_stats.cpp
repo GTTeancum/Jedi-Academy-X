@@ -1532,10 +1532,10 @@ void NPC_Precache ( gentity_t *spawner )
 	const char	*value;
 	const char	*p;
 	char	*patch;
-	char	sound[MAX_QPATH];
+	char	sound[512];
 	qboolean	md3Model = qfalse;
-	char	playerModel[MAX_QPATH] = { 0 };
-	char	customSkin[MAX_QPATH];
+	char	playerModel[512] = { 0 };
+	char	customSkin[512];
 
 	if ( !Q_stricmp( "random", spawner->NPC_type ) )
 	{//sorry, can't precache a random just yet
@@ -1813,11 +1813,18 @@ void NPC_Precache ( gentity_t *spawner )
 
 	if ( md3Model )
 	{
+#ifdef _XBOX
+		gi.Printf("JA: NPC_Precache md3 type='%s' legs='%s' torso='%s' head='%s'\n",
+			spawner->NPC_type ? spawner->NPC_type : "<null>",
+			ri.legsModelName,
+			ri.torsoModelName,
+			ri.headModelName);
+#endif
 		CG_RegisterClientRenderInfo( &ci, &ri );
 	}
 	else
 	{
-		char	skinName[MAX_QPATH];
+		char	skinName[512];
 		//precache ghoul2 model
 		gi.G2API_PrecacheGhoul2Model( va( "models/players/%s/model.glm", playerModel ) );
 		//precache skin
@@ -1830,6 +1837,13 @@ void NPC_Precache ( gentity_t *spawner )
 			Com_sprintf( skinName, sizeof( skinName ), "models/players/%s/model_%s.skin", playerModel, customSkin );
 		}
 		// lets see if it's out there
+#ifdef _XBOX
+		gi.Printf("JA: NPC_Precache g2 type='%s' model='%s' customLen=%d skinLen=%d\n",
+			spawner->NPC_type ? spawner->NPC_type : "<null>",
+			playerModel,
+			(int)strlen(customSkin),
+			(int)strlen(skinName));
+#endif
 		gi.RE_RegisterSkin( skinName );
 	}
 
@@ -1859,9 +1873,9 @@ qboolean NPC_ParseParms( const char *NPCName, gentity_t *NPC )
 	int		n;
 	float	f;
 	char	*patch;
-	char	sound[MAX_QPATH];
-	char	playerModel[MAX_QPATH];
-	char	customSkin[MAX_QPATH];
+	char	sound[512];
+	char	playerModel[512] = { 0 };
+	char	customSkin[512];
 	clientInfo_t	*ci = &NPC->client->clientInfo;
 	renderInfo_t	*ri = &NPC->client->renderInfo;
 	gNPCstats_t		*stats = NULL;
@@ -3960,6 +3974,15 @@ Ghoul2 Insert Start
 				}
 			}
 
+#ifdef _XBOX
+			gi.Printf("JA: NPC_ParseParms before G_SetG2PlayerModel npc='%s' ent=%d model='%s' customLen=%d surfOffLen=%d surfOnLen=%d\n",
+				NPCName ? NPCName : "<null>",
+				NPC ? NPC->s.number : -1,
+				playerModel,
+				(int)strlen(customSkin),
+				(int)strlen(surfOff),
+				(int)strlen(surfOn));
+#endif
 			G_SetG2PlayerModel( NPC, playerModel, customSkin, surfOff, surfOn );
 		}
 	}

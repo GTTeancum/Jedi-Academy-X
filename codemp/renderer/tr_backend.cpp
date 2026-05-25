@@ -17,6 +17,14 @@
 
 backEndData_t	*backEndData;
 backEndState_t	backEnd;
+#ifdef _XBOX
+extern void JAMP_ShadeMetricsReset(void);
+extern void JAMP_ShadeMetricsSetActive(qboolean active);
+extern void JAMP_ShadeMetricsSnapshot(int *batches, int *verts, int *indexes, int *totalIndexes,
+	int *dlightBatches, int *surfaceSpriteStages, int *maxVerts, int *maxIndexes,
+	int *texCoordBundles, int *texCoordSkipped, int *texCoordDirect, int *texCoordDirectVerts,
+	int *colorDirect, int *colorDirectVerts);
+#endif
 
 bool tr_stencilled = false;
 extern qboolean tr_distortionPrePost; //tr_shadows.cpp
@@ -731,6 +739,26 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	trRefEntity_t	*curEnt;
 	postRender_t	*pRender;
 	bool			didShadowPass = false;
+#ifdef _XBOX
+	static int s_jampDrawSurfFrame = 0;
+	int jampShaderChanges = 0;
+	int jampPostRenderCount = 0;
+	int jampShadeBatches = 0;
+	int jampShadeVerts = 0;
+	int jampShadeIndexes = 0;
+	int jampShadeTotalIndexes = 0;
+	int jampShadeDlightBatches = 0;
+	int jampShadeSurfaceSprites = 0;
+	int jampShadeMaxVerts = 0;
+	int jampShadeMaxIndexes = 0;
+	int jampTexCoordBundles = 0;
+	int jampTexCoordSkipped = 0;
+	int jampTexCoordDirect = 0;
+	int jampTexCoordDirectVerts = 0;
+	int jampColorDirect = 0;
+	int jampColorDirectVerts = 0;
+	qboolean jampDrawSurfProfile = (s_jampDrawSurfFrame < 4 || !((s_jampDrawSurfFrame + 1) % 300));
+#endif
 #ifdef __MACOS__
 	int				macEventTime;
 
@@ -748,6 +776,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	// save original time for entity shader offsets
 	originalTime = backEnd.refdef.floatTime;
+
+#ifdef _XBOX
+	JAMP_ShadeMetricsReset();
+	JAMP_ShadeMetricsSetActive(jampDrawSurfProfile);
+#endif
 
 	// clear the z buffer, set the modelview, etc
 	RB_BeginDrawingView ();
@@ -855,6 +888,12 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		if (shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted 
 			|| ( entityNum != oldEntityNum && !shader->entityMergable ) )
 		{
+#ifdef _XBOX
+			if (jampDrawSurfProfile)
+			{
+				jampShaderChanges++;
+			}
+#endif
 			if (oldShader != NULL) {
 #ifdef __MACOS__	// crutch up the mac's limited buffer queue size
 				int		t;
@@ -979,6 +1018,12 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		while (g_numPostRenders > 0)
 		{
 			g_numPostRenders--;
+#ifdef _XBOX
+			if (jampDrawSurfProfile)
+			{
+				jampPostRenderCount++;
+			}
+#endif
 			pRender = &g_postRenders[g_numPostRenders];
 
 			RB_BeginSurface( pRender->shader, pRender->fogNum );
@@ -1139,6 +1184,23 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 #ifdef __MACOS__
 	Sys_PumpEvents();		// crutch up the mac's limited buffer queue size
+#endif
+#ifdef _XBOX
+	s_jampDrawSurfFrame++;
+	if (jampDrawSurfProfile)
+	{
+		JAMP_ShadeMetricsSnapshot(&jampShadeBatches, &jampShadeVerts, &jampShadeIndexes,
+			&jampShadeTotalIndexes, &jampShadeDlightBatches, &jampShadeSurfaceSprites,
+			&jampShadeMaxVerts, &jampShadeMaxIndexes, &jampTexCoordBundles, &jampTexCoordSkipped,
+			&jampTexCoordDirect, &jampTexCoordDirectVerts, &jampColorDirect, &jampColorDirectVerts);
+		Com_Printf("JAMP: drawsurf metrics frame=%d surfs=%d shaderChanges=%d post=%d glow=%d batches=%d verts=%d tris=%d totalTris=%d dlightBatches=%d surfaceSprites=%d maxVerts=%d maxTris=%d texBundles=%d texSkip=%d texDirect=%d texDirectVerts=%d colorDirect=%d colorDirectVerts=%d pcMsec=%d\n",
+			s_jampDrawSurfFrame, numDrawSurfs, jampShaderChanges, jampPostRenderCount,
+			g_bRenderGlowingObjects ? 1 : 0, jampShadeBatches, jampShadeVerts,
+			jampShadeIndexes / 3, jampShadeTotalIndexes / 3, jampShadeDlightBatches,
+			jampShadeSurfaceSprites, jampShadeMaxVerts, jampShadeMaxIndexes / 3,
+			jampTexCoordBundles, jampTexCoordSkipped, jampTexCoordDirect,
+			jampTexCoordDirectVerts, jampColorDirect, jampColorDirectVerts, backEnd.pc.msec);
+	}
 #endif
 }
 

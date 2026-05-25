@@ -2,7 +2,6 @@
 #define NS_BINKVIDEO
 
 #include "bink.h"
-#include "RAD.h"
 #define NS_BV_DEFAULT_CIN_BPS (4)
 #define MAX_WIDTH			512
 #define MAX_HEIGHT			512
@@ -17,8 +16,8 @@ typedef enum {
 
 struct OVERLAYINFO
 {
-	void *texture;
-	void *surface;
+	D3DTexture *texture;
+	D3DSurface *surface;
 };
 
 class BinkVideo
@@ -35,9 +34,9 @@ private:
 	float   x2;
 	float	y2;
 
-	bool	loadScreenOnStop;
+	bool	loadScreenOnStop;	// Set to true when we play the logos, so we know to show the loading screen
 
-	bool	stopNextFrame;
+	bool	stopNextFrame;		// Used to stop movies with *correct* timing
 
 	OVERLAYINFO	Image[2];
 

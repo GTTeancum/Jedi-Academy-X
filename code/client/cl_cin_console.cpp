@@ -10,6 +10,7 @@
 #include "../win32/win_local.h"
 #include "../win32/win_input.h"
 #include "../win32/glw_win_dx8.h"
+#include "../win32/xb_log.h"
 #include "BinkVideo.h"
 
 //#define XBOX_VIDEO_PATH "d:\\base\\video\\"
@@ -85,6 +86,7 @@ Stops all currently running videos
 *********/
 void CIN_CloseAllVideos(void)
 {
+	XBLog_Write("JA: CIN_CloseAllVideos");
 	// Stop the current bink video
 	bVideo.Stop();
 	currentHandle = -1;
@@ -100,6 +102,10 @@ Stops the current cinematic
 *********/
 e_status CIN_StopCinematic(int handle)
 {
+	char cinLog[160];
+	_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_StopCinematic handle=%d current=%d prev=%d status=%d", handle, currentHandle, previousState, bVideo.GetStatus());
+	cinLog[sizeof(cinLog) - 1] = '\0';
+	XBLog_Write(cinLog);
 	assert( handle == currentHandle );
 	currentHandle = -1;
 
@@ -125,6 +131,15 @@ Fetch and decompress the pending frame
 *********/
 e_status CIN_RunCinematic (int handle)
 {
+	char cinLog[256];
+	static int runLogBudget = 16;
+	if (runLogBudget > 0)
+	{
+		_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_RunCinematic enter handle=%d current=%d w=%d h=%d status=%d state=%d", handle, currentHandle, (handle >= 0 && handle < cinNumFiles) ? cinFiles[handle].w : -1, (handle >= 0 && handle < cinNumFiles) ? cinFiles[handle].h : -1, bVideo.GetStatus(), cls.state);
+		cinLog[sizeof(cinLog) - 1] = '\0';
+		XBLog_Write(cinLog);
+		runLogBudget--;
+	}
 	if (handle < 0 || handle >= cinNumFiles || !cinFiles[handle].w)
 	{
 		assert( 0 );
@@ -135,6 +150,9 @@ e_status CIN_RunCinematic (int handle)
 	if (handle != currentHandle)
 	{
 		bool shader = cinFiles[handle].bits & CIN_shader;
+		_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_RunCinematic starting file='%s' shader=%d bits=0x%x", cinFiles[handle].filename, shader ? 1 : 0, cinFiles[handle].bits);
+		cinLog[sizeof(cinLog) - 1] = '\0';
+		XBLog_Write(cinLog);
 
 		CIN_StopCinematic(currentHandle);
 		if (!bVideo.Start(
@@ -144,8 +162,10 @@ e_status CIN_RunCinematic (int handle)
 				cinFiles[handle].x, cinFiles[handle].y,
 				cinFiles[handle].w, cinFiles[handle].h))
 		{
+			XBLog_Write("JA: CIN_RunCinematic BinkVideo::Start failed");
 			return FMV_EOF;
 		}
+		XBLog_Write("JA: CIN_RunCinematic BinkVideo::Start succeeded");
 
 		if (cinFiles[handle].bits & CIN_loop)
 		{
@@ -177,6 +197,11 @@ e_status CIN_RunCinematic (int handle)
 	// Normal case does nothing here
 	if(bVideo.GetStatus() == NS_BV_STOPPED)
 	{
+		if (runLogBudget > 0)
+		{
+			XBLog_Write("JA: CIN_RunCinematic returning EOF");
+			runLogBudget--;
+		}
 		return FMV_EOF;
 	}
 	else
@@ -206,6 +231,10 @@ int CIN_PlayCinematic( const char *arg0, int xpos, int ypos, int width, int heig
 
 	// get a local copy of the name
 	strcpy(arg,arg0);
+	char cinLog[256];
+	_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_PlayCinematic arg='%s' rect=%d,%d,%d,%d bits=0x%x", arg0 ? arg0 : "<null>", xpos, ypos, width, height, bits);
+	cinLog[sizeof(cinLog) - 1] = '\0';
+	XBLog_Write(cinLog);
 
 	// remove path, find in list
 	nameonly = COM_SkipPath(arg);
@@ -239,6 +268,9 @@ int CIN_PlayCinematic( const char *arg0, int xpos, int ypos, int width, int heig
 	if (handle == cinNumFiles)
 	{
 		Com_Printf( "ERROR: Movie file %s not found!\n", nameonly );
+		_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_PlayCinematic not found name='%s'", nameonly);
+		cinLog[sizeof(cinLog) - 1] = '\0';
+		XBLog_Write(cinLog);
 		return -1;
 	}
 
@@ -250,6 +282,9 @@ int CIN_PlayCinematic( const char *arg0, int xpos, int ypos, int width, int heig
 	cinFiles[handle].h = height;
 	cinFiles[handle].bits = bits;
 	currentHandle = -1;
+	_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_PlayCinematic handle=%d name='%s'", handle, cinFiles[handle].filename);
+	cinLog[sizeof(cinLog) - 1] = '\0';
+	XBLog_Write(cinLog);
 	return handle;
 }
 
@@ -302,7 +337,7 @@ void SCR_RunCinematic (void)
 {
 	// This is called every frame, even when we're not playing a movie
 	// VVFIXME - Check return val for EOF - then stop cinematic?
-	if (currentHandle > 0 && currentHandle < cinNumFiles)
+	if (currentHandle >= 0 && currentHandle < cinNumFiles)
 		CIN_RunCinematic(currentHandle);
 }
 
@@ -415,8 +450,10 @@ Initializes cinematic system
 *********/
 void CIN_Init(void)
 {
+	XBLog_Write("JA: CIN_Init enter");
 	// Allocate Memory for Bink System
 	bVideo.AllocateXboxMem();
+	XBLog_Write("JA: CIN_Init exit");
 }
 
 /********
@@ -425,8 +462,10 @@ Shutdown the cinematic system
 ********/
 void CIN_Shutdown(void)
 {
+	XBLog_Write("JA: CIN_Shutdown enter");
 	// Free Memory for the Bink System
 	bVideo.FreeXboxMem();
+	XBLog_Write("JA: CIN_Shutdown exit");
 }
 
 

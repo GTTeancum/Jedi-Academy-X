@@ -1544,7 +1544,7 @@ private:
 				{
 					DWORD chunkPrims = primCount - primBase;
 					HRESULT hr;
-					const bool xboxTraceSubmit = ((s_xboxDrawSubmitCount & 255) == 0);
+					const bool xboxTraceSubmit = false;
 
 				if (chunkPrims > maxTriangleListPrims)
 				{
@@ -1562,7 +1562,7 @@ private:
 					s_xboxChunkLogCount++;
 				}
 
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk pre type=%d prims=%lu verts=%p stride=%d",
 						(unsigned long)s_xboxDrawSubmitCount, (int)dptPrimitiveType,
@@ -1573,7 +1573,7 @@ private:
 					chunkPrims,
 					base + (primBase * 3 * m_vertexSize),
 					m_vertexSize);
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk post hr=0x%08lx",
 						(unsigned long)s_xboxDrawSubmitCount, (unsigned long)hr);
@@ -1583,7 +1583,7 @@ private:
 					firstFailure = hr;
 				}
 
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer pre",
 						(unsigned long)s_xboxDrawSubmitCount);
@@ -1591,11 +1591,11 @@ private:
 				m_pD3DDev->KickPushBuffer();
 				/* Avoid long-run CXBX-R stalls from per-draw GPU idle waits.
 				 * SwapBuffers still performs the frame boundary idle before Present. */
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer post",
 						(unsigned long)s_xboxDrawSubmitCount);
-					if (s_xboxSubmitLogCount < 128)
+					if (s_xboxSubmitLogCount < 16)
 					{
 						++s_xboxSubmitLogCount;
 					}
@@ -1609,20 +1609,20 @@ private:
 		}
 
 		{
-			const bool xboxTraceSubmit = ((s_xboxDrawSubmitCount & 255) == 0);
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+			const bool xboxTraceSubmit = false;
+			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct pre type=%d prims=%lu verts=%p stride=%d",
 					(unsigned long)s_xboxDrawSubmitCount, (int)dptPrimitiveType,
 					(unsigned long)primCount, vertices, m_vertexSize);
 			}
 			HRESULT hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType, primCount, vertices, m_vertexSize);
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct post hr=0x%08lx",
 					(unsigned long)s_xboxDrawSubmitCount, (unsigned long)hr);
 			}
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer pre",
 					(unsigned long)s_xboxDrawSubmitCount);
@@ -1630,11 +1630,11 @@ private:
 			m_pD3DDev->KickPushBuffer();
 			/* Avoid long-run CXBX-R stalls from per-draw GPU idle waits.
 			 * SwapBuffers still performs the frame boundary idle before Present. */
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 128)
+			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer post",
 					(unsigned long)s_xboxDrawSubmitCount);
-				if (s_xboxSubmitLogCount < 128)
+				if (s_xboxSubmitLogCount < 16)
 				{
 					++s_xboxSubmitLogCount;
 				}
@@ -2400,7 +2400,7 @@ public:
 				static int s_xboxBeginStateLogCount = 0;
 				static int s_xboxBeginStage1LogCount = 0;
 				const bool beginStage1Active = m_textureState.GetStageTexture2D(1);
-				if (s_xboxBeginStateLogCount < 96 || (beginStage1Active && s_xboxBeginStage1LogCount < 96))
+				if (s_xboxBeginStateLogCount < 16 || (beginStage1Active && s_xboxBeginStage1LogCount < 24))
 				{
 					XBLF("JA: fakegl glBegin state mode=0x%08x dirty=%d textureDirty=%d mergable=%d maxStages=%d currentStage=%d stage0 dirty=%d tex=%u enabled=%d env=0x%08x stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
 						(unsigned int)mode,
@@ -2477,7 +2477,7 @@ public:
 #ifdef _XBOX
 			{
 				static int s_xboxBindTextureLogCount = 0;
-				if (s_xboxBindTextureLogCount < 96 || (m_textureState.GetCurrentStage() == 1 && s_xboxBindTextureLogCount < 192))
+				if (s_xboxBindTextureLogCount < 32 || (m_textureState.GetCurrentStage() == 1 && s_xboxBindTextureLogCount < 64))
 				{
 					XBLF("JA: fakegl glBindTexture stage=%d old=%u new=%u target=0x%08x",
 						m_textureState.GetCurrentStage(),
@@ -2508,7 +2508,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_xboxSelectTextureLogCount = 0;
-			if (s_xboxSelectTextureLogCount < 128 || (textStage == 1 && s_xboxSelectTextureLogCount < 256))
+			if (s_xboxSelectTextureLogCount < 32 || (textStage == 1 && s_xboxSelectTextureLogCount < 64))
 			{
 				XBLF("JA: fakegl select texture target=0x%08x stage=%d currentTex=%u enabled=%d",
 					(unsigned int)target,
@@ -2757,7 +2757,7 @@ public:
 #ifdef _XBOX
 				{
 					static int s_xboxTexture2DLogCount = 0;
-					if (s_xboxTexture2DLogCount < 64 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexture2DLogCount < 160))
+					if (s_xboxTexture2DLogCount < 16 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexture2DLogCount < 32))
 					{
 						XBLF("JA: fakegl texture2d stage=%d value=%d old=%d tex=%u",
 							m_textureState.GetCurrentStage(),
@@ -4449,15 +4449,26 @@ private:
 			m_bViewPortDirty = false;
 			D3DVIEWPORT8 viewData;
 
-			viewData.X = 0;//m_glViewPortX;
-			viewData.Y = 0;//m_windowHeight - (m_glViewPortY + m_glViewPortHeight);
+			GLint viewportX = m_glViewPortX;
+			GLint viewportY = m_windowHeight - (m_glViewPortY + m_glViewPortHeight);
+			if ( viewportX < 0 )
+			{
+				viewportX = 0;
+			}
+			if ( viewportY < 0 )
+			{
+				viewportY = 0;
+			}
+
+			viewData.X = viewportX;
+			viewData.Y = viewportY;
 			viewData.Width  = m_glViewPortWidth;
 			viewData.Height = m_glViewPortHeight;
 			viewData.MinZ = m_glDepthRangeNear;     
 			viewData.MaxZ = m_glDepthRangeFar;
 #ifdef _XBOX
 			{
-				static int s_xboxViewportApplyLogBudget = 96;
+				static int s_xboxViewportApplyLogBudget = 16;
 				if (s_xboxViewportApplyLogBudget > 0)
 				{
 					XBLF("JA: fakegl SetViewport requested=%d,%d %dx%d applied=%lu,%lu %lux%lu z=%g..%g",
@@ -4520,6 +4531,14 @@ private:
 	D3DFORMAT GLToDXPixelFormat(GLint internalformat, GLenum format)
 	{
 		D3DFORMAT d3dFormat = D3DFMT_UNKNOWN;
+		if (internalformat == 0x9997) // GL_DDS_RGB16_EXT
+		{
+			return D3DFMT_R5G6B5;
+		}
+		if (internalformat == 0x9998) // GL_DDS_RGBA32_EXT
+		{
+			return D3DFMT_A8R8G8B8;
+		}
 		if ( g_force16bitTextures ) 
 		{
 			switch ( format ) 
