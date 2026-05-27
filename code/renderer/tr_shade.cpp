@@ -353,6 +353,426 @@ static void RB_XboxLogRenderSuspectSurface( const char *where )
 	}
 }
 
+static qboolean RB_XboxIsModelShader( const shader_t *shader )
+{
+	if (!shader || !shader->name)
+	{
+		return qfalse;
+	}
+
+	return strstr(shader->name, "models/players/") ||
+		strstr(shader->name, "models/weapons2/");
+}
+
+static void RB_XboxLogModelShaderSurface( const char *where )
+{
+	static int modelBudget = 96;
+	const shader_t *shader = tess.shader;
+	int i;
+	trRefEntity_t *ent = backEnd.currentEntity;
+
+	if (cls.state != CA_ACTIVE || modelBudget <= 0 || !RB_XboxIsModelShader(shader))
+	{
+		return;
+	}
+
+	XBLF("JA: MODEL_SHADER %s ent=%d reType=%d renderfx=0x%x shader='%s' sort=%g cull=%d passes=%d verts=%d indexes=%d fog=%d dlight=0x%x origin=(%g,%g,%g) scene=%d rdflags=0x%x rgba=%d,%d,%d,%d",
+		where,
+		ent ? ent->e.number : -1,
+		ent ? ent->e.reType : -1,
+		ent ? ent->e.renderfx : 0,
+		shader->name,
+		shader->sort,
+		shader->cullType,
+		shader->numUnfoggedPasses,
+		tess.numVertexes,
+		tess.numIndexes,
+		tess.fogNum,
+		tess.dlightBits,
+		ent ? ent->e.origin[0] : 0.0f,
+		ent ? ent->e.origin[1] : 0.0f,
+		ent ? ent->e.origin[2] : 0.0f,
+		tr.sceneCount,
+		backEnd.refdef.rdflags,
+		ent ? ent->e.shaderRGBA[0] : 0,
+		ent ? ent->e.shaderRGBA[1] : 0,
+		ent ? ent->e.shaderRGBA[2] : 0,
+		ent ? ent->e.shaderRGBA[3] : 0);
+	--modelBudget;
+
+	for (i = 0; i < shader->numUnfoggedPasses && i < 3 && modelBudget > 0; ++i)
+	{
+		const shaderStage_t *stage = &shader->stages[i];
+		if (!stage->active)
+		{
+			continue;
+		}
+
+		XBLF("JA: MODEL_SHADER_STAGE shader='%s' stage=%d state=0x%x blend=0x%x atest=0x%x depthEq=%d depthOff=%d rgb=%d alpha=%d tc0=%d tc1=%d img0='%s' tex0=%d fallback0=%d img1='%s' tex1=%d fallback1=%d",
+			shader->name,
+			i,
+			stage->stateBits,
+			(int)(stage->stateBits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)),
+			(int)(stage->stateBits & GLS_ATEST_BITS),
+			(int)((stage->stateBits & GLS_DEPTHFUNC_EQUAL) != 0),
+			(int)((stage->stateBits & GLS_DEPTHTEST_DISABLE) != 0),
+			(int)stage->rgbGen,
+			(int)stage->alphaGen,
+			(int)stage->bundle[0].tcGen,
+			(int)stage->bundle[1].tcGen,
+			RB_XboxImageName(stage->bundle[0].image),
+			stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
+			(int)RB_XboxImageLooksFallback(stage->bundle[0].image),
+			RB_XboxImageName(stage->bundle[1].image),
+			stage->bundle[1].image ? stage->bundle[1].image->texnum : -1,
+			(int)RB_XboxImageLooksFallback(stage->bundle[1].image));
+		--modelBudget;
+	}
+}
+
+static void RB_XboxLogModelTransformProbe( const char *where )
+{
+	static int transformBudget = 48;
+	const shader_t *shader = tess.shader;
+	trRefEntity_t *ent = backEnd.currentEntity;
+	int i;
+
+	if (cls.state != CA_ACTIVE || transformBudget <= 0 || !RB_XboxIsModelShader(shader) ||
+		tess.numVertexes <= 0 || !ent)
+	{
+		return;
+	}
+
+	if (!tr.world || Q_stricmp(tr.world->baseName, "yavin1") ||
+		ent->e.number < 50 || ent->e.number > 60)
+	{
+		return;
+	}
+
+	XBLF("JA: MODEL_TRANSFORM %s ent=%d shader='%s' verts=%d indexes=%d viewOrg=(%g,%g,%g) entOrg=(%g,%g,%g) viewport=%d,%d %dx%d mm0=(%g,%g,%g,%g) mm1=(%g,%g,%g,%g) mm2=(%g,%g,%g,%g) mm3=(%g,%g,%g,%g)",
+		where,
+		ent->e.number,
+		shader->name,
+		tess.numVertexes,
+		tess.numIndexes,
+		backEnd.viewParms.or.origin[0],
+		backEnd.viewParms.or.origin[1],
+		backEnd.viewParms.or.origin[2],
+		ent->e.origin[0],
+		ent->e.origin[1],
+		ent->e.origin[2],
+		backEnd.viewParms.viewportX,
+		backEnd.viewParms.viewportY,
+		backEnd.viewParms.viewportWidth,
+		backEnd.viewParms.viewportHeight,
+		backEnd.ori.modelMatrix[0], backEnd.ori.modelMatrix[1], backEnd.ori.modelMatrix[2], backEnd.ori.modelMatrix[3],
+		backEnd.ori.modelMatrix[4], backEnd.ori.modelMatrix[5], backEnd.ori.modelMatrix[6], backEnd.ori.modelMatrix[7],
+		backEnd.ori.modelMatrix[8], backEnd.ori.modelMatrix[9], backEnd.ori.modelMatrix[10], backEnd.ori.modelMatrix[11],
+		backEnd.ori.modelMatrix[12], backEnd.ori.modelMatrix[13], backEnd.ori.modelMatrix[14], backEnd.ori.modelMatrix[15]);
+	--transformBudget;
+
+	for (i = 0; i < tess.numVertexes && i < 4 && transformBudget > 0; ++i)
+	{
+		vec4_t eye;
+		vec4_t clip;
+		vec4_t normalized;
+		vec4_t window;
+		R_TransformModelToClip(tess.xyz[i], backEnd.ori.modelMatrix, backEnd.viewParms.projectionMatrix, eye, clip);
+		R_TransformClipToWindow(clip, &backEnd.viewParms, normalized, window);
+		XBLF("JA: MODEL_TRANSFORM_VERTEX ent=%d shader='%s' v=%d local=(%g,%g,%g) eye=(%g,%g,%g,%g) clip=(%g,%g,%g,%g) ndc=(%g,%g,%g) win=(%g,%g,%g)",
+			ent->e.number,
+			shader->name,
+			i,
+			tess.xyz[i][0],
+			tess.xyz[i][1],
+			tess.xyz[i][2],
+			eye[0],
+			eye[1],
+			eye[2],
+			eye[3],
+			clip[0],
+			clip[1],
+			clip[2],
+			clip[3],
+			normalized[0],
+			normalized[1],
+			normalized[2],
+			window[0],
+			window[1],
+			window[2]);
+		--transformBudget;
+	}
+}
+
+static qboolean RB_XboxIsYavinIntroModelDraw( const shaderStage_t *stage )
+{
+	trRefEntity_t *ent = backEnd.currentEntity;
+
+	if ( cls.state != CA_ACTIVE || !tr.world || Q_stricmp( tr.world->baseName, "yavin1" ) ||
+		!ent || ent->e.reType != RT_MODEL || !ent->e.ghoul2 ||
+		ent->e.number < 49 || ent->e.number > 60 ||
+		!RB_XboxIsModelShader( tess.shader ) ||
+		!stage || stage->bundle[1].image )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static qboolean RB_XboxIsYavinIntroCurrentModelShader( void )
+{
+	trRefEntity_t *ent = backEnd.currentEntity;
+
+	if ( cls.state != CA_ACTIVE || !tr.world || Q_stricmp( tr.world->baseName, "yavin1" ) ||
+		!ent || ent->e.reType != RT_MODEL || !ent->e.ghoul2 ||
+		ent->e.number < 49 || ent->e.number > 60 ||
+		!RB_XboxIsModelShader( tess.shader ) )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static int RB_XboxYavinIntroCullType( int cullType )
+{
+	static int s_yavinIntroCullLogs = 0;
+
+	if ( !RB_XboxIsYavinIntroCurrentModelShader() )
+	{
+		return cullType;
+	}
+
+	if ( s_yavinIntroCullLogs < 24 )
+	{
+		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_CULL_DIAG ent=%d shader='%s' oldCull=%d newCull=%d rdflags=0x%x scene=%d",
+			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
+			tess.shader ? tess.shader->name : "<null>",
+			cullType,
+			CT_TWO_SIDED,
+			backEnd.refdef.rdflags,
+			tr.sceneCount);
+		++s_yavinIntroCullLogs;
+	}
+
+	return CT_TWO_SIDED;
+}
+
+static void RB_XboxPrepareYavinIntroModelDraw( const shaderStage_t *stage )
+{
+	static int s_yavinIntroModelStateLogs = 0;
+
+	if ( !RB_XboxIsYavinIntroModelDraw( stage ) )
+	{
+		return;
+	}
+
+	// World lightmap draws leave texture unit 1 live in the fakegl bridge.
+	// These intro actors are single-stage Ghoul2 draws, so make the one-stage
+	// contract explicit before submitting their vertices.
+	GL_SelectTexture( 1 );
+	glDisable( GL_TEXTURE_2D );
+	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	GL_SelectTexture( 0 );
+	glEnable( GL_TEXTURE_2D );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+
+	if ( s_yavinIntroModelStateLogs < 24 )
+	{
+		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_STATE_RESET ent=%d shader='%s' stage0Img='%s' tex0=%d stage1Img='%s'",
+			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
+			tess.shader ? tess.shader->name : "<null>",
+			RB_XboxImageName( stage->bundle[0].image ),
+			stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
+			RB_XboxImageName( stage->bundle[1].image ) );
+		++s_yavinIntroModelStateLogs;
+	}
+}
+
+static int RB_XboxAdjustYavinIntroModelState( const shaderStage_t *stage, int stateBits )
+{
+	static int s_yavinIntroDepthLogs = 0;
+	int oldStateBits = stateBits;
+
+	if ( !RB_XboxIsYavinIntroModelDraw( stage ) )
+	{
+		return stateBits;
+	}
+
+	/*
+	 * Keep normal depth state here.  The earlier yavin1 diagnostic disabled
+	 * depth testing for these actors, which proved they were being submitted
+	 * but also made them draw through cockpit and foreground geometry.
+	 */
+	if ( s_yavinIntroDepthLogs < 24 )
+	{
+		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_DEPTH_KEEP ent=%d shader='%s' oldState=0x%x newState=0x%x depthDisable=%d depthEqual=%d depthMask=%d rdflags=0x%x scene=%d",
+			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
+			tess.shader ? tess.shader->name : "<null>",
+			oldStateBits,
+			stateBits,
+			(int)((stateBits & GLS_DEPTHTEST_DISABLE) != 0),
+			(int)((stateBits & GLS_DEPTHFUNC_EQUAL) != 0),
+			(int)((stateBits & GLS_DEPTHMASK_TRUE) != 0),
+			backEnd.refdef.rdflags,
+			tr.sceneCount);
+		++s_yavinIntroDepthLogs;
+	}
+
+	return stateBits;
+}
+
+static void RB_XboxLogYavinIntroModelDrawInputs( const shaderStage_t *stage, const char *where )
+{
+	static int s_yavinIntroDrawInputLogs = 0;
+	trRefEntity_t *ent = backEnd.currentEntity;
+	int i;
+	int minIndex = 0x7fffffff;
+	int maxIndex = -1;
+	int minColor[4] = { 255, 255, 255, 255 };
+	int maxColor[4] = { 0, 0, 0, 0 };
+	float minWin[3] = { 999999.0f, 999999.0f, 999999.0f };
+	float maxWin[3] = { -999999.0f, -999999.0f, -999999.0f };
+	int clipped = 0;
+
+	if ( !RB_XboxIsYavinIntroModelDraw( stage ) || s_yavinIntroDrawInputLogs >= 32 )
+	{
+		return;
+	}
+
+	for ( i = 0; i < tess.numIndexes; ++i )
+	{
+		int idx = tess.indexes[i];
+		if ( idx < minIndex )
+		{
+			minIndex = idx;
+		}
+		if ( idx > maxIndex )
+		{
+			maxIndex = idx;
+		}
+	}
+
+	for ( i = 0; i < tess.numVertexes; ++i )
+	{
+		int c;
+		vec4_t eye;
+		vec4_t clip;
+		vec4_t normalized;
+		vec4_t window;
+
+#ifdef _XBOX
+		{
+			unsigned long packedColor = tess.svars.colors[i];
+			int colorComponents[4];
+			colorComponents[0] = (int)((packedColor >> 16) & 0xff);
+			colorComponents[1] = (int)((packedColor >> 8) & 0xff);
+			colorComponents[2] = (int)(packedColor & 0xff);
+			colorComponents[3] = (int)((packedColor >> 24) & 0xff);
+			for ( c = 0; c < 4; ++c )
+			{
+				int color = colorComponents[c];
+				if ( color < minColor[c] )
+				{
+					minColor[c] = color;
+				}
+				if ( color > maxColor[c] )
+				{
+					maxColor[c] = color;
+				}
+			}
+		}
+#else
+		for ( c = 0; c < 4; ++c )
+		{
+			int color = tess.svars.colors[i][c];
+			if ( color < minColor[c] )
+			{
+				minColor[c] = color;
+			}
+			if ( color > maxColor[c] )
+			{
+				maxColor[c] = color;
+			}
+		}
+#endif
+
+		R_TransformModelToClip( tess.xyz[i], backEnd.ori.modelMatrix, backEnd.viewParms.projectionMatrix, eye, clip );
+		if ( clip[3] <= 0.0f )
+		{
+			++clipped;
+			continue;
+		}
+		R_TransformClipToWindow( clip, &backEnd.viewParms, normalized, window );
+		for ( c = 0; c < 3; ++c )
+		{
+			if ( window[c] < minWin[c] )
+			{
+				minWin[c] = window[c];
+			}
+			if ( window[c] > maxWin[c] )
+			{
+				maxWin[c] = window[c];
+			}
+		}
+	}
+
+	XBLF("JA: XBOX_YAVIN_INTRO_MODEL_DRAW_INPUT %s ent=%d shader='%s' stageImg='%s' verts=%d indexes=%d idxRange=%d..%d clipped=%d winMin=(%g,%g,%g) winMax=(%g,%g,%g) colorMin=(%d,%d,%d,%d) colorMax=(%d,%d,%d,%d) state=0x%x rdflags=0x%x scene=%d",
+		where ? where : "<null>",
+		ent ? ent->e.number : -1,
+		tess.shader ? tess.shader->name : "<null>",
+		stage ? RB_XboxImageName( stage->bundle[0].image ) : "<null>",
+		tess.numVertexes,
+		tess.numIndexes,
+		minIndex,
+		maxIndex,
+		clipped,
+		minWin[0], minWin[1], minWin[2],
+		maxWin[0], maxWin[1], maxWin[2],
+		minColor[0], minColor[1], minColor[2], minColor[3],
+		maxColor[0], maxColor[1], maxColor[2], maxColor[3],
+		stage ? stage->stateBits : 0,
+		backEnd.refdef.rdflags,
+		tr.sceneCount);
+	++s_yavinIntroDrawInputLogs;
+}
+
+static void RB_XboxForceYavinIntroModelColors( const shaderStage_t *stage )
+{
+	static int s_yavinIntroColorForceLogs = 0;
+	int i;
+
+	if ( !RB_XboxIsYavinIntroModelDraw( stage ) )
+	{
+		return;
+	}
+
+	for ( i = 0; i < tess.numVertexes; ++i )
+	{
+#ifdef _XBOX
+		tess.svars.colors[i] = 0xffffffff;
+#else
+		tess.svars.colors[i][0] = 255;
+		tess.svars.colors[i][1] = 255;
+		tess.svars.colors[i][2] = 255;
+		tess.svars.colors[i][3] = 255;
+#endif
+	}
+
+	if ( s_yavinIntroColorForceLogs < 24 )
+	{
+		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_COLOR_FORCE ent=%d shader='%s' verts=%d rdflags=0x%x scene=%d",
+			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
+			tess.shader ? tess.shader->name : "<null>",
+			tess.numVertexes,
+			backEnd.refdef.rdflags,
+			tr.sceneCount);
+		++s_yavinIntroColorForceLogs;
+	}
+}
+
 static qboolean RB_XboxShouldSkipYavinSkyOverlay( const shader_t *shader )
 {
 	if ( !shader || !tr.world || cls.state != CA_ACTIVE )
@@ -3064,6 +3484,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #endif
 			ComputeColors( pStage, forceAlphaGen, forceRGBGen );
 #ifdef _XBOX
+			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ComputeColors" );
+			RB_XboxForceYavinIntroModelColors( pStage );
+			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ColorForce" );
 			if ( forceTrace )
 			{
 				XBLF("JA: RB_IterateStagesGeneric after ComputeColors shader='%s' stage=%d\n",
@@ -3233,6 +3656,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 					XBLF("JA: RB_IterateStagesGeneric after bind single shader='%s' stage=%d\n",
 						tess.shader ? tess.shader->name : "<null>", stage);
 				}
+				RB_XboxPrepareYavinIntroModelDraw( pStage );
+				stateBits = RB_XboxAdjustYavinIntroModelState( pStage, stateBits );
 			}
 #else
 				R_BindAnimatedImage( &pStage->bundle[0] );
@@ -3266,6 +3691,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				XBLF("JA: RB_IterateStagesGeneric before single draw shader='%s' stage=%d\n",
 					tess.shader ? tess.shader->name : "<null>", stage);
 			}
+			RB_XboxLogYavinIntroModelDrawInputs( pStage, "before single draw" );
 #endif
 			R_DrawElements( input->numIndexes, input->indexes );
 #ifdef _XBOX
@@ -3346,6 +3772,7 @@ void RB_StageIteratorGeneric( void )
 	input = &tess;
 #ifdef _XBOX
 	RB_XboxLogRenderSuspectSurface("RB_StageIteratorGeneric");
+	RB_XboxLogModelShaderSurface("RB_StageIteratorGeneric");
 	if ( RB_XboxShouldSkipYavinSkyOverlay( tess.shader ) )
 	{
 		static int s_xboxYavinSkyOverlaySkipLogBudget = 12;
@@ -3381,6 +3808,9 @@ void RB_StageIteratorGeneric( void )
 
 	RB_DeformTessGeometry();
 #ifdef _XBOX
+	RB_XboxLogModelTransformProbe("after_deform");
+#endif
+#ifdef _XBOX
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
 		XBLF("JA: RB_StageIteratorGeneric after deform shader='%s'\n",
@@ -3404,7 +3834,11 @@ void RB_StageIteratorGeneric( void )
 	//
 	// set face culling appropriately
 	//
+#ifdef _XBOX
+	GL_Cull( RB_XboxYavinIntroCullType( input->shader->cullType ) );
+#else
 	GL_Cull( input->shader->cullType );
+#endif
 #ifdef _XBOX
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{

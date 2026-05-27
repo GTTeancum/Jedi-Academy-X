@@ -338,7 +338,7 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 	
 	sfx->Buffer = Buffer;
 
-#if defined(_GAMECUBE) || defined(_XBOX)
+#if defined(_GAMECUBE)
 	{
 		static int s_xboxRawSoundFreeCount = 0;
 		if (s_xboxRawSoundFreeCount < 16 || (s_xboxRawSoundFreeCount & 63) == 0)
@@ -349,6 +349,18 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 		s_xboxRawSoundFreeCount++;
 	}
 	Z_Free(sfx->pSoundData);
+	sfx->pSoundData = NULL;
+#endif
+#if defined(_XBOX)
+	{
+		static int s_xboxRawSoundTransferCount = 0;
+		if (s_xboxRawSoundTransferCount < 32 || (s_xboxRawSoundTransferCount & 127) == 0)
+		{
+			Com_PrintfAlways("JA: S_EndLoadSound transferred raw sound to QAL count=%d bytes=%d buffer=%d\n",
+				s_xboxRawSoundTransferCount, sfx->iSoundLength, Buffer);
+		}
+		s_xboxRawSoundTransferCount++;
+	}
 	sfx->pSoundData = NULL;
 #endif
 	sfx->iFlags |= SFX_FLAG_RESIDENT;

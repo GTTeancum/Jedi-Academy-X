@@ -1717,12 +1717,24 @@ static void CG_RegisterGraphics( void ) {
 	// register all the server specified models
 	for (i=1 ; i<MAX_MODELS ; i++) {
 		const char		*modelName;
+#ifdef _XBOX
+		static int s_xboxModelConfigLogCount = 0;
+#endif
 
 		modelName = CG_ConfigString( CS_MODELS+i );
 		if ( !modelName[0] ) {
 			break;
 		}
 		cgs.model_draw[i] = cgi_R_RegisterModel( modelName );
+#ifdef _XBOX
+		if ( s_xboxModelConfigLogCount < 96
+			&& ( strstr( modelName, "models/players/" ) || strstr( modelName, ".glm" ) ) )
+		{
+			XBLF("JA: CG_RegisterGraphics model_draw[%d]=%d name='%s'",
+				i, cgs.model_draw[i], modelName);
+			s_xboxModelConfigLogCount++;
+		}
+#endif
 //		OutputDebugString(va("### CG_RegisterGraphics(): cgs.model_draw[%d] = \"%s\"\n",i,modelName));
 	}
 
@@ -1735,12 +1747,23 @@ Ghoul2 Insert Start
 	// register all the server specified models
 	for (i=1 ; i<MAX_CHARSKINS ; i++) {
 		const char		*modelName;
+#ifdef _XBOX
+		static int s_xboxSkinConfigLogCount = 0;
+#endif
 
 		modelName = CG_ConfigString( CS_CHARSKINS+i );
 		if ( !modelName[0] ) {
 			break;
 		}
 		cgs.skins[i] = cgi_R_RegisterSkin( modelName );
+#ifdef _XBOX
+		if ( s_xboxSkinConfigLogCount < 96 && strstr( modelName, "models/players/" ) )
+		{
+			XBLF("JA: CG_RegisterGraphics skin[%d]=%d name='%s'",
+				i, cgs.skins[i], modelName);
+			s_xboxSkinConfigLogCount++;
+		}
+#endif
 	}
 
 /*

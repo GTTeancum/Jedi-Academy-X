@@ -339,9 +339,11 @@ void S_Init( void ) {
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
 
 #ifdef _XBOX
-	s_xboxSilentAudio = qtrue;
-	s_soundMuted = qtrue;
-	Com_Printf("JA: Xbox audio playback disabled; keeping silent lip-sync metadata alive.\n");
+	cv = Cvar_Get("s_xbox_silentAudio", "0", CVAR_ARCHIVE);
+	s_xboxSilentAudio = (cv && cv->integer) ? qtrue : qfalse;
+	s_soundMuted = s_xboxSilentAudio ? qtrue : qfalse;
+	Com_Printf("JA: Xbox audio mode=%s; lip-sync metadata remains enabled.\n",
+		s_xboxSilentAudio ? "silent" : "directsound");
 #endif
 
 	cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
@@ -367,19 +369,38 @@ void S_Init( void ) {
 	// clear out the lip synching override array
 	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
 
+#ifdef _XBOX
+	Com_Printf("JA: Xbox audio alcOpenDevice begin silent=%d\n", (int)s_xboxSilentAudio);
+#else
+	Com_Printf("JA: audio alcOpenDevice begin\n");
+#endif
 	ALCDevice = alcOpenDevice((ALubyte*)"DirectSound3D");
 	if (!ALCDevice)
+	{
+		Com_Printf("JA: Xbox audio alcOpenDevice failed\n");
 		return;
+	}
+	Com_Printf("JA: Xbox audio alcOpenDevice ok device=%p\n", ALCDevice);
 
 	//Create context(s)
+	Com_Printf("JA: Xbox audio alcCreateContext begin\n");
 	ALCContext = alcCreateContext(ALCDevice, NULL);
 	if (!ALCContext)
+	{
+		Com_Printf("JA: Xbox audio alcCreateContext failed\n");
 		return;
+	}
+	Com_Printf("JA: Xbox audio alcCreateContext ok context=%p\n", ALCContext);
 
 	//Set active context
+	Com_Printf("JA: Xbox audio alcMakeContextCurrent begin\n");
 	alcMakeContextCurrent(ALCContext);		
 	if (alcGetError(ALCDevice) != ALC_NO_ERROR)
+	{
+		Com_Printf("JA: Xbox audio alcMakeContextCurrent failed\n");
 		return;
+	}
+	Com_Printf("JA: Xbox audio alcMakeContextCurrent ok\n");
 
 	s_channels = new channel_t[MAX_CHANNELS];
 	
@@ -397,13 +418,16 @@ void S_Init( void ) {
 	s_updateTime = 0;
 
 #ifdef _XBOX
-	s_numChannels = 0;
-	Com_Printf("JA: Xbox silent audio metadata allocated: sfx=%d channels=%d entities=%d\n",
-		MAX_SFX, MAX_CHANNELS, MAX_GENTITIES);
-	Com_Printf("------------------------------------\n");
-	S_InitLoad();
-	S_LoadLipSyncTables();
-	return;
+	if (s_xboxSilentAudio)
+	{
+		s_numChannels = 0;
+		Com_Printf("JA: Xbox silent audio metadata allocated: sfx=%d channels=%d entities=%d\n",
+			MAX_SFX, MAX_CHANNELS, MAX_GENTITIES);
+		Com_Printf("------------------------------------\n");
+		S_InitLoad();
+		S_LoadLipSyncTables();
+		return;
+	}
 #endif
 
 	S_SoundInfo_f();
@@ -462,6 +486,10 @@ void S_Init( void ) {
 
 	memcpy(s_lipSyncData, buffer, len);
 	FS_FreeFile(buffer);
+#ifdef _XBOX
+	s_xboxLipDataLoaded = qtrue;
+	Com_Printf("JA: Xbox real audio lip sync loaded entries=%d bytes=%d\n", numLipFiles, len);
+#endif
 }
 
 // only called from snd_restart. QA request...
@@ -791,6 +819,18 @@ void S_BeginRegistration( void )
 		S_LoadSound(s_defaultSound);
 		s_registered = true;
 	}
+
+#ifdef _XBOX
+	{
+		static int s_xboxRealBeginRegistrationLogCount = 0;
+		if (!s_xboxSilentAudio && s_xboxRealBeginRegistrationLogCount < 8)
+		{
+			Com_Printf("JA: Xbox real S_BeginRegistration listeners=%d channels=%d default=%d registered=%d\n",
+				s_numListeners, s_numChannels, s_defaultSound, s_registered);
+			s_xboxRealBeginRegistrationLogCount++;
+		}
+	}
+#endif
 }
 
 /*
@@ -1325,6 +1365,22 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
+
+#ifdef _XBOX
+	if (!s_xboxSilentAudio)
+	{
+		static int s_xboxRealSoundStartsLogged = 0;
+		if (s_xboxRealSoundStartsLogged < 48 &&
+			(entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			 entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			 (sfx->iFlags & SFX_FLAG_VOICE)))
+		{
+			Com_Printf("JA: Xbox real sound start request ent=%d chan=%d handle=%d flags=0x%x fileCode=0x%x state=0x%x\n",
+				entityNum, entchannel, sfxHandle, sfx->iFlags, sfx->iFileCode, sfx->Buffer);
+			s_xboxRealSoundStartsLogged++;
+		}
+	}
+#endif
 
 #ifdef _XBOX
 	if (s_xboxSilentAudio)

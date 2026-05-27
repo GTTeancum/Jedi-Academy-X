@@ -1174,6 +1174,10 @@ static int R_GCullModel( trRefEntity_t *ent ) {
 
 	// scale the radius if need be
 	float largestScale = ent->e.modelScale[0];
+#ifdef _XBOX
+	const int xboxEntNum = ent ? ent->e.number : -1;
+	qboolean xboxTraceCull = qfalse;
+#endif
 
 	if (ent->e.modelScale[1] > largestScale)
 	{
@@ -1188,19 +1192,74 @@ static int R_GCullModel( trRefEntity_t *ent ) {
 		largestScale = 1;
 	}
 
+#ifdef _XBOX
+	if (cls.state == CA_ACTIVE && ent &&
+		(xboxEntNum == 49 || xboxEntNum == 50 || xboxEntNum == 52 || xboxEntNum == 53))
+	{
+		static int s_xboxGhoulCullTraceCount = 0;
+		xboxTraceCull = (s_xboxGhoulCullTraceCount < 32);
+		if (xboxTraceCull)
+		{
+			vec3_t worldOrigin;
+			int i;
+			R_LocalPointToWorld(vec3_origin, worldOrigin);
+			XBLF("JA: R_GCullModel enter ent=%d radius=%g scale=%g worldOrigin=%g,%g,%g entOrigin=%g,%g,%g viewOrg=%g,%g,%g rdflags=0x%x scene=%d",
+				xboxEntNum,
+				ent->e.radius,
+				largestScale,
+				worldOrigin[0], worldOrigin[1], worldOrigin[2],
+				ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+				tr.viewParms.or.origin[0], tr.viewParms.or.origin[1], tr.viewParms.or.origin[2],
+				tr.refdef.rdflags,
+				tr.sceneCount);
+			for (i = 0; i < 5; ++i)
+			{
+				cplane_t *frust = &tr.viewParms.frustum[i];
+				const float dist = DotProduct(worldOrigin, frust->normal) - frust->dist;
+				XBLF("JA: R_GCullModel plane ent=%d plane=%d dist=%g radius=%g normal=%g,%g,%g pdist=%g",
+					xboxEntNum,
+					i,
+					dist,
+					ent->e.radius * largestScale,
+					frust->normal[0], frust->normal[1], frust->normal[2],
+					frust->dist);
+			}
+			s_xboxGhoulCullTraceCount++;
+		}
+	}
+#endif
+
 	// cull bounding sphere 
   	switch ( R_CullLocalPointAndRadius( vec3_origin,  ent->e.radius * largestScale) )
   	{
   	case CULL_OUT:
   		tr.pc.c_sphere_cull_md3_out++;
+#ifdef _XBOX
+		if (xboxTraceCull)
+		{
+			XBLF("JA: R_GCullModel result ent=%d CULL_OUT", xboxEntNum);
+		}
+#endif
   		return CULL_OUT;
 
 	case CULL_IN:
 		tr.pc.c_sphere_cull_md3_in++;
+#ifdef _XBOX
+		if (xboxTraceCull)
+		{
+			XBLF("JA: R_GCullModel result ent=%d CULL_IN", xboxEntNum);
+		}
+#endif
 		return CULL_IN;
 
 	case CULL_CLIP:
 		tr.pc.c_sphere_cull_md3_clip++;
+#ifdef _XBOX
+		if (xboxTraceCull)
+		{
+			XBLF("JA: R_GCullModel result ent=%d CULL_CLIP->IN", xboxEntNum);
+		}
+#endif
 		return CULL_IN;
  	}
 	return CULL_IN;
@@ -3417,10 +3476,45 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 	skin_t			*skin;
 	int				modelCount;
 	mdxaBone_t		rootMatrix;
+#ifdef _XBOX
+	static int s_xboxGhoulAddTraceCount = 0;
+	const int xboxEntNum = ent ? ent->e.number : -1;
+	const qboolean xboxTraceGhoulAdd = (s_xboxGhoulAddTraceCount < 64 &&
+		cls.state == CA_ACTIVE &&
+		ent && ent->e.ghoul2 &&
+		(ent->e.hModel == 0 ||
+		 xboxEntNum == 0 ||
+		 xboxEntNum == 25 ||
+		 xboxEntNum == 27 ||
+		 xboxEntNum == 44 ||
+		 xboxEntNum == 47 ||
+		 xboxEntNum == 49 ||
+		 xboxEntNum == 50 ||
+		 xboxEntNum == 52 ||
+		 xboxEntNum == 53));
+	int xboxRenderedModels = 0;
+
+	if (xboxTraceGhoulAdd)
+	{
+		XBLF("JA: R_AddGhoulSurfaces enter ent=%d hModel=%d renderfx=0x%x ghoul2=%d origin=%g,%g,%g",
+			xboxEntNum,
+			ent->e.hModel,
+			ent->e.renderfx,
+			ent->e.ghoul2 ? ent->e.ghoul2->size() : -1,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2]);
+		s_xboxGhoulAddTraceCount++;
+	}
+#endif
 	
 	// if we don't want ghoul2 models, then return
 	if (r_noGhoul2->integer)
 	{
+#ifdef _XBOX
+		if (xboxTraceGhoulAdd)
+		{
+			XBLF("JA: R_AddGhoulSurfaces skip r_noGhoul2 ent=%d", xboxEntNum);
+		}
+#endif
 		return;
 	}
 
@@ -3429,6 +3523,13 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 
 	if (!G2_SetupModelPointers(ghoul2))
 	{
+#ifdef _XBOX
+		if (xboxTraceGhoulAdd)
+		{
+			XBLF("JA: R_AddGhoulSurfaces skip SetupModelPointers ent=%d ghoul2=%d",
+				xboxEntNum, ghoul2.size());
+		}
+#endif
 		return;
 	}
 
@@ -3440,6 +3541,13 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 	cull = R_GCullModel (ent );
 	if ( cull == CULL_OUT ) 
 	{
+#ifdef _XBOX
+		if (xboxTraceGhoulAdd)
+		{
+			XBLF("JA: R_AddGhoulSurfaces culled ent=%d cull=%d origin=%g,%g,%g",
+				xboxEntNum, cull, ent->e.origin[0], ent->e.origin[1], ent->e.origin[2]);
+		}
+#endif
 		return;
 	}
 
@@ -3470,6 +3578,13 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 	// sort the ghoul 2 models so bolt ons get bolted to the right model
 	G2_Sort_Models(ghoul2, modelList, &modelCount);
 	assert(modelList[31]==548);
+#ifdef _XBOX
+	if (xboxTraceGhoulAdd)
+	{
+		XBLF("JA: R_AddGhoulSurfaces ready ent=%d modelCount=%d fog=%d personal=%d cull=%d",
+			xboxEntNum, modelCount, fogNum, personalModel ? 1 : 0, cull);
+	}
+#endif
 
 #ifdef _G2_GORE
 	if (goreShader == -1)
@@ -3487,6 +3602,9 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 		i = modelList[j];
 		if (ghoul2[i].mValid&&!(ghoul2[i].mFlags & GHOUL2_NOMODEL)&&!(ghoul2[i].mFlags & GHOUL2_NORENDER))
 		{
+#ifdef _XBOX
+			xboxRenderedModels++;
+#endif
 			//
 			// figure out whether we should be using a custom shader for this model
 			//
@@ -3551,6 +3669,13 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 			RenderSurfaces(RS);
 		}
 	}
+#ifdef _XBOX
+	if (xboxTraceGhoulAdd)
+	{
+		XBLF("JA: R_AddGhoulSurfaces exit ent=%d renderedModels=%d modelCount=%d",
+			xboxEntNum, xboxRenderedModels, modelCount);
+	}
+#endif
 	HackadelicOnClient=false;
 }	
 
@@ -3650,16 +3775,43 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	qboolean xboxTraceGhoul;
 	int xboxEntNum;
 	const char *xboxShaderName;
+	static int s_xboxGhoulRbTraceCount = 0;
 
 	xboxEntNum = ent ? ent->e.number : -1;
 	xboxShaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "<null>";
-	xboxTraceGhoul = (qfalse &&
+	if (tess.shader == tr.shadowShader)
+	{
+		static int s_xboxGhoulShadowSkipTraceCount = 0;
+		if (s_xboxGhoulShadowSkipTraceCount < 4)
+		{
+			XBLF("JA: RB_SurfaceGhoul Xbox skip stencil shadow ent=%d",
+				ent ? ent->e.number : -1);
+			s_xboxGhoulShadowSkipTraceCount++;
+		}
+		return;
+	}
+
+	xboxTraceGhoul = (s_xboxGhoulRbTraceCount < 64 &&
 		cls.state == CA_ACTIVE &&
-		(xboxEntNum == 5 ||
-		 xboxEntNum == 2 ||
+		(xboxEntNum == 0 ||
+		 xboxEntNum == 25 ||
+		 xboxEntNum == 27 ||
+		 xboxEntNum == 44 ||
+		 xboxEntNum == 47 ||
+		 xboxEntNum == 49 ||
+		 xboxEntNum == 50 ||
+		 xboxEntNum == 52 ||
+		 xboxEntNum == 53 ||
 		 strstr(xboxShaderName, "models/players/alora") ||
-		 strstr(xboxShaderName, "models/players/alora2") ||
+		 strstr(xboxShaderName, "models/players/rosh") ||
+		 strstr(xboxShaderName, "models/players/tavion") ||
+		 strstr(xboxShaderName, "models/players/luke") ||
+		 strstr(xboxShaderName, "models/players/rebel") ||
 		 strstr(xboxShaderName, "models/players/jedi_tf")));
+	if (xboxTraceGhoul)
+	{
+		s_xboxGhoulRbTraceCount++;
+	}
 
 	isPlayer = strstr(tess.shader->name, "players") > 0 ? true : false;
 
@@ -3682,18 +3834,6 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 			entityVisList[ent->e.number] = 1;
 		}
 	}
-	if (tess.shader == tr.shadowShader)
-	{
-		static int s_xboxGhoulShadowSkipTraceCount = 0;
-		if (s_xboxGhoulShadowSkipTraceCount < 4)
-		{
-			XBLF("JA: RB_SurfaceGhoul Xbox skip stencil shadow ent=%d",
-				ent ? ent->e.number : -1);
-			s_xboxGhoulShadowSkipTraceCount++;
-		}
-		return;
-	}
-
 	// Cxbx-R does not reliably complete the Xbox D3D visibility query path here.
 	// Treat Ghoul2 entities as visible so the renderer does not hang inside HLE.
 #if 0
@@ -4219,8 +4359,21 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 #ifdef _XBOX
 	if (xboxTraceGhoul)
 	{
-		XBLF("JA: RB_SurfaceGhoul exit ent=%d shader='%s' tessVerts=%d tessIndexes=%d",
-			xboxEntNum, xboxShaderName, tess.numVertexes, tess.numIndexes);
+		vec3_t mins, maxs;
+		ClearBounds(mins, maxs);
+		for (j = 0; j < surface->numVerts; ++j)
+		{
+			AddPointToBounds(tess.xyz[baseVertex + j], mins, maxs);
+		}
+		XBLF("JA: RB_SurfaceGhoul exit ent=%d shader='%s' tessVerts=%d tessIndexes=%d bounds=(%g,%g,%g)-(%g,%g,%g) first=(%g,%g,%g) scene=%d rdflags=0x%x",
+			xboxEntNum, xboxShaderName, tess.numVertexes, tess.numIndexes,
+			mins[0], mins[1], mins[2],
+			maxs[0], maxs[1], maxs[2],
+			surface->numVerts > 0 ? tess.xyz[baseVertex][0] : 0.0f,
+			surface->numVerts > 0 ? tess.xyz[baseVertex][1] : 0.0f,
+			surface->numVerts > 0 ? tess.xyz[baseVertex][2] : 0.0f,
+			tr.sceneCount,
+			backEnd.refdef.rdflags);
 	}
 #endif
 

@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <stdio.h>
 #endif
+#include <string.h>
 
 #include "xb_log.h"
 
@@ -22,10 +23,12 @@ extern "C" long __stdcall NtWriteFile(HANDLE, HANDLE, void*, void*, XBLogIoStatu
     void*, unsigned long, LARGE_INTEGER*);
 
 static HANDLE g_logFile = INVALID_HANDLE_VALUE;
+static HANDLE g_phaseFile = INVALID_HANDLE_VALUE;
 
 // Softmod launchers mount the active game root as D:\, which leaves the log
 // beside the running XBE and makes it easy to retrieve after a crash.
 #define XB_LOG_PATH "D:\\ja_mp_log.txt"
+#define XB_PHASE_PATH "D:\\ja_mp_phase.txt"
 
 // Max line length for the formatted output buffer
 #define XB_LOG_BUF 2048
@@ -103,6 +106,13 @@ void XBLog_Init(void)
 
 void XBLog_Shutdown(void)
 {
+    if (g_phaseFile != INVALID_HANDLE_VALUE)
+    {
+        FlushFileBuffers(g_phaseFile);
+        CloseHandle(g_phaseFile);
+        g_phaseFile = INVALID_HANDLE_VALUE;
+    }
+
     if (g_logFile != INVALID_HANDLE_VALUE)
     {
         XBLog_Write("=== Jedi Academy Xbox log closed ===");
@@ -153,5 +163,48 @@ void XBLog_Write(const char *msg)
     else
     {
         XBLog_RawNtWrite(buf, len + 2, 3);
+    }
+}
+
+void XBLog_Phase(const char *msg)
+{
+    if (!msg || !*msg) return;
+
+    if (g_phaseFile == INVALID_HANDLE_VALUE)
+    {
+        g_phaseFile = CreateFileA(XB_PHASE_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    }
+
+    if (g_phaseFile == INVALID_HANDLE_VALUE)
+    {
+        return;
+    }
+
+    char buf[256];
+    int len = 0;
+    while (msg[len] && len < sizeof(buf) - 3)
+    {
+        buf[len] = msg[len];
+        len++;
+    }
+    if (len > 0 && buf[len - 1] == '\n') len--;
+    buf[len++] = '\r';
+    buf[len++] = '\n';
+    buf[len] = '\0';
+
+    SetFilePointer(g_phaseFile, 0, NULL, FILE_BEGIN);
+    DWORD written;
+    WriteFile(g_phaseFile, buf, len, &written, NULL);
+    SetEndOfFile(g_phaseFile);
+
+    static DWORD s_lastPhaseFlush = 0;
+    DWORD now = GetTickCount();
+    if (strstr(msg, "SEH") || strstr(msg, "exception") || strstr(msg, "invalid") ||
+        strstr(msg, "overflow") || strstr(msg, "failed") || strstr(msg, "fatal") ||
+        strstr(msg, "null") || now - s_lastPhaseFlush >= 250)
+    {
+        FlushFileBuffers(g_phaseFile);
+        s_lastPhaseFlush = now;
     }
 }

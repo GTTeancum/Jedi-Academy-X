@@ -20,6 +20,10 @@ void XBLog_Shutdown(void);
 // Automatically appends \n if not present.
 void XBLog_Write(const char *msg);
 
+// Overwrite D:\ja_mp_phase.txt with the latest coarse runtime phase.
+// This keeps a crash breadcrumb without growing the main log every frame.
+void XBLog_Phase(const char *msg);
+
 #ifdef __cplusplus
 }
 #endif

@@ -36,6 +36,7 @@
 #include <xgraphics.h>
 #include "win_lighteffects.h"
 #include "win_highdynamicrange.h"
+#include "xb_log.h"
 
 #ifndef FINAL_BUILD
 #include <d3d8perf.h>
@@ -746,6 +747,7 @@ static int s_jampRenderMetricFrame;
 #define JAMP_METRIC_ADD(x, v) do { if (s_jampRenderMetricActive) { (x) += (v); } } while (0)
 
 #define JAMP_XBOX_D3D_STATE_CACHE 0
+#define JAMP_XBOX_TEXTURE_STAGE_STATE_CACHE 0
 
 static IDirect3DTexture8 *s_jampTextureBindCache[GLW_MAX_TEXTURE_STAGES];
 static GLboolean s_jampTextureBindCacheValid[GLW_MAX_TEXTURE_STAGES];
@@ -814,7 +816,7 @@ static GLboolean s_jampTexStageCacheValid[GLW_MAX_TEXTURE_STAGES][14];
 
 static void JAMP_SetTextureStageStateCached(int stage, DWORD type, DWORD value)
 {
-#if !JAMP_XBOX_D3D_STATE_CACHE
+#if !JAMP_XBOX_TEXTURE_STAGE_STATE_CACHE
 	glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
 	JAMP_METRIC_INC(s_jampTexStageSets);
 	return;
@@ -5433,6 +5435,62 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 		
 	}
 
+#ifdef _XBOX
+	// Cxbx-R reports a pushbuffer fault if the backbuffer surface is bound as
+	// a texture. Copy the pixels into the destination texture surface instead.
+	pRenderTex->GetSurfaceLevel(0, &pSurface);
+
+	{
+		float srcLeftF = (u1 < u2) ? u1 : u2;
+		float srcRightF = (u1 < u2) ? u2 : u1;
+		float srcTopF = (v1 < v2) ? v1 : v2;
+		float srcBottomF = (v1 < v2) ? v2 : v1;
+
+		if (srcLeftF < 0.0f) srcLeftF = 0.0f;
+		if (srcTopF < 0.0f) srcTopF = 0.0f;
+		if (srcRightF > glConfig.vidWidth) srcRightF = glConfig.vidWidth;
+		if (srcBottomF > glConfig.vidHeight) srcBottomF = glConfig.vidHeight;
+
+		RECT rSrc;
+		POINT ptUpperLeft;
+		rSrc.left = (LONG)srcLeftF;
+		rSrc.right = (LONG)(srcRightF + 0.5f);
+		rSrc.top = (LONG)srcTopF;
+		rSrc.bottom = (LONG)(srcBottomF + 0.5f);
+		ptUpperLeft.x = 0;
+		ptUpperLeft.y = 0;
+
+		static int s_jampBackBufferCopyLogCount = 0;
+		if (s_jampBackBufferCopyLogCount < 8)
+		{
+			char msg[256];
+			_snprintf(msg, sizeof(msg),
+				"JAMP: CopyBackBufferToTexEXT CopyRects dst=%dx%d src=%ld,%ld-%ld,%ld fmt=0x%x",
+				(int)width, (int)height, rSrc.left, rSrc.top, rSrc.right, rSrc.bottom, (unsigned int)desc.Format);
+			msg[sizeof(msg) - 1] = 0;
+			XBLog_Write(msg);
+			s_jampBackBufferCopyLogCount++;
+		}
+
+		if (rSrc.right > rSrc.left && rSrc.bottom > rSrc.top)
+		{
+			HRESULT copyHr = glw_state->device->CopyRects(pBackBuffer, &rSrc, 0, pSurface, &ptUpperLeft);
+			if (FAILED(copyHr))
+			{
+				char msg[192];
+				_snprintf(msg, sizeof(msg),
+					"JAMP: CopyBackBufferToTexEXT CopyRects failed hr=0x%08x dst=%dx%d src=%ld,%ld-%ld,%ld",
+					(unsigned int)copyHr, (int)width, (int)height, rSrc.left, rSrc.top, rSrc.right, rSrc.bottom);
+				msg[sizeof(msg) - 1] = 0;
+				XBLog_Write(msg);
+			}
+		}
+		else
+		{
+			XBLog_Write("JAMP: CopyBackBufferToTexEXT skipped invalid source rect");
+		}
+	}
+#else
 	// make our current surface a render target
 	pRenderTex->GetSurfaceLevel(0, &pSurface);
 	glw_state->device->SetRenderTarget( pSurface, NULL );
@@ -5469,6 +5527,7 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->DrawPrimitiveUP( D3DPT_QUADSTRIP, 1, q, sizeof(QUAD) );
 #ifdef _XBOX
 	JAMP_RecordPrimitiveUP(4);
+#endif
 #endif
 
 	// now that everything is rendered, check again to see
@@ -6112,6 +6171,11 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 		break;
 
 	case GL_LIN_RGBA:
+			srcFormat = D3DFMT_LIN_A8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_LIN_RGBA8:
 			srcFormat = D3DFMT_LIN_A8R8G8B8;
 		bpp = 4;
 		break;

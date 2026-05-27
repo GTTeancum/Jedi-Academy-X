@@ -16,8 +16,13 @@
 #include "snd_local_console.h"
 #include "../xbox/XBLive.h"
 #include "../xbox/XBoxCommon.h"
+#include "../win32/xb_log.h"
 #else
 #include "snd_local.h"
+#endif
+
+#ifndef _XBOX
+#define XBLog_Phase(msg) ((void)0)
 #endif
 
 //rwwRMG - added:
@@ -1594,6 +1599,14 @@ void CL_CheckTimeout( void ) {
 void CL_PrepareUserInfoClientData()
 {
 	int clientnum = ClientManager::ActiveClientNum();
+#ifdef _XBOX
+	{
+		char phaseMsg[128];
+		_snprintf(phaseMsg, sizeof(phaseMsg), "CL_PrepareUserInfoClientData enter client=%d", clientnum);
+		phaseMsg[sizeof(phaseMsg) - 1] = 0;
+		XBLog_Phase(phaseMsg);
+	}
+#endif
 	Cvar_Set ( "model", ClientManager::ActiveClient().model );
 	Cvar_Set ( "char_color_red", ClientManager::ActiveClient().char_color_red );
 	Cvar_Set ( "char_color_green", ClientManager::ActiveClient().char_color_green );
@@ -1610,6 +1623,9 @@ void CL_PrepareUserInfoClientData()
 	Cvar_Set ( "forcePowers", ClientManager::ActiveClient().forcePowers);
 
 	Cvar_Set ( "name", ClientManager::ActiveClient().autoName);
+#ifdef _XBOX
+	XBLog_Phase("CL_PrepareUserInfoClientData exit");
+#endif
 }
 
 /*
@@ -1619,27 +1635,77 @@ CL_CheckUserinfo
 ==================
 */
 void CL_CheckUserinfo( void ) {
+#ifdef _XBOX
+	{
+		char phaseMsg[128];
+		_snprintf(phaseMsg, sizeof(phaseMsg), "CL_CheckUserinfo enter state=%d flags=0x%x rel=%d ack=%d",
+			cls.state, ClientManager::ActiveClient().cvar_modifiedFlags,
+			clc ? clc->reliableSequence : -1, clc ? clc->reliableAcknowledge : -1);
+		phaseMsg[sizeof(phaseMsg) - 1] = 0;
+		XBLog_Phase(phaseMsg);
+	}
+#endif
 	// don't add reliable commands when not yet connected
 
 	if ( cls.state < CA_CHALLENGING ) {
+#ifdef _XBOX
+		XBLog_Phase("CL_CheckUserinfo exit not challenging");
+#endif
 		return;
 	}
 	// don't overflow the reliable command buffer when paused
 	if ( cl_paused->integer ) {
+#ifdef _XBOX
+		XBLog_Phase("CL_CheckUserinfo exit paused");
+#endif
 		return;
 	}
 
+#ifdef _XBOX
+	XBLog_Phase("CL_CheckUserinfo before client loop");
+#endif
 	CM_START_LOOP();
 
 	// send a reliable userinfo update if needed
 	if ( ClientManager::ActiveClient().cvar_modifiedFlags & CVAR_USERINFO ) {
+#ifdef _XBOX
+		{
+			char phaseMsg[128];
+			_snprintf(phaseMsg, sizeof(phaseMsg), "CL_CheckUserinfo modified client=%d flags=0x%x",
+				ClientManager::ActiveClientNum(), ClientManager::ActiveClient().cvar_modifiedFlags);
+			phaseMsg[sizeof(phaseMsg) - 1] = 0;
+			XBLog_Phase(phaseMsg);
+		}
+#endif
 		CL_PrepareUserInfoClientData();
+#ifdef _XBOX
+		XBLog_Phase("CL_CheckUserinfo after prepare");
+#endif
 		ClientManager::ActiveClient().cvar_modifiedFlags &= ~CVAR_USERINFO;
-		
-		CL_AddReliableCommand( va("userinfo \"%s\"", Cvar_InfoString( CVAR_USERINFO ) ) );
+#ifdef _XBOX
+		XBLog_Phase("CL_CheckUserinfo before info string");
+#endif
+		const char *userinfo = Cvar_InfoString( CVAR_USERINFO );
+#ifdef _XBOX
+		{
+			char phaseMsg[128];
+			_snprintf(phaseMsg, sizeof(phaseMsg), "CL_CheckUserinfo before reliable len=%d rel=%d ack=%d",
+				userinfo ? (int)strlen(userinfo) : -1,
+				clc ? clc->reliableSequence : -1, clc ? clc->reliableAcknowledge : -1);
+			phaseMsg[sizeof(phaseMsg) - 1] = 0;
+			XBLog_Phase(phaseMsg);
+		}
+#endif
+		CL_AddReliableCommand( va("userinfo \"%s\"", userinfo ) );
+#ifdef _XBOX
+		XBLog_Phase("CL_CheckUserinfo after reliable");
+#endif
 	}
 
 	CM_END_LOOP();
+#ifdef _XBOX
+	XBLog_Phase("CL_CheckUserinfo exit");
+#endif
 }
 
 
@@ -1706,7 +1772,8 @@ void CL_Frame ( int msec ) {
 #ifdef _XBOX
 	char jampCLTraceMsg[96];
 	static unsigned int jampCLTraceFrameCount;
-	jampCLTrace = (jampCLTraceFrameCount < 4);
+	jampCLTrace = (jampCLTraceFrameCount < 4 || !(jampCLTraceFrameCount & 63));
+	XBLog_Phase("CL_Frame enter");
 	jampCLTraceFrameCount++;
 	if (jampCLTrace)
 	{
@@ -1731,8 +1798,10 @@ void CL_Frame ( int msec ) {
 		return;
 	}
 
+	XBLog_Phase("CL_Frame before SE_CheckForLanguageUpdates");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SE_CheckForLanguageUpdates\n");
 	SE_CheckForLanguageUpdates();	// will take zero time to execute unless language changes, then will reload strings.
+	XBLog_Phase("CL_Frame after SE_CheckForLanguageUpdates");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SE_CheckForLanguageUpdates\n");
 									//	of course this still doesn't work for menus...
 
@@ -1860,45 +1929,61 @@ void CL_Frame ( int msec ) {
 
 #ifdef _XBOX
 	//Check on the hot swappable button states.
+	XBLog_Phase("CL_Frame before CL_UpdateHotSwap");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_UpdateHotSwap\n");
 	CL_UpdateHotSwap();
+	XBLog_Phase("CL_Frame after CL_UpdateHotSwap");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_UpdateHotSwap\n");
 #endif
 
 	// see if we need to update any userinfo
+	XBLog_Phase("CL_Frame before CL_CheckUserinfo");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckUserinfo\n");
 	CL_CheckUserinfo();
+	XBLog_Phase("CL_Frame after CL_CheckUserinfo");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckUserinfo\n");
 
 	//JLF
+	XBLog_Phase("CL_Frame before CL_CheckDeferedCmds");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckDeferedCmds\n");
 	CL_CheckDeferedCmds();
+	XBLog_Phase("CL_Frame after CL_CheckDeferedCmds");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckDeferedCmds\n");
 	
 	// if we haven't gotten a packet in a long time,
 	// drop the connection
+	XBLog_Phase("CL_Frame before CL_CheckTimeout");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckTimeout\n");
 	CL_CheckTimeout();
+	XBLog_Phase("CL_Frame after CL_CheckTimeout");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckTimeout\n");
 
 	// send intentions now
+	XBLog_Phase("CL_Frame before CL_SendCmd");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_SendCmd\n");
 	CL_SendCmd();
+	XBLog_Phase("CL_Frame after CL_SendCmd");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_SendCmd\n");
 
 	// resend a connection request if necessary
+	XBLog_Phase("CL_Frame before CL_CheckForResend");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_CheckForResend\n");
 	CL_CheckForResend();
+	XBLog_Phase("CL_Frame after CL_CheckForResend");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_CheckForResend\n");
 
 	// decide on the serverTime to render
+	XBLog_Phase("CL_Frame before CL_SetCGameTime");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before CL_SetCGameTime\n");
 	CL_SetCGameTime();
+	XBLog_Phase("CL_Frame after CL_SetCGameTime");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_SetCGameTime\n");
 
 	// update the screen
+	XBLog_Phase("CL_Frame before SCR_UpdateScreen");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SCR_UpdateScreen\n");
 	SCR_UpdateScreen();
+	XBLog_Phase("CL_Frame after SCR_UpdateScreen");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SCR_UpdateScreen\n");
 
 	// update audio
@@ -1911,8 +1996,10 @@ void CL_Frame ( int msec ) {
 #endif
 
 	// advance local effects for next frame
+	XBLog_Phase("CL_Frame before SCR_RunCinematic");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame before SCR_RunCinematic\n");
 	SCR_RunCinematic();
+	XBLog_Phase("CL_Frame after SCR_RunCinematic");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after SCR_RunCinematic\n");
 
 //	Con_RunConsole();
@@ -1927,6 +2014,7 @@ void CL_Frame ( int msec ) {
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame after CL_UpdateTeamCount\n");
 
 	cls.framecount++;
+	XBLog_Phase("CL_Frame exit");
 	if (jampCLTrace) Com_PrintfAlways("JAMP: CL_Frame exit\n");
 }
 

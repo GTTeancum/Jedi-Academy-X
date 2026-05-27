@@ -7033,8 +7033,22 @@ void CG_Player( centity_t *cent ) {
 	//Get the player's light level for stealth calculations
 	CG_GetPlayerLightLevel( cent );
 
-	if ((in_camera) && cent->currentState.clientNum == 0 )	// If player in camera then no need for shadow
+	if ((in_camera) && cent->currentState.number == cg.snap->ps.clientNum )	// If player in camera then no need for shadow
 	{
+#ifdef _XBOX
+		static int s_xboxCameraLocalPlayerSkipBudget = 24;
+		if (s_xboxCameraLocalPlayerSkipBudget > 0)
+		{
+			XBLF("JA: CG_Player camera skip local ent=%d clientNum=%d psClient=%d viewEntity=%d third=%d origin=%g,%g,%g",
+				cent->currentState.number,
+				cent->currentState.clientNum,
+				cg.snap->ps.clientNum,
+				cg.snap->ps.viewEntity,
+				cg.renderingThirdPerson,
+				cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
+			--s_xboxCameraLocalPlayerSkipBudget;
+		}
+#endif
 		return;
 	}
 

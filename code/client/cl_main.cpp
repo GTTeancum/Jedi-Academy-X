@@ -1263,12 +1263,24 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		static int s_xboxActiveFrameTailCount = 0;
 		const qboolean xboxTraceActiveTail = qfalse;
 		static qboolean s_xboxLoggedAudioSkip = qfalse;
+		static int s_xboxBootTailLogBudget = 24;
+		const qboolean xboxTraceBootTail = (s_xboxBootTailLogBudget > 0);
 		if (!s_xboxLoggedAudioSkip)
 		{
 			XBLog_Write("JA: CL_Frame: running silent S_Update on Xbox smoke build");
 			s_xboxLoggedAudioSkip = qtrue;
 		}
+		if (xboxTraceBootTail)
+		{
+			XBLF("JA: CL_BOOT_TAIL before S_Update frame=%u state=%d ui=%d cgame=%d sv=%d keyCatchers=0x%x",
+				frameCount, (int)cls.state, (int)cls.uiStarted, (int)cls.cgameStarted,
+				(int)com_sv_running->integer, (unsigned int)cls.keyCatchers);
+		}
 		S_Update();
+		if (xboxTraceBootTail)
+		{
+			XBLF("JA: CL_BOOT_TAIL after S_Update frame=%u state=%d", frameCount, (int)cls.state);
+		}
 
 #ifdef _IMMERSION
 		if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before FF_Update");
@@ -1279,14 +1291,17 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u before SCR_RunCinematic", frameCount);
 		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before SCR_RunCinematic");
 		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before SCR_RunCinematic");
+		else if (xboxTraceBootTail) XBLog_Write("JA: CL_BOOT_TAIL before SCR_RunCinematic");
 		SCR_RunCinematic();
 		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u after SCR_RunCinematic", frameCount);
 		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after SCR_RunCinematic");
 		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: after SCR_RunCinematic");
+		else if (xboxTraceBootTail) XBLog_Write("JA: CL_BOOT_TAIL after SCR_RunCinematic");
 
 		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u before Con_RunConsole", frameCount);
 		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before Con_RunConsole");
 		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before Con_RunConsole");
+		else if (xboxTraceBootTail) XBLog_Write("JA: CL_BOOT_TAIL before Con_RunConsole");
 		Con_RunConsole();
 		if (s_xboxTraceClTight)
 		{
@@ -1300,6 +1315,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		{
 			XBLog_Write("JA: CL_Frame: after Con_RunConsole");
 			s_xboxActiveFrameTailCount++;
+		}
+		else if (xboxTraceBootTail)
+		{
+			XBLog_Write("JA: CL_BOOT_TAIL after Con_RunConsole");
+		}
+		if (s_xboxBootTailLogBudget > 0)
+		{
+			--s_xboxBootTailLogBudget;
 		}
 	}
 #else

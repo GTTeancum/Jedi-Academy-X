@@ -35,6 +35,28 @@ extern int eventHead, eventTail;
 extern sysEvent_t eventQue[MAX_QUED_EVENTS];
 extern byte		sys_packetReceived[MAX_MSGLEN];
 
+#ifdef _XBOX
+static bool Sys_XboxDirectMapRequested(void)
+{
+	char startupMap[MAX_QPATH];
+	startupMap[0] = '\0';
+
+	FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
+	if (!startupMapFile)
+	{
+		return false;
+	}
+
+	if (fgets(startupMap, sizeof(startupMap), startupMapFile))
+	{
+		startupMap[strcspn(startupMap, "\r\n\t ")] = '\0';
+	}
+	fclose(startupMapFile);
+
+	return startupMap[0] != '\0';
+}
+#endif
+
 void *NEWDECL operator new(size_t size)
 {
 	return Z_Malloc(size, TAG_NEWDEL, qfalse);
@@ -655,15 +677,25 @@ int main(int argc, char* argv[])
 
 	// Copy planet bink videos to Z: drive.
 	extern void Sys_BinkCopyInit(void);
-	Sys_BinkCopyInit();
-	XBL("Sys_BinkCopyInit done\n");
+#ifdef _XBOX
+	if (Sys_XboxDirectMapRequested())
+	{
+		XBL("Sys_BinkCopyInit skipped for direct-map boot\n");
+	}
+	else
+#endif
+	{
+		XBL("Sys_BinkCopyInit begin\n");
+		Sys_BinkCopyInit();
+		XBL("Sys_BinkCopyInit done\n");
+	}
 
 	XBL("Entering main game loop\n");
 
 	// main game loop
 	int xboxMainLoopCount = 0;
 	while( 1 ) {
-		const bool xboxTraceMainLoop = false;
+		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before IN_Frame", xboxMainLoopCount);
 		IN_Frame();
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after IN_Frame", xboxMainLoopCount);

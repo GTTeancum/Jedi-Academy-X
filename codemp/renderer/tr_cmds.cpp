@@ -6,6 +6,11 @@
 #ifdef _XBOX
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
+#include "../win32/xb_log.h"
+#endif
+
+#ifndef _XBOX
+#define XBLog_Phase(msg) ((void)0)
 #endif
 
 /*
@@ -94,6 +99,14 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 
 	cmdList = &backEndData->commands;
 	assert(cmdList); // bk001205
+#ifdef _XBOX
+	{
+		char phaseMsg[128];
+		_snprintf(phaseMsg, sizeof(phaseMsg), "R_IssueRenderCommands enter used=%d perf=%d", cmdList->used, runPerformanceCounters ? 1 : 0);
+		phaseMsg[sizeof(phaseMsg) - 1] = 0;
+		XBLog_Phase(phaseMsg);
+	}
+#endif
 	// add an end-of-list command
 	*(int *)(cmdList->cmds + cmdList->used) = RC_END_OF_LIST;
 
@@ -103,14 +116,32 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 	// at this point, the back end thread is idle, so it is ok
 	// to look at it's performance counters
 	if ( runPerformanceCounters ) {
+#ifdef _XBOX
+		XBLog_Phase("R_IssueRenderCommands before counters");
+#endif
 		R_PerformanceCounters();
+#ifdef _XBOX
+		XBLog_Phase("R_IssueRenderCommands after counters");
+#endif
 	}
 
 	// actually start the commands going
 	if ( !r_skipBackEnd->integer ) {
 		// let it start on the new batch
+#ifdef _XBOX
+		XBLog_Phase("R_IssueRenderCommands before backend");
+#endif
 		RB_ExecuteRenderCommands( cmdList->cmds );
+#ifdef _XBOX
+		XBLog_Phase("R_IssueRenderCommands after backend");
+#endif
 	}
+#ifdef _XBOX
+	else {
+		XBLog_Phase("R_IssueRenderCommands skipped backend");
+	}
+	XBLog_Phase("R_IssueRenderCommands exit");
+#endif
 }
 
 
@@ -450,7 +481,7 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
 #ifdef _XBOX
 	static int jampREEndFrameCount = 0;
-	qboolean jampREProfile = (jampREEndFrameCount < 4 || !(jampREEndFrameCount % 300));
+	qboolean jampREProfile = (jampREEndFrameCount < 4 || !(jampREEndFrameCount & 63));
 	int jampFrameStart = 0;
 	int jampBeginStart;
 	int jampIssueStart;
@@ -462,14 +493,17 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		jampFrameStart = Sys_Milliseconds();
 	}
+	XBLog_Phase("RE_EndFrame enter");
 #endif
 
 	if ( !tr.registered ) {
+		XBLog_Phase("RE_EndFrame not registered");
 		return;
 	}
 	cmd = (swapBuffersCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
 #ifdef _XBOX
+		XBLog_Phase("RE_EndFrame no command buffer");
 		jampREEndFrameCount++;
 #endif
 		return;
@@ -481,11 +515,14 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		jampBeginStart = Sys_Milliseconds();
 	}
+	XBLog_Phase("RE_EndFrame before qglBeginFrame");
 	if (!qglBeginFrame())
 	{
+		XBLog_Phase("RE_EndFrame qglBeginFrame failed");
 		jampREEndFrameCount++;
 		return;
 	}
+	XBLog_Phase("RE_EndFrame after qglBeginFrame");
 	if (jampREProfile)
 	{
 		jampBeginMsec = Sys_Milliseconds() - jampBeginStart;
@@ -497,9 +534,11 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		jampIssueStart = Sys_Milliseconds();
 	}
+	XBLog_Phase("RE_EndFrame before R_IssueRenderCommands");
 #endif
 	R_IssueRenderCommands( qtrue );
 #ifdef _XBOX
+	XBLog_Phase("RE_EndFrame after R_IssueRenderCommands");
 	if (jampREProfile)
 	{
 		jampIssueMsec = Sys_Milliseconds() - jampIssueStart;
@@ -511,7 +550,9 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		jampEndStart = Sys_Milliseconds();
 	}
+	XBLog_Phase("RE_EndFrame before qglEndFrame");
 	qglEndFrame();
+	XBLog_Phase("RE_EndFrame after qglEndFrame");
 	if (jampREProfile)
 	{
 		jampEndMsec = Sys_Milliseconds() - jampEndStart;
@@ -543,6 +584,7 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 			backEndMsec ? *backEndMsec : backEnd.pc.msec);
 	}
 	jampREEndFrameCount++;
+	XBLog_Phase("RE_EndFrame exit");
 #endif
 }
 

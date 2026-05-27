@@ -18,6 +18,10 @@
 #include "../win32/xb_log.h"
 #endif
 
+#ifndef _XBOX
+#define XBLog_Phase(msg) ((void)0)
+#endif
+
 #define	MAXPRINTMSG	4096
 
 #define MAX_NUM_ARGVS	50
@@ -1847,14 +1851,15 @@ try
 	timeBeforeEvents =0;
 	timeBeforeClient = 0;
 	timeAfter = 0;
-	jampTraceFrame = (jampComFrameTrace < 4);
+	jampTraceFrame = (jampComFrameTrace < 4 || !(jampComFrameTrace & 63));
 	if (jampTraceFrame)
 	{
 		XBLog_Write("JAMP: Com_Frame enter");
 	}
 #ifdef _XBOX
-	qboolean jampProfileFrame = (jampComFrameTrace < 4 || !(jampComFrameTrace % 300));
-	if (jampComFrameTrace < 4 || !(jampComFrameTrace % 100))
+	qboolean jampProfileFrame = (jampComFrameTrace < 4 || !(jampComFrameTrace & 63));
+	XBLog_Phase("Com_Frame enter");
+	if (jampComFrameTrace < 4 || !(jampComFrameTrace & 31))
 	{
 		_snprintf(jampHeartbeatMsg, sizeof(jampHeartbeatMsg), "JAMP: heartbeat frame=%i time=%i msec=%i", jampComFrameTrace, Sys_Milliseconds(), com_frameMsec);
 		jampHeartbeatMsg[sizeof(jampHeartbeatMsg) - 1] = 0;
@@ -1867,8 +1872,10 @@ try
 	key = 0x87243987;
 
 	// write config file if anything changed
+	XBLog_Phase("Com_Frame before Com_WriteConfiguration");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before Com_WriteConfiguration");
 	Com_WriteConfiguration(); 
+	XBLog_Phase("Com_Frame after Com_WriteConfiguration");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after Com_WriteConfiguration");
 
 	// if "viewlog" has been modified, show or hide the log console
@@ -1897,6 +1904,7 @@ try
 		minMsec = 1;
 	}
 	do {
+		XBLog_Phase("Com_Frame before first Com_EventLoop");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before first Com_EventLoop");
 #ifdef _XBOX
 		if(ClientManager::splitScreenMode == qtrue)
@@ -1908,14 +1916,17 @@ try
 		else
 #endif
 		com_frameTime = Com_EventLoop();
+		XBLog_Phase("Com_Frame after first Com_EventLoop");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after first Com_EventLoop");
 		if ( lastTime > com_frameTime ) {
 			lastTime = com_frameTime;		// possible on first frame
 		}
 		msec = com_frameTime - lastTime;
 	} while ( msec < minMsec );
+	XBLog_Phase("Com_Frame before first Cbuf_Execute");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before first Cbuf_Execute");
 	Cbuf_Execute ();
+	XBLog_Phase("Com_Frame after first Cbuf_Execute");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after first Cbuf_Execute");
 
 	lastTime = com_frameTime;
@@ -1935,8 +1946,10 @@ try
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
+	XBLog_Phase("Com_Frame before SV_Frame");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before SV_Frame");
 	SV_Frame( msec );
+	XBLog_Phase("Com_Frame after SV_Frame");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after SV_Frame");
 
 	// if "dedicated" has been modified, start up
@@ -1985,12 +1998,16 @@ try
 		else
 #endif
 		{
+		XBLog_Phase("Com_Frame before second Com_EventLoop");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before second Com_EventLoop");
 		Com_EventLoop();
+		XBLog_Phase("Com_Frame after second Com_EventLoop");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after second Com_EventLoop");
 		}
+		XBLog_Phase("Com_Frame before second Cbuf_Execute");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before second Cbuf_Execute");
 		Cbuf_Execute ();
+		XBLog_Phase("Com_Frame after second Cbuf_Execute");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after second Cbuf_Execute");
 
 
@@ -2005,8 +2022,10 @@ try
 			timeBeforeClient = Sys_Milliseconds ();
 		}
 
+		XBLog_Phase("Com_Frame before CL_Frame");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before CL_Frame");
 		CL_Frame( msec );
+		XBLog_Phase("Com_Frame after CL_Frame");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after CL_Frame");
 
 		if ( com_speeds->integer
@@ -2024,8 +2043,10 @@ try
 			timeBeforeClient = Sys_Milliseconds ();
 		}
 #endif
+		XBLog_Phase("Com_Frame before CL_Frame dedicated");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before CL_Frame dedicated");
 		CL_Frame( msec );
+		XBLog_Phase("Com_Frame after CL_Frame dedicated");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after CL_Frame dedicated");
 #ifdef _XBOX
 		if (jampProfileFrame) {
@@ -2092,12 +2113,15 @@ try
 	// Need to do Xbox Live frame here, because it can trigger an ERR_DROP
 	if(ClientManager::splitScreenMode == false)
 	{
+		XBLog_Phase("Com_Frame before XBL_Tick");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before XBL_Tick");
 		JAMP_XBL_Tick_Guarded();
+		XBLog_Phase("Com_Frame after XBL_Tick");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after XBL_Tick");
 	}
 #endif
 
+	XBLog_Phase("Com_Frame exit");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame exit");
 
 }//try

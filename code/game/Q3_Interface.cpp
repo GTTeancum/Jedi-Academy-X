@@ -5918,6 +5918,19 @@ static void Q3_CameraGroup( int entID, char *camG)
 	}
 
 	ent->cameraGroup = G_NewString(camG);
+#ifdef _XBOX
+	if ( !Q_stricmp(level.mapname, "yavin1") && camG && camG[0] && Q_stricmp(camG, "NULL") && Q_stricmp(camG, "none") )
+	{
+		ent->svFlags |= SVF_BROADCAST;
+		gi.Printf("JA: Q3_CameraGroup yavin broadcast ent=%d class='%s' target='%s' group='%s' sv=0x%x origin=%g,%g,%g\n",
+			entID,
+			ent->classname ? ent->classname : "",
+			ent->targetname ? ent->targetname : "",
+			ent->cameraGroup ? ent->cameraGroup : "",
+			ent->svFlags,
+			ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+	}
+#endif
 }
 
 extern camera_t	client_camera;
@@ -7999,6 +8012,28 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 					(int)in_camera,
 					g_timescale->value);
 				++s_xboxPlaySoundVoiceLogs;
+			}
+
+			if ( in_camera && ent && ent->client )
+			{
+				const int oldSvFlags = ent->svFlags;
+				ent->svFlags |= SVF_BROADCAST;
+
+				static int s_xboxCinematicVoiceBroadcastLogs = 0;
+				if (s_xboxCinematicVoiceBroadcastLogs < 64)
+				{
+					Com_Printf("JA: Q3_PlaySound cinematic voice broadcast ent=%d client=%d oldSv=0x%x newSv=0x%x chan='%s' final='%s' origin=%g,%g,%g\n",
+						entID,
+						ent->s.clientNum,
+						oldSvFlags,
+						ent->svFlags,
+						channel ? channel : "<null>",
+						finalName,
+						ent->currentOrigin[0],
+						ent->currentOrigin[1],
+						ent->currentOrigin[2]);
+					++s_xboxCinematicVoiceBroadcastLogs;
+				}
 			}
 		}
 #endif

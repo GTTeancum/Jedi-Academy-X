@@ -13,6 +13,7 @@
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
 #include "../win32/win_highdynamicrange.h"
+#include "../win32/xb_log.h"
 #endif
 
 backEndData_t	*backEndData;
@@ -24,6 +25,21 @@ extern void JAMP_ShadeMetricsSnapshot(int *batches, int *verts, int *indexes, in
 	int *dlightBatches, int *surfaceSpriteStages, int *maxVerts, int *maxIndexes,
 	int *texCoordBundles, int *texCoordSkipped, int *texCoordDirect, int *texCoordDirectVerts,
 	int *colorDirect, int *colorDirectVerts);
+
+static void JAMP_BackendPhasef(const char *fmt, int a, int b, int c, int d)
+{
+	char msg[128];
+	_snprintf(msg, sizeof(msg), fmt, a, b, c, d);
+	msg[sizeof(msg) - 1] = 0;
+	XBLog_Phase(msg);
+}
+
+static qboolean s_jampBackendTraceFrame = qfalse;
+static int s_jampStretchPicCount = 0;
+static int s_jampStretchFlushCount = 0;
+int g_jampTraceSurfaceCall = 0;
+int g_jampTraceSurfaceIndex = -1;
+int g_jampTraceSurfaceFrame = -1;
 #endif
 
 bool tr_stencilled = false;
@@ -758,6 +774,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	int jampColorDirect = 0;
 	int jampColorDirectVerts = 0;
 	qboolean jampDrawSurfProfile = (s_jampDrawSurfFrame < 4 || !((s_jampDrawSurfFrame + 1) % 300));
+	JAMP_BackendPhasef("RB_RenderDrawSurfList enter frame=%d surfs=%d", s_jampDrawSurfFrame, numDrawSurfs, 0, 0);
 #endif
 #ifdef __MACOS__
 	int				macEventTime;
@@ -784,6 +801,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	// clear the z buffer, set the modelview, etc
 	RB_BeginDrawingView ();
+#ifdef _XBOX
+	JAMP_BackendPhasef("RB_RenderDrawSurfList after begin frame=%d surfs=%d", s_jampDrawSurfFrame, numDrawSurfs, 0, 0);
+#endif
 
 	// draw everything
 	oldEntityNum = -1;
@@ -799,10 +819,44 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++)
 	{
+#ifdef _XBOX
+		qboolean jampTraceSurf = (i < 4 || !(i & 127) || i == numDrawSurfs - 1);
+		if (jampTraceSurf)
+		{
+			int surfType = drawSurf->surface ? *drawSurf->surface : -1;
+			JAMP_BackendPhasef("RB_RenderDrawSurfList loop f=%d i=%d type=%d sort=%d", s_jampDrawSurfFrame, i, surfType, (int)drawSurf->sort);
+		}
+#endif
 		if ( drawSurf->sort == oldSort )
 		{
 			// fast path, same as previous sort
+#ifdef _XBOX
+			if (jampTraceSurf)
+			{
+				g_jampTraceSurfaceCall = 1;
+				g_jampTraceSurfaceIndex = i;
+				g_jampTraceSurfaceFrame = s_jampDrawSurfFrame;
+				JAMP_BackendPhasef("RB_RenderDrawSurfList before fast f=%d i=%d type=%d tv=%d",
+					s_jampDrawSurfFrame, i, drawSurf->surface ? *drawSurf->surface : -1, tess.numVertexes);
+			}
+			else
+			{
+				g_jampTraceSurfaceCall = 0;
+				g_jampTraceSurfaceIndex = -1;
+				g_jampTraceSurfaceFrame = -1;
+			}
+#endif
 			rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+#ifdef _XBOX
+			if (jampTraceSurf)
+			{
+				JAMP_BackendPhasef("RB_RenderDrawSurfList after fast f=%d i=%d tv=%d ti=%d",
+					s_jampDrawSurfFrame, i, tess.numVertexes, tess.numIndexes);
+			}
+			g_jampTraceSurfaceCall = 0;
+			g_jampTraceSurfaceIndex = -1;
+			g_jampTraceSurfaceFrame = -1;
+#endif
 			continue;
 		}
 		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
@@ -987,7 +1041,33 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 
 		// add the triangles for this surface
+#ifdef _XBOX
+		if (jampTraceSurf)
+		{
+			g_jampTraceSurfaceCall = 1;
+			g_jampTraceSurfaceIndex = i;
+			g_jampTraceSurfaceFrame = s_jampDrawSurfFrame;
+			JAMP_BackendPhasef("RB_RenderDrawSurfList before surf f=%d i=%d ent=%d tv=%d",
+				s_jampDrawSurfFrame, i, entityNum, tess.numVertexes);
+		}
+		else
+		{
+			g_jampTraceSurfaceCall = 0;
+			g_jampTraceSurfaceIndex = -1;
+			g_jampTraceSurfaceFrame = -1;
+		}
+#endif
 		rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+#ifdef _XBOX
+		if (jampTraceSurf)
+		{
+			JAMP_BackendPhasef("RB_RenderDrawSurfList after surf f=%d i=%d tv=%d ti=%d",
+				s_jampDrawSurfFrame, i, tess.numVertexes, tess.numIndexes);
+		}
+		g_jampTraceSurfaceCall = 0;
+		g_jampTraceSurfaceIndex = -1;
+		g_jampTraceSurfaceFrame = -1;
+#endif
 	}
 
 	backEnd.refdef.floatTime = originalTime;
@@ -996,8 +1076,14 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	//assert(entityNum < MAX_GENTITIES);
 
 	if (oldShader != NULL) {
+#ifdef _XBOX
+		JAMP_BackendPhasef("RB_RenderDrawSurfList before final EndSurface frame=%d", s_jampDrawSurfFrame, 0, 0, 0);
+#endif
 		RB_EndSurface();
 	}
+#ifdef _XBOX
+	JAMP_BackendPhasef("RB_RenderDrawSurfList after main pass frame=%d post=%d", s_jampDrawSurfFrame, g_numPostRenders, 0, 0);
+#endif
 
 #ifdef _CRAZY_ATTRIB_DEBUG
 	qglPopAttrib();
@@ -1018,6 +1104,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		while (g_numPostRenders > 0)
 		{
 			g_numPostRenders--;
+#ifdef _XBOX
+			JAMP_BackendPhasef("RB_RenderDrawSurfList post remain=%d ent=%d", g_numPostRenders, g_postRenders[g_numPostRenders].entNum, 0, 0);
+#endif
 #ifdef _XBOX
 			if (jampDrawSurfProfile)
 			{
@@ -1201,6 +1290,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			jampTexCoordBundles, jampTexCoordSkipped, jampTexCoordDirect,
 			jampTexCoordDirectVerts, jampColorDirect, jampColorDirectVerts, backEnd.pc.msec);
 	}
+	JAMP_BackendPhasef("RB_RenderDrawSurfList exit frame=%d", s_jampDrawSurfFrame, 0, 0, 0);
 #endif
 }
 
@@ -1414,6 +1504,10 @@ const void *RB_StretchPic ( const void *data ) {
 	const stretchPicCommand_t	*cmd;
 	shader_t *shader;
 	int		numVerts, numIndexes;
+#ifdef _XBOX
+	qboolean jampLogFlush = qfalse;
+	qboolean jampLogOverflow = qfalse;
+#endif
 
 	cmd = (const stretchPicCommand_t *)data;
 
@@ -1422,15 +1516,46 @@ const void *RB_StretchPic ( const void *data ) {
 	}
 
 	shader = cmd->shader;
+#ifdef _XBOX
+	s_jampStretchPicCount++;
+	if ( !shader ) {
+		JAMP_BackendPhasef("RB_StretchPic null shader count=%d", s_jampStretchPicCount, 0, 0, 0);
+		return (const void *)(cmd + 1);
+	}
+#endif
 	if ( shader != tess.shader ) {
 		if ( tess.numIndexes ) {
+#ifdef _XBOX
+			s_jampStretchFlushCount++;
+			jampLogFlush = (s_jampBackendTraceFrame || s_jampStretchFlushCount <= 4 || !(s_jampStretchFlushCount & 31));
+			if ( jampLogFlush ) {
+				JAMP_BackendPhasef("RB_StretchPic before flush n=%d v=%d i=%d shader=%d",
+					s_jampStretchFlushCount, tess.numVertexes, tess.numIndexes, shader->index);
+			}
+#endif
 			RB_EndSurface();
+#ifdef _XBOX
+			if ( jampLogFlush ) {
+				JAMP_BackendPhasef("RB_StretchPic after flush n=%d", s_jampStretchFlushCount, 0, 0, 0);
+			}
+#endif
 		}
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
 	}
 
+#ifdef _XBOX
+	jampLogOverflow = (tess.numVertexes + 4 >= SHADER_MAX_VERTEXES || tess.numIndexes + 6 >= SHADER_MAX_INDEXES);
+	if ( jampLogOverflow ) {
+		JAMP_BackendPhasef("RB_StretchPic before overflow v=%d i=%d", tess.numVertexes, tess.numIndexes, 0, 0);
+	}
+#endif
 	RB_CHECKOVERFLOW( 4, 6 );
+#ifdef _XBOX
+	if ( jampLogOverflow ) {
+		JAMP_BackendPhasef("RB_StretchPic after overflow v=%d i=%d", tess.numVertexes, tess.numIndexes, 0, 0);
+	}
+#endif
 	numVerts = tess.numVertexes;
 	numIndexes = tess.numIndexes;
 
@@ -1860,11 +1985,31 @@ smp extensions, or asyncronously by another thread.
 extern const void *R_DrawWireframeAutomap(const void *data); //tr_world.cpp
 void RB_ExecuteRenderCommands( const void *data ) {
 	int		t1, t2;
+#ifdef _XBOX
+	int jampCommandCount = 0;
+	int jampStretchCommandCount = 0;
+	static int s_jampBackendCommandFrame = 0;
+	int jampFrameNumber = s_jampBackendCommandFrame;
+	s_jampBackendTraceFrame = (jampFrameNumber < 4 || !(jampFrameNumber & 63));
+	s_jampStretchPicCount = 0;
+	s_jampStretchFlushCount = 0;
+	if ( s_jampBackendTraceFrame ) {
+		JAMP_BackendPhasef("RB_ExecuteRenderCommands enter frame=%d", jampFrameNumber, 0, 0, 0);
+	}
+#endif
 
 	t1 = Sys_Milliseconds()*com_timescale->value;
 
 	while ( 1 ) {
-		switch ( *(const int *)data ) {
+		int commandId = *(const int *)data;
+#ifdef _XBOX
+		if ( commandId == RC_STRETCH_PIC ) {
+			jampStretchCommandCount++;
+		} else if ( s_jampBackendTraceFrame ) {
+			JAMP_BackendPhasef("RB_ExecuteRenderCommands cmd=%d count=%d", commandId, jampCommandCount, 0, 0);
+		}
+#endif
+		switch ( commandId ) {
 		case RC_SET_COLOR:
 			data = RB_SetColor( data );
 			break;
@@ -1897,8 +2042,19 @@ void RB_ExecuteRenderCommands( const void *data ) {
 			// stop rendering on this thread
 			t2 = Sys_Milliseconds()*com_timescale->value;
 			backEnd.pc.msec = t2 - t1;
+#ifdef _XBOX
+			if ( s_jampBackendTraceFrame || backEnd.pc.msec > 80 ) {
+				JAMP_BackendPhasef("RB_ExecuteRenderCommands done frame=%d cmds=%d stretch=%d msec=%d",
+					jampFrameNumber, jampCommandCount, jampStretchCommandCount, backEnd.pc.msec);
+			}
+			s_jampBackendCommandFrame++;
+			s_jampBackendTraceFrame = qfalse;
+#endif
 			return;
 		}
+#ifdef _XBOX
+		jampCommandCount++;
+#endif
 	}
 
 }

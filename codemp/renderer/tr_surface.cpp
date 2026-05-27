@@ -8,6 +8,29 @@
 #include "../win32/glw_win_dx8.h"
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
+#include "../win32/xb_log.h"
+#endif
+
+#ifdef _XBOX
+static void JAMP_SurfacePhasef(const char *fmt, int a, int b, int c, int d)
+{
+	char msg[160];
+	_snprintf(msg, sizeof(msg), fmt, a, b, c, d);
+	msg[sizeof(msg) - 1] = 0;
+	XBLog_Phase(msg);
+}
+
+static void JAMP_SurfaceLogf(const char *fmt, int a, int b, int c, int d)
+{
+	char msg[192];
+	_snprintf(msg, sizeof(msg), fmt, a, b, c, d);
+	msg[sizeof(msg) - 1] = 0;
+	XBLog_Write(msg);
+}
+
+extern int g_jampTraceSurfaceCall;
+extern int g_jampTraceSurfaceIndex;
+extern int g_jampTraceSurfaceFrame;
 #endif
 
 /*
@@ -34,18 +57,34 @@ RB_CheckOverflow
 ==============
 */
 void RB_CheckOverflow( int verts, int indexes ) {
+#ifdef _XBOX
+	JAMP_SurfacePhasef("RB_CheckOverflow enter verts=%d idx=%d tv=%d ti=%d",
+		verts, indexes, tess.numVertexes, tess.numIndexes);
+#endif
 	if ( tess.shader == tr.shadowShader ) {
 		if (tess.numVertexes + verts < SHADER_MAX_VERTEXES/2
 			&& tess.numIndexes + indexes < SHADER_MAX_INDEXES) {
+#ifdef _XBOX
+			XBLog_Phase("RB_CheckOverflow shadow no flush");
+#endif
 			return;
 		}
 	} else 
 		if (tess.numVertexes + verts < SHADER_MAX_VERTEXES
 			&& tess.numIndexes + indexes < SHADER_MAX_INDEXES) {
+#ifdef _XBOX
+			XBLog_Phase("RB_CheckOverflow no flush");
+#endif
 			return;
 		}
 
+#ifdef _XBOX
+	XBLog_Phase("RB_CheckOverflow before RB_EndSurface");
+#endif
 	RB_EndSurface();
+#ifdef _XBOX
+	XBLog_Phase("RB_CheckOverflow after RB_EndSurface");
+#endif
 
 	if ( verts >= SHADER_MAX_VERTEXES ) {
 		Com_Error(ERR_DROP, "RB_CheckOverflow: verts > MAX (%d > %d)", verts, SHADER_MAX_VERTEXES );
@@ -54,7 +93,13 @@ void RB_CheckOverflow( int verts, int indexes ) {
 		Com_Error(ERR_DROP, "RB_CheckOverflow: indices > MAX (%d > %d)", indexes, SHADER_MAX_INDEXES );
 	}
 
+#ifdef _XBOX
+	XBLog_Phase("RB_CheckOverflow before RB_BeginSurface");
+#endif
 	RB_BeginSurface(tess.shader, tess.fogNum );
+#ifdef _XBOX
+	XBLog_Phase("RB_CheckOverflow exit");
+#endif
 }
 
 
@@ -1441,7 +1486,73 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 	int			numPoints;
 	int			dlightBits;
 
+#ifdef _XBOX
+	qboolean jampTraceFace = g_jampTraceSurfaceCall ? qtrue : qfalse;
+	if (!surf)
+	{
+		XBLog_Phase("RB_SurfaceFace null");
+		XBLog_Write("JAMP: RB_SurfaceFace null surface");
+		return;
+	}
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace enter f=%d i=%d pts=%d idx=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, surf->numPoints, surf->numIndices);
+	}
+	if (jampTraceFace)
+	{
+		int faceHeader = (int)&((srfSurfaceFace_t *)0)->srfPoints + 4;
+		int numLightMaps = surf->flags & 0x7F;
+		int nextSurfPoint = NEXT_SURFPOINT(surf->flags);
+		int expectedIndexOfs = faceHeader + surf->numPoints * (int)sizeof(unsigned short) * nextSurfPoint;
+
+		if (surf->surfaceType != SF_FACE ||
+			surf->numPoints <= 0 || surf->numPoints > MAX_FACE_POINTS ||
+			surf->numIndices <= 0 || surf->numIndices >= SHADER_MAX_INDEXES ||
+			(surf->numIndices % 3) != 0 ||
+			numLightMaps < 0 || numLightMaps > MAXLIGHTMAPS ||
+			nextSurfPoint <= 0 ||
+			surf->ofsIndices < faceHeader ||
+			surf->ofsIndices != expectedIndexOfs ||
+			!surf->srfPoints)
+		{
+			JAMP_SurfacePhasef("RB_SurfaceFace invalid f=%d i=%d pts=%d idx=%d",
+				g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, surf->numPoints, surf->numIndices);
+			JAMP_SurfaceLogf("JAMP: RB_SurfaceFace invalid type=%d pts=%d idx=%d flags=%d",
+				surf->surfaceType, surf->numPoints, surf->numIndices, surf->flags);
+			JAMP_SurfaceLogf("JAMP: RB_SurfaceFace invalid ofs=%d expected=%d lm=%d step=%d",
+				surf->ofsIndices, expectedIndexOfs, numLightMaps, nextSurfPoint);
+			return;
+		}
+
+		indices = ( unsigned char * ) ( ( ( char  * ) surf ) + surf->ofsIndices );
+		for (i = 0; i < surf->numIndices; i++)
+		{
+			if (indices[i] >= surf->numPoints)
+			{
+				JAMP_SurfacePhasef("RB_SurfaceFace bad idx f=%d i=%d ofs=%d val=%d",
+					g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, i, indices[i]);
+				JAMP_SurfaceLogf("JAMP: RB_SurfaceFace bad index surf=%d ofs=%d val=%d pts=%d",
+					g_jampTraceSurfaceIndex, i, indices[i], surf->numPoints);
+				return;
+			}
+		}
+	}
+	if (tess.numVertexes + surf->numPoints >= SHADER_MAX_VERTEXES ||
+		tess.numIndexes + surf->numIndices >= SHADER_MAX_INDEXES)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace overflow f=%d i=%d tv=%d ti=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, tess.numVertexes, tess.numIndexes);
+	}
+#endif
 	RB_CHECKOVERFLOW( surf->numPoints, surf->numIndices );
+#ifdef _XBOX
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace after overflow f=%d i=%d tv=%d ti=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, tess.numVertexes, tess.numIndexes);
+	}
+#endif
 
 	dlightBits = surf->dlightBits;
 	tess.dlightBits |= dlightBits;
@@ -1454,11 +1565,25 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 
 	Bob = tess.numVertexes;
 	tessIndexes = tess.indexes + tess.numIndexes;
+#ifdef _XBOX
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace before index f=%d i=%d idx=%d bob=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, surf->numIndices, Bob);
+	}
+#endif
 	for ( i = surf->numIndices-1 ; i >= 0  ; i-- ) {
 		tessIndexes[i] = indices[i] + Bob;
 	}
 
 	tess.numIndexes += surf->numIndices;
+#ifdef _XBOX
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace after index f=%d i=%d ti=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, tess.numIndexes, 0);
+	}
+#endif
 
 #ifdef _XBOX
 	ndx = tess.numVertexes;
@@ -1474,6 +1599,13 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 
 	int nextSurfPoint = NEXT_SURFPOINT(surf->flags);
 	int numLightMaps = surf->flags & 0x7F;
+#ifdef _XBOX
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace before verts f=%d i=%d pts=%d step=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, numPoints, nextSurfPoint);
+	}
+#endif
 	for ( i = 0, v = surf->srfPoints, ndx = tess.numVertexes; i < numPoints; i++, v += nextSurfPoint, ndx++ ) {
 		Q_CastShort2Float(&tess.xyz[ndx][0], (short*)&v[0]);
 		Q_CastShort2Float(&tess.xyz[ndx][1], (short*)&v[1]);
@@ -1511,6 +1643,13 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 			*(unsigned int*) &tess.vertexColors[ndx] = ComputeFinalVertexColor16((byte *)&v[VERTEX_COLOR(surf->flags)]);
 		}
 	}
+#ifdef _XBOX
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace after verts f=%d i=%d tv=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, tess.numVertexes + surf->numPoints, 0);
+	}
+#endif
 #else // _XBOX
 
 	v = surf->points[0];
@@ -1550,6 +1689,13 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 #endif
 
 	tess.numVertexes += surf->numPoints;
+#ifdef _XBOX
+	if (jampTraceFace)
+	{
+		JAMP_SurfacePhasef("RB_SurfaceFace exit f=%d i=%d tv=%d ti=%d",
+			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, tess.numVertexes, tess.numIndexes);
+	}
+#endif
 }
 
 

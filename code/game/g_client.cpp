@@ -1720,6 +1720,9 @@ qboolean G_SetG2PlayerModelInfo( gentity_t *ent, const char *modelName, const ch
 void G_SetG2PlayerModel( gentity_t * const ent, const char *modelName, const char *customSkin, const char *surfOff, const char *surfOn )
 {
 	char	skinName[512];
+	char	modelPath[MAX_QPATH];
+	int		modelIndex;
+	int		skinIndex;
 
 	//ok, lets register the skin name, and then pass that name to the config strings so the client can get it too.
 	if ( !customSkin )
@@ -1737,7 +1740,9 @@ void G_SetG2PlayerModel( gentity_t * const ent, const char *modelName, const cha
 			Com_sprintf( skinName, sizeof( skinName ), "models/players/%s/model_%s.skin", modelName, customSkin );
 		}
 	}
+	Com_sprintf( modelPath, sizeof( modelPath ), "models/players/%s/model.glm", modelName );
 	int skin = gi.RE_RegisterSkin( skinName );
+	skinIndex = G_SkinIndex( skinName );
 #ifdef _XBOX
 	gi.Printf("JA: G_SetG2PlayerModel skin ent=%d model='%s' customLen=%d nameLen=%d skin=%d name='%s'\n",
 		ent ? ent->s.number : -1,
@@ -1755,28 +1760,79 @@ void G_SetG2PlayerModel( gentity_t * const ent, const char *modelName, const cha
 		// This will register the model and other assets.
 		Vehicle_t *pVeh = ent->m_pVehicle;
 		pVeh->m_pVehicleInfo->RegisterAssets( pVeh );
-		ent->playerModel = gi.G2API_InitGhoul2Model( ent->ghoul2, va("models/players/%s/model.glm", modelName), pVeh->m_pVehicleInfo->modelIndex, G_SkinIndex( skinName ) );
+		modelIndex = pVeh->m_pVehicleInfo->modelIndex;
+#ifdef _XBOX
+		gi.Printf("JA: G_SetG2PlayerModel init begin ent=%d class=%d vehicle=1 modelIndex=%d skinIndex=%d path='%s'\n",
+			ent ? ent->s.number : -1,
+			ent && ent->client ? ent->client->NPC_class : -1,
+			modelIndex,
+			skinIndex,
+			modelPath);
+#endif
+		ent->playerModel = gi.G2API_InitGhoul2Model( ent->ghoul2, modelPath, modelIndex, skinIndex );
 	}
 	else
 	{
 		//NOTE: it still loads the default skin's tga's because they're referenced in the .glm.
-		ent->playerModel = gi.G2API_InitGhoul2Model( ent->ghoul2, va("models/players/%s/model.glm", modelName), G_ModelIndex( va("models/players/%s/model.glm", modelName) ), G_SkinIndex( skinName ) );
+		modelIndex = G_ModelIndex( modelPath );
+#ifdef _XBOX
+		gi.Printf("JA: G_SetG2PlayerModel init begin ent=%d class=%d vehicle=0 modelIndex=%d skinIndex=%d path='%s'\n",
+			ent ? ent->s.number : -1,
+			ent && ent->client ? ent->client->NPC_class : -1,
+			modelIndex,
+			skinIndex,
+			modelPath);
+#endif
+		ent->playerModel = gi.G2API_InitGhoul2Model( ent->ghoul2, modelPath, modelIndex, skinIndex );
 	}
+#ifdef _XBOX
+	gi.Printf("JA: G_SetG2PlayerModel init done ent=%d playerModel=%d ghoul2=%d modelIndex=%d skinIndex=%d sv=0x%x eType=%d\n",
+		ent ? ent->s.number : -1,
+		ent ? ent->playerModel : -1,
+		ent ? ent->ghoul2.size() : -1,
+		modelIndex,
+		skinIndex,
+		ent ? ent->svFlags : 0,
+		ent ? ent->s.eType : -1);
+#endif
 	if (ent->playerModel == -1)
 	{//try the stormtrooper as a default
 		gi.Printf( S_COLOR_RED"G_SetG2PlayerModel: cannot load model %s\n", modelName );
 		modelName = "stormtrooper";
 		Com_sprintf( skinName, sizeof( skinName ), "models/players/%s/model_default.skin", modelName );
+		Com_sprintf( modelPath, sizeof( modelPath ), "models/players/%s/model.glm", modelName );
 		skin = gi.RE_RegisterSkin( skinName );
+		skinIndex = G_SkinIndex( skinName );
+		modelIndex = G_ModelIndex( modelPath );
 		assert(skin);
-		ent->playerModel = gi.G2API_InitGhoul2Model( ent->ghoul2, va("models/players/%s/model.glm", modelName), G_ModelIndex( va("models/players/%s/model.glm", modelName) ) );
+#ifdef _XBOX
+		gi.Printf("JA: G_SetG2PlayerModel fallback begin ent=%d modelIndex=%d skinIndex=%d path='%s'\n",
+			ent ? ent->s.number : -1,
+			modelIndex,
+			skinIndex,
+			modelPath);
+#endif
+		ent->playerModel = gi.G2API_InitGhoul2Model( ent->ghoul2, modelPath, modelIndex, skinIndex );
+#ifdef _XBOX
+		gi.Printf("JA: G_SetG2PlayerModel fallback done ent=%d playerModel=%d ghoul2=%d\n",
+			ent ? ent->s.number : -1,
+			ent ? ent->playerModel : -1,
+			ent ? ent->ghoul2.size() : -1);
+#endif
 	}
 	if (ent->playerModel == -1)
 	{//very bad thing here!
 		Com_Error(ERR_DROP, "Cannot fall back to default model %s!", modelName);
 	}
 
-	gi.G2API_SetSkin( &ent->ghoul2[ent->playerModel], G_SkinIndex( skinName ), skin );//this is going to set the surfs on/off matching the skin file
+	gi.G2API_SetSkin( &ent->ghoul2[ent->playerModel], skinIndex, skin );//this is going to set the surfs on/off matching the skin file
+#ifdef _XBOX
+	gi.Printf("JA: G_SetG2PlayerModel SetSkin done ent=%d playerModel=%d skinIndex=%d skin=%d\n",
+		ent ? ent->s.number : -1,
+		ent ? ent->playerModel : -1,
+		skinIndex,
+		skin);
+#endif
 
 	// did we find a ghoul2 model? if so, load the animation.cfg file
 	if ( !G_SetG2PlayerModelInfo( ent, modelName, customSkin, surfOff, surfOn ) )
@@ -1784,6 +1840,17 @@ void G_SetG2PlayerModel( gentity_t * const ent, const char *modelName, const cha
 		NPC_ParseParms( "mouse", ent );
 		Com_Printf( S_COLOR_RED"couldn't load playerModel %s!\n", va("models/players/%s/model.glm", modelName) );
 	}
+#ifdef _XBOX
+	else
+	{
+		gi.Printf("JA: G_SetG2PlayerModel info done ent=%d npc='%s' playerModel=%d ghoul2=%d clientInfo='%s'\n",
+			ent ? ent->s.number : -1,
+			ent && ent->NPC_type ? ent->NPC_type : "<null>",
+			ent ? ent->playerModel : -1,
+			ent ? ent->ghoul2.size() : -1,
+			(ent && ent->client) ? ent->client->clientInfo.name : "<no-client>");
+	}
+#endif
 }
 /*
 Ghoul2 Insert End

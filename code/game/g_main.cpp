@@ -2327,6 +2327,9 @@ gentity_t *pReservedZoneGentities = NULL;
 void G_ReserveZoneGentities( void )
 {
 	pReservedZoneGentities = (gentity_t *) Z_Malloc( sizeof(gentity_t) * MAX_GENTITIES, TAG_TEMP_WORKSPACE, qfalse, 4 );
+#ifdef _XBOX
+	XBLog_Writef("JA: G_ReserveZoneGentities ptr=%p bytes=%d", (void*)pReservedZoneGentities, (int)(sizeof(gentity_t) * MAX_GENTITIES));
+#endif
 }
 
 void G_AllocGentities( void )
@@ -2336,7 +2339,7 @@ void G_AllocGentities( void )
 #endif
 	g_entities = (gentity_t *) HeapAlloc( GetProcessHeap(), 0, sizeof(gentity_t) * MAX_GENTITIES );
 #ifdef _XBOX
-	XBLog_Writef("JA: G_AllocGentities: g_entities=%p bHadPersistedSurface=%d", (void*)g_entities, bHadPersistedSurface);
+	XBLog_Writef("JA: G_AllocGentities: HeapAlloc ptr=%p reserve=%p bHadPersistedSurface=%d", (void*)g_entities, (void*)pReservedZoneGentities, bHadPersistedSurface);
 #endif
 
 	// If it worked...
@@ -2351,7 +2354,11 @@ void G_AllocGentities( void )
 		}
 
 		// Really bad case #1:
+#ifdef _XBOX
+		XBLog_Write("JA: G_AllocGentities: HeapAlloc worked without persisted surface; using heap block");
+#else
 		Com_PrintfAlways( "G_AllocGentities: Extreme failure #1\n" );
+#endif
 		return;
 	}
 	else
@@ -2359,8 +2366,22 @@ void G_AllocGentities( void )
 		// It failed. Hopefully that means that there was no persisted surface.
 		if( !bHadPersistedSurface )
 		{
+			if( !pReservedZoneGentities )
+			{
+#ifdef _XBOX
+				XBLog_Write("JA: G_AllocGentities: reserve missing, allocating zone fallback now");
+#endif
+				pReservedZoneGentities = (gentity_t *) Z_Malloc( sizeof(gentity_t) * MAX_GENTITIES, TAG_TEMP_WORKSPACE, qfalse, 4 );
+			}
 			g_entities = pReservedZoneGentities;
 			pReservedZoneGentities = NULL;
+#ifdef _XBOX
+			XBLog_Writef("JA: G_AllocGentities: zone fallback ptr=%p", (void*)g_entities);
+#endif
+			if( !g_entities )
+			{
+				Com_Error(ERR_FATAL, "G_AllocGentities: unable to allocate entity storage");
+			}
 			return;
 		}
 

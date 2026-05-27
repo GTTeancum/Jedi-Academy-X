@@ -315,6 +315,10 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 //rww - bg_public.h won't cooperate in here
 #define EF_PERMANENT			0x00080000
 
+#ifdef _XBOX
+static qboolean s_xboxSnapshotCameraView = qfalse;
+#endif
+
 float sv_sightRangeForLevel[6] =
 {
 	0,//FORCE_LEVEL_0
@@ -498,6 +502,8 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	static int s_xboxSnapshotMoverDetailBudget = 0;
 	static int s_xboxSnapshotMoverFocusBudget = 0;
 	static int s_xboxSnapshotMissileBudget = 160;
+	static int s_xboxYavinSnapshotFocusBudget = 220;
+	static int s_xboxYavinCinematicActorBudget = 80;
 	int xboxMoverTotal = 0;
 	int xboxMoverSent = 0;
 	int xboxMoverUnlinked = 0;
@@ -507,6 +513,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	int xboxMoverNoClusters = 0;
 	qboolean xboxTraceMovers = (s_xboxSnapshotMoverFrameBudget > 0 && !portal);
 	int xboxFocusIndex = -1;
+	qboolean xboxYavinFocusEnt = qfalse;
 #endif
 
 	// during an error shutdown message we may need to transmit
@@ -550,7 +557,22 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 #ifdef _XBOX
 		xboxIsMover = (ent->s.eType == ET_MOVER);
 		xboxIsMissile = (ent->s.eType == ET_MISSILE);
+		xboxYavinFocusEnt = (!Q_stricmp(sv_mapname->string, "yavin1") && e >= 48 && e <= 60 && s_xboxYavinSnapshotFocusBudget > 0);
 		xboxLogMissile = (xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
+		if (xboxYavinFocusEnt)
+		{
+			XBLF("JA: SV_YAVIN_SNAPSHOT candidate pass=%s ent=%d linked=%d inuse=%d sv=0x%x eType=%d model=%d origin=%g,%g,%g current=%g,%g,%g",
+				portal ? "extra" : "main",
+				e,
+				(int)ent->linked,
+				(int)ent->inuse,
+				ent->svFlags,
+				ent->s.eType,
+				ent->s.modelindex,
+				ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+				ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+			--s_xboxYavinSnapshotFocusBudget;
+		}
 		if (xboxIsMover && xboxTraceMovers)
 		{
 			xboxMoverTotal++;
@@ -574,6 +596,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 
 		if (ent->s.eFlags & EF_PERMANENT)
 		{	// he's permanent, so don't send him down!
+#ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT reject-permanent pass=%s ent=%d eFlags=0x%x",
+					portal ? "extra" : "main", e, ent->s.eFlags);
+			}
+#endif
 			continue;
 		}
 
@@ -585,6 +614,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// never send entities that aren't linked in
 		if ( !ent->linked ) {
 #ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT reject-unlinked pass=%s ent=%d",
+					portal ? "extra" : "main", e);
+			}
 			if (xboxIsMover && xboxTraceMovers) xboxMoverUnlinked++;
 			if (xboxLogMissile)
 			{
@@ -605,6 +639,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// entities can be flagged to explicitly not be sent to the client
 		if ( ent->svFlags & SVF_NOCLIENT ) {
 #ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT reject-noclient pass=%s ent=%d sv=0x%x",
+					portal ? "extra" : "main", e, ent->svFlags);
+			}
 			if (xboxIsMover && xboxTraceMovers) xboxMoverNoClient++;
 			if (xboxLogMissile)
 			{
@@ -671,6 +710,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// don't double add an entity through portals
 		if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
 #ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT skip-duplicate pass=%s ent=%d",
+					portal ? "extra" : "main", e);
+			}
 			if (xboxLogMissile)
 			{
 				XBLF("JA: SV_SNAPSHOT_MISSILE skip-duplicate ent=%d weapon=%d", e, ent->s.weapon);
@@ -688,10 +732,33 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			continue;
 		}
 
+#ifdef _XBOX
+		if (s_xboxSnapshotCameraView && !Q_stricmp(sv_mapname->string, "yavin1") && ent->s.eType == ET_PLAYER && e > 0)
+		{
+			SV_AddEntToSnapshot( svEnt, ent, eNums );
+			if (s_xboxYavinCinematicActorBudget > 0)
+			{
+				XBLF("JA: SV_YAVIN_CINEMATIC_ACTOR_SENT ent=%d snapshot=%d sv=0x%x origin=%g,%g,%g current=%g,%g,%g",
+					e,
+					eNums->numSnapshotEntities - 1,
+					ent->svFlags,
+					ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+				--s_xboxYavinCinematicActorBudget;
+			}
+			continue;
+		}
+#endif
+
 		// broadcast entities are always sent, and so is the main player so we don't see noclip weirdness
 		if ( ent->svFlags & SVF_BROADCAST || !e) {
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
 #ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT sent-broadcast pass=%s ent=%d snapshot=%d",
+					portal ? "extra" : "main", e, eNums->numSnapshotEntities - 1);
+			}
 			if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
 			if (xboxFocusIndex >= 0 && !portal)
 			{
@@ -706,6 +773,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		{ //rww - portal entities are always sent as well
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
 #ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT sent-portalent pass=%s ent=%d snapshot=%d",
+					portal ? "extra" : "main", e, eNums->numSnapshotEntities - 1);
+			}
 			if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
 			if (xboxFocusIndex >= 0 && !portal)
 			{
@@ -740,28 +812,61 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			// we may need to check another one
 			if ( !CM_AreasConnected( clientarea, svEnt->areanum2 ) ) {
 #ifdef _XBOX
-				if (xboxIsMover && xboxTraceMovers) xboxMoverAreaRejected++;
-				if (xboxLogMissile)
+				qboolean xboxCameraAreaBypass = (s_xboxSnapshotCameraView && !Q_stricmp(sv_mapname->string, "yavin1"));
+				if (xboxCameraAreaBypass)
 				{
-					XBLF("JA: SV_SNAPSHOT_MISSILE reject-area ent=%d weapon=%d clientArea=%d entArea=%d/%d",
-						e, ent->s.weapon, clientarea, svEnt->areanum, svEnt->areanum2);
-					--s_xboxSnapshotMissileBudget;
+					if (xboxYavinFocusEnt)
+					{
+						XBLF("JA: SV_YAVIN_SNAPSHOT camera-bypass-area pass=%s ent=%d clientArea=%d entArea=%d/%d clientCluster=%d clusters=%d last=%d",
+							portal ? "extra" : "main",
+							e,
+							clientarea,
+							svEnt->areanum,
+							svEnt->areanum2,
+							clientcluster,
+							svEnt->numClusters,
+							svEnt->lastCluster);
+					}
 				}
-				if (xboxFocusIndex >= 0 && !portal)
+				else
 				{
-					XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(areaReject) );
+					if (xboxYavinFocusEnt)
+					{
+						XBLF("JA: SV_YAVIN_SNAPSHOT reject-area pass=%s ent=%d clientArea=%d entArea=%d/%d clientCluster=%d clusters=%d last=%d",
+							portal ? "extra" : "main",
+							e,
+							clientarea,
+							svEnt->areanum,
+							svEnt->areanum2,
+							clientcluster,
+							svEnt->numClusters,
+							svEnt->lastCluster);
+					}
+					if (xboxIsMover && xboxTraceMovers) xboxMoverAreaRejected++;
+					if (xboxLogMissile)
+					{
+						XBLF("JA: SV_SNAPSHOT_MISSILE reject-area ent=%d weapon=%d clientArea=%d entArea=%d/%d",
+							e, ent->s.weapon, clientarea, svEnt->areanum, svEnt->areanum2);
+						--s_xboxSnapshotMissileBudget;
+					}
+					if (xboxFocusIndex >= 0 && !portal)
+					{
+						XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(areaReject) );
+					}
+					if (xboxFocusMover)
+					{
+						XBLF("JA: SV_MOVER_FOCUS_REJECT_AREA ent=%d model=%d clientArea=%d entArea=%d/%d",
+							e,
+							ent->s.modelindex,
+							clientarea,
+							svEnt->areanum,
+							svEnt->areanum2);
+					}
+					continue;		// blocked by a door
 				}
-				if (xboxFocusMover)
-				{
-					XBLF("JA: SV_MOVER_FOCUS_REJECT_AREA ent=%d model=%d clientArea=%d entArea=%d/%d",
-						e,
-						ent->s.modelindex,
-						clientarea,
-						svEnt->areanum,
-						svEnt->areanum2);
-				}
-#endif
+#else
 				continue;		// blocked by a door
+#endif
 			}
 		}
 
@@ -770,6 +875,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// check individual leafs
 		if ( !svEnt->numClusters ) {
 #ifdef _XBOX
+			if (xboxYavinFocusEnt)
+			{
+				XBLF("JA: SV_YAVIN_SNAPSHOT reject-noclusters pass=%s ent=%d area=%d/%d",
+					portal ? "extra" : "main", e, svEnt->areanum, svEnt->areanum2);
+			}
 			if (xboxIsMover && xboxTraceMovers) xboxMoverNoClusters++;
 			if (xboxLogMissile)
 			{
@@ -817,6 +927,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				}
 				if ( l == svEnt->lastCluster ) {
 #ifdef _XBOX
+					if (xboxYavinFocusEnt)
+					{
+						XBLF("JA: SV_YAVIN_SNAPSHOT reject-pvs-overflow pass=%s ent=%d clientCluster=%d last=%d",
+							portal ? "extra" : "main", e, clientcluster, svEnt->lastCluster);
+					}
 					if (xboxIsMover && xboxTraceMovers) xboxMoverPvsRejected++;
 					if (xboxLogMissile)
 					{
@@ -840,6 +955,17 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				}
 			} else {
 #ifdef _XBOX
+				if (xboxYavinFocusEnt)
+				{
+					XBLF("JA: SV_YAVIN_SNAPSHOT reject-pvs pass=%s ent=%d clientCluster=%d clusters=%d firstCluster=%d area=%d/%d",
+						portal ? "extra" : "main",
+						e,
+						clientcluster,
+						svEnt->numClusters,
+						svEnt->numClusters > 0 ? svEnt->clusternums[0] : -1,
+						svEnt->areanum,
+						svEnt->areanum2);
+				}
 				if (xboxIsMover && xboxTraceMovers) xboxMoverPvsRejected++;
 				if (xboxLogMissile)
 				{
@@ -866,6 +992,19 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// add it
 		SV_AddEntToSnapshot( svEnt, ent, eNums );
 #ifdef _XBOX
+		if (xboxYavinFocusEnt)
+		{
+			XBLF("JA: SV_YAVIN_SNAPSHOT sent-pvs pass=%s ent=%d snapshot=%d clientArea=%d clientCluster=%d area=%d/%d clusters=%d firstCluster=%d",
+				portal ? "extra" : "main",
+				e,
+				eNums->numSnapshotEntities - 1,
+				clientarea,
+				clientcluster,
+				svEnt->areanum,
+				svEnt->areanum2,
+				svEnt->numClusters,
+				svEnt->numClusters > 0 ? svEnt->clusternums[0] : -1);
+		}
 		if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
 		if (xboxFocusIndex >= 0 && !portal)
 		{
@@ -969,10 +1108,16 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	//if in camera mode use camera position instead
 	if ( VM_Call( CG_CAMERA_POS, org))
 	{
+	#ifdef _XBOX
+		s_xboxSnapshotCameraView = qtrue;
+	#endif
 		//org[2] += clent->client->viewheight;
 	}
 	else 
 	{ 
+	#ifdef _XBOX
+		s_xboxSnapshotCameraView = qfalse;
+	#endif
 		VectorCopy( clent->client->origin, org );
 		org[2] += clent->client->viewheight;
 
@@ -996,6 +1141,75 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	// add all the entities directly visible to the eye, which
 	// may include portal entities that merge other viewpoints
 	SV_AddEntitiesVisibleFromPoint( org, frame, &entityNumbers, qfalse );
+	#ifdef _XBOX
+	s_xboxSnapshotCameraView = qfalse;
+	#endif
+
+	// A scripted viewEntity can move the rendered camera far from the player's
+	// body. Build an additional visibility set from that camera entity so
+	// nearby cinematic actors are actually sent to cgame.
+	if ( frame->ps.viewEntity > 0 && frame->ps.viewEntity < ENTITYNUM_WORLD )
+	{
+		gentity_t *viewEnt = SV_GentityNum( frame->ps.viewEntity );
+		if ( viewEnt && viewEnt->inuse && viewEnt->linked && !(viewEnt->svFlags & SVF_NOCLIENT) )
+		{
+			vec3_t viewOrg;
+			vec3_t viewDelta;
+			byte mainAreaBits[MAX_MAP_AREA_BYTES];
+			int mainAreaBytes = frame->areabytes;
+
+			VectorCopy( viewEnt->currentOrigin, viewOrg );
+			VectorSubtract( viewOrg, org, viewDelta );
+			memcpy( mainAreaBits, frame->areabits, sizeof( mainAreaBits ) );
+
+#ifdef _XBOX
+			if ( !Q_stricmp(sv_mapname->string, "yavin1") )
+			{
+				XBLF("JA: SV_YAVIN_VIEWENTITY_PVS begin viewEntity=%d eType=%d sv=0x%x model=%d org=%g,%g,%g viewOrg=%g,%g,%g deltaLenSq=%g entsBefore=%d",
+					frame->ps.viewEntity,
+					viewEnt->s.eType,
+					viewEnt->svFlags,
+					viewEnt->s.modelindex,
+					org[0], org[1], org[2],
+					viewOrg[0], viewOrg[1], viewOrg[2],
+					DotProduct( viewDelta, viewDelta ),
+					entityNumbers.numSnapshotEntities);
+			}
+#endif
+
+			SV_AddEntitiesVisibleFromPoint( viewOrg, frame, &entityNumbers, qtrue );
+
+			if ( frame->areabytes < mainAreaBytes )
+			{
+				frame->areabytes = mainAreaBytes;
+			}
+			for ( i = 0 ; i < frame->areabytes ; i++ )
+			{
+				frame->areabits[i] |= mainAreaBits[i];
+			}
+
+#ifdef _XBOX
+			if ( !Q_stricmp(sv_mapname->string, "yavin1") )
+			{
+				XBLF("JA: SV_YAVIN_VIEWENTITY_PVS end viewEntity=%d entsAfter=%d areaBytes=%d",
+					frame->ps.viewEntity,
+					entityNumbers.numSnapshotEntities,
+					frame->areabytes);
+			}
+#endif
+		}
+#ifdef _XBOX
+		else if ( !Q_stricmp(sv_mapname->string, "yavin1") )
+		{
+			XBLF("JA: SV_YAVIN_VIEWENTITY_PVS skip viewEntity=%d valid=%d inuse=%d linked=%d sv=0x%x",
+				frame->ps.viewEntity,
+				(int)(viewEnt != NULL),
+				viewEnt ? (int)viewEnt->inuse : 0,
+				viewEnt ? (int)viewEnt->linked : 0,
+				viewEnt ? viewEnt->svFlags : 0);
+		}
+#endif
+	}
 	/*
 	//was in here for debugging- print list of all entities in snapshot when you go over the limit
 	if ( entityNumbers.numSnapshotEntities >= 256 )

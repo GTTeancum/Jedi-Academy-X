@@ -2476,7 +2476,7 @@ static void CG_AddCEntity( centity_t *cent )
 #ifdef _XBOX
 	static int s_xboxAddCEntityTraceBudget = 64;
 	const qboolean xboxTraceEnt = (s_xboxAddCEntityTraceBudget > 0 && cent != NULL &&
-		(cent->currentState.number == 0 || cent->currentState.eType == ET_MOVER));
+		(cent->currentState.number == 0 || cent->currentState.eType == ET_MOVER || cent->currentState.eType == ET_PLAYER));
 	if ( xboxTraceEnt )
 	{
 		XBLF("JA: CG_AddCEntity enter ent=%d type=%d gent=%p valid=%d currentValid=%d weapon=%d",
@@ -2486,6 +2486,20 @@ static void CG_AddCEntity( centity_t *cent )
 			cent ? cent->currentState.eType < ET_EVENTS : 0,
 			cent ? cent->currentValid : 0,
 			cent ? cent->currentState.weapon : -1);
+		if ( cent && cent->gent && cent->gent->client )
+		{
+			XBLF("JA: CG_AddCEntity player detail ent=%d npc='%s' ci='%s' renderModel='%s' playerModel=%d ghoul2=%d modelindex=%d modelindex2=%d eFlags=0x%x sv=0x%x",
+				cent->currentState.number,
+				cent->gent->NPC_type ? cent->gent->NPC_type : "<null>",
+				cent->gent->client->clientInfo.name,
+				cent->gent->client->renderInfo.modelName,
+				cent->gent->playerModel,
+				cent->gent->ghoul2.size(),
+				cent->currentState.modelindex,
+				cent->currentState.modelindex2,
+				cent->currentState.eFlags,
+				cent->gent->svFlags);
+		}
 		s_xboxAddCEntityTraceBudget--;
 	}
 #endif
@@ -2547,8 +2561,18 @@ Ghoul2 Insert Start
 #ifdef _XBOX
 		if ( xboxTraceEnt )
 		{
-			XBLF("JA: CG_AddCEntity before SetGhoul2ModelIndexes ent=%d ghoul2=%d",
-				cent->currentState.number, cent->gent->ghoul2.size());
+			const int modelHandle = (cent->currentState.modelindex >= 0 && cent->currentState.modelindex < MAX_MODELS)
+				? cgs.model_draw[cent->currentState.modelindex] : -1;
+			const int skinHandle = (cent->currentState.modelindex2 >= 0 && cent->currentState.modelindex2 < MAX_CHARSKINS)
+				? cgs.skins[cent->currentState.modelindex2] : -1;
+			XBLF("JA: CG_AddCEntity before SetGhoul2ModelIndexes ent=%d ghoul2=%d playerModel=%d modelindex=%d modelHandle=%d skinIndex=%d skinHandle=%d",
+				cent->currentState.number,
+				cent->gent->ghoul2.size(),
+				cent->gent->playerModel,
+				cent->currentState.modelindex,
+				modelHandle,
+				cent->currentState.modelindex2,
+				skinHandle);
 		}
 #endif
 		trap_G2_SetGhoul2ModelIndexes(cent->gent->ghoul2, cgs.model_draw, cgs.skins);

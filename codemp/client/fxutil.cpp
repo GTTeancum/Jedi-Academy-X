@@ -247,7 +247,7 @@ void FX_Add( bool portal )
 	if (!portal)
 	{
 		s_jampFxFrame++;
-		if (s_jampFxFrame <= 4 || !(s_jampFxFrame % 300))
+		if (s_jampFxFrame <= 4 || !(s_jampFxFrame & 63))
 		{
 			Com_Printf("JAMP: FX metrics frame=%d active=%d drawn=%d scheduled=%d\n",
 				s_jampFxFrame, activeFx, drawnFx, theFxScheduler.NumScheduledFx());
@@ -267,6 +267,19 @@ void FX_Add( bool portal )
 extern bool gEffectsInPortal;	//from FXScheduler.cpp so i don't have to pass it in on EVERY FX_ADD*
 void FX_AddPrimitive( CEffect **pEffect, int killTime )
 {
+#ifdef _XBOX
+	if ( !pEffect || !*pEffect )
+	{
+		static int s_jampNullPrimitiveCount = 0;
+		s_jampNullPrimitiveCount++;
+		if (s_jampNullPrimitiveCount <= 8 || !(s_jampNullPrimitiveCount & 63))
+		{
+			Com_Printf("JAMP: FX_AddPrimitive skipped null effect count=%d kill=%d\n",
+				s_jampNullPrimitiveCount, killTime);
+		}
+		return;
+	}
+#endif
 	SEffectList *item = FX_GetValidEffect();
 
 	item->mEffect = *pEffect;

@@ -2056,8 +2056,9 @@ void R_CreateBuiltinImages( void )
 
 	tr.whiteImage = R_CreateImage("*white", (byte *)data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
 
-	// Make this the right size the first time!
-	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_RGBA, 1, qfalse, GL_REPEAT );
+	// Make this the right size the first time, and keep it linear because
+	// the Xbox backbuffer capture path copies directly into this surface.
+	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_LIN_RGBA8, 1, qfalse, GL_REPEAT );
 
 	Z_Free( data );
 

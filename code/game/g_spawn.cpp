@@ -842,6 +842,36 @@ Finds the spawn function for the entity and calls it,
 returning qfalse if not found
 ===============
 */
+#ifdef _XBOX
+static qboolean G_XboxShouldBroadcastYavinIntroNPC( gentity_t *ent, const char *classname )
+{
+	const char *name;
+
+	if ( !ent || !classname || !level.mapname[0] || Q_stricmp( level.mapname, "yavin1" ) )
+	{
+		return qfalse;
+	}
+	if ( Q_strncmp( classname, "NPC_", 4 ) )
+	{
+		return qfalse;
+	}
+
+	name = ent->targetname;
+	if ( name && ( strstr( name, "intro" ) || strstr( name, "Intro" ) || strstr( name, "INTRO" ) ) )
+	{
+		return qtrue;
+	}
+
+	name = ent->script_targetname;
+	if ( name && ( strstr( name, "intro" ) || strstr( name, "Intro" ) || strstr( name, "INTRO" ) ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+#endif
+
 static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname ) {
 	spawn_t	*s;
 	gitem_t	*item;
@@ -902,6 +932,22 @@ static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname )
 			// found it
 			s->spawn(ent);
 #ifdef _XBOX
+			if ( G_XboxShouldBroadcastYavinIntroNPC( ent, classname ) )
+			{
+				const int oldSvFlags = ent->svFlags;
+				ent->svFlags |= SVF_BROADCAST;
+				gi.Printf("JA: G_CallSpawn yavin intro broadcast ent=%d class='%s' target='%s' script='%s' oldSv=0x%x newSv=0x%x linked=%d client=%d origin=%d,%d,%d\n",
+					ent->s.number,
+					classname,
+					ent->targetname ? ent->targetname : "<null>",
+					ent->script_targetname ? ent->script_targetname : "<null>",
+					oldSvFlags,
+					ent->svFlags,
+					ent->linked,
+					ent->client ? ent->s.clientNum : -1,
+					(int)ent->currentOrigin[0], (int)ent->currentOrigin[1], (int)ent->currentOrigin[2]);
+			}
+
 			if (s_xboxCallSpawnLogBudget > 0 &&
 				(!Q_stricmp(classname, "func_door") ||
 				!Q_stricmp(classname, "func_breakable") ||

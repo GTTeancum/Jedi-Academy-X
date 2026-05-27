@@ -11,6 +11,9 @@
  */
 
 #include <xtl.h>
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 HANDLE s_BCThread = INVALID_HANDLE_VALUE;
 
@@ -18,6 +21,9 @@ static DWORD WINAPI _BinkCopier(LPVOID)
 {
 #ifndef FINAL_BUILD
 	OutputDebugString( "_BinkCopier starting.\n" );
+#endif
+#ifdef _XBOX
+	XBLog_Write("JA: _BinkCopier thread enter");
 #endif
 
 #ifdef XBOX_DEMO
@@ -53,6 +59,9 @@ static DWORD WINAPI _BinkCopier(LPVOID)
 #ifndef FINAL_BUILD
 	OutputDebugString( "_BinkCopier exiting.\n" );
 #endif
+#ifdef _XBOX
+	XBLog_Write("JA: _BinkCopier thread exit");
+#endif
 
 	ExitThread(0);
 	return TRUE;
@@ -62,5 +71,11 @@ static DWORD WINAPI _BinkCopier(LPVOID)
 void Sys_BinkCopyInit(void)
 {
 	// Create a thread to service IO
+#ifdef _XBOX
+	XBLog_Write("JA: Sys_BinkCopyInit CreateThread begin");
+#endif
 	s_BCThread = CreateThread(NULL, 64*1024, _BinkCopier, 0, 0, NULL);
+#ifdef _XBOX
+	XBLog_Writef("JA: Sys_BinkCopyInit CreateThread handle=%p", s_BCThread);
+#endif
 }

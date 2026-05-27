@@ -26,6 +26,14 @@
 
 #include "../renderer/tr_worldeffects.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
+#ifndef _XBOX
+#define XBLog_Phase(msg) ((void)0)
+#endif
+
 /*
 Ghoul2 Insert Start
 */
@@ -1847,10 +1855,11 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #ifdef _XBOX
 	static int s_jampClCgameFrame = 0;
 	int jampClCgameFrame = s_jampClCgameFrame++;
-	qboolean jampClCgameProfile = (jampClCgameFrame < 4 || !(jampClCgameFrame % 300));
+	qboolean jampClCgameProfile = (jampClCgameFrame < 4 || !(jampClCgameFrame & 63));
 	int jampClCgameStart = 0;
 	int jampClCgameEnd = 0;
 
+	XBLog_Phase("CL_CGameRendering enter");
 	if (jampClCgameProfile)
 	{
 		jampClCgameStart = Sys_Milliseconds();
@@ -1872,7 +1881,9 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #endif
 
 #ifdef _XBOX	// No demos on Xbox
+	XBLog_Phase("CL_CGameRendering before CG_DRAW_ACTIVE_FRAME");
 	VM_Call( cgvm, CG_DRAW_ACTIVE_FRAME, cl->serverTime, stereo, 0 );
+	XBLog_Phase("CL_CGameRendering after CG_DRAW_ACTIVE_FRAME");
 #else
 	VM_Call( cgvm, CG_DRAW_ACTIVE_FRAME, cl->serverTime, stereo, clc->demoplaying );
 #endif
@@ -1884,7 +1895,9 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 			jampClCgameFrame, jampClCgameEnd - jampClCgameStart, stereo, cl->serverTime, cls.state);
 	}
 #endif
+	XBLog_Phase("CL_CGameRendering before VM_Debug");
 	VM_Debug( 0 );
+	XBLog_Phase("CL_CGameRendering exit");
 }
 
 

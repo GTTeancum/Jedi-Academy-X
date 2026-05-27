@@ -1437,7 +1437,7 @@ try
 	static int s_xboxLastComPhaseTime = 0;
 	static bool s_xboxTraceComPhase = false;
 	const int xboxPhaseNow = Sys_Milliseconds();
-	s_xboxTraceComPhase = qfalse;
+	s_xboxTraceComPhase = firstFrames;
 	if (s_xboxTraceComPhase)
 	{
 		s_xboxLastComPhaseTime = xboxPhaseNow;

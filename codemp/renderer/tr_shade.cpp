@@ -49,7 +49,8 @@ static GLsizei jampTexCoordDirectStride[NUM_TEXTURE_BUNDLES];
 static qboolean jampColorDirect;
 static DWORD jampColorDirectValue;
 
-#define JAMP_XBOX_DIRECT_SHADE_SHORTCUTS 0
+#define JAMP_XBOX_DIRECT_TEXCOORD_SHORTCUTS 1
+#define JAMP_XBOX_DIRECT_COLOR_SHORTCUTS 0
 
 void JAMP_ShadeMetricsReset(void)
 {
@@ -139,7 +140,7 @@ static ID_INLINE int JAMP_TexCoordIndexForGen( int tcGen )
 
 static qboolean JAMP_TryDirectTexCoords( const shaderStage_t *pStage, int bundleIndex )
 {
-#if !JAMP_XBOX_DIRECT_SHADE_SHORTCUTS
+#if !JAMP_XBOX_DIRECT_TEXCOORD_SHORTCUTS
 	(void)pStage;
 	(void)bundleIndex;
 	return qfalse;
@@ -191,7 +192,7 @@ static ID_INLINE void JAMP_ResetColorDirect(void)
 
 static qboolean JAMP_TryDirectColor( const shaderStage_t *pStage, int forceRGBGen, alphaGen_t forceAlphaGen )
 {
-#if !JAMP_XBOX_DIRECT_SHADE_SHORTCUTS
+#if !JAMP_XBOX_DIRECT_COLOR_SHORTCUTS
 	(void)pStage;
 	(void)forceRGBGen;
 	(void)forceAlphaGen;

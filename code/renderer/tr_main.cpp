@@ -485,6 +485,49 @@ static void SetFarClip( void )
 	// The sky renders at zFar so need to move it out a little
 	// ...and make sure there is a minimum zfar to prevent problems
 	tr.viewParms.zFar = Com_Clamp(2048.0f, tr.distanceCull * (1.732), sqrtf( farthestCornerDistance ));
+
+#ifdef _XBOX
+	// The yavin1 intro places scripted Ghoul2 actors just beyond the
+	// world-derived visBounds, so D3D clips them even though the game submits
+	// their surfaces.  Extend the far plane from actual actor origins only;
+	// do not use refEntity radius here because these actors report radius=10000.
+	if ( tr.world && !Q_stricmp( tr.world->baseName, "yavin1" ) &&
+		( tr.refdef.rdflags & RDF_DRAWSKYBOX ) )
+	{
+		static int s_yavinIntroFarClipLogs = 0;
+		for ( i = 0; i < tr.refdef.num_entities; ++i )
+		{
+			const trRefEntity_t *ent = &tr.refdef.entities[i];
+			vec3_t delta;
+			float forwardDist;
+
+			if ( ent->e.reType != RT_MODEL || !ent->e.ghoul2 ||
+				ent->e.number < 40 || ent->e.number > 60 )
+			{
+				continue;
+			}
+
+			VectorSubtract( ent->e.origin, tr.viewParms.or.origin, delta );
+			forwardDist = DotProduct( delta, tr.viewParms.or.axis[0] );
+			if ( forwardDist > tr.viewParms.zFar - 256.0f )
+			{
+				const float oldZFar = tr.viewParms.zFar;
+				tr.viewParms.zFar = Com_Clamp( tr.viewParms.zFar, tr.distanceCull * 1.732f, forwardDist + 768.0f );
+				if ( s_yavinIntroFarClipLogs < 16 )
+				{
+					XBLF("JA: XBOX_YAVIN_INTRO_FARCLIP ent=%d old=%g new=%g forward=%g origin=%g,%g,%g view=%g,%g,%g",
+						ent->e.number,
+						oldZFar,
+						tr.viewParms.zFar,
+						forwardDist,
+						ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+						tr.viewParms.or.origin[0], tr.viewParms.or.origin[1], tr.viewParms.or.origin[2]);
+					++s_yavinIntroFarClipLogs;
+				}
+			}
+		}
+	}
+#endif
 }
 
 

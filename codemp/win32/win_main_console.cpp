@@ -33,7 +33,7 @@
 #endif
 
 #ifndef JAMP_USE_MAINLOOP_SEH
-#define JAMP_USE_MAINLOOP_SEH 0
+#define JAMP_USE_MAINLOOP_SEH 1
 #endif
 
 extern int eventHead, eventTail;
@@ -847,7 +847,8 @@ int main(int argc, char* argv[])
 		extern void PrintMem(void);
 		PrintMem();
 		*/
-		qboolean jampLoopTrace = (jampFrameHeartbeat < 5);
+		qboolean jampLoopTrace = (jampFrameHeartbeat < 5 || !(jampFrameHeartbeat & 63));
+		XBLog_Phase("main loop before IN_Frame");
 		if (jampLoopTrace)
 		{
 			char traceMsg[96];
@@ -867,6 +868,7 @@ int main(int argc, char* argv[])
 #else
 		IN_Frame();
 #endif
+		XBLog_Phase("main loop after IN_Frame");
 		if (jampLoopTrace)
 		{
 			char traceMsg[96];
@@ -881,6 +883,7 @@ int main(int argc, char* argv[])
 			traceMsg[sizeof(traceMsg) - 1] = 0;
 			XBLog_Write(traceMsg);
 		}
+		XBLog_Phase("main loop before Com_Frame");
 #if JAMP_USE_MAINLOOP_SEH
 		__try
 		{
@@ -893,6 +896,7 @@ int main(int argc, char* argv[])
 #else
 		Com_Frame();
 #endif
+		XBLog_Phase("main loop after Com_Frame");
 		if (jampLoopTrace)
 		{
 			char traceMsg[96];
