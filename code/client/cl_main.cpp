@@ -100,6 +100,130 @@ void CL_ShutdownRef( void );
 void CL_InitRef( void );
 void CL_CheckForResend( void );
 
+#ifdef _XBOX
+static qboolean CL_XboxAutoSmokeEnabled( void )
+{
+	static qboolean s_checked = qfalse;
+	static qboolean s_enabled = qfalse;
+
+	if ( !s_checked )
+	{
+		FILE *marker = fopen( "D:\\ja_sp_autosmoke.txt", "r" );
+		s_checked = qtrue;
+		if ( marker )
+		{
+			fclose( marker );
+			s_enabled = qtrue;
+			XBLog_Write( "JA: SP autosmoke enabled by D:\\ja_sp_autosmoke.txt" );
+		}
+		else
+		{
+			XBLog_Write( "JA: SP autosmoke disabled; marker missing" );
+		}
+	}
+
+	return s_enabled;
+}
+
+static void CL_XboxAutoSmokePressKey( int key, const char *name )
+{
+	XBLF( "JA: SP autosmoke press %s key=%d state=%d keyCatchers=0x%x realtime=%d",
+		name, key, (int)cls.state, (unsigned int)cls.keyCatchers, cls.realtime );
+	CL_KeyEvent( key, qtrue, cls.realtime );
+	CL_KeyEvent( key, qfalse, cls.realtime + 1 );
+}
+
+static void CL_XboxAutoSmokeTick( void )
+{
+	static qboolean s_done = qfalse;
+	static int s_lastPressTime = -2000;
+	static int s_pressCount = 0;
+	static int s_lastState = -1;
+	static int s_lastKeyCatchers = -1;
+	static qboolean s_loggedLoadStop = qfalse;
+	static qboolean s_loggedPlayerControl = qfalse;
+	static qboolean s_seenPostLoadCinematic = qfalse;
+	static qboolean s_loggedWaitingForCinematic = qfalse;
+	const int maxPresses = 24;
+	const int pressIntervalMsec = 1500;
+
+	if ( s_done || !CL_XboxAutoSmokeEnabled() )
+	{
+		return;
+	}
+
+	if ( s_lastState != (int)cls.state || s_lastKeyCatchers != (int)cls.keyCatchers )
+	{
+		s_lastState = (int)cls.state;
+		s_lastKeyCatchers = (int)cls.keyCatchers;
+		XBLF( "JA: SP autosmoke state state=%d keyCatchers=0x%x ui=%d cgame=%d sv=%d presses=%d",
+			(int)cls.state, (unsigned int)cls.keyCatchers, (int)cls.uiStarted,
+			(int)cls.cgameStarted, (int)com_sv_running->integer, s_pressCount );
+	}
+
+	if ( cls.state >= CA_LOADING )
+	{
+		if ( cls.state == CA_CINEMATIC || CL_IsRunningInGameCinematic() )
+		{
+			if ( !s_seenPostLoadCinematic )
+			{
+				s_seenPostLoadCinematic = qtrue;
+				XBLF( "JA: SP autosmoke observed post-load cinematic state=%d", (int)cls.state );
+			}
+		}
+
+		if ( !s_loggedLoadStop )
+		{
+			s_loggedLoadStop = qtrue;
+			XBLF( "JA: SP autosmoke reached load/game state=%d; input automation paused", (int)cls.state );
+		}
+
+		if ( cls.state == CA_ACTIVE )
+		{
+			extern bool in_camera;
+			if ( !in_camera && !s_loggedPlayerControl )
+			{
+				if ( s_seenPostLoadCinematic )
+				{
+					s_loggedPlayerControl = qtrue;
+					s_done = qtrue;
+					XBLog_Write( "JA: SP autosmoke reached post-cinematic CA_ACTIVE with in_camera=0; player control likely available" );
+				}
+				else if ( !s_loggedWaitingForCinematic )
+				{
+					s_loggedWaitingForCinematic = qtrue;
+					XBLog_Write( "JA: SP autosmoke reached early CA_ACTIVE with in_camera=0; waiting for post-load cinematic" );
+				}
+			}
+		}
+		return;
+	}
+
+	if ( s_pressCount >= maxPresses )
+	{
+		s_done = qtrue;
+		XBLF( "JA: SP autosmoke stopped after max presses state=%d keyCatchers=0x%x",
+			(int)cls.state, (unsigned int)cls.keyCatchers );
+		return;
+	}
+
+	if ( cls.realtime - s_lastPressTime < pressIntervalMsec )
+	{
+		return;
+	}
+
+	if ( ( cls.keyCatchers & KEYCATCH_UI ) ||
+		cls.state == CA_CINEMATIC || CL_IsRunningInGameCinematic() )
+	{
+		const qboolean useMouseAccept = ( ( s_pressCount & 1 ) == 0 );
+		s_lastPressTime = cls.realtime;
+		++s_pressCount;
+		CL_XboxAutoSmokePressKey( useMouseAccept ? A_MOUSE1 : A_ENTER,
+			useMouseAccept ? "A_MOUSE1" : "A_ENTER" );
+	}
+}
+#endif
+
 /*
 =======================================================================
 
@@ -1040,6 +1164,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		XBLog_Write(msg);
 	}
 	s_xboxFrameHeartbeat++;
+	CL_XboxAutoSmokeTick();
 #endif
 
 

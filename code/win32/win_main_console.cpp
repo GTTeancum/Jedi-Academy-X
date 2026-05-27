@@ -682,6 +682,11 @@ int main(int argc, char* argv[])
 	{
 		XBL("Sys_BinkCopyInit skipped for direct-map boot\n");
 	}
+	else if (FILE *autoSmokeMarker = fopen("D:\\ja_sp_autosmoke.txt", "r"))
+	{
+		fclose(autoSmokeMarker);
+		XBL("Sys_BinkCopyInit skipped for SP autosmoke boot\n");
+	}
 	else
 #endif
 	{
@@ -702,7 +707,14 @@ int main(int argc, char* argv[])
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame", xboxMainLoopCount);
 		Com_Frame();
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame", xboxMainLoopCount);
+#ifdef _XBOX
+		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE) ? 1 : 0;
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
+		Sleep(xboxMainLoopYieldMs);
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after first yield", xboxMainLoopCount);
+#else
 		Sleep(1);
+#endif
 
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD
@@ -710,7 +722,13 @@ int main(int argc, char* argv[])
 		DebugConsoleHandleCommands();
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after DebugConsoleHandleCommands", xboxMainLoopCount);
 #endif
+#ifdef _XBOX
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before second yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
+		Sleep(xboxMainLoopYieldMs);
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after second yield", xboxMainLoopCount);
+#else
 		Sleep(1);
+#endif
 		xboxMainLoopCount++;
 	}
 

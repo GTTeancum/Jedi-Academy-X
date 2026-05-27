@@ -1473,18 +1473,30 @@ try
 	} else {
 		minMsec = 1;
 	}
+#ifdef _XBOX
+	int xboxFirstEventSpinCount = 0;
+#endif
 	do {
 #ifdef _XBOX
-		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before first Com_EventLoop");
+		if (s_xboxTraceComPhase && xboxFirstEventSpinCount == 0) XBLog_Write("JA: COM_PHASE before first Com_EventLoop");
 #endif
 		com_frameTime = Com_EventLoop();
 #ifdef _XBOX
-		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after first Com_EventLoop");
+		if (s_xboxTraceComPhase && xboxFirstEventSpinCount == 0) XBLog_Write("JA: COM_PHASE after first Com_EventLoop");
 #endif
 		if ( lastTime > com_frameTime ) {
 			lastTime = com_frameTime;		// possible on first frame
 		}
 		msec = com_frameTime - lastTime;
+#ifdef _XBOX
+		if ( msec < minMsec && ++xboxFirstEventSpinCount > 1024 )
+		{
+			com_frameTime = lastTime + minMsec;
+			msec = minMsec;
+			if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE first event timer stalled; forced msec=%d", msec);
+			break;
+		}
+#endif
 	} while ( msec < minMsec );
 #ifdef _XBOX
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before first Cbuf_Execute");

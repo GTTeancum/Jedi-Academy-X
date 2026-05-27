@@ -56,6 +56,14 @@ function Count-Matches([string]$Path, [string]$Pattern) {
     return @((Select-String -Path $Path -Pattern $Pattern -ErrorAction SilentlyContinue)).Count
 }
 
+function Count-MatchesCaseSensitive([string]$Path, [string]$Pattern) {
+    if (!(Test-Path $Path)) {
+        return 0
+    }
+
+    return @((Select-String -Path $Path -Pattern $Pattern -CaseSensitive -ErrorAction SilentlyContinue)).Count
+}
+
 function Has-Match([string]$Path, [string]$Pattern) {
     if (!(Test-Path $Path)) {
         return $false
@@ -320,7 +328,7 @@ $binkFailCount = Count-Matches $logPath "BinkVideo::Start BinkOpen failed|CIN_Ru
 $missingMovieCount = Count-Matches $logPath "CIN_PlayCinematic not found"
 $unknownFormatCount = @([regex]::Matches($consoleCombined, "Unknown Format")).Count + (Count-Matches $logPath "Unknown Format")
 $yavinOverlaySkipCount = Count-Matches $logPath "XBOX_YAVIN_SKY_OVERLAY_SKIP"
-$fileFatalCount = Count-Matches $logPath "Out of memory|Received Exception|FATAL|Z_Malloc\(\): Out of memory|EIP"
+$fileFatalCount = Count-MatchesCaseSensitive $logPath "Out of memory|Received Exception|FATAL|Z_Malloc\(\): Out of memory|EIP"
 $consoleFatalCount = @([regex]::Matches($consoleCombined, "Received Exception|FATAL: X86|EIP :=|unhandled exception")).Count
 $fatalCount = $fileFatalCount + $consoleFatalCount
 

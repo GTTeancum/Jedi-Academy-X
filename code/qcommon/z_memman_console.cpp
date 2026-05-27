@@ -99,7 +99,7 @@ static memtag_t hunk_tag;
 #define MODEL_TEXTURE_POOL_SIZE		4*1024*1024
 
 #ifdef _XBOX
-#define ZONE_POOL_SIZE_RETAIL		(24*1024*1024)
+#define ZONE_POOL_SIZE_RETAIL		(25*1024*1024)
 #endif
 
 // SP savegames and Bink still use the original scratch sandbox.
