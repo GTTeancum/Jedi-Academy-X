@@ -310,10 +310,11 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
         internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/ ||
         internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/)
     {
+        const bool hasDdsHeader = (pixels && memcmp(pixels, "DDS ", 4) == 0);
         const BYTE *data;
         int ddsMipCount, ddsBpp;
         DWORD fourcc = ParseDDSContainer(pixels, &dW, &dH, &ddsMipCount, &ddsBpp, &data);
-        if (fourcc == 0 && format == GL_RGBA && type == GL_UNSIGNED_BYTE) {
+        if (!hasDdsHeader && fourcc == 0 && type == GL_UNSIGNED_BYTE) {
             /* R_CreateBuiltinImages seeds *savegame with an ordinary RGBA
              * scratch buffer but tags it GL_DDS1_EXT so later savegame loads
              * can replace it.  Do not feed that placeholder into fakegl as a

@@ -100,6 +100,9 @@ extern "C" D3DTexture* WINAPI D3DDevice_CreateTexture2(DWORD Width, DWORD Height
 static DWORD g_fakeglTextureCount = 0;
 static DWORD g_fakeglTextureFailures = 0;
 static unsigned __int64 g_fakeglTextureBytes = 0;
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
+extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
 #endif
 
 class TextureEntry
@@ -772,14 +775,6 @@ public:
 				DWORD color1 = D3DTA_TEXTURE;
 				int textEnvMode =  m_stage[i].GetTextEnvMode();
 				DWORD colorOp = GLToDXTextEnvMode(textEnvMode);
-				if ( i > 0 && textEnvMode == GL_BLEND ) 
-				{
-					// Assume we're doing multi-texture light mapping.
-					// I don't think this is the right way to do this
-					// but it works for D3DQuake.
-					colorOp = D3DTOP_MODULATE;
-					color1 |= D3DTA_COMPLEMENT;
-				}
 #ifdef _XBOX
 				if (i == 1)
 				{
@@ -803,11 +798,6 @@ public:
 				HRESULT hrTextureTransform = pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
 				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
 				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
-#ifdef _XBOX
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE );
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORSIGN, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE );
-#endif
 				DWORD alpha1 = D3DTA_TEXTURE;
 				DWORD alpha2 = D3DTA_CURRENT;
 				DWORD alphaOp;
@@ -1527,7 +1517,7 @@ private:
 		static int s_xboxChunkLogCount = 0;
 		static int s_xboxSubmitLogCount = 0;
 		static DWORD s_xboxDrawSubmitCount = 0;
-		const DWORD maxTriangleListPrims = 256;
+		const DWORD maxTriangleListPrims = 2048;
 		HRESULT firstFailure = S_OK;
 
 		if (!m_pD3DDev)
@@ -1573,6 +1563,8 @@ private:
 					chunkPrims,
 					base + (primBase * 3 * m_vertexSize),
 					m_vertexSize);
+				g_SPXBFakeGLPrimitiveCalls++;
+				g_SPXBFakeGLPrimitiveVerts += chunkPrims * 3;
 				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk post hr=0x%08lx",
@@ -1585,22 +1577,13 @@ private:
 
 				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
-					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer pre",
-						(unsigned long)s_xboxDrawSubmitCount);
-				}
-				m_pD3DDev->KickPushBuffer();
-				/* Avoid long-run CXBX-R stalls from per-draw GPU idle waits.
-				 * SwapBuffers still performs the frame boundary idle before Present. */
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
-				{
-					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer post",
+					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu complete",
 						(unsigned long)s_xboxDrawSubmitCount);
 					if (s_xboxSubmitLogCount < 16)
 					{
 						++s_xboxSubmitLogCount;
 					}
 				}
-				Sleep(0);
 				s_xboxDrawSubmitCount++;
 				primBase += chunkPrims;
 			}
@@ -1617,6 +1600,29 @@ private:
 					(unsigned long)primCount, vertices, m_vertexSize);
 			}
 			HRESULT hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType, primCount, vertices, m_vertexSize);
+			g_SPXBFakeGLPrimitiveCalls++;
+			switch (dptPrimitiveType)
+			{
+			case D3DPT_TRIANGLELIST:
+				g_SPXBFakeGLPrimitiveVerts += primCount * 3;
+				break;
+			case D3DPT_TRIANGLESTRIP:
+			case D3DPT_TRIANGLEFAN:
+				g_SPXBFakeGLPrimitiveVerts += primCount + 2;
+				break;
+			case D3DPT_LINELIST:
+				g_SPXBFakeGLPrimitiveVerts += primCount * 2;
+				break;
+			case D3DPT_LINESTRIP:
+				g_SPXBFakeGLPrimitiveVerts += primCount + 1;
+				break;
+			case D3DPT_POINTLIST:
+				g_SPXBFakeGLPrimitiveVerts += primCount;
+				break;
+			default:
+				g_SPXBFakeGLPrimitiveVerts += primCount;
+				break;
+			}
 			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct post hr=0x%08lx",
@@ -1624,24 +1630,12 @@ private:
 			}
 			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
-				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer pre",
-					(unsigned long)s_xboxDrawSubmitCount);
-			}
-			m_pD3DDev->KickPushBuffer();
-			/* Avoid long-run CXBX-R stalls from per-draw GPU idle waits.
-			 * SwapBuffers still performs the frame boundary idle before Present. */
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
-			{
-				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu KickPushBuffer post",
+				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu complete",
 					(unsigned long)s_xboxDrawSubmitCount);
 				if (s_xboxSubmitLogCount < 16)
 				{
 					++s_xboxSubmitLogCount;
 				}
-			}
-			if ((s_xboxDrawSubmitCount & 15) == 0)
-			{
-				Sleep(0);
 			}
 			s_xboxDrawSubmitCount++;
 			return hr;
@@ -1874,11 +1868,11 @@ private:
 		params.BackBufferCount        = 1;
 		params.BackBufferWidth        = gWidth;
 		params.BackBufferHeight       = gHeight;
-		params.BackBufferFormat       = D3DFMT_X8R8G8B8;
+		params.BackBufferFormat       = D3DFMT_A8R8G8B8;
 		params.Windowed               = FALSE;
 		params.hDeviceWindow          = NULL;
-		params.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
-		params.FullScreen_RefreshRateInHz = 60;
+		params.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+		params.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 
 		/* CXBX-R cross-project audit: SetPushBufferSize REMOVED.
 		 * UT99-Xbox/XboxRender.cpp:438-443 explicitly comments that
@@ -1893,21 +1887,12 @@ private:
 		 * Pure-device is the canonical Xbox D3D8 path; without it, the
 		 * runtime tracks redundant state shadow copies that CXBX-R HLE
 		 * doesn't always emulate cleanly. */
-		if ( m_pD3D )
-		{
-			hr =  m_pD3D->CreateDevice( 0, D3DDEVTYPE_HAL, NULL,
-			                            D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE,
-			                            &params, &m_pD3DDev );
-		}
-		else
-		{
-			hr = Direct3D_CreateDevice( 0, D3DDEVTYPE_HAL, NULL,
-			                            D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE,
-			                            &params, &m_pD3DDev );
-		}
+		hr = Direct3D_CreateDevice( 0, D3DDEVTYPE_HAL, NULL,
+		                            D3DCREATE_HARDWARE_VERTEXPROCESSING,
+		                            &params, &m_pD3DDev );
 #ifdef _XBOX
 		XBLF("JA: fakegl CreateDevice -> hr=0x%08x dev=%p via=%s\n",
-			(unsigned int)hr, (void*)m_pD3DDev, m_pD3D ? "d3d" : "static");
+			(unsigned int)hr, (void*)m_pD3DDev, "static");
 #endif
 		if( FAILED(hr) )
 			return hr;
@@ -2446,11 +2431,21 @@ public:
 				}
 #endif
 			}
+			g_SPXBFakeGLStateFlushes++;
 			internalEnd();
 			SetGLRenderState();
 			DWORD typeDesc;
 			typeDesc = D3DFVF_XYZ | D3DFVF_DIFFUSE;
-			typeDesc |= (m_textureState.GetMaxStages() << D3DFVF_TEXCOUNT_SHIFT);
+			int vertexTextureStages = 0;
+			if (m_textureState.GetStageTexture2D(0))
+			{
+				vertexTextureStages = 1;
+			}
+			if (m_textureState.GetStageTexture2D(1))
+			{
+				vertexTextureStages = 2;
+			}
+			typeDesc |= (vertexTextureStages << D3DFVF_TEXCOUNT_SHIFT);
 
 			if ( typeDesc != m_OGLPrimitiveVertexBuffer.GetVertexTypeDesc()
 				|| !m_OGLPrimitiveVertexBuffer.HasDevice()) 
@@ -3546,6 +3541,17 @@ public:
 				m_textures.GetCurrentID(), width, height, levels, availableLevels, pixelBytes);
 			levels = availableLevels;
 		}
+		if (levels > 1)
+		{
+			static int s_ddsSingleMipLogs = 0;
+			if (s_ddsSingleMipLogs < 64)
+			{
+				XBLF("JA: fakegl DDS single-level clamp tex=%d size=%dx%d oldLevels=%d bytes=%u\n",
+					m_textures.GetCurrentID(), width, height, levels, pixelBytes);
+				++s_ddsSingleMipLogs;
+			}
+			levels = 1;
+		}
 		const int xboxDdsMaxDim = 1024;
 		const BYTE* ddsStart = (const BYTE*)pixels;
 		DWORD ddsBytes = pixelBytes;
@@ -3596,15 +3602,32 @@ public:
 				m_textures.GetCurrentID(), width, height, levels,
 				(unsigned int)destPixelFormat, pixelBytes);
 		}
-		HRESULT hr = CreateRegisteredXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap, &registeredTextureBytes, &registeredTextureData);
-		if (SUCCEEDED(hr) && pMipMap)
+		HRESULT hr = E_OUTOFMEMORY;
+		if (false && destPixelFormat == D3DFMT_R5G6B5)
 		{
-			ownsTextureHeader = true;
+			hr = CreateRegisteredXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap, &registeredTextureBytes, &registeredTextureData);
+			if (SUCCEEDED(hr) && pMipMap && registeredTextureData)
+			{
+				ownsTextureHeader = true;
+			}
+			else
+			{
+				XBLF("JA: fakegl DDS RGB16 registered texture failed tex=%d hr=0x%08lx; retry CreateTexture2\n",
+					m_textures.GetCurrentID(), (unsigned long)hr);
+				registeredTextureData = NULL;
+				registeredTextureBytes = 0;
+				ownsTextureHeader = false;
+			}
 		}
-		else
+		static int s_ddsCreateTexture2Logs = 0;
+		if (!pMipMap && s_ddsCreateTexture2Logs < 32)
 		{
-			XBLF("JA: fakegl DDS registered texture failed tex=%d hr=0x%08lx; retry CreateTexture2\n",
-				m_textures.GetCurrentID(), (unsigned long)hr);
+			XBLF("JA: fakegl DDS registered texture deferred tex=%d; using CreateTexture2\n",
+				m_textures.GetCurrentID());
+			++s_ddsCreateTexture2Logs;
+		}
+		if (!pMipMap)
+		{
 			hr = CreateXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap);
 		}
 #else
@@ -3640,7 +3663,54 @@ public:
 #ifdef _XBOX
 		src = ddsStart;
 		remaining = ddsBytes;
-		if (ownsTextureHeader && registeredTextureData &&
+		if (ownsTextureHeader && registeredTextureData && destPixelFormat == D3DFMT_R5G6B5)
+		{
+			const BYTE* sp = src;
+			BYTE* dp = (BYTE*)registeredTextureData;
+			DWORD levelWidth = (DWORD)width;
+			DWORD levelHeight = (DWORD)height;
+			DWORD copyBytes = 0;
+			bool rgb16Ok = true;
+			for (int level = 0; level < levels; ++level)
+			{
+				DWORD rowBytes = DDSLevelRowBytes(destPixelFormat, levelWidth);
+				DWORD rows = DDSLevelRows(destPixelFormat, levelHeight);
+				DWORD levelBytes = rowBytes * rows;
+				if (remaining < levelBytes || copyBytes + levelBytes > registeredTextureBytes)
+				{
+					XBLF("JA: fakegl DDS RGB16 registered upload truncated tex=%d level=%d need=%u remaining=%u registered=%u copied=%u\n",
+						m_textures.GetCurrentID(), level, levelBytes, remaining, registeredTextureBytes, copyBytes);
+					rgb16Ok = false;
+					break;
+				}
+				XGSwizzleRect(sp, 0, NULL, dp, levelWidth, levelHeight, NULL, BytesPerPixel(destPixelFormat));
+				sp += levelBytes;
+				dp += levelBytes;
+				remaining -= levelBytes;
+				copyBytes += levelBytes;
+				if (levelWidth > 1)
+					levelWidth >>= 1;
+				if (levelHeight > 1)
+					levelHeight >>= 1;
+			}
+			if (rgb16Ok)
+			{
+				m_textures.SetTexture(pMipMap, destPixelFormat, internalformat, ownsTextureHeader);
+				m_textureState.DirtyTexture(m_textures.GetCurrentID());
+				if (logDdsDetail)
+				{
+					XBLF("JA: fakegl DDS RGB16 registered swizzle tex=%d bytes=%u registeredBytes=%u ptr=%p",
+						m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData);
+					++s_ddsDetailLogs;
+				}
+				TrackTextureAlloc("dds-rgb16-registered", copyBytes);
+				return true;
+			}
+			delete (D3DTexture*)pMipMap;
+			pMipMap = NULL;
+			return false;
+		}
+		if (false && ownsTextureHeader && registeredTextureData &&
 			(destPixelFormat == D3DFMT_DXT1 ||
 			 destPixelFormat == D3DFMT_DXT3 ||
 			 destPixelFormat == D3DFMT_DXT5))
@@ -4180,30 +4250,11 @@ public:
 #endif
 			return;
 		}
-#ifdef _XBOX
-		if (logSwap)
-		{
-			XBLF("JA: fakegl SwapBuffers #%d pre-EndScene KickPushBuffer", s_xboxSwapLogCount);
-		}
-		m_pD3DDev->KickPushBuffer();
-		Sleep(0);
-#endif
 		HRESULT hrEndScene = m_pD3DDev->EndScene();
 #ifdef _XBOX
 		if (logSwap)
 		{
 			XBLF("JA: fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
-		}
-		if (logSwap)
-		{
-			XBLF("JA: fakegl SwapBuffers #%d pre-Present BlockUntilIdle", s_xboxSwapLogCount);
-		}
-		m_pD3DDev->KickPushBuffer();
-		m_pD3DDev->BlockUntilIdle();
-		Sleep(0);
-		if (logSwap)
-		{
-			XBLF("JA: fakegl SwapBuffers #%d pre-Present idle complete", s_xboxSwapLogCount);
 		}
 #endif
 		m_needBeginScene = true;
