@@ -70,6 +70,10 @@ CVec3		mGlobalWindDirection;
 float		mGlobalWindSpeed;
 int			mParticlesRendered;
 
+#ifdef _XBOX
+static cvar_t	*r_xboxWorldEffects;
+#endif
+
 
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -1726,6 +1730,12 @@ ratl::vector_vs<CParticleCloud, MAX_PARTICLE_CLOUDS>	mParticleClouds;
 ////////////////////////////////////////////////////////////////////////////////////////
 void R_InitWorldEffects(void)
 {
+#ifdef _XBOX
+	if (!r_xboxWorldEffects)
+	{
+		r_xboxWorldEffects = Cvar_Get("r_xboxWorldEffects", "1", CVAR_ARCHIVE);
+	}
+#endif
 	for (int i=0; i<mParticleClouds.size(); i++)
 	{
 		mParticleClouds[i].Reset();
@@ -1754,13 +1764,20 @@ void R_ShutdownWorldEffects(void)
 void RB_RenderWorldEffects(void)
 {
 #ifdef _XBOX
-	static qboolean s_xboxLoggedWorldEffectsSkip = qfalse;
-	if (!s_xboxLoggedWorldEffectsSkip)
+	if (!r_xboxWorldEffects)
 	{
-		XBLog_Write("JA: RB_RenderWorldEffects skipped on Xbox");
-		s_xboxLoggedWorldEffectsSkip = qtrue;
+		r_xboxWorldEffects = Cvar_Get("r_xboxWorldEffects", "1", CVAR_ARCHIVE);
 	}
-	return;
+	if (r_xboxWorldEffects && !r_xboxWorldEffects->integer)
+	{
+		static qboolean s_xboxLoggedWorldEffectsDisabled = qfalse;
+		if (!s_xboxLoggedWorldEffectsDisabled)
+		{
+			XBLog_Write("JA: RB_RenderWorldEffects disabled by r_xboxWorldEffects");
+			s_xboxLoggedWorldEffectsDisabled = qtrue;
+		}
+		return;
+	}
 #endif
 
 	if (!tr.world || 
@@ -1771,6 +1788,15 @@ void RB_RenderWorldEffects(void)
 	{	//  no world rendering or no world or no particle clouds
 		return;
 	}
+
+#ifdef _XBOX
+	static qboolean s_xboxLoggedWorldEffectsActive = qfalse;
+	if (!s_xboxLoggedWorldEffectsActive)
+	{
+		XBLF("JA: RB_RenderWorldEffects active on Xbox clouds=%d", mParticleClouds.size());
+		s_xboxLoggedWorldEffectsActive = qtrue;
+	}
+#endif
 
 	SetViewportAndScissor();
 	glMatrixMode(GL_MODELVIEW);
@@ -2088,7 +2114,10 @@ void R_WorldEffectCommand(const char *command)
 		}
 		CParticleCloud& nCloud = mParticleClouds.push_back();
 #ifdef _XBOX
-		nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp", 1);
+		/* The original Xbox point-sprite path requires glw_state->device,
+		 * which the current FakeGL graft intentionally leaves NULL.  Use
+		 * the normal billboard path so world snow actually renders. */
+		nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp");
 #else
 		nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp");
 #endif
@@ -2300,5 +2329,3 @@ bool R_IsPuffing()
 {
 	return false;
 }
-
-

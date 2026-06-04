@@ -13,10 +13,66 @@
 #include "../win32/glw_win_dx8.h"
 #include "../win32/win_highdynamicrange.h"
 #include "../win32/xb_log.h"
+extern bool Sys_IsDirectMapBoot(void);
+extern "C" volatile unsigned int g_SPXBRenderDrawSurfLists;
+extern "C" volatile unsigned int g_SPXBRenderSurfaces;
+extern "C" volatile unsigned int g_SPXBRenderBackendMsec;
+extern "C" volatile unsigned int g_SPXBRenderSplitShader;
+extern "C" volatile unsigned int g_SPXBRenderSplitFog;
+extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
+extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
+extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
+extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
+extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[16];
+extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
+static const bool kXboxClassifyDrawSurfs = false;
 #endif
 
 backEndData_t	*backEndData;
 backEndState_t	backEnd;
+
+#ifdef _XBOX
+static bool RB_XboxGeneratedEntityIsMergeSafe(int entityNum)
+{
+	if (entityNum < 0 || entityNum >= backEnd.refdef.num_entities)
+	{
+		return false;
+	}
+
+	const trRefEntity_t *ent = &backEnd.refdef.entities[entityNum];
+	if (ent->e.renderfx & (RF_DISTORTION | RF_NODEPTH | RF_DEPTHHACK | RF_ALPHA_FADE))
+	{
+		return false;
+	}
+
+	switch (ent->e.reType)
+	{
+	case RT_SPRITE:
+	case RT_ORIENTED_QUAD:
+	case RT_BEAM:
+	case RT_CYLINDER:
+	case RT_LATHE:
+	case RT_CLOUDS:
+	case RT_LINE:
+	case RT_ELECTRICITY:
+	case RT_SABER_GLOW:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool RB_XboxCanMergeGeneratedEntitySurf(const surfaceType_t *surface, int entityNum, int oldEntityNum)
+{
+	if (!surface || *surface != SF_ENTITY)
+	{
+		return false;
+	}
+
+	return RB_XboxGeneratedEntityIsMergeSafe(entityNum) &&
+		RB_XboxGeneratedEntityIsMergeSafe(oldEntityNum);
+}
+#endif
 
 bool tr_stencilled = false;
 extern qboolean tr_distortionPrePost; //tr_shadows.cpp
@@ -68,11 +124,7 @@ void GL_Bind( image_t *image ) {
 	}
 #endif
 
-	if ( glState.currenttextures[glState.currenttmu] != texnum
-#ifdef _XBOX
-		|| qtrue
-#endif
-		) {
+	if ( glState.currenttextures[glState.currenttmu] != texnum ) {
 #ifndef _XBOX
 		image->frameUsed = tr.frameCount;
 #else
@@ -84,6 +136,14 @@ void GL_Bind( image_t *image ) {
 		glState.currenttextures[glState.currenttmu] = texnum;
 		glBindTexture (GL_TEXTURE_2D, texnum);
 	}
+#ifdef _XBOX
+	else
+	{
+		/* Keep the active stage enabled after fakegl/Xbox-side state resets
+		 * without forcing a redundant bind/state upload for every batch. */
+		glEnable( GL_TEXTURE_2D );
+	}
+#endif
 }
 
 /*
@@ -454,7 +514,7 @@ static void RB_Hyperspace( void ) {
 
 void SetViewportAndScissor( void ) {
 #ifdef _XBOX
-	static int s_xboxViewportLogBudget = 12;
+	static int s_xboxViewportLogBudget = 0;
 	if (s_xboxViewportLogBudget > 0)
 	{
 		XBLF("JA: SetViewportAndScissor rdflags=0x%x skyboxportal=%d drawsky=%d vp=%d,%d %dx%d",
@@ -575,8 +635,20 @@ void RB_BeginDrawingView (void) {
 	}
 
 #ifdef _XBOX
+	if (!(backEnd.refdef.rdflags & RDF_NOWORLDMODEL) &&
+		!g_bRenderGlowingObjects &&
+		tr.world &&
+		tr.world->globalFog != -1)
 	{
-		static int s_xboxBeginViewLogBudget = 24;
+		const fog_t		*fog = &tr.world->fogs[tr.world->globalFog];
+		glClearColor(fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f);
+		clearBits |= GL_COLOR_BUFFER_BIT;
+	}
+#endif
+
+#ifdef _XBOX
+	{
+		static int s_xboxBeginViewLogBudget = 0;
 		if (s_xboxBeginViewLogBudget > 0)
 		{
 			XBLF("JA: RB_BeginDrawingView clearBits=0x%x rdflags=0x%x skyboxportal=%d drawsky=%d fastsky=%d noworld=%d glow=%d scene=%d",
@@ -729,6 +801,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	const qboolean xboxActiveDrawList = (cls.state == CA_ACTIVE);
 	const qboolean xboxTraceDrawList = qfalse;
 	int xboxLoggedSurfs = 0;
+	g_SPXBRenderDrawSurfLists++;
+	g_SPXBRenderSurfaces += (unsigned int)numDrawSurfs;
 	if (xboxTraceDrawList)
 	{
 		XBLF("JA: RB_RenderDrawSurfList #%d enter numDrawSurfs=%d",
@@ -787,6 +861,19 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		if ( drawSurf->sort == oldSort )
 		{
 #ifdef _XBOX
+			if (kXboxClassifyDrawSurfs)
+			{
+				const int surfType = (int)*drawSurf->surface;
+				const int entType = backEnd.currentEntity ? (int)backEnd.currentEntity->e.reType : RT_MAX_REF_ENTITY_TYPE;
+				if (surfType >= 0 && surfType < 16)
+				{
+					g_SPXBSurfaceTypeCounts[surfType]++;
+				}
+				if (entType >= 0 && entType < 16)
+				{
+					g_SPXBEntityTypeCounts[entType]++;
+				}
+			}
 			if (xboxTraceDrawList && xboxLoggedSurfs < 512)
 			{
 				XBLF("JA: RB_RenderDrawSurfList #%d surf=%d fast type=%d ptr=%p sort=0x%08x",
@@ -807,6 +894,29 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
 #ifdef _XBOX
+		const bool xboxMergeGeneratedEntitySurf = (entityNum != oldEntityNum) &&
+			RB_XboxCanMergeGeneratedEntitySurf(drawSurf->surface, entityNum, oldEntityNum);
+		if (kXboxClassifyDrawSurfs)
+		{
+			const int surfType = (int)*drawSurf->surface;
+			int entType = RT_MAX_REF_ENTITY_TYPE;
+			if (entityNum == TR_WORLDENT)
+			{
+				entType = 15;
+			}
+			else if (entityNum >= 0)
+			{
+				entType = (int)backEnd.refdef.entities[entityNum].e.reType;
+			}
+			if (surfType >= 0 && surfType < 16)
+			{
+				g_SPXBSurfaceTypeCounts[surfType]++;
+			}
+			if (entType >= 0 && entType < 16)
+			{
+				g_SPXBEntityTypeCounts[entType]++;
+			}
+		}
 		if (xboxTraceDrawList && xboxLoggedSurfs < 512)
 		{
 			XBLF("JA: RB_RenderDrawSurfList #%d surf=%d type=%d ptr=%p ent=%d shader='%s' fog=%d dlight=%d sort=0x%08x",
@@ -887,9 +997,32 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 
 		if (shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted 
-			|| ( entityNum != oldEntityNum && !shader->entityMergable ) )
+			|| ( entityNum != oldEntityNum && !shader->entityMergable
+#ifdef _XBOX
+				&& !xboxMergeGeneratedEntitySurf
+#endif
+			) )
 		{
 			if (oldShader != NULL) {
+#ifdef _XBOX
+				if (shader != oldShader)
+				{
+					g_SPXBRenderSplitShader++;
+				}
+				if (fogNum != oldFogNum)
+				{
+					g_SPXBRenderSplitFog++;
+				}
+				if (dlighted != oldDlighted)
+				{
+					g_SPXBRenderSplitDlight++;
+				}
+				if (entityNum != oldEntityNum && !shader->entityMergable && !xboxMergeGeneratedEntitySurf)
+				{
+					g_SPXBRenderSplitEntity++;
+				}
+				g_SPXBRenderSplitFlush++;
+#endif
 #ifdef __MACOS__	// crutch up the mac's limited buffer queue size
 				int		t;
 
@@ -1014,6 +1147,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// draw the contents of the last shader batch
 	if (oldShader != NULL) {
 #ifdef _XBOX
+		g_SPXBRenderSplitFinal++;
+		g_SPXBRenderSplitFlush++;
 		if (xboxTraceDrawList) XBLF("JA: RB_RenderDrawSurfList #%d final RB_EndSurface shader='%s'",
 			s_xboxRenderDrawSurfListCount, oldShader ? oldShader->name : "<null>");
 #endif
@@ -2008,6 +2143,7 @@ void RB_ExecuteRenderCommands( const void *data ) {
 			t2 = Sys_Milliseconds ();
 			backEnd.pc.msec = t2 - t1;
 #ifdef _XBOX
+			g_SPXBRenderBackendMsec = (unsigned int)backEnd.pc.msec;
 			if (xboxTraceCommand)
 			{
 				XBLF("JA: RB_ExecuteRenderCommands #%d end cmd=%d msec=%d",
