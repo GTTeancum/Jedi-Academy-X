@@ -3,9 +3,6 @@
 
 #include "bink.h"
 
-inline void RADSetMemory(BINKMEMALLOC a, BINKMEMFREE f)
-{
-	BinkSetMemory(a, f);
-}
+RADEXPFUNC void RADEXPLINK RADSetMemory(BINKMEMALLOC a, BINKMEMFREE f);
 
 #endif // RAD_H

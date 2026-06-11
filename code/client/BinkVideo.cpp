@@ -22,6 +22,12 @@ extern void TempFree( void );
 
 extern void SP_DrawSPLoadScreen( void );
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBCinPhase;
+extern "C" volatile unsigned int g_SPXBCinStatus;
+extern "C" volatile unsigned int g_SPXBCinLoopCount;
+#endif
+
 // Allocation wrappers, that go to our static 2.5MB buffer:
 static void PTR4* RADEXPLINK AllocWrapper(U32 size)
 {
@@ -58,8 +64,10 @@ BinkVideo::BinkVideo()
 
 	Image[0].surface = NULL;
 	Image[0].texture = NULL;
+	overlayMemory[0] = NULL;
 	Image[1].surface = NULL;
 	Image[1].texture = NULL;
+	overlayMemory[1] = NULL;
 
 	stopNextFrame = false;
 }
@@ -71,6 +79,16 @@ BinkVideo::~BinkVideo()
 {
 	Free(buffer);
 	BinkClose(bink);
+	if( overlayMemory[0] )
+	{
+		D3D_FreeContiguousMemory( overlayMemory[0] );
+		overlayMemory[0] = NULL;
+	}
+	if( overlayMemory[1] )
+	{
+		D3D_FreeContiguousMemory( overlayMemory[1] );
+		overlayMemory[1] = NULL;
+	}
 }
 
 /*********
@@ -105,6 +123,10 @@ Opens a bink file and gets it ready to play
 *********/
 bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float width, float height)
 {
+#ifdef _XBOX
+	g_SPXBCinPhase = 400;
+	g_SPXBCinStatus = (unsigned int)status;
+#endif
 	char binkLog[256];
 	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start enter file='%s' initialized=%d status=%d", filename ? filename : "<null>", initialized ? 1 : 0, status);
 	binkLog[sizeof(binkLog) - 1] = '\0';
@@ -115,7 +137,13 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	if(status == NS_BV_PLAYING)
 	{
 		// stop
+#ifdef _XBOX
+		g_SPXBCinPhase = 401;
+#endif
 		this->Stop();
+#ifdef _XBOX
+		g_SPXBCinPhase = 402;
+#endif
 	}
 
 	// Hack! Remember if this was the logo movies, so that we can show the load screen later:
@@ -125,15 +153,22 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 		loadScreenOnStop = false;
 
 	// Blow away all sounds that aren't playing - this helps prevent crashing:
+#ifdef _XBOX
+	g_SPXBCinPhase = 403;
+#endif
 	SND_FreeOldestSound();
+#ifdef _XBOX
+	g_SPXBCinPhase = 404;
+#endif
 
 	// Just use the zone for bink allocations:
 	RADSetMemory( AllocWrapper, FreeWrapper );
+#ifdef _XBOX
+	g_SPXBCinPhase = 405;
+#endif
 	XBLog_Write("JA: BinkVideo::Start after RADSetMemory");
 
-	BinkUnloadConverter( BINKCONVERTERSALL );
-	BinkLoadConverter( BINKSURFACEYUY2 );
-	XBLog_Write("JA: BinkVideo::Start after BinkLoadConverter YUY2");
+	XBLog_Write("JA: BinkVideo::Start using static Xbox Bink converters");
 
 	// Set up sound for consoles
 
@@ -160,16 +195,33 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start before BinkOpen file='%s' flags=0x0", filename ? filename : "<null>");
 	binkLog[sizeof(binkLog) - 1] = '\0';
 	XBLog_Write(binkLog);
+#ifdef _XBOX
+	g_SPXBCinPhase = 410;
+	g_SPXBCinLoopCount = 0xB1000000;
+#endif
 	bink = BinkOpen( filename, 0 );
+#ifdef _XBOX
+	g_SPXBCinPhase = 411;
+	g_SPXBCinLoopCount = 0xB1000001;
+#endif
 	if(!bink)
 	{
 		_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start BinkOpen failed file='%s' flags=0x0 retry=0x%x", filename ? filename : "<null>", BINKALPHA);
 		binkLog[sizeof(binkLog) - 1] = '\0';
 		XBLog_Write(binkLog);
+#ifdef _XBOX
+		g_SPXBCinPhase = 412;
+#endif
 		bink = BinkOpen( filename, BINKALPHA );
+#ifdef _XBOX
+		g_SPXBCinPhase = 413;
+#endif
 	}
 	if(!bink)
 	{
+#ifdef _XBOX
+		g_SPXBCinPhase = 414;
+#endif
 		_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start BinkOpen failed file='%s' flags=0x%x", filename ? filename : "<null>", BINKALPHA);
 		binkLog[sizeof(binkLog) - 1] = '\0';
 		XBLog_Write(binkLog);
@@ -178,6 +230,9 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start BinkOpen ok file='%s' w=%d h=%d frames=%d flags=0x%x", filename ? filename : "<null>", bink->Width, bink->Height, bink->Frames, bink->OpenFlags);
 	binkLog[sizeof(binkLog) - 1] = '\0';
 	XBLog_Write(binkLog);
+#ifdef _XBOX
+	g_SPXBCinPhase = 415;
+#endif
 
 	assert(bink->Width <= MAX_WIDTH && bink->Height <=MAX_HEIGHT);
 
@@ -192,17 +247,26 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 
 	// flush any background sound reads
 	extern void S_DrainRawSoundData(void);
+#ifdef _XBOX
+	g_SPXBCinPhase = 420;
+#endif
 	S_DrainRawSoundData();
+#ifdef _XBOX
+	g_SPXBCinPhase = 421;
+#endif
 
 	// Full-screen movies (without alpha) need a pair of YUV2 textures:
 	if( !alpha )
 	{
-		// YUY2 is 16 bpp? But we need two:
-		gTextures.SwapTextureMemory( (bink->Width * bink->Height * 4) + 1024 );
-
+#ifdef _XBOX
+		g_SPXBCinPhase = 430;
+#endif
 		// Make our two textures:
 		Image[0].texture = new IDirect3DTexture8;
 		Image[1].texture = new IDirect3DTexture8;
+#ifdef _XBOX
+		g_SPXBCinPhase = 431;
+#endif
 		XBLog_Write("JA: BinkVideo::Start allocated overlay texture headers");
 
 		// Fill in the texture headers:
@@ -227,18 +291,53 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 							0,
 							0 );
 
-		// texNum is unused:
-		Image[0].texture->Register( gTextures.Allocate( pixelSize, 0 ) );
-		Image[1].texture->Register( gTextures.Allocate( pixelSize, 0 ) );
+		overlayMemory[0] = D3D_AllocContiguousMemory( pixelSize, 0 );
+		overlayMemory[1] = D3D_AllocContiguousMemory( pixelSize, 0 );
+#ifdef _XBOX
+		g_SPXBCinPhase = 432;
+#endif
+		if( !overlayMemory[0] || !overlayMemory[1] )
+		{
+			XBLog_Write("JA: BinkVideo::Start overlay memory allocation failed");
+			if( overlayMemory[0] )
+			{
+				D3D_FreeContiguousMemory( overlayMemory[0] );
+				overlayMemory[0] = NULL;
+			}
+			if( overlayMemory[1] )
+			{
+				D3D_FreeContiguousMemory( overlayMemory[1] );
+				overlayMemory[1] = NULL;
+			}
+			delete Image[0].texture;
+			Image[0].texture = NULL;
+			delete Image[1].texture;
+			Image[1].texture = NULL;
+			BinkClose( bink );
+			bink = NULL;
+			return false;
+		}
+
+		Image[0].texture->Register( overlayMemory[0] );
+		Image[1].texture->Register( overlayMemory[1] );
+#ifdef _XBOX
+		g_SPXBCinPhase = 433;
+#endif
 		XBLog_Write("JA: BinkVideo::Start registered overlay texture memory");
 
 		// Turn on overlays:
 		glw_state->device->EnableOverlay( TRUE );
+#ifdef _XBOX
+		g_SPXBCinPhase = 434;
+#endif
 		XBLog_Write("JA: BinkVideo::Start enabled overlay");
 
 		// Get surface pointers:
 		Image[0].texture->GetSurfaceLevel( 0, &Image[0].surface );
 		Image[1].texture->GetSurfaceLevel( 0, &Image[1].surface );
+#ifdef _XBOX
+		g_SPXBCinPhase = 435;
+#endif
 		XBLog_Write("JA: BinkVideo::Start got overlay surfaces");
 
 		// Just to be safe:
@@ -247,14 +346,24 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	}
 	else
 	{
+#ifdef _XBOX
+		g_SPXBCinPhase = 440;
+#endif
 		// Planet movies (with alpha) re-use tr.binkPlanetImage, so no texture setup
 		// is needed. But we do need a temporary buffer to decompress into. Let's steal
 		// from the bone pool.
 		buffer = BonePoolTempAlloc( bink->Width * bink->Height * 4 );
+#ifdef _XBOX
+		g_SPXBCinPhase = 441;
+#endif
 		XBLog_Write("JA: BinkVideo::Start allocated alpha movie buffer");
 	}
 
 	status = NS_BV_PLAYING;
+#ifdef _XBOX
+	g_SPXBCinPhase = 450;
+	g_SPXBCinStatus = (unsigned int)status;
+#endif
 	XBLog_Write("JA: BinkVideo::Start exit playing");
 
 	return true;
@@ -423,8 +532,16 @@ void BinkVideo::Stop(void)
 			// Turn overlays back off:
 			glw_state->device->EnableOverlay( FALSE );
 
-			// Restore the textures that we dumped to disk
-			gTextures.UnswapTextureMemory();
+			if( overlayMemory[0] )
+			{
+				D3D_FreeContiguousMemory( overlayMemory[0] );
+				overlayMemory[0] = NULL;
+			}
+			if( overlayMemory[1] )
+			{
+				D3D_FreeContiguousMemory( overlayMemory[1] );
+				overlayMemory[1] = NULL;
+			}
 		}
 	}
 
@@ -466,7 +583,11 @@ void BinkVideo::SetMasterVolume(S32 volume)
 	int i;
 	for(i = 0; i < 4; i++)
 	{
+#ifdef _XBOX
+		BinkSetVolume(bink,volume);
+#else
 		BinkSetVolume(bink,i,volume);
+#endif
 	}
 }
 

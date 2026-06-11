@@ -434,6 +434,9 @@ The cgame module is making a system call
 */
 void *VM_ArgPtr( int intValue );
 void CM_SnapPVS(vec3_t origin,byte *buffer);
+#ifdef _XBOX
+extern bool Sys_IsDirectMapBoot(void);
+#endif
 //#define	VMA(x) VM_ArgPtr(args[x])
 #define	VMA(x) ((void*)args[x])
 #define	VMF(x)	((float *)args)[x]
@@ -487,6 +490,18 @@ int CL_CgameSystemCalls( int *args ) {
 	case CG_UPDATESCREEN:
 		// this is used during lengthy level loading, so pump message loop
 		Com_EventLoop();	// FIXME: if a server restarts here, BAD THINGS HAPPEN!
+#ifdef _XBOX
+		if ( Sys_IsDirectMapBoot() )
+		{
+			static qboolean s_loggedDirectMapUpdateSkip = qfalse;
+			if ( !s_loggedDirectMapUpdateSkip )
+			{
+				XBLog_Write( "JA: CG_UPDATESCREEN skipped SCR_UpdateScreen for direct-map boot" );
+				s_loggedDirectMapUpdateSkip = qtrue;
+			}
+			return 0;
+		}
+#endif
 		SCR_UpdateScreen();
 		return 0;
 
@@ -1127,7 +1142,7 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #endif
 #ifdef _XBOX
 	static int s_xboxCGameRenderCount = 0;
-	const int xboxLogThisFrame = ((s_xboxCGameRenderCount < 96) || (cls.state == CA_ACTIVE && (s_xboxCGameRenderCount < 128 || cl.serverTime > 90000)));
+	const int xboxLogThisFrame = (cls.state == CA_ACTIVE && s_xboxCGameRenderCount < 24);
 	if (xboxLogThisFrame)
 	{
 		XBLF("JA: CL_CGameRendering #%d enter state=%d serverTime=%d stereo=%d",
@@ -1352,18 +1367,40 @@ CL_SetCGameTime
 ==================
 */
 void CL_SetCGameTime( void ) {
+#ifdef _XBOX
+	static int s_xboxPrimedSetTimeLogCount = 0;
+#endif
 
 	// getting a valid frame message ends the connection process
 	if ( cls.state != CA_ACTIVE ) {
 		if ( cls.state != CA_PRIMED ) {
 			return;
 		}
+#ifdef _XBOX
+		if (s_xboxPrimedSetTimeLogCount < 32 || (s_xboxPrimedSetTimeLogCount & 63) == 0)
+		{
+			XBLF("JA: CL_SetCGameTime primed count=%d newSnapshots=%d frameValid=%d frameMsg=%d serverTime=%d realtime=%d",
+				s_xboxPrimedSetTimeLogCount,
+				(int)cl.newSnapshots,
+				(int)cl.frame.valid,
+				cl.frame.messageNum,
+				cl.frame.serverTime,
+				cls.realtime);
+		}
+		s_xboxPrimedSetTimeLogCount++;
+#endif
 		if ( cl.newSnapshots ) {
 			cl.newSnapshots = qfalse;
 			CL_FirstSnapshot();
 		}
 
 		if ( cls.state != CA_ACTIVE ) {
+#ifdef _XBOX
+			if (s_xboxPrimedSetTimeLogCount < 32 || (s_xboxPrimedSetTimeLogCount & 63) == 0)
+			{
+				XBLog_Write("JA: CL_SetCGameTime still not active after primed check");
+			}
+#endif
 			return;
 		}
 	}	

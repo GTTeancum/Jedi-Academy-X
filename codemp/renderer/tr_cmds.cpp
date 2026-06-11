@@ -481,7 +481,8 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
 #ifdef _XBOX
 	static int jampREEndFrameCount = 0;
-	qboolean jampREProfile = (jampREEndFrameCount < 4 || !(jampREEndFrameCount & 63));
+	qboolean jampRETrace = (jampREEndFrameCount < 2);
+	qboolean jampREProfile = qfalse;
 	int jampFrameStart = 0;
 	int jampBeginStart;
 	int jampIssueStart;
@@ -494,16 +495,21 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		jampFrameStart = Sys_Milliseconds();
 	}
 	XBLog_Phase("RE_EndFrame enter");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d enter registered=%d\n", jampREEndFrameCount, tr.registered ? 1 : 0);
 #endif
 
 	if ( !tr.registered ) {
 		XBLog_Phase("RE_EndFrame not registered");
+#ifdef _XBOX
+		if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d not registered\n", jampREEndFrameCount);
+#endif
 		return;
 	}
 	cmd = (swapBuffersCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
 #ifdef _XBOX
 		XBLog_Phase("RE_EndFrame no command buffer");
+		if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d no command buffer\n", jampREEndFrameCount);
 		jampREEndFrameCount++;
 #endif
 		return;
@@ -516,13 +522,16 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		jampBeginStart = Sys_Milliseconds();
 	}
 	XBLog_Phase("RE_EndFrame before qglBeginFrame");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d before qglBeginFrame\n", jampREEndFrameCount);
 	if (!qglBeginFrame())
 	{
 		XBLog_Phase("RE_EndFrame qglBeginFrame failed");
+		if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d qglBeginFrame failed\n", jampREEndFrameCount);
 		jampREEndFrameCount++;
 		return;
 	}
 	XBLog_Phase("RE_EndFrame after qglBeginFrame");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d after qglBeginFrame\n", jampREEndFrameCount);
 	if (jampREProfile)
 	{
 		jampBeginMsec = Sys_Milliseconds() - jampBeginStart;
@@ -535,10 +544,12 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		jampIssueStart = Sys_Milliseconds();
 	}
 	XBLog_Phase("RE_EndFrame before R_IssueRenderCommands");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d before R_IssueRenderCommands\n", jampREEndFrameCount);
 #endif
 	R_IssueRenderCommands( qtrue );
 #ifdef _XBOX
 	XBLog_Phase("RE_EndFrame after R_IssueRenderCommands");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d after R_IssueRenderCommands\n", jampREEndFrameCount);
 	if (jampREProfile)
 	{
 		jampIssueMsec = Sys_Milliseconds() - jampIssueStart;
@@ -551,8 +562,10 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		jampEndStart = Sys_Milliseconds();
 	}
 	XBLog_Phase("RE_EndFrame before qglEndFrame");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d before qglEndFrame\n", jampREEndFrameCount);
 	qglEndFrame();
 	XBLog_Phase("RE_EndFrame after qglEndFrame");
+	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d after qglEndFrame\n", jampREEndFrameCount);
 	if (jampREProfile)
 	{
 		jampEndMsec = Sys_Milliseconds() - jampEndStart;

@@ -1,6 +1,7 @@
 // leave this line at the top for all g_xxxx.cpp files...
 #include "g_headers.h"
 #include <xtl.h>
+#include <new>
 
 
 #include "g_local.h"
@@ -693,14 +694,28 @@ InitGame
 int giMapChecksum;	
 SavedGameJustLoaded_e g_eSavedGameJustLoaded;
 qboolean g_qbLoadTransition = qfalse;
+#ifdef _XBOX
+extern "C" {
+extern volatile unsigned int g_SPXBGamePhase;
+extern volatile unsigned int g_SPXBGameEntityCount;
+extern volatile unsigned int g_SPXBGentitiesPtr;
+extern volatile unsigned int g_SPXBClientsPtr;
+extern volatile unsigned int g_SPXBGentitySize;
+extern volatile unsigned int g_SPXBClientFieldBefore;
+extern volatile unsigned int g_SPXBClientFieldAfter;
+}
+#endif
+static void G_ResetGentityArrayForMap( void );
 void InitGame(  const char *mapname, const char *spawntarget, int checkSum, const char *entities, int levelTime, int randomSeed, int globalTime, SavedGameJustLoaded_e eSavedGameJustLoaded, qboolean qbLoadTransition )
 {
 	//rww - default this to 0, we will auto-set it to 1 if we run into a terrain ent
 #ifdef _XBOX
+	g_SPXBGamePhase = 100;
 	gi.Printf("JA: InitGame before cvar_set RMG\n");
 #endif
 	gi.cvar_set("RMG", "0");
 #ifdef _XBOX
+	g_SPXBGamePhase = 101;
 	gi.Printf("JA: InitGame after cvar_set RMG\n");
 #endif
 
@@ -715,20 +730,24 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	gi.Printf ("gamedate: %s\n", __DATE__);
 
 #ifdef _XBOX
+	g_SPXBGamePhase = 102;
 	gi.Printf("JA: InitGame before srand seed=%d\n", randomSeed);
 #endif
 	srand( randomSeed );
 #ifdef _XBOX
+	g_SPXBGamePhase = 103;
 	gi.Printf("JA: InitGame after srand before G_InitCvars\n");
 #endif
 
 	G_InitCvars();
 #ifdef _XBOX
+	g_SPXBGamePhase = 104;
 	gi.Printf("JA: InitGame after G_InitCvars before G_InitMemory\n");
 #endif
 
 	G_InitMemory();
 #ifdef _XBOX
+	g_SPXBGamePhase = 105;
 	gi.Printf("JA: InitGame after G_InitMemory before level memset\n");
 #endif
 
@@ -747,18 +766,30 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	}
 
 #ifdef _XBOX
+	g_SPXBGamePhase = 106;
 	gi.Printf("JA: InitGame before G_InitWorldSession\n");
 #endif
 	G_InitWorldSession();
 #ifdef _XBOX
+	g_SPXBGamePhase = 107;
 	gi.Printf("JA: InitGame after G_InitWorldSession before entity clear\n");
 #endif
 
 	// initialize all entities for this game
-	memset( g_entities, 0, MAX_GENTITIES * sizeof(g_entities[0]) );
+#ifdef _XBOX
+	g_SPXBGamePhase = 121;
+#endif
+	G_ResetGentityArrayForMap();
+#ifdef _XBOX
+	g_SPXBGamePhase = 122;
+#endif
 	globals.gentities = g_entities;
+#ifdef _XBOX
+	g_SPXBGamePhase = 123;
+#endif
 	ClearAllInUse();
 #ifdef _XBOX
+	g_SPXBGamePhase = 108;
 	gi.Printf("JA: InitGame after entity clear before client alloc\n");
 #endif
 	// initialize all clients for this game
@@ -766,28 +797,52 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	level.clients = (struct gclient_s *) G_Alloc( level.maxclients * sizeof(level.clients[0]) );
 	memset(level.clients, 0, level.maxclients * sizeof(level.clients[0]));
 #ifdef _XBOX
+	g_SPXBGamePhase = 109;
+	g_SPXBGentitiesPtr = (unsigned int)g_entities;
+	g_SPXBClientsPtr = (unsigned int)level.clients;
+	g_SPXBGentitySize = sizeof(g_entities[0]);
 	gi.Printf("JA: InitGame after client alloc ptr=%p\n", level.clients);
+	g_SPXBGamePhase = 130;
 #endif
 
 	// set client fields on player
+#ifdef _XBOX
+	g_SPXBGamePhase = 131;
+	g_SPXBClientFieldBefore = (unsigned int)g_entities[0].client;
+	g_SPXBGamePhase = 135;
+#endif
 	g_entities[0].client = level.clients;
+#ifdef _XBOX
+	g_SPXBGamePhase = 136;
+	g_SPXBClientFieldAfter = (unsigned int)g_entities[0].client;
+	g_SPXBGamePhase = 132;
+#endif
 
 	// always leave room for the max number of clients,
 	// even if they aren't all used, so numbers inside that
 	// range are NEVER anything but clients
+#ifdef _XBOX
+	g_SPXBGamePhase = 133;
+#endif
 	globals.num_entities = MAX_CLIENTS;
+#ifdef _XBOX
+	g_SPXBGamePhase = 134;
+#endif
 
 	//Load sabers.cfg data
 #ifdef _XBOX
+	g_SPXBGamePhase = 110;
 	gi.Printf("JA: InitGame before WP_SaberLoadParms\n");
 #endif
 	WP_SaberLoadParms();
 #ifdef _XBOX
+	g_SPXBGamePhase = 111;
 	gi.Printf("JA: InitGame after WP_SaberLoadParms before NPC_InitGame\n");
 #endif
 	//Set up NPC init data
 	NPC_InitGame();
 #ifdef _XBOX
+	g_SPXBGamePhase = 112;
 	gi.Printf("JA: InitGame after NPC_InitGame before resets\n");
 #endif
 	
@@ -797,10 +852,12 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	Pilot_Reset();
 
 #ifdef _XBOX
+	g_SPXBGamePhase = 113;
 	gi.Printf("JA: InitGame before IT_LoadItemParms\n");
 #endif
 	IT_LoadItemParms ();
 #ifdef _XBOX
+	g_SPXBGamePhase = 114;
 	gi.Printf("JA: InitGame after IT_LoadItemParms before ClearRegisteredItems\n");
 #endif
 
@@ -808,28 +865,34 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 
 	// clear out old nav info, attempt to load from file
 #ifdef _XBOX
+	g_SPXBGamePhase = 115;
 	gi.Printf("JA: InitGame before NAV::LoadFromFile map='%s'\n", level.mapname);
 #endif
 	NAV::LoadFromFile(level.mapname, giMapChecksum);
 #ifdef _XBOX
+	g_SPXBGamePhase = 116;
 	gi.Printf("JA: InitGame after NAV::LoadFromFile\n");
 #endif
 
 	// parse the key/value pairs and spawn gentities
 #ifdef _XBOX
+	g_SPXBGamePhase = 117;
 	gi.Printf("JA: InitGame before G_SpawnEntitiesFromString map='%s'\n", level.mapname);
 #endif
 	G_SpawnEntitiesFromString( entities );
 #ifdef _XBOX
+	g_SPXBGamePhase = 118;
 	gi.Printf("JA: InitGame after G_SpawnEntitiesFromString num_entities=%d\n", globals.num_entities);
 #endif
 
 	// general initialization
 #ifdef _XBOX
+	g_SPXBGamePhase = 119;
 	gi.Printf("JA: InitGame before G_FindTeams\n");
 #endif
 	G_FindTeams();
 #ifdef _XBOX
+	g_SPXBGamePhase = 120;
 	gi.Printf("JA: InitGame after G_FindTeams\n");
 #endif
 
@@ -934,9 +997,17 @@ and global variables
 =================
 */
 extern int PM_ValidateAnimRange( const int startFrame, const int endFrame, const float animSpeed );
+#ifdef _XBOX
+extern "C" {
+extern volatile unsigned int g_SPXBGamePhase;
+}
+#endif
 game_export_t *GetGameAPI( game_import_t *import ) {
 	gameinfo_import_t	gameinfo_import;
 
+#ifdef _XBOX
+	g_SPXBGamePhase = 30;
+#endif
 	gi = *import;
 
 	globals.apiversion = GAME_API_VERSION;
@@ -975,6 +1046,9 @@ game_export_t *GetGameAPI( game_import_t *import ) {
 
 	GI_Init( &gameinfo_import );
 
+#ifdef _XBOX
+	g_SPXBGamePhase = 31;
+#endif
 	return &globals;
 }
 
@@ -2324,6 +2398,37 @@ IGhoul2InfoArray &TheGameGhoul2InfoArray()
 extern bool bHadPersistedSurface;
 gentity_t *pReservedZoneGentities = NULL;
 
+static void G_ConstructGentityArray( gentity_t *entities )
+{
+	if ( !entities )
+	{
+		return;
+	}
+
+	for ( int i = 0; i < MAX_GENTITIES; ++i )
+	{
+		new (&entities[i]) gentity_t;
+	}
+}
+
+static void G_ResetGentityArrayForMap( void )
+{
+	if ( !g_entities )
+	{
+		return;
+	}
+
+	for ( int i = 0; i < MAX_GENTITIES; ++i )
+	{
+#ifdef _XBOX
+		g_SPXBGameEntityCount = i;
+#endif
+		g_entities[i].~gentity_t();
+		memset( &g_entities[i], 0, sizeof(g_entities[i]) );
+		new (&g_entities[i]) gentity_t;
+	}
+}
+
 void G_ReserveZoneGentities( void )
 {
 	pReservedZoneGentities = (gentity_t *) Z_Malloc( sizeof(gentity_t) * MAX_GENTITIES, TAG_TEMP_WORKSPACE, qfalse, 4 );
@@ -2345,6 +2450,7 @@ void G_AllocGentities( void )
 	// If it worked...
 	if( g_entities )
 	{
+		G_ConstructGentityArray( g_entities );
 		// And we had a persisted surface. (Normal case). Free the reserved zone:
 		if( bHadPersistedSurface )
 		{
@@ -2375,6 +2481,7 @@ void G_AllocGentities( void )
 			}
 			g_entities = pReservedZoneGentities;
 			pReservedZoneGentities = NULL;
+			G_ConstructGentityArray( g_entities );
 #ifdef _XBOX
 			XBLog_Writef("JA: G_AllocGentities: zone fallback ptr=%p", (void*)g_entities);
 #endif

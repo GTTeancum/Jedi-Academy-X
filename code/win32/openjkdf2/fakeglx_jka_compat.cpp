@@ -26,6 +26,13 @@
 #include "../../renderer/qgl_console.h"
 #include "../glw_win_dx8.h"
 #include "../xb_log.h"
+#include <stdlib.h>
+
+#ifdef _XBOX
+extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
+    UINT vertexCount, UINT primitiveCount, const void *indices,
+    const void *vertices, UINT stride);
+#endif
 
 /* Plan-B audit gotchas B/D/F/H attempted to wire D3D-state-routing impls
  * via FakeGL_GetD3DDevice / FakeGL_MultMatrixfLocal / FakeGL_DeleteTexture
@@ -85,6 +92,144 @@ static ArrayBinding g_texCoordArray[4] = {
     {0, GL_FLOAT, 0, NULL}
 };
 static ArrayBinding g_normalArray   = {0, GL_FLOAT, 0, NULL};
+
+static GLsizei ArrayElementSize(const ArrayBinding& binding);
+static GLsizei ArrayStride(const ArrayBinding& binding);
+
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
+
+struct JkaFastVertex0 {
+    float x, y, z;
+    DWORD color;
+};
+
+struct JkaFastVertex1 {
+    float x, y, z;
+    DWORD color;
+    float s0, t0;
+};
+
+struct JkaFastVertex2 {
+    float x, y, z;
+    DWORD color;
+    float s0, t0;
+    float s1, t1;
+};
+
+static DWORD PackColorFromArray(GLuint i)
+{
+    if ((g_clientArrays & (1u << 2)) && g_colorArray.pointer) {
+        const char *cp = (const char*)g_colorArray.pointer + i * ArrayStride(g_colorArray);
+        if (g_colorArray.type == GL_UNSIGNED_BYTE && g_colorArray.size >= 4) {
+            const GLubyte *c = (const GLubyte *)cp;
+            return ((DWORD)c[3] << 24) | ((DWORD)c[2] << 16) | ((DWORD)c[1] << 8) | (DWORD)c[0];
+        }
+        if (g_colorArray.type == GL_FLOAT) {
+            const GLfloat *c = (const GLfloat*)cp;
+            const DWORD r = (DWORD)(c[0] * 255.0f) & 0xff;
+            const DWORD g = (DWORD)(c[1] * 255.0f) & 0xff;
+            const DWORD b = (DWORD)(c[2] * 255.0f) & 0xff;
+            const DWORD a = (DWORD)((g_colorArray.size >= 4 ? c[3] : 1.0f) * 255.0f) & 0xff;
+            return (a << 24) | (r << 16) | (g << 8) | b;
+        }
+    }
+    return 0xffffffff;
+}
+
+static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
+{
+    if (mode != GL_TRIANGLES || type != GL_UNSIGNED_SHORT || !indices ||
+        !g_vertexArray.pointer || g_vertexArray.type != GL_FLOAT || g_vertexArray.size < 3 ||
+        count <= 0 || (count % 3) != 0) {
+        return false;
+    }
+
+    const GLushort *idx = (const GLushort *)indices;
+    GLuint maxIndex = 0;
+    for (GLsizei i = 0; i < count; ++i) {
+        if (idx[i] > maxIndex) {
+            maxIndex = idx[i];
+        }
+    }
+    if (maxIndex > 8191) {
+        return false;
+    }
+
+    int texStages = 0;
+    if ((g_texCoordArrayEnabled & 1u) && g_texCoordArray[0].pointer && g_texCoordArray[0].type == GL_FLOAT && g_texCoordArray[0].size >= 2) {
+        texStages = 1;
+    }
+    if ((g_texCoordArrayEnabled & 2u) && g_texCoordArray[1].pointer && g_texCoordArray[1].type == GL_FLOAT && g_texCoordArray[1].size >= 2) {
+        texStages = 2;
+    }
+    if (texStages < 2) {
+        return false;
+    }
+
+    const DWORD fvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | ((DWORD)texStages << D3DFVF_TEXCOUNT_SHIFT);
+    const UINT vertexCount = maxIndex + 1;
+    const UINT primitiveCount = count / 3;
+    const UINT stride = (texStages == 2) ? sizeof(JkaFastVertex2) : ((texStages == 1) ? sizeof(JkaFastVertex1) : sizeof(JkaFastVertex0));
+    static char *s_fastVerts = NULL;
+    static UINT s_fastVertsBytes = 0;
+    const UINT requiredBytes = vertexCount * stride;
+    if (requiredBytes > s_fastVertsBytes) {
+        UINT newBytes = s_fastVertsBytes ? s_fastVertsBytes : (64 * 1024);
+        while (newBytes < requiredBytes) {
+            newBytes *= 2;
+        }
+        char *newVerts = (char *)realloc(s_fastVerts, newBytes);
+        if (!newVerts) {
+            return false;
+        }
+        s_fastVerts = newVerts;
+        s_fastVertsBytes = newBytes;
+    }
+    char *verts = s_fastVerts;
+    if (!verts) {
+        return false;
+    }
+
+    const int xyzStride = ArrayStride(g_vertexArray);
+    const int st0Stride = texStages >= 1 ? ArrayStride(g_texCoordArray[0]) : 0;
+    const int st1Stride = texStages >= 2 ? ArrayStride(g_texCoordArray[1]) : 0;
+
+    for (UINT i = 0; i < vertexCount; ++i) {
+        const GLfloat *xyz = (const GLfloat *)((const char *)g_vertexArray.pointer + i * xyzStride);
+        DWORD color = PackColorFromArray(i);
+        if (texStages == 2) {
+            JkaFastVertex2 *v = (JkaFastVertex2 *)(verts + i * stride);
+            const GLfloat *st0 = (const GLfloat *)((const char *)g_texCoordArray[0].pointer + i * st0Stride);
+            const GLfloat *st1 = (const GLfloat *)((const char *)g_texCoordArray[1].pointer + i * st1Stride);
+            v->x = xyz[0]; v->y = xyz[1]; v->z = xyz[2]; v->color = color;
+            v->s0 = st0[0]; v->t0 = st0[1]; v->s1 = st1[0]; v->t1 = st1[1];
+        } else if (texStages == 1) {
+            JkaFastVertex1 *v = (JkaFastVertex1 *)(verts + i * stride);
+            const GLfloat *st0 = (const GLfloat *)((const char *)g_texCoordArray[0].pointer + i * st0Stride);
+            v->x = xyz[0]; v->y = xyz[1]; v->z = xyz[2]; v->color = color;
+            v->s0 = st0[0]; v->t0 = st0[1];
+        } else {
+            JkaFastVertex0 *v = (JkaFastVertex0 *)(verts + i * stride);
+            v->x = xyz[0]; v->y = xyz[1]; v->z = xyz[2]; v->color = color;
+        }
+    }
+
+    if (!JkaFakeglDrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, fvf, vertexCount, primitiveCount,
+        indices, verts, stride)) {
+        static int s_fastDrawFailBudget = 16;
+        if (s_fastDrawFailBudget > 0) {
+            XBLF("JA: JkaTryDrawElementsUP failed mode=0x%08x count=%d verts=%u stages=%d",
+                (unsigned int)mode, (int)count, (unsigned int)vertexCount, texStages);
+            --s_fastDrawFailBudget;
+        }
+        return false;
+    }
+    return true;
+}
+
+#endif
 
 static GLsizei ArrayElementSize(const ArrayBinding& binding)
 {
@@ -435,6 +580,14 @@ void glDrawArrays(GLenum mode, GLint first, GLsizei count)
 void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
 {
     if (!indices) return;
+#ifdef _XBOX
+    /* Keep this path allocation-free. It preserves indexed topology and avoids
+     * the per-index immediate expansion that hammers CPU bandwidth on Xbox. */
+    static const bool kUseFastIndexedUP = false;
+    if (kUseFastIndexedUP && JkaTryDrawElementsUP(mode, count, type, indices)) {
+        return;
+    }
+#endif
     glBegin(mode);
     for (GLsizei i = 0; i < count; ++i) {
         GLuint idx;

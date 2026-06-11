@@ -20,6 +20,28 @@ char XBOX_VIDEO_PATH[64] = "d:\\base\\video\\";
 BinkVideo bVideo;	// bink video object
 connstate_t	previousState = CA_UNINITIALIZED;	// previous cinematic state
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBCinPhase;
+extern "C" volatile unsigned int g_SPXBCinHandle;
+extern "C" volatile unsigned int g_SPXBCinStatus;
+extern "C" volatile unsigned int g_SPXBCinLoopCount;
+extern "C" volatile char g_SPXBCinArgLast[64];
+
+static void CIN_XboxCopyArgLast(const char *arg)
+{
+	int i = 0;
+	if (arg)
+	{
+		while (arg[i] && i < (int)sizeof(g_SPXBCinArgLast) - 1)
+		{
+			g_SPXBCinArgLast[i] = arg[i];
+			++i;
+		}
+	}
+	g_SPXBCinArgLast[i] = 0;
+}
+#endif
+
 struct CinematicData
 {
 	char	filename[MAX_OSPATH];	// No path, no extension
@@ -133,6 +155,11 @@ e_status CIN_RunCinematic (int handle)
 {
 	char cinLog[256];
 	static int runLogBudget = 16;
+#ifdef _XBOX
+	g_SPXBCinPhase = 300;
+	g_SPXBCinHandle = (unsigned int)handle;
+	g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+#endif
 	if (runLogBudget > 0)
 	{
 		_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_RunCinematic enter handle=%d current=%d w=%d h=%d status=%d state=%d", handle, currentHandle, (handle >= 0 && handle < cinNumFiles) ? cinFiles[handle].w : -1, (handle >= 0 && handle < cinNumFiles) ? cinFiles[handle].h : -1, bVideo.GetStatus(), cls.state);
@@ -142,19 +169,39 @@ e_status CIN_RunCinematic (int handle)
 	}
 	if (handle < 0 || handle >= cinNumFiles || !cinFiles[handle].w)
 	{
+#ifdef _XBOX
+		g_SPXBCinPhase = 301;
+#endif
 		assert( 0 );
 		return FMV_EOF;
 	}
+#ifdef _XBOX
+	g_SPXBCinPhase = 302;
+	CIN_XboxCopyArgLast(cinFiles[handle].filename);
+#endif
 
 	// If we weren't playing a movie, or playing the wrong one - start up
 	if (handle != currentHandle)
 	{
 		bool shader = cinFiles[handle].bits & CIN_shader;
+#ifdef _XBOX
+		g_SPXBCinPhase = 310;
+		g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+		XBLF("JA: CIN_PHASE RunCinematic start handle=%d current=%d file='%s' shader=%d status=%d",
+			handle, currentHandle, cinFiles[handle].filename, shader ? 1 : 0, (int)bVideo.GetStatus());
+#endif
 		_snprintf(cinLog, sizeof(cinLog) - 1, "JA: CIN_RunCinematic starting file='%s' shader=%d bits=0x%x", cinFiles[handle].filename, shader ? 1 : 0, cinFiles[handle].bits);
 		cinLog[sizeof(cinLog) - 1] = '\0';
 		XBLog_Write(cinLog);
 
+#ifdef _XBOX
+		g_SPXBCinPhase = 311;
+#endif
 		CIN_StopCinematic(currentHandle);
+#ifdef _XBOX
+		g_SPXBCinPhase = 312;
+		g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+#endif
 		if (!bVideo.Start(
 				va("%s%s.bik",
 					shader ? SHADER_VIDEO_PATH : XBOX_VIDEO_PATH,
@@ -162,9 +209,17 @@ e_status CIN_RunCinematic (int handle)
 				cinFiles[handle].x, cinFiles[handle].y,
 				cinFiles[handle].w, cinFiles[handle].h))
 		{
+#ifdef _XBOX
+			g_SPXBCinPhase = 313;
+			g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+#endif
 			XBLog_Write("JA: CIN_RunCinematic BinkVideo::Start failed");
 			return FMV_EOF;
 		}
+#ifdef _XBOX
+		g_SPXBCinPhase = 314;
+		g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+#endif
 		XBLog_Write("JA: CIN_RunCinematic BinkVideo::Start succeeded");
 
 		if (cinFiles[handle].bits & CIN_loop)
@@ -192,11 +247,18 @@ e_status CIN_RunCinematic (int handle)
 		}
 
 		currentHandle = handle;
+#ifdef _XBOX
+		g_SPXBCinPhase = 315;
+#endif
 	}
 
 	// Normal case does nothing here
 	if(bVideo.GetStatus() == NS_BV_STOPPED)
 	{
+#ifdef _XBOX
+		g_SPXBCinPhase = 320;
+		g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+#endif
 		if (runLogBudget > 0)
 		{
 			XBLog_Write("JA: CIN_RunCinematic returning EOF");
@@ -206,6 +268,10 @@ e_status CIN_RunCinematic (int handle)
 	}
 	else
 	{
+#ifdef _XBOX
+		g_SPXBCinPhase = 321;
+		g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+#endif
 		return FMV_PLAY;
 	}
 }
@@ -395,7 +461,20 @@ Plays the target movie in full
 bool CIN_PlayAllFrames( const char *arg, int x, int y, int w, int h, int systemBits, bool keyBreakAllowed )
 {
 	bool retval;
+#ifdef _XBOX
+	g_SPXBCinPhase = 100;
+	g_SPXBCinHandle = (unsigned int)-1;
+	g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+	g_SPXBCinLoopCount = 0;
+	CIN_XboxCopyArgLast(arg);
+	XBLF("JA: CIN_PHASE PlayAllFrames enter arg='%s' rect=%d,%d,%d,%d state=%d keyBreak=%d",
+		arg ? arg : "<null>", x, y, w, h, (int)cls.state, keyBreakAllowed ? 1 : 0);
+#endif
 	Key_ClearStates();
+#ifdef _XBOX
+	g_SPXBCinPhase = 101;
+	XBLF("JA: CIN_PHASE PlayAllFrames after Key_ClearStates arg='%s'", arg ? arg : "<null>");
+#endif
 
 	// PC hack
 	qbInGameCinematicOnStandBy = qfalse;
@@ -406,14 +485,44 @@ bool CIN_PlayAllFrames( const char *arg, int x, int y, int w, int h, int systemB
 	Demo_TimerPause( true );
 #endif
 
+#ifdef _XBOX
+	g_SPXBCinPhase = 102;
+	XBLF("JA: CIN_PHASE PlayAllFrames before CIN_PlayCinematic arg='%s'", arg ? arg : "<null>");
+#endif
 	int Handle = CIN_PlayCinematic(arg, x, y, w, h, systemBits, NULL);
+#ifdef _XBOX
+	g_SPXBCinPhase = 103;
+	g_SPXBCinHandle = (unsigned int)Handle;
+	g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+	XBLF("JA: CIN_PHASE PlayAllFrames after CIN_PlayCinematic handle=%d status=%d",
+		Handle, (int)bVideo.GetStatus());
+#endif
 	if (Handle != -1)
 	{
 		while (CIN_RunCinematic(Handle) == FMV_PLAY && !(keyBreakAllowed && kg.anykeydown))
 		{
+#ifdef _XBOX
+			g_SPXBCinPhase = 110;
+			++g_SPXBCinLoopCount;
+			g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+			if (g_SPXBCinLoopCount <= 8)
+			{
+				XBLF("JA: CIN_PHASE loop %u before SCR_UpdateScreen handle=%d status=%d anykey=%d state=%d",
+					(unsigned int)g_SPXBCinLoopCount, Handle, (int)bVideo.GetStatus(), kg.anykeydown, (int)cls.state);
+			}
+#endif
 			SCR_UpdateScreen	();
+#ifdef _XBOX
+			g_SPXBCinPhase = 111;
+#endif
 			IN_Frame			();
+#ifdef _XBOX
+			g_SPXBCinPhase = 112;
+#endif
 			Com_EventLoop		();
+#ifdef _XBOX
+			g_SPXBCinPhase = 113;
+#endif
 		}
 #ifdef _XBOX
 //		while (CIN_RunCinematic(Handle) == FMV_PLAY && !(keyBreakAllowed && !kg.anykeydown))
@@ -423,6 +532,12 @@ bool CIN_PlayAllFrames( const char *arg, int x, int y, int w, int h, int systemB
 //			Com_EventLoop		();
 //		}
 #endif
+#ifdef _XBOX
+		g_SPXBCinPhase = 120;
+		g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+		XBLF("JA: CIN_PHASE PlayAllFrames before stop handle=%d loops=%u status=%d anykey=%d",
+			Handle, (unsigned int)g_SPXBCinLoopCount, (int)bVideo.GetStatus(), kg.anykeydown);
+#endif
 		CIN_StopCinematic(Handle);
 	}
 
@@ -431,7 +546,17 @@ bool CIN_PlayAllFrames( const char *arg, int x, int y, int w, int h, int systemB
 #endif
 
 	retval =(keyBreakAllowed && kg.anykeydown);
+#ifdef _XBOX
+	g_SPXBCinPhase = 130;
+	g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+	XBLF("JA: CIN_PHASE PlayAllFrames before final Key_ClearStates retval=%d status=%d",
+		retval ? 1 : 0, (int)bVideo.GetStatus());
+#endif
 	Key_ClearStates();
+#ifdef _XBOX
+	g_SPXBCinPhase = 131;
+	XBLF("JA: CIN_PHASE PlayAllFrames exit retval=%d arg='%s'", retval ? 1 : 0, arg ? arg : "<null>");
+#endif
 
 	// Soooper hack! Game ends up running for a couple frames after this cutscene. We don't want it to!
 	if( Q_stricmp(arg, "ja08") == 0 )
@@ -487,19 +612,49 @@ qboolean CL_IsRunningInGameCinematic(void)
 
 void CL_PlayInGameCinematic_f(void)
 {
+#ifdef _XBOX
+	g_SPXBCinPhase = 200;
+	g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+	CIN_XboxCopyArgLast(Cmd_Argv( 1 ));
+	XBLF("JA: CIN_PHASE InGameCinematic enter state=%d arg='%s' status=%d",
+		(int)cls.state, Cmd_Argv( 1 ), (int)bVideo.GetStatus());
+#endif
 	if (cls.state == CA_ACTIVE)
 	{
 		// In some situations (during yavin1 intro) we move to a cutscene directly from
 		// a shaking camera - so rumble never gets killed.
+#ifdef _XBOX
+		g_SPXBCinPhase = 201;
+		XBLF("JA: CIN_PHASE InGameCinematic before IN_KillRumbleScripts arg='%s'", Cmd_Argv( 1 ));
+#endif
 		IN_KillRumbleScripts();
+#ifdef _XBOX
+		g_SPXBCinPhase = 202;
+		XBLF("JA: CIN_PHASE InGameCinematic after IN_KillRumbleScripts");
+#endif
 
 		char *arg = Cmd_Argv( 1 );
+#ifdef _XBOX
+		g_SPXBCinPhase = 203;
+		CIN_XboxCopyArgLast(arg);
+		XBLF("JA: CIN_PHASE InGameCinematic before PlayAllFrames arg='%s'", arg ? arg : "<null>");
+#endif
 		CIN_PlayAllFrames(arg, 48, 36, 544, 408, 0, true);
+#ifdef _XBOX
+		g_SPXBCinPhase = 204;
+		XBLF("JA: CIN_PHASE InGameCinematic after PlayAllFrames");
+#endif
 	}
 	else
 	{
 		qbInGameCinematicOnStandBy = qtrue;
 		strcpy(sInGameCinematicStandingBy,Cmd_Argv(1));
+#ifdef _XBOX
+		g_SPXBCinPhase = 210;
+		CIN_XboxCopyArgLast(sInGameCinematicStandingBy);
+		XBLF("JA: CIN_PHASE InGameCinematic standby arg='%s' state=%d",
+			sInGameCinematicStandingBy, (int)cls.state);
+#endif
 	}
 }
 

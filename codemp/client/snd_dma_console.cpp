@@ -15,7 +15,7 @@
 #include "../win32/xb_log.h"
 
 #ifndef JAMP_CXBX_SMOKE_SKIP_SOUND
-#define JAMP_CXBX_SMOKE_SKIP_SOUND 1
+#define JAMP_CXBX_SMOKE_SKIP_SOUND 0
 #endif
 
 // #include "../../toolbox/zlib/zlib.h"

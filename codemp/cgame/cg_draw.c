@@ -9803,6 +9803,12 @@ static void CG_Draw2D( void ) {
 		return;
 	}
 
+#ifdef _XBOX
+	if ( trap_Key_GetCatcher() & KEYCATCH_UI ) {
+		return;
+	}
+#endif
+
 	if ( cg->snap->ps.pm_type == PM_INTERMISSION ) {
 		CG_DrawIntermission();
 		CG_ChatBox_DrawStrings();

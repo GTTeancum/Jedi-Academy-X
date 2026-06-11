@@ -29,7 +29,15 @@
 #endif
 
 #ifndef JAMP_CXBX_SMOKE_STARTUP_COMMAND
-#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set jamp_smokeDirectMap 1 +set g_gametype 0 +devmap mp/ffa5 +wait 180 +team free +wait 5 +forcechanged free"
+#define JAMP_CXBX_SMOKE_STARTUP_COMMAND ""
+#endif
+
+#ifndef JAMP_XEMU_DIRECT_MATCH
+#define JAMP_XEMU_DIRECT_MATCH 0
+#endif
+
+#ifndef JAMP_ENABLE_MAINLOOP_XBL_TICK
+#define JAMP_ENABLE_MAINLOOP_XBL_TICK 0
 #endif
 
 #ifndef JAMP_USE_MAINLOOP_SEH
@@ -134,6 +142,26 @@ void Sys_Error( const char *error, ... ) {
 #if 0 // UN-PORT
         Com_ShutdownZoneMemory();
         Com_ShutdownHunkMemory();
+#endif
+
+#ifdef _XBOX
+	{
+		extern void ERR_SetDiscFailReason(int);
+		extern void ERR_DiscFail(bool);
+		if (strstr(text, "GOB"))
+		{
+			ERR_SetDiscFailReason(1);
+		}
+		else if (strstr(text, "Stream") || strstr(text, "sound"))
+		{
+			ERR_SetDiscFailReason(3);
+		}
+		else
+		{
+			ERR_SetDiscFailReason(2);
+		}
+		ERR_DiscFail(false);
+	}
 #endif
 
         exit (1);
@@ -608,10 +636,31 @@ ERR_DiscFail
 
 Draws the damaged/dirty disc message, looping forever
 */
+static int s_discFailReason = 0;
+
+void ERR_SetDiscFailReason(int reason)
+{
+	s_discFailReason = reason;
+}
+
 void ERR_DiscFail(bool poll)
 {
 	// Load the texture:
-	void *image = SP_LoadFileWithLanguage("d:\\base\\media\\DiscErr");
+	const char *screenName = "d:\\base\\media\\DiscErr";
+	if (s_discFailReason == 1)
+	{
+		screenName = "d:\\base\\media\\LoadMP";
+	}
+	else if (s_discFailReason == 2)
+	{
+		screenName = "d:\\base\\media\\LoadSP";
+	}
+	else if (s_discFailReason == 3)
+	{
+		screenName = "d:\\base\\media\\LicenseScreen";
+	}
+
+	void *image = SP_LoadFileWithLanguage(screenName);
 
 	if( image )
 	{
@@ -847,7 +896,7 @@ int main(int argc, char* argv[])
 		extern void PrintMem(void);
 		PrintMem();
 		*/
-		qboolean jampLoopTrace = (jampFrameHeartbeat < 5 || !(jampFrameHeartbeat & 63));
+		qboolean jampLoopTrace = (jampFrameHeartbeat < 2);
 		XBLog_Phase("main loop before IN_Frame");
 		if (jampLoopTrace)
 		{
@@ -906,8 +955,57 @@ int main(int argc, char* argv[])
 		}
 		jampFrameHeartbeat++;
 
-		// Do any XBL stuff
-//		XBL_Tick();
+#if JAMP_XEMU_DIRECT_MATCH
+		static qboolean jampDirectMatchQueued = qfalse;
+		if ( !jampDirectMatchQueued && jampFrameHeartbeat == 8 )
+		{
+			XBLog_Write("JAMP: queueing direct Xemu local match");
+			Cbuf_AddText( JAMP_XEMU_DIRECT_MATCH_COMMAND );
+			jampDirectMatchQueued = qtrue;
+		}
+#endif
+
+		// Do any XBL stuff. Original Xbox JAMP left this disabled from the
+		// shell loop; keep the default matching that until Live/System Link is
+		// audited separately.
+#if JAMP_ENABLE_MAINLOOP_XBL_TICK
+		XBLog_Phase("main loop before XBL_Tick");
+		if (jampLoopTrace)
+		{
+			char traceMsg[96];
+			_snprintf(traceMsg, sizeof(traceMsg), "JAMP: main loop frame=%i before XBL_Tick", jampFrameHeartbeat - 1);
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write(traceMsg);
+		}
+#if JAMP_USE_MAINLOOP_SEH
+		__try
+		{
+			XBL_Tick();
+		}
+		__except( JAMP_LogSEHException( "XBL_Tick", GetExceptionInformation() ) )
+		{
+			return 1;
+		}
+#else
+		XBL_Tick();
+#endif
+		XBLog_Phase("main loop after XBL_Tick");
+		if (jampLoopTrace)
+		{
+			char traceMsg[96];
+			_snprintf(traceMsg, sizeof(traceMsg), "JAMP: main loop frame=%i after XBL_Tick", jampFrameHeartbeat - 1);
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write(traceMsg);
+		}
+#else
+		static int jampSkippedXBLTick = 0;
+		if ( !jampSkippedXBLTick )
+		{
+			XBLog_Phase("main loop XBL_Tick disabled");
+			XBLog_Write("JAMP: XBL_Tick skipped in main loop");
+			jampSkippedXBLTick = 1;
+		}
+#endif
 
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD

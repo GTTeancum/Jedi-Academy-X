@@ -870,6 +870,12 @@ void SetTeam( gentity_t *ent, char *s ) {
 	//
 	oldTeam = client->sess.sessionTeam;
 	if ( team == oldTeam && team != TEAM_SPECTATOR && !forcedTeamChange) {
+		if ( client->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR || client->ps.pm_type == PM_SPECTATOR ) {
+			client->tempSpectate = 0;
+			client->sess.spectatorState = SPECTATOR_NOT;
+			client->sess.spectatorClient = 0;
+			ClientBegin( clientNum, qfalse );
+		}
 		return;
 	}
 
@@ -909,6 +915,9 @@ void SetTeam( gentity_t *ent, char *s ) {
 	client->sess.sessionTeam = team;
 	client->sess.spectatorState = specState;
 	client->sess.spectatorClient = specClient;
+	if ( team != TEAM_SPECTATOR ) {
+		client->tempSpectate = 0;
+	}
 
 	client->sess.teamLeader = qfalse;
 	if ( team == TEAM_RED || team == TEAM_BLUE ) {
@@ -1279,7 +1288,25 @@ void Cmd_ForceChanged_f( gentity_t *ent )
 {
 	char fpChStr[1024];
 	const char *buf;
+	char	arg[MAX_TOKEN_CHARS];
+	qboolean hasTeamArg;
 //	Cmd_Kill_f(ent);
+
+	arg[0] = 0;
+	hasTeamArg = qfalse;
+	if (trap_Argc() > 1)
+	{
+		trap_Argv( 1, arg, sizeof( arg ) );
+		if (arg[0])
+		{
+			hasTeamArg = qtrue;
+		}
+	}
+
+	if (hasTeamArg)
+	{
+		ent->client->sess.setForce = qtrue;
+	}
 
 	// Xbox experiment. Always allow instant changes to force powers.
 	if( g_gametype.integer == GT_DUEL || g_gametype.integer == GT_POWERDUEL )
@@ -1335,13 +1362,17 @@ argCheck:
 
 	if (trap_Argc() > 1)
 	{
-		char	arg[MAX_TOKEN_CHARS];
-
-		trap_Argv( 1, arg, sizeof( arg ) );
-
 		if (arg && arg[0])
 		{ //if there's an arg, assume it's a combo team command from the UI.
 			Cmd_Team_f(ent);
+			if ( ent->client->sess.sessionTeam != TEAM_SPECTATOR &&
+				( ent->client->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR || ent->client->ps.pm_type == PM_SPECTATOR ) )
+			{
+				ent->client->tempSpectate = 0;
+				ent->client->sess.spectatorState = SPECTATOR_NOT;
+				ent->client->sess.spectatorClient = 0;
+				ClientBegin( ent->s.number, qfalse );
+			}
 		}
 	}
 }

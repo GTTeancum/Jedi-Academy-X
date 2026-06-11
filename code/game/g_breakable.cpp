@@ -313,7 +313,7 @@ static void InitBBrush ( gentity_t *ent )
 	}
 	if ( (ent->spawnflags & 1) && ent->targetname && ent->targetname[0] )
 	{
-		static int s_xboxScriptedBreakableBroadcastLogBudget = 96;
+		static int s_xboxScriptedBreakableBroadcastLogBudget = 0;
 		ent->svFlags |= (SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN);
 		if ( s_xboxScriptedBreakableBroadcastLogBudget > 0 )
 		{

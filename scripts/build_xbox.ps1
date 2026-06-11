@@ -297,14 +297,9 @@ function Apply-ProjectSourceOverrides {
             Tool         = $null
         })
 
-        # Plan-B D3D8 5849->5558 API shim: JKA renderer uses two 5849
-        # D3D APIs whose signatures changed between XDK versions.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\d3d8_5849_compat.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\d3d8_5849_compat.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
+        # XDK 5558 headers are now first in the include path, so the old
+        # 5849-signature D3D shim is no longer needed and would collide with
+        # the official prototypes.
 
         # Plan-B DDS bridge: JKA uses DXT1/3/5 compressed textures via
         # GL_DDS*_EXT internalformats that fakeglx can't decode.  This
@@ -461,7 +456,7 @@ function Build-Project {
             #   C:\XDK\xbox\include        — 5849 fallback for headers 5558 lacks
             #   C:\XDK\include
             #   C:\XDK\bink_stub
-            AdditionalIncludeDirectories = "$repoRoot\code\win32;C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
+            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
             # Plan-B: dropped _USE_XGMATH so d3dx8math.h (and ID3DXMatrixStack)
             # are pulled in properly.  xgmath.h's #ifndef __XGMATH_H__ at the
             # top of d3dx8math.h causes that header to skip its body if
@@ -523,12 +518,12 @@ function Build-Project {
             # xonline, dsound, libc all resolve from 5558 (matching
             # OpenJKDF2).  5849 paths kept as fallback for dmusic.lib
             # and any other lib 5558 doesn't have.
-            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             ProgramDatabaseFile = '.\Release\x_exe.pdb'
             SubSystem = "2"
-            EntryPointSymbol = "mainCRTStartup"
+            EntryPointSymbol = "WinMainCRTStartup"
             SetChecksum = "true"
         }
     }
@@ -552,7 +547,7 @@ function Build-Project {
         }
         $linkTool = [pscustomobject]@{
             AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO"
-            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xbdm.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
+            AdditionalDependencies = "xapilib.lib;libc.lib;d3d8.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
             OutputFile = ".\Release\jamp.exe"
             AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"

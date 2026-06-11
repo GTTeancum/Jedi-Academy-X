@@ -16,7 +16,7 @@ displayContextDef_t cgDC;
 #endif
 
 #if defined(_XBOX) && !defined(JAMP_CXBX_SMOKE_SKIP_SOUND)
-#define JAMP_CXBX_SMOKE_SKIP_SOUND 1
+#define JAMP_CXBX_SMOKE_SKIP_SOUND 0
 #endif
 
 extern int cgSiegeRoundState;

@@ -31,6 +31,7 @@ public:
 		maxAlloc = 0;
 		swappedSize = 0;
 		swappedPoint = 0;
+		swappedBackup = NULL;
 	}
 
 	// No bookkeeping necessary, texNum is unused:
@@ -66,7 +67,7 @@ public:
 	// that doesn't need to live at the same time as any others
 	void SwapTextureMemory( unsigned long size )
 	{
-		assert( !swappedPoint && !swappedSize && (size < poolSize) );
+		assert( !swappedPoint && !swappedSize && !swappedBackup && (size < poolSize) );
 
 		// Save off old texturePoint:
 		swappedPoint = allocPoint;
@@ -75,28 +76,26 @@ public:
 		// Reset texture pool to the beginning of the block:
 		allocPoint = 0;
 
-		// Save whatever's there now:
-		DWORD dwWritten = 0;
-		HANDLE h = CreateFile( "Z:\\texswap", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0 );
-		assert( h != INVALID_HANDLE_VALUE );
-		if( !WriteFile( h, base, size, &dwWritten, NULL ) || (dwWritten != size) )
-			assert( 0 );
-
-		CloseHandle( h );
+		// Save whatever's there now. The original code used Z:\texswap as
+		// scratch storage; keeping it in memory avoids depending on a mounted
+		// scratch volume during in-game Bink playback.
+		swappedBackup = new unsigned char[size];
+		assert( swappedBackup );
+		if( swappedBackup )
+			memcpy( swappedBackup, base, size );
 	}
 
 	void UnswapTextureMemory( void )
 	{
-		assert( swappedSize );
+		assert( swappedSize && swappedBackup );
 
-		// Read back the data we dumped out before:
-		DWORD dwRead = 0;
-		HANDLE h = CreateFile( "Z:\\texswap", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
-		assert( h != INVALID_HANDLE_VALUE );
-		if( !ReadFile( h, base, swappedSize, &dwRead, NULL ) || (dwRead != swappedSize) )
-			assert( 0 );
-
-		CloseHandle( h );
+		// Read back the data we saved before:
+		if( swappedBackup )
+		{
+			memcpy( base, swappedBackup, swappedSize );
+			delete [] swappedBackup;
+			swappedBackup = NULL;
+		}
 
 		// Reset texture point
 		allocPoint = swappedPoint;
@@ -118,6 +117,7 @@ private:
 	// Extra bookkeeping for Bink texture nastiness:
 	unsigned long swappedSize;
 	unsigned long swappedPoint;
+	unsigned char *swappedBackup;
 };
 
 // Global texture allocators:

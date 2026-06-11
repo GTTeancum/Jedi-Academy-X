@@ -1110,6 +1110,10 @@ int NPC_FindNearestEnemy( gentity_t *ent )
 
 	for ( int i = 0; i < numEnts; i++ )
 	{
+		nearest = radiusEnts[i];
+		if ( !nearest )
+			continue;
+
 		//Don't consider self
 		if ( nearest == ent )
 			continue;

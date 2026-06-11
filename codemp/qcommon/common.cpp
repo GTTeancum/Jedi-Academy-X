@@ -132,6 +132,14 @@ void QDECL Com_PrintfAlways( const char *fmt, ... ) {
 	vsprintf (msg,fmt,argptr);
 	va_end (argptr);
 
+#ifdef _XBOX
+	if (!Q_strncmp(msg, "JAMP:", 5))
+	{
+		XBLog_Write(msg);
+		return;
+	}
+#endif
+
 	CL_ConsolePrint( msg, 0 );
 
 #ifdef _XBOX
@@ -164,6 +172,10 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 
 #ifdef _XBOX
 	XBLog_Write(msg);
+	if (!Q_strncmp(msg, "JAMP:", 5))
+	{
+		return;
+	}
 #endif
 
 #ifdef _DEBUG
@@ -1799,23 +1811,6 @@ extern timing_c G2PerformanceTimer_PreciseFrame;
 extern int G2Time_PreciseFrame;
 #endif
 
-#ifdef _XBOX
-static void JAMP_XBL_Tick_Guarded(void)
-{
-#if defined(_M_IX86)
-	__try
-	{
-		XBL_Tick();
-	}
-	__except(XBLog_Write("JAMP: SEH exception in XBL_Tick"), EXCEPTION_EXECUTE_HANDLER)
-	{
-	}
-#else
-	XBL_Tick();
-#endif
-}
-#endif
-
 /*
 =================
 Com_Frame
@@ -1851,15 +1846,15 @@ try
 	timeBeforeEvents =0;
 	timeBeforeClient = 0;
 	timeAfter = 0;
-	jampTraceFrame = (jampComFrameTrace < 4 || !(jampComFrameTrace & 63));
+	jampTraceFrame = (jampComFrameTrace < 2);
 	if (jampTraceFrame)
 	{
 		XBLog_Write("JAMP: Com_Frame enter");
 	}
 #ifdef _XBOX
-	qboolean jampProfileFrame = (jampComFrameTrace < 4 || !(jampComFrameTrace & 63));
+	qboolean jampProfileFrame = (jampComFrameTrace < 2 || !(jampComFrameTrace % 300));
 	XBLog_Phase("Com_Frame enter");
-	if (jampComFrameTrace < 4 || !(jampComFrameTrace & 31))
+	if (jampComFrameTrace < 2 || !(jampComFrameTrace % 300))
 	{
 		_snprintf(jampHeartbeatMsg, sizeof(jampHeartbeatMsg), "JAMP: heartbeat frame=%i time=%i msec=%i", jampComFrameTrace, Sys_Milliseconds(), com_frameMsec);
 		jampHeartbeatMsg[sizeof(jampHeartbeatMsg) - 1] = 0;
@@ -2108,18 +2103,6 @@ try
 
 	com_frameNumber++;
 	jampComFrameTrace++;
-
-#ifdef _XBOX
-	// Need to do Xbox Live frame here, because it can trigger an ERR_DROP
-	if(ClientManager::splitScreenMode == false)
-	{
-		XBLog_Phase("Com_Frame before XBL_Tick");
-		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before XBL_Tick");
-		JAMP_XBL_Tick_Guarded();
-		XBLog_Phase("Com_Frame after XBL_Tick");
-		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame after XBL_Tick");
-	}
-#endif
 
 	XBLog_Phase("Com_Frame exit");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame exit");

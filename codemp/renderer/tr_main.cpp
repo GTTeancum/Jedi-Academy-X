@@ -1375,7 +1375,6 @@ void R_AddEntitySurfaces (void) {
 	trRefEntity_t	*ent;
 	shader_t		*shader;
 #ifdef _XBOX
-	static int s_jampEntityFrame = 0;
 	int jampEntityCount = 0;
 	int jampGhoulCount = 0;
 	int jampModelCount = 0;
@@ -1512,14 +1511,6 @@ Ghoul2 Insert End
 		}
 	}
 
-#ifdef _XBOX
-	s_jampEntityFrame++;
-	if (s_jampEntityFrame <= 4 || !(s_jampEntityFrame % 300))
-	{
-		Com_Printf("JAMP: entity metrics frame=%d ents=%d models=%d ghoul=%d fxEnts=%d refdefEnts=%d\n",
-			s_jampEntityFrame, jampEntityCount, jampModelCount, jampGhoulCount, jampFxEntityCount, tr.refdef.num_entities);
-	}
-#endif
 }
 
 

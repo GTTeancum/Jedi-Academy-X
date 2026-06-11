@@ -801,6 +801,12 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	const qboolean xboxActiveDrawList = (cls.state == CA_ACTIVE);
 	const qboolean xboxTraceDrawList = qfalse;
 	int xboxLoggedSurfs = 0;
+	unsigned int xboxSplitShader = 0;
+	unsigned int xboxSplitFog = 0;
+	unsigned int xboxSplitDlight = 0;
+	unsigned int xboxSplitEntity = 0;
+	unsigned int xboxSplitFinal = 0;
+	unsigned int xboxSplitFlush = 0;
 	g_SPXBRenderDrawSurfLists++;
 	g_SPXBRenderSurfaces += (unsigned int)numDrawSurfs;
 	if (xboxTraceDrawList)
@@ -851,7 +857,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++)
 	{
 #ifdef _XBOX
-		if (xboxActiveDrawList && s_xboxRenderDrawSurfListCount < 16 && ((i & 127) == 0 || i == numDrawSurfs - 1))
+		if (xboxTraceDrawList && xboxActiveDrawList && s_xboxRenderDrawSurfListCount < 16 && ((i & 127) == 0 || i == numDrawSurfs - 1))
 		{
 			XBLF("JA: RB_RenderDrawSurfList #%d checkpoint surf=%d/%d type=%d ptr=%p sort=0x%08x",
 				s_xboxRenderDrawSurfListCount, i, numDrawSurfs,
@@ -894,8 +900,12 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
 #ifdef _XBOX
-		const bool xboxMergeGeneratedEntitySurf = (entityNum != oldEntityNum) &&
-			RB_XboxCanMergeGeneratedEntitySurf(drawSurf->surface, entityNum, oldEntityNum);
+		bool xboxMergeGeneratedEntitySurf = false;
+		if (shader == oldShader && fogNum == oldFogNum && dlighted == oldDlighted &&
+			entityNum != oldEntityNum && shader && !shader->entityMergable)
+		{
+			xboxMergeGeneratedEntitySurf = RB_XboxCanMergeGeneratedEntitySurf(drawSurf->surface, entityNum, oldEntityNum);
+		}
 		if (kXboxClassifyDrawSurfs)
 		{
 			const int surfType = (int)*drawSurf->surface;
@@ -1007,21 +1017,21 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #ifdef _XBOX
 				if (shader != oldShader)
 				{
-					g_SPXBRenderSplitShader++;
+					xboxSplitShader++;
 				}
 				if (fogNum != oldFogNum)
 				{
-					g_SPXBRenderSplitFog++;
+					xboxSplitFog++;
 				}
 				if (dlighted != oldDlighted)
 				{
-					g_SPXBRenderSplitDlight++;
+					xboxSplitDlight++;
 				}
 				if (entityNum != oldEntityNum && !shader->entityMergable && !xboxMergeGeneratedEntitySurf)
 				{
-					g_SPXBRenderSplitEntity++;
+					xboxSplitEntity++;
 				}
-				g_SPXBRenderSplitFlush++;
+				xboxSplitFlush++;
 #endif
 #ifdef __MACOS__	// crutch up the mac's limited buffer queue size
 				int		t;
@@ -1147,8 +1157,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// draw the contents of the last shader batch
 	if (oldShader != NULL) {
 #ifdef _XBOX
-		g_SPXBRenderSplitFinal++;
-		g_SPXBRenderSplitFlush++;
+		xboxSplitFinal++;
+		xboxSplitFlush++;
 		if (xboxTraceDrawList) XBLF("JA: RB_RenderDrawSurfList #%d final RB_EndSurface shader='%s'",
 			s_xboxRenderDrawSurfListCount, oldShader ? oldShader->name : "<null>");
 #endif
@@ -1157,6 +1167,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		if (xboxTraceDrawList) XBLog_Write("JA: RB_RenderDrawSurfList final RB_EndSurface done");
 #endif
 	}
+
+#ifdef _XBOX
+	g_SPXBRenderSplitShader += xboxSplitShader;
+	g_SPXBRenderSplitFog += xboxSplitFog;
+	g_SPXBRenderSplitDlight += xboxSplitDlight;
+	g_SPXBRenderSplitEntity += xboxSplitEntity;
+	g_SPXBRenderSplitFinal += xboxSplitFinal;
+	g_SPXBRenderSplitFlush += xboxSplitFlush;
+#endif
 
 	if (tr_stencilled && tr_distortionPrePost)
 	{ //ok, cap it now
@@ -1727,7 +1746,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 #endif
 		RB_EndSurface();
 #ifdef _XBOX
-		if (cls.state == CA_ACTIVE)
+		if (cls.state == CA_ACTIVE && s_xboxDrawSurfsTraceBudget > 0)
 		{
 			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface done",
 				s_xboxDrawSurfsCommandCount);

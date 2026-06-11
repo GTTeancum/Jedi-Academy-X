@@ -23,7 +23,7 @@ void FX_BryarProjectileThink(  centity_t *cent, const struct weaponInfo_s *weapo
 {
 	vec3_t forward;
 #ifdef _XBOX
-	static int s_xboxBryarProjectileLogBudget = 64;
+	static int s_xboxBryarProjectileLogBudget = 0;
 	qboolean xboxLogBryar = (s_xboxBryarProjectileLogBudget > 0);
 #endif
 
@@ -87,7 +87,7 @@ FX_BryarHitWall
 void FX_BryarHitWall( vec3_t origin, vec3_t normal )
 {
 #ifdef _XBOX
-	static int s_xboxBryarHitWallLogBudget = 32;
+	static int s_xboxBryarHitWallLogBudget = 0;
 	if ( s_xboxBryarHitWallLogBudget > 0 )
 	{
 		XBLF("JA: FX_BryarHitWall effect=%d origin=%g,%g,%g normal=%g,%g,%g",
@@ -108,7 +108,7 @@ FX_BryarHitPlayer
 void FX_BryarHitPlayer( vec3_t origin, vec3_t normal, qboolean humanoid )
 {
 #ifdef _XBOX
-	static int s_xboxBryarHitPlayerLogBudget = 32;
+	static int s_xboxBryarHitPlayerLogBudget = 0;
 	if ( s_xboxBryarHitPlayerLogBudget > 0 )
 	{
 		XBLF("JA: FX_BryarHitPlayer effect=%d humanoid=%d origin=%g,%g,%g normal=%g,%g,%g",

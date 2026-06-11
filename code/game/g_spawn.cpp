@@ -870,6 +870,44 @@ static qboolean G_XboxShouldBroadcastYavinIntroNPC( gentity_t *ent, const char *
 
 	return qfalse;
 }
+
+extern "C" {
+extern volatile unsigned int g_SPXBGamePhase;
+extern volatile unsigned int g_SPXBGameEntityCount;
+extern volatile unsigned int g_SPXBGameClassHash;
+extern volatile char g_SPXBGameClassLast[64];
+}
+
+static unsigned int G_XboxHashText( const char *text )
+{
+	unsigned int hash = 2166136261u;
+	if ( !text )
+	{
+		return 0;
+	}
+	while ( *text )
+	{
+		hash ^= (unsigned char)*text++;
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+static void G_XboxCopyLastClass( const char *text )
+{
+	int i = 0;
+	if ( !text )
+	{
+		text = "<null>";
+	}
+	while ( text[i] && i < 63 )
+	{
+		g_SPXBGameClassLast[i] = text[i];
+		++i;
+	}
+	g_SPXBGameClassLast[i] = 0;
+	g_SPXBGameClassHash = G_XboxHashText( text );
+}
 #endif
 
 static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname ) {
@@ -880,6 +918,10 @@ static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname )
 #endif
 
 	if ( !classname || !classname[0] ) {
+#ifdef _XBOX
+		g_SPXBGamePhase = 300;
+		G_XboxCopyLastClass( classname );
+#endif
 		gi.Printf (S_COLOR_RED"G_CallSpawn: NULL classname ent=%d slot=%d ptr=0x%x\n",
 			ent ? ent->s.number : -1,
 			ent ? (int)(ent - g_entities) : -1,
@@ -892,6 +934,8 @@ static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname )
 	}
 
 #ifdef _XBOX
+	g_SPXBGamePhase = 301;
+	G_XboxCopyLastClass( classname );
 	if (s_xboxCallSpawnLogBudget > 0 &&
 		(!Q_stricmp(classname, "func_door") ||
 		!Q_stricmp(classname, "func_breakable") ||
@@ -914,8 +958,13 @@ static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname )
 	for ( item=bg_itemlist+1 ; item->classname ; item++ ) {
 		if ( !strcmp(item->classname, classname) ) {
 			// found it
+#ifdef _XBOX
+			g_SPXBGamePhase = 302;
+			G_XboxCopyLastClass( classname );
+#endif
 			G_SpawnItem( ent, item );
 #ifdef _XBOX
+			g_SPXBGamePhase = 303;
 			if (s_xboxCallSpawnLogBudget > 0)
 			{
 				gi.Printf("JA: G_CallSpawn item done ent=%d class='%s'\n", ent->s.number, classname);
@@ -930,8 +979,13 @@ static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname )
 	for ( s=spawns ; s->name ; s++ ) {
 		if ( !strcmp(s->name, classname) ) {
 			// found it
+#ifdef _XBOX
+			g_SPXBGamePhase = 304;
+			G_XboxCopyLastClass( classname );
+#endif
 			s->spawn(ent);
 #ifdef _XBOX
+			g_SPXBGamePhase = 305;
 			if ( G_XboxShouldBroadcastYavinIntroNPC( ent, classname ) )
 			{
 				const int oldSvFlags = ent->svFlags;
@@ -1500,7 +1554,13 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 #endif
 
 	// get the next free entity
+#ifdef _XBOX
+	g_SPXBGamePhase = 220;
+#endif
 	ent = G_Spawn();
+#ifdef _XBOX
+	g_SPXBGamePhase = 221;
+#endif
 
 	for ( i = 0 ; i < numSpawnVars ; i++ ) {
 #ifdef _XBOX
@@ -1525,6 +1585,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 
 #ifdef _XBOX
 	G_SpawnString("classname", "", &xboxParsedClassname);
+	G_XboxCopyLastClass( xboxParsedClassname );
 
 	if (!ent->classname)
 	{
@@ -1542,6 +1603,9 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 
 	G_SpawnInt( "notsingle", "0", &i );
 	if ( i || !SpawnForCurrentDifficultySetting( ent ) ) {
+#ifdef _XBOX
+		g_SPXBGamePhase = 222;
+#endif
 		G_FreeEntity( ent );
 		return;
 	}
@@ -1551,6 +1615,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	VectorCopy( ent->s.origin, ent->currentOrigin );
 
 #ifdef _XBOX
+	g_SPXBGamePhase = 223;
 	if (!ent->classname)
 	{
 		if (xboxParsedClassname && xboxParsedClassname[0])
@@ -1582,6 +1647,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 
 	// if we didn't get a classname, don't bother spawning anything
 #ifdef _XBOX
+	g_SPXBGamePhase = 224;
 	if ( !G_CallSpawnForClassname( ent, (ent->classname && ent->classname[0]) ? ent->classname : xboxParsedClassname ) ) {
 #else
 	if ( !G_CallSpawn( ent ) ) {
@@ -1600,6 +1666,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	}
 
 #ifdef _XBOX
+	g_SPXBGamePhase = 225;
 	if (s_xboxSpawnVarLogBudget > 0)
 	{
 		gi.Printf("JA: G_SpawnGEntityFromSpawnVars spawned ent=%d class='%s' linked=%d contents=0x%x\n",
@@ -1614,13 +1681,25 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	//Tag on the ICARUS scripting information only to valid recipients
 	if ( Quake3Game()->ValidEntity( ent ) )
 	{
+#ifdef _XBOX
+		g_SPXBGamePhase = 226;
+#endif
 		Quake3Game()->InitEntity( ent ); //ICARUS_InitEnt( ent );
+#ifdef _XBOX
+		g_SPXBGamePhase = 227;
+#endif
 		
 		if ( ent->classname && ent->classname[0] )
 		{
 			if ( Q_strncmp( "NPC_", ent->classname, 4 ) != 0 )
 			{//Not an NPC_spawner
+#ifdef _XBOX
+				g_SPXBGamePhase = 228;
+#endif
 				G_ActivateBehavior( ent, BSET_SPAWN );
+#ifdef _XBOX
+				g_SPXBGamePhase = 229;
+#endif
 			}
 		}
 	}
@@ -2094,6 +2173,11 @@ void G_SubBSPSpawnEntitiesFromString(const char *entityString, vec3_t posOffset,
 	const char		*entities;
 
 	entities = entityString;
+#ifdef _XBOX
+	g_SPXBGamePhase = 200;
+	g_SPXBGameEntityCount = 0;
+	G_XboxCopyLastClass( "<spawn-start>" );
+#endif
 
 	// allow calls to G_Spawn*()
 	spawning = qtrue;
@@ -2137,14 +2221,19 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 	// has a "spawn" function to perform any global setup
 	// needed by a level (setting configstrings or cvars, etc)
 	if ( !G_ParseSpawnVars( &entities ) ) {
+#ifdef _XBOX
+		g_SPXBGamePhase = 201;
+#endif
 		G_Error( "SpawnEntities: no entities" );
 	}
 	
 #ifdef _XBOX
+	g_SPXBGamePhase = 202;
 	gi.Printf("JA: G_SpawnEntitiesFromString before worldspawn\n");
 #endif
 	SP_worldspawn();
 #ifdef _XBOX
+	g_SPXBGamePhase = 203;
 	gi.Printf("JA: G_SpawnEntitiesFromString after worldspawn\n");
 #endif
 
@@ -2153,16 +2242,23 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 	{
 #ifdef _XBOX
 		++xboxSpawnCount;
+		g_SPXBGameEntityCount = xboxSpawnCount;
+		g_SPXBGamePhase = 204;
 #endif
 		G_SpawnGEntityFromSpawnVars();
+#ifdef _XBOX
+		g_SPXBGamePhase = 205;
+#endif
 	}	
 
 	//Search the entities for precache information
 #ifdef _XBOX
+	g_SPXBGamePhase = 206;
 	gi.Printf("JA: G_SpawnEntitiesFromString parsed ents=%d before G_ParsePrecaches\n", xboxSpawnCount);
 #endif
 	G_ParsePrecaches();
 #ifdef _XBOX
+	g_SPXBGamePhase = 207;
 	gi.Printf("JA: G_SpawnEntitiesFromString after G_ParsePrecaches\n");
 #endif
 
@@ -2173,6 +2269,10 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 		gentity_t *script_runner = G_Spawn();
 		if ( script_runner )
 		{
+#ifdef _XBOX
+			g_SPXBGamePhase = 208;
+			G_XboxCopyLastClass( "worldspawn-script" );
+#endif
 			script_runner->behaviorSet[BSET_USE] = g_entities[ENTITYNUM_WORLD].behaviorSet[BSET_SPAWN];
 			script_runner->count = 1;
 			script_runner->e_ThinkFunc = thinkF_scriptrunner_run;
@@ -2180,7 +2280,13 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 
 			if ( Quake3Game()->ValidEntity( script_runner ) )
 			{
+#ifdef _XBOX
+				g_SPXBGamePhase = 209;
+#endif
 				Quake3Game()->InitEntity( script_runner ); //ICARUS_InitEnt( script_runner );
+#ifdef _XBOX
+				g_SPXBGamePhase = 210;
+#endif
 			}
 		}
 	}
@@ -2190,6 +2296,9 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 	//RG_RouteGen();
 
 	spawning = qfalse;			// any future calls to G_Spawn*() will be errors
+#ifdef _XBOX
+	g_SPXBGamePhase = 211;
+#endif
 
 	if ( g_delayedShutdown->integer && delayedShutDown )
 	{

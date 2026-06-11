@@ -9,6 +9,8 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern bool g_xboxDirectMapBootQueued;
+extern bool Sys_IsDirectMapBoot(void);
 #endif
 
 
@@ -337,6 +339,12 @@ qboolean SV_PlayerCanSeeEnt( gentity_t *ent, int sightLevel )
 	{
 		return qfalse;
 	}
+#ifdef _XBOX
+	if (Sys_IsDirectMapBoot())
+	{
+		return qfalse;
+	}
+#endif
 	if ( VM_Call( CG_CAMERA_POS, viewOrg))
 	{
 		if ( VM_Call( CG_CAMERA_ANG, viewAngles))
@@ -514,23 +522,51 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	qboolean xboxTraceMovers = (s_xboxSnapshotMoverFrameBudget > 0 && !portal);
 	int xboxFocusIndex = -1;
 	qboolean xboxYavinFocusEnt = qfalse;
+	static int s_xboxVisibleLogBudget = 0;
+	const qboolean xboxTraceVisible = (!portal && s_xboxVisibleLogBudget > 0);
+	if (xboxTraceVisible)
+	{
+		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint enter portal=%d org=%g,%g,%g ge=%d\n",
+			(int)portal, origin[0], origin[1], origin[2], ge ? ge->num_entities : -1);
+	}
 #endif
 
 	// during an error shutdown message we may need to transmit
 	// the shutdown message after the server has shutdown, so
 	// specfically check for it
 	if ( !sv.state ) {
+#ifdef _XBOX
+		if (xboxTraceVisible)
+		{
+			Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint exit no-sv-state\n");
+			--s_xboxVisibleLogBudget;
+		}
+#endif
 		return;
 	}
 
 	leafnum = CM_PointLeafnum (origin);
 	clientarea = CM_LeafArea (leafnum);
 	clientcluster = CM_LeafCluster (leafnum);
+#ifdef _XBOX
+	if (xboxTraceVisible)
+	{
+		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint leaf=%d area=%d cluster=%d\n",
+			leafnum, clientarea, clientcluster);
+	}
+#endif
 
 	// calculate the visible areas
 	frame->areabytes = CM_WriteAreaBits( frame->areabits, clientarea );
 
 	clientpvs = CM_ClusterPVS (clientcluster);
+#ifdef _XBOX
+	if (xboxTraceVisible)
+	{
+		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint pvs ready areaBytes=%d\n",
+			frame->areabytes);
+	}
+#endif
 
 	c_fullsend = 0;
 
@@ -543,6 +579,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	}
 
 	for ( e = 0 ; e < ge->num_entities ; e++ ) {
+#ifdef _XBOX
+		if (xboxTraceVisible && (e == 0 || e == 64 || e == 128 || e == 192 || e == ge->num_entities - 1))
+		{
+			Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint scan e=%d count=%d\n",
+				e, eNums ? eNums->numSnapshotEntities : -1);
+		}
+#endif
 		ent = SV_GentityNum(e);
 #ifdef _XBOX
 		qboolean xboxIsMover = qfalse;
@@ -1045,6 +1088,12 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			xboxMoverNoClusters);
 		s_xboxSnapshotMoverFrameBudget--;
 	}
+	if (xboxTraceVisible)
+	{
+		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint exit portal=%d count=%d\n",
+			(int)portal, eNums ? eNums->numSnapshotEntities : -1);
+		--s_xboxVisibleLogBudget;
+	}
 #endif
 }
 
@@ -1069,6 +1118,17 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	gentity_t					*ent;
 	entityState_t				*state;
 	gentity_t					*clent;
+#ifdef _XBOX
+	static int s_xboxBuildSnapshotLogBudget = 0;
+	const qboolean xboxTraceBuild = (s_xboxBuildSnapshotLogBudget > 0);
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot enter outgoing=%d state=%d gentity=%p\n",
+			client ? client->netchan.outgoingSequence : -1,
+			client ? client->state : -1,
+			client ? client->gentity : NULL);
+	}
+#endif
 
 	// bump the counter used to prevent double adding
 	sv.snapshotCounter++;
@@ -1082,11 +1142,28 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 
 	clent = client->gentity;
 	if ( !clent ) {
+#ifdef _XBOX
+		if (xboxTraceBuild)
+		{
+			Com_PrintfAlways("JA: SV_BuildClientSnapshot exit no-client-entity\n");
+			--s_xboxBuildSnapshotLogBudget;
+		}
+#endif
 		return frame;
 	}
 
 	// grab the current playerState_t
 	frame->ps = *clent->client;
+#ifdef _XBOX
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot after ps copy clientNum=%d origin=%g,%g,%g viewheight=%d viewEntity=%d\n",
+			frame->ps.clientNum,
+			clent->client->origin[0], clent->client->origin[1], clent->client->origin[2],
+			clent->client->viewheight,
+			frame->ps.viewEntity);
+	}
+#endif
 
 	// this stops the main client entity playerstate from being sent across, which has the effect of breaking
 	// looping sounds for the main client. So I took it out.
@@ -1106,10 +1183,34 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	// find the client's viewpoint
 
 	//if in camera mode use camera position instead
-	if ( VM_Call( CG_CAMERA_POS, org))
+#ifdef _XBOX
+	qboolean xboxUseCameraPos = qfalse;
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot camera gate direct=%d\n",
+			Sys_IsDirectMapBoot() ? 1 : 0);
+	}
+	if (!Sys_IsDirectMapBoot())
+	{
+		if (xboxTraceBuild) Com_PrintfAlways("JA: SV_BuildClientSnapshot before CG_CAMERA_POS\n");
+		xboxUseCameraPos = VM_Call( CG_CAMERA_POS, org) ? qtrue : qfalse;
+	}
+	else if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot direct-map skipped CG_CAMERA_POS\n");
+	}
+	if (xboxUseCameraPos)
+#else
+	if (VM_Call( CG_CAMERA_POS, org))
+#endif
 	{
 	#ifdef _XBOX
 		s_xboxSnapshotCameraView = qtrue;
+		if (xboxTraceBuild)
+		{
+			Com_PrintfAlways("JA: SV_BuildClientSnapshot CG_CAMERA_POS true org=%g,%g,%g\n",
+				org[0], org[1], org[2]);
+		}
 	#endif
 		//org[2] += clent->client->viewheight;
 	}
@@ -1117,6 +1218,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	{ 
 	#ifdef _XBOX
 		s_xboxSnapshotCameraView = qfalse;
+		if (xboxTraceBuild) Com_PrintfAlways("JA: SV_BuildClientSnapshot CG_CAMERA_POS false\n");
 	#endif
 		VectorCopy( clent->client->origin, org );
 		org[2] += clent->client->viewheight;
@@ -1137,10 +1239,25 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	}
 	VectorCopy( org, frame->ps.serverViewOrg );
 	VectorCopy( org, clent->client->serverViewOrg );
+#ifdef _XBOX
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot before visible org=%g,%g,%g\n",
+			org[0], org[1], org[2]);
+	}
+#endif
 
 	// add all the entities directly visible to the eye, which
 	// may include portal entities that merge other viewpoints
 	SV_AddEntitiesVisibleFromPoint( org, frame, &entityNumbers, qfalse );
+#ifdef _XBOX
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot after visible count=%d areaBytes=%d\n",
+			entityNumbers.numSnapshotEntities,
+			frame->areabytes);
+	}
+#endif
 	#ifdef _XBOX
 	s_xboxSnapshotCameraView = qfalse;
 	#endif
@@ -1236,6 +1353,13 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	// of an entity being included twice.
 	qsort( entityNumbers.snapshotEntities, entityNumbers.numSnapshotEntities, 
 		sizeof( entityNumbers.snapshotEntities[0] ), SV_QsortEntityNumbers );
+#ifdef _XBOX
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot after qsort count=%d\n",
+			entityNumbers.numSnapshotEntities);
+	}
+#endif
 
 	// now that all viewpoint's areabits have been OR'd together, invert
 	// all of them to make it a mask vector, which is what the renderer wants
@@ -1253,6 +1377,16 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		svs.nextSnapshotEntities++;
 		frame->num_entities++;
 	}
+#ifdef _XBOX
+	if (xboxTraceBuild)
+	{
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot exit num_entities=%d first=%d next=%d\n",
+			frame->num_entities,
+			frame->first_entity,
+			svs.nextSnapshotEntities);
+		--s_xboxBuildSnapshotLogBudget;
+	}
+#endif
 
 	return frame;
 }
@@ -1330,6 +1464,18 @@ SV_SendClientSnapshot
 void SV_SendClientSnapshot( client_t *client ) {
 	byte		msg_buf[MAX_MSGLEN];
 	msg_t		msg;
+#ifdef _XBOX
+	static int s_xboxSnapshotLogBudget = 0;
+	const qboolean xboxTraceSnapshot = (s_xboxSnapshotLogBudget > 0);
+	if (xboxTraceSnapshot)
+	{
+		Com_PrintfAlways("JA: SV_SendClientSnapshot enter state=%d outgoing=%d svTime=%d nextSnapshot=%d\n",
+			client ? client->state : -1,
+			client ? client->netchan.outgoingSequence : -1,
+			sv.time,
+			client ? client->nextSnapshotTime : -1);
+	}
+#endif
 
 	// build the snapshot
 	SV_BuildClientSnapshot( client );
@@ -1337,6 +1483,13 @@ void SV_SendClientSnapshot( client_t *client ) {
 	// bots need to have their snapshots build, but
 	// the query them directly without needing to be sent
 	if ( client->gentity && client->gentity->svFlags & SVF_BOT ) {
+#ifdef _XBOX
+		if (xboxTraceSnapshot)
+		{
+			Com_PrintfAlways("JA: SV_SendClientSnapshot exit bot\n");
+			--s_xboxSnapshotLogBudget;
+		}
+#endif
 		return;
 	}
 
@@ -1357,6 +1510,16 @@ void SV_SendClientSnapshot( client_t *client ) {
 	}
 
 	SV_SendMessageToClient( &msg, client );
+#ifdef _XBOX
+	if (xboxTraceSnapshot)
+	{
+		Com_PrintfAlways("JA: SV_SendClientSnapshot sent size=%d overflow=%d outgoing=%d\n",
+			msg.cursize,
+			(int)msg.overflowed,
+			client ? client->netchan.outgoingSequence : -1);
+		--s_xboxSnapshotLogBudget;
+	}
+#endif
 }
 
 
@@ -1368,18 +1531,46 @@ SV_SendClientMessages
 void SV_SendClientMessages( void ) {
 	int			i;
 	client_t	*c;
+#ifdef _XBOX
+	static int s_xboxMessagesLogBudget = 0;
+	const qboolean xboxTraceMessages = (s_xboxMessagesLogBudget > 0);
+	if (xboxTraceMessages)
+	{
+		Com_PrintfAlways("JA: SV_SendClientMessages enter svTime=%d clientState=%d nextSnapshot=%d\n",
+			sv.time,
+			svs.clients ? svs.clients[0].state : -1,
+			svs.clients ? svs.clients[0].nextSnapshotTime : -1);
+	}
+#endif
 
 	// send a message to each connected client
 	for (i=0, c = svs.clients ; i < 1 ; i++, c++) {
 		if (!c->state) {
+#ifdef _XBOX
+			if (xboxTraceMessages) Com_PrintfAlways("JA: SV_SendClientMessages skip disconnected i=%d\n", i);
+#endif
 			continue;		// not connected
 		}
 
 		if ( sv.time < c->nextSnapshotTime ) {
+#ifdef _XBOX
+			if (xboxTraceMessages)
+			{
+				Com_PrintfAlways("JA: SV_SendClientMessages skip wait i=%d svTime=%d next=%d\n",
+					i, sv.time, c->nextSnapshotTime);
+			}
+#endif
 			continue;		// not time yet
 		}
 
 		if ( c->state != CS_ACTIVE ) {
+#ifdef _XBOX
+			if (xboxTraceMessages)
+			{
+				Com_PrintfAlways("JA: SV_SendClientMessages nonactive i=%d state=%d\n",
+					i, c->state);
+			}
+#endif
 			if ( c->state != CS_ZOMBIE ) {
 				SV_SendClientEmptyMessage( c );
 			}
@@ -1388,5 +1579,12 @@ void SV_SendClientMessages( void ) {
 
 		SV_SendClientSnapshot( c );
 	}
+#ifdef _XBOX
+	if (xboxTraceMessages)
+	{
+		Com_PrintfAlways("JA: SV_SendClientMessages exit\n");
+		--s_xboxMessagesLogBudget;
+	}
+#endif
 }
 

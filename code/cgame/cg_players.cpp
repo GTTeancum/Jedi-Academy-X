@@ -20,11 +20,16 @@
 extern vmCvar_t	cg_debugHealthBars;
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+static void CG_XboxPlayerTraceNoop(const char *fmt, ...) { (void)fmt; }
+#undef XBLF
+#define XBLF CG_XboxPlayerTraceNoop
+extern bool g_xboxDirectMapBootQueued;
+extern bool Sys_IsDirectMapBoot(void);
 static int s_xboxCgPlayerLogCount = 0;
 static int s_xboxCgG2AnglesLogCount = 0;
 static int s_xboxCgNonLocalG2LogCount = 0;
-#define XBOX_CG_PLAYER_TRACE_LIMIT 64
-#define XBOX_CG_G2_TRACE_LIMIT 16
+#define XBOX_CG_PLAYER_TRACE_LIMIT 0
+#define XBOX_CG_G2_TRACE_LIMIT 0
 #define XBOX_CG_NONLOCAL_G2_TRACE_LIMIT 0
 #endif
 /*
@@ -501,15 +506,24 @@ void CG_NewClientinfo( int clientNum )
 //	const char	*s;
 //	int			i;
 
+#ifdef _XBOX
+	XBLF("JA: CG_NewClientinfo enter client=%d", clientNum);
+#endif
 	configstring = CG_ConfigString( clientNum + CS_PLAYERS );
 
 	if ( !configstring[0] ) 
 	{
+#ifdef _XBOX
+		XBLF("JA: CG_NewClientinfo empty config client=%d", clientNum);
+#endif
 		return;		// player just left
 	}
 	//ci = &cgs.clientinfo[clientNum];
-	if ( !(&g_entities[clientNum].client) )
+	if ( !g_entities[clientNum].client )
 	{
+#ifdef _XBOX
+		XBLF("JA: CG_NewClientinfo missing client ptr client=%d", clientNum);
+#endif
 		return;
 	}
 	ci = &g_entities[clientNum].client->clientInfo;
@@ -548,22 +562,43 @@ void CG_NewClientinfo( int clientNum )
 	v = Info_ValueForKey( configstring, "snd" );
 	
 	ci->customBasicSoundDir = G_NewString( v );
+#ifdef _XBOX
+	XBLF("JA: CG_NewClientinfo parsed client=%d name='%s' legs='%s' torso='%s' head='%s' snd='%s'",
+		clientNum,
+		ci->name,
+		g_entities[clientNum].client->renderInfo.legsModelName,
+		g_entities[clientNum].client->renderInfo.torsoModelName,
+		g_entities[clientNum].client->renderInfo.headModelName,
+		ci->customBasicSoundDir ? ci->customBasicSoundDir : "<null>");
+#endif
 
 	//player uses only the basic custom and combat sound sets, not the extra or jedi
-	CG_RegisterCustomSounds(ci, 
-							0,							// int iSoundEntryBase,
-							MAX_CUSTOM_BASIC_SOUNDS,	// int iTableEntries,
-							cg_customBasicSoundNames,	// const char *ppsTable[], 
-							ci->customBasicSoundDir		// const char *psDir
-							);
+#ifdef _XBOX
+	if ( Sys_IsDirectMapBoot() )
+	{
+		XBLF("JA: CG_NewClientinfo skipping player custom sounds for direct-map client=%d", clientNum);
+	}
+	else
+#endif
+	{
+		CG_RegisterCustomSounds(ci, 
+								0,							// int iSoundEntryBase,
+								MAX_CUSTOM_BASIC_SOUNDS,	// int iTableEntries,
+								cg_customBasicSoundNames,	// const char *ppsTable[], 
+								ci->customBasicSoundDir		// const char *psDir
+								);
 
-	CG_RegisterCustomSounds(ci, 
-							MAX_CUSTOM_BASIC_SOUNDS,	// int iSoundEntryBase,
-							MAX_CUSTOM_COMBAT_SOUNDS,	// int iTableEntries,
-							cg_customCombatSoundNames,	// const char *ppsTable[], 
-							ci->customBasicSoundDir		// const char *psDir
-							);
+		CG_RegisterCustomSounds(ci, 
+								MAX_CUSTOM_BASIC_SOUNDS,	// int iSoundEntryBase,
+								MAX_CUSTOM_COMBAT_SOUNDS,	// int iTableEntries,
+								cg_customCombatSoundNames,	// const char *ppsTable[], 
+								ci->customBasicSoundDir		// const char *psDir
+								);
+	}
 	ci->infoValid = qfalse;
+#ifdef _XBOX
+	XBLF("JA: CG_NewClientinfo exit client=%d", clientNum);
+#endif
 }
 
 /*
@@ -5860,7 +5895,7 @@ static void CG_DoSaberLight( saberInfo_t *saber )
 	}
 
 	vec3_t		positions[MAX_BLADES*2], mid={0}, rgbs[MAX_BLADES*2], rgb={0};
-	float		lengths[MAX_BLADES*2]={0}, totallength = 0, numpositions = 0, dist, diameter = 0;
+	float		lengths[MAX_BLADES*2]={0}, totallength = 0, numpositions = 0, dist, diameter = 0, diameterSq = 0;
 	int			i, j;
 
 	if ( saber )
@@ -5912,6 +5947,7 @@ static void CG_DoSaberLight( saberInfo_t *saber )
 			//get mid position
 			VectorScale( mid, 1/numpositions, mid );
 			//find the farthest distance between the blade tips, this will be our diameter
+			diameterSq = diameter * diameter;
 			for ( i = 0; i < MAX_BLADES*2; i++ )
 			{
 				if ( lengths[i] )
@@ -5920,15 +5956,16 @@ static void CG_DoSaberLight( saberInfo_t *saber )
 					{
 						if ( lengths[j] )
 						{
-							dist = Distance( positions[i], positions[j] );
-							if ( dist > diameter )
+							dist = DistanceSquared( positions[i], positions[j] );
+							if ( dist > diameterSq )
 							{
-								diameter = dist;
+								diameterSq = dist;
 							}
 						}
 					}
 				}
 			}
+			diameter = sqrt( diameterSq );
 		}
 
 		cgi_R_AddLightToScene( mid, diameter + (random()*8.0f), rgb[0], rgb[1], rgb[2] );
@@ -6172,7 +6209,8 @@ static void CG_AddSaberBladeGo( centity_t *cent, centity_t *scent, refEntity_t *
 	gclient_s *client = cent->gent->client;
 
 #ifdef _XBOX
-	if ( cent && cent->gent && cent->currentState.number == 0 )
+	const qboolean xboxTraceSaberBlade = qfalse;
+	if ( xboxTraceSaberBlade && cent && cent->gent && cent->currentState.number == 0 )
 	{
 		XBLF("JA: CG_AddSaberBladeGo enter ent=%d scent=%p saber=%p renderfx=0x%x modelIndex=%d saber=%d blade=%d ghoul2=%d playerModel=%d weaponModel=%d",
 			cent->currentState.number, scent, saber, renderfx, modelIndex, saberNum, bladeNum,
@@ -6183,7 +6221,7 @@ static void CG_AddSaberBladeGo( centity_t *cent, centity_t *scent, refEntity_t *
 	if ( !client )
 	{
 #ifdef _XBOX
-		if ( cent && cent->currentState.number == 0 )
+		if ( xboxTraceSaberBlade && cent && cent->currentState.number == 0 )
 		{
 			XBLF("JA: CG_AddSaberBladeGo early return no client ent=%d", cent->currentState.number);
 		}
@@ -6203,7 +6241,7 @@ Ghoul2 Insert Start
 			scent->gent->ghoul2[modelIndex].mModelindex == -1 )
 		{
 #ifdef _XBOX
-			if ( cent && cent->currentState.number == 0 )
+			if ( xboxTraceSaberBlade && cent && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_AddSaberBladeGo validation return ent=%d scent=%p modelIndex=%d scentGhoul2=%d mModel=%d",
 					cent->currentState.number, scent, modelIndex,
@@ -6262,7 +6300,7 @@ Ghoul2 Insert Start
 			bolt = gi.G2API_AddBolt( &scent->gent->ghoul2[modelIndex], tagName );
 
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxTraceSaberBlade && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_AddSaberBladeGo AddBolt tag=%s bolt=%d ent=%d modelIndex=%d",
 					tagName, bolt, cent->currentState.number, modelIndex);
@@ -6280,7 +6318,7 @@ Ghoul2 Insert Start
 				}
 			}
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxTraceSaberBlade && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_AddSaberBladeGo before saber GetBoltMatrix ent=%d modelIndex=%d bolt=%d tagHack=%d origin=%g,%g,%g",
 					cent->currentState.number, modelIndex, bolt, tagHack, origin[0], origin[1], origin[2]);
@@ -6294,7 +6332,7 @@ Ghoul2 Insert Start
 			gi.G2API_GiveMeVectorFromMatrix(boltMatrix, NEGATIVE_Y, axis_[1]);//right
 			gi.G2API_GiveMeVectorFromMatrix(boltMatrix, POSITIVE_Z, axis_[2]);//up
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxTraceSaberBlade && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_AddSaberBladeGo after saber GetBoltMatrix ent=%d org=%g,%g,%g axis0=%g,%g,%g",
 					cent->currentState.number, org_[0], org_[1], org_[2], axis_[0][0], axis_[0][1], axis_[0][2]);
@@ -6574,7 +6612,7 @@ Ghoul2 Insert End
 	}
 	VectorMA( org_, length, axis_[0], end );
 #ifdef _XBOX
-	if ( cent->currentState.number == 0 )
+	if ( xboxTraceSaberBlade && cent->currentState.number == 0 )
 	{
 		XBLF("JA: CG_AddSaberBladeGo before root trace ent=%d saber=%d blade=%d length=%g max=%g org=%g,%g,%g end=%g,%g,%g inFlight=%d",
 			cent->currentState.number, saberNum, bladeNum, length,
@@ -6612,7 +6650,7 @@ Ghoul2 Insert End
 		gi.trace( &trace, rootOrigin, NULL, NULL, cent->gent->client->ps.saber[saberNum].blade[bladeNum].muzzlePoint, cent->currentState.number, CONTENTS_SOLID );
 	}
 #ifdef _XBOX
-	if ( cent->currentState.number == 0 )
+	if ( xboxTraceSaberBlade && cent->currentState.number == 0 )
 	{
 		XBLF("JA: CG_AddSaberBladeGo after root trace ent=%d frac=%g contents=0x%x entity=%d",
 			cent->currentState.number, trace.fraction, trace.contents, trace.entityNum);
@@ -7036,7 +7074,7 @@ void CG_Player( centity_t *cent ) {
 	if ((in_camera) && cent->currentState.number == cg.snap->ps.clientNum )	// If player in camera then no need for shadow
 	{
 #ifdef _XBOX
-		static int s_xboxCameraLocalPlayerSkipBudget = 24;
+		static int s_xboxCameraLocalPlayerSkipBudget = 0;
 		if (s_xboxCameraLocalPlayerSkipBudget > 0)
 		{
 			XBLF("JA: CG_Player camera skip local ent=%d clientNum=%d psClient=%d viewEntity=%d third=%d origin=%g,%g,%g",
@@ -7709,7 +7747,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				numSabers = 2;
 			}
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player saber block enter ent=%d weapon=%d inFlight=%d dual=%d numSabers=%d class=%d flags=0x%x health=%d weaponTime=%d weaponState=%d saberEntity=%d model0=%d model1=%d blades0=%d blades1=%d",
 					cent->currentState.number, cent->currentState.weapon, cent->gent->client->ps.saberInFlight,
@@ -7725,7 +7763,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				if ( cent->gent->client->ps.saberEventFlags&SEF_INWATER )
 				{
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player saber before Deactivate ent=%d saber=%d flags=0x%x",
 							cent->currentState.number, saberNum, cent->gent->client->ps.saberEventFlags);
@@ -7733,7 +7771,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 #endif
 					cent->gent->client->ps.saber[saberNum].Deactivate();
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player saber after Deactivate ent=%d saber=%d blades=%d len0=%g active0=%d",
 							cent->currentState.number, saberNum,
@@ -7745,7 +7783,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				}
 				//loop this and do for both blades
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player saber loop ent=%d saber=%d numBlades=%d type=%d len0=%g max0=%g active0=%d color0=%d",
 						cent->currentState.number, saberNum,
@@ -7760,7 +7798,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				for ( int bladeNum = 0; bladeNum < cent->gent->client->ps.saber[saberNum].numBlades; bladeNum++ )
 				{
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player saber blade enter ent=%d saber=%d blade=%d active=%d length=%g max=%g radius=%g",
 							cent->currentState.number, saberNum, bladeNum,
@@ -7863,7 +7901,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 							{
 								//this returns qfalse if it doesn't exist or isn't being rendered
 #ifdef _XBOX
-								if ( cent->currentState.number == 0 )
+								if ( xboxLogPlayer && cent->currentState.number == 0 )
 								{
 									XBLF("JA: CG_Player saber before root surf ent=%d saber=%d blade=%d surf=r_hand weaponModel=%d",
 										cent->currentState.number, saberNum, bladeNum, cent->gent->weaponModel[saberNum]);
@@ -7872,7 +7910,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 								if ( G_GetRootSurfNameWithVariant( cent->gent, "r_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "r_hand" ) )//surf is still on
 								{
 #ifdef _XBOX
-									if ( cent->currentState.number == 0 )
+									if ( xboxLogPlayer && cent->currentState.number == 0 )
 									{
 										XBLF("JA: CG_Player saber root surf yes ent=%d hand=%s before AddSaberBladeGo",
 											cent->currentState.number, handName);
@@ -7880,7 +7918,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 #endif
 									CG_AddSaberBladeGo( cent, cent, NULL, ent.renderfx, cent->gent->weaponModel[saberNum], ent.origin, tempAngles, saberNum, bladeNum );
 #ifdef _XBOX
-									if ( cent->currentState.number == 0 )
+									if ( xboxLogPlayer && cent->currentState.number == 0 )
 									{
 										XBLF("JA: CG_Player saber after AddSaberBladeGo ent=%d saber=%d blade=%d",
 											cent->currentState.number, saberNum, bladeNum);
@@ -7889,7 +7927,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 									//CG_AddSaberBlades( cent, ent.renderfx, ent.origin, tempAngles, saberNum );
 								}//else, the limb will draw the blade itself
 #ifdef _XBOX
-								else if ( cent->currentState.number == 0 )
+								else if ( xboxLogPlayer && cent->currentState.number == 0 )
 								{
 									XBLF("JA: CG_Player saber root surf no ent=%d surf=r_hand",
 										cent->currentState.number);
@@ -7900,7 +7938,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 							{
 								//this returns qfalse if it doesn't exist or isn't being rendered
 #ifdef _XBOX
-								if ( cent->currentState.number == 0 )
+								if ( xboxLogPlayer && cent->currentState.number == 0 )
 								{
 									XBLF("JA: CG_Player saber before root surf ent=%d saber=%d blade=%d surf=l_hand weaponModel=%d",
 										cent->currentState.number, saberNum, bladeNum, cent->gent->weaponModel[saberNum]);
@@ -7909,7 +7947,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 								if ( G_GetRootSurfNameWithVariant( cent->gent, "l_hand", handName, sizeof(handName) ) ) //!gi.G2API_GetSurfaceRenderStatus( &cent->gent->ghoul2[cent->gent->playerModel], "l_hand" ) )//surf is still on
 								{
 #ifdef _XBOX
-									if ( cent->currentState.number == 0 )
+									if ( xboxLogPlayer && cent->currentState.number == 0 )
 									{
 										XBLF("JA: CG_Player saber root surf yes ent=%d hand=%s before AddSaberBladeGo",
 											cent->currentState.number, handName);
@@ -7917,7 +7955,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 #endif
 									CG_AddSaberBladeGo( cent, cent, NULL, ent.renderfx, cent->gent->weaponModel[saberNum], ent.origin, tempAngles, saberNum, bladeNum );
 #ifdef _XBOX
-									if ( cent->currentState.number == 0 )
+									if ( xboxLogPlayer && cent->currentState.number == 0 )
 									{
 										XBLF("JA: CG_Player saber after AddSaberBladeGo ent=%d saber=%d blade=%d",
 											cent->currentState.number, saberNum, bladeNum);
@@ -7926,7 +7964,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 									//CG_AddSaberBlades( cent, ent.renderfx, ent.origin, tempAngles, saberNum );
 								}//else, the limb will draw the blade itself
 #ifdef _XBOX
-								else if ( cent->currentState.number == 0 )
+								else if ( xboxLogPlayer && cent->currentState.number == 0 )
 								{
 									XBLF("JA: CG_Player saber root surf no ent=%d surf=l_hand",
 										cent->currentState.number);
@@ -7944,7 +7982,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 						//if ( cent->gent->client->ps.saberEventFlags&SEF_INWATER )
 						{
 #ifdef _XBOX
-							if ( cent->currentState.number == 0 )
+							if ( xboxLogPlayer && cent->currentState.number == 0 )
 							{
 								XBLF("JA: CG_Player saber before CheckSaberInWater ent=%d saber=%d blade=%d weaponModel=%d",
 									cent->currentState.number, saberNum, bladeNum, cent->gent->weaponModel[saberNum]);
@@ -7952,7 +7990,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 #endif
 							CG_CheckSaberInWater( cent, cent, cent->gent->weaponModel[saberNum], ent.origin, tempAngles );
 #ifdef _XBOX
-							if ( cent->currentState.number == 0 )
+							if ( xboxLogPlayer && cent->currentState.number == 0 )
 							{
 								XBLF("JA: CG_Player saber after CheckSaberInWater ent=%d saber=%d blade=%d flags=0x%x",
 									cent->currentState.number, saberNum, bladeNum, cent->gent->client->ps.saberEventFlags);
@@ -7969,7 +8007,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			}
 			//add the light
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player saber before light ent=%d dual=%d len0=%g blades0=%d len1=%g blades1=%d inFlight=%d",
 					cent->currentState.number, cent->gent->client->ps.dualSabers,
@@ -7986,14 +8024,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 					if ( cent->gent->client->ps.saber[0].numBlades > 2 )
 					{// add blended light
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player saber before DoSaberLight ent=%d saber=0", cent->currentState.number);
 						}
 #endif
 						CG_DoSaberLight( &cent->gent->client->ps.saber[0] );
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player saber after DoSaberLight ent=%d saber=0", cent->currentState.number);
 						}
@@ -8005,14 +8043,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 					if ( cent->gent->client->ps.saber[1].numBlades > 2 )
 					{// add blended light
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player saber before DoSaberLight ent=%d saber=1", cent->currentState.number);
 						}
 #endif
 						CG_DoSaberLight( &cent->gent->client->ps.saber[1] );
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player saber after DoSaberLight ent=%d saber=1", cent->currentState.number);
 						}
@@ -8026,14 +8064,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				if ( cent->gent->client->ps.saber[0].numBlades > 2 )
 				{// add blended light
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player saber before DoSaberLight ent=%d saber=0 single", cent->currentState.number);
 					}
 #endif
 					CG_DoSaberLight( &cent->gent->client->ps.saber[0] );
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player saber after DoSaberLight ent=%d saber=0 single", cent->currentState.number);
 					}
@@ -8041,7 +8079,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				}
 			}
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player saber block exit ent=%d calcedMp=%d", cent->currentState.number, calcedMp);
 			}
@@ -8055,7 +8093,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			)
 		{//if NPC, third person, or dead, unless using saber
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player post-saber renderInfo enter ent=%d third=%d snapWeapon=%d health=%d head=%d chest=%d crotch=%d calcedMp=%d",
 					cent->currentState.number, cg.renderingThirdPerson, cg.snap->ps.weapon,
@@ -8077,7 +8115,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			*/if ( cent->gent->headBolt == -1 )
 			{//no headBolt
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player renderInfo head fallback ent=%d", cent->currentState.number);
 				}
@@ -8089,7 +8127,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			else
 			{
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player before head GetBoltMatrix ent=%d model=%d bolt=%d origin=%g,%g,%g",
 						cent->currentState.number, cent->gent->playerModel, cent->gent->headBolt,
@@ -8115,7 +8153,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				// Play the breath puffs (or not).
 				CG_BreathPuffs( cent, tempAngles, ent.origin );
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player after head GetBoltMatrix ent=%d eye=%g,%g,%g",
 						cent->currentState.number,
@@ -8129,7 +8167,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			if (cent->gent->chestBolt>=0)
 			{
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player before chest GetBoltMatrix ent=%d bolt=%d", cent->currentState.number, cent->gent->chestBolt);
 				}
@@ -8139,7 +8177,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				gi.G2API_GiveMeVectorFromMatrix( boltMatrix, NEGATIVE_Z, tempAxis );
 				vectoangles( tempAxis, cent->gent->client->renderInfo.torsoAngles );
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player after chest GetBoltMatrix ent=%d torso=%g,%g,%g",
 						cent->currentState.number,
@@ -8152,7 +8190,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			else
 			{
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player renderInfo chest fallback ent=%d", cent->currentState.number);
 				}
@@ -8164,7 +8202,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			if (cent->gent->crotchBolt>=0)
 			{
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player before crotch GetBoltMatrix ent=%d bolt=%d", cent->currentState.number, cent->gent->crotchBolt);
 				}
@@ -8172,7 +8210,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				gi.G2API_GetBoltMatrix( cent->gent->ghoul2, cent->gent->playerModel, cent->gent->crotchBolt, &boltMatrix, tempAngles, ent.origin, cg.time, cgs.model_draw, cent->currentState.modelScale );
 				gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.crotchPoint );
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player after crotch GetBoltMatrix ent=%d crotch=%g,%g,%g",
 						cent->currentState.number,
@@ -8185,7 +8223,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			else
 			{
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player renderInfo crotch fallback ent=%d", cent->currentState.number);
 				}
@@ -8201,7 +8239,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			if( !calcedMp )
 			{
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player muzzle calc enter ent=%d class=%d weapon=%d weaponModel0=%d weaponModel1=%d ghoul2=%d",
 						cent->currentState.number, cent->gent->client->NPC_class,
@@ -8361,7 +8399,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 					( cent->gent->ghoul2[cent->gent->weaponModel[0]].mModelindex != -1))
 				{
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player before weapon muzzle GetBoltMatrix ent=%d model=%d",
 							cent->currentState.number, cent->gent->weaponModel[0]);
@@ -8374,7 +8412,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 					gi.G2API_GiveMeVectorFromMatrix( boltMatrix, ORIGIN, cent->gent->client->renderInfo.muzzlePoint );
 					gi.G2API_GiveMeVectorFromMatrix( boltMatrix, NEGATIVE_Y, cent->gent->client->renderInfo.muzzleDir );
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player after weapon muzzle GetBoltMatrix ent=%d muzzle=%g,%g,%g",
 							cent->currentState.number,
@@ -8387,7 +8425,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				else
 				{
 #ifdef _XBOX
-					if ( cent->currentState.number == 0 )
+					if ( xboxLogPlayer && cent->currentState.number == 0 )
 					{
 						XBLF("JA: CG_Player muzzle fallback to eye ent=%d", cent->currentState.number);
 					}
@@ -8397,7 +8435,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 				}
 				cent->gent->client->renderInfo.mPCalcTime = cg.time;
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player muzzle calc exit ent=%d mPCalcTime=%d", cent->currentState.number, cent->gent->client->renderInfo.mPCalcTime);
 				}
@@ -8491,14 +8529,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 			if ( cent->gent->client && cent->gent->forcePushTime > cg.time )
 			{//being pushed
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player before ForcePushBodyBlur ent=%d", cent->currentState.number);
 				}
 #endif
 				CG_ForcePushBodyBlur( cent, ent.origin, tempAngles );
 #ifdef _XBOX
-				if ( cent->currentState.number == 0 )
+				if ( xboxLogPlayer && cent->currentState.number == 0 )
 				{
 					XBLF("JA: CG_Player after ForcePushBodyBlur ent=%d", cent->currentState.number);
 				}
@@ -8606,14 +8644,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		if ( cent->gent->client->ps.powerups[PW_FORCE_PUSH] > cg.time )
 		{ 
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player before ForcePushRefraction L ent=%d", cent->currentState.number);
 			}
 #endif
 			CG_ForcePushRefraction(cent->gent->client->renderInfo.handLPoint, cent);
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player after ForcePushRefraction L ent=%d", cent->currentState.number);
 			}
@@ -8622,14 +8660,14 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		else if ( cent->gent->client->ps.powerups[PW_FORCE_PUSH_RHAND] > cg.time )
 		{
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player before ForcePushRefraction R ent=%d", cent->currentState.number);
 			}
 #endif
 			CG_ForcePushRefraction(cent->gent->client->renderInfo.handRPoint, cent);
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player after ForcePushRefraction R ent=%d", cent->currentState.number);
 			}
@@ -8642,28 +8680,28 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 
 		//bolted effects
 #ifdef _XBOX
-		if ( cent->currentState.number == 0 )
+		if ( xboxLogPlayer && cent->currentState.number == 0 )
 		{
 			XBLF("JA: CG_Player before CG_BoltedEffects ent=%d", cent->currentState.number);
 		}
 #endif
 		CG_BoltedEffects( cent, ent.origin, tempAngles );
 #ifdef _XBOX
-		if ( cent->currentState.number == 0 )
+		if ( xboxLogPlayer && cent->currentState.number == 0 )
 		{
 			XBLF("JA: CG_Player after CG_BoltedEffects ent=%d", cent->currentState.number);
 		}
 #endif
 		//As good a place as any, I suppose, to do this keyframed sound thing
 #ifdef _XBOX
-		if ( cent->currentState.number == 0 )
+		if ( xboxLogPlayer && cent->currentState.number == 0 )
 		{
 			XBLF("JA: CG_Player before CGG2_AnimEvents ent=%d", cent->currentState.number);
 		}
 #endif
 		CGG2_AnimEvents( cent );
 #ifdef _XBOX
-		if ( cent->currentState.number == 0 )
+		if ( xboxLogPlayer && cent->currentState.number == 0 )
 		{
 			XBLF("JA: CG_Player after CGG2_AnimEvents ent=%d", cent->currentState.number);
 		}
@@ -8674,7 +8712,7 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 		{
 extern qboolean PM_KickingAnim( int anim );
 #ifdef _XBOX
-			if ( cent->currentState.number == 0 )
+			if ( xboxLogPlayer && cent->currentState.number == 0 )
 			{
 				XBLF("JA: CG_Player saber damage branch ent=%d torsoAnim=%d debounce=%d time=%d timescale=%f",
 					cent->currentState.number,
@@ -8701,7 +8739,7 @@ extern void WP_SabersDamageTrace( gentity_t *ent, qboolean noEffects );
 extern void WP_SaberUpdateOldBladeData( gentity_t *ent );
 						//FIXME: this causes an ASSLOAD of effects
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player before WP_SabersDamageTrace ent=%d debounce=%d time=%d",
 								cent->currentState.number, cent->gent->client->ps.saberDamageDebounceTime, cg.time);
@@ -8709,14 +8747,14 @@ extern void WP_SaberUpdateOldBladeData( gentity_t *ent );
 #endif
 						WP_SabersDamageTrace( cent->gent, qtrue );
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player after WP_SabersDamageTrace ent=%d", cent->currentState.number);
 						}
 #endif
 						WP_SaberUpdateOldBladeData( cent->gent );
 #ifdef _XBOX
-						if ( cent->currentState.number == 0 )
+						if ( xboxLogPlayer && cent->currentState.number == 0 )
 						{
 							XBLF("JA: CG_Player after WP_SaberUpdateOldBladeData ent=%d", cent->currentState.number);
 						}
@@ -8727,7 +8765,7 @@ extern void WP_SaberUpdateOldBladeData( gentity_t *ent );
 			}
 		}
 #ifdef _XBOX
-		if ( cent->currentState.number == 0 )
+		if ( xboxLogPlayer && cent->currentState.number == 0 )
 		{
 			XBLF("JA: CG_Player ghoul2 player path exit ent=%d calcedMp=%d", cent->currentState.number, calcedMp);
 		}
@@ -9224,12 +9262,6 @@ Ghoul2 Insert End
 			FX_AddSprite( cent->gent->client->renderInfo.muzzlePoint, NULL, NULL, 3.0f * val * scale, 0.0f, 0.7f, 0.7f, WHITE, WHITE, random() * 360, 0.0f, 1.0f, shader, FX_USE_ALPHA );
 		}
 	}
-#ifdef _XBOX
-	if ( cent->currentState.number == 0 )
-	{
-		XBLF("JA: CG_Player function exit ent=%d calcedMp=%d", cent->currentState.number, calcedMp);
-	}
-#endif
 }
 
 //=====================================================================

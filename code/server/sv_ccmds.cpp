@@ -11,6 +11,37 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBMapPhase;
+extern "C" volatile unsigned int g_SPXBMapHash;
+extern "C" volatile char g_SPXBMapLast[64];
+
+static unsigned int SV_XboxHashText(const char *text)
+{
+	unsigned int h = 2166136261u;
+	if (!text) {
+		return 0;
+	}
+	while (*text) {
+		h ^= (unsigned char)*text++;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static void SV_XboxCopyLast(volatile char *dest, unsigned int destSize, const char *src)
+{
+	unsigned int i = 0;
+	if (!dest || destSize == 0) {
+		return;
+	}
+	if (src) {
+		while (src[i] && i < destSize - 1) {
+			dest[i] = src[i];
+			++i;
+		}
+	}
+	dest[i] = 0;
+}
 #endif
 
 
@@ -54,10 +85,14 @@ static void SV_Map_( ForceReload_e eForceReload )
 
 	map = Cmd_Argv(1);
 #ifdef _XBOX
+	g_SPXBMapPhase = 1;
+	g_SPXBMapHash = SV_XboxHashText(map);
+	SV_XboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), map);
 	XBLog_Write(va("JA: SV_Map_: requested '%s'", map ? map : "(null)"));
 #endif
 	if ( !*map ) {
 #ifdef _XBOX
+		g_SPXBMapPhase = 2;
 		XBLog_Write("JA: SV_Map_: empty map arg, return");
 #endif
 		return;
@@ -89,10 +124,12 @@ static void SV_Map_( ForceReload_e eForceReload )
 	}
 
 #ifdef _XBOX
+	g_SPXBMapPhase = 3;
 	XBLog_Write("JA: SV_Map_: calling SV_SpawnServer");
 #endif
 	SV_SpawnServer( map, eForceReload, qtrue );	// start up the map
 #ifdef _XBOX
+	g_SPXBMapPhase = 4;
 	XBLog_Write("JA: SV_Map_: SV_SpawnServer returned");
 #endif
 }

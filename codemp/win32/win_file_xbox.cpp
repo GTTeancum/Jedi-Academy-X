@@ -117,6 +117,10 @@ int WF_Read(void* buffer, int len, wfhandle_t handle)
 		s_FileTable[handle].m_bErrorsFatal)
 	{
 #if defined(FINAL_BUILD)
+		extern "C" void XBLog_Write(const char *msg);
+		XBLog_Write("JAMP: ERR_DiscFail from WF_Read");
+		extern void ERR_SetDiscFailReason(int);
+		ERR_SetDiscFailReason(2);
 		extern void ERR_DiscFail(bool);
 		ERR_DiscFail(false);
 #else

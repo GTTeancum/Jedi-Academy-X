@@ -773,7 +773,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	int jampTexCoordDirectVerts = 0;
 	int jampColorDirect = 0;
 	int jampColorDirectVerts = 0;
-	qboolean jampDrawSurfProfile = (s_jampDrawSurfFrame < 4 || !((s_jampDrawSurfFrame + 1) % 300));
+	qboolean jampDrawSurfProfile = qfalse;
 	JAMP_BackendPhasef("RB_RenderDrawSurfList enter frame=%d surfs=%d", s_jampDrawSurfFrame, numDrawSurfs, 0, 0);
 #endif
 #ifdef __MACOS__

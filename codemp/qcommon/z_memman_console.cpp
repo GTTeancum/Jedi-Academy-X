@@ -127,7 +127,7 @@ static memtag_t hunk_tag;
 
 // Allocate all available memory minus this amount - texture pools are
 // allocated before this, so just leave enough for framebuffer, etc...
-#ifdef FINAL_BUILD
+#if defined(FINAL_BUILD) || defined(_XBOX)
 #	define ZONE_HEAP_FREE (1024*1024*7 + MODEL_MEM)
 #else
 #	define ZONE_HEAP_FREE (1024*1024*16 + 16*1024*1024 + MODEL_MEM)
@@ -1607,6 +1607,25 @@ static void Z_Stats_f(void)
 	assert(s_Initialized);
 	// Display some memory usage summary information...
 
+#ifdef _XBOX
+	Com_PrintfAlways("JAMP: The zone is using %d bytes (%.2fMB) in %d memory blocks\n", 
+		s_Stats.m_SizeAlloc,
+		(float)s_Stats.m_SizeAlloc / 1024.0f / 1024.0f, 
+		s_Stats.m_CountAlloc);
+
+	Com_PrintfAlways("JAMP: Free memory is %d bytes (%.2fMB) in %d memory blocks\n", 
+		s_Stats.m_SizeFree,
+		(float)s_Stats.m_SizeFree / 1024.0f / 1024.0f, 
+		s_Stats.m_CountFree);
+
+	Com_PrintfAlways("JAMP: The zone peaked at %d bytes (%.2fMB)\n", 
+		s_Stats.m_PeakAlloc,
+		(float)s_Stats.m_PeakAlloc / 1024.0f / 1024.0f);
+
+	Com_PrintfAlways("JAMP: The zone overhead is %d bytes (%.2fMB)\n", 
+		s_Stats.m_OverheadAlloc,
+		(float)s_Stats.m_OverheadAlloc / 1024.0f / 1024.0f);
+#else
 	Com_PrintfAlways("\nThe zone is using %d bytes (%.2fMB) in %d memory blocks\n", 
 		s_Stats.m_SizeAlloc,
 		(float)s_Stats.m_SizeAlloc / 1024.0f / 1024.0f, 
@@ -1624,6 +1643,7 @@ static void Z_Stats_f(void)
 	Com_PrintfAlways("The zone overhead is %d bytes (%.2fMB)\n", 
 		s_Stats.m_OverheadAlloc,
 		(float)s_Stats.m_OverheadAlloc / 1024.0f / 1024.0f);
+#endif
 #endif
 }
 

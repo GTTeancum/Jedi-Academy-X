@@ -6,6 +6,7 @@ OPTION CASEMAP:NONE
 EXTERN _mainCRTStartup:NEAR
 EXTERN _XBLog_PreCRTProbe:NEAR
 EXTERN _XBLog_PostCRTProbe:NEAR
+EXTERN _Sleep@4:NEAR
 
 .data
 default_fpu_cw dw 027Fh
@@ -67,6 +68,8 @@ _WinMainCRTStartup PROC NEAR
     call    _mainCRTStartup     ; spawns game thread + returns (or calls XapiBootToDash)
     call    _XBLog_PostCRTProbe ; write "post_crt" if _mainCRTStartup returned normally
 @@spin:
+    push    1000
+    call    _Sleep@4
     jmp     @@spin
 _WinMainCRTStartup ENDP
 

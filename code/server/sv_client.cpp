@@ -9,6 +9,10 @@
 
 #include "server.h"
 
+#ifdef _XBOX
+extern bool Sys_IsDirectMapBoot(void);
+#endif
+
 /*
 ==================
 SV_DirectConnect
@@ -226,6 +230,15 @@ void SV_SendClientGameState( client_t *client ) {
 	SV_SendMessageToClient( &msg, client );
 #ifdef _XBOX
 	Com_PrintfAlways("JA: SV_SendClientGameState done\n");
+	if (Sys_IsDirectMapBoot() && client->state == CS_PRIMED)
+	{
+		usercmd_t cmd;
+		memset(&cmd, 0, sizeof(cmd));
+		Com_PrintfAlways("JA: SV_SendClientGameState direct-map entering world\n");
+		SV_ClientEnterWorld(client, &cmd, eSavedGameJustLoaded);
+		Com_PrintfAlways("JA: SV_SendClientGameState direct-map entered world state=%d nextSnapshot=%d\n",
+			client->state, client->nextSnapshotTime);
+	}
 #endif
 }
 

@@ -207,6 +207,19 @@ static	shaderStage_t	stages[MAX_SHADER_STAGES];
 static	shader_t		shader;
 static	texModInfo_t	texMods[MAX_SHADER_STAGES][TR_MAX_TEXMODS];
 
+#ifdef _XBOX
+static qboolean R_XboxTraceShaderName( const char *name )
+{
+	return ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ||
+		strstr( name, "gfx/mp/f_icon" ) ) );
+}
+
+static qboolean R_XboxTraceCurrentShader( void )
+{
+	return R_XboxTraceShaderName( shader.name );
+}
+#endif
+
 #define FILE_HASH_SIZE		1024
 static	shader_t*		sh_hashTable[FILE_HASH_SIZE];
 
@@ -1373,7 +1386,17 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 #endif //_XBOX
 			else
 			{
+#ifdef _XBOX
+				if ( R_XboxTraceCurrentShader() ) {
+					XBLF("ParseStage: map begin shader='%s'\n", shader.name);
+				}
+#endif
 				stage->bundle[0].image = R_FindImageFile( token, !shader.noMipMaps, 0, 0, GL_REPEAT );
+#ifdef _XBOX
+				if ( R_XboxTraceCurrentShader() ) {
+					XBLF("ParseStage: map image=0x%08X shader='%s'\n", (unsigned int)stage->bundle[0].image, shader.name);
+				}
+#endif
 				if ( !stage->bundle[0].image )
 				{
 					VID_Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
@@ -1956,6 +1979,13 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 					   atestBits | 
 					   depthFuncBits;
 
+#ifdef _XBOX
+	if ( R_XboxTraceCurrentShader() ) {
+		XBLF("ParseStage: done shader='%s' state=0x%08X rgb=%d alpha=%d\n",
+			shader.name, stage->stateBits, stage->rgbGen, stage->alphaGen);
+	}
+#endif
+
 	return qtrue;
 }
 
@@ -2352,6 +2382,11 @@ static qboolean ParseShader( const char  **text )
 		VID_Printf( PRINT_WARNING, "WARNING: expecting '{', found '%s' instead in shader '%s'\n", token, shader.name );
 		return qfalse;
 	}
+#ifdef _XBOX
+	if ( R_XboxTraceCurrentShader() ) {
+		XBLF("ParseShader: begin shader='%s'\n", shader.name);
+	}
+#endif
 
 	while ( 1 )
 	{
@@ -2370,6 +2405,20 @@ static qboolean ParseShader( const char  **text )
 		// stage definition
 		else if ( token[0] == '{' )
 		{
+#ifdef _XBOX
+			if ( s >= MAX_SHADER_STAGES ) {
+				VID_Printf( PRINT_WARNING, "WARNING: too many stages in shader '%s'\n", shader.name );
+				return qfalse;
+			}
+			if ( R_XboxTraceCurrentShader() ) {
+				XBLF("ParseShader: stage %d begin shader='%s'\n", s, shader.name);
+			}
+#else
+			if ( s >= MAX_SHADER_STAGES ) {
+				VID_Printf( PRINT_WARNING, "WARNING: too many stages in shader '%s'\n", shader.name );
+				return qfalse;
+			}
+#endif
 			if ( !ParseStage( &stages[s], text ) )
 			{
 				return qfalse;
@@ -2603,6 +2652,12 @@ Ghoul2 Insert End
 	}
 
 	shader.explicitlyDefined = true;
+
+#ifdef _XBOX
+	if ( R_XboxTraceCurrentShader() ) {
+		XBLF("ParseShader: done shader='%s' stages=%d\n", shader.name, s);
+	}
+#endif
 
 	return qtrue;
 }
@@ -3003,6 +3058,11 @@ static shader_t *FinishShader( void ) {
 	qboolean		hasLightmapStage;
 
 	hasLightmapStage = qfalse;
+#ifdef _XBOX
+	if ( R_XboxTraceCurrentShader() ) {
+		XBLF("FinishShader: begin shader='%s'\n", shader.name);
+	}
+#endif
 
 	//
 	// set sky stuff appropriate
@@ -3284,8 +3344,10 @@ static shader_t *FinishShader( void ) {
 				stages[i - 1].isBumpMap = qtrue;
 
 				// move down subsequent shaders
-				memmove( &stages[i], &stages[i+1], sizeof( stages[i-1] ) * ( MAX_SHADER_STAGES - 2 ) );
-				memset( &stages[MAX_SHADER_STAGES-1], 0, sizeof( stages[i-1] ) );
+				if ( i < ( MAX_SHADER_STAGES - 1 ) ) {
+					memmove( &stages[i], &stages[i+1], sizeof( stages[i] ) * ( MAX_SHADER_STAGES - i - 1 ) );
+				}
+				memset( &stages[MAX_SHADER_STAGES-1], 0, sizeof( stages[i] ) );
 
 				stage--;
 			}
@@ -3300,7 +3362,6 @@ static shader_t *FinishShader( void ) {
 		memcpy(shader.styles, stylesDefault, sizeof(shader.styles));
 	}
 
-
 	//
 	// compute number of passes
 	//
@@ -3311,6 +3372,12 @@ static shader_t *FinishShader( void ) {
 		shader.sort = SS_FOG;
 	}
 
+#ifdef _XBOX
+	if ( R_XboxTraceCurrentShader() ) {
+		XBLF("FinishShader: generate shader='%s' passes=%d sort=%d default=%d\n",
+			shader.name, shader.numUnfoggedPasses, shader.sort, shader.defaultShader);
+	}
+#endif
 	return GeneratePermanentShader();
 }
 
@@ -3479,7 +3546,7 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	image_t		*image;
 	shader_t	*sh;
 #ifdef _XBOX
-	qboolean	probeShader = ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ) );
+	qboolean	probeShader = R_XboxTraceShaderName( name );
 	if ( probeShader ) {
 		XBLF("R_FindShader: entry name='%s' mipRaw=%d\n", name, mipRawImage);
 	}
@@ -3685,7 +3752,7 @@ way to ask for different implicit lighting modes (vertex, lightmap, etc)
 qhandle_t RE_RegisterShader( const char *name ) {
 	shader_t	*sh;
 #ifdef _XBOX
-	qboolean	probeShader = ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ) );
+	qboolean	probeShader = R_XboxTraceShaderName( name );
 	if ( probeShader ) {
 		XBLF("RE_RegisterShader: '%s'\n", name);
 	}
@@ -3731,7 +3798,7 @@ For menu graphics that should never be picmiped
 qhandle_t RE_RegisterShaderNoMip( const char *name ) {
 	shader_t	*sh;
 #ifdef _XBOX
-	qboolean	probeShader = ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ) );
+	qboolean	probeShader = R_XboxTraceShaderName( name );
 	if ( probeShader ) {
 		XBLF("RE_RegisterShaderNoMip: '%s'\n", name);
 	}

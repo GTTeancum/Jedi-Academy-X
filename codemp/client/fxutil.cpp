@@ -196,9 +196,6 @@ void FX_Add( bool portal )
 {
 	int			i;
 	SEffectList	*ef;
-#ifdef _XBOX
-	static int s_jampFxFrame = 0;
-#endif
 	
 	drawnFx = 0;
 
@@ -243,17 +240,6 @@ void FX_Add( bool portal )
 		theFxHelper.Print( "Drawn     FX: %i\n", drawnFx );
 		theFxHelper.Print( "Scheduled FX: %i\n", theFxScheduler.NumScheduledFx() );
 	}
-#ifdef _XBOX
-	if (!portal)
-	{
-		s_jampFxFrame++;
-		if (s_jampFxFrame <= 4 || !(s_jampFxFrame & 63))
-		{
-			Com_Printf("JAMP: FX metrics frame=%d active=%d drawn=%d scheduled=%d\n",
-				s_jampFxFrame, activeFx, drawnFx, theFxScheduler.NumScheduledFx());
-		}
-	}
-#endif
 }
 
 

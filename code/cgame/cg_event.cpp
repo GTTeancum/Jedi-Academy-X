@@ -280,7 +280,7 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 	event = es->event & ~EV_EVENT_BITS;
 #ifdef _XBOX
 	{
-		static int s_xboxEventLogBudget = 160;
+		static int s_xboxEventLogBudget = 0;
 		if ( s_xboxEventLogBudget > 0 &&
 			(event == EV_FIRE_WEAPON || event == EV_ALT_FIRE ||
 			 event == EV_MISSILE_STICK || event == EV_MISSILE_HIT || event == EV_MISSILE_MISS ||

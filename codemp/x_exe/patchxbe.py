@@ -104,7 +104,9 @@ with open(temp_exe, 'wb') as f:
 
 # ── Step 3: Run imagebld ─────────────────────────────────────────────────
 
-imagebld = r'C:\XDK\xbox\bin\imagebld.exe'
+# Match the SP/OpenJKDF2 path: this build links against XDK 5558's retail
+# D3D8/D3DX8/libc set, so use the matching imagebld as well.
+imagebld = r'C:\XDK_5558\XDK\xbox\bin\imagebld.exe'
 map_path  = exe_path.replace('.exe', '.map')
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -140,10 +142,27 @@ print("XBE created: " + xbe_path)
 
 # ── Step 4: Inject missing D3D8 + XGRAPHC library version entries ─────────
 
+if os.environ.get('JAMP_PATCHXBE_MUTATE_HEADERS', '0') != '1':
+    print("Skipping post-imagebld header/library mutations (clean imagebld XBE)")
+    print("Done. %s ready." % os.path.basename(xbe_path))
+    sys.exit(0)
+
 print("Checking library version entries for CXBX-Reloaded HLE...")
 
 with open(xbe_path, 'rb') as f:
     xbe = bytearray(f.read())
+
+old_init_flags = struct.unpack_from('<I', xbe, 0x124)[0]
+new_init_flags = old_init_flags | 0x00000004
+if new_init_flags != old_init_flags:
+    struct.pack_into('<I', xbe, 0x124, new_init_flags)
+    print("  InitFlags: 0x%08X -> 0x%08X" % (old_init_flags, new_init_flags))
+
+old_stack_commit = struct.unpack_from('<I', xbe, 0x130)[0]
+retail_stack_commit = 0x00020000
+if old_stack_commit != retail_stack_commit:
+    struct.pack_into('<I', xbe, 0x130, retail_stack_commit)
+    print("  StackCommit: 0x%08X -> 0x%08X" % (old_stack_commit, retail_stack_commit))
 
 base_addr  = struct.unpack_from('<I', xbe, 0x104)[0]
 lib_count  = struct.unpack_from('<I', xbe, 0x160)[0]
@@ -157,6 +176,12 @@ for i in range(lib_count):
     name = xbe[off:off+8].rstrip(b'\x00').decode('ascii', errors='replace')
     existing_names.add(name)
     existing_build = struct.unpack_from('<H', xbe, off + 12)[0]
+    if name == 'D3D8':
+        old_flags = struct.unpack_from('<H', xbe, off + 14)[0]
+        new_flags = (old_flags & 0xE000) | 4
+        if new_flags != old_flags:
+            struct.pack_into('<H', xbe, off + 14, new_flags)
+            print("  D3D8 qfe: %d -> 4" % (old_flags & 0x1FFF))
 
 print("  Existing: %s" % ', '.join(sorted(existing_names)))
 
@@ -173,6 +198,8 @@ if 'XGRAPHC' not in existing_names:
 
 if not to_add:
     print("  D3D8 and XGRAPHC already present - no injection needed")
+    with open(xbe_path, 'wb') as f:
+        f.write(xbe)
 else:
     new_entries = bytearray()
     for i in range(lib_count):

@@ -17,7 +17,7 @@ Ghoul2 Insert Start
 #include "../qcommon/stringed_ingame.h"
 
 #ifndef JAMP_CXBX_SMOKE_SKIP_VOICE
-#define JAMP_CXBX_SMOKE_SKIP_VOICE 1
+#define JAMP_CXBX_SMOKE_SKIP_VOICE 0
 #endif
 
 #ifdef _XBOX

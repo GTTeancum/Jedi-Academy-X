@@ -31,6 +31,12 @@ extern void Com_WriteCam ( const char *text );
 extern void Com_FlushCamFile();
 
 #ifdef _XBOX
+extern "C" {
+extern volatile unsigned int g_SPXBGamePhase;
+}
+#endif
+
+#ifdef _XBOX
 extern int	*s_entityWavVol;
 #else
 extern int	s_entityWavVol[MAX_GENTITIES];
@@ -479,8 +485,14 @@ void SV_InitGameProgs (void) {
 	game_import_t	import;
 	int				i;
 
+#ifdef _XBOX
+	g_SPXBGamePhase = 1;
+#endif
 	// unload anything we have now
 	if ( ge ) {
+#ifdef _XBOX
+		g_SPXBGamePhase = 2;
+#endif
 		SV_ShutdownGameProgs (qtrue);
 	}
 
@@ -666,19 +678,30 @@ Ghoul2 Insert Start
 Ghoul2 Insert End
 */
 
+#ifdef _XBOX
+	g_SPXBGamePhase = 10;
+#endif
 	ge = (game_export_t *)Sys_GetGameAPI (&import);
+#ifdef _XBOX
+	g_SPXBGamePhase = 11;
+#endif
 
 	if (!ge)
 		Com_Error (ERR_DROP, "failed to load game DLL");
 
 	//hook up the client while we're here
 #ifdef _XBOX
+	g_SPXBGamePhase = 12;
 	VM_Create("cl");
+	g_SPXBGamePhase = 13;
 #else
 	if (!VM_Create("cl"))
 		Com_Error (ERR_DROP, "failed to attach to the client DLL");
 #endif
 
+#ifdef _XBOX
+	g_SPXBGamePhase = 14;
+#endif
 	if (ge->apiversion != GAME_API_VERSION)
 		Com_Error (ERR_DROP, "game is version %i, not %i", ge->apiversion,
 		GAME_API_VERSION);
@@ -686,8 +709,17 @@ Ghoul2 Insert End
 	sv.entityParsePoint = CM_EntityString();
 
 	// use the current msec count for a random seed
+#ifdef _XBOX
+	g_SPXBGamePhase = 15;
+#endif
 	Z_TagFree(TAG_G_ALLOC);
+#ifdef _XBOX
+	g_SPXBGamePhase = 16;
+#endif
 	ge->Init( sv_mapname->string, sv_spawntarget->string, sv_mapChecksum->integer, CM_EntityString(), sv.time, com_frameTime, Com_Milliseconds(), eSavedGameJustLoaded, qbLoadTransition );
+#ifdef _XBOX
+	g_SPXBGamePhase = 17;
+#endif
 
 	if(!Q_stricmp(sv_mapname->string, "t1_rail") )
 	{

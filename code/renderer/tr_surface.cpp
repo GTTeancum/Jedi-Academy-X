@@ -998,7 +998,7 @@ inline static ulong ComputeFinalVertexColor(const byte *colors)
 #ifdef _XBOX
 	if ( xboxBlendBmodelLight )
 	{
-		static int s_xboxBmodelColorLogBudget = 32;
+		static int s_xboxBmodelColorLogBudget = 0;
 		const byte xboxBmodelLightFloor = 64;
 		byte *ambient = (byte *)&xboxAmbient;
 		byte effectiveAmbient[3];
@@ -1098,7 +1098,7 @@ inline ulong ComputeFinalVertexColor16(const byte *colors)
 #ifdef _XBOX
 	if ( xboxBlendBmodelLight )
 	{
-		static int s_xboxBmodelColor16LogBudget = 32;
+		static int s_xboxBmodelColor16LogBudget = 0;
 		const byte xboxBmodelLightFloor = 64;
 		byte *ambient = (byte *)&xboxAmbient;
 		byte effectiveAmbient[3];

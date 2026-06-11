@@ -421,10 +421,17 @@ int FS_Read( void *buffer, int len, fileHandle_t f )
 		if (size == GOB_INVALID_SIZE)
 		{
 #if defined(FINAL_BUILD)
+			extern "C" void XBLog_Write(const char *msg);
+			XBLog_Write("JAMP: ERR_DiscFail from FS_Read GOB_INVALID_SIZE");
+			extern void ERR_SetDiscFailReason(int);
+			ERR_SetDiscFailReason(1);
 			extern void ERR_DiscFail(bool);
 			ERR_DiscFail(false);
 #else
-			Com_Error( ERR_FATAL, "Failed to read from GOB" );
+			extern void ERR_SetDiscFailReason(int);
+			ERR_SetDiscFailReason(1);
+			extern void ERR_DiscFail(bool);
+			ERR_DiscFail(false);
 #endif
 		}
 		return size;
@@ -501,9 +508,9 @@ int FS_Seek( fileHandle_t f, long offset, int origin )
 			break;
 		}
 
-		GOBUInt32 pos;
-		GOBSeek(fsh[f].ghandle, offset, _origin, &pos);
-		return pos;
+	GOBUInt32 pos;
+	GOBSeek(fsh[f].ghandle, offset, _origin, &pos);
+	return pos;
 	}
 	else
 	{
@@ -780,6 +787,10 @@ void FS_Startup( const char *gameName )
 	if (GOBArchiveOpen(archive, GOBACCESS_READ, GOB_FALSE, GOB_TRUE) != GOBERR_OK)
 	{
 #if defined(FINAL_BUILD)
+		extern "C" void XBLog_Write(const char *msg);
+		XBLog_Write("JAMP: ERR_DiscFail from FS_Startup GOBArchiveOpen");
+		extern void ERR_SetDiscFailReason(int);
+		ERR_SetDiscFailReason(1);
 		extern void ERR_DiscFail(bool);
 		ERR_DiscFail(false);
 #else

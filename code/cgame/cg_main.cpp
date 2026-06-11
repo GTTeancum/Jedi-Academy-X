@@ -15,6 +15,8 @@
 #include "../qcommon/sstring.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern bool g_xboxDirectMapBootQueued;
+extern bool Sys_IsDirectMapBoot(void);
 #endif
 //NOTENOTE: Be sure to change the mirrored code in g_shared.h
 typedef	map< sstring_t, unsigned char, less<sstring_t>, allocator< unsigned char >  >	namePrecache_m;
@@ -1461,13 +1463,25 @@ static void CG_RegisterGraphics( void ) {
 */
 
 	// Clean, then register...rinse...repeat...
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics enter");
+#endif
 	CG_LoadingString( "effects" );
 	FX_Init();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after FX_Init before CG_RegisterEffects");
+#endif
 	CG_RegisterEffects();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after CG_RegisterEffects");
+#endif
 
 	// clear any references to old media
 	memset( &cg.refdef, 0, sizeof( cg.refdef ) );
 	cgi_R_ClearScene();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after R_ClearScene");
+#endif
 
 	cg.loadLCARSStage = 3;
 	CG_LoadingString( cgs.mapname );
@@ -1485,6 +1499,9 @@ static void CG_RegisterGraphics( void ) {
 		cgs.media.smallnumberShaders[i]		= cgi_R_RegisterShaderNoMip( sb_t_nums[i] );
 //		cgs.media.chunkyNumberShaders[i]	= cgi_R_RegisterShaderNoMip( sb_c_nums[i] );
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after number shaders");
+#endif
 
 	// FIXME: conditionally do this??  Something must be wrong with inventory item caching..?
 	cgi_R_RegisterModel( "models/items/remote.md3" );
@@ -1493,6 +1510,9 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.surfaceExplosionShader		= cgi_R_RegisterShader( "surfaceExplosion" );
 
 	cgs.media.halfShieldModel				= cgi_R_RegisterModel( "models/weaphits/testboom.md3" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after base models");
+#endif
 
 	cgs.media.solidWhiteShader			= cgi_R_RegisterShader( "gfx/effects/solidWhite" );
 	cgs.media.refractShader				= cgi_R_RegisterShader( "effects/refraction" );
@@ -1514,6 +1534,9 @@ static void CG_RegisterGraphics( void ) {
 		cgs.media.crosshairShader[i] = cgi_R_RegisterShaderNoMip( va("gfx/2d/crosshair%c", 'a'+i) );
 	}
 	cgs.media.backTileShader		= cgi_R_RegisterShader( "gfx/2d/backtile" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after crosshair/backtile shaders");
+#endif
 //	cgs.media.noammoShader			= cgi_R_RegisterShaderNoMip( "gfx/hud/noammo");
 //	cgs.media.weaponIconBackground	= cgi_R_RegisterShaderNoMip( "gfx/hud/background");
 //	cgs.media.forceIconBackground	= cgi_R_RegisterShaderNoMip( "gfx/hud/background_f");
@@ -1522,6 +1545,9 @@ static void CG_RegisterGraphics( void ) {
 	//gore decal shaders -rww
 	cgs.media.bdecal_burnmark1		= cgi_R_RegisterShader( "gfx/damage/burnmark1" );
 	cgs.media.bdecal_saberglowmark	= cgi_R_RegisterShader( "gfx/damage/saberglowmark" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after gore decals");
+#endif
 
 	cg.loadLCARSStage = 5;
 	CG_LoadingString( "game media models" );
@@ -1554,6 +1580,9 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.glassChunkSound		= cgi_S_RegisterSound("sound/weapons/explosions/glassbreak1");
 	cgs.media.crateBreakSound[0]	= cgi_S_RegisterSound("sound/weapons/explosions/crateBust1" );
 	cgs.media.crateBreakSound[1]	= cgi_S_RegisterSound("sound/weapons/explosions/crateBust2" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after chunk sounds");
+#endif
 
 //	cgs.media.weaponbox	 = cgi_R_RegisterShaderNoMip( "gfx/interface/weapon_box");
 
@@ -1575,6 +1604,9 @@ static void CG_RegisterGraphics( void ) {
 //	cgs.media.batteryChargeShader = cgi_R_RegisterShader( "gfx/2d/battery" );
 	cgi_R_RegisterShader( "gfx/2d/droid_view" );
 	cgs.media.useableHint = cgi_R_RegisterShader("gfx/hud/useableHint");
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after HUD shaders");
+#endif
 
 	// Load up other HUD bits
 	for (i=0;i<OHB_MAX;i++)
@@ -1589,6 +1621,9 @@ static void CG_RegisterGraphics( void ) {
 			otherHUDBits[i].color,
 			&otherHUDBits[i].background);
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after other HUD bits");
+#endif
 
 	// Get all the info for each HUD piece
 	for (i=0;i<MAX_HUD_TICS;i++)
@@ -1634,6 +1669,9 @@ static void CG_RegisterGraphics( void ) {
 			&ammoTics[i].background);
 
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after HUD tic info");
+#endif
 
 
 	memset( cg_items, 0, sizeof( cg_items ) );
@@ -1659,6 +1697,9 @@ static void CG_RegisterGraphics( void ) {
 			}
 		}
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after item visuals/icons");
+#endif
 
 	//precache force power icons here
 /*	i = 0;
@@ -1668,29 +1709,77 @@ static void CG_RegisterGraphics( void ) {
 		i++;
 	}
 */
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics before rage/test crackle");
+#endif
 	cgs.media.rageRecShader = cgi_R_RegisterShaderNoMip("gfx/mp/f_icon_ragerec");
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after rageRecShader");
+#endif
 	//etc.
 	cgi_R_RegisterShader( "gfx/misc/test_crackle" );	//CG_DoGlassQuad
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after test_crackle");
+#endif
 
 	// wall marks
 	cgs.media.scavMarkShader				= cgi_R_RegisterShader( "gfx/damage/burnmark4" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after scavMarkShader");
+#endif
 	cgs.media.rivetMarkShader				= cgi_R_RegisterShader( "gfx/damage/rivetmark" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after rivetMarkShader");
+#endif
 
 	// doing one shader just makes it look like a shell.  By using two shaders with different bulge offsets and different texture scales, it has a much more chaotic look
 	cgs.media.electricBodyShader			= cgi_R_RegisterShader( "gfx/misc/electric" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after electricBodyShader");
+#endif
 	cgs.media.electricBody2Shader			= cgi_R_RegisterShader( "gfx/misc/fullbodyelectric2" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after electricBody2Shader");
+#endif
 
 	cgs.media.shadowMarkShader	= cgi_R_RegisterShader( "markShadow" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after shadowMarkShader");
+#endif
 	cgs.media.wakeMarkShader	= cgi_R_RegisterShader( "wake" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after wakeMarkShader");
+#endif
 	cgs.media.fsrMarkShader	= cgi_R_RegisterShader( "footstep_r" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after fsrMarkShader");
+#endif
 	cgs.media.fslMarkShader	= cgi_R_RegisterShader( "footstep_l" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after fslMarkShader");
+#endif
 	cgs.media.fshrMarkShader	= cgi_R_RegisterShader( "footstep_heavy_r" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after fshrMarkShader");
+#endif
 	cgs.media.fshlMarkShader	= cgi_R_RegisterShader( "footstep_heavy_l" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after fshlMarkShader");
+#endif
 	cgi_S_RegisterSound( "sound/effects/energy_crackle.wav" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after energy_crackle sound");
+#endif
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after wall/electric marks");
+#endif
 
 	CG_LoadingString("map brushes");
 	// register the inline models
 	breakPoint = cgs.numInlineModels = cgi_CM_NumInlineModels();
+#ifdef _XBOX
+	XBLF("JA: CG_RegisterGraphics inline model count=%d", cgs.numInlineModels);
+#endif
 	assert (cgs.numInlineModels < sizeof(cgs.inlineDrawModel)/sizeof(cgs.inlineDrawModel[0]) );
 	for ( i = 1 ; i < cgs.numInlineModels ; i++ ) {
 		char	name[10];
@@ -1711,10 +1800,16 @@ static void CG_RegisterGraphics( void ) {
 			cgs.inlineModelMidpoints[i][j] = mins[j] + 0.5 * ( maxs[j] - mins[j] );
 		}
 	}
+#ifdef _XBOX
+	XBLF("JA: CG_RegisterGraphics after inline models breakPoint=%d", breakPoint);
+#endif
 
 	cg.loadLCARSStage = 7;
 	CG_LoadingString("map models");
 	// register all the server specified models
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics before server model configs");
+#endif
 	for (i=1 ; i<MAX_MODELS ; i++) {
 		const char		*modelName;
 #ifdef _XBOX
@@ -1737,6 +1832,9 @@ static void CG_RegisterGraphics( void ) {
 #endif
 //		OutputDebugString(va("### CG_RegisterGraphics(): cgs.model_draw[%d] = \"%s\"\n",i,modelName));
 	}
+#ifdef _XBOX
+	XBLF("JA: CG_RegisterGraphics after server model configs count=%d", i);
+#endif
 
 	cg.loadLCARSStage = 8;
 
@@ -1745,6 +1843,9 @@ Ghoul2 Insert Start
 */
 	CG_LoadingString("skins");
 	// register all the server specified models
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics before skin configs");
+#endif
 	for (i=1 ; i<MAX_CHARSKINS ; i++) {
 		const char		*modelName;
 #ifdef _XBOX
@@ -1765,6 +1866,9 @@ Ghoul2 Insert Start
 		}
 #endif
 	}
+#ifdef _XBOX
+	XBLF("JA: CG_RegisterGraphics after skin configs count=%d", i);
+#endif
 
 /*
 Ghoul2 Insert End
@@ -1775,6 +1879,9 @@ Ghoul2 Insert End
 		//feedback( va("client %i", i ) );
 		CG_NewClientinfo( i );
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after CG_NewClientinfo loop");
+#endif
 
 	int gameEntityLimit = globals.num_entities;
 	if ( gameEntityLimit < 0 || gameEntityLimit > ENTITYNUM_WORLD )
@@ -1823,9 +1930,18 @@ Ghoul2 Insert End
 			}
 		}
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after entity client/NPC precache");
+#endif
 
 	CG_LoadingString( "static models" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics before CG_CreateMiscEnts");
+#endif
 	CG_CreateMiscEnts();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics after CG_CreateMiscEnts");
+#endif
 
 	cg.loadLCARSStage = 9;
 
@@ -1879,6 +1995,9 @@ Ghoul2 Insert End
 			breakPoint++;
 		}
 	}
+#ifdef _XBOX
+	XBLF("JA: CG_RegisterGraphics after sub BSP loop breakPoint=%d", breakPoint);
+#endif
 
 	const char	*terrainInfo;
 	int			terrainID;
@@ -1899,6 +2018,9 @@ Ghoul2 Insert End
 		// Send off the terrainInfo to the renderer
 		cgi_RE_InitRendererTerrain( terrainInfo );
 	}
+#ifdef _XBOX
+	XBLog_Write("JA: CG_RegisterGraphics exit");
+#endif
 }
 
 //===========================================================================
@@ -1967,7 +2089,13 @@ static void CG_GameStateReceived( void ) {
 	// clear everything
 	
 	extern void CG_ClearAnimEvtCache( void );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived enter");
+#endif
 	CG_ClearAnimEvtCache();	// else sound handles wrong after vid_restart
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_ClearAnimEvtCache");
+#endif
 
 	qbVidRestartOccured = qtrue;
 	iCGResetCount++;
@@ -1978,15 +2106,27 @@ static void CG_GameStateReceived( void ) {
 
 	if (!qbVidRestartOccured)
 	{
+#ifdef _XBOX
+		XBLog_Write("JA: CG_GameStateReceived before CG_Init_CG");
+#endif
 		CG_Init_CG();
+#ifdef _XBOX
+		XBLog_Write("JA: CG_GameStateReceived after CG_Init_CG");
+#endif
 		cg.weaponSelect = WP_NONE;
 		cg.forcepowerSelect = FP_HEAL;
 	}
 
 	memset( cg_weapons, 0, sizeof(cg_weapons) );
 	memset( cg_items, 0, sizeof(cg_items) );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after weapon/item clear");
+#endif
 	
 	CG_LinkCentsToGents();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_LinkCentsToGents");
+#endif
 
 	if (gbUseTheseValuesFromLoadSave)
 	{
@@ -1998,6 +2138,9 @@ static void CG_GameStateReceived( void ) {
 
 	// get the rendering configuration from the client system
 	cgi_GetGlconfig( &cgs.glconfig );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after cgi_GetGlconfig");
+#endif
 
 /*	cgs.charScale = cgs.glconfig.vidHeight * (1.0/480.0);
 	if ( cgs.glconfig.vidWidth * 480 > cgs.glconfig.vidHeight * 640 ) {
@@ -2011,39 +2154,99 @@ static void CG_GameStateReceived( void ) {
 */
 	// get the gamestate from the client system
 	cgi_GetGameState( &cgs.gameState );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after cgi_GetGameState");
+#endif
 
 	CG_ParseServerinfo();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_ParseServerinfo");
+#endif
 
 	// load the new map
 	cgs.media.levelLoad = cgi_R_RegisterShaderNoMip( "gfx/menus/newFront/SaberLoad" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after SaberLoad shader");
+#endif
 	CG_LoadingString( "collision map" );
 
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived before cgi_CM_LoadMap");
+#endif
 	cgi_CM_LoadMap( cgs.mapname, qfalse );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after cgi_CM_LoadMap");
+#endif
 
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived before CG_RegisterSounds");
+#endif
 	CG_RegisterSounds();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_RegisterSounds");
+#endif
 
 	// Xbox hack: Start a huge pile of sound loads right now:
 	extern void S_LoadCommonSounds( void );
-	S_LoadCommonSounds();
+#ifdef _XBOX
+	if ( Sys_IsDirectMapBoot() )
+	{
+		XBLog_Write("JA: CG_GameStateReceived skipping S_LoadCommonSounds for direct-map boot");
+	}
+	else
+#endif
+	{
+#ifdef _XBOX
+		XBLog_Write("JA: CG_GameStateReceived before S_LoadCommonSounds");
+#endif
+		S_LoadCommonSounds();
+#ifdef _XBOX
+		XBLog_Write("JA: CG_GameStateReceived after S_LoadCommonSounds");
+#endif
+	}
 
 #ifdef _IMMERSION
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived before CG_RegisterForces");
+#endif
 	CG_RegisterForces();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_RegisterForces");
+#endif
 #endif // _IMMERSION
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived before CG_RegisterGraphics");
+#endif
 	CG_RegisterGraphics();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_RegisterGraphics");
+#endif
 
 	//jfm: moved down to preinit
 //	CG_InitLocalEntities();
 //	CG_InitMarkPolys();
 
 	CG_LoadingString( "music" );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived before CG_StartMusic");
+#endif
 	CG_StartMusic( qfalse );
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_StartMusic");
+#endif
 
 	// remove the last loading update
 	cg.infoScreenText[0] = 0;
 
 	CGCam_Init();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CGCam_Init");
+#endif
 
 	CG_ClearLightStyles();
+#ifdef _XBOX
+	XBLog_Write("JA: CG_GameStateReceived after CG_ClearLightStyles");
+#endif
 
 	// Okay so this doesn't exactly belong here
 	cg.messageLitActive = qfalse;

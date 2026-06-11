@@ -14,6 +14,7 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
 #endif
 
 /*
@@ -156,6 +157,8 @@ qboolean RB_IsCurrentShaderTransparent( void );
 
 static qboolean RB_XboxShouldTraceSurface( void )
 {
+	return qfalse;
+#if 0
 	if (cls.state == CA_ACTIVE)
 	{
 		return qfalse;
@@ -172,10 +175,13 @@ static qboolean RB_XboxShouldTraceSurface( void )
 		return qtrue;
 	}
 	return qfalse;
+#endif
 }
 
 static qboolean RB_XboxForceTraceSurface( void )
 {
+	return qfalse;
+#if 0
 	if (cls.state == CA_ACTIVE)
 	{
 		return qfalse;
@@ -192,6 +198,7 @@ static qboolean RB_XboxForceTraceSurface( void )
 		return qtrue;
 	}
 	return qfalse;
+#endif
 }
 
 static const char *RB_XboxImageName( const image_t *image )
@@ -291,7 +298,7 @@ static qboolean RB_XboxIsRenderSuspectSurface( const shader_t *shader )
 
 static void RB_XboxLogRenderSuspectSurface( const char *where )
 {
-	static int suspectBudget = 12;
+	static int suspectBudget = 0;
 	const shader_t *shader = tess.shader;
 	int i;
 
@@ -366,7 +373,7 @@ static qboolean RB_XboxIsModelShader( const shader_t *shader )
 
 static void RB_XboxLogModelShaderSurface( const char *where )
 {
-	static int modelBudget = 96;
+	static int modelBudget = 0;
 	const shader_t *shader = tess.shader;
 	int i;
 	trRefEntity_t *ent = backEnd.currentEntity;
@@ -432,7 +439,7 @@ static void RB_XboxLogModelShaderSurface( const char *where )
 
 static void RB_XboxLogModelTransformProbe( const char *where )
 {
-	static int transformBudget = 48;
+	static int transformBudget = 0;
 	const shader_t *shader = tess.shader;
 	trRefEntity_t *ent = backEnd.currentEntity;
 	int i;
@@ -797,14 +804,14 @@ static qboolean RB_XboxShouldSkipYavinSkyOverlay( const shader_t *shader )
 
 static void RB_XboxRenderYield( void )
 {
-	Sleep( 0 );
+	/* Retail's render submit path does not voluntarily yield around each
+	 * indexed draw chunk.  The frame boundary still kicks/presents the GPU;
+	 * yielding here costs scheduler time on geometry-heavy scenes. */
 }
 
 static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
 {
-	const int maxChunkIndexes = 768;
-	int base;
-	static int traceBudget = 2048;
+	static int traceBudget = 16;
 	qboolean trace;
 
 	if ( numIndexes <= 0 || !indexes )
@@ -814,56 +821,20 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 
 	trace = RB_XboxShouldTraceSurface();
 
-	for ( base = 0; base < numIndexes; )
+	if ( trace && traceBudget > 0 )
 	{
-		int chunk;
-
-		chunk = numIndexes - base;
-		if ( chunk > maxChunkIndexes )
-		{
-			chunk = maxChunkIndexes;
-		}
-
-		if ( chunk > 3 )
-		{
-			chunk -= ( chunk % 3 );
-		}
-
-		if ( chunk <= 0 )
-		{
-			break;
-		}
-
-		if ( trace && traceBudget > 0 )
-		{
-			XBLF("JA: R_DrawElements chunk shader='%s' base=%d chunk=%d total=%d verts=%d pass=%d\n",
-				tess.shader ? tess.shader->name : "<null>",
-				base,
-				chunk,
-				numIndexes,
-				tess.numVertexes,
-				tess.currentPass);
-			traceBudget--;
-		}
-
-		RB_XboxRenderYield();
-		glDrawElements( GL_TRIANGLES,
-			chunk,
-			GL_INDEX_TYPE,
-			indexes + base );
-		RB_XboxRenderYield();
-
-		if ( trace && traceBudget > 0 )
-		{
-			XBLF("JA: R_DrawElements chunk done shader='%s' base=%d chunk=%d\n",
-				tess.shader ? tess.shader->name : "<null>",
-				base,
-				chunk);
-			traceBudget--;
-		}
-
-		base += chunk;
+		XBLF("JA: R_DrawElements submit shader='%s' indexes=%d verts=%d pass=%d\n",
+			tess.shader ? tess.shader->name : "<null>",
+			numIndexes,
+			tess.numVertexes,
+			tess.currentPass);
+		traceBudget--;
 	}
+
+	glDrawElements( GL_TRIANGLES,
+		numIndexes,
+		GL_INDEX_TYPE,
+		indexes );
 }
 #endif
 
@@ -1209,8 +1180,8 @@ t1 = most downstream according to spec
 static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	shaderStage_t	*pStage;
 #ifdef _XBOX
-	static int traceBudget = 2048;
-	static int activeTraceBudget = 8;
+	static int traceBudget = 0;
+	static int activeTraceBudget = 0;
 	qboolean trace = RB_XboxShouldTraceSurface();
 	qboolean forceTrace = RB_XboxForceTraceSurface();
 #endif
@@ -3163,8 +3134,13 @@ ComputeTexCoords
 static void ComputeTexCoords( shaderStage_t *pStage ) {
 	int		i;
 	int b;
+#ifdef _XBOX
+	const int bundleCount = pStage->bundle[1].image ? NUM_TEXTURE_BUNDLES : 1;
+#else
+	const int bundleCount = NUM_TEXTURE_BUNDLES;
+#endif
 
-	for ( b = 0; b < NUM_TEXTURE_BUNDLES; b++ ) {
+	for ( b = 0; b < bundleCount; b++ ) {
 		int tm;
 
 		//
@@ -3764,7 +3740,7 @@ void RB_StageIteratorGeneric( void )
 	shaderCommands_t *input;
 	int stage;
 #ifdef _XBOX
-	static int traceBudget = 4096;
+	static int traceBudget = 0;
 	qboolean trace;
 	qboolean forceTrace;
 #endif
@@ -3775,7 +3751,7 @@ void RB_StageIteratorGeneric( void )
 	RB_XboxLogModelShaderSurface("RB_StageIteratorGeneric");
 	if ( RB_XboxShouldSkipYavinSkyOverlay( tess.shader ) )
 	{
-		static int s_xboxYavinSkyOverlaySkipLogBudget = 12;
+		static int s_xboxYavinSkyOverlaySkipLogBudget = 0;
 		if ( s_xboxYavinSkyOverlaySkipLogBudget > 0 )
 		{
 			XBLF("JA: XBOX_YAVIN_SKY_OVERLAY_SKIP map='%s' shader='%s' verts=%d indexes=%d rdflags=0x%x scene=%d",
@@ -4112,6 +4088,10 @@ void RB_StageIteratorGeneric( void )
 void RB_EndSurface( void ) {
 	shaderCommands_t *input;
 
+#ifdef _XBOX
+	g_SPXBRenderEndSurfaces++;
+#endif
+
 	input = &tess;
 
 	if (input->numIndexes == 0) {
@@ -4171,7 +4151,7 @@ void RB_EndSurface( void ) {
 			if(tess.currentStageIteratorFunc == RB_StageIteratorSky)
 			{	// don't process these tris at all
 #ifdef _XBOX
-				static int s_xboxSkyPortalFallbackLogBudget = 8;
+				static int s_xboxSkyPortalFallbackLogBudget = 0;
 				if (s_xboxSkyPortalFallbackLogBudget > 0)
 				{
 					XBLF("JA: XBOX_SKYPORTAL_MAIN_SKY_SKIP shader='%s' verts=%d indexes=%d rdflags=0x%x",
@@ -4220,7 +4200,7 @@ void RB_EndSurface( void ) {
 	//
 #ifdef _XBOX
 	{
-		static int traceBudget = 4096;
+		static int traceBudget = 0;
 		qboolean trace = RB_XboxShouldTraceSurface();
 
 		if ( trace && traceBudget > 0 )
@@ -4243,7 +4223,7 @@ void RB_EndSurface( void ) {
 	tess.currentStageIteratorFunc();
 #ifdef _XBOX
 	{
-		static int traceBudget = 4096;
+		static int traceBudget = 0;
 		qboolean trace = RB_XboxShouldTraceSurface();
 
 		if ( trace && traceBudget > 0 )

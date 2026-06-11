@@ -300,7 +300,7 @@ void SCR_UpdateScreen( void ) {
 
 #ifdef _XBOX
 	qboolean rendered = qfalse;
-	qboolean jampScrTrace = (jampScrLogCount < 4);
+	qboolean jampScrTrace = (jampScrLogCount < 2);
 	if (jampScrTrace)
 	{
 		Com_PrintfAlways("JAMP: SCR_UpdateScreen call=%d state=%d split=%d clients=%d active=%d glcfg=%d,%d %dx%d vid=%dx%d\n",
@@ -308,7 +308,7 @@ void SCR_UpdateScreen( void ) {
 			ClientManager::NumClients(), ClientManager::ActiveClientNum(), glcfgX, glcfgY, glcfgWidth, glcfgHeight,
 			glConfig.vidWidth, glConfig.vidHeight);
 	}
-	if (jampScrLogCount < 4)
+	if (jampScrLogCount < 2)
 	{
 		jampScrLogCount++;
 	}

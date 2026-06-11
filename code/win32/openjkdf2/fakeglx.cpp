@@ -103,6 +103,12 @@ static unsigned __int64 g_fakeglTextureBytes = 0;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
+extern "C" volatile unsigned int g_SPXBFramebufferData;
+extern "C" volatile unsigned int g_SPXBFramebufferPitch;
+extern "C" volatile unsigned int g_SPXBFramebufferWidth;
+extern "C" volatile unsigned int g_SPXBFramebufferHeight;
+extern "C" volatile unsigned int g_SPXBFramebufferFormat;
+extern "C" volatile unsigned int g_SPXBFramebufferSize;
 #endif
 
 class TextureEntry
@@ -578,22 +584,51 @@ public:
 		m_dirty = dirty;
 	}
 
-	void DirtyTexture(GLuint textureID)
+	bool DirtyTexture(GLuint textureID)
 	{
 		if ( textureID == m_currentTexture ) 
 		{
 			m_dirty = true;
+			return true;
 		}
+		return false;
 	}
 
 	GLuint GetCurrentTexture() { return m_currentTexture; }
-	void SetCurrentTexture(GLuint texture) { m_dirty = true; m_currentTexture = texture; }
+	bool SetCurrentTexture(GLuint texture)
+	{
+		if (m_currentTexture == texture)
+		{
+			return false;
+		}
+		m_dirty = true;
+		m_currentTexture = texture;
+		return true;
+	}
 
 	GLfloat GetTextEnvMode() { return m_glTextEnvMode; }
-	void SetTextEnvMode(GLfloat mode) { m_dirty = true; m_glTextEnvMode = mode; }
+	bool SetTextEnvMode(GLfloat mode)
+	{
+		if (m_glTextEnvMode == mode)
+		{
+			return false;
+		}
+		m_dirty = true;
+		m_glTextEnvMode = mode;
+		return true;
+	}
 
 	bool GetTexture2D() { return m_glTexture2D; }
-	void SetTexture2D(bool texture2D) { m_dirty = true; m_glTexture2D = texture2D; }
+	bool SetTexture2D(bool texture2D)
+	{
+		if (m_glTexture2D == texture2D)
+		{
+			return false;
+		}
+		m_dirty = true;
+		m_glTexture2D = texture2D;
+		return true;
+	}
 
 private:
 	
@@ -641,15 +676,23 @@ public:
 
 	void DirtyTexture(int textureID)
 	{
+		bool dirty = false;
 		for(int i = 0; i < m_maxStages;i++)
 		{
-			m_stage[i].DirtyTexture(textureID);
+			dirty = m_stage[i].DirtyTexture(textureID) || dirty;
 		}
-		m_dirty = true;
+		if (dirty)
+		{
+			m_dirty = true;
+		}
 	}
 
 	void SetMainBlend(bool mainBlend)
 	{
+		if (m_mainBlend == mainBlend)
+		{
+			return;
+		}
 		m_mainBlend = mainBlend;
 		m_stage[0].SetDirty(true);
 		m_dirty = true;
@@ -659,15 +702,33 @@ public:
 
 	GLuint GetCurrentTexture() { return Get()->GetCurrentTexture(); }
 
-	void SetCurrentTexture(GLuint texture) { m_dirty = true; Get()->SetCurrentTexture(texture); }
+	void SetCurrentTexture(GLuint texture)
+	{
+		if (Get()->SetCurrentTexture(texture))
+		{
+			m_dirty = true;
+		}
+	}
 
 	GLfloat GetTextEnvMode() { return Get()->GetTextEnvMode(); }
 
-	void SetTextEnvMode(GLfloat mode) { m_dirty = true; Get()->SetTextEnvMode(mode); }
+	void SetTextEnvMode(GLfloat mode)
+	{
+		if (Get()->SetTextEnvMode(mode))
+		{
+			m_dirty = true;
+		}
+	}
 	
 	bool GetTexture2D() { return Get()->GetTexture2D(); }
 
-	void SetTexture2D(bool texture2D) { m_dirty = true; Get()->SetTexture2D(texture2D); }
+	void SetTexture2D(bool texture2D)
+	{
+		if (Get()->SetTexture2D(texture2D))
+		{
+			m_dirty = true;
+		}
+	}
 
 	void ForceStageDirty(int index)
 	{
@@ -1084,6 +1145,10 @@ public:
 
 		m_pD3DDev = 0;
 		m_color = 0xff000000; // Don't know if this is correct
+#ifdef _XBOX
+		m_useXboxPushbufferSubmit = true;
+		m_lastSetVertexShader = 0xffffffff;
+#endif
 	}
 
 	~OGLPrimitiveVertexBuffer()
@@ -1100,6 +1165,9 @@ public:
 		if (m_vertexTypeDesc != typeDesc) 
 		{
 			m_vertexTypeDesc = typeDesc;
+#ifdef _XBOX
+			m_lastSetVertexShader = 0xffffffff;
+#endif
 			m_vertexSize = 0;
 			if ( m_vertexTypeDesc & D3DFVF_XYZ ) 
 			{
@@ -1333,6 +1401,11 @@ public:
 		return ( mode == m_drawMode ) && ( mode == GL_QUADS || mode == GL_TRIANGLES );
 	}
 
+	inline IsEmpty()
+	{
+		return m_vertexCount == 0;
+	}
+
 	inline void Begin(GLuint drawMode)
 	{
 		m_drawMode = drawMode;
@@ -1469,14 +1542,21 @@ public:
 #endif
 			if (m_pD3DDev)
 			{
+				HRESULT hrSetVertexShader = S_OK;
 #ifdef _XBOX
 				if (logDraw)
 				{
 					XBLF("JA: fakegl SetVertexShader #%d fvf=0x%08lx",
 						s_xboxDrawLogCount, (unsigned long)m_vertexTypeDesc);
 				}
+				if (m_lastSetVertexShader != m_vertexTypeDesc)
+				{
+					hrSetVertexShader = m_pD3DDev->SetVertexShader(m_vertexTypeDesc);
+					m_lastSetVertexShader = m_vertexTypeDesc;
+				}
+#else
+				hrSetVertexShader = m_pD3DDev->SetVertexShader(m_vertexTypeDesc);
 #endif
-				HRESULT hrSetVertexShader = m_pD3DDev->SetVertexShader(m_vertexTypeDesc);
 #ifdef _XBOX
 				if (logDraw)
 				{
@@ -1484,7 +1564,15 @@ public:
 						s_xboxDrawLogCount, (unsigned long)hrSetVertexShader);
 				}
 #endif
-				HRESULT hrDrawPrimitive = DrawPrimitiveUPXbox(dptPrimitiveType, primCount, m_OGLPrimitiveVertexBuffer);
+				HRESULT hrDrawPrimitive = S_OK;
+#ifdef _XBOX
+				if (!TryPushbufferPrimitiveXbox(dptPrimitiveType, primCount, m_OGLPrimitiveVertexBuffer))
+				{
+					hrDrawPrimitive = DrawPrimitiveUPXbox(dptPrimitiveType, primCount, m_OGLPrimitiveVertexBuffer);
+				}
+#else
+				hrDrawPrimitive = DrawPrimitiveUPXbox(dptPrimitiveType, primCount, m_OGLPrimitiveVertexBuffer);
+#endif
 #ifdef _XBOX
 				if (logDraw)
 				{
@@ -1511,6 +1599,185 @@ exit:
 	}
 
 private:
+#ifdef _XBOX
+	DWORD VertexCountForPrimitive(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount) const
+	{
+		switch (dptPrimitiveType)
+		{
+		case D3DPT_POINTLIST:
+			return primCount;
+		case D3DPT_LINELIST:
+			return primCount * 2;
+		case D3DPT_LINESTRIP:
+		case D3DPT_TRIANGLESTRIP:
+		case D3DPT_TRIANGLEFAN:
+			return primCount + 2;
+		case D3DPT_TRIANGLELIST:
+			return primCount * 3;
+		default:
+			return 0;
+		}
+	}
+
+	DWORD PrimitiveChunkLimit(D3DPRIMITIVETYPE dptPrimitiveType, DWORD maxVerts) const
+	{
+		if (maxVerts == 0)
+		{
+			return 0;
+		}
+
+		switch (dptPrimitiveType)
+		{
+		case D3DPT_POINTLIST:
+			return maxVerts;
+		case D3DPT_LINELIST:
+			return maxVerts / 2;
+		case D3DPT_TRIANGLELIST:
+			return maxVerts / 3;
+		default:
+			return 0;
+		}
+	}
+
+	bool PushbufferSubmitChunkXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD vertexCount, const void *vertices)
+	{
+		if (!m_pD3DDev || !vertices || m_vertexSize <= 0 || vertexCount == 0)
+		{
+			return false;
+		}
+
+		const DWORD strideDwords = (DWORD)(m_vertexSize / sizeof(DWORD));
+		const DWORD vertexWords = strideDwords * vertexCount;
+		DWORD *push = NULL;
+
+		m_pD3DDev->BeginPush(vertexWords + 5, &push);
+		if (!push)
+		{
+			return false;
+		}
+
+		push[0] = D3DPUSH_ENCODE(D3DPUSH_SET_BEGIN_END, 1);
+		push[1] = dptPrimitiveType;
+		push[2] = D3DPUSH_ENCODE(D3DPUSH_NOINCREMENT_FLAG | D3DPUSH_INLINE_ARRAY, vertexWords);
+		push += 3;
+
+		memcpy(push, vertices, vertexWords * sizeof(DWORD));
+		push += vertexWords;
+
+		push[0] = D3DPUSH_ENCODE(D3DPUSH_SET_BEGIN_END, 1);
+		push[1] = 0;
+		push += 2;
+
+		m_pD3DDev->EndPush(push);
+		return true;
+	}
+
+	bool TryPushbufferPrimitiveXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount, const void *vertices)
+	{
+		static int s_xboxPushSubmitLogCount = 0;
+		static int s_xboxPushFallbackLogCount = 0;
+
+		if (!m_useXboxPushbufferSubmit || !m_pD3DDev || !vertices || m_vertexSize <= 0)
+		{
+			return false;
+		}
+
+		if ((m_vertexSize % sizeof(DWORD)) != 0)
+		{
+			if (s_xboxPushFallbackLogCount < 8)
+			{
+				XBLF("JA: fakegl push submit fallback unaligned stride=%d", m_vertexSize);
+				++s_xboxPushFallbackLogCount;
+			}
+			return false;
+		}
+
+		const DWORD strideDwords = (DWORD)(m_vertexSize / sizeof(DWORD));
+		const DWORD maxPacketWords = 2040;
+		const DWORD maxVerts = maxPacketWords / strideDwords;
+		const DWORD vertexCount = VertexCountForPrimitive(dptPrimitiveType, primCount);
+
+		if (maxVerts == 0 || vertexCount == 0)
+		{
+			return false;
+		}
+
+		if (vertexCount <= maxVerts)
+		{
+			const bool pushed = PushbufferSubmitChunkXbox(dptPrimitiveType, vertexCount, vertices);
+			if (pushed)
+			{
+				g_SPXBFakeGLPrimitiveCalls++;
+				g_SPXBFakeGLPrimitiveVerts += vertexCount;
+				if (s_xboxPushSubmitLogCount < 8)
+				{
+					XBLF("JA: fakegl push submit #%d type=%d prims=%lu verts=%lu stride=%d fvf=0x%08lx",
+						s_xboxPushSubmitLogCount,
+						(int)dptPrimitiveType,
+						(unsigned long)primCount,
+						(unsigned long)vertexCount,
+						m_vertexSize,
+						(unsigned long)m_vertexTypeDesc);
+					++s_xboxPushSubmitLogCount;
+				}
+			}
+			return pushed;
+		}
+
+		const DWORD chunkPrimsLimit = PrimitiveChunkLimit(dptPrimitiveType, maxVerts);
+		if (chunkPrimsLimit == 0)
+		{
+			if (s_xboxPushFallbackLogCount < 8)
+			{
+				XBLF("JA: fakegl push submit fallback unsplittable type=%d prims=%lu verts=%lu maxVerts=%lu",
+					(int)dptPrimitiveType,
+					(unsigned long)primCount,
+					(unsigned long)vertexCount,
+					(unsigned long)maxVerts);
+				++s_xboxPushFallbackLogCount;
+			}
+			return false;
+		}
+
+		const char *base = (const char *)vertices;
+		DWORD primBase;
+		for (primBase = 0; primBase < primCount; )
+		{
+			DWORD chunkPrims = primCount - primBase;
+			DWORD chunkVerts;
+			const char *chunkVertices;
+
+			if (chunkPrims > chunkPrimsLimit)
+			{
+				chunkPrims = chunkPrimsLimit;
+			}
+			chunkVerts = VertexCountForPrimitive(dptPrimitiveType, chunkPrims);
+			chunkVertices = base + (VertexCountForPrimitive(dptPrimitiveType, primBase) * m_vertexSize);
+
+			if (!PushbufferSubmitChunkXbox(dptPrimitiveType, chunkVerts, chunkVertices))
+			{
+				return false;
+			}
+			g_SPXBFakeGLPrimitiveCalls++;
+			g_SPXBFakeGLPrimitiveVerts += chunkVerts;
+			primBase += chunkPrims;
+		}
+
+		if (s_xboxPushSubmitLogCount < 8)
+		{
+			XBLF("JA: fakegl push submit #%d chunked type=%d prims=%lu verts=%lu stride=%d fvf=0x%08lx",
+				s_xboxPushSubmitLogCount,
+				(int)dptPrimitiveType,
+				(unsigned long)primCount,
+				(unsigned long)vertexCount,
+				m_vertexSize,
+				(unsigned long)m_vertexTypeDesc);
+			++s_xboxPushSubmitLogCount;
+		}
+		return true;
+	}
+#endif
+
 	HRESULT DrawPrimitiveUPXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount, const void *vertices)
 	{
 #ifdef _XBOX
@@ -1729,6 +1996,10 @@ private:
 	D3DCOLOR m_color;
 	float m_textureCoords[MAXSTATES*2];
 	IDirect3DPushBuffer8* m_pushBuffer;
+#ifdef _XBOX
+	bool m_useXboxPushbufferSubmit;
+	DWORD m_lastSetVertexShader;
+#endif
 };
 
 #endif // USE_DRAWPRIMITIVE
@@ -2410,27 +2681,6 @@ public:
 				}
 			}
 #endif
-			if (m_textureState.GetStageTexture2D(1))
-			{
-				m_textureState.ForceStageDirty(1);
-#ifdef _XBOX
-				{
-					static int s_xboxForceStage1LogCount = 0;
-					if (s_xboxForceStage1LogCount < 8)
-					{
-						XBLF("JA: fakegl force stage1 dirty before apply textureDirty=%d maxStages=%d currentStage=%d stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
-							m_textureState.GetDirty() ? 1 : 0,
-							m_textureState.GetMaxStages(),
-							m_textureState.GetCurrentStage(),
-							m_textureState.GetStageDirty(1) ? 1 : 0,
-							(unsigned int)m_textureState.GetStageTexture(1),
-							m_textureState.GetStageTexture2D(1) ? 1 : 0,
-							(unsigned int)m_textureState.GetStageTextEnvMode(1));
-						++s_xboxForceStage1LogCount;
-					}
-				}
-#endif
-			}
 			g_SPXBFakeGLStateFlushes++;
 			internalEnd();
 			SetGLRenderState();
@@ -2459,6 +2709,78 @@ public:
 			m_OGLPrimitiveVertexBuffer.Append(mode);
 		}
 	}
+
+#ifdef _XBOX
+	bool DrawIndexedPrimitiveUPXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
+		UINT vertexCount, UINT primitiveCount, const void *indices,
+		const void *vertices, UINT stride)
+	{
+		if (!m_pD3DDev || !indices || !vertices || vertexCount == 0 || primitiveCount == 0 || stride == 0)
+		{
+			return false;
+		}
+
+		if ( m_needBeginScene )
+		{
+			m_needBeginScene = false;
+			HRESULT hrBeginScene = m_pD3DDev->BeginScene();
+			if ( FAILED(hrBeginScene) )
+			{
+				InterpretError(hrBeginScene);
+				return false;
+			}
+		}
+
+		/* Keep ordering correct with any pending immediate vertices, but avoid
+		 * routing indexed array draws through an empty glBegin/glEnd pair. */
+		internalEnd();
+		if ( m_glRenderStateDirty )
+		{
+			g_SPXBFakeGLStateFlushes++;
+			SetGLRenderState();
+		}
+
+		HRESULT hrSetVertexShader = m_pD3DDev->SetVertexShader(typeDesc);
+		if ( FAILED(hrSetVertexShader) )
+		{
+			static int s_xboxIndexedSetShaderFailBudget = 8;
+			if (s_xboxIndexedSetShaderFailBudget > 0)
+			{
+				XBLF("JA: fakegl indexed SetVertexShader failed hr=0x%08lx fvf=0x%08lx",
+					(unsigned long)hrSetVertexShader, (unsigned long)typeDesc);
+				--s_xboxIndexedSetShaderFailBudget;
+			}
+			return false;
+		}
+
+		HRESULT hrDrawPrimitive = m_pD3DDev->DrawIndexedPrimitiveUP(
+			dptPrimitiveType,
+			0,
+			vertexCount,
+			primitiveCount,
+			indices,
+			D3DFMT_INDEX16,
+			vertices,
+			stride);
+		if ( FAILED(hrDrawPrimitive) )
+		{
+			static int s_xboxIndexedDrawFailBudget = 8;
+			if (s_xboxIndexedDrawFailBudget > 0)
+			{
+				XBLF("JA: fakegl indexed DrawIndexedPrimitiveUP failed hr=0x%08lx prim=%lu verts=%u count=%u fvf=0x%08lx stride=%u",
+					(unsigned long)hrDrawPrimitive, (unsigned long)dptPrimitiveType,
+					(unsigned int)vertexCount, (unsigned int)primitiveCount,
+					(unsigned long)typeDesc, (unsigned int)stride);
+				--s_xboxIndexedDrawFailBudget;
+			}
+			return false;
+		}
+
+		g_SPXBFakeGLPrimitiveCalls++;
+		g_SPXBFakeGLPrimitiveVerts += vertexCount;
+		return true;
+	}
+#endif
 
 	void glBindTexture(GLenum target, GLuint texture)
 	{
@@ -2850,6 +3172,10 @@ public:
 
 	void internalEnd()
 	{
+		if (m_OGLPrimitiveVertexBuffer.IsEmpty())
+		{
+			return;
+		}
 		m_OGLPrimitiveVertexBuffer.EnsureDevice(m_pD3DDev);
 #ifdef _XBOX
 		m_OGLPrimitiveVertexBuffer.End(m_glClipPlane0Enabled, m_glClipPlane0, m_modelViewMatrixStack->GetTop());
@@ -2866,18 +3192,38 @@ public:
 
 	void glFogf(GLenum pname, GLfloat param)
 	{
+		bool changed = false;
 		switch (pname)
 		{
 		case GL_FOG_DENSITY:
+			if (m_glFogDensity == param)
+			{
+				return;
+			}
 			m_glFogDensity = param;
+			changed = true;
 			break;
 		case GL_FOG_START:
+			if (m_glFogStart == param)
+			{
+				return;
+			}
 			m_glFogStart = param;
+			changed = true;
 			break;
 		case GL_FOG_END:
+			if (m_glFogEnd == param)
+			{
+				return;
+			}
 			m_glFogEnd = param;
+			changed = true;
 			break;
 		default:
+			return;
+		}
+		if (!changed)
+		{
 			return;
 		}
 		SetRenderStateDirty();
@@ -2906,7 +3252,12 @@ public:
 		if (r < 0) r = 0; else if (r > 255) r = 255;
 		if (g < 0) g = 0; else if (g > 255) g = 255;
 		if (b < 0) b = 0; else if (b > 255) b = 255;
-		m_glFogColor = D3DCOLOR_ARGB(0, r, g, b);
+		D3DCOLOR fogColor = D3DCOLOR_ARGB(0, r, g, b);
+		if (m_glFogColor == fogColor)
+		{
+			return;
+		}
+		m_glFogColor = fogColor;
 		SetRenderStateDirty();
 		m_glFogStateDirty = true;
 #ifdef _XBOX
@@ -2925,6 +3276,10 @@ public:
 	void glFogi(GLenum pname, GLint param)
 	{
 		if (pname != GL_FOG_MODE)
+		{
+			return;
+		}
+		if (m_glFogMode == param)
 		{
 			return;
 		}
@@ -3890,29 +4245,54 @@ public:
 		{
 		case GL_TEXTURE_2D:
 			{
-				SetRenderStateDirty();
 				TextureEntry* current = m_textures.GetCurrentEntry();
-				m_textureState.DirtyTexture(m_textures.GetCurrentID());
+				bool changed = false;
 				
 				switch(pname)
 				{
 				case GL_TEXTURE_MIN_FILTER:
-					current->m_glTexParameter2DMinFilter = param;
+					if (current->m_glTexParameter2DMinFilter != (GLint)param)
+					{
+						current->m_glTexParameter2DMinFilter = (GLint)param;
+						changed = true;
+					}
 					break;
 				case GL_TEXTURE_MAG_FILTER:
-					current->m_glTexParameter2DMagFilter = param;
+					if (current->m_glTexParameter2DMagFilter != (GLint)param)
+					{
+						current->m_glTexParameter2DMagFilter = (GLint)param;
+						changed = true;
+					}
 					break;
 				case GL_TEXTURE_WRAP_S:
-					current->m_glTexParameter2DWrapS = param;
+					if (current->m_glTexParameter2DWrapS != (GLint)param)
+					{
+						current->m_glTexParameter2DWrapS = (GLint)param;
+						changed = true;
+					}
 					break;
 				case GL_TEXTURE_WRAP_T:
-					current->m_glTexParameter2DWrapT = param;
+					if (current->m_glTexParameter2DWrapT != (GLint)param)
+					{
+						current->m_glTexParameter2DWrapT = (GLint)param;
+						changed = true;
+					}
 					break;
 				case D3D_TEXTURE_MAXANISOTROPY:
-					current->m_maxAnisotropy = param;
+					if (current->m_maxAnisotropy != param)
+					{
+						current->m_maxAnisotropy = param;
+						changed = true;
+					}
 					break;
 				default:
 					LocalDebugBreak();
+				}
+
+				if (changed)
+				{
+					SetRenderStateDirty();
+					m_textureState.DirtyTexture(m_textures.GetCurrentID());
 				}
 			}
 			break;
@@ -4230,6 +4610,41 @@ public:
 		}
 	}
 
+#ifdef _XBOX
+	void UpdateFramebufferTelemetry()
+	{
+		if (!m_pD3DDev)
+		{
+			return;
+		}
+
+		D3DSurface *backBuffer = NULL;
+		HRESULT hrBackBuffer = m_pD3DDev->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+		if (FAILED(hrBackBuffer) || !backBuffer)
+		{
+			return;
+		}
+
+		const DWORD packedSize = backBuffer->Size;
+		DWORD width = m_d3dsdBackBuffer.Width ? m_d3dsdBackBuffer.Width : gWidth;
+		DWORD height = m_d3dsdBackBuffer.Height ? m_d3dsdBackBuffer.Height : gHeight;
+		DWORD pitch = width * 4;
+		if (packedSize)
+		{
+			width = (packedSize & D3DSIZE_WIDTH_MASK) + 1;
+			height = ((packedSize & D3DSIZE_HEIGHT_MASK) >> D3DSIZE_HEIGHT_SHIFT) + 1;
+			pitch = (((packedSize & D3DSIZE_PITCH_MASK) >> D3DSIZE_PITCH_SHIFT) + 1) * 64;
+		}
+
+		g_SPXBFramebufferData = backBuffer->Data;
+		g_SPXBFramebufferPitch = pitch;
+		g_SPXBFramebufferWidth = width;
+		g_SPXBFramebufferHeight = height;
+		g_SPXBFramebufferFormat = backBuffer->Format;
+		g_SPXBFramebufferSize = packedSize;
+	}
+#endif
+
 	void SwapBuffers()
 	{
 #ifdef _XBOX
@@ -4300,6 +4715,7 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 		{
 			XBLF("JA: fakegl SwapBuffers #%d Present...", s_xboxSwapLogCount);
 		}
+		UpdateFramebufferTelemetry();
 #endif
         HRESULT hrPresent = m_pD3DDev->Present(NULL, NULL, NULL, NULL);
 #ifdef _XBOX
@@ -5327,6 +5743,20 @@ extern "C" int JkaFakeglIsTexture(GLuint texture)
 		return 0;
 	return gFakeGL->IsTexture(texture) ? 1 : 0;
 }
+
+#ifdef _XBOX
+extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
+	UINT vertexCount, UINT primitiveCount, const void *indices,
+	const void *vertices, UINT stride)
+{
+	if (!gFakeGL)
+	{
+		return 0;
+	}
+	return gFakeGL->DrawIndexedPrimitiveUPXbox(dptPrimitiveType, typeDesc,
+		vertexCount, primitiveCount, indices, vertices, stride) ? 1 : 0;
+}
+#endif
 
 //HDC gHDC;
 //HGLRC gHGLRC;

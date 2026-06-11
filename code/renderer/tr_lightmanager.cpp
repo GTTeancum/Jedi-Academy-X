@@ -538,18 +538,6 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 		// inside can be visible OPTIMIZE: don't do this all the way to leafs?
 
 		if ( !r_nocull->integer ) {
-#ifdef _XBOX
-			static int s_xboxNodeCullBypassLogBudget = 12;
-			if (s_xboxNodeCullBypassLogBudget > 0)
-			{
-				XBLF("JA: XBOX_NODE_CULL_BYPASS visCount=%d planeBits=0x%x nodeMins=(%d,%d,%d) nodeMaxs=(%d,%d,%d)",
-					tr.visCount,
-					planeBits,
-					node->mins[0], node->mins[1], node->mins[2],
-					node->maxs[0], node->maxs[1], node->maxs[2]);
-				--s_xboxNodeCullBypassLogBudget;
-			}
-#else
 			int		r;
 
 			if ( planeBits & 1 ) {
@@ -591,8 +579,6 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 					planeBits &= ~8;			// all descendants will also be in front
 				}
 			}
-
-#endif
 		}
 
 		if ( node->contents != -1 ) {

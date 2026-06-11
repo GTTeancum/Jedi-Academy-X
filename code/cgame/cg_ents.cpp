@@ -368,7 +368,7 @@ Ghoul2 Insert End
 #ifdef _XBOX
 	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "misc_model_breakable" ) )
 	{
-		static int s_xboxMiscBreakableGeneralLogBudget = 8;
+		static int s_xboxMiscBreakableGeneralLogBudget = 0;
 		if ( s_xboxMiscBreakableGeneralLogBudget > 0 )
 		{
 			XBLF("JA: CG_GENERAL_MISC_BREAKABLE ent=%d model=%d hModel=%d eFlags=0x%x sv=0x%x origin=%d,%d,%d lerp=%d,%d,%d target='%s' script='%s'",
@@ -411,7 +411,7 @@ Ghoul2 Insert End
 #ifdef _XBOX
 	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "func_door" ) )
 	{
-		static int s_xboxDoorNoCullLogBudget = 64;
+		static int s_xboxDoorNoCullLogBudget = 0;
 		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
 		if ( s_xboxDoorNoCullLogBudget > 0 )
 		{
@@ -1305,7 +1305,7 @@ static void CG_Mover( centity_t *cent ) {
 	refEntity_t			ent;
 	entityState_t		*s1;
 #ifdef _XBOX
-	static int s_xboxMoverLogBudget = 16;
+	static int s_xboxMoverLogBudget = 0;
 	qboolean xboxLogMover = (s_xboxMoverLogBudget > 0);
 #endif
 
@@ -1340,7 +1340,7 @@ Ghoul2 Insert End
 #ifdef _XBOX
 	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "func_door" ) )
 	{
-		static int s_xboxMoverDoorNoCullLogBudget = 8;
+		static int s_xboxMoverDoorNoCullLogBudget = 0;
 		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
 		if ( s_xboxMoverDoorNoCullLogBudget > 0 )
 		{
@@ -2474,7 +2474,7 @@ CG_AddCEntity
 static void CG_AddCEntity( centity_t *cent ) 
 {
 #ifdef _XBOX
-	static int s_xboxAddCEntityTraceBudget = 64;
+	static int s_xboxAddCEntityTraceBudget = 0;
 	const qboolean xboxTraceEnt = (s_xboxAddCEntityTraceBudget > 0 && cent != NULL &&
 		(cent->currentState.number == 0 || cent->currentState.eType == ET_MOVER || cent->currentState.eType == ET_PLAYER));
 	if ( xboxTraceEnt )
@@ -2652,7 +2652,7 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 	centity_t			*cent;
 	playerState_t		*ps;
 #ifdef _XBOX
-	static int s_xboxPacketEntTraceFrames = 0;
+	static int s_xboxPacketEntTraceFrames = 2;
 	const qboolean xboxTracePacketEnts = (s_xboxPacketEntTraceFrames < 2);
 #endif
 

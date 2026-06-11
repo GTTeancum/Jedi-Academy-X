@@ -159,6 +159,7 @@ Code complete — needs compile test. Changes:
 5. 📋 Jedi Outcast single player build
 6. 📋 Re-theme JA SP/MP UI to more closely match PC version's UI theme
 7. 📋 Port JA's .skin segment selection to JO SP — cosmetic customization of Kyle using alternate .skin files in the same model folder (same GLM, falls back to base skin if segments missing)
+8. 📋 Add outside-file support — files placed outside GOBs using the same folder structure should be read by the filesystem and should supersede matching GOB-contained files
 
 ## Testing Notes
 - CXBX-R is not viable for testing — D3D emulation is incomplete

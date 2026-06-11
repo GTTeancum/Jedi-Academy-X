@@ -6,6 +6,29 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBHeartbeatCount;
+extern "C" volatile unsigned int g_SPXBHeartbeatFrame;
+extern "C" volatile unsigned int g_SPXBHeartbeatRealtime;
+extern "C" volatile unsigned int g_SPXBHeartbeatServerTime;
+extern "C" volatile unsigned int g_SPXBHeartbeatFps10;
+extern "C" volatile unsigned int g_SPXBClFrameCount;
+extern "C" volatile unsigned int g_SPXBClsState;
+extern "C" volatile unsigned int g_SPXBClServerTime;
+extern "C" volatile unsigned int g_SPXBClsFrameCount;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBRenderDrawSurfLists;
+extern "C" volatile unsigned int g_SPXBRenderSurfaces;
+extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
+extern "C" volatile unsigned int g_SPXBRenderBackendMsec;
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
+extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
+extern "C" volatile unsigned int g_SPXBRenderSplitShader;
+extern "C" volatile unsigned int g_SPXBRenderSplitFog;
+extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
+extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
+extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
+extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
 #endif
 
 #include "client.h"
@@ -1003,11 +1026,19 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	static qboolean s_xboxTraceClTight = qfalse;
 	s_xboxTraceClPhase = qfalse;
 	s_xboxTraceClTight = qfalse;
+	g_SPXBClFrameCount++;
+	g_SPXBClsState = (unsigned int)cls.state;
+	g_SPXBClServerTime = (unsigned int)cl.serverTime;
+	g_SPXBClsFrameCount = (unsigned int)cls.framecount;
+	g_SPXBPhaseLast = 0x434C4631; /* 'CLF1' */
 #endif
 
 	checkAutoSave();	//saves the game immediately after starting a level
 
 	if ( !com_cl_running->integer ) {
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x434C4630; /* 'CLF0' */
+#endif
 		return;
 	}
 
@@ -1016,9 +1047,18 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	// into it before the normal UI path does any renderer work. Empty/missing
 	// file means a normal menu boot.
 	extern bool Sys_QuickStart( void );
+	extern bool g_xboxDirectMapBootQueued;
+	extern bool Sys_IsDirectMapBoot(void);
 	static bool firstRun = true;
 	if(firstRun)
 	{
+		if (Sys_IsDirectMapBoot())
+		{
+			XBLog_Write("JA: CL_Frame firstRun: direct-map boot already queued by main");
+			firstRun = false;
+		}
+		else
+		{
 		char startupMap[MAX_QPATH];
 		startupMap[0] = '\0';
 		FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
@@ -1060,6 +1100,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			return;
 		}
 		XBLog_Write("JA: CL_Frame firstRun: no ja_sp_level.txt map, continuing normal UI boot");
+		}
 	}
 	
 #endif
@@ -1068,7 +1109,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	CL_StartHunkUsers();
 
 #if defined (_XBOX)	//xbox doesn't load ui in StartHunkUsers, so check it here
-	static int s_xboxClFrameHunkLogBudget = 24;
+	static int s_xboxClFrameHunkLogBudget = 0;
 	const qboolean xboxTraceClFrameHunk = (s_xboxClFrameHunkLogBudget > 0);
 	if (xboxTraceClFrameHunk)
 	{
@@ -1150,19 +1191,6 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	{
 		s_xboxTraceClTight = qtrue;
 	}
-	if ((s_xboxFrameHeartbeat & 511) == 0)
-	{
-		char msg[192];
-		_snprintf(msg, sizeof(msg), "JA: CL_Frame heartbeat #%d state=%d renderer=%d cgame=%d ui=%d server='%s'\n",
-			s_xboxFrameHeartbeat,
-			(int)cls.state,
-			(int)cls.rendererStarted,
-			(int)cls.cgameStarted,
-			(int)cls.uiStarted,
-			cls.servername);
-		msg[sizeof(msg) - 1] = '\0';
-		XBLog_Write(msg);
-	}
 	s_xboxFrameHeartbeat++;
 	CL_XboxAutoSmokeTick();
 #endif
@@ -1209,7 +1237,13 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	extern bool in_camera;
 	float framerate = 1000.0f*(1.0/(avgFrametime/32.0f));
 	static int lodFrameCount = 0;
-	int bias = Cvar_VariableIntegerValue("r_lodbias");
+	static cvar_t *lodBiasCvar = NULL;
+	if ( !lodBiasCvar )
+	{
+		lodBiasCvar = Cvar_Get( "r_lodbias", "0", CVAR_ARCHIVE );
+	}
+	int bias = lodBiasCvar ? lodBiasCvar->integer : 0;
+	static qboolean wasInCamera = qfalse;
 	if(!(frameCount&0x1f))
 	{
         if(cl_framerate->integer)
@@ -1232,7 +1266,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		if(lodFrameCount==5 && bias > 0)
 		{
 			bias--;
-			Cvar_SetValue("r_lodBias", bias);
+			Cvar_SetValue("r_lodbias", bias);
 			lodFrameCount = 0;
 		}
 	}
@@ -1241,8 +1275,12 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	if(in_camera)
 	{
 		// No LOD stuff during cutscenes
-		Cvar_SetValue("r_lodBias", 0);
+		if ( !wasInCamera || bias != 0 )
+		{
+			Cvar_SetValue("r_lodbias", 0);
+		}
 	}
+	wasInCamera = in_camera ? qtrue : qfalse;
 
 	cls.frametimeFraction=fractionMsec;
 	cls.realtime += msec;
@@ -1339,7 +1377,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #ifdef _XBOX
 		{
 			static int s_xboxActiveScreenBoundaryCount = 0;
+			static int s_xboxLoadScreenBoundaryCount = 0;
 			const qboolean xboxTraceActiveScreen = qfalse;
+			const qboolean xboxTraceLoadScreen = (cls.state >= CA_LOADING && cls.state < CA_ACTIVE && s_xboxLoadScreenBoundaryCount < 32);
 			if (s_xboxTraceClTight)
 			{
 				XBLF("JA: CL_TIGHT frame=%u before SCR_UpdateScreen realtime=%d serverTime=%d",
@@ -1354,6 +1394,11 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			{
 				XBLF("JA: CL_Frame: before SCR_UpdateScreen active count=%d realtime=%d serverTime=%d",
 					s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
+			}
+			else if (xboxTraceLoadScreen)
+			{
+				XBLF("JA: CL_Frame: before SCR_UpdateScreen loading count=%d state=%d realtime=%d serverTime=%d",
+					s_xboxLoadScreenBoundaryCount, (int)cls.state, cls.realtime, cl.serverTime);
 			}
 			SCR_UpdateScreen();
 			if (s_xboxTraceClTight)
@@ -1372,6 +1417,12 @@ void CL_Frame ( int msec,float fractionMsec ) {
 					s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
 				s_xboxActiveScreenBoundaryCount++;
 			}
+			else if (xboxTraceLoadScreen)
+			{
+				XBLF("JA: CL_Frame: after SCR_UpdateScreen loading count=%d state=%d realtime=%d serverTime=%d",
+					s_xboxLoadScreenBoundaryCount, (int)cls.state, cls.realtime, cl.serverTime);
+				s_xboxLoadScreenBoundaryCount++;
+			}
 		}
 #else
 		SCR_UpdateScreen();
@@ -1388,7 +1439,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		static int s_xboxActiveFrameTailCount = 0;
 		const qboolean xboxTraceActiveTail = qfalse;
 		static qboolean s_xboxLoggedAudioSkip = qfalse;
-		static int s_xboxBootTailLogBudget = 24;
+		static int s_xboxBootTailLogBudget = 0;
 		const qboolean xboxTraceBootTail = (s_xboxBootTailLogBudget > 0);
 		if (!s_xboxLoggedAudioSkip)
 		{
@@ -1464,25 +1515,69 @@ void CL_Frame ( int msec,float fractionMsec ) {
 
 	cls.framecount++;
 #ifdef _XBOX
+	g_SPXBClsState = (unsigned int)cls.state;
+	g_SPXBClServerTime = (unsigned int)cl.serverTime;
+	g_SPXBClsFrameCount = (unsigned int)cls.framecount;
+	g_SPXBPhaseLast = 0x434C4632; /* 'CLF2' */
+	{
+		static int s_xboxCompletedFrameLogBudget = 0;
+		if (s_xboxCompletedFrameLogBudget > 0)
+		{
+			XBLF("JA: CL_Frame completed framecount=%d state=%d realtime=%d serverTime=%d newSnapshots=%d frameValid=%d",
+				cls.framecount, (int)cls.state, cls.realtime, cl.serverTime,
+				(int)cl.newSnapshots, (int)cl.frame.valid);
+			--s_xboxCompletedFrameLogBudget;
+		}
+	}
 	if (cls.state == CA_ACTIVE)
 	{
 		static int s_xboxLastCompletedHeartbeatTime = 0;
 		static int s_xboxLastCompletedHeartbeatFrame = 0;
+		static unsigned int s_xboxLastDrawSurfLists = 0;
+		static unsigned int s_xboxLastRenderSurfaces = 0;
+		static unsigned int s_xboxLastEndSurfaces = 0;
+		static unsigned int s_xboxLastPrimitiveCalls = 0;
+		static unsigned int s_xboxLastPrimitiveVerts = 0;
+		static unsigned int s_xboxLastStateFlushes = 0;
+		static unsigned int s_xboxLastSplitShader = 0;
+		static unsigned int s_xboxLastSplitFog = 0;
+		static unsigned int s_xboxLastSplitDlight = 0;
+		static unsigned int s_xboxLastSplitEntity = 0;
+		static unsigned int s_xboxLastSplitFinal = 0;
+		static unsigned int s_xboxLastSplitFlush = 0;
 		const int elapsed = cls.realtime - s_xboxLastCompletedHeartbeatTime;
 
 		if (elapsed >= 1000 || s_xboxLastCompletedHeartbeatTime == 0)
 		{
 			const int frameDelta = cls.framecount - s_xboxLastCompletedHeartbeatFrame;
+			const unsigned int drawLists = g_SPXBRenderDrawSurfLists - s_xboxLastDrawSurfLists;
+			const unsigned int surfaces = g_SPXBRenderSurfaces - s_xboxLastRenderSurfaces;
+			const unsigned int endSurfaces = g_SPXBRenderEndSurfaces - s_xboxLastEndSurfaces;
+			const unsigned int primitiveCalls = g_SPXBFakeGLPrimitiveCalls - s_xboxLastPrimitiveCalls;
+			const unsigned int primitiveVerts = g_SPXBFakeGLPrimitiveVerts - s_xboxLastPrimitiveVerts;
+			const unsigned int stateFlushes = g_SPXBFakeGLStateFlushes - s_xboxLastStateFlushes;
+			const unsigned int splitShader = g_SPXBRenderSplitShader - s_xboxLastSplitShader;
+			const unsigned int splitFog = g_SPXBRenderSplitFog - s_xboxLastSplitFog;
+			const unsigned int splitDlight = g_SPXBRenderSplitDlight - s_xboxLastSplitDlight;
+			const unsigned int splitEntity = g_SPXBRenderSplitEntity - s_xboxLastSplitEntity;
+			const unsigned int splitFinal = g_SPXBRenderSplitFinal - s_xboxLastSplitFinal;
+			const unsigned int splitFlush = g_SPXBRenderSplitFlush - s_xboxLastSplitFlush;
 			int fps10 = 0;
-			char msg[256];
+			char msg[512];
 
 			if (elapsed > 0)
 			{
 				fps10 = (frameDelta * 10000) / elapsed;
 			}
 
+			g_SPXBHeartbeatCount++;
+			g_SPXBHeartbeatFrame = cls.framecount;
+			g_SPXBHeartbeatRealtime = cls.realtime;
+			g_SPXBHeartbeatServerTime = cl.serverTime;
+			g_SPXBHeartbeatFps10 = fps10;
+
 			_snprintf(msg, sizeof(msg),
-				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d frameDelta=%d elapsed=%d fps=%d.%d renderer=%d cgame=%d\n",
+				"JA: FRAME_HEARTBEAT frame=%d rt=%d st=%d fd=%d el=%d fps=%d.%d r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u\n",
 				cls.framecount,
 				cls.realtime,
 				cl.serverTime,
@@ -1491,12 +1586,37 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				fps10 / 10,
 				fps10 % 10,
 				(int)cls.rendererStarted,
-				(int)cls.cgameStarted);
+				(int)cls.cgameStarted,
+				drawLists,
+				surfaces,
+				endSurfaces,
+				primitiveCalls,
+				primitiveVerts,
+				stateFlushes,
+				(unsigned int)g_SPXBRenderBackendMsec,
+				splitShader,
+				splitFog,
+				splitDlight,
+				splitEntity,
+				splitFinal,
+				splitFlush);
 			msg[sizeof(msg) - 1] = '\0';
 			XBLog_Write(msg);
 
 			s_xboxLastCompletedHeartbeatTime = cls.realtime;
 			s_xboxLastCompletedHeartbeatFrame = cls.framecount;
+			s_xboxLastDrawSurfLists = g_SPXBRenderDrawSurfLists;
+			s_xboxLastRenderSurfaces = g_SPXBRenderSurfaces;
+			s_xboxLastEndSurfaces = g_SPXBRenderEndSurfaces;
+			s_xboxLastPrimitiveCalls = g_SPXBFakeGLPrimitiveCalls;
+			s_xboxLastPrimitiveVerts = g_SPXBFakeGLPrimitiveVerts;
+			s_xboxLastStateFlushes = g_SPXBFakeGLStateFlushes;
+			s_xboxLastSplitShader = g_SPXBRenderSplitShader;
+			s_xboxLastSplitFog = g_SPXBRenderSplitFog;
+			s_xboxLastSplitDlight = g_SPXBRenderSplitDlight;
+			s_xboxLastSplitEntity = g_SPXBRenderSplitEntity;
+			s_xboxLastSplitFinal = g_SPXBRenderSplitFinal;
+			s_xboxLastSplitFlush = g_SPXBRenderSplitFlush;
 		}
 	}
 #endif

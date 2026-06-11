@@ -52,6 +52,13 @@ int	VM_Call( int callnum, ... )
 #endif
 			return result;
 		}
+		case CG_CAMERA_POS:
+		case CG_CAMERA_ANG:
+		{
+			const int arg0 = va_arg(ap, int);
+			va_end(ap);
+			return cgvm.entryPoint(callnum, arg0, 0, 0, 0, 0, 0, 0, 0);
+		}
 		case CG_SHUTDOWN:
 		case CG_CONSOLE_COMMAND:
 		case CG_DRAW_DATAPAD_OBJECTIVES:

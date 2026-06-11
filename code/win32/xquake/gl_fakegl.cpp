@@ -31,6 +31,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern "C" void Con_Printf (char *fmt, ...);
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
+extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
+extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
+#endif
+
 #pragma warning( disable : 4244 )
 #pragma warning( disable : 4820 )
 
@@ -606,7 +612,7 @@ private:
 // DrawPrimitive works for DX8, the other ones don't work right yet.
 
 #ifdef _XBOX
-#define USE_BEGINEND
+#define USE_DRAWPRIMITIVE
 #else
 #define USE_DRAWPRIMITIVE
 #endif
@@ -1272,6 +1278,10 @@ public:
      		hr = m_pD3DDev->DrawPrimitiveUP(
 				dptPrimitiveType,
 				primCount, m_OGLPrimitiveVertexBuffer, m_vertexSize);
+#ifdef _XBOX
+			g_SPXBFakeGLPrimitiveCalls++;
+			g_SPXBFakeGLPrimitiveVerts += m_vertexCount;
+#endif
 			if ( FAILED(hr) ) {
 				// LocalDebugBreak();
 			}
@@ -1805,6 +1815,9 @@ public:
 #endif
 
 		if ( m_glRenderStateDirty || ! m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) ) {
+#ifdef _XBOX
+			g_SPXBFakeGLStateFlushes++;
+#endif
 			internalEnd();
 			SetGLRenderState();
 			DWORD typeDesc;

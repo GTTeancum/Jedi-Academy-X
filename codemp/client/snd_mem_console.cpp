@@ -29,6 +29,8 @@ void S_DrainRawSoundData(void)
 		S_UpdateLoading();
 
 #ifdef _GAMECUBE
+		extern void ERR_SetDiscFailReason(int);
+		ERR_SetDiscFailReason(3);
 		extern void ERR_DiscFail(bool);
 		ERR_DiscFail(true);
 #endif
@@ -275,6 +277,10 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 	if (Sys_StreamIsError(sfx->iStreamHandle))
 	{
 #if defined(FINAL_BUILD)
+		extern "C" void XBLog_Write(const char *msg);
+		XBLog_Write("JAMP: ERR_DiscFail from S_EndLoadSound stream error");
+		extern void ERR_SetDiscFailReason(int);
+		ERR_SetDiscFailReason(3);
 		extern void ERR_DiscFail(bool);
 		ERR_DiscFail(false);
 #endif

@@ -24,7 +24,7 @@
 #define CONNECTED_TICKS 20      // number of ticks between connection tests
 
 #ifndef JAMP_CXBX_SMOKE_SKIP_XBL_TICK
-#define JAMP_CXBX_SMOKE_SKIP_XBL_TICK 1
+#define JAMP_CXBX_SMOKE_SKIP_XBL_TICK 0
 #endif
 
 
@@ -1045,6 +1045,18 @@ void XBL_Tick()
 	}
 	return;
 #endif
+
+	const int xbGameType = Cvar_VariableIntegerValue( "xb_gameType" );
+	if( !logged_on && xbGameType < 2 )
+	{
+		static bool loggedOfflineSkip = false;
+		if( !loggedOfflineSkip )
+		{
+			Com_Printf( "JAMP: XBL_Tick offline local mode skip\n" );
+			loggedOfflineSkip = true;
+		}
+		return;
+	}
 
     // check if this xbox has a network connection
     //

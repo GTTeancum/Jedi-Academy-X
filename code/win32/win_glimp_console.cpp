@@ -157,7 +157,7 @@ void GLimp_EndFrame (void)
 	 * D3D8 calls.  Under Plan-B, fakeglx owns the device — we MUST
 	 * call FakeSwapBuffers() here (which does EndScene + Present and
 	 * arms m_needBeginScene for the next frame). */
-	FakeSwapBuffers();
+	/* Present once from glEndFrame; RB_SwapBuffers is still mid-frame here. */
 }
 
 static void GLW_StartOpenGL( void )

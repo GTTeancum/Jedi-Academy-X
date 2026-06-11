@@ -15,6 +15,10 @@
 #include <xtl.h>
 #include "../win32/xb_log.h"
 #define NEWDECL __cdecl
+extern "C" volatile unsigned int g_SPXBBootPhase;
+extern "C" volatile unsigned int g_SPXBMainLoopCount;
+extern "C" volatile unsigned int g_SPXBClsState;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 
 /* NT kernel prototypes for the early main() probe (file-scope required by VC71) */
 extern "C" long __stdcall NtCreateFile(void**, unsigned long, void*, void*,
@@ -36,6 +40,8 @@ extern sysEvent_t eventQue[MAX_QUED_EVENTS];
 extern byte		sys_packetReceived[MAX_MSGLEN];
 
 #ifdef _XBOX
+bool g_xboxDirectMapBootQueued = false;
+
 static bool Sys_XboxDirectMapRequested(void)
 {
 	char startupMap[MAX_QPATH];
@@ -54,6 +60,55 @@ static bool Sys_XboxDirectMapRequested(void)
 	fclose(startupMapFile);
 
 	return startupMap[0] != '\0';
+}
+
+bool Sys_IsDirectMapBoot(void)
+{
+	return g_xboxDirectMapBootQueued || Sys_XboxDirectMapRequested();
+}
+
+static bool Sys_XboxQueueDirectMapBoot(void)
+{
+	char startupMap[MAX_QPATH];
+	startupMap[0] = '\0';
+
+	FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
+	if (startupMapFile)
+	{
+		if (fgets(startupMap, sizeof(startupMap), startupMapFile))
+		{
+			startupMap[strcspn(startupMap, "\r\n\t ")] = '\0';
+		}
+		fclose(startupMapFile);
+	}
+
+	FILE *startupCommandFile = fopen("D:\\ja_sp_commands.txt", "r");
+	if (startupCommandFile)
+	{
+		char commandLine[1024];
+		while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
+		{
+			commandLine[strcspn(commandLine, "\r\n")] = '\0';
+			if (commandLine[0])
+			{
+				XBLF("JA: direct-map boot: queue startup command '%s'", commandLine);
+				Cbuf_AddText(commandLine);
+				Cbuf_AddText("\n");
+			}
+		}
+		fclose(startupCommandFile);
+	}
+
+	if (!startupMap[0])
+	{
+		XBL("JA: direct-map boot: no ja_sp_level.txt map, normal boot\n");
+		return false;
+	}
+
+	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame", startupMap);
+	Cbuf_AddText(va("devmap %s\n", startupMap));
+	g_xboxDirectMapBootQueued = true;
+	return true;
 }
 #endif
 
@@ -195,6 +250,8 @@ void Sys_Print(const char *msg)
 {
 #ifdef _GAMECUBE
 	printf(msg);
+#elif defined(_XBOX)
+	XBLog_Write(msg);
 #else
 	OutputDebugString(msg);
 #endif
@@ -581,6 +638,7 @@ int main(int argc, char* argv[])
 //	Z_SetFreeOSMem();
 
 #ifdef _XBOX
+	g_SPXBBootPhase = 2;
 	/* Raw NT probe — appends "main_reached" to ja_sp_log.txt before XBLog_Init.
 	   If ja_sp_log.txt only has "precrt_ok", a static ctor crashed before main(). */
 	{
@@ -666,14 +724,18 @@ int main(int argc, char* argv[])
 	Com_Init( "" );
 	XBL("Com_Init done\n");
 
+	extern void G_AllocGentities( void );
+	G_AllocGentities();
+	XBL("G_AllocGentities done\n");
+
+#ifdef _XBOX
+	Sys_XboxQueueDirectMapBoot();
+#endif
+
 	// Run one frame to finish loading (calls CL_StartHunkUsers).
 	IN_Frame();
 	Com_Frame();
 	XBL("First frame done\n");
-
-	extern void G_AllocGentities( void );
-	G_AllocGentities();
-	XBL("G_AllocGentities done\n");
 
 	// Copy planet bink videos to Z: drive.
 	extern void Sys_BinkCopyInit(void);
@@ -701,14 +763,23 @@ int main(int argc, char* argv[])
 	int xboxMainLoopCount = 0;
 	while( 1 ) {
 		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
+#ifdef _XBOX
+		g_SPXBMainLoopCount = (unsigned int)xboxMainLoopCount;
+		g_SPXBClsState = (unsigned int)cls.state;
+		g_SPXBPhaseLast = 0x4D414931; /* 'MAI1' */
+#endif
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before IN_Frame", xboxMainLoopCount);
 		IN_Frame();
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after IN_Frame", xboxMainLoopCount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame", xboxMainLoopCount);
 		Com_Frame();
+#ifdef _XBOX
+		g_SPXBClsState = (unsigned int)cls.state;
+		g_SPXBPhaseLast = 0x4D414932; /* 'MAI2' */
+#endif
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame", xboxMainLoopCount);
 #ifdef _XBOX
-		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE) ? 1 : 0;
+		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE) ? 0 : 1;
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
 		Sleep(xboxMainLoopYieldMs);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after first yield", xboxMainLoopCount);

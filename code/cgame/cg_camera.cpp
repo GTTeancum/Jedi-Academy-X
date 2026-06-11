@@ -6,6 +6,9 @@
 #include "cg_media.h"
 
 #include "..\game\g_roff.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 bool		in_camera = false;
 camera_t	client_camera={0};
@@ -67,6 +70,9 @@ CGCam_Enable
 extern void CG_CalcVrect(void);
 void CGCam_Enable( void )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_CLIENT_ENABLE cgtime=%d was=%d", cg.time, in_camera ? 1 : 0);
+#endif
 	client_camera.bar_alpha = 0.0f;
 	client_camera.bar_time = cg.time;
 
@@ -132,6 +138,10 @@ CGCam_Disable
 
 void CGCam_Disable( void )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_CLIENT_DISABLE cgtime=%d was=%d roff='%s'",
+		cg.time, in_camera ? 1 : 0, client_camera.sRoff);
+#endif
 	in_camera = false;
 
 	client_camera.bar_alpha = 1.0f;
@@ -1858,6 +1868,9 @@ a rof file
 
 void CGCam_StartRoff( char *roff )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_CLIENT_ROFF_START cgtime=%d roff='%s'", cg.time, roff ? roff : "");
+#endif
 	CGCam_FollowDisable();
 	CGCam_TrackDisable();
 

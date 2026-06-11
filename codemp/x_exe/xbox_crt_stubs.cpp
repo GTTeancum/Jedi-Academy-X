@@ -24,6 +24,11 @@ extern "C" D3DPERF * WINAPI D3DPERF_GetStatistics()
     }
     return &s_perf;
 }
+
+extern "C" HRESULT WINAPI DmRegisterCommandProcessor(const char*, void*)
+{
+    return 0;
+}
 #endif
 
 // _strcmpi -> _stricmp (exists in libcd.lib)

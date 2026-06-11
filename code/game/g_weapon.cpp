@@ -336,7 +336,7 @@ gentity_t *CreateMissile( vec3_t org, vec3_t dir, float vel, int life, gentity_t
 {
 	gentity_t	*missile;
 #ifdef _XBOX
-	static int s_xboxCreateMissileLogBudget = 128;
+	static int s_xboxCreateMissileLogBudget = 0;
 #endif
 
 	missile = G_Spawn();

@@ -436,6 +436,19 @@ qboolean	NET_GetLoopPacket (netsrc_t sock, netadr_t *net_from, msg_t *net_messag
 	int length = *(int*)(loop->loopData + i);
 	i += 4;
 
+	if (length <= 0 || length > MAX_LOOPDATA || length > net_message->maxsize) {
+#ifdef _XBOX
+		static int s_xboxBadLoopReadLogs = 0;
+		if (s_xboxBadLoopReadLogs < 8) {
+			Com_PrintfAlways("JA: NET_GetLoopPacket bad length sock=%d len=%d get=%d send=%d max=%d\n",
+				(int)sock, length, loop->get, loop->send, net_message->maxsize);
+			++s_xboxBadLoopReadLogs;
+		}
+#endif
+		loop->get = loop->send;
+		return qfalse;
+	}
+
 	//See if entire packet is at end of buffer or part is at the beginning.
 	if(i + length <= MAX_LOOPDATA) {
 		//Everything fits, full copy.
@@ -475,7 +488,19 @@ void NET_SendLoopPacket (netsrc_t sock, int length, const void *data, netadr_t t
 		freeSpace = loop->get - loop->send;
 	}
 
-	assert(freeSpace > length);
+	if (length <= 0 || length > MAX_LOOPDATA || freeSpace <= length + 4) {
+#ifdef _XBOX
+		static int s_xboxBadLoopWriteLogs = 0;
+		if (s_xboxBadLoopWriteLogs < 8) {
+			Com_PrintfAlways("JA: NET_SendLoopPacket drop sock=%d len=%d free=%d get=%d send=%d\n",
+				(int)sock, length, freeSpace, loop->get, loop->send);
+			++s_xboxBadLoopWriteLogs;
+		}
+#endif
+		return;
+	}
+
+	assert(freeSpace > length + 4);
 
 	//Get write position.  Wrap around if too close to end.
 	i = loop->send;

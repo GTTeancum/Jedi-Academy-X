@@ -91,6 +91,7 @@ def main():
         "_XBLog_Write",
         "_NtCreateFile@36",
         "_NtWriteFile@32",
+        "_NtFlushBuffersFile@8",
         "_NtClose@4",
         "_CreateFileA@28",
         "_WriteFile@20",
@@ -155,7 +156,7 @@ def main():
             % (expected_xbe_entry, xbe_entry)
         )
 
-    expected_libs = ["XAPILIB", "LIBC", "D3D8I", "DSOUND", "XBOXKRNL", "XONLINE", "D3D8", "XGRAPHC"]
+    expected_libs = ["XAPILIB", "D3D8", "D3DX8", "DSOUND", "XGRAPHC", "XONLINE", "LIBC", "XBOXKRNL"]
     if xbe_libs != expected_libs:
         failures.append("expected XBE libraries %r, got %r" % (expected_libs, xbe_libs))
 

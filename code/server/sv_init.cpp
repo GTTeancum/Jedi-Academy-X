@@ -5,6 +5,37 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBMapPhase;
+extern "C" volatile unsigned int g_SPXBMapHash;
+extern "C" volatile char g_SPXBMapLast[64];
+
+static unsigned int SV_InitXboxHashText(const char *text)
+{
+	unsigned int h = 2166136261u;
+	if (!text) {
+		return 0;
+	}
+	while (*text) {
+		h ^= (unsigned char)*text++;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static void SV_InitXboxCopyLast(volatile char *dest, unsigned int destSize, const char *src)
+{
+	unsigned int i = 0;
+	if (!dest || destSize == 0) {
+		return;
+	}
+	if (src) {
+		while (src[i] && i < destSize - 1) {
+			dest[i] = src[i];
+			++i;
+		}
+	}
+	dest[i] = 0;
+}
 #endif
 
 #include "../client/snd_music.h"	// didn't want to put this in snd_local because of rebuild times etc.
@@ -369,6 +400,11 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	char		server[64];
 
 	Q_strncpyz( server, iServer, sizeof(server), qtrue );
+#ifdef _XBOX
+	g_SPXBMapPhase = 10;
+	g_SPXBMapHash = SV_InitXboxHashText(server);
+	SV_InitXboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), server);
+#endif
 	XBLog_Write("JA: SV_SpawnServer entered:");
 	XBLog_Write(server);
 
@@ -415,6 +451,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #endif
 
 #ifdef _XBOX
+	g_SPXBMapPhase = 11;
 	// disable vsync during load for speed
 	glDisable(GL_VSYNC);
 #endif
@@ -478,6 +515,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	   remove it.
 */
 #ifdef _XBOX
+	g_SPXBMapPhase = 12;
 	// We've over-freed the info array above, this puts it back into a working state
 	Ghoul2InfoArray_Reset();
 
@@ -529,10 +567,12 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	G2API_SetTime(sv.time,G2T_SV_TIME);
 
 #ifdef _XBOX
+	g_SPXBMapPhase = 13;
 	XBLog_Write("JA: CL_StartHunkUsers...");
 	UpdateLoadingAnimation();
 	CL_StartHunkUsers();
 	UpdateLoadingAnimation();
+	g_SPXBMapPhase = 14;
 	XBLog_Write("JA: SV_SpawnServer: precache humanoid GLA before BSP load...");
 	{
 		const qhandle_t normalHumanoid = RE_RegisterModel("models/players/_humanoid/_humanoid.gla");
@@ -543,12 +583,16 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		XBLF("JA: SV_SpawnServer: humanoid GLA handles normal=%d cinematic=%d path='%s'",
 			normalHumanoid, cinematicHumanoidHandle, cinematicHumanoid);
 	}
+	g_SPXBMapPhase = 15;
 	XBLog_Write("JA: CM_LoadMap...");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
+	g_SPXBMapPhase = 16;
 	XBLog_Write("JA: CM_LoadMap done");
 	UpdateLoadingAnimation();
+	g_SPXBMapPhase = 17;
 	XBLog_Write("JA: RE_LoadWorldMap...");
 	RE_LoadWorldMap(va("maps/%s.bsp", server));
+	g_SPXBMapPhase = 18;
 	XBLog_Write("JA: RE_LoadWorldMap done");
 	UpdateLoadingAnimation();
 #else
@@ -573,19 +617,34 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	sv.state = SS_LOADING;
 
 	// load and spawn all other entities
+#ifdef _XBOX
+	g_SPXBMapPhase = 19;
+#endif
 	XBLog_Write("JA: SV_InitGameProgs...");
 	SV_InitGameProgs();
+#ifdef _XBOX
+	g_SPXBMapPhase = 20;
+#endif
 	XBLog_Write("JA: SV_InitGameProgs done");
 
 	// run a few frames to allow everything to settle
+#ifdef _XBOX
+	g_SPXBMapPhase = 21;
+#endif
 	for ( i = 0 ;i < 3 ; i++ ) {
 		ge->RunFrame( sv.time );
 		sv.time += 100;
 		G2API_SetTime(sv.time,G2T_SV_TIME);
 	}
+#ifdef _XBOX
+	g_SPXBMapPhase = 22;
+#endif
 	ge->ConnectNavs(sv_mapname->string, sv_mapChecksum->integer);
 
 	// create a baseline for more efficient communications
+#ifdef _XBOX
+	g_SPXBMapPhase = 23;
+#endif
 	SV_CreateBaseline ();
 
 	for (i=0 ; i<1 ; i++) {
@@ -613,6 +672,9 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	}	
 
 	// run another frame to allow things to look at all connected clients
+#ifdef _XBOX
+	g_SPXBMapPhase = 24;
+#endif
 	ge->RunFrame( sv.time );
 	sv.time += 100;
 	G2API_SetTime(sv.time,G2T_SV_TIME);
@@ -641,6 +703,9 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #endif
 
 	StopLoadingAnimation();
+#ifdef _XBOX
+	g_SPXBMapPhase = 25;
+#endif
 
 	Com_Printf ("-----------------------------------\n");
 }

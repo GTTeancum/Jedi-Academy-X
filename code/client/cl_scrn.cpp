@@ -351,6 +351,10 @@ void SCR_Init( void ) {
 void UI_SetActiveMenu( const char* menuname,const char *menuID );
 void _UI_Refresh( int realtime );
 void UI_DrawConnect( const char *servername, const char * updateInfoString );
+#ifdef _XBOX
+extern bool g_xboxDirectMapBootQueued;
+extern bool Sys_IsDirectMapBoot(void);
+#endif
 
 /*
 ==================
@@ -395,7 +399,12 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 
 	// if the menu is going to cover the entire screen, we
 	// don't need to render anything under it
-	if ( !_UI_IsFullscreen() ) {
+#ifdef _XBOX
+	const qboolean xboxForceDirectMapGameDraw = (Sys_IsDirectMapBoot() && cls.state == CA_ACTIVE);
+#else
+	const qboolean xboxForceDirectMapGameDraw = qfalse;
+#endif
+	if ( xboxForceDirectMapGameDraw || !_UI_IsFullscreen() ) {
 		switch( cls.state ) {
 		default:
 			Com_Error( ERR_FATAL, "SCR_DrawScreenField: bad cls.state" );
@@ -448,6 +457,12 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// draw downloading progress bar
 
 	// the menu draws next
+#ifdef _XBOX
+	if (xboxForceDirectMapGameDraw) {
+		if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: skipping UI refresh for direct-map active frame");
+		return;
+	}
+#endif
 	#ifdef _XBOX
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: _UI_Refresh...");
 	#endif

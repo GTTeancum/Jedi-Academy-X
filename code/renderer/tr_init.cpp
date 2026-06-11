@@ -1159,7 +1159,17 @@ void R_Register( void )
 	r_customheight = Cvar_Get( "r_customheight", "1024", CVAR_ARCHIVE | CVAR_LATCH );
 	r_simpleMipMaps = Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_vertexLight = Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
+#ifdef _XBOX
+	r_subdivisions = Cvar_Get ("r_subdivisions", "64", CVAR_ARCHIVE | CVAR_LATCH);
+	Cvar_Set( "r_subdivisions", "64" );
+	if ( r_vertexLight->integer != 0 )
+	{
+		XBLF( "JA: R_Register forcing r_vertexLight %d -> 0 for Xbox lighting baseline", r_vertexLight->integer );
+		Cvar_Set( "r_vertexLight", "0" );
+	}
+#else
 	r_subdivisions = Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
+#endif
 	r_intensity = Cvar_Get ("r_intensity", "1", CVAR_LATCH|CVAR_ARCHIVE );
 	
 	//
@@ -1168,6 +1178,13 @@ void R_Register( void )
 	r_displayRefresh = Cvar_Get( "r_displayRefresh", "0", CVAR_LATCH );
 	AssertCvarRange( r_displayRefresh, 0, 200, qtrue, qfalse );
 	r_fullbright = Cvar_Get ("r_fullbright", "0", CVAR_CHEAT );
+#ifdef _XBOX
+	if ( r_fullbright->integer != 0 )
+	{
+		XBLF( "JA: R_Register forcing r_fullbright %d -> 0 for Xbox lighting baseline", r_fullbright->integer );
+		Cvar_Set( "r_fullbright", "0" );
+	}
+#endif
 	r_singleShader = Cvar_Get ("r_singleShader", "0", CVAR_CHEAT | CVAR_LATCH );
 
 	//
@@ -1233,6 +1250,17 @@ void R_Register( void )
 	r_drawworld = Cvar_Get ("r_drawworld", "1", CVAR_CHEAT );
 	r_drawfog = Cvar_Get ("r_drawfog", "2", CVAR_CHEAT );
 	r_lightmap = Cvar_Get ("r_lightmap", "0", CVAR_CHEAT );
+#ifdef _XBOX
+	if ( r_lightmap->integer != 0 )
+	{
+		XBLF( "JA: R_Register forcing r_lightmap %d -> 0 for Xbox lighting baseline", r_lightmap->integer );
+		Cvar_Set( "r_lightmap", "0" );
+	}
+	XBLF( "JA: R_Register Xbox lighting baseline r_vertexLight=%d r_fullbright=%d r_lightmap=%d",
+		r_vertexLight ? r_vertexLight->integer : -1,
+		r_fullbright ? r_fullbright->integer : -1,
+		r_lightmap ? r_lightmap->integer : -1 );
+#endif
 	r_portalOnly = Cvar_Get ("r_portalOnly", "0", CVAR_CHEAT );
 
 	r_skipBackEnd = Cvar_Get ("r_skipBackEnd", "0", CVAR_CHEAT);

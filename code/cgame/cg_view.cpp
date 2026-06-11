@@ -1769,7 +1769,7 @@ static void CG_DrawSkyBoxPortal(void)
 	const char *cstr;
 	char *token;
 #ifdef _XBOX
-	static int s_xboxSkyPortalLogBudget = 48;
+	static int s_xboxSkyPortalLogBudget = 0;
 #endif
 
 	cstr = CG_ConfigString(CS_SKYBOXORG);
@@ -2031,7 +2031,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 #ifdef _XBOX
 	static int s_xboxDrawActiveFrameCount = 0;
-	const int s_xboxDrawActiveLog = (s_xboxDrawActiveFrameCount < 64 || serverTime > 90000);
+	const int s_xboxDrawActiveLog = 0;
 	if (s_xboxDrawActiveLog)
 	{
 		XBLF("JA: CG_DrawActiveFrame #%d enter serverTime=%d stereo=%d snap=%p next=%p",
@@ -2150,6 +2150,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// update cg.predicted_player_state
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState...");
 	CG_PredictPlayerState();
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState done");
 
 	if (cg.snap->ps.eFlags&EF_HELD_BY_SAND_CREATURE)
 	{
@@ -2178,9 +2179,11 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		//Finish any fading that was happening
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CGCam_UpdateFade...");
 		CGCam_UpdateFade();
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CGCam_UpdateFade done");
 		// build cg.refdef
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_CalcViewValues...");
 		inwater = CG_CalcViewValues();
+		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_CalcViewValues done");
 	}
 
 	if (cg.zoomMode)
@@ -2199,10 +2202,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawSkyBoxPortal...");
 	CG_DrawSkyBoxPortal();
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawSkyBoxPortal done");
 
 	// NOTE: this may completely override the camera
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_RunEmplacedWeapon...");
 	CG_RunEmplacedWeapon();
+	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_RunEmplacedWeapon done");
 
 	// first person blend blobs, done after AnglesToAxis
 	if ( !cg.renderingThirdPerson ) {
@@ -2258,7 +2263,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		}
 	}
 	//FIXME: first person crouch-uncrouch STILL FUCKS UP THE AREAMASK!!!
-	//if ( !VectorCompare2( cg.refdef.vieworg, cg.snap->ps.serverViewOrg ) && !gi.inPVS( cg.refdef.vieworg, cg.snap->ps.serverViewOrg ) )
+	if ( !VectorCompare2( cg.refdef.vieworg, cg.snap->ps.serverViewOrg ) && !gi.inPVS( cg.refdef.vieworg, cg.snap->ps.serverViewOrg ) )
 	{//actual view org and server's view org don't match and aren't same PVS, rebuild the areamask
 		//Com_Printf( S_COLOR_RED"%s != %s\n", vtos(cg.refdef.vieworg), vtos(cg.snap->ps.serverViewOrg) );
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CM_SnapPVS...");

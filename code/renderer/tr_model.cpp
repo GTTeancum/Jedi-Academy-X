@@ -401,6 +401,10 @@ static void RE_RegisterModels_DeleteAll(void)
 
 static int giRegisterMedia_CurrentLevel=0;
 static qboolean gbAllowScreenDissolve = qtrue;
+#ifdef _XBOX
+extern bool g_xboxDirectMapBootQueued;
+extern bool Sys_IsDirectMapBoot(void);
+#endif
 //
 // param "bAllowScreenDissolve" is just a convenient way of getting hold of a bool which can be checked by the code that
 //	issues the InitDissolve command later in RE_RegisterMedia_LevelLoadEnd()
@@ -467,6 +471,12 @@ void RE_RegisterMedia_LevelLoadEnd(void)
 	RE_RegisterImages_LevelLoadEnd();
 	SND_RegisterAudio_LevelLoadEnd(qfalse);
 
+#ifdef _XBOX
+	if (Sys_IsDirectMapBoot())
+	{
+		gbAllowScreenDissolve = qfalse;
+	}
+#endif
 	if (gbAllowScreenDissolve)
 	{
 		RE_InitDissolve(qfalse);

@@ -525,20 +525,35 @@ void NET_GetLocalAddress( bool force )
 {
 	XNADDR xnMyAddr;
 	DWORD dwStatus;
+	int pendingPolls = 0;
+	ZeroMemory( &xnMyAddr, sizeof( xnMyAddr ) );
 	do
 	{
 	   // Repeat while pending; OK to do other work in this loop
 	   dwStatus = XNetGetTitleXnAddr( &xnMyAddr );
-	} while( dwStatus == XNET_GET_XNADDR_PENDING && force );
+	   if ( force && dwStatus == XNET_GET_XNADDR_PENDING )
+	   {
+		   if ( pendingPolls < 4 || pendingPolls == 31 || pendingPolls == 63 )
+		   {
+			   Com_Printf( "JAMP: NET_GetLocalAddress pending poll=%d\n", pendingPolls );
+		   }
+		   pendingPolls++;
+	   }
+	} while( dwStatus == XNET_GET_XNADDR_PENDING && force && pendingPolls < 64 );
+
+	if( dwStatus == XNET_GET_XNADDR_PENDING )
+	{
+		Com_Printf( "JAMP: NET_GetLocalAddress pending timeout force=%d polls=%d\n", force ? 1 : 0, pendingPolls );
+		return;
+	}
 
 	// Error checking
 	if( dwStatus == XNET_GET_XNADDR_NONE )
 	{
-		// If this wasn't the final (necessary) call, then don't worry
-		if( force )
-			assert(!"Error getting XBox title address.");
+		Com_Printf( "JAMP: NET_GetLocalAddress no title address force=%d\n", force ? 1 : 0 );
 		return;
 	}
+	Com_Printf( "JAMP: NET_GetLocalAddress status=0x%08x polls=%d\n", dwStatus, pendingPolls );
 
 	*(u_long*)&localIP[0] = xnMyAddr.ina.S_un.S_addr;
 	*(u_long*)localIP[1] = 0;

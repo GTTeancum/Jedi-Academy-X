@@ -9,6 +9,63 @@ msg_t		cmd_text;
 byte		cmd_text_buf[MAX_CMD_BUFFER];
 char		cmd_defer_text_buf[MAX_CMD_BUFFER];
 
+#ifdef _XBOX
+extern "C" void XBLog_Write(const char *msg);
+extern "C" volatile unsigned int g_SPXBCbufExecCount;
+extern "C" volatile unsigned int g_SPXBCmdExecCount;
+extern "C" volatile unsigned int g_SPXBCmdPhase;
+extern "C" volatile unsigned int g_SPXBCmdHash;
+extern "C" volatile unsigned int g_SPXBCmdArgc;
+extern "C" volatile unsigned int g_SPXBCmdLoopIndex;
+extern "C" volatile unsigned int g_SPXBCmdLoopNameHash;
+extern "C" volatile unsigned int g_SPXBCmdFunctionPtr;
+extern "C" volatile unsigned int g_SPXBCmdArgv0First4;
+extern "C" volatile unsigned int g_SPXBCmdNameFirst4;
+extern "C" volatile char g_SPXBCmdLast[128];
+extern "C" volatile char g_SPXBCmdTextLast[128];
+extern "C" volatile char g_SPXBCmdFunctionNameLast[64];
+
+static unsigned int Cmd_XboxHashText(const char *text)
+{
+	unsigned int h = 2166136261u;
+	if (!text) {
+		return 0;
+	}
+	while (*text) {
+		h ^= (unsigned char)*text++;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static void Cmd_XboxCopyLast(volatile char *dest, unsigned int destSize, const char *src)
+{
+	unsigned int i = 0;
+	if (!dest || destSize == 0) {
+		return;
+	}
+	if (src) {
+		while (src[i] && i < destSize - 1) {
+			dest[i] = src[i];
+			++i;
+		}
+	}
+	dest[i] = 0;
+}
+
+static unsigned int Cmd_XboxFirst4(const char *src)
+{
+	unsigned int v = 0;
+	if (src) {
+		v |= (unsigned int)(unsigned char)src[0];
+		v |= (unsigned int)(unsigned char)src[1] << 8;
+		v |= (unsigned int)(unsigned char)src[2] << 16;
+		v |= (unsigned int)(unsigned char)src[3] << 24;
+	}
+	return v;
+}
+#endif
+
 
 //=============================================================================
 
@@ -137,6 +194,10 @@ void Cbuf_Execute (void)
 	char	line[MAX_CMD_BUFFER];
 	int		quotes;
 
+#ifdef _XBOX
+	g_SPXBCbufExecCount++;
+	g_SPXBCmdPhase = 1;
+#endif
 	while (cmd_text.cursize)
 	{
 		if ( cmd_wait )	{
@@ -161,8 +222,16 @@ void Cbuf_Execute (void)
 		}
 			
 				
+		if ( i >= (int)sizeof(line) ) {
+			i = sizeof(line) - 1;
+		}
 		memcpy (line, text, i);
 		line[i] = 0;
+#ifdef _XBOX
+		g_SPXBCmdPhase = 2;
+		g_SPXBCmdHash = Cmd_XboxHashText(line);
+		Cmd_XboxCopyLast(g_SPXBCmdLast, sizeof(g_SPXBCmdLast), line);
+#endif
 		
 // delete the text from the command buffer and move remaining commands down
 // this is necessary because commands (exec) can insert data at the
@@ -178,8 +247,14 @@ void Cbuf_Execute (void)
 		}
 
 // execute the command line
-		Cmd_ExecuteString (line);		
+		Cmd_ExecuteString (line);
+#ifdef _XBOX
+		g_SPXBCmdPhase = 3;
+#endif
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 4;
+#endif
 }
 
 
@@ -466,6 +541,11 @@ void	Cmd_AddCommand( const char *cmd_name, xcommand_t function ) {
 	cmd_function_t	*cmd;
 	cmd_function_t	*add = NULL;
 	int c;
+
+	if ( !cmd_name || !cmd_name[0] ) {
+		Com_Printf ("Cmd_AddCommand: empty command name ignored\n");
+		return;
+	}
 	
 	// fail if the command already exists
 	for ( c = 0; c < CMD_MAX_NUM; ++c )
@@ -508,6 +588,7 @@ void	Cmd_RemoveCommand( const char *cmd_name ) {
 		cmd = cmd_functions + c;
 		if ( !strcmp( cmd_name, cmd->name ) ) {
 			cmd->name[0] = '\0';
+			cmd->function = NULL;
 			return;
 		}
 	}
@@ -611,15 +692,58 @@ extern void Key_SetCatcher( int catcher );
 extern void  Menus_CloseAll(void);
 
 void	Cmd_ExecuteString( const char *text ) {	
+#ifdef _XBOX
+	g_SPXBCmdExecCount++;
+	g_SPXBCmdPhase = 5;
+	g_SPXBCmdHash = Cmd_XboxHashText(text);
+	Cmd_XboxCopyLast(g_SPXBCmdLast, sizeof(g_SPXBCmdLast), text);
+#endif
 
 	// execute the command line
 	Cmd_TokenizeString( text );		
+#ifdef _XBOX
+	g_SPXBCmdArgc = (unsigned int)Cmd_Argc();
+	Cmd_XboxCopyLast(g_SPXBCmdTextLast, sizeof(g_SPXBCmdTextLast), text);
+#endif
 	if ( !Cmd_Argc() ) {
+#ifdef _XBOX
+		g_SPXBCmdPhase = 6;
+#endif
 		return;		// no tokens
 	}
+	if ( !Cmd_Argv( 0 )[0] ) {
+#ifdef _XBOX
+		g_SPXBCmdPhase = 61;
+#endif
+		return;
+	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 7;
+	g_SPXBCmdArgv0First4 = Cmd_XboxFirst4(Cmd_Argv( 0 ));
+	Cmd_XboxCopyLast(g_SPXBCmdLast, sizeof(g_SPXBCmdLast), cmd_argv[0]);
+#endif
 
+#ifdef _XBOX
+	g_SPXBCmdPhase = 70;
+#endif
 	cvar_t* levelSelectCheat	= Cvar_Get("levelSelectCheat", "-1", CVAR_SAVEGAME);
-	if(	(!strcmp(text,"use end_level") || strstr(text, "maptransition") || !strcmp(text, "uimenu ingameMissionSelect") || !strcmp(text, "uimenu ingameGotoTier")) &&	// level end
+#ifdef _XBOX
+	g_SPXBCmdPhase = 71;
+#endif
+
+	qboolean levelEndCommand = qfalse;
+	if ( Cmd_Argc() >= 2 && !Q_stricmp( Cmd_Argv( 0 ), "use" ) && !Q_stricmp( Cmd_Argv( 1 ), "end_level" ) ) {
+		levelEndCommand = qtrue;
+	} else if ( Cmd_Argc() >= 1 && !Q_stricmp( Cmd_Argv( 0 ), "maptransition" ) ) {
+		levelEndCommand = qtrue;
+	} else if ( Cmd_Argc() >= 2 && !Q_stricmp( Cmd_Argv( 0 ), "uimenu" ) &&
+		( !Q_stricmp( Cmd_Argv( 1 ), "ingameMissionSelect" ) || !Q_stricmp( Cmd_Argv( 1 ), "ingameGotoTier" ) ) ) {
+		levelEndCommand = qtrue;
+	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 72;
+#endif
+	if(	levelEndCommand &&	// level end
 		levelSelectCheat->integer						!= -1 )		// was cheating
 	{
 		Cbuf_ExecuteText( EXEC_APPEND, "disconnect\n" );	// disconnect the player
@@ -628,51 +752,133 @@ void	Cmd_ExecuteString( const char *text ) {
 		Cvar_Set("levelSelectCheat", "-1");
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 73;
+	g_SPXBCmdLoopIndex = 0;
+	g_SPXBCmdLoopNameHash = 0;
+	g_SPXBCmdFunctionNameLast[0] = 0;
+#endif
 
 	// check registered command functions	
+#ifdef _XBOX
+	g_SPXBCmdPhase = 80;
+#endif
 	for ( int c = 0; c < CMD_MAX_NUM; ++c )
 	{
+#ifdef _XBOX
+		g_SPXBCmdLoopIndex = (unsigned int)c;
+#endif
+		if ( !cmd_functions[c].name || !cmd_functions[c].name[0] ) {
+			continue;
+		}
+#ifdef _XBOX
+		g_SPXBCmdLoopNameHash = Cmd_XboxHashText(cmd_functions[c].name);
+		g_SPXBCmdNameFirst4 = Cmd_XboxFirst4(cmd_functions[c].name);
+		Cmd_XboxCopyLast(g_SPXBCmdFunctionNameLast, sizeof(g_SPXBCmdFunctionNameLast), cmd_functions[c].name);
+#endif
 		if ( !Q_stricmp( cmd_argv[0],cmd_functions[c].name ) ) {
+#ifdef _XBOX
+			g_SPXBCmdPhase = 82;
+#endif
 			// rearrange the links so that the command will be
 			// near the head of the list next time it is used
 			cmd_function_t temp = cmd_functions[c];
 			cmd_functions[c] = cmd_functions[0];
 			cmd_functions[0] = temp;
+#ifdef _XBOX
+			g_SPXBCmdNameFirst4 = Cmd_XboxFirst4(temp.name);
+			g_SPXBCmdFunctionPtr = (unsigned int)temp.function;
+			Cmd_XboxCopyLast(g_SPXBCmdFunctionNameLast, sizeof(g_SPXBCmdFunctionNameLast), temp.name);
+#endif
 
 			// perform the action
 			if ( !temp.function ) {
 				// let the cgame or game handle it
+#ifdef _XBOX
+				g_SPXBCmdPhase = 83;
+#endif
 				break;
 			} else {
+#ifdef _XBOX
+				g_SPXBCmdPhase = 84;
+#endif
 				temp.function ();
 			}
+#ifdef _XBOX
+			g_SPXBCmdPhase = 8;
+#endif
 			return;
 		}
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 81;
+#endif
 	
 	// check cvars
+#ifdef _XBOX
+	g_SPXBCmdPhase = 90;
+#endif
 	if ( Cvar_Command() ) {
+#ifdef _XBOX
+		g_SPXBCmdPhase = 9;
+#endif
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 91;
+#endif
 
 	// check client game commands
+#ifdef _XBOX
+	g_SPXBCmdPhase = 100;
+#endif
 	if ( com_cl_running && com_cl_running->integer && CL_GameCommand() ) {
+#ifdef _XBOX
+		g_SPXBCmdPhase = 10;
+#endif
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 101;
+#endif
 
 	// check server game commands
+#ifdef _XBOX
+	g_SPXBCmdPhase = 110;
+#endif
 	if ( com_sv_running && com_sv_running->integer && SV_GameCommand() ) {
+#ifdef _XBOX
+		g_SPXBCmdPhase = 11;
+#endif
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 111;
+#endif
 
 	// check ui commands
+#ifdef _XBOX
+	g_SPXBCmdPhase = 120;
+#endif
 	if ( com_cl_running && com_cl_running->integer && UI_GameCommand() ) {
+#ifdef _XBOX
+		g_SPXBCmdPhase = 12;
+#endif
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBCmdPhase = 121;
+#endif
 
 	// send it as a server command if we are connected
 	// this will usually result in a chat message
+#ifdef _XBOX
+	g_SPXBCmdPhase = 130;
+#endif
 	CL_ForwardCommandToServer ();
+#ifdef _XBOX
+	g_SPXBCmdPhase = 13;
+#endif
 }
 
 /*

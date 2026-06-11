@@ -3479,7 +3479,7 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 #ifdef _XBOX
 	static int s_xboxGhoulAddTraceCount = 0;
 	const int xboxEntNum = ent ? ent->e.number : -1;
-	const qboolean xboxTraceGhoulAdd = (s_xboxGhoulAddTraceCount < 64 &&
+	const qboolean xboxTraceGhoulAdd = (s_xboxGhoulAddTraceCount < 0 &&
 		cls.state == CA_ACTIVE &&
 		ent && ent->e.ghoul2 &&
 		(ent->e.hModel == 0 ||
@@ -3791,7 +3791,7 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 		return;
 	}
 
-	xboxTraceGhoul = (s_xboxGhoulRbTraceCount < 64 &&
+	xboxTraceGhoul = (s_xboxGhoulRbTraceCount < 0 &&
 		cls.state == CA_ACTIVE &&
 		(xboxEntNum == 0 ||
 		 xboxEntNum == 25 ||

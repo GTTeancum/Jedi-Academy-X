@@ -1954,7 +1954,7 @@ GLboolean dllBeginFrame(void)
 		return GL_FALSE;
 	}
 #ifdef _XBOX
-	s_jampRenderMetricActive = (s_jampRenderMetricFrame < 4 || !(s_jampRenderMetricFrame % 300));
+	s_jampRenderMetricActive = qfalse;
 #endif
 	GLboolean result = glw_state->device->BeginScene() == D3D_OK;
 	return result;
@@ -3086,9 +3086,32 @@ static void PushIndices(GLsizei count, const GLushort *indices)
 	}
 }
 
+static void JAMP_CopyTexCoordStream(DWORD *dst, int unit)
+{
+	const BYTE *src = (const BYTE *)glw_state->texCoordPointer[unit];
+	const int stride = glw_state->texCoordStride[unit] ? glw_state->texCoordStride[unit] : sizeof(vec2_t);
+
+	if (!src)
+	{
+		memset(dst, 0, sizeof(vec2_t) * tess.numVertexes);
+		return;
+	}
+
+	if (stride == sizeof(vec2_t))
+	{
+		memcpy(dst, src, sizeof(vec2_t) * tess.numVertexes);
+		return;
+	}
+
+	for (int v = 0; v < tess.numVertexes; ++v)
+	{
+		memcpy(dst + (v * 2), src + (v * stride), sizeof(vec2_t));
+	}
+}
+
 #ifdef _XBOX
 #ifndef JAMP_USE_DRAWINDEXED_UP
-#define JAMP_USE_DRAWINDEXED_UP 1
+#define JAMP_USE_DRAWINDEXED_UP 0
 #endif
 
 static int s_jampUpDrawCalls;
@@ -3420,13 +3443,13 @@ static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoi
 
 	if(tex0)
 	{
-		memcpy(glw_state->drawArray, tess.svars.texcoords[0], sizeof(vec2_t) * tess.numVertexes);
+		JAMP_CopyTexCoordStream(glw_state->drawArray, 0);
 		glw_state->drawArray += tess.numVertexes * 2;
 	}
 
 	if(tex1)
 	{
-		memcpy(glw_state->drawArray, tess.svars.texcoords[1], sizeof(vec2_t) * tess.numVertexes);
+		JAMP_CopyTexCoordStream(glw_state->drawArray, 1);
 		glw_state->drawArray += tess.numVertexes * 2;
 	}
 
@@ -5435,9 +5458,10 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 		
 	}
 
-#ifdef _XBOX
+#if 0
 	// Cxbx-R reports a pushbuffer fault if the backbuffer surface is bound as
-	// a texture. Copy the pixels into the destination texture surface instead.
+	// a texture. Retail hardware can hang in this CopyRects path, so the Xbox
+	// build stays on the original render-to-texture path below.
 	pRenderTex->GetSurfaceLevel(0, &pSurface);
 
 	{

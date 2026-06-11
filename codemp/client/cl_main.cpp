@@ -6,7 +6,7 @@
 #include "client.h"
 
 #if defined(_XBOX) && !defined(JAMP_CXBX_SMOKE_SKIP_SOUND)
-#define JAMP_CXBX_SMOKE_SKIP_SOUND 1
+#define JAMP_CXBX_SMOKE_SKIP_SOUND 0
 #endif
 #include "../qcommon/stringed_ingame.h"
 #include <limits.h>
@@ -1772,7 +1772,7 @@ void CL_Frame ( int msec ) {
 #ifdef _XBOX
 	char jampCLTraceMsg[96];
 	static unsigned int jampCLTraceFrameCount;
-	jampCLTrace = (jampCLTraceFrameCount < 4 || !(jampCLTraceFrameCount & 63));
+	jampCLTrace = (jampCLTraceFrameCount < 2);
 	XBLog_Phase("CL_Frame enter");
 	jampCLTraceFrameCount++;
 	if (jampCLTrace)

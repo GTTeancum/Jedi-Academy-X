@@ -39,6 +39,7 @@ private:
 	bool	stopNextFrame;		// Used to stop movies with *correct* timing
 
 	OVERLAYINFO	Image[2];
+	void		*overlayMemory[2];
 
 	unsigned	currentImage;
 

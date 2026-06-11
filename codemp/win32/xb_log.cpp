@@ -1,5 +1,5 @@
 // xb_log.cpp
-// Dual-output logging for Xbox: OutputDebugString (CXBX-R console) + D:\ja_mp_log.txt (hardware)
+// Dual-output logging for Xbox: OutputDebugString (CXBX-R console) + E:\ja_mp_log.txt (hardware)
 // Hook: Com_Printf in common.cpp calls XBLog_Write after its normal processing.
 
 #ifdef _XBOX
@@ -21,17 +21,62 @@ extern "C" long __stdcall NtCreateFile(HANDLE*, unsigned long, XBLogObjectAttrib
 extern "C" long __stdcall NtClose(HANDLE);
 extern "C" long __stdcall NtWriteFile(HANDLE, HANDLE, void*, void*, XBLogIoStatusBlock*,
     void*, unsigned long, LARGE_INTEGER*);
+extern "C" long __stdcall NtFlushBuffersFile(HANDLE, XBLogIoStatusBlock*);
 
 static HANDLE g_logFile = INVALID_HANDLE_VALUE;
 static HANDLE g_phaseFile = INVALID_HANDLE_VALUE;
 
-// Softmod launchers mount the active game root as D:\, which leaves the log
-// beside the running XBE and makes it easy to retrieve after a crash.
-#define XB_LOG_PATH "D:\\ja_mp_log.txt"
-#define XB_PHASE_PATH "D:\\ja_mp_phase.txt"
+extern "C" {
+__declspec(dllexport) volatile unsigned int g_XBLogMirrorPos = 0;
+__declspec(dllexport) volatile char g_XBLogMirror[32768];
+__declspec(dllexport) volatile unsigned int g_XBLogWriteCount = 0;
+__declspec(dllexport) volatile char g_XBLogLastLine[512];
+__declspec(dllexport) volatile char g_XBLogLastPhase[256];
+}
+
+// Keep logs on the writable title/data partition. D: is the mounted game disc
+// when running through xemu/UnleashX, so it is not a reliable log target.
+#define XB_LOG_PATH "E:\\ja_mp_log.txt"
+#define XB_PHASE_PATH "E:\\ja_mp_phase.txt"
 
 // Max line length for the formatted output buffer
 #define XB_LOG_BUF 2048
+
+static void XBLog_MirrorWrite(const char *text, int len)
+{
+    if (!text || len <= 0)
+    {
+        return;
+    }
+
+    unsigned int pos = g_XBLogMirrorPos;
+    for (int i = 0; i < len; ++i)
+    {
+        g_XBLogMirror[pos & (sizeof(g_XBLogMirror) - 1)] = text[i];
+        ++pos;
+    }
+    g_XBLogMirror[pos & (sizeof(g_XBLogMirror) - 1)] = 0;
+    g_XBLogMirrorPos = pos;
+}
+
+static void XBLog_CopyVolatile(volatile char *dest, unsigned int destSize, const char *src)
+{
+    if (!dest || destSize == 0)
+    {
+        return;
+    }
+
+    unsigned int i = 0;
+    if (src)
+    {
+        while (src[i] && i < destSize - 1)
+        {
+            dest[i] = src[i];
+            ++i;
+        }
+    }
+    dest[i] = 0;
+}
 
 static void XBLog_RawNtWrite(const char *text, unsigned long len, unsigned long disposition)
 {
@@ -52,6 +97,7 @@ static void XBLog_RawNtWrite(const char *text, unsigned long len, unsigned long 
         FILE_ATTRIBUTE_NORMAL, 0, disposition, 0x20 | 0x02 | 0x40) >= 0)
     {
         NtWriteFile(h, NULL, NULL, NULL, &iosb, (void*)text, len, NULL);
+        NtFlushBuffersFile(h, &iosb);
         NtClose(h);
     }
 }
@@ -140,6 +186,10 @@ void XBLog_Write(const char *msg)
     buf[len+1] = '\n';
     buf[len+2] = '\0';
 
+    XBLog_MirrorWrite(buf, len + 2);
+    XBLog_CopyVolatile(g_XBLogLastLine, sizeof(g_XBLogLastLine), msg);
+    ++g_XBLogWriteCount;
+
     // OutputDebugString goes to CXBX-R console
     OutputDebugStringA(buf);
 
@@ -170,6 +220,19 @@ void XBLog_Phase(const char *msg)
 {
     if (!msg || !*msg) return;
 
+    XBLog_CopyVolatile(g_XBLogLastPhase, sizeof(g_XBLogLastPhase), msg);
+
+    DWORD now = GetTickCount();
+    bool urgent = (strstr(msg, "SEH") || strstr(msg, "exception") || strstr(msg, "invalid") ||
+        strstr(msg, "overflow") || strstr(msg, "failed") || strstr(msg, "fatal") ||
+        strstr(msg, "null"));
+
+    static DWORD s_lastPhaseWrite = 0;
+    if (!urgent && now - s_lastPhaseWrite < 250)
+    {
+        return;
+    }
+
     if (g_phaseFile == INVALID_HANDLE_VALUE)
     {
         g_phaseFile = CreateFileA(XB_PHASE_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL,
@@ -199,12 +262,10 @@ void XBLog_Phase(const char *msg)
     SetEndOfFile(g_phaseFile);
 
     static DWORD s_lastPhaseFlush = 0;
-    DWORD now = GetTickCount();
-    if (strstr(msg, "SEH") || strstr(msg, "exception") || strstr(msg, "invalid") ||
-        strstr(msg, "overflow") || strstr(msg, "failed") || strstr(msg, "fatal") ||
-        strstr(msg, "null") || now - s_lastPhaseFlush >= 250)
+    if (urgent || now - s_lastPhaseFlush >= 1000)
     {
         FlushFileBuffers(g_phaseFile);
         s_lastPhaseFlush = now;
     }
+    s_lastPhaseWrite = now;
 }

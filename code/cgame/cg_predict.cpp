@@ -429,7 +429,7 @@ void CG_InterpolatePlayerState( qboolean grabAngles ) {
 
 	bool onPlat=false;
 	centity_t	*pent=0;
-	if (out->groundEntityNum>0)
+	if (out->groundEntityNum > 0 && out->groundEntityNum < ENTITYNUM_WORLD)
 	{
 		pent=&cg_entities[out->groundEntityNum];
 		if (pent->currentState.eType == ET_MOVER ) 

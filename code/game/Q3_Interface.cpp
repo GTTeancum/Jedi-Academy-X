@@ -7766,6 +7766,21 @@ void CQuake3GameInterface::RunScript( const gentity_t *pEntity, const char *strS
 {
 	char *pBuf = NULL;
 	int iLength = 0;
+#ifdef _XBOX
+	static int s_xboxRunScriptLogBudget = 256;
+	if (s_xboxRunScriptLogBudget > 0 && strScriptName &&
+		(strstr(strScriptName, "taspir2") || strstr(strScriptName, "camera") || strstr(strScriptName, "intro")))
+	{
+		XBLF("JA: ICARUS_RUN script='%s' ent=%d class='%s' target='%s' script_target='%s' time=%d",
+			strScriptName,
+			pEntity ? pEntity->s.number : -1,
+			(pEntity && pEntity->classname) ? pEntity->classname : "",
+			(pEntity && pEntity->targetname) ? pEntity->targetname : "",
+			(pEntity && pEntity->script_targetname) ? pEntity->script_targetname : "",
+			level.time);
+		--s_xboxRunScriptLogBudget;
+	}
+#endif
 
 	switch( RegisterScript( strScriptName, (void **) &pBuf, iLength ) )
 	{
@@ -9841,11 +9856,19 @@ void	CQuake3GameInterface::CameraRoll( float angle, float duration )
 
 void	CQuake3GameInterface::CameraFollow( const char *name, float speed, float initLerp )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_FOLLOW name='%s' speed=%g init=%g time=%d map='%s'",
+		name ? name : "", speed, initLerp, level.time, level.mapname);
+#endif
 	CGCam_Follow( name, speed, initLerp );
 }
 
 void	CQuake3GameInterface::CameraTrack( const char *name, float speed, float initLerp )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_TRACK name='%s' speed=%g init=%g time=%d map='%s'",
+		name ? name : "", speed, initLerp, level.time, level.mapname);
+#endif
 	CGCam_Track( name, speed, initLerp );
 }
 
@@ -9873,16 +9896,25 @@ void	CQuake3GameInterface::CameraFade( float sr, float sg, float sb, float sa, f
 
 void	CQuake3GameInterface::CameraPath( const char *name )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_PATH name='%s' time=%d map='%s'", name ? name : "", level.time, level.mapname);
+#endif
 	CGCam_StartRoff( G_NewString( name ) );
 }
 
 void	CQuake3GameInterface::CameraEnable( void )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_ENABLE time=%d map='%s'", level.time, level.mapname);
+#endif
 	CGCam_Enable();
 }
 
 void	CQuake3GameInterface::CameraDisable( void )
 {
+#ifdef _XBOX
+	XBLF("JA: CAMERA_DISABLE time=%d map='%s'", level.time, level.mapname);
+#endif
 	CGCam_Disable();
 }
 

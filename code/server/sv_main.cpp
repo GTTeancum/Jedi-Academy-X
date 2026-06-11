@@ -5,6 +5,10 @@
 
 
 #include "server.h"
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBSvFrameCount;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -479,25 +483,61 @@ extern cvar_t	*cl_newClock;
 void SV_Frame( int msec,float fractionMsec ) {
 	int		frameMsec;
 	int		startTime=0;
+#ifdef _XBOX
+	g_SPXBSvFrameCount++;
+	g_SPXBPhaseLast = 0x53564631; /* 'SVF1' */
+	static int s_xboxSVFrameLogBudget = 8;
+	const qboolean xboxTraceSVFrame = (s_xboxSVFrameLogBudget > 0);
+	if (xboxTraceSVFrame)
+	{
+		Com_PrintfAlways("JA: SV_Frame enter msec=%d running=%d time=%d residual=%d clientState=%d\n",
+			msec,
+			com_sv_running ? com_sv_running->integer : -1,
+			sv.time,
+			sv.timeResidual,
+			svs.clients ? svs.clients[0].state : -1);
+	}
+#endif
 	
 	// the menu kills the server with this cvar
 	if ( sv_killserver->integer ) {
+#ifdef _XBOX
+		if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame exit killserver\n");
+#endif
 		SV_Shutdown ("Server was killed.\n");
 		Cvar_Set( "sv_killserver", "0" );
 		return;
 	}
 
 	if ( !com_sv_running->integer ) {
+#ifdef _XBOX
+		if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame exit not-running\n");
+#endif
 		return;
 	}
 
  	extern void SE_CheckForLanguageUpdates(void);
+#ifdef _XBOX
+	if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame before language updates\n");
+#endif
 	SE_CheckForLanguageUpdates();	// will fast-return else load different language if menu changed it
+#ifdef _XBOX
+	if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame after language updates\n");
+#endif
 
 	// allow pause if only the local client is connected
+#ifdef _XBOX
+	if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame before pause check\n");
+#endif
 	if ( SV_CheckPaused() ) {
+#ifdef _XBOX
+		if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame exit paused\n");
+#endif
 		return;
 	}
+#ifdef _XBOX
+	if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame after pause check\n");
+#endif
 
 	// go ahead and let time slip if the server really hitched badly
 	if ( msec > 1000 ) {
@@ -522,6 +562,14 @@ void SV_Frame( int msec,float fractionMsec ) {
 		}
 	}
 	if ( sv.timeResidual < frameMsec ) {
+#ifdef _XBOX
+		if (xboxTraceSVFrame)
+		{
+			Com_PrintfAlways("JA: SV_Frame exit residual-wait residual=%d frameMsec=%d\n",
+				sv.timeResidual, frameMsec);
+			--s_xboxSVFrameLogBudget;
+		}
+#endif
 		return;
 	}
 
@@ -558,7 +606,21 @@ void SV_Frame( int msec,float fractionMsec ) {
 		G2API_SetTime(sv.time,G2T_SV_TIME);
 
 		// let everything in the world think and move
+#ifdef _XBOX
+		if (xboxTraceSVFrame)
+		{
+			Com_PrintfAlways("JA: SV_Frame before ge->RunFrame time=%d residual=%d\n",
+				sv.time, sv.timeResidual);
+		}
+#endif
 		ge->RunFrame( sv.time );
+#ifdef _XBOX
+		if (xboxTraceSVFrame)
+		{
+			Com_PrintfAlways("JA: SV_Frame after ge->RunFrame time=%d residual=%d\n",
+				sv.time, sv.timeResidual);
+		}
+#endif
 	}
 
 	if ( com_speeds->integer ) {
@@ -574,7 +636,21 @@ void SV_Frame( int msec,float fractionMsec ) {
 	SV_CalcPings ();
 
 	// send messages back to the clients
+#ifdef _XBOX
+	if (xboxTraceSVFrame) Com_PrintfAlways("JA: SV_Frame before SV_SendClientMessages\n");
+#endif
 	SV_SendClientMessages ();
+#ifdef _XBOX
+	if (xboxTraceSVFrame)
+	{
+		Com_PrintfAlways("JA: SV_Frame exit sent time=%d residual=%d clientState=%d nextSnapshot=%d\n",
+			sv.time,
+			sv.timeResidual,
+			svs.clients ? svs.clients[0].state : -1,
+			svs.clients ? svs.clients[0].nextSnapshotTime : -1);
+		--s_xboxSVFrameLogBudget;
+	}
+#endif
 }
 
 //============================================================================

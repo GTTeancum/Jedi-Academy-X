@@ -14,9 +14,10 @@ default_fpu_cw dw 027Fh
 
 .code
 
-EXTERN _mainCRTStartup:PROC
-EXTERN _XBLog_PreCRTProbe:PROC
-EXTERN _XBLog_PostCRTProbe:PROC
+EXTERN _mainCRTStartup:NEAR
+EXTERN _XBLog_PreCRTProbe:NEAR
+EXTERN _XBLog_PostCRTProbe:NEAR
+EXTERN _Sleep@4:NEAR
 
 PUBLIC __ftol2_sse
 __ftol2_sse PROC NEAR
@@ -67,6 +68,8 @@ _WinMainCRTStartup PROC NEAR
     call    _mainCRTStartup
     call    _XBLog_PostCRTProbe
 @@spin:
+    push    1000
+    call    _Sleep@4
     jmp     @@spin
 _WinMainCRTStartup ENDP
 

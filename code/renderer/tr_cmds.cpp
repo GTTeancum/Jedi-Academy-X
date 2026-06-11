@@ -6,6 +6,7 @@
 #include "tr_local.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern bool Sys_IsDirectMapBoot(void);
 #endif
 
 
@@ -374,7 +375,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	drawBufferCommand_t	*cmd;
 #ifdef _XBOX
 	static int s_xboxBeginFrameCount = 0;
-	static int s_xboxBeginFrameLogBudget = 12;
+	static int s_xboxBeginFrameLogBudget = 0;
 	const qboolean xboxTraceBeginFrame = (s_xboxBeginFrameLogBudget > 0);
 	if (xboxTraceBeginFrame)
 	{
@@ -621,7 +622,14 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before RE_ProcessDissolve");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve...");
-	RE_ProcessDissolve(); // render the disolve now
+	if ( Sys_IsDirectMapBoot() )
+	{
+		if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: skipping dissolve for direct-map boot");
+	}
+	else
+	{
+		RE_ProcessDissolve(); // render the disolve now
+	}
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after RE_ProcessDissolve");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve done");
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");

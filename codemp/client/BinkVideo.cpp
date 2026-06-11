@@ -430,7 +430,7 @@ void BinkVideo::SetMasterVolume(s32 volume)
 	int i;
 	for(i = 0; i < 4; i++)
 	{
-		BinkSetVolume(bink,i,volume);
+		BinkSetVolume(bink,volume);
 	}
 #else
 	BinkSetVolume(bink,0,volume);
