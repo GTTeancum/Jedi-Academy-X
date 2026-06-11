@@ -5,6 +5,9 @@
 #include "../server/exe_headers.h"
 
 #include "../qcommon/cm_local.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
  /*
 Ghoul2 Insert Start
@@ -596,8 +599,24 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 	trace_t		trace, oldTrace;
 	clipHandle_t	clipHandle;
 	const float		*origin, *angles;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_clipLogCount = 0;
+	qboolean logThisClip = (s_clipLogCount < 64);
+#endif
 
 	num = SV_AreaEntities( clip->boxmins, clip->boxmaxs, touchlist, MAX_GENTITIES);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisClip)
+	{
+		XBLF("STEFX: SV_ClipMoveToEntities count=%d pass=%d mask=0x%x areaEnts=%d boxmins=(%g,%g,%g) boxmaxs=(%g,%g,%g)",
+			s_clipLogCount,
+			clip->passEntityNum,
+			clip->contentmask,
+			num,
+			clip->boxmins[0], clip->boxmins[1], clip->boxmins[2],
+			clip->boxmaxs[0], clip->boxmaxs[1], clip->boxmaxs[2]);
+	}
+#endif
 
 	if ( clip->passEntityNum != ENTITYNUM_NONE ) {
 		owner = ( SV_GentityNum( clip->passEntityNum ) )->owner;
@@ -610,6 +629,25 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 			return;
 		}
 		touch = touchlist[i];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (logThisClip)
+		{
+			XBLF("STEFX: SV_ClipMoveToEntities touch[%d]=%08x num=%d contents=0x%x bmodel=%d owner=%08x modelindex=%d mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+				i,
+				(unsigned int)touch,
+				touch ? touch->s.number : -1,
+				touch ? touch->contents : 0,
+				touch ? touch->bmodel : 0,
+				touch ? (unsigned int)touch->owner : 0,
+				touch ? touch->s.modelindex : -1,
+				touch ? touch->mins[0] : 0.0f,
+				touch ? touch->mins[1] : 0.0f,
+				touch ? touch->mins[2] : 0.0f,
+				touch ? touch->maxs[0] : 0.0f,
+				touch ? touch->maxs[1] : 0.0f,
+				touch ? touch->maxs[2] : 0.0f);
+		}
+#endif
 
 		// see if we should ignore this entity
 		if ( clip->passEntityNum != ENTITYNUM_NONE ) {
@@ -634,7 +672,19 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 		}
 
 		// might intersect, so do an exact clip
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (logThisClip)
+		{
+			XBLF("STEFX: SV_ClipMoveToEntities touch[%d] before ClipHandle", i);
+		}
+#endif
 		clipHandle = SV_ClipHandleForEntity (touch);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (logThisClip)
+		{
+			XBLF("STEFX: SV_ClipMoveToEntities touch[%d] clipHandle=%d before CM_TransformedBoxTrace", i, clipHandle);
+		}
+#endif
 
 		origin = touch->currentOrigin;
 		angles = touch->currentAngles;
@@ -682,6 +732,13 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 				clip->mins, clip->maxs, clipHandle,  clip->contentmask,
 				origin, angles);
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (logThisClip)
+			{
+				XBLF("STEFX: SV_ClipMoveToEntities touch[%d] after CM_TransformedBoxTrace frac=%g allsolid=%d startsolid=%d",
+					i, trace.fraction, trace.allsolid, trace.startsolid);
+			}
+#endif
 		//FIXME: when startsolid in another ent, doesn't return correct entityNum 
 		//ALSO: 2 players can be standing next to each other and this function will
 		//think they're in each other!!!
@@ -722,6 +779,7 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 Ghoul2 Insert Start
 */
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 		// decide if we should do the ghoul2 collision detection right here
 		if ((trace.entityNum == touch->s.number) && (clip->eG2TraceType != G2_NOCOLLIDE))
 		{
@@ -807,9 +865,20 @@ Ghoul2 Insert Start
 					}
 					assert(z<MAX_G2_COLLISIONS); // hmm well ah, weird
 					assert(VectorLength(clip->trace.plane.normal)>0.1f);
-				}
-			}
 		}
+	}
+#endif
+#if !defined(STEFX_ELITE_FORCE_SP)
+}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisClip)
+	{
+		XBLF("STEFX: SV_ClipMoveToEntities exit count=%d final frac=%g ent=%d allsolid=%d startsolid=%d",
+			s_clipLogCount, clip->trace.fraction, clip->trace.entityNum, clip->trace.allsolid, clip->trace.startsolid);
+	}
+	s_clipLogCount++;
+#endif
 /*
 Ghoul2 Insert End
 */
@@ -851,6 +920,22 @@ Ghoul2 Insert End
 	int			i;
 //	int			startMS, endMS;
 	float		world_frac;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_svTraceLogCount = 0;
+	qboolean logThisTrace = (s_svTraceLogCount < 64);
+	if (logThisTrace)
+	{
+		XBLF("STEFX: SV_Trace enter count=%d pass=%d mask=0x%x g2=%d start=(%g,%g,%g) end=(%g,%g,%g) mins=%08x maxs=%08x",
+			s_svTraceLogCount,
+			passEntityNum,
+			contentmask,
+			eG2TraceType,
+			start[0], start[1], start[2],
+			end[0], end[1], end[2],
+			(unsigned int)mins,
+			(unsigned int)maxs);
+	}
+#endif
 
 	/*
 	startMS = Sys_Milliseconds ();
@@ -863,7 +948,11 @@ Ghoul2 Insert End
 		maxs = vec3_origin;
 	}
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	memset ( &clip, 0, sizeof ( moveclip_t ) );
+#else
 	memset ( &clip, 0, sizeof ( moveclip_t ) - sizeof(clip.trace.G2CollisionMap ));
+#endif
 
 	// clip to world
 	//NOTE: this will stop not only on static architecture but also entity brushes such as
@@ -871,10 +960,24 @@ Ghoul2 Insert End
 	//ignore all ents past this endpoint... perhaps need to check the entityNum in this
 	//BoxTrace or have it not clip against entity brushes here.
 	CM_BoxTrace( &clip.trace, start, end, mins, maxs, 0, contentmask );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisTrace)
+	{
+		XBLF("STEFX: SV_Trace after CM_BoxTrace frac=%g allsolid=%d startsolid=%d ent=%d",
+			clip.trace.fraction, clip.trace.allsolid, clip.trace.startsolid, clip.trace.entityNum);
+	}
+#endif
 	clip.trace.entityNum = clip.trace.fraction != 1.0 ? ENTITYNUM_WORLD : ENTITYNUM_NONE;
 	if ( clip.trace.fraction == 0 ) 
 	{// blocked immediately by the world
 		*results = clip.trace;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (logThisTrace)
+		{
+			XBLF("STEFX: SV_Trace early world-block exit count=%d", s_svTraceLogCount);
+			s_svTraceLogCount++;
+		}
+#endif
 //		goto addtime;		
 		return;
 	}
@@ -935,11 +1038,32 @@ Ghoul2 Insert End
 	}
 
 	// clip to other solid entities
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisTrace)
+	{
+		XBLF("STEFX: SV_Trace before SV_ClipMoveToEntities worldFrac=%g", world_frac);
+	}
+#endif
 	SV_ClipMoveToEntities ( &clip );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisTrace)
+	{
+		XBLF("STEFX: SV_Trace after SV_ClipMoveToEntities frac=%g ent=%d allsolid=%d startsolid=%d",
+			clip.trace.fraction, clip.trace.entityNum, clip.trace.allsolid, clip.trace.startsolid);
+	}
+#endif
 
 	//scale the trace back down by the previous fraction
 	clip.trace.fraction *= world_frac;
 	*results = clip.trace;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisTrace)
+	{
+		XBLF("STEFX: SV_Trace exit count=%d frac=%g ent=%d allsolid=%d startsolid=%d",
+			s_svTraceLogCount, results->fraction, results->entityNum, results->allsolid, results->startsolid);
+	}
+	s_svTraceLogCount++;
+#endif
 
 /*
 addtime:

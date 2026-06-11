@@ -29,7 +29,14 @@ int	VM_Call( int callnum, ... )
 		{
 			const int arg0 = va_arg(ap, int);
 			va_end(ap);
-			return cgvm.entryPoint(callnum, arg0, 0, 0, 0, 0, 0, 0, 0);
+#ifdef _XBOX
+			XBLF("STEFX: VM_Call CG_INIT entry=%08x arg0=%d", (unsigned int)cgvm.entryPoint, arg0);
+#endif
+			result = cgvm.entryPoint(callnum, arg0, 0, 0, 0, 0, 0, 0, 0);
+#ifdef _XBOX
+			XBLF("STEFX: VM_Call CG_INIT returned %d", result);
+#endif
+			return result;
 		}
 		case CG_DRAW_ACTIVE_FRAME:
 		{

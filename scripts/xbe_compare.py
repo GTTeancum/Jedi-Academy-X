@@ -185,7 +185,7 @@ def read_kernel_thunks(data, header, label):
 
 def main():
     a_path = "Star Wars Jedi Academy game/default.xbe"
-    b_path = "code/x_exe/Release/default.xbe"
+    b_path = "build/release/default.xbe"
 
     a_data, a_hdr = parse_header(a_path)
     b_data, b_hdr = parse_header(b_path)

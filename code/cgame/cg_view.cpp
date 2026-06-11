@@ -2031,15 +2031,17 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 #ifdef _XBOX
 	static int s_xboxDrawActiveFrameCount = 0;
-	const int s_xboxDrawActiveLog = 0;
+	const int s_xboxDrawActiveLog = (serverTime >= 3600 && serverTime <= 4600);
 	if (s_xboxDrawActiveLog)
 	{
-		XBLF("JA: CG_DrawActiveFrame #%d enter serverTime=%d stereo=%d snap=%p next=%p",
+		XBLF("JA: CL_EARLY CG_DrawActiveFrame #%d enter serverTime=%d stereo=%d snap=%p next=%p",
 			s_xboxDrawActiveFrameCount, serverTime, (int)stereoView, (void*)cg.snap, (void*)cg.nextSnap);
 	}
 #endif
 
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before set cg.time");
 	cg.time = serverTime;
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after set cg.time");
 
 	// update cvars
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_UpdateCvars...");
@@ -2091,21 +2093,27 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 	if (s_xboxDrawActiveLog)
 	{
-		XBLF("JA: CG_DrawActiveFrame: snap ready client=%d weapon=%d health=%d",
+		XBLF("JA: CL_EARLY CG_DrawActiveFrame: snap ready client=%d weapon=%d health=%d",
 			cg.snap->ps.clientNum, cg.snap->ps.weapon, cg.snap->ps.stats[STAT_HEALTH]);
 	}
 
 	// make sure the lagometerSample and frame timing isn't done twice when in stereo
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before frametime");
 	if ( stereoView != STEREO_RIGHT ) {
 		cg.frametime = cg.time - cg.oldTime;
 		cg.oldTime = cg.time;
 	}
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after frametime");
 	// Make sure the helper has the updated time
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before AdjustTime");
 	theFxHelper.AdjustTime( cg.frametime );
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after AdjustTime");
 
 	// let the client system know what our weapon and zoom settings are
 	//FIXME: should really send forcePowersActive over network onto cg.snap->ps...
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before speed calc");
 	float speed = cg.refdef.fov_y / 75.0 * ((cg_entities[0].gent->client->ps.forcePowersActive&(1<<FP_SPEED))?1.0f:cg_timescale.value);
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after speed calc");
 
 //FIXME: junk code, BUG:168
 
@@ -2123,6 +2131,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	float mYawOverride = 0.0f;
 	if ( cg.snap->ps.clientNum == 0 )
 	{//pointless check, but..
+		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before vehicle check");
 		if ( cg_entities[0].gent->s.eFlags & EF_LOCKED_TO_WEAPON ) 
 		{
 			speed *= 0.25f;
@@ -2141,11 +2150,16 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 				mYawOverride = pVeh->m_pVehicleInfo->mouseYaw; 
 			}
 		}
+		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after vehicle check");
 	}
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before SetUserCmdValue");
 	cgi_SetUserCmdValue( cg.weaponSelect, speed, mPitchOverride, mYawOverride );
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after SetUserCmdValue");
 
 	// this counter will be bumped for every valid scene we generate
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before clientFrame increment");
 	cg.clientFrame++;
+	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame after clientFrame increment");
 
 	// update cg.predicted_player_state
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState...");

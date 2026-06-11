@@ -121,7 +121,7 @@ cmd = [
     imagebld,
     '/IN:'   + temp_exe,
     '/OUT:'  + xbe_path,
-    '/TESTNAME:Jedi Knight: Jedi Academy',
+    '/TESTNAME:Star Trek: Elite Force',
     '/TESTID:0x4C41000B',
     '/TESTLANKEY:4C41000B4C41000B4C41000B4C41000B',
     '/STACK:0x40000',

@@ -1031,9 +1031,21 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	g_SPXBClServerTime = (unsigned int)cl.serverTime;
 	g_SPXBClsFrameCount = (unsigned int)cls.framecount;
 	g_SPXBPhaseLast = 0x434C4631; /* 'CLF1' */
+	const qboolean xboxTraceEarlyActive = (cls.state == CA_ACTIVE && cls.framecount >= 54 && cls.framecount < 70);
+	if (xboxTraceEarlyActive)
+	{
+		XBLF("JA: CL_EARLY enter staticFrame=%u clsFrame=%d realtime=%d serverTime=%d msec=%d frac=%g state=%d",
+			frameCount, cls.framecount, cls.realtime, cl.serverTime, msec, fractionMsec, (int)cls.state);
+	}
 #endif
 
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before checkAutoSave");
+#endif
 	checkAutoSave();	//saves the game immediately after starting a level
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after checkAutoSave");
+#endif
 
 	if ( !com_cl_running->integer ) {
 #ifdef _XBOX
@@ -1061,36 +1073,55 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		{
 		char startupMap[MAX_QPATH];
 		startupMap[0] = '\0';
-		FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
-		if (startupMapFile)
+		const char *startupMapPaths[] = {
+			"D:\\ef_sp_level.txt",
+			"D:\\ja_sp_level.txt",
+			NULL
+		};
+		int startupMapPathIndex;
+		for (startupMapPathIndex = 0; startupMapPaths[startupMapPathIndex] && !startupMap[0]; ++startupMapPathIndex)
 		{
-			char fileMap[MAX_QPATH];
-			if (fgets(fileMap, sizeof(fileMap), startupMapFile))
+			FILE *startupMapFile = fopen(startupMapPaths[startupMapPathIndex], "r");
+			if (startupMapFile)
 			{
-				fileMap[strcspn(fileMap, "\r\n\t ")] = '\0';
-				if (fileMap[0])
+				char fileMap[MAX_QPATH];
+				if (fgets(fileMap, sizeof(fileMap), startupMapFile))
 				{
-					Q_strncpyz(startupMap, fileMap, sizeof(startupMap));
+					fileMap[strcspn(fileMap, "\r\n\t ")] = '\0';
+					if (fileMap[0])
+					{
+						Q_strncpyz(startupMap, fileMap, sizeof(startupMap));
+						XBLF("JA: CL_Frame firstRun: startup map '%s' from %s", startupMap, startupMapPaths[startupMapPathIndex]);
+					}
 				}
+				fclose(startupMapFile);
 			}
-			fclose(startupMapFile);
 		}
 
-		FILE *startupCommandFile = fopen("D:\\ja_sp_commands.txt", "r");
-		if (startupCommandFile)
+		const char *startupCommandPaths[] = {
+			"D:\\ef_sp_commands.txt",
+			"D:\\ja_sp_commands.txt",
+			NULL
+		};
+		int startupCommandPathIndex;
+		for (startupCommandPathIndex = 0; startupCommandPaths[startupCommandPathIndex]; ++startupCommandPathIndex)
 		{
-			char commandLine[1024];
-			while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
+			FILE *startupCommandFile = fopen(startupCommandPaths[startupCommandPathIndex], "r");
+			if (startupCommandFile)
 			{
-				commandLine[strcspn(commandLine, "\r\n")] = '\0';
-				if (commandLine[0])
+				char commandLine[1024];
+				while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
 				{
-					XBLF("JA: CL_Frame firstRun: queue startup command '%s'", commandLine);
-					Cbuf_AddText(commandLine);
-					Cbuf_AddText("\n");
+					commandLine[strcspn(commandLine, "\r\n")] = '\0';
+					if (commandLine[0])
+					{
+						XBLF("JA: CL_Frame firstRun: queue startup command '%s' from %s", commandLine, startupCommandPaths[startupCommandPathIndex]);
+						Cbuf_AddText(commandLine);
+						Cbuf_AddText("\n");
+					}
 				}
+				fclose(startupCommandFile);
 			}
-			fclose(startupCommandFile);
 		}
 		if (startupMap[0])
 		{
@@ -1106,7 +1137,18 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #endif
 
 	// load the ref / cgame if needed
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_StartHunkUsers");
+#endif
 	CL_StartHunkUsers();
+#ifdef _XBOX
+	if (xboxTraceEarlyActive)
+	{
+		XBLF("JA: CL_EARLY after CL_StartHunkUsers state=%d ui=%d cgame=%d sv=%d",
+			(int)cls.state, (int)cls.uiStarted, (int)cls.cgameStarted,
+			(int)com_sv_running->integer);
+	}
+#endif
 
 #if defined (_XBOX)	//xbox doesn't load ui in StartHunkUsers, so check it here
 	static int s_xboxClFrameHunkLogBudget = 0;
@@ -1192,11 +1234,20 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		s_xboxTraceClTight = qtrue;
 	}
 	s_xboxFrameHeartbeat++;
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_XboxAutoSmokeTick");
+#endif
 	CL_XboxAutoSmokeTick();
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_XboxAutoSmokeTick");
+#endif
 #endif
 
 
 	// if recording an avi, lock to a fixed fps
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY before avidemo value=%d", cl_avidemo->integer);
+#endif
 	if ( cl_avidemo->integer ) {
 		// save the current screen
 		if ( cls.state == CA_ACTIVE ) {
@@ -1213,6 +1264,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			msec = 1000 / -cl_avidemo->integer;
 		}
 	}
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY after avidemo msec=%d", msec);
+#endif
 
 	// save the msec before checking pause
 	cls.realFrametime = msec;
@@ -1244,6 +1298,13 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	}
 	int bias = lodBiasCvar ? lodBiasCvar->integer : 0;
 	static qboolean wasInCamera = qfalse;
+#ifdef _XBOX
+	if (xboxTraceEarlyActive)
+	{
+		XBLF("JA: CL_EARLY before lod staticFrame=%u avg=%g framerate=%g bias=%d inCamera=%d",
+			frameCount, avgFrametime, framerate, bias, in_camera ? 1 : 0);
+	}
+#endif
 	if(!(frameCount&0x1f))
 	{
         if(cl_framerate->integer)
@@ -1257,27 +1318,51 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		// If we drop below 20FPS, pull down the LOD bias
 		if(framerate < 20.0f && bias == 0)
 		{
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY before Cvar_SetValue lowfps bias=%d framerate=%g", bias + 1, framerate);
+#endif
 			bias++;
 			Cvar_SetValue("r_lodbias", bias);
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY after Cvar_SetValue lowfps bias=%d", bias);
+#endif
 			lodFrameCount = -1;
 		}
 
 		lodFrameCount++;
 		if(lodFrameCount==5 && bias > 0)
 		{
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY before Cvar_SetValue recover bias=%d", bias - 1);
+#endif
 			bias--;
 			Cvar_SetValue("r_lodbias", bias);
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY after Cvar_SetValue recover bias=%d", bias);
+#endif
 			lodFrameCount = 0;
 		}
 	}
 	frameCount++;
+#ifdef _XBOX
+	if (xboxTraceEarlyActive)
+	{
+		XBLF("JA: CL_EARLY after lod staticFrame=%u bias=%d lodFrameCount=%d", frameCount, bias, lodFrameCount);
+	}
+#endif
 
 	if(in_camera)
 	{
 		// No LOD stuff during cutscenes
 		if ( !wasInCamera || bias != 0 )
 		{
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before camera Cvar_SetValue r_lodbias 0");
+#endif
 			Cvar_SetValue("r_lodbias", 0);
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after camera Cvar_SetValue r_lodbias 0");
+#endif
 		}
 	}
 	wasInCamera = in_camera ? qtrue : qfalse;
@@ -1301,66 +1386,126 @@ void CL_Frame ( int msec,float fractionMsec ) {
 
 #ifdef _XBOX
 	//Check on the hot swappable button states.
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_UpdateHotSwap");
 	CL_UpdateHotSwap();
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_UpdateHotSwap");
 #endif
 
 	// see if we need to update any userinfo
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_CheckUserinfo");
+#endif
 	CL_CheckUserinfo();
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_CheckUserinfo");
+#endif
 
 	// if we haven't gotten a packet in a long time,
 	// drop the connection
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_CheckTimeout");
+#endif
 	CL_CheckTimeout();
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_CheckTimeout");
+#endif
 
 	// send intentions now
 #ifdef _XBOX
 	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before CL_SendCmd");
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_SendCmd");
 #endif
 	CL_SendCmd();
 #ifdef _XBOX
 	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after CL_SendCmd");
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_SendCmd");
 #endif
 
 	// resend a connection request if necessary
 #ifdef _XBOX
 	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before CL_CheckForResend");
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_CheckForResend");
 #endif
 	CL_CheckForResend();
 #ifdef _XBOX
 	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after CL_CheckForResend");
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_CheckForResend");
 #endif
 
 	// decide on the serverTime to render
 #ifdef _XBOX
 	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before CL_SetCGameTime");
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before CL_SetCGameTime");
 #endif
 	CL_SetCGameTime();
 #ifdef _XBOX
 	if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after CL_SetCGameTime");
+	if (xboxTraceEarlyActive)
+	{
+		XBLF("JA: CL_EARLY after CL_SetCGameTime state=%d realtime=%d serverTime=%d pano=%d panoShots=%d skip=%d skipMod=%d end=%d dev=%d",
+			(int)cls.state, cls.realtime, cl.serverTime,
+			cl_pano ? cl_pano->integer : -1,
+			cl_panoNumShots ? cl_panoNumShots->integer : -1,
+			cl_skippingcin ? cl_skippingcin->integer : -1,
+			cl_skippingcin ? cl_skippingcin->modified : -1,
+			cl_endcredits ? cl_endcredits->integer : -1,
+			com_developer ? com_developer->integer : -1);
+	}
 #endif
 
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before pano check");
+#endif
 	if (cl_pano->integer && cls.state == CA_ACTIVE) {	//grab some panoramic shots
 		int i = 1;
 		int pref = cl_pano->integer;
 		int oldnoprint = cl_noprint->integer;
+#ifdef _XBOX
+		if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY pano branch shots=%d pref=%d", cl_panoNumShots->integer, pref);
+#endif
 		Con_Close();
 		cl_noprint->integer = 1;	//hide the screen shot msgs
 		for (; i <= cl_panoNumShots->integer; i++) {
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY pano before SCR_UpdateScreen shot=%d", i);
+#endif
 			Cvar_SetValue( "pano", i );
 			SCR_UpdateScreen();// update the screen
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY pano after SCR_UpdateScreen shot=%d", i);
+#endif
 			Cbuf_ExecuteText( EXEC_NOW, va("screenshot %dpano%02d\n", pref, i) );	//grab this screen
 		}
 		Cvar_SetValue( "pano", 0 );	//done
 		cl_noprint->integer = oldnoprint;
 	}
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after pano check");
+#endif
 
+#ifdef _XBOX
+	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before skippingcin check");
+#endif
 	if (cl_skippingcin->integer && !cl_endcredits->integer && !com_developer->integer ) {
+#ifdef _XBOX
+		if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY skippingcin branch modified=%d", cl_skippingcin->modified);
+#endif
 		if (cl_skippingcin->modified){
 			S_StopSounds();		//kill em all but music	
 			cl_skippingcin->modified=qfalse;
 			Com_Printf (va(S_COLOR_YELLOW"%s"), SE_GetString("CON_TEXT_SKIPPING"));
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY skippingcin before SCR_UpdateScreen");
+#endif
 			SCR_UpdateScreen();
+#ifdef _XBOX
+			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY skippingcin after SCR_UpdateScreen");
+#endif
 		}
 	} else {
+#ifdef _XBOX
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY normal screen branch");
+#endif
 		// update the screen
 #ifdef _XBOX
 		if (cls.state < CA_LOADING && !(cls.uiStarted && (cls.keyCatchers & KEYCATCH_UI)))
@@ -1378,7 +1523,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		{
 			static int s_xboxActiveScreenBoundaryCount = 0;
 			static int s_xboxLoadScreenBoundaryCount = 0;
-			const qboolean xboxTraceActiveScreen = qfalse;
+			const qboolean xboxTraceActiveScreen = (cls.state == CA_ACTIVE &&
+				(s_xboxActiveScreenBoundaryCount < 10 || (cls.framecount >= 18 && cls.framecount < 30) || (cls.framecount >= 35 && cls.framecount < 70)));
 			const qboolean xboxTraceLoadScreen = (cls.state >= CA_LOADING && cls.state < CA_ACTIVE && s_xboxLoadScreenBoundaryCount < 32);
 			if (s_xboxTraceClTight)
 			{
@@ -1400,7 +1546,17 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				XBLF("JA: CL_Frame: before SCR_UpdateScreen loading count=%d state=%d realtime=%d serverTime=%d",
 					s_xboxLoadScreenBoundaryCount, (int)cls.state, cls.realtime, cl.serverTime);
 			}
+			if (xboxTraceEarlyActive)
+			{
+				XBLF("JA: CL_EARLY before SCR_UpdateScreen state=%d activeCount=%d realtime=%d serverTime=%d",
+					(int)cls.state, s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
+			}
 			SCR_UpdateScreen();
+			if (xboxTraceEarlyActive)
+			{
+				XBLF("JA: CL_EARLY after SCR_UpdateScreen state=%d activeCount=%d realtime=%d serverTime=%d",
+					(int)cls.state, s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
+			}
 			if (s_xboxTraceClTight)
 			{
 				XBLF("JA: CL_TIGHT frame=%u after SCR_UpdateScreen realtime=%d serverTime=%d",
@@ -1437,7 +1593,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #ifdef _XBOX
 	{
 		static int s_xboxActiveFrameTailCount = 0;
-		const qboolean xboxTraceActiveTail = qfalse;
+		const qboolean xboxTraceActiveTail = (cls.state == CA_ACTIVE &&
+			(s_xboxActiveFrameTailCount < 10 || (cls.framecount >= 18 && cls.framecount < 30) || (cls.framecount >= 35 && cls.framecount < 70)));
 		static qboolean s_xboxLoggedAudioSkip = qfalse;
 		static int s_xboxBootTailLogBudget = 0;
 		const qboolean xboxTraceBootTail = (s_xboxBootTailLogBudget > 0);
@@ -1452,7 +1609,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				frameCount, (int)cls.state, (int)cls.uiStarted, (int)cls.cgameStarted,
 				(int)com_sv_running->integer, (unsigned int)cls.keyCatchers);
 		}
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before S_Update");
 		S_Update();
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after S_Update");
 		if (xboxTraceBootTail)
 		{
 			XBLF("JA: CL_BOOT_TAIL after S_Update frame=%u state=%d", frameCount, (int)cls.state);
@@ -1468,7 +1627,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before SCR_RunCinematic");
 		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before SCR_RunCinematic");
 		else if (xboxTraceBootTail) XBLog_Write("JA: CL_BOOT_TAIL before SCR_RunCinematic");
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before SCR_RunCinematic");
 		SCR_RunCinematic();
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after SCR_RunCinematic");
 		if (s_xboxTraceClTight) XBLF("JA: CL_TIGHT frame=%u after SCR_RunCinematic", frameCount);
 		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE after SCR_RunCinematic");
 		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: after SCR_RunCinematic");
@@ -1478,7 +1639,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		else if (s_xboxTraceClPhase) XBLog_Write("JA: CL_PHASE before Con_RunConsole");
 		else if (xboxTraceActiveTail) XBLog_Write("JA: CL_Frame: before Con_RunConsole");
 		else if (xboxTraceBootTail) XBLog_Write("JA: CL_BOOT_TAIL before Con_RunConsole");
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before Con_RunConsole");
 		Con_RunConsole();
+		if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after Con_RunConsole");
 		if (s_xboxTraceClTight)
 		{
 			XBLF("JA: CL_TIGHT frame=%u after Con_RunConsole", frameCount);
@@ -1577,7 +1740,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			g_SPXBHeartbeatFps10 = fps10;
 
 			_snprintf(msg, sizeof(msg),
-				"JA: FRAME_HEARTBEAT frame=%d rt=%d st=%d fd=%d el=%d fps=%d.%d r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u\n",
+				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%d.%d r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u\n",
 				cls.framecount,
 				cls.realtime,
 				cl.serverTime,
@@ -1617,6 +1780,19 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			s_xboxLastSplitEntity = g_SPXBRenderSplitEntity;
 			s_xboxLastSplitFinal = g_SPXBRenderSplitFinal;
 			s_xboxLastSplitFlush = g_SPXBRenderSplitFlush;
+		}
+	}
+	if (cls.state == CA_ACTIVE)
+	{
+		static int s_xboxActiveCLExitLogBudget = 16;
+		if (s_xboxActiveCLExitLogBudget > 0 || (cls.framecount >= 35 && cls.framecount < 70))
+		{
+			XBLF("JA: CL_Frame exit active framecount=%d realtime=%d serverTime=%d newSnapshots=%d frameValid=%d",
+				cls.framecount, cls.realtime, cl.serverTime, (int)cl.newSnapshots, (int)cl.frame.valid);
+			if (s_xboxActiveCLExitLogBudget > 0)
+			{
+				--s_xboxActiveCLExitLogBudget;
+			}
 		}
 	}
 #endif

@@ -1522,6 +1522,21 @@ void R_AddEntitySurfaces (void) {
 				case MOD_BRUSH:
 					R_AddBrushModelSurfaces( ent );
 					break;
+#ifdef STEFX_ELITE_FORCE_SP
+				case MOD_STEFX_MDR_PLACEHOLDER:
+					{
+						static int s_stefxMdrSkipLogCount = 0;
+						if (s_stefxMdrSkipLogCount < 32)
+						{
+							XBLF("EF: skipping MDR placeholder render ent=%d hModel=%d name='%s'",
+								ent->e.number,
+								ent->e.hModel,
+								tr.currentModel->name);
+							s_stefxMdrSkipLogCount++;
+						}
+					}
+					break;
+#endif
 /*
 Ghoul2 Insert Start
 */

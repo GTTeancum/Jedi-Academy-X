@@ -17,6 +17,9 @@
 #include "../qcommon/fixedmap.h"
 #include "../zlib/zlib.h"
 #include "../qcommon/files.h"
+#ifdef _XBOX
+#include "xb_log.h"
+#endif
 
 /***********************************************
 *
@@ -41,6 +44,55 @@ static VVFixedMap< FileInfo, unsigned int >* s_Files = NULL;
 static byte* buffer;
 
 HANDLE s_Mutex = INVALID_HANDLE_VALUE;
+
+static void Sys_ClearFileCodesMap(void)
+{
+	if (!s_Files)
+	{
+		return;
+	}
+
+	FileInfo* info = s_Files->Pop();
+	while (info)
+	{
+		Z_Free(info->name);
+		info->name = NULL;
+		info = s_Files->Pop();
+	}
+
+	delete s_Files;
+	s_Files = NULL;
+}
+
+static bool Sys_FileCodesContainsPath(const char* osname)
+{
+	if (!s_Files || !osname || !osname[0])
+	{
+		return false;
+	}
+
+	char lowered[MAX_OSPATH];
+	Q_strncpyz(lowered, osname, sizeof(lowered));
+	strlwr(lowered);
+	unsigned int code = crc32(0, (const byte *)lowered, strlen(lowered));
+	return s_Files->Find(code) != NULL;
+}
+
+static bool Sys_FileCodesHaveStartupProbe(void)
+{
+#ifdef STEFX_ELITE_FORCE_SP
+	char probe[MAX_OSPATH];
+	Com_sprintf(probe, sizeof(probe), "d:\\%s\\default.cfg", BASEGAME);
+	if (!Sys_FileCodesContainsPath(probe))
+	{
+#ifdef _XBOX
+		XBLog_Write(va("EF: Sys_InitFileCodes cache missing startup probe '%s'", probe));
+#endif
+		return false;
+	}
+#endif
+	return true;
+}
 
 int _buildFileList(const char* path, bool insert, bool buildList)
 {
@@ -237,18 +289,40 @@ bool Sys_SaveFileCodes(void)
 void Sys_InitFileCodes(void)
 {
 	bool ret;
-	int count = 0;
 
 	Z_PushNewDeleteTag( TAG_FILELIST );
 
 	// First: try to load an existing filecode cache
+#ifdef _XBOX
+	XBLog_Write("EF: Sys_InitFileCodes loading xbx_filelist");
+#endif
 	ret = _buildFileListFromSavedList();
+#ifdef _XBOX
+	XBLog_Write(ret ? "EF: Sys_InitFileCodes loaded xbx_filelist" : "EF: Sys_InitFileCodes no usable xbx_filelist");
+#endif
+
+	if (ret)
+	{
+		s_Files->Sort();
+	}
+
+	if (ret && !Sys_FileCodesHaveStartupProbe())
+	{
+#ifdef _XBOX
+		XBLog_Write("EF: Sys_InitFileCodes stale xbx_filelist; rebuilding");
+#endif
+		Sys_ClearFileCodesMap();
+		ret = false;
+	}
 
 	// if we had trouble building the list that way
 	// we need to do it by searching the files
 	if( !ret )
 	{
 		// There was no filelist cache, make one
+#ifdef _XBOX
+		XBLog_Write("EF: Sys_InitFileCodes saving rebuilt xbx_filelist");
+#endif
 		if( !Sys_SaveFileCodes() )
 		{
 			Com_Printf("WARNING: Couldn't create filecode cache - continuing without it\n");
@@ -258,6 +332,9 @@ void Sys_InitFileCodes(void)
 		}
 
 		// Now re-read it
+#ifdef _XBOX
+		XBLog_Write("EF: Sys_InitFileCodes reloading rebuilt xbx_filelist");
+#endif
 		if( !_buildFileListFromSavedList() )
 		{
 			Com_Printf("WARNING: Couldn't re-read filecode cache - continuing without it\n");
@@ -265,7 +342,14 @@ void Sys_InitFileCodes(void)
 			s_Mutex = CreateMutex(NULL, FALSE, NULL);
 			return;
 		}
+		s_Files->Sort();
 	}
+
+	if (!Sys_FileCodesHaveStartupProbe())
+	{
+		Com_Printf("WARNING: filecode cache still lacks %s/default.cfg\n", BASEGAME);
+	}
+
 	s_Files->Sort();
 
 	Z_PopNewDeleteTag();
@@ -276,18 +360,7 @@ void Sys_InitFileCodes(void)
 
 void Sys_ShutdownFileCodes(void)
 {
-	FileInfo*	info = NULL;
-
-	info = s_Files->Pop();
-	while(info)
-	{
-		Z_Free(info->name);
-		info->name = NULL;
-		info = s_Files->Pop();
-	}
-
-	delete s_Files;
-	s_Files = NULL;
+	Sys_ClearFileCodesMap();
 
 	CloseHandle(s_Mutex);
 }

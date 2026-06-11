@@ -2,15 +2,17 @@
 Disassemble each static ctor thunk from .CRT$XCU in our rebuilt default.exe,
 resolve call targets against default.map, and identify what each ctor does.
 """
+from pathlib import Path
 import struct, sys, re
 try:
     import capstone
 except ImportError:
     print("pip install capstone"); sys.exit(1)
 
-EXE = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.exe"
-MAP = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.map"
-OUT = r"C:\Programming\GitHub\Jedi-Academy-X\scripts\output\phase3_ctors.txt"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXE = REPO_ROOT / "build" / "release" / "default.exe"
+MAP = REPO_ROOT / "build" / "release" / "default.map"
+OUT = REPO_ROOT / "scripts" / "output" / "phase3_ctors.txt"
 
 with open(EXE, "rb") as f:
     raw = f.read()

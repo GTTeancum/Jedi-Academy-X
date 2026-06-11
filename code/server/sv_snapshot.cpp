@@ -812,6 +812,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			continue;
 		}
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 		if (ent->s.isPortalEnt)
 		{ //rww - portal entities are always sent as well
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
@@ -830,6 +831,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 #endif
 			continue;
 		}
+#endif
 
 		if ( sightOn )
 		{//force sight is on, sees through portals, so draw them always if in radius

@@ -2,6 +2,9 @@
 #include "../game/q_shared.h"
 #include "qcommon.h"
 #include "files.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 #include "../win32/win_file.h"
 #include "../zlib/zlib.h"
 
@@ -682,8 +685,12 @@ void FS_Startup( const char *gameName )
 	fs_copyfiles = Cvar_Get( "fs_copyfiles", "0", CVAR_INIT );
 	fs_cdpath = Cvar_Get ("fs_cdpath", Sys_DefaultCDPath(), CVAR_INIT );	
 	fs_basepath = Cvar_Get ("fs_basepath", Sys_DefaultBasePath(), CVAR_INIT );
-	fs_gamedirvar = Cvar_Get ("fs_game", "base", CVAR_INIT|CVAR_SERVERINFO );
+	fs_gamedirvar = Cvar_Get ("fs_game", gameName, CVAR_INIT|CVAR_SERVERINFO );
 	fs_restrict = Cvar_Get ("fs_restrict", "", CVAR_INIT );
+	Q_strncpyz( fs_gamedir, fs_gamedirvar->string[0] ? fs_gamedirvar->string : gameName, sizeof( fs_gamedir ) );
+#ifdef _XBOX
+	XBLog_Write(va("EF: FS_Startup basepath='%s' gamedir='%s' fs_game='%s'", fs_basepath->string, fs_gamedir, fs_gamedirvar->string));
+#endif
 
 	gi_handles = new gi_handleTable[MAX_FILE_HANDLES];
 	for (int f = 0; f < MAX_FILE_HANDLES; ++f)

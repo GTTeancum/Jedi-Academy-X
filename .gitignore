@@ -11,3 +11,9 @@
 *.lai
 *.la
 *.a
+
+# Xbox build outputs and local smoke-test artifacts
+/build/
+/code/goblib/Release/
+/code/x_exe/Release/
+/scripts/output/

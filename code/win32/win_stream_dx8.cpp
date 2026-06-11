@@ -21,6 +21,7 @@
 #include <windows.h>
 #elif defined(_XBOX)
 #include <xtl.h>
+#include "xb_log.h"
 #endif
 
 extern void Z_SetNewDeleteTemporary(bool);
@@ -139,7 +140,7 @@ static DWORD WINAPI _streamThread(LPVOID)
 
 				WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
 
-				crap = soundLookup->Find(strm->file);
+				crap = soundLookup ? soundLookup->Find(strm->file) : NULL;
 
 				if(crap)
 				{
@@ -260,7 +261,7 @@ int Sys_StreamOpen(int code, streamHandle_t *handle)
 	}
 
 	// Find the file size
-	sound_file_t*	crap	= soundLookup->Find(code);
+	sound_file_t*	crap	= soundLookup ? soundLookup->Find(code) : NULL;
 	int				size	= -1;
 	if(crap)
 	{
@@ -353,7 +354,7 @@ unsigned int Sys_GetSoundFileCode(const char* name)
 unsigned int Sys_GetSoundFileCodeFlags(unsigned int code)
 {
 	sound_file_t*	sf;
-	sf	= soundLookup->Find(code);
+	sf	= soundLookup ? soundLookup->Find(code) : NULL;
 
 	if(!sf)
 	{
@@ -368,7 +369,7 @@ unsigned int Sys_GetSoundFileCodeFlags(unsigned int code)
 int Sys_GetSoundFileCodeSize(unsigned int code)
 {
 	sound_file_t*	sf;
-	sf	= soundLookup->Find(code);
+	sf	= soundLookup ? soundLookup->Find(code) : NULL;
 
 	if(!sf)
 	{
@@ -436,6 +437,11 @@ extern const char *Sys_RemapPath( const char *filename );
 
 void Sys_StreamInitialize( void )
 {
+	if (soundLookup)
+	{
+		return;
+	}
+
 	// open the sound file
 	soundfile	= CreateFile(
 		Sys_RemapPath("base\\soundbank\\sound.bnk"),
@@ -445,6 +451,12 @@ void Sys_StreamInitialize( void )
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_READONLY | FILE_FLAG_RANDOM_ACCESS,
 		NULL );
+
+	if (soundfile == INVALID_HANDLE_VALUE)
+	{
+		XBLog_Write("EF: Sys_StreamInitialize sound.bnk missing; disabling JA soundbank streaming");
+		return;
+	}
 
 	// fill in the lookup table
 	HANDLE	table	= INVALID_HANDLE_VALUE;
@@ -458,12 +470,40 @@ void Sys_StreamInitialize( void )
 		FILE_ATTRIBUTE_NORMAL,
 		NULL );
 
+	if (table == INVALID_HANDLE_VALUE)
+	{
+		XBLog_Write("EF: Sys_StreamInitialize sound.tbl missing; disabling JA soundbank streaming");
+		CloseHandle(soundfile);
+		soundfile = INVALID_HANDLE_VALUE;
+		return;
+	}
+
 	DWORD	fileSize	= 0;
 	fileSize = GetFileSize(
 		table,
 		NULL);
 
-	int numberOfRecords	= fileSize / ((sizeof(unsigned int) * 3) + 1);
+	const DWORD recordSize = (sizeof(unsigned int) * 3) + 1;
+	if (fileSize == INVALID_FILE_SIZE || fileSize == 0 || (fileSize % recordSize) != 0)
+	{
+		XBLog_Write(va("EF: Sys_StreamInitialize invalid sound.tbl size=%u; disabling JA soundbank streaming", (unsigned int)fileSize));
+		CloseHandle(table);
+		CloseHandle(soundfile);
+		soundfile = INVALID_HANDLE_VALUE;
+		return;
+	}
+
+	int numberOfRecords	= fileSize / recordSize;
+	if (numberOfRecords <= 0 || numberOfRecords > 131072)
+	{
+		XBLog_Write(va("EF: Sys_StreamInitialize suspicious sound.tbl records=%d size=%u; disabling JA soundbank streaming", numberOfRecords, (unsigned int)fileSize));
+		CloseHandle(table);
+		CloseHandle(soundfile);
+		soundfile = INVALID_HANDLE_VALUE;
+		return;
+	}
+
+	XBLog_Write(va("EF: Sys_StreamInitialize soundbank records=%d size=%u", numberOfRecords, (unsigned int)fileSize));
 
 	soundLookup = new VVFixedMap<sound_file_t, unsigned int>(numberOfRecords);
 

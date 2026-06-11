@@ -28,7 +28,7 @@ $outputDir = Join-Path $repoRoot "scripts\output"
 $defaultIso = Join-Path $repoRoot "build\xemu\JediAcademyX_SP_direct.iso"
 $stageDir = Join-Path $repoRoot "build\xemu\sp_direct_stage"
 $stageXbe = Join-Path $stageDir "default.xbe"
-$builtXbe = Join-Path $repoRoot "code\x_exe\Release\default.xbe"
+$builtXbe = Join-Path $repoRoot "build\release\default.xbe"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
 
 if ([string]::IsNullOrWhiteSpace($Iso)) {

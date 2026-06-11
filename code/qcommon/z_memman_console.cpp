@@ -56,6 +56,12 @@
 #include <Xtl.h>
 #include "../cgame/cg_local.h"
 #include "../win32/xbox_texture_man.h"
+extern "C" void XBLog_Print(const char *msg);
+extern "C" volatile unsigned int g_SPXBBootPhase;
+#if defined(_MSC_VER) && !defined(_M_PPC)
+extern "C" void *_ReturnAddress(void);
+#pragma intrinsic(_ReturnAddress)
+#endif
 #endif
 
 // Where do hunk allocations go?
@@ -813,6 +819,22 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	// Zone now initializes on first use. (During static constructors)
 	if (!s_Initialized)
 		Com_InitZoneMemory();
+
+#ifdef _XBOX
+	if (iSize >= (16 * 1024 * 1024) || iSize < 0)
+	{
+		void *retaddr = NULL;
+#if defined(_MSC_VER) && !defined(_M_PPC)
+		retaddr = _ReturnAddress();
+#endif
+		char msg[192];
+		_snprintf(msg, sizeof(msg) - 1,
+			"EFALLOC: Z_Malloc request size=%d tag=%d zero=%d align=%d phase=%u caller=%p\n",
+			iSize, (int)eTag, (int)bZeroit, iAlign, (unsigned int)g_SPXBBootPhase, retaddr);
+		msg[sizeof(msg) - 1] = '\0';
+		XBLog_Print(msg);
+	}
+#endif
 	
 	if (iSize == 0)
 	{

@@ -20,7 +20,11 @@ typedef int wfhandle_t;
 
 
 #define MAX_ZPATH			256
+#ifdef STEFX_ELITE_FORCE_SP
+#define	BASEGAME			"BaseEF"
+#else
 #define	BASEGAME			"base"
+#endif
 
 
 

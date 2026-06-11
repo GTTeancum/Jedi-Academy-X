@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$repoReleaseDir = Join-Path $repoRoot "build\release"
 $xdkRoot = "C:\XDK"
 $vc71Dir = Join-Path $xdkRoot "xbox\bin\vc71"
 $xdkBin = Join-Path $xdkRoot "xbox\bin"
@@ -259,6 +260,81 @@ function Apply-ProjectSourceOverrides {
         [System.Collections.Generic.List[object]]$Sources
     )
 
+    if ($ProjectPath -eq "code\x_game\x_game.vcproj") {
+        $efRoot = Join-Path $repoRoot "SP-Mod-Source-Code-master"
+        $efGameDsp = Join-Path $efRoot "game\game.dsp"
+        if (Test-Path $efGameDsp) {
+            $efSources = New-Object System.Collections.Generic.List[object]
+            $efIncludeDirs = @(
+                $efRoot,
+                (Join-Path $efRoot "game"),
+                (Join-Path $efRoot "cgame"),
+                (Join-Path $efRoot "icarus"),
+                (Join-Path $efRoot "qcommon"),
+                (Join-Path $efRoot "renderer"),
+                (Join-Path $efRoot "client"),
+                (Join-Path $efRoot "ui")
+            ) -join ';'
+
+            $seen = @{}
+            foreach ($line in (Get-Content -Path $efGameDsp)) {
+                if ($line -notmatch '^SOURCE=(.+)$') {
+                    continue
+                }
+
+                $relativePath = $Matches[1].Trim()
+                $ext = [System.IO.Path]::GetExtension($relativePath).ToLowerInvariant()
+                if ($ext -notin @(".c", ".cpp", ".cxx", ".cc")) {
+                    continue
+                }
+                $fileName = [System.IO.Path]::GetFileName($relativePath)
+                if ($fileName -ieq "bg_lib.cpp" -or
+                    $fileName -ieq "q_math.cpp" -or
+                    $fileName -ieq "q_shared.cpp") {
+                    continue
+                }
+
+                $fullPath = Resolve-ProjectPath -BaseDir (Join-Path $efRoot "game") -PathValue $relativePath
+                if (-not (Test-Path $fullPath)) {
+                    throw "Elite Force source listed in game.dsp was not found: $relativePath"
+                }
+
+                $fullKey = [System.IO.Path]::GetFullPath($fullPath).ToLowerInvariant()
+                if ($seen.ContainsKey($fullKey)) {
+                    continue
+                }
+                $seen[$fullKey] = $true
+
+                $efSources.Add([pscustomobject]@{
+                    RelativePath = [System.IO.Path]::GetFullPath($fullPath).Substring($repoRoot.Length + 1)
+                    FullPath     = $fullPath
+                    Extension    = $ext
+                    Tool         = [pscustomobject]@{
+                        Name                      = "VCCLCompilerTool"
+                        PrependIncludeDirectories = $efIncludeDirs
+                        PreprocessorDefinitions   = "STEFX_ELITE_FORCE_SP;_X86_"
+                    }
+                })
+            }
+
+            $efCompatPath = Join-Path $efRoot "game\stefx_xbox_compat.cpp"
+            if (Test-Path $efCompatPath) {
+                $efSources.Add([pscustomobject]@{
+                    RelativePath = [System.IO.Path]::GetFullPath($efCompatPath).Substring($repoRoot.Length + 1)
+                    FullPath     = $efCompatPath
+                    Extension    = ".cpp"
+                    Tool         = [pscustomobject]@{
+                        Name                      = "VCCLCompilerTool"
+                        PrependIncludeDirectories = $efIncludeDirs
+                        PreprocessorDefinitions   = "STEFX_ELITE_FORCE_SP;_X86_"
+                    }
+                })
+            }
+
+            return $efSources
+        }
+    }
+
     if ($ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $filtered = New-Object System.Collections.Generic.List[object]
         foreach ($source in $Sources) {
@@ -464,7 +540,7 @@ function Build-Project {
             # undeclared.  Without _USE_XGMATH, xgmath.h's D3DX-compat
             # block (line 976+) is inactive — D3DXMATRIX is the real
             # d3dx8math.h class, ID3DXMatrixStack is declared.
-            PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
+            PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;STEFX_ELITE_FORCE_SP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
             # Plan-B audit: REVERTED /O2 → /Ox.  The /O2-match-OpenJKDF2
             # attempt regressed the build — wglCreateContext no longer
             # completed on CXBX-R LLE GPU (hardware test 2026-05-17 both
@@ -513,15 +589,15 @@ function Build-Project {
             # /LIBPATH:%XDK_ROOT%\lib with XDK_ROOT=C:\XDK_5558\XDK\xbox,
             # so ALL their libs are 5558.  Matching exactly here.
             AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib;goblib.lib;binkxbox.lib"
-            OutputFile = ".\Release\default.exe"
+            OutputFile = "$repoReleaseDir\default.exe"
             # XDK 5558 lib path FIRST so xboxkrnl, xgraphics, xapilib,
             # xonline, dsound, libc all resolve from 5558 (matching
             # OpenJKDF2).  5849 paths kept as fallback for dmusic.lib
             # and any other lib 5558 doesn't have.
-            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+            AdditionalLibraryDirectories = "$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
-            ProgramDatabaseFile = '.\Release\x_exe.pdb'
+            ProgramDatabaseFile = "$repoReleaseDir\x_exe.pdb"
             SubSystem = "2"
             EntryPointSymbol = "WinMainCRTStartup"
             SetChecksum = "true"
@@ -688,6 +764,8 @@ function Build-Project {
     if ($configuration.ConfigurationType -eq "1" -or ($configuration.ConfigurationType -eq "0" -and $linkTool)) {
         $outputFile = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value (Get-XmlAttr -Node $linkTool -Name "OutputFile") -Macros $macros)
         $pdbPath = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value (Get-XmlAttr -Node $linkTool -Name "ProgramDatabaseFile") -Macros $macros)
+        New-Item -ItemType Directory -Path (Split-Path -Parent $outputFile) -Force | Out-Null
+        New-Item -ItemType Directory -Path (Split-Path -Parent $pdbPath) -Force | Out-Null
         $linkArgs = New-Object System.Collections.Generic.List[string]
         $linkArgs.Add("/NOLOGO")
 

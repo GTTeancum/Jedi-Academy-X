@@ -19,7 +19,13 @@ $ErrorActionPreference = "Stop"
 function Get-CxbxProcesses {
     Get-CimInstance Win32_Process |
         Where-Object {
-            $_.Name -in @("cxbx-project2.exe", "cxbxr-ldr-project2.exe")
+            $_.Name -in @(
+                "cxbx-project2.exe",
+                "cxbxr-ldr-project2.exe",
+                "cxbx.exe",
+                "cxbxr-ldr.exe",
+                "cxbxr-debugger.exe"
+            )
         }
 }
 
@@ -34,9 +40,9 @@ function Stop-CxbxProcesses {
 
 function Get-LogPath {
     $candidates = @(
-        (Join-Path $Game "ja_sp_log.txt"),
-        (Join-Path $Junction "ja_sp_log.txt"),
-        (Join-Path $Cxbx "EmuDisk\Partition1\ja_sp_log.txt")
+        (Join-Path $Game "ef_sp_log.txt"),
+        (Join-Path $Junction "ef_sp_log.txt"),
+        (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_log.txt")
     )
 
     foreach ($candidate in $candidates) {
@@ -76,8 +82,8 @@ function Get-DebugFileCandidates {
     @(
         (Join-Path $Game "CxbxDebug.txt"),
         (Join-Path $Game "KrnlDebug.txt"),
-        (Join-Path $Repo "code\x_exe\Release\CxbxDebug.txt"),
-        (Join-Path $Repo "code\x_exe\Release\KrnlDebug.txt"),
+        (Join-Path $Repo "build\release\CxbxDebug.txt"),
+        (Join-Path $Repo "build\release\KrnlDebug.txt"),
         (Join-Path $Cxbx "CxbxDebug.txt"),
         (Join-Path $Cxbx "KrnlDebug.txt")
     )
@@ -158,14 +164,23 @@ Stop-CxbxProcesses
 Start-Sleep -Seconds 2
 
 if (!$NoCopy) {
-    Copy-Item (Join-Path $Repo "code\x_exe\Release\default.xbe") (Join-Path $Game "default.xbe") -Force
+    Copy-Item (Join-Path $Repo "build\release\default.xbe") (Join-Path $Game "default.xbe") -Force
+}
+
+@(
+    (Join-Path $Game "ef_sp_level.txt"),
+    (Join-Path $Game "ja_sp_level.txt")
+) | ForEach-Object {
+    Remove-Item $_ -Force -ErrorAction SilentlyContinue
 }
 
 if ($Level) {
-    Set-Content -Path (Join-Path $Game "ja_sp_level.txt") -Value $Level -Encoding ASCII
+    Set-Content -Path (Join-Path $Game "ef_sp_level.txt") -Value $Level -Encoding ASCII
 }
 
-$startupCommandPath = Join-Path $Game "ja_sp_commands.txt"
+$startupCommandPath = Join-Path $Game "ef_sp_commands.txt"
+$legacyStartupCommandPath = Join-Path $Game "ja_sp_commands.txt"
+Remove-Item $legacyStartupCommandPath -Force -ErrorAction SilentlyContinue
 if ($StartupCommand -and $StartupCommand.Count -gt 0) {
     Set-Content -Path $startupCommandPath -Value $StartupCommand -Encoding ASCII
 } else {
@@ -173,9 +188,9 @@ if ($StartupCommand -and $StartupCommand.Count -gt 0) {
 }
 
 @(
-    (Join-Path $Game "ja_sp_log.txt"),
-    (Join-Path $Junction "ja_sp_log.txt"),
-    (Join-Path $Cxbx "EmuDisk\Partition1\ja_sp_log.txt")
+    (Join-Path $Game "ef_sp_log.txt"),
+    (Join-Path $Junction "ef_sp_log.txt"),
+    (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_log.txt")
 ) | ForEach-Object {
     Remove-Item $_ -Force -ErrorAction SilentlyContinue
 }

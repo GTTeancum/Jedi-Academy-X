@@ -16,6 +16,7 @@ extern "C" volatile unsigned int g_SPXBComSpinCount;
 extern "C" volatile unsigned int g_SPXBComMsec;
 extern "C" volatile unsigned int g_SPXBComFrameTime;
 extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBClsState;
 #endif
 
 #include "platform.h"
@@ -739,8 +740,10 @@ void Hunk_Clear( void )
 	extern void CIN_CloseAllVideos();
 				CIN_CloseAllVideos();
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 	extern void R_ClearStuffToStopGhoul2CrashingThings(void);
 				R_ClearStuffToStopGhoul2CrashingThings();
+#endif
 }
 #endif
 
@@ -1184,6 +1187,9 @@ void Com_Init( char *commandLine ) {
 		Sys_StreamInit();
 		XBLog_Write("JA: Sys_StreamInit done");
 
+#if defined(STEFX_ELITE_FORCE_SP)
+		XBLog_Write("STEFX: Ghoul2 info array init skipped");
+#else
 		// This just forces the static singleton in the function to call
 		// its constructor, which allocates a stupid 12 byte block of
 		// memory that never gets freed. Otherwise, it ends up stranded in
@@ -1191,6 +1197,7 @@ void Com_Init( char *commandLine ) {
 		XBLog_Write("JA: TheGhoul2InfoArray...");
 		TheGhoul2InfoArray();
 		XBLog_Write("JA: TheGhoul2InfoArray done");
+#endif
 #endif
 
 		XBLog_Write("JA: FS_InitFilesystem...");
@@ -1496,6 +1503,18 @@ void G2Time_ReportTimers(void);
 
 #pragma warning (disable: 4701)	//local may have been used without init (timing info vars)
 void Com_Frame( void ) {
+#ifdef _XBOX
+	static unsigned int s_xboxComEntryLogCount = 0;
+	qboolean xboxTraceActiveComTail = qfalse;
+	int xboxTraceActiveComTailFrame = -1;
+	g_SPXBPhaseLast = 0x43464E30; /* 'CFN0' */
+	g_SPXBComSubphase = 0;
+	if (s_xboxComEntryLogCount < 16)
+	{
+		XBLF("JA: COM_PHASE entry top before try count=%u phase=%08x sub=%u\n", s_xboxComEntryLogCount, g_SPXBPhaseLast, g_SPXBComSubphase);
+	}
+	s_xboxComEntryLogCount++;
+#endif
 try
 {
 #ifdef _XBOX
@@ -1680,9 +1699,31 @@ try
 		g_SPXBComSubphase = 17;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before CL_Frame");
 #endif
+	#ifdef _XBOX
+		{
+			static int s_xboxActiveComClientBoundaryBudget = 32;
+			if (!firstFrames && (s_xboxActiveComClientBoundaryBudget > 0 || (frameCount >= 35 && frameCount < 70)))
+			{
+				XBLF("JA: COM_ACTIVE before CL_Frame frame=%d msec=%d frac=%g realtime=%d",
+					frameCount - 1, msec, fractionMsec, com_frameTime);
+			}
+		}
+	#endif
 		CL_Frame (msec, fractionMsec);
 #ifdef _XBOX
 		g_SPXBComSubphase = 18;
+		{
+			static int s_xboxActiveComClientBoundaryBudget = 32;
+			if (!firstFrames && (s_xboxActiveComClientBoundaryBudget > 0 || (frameCount >= 35 && frameCount < 70)))
+			{
+				XBLF("JA: COM_ACTIVE after CL_Frame frame=%d msec=%d realtime=%d",
+					frameCount - 1, msec, com_frameTime);
+				if (s_xboxActiveComClientBoundaryBudget > 0)
+				{
+					--s_xboxActiveComClientBoundaryBudget;
+				}
+			}
+		}
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after CL_Frame");
 #endif
 		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame done");
@@ -1694,6 +1735,13 @@ try
 	if (firstFrames) XBLog_Write(va("JA: Com_Frame #%d returning", frameCount-1));
 #ifdef _XBOX
 	g_SPXBComSubphase = 19;
+	xboxTraceActiveComTail = (g_SPXBClsState == (unsigned int)CA_ACTIVE && frameCount >= 8 && frameCount <= 40);
+	xboxTraceActiveComTailFrame = frameCount - 1;
+	if (xboxTraceActiveComTail)
+	{
+		XBLF("JA: CL_EARLY COM_TAIL frame=%d before timing/report comFrame=%d realtime=%d",
+			xboxTraceActiveComTailFrame, com_frameNumber, com_frameTime);
+	}
 	if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE frame=%d exit", frameCount - 1);
 #endif
 
@@ -1754,6 +1802,13 @@ try
 
 		timeInTrace = timeInPVSCheck = 0;
 	}
+#ifdef _XBOX
+	if (xboxTraceActiveComTail)
+	{
+		XBLF("JA: CL_EARLY COM_TAIL frame=%d after timing/report comFrame=%d realtime=%d",
+			xboxTraceActiveComTailFrame, com_frameNumber, com_frameTime);
+	}
+#endif
 
 	//
 	// trace optimization tracking
@@ -1776,7 +1831,21 @@ try
 		c_pointcontents = 0;
 	}
 
+#ifdef _XBOX
+	if (xboxTraceActiveComTail)
+	{
+		XBLF("JA: CL_EARLY COM_TAIL frame=%d before com_frameNumber++ comFrame=%d realtime=%d",
+			xboxTraceActiveComTailFrame, com_frameNumber, com_frameTime);
+	}
+#endif
 	com_frameNumber++;
+#ifdef _XBOX
+	if (xboxTraceActiveComTail)
+	{
+		XBLF("JA: CL_EARLY COM_TAIL frame=%d after com_frameNumber++ comFrame=%d realtime=%d",
+			xboxTraceActiveComTailFrame, com_frameNumber, com_frameTime);
+	}
+#endif
 }//try
 	catch (const char* reason) {
 		Com_Printf (reason);
@@ -1784,19 +1853,45 @@ try
 	}
 
 #ifdef G2_PERFORMANCE_ANALYSIS
+#ifdef _XBOX
+	if (xboxTraceActiveComTail)
+	{
+		XBLF("JA: CL_EARLY COM_TAIL frame=%d before G2 report/reset", xboxTraceActiveComTailFrame);
+	}
+#endif
 	if (com_G2Report && com_G2Report->integer)
 	{
 		G2Time_ReportTimers();
 	}
 
 	G2Time_ResetTimers();
+#ifdef _XBOX
+	if (xboxTraceActiveComTail)
+	{
+		XBLF("JA: CL_EARLY COM_TAIL frame=%d after G2 report/reset", xboxTraceActiveComTailFrame);
+	}
+#endif
 #endif
 
 	{
 		static cvar_t *levelSelectCheat = NULL;
+	#ifdef _XBOX
+		if (xboxTraceActiveComTail)
+		{
+			XBLF("JA: CL_EARLY COM_TAIL frame=%d before levelSelectCheat cvar ptr=%p",
+				xboxTraceActiveComTailFrame, levelSelectCheat);
+		}
+	#endif
 		if ( !levelSelectCheat ) {
 			levelSelectCheat = Cvar_Get("levelSelectCheat", "-1", CVAR_SAVEGAME | CVAR_ARCHIVE);
 		}
+	#ifdef _XBOX
+		if (xboxTraceActiveComTail)
+		{
+			XBLF("JA: CL_EARLY COM_TAIL frame=%d after levelSelectCheat cvar ptr=%p",
+				xboxTraceActiveComTailFrame, levelSelectCheat);
+		}
+	#endif
 	}
 
 #ifdef XBOX_DEMO

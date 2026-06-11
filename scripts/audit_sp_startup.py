@@ -24,9 +24,9 @@ except ImportError as exc:
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_EXE = os.path.join(REPO_ROOT, "code", "x_exe", "Release", "default.exe")
-DEFAULT_MAP = os.path.join(REPO_ROOT, "code", "x_exe", "Release", "default.map")
-DEFAULT_XBE = os.path.join(REPO_ROOT, "code", "x_exe", "Release", "default.xbe")
+DEFAULT_EXE = os.path.join(REPO_ROOT, "build", "release", "default.exe")
+DEFAULT_MAP = os.path.join(REPO_ROOT, "build", "release", "default.map")
+DEFAULT_XBE = os.path.join(REPO_ROOT, "build", "release", "default.xbe")
 
 
 def load_map_symbols(map_path):
@@ -119,8 +119,8 @@ def main():
     # g_logPath is now NULL at init time (set dynamically), so we check
     # for the literal strings in the image data instead.
     image = pe.get_memory_mapped_image()
-    nt_path_probe = b"\\Device\\Harddisk0\\Partition1\\ja_sp_log.txt"
-    ca_path_probe = b"E:\\ja_sp_log.txt"
+    nt_path_probe = b"\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt"
+    ca_path_probe = b"E:\\ef_sp_log.txt"
     if nt_path_probe in image:
         print("NT device path found in binary: OK")
     else:

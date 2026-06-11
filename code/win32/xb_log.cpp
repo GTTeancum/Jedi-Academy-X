@@ -46,7 +46,7 @@ static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
 
 extern "C" {
-__declspec(dllexport) volatile unsigned int g_SPXBLogMagic = 0x53504A41; /* 'SPJA' */
+__declspec(dllexport) volatile unsigned int g_SPXBLogMagic = 0x53504546; /* 'SPEF' */
 __declspec(dllexport) volatile unsigned int g_SPXBBootPhase = 0x11110001;
 __declspec(dllexport) volatile unsigned int g_SPXBLogMirrorPos = 0x11110002;
 __declspec(dllexport) volatile unsigned int g_SPXBLogWriteCount = 0x11110003;
@@ -176,18 +176,169 @@ static int xbl_starts_with(const char *msg, const char *prefix)
     return 1;
 }
 
+static int xbl_budgeted_prefix(const char *msg, const char *prefix, int *budget)
+{
+    if (!xbl_starts_with(msg, prefix)) return -1;
+    if (*budget > 0) {
+        --(*budget);
+        return 0;
+    }
+    return 1;
+}
+
 static int xbl_ShouldDropVerbose(const char *msg)
 {
-    static int s_playerBudget = 160;
-    static int s_frameBudget = 256;
-    static int s_renderBudget = 128;
-    static int s_cgameBudget = 128;
-    static int s_assetBudget = 96;
+    int budgeted;
+    static int s_playerBudget = 48;
+    static int s_frameBudget = 192;
+    static int s_renderBudget = 48;
+    static int s_cgameBudget = 48;
+    static int s_assetBudget = 48;
+    static int s_stefxClientThinkBudget = 12;
+    static int s_stefxPmoveBudget = 12;
+    static int s_stefxTouchBudget = 12;
+    static int s_stefxClipBudget = 8;
+    static int s_stefxCgBudget = 8;
+    static int s_stefxCgInitBudget = 32;
+    static int s_stefxModelBudget = 24;
+    static int s_efModelBudget = 16;
+    static int s_stefxGameFrameBudget = 24;
+    static int s_stefxNpcBudget = 32;
+    static int s_stefxTraceBudget = 8;
+    static int s_stefxSyscallBudget = 24;
+    static int s_stefxRunFrameBudget = 24;
+    static int s_stefxWalkBudget = 4;
+    static int s_stefxAirBudget = 4;
+    static int s_jaComPhaseBudget = 48;
+    static int s_jaMainTightBudget = 48;
+    static int s_jaEventBudget = 32;
+    static int s_jaClFrameBudget = 192;
+    static int s_jaClEarlyBudget = 1024;
+    static int s_jaClEarlyEfBudget = 2048;
+    static int s_jaScrBudget = 160;
+    static int s_jaCgDrawBudget = 256;
+    static int s_jaComActiveBudget = 160;
 
     if (!msg) return 1;
+
+    if (strstr(msg, "FRAME_HEARTBEAT") ||
+        strstr(msg, "FATAL") ||
+        strstr(msg, "ERROR") ||
+        strstr(msg, "Out of memory") ||
+        strstr(msg, "texture allocation failures") ||
+        strstr(msg, "repaired nonfinite") ||
+        strstr(msg, "exit nonfinite") ||
+        strstr(msg, "exit invalid") ||
+        strstr(msg, "abort lerp guard")) {
+        return 0;
+    }
+
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink", &s_stefxClientThinkBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Pmove ", &s_stefxPmoveBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_TouchTriggersLerped", &s_stefxTouchBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ClipMoveToEntities", &s_stefxClipBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: cg_vmMain enter command=", &s_stefxCgBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF cgame R_RegisterModel", &s_stefxModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_RegisterClientModelname", &s_stefxModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_RegisterClientRenderInfo", &s_stefxModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_RegisterGraphics", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_GameStateReceived", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF cgame syscall", &s_stefxSyscallBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: RE_RegisterModel accepted MDR placeholder", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_RunFrame", &s_stefxGameFrameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_RunThink", &s_stefxGameFrameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: NPC_", &s_stefxNpcBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Trace ", &s_stefxTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_Trace", &s_stefxTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: adapter before EF RunFrame", &s_stefxRunFrameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: adapter after EF RunFrame", &s_stefxRunFrameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: PM_WalkMove", &s_stefxWalkBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: PM_AirMove", &s_stefxAirBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: COM_PHASE", &s_jaComPhaseBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: MAIN_TIGHT", &s_jaMainTightBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: Com_EventLoop", &s_jaEventBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: Com_Frame: CL_Frame", &s_jaClFrameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: CL_Frame:", &s_jaClFrameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: CL_EARLY EF ", &s_jaClEarlyEfBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: CL_EARLY", &s_jaClEarlyBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: SCR_UpdateScreen", &s_jaScrBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: CG_DrawActiveFrame", &s_jaCgDrawBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: fakegl CPU partial", &s_assetBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: COM_ACTIVE", &s_jaComActiveBudget);
+    if (budgeted >= 0) return budgeted;
+
     if (!g_verboseLog) {
         if (strstr(msg, "FRAME_HEARTBEAT") ||
+            strstr(msg, "EF:") ||
+            strstr(msg, "STEFX:") ||
             strstr(msg, "direct-map boot") ||
+            strstr(msg, "Com_Init") ||
+            strstr(msg, "Swap_Init") ||
+            strstr(msg, "Cbuf_Init") ||
+            strstr(msg, "CL_InitRef") ||
+            strstr(msg, "R_Register") ||
+            strstr(msg, "GLimp_Init") ||
+            strstr(msg, "SP_DoLicense") ||
+            strstr(msg, "Cmd_Init") ||
+            strstr(msg, "Cvar_Init") ||
+            strstr(msg, "Com_StartupVariable") ||
+            strstr(msg, "CL_InitKeyCommands") ||
+            strstr(msg, "Sys_InitFileCodes") ||
+            strstr(msg, "Sys_StreamInit") ||
+            strstr(msg, "TheGhoul2InfoArray") ||
+            strstr(msg, "FS_InitFilesystem") ||
+            strstr(msg, "R_InitWorldEffects") ||
+            strstr(msg, "exec default.cfg") ||
+            strstr(msg, "Cbuf_Execute") ||
+            strstr(msg, "Config execution") ||
+            strstr(msg, "Com_InitHunkMemory") ||
+            strstr(msg, "SE_Init") ||
+            strstr(msg, "Sys_Init") ||
+            strstr(msg, "Netchan_Init") ||
+            strstr(msg, "SV_Init") ||
+            strstr(msg, "CL_Init") ||
+            strstr(msg, "CL_Frame") ||
+            strstr(msg, "UI_Init") ||
+            strstr(msg, "_UI_Init") ||
+            strstr(msg, "Menu_Cache") ||
+            strstr(msg, "UI_LoadMenus") ||
+            strstr(msg, "AssetCache") ||
+            strstr(msg, "UI_BuildPlayerModel_List") ||
+            strstr(msg, "String_Init") ||
+            strstr(msg, "Menus_CloseAll") ||
+            strstr(msg, "CL_StartSound") ||
+            strstr(msg, "fully initialized") ||
             strstr(msg, "Server:") ||
             strstr(msg, "SV_InitGameProgs") ||
             strstr(msg, "InitGame") ||
@@ -205,6 +356,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "CAMERA_") ||
             strstr(msg, "MAIN_TIGHT") ||
             strstr(msg, "fakegl CreateTexture") ||
+            strstr(msg, "fakegl CPU partial") ||
             strstr(msg, "fakegl using fallback") ||
             strstr(msg, "CG_DRAW_ACTIVE_FRAME") ||
             strstr(msg, "CG_Init") ||
@@ -235,14 +387,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
             return 0;
         }
         return 1;
-    }
-
-    if (strstr(msg, "FRAME_HEARTBEAT") ||
-        strstr(msg, "FATAL") ||
-        strstr(msg, "ERROR") ||
-        strstr(msg, "Out of memory") ||
-        strstr(msg, "texture allocation failures")) {
-        return 0;
     }
 
     if (xbl_starts_with(msg, "JA: CG_Player ") ||
@@ -331,7 +475,46 @@ static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
     return strstr(fmt, "FRAME_HEARTBEAT") ||
+        strstr(fmt, "EF:") ||
+        strstr(fmt, "STEFX:") ||
         strstr(fmt, "direct-map boot") ||
+        strstr(fmt, "Com_Init") ||
+        strstr(fmt, "Swap_Init") ||
+        strstr(fmt, "Cbuf_Init") ||
+        strstr(fmt, "CL_InitRef") ||
+        strstr(fmt, "R_Register") ||
+        strstr(fmt, "GLimp_Init") ||
+        strstr(fmt, "SP_DoLicense") ||
+        strstr(fmt, "Cmd_Init") ||
+        strstr(fmt, "Cvar_Init") ||
+        strstr(fmt, "Com_StartupVariable") ||
+        strstr(fmt, "CL_InitKeyCommands") ||
+        strstr(fmt, "Sys_InitFileCodes") ||
+        strstr(fmt, "Sys_StreamInit") ||
+        strstr(fmt, "TheGhoul2InfoArray") ||
+        strstr(fmt, "FS_InitFilesystem") ||
+        strstr(fmt, "R_InitWorldEffects") ||
+        strstr(fmt, "exec default.cfg") ||
+        strstr(fmt, "Cbuf_Execute") ||
+        strstr(fmt, "Config execution") ||
+        strstr(fmt, "Com_InitHunkMemory") ||
+        strstr(fmt, "SE_Init") ||
+        strstr(fmt, "Sys_Init") ||
+        strstr(fmt, "Netchan_Init") ||
+        strstr(fmt, "SV_Init") ||
+        strstr(fmt, "CL_Init") ||
+        strstr(fmt, "CL_Frame") ||
+        strstr(fmt, "CL_EARLY") ||
+        strstr(fmt, "UI_Init") ||
+        strstr(fmt, "_UI_Init") ||
+        strstr(fmt, "Menu_Cache") ||
+        strstr(fmt, "UI_LoadMenus") ||
+        strstr(fmt, "AssetCache") ||
+        strstr(fmt, "UI_BuildPlayerModel_List") ||
+        strstr(fmt, "String_Init") ||
+        strstr(fmt, "Menus_CloseAll") ||
+        strstr(fmt, "CL_StartSound") ||
+        strstr(fmt, "fully initialized") ||
         strstr(fmt, "Server:") ||
         strstr(fmt, "SV_InitGameProgs") ||
         strstr(fmt, "InitGame") ||
@@ -342,12 +525,14 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "CL_SetCGameTime") ||
         strstr(fmt, "Com_EventLoop") ||
         strstr(fmt, "COM_PHASE") ||
+        strstr(fmt, "COM_ACTIVE") ||
         strstr(fmt, "CMD_TRACE") ||
         strstr(fmt, "CIN_PHASE") ||
         strstr(fmt, "CIN_RunCinematic") ||
         strstr(fmt, "BinkVideo::Start") ||
         strstr(fmt, "MAIN_TIGHT") ||
         strstr(fmt, "fakegl CreateTexture") ||
+        strstr(fmt, "fakegl CPU partial") ||
         strstr(fmt, "fakegl using fallback") ||
         strstr(fmt, "CG_Init") ||
         strstr(fmt, "CG_GameStateReceived") ||
@@ -507,11 +692,11 @@ void XBLog_Init(void)
      * quietly fails there, but on emulator it gives us a fresh log beside
      * default.xbe for each boot like the Unreal Tournament Xbox port does.
      */
-    g_hMirrorLogFile = CreateFileA("D:\\ja_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
+    g_hMirrorLogFile = CreateFileA("D:\\ef_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
         NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
     if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
         SetFilePointer(g_hMirrorLogFile, 0, NULL, FILE_END);
-        g_mirrorLogPath = "D:\\ja_sp_log.txt";
+        g_mirrorLogPath = "D:\\ef_sp_log.txt";
     }
 
     /*
@@ -522,9 +707,9 @@ void XBLog_Init(void)
      */
     {
         static const char *ntPaths[] = {
-            "\\Device\\Harddisk0\\Partition1\\ja_sp_log.txt",   /* E:\ */
-            "\\Device\\Harddisk0\\Partition6\\ja_sp_log.txt",   /* F:\ */
-            "\\Device\\Harddisk0\\Partition7\\ja_sp_log.txt",   /* G:\ */
+            "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt",   /* E:\ */
+            "\\Device\\Harddisk0\\Partition6\\ef_sp_log.txt",   /* F:\ */
+            "\\Device\\Harddisk0\\Partition7\\ef_sp_log.txt",   /* G:\ */
             NULL
         };
         for (i = 0; ntPaths[i]; ++i) {
@@ -547,7 +732,7 @@ void XBLog_Init(void)
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
-                XBL("=== Jedi Academy Xbox SP log ===\n");
+                XBL("=== Star Trek: Elite Force Xbox SP log ===\n");
                 return;
             }
         }
@@ -556,10 +741,10 @@ void XBLog_Init(void)
     /* Strategy 2: CreateFileA with drive letters — append if exists, create if not */
     {
         static const char *caPaths[] = {
-            "D:\\ja_sp_log.txt",
-            "E:\\ja_sp_log.txt",
-            "T:\\ja_sp_log.txt",
-            "ja_sp_log.txt",
+            "D:\\ef_sp_log.txt",
+            "E:\\ef_sp_log.txt",
+            "T:\\ef_sp_log.txt",
+            "ef_sp_log.txt",
             NULL
         };
         for (i = 0; caPaths[i]; ++i) {
@@ -570,7 +755,7 @@ void XBLog_Init(void)
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
                 g_logIsNt = 0;
                 g_logPath = caPaths[i];
-                XBL("=== Jedi Academy Xbox SP log ===\n");
+                XBL("=== Star Trek: Elite Force Xbox SP log ===\n");
                 return;
             }
         }
@@ -631,6 +816,7 @@ void XBLog_Printf(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 1] = '\0';
+    if (!g_verboseLog && xbl_ShouldDropVerbose(buf)) return;
     XBLog_Print(buf);
 }
 
@@ -641,7 +827,7 @@ const char *XBLog_GetPath(void)
 
 /*
  * XBLog_PreCRTProbe — called from ASM _WinMainCRTStartup BEFORE _mainCRTStartup.
- * Creates ja_sp_log.txt (overwrites any previous run) and writes the first line.
+ * Creates ef_sp_log.txt (overwrites any previous run) and writes the first line.
  * No C runtime, no heap, no globals — pure NT syscalls only.
  * XBLog_Init() later re-opens the same file in append mode and continues writing.
  * If only "precrt_ok" appears in the log, a static ctor is crashing before main().
@@ -649,7 +835,7 @@ const char *XBLog_GetPath(void)
 extern "C" void XBLog_PreCRTProbe(void)
 {
     g_SPXBBootPhase = 1;
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ja_sp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
     static const char data[] = "precrt_ok\n";
     HANDLE    h;
     XBL_STR   name;
@@ -683,7 +869,7 @@ extern "C" void XBLog_PreCRTProbe(void)
 extern "C" void XBLog_PostCRTProbe(void)
 {
     g_SPXBBootPhase = 9;
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ja_sp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
     static const char data[] = "post_crt\n";
     HANDLE    h;
     XBL_STR   name;
@@ -730,6 +916,7 @@ void XBLog_Writef(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 2, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 2] = '\0';
+    if (!g_verboseLog && xbl_ShouldDropVerbose(buf)) return;
     /* Append \n so old callers that omit it still get line breaks. */
     int len = (int)strlen(buf);
     buf[len]     = '\n';

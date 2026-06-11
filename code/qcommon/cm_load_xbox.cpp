@@ -6,6 +6,10 @@
 #include "../RMG/RM_Headers.h"
 
 #include "sparc.h"
+#ifdef STEFX_ELITE_FORCE_SP
+#include "../win32/xb_log.h"
+#include "ef_bsp_xbox_shared.h"
+#endif
 #include "../zlib/zlib.h"
 
 static SPARC<byte> visData;
@@ -622,6 +626,9 @@ void R_LoadFaces( void *indexdata, int indexlen,
 void R_LoadFlares( void *surfaces, int surfacelen );
 extern void R_LoadShaders( void );
 extern void R_LoadLightmaps( void *data, int len, const char *psMapName );
+#ifdef STEFX_ELITE_FORCE_SP
+extern void R_LoadRawLightmaps( void *data, int len, const char *psMapName );
+#endif
 extern byte *fileBase;
 extern void UpdateLoadingAnimation();
 static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *checksum ) {
@@ -668,6 +675,140 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	COM_StripExtension(name, stripName);
 
 	UpdateLoadingAnimation();
+
+#ifdef STEFX_ELITE_FORCE_SP
+	{
+		efbspFile_t efbsp;
+		if (EFBSP_LoadFile(name, &efbsp))
+		{
+			int shaderCount;
+			int num_surfs;
+			void *verts;
+			void *indexes;
+			void *patches;
+			void *trisurfs;
+			void *faces;
+			void *flares;
+			void *leafs;
+			void *leafbrushes;
+			void *brushsides;
+			void *brushes;
+			void *models;
+			void *nodes;
+			void *visibility;
+			int vertsLen, indexesLen, patchesLen, trisurfsLen, facesLen, flaresLen;
+			int leafsLen, leafbrushesLen, brushsidesLen, brushesLen, modelsLen, nodesLen, visibilityLen;
+
+			EFBSP_Validate(&efbsp, name);
+			last_checksum = LittleLong(Com_BlockChecksum(efbsp.data, efbsp.len));
+			shaderCount = EFBSP_ShaderCount(&efbsp);
+			num_surfs = EFBSP_SurfaceCount(&efbsp);
+			XBLF("EF: CM_LoadMap raw BSP '%s' bytes=%d checksum=0x%08x shaders=%d surfaces=%d verts=%d indexes=%d lightmaps=%d",
+				name,
+				efbsp.len,
+				last_checksum,
+				shaderCount,
+				num_surfs,
+				EFBSP_CheckedCount("drawverts", EFBSP_LumpLen(&efbsp, EF_LUMP_DRAWVERTS), sizeof(efbspDrawVert_t)),
+				EFBSP_CheckedCount("drawindexes", EFBSP_LumpLen(&efbsp, EF_LUMP_DRAWINDEXES), sizeof(int)),
+				EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS) / (128 * 128 * 3));
+
+			CMod_LoadShaders(EFBSP_LumpData(&efbsp, EF_LUMP_SHADERS), EFBSP_LumpLen(&efbsp, EF_LUMP_SHADERS));
+			R_LoadShaders();
+			XBLog_Write("EF: CM_LoadMap raw shaders loaded");
+			UpdateLoadingAnimation();
+
+			R_LoadRawLightmaps(EFBSP_LumpData(&efbsp, EF_LUMP_LIGHTMAPS), EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS), name);
+			XBLog_Write("EF: CM_LoadMap raw lightmaps loaded");
+			UpdateLoadingAnimation();
+
+			fileBase = NULL;
+			R_LoadSurfaces(num_surfs);
+			verts = EFBSP_ConvertVerts(&efbsp, &vertsLen);
+			patches = EFBSP_ConvertPatches(&efbsp, shaderCount, &patchesLen);
+			XBLF("EF: CM_LoadMap raw surfaces alloc vertsLen=%d patchesLen=%d", vertsLen, patchesLen);
+			CMod_LoadPatches(verts, vertsLen, patches, patchesLen, num_surfs);
+			R_LoadPatches(verts, vertsLen, patches, patchesLen);
+			EFBSP_FreeTemp(patches);
+			UpdateLoadingAnimation();
+
+			indexes = EFBSP_ConvertIndexes(&efbsp, &indexesLen);
+			trisurfs = EFBSP_ConvertTriSurfs(&efbsp, shaderCount, &trisurfsLen);
+			XBLF("EF: CM_LoadMap raw trisurfs indexesLen=%d trisurfsLen=%d", indexesLen, trisurfsLen);
+			R_LoadTriSurfs(indexes, indexesLen, verts, vertsLen, trisurfs, trisurfsLen);
+			EFBSP_FreeTemp(trisurfs);
+
+			faces = EFBSP_ConvertFaces(&efbsp, shaderCount, &facesLen);
+			XBLF("EF: CM_LoadMap raw facesLen=%d", facesLen);
+			R_LoadFaces(indexes, indexesLen, verts, vertsLen, faces, facesLen);
+			EFBSP_FreeTemp(faces);
+			UpdateLoadingAnimation();
+
+			flares = EFBSP_ConvertFlares(&efbsp, shaderCount, &flaresLen);
+			R_LoadFlares(flares, flaresLen);
+			EFBSP_FreeTemp(flares);
+			EFBSP_FreeTemp(indexes);
+			EFBSP_FreeTemp(verts);
+			XBLF("EF: CM_LoadMap raw render surfaces loaded flaresLen=%d", flaresLen);
+			UpdateLoadingAnimation();
+
+			leafs = EFBSP_ConvertLeafs(&efbsp, &leafsLen);
+			CMod_LoadLeafs(leafs, leafsLen);
+			EFBSP_FreeTemp(leafs);
+
+			leafbrushes = EFBSP_CopyLump(&efbsp, EF_LUMP_LEAFBRUSHES, &leafbrushesLen);
+			CMod_LoadLeafBrushes(leafbrushes, leafbrushesLen);
+			EFBSP_FreeTemp(leafbrushes);
+
+			cmg.leafsurfaces = NULL;
+			CMod_LoadPlanes(EFBSP_LumpData(&efbsp, EF_LUMP_PLANES), EFBSP_LumpLen(&efbsp, EF_LUMP_PLANES));
+
+			brushsides = EFBSP_ConvertBrushSides(&efbsp, shaderCount, &brushsidesLen);
+			CMod_LoadBrushSides(brushsides, brushsidesLen);
+			EFBSP_FreeTemp(brushsides);
+
+			brushes = EFBSP_ConvertBrushes(&efbsp, shaderCount, &brushesLen);
+			CMod_LoadBrushes(brushes, brushesLen);
+			EFBSP_FreeTemp(brushes);
+			XBLF("EF: CM_LoadMap raw collision loaded leafs=%d brushesLen=%d brushsidesLen=%d",
+				leafsLen, brushesLen, brushsidesLen);
+			UpdateLoadingAnimation();
+
+			models = EFBSP_ConvertModels(&efbsp, &modelsLen);
+			CMod_LoadSubmodels(models, modelsLen);
+			EFBSP_FreeTemp(models);
+
+			nodes = EFBSP_ConvertNodes(&efbsp, &nodesLen);
+			CMod_LoadNodes(nodes, nodesLen);
+			EFBSP_FreeTemp(nodes);
+			UpdateLoadingAnimation();
+
+			CMod_LoadEntityString(EFBSP_LumpData(&efbsp, EF_LUMP_ENTITIES), EFBSP_LumpLen(&efbsp, EF_LUMP_ENTITIES));
+			visibility = EFBSP_ConvertVisibility(&efbsp, &visibilityLen);
+			CMod_LoadVisibility(visibility, visibilityLen);
+			EFBSP_FreeTemp(visibility);
+			XBLF("EF: CM_LoadMap raw entities/visibility loaded entityLen=%d visibilityLen=%d",
+				EFBSP_LumpLen(&efbsp, EF_LUMP_ENTITIES), visibilityLen);
+			UpdateLoadingAnimation();
+
+			TotalSubModels += cmg.numSubModels;
+			CM_InitBoxHull();
+			*checksum = last_checksum;
+			CM_FloodAreaConnections();
+			if (!clientload)
+			{
+				Q_strncpyz(cmg.name, name, sizeof(cmg.name));
+			}
+			CM_CleanLeafCache();
+			XBLF("EF: CM_LoadMap raw BSP complete submodels=%d clusters=%d areas=%d checksum=%u",
+				cmg.numSubModels, cmg.numClusters, cmg.numAreas, last_checksum);
+			EFBSP_FreeFile(&efbsp);
+			return;
+		}
+
+		XBLF("EF: CM_LoadMap raw BSP '%s' not found; emergency sidecar fallback only", name);
+	}
+#endif
 
 	// load into heap
 	outputLump.load(stripName, "shaders");

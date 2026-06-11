@@ -603,7 +603,9 @@ void SV_Frame( int msec,float fractionMsec ) {
 	while ( sv.timeResidual >= frameMsec ) {
 		sv.timeResidual -= frameMsec;
 		sv.time += frameMsec;
+#if !defined(STEFX_ELITE_FORCE_SP)
 		G2API_SetTime(sv.time,G2T_SV_TIME);
+#endif
 
 		// let everything in the world think and move
 #ifdef _XBOX

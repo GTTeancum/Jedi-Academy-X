@@ -4,10 +4,12 @@ each function pointer against default.map to identify all C++ global
 constructors running before main().
 """
 
+from pathlib import Path
 import struct, sys, os, re
 
-EXE = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.exe"
-MAP = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.map"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXE = REPO_ROOT / "build" / "release" / "default.exe"
+MAP = REPO_ROOT / "build" / "release" / "default.map"
 
 # ------------------------------------------------------------------
 # Parse PE

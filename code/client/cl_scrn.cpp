@@ -367,6 +367,7 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 #ifdef _XBOX
 	static int s_xboxDrawScreenTraceCount = 0;
 	static int s_xboxDrawScreenActiveTraceCount = 0;
+	const int xboxTraceScreenLate = (cls.state == CA_ACTIVE && cl.serverTime >= 3600 && cl.serverTime <= 5000);
 	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
 		? (s_xboxDrawScreenActiveTraceCount < 16 || ((s_xboxDrawScreenActiveTraceCount & 255) == 0))
 		: (s_xboxDrawScreenTraceCount < 8);
@@ -374,13 +375,20 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	{
 		XBLF("JA: SCR_DrawScreenField enter state=%d serverTime=%d stereo=%d", (int)cls.state, cl.serverTime, (int)stereoFrame);
 	}
+	if (xboxTraceScreenLate)
+	{
+		XBLF("JA: CL_EARLY SCR_DrawScreenField enter state=%d frame=%d serverTime=%d stereo=%d",
+			(int)cls.state, cls.framecount, cl.serverTime, (int)stereoFrame);
+	}
 #endif
 
 	#ifdef _XBOX
+	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField before re.BeginFrame");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: re.BeginFrame...");
 	#endif
 	re.BeginFrame( stereoFrame );
 #ifdef _XBOX
+	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField after re.BeginFrame");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: re.BeginFrame done");
 #endif
 
@@ -439,10 +447,12 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			else
 			{
 				#ifdef _XBOX
+				if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField before CL_CGameRendering");
 				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering...");
 				#endif
 				CL_CGameRendering( stereoFrame );
 				#ifdef _XBOX
+				if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField after CL_CGameRendering");
 				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering done");
 				#endif
 			}
@@ -459,6 +469,7 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// the menu draws next
 #ifdef _XBOX
 	if (xboxForceDirectMapGameDraw) {
+		if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField direct-map return before UI");
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: skipping UI refresh for direct-map active frame");
 		return;
 	}
@@ -509,8 +520,31 @@ void SCR_UpdateScreen( void ) {
 		return;				// not initialized yet
 	}
 
+#ifdef _XBOX
+	static int s_xboxUpdateScreenTraceCount = 0;
+	static int s_xboxUpdateScreenActiveTraceCount = 0;
+	const int xboxTraceScreenLate = (cls.state == CA_ACTIVE && cl.serverTime >= 3600 && cl.serverTime <= 4600);
+	const int xboxTraceScreenTight = xboxTraceScreenLate;
+	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
+		? (s_xboxUpdateScreenActiveTraceCount < 16 || ((s_xboxUpdateScreenActiveTraceCount & 255) == 0))
+		: (s_xboxUpdateScreenTraceCount < 8);
+	if (xboxTraceScreenLate)
+	{
+		XBLF("JA: CL_EARLY SCR_UpdateScreen enter state=%d frame=%d realtime=%d serverTime=%d recursive=%d stereo=%d",
+			(int)cls.state, cls.framecount, cls.realtime, cl.serverTime, recursive, cls.glconfig.stereoEnabled);
+	}
+#endif
+
 	// load the ref / ui / cgame if needed
 	CL_StartHunkUsers();
+
+#ifdef _XBOX
+	if (xboxTraceScreenLate)
+	{
+		XBLF("JA: CL_EARLY SCR_UpdateScreen after CL_StartHunkUsers state=%d ui=%d cgame=%d",
+			(int)cls.state, cls.uiStarted, cls.cgameStarted);
+	}
+#endif
 
 	if ( ++recursive > 2 ) {
 		Com_Error( ERR_FATAL, "SCR_UpdateScreen: recursively called" );
@@ -518,12 +552,10 @@ void SCR_UpdateScreen( void ) {
 	recursive = qtrue;
 
 #ifdef _XBOX
-	static int s_xboxUpdateScreenTraceCount = 0;
-	static int s_xboxUpdateScreenActiveTraceCount = 0;
-	const int xboxTraceScreenTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
-	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
-		? (s_xboxUpdateScreenActiveTraceCount < 16 || ((s_xboxUpdateScreenActiveTraceCount & 255) == 0))
-		: (s_xboxUpdateScreenTraceCount < 8);
+	if (xboxTraceScreenLate)
+	{
+		XBLF("JA: CL_EARLY SCR_UpdateScreen recursive set recursive=%d", recursive);
+	}
 #endif
 
 	// if running in stereo, we need to draw the frame twice
@@ -540,17 +572,20 @@ void SCR_UpdateScreen( void ) {
 		SCR_DrawScreenField( STEREO_RIGHT );
 	} else {
 #ifdef _XBOX
+		if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen before draw center");
 		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before draw center");
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw center...");
 #endif
 		SCR_DrawScreenField( STEREO_CENTER );
 	}
 #ifdef _XBOX
+	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen after draw");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw done");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw done");
 #endif
 
 #ifdef _XBOX
+	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen before re.EndFrame");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before re.EndFrame");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: re.EndFrame...");
 #endif
@@ -560,6 +595,7 @@ void SCR_UpdateScreen( void ) {
 		re.EndFrame( NULL, NULL );
 	}
 #ifdef _XBOX
+	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen after re.EndFrame");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT after re.EndFrame");
 	if (xboxTraceScreen)
 	{
@@ -576,6 +612,9 @@ void SCR_UpdateScreen( void ) {
 #endif
 
 	recursive = 0;
+#ifdef _XBOX
+	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen before return");
+#endif
 }
 
 // this stuff is only used by the savegame (SG) code for screenshots...

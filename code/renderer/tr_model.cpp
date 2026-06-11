@@ -7,8 +7,14 @@
 #include "tr_local.h"
 #include "MatComp.h"
 #include "../qcommon/sstring.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #define	LL(x) x=LittleLong(x)
+#ifndef MD4_IDENT
+#define MD4_IDENT			(('5'<<24)+('M'<<16)+('D'<<8)+'R')
+#endif
 
 void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ); //should only be called for sub-bsp instances
 
@@ -569,6 +575,82 @@ void RE_InsertModelIntoHash(const char *name, model_t *mod)
 	strcpy(mh->name, name);
 	mhHashTable[hash] = mh;
 }
+
+#ifdef STEFX_ELITE_FORCE_SP
+static qboolean STEFX_IsMdrModelName(const char *name)
+{
+	const char *ext = name ? strrchr(name, '.') : NULL;
+	return (ext && !Q_stricmp(ext, ".mdr"));
+}
+
+static qboolean STEFX_IsGhoul2ModelName(const char *name)
+{
+	const char *ext = name ? strrchr(name, '.') : NULL;
+	return (ext && (!Q_stricmp(ext, ".glm") || !Q_stricmp(ext, ".gla")));
+}
+
+static qboolean STEFX_RegisterGhoul2Disabled(model_t *mod, const char *name)
+{
+	if (!STEFX_IsGhoul2ModelName(name))
+	{
+		return qfalse;
+	}
+
+	mod->type = MOD_BAD;
+	RE_InsertModelIntoHash(name, mod);
+#ifdef _XBOX
+	XBLF("STEFX: Ghoul2 model disabled '%s'", name ? name : "(null)");
+#endif
+	return qtrue;
+}
+
+static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *name)
+{
+	fileHandle_t f = 0;
+	unsigned int ident = 0;
+	int len;
+	int read;
+
+	if (!STEFX_IsMdrModelName(name))
+	{
+		return qfalse;
+	}
+
+	len = FS_FOpenFileByMode(name, &f, FS_READ);
+	if (len < 4 || !f)
+	{
+#ifdef _XBOX
+		XBLF("EF: RE_RegisterModel MDR probe missing '%s' len=%d handle=%d", name ? name : "(null)", len, f);
+#endif
+		if (f)
+		{
+			FS_FCloseFile(f);
+		}
+		return qfalse;
+	}
+
+	read = FS_Read(&ident, 4, f);
+	FS_FCloseFile(f);
+	ident = LittleLong(ident);
+
+	if (read != 4 || ident != MD4_IDENT)
+	{
+#ifdef _XBOX
+		XBLF("EF: RE_RegisterModel MDR probe rejected '%s' read=%d ident=0x%08x", name, read, ident);
+#endif
+		return qfalse;
+	}
+
+	mod->type = MOD_STEFX_MDR_PLACEHOLDER;
+	mod->dataSize += len;
+	mod->numLods = 1;
+	RE_InsertModelIntoHash(name, mod);
+#ifdef _XBOX
+	XBLF("EF: RE_RegisterModel accepted MDR placeholder '%s' handle=%d len=%d", name, mod->index, len);
+#endif
+	return qtrue;
+}
+#endif
 /*
 Ghoul2 Insert End
 */
@@ -675,6 +757,18 @@ Ghoul2 Insert End
 	// only set the name after the model has been successfully loaded
 	Q_strncpyz( mod->name, name, sizeof( mod->name ) );
 
+#ifdef STEFX_ELITE_FORCE_SP
+	if (STEFX_RegisterGhoul2Disabled(mod, name))
+	{
+		return 0;
+	}
+
+	if (STEFX_RegisterMdrPlaceholderIfPresent(mod, name))
+	{
+		return mod->index;
+	}
+#endif
+
 	// make sure the render thread is stopped
 	//R_SyncRenderThread();
 
@@ -746,6 +840,17 @@ Ghoul2 Insert End
 				loaded = R_LoadMD3( mod, lod, buf, filename, bAlreadyCached );
 				break;
 
+#ifdef STEFX_ELITE_FORCE_SP
+			case MD4_IDENT:
+				mod->type = MOD_STEFX_MDR_PLACEHOLDER;
+				mod->dataSize += 1;
+#ifdef _XBOX
+				XBLF("EF: RE_RegisterModel accepted MDR placeholder '%s' handle=%d", filename, mod->index);
+#endif
+				loaded = qtrue;
+				break;
+#endif
+
 			default:
 
 				VID_Printf (PRINT_WARNING,"RE_RegisterModel: unknown fileid for %s\n", filename);
@@ -816,7 +921,7 @@ qhandle_t RE_RegisterModel( const char *name )
 
 		qhandle_t q = RE_RegisterModel_Actual( name );
 
-if (stricmp(&name[strlen(name)-4],".gla")){
+if (!name || strlen(name) < 4 || stricmp(&name[strlen(name)-4],".gla")){
 	gbInsideRegisterModel = qfalse;		// GLA files recursively call this, so don't turn off half way. A reference count would be nice, but if any ERR_DROP ever occurs within the load then the refcount will be knackered from then on
 }
 
@@ -1129,6 +1234,12 @@ void R_Modellist_f( void ) {
 			case MOD_BRUSH:
 				VID_Printf( PRINT_ALL, "%8i : (%i) %s\n", mod->dataSize, mod->numLods, mod->name );
 				break;
+
+#ifdef STEFX_ELITE_FORCE_SP
+			case MOD_STEFX_MDR_PLACEHOLDER:
+				VID_Printf( PRINT_ALL, "%8i : (MDR placeholder) %s\n", mod->dataSize, mod->name );
+				break;
+#endif
 
 			case MOD_MDXA:
 

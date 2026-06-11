@@ -5,6 +5,9 @@
 
 
 #include "tr_local.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #ifdef VV_LIGHTING
 #include "tr_lightmanager.h"
@@ -259,19 +262,36 @@ void RE_RenderScene( const refdef_t *fd ) {
 	viewParms_t		parms;
 	int				startTime;
 	static int		lastTime = 0;
+#ifdef _XBOX
+	const int xboxRenderSceneLog = (fd && fd->time >= 3400 && fd->time <= 5000);
+	if (xboxRenderSceneLog)
+	{
+		XBLF("JA: CL_EARLY RE_RenderScene enter fd=%p time=%d rd=0x%x world=%p registered=%d",
+			(void*)fd, fd ? fd->time : -1, fd ? fd->rdflags : 0, (void*)tr.world, tr.registered);
+	}
+#endif
 
 	if ( !tr.registered ) {
+#ifdef _XBOX
+		if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene not registered return");
+#endif
 		return;
 	}
 	GLimp_LogComment( "====== RE_RenderScene =====\n" );
 
 	if ( r_norefresh->integer ) {
+#ifdef _XBOX
+		if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene norefresh return");
+#endif
 		return;
 	}
 
 	startTime = Sys_Milliseconds();
 
 	if (!tr.world && !( fd->rdflags & RDF_NOWORLDMODEL ) ) {
+#ifdef _XBOX
+		if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene NULL world Com_Error");
+#endif
 		Com_Error (ERR_DROP, "R_RenderScene: NULL worldmodel");
 	}
 
@@ -350,6 +370,14 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 	tr.refdef.numPolys = r_numpolys - r_firstScenePoly;
 	tr.refdef.polys = &backEndData->polys[r_firstScenePoly];
+#ifdef _XBOX
+	if (xboxRenderSceneLog)
+	{
+		XBLF("JA: CL_EARLY RE_RenderScene refdef ents=%d polys=%d firstSurf=%d numDraw=%d vieworg=(%g,%g,%g)",
+			tr.refdef.num_entities, tr.refdef.numPolys, r_firstSceneDrawSurf, tr.refdef.numDrawSurfs,
+			tr.refdef.vieworg[0], tr.refdef.vieworg[1], tr.refdef.vieworg[2]);
+	}
+#endif
 
 	// turn off dynamic lighting globally by clearing all the
 	// dlights if it needs to be disabled or if vertex lighting is enabled
@@ -392,7 +420,13 @@ void RE_RenderScene( const refdef_t *fd ) {
 	VectorCopy( fd->vieworg, parms.pvsOrigin );
 
 	recursivePortalCount = 0;
+#ifdef _XBOX
+	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene before R_RenderView");
+#endif
 	R_RenderView( &parms );
+#ifdef _XBOX
+	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene after R_RenderView");
+#endif
 
 	// the next scene rendered in this frame will tack on after this one
 	r_firstSceneDrawSurf = tr.refdef.numDrawSurfs;
@@ -401,5 +435,11 @@ void RE_RenderScene( const refdef_t *fd ) {
 	r_firstScenePoly = r_numpolys;
 
 	tr.frontEndMsec += Sys_Milliseconds() - startTime;
+#ifdef _XBOX
+	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene before RE_RenderWorldEffects");
+#endif
 	RE_RenderWorldEffects();
+#ifdef _XBOX
+	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene done");
+#endif
 }

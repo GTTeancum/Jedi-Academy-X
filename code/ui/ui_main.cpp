@@ -3673,6 +3673,9 @@ void _UI_Init( qboolean inGameLoad )
 	{
 		menuSet = "ui/menus.txt";
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("EF: JA UI bootstrap using menu set '%s'; EF UI module not wired yet", menuSet);
+#endif
 	if (inGameLoad)
 	{
 #ifdef _XBOX

@@ -248,15 +248,19 @@ void SV_ClearLastLevel(void)
 	Sys_IORequestQueueClear();
 	AS_FreePartial();
 	G_ASPreCacheFree();
+#if !defined(STEFX_ELITE_FORCE_SP)
 	Ghoul2InfoArray_Free();
 	G2_FreeRag();
+#endif
 	ClearAllNavStructures();
 	ClearModelsAlreadyDone();
 	CL_FreeServerCommands();
 	CL_FreeReliableCommands();
 	CM_Free();
 	ShaderEntryPtrs_Clear();
+#if !defined(STEFX_ELITE_FORCE_SP)
 	ClearTheBonePool();
+#endif
 	BG_ClearVehicles();
 
 	cinematicSkipScript[0] = 0;
@@ -476,8 +480,12 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	}
 #endif
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 	// Miniheap never changes sizes, so I just put it really early in mem.
 	G2VertSpaceServer->ResetHeap();
+#else
+	XBLog_Write("STEFX: Ghoul2 server miniheap reset skipped");
+#endif
 
 #ifdef _XBOX
 	// Deletes all textures
@@ -516,8 +524,12 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 */
 #ifdef _XBOX
 	g_SPXBMapPhase = 12;
+#if !defined(STEFX_ELITE_FORCE_SP)
 	// We've over-freed the info array above, this puts it back into a working state
 	Ghoul2InfoArray_Reset();
+#else
+	XBLog_Write("STEFX: Ghoul2 info array reset skipped");
+#endif
 
 	extern void Z_DumpMemMap_f(void);
 	extern void Z_Details_f(void);
@@ -564,7 +576,9 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	}
 
 	sv.time = 1000;
+#if !defined(STEFX_ELITE_FORCE_SP)
 	G2API_SetTime(sv.time,G2T_SV_TIME);
+#endif
 
 #ifdef _XBOX
 	g_SPXBMapPhase = 13;
@@ -573,6 +587,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	CL_StartHunkUsers();
 	UpdateLoadingAnimation();
 	g_SPXBMapPhase = 14;
+#if !defined(STEFX_ELITE_FORCE_SP)
 	XBLog_Write("JA: SV_SpawnServer: precache humanoid GLA before BSP load...");
 	{
 		const qhandle_t normalHumanoid = RE_RegisterModel("models/players/_humanoid/_humanoid.gla");
@@ -583,6 +598,9 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		XBLF("JA: SV_SpawnServer: humanoid GLA handles normal=%d cinematic=%d path='%s'",
 			normalHumanoid, cinematicHumanoidHandle, cinematicHumanoid);
 	}
+#else
+	XBLog_Write("STEFX: Ghoul2 humanoid GLA precache skipped");
+#endif
 	g_SPXBMapPhase = 15;
 	XBLog_Write("JA: CM_LoadMap...");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
@@ -630,22 +648,39 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// run a few frames to allow everything to settle
 #ifdef _XBOX
 	g_SPXBMapPhase = 21;
+	XBLog_Write("JA: SV_SpawnServer before settle RunFrame loop");
 #endif
 	for ( i = 0 ;i < 3 ; i++ ) {
+#ifdef _XBOX
+		XBLF("JA: SV_SpawnServer settle RunFrame %d before time=%d", i, sv.time);
+#endif
 		ge->RunFrame( sv.time );
+#ifdef _XBOX
+		XBLF("JA: SV_SpawnServer settle RunFrame %d after time=%d", i, sv.time);
+#endif
 		sv.time += 100;
+#if !defined(STEFX_ELITE_FORCE_SP)
 		G2API_SetTime(sv.time,G2T_SV_TIME);
+#endif
 	}
 #ifdef _XBOX
 	g_SPXBMapPhase = 22;
+	XBLog_Write("JA: SV_SpawnServer before ge->ConnectNavs");
 #endif
 	ge->ConnectNavs(sv_mapname->string, sv_mapChecksum->integer);
+#ifdef _XBOX
+	XBLog_Write("JA: SV_SpawnServer after ge->ConnectNavs");
+#endif
 
 	// create a baseline for more efficient communications
 #ifdef _XBOX
 	g_SPXBMapPhase = 23;
+	XBLog_Write("JA: SV_SpawnServer before SV_CreateBaseline");
 #endif
 	SV_CreateBaseline ();
+#ifdef _XBOX
+	XBLog_Write("JA: SV_SpawnServer after SV_CreateBaseline");
+#endif
 
 	for (i=0 ; i<1 ; i++) {
 		// clear all time counters, because we have reset sv.time
@@ -658,7 +693,13 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 			char	*denied;
 
 			// connect the client again
+#ifdef _XBOX
+			XBLF("JA: SV_SpawnServer before ClientConnect client=%d state=%d", i, svs.clients[i].state);
+#endif
 			denied = ge->ClientConnect( i, qfalse, eNO/*qfalse*/ );	// firstTime = qfalse, qbFromSavedGame
+#ifdef _XBOX
+			XBLF("JA: SV_SpawnServer after ClientConnect client=%d denied=%s", i, denied ? denied : "(null)");
+#endif
 			if ( denied ) {
 				// this generally shouldn't happen, because the client
 				// was connected before the level change
@@ -674,18 +715,33 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// run another frame to allow things to look at all connected clients
 #ifdef _XBOX
 	g_SPXBMapPhase = 24;
+	XBLog_Write("JA: SV_SpawnServer before post-client RunFrame");
 #endif
 	ge->RunFrame( sv.time );
+#ifdef _XBOX
+	XBLog_Write("JA: SV_SpawnServer after post-client RunFrame");
+#endif
 	sv.time += 100;
+#if !defined(STEFX_ELITE_FORCE_SP)
 	G2API_SetTime(sv.time,G2T_SV_TIME);
+#endif
 
 
 	// save systeminfo and serverinfo strings
+#ifdef _XBOX
+	XBLog_Write("JA: SV_SpawnServer before CS_SYSTEMINFO");
+#endif
 	SV_SetConfigstring( CS_SYSTEMINFO, Cvar_InfoString( CVAR_SYSTEMINFO ) );
 	cvar_modifiedFlags &= ~CVAR_SYSTEMINFO;
 
+#ifdef _XBOX
+	XBLog_Write("JA: SV_SpawnServer before CS_SERVERINFO");
+#endif
 	SV_SetConfigstring( CS_SERVERINFO, Cvar_InfoString( CVAR_SERVERINFO ) );
 	cvar_modifiedFlags &= ~CVAR_SERVERINFO;
+#ifdef _XBOX
+	XBLog_Write("JA: SV_SpawnServer after serverinfo configstrings");
+#endif
 
 	// any media configstring setting now should issue a warning
 	// and any configstring changes should be reliably transmitted
@@ -705,6 +761,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	StopLoadingAnimation();
 #ifdef _XBOX
 	g_SPXBMapPhase = 25;
+	XBLog_Write("JA: SV_SpawnServer complete");
 #endif
 
 	Com_Printf ("-----------------------------------\n");
@@ -743,12 +800,19 @@ void SV_Init (void) {
 	sv_testsave = Cvar_Get ("sv_testsave", "0", 0);
 	sv_compress_saved_games = Cvar_Get ("sv_compress_saved_games", "1", 0);
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	G2VertSpaceServer = NULL;
+#ifdef _XBOX
+	XBLog_Write("STEFX: Ghoul2 server miniheap disabled");
+#endif
+#else
 	// Only allocated once, no point in moving it around and fragmenting
 	// create a heap for Ghoul2 to use for game side model vertex transforms used in collision detection
 	{
 		static CMiniHeap singleton(132096);
 		G2VertSpaceServer = &singleton;
 	}
+#endif
 }
 
 

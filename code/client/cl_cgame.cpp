@@ -57,7 +57,29 @@ CL_GetGameState
 ====================
 */
 void CL_GetGameState( gameState_t *gs ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	typedef struct stefxGameState_s {
+		int			stringOffsets[1024];
+		char		stringData[MAX_GAMESTATE_CHARS];
+		int			dataCount;
+	} stefxGameState_t;
+
+	stefxGameState_t *efGs = (stefxGameState_t *)gs;
+	memset( efGs, 0, sizeof(*efGs) );
+	for (int i = 0; i < 1024 && i < MAX_CONFIGSTRINGS; i++)
+	{
+		efGs->stringOffsets[i] = cl.gameState.stringOffsets[i];
+	}
+	memcpy( efGs->stringData, cl.gameState.stringData, sizeof(efGs->stringData) );
+	efGs->dataCount = cl.gameState.dataCount;
+	XBLF("STEFX: CL_GetGameState marshalled EF layout dataCount=%d cs0=%d cs1=%d serverinfo='%s'",
+		efGs->dataCount,
+		efGs->stringOffsets[0],
+		efGs->stringOffsets[1],
+		efGs->stringData + efGs->stringOffsets[0]);
+#else
 	*gs = cl.gameState;
+#endif
 }
 
 /*
@@ -66,7 +88,67 @@ CL_GetGlconfig
 ====================
 */
 void CL_GetGlconfig( glconfig_t *glconfig ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	typedef struct stefxGlconfig_s {
+		char		renderer_string[MAX_STRING_CHARS];
+		char		vendor_string[MAX_STRING_CHARS];
+		char		version_string[MAX_STRING_CHARS];
+		char		extensions_string[2 * MAX_STRING_CHARS];
+		int			maxTextureSize;
+		int			maxActiveTextures;
+		int			colorBits, depthBits, stencilBits;
+		int			driverType;
+		int			hardwareType;
+		qboolean	deviceSupportsGamma;
+		int			textureCompression;
+		qboolean	textureEnvAddAvailable;
+		qboolean	textureFilterAnisotropicAvailable;
+		qboolean	clampToEdgeAvailable;
+		int			vidWidth, vidHeight;
+		float		windowAspect;
+		int			displayFrequency;
+		qboolean	isFullscreen;
+		qboolean	stereoEnabled;
+		qboolean	smpActive;
+	} stefxGlconfig_t;
+
+	stefxGlconfig_t *efGlconfig = (stefxGlconfig_t *)glconfig;
+	memset( efGlconfig, 0, sizeof(*efGlconfig) );
+	Q_strncpyz( efGlconfig->renderer_string, cls.glconfig.renderer_string ? cls.glconfig.renderer_string : "", sizeof(efGlconfig->renderer_string) );
+	Q_strncpyz( efGlconfig->vendor_string, cls.glconfig.vendor_string ? cls.glconfig.vendor_string : "", sizeof(efGlconfig->vendor_string) );
+	Q_strncpyz( efGlconfig->version_string, cls.glconfig.version_string ? cls.glconfig.version_string : "", sizeof(efGlconfig->version_string) );
+	Q_strncpyz( efGlconfig->extensions_string, cls.glconfig.extensions_string ? cls.glconfig.extensions_string : "", sizeof(efGlconfig->extensions_string) );
+
+	efGlconfig->maxTextureSize = cls.glconfig.maxTextureSize;
+	efGlconfig->maxActiveTextures = cls.glconfig.maxActiveTextures > 0 ? cls.glconfig.maxActiveTextures : 1;
+	efGlconfig->colorBits = cls.glconfig.colorBits;
+	efGlconfig->depthBits = cls.glconfig.depthBits;
+	efGlconfig->stencilBits = cls.glconfig.stencilBits;
+	efGlconfig->driverType = 0;		// GLDRV_ICD
+	efGlconfig->hardwareType = 0;	// GLHW_GENERIC
+	efGlconfig->deviceSupportsGamma = cls.glconfig.deviceSupportsGamma;
+	efGlconfig->textureCompression = cls.glconfig.textureCompression != TC_NONE ? 1 : 0;
+	efGlconfig->textureEnvAddAvailable = cls.glconfig.textureEnvAddAvailable;
+	efGlconfig->textureFilterAnisotropicAvailable = cls.glconfig.textureFilterAnisotropicAvailable;
+	efGlconfig->clampToEdgeAvailable = cls.glconfig.clampToEdgeAvailable;
+	efGlconfig->vidWidth = cls.glconfig.vidWidth > 0 ? cls.glconfig.vidWidth : 640;
+	efGlconfig->vidHeight = cls.glconfig.vidHeight > 0 ? cls.glconfig.vidHeight : 480;
+	efGlconfig->windowAspect = (float)efGlconfig->vidWidth / (float)efGlconfig->vidHeight;
+	efGlconfig->displayFrequency = cls.glconfig.displayFrequency;
+	efGlconfig->isFullscreen = cls.glconfig.isFullscreen;
+	efGlconfig->stereoEnabled = cls.glconfig.stereoEnabled;
+	efGlconfig->smpActive = qfalse;
+
+	XBLF("STEFX: CL_GetGlconfig marshalled EF layout %dx%d aspect=%g maxTex=%d activeTex=%d renderer='%s'",
+		efGlconfig->vidWidth,
+		efGlconfig->vidHeight,
+		efGlconfig->windowAspect,
+		efGlconfig->maxTextureSize,
+		efGlconfig->maxActiveTextures,
+		efGlconfig->renderer_string);
+#else
 	*glconfig = cls.glconfig;
+#endif
 }
 
 
@@ -440,7 +522,328 @@ extern bool Sys_IsDirectMapBoot(void);
 //#define	VMA(x) VM_ArgPtr(args[x])
 #define	VMA(x) ((void*)args[x])
 #define	VMF(x)	((float *)args)[x]
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+enum stefxCgImport_t
+{
+	STEFX_CG_PRINT,
+	STEFX_CG_ERROR,
+	STEFX_CG_MILLISECONDS,
+	STEFX_CG_CVAR_REGISTER,
+	STEFX_CG_CVAR_UPDATE,
+	STEFX_CG_CVAR_SET,
+	STEFX_CG_ARGC,
+	STEFX_CG_ARGV,
+	STEFX_CG_ARGS,
+	STEFX_CG_FS_FOPENFILE,
+	STEFX_CG_FS_READ,
+	STEFX_CG_FS_WRITE,
+	STEFX_CG_FS_FCLOSEFILE,
+	STEFX_CG_SENDCONSOLECOMMAND,
+	STEFX_CG_ADDCOMMAND,
+	STEFX_CG_SENDCLIENTCOMMAND,
+	STEFX_CG_UPDATESCREEN,
+	STEFX_CG_CM_LOADMAP,
+	STEFX_CG_CM_NUMINLINEMODELS,
+	STEFX_CG_CM_INLINEMODEL,
+	STEFX_CG_CM_TEMPBOXMODEL,
+	STEFX_CG_CM_POINTCONTENTS,
+	STEFX_CG_CM_TRANSFORMEDPOINTCONTENTS,
+	STEFX_CG_CM_BOXTRACE,
+	STEFX_CG_CM_TRANSFORMEDBOXTRACE,
+	STEFX_CG_CM_MARKFRAGMENTS,
+	STEFX_CG_S_STARTSOUND,
+	STEFX_CG_S_STARTLOCALSOUND,
+	STEFX_CG_S_CLEARLOOPINGSOUNDS,
+	STEFX_CG_S_ADDLOOPINGSOUND,
+	STEFX_CG_S_UPDATEENTITYPOSITION,
+	STEFX_CG_S_RESPATIALIZE,
+	STEFX_CG_S_REGISTERSOUND,
+	STEFX_CG_S_STARTBACKGROUNDTRACK,
+	STEFX_CG_FF_STARTFX,
+	STEFX_CG_FF_ENSUREFX,
+	STEFX_CG_FF_STOPFX,
+	STEFX_CG_FF_STOPALLFX,
+	STEFX_CG_R_LOADWORLDMAP,
+	STEFX_CG_R_REGISTERMODEL,
+	STEFX_CG_R_REGISTERSKIN,
+	STEFX_CG_R_REGISTERSHADER,
+	STEFX_CG_R_REGISTERSHADERNOMIP,
+	STEFX_CG_R_CLEARSCENE,
+	STEFX_CG_R_ADDREFENTITYTOSCENE,
+	STEFX_CG_R_GETLIGHTING,
+	STEFX_CG_R_ADDPOLYTOSCENE,
+	STEFX_CG_R_ADDLIGHTTOSCENE,
+	STEFX_CG_R_RENDERSCENE,
+	STEFX_CG_R_SETCOLOR,
+	STEFX_CG_R_DRAWSTRETCHPIC,
+	STEFX_CG_R_DRAWSCREENSHOT,
+	STEFX_CG_R_MODELBOUNDS,
+	STEFX_CG_R_LERPTAG,
+	STEFX_CG_R_DRAWROTATEPIC,
+	STEFX_CG_R_SCISSOR,
+	STEFX_CG_GETGLCONFIG,
+	STEFX_CG_GETGAMESTATE,
+	STEFX_CG_GETCURRENTSNAPSHOTNUMBER,
+	STEFX_CG_GETSNAPSHOT,
+	STEFX_CG_GETSERVERCOMMAND,
+	STEFX_CG_GETCURRENTCMDNUMBER,
+	STEFX_CG_GETUSERCMD,
+	STEFX_CG_SETUSERCMDVALUE,
+	STEFX_CG_MEMORY_REMAINING,
+	STEFX_CG_S_UPDATEAMBIENTSET,
+	STEFX_CG_S_ADDLOCALSET,
+	STEFX_CG_AS_PARSESETS,
+	STEFX_CG_AS_ADDENTRY,
+	STEFX_CG_AS_GETBMODELSOUND,
+	STEFX_CG_S_GETSAMPLELENGTH
+};
+
+static int CL_STEFX_CgameSystemCalls( int *args )
+{
+	static int s_syscallLogCount = 0;
+	if (s_syscallLogCount < 96)
+	{
+		XBLF("STEFX: EF cgame syscall #%d trap=%d a1=%08x a2=%08x a3=%08x",
+			s_syscallLogCount, args[0], args[1], args[2], args[3]);
+	}
+	s_syscallLogCount++;
+
+	switch ( args[0] )
+	{
+	case STEFX_CG_PRINT:
+		Com_Printf( "%s", VMA(1) );
+		return 0;
+	case STEFX_CG_ERROR:
+		Com_Error( ERR_DROP, S_COLOR_RED"%s", VMA(1) );
+		return 0;
+	case STEFX_CG_MILLISECONDS:
+		return Sys_Milliseconds();
+	case STEFX_CG_CVAR_REGISTER:
+		Cvar_Register( (vmCvar_t *) VMA(1), (const char *) VMA(2), (const char *) VMA(3), args[4] );
+		return 0;
+	case STEFX_CG_CVAR_UPDATE:
+		Cvar_Update( (vmCvar_t *) VMA(1) );
+		return 0;
+	case STEFX_CG_CVAR_SET:
+		Cvar_Set( (const char *) VMA(1), (const char *) VMA(2) );
+		return 0;
+	case STEFX_CG_ARGC:
+		return Cmd_Argc();
+	case STEFX_CG_ARGV:
+		Cmd_ArgvBuffer( args[1], (char *) VMA(2), args[3] );
+		return 0;
+	case STEFX_CG_ARGS:
+		Cmd_ArgsBuffer( (char *) VMA(1), args[2] );
+		return 0;
+	case STEFX_CG_FS_FOPENFILE:
+		return FS_FOpenFileByMode( (const char *) VMA(1), (int *) VMA(2), (fsMode_t) args[3] );
+	case STEFX_CG_FS_READ:
+		FS_Read( VMA(1), args[2], args[3] );
+		return 0;
+	case STEFX_CG_FS_WRITE:
+		FS_Write( VMA(1), args[2], args[3] );
+		return 0;
+	case STEFX_CG_FS_FCLOSEFILE:
+		FS_FCloseFile( args[1] );
+		return 0;
+	case STEFX_CG_SENDCONSOLECOMMAND:
+		Cbuf_AddText( (const char *) VMA(1) );
+		return 0;
+	case STEFX_CG_ADDCOMMAND:
+		CL_AddCgameCommand( (const char *) VMA(1) );
+		return 0;
+	case STEFX_CG_SENDCLIENTCOMMAND:
+		CL_AddReliableCommand( (const char *) VMA(1) );
+		return 0;
+	case STEFX_CG_UPDATESCREEN:
+		Com_EventLoop();
+		if ( Sys_IsDirectMapBoot() )
+		{
+			return 0;
+		}
+		SCR_UpdateScreen();
+		return 0;
+	case STEFX_CG_CM_LOADMAP:
+		CL_CM_LoadMap( (const char *) VMA(1) );
+		return 0;
+	case STEFX_CG_CM_NUMINLINEMODELS:
+		return CM_NumInlineModels();
+	case STEFX_CG_CM_INLINEMODEL:
+		return CM_InlineModel( args[1] );
+	case STEFX_CG_CM_TEMPBOXMODEL:
+		return CM_TempBoxModel( (const float *) VMA(1), (const float *) VMA(2) );
+	case STEFX_CG_CM_POINTCONTENTS:
+		return CM_PointContents( (float *) VMA(1), args[2] );
+	case STEFX_CG_CM_TRANSFORMEDPOINTCONTENTS:
+		return CM_TransformedPointContents( (const float *) VMA(1), args[2], (const float *) VMA(3), (const float *) VMA(4) );
+	case STEFX_CG_CM_BOXTRACE:
+		CM_BoxTrace( (trace_t *) VMA(1), (const float *) VMA(2), (const float *) VMA(3), (const float *) VMA(4), (const float *) VMA(5), args[6], args[7] );
+		return 0;
+	case STEFX_CG_CM_TRANSFORMEDBOXTRACE:
+		CM_TransformedBoxTrace( (trace_t *) VMA(1), (const float *) VMA(2), (const float *) VMA(3), (const float *) VMA(4), (const float *) VMA(5), args[6], args[7], (const float *) VMA(8), (const float *) VMA(9) );
+		return 0;
+	case STEFX_CG_CM_MARKFRAGMENTS:
+		return re.MarkFragments( args[1], (float(*)[3]) VMA(2), (const float *) VMA(3), args[4], (float *) VMA(5), args[6], (markFragment_t *) VMA(7) );
+	case STEFX_CG_S_STARTSOUND:
+		if (!cls.cgameStarted)
+		{
+			return 0;
+		}
+		S_StartSound( (float *) VMA(1), args[2], (soundChannel_t)args[3], args[4] );
+		return 0;
+	case STEFX_CG_S_STARTLOCALSOUND:
+		if (!cls.cgameStarted)
+		{
+			return 0;
+		}
+		S_StartLocalSound( args[1], args[2] );
+		return 0;
+	case STEFX_CG_S_CLEARLOOPINGSOUNDS:
+		S_ClearLoopingSounds();
+		return 0;
+	case STEFX_CG_S_ADDLOOPINGSOUND:
+		if (!cls.cgameStarted)
+		{
+			return 0;
+		}
+		S_AddLoopingSound( args[1], (const float *) VMA(2), (const float *) VMA(3), args[4], (soundChannel_t)args[5] );
+		return 0;
+	case STEFX_CG_S_UPDATEENTITYPOSITION:
+		S_UpdateEntityPosition( args[1], (const float *) VMA(2) );
+		return 0;
+	case STEFX_CG_S_RESPATIALIZE:
+		S_Respatialize( args[1], (const float *) VMA(2), (float(*)[3]) VMA(3), args[4] );
+		return 0;
+	case STEFX_CG_S_REGISTERSOUND:
+		return S_RegisterSound( (const char *) VMA(1) );
+	case STEFX_CG_S_STARTBACKGROUNDTRACK:
+		S_StartBackgroundTrack( (const char *) VMA(1), (const char *) VMA(2), args[3] );
+		return 0;
+	case STEFX_CG_FF_STARTFX:
+		FFFX_START( (ffFX_e) args[1] );
+		return 0;
+	case STEFX_CG_FF_ENSUREFX:
+		FFFX_ENSURE( (ffFX_e) args[1] );
+		return 0;
+	case STEFX_CG_FF_STOPFX:
+		FFFX_STOP( (ffFX_e) args[1] );
+		return 0;
+	case STEFX_CG_FF_STOPALLFX:
+		FFFX_STOPALL;
+		return 0;
+	case STEFX_CG_R_LOADWORLDMAP:
+		re.LoadWorld( (const char *) VMA(1) );
+		return 0;
+	case STEFX_CG_R_REGISTERMODEL:
+		{
+			const char *modelName = (const char *) VMA(1);
+			qhandle_t modelHandle = re.RegisterModel( modelName );
+			if (modelName && (strstr(modelName, ".mdr") || strstr(modelName, "models/players/")))
+			{
+				XBLF("STEFX: EF cgame R_RegisterModel '%s' -> %d", modelName, modelHandle);
+			}
+			return modelHandle;
+		}
+	case STEFX_CG_R_REGISTERSKIN:
+		return re.RegisterSkin( (const char *) VMA(1) );
+	case STEFX_CG_R_REGISTERSHADER:
+		return re.RegisterShader( (const char *) VMA(1) );
+	case STEFX_CG_R_REGISTERSHADERNOMIP:
+		return re.RegisterShaderNoMip( (const char *) VMA(1) );
+	case STEFX_CG_R_CLEARSCENE:
+		re.ClearScene();
+		return 0;
+	case STEFX_CG_R_ADDREFENTITYTOSCENE:
+		re.AddRefEntityToScene( (const refEntity_t *) VMA(1) );
+		return 0;
+	case STEFX_CG_R_GETLIGHTING:
+		return re.GetLighting( (const float * ) VMA(1), (float *) VMA(2), (float *) VMA(3), (float *) VMA(4) );
+	case STEFX_CG_R_ADDPOLYTOSCENE:
+		re.AddPolyToScene( args[1], args[2], (const polyVert_t *) VMA(3) );
+		return 0;
+	case STEFX_CG_R_ADDLIGHTTOSCENE:
+#ifdef VV_LIGHTING
+		VVLightMan.RE_AddLightToScene( (const float *) VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
+#else
+		re.AddLightToScene( (const float *) VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
+#endif
+		return 0;
+	case STEFX_CG_R_RENDERSCENE:
+		re.RenderScene( (const refdef_t *) VMA(1) );
+		return 0;
+	case STEFX_CG_R_SETCOLOR:
+		re.SetColor( (const float *) VMA(1) );
+		return 0;
+	case STEFX_CG_R_DRAWSTRETCHPIC:
+		re.DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
+		return 0;
+	case STEFX_CG_R_DRAWSCREENSHOT:
+		return 0;
+	case STEFX_CG_R_MODELBOUNDS:
+		re.ModelBounds( args[1], (float *) VMA(2), (float *) VMA(3) );
+		return 0;
+	case STEFX_CG_R_LERPTAG:
+		re.LerpTag( (orientation_t *) VMA(1), args[2], args[3], args[4], VMF(5), (const char *) VMA(6) );
+		return 0;
+	case STEFX_CG_R_DRAWROTATEPIC:
+		re.DrawRotatePic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), VMF(9), args[10] );
+		return 0;
+	case STEFX_CG_R_SCISSOR:
+		re.Scissor( VMF(1), VMF(2), VMF(3), VMF(4) );
+		return 0;
+	case STEFX_CG_GETGLCONFIG:
+		CL_GetGlconfig( (glconfig_t *) VMA(1) );
+		return 0;
+	case STEFX_CG_GETGAMESTATE:
+		CL_GetGameState( (gameState_t *) VMA(1) );
+		return 0;
+	case STEFX_CG_GETCURRENTSNAPSHOTNUMBER:
+		CL_GetCurrentSnapshotNumber( (int *) VMA(1), (int *) VMA(2) );
+		return 0;
+	case STEFX_CG_GETSNAPSHOT:
+		return CL_GetSnapshot( args[1], (snapshot_t *) VMA(2) );
+	case STEFX_CG_GETSERVERCOMMAND:
+		return CL_GetServerCommand( args[1] );
+	case STEFX_CG_GETCURRENTCMDNUMBER:
+		return CL_GetCurrentCmdNumber();
+	case STEFX_CG_GETUSERCMD:
+		return CL_GetUserCmd( args[1], (usercmd_s *) VMA(2) );
+	case STEFX_CG_SETUSERCMDVALUE:
+		CL_SetUserCmdValue( args[1], VMF(2), 0.0f, 0.0f );
+		return 0;
+	case STEFX_CG_MEMORY_REMAINING:
+		return Hunk_MemoryRemaining();
+	case STEFX_CG_S_UPDATEAMBIENTSET:
+		if (!cls.cgameStarted)
+		{
+			return 0;
+		}
+		S_UpdateAmbientSet( (const char *) VMA(1), (float *) VMA(2) );
+		return 0;
+	case STEFX_CG_S_ADDLOCALSET:
+		return S_AddLocalSet( (const char *) VMA(1), (float *) VMA(2), (float *) VMA(3), args[4], args[5] );
+	case STEFX_CG_AS_PARSESETS:
+		AS_ParseSets();
+		return 0;
+	case STEFX_CG_AS_ADDENTRY:
+		AS_AddPrecacheEntry( (const char *) VMA(1) );
+		return 0;
+	case STEFX_CG_AS_GETBMODELSOUND:
+		return AS_GetBModelSound( (const char *) VMA(1), args[2] );
+	case STEFX_CG_S_GETSAMPLELENGTH:
+		return S_GetSampleLengthInMilliSeconds( args[1] );
+	default:
+		Com_Error( ERR_DROP, "Bad EF cgame system trap: %i", args[0] );
+		return 0;
+	}
+}
+#endif
+
 int CL_CgameSystemCalls( int *args ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	return CL_STEFX_CgameSystemCalls( args );
+#endif
 	switch( args[0] ) {
 	case CG_PRINT:
 		Com_Printf( "%s", VMA(1) );
@@ -1142,7 +1545,8 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #endif
 #ifdef _XBOX
 	static int s_xboxCGameRenderCount = 0;
-	const int xboxLogThisFrame = (cls.state == CA_ACTIVE && s_xboxCGameRenderCount < 24);
+	const int xboxLogLateFrame = (cls.state == CA_ACTIVE && cl.serverTime >= 3600 && cl.serverTime <= 4600);
+	const int xboxLogThisFrame = (cls.state == CA_ACTIVE && (s_xboxCGameRenderCount < 24 || xboxLogLateFrame));
 	if (xboxLogThisFrame)
 	{
 		XBLF("JA: CL_CGameRendering #%d enter state=%d serverTime=%d stereo=%d",
@@ -1154,7 +1558,14 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	{
 		timei-=0;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (xboxLogThisFrame)
+	{
+		XBLog_Write("STEFX: Ghoul2 cgame time tick skipped");
+	}
+#else
 	G2API_SetTime(cl.serverTime,G2T_CG_TIME);
+#endif
 #ifdef _XBOX
 	if (xboxLogThisFrame)
 	{

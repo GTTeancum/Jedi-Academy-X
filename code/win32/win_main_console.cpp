@@ -5,6 +5,7 @@
 #include "resource.h"
 #include <float.h>
 #include <stdio.h>
+#include <malloc.h>
 #include "../game/g_public.h"
 #include <xonline.h>
 #include "glw_win_dx8.h"
@@ -15,10 +16,16 @@
 #include <xtl.h>
 #include "../win32/xb_log.h"
 #define NEWDECL __cdecl
+#if defined(_MSC_VER) && !defined(_M_PPC)
+extern "C" void *_ReturnAddress(void);
+#pragma intrinsic(_ReturnAddress)
+#endif
 extern "C" volatile unsigned int g_SPXBBootPhase;
 extern "C" volatile unsigned int g_SPXBMainLoopCount;
 extern "C" volatile unsigned int g_SPXBClsState;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComFrameCount;
 
 /* NT kernel prototypes for the early main() probe (file-scope required by VC71) */
 extern "C" long __stdcall NtCreateFile(void**, unsigned long, void*, void*,
@@ -114,12 +121,38 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 
 void *NEWDECL operator new(size_t size)
 {
+#if defined(_XBOX)
+	void *retaddr = NULL;
+#if defined(_MSC_VER) && !defined(_M_PPC)
+	retaddr = _ReturnAddress();
+#endif
+	if (size >= (16 * 1024 * 1024))
+	{
+		char msg[160];
+		_snprintf(msg, sizeof(msg) - 1, "EFALLOC: operator new size=%u phase=%u caller=%p\n", (unsigned int)size, (unsigned int)g_SPXBBootPhase, retaddr);
+		msg[sizeof(msg) - 1] = '\0';
+		XBLog_Print(msg);
+	}
+#endif
 	return Z_Malloc(size, TAG_NEWDEL, qfalse);
 }
 
 
 void *NEWDECL operator new[](size_t size)
 {
+#if defined(_XBOX)
+	void *retaddr = NULL;
+#if defined(_MSC_VER) && !defined(_M_PPC)
+	retaddr = _ReturnAddress();
+#endif
+	if (size >= (16 * 1024 * 1024))
+	{
+		char msg[160];
+		_snprintf(msg, sizeof(msg) - 1, "EFALLOC: operator new[] size=%u phase=%u caller=%p\n", (unsigned int)size, (unsigned int)g_SPXBBootPhase, retaddr);
+		msg[sizeof(msg) - 1] = '\0';
+		XBLog_Print(msg);
+	}
+#endif
 	return Z_Malloc(size, TAG_NEWDEL, qfalse);
 }
 
@@ -202,6 +235,9 @@ void Sys_Error( const char *error, ... ) {
         printf(text);
 #else
         OutputDebugString(text);
+#endif
+#ifdef _XBOX
+        XBLF("JA: Sys_Error exit: %s", text);
 #endif
 
 #if 0 // UN-PORT
@@ -639,13 +675,13 @@ int main(int argc, char* argv[])
 
 #ifdef _XBOX
 	g_SPXBBootPhase = 2;
-	/* Raw NT probe — appends "main_reached" to ja_sp_log.txt before XBLog_Init.
-	   If ja_sp_log.txt only has "precrt_ok", a static ctor crashed before main(). */
+	/* Raw NT probe — appends "main_reached" to ef_sp_log.txt before XBLog_Init.
+	   If ef_sp_log.txt only has "precrt_ok", a static ctor crashed before main(). */
 	{
 		struct { unsigned short Len, MaxLen; char *Buf; } oname;
 		struct { void *Root; void *Name; unsigned long Attr; } oa;
 		struct { union { long Status; void *Ptr; }; unsigned long Info; } iosb;
-		static const char path[] = "\\Device\\Harddisk0\\Partition1\\ja_sp_log.txt";
+		static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
 		static const char data[] = "main_reached\n";
 		void *h = (void*)-1;
 		oname.Buf = (char*)path; oname.Len = sizeof(path)-1; oname.MaxLen = sizeof(path);
@@ -721,6 +757,7 @@ int main(int argc, char* argv[])
 	Win_Init();
 	XBL("Win_Init done\n");
 
+	XBL("EF: before Com_Init\n");
 	Com_Init( "" );
 	XBL("Com_Init done\n");
 
@@ -763,25 +800,37 @@ int main(int argc, char* argv[])
 	int xboxMainLoopCount = 0;
 	while( 1 ) {
 		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
+		const bool xboxTraceMainLoopLate = (cls.state == CA_ACTIVE && cls.framecount >= 8 && cls.framecount <= 40);
 #ifdef _XBOX
 		g_SPXBMainLoopCount = (unsigned int)xboxMainLoopCount;
 		g_SPXBClsState = (unsigned int)cls.state;
 		g_SPXBPhaseLast = 0x4D414931; /* 'MAI1' */
 #endif
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d top clsFrame=%d state=%d realtime=%d cframe=%u", xboxMainLoopCount, cls.framecount, (int)cls.state, cls.realtime, g_SPXBComFrameCount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before IN_Frame", xboxMainLoopCount);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before IN_Frame clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		IN_Frame();
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after IN_Frame clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after IN_Frame", xboxMainLoopCount);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame", xboxMainLoopCount);
+	#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D434631; /* 'MCF1' */
+		g_SPXBComSubphase = 0;
+	#endif
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		Com_Frame();
 #ifdef _XBOX
 		g_SPXBClsState = (unsigned int)cls.state;
-		g_SPXBPhaseLast = 0x4D414932; /* 'MAI2' */
+		g_SPXBPhaseLast = 0x4D434632; /* 'MCF2' */
 #endif
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame", xboxMainLoopCount);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
+		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 #ifdef _XBOX
 		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE) ? 0 : 1;
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before first yield ms=%lu state=%d clsFrame=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state, cls.framecount);
 		Sleep(xboxMainLoopYieldMs);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after first yield clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after first yield", xboxMainLoopCount);
 #else
 		Sleep(1);
@@ -790,16 +839,21 @@ int main(int argc, char* argv[])
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before DebugConsoleHandleCommands", xboxMainLoopCount);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before DebugConsoleHandleCommands clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		DebugConsoleHandleCommands();
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after DebugConsoleHandleCommands clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after DebugConsoleHandleCommands", xboxMainLoopCount);
 #endif
 #ifdef _XBOX
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before second yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before second yield ms=%lu state=%d clsFrame=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state, cls.framecount);
 		Sleep(xboxMainLoopYieldMs);
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after second yield clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after second yield", xboxMainLoopCount);
 #else
 		Sleep(1);
 #endif
+		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d bottom before increment clsFrame=%d state=%d", xboxMainLoopCount, cls.framecount, (int)cls.state);
 		xboxMainLoopCount++;
 	}
 
@@ -813,7 +867,12 @@ void Sys_StartProcess(char *, qboolean) {}
 
 void Sys_OpenURL(char *, int) {}
 
-void Sys_Quit(void) {}
+void Sys_Quit(void)
+{
+#ifdef _XBOX
+	XBL("JA: Sys_Quit called\n");
+#endif
+}
 
 void Sys_ShowConsole(int, int) {}
 
@@ -981,12 +1040,345 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 	return retList;
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(_JK2MP)
+typedef struct stefx_trace_s {
+	qboolean	allsolid;
+	qboolean	startsolid;
+	float		fraction;
+	vec3_t		endpos;
+	cplane_t	plane;
+	int			surfaceFlags;
+	int			contents;
+	int			entityNum;
+} stefx_trace_t;
+
+typedef struct stefx_game_import_s {
+	void	(*Printf)( const char *fmt, ... );
+	void	(*WriteCam)( const char *text );
+	void	(*Error)( int, const char *fmt, ... );
+	int		(*Milliseconds)( void );
+	cvar_t	*(*cvar)( const char *var_name, const char *value, int flags );
+	void	(*cvar_set)( const char *var_name, const char *value );
+	int		(*Cvar_VariableIntegerValue)( const char *var_name );
+	void	(*Cvar_VariableStringBuffer)( const char *var_name, char *buffer, int bufsize );
+	int		(*argc)( void );
+	char	*(*argv)( int n );
+	int		(*FS_FOpenFile)( const char *qpath, fileHandle_t *file, fsMode_t mode );
+	int		(*FS_Read)( void *buffer, int len, fileHandle_t f );
+	int		(*FS_Write)( const void *buffer, int len, fileHandle_t f );
+	void	(*FS_FCloseFile)( fileHandle_t f );
+	int		(*FS_ReadFile)( const char *name, void **buf );
+	void	(*FS_FreeFile)( void *buf );
+	int		(*FS_GetFileList)( const char *path, const char *extension, char *listbuf, int bufsize );
+	qboolean	(*AppendToSaveGame)(unsigned long chid, void *data, int length);
+	int		(*ReadFromSaveGame)(unsigned long chid, void *pvAddress, int iLength, void **ppvAddressPtr);
+	int		(*ReadFromSaveGameOptional)(unsigned long chid, void *pvAddress, int iLength, void **ppvAddressPtr);
+	void	(*SendConsoleCommand)( const char *text );
+	void	(*DropClient)( int clientNum, const char *reason );
+	void	(*SendServerCommand)( int clientNum, const char *fmt, ... );
+	void	(*SetConfigstring)( int num, const char *string );
+	void	(*GetConfigstring)( int num, char *buffer, int bufferSize );
+	void	(*GetUserinfo)( int num, char *buffer, int bufferSize );
+	void	(*SetUserinfo)( int num, const char *buffer );
+	void	(*GetServerinfo)( char *buffer, int bufferSize );
+	void	(*SetBrushModel)( gentity_t *ent, const char *name );
+	void	(*trace)( stefx_trace_t *results, const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end, int passEntityNum, int contentmask );
+	int		(*pointcontents)( const vec3_t point, int passEntityNum );
+	qboolean	(*inPVS)( const vec3_t p1, const vec3_t p2 );
+	qboolean	(*inPVSIgnorePortals)( const vec3_t p1, const vec3_t p2 );
+	void	(*AdjustAreaPortalState)( gentity_t *ent, qboolean open );
+	qboolean	(*AreasConnected)( int area1, int area2 );
+	void	(*linkentity)( gentity_t *ent );
+	void	(*unlinkentity)( gentity_t *ent );
+	int		(*EntitiesInBox)( const vec3_t mins, const vec3_t maxs, gentity_t **list, int maxcount );
+	qboolean	(*EntityContact)( const vec3_t mins, const vec3_t maxs, const gentity_t *ent );
+	int		*S_Override;
+	void	*(*Malloc)( int bytes );
+	void	(*Free)( void *buf );
+} stefx_game_import_t;
+
+typedef struct stefx_game_export_s {
+	int			apiversion;
+	void		(*Init)( const char *mapname, const char *spawntarget, int checkSum, const char *entstring, int levelTime, int randomSeed, int globalTime, SavedGameJustLoaded_e eSavedGameJustLoaded, qboolean qbLoadTransition );
+	void		(*Shutdown) (void);
+	void		(*WriteLevel) (qboolean qbAutosave);
+	void		(*ReadLevel)  (qboolean qbAutosave, qboolean qbLoadTransition);
+	qboolean	(*GameAllowedToSaveHere)(void);
+	char		*(*ClientConnect)( int clientNum, qboolean firstTime, SavedGameJustLoaded_e eSavedGameJustLoaded );
+	void		(*ClientBegin)( int clientNum, usercmd_t *cmd, SavedGameJustLoaded_e eSavedGameJustLoaded);
+	void		(*ClientUserinfoChanged)( int clientNum );
+	void		(*ClientDisconnect)( int clientNum );
+	void		(*ClientCommand)( int clientNum );
+	void		(*ClientThink)( int clientNum, usercmd_t *cmd );
+	void		(*RunFrame)( int levelTime );
+	qboolean	(*ConsoleCommand)( void );
+	gentity_t	*gentities;
+	int			gentitySize;
+	int			num_entities;
+} stefx_game_export_t;
+
+static Trace_Functor_t s_stefxTrace;
+static stefx_game_export_t *s_stefxEfGame = NULL;
+static game_export_t s_stefxJaGame;
+static int s_stefxRunFrameLogCount = 0;
+
+extern int SG_Read(unsigned long chid, void *pvAddress, int iLength, void **ppvAddressPtr);
+extern int SG_ReadOptional(unsigned long chid, void *pvAddress, int iLength, void **ppvAddressPtr);
+
+static void STEFX_SyncGameExport(void)
+{
+	if (!s_stefxEfGame)
+	{
+		s_stefxJaGame.gentities = NULL;
+		s_stefxJaGame.gentitySize = 0;
+		s_stefxJaGame.num_entities = 0;
+		return;
+	}
+
+	s_stefxJaGame.gentities = s_stefxEfGame->gentities;
+	s_stefxJaGame.gentitySize = s_stefxEfGame->gentitySize;
+	s_stefxJaGame.num_entities = s_stefxEfGame->num_entities;
+}
+
+static void *STEFX_GameMalloc(int bytes)
+{
+	return Z_Malloc(bytes, TAG_G_ALLOC, qfalse);
+}
+
+static void STEFX_GameFree(void *buf)
+{
+	if (buf)
+	{
+		Z_Free(buf);
+	}
+}
+
+static void STEFX_CopyTraceToEf(stefx_trace_t *dst, const trace_t *src)
+{
+	if (!dst || !src)
+	{
+		return;
+	}
+
+	dst->allsolid = src->allsolid;
+	dst->startsolid = src->startsolid;
+	dst->fraction = src->fraction;
+	VectorCopy(src->endpos, dst->endpos);
+	dst->plane = src->plane;
+	dst->surfaceFlags = src->surfaceFlags;
+	dst->contents = src->contents;
+	dst->entityNum = src->entityNum;
+}
+
+static void STEFX_Trace(stefx_trace_t *results, const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end, int passEntityNum, int contentmask)
+{
+	static int s_traceLogCount = 0;
+	trace_t jaTrace;
+	memset(&jaTrace, 0, sizeof(jaTrace));
+	if (s_traceLogCount < 64)
+	{
+		XBLF("STEFX: Trace enter count=%d fn=%08x pass=%d mask=0x%x efSize=%d jaSize=%d start=(%g,%g,%g) end=(%g,%g,%g) mins=%08x maxs=%08x",
+			s_traceLogCount,
+			(unsigned int)s_stefxTrace.trace_func,
+			passEntityNum,
+			contentmask,
+			sizeof(stefx_trace_t),
+			sizeof(trace_t),
+			start[0], start[1], start[2],
+			end[0], end[1], end[2],
+			(unsigned int)mins,
+			(unsigned int)maxs);
+	}
+	s_stefxTrace(&jaTrace, start, mins, maxs, end, passEntityNum, contentmask, G2_NOCOLLIDE, 0);
+	STEFX_CopyTraceToEf(results, &jaTrace);
+	if (s_traceLogCount < 64)
+	{
+		XBLF("STEFX: Trace exit count=%d fraction=%g allsolid=%d startsolid=%d ent=%d",
+			s_traceLogCount,
+			jaTrace.fraction,
+			jaTrace.allsolid,
+			jaTrace.startsolid,
+			jaTrace.entityNum);
+	}
+	s_traceLogCount++;
+}
+
+static void STEFX_Init(const char *mapname, const char *spawntarget, int checkSum, const char *entstring, int levelTime, int randomSeed, int globalTime, SavedGameJustLoaded_e eSavedGameJustLoaded, qboolean qbLoadTransition)
+{
+	XBLF("STEFX: adapter before EF Init map='%s' checksum=%d", mapname ? mapname : "(null)", checkSum);
+	s_stefxRunFrameLogCount = 0;
+	if (s_stefxEfGame && s_stefxEfGame->Init)
+	{
+		s_stefxEfGame->Init(mapname, spawntarget, checkSum, entstring, levelTime, randomSeed, globalTime, eSavedGameJustLoaded, qbLoadTransition);
+	}
+	STEFX_SyncGameExport();
+	XBLF("STEFX: adapter after EF Init gentities=%p gentitySize=%d num_entities=%d",
+		s_stefxJaGame.gentities, s_stefxJaGame.gentitySize, s_stefxJaGame.num_entities);
+}
+
+static void STEFX_Shutdown(void)
+{
+	XBLog_Write("STEFX: adapter Shutdown");
+	if (s_stefxEfGame && s_stefxEfGame->Shutdown)
+	{
+		s_stefxEfGame->Shutdown();
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_WriteLevel(qboolean qbAutosave)
+{
+	if (s_stefxEfGame && s_stefxEfGame->WriteLevel)
+	{
+		s_stefxEfGame->WriteLevel(qbAutosave);
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_ReadLevel(qboolean qbAutosave, qboolean qbLoadTransition)
+{
+	if (s_stefxEfGame && s_stefxEfGame->ReadLevel)
+	{
+		s_stefxEfGame->ReadLevel(qbAutosave, qbLoadTransition);
+	}
+	STEFX_SyncGameExport();
+}
+
+static qboolean STEFX_GameAllowedToSaveHere(void)
+{
+	return (s_stefxEfGame && s_stefxEfGame->GameAllowedToSaveHere) ? s_stefxEfGame->GameAllowedToSaveHere() : qfalse;
+}
+
+static char *STEFX_ClientConnect(int clientNum, qboolean firstTime, SavedGameJustLoaded_e eSavedGameJustLoaded)
+{
+	char *result = NULL;
+	if (s_stefxEfGame && s_stefxEfGame->ClientConnect)
+	{
+		result = s_stefxEfGame->ClientConnect(clientNum, firstTime, eSavedGameJustLoaded);
+	}
+	STEFX_SyncGameExport();
+	return result;
+}
+
+static void STEFX_ClientBegin(int clientNum, usercmd_t *cmd, SavedGameJustLoaded_e eSavedGameJustLoaded)
+{
+	if (s_stefxEfGame && s_stefxEfGame->ClientBegin)
+	{
+		s_stefxEfGame->ClientBegin(clientNum, cmd, eSavedGameJustLoaded);
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_ClientUserinfoChanged(int clientNum)
+{
+	if (s_stefxEfGame && s_stefxEfGame->ClientUserinfoChanged)
+	{
+		s_stefxEfGame->ClientUserinfoChanged(clientNum);
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_ClientDisconnect(int clientNum)
+{
+	if (s_stefxEfGame && s_stefxEfGame->ClientDisconnect)
+	{
+		s_stefxEfGame->ClientDisconnect(clientNum);
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_ClientCommand(int clientNum)
+{
+	if (s_stefxEfGame && s_stefxEfGame->ClientCommand)
+	{
+		s_stefxEfGame->ClientCommand(clientNum);
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_ClientThink(int clientNum, usercmd_t *cmd)
+{
+	if (s_stefxEfGame && s_stefxEfGame->ClientThink)
+	{
+		s_stefxEfGame->ClientThink(clientNum, cmd);
+	}
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_RunFrame(int levelTime)
+{
+	if (s_stefxRunFrameLogCount < 16)
+	{
+		XBLF("STEFX: adapter before EF RunFrame count=%d time=%d", s_stefxRunFrameLogCount, levelTime);
+	}
+	if (s_stefxEfGame && s_stefxEfGame->RunFrame)
+	{
+		s_stefxEfGame->RunFrame(levelTime);
+	}
+	STEFX_SyncGameExport();
+	if (s_stefxRunFrameLogCount < 16)
+	{
+		XBLF("STEFX: adapter after EF RunFrame count=%d time=%d entities=%d", s_stefxRunFrameLogCount, levelTime, s_stefxJaGame.num_entities);
+	}
+	s_stefxRunFrameLogCount++;
+}
+
+static void STEFX_ConnectNavs(const char *mapname, int checkSum)
+{
+	XBLF("STEFX: adapter ConnectNavs no-op map='%s' checksum=%d", mapname ? mapname : "(null)", checkSum);
+	STEFX_SyncGameExport();
+}
+
+static qboolean STEFX_ConsoleCommand(void)
+{
+	qboolean result = qfalse;
+	if (s_stefxEfGame && s_stefxEfGame->ConsoleCommand)
+	{
+		result = s_stefxEfGame->ConsoleCommand();
+	}
+	STEFX_SyncGameExport();
+	return result;
+}
+
+static void STEFX_GameSpawnRMGEntity(char *s)
+{
+	XBLF("STEFX: adapter GameSpawnRMGEntity no-op entity='%s'", s ? s : "(null)");
+	STEFX_SyncGameExport();
+}
+
+static void STEFX_BuildJaExportAdapter(void)
+{
+	memset(&s_stefxJaGame, 0, sizeof(s_stefxJaGame));
+	s_stefxJaGame.apiversion = GAME_API_VERSION;
+	s_stefxJaGame.Init = STEFX_Init;
+	s_stefxJaGame.Shutdown = STEFX_Shutdown;
+	s_stefxJaGame.WriteLevel = STEFX_WriteLevel;
+	s_stefxJaGame.ReadLevel = STEFX_ReadLevel;
+	s_stefxJaGame.GameAllowedToSaveHere = STEFX_GameAllowedToSaveHere;
+	s_stefxJaGame.ClientConnect = STEFX_ClientConnect;
+	s_stefxJaGame.ClientBegin = STEFX_ClientBegin;
+	s_stefxJaGame.ClientUserinfoChanged = STEFX_ClientUserinfoChanged;
+	s_stefxJaGame.ClientDisconnect = STEFX_ClientDisconnect;
+	s_stefxJaGame.ClientCommand = STEFX_ClientCommand;
+	s_stefxJaGame.ClientThink = STEFX_ClientThink;
+	s_stefxJaGame.RunFrame = STEFX_RunFrame;
+	s_stefxJaGame.ConnectNavs = STEFX_ConnectNavs;
+	s_stefxJaGame.ConsoleCommand = STEFX_ConsoleCommand;
+	s_stefxJaGame.GameSpawnRMGEntity = STEFX_GameSpawnRMGEntity;
+	STEFX_SyncGameExport();
+}
+#endif
+
 /*
 =================
 Sys_UnloadGame
 =================
 */
 void Sys_UnloadGame( void ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(_JK2MP)
+	s_stefxEfGame = NULL;
+	memset(&s_stefxJaGame, 0, sizeof(s_stefxJaGame));
+#endif
 }
 
 /*
@@ -999,8 +1391,70 @@ Loads the game dll
 #ifndef _JK2MP
 void *Sys_GetGameAPI (void *parms)
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	extern game_export_t *GetGameAPI( game_import_t *import );
+	game_import_t *jaImport = (game_import_t *)parms;
+	stefx_game_import_t efImport;
+	game_export_t *rawExport;
+
+	memset(&efImport, 0, sizeof(efImport));
+	s_stefxTrace = jaImport->trace;
+
+	efImport.Printf = jaImport->Printf;
+	efImport.WriteCam = jaImport->WriteCam;
+	efImport.Error = jaImport->Error;
+	efImport.Milliseconds = jaImport->Milliseconds;
+	efImport.cvar = jaImport->cvar;
+	efImport.cvar_set = jaImport->cvar_set;
+	efImport.Cvar_VariableIntegerValue = jaImport->Cvar_VariableIntegerValue;
+	efImport.Cvar_VariableStringBuffer = jaImport->Cvar_VariableStringBuffer;
+	efImport.argc = jaImport->argc;
+	efImport.argv = jaImport->argv;
+	efImport.FS_FOpenFile = jaImport->FS_FOpenFile;
+	efImport.FS_Read = jaImport->FS_Read;
+	efImport.FS_Write = jaImport->FS_Write;
+	efImport.FS_FCloseFile = jaImport->FS_FCloseFile;
+	efImport.FS_ReadFile = jaImport->FS_ReadFile;
+	efImport.FS_FreeFile = jaImport->FS_FreeFile;
+	efImport.FS_GetFileList = jaImport->FS_GetFileList;
+	efImport.AppendToSaveGame = (qboolean (*)(unsigned long, void *, int))jaImport->AppendToSaveGame;
+	efImport.ReadFromSaveGame = SG_Read;
+	efImport.ReadFromSaveGameOptional = SG_ReadOptional;
+	efImport.SendConsoleCommand = jaImport->SendConsoleCommand;
+	efImport.DropClient = jaImport->DropClient;
+	efImport.SendServerCommand = jaImport->SendServerCommand;
+	efImport.SetConfigstring = jaImport->SetConfigstring;
+	efImport.GetConfigstring = jaImport->GetConfigstring;
+	efImport.GetUserinfo = jaImport->GetUserinfo;
+	efImport.SetUserinfo = jaImport->SetUserinfo;
+	efImport.GetServerinfo = jaImport->GetServerinfo;
+	efImport.SetBrushModel = jaImport->SetBrushModel;
+	efImport.trace = STEFX_Trace;
+	efImport.pointcontents = jaImport->pointcontents;
+	efImport.inPVS = jaImport->inPVS;
+	efImport.inPVSIgnorePortals = jaImport->inPVSIgnorePortals;
+	efImport.AdjustAreaPortalState = jaImport->AdjustAreaPortalState;
+	efImport.AreasConnected = jaImport->AreasConnected;
+	efImport.linkentity = jaImport->linkentity;
+	efImport.unlinkentity = jaImport->unlinkentity;
+	efImport.EntitiesInBox = jaImport->EntitiesInBox;
+	efImport.EntityContact = jaImport->EntityContact;
+	efImport.S_Override = jaImport->VoiceVolume;
+	efImport.Malloc = STEFX_GameMalloc;
+	efImport.Free = STEFX_GameFree;
+
+	XBLF("STEFX: Sys_GetGameAPI before EF GetGameAPI import=%p efImport=%p", jaImport, &efImport);
+	rawExport = GetGameAPI((game_import_t *)&efImport);
+	s_stefxEfGame = (stefx_game_export_t *)rawExport;
+	XBLF("STEFX: Sys_GetGameAPI after EF GetGameAPI raw=%p api=%d", rawExport, s_stefxEfGame ? s_stefxEfGame->apiversion : -1);
+	STEFX_BuildJaExportAdapter();
+	XBLF("STEFX: Sys_GetGameAPI returning JA adapter=%p api=%d efGentitySize=%d",
+		&s_stefxJaGame, s_stefxJaGame.apiversion, s_stefxJaGame.gentitySize);
+	return &s_stefxJaGame;
+#else
 	extern game_export_t *GetGameAPI( game_import_t *import );
 	return GetGameAPI((game_import_t *)parms);
+#endif
 }
 #endif
 
@@ -1017,9 +1471,19 @@ void * Sys_LoadCgame( int (**entryPoint)(int, ...), int (*systemcalls)(int, ...)
 {
 	extern void CG_PreInit();
 	extern void cg_dllEntry( int (*syscallptr)( int arg,... ) );
-	extern int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7 );
+	extern int cg_vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7 );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Sys_LoadCgame entryOut=%p syscall=%p cg_vmMain=%p cg_dllEntry=%p",
+		entryPoint, systemcalls, cg_vmMain, cg_dllEntry);
+#endif
 	cg_dllEntry(systemcalls);
-	*entryPoint = (int (*)(int,...))vmMain;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Sys_LoadCgame after cg_dllEntry");
+#endif
+	*entryPoint = (int (*)(int,...))cg_vmMain;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Sys_LoadCgame entry assigned=%p", *entryPoint);
+#endif
 //	CG_PreInit();
 	return 0;
 }

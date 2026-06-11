@@ -11,6 +11,9 @@
 #include "../game/q_shared.h"
 #include "qcommon.h"
 #include "files.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 /*
 =============================================================================
@@ -582,7 +585,9 @@ void FS_InitFilesystem( void ) {
 	Com_StartupVariable( "fs_restrict" );
 
 	// try to start up normally
+	XBLog_Write("EF: FS_InitFilesystem before FS_Startup");
 	FS_Startup( BASEGAME );
+	XBLog_Write("EF: FS_InitFilesystem after FS_Startup");
 	initialized = qtrue;
 
 	// see if we are going to allow add-ons
@@ -591,9 +596,12 @@ void FS_InitFilesystem( void ) {
 	// if we can't find default.cfg, assume that the paths are
 	// busted and error out now, rather than getting an unreadable
 	// graphics screen when the font fails to load
+	XBLog_Write("EF: FS_InitFilesystem checking default.cfg");
 	if ( FS_ReadFile( "default.cfg", NULL ) <= 0 ) {
+		XBLog_Write("EF: FS_InitFilesystem default.cfg missing");
 		Com_Error( ERR_FATAL, "Couldn't load default.cfg" );
 	}
+	XBLog_Write("EF: FS_InitFilesystem default.cfg OK");
 }
 
 

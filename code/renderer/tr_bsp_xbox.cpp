@@ -7,6 +7,9 @@
 #include "tr_local.h"
 
 #include "../qcommon/cm_local.h"
+#ifdef STEFX_ELITE_FORCE_SP
+#include "../qcommon/ef_bsp_xbox_shared.h"
+#endif
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
@@ -305,6 +308,77 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 
 	Z_Free(image);
 }
+
+#ifdef STEFX_ELITE_FORCE_SP
+/*
+===============
+R_LoadRawLightmaps
+
+Elite Force/Q3 BSPs store 128x128 RGB lightmaps directly in the BSP.  The
+original Xbox sidecar path stores DDS RGB565 lightmaps, so EF needs this raw
+BSP upload path.
+===============
+*/
+void R_LoadRawLightmaps( void *data, int len, const char *psMapName ) {
+	byte		*buf;
+	int			i, j;
+	int			count;
+	byte		*image;
+	char		sMapName[MAX_QPATH];
+
+	if (!len) {
+		return;
+	}
+	if (len % (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3)) {
+		Com_Error(ERR_DROP, "R_LoadRawLightmaps: funny lump size %d for %s", len, psMapName);
+	}
+
+	buf = (byte *)data;
+	count = len / (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
+	tr.numLightmaps = count;
+
+	R_SyncRenderThread();
+
+	image = (byte *)Z_Malloc(LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32);
+	COM_StripExtension(psMapName, sMapName);
+
+	XBLF("EF: R_LoadRawLightmaps map='%s' count=%d len=%d", psMapName, count, len);
+
+	for (i = 0; i < count; ++i) {
+		byte *buf_p = buf + i * LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3;
+		int minLum = 255;
+		int maxLum = 0;
+		int sumLum = 0;
+
+		for (j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++j) {
+			byte src[4];
+			int lum;
+			src[0] = buf_p[j * 3 + 0];
+			src[1] = buf_p[j * 3 + 1];
+			src[2] = buf_p[j * 3 + 2];
+			src[3] = 255;
+			R_ColorShiftLightingBytes(src, &image[j * 4]);
+
+			lum = (src[0] * 30 + src[1] * 59 + src[2] * 11) / 100;
+			if (lum < minLum)
+				minLum = lum;
+			if (lum > maxLum)
+				maxLum = lum;
+			sumLum += lum;
+		}
+
+		if (i < 16) {
+			XBLF("EF: RAW_LIGHTMAP_STATS index=%d min=%d max=%d avg=%d",
+				i, minLum, maxLum, sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
+		}
+
+		tr.lightmaps[i] = R_CreateImage(va("*%s/lightmap%d", sMapName, i), image,
+			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP);
+	}
+
+	Z_Free(image);
+}
+#endif
 
 
 /*
@@ -1853,10 +1927,28 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	char		stripName[MAX_QPATH];
 	Lump outputLumps[3];
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("EF: RE_LoadWorldMap request '%s' worldLoaded=%d current='%s' world=%08x",
+		name ? name : "(null)",
+		tr.worldMapLoaded,
+		(tr.world && tr.world->name[0]) ? tr.world->name : "(none)",
+		(unsigned int)tr.world);
+#endif
+
 	// This is no longer correct. The new code supports sub-models, apparently BSPs in
 	// several chunks. If any map tries to use them, the following COM_Error will go
 	// off. We haven't hit it yet, but if (when) we do, check out tr_bsp.cpp for changes.
 	if ( tr.worldMapLoaded ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		const char *currentName = (tr.world && tr.world->name[0]) ? tr.world->name : "";
+		if (name && currentName[0] && !Q_stricmp(currentName, name)) {
+			XBLF("EF: RE_LoadWorldMap duplicate same-map request '%s'; keeping existing world", name);
+			return;
+		}
+		XBLF("EF: RE_LoadWorldMap duplicate mismatch requested='%s' current='%s'",
+			name ? name : "(null)",
+			currentName[0] ? currentName : "(none)");
+#endif
 		Com_Error( ERR_DROP, "ERROR: attempted to redundantly load world map\n" );
 	}
 
@@ -1897,6 +1989,79 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	COM_StripExtension(name, stripName);
 	
 	c_gridVerts = 0;
+
+#ifdef STEFX_ELITE_FORCE_SP
+	{
+		efbspFile_t efbsp;
+		if (EFBSP_LoadFile(name, &efbsp))
+		{
+			int shaderCount;
+			void *brushes;
+			void *brushsides;
+			void *nodes;
+			void *leafs;
+			void *models;
+			void *lightgrid;
+			void *lightarray;
+			int brushesLen, brushsidesLen, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen;
+
+			EFBSP_Validate(&efbsp, name);
+			shaderCount = EFBSP_ShaderCount(&efbsp);
+			XBLF("EF: RE_LoadWorldMap raw BSP '%s' bytes=%d shaders=%d surfaces=%d expectedLightgrid=%d",
+				name,
+				efbsp.len,
+				shaderCount,
+				EFBSP_SurfaceCount(&efbsp),
+				EFBSP_ExpectedLightGridElements(&efbsp));
+
+			R_LoadPlanes();
+
+			brushes = EFBSP_ConvertBrushes(&efbsp, shaderCount, &brushesLen);
+			brushsides = EFBSP_ConvertBrushSides(&efbsp, shaderCount, &brushsidesLen);
+			R_LoadFogs(EFBSP_LumpData(&efbsp, EF_LUMP_FOGS), EFBSP_LumpLen(&efbsp, EF_LUMP_FOGS),
+				brushes, brushesLen, brushsides, brushsidesLen);
+			EFBSP_FreeTemp(brushsides);
+			EFBSP_FreeTemp(brushes);
+			XBLF("EF: RE_LoadWorldMap raw fogs loaded fogLen=%d brushesLen=%d brushsidesLen=%d",
+				EFBSP_LumpLen(&efbsp, EF_LUMP_FOGS), brushesLen, brushsidesLen);
+
+			R_LoadMarksurfaces(EFBSP_LumpData(&efbsp, EF_LUMP_LEAFSURFACES), EFBSP_LumpLen(&efbsp, EF_LUMP_LEAFSURFACES));
+
+			nodes = EFBSP_ConvertNodes(&efbsp, &nodesLen);
+			leafs = EFBSP_ConvertLeafs(&efbsp, &leafsLen);
+			R_LoadNodesAndLeafs(nodes, nodesLen, leafs, leafsLen);
+			EFBSP_FreeTemp(leafs);
+			EFBSP_FreeTemp(nodes);
+
+			models = EFBSP_ConvertModels(&efbsp, &modelsLen);
+			R_LoadSubmodels(models, modelsLen);
+			EFBSP_FreeTemp(models);
+
+			R_LoadVisibility();
+
+			R_LoadEntities(EFBSP_LumpData(&efbsp, EF_LUMP_ENTITIES), EFBSP_LumpLen(&efbsp, EF_LUMP_ENTITIES));
+
+			lightgrid = EFBSP_ConvertLightGrid(&efbsp, &lightgridLen);
+			R_LoadLightGrid(lightgrid, lightgridLen);
+			EFBSP_FreeTemp(lightgrid);
+
+			lightarray = EFBSP_ConvertLightArray(&efbsp, &lightarrayLen);
+			R_LoadLightGridArray(lightarray, lightarrayLen);
+			EFBSP_FreeTemp(lightarray);
+
+			tr.world = &s_worldData;
+			XBLF("EF: RE_LoadWorldMap raw BSP complete marksurfaces=%d nodesLen=%d leafsLen=%d modelsLen=%d lightgridLen=%d lightarrayLen=%d",
+				s_worldData.nummarksurfaces, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen);
+
+			R_LoadLevelLightParms();
+			R_GetLightParmsForLevel();
+			EFBSP_FreeFile(&efbsp);
+			return;
+		}
+
+		XBLF("EF: RE_LoadWorldMap raw BSP '%s' not found; emergency sidecar fallback only", name);
+	}
+#endif
 
 	// load into heap
 	R_LoadPlanes ();

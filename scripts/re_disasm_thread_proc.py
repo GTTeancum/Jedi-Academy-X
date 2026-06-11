@@ -3,15 +3,17 @@ Disassemble _mainCRTStartup's thread proc (0x4c4fcb) to see how it
 iterates C++ ctors and calls main().
 Also show what's in .rdata at 0x71c28c/0x71c290/0x71c29c (ctor table bounds).
 """
+from pathlib import Path
 import struct, sys, re
 try:
     import capstone
 except ImportError:
     print("pip install capstone"); sys.exit(1)
 
-EXE = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.exe"
-MAP = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.map"
-OUT = r"C:\Programming\GitHub\Jedi-Academy-X\scripts\output\phase3_thread_proc.txt"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXE = REPO_ROOT / "build" / "release" / "default.exe"
+MAP = REPO_ROOT / "build" / "release" / "default.map"
+OUT = REPO_ROOT / "scripts" / "output" / "phase3_thread_proc.txt"
 
 IMAGE_BASE = 0x400000
 

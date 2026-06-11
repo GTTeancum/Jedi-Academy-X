@@ -1394,7 +1394,9 @@ typedef struct {
 /*
 Ghoul2 Insert Start
 */
+#if !defined(STEFX_ELITE_FORCE_SP)
 	CCollisionRecord G2CollisionMap[MAX_G2_COLLISIONS];	// map that describes all of the parts of ghoul2 models that got hit
+#endif
 /*
 Ghoul2 Insert End
 */
@@ -2209,6 +2211,7 @@ typedef struct entityState_s {// !!!!!!!!!!! LOADSAVE-affecting struct !!!!!!!!!
 
 	int		scale;			//Scale players
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 	//FIXME: why did IMMERSION dupe these 2 fields here?  There's no reason for this!!!
 	qboolean	saberInFlight;
 	qboolean	saberActive;
@@ -2230,6 +2233,9 @@ Ghoul2 Insert End
 */
 
 	qboolean	isPortalEnt;
+#else
+	vec3_t	pushVec;
+#endif
 
 } entityState_t;
 

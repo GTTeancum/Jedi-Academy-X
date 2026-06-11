@@ -7,7 +7,7 @@
  *
  * Output goes to:
  *   - OutputDebugStringA  (visible in CXBX-Reloaded / xemu GDB)
- *   - \Device\Harddisk0\Partition1\ja_sp_log.txt  (E:\ root on retail hardware)
+ *   - \Device\Harddisk0\Partition1\ef_sp_log.txt  (E:\ root on retail hardware)
  *
  * Call XBLog_Init() once at the top of main() before any XBL usage.
  * Call XBLog_Shutdown() on exit.

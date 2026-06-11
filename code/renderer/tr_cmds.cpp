@@ -579,7 +579,7 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #ifdef _XBOX
 	static int s_xboxEndFrameCount = 0;
 	static int s_xboxActiveEndFrameCount = 0;
-	const int xboxTraceEndFrameTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
+	const int xboxTraceEndFrameTight = (cls.state == CA_ACTIVE && s_xboxActiveEndFrameCount >= 32 && s_xboxActiveEndFrameCount <= 96);
 	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
 		? (s_xboxActiveEndFrameCount < 16 || ((s_xboxActiveEndFrameCount & 255) == 0))
 		: (s_xboxEndFrameCount < 4);
@@ -601,26 +601,32 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame tight #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glBeginFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glBeginFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame...");
 	if (!glBeginFrame()) return;
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glBeginFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glBeginFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame done");
 #endif
 
 	#ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_IssueRenderCommands");
+	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame before R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands...");
 #endif
 	R_IssueRenderCommands( qtrue );
 #ifdef _XBOX
 	Sleep(0);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_IssueRenderCommands");
+	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame after R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands done");
 #endif
 
 #ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before RE_ProcessDissolve");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before RE_ProcessDissolve");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve...");
 	if ( Sys_IsDirectMapBoot() )
 	{
@@ -631,12 +637,15 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		RE_ProcessDissolve(); // render the disolve now
 	}
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after RE_ProcessDissolve");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after RE_ProcessDissolve");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve done");
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glEndFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame...");
 	glEndFrame();
 	Sleep(0);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glEndFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glEndFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame done");
 #endif
 
@@ -644,11 +653,13 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	// may still be rendering into the current ones
 	#ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_ToggleSmpFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before R_ToggleSmpFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame...");
 	#endif
 	R_ToggleSmpFrame();
 #ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_ToggleSmpFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after R_ToggleSmpFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame done");
 #endif
 

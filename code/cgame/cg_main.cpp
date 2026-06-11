@@ -109,7 +109,19 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 	case CG_CONSOLE_COMMAND:
 		return CG_ConsoleCommand();
 	case CG_DRAW_ACTIVE_FRAME:
+#ifdef _XBOX
+		if (arg0 >= 3600 && arg0 <= 4600)
+		{
+			XBLF("JA: CL_EARLY cg_vmMain before CG_DrawActiveFrame serverTime=%d stereo=%d", arg0, arg1);
+		}
+#endif
 		CG_DrawActiveFrame( arg0, (stereoFrame_t) arg1 );
+#ifdef _XBOX
+		if (arg0 >= 3600 && arg0 <= 4600)
+		{
+			XBLF("JA: CL_EARLY cg_vmMain after CG_DrawActiveFrame serverTime=%d stereo=%d", arg0, arg1);
+		}
+#endif
 		return 0;
 	case CG_CROSSHAIR_PLAYER:
 		return CG_CrosshairPlayer();

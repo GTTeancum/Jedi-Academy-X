@@ -13,6 +13,9 @@
 #include "..\client\client.h"
 #include "..\renderer\tr_local.h"
 #include "..\renderer\tr_WorldEffects.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -487,13 +490,20 @@ void SV_InitGameProgs (void) {
 
 #ifdef _XBOX
 	g_SPXBGamePhase = 1;
+	XBLF("JA: SV_InitGameProgs enter ge=%p map='%s' checksum=%d",
+		ge, sv_mapname ? sv_mapname->string : "(null)",
+		sv_mapChecksum ? sv_mapChecksum->integer : 0);
 #endif
 	// unload anything we have now
 	if ( ge ) {
 #ifdef _XBOX
 		g_SPXBGamePhase = 2;
+		XBLog_Write("JA: SV_InitGameProgs before SV_ShutdownGameProgs");
 #endif
 		SV_ShutdownGameProgs (qtrue);
+#ifdef _XBOX
+		XBLog_Write("JA: SV_InitGameProgs after SV_ShutdownGameProgs");
+#endif
 	}
 
 #ifndef _XBOX
@@ -680,10 +690,12 @@ Ghoul2 Insert End
 
 #ifdef _XBOX
 	g_SPXBGamePhase = 10;
+	XBLF("JA: SV_InitGameProgs before Sys_GetGameAPI import=%p", &import);
 #endif
 	ge = (game_export_t *)Sys_GetGameAPI (&import);
 #ifdef _XBOX
 	g_SPXBGamePhase = 11;
+	XBLF("JA: SV_InitGameProgs after Sys_GetGameAPI ge=%p", ge);
 #endif
 
 	if (!ge)
@@ -692,8 +704,10 @@ Ghoul2 Insert End
 	//hook up the client while we're here
 #ifdef _XBOX
 	g_SPXBGamePhase = 12;
+	XBLog_Write("JA: SV_InitGameProgs before VM_Create cl");
 	VM_Create("cl");
 	g_SPXBGamePhase = 13;
+	XBLog_Write("JA: SV_InitGameProgs after VM_Create cl");
 #else
 	if (!VM_Create("cl"))
 		Com_Error (ERR_DROP, "failed to attach to the client DLL");
@@ -701,24 +715,33 @@ Ghoul2 Insert End
 
 #ifdef _XBOX
 	g_SPXBGamePhase = 14;
+	XBLF("JA: SV_InitGameProgs checking API version ge=%p api=%d expected=%d",
+		ge, ge ? ge->apiversion : -1, GAME_API_VERSION);
 #endif
 	if (ge->apiversion != GAME_API_VERSION)
 		Com_Error (ERR_DROP, "game is version %i, not %i", ge->apiversion,
 		GAME_API_VERSION);
 
 	sv.entityParsePoint = CM_EntityString();
+#ifdef _XBOX
+	XBLF("JA: SV_InitGameProgs entity string=%p", sv.entityParsePoint);
+#endif
 
 	// use the current msec count for a random seed
 #ifdef _XBOX
 	g_SPXBGamePhase = 15;
+	XBLog_Write("JA: SV_InitGameProgs before Z_TagFree TAG_G_ALLOC");
 #endif
 	Z_TagFree(TAG_G_ALLOC);
 #ifdef _XBOX
 	g_SPXBGamePhase = 16;
+	XBLog_Write("JA: SV_InitGameProgs after Z_TagFree before ge->Init");
 #endif
 	ge->Init( sv_mapname->string, sv_spawntarget->string, sv_mapChecksum->integer, CM_EntityString(), sv.time, com_frameTime, Com_Milliseconds(), eSavedGameJustLoaded, qbLoadTransition );
 #ifdef _XBOX
 	g_SPXBGamePhase = 17;
+	XBLF("JA: SV_InitGameProgs after ge->Init gentities=%p gentitySize=%d",
+		ge ? ge->gentities : NULL, ge ? ge->gentitySize : 0);
 #endif
 
 	if(!Q_stricmp(sv_mapname->string, "t1_rail") )

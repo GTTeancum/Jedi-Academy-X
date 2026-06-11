@@ -480,7 +480,7 @@ def probe_xblog_physical_addr(sock, boot_va, preferred_delta, log):
         except OSError:
             continue
         words = parse_monitor_words(reply)
-        if len(words) >= 5 and words[0] == 0x53504A41 and words[4] == 0x48424653:
+        if len(words) >= 5 and words[0] == 0x53504546 and words[4] == 0x48424653:
             log("xblog_probe matched delta=0x%x addr=0x%08x" % (delta, addr))
             return addr
         log("xblog_probe miss delta=0x%x addr=0x%08x words=%s" %

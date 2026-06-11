@@ -959,6 +959,9 @@ typedef enum {
 	MOD_BAD,
 	MOD_BRUSH,
 	MOD_MESH,
+#ifdef STEFX_ELITE_FORCE_SP
+	MOD_STEFX_MDR_PLACEHOLDER,
+#endif
 /*
 Ghoul2 Insert Start
 */

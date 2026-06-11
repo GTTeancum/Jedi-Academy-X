@@ -2,15 +2,17 @@
 Disassemble _mainCRTStartup (XDK 5849 xapilib) to understand what it does
 before and during C++ static ctor iteration.
 """
+from pathlib import Path
 import struct, sys, re
 try:
     import capstone
 except ImportError:
     print("pip install capstone"); sys.exit(1)
 
-EXE = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.exe"
-MAP = r"C:\Programming\GitHub\Jedi-Academy-X\code\x_exe\Release\default.map"
-OUT = r"C:\Programming\GitHub\Jedi-Academy-X\scripts\output\phase3_crt_startup.txt"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXE = REPO_ROOT / "build" / "release" / "default.exe"
+MAP = REPO_ROOT / "build" / "release" / "default.map"
+OUT = REPO_ROOT / "scripts" / "output" / "phase3_crt_startup.txt"
 
 IMAGE_BASE = 0x400000
 

@@ -2097,6 +2097,8 @@ private:
 
 	char* m_stickyAlloc;
 	DWORD m_stickyAllocSize;
+	char* m_subImageScratch;
+	DWORD m_subImageScratchSize;
 
 	bool m_hintGenerateMipMaps;
 
@@ -2494,6 +2496,8 @@ public:
 		m_currentMatrixStack = 0;
 		m_stickyAlloc = 0;
 		m_stickyAllocSize = 0;
+		m_subImageScratch = 0;
+		m_subImageScratchSize = 0;
 
 		m_glRenderStateDirty = true;
 
@@ -2608,6 +2612,7 @@ public:
 	~FakeGL()
 	{
 		delete [] m_stickyAlloc;
+		delete [] m_subImageScratch;
 		RELEASENULL(m_fallbackTexture);
 		ReleaseD3DX();
 		RELEASENULL(m_modelViewMatrixStack);
@@ -4348,6 +4353,17 @@ public:
 		return m_stickyAlloc;
 	}
 
+	char* SubImageScratchAlloc(DWORD size)
+	{
+		if (m_subImageScratchSize < size)
+		{
+			delete [] m_subImageScratch;
+			m_subImageScratch = new char[size];
+			m_subImageScratchSize = size;
+		}
+		return m_subImageScratch;
+	}
+
 // Slower than just locking and unlocking. But both are really slow on NVIDIA hardware, due
 // to texture swizzleing / unswizzleing.
 // #define USE_IMAGE_SURFACE
@@ -4399,176 +4415,80 @@ public:
 			return;
 		}
 
-//#define TRY_REGION
-#ifdef TRY_REGION
-		RECT lockRect;
-		lockRect.top = yoffset;
-		lockRect.left = xoffset;
-		lockRect.bottom = yoffset + height;
-		lockRect.right = xoffset + width;
-		hr = pMipMap->LockRect(level, &lockedRect, &lockRect, 0);
-#else
-		hr = pMipMap->LockRect(level, &lockedRect, NULL, 0);
+		const int bytesPerPixel = BytesPerPixel(desc.Format);
+		if (bytesPerPixel <= 0 ||
+			xoffset < 0 || yoffset < 0 ||
+			xoffset + width > (GLint)desc.Width ||
+			yoffset + height > (GLint)desc.Height)
+		{
+#ifdef _XBOX
+			XBLF("JA: fakegl CPU partial rejected tex=%d level=%d update=%dx%d at %d,%d surface=%dx%d format=0x%08x bpp=%d",
+				m_textures.GetCurrentID(), level, width, height, xoffset, yoffset,
+				desc.Width, desc.Height, desc.Format, bytesPerPixel);
 #endif
-		if ( FAILED(hr) ) 
+			return;
+		}
+
+		const DWORD linearPitch = desc.Width * bytesPerPixel;
+		const DWORD linearBytes = linearPitch * desc.Height;
+		char* linearPixels = SubImageScratchAlloc(linearBytes);
+		if (!linearPixels)
+		{
+#ifdef _XBOX
+			XBLF("JA: fakegl CPU partial scratch alloc failed tex=%d bytes=%u", m_textures.GetCurrentID(), linearBytes);
+#endif
+			return;
+		}
+
+		hr = pMipMap->LockRect(level, &lockedRect, NULL, 0);
+		if (FAILED(hr))
+		{
+#ifdef _XBOX
+			XBLF("JA: fakegl CPU partial LockRect failed tex=%d level=%d hr=0x%08lx", m_textures.GetCurrentID(), level, (unsigned long)hr);
+#endif
 			InterpretError(hr);
-		else 
+			return;
+		}
+
+		XGUnswizzleRect(lockedRect.pBits, desc.Width, desc.Height, NULL,
+			linearPixels, linearPitch, NULL, bytesPerPixel);
+
+		const DWORD copyBytes = width * bytesPerPixel;
+		if ((DWORD)compatablePixelsPitch < copyBytes)
+		{
+#ifdef _XBOX
+			XBLF("JA: fakegl CPU partial source pitch rejected tex=%d pitch=%d copy=%u", m_textures.GetCurrentID(), compatablePixelsPitch, copyBytes);
+#endif
+			pMipMap->UnlockRect(level);
+			return;
+		}
+
 		{
 			const char* sp = compatablePixels;
-			char* dp = (char*) lockedRect.pBits + yoffset * lockedRect.Pitch;
-
-			if ( compatablePixelsPitch > lockedRect.Pitch )
-				LocalDebugBreak();
-
-			if ( compatablePixelsPitch != lockedRect.Pitch ) 
+			char* dp = linearPixels + (yoffset * linearPitch) + (xoffset * bytesPerPixel);
+			for (int y = 0; y < height; ++y)
 			{
-				for(int i = 0; i < height; i++ ) 
-				{
-					memcpy(dp, sp, compatablePixelsPitch);
-					sp += compatablePixelsPitch;
-					dp += lockedRect.Pitch;
-				}
+				memcpy(dp, sp, copyBytes);
+				sp += compatablePixelsPitch;
+				dp += linearPitch;
 			}
-			else 
-			{
-				memcpy(dp, sp, compatablePixelsPitch * height);
-			}
-			pMipMap->UnlockRect(level);
-
-			//At this point we have a complete pMipMap, ready to be swizzled
-			D3DSurface *surface;
-			D3DSurface *surfaceTemp;
-
-			RECT rect;
-			
-#ifdef TRY_REGION
-			rect.left = xoffset;
-        	rect.top = yoffset;
-        	rect.right = xoffset + width;
-        	rect.bottom = yoffset + height;
-#else
-			rect.left = 0;
-        	rect.top = 0;
-        	rect.right = width;
-        	rect.bottom = height;
-#endif
-			// Create temporary surface for partial updates only.
-			hr = m_pD3DDev->CreateImageSurface(desc.Width, desc.Height, desc.Format, &surfaceTemp);
-			if ( FAILED(hr) || !surfaceTemp )
-			{
-#ifdef _XBOX
-				XBLF("JA: fakegl CreateImageSurface failed tex=%d level=%d update=%dx%d at %d,%d surface=%dx%d format=0x%08x\n",
-					m_textures.GetCurrentID(),
-					level,
-					width,
-					height,
-					xoffset,
-					yoffset,
-					desc.Width,
-					desc.Height,
-					desc.Format);
-#endif
-				InterpretError(hr);
-				return;
-			}
-
-			// Lock the texture
-			D3DLOCKED_RECT lr, lr2;
-        	hr = pMipMap->LockRect( level, &lr, &rect, 0 );
-			if ( FAILED(hr) )
-			{
-				surfaceTemp->Release();
-				InterpretError(hr);
-				return;
-			}
-
-			// Go down to surface level
-			hr = pMipMap->GetSurfaceLevel(level, &surface);
-			if ( FAILED(hr) || !surface )
-			{
-				pMipMap->UnlockRect(level);
-				surfaceTemp->Release();
-				InterpretError(hr);
-				return;
-			}
-
-			// Copy surf to temp surf
-			hr = D3DXLoadSurfaceFromSurface(surfaceTemp, NULL, NULL, surface, NULL, NULL, D3DX_FILTER_NONE, NULL);
-			if ( FAILED(hr) )
-			{
-				surface->Release();
-				pMipMap->UnlockRect(level);
-				surfaceTemp->Release();
-				InterpretError(hr);
-				return;
-			}
-
-			hr = surfaceTemp->LockRect(&lr2, NULL, NULL);
-			if ( FAILED(hr) )
-			{
-				surface->Release();
-				pMipMap->UnlockRect(level);
-				surfaceTemp->Release();
-				InterpretError(hr);
-				return;
-			}
-
-			// Check the formats and change bytesPerPixel accordingly
-
-			switch ( desc.Format ) 
-			{
-				case D3DFMT_P8:
-				
-				case D3DFMT_AL8:
-				case D3DFMT_A8:
-				case D3DFMT_L8: // FIXME: Try workaround? -> convert to X8R8G8B8 / A8R8G8B8 ???
-					bytes = 1;
-				break;
-
-				case D3DFMT_R5G6B5:
-				case D3DFMT_A4R4G4B4:
-				case D3DFMT_A8L8:
-					
-					bytes = 2;
-				break;
-
-				case D3DFMT_A8R8G8B8:
-				case D3DFMT_X8R8G8B8:
-					bytes = 4;
-				break;
-
-				default:
-					// This really should not happen, as it's a format we do not know yet
-					bytes = 4;
-					LocalDebugBreak();
-				break;
-			}
-
-			/*
-			char buf[100];
-			sprintf(buf,"TEXFORMAT 0x%08x\n", desc.Format);
-			OutputDebugString(buf);
-
-			sprintf(buf,"MIP LEVEL %d\n", level);
-			OutputDebugString(buf);
-			*/
-
-			// XBox textures need to be swizzled
-			XGSwizzleRect(
-					lr2.pBits,		// pSource, 
-					lr2.Pitch,		// Pitch,
-					NULL,			// pRect,
-					lr.pBits,		// pDest,
-					desc.Width,		// Width,
-					desc.Height,	// Height,
-					NULL,			// pPoint,
-					bytes);			// BytesPerPixel
-
-			surfaceTemp->UnlockRect();
-			surfaceTemp->Release();
-			surface->Release();
-			pMipMap->UnlockRect(level);
 		}
+
+		XGSwizzleRect(linearPixels, linearPitch, NULL, lockedRect.pBits,
+			desc.Width, desc.Height, NULL, bytesPerPixel);
+		pMipMap->UnlockRect(level);
+#ifdef _XBOX
+		{
+			static int s_cpuPartialLogs = 0;
+			if (s_cpuPartialLogs < 24)
+			{
+				XBLF("JA: fakegl CPU partial tex=%d level=%d update=%dx%d at %d,%d surface=%dx%d format=0x%08x bpp=%d scratch=%u",
+					m_textures.GetCurrentID(), level, width, height, xoffset, yoffset,
+					desc.Width, desc.Height, desc.Format, bytesPerPixel, linearBytes);
+				++s_cpuPartialLogs;
+			}
+		}
+#endif
 	}
 
 	inline void glTranslatef (GLfloat x, GLfloat y, GLfloat z)
@@ -4649,14 +4569,26 @@ public:
 	{
 #ifdef _XBOX
 		static int s_xboxSwapLogCount = 0;
-		const bool logSwap = (s_xboxSwapLogCount < 8 || ((s_xboxSwapLogCount & 255) == 0));
+		const bool logSwapTight = (s_xboxSwapLogCount >= 32 && s_xboxSwapLogCount <= 96);
+		const bool logSwap = (logSwapTight || s_xboxSwapLogCount < 8 || ((s_xboxSwapLogCount & 255) == 0));
 		if (logSwap)
 		{
 			XBLF("JA: fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
 				s_xboxSwapLogCount, (void*)m_pD3DDev, (int)m_needBeginScene);
 		}
+		if (logSwapTight)
+		{
+			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
+				s_xboxSwapLogCount, (void*)m_pD3DDev, (int)m_needBeginScene);
+		}
 #endif
+	#ifdef _XBOX
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
+	#endif
 		internalEnd();
+	#ifdef _XBOX
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
+	#endif
 		if (!m_pD3DDev)
 		{
 #ifdef _XBOX
@@ -4665,8 +4597,15 @@ public:
 #endif
 			return;
 		}
+	#ifdef _XBOX
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before EndScene", s_xboxSwapLogCount);
+	#endif
 		HRESULT hrEndScene = m_pD3DDev->EndScene();
 #ifdef _XBOX
+		if (logSwapTight)
+		{
+			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
+		}
 		if (logSwap)
 		{
 			XBLF("JA: fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
@@ -4715,10 +4654,15 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 		{
 			XBLF("JA: fakegl SwapBuffers #%d Present...", s_xboxSwapLogCount);
 		}
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before Present", s_xboxSwapLogCount);
 		UpdateFramebufferTelemetry();
 #endif
         HRESULT hrPresent = m_pD3DDev->Present(NULL, NULL, NULL, NULL);
 #ifdef _XBOX
+		if (logSwapTight)
+		{
+			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
+		}
 		if (logSwap)
 		{
 			XBLF("JA: fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);

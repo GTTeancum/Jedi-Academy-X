@@ -814,14 +814,18 @@ GLboolean glBeginFrame(void)
 void glEndFrame(void)
 {
     static int s_xboxCompatEndFrameCount = 0;
+    const bool xboxTraceCompatEndFrameTight =
+        (s_xboxCompatEndFrameCount >= 32 && s_xboxCompatEndFrameCount <= 96);
     const bool xboxTraceCompatEndFrame =
-        (s_xboxCompatEndFrameCount < 4 || ((s_xboxCompatEndFrameCount & 1023) == 0));
+        (xboxTraceCompatEndFrameTight || s_xboxCompatEndFrameCount < 4 || ((s_xboxCompatEndFrameCount & 1023) == 0));
+    if (xboxTraceCompatEndFrameTight) XBLF("JA: CL_EARLY compat glEndFrame #%d enter", s_xboxCompatEndFrameCount);
     if (xboxTraceCompatEndFrame) XBLF("JA: compat glEndFrame #%d enter", s_xboxCompatEndFrameCount);
 
     /* Plan-B: explicit OpenJKDF2 1:1 swap-time state reset.  These calls
      * route through fakegl directly (the JKA-side redirects don't apply
      * here because _JKA_DDS_BRIDGE_INTERNAL_ is defined). */
     if (xboxTraceCompatEndFrame) XBLF("JA: compat glEndFrame #%d reset state...", s_xboxCompatEndFrameCount);
+    if (xboxTraceCompatEndFrameTight) XBLF("JA: CL_EARLY compat glEndFrame #%d reset state", s_xboxCompatEndFrameCount);
     glViewport(0, 0, 640, 480);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -833,6 +837,7 @@ void glEndFrame(void)
     glDisable(GL_BLEND);
     glDisable(GL_ALPHA_TEST);
     glDisable(GL_TEXTURE_2D);
+    if (xboxTraceCompatEndFrameTight) XBLF("JA: CL_EARLY compat glEndFrame #%d reset state done", s_xboxCompatEndFrameCount);
     if (xboxTraceCompatEndFrame) XBLF("JA: compat glEndFrame #%d reset state done", s_xboxCompatEndFrameCount);
 
     /* Plan-B Present routing:
@@ -854,7 +859,9 @@ void glEndFrame(void)
      * back to FakeSwapBuffers — at least we maintain m_needBeginScene
      * state correctness for subsequent frames. */
     if (xboxTraceCompatEndFrame) XBLF("JA: compat glEndFrame #%d FakeSwapBuffers...", s_xboxCompatEndFrameCount);
+    if (xboxTraceCompatEndFrameTight) XBLF("JA: CL_EARLY compat glEndFrame #%d before FakeSwapBuffers", s_xboxCompatEndFrameCount);
     FakeSwapBuffers();
+    if (xboxTraceCompatEndFrameTight) XBLF("JA: CL_EARLY compat glEndFrame #%d after FakeSwapBuffers", s_xboxCompatEndFrameCount);
     if (xboxTraceCompatEndFrame) XBLF("JA: compat glEndFrame #%d FakeSwapBuffers done", s_xboxCompatEndFrameCount);
     s_xboxCompatEndFrameCount++;
 }
