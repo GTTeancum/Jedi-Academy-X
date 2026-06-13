@@ -424,6 +424,25 @@ SV_ClientThink
 ==================
 */
 void SV_ClientThink (client_t *cl, usercmd_t *cmd) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxSVThinkBudget = 64;
+		if ( s_stefxSVThinkBudget > 0 && ( (cmd && (cmd->forwardmove || cmd->rightmove || cmd->upmove || (cmd->buttons & ~BUTTON_WALKING))) || s_stefxSVThinkBudget > 56 ) )
+		{
+			Com_PrintfAlways( "STEFX: SV_ClientThink client=%d state=%d cmdTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d svTime=%d\n",
+				(int)( cl - svs.clients ),
+				cl ? cl->state : -1,
+				cmd ? cmd->serverTime : -1,
+				cmd ? cmd->forwardmove : 0,
+				cmd ? cmd->rightmove : 0,
+				cmd ? cmd->upmove : 0,
+				cmd ? cmd->buttons : 0,
+				cmd ? cmd->weapon : -1,
+				sv.time );
+			--s_stefxSVThinkBudget;
+		}
+	}
+#endif
 	cl->lastUsercmd = *cmd;
 
 	if ( cl->state != CS_ACTIVE ) {
@@ -464,6 +483,26 @@ static void SV_UserMove( client_t *cl, msg_t *msg ) {
 	// cmdNum is the command number of the most recent included usercmd
 	cmdNum = MSG_ReadLong( msg );
 	cmdCount = MSG_ReadByte( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxUserMoveHeaderBudget = 64;
+		if ( s_stefxUserMoveHeaderBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: SV_UserMove header client=%d state=%d serverId=%d svServerId=%d clientTime=%d delta=%d cmdNum=%d cmdCount=%d clCmdNum=%d svTime=%d\n",
+				(int)( cl - svs.clients ),
+				cl ? cl->state : -1,
+				serverId,
+				sv.serverId,
+				clientTime,
+				cl ? cl->deltaMessage : -9999,
+				cmdNum,
+				cmdCount,
+				cl ? cl->cmdNum : -1,
+				sv.time );
+			--s_stefxUserMoveHeaderBudget;
+		}
+	}
+#endif
 
 	if ( cmdCount < 1 ) {
 		Com_Printf( "cmdCount < 1\n" );
@@ -482,10 +521,42 @@ static void SV_UserMove( client_t *cl, msg_t *msg ) {
 		MSG_ReadDeltaUsercmd( msg, oldcmd, cmd );
 		oldcmd = cmd;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxUserMoveCmdBudget = 64;
+		usercmd_t *lastcmd = (cmdCount > 0) ? &cmds[cmdCount - 1] : NULL;
+		if ( s_stefxUserMoveCmdBudget > 0 && ( (lastcmd && (lastcmd->forwardmove || lastcmd->rightmove || lastcmd->upmove || (lastcmd->buttons & ~BUTTON_WALKING))) || s_stefxUserMoveCmdBudget > 56 ) )
+		{
+			Com_PrintfAlways( "STEFX: SV_UserMove decoded client=%d cmdNum=%d cmdCount=%d lastTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d\n",
+				(int)( cl - svs.clients ),
+				cmdNum,
+				cmdCount,
+				lastcmd ? lastcmd->serverTime : -1,
+				lastcmd ? lastcmd->forwardmove : 0,
+				lastcmd ? lastcmd->rightmove : 0,
+				lastcmd ? lastcmd->upmove : 0,
+				lastcmd ? lastcmd->buttons : 0,
+				lastcmd ? lastcmd->weapon : -1 );
+			--s_stefxUserMoveCmdBudget;
+		}
+	}
+#endif
 
 	// if this is a usercmd from a previous gamestate,
 	// ignore it or retransmit the current gamestate
 	if ( serverId != sv.serverId ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxUserMoveServerIdBudget = 16;
+		if ( s_stefxUserMoveServerIdBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: SV_UserMove drop old serverId=%d current=%d incomingAck=%d gamestateMsg=%d\n",
+				serverId,
+				sv.serverId,
+				cl ? cl->netchan.incomingAcknowledged : -1,
+				cl ? cl->gamestateMessageNum : -1 );
+			--s_stefxUserMoveServerIdBudget;
+		}
+#endif
 		// if we can tell that the client has dropped the last
 		// gamestate we sent them, resend it
 		if ( cl->netchan.incomingAcknowledged > cl->gamestateMessageNum ) {

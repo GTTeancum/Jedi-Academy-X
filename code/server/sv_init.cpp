@@ -67,6 +67,9 @@ SV_SetConfigstring
 ===============
 */
 void SV_SetConfigstring (int index, const char *val) {
+#ifdef _XBOX
+	static int s_xboxConfigStringLogCount = 0;
+#endif
 	if ( index < 0 || index >= MAX_CONFIGSTRINGS ) {
 		Com_Error (ERR_DROP, "SV_SetConfigstring: bad index %i\n", index);
 	}
@@ -76,12 +79,23 @@ void SV_SetConfigstring (int index, const char *val) {
 	}
 
 	// don't bother broadcasting an update if no change
-	if ( !strcmp( val, sv.configstrings[ index ] ) ) {
+	if ( sv.configstrings[ index ] && !strcmp( val, sv.configstrings[ index ] ) ) {
 		return;
 	}
 
+#ifdef _XBOX
+	if ( s_xboxConfigStringLogCount < 96 )
+	{
+		XBLF("STEFX: SV_SetConfigstring index=%d old=%p new='%s'", index, sv.configstrings[index], val);
+		s_xboxConfigStringLogCount++;
+	}
+#endif
+
 	// change the string in sv
-	Z_Free( sv.configstrings[index] );
+	if ( sv.configstrings[index] )
+	{
+		Z_Free( sv.configstrings[index] );
+	}
 	sv.configstrings[index] = CopyString( val );
 
 	// send it to all the clients if we aren't

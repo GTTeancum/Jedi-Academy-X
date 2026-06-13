@@ -2,6 +2,9 @@
 #include "g_local.h"
 #include "Q3_Interface.h"
 #include "g_roff.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 ICARUS_Instance		*iICARUS;
 bufferlist_t		ICARUS_BufferList;
@@ -62,15 +65,44 @@ int ICARUS_RunScript( gentity_t *ent, const char *name )
 {
 	char *buf;
 	int len;
+#ifdef _XBOX
+	static int stefxIcarusRunLogBudget = 128;
+	qboolean shouldLog = (qboolean)(stefxIcarusRunLogBudget > 0 && name &&
+		(strstr(name, "borg1") || strstr(name, "intro") || strstr(name, "setupworld")));
+
+	if (shouldLog)
+	{
+		XBLF("STEFX: ICARUS_RunScript enter ent=%d class='%s' target='%s' scriptTarget='%s' seq=%p name='%s'",
+			ent ? ent->s.number : -1,
+			ent && ent->classname ? ent->classname : "",
+			ent && ent->targetname ? ent->targetname : "",
+			ent && ent->script_targetname ? ent->script_targetname : "",
+			ent ? ent->sequencer : NULL,
+			name ? name : "");
+		--stefxIcarusRunLogBudget;
+	}
+#endif
 
 	//Make sure the caller is valid
 	if ( ent->sequencer == NULL )
 	{
+#ifdef _XBOX
+		if (shouldLog)
+		{
+			XBLF("STEFX: ICARUS_RunScript no sequencer ent=%d name='%s'", ent ? ent->s.number : -1, name ? name : "");
+		}
+#endif
 		//Com_Printf( "%s : entity is not a valid script user\n", ent->classname );
 		return false;
 	}
 
 	len = ICARUS_GetScript (name,  &buf );
+#ifdef _XBOX
+	if (shouldLog)
+	{
+		XBLF("STEFX: ICARUS_RunScript after get name='%s' len=%d buf=%p", name ? name : "", len, buf);
+	}
+#endif
 	if (len == 0)
 	{
 		return false;
@@ -78,9 +110,23 @@ int ICARUS_RunScript( gentity_t *ent, const char *name )
 
 	//Attempt to run the script
 	if S_FAILED(ent->sequencer->Run( buf, len ))
+	{
+#ifdef _XBOX
+		if (shouldLog)
+		{
+			XBLF("STEFX: ICARUS_RunScript sequencer failed ent=%d name='%s'", ent ? ent->s.number : -1, name ? name : "");
+		}
+#endif
 		return false;
+	}
 
 	Q3_DebugPrint( WL_VERBOSE, "Script %s executed by %s %s\n", (char *) name, ent->classname, ent->targetname );
+#ifdef _XBOX
+	if (shouldLog)
+	{
+		XBLF("STEFX: ICARUS_RunScript success ent=%d name='%s'", ent ? ent->s.number : -1, name ? name : "");
+	}
+#endif
 
 	return true;
 }
@@ -268,6 +314,20 @@ bool ICARUS_RegisterScript( const char *name, bool bCalledDuringInterrogate /* =
 		return (bCalledDuringInterrogate)?false:true;
 	
 	sprintf((char *) newname, "%s%s", name, IBI_EXT );	
+#ifdef _XBOX
+	static int stefxIcarusRegisterLogBudget = 128;
+	qboolean shouldLog = (qboolean)(stefxIcarusRegisterLogBudget > 0 && name &&
+		(strstr(name, "borg1") || strstr(name, "intro") || strstr(name, "setupworld")));
+
+	if (shouldLog)
+	{
+		XBLF("STEFX: ICARUS_RegisterScript enter name='%s' file='%s' interrogate=%d",
+			name ? name : "",
+			newname,
+			bCalledDuringInterrogate ? 1 : 0);
+		--stefxIcarusRegisterLogBudget;
+	}
+#endif
 
 
 	// small update here, if called during interrogate, don't let gi.FS_ReadFile() complain because it can't
@@ -296,6 +356,12 @@ bool ICARUS_RegisterScript( const char *name, bool bCalledDuringInterrogate /* =
 #endif
 
 	length = qbIgnoreFileRead ? -1 : gi.FS_ReadFile( newname, (void **) &buffer );
+#ifdef _XBOX
+	if (shouldLog)
+	{
+		XBLF("STEFX: ICARUS_RegisterScript FS_ReadFile file='%s' length=%ld buffer=%p", newname, length, buffer);
+	}
+#endif
 
 	if ( length <= 0 )
 	{
@@ -305,6 +371,12 @@ bool ICARUS_RegisterScript( const char *name, bool bCalledDuringInterrogate /* =
 		{
 			Com_Printf(S_COLOR_RED"Could not open file '%s'\n", newname );
 		}
+#ifdef _XBOX
+		if (shouldLog)
+		{
+			XBLF("STEFX: ICARUS_RegisterScript missing file='%s'", newname);
+		}
+#endif
 		return false;
 	}
 
@@ -317,6 +389,12 @@ bool ICARUS_RegisterScript( const char *name, bool bCalledDuringInterrogate /* =
 	gi.FS_FreeFile( buffer );
 
 	ICARUS_BufferList[ name ] = pscript;
+#ifdef _XBOX
+	if (shouldLog)
+	{
+		XBLF("STEFX: ICARUS_RegisterScript cached name='%s' length=%ld", name ? name : "", length);
+	}
+#endif
 
 	return true;
 }

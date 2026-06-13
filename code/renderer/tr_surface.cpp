@@ -2589,6 +2589,9 @@ void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])( void *) = {
 	(void(*)(void*))RB_SurfaceTerrain,		// SF_TERRAIN,
 #endif
 	(void(*)(void*))RB_SurfaceMesh,			// SF_MD3,
+#ifdef STEFX_ELITE_FORCE_SP
+	(void(*)(void*))RB_SurfaceAnim,			// SF_MDR,
+#endif
 /*
 Ghoul2 Insert Start
 */

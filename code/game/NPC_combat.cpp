@@ -455,6 +455,26 @@ void G_SetEnemy( gentity_t *self, gentity_t *enemy )
 		//FIXME: Have to do this to prevent alert cascading
 		G_ClearEnemy( self );
 		self->enemy = enemy;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			static int s_stefxNpcEnemyLogBudget = 96;
+			if ( s_stefxNpcEnemyLogBudget > 0 )
+			{
+				Com_PrintfAlways("STEFX: NPC_SetEnemy self=%d class='%s' targetname='%s' enemy=%d enemyClass='%s' time=%d selfHealth=%d enemyHealth=%d team=%d enemyTeam=%d\n",
+					self->s.number,
+					self->classname ? self->classname : "<null>",
+					self->targetname ? self->targetname : "<null>",
+					enemy->s.number,
+					enemy->classname ? enemy->classname : "<null>",
+					level.time,
+					self->health,
+					enemy->health,
+					self->client ? self->client->playerTeam : -1,
+					enemy->client ? enemy->client->playerTeam : -1);
+				--s_stefxNpcEnemyLogBudget;
+			}
+		}
+#endif
 		if (self->client && self->client->NPC_class == CLASS_SABOTEUR)
 		{
 			Saboteur_Cloak(NPC);					// Cloak

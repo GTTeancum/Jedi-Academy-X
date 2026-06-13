@@ -330,6 +330,20 @@ void		cgi_GetCurrentSnapshotNumber( int *snapshotNumber, int *serverTime ) {
 }
 
 qboolean	cgi_GetSnapshot( int snapshotNumber, snapshot_t *snapshot ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxSnapshotLayoutLogged = 0;
+	if ( !s_stefxSnapshotLayoutLogged )
+	{
+		XBLF("STEFX: EF cgame snapshot layout snapshot=%d ps=%d entity=%d numOfs=%d entitiesOfs=%d max=%d",
+			(int)sizeof(snapshot_t),
+			(int)sizeof(playerState_t),
+			(int)sizeof(entityState_t),
+			(int)((byte *)&(((snapshot_t *)0)->numEntities)),
+			(int)((byte *)&(((snapshot_t *)0)->entities)),
+			MAX_ENTITIES_IN_SNAPSHOT);
+		s_stefxSnapshotLayoutLogged = 1;
+	}
+#endif
 	return syscall( CG_GETSNAPSHOT, snapshotNumber, snapshot );
 }
 

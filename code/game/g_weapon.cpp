@@ -4894,6 +4894,35 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 	float alert = 256;
 	Vehicle_t *pVeh = NULL;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( ent && ent->client )
+	{
+		static int s_stefxFireWeaponLogBudget = 96;
+		if ( s_stefxFireWeaponLogBudget > 0 &&
+			( !ent->s.number || ent->NPC || ent->enemy ) )
+		{
+			XBLF("STEFX: FireWeapon enter ent=%d npc=%d weapon=%d psWeapon=%d alt=%d ammo0=%d ammo1=%d weaponTime=%d weaponstate=%d enemy=%d origin=(%g,%g,%g) view=(%g,%g,%g)",
+				ent->s.number,
+				ent->NPC ? 1 : 0,
+				ent->s.weapon,
+				ent->client->ps.weapon,
+				alt_fire ? 1 : 0,
+				ent->client->ps.ammo[0],
+				ent->client->ps.ammo[1],
+				ent->client->ps.weaponTime,
+				ent->client->ps.weaponstate,
+				ent->enemy ? ent->enemy->s.number : -1,
+				ent->currentOrigin[0],
+				ent->currentOrigin[1],
+				ent->currentOrigin[2],
+				ent->client->ps.viewangles[0],
+				ent->client->ps.viewangles[1],
+				ent->client->ps.viewangles[2]);
+			--s_stefxFireWeaponLogBudget;
+		}
+	}
+#endif
+
 	// track shots taken for accuracy tracking. 
 	ent->client->ps.persistant[PERS_ACCURACY_SHOTS]++;
 

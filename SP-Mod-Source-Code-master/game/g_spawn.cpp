@@ -4,6 +4,10 @@
 #include "boltOns.h"
 #include "g_infostrings.h"
 
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
+
 extern cvar_t *g_spskill;
 extern void NAV_GenerateSquadRoutes (int squadPathNum);
 // these vars I moved here out of the level_locals_t struct simply because it's pointless to try saving them,
@@ -14,6 +18,23 @@ int			numSpawnVars;
 char		*spawnVars[MAX_SPAWN_VARS][2];	// key / value pairs
 int			numSpawnVarChars;
 char		spawnVarChars[MAX_SPAWN_VARS_CHARS];
+
+#ifdef _XBOX
+static const char *STEFX_SpawnVarValue( const char *key )
+{
+	int i;
+
+	for ( i = 0; i < numSpawnVars; i++ )
+	{
+		if ( !Q_stricmp( spawnVars[i][0], key ) )
+		{
+			return spawnVars[i][1];
+		}
+	}
+
+	return "";
+}
+#endif
 
 //NOTENOTE: Be sure to change the mirrored code in cgmain.cpp
 typedef	map< string, unsigned char, less<string>, allocator< unsigned char >  >	namePrecache_m;
@@ -726,6 +747,10 @@ returning qfalse if not found
 qboolean G_CallSpawn( gentity_t *ent ) {
 	spawn_t	*s;
 	gitem_t	*item;
+#ifdef _XBOX
+	static int stefxCallSpawnLogBudget = 48;
+	qboolean xboxCallSpawnLog = (qboolean)(stefxCallSpawnLogBudget > 0);
+#endif
 
 	if ( !ent->classname ) {
 		gi.Printf (S_COLOR_RED"G_CallSpawn: NULL classname\n");
@@ -736,7 +761,17 @@ qboolean G_CallSpawn( gentity_t *ent ) {
 	for ( item=bg_itemlist+1 ; item->classname ; item++ ) {
 		if ( !strcmp(item->classname, ent->classname) ) {
 			// found it
+#ifdef _XBOX
+			if (xboxCallSpawnLog) XBLF("STEFX: G_CallSpawn item '%s' ent=%d", ent->classname, ent->s.number);
+#endif
 			G_SpawnItem( ent, item );
+#ifdef _XBOX
+			if (xboxCallSpawnLog)
+			{
+				XBLF("STEFX: G_CallSpawn item done '%s' ent=%d", ent->classname, ent->s.number);
+				stefxCallSpawnLogBudget--;
+			}
+#endif
 			return qtrue;
 		}
 	}
@@ -745,7 +780,17 @@ qboolean G_CallSpawn( gentity_t *ent ) {
 	for ( s=spawns ; s->name ; s++ ) {
 		if ( !strcmp(s->name, ent->classname) ) {
 			// found it
+#ifdef _XBOX
+			if (xboxCallSpawnLog) XBLF("STEFX: G_CallSpawn begin '%s' ent=%d", ent->classname, ent->s.number);
+#endif
 			s->spawn(ent);
+#ifdef _XBOX
+			if (xboxCallSpawnLog)
+			{
+				XBLF("STEFX: G_CallSpawn done '%s' ent=%d", ent->classname, ent->s.number);
+				stefxCallSpawnLogBudget--;
+			}
+#endif
 			return qtrue;
 		}
 	}
@@ -825,10 +870,15 @@ void G_ParseField( const char *key, const char *value, gentity_t *ent ) {
 			case F_VECTOR:
 			{
 				int _iFieldsRead = sscanf (value, "%f %f %f", &vec[0], &vec[1], &vec[2]);
+#ifndef _XBOX
 				assert(_iFieldsRead==3);
+#endif
 				if (_iFieldsRead!=3)
 				{
 					gi.Printf (S_COLOR_YELLOW"G_ParseField: VEC3 sscanf() failed to read 3 floats ('angle' key bug?)\n");
+#ifdef _XBOX
+					XBLF("STEFX: G_ParseField bad vec3 key='%s' value='%s'", key ? key : "(null)", value ? value : "(null)");
+#endif
 				}
 				((float *)(b+f->ofs))[0] = vec[0];
 				((float *)(b+f->ofs))[1] = vec[1];
@@ -838,10 +888,15 @@ void G_ParseField( const char *key, const char *value, gentity_t *ent ) {
 			case F_VECTOR4:
 			{
 				int _iFieldsRead =  sscanf (value, "%f %f %f %f", &vec4[0], &vec4[1], &vec4[2], &vec4[3]);
+#ifndef _XBOX
 				assert(_iFieldsRead==4);
+#endif
 				if (_iFieldsRead!=4)
 				{
 					gi.Printf (S_COLOR_YELLOW"G_ParseField: VEC4 sscanf() failed to read 4 floats\n");
+#ifdef _XBOX
+					XBLF("STEFX: G_ParseField bad vec4 key='%s' value='%s'", key ? key : "(null)", value ? value : "(null)");
+#endif
 				}
 				((float *)(b+f->ofs))[0] = vec4[0];
 				((float *)(b+f->ofs))[1] = vec4[1];
@@ -928,16 +983,53 @@ level.spawnVars[], then call the class specfic spawn function
 void G_SpawnGEntityFromSpawnVars( void ) {
 	int			i;
 	gentity_t	*ent;
+#ifdef _XBOX
+	const char	*traceClassname = STEFX_SpawnVarValue( "classname" );
+	const char	*traceTargetname = STEFX_SpawnVarValue( "targetname" );
+	const char	*traceOrigin = STEFX_SpawnVarValue( "origin" );
+	static int	stefxSpawnEntityLogBudget = 12;
+	static int	stefxSpawnFieldLogBudget = 16;
+	qboolean	xboxSpawnLog = (qboolean)(stefxSpawnEntityLogBudget > 0);
+
+	if (xboxSpawnLog && stefxSpawnEntityLogBudget > 0)
+	{
+		stefxSpawnEntityLogBudget--;
+	}
+
+	if (xboxSpawnLog)
+	{
+		XBLF("STEFX: Spawn entity begin class='%s' target='%s' origin='%s' vars=%d", traceClassname, traceTargetname, traceOrigin, numSpawnVars);
+	}
+#endif
 
 	// get the next free entity
 	ent = G_Spawn();
+#ifdef _XBOX
+	if (xboxSpawnLog)
+	{
+		XBLF("STEFX: Spawn entity allocated ent=%d ptr=%p class='%s'", ent ? ent->s.number : -1, ent, traceClassname);
+	}
+#endif
 
 	for ( i = 0 ; i < numSpawnVars ; i++ ) {
+#ifdef _XBOX
+		if (xboxSpawnLog && stefxSpawnFieldLogBudget > 0)
+		{
+			XBLF("STEFX: Spawn parse field ent=%d class='%s' key='%s' value='%s'", ent ? ent->s.number : -1, traceClassname, spawnVars[i][0], spawnVars[i][1]);
+			stefxSpawnFieldLogBudget--;
+		}
+#endif
 		G_ParseField( spawnVars[i][0], spawnVars[i][1], ent );
 	}
 
 	G_SpawnInt( "notsingle", "0", &i );
 	if ( i || !SpawnForCurrentDifficultySetting( ent ) ) {
+#ifdef _XBOX
+		if (xboxSpawnLog)
+		{
+			XBLF("STEFX: Spawn entity skipped ent=%d class='%s' notsingle=%d", ent ? ent->s.number : -1, traceClassname, i);
+		}
+#endif
 		G_FreeEntity( ent );
 		return;
 	}
@@ -967,15 +1059,45 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	}
 
 	// if we didn't get a classname, don't bother spawning anything
+#ifdef _XBOX
+	if (xboxSpawnLog)
+	{
+		XBLF("STEFX: Spawn entity before call ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+	}
+#endif
 	if ( !G_CallSpawn( ent ) ) {
+#ifdef _XBOX
+		if (xboxSpawnLog)
+		{
+			XBLF("STEFX: Spawn entity no spawn ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+		}
+#endif
 		G_FreeEntity( ent );
 		return;
 	}
+#ifdef _XBOX
+	if (xboxSpawnLog)
+	{
+		XBLF("STEFX: Spawn entity after call ent=%d class='%s' inuse=%d", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, ent ? ent->inuse : -1);
+	}
+#endif
 
 	//Tag on the ICARUS scripting information only to valid recipients
 	if ( ICARUS_ValidEnt( ent ) )
 	{
+#ifdef _XBOX
+		if (xboxSpawnLog)
+		{
+			XBLF("STEFX: Spawn entity before ICARUS ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+		}
+#endif
 		ICARUS_InitEnt( ent );
+#ifdef _XBOX
+		if (xboxSpawnLog)
+		{
+			XBLF("STEFX: Spawn entity after ICARUS init ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+		}
+#endif
 
 		if ( ent->classname && ent->classname[0] )
 		{
@@ -983,13 +1105,37 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 			{//Not an NPC_spawner
 				if ( ent->behaviorSet[BSET_SPAWN] )
 				{
+#ifdef _XBOX
+					if (xboxSpawnLog)
+					{
+						XBLF("STEFX: Spawn entity before spawn behavior ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+					}
+#endif
 					G_ActivateBehavior( ent, BSET_SPAWN );
+#ifdef _XBOX
+					if (xboxSpawnLog)
+					{
+						XBLF("STEFX: Spawn entity after spawn behavior ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+					}
+#endif
 				}
 			}
 		}
 	}
 
+#ifdef _XBOX
+	if (xboxSpawnLog)
+	{
+		XBLF("STEFX: Spawn entity before boltOn ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
+	}
+#endif
 	G_InitBoltOnData( ent );
+#ifdef _XBOX
+	if (xboxSpawnLog)
+	{
+		XBLF("STEFX: Spawn entity done ent=%d class='%s' inuse=%d", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, ent ? ent->inuse : -1);
+	}
+#endif
 }
 
 
@@ -1179,6 +1325,11 @@ extern void NAV_GenerateSquadPaths (void);
 extern qboolean NPCsPrecached;
 void G_SpawnEntitiesFromString( const char *entityString ) {
 	char		*entities;
+#ifdef _XBOX
+	int			traceEntityCount = 0;
+
+	XBLF("STEFX: SpawnEntities enter entityString=%p", entityString);
+#endif
 
 	entities = (char *)entityString;	// I had problems getting the compiler to live with const
 
@@ -1193,17 +1344,39 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 	if ( !G_ParseSpawnVars( &entities ) ) {
 		G_Error( "SpawnEntities: no entities" );
 	}
+#ifdef _XBOX
+	XBLF("STEFX: SpawnEntities worldspawn parsed vars=%d", numSpawnVars);
+#endif
 	
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities before SP_worldspawn");
+#endif
 	SP_worldspawn();
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities after SP_worldspawn");
+#endif
 
 	// parse ents
 	while( G_ParseSpawnVars( &entities ) ) 
 	{
+#ifdef _XBOX
+		traceEntityCount++;
+		XBLF("STEFX: SpawnEntities loop entity=%d", traceEntityCount);
+#endif
 		G_SpawnGEntityFromSpawnVars();
 	}	
+#ifdef _XBOX
+	XBLF("STEFX: SpawnEntities parsed entityCount=%d before precaches", traceEntityCount);
+#endif
 
 	//Search the entities for precache information
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities before G_ParsePrecaches");
+#endif
 	G_ParsePrecaches();
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities after G_ParsePrecaches");
+#endif
 
 
 	if( g_entities[ENTITYNUM_WORLD].behaviorSet[BSET_SPAWN] && g_entities[ENTITYNUM_WORLD].behaviorSet[BSET_SPAWN][0] )
@@ -1227,8 +1400,16 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 	//gi.Printf(S_COLOR_YELLOW"Total waypoints: %d\n", num_waypoints);
 	//Automatically run routegen
 	//RG_RouteGen();
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities before NAV_GenerateSquadPaths");
+#endif
 	NAV_GenerateSquadPaths();
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities after NAV_GenerateSquadPaths");
+#endif
 
 	spawning = qfalse;			// any future calls to G_Spawn*() will be errors
+#ifdef _XBOX
+	XBLog_Write("STEFX: SpawnEntities complete");
+#endif
 }
-

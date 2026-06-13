@@ -1,6 +1,9 @@
 #include "b_local.h"
 #include "anims.h"
 #include "AI.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 //Projectile weapon
 #define	MIN_WEAPON_ATTACK_RANGE			128
@@ -131,6 +134,22 @@ void Borg_Weapon_Fire( qboolean standStill )
 	if ( NPCInfo->weaponTime < level.time && NPC_CheckCanAttackExt() )
 	{
 		ucmd.buttons |= BUTTON_ATTACK;
+#ifdef _XBOX
+		{
+			static int stefxBorgFireLogBudget = 16;
+			if ( stefxBorgFireLogBudget > 0 )
+			{
+				XBLF("STEFX: Borg_Weapon_Fire attack ent=%d enemy=%d weapon=%d stand=%d buttons=0x%x time=%d",
+					NPC ? (int)(NPC - g_entities) : -1,
+					(NPC && NPC->enemy) ? NPC->enemy->s.number : -1,
+					(NPC && NPC->client) ? NPC->client->ps.weapon : -1,
+					standStill ? 1 : 0,
+					ucmd.buttons,
+					level.time);
+				stefxBorgFireLogBudget--;
+			}
+		}
+#endif
 		
 		NPC_ApplyWeaponFireDelay();
 
@@ -369,6 +388,23 @@ NPC_BSBorg_Attack
 
 void NPC_BSBorg_Attack( void )
 {
+#ifdef _XBOX
+	{
+		static int stefxBorgAttackLogBudget = 24;
+		if ( stefxBorgAttackLogBudget > 0 )
+		{
+			XBLF("STEFX: NPC_BSBorg_Attack ent=%d enemy=%d health=%d weapon=%d spawnflags=0x%x time=%d",
+				NPC ? (int)(NPC - g_entities) : -1,
+				(NPC && NPC->enemy) ? NPC->enemy->s.number : -1,
+				NPC ? NPC->health : -1,
+				(NPC && NPC->client) ? NPC->client->ps.weapon : -1,
+				NPC ? NPC->spawnflags : 0,
+				level.time);
+			stefxBorgAttackLogBudget--;
+		}
+	}
+#endif
+
 	if ( NPC->painDebounceTime > level.time )
 	{
 		NPC_UpdateAngles( qtrue, qtrue );

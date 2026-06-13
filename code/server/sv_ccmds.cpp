@@ -8,6 +8,9 @@
 #include "..\game\weapons.h"
 #include "..\game\g_items.h"
 #include "..\game\statindex.h"
+#if defined(STEFX_ELITE_FORCE_SP)
+#include "../qcommon/stefx_snapshot_abi.h"
+#endif
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
@@ -157,8 +160,32 @@ void SV_Player_EndOfLevelSave(void)
 		Cvar_Set( sCVARNAME_PLAYERSAVE, "");	// default to blank
 
 //		clientSnapshot_t*	pFrame = &cl->frames[cl->netchan.outgoingSequence & PACKET_MASK];
-		playerState_t*		pState = cl->gentity->client;
 		const char	*s2;
+#if defined(STEFX_ELITE_FORCE_SP)
+		const stefxPlayerState_t *pState = (const stefxPlayerState_t *)cl->gentity->client;
+		const char *s = va("%i %i %i %i %i %f %f %f",
+							pState->stats[STAT_HEALTH],
+							pState->stats[STAT_ARMOR],
+							pState->stats[STAT_WEAPONS],
+							pState->weapon,
+							pState->weaponstate,
+							pState->viewangles[0],
+							pState->viewangles[1],
+							pState->viewangles[2]
+							);
+		Cvar_Set( sCVARNAME_PLAYERSAVE, s );
+
+		for (i=0;i< STEFX_PS_MAX_AMMO; i++)
+		{
+			Cvar_Set( va("playerammo%d", i), va("%i", pState->ammo[i]) );
+		}
+
+		for (i=0;i< MAX_WEAPONS; i++)
+		{
+			Cvar_Set( va("borgadapt%d", i), va("%i", pState->borgAdaptHits[i]) );
+		}
+#else
+		playerState_t*		pState = cl->gentity->client;
 			//				|general info				  |-force powers |-saber 1										   |-saber 2										  |-general saber
 		const char *s = va("%i %i %i %i %i %i %i %f %f %f %i %i %i %i %i %s %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %s %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i",
 							pState->stats[STAT_HEALTH],
@@ -245,6 +272,7 @@ void SV_Player_EndOfLevelSave(void)
 			s2 = va("%s %i",s2, pState->forcePowerLevel[i]);
 		}
 		Cvar_Set( "playerfplvl", s2 );
+#endif
 	}
 }
 
@@ -311,11 +339,20 @@ static void SV_Map_f( void )
 	// then cheats will be allowed
 	if ( !Q_stricmpn( Cmd_Argv(0), "devmap", 6 ) ) {
 		Cvar_Set( "helpUsObi", "1" );
+#if defined(STEFX_ELITE_FORCE_SP)
+		Cvar_Set( "sv_cheats", "1" );
+#endif
 	} else {
 #ifdef _XBOX
 		Cvar_Set( "helpUsObi", "1" );
+#if defined(STEFX_ELITE_FORCE_SP)
+		Cvar_Set( "sv_cheats", "1" );
+#endif
 #else
 		Cvar_Set( "helpUsObi", "0" );
+#if defined(STEFX_ELITE_FORCE_SP)
+		Cvar_Set( "sv_cheats", "0" );
+#endif
 #endif
 	}
 }

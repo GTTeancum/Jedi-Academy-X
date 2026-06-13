@@ -1523,6 +1523,9 @@ void R_AddEntitySurfaces (void) {
 					R_AddBrushModelSurfaces( ent );
 					break;
 #ifdef STEFX_ELITE_FORCE_SP
+				case MOD_MDR:
+					R_AddAnimSurfaces( ent );
+					break;
 				case MOD_STEFX_MDR_PLACEHOLDER:
 					{
 						static int s_stefxMdrSkipLogCount = 0;
@@ -1587,14 +1590,52 @@ R_GenerateDrawSurfs
 #ifdef _XBOX
 extern void R_MarkLeaves(mleaf_s*);
 void R_GenerateDrawSurfs( bool isPortal ) {
+	static int s_xboxGenerateLogBudget = 48;
+	int xboxDrawBefore = tr.refdef.numDrawSurfs;
+	if (s_xboxGenerateLogBudget > 0) {
+		XBLF("JA: R_GenerateDrawSurfs enter portal=%d rd=0x%x draw=%d visCount=%d viewCluster=%d world=%p '%s'",
+			(int)isPortal,
+			tr.refdef.rdflags,
+			tr.refdef.numDrawSurfs,
+			tr.visCount,
+			tr.viewCluster,
+			tr.world,
+			tr.world ? tr.world->baseName : "<null>");
+	}
+
 	// determine which leaves are in the PVS / areamask
 	if ( !(tr.refdef.rdflags & RDF_NOWORLDMODEL) ) {
 		R_MarkLeaves (NULL);
+		if (s_xboxGenerateLogBudget > 0) {
+			XBLF("JA: R_GenerateDrawSurfs after MarkLeaves draw=%d visCount=%d viewCluster=%d rootVis=%d",
+				tr.refdef.numDrawSurfs,
+				tr.visCount,
+				tr.viewCluster,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
 	}
 
 	R_AddWorldSurfaces ();
+	if (s_xboxGenerateLogBudget > 0) {
+		XBLF("JA: R_GenerateDrawSurfs after AddWorld delta=%d draw=%d leafs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
+			tr.refdef.numDrawSurfs - xboxDrawBefore,
+			tr.refdef.numDrawSurfs,
+			tr.pc.c_leafs,
+			tr.viewParms.visBounds[0][0],
+			tr.viewParms.visBounds[0][1],
+			tr.viewParms.visBounds[0][2],
+			tr.viewParms.visBounds[1][0],
+			tr.viewParms.visBounds[1][1],
+			tr.viewParms.visBounds[1][2]);
+	}
 
 	R_AddPolygonSurfaces();
+	if (s_xboxGenerateLogBudget > 0) {
+		XBLF("JA: R_GenerateDrawSurfs after AddPolys delta=%d draw=%d polys=%d",
+			tr.refdef.numDrawSurfs - xboxDrawBefore,
+			tr.refdef.numDrawSurfs,
+			tr.refdef.numPolys);
+	}
 
 //	R_AddTerrainSurfaces();
 
@@ -1606,6 +1647,13 @@ void R_GenerateDrawSurfs( bool isPortal ) {
 	R_SetupProjection ();
 
 	R_AddEntitySurfaces ();
+	if (s_xboxGenerateLogBudget > 0) {
+		XBLF("JA: R_GenerateDrawSurfs exit delta=%d draw=%d ents=%d",
+			tr.refdef.numDrawSurfs - xboxDrawBefore,
+			tr.refdef.numDrawSurfs,
+			tr.refdef.num_entities);
+		--s_xboxGenerateLogBudget;
+	}
 }
 
 #else 
@@ -1739,8 +1787,38 @@ or a mirror / remote location
 */
 void R_RenderView (viewParms_t *parms) {
 	int		firstDrawSurf;
+#ifdef _XBOX
+	static int s_xboxRenderViewLogBudget = 48;
+#endif
+
+#ifdef _XBOX
+	if (s_xboxRenderViewLogBudget > 0) {
+		XBLF("JA: R_RenderView raw enter viewport=%d,%d %dx%d fov=%g/%g rd=0x%x origin=(%g,%g,%g) world=%p",
+			parms ? parms->viewportX : -9999,
+			parms ? parms->viewportY : -9999,
+			parms ? parms->viewportWidth : -9999,
+			parms ? parms->viewportHeight : -9999,
+			parms ? parms->fovX : -9999.0,
+			parms ? parms->fovY : -9999.0,
+			tr.refdef.rdflags,
+			tr.refdef.vieworg[0],
+			tr.refdef.vieworg[1],
+			tr.refdef.vieworg[2],
+			tr.world);
+	}
+#endif
 
 	if ( parms->viewportWidth <= 0 || parms->viewportHeight <= 0 ) {
+#ifdef _XBOX
+		if (s_xboxRenderViewLogBudget > 0) {
+			XBLF("JA: R_RenderView return invalid viewport=%d,%d %dx%d",
+				parms ? parms->viewportX : -9999,
+				parms ? parms->viewportY : -9999,
+				parms ? parms->viewportWidth : -9999,
+				parms ? parms->viewportHeight : -9999);
+			--s_xboxRenderViewLogBudget;
+		}
+#endif
 		return;
 	}
 
@@ -1764,6 +1842,32 @@ void R_RenderView (viewParms_t *parms) {
 	tr.viewParms.frameCount = tr.frameCount;
 
 	firstDrawSurf = tr.refdef.numDrawSurfs;
+#ifdef _XBOX
+	if (s_xboxRenderViewLogBudget > 0) {
+		XBLF("JA: R_RenderView enter viewCount=%d firstDraw=%d viewport=%d,%d %dx%d fov=%g/%g rd=0x%x origin=(%g,%g,%g) pvs=(%g,%g,%g) world=%p '%s' nodes=%d leafs=%d surfaces=%d clusters=%d",
+			tr.viewCount,
+			firstDrawSurf,
+			parms->viewportX,
+			parms->viewportY,
+			parms->viewportWidth,
+			parms->viewportHeight,
+			parms->fovX,
+			parms->fovY,
+			tr.refdef.rdflags,
+			tr.refdef.vieworg[0],
+			tr.refdef.vieworg[1],
+			tr.refdef.vieworg[2],
+			parms->pvsOrigin[0],
+			parms->pvsOrigin[1],
+			parms->pvsOrigin[2],
+			tr.world,
+			tr.world ? tr.world->baseName : "<null>",
+			tr.world ? tr.world->numnodes : -1,
+			tr.world ? tr.world->numleafs : -1,
+			tr.world ? tr.world->numsurfaces : -1,
+			tr.world ? tr.world->numClusters : -1);
+	}
+#endif
 
 	tr.viewCount++;
 
@@ -1782,8 +1886,25 @@ void R_RenderView (viewParms_t *parms) {
 #else
 	R_GenerateDrawSurfs();
 #endif
+#ifdef _XBOX
+	if (s_xboxRenderViewLogBudget > 0) {
+		XBLF("JA: R_RenderView before sort delta=%d draw=%d visCount=%d viewCluster=%d",
+			tr.refdef.numDrawSurfs - firstDrawSurf,
+			tr.refdef.numDrawSurfs,
+			tr.visCount,
+			tr.viewCluster);
+	}
+#endif
 
 	R_SortDrawSurfs( tr.refdef.drawSurfs + firstDrawSurf, tr.refdef.numDrawSurfs - firstDrawSurf );
+#ifdef _XBOX
+	if (s_xboxRenderViewLogBudget > 0) {
+		XBLF("JA: R_RenderView exit sortedDelta=%d draw=%d",
+			tr.refdef.numDrawSurfs - firstDrawSurf,
+			tr.refdef.numDrawSurfs);
+		--s_xboxRenderViewLogBudget;
+	}
+#endif
 
 	// draw main system development information (surface outlines, etc)
 	R_DebugGraphics();

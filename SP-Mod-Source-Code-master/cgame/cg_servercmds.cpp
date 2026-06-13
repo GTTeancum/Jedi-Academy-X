@@ -2,6 +2,9 @@
 
 #include "cg_local.h"
 #include "cg_media.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 
 /*
@@ -36,8 +39,19 @@ void CG_RegisterClientModels (int entityNum);
 static void CG_ConfigStringModified( void ) {
 	const char	*str;
 	int		num;
+#ifdef _XBOX
+	static int s_stefxCsLogBudget = 96;
+#endif
 
 	num = atoi( CG_Argv( 1 ) );
+
+#ifdef _XBOX
+	if ( s_stefxCsLogBudget > 0 )
+	{
+		XBLF("STEFX: EF CG_ConfigStringModified enter num=%d seq=%d time=%d",
+			num, cgs.serverCommandSequence, cg.time);
+	}
+#endif
 
 	// get the gamestate from the client system, which will have the
 	// new configstring already integrated
@@ -45,6 +59,14 @@ static void CG_ConfigStringModified( void ) {
 
 	// look up the individual string that was modified
 	str = CG_ConfigString( num );
+
+#ifdef _XBOX
+	if ( s_stefxCsLogBudget > 0 )
+	{
+		XBLF("STEFX: EF CG_ConfigStringModified state num=%d str='%s'",
+			num, str ? str : "<null>");
+	}
+#endif
 
 	// do something with it if necessary
 	if ( num == CS_MUSIC ) {
@@ -62,6 +84,13 @@ static void CG_ConfigStringModified( void ) {
 		CG_NewClientinfo( num - CS_PLAYERS );
 		CG_RegisterClientModels( num - CS_PLAYERS );
 	}
+#ifdef _XBOX
+	if ( s_stefxCsLogBudget > 0 )
+	{
+		XBLF("STEFX: EF CG_ConfigStringModified done num=%d", num);
+		--s_stefxCsLogBudget;
+	}
+#endif
 }
 
 /*
@@ -167,9 +196,39 @@ with this this snapshot.
 ====================
 */
 void CG_ExecuteNewServerCommands( int latestSequence ) {
+#ifdef _XBOX
+	static int s_stefxServerCommandBudget = 96;
+	if ( s_stefxServerCommandBudget > 0 && cgs.serverCommandSequence < latestSequence )
+	{
+		XBLF("STEFX: EF CG_ExecuteNewServerCommands begin current=%d latest=%d time=%d",
+			cgs.serverCommandSequence, latestSequence, cg.time);
+	}
+#endif
 	while ( cgs.serverCommandSequence < latestSequence ) {
+#ifdef _XBOX
+		if ( s_stefxServerCommandBudget > 0 )
+		{
+			XBLF("STEFX: EF CG_ExecuteNewServerCommands fetch seq=%d",
+				cgs.serverCommandSequence + 1);
+		}
+#endif
 		if ( cgi_GetServerCommand( ++cgs.serverCommandSequence ) ) {
+#ifdef _XBOX
+			if ( s_stefxServerCommandBudget > 0 )
+			{
+				XBLF("STEFX: EF CG_ExecuteNewServerCommands dispatch seq=%d cmd='%s'",
+					cgs.serverCommandSequence, CG_Argv(0));
+			}
+#endif
 			CG_ServerCommand();
+#ifdef _XBOX
+			if ( s_stefxServerCommandBudget > 0 )
+			{
+				XBLF("STEFX: EF CG_ExecuteNewServerCommands returned seq=%d",
+					cgs.serverCommandSequence);
+				--s_stefxServerCommandBudget;
+			}
+#endif
 		}
 	}
 }

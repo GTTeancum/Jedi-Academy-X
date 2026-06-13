@@ -7,6 +7,9 @@
 #include "b_local.h"
 #include "objectives.h"
 #include "..\cgame\cg_text.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern vmCvar_t cg_thirdPerson;
 
@@ -236,6 +239,28 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 	}
 	
 	traceEnt = &g_entities[ tr.entityNum ];
+#ifdef _XBOX
+	if ( ent->s.number == 0 )
+	{
+		static int s_stefxCompressionTraceLogBudget = 48;
+		if ( s_stefxCompressionTraceLogBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression trace alt=%d start=(%g,%g,%g) end=(%g,%g,%g) hitNum=%d frac=%g hitClass=%s hitClient=%d hitHealth=%d take=%d surf=0x%x endpos=(%g,%g,%g)",
+				alt_fire ? 1 : 0,
+				start[0], start[1], start[2],
+				end[0], end[1], end[2],
+				tr.entityNum,
+				tr.fraction,
+				(traceEnt && traceEnt->classname) ? traceEnt->classname : "<null>",
+				(traceEnt && traceEnt->client) ? 1 : 0,
+				traceEnt ? traceEnt->health : -9999,
+				traceEnt ? traceEnt->takedamage : 0,
+				tr.surfaceFlags,
+				tr.endpos[0], tr.endpos[1], tr.endpos[2]);
+			s_stefxCompressionTraceLogBudget--;
+		}
+	}
+#endif
 
 	// Render a shot in any case.
 	if ( alt_fire )
@@ -3003,6 +3028,25 @@ void CalcMuzzlePoint( gentity_t *ent, vec3_t forward, vec3_t right, vec3_t up, v
 void FireWeapon( gentity_t *ent, qboolean alt_fire ) 
 //---------------------------------------------------------
 {
+#ifdef _XBOX
+	static int s_stefxFireWeaponLogBudget = 64;
+	if (s_stefxFireWeaponLogBudget > 0 && ent && ent->client)
+	{
+		int ammoIndex = weaponData[ent->client->ps.weapon].ammoIndex;
+		int ammoValue = (ammoIndex >= 0 && ammoIndex < MAX_AMMO) ? ent->client->ps.ammo[ammoIndex] : -9999;
+		XBLF("STEFX: FireWeapon enter ent=%d weapon=%d sWeapon=%d alt=%d view=(%g,%g,%g) origin=(%g,%g,%g) ammoIndex=%d ammo=%d enemy=%d",
+			ent->s.number,
+			ent->client->ps.weapon,
+			ent->s.weapon,
+			alt_fire ? 1 : 0,
+			ent->client->ps.viewangles[0], ent->client->ps.viewangles[1], ent->client->ps.viewangles[2],
+			ent->client->ps.origin[0], ent->client->ps.origin[1], ent->client->ps.origin[2],
+			ammoIndex,
+			ammoValue,
+			ent->enemy ? ent->enemy->s.number : -1);
+		--s_stefxFireWeaponLogBudget;
+	}
+#endif
 	// track shots taken for accuracy tracking. 
 	ent->client->ps.persistant[PERS_ACCURACY_SHOTS]++;
 

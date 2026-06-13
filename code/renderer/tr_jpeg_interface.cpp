@@ -21,6 +21,10 @@
 #define JPEG_INTERNALS
 #include "../jpeg-6/jpeglib.h"
 
+#ifndef TAG_TEMP_JPG
+#define TAG_TEMP_JPG TAG_TEMP_WORKSPACE
+#endif
+
 // JPG decompression now subroutinised so I can call it from the savegame stuff...
 //
 // (note, the param "byte* pJPGData" should be a malloc of 4K more than the JPG data because the decompressor will read 
@@ -52,6 +56,11 @@ void Decompress_JPG( const char *filename, byte *pJPGData, unsigned char **pic, 
 	int row_stride;		/* physical row width in output buffer */
 	unsigned char *out;	
 	byte  *bbuf;
+	byte  *scanline;
+	byte  *dest;
+	byte  *src;
+	int   x;
+	int   y;
 	
 	/* Step 1: allocate and initialize JPEG decompression object */
 	
@@ -100,10 +109,11 @@ void Decompress_JPG( const char *filename, byte *pJPGData, unsigned char **pic, 
 	/* JSAMPLEs per row in output buffer */
 	row_stride = cinfo.output_width * cinfo.output_components;
 	
-	if (cinfo.output_components!=4 && cinfo.output_components!=1 ) {
+	if (cinfo.output_components!=4 && cinfo.output_components!=3 && cinfo.output_components!=1 ) {
 		VID_Printf(PRINT_WARNING, "JPG %s is unsupported color depth (%d)\n", filename, cinfo.output_components);
 	}
 	out = (byte *)Z_Malloc(cinfo.output_width*cinfo.output_height*4, TAG_TEMP_JPG, qfalse );
+	scanline = (byte *)Z_Malloc(row_stride, TAG_TEMP_JPG, qfalse );
 	
 	*pic = out;
 	*width = cinfo.output_width;
@@ -120,41 +130,39 @@ void Decompress_JPG( const char *filename, byte *pJPGData, unsigned char **pic, 
 	* Here the array is only one element long, but you could ask for
 	* more than one scanline at a time if that's more convenient.
 		*/
-		bbuf = ((out+(row_stride*cinfo.output_scanline)));
+		y = cinfo.output_scanline;
+		bbuf = scanline;
 		buffer = &bbuf;
 		(void) jpeg_read_scanlines(&cinfo, buffer, 1);
-	}
-	
-	// if we've just loaded a greyscale, then adjust it from 8-bit to 32bit by stretch-copying it over itself...
-	//  (this also does the alpha stuff as well)
-	//
-	if (cinfo.output_components == 1)
-	{
-		byte *pbDest = (*pic + (cinfo.output_width * cinfo.output_height * 4))-1;
-		byte *pbSrc  = (*pic + (cinfo.output_width * cinfo.output_height    ))-1;
-		int  iPixels = cinfo.output_width * cinfo.output_height;
-		
-		for (int i=0; i<iPixels; i++)
-		{
-			byte b = *pbSrc--;
-			*pbDest-- = 255;
-			*pbDest-- = b;
-			*pbDest-- = b;
-			*pbDest-- = b;
+
+		dest = out + (y * cinfo.output_width * 4);
+		src = scanline;
+		if (cinfo.output_components == 4) {
+			for (x = 0; x < (int)cinfo.output_width; ++x, dest += 4, src += 4) {
+				dest[0] = src[0];
+				dest[1] = src[1];
+				dest[2] = src[2];
+				dest[3] = src[3];
+			}
+		} else if (cinfo.output_components == 3) {
+			for (x = 0; x < (int)cinfo.output_width; ++x, dest += 4, src += 3) {
+				dest[0] = src[0];
+				dest[1] = src[1];
+				dest[2] = src[2];
+				dest[3] = 255;
+			}
+		} else if (cinfo.output_components == 1) {
+			for (x = 0; x < (int)cinfo.output_width; ++x, dest += 4, src += 1) {
+				dest[0] = src[0];
+				dest[1] = src[0];
+				dest[2] = src[0];
+				dest[3] = 255;
+			}
+		} else {
+			memset(dest, 255, cinfo.output_width * 4);
 		}
 	}
-	else	  
-	{// clear all the alphas to 255
-		int	i, j;
-		byte	*buf;
-		
-		buf = *pic;
-		
-		j = cinfo.output_width * cinfo.output_height * 4;
-		for ( i = 3 ; i < j ; i+=4 ) {
-			buf[i] = 255;
-		}
-	}
+	Z_Free(scanline);
 	
 	/* Step 7: Finish decompression */
 	

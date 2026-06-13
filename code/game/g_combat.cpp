@@ -5661,6 +5661,31 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, const
 		damage = 0;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( attacker && attacker->s.number == 0 && targ )
+	{
+		static int s_stefxPlayerDamageLogBudget = 96;
+		if ( s_stefxPlayerDamageLogBudget > 0 )
+		{
+			Com_PrintfAlways("STEFX: G_Damage player hit target=%d class='%s' npc=%d client=%d health=%d damage=%d mod=%d dflags=0x%x hitLoc=%d attackerWeapon=%d point=(%g,%g,%g)\n",
+				targ->s.number,
+				targ->classname ? targ->classname : "<null>",
+				targ->NPC ? 1 : 0,
+				targ->client ? 1 : 0,
+				targ->health,
+				damage,
+				mod,
+				dflags,
+				hitLoc,
+				attacker->client ? attacker->client->ps.weapon : -1,
+				point ? point[0] : 0.0f,
+				point ? point[1] : 0.0f,
+				point ? point[2] : 0.0f);
+			--s_stefxPlayerDamageLogBudget;
+		}
+	}
+#endif
+
 	if ( dir == NULL ) 
 	{
 		dflags |= DAMAGE_NO_KNOCKBACK;

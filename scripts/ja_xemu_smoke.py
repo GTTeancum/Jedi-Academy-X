@@ -5,10 +5,8 @@ import socket
 import subprocess
 import time
 import re
-import ctypes
-from ctypes import wintypes
 
-from PIL import Image, ImageDraw, ImageGrab
+from PIL import Image, ImageDraw
 
 
 XEMU_DIR = r"C:\Games\Emulators\Xemu"
@@ -47,233 +45,6 @@ guide = 10
 """.strip()
 
 
-user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
-MAPVK_VK_TO_VSC = 0
-KEYEVENTF_EXTENDEDKEY = 0x0001
-KEYEVENTF_KEYUP = 0x0002
-KEYEVENTF_SCANCODE = 0x0008
-SWP_NOSIZE = 0x0001
-SWP_NOMOVE = 0x0002
-HWND_TOP = 0
-HWND_TOPMOST = -1
-HWND_NOTOPMOST = -2
-PW_RENDERFULLCONTENT = 0x00000002
-
-
-class BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [
-        ("biSize", wintypes.DWORD),
-        ("biWidth", wintypes.LONG),
-        ("biHeight", wintypes.LONG),
-        ("biPlanes", wintypes.WORD),
-        ("biBitCount", wintypes.WORD),
-        ("biCompression", wintypes.DWORD),
-        ("biSizeImage", wintypes.DWORD),
-        ("biXPelsPerMeter", wintypes.LONG),
-        ("biYPelsPerMeter", wintypes.LONG),
-        ("biClrUsed", wintypes.DWORD),
-        ("biClrImportant", wintypes.DWORD),
-    ]
-
-
-class RGBQUAD(ctypes.Structure):
-    _fields_ = [
-        ("rgbBlue", ctypes.c_byte),
-        ("rgbGreen", ctypes.c_byte),
-        ("rgbRed", ctypes.c_byte),
-        ("rgbReserved", ctypes.c_byte),
-    ]
-
-
-class BITMAPINFO(ctypes.Structure):
-    _fields_ = [
-        ("bmiHeader", BITMAPINFOHEADER),
-        ("bmiColors", RGBQUAD * 1),
-    ]
-
-
-def find_window_for_pid(pid):
-    result = []
-
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def enum_proc(hwnd, _lparam):
-        if not user32.IsWindowVisible(hwnd):
-            return True
-        proc_id = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(proc_id))
-        if proc_id.value == pid:
-            length = user32.GetWindowTextLengthW(hwnd)
-            title = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, title, length + 1)
-            result.append((hwnd, title.value))
-            return False
-        return True
-
-    user32.EnumWindows(enum_proc, 0)
-    return result[0] if result else (None, "")
-
-
-def capture_window(pid, path):
-    hwnd, title = find_window_for_pid(pid)
-    if not hwnd:
-        return False, "no window"
-    rect = wintypes.RECT()
-    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-        return False, "GetWindowRect failed"
-    width = rect.right - rect.left
-    height = rect.bottom - rect.top
-    if width <= 0 or height <= 0:
-        return False, "empty window rect"
-    try:
-        user32.ShowWindow(hwnd, 5)
-        user32.SetForegroundWindow(hwnd)
-    except Exception:
-        pass
-    time.sleep(0.25)
-    try:
-        # PrintWindow often returns a stale OpenGL front buffer for Xemu.  A
-        # real desktop crop is more truthful once the window has focus.
-        img = ImageGrab.grab((rect.left, rect.top, rect.right, rect.bottom))
-        img.save(path)
-        return True, "%s %dx%d foreground-grab" % (title or "<untitled>", width, height)
-    except Exception as exc:
-        printed, print_detail = print_window(hwnd, width, height, path)
-        if printed:
-            return True, "%s %dx%d hwnd-print; grab=%s" % (title or "<untitled>", width, height, exc)
-        return False, "grab=%s; print=%s" % (exc, print_detail)
-    finally:
-        try:
-            user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE)
-        except Exception:
-            pass
-
-
-def print_window(hwnd, width, height, path):
-    hdc_window = user32.GetWindowDC(hwnd)
-    if not hdc_window:
-        return False, "GetWindowDC failed"
-    hdc_mem = gdi32.CreateCompatibleDC(hdc_window)
-    hbmp = gdi32.CreateCompatibleBitmap(hdc_window, width, height)
-    if not hdc_mem or not hbmp:
-        if hbmp:
-            gdi32.DeleteObject(hbmp)
-        if hdc_mem:
-            gdi32.DeleteDC(hdc_mem)
-        user32.ReleaseDC(hwnd, hdc_window)
-        return False, "CreateCompatibleBitmap failed"
-
-    old = gdi32.SelectObject(hdc_mem, hbmp)
-    ok = user32.PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT)
-    if not ok:
-        ok = user32.PrintWindow(hwnd, hdc_mem, 0)
-
-    bmp_info = BITMAPINFO()
-    bmp_info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmp_info.bmiHeader.biWidth = width
-    bmp_info.bmiHeader.biHeight = -height
-    bmp_info.bmiHeader.biPlanes = 1
-    bmp_info.bmiHeader.biBitCount = 32
-    bmp_info.bmiHeader.biCompression = 0
-    buf_len = width * height * 4
-    buf = ctypes.create_string_buffer(buf_len)
-    got = 0
-    if ok:
-        got = gdi32.GetDIBits(hdc_mem, hbmp, 0, height, buf, ctypes.byref(bmp_info), 0)
-
-    gdi32.SelectObject(hdc_mem, old)
-    gdi32.DeleteObject(hbmp)
-    gdi32.DeleteDC(hdc_mem)
-    user32.ReleaseDC(hwnd, hdc_window)
-
-    if not ok or got == 0:
-        return False, "PrintWindow failed"
-
-    img = Image.frombuffer("RGB", (width, height), buf.raw, "raw", "BGRX", 0, 1)
-    extrema = img.getextrema()
-    if all(lo == hi == 0 for lo, hi in extrema):
-        return False, "PrintWindow black"
-    img.save(path)
-    return True, "PrintWindow"
-
-
-def click_window_relative(pid, rel_x, rel_y):
-    hwnd, _title = find_window_for_pid(pid)
-    if not hwnd:
-        return False
-    rect = wintypes.RECT()
-    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-        return False
-    x = rect.left + rel_x
-    y = rect.top + rel_y
-    try:
-        user32.ShowWindow(hwnd, 5)
-        user32.SetForegroundWindow(hwnd)
-    except Exception:
-        pass
-    user32.SetCursorPos(x, y)
-    user32.mouse_event(0x0002, 0, 0, 0, 0)
-    time.sleep(0.03)
-    user32.mouse_event(0x0004, 0, 0, 0, 0)
-    return True
-
-
-VK_CODES = {
-    "enter": 0x0D,
-    "return": 0x0D,
-    "space": 0x20,
-    "esc": 0x1B,
-    "escape": 0x1B,
-    "up": 0x26,
-    "down": 0x28,
-    "left": 0x25,
-    "right": 0x27,
-    "tab": 0x09,
-    "backspace": 0x08,
-    "1": 0x31,
-    "2": 0x32,
-    "3": 0x33,
-    "4": 0x34,
-    "5": 0x35,
-    "a": 0x41,
-    "b": 0x42,
-    "c": 0x43,
-    "d": 0x44,
-    "e": 0x45,
-    "f": 0x46,
-    "i": 0x49,
-    "j": 0x4A,
-    "k": 0x4B,
-    "l": 0x4C,
-    "o": 0x4F,
-    "w": 0x57,
-    "x": 0x58,
-    "y": 0x59,
-    "s": 0x53,
-}
-
-
-def press_key(pid, name, hold=0.18):
-    hwnd, _title = find_window_for_pid(pid)
-    if hwnd:
-        try:
-            user32.ShowWindow(hwnd, 5)
-            user32.SetForegroundWindow(hwnd)
-        except Exception:
-            pass
-    vk = VK_CODES.get(name.lower())
-    if vk is None:
-        return False
-    scan = user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
-    flags = KEYEVENTF_SCANCODE
-    if name.lower() in ("up", "down", "left", "right"):
-        flags |= KEYEVENTF_EXTENDEDKEY
-    user32.keybd_event(vk, scan, flags, 0)
-    time.sleep(hold)
-    user32.keybd_event(vk, scan, flags | KEYEVENTF_KEYUP, 0)
-    return True
-
-
 def parse_key_schedule(spec):
     events = []
     if not spec:
@@ -289,25 +60,6 @@ def parse_key_schedule(spec):
             hold = float(hold_spec)
         events.append([float(when), key.strip(), hold, False])
     return sorted(events, key=lambda e: e[0])
-
-
-def parse_click_schedule(spec):
-    events = []
-    if not spec:
-        return events
-    for part in spec.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        when, xy = part.split(":", 1)
-        x, y = xy.split("x", 1)
-        events.append([float(when), int(x), int(y), False])
-    return sorted(events, key=lambda e: e[0])
-
-
-def parse_xy_pair(spec):
-    x, y = spec.lower().split("x", 1)
-    return int(x), int(y)
 
 
 def resolve_map_symbol(symbol):
@@ -382,23 +134,7 @@ def write_contact_sheet(paths, dest):
 
 
 def close_windows_security_alerts():
-    closed = []
-    wm_close = 0x0010
-
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def enum_proc(hwnd, _lparam):
-        if user32.IsWindowVisible(hwnd):
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length:
-                title = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, title, length + 1)
-                if "Windows Security" in title.value:
-                    user32.PostMessageW(hwnd, wm_close, 0, 0)
-                    closed.append(title.value)
-        return True
-
-    user32.EnumWindows(enum_proc, 0)
-    return closed
+    return []
 
 
 def ensure_xemu_copy():
@@ -678,13 +414,7 @@ def main():
                         default="xemu",
                         help="Xemu/QEMU display backend. Use none or egl-headless for unattended runs.")
     parser.add_argument("--no-monitor", action="store_true")
-    parser.add_argument("--keys", default="")
     parser.add_argument("--monitor-keys", default="")
-    parser.add_argument("--clicks", default="")
-    parser.add_argument("--video-debug", action="store_true",
-                        help="For visible Xemu runs, click Debug > Video to open Xemu's FPS/MSPF overlay.")
-    parser.add_argument("--video-debug-clicks", default="128x34,128x88",
-                        help="Window-relative menu/item clicks for --video-debug: debugMenuXxY,videoItemXxY.")
     parser.add_argument("--smoke-keymap", action="store_true")
     parser.add_argument("--xemu-arg", action="append", default=[])
     parser.add_argument("--keep-net", action="store_true")
@@ -765,9 +495,7 @@ def main():
     logf = open(raw_log, "w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(argv, cwd=XEMU_DIR, stdout=logf, stderr=subprocess.STDOUT)
     log("pid=%d" % proc.pid)
-    key_events = parse_key_schedule(args.keys)
     monitor_key_events = parse_key_schedule(args.monitor_keys)
-    click_events = parse_click_schedule(args.clicks)
     shot_paths = []
     watch_cr2 = int(args.watch_cr2, 0) if args.watch_cr2 else None
     watch_done = False
@@ -836,14 +564,6 @@ def main():
         "_g_SPXBRenderSplitFinal",
         "_g_SPXBRenderSplitFlush",
     ])
-    video_debug_done = False
-    try:
-        video_debug_menu_click, video_debug_item_click = [
-            parse_xy_pair(part.strip()) for part in args.video_debug_clicks.split(",", 1)
-        ]
-    except Exception:
-        video_debug_menu_click = (128, 34)
-        video_debug_item_click = (128, 88)
     capture_enabled = (not args.no_screenshots) and display_mode not in ("none", "egl-headless", "nographic")
 
     sock = None
@@ -867,16 +587,6 @@ def main():
             if rc is not None:
                 log("process_exit t=%.1f rc=%s" % (elapsed, rc))
                 break
-
-            if args.video_debug and capture_enabled and not video_debug_done and elapsed >= 2.0:
-                ok_menu = click_window_relative(proc.pid, video_debug_menu_click[0], video_debug_menu_click[1])
-                time.sleep(0.15)
-                ok_item = click_window_relative(proc.pid, video_debug_item_click[0], video_debug_item_click[1])
-                log("video_debug t=%.1f menu=%s,%s ok=%s item=%s,%s ok=%s" %
-                    (elapsed,
-                     video_debug_menu_click[0], video_debug_menu_click[1], ok_menu,
-                     video_debug_item_click[0], video_debug_item_click[1], ok_item))
-                video_debug_done = True
 
             if sock is not None and watch_cr2 is not None and not watch_done and elapsed >= next_watch:
                 next_watch = elapsed + 0.08
@@ -971,9 +681,6 @@ def main():
                     xblog_addr = None
 
             if elapsed >= next_shot:
-                close_windows_security_alerts()
-                if display_mode not in ("none", "egl-headless", "nographic") and elapsed < 12.0:
-                    click_window_relative(proc.pid, 747, 678)
                 if capture_enabled:
                     time.sleep(0.1)
                     png = os.path.abspath("%s_%02d.png" % (prefix, shot))
@@ -981,11 +688,6 @@ def main():
                     if xblog_va_for_probe is not None and xblog_addr is not None:
                         xblog_phys_delta = xblog_va_for_probe - xblog_addr
                     ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
-                    if not ok and display_mode == "xemu":
-                        win_ok, win_detail = capture_window(proc.pid, png)
-                        if win_ok:
-                            ok = True
-                            detail = "%s; fallback=%s" % (detail, win_detail)
                     if ok:
                         shot_paths.append(png)
                     log("shot=%02d t=%.1f ok=%s bytes=%s detail=%s" %
@@ -994,18 +696,6 @@ def main():
                     log("shot=%02d t=%.1f skipped display=%s" % (shot, elapsed, display_mode))
                 shot += 1
                 next_shot += args.interval
-
-            for event in click_events:
-                if not event[3] and elapsed >= event[0]:
-                    ok = click_window_relative(proc.pid, event[1], event[2])
-                    event[3] = True
-                    log("click t=%.1f x=%d y=%d ok=%s" % (elapsed, event[1], event[2], ok))
-
-            for event in key_events:
-                if not event[3] and elapsed >= event[0]:
-                    ok = press_key(proc.pid, event[1], event[2])
-                    event[3] = True
-                    log("key t=%.1f key=%s hold=%.2f ok=%s" % (elapsed, event[1], event[2], ok))
 
             for event in monitor_key_events:
                 if not event[3] and elapsed >= event[0]:

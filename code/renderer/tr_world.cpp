@@ -323,6 +323,10 @@ void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount )
 #else
 static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse ) {
 #endif
+#ifdef _XBOX
+	static int s_xboxWorldAddLogBudget = 64;
+	static int s_xboxWorldCullLogBudget = 32;
+#endif
 	/*
 	if ( surf->viewCount == tr.viewCount ) {
 		return;		// already in this view
@@ -361,42 +365,35 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	// try to cull before dlighting or adding
 	if ( R_CullSurface( surf->data, surf->shader ) ) {
 #ifdef _XBOX
+		if (s_xboxWorldCullLogBudget > 0)
 		{
-			static int s_xboxWorldCullLogBudget = 0;
-			if (s_xboxWorldCullLogBudget > 0 &&
-				(surf->shader && (surf->shader->sky || surf->shader->sort == SS_PORTAL)))
-			{
-				XBLF("JA: R_AddWorldSurface culled special shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x",
-					surf->shader ? surf->shader->name : "<null>",
-					(int)(surf->shader && surf->shader->sky != NULL),
-					surf->shader ? (double)surf->shader->sort : -1.0,
-					surf->data ? (int)*surf->data : -1,
-					surf->fogIndex,
-					dlightBits);
-				--s_xboxWorldCullLogBudget;
-			}
+			XBLF("JA: R_AddWorldSurface culled shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x",
+				surf->shader ? surf->shader->name : "<null>",
+				(int)(surf->shader && surf->shader->sky != NULL),
+				surf->shader ? (double)surf->shader->sort : -1.0,
+				surf->data ? (int)*surf->data : -1,
+				surf->fogIndex,
+				dlightBits);
+			--s_xboxWorldCullLogBudget;
 		}
 #endif
 		return;
 	}
 
 #ifdef _XBOX
+	if (s_xboxWorldAddLogBudget > 0)
 	{
-		static int s_xboxWorldAddLogBudget = 0;
-		if (s_xboxWorldAddLogBudget > 0 &&
-			(surf->shader && (surf->shader->sky || surf->shader->sort == SS_PORTAL)))
-		{
-			XBLF("JA: R_AddWorldSurface add special shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d",
-				surf->shader ? surf->shader->name : "<null>",
-				(int)(surf->shader && surf->shader->sky != NULL),
-				surf->shader ? (double)surf->shader->sort : -1.0,
-				surf->data ? (int)*surf->data : -1,
-				surf->fogIndex,
-				dlightBits,
-				(int)noViewCount,
-				surf->viewCount);
-			--s_xboxWorldAddLogBudget;
-		}
+		XBLF("JA: R_AddWorldSurface add shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d drawBefore=%d",
+			surf->shader ? surf->shader->name : "<null>",
+			(int)(surf->shader && surf->shader->sky != NULL),
+			surf->shader ? (double)surf->shader->sort : -1.0,
+			surf->data ? (int)*surf->data : -1,
+			surf->fogIndex,
+			dlightBits,
+			(int)noViewCount,
+			surf->viewCount,
+			tr.refdef.numDrawSurfs);
+		--s_xboxWorldAddLogBudget;
 	}
 #endif
 
@@ -971,6 +968,9 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	int		areaRejected = 0;
 	int		markedLeaves = 0;
 	int		negativeCluster = 0;
+	int		leafIndex = -1;
+	static int s_xboxMarkLeavesLogBudget = 48;
+	static int s_xboxMarkLeavesSameLogBudget = 16;
 #endif
 
 	// lockpvs lets designers walk around to determine the
@@ -986,6 +986,25 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 		leaf = leafOverride;
 	}
 	cluster = leaf->cluster;
+#ifdef _XBOX
+	if (tr.world && tr.world->leafs && leaf >= tr.world->leafs && leaf < tr.world->leafs + tr.world->numleafs) {
+		leafIndex = (int)(leaf - tr.world->leafs);
+	}
+	if (s_xboxMarkLeavesLogBudget > 0) {
+		XBLF("JA: R_MarkLeaves enter leaf=%d cluster=%d area=%d marks=%d firstMark=%d prevCluster=%d visCount=%d areaModified=%d pvsOrigin=(%g,%g,%g)",
+			leafIndex,
+			cluster,
+			leaf ? leaf->area : -99,
+			leaf ? leaf->nummarksurfaces : -1,
+			leaf ? leaf->firstMarkSurfNum : -1,
+			tr.viewCluster,
+			tr.visCount,
+			tr.refdef.areamaskModified,
+			tr.viewParms.pvsOrigin[0],
+			tr.viewParms.pvsOrigin[1],
+			tr.viewParms.pvsOrigin[2]);
+	}
+#endif
 
 	assert(leaf->contents != -1);
 
@@ -994,16 +1013,15 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 
 	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
 #ifdef _XBOX
+		if (s_xboxMarkLeavesSameLogBudget > 0)
 		{
-			static int s_xboxMarkLeavesSameLogBudget = 0;
-			if (s_xboxMarkLeavesSameLogBudget > 0)
-			{
-				XBLF("JA: R_MarkLeaves same cluster=%d visCount=%d areaModified=%d",
-					cluster,
-					tr.visCount,
-					tr.refdef.areamaskModified);
-				--s_xboxMarkLeavesSameLogBudget;
-			}
+			XBLF("JA: R_MarkLeaves same cluster=%d visCount=%d areaModified=%d rootVis=%d leafVis=%d",
+				cluster,
+				tr.visCount,
+				tr.refdef.areamaskModified,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				leaf ? leaf->visframe : -1);
+			--s_xboxMarkLeavesSameLogBudget;
 		}
 #endif
 		return;
@@ -1018,6 +1036,23 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				tr.world->nodes[i].visframe = tr.visCount;
 			}
 		}
+#ifdef _XBOX
+		for (i=0 ; i<tr.world->numleafs ; i++) {
+			if (tr.world->leafs[i].contents != CONTENTS_SOLID) {
+				tr.world->leafs[i].visframe = tr.visCount;
+			}
+		}
+		if (s_xboxMarkLeavesLogBudget > 0) {
+			XBLF("JA: R_MarkLeaves all-visible cluster=%d visCount=%d nodes=%d leafs=%d rootVis=%d leafVis=%d",
+				tr.viewCluster,
+				tr.visCount,
+				tr.world ? tr.world->numnodes : -1,
+				tr.world ? tr.world->numleafs : -1,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				leaf ? leaf->visframe : -1);
+			--s_xboxMarkLeavesLogBudget;
+		}
+#endif
 		return;
 	}
 
@@ -1064,10 +1099,10 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	}
 #ifdef _XBOX
 	{
-		static int s_xboxMarkLeavesLogBudget = 0;
-		if (s_xboxMarkLeavesLogBudget > 0)
+		static int s_stefxPvsSummaryBudget = 16;
+		if (s_stefxPvsSummaryBudget > 0)
 		{
-			XBLF("JA: R_MarkLeaves cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d",
+			XBLF("STEFX: PVS cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d rootVis=%d pvsOrigin=(%g,%g,%g)",
 				tr.viewCluster,
 				tr.visCount,
 				tr.world ? tr.world->numleafs : -1,
@@ -1075,7 +1110,26 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				pvsRejected,
 				areaRejected,
 				negativeCluster,
-				tr.refdef.areamaskModified);
+				tr.refdef.areamaskModified,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				tr.viewParms.pvsOrigin[0],
+				tr.viewParms.pvsOrigin[1],
+				tr.viewParms.pvsOrigin[2]);
+			--s_stefxPvsSummaryBudget;
+		}
+		if (s_xboxMarkLeavesLogBudget > 0)
+		{
+			XBLF("JA: R_MarkLeaves cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d rootVis=%d leafVis=%d",
+				tr.viewCluster,
+				tr.visCount,
+				tr.world ? tr.world->numleafs : -1,
+				markedLeaves,
+				pvsRejected,
+				areaRejected,
+				negativeCluster,
+				tr.refdef.areamaskModified,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				leafOverride ? leafOverride->visframe : -1);
 			--s_xboxMarkLeavesLogBudget;
 		}
 	}
@@ -1164,11 +1218,26 @@ R_AddWorldSurfaces
 */
 #ifdef _XBOX
 void R_AddWorldSurfaces (void) {
+#ifdef _XBOX
+	static int s_xboxAddWorldLogBudget = 48;
+#endif
 	if ( !r_drawworld->integer ) {
+#ifdef _XBOX
+		if (s_xboxAddWorldLogBudget > 0) {
+			XBLF("JA: R_AddWorldSurfaces skip r_drawworld=0 draw=%d", tr.refdef.numDrawSurfs);
+			--s_xboxAddWorldLogBudget;
+		}
+#endif
 		return;
 	}
 
 	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
+#ifdef _XBOX
+		if (s_xboxAddWorldLogBudget > 0) {
+			XBLF("JA: R_AddWorldSurfaces skip RDF_NOWORLDMODEL rd=0x%x draw=%d", tr.refdef.rdflags, tr.refdef.numDrawSurfs);
+			--s_xboxAddWorldLogBudget;
+		}
+#endif
 		return;
 	}
 
@@ -1183,37 +1252,60 @@ void R_AddWorldSurfaces (void) {
 		VVLightMan.num_dlights = MAX_DLIGHTS ;
 	}
 
+	const int xboxLeafsBefore = tr.pc.c_leafs;
+	const int xboxDrawBefore = tr.refdef.numDrawSurfs;
+
 #ifdef _XBOX
+	if (s_xboxAddWorldLogBudget > 0)
 	{
-		static int s_xboxAddWorldLogBudget = 0;
-		if (s_xboxAddWorldLogBudget > 0)
-		{
-			XBLF("JA: R_AddWorldSurfaces before recursive visCount=%d viewCluster=%d dlights=%d rdflags=0x%x",
-				tr.visCount,
-				tr.viewCluster,
-				VVLightMan.num_dlights,
-				tr.refdef.rdflags);
-			--s_xboxAddWorldLogBudget;
-		}
+		XBLF("JA: R_AddWorldSurfaces before recursive draw=%d visCount=%d viewCluster=%d rootVis=%d dlights=%d rdflags=0x%x nodes=%d leafs=%d marks=%d",
+			tr.refdef.numDrawSurfs,
+			tr.visCount,
+			tr.viewCluster,
+			(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+			VVLightMan.num_dlights,
+			tr.refdef.rdflags,
+			tr.world ? tr.world->numnodes : -1,
+			tr.world ? tr.world->numleafs : -1,
+			tr.world ? tr.world->nummarksurfaces : -1);
 	}
 #endif
 	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
 #ifdef _XBOX
 	{
-		static int s_xboxAddWorldLogBudget = 0;
-		if (s_xboxAddWorldLogBudget > 0)
+		static int s_stefxWorldVisBudget = 24;
+		if (s_stefxWorldVisBudget > 0)
 		{
-			XBLF("JA: R_AddWorldSurfaces after recursive leafs=%d drawSurfs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
-				tr.pc.c_leafs,
+			XBLF("STEFX: worldvis cluster=%d leafDelta=%d drawDelta=%d totalDraw=%d visCount=%d rootVis=%d r_novis=%d r_nocull=%d bounds=(%g,%g,%g)-(%g,%g,%g)",
+				tr.viewCluster,
+				tr.pc.c_leafs - xboxLeafsBefore,
+				tr.refdef.numDrawSurfs - xboxDrawBefore,
 				tr.refdef.numDrawSurfs,
+				tr.visCount,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				r_novis ? r_novis->integer : -1,
+				r_nocull ? r_nocull->integer : -1,
 				tr.viewParms.visBounds[0][0],
 				tr.viewParms.visBounds[0][1],
 				tr.viewParms.visBounds[0][2],
 				tr.viewParms.visBounds[1][0],
 				tr.viewParms.visBounds[1][1],
 				tr.viewParms.visBounds[1][2]);
-			--s_xboxAddWorldLogBudget;
+			--s_stefxWorldVisBudget;
 		}
+	}
+	if (s_xboxAddWorldLogBudget > 0)
+	{
+		XBLF("JA: R_AddWorldSurfaces after recursive leafs=%d drawSurfs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
+			tr.pc.c_leafs,
+			tr.refdef.numDrawSurfs,
+			tr.viewParms.visBounds[0][0],
+			tr.viewParms.visBounds[0][1],
+			tr.viewParms.visBounds[0][2],
+			tr.viewParms.visBounds[1][0],
+			tr.viewParms.visBounds[1][1],
+			tr.viewParms.visBounds[1][2]);
+		--s_xboxAddWorldLogBudget;
 	}
 #endif
 }

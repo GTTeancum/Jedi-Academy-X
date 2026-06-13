@@ -6,6 +6,89 @@
 #include "../../code/win32/xb_log.h"
 #endif
 
+#ifdef _XBOX
+#define STEFX_NAV_MEM_HANDLE ((fileHandle_t)0x4e41564d)
+
+static byte	*s_stefxNavData = NULL;
+static int	s_stefxNavLen = 0;
+static int	s_stefxNavPos = 0;
+
+static void STEFX_NavClose( fileHandle_t file )
+{
+	if ( file == STEFX_NAV_MEM_HANDLE )
+	{
+		if ( s_stefxNavData )
+		{
+			gi.FS_FreeFile( s_stefxNavData );
+		}
+
+		s_stefxNavData = NULL;
+		s_stefxNavLen = 0;
+		s_stefxNavPos = 0;
+		return;
+	}
+
+	gi.FS_FCloseFile( file );
+}
+
+static qboolean STEFX_NavOpenMemoryFile( const char *path, fileHandle_t *file )
+{
+	void	*buffer = NULL;
+	int		len;
+
+	len = gi.FS_ReadFile( path, &buffer );
+	if ( len <= 0 || !buffer )
+	{
+		if ( buffer )
+		{
+			gi.FS_FreeFile( buffer );
+		}
+		XBLF("STEFX: Navigator memory fallback miss '%s' len=%d", path ? path : "(null)", len);
+		return qfalse;
+	}
+
+	STEFX_NavClose( STEFX_NAV_MEM_HANDLE );
+	s_stefxNavData = (byte *)buffer;
+	s_stefxNavLen = len;
+	s_stefxNavPos = 0;
+	*file = STEFX_NAV_MEM_HANDLE;
+	XBLF("STEFX: Navigator memory fallback open '%s' len=%d", path ? path : "(null)", len);
+	return qtrue;
+}
+
+static int STEFX_NavRead( void *buffer, int len, fileHandle_t file )
+{
+	if ( file != STEFX_NAV_MEM_HANDLE )
+	{
+		return gi.FS_Read( buffer, len, file );
+	}
+
+	if ( len < 0 || !s_stefxNavData || s_stefxNavPos + len > s_stefxNavLen )
+	{
+		if ( buffer && len > 0 )
+		{
+			memset( buffer, 0, len );
+		}
+		XBLF("STEFX: Navigator memory fallback short read pos=%d len=%d total=%d", s_stefxNavPos, len, s_stefxNavLen);
+		return 0;
+	}
+
+	memcpy( buffer, s_stefxNavData + s_stefxNavPos, len );
+	s_stefxNavPos += len;
+	return len;
+}
+#else
+static int STEFX_NavRead( void *buffer, int len, fileHandle_t file )
+{
+	return gi.FS_Read( buffer, len, file );
+}
+
+static void STEFX_NavClose( fileHandle_t file )
+{
+	gi.FS_FCloseFile( file );
+}
+#endif
+
 /*
 -------------------------
 CEdge
@@ -286,7 +369,7 @@ Load
 int CNode::Load( int numNodes, fileHandle_t file )
 {
 	unsigned long header;
-	gi.FS_Read( &header, sizeof(header), file );
+	STEFX_NavRead( &header, sizeof(header), file );
 
 	//Validate the header
 	if ( header != NODE_HEADER_ID )
@@ -294,20 +377,20 @@ int CNode::Load( int numNodes, fileHandle_t file )
 
 	//Get the basic information
 	for ( int i = 0; i < 3; i++ )
-		gi.FS_Read( &m_position[i], sizeof( float ), file );
+		STEFX_NavRead( &m_position[i], sizeof( float ), file );
 
-	gi.FS_Read( &m_flags, sizeof( m_flags ), file );
-	gi.FS_Read( &m_ID, sizeof( m_ID ), file );
-	gi.FS_Read( &m_radius, sizeof( m_radius ), file );
+	STEFX_NavRead( &m_flags, sizeof( m_flags ), file );
+	STEFX_NavRead( &m_ID, sizeof( m_ID ), file );
+	STEFX_NavRead( &m_radius, sizeof( m_radius ), file );
 
 	//Get the edge information
-	gi.FS_Read( &m_numEdges, sizeof( m_numEdges ), file );
+	STEFX_NavRead( &m_numEdges, sizeof( m_numEdges ), file );
 
 	for ( i = 0; i < m_numEdges; i++ )
 	{
 		edge_t	edge;
 
-		gi.FS_Read( &edge, sizeof( edge_t ), file );
+		STEFX_NavRead( &edge, sizeof( edge_t ), file );
 
 		STL_INSERT( m_edges, edge );
 	}
@@ -315,14 +398,14 @@ int CNode::Load( int numNodes, fileHandle_t file )
 	//Read the node ranks
 	int	numRanks;
 
-	gi.FS_Read( &numRanks, sizeof( numRanks ), file );
+	STEFX_NavRead( &numRanks, sizeof( numRanks ), file );
 
 	//Allocate the memory
 	InitRanks( numRanks );
 
 	for ( i = 0; i < numRanks; i++ )
 	{
-		gi.FS_Read( &m_ranks[i], sizeof( int ), file );
+		STEFX_NavRead( &m_ranks[i], sizeof( int ), file );
 	}
 
 	return true;
@@ -352,7 +435,7 @@ char CNavigator::GetChar( fileHandle_t file )
 {
 	char value;
 
-	gi.FS_Read( &value, sizeof( value ), file );
+	STEFX_NavRead( &value, sizeof( value ), file );
 
 	return value;
 }
@@ -367,7 +450,7 @@ int	CNavigator::GetInt( fileHandle_t file )
 {
 	int value;
 
-	gi.FS_Read( &value, sizeof( value ), file );
+	STEFX_NavRead( &value, sizeof( value ), file );
 
 	return value;
 }
@@ -382,7 +465,7 @@ float CNavigator::GetFloat( fileHandle_t file )
 {
 	float value;
 
-	gi.FS_Read( &value, sizeof( value ), file );
+	STEFX_NavRead( &value, sizeof( value ), file );
 
 	return value;
 }
@@ -397,7 +480,7 @@ long CNavigator::GetLong( fileHandle_t file )
 {
 	long value;
 
-	gi.FS_Read( &value, sizeof( value ), file );
+	STEFX_NavRead( &value, sizeof( value ), file );
 
 	return value;
 }
@@ -438,9 +521,12 @@ Load
 bool CNavigator::Load( const char *filename, int checksum )
 {
 	fileHandle_t	file;
+	char			navPath[MAX_QPATH];
+
+	Com_sprintf( navPath, sizeof( navPath ), "maps/%s.nav", filename );
 
 	//Attempt to load the file
-	gi.FS_FOpenFile( va( "maps/%s.nav", filename ), &file, FS_READ );
+	gi.FS_FOpenFile( navPath, &file, FS_READ );
 #ifdef _XBOX
 	XBLF("STEFX: Navigator Load '%s' expected checksum=0x%08x file=%p", filename ? filename : "(null)", checksum, file);
 #endif
@@ -449,9 +535,17 @@ bool CNavigator::Load( const char *filename, int checksum )
 	if ( file == NULL )
 	{
 #ifdef _XBOX
+		if ( !STEFX_NavOpenMemoryFile( navPath, &file ) )
+		{
+			XBLF("STEFX: Navigator Load '%s' missing", filename ? filename : "(null)");
+			return false;
+		}
+#else
+#ifdef _XBOX
 		XBLF("STEFX: Navigator Load '%s' missing", filename ? filename : "(null)");
 #endif
 		return false;
+#endif
 	}
 
 	//Check the header id
@@ -462,7 +556,7 @@ bool CNavigator::Load( const char *filename, int checksum )
 #ifdef _XBOX
 		XBLF("STEFX: Navigator Load '%s' bad header=0x%08x", filename ? filename : "(null)", navID);
 #endif
-		gi.FS_FCloseFile( file );
+		STEFX_NavClose( file );
 		return false;
 	}
 
@@ -474,7 +568,7 @@ bool CNavigator::Load( const char *filename, int checksum )
 #ifdef _XBOX
 		XBLF("STEFX: Navigator Load '%s' checksum mismatch file=0x%08x expected=0x%08x", filename ? filename : "(null)", check, checksum);
 #endif
-		gi.FS_FCloseFile( file );
+		STEFX_NavClose( file );
 		return false;
 	}
 
@@ -492,14 +586,14 @@ bool CNavigator::Load( const char *filename, int checksum )
 #ifdef _XBOX
 			XBLF("STEFX: Navigator Load '%s' failed at node=%d/%d", filename ? filename : "(null)", i, numNodes);
 #endif
-			gi.FS_FCloseFile( file );
+			STEFX_NavClose( file );
 			return false;
 		}
 
 		STL_INSERT( m_nodes, node );
 	}
 
-	gi.FS_FCloseFile( file );
+	STEFX_NavClose( file );
 #ifdef _XBOX
 	XBLF("STEFX: Navigator Load '%s' complete nodes=%d", filename ? filename : "(null)", numNodes);
 #endif

@@ -349,17 +349,41 @@ void R_LoadRawLightmaps( void *data, int len, const char *psMapName ) {
 		int minLum = 255;
 		int maxLum = 0;
 		int sumLum = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		float lightmapBoost = Cvar_VariableValue("r_stefxLightmapBoost");
+		if (lightmapBoost < 1.0f)
+		{
+			lightmapBoost = 1.0f;
+		}
+		if (lightmapBoost > 4.0f)
+		{
+			lightmapBoost = 4.0f;
+		}
+#endif
 
 		for (j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++j) {
 			byte src[4];
+			byte *dst;
 			int lum;
 			src[0] = buf_p[j * 3 + 0];
 			src[1] = buf_p[j * 3 + 1];
 			src[2] = buf_p[j * 3 + 2];
 			src[3] = 255;
-			R_ColorShiftLightingBytes(src, &image[j * 4]);
+			dst = &image[j * 4];
+			R_ColorShiftLightingBytes(src, dst);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (lightmapBoost > 1.0f)
+			{
+				int r = (int)(dst[0] * lightmapBoost + 0.5f);
+				int g = (int)(dst[1] * lightmapBoost + 0.5f);
+				int b = (int)(dst[2] * lightmapBoost + 0.5f);
+				dst[0] = (byte)(r > 255 ? 255 : r);
+				dst[1] = (byte)(g > 255 ? 255 : g);
+				dst[2] = (byte)(b > 255 ? 255 : b);
+			}
+#endif
 
-			lum = (src[0] * 30 + src[1] * 59 + src[2] * 11) / 100;
+			lum = (dst[0] * 30 + dst[1] * 59 + dst[2] * 11) / 100;
 			if (lum < minLum)
 				minLum = lum;
 			if (lum > maxLum)
@@ -368,8 +392,14 @@ void R_LoadRawLightmaps( void *data, int len, const char *psMapName ) {
 		}
 
 		if (i < 16) {
-			XBLF("EF: RAW_LIGHTMAP_STATS index=%d min=%d max=%d avg=%d",
-				i, minLum, maxLum, sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
+			XBLF("EF: RAW_LIGHTMAP_STATS index=%d min=%d max=%d avg=%d boost=%g",
+				i, minLum, maxLum, sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE),
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				lightmapBoost
+#else
+				1.0f
+#endif
+				);
 		}
 
 		tr.lightmaps[i] = R_CreateImage(va("*%s/lightmap%d", sMapName, i), image,
@@ -1103,8 +1133,12 @@ void R_LoadPatches( void *verts, int vertlen,
 	if (surfacelen == 0) {
 		return;
 	}
-
+	
 	count = surfacelen / sizeof(*in);
+#ifdef _XBOX
+	XBLF("JA: R_LoadPatches begin patches=%d surfaceLen=%d vertLen=%d",
+		count, surfacelen, vertlen);
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
@@ -1156,6 +1190,10 @@ void R_LoadTriSurfs( void *indexdata, int indexlen,
 	}
 	
 	count = surfacelen / sizeof(*in);
+#ifdef _XBOX
+	XBLF("JA: R_LoadTriSurfs begin trisurfs=%d surfaceLen=%d indexLen=%d vertLen=%d",
+		count, surfacelen, indexlen, vertlen);
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
@@ -1207,6 +1245,10 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	}
 	
 	count = surfacelen / sizeof(*in);
+#ifdef _XBOX
+	XBLF("JA: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
+		count, surfacelen, indexlen, vertlen);
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
@@ -1287,6 +1329,22 @@ void R_LoadFaces( void *indexdata, int indexlen,
 		for(int j=0; j<4; j++) {
 			lightmapNum[j] = (int)in->lightmapNum[j] - 4;
 		}
+#ifdef _XBOX
+		if ((i % 128) == 0 || i + 1 == count) {
+			const char *shaderName = "<bad>";
+			if (in->shaderNum >= 0 && in->shaderNum < s_worldData.numShaders) {
+				shaderName = s_worldData.shaders[in->shaderNum].shader;
+			}
+			XBLF("JA: R_LoadFaces prepass face=%d/%d shaderNum=%d shader='%s' verts=%d indexes=%d lm0=%d",
+				i + 1,
+				count,
+				in->shaderNum,
+				shaderName,
+				in->verts & 0xFFF,
+				in->indexes & 0xFFF,
+				lightmapNum[0]);
+		}
+#endif
 		shader_t *shader = ShaderForShaderNum( in->shaderNum, lightmapNum, in->lightmapStyles );
 		bool needVertexColors = NeedVertexColors(shader); 
 		int numLightMaps = NumLightMaps(shader);
@@ -1321,6 +1379,7 @@ void R_LoadFaces( void *indexdata, int indexlen,
 		localIndexOutOfRange,
 		iFaceDataSizeRequired,
 		faceDataOverShort);
+	XBLF("JA: R_LoadFaces alloc faceDataBytes=%d", iFaceDataSizeRequired);
 #endif
 	in -= count;	// back it up, ready for loop-proper
 
@@ -1337,6 +1396,14 @@ void R_LoadFaces( void *indexdata, int indexlen,
 		in = (dface_t *)surfaces + i;
 		out = s_worldData.surfaces + in->code;
 		ParseFace( in, dv, out, indexes, pFaceDataBuffer );
+#ifdef _XBOX
+		if (((i + 1) % 128) == 0 || i + 1 == count) {
+			XBLF("JA: R_LoadFaces parsed %d/%d faceDataUsed=%d",
+				i + 1,
+				count,
+				(int)(pFaceDataBuffer - orgFaceData));
+		}
+#endif
 		if (--nToGo <= 0)
 		{
 			nToGo = nTimes;
@@ -1915,6 +1982,106 @@ void R_LoadEntities( void *data, int len ) {
 	VectorScale( tr.sunAmbient, ambient, tr.sunAmbient);
 }
 
+#ifdef STEFX_ELITE_FORCE_SP
+void R_EFBeginRawWorldMapLoad(const char *name)
+{
+	tr.worldMapLoaded = qfalse;
+	tr.world = NULL;
+	memset(&s_worldData, 0, sizeof(s_worldData));
+
+	if (name && name[0])
+	{
+		Q_strncpyz(s_worldData.name, name, sizeof(s_worldData.name));
+		Q_strncpyz(s_worldData.baseName, COM_SkipPath(s_worldData.name), sizeof(s_worldData.baseName));
+		COM_StripExtension(s_worldData.baseName, s_worldData.baseName);
+	}
+}
+
+qboolean R_EFLoadRawWorldDataFromBSP(const char *name, const efbspFile_t *efbsp)
+{
+	int shaderCount;
+	void *brushes;
+	void *brushsides;
+	void *nodes;
+	void *leafs;
+	void *models;
+	void *lightgrid;
+	void *lightarray;
+	int brushesLen, brushsidesLen, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen;
+
+	if (!name || !name[0] || !efbsp || !efbsp->data)
+	{
+		return qfalse;
+	}
+
+	EFBSP_Validate(efbsp, name);
+	shaderCount = EFBSP_ShaderCount(efbsp);
+
+	if (!s_worldData.name[0])
+	{
+		Q_strncpyz(s_worldData.name, name, sizeof(s_worldData.name));
+		Q_strncpyz(s_worldData.baseName, COM_SkipPath(s_worldData.name), sizeof(s_worldData.baseName));
+		COM_StripExtension(s_worldData.baseName, s_worldData.baseName);
+	}
+
+	XBLF("EF: R_EFLoadRawWorldData map='%s' bytes=%d shaders=%d surfaces=%d renderSurfaces=%d expectedLightgrid=%d",
+		name,
+		efbsp->len,
+		shaderCount,
+		EFBSP_SurfaceCount(efbsp),
+		s_worldData.numsurfaces,
+		EFBSP_ExpectedLightGridElements(efbsp));
+
+	R_LoadPlanes();
+
+	brushes = EFBSP_ConvertBrushes(efbsp, shaderCount, &brushesLen);
+	brushsides = EFBSP_ConvertBrushSides(efbsp, shaderCount, &brushsidesLen);
+	R_LoadFogs(EFBSP_LumpData(efbsp, EF_LUMP_FOGS), EFBSP_LumpLen(efbsp, EF_LUMP_FOGS),
+		brushes, brushesLen, brushsides, brushsidesLen);
+	EFBSP_FreeTemp(brushsides);
+	EFBSP_FreeTemp(brushes);
+
+	R_LoadMarksurfaces(EFBSP_LumpData(efbsp, EF_LUMP_LEAFSURFACES), EFBSP_LumpLen(efbsp, EF_LUMP_LEAFSURFACES));
+
+	nodes = EFBSP_ConvertNodes(efbsp, &nodesLen);
+	leafs = EFBSP_ConvertLeafs(efbsp, &leafsLen);
+	R_LoadNodesAndLeafs(nodes, nodesLen, leafs, leafsLen);
+	EFBSP_FreeTemp(leafs);
+	EFBSP_FreeTemp(nodes);
+
+	models = EFBSP_ConvertModels(efbsp, &modelsLen);
+	R_LoadSubmodels(models, modelsLen);
+	EFBSP_FreeTemp(models);
+
+	R_LoadVisibility();
+	R_LoadEntities(EFBSP_LumpData(efbsp, EF_LUMP_ENTITIES), EFBSP_LumpLen(efbsp, EF_LUMP_ENTITIES));
+
+	lightgrid = EFBSP_ConvertLightGrid(efbsp, &lightgridLen);
+	R_LoadLightGrid(lightgrid, lightgridLen);
+	EFBSP_FreeTemp(lightgrid);
+
+	lightarray = EFBSP_ConvertLightArray(efbsp, &lightarrayLen);
+	R_LoadLightGridArray(lightarray, lightarrayLen);
+	EFBSP_FreeTemp(lightarray);
+
+	tr.world = &s_worldData;
+	tr.worldMapLoaded = qtrue;
+	XBLF("EF: R_EFLoadRawWorldData complete map='%s' nodes=%d leafs=%d marks=%d surfaces=%d models=%d lightgridLen=%d lightarrayLen=%d",
+		s_worldData.name,
+		s_worldData.numnodes,
+		s_worldData.numleafs,
+		s_worldData.nummarksurfaces,
+		s_worldData.numsurfaces,
+		cmg.numSubModels,
+		lightgridLen,
+		lightarrayLen);
+
+	R_LoadLevelLightParms();
+	R_GetLightParmsForLevel();
+	return qtrue;
+}
+#endif
+
 
 /*
 =================
@@ -1995,66 +2162,7 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 		efbspFile_t efbsp;
 		if (EFBSP_LoadFile(name, &efbsp))
 		{
-			int shaderCount;
-			void *brushes;
-			void *brushsides;
-			void *nodes;
-			void *leafs;
-			void *models;
-			void *lightgrid;
-			void *lightarray;
-			int brushesLen, brushsidesLen, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen;
-
-			EFBSP_Validate(&efbsp, name);
-			shaderCount = EFBSP_ShaderCount(&efbsp);
-			XBLF("EF: RE_LoadWorldMap raw BSP '%s' bytes=%d shaders=%d surfaces=%d expectedLightgrid=%d",
-				name,
-				efbsp.len,
-				shaderCount,
-				EFBSP_SurfaceCount(&efbsp),
-				EFBSP_ExpectedLightGridElements(&efbsp));
-
-			R_LoadPlanes();
-
-			brushes = EFBSP_ConvertBrushes(&efbsp, shaderCount, &brushesLen);
-			brushsides = EFBSP_ConvertBrushSides(&efbsp, shaderCount, &brushsidesLen);
-			R_LoadFogs(EFBSP_LumpData(&efbsp, EF_LUMP_FOGS), EFBSP_LumpLen(&efbsp, EF_LUMP_FOGS),
-				brushes, brushesLen, brushsides, brushsidesLen);
-			EFBSP_FreeTemp(brushsides);
-			EFBSP_FreeTemp(brushes);
-			XBLF("EF: RE_LoadWorldMap raw fogs loaded fogLen=%d brushesLen=%d brushsidesLen=%d",
-				EFBSP_LumpLen(&efbsp, EF_LUMP_FOGS), brushesLen, brushsidesLen);
-
-			R_LoadMarksurfaces(EFBSP_LumpData(&efbsp, EF_LUMP_LEAFSURFACES), EFBSP_LumpLen(&efbsp, EF_LUMP_LEAFSURFACES));
-
-			nodes = EFBSP_ConvertNodes(&efbsp, &nodesLen);
-			leafs = EFBSP_ConvertLeafs(&efbsp, &leafsLen);
-			R_LoadNodesAndLeafs(nodes, nodesLen, leafs, leafsLen);
-			EFBSP_FreeTemp(leafs);
-			EFBSP_FreeTemp(nodes);
-
-			models = EFBSP_ConvertModels(&efbsp, &modelsLen);
-			R_LoadSubmodels(models, modelsLen);
-			EFBSP_FreeTemp(models);
-
-			R_LoadVisibility();
-
-			R_LoadEntities(EFBSP_LumpData(&efbsp, EF_LUMP_ENTITIES), EFBSP_LumpLen(&efbsp, EF_LUMP_ENTITIES));
-
-			lightgrid = EFBSP_ConvertLightGrid(&efbsp, &lightgridLen);
-			R_LoadLightGrid(lightgrid, lightgridLen);
-			EFBSP_FreeTemp(lightgrid);
-
-			lightarray = EFBSP_ConvertLightArray(&efbsp, &lightarrayLen);
-			R_LoadLightGridArray(lightarray, lightarrayLen);
-			EFBSP_FreeTemp(lightarray);
-
-			tr.world = &s_worldData;
-			XBLF("EF: RE_LoadWorldMap raw BSP complete marksurfaces=%d nodesLen=%d leafsLen=%d modelsLen=%d lightgridLen=%d lightarrayLen=%d",
-				s_worldData.nummarksurfaces, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen);
-
-			R_LoadLevelLightParms();
-			R_GetLightParmsForLevel();
+			R_EFLoadRawWorldDataFromBSP(name, &efbsp);
 			EFBSP_FreeFile(&efbsp);
 			return;
 		}

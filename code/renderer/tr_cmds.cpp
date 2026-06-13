@@ -579,10 +579,11 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #ifdef _XBOX
 	static int s_xboxEndFrameCount = 0;
 	static int s_xboxActiveEndFrameCount = 0;
-	const int xboxTraceEndFrameTight = (cls.state == CA_ACTIVE && s_xboxActiveEndFrameCount >= 32 && s_xboxActiveEndFrameCount <= 96);
+	const int stefxLateEndFrame = 0;
+	const int xboxTraceEndFrameTight = stefxLateEndFrame || (cls.state == CA_ACTIVE && s_xboxActiveEndFrameCount >= 32 && s_xboxActiveEndFrameCount <= 96);
 	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
 		? (s_xboxActiveEndFrameCount < 16 || ((s_xboxActiveEndFrameCount & 255) == 0))
-		: (s_xboxEndFrameCount < 4);
+		: (s_xboxEndFrameCount < 32);
 	if (xboxTraceEndFrame)
 	{
 		XBLF("JA: RE_EndFrame #%d active=%d enter registered=%d",
@@ -602,17 +603,20 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 
 #ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame tight #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glBeginFrame");
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glBeginFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame...");
 	if (!glBeginFrame()) return;
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glBeginFrame");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after glBeginFrame cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glBeginFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame done");
 #endif
 
 	#ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_IssueRenderCommands");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d before R_IssueRenderCommands cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame before R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands...");
 #endif
@@ -620,6 +624,7 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #ifdef _XBOX
 	Sleep(0);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_IssueRenderCommands");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after R_IssueRenderCommands cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame after R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands done");
 #endif
@@ -640,11 +645,13 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after RE_ProcessDissolve");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve done");
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d before glEndFrame", s_xboxActiveEndFrameCount);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glEndFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame...");
 	glEndFrame();
 	Sleep(0);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glEndFrame");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after glEndFrame", s_xboxActiveEndFrameCount);
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glEndFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame done");
 #endif

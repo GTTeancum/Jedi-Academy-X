@@ -1,8 +1,8 @@
 param(
-    [string]$Repo = "C:\Programming\GitHub\Jedi-Academy-X",
+    [string]$Repo = "C:\Programming\GitHub\Star-Trek-Elite-Force-X",
     [string]$Cxbx = "C:\Programming\GitHub\Jedi-Academy-X\CXBXR",
-    [string]$Game = "C:\Games\Emulators\CXBX\Jedi Academy rebuild",
-    [string]$Junction = "C:\Games\Emulators\CXBX\Jedi Academy rebuild",
+    [string]$Game = "C:\Programming\GitHub\Star-Trek-Elite-Force-X\build\release",
+    [string]$Junction = "C:\Programming\GitHub\Star-Trek-Elite-Force-X\build\release",
     [string]$LoaderName = "cxbxr-ldr-project2.exe",
     [string]$Level = "",
     [string[]]$StartupCommand = @(),
@@ -13,27 +13,18 @@ param(
     [int]$MaxAttempts = 2,
     [int]$StallRetryDelaySeconds = 180,
     [int]$EarlyLogRetryBytes = 50000,
+    [string]$ScreenshotPath = "",
+    [int]$ScreenshotAfterActiveSeconds = 4,
+    [int]$ScreenshotAfterServerTime = 72000,
+    [int]$ScreenshotCount = 3,
+    [int]$ScreenshotRandomWindowSeconds = 24,
+    [switch]$RequireVerticalSlice,
+    [switch]$NoSmokeInput,
     [switch]$AllowNoActive,
     [switch]$NoCopy
 )
 
 $ErrorActionPreference = "Stop"
-
-function Get-CxbxProjectProcesses {
-    Get-CimInstance Win32_Process |
-        Where-Object {
-            $_.Name -in @("cxbx-project2.exe", "cxbxr-ldr-project2.exe")
-        }
-}
-
-function Stop-CxbxProjectProcesses {
-    Get-CxbxProjectProcesses | ForEach-Object {
-        try {
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-        } catch {
-        }
-    }
-}
 
 function Get-StatusFromOutput([string[]]$Output) {
     return Get-ValueFromOutput $Output "status"
@@ -90,9 +81,22 @@ while ($attempt -le $MaxAttempts) {
         "-WatchdogSeconds", $WatchdogSeconds,
         "-ActiveSeconds", $ActiveSeconds,
         "-InitialQuietGraceSeconds", $InitialQuietGraceSeconds,
-        "-QuietGraceSeconds", $QuietGraceSeconds
+        "-QuietGraceSeconds", $QuietGraceSeconds,
+        "-ScreenshotAfterActiveSeconds", $ScreenshotAfterActiveSeconds,
+        "-ScreenshotAfterServerTime", $ScreenshotAfterServerTime,
+        "-ScreenshotCount", $ScreenshotCount,
+        "-ScreenshotRandomWindowSeconds", $ScreenshotRandomWindowSeconds
     )
 
+    if ($ScreenshotPath) {
+        $args += @("-ScreenshotPath", $ScreenshotPath)
+    }
+    if ($RequireVerticalSlice) {
+        $args += "-RequireVerticalSlice"
+    }
+    if ($NoSmokeInput) {
+        $args += "-NoSmokeInput"
+    }
     if ($AllowNoActive) {
         $args += "-AllowNoActive"
     }
@@ -124,7 +128,6 @@ while ($attempt -le $MaxAttempts) {
 
     "stallRetry=1"
     "stallRetryDelaySeconds=$StallRetryDelaySeconds"
-    Stop-CxbxProjectProcesses
     Start-Sleep -Seconds $StallRetryDelaySeconds
 
     $attempt++

@@ -47,6 +47,21 @@ extern "C" void* JkaStaticTextureAlloc(unsigned long size, GLuint texNum)
 {
     return gTextures.Allocate(size, texNum);
 }
+
+extern "C" unsigned long JkaStaticTextureUsed(void)
+{
+    return gTextures.Size();
+}
+
+extern "C" unsigned long JkaStaticTextureFree(void)
+{
+    return gTextures.Free();
+}
+
+extern "C" unsigned long JkaStaticTextureCapacity(void)
+{
+    return gTextures.Capacity();
+}
 #endif
 
 extern void Z_SetNewDeleteTemporary(bool);
@@ -205,14 +220,24 @@ void GLW_Init( int width, int height, int /*colorbits*/, qboolean /*cdsFullscree
 #ifdef _XBOX
     XBLog_Write("GLW_Init: wglMakeCurrent OK\n");
 
-    /* CXBX-R cross-project audit divergence: gTextures.Initialize was
-     * deferred out of Z_Init.  Now that fakegl has done Direct3DCreate8
-     * + CreateDevice (above), NV2A pool is in a state where
-     * D3D_AllocContiguousMemory is safe.  20 MB matches
-     * z_memman_console.cpp's TEXTURE_POOL_SIZE. */
-    XBLog_Write("GLW_Init: gTextures.Initialize (deferred from Z_Init)...\n");
-    gTextures.Initialize(20 * 1024 * 1024);
-    XBLog_Write("GLW_Init: gTextures.Initialize done\n");
+    /* Keep this registered-texture reserve bounded.  It is only the
+     * fallback path for fakegl; giving it the old oversized 20 MB block
+     * starves later EF file/model loads before borg1 can finish booting. */
+    {
+        const unsigned long poolBytes = 8 * 1024 * 1024;
+        char poolLog[128];
+        _snprintf(poolLog, sizeof(poolLog),
+                  "GLW_Init: gTextures.Initialize registered pool bytes=%lu...\n",
+                  poolBytes);
+        poolLog[sizeof(poolLog) - 1] = '\0';
+        XBLog_Write(poolLog);
+        gTextures.Initialize(poolBytes);
+        _snprintf(poolLog, sizeof(poolLog),
+                  "GLW_Init: gTextures.Initialize done capacity=%lu free=%lu\n",
+                  JkaStaticTextureCapacity(), JkaStaticTextureFree());
+        poolLog[sizeof(poolLog) - 1] = '\0';
+        XBLog_Write(poolLog);
+    }
 #endif
     /* Plan-B audit gotcha E was attempted (FakeGL_GetD3DDevice → glw_state->device
      * wiring) but the supporting fakeglx.cpp additions correlated with a

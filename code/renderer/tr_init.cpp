@@ -1136,12 +1136,24 @@ void R_Register( void )
 
 	r_picmip = Cvar_Get ("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH );
 #ifdef _XBOX
+#ifdef STEFX_ELITE_FORCE_SP
+	Cvar_Set( "r_picmip", "1" );
+#else
 	Cvar_Set( "r_picmip", "0" );
+#endif
 #endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
 	AssertCvarRange( r_picmip, 0, 16, qtrue, qfalse );
 	r_detailTextures = Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE | CVAR_LATCH );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	Cvar_Set( "r_detailtextures", "0" );
+	XBLF( "STEFX: R_Register disabling detail texture stages for Xbox EF budget" );
+#endif
 	r_texturebits = Cvar_Get( "r_texturebits", "0", CVAR_ARCHIVE | CVAR_LATCH );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	Cvar_Set( "r_texturebits", "0" );
+	XBLF( "STEFX: R_Register keeping r_texturebits=0 so fakegl receives 3/4 component internal formats" );
+#endif
 	r_texturebitslm = Cvar_Get( "r_texturebitslm", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_colorbits = Cvar_Get( "r_colorbits", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_stereo = Cvar_Get( "r_stereo", "0", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1152,6 +1164,9 @@ void R_Register( void )
 #endif
 	r_depthbits = Cvar_Get( "r_depthbits", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_overBrightBits = Cvar_Get ("r_overBrightBits", "0", CVAR_ARCHIVE | CVAR_LATCH );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	Cvar_Get( "r_stefxLightmapBoost", "2.5", CVAR_ARCHIVE );
+#endif
 	r_ignorehwgamma = Cvar_Get( "r_ignorehwgamma", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_mode = Cvar_Get( "r_mode", "4", CVAR_ARCHIVE | CVAR_LATCH );
 	r_fullscreen = Cvar_Get( "r_fullscreen", "1", CVAR_ARCHIVE | CVAR_LATCH );

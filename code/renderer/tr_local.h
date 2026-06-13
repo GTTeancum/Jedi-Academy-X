@@ -590,6 +590,9 @@ typedef enum {
 	SF_POLY,
 	SF_TERRAIN,
 	SF_MD3,
+#ifdef STEFX_ELITE_FORCE_SP
+	SF_MDR,
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -960,6 +963,7 @@ typedef enum {
 	MOD_BRUSH,
 	MOD_MESH,
 #ifdef STEFX_ELITE_FORCE_SP
+	MOD_MDR,
 	MOD_STEFX_MDR_PLACEHOLDER,
 #endif
 /*
@@ -981,6 +985,9 @@ typedef struct model_s {
 	int			dataSize;			// just for listing purposes
 	bmodel_t	*bmodel;			// only if type == MOD_BRUSH
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
+#ifdef STEFX_ELITE_FORCE_SP
+	md4Header_t	*md4;				// only if type == MOD_MDR
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -1465,6 +1472,10 @@ void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount =
 ** GL wrapper/helper functions
 */
 void	GL_Bind( image_t *image );
+#ifdef _XBOX
+void	GL_InvalidateCurrentTexture( void );
+void	GL_InvalidateTextureUnit( int unit );
+#endif
 void	GL_SetDefaultState (void);
 void	GL_SelectTexture( int unit );
 void	GL_TextureMode( const char *string );
@@ -1849,6 +1860,9 @@ ANIMATED MODELS
 
 void R_MakeAnimModel( model_t *model );
 void R_AddAnimSurfaces( trRefEntity_t *ent );
+#ifdef STEFX_ELITE_FORCE_SP
+void RB_SurfaceAnim( md4Surface_t *surface );
+#endif
 /*
 Ghoul2 Insert Start
 */

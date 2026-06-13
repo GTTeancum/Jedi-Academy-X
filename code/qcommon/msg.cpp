@@ -451,7 +451,9 @@ void MSG_WriteDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to ) {
 	MSG_WriteDelta( msg, from->upmove, to->upmove, -8 );
 	MSG_WriteDelta( msg, from->buttons, to->buttons, 16 );//FIXME:  We're only really using 9 bits...can this be changed to that?
 	MSG_WriteDelta( msg, from->weapon, to->weapon, 8 );
+#if !defined(STEFX_ELITE_FORCE_SP)
 	MSG_WriteDelta( msg, from->generic_cmd, to->generic_cmd, 8 );
+#endif
 }
 
 
@@ -470,7 +472,9 @@ void MSG_ReadDeltaUsercmd( msg_t *msg, usercmd_t *from, usercmd_t *to ) {
 	to->upmove = MSG_ReadDelta( msg, from->upmove, -8);
 	to->buttons = MSG_ReadDelta( msg, from->buttons, 16);//FIXME:  We're only really using 9 bits...can this be changed to that?
 	to->weapon = MSG_ReadDelta( msg, from->weapon, 8);
+#if !defined(STEFX_ELITE_FORCE_SP)
 	to->generic_cmd = MSG_ReadDelta( msg, from->generic_cmd, 8);
+#endif
 }
 
 /*
@@ -1099,7 +1103,6 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 	} else {
 		MSG_WriteBits( msg, 0, 1 );	// no change
 	}
-
 
 	statsbits = 0;
 	for (i=0 ; i<MAX_INVENTORY ; i++) 

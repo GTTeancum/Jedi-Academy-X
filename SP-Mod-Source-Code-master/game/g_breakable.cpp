@@ -1,6 +1,14 @@
 #include "g_local.h"
 #include "g_functions.h"
 
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+// The breakable spawn path is very hot on borg1; keep the old probes dormant
+// now that the startup crash they diagnosed is past us.
+#undef XBLF
+#define XBLF if (0) XBLog_Printf
+#endif
+
 extern team_t TranslateTeamName( const char *name );
 extern void G_SetAngles( gentity_t *ent, vec3_t angles );
 
@@ -580,6 +588,10 @@ void misc_model_breakable_init( gentity_t *ent )
 {
 	int		type;
 
+#ifdef _XBOX
+	XBLF("STEFX: misc_model_breakable_init enter ent=%d model='%s' flags=%d health=%d", ent ? ent->s.number : -1, ent && ent->model ? ent->model : "(null)", ent ? ent->spawnflags : 0, ent ? ent->health : 0);
+#endif
+
 	// FIXME : these should be using the proper spawn functions
 	if (!Q_stricmp(ent->model,"models/mapobjects/stasis/plugin2.md3"))	
 	{
@@ -603,7 +615,13 @@ void misc_model_breakable_init( gentity_t *ent )
 	}
 
 	//Main model
+#ifdef _XBOX
+	XBLF("STEFX: misc_model_breakable_init before main model ent=%d type=%d model='%s'", ent ? ent->s.number : -1, type, ent && ent->model ? ent->model : "(null)");
+#endif
 	ent->s.modelindex = ent->sound2to1 = G_ModelIndex( ent->model );
+#ifdef _XBOX
+	XBLF("STEFX: misc_model_breakable_init after main model ent=%d modelindex=%d", ent ? ent->s.number : -1, ent ? ent->s.modelindex : 0);
+#endif
 
 	if ( ent->spawnflags & 1 )
 	{//Blocks movement
@@ -620,7 +638,13 @@ void misc_model_breakable_init( gentity_t *ent )
 	}
 	else if ( type == MDL_ARMOR_HEALTH )
 	{
+#ifdef _XBOX
+		XBLF("STEFX: misc_model_breakable_init before health sound ent=%d", ent ? ent->s.number : -1);
+#endif
 		G_SoundIndex("sound/player/suithealth.wav");
+#ifdef _XBOX
+		XBLF("STEFX: misc_model_breakable_init after health sound ent=%d", ent ? ent->s.number : -1);
+#endif
 		ent->e_UseFunc = useF_health_use;
 		if (!ent->count)
 		{
@@ -630,7 +654,13 @@ void misc_model_breakable_init( gentity_t *ent )
 	}
 	else if ( type == MDL_AMMO )
 	{
+#ifdef _XBOX
+		XBLF("STEFX: misc_model_breakable_init before ammo sound ent=%d", ent ? ent->s.number : -1);
+#endif
 		G_SoundIndex("sound/player/suitenergy.wav");
+#ifdef _XBOX
+		XBLF("STEFX: misc_model_breakable_init after ammo sound ent=%d", ent ? ent->s.number : -1);
+#endif
 		ent->e_UseFunc = useF_ammo_use;
 		if (!ent->count)
 		{
@@ -641,12 +671,21 @@ void misc_model_breakable_init( gentity_t *ent )
 
 	if ( ent->health ) 
 	{
+#ifdef _XBOX
+		XBLF("STEFX: misc_model_breakable_init before explode sound ent=%d health=%d", ent ? ent->s.number : -1, ent ? ent->health : 0);
+#endif
 		G_SoundIndex("sound/weapons/explosions/cargoexplode.wav");
+#ifdef _XBOX
+		XBLF("STEFX: misc_model_breakable_init after explode sound ent=%d", ent ? ent->s.number : -1);
+#endif
 		ent->max_health = ent->health;
 		ent->takedamage = qtrue;
 		ent->e_PainFunc = painF_misc_model_breakable_pain;
 		ent->e_DieFunc  = dieF_misc_model_breakable_die;
 	}
+#ifdef _XBOX
+	XBLF("STEFX: misc_model_breakable_init done ent=%d contents=0x%x health=%d", ent ? ent->s.number : -1, ent ? ent->contents : 0, ent ? ent->health : 0);
+#endif
 }
 
 /*QUAKED misc_model_breakable (1 0 0) (-16 -16 -16) (16 16 16) SOLID AUTOANIMATE DEADSOLID NO_DMODEL NO_SMOKE USE_MODEL USE_NOT_BREAK PLAYER_USE NO_EXPLOSION
@@ -711,7 +750,13 @@ void SP_misc_model_breakable( gentity_t *ent )
 	char	useModel[MAX_QPATH];
 	int		len;
 	
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable enter ent=%d model='%s' flags=%d", ent ? ent->s.number : -1, ent && ent->model ? ent->model : "(null)", ent ? ent->spawnflags : 0);
+#endif
 	misc_model_breakable_init( ent );
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable after init ent=%d", ent ? ent->s.number : -1);
+#endif
 
 	len = strlen( ent->model ) - 4;
 	strncpy( damageModel, ent->model, len );
@@ -723,19 +768,40 @@ void SP_misc_model_breakable( gentity_t *ent )
 		//Dead/damaged model
 		if( !(ent->spawnflags & 8) ) {	//no dmodel
 			strcat( damageModel, "_d1.md3" );
+#ifdef _XBOX
+			XBLF("STEFX: SP_misc_model_breakable before damage model ent=%d model='%s'", ent ? ent->s.number : -1, damageModel);
+#endif
 			ent->s.modelindex2 = G_ModelIndex( damageModel );
+#ifdef _XBOX
+			XBLF("STEFX: SP_misc_model_breakable after damage model ent=%d modelindex2=%d", ent ? ent->s.number : -1, ent ? ent->s.modelindex2 : 0);
+#endif
 		}
 		
 		//Chunk model
 		strcat( chunkModel, "_c1.md3" );
+#ifdef _XBOX
+		XBLF("STEFX: SP_misc_model_breakable before chunk model ent=%d model='%s'", ent ? ent->s.number : -1, chunkModel);
+#endif
 		ent->s.modelindex3 = G_ModelIndex( chunkModel );
+#ifdef _XBOX
+		XBLF("STEFX: SP_misc_model_breakable after chunk model ent=%d modelindex3=%d", ent ? ent->s.number : -1, ent ? ent->s.modelindex3 : 0);
+#endif
 	}
 
 	//Use model
 	if( ent->spawnflags & 32 ) {	//has umodel
 		strcat( useModel, "_u1.md3" );
+#ifdef _XBOX
+		XBLF("STEFX: SP_misc_model_breakable before use model ent=%d model='%s'", ent ? ent->s.number : -1, useModel);
+#endif
 		ent->sound1to2 = G_ModelIndex( useModel );
+#ifdef _XBOX
+		XBLF("STEFX: SP_misc_model_breakable after use model ent=%d sound1to2=%d", ent ? ent->s.number : -1, ent ? ent->sound1to2 : 0);
+#endif
 	}
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable before bounds ent=%d mins=(%g,%g,%g) maxs=(%g,%g,%g)", ent ? ent->s.number : -1, ent ? ent->mins[0] : 0, ent ? ent->mins[1] : 0, ent ? ent->mins[2] : 0, ent ? ent->maxs[0] : 0, ent ? ent->maxs[1] : 0, ent ? ent->maxs[2] : 0);
+#endif
 	if ( !ent->mins[0] && !ent->mins[1] && !ent->mins[2] )
 	{
 		VectorSet (ent->mins, -16, -16, -16);
@@ -744,15 +810,36 @@ void SP_misc_model_breakable( gentity_t *ent )
 	{
 		VectorSet (ent->maxs, 16, 16, 16);
 	}
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable after bounds ent=%d mins=(%g,%g,%g) maxs=(%g,%g,%g)", ent ? ent->s.number : -1, ent ? ent->mins[0] : 0, ent ? ent->mins[1] : 0, ent ? ent->mins[2] : 0, ent ? ent->maxs[0] : 0, ent ? ent->maxs[1] : 0, ent ? ent->maxs[2] : 0);
+#endif
 
 	if ( ent->spawnflags & 2 )
 	{
 		ent->s.eFlags |= EF_ANIM_ALLFAST;
 	}
 
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable before set origin ent=%d origin=(%g,%g,%g)", ent ? ent->s.number : -1, ent ? ent->s.origin[0] : 0, ent ? ent->s.origin[1] : 0, ent ? ent->s.origin[2] : 0);
+#endif
 	G_SetOrigin( ent, ent->s.origin );
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable after set origin ent=%d current=(%g,%g,%g)", ent ? ent->s.number : -1, ent ? ent->currentOrigin[0] : 0, ent ? ent->currentOrigin[1] : 0, ent ? ent->currentOrigin[2] : 0);
+#endif
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable before set angles ent=%d angles=(%g,%g,%g)", ent ? ent->s.number : -1, ent ? ent->s.angles[0] : 0, ent ? ent->s.angles[1] : 0, ent ? ent->s.angles[2] : 0);
+#endif
 	G_SetAngles( ent, ent->s.angles );
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable after set angles ent=%d currentAngles=(%g,%g,%g)", ent ? ent->s.number : -1, ent ? ent->currentAngles[0] : 0, ent ? ent->currentAngles[1] : 0, ent ? ent->currentAngles[2] : 0);
+#endif
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable before link ent=%d contents=0x%x", ent ? ent->s.number : -1, ent ? ent->contents : 0);
+#endif
 	gi.linkentity (ent);
+#ifdef _XBOX
+	XBLF("STEFX: SP_misc_model_breakable after link ent=%d linked=%d solid=0x%x", ent ? ent->s.number : -1, ent ? ent->linked : 0, ent ? ent->s.solid : 0);
+#endif
 
 	if ( ent->spawnflags & 128 )
 	{//Can be used by the player's BUTTON_USE
@@ -778,4 +865,3 @@ void SP_misc_model_breakable( gentity_t *ent )
 	}
 	*/
 }
-

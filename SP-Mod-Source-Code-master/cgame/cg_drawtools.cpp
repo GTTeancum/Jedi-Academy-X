@@ -2,6 +2,9 @@
 #include "cg_local.h"
 #include "cg_media.h"
 #include "cg_text.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 /*
 ================
@@ -31,6 +34,20 @@ real coords
 -------------------------
 */
 void CG_FillRect2( float x, float y, float width, float height, const float *color ) {
+#ifdef _XBOX
+	if ( color && color[3] > 0.0f )
+	{
+		static int s_stefxFillRect2Budget = 48;
+		if ( s_stefxFillRect2Budget > 0 )
+		{
+			XBLF("STEFX: CG_FillRect2 color rect=(%g,%g %gx%g) rgba=(%g,%g,%g,%g) shader=%d",
+				x, y, width, height,
+				color[0], color[1], color[2], color[3],
+				cgs.media.whiteShader);
+			--s_stefxFillRect2Budget;
+		}
+	}
+#endif
 	cgi_R_SetColor( color );
 	cgi_R_DrawStretchPic( x, y, width, height, 0, 0, 0, 0, cgs.media.whiteShader);
 	cgi_R_SetColor( NULL );

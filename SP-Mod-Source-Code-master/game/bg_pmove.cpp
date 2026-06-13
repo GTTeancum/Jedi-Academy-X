@@ -109,7 +109,7 @@ static void STEFX_PmoveRepairState(const char *where, const float *fallbackOrigi
 		return;
 	}
 
-	XBLF("STEFX: Pmove repaired nonfinite where=%s ent=%d origin=(%g,%g,%g) fallback=(%g,%g,%g) vel=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+	XBLF("STEFX: Pmove observed nonfinite where=%s ent=%d origin=(%g,%g,%g) fallback=(%g,%g,%g) vel=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
 		where ? where : "(null)",
 		(pm && pm->gent) ? pm->gent->s.number : -1,
 		pm->ps->origin[0], pm->ps->origin[1], pm->ps->origin[2],
@@ -117,19 +117,6 @@ static void STEFX_PmoveRepairState(const char *where, const float *fallbackOrigi
 		pm->ps->velocity[0], pm->ps->velocity[1], pm->ps->velocity[2],
 		pm->mins[0], pm->mins[1], pm->mins[2],
 		pm->maxs[0], pm->maxs[1], pm->maxs[2]);
-
-	if (badOrigin)
-	{
-		VectorCopy(fallback, pm->ps->origin);
-	}
-	if (badVelocity)
-	{
-		VectorClear(pm->ps->velocity);
-	}
-	if (badBounds)
-	{
-		STEFX_PmoveSetDefaultBounds();
-	}
 }
 
 static void STEFX_PmoveRepairGroundNormal(const char *where)
@@ -140,13 +127,15 @@ static void STEFX_PmoveRepairGroundNormal(const char *where)
 		return;
 	}
 
-	XBLF("STEFX: PM_WalkMove repaired bad ground normal where=%s ent=%d normal=(%g,%g,%g)",
+	XBLF("STEFX: PM_WalkMove observed bad ground normal where=%s ent=%d normal=(%g,%g,%g)",
 		where ? where : "(null)",
 		(pm && pm->gent) ? pm->gent->s.number : -1,
 		pml.groundTrace.plane.normal[0],
 		pml.groundTrace.plane.normal[1],
 		pml.groundTrace.plane.normal[2]);
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 	VectorSet(pml.groundTrace.plane.normal, 0, 0, 1);
+#endif
 }
 #endif
 
@@ -171,8 +160,91 @@ PM_AddEvent
 */
 void PM_AddEvent( int newEvent ) 
 {
+#ifdef _XBOX
+	if ( (newEvent == EV_FIRE_WEAPON || newEvent == EV_ALT_FIRE) && pm && pm->ps )
+	{
+		static int s_stefxFireEventLogBudget = 48;
+		if (s_stefxFireEventLogBudget > 0)
+		{
+			int ammoIndex = weaponData[pm->ps->weapon].ammoIndex;
+			int ammoValue = (ammoIndex >= 0 && ammoIndex < MAX_AMMO) ? pm->ps->ammo[ammoIndex] : -9999;
+			XBLF("STEFX: PM_AddEvent fire event=%d ent=%d weapon=%d weaponstate=%d weaponTime=%d buttons=0x%x move=(%d,%d,%d) ammoIndex=%d ammo=%d eventSeq=%d",
+				newEvent,
+				pm->gent ? pm->gent->s.number : -1,
+				pm->ps->weapon,
+				pm->ps->weaponstate,
+				pm->ps->weaponTime,
+				pm->cmd.buttons,
+				pm->cmd.forwardmove, pm->cmd.rightmove, pm->cmd.upmove,
+				ammoIndex,
+				ammoValue,
+				pm->ps->eventSequence);
+			--s_stefxFireEventLogBudget;
+		}
+	}
+#endif
 	AddEventToPlayerstate( newEvent, 0, pm->ps );
 }
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int s_stefxPMWeaponProbeBudget = 160;
+
+static qboolean STEFX_PMWeaponProbeActive(void)
+{
+	if (!pm || !pm->ps || !pm->gent || pm->gent->s.number != 0)
+	{
+		return qfalse;
+	}
+	if (s_stefxPMWeaponProbeBudget <= 0)
+	{
+		return qfalse;
+	}
+	if (!(pm->cmd.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK)))
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static void STEFX_PMWeaponProbe(const char *phase, qboolean delayedFire)
+{
+	int ammoIndex;
+	int ammoValue;
+	int fireDelay;
+
+	if (!STEFX_PMWeaponProbeActive())
+	{
+		return;
+	}
+
+	ammoIndex = weaponData[pm->ps->weapon].ammoIndex;
+	ammoValue = (ammoIndex >= 0 && ammoIndex < MAX_AMMO) ? pm->ps->ammo[ammoIndex] : -9999;
+	fireDelay = (pm->gent && pm->gent->client) ? pm->gent->client->fireDelay : -1;
+
+	XBLF("STEFX: PM_Weapon probe phase=%s ent=%d buttons=0x%x cmdWeapon=%d psWeapon=%d weaponstate=%d weaponTime=%d pmFlags=0x%x pmType=%d health=%d ammoIndex=%d ammo=%d fireDelay=%d delayed=%d move=(%d,%d,%d) eventSeq=%d",
+		phase ? phase : "<null>",
+		pm->gent ? pm->gent->s.number : -1,
+		pm->cmd.buttons,
+		pm->cmd.weapon,
+		pm->ps->weapon,
+		pm->ps->weaponstate,
+		pm->ps->weaponTime,
+		pm->ps->pm_flags,
+		pm->ps->pm_type,
+		pm->ps->stats[STAT_HEALTH],
+		ammoIndex,
+		ammoValue,
+		fireDelay,
+		delayedFire ? 1 : 0,
+		pm->cmd.forwardmove,
+		pm->cmd.rightmove,
+		pm->cmd.upmove,
+		pm->ps->eventSequence);
+	--s_stefxPMWeaponProbeBudget;
+}
+#else
+#define STEFX_PMWeaponProbe(phase, delayedFire) ((void)0)
+#endif
 
 /*
 ===============
@@ -267,14 +339,16 @@ static void PM_Friction( void ) {
 	{
 		if (s_stefxFrictionGuardLogCount < 16)
 		{
-			XBLF("STEFX: PM_Friction rejected bad speed ent=%d vec=(%g,%g,%g) vel=(%g,%g,%g)",
+			XBLF("STEFX: PM_Friction observed bad speed ent=%d vec=(%g,%g,%g) vel=(%g,%g,%g)",
 				(pm && pm->gent) ? pm->gent->s.number : -1,
 				vec[0], vec[1], vec[2],
 				vel[0], vel[1], vel[2]);
 			s_stefxFrictionGuardLogCount++;
 		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		VectorClear(vel);
 		return;
+#endif
 	}
 #endif
 	if (speed < 1) {
@@ -323,15 +397,17 @@ static void PM_Friction( void ) {
 	{
 		if (s_stefxFrictionGuardLogCount < 16)
 		{
-			XBLF("STEFX: PM_Friction rejected bad newspeed ent=%d speed=%g drop=%g vel=(%g,%g,%g)",
+			XBLF("STEFX: PM_Friction observed bad newspeed ent=%d speed=%g drop=%g vel=(%g,%g,%g)",
 				(pm && pm->gent) ? pm->gent->s.number : -1,
 				speed,
 				drop,
 				vel[0], vel[1], vel[2]);
 			s_stefxFrictionGuardLogCount++;
 		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		VectorClear(vel);
 		return;
+#endif
 	}
 #endif
 
@@ -361,7 +437,7 @@ static void PM_Accelerate( vec3_t wishdir, float wishspeed, float accel )
 	{
 		if (s_stefxAccelGuardLogCount < 16)
 		{
-			XBLF("STEFX: PM_Accelerate rejected bad input ent=%d wishdir=(%g,%g,%g) wishspeed=%g accel=%g vel=(%g,%g,%g)",
+			XBLF("STEFX: PM_Accelerate observed bad input ent=%d wishdir=(%g,%g,%g) wishspeed=%g accel=%g vel=(%g,%g,%g)",
 				(pm && pm->gent) ? pm->gent->s.number : -1,
 				wishdir[0], wishdir[1], wishdir[2],
 				wishspeed,
@@ -369,11 +445,13 @@ static void PM_Accelerate( vec3_t wishdir, float wishspeed, float accel )
 				pm->ps->velocity[0], pm->ps->velocity[1], pm->ps->velocity[2]);
 			s_stefxAccelGuardLogCount++;
 		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		if (STEFX_PmoveVec3Bad(pm->ps->velocity))
 		{
 			VectorClear(pm->ps->velocity);
 		}
 		return;
+#endif
 	}
 #endif
 
@@ -385,7 +463,7 @@ static void PM_Accelerate( vec3_t wishdir, float wishspeed, float accel )
 	{
 		if (s_stefxAccelGuardLogCount < 16)
 		{
-			XBLF("STEFX: PM_Accelerate rejected bad speed ent=%d current=%g add=%g wishspeed=%g vel=(%g,%g,%g) wishdir=(%g,%g,%g)",
+			XBLF("STEFX: PM_Accelerate observed bad speed ent=%d current=%g add=%g wishspeed=%g vel=(%g,%g,%g) wishdir=(%g,%g,%g)",
 				(pm && pm->gent) ? pm->gent->s.number : -1,
 				currentspeed,
 				addspeed,
@@ -394,8 +472,10 @@ static void PM_Accelerate( vec3_t wishdir, float wishspeed, float accel )
 				wishdir[0], wishdir[1], wishdir[2]);
 			s_stefxAccelGuardLogCount++;
 		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		VectorClear(pm->ps->velocity);
 		return;
+#endif
 	}
 #endif
 	
@@ -408,14 +488,16 @@ static void PM_Accelerate( vec3_t wishdir, float wishspeed, float accel )
 	{
 		if (s_stefxAccelGuardLogCount < 16)
 		{
-			XBLF("STEFX: PM_Accelerate rejected bad accelspeed ent=%d accel=%g frametime=%g wishspeed=%g",
+			XBLF("STEFX: PM_Accelerate observed bad accelspeed ent=%d accel=%g frametime=%g wishspeed=%g",
 				(pm && pm->gent) ? pm->gent->s.number : -1,
 				accel,
 				pml.frametime,
 				wishspeed);
 			s_stefxAccelGuardLogCount++;
 		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		return;
+#endif
 	}
 #endif
 
@@ -800,7 +882,7 @@ static void PM_AirMove( void ) {
 	fmove = pm->cmd.forwardmove;
 	smove = pm->cmd.rightmove;
 
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
 	if (!fmove && !smove && STEFX_PmoveNearZero2D(pm->ps->velocity))
 	{
 		static int s_stefxStationaryWalkSkipCount = 0;
@@ -815,6 +897,8 @@ static void PM_AirMove( void ) {
 		}
 		return;
 	}
+#endif
+#ifdef _XBOX
 	STEFX_PmoveRepairGroundNormal("air-entry");
 #endif
 
@@ -918,7 +1002,7 @@ static void PM_WalkMove( void ) {
 	fmove = pm->cmd.forwardmove;
 	smove = pm->cmd.rightmove;
 
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
 	if (!fmove && !smove && STEFX_PmoveNearZero2D(pm->ps->velocity))
 	{
 		static int s_stefxStationaryGroundSkipCount = 0;
@@ -2213,6 +2297,8 @@ static void PM_Weapon( void )
 	qboolean	delayed_fire = qfalse;
 	weaponInfo_t	*weapon;
 
+	STEFX_PMWeaponProbe("entry", delayed_fire);
+
 	if(pm->gent && pm->gent->client && pm->gent->client->fireDelay > 0)
 	{//FIXME: this is going to fire off one frame before you expect, actually
 		pm->gent->client->fireDelay -= pml.msec;
@@ -2222,9 +2308,11 @@ static void PM_Weapon( void )
 			delayed_fire = qtrue;
 		}
 	}
+	STEFX_PMWeaponProbe("after_fire_delay_tick", delayed_fire);
 
    // don't allow attack until all buttons are up
 	if ( pm->ps->pm_flags & PMF_RESPAWNED ) {
+		STEFX_PMWeaponProbe("return_respawned", delayed_fire);
 		return;
 	}
 
@@ -2241,6 +2329,7 @@ static void PM_Weapon( void )
 	// check for dead player
 	if ( pm->ps->stats[STAT_HEALTH] <= 0 )
 	{
+		STEFX_PMWeaponProbe("return_dead", delayed_fire);
 		if ( pm->gent && pm->gent->client )
 		{
 			// Sigh..borg shouldn't drop their weapon attachments when they die.
@@ -2261,6 +2350,7 @@ static void PM_Weapon( void )
 	if ( pm->ps->weaponTime > 0 ) {
 		pm->ps->weaponTime -= pml.msec;
 	}
+	STEFX_PMWeaponProbe("after_weapon_time_tick", delayed_fire);
 
 	// check for weapon change
 	// can't change if weapon is firing, but can change again if lowering or raising
@@ -2272,11 +2362,13 @@ static void PM_Weapon( void )
 
 	if ( pm->ps->weaponTime > 0 ) 
 	{
+		STEFX_PMWeaponProbe("return_weapon_time", delayed_fire);
 		return;
 	}
 
 	// change weapon if time
 	if ( pm->ps->weaponstate == WEAPON_DROPPING ) {
+		STEFX_PMWeaponProbe("return_dropping", delayed_fire);
 		PM_FinishWeaponChange();
 		return;
 	}
@@ -2313,10 +2405,12 @@ static void PM_Weapon( void )
 				break;
 			}
 		}
+		STEFX_PMWeaponProbe("return_raising", delayed_fire);
 		return;
 	}
 
 	weapon = &cg_weapons[pm->ps->weapon];
+	STEFX_PMWeaponProbe("ready_to_check_fire", delayed_fire);
 
 	if(!delayed_fire)
 	{
@@ -2334,8 +2428,10 @@ static void PM_Weapon( void )
 				pm->ps->weaponstate = WEAPON_IDLE;
 			}
 			
+			STEFX_PMWeaponProbe("return_no_attack", delayed_fire);
 			return;
 		}
+		STEFX_PMWeaponProbe("attack_button_accepted", delayed_fire);
 
 		// start the animation even if out of ammo
 		switch(pm->ps->weapon)
@@ -2485,6 +2581,7 @@ static void PM_Weapon( void )
 			{	// Switch weapons
 				PM_AddEvent( EV_NOAMMO );
 				pm->ps->weaponTime += 500;
+				STEFX_PMWeaponProbe("return_no_ammo", delayed_fire);
 				return;
 			}
 		}
@@ -2494,6 +2591,7 @@ static void PM_Weapon( void )
 		// Clear these out since we're not actually firing yet
 		pm->ps->eFlags &= ~EF_FIRING;
 		pm->ps->eFlags &= ~EF_ALT_FIRING;
+		STEFX_PMWeaponProbe("return_fire_delay", delayed_fire);
 		return;
 	}
 
@@ -2513,6 +2611,7 @@ static void PM_Weapon( void )
 	
 	if(pm->gent && pm->gent->NPC != NULL )
 	{//NPCs have their own refire logic
+		STEFX_PMWeaponProbe("return_npc_after_event", delayed_fire);
 		return;
 	}
 
@@ -2523,6 +2622,7 @@ static void PM_Weapon( void )
 	}
 
 	pm->ps->weaponTime += addTime;
+	STEFX_PMWeaponProbe("exit_fired", delayed_fire);
 }
 
 
@@ -2646,7 +2746,13 @@ void Pmove( pmove_t *pmove )
 	int amount;
 
 #ifdef _XBOX
-	XBLF("STEFX: Pmove enter pmove=%08x ps=%08x gent=%08x weapon=%d buttons=0x%x serverTime=%d commandTime=%d",
+	static int s_stefxPmoveVerboseBudget = 2;
+	qboolean stefxPmoveVerbose = (s_stefxPmoveVerboseBudget > 0);
+	if (stefxPmoveVerbose)
+	{
+		s_stefxPmoveVerboseBudget--;
+	}
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove enter pmove=%08x ps=%08x gent=%08x weapon=%d buttons=0x%x serverTime=%d commandTime=%d",
 		(unsigned int)pmove,
 		pmove ? (unsigned int)pmove->ps : 0,
 		pmove ? (unsigned int)pmove->gent : 0,
@@ -2678,13 +2784,15 @@ void Pmove( pmove_t *pmove )
 	if ( pm->ps->weapon < 0 || pm->ps->weapon >= WP_NUM_WEAPONS )
 	{
 #ifdef _XBOX
-		XBLF("STEFX: Pmove invalid weapon=%d; coercing to WP_PHASER", pm->ps->weapon);
+		XBLF("STEFX: Pmove invalid weapon=%d observed before EF weapon data access", pm->ps->weapon);
 #endif
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		pm->ps->weapon = WP_PHASER;
+#endif
 	}
 
 #ifdef _XBOX
-	XBLF("STEFX: Pmove weapon data weapon=%d ammoIndex=%d energy=%d altEnergy=%d ammo0=%d ammo1=%d ammo2=%d ammo3=%d",
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove weapon data weapon=%d ammoIndex=%d energy=%d altEnergy=%d ammo0=%d ammo1=%d ammo2=%d ammo3=%d",
 		pm->ps->weapon,
 		weaponData[pm->ps->weapon].ammoIndex,
 		weaponData[pm->ps->weapon].energyPerShot,
@@ -2695,10 +2803,12 @@ void Pmove( pmove_t *pmove )
 	if ( weaponData[pm->ps->weapon].ammoIndex < 0 || weaponData[pm->ps->weapon].ammoIndex >= MAX_AMMO )
 	{
 #ifdef _XBOX
-		XBLF("STEFX: Pmove invalid ammoIndex=%d for weapon=%d; coercing to AMMO_NONE",
+		XBLF("STEFX: Pmove invalid ammoIndex=%d for weapon=%d observed before EF ammo access",
 			weaponData[pm->ps->weapon].ammoIndex, pm->ps->weapon);
 #endif
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		weaponData[pm->ps->weapon].ammoIndex = AMMO_NONE;
+#endif
 	}
 
 	if ( pm->cmd.buttons & BUTTON_ALT_ATTACK )
@@ -2707,7 +2817,7 @@ void Pmove( pmove_t *pmove )
 		amount = pm->ps->ammo[weaponData[ pm->ps->weapon ].ammoIndex] - weaponData[pm->ps->weapon].energyPerShot;
 
 #ifdef _XBOX
-	XBLF("STEFX: Pmove after amount amount=%d eFlags=0x%x", amount, pm->ps->eFlags);
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove after amount amount=%d eFlags=0x%x", amount, pm->ps->eFlags);
 #endif
 
 	// set the firing flag for continuous beam weapons, phaser will fire even if out of ammo
@@ -2861,7 +2971,7 @@ void Pmove( pmove_t *pmove )
 #endif
 	PM_SetWaterLevel();
 #ifdef _XBOX
-	XBLF("STEFX: Pmove after PM_SetWaterLevel water=%d/%d", pm->waterlevel, pm->watertype);
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove after PM_SetWaterLevel water=%d/%d", pm->waterlevel, pm->watertype);
 #endif
 	if ( !(pm->watertype & CONTENTS_LADDER) )
 	{//Don't want to remember this for ladders, is only for waterlevel change events (sounds)
@@ -2870,11 +2980,11 @@ void Pmove( pmove_t *pmove )
 
 	// set mins, maxs, and viewheight
 #ifdef _XBOX
-	XBLF("STEFX: Pmove before PM_SetBounds");
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove before PM_SetBounds");
 #endif
 	PM_SetBounds();
 #ifdef _XBOX
-	XBLF("STEFX: Pmove after PM_SetBounds mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove after PM_SetBounds mins=(%g,%g,%g) maxs=(%g,%g,%g)",
 		pm->mins[0], pm->mins[1], pm->mins[2], pm->maxs[0], pm->maxs[1], pm->maxs[2]);
 	STEFX_PmoveRepairState("after-bounds", pml.previous_origin, qtrue);
 #endif
@@ -2882,21 +2992,21 @@ void Pmove( pmove_t *pmove )
 	if ( !Flying && !(pm->watertype & CONTENTS_LADDER) && pm->ps->pm_type != PM_DEAD )
 	{//NOTE: noclippers shouldn't jump or duck either, no?
 #ifdef _XBOX
-		XBLF("STEFX: Pmove before PM_CheckDuck");
+		if (stefxPmoveVerbose) XBLF("STEFX: Pmove before PM_CheckDuck");
 #endif
 		PM_CheckDuck();
 #ifdef _XBOX
-		XBLF("STEFX: Pmove after PM_CheckDuck");
+		if (stefxPmoveVerbose) XBLF("STEFX: Pmove after PM_CheckDuck");
 #endif
 	}
 
 	// set groundentity
 #ifdef _XBOX
-	XBLF("STEFX: Pmove before PM_GroundTrace");
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove before PM_GroundTrace");
 #endif
 	PM_GroundTrace();
 #ifdef _XBOX
-	XBLF("STEFX: Pmove after PM_GroundTrace ground=%d walking=%d", pm->ps->groundEntityNum, pml.walking);
+	if (stefxPmoveVerbose) XBLF("STEFX: Pmove after PM_GroundTrace ground=%d walking=%d", pm->ps->groundEntityNum, pml.walking);
 	STEFX_PmoveRepairGroundNormal("after-groundtrace");
 #endif
 

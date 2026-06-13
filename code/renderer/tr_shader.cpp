@@ -1326,11 +1326,17 @@ static void ParseSurfaceSpritesOptional( const char *param, const char *_text, s
 ParseStage
 ===================
 */
-static qboolean ParseStage( shaderStage_t *stage, const char **text )
+static qboolean ParseStage( shaderStage_t *stage, const char **text, int stageIndex )
 {
 	char *token;
 	int depthMaskBits = GLS_DEPTHMASK_TRUE, blendSrcBits = 0, blendDstBits = 0, atestBits = 0, depthFuncBits = 0;
 	qboolean depthMaskExplicit = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean missingEFMap = qfalse;
+	char missingEFMapName[MAX_QPATH];
+
+	missingEFMapName[0] = 0;
+#endif
 
 	stage->active = true;
 
@@ -1388,17 +1394,33 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 			{
 #ifdef _XBOX
 				if ( R_XboxTraceCurrentShader() ) {
-					XBLF("ParseStage: map begin shader='%s'\n", shader.name);
+					XBLF("ParseStage: map begin shader='%s' stage=%d token='%s'\n", shader.name, stageIndex, token);
 				}
 #endif
 				stage->bundle[0].image = R_FindImageFile( token, !shader.noMipMaps, 0, 0, GL_REPEAT );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if ( !stage->bundle[0].image && stageIndex == 1 && shader.name[0] ) {
+					stage->bundle[0].image = R_FindImageFile( shader.name, !shader.noMipMaps, 0, 0, GL_REPEAT );
+					if ( R_XboxTraceCurrentShader() ) {
+						XBLF("EF: SHADER_MAP_FALLBACK shader='%s' stage=%d token='%s' fallback='%s' image=0x%08X\n",
+							shader.name, stageIndex, token, shader.name, (unsigned int)stage->bundle[0].image);
+					}
+				}
+#endif
 #ifdef _XBOX
 				if ( R_XboxTraceCurrentShader() ) {
-					XBLF("ParseStage: map image=0x%08X shader='%s'\n", (unsigned int)stage->bundle[0].image, shader.name);
+					XBLF("ParseStage: map image=0x%08X shader='%s' stage=%d token='%s'\n", (unsigned int)stage->bundle[0].image, shader.name, stageIndex, token);
 				}
 #endif
 				if ( !stage->bundle[0].image )
 				{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( stageIndex > 0 ) {
+						missingEFMap = qtrue;
+						Q_strncpyz( missingEFMapName, token, sizeof( missingEFMapName ) );
+						continue;
+					}
+#endif
 					VID_Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
 					return qfalse;
 				}
@@ -1963,6 +1985,16 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 		depthMaskBits = GLS_DEPTHMASK_TRUE;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( missingEFMap ) {
+		XBLF("EF: SHADER_STAGE_SKIP shader='%s' stage=%d missingMap='%s'\n", shader.name, stageIndex, missingEFMapName);
+		memset( stage, 0, sizeof( *stage ) );
+		stage->bundle[0].texMods = texMods[stageIndex];
+		stage->mGLFogColorOverride = GLFOGOVERRIDE_NONE;
+		return qtrue;
+	}
+#endif
+
 	// decide which agens we can skip
 	if ( stage->alphaGen == AGEN_IDENTITY ) {
 		if ( stage->rgbGen == CGEN_IDENTITY
@@ -2419,9 +2451,12 @@ static qboolean ParseShader( const char  **text )
 				return qfalse;
 			}
 #endif
-			if ( !ParseStage( &stages[s], text ) )
+			if ( !ParseStage( &stages[s], text, s ) )
 			{
 				return qfalse;
+			}
+			if ( !stages[s].active ) {
+				continue;
 			}
 			stages[s].active = true;
 //#ifndef _XBOX	// GLOWXXX
@@ -3376,6 +3411,32 @@ static shader_t *FinishShader( void ) {
 	if ( R_XboxTraceCurrentShader() ) {
 		XBLF("FinishShader: generate shader='%s' passes=%d sort=%d default=%d\n",
 			shader.name, shader.numUnfoggedPasses, shader.sort, shader.defaultShader);
+		{
+			static int s_xboxBorgFinishStageBudget = 96;
+			int xboxStageLog;
+			for ( xboxStageLog = 0; xboxStageLog < shader.numUnfoggedPasses && xboxStageLog < MAX_SHADER_STAGES && s_xboxBorgFinishStageBudget > 0; ++xboxStageLog )
+			{
+				shaderStage_t *xboxStage = &stages[xboxStageLog];
+				XBLF("EF: SHADER_STAGE_FINAL shader='%s' stage=%d passes=%d state=0x%x rgb=%d alpha=%d bundle1=%d img0='%s' lm0=%d tc0=%d img1='%s' lm1=%d tc1=%d env=%d lightmap0=%d style0=%d",
+					shader.name,
+					xboxStageLog,
+					shader.numUnfoggedPasses,
+					xboxStage->stateBits,
+					xboxStage->rgbGen,
+					xboxStage->alphaGen,
+					xboxStage->bundle[1].image ? 1 : 0,
+					xboxStage->bundle[0].image ? xboxStage->bundle[0].image->imgName : "<null>",
+					xboxStage->bundle[0].isLightmap ? 1 : 0,
+					xboxStage->bundle[0].tcGen,
+					xboxStage->bundle[1].image ? xboxStage->bundle[1].image->imgName : "<null>",
+					xboxStage->bundle[1].isLightmap ? 1 : 0,
+					xboxStage->bundle[1].tcGen,
+					shader.multitextureEnv,
+					shader.lightmapIndex[0],
+					shader.styles[0]);
+				--s_xboxBorgFinishStageBudget;
+			}
+		}
 	}
 #endif
 	return GeneratePermanentShader();
@@ -3974,44 +4035,78 @@ static void ScanAndLoadShaderFiles( void )
 	int bufferSizes[MAX_SHADER_FILES];
 	int numShaders;
 	int i;
+	int dirIndex;
+	int numShaderDirs = 0;
 	long sum = 0;
+	int totalShaders = 0;
+	const char *shaderDirs[] = {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		"scripts",
+#endif
+		"shaders"
+	};
 
 	// scan for shader files
-	shaderFiles = FS_ListFiles( "shaders", ".shader", &numShaders );
+	for ( dirIndex = 0; dirIndex < (int)(sizeof(shaderDirs) / sizeof(shaderDirs[0])); ++dirIndex ) {
+		shaderFiles = FS_ListFiles( shaderDirs[dirIndex], ".shader", &numShaders );
 
-	if ( !shaderFiles || !numShaders )
+		if ( !shaderFiles || !numShaders )
+		{
+#ifdef _XBOX
+			XBLog_Write(va("R_InitShaders: no shader files found in '%s'", shaderDirs[dirIndex]));
+#endif
+			continue;
+		}
+
+#ifdef _XBOX
+		XBLog_Write(va("R_InitShaders: found %d shader files in '%s'", numShaders, shaderDirs[dirIndex]));
+#endif
+
+		if ( totalShaders + numShaders > MAX_SHADER_FILES ) {
+			numShaders = MAX_SHADER_FILES - totalShaders;
+		}
+
+		// load and store shader files
+		for ( i = 0; i < numShaders; i++ )
+		{
+			char filename[MAX_QPATH];
+
+			Com_sprintf( filename, sizeof( filename ), "%s/%s", shaderDirs[dirIndex], shaderFiles[i] );
+			//VID_Printf( PRINT_DEVELOPER, "...loading '%s'\n", filename );
+			// Looks like stripping out crap in the shaders will save about 200k
+			FS_ReadFile( filename, (void **)&buffers[totalShaders] );
+			if ( !buffers[totalShaders] ) {
+				Com_Error( ERR_DROP, "Couldn't load %s", filename );
+			}
+			sum += (bufferSizes[totalShaders] = COM_Compress( buffers[totalShaders] ));
+			++totalShaders;
+		}
+
+		++numShaderDirs;
+
+		// free up memory
+		FS_FreeFileList( shaderFiles );
+
+		if ( totalShaders >= MAX_SHADER_FILES ) {
+			break;
+		}
+	}
+
+	if ( !totalShaders )
 	{
 		VID_Printf( PRINT_WARNING, "WARNING: no shader files found\n" );
 		return;
 	}
 
-	if ( numShaders > MAX_SHADER_FILES ) {
-		numShaders = MAX_SHADER_FILES;
-	}
-
-	// load and store shader files
-	for ( i = 0; i < numShaders; i++ )
-	{
-		char filename[MAX_QPATH];
-
-		Com_sprintf( filename, sizeof( filename ), "shaders/%s", shaderFiles[i] );
-		//VID_Printf( PRINT_DEVELOPER, "...loading '%s'\n", filename );
-		// Looks like stripping out crap in the shaders will save about 200k
-		FS_ReadFile( filename, (void **)&buffers[i] );
-		if ( !buffers[i] ) {
-			Com_Error( ERR_DROP, "Couldn't load %s", filename );
-		}
-		sum += (bufferSizes[i] = COM_Compress( buffers[i] ));
-	}
-
-	// free up memory
-	FS_FreeFileList( shaderFiles );
+#ifdef _XBOX
+	XBLog_Write(va("R_InitShaders: loaded %d shader files from %d dirs, compressed bytes=%ld", totalShaders, numShaderDirs, sum));
+#endif
 
 	// build single large buffer
-	s_shaderText = (char *) Hunk_Alloc( sum + numShaders*2, qtrue );
+	s_shaderText = (char *) Hunk_Alloc( sum + totalShaders*2, qtrue );
 
 	// free in reverse order, so the temp files are all dumped
-	for ( i = numShaders - 1, sum = 0; i >= 0 ; i-- ) {
+	for ( i = totalShaders - 1, sum = 0; i >= 0 ; i-- ) {
 		strcat( s_shaderText + sum, "\n" );
 		strcat( s_shaderText + sum, buffers[i] );
 		sum += bufferSizes[i];

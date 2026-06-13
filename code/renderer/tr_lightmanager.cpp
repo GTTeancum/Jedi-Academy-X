@@ -525,12 +525,50 @@ int VVLightManager::BoxOnPlaneSide (const short emins[3], const short emaxs[3], 
 
 
 void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits ) {
+#ifdef _XBOX
+	static int s_xboxRecursiveWorldLogBudget = 128;
+#endif
 
 	do {
 		int			newDlights[2];
+#ifdef _XBOX
+		int xboxNodeIndex = -1;
+		int xboxLeafIndex = -1;
+		if (tr.world && tr.world->nodes && node >= tr.world->nodes && node < tr.world->nodes + tr.world->numnodes)
+		{
+			xboxNodeIndex = (int)(node - tr.world->nodes);
+		}
+		if (tr.world && tr.world->leafs && (mleaf_s *)node >= tr.world->leafs && (mleaf_s *)node < tr.world->leafs + tr.world->numleafs)
+		{
+			xboxLeafIndex = (int)((mleaf_s *)node - tr.world->leafs);
+		}
+		if (s_xboxRecursiveWorldLogBudget > 0 && node == tr.world->nodes)
+		{
+			XBLF("JA: VV_R_RecursiveWorldNode root enter visframe=%d visCount=%d planeBits=0x%x dlight=0x%x mins=(%d,%d,%d) maxs=(%d,%d,%d)",
+				node->visframe,
+				tr.visCount,
+				planeBits,
+				dlightBits,
+				node->mins[0], node->mins[1], node->mins[2],
+				node->maxs[0], node->maxs[1], node->maxs[2]);
+			--s_xboxRecursiveWorldLogBudget;
+		}
+#endif
 
 		// if the node wasn't marked as potentially visible, exit
 		if (node->visframe != tr.visCount) {
+#ifdef _XBOX
+			if (s_xboxRecursiveWorldLogBudget > 0)
+			{
+				XBLF("JA: VV_R_RecursiveWorldNode return not-visible node=%d leaf=%d contents=%d visframe=%d visCount=%d",
+					xboxNodeIndex,
+					xboxLeafIndex,
+					node->contents,
+					node->visframe,
+					tr.visCount);
+				--s_xboxRecursiveWorldLogBudget;
+			}
+#endif
 			return;
 		}
 
@@ -543,6 +581,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 1 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[0]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane0 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -553,6 +602,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 2 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[1]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane1 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -563,6 +623,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 4 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[2]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane2 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -573,6 +644,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 8 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[3]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane3 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -653,6 +735,26 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 
 		// add the individual surfaces
 		leaf = (mleaf_s*)node;
+#ifdef _XBOX
+		if (s_xboxRecursiveWorldLogBudget > 0)
+		{
+			int xboxLeafIndex = -1;
+			if (tr.world && tr.world->leafs && leaf >= tr.world->leafs && leaf < tr.world->leafs + tr.world->numleafs)
+			{
+				xboxLeafIndex = (int)(leaf - tr.world->leafs);
+			}
+			XBLF("JA: VV_R_RecursiveWorldNode leaf=%d cluster=%d area=%d marks=%d firstMark=%d drawBefore=%d bounds=(%d,%d,%d)-(%d,%d,%d)",
+				xboxLeafIndex,
+				leaf->cluster,
+				leaf->area,
+				leaf->nummarksurfaces,
+				leaf->firstMarkSurfNum,
+				tr.refdef.numDrawSurfs,
+				node->mins[0], node->mins[1], node->mins[2],
+				node->maxs[0], node->maxs[1], node->maxs[2]);
+			--s_xboxRecursiveWorldLogBudget;
+		}
+#endif
 		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
 		c = leaf->nummarksurfaces;
 		while (c--) {

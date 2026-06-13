@@ -978,7 +978,11 @@ Reads in all archived cvars
 ============
 */
 void Cvar_Init (void) {
+#if defined(STEFX_ELITE_FORCE_SP)
+	cvar_cheats = Cvar_Get("sv_cheats", "0", CVAR_SYSTEMINFO );
+#else
 	cvar_cheats = Cvar_Get("helpUsObi", "0", CVAR_SYSTEMINFO );
+#endif
 
 	Cmd_AddCommand ("toggle", Cvar_Toggle_f);
 	Cmd_AddCommand ("set", Cvar_Set_f);

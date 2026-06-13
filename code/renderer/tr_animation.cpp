@@ -5,6 +5,9 @@
 
 #include "tr_local.h"
 #include "MatComp.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #ifdef VV_LIGHTING
 #include "tr_lightmanager.h"
@@ -123,6 +126,40 @@ static int R_ACullModel( md4Header_t *header, trRefEntity_t *ent ) {
 	}
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent, qboolean logCull )
+{
+	int cull;
+
+	cull = R_ACullModel( header, ent );
+	if ( cull != CULL_OUT )
+	{
+		return cull;
+	}
+
+	vec3_t center;
+	VectorCopy( ent->e.origin, center );
+	center[2] += 32.0f;
+	cull = R_CullPointAndRadius( center, 128.0f );
+	if ( logCull )
+	{
+		XBLF( "STEFX: R_AddAnimSurfaces EF MDR cull fallback ent=%d h=%d model='%s' coarse=%d center=(%g,%g,%g)",
+			ent->e.number,
+			ent->e.hModel,
+			tr.currentModel ? tr.currentModel->name : "(null)",
+			cull,
+			center[0],
+			center[1],
+			center[2] );
+	}
+	if ( cull == CULL_OUT )
+	{
+		return CULL_OUT;
+	}
+	return CULL_CLIP;
+}
+#endif
+
 
 /*
 =================
@@ -204,9 +241,33 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	qboolean		personalModel;
 	int				cull;
 	int				i, whichLod;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int		s_stefxAnimSurfLogBudget = 96;
+	qboolean		stefxLogAnimSurf = qfalse;
+#endif
 
 	// don't add third_person objects if not in a portal
 	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( s_stefxAnimSurfLogBudget > 0 &&
+		( ent->e.number == 78 || ent->e.number == 154 ) )
+	{
+		stefxLogAnimSurf = qtrue;
+		s_stefxAnimSurfLogBudget--;
+		XBLF( "STEFX: R_AddAnimSurfaces enter ent=%d h=%d model='%s' frame=%d old=%d rf=0x%x personal=%d origin=(%g,%g,%g)",
+			ent->e.number,
+			ent->e.hModel,
+			tr.currentModel ? tr.currentModel->name : "(null)",
+			ent->e.frame,
+			ent->e.oldframe,
+			ent->e.renderfx,
+			personalModel,
+			ent->e.origin[0],
+			ent->e.origin[1],
+			ent->e.origin[2] );
+	}
+#endif
 
 	if ( ent->e.renderfx & RF_CAP_FRAMES) {
 		if (ent->e.frame > tr.currentModel->md4->numFrames-1)
@@ -247,8 +308,23 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	// cull the entire model if merged bounding box of both frames
 	// is outside the view frustum.
 	//
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	cull = R_STEFX_ACullModel( header, ent, stefxLogAnimSurf );
+#else
 	cull = R_ACullModel ( header, ent );
+#endif
 	if ( cull == CULL_OUT ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogAnimSurf )
+		{
+			XBLF( "STEFX: R_AddAnimSurfaces cull out ent=%d h=%d model='%s' frame=%d old=%d",
+				ent->e.number,
+				ent->e.hModel,
+				tr.currentModel ? tr.currentModel->name : "(null)",
+				ent->e.frame,
+				ent->e.oldframe );
+		}
+#endif
 		return;
 	}
 
@@ -261,6 +337,17 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	{
 		lod = (md4LOD_t*)( (byte *)lod + lod->ofsEnd );
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxLogAnimSurf )
+	{
+		XBLF( "STEFX: R_AddAnimSurfaces visible ent=%d h=%d lod=%d surfaces=%d cull=%d",
+			ent->e.number,
+			ent->e.hModel,
+			whichLod,
+			lod->numSurfaces,
+			cull );
+	}
+#endif
 
 	//
 	// set up lighting now that we know we aren't culled
@@ -307,6 +394,20 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 		} else {
 			shader = R_GetShaderByHandle( surface->shaderIndex );
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogAnimSurf && i < 4 )
+		{
+			XBLF( "STEFX: R_AddAnimSurfaces surface ent=%d h=%d i=%d name='%s' shader='%s' fog=%d customSkin=%d default=%d",
+				ent->e.number,
+				ent->e.hModel,
+				i,
+				surface->name,
+				shader ? shader->name : "(null)",
+				fogNum,
+				ent->e.customSkin,
+				shader == tr.defaultShader );
+		}
+#endif
 		// we will add shadows even if the main object isn't visible in the view
 
 		// stencil shadows can't do personal models unless I polyhedron clip

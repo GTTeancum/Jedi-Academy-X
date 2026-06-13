@@ -700,6 +700,15 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 	if ( !CG_RegisterClientSkin( ci, headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName ) ) 
 	{
 		//Com_Printf( "Failed to load skin file: %s : %s/%s : %s/%s : %s\n", headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModelname skin failed head='%s/%s' torso='%s/%s' legs='%s/%s'",
+			headModelName ? headModelName : "",
+			headSkinName ? headSkinName : "",
+			torsoModelName ? torsoModelName : "",
+			torsoSkinName ? torsoSkinName : "",
+			legsModelName ? legsModelName : "",
+			legsSkinName ? legsSkinName : "");
+#endif
 		return qfalse;
 	}
 
@@ -708,9 +717,24 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 	if ( !G_ParseAnimFileSet( legsModelName, &ci->animFileIndex, qtrue ) ) 
 	{
 		Com_Printf( S_COLOR_RED"Failed to load animation file set models/players/%s\n", legsModelName );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModelname anim failed legs='%s' animIndex=%d",
+			legsModelName ? legsModelName : "",
+			ci->animFileIndex);
+#endif
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModelname success headModel=%d torsoModel=%d legsModel=%d headSkin=%d torsoSkin=%d legsSkin=%d animIndex=%d",
+		ci->headModel,
+		ci->torsoModel,
+		ci->legsModel,
+		ci->headSkin,
+		ci->torsoSkin,
+		ci->legsSkin,
+		ci->animFileIndex);
+#endif
 	return qtrue;
 }
 
@@ -796,7 +820,7 @@ void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 		XBLF("STEFX: CG_RegisterClientRenderInfo fallback requested head='%s' torso='%s' legs='%s'",
 			headModelName, torsoModelName, legsModelName);
 #endif
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
 		XBLog_Write("STEFX: CG_RegisterClientRenderInfo using Xbox-visible hirogen fallback");
 		if ( !CG_RegisterClientModelname( ci, "hirogen", "default", "hirogen", "default", "hirogen", "default" ) ) 
 #else

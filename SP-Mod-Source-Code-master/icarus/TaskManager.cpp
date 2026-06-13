@@ -5,6 +5,70 @@
 #include "ICARUS.h"
 #include <assert.h>
 
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+
+static bool STEFX_LogIcarusOwner( int ownerID )
+{
+	return ownerID == 0 || ownerID == 386 || ownerID == 391;
+}
+
+static bool STEFX_LogIcarusBudget( int *budget, int limit )
+{
+	if ( *budget >= limit )
+	{
+		return false;
+	}
+	(*budget)++;
+	return true;
+}
+
+static const char *STEFX_IcarusBlockName( int id )
+{
+	switch ( id )
+	{
+	case ID_WAIT: return "WAIT";
+	case ID_WAITSIGNAL: return "WAITSIGNAL";
+	case ID_PRINT: return "PRINT";
+	case ID_SOUND: return "SOUND";
+	case ID_MOVE: return "MOVE";
+	case ID_ROTATE: return "ROTATE";
+	case ID_KILL: return "KILL";
+	case ID_REMOVE: return "REMOVE";
+	case ID_CAMERA: return "CAMERA";
+	case ID_SET: return "SET";
+	case ID_USE: return "USE";
+	case ID_DECLARE: return "DECLARE";
+	case ID_FREE: return "FREE";
+	case ID_SIGNAL: return "SIGNAL";
+	case ID_PLAY: return "PLAY";
+	case ID_BLOCK_END: return "BLOCK_END";
+	case ID_DO: return "DO";
+	default: return "UNKNOWN";
+	}
+}
+
+static const char *STEFX_IcarusCameraName( int type )
+{
+	switch ( type )
+	{
+	case TYPE_PAN: return "PAN";
+	case TYPE_ZOOM: return "ZOOM";
+	case TYPE_MOVE: return "MOVE";
+	case TYPE_FADE: return "FADE";
+	case TYPE_PATH: return "PATH";
+	case TYPE_ENABLE: return "ENABLE";
+	case TYPE_DISABLE: return "DISABLE";
+	case TYPE_SHAKE: return "SHAKE";
+	case TYPE_ROLL: return "ROLL";
+	case TYPE_TRACK: return "TRACK";
+	case TYPE_DISTANCE: return "DISTANCE";
+	case TYPE_FOLLOW: return "FOLLOW";
+	default: return "UNKNOWN";
+	}
+}
+#endif
+
 #define VALIDATE(a) if ( a == false ) return TASK_FAILED;
 
 /*
@@ -712,6 +776,32 @@ int	CTaskManager::Go( void )
 		//If this hasn't been stamped, do so
 		if ( task->GetTimeStamp() == 0 )
 			task->SetTimeStamp( ( m_owner->GetInterface())->I_GetTime() );
+
+#ifdef _XBOX
+		if ( STEFX_LogIcarusOwner( m_ownerID ) )
+		{
+			static int s_stefxGoBudget = 0;
+			if ( STEFX_LogIcarusBudget( &s_stefxGoBudget, 192 ) )
+			{
+				int cameraType = -1;
+				CBlock *taskBlock = task->GetBlock();
+				if ( taskBlock && taskBlock->GetBlockID() == ID_CAMERA && taskBlock->GetNumMembers() > 0 )
+				{
+					cameraType = (int)(*(float *)taskBlock->GetMemberData( 0 ));
+				}
+				XBLF("STEFX: ICARUS Go owner=%d guid=%d id=%d(%s) camera=%d(%s) stamp=%d now=%d queued=%d",
+					m_ownerID,
+					task->GetGUID(),
+					taskBlock ? taskBlock->GetBlockID() : -1,
+					taskBlock ? STEFX_IcarusBlockName( taskBlock->GetBlockID() ) : "NULL",
+					cameraType,
+					cameraType >= 0 ? STEFX_IcarusCameraName( cameraType ) : "NONE",
+					task->GetTimeStamp(),
+					(m_owner->GetInterface())->I_GetTime(),
+					m_numTasks);
+			}
+		}
+#endif
 			
 		//Switch and call the proper function
 		switch( task->GetID() )
@@ -828,6 +918,26 @@ int	CTaskManager::SetCommand( CBlock *command, int type )
 {
 	CTask	*task = CTask::Create( m_GUID++, command );
 
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		static int s_stefxSetCommandBudget = 0;
+		if ( STEFX_LogIcarusBudget( &s_stefxSetCommandBudget, 192 ) )
+		{
+			XBLF("STEFX: ICARUS SetCommand owner=%d guid=%d id=%d(%s) push=%d members=%d curGroup=%08X queuedBefore=%d time=%d\n",
+				m_ownerID,
+				task ? task->GetGUID() : -1,
+				command ? command->GetBlockID() : -1,
+				command ? STEFX_IcarusBlockName( command->GetBlockID() ) : "NULL",
+				type,
+				command ? command->GetNumMembers() : -1,
+				(unsigned int)m_curGroup,
+				m_numTasks,
+				(m_owner->GetInterface())->I_GetTime());
+		}
+	}
+#endif
+
 	//If this is part of a task group, add it in
 	if ( m_curGroup )
 	{
@@ -898,14 +1008,30 @@ Completed
 int CTaskManager::Completed( int id )
 {
 	taskGroup_v::iterator	tgi;
+	bool					marked = false;
 
 	//Mark the task as completed
 	for ( tgi = m_taskGroups.begin(); tgi != m_taskGroups.end(); tgi++ )
 	{
 		//If this returns true, then the task was marked properly
 		if ( (*tgi)->MarkTaskComplete( id ) )
+		{
+			marked = true;
 			break;
+		}
 	}
+
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		XBLF("STEFX: ICARUS Completed owner=%d taskGUID=%d marked=%d groups=%d time=%d\n",
+			m_ownerID,
+			id,
+			marked ? 1 : 0,
+			(int)m_taskGroups.size(),
+			(m_owner->GetInterface())->I_GetTime());
+	}
+#endif
 
 	return TASK_OK;
 }
@@ -918,7 +1044,50 @@ CallbackCommand
 
 int	CTaskManager::CallbackCommand( CTask *task, int returnCode )
 {
-	if ( m_owner->Callback( this, task->GetBlock(), returnCode ) == SEQ_OK )
+	int result;
+	CBlock *block = task ? task->GetBlock() : NULL;
+	int blockID = block ? block->GetBlockID() : -1;
+	int taskGUID = task ? task->GetGUID() : -1;
+
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		static int s_stefxCallbackBudget = 0;
+		if ( STEFX_LogIcarusBudget( &s_stefxCallbackBudget, 192 ) )
+		{
+			XBLF("STEFX: ICARUS CallbackCommand enter owner=%d guid=%d id=%d(%s) return=%d queued=%d time=%d\n",
+				m_ownerID,
+				taskGUID,
+				blockID,
+				blockID >= 0 ? STEFX_IcarusBlockName( blockID ) : "NULL",
+				returnCode,
+				m_numTasks,
+				(m_owner->GetInterface())->I_GetTime());
+		}
+	}
+#endif
+
+	result = m_owner->Callback( this, block, returnCode );
+
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		static int s_stefxCallbackResultBudget = 0;
+		if ( STEFX_LogIcarusBudget( &s_stefxCallbackResultBudget, 192 ) )
+		{
+			XBLF("STEFX: ICARUS CallbackCommand result owner=%d guid=%d id=%d(%s) result=%d queued=%d time=%d\n",
+				m_ownerID,
+				taskGUID,
+				blockID,
+				blockID >= 0 ? STEFX_IcarusBlockName( blockID ) : "NULL",
+				result,
+				m_numTasks,
+				(m_owner->GetInterface())->I_GetTime());
+		}
+	}
+#endif
+
+	if ( result == SEQ_OK )
 		return Go( );
 
 	assert(0);
@@ -1073,6 +1242,20 @@ int CTaskManager::Wait( CTask *task, bool &completed  )
 		}
 
 		completed = group->Complete();
+#ifdef _XBOX
+		static int s_stefxWaitStringBudget = 0;
+		if ( STEFX_LogIcarusOwner( m_ownerID ) && STEFX_LogIcarusBudget( &s_stefxWaitStringBudget, 96 ) )
+		{
+			XBLF("STEFX: ICARUS Wait owner=%d guid=%d label='%s' complete=%d groups=%d stamp=%d now=%d\n",
+				m_ownerID,
+				task->GetGUID(),
+				sVal ? sVal : "(null)",
+				completed ? 1 : 0,
+				(int)m_taskGroups.size(),
+				task->GetTimeStamp(),
+				(m_owner->GetInterface())->I_GetTime());
+		}
+#endif
 	}
 	else	//Otherwise it's a time completion wait
 	{
@@ -1086,6 +1269,19 @@ int CTaskManager::Wait( CTask *task, bool &completed  )
 
 		if ( (task->GetTimeStamp() + dwtime) < ((m_owner->GetInterface())->I_GetTime()) )
 			completed = true;
+#ifdef _XBOX
+		static int s_stefxWaitTimeBudget = 0;
+		if ( STEFX_LogIcarusOwner( m_ownerID ) && STEFX_LogIcarusBudget( &s_stefxWaitTimeBudget, 96 ) )
+		{
+			XBLF("STEFX: ICARUS Wait owner=%d guid=%d msec=%d complete=%d stamp=%d now=%d\n",
+				m_ownerID,
+				task->GetGUID(),
+				(int)dwtime,
+				completed ? 1 : 0,
+				task->GetTimeStamp(),
+				(m_owner->GetInterface())->I_GetTime());
+		}
+#endif
 	}
 
 	return TASK_OK;
@@ -1102,6 +1298,7 @@ int CTaskManager::WaitSignal( CTask *task, bool &completed  )
 	CBlock	*block = task->GetBlock();
 	char	*sVal;
 	int		memberNum = 0;
+	bool	signaled;
 
 	completed = false;
 
@@ -1113,7 +1310,26 @@ int CTaskManager::WaitSignal( CTask *task, bool &completed  )
 		(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d waitsignal(\"%s\"); [%d]", m_ownerID, sVal, task->GetTimeStamp() );
 	}
 
-	if ( (m_owner->GetOwner())->CheckSignal( sVal ) )
+	signaled = (m_owner->GetOwner())->CheckSignal( sVal );
+
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		static int s_stefxWaitSignalBudget = 0;
+		if ( STEFX_LogIcarusBudget( &s_stefxWaitSignalBudget, 160 ) )
+		{
+			XBLF("STEFX: ICARUS WaitSignal owner=%d guid=%d signal='%s' signaled=%d stamp=%d now=%d\n",
+				m_ownerID,
+				task ? task->GetGUID() : -1,
+				sVal ? sVal : "<null>",
+				signaled ? 1 : 0,
+				task ? task->GetTimeStamp() : 0,
+				(m_owner->GetInterface())->I_GetTime());
+		}
+	}
+#endif
+
+	if ( signaled )
 	{
 		completed = true;
 		(m_owner->GetOwner())->ClearSignal( sVal );
@@ -1163,7 +1379,22 @@ int CTaskManager::Sound( CTask *task )
 	(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d sound(\"%s\", \"%s\"); [%d]", m_ownerID, sVal, sVal2, task->GetTimeStamp() );
 
 	//Only instantly complete if the user has requested it
-	if( (m_owner->GetInterface())->I_PlaySound( task->GetGUID(), m_ownerID, sVal2, sVal ) )
+	int instantComplete = (m_owner->GetInterface())->I_PlaySound( task->GetGUID(), m_ownerID, sVal2, sVal );
+#ifdef _XBOX
+	static int s_stefxSoundBudget = 0;
+	if ( ( STEFX_LogIcarusOwner( m_ownerID ) || s_stefxSoundBudget < 48 ) && STEFX_LogIcarusBudget( &s_stefxSoundBudget, 160 ) )
+	{
+		XBLF("STEFX: ICARUS Sound owner=%d guid=%d channel='%s' name='%s' instant=%d stamp=%d now=%d\n",
+			m_ownerID,
+			task->GetGUID(),
+			sVal ? sVal : "(null)",
+			sVal2 ? sVal2 : "(null)",
+			instantComplete,
+			task->GetTimeStamp(),
+			(m_owner->GetInterface())->I_GetTime());
+	}
+#endif
+	if( instantComplete )
 		Completed( task->GetGUID() );
 	
 	return TASK_OK;
@@ -1253,6 +1484,23 @@ int CTaskManager::Camera( CTask *task )
 
 	//Get the camera function type
 	VALIDATE( GetFloat( m_ownerID, block, memberNum, type ) );
+
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		static int s_stefxCameraBudget = 0;
+		if ( STEFX_LogIcarusBudget( &s_stefxCameraBudget, 96 ) )
+		{
+			XBLF("STEFX: ICARUS Camera owner=%d guid=%d type=%d(%s) time=%d members=%d",
+				m_ownerID,
+				task ? task->GetGUID() : -1,
+				(int)type,
+				STEFX_IcarusCameraName( (int)type ),
+				(m_owner->GetInterface())->I_GetTime(),
+				block ? block->GetNumMembers() : -1);
+		}
+	}
+#endif
 
 	switch ( (int) type )
 	{
@@ -1445,6 +1693,19 @@ int CTaskManager::Set( CTask *task )
 	VALIDATE( Get( m_ownerID, block, memberNum, &sVal2 ) );
 
 	(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d set( \"%s\", \"%s\" ); [%d]", m_ownerID, sVal, sVal2, task->GetTimeStamp() );
+#ifdef _XBOX
+	static int s_stefxSetBudget = 0;
+	if ( STEFX_LogIcarusOwner( m_ownerID ) && STEFX_LogIcarusBudget( &s_stefxSetBudget, 128 ) )
+	{
+		XBLF("STEFX: ICARUS Set owner=%d guid=%d key='%s' value='%s' stamp=%d now=%d\n",
+			m_ownerID,
+			task->GetGUID(),
+			sVal ? sVal : "(null)",
+			sVal2 ? sVal2 : "(null)",
+			task->GetTimeStamp(),
+			(m_owner->GetInterface())->I_GetTime());
+	}
+#endif
 	(m_owner->GetInterface())->I_Set( task->GetGUID(), m_ownerID, sVal, sVal2 );
 
 	return TASK_OK;
@@ -1463,6 +1724,19 @@ int CTaskManager::Use( CTask *task )
 	int		memberNum = 0;
 
 	VALIDATE( Get( m_ownerID, block, memberNum, &sVal ) );
+
+#ifdef _XBOX
+	static int s_stefxUseBudget = 0;
+	if ( STEFX_LogIcarusOwner( m_ownerID ) && STEFX_LogIcarusBudget( &s_stefxUseBudget, 128 ) )
+	{
+		XBLF("STEFX: ICARUS Use owner=%d guid=%d target='%s' stamp=%d now=%d\n",
+			m_ownerID,
+			task->GetGUID(),
+			sVal ? sVal : "(null)",
+			task->GetTimeStamp(),
+			(m_owner->GetInterface())->I_GetTime());
+	}
+#endif
 
 	(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d use( \"%s\" ); [%d]", m_ownerID, sVal, task->GetTimeStamp() );
 	(m_owner->GetInterface())->I_Use( m_ownerID, sVal );
@@ -1533,6 +1807,22 @@ int CTaskManager::Signal( CTask *task )
 	int		memberNum = 0;
 
 	VALIDATE( Get( m_ownerID, block, memberNum, &sVal ) );
+
+#ifdef _XBOX
+	if ( STEFX_LogIcarusOwner( m_ownerID ) )
+	{
+		static int s_stefxSignalBudget = 0;
+		if ( STEFX_LogIcarusBudget( &s_stefxSignalBudget, 96 ) )
+		{
+			XBLF("STEFX: ICARUS Signal owner=%d guid=%d signal='%s' stamp=%d now=%d\n",
+				m_ownerID,
+				task ? task->GetGUID() : -1,
+				sVal ? sVal : "<null>",
+				task ? task->GetTimeStamp() : 0,
+				(m_owner->GetInterface())->I_GetTime());
+		}
+	}
+#endif
 
 	(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d signal( \"%s\" ); [%d]", m_ownerID, sVal, task->GetTimeStamp() );
 	m_owner->GetOwner()->Signal( (const char *) sVal );

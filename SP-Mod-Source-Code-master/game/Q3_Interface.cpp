@@ -20,6 +20,9 @@
 #include "g_roff.h"
 #include "..\cgame\cg_local.h"
 #include "..\game\speakers.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern int ICARUS_LinkEntity( int entID, CSequencer *sequencer, CTaskManager *taskManager );
 
@@ -56,6 +59,31 @@ extern int	ffireLevel;
 extern const int FFIRE_LEVEL_RETALIATION;
 extern qboolean	stop_icarus;
 void G_MakeTeamVulnerable( void );
+
+#ifdef _XBOX
+static int STEFX_EntityNumber( const gentity_t *ent )
+{
+	if ( !ent )
+	{
+		return -1;
+	}
+	return (int)( ent - g_entities );
+}
+
+static bool STEFX_ShouldLogScriptEntity( const gentity_t *ent )
+{
+	int entNum = STEFX_EntityNumber( ent );
+	if ( entNum == 0 || entNum == 386 || entNum == 391 )
+	{
+		return true;
+	}
+	if ( ent && ent->classname && Q_stricmp( ent->classname, "target_scriptrunner" ) == 0 )
+	{
+		return true;
+	}
+	return false;
+}
+#endif
 
 #define stringIDExpand(str, strEnum)	str, strEnum, ENUM2STRING(strEnum)
 //#define stringIDExpand(str, strEnum)	str,strEnum
@@ -716,6 +744,19 @@ void Q3_TaskIDComplete( gentity_t *ent, taskID_t taskType )
 
 	if ( ent->taskManager && Q3_TaskIDPending( ent, taskType ) )
 	{//Complete it
+		int completedTask = ent->taskID[taskType];
+#ifdef _XBOX
+		if ( STEFX_ShouldLogScriptEntity( ent ) || taskType == TID_CHAN_VOICE )
+		{
+			XBLF("STEFX: Q3_TaskIDComplete ent=%d class='%s' taskType=%d taskID=%d time=%d sOverride=%d\n",
+				STEFX_EntityNumber( ent ),
+				ent->classname ? ent->classname : "(null)",
+				taskType,
+				completedTask,
+				level.time,
+				gi.S_Override ? gi.S_Override[ent->s.number] : -999);
+		}
+#endif
 		ent->taskManager->Completed( ent->taskID[taskType] );
 
 		//See if any other tasks have the name number and clear them so we don't complete more than once
@@ -746,6 +787,20 @@ static void Q3_TaskIDSet( gentity_t *ent, taskID_t taskType, int taskID )
 	{
 		return;
 	}
+
+#ifdef _XBOX
+	if ( STEFX_ShouldLogScriptEntity( ent ) || taskType == TID_CHAN_VOICE )
+	{
+		XBLF("STEFX: Q3_TaskIDSet ent=%d class='%s' taskType=%d oldTask=%d newTask=%d time=%d sOverride=%d\n",
+			STEFX_EntityNumber( ent ),
+			ent && ent->classname ? ent->classname : "(null)",
+			taskType,
+			ent ? ent->taskID[taskType] : -999,
+			taskID,
+			level.time,
+			(ent && gi.S_Override) ? gi.S_Override[ent->s.number] : -999);
+	}
+#endif
 
 	//Might be stomping an old task, so complete and clear previous task if there was one
 	Q3_TaskIDComplete( ent, taskType );
@@ -1430,6 +1485,21 @@ static int Q3_PlaySound( int taskID, int entID, const char *name, const char *ch
 	int soundHandle = G_SoundIndex( (char *) finalName );
 	bool bBroadcast = false;
 
+#ifdef _XBOX
+	if ( STEFX_ShouldLogScriptEntity( ent ) )
+	{
+		XBLF("STEFX: Q3_PlaySound enter task=%d ent=%d class='%s' name='%s' channel='%s' final='%s' handle=%d time=%d\n",
+			taskID,
+			entID,
+			ent->classname ? ent->classname : "(null)",
+			name ? name : "(null)",
+			channel ? channel : "(null)",
+			finalName,
+			soundHandle,
+			level.time);
+	}
+#endif
+
 	if ( ( stricmp( channel, "CHAN_ANNOUNCER" ) == 0 ) || (ent->classname && Q_stricmp("target_scriptrunner", ent->classname ) == 0) ) {
 		bBroadcast = true;
 	}
@@ -1520,6 +1590,13 @@ static int Q3_PlaySound( int taskID, int entID, const char *name, const char *ch
 	{
 		if ( g_timescale->value > 1.0f )
 		{//Skip the damn sound!
+#ifdef _XBOX
+			if ( STEFX_ShouldLogScriptEntity( ent ) )
+			{
+				XBLF("STEFX: Q3_PlaySound voice skipped task=%d ent=%d timescale=%g time=%d\n",
+					taskID, entID, g_timescale->value, level.time);
+			}
+#endif
 			return qtrue;
 		}
 		else
@@ -1529,6 +1606,17 @@ static int Q3_PlaySound( int taskID, int entID, const char *name, const char *ch
 		}
 		//Remember we're waiting for this
 		Q3_TaskIDSet( ent, TID_CHAN_VOICE, taskID );
+#ifdef _XBOX
+		if ( STEFX_ShouldLogScriptEntity( ent ) )
+		{
+			XBLF("STEFX: Q3_PlaySound voice wait task=%d ent=%d chan=%d sOverride=%d time=%d\n",
+				taskID,
+				entID,
+				voice_chan,
+				gi.S_Override ? gi.S_Override[ent->s.number] : -999,
+				level.time);
+		}
+#endif
 		//do not task_return complete
 		return qfalse;
 	}
@@ -1541,6 +1629,14 @@ static int Q3_PlaySound( int taskID, int entID, const char *name, const char *ch
 	{
 		G_Sound( ent, soundHandle );
 	}
+
+#ifdef _XBOX
+	if ( STEFX_ShouldLogScriptEntity( ent ) )
+	{
+		XBLF("STEFX: Q3_PlaySound instant complete task=%d ent=%d broadcast=%d handle=%d time=%d\n",
+			taskID, entID, bBroadcast, soundHandle, level.time);
+	}
+#endif
 
 	return qtrue;
 }
@@ -6294,6 +6390,14 @@ static void Q3_SetPlayerLocked( int entID, qboolean locked )
 {
 	gentity_t	*ent = &g_entities[0];
 
+#ifdef _XBOX
+	XBLF("STEFX: Q3_SetPlayerLocked ent=%d locked=%d prev=%d time=%d map='%s'",
+		entID,
+		locked ? 1 : 0,
+		player_locked ? 1 : 0,
+		level.time,
+		level.mapname);
+#endif
 	player_locked = locked;
 	if ( ent && ent->client )
 	{//stop him too
@@ -8775,6 +8879,13 @@ static void Q3_CameraFade( float sr, float sg, float sb, float sa, float dr, flo
 {
 	vec4_t	src, dst;
 
+#ifdef _XBOX
+	XBLF("STEFX: Q3_CameraFade time=%d src=(%g,%g,%g,%g) dst=(%g,%g,%g,%g) duration=%g",
+		level.time,
+		sr, sg, sb, sa,
+		dr, dg, db, da,
+		duration);
+#endif
 	src[0] = sr;
 	src[1] = sg;
 	src[2] = sb;
@@ -8795,6 +8906,11 @@ Q3_CameraPath
 */
 static void Q3_CameraPath( const char *name )
 {
+#ifdef _XBOX
+	XBLF("STEFX: Q3_CameraPath time=%d name='%s'",
+		level.time,
+		name ? name : "<null>");
+#endif
 	CGCam_StartRoff( G_NewString( name ) );
 }
 

@@ -7,6 +7,9 @@
 
 #include "gameinfo.h"
 #include "..\game\weapons.h"
+#ifdef _XBOX
+#include "..\..\code\win32\xb_log.h"
+#endif
 
 
 gameinfo_import_t	gi;
@@ -26,7 +29,16 @@ GI_Init
 ===============
 */
 void GI_Init( gameinfo_import_t *import ) {
+#ifdef _XBOX
+	XBLog_Write("STEFX: GI_Init enter");
+#endif
 	gi = *import;
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: GI_Init before WP_LoadWeaponParms");
+#endif
 	WP_LoadWeaponParms ();
+#ifdef _XBOX
+	XBLog_Write("STEFX: GI_Init done");
+#endif
 }

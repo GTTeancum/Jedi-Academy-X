@@ -4,6 +4,9 @@
 #include "fx_public.h"
 #include "..\game\anims.h"
 #include "..\game\boltOns.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 #define	LOOK_SWING_SCALE	0.5
 
@@ -761,7 +764,47 @@ may include ANIM_TOGGLEBIT
 void CG_SetLerpFrameAnimation( clientInfo_t *ci, lerpFrame_t *lf, int newAnimation ) 
 {
 	animation_t	*anim;
+	int			animFileIndex;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+	static int	s_badAnimLogBudget = 16;
+	static int	s_badAnimFileLogBudget = 16;
+	const int	rawAnimation = newAnimation;
+	const int	rawAnimFileIndex = ci ? ci->animFileIndex : -1;
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+	newAnimation &= ~ANIM_TOGGLEBIT;
+	if ( newAnimation < 0 || newAnimation >= MAX_ANIMATIONS ) 
+	{
+		if ( s_badAnimLogBudget > 0 )
+		{
+			XBLF( "STEFX: CG_SetLerpFrameAnimation clamp bad anim raw=%d masked=%d ci='%s' animFile=%d\n",
+				rawAnimation, newAnimation, ci ? ci->name : "(null)", rawAnimFileIndex );
+			s_badAnimLogBudget--;
+		}
+		newAnimation = BOTH_STAND1;
+	}
+
+	lf->animationNumber = newAnimation;
+
+	animFileIndex = ci ? ci->animFileIndex : 0;
+	if ( !ci || !ValidAnimFileIndex( animFileIndex ) )
+	{
+		if ( s_badAnimFileLogBudget > 0 )
+		{
+			XBLF( "STEFX: CG_SetLerpFrameAnimation clamp bad animFile=%d anim=%d ci='%s'\n",
+				rawAnimFileIndex, newAnimation, ci ? ci->name : "(null)" );
+			s_badAnimFileLogBudget--;
+		}
+
+		if ( ci )
+		{
+			ci->animFileIndex = 0;
+		}
+		animFileIndex = 0;
+	}
+#else
 	lf->animationNumber = newAnimation;
 	newAnimation &= ~ANIM_TOGGLEBIT;
 
@@ -774,8 +817,10 @@ void CG_SetLerpFrameAnimation( clientInfo_t *ci, lerpFrame_t *lf, int newAnimati
 	{
 		CG_Error( "Bad animFileIndex: %i", ci->animFileIndex );
 	}
+	animFileIndex = ci->animFileIndex;
+#endif
 
-	anim = &knownAnimFileSets[ci->animFileIndex].animations[ newAnimation ];
+	anim = &knownAnimFileSets[animFileIndex].animations[ newAnimation ];
 
 	lf->animation = anim;
 	lf->animationTime = lf->frameTime + anim->initialLerp;
@@ -3115,14 +3160,43 @@ void CG_Player( centity_t *cent ) {
 	float			shadowPlane, alpha;
 	vec3_t			scaleFactor;
 	entityState_t *ent;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int		s_stefxPlayerLogBudget = 96;
+	qboolean		stefxLogPlayer = qfalse;
+#endif
 
 	calcedMp = qfalse;
 
 	//Get the player's light level for stealth calculations
 	CG_GetPlayerLightLevel( cent );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( cent && s_stefxPlayerLogBudget > 0 && cg.time >= 2500 && cg.time <= 5000 &&
+		( cent->currentState.number == 78 || cent->currentState.number == 154 ) )
+	{
+		stefxLogPlayer = qtrue;
+		s_stefxPlayerLogBudget--;
+		XBLF( "STEFX: CG_Player enter ent=%d time=%d eFlags=0x%x type=%d gent=%p client=%p stateOrg=(%g,%g,%g)",
+			cent->currentState.number,
+			cg.time,
+			cent->currentState.eFlags,
+			cent->currentState.eType,
+			cent->gent,
+			cent->gent ? cent->gent->client : NULL,
+			cent->currentState.pos.trBase[0],
+			cent->currentState.pos.trBase[1],
+			cent->currentState.pos.trBase[2] );
+	}
+#endif
+
 	if ( cent->currentState.eFlags & EF_NODRAW ) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player return EF_NODRAW ent=%d", cent->currentState.number );
+		}
+#endif
 		return;
 	}
 
@@ -3131,16 +3205,34 @@ void CG_Player( centity_t *cent ) {
 	//FIXME: make sure this thing has a gent and client
 	if(!cent->gent)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player return no gent ent=%d", cent->currentState.number );
+		}
+#endif
 		return;
 	}
 
 	if(!cent->gent->client)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player return no client ent=%d", cent->currentState.number );
+		}
+#endif
 		return;
 	}
 
 	if ((in_camera) && !(cent->currentState.eFlags & EF_NPC))	// If player in camera then no need for shadow
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player return in_camera ent=%d", cent->currentState.number );
+		}
+#endif
 		return;
 	}
 
@@ -3153,8 +3245,42 @@ void CG_Player( centity_t *cent ) {
 
 	if ( !ci->infoValid ) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player return info invalid ent=%d name='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d",
+				cent->currentState.number,
+				ci->name,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin,
+				ci->animFileIndex );
+		}
+#endif
 		return;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxLogPlayer )
+	{
+		XBLF( "STEFX: CG_Player valid ent=%d name='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d weapon=%d race=%d team=%d",
+			cent->currentState.number,
+			ci->name,
+			ci->legsModel,
+			ci->torsoModel,
+			ci->headModel,
+			ci->legsSkin,
+			ci->torsoSkin,
+			ci->headSkin,
+			ci->animFileIndex,
+			cent->currentState.weapon,
+			cent->gent->client->race,
+			cent->gent->client->playerTeam );
+	}
+#endif
 
 	memset( &legs, 0, sizeof(legs) );
 	memset( &torso, 0, sizeof(torso) );
@@ -3162,6 +3288,14 @@ void CG_Player( centity_t *cent ) {
 	memset( &gun, 0, sizeof(gun) );
 	memset( &flash, 0, sizeof(flash) );
 	memset( &flashlight, 0, sizeof(flashlight) );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	legs.number = cent->currentState.number;
+	torso.number = cent->currentState.number;
+	head.number = cent->currentState.number;
+	gun.number = cent->currentState.number;
+	flash.number = cent->currentState.number;
+	flashlight.number = cent->currentState.number;
+#endif
 
 	CG_ScaleEffects( cent );
 
@@ -3249,10 +3383,31 @@ void CG_Player( centity_t *cent ) {
 	VectorCopy (legs.origin, legs.oldorigin);	// don't positionally lerp at all
 
 	CG_AddRefEntityWithPowerups( &legs, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxLogPlayer )
+	{
+		XBLF( "STEFX: CG_Player submitted legs ent=%d h=%d skin=%d frame=%d old=%d rf=0x%x origin=(%g,%g,%g)",
+			cent->currentState.number,
+			legs.hModel,
+			legs.customSkin,
+			legs.frame,
+			legs.oldframe,
+			legs.renderfx,
+			legs.origin[0],
+			legs.origin[1],
+			legs.origin[2] );
+	}
+#endif
 
 	// if the model failed, allow the default nullmodel to be displayed
 	if (!legs.hModel) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player return no legs model ent=%d", cent->currentState.number );
+		}
+#endif
 		return;
 	}
 
@@ -3276,6 +3431,21 @@ void CG_Player( centity_t *cent ) {
 		torso.renderfx = renderfx;
 
 		CG_AddRefEntityWithPowerups( &torso, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogPlayer )
+		{
+			XBLF( "STEFX: CG_Player submitted torso ent=%d h=%d skin=%d frame=%d old=%d rf=0x%x origin=(%g,%g,%g)",
+				cent->currentState.number,
+				torso.hModel,
+				torso.customSkin,
+				torso.frame,
+				torso.oldframe,
+				torso.renderfx,
+				torso.origin[0],
+				torso.origin[1],
+				torso.origin[2] );
+		}
+#endif
 
 		// Do slash trails, etc if necessary
 		CG_AddTagBasedEffects( cent, &legs, &torso );
@@ -3345,6 +3515,21 @@ void CG_Player( centity_t *cent ) {
 			head.renderfx = renderfx;
 
 			CG_AddRefEntityWithPowerups( &head, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( stefxLogPlayer )
+			{
+				XBLF( "STEFX: CG_Player submitted head ent=%d h=%d skin=%d frame=%d old=%d rf=0x%x origin=(%g,%g,%g)",
+					cent->currentState.number,
+					head.hModel,
+					head.customSkin,
+					head.frame,
+					head.oldframe,
+					head.renderfx,
+					head.origin[0],
+					head.origin[1],
+					head.origin[2] );
+			}
+#endif
 			CG_AddFaceDisruption( &head, cent->gent->client->ps.powerups[PW_REGEN] );
 
 			//Temp: Add special effects

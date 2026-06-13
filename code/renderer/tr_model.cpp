@@ -19,6 +19,9 @@
 void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ); //should only be called for sub-bsp instances
 
 static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *name, qboolean &bAlreadyCached );
+#ifdef STEFX_ELITE_FORCE_SP
+static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *name, qboolean &bAlreadyCached );
+#endif
 
 /*
 Ghoul2 Insert Start
@@ -589,6 +592,10 @@ static qboolean STEFX_IsGhoul2ModelName(const char *name)
 	return (ext && (!Q_stricmp(ext, ".glm") || !Q_stricmp(ext, ".gla")));
 }
 
+#if defined(_XBOX)
+static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size);
+#endif
+
 static qboolean STEFX_RegisterGhoul2Disabled(model_t *mod, const char *name)
 {
 	if (!STEFX_IsGhoul2ModelName(name))
@@ -629,6 +636,17 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 		return qfalse;
 	}
 
+#if defined(_XBOX)
+	if (!STEFX_ShouldUseMdrMemoryPlaceholder(name, len))
+	{
+		FS_FCloseFile(f);
+		return qfalse;
+	}
+#else
+	FS_FCloseFile(f);
+	return qfalse;
+#endif
+
 	read = FS_Read(&ident, 4, f);
 	FS_FCloseFile(f);
 	ident = LittleLong(ident);
@@ -650,6 +668,38 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 #endif
 	return qtrue;
 }
+
+#if defined(_XBOX)
+static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size)
+{
+	const int overCapLimit = 1536 * 1024;
+
+	if (size <= (1536 * 1024))
+	{
+		return qfalse;
+	}
+
+	if (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")))
+	{
+		return qfalse;
+	}
+
+	if (name && (strstr(name, "models/players/hazard/") || strstr(name, "models\\players\\hazard\\")))
+	{
+#ifdef _XBOX
+		XBLF("STEFX: R_LoadMDR budget placeholder hazard model '%s' size=%d over cap=%d",
+			name, size, overCapLimit);
+#endif
+		return qtrue;
+	}
+
+#ifdef _XBOX
+	XBLF("STEFX: R_LoadMDR budget placeholder non-borg model '%s' size=%d over cap=%d",
+		name ? name : "(null)", size, overCapLimit);
+#endif
+	return qtrue;
+}
+#endif
 #endif
 /*
 Ghoul2 Insert End
@@ -763,10 +813,13 @@ Ghoul2 Insert End
 		return 0;
 	}
 
+#if defined(_XBOX)
 	if (STEFX_RegisterMdrPlaceholderIfPresent(mod, name))
 	{
 		return mod->index;
 	}
+#endif
+
 #endif
 
 	// make sure the render thread is stopped
@@ -774,7 +827,11 @@ Ghoul2 Insert End
 
 	int iLODStart = 0;
 	if (strstr (name, ".md3")) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		iLODStart = 0;
+#else
 		iLODStart = MD3_MAX_LODS-1;	//this loads the md3s in reverse so they can be biased
+#endif
 	}
 	mod->numLods = 0;
 
@@ -842,12 +899,7 @@ Ghoul2 Insert End
 
 #ifdef STEFX_ELITE_FORCE_SP
 			case MD4_IDENT:
-				mod->type = MOD_STEFX_MDR_PLACEHOLDER;
-				mod->dataSize += 1;
-#ifdef _XBOX
-				XBLF("EF: RE_RegisterModel accepted MDR placeholder '%s' handle=%d", filename, mod->index);
-#endif
-				loaded = qtrue;
+				loaded = R_LoadMDR( mod, buf, filename, bAlreadyCached );
 				break;
 #endif
 
@@ -927,6 +979,161 @@ if (!name || strlen(name) < 4 || stricmp(&name[strlen(name)-4],".gla")){
 
 	return q;
 }
+
+
+/*
+=================
+R_LoadMDR
+=================
+*/
+#ifdef STEFX_ELITE_FORCE_SP
+static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qboolean &bAlreadyCached ) {
+	int					i, j;
+	md4Header_t			*pinmodel;
+	md4LOD_t			*lod;
+	md4Surface_t		*surf;
+	int					version;
+	int					size;
+
+	pinmodel = (md4Header_t *)buffer;
+	version = pinmodel->version;
+	size = pinmodel->ofsEnd;
+
+	if (!bAlreadyCached)
+	{
+		version = LittleLong(version);
+		size = LittleLong(size);
+	}
+
+	if (version != MD4_VERSION)
+	{
+		VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has wrong version (%i should be %i)\n",
+			mod_name, version, MD4_VERSION );
+		return qfalse;
+	}
+
+	if (size <= 0)
+	{
+		VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has invalid size %i\n", mod_name, size );
+		return qfalse;
+	}
+
+#if defined(_XBOX)
+	if (STEFX_ShouldUseMdrMemoryPlaceholder(mod_name, size))
+	{
+		mod->type = MOD_STEFX_MDR_PLACEHOLDER;
+		mod->dataSize += size;
+		mod->numLods = 0;
+		mod->md4 = NULL;
+		XBLF("STEFX: R_LoadMDR overbudget placeholder '%s' size=%d cap=%d",
+			mod_name, size, 1536 * 1024);
+		return qtrue;
+	}
+#endif
+
+	mod->type = MOD_MDR;
+	mod->dataSize += size;
+
+	qboolean bAlreadyFound = qfalse;
+	mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
+
+	assert(bAlreadyCached == bAlreadyFound);
+
+	if (!bAlreadyFound)
+	{
+#ifdef _XBOX
+		memcpy(mod->md4, buffer, size);
+#else
+		bAlreadyCached = qtrue;
+		assert(mod->md4 == buffer);
+#endif
+
+		LL(mod->md4->ident);
+		LL(mod->md4->version);
+		LL(mod->md4->numFrames);
+		LL(mod->md4->numBones);
+		LL(mod->md4->ofsFrames);
+		LL(mod->md4->numLODs);
+		LL(mod->md4->ofsLODs);
+		LL(mod->md4->numTags);
+		LL(mod->md4->ofsTags);
+		LL(mod->md4->ofsEnd);
+
+		if (mod->md4->numFrames < 1 || mod->md4->numBones < 1 || mod->md4->numLODs < 1)
+		{
+			VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has invalid counts frames=%i bones=%i lods=%i\n",
+				mod_name, mod->md4->numFrames, mod->md4->numBones, mod->md4->numLODs );
+			return qfalse;
+		}
+
+		if (mod->md4->numBones > MD4_MAX_BONES)
+		{
+			VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has too many bones (%i > %i)\n",
+				mod_name, mod->md4->numBones, MD4_MAX_BONES );
+			return qfalse;
+		}
+
+		lod = (md4LOD_t *)((byte *)mod->md4 + mod->md4->ofsLODs);
+		for (i = 0; i < mod->md4->numLODs; i++)
+		{
+			LL(lod->numSurfaces);
+			LL(lod->ofsSurfaces);
+			LL(lod->ofsEnd);
+
+			surf = (md4Surface_t *)((byte *)lod + lod->ofsSurfaces);
+			for (j = 0; j < lod->numSurfaces; j++)
+			{
+				shader_t *sh;
+
+				LL(surf->ofsHeader);
+				LL(surf->numVerts);
+				LL(surf->ofsVerts);
+				LL(surf->numTriangles);
+				LL(surf->ofsTriangles);
+				LL(surf->numBoneReferences);
+				LL(surf->ofsBoneReferences);
+				LL(surf->ofsEnd);
+
+				if (surf->numVerts > SHADER_MAX_VERTEXES)
+				{
+					Com_Error( ERR_DROP, "R_LoadMDR: %s has more than %i verts on a surface (%i)",
+						mod_name, SHADER_MAX_VERTEXES, surf->numVerts );
+				}
+				if (surf->numTriangles * 3 > SHADER_MAX_INDEXES)
+				{
+					Com_Error( ERR_DROP, "R_LoadMDR: %s has more than %i triangles on a surface (%i)",
+						mod_name, SHADER_MAX_INDEXES / 3, surf->numTriangles );
+				}
+
+				surf->ident = SF_MDR;
+				Q_strlwr(surf->name);
+
+				sh = R_FindShader(surf->shader, lightmapsNone, stylesDefault, qtrue);
+				if (sh->defaultShader)
+				{
+					surf->shaderIndex = 0;
+				}
+				else
+				{
+					surf->shaderIndex = sh->index;
+				}
+				RE_RegisterModels_StoreShaderRequest(mod_name, &surf->shader[0], &surf->shaderIndex);
+
+				surf = (md4Surface_t *)((byte *)surf + surf->ofsEnd);
+			}
+
+			lod = (md4LOD_t *)((byte *)lod + lod->ofsEnd);
+		}
+	}
+
+	mod->numLods = (mod->md4->numLODs > 0) ? (unsigned char)(mod->md4->numLODs - 1) : 0;
+#ifdef _XBOX
+	XBLF("STEFX: R_LoadMDR loaded '%s' frames=%d bones=%d lods=%d size=%d",
+		mod_name, mod->md4->numFrames, mod->md4->numBones, mod->md4->numLODs, size);
+#endif
+	return qtrue;
+}
+#endif
 
 
 /*
@@ -1236,6 +1443,10 @@ void R_Modellist_f( void ) {
 				break;
 
 #ifdef STEFX_ELITE_FORCE_SP
+			case MOD_MDR:
+				VID_Printf( PRINT_ALL, "%8i : (%i MDR) %s\n", mod->dataSize, mod->numLods, mod->name );
+				break;
+
 			case MOD_STEFX_MDR_PLACEHOLDER:
 				VID_Printf( PRINT_ALL, "%8i : (MDR placeholder) %s\n", mod->dataSize, mod->name );
 				break;

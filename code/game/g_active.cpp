@@ -26,6 +26,9 @@ extern void BG_CalculateOffsetAngles( gentity_t *ent, usercmd_t *ucmd );//in bg_
 extern void TryUse( gentity_t *ent );
 extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
+#endif
 extern void WP_SaberReflectCheck( gentity_t *self, usercmd_t *ucmd  );
 extern void WP_SaberUpdate( gentity_t *self, usercmd_t *ucmd );
 extern void WP_SaberStartMissileBlockCheck( gentity_t *self, usercmd_t *ucmd  );
@@ -105,6 +108,258 @@ extern vmCvar_t	cg_thirdPersonAlpha;
 extern vmCvar_t	cg_thirdPersonAutoAlpha;
 
 void ClientEndPowerUps( gentity_t *ent );
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SmokeControlWindowActive( const usercmd_t *ucmd )
+{
+	int startTime;
+	int endTime;
+
+	if ( !ucmd )
+	{
+		return qfalse;
+	}
+	if ( !gi.Cvar_VariableIntegerValue( "stefx_smoke_unlock_player" ) )
+	{
+		return qfalse;
+	}
+
+	startTime = gi.Cvar_VariableIntegerValue( "stefx_smoke_input_start" );
+	endTime = gi.Cvar_VariableIntegerValue( "stefx_smoke_input_end" );
+	if ( startTime <= 0 )
+	{
+		startTime = 71000;
+	}
+
+	return (qboolean)( ucmd->serverTime >= startTime && ( endTime <= 0 || ucmd->serverTime <= endTime ) );
+}
+
+static void STEFX_SmokeUnlockPlayerControl( gentity_t *ent, usercmd_t *ucmd )
+{
+	static int s_stefxSmokeUnlockBudget = 16;
+
+	if ( !ent || ent->s.number != 0 || !STEFX_SmokeControlWindowActive( ucmd ) )
+	{
+		return;
+	}
+	if ( !in_camera && !player_locked )
+	{
+		return;
+	}
+
+	if ( s_stefxSmokeUnlockBudget > 0 )
+	{
+		Com_PrintfAlways( "STEFX: smoke unlock player control ent=%d serverTime=%d inCamera=%d playerLocked=%d buttons=0x%x move=(%d,%d,%d)\n",
+			ent->s.number,
+			ucmd ? ucmd->serverTime : -1,
+			in_camera ? 1 : 0,
+			player_locked ? 1 : 0,
+			ucmd ? ucmd->buttons : 0,
+			ucmd ? ucmd->forwardmove : 0,
+			ucmd ? ucmd->rightmove : 0,
+			ucmd ? ucmd->upmove : 0 );
+		--s_stefxSmokeUnlockBudget;
+	}
+
+	in_camera = false;
+	player_locked = qfalse;
+	gi.cvar_set( "skippingCinematic", "0" );
+}
+
+static void STEFX_SmokeAimAtLiveEnemy( gentity_t *ent, usercmd_t *ucmd )
+{
+	static int s_stefxSmokeAimBudget = 64;
+	gentity_t	*bestTarget = NULL;
+	gentity_t	*bestTraceTarget = NULL;
+	float		bestDistSq = 999999999.0f;
+	float		bestTraceDistSq = 999999999.0f;
+	vec3_t		start;
+	vec3_t		bestPoint;
+	vec3_t		bestTracePoint;
+	int			bestTraceEnt = ENTITYNUM_NONE;
+	int			bestTraceTargetEnt = ENTITYNUM_NONE;
+	float		bestTraceFrac = 1.0f;
+	float		bestTraceTargetFrac = 1.0f;
+	int			i;
+	float		range;
+	float		rangeSq;
+
+	if ( !ent || !ent->client || !ucmd )
+	{
+		return;
+	}
+	if ( ent->s.number != 0 )
+	{
+		return;
+	}
+	if ( !( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_ALT_ATTACK ) ) )
+	{
+		return;
+	}
+	if ( !gi.Cvar_VariableIntegerValue( "stefx_smoke_aim" ) )
+	{
+		return;
+	}
+
+	if ( VectorLengthSquared( ent->client->renderInfo.eyePoint ) > 1.0f )
+	{
+		VectorCopy( ent->client->renderInfo.eyePoint, start );
+	}
+	else
+	{
+		VectorCopy( ent->client->ps.origin, start );
+		start[2] += ent->client->ps.viewheight;
+	}
+
+	range = ( weaponData[WP_BLASTER].range > 0 ) ? (float)weaponData[WP_BLASTER].range : 2048.0f;
+	if ( ent->client->ps.weapon > WP_NONE
+		&& ent->client->ps.weapon < WP_NUM_WEAPONS
+		&& weaponData[ent->client->ps.weapon].range > 0 )
+	{
+		range = (float)weaponData[ent->client->ps.weapon].range;
+	}
+	range += 96.0f;
+	rangeSq = range * range;
+
+	for ( i = 1; i < globals.num_entities; ++i )
+	{
+		gentity_t	*target = &g_entities[i];
+		vec3_t		targetPoint;
+		vec3_t		delta;
+		trace_t		tr;
+		float		distSq;
+
+		if ( !target->inuse || !target->client || !target->NPC )
+		{
+			continue;
+		}
+		if ( !target->takedamage || target->health <= 0 || ( target->flags & FL_NOTARGET ) )
+		{
+			continue;
+		}
+		if ( OnSameTeam( ent, target ) )
+		{
+			continue;
+		}
+
+		VectorCopy( target->currentOrigin, targetPoint );
+		if ( target->client && VectorLengthSquared( target->client->renderInfo.eyePoint ) > 1.0f )
+		{
+			VectorCopy( target->client->renderInfo.eyePoint, targetPoint );
+		}
+		else
+		{
+			targetPoint[0] += ( target->mins[0] + target->maxs[0] ) * 0.5f;
+			targetPoint[1] += ( target->mins[1] + target->maxs[1] ) * 0.5f;
+			targetPoint[2] += ( target->mins[2] + target->maxs[2] ) * 0.5f;
+			if ( target->client && targetPoint[2] <= target->currentOrigin[2] + 4.0f )
+			{
+				targetPoint[2] = target->currentOrigin[2] + target->client->ps.viewheight * 0.5f;
+			}
+		}
+
+		VectorSubtract( targetPoint, start, delta );
+		distSq = VectorLengthSquared( delta );
+		if ( distSq > rangeSq )
+		{
+			continue;
+		}
+
+		gi.trace( &tr, start, NULL, NULL, targetPoint, ent->s.number, MASK_SHOT );
+		if ( tr.entityNum == target->s.number )
+		{
+			if ( distSq < bestTraceDistSq )
+			{
+				bestTraceDistSq = distSq;
+				bestTraceTarget = target;
+				VectorCopy( targetPoint, bestTracePoint );
+				bestTraceTargetEnt = tr.entityNum;
+				bestTraceTargetFrac = tr.fraction;
+			}
+		}
+		else if ( distSq < bestDistSq )
+		{
+			bestDistSq = distSq;
+			bestTarget = target;
+			VectorCopy( targetPoint, bestPoint );
+			bestTraceEnt = tr.entityNum;
+			bestTraceFrac = tr.fraction;
+		}
+	}
+
+	if ( bestTraceTarget )
+	{
+		bestTarget = bestTraceTarget;
+		VectorCopy( bestTracePoint, bestPoint );
+		bestDistSq = bestTraceDistSq;
+		bestTraceEnt = bestTraceTargetEnt;
+		bestTraceFrac = bestTraceTargetFrac;
+	}
+
+	if ( bestTarget )
+	{
+		static int s_stefxSmokeWakeBudget = 24;
+		vec3_t dir;
+		vec3_t desired;
+
+		VectorSubtract( bestPoint, start, dir );
+		vectoangles( dir, desired );
+		ucmd->angles[PITCH] = ANGLE2SHORT( desired[PITCH] ) - ent->client->ps.delta_angles[PITCH];
+		ucmd->angles[YAW] = ANGLE2SHORT( desired[YAW] ) - ent->client->ps.delta_angles[YAW];
+
+		if ( gi.Cvar_VariableIntegerValue( "stefx_smoke_wake_ai" ) && bestTarget->NPC && bestTarget->enemy != ent )
+		{
+			if ( ent->flags & FL_NOTARGET )
+			{
+				Com_PrintfAlways( "STEFX: smoke wake cleared player FL_NOTARGET ent=%d flags=0x%x time=%d\n",
+					ent->s.number,
+					ent->flags,
+					level.time );
+				ent->flags &= ~FL_NOTARGET;
+			}
+			if ( s_stefxSmokeWakeBudget > 0 )
+			{
+				Com_PrintfAlways( "STEFX: smoke wake enemy self=%d class='%s' team=%d enemyTeam=%d target=%d playerTeam=%d time=%d\n",
+					bestTarget->s.number,
+					bestTarget->classname ? bestTarget->classname : "<null>",
+					bestTarget->client ? bestTarget->client->playerTeam : -1,
+					bestTarget->client ? bestTarget->client->enemyTeam : -1,
+					ent->s.number,
+					ent->client ? ent->client->playerTeam : -1,
+					level.time );
+				--s_stefxSmokeWakeBudget;
+			}
+			G_SetEnemy( bestTarget, ent );
+		}
+
+		if ( s_stefxSmokeAimBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: smoke aim target ent=%d class='%s' targetname='%s' dist=%g desired=(%g,%g,%g) cmdAngles=(%d,%d,%d) traceEnt=%d frac=%g\n",
+				bestTarget->s.number,
+				bestTarget->classname ? bestTarget->classname : "<null>",
+				bestTarget->targetname ? bestTarget->targetname : "<null>",
+				sqrt( bestDistSq ),
+				desired[0], desired[1], desired[2],
+				ucmd->angles[PITCH],
+				ucmd->angles[YAW],
+				ucmd->angles[ROLL],
+				bestTraceEnt,
+				bestTraceFrac );
+			--s_stefxSmokeAimBudget;
+		}
+	}
+	else if ( s_stefxSmokeAimBudget > 0 )
+	{
+		Com_PrintfAlways( "STEFX: smoke aim no live enemy ent=%d time=%d origin=(%g,%g,%g) range=%g entities=%d\n",
+			ent->s.number,
+			level.time,
+			start[0], start[1], start[2],
+			range,
+			globals.num_entities );
+		--s_stefxSmokeAimBudget;
+	}
+}
+#endif
 
 int G_FindLookItem( gentity_t *self )
 {
@@ -4791,6 +5046,53 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 	{
 extern cvar_t	*g_skippingcin;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			static int s_stefxRawPlayerCmdBudget = 64;
+			const int interestingButtons = ucmd ? (ucmd->buttons & ~(BUTTON_WALKING)) : 0;
+			if ( ucmd && s_stefxRawPlayerCmdBudget > 0 &&
+				( ucmd->forwardmove || ucmd->rightmove || ucmd->upmove ||
+				  interestingButtons || s_stefxRawPlayerCmdBudget > 58 ) )
+			{
+				Com_PrintfAlways("STEFX: ClientThink player cmd raw time=%d serverTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d psWeapon=%d inCamera=%d pmType=%d origin=(%g,%g,%g)\n",
+					level.time,
+					ucmd->serverTime,
+					ucmd->forwardmove,
+					ucmd->rightmove,
+					ucmd->upmove,
+					ucmd->buttons,
+					ucmd->weapon,
+					ent->client ? ent->client->ps.weapon : -1,
+					in_camera ? 1 : 0,
+					ent->client ? ent->client->ps.pm_type : -1,
+					ent->client ? ent->client->ps.origin[0] : 0.0f,
+					ent->client ? ent->client->ps.origin[1] : 0.0f,
+					ent->client ? ent->client->ps.origin[2] : 0.0f);
+				--s_stefxRawPlayerCmdBudget;
+			}
+
+			if ( ucmd && (ucmd->buttons & BUTTON_ATTACK) )
+			{
+				static int s_stefxAttackProbeBudget = 48;
+				if ( s_stefxAttackProbeBudget > 0 )
+				{
+					Com_PrintfAlways("STEFX: ClientThink player attack probe raw time=%d serverTime=%d buttons=0x%x weapon=%d psWeapon=%d weaponTime=%d weaponstate=%d\n",
+						level.time,
+						ucmd->serverTime,
+						ucmd->buttons,
+						ucmd->weapon,
+						ent->client ? ent->client->ps.weapon : -1,
+						ent->client ? ent->client->ps.weaponTime : -1,
+						ent->client ? ent->client->ps.weaponstate : -1);
+					--s_stefxAttackProbeBudget;
+				}
+			}
+		}
+
+		STEFX_SmokeUnlockPlayerControl( ent, ucmd );
+		STEFX_SmokeAimAtLiveEnemy( ent, ucmd );
+#endif
+
 		if ( ent->s.eFlags & EF_LOCKED_TO_WEAPON )
 		{
 			G_UpdateEmplacedWeaponData( ent );
@@ -5419,6 +5721,37 @@ extern cvar_t	*g_skippingcin;
 
 	VectorCopy( client->ps.origin, oldOrigin );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !ent->s.number )
+	{
+		static int s_stefxFinalPlayerCmdBudget = 64;
+		const int interestingButtons = ucmd->buttons & ~(BUTTON_WALKING);
+		if ( s_stefxFinalPlayerCmdBudget > 0 &&
+			( ucmd->forwardmove || ucmd->rightmove || ucmd->upmove ||
+			  interestingButtons || s_stefxFinalPlayerCmdBudget > 58 ) )
+		{
+			Com_PrintfAlways("STEFX: ClientThink player cmd final time=%d serverTime=%d msec=%d move=(%d,%d,%d) buttons=0x%x weapon=%d psWeapon=%d speed=%d origin=(%g,%g,%g) view=(%g,%g,%g)\n",
+				level.time,
+				ucmd->serverTime,
+				msec,
+				ucmd->forwardmove,
+				ucmd->rightmove,
+				ucmd->upmove,
+				ucmd->buttons,
+				ucmd->weapon,
+				client->ps.weapon,
+				client->ps.speed,
+				oldOrigin[0],
+				oldOrigin[1],
+				oldOrigin[2],
+				client->ps.viewangles[0],
+				client->ps.viewangles[1],
+				client->ps.viewangles[2]);
+			--s_stefxFinalPlayerCmdBudget;
+		}
+	}
+#endif
+
 #ifdef _XBOX
 	// if we're an npc then set the waterlevel
 	// based on the entity structure
@@ -5490,6 +5823,48 @@ extern cvar_t	*g_skippingcin;
 	ent->watertype = pm.watertype;
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !ent->s.number )
+	{
+		static int s_stefxPmStateBudget = 64;
+		const int interestingButtons = ucmd->buttons & ~(BUTTON_WALKING);
+		const qboolean moved =
+			(Q_fabs(client->ps.origin[0] - oldOrigin[0]) > 0.01f) ||
+			(Q_fabs(client->ps.origin[1] - oldOrigin[1]) > 0.01f) ||
+			(Q_fabs(client->ps.origin[2] - oldOrigin[2]) > 0.01f);
+		if ( s_stefxPmStateBudget > 0 &&
+			( moved || ucmd->forwardmove || ucmd->rightmove || ucmd->upmove ||
+			  interestingButtons || client->ps.eventSequence != oldEventSequence ||
+			  s_stefxPmStateBudget > 58 ) )
+		{
+			Com_PrintfAlways("STEFX: ClientThink PM state time=%d serverTime=%d moved=%d oldOrigin=(%g,%g,%g) newOrigin=(%g,%g,%g) velocity=(%g,%g,%g) move=(%d,%d,%d) buttons=0x%x events=%d->%d pmFlags=0x%x weapon=%d weaponTime=%d weaponstate=%d ground=%d\n",
+				level.time,
+				ucmd->serverTime,
+				moved ? 1 : 0,
+				oldOrigin[0],
+				oldOrigin[1],
+				oldOrigin[2],
+				client->ps.origin[0],
+				client->ps.origin[1],
+				client->ps.origin[2],
+				client->ps.velocity[0],
+				client->ps.velocity[1],
+				client->ps.velocity[2],
+				ucmd->forwardmove,
+				ucmd->rightmove,
+				ucmd->upmove,
+				ucmd->buttons,
+				oldEventSequence,
+				client->ps.eventSequence,
+				client->ps.pm_flags,
+				client->ps.weapon,
+				client->ps.weaponTime,
+				client->ps.weaponstate,
+				client->ps.groundEntityNum);
+			--s_stefxPmStateBudget;
+		}
+	}
+#endif
 
 
 	_VectorCopy( ucmd->angles, client->pers.cmd_angles );

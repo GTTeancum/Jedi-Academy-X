@@ -21,13 +21,22 @@
 class StaticTextureAllocator
 {
 public:
-	StaticTextureAllocator( void ) { }
+	StaticTextureAllocator( void )
+	{
+		base = NULL;
+		allocPoint = 0;
+		poolSize = 0;
+		maxAlloc = 0;
+		swappedSize = 0;
+		swappedPoint = 0;
+		swappedBackup = NULL;
+	}
 
 	void Initialize( unsigned long size )
 	{
 		base = (unsigned char *) D3D_AllocContiguousMemory( size, 0 );
 		allocPoint = 0;
-		poolSize = size;
+		poolSize = base ? size : 0;
 		maxAlloc = 0;
 		swappedSize = 0;
 		swappedPoint = 0;
@@ -37,17 +46,22 @@ public:
 	// No bookkeeping necessary, texNum is unused:
 	void *Allocate( unsigned long size, GLuint texNum )
 	{
-#ifndef FINAL_BUILD
-		if( allocPoint + size > poolSize )
-			throw "Static texture pool full";
-#endif
+		unsigned long nextPoint;
+
+		if ( !base || !size )
+			return NULL;
+
+		if ( size > poolSize || allocPoint > poolSize - size )
+			return NULL;
 
 		// Current location:
 		void *retVal = base + allocPoint;
 
 		// Advance, then round up:
-		allocPoint += size;
-		allocPoint = (allocPoint + 127) & ~127;
+		nextPoint = (allocPoint + size + 127) & ~127;
+		if ( nextPoint < allocPoint || nextPoint > poolSize )
+			return NULL;
+		allocPoint = nextPoint;
 
 #ifndef FINAL_BUILD
 		if( allocPoint > maxAlloc )
@@ -106,6 +120,18 @@ public:
 	unsigned long Size( void )
 	{
 		return allocPoint;
+	}
+
+	unsigned long Capacity( void )
+	{
+		return poolSize;
+	}
+
+	unsigned long Free( void )
+	{
+		if ( allocPoint > poolSize )
+			return 0;
+		return poolSize - allocPoint;
 	}
 
 private:

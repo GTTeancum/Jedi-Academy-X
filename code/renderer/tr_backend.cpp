@@ -137,14 +137,36 @@ void GL_Bind( image_t *image ) {
 		glBindTexture (GL_TEXTURE_2D, texnum);
 	}
 #ifdef _XBOX
-	else
-	{
-		/* Keep the active stage enabled after fakegl/Xbox-side state resets
-		 * without forcing a redundant bind/state upload for every batch. */
-		glEnable( GL_TEXTURE_2D );
-	}
+else
+{
+	/* Keep the active stage enabled after fakegl/Xbox-side state resets
+	 * and re-issue the bind so fakegl can dirty its D3D stage state when
+	 * the renderer cache and the underlying device state drift apart. */
+	glEnable( GL_TEXTURE_2D );
+#ifdef STEFX_ELITE_FORCE_SP
+	glBindTexture( GL_TEXTURE_2D, texnum );
 #endif
 }
+#endif
+}
+
+#ifdef _XBOX
+void GL_InvalidateCurrentTexture( void )
+{
+	if ( glState.currenttmu >= 0 && glState.currenttmu < 2 )
+	{
+		glState.currenttextures[glState.currenttmu] = -1;
+	}
+}
+
+void GL_InvalidateTextureUnit( int unit )
+{
+	if ( unit >= 0 && unit < 2 )
+	{
+		glState.currenttextures[unit] = -1;
+	}
+}
+#endif
 
 /*
 ** GL_SelectTexture

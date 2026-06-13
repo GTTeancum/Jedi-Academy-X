@@ -45,6 +45,36 @@ extern int	*s_entityWavVol;
 extern int	s_entityWavVol[MAX_GENTITIES];
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SVGameVec3Bad(const vec3_t v)
+{
+	const float limit = 1048576.0f;
+	return (qboolean)(IS_NAN(v[0]) || IS_NAN(v[1]) || IS_NAN(v[2]) ||
+		v[0] < -limit || v[0] > limit ||
+		v[1] < -limit || v[1] > limit ||
+		v[2] < -limit || v[2] > limit);
+}
+
+static qboolean STEFX_SVGameBoundsBad(const vec3_t mins, const vec3_t maxs)
+{
+	if (STEFX_SVGameVec3Bad(mins) || STEFX_SVGameVec3Bad(maxs))
+	{
+		return qtrue;
+	}
+	if (mins[0] > maxs[0] || mins[1] > maxs[1] || mins[2] > maxs[2])
+	{
+		return qtrue;
+	}
+	if ((maxs[0] - mins[0]) > 4096.0f ||
+		(maxs[1] - mins[1]) > 4096.0f ||
+		(maxs[2] - mins[2]) > 4096.0f)
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+#endif
+
 
 // these functions must be used instead of pointer arithmetic, because
 // the game allocates gentities with private information after the server shared part
@@ -146,6 +176,42 @@ void SV_SetBrushModel( gentity_t *ent, const char *name ) {
 			ent->s.modelindex += sv.mLocalSubBSPModelOffset;
 		}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			static int s_setBrushLogCount = 0;
+			int inlineCount = CM_NumInlineModels();
+			if (s_setBrushLogCount < 96)
+			{
+				XBLF("STEFX: SV_SetBrushModel ent=%d name='%s' parsed=%d inlineCount=%d localSub=%d offset=%d",
+					ent ? ent->s.number : -1,
+					name,
+					ent ? ent->s.modelindex : -1,
+					inlineCount,
+					sv.mLocalSubBSPIndex,
+					sv.mLocalSubBSPModelOffset);
+				s_setBrushLogCount++;
+			}
+			if (!ent || ent->s.modelindex < 0 || ent->s.modelindex >= MAX_SUBMODELS ||
+				(sv.mLocalSubBSPIndex == -1 && ent->s.modelindex >= inlineCount))
+			{
+				XBLF("STEFX: SV_SetBrushModel invalid inline ent=%d name='%s' modelindex=%d inlineCount=%d; disabling brush",
+					ent ? ent->s.number : -1,
+					name,
+					ent ? ent->s.modelindex : -1,
+					inlineCount);
+				if (ent)
+				{
+					ent->s.modelindex = 0;
+					VectorClear(ent->mins);
+					VectorClear(ent->maxs);
+					ent->bmodel = qfalse;
+					ent->contents = 0;
+				}
+				return;
+			}
+		}
+#endif
+
 		h = CM_InlineModel( ent->s.modelindex );
 
 		if (sv.mLocalSubBSPIndex != -1)
@@ -175,6 +241,24 @@ void SV_SetBrushModel( gentity_t *ent, const char *name ) {
 	else if (name[0] == '#')
 	{
 		ent->s.modelindex = CM_LoadSubBSP(va("maps/%s.bsp", name + 1), qfalse);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!ent || ent->s.modelindex < 0 || ent->s.modelindex >= MAX_SUBMODELS)
+		{
+			XBLF("STEFX: SV_SetBrushModel invalid subBSP ent=%d name='%s' modelindex=%d; disabling brush",
+				ent ? ent->s.number : -1,
+				name,
+				ent ? ent->s.modelindex : -1);
+			if (ent)
+			{
+				ent->s.modelindex = 0;
+				VectorClear(ent->mins);
+				VectorClear(ent->maxs);
+				ent->bmodel = qfalse;
+				ent->contents = 0;
+			}
+			return;
+		}
+#endif
 		CM_ModelBounds( SubBSP[CM_FindSubBSP(ent->s.modelindex)], ent->s.modelindex, mins, maxs );
 
 		VectorCopy (mins, ent->mins);
@@ -341,6 +425,33 @@ qboolean	SV_EntityContact( const vec3_t mins, const vec3_t maxs, const gentity_t
 	const float	*origin, *angles;
 	clipHandle_t	ch;
 	trace_t			trace;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_entityContactGuardLogCount = 0;
+	if (!gEnt)
+	{
+		if (s_entityContactGuardLogCount < 32)
+		{
+			XBLF("STEFX: SV_EntityContact rejected null entity");
+		}
+		s_entityContactGuardLogCount++;
+		return qfalse;
+	}
+	if (STEFX_SVGameBoundsBad(mins, maxs) ||
+		STEFX_SVGameVec3Bad(gEnt->currentOrigin) ||
+		STEFX_SVGameVec3Bad(gEnt->currentAngles))
+	{
+		if (s_entityContactGuardLogCount < 32)
+		{
+			XBLF("STEFX: SV_EntityContact rejected ent=%d bmodel=%d modelindex=%d contents=0x%x mins=(%g,%g,%g) maxs=(%g,%g,%g) origin=(%g,%g,%g) angles=(%g,%g,%g)",
+				gEnt->s.number, gEnt->bmodel, gEnt->s.modelindex, gEnt->contents,
+				mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2],
+				gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
+				gEnt->currentAngles[0], gEnt->currentAngles[1], gEnt->currentAngles[2]);
+		}
+		s_entityContactGuardLogCount++;
+		return qfalse;
+	}
+#endif
 
 	// check for exact collision
 	origin = gEnt->currentOrigin;

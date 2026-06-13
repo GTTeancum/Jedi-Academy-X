@@ -16,6 +16,9 @@ extern void BG_CalculateOffsetAngles( gentity_t *ent, usercmd_t *ucmd );//in bg_
 extern void TryUse( gentity_t *ent );
 extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
+#endif
 
 extern	bool		in_camera;
 extern	qboolean	player_locked;
@@ -27,6 +30,819 @@ static qboolean STEFX_Vec3Bad(const vec3_t v)
 {
 	return (qboolean)(IS_NAN(v[0]) || IS_NAN(v[1]) || IS_NAN(v[2]));
 }
+
+static qboolean STEFX_BoundsBad(const vec3_t mins, const vec3_t maxs)
+{
+	if (STEFX_Vec3Bad(mins) || STEFX_Vec3Bad(maxs))
+	{
+		return qtrue;
+	}
+	if (mins[0] > maxs[0] || mins[1] > maxs[1] || mins[2] > maxs[2])
+	{
+		return qtrue;
+	}
+	if ((maxs[0] - mins[0]) > 1024.0f ||
+		(maxs[1] - mins[1]) > 1024.0f ||
+		(maxs[2] - mins[2]) > 1024.0f)
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static gentity_t *STEFX_Borg1SliceBestTarget(gentity_t *ent, int *nearCount, float *bestDistSq)
+{
+	gentity_t *best = NULL;
+	float bestSq = 999999999.0f;
+	int count = 0;
+	int i;
+
+	if (!ent || !ent->client)
+	{
+		if (nearCount)
+		{
+			*nearCount = 0;
+		}
+		if (bestDistSq)
+		{
+			*bestDistSq = bestSq;
+		}
+		return NULL;
+	}
+
+	for (i = 1; i < globals.num_entities; ++i)
+	{
+		gentity_t *target = &g_entities[i];
+		vec3_t delta;
+		float distSq;
+
+		if (!target->inuse || !target->client || !target->NPC || target->health <= 0)
+		{
+			continue;
+		}
+
+		VectorSubtract(target->currentOrigin, ent->client->ps.origin, delta);
+		distSq = VectorLengthSquared(delta);
+		if (distSq < 262144.0f)
+		{
+			count++;
+		}
+		if (distSq < bestSq)
+		{
+			bestSq = distSq;
+			best = target;
+		}
+	}
+
+	if (nearCount)
+	{
+		*nearCount = count;
+	}
+	if (bestDistSq)
+	{
+		*bestDistSq = bestSq;
+	}
+	return best;
+}
+
+static void STEFX_Borg1SliceHeartbeat(gentity_t *ent)
+{
+	static int s_lastHeartbeatTime = -100000;
+	gentity_t *best;
+	float bestDistSq;
+	int nearCount;
+	int borgEnemy;
+	int borgBehavior;
+	int borgTemp;
+	int borgWeapon;
+	int borgFlags;
+
+	if (!ent || !ent->client || level.time - s_lastHeartbeatTime < 1000)
+	{
+		return;
+	}
+
+	best = STEFX_Borg1SliceBestTarget(ent, &nearCount, &bestDistSq);
+	borgEnemy = (best && best->enemy) ? best->enemy->s.number : -1;
+	borgBehavior = (best && best->NPC) ? best->NPC->behaviorState : -1;
+	borgTemp = (best && best->NPC) ? best->NPC->tempBehavior : -1;
+	borgWeapon = (best && best->client) ? best->client->ps.weapon : -1;
+	borgFlags = (best && best->NPC) ? best->NPC->scriptFlags : 0;
+
+	XBLF("STEFX: borg1 slice heartbeat time=%d playerOrigin=(%g,%g,%g) view=(%g,%g,%g) nearBorgs=%d bestBorg=%d distSq=%g shots=0 weapon=%d health=%d in_camera=%d borgHealth=%d borgEnemy=%d borgBehavior=%d borgTemp=%d borgWeapon=%d borgFlags=0x%x",
+		level.time,
+		ent->client->ps.origin[0], ent->client->ps.origin[1], ent->client->ps.origin[2],
+		ent->client->ps.viewangles[0], ent->client->ps.viewangles[1], ent->client->ps.viewangles[2],
+		nearCount,
+		best ? best->s.number : -1,
+		bestDistSq,
+		ent->client->ps.weapon,
+		ent->health,
+		in_camera ? 1 : 0,
+		best ? best->health : 0,
+		borgEnemy,
+		borgBehavior,
+		borgTemp,
+		borgWeapon,
+		borgFlags);
+	s_lastHeartbeatTime = level.time;
+}
+
+static void STEFX_Borg1SliceWarp(gentity_t *ent, usercmd_t *ucmd)
+{
+	static qboolean s_warped = qfalse;
+	vec3_t origin;
+	vec3_t angles;
+	gclient_t *client;
+
+	if (!ent || !ent->client || ent->s.number != 0 || !ucmd)
+	{
+		return;
+	}
+	if (Q_stricmp(level.mapname, "borg1"))
+	{
+		s_warped = qfalse;
+		return;
+	}
+	if (!gi.Cvar_VariableIntegerValue("stefx_borg1_slice_warp"))
+	{
+		s_warped = qfalse;
+		return;
+	}
+	if (level.time < 2400)
+	{
+		return;
+	}
+
+	client = ent->client;
+	if (!s_warped)
+	{
+		XBLF("STEFX: borg1 slice warp begin time=%d playerOrigin=(%g,%g,%g) in_camera=%d locked=%d weapon=%d health=%d",
+			level.time,
+			client->ps.origin[0], client->ps.origin[1], client->ps.origin[2],
+			in_camera ? 1 : 0,
+			player_locked ? 1 : 0,
+			client->ps.weapon,
+			ent->health);
+		if (in_camera || player_locked)
+		{
+			XBLF("STEFX: borg1 slice camera clear time=%d in_camera=%d locked=%d",
+				level.time,
+				in_camera ? 1 : 0,
+				player_locked ? 1 : 0);
+		}
+
+		in_camera = false;
+		player_locked = qfalse;
+		gi.cvar_set("skippingCinematic", "0");
+
+		VectorSet(origin, 104.0f, 704.0f, -91.0f);
+		VectorSet(angles, 12.9529f, 90.0f, 0.0f);
+		G_SetOrigin(ent, origin);
+		SetClientViewAngle(ent, angles);
+		VectorClear(client->ps.velocity);
+		client->ps.pm_type = PM_NORMAL;
+		client->ps.pm_time = 0;
+		client->ps.pm_flags = 0;
+		client->ps.weapon = WP_COMPRESSION_RIFLE;
+		ent->s.weapon = WP_COMPRESSION_RIFLE;
+		client->ps.weaponstate = WEAPON_READY;
+		client->ps.weaponTime = 0;
+		client->fireDelay = 0;
+		client->ps.stats[STAT_WEAPONS] |= (1 << WP_PHASER);
+		client->ps.stats[STAT_WEAPONS] |= (1 << WP_COMPRESSION_RIFLE);
+		client->ps.ammo[AMMO_STARFLEET] = ammoData[AMMO_STARFLEET].max;
+		client->ps.ammo[AMMO_ALIEN] = ammoData[AMMO_ALIEN].max;
+		client->ps.ammo[AMMO_PHASER] = ammoData[AMMO_PHASER].max;
+		ent->health = client->ps.stats[STAT_HEALTH] = 100;
+		if (client->ps.stats[STAT_MAX_HEALTH] < 100)
+		{
+			client->ps.stats[STAT_MAX_HEALTH] = 100;
+		}
+		ent->flags &= ~FL_NOTARGET;
+		ucmd->weapon = WP_COMPRESSION_RIFLE;
+		ucmd->forwardmove = 0;
+		ucmd->rightmove = 0;
+		ucmd->upmove = 0;
+		gi.linkentity(ent);
+
+		XBLF("STEFX: borg1 slice warp done time=%d playerOrigin=(%g,%g,%g) view=(%g,%g,%g) in_camera=%d locked=%d weapon=%d ammoStarfleet=%d",
+			level.time,
+			client->ps.origin[0], client->ps.origin[1], client->ps.origin[2],
+			client->ps.viewangles[0], client->ps.viewangles[1], client->ps.viewangles[2],
+			in_camera ? 1 : 0,
+			player_locked ? 1 : 0,
+			client->ps.weapon,
+			client->ps.ammo[AMMO_STARFLEET]);
+		s_warped = qtrue;
+	}
+
+	ucmd->weapon = WP_COMPRESSION_RIFLE;
+	STEFX_Borg1SliceHeartbeat(ent);
+}
+
+static qboolean STEFX_SmokeControlWindowActive(const usercmd_t *ucmd)
+{
+	int startTime;
+	int endTime;
+
+	if (!ucmd)
+	{
+		return qfalse;
+	}
+	if (!gi.Cvar_VariableIntegerValue("stefx_smoke_unlock_player"))
+	{
+		return qfalse;
+	}
+
+	startTime = gi.Cvar_VariableIntegerValue("stefx_smoke_input_start");
+	endTime = gi.Cvar_VariableIntegerValue("stefx_smoke_input_end");
+	if (startTime <= 0)
+	{
+		startTime = 71000;
+	}
+
+	return (qboolean)(ucmd->serverTime >= startTime && (endTime <= 0 || ucmd->serverTime <= endTime));
+}
+
+static void STEFX_SmokeUnlockPlayerControl(gentity_t *ent, usercmd_t *ucmd)
+{
+	static int s_stefxSmokeUnlockBudget = 16;
+
+	if (!ent || ent->s.number != 0 || !STEFX_SmokeControlWindowActive(ucmd))
+	{
+		return;
+	}
+	if (!in_camera && !player_locked)
+	{
+		return;
+	}
+
+	if (s_stefxSmokeUnlockBudget > 0)
+	{
+		XBLF("STEFX: smoke unlock player control ent=%d serverTime=%d inCamera=%d playerLocked=%d buttons=0x%x move=(%d,%d,%d)",
+			ent->s.number,
+			ucmd ? ucmd->serverTime : -1,
+			in_camera ? 1 : 0,
+			player_locked ? 1 : 0,
+			ucmd ? ucmd->buttons : 0,
+			ucmd ? ucmd->forwardmove : 0,
+			ucmd ? ucmd->rightmove : 0,
+			ucmd ? ucmd->upmove : 0);
+		s_stefxSmokeUnlockBudget--;
+	}
+
+	in_camera = false;
+	player_locked = qfalse;
+	gi.cvar_set("skippingCinematic", "0");
+}
+
+static void STEFX_SmokeReadyPlayerWeapon(gentity_t *ent, usercmd_t *ucmd)
+{
+	static int s_stefxSmokeReadyWeaponBudget = 32;
+	gclient_t *client;
+	int oldWeapon;
+	int oldWeaponState;
+	int oldWeaponTime;
+	int oldPmFlags;
+	int oldFireDelay;
+	int weapon;
+	int ammoIndex;
+	int oldAmmo = -9999;
+	int newAmmo = -9999;
+	int minAmmo;
+
+	if (!ent || ent->s.number != 0 || !ent->client || !ucmd)
+	{
+		return;
+	}
+	if (!STEFX_SmokeControlWindowActive(ucmd))
+	{
+		return;
+	}
+	if (!gi.Cvar_VariableIntegerValue("stefx_smoke_ready_weapon"))
+	{
+		return;
+	}
+
+	client = ent->client;
+	oldWeapon = client->ps.weapon;
+	oldWeaponState = client->ps.weaponstate;
+	oldWeaponTime = client->ps.weaponTime;
+	oldPmFlags = client->ps.pm_flags;
+	oldFireDelay = client->fireDelay;
+
+	weapon = client->ps.weapon;
+	if (weapon <= WP_NONE || weapon >= WP_TRICORDER || weapon >= WP_NUM_WEAPONS)
+	{
+		weapon = WP_COMPRESSION_RIFLE;
+	}
+
+	client->ps.weapon = weapon;
+	ent->s.weapon = weapon;
+	ucmd->weapon = weapon;
+	if (weapon > WP_NONE && weapon < 31)
+	{
+		client->ps.stats[STAT_WEAPONS] |= (1 << weapon);
+	}
+
+	client->ps.pm_flags &= ~PMF_RESPAWNED;
+	client->ps.weaponTime = 0;
+	client->fireDelay = 0;
+	if (client->ps.weaponstate != WEAPON_READY && client->ps.weaponstate != WEAPON_FIRING)
+	{
+		client->ps.weaponstate = WEAPON_READY;
+	}
+
+	ammoIndex = weaponData[weapon].ammoIndex;
+	if (ammoIndex >= 0 && ammoIndex < MAX_AMMO)
+	{
+		oldAmmo = client->ps.ammo[ammoIndex];
+		minAmmo = weaponData[weapon].energyPerShot;
+		if (ucmd->buttons & BUTTON_ALT_ATTACK)
+		{
+			minAmmo = weaponData[weapon].altEnergyPerShot;
+		}
+		if (minAmmo < 1)
+		{
+			minAmmo = 1;
+		}
+		if (client->ps.ammo[ammoIndex] != -1 && client->ps.ammo[ammoIndex] < minAmmo)
+		{
+			client->ps.ammo[ammoIndex] = ammoData[ammoIndex].max > minAmmo ? ammoData[ammoIndex].max : minAmmo;
+		}
+		newAmmo = client->ps.ammo[ammoIndex];
+	}
+
+	if (s_stefxSmokeReadyWeaponBudget > 0)
+	{
+		XBLF("STEFX: smoke ready weapon ent=%d time=%d serverTime=%d buttons=0x%x oldWeapon=%d newWeapon=%d oldState=%d newState=%d oldWeaponTime=%d newWeaponTime=%d oldPmFlags=0x%x newPmFlags=0x%x oldFireDelay=%d newFireDelay=%d ammoIndex=%d oldAmmo=%d newAmmo=%d cmdWeapon=%d",
+			ent->s.number,
+			level.time,
+			ucmd->serverTime,
+			ucmd->buttons,
+			oldWeapon,
+			client->ps.weapon,
+			oldWeaponState,
+			client->ps.weaponstate,
+			oldWeaponTime,
+			client->ps.weaponTime,
+			oldPmFlags,
+			client->ps.pm_flags,
+			oldFireDelay,
+			client->fireDelay,
+			ammoIndex,
+			oldAmmo,
+			newAmmo,
+			ucmd->weapon);
+		s_stefxSmokeReadyWeaponBudget--;
+	}
+}
+
+static qboolean STEFX_SmokeStageEnemyIsUsable(gentity_t *ent, gentity_t *target, qboolean allowSameTeam)
+{
+	if (!ent || !target || !target->inuse || !target->client || !target->NPC)
+	{
+		return qfalse;
+	}
+	if (target->health <= 0)
+	{
+		return qfalse;
+	}
+	if (!allowSameTeam && OnSameTeam(ent, target))
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static gentity_t *STEFX_SmokeFindStageEnemy(gentity_t *ent, int previousTarget)
+{
+	int pass;
+	int i;
+
+	if (previousTarget > 0 && previousTarget < globals.num_entities)
+	{
+		gentity_t *target = &g_entities[previousTarget];
+		if (STEFX_SmokeStageEnemyIsUsable(ent, target, qfalse))
+		{
+			return target;
+		}
+	}
+
+	for (pass = 0; pass < 2; ++pass)
+	{
+		qboolean allowSameTeam = (qboolean)(pass != 0);
+		for (i = 1; i < globals.num_entities; ++i)
+		{
+			gentity_t *target = &g_entities[i];
+			if (STEFX_SmokeStageEnemyIsUsable(ent, target, allowSameTeam))
+			{
+				return target;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+static void STEFX_SmokeStageEnemy(gentity_t *ent, usercmd_t *ucmd)
+{
+	static int s_stefxStageBudget = 36;
+	static int s_stefxStageLogBudget = 24;
+	static int s_stefxStageNoTargetBudget = 8;
+	static int s_stefxStageTarget = ENTITYNUM_NONE;
+	gentity_t *target;
+	vec3_t forward;
+	vec3_t right;
+	vec3_t up;
+	vec3_t oldOrigin;
+	vec3_t newOrigin;
+	vec3_t start;
+	vec3_t end;
+	vec3_t eye;
+	vec3_t targetPoint;
+	trace_t floorTrace;
+	trace_t losTrace;
+	float stageDistance;
+
+	if (!ent || !ent->client || ent->s.number != 0 || !ucmd)
+	{
+		return;
+	}
+	if (!STEFX_SmokeControlWindowActive(ucmd))
+	{
+		return;
+	}
+	if (!gi.Cvar_VariableIntegerValue("stefx_smoke_stage_enemy"))
+	{
+		return;
+	}
+	if (s_stefxStageBudget <= 0)
+	{
+		return;
+	}
+
+	target = STEFX_SmokeFindStageEnemy(ent, s_stefxStageTarget);
+	if (!target)
+	{
+		if (s_stefxStageNoTargetBudget > 0)
+		{
+			XBLF("STEFX: smoke stage enemy no usable target time=%d entities=%d playerOrigin=(%g,%g,%g)",
+				level.time,
+				globals.num_entities,
+				ent->client->ps.origin[0], ent->client->ps.origin[1], ent->client->ps.origin[2]);
+			s_stefxStageNoTargetBudget--;
+		}
+		return;
+	}
+
+	AngleVectors(ent->client->ps.viewangles, forward, right, up);
+	forward[2] = 0.0f;
+	if (VectorNormalize(forward) < 0.1f)
+	{
+		forward[0] = 1.0f;
+		forward[1] = 0.0f;
+		forward[2] = 0.0f;
+	}
+	right[0] = -forward[1];
+	right[1] = forward[0];
+	right[2] = 0.0f;
+
+	VectorCopy(target->currentOrigin, oldOrigin);
+	stageDistance = (ucmd->buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK)) ? 36.0f : 48.0f;
+	VectorMA(ent->client->ps.origin, stageDistance, forward, newOrigin);
+	VectorMA(newOrigin, 4.0f, right, newOrigin);
+	newOrigin[2] = ent->client->ps.origin[2];
+
+	VectorCopy(newOrigin, start);
+	start[2] += 64.0f;
+	VectorCopy(newOrigin, end);
+	end[2] -= 160.0f;
+	gi.trace(&floorTrace, start, target->mins, target->maxs, end, ent->s.number, MASK_PLAYERSOLID);
+	if (!floorTrace.startsolid && !floorTrace.allsolid && floorTrace.fraction < 1.0f)
+	{
+		VectorCopy(floorTrace.endpos, newOrigin);
+	}
+
+	target->svFlags &= ~SVF_NOCLIENT;
+	target->svFlags |= SVF_BROADCAST;
+	target->flags &= ~FL_NOTARGET;
+	target->s.eFlags &= ~EF_NODRAW;
+	VectorSet(target->mins, -20.0f, -20.0f, -40.0f);
+	VectorSet(target->maxs, 20.0f, 20.0f, 72.0f);
+	target->contents = CONTENTS_BODY;
+	target->clipmask = MASK_NPCSOLID;
+	target->takedamage = qtrue;
+	if (target->health < 80)
+	{
+		target->health = 80;
+	}
+	target->client->ps.stats[STAT_HEALTH] = target->health;
+	target->client->ps.pm_type = PM_NORMAL;
+	VectorClear(target->client->ps.velocity);
+
+	if (ent->flags & FL_NOTARGET)
+	{
+		XBLF("STEFX: smoke stage enemy cleared player FL_NOTARGET ent=%d flags=0x%x time=%d",
+			ent->s.number,
+			ent->flags,
+			level.time);
+		ent->flags &= ~FL_NOTARGET;
+	}
+
+	G_SetOrigin(target, newOrigin);
+	gi.linkentity(target);
+	G_SetEnemy(target, ent);
+	if (target->enemy != ent)
+	{
+		target->enemy = ent;
+	}
+	XBLF("STEFX: NPC_SetEnemy smoke stage self=%d class='%s' enemy=%d contents=0x%x clipmask=0x%x time=%d",
+		target->s.number,
+		target->classname ? target->classname : "<null>",
+		ent->s.number,
+		target->contents,
+		target->clipmask,
+		level.time);
+	s_stefxStageTarget = target->s.number;
+	s_stefxStageBudget--;
+
+	if (VectorLengthSquared(ent->client->renderInfo.eyePoint) > 1.0f)
+	{
+		VectorCopy(ent->client->renderInfo.eyePoint, eye);
+	}
+	else
+	{
+		VectorCopy(ent->client->ps.origin, eye);
+		eye[2] += ent->client->ps.viewheight;
+	}
+	VectorCopy(newOrigin, targetPoint);
+	targetPoint[2] += target->client->ps.viewheight * 0.65f;
+	gi.trace(&losTrace, eye, NULL, NULL, targetPoint, ent->s.number, MASK_SHOT);
+
+	if (s_stefxStageLogBudget > 0)
+	{
+		XBLF("STEFX: smoke stage enemy target=%d class='%s' targetname='%s' old=(%g,%g,%g) new=(%g,%g,%g) player=(%g,%g,%g) floorFrac=%g floorStartSolid=%d losEnt=%d losFrac=%g health=%d team=%d playerTeam=%d time=%d remaining=%d",
+			target->s.number,
+			target->classname ? target->classname : "<null>",
+			target->targetname ? target->targetname : "<null>",
+			oldOrigin[0], oldOrigin[1], oldOrigin[2],
+			newOrigin[0], newOrigin[1], newOrigin[2],
+			ent->client->ps.origin[0], ent->client->ps.origin[1], ent->client->ps.origin[2],
+			floorTrace.fraction,
+			floorTrace.startsolid ? 1 : 0,
+			losTrace.entityNum,
+			losTrace.fraction,
+			target->health,
+			target->client ? target->client->playerTeam : -1,
+			ent->client ? ent->client->playerTeam : -1,
+			level.time,
+			s_stefxStageBudget);
+		s_stefxStageLogBudget--;
+	}
+}
+
+static void STEFX_ClientThinkPMStateLog(const char *phase, gentity_t *ent, const usercmd_t *ucmd, const pmove_t *pmove)
+{
+	gclient_t *client;
+	int weapon;
+	int ammoIndex;
+	int ammoValue;
+
+	if (!ent || !ent->client)
+	{
+		return;
+	}
+
+	client = ent->client;
+	weapon = client->ps.weapon;
+	ammoIndex = (weapon >= 0 && weapon < MAX_WEAPONS) ? weaponData[weapon].ammoIndex : -1;
+	ammoValue = (ammoIndex >= 0 && ammoIndex < MAX_AMMO) ? client->ps.ammo[ammoIndex] : -9999;
+
+	XBLF("STEFX: ClientThink PM state phase=%s ent=%d time=%d buttons=0x%x cmdWeapon=%d psWeapon=%d weaponstate=%d weaponTime=%d pmFlags=0x%x pmType=%d health=%d ammoIndex=%d ammo=%d fireDelay=%d eventSeq=%d origin=(%g,%g,%g) vel=(%g,%g,%g) pmTouch=%d water=%d/%d ground=%d",
+		phase ? phase : "<null>",
+		ent->s.number,
+		level.time,
+		ucmd ? ucmd->buttons : 0,
+		ucmd ? ucmd->weapon : -1,
+		client->ps.weapon,
+		client->ps.weaponstate,
+		client->ps.weaponTime,
+		client->ps.pm_flags,
+		client->ps.pm_type,
+		client->ps.stats[STAT_HEALTH],
+		ammoIndex,
+		ammoValue,
+		client->fireDelay,
+		client->ps.eventSequence,
+		client->ps.origin[0], client->ps.origin[1], client->ps.origin[2],
+		client->ps.velocity[0], client->ps.velocity[1], client->ps.velocity[2],
+		pmove ? pmove->numtouch : -1,
+		pmove ? pmove->waterlevel : -1,
+		pmove ? pmove->watertype : -1,
+		client->ps.groundEntityNum);
+}
+
+static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
+{
+	static int s_stefxSmokeAimBudget = 64;
+	gentity_t *bestTarget = NULL;
+	gentity_t *bestTraceTarget = NULL;
+	float bestDistSq = 999999999.0f;
+	float bestTraceDistSq = 999999999.0f;
+	vec3_t start;
+	vec3_t bestPoint;
+	vec3_t bestTracePoint;
+	int bestTraceEnt = ENTITYNUM_NONE;
+	int bestTraceTargetEnt = ENTITYNUM_NONE;
+	float bestTraceFrac = 1.0f;
+	float bestTraceTargetFrac = 1.0f;
+	int i;
+	float range;
+	float rangeSq;
+
+	if (!ent || !ent->client || !ucmd)
+	{
+		return;
+	}
+	if (ent->s.number != 0)
+	{
+		return;
+	}
+	if (!(ucmd->buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK)))
+	{
+		return;
+	}
+	if (!gi.Cvar_VariableIntegerValue("stefx_smoke_aim"))
+	{
+		return;
+	}
+
+	if (VectorLengthSquared(ent->client->renderInfo.eyePoint) > 1.0f)
+	{
+		VectorCopy(ent->client->renderInfo.eyePoint, start);
+	}
+	else
+	{
+		VectorCopy(ent->client->ps.origin, start);
+		start[2] += ent->client->ps.viewheight;
+	}
+
+	range = weaponData[WP_PHASER].range > 0 ? (float)weaponData[WP_PHASER].range : 2048.0f;
+	if (ent->client->ps.weapon > WP_NONE && ent->client->ps.weapon < WP_NUM_WEAPONS && weaponData[ent->client->ps.weapon].range > 0)
+	{
+		range = (float)weaponData[ent->client->ps.weapon].range;
+	}
+	range += 96.0f;
+	rangeSq = range * range;
+
+	for (i = 1; i < globals.num_entities; ++i)
+	{
+		gentity_t *target = &g_entities[i];
+		vec3_t targetPoint;
+		vec3_t delta;
+		trace_t tr;
+		float distSq;
+
+		if (!target->inuse || !target->client || !target->NPC)
+		{
+			continue;
+		}
+		if (!target->takedamage || target->health <= 0 || (target->flags & FL_NOTARGET))
+		{
+			continue;
+		}
+		if (OnSameTeam(ent, target))
+		{
+			continue;
+		}
+
+		VectorCopy(target->currentOrigin, targetPoint);
+		if (target->client && VectorLengthSquared(target->client->renderInfo.eyePoint) > 1.0f)
+		{
+			VectorCopy(target->client->renderInfo.eyePoint, targetPoint);
+		}
+		else
+		{
+			targetPoint[0] += (target->mins[0] + target->maxs[0]) * 0.5f;
+			targetPoint[1] += (target->mins[1] + target->maxs[1]) * 0.5f;
+			targetPoint[2] += (target->mins[2] + target->maxs[2]) * 0.5f;
+			if (target->client && targetPoint[2] <= target->currentOrigin[2] + 4.0f)
+			{
+				targetPoint[2] = target->currentOrigin[2] + target->client->ps.viewheight * 0.5f;
+			}
+		}
+
+		VectorSubtract(targetPoint, start, delta);
+		distSq = VectorLengthSquared(delta);
+		if (distSq > rangeSq)
+		{
+			continue;
+		}
+
+		gi.trace(&tr, start, NULL, NULL, targetPoint, ent->s.number, MASK_SHOT);
+		if (tr.entityNum == target->s.number)
+		{
+			if (distSq < bestTraceDistSq)
+			{
+				bestTraceDistSq = distSq;
+				bestTraceTarget = target;
+				VectorCopy(targetPoint, bestTracePoint);
+				bestTraceTargetEnt = tr.entityNum;
+				bestTraceTargetFrac = tr.fraction;
+			}
+		}
+		else if (distSq < bestDistSq)
+		{
+			bestDistSq = distSq;
+			bestTarget = target;
+			VectorCopy(targetPoint, bestPoint);
+			bestTraceEnt = tr.entityNum;
+			bestTraceFrac = tr.fraction;
+		}
+	}
+
+	if (bestTraceTarget)
+	{
+		bestTarget = bestTraceTarget;
+		VectorCopy(bestTracePoint, bestPoint);
+		bestDistSq = bestTraceDistSq;
+		bestTraceEnt = bestTraceTargetEnt;
+		bestTraceFrac = bestTraceTargetFrac;
+	}
+
+	if (bestTarget)
+	{
+		static int s_stefxSmokeWakeBudget = 24;
+		vec3_t dir;
+		vec3_t desired;
+
+		VectorSubtract(bestPoint, start, dir);
+		vectoangles(dir, desired);
+		ucmd->angles[PITCH] = ANGLE2SHORT(desired[PITCH]) - ent->client->ps.delta_angles[PITCH];
+		ucmd->angles[YAW] = ANGLE2SHORT(desired[YAW]) - ent->client->ps.delta_angles[YAW];
+		if (gi.Cvar_VariableIntegerValue("stefx_smoke_stage_enemy"))
+		{
+			ucmd->forwardmove = 0;
+			ucmd->rightmove = 0;
+			ucmd->upmove = 0;
+		}
+
+		if (gi.Cvar_VariableIntegerValue("stefx_smoke_wake_ai") && bestTarget->NPC && bestTarget->enemy != ent)
+		{
+			if (ent->flags & FL_NOTARGET)
+			{
+				XBLF("STEFX: smoke wake cleared player FL_NOTARGET ent=%d flags=0x%x time=%d",
+					ent->s.number,
+					ent->flags,
+					level.time);
+				ent->flags &= ~FL_NOTARGET;
+			}
+			if (s_stefxSmokeWakeBudget > 0)
+			{
+				XBLF("STEFX: smoke wake enemy self=%d class='%s' team=%d enemyTeam=%d target=%d playerTeam=%d time=%d",
+					bestTarget->s.number,
+					bestTarget->classname ? bestTarget->classname : "<null>",
+					bestTarget->client ? bestTarget->client->playerTeam : -1,
+					bestTarget->client ? bestTarget->client->enemyTeam : -1,
+					ent->s.number,
+					ent->client ? ent->client->playerTeam : -1,
+					level.time);
+				s_stefxSmokeWakeBudget--;
+			}
+			G_SetEnemy(bestTarget, ent);
+		}
+
+		if (s_stefxSmokeAimBudget > 0)
+		{
+			XBLF("STEFX: smoke aim target ent=%d class='%s' targetname='%s' dist=%g desired=(%g,%g,%g) cmdAngles=(%d,%d,%d) traceEnt=%d frac=%g",
+				bestTarget->s.number,
+				bestTarget->classname ? bestTarget->classname : "<null>",
+				bestTarget->targetname ? bestTarget->targetname : "<null>",
+				sqrt(bestDistSq),
+				desired[0], desired[1], desired[2],
+				ucmd->angles[PITCH],
+				ucmd->angles[YAW],
+				ucmd->angles[ROLL],
+				bestTraceEnt,
+				bestTraceFrac);
+			s_stefxSmokeAimBudget--;
+		}
+	}
+	else if (s_stefxSmokeAimBudget > 0)
+	{
+		XBLF("STEFX: smoke aim no live enemy ent=%d time=%d origin=(%g,%g,%g) range=%g entities=%d",
+			ent->s.number,
+			level.time,
+			start[0], start[1], start[2],
+			range,
+			globals.num_entities);
+		s_stefxSmokeAimBudget--;
+	}
+}
+#endif
 #endif
 
 /*
@@ -199,6 +1015,34 @@ void ClientImpacts( gentity_t *ent, pmove_t *pm ) {
 	int		i, j;
 	trace_t	trace;
 	gentity_t	*other;
+#ifdef _XBOX
+	static int s_stefxClientImpactsLogCount = 0;
+	qboolean stefxLog = (s_stefxClientImpactsLogCount < 64);
+
+	if ( !ent || !pm )
+	{
+		if (stefxLog)
+		{
+			XBLF("STEFX: ClientImpacts observed invalid ent=%08x pm=%08x",
+				(unsigned int)ent, (unsigned int)pm);
+		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
+		s_stefxClientImpactsLogCount++;
+		return;
+#endif
+	}
+	if (pm->numtouch < 0 || pm->numtouch > MAXTOUCH)
+	{
+		if (stefxLog)
+		{
+			XBLF("STEFX: ClientImpacts observed out-of-range numtouch ent=%d numtouch=%d max=%d",
+				ent->s.number, pm->numtouch, MAXTOUCH);
+		}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
+		pm->numtouch = (pm->numtouch < 0) ? 0 : MAXTOUCH;
+#endif
+	}
+#endif
 
 	memset( &trace, 0, sizeof( trace ) );
 	for (i=0 ; i<pm->numtouch ; i++) {
@@ -210,17 +1054,64 @@ void ClientImpacts( gentity_t *ent, pmove_t *pm ) {
 		if (j != i) {
 			continue;	// duplicated
 		}
+#ifdef _XBOX
+		if (pm->touchents[i] < 0 || pm->touchents[i] >= MAX_GENTITIES)
+		{
+			if (stefxLog)
+			{
+				XBLF("STEFX: ClientImpacts observed ent=%d touch[%d]=%d out of range",
+					ent->s.number, i, pm->touchents[i]);
+			}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
+			continue;
+#endif
+		}
+#endif
 		other = &g_entities[ pm->touchents[i] ];
+#ifdef _XBOX
+		if (!other->inuse)
+		{
+			if (stefxLog)
+			{
+				XBLF("STEFX: ClientImpacts observed ent=%d touch[%d]=%d not inuse",
+					ent->s.number, i, pm->touchents[i]);
+			}
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
+			continue;
+#endif
+		}
+#endif
 
 		if ( ( ent->NPC != NULL ) && ( ent->e_TouchFunc != touchF_NULL ) ) {	// last check unneccessary
+#ifdef _XBOX
+			if (stefxLog)
+			{
+				XBLF("STEFX: ClientImpacts ent touch ent=%d other=%d func=%d",
+					ent->s.number, other->s.number, ent->e_TouchFunc);
+			}
+#endif
 			GEntity_TouchFunc( ent, other, &trace );
 		}
 
 		if ( other->e_TouchFunc == touchF_NULL ) {	// not needed, but I'll leave it I guess (cache-hit issues)
 			continue;
 		}
+#ifdef _XBOX
+		if (stefxLog)
+		{
+			XBLF("STEFX: ClientImpacts other touch ent=%d other=%d func=%d",
+				ent->s.number, other->s.number, other->e_TouchFunc);
+		}
+#endif
 		GEntity_TouchFunc( other, ent, &trace );
 	}
+#ifdef _XBOX
+	if (stefxLog)
+	{
+		XBLF("STEFX: ClientImpacts exit ent=%d numtouch=%d", ent->s.number, pm->numtouch);
+	}
+	s_stefxClientImpactsLogCount++;
+#endif
 
 }
 
@@ -246,7 +1137,7 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 	qboolean	done = qfalse;
 #ifdef _XBOX
 	static int s_stefxTouchLerpedLogCount = 0;
-	qboolean stefxLog = (s_stefxTouchLerpedLogCount < 256);
+	qboolean stefxLog = (s_stefxTouchLerpedLogCount < 64);
 	if (stefxLog)
 	{
 		XBLF("STEFX: G_TouchTriggersLerped enter count=%d ent=%d client=%08x health=%d origin=(%g,%g,%g) last=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
@@ -289,13 +1180,15 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 	if (STEFX_Vec3Bad(ent->currentOrigin) || STEFX_Vec3Bad(ent->lastOrigin) ||
 		STEFX_Vec3Bad(ent->mins) || STEFX_Vec3Bad(ent->maxs))
 	{
-		XBLF("STEFX: G_TouchTriggersLerped ent=%d exit nonfinite origin=(%g,%g,%g) last=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+		XBLF("STEFX: G_TouchTriggersLerped ent=%d observed nonfinite origin=(%g,%g,%g) last=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
 			ent->s.number,
 			ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
 			ent->lastOrigin[0], ent->lastOrigin[1], ent->lastOrigin[2],
 			ent->mins[0], ent->mins[1], ent->mins[2],
 			ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		return;
+#endif
 	}
 #endif
 
@@ -310,9 +1203,11 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 	}
 	if (IS_NAN(dist) || IS_NAN(step) || step <= 0.0f)
 	{
-		XBLF("STEFX: G_TouchTriggersLerped ent=%d exit invalid dist/step dist=%g step=%g",
+		XBLF("STEFX: G_TouchTriggersLerped ent=%d observed invalid dist/step dist=%g step=%g",
 			ent->s.number, dist, step);
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		return;
+#endif
 	}
 #endif
 
@@ -323,9 +1218,11 @@ void	G_TouchTriggersLerped( gentity_t *ent ) {
 #ifdef _XBOX
 		if (++lerpGuard > 256)
 		{
-			XBLF("STEFX: G_TouchTriggersLerped ent=%d abort lerp guard cur=%g dist=%g step=%g",
+			XBLF("STEFX: G_TouchTriggersLerped ent=%d observed lerp guard overflow cur=%g dist=%g step=%g",
 				ent->s.number, curDist, dist, step);
+#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 			break;
+#endif
 		}
 #endif
 		if ( curDist >= dist )
@@ -753,6 +1650,28 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			break;
 
 		case EV_FIRE_WEAPON:
+#ifdef _XBOX
+			{
+				static int s_stefxClientFireLogBudget = 48;
+				if (s_stefxClientFireLogBudget > 0)
+				{
+					int ammoIndex = weaponData[client->ps.weapon].ammoIndex;
+					int ammoValue = (ammoIndex >= 0 && ammoIndex < MAX_AMMO) ? client->ps.ammo[ammoIndex] : -9999;
+					XBLF("STEFX: ClientEvents fire ent=%d event=%d seq=%d oldSeq=%d weapon=%d weaponstate=%d weaponTime=%d buttons=0x%x ammoIndex=%d ammo=%d",
+						ent->s.number,
+						event,
+						client->ps.eventSequence,
+						oldEventSequence,
+						client->ps.weapon,
+						client->ps.weaponstate,
+						client->ps.weaponTime,
+						client->buttons,
+						ammoIndex,
+						ammoValue);
+					--s_stefxClientFireLogBudget;
+				}
+			}
+#endif
 #ifndef FINAL_BUILD
 			if ( fired ) {
 				gi.Printf( "DOUBLE EV_FIRE_WEAPON AND-OR EV_ALT_FIRE!!\n" );
@@ -763,6 +1682,28 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			break;
 
 		case EV_ALT_FIRE:
+#ifdef _XBOX
+			{
+				static int s_stefxClientAltFireLogBudget = 24;
+				if (s_stefxClientAltFireLogBudget > 0)
+				{
+					int ammoIndex = weaponData[client->ps.weapon].ammoIndex;
+					int ammoValue = (ammoIndex >= 0 && ammoIndex < MAX_AMMO) ? client->ps.ammo[ammoIndex] : -9999;
+					XBLF("STEFX: ClientEvents altfire ent=%d event=%d seq=%d oldSeq=%d weapon=%d weaponstate=%d weaponTime=%d buttons=0x%x ammoIndex=%d ammo=%d",
+						ent->s.number,
+						event,
+						client->ps.eventSequence,
+						oldEventSequence,
+						client->ps.weapon,
+						client->ps.weaponstate,
+						client->ps.weaponTime,
+						client->buttons,
+						ammoIndex,
+						ammoValue);
+					--s_stefxClientAltFireLogBudget;
+				}
+			}
+#endif
 #ifndef FINAL_BUILD
 			if ( fired ) {
 				gi.Printf( "DOUBLE EV_FIRE_WEAPON AND-OR EV_ALT_FIRE!!\n" );
@@ -959,6 +1900,19 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 	vec3_t		oldOrigin;
 	int			oldEventSequence;
 	int			msec;
+#ifdef _XBOX
+	static int	s_stefxPostMoveProbeBudget = 2;
+	static int	s_stefxPlayerAttackProbeBudget = 96;
+	static int	s_stefxPlayerCameraGateBudget = 96;
+	static int	s_stefxPlayerMoveProbeBudget = 96;
+	qboolean	stefxPostMoveProbe = qfalse;
+
+	if ( s_stefxPostMoveProbeBudget > 0 )
+	{
+		s_stefxPostMoveProbeBudget--;
+		stefxPostMoveProbe = qtrue;
+	}
+#endif
 
 #ifdef _XBOX
 	XBLF("STEFX: ClientThink_real enter ent=%d ptr=%08x class=%s client=%08x npc=%08x ucmd=%08x serverTime=%d",
@@ -974,11 +1928,38 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 	//Don't let the player do anything if in a camera
 	if ( ent->s.number == 0 ) {
 extern cvar_t	*g_skippingcin;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_Borg1SliceWarp(ent, ucmd);
+		STEFX_SmokeUnlockPlayerControl(ent, ucmd);
+#endif
 		if ( in_camera )
 		{
+			qboolean cinematicAdvance = ClientCinematicThink(ent->client);
+#ifdef _XBOX
+			int logButtons = ucmd ? (ucmd->buttons & ~BUTTON_WALKING) : 0;
+			qboolean logCameraGate =
+				(s_stefxPlayerCameraGateBudget > 88) ||
+				(ucmd && (ucmd->forwardmove || ucmd->rightmove || ucmd->upmove || logButtons));
+			if ( s_stefxPlayerCameraGateBudget > 0 && logCameraGate )
+			{
+				XBLF("STEFX: ClientThink player cinematic gate time=%d cmdTime=%d buttons=0x%x move=(%d,%d,%d) result=%d skipping=%d weapon=%d weaponstate=%d weaponTime=%d",
+					level.time,
+					ucmd ? ucmd->serverTime : -1,
+					ucmd ? ucmd->buttons : 0,
+					ucmd ? ucmd->forwardmove : 0,
+					ucmd ? ucmd->rightmove : 0,
+					ucmd ? ucmd->upmove : 0,
+					cinematicAdvance ? 1 : 0,
+					g_skippingcin ? g_skippingcin->integer : -1,
+					ent->client ? ent->client->ps.weapon : -1,
+					ent->client ? ent->client->ps.weaponstate : -1,
+					ent->client ? ent->client->ps.weaponTime : -1);
+				s_stefxPlayerCameraGateBudget--;
+			}
+#endif
 			// watch the code here, you MUST "return" within this IF(), *unless* you're stopping the cinematic skip.
 			//
-			if ( ClientCinematicThink(ent->client) )
+			if ( cinematicAdvance )
 			{
 				if (g_skippingcin->integer)	// already doing cinematic skip?
 				{
@@ -1028,6 +2009,60 @@ extern vmCvar_t cg_thirdPerson;
 			ucmd->buttons = 0;
 			ucmd->upmove = 0;
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SmokeReadyPlayerWeapon(ent, ucmd);
+		STEFX_SmokeStageEnemy(ent, ucmd);
+		STEFX_SmokeAimAtLiveEnemy(ent, ucmd);
+		{
+			static int s_stefxPlayerCmdBudget = 80;
+			int logButtons = ucmd->buttons & ~BUTTON_WALKING;
+			qboolean interestingCmd =
+				(ucmd->forwardmove != 0) ||
+				(ucmd->rightmove != 0) ||
+				(ucmd->upmove != 0) ||
+				(logButtons != 0);
+
+			if ( s_stefxPlayerCmdBudget > 0 && ( interestingCmd || s_stefxPlayerCmdBudget > 72 ) )
+			{
+				XBLF("STEFX: ClientThink player cmd time=%d serverTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d pmType=%d origin=(%g,%g,%g) locked=%d inCamera=%d",
+					level.time,
+					ucmd->serverTime,
+					ucmd->forwardmove,
+					ucmd->rightmove,
+					ucmd->upmove,
+					ucmd->buttons,
+					ent->client->ps.weapon,
+					ent->client->ps.pm_type,
+					ent->client->ps.origin[0],
+					ent->client->ps.origin[1],
+					ent->client->ps.origin[2],
+					player_locked ? 1 : 0,
+					in_camera ? 1 : 0);
+				s_stefxPlayerCmdBudget--;
+			}
+
+			if ( interestingCmd && s_stefxPlayerMoveProbeBudget > 0 )
+			{
+				stefxPostMoveProbe = qtrue;
+				s_stefxPlayerMoveProbeBudget--;
+			}
+
+			if ( (ucmd->buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK)) && s_stefxPlayerAttackProbeBudget > 0 )
+			{
+				stefxPostMoveProbe = qtrue;
+				s_stefxPlayerAttackProbeBudget--;
+				XBLF("STEFX: ClientThink player attack probe armed remaining=%d time=%d buttons=0x%x weapon=%d weaponstate=%d weaponTime=%d fireDelay=%d eventSeq=%d",
+					s_stefxPlayerAttackProbeBudget,
+					level.time,
+					ucmd->buttons,
+					ent->client->ps.weapon,
+					ent->client->ps.weaponstate,
+					ent->client->ps.weaponTime,
+					ent->client->fireDelay,
+					ent->client->ps.eventSequence);
+			}
+		}
+#endif
 	}
 	else
 	{
@@ -1261,16 +2296,16 @@ extern vmCvar_t cg_thirdPerson;
 
 	//FIXME: need to do this before check to avoid walls and cliffs (or just cliffs?)
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d before BG_AddPushVecToUcmd", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d before BG_AddPushVecToUcmd", ent->s.number);
 #endif
 	BG_AddPushVecToUcmd( ent, ucmd );
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after BG_AddPushVecToUcmd before BG_CalculateOffsetAngles", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after BG_AddPushVecToUcmd before BG_CalculateOffsetAngles", ent->s.number);
 #endif
 
 	BG_CalculateOffsetAngles( ent, ucmd );
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after BG_CalculateOffsetAngles", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after BG_CalculateOffsetAngles", ent->s.number);
 #endif
 
 	// set up for pmove
@@ -1292,13 +2327,20 @@ extern vmCvar_t cg_thirdPerson;
 
 	// perform a pmove
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d before Pmove origin=(%g,%g,%g) clipmask=0x%x pmType=%d",
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d before Pmove origin=(%g,%g,%g) clipmask=0x%x pmType=%d",
 		ent->s.number, client->ps.origin[0], client->ps.origin[1], client->ps.origin[2], ent->clipmask, client->ps.pm_type);
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) STEFX_ClientThinkPMStateLog("before_pmove", ent, ucmd, &pm);
+#endif
 #endif
 	Pmove( &pm );
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after Pmove numtouch=%d water=%d/%d ground=%d",
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after Pmove numtouch=%d water=%d/%d ground=%d",
 		ent->s.number, pm.numtouch, pm.waterlevel, pm.watertype, client->ps.groundEntityNum);
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) STEFX_ClientThinkPMStateLog("after_pmove", ent, ucmd, &pm);
+#endif
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after Pmove\n");
 #endif
 
 	// save results of pmove
@@ -1313,7 +2355,13 @@ extern vmCvar_t cg_thirdPerson;
 			ent->s.eventParm = ent->client->ps.eventParms[ seq ];
 		}
 	}
+#ifdef _XBOX
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after event copy\n");
+#endif
 	PlayerStateToEntityState( &ent->client->ps, &ent->s );
+#ifdef _XBOX
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after PlayerStateToEntityState\n");
+#endif
 
 	VectorCopy ( ent->currentOrigin, ent->lastOrigin );
 #if 1
@@ -1327,42 +2375,96 @@ extern vmCvar_t cg_thirdPerson;
 
 	VectorCopy (pm.mins, ent->mins);
 	VectorCopy (pm.maxs, ent->maxs);
+#ifdef _XBOX
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after origin and bounds copy\n");
+#endif
 
 	ent->waterlevel = pm.waterlevel;
 	ent->watertype = pm.watertype;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe )
+	{
+		vec3_t	stefxMoveDelta;
+		qboolean	stefxMoved;
+
+		VectorSubtract( client->ps.origin, oldOrigin, stefxMoveDelta );
+		stefxMoved = (qboolean)(VectorLengthSquared( stefxMoveDelta ) > 0.01f);
+		XBLF("STEFX: ClientThink PM state result ent=%d time=%d serverTime=%d moved=%d oldOrigin=(%g,%g,%g) newOrigin=(%g,%g,%g) delta=(%g,%g,%g) velocity=(%g,%g,%g) move=(%d,%d,%d) buttons=0x%x events=%d->%d pmFlags=0x%x weapon=%d weaponTime=%d weaponstate=%d ground=%d",
+			ent->s.number,
+			level.time,
+			ucmd->serverTime,
+			stefxMoved ? 1 : 0,
+			oldOrigin[0], oldOrigin[1], oldOrigin[2],
+			client->ps.origin[0], client->ps.origin[1], client->ps.origin[2],
+			stefxMoveDelta[0], stefxMoveDelta[1], stefxMoveDelta[2],
+			client->ps.velocity[0], client->ps.velocity[1], client->ps.velocity[2],
+			ucmd->forwardmove, ucmd->rightmove, ucmd->upmove,
+			ucmd->buttons,
+			oldEventSequence,
+			client->ps.eventSequence,
+			client->ps.pm_flags,
+			client->ps.weapon,
+			client->ps.weaponTime,
+			client->ps.weaponstate,
+			client->ps.groundEntityNum);
+	}
+#endif
+
 	VectorCopy( ucmd->angles, client->pers.cmd_angles );
 
 	// execute client events
+#ifdef _XBOX
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before ClientEvents\n");
+#endif
 	ClientEvents( ent, oldEventSequence );
+#ifdef _XBOX
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after ClientEvents\n");
+#endif
 
 	if ( pm.useEvent )
 	{
 		//TODO: Use
+#ifdef _XBOX
+		if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before TryUse\n");
+#endif
 		TryUse( ent );
+#ifdef _XBOX
+		if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after TryUse\n");
+#endif
 	}
 
 	// link entity now, after any personal teleporters have been used
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d before post-Pmove linkentity", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d before post-Pmove linkentity", ent->s.number);
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before linkentity\n");
 #endif
 	gi.linkentity( ent );
 	ent->client->hiddenDist = 0;
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after post-Pmove linkentity before triggers", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after post-Pmove linkentity before triggers", ent->s.number);
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after linkentity\n");
 #endif
 	if ( !ent->client->noclip ) 
 	{
+#ifdef _XBOX
+		if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before G_TouchTriggersLerped\n");
+#endif
 		G_TouchTriggersLerped( ent );
+#ifdef _XBOX
+		if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after G_TouchTriggersLerped\n");
+#endif
 	}
 
 	// touch other objects
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d before ClientImpacts", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d before ClientImpacts", ent->s.number);
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before ClientImpacts\n");
 #endif
 	ClientImpacts( ent, &pm );
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after ClientImpacts", ent->s.number);
+	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after ClientImpacts", ent->s.number);
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after ClientImpacts\n");
 #endif
 
 	// swap and latch button actions
@@ -1407,6 +2509,9 @@ extern vmCvar_t cg_thirdPerson;
 	}
 	// perform once-a-second actions
 	//ClientTimerActions( ent, msec );
+#ifdef _XBOX
+	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM ClientThink_real exit\n");
+#endif
 
 	//DEBUG INFO
 /*
@@ -1431,24 +2536,36 @@ void ClientThink( int clientNum, usercmd_t *ucmd ) {
 	gentity_t *ent;
 
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink enter clientNum=%d ucmd=%08x serverTime=%d g_entities=%08x",
+	static int s_stefxClientThinkEntryLogBudget = 8;
+	qboolean stefxClientThinkEntryLog = (s_stefxClientThinkEntryLogBudget > 0);
+	if (stefxClientThinkEntryLog) XBLF("STEFX: ClientThink enter clientNum=%d ucmd=%08x serverTime=%d g_entities=%08x",
 		clientNum, (unsigned int)ucmd, ucmd ? ucmd->serverTime : -1, (unsigned int)g_entities);
 #endif
 	ent = g_entities + clientNum;
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink ent resolved clientNum=%d ent=%08x client=%08x",
+	if (stefxClientThinkEntryLog) XBLF("STEFX: ClientThink ent resolved clientNum=%d ent=%08x client=%08x",
 		clientNum, (unsigned int)ent, ent ? (unsigned int)ent->client : 0);
 #endif
 	ent->client->usercmd = *ucmd;
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink ent=%d after usercmd copy before real", ent->s.number);
+	if (stefxClientThinkEntryLog) XBLF("STEFX: ClientThink ent=%d after usercmd copy before real", ent->s.number);
 #endif
 //	if ( !g_syncronousClients->integer ) 
 	{
 		ClientThink_real( ent, ucmd );
 	}
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink ent=%d complete", ent->s.number);
+	static int s_clientThinkReturnLogBudget = 8;
+	if (s_clientThinkReturnLogBudget > 0)
+	{
+		XBL("STEFX: CLIENT_PM ClientThink returned\n");
+		s_clientThinkReturnLogBudget--;
+	}
+	if (stefxClientThinkEntryLog)
+	{
+		XBLF("STEFX: ClientThink ent=%d complete", ent->s.number);
+		s_stefxClientThinkEntryLogBudget--;
+	}
 #endif
 }
 

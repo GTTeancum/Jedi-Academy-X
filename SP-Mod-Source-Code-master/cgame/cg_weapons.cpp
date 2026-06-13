@@ -1,6 +1,9 @@
 #include "cg_local.h"
 #include "..\game\anims.h"
 #include "cg_media.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 /////////////////////  this is a bit kludgy, but it only gives access to one
 //							enum table because of the #define. May get changed.
@@ -24,9 +27,16 @@ The server says this item is used on this level
 void CG_RegisterWeapon( int weaponNum ) {
 	weaponInfo_t	*weaponInfo;
 	gitem_t			*item, *ammo;
+	gitem_t			*scan;
 	char			path[MAX_QPATH];
 	vec3_t			mins, maxs;
 	int				i;
+	int				itemIndex;
+	int				ammoIndex;
+	int				firstNullItem;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+	qboolean		stefxWeaponModelFallback = qfalse;
+#endif
 
 	weaponInfo = &cg_weapons[weaponNum];
 
@@ -44,15 +54,34 @@ void CG_RegisterWeapon( int weaponNum ) {
 	weaponInfo->registered = qtrue;
 
 	// find the weapon in the item list
-	for ( item = bg_itemlist + 1 ; item->classname ; item++ ) {
-		if ( item->giType == IT_WEAPON && item->giTag == weaponNum ) {
-			weaponInfo->item = item;
+	item = NULL;
+	firstNullItem = -1;
+	for ( itemIndex = 1 ; itemIndex < bg_numItems ; itemIndex++ ) {
+		scan = &bg_itemlist[itemIndex];
+		if ( !scan->classname && firstNullItem < 0 ) {
+			firstNullItem = itemIndex;
+		}
+		if ( scan->giType == IT_WEAPON && scan->giTag == weaponNum ) {
+			item = scan;
+			weaponInfo->item = scan;
 			break;
 		}
 	}
 	// if we couldn't find which weapon this is, give us an error
-	if ( !item->classname ) {
+	if ( !item ) {
+		CG_Printf( "STEFX: CG_RegisterWeapon missing weapon=%d class='%s' bg_numItems=%d firstNull=%d item1='%s' item17='%s' item21='%s'\n",
+			weaponNum,
+			weaponData[weaponNum].classname,
+			bg_numItems,
+			firstNullItem,
+			bg_itemlist[1].classname ? bg_itemlist[1].classname : "<null>",
+			bg_itemlist[17].classname ? bg_itemlist[17].classname : "<null>",
+			bg_itemlist[21].classname ? bg_itemlist[21].classname : "<null>" );
 		CG_Error( "Couldn't find item for weapon %s\nNeed to update Items.dat!", weaponData[weaponNum].classname);
+	}
+	else if ( firstNullItem >= 0 && firstNullItem < itemIndex ) {
+		CG_Printf( "STEFX: CG_RegisterWeapon bounded item scan crossed firstNull=%d foundIndex=%d weapon=%d class='%s'\n",
+			firstNullItem, itemIndex, weaponNum, weaponData[weaponNum].classname );
 	}
 	CG_RegisterItemVisuals( item - bg_itemlist );
 
@@ -61,8 +90,23 @@ void CG_RegisterWeapon( int weaponNum ) {
 
 	if ( weaponInfo->weaponModel == NULL )
 	{
+		CG_Printf( "STEFX: CG_RegisterWeapon missing view model '%s' for weapon %s\n",
+			weaponData[weaponNum].weaponMdl,
+			weaponData[weaponNum].classname );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+		CG_Printf( "STEFX: CG_RegisterWeapon survival fallback model %d\n", cgs.media.explosionModel );
+		weaponInfo->weaponModel = cgs.media.explosionModel;
+		if ( weaponInfo->weaponModel == NULL )
+		{
+			CG_Printf( "STEFX: CG_RegisterWeapon no fallback model for weapon %s; weapon visuals disabled\n",
+				weaponData[weaponNum].classname );
+			return;
+		}
+		stefxWeaponModelFallback = qtrue;
+#else
 		CG_Error( "Couldn't find weapon model %s\n", weaponData[weaponNum].classname);
 		return;
+#endif
 	}
 
 	// calc midpoint for rotation
@@ -73,12 +117,28 @@ void CG_RegisterWeapon( int weaponNum ) {
 	// setup the shader we will use for the icon
 	weaponInfo->weaponIcon = cgi_R_RegisterShaderNoMip( weaponData[weaponNum].weaponIcon);
 
-	for ( ammo = bg_itemlist + 1 ; ammo->classname ; ammo++ ) {	
-		if ( ammo->giType == IT_AMMO && ammo->giTag == weaponData[weaponNum].ammoIndex) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+	if ( stefxWeaponModelFallback )
+	{
+		weaponInfo->weaponWorldModel = weaponInfo->weaponModel;
+		weaponInfo->handsModel = weaponInfo->weaponModel;
+		XBLF("STEFX: CG_RegisterWeapon Xbox fallback ready weapon=%d class='%s' model=%d",
+			weaponNum,
+			weaponData[weaponNum].classname,
+			weaponInfo->weaponModel);
+		goto stefx_register_weapon_sounds;
+	}
+#endif
+
+	ammo = NULL;
+	for ( ammoIndex = 1 ; ammoIndex < bg_numItems ; ammoIndex++ ) {
+		scan = &bg_itemlist[ammoIndex];
+		if ( scan->giType == IT_AMMO && scan->giTag == weaponData[weaponNum].ammoIndex) {
+			ammo = scan;
 			break;
 		}
 	}
-	if ( ammo->classname && ammo->world_model ) {
+	if ( ammo && ammo->world_model ) {
 		weaponInfo->ammoModel = cgi_R_RegisterModel( ammo->world_model );
 	}
 
@@ -137,6 +197,9 @@ void CG_RegisterWeapon( int weaponNum ) {
 		weaponInfo->handsModel = cgi_R_RegisterModel( "models/weapons2/prifle/prifle_hand.md3" );
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+stefx_register_weapon_sounds:
+#endif
 	// register the sounds for the weapon
 	if (weaponData[weaponNum].firingSnd[0]) {
 		weaponInfo->firingSound = cgi_S_RegisterSound( weaponData[weaponNum].firingSnd );
@@ -345,10 +408,17 @@ void CG_RegisterItemVisuals( int itemNum ) {
 
 	item = &bg_itemlist[ itemNum ];
 
-	memset( itemInfo, 0, sizeof( &itemInfo ) );
+	memset( itemInfo, 0, sizeof( *itemInfo ) );
 	itemInfo->registered = qtrue;
 
 	itemInfo->models = cgi_R_RegisterModel( item->world_model );
+	if ( item->world_model && item->world_model[0] && itemInfo->models == NULL )
+	{
+		CG_Printf( "STEFX: CG_RegisterItemVisuals missing world model '%s' for item %d '%s'\n",
+			item->world_model,
+			itemNum,
+			item->classname ? item->classname : "<null>" );
+	}
 
 	itemInfo->icon = cgi_R_RegisterShaderNoMip( item->icon );
 
@@ -601,12 +671,32 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 	gun.renderfx = RF_MINLIGHT | RF_DEPTHHACK | RF_FIRST_PERSON;
 
 	cgi_R_AddRefEntityToScene( &gun );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int stefxViewWeaponLogBudget = 16;
+		if ( stefxViewWeaponLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_AddViewWeapon added weapon=%d gunModel=%d handsModel=%d frame=%d origin=(%g,%g,%g)",
+				ps->weapon,
+				weapon->weaponModel,
+				weapon->handsModel,
+				gun.frame,
+				gun.origin[0],
+				gun.origin[1],
+				gun.origin[2]);
+			stefxViewWeaponLogBudget--;
+		}
+	}
+#endif
 
 	// add the spinning barrel[s]
 	for (int i = 0; (i < wData->numBarrels); i++)	{
 		refEntity_t	barrel;
 		memset( &barrel, 0, sizeof( barrel ) );
 		barrel.hModel = weapon->barrelModel[i];
+		if (!barrel.hModel) {
+			continue;
+		}
 
 		//VectorCopy( parent->lightingOrigin, barrel.lightingOrigin );
 		//barrel.shadowPlane = parent->shadowPlane;
@@ -1083,6 +1173,25 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 		return;
 	}
 	weap = &cg_weapons[ ent->weapon ];
+
+#ifdef _XBOX
+	{
+		static int s_stefxCgFireWeaponBudget = 64;
+		if ( s_stefxCgFireWeaponBudget > 0 )
+		{
+			XBLF("STEFX: CG_FireWeapon ent=%d weapon=%d alt=%d time=%d muzzleFlashTime=%d lightning=%d registered=%d model=%d",
+				ent->number,
+				ent->weapon,
+				alt_fire ? 1 : 0,
+				cg.time,
+				cent->muzzleFlashTime,
+				cent->pe.lightningFiring ? 1 : 0,
+				weap->registered ? 1 : 0,
+				weap->weaponModel);
+			s_stefxCgFireWeaponBudget--;
+		}
+	}
+#endif
 
 	// mark the entity as muzzle flashing, so when it is added it will
 	// append the flash to the weapon model

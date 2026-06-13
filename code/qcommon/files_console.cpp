@@ -6,7 +6,9 @@
 #include "../win32/xb_log.h"
 #endif
 #include "../win32/win_file.h"
+#ifndef STEFX_ELITE_FORCE_SP
 #include "../zlib/zlib.h"
+#endif
 
 
 //#define GOB_PROFILE
@@ -14,6 +16,10 @@
 
 static	cvar_t		*fs_openorder;
 
+#if defined(STEFX_ELITE_FORCE_SP)
+#define MAX_FILEHASH_SIZE 1024
+#define MAX_PAKFILES 1024
+#endif
 
 // Zlib Tech Ref says decompression should use about 44kb.  I'll
 // go with 64kb as a safety factor...
@@ -27,6 +33,300 @@ static char* zi_stackBase = NULL;
 //GOB stuff
 //===========================================================================
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static const char *STEFX_GetMdrAliasPath(const char *filename)
+{
+	if (!filename)
+	{
+		return NULL;
+	}
+
+	if (!Q_stricmp(filename, "models/players/crewthin/lower.mdr") ||
+		!Q_stricmp(filename, "models\\players\\crewthin\\lower.mdr"))
+	{
+		return "models/xbox_alias/crewthin_lower.mdr";
+	}
+
+	if (!Q_stricmp(filename, "models/players/crewthin/upper.mdr") ||
+		!Q_stricmp(filename, "models\\players\\crewthin\\upper.mdr"))
+	{
+		return "models/xbox_alias/crewthin_upper.mdr";
+	}
+
+	return NULL;
+}
+
+static qboolean STEFX_ShouldTraceAssetOpen(const char *filename)
+{
+	return filename &&
+		(strstr(filename, ".mdr") || strstr(filename, ".md3") ||
+		 strstr(filename, ".skin") || strstr(filename, "animation.cfg") ||
+		 strstr(filename, "real_scripts/") || strstr(filename, "real_scripts\\"));
+}
+
+static qboolean STEFX_ShouldTryStdioWholeFileRead(const char *filename)
+{
+	const char *ext = filename ? strrchr(filename, '.') : NULL;
+
+	return ext &&
+		(!Q_stricmp(ext, ".mdr") ||
+		 !Q_stricmp(ext, ".md3") ||
+		 !Q_stricmp(ext, ".tik") ||
+		 !Q_stricmp(ext, ".IBI") ||
+		 !Q_stricmp(ext, ".pre") ||
+		 !Q_stricmp(ext, ".rof"));
+}
+
+#define STEFX_PRECACHE_FILES_MAX 128
+
+typedef struct stefxPrecacheFile_s
+{
+	char name[MAX_QPATH];
+	byte *data;
+	int len;
+} stefxPrecacheFile_t;
+
+static stefxPrecacheFile_t s_stefxPrecacheFiles[STEFX_PRECACHE_FILES_MAX];
+static int s_stefxPrecacheFileCount = 0;
+
+static memtag_t STEFX_WholeFileTag(const char *qpath)
+{
+	const char *ext = qpath ? strrchr(qpath, '.') : NULL;
+
+	if (ext && (!Q_stricmp(ext, ".mdr") || !Q_stricmp(ext, ".md3")))
+	{
+		return TAG_MODEL_MD3;
+	}
+
+	return TAG_FILESYS;
+}
+
+static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
+{
+	if (len < 0)
+	{
+		return NULL;
+	}
+
+	return (byte *)Z_Malloc(len + 1, STEFX_WholeFileTag(qpath), qfalse, 32);
+}
+
+static qboolean STEFX_FreeHeapFileBuffer(void *buffer)
+{
+	return qfalse;
+}
+
+static int STEFX_FindPrecachedFile(const char *filename)
+{
+	int i;
+
+	if (!filename)
+	{
+		return -1;
+	}
+
+	for (i = 0; i < s_stefxPrecacheFileCount; ++i)
+	{
+		if (!Q_stricmp(s_stefxPrecacheFiles[i].name, filename))
+		{
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static int STEFX_ReadPrecachedFile(const char *filename, void **buffer)
+{
+	int index = STEFX_FindPrecachedFile(filename);
+	byte *copy;
+
+	if (index < 0)
+	{
+		return -1;
+	}
+
+	if (!buffer)
+	{
+		return s_stefxPrecacheFiles[index].len;
+	}
+
+	if (STEFX_ShouldTryStdioWholeFileRead(filename))
+	{
+		copy = STEFX_AllocHeapFileBuffer(s_stefxPrecacheFiles[index].len, filename);
+	}
+	else
+	{
+		copy = (byte *)Z_Malloc(s_stefxPrecacheFiles[index].len + 1, TAG_TEMP_WORKSPACE, qfalse, 32);
+	}
+	if (!copy)
+	{
+		return -1;
+	}
+	memcpy(copy, s_stefxPrecacheFiles[index].data, s_stefxPrecacheFiles[index].len);
+	copy[s_stefxPrecacheFiles[index].len] = 0;
+	*buffer = copy;
+	if (filename && (strstr(filename, "real_scripts/") || strstr(filename, "real_scripts\\")))
+	{
+		XBLog_Write(va("STEFX: FS precache hit '%s' len=%d", filename, s_stefxPrecacheFiles[index].len));
+	}
+	return s_stefxPrecacheFiles[index].len;
+}
+
+void FS_STEFX_PrecacheFile(const char *qpath)
+{
+	fileHandle_t h = 0;
+	int len;
+	byte *buf;
+
+	FS_CheckInit();
+
+	if (!qpath || !qpath[0] || STEFX_FindPrecachedFile(qpath) >= 0)
+	{
+		return;
+	}
+
+	if (s_stefxPrecacheFileCount >= STEFX_PRECACHE_FILES_MAX)
+	{
+		XBLog_Write(va("STEFX: FS precache full, skipping '%s'", qpath));
+		return;
+	}
+
+	len = FS_FOpenFileRead(qpath, &h, qfalse);
+	if (h == 0 || len <= 0)
+	{
+		if (h)
+		{
+			FS_FCloseFile(h);
+		}
+		XBLog_Write(va("STEFX: FS precache miss '%s' len=%d handle=%d", qpath, len, h));
+		return;
+	}
+
+	buf = (byte *)Z_Malloc(len + 1, STEFX_WholeFileTag(qpath), qfalse, 32);
+	if (!buf)
+	{
+		FS_FCloseFile(h);
+		XBLog_Write(va("STEFX: FS precache zone alloc failed '%s' len=%d", qpath, len));
+		return;
+	}
+	FS_Read(buf, len, h);
+	FS_FCloseFile(h);
+	buf[len] = 0;
+
+	Q_strncpyz(s_stefxPrecacheFiles[s_stefxPrecacheFileCount].name, qpath, sizeof(s_stefxPrecacheFiles[s_stefxPrecacheFileCount].name));
+	s_stefxPrecacheFiles[s_stefxPrecacheFileCount].data = buf;
+	s_stefxPrecacheFiles[s_stefxPrecacheFileCount].len = len;
+	++s_stefxPrecacheFileCount;
+
+	XBLog_Write(va("STEFX: FS precache ok '%s' len=%d count=%d/%d",
+		qpath, len, s_stefxPrecacheFileCount, STEFX_PRECACHE_FILES_MAX));
+}
+
+static int STEFX_ReadLooseFileWithStdio(const char *filename, void **buffer)
+{
+	searchpath_t *search;
+	const char *openName = filename;
+	int aliasPass;
+
+	if (!STEFX_ShouldTryStdioWholeFileRead(filename))
+	{
+		return -1;
+	}
+
+	for (aliasPass = 0; aliasPass < 2; ++aliasPass)
+	{
+		if (aliasPass == 1)
+		{
+			openName = STEFX_GetMdrAliasPath(filename);
+			if (!openName)
+			{
+				break;
+			}
+		}
+
+		for (search = fs_searchpaths; search; search = search->next)
+		{
+			char osname[MAX_OSPATH];
+			FILE *fp;
+			long len;
+			size_t bytesRead;
+
+			if (!search->dir)
+			{
+				continue;
+			}
+
+			Q_strncpyz(osname, FS_BuildOSPath(search->dir->path, search->dir->gamedir, openName), sizeof(osname));
+			fp = fopen(osname, "rb");
+			if (!fp)
+			{
+				continue;
+			}
+
+			if (fseek(fp, 0, SEEK_END) != 0)
+			{
+				fclose(fp);
+				continue;
+			}
+			len = ftell(fp);
+			if (len < 0 || fseek(fp, 0, SEEK_SET) != 0)
+			{
+				fclose(fp);
+				continue;
+			}
+
+			if (!buffer)
+			{
+				fclose(fp);
+				XBLog_Write(va("STEFX: FS stdio fallback length file='%s' os='%s' len=%ld", filename, osname, len));
+				return (int)len;
+			}
+
+			byte *buf = STEFX_AllocHeapFileBuffer((int)len, filename);
+			if (!buf)
+			{
+				fclose(fp);
+				continue;
+			}
+			bytesRead = fread(buf, 1, (size_t)len, fp);
+			fclose(fp);
+
+			if (bytesRead != (size_t)len)
+			{
+				STEFX_FreeHeapFileBuffer(buf);
+				XBLog_Write(va("STEFX: FS stdio fallback short read file='%s' os='%s' len=%ld read=%u",
+					filename,
+					osname,
+					len,
+					(unsigned int)bytesRead));
+				continue;
+			}
+
+			buf[len] = 0;
+			*buffer = buf;
+			if (aliasPass == 0)
+			{
+				XBLog_Write(va("STEFX: FS stdio fallback open file='%s' os='%s' len=%ld", filename, osname, len));
+			}
+			else
+			{
+				XBLog_Write(va("STEFX: FS stdio fallback alias open file='%s' alias='%s' os='%s' len=%ld",
+					filename,
+					openName,
+					osname,
+					len));
+			}
+			return (int)len;
+		}
+	}
+
+	XBLog_Write(va("STEFX: FS stdio fallback miss file='%s'", filename ? filename : "(null)"));
+	return -1;
+}
+#endif
+
+#ifndef STEFX_ELITE_FORCE_SP
 struct gi_handleTable
 {
 	wfhandle_t file;
@@ -202,6 +502,8 @@ static GOBVoid gi_profileread(GOBUInt32 code)
 
 //===========================================================================
 
+#endif // !STEFX_ELITE_FORCE_SP
+
 
 
 
@@ -219,6 +521,21 @@ int FS_filelength( fileHandle_t f )
 	FS_CheckInit();
 	FS_CheckUsed(f);
 	
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fsh[f].zipFile)
+	{
+		return fsh[f].fileSize;
+	}
+	else
+	{
+		int pos = WF_Tell(fsh[f].whandle);
+		WF_Seek(0, SEEK_END, fsh[f].whandle);
+		int end = WF_Tell(fsh[f].whandle);
+		WF_Seek(pos, SEEK_SET, fsh[f].whandle);
+
+		return end;
+	}
+#else
 	if (fsh[f].gob)
 	{
 		GOBUInt32 cur, end, crap;
@@ -237,6 +554,7 @@ int FS_filelength( fileHandle_t f )
 
 		return end;
 	}
+#endif
 }
 
 
@@ -245,12 +563,26 @@ void FS_FCloseFile( fileHandle_t f )
 	FS_CheckInit();
 	FS_CheckUsed(f);
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fsh[f].zipFile)
+	{
+		unzCloseCurrentFile(fsh[f].handleFiles.file.z);
+		unzClose(fsh[f].handleFiles.file.z);
+	}
+	else
+	{
+		WF_Close(fsh[f].whandle);
+	}
+
+	memset(&fsh[f], 0, sizeof(fsh[f]));
+#else
 	if (fsh[f].gob)
 		GOBClose(fsh[f].ghandle);
 	else
 		WF_Close(fsh[f].whandle);
 
 	fsh[f].used = qfalse;
+#endif
 }
 
 
@@ -265,7 +597,10 @@ fileHandle_t FS_FOpenFileWrite( const char *filename )
 	if (fsh[f].whandle >= 0)
 	{
 		fsh[f].used = qtrue;
+#ifndef STEFX_ELITE_FORCE_SP
 		fsh[f].gob = qfalse;
+#endif
+		fsh[f].zipFile = qfalse;
 		return f;
 	}
 
@@ -286,10 +621,84 @@ separate file or a ZIP file.
 
 static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 {
-	if (Sys_GetFileCode(filename) != -1)
+#if defined(STEFX_ELITE_FORCE_SP)
+	searchpath_t *search;
+	const char *openName = filename;
+	int aliasPass;
+
+	for (aliasPass = 0; aliasPass < 2; ++aliasPass)
+	{
+		if (aliasPass == 1)
+		{
+			openName = STEFX_GetMdrAliasPath(filename);
+			if (!openName)
+			{
+				break;
+			}
+		}
+
+		for (search = fs_searchpaths; search; search = search->next)
+		{
+			if (!search->dir)
+			{
+				continue;
+			}
+
+			char* osname = FS_BuildOSPath(search->dir->path, search->dir->gamedir, openName);
+			fsh[f].whandle = WF_Open(osname, true, false);
+			if (fsh[f].whandle >= 0)
+			{
+				int len;
+				fsh[f].used = qtrue;
+				fsh[f].zipFile = qfalse;
+				fsh[f].fileSize = 0;
+				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
+				len = FS_filelength(f);
+				fsh[f].fileSize = len;
+				if (STEFX_ShouldTraceAssetOpen(filename))
+				{
+					if (aliasPass == 0)
+					{
+						XBLog_Write(va("STEFX: FS loose asset open file='%s' os='%s' len=%d", filename, osname, len));
+					}
+					else
+					{
+						XBLog_Write(va("STEFX: FS loose asset alias open file='%s' alias='%s' os='%s' len=%d", filename, openName, osname, len));
+					}
+				}
+				return len;
+			}
+		}
+	}
+
+	return -1;
+#else
+	qboolean allowConsoleList = qfalse;
+	int fileCode;
+#if defined(_XBOX)
+	allowConsoleList = ( strstr(filename, "_console_") && strstr(filename, "_list_") );
+#endif
+	fileCode = allowConsoleList ? 0 : Sys_GetFileCode(filename);
+	if (allowConsoleList || fileCode != -1)
 	{
 		char* osname = FS_BuildOSPath( filename );
 		fsh[f].whandle = WF_Open(osname, true, false);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (strstr(filename, ".mdr"))
+		{
+			XBLog_Write(va("STEFX: FS OS MDR open file='%s' code=%d os='%s' wh=%d", filename, fileCode, osname, fsh[f].whandle));
+		}
+		if (fsh[f].whandle < 0)
+		{
+			const char *aliasPath = STEFX_GetMdrAliasPath(filename);
+			if (aliasPath)
+			{
+				char* aliasOsName = FS_BuildOSPath(aliasPath);
+				fsh[f].whandle = WF_Open(aliasOsName, true, false);
+				XBLog_Write(va("STEFX: FS OS MDR alias retry file='%s' alias='%s' os='%s' wh=%d", filename, aliasPath, aliasOsName, fsh[f].whandle));
+			}
+		}
+#endif
 		if (fsh[f].whandle >= 0)
 		{
 			fsh[f].used = qtrue;
@@ -298,6 +707,7 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 		}
 	}
 	return -1;
+#endif
 }
 
 
@@ -308,6 +718,7 @@ FS_BuildGOBPath
 Qpath may have either forward or backwards slashes
 ===================
 */
+#ifndef STEFX_ELITE_FORCE_SP
 static char *FS_BuildGOBPath(const char *qpath )
 {
 	static char path[2][MAX_OSPATH];
@@ -338,10 +749,338 @@ static int FS_FOpenFileReadGOB( const char *filename, fileHandle_t f )
 	{
 		fsh[f].used = qtrue;
 		fsh[f].gob = qtrue;
-		return FS_filelength(f);
+		int len = FS_filelength(f);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (strstr(filename, ".mdr") || strstr(filename, ".md3") ||
+			strstr(filename, ".skin") || strstr(filename, "animation.cfg"))
+		{
+			XBLog_Write(va("STEFX: FS GOB model open file='%s' gob='%s' len=%d", filename, gobname, len));
+		}
+#endif
+		return len;
 	}
 	return -1;
 }
+#endif
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static long FS_HashFileName( const char *fname, int hashSize )
+{
+	int i;
+	long hash;
+	char letter;
+
+	hash = 0;
+	i = 0;
+	while (fname[i] != '\0')
+	{
+		letter = tolower(fname[i]);
+		if (letter == '.')
+		{
+			break;
+		}
+		if (letter == '\\' || letter == PATH_SEP)
+		{
+			letter = '/';
+		}
+		hash += (long)(letter) * (i + 119);
+		i++;
+	}
+	hash = (hash ^ (hash >> 10) ^ (hash >> 20));
+	hash &= (hashSize - 1);
+	return hash;
+}
+
+static pack_t *FS_LoadZipFile( char *zipfile )
+{
+	fileInPack_t	*buildBuffer;
+	pack_t			*pack;
+	unzFile			uf;
+	int				err;
+	unz_global_info gi;
+	char			filename_inzip[MAX_ZPATH];
+	unz_file_info	file_info;
+	int				i, len;
+	long			hash;
+	int				fs_numHeaderLongs;
+	int				*fs_headerLongs;
+	char			*namePtr;
+
+	fs_numHeaderLongs = 0;
+
+	XBLog_Write(va("STEFX: FS PK3 load begin '%s'", zipfile));
+	uf = unzOpen(zipfile);
+	XBLog_Write(va("STEFX: FS PK3 unzOpen '%s' handle=%p", zipfile, uf));
+	err = unzGetGlobalInfo(uf, &gi);
+	if (err != UNZ_OK)
+	{
+		XBLog_Write(va("STEFX: FS PK3 global info failed '%s' err=%d", zipfile, err));
+		return NULL;
+	}
+	XBLog_Write(va("STEFX: FS PK3 global info '%s' entries=%lu", zipfile, gi.number_entry));
+
+	fs_packFiles += gi.number_entry;
+
+	len = 0;
+	unzGoToFirstFile(uf);
+	for (i = 0; i < gi.number_entry; i++)
+	{
+		err = unzGetCurrentFileInfo(uf, &file_info, filename_inzip, sizeof(filename_inzip), NULL, 0, NULL, 0);
+		if (err != UNZ_OK)
+		{
+			break;
+		}
+		if (file_info.size_filename > MAX_QPATH)
+		{
+			Com_Error(ERR_FATAL, "ERROR: filename length > MAX_QPATH ( strlen(%s) = %d) \n", filename_inzip, file_info.size_filename);
+		}
+		len += strlen(filename_inzip) + 1;
+		unzGoToNextFile(uf);
+	}
+
+	buildBuffer = (fileInPack_t *)Z_Malloc(gi.number_entry * sizeof(fileInPack_t) + len, TAG_FILESYS, qtrue);
+	namePtr = ((char *)buildBuffer) + gi.number_entry * sizeof(fileInPack_t);
+	fs_headerLongs = (int*)Z_Malloc(gi.number_entry * sizeof(int), TAG_FILESYS, qtrue);
+
+	for (i = 1; i <= MAX_FILEHASH_SIZE; i <<= 1)
+	{
+		if (i > gi.number_entry)
+		{
+			break;
+		}
+	}
+
+	pack = (pack_t*)Z_Malloc(sizeof(pack_t) + i * sizeof(fileInPack_t *), TAG_FILESYS, qtrue);
+	memset(pack, 0, sizeof(pack_t) + i * sizeof(fileInPack_t *));
+	pack->hashSize = i;
+	pack->hashTable = (fileInPack_t **)(((char *)pack) + sizeof(pack_t));
+	Q_strncpyz(pack->pakFilename, zipfile, sizeof(pack->pakFilename));
+	pack->handle = uf;
+	pack->numfiles = gi.number_entry;
+
+	unzGoToFirstFile(uf);
+	for (i = 0; i < gi.number_entry; i++)
+	{
+		err = unzGetCurrentFileInfo(uf, &file_info, filename_inzip, sizeof(filename_inzip), NULL, 0, NULL, 0);
+		if (err != UNZ_OK)
+		{
+			break;
+		}
+		if (file_info.uncompressed_size > 0)
+		{
+			fs_headerLongs[fs_numHeaderLongs++] = LittleLong(file_info.crc);
+		}
+		Q_strlwr(filename_inzip);
+		hash = FS_HashFileName(filename_inzip, pack->hashSize);
+		buildBuffer[i].name = namePtr;
+		strcpy(buildBuffer[i].name, filename_inzip);
+		namePtr += strlen(filename_inzip) + 1;
+		unzGetCurrentFileInfoPosition(uf, &buildBuffer[i].pos);
+		buildBuffer[i].next = pack->hashTable[hash];
+		pack->hashTable[hash] = &buildBuffer[i];
+		unzGoToNextFile(uf);
+	}
+
+	pack->checksum = Com_BlockChecksum(fs_headerLongs, 4 * fs_numHeaderLongs);
+	pack->checksum = LittleLong(pack->checksum);
+	Z_Free(fs_headerLongs);
+
+	pack->buildBuffer = buildBuffer;
+	XBLog_Write(va("STEFX: FS loaded PK3 '%s' files=%d checksum=%d", zipfile, pack->numfiles, pack->checksum));
+	return pack;
+}
+
+static int QDECL paksort( const void *a, const void *b )
+{
+	char *aa = *(char **)a;
+	char *bb = *(char **)b;
+
+	return stricmp(aa, bb);
+}
+
+static void FS_AddGameDirectory( const char *path, const char *dir )
+{
+	int				i;
+	searchpath_t	*search;
+	pack_t			*pak;
+	char			*pakfile;
+	int				numfiles;
+	char			**pakfiles;
+	char			*sorted[MAX_PAKFILES];
+
+	XBLog_Write(va("STEFX: FS add game directory path='%s' dir='%s'", path, dir));
+	Q_strncpyz(fs_gamedir, dir, sizeof(fs_gamedir));
+
+	search = (searchpath_t *)Z_Malloc(sizeof(searchpath_t), TAG_FILESYS, qtrue);
+	search->dir = (directory_t*)Z_Malloc(sizeof(*search->dir), TAG_FILESYS, qtrue);
+	search->pack = 0;
+	Q_strncpyz(search->dir->path, path, sizeof(search->dir->path));
+	Q_strncpyz(search->dir->gamedir, dir, sizeof(search->dir->gamedir));
+	search->next = fs_searchpaths;
+	fs_searchpaths = search;
+
+	XBLog_Write("STEFX: FS PK3 scan deferred for level vertical slice; loose files active");
+	return;
+
+	pakfile = FS_BuildOSPath(path, dir, "");
+	pakfile[strlen(pakfile) - 1] = 0;
+	XBLog_Write(va("STEFX: FS scanning PK3 directory '%s'", pakfile));
+#ifdef _JK2MP
+	pakfiles = Sys_ListFiles(pakfile, ".pk3", NULL, &numfiles, qfalse);
+#else
+	pakfiles = Sys_ListFiles(pakfile, ".pk3", &numfiles, qfalse);
+#endif
+	XBLog_Write(va("STEFX: FS PK3 scan result dir='%s' count=%d list=%p", pakfile, numfiles, pakfiles));
+
+	if (!pakfiles)
+	{
+		return;
+	}
+
+	if (numfiles > MAX_PAKFILES)
+	{
+		numfiles = MAX_PAKFILES;
+	}
+	for (i = 0; i < numfiles; i++)
+	{
+		sorted[i] = pakfiles[i];
+	}
+
+	qsort(sorted, numfiles, sizeof(sorted[0]), paksort);
+
+	for (i = 0; i < numfiles; i++)
+	{
+		pakfile = FS_BuildOSPath(path, dir, sorted[i]);
+		XBLog_Write(va("STEFX: FS PK3 candidate '%s'", pakfile));
+		pak = FS_LoadZipFile(pakfile);
+		if (!pak)
+		{
+			XBLog_Write(va("STEFX: FS skipped invalid PK3 '%s'", pakfile));
+			continue;
+		}
+		search = (searchpath_t*)Z_Malloc(sizeof(searchpath_t), TAG_FILESYS, qtrue);
+		search->pack = pak;
+		search->dir = 0;
+		search->next = fs_searchpaths;
+		fs_searchpaths = search;
+	}
+
+	Sys_FreeFileList(pakfiles);
+}
+
+static qboolean FS_PK3FileExists( const char *filename )
+{
+	searchpath_t	*search;
+	pack_t			*pak;
+	fileInPack_t	*pakFile;
+	long			hash;
+
+	for (search = fs_searchpaths; search; search = search->next)
+	{
+		if (!search->pack)
+		{
+			continue;
+		}
+
+		pak = search->pack;
+		hash = FS_HashFileName(filename, pak->hashSize);
+		pakFile = pak->hashTable[hash];
+		while (pakFile)
+		{
+			if (!FS_FilenameCompare(pakFile->name, filename))
+			{
+				return qtrue;
+			}
+			pakFile = pakFile->next;
+		}
+	}
+
+	return qfalse;
+}
+
+static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
+{
+	searchpath_t	*search;
+	pack_t			*pak;
+	fileInPack_t	*pakFile;
+	long			hash;
+
+	for (search = fs_searchpaths; search; search = search->next)
+	{
+		if (!search->pack)
+		{
+			continue;
+		}
+
+		pak = search->pack;
+		hash = FS_HashFileName(filename, pak->hashSize);
+		pakFile = pak->hashTable[hash];
+		while (pakFile)
+		{
+			if (!FS_FilenameCompare(pakFile->name, filename))
+			{
+				unzFile z = unzReOpen(pak->pakFilename, pak->handle);
+				unz_s *zfi;
+				int len;
+
+				if (!z)
+				{
+					Com_Error(ERR_FATAL, "Couldn't reopen %s", pak->pakFilename);
+				}
+				if (unzSetCurrentFileInfoPosition(z, pakFile->pos) != UNZ_OK ||
+					unzOpenCurrentFile(z) != UNZ_OK)
+				{
+					unzClose(z);
+					return -1;
+				}
+
+				zfi = (unz_s *)z;
+				len = zfi->cur_file_info.uncompressed_size;
+				fsh[f].handleFiles.file.z = z;
+				fsh[f].handleFiles.unique = qtrue;
+				fsh[f].used = qtrue;
+				fsh[f].zipFile = qtrue;
+				fsh[f].fileSize = len;
+				fsh[f].zipFilePos = pakFile->pos;
+				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
+				if (STEFX_ShouldTraceAssetOpen(filename))
+				{
+					XBLog_Write(va("STEFX: FS PK3 asset open file='%s' pk3='%s' len=%d", filename, pak->pakFilename, len));
+				}
+				return len;
+			}
+			pakFile = pakFile->next;
+		}
+	}
+
+	return -1;
+}
+
+static int FS_ReturnPath( const char *zname, char *zpath, int *depth )
+{
+	int len, at, newdep;
+
+	newdep = 0;
+	zpath[0] = 0;
+	len = 0;
+	at = 0;
+
+	while (zname[at] != 0)
+	{
+		if (zname[at] == '/' || zname[at] == '\\')
+		{
+			len = at;
+			newdep++;
+		}
+		at++;
+	}
+	strcpy(zpath, zname);
+	zpath[len] = 0;
+	*depth = newdep;
+
+	return len;
+}
+#endif
 
 
 /*
@@ -366,10 +1105,27 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 		Com_Error( ERR_FATAL, "FS_FOpenFileRead: NULL 'filename' parameter passed\n" );
 	}
 
+	if ( filename[0] == '/' || filename[0] == '\\' ) {
+		filename++;
+	}
+
+	if ( strstr( filename, ".." ) || strstr( filename, "::" ) ) {
+		*file = 0;
+		return -1;
+	}
+
 	*file = FS_HandleForFile();
+	fsh[*file].handleFiles.unique = uniqueFILE;
 
 	int len;
 	
+#if defined(STEFX_ELITE_FORCE_SP)
+	len = FS_FOpenFileReadOS(filename, *file);
+	if (len < 0)
+	{
+		len = FS_FOpenFileReadPK3(filename, *file);
+	}
+#else
 	if (fs_openorder->integer == 0)
 	{
 		// Release mode -- read from GOB first
@@ -382,6 +1138,7 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 		len = FS_FOpenFileReadOS(filename, *file);
 		if (len < 0) len = FS_FOpenFileReadGOB(filename, *file);
 	}
+#endif
 
 	if (len >= 0) return len;
 
@@ -414,6 +1171,16 @@ int FS_Read( void *buffer, int len, fileHandle_t f )
 		Com_Error( ERR_FATAL, "FS_Read: Invalid handle %d\n", f );
 	}
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fsh[f].zipFile)
+	{
+		return unzReadCurrentFile(fsh[f].handleFiles.file.z, buffer, len);
+	}
+	else
+	{
+		return WF_Read(buffer, len, fsh[f].whandle);
+	}
+#else
 	if (fsh[f].gob)
 	{
 		GOBUInt32 size = GOBRead(buffer, len, fsh[f].ghandle);
@@ -432,6 +1199,7 @@ int FS_Read( void *buffer, int len, fileHandle_t f )
 	{
 		return WF_Read(buffer, len, fsh[f].whandle);
 	}
+#endif
 }
 
 /*
@@ -463,6 +1231,16 @@ int FS_Write( const void *buffer, int len, fileHandle_t f )
 		Com_Error( ERR_FATAL, "FS_Read: Invalid handle %d\n", f );
 	}
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fsh[f].zipFile)
+	{
+		Com_Error( ERR_FATAL, "FS_Write: Cannot write to PK3 files %d\n", f );
+	}
+	else
+	{
+		return WF_Write(buffer, len, fsh[f].whandle);
+	}
+#else
 	if (fsh[f].gob)
 	{
 		Com_Error( ERR_FATAL, "FS_Write: Cannot write to GOB files %d\n", f );
@@ -471,6 +1249,7 @@ int FS_Write( const void *buffer, int len, fileHandle_t f )
 	{
 		return WF_Write(buffer, len, fsh[f].whandle);
 	}
+#endif
 
 	return 0;
 }
@@ -487,6 +1266,43 @@ int FS_Seek( fileHandle_t f, long offset, int origin )
 	FS_CheckInit();
 	FS_CheckUsed(f);
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fsh[f].zipFile)
+	{
+		char foo[65536];
+		if (offset == 0 && origin == FS_SEEK_SET)
+		{
+			unzSetCurrentFileInfoPosition(fsh[f].handleFiles.file.z, fsh[f].zipFilePos);
+			return unzOpenCurrentFile(fsh[f].handleFiles.file.z);
+		}
+		else if (offset < 65536)
+		{
+			unzSetCurrentFileInfoPosition(fsh[f].handleFiles.file.z, fsh[f].zipFilePos);
+			unzOpenCurrentFile(fsh[f].handleFiles.file.z);
+			return FS_Read(foo, offset, f);
+		}
+		else
+		{
+			Com_Error( ERR_FATAL, "PK3 FILE FSEEK NOT YET IMPLEMENTED for big offsets(%s)\n", fsh[f].name );
+			return -1;
+		}
+	}
+	else
+	{
+		int _origin;
+		switch( origin ) {
+		case FS_SEEK_CUR: _origin = SEEK_CUR; break;
+		case FS_SEEK_END: _origin = SEEK_END; break;
+		case FS_SEEK_SET: _origin = SEEK_SET; break;
+		default:
+			_origin = SEEK_CUR;
+			Com_Error( ERR_FATAL, "Bad origin in FS_Seek\n" );
+			break;
+		}
+
+		return WF_Seek(offset, _origin, fsh[f].whandle);
+	}
+#else
 	if (fsh[f].gob)
 	{
 		int _origin;
@@ -519,6 +1335,7 @@ int FS_Seek( fileHandle_t f, long offset, int origin )
 
 		return WF_Seek(offset, _origin, fsh[f].whandle);
 	}
+#endif
 }
 
 
@@ -529,6 +1346,29 @@ FS_Access
 */
 qboolean FS_Access( const char *filename )
 {
+#if defined(STEFX_ELITE_FORCE_SP)
+	searchpath_t *search;
+
+	FS_CheckInit();
+
+	for (search = fs_searchpaths; search; search = search->next)
+	{
+		if (!search->dir)
+		{
+			continue;
+		}
+
+		char* osname = FS_BuildOSPath(search->dir->path, search->dir->gamedir, filename);
+		wfhandle_t whandle = WF_Open(osname, true, false);
+		if (whandle >= 0)
+		{
+			WF_Close(whandle);
+			return qtrue;
+		}
+	}
+
+	return FS_PK3FileExists(filename);
+#else
 	GOBBool status;
 	
 	FS_CheckInit();
@@ -540,6 +1380,7 @@ qboolean FS_Access( const char *filename )
 	}
 
 	return qtrue;
+#endif
 }
 
 
@@ -563,14 +1404,17 @@ int	FS_FileIsInPAK(const char *filename)
 		Com_Error( ERR_FATAL, "FS_FOpenFileRead: NULL 'filename' parameter passed\n" );
 	}
 
-	GOBBool exists;
-	GOBAccess(const_cast<GOBChar*>(filename), &exists);
-
 #ifdef _JK2MP
 	*pChecksum = 0;
 #endif
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	return FS_PK3FileExists(filename) ? 1 : -1;
+#else
+	GOBBool exists;
+	GOBAccess(const_cast<GOBChar*>(filename), &exists);
 	return exists ? 1 : -1;
+#endif
 }
 
 /*
@@ -592,10 +1436,27 @@ int FS_ReadFile( const char *qpath, void **buffer )
 	// stop sounds from repeating
 	S_ClearSoundBuffer();
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		int cachedLen = STEFX_ReadPrecachedFile(qpath, buffer);
+		if (cachedLen >= 0)
+		{
+			return cachedLen;
+		}
+	}
+#endif
+
 	fileHandle_t h;
 	int len = FS_FOpenFileRead( qpath, &h, qfalse );
 	if ( h == 0 )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		len = STEFX_ReadLooseFileWithStdio(qpath, buffer);
+		if (len >= 0)
+		{
+			return len;
+		}
+#endif
 		if ( buffer ) *buffer = NULL;
 		return -1;
 	}
@@ -607,7 +1468,23 @@ int FS_ReadFile( const char *qpath, void **buffer )
 	}
 
 	// assume temporary....
-	byte* buf = (byte*)Z_Malloc( len+1, TAG_TEMP_WORKSPACE, qfalse, 32);
+	byte* buf;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_ShouldTryStdioWholeFileRead(qpath))
+	{
+		buf = STEFX_AllocHeapFileBuffer(len, qpath);
+		if (!buf)
+		{
+			FS_FCloseFile(h);
+			*buffer = NULL;
+			return -1;
+		}
+	}
+	else
+#endif
+	{
+		buf = (byte*)Z_Malloc( len+1, TAG_TEMP_WORKSPACE, qfalse, 32);
+	}
 	buf[len]='\0';
 
 //	Z_Label(buf, qpath);
@@ -636,6 +1513,13 @@ void FS_FreeFile( void *buffer )
 		Com_Error( ERR_FATAL, "FS_FreeFile( NULL )" );
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_FreeHeapFileBuffer(buffer))
+	{
+		return;
+	}
+#endif
+
 	Z_Free( buffer );
 }
 
@@ -659,6 +1543,16 @@ int	FS_FTell( fileHandle_t f )
 	FS_CheckInit();
 	FS_CheckUsed(f);
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fsh[f].zipFile)
+	{
+		return unztell(fsh[f].handleFiles.file.z);
+	}
+	else
+	{
+		return WF_Tell(fsh[f].whandle);
+	}
+#else
 	if (fsh[f].gob)
 	{
 		GOBUInt32 pos;
@@ -669,6 +1563,7 @@ int	FS_FTell( fileHandle_t f )
 	{
 		return WF_Tell(fsh[f].whandle);
 	}
+#endif
 }
 
 /*
@@ -678,6 +1573,8 @@ FS_Startup
 */
 void FS_Startup( const char *gameName )
 {
+	int f;
+
 	Com_Printf( "----- FS_Startup -----\n" );
 
 	fs_openorder = Cvar_Get( "fs_openorder", "0", 0 );
@@ -692,10 +1589,35 @@ void FS_Startup( const char *gameName )
 	XBLog_Write(va("EF: FS_Startup basepath='%s' gamedir='%s' fs_game='%s'", fs_basepath->string, fs_gamedir, fs_gamedirvar->string));
 #endif
 
-	gi_handles = new gi_handleTable[MAX_FILE_HANDLES];
-	for (int f = 0; f < MAX_FILE_HANDLES; ++f)
+	for (f = 0; f < MAX_FILE_HANDLES; ++f)
 	{
-		fsh[f].used = false;
+		memset(&fsh[f], 0, sizeof(fsh[f]));
+	}
+
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (fs_cdpath->string[0])
+	{
+		FS_AddGameDirectory(fs_cdpath->string, gameName);
+	}
+
+	FS_AddGameDirectory(fs_basepath->string, gameName);
+
+	if (fs_gamedirvar->string[0] &&
+		!Q_stricmp(gameName, BASEGAME) &&
+		Q_stricmp(fs_gamedirvar->string, gameName))
+	{
+		if (fs_cdpath->string[0])
+		{
+			FS_AddGameDirectory(fs_cdpath->string, fs_gamedirvar->string);
+		}
+		FS_AddGameDirectory(fs_basepath->string, fs_gamedirvar->string);
+	}
+
+	XBLog_Write(va("STEFX: FS loose/PK3 startup complete packFiles=%d", fs_packFiles));
+#else
+	gi_handles = new gi_handleTable[MAX_FILE_HANDLES];
+	for (f = 0; f < MAX_FILE_HANDLES; ++f)
+	{
 		gi_handles[f].used = false;
 	}
 
@@ -767,6 +1689,7 @@ void FS_Startup( const char *gameName )
 	GOBSetProfileFuncs(&profile);
 	GOBStartProfile();
 #endif
+#endif
 
 	Com_Printf( "----------------------\n" );
 }
@@ -823,6 +1746,15 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 	char			**listCopy;
 	char			*list[MAX_FOUND_FILES];
 	int				i;
+#if defined(STEFX_ELITE_FORCE_SP)
+	searchpath_t	*search;
+	int				pathLength;
+	int				extensionLength;
+	int				length, pathDepth;
+	pack_t			*pak;
+	fileInPack_t	*buildBuffer;
+	char			zpath[MAX_QPATH];
+#endif
 
 	FS_CheckInit();
 
@@ -830,7 +1762,63 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 		*numfiles = 0;
 		return NULL;
 	}
+	if ( !extension ) {
+		extension = "";
+	}
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	pathLength = strlen(path);
+	extensionLength = strlen(extension);
+	FS_ReturnPath(path, zpath, &pathDepth);
+
+	for (search = fs_searchpaths; search; search = search->next)
+	{
+		if (search->pack)
+		{
+			pak = search->pack;
+			buildBuffer = pak->buildBuffer;
+			for (i = 0; i < pak->numfiles; i++)
+			{
+				int zpathLen, depth;
+
+				name = buildBuffer[i].name;
+				zpathLen = FS_ReturnPath(name, zpath, &depth);
+
+				if ((depth - pathDepth) > 2 || pathLength > zpathLen || Q_stricmpn(name, path, pathLength))
+				{
+					continue;
+				}
+
+				length = strlen(name);
+				if (length < extensionLength)
+				{
+					continue;
+				}
+				if (stricmp(name + length - extensionLength, extension))
+				{
+					continue;
+				}
+
+				nfiles = FS_AddFileToList(name + pathLength + 1, list, nfiles);
+			}
+		}
+		else if (search->dir)
+		{
+			netpath = FS_BuildOSPath(search->dir->path, search->dir->gamedir, path);
+#ifdef _JK2MP
+			sysFiles = Sys_ListFiles(netpath, extension, NULL, &numSysFiles, qfalse);
+#else
+			sysFiles = Sys_ListFiles(netpath, extension, &numSysFiles, qfalse);
+#endif
+			for (i = 0; i < numSysFiles; i++)
+			{
+				name = sysFiles[i];
+				nfiles = FS_AddFileToList(name, list, nfiles);
+			}
+			Sys_FreeFileList(sysFiles);
+		}
+	}
+#else
 	// We don't do any fancy searchpath magic here, it's all in the meta-file
 	// that Sys_ListFiles will return
 	netpath = FS_BuildOSPath( path );
@@ -845,6 +1833,7 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 		nfiles = FS_AddFileToList( name, list, nfiles );
 	}
 	Sys_FreeFileList( sysFiles );
+#endif
 
 	// return a copy of the list
 	*numfiles = nfiles;
@@ -937,6 +1926,15 @@ int	FS_GetFileList(  const char *path, const char *extension, char *listbuf, int
 	int				numSysFiles;
 	char			**sysFiles;
 	char			*name;
+#if defined(STEFX_ELITE_FORCE_SP)
+	searchpath_t	*search;
+	int				pathLength;
+	int				extensionLength;
+	int				length, pathDepth;
+	pack_t			*pak;
+	fileInPack_t	*buildBuffer;
+	char			zpath[MAX_QPATH];
+#endif
 
 	FS_CheckInit();
 
@@ -949,6 +1947,59 @@ int	FS_GetFileList(  const char *path, const char *extension, char *listbuf, int
 
 	// Prime the file list buffer
 	listbuf[0] = '\0';
+#if defined(STEFX_ELITE_FORCE_SP)
+	pathLength = strlen(path);
+	extensionLength = strlen(extension);
+	FS_ReturnPath(path, zpath, &pathDepth);
+
+	for (search = fs_searchpaths; search; search = search->next)
+	{
+		if (search->pack)
+		{
+			pak = search->pack;
+			buildBuffer = pak->buildBuffer;
+			for (i = 0; i < pak->numfiles; i++)
+			{
+				int zpathLen, depth;
+
+				name = buildBuffer[i].name;
+				zpathLen = FS_ReturnPath(name, zpath, &depth);
+
+				if ((depth - pathDepth) > 2 || pathLength > zpathLen || Q_stricmpn(name, path, pathLength))
+				{
+					continue;
+				}
+
+				length = strlen(name);
+				if (length < extensionLength)
+				{
+					continue;
+				}
+				if (stricmp(name + length - extensionLength, extension))
+				{
+					continue;
+				}
+
+				nfiles = FS_AddFileToListBuf(name + pathLength + 1, listbuf, bufsize, nfiles);
+			}
+		}
+		else if (search->dir)
+		{
+			netpath = FS_BuildOSPath(search->dir->path, search->dir->gamedir, path);
+#ifdef _JK2MP
+			sysFiles = Sys_ListFiles(netpath, extension, NULL, &numSysFiles, qfalse);
+#else
+			sysFiles = Sys_ListFiles(netpath, extension, &numSysFiles, qfalse);
+#endif
+			for (i = 0; i < numSysFiles; i++)
+			{
+				name = sysFiles[i];
+				nfiles = FS_AddFileToListBuf(name, listbuf, bufsize, nfiles);
+			}
+			Sys_FreeFileList(sysFiles);
+		}
+	}
+#else
 	netpath = FS_BuildOSPath( path );
 #ifdef _JK2MP
 	sysFiles = Sys_ListFiles( netpath, extension, NULL, &numSysFiles, qfalse );
@@ -961,6 +2012,7 @@ int	FS_GetFileList(  const char *path, const char *extension, char *listbuf, int
 		nfiles = FS_AddFileToListBuf( name, listbuf, bufsize, nfiles );
 	}
 	Sys_FreeFileList( sysFiles );
+#endif
 
 	return nfiles;
 }
@@ -1007,8 +2059,12 @@ void FS_Restart(void)
 
 qboolean FS_FileExists(const char *file)
 {
+#if defined(STEFX_ELITE_FORCE_SP)
+	return FS_Access(file);
+#else
 	assert(!"FS_FileExists not implemented on Xbox");
 	return qfalse;
+#endif
 }
 
 void FS_UpdateGamedir(void)

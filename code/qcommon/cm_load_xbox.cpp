@@ -57,6 +57,44 @@ clipMap_t	cmg;
 int			c_pointcontents;
 int			c_traces, c_brush_traces, c_patch_traces;
 
+#ifdef STEFX_ELITE_FORCE_SP
+static char		s_efRawLoadedMapName[MAX_QPATH];
+static unsigned	s_efRawLoadedMapChecksum;
+static qboolean	s_efRawLoadedMapReady = qfalse;
+
+static void CM_EFRememberRawMap( const char *name, unsigned checksum )
+{
+	Q_strncpyz( s_efRawLoadedMapName, name, sizeof( s_efRawLoadedMapName ) );
+	s_efRawLoadedMapChecksum = checksum;
+	s_efRawLoadedMapReady = qtrue;
+}
+
+static void CM_EFForgetRawMap( const char *reason )
+{
+	if ( s_efRawLoadedMapReady || s_efRawLoadedMapName[0] ) {
+		XBLF("STEFX: CM raw BSP cache forget reason='%s' map='%s'",
+			reason ? reason : "(null)",
+			s_efRawLoadedMapName[0] ? s_efRawLoadedMapName : "(none)");
+	}
+	s_efRawLoadedMapName[0] = '\0';
+	s_efRawLoadedMapChecksum = 0;
+	s_efRawLoadedMapReady = qfalse;
+}
+
+static qboolean CM_EFCanReuseRawMap( const char *name )
+{
+	if ( !s_efRawLoadedMapReady || !s_efRawLoadedMapName[0] || !name || !name[0] ) {
+		return qfalse;
+	}
+	if ( Q_stricmp( s_efRawLoadedMapName, name ) ) {
+		return qfalse;
+	}
+	if ( !cmg.cmodels || cmg.numSubModels <= 0 ) {
+		return qfalse;
+	}
+	return qtrue;
+}
+#endif
 
 byte		*cmod_base;
 
@@ -482,6 +520,10 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 	int			shaderNum;
 
 	count = surfacelen / sizeof(*in);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: CMod_LoadPatches begin patches=%d numsurfs=%d surfaceLen=%d vertLen=%d",
+		count, numsurfs, surfacelen, vertlen);
+#endif
 
 	cmg.numSurfaces = numsurfs;
 	cmg.surfaces = (cPatch_t **) Z_Malloc( cmg.numSurfaces * sizeof( cmg.surfaces[0] ), TAG_BSP, qtrue );
@@ -500,12 +542,18 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 	CM_PatchCollideFromGridTempAlloc();
 	CM_PreparePatchCollide(count);
 	CM_TempPatchPlanesAlloc();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLog_Write("STEFX: CMod_LoadPatches temp collision buffers ready");
+#endif
 
 	facetLoad_t *facetbuf = (facetLoad_t*)Z_Malloc(
 		MAX_PATCH_PLANES*sizeof(facetLoad_t), TAG_TEMP_WORKSPACE, qfalse);
 	
 	int *gridbuf = (int*)Z_Malloc(
 		CM_MAX_GRID_SIZE*CM_MAX_GRID_SIZE*2*sizeof(int), TAG_TEMP_WORKSPACE, qfalse);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLog_Write("STEFX: CMod_LoadPatches facet/grid buffers allocated");
+#endif
 
 	for ( i = 0 ; i < count ; i++) {
 		in = (dpatch_t *)surfaces + i;
@@ -517,6 +565,12 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 		width = in->patchWidth;
 		height = in->patchHeight;
 		c = width * height;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ((i % 8) == 0 || i + 1 == count) {
+			XBLF("STEFX: CMod_LoadPatches patch %d/%d code=%d shader=%d size=%dx%d verts=%d",
+				i + 1, count, in->code, in->shaderNum, width, height, c);
+		}
+#endif
 		if ( c > MAX_PATCH_VERTS ) {
 			Com_Error( ERR_DROP, "ParseMesh: MAX_PATCH_VERTS" );
 		}
@@ -536,6 +590,12 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 
 		// create the internal facet structure
 		patch->pc = CM_GeneratePatchCollide( width, height, points, facetbuf, gridbuf );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ((i % 8) == 0 || i + 1 == count) {
+			XBLF("STEFX: CMod_LoadPatches patch %d/%d collide=%p",
+				i + 1, count, patch->pc);
+		}
+#endif
 	}
 
 	extern void CM_GridDealloc();
@@ -547,6 +607,9 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 
 	Z_Free(gridbuf);
 	Z_Free(facetbuf);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLog_Write("STEFX: CMod_LoadPatches done");
+#endif
 }
 
 //==================================================================
@@ -602,6 +665,9 @@ qboolean CM_DeleteCachedMap(qboolean bGuaranteedOkToDelete)
 		// force map loader to ignore cached internal BSP structures for next level CM_LoadMap() call...
 		//
 		cmg.name[0] = '\0';
+#ifdef STEFX_ELITE_FORCE_SP
+		CM_EFForgetRawMap( "CM_DeleteCachedMap" );
+#endif
 	}
 
 	return bActuallyFreedSomething;
@@ -609,6 +675,12 @@ qboolean CM_DeleteCachedMap(qboolean bGuaranteedOkToDelete)
 
 void CM_Free(void) 
 {
+#ifdef STEFX_ELITE_FORCE_SP
+	CM_EFForgetRawMap( "CM_Free" );
+	cmg.name[0] = '\0';
+	cmg.cmodels = NULL;
+	cmg.numSubModels = 0;
+#endif
 	CM_ClearLevelPatches();
 	visData.Release();
 	Z_TagFree(TAG_BSP);
@@ -628,6 +700,8 @@ extern void R_LoadShaders( void );
 extern void R_LoadLightmaps( void *data, int len, const char *psMapName );
 #ifdef STEFX_ELITE_FORCE_SP
 extern void R_LoadRawLightmaps( void *data, int len, const char *psMapName );
+extern void R_EFBeginRawWorldMapLoad( const char *name );
+extern qboolean R_EFLoadRawWorldDataFromBSP( const char *name, const efbspFile_t *efbsp );
 #endif
 extern byte *fileBase;
 extern void UpdateLoadingAnimation();
@@ -636,12 +710,15 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	const int		*surfBuf = NULL;
 	static unsigned	last_checksum;
 	char			lmName[MAX_QPATH];
+	char			loadName[MAX_QPATH];
 	char			stripName[MAX_QPATH];
 	Lump			outputLump;
 
 	if ( !name || !name[0] ) {
 		Com_Error( ERR_DROP, "CM_LoadMap: NULL name" );
 	}
+	Q_strncpyz( loadName, name, sizeof( loadName ) );
+	name = loadName;
 
 #ifndef BSPC
 	cm_noAreas = Cvar_Get ("cm_noAreas", "0", CVAR_CHEAT);
@@ -650,12 +727,38 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 #endif
 	Com_DPrintf( "CM_LoadMap( %s, %i )\n", name, clientload );
 
+#ifdef STEFX_ELITE_FORCE_SP
+	if ( clientload ) {
+		XBLF("STEFX: CM_LoadMap client request name='%s' cmg='%s' raw='%s' ready=%d submodels=%d cmodels=%08x checksum=0x%08x",
+			name,
+			cmg.name[0] ? cmg.name : "(none)",
+			s_efRawLoadedMapName[0] ? s_efRawLoadedMapName : "(none)",
+			s_efRawLoadedMapReady,
+			cmg.numSubModels,
+			(unsigned int)cmg.cmodels,
+			s_efRawLoadedMapChecksum);
+		if ( ( !Q_stricmp( cmg.name, name ) && cmg.cmodels && cmg.numSubModels > 0 ) ||
+			 CM_EFCanReuseRawMap( name ) ) {
+			unsigned reuseChecksum = s_efRawLoadedMapReady ? s_efRawLoadedMapChecksum : last_checksum;
+			if ( !cmg.name[0] ) {
+				Q_strncpyz( cmg.name, name, sizeof( cmg.name ) );
+			}
+			*checksum = reuseChecksum;
+			XBLF("STEFX: CM_LoadMap reusing loaded raw BSP '%s' checksum=0x%08x", name, reuseChecksum);
+			return;
+		}
+	}
+#else
 	if ( !strcmp( cmg.name, name ) && clientload ) {
 		*checksum = last_checksum;
 		return;
 	}
+#endif
 
 	// free old stuff
+#ifdef STEFX_ELITE_FORCE_SP
+	CM_EFForgetRawMap( clientload ? "CM_LoadMap client reload" : "CM_LoadMap server reload" );
+#endif
 	extern qboolean vidRestartReloadMap;
 	int* ap;
 	if (vidRestartReloadMap) ap = cmg.areaPortals;
@@ -700,6 +803,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			int leafsLen, leafbrushesLen, brushsidesLen, brushesLen, modelsLen, nodesLen, visibilityLen;
 
 			EFBSP_Validate(&efbsp, name);
+			R_EFBeginRawWorldMapLoad(name);
 			last_checksum = LittleLong(Com_BlockChecksum(efbsp.data, efbsp.len));
 			shaderCount = EFBSP_ShaderCount(&efbsp);
 			num_surfs = EFBSP_SurfaceCount(&efbsp);
@@ -714,42 +818,75 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 				EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS) / (128 * 128 * 3));
 
 			CMod_LoadShaders(EFBSP_LumpData(&efbsp, EF_LUMP_SHADERS), EFBSP_LumpLen(&efbsp, EF_LUMP_SHADERS));
-			R_LoadShaders();
-			XBLog_Write("EF: CM_LoadMap raw shaders loaded");
+			if (!clientload)
+			{
+				R_LoadShaders();
+			}
+			XBLF("EF: CM_LoadMap raw shaders loaded clientload=%d", clientload);
 			UpdateLoadingAnimation();
 
-			R_LoadRawLightmaps(EFBSP_LumpData(&efbsp, EF_LUMP_LIGHTMAPS), EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS), name);
-			XBLog_Write("EF: CM_LoadMap raw lightmaps loaded");
-			UpdateLoadingAnimation();
+			if (!clientload)
+			{
+				R_LoadRawLightmaps(EFBSP_LumpData(&efbsp, EF_LUMP_LIGHTMAPS), EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS), name);
+				XBLog_Write("EF: CM_LoadMap raw lightmaps loaded");
+				UpdateLoadingAnimation();
+			}
+			else
+			{
+				XBLog_Write("STEFX: CM_LoadMap client collision-only load skips renderer lightmaps");
+			}
 
 			fileBase = NULL;
-			R_LoadSurfaces(num_surfs);
+			if (!clientload)
+			{
+				R_LoadSurfaces(num_surfs);
+			}
 			verts = EFBSP_ConvertVerts(&efbsp, &vertsLen);
 			patches = EFBSP_ConvertPatches(&efbsp, shaderCount, &patchesLen);
 			XBLF("EF: CM_LoadMap raw surfaces alloc vertsLen=%d patchesLen=%d", vertsLen, patchesLen);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			XBLog_Write("EF: CM_LoadMap raw CMod_LoadPatches begin");
+#endif
 			CMod_LoadPatches(verts, vertsLen, patches, patchesLen, num_surfs);
-			R_LoadPatches(verts, vertsLen, patches, patchesLen);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			XBLog_Write("EF: CM_LoadMap raw CMod_LoadPatches done; R_LoadPatches begin");
+#endif
+			if (!clientload)
+			{
+				R_LoadPatches(verts, vertsLen, patches, patchesLen);
+			}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			XBLog_Write(clientload ? "EF: CM_LoadMap raw client skipped R_LoadPatches" : "EF: CM_LoadMap raw R_LoadPatches done");
+#endif
 			EFBSP_FreeTemp(patches);
 			UpdateLoadingAnimation();
 
-			indexes = EFBSP_ConvertIndexes(&efbsp, &indexesLen);
-			trisurfs = EFBSP_ConvertTriSurfs(&efbsp, shaderCount, &trisurfsLen);
-			XBLF("EF: CM_LoadMap raw trisurfs indexesLen=%d trisurfsLen=%d", indexesLen, trisurfsLen);
-			R_LoadTriSurfs(indexes, indexesLen, verts, vertsLen, trisurfs, trisurfsLen);
-			EFBSP_FreeTemp(trisurfs);
+			if (!clientload)
+			{
+				indexes = EFBSP_ConvertIndexes(&efbsp, &indexesLen);
+				trisurfs = EFBSP_ConvertTriSurfs(&efbsp, shaderCount, &trisurfsLen);
+				XBLF("EF: CM_LoadMap raw trisurfs indexesLen=%d trisurfsLen=%d", indexesLen, trisurfsLen);
+				R_LoadTriSurfs(indexes, indexesLen, verts, vertsLen, trisurfs, trisurfsLen);
+				EFBSP_FreeTemp(trisurfs);
 
-			faces = EFBSP_ConvertFaces(&efbsp, shaderCount, &facesLen);
-			XBLF("EF: CM_LoadMap raw facesLen=%d", facesLen);
-			R_LoadFaces(indexes, indexesLen, verts, vertsLen, faces, facesLen);
-			EFBSP_FreeTemp(faces);
-			UpdateLoadingAnimation();
+				faces = EFBSP_ConvertFaces(&efbsp, shaderCount, &facesLen);
+				XBLF("EF: CM_LoadMap raw facesLen=%d", facesLen);
+				R_LoadFaces(indexes, indexesLen, verts, vertsLen, faces, facesLen);
+				EFBSP_FreeTemp(faces);
+				UpdateLoadingAnimation();
 
-			flares = EFBSP_ConvertFlares(&efbsp, shaderCount, &flaresLen);
-			R_LoadFlares(flares, flaresLen);
-			EFBSP_FreeTemp(flares);
-			EFBSP_FreeTemp(indexes);
+				flares = EFBSP_ConvertFlares(&efbsp, shaderCount, &flaresLen);
+				R_LoadFlares(flares, flaresLen);
+				EFBSP_FreeTemp(flares);
+				EFBSP_FreeTemp(indexes);
+				XBLF("EF: CM_LoadMap raw render surfaces loaded flaresLen=%d", flaresLen);
+			}
+			else
+			{
+				XBLF("STEFX: CM_LoadMap client collision-only surfaces loaded vertsLen=%d patchesLen=%d",
+					vertsLen, patchesLen);
+			}
 			EFBSP_FreeTemp(verts);
-			XBLF("EF: CM_LoadMap raw render surfaces loaded flaresLen=%d", flaresLen);
 			UpdateLoadingAnimation();
 
 			leafs = EFBSP_ConvertLeafs(&efbsp, &leafsLen);
@@ -791,17 +928,26 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 				EFBSP_LumpLen(&efbsp, EF_LUMP_ENTITIES), visibilityLen);
 			UpdateLoadingAnimation();
 
+			if (!clientload)
+			{
+				if (!R_EFLoadRawWorldDataFromBSP(name, &efbsp))
+				{
+					Com_Error(ERR_DROP, "CM_LoadMap: failed to finish EF renderer world for %s", name);
+				}
+				UpdateLoadingAnimation();
+			}
+
 			TotalSubModels += cmg.numSubModels;
 			CM_InitBoxHull();
 			*checksum = last_checksum;
 			CM_FloodAreaConnections();
-			if (!clientload)
-			{
-				Q_strncpyz(cmg.name, name, sizeof(cmg.name));
-			}
+			Q_strncpyz(cmg.name, name, sizeof(cmg.name));
+#ifdef STEFX_ELITE_FORCE_SP
+			CM_EFRememberRawMap(name, last_checksum);
+#endif
 			CM_CleanLeafCache();
-			XBLF("EF: CM_LoadMap raw BSP complete submodels=%d clusters=%d areas=%d checksum=%u",
-				cmg.numSubModels, cmg.numClusters, cmg.numAreas, last_checksum);
+			XBLF("EF: CM_LoadMap raw BSP complete clientload=%d name='%s' submodels=%d clusters=%d areas=%d checksum=%u",
+				clientload, cmg.name, cmg.numSubModels, cmg.numClusters, cmg.numAreas, last_checksum);
 			EFBSP_FreeFile(&efbsp);
 			return;
 		}
@@ -935,10 +1081,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 
 	UpdateLoadingAnimation();
 
-	// allow this to be cached if it is loaded by the server
-	if ( !clientload ) {
-		Q_strncpyz( cmg.name, name, sizeof( cmg.name ) );
-	}
+	Q_strncpyz( cmg.name, name, sizeof( cmg.name ) );
 	CM_CleanLeafCache();
 }
 
@@ -981,6 +1124,10 @@ CM_ClearMap
 void CM_ClearMap( void ) 
 {
 	int		i;
+
+#ifdef STEFX_ELITE_FORCE_SP
+	CM_EFForgetRawMap( "CM_ClearMap" );
+#endif
 
 	CM_OrOfAllContentsFlagsInMap = CONTENTS_BODY;
 
@@ -1080,7 +1227,19 @@ CM_InlineModel
 */
 clipHandle_t	CM_InlineModel( int index ) {
 	if ( index < 0 || index >= TotalSubModels ) {
-		Com_Error (ERR_DROP, "CM_InlineModel: bad number (may need to re-BSP map?)");
+#if defined(STEFX_ELITE_FORCE_SP)
+		static int s_badInlineModelLogCount = 0;
+		if (s_badInlineModelLogCount < 32)
+		{
+			XBLF("STEFX: CM_InlineModel rejected bad index=%d total=%d main=%d; returning world",
+				index, TotalSubModels, cmg.numSubModels);
+		}
+		s_badInlineModelLogCount++;
+		return 0;
+#else
+		Com_Error (ERR_DROP, "CM_InlineModel: bad number %i total=%i main=%i (may need to re-BSP map?)",
+			index, TotalSubModels, cmg.numSubModels);
+#endif
 	}
 	return index;
 }

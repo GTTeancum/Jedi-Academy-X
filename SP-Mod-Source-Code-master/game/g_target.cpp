@@ -1,6 +1,9 @@
 #include "g_local.h"
 #include "g_functions.h"
 //#include "Q3_Interface.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 extern void Q3_DebugPrint( int level, const char *format, ... );
 extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
 
@@ -696,6 +699,27 @@ void SP_target_random (gentity_t *self)
 int	numNewICARUSEnts = 0;
 void scriptrunner_run (gentity_t *self)
 {
+#ifdef _XBOX
+	static int stefxScriptRunnerLogBudget = 128;
+	qboolean shouldLog = (qboolean)(stefxScriptRunnerLogBudget > 0 &&
+		self &&
+		((self->targetname && (!Q_stricmp(self->targetname, "intro3") || strstr(self->targetname, "intro"))) ||
+		 (self->behaviorSet[BSET_USE] && (strstr(self->behaviorSet[BSET_USE], "borg1") || strstr(self->behaviorSet[BSET_USE], "intro")))));
+
+	if (shouldLog)
+	{
+		XBLF("STEFX: scriptrunner_run enter ent=%d target='%s' useScript='%s' count=%d wait=%d flags=0x%x activator=%d actTarget='%s'",
+			self->s.number,
+			self->targetname ? self->targetname : "",
+			self->behaviorSet[BSET_USE] ? self->behaviorSet[BSET_USE] : "",
+			self->count,
+			self->wait,
+			self->spawnflags,
+			self->activator ? self->activator->s.number : -1,
+			self->activator && self->activator->targetname ? self->activator->targetname : "");
+		--stefxScriptRunnerLogBudget;
+	}
+#endif
 	/*
 	if (self->behaviorSet[BSET_USE])
 	{	
@@ -711,6 +735,14 @@ void scriptrunner_run (gentity_t *self)
 	{
 		if ( self->count <= 0 )
 		{
+#ifdef _XBOX
+			if (shouldLog)
+			{
+				XBLF("STEFX: scriptrunner_run blocked count target='%s' script='%s'",
+					self->targetname ? self->targetname : "",
+					self->behaviorSet[BSET_USE] ? self->behaviorSet[BSET_USE] : "");
+			}
+#endif
 			self->e_UseFunc = useF_NULL;
 			self->behaviorSet[BSET_USE] = NULL;
 			return;
@@ -751,6 +783,14 @@ void scriptrunner_run (gentity_t *self)
 			}
 
 			Q3_DebugPrint( WL_VERBOSE, "target_scriptrunner running %s on activator %s\n", self->behaviorSet[BSET_USE], self->activator->targetname );
+#ifdef _XBOX
+			if (shouldLog)
+			{
+				XBLF("STEFX: scriptrunner_run RunScript on activator ent=%d script='%s'",
+					self->activator ? self->activator->s.number : -1,
+					self->behaviorSet[BSET_USE] ? self->behaviorSet[BSET_USE] : "");
+			}
+#endif
 			ICARUS_RunScript( self->activator, va( "%s/%s", Q3_SCRIPT_DIR, self->behaviorSet[BSET_USE] ) );
 		}
 		else
@@ -759,6 +799,14 @@ void scriptrunner_run (gentity_t *self)
 			{
 				Q3_DebugPrint( WL_VERBOSE, "target_scriptrunner %s used by %s\n", self->targetname, self->activator->targetname );
 			}
+#ifdef _XBOX
+			if (shouldLog)
+			{
+				XBLF("STEFX: scriptrunner_run ActivateBehavior ent=%d script='%s'",
+					self->s.number,
+					self->behaviorSet[BSET_USE] ? self->behaviorSet[BSET_USE] : "");
+			}
+#endif
 			G_ActivateBehavior( self, BSET_USE );
 		}
 	}
@@ -771,8 +819,37 @@ void scriptrunner_run (gentity_t *self)
 
 void target_scriptrunner_use(gentity_t *self, gentity_t *other, gentity_t *activator)
 {
+#ifdef _XBOX
+	static int stefxTargetScriptUseBudget = 128;
+	qboolean shouldLog = (qboolean)(stefxTargetScriptUseBudget > 0 &&
+		self &&
+		((self->targetname && (!Q_stricmp(self->targetname, "intro3") || strstr(self->targetname, "intro"))) ||
+		 (self->behaviorSet[BSET_USE] && (strstr(self->behaviorSet[BSET_USE], "borg1") || strstr(self->behaviorSet[BSET_USE], "intro")))));
+
+	if (shouldLog)
+	{
+		XBLF("STEFX: target_scriptrunner_use enter ent=%d target='%s' script='%s' next=%d time=%d delay=%d count=%d other=%d activator=%d actTarget='%s'",
+			self->s.number,
+			self->targetname ? self->targetname : "",
+			self->behaviorSet[BSET_USE] ? self->behaviorSet[BSET_USE] : "",
+			self->nextthink,
+			level.time,
+			self->delay,
+			self->count,
+			other ? other->s.number : -1,
+			activator ? activator->s.number : -1,
+			activator && activator->targetname ? activator->targetname : "");
+		--stefxTargetScriptUseBudget;
+	}
+#endif
 	if ( self->nextthink > level.time )
 	{
+#ifdef _XBOX
+		if (shouldLog)
+		{
+			XBLF("STEFX: target_scriptrunner_use skipped nextthink target='%s'", self->targetname ? self->targetname : "");
+		}
+#endif
 		return;
 	}
 
@@ -814,6 +891,22 @@ void SP_target_scriptrunner( gentity_t *self )
 
 	G_SetOrigin( self, self->s.origin );
 	self->e_UseFunc = useF_target_scriptrunner_use;
+#ifdef _XBOX
+	if ((self->targetname && (!Q_stricmp(self->targetname, "intro3") || strstr(self->targetname, "intro"))) ||
+		(self->behaviorSet[BSET_USE] && (strstr(self->behaviorSet[BSET_USE], "borg1") || strstr(self->behaviorSet[BSET_USE], "intro"))))
+	{
+		XBLF("STEFX: SP_target_scriptrunner ready ent=%d target='%s' script='%s' count=%d delay=%d wait=%d flags=0x%x sv=0x%x origin=(%g,%g,%g)",
+			self->s.number,
+			self->targetname ? self->targetname : "",
+			self->behaviorSet[BSET_USE] ? self->behaviorSet[BSET_USE] : "",
+			self->count,
+			self->delay,
+			self->wait,
+			self->spawnflags,
+			self->svFlags,
+			self->s.origin[0], self->s.origin[1], self->s.origin[2]);
+	}
+#endif
 }
 
 void target_gravity_change_use(gentity_t *self, gentity_t *other, gentity_t *activator)

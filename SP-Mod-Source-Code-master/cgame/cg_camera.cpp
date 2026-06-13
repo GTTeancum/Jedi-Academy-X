@@ -2,6 +2,9 @@
 
 #include "cg_local.h"
 #include "..\game\g_roff.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 bool		in_camera = false;
 camera_t	client_camera={0};
@@ -51,6 +54,13 @@ CGCam_Enable
 extern void CG_CalcVrect(void);
 void CGCam_Enable( void )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Enable time=%d in_camera=%d info=0x%x player_locked=%d",
+		cg.time,
+		in_camera ? 1 : 0,
+		client_camera.info_state,
+		player_locked ? 1 : 0);
+#endif
 	if (!cg.refdef.height) {
 		CG_CalcVrect();
 	}
@@ -88,6 +98,13 @@ CGCam_Disable
 
 void CGCam_Disable( void )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Disable time=%d in_camera=%d info=0x%x player_locked=%d",
+		cg.time,
+		in_camera ? 1 : 0,
+		client_camera.info_state,
+		player_locked ? 1 : 0);
+#endif
 	in_camera = false;
 
 	client_camera.bar_alpha = 1.0f;
@@ -130,6 +147,13 @@ CGCam_Move
 
 void CGCam_Move( vec3_t dest, float duration )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Move time=%d dest=(%g,%g,%g) duration=%g info=0x%x",
+		cg.time,
+		dest[0], dest[1], dest[2],
+		duration,
+		client_camera.info_state);
+#endif
 	if ( client_camera.info_state & CAMERA_ROFFING )
 	{
 		client_camera.info_state &= ~CAMERA_ROFFING;
@@ -173,6 +197,14 @@ CGCam_Pan
 
 void CGCam_Pan( vec3_t dest, vec3_t panDirection, float duration )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Pan time=%d dest=(%g,%g,%g) panDir=(%g,%g,%g) duration=%g info=0x%x",
+		cg.time,
+		dest[0], dest[1], dest[2],
+		panDirection[0], panDirection[1], panDirection[2],
+		duration,
+		client_camera.info_state);
+#endif
 	//vec3_t	panDirection = {0, 0, 0};
 	int		i;
 	float	delta1 , delta2;
@@ -342,6 +374,14 @@ CGCam_Fade
 
 void CGCam_Fade( vec4_t source, vec4_t dest, float duration )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Fade set time=%d source=(%g,%g,%g,%g) dest=(%g,%g,%g,%g) duration=%g info=0x%x",
+		cg.time,
+		source[0], source[1], source[2], source[3],
+		dest[0], dest[1], dest[2], dest[3],
+		duration,
+		client_camera.info_state);
+#endif
 	if ( !duration )
 	{
 		CGCam_SetFade( dest );
@@ -382,6 +422,14 @@ CGCam_Follow
 void CGCam_Follow( const char *cameraGroup, float speed, float initLerp )
 {
 	int len;
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Follow time=%d group='%s' speed=%g init=%g info=0x%x",
+		cg.time,
+		cameraGroup ? cameraGroup : "<null>",
+		speed,
+		initLerp,
+		client_camera.info_state);
+#endif
 
 	//Clear any previous
 	CGCam_FollowDisable();
@@ -472,6 +520,14 @@ CGCam_Track
 void CGCam_Track( const char *trackName, float speed, float initLerp )
 {
 	gentity_t	*trackEnt = NULL;
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Track time=%d track='%s' speed=%g init=%g info=0x%x",
+		cg.time,
+		trackName ? trackName : "<null>",
+		speed,
+		initLerp,
+		client_camera.info_state);
+#endif
 
 	CGCam_TrackDisable();
 
@@ -584,6 +640,13 @@ CGCam_Distance
 
 void CGCam_Distance( float distance, float initLerp )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_Distance time=%d distance=%g init=%g info=0x%x",
+		cg.time,
+		distance,
+		initLerp,
+		client_camera.info_state);
+#endif
 	client_camera.distance = distance;
 
 	if ( initLerp )
@@ -919,6 +982,18 @@ void CGCam_UpdateFade( void )
 {
 	if ( client_camera.info_state & CAMERA_FADING )
 	{
+#ifdef _XBOX
+		static int s_stefxFadeUpdateBudget = 48;
+		if ( s_stefxFadeUpdateBudget > 0 )
+		{
+			XBLF("STEFX: CGCam_UpdateFade active time=%d start=%g duration=%g colorA=%g destA=%g",
+				cg.time,
+				client_camera.fade_time,
+				client_camera.fade_duration,
+				client_camera.fade_color[3],
+				client_camera.fade_dest[3]);
+		}
+#endif
 		if ( client_camera.fade_time + client_camera.fade_duration < cg.time )
 		{
 			Vector4Copy( client_camera.fade_dest, client_camera.fade_color );
@@ -931,6 +1006,19 @@ void CGCam_UpdateFade( void )
 				client_camera.fade_color[i] = client_camera.fade_source[i] + (( ( client_camera.fade_dest[i] - client_camera.fade_source[i] ) ) / client_camera.fade_duration ) * ( cg.time - client_camera.fade_time );
 			}
 		}
+#ifdef _XBOX
+		if ( s_stefxFadeUpdateBudget > 0 )
+		{
+			XBLF("STEFX: CGCam_UpdateFade done time=%d info=0x%x color=(%g,%g,%g,%g)",
+				cg.time,
+				client_camera.info_state,
+				client_camera.fade_color[0],
+				client_camera.fade_color[1],
+				client_camera.fade_color[2],
+				client_camera.fade_color[3]);
+			--s_stefxFadeUpdateBudget;
+		}
+#endif
 	}
 }
 /*
@@ -1068,6 +1156,24 @@ void CGCam_DrawFades( void )
 	if ( client_camera.fade_color[3] == 0.0f )
 		return;
 
+#ifdef _XBOX
+	{
+		static int s_stefxFadeDrawBudget = 48;
+		if ( s_stefxFadeDrawBudget > 0 )
+		{
+			XBLF("STEFX: CGCam_DrawFades rect=(%d,%d %dx%d) color=(%g,%g,%g,%g)",
+				cg.refdef.x,
+				cg.refdef.y,
+				cg.refdef.width,
+				cg.refdef.height,
+				client_camera.fade_color[0],
+				client_camera.fade_color[1],
+				client_camera.fade_color[2],
+				client_camera.fade_color[3]);
+			--s_stefxFadeDrawBudget;
+		}
+	}
+#endif
 	CG_FillRect2( cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height, client_camera.fade_color );
 }
 
@@ -1182,6 +1288,12 @@ a rof file
 
 void CGCam_StartRoff( char *roff )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_StartRoff time=%d roff='%s' info=0x%x",
+		cg.time,
+		roff ? roff : "<null>",
+		client_camera.info_state);
+#endif
 	CGCam_FollowDisable();
 	CGCam_TrackDisable();
 
@@ -1214,6 +1326,13 @@ Stops camera rof
 
 void CGCam_StopRoff( void )
 {
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_StopRoff time=%d roff='%s' frame=%d info=0x%x",
+		cg.time,
+		client_camera.sRoff,
+		client_camera.roff_frame,
+		client_camera.info_state);
+#endif
 	// Clear the roff flag
 	client_camera.info_state &= ~CAMERA_ROFFING;
 }

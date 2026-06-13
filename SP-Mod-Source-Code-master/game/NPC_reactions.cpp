@@ -3,6 +3,9 @@
 #include "anims.h"
 #include "g_functions.h"
 #include "characters.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern void G_AddVoiceEvent( gentity_t *self, int event, int speakDebounceTime );
 float g_crosshairEntDist = Q3_INFINITE;
@@ -249,6 +252,9 @@ NPC_Pain
 void NPC_Pain( gentity_t *self, gentity_t *other, int damage ) 
 {
 	team_t otherTeam = TEAM_FREE;
+#ifdef _XBOX
+	static int s_stefxNpcPainBudget = 96;
+#endif
 
 	if ( self->NPC == NULL ) 
 		return;
@@ -262,6 +268,27 @@ void NPC_Pain( gentity_t *self, gentity_t *other, int damage )
 
 	if ( other == self ) 
 		return;
+
+#ifdef _XBOX
+	if ( s_stefxNpcPainBudget > 0 )
+	{
+		XBLF("STEFX: NPC_Pain self=%d class='%s' targetname='%s' other=%d otherClass='%s' otherTargetname='%s' damage=%d health=%d otherWeapon=%d time=%d team=%d otherTeam=%d enemy=%d",
+			self ? self->s.number : -1,
+			(self && self->classname) ? self->classname : "<null>",
+			(self && self->targetname) ? self->targetname : "<null>",
+			other ? other->s.number : -1,
+			(other && other->classname) ? other->classname : "<null>",
+			(other && other->targetname) ? other->targetname : "<null>",
+			damage,
+			self ? self->health : -9999,
+			(other && other->client) ? other->client->ps.weapon : -1,
+			level.time,
+			(self && self->client) ? self->client->playerTeam : -1,
+			(other && other->client) ? other->client->playerTeam : -1,
+			(self && self->enemy) ? self->enemy->s.number : -1);
+		s_stefxNpcPainBudget--;
+	}
+#endif
 
 	//MCG: Ignore damage from your own team for now
 	if ( other->client )

@@ -40,11 +40,11 @@
 			/>
 			<Tool
 				Name="VCNMakeTool"
-				BuildCommandLine="$(SolutionDir)build_xbox.bat sp"
-				ReBuildCommandLine="$(SolutionDir)build_xbox.bat sp clean &amp;&amp; $(SolutionDir)build_xbox.bat sp"
-				CleanCommandLine="$(SolutionDir)build_xbox.bat sp clean"
-				Output="$(OutDir)\default.exe"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				BuildCommandLine="powershell -ExecutionPolicy Bypass -File $(SolutionDir)..\scripts\build_xbox.ps1 -Target sp"
+				ReBuildCommandLine="powershell -ExecutionPolicy Bypass -File $(SolutionDir)..\scripts\build_xbox.ps1 -Target sp -Clean &amp;&amp; powershell -ExecutionPolicy Bypass -File $(SolutionDir)..\scripts\build_xbox.ps1 -Target sp"
+				CleanCommandLine="powershell -ExecutionPolicy Bypass -File $(SolutionDir)..\scripts\build_xbox.ps1 -Target sp -Clean"
+				Output="$(SolutionDir)..\build\release\default.xbe"
+				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;STEFX_ELITE_FORCE_SP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
 				IncludeSearchPath="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
 			/>
 			<Tool
@@ -695,6 +695,10 @@
 			</File>
 			<File
 				RelativePath="..\renderer\tr_ghoul2.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\renderer\tr_animation.cpp"
 				>
 			</File>
 			<File

@@ -79,11 +79,25 @@ typedef struct {
 	byte		shaderRGBA[4];		// colors used by colorSrc=vertex shaders
 	float		shaderTexCoord[2];	// texture coordinates used by tcMod=vertex modifiers
 	float		shaderTime;			// subtracted from refdef time to control effect start times
-	vec3_t		lightDir;			// Used to specify a lighting dir
 
 	// extra sprite information
 	float		radius;
-	float		rotation;
+
+	// Match the active JA Xbox renderer ABI. Ghoul2 remains dormant for EF.
+	union
+	{
+		float		rotation;
+		float		endTime;
+		float		saberLength;
+	};
+
+	vec3_t		angles;
+	vec3_t		modelScale;
+	void		*ghoul2;
+
+#ifdef _XBOX
+	int			number;
+#endif
 } refEntity_t;
 
 

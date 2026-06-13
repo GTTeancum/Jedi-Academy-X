@@ -33,6 +33,7 @@ extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
 
 #include "client.h"
 #include "client_ui.h"
+#include <errno.h>
 #include <limits.h>
 #ifdef _IMMERSION
 #include "../ff/ff.h"
@@ -45,6 +46,85 @@ extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
 #include "../qcommon/xb_settings.h"
 
 #include "../RMG/RM_Headers.h"
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void FS_STEFX_PrecacheFile(const char *qpath);
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int CL_STEFX_ActiveCommandServerTime(void)
+{
+	static qboolean initialized = qfalse;
+	static int serverTime = 72000;
+
+	if (!initialized)
+	{
+		FILE *timeFile = fopen("D:\\ef_sp_active_command_time.txt", "r");
+		initialized = qtrue;
+		if (timeFile)
+		{
+			char line[64];
+			if (fgets(line, sizeof(line), timeFile))
+			{
+				const int parsed = atoi(line);
+				if (parsed >= 0)
+				{
+					serverTime = parsed;
+				}
+			}
+			fclose(timeFile);
+		}
+		XBLF("STEFX: active command serverTime gate=%d", serverTime);
+	}
+
+	return serverTime;
+}
+
+static int CL_STEFX_QueueActiveCommands(void)
+{
+	const char *activeCommandPaths[] = {
+		"D:\\ef_sp_active_commands.txt",
+		"E:\\ef_sp_active_commands.txt",
+		NULL
+	};
+	char commandLine[1024];
+	int pathIndex;
+	int queued = 0;
+
+	for (pathIndex = 0; activeCommandPaths[pathIndex]; ++pathIndex)
+	{
+		FILE *activeCommandFile = fopen(activeCommandPaths[pathIndex], "r");
+		if (!activeCommandFile)
+		{
+			XBLF("STEFX: active command file missing '%s' errno=%d winerr=%lu",
+				activeCommandPaths[pathIndex], errno, GetLastError());
+			continue;
+		}
+
+		XBLF("STEFX: active command file opened '%s'", activeCommandPaths[pathIndex]);
+		while (fgets(commandLine, sizeof(commandLine), activeCommandFile))
+		{
+			commandLine[strcspn(commandLine, "\r\n")] = '\0';
+			if (!commandLine[0])
+			{
+				continue;
+			}
+
+			XBLF("STEFX: queue active command '%s' from %s",
+				commandLine, activeCommandPaths[pathIndex]);
+			Cbuf_AddText(commandLine);
+			Cbuf_AddText("\n");
+			++queued;
+		}
+		fclose(activeCommandFile);
+		break;
+	}
+
+	XBLF("STEFX: active command hook complete queued=%d state=%d cgame=%d sv=%d",
+		queued, (int)cls.state, (int)cls.cgameStarted, (int)com_sv_running->integer);
+	return queued;
+}
+#endif
 
 #ifdef _XBOX
 #include "../ui/ui_splash.h"
@@ -1184,6 +1264,21 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	}
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static qboolean s_stefxActiveCommandsQueued = qfalse;
+	static int s_stefxActiveCommandAttempts = 0;
+	if (!s_stefxActiveCommandsQueued && cls.state == CA_ACTIVE && cls.cgameStarted
+		&& cl.serverTime >= CL_STEFX_ActiveCommandServerTime())
+	{
+		++s_stefxActiveCommandAttempts;
+		if (CL_STEFX_QueueActiveCommands() > 0 || s_stefxActiveCommandAttempts >= 20)
+		{
+			s_stefxActiveCommandsQueued = qtrue;
+			XBLF("STEFX: active command hook armed-off attempts=%d", s_stefxActiveCommandAttempts);
+		}
+	}
+#endif
+
 	if ( cls.state == CA_DISCONNECTED && !( cls.keyCatchers & KEYCATCH_UI )
 		&& !com_sv_running->integer ) {		
 		// if disconnected, bring up the menu
@@ -1870,6 +1965,160 @@ After the server has cleared the hunk, these will need to be restarted
 This is the only place that any of these functions are called from
 ============================
 */
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static void CL_STEFX_PrecacheBorg1VerticalSliceFiles(void)
+{
+	static qboolean s_done = qfalse;
+	static const char *files[] =
+	{
+		"ext_data/weapons.dat",
+		"ext_data/items.dat",
+		"ext_data/infostrings.dat",
+		"ext_data/objectives.dat",
+		"ext_data/tactical.dat",
+		"ext_data/boltOns.cfg",
+		"ext_data/NPCs.cfg",
+		"ext_data/addon.npc",
+		"maps/borg1.nav",
+		"maps/borg1.sqd",
+		"real_scripts/common/alarm.IBI",
+		"real_scripts/common/anglemovetoggle.IBI",
+		"real_scripts/common/bdead.IBI",
+		"real_scripts/common/borgtalk.IBI",
+		"real_scripts/common/cinematicMode.IBI",
+		"real_scripts/common/console1.IBI",
+		"real_scripts/common/console3.IBI",
+		"real_scripts/common/cower.IBI",
+		"real_scripts/common/crouchfight.IBI",
+		"real_scripts/common/csatdie.IBI",
+		"real_scripts/common/disrupted.IBI",
+		"real_scripts/common/drillaspawn.IBI",
+		"real_scripts/common/endlevel.IBI",
+		"real_scripts/common/fadetobrig.IBI",
+		"real_scripts/common/ffire2brig.IBI",
+		"real_scripts/common/ffire2brigvoy.IBI",
+		"real_scripts/common/ffire2brigvoy2.IBI",
+		"real_scripts/common/ffire2brigvoy3.IBI",
+		"real_scripts/common/fightback.IBI",
+		"real_scripts/common/fighting_mad.IBI",
+		"real_scripts/common/getupwalkANIM.IBI",
+		"real_scripts/common/guard.IBI",
+		"real_scripts/common/harvestermad.IBI",
+		"real_scripts/common/init_assim.IBI",
+		"real_scripts/common/invis_cinematic.IBI",
+		"real_scripts/common/invisible.IBI",
+		"real_scripts/common/runtoparm1.IBI",
+		"real_scripts/common/scavbeamout.IBI",
+		"real_scripts/common/security.IBI",
+		"real_scripts/common/setupsecurity.IBI",
+		"real_scripts/common/stumbledie.IBI",
+		"real_scripts/common/useparm1.IBI",
+		"real_scripts/common/vermin_idle.IBI",
+		"real_scripts/common/workalook.IBI",
+		"real_scripts/borg1/2for1.IBI",
+		"real_scripts/borg1/alcovevengeance.IBI",
+		"real_scripts/borg1/ambush.IBI",
+		"real_scripts/borg1/backin5.IBI",
+		"real_scripts/borg1/beamout.IBI",
+		"real_scripts/borg1/behaved.pre",
+		"real_scripts/borg1/borghunt.IBI",
+		"real_scripts/borg1/borghuntgo.IBI",
+		"real_scripts/borg1/caged.IBI",
+		"real_scripts/borg1/console.IBI",
+		"real_scripts/borg1/defendmachine.IBI",
+		"real_scripts/borg1/die_munro_die.IBI",
+		"real_scripts/borg1/disable.IBI",
+		"real_scripts/borg1/dogmeat.IBI",
+		"real_scripts/borg1/elevator.IBI",
+		"real_scripts/borg1/endfield.IBI",
+		"real_scripts/borg1/extra.pre",
+		"real_scripts/borg1/getmeout.IBI",
+		"real_scripts/borg1/goinghomeyay.IBI",
+		"real_scripts/borg1/heyblue.IBI",
+		"real_scripts/borg1/holdthefort.IBI",
+		"real_scripts/borg1/intro.IBI",
+		"real_scripts/borg1/killsplat.IBI",
+		"real_scripts/borg1/mad_shaggy.IBI",
+		"real_scripts/borg1/mrfixit.IBI",
+		"real_scripts/borg1/mysavior.IBI",
+		"real_scripts/borg1/niceshootin.IBI",
+		"real_scripts/borg1/nodedestruct.IBI",
+		"real_scripts/borg1/nodedestruct2.IBI",
+		"real_scripts/borg1/noderepair.IBI",
+		"real_scripts/borg1/notfair.IBI",
+		"real_scripts/borg1/objective.IBI",
+		"real_scripts/borg1/ow_im_dead.IBI",
+		"real_scripts/borg1/pipemachine.IBI",
+		"real_scripts/borg1/plugged.IBI",
+		"real_scripts/borg1/protect.IBI",
+		"real_scripts/borg1/protect2.IBI",
+		"real_scripts/borg1/protect2a.IBI",
+		"real_scripts/borg1/protecta.IBI",
+		"real_scripts/borg1/repair.IBI",
+		"real_scripts/borg1/retaliation.IBI",
+		"real_scripts/borg1/rotate_splattamatron.IBI",
+		"real_scripts/borg1/rounds.IBI",
+		"real_scripts/borg1/setupworld.IBI",
+		"real_scripts/borg1/sfflee.IBI",
+		"real_scripts/borg1/sffleeleave.IBI",
+		"real_scripts/borg1/splatconsole.IBI",
+		"real_scripts/borg1/splatshift.IBI",
+		"real_scripts/borg1/strutdestruction.IBI",
+		"real_scripts/borg1/unimatrix.IBI",
+		"real_scripts/borg1/vengeance.IBI",
+		"real_scripts/borg1/waitvengeance.IBI",
+		"real_scripts/borg1/yeah_get_some.IBI",
+
+		"models/players/avatar/lower.mdr",
+		"models/players/avatar/upper.mdr",
+		"models/players/avatar/head.md3",
+		"models/players/avatar/lower_default.skin",
+		"models/players/avatar/upper_default.skin",
+		"models/players/avatar/head_default.skin",
+		"models/players/avatar/animation.cfg",
+
+		"models/players/biessman/head.md3",
+		"models/players/biessman/head_default.skin",
+		"models/players/munro/head.md3",
+		"models/players/munro/head_default.skin",
+		"models/players/tuvok/head.md3",
+		"models/players/tuvok/head_default.skin",
+		"models/players/tuvok_h/head.md3",
+		"models/players/tuvok_h/head_default.skin",
+
+		"models/weaphits/explosion.md3",
+		"models/weapons2/phaser/phaser.md3",
+		"models/weapons2/phaser/phaser_hand.md3",
+		"models/weapons2/phaser/phaser_flash.md3",
+		"models/weapons2/prifle/prifle.md3",
+		"models/weapons2/prifle/prifle_hand.md3",
+		"models/weapons2/prifle/prifle_flash.md3",
+		"models/weapons2/imod/imod2.md3",
+		"models/weapons2/imod/imod2_hand.md3",
+		"models/weapons2/imod/imod2_flash.md3",
+		"models/weapons2/borg/claw-1.md3",
+		"models/weapons2/borg/pincers.md3",
+		"models/weapons2/borg/hand.md3",
+		"models/weapons2/borg/drill.md3",
+		NULL
+	};
+	int i;
+
+	if (s_done)
+	{
+		return;
+	}
+	s_done = qtrue;
+
+	XBLog_Write("STEFX: borg1 vertical slice file precache begin");
+	for (i = 0; files[i]; ++i)
+	{
+		FS_STEFX_PrecacheFile(files[i]);
+	}
+	XBLog_Write("STEFX: borg1 vertical slice file precache done");
+}
+#endif
+
 void CL_StartHunkUsers( void ) {
 #ifdef _XBOX
 	qboolean xboxTraceStartHunk = (!cls.rendererStarted || !cls.soundStarted || !cls.soundRegistered ||
@@ -1918,6 +2167,9 @@ void CL_StartHunkUsers( void ) {
 		cls.whiteShader = re.RegisterShader( "white" );
 #ifdef _XBOX
 		XBLF("JA: CL_StartHunkUsers: whiteShader=%d", cls.whiteShader);
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CL_STEFX_PrecacheBorg1VerticalSliceFiles();
 #endif
 //		cls.consoleShader = re.RegisterShader( "console" );
 		g_console_field_width = cls.glconfig.vidWidth / SMALLCHAR_WIDTH - 2;

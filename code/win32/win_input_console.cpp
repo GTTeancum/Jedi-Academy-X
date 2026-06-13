@@ -468,6 +468,24 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 
 	lastControllerUsed	= controller;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxButtonLogBudget = 64;
+		if ( s_stefxButtonLogBudget > 0 && (pressed || cls.state == CA_ACTIVE) )
+		{
+			Com_PrintfAlways("STEFX: controller button port=%d main=%d button=%d pressed=%d ui=%d state=%d splash=%d\n",
+				controller,
+				IN_GetMainController(),
+				(int)button,
+				pressed ? 1 : 0,
+				_UIRunning ? 1 : 0,
+				(int)cls.state,
+				inSplashMenu ? inSplashMenu->integer : -1);
+			--s_stefxButtonLogBudget;
+		}
+	}
+#endif
+
 	// Cheat system hooks. The right thumbstick button has to be held for a cheat:
 	if (button == A_JOY3)
 	{
@@ -602,6 +620,26 @@ void IN_CommonUpdate()
 		// Find out how to configure the thumbsticks
 		//int thumbStickMode = Cvar_Get("ui_thumbStickMode", "0" , 0)->integer;
 		int thumbStickMode = cl_thumbStickMode->integer;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			static int s_stefxAxisLogBudget = 64;
+			if ( s_stefxAxisLogBudget > 0 &&
+				( _padInfo.joyInfo[0].x || _padInfo.joyInfo[0].y ||
+				  _padInfo.joyInfo[1].x || _padInfo.joyInfo[1].y ) )
+			{
+				Com_PrintfAlways("STEFX: controller axes port=%d main=%d mode=%d state=%d left=(%g,%g) right=(%g,%g)\n",
+					_padInfo.padId,
+					IN_GetMainController(),
+					thumbStickMode,
+					(int)cls.state,
+					_padInfo.joyInfo[0].x,
+					_padInfo.joyInfo[0].y,
+					_padInfo.joyInfo[1].x,
+					_padInfo.joyInfo[1].y);
+				--s_stefxAxisLogBudget;
+			}
+		}
+#endif
 
 		switch(thumbStickMode)
 		{
@@ -808,6 +846,17 @@ void IN_PadPlugged(int controller)
 	{
 		Com_Printf("\tController %d plugged\n",controller); 
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		extern bool Sys_IsDirectMapBoot(void);
+		if ( Sys_IsDirectMapBoot() && !hadAController )
+		{
+			IN_SetMainController(controller);
+			Com_PrintfAlways("STEFX: direct-map main controller selected port=%d\n", controller);
+		}
+	}
+#endif
 
 	if(IN_ControllerMustBePlugged(controller)&& SG_GameAllowedToSaveHere(qtrue))
 	{

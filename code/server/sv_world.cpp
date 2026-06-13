@@ -38,6 +38,36 @@ Ghoul2 Insert End
 static const float superSizedAdd=64.0f;
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SVVec3Bad(const vec3_t v)
+{
+	const float limit = 1048576.0f;
+	return (qboolean)(IS_NAN(v[0]) || IS_NAN(v[1]) || IS_NAN(v[2]) ||
+		v[0] < -limit || v[0] > limit ||
+		v[1] < -limit || v[1] > limit ||
+		v[2] < -limit || v[2] > limit);
+}
+
+static qboolean STEFX_SVBoundsBad(const vec3_t mins, const vec3_t maxs)
+{
+	if (STEFX_SVVec3Bad(mins) || STEFX_SVVec3Bad(maxs))
+	{
+		return qtrue;
+	}
+	if (mins[0] > maxs[0] || mins[1] > maxs[1] || mins[2] > maxs[2])
+	{
+		return qtrue;
+	}
+	if ((maxs[0] - mins[0]) > 4096.0f ||
+		(maxs[1] - mins[1]) > 4096.0f ||
+		(maxs[2] - mins[2]) > 4096.0f)
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+#endif
+
 /*
 ================
 SV_ClipHandleForEntity
@@ -48,10 +78,51 @@ be returned, otherwise a custom box tree will be constructed.
 ================
 */
 clipHandle_t SV_ClipHandleForEntity( const gentity_t *ent ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_badClipEntityLogCount = 0;
+	if (!ent)
+	{
+		if (s_badClipEntityLogCount < 32)
+		{
+			XBLF("STEFX: SV_ClipHandleForEntity null entity; using zero box");
+		}
+		s_badClipEntityLogCount++;
+		return CM_TempBoxModel(vec3_origin, vec3_origin);
+	}
+	if (STEFX_SVBoundsBad(ent->mins, ent->maxs))
+	{
+		if (s_badClipEntityLogCount < 32)
+		{
+			XBLF("STEFX: SV_ClipHandleForEntity bad bounds ent=%d bmodel=%d modelindex=%d mins=(%g,%g,%g) maxs=(%g,%g,%g); using zero box",
+				ent->s.number, ent->bmodel, ent->s.modelindex,
+				ent->mins[0], ent->mins[1], ent->mins[2],
+				ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+		}
+		s_badClipEntityLogCount++;
+		return CM_TempBoxModel(vec3_origin, vec3_origin);
+	}
+	if ( ent->bmodel ) {
+		if (ent->s.modelindex <= 0 || ent->s.modelindex >= MAX_SUBMODELS)
+		{
+			if (s_badClipEntityLogCount < 32)
+			{
+				XBLF("STEFX: SV_ClipHandleForEntity invalid bmodel ent=%d modelindex=%d contents=0x%x mins=(%g,%g,%g) maxs=(%g,%g,%g); using bbox",
+					ent->s.number, ent->s.modelindex, ent->contents,
+					ent->mins[0], ent->mins[1], ent->mins[2],
+					ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+			}
+			s_badClipEntityLogCount++;
+			return CM_TempBoxModel(ent->mins, ent->maxs);
+		}
+		// explicit hulls in the BSP model
+		return CM_InlineModel( ent->s.modelindex );
+	}
+#else
 	if ( ent->bmodel ) {
 		// explicit hulls in the BSP model
 		return CM_InlineModel( ent->s.modelindex );
 	}
+#endif
 
 	// create a temp tree from bounding box sizes
 	return CM_TempBoxModel( ent->mins, ent->maxs );//, ent->contents );
@@ -84,6 +155,28 @@ typedef struct worldSector_s {
 
 worldSector_t	sv_worldSectors[AREA_NODES];
 int			sv_numworldSectors;
+
+#ifdef _XBOX
+static int STEFX_TruncFloatToInt(float value)
+{
+	int result = 0;
+	int sign = 1;
+
+	if (value < 0.0f)
+	{
+		sign = -1;
+		value = -value;
+	}
+
+	while (value >= 1.0f && result < 4096)
+	{
+		value -= 1.0f;
+		result++;
+	}
+
+	return result * sign;
+}
+#endif
 
 /*
 ===============
@@ -206,53 +299,185 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	int			lastLeaf;
 	float		*origin, *angles;
 	svEntity_t	*ent;
+#ifdef _XBOX
+	static int	s_xboxLinkLogCount = 0;
+	qboolean	xboxLogThisLink = (s_xboxLinkLogCount < 24);
+
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity enter ent=%p num=%d inuse=%d contents=0x%x origin=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+			gEnt,
+			gEnt ? gEnt->s.number : -1,
+			gEnt ? gEnt->inuse : 0,
+			gEnt ? gEnt->contents : 0,
+			gEnt ? gEnt->currentOrigin[0] : 0, gEnt ? gEnt->currentOrigin[1] : 0, gEnt ? gEnt->currentOrigin[2] : 0,
+			gEnt ? gEnt->mins[0] : 0, gEnt ? gEnt->mins[1] : 0, gEnt ? gEnt->mins[2] : 0,
+			gEnt ? gEnt->maxs[0] : 0, gEnt ? gEnt->maxs[1] : 0, gEnt ? gEnt->maxs[2] : 0);
+		s_xboxLinkLogCount++;
+	}
+#endif
 
 	// this should never be called with a freed entity
 	if ( !gEnt->inuse ) {
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity skipped not inuse");
+		}
+#endif
 		return;
 	}
 
 	ent = SV_SvEntityForGentity( gEnt );
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity svEntity=%p worldSector=%p", ent, ent ? ent->worldSector : NULL);
+	}
+#endif
 
 	if ( ent->worldSector ) {
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity before unlink old worldSector");
+		}
+#endif
 		SV_UnlinkEntity( gEnt );	// unlink from old position
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity after unlink old worldSector");
+		}
+#endif
 	}
 
 	// encode the size into the entityState_t for client prediction
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity before solid encode bmodel=%d contents=0x%x", gEnt->bmodel, gEnt->contents);
+	}
+#endif
 	if ( gEnt->bmodel ) {
 		gEnt->s.solid = SOLID_BMODEL;		// a solid_box will never create this value
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLF("STEFX: SV_LinkEntity solid bmodel value=0x%x", gEnt->s.solid);
+		}
+#endif
 	} else if ( gEnt->contents & ( CONTENTS_SOLID | CONTENTS_BODY ) ) {
 		// assume that x/y are equal and symetric
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity before solid i");
+		}
+#endif
+#ifdef _XBOX
+		i = STEFX_TruncFloatToInt(gEnt->maxs[0]);
+#else
 		i = gEnt->maxs[0];
+#endif
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLF("STEFX: SV_LinkEntity after solid i=%d", i);
+		}
+#endif
 		if (i<1)
 			i = 1;
 		if (i>255)
 			i = 255;
 
 		// z is not symetric
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity before solid j");
+		}
+#endif
+#ifdef _XBOX
+		j = STEFX_TruncFloatToInt(-gEnt->mins[2]);
+#else
 		j = (-gEnt->mins[2]);
+#endif
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLF("STEFX: SV_LinkEntity after solid j=%d", j);
+		}
+#endif
 		if (j<1)
 			j = 1;
 		if (j>255)
 			j = 255;
 
 		// and z maxs can be negative...
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity before solid k");
+		}
+#endif
+#ifdef _XBOX
+		k = STEFX_TruncFloatToInt(gEnt->maxs[2] + 32);
+#else
 		k = (gEnt->maxs[2]+32);
+#endif
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLF("STEFX: SV_LinkEntity after solid k=%d", k);
+		}
+#endif
 		if (k<1)
 			k = 1;
 		if (k>255)
 			k = 255;
 
 		gEnt->s.solid = (k<<16) | (j<<8) | i;
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLF("STEFX: SV_LinkEntity solid bbox value=0x%x", gEnt->s.solid);
+		}
+#endif
 	} else {
 		gEnt->s.solid = 0;
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity solid zero");
+		}
+#endif
 	}
 
 	// get the position
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLog_Write("STEFX: SV_LinkEntity before origin pointers");
+	}
+#endif
 	origin = gEnt->currentOrigin;
 	angles = gEnt->currentAngles;
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity after origin pointers origin=%p angles=%p", origin, angles);
+	}
+#endif
 
 	// set the abs box
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity before absbox bmodel=%d angles=(%g,%g,%g)",
+			gEnt->bmodel, angles[0], angles[1], angles[2]);
+	}
+#endif
 	if ( gEnt->bmodel && (angles[0] || angles[1] || angles[2]) )
 	{	// expand for rotation
 		float		max;
@@ -265,9 +490,26 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 		}
 	} else {
 		// normal
+#ifdef _XBOX
+		gEnt->absmin[0] = origin[0] + gEnt->mins[0];
+		gEnt->absmin[1] = origin[1] + gEnt->mins[1];
+		gEnt->absmin[2] = origin[2] + gEnt->mins[2];
+		gEnt->absmax[0] = origin[0] + gEnt->maxs[0];
+		gEnt->absmax[1] = origin[1] + gEnt->maxs[1];
+		gEnt->absmax[2] = origin[2] + gEnt->maxs[2];
+#else
 		VectorAdd (origin, gEnt->mins, gEnt->absmin);	
 		VectorAdd (origin, gEnt->maxs, gEnt->absmax);
+#endif
 	}
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity after absbox raw absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
+			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
+			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+	}
+#endif
 
 	// because movement is clipped an epsilon away from an actual edge,
 	// we must fully check even when bounding boxes don't quite touch
@@ -277,6 +519,14 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	gEnt->absmax[0] += 1;
 	gEnt->absmax[1] += 1;
 	gEnt->absmax[2] += 1;
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity after absbox expanded absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
+			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
+			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+	}
+#endif
 
 	// link to PVS leafs
 	ent->numClusters = 0;
@@ -284,13 +534,50 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	ent->areanum = -1;
 	ent->areanum2 = -1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	// EF raw BSP collision still needs a proper CM leaf adapter.  Until that is
+	// in place, do not let entity spawn/link crash in the Q3 leaf walker.
+	num_leafs = 1;
+	lastLeaf = 0;
+	ent->numClusters = 1;
+	ent->clusternums[0] = 0;
+	ent->lastCluster = 0;
+	ent->areanum = 0;
+	ent->areanum2 = -1;
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity raw BSP leaf fallback ent=%d clusters=%d first=%d area=%d",
+			gEnt->s.number, ent->numClusters, ent->clusternums[0], ent->areanum);
+	}
+#else
 	//get all leafs, including solids
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLog_Write("STEFX: SV_LinkEntity before CM_BoxLeafnums");
+	}
+#endif
 	num_leafs = CM_BoxLeafnums( gEnt->absmin, gEnt->absmax,
 		leafs, MAX_TOTAL_ENT_LEAFS, &lastLeaf );
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity leafs=%d lastLeaf=%d absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
+			num_leafs, lastLeaf,
+			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
+			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+	}
+#endif
 
 	// if none of the leafs were inside the map, the
 	// entity is outside the world and can be considered unlinked
 	if ( !num_leafs ) {
+#ifdef _XBOX
+		if (xboxLogThisLink)
+		{
+			XBLog_Write("STEFX: SV_LinkEntity no leafs");
+		}
+#endif
 		return;
 	}
 
@@ -329,6 +616,7 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	if ( i != num_leafs ) {
 		ent->lastCluster = CM_LeafCluster( lastLeaf );
 	}
+#endif
 
 	// find the first world sector node that the ent's box crosses
 	node = sv_worldSectors;
@@ -350,6 +638,13 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	node->entities = ent;
 
 	gEnt->linked = qtrue;
+#ifdef _XBOX
+	if (xboxLogThisLink)
+	{
+		XBLF("STEFX: SV_LinkEntity done ent=%d linked=%d clusters=%d area=%d area2=%d",
+			gEnt->s.number, gEnt->linked, ent->numClusters, ent->areanum, ent->areanum2);
+	}
+#endif
 }
 
 /*
@@ -601,7 +896,7 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 	const float		*origin, *angles;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_clipLogCount = 0;
-	qboolean logThisClip = (s_clipLogCount < 64);
+	qboolean logThisClip = (s_clipLogCount < 16);
 #endif
 
 	num = SV_AreaEntities( clip->boxmins, clip->boxmaxs, touchlist, MAX_GENTITIES);
@@ -922,7 +1217,7 @@ Ghoul2 Insert End
 	float		world_frac;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_svTraceLogCount = 0;
-	qboolean logThisTrace = (s_svTraceLogCount < 64);
+	qboolean logThisTrace = (s_svTraceLogCount < 16);
 	if (logThisTrace)
 	{
 		XBLF("STEFX: SV_Trace enter count=%d pass=%d mask=0x%x g2=%d start=(%g,%g,%g) end=(%g,%g,%g) mins=%08x maxs=%08x",

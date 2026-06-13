@@ -17,6 +17,7 @@ extern "C" volatile unsigned int g_SPXBComMsec;
 extern "C" volatile unsigned int g_SPXBComFrameTime;
 extern "C" volatile unsigned int g_SPXBComLastTime;
 extern "C" volatile unsigned int g_SPXBClsState;
+extern bool Sys_IsDirectMapBoot(void);
 #endif
 
 #include "platform.h"
@@ -56,6 +57,8 @@ cvar_t	*com_buildScript;	// for automated data building scripts
 cvar_t	*cl_paused;
 cvar_t	*sv_paused;
 cvar_t	*com_skippingcin;
+cvar_t	*stefx_smokeFastTime;
+cvar_t	*stefx_smokeFastTimeMsec;
 cvar_t	*com_speedslog;		// 1 = buffer log, 2 = flush after each print
 extern cvar_t *inSplashMenu;
 extern cvar_t *controllerOut;
@@ -1260,6 +1263,8 @@ void Com_Init( char *commandLine ) {
 		com_sv_running = Cvar_Get ("sv_running", "0", CVAR_ROM);
 		com_cl_running = Cvar_Get ("cl_running", "0", CVAR_ROM);
 		com_skippingcin = Cvar_Get ("skippingCinematic", "0", CVAR_ROM);
+		stefx_smokeFastTime = Cvar_Get ("stefx_smoke_fasttime", "0", CVAR_TEMP);
+		stefx_smokeFastTimeMsec = Cvar_Get ("stefx_smoke_fasttime_msec", "500", CVAR_TEMP);
 		com_buildScript = Cvar_Get( "com_buildScript", "0", 0 );
 		
 		if ( com_developer && com_developer->integer ) {
@@ -1464,9 +1469,21 @@ int Com_ModifyMsec( int msec, float &fraction )
 		fraction=0.0f;
 	}
 
-	if ( com_skippingcin->integer ) {
+	if ( com_skippingcin->integer || (stefx_smokeFastTime && stefx_smokeFastTime->integer) ) {
 		// we're skipping ahead so let it go a bit faster
 		clampTime = 500;
+		if ( stefx_smokeFastTime && stefx_smokeFastTime->integer && stefx_smokeFastTimeMsec )
+		{
+			clampTime = stefx_smokeFastTimeMsec->integer;
+			if ( clampTime < 1 )
+			{
+				clampTime = 1;
+			}
+			else if ( clampTime > 2000 )
+			{
+				clampTime = 2000;
+			}
+		}
 	} else {
 		// for local single player gaming
 		// we may want to clamp the time to prevent players from
@@ -1678,9 +1695,21 @@ try
 #endif
 #ifdef _XBOX
 		g_SPXBComSubphase = 15;
-		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Cbuf_Execute");
+		if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE before second Cbuf_Execute state=%d sv=%d direct=%d",
+			(int)g_SPXBClsState,
+			com_sv_running ? com_sv_running->integer : -1,
+			Sys_IsDirectMapBoot() ? 1 : 0);
 #endif
-		Cbuf_Execute ();
+#ifdef _XBOX
+		if ( Sys_IsDirectMapBoot() && g_SPXBClsState != (unsigned int)CA_ACTIVE )
+		{
+			if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE skip second Cbuf_Execute during direct-map load");
+		}
+		else
+#endif
+		{
+			Cbuf_Execute ();
+		}
 #ifdef _XBOX
 		g_SPXBComSubphase = 16;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Cbuf_Execute");

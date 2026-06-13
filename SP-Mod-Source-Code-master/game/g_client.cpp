@@ -2,6 +2,9 @@
 #include "g_functions.h"
 #include "anims.h"
 #include "boltOns.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern void Q3_DebugPrint( int level, const char *format, ... );
 // g_client.c -- client functions that don't happen every frame
@@ -701,6 +704,17 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 	index = ent - g_entities;
 	client = ent->client;
 
+#ifdef _XBOX
+	XBLF("STEFX: ClientSpawn enter ent=%d saved=%d transition=%d client=%p class='%s' target='%s' npc='%s'",
+		index,
+		eSavedGameJustLoaded,
+		g_qbLoadTransition,
+		client,
+		ent->classname ? ent->classname : "",
+		ent->targetname ? ent->targetname : "",
+		ent->NPC_type ? ent->NPC_type : "");
+#endif
+
 	if ( eSavedGameJustLoaded == eFULL && g_qbLoadTransition == qfalse )//qbFromSavedGame)
 	{
 		ent->client->pers.teamState.state = TEAM_ACTIVE;
@@ -734,6 +748,17 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 		// don't spawn near existing origin if possible
 		spawnPoint = SelectSpawnPoint ( ent->client->ps.origin, 
 			(team_t) ent->client->ps.persistant[PERS_TEAM], spawn_origin, spawn_angles);
+
+#ifdef _XBOX
+		XBLF("STEFX: ClientSpawn spawnPoint ent=%d class='%s' target='%s' target2='%s' spawnflags=0x%x origin=(%g,%g,%g) angles=(%g,%g,%g)",
+			spawnPoint ? spawnPoint->s.number : -1,
+			spawnPoint && spawnPoint->classname ? spawnPoint->classname : "",
+			spawnPoint && spawnPoint->target ? spawnPoint->target : "",
+			spawnPoint && spawnPoint->target2 ? spawnPoint->target2 : "",
+			spawnPoint ? spawnPoint->spawnflags : 0,
+			spawn_origin[0], spawn_origin[1], spawn_origin[2],
+			spawn_angles[0], spawn_angles[1], spawn_angles[2]);
+#endif
 
 		if ( !(spawnPoint->spawnflags & 32) )
 		{//Do teleport effect
@@ -878,9 +903,38 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 
 		{
 			// fire the targets of the spawn point
+#ifdef _XBOX
+			XBLF("STEFX: ClientSpawn before spawn targets playerTarget='%s' scriptTarget='%s' weapon=%d weapons=0x%x ammo=%d,%d,%d,%d",
+				ent->targetname ? ent->targetname : "",
+				ent->script_targetname ? ent->script_targetname : "",
+				client->ps.weapon,
+				client->ps.stats[STAT_WEAPONS],
+				client->ps.ammo[0],
+				client->ps.ammo[1],
+				client->ps.ammo[2],
+				client->ps.ammo[3]);
+#endif
 			G_UseTargets( spawnPoint, ent );
+#ifdef _XBOX
+			XBLF("STEFX: ClientSpawn after target='%s' playerOrigin=(%g,%g,%g) weapon=%d health=%d",
+				spawnPoint && spawnPoint->target ? spawnPoint->target : "",
+				ent->client->ps.origin[0],
+				ent->client->ps.origin[1],
+				ent->client->ps.origin[2],
+				ent->client->ps.weapon,
+				ent->health);
+#endif
 			//Designers needed them to fire off target2's as well... this is kind of messy
 			G_UseTargets2( spawnPoint, ent, spawnPoint->target2 );
+#ifdef _XBOX
+			XBLF("STEFX: ClientSpawn after target2='%s' playerOrigin=(%g,%g,%g) weapon=%d health=%d",
+				spawnPoint && spawnPoint->target2 ? spawnPoint->target2 : "",
+				ent->client->ps.origin[0],
+				ent->client->ps.origin[1],
+				ent->client->ps.origin[2],
+				ent->client->ps.weapon,
+				ent->health);
+#endif
 
 			/*
 			// select the highest weapon number available, after any
@@ -936,5 +990,3 @@ void ClientDisconnect( int clientNum ) {
 	gi.SetConfigstring( CS_PLAYERS + clientNum, "");
 
 }
-
-

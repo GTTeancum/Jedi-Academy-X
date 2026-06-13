@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // fakeglx.cpp - Uses Direct3D to implement a subset of OpenGL.
 
 #include "stdio.h"
+#include "stdlib.h"
 #ifdef _XBOX
 #define _JKA_DDS_BRIDGE_INTERNAL_
 #endif
@@ -27,6 +28,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "../xb_log.h"
 #ifdef _XBOX
 extern "C" void* JkaStaticTextureAlloc(unsigned long size, GLuint texNum);
+extern "C" unsigned long JkaStaticTextureUsed(void);
+extern "C" unsigned long JkaStaticTextureFree(void);
+extern "C" unsigned long JkaStaticTextureCapacity(void);
 #endif
 
 // TODO: Fix this warning instead of disableing it
@@ -100,6 +104,13 @@ extern "C" D3DTexture* WINAPI D3DDevice_CreateTexture2(DWORD Width, DWORD Height
 static DWORD g_fakeglTextureCount = 0;
 static DWORD g_fakeglTextureFailures = 0;
 static unsigned __int64 g_fakeglTextureBytes = 0;
+static DWORD g_fakeglRegisteredTextureCount = 0;
+static DWORD g_fakeglRegisteredTextureDenied = 0;
+static unsigned __int64 g_fakeglRegisteredTextureBytes = 0;
+static const DWORD FAKEGL_REGISTERED_TEXTURE_SOFT_CAP = 7 * 1024 * 1024;
+static const DWORD FAKEGL_REGISTERED_TEXTURE_MIN_FREE = 512 * 1024;
+static bool g_stefxSkipSwapBlockUntilIdle = false;
+static int g_stefxFakeglSwapFrame = 0;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
@@ -109,6 +120,760 @@ extern "C" volatile unsigned int g_SPXBFramebufferWidth;
 extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
+
+static void FakeGL_WriteLe16(BYTE *dst, WORD value)
+{
+	dst[0] = (BYTE)(value & 0xff);
+	dst[1] = (BYTE)((value >> 8) & 0xff);
+}
+
+static void FakeGL_WriteLe32(BYTE *dst, DWORD value)
+{
+	dst[0] = (BYTE)(value & 0xff);
+	dst[1] = (BYTE)((value >> 8) & 0xff);
+	dst[2] = (BYTE)((value >> 16) & 0xff);
+	dst[3] = (BYTE)((value >> 24) & 0xff);
+}
+
+static bool FakeGL_WriteAll(HANDLE file, const void *data, DWORD bytesToWrite)
+{
+	const BYTE *cursor = (const BYTE *)data;
+	while (bytesToWrite > 0)
+	{
+		DWORD written = 0;
+		if (!WriteFile(file, cursor, bytesToWrite, &written, NULL) || written == 0)
+		{
+			return false;
+		}
+		cursor += written;
+		bytesToWrite -= written;
+	}
+	return true;
+}
+
+typedef struct _FGL_STR
+{
+	unsigned short Length;
+	unsigned short MaximumLength;
+	char *Buffer;
+} FGL_STR;
+
+typedef struct _FGL_OA
+{
+	HANDLE RootDirectory;
+	FGL_STR *ObjectName;
+	unsigned long Attributes;
+} FGL_OA;
+
+typedef struct _FGL_IOSB
+{
+	long Status;
+	unsigned long Information;
+} FGL_IOSB;
+
+extern "C" long __stdcall NtCreateFile(HANDLE*, unsigned long, FGL_OA*, FGL_IOSB*,
+	void*, unsigned long, unsigned long, unsigned long, unsigned long);
+extern "C" long __stdcall NtWriteFile(HANDLE, HANDLE, void*, void*, FGL_IOSB*,
+	void*, unsigned long, void*);
+extern "C" long __stdcall NtFlushBuffersFile(HANDLE, FGL_IOSB*);
+extern "C" long __stdcall NtClose(HANDLE);
+
+static long FakeGL_NtCreateOverwrite(const char *path, HANDLE *out)
+{
+	FGL_STR name;
+	FGL_OA oa;
+	FGL_IOSB iosb;
+	name.Buffer = (char *)path;
+	name.Length = (unsigned short)strlen(path);
+	name.MaximumLength = name.Length + 1;
+	oa.RootDirectory = NULL;
+	oa.ObjectName = &name;
+	oa.Attributes = 0x40;
+	*out = INVALID_HANDLE_VALUE;
+	return NtCreateFile(out,
+		GENERIC_WRITE | 0x00100000,
+		&oa,
+		&iosb,
+		NULL,
+		FILE_ATTRIBUTE_NORMAL,
+		0,
+		5,
+		0x20 | 0x02 | 0x40);
+}
+
+static bool FakeGL_NtWriteAll(HANDLE file, const void *data, DWORD bytesToWrite)
+{
+	const BYTE *cursor = (const BYTE *)data;
+	while (bytesToWrite > 0)
+	{
+		FGL_IOSB iosb;
+		DWORD chunk = bytesToWrite;
+		if (chunk > 0x10000)
+		{
+			chunk = 0x10000;
+		}
+		if (NtWriteFile(file, NULL, NULL, NULL, &iosb, (void *)cursor, chunk, NULL) < 0)
+		{
+			return false;
+		}
+		cursor += chunk;
+		bytesToWrite -= chunk;
+	}
+	return true;
+}
+
+static bool FakeGL_FileExists(const char *path)
+{
+	DWORD attrs = GetFileAttributesA(path);
+	return attrs != 0xffffffffu && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+static bool FakeGL_FileExistsOnAnyRuntimeDrive(const char *filename)
+{
+	char path[96];
+	static const char drives[] = { 'D', 'E', 'T' };
+	int i;
+
+	for (i = 0; i < (int)(sizeof(drives) / sizeof(drives[0])); ++i)
+	{
+		sprintf(path, "%c:\\%s", drives[i], filename);
+		if (FakeGL_FileExists(path))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+static const char *FakeGL_FindScreenshotRequestPath(void)
+{
+	int i;
+	static const char *paths[] =
+	{
+		"D:\\ef_sp_screenshot_request.txt",
+		"E:\\ef_sp_screenshot_request.txt",
+		"T:\\ef_sp_screenshot_request.txt",
+		"ef_sp_screenshot_request.txt",
+		NULL
+	};
+
+	for (i = 0; paths[i]; ++i)
+	{
+		if (FakeGL_FileExists(paths[i]))
+		{
+			return paths[i];
+		}
+	}
+	return NULL;
+}
+
+static bool FakeGL_ScreenshotRequested(void)
+{
+	return FakeGL_FindScreenshotRequestPath() != NULL;
+}
+
+static void FakeGL_PixelToRgb(const BYTE *src, bool rgb565, BYTE *r, BYTE *g, BYTE *b)
+{
+	if (rgb565)
+	{
+		WORD pixel = *(const WORD *)src;
+		*r = (BYTE)((((pixel >> 11) & 31) * 255) / 31);
+		*g = (BYTE)((((pixel >> 5) & 63) * 255) / 63);
+		*b = (BYTE)(((pixel & 31) * 255) / 31);
+	}
+	else
+	{
+		*b = src[0];
+		*g = src[1];
+		*r = src[2];
+	}
+}
+
+static DWORD FakeGL_SurfaceBytesPerPixel(D3DFORMAT format)
+{
+	if (format == D3DFMT_R5G6B5 || format == D3DFMT_LIN_R5G6B5)
+	{
+		return 2;
+	}
+	return 4;
+}
+
+static bool FakeGL_SurfaceHasVisibleSignal(const BYTE *pixels, D3DFORMAT format, DWORD width, DWORD height, DWORD pitch, DWORD *outVisibleSamples, DWORD *outMaxBrightness)
+{
+	const bool rgb565 = format == D3DFMT_R5G6B5 || format == D3DFMT_LIN_R5G6B5;
+	const DWORD bytesPerPixel = FakeGL_SurfaceBytesPerPixel(format);
+	DWORD visibleSamples = 0;
+	DWORD maxBrightness = 0;
+
+	if (outVisibleSamples)
+	{
+		*outVisibleSamples = 0;
+	}
+	if (outMaxBrightness)
+	{
+		*outMaxBrightness = 0;
+	}
+
+	__try
+	{
+		if (!pixels || width == 0 || height == 0 || pitch < width * bytesPerPixel)
+		{
+			return false;
+		}
+
+		for (DWORD sy = 0; sy < 12; ++sy)
+		{
+			DWORD y = (height - 1) * sy / 11;
+			for (DWORD sx = 0; sx < 16; ++sx)
+			{
+				DWORD x = (width - 1) * sx / 15;
+				const BYTE *src = pixels + y * pitch + x * bytesPerPixel;
+				BYTE r, g, b;
+				DWORD brightness;
+
+				FakeGL_PixelToRgb(src, rgb565, &r, &g, &b);
+				brightness = (DWORD)r + (DWORD)g + (DWORD)b;
+				if (brightness > maxBrightness)
+				{
+					maxBrightness = brightness;
+				}
+				if (brightness > 8)
+				{
+					++visibleSamples;
+				}
+			}
+		}
+	}
+	__except(EXCEPTION_EXECUTE_HANDLER)
+	{
+		return false;
+	}
+
+	if (outVisibleSamples)
+	{
+		*outVisibleSamples = visibleSamples;
+	}
+	if (outMaxBrightness)
+	{
+		*outMaxBrightness = maxBrightness;
+	}
+
+	return visibleSamples >= 8 || maxBrightness >= 96;
+}
+
+static void FakeGL_LogSurfaceSample(const char *label, const BYTE *pixels, D3DFORMAT format, DWORD width, DWORD height, DWORD pitch)
+{
+	const bool rgb565 = format == D3DFMT_R5G6B5 || format == D3DFMT_LIN_R5G6B5;
+	const DWORD bytesPerPixel = FakeGL_SurfaceBytesPerPixel(format);
+	DWORD nonzero = 0;
+	DWORD checksum = 0;
+	DWORD firstPixel = 0;
+	DWORD centerPixel = 0;
+	DWORD cornerPixel = 0;
+
+	__try
+	{
+		if (pixels && pitch >= width * bytesPerPixel && width > 0 && height > 0)
+		{
+			DWORD sy;
+			for (sy = 0; sy < 4; ++sy)
+			{
+				DWORD y = (height - 1) * sy / 3;
+				DWORD sx;
+				for (sx = 0; sx < 4; ++sx)
+				{
+					DWORD x = (width - 1) * sx / 3;
+					const BYTE *src = pixels + y * pitch + x * bytesPerPixel;
+					DWORD pixel = rgb565 ? (DWORD)(*(const WORD *)src) : *(const DWORD *)src;
+					BYTE r, g, b;
+					FakeGL_PixelToRgb(src, rgb565, &r, &g, &b);
+					if (r || g || b)
+					{
+						nonzero++;
+					}
+					checksum = (checksum * 1664525u) + pixel + 1013904223u;
+				}
+			}
+			firstPixel = rgb565 ? (DWORD)(*(const WORD *)pixels) : *(const DWORD *)pixels;
+			centerPixel = rgb565
+				? (DWORD)(*(const WORD *)(pixels + (height / 2) * pitch + (width / 2) * bytesPerPixel))
+				: *(const DWORD *)(pixels + (height / 2) * pitch + (width / 2) * bytesPerPixel);
+			cornerPixel = rgb565
+				? (DWORD)(*(const WORD *)(pixels + (height - 1) * pitch + (width - 1) * bytesPerPixel))
+				: *(const DWORD *)(pixels + (height - 1) * pitch + (width - 1) * bytesPerPixel);
+		}
+	}
+	__except(EXCEPTION_EXECUTE_HANDLER)
+	{
+		checksum = 0xffffffffu;
+	}
+
+	XBLF("STEFX: renderer screenshot sample label='%s' data=%p pitch=%u size=%ux%u fmt=0x%08x bpp=%u nonzero=%u checksum=0x%08x first=0x%08x center=0x%08x corner=0x%08x\n",
+		label,
+		pixels,
+		(unsigned int)pitch,
+		(unsigned int)width,
+		(unsigned int)height,
+		(unsigned int)format,
+		(unsigned int)bytesPerPixel,
+		(unsigned int)nonzero,
+		(unsigned int)checksum,
+		(unsigned int)firstPixel,
+		(unsigned int)centerPixel,
+		(unsigned int)cornerPixel);
+}
+
+static void FakeGL_LogSurfaceImage(const char *label, const BYTE *pixels, D3DFORMAT format, DWORD width, DWORD height, DWORD pitch)
+{
+	const bool rgb565 =
+		format == D3DFMT_R5G6B5 ||
+		format == D3DFMT_LIN_R5G6B5;
+	const DWORD bytesPerPixel = FakeGL_SurfaceBytesPerPixel(format);
+	const DWORD outWidth = 128;
+	const DWORD outHeight = 96;
+	const DWORD chunkPixels = 32;
+	static const char hexDigits[] = "0123456789abcdef";
+
+	if (!pixels)
+	{
+		XBLF("STEFX: renderer screenshot log skipped label='%s' pixels=NULL", label);
+		return;
+	}
+
+	XBLF("STEFX: renderer screenshot log begin label='%s' src=%ux%u out=%ux%u pitch=%u fmt=0x%08x bpp=%u\n",
+		label,
+		(unsigned int)width,
+		(unsigned int)height,
+		(unsigned int)outWidth,
+		(unsigned int)outHeight,
+		(unsigned int)pitch,
+		(unsigned int)format,
+		(unsigned int)bytesPerPixel);
+
+	for (DWORD y = 0; y < outHeight; ++y)
+	{
+		DWORD srcY = (y * height) / outHeight;
+		for (DWORD x = 0; x < outWidth; x += chunkPixels)
+		{
+			char data[chunkPixels * 6 + 1];
+			DWORD dataPos = 0;
+			DWORD pixelsThisChunk = chunkPixels;
+			if (x + pixelsThisChunk > outWidth)
+			{
+				pixelsThisChunk = outWidth - x;
+			}
+			for (DWORD n = 0; n < pixelsThisChunk; ++n)
+			{
+				DWORD srcX = ((x + n) * width) / outWidth;
+				const BYTE *src = pixels + srcY * pitch + srcX * bytesPerPixel;
+				BYTE r, g, b;
+				FakeGL_PixelToRgb(src, rgb565, &r, &g, &b);
+				data[dataPos++] = hexDigits[(r >> 4) & 0xf];
+				data[dataPos++] = hexDigits[r & 0xf];
+				data[dataPos++] = hexDigits[(g >> 4) & 0xf];
+				data[dataPos++] = hexDigits[g & 0xf];
+				data[dataPos++] = hexDigits[(b >> 4) & 0xf];
+				data[dataPos++] = hexDigits[b & 0xf];
+			}
+			data[dataPos] = '\0';
+			XBLF("STEFX: renderer screenshot log chunk row=%u x=%u pixels=%u data=%s\n",
+				(unsigned int)y,
+				(unsigned int)x,
+				(unsigned int)pixelsThisChunk,
+				data);
+		}
+	}
+
+	XBLF("STEFX: renderer screenshot log end label='%s' out=%ux%u\n",
+		label,
+		(unsigned int)outWidth,
+		(unsigned int)outHeight);
+}
+
+static void FakeGL_LogBackbufferImage(D3DSurface *backBuffer, DWORD width, DWORD height, DWORD pitch)
+{
+	FakeGL_LogSurfaceImage("direct", (const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch);
+}
+
+static bool FakeGL_TryXGWriteSurface(D3DSurface *surface)
+{
+	int i;
+	const char *paths[] = {
+		"D:\\ef_sp_xgshot.bmp",
+		"E:\\ef_sp_xgshot.bmp",
+		"T:\\ef_sp_xgshot.bmp",
+		"ef_sp_xgshot.bmp",
+		NULL
+	};
+
+	for (i = 0; paths[i]; ++i)
+	{
+		DeleteFileA(paths[i]);
+		HRESULT hr = XGWriteSurfaceToFile(surface, paths[i]);
+		DWORD attrs = GetFileAttributesA(paths[i]);
+		XBLF("STEFX: renderer screenshot XGWrite path='%s' hr=0x%08lx exists=%d\n",
+			paths[i],
+			(unsigned long)hr,
+			(attrs != 0xffffffffu) ? 1 : 0);
+		if (SUCCEEDED(hr) && attrs != 0xffffffffu)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool FakeGL_TryXGWriteFrontBuffer(D3DDevice *device)
+{
+	D3DSurface *frontBuffer = NULL;
+	HRESULT hr;
+	bool ok = false;
+
+	if (!device)
+	{
+		return false;
+	}
+
+	hr = device->GetBackBuffer(-1, D3DBACKBUFFER_TYPE_MONO, &frontBuffer);
+	XBLF("STEFX: renderer screenshot frontbuffer GetBackBuffer hr=0x%08lx surf=%p",
+		(unsigned long)hr,
+		frontBuffer);
+	if (FAILED(hr) || !frontBuffer)
+	{
+		return false;
+	}
+
+	device->BlockUntilIdle();
+	ok = FakeGL_TryXGWriteSurface(frontBuffer);
+	frontBuffer->Release();
+	return ok;
+}
+
+static HANDLE s_fakeglScreenshotFile = INVALID_HANDLE_VALUE;
+static bool s_fakeglScreenshotFileIsNt = false;
+
+static bool FakeGL_OpenScreenshotFile(const char *outputPath, const char *ntOutputPath, HANDLE *out, bool *isNt)
+{
+	*out = CreateFileA(outputPath, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (*out != INVALID_HANDLE_VALUE)
+	{
+		*isNt = false;
+		return true;
+	}
+
+	DWORD createError = GetLastError();
+	long status = FakeGL_NtCreateOverwrite(ntOutputPath, out);
+	if (status >= 0 && *out != INVALID_HANDLE_VALUE)
+	{
+		*isNt = true;
+		return true;
+	}
+
+	XBLF("STEFX: renderer screenshot open failed d='%s' err=%lu nt='%s' status=0x%08lx",
+		outputPath,
+		createError,
+		ntOutputPath,
+		status);
+	*out = INVALID_HANDLE_VALUE;
+	*isNt = false;
+	return false;
+}
+
+static void FakeGL_EnsureScreenshotFilePreopened(void)
+{
+	static bool s_preopenTried = false;
+	const char *preopenPath = "D:\\ef_sp_screenshot_preopen.txt";
+	const char *outputPath = "D:\\ef_sp_backbuffer.bmp";
+	const char *ntOutputPath = "\\Device\\Harddisk0\\Partition1\\ef_sp_backbuffer.bmp";
+
+	if (s_preopenTried || s_fakeglScreenshotFile != INVALID_HANDLE_VALUE)
+	{
+		return;
+	}
+
+	if (!FakeGL_FileExists(preopenPath))
+	{
+		return;
+	}
+
+	s_preopenTried = true;
+	if (!FakeGL_OpenScreenshotFile(outputPath, ntOutputPath, &s_fakeglScreenshotFile, &s_fakeglScreenshotFileIsNt))
+	{
+		XBLF("STEFX: renderer screenshot preopen failed");
+	}
+	else
+	{
+		XBLF("STEFX: renderer screenshot preopened '%s' isNt=%d", outputPath, s_fakeglScreenshotFileIsNt ? 1 : 0);
+	}
+}
+
+static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface *backBuffer, DWORD width, DWORD height, DWORD pitch, const char *label)
+{
+	const char *requestPath = FakeGL_FindScreenshotRequestPath();
+	const char *outputPath = "D:\\ef_sp_backbuffer.bmp";
+	const char *ntOutputPath = "\\Device\\Harddisk0\\Partition1\\ef_sp_backbuffer.bmp";
+	static int s_rejectLogBudget = 16;
+	static int s_blankRetryLogBudget = 64;
+	static int s_requestSeenLogBudget = 16;
+	DWORD visibleSamples = 0;
+	DWORD maxBrightness = 0;
+
+	if (!requestPath)
+	{
+		return;
+	}
+
+	if (s_requestSeenLogBudget > 0)
+	{
+		XBLF("STEFX: renderer screenshot request seen path='%s' label='%s' size=%ux%u pitch=%u",
+			requestPath,
+			label,
+			(unsigned int)width,
+			(unsigned int)height,
+			(unsigned int)pitch);
+		--s_requestSeenLogBudget;
+	}
+
+	if (backBuffer && width > 0 && height > 0 && width <= 4096 && height <= 4096)
+	{
+		if (FakeGL_TryXGWriteSurface(backBuffer))
+		{
+			DeleteFileA(requestPath);
+			return;
+		}
+	}
+	if (FakeGL_TryXGWriteFrontBuffer(device))
+	{
+		DeleteFileA(requestPath);
+		return;
+	}
+
+	if (!backBuffer || !backBuffer->Data || width == 0 || height == 0 || width > 4096 || height > 4096)
+	{
+		if (s_rejectLogBudget > 0)
+		{
+			XBLF("STEFX: renderer screenshot retry invalid label='%s' surf=%p data=%p size=%ux%u pitch=%u",
+				label,
+				backBuffer,
+				backBuffer ? backBuffer->Data : NULL,
+				(unsigned int)width,
+				(unsigned int)height,
+				(unsigned int)pitch);
+			--s_rejectLogBudget;
+		}
+		return;
+	}
+
+	const bool rgb565 =
+		backBuffer->Format == D3DFMT_R5G6B5 ||
+		backBuffer->Format == D3DFMT_LIN_R5G6B5;
+	const DWORD bytesPerPixel = rgb565 ? 2 : 4;
+	if (pitch < width * bytesPerPixel)
+	{
+		if (s_rejectLogBudget > 0)
+		{
+			XBLF("STEFX: renderer screenshot retry bad pitch label='%s' pitch=%u width=%u bpp=%u fmt=0x%08x",
+				label,
+				(unsigned int)pitch,
+				(unsigned int)width,
+				(unsigned int)bytesPerPixel,
+				(unsigned int)backBuffer->Format);
+			--s_rejectLogBudget;
+		}
+		return;
+	}
+
+	if (!FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness))
+	{
+		if (s_blankRetryLogBudget > 0)
+		{
+			XBLF("STEFX: renderer screenshot retry blank label='%s' visibleSamples=%u maxBrightness=%u size=%ux%u pitch=%u fmt=0x%08x",
+				label,
+				(unsigned int)visibleSamples,
+				(unsigned int)maxBrightness,
+				(unsigned int)width,
+				(unsigned int)height,
+				(unsigned int)pitch,
+				(unsigned int)backBuffer->Format);
+			--s_blankRetryLogBudget;
+		}
+		return;
+	}
+
+	const DWORD rowStride = (width * 3 + 3) & ~3u;
+	const DWORD imageBytes = rowStride * height;
+	FakeGL_LogSurfaceSample(label, (const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch);
+	FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
+
+#ifdef _XBOX
+	{
+		static int s_skipResolveLogBudget = 4;
+		if (s_skipResolveLogBudget > 0)
+		{
+			XBLF("STEFX: renderer screenshot resolve path disabled label='%s'; using direct/log capture",
+				label);
+			--s_skipResolveLogBudget;
+		}
+	}
+#endif
+
+	BYTE *row = (BYTE *)malloc(rowStride);
+	if (!row)
+	{
+		XBLF("STEFX: renderer screenshot row alloc failed stride=%u", (unsigned int)rowStride);
+		FakeGL_LogSurfaceSample(label, (const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch);
+		FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
+		return;
+	}
+
+	HANDLE file = s_fakeglScreenshotFile;
+	bool fileIsNt = s_fakeglScreenshotFileIsNt;
+	if (file == INVALID_HANDLE_VALUE)
+	{
+		if (!FakeGL_OpenScreenshotFile(outputPath, ntOutputPath, &file, &fileIsNt))
+		{
+			FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
+			free(row);
+			return;
+		}
+	}
+	s_fakeglScreenshotFile = INVALID_HANDLE_VALUE;
+	s_fakeglScreenshotFileIsNt = false;
+
+	BYTE header[54];
+	memset(header, 0, sizeof(header));
+	header[0] = 'B';
+	header[1] = 'M';
+	FakeGL_WriteLe32(header + 2, 54 + imageBytes);
+	FakeGL_WriteLe32(header + 10, 54);
+	FakeGL_WriteLe32(header + 14, 40);
+	FakeGL_WriteLe32(header + 18, width);
+	FakeGL_WriteLe32(header + 22, height);
+	FakeGL_WriteLe16(header + 26, 1);
+	FakeGL_WriteLe16(header + 28, 24);
+	FakeGL_WriteLe32(header + 34, imageBytes);
+
+	bool ok = fileIsNt ? FakeGL_NtWriteAll(file, header, sizeof(header)) : FakeGL_WriteAll(file, header, sizeof(header));
+	int y;
+	for (y = (int)height - 1; ok && y >= 0; --y)
+	{
+		memset(row, 0, rowStride);
+		const BYTE *src = (const BYTE *)backBuffer->Data + (DWORD)y * pitch;
+		for (DWORD x = 0; x < width; ++x)
+		{
+			if (rgb565)
+			{
+				WORD pixel = *(const WORD *)(src + x * 2);
+				BYTE r = (BYTE)((((pixel >> 11) & 31) * 255) / 31);
+				BYTE g = (BYTE)((((pixel >> 5) & 63) * 255) / 63);
+				BYTE b = (BYTE)(((pixel & 31) * 255) / 31);
+				row[x * 3 + 0] = b;
+				row[x * 3 + 1] = g;
+				row[x * 3 + 2] = r;
+			}
+			else
+			{
+				const BYTE *pixel = src + x * 4;
+				row[x * 3 + 0] = pixel[0];
+				row[x * 3 + 1] = pixel[1];
+				row[x * 3 + 2] = pixel[2];
+			}
+		}
+		ok = fileIsNt ? FakeGL_NtWriteAll(file, row, rowStride) : FakeGL_WriteAll(file, row, rowStride);
+	}
+
+	if (fileIsNt)
+	{
+		FGL_IOSB flushIosb;
+		NtFlushBuffersFile(file, &flushIosb);
+		NtClose(file);
+	}
+	else
+	{
+		FlushFileBuffers(file);
+		CloseHandle(file);
+	}
+	free(row);
+
+	if (ok)
+	{
+		XBLF("STEFX: renderer screenshot wrote '%s' size=%ux%u pitch=%u fmt=0x%08x",
+			outputPath,
+			(unsigned int)width,
+			(unsigned int)height,
+			(unsigned int)pitch,
+			(unsigned int)backBuffer->Format);
+		DeleteFileA(requestPath);
+	}
+	else
+	{
+		XBLF("STEFX: renderer screenshot write failed '%s'", outputPath);
+		FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
+		DeleteFileA(outputPath);
+	}
+}
+
+static bool FakeGL_RenderProbeRequested(void)
+{
+	return FakeGL_FileExistsOnAnyRuntimeDrive("ef_sp_renderprobe.txt");
+}
+
+static void FakeGL_DrawRenderProbe(D3DDevice *device)
+{
+	static int s_probeLogCount = 0;
+	if (!device || !FakeGL_RenderProbeRequested())
+	{
+		return;
+	}
+
+	struct probeVertex_t
+	{
+		float x;
+		float y;
+		float z;
+		float rhw;
+		DWORD color;
+	};
+
+	const probeVertex_t verts[4] =
+	{
+		{  64.0f,  64.0f, 0.0f, 1.0f, 0xffff0000 },
+		{ 576.0f,  64.0f, 0.0f, 1.0f, 0xff00ff00 },
+		{  64.0f, 416.0f, 0.0f, 1.0f, 0xff0000ff },
+		{ 576.0f, 416.0f, 0.0f, 1.0f, 0xffffffff },
+	};
+
+	HRESULT hrClear = device->Clear(0, NULL, D3DCLEAR_TARGET, 0xff400040, 1.0f, 0);
+	device->SetTexture(0, NULL);
+	device->SetTexture(1, NULL);
+	device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+	device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+	device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+	device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+	device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+	device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+	device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+	device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+	device->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+	device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+	device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+	HRESULT hrShader = device->SetVertexShader(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+	HRESULT hrDraw = device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, verts, sizeof(verts[0]));
+	device->KickPushBuffer();
+	device->BlockUntilIdle();
+
+	if (s_probeLogCount < 64)
+	{
+		XBLF("STEFX: fakegl render probe frame=%d clear=0x%08lx shader=0x%08lx draw=0x%08lx flushed=1 dev=%p",
+			s_probeLogCount,
+			(unsigned long)hrClear,
+			(unsigned long)hrShader,
+			(unsigned long)hrDraw,
+			device);
+		++s_probeLogCount;
+	}
+}
 #endif
 
 class TextureEntry
@@ -1017,6 +1782,21 @@ public:
 #endif
 						HRESULT hrSetTexture = pD3DDev->SetTexture( i, pTexture);
 #ifdef _XBOX
+						{
+							static int s_efStageApplyBudget = 16;
+							if (i < 2 && s_efStageApplyBudget > 0 && (i == 1 || entry->m_id > 8))
+							{
+								XBLF("EF: TEX_STAGE_APPLY stage=%d texid=%d ptr=%p fmt=0x%08x internal=0x%08x env=0x%08x hr=0x%08lx",
+									i,
+									entry->m_id,
+									(void*)pTexture,
+									(unsigned int)entry->m_format,
+									(unsigned int)entry->m_internalFormat,
+									(unsigned int)m_stage[i].GetTextEnvMode(),
+									(unsigned long)hrSetTexture);
+								--s_efStageApplyBudget;
+							}
+						}
 						if (i == 1)
 						{
 							static int s_xboxStage1SetTextureDirectHrLogCount = 0;
@@ -1146,7 +1926,7 @@ public:
 		m_pD3DDev = 0;
 		m_color = 0xff000000; // Don't know if this is correct
 #ifdef _XBOX
-		m_useXboxPushbufferSubmit = true;
+		m_useXboxPushbufferSubmit = false;
 		m_lastSetVertexShader = 0xffffffff;
 #endif
 	}
@@ -1785,6 +2565,7 @@ private:
 		static int s_xboxSubmitLogCount = 0;
 		static DWORD s_xboxDrawSubmitCount = 0;
 		const DWORD maxTriangleListPrims = 2048;
+		const bool stefxLateSubmit = false;
 		HRESULT firstFailure = S_OK;
 
 		if (!m_pD3DDev)
@@ -1801,7 +2582,7 @@ private:
 				{
 					DWORD chunkPrims = primCount - primBase;
 					HRESULT hr;
-					const bool xboxTraceSubmit = false;
+					const bool xboxTraceSubmit = stefxLateSubmit;
 
 				if (chunkPrims > maxTriangleListPrims)
 				{
@@ -1821,10 +2602,12 @@ private:
 
 				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
-					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk pre type=%d prims=%lu verts=%p stride=%d",
-						(unsigned long)s_xboxDrawSubmitCount, (int)dptPrimitiveType,
-						(unsigned long)chunkPrims, base + (primBase * 3 * m_vertexSize),
-						m_vertexSize);
+					const void *chunkVerts = base + (primBase * 3 * m_vertexSize);
+					XBLF("%s fakegl DrawPrimitiveUP submit #%lu chunk pre frame=%d type=%d prims=%lu verts=%p stride=%d bytes=%lu",
+						stefxLateSubmit ? "STEFX: LATE" : "JA:",
+						(unsigned long)s_xboxDrawSubmitCount, g_stefxFakeglSwapFrame,
+						(int)dptPrimitiveType, (unsigned long)chunkPrims, chunkVerts,
+						m_vertexSize, (unsigned long)(chunkPrims * 3 * m_vertexSize));
 				}
 				hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType,
 					chunkPrims,
@@ -1834,8 +2617,10 @@ private:
 				g_SPXBFakeGLPrimitiveVerts += chunkPrims * 3;
 				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
-					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk post hr=0x%08lx",
-						(unsigned long)s_xboxDrawSubmitCount, (unsigned long)hr);
+					XBLF("%s fakegl DrawPrimitiveUP submit #%lu chunk post frame=%d hr=0x%08lx",
+						stefxLateSubmit ? "STEFX: LATE" : "JA:",
+						(unsigned long)s_xboxDrawSubmitCount, g_stefxFakeglSwapFrame,
+						(unsigned long)hr);
 				}
 				if (FAILED(hr) && SUCCEEDED(firstFailure))
 				{
@@ -1844,8 +2629,9 @@ private:
 
 				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 				{
-					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu complete",
-						(unsigned long)s_xboxDrawSubmitCount);
+					XBLF("%s fakegl DrawPrimitiveUP submit #%lu complete frame=%d",
+						stefxLateSubmit ? "STEFX: LATE" : "JA:",
+						(unsigned long)s_xboxDrawSubmitCount, g_stefxFakeglSwapFrame);
 					if (s_xboxSubmitLogCount < 16)
 					{
 						++s_xboxSubmitLogCount;
@@ -1859,12 +2645,16 @@ private:
 		}
 
 		{
-			const bool xboxTraceSubmit = false;
+			const bool xboxTraceSubmit = stefxLateSubmit;
 			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
-				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct pre type=%d prims=%lu verts=%p stride=%d",
-					(unsigned long)s_xboxDrawSubmitCount, (int)dptPrimitiveType,
-					(unsigned long)primCount, vertices, m_vertexSize);
+				DWORD vertexCount = VertexCountForPrimitive(dptPrimitiveType, primCount);
+				XBLF("%s fakegl DrawPrimitiveUP submit #%lu direct pre frame=%d type=%d prims=%lu verts=%lu ptr=%p stride=%d bytes=%lu",
+					stefxLateSubmit ? "STEFX: LATE" : "JA:",
+					(unsigned long)s_xboxDrawSubmitCount, g_stefxFakeglSwapFrame,
+					(int)dptPrimitiveType, (unsigned long)primCount,
+					(unsigned long)vertexCount, vertices, m_vertexSize,
+					(unsigned long)(vertexCount * m_vertexSize));
 			}
 			HRESULT hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType, primCount, vertices, m_vertexSize);
 			g_SPXBFakeGLPrimitiveCalls++;
@@ -1892,13 +2682,16 @@ private:
 			}
 			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
-				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct post hr=0x%08lx",
-					(unsigned long)s_xboxDrawSubmitCount, (unsigned long)hr);
+				XBLF("%s fakegl DrawPrimitiveUP submit #%lu direct post frame=%d hr=0x%08lx",
+					stefxLateSubmit ? "STEFX: LATE" : "JA:",
+					(unsigned long)s_xboxDrawSubmitCount, g_stefxFakeglSwapFrame,
+					(unsigned long)hr);
 			}
 			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
 			{
-				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu complete",
-					(unsigned long)s_xboxDrawSubmitCount);
+				XBLF("%s fakegl DrawPrimitiveUP submit #%lu complete frame=%d",
+					stefxLateSubmit ? "STEFX: LATE" : "JA:",
+					(unsigned long)s_xboxDrawSubmitCount, g_stefxFakeglSwapFrame);
 				if (s_xboxSubmitLogCount < 16)
 				{
 					++s_xboxSubmitLogCount;
@@ -2127,15 +2920,15 @@ private:
 		// Set up the parameters
 		params.EnableAutoDepthStencil = TRUE;
 		/* Raven/VV's Xbox DX8 present path and the retail SP XBE both use
-		 * the linear D24S8 depth/stencil format.  Matching it matters for
+		 * the linear D24S8 depth/stencil format. Matching it matters for
 		 * stable depth ordering on Xbox/Cxbx rather than merely allocating
 		 * a depth surface with the same bit count. */
 		params.AutoDepthStencilFormat = D3DFMT_LIN_D24S8;
 		/* CXBX-R cross-project audit: SwapEffect_DISCARD (not FLIP) +
 		 * PresentationInterval_IMMEDIATE (not default ONE) + BackBufferCount=1
-		 * + Windowed=FALSE + hDeviceWindow=NULL.  This is the identical
+		 * + Windowed=FALSE + hDeviceWindow=NULL. This is the identical
 		 * D3DPRESENT_PARAMETERS block UT99-Xbox / TheForceEngine / OpenJKDF2
-		 * all use.  fakegl's FLIP+ONE default works on real silicon (eventually)
+		 * all use. fakegl's FLIP+ONE default works on real silicon eventually,
 		 * but CXBX-R's HLE vsync emulation deadlocks. */
 		params.SwapEffect             = D3DSWAPEFFECT_DISCARD;
 		params.BackBufferCount        = 1;
@@ -2147,19 +2940,10 @@ private:
 		params.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
 		params.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 
-		/* CXBX-R cross-project audit: SetPushBufferSize REMOVED.
-		 * UT99-Xbox/XboxRender.cpp:438-443 explicitly comments that
-		 * calling SetPushBufferSize collides with auto-depth-stencil
-		 * allocation and is unnecessary on Xbox D3D8 (the default is
-		 * already correct).  Neither TheForceEngine nor OpenJKDF2 calls
-		 * it either.  Letting the runtime pick its default fixes a
-		 * known CXBX-R HLE allocator interaction. */
+		/* CXBX-R audit: do not call SetPushBufferSize here. Prior local
+		 * testing found it can collide with auto-depth-stencil allocation;
+		 * the default Xbox D3D8 push-buffer setup is the stable path. */
 		// Create the Direct3D device.
-		/* CXBX-R cross-project audit: add D3DCREATE_PUREDEVICE.  All three
-		 * reference projects use HARDWARE_VERTEXPROCESSING | PUREDEVICE.
-		 * Pure-device is the canonical Xbox D3D8 path; without it, the
-		 * runtime tracks redundant state shadow copies that CXBX-R HLE
-		 * doesn't always emulate cleanly. */
 		hr = Direct3D_CreateDevice( 0, D3DDEVTYPE_HAL, NULL,
 		                            D3DCREATE_HARDWARE_VERTEXPROCESSING,
 		                            &params, &m_pD3DDev );
@@ -2178,6 +2962,35 @@ private:
 		m_d3dsdBackBuffer.Width = params.BackBufferWidth;
 		m_d3dsdBackBuffer.Height = params.BackBufferHeight;
 		m_d3dsdBackBuffer.Type = D3DRTYPE_SURFACE;
+#ifdef _XBOX
+		__try
+		{
+			LPDIRECT3DSURFACE8 pBackBuffer = NULL;
+			HRESULT hrBackBuffer = m_pD3DDev->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &pBackBuffer);
+			XBLF("JA: fakegl init GetBackBuffer hr=0x%08x surf=%p\n",
+				(unsigned int)hrBackBuffer, (void*)pBackBuffer);
+			if (SUCCEEDED(hrBackBuffer) && pBackBuffer)
+			{
+				D3DSURFACE_DESC desc;
+				HRESULT hrDesc = pBackBuffer->GetDesc(&desc);
+				XBLF("JA: fakegl init backbuffer desc hr=0x%08x fmt=0x%08x size=%ux%u type=%u\n",
+					(unsigned int)hrDesc,
+					(unsigned int)desc.Format,
+					(unsigned int)desc.Width,
+					(unsigned int)desc.Height,
+					(unsigned int)desc.Type);
+				if (SUCCEEDED(hrDesc))
+				{
+					m_d3dsdBackBuffer = desc;
+				}
+				pBackBuffer->Release();
+			}
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER)
+		{
+			XBLog_Write("JA: fakegl init GetBackBuffer probe excepted; using present params");
+		}
+#endif
 #ifdef _XBOX
 		XBLF("JA: fakegl backbuffer fmt=0x%08x size=%ux%u\n",
 			(unsigned int)m_d3dsdBackBuffer.Format,
@@ -2325,6 +3138,57 @@ private:
 		g_fakeglTextureFailures++;
 		XBLF("JA: fakegl texture allocation failures=%u\n", g_fakeglTextureFailures);
 	}
+
+	void LogTextureMemoryPressure(const char *where, DWORD requestBytes, HRESULT hr)
+	{
+		static int s_memoryPressureLogs = 0;
+		if (s_memoryPressureLogs >= 96)
+		{
+			return;
+		}
+
+		MEMORYSTATUS stat;
+		GlobalMemoryStatus(&stat);
+		XBLF("JA: fakegl texture memory where=%s request=%u hr=0x%08lx physFreeKB=%lu virtFreeKB=%lu texCount=%u texKB=%u failures=%u regCount=%u regKB=%u regDenied=%u poolUsedKB=%lu poolFreeKB=%lu poolCapKB=%lu\n",
+			where ? where : "(null)",
+			(unsigned int)requestBytes,
+			(unsigned long)hr,
+			(unsigned long)(stat.dwAvailPhys / 1024),
+			(unsigned long)(stat.dwAvailVirtual / 1024),
+			(unsigned int)g_fakeglTextureCount,
+			(unsigned int)(g_fakeglTextureBytes / 1024),
+			(unsigned int)g_fakeglTextureFailures,
+			(unsigned int)g_fakeglRegisteredTextureCount,
+			(unsigned int)(g_fakeglRegisteredTextureBytes / 1024),
+			(unsigned int)g_fakeglRegisteredTextureDenied,
+			(unsigned long)(JkaStaticTextureUsed() / 1024),
+			(unsigned long)(JkaStaticTextureFree() / 1024),
+			(unsigned long)(JkaStaticTextureCapacity() / 1024));
+		++s_memoryPressureLogs;
+	}
+
+	bool RegisteredTextureBudgetAllows(DWORD bytes, const char *kind)
+	{
+		unsigned long poolFree = JkaStaticTextureFree();
+		if (!bytes ||
+			g_fakeglRegisteredTextureBytes + bytes > FAKEGL_REGISTERED_TEXTURE_SOFT_CAP ||
+			poolFree < bytes + FAKEGL_REGISTERED_TEXTURE_MIN_FREE)
+		{
+			++g_fakeglRegisteredTextureDenied;
+			XBLF("JA: fakegl registered texture denied kind=%s tex=%d bytes=%u regKB=%u capKB=%u poolFreeKB=%lu reserveKB=%u denied=%u\n",
+				kind ? kind : "(null)",
+				m_textures.GetCurrentID(),
+				(unsigned int)bytes,
+				(unsigned int)(g_fakeglRegisteredTextureBytes / 1024),
+				(unsigned int)(FAKEGL_REGISTERED_TEXTURE_SOFT_CAP / 1024),
+				(unsigned long)(poolFree / 1024),
+				(unsigned int)(FAKEGL_REGISTERED_TEXTURE_MIN_FREE / 1024),
+				(unsigned int)g_fakeglRegisteredTextureDenied);
+			LogTextureMemoryPressure("registered-denied", bytes, E_OUTOFMEMORY);
+			return false;
+		}
+		return true;
+	}
 #endif
 
 	HRESULT CreateXboxTexture(DWORD width, DWORD height, DWORD levels, DWORD usage,
@@ -2368,6 +3232,11 @@ private:
 			delete header;
 			return E_FAIL;
 		}
+		if (!RegisteredTextureBudgetAllows(bytes, "rgba"))
+		{
+			delete header;
+			return E_OUTOFMEMORY;
+		}
 
 		void* textureMemory = NULL;
 		try
@@ -2382,16 +3251,34 @@ private:
 		{
 			XBLF("JA: fakegl registered DDS pool allocation failed tex=%d bytes=%u\n",
 				m_textures.GetCurrentID(), bytes);
+			LogTextureMemoryPressure("registered-pool-null", bytes, E_OUTOFMEMORY);
 			delete header;
 			return E_OUTOFMEMORY;
 		}
 
 		header->Register(textureMemory);
+		++g_fakeglRegisteredTextureCount;
+		g_fakeglRegisteredTextureBytes += bytes;
 		*texture = header;
 		if (textureBytes)
 			*textureBytes = bytes;
 		if (textureData)
 			*textureData = textureMemory;
+		{
+			static int s_efRegisteredTextureLogBudget = 40;
+			if (s_efRegisteredTextureLogBudget > 0)
+			{
+				XBLF("EF: TEX_REGISTERED tex=%d size=%ux%u levels=%u format=0x%08x bytes=%u data=%p",
+					m_textures.GetCurrentID(),
+					(unsigned int)width,
+					(unsigned int)height,
+					(unsigned int)levels,
+					(unsigned int)format,
+					(unsigned int)bytes,
+					textureMemory);
+				--s_efRegisteredTextureLogBudget;
+			}
+		}
 		return S_OK;
 	}
 #endif
@@ -2720,6 +3607,8 @@ public:
 		UINT vertexCount, UINT primitiveCount, const void *indices,
 		const void *vertices, UINT stride)
 	{
+		const bool stefxLateIndexed = false;
+
 		if (!m_pD3DDev || !indices || !vertices || vertexCount == 0 || primitiveCount == 0 || stride == 0)
 		{
 			return false;
@@ -2745,7 +3634,26 @@ public:
 			SetGLRenderState();
 		}
 
+		if (stefxLateIndexed)
+		{
+			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP pre frame=%d type=%d prims=%u verts=%u indices=%p vtx=%p stride=%u vtxBytes=%lu idxBytes=%lu fvf=0x%08lx",
+				g_stefxFakeglSwapFrame, (int)dptPrimitiveType,
+				(unsigned int)primitiveCount, (unsigned int)vertexCount,
+				indices, vertices, (unsigned int)stride,
+				(unsigned long)(vertexCount * stride),
+				(unsigned long)(primitiveCount * 3 * sizeof(unsigned short)),
+				(unsigned long)typeDesc);
+		}
+		if (stefxLateIndexed)
+		{
+			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP before SetVertexShader frame=%d", g_stefxFakeglSwapFrame);
+		}
 		HRESULT hrSetVertexShader = m_pD3DDev->SetVertexShader(typeDesc);
+		if (stefxLateIndexed)
+		{
+			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP SetVertexShader hr=0x%08lx frame=%d",
+				(unsigned long)hrSetVertexShader, g_stefxFakeglSwapFrame);
+		}
 		if ( FAILED(hrSetVertexShader) )
 		{
 			static int s_xboxIndexedSetShaderFailBudget = 8;
@@ -2758,6 +3666,10 @@ public:
 			return false;
 		}
 
+		if (stefxLateIndexed)
+		{
+			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP before draw frame=%d", g_stefxFakeglSwapFrame);
+		}
 		HRESULT hrDrawPrimitive = m_pD3DDev->DrawIndexedPrimitiveUP(
 			dptPrimitiveType,
 			0,
@@ -2767,6 +3679,11 @@ public:
 			D3DFMT_INDEX16,
 			vertices,
 			stride);
+		if (stefxLateIndexed)
+		{
+			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP draw hr=0x%08lx frame=%d",
+				(unsigned long)hrDrawPrimitive, g_stefxFakeglSwapFrame);
+		}
 		if ( FAILED(hrDrawPrimitive) )
 		{
 			static int s_xboxIndexedDrawFailBudget = 8;
@@ -2814,6 +3731,27 @@ public:
 			m_textureState.SetCurrentTexture(texture);
 			m_textures.BindTexture(texture);
 		}
+#ifdef _XBOX
+		else
+		{
+			const int stage = m_textureState.GetCurrentStage();
+			if (stage >= 0 && stage < 2)
+			{
+				static int s_stefxSameTextureRebindLogCount = 0;
+				SetRenderStateDirty();
+				m_textureState.ForceStageDirty(stage);
+				m_textures.BindTexture(texture);
+				if (s_stefxSameTextureRebindLogCount < 32)
+				{
+					XBLF("STEFX: fakegl rebind same texture dirty stage=%d tex=%u enabled=%d",
+						stage,
+						(unsigned int)texture,
+						m_textureState.GetTexture2D() ? 1 : 0);
+					++s_stefxSameTextureRebindLogCount;
+				}
+			}
+		}
+#endif
 	}
 
 	inline void glMTexCoord2fSGIS(GLenum target, GLfloat s, GLfloat t)
@@ -3798,6 +4736,8 @@ public:
 			DWORD registeredTextureBytes = 0;
 			if (FAILED(hr) || !pMipMap)
 			{
+				LogTextureMemoryPressure("CreateTexture2-rgba-failed",
+					EstimateTextureBytes(destPixelFormat, width, height, levels), hr);
 				XBLF("JA: fakegl CreateTexture retry registered tex=%d size=%dx%d levels=%d internal=0x%08x format=0x%08x dest=0x%08x hr=0x%08lx\n",
 					m_textures.GetCurrentID(),
 					width,
@@ -4005,6 +4945,8 @@ public:
 		{
 #ifdef _XBOX
 			TrackTextureFailure();
+			LogTextureMemoryPressure("CreateTexture2-dds-failed",
+				EstimateTextureBytes(destPixelFormat, (DWORD)width, (DWORD)height, levels), hr);
 			XBLF("JA: fakegl DDS CreateTexture failed tex=%d size=%dx%d levels=%d internal=0x%08x dest=0x%08x bytes=%u\n",
 				m_textures.GetCurrentID(), width, height, levels, internalformat,
 				destPixelFormat, pixelBytes);
@@ -4410,6 +5352,28 @@ public:
 					desc.Height,
 					NULL,
 					BytesPerPixel(desc.Format));
+#ifdef _XBOX
+			{
+				static int s_efTexUploadLogBudget = 48;
+				if (s_efTexUploadLogBudget > 0)
+				{
+					const unsigned char *srcBytes = (const unsigned char *)compatablePixels;
+					XBLF("EF: TEXUPLOAD_SWIZZLE tex=%d level=%d size=%ux%u format=0x%08x bpp=%d pitch=%d src0=%02x,%02x,%02x,%02x",
+						m_textures.GetCurrentID(),
+						level,
+						(unsigned int)desc.Width,
+						(unsigned int)desc.Height,
+						(unsigned int)desc.Format,
+						BytesPerPixel(desc.Format),
+						compatablePixelsPitch,
+						srcBytes ? srcBytes[0] : 0,
+						srcBytes ? srcBytes[1] : 0,
+						srcBytes ? srcBytes[2] : 0,
+						srcBytes ? srcBytes[3] : 0);
+					--s_efTexUploadLogBudget;
+				}
+			}
+#endif
 
 			pMipMap->UnlockRect(level);
 			return;
@@ -4531,17 +5495,45 @@ public:
 	}
 
 #ifdef _XBOX
-	void UpdateFramebufferTelemetry()
+	void UpdateFramebufferTelemetry(bool afterPresent)
 	{
+		static int s_framebufferProbeLogCount = 0;
+		static int s_framebufferSampleLogCount = 0;
 		if (!m_pD3DDev)
 		{
+			if (s_framebufferProbeLogCount < 16)
+			{
+				XBLF("STEFX: fakegl framebuffer probe #%d skipped no device", s_framebufferProbeLogCount);
+				++s_framebufferProbeLogCount;
+			}
 			return;
 		}
 
 		D3DSurface *backBuffer = NULL;
-		HRESULT hrBackBuffer = m_pD3DDev->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+		const bool screenshotRequested = FakeGL_ScreenshotRequested();
+		if (!screenshotRequested && s_framebufferSampleLogCount >= 32)
+		{
+			return;
+		}
+		const int backBufferIndex = (screenshotRequested && afterPresent) ? -1 : 0;
+		if (screenshotRequested)
+		{
+			D3DDevice_BlockUntilIdle();
+		}
+		HRESULT hrBackBuffer = m_pD3DDev->GetBackBuffer(backBufferIndex, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
 		if (FAILED(hrBackBuffer) || !backBuffer)
 		{
+			if (s_framebufferProbeLogCount < 16)
+			{
+				XBLF("STEFX: fakegl framebuffer probe #%d GetBackBuffer request=%d afterPresent=%d index=%d hr=0x%08lx surf=%08x",
+					s_framebufferProbeLogCount,
+					screenshotRequested ? 1 : 0,
+					afterPresent ? 1 : 0,
+					backBufferIndex,
+					(unsigned long)hrBackBuffer,
+					(unsigned int)backBuffer);
+				++s_framebufferProbeLogCount;
+			}
 			return;
 		}
 
@@ -4562,6 +5554,64 @@ public:
 		g_SPXBFramebufferHeight = height;
 		g_SPXBFramebufferFormat = backBuffer->Format;
 		g_SPXBFramebufferSize = packedSize;
+
+		FakeGL_EnsureScreenshotFilePreopened();
+		FakeGL_TryWriteRequestedBackbufferBMP(m_pD3DDev, backBuffer, width, height, pitch, afterPresent ? "post-present" : "pre-present");
+
+		if (s_framebufferSampleLogCount < 32)
+		{
+			DWORD nonzero = 0;
+			DWORD checksum = 0;
+			DWORD firstPixel = 0;
+			DWORD centerPixel = 0;
+			DWORD cornerPixel = 0;
+
+			__try
+			{
+				const BYTE *data = (const BYTE *)backBuffer->Data;
+				if (data && pitch >= width * 4 && width > 0 && height > 0)
+				{
+					for (DWORD sy = 0; sy < 4; ++sy)
+					{
+						DWORD y = (height - 1) * sy / 3;
+						for (DWORD sx = 0; sx < 4; ++sx)
+						{
+							DWORD x = (width - 1) * sx / 3;
+							DWORD pixel = *(const DWORD *)(data + y * pitch + x * 4);
+							if (pixel & 0x00ffffff)
+							{
+								nonzero++;
+							}
+							checksum = (checksum * 1664525u) + pixel + 1013904223u;
+						}
+					}
+					firstPixel = *(const DWORD *)data;
+					centerPixel = *(const DWORD *)(data + (height / 2) * pitch + (width / 2) * 4);
+					cornerPixel = *(const DWORD *)(data + (height - 1) * pitch + (width - 1) * 4);
+				}
+			}
+			__except(EXCEPTION_EXECUTE_HANDLER)
+			{
+				checksum = 0xffffffffu;
+			}
+
+			XBLF("STEFX: fakegl framebuffer sample #%d afterPresent=%d index=%d data=0x%08x pitch=%u size=%ux%u fmt=0x%08x nonzero=%u checksum=0x%08x first=0x%08x center=0x%08x corner=0x%08x\n",
+				s_framebufferSampleLogCount,
+				afterPresent ? 1 : 0,
+				backBufferIndex,
+				(unsigned int)backBuffer->Data,
+				(unsigned int)pitch,
+				(unsigned int)width,
+				(unsigned int)height,
+				(unsigned int)backBuffer->Format,
+				(unsigned int)nonzero,
+				(unsigned int)checksum,
+				(unsigned int)firstPixel,
+				(unsigned int)centerPixel,
+				(unsigned int)cornerPixel);
+			++s_framebufferSampleLogCount;
+			++s_framebufferProbeLogCount;
+		}
 	}
 #endif
 
@@ -4569,8 +5619,21 @@ public:
 	{
 #ifdef _XBOX
 		static int s_xboxSwapLogCount = 0;
-		const bool logSwapTight = (s_xboxSwapLogCount >= 32 && s_xboxSwapLogCount <= 96);
+		g_stefxFakeglSwapFrame = s_xboxSwapLogCount;
+		const bool stefxLateSwap = false;
+		const bool stefxSwapProbe = s_xboxSwapLogCount < 16;
+		const bool logSwapTight = stefxLateSwap || (s_xboxSwapLogCount >= 32 && s_xboxSwapLogCount <= 96);
 		const bool logSwap = (logSwapTight || s_xboxSwapLogCount < 8 || ((s_xboxSwapLogCount & 255) == 0));
+		if (stefxSwapProbe)
+		{
+			XBLF("STEFX: fakegl swap #%d enter dev=%p needBeginScene=%d",
+				s_xboxSwapLogCount, (void*)m_pD3DDev, (int)m_needBeginScene);
+		}
+		if (stefxLateSwap)
+		{
+			XBLF("STEFX: LATE fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
+				s_xboxSwapLogCount, (void*)m_pD3DDev, (int)m_needBeginScene);
+		}
 		if (logSwap)
 		{
 			XBLF("JA: fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
@@ -4584,10 +5647,14 @@ public:
 #endif
 	#ifdef _XBOX
 		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
+		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d before internalEnd", s_xboxSwapLogCount);
 	#endif
 		internalEnd();
 	#ifdef _XBOX
 		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
+		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d after internalEnd", s_xboxSwapLogCount);
 	#endif
 		if (!m_pD3DDev)
 		{
@@ -4597,11 +5664,20 @@ public:
 #endif
 			return;
 		}
+#ifdef _XBOX
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before render probe", s_xboxSwapLogCount);
+		FakeGL_DrawRenderProbe(m_pD3DDev);
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d after render probe", s_xboxSwapLogCount);
+#endif
 	#ifdef _XBOX
 		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before EndScene", s_xboxSwapLogCount);
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before EndScene", s_xboxSwapLogCount);
+		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d before EndScene", s_xboxSwapLogCount);
 	#endif
 		HRESULT hrEndScene = m_pD3DDev->EndScene();
 #ifdef _XBOX
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
+		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
 		if (logSwapTight)
 		{
 			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
@@ -4612,6 +5688,9 @@ public:
 		}
 #endif
 		m_needBeginScene = true;
+	#ifdef _XBOX
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before KickPushBuffer", s_xboxSwapLogCount);
+	#endif
 #if 0
 		static int frameCounter;
 		frameCounter++;
@@ -4655,10 +5734,38 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 			XBLF("JA: fakegl SwapBuffers #%d Present...", s_xboxSwapLogCount);
 		}
 		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before Present", s_xboxSwapLogCount);
-		UpdateFramebufferTelemetry();
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before Present", s_xboxSwapLogCount);
+		const bool screenshotRequestedNow = FakeGL_ScreenshotRequested();
+		const bool cxbxPresentThrottle = FakeGL_FileExistsOnAnyRuntimeDrive("ef_sp_cxbx_present_throttle.txt");
+		const bool skipPresentForCxbx = cxbxPresentThrottle &&
+			s_xboxSwapLogCount >= 96;
+		static int s_cxbxPresentThrottleLogBudget = 16;
+		if (screenshotRequestedNow)
+		{
+			XBLF("STEFX: renderer pre-present capture requested swap=%d screenshot=%d probe=%d",
+				s_xboxSwapLogCount, screenshotRequestedNow ? 1 : 0, stefxSwapProbe ? 1 : 0);
+			UpdateFramebufferTelemetry(false);
+		}
+		if (skipPresentForCxbx && s_cxbxPresentThrottleLogBudget > 0)
+		{
+			XBLF("STEFX: CXBX present throttle skipping Present swap=%d screenshot=%d",
+				s_xboxSwapLogCount, screenshotRequestedNow ? 1 : 0);
+			--s_cxbxPresentThrottleLogBudget;
+		}
 #endif
-        HRESULT hrPresent = m_pD3DDev->Present(NULL, NULL, NULL, NULL);
+		HRESULT hrPresent;
 #ifdef _XBOX
+		hrPresent = skipPresentForCxbx ? S_OK : m_pD3DDev->Present(NULL, NULL, NULL, NULL);
+#else
+        hrPresent = m_pD3DDev->Present(NULL, NULL, NULL, NULL);
+#endif
+#ifdef _XBOX
+		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
+		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
+		if (screenshotRequestedNow && !skipPresentForCxbx)
+		{
+			UpdateFramebufferTelemetry(true);
+		}
 		if (logSwapTight)
 		{
 			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
@@ -4939,6 +6046,22 @@ private:
 		}
 	}
 
+	GLint CompatibleTextureComponents(GLint internalformat)
+	{
+		switch (internalformat)
+		{
+		case GL_RGB5:
+		case GL_RGB8:
+			return 3;
+		case GL_RGBA4:
+		case GL_RGBA8:
+		case GL_RGB5_A1:
+			return 4;
+		default:
+			return internalformat;
+		}
+	}
+
 	D3DFORMAT GLToDXPixelFormat(GLint internalformat, GLenum format)
 	{
 		D3DFORMAT d3dFormat = D3DFMT_UNKNOWN;
@@ -4950,6 +6073,7 @@ private:
 		{
 			return D3DFMT_A8R8G8B8;
 		}
+		internalformat = CompatibleTextureComponents(internalformat);
 		if ( g_force16bitTextures ) 
 		{
 			switch ( format ) 
@@ -5016,6 +6140,7 @@ private:
 		{
 			return E_FAIL;
 		}
+		internalformat = CompatibleTextureComponents(internalformat);
 		switch ( dxPixelFormat )
 		{
 		default:

@@ -4,6 +4,10 @@
 #include "zip.h"
 #include "deflate.h"
 
+#ifndef TAG_DEFLATE
+#define TAG_DEFLATE TAG_FILESYS
+#endif
+
 #ifdef _TIMING
 int		totalDeflateTime[Z_MAX_COMPRESSION + 1];
 int		totalDeflateCount[Z_MAX_COMPRESSION + 1];

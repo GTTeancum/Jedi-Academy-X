@@ -179,14 +179,15 @@ existing_build = 5849
 for i in range(lib_count):
     off  = lib_offset + i * 16
     name = xbe[off:off+8].rstrip(b'\x00').decode('ascii', errors='replace')
+    if name in ('D3D8I', 'D3D8D'):
+        print("  Renaming %s library entry to D3D8 for CXBX HLE" % name)
+        xbe[off:off+8] = b'D3D8\x00\x00\x00\x00'
+        name = 'D3D8'
     existing_names.add(name)
     existing_build = struct.unpack_from('<H', xbe, off + 12)[0]
-    if name == 'D3D8':
+    if name == 'D3D8' or name == 'D3D8I':
         old_flags = struct.unpack_from('<H', xbe, off + 14)[0]
-        new_flags = (old_flags & 0xE000) | 4
-        if new_flags != old_flags:
-            struct.pack_into('<H', xbe, off + 14, new_flags)
-            print("  D3D8 qfe: %d -> 4" % (old_flags & 0x1FFF))
+        print("  %s qfe: keeping %d" % (name, old_flags & 0x1FFF))
 
 print("  Existing: %s" % ', '.join(sorted(existing_names)))
 
@@ -194,9 +195,12 @@ def make_lib_entry(name, build, flags=0x4001):
     return name.encode('ascii')[:8].ljust(8, b'\x00') + struct.pack('<HHHH', 1, 0, build, flags)
 
 to_add = []
-if 'D3D8' not in existing_names:
+has_d3d8_family = ('D3D8' in existing_names) or ('D3D8I' in existing_names) or ('D3D8D' in existing_names)
+if not has_d3d8_family:
     to_add.append(make_lib_entry('D3D8', existing_build))
     print("  Adding D3D8")
+else:
+    print("  D3D8-family entry already present")
 if 'XGRAPHC' not in existing_names:
     to_add.append(make_lib_entry('XGRAPHC', existing_build))
     print("  Adding XGRAPHC")

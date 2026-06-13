@@ -198,6 +198,15 @@ void CG_ToggleLAGoggles( void )
 	}
 }
 
+void CG_ZoomDown_f( void )
+{
+	CG_ToggleBinoculars();
+}
+
+void CG_ZoomUp_f( void )
+{
+}
+
 static void CG_InfoDown_f( void ) {
 //	cg.showInformation = qtrue;
 }
@@ -243,6 +252,8 @@ Ghoul2 Insert End
 	{ "cam_disable", CMD_CGCam_Disable },	//gets out of camera mode for debuggin
 	{ "cam_enable", CGCam_Enable },	//gets into camera mode for precise camera placement
 	{ "lock_disable", Lock_Disable },	//player can move now
+	{ "+zoom", CG_ZoomDown_f },
+	{ "-zoom", CG_ZoomUp_f },
 	{ "zoom", CG_ToggleBinoculars },
 	{ "la_zoom", CG_ToggleLAGoggles },
 	{ "invnext", CG_NextInventory_f },

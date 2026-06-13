@@ -7,6 +7,9 @@
 #include "objectives.h"
 #include "..\cgame\cg_text.h"
 #include "..\cgame\cg_local.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern	cvar_t	*g_debugDamage;
 extern qboolean	stop_icarus;
@@ -1308,6 +1311,43 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 	int			asave;
 	int			knockback;
 	vec3_t		newDir;
+#ifdef _XBOX
+	qboolean	stefxDamageProbe = qfalse;
+	int			stefxDamageBeforeHealth = targ ? targ->health : -9999;
+
+	if ( targ )
+	{
+		stefxDamageProbe = (qboolean)(
+			targ->s.number == 0 ||
+			(attacker && attacker->s.number == 0) ||
+			(targ->client && (targ->client->playerTeam == TEAM_BORG || targ->client->race == RACE_BORG)) ||
+			(attacker && attacker->client && (attacker->client->playerTeam == TEAM_BORG || attacker->client->race == RACE_BORG)) );
+	}
+	if ( stefxDamageProbe )
+	{
+		static int s_stefxDamageProbeBudget = 80;
+		if ( s_stefxDamageProbeBudget > 0 )
+		{
+			XBLF("STEFX: G_Damage enter targ=%d targClass=%s targHealth=%d takeDamage=%d targTeam=%d targRace=%d attacker=%d attackerClass=%s attackerTeam=%d damage=%d dflags=0x%x mod=%d point=(%g,%g,%g)",
+				targ ? targ->s.number : -1,
+				(targ && targ->classname) ? targ->classname : "<null>",
+				targ ? targ->health : -9999,
+				targ ? targ->takedamage : 0,
+				(targ && targ->client) ? targ->client->playerTeam : -1,
+				(targ && targ->client) ? targ->client->race : -1,
+				attacker ? attacker->s.number : -1,
+				(attacker && attacker->classname) ? attacker->classname : "<null>",
+				(attacker && attacker->client) ? attacker->client->playerTeam : -1,
+				damage,
+				dflags,
+				mod,
+				point ? point[0] : 0.0f,
+				point ? point[1] : 0.0f,
+				point ? point[2] : 0.0f);
+			s_stefxDamageProbeBudget--;
+		}
+	}
+#endif
 
 	if (!targ->takedamage) {
 		return;
@@ -1660,6 +1700,43 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 			targ->client->ps.stats[STAT_HEALTH] = targ->health;
 			g_lastClientDamaged = targ;
 		}
+#ifdef _XBOX
+		if ( stefxDamageProbe )
+		{
+			static int s_stefxDamageAppliedBudget = 80;
+			static int s_stefxPlayerHitBudget = 64;
+			if ( s_stefxDamageAppliedBudget > 0 )
+			{
+				XBLF("STEFX: G_Damage applied targ=%d before=%d after=%d take=%d attacker=%d mod=%d",
+					targ ? targ->s.number : -1,
+					stefxDamageBeforeHealth,
+					targ ? targ->health : -9999,
+					take,
+					attacker ? attacker->s.number : -1,
+					mod);
+				s_stefxDamageAppliedBudget--;
+			}
+			if ( attacker && attacker->s.number == 0 && targ && targ != attacker && s_stefxPlayerHitBudget > 0 )
+			{
+				XBLF("STEFX: G_Damage player hit target=%d class='%s' npc=%d client=%d before=%d after=%d take=%d damage=%d mod=%d dflags=0x%x attackerWeapon=%d point=(%g,%g,%g)",
+					targ->s.number,
+					targ->classname ? targ->classname : "<null>",
+					targ->NPC ? 1 : 0,
+					targ->client ? 1 : 0,
+					stefxDamageBeforeHealth,
+					targ->health,
+					take,
+					damage,
+					mod,
+					dflags,
+					attacker->client ? attacker->client->ps.weapon : -1,
+					point ? point[0] : 0.0f,
+					point ? point[1] : 0.0f,
+					point ? point[2] : 0.0f);
+				s_stefxPlayerHitBudget--;
+			}
+		}
+#endif
 			
 		if ( targ->health <= 0 ) 
 		{

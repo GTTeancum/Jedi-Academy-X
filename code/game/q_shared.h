@@ -2130,7 +2130,9 @@ typedef struct usercmd_s {
 	int		buttons;
 	byte	weapon;
 	int		angles[3];
+#if !defined(STEFX_ELITE_FORCE_SP)
 	byte	generic_cmd;
+#endif
 	signed char	forwardmove, rightmove, upmove;
 } usercmd_t;
 

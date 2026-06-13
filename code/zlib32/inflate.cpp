@@ -4,6 +4,10 @@
 #include "zip.h"
 #include "inflate.h"
 
+#ifndef TAG_INFLATE
+#define TAG_INFLATE TAG_FILESYS
+#endif
+
 #ifdef _TIMING
 int		totalInflateTime;
 int		totalInflateCount;

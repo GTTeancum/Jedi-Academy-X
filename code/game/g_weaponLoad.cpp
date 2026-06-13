@@ -15,6 +15,9 @@ extern ammoData_t ammoData[];
 
 // ONLY DO THIS ON THE GAME SIDE
 #include "g_local.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 typedef struct {
 	char	*name;
@@ -1346,7 +1349,13 @@ void WP_LoadWeaponParms (void)
 	char *buffer;
 	int len;
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: WP_LoadWeaponParms FS_ReadFile ext_data/weapons.dat");
+#endif
 	len = gi.FS_ReadFile("ext_data/weapons.dat",(void **) &buffer);
+#ifdef _XBOX
+	XBLog_Writef("STEFX: WP_LoadWeaponParms read len=%d buffer=%p", len, buffer);
+#endif
 
 	if (len == -1)
 	{
@@ -1356,7 +1365,16 @@ void WP_LoadWeaponParms (void)
 	// initialise the data area
 	memset(weaponData, 0, WP_NUM_WEAPONS * sizeof(weaponData_t));	
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: WP_LoadWeaponParms parse begin");
+#endif
 	WP_ParseParms(buffer);
+#ifdef _XBOX
+	XBLog_Write("STEFX: WP_LoadWeaponParms parse done");
+#endif
 
 	gi.FS_FreeFile( buffer );	//let go of the buffer
+#ifdef _XBOX
+	XBLog_Write("STEFX: WP_LoadWeaponParms done");
+#endif
 }

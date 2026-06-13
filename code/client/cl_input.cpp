@@ -7,6 +7,11 @@
 
 #include "client.h"
 #include "client_ui.h"
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#include "../win32/xb_log.h"
+extern void Key_SetBinding( int keynum, const char *binding );
+extern char *Key_GetBinding( int keynum );
+#endif
 
 #ifdef _XBOX
 #include "cl_input_hotswap.h"
@@ -47,6 +52,191 @@ kbutton_t	in_buttons[9];
 
 
 qboolean	in_mlooking;
+
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static void STEFX_SetDefaultXboxBinding( int keynum, const char *binding )
+{
+	const char *existing = Key_GetBinding( keynum );
+
+	if ( existing && existing[0] && !Q_stricmp( existing, binding ) )
+	{
+		XBLF("STEFX: confirmed Xbox bind %s -> %s",
+			Key_KeynumToString( keynum ),
+			existing);
+		return;
+	}
+
+	if ( existing && existing[0] )
+	{
+		XBLF("STEFX: replaced Xbox bind %s old='%s' new='%s'",
+			Key_KeynumToString( keynum ),
+			existing,
+			binding);
+	}
+	else
+	{
+		XBLF("STEFX: installed Xbox bind %s -> %s",
+			Key_KeynumToString( keynum ),
+			binding);
+	}
+	Key_SetBinding( keynum, binding );
+}
+
+static void STEFX_InstallDefaultXboxBindings( void )
+{
+	static qboolean s_installed = qfalse;
+
+	if ( s_installed )
+	{
+		return;
+	}
+	s_installed = qtrue;
+
+	STEFX_SetDefaultXboxBinding( A_JOY12, "+attack" );
+	STEFX_SetDefaultXboxBinding( A_JOY11, "+altattack" );
+	STEFX_SetDefaultXboxBinding( A_JOY15, "+use" );
+	STEFX_SetDefaultXboxBinding( A_JOY14, "+moveup" );
+	STEFX_SetDefaultXboxBinding( A_JOY16, "weapprev" );
+	STEFX_SetDefaultXboxBinding( A_JOY13, "weapnext" );
+	STEFX_SetDefaultXboxBinding( A_JOY9, "weapprev" );
+	STEFX_SetDefaultXboxBinding( A_JOY10, "weapnext" );
+	STEFX_SetDefaultXboxBinding( A_JOY5, "weapnext" );
+	STEFX_SetDefaultXboxBinding( A_JOY7, "weapprev" );
+	STEFX_SetDefaultXboxBinding( A_JOY8, "weapon 1" );
+	STEFX_SetDefaultXboxBinding( A_JOY6, "weapon 2" );
+}
+
+static cvar_t *stefx_smokeInput;
+static cvar_t *stefx_smokeInputStart;
+static cvar_t *stefx_smokeInputEnd;
+static cvar_t *stefx_smokeInputForward;
+static cvar_t *stefx_smokeInputSide;
+static cvar_t *stefx_smokeInputYaw;
+static cvar_t *stefx_smokeInputAttackStart;
+static cvar_t *stefx_smokeInputAttackEnd;
+
+static qboolean STEFX_ViewAnglesBad( const vec3_t angles )
+{
+	return (qboolean)(IS_NAN(angles[0]) || IS_NAN(angles[1]) || IS_NAN(angles[2]));
+}
+
+static void STEFX_SeedClientViewAnglesIfInvalid( void )
+{
+	static int s_logBudget = 8;
+
+	if ( !STEFX_ViewAnglesBad( cl.viewangles ) )
+	{
+		return;
+	}
+
+	VectorCopy( cl.frame.ps.viewangles, cl.viewangles );
+	if ( STEFX_ViewAnglesBad( cl.viewangles ) )
+	{
+		VectorClear( cl.viewangles );
+	}
+
+	if ( s_logBudget > 0 )
+	{
+		XBLF("STEFX: seeded invalid client viewangles from snapshot view=(%g,%g,%g) ps=(%g,%g,%g)",
+			cl.viewangles[0], cl.viewangles[1], cl.viewangles[2],
+			cl.frame.ps.viewangles[0], cl.frame.ps.viewangles[1], cl.frame.ps.viewangles[2]);
+		--s_logBudget;
+	}
+}
+
+static void STEFX_InitSmokeInputCvars( void )
+{
+	stefx_smokeInput = Cvar_Get( "stefx_smoke_input", "0", CVAR_TEMP );
+	stefx_smokeInputStart = Cvar_Get( "stefx_smoke_input_start", "18000", CVAR_TEMP );
+	stefx_smokeInputEnd = Cvar_Get( "stefx_smoke_input_end", "26000", CVAR_TEMP );
+	stefx_smokeInputForward = Cvar_Get( "stefx_smoke_input_forward", "90", CVAR_TEMP );
+	stefx_smokeInputSide = Cvar_Get( "stefx_smoke_input_side", "0", CVAR_TEMP );
+	stefx_smokeInputYaw = Cvar_Get( "stefx_smoke_input_yaw", "0", CVAR_TEMP );
+	stefx_smokeInputAttackStart = Cvar_Get( "stefx_smoke_input_attack_start", "19000", CVAR_TEMP );
+	stefx_smokeInputAttackEnd = Cvar_Get( "stefx_smoke_input_attack_end", "23000", CVAR_TEMP );
+
+	XBL("STEFX: smoke input cvars registered; diagnostic input is off by default");
+}
+
+static void STEFX_ApplySmokeInput( usercmd_t *cmd )
+{
+	static int s_logBudget = 48;
+	const int serverTime = cmd ? cmd->serverTime : 0;
+	int startTime;
+	int endTime;
+	int attackStart;
+	int attackEnd;
+	int forwardMove;
+	int sideMove;
+	int yawMove;
+	qboolean active;
+	qboolean attacking;
+
+	if ( !cmd || !stefx_smokeInput || !stefx_smokeInput->integer )
+	{
+		return;
+	}
+
+	startTime = stefx_smokeInputStart ? stefx_smokeInputStart->integer : 18000;
+	endTime = stefx_smokeInputEnd ? stefx_smokeInputEnd->integer : 26000;
+	attackStart = stefx_smokeInputAttackStart ? stefx_smokeInputAttackStart->integer : 19000;
+	attackEnd = stefx_smokeInputAttackEnd ? stefx_smokeInputAttackEnd->integer : 23000;
+	forwardMove = stefx_smokeInputForward ? stefx_smokeInputForward->integer : 90;
+	sideMove = stefx_smokeInputSide ? stefx_smokeInputSide->integer : 0;
+	yawMove = stefx_smokeInputYaw ? stefx_smokeInputYaw->integer : 0;
+
+	active = ( serverTime >= startTime && ( endTime <= 0 || serverTime <= endTime ) );
+	if ( !active )
+	{
+		return;
+	}
+
+	if ( !forwardMove && !sideMove )
+	{
+		forwardMove = 90;
+	}
+	if ( attackEnd > 0 && attackEnd < startTime )
+	{
+		attackStart = startTime + 1000;
+		attackEnd = ( endTime > attackStart ) ? endTime : attackStart + 4000;
+	}
+
+	cmd->forwardmove = ClampChar( cmd->forwardmove + forwardMove );
+	cmd->rightmove = ClampChar( cmd->rightmove + sideMove );
+	if ( yawMove )
+	{
+		cl.viewangles[YAW] += (float)yawMove;
+		cmd->angles[YAW] = ANGLE2SHORT( cl.viewangles[YAW] );
+	}
+
+	attacking = ( serverTime >= attackStart && ( attackEnd <= 0 || serverTime <= attackEnd ) );
+	if ( attacking )
+	{
+		cmd->buttons |= BUTTON_ATTACK;
+	}
+
+	if ( s_logBudget > 0 )
+	{
+		Com_PrintfAlways( "STEFX: smoke input applied serverTime=%d window=%d..%d attackWindow=%d..%d configuredInput=(%d,%d,%d) move=(%d,%d,%d) attack=%d buttons=0x%x weapon=%d\n",
+			serverTime,
+			startTime,
+			endTime,
+			attackStart,
+			attackEnd,
+			forwardMove,
+			sideMove,
+			yawMove,
+			cmd->forwardmove,
+			cmd->rightmove,
+			cmd->upmove,
+			attacking ? 1 : 0,
+			cmd->buttons,
+			cmd->weapon );
+		s_logBudget--;
+	}
+}
+#endif
 
 
 #ifdef _XBOX
@@ -670,6 +860,7 @@ void CL_FinishMove( usercmd_t *cmd ) {
 	// copy the state that the cgame is currently sending
 	cmd->weapon = cl.cgameUserCmdValue;
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 	if (cl.gcmdSendValue)
 	{
 		cmd->generic_cmd = cl.gcmdValue;
@@ -679,6 +870,9 @@ void CL_FinishMove( usercmd_t *cmd ) {
 	{
 		cmd->generic_cmd = 0;
 	}
+#else
+	cl.gcmdSendValue = qfalse;
+#endif
 
 	// send the current server time so the amount of movement
 	// can be determined without allowing cheating
@@ -700,6 +894,9 @@ usercmd_t CL_CreateCmd( void ) {
 	usercmd_t	cmd;
 	vec3_t		oldAngles;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SeedClientViewAnglesIfInvalid();
+#endif
 	VectorCopy( cl.viewangles, oldAngles );
 
 	// keyboard angle adjustment
@@ -743,8 +940,49 @@ usercmd_t CL_CreateCmd( void ) {
 		VectorCopy( cl_overriddenAngles, cl.viewangles );
 		cl_overrideAngles = qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SeedClientViewAnglesIfInvalid();
+#endif
 	// store out the final values
 	CL_FinishMove( &cmd );
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_ApplySmokeInput( &cmd );
+
+	{
+		static int s_cmdLogBudget = 80;
+		int logButtons = cmd.buttons & ~BUTTON_WALKING;
+		qboolean interestingCmd =
+			(cmd.forwardmove != 0) ||
+			(cmd.rightmove != 0) ||
+			(cmd.upmove != 0) ||
+			(logButtons != 0) ||
+			((int)oldAngles[YAW] != (int)cl.viewangles[YAW]) ||
+			((int)oldAngles[PITCH] != (int)cl.viewangles[PITCH]);
+
+		if ( s_cmdLogBudget > 0 && ( interestingCmd || s_cmdLogBudget > 72 ) )
+		{
+			Com_PrintfAlways("STEFX: CL_CreateCmd state=%d serverTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d joy=(%d,%d,%d) view=(%g,%g,%g) old=(%g,%g,%g)\n",
+				(int)cls.state,
+				cmd.serverTime,
+				cmd.forwardmove,
+				cmd.rightmove,
+				cmd.upmove,
+				cmd.buttons,
+				cmd.weapon,
+				cl.joystickAxis[AXIS_SIDE],
+				cl.joystickAxis[AXIS_FORWARD],
+				cl.joystickAxis[AXIS_UP],
+				cl.viewangles[0],
+				cl.viewangles[1],
+				cl.viewangles[2],
+				oldAngles[0],
+				oldAngles[1],
+				oldAngles[2]);
+			s_cmdLogBudget--;
+		}
+	}
+#endif
 
 	// draw debug graphs of turning for mouse testing
 #ifndef _XBOX
@@ -811,6 +1049,18 @@ qboolean CL_ReadyToSendPacket( void ) {
 //	if ( cls.state == CA_CINEMATIC ) 
 	if ( cls.state == CA_CINEMATIC || CL_IsRunningInGameCinematic())
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxReadyCinemaBudget = 12;
+		if ( s_stefxReadyCinemaBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: CL_ReadyToSendPacket blocked cinematic state=%d inGameCin=%d cmd=%d realtime=%d\n",
+				(int)cls.state,
+				CL_IsRunningInGameCinematic() ? 1 : 0,
+				cl.cmdNumber,
+				cls.realtime );
+			--s_stefxReadyCinemaBudget;
+		}
+#endif
 		return qfalse;
 	}
 
@@ -824,6 +1074,19 @@ qboolean CL_ReadyToSendPacket( void ) {
 	// one packet a second
 	if ( cls.state != CA_ACTIVE && cls.state != CA_PRIMED
 		&& cls.realtime - clc.lastPacketSentTime < 1000 ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxReadyThrottleBudget = 12;
+		if ( s_stefxReadyThrottleBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: CL_ReadyToSendPacket throttled state=%d remoteType=%d cmd=%d realtime=%d lastSent=%d\n",
+				(int)cls.state,
+				(int)clc.netchan.remoteAddress.type,
+				cl.cmdNumber,
+				cls.realtime,
+				clc.lastPacketSentTime );
+			--s_stefxReadyThrottleBudget;
+		}
+#endif
 		return qfalse;
 	}
 
@@ -865,6 +1128,18 @@ void CL_WritePacket( void ) {
 //	if ( cls.state == CA_CINEMATIC ) 
 	if ( cls.state == CA_CINEMATIC || CL_IsRunningInGameCinematic())
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxWriteCinemaBudget = 8;
+		if ( s_stefxWriteCinemaBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: CL_WritePacket skipped cinematic state=%d inGameCin=%d cmd=%d realtime=%d\n",
+				(int)cls.state,
+				CL_IsRunningInGameCinematic() ? 1 : 0,
+				cl.cmdNumber,
+				cls.realtime );
+			--s_stefxWriteCinemaBudget;
+		}
+#endif
 		return;
 	}
 
@@ -891,6 +1166,29 @@ void CL_WritePacket( void ) {
 		count = MAX_PACKET_USERCMDS;
 		Com_Printf("MAX_PACKET_USERCMDS\n");
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxWritePacketBudget = 64;
+		if ( s_stefxWritePacketBudget > 0 && ( count > 0 || s_stefxWritePacketBudget > 56 ) )
+		{
+			usercmd_t *lastcmd = &cl.cmds[cl.cmdNumber & CMD_MASK];
+			Com_PrintfAlways( "STEFX: CL_WritePacket state=%d remoteType=%d cmd=%d oldPacket=%d count=%d serverId=%d lastMove=(%d,%d,%d) lastButtons=0x%x lastWeapon=%d realtime=%d\n",
+				(int)cls.state,
+				(int)clc.netchan.remoteAddress.type,
+				cl.cmdNumber,
+				oldPacketNum,
+				count,
+				cl.serverId,
+				lastcmd->forwardmove,
+				lastcmd->rightmove,
+				lastcmd->upmove,
+				lastcmd->buttons,
+				lastcmd->weapon,
+				cls.realtime );
+			--s_stefxWritePacketBudget;
+		}
+	}
+#endif
 	if ( count >= 1 ) {
 		// begin a client move command
 		MSG_WriteByte (&buf, clc_move);
@@ -940,6 +1238,22 @@ void CL_WritePacket( void ) {
 	cl.packetTime[ packetNum ] = cls.realtime;
 	cl.packetCmdNumber[ packetNum ] = cl.cmdNumber;
 	clc.lastPacketSentTime = cls.realtime;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxTransmitBudget = 64;
+		if ( s_stefxTransmitBudget > 0 && ( count > 0 || s_stefxTransmitBudget > 56 ) )
+		{
+			Com_PrintfAlways( "STEFX: CL_WritePacket transmit size=%d seq=%d packet=%d count=%d remoteType=%d qport=%d\n",
+				buf.cursize,
+				clc.netchan.outgoingSequence,
+				packetNum,
+				count,
+				(int)clc.netchan.remoteAddress.type,
+				clc.netchan.qport );
+			--s_stefxTransmitBudget;
+		}
+	}
+#endif
 	Netchan_Transmit (&clc.netchan, buf.cursize, buf.data);	
 }
 
@@ -966,6 +1280,19 @@ void CL_SendCmd( void ) {
 
 	// don't send a packet if the last packet was sent too recently
 	if ( !CL_ReadyToSendPacket() ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxSendBlockedBudget = 32;
+		if ( s_stefxSendBlockedBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: CL_SendCmd no packet state=%d cmd=%d remoteType=%d realtime=%d serverTime=%d\n",
+				(int)cls.state,
+				cl.cmdNumber,
+				(int)clc.netchan.remoteAddress.type,
+				cls.realtime,
+				cl.serverTime );
+			--s_stefxSendBlockedBudget;
+		}
+#endif
 		return;
 	}
 
@@ -1052,5 +1379,9 @@ void CL_InitInput( void ) {
 
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_InstallDefaultXboxBindings();
+	STEFX_InitSmokeInputCvars();
+#endif
 }
 

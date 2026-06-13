@@ -7,9 +7,8 @@
 
 
 #include "tr_local.h"
-#ifndef _XBOX
 #include "tr_jpeg_interface.h"
-#else
+#ifdef _XBOX
 #include "../qcommon/sstring.h"
 #include "../zlib/zlib.h"
 #include "../win32/xb_log.h"
@@ -594,6 +593,49 @@ static void Upload32( const char *debugName, unsigned *data,
 			width >>= 1;
 			height >>= 1;
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			const int maxUploadSize = 128;
+			int oldWidth = width;
+			int oldHeight = height;
+			static qboolean s_loggedStefxUploadCaps = qfalse;
+
+			if (!s_loggedStefxUploadCaps)
+			{
+				XBLF("STEFX: Upload32 Xbox caps nonlightmap=%d lightmap=%d",
+					128,
+					128);
+				s_loggedStefxUploadCaps = qtrue;
+			}
+
+			while ( width > maxUploadSize || height > maxUploadSize )
+			{
+				R_MipMap( (byte *)data, width, height );
+				width >>= 1;
+				height >>= 1;
+				if ( width < 1 )
+				{
+					width = 1;
+				}
+				if ( height < 1 )
+				{
+					height = 1;
+				}
+			}
+
+			if ( oldWidth != width || oldHeight != height )
+			{
+				XBLF("STEFX: Upload32 capped image='%s' %dx%d -> %dx%d lightmap=%d",
+					debugName ? debugName : "<null>",
+					oldWidth,
+					oldHeight,
+					width,
+					height,
+					isLightmap);
+			}
+		}
+#endif
 		
 		//
 		// scan the texture for each channel's max values
@@ -654,7 +696,7 @@ static void Upload32( const char *debugName, unsigned *data,
 				*pformat = 4;
 			}
 		}
-		
+
 		// copy or resample data as appropriate for first MIP level
 		if (!mipcount)
 		{
@@ -1227,7 +1269,6 @@ bool LoadTGAPalletteImage ( const char *name, byte **pic, int *width, int *heigh
 Ghoul2 Insert End
 */
 
-/*
 // My TGA loader...
 //
 //---------------------------------------------------
@@ -1401,7 +1442,7 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	if (height)
 		*height = pHeader->wImageHeight;
 
-	pRGBA	= (byte *) Z_Malloc (pHeader->wImageWidth * pHeader->wImageHeight * 4, TAG_TEMP_TGA, qfalse);
+	pRGBA	= (byte *) Z_Malloc (pHeader->wImageWidth * pHeader->wImageHeight * 4, TAG_TEMP_WORKSPACE, qfalse);
 	*pic	= pRGBA;
 	pOut	= pRGBA;
 	pIn		= pTempLoadedBuffer + sizeof(*pHeader);
@@ -1582,7 +1623,6 @@ TGADone:
 	}
 	return filelen;
 }
-*/
 
 /*
 =========================================================
@@ -1648,6 +1688,77 @@ void LoadDDS ( const char *name, byte **pic, int *width, int *height, int *mipco
 
 //===================================================================
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int STEFX_NextPowerOfTwo( int value )
+{
+	int out = 1;
+
+	while ( out < value )
+	{
+		out <<= 1;
+	}
+
+	return out;
+}
+
+static void STEFX_NormalizeImageToPowerOfTwo( const char *name, byte **pic, int *width, int *height )
+{
+	byte *src;
+	byte *dst;
+	int oldWidth;
+	int oldHeight;
+	int newWidth;
+	int newHeight;
+	int x;
+	int y;
+
+	if ( !pic || !*pic || !width || !height )
+	{
+		return;
+	}
+
+	oldWidth = *width;
+	oldHeight = *height;
+	newWidth = STEFX_NextPowerOfTwo( oldWidth );
+	newHeight = STEFX_NextPowerOfTwo( oldHeight );
+
+	if ( newWidth == oldWidth && newHeight == oldHeight )
+	{
+		return;
+	}
+
+	src = *pic;
+	dst = (byte *)Z_Malloc( newWidth * newHeight * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
+
+	for ( y = 0; y < newHeight; ++y )
+	{
+		int srcY = ( y * oldHeight ) / newHeight;
+		for ( x = 0; x < newWidth; ++x )
+		{
+			int srcX = ( x * oldWidth ) / newWidth;
+			const byte *srcPixel = src + ( ( srcY * oldWidth + srcX ) * 4 );
+			byte *dstPixel = dst + ( ( y * newWidth + x ) * 4 );
+			dstPixel[0] = srcPixel[0];
+			dstPixel[1] = srcPixel[1];
+			dstPixel[2] = srcPixel[2];
+			dstPixel[3] = srcPixel[3];
+		}
+	}
+
+	Z_Free( src );
+	*pic = dst;
+	*width = newWidth;
+	*height = newHeight;
+
+	XBLF("STEFX: R_LoadImage normalized NPOT '%s' %dx%d -> %dx%d",
+		name ? name : "<null>",
+		oldWidth,
+		oldHeight,
+		newWidth,
+		newHeight);
+}
+#endif
+
 /*
 =================
 R_LoadImage
@@ -1658,10 +1769,16 @@ Loads any of the supported image types into a cannonical
 */
 void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format ) {
 	char	name[MAX_QPATH];
+	int		i;
+	int		j;
+	byte	*buf;
+	byte	swap;
 
 	*pic = NULL;
 	*width = 0;
 	*height = 0;
+	*mipcount = 1;
+	*format = GL_RGBA;
 
 	//handle external LMs
 	if (shortname[0] == '$') {
@@ -1670,13 +1787,63 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 		Q_strncpyz( name, shortname, sizeof( name ) );
 	}
 
-	// Try DDS first - saves a ton of failed GOB checks on startup:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	// Elite Force retail assets are overwhelmingly JPG/TGA.  A missing DDS
+	// CreateFile is expensive under CXBX, so only probe DDS when explicitly asked.
+	const char *inputExt = strrchr(name, '.');
+	qboolean explicitDDS = (inputExt && !Q_stricmp(inputExt, ".dds"));
+	if (explicitDDS)
+	{
+		COM_StripExtension(name, name);
+		COM_DefaultExtension(name, sizeof(name), ".dds");
+		LoadDDS( name, pic, width, height, mipcount, format );
+		if( *pic )
+			return;
+	}
+
+	COM_StripExtension(name, name);
+	COM_DefaultExtension(name, sizeof(name), ".jpg");
+	int jpgLen = LoadJPG( name, pic, width, height );
+	if (strstr(name, "textures/borg/") || strstr(name, "textures/detail/"))
+	{
+		static int s_xboxJpgProbeLogCount = 0;
+		if (s_xboxJpgProbeLogCount < 384 || (s_xboxJpgProbeLogCount % 128) == 0)
+		{
+			XBLF("STEFX: R_LoadImage JPG attempt '%s' len=%d pic=%p wh=%d ht=%d",
+				name, jpgLen, (void *)*pic, *width, *height);
+		}
+		++s_xboxJpgProbeLogCount;
+	}
+#else
+	// Try DDS first - saves a ton of failed archive checks on startup:
 	COM_StripExtension(name, name);
 	COM_DefaultExtension(name, sizeof(name), ".dds");
 	LoadDDS( name, pic, width, height, mipcount, format );
 	if( *pic )
 		return;
-/*
+
+	// Elite Force retail assets are mostly JPG/TGA, while inherited Xbox
+	// builds preferred DDS.  Keep DDS first, then fall back to the PC formats.
+	COM_StripExtension(name, name);
+	COM_DefaultExtension(name, sizeof(name), ".jpg");
+	LoadJPG( name, pic, width, height );
+#endif
+	if ( *pic )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_NormalizeImageToPowerOfTwo( name, pic, width, height );
+#endif
+#ifdef _XBOX
+		static int s_xboxJpgLoadLogCount = 0;
+		if (s_xboxJpgLoadLogCount < 256 || (s_xboxJpgLoadLogCount % 64) == 0) {
+			XBLF("STEFX: R_LoadImage JPG '%s' %dx%d", name, *width, *height);
+		}
+		++s_xboxJpgLoadLogCount;
+#endif
+		return;
+	}
+
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 	// OK. Now look for TGA:
 	*format = GL_RGBA;
 	*mipcount = 1;
@@ -1687,17 +1854,24 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 
 	if (*pic)
 	{
-		int j = (*width) * (*height) * 4;
-		byte *buf = *pic;
-		byte swap;
-		for (int i = 0 ; i < j ; i+=4 ) {
+		j = (*width) * (*height) * 4;
+		buf = *pic;
+		for (i = 0 ; i < j ; i+=4 ) {
 			swap = buf[i];
 			buf[i] = buf[i+2];
 			buf[i+2] = swap;
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_NormalizeImageToPowerOfTwo( name, pic, width, height );
+		static int s_xboxTgaLoadLogCount = 0;
+		if (s_xboxTgaLoadLogCount < 96 || (s_xboxTgaLoadLogCount % 64) == 0) {
+			XBLF("STEFX: R_LoadImage TGA '%s' %dx%d", name, *width, *height);
+		}
+		++s_xboxTgaLoadLogCount;
+#endif
 		return;
 	}
-*/
+#endif
 
 	// Return whether or not it worked
 	return;

@@ -6,6 +6,9 @@
 
 #include "..\client\vmachine.h"
 #include "server.h"
+#if defined(STEFX_ELITE_FORCE_SP)
+#include "../qcommon/stefx_snapshot_abi.h"
+#endif
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
@@ -321,6 +324,72 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 static qboolean s_xboxSnapshotCameraView = qfalse;
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int entNum, const vec3_t origin,
+													int *actorBudget, int *itemBudget,
+													int *missileBudget, int *modelBudget,
+													const char **reason ) {
+	float dx, dy, dz, distSq;
+
+	if ( !sv_mapname || Q_stricmp( sv_mapname->string, "borg1" ) ) {
+		return qfalse;
+	}
+	if ( !ent || entNum <= 0 ) {
+		return qfalse;
+	}
+
+	if ( ent->s.eType == ET_PLAYER ) {
+		if ( *actorBudget <= 0 ) {
+			return qfalse;
+		}
+		(*actorBudget)--;
+		*reason = "actor";
+		return qtrue;
+	}
+
+	if ( ent->s.eType == ET_MISSILE ) {
+		if ( *missileBudget <= 0 ) {
+			return qfalse;
+		}
+		(*missileBudget)--;
+		*reason = "missile";
+		return qtrue;
+	}
+
+	if ( ent->s.eType == ET_ITEM ) {
+		if ( *itemBudget <= 0 ) {
+			return qfalse;
+		}
+		(*itemBudget)--;
+		*reason = "item";
+		return qtrue;
+	}
+
+	if ( !ent->s.modelindex && !ent->s.modelindex2 ) {
+		return qfalse;
+	}
+	if ( ent->s.eType != ET_GENERAL && ent->s.eType != ET_MOVER && ent->s.eType != ET_BEAM ) {
+		return qfalse;
+	}
+	if ( *modelBudget <= 0 ) {
+		return qfalse;
+	}
+
+	dx = ent->currentOrigin[0] - origin[0];
+	dy = ent->currentOrigin[1] - origin[1];
+	dz = ent->currentOrigin[2] - origin[2];
+	distSq = dx * dx + dy * dy + dz * dz;
+
+	if ( distSq > (2200.0f * 2200.0f) && entNum > 180 ) {
+		return qfalse;
+	}
+
+	(*modelBudget)--;
+	*reason = "model";
+	return qtrue;
+}
+#endif
+
 float sv_sightRangeForLevel[6] =
 {
 	0,//FORCE_LEVEL_0
@@ -524,6 +593,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	qboolean xboxYavinFocusEnt = qfalse;
 	static int s_xboxVisibleLogBudget = 0;
 	const qboolean xboxTraceVisible = (!portal && s_xboxVisibleLogBudget > 0);
+#if defined(STEFX_ELITE_FORCE_SP)
+	int stefxBorg1ActorBudget = 96;
+	int stefxBorg1ItemBudget = 48;
+	int stefxBorg1MissileBudget = 64;
+	int stefxBorg1ModelBudget = 128;
+	int stefxBorg1BypassSent = 0;
+	static int s_stefxBorg1BypassLogBudget = 32;
+#endif
 	if (xboxTraceVisible)
 	{
 		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint enter portal=%d org=%g,%g,%g ge=%d\n",
@@ -572,10 +649,12 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 
 	if ( !portal )
 	{//not if this if through a portal...???  James said to do this...
+#if !defined(STEFX_ELITE_FORCE_SP)
 		if ( (frame->ps.forcePowersActive&(1<<FP_SEE)) )
 		{
 			sightOn = qtrue;
 		}
+#endif
 	}
 
 	for ( e = 0 ; e < ge->num_entities ; e++ ) {
@@ -793,6 +872,42 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		}
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !portal )
+		{
+			const char *stefxBypassReason = NULL;
+			if ( SV_STEFX_Borg1RawBspSnapshotBypass( ent, e, origin,
+					&stefxBorg1ActorBudget, &stefxBorg1ItemBudget,
+					&stefxBorg1MissileBudget, &stefxBorg1ModelBudget,
+					&stefxBypassReason ) )
+			{
+				SV_AddEntToSnapshot( svEnt, ent, eNums );
+				++stefxBorg1BypassSent;
+				if ( s_stefxBorg1BypassLogBudget > 0 )
+				{
+					XBLF("STEFX: borg1 snapshot bypass send ent=%d reason=%s eType=%d model=%d model2=%d weapon=%d client=%p sv=0x%x origin=(%g,%g,%g) count=%d",
+						e,
+						stefxBypassReason ? stefxBypassReason : "?",
+						ent->s.eType,
+						ent->s.modelindex,
+						ent->s.modelindex2,
+						ent->s.weapon,
+						ent->client,
+						ent->svFlags,
+						ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+						eNums ? eNums->numSnapshotEntities : -1);
+					--s_stefxBorg1BypassLogBudget;
+				}
+				if (xboxIsMover && xboxTraceMovers) xboxMoverSent++;
+				if (xboxFocusIndex >= 0 && !portal)
+				{
+					XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(sent) );
+				}
+				continue;
+			}
+		}
+#endif
+
 		// broadcast entities are always sent, and so is the main player so we don't see noclip weirdness
 		if ( ent->svFlags & SVF_BROADCAST || !e) {
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
@@ -833,6 +948,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		}
 #endif
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 		if ( sightOn )
 		{//force sight is on, sees through portals, so draw them always if in radius
 			if ( SV_PlayerCanSeeEnt( ent, frame->ps.forcePowerLevel[FP_SEE] ) )
@@ -849,6 +965,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				continue;
 			}
 		}
+#endif
 
 		// ignore if not touching a PV leaf
 		// check area
@@ -1090,6 +1207,25 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			xboxMoverNoClusters);
 		s_xboxSnapshotMoverFrameBudget--;
 	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxBorg1BypassSent > 0 && !portal )
+	{
+		static int s_stefxBorg1BypassSummaryBudget = 16;
+		if ( s_stefxBorg1BypassSummaryBudget > 0 )
+		{
+			XBLF("STEFX: borg1 snapshot bypass summary sent=%d snapshotCount=%d remaining actor=%d item=%d missile=%d model=%d clientArea=%d clientCluster=%d",
+				stefxBorg1BypassSent,
+				eNums ? eNums->numSnapshotEntities : -1,
+				stefxBorg1ActorBudget,
+				stefxBorg1ItemBudget,
+				stefxBorg1MissileBudget,
+				stefxBorg1ModelBudget,
+				clientarea,
+				clientcluster);
+			--s_stefxBorg1BypassSummaryBudget;
+		}
+	}
+#endif
 	if (xboxTraceVisible)
 	{
 		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint exit portal=%d count=%d\n",
@@ -1155,15 +1291,26 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	}
 
 	// grab the current playerState_t
+#if defined(STEFX_ELITE_FORCE_SP)
+	STEFX_CopyEfPlayerStateToJa(&frame->ps, (const stefxPlayerState_t *)clent->client);
+#else
 	frame->ps = *clent->client;
+#endif
 #ifdef _XBOX
 	if (xboxTraceBuild)
 	{
+#if defined(STEFX_ELITE_FORCE_SP)
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot after ps copy clientNum=%d origin=%g,%g,%g viewheight=%d\n",
+			frame->ps.clientNum,
+			frame->ps.origin[0], frame->ps.origin[1], frame->ps.origin[2],
+			frame->ps.viewheight);
+#else
 		Com_PrintfAlways("JA: SV_BuildClientSnapshot after ps copy clientNum=%d origin=%g,%g,%g viewheight=%d viewEntity=%d\n",
 			frame->ps.clientNum,
 			clent->client->origin[0], clent->client->origin[1], clent->client->origin[2],
 			clent->client->viewheight,
 			frame->ps.viewEntity);
+#endif
 	}
 #endif
 
@@ -1222,8 +1369,8 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		s_xboxSnapshotCameraView = qfalse;
 		if (xboxTraceBuild) Com_PrintfAlways("JA: SV_BuildClientSnapshot CG_CAMERA_POS false\n");
 	#endif
-		VectorCopy( clent->client->origin, org );
-		org[2] += clent->client->viewheight;
+		VectorCopy( frame->ps.origin, org );
+		org[2] += frame->ps.viewheight;
 
 //============
 		// need to account for lean, or areaportal doors don't draw properly... -slc
@@ -1232,15 +1379,17 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 			vec3_t	right;
 			//add leaning offset			
 			vec3_t v3ViewAngles;
-			VectorCopy(clent->client->viewangles, v3ViewAngles);
+			VectorCopy(frame->ps.viewangles, v3ViewAngles);
 			v3ViewAngles[2] += (float)frame->ps.leanofs/2;
 			AngleVectors(v3ViewAngles, NULL, right, NULL);
 			VectorMA(org, (float)frame->ps.leanofs, right, org);
 		}
 //============
 	}
+#if !defined(STEFX_ELITE_FORCE_SP)
 	VectorCopy( org, frame->ps.serverViewOrg );
 	VectorCopy( org, clent->client->serverViewOrg );
+#endif
 #ifdef _XBOX
 	if (xboxTraceBuild)
 	{
@@ -1264,6 +1413,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	s_xboxSnapshotCameraView = qfalse;
 	#endif
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 	// A scripted viewEntity can move the rendered camera far from the player's
 	// body. Build an additional visibility set from that camera entity so
 	// nearby cinematic actors are actually sent to cgame.
@@ -1329,6 +1479,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		}
 #endif
 	}
+#endif
 	/*
 	//was in here for debugging- print list of all entities in snapshot when you go over the limit
 	if ( entityNumbers.numSnapshotEntities >= 256 )
@@ -1380,6 +1531,24 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		frame->num_entities++;
 	}
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( sv_mapname && !Q_stricmp( sv_mapname->string, "borg1" ) )
+	{
+		static int s_stefxBorg1BuildSummaryBudget = 16;
+		if ( s_stefxBorg1BuildSummaryBudget > 0 )
+		{
+			XBLF("STEFX: borg1 build snapshot frameEntities=%d gathered=%d first=%d next=%d psClient=%d psWeapon=%d viewOrg=(%g,%g,%g)",
+				frame->num_entities,
+				entityNumbers.numSnapshotEntities,
+				frame->first_entity,
+				svs.nextSnapshotEntities,
+				frame->ps.clientNum,
+				frame->ps.weapon,
+				org[0], org[1], org[2]);
+			--s_stefxBorg1BuildSummaryBudget;
+		}
+	}
+#endif
 	if (xboxTraceBuild)
 	{
 		Com_PrintfAlways("JA: SV_BuildClientSnapshot exit num_entities=%d first=%d next=%d\n",

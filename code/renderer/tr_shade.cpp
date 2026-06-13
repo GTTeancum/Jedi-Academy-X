@@ -15,6 +15,31 @@
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
+
+static const char *RB_XboxImageLogName( const image_t *image )
+{
+	if ( !image )
+	{
+		return "<null>";
+	}
+#ifndef FINAL_BUILD
+	if ( !image->imgName[0] )
+	{
+		return "<unnamed>";
+	}
+	for ( int i = 0; i < MAX_QPATH && image->imgName[i]; ++i )
+	{
+		const unsigned char c = (unsigned char)image->imgName[i];
+		if ( c < 32 || c > 126 )
+		{
+			return "<nonascii>";
+		}
+	}
+	return image->imgName;
+#else
+	return "<image>";
+#endif
+}
 #endif
 
 /*
@@ -234,6 +259,28 @@ static qboolean RB_XboxImageLooksFallback( const image_t *image )
 	}
 	return qfalse;
 }
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static void RB_STEFX_ForceNextTextureBind( int unit, const shaderStage_t *stage, const textureBundle_t *bundle )
+{
+	static int s_forceBindLogBudget = 48;
+	image_t *image = bundle ? bundle->image : NULL;
+
+	GL_InvalidateTextureUnit( unit );
+
+	if ( cls.state == CA_ACTIVE && s_forceBindLogBudget > 0 )
+	{
+		XBLF("STEFX: FORCE_TEXTURE_REBIND unit=%d shader='%s' stage=%d image='%s' tex=%d light=%d",
+			unit,
+			tess.shader ? tess.shader->name : "<null>",
+			stage ? stage->index : -1,
+			image ? RB_XboxImageName( image ) : "<null>",
+			image ? image->texnum : -1,
+			image ? image->isLightmap : -1);
+		--s_forceBindLogBudget;
+	}
+}
+#endif
 
 static qboolean RB_XboxStageLooksRenderSuspect( const shaderStage_t *stage )
 {
@@ -812,7 +859,10 @@ static void RB_XboxRenderYield( void )
 static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
 {
 	static int traceBudget = 16;
+	static int chunkTraceBudget = 24;
 	qboolean trace;
+	int indexBase;
+	const int maxChunkIndexes = 384 * 3;
 
 	if ( numIndexes <= 0 || !indexes )
 	{
@@ -831,10 +881,48 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 		traceBudget--;
 	}
 
-	glDrawElements( GL_TRIANGLES,
-		numIndexes,
-		GL_INDEX_TYPE,
-		indexes );
+	if ( numIndexes <= maxChunkIndexes )
+	{
+		glDrawElements( GL_TRIANGLES,
+			numIndexes,
+			GL_INDEX_TYPE,
+			indexes );
+		return;
+	}
+
+	for ( indexBase = 0; indexBase < numIndexes; )
+	{
+		int chunkIndexes = numIndexes - indexBase;
+		if ( chunkIndexes > maxChunkIndexes )
+		{
+			chunkIndexes = maxChunkIndexes;
+		}
+		chunkIndexes -= chunkIndexes % 3;
+		if ( chunkIndexes <= 0 )
+		{
+			break;
+		}
+
+		if ( chunkTraceBudget > 0 )
+		{
+			XBLF("JA: R_DrawElements chunk shader='%s' base=%d count=%d total=%d verts=%d pass=%d",
+				tess.shader ? tess.shader->name : "<null>",
+				indexBase,
+				chunkIndexes,
+				numIndexes,
+				tess.numVertexes,
+				tess.currentPass);
+			--chunkTraceBudget;
+		}
+
+		glDrawElements( GL_TRIANGLES,
+			chunkIndexes,
+			GL_INDEX_TYPE,
+			indexes + indexBase );
+
+		RB_XboxRenderYield();
+		indexBase += chunkIndexes;
+	}
 }
 #endif
 
@@ -851,6 +939,28 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 	int		primitives;
 
 	primitives = r_primitives->integer;
+#ifdef _XBOX
+	{
+		static int s_xboxDrawElementsEntryBudget = 48;
+		if (cls.state == CA_ACTIVE && s_xboxDrawElementsEntryBudget > 0)
+		{
+			int idx0 = (indexes && numIndexes > 0) ? indexes[0] : -1;
+			int idx1 = (indexes && numIndexes > 1) ? indexes[1] : -1;
+			int idx2 = (indexes && numIndexes > 2) ? indexes[2] : -1;
+			XBLF("JA: R_DrawElements entry shader='%s' indexes=%d verts=%d primitivesCvar=%d pass=%d idx0=%d,%d,%d stageIter=%p",
+				tess.shader ? tess.shader->name : "<null>",
+				numIndexes,
+				tess.numVertexes,
+				primitives,
+				tess.currentPass,
+				idx0,
+				idx1,
+				idx2,
+				tess.currentStageIteratorFunc);
+			--s_xboxDrawElementsEntryBudget;
+		}
+	}
+#endif
 
 	// default is to use triangles if compiled vertex arrays are present
 	if ( primitives == 0 ) {
@@ -1181,7 +1291,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	shaderStage_t	*pStage;
 #ifdef _XBOX
 	static int traceBudget = 0;
-	static int activeTraceBudget = 0;
+	static int activeTraceBudget = 48;
 	qboolean trace = RB_XboxShouldTraceSurface();
 	qboolean forceTrace = RB_XboxForceTraceSurface();
 #endif
@@ -1189,11 +1299,11 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	pStage = &tess.xstages[stage];
 
 #ifdef _XBOX
-	if (cls.state == CA_ACTIVE && activeTraceBudget > 0)
+	if (!backEnd.projection2D && cls.state == CA_ACTIVE && activeTraceBudget > 0)
 	{
 		image_t *img0 = pStage->bundle[0].image;
 		image_t *img1 = pStage->bundle[1].image;
-		XBLF("JA: ACTIVE_MTEXTURE shader='%s' stage=%d verts=%d indexes=%d env=%d img0='%s' tex0=%d light0=%d img1='%s' tex1=%d light1=%d st0uv0=%g,%g st1uv0=%g,%g\n",
+		XBLF("EF: ACTIVE_MTEXTURE shader='%s' stage=%d verts=%d indexes=%d env=%d img0='%s' tex0=%d light0=%d img1='%s' tex1=%d light1=%d st0uv0=%g,%g st1uv0=%g,%g\n",
 			tess.shader ? tess.shader->name : "<null>",
 			stage,
 			input->numVertexes,
@@ -1300,6 +1410,9 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 		}
 	}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	RB_STEFX_ForceNextTextureBind( 0, pStage, &pStage->bundle[0] );
+#endif
 	R_BindAnimatedImage( &pStage->bundle[0] );
 #ifdef _XBOX
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
@@ -1332,6 +1445,9 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 			tess.shader ? tess.shader->name : "<null>", stage);
 		if ( traceBudget > 0 ) traceBudget--;
 	}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	RB_STEFX_ForceNextTextureBind( 1, pStage, &pStage->bundle[1] );
 #endif
 	R_BindAnimatedImage( &pStage->bundle[1] );
 #ifdef _XBOX
@@ -3484,6 +3600,78 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			XBLF("JA: RB_IterateStagesGeneric after ComputeTexCoords shader='%s' stage=%d\n",
 				tess.shader ? tess.shader->name : "<null>", stage);
 		}
+		if ( !backEnd.projection2D && cls.state == CA_ACTIVE )
+		{
+			static int s_efActiveStageBudget = 12;
+			if ( s_efActiveStageBudget > 0 )
+			{
+				const unsigned long color0 = input->svars.colors[0];
+				XBLF("EF: ACTIVE_STAGE shader='%s' stage=%d passes=%d verts=%d indexes=%d state=0x%x bundle1=%d env=%d img0='%s' tex0=%d lm0=%d tc0=%d img1='%s' tex1=%d lm1=%d tc1=%d color0=0x%08lx st0=%g,%g st1=%g,%g xyz0=%g,%g,%g",
+					tess.shader ? tess.shader->name : "<null>",
+					stage,
+					input->shader ? input->shader->numUnfoggedPasses : -1,
+					input->numVertexes,
+					input->numIndexes,
+					stateBits,
+					pStage->bundle[1].image ? 1 : 0,
+					tess.shader ? tess.shader->multitextureEnv : -1,
+					RB_XboxImageLogName( pStage->bundle[0].image ),
+					pStage->bundle[0].image ? pStage->bundle[0].image->texnum : -1,
+					pStage->bundle[0].isLightmap ? 1 : 0,
+					pStage->bundle[0].tcGen,
+					RB_XboxImageLogName( pStage->bundle[1].image ),
+					pStage->bundle[1].image ? pStage->bundle[1].image->texnum : -1,
+					pStage->bundle[1].isLightmap ? 1 : 0,
+					pStage->bundle[1].tcGen,
+					color0,
+					input->svars.texcoords[0][0][0],
+					input->svars.texcoords[0][0][1],
+					input->svars.texcoords[1][0][0],
+					input->svars.texcoords[1][0][1],
+					input->xyz[0][0],
+					input->xyz[0][1],
+					input->xyz[0][2]);
+				--s_efActiveStageBudget;
+			}
+		}
+		if ( tess.shader && tess.shader->name && strstr( tess.shader->name, "textures/borg/" ) )
+		{
+			static int s_efBorgStageBudget = 12;
+			if ( s_efBorgStageBudget > 0 )
+			{
+				const unsigned long color0 = input->svars.colors[0];
+				const unsigned int r = (unsigned int)((color0 >> 16) & 0xff);
+				const unsigned int g = (unsigned int)((color0 >> 8) & 0xff);
+				const unsigned int b = (unsigned int)(color0 & 0xff);
+				const unsigned int a = (unsigned int)((color0 >> 24) & 0xff);
+				XBLF("EF: RB_STAGE_SAMPLE shader='%s' stage=%d passes=%d verts=%d indexes=%d state=0x%x rgb=%d alpha=%d bundle1=%d env=%d img0='%s' lm0=%d tcGen0=%d img1='%s' lm1=%d tcGen1=%d color0=%u,%u,%u,%u st0=%g,%g st1=%g,%g xyz0=%g,%g,%g",
+					tess.shader->name,
+					stage,
+					input->shader ? input->shader->numUnfoggedPasses : -1,
+					input->numVertexes,
+					input->numIndexes,
+					stateBits,
+					pStage->rgbGen,
+					pStage->alphaGen,
+					pStage->bundle[1].image ? 1 : 0,
+					tess.shader ? tess.shader->multitextureEnv : -1,
+					RB_XboxImageLogName( pStage->bundle[0].image ),
+					pStage->bundle[0].isLightmap ? 1 : 0,
+					pStage->bundle[0].tcGen,
+					RB_XboxImageLogName( pStage->bundle[1].image ),
+					pStage->bundle[1].isLightmap ? 1 : 0,
+					pStage->bundle[1].tcGen,
+					r, g, b, a,
+					input->svars.texcoords[0][0][0],
+					input->svars.texcoords[0][0][1],
+					input->svars.texcoords[1][0][0],
+					input->svars.texcoords[1][0][1],
+					input->xyz[0][0],
+					input->xyz[0][1],
+					input->xyz[0][2]);
+				--s_efBorgStageBudget;
+			}
+		}
 #endif
 
 		if ( !setArraysOnce )
@@ -4200,6 +4388,21 @@ void RB_EndSurface( void ) {
 	//
 #ifdef _XBOX
 	{
+		static int activeSurfaceBudget = 12;
+		if (!backEnd.projection2D && cls.state == CA_ACTIVE && activeSurfaceBudget > 0)
+		{
+			XBLF("EF: WORLD_SURFACE shader='%s' verts=%d indexes=%d passes=%d fog=%d dlight=0x%x ent=%d reType=%d func=%p",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.numVertexes,
+				tess.numIndexes,
+				tess.numPasses,
+				tess.fogNum,
+				tess.dlightBits,
+				tr.currentEntityNum,
+				backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
+				tess.currentStageIteratorFunc);
+			--activeSurfaceBudget;
+		}
 		static int traceBudget = 0;
 		qboolean trace = RB_XboxShouldTraceSurface();
 

@@ -605,6 +605,114 @@ qboolean CG_CalcFOVFromX( float fov_x )
 
 	return (inwater);
 }
+
+#ifdef _XBOX
+static qboolean STEFX_XboxBadFloat( float value )
+{
+	return (value != value || value < -1000000.0f || value > 1000000.0f);
+}
+
+static qboolean STEFX_XboxBadVec3( const vec3_t value )
+{
+	return (STEFX_XboxBadFloat(value[0]) || STEFX_XboxBadFloat(value[1]) || STEFX_XboxBadFloat(value[2]));
+}
+
+static void STEFX_XboxRepairRefdef( const char *stage )
+{
+	static int s_logBudget = 48;
+	qboolean badRefdef;
+	playerState_t *ps;
+	vec3_t repairAngles;
+	int viewheight;
+	float repairFov;
+
+	ps = &cg.predicted_player_state;
+	badRefdef =
+		(cg.refdef.width <= 0 || cg.refdef.height <= 0 ||
+		cg.refdef.fov_x < 1.0f || cg.refdef.fov_y < 1.0f ||
+		STEFX_XboxBadFloat(cg.refdef.fov_x) || STEFX_XboxBadFloat(cg.refdef.fov_y) ||
+		STEFX_XboxBadVec3(cg.refdef.vieworg) || STEFX_XboxBadVec3(cg.refdefViewAngles) ||
+		STEFX_XboxBadVec3(cg.refdef.viewaxis[0]));
+
+	if (!badRefdef)
+	{
+		return;
+	}
+
+	if (s_logBudget > 0)
+	{
+		XBLF("STEFX: cgame refdef repair needed stage=%s time=%d rect=%d,%d %dx%d fov=(%g,%g) view=(%g,%g,%g) angles=(%g,%g,%g) predOrg=(%g,%g,%g) predView=(%g,%g,%g) snap=%p",
+			stage ? stage : "<null>",
+			cg.time,
+			cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height,
+			cg.refdef.fov_x, cg.refdef.fov_y,
+			cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
+			cg.refdefViewAngles[0], cg.refdefViewAngles[1], cg.refdefViewAngles[2],
+			ps->origin[0], ps->origin[1], ps->origin[2],
+			ps->viewangles[0], ps->viewangles[1], ps->viewangles[2],
+			(void*)cg.snap);
+	}
+
+	if (cg.refdef.width <= 0)
+	{
+		cg.refdef.width = cgs.glconfig.vidWidth > 0 ? cgs.glconfig.vidWidth : 640;
+	}
+	if (cg.refdef.height <= 0)
+	{
+		cg.refdef.height = cgs.glconfig.vidHeight > 0 ? cgs.glconfig.vidHeight : 480;
+	}
+
+	if (STEFX_XboxBadVec3(ps->origin) && cg.snap)
+	{
+		ps = &cg.snap->ps;
+	}
+
+	if (STEFX_XboxBadVec3(cg.refdef.vieworg) ||
+		(VectorCompare(cg.refdef.vieworg, vec3_origin) && !VectorCompare(ps->origin, vec3_origin)))
+	{
+		VectorCopy(ps->origin, cg.refdef.vieworg);
+		viewheight = ps->viewheight;
+		if (viewheight < 8 || viewheight > 96)
+		{
+			viewheight = 54;
+		}
+		cg.refdef.vieworg[2] += viewheight;
+	}
+
+	VectorCopy(ps->viewangles, repairAngles);
+	if (STEFX_XboxBadVec3(repairAngles))
+	{
+		VectorClear(repairAngles);
+		repairAngles[YAW] = 90.0f;
+	}
+	VectorCopy(repairAngles, cg.refdefViewAngles);
+	AnglesToAxis(cg.refdefViewAngles, cg.refdef.viewaxis);
+
+	if (cg.refdef.fov_x < 1.0f || cg.refdef.fov_y < 1.0f ||
+		STEFX_XboxBadFloat(cg.refdef.fov_x) || STEFX_XboxBadFloat(cg.refdef.fov_y))
+	{
+		repairFov = cg_fov.value;
+		if (STEFX_XboxBadFloat(repairFov) || repairFov < 1.0f || repairFov > 160.0f)
+		{
+			repairFov = 80.0f;
+		}
+		CG_CalcFOVFromX(repairFov);
+	}
+
+	if (s_logBudget > 0)
+	{
+		XBLF("STEFX: cgame refdef repaired stage=%s time=%d rect=%d,%d %dx%d fov=(%g,%g) view=(%g,%g,%g) angles=(%g,%g,%g) axis0=(%g,%g,%g)",
+			stage ? stage : "<null>",
+			cg.time,
+			cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height,
+			cg.refdef.fov_x, cg.refdef.fov_y,
+			cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
+			cg.refdefViewAngles[0], cg.refdefViewAngles[1], cg.refdefViewAngles[2],
+			cg.refdef.viewaxis[0][0], cg.refdef.viewaxis[0][1], cg.refdef.viewaxis[0][2]);
+		--s_logBudget;
+	}
+}
+#endif
 /*
 ====================
 CG_CalcFov
@@ -912,6 +1020,20 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_PredictPlayerState");
 	CG_PredictPlayerState();
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_PredictPlayerState");
+#ifdef _XBOX
+	if (xboxDrawLog)
+	{
+		XBLF("STEFX: cgame predict state time=%d predOrg=(%g,%g,%g) predView=(%g,%g,%g) snapOrg=(%g,%g,%g) snapView=(%g,%g,%g) weapon=%d health=%d viewheight=%d",
+			cg.time,
+			cg.predicted_player_state.origin[0], cg.predicted_player_state.origin[1], cg.predicted_player_state.origin[2],
+			cg.predicted_player_state.viewangles[0], cg.predicted_player_state.viewangles[1], cg.predicted_player_state.viewangles[2],
+			cg.snap->ps.origin[0], cg.snap->ps.origin[1], cg.snap->ps.origin[2],
+			cg.snap->ps.viewangles[0], cg.snap->ps.viewangles[1], cg.snap->ps.viewangles[2],
+			cg.predicted_player_state.weapon,
+			cg.predicted_player_state.stats[STAT_HEALTH],
+			cg.predicted_player_state.viewheight);
+	}
+#endif
 
 	// decide on third person view
 	cg.renderingThirdPerson = cg_thirdPerson.integer || (cg.snap->ps.stats[STAT_HEALTH] <= 0);
@@ -934,6 +1056,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		inwater = CG_CalcViewValues();
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_CalcViewValues");
 	}
+#if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
+	STEFX_XboxRepairRefdef("post-view");
+#endif
 
 	//This is done from the vieworg to get origin for non-attenuated sounds
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before S_UpdateAmbientSet");

@@ -57,6 +57,11 @@ extern bool noControllersConnected;
 // Process all the insertions and removals, updating handles and such
 void IN_ProcessChanges(DWORD dwInsert, DWORD dwRemove)
 {
+	if (dwInsert || dwRemove)
+	{
+		XBLF("STEFX: IN_ProcessChanges insert=0x%08x remove=0x%08x\n", dwInsert, dwRemove);
+	}
+
 	for(int port = 0; port < IN_MAX_CONTROLLERS; ++port)
 	{
 		// Close removals.
@@ -75,6 +80,7 @@ void IN_ProcessChanges(DWORD dwInsert, DWORD dwRemove)
 		if( (1 << port) & dwInsert )
 		{
 			in_state->controllers[port].handle = XInputOpen( XDEVICE_TYPE_GAMEPAD, port, XDEVICE_NO_SLOT, NULL );
+			XBLF("STEFX: controller %d open handle=%p\n", port, in_state->controllers[port].handle);
 			IN_PadPlugged(port);
 		}
 	}
@@ -194,7 +200,9 @@ void IN_Init( void )
 		memset(in_state->controllers, 0, sizeof(in_state->controllers));
 
 		// Find out the status of all gamepad ports, then open them
-		IN_ProcessChanges( XGetDevices( XDEVICE_TYPE_GAMEPAD ), 0 );
+		DWORD deviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
+		XBLF("STEFX: IN_Init gamepad mask=0x%08x\n", deviceMask);
+		IN_ProcessChanges( deviceMask, 0 );
 
 		IN_RumbleInit();
 	}
@@ -222,6 +230,10 @@ static inline float _joyAxisConvert(SHORT x)
 
 void IN_UpdateGamepad(int port)
 {
+	static bool loggedFirstState[IN_MAX_CONTROLLERS] = { false, false, false, false };
+#if defined(STEFX_ELITE_FORCE_SP)
+	static int activeStateLogBudget[IN_MAX_CONTROLLERS] = { 16, 16, 16, 16 };
+#endif
 	// Lookup table to convert the digital buttons to fakeAscii_t, in mask order
 	const fakeAscii_t digitalXlat[IN_NUM_DIGITAL_BUTTONS] = {
 		A_JOY5, // DPAD_UP
@@ -249,6 +261,53 @@ void IN_UpdateGamepad(int port)
 	// Get new state
 	XINPUT_STATE newState;
 	XInputGetState( in_state->controllers[port].handle, &newState );
+	if (!loggedFirstState[port])
+	{
+		XBLF("STEFX: first gamepad state port=%d buttons=0x%04x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d\n",
+			port,
+			newState.Gamepad.wButtons,
+			newState.Gamepad.bAnalogButtons[0],
+			newState.Gamepad.bAnalogButtons[1],
+			newState.Gamepad.bAnalogButtons[2],
+			newState.Gamepad.bAnalogButtons[3],
+			newState.Gamepad.bAnalogButtons[6],
+			newState.Gamepad.bAnalogButtons[7],
+			newState.Gamepad.sThumbLX,
+			newState.Gamepad.sThumbLY,
+			newState.Gamepad.sThumbRX,
+			newState.Gamepad.sThumbRY);
+		loggedFirstState[port] = true;
+	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (activeStateLogBudget[port] > 0 &&
+		(newState.Gamepad.wButtons ||
+		 newState.Gamepad.bAnalogButtons[0] ||
+		 newState.Gamepad.bAnalogButtons[1] ||
+		 newState.Gamepad.bAnalogButtons[2] ||
+		 newState.Gamepad.bAnalogButtons[3] ||
+		 newState.Gamepad.bAnalogButtons[6] ||
+		 newState.Gamepad.bAnalogButtons[7] ||
+		 newState.Gamepad.sThumbLX ||
+		 newState.Gamepad.sThumbLY ||
+		 newState.Gamepad.sThumbRX ||
+		 newState.Gamepad.sThumbRY))
+	{
+		XBLF("STEFX: active gamepad port=%d buttons=0x%04x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d",
+			port,
+			newState.Gamepad.wButtons,
+			newState.Gamepad.bAnalogButtons[0],
+			newState.Gamepad.bAnalogButtons[1],
+			newState.Gamepad.bAnalogButtons[2],
+			newState.Gamepad.bAnalogButtons[3],
+			newState.Gamepad.bAnalogButtons[6],
+			newState.Gamepad.bAnalogButtons[7],
+			newState.Gamepad.sThumbLX,
+			newState.Gamepad.sThumbLY,
+			newState.Gamepad.sThumbRX,
+			newState.Gamepad.sThumbRY);
+		activeStateLogBudget[port]--;
+	}
+#endif
 
 	// Get old state
 	XINPUT_STATE &oldState(in_state->controllers[port].state);
@@ -328,9 +387,25 @@ void IN_Frame (void)
 		{
 			// We only force the controller to be locked when we came from MP:
 			extern bool Sys_QuickStart( void );
-			if( Sys_QuickStart() )
+			bool quickStart = Sys_QuickStart();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			extern bool Sys_IsDirectMapBoot(void);
+			if ( Sys_IsDirectMapBoot() )
 			{
-				Com_Printf("\tController %d initialized\n", gLaunchController); 
+				if ( quickStart )
+				{
+					Com_Printf("\tController %d initialized\n", gLaunchController);
+					startsetMainController(gLaunchController);
+				}
+				Cvar_SetValue( "inSplashMenu", 0 );
+				Cvar_SetValue( "ControllerOutNum", -1 );
+				XBLog_Write("STEFX: direct-map input gate cleared splash/controller lock");
+			}
+			else
+#endif
+			if( quickStart )
+			{
+				Com_Printf("\tController %d initialized\n", gLaunchController);
 				startsetMainController(gLaunchController);
 
 				// We're bypassing splash menu!

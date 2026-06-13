@@ -3,6 +3,9 @@
 #include "g_local.h"
 #include "g_functions.h"
 #include "g_nav.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 #define ACT_ACTIVE		qtrue
 #define ACT_INACTIVE	qfalse
@@ -257,6 +260,24 @@ gentity_t *G_PickTarget (char *targetname)
 void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 {
 	gentity_t		*t;
+#ifdef _XBOX
+	static int stefxUseTargetsLogBudget = 96;
+	int foundCount = 0;
+	qboolean shouldLog = (qboolean)(stefxUseTargetsLogBudget > 0 && string &&
+		(!Q_stricmp(string, "intro3") || strstr(string, "intro") || strstr(string, "setupworld")));
+
+	if (shouldLog)
+	{
+		XBLF("STEFX: G_UseTargets2 enter ent=%d class='%s' targetname='%s' target='%s' activator=%d actTarget='%s'",
+			ent ? ent->s.number : -1,
+			ent && ent->classname ? ent->classname : "",
+			ent && ent->targetname ? ent->targetname : "",
+			string ? string : "",
+			activator ? activator->s.number : -1,
+			activator && activator->targetname ? activator->targetname : "");
+		--stefxUseTargetsLogBudget;
+	}
+#endif
 	
 //
 // fire targets
@@ -266,6 +287,21 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 		t = NULL;
 		while ( (t = G_Find (t, FOFS(targetname), (char *) string)) != NULL )
 		{
+#ifdef _XBOX
+			foundCount++;
+			if (shouldLog)
+			{
+				XBLF("STEFX: G_UseTargets2 found ent=%d class='%s' targetname='%s' use=%d inactive=%d behavior='%s' flags=0x%x count=%d",
+					t->s.number,
+					t->classname ? t->classname : "",
+					t->targetname ? t->targetname : "",
+					t->e_UseFunc,
+					(t->svFlags & SVF_INACTIVE) ? 1 : 0,
+					t->behaviorSet[BSET_USE] ? t->behaviorSet[BSET_USE] : "",
+					t->spawnflags,
+					t->count);
+			}
+#endif
 			if (t == ent)
 			{
 //				gi.Printf ("WARNING: Entity used itself.\n");
@@ -274,7 +310,24 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 			{
 				if (t->e_UseFunc != useF_NULL)	// check can be omitted
 				{
+#ifdef _XBOX
+					if (shouldLog)
+					{
+						XBLF("STEFX: G_UseTargets2 before use target ent=%d", t->s.number);
+					}
+#endif
 					GEntity_UseFunc(t, ent, activator);
+#ifdef _XBOX
+					if (shouldLog)
+					{
+						XBLF("STEFX: G_UseTargets2 after use target ent=%d entInuse=%d actOrigin=(%g,%g,%g)",
+							t->s.number,
+							ent ? ent->inuse : -1,
+							activator && activator->client ? activator->client->ps.origin[0] : 0.0f,
+							activator && activator->client ? activator->client->ps.origin[1] : 0.0f,
+							activator && activator->client ? activator->client->ps.origin[2] : 0.0f);
+					}
+#endif
 				}
 			}
 
@@ -284,6 +337,12 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 				return;
 			}
 		}
+#ifdef _XBOX
+		if (shouldLog)
+		{
+			XBLF("STEFX: G_UseTargets2 exit target='%s' found=%d", string ? string : "", foundCount);
+		}
+#endif
 	}
 }
 

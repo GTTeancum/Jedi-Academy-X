@@ -286,7 +286,7 @@ char *FS_BuildOSPathUnMapped( const char *qpath )
 	return ospath[toggle];
 }
 
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 char *FS_BuildOSPath( const char *base, const char *game, const char *qpath ) {
 	char	temp[MAX_OSPATH];
 	static char ospath[4][MAX_OSPATH];
@@ -536,7 +536,7 @@ void FS_Shutdown( void ) {
 		next = p->next;
 
 		if ( p->pack ) {
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 			unzClose(p->pack->handle);
 #endif
 			Z_Free( p->pack->buildBuffer );

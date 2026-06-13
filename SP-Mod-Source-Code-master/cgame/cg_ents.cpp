@@ -4,6 +4,9 @@
 #include "fx_public.h"
 #include "..\game\g_functions.h"
 #include "..\game\boltOns.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern qboolean CG_ApplyBoltOnToRefEnt (refEntity_t *newBoltOn, boltOn_t *boltOn, boltOnInfo_t *bOInfo, const vec3_t org, refEntity_t *targModel);
 extern void CG_AssimilationTubules( vec3_t start, vec3_t end, vec3_t up, float scale );
@@ -1284,6 +1287,27 @@ CG_AddCEntity
 */
 static void CG_AddCEntity( centity_t *cent ) 
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxAddCentLogBudget = 80;
+	if ( cent && s_stefxAddCentLogBudget > 0 && cg.time >= 2500 && cg.time <= 5000 &&
+		( cent->currentState.number == 78 || cent->currentState.number == 154 ) )
+	{
+		XBLF( "STEFX: CG_AddCEntity ent=%d type=%d eFlags=0x%x gent=%p client=%p origin=(%g,%g,%g) lerp=(%g,%g,%g)",
+			cent->currentState.number,
+			cent->currentState.eType,
+			cent->currentState.eFlags,
+			cent->gent,
+			cent->gent ? cent->gent->client : NULL,
+			cent->currentState.pos.trBase[0],
+			cent->currentState.pos.trBase[1],
+			cent->currentState.pos.trBase[2],
+			cent->lerpOrigin[0],
+			cent->lerpOrigin[1],
+			cent->lerpOrigin[2] );
+		s_stefxAddCentLogBudget--;
+	}
+#endif
+
 	// event-only entities will have been dealt with already
 	if ( cent->currentState.eType >= ET_EVENTS ) {
 		return;
@@ -1398,4 +1422,3 @@ void CG_AddPacketEntities( void ) {
 		CG_AddCEntity( cent );
 	}
 }
-

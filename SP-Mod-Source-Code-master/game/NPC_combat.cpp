@@ -1,5 +1,8 @@
 //NPC_combat.cpp
 #include "b_local.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern void G_AddVoiceEvent( gentity_t *self, int event, int speakDebounceTime );
 extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
@@ -93,6 +96,9 @@ G_SetEnemy
 void G_SetEnemy( gentity_t *self, gentity_t *enemy )
 {
 	int	event = 0;
+#ifdef _XBOX
+	static int s_stefxSetEnemyBudget = 96;
+#endif
 	
 	//Must be valid
 	if ( enemy == NULL )
@@ -107,6 +113,27 @@ void G_SetEnemy( gentity_t *self, gentity_t *enemy )
 	//Don't take the enemy if in notarget
 	if ( enemy->flags & FL_NOTARGET )
 		return;
+
+#ifdef _XBOX
+	if ( s_stefxSetEnemyBudget > 0 )
+	{
+		XBLF("STEFX: NPC_SetEnemy self=%d class='%s' targetname='%s' npc=%d client=%d enemy=%d enemyClass='%s' enemyTargetname='%s' time=%d selfHealth=%d enemyHealth=%d team=%d enemyTeam=%d",
+			self ? self->s.number : -1,
+			(self && self->classname) ? self->classname : "<null>",
+			(self && self->targetname) ? self->targetname : "<null>",
+			(self && self->NPC) ? 1 : 0,
+			(self && self->client) ? 1 : 0,
+			enemy ? enemy->s.number : -1,
+			(enemy && enemy->classname) ? enemy->classname : "<null>",
+			(enemy && enemy->targetname) ? enemy->targetname : "<null>",
+			level.time,
+			self ? self->health : -9999,
+			enemy ? enemy->health : -9999,
+			(self && self->client) ? self->client->playerTeam : -1,
+			(enemy && enemy->client) ? enemy->client->playerTeam : -1);
+		s_stefxSetEnemyBudget--;
+	}
+#endif
 
 	if ( !self->NPC )
 	{
@@ -1851,4 +1878,3 @@ qboolean NPC_SetCombatPoint( int combatPointID )
 
 	return qtrue;
 }
-

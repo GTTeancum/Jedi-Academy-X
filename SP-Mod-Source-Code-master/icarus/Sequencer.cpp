@@ -5,6 +5,50 @@
 #include "ICARUS.h"
 #include "assert.h"
 
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+
+static bool STEFX_LogSequencerOwner( int ownerID )
+{
+	return ownerID == 0 || ownerID == 386 || ownerID == 391;
+}
+
+static bool STEFX_LogSequencerBudget( int *budget, int limit )
+{
+	if ( *budget >= limit )
+	{
+		return false;
+	}
+	(*budget)++;
+	return true;
+}
+
+static const char *STEFX_SequencerBlockName( int id )
+{
+	switch ( id )
+	{
+	case ID_WAIT: return "WAIT";
+	case ID_WAITSIGNAL: return "WAITSIGNAL";
+	case ID_PRINT: return "PRINT";
+	case ID_SOUND: return "SOUND";
+	case ID_MOVE: return "MOVE";
+	case ID_ROTATE: return "ROTATE";
+	case ID_KILL: return "KILL";
+	case ID_REMOVE: return "REMOVE";
+	case ID_CAMERA: return "CAMERA";
+	case ID_SET: return "SET";
+	case ID_USE: return "USE";
+	case ID_DECLARE: return "DECLARE";
+	case ID_FREE: return "FREE";
+	case ID_SIGNAL: return "SIGNAL";
+	case ID_PLAY: return "PLAY";
+	case ID_BLOCK_END: return "BLOCK_END";
+	case ID_DO: return "DO";
+	default: return "UNKNOWN";
+	}
+}
+#endif
+
 // Sequencer 
 
 CSequencer::CSequencer( void )
@@ -1807,12 +1851,47 @@ Handles a completed task and returns a new task to be completed
 int CSequencer::Callback( CTaskManager *taskManager, CBlock *block, int returnCode )
 {
 	CBlock	*command;
+#ifdef _XBOX
+	int blockID = block ? block->GetBlockID() : -1;
+	if ( STEFX_LogSequencerOwner( m_ownerID ) )
+	{
+		static int s_stefxSeqCallbackBudget = 0;
+		if ( STEFX_LogSequencerBudget( &s_stefxSeqCallbackBudget, 192 ) )
+		{
+			XBLF("STEFX: ICARUS SeqCallback enter owner=%d block=%d(%s) return=%d curSeq=%08X commands=%d hasReturn=%d time=%d\n",
+				m_ownerID,
+				blockID,
+				blockID >= 0 ? STEFX_SequencerBlockName( blockID ) : "NULL",
+				returnCode,
+				(unsigned int)m_curSequence,
+				m_curSequence ? m_curSequence->GetNumCommands() : -1,
+				(m_curSequence && m_curSequence->GetReturn()) ? 1 : 0,
+				m_ie ? m_ie->I_GetTime() : -1);
+		}
+	}
+#endif
 
 	if (returnCode == TASK_RETURN_COMPLETE)
 	{
 		//There are no more pending commands
 		if ( m_curSequence == NULL )
+		{
+#ifdef _XBOX
+			if ( STEFX_LogSequencerOwner( m_ownerID ) )
+			{
+				static int s_stefxSeqNullBudget = 0;
+				if ( STEFX_LogSequencerBudget( &s_stefxSeqNullBudget, 64 ) )
+				{
+					XBLF("STEFX: ICARUS SeqCallback no sequence owner=%d block=%d(%s) time=%d\n",
+						m_ownerID,
+						blockID,
+						blockID >= 0 ? STEFX_SequencerBlockName( blockID ) : "NULL",
+						m_ie ? m_ie->I_GetTime() : -1);
+				}
+			}
+#endif
 			return SEQ_OK;
+		}
 
 		//Check to retain the command
 		if ( m_curSequence->HasFlag( SQ_RETAIN ) )	//This isn't true for affect sequences...?
@@ -1829,13 +1908,64 @@ int CSequencer::Callback( CTaskManager *taskManager, CBlock *block, int returnCo
 		if ( m_curSequence->GetNumCommands() <= 0 )
 		{
 			if ( m_curSequence->GetReturn() == NULL)
+			{
+#ifdef _XBOX
+				if ( STEFX_LogSequencerOwner( m_ownerID ) )
+				{
+					static int s_stefxSeqDoneBudget = 0;
+					if ( STEFX_LogSequencerBudget( &s_stefxSeqDoneBudget, 96 ) )
+					{
+						XBLF("STEFX: ICARUS SeqCallback sequence done owner=%d block=%d(%s) curSeq=%08X flags=0x%x time=%d\n",
+							m_ownerID,
+							blockID,
+							blockID >= 0 ? STEFX_SequencerBlockName( blockID ) : "NULL",
+							(unsigned int)m_curSequence,
+							m_curSequence ? m_curSequence->GetFlags() : 0,
+							m_ie ? m_ie->I_GetTime() : -1);
+					}
+				}
+#endif
 				return SEQ_OK;
+			}
 
 			m_curSequence = m_curSequence->GetReturn();
+#ifdef _XBOX
+			if ( STEFX_LogSequencerOwner( m_ownerID ) )
+			{
+				static int s_stefxSeqReturnBudget = 0;
+				if ( STEFX_LogSequencerBudget( &s_stefxSeqReturnBudget, 96 ) )
+				{
+					XBLF("STEFX: ICARUS SeqCallback returned owner=%d curSeq=%08X commands=%d hasReturn=%d time=%d\n",
+						m_ownerID,
+						(unsigned int)m_curSequence,
+						m_curSequence ? m_curSequence->GetNumCommands() : -1,
+						(m_curSequence && m_curSequence->GetReturn()) ? 1 : 0,
+						m_ie ? m_ie->I_GetTime() : -1);
+				}
+			}
+#endif
 		}
 
 		command = PopCommand( POP_BACK );
 		Prep( &command );
+
+#ifdef _XBOX
+		if ( STEFX_LogSequencerOwner( m_ownerID ) )
+		{
+			static int s_stefxSeqNextBudget = 0;
+			int commandID = command ? command->GetBlockID() : -1;
+			if ( STEFX_LogSequencerBudget( &s_stefxSeqNextBudget, 192 ) )
+			{
+				XBLF("STEFX: ICARUS SeqCallback next owner=%d command=%d(%s) curSeq=%08X commandsLeft=%d time=%d\n",
+					m_ownerID,
+					commandID,
+					commandID >= 0 ? STEFX_SequencerBlockName( commandID ) : "NULL",
+					(unsigned int)m_curSequence,
+					m_curSequence ? m_curSequence->GetNumCommands() : -1,
+					m_ie ? m_ie->I_GetTime() : -1);
+			}
+		}
+#endif
 
 		if ( command )
 			taskManager->SetCommand( command, PUSH_FRONT );

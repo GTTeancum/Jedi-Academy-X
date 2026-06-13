@@ -585,7 +585,11 @@ G_InitCvars
 */
 void G_InitCvars( void ) {
 	// don't override the cheat state set by the system
+#if defined(STEFX_ELITE_FORCE_SP)
+	g_cheats = gi.cvar ("sv_cheats", "", 0);
+#else
 	g_cheats = gi.cvar ("helpUsObi", "", 0);
+#endif
 	g_developer = gi.cvar ("developer", "", 0);
 
 	// noset vars
@@ -1040,11 +1044,20 @@ game_export_t *GetGameAPI( game_import_t *import ) {
 	gameinfo_import.FS_FOpenFile = gi.FS_FOpenFile;
 	gameinfo_import.FS_Read = gi.FS_Read;
 	gameinfo_import.FS_FCloseFile = gi.FS_FCloseFile;
+	gameinfo_import.FS_ReadFile = gi.FS_ReadFile;
+	gameinfo_import.FS_FreeFile = gi.FS_FreeFile;
 	gameinfo_import.Cvar_Set = gi.cvar_set;
 	gameinfo_import.Cvar_VariableStringBuffer = gi.Cvar_VariableStringBuffer;
 	gameinfo_import.Cvar_Create = G_Cvar_Create;
+	gameinfo_import.Printf = gi.Printf;
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: EF GetGameAPI before GI_Init");
+#endif
 	GI_Init( &gameinfo_import );
+#ifdef _XBOX
+	XBLog_Write("STEFX: EF GetGameAPI after GI_Init");
+#endif
 
 #ifdef _XBOX
 	g_SPXBGamePhase = 31;

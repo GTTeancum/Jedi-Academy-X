@@ -49,24 +49,68 @@ extern byte		sys_packetReceived[MAX_MSGLEN];
 #ifdef _XBOX
 bool g_xboxDirectMapBootQueued = false;
 
-static bool Sys_XboxDirectMapRequested(void)
+static bool Sys_XboxReadFirstLineFromPaths(const char **paths, char *out, int outSize, const char **usedPath)
 {
-	char startupMap[MAX_QPATH];
-	startupMap[0] = '\0';
+	int pathIndex;
 
-	FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
-	if (!startupMapFile)
+	if (outSize <= 0)
 	{
 		return false;
 	}
 
-	if (fgets(startupMap, sizeof(startupMap), startupMapFile))
+	out[0] = '\0';
+	if (usedPath)
 	{
-		startupMap[strcspn(startupMap, "\r\n\t ")] = '\0';
+		*usedPath = NULL;
 	}
-	fclose(startupMapFile);
 
-	return startupMap[0] != '\0';
+	for (pathIndex = 0; paths[pathIndex]; ++pathIndex)
+	{
+		FILE *startupMapFile = fopen(paths[pathIndex], "r");
+		if (startupMapFile)
+		{
+			if (fgets(out, outSize, startupMapFile))
+			{
+				out[strcspn(out, "\r\n\t ")] = '\0';
+			}
+			fclose(startupMapFile);
+
+			if (out[0])
+			{
+				if (usedPath)
+				{
+					*usedPath = paths[pathIndex];
+				}
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+static bool Sys_XboxDirectMapRequested(void)
+{
+	char startupMap[MAX_QPATH];
+	const char *startupMapPaths[] = {
+#if defined(STEFX_ELITE_FORCE_SP)
+		"D:\\ef_sp_level.txt",
+#endif
+		"D:\\ja_sp_level.txt",
+		NULL
+	};
+	startupMap[0] = '\0';
+
+	if (Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), NULL))
+	{
+		return true;
+	}
+
+#if defined(STEFX_ELITE_FORCE_SP)
+	return true;
+#else
+	return false;
+#endif
 }
 
 bool Sys_IsDirectMapBoot(void)
@@ -77,43 +121,100 @@ bool Sys_IsDirectMapBoot(void)
 static bool Sys_XboxQueueDirectMapBoot(void)
 {
 	char startupMap[MAX_QPATH];
+	const char *startupMapSource = NULL;
+	const char *startupMapPaths[] = {
+#if defined(STEFX_ELITE_FORCE_SP)
+		"D:\\ef_sp_level.txt",
+#endif
+		"D:\\ja_sp_level.txt",
+		NULL
+	};
+	const char *startupCommandPaths[] = {
+#if defined(STEFX_ELITE_FORCE_SP)
+		"D:\\ef_sp_commands.txt",
+#endif
+		"D:\\ja_sp_commands.txt",
+		NULL
+	};
+	const char *postMapCommandPaths[] = {
+#if defined(STEFX_ELITE_FORCE_SP)
+		"D:\\ef_sp_postmap_commands.txt",
+#endif
+		NULL
+	};
+	int startupCommandPathIndex;
+	int postMapCommandPathIndex;
 	startupMap[0] = '\0';
 
-	FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
-	if (startupMapFile)
+	Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), &startupMapSource);
+
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (!startupMap[0])
 	{
-		if (fgets(startupMap, sizeof(startupMap), startupMapFile))
-		{
-			startupMap[strcspn(startupMap, "\r\n\t ")] = '\0';
-		}
-		fclose(startupMapFile);
+		Q_strncpyz(startupMap, "borg1", sizeof(startupMap));
+		startupMapSource = "EF Xbox default";
 	}
 
-	FILE *startupCommandFile = fopen("D:\\ja_sp_commands.txt", "r");
-	if (startupCommandFile)
+	if (!Q_stricmp(startupMap, "borg1"))
 	{
-		char commandLine[1024];
-		while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
+		XBL("JA: direct-map boot: EF borg1 default, original map scripts left in control\n");
+	}
+#endif
+
+	for (startupCommandPathIndex = 0; startupCommandPaths[startupCommandPathIndex]; ++startupCommandPathIndex)
+	{
+		FILE *startupCommandFile = fopen(startupCommandPaths[startupCommandPathIndex], "r");
+		if (startupCommandFile)
 		{
-			commandLine[strcspn(commandLine, "\r\n")] = '\0';
-			if (commandLine[0])
+			char commandLine[1024];
+			while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
 			{
-				XBLF("JA: direct-map boot: queue startup command '%s'", commandLine);
-				Cbuf_AddText(commandLine);
-				Cbuf_AddText("\n");
+				commandLine[strcspn(commandLine, "\r\n")] = '\0';
+				if (commandLine[0])
+				{
+					XBLF("JA: direct-map boot: queue startup command '%s' from %s", commandLine, startupCommandPaths[startupCommandPathIndex]);
+					Cbuf_AddText(commandLine);
+					Cbuf_AddText("\n");
+				}
 			}
+			fclose(startupCommandFile);
 		}
-		fclose(startupCommandFile);
 	}
 
 	if (!startupMap[0])
 	{
+#if defined(STEFX_ELITE_FORCE_SP)
+		Q_strncpyz(startupMap, "borg1", sizeof(startupMap));
+		startupMapSource = "EF Xbox default";
+#else
 		XBL("JA: direct-map boot: no ja_sp_level.txt map, normal boot\n");
 		return false;
+#endif
 	}
 
-	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame", startupMap);
+	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame source=%s",
+		startupMap,
+		startupMapSource ? startupMapSource : "<unknown>");
 	Cbuf_AddText(va("devmap %s\n", startupMap));
+	for (postMapCommandPathIndex = 0; postMapCommandPaths[postMapCommandPathIndex]; ++postMapCommandPathIndex)
+	{
+		FILE *postMapCommandFile = fopen(postMapCommandPaths[postMapCommandPathIndex], "r");
+		if (postMapCommandFile)
+		{
+			char commandLine[1024];
+			while (fgets(commandLine, sizeof(commandLine), postMapCommandFile))
+			{
+				commandLine[strcspn(commandLine, "\r\n")] = '\0';
+				if (commandLine[0])
+				{
+					XBLF("JA: direct-map boot: queue post-map command '%s' from %s", commandLine, postMapCommandPaths[postMapCommandPathIndex]);
+					Cbuf_AddText(commandLine);
+					Cbuf_AddText("\n");
+				}
+			}
+			fclose(postMapCommandFile);
+		}
+	}
 	g_xboxDirectMapBootQueued = true;
 	return true;
 }
@@ -826,7 +927,7 @@ int main(int argc, char* argv[])
 		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 #ifdef _XBOX
-		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE) ? 0 : 1;
+		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE || (com_sv_running && com_sv_running->integer)) ? 0 : 1;
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
 		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before first yield ms=%lu state=%d clsFrame=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state, cls.framecount);
 		Sleep(xboxMainLoopYieldMs);
@@ -911,9 +1012,13 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 	// Hax0red console version of Sys_ListFiles. We mangle our arguments to get a standard filename
 	// That file should exist, and contain the list of files that meet this search criteria.
 	char	listFilename[MAX_OSPATH];
-	char	*listFile, *curFile, *end;
+	char	*listFile = NULL, *curFile, *end;
 	int		nfiles;
 	char	**retList;
+	int		listLen;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean traceShaderList = qfalse;
+#endif
 
 	// S00per hack
 #ifdef XBOX_DEMO
@@ -921,8 +1026,18 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 	if (strstr(directory, basePath))
 		directory += strlen( basePath );
 #else
-	if (strstr(directory, "d:\\base\\"))
+#if defined(STEFX_ELITE_FORCE_SP)
+	const char *baseEfPath = "d:\\BaseEF\\";
+	if (!Q_stricmpn(directory, baseEfPath, strlen(baseEfPath)))
+	{
+		directory += strlen(baseEfPath);
+	}
+	else
+#endif
+	if (!Q_stricmpn(directory, "d:\\base\\", 8))
+	{
 		directory += 8;
+	}
 #endif
 
 	if (!extension)
@@ -942,11 +1057,25 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 
 	// Build our filename
 	Com_sprintf(listFilename, sizeof(listFilename), "%s\\_console_%s_list_", directory, extension);
-	if (FS_ReadFile( listFilename, (void**)&listFile ) <= 0)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	traceShaderList = !Q_stricmp(extension, "shader");
+	if (traceShaderList)
+	{
+		XBLog_Write(va("STEFX: Sys_ListFiles shader dir='%s' list='%s'", directory, listFilename));
+	}
+#endif
+	listLen = FS_ReadFile( listFilename, (void**)&listFile );
+	if (listLen <= 0)
 	{
 		if(listFile) {
 			FS_FreeFile(listFile);
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (traceShaderList)
+		{
+			XBLog_Write(va("STEFX: Sys_ListFiles shader list missing '%s' len=%d", listFilename, listLen));
+		}
+#endif
 		Com_Printf( "WARNING: List file %s not found\n", listFilename );
 		if (numfiles)
 			*numfiles = 0;
@@ -982,6 +1111,12 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 
 	// Fill in caller's pointer for number of files found
 	if (numfiles) *numfiles = nfiles;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (traceShaderList)
+	{
+		XBLog_Write(va("STEFX: Sys_ListFiles shader list '%s' len=%d entries=%d", listFilename, listLen, nfiles));
+	}
+#endif
 
 	// Did we find any files at all?
 	if (nfiles == 0)
@@ -1298,11 +1433,58 @@ static void STEFX_ClientCommand(int clientNum)
 
 static void STEFX_ClientThink(int clientNum, usercmd_t *cmd)
 {
+#if defined(_XBOX)
+	static int s_stefxAdapterClientThinkBudget = 96;
+	qboolean interestingCmd =
+		(cmd && (cmd->forwardmove || cmd->rightmove || cmd->upmove || (cmd->buttons & ~BUTTON_WALKING))) ? qtrue : qfalse;
+	qboolean logThis =
+		((clientNum == 0 && s_stefxAdapterClientThinkBudget > 88) || interestingCmd) &&
+		s_stefxAdapterClientThinkBudget > 0;
+
+	if (logThis)
+	{
+		void *efEnt = NULL;
+		if (s_stefxEfGame && s_stefxEfGame->gentities && s_stefxEfGame->gentitySize > 0 && clientNum >= 0)
+		{
+			efEnt = (void *)((byte *)s_stefxEfGame->gentities + s_stefxEfGame->gentitySize * clientNum);
+		}
+		XBLF("STEFX: adapter ClientThink enter client=%d cmd=%p cmdTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d efGame=%p efThink=%p efEnt=%p efGentities=%p efGentitySize=%d efNum=%d",
+			clientNum,
+			cmd,
+			cmd ? cmd->serverTime : -1,
+			cmd ? cmd->forwardmove : 0,
+			cmd ? cmd->rightmove : 0,
+			cmd ? cmd->upmove : 0,
+			cmd ? cmd->buttons : 0,
+			cmd ? cmd->weapon : -1,
+			s_stefxEfGame,
+			s_stefxEfGame ? s_stefxEfGame->ClientThink : NULL,
+			efEnt,
+			s_stefxEfGame ? s_stefxEfGame->gentities : NULL,
+			s_stefxEfGame ? s_stefxEfGame->gentitySize : 0,
+			s_stefxEfGame ? s_stefxEfGame->num_entities : 0);
+	}
+#endif
 	if (s_stefxEfGame && s_stefxEfGame->ClientThink)
 	{
 		s_stefxEfGame->ClientThink(clientNum, cmd);
 	}
 	STEFX_SyncGameExport();
+#if defined(_XBOX)
+	if (logThis)
+	{
+		XBLF("STEFX: adapter ClientThink exit client=%d cmdTime=%d efGentities=%p efGentitySize=%d efNum=%d jaGentities=%p jaGentitySize=%d jaNum=%d",
+			clientNum,
+			cmd ? cmd->serverTime : -1,
+			s_stefxEfGame ? s_stefxEfGame->gentities : NULL,
+			s_stefxEfGame ? s_stefxEfGame->gentitySize : 0,
+			s_stefxEfGame ? s_stefxEfGame->num_entities : 0,
+			s_stefxJaGame.gentities,
+			s_stefxJaGame.gentitySize,
+			s_stefxJaGame.num_entities);
+		s_stefxAdapterClientThinkBudget--;
+	}
+#endif
 }
 
 static void STEFX_RunFrame(int levelTime)

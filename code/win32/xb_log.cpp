@@ -44,6 +44,7 @@ static const char *g_logPath = NULL;
 static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
 static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
+static int g_debugStringMirror = 0;
 
 extern "C" {
 __declspec(dllexport) volatile unsigned int g_SPXBLogMagic = 0x53504546; /* 'SPEF' */
@@ -194,7 +195,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_renderBudget = 48;
     static int s_cgameBudget = 48;
     static int s_assetBudget = 48;
-    static int s_stefxClientThinkBudget = 12;
+    static int s_stefxClientThinkBudget = 96;
     static int s_stefxPmoveBudget = 12;
     static int s_stefxTouchBudget = 12;
     static int s_stefxClipBudget = 8;
@@ -203,21 +204,28 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxModelBudget = 24;
     static int s_efModelBudget = 16;
     static int s_stefxGameFrameBudget = 24;
-    static int s_stefxNpcBudget = 32;
+    static int s_stefxNpcBudget = 96;
     static int s_stefxTraceBudget = 8;
+    static int s_stefxCinematicGateBudget = 24;
+    static int s_stefxAttackProbeBudget = 48;
+    static int s_stefxSmokeAimBudget = 64;
+    static int s_stefxPmStateBudget = 64;
+    static int s_stefxInputBudget = 96;
+    static int s_stefxDamageBudget = 64;
     static int s_stefxSyscallBudget = 24;
     static int s_stefxRunFrameBudget = 24;
     static int s_stefxWalkBudget = 4;
     static int s_stefxAirBudget = 4;
+    static int s_efFastDrawBudget = 24;
     static int s_jaComPhaseBudget = 48;
     static int s_jaMainTightBudget = 48;
     static int s_jaEventBudget = 32;
     static int s_jaClFrameBudget = 192;
     static int s_jaClEarlyBudget = 1024;
-    static int s_jaClEarlyEfBudget = 2048;
-    static int s_jaScrBudget = 160;
-    static int s_jaCgDrawBudget = 256;
-    static int s_jaComActiveBudget = 160;
+    static int s_jaClEarlyEfBudget = 256;
+    static int s_jaScrBudget = 96;
+    static int s_jaCgDrawBudget = 64;
+    static int s_jaComActiveBudget = 48;
 
     if (!msg) return 1;
 
@@ -226,6 +234,16 @@ static int xbl_ShouldDropVerbose(const char *msg)
         strstr(msg, "ERROR") ||
         strstr(msg, "Out of memory") ||
         strstr(msg, "texture allocation failures") ||
+        strstr(msg, "STEFX: PM_Weapon probe") ||
+        strstr(msg, "STEFX: PM_AddEvent fire") ||
+        strstr(msg, "STEFX: ClientEvents fire") ||
+        strstr(msg, "STEFX: FireWeapon enter") ||
+        strstr(msg, "STEFX: WP_FireCompression trace") ||
+        strstr(msg, "STEFX: ClientThink PM state result") ||
+        strstr(msg, "STEFX: NPC_SetEnemy") ||
+        strstr(msg, "STEFX: smoke stage enemy") ||
+        strstr(msg, "STEFX: renderer screenshot") ||
+        strstr(msg, "JA: fakegl framebuffer sample") ||
         strstr(msg, "repaired nonfinite") ||
         strstr(msg, "exit nonfinite") ||
         strstr(msg, "exit invalid") ||
@@ -233,7 +251,37 @@ static int xbl_ShouldDropVerbose(const char *msg)
         return 0;
     }
 
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: controller", &s_stefxInputBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: direct-map main controller selected", &s_stefxInputBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: direct-map input gate cleared", &s_stefxInputBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: installed Xbox bind", &s_stefxInputBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: confirmed Xbox bind", &s_stefxInputBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: replaced Xbox bind", &s_stefxInputBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_Damage", &s_stefxDamageBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink PM state", &s_stefxPmStateBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink", &s_stefxClientThinkBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: adapter ClientThink", &s_stefxClientThinkBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink player cinematic gate", &s_stefxCinematicGateBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink player cmd", &s_stefxCinematicGateBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink player attack probe", &s_stefxAttackProbeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke aim", &s_stefxSmokeAimBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke wake", &s_stefxSmokeAimBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke unlock", &s_stefxSmokeAimBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: Pmove ", &s_stefxPmoveBudget);
     if (budgeted >= 0) return budgeted;
@@ -256,6 +304,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF cgame syscall", &s_stefxSyscallBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: RE_RegisterModel accepted MDR placeholder", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadMDR overbudget placeholder", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: G_RunFrame", &s_stefxGameFrameBudget);
     if (budgeted >= 0) return budgeted;
@@ -296,6 +346,36 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "JA: fakegl CPU partial", &s_assetBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "JA: COM_ACTIVE", &s_jaComActiveBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: engine EF CL_GetSnapshot", &s_frameBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_AddAnimSurfaces", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: skipping MDR placeholder render", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: ACTIVE_MTEXTURE", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FORCE_TEXTURE_REBIND", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: fakegl glBindTexture", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: fakegl select texture", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: fakegl stage state", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: FAST_DRAW_SAMPLE", &s_efFastDrawBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: R_RenderView", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: R_GenerateDrawSurfs", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: R_AddWorldSurfaces", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: VV_R_RecursiveWorldNode", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: R_LoadNodesAndLeafs", &s_renderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "JA: R_LoadFaces", &s_renderBudget);
     if (budgeted >= 0) return budgeted;
 
     if (!g_verboseLog) {
@@ -373,12 +453,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "cls.state = CA_PRIMED") ||
         strstr(msg, "cls.state = CA_ACTIVE - GAME IS RUNNING") ||
         strstr(msg, "R_Register forcing r_") ||
-        strstr(msg, "R_Register Xbox lighting baseline") ||
-        strstr(msg, "XBOX_WORLD_STAGE") ||
-        strstr(msg, "XBOX_LIGHTMAP_STATS") ||
-        strstr(msg, "R_SetColorMappings") ||
-        strstr(msg, "FATAL") ||
-        strstr(msg, "ERROR") ||
+            strstr(msg, "R_Register Xbox lighting baseline") ||
+            strstr(msg, "XBOX_WORLD_STAGE") ||
+            strstr(msg, "XBOX_LIGHTMAP_STATS") ||
+            strstr(msg, "R_SetColorMappings") ||
+            strstr(msg, "FATAL") ||
+            strstr(msg, "ERROR") ||
             strstr(msg, "Out of memory") ||
             strstr(msg, "Received Exception") ||
             strstr(msg, "EIP") ||
@@ -786,7 +866,9 @@ void XBLog_Print(const char *msg)
 {
     DWORD len;
     if (!msg) return;
-    OutputDebugStringA(msg);
+    if (g_debugStringMirror) {
+        OutputDebugStringA(msg);
+    }
     len = (DWORD)strlen(msg);
     xbl_MirrorWrite(msg, len);
     const int forceFlush = xbl_ShouldFlushWrite(msg);

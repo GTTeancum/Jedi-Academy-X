@@ -9,13 +9,16 @@
 
 
 
-#ifdef _XBOX
+#if defined(_XBOX) && !defined(STEFX_ELITE_FORCE_SP)
 #include "../goblib/goblib.h"
 
 typedef int wfhandle_t;
 #else
 #include "../zlib32/zip.h"
 #include "unzip.h"
+#ifdef _XBOX
+typedef int wfhandle_t;
+#endif
 #endif
 
 
@@ -36,7 +39,7 @@ typedef struct fileInPack_s {
 
 typedef struct {
 	char			pakFilename[MAX_OSPATH];	// c:\quake3\base\asset0.pk3
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 	unzFile			handle;
 #endif
 	int				checksum;
@@ -59,11 +62,15 @@ typedef struct searchpath_s {
 } searchpath_t;
 
 
+#ifdef STEFX_ELITE_FORCE_SP
+#define	MAX_FILE_HANDLES	32
+#else
 #define	MAX_FILE_HANDLES	16
+#endif
 
 typedef union qfile_gus {
 	FILE*		o;
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 	unzFile		z;
 #endif
 } qfile_gut;
@@ -83,8 +90,10 @@ typedef struct {
 	char		name[MAX_QPATH];
 
 #ifdef _XBOX
+#ifndef STEFX_ELITE_FORCE_SP
 	GOBHandle	ghandle;
 	qboolean	gob;
+#endif
 	qboolean	used;
 	wfhandle_t  whandle;
 #endif

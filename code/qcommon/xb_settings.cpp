@@ -276,6 +276,8 @@ void XBSettings::SetAll( void )
 
 	Cvar_Set( "ui_triggerconfig", triggerConfigStrings[triggerMode[0]] );
 	Cbuf_ExecuteText( EXEC_APPEND, va("exec cfg/triggersConfig%d.cfg\n", triggerMode[0]) );
+	Com_Printf("STEFX: Xbox controls queued buttonMode=%d triggerMode=%d thumbstickMode=%d\n",
+		buttonMode[0], triggerMode[0], thumbstickMode[0]);
 
 	Cvar_SetValue( "in_useRumble", rumble[0] );
 	Cvar_SetValue( "cl_autolevel", autolevel[0] );

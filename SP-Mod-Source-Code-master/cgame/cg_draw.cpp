@@ -2353,16 +2353,6 @@ static void CG_Draw2D( void )
 {
 	centity_t *cent;
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	static qboolean s_xboxLogged2DSkip = qfalse;
-	if (!s_xboxLogged2DSkip)
-	{
-		XBLog_Write("STEFX: CG_Draw2D HUD skipped for Xbox EF bootstrap");
-		s_xboxLogged2DSkip = qtrue;
-	}
-	return;
-#endif
-
 	cent = &cg_entities[cg.snap->ps.clientNum];
 
 	// if we are taking a levelshot for the menu, don't draw anything

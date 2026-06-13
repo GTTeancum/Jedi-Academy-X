@@ -416,6 +416,28 @@ void NPC_Pain( gentity_t *self, gentity_t *inflictor, gentity_t *other, const ve
 		return;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxNpcPainLogBudget = 96;
+		if ( s_stefxNpcPainLogBudget > 0 )
+		{
+			Com_PrintfAlways("STEFX: NPC_Pain self=%d class='%s' targetname='%s' other=%d otherClass='%s' damage=%d mod=%d hitLoc=%d health=%d otherWeapon=%d time=%d\n",
+				self->s.number,
+				self->classname ? self->classname : "<null>",
+				self->targetname ? self->targetname : "<null>",
+				other->s.number,
+				other->classname ? other->classname : "<null>",
+				damage,
+				mod,
+				hitLoc,
+				self->health,
+				other->client ? other->client->ps.weapon : -1,
+				level.time);
+			--s_stefxNpcPainLogBudget;
+		}
+	}
+#endif
+
 	//MCG: Ignore damage from your own team for now
 	if ( other->client )
 	{

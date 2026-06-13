@@ -373,7 +373,13 @@ void RE_RenderScene( const refdef_t *fd ) {
 #ifdef _XBOX
 	if (xboxRenderSceneLog)
 	{
-		XBLF("JA: CL_EARLY RE_RenderScene refdef ents=%d polys=%d firstSurf=%d numDraw=%d vieworg=(%g,%g,%g)",
+		XBLF("JA: CL_EARLY RE_RenderScene refdef rect=%d,%d %dx%d fov=%g/%g ents=%d polys=%d firstSurf=%d numDraw=%d vieworg=(%g,%g,%g)",
+			tr.refdef.x,
+			tr.refdef.y,
+			tr.refdef.width,
+			tr.refdef.height,
+			tr.refdef.fov_x,
+			tr.refdef.fov_y,
 			tr.refdef.num_entities, tr.refdef.numPolys, r_firstSceneDrawSurf, tr.refdef.numDrawSurfs,
 			tr.refdef.vieworg[0], tr.refdef.vieworg[1], tr.refdef.vieworg[2]);
 	}
@@ -421,7 +427,19 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 	recursivePortalCount = 0;
 #ifdef _XBOX
-	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene before R_RenderView");
+	if (xboxRenderSceneLog)
+	{
+		XBLF("JA: CL_EARLY RE_RenderScene before R_RenderView parms viewport=%d,%d %dx%d fov=%g/%g origin=(%g,%g,%g)",
+			parms.viewportX,
+			parms.viewportY,
+			parms.viewportWidth,
+			parms.viewportHeight,
+			parms.fovX,
+			parms.fovY,
+			parms.or.origin[0],
+			parms.or.origin[1],
+			parms.or.origin[2]);
+	}
 #endif
 	R_RenderView( &parms );
 #ifdef _XBOX

@@ -16,10 +16,17 @@
 #include "../qcommon/qcommon.h"
 #include "../qcommon/fixedmap.h"
 #include "../zlib/zlib.h"
-#include "../qcommon/files.h"
 #ifdef _XBOX
 #include "xb_log.h"
 #endif
+
+#ifdef STEFX_ELITE_FORCE_SP
+#define FILECODE_BASEGAME "BaseEF"
+#else
+#define FILECODE_BASEGAME "base"
+#endif
+
+char *FS_BuildOSPathUnMapped( const char *qpath );
 
 /***********************************************
 *
@@ -82,9 +89,20 @@ static bool Sys_FileCodesHaveStartupProbe(void)
 {
 #ifdef STEFX_ELITE_FORCE_SP
 	char probe[MAX_OSPATH];
-	Com_sprintf(probe, sizeof(probe), "d:\\%s\\default.cfg", BASEGAME);
-	if (!Sys_FileCodesContainsPath(probe))
+	static const char* probes[] =
 	{
+		"default.cfg",
+		"scripts\\_console_shader_list_",
+		"models\\players\\crewthin\\lower.mdr"
+	};
+
+	for (int i = 0; i < (int)(sizeof(probes) / sizeof(probes[0])); ++i)
+	{
+		Com_sprintf(probe, sizeof(probe), "d:\\%s\\%s", FILECODE_BASEGAME, probes[i]);
+		if (Sys_FileCodesContainsPath(probe))
+		{
+			continue;
+		}
 #ifdef _XBOX
 		XBLog_Write(va("EF: Sys_InitFileCodes cache missing startup probe '%s'", probe));
 #endif
@@ -347,7 +365,7 @@ void Sys_InitFileCodes(void)
 
 	if (!Sys_FileCodesHaveStartupProbe())
 	{
-		Com_Printf("WARNING: filecode cache still lacks %s/default.cfg\n", BASEGAME);
+		Com_Printf("WARNING: filecode cache still lacks %s/default.cfg\n", FILECODE_BASEGAME);
 	}
 
 	s_Files->Sort();
