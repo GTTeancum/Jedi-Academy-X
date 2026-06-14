@@ -647,6 +647,10 @@ public:
 		memset(&m_stage, 0, sizeof(m_stage));
 		m_dirty = false;
 		m_mainBlend = false;
+		m_maxStages = 0;
+#ifdef _XBOX
+		InvalidateD3DCache();
+#endif
 	}
 
 	void SetMaxStages(int maxStages)
@@ -679,7 +683,13 @@ public:
 		bool dirty = false;
 		for(int i = 0; i < m_maxStages;i++)
 		{
-			dirty = m_stage[i].DirtyTexture(textureID) || dirty;
+			if (m_stage[i].DirtyTexture(textureID))
+			{
+#ifdef _XBOX
+				m_boundTextureValid[i] = false;
+#endif
+				dirty = true;
+			}
 		}
 		if (dirty)
 		{
@@ -786,8 +796,8 @@ public:
 			firstTime = false;
 			for(int i = 0; i < m_maxStages; i++ ) 
 			{
-				pD3DDev->SetTextureStageState(i, D3DTSS_TEXCOORDINDEX, i);
-				pD3DDev->SetTextureStageState(i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_TEXCOORDINDEX, i);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 			}
 		}
 
@@ -852,13 +862,13 @@ public:
 					}
 				}
 #endif
-				HRESULT hrColorArg1 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, color1);
-				HRESULT hrColorArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, D3DTA_CURRENT);
-				HRESULT hrColorOp = pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, colorOp);
-				HRESULT hrTexCoordIndex = pD3DDev->SetTextureStageState( i, D3DTSS_TEXCOORDINDEX, i);
-				HRESULT hrTextureTransform = pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
-				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
+				HRESULT hrColorArg1 = SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLORARG1, color1);
+				HRESULT hrColorArg2 = SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLORARG2, D3DTA_CURRENT);
+				HRESULT hrColorOp = SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLOROP, colorOp);
+				HRESULT hrTexCoordIndex = SetTextureStageStateCached(pD3DDev, i, D3DTSS_TEXCOORDINDEX, i);
+				HRESULT hrTextureTransform = SetTextureStageStateCached(pD3DDev, i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_MAXMIPLEVEL, 0);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_MIPMAPLODBIAS, 0);
 				DWORD alpha1 = D3DTA_TEXTURE;
 				DWORD alpha2 = D3DTA_CURRENT;
 				DWORD alphaOp;
@@ -867,9 +877,9 @@ public:
 				{
 					alphaOp = D3DTOP_MODULATE;	// Otherwise the console is never transparent
 				}
-				HRESULT hrAlphaArg1 = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, alpha1);
-				HRESULT hrAlphaArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, alpha2);
-				HRESULT hrAlphaOp = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP,   alphaOp);
+				HRESULT hrAlphaArg1 = SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAARG1, alpha1);
+				HRESULT hrAlphaArg2 = SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAARG2, alpha2);
+				HRESULT hrAlphaOp = SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAOP, alphaOp);
 #ifdef _XBOX
 				{
 					static int s_xboxStageStateLogCount = 0;
@@ -965,13 +975,13 @@ public:
 					}
 					if ( bSetMaxAnisotropy ) 
 					{
-						pD3DDev->SetTextureStageState( i, D3DTSS_MAXANISOTROPY, entry->m_maxAnisotropy);
+						SetTextureStageStateCached(pD3DDev, i, D3DTSS_MAXANISOTROPY, (DWORD)entry->m_maxAnisotropy);
 					}
-					pD3DDev->SetTextureStageState( i, D3DTSS_MINFILTER, dxMinFilter );
-					pD3DDev->SetTextureStageState( i, D3DTSS_MIPFILTER, dxMipFilter );
-					pD3DDev->SetTextureStageState( i, D3DTSS_MAGFILTER,  dxMagFilter);
-					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSU, dxAddressU );
-					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSV, dxAddressV );
+					SetTextureStageStateCached(pD3DDev, i, D3DTSS_MINFILTER, dxMinFilter);
+					SetTextureStageStateCached(pD3DDev, i, D3DTSS_MIPFILTER, dxMipFilter);
+					SetTextureStageStateCached(pD3DDev, i, D3DTSS_MAGFILTER, dxMagFilter);
+					SetTextureStageStateCached(pD3DDev, i, D3DTSS_ADDRESSU, dxAddressU);
+					SetTextureStageStateCached(pD3DDev, i, D3DTSS_ADDRESSV, dxAddressV);
 #ifdef _XBOX
 					if (i == 1)
 					{
@@ -1015,7 +1025,7 @@ public:
 								(unsigned int)entry->m_internalFormat);
 						}
 #endif
-						HRESULT hrSetTexture = pD3DDev->SetTexture( i, pTexture);
+						HRESULT hrSetTexture = SetTextureCached(pD3DDev, i, pTexture);
 #ifdef _XBOX
 						if (i == 1)
 						{
@@ -1075,20 +1085,20 @@ public:
 			}
 			else 
 			{
-				pD3DDev->SetTexture( i, NULL);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, D3DTA_CURRENT);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, D3DTOP_DISABLE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
+				SetTextureCached(pD3DDev, i, NULL);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLORARG2, D3DTA_CURRENT);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLOROP, D3DTOP_DISABLE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_MAXMIPLEVEL, 0);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_MIPMAPLODBIAS, 0);
 #ifdef _XBOX
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE );
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORSIGN, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE );
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_COLORSIGN, 0);
+				SetTextureStageStateCached(pD3DDev, i, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE);
 #endif
 #ifdef _XBOX
 				{
@@ -1107,6 +1117,64 @@ public:
 	}
 
 private:
+#ifdef _XBOX
+	enum
+	{
+		kStageStateCacheCount = 128
+	};
+
+	void InvalidateD3DCache()
+	{
+		memset(m_stageStateValid, 0, sizeof(m_stageStateValid));
+		memset(m_boundTextureValid, 0, sizeof(m_boundTextureValid));
+		memset(m_boundTexture, 0, sizeof(m_boundTexture));
+	}
+
+	HRESULT SetTextureStageStateCached(IDirect3DDevice8* pD3DDev, DWORD stage, D3DTEXTURESTAGESTATETYPE state, DWORD value)
+	{
+		const DWORD stateIndex = (DWORD)state;
+		if (stage < MAXSTATES && stateIndex < kStageStateCacheCount &&
+			m_stageStateValid[stage][stateIndex] && m_stageStateValue[stage][stateIndex] == value)
+		{
+			return S_OK;
+		}
+
+		HRESULT hr = pD3DDev->SetTextureStageState(stage, state, value);
+		if (SUCCEEDED(hr) && stage < MAXSTATES && stateIndex < kStageStateCacheCount)
+		{
+			m_stageStateValid[stage][stateIndex] = true;
+			m_stageStateValue[stage][stateIndex] = value;
+		}
+		return hr;
+	}
+
+	HRESULT SetTextureCached(IDirect3DDevice8* pD3DDev, DWORD stage, IDirect3DTexture8* texture)
+	{
+		if (stage < MAXSTATES && m_boundTextureValid[stage] && m_boundTexture[stage] == texture)
+		{
+			return S_OK;
+		}
+
+		HRESULT hr = pD3DDev->SetTexture(stage, texture);
+		if (SUCCEEDED(hr) && stage < MAXSTATES)
+		{
+			m_boundTextureValid[stage] = true;
+			m_boundTexture[stage] = texture;
+		}
+		return hr;
+	}
+#else
+	HRESULT SetTextureStageStateCached(IDirect3DDevice8* pD3DDev, DWORD stage, D3DTEXTURESTAGESTATETYPE state, DWORD value)
+	{
+		return pD3DDev->SetTextureStageState(stage, state, value);
+	}
+
+	HRESULT SetTextureCached(IDirect3DDevice8* pD3DDev, DWORD stage, IDirect3DTexture8* texture)
+	{
+		return pD3DDev->SetTexture(stage, texture);
+	}
+#endif
+
 	TextureStageState* Get() 
 	{
 		return m_stage + m_currentStage;
@@ -1117,6 +1185,12 @@ private:
 	int m_maxStages;
 	int m_currentStage;
 	TextureStageState m_stage[MAXSTATES];
+#ifdef _XBOX
+	bool m_stageStateValid[MAXSTATES][kStageStateCacheCount];
+	DWORD m_stageStateValue[MAXSTATES][kStageStateCacheCount];
+	bool m_boundTextureValid[MAXSTATES];
+	IDirect3DTexture8* m_boundTexture[MAXSTATES];
+#endif
 };
 
 // This class buffers up all the glVertex calls between
@@ -1217,6 +1291,13 @@ public:
 			m_pD3DDev = pD3DDev;
 		}
 	}
+
+#ifdef _XBOX
+	void InvalidateVertexShaderCache()
+	{
+		m_lastSetVertexShader = 0xffffffff;
+	}
+#endif
 
 	LPVOID GetOGLPrimitiveVertexBuffer()
 	{
@@ -2008,6 +2089,24 @@ class FakeGL
 {
 private:
 	IDirect3DDevice8* m_pD3DDev;
+#ifdef _XBOX
+	enum
+	{
+		kRenderStateCacheCount = 256
+	};
+	bool m_renderStateValid[kRenderStateCacheCount];
+	DWORD m_renderStateValue[kRenderStateCacheCount];
+	enum
+	{
+		kTransformCacheCount = 4,
+		kTransformCacheWorld = 0,
+		kTransformCacheView = 1,
+		kTransformCacheProjection = 2,
+		kTransformCacheTexture0 = 3
+	};
+	bool m_transformValid[kTransformCacheCount];
+	D3DMATRIX m_transformValue[kTransformCacheCount];
+#endif
     D3DSURFACE_DESC m_d3dsdBackBuffer;   // Surface desc of the backbuffer
 	LPDIRECT3D8 m_pD3D;
 	
@@ -2321,7 +2420,10 @@ private:
 	void TrackTextureFailure(void)
 	{
 		g_fakeglTextureFailures++;
-		XBLF("JA: fakegl texture allocation failures=%u\n", g_fakeglTextureFailures);
+		if (g_fakeglTextureFailures <= 16 || (g_fakeglTextureFailures & 63) == 0)
+		{
+			XBLF("JA: fakegl texture allocation failures=%u\n", g_fakeglTextureFailures);
+		}
 	}
 #endif
 
@@ -2484,6 +2586,9 @@ public:
 		m_bD3DXReady = TRUE;
 
 		m_pD3DDev = 0;
+#ifdef _XBOX
+		InvalidateD3DStateCache();
+#endif
 		m_pD3D = 0;
 		m_pPrimary = 0;
 		m_fallbackTexture = 0;
@@ -2599,11 +2704,11 @@ public:
 		}
 
 		// One-time render state initialization
-		m_pD3DDev->SetRenderState( D3DRS_TEXTUREFACTOR, 0x00000000 );
-		m_pD3DDev->SetRenderState( D3DRS_DITHERENABLE, 0 ); //FALSE looks worse in 16 bit mode (D3DFMT_X1R5G5B5)
-		m_pD3DDev->SetRenderState( D3DRS_SPECULARENABLE, FALSE );
-		m_pD3DDev->SetRenderState( D3DRS_LIGHTING, FALSE);
-		m_pD3DDev->SetRenderState( D3DRS_FOGENABLE, FALSE);
+		SetRenderStateCached( D3DRS_TEXTUREFACTOR, 0x00000000 );
+		SetRenderStateCached( D3DRS_DITHERENABLE, 0 ); //FALSE looks worse in 16 bit mode (D3DFMT_X1R5G5B5)
+		SetRenderStateCached( D3DRS_SPECULARENABLE, FALSE );
+		SetRenderStateCached( D3DRS_LIGHTING, FALSE);
+		SetRenderStateCached( D3DRS_FOGENABLE, FALSE);
 	}
 	~FakeGL()
 	{
@@ -2741,6 +2846,7 @@ public:
 		}
 
 		HRESULT hrSetVertexShader = m_pD3DDev->SetVertexShader(typeDesc);
+		m_OGLPrimitiveVertexBuffer.InvalidateVertexShaderCache();
 		if ( FAILED(hrSetVertexShader) )
 		{
 			static int s_xboxIndexedSetShaderFailBudget = 8;
@@ -4769,6 +4875,74 @@ private:
 		}
 	}
 
+#ifdef _XBOX
+	void InvalidateD3DStateCache()
+	{
+		memset(m_renderStateValid, 0, sizeof(m_renderStateValid));
+		memset(m_renderStateValue, 0, sizeof(m_renderStateValue));
+		memset(m_transformValid, 0, sizeof(m_transformValid));
+		memset(m_transformValue, 0, sizeof(m_transformValue));
+	}
+
+	HRESULT SetRenderStateCached(D3DRENDERSTATETYPE state, DWORD value)
+	{
+		const DWORD stateIndex = (DWORD)state;
+		if (stateIndex < kRenderStateCacheCount &&
+			m_renderStateValid[stateIndex] && m_renderStateValue[stateIndex] == value)
+		{
+			return S_OK;
+		}
+
+		HRESULT hr = m_pD3DDev->SetRenderState(state, value);
+		if (SUCCEEDED(hr) && stateIndex < kRenderStateCacheCount)
+		{
+			m_renderStateValid[stateIndex] = true;
+			m_renderStateValue[stateIndex] = value;
+		}
+		return hr;
+	}
+
+	int TransformCacheSlot(D3DTRANSFORMSTATETYPE state) const
+	{
+		switch (state)
+		{
+		case D3DTS_WORLD: return kTransformCacheWorld;
+		case D3DTS_VIEW: return kTransformCacheView;
+		case D3DTS_PROJECTION: return kTransformCacheProjection;
+		case D3DTS_TEXTURE0: return kTransformCacheTexture0;
+		default: return -1;
+		}
+	}
+
+	HRESULT SetTransformCached(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix)
+	{
+		const int slot = TransformCacheSlot(state);
+		if (slot >= 0 && m_transformValid[slot] &&
+			memcmp(&m_transformValue[slot], matrix, sizeof(*matrix)) == 0)
+		{
+			return S_OK;
+		}
+
+		HRESULT hr = m_pD3DDev->SetTransform(state, matrix);
+		if (SUCCEEDED(hr) && slot >= 0)
+		{
+			m_transformValid[slot] = true;
+			memcpy(&m_transformValue[slot], matrix, sizeof(*matrix));
+		}
+		return hr;
+	}
+#else
+	HRESULT SetRenderStateCached(D3DRENDERSTATETYPE state, DWORD value)
+	{
+		return m_pD3DDev->SetRenderState(state, value);
+	}
+
+	HRESULT SetTransformCached(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix)
+	{
+		return m_pD3DDev->SetTransform(state, matrix);
+	}
+#endif
+
 	HRESULT HandleWindowedModeChanges()
 	{
 		return S_OK;
@@ -4786,11 +4960,11 @@ private:
 		{
 			m_glAlphaStateDirty = false;
 			// Alpha test
-			m_pD3DDev->SetRenderState( D3DRS_ALPHATESTENABLE,
+			SetRenderStateCached( D3DRS_ALPHATESTENABLE,
 				m_glAlphaTest ? TRUE : FALSE );
-			m_pD3DDev->SetRenderState(D3DRS_ALPHAFUNC,
+			SetRenderStateCached(D3DRS_ALPHAFUNC,
 				m_glAlphaTest ? GLToDXCompare(m_glAlphaFunc) : D3DCMP_ALWAYS);
-			m_pD3DDev->SetRenderState(D3DRS_ALPHAREF, 255 * m_glAlphaFuncRef);
+			SetRenderStateCached(D3DRS_ALPHAREF, 255 * m_glAlphaFuncRef);
 		}
 		if ( m_glBlendStateDirty )
 		{
@@ -4798,9 +4972,9 @@ private:
 			// Alpha blending
 			DWORD srcBlend = m_glBlend ? GLToDXSBlend(m_glBlendFuncSFactor) : D3DBLEND_ONE;
 			DWORD destBlend = m_glBlend ? GLToDXDBlend(m_glBlendFuncDFactor) : D3DBLEND_ZERO;
-			m_pD3DDev->SetRenderState( D3DRS_SRCBLEND,  srcBlend );
-			m_pD3DDev->SetRenderState( D3DRS_DESTBLEND, destBlend );
-			m_pD3DDev->SetRenderState( D3DRS_ALPHABLENDENABLE, m_glBlend ? TRUE : FALSE );
+			SetRenderStateCached( D3DRS_SRCBLEND,  srcBlend );
+			SetRenderStateCached( D3DRS_DESTBLEND, destBlend );
+			SetRenderStateCached( D3DRS_ALPHABLENDENABLE, m_glBlend ? TRUE : FALSE );
 		}
 		if ( m_glCullStateDirty ) 
 		{
@@ -4819,7 +4993,7 @@ private:
 					break;
 				}
 			}
-			hr = m_pD3DDev->SetRenderState(D3DRS_CULLMODE, cull);
+			hr = SetRenderStateCached(D3DRS_CULLMODE, cull);
 			if ( FAILED(hr) ){
 				InterpretError(hr);
 			}
@@ -4828,7 +5002,7 @@ private:
 		{
 			m_glShadeModelStateDirty = false;
 			// Shade model
-			m_pD3DDev->SetRenderState( D3DRS_SHADEMODE, 
+			SetRenderStateCached( D3DRS_SHADEMODE,
 				m_glShadeModel == GL_SMOOTH ? D3DSHADE_GOURAUD : D3DSHADE_FLAT );
 		}
 			
@@ -4839,20 +5013,20 @@ private:
 		if ( m_glDepthStateDirty ) 
 		{
 			m_glDepthStateDirty = false;
-			m_pD3DDev->SetRenderState( D3DRS_ZENABLE, m_glDepthTest ? D3DZB_TRUE : D3DZB_FALSE);
-			m_pD3DDev->SetRenderState( D3DRS_ZWRITEENABLE, m_glDepthMask ? TRUE : FALSE);
+			SetRenderStateCached( D3DRS_ZENABLE, m_glDepthTest ? D3DZB_TRUE : D3DZB_FALSE);
+			SetRenderStateCached( D3DRS_ZWRITEENABLE, m_glDepthMask ? TRUE : FALSE);
 			DWORD zfunc = GLToDXCompare(m_glDepthFunc);
-			m_pD3DDev->SetRenderState( D3DRS_ZFUNC, zfunc );
+			SetRenderStateCached( D3DRS_ZFUNC, zfunc );
 		}
 		if ( m_glFogStateDirty )
 		{
 			m_glFogStateDirty = false;
-			m_pD3DDev->SetRenderState( D3DRS_FOGENABLE, m_glFog ? TRUE : FALSE );
-			m_pD3DDev->SetRenderState( D3DRS_FOGTABLEMODE, GLToDXFogMode(m_glFogMode) );
-			m_pD3DDev->SetRenderState( D3DRS_FOGDENSITY, *(DWORD*)&m_glFogDensity );
-			m_pD3DDev->SetRenderState( D3DRS_FOGSTART, *(DWORD*)&m_glFogStart );
-			m_pD3DDev->SetRenderState( D3DRS_FOGEND, *(DWORD*)&m_glFogEnd );
-			m_pD3DDev->SetRenderState( D3DRS_FOGCOLOR, m_glFogColor );
+			SetRenderStateCached( D3DRS_FOGENABLE, m_glFog ? TRUE : FALSE );
+			SetRenderStateCached( D3DRS_FOGTABLEMODE, GLToDXFogMode(m_glFogMode) );
+			SetRenderStateCached( D3DRS_FOGDENSITY, *(DWORD*)&m_glFogDensity );
+			SetRenderStateCached( D3DRS_FOGSTART, *(DWORD*)&m_glFogStart );
+			SetRenderStateCached( D3DRS_FOGEND, *(DWORD*)&m_glFogEnd );
+			SetRenderStateCached( D3DRS_FOGCOLOR, m_glFogColor );
 #ifdef _XBOX
 			{
 				static int s_fogApplyLogCount = 0;
@@ -4873,17 +5047,17 @@ private:
 		if ( m_modelViewMatrixStateDirty ) 
 		{
 			m_modelViewMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_WORLD, m_modelViewMatrixStack->GetTop() );
+			SetTransformCached( D3DTS_WORLD, m_modelViewMatrixStack->GetTop() );
 		}
 		if ( m_viewMatrixStateDirty ) 
 		{
 			m_viewMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_VIEW, & m_d3dViewMatrix );
+			SetTransformCached( D3DTS_VIEW, & m_d3dViewMatrix );
 		}
 		if ( m_projectionMatrixStateDirty ) 
 		{
 			m_projectionMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_PROJECTION, m_projectionMatrixStack->GetTop() );
+			SetTransformCached( D3DTS_PROJECTION, m_projectionMatrixStack->GetTop() );
 		}
 		if ( m_glClipPlane0StateDirty )
 		{
@@ -4909,7 +5083,7 @@ private:
 		if ( m_textureMatrixStateDirty )
 		{
 			m_textureMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_TEXTURE0, m_textureMatrixStack->GetTop() );
+			SetTransformCached( D3DTS_TEXTURE0, m_textureMatrixStack->GetTop() );
 		}
 		if ( m_bViewPortDirty )
 		{

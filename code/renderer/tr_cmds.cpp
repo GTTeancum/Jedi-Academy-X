@@ -581,7 +581,7 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	static int s_xboxActiveEndFrameCount = 0;
 	const int xboxTraceEndFrameTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
 	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
-		? (s_xboxActiveEndFrameCount < 16 || ((s_xboxActiveEndFrameCount & 255) == 0))
+		? (s_xboxActiveEndFrameCount < 2 || ((s_xboxActiveEndFrameCount & 1023) == 0))
 		: (s_xboxEndFrameCount < 4);
 	if (xboxTraceEndFrame)
 	{
