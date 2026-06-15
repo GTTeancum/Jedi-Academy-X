@@ -1557,6 +1557,12 @@ static qboolean UI_RunMenuScript ( const char **args )
 		}
 		else if (Q_stricmp(name, "startgame") == 0) 
 		{
+#ifdef _XBOX
+			XBLF("STEFX: UI script startgame demo=%d currentMap='%s' catcher=0x%x",
+				Cvar_VariableIntegerValue("com_demo"),
+				Cvar_VariableString("mapname"),
+				trap_Key_GetCatcher());
+#endif
 			Menus_CloseAll();
 			if ( Cvar_VariableIntegerValue("com_demo") )
 			{
@@ -1564,7 +1570,7 @@ static qboolean UI_RunMenuScript ( const char **args )
 			}
 			else
 			{
-				ui.Cmd_ExecuteText( EXEC_APPEND, "map yavin1\n");
+				ui.Cmd_ExecuteText( EXEC_APPEND, "map borg1\n");
 			}
 		} 
 		else if (Q_stricmp(name, "startmap") == 0) 
@@ -1573,10 +1579,21 @@ static qboolean UI_RunMenuScript ( const char **args )
 
 			String_Parse(args, &mapName);
 
+#ifdef _XBOX
+			XBLF("STEFX: UI script startmap mapName='%s' catcher=0x%x",
+				mapName ? mapName : "",
+				trap_Key_GetCatcher());
+#endif
 			ui.Cmd_ExecuteText( EXEC_APPEND, va("maptransition %s\n",mapName));
 		} 
 		else if (Q_stricmp(name, "closeingame") == 0) 
 		{
+#ifdef _XBOX
+			XBLF("STEFX: UI script closeingame missionfailed=%d catcherBefore=0x%x paused='%s'",
+				Cvar_VariableIntegerValue("ui_missionfailed"),
+				trap_Key_GetCatcher(),
+				Cvar_VariableString("cl_paused"));
+#endif
 			trap_Key_SetCatcher( trap_Key_GetCatcher() & ~KEYCATCH_UI );
 			trap_Key_ClearStates();
 			Cvar_Set( "cl_paused", "0" );
@@ -1591,9 +1608,20 @@ static qboolean UI_RunMenuScript ( const char **args )
 			{
 				Menus_ActivateByName("mainhud");
 			}
+#ifdef _XBOX
+			XBLF("STEFX: UI script closeingame done catcherAfter=0x%x paused='%s'",
+				trap_Key_GetCatcher(),
+				Cvar_VariableString("cl_paused"));
+#endif
 		} 
 		else if (Q_stricmp(name, "closedatapad") == 0) 
 		{
+#ifdef _XBOX
+			XBLF("STEFX: UI script closedatapad catcherBefore=0x%x paused='%s' updatedObj='%s'",
+				trap_Key_GetCatcher(),
+				Cvar_VariableString("cl_paused"),
+				Cvar_VariableString("cg_updatedDataPadObjective"));
+#endif
 			trap_Key_SetCatcher( trap_Key_GetCatcher() & ~KEYCATCH_UI );
 			trap_Key_ClearStates();
 			Cvar_Set( "cl_paused", "0" );
@@ -1604,6 +1632,11 @@ static qboolean UI_RunMenuScript ( const char **args )
 			Cvar_Set( "cg_updatedDataPadForcePower2", "0" );
 			Cvar_Set( "cg_updatedDataPadForcePower3", "0" );
 			Cvar_Set( "cg_updatedDataPadObjective", "0" );
+#ifdef _XBOX
+			XBLF("STEFX: UI script closedatapad done catcherAfter=0x%x paused='%s'",
+				trap_Key_GetCatcher(),
+				Cvar_VariableString("cl_paused"));
+#endif
 		} 
 		else if (Q_stricmp(name, "closesabermenu") == 0) 
 		{

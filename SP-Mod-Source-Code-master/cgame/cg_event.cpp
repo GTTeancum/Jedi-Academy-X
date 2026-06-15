@@ -3,6 +3,9 @@
 #include "cg_local.h"
 #include "cg_media.h"
 #include "..\game\anims.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern void CG_TryPlayCustomSound( vec3_t origin, int entityNum, soundChannel_t channel, const char *soundName, int customSoundSet );
 extern const char	*cg_customScavSoundNames[];
@@ -121,6 +124,27 @@ An entity has an event value
 ==============
 */
 #define	DEBUGNAME(x) if(cg_debugEvents.integer){CG_Printf(x"\n");}
+#ifdef _XBOX
+static const char *STEFX_CompressionEventName( int event )
+{
+	switch ( event )
+	{
+	case EV_COMPRESSION_RIFLE:
+		return "EV_COMPRESSION_RIFLE";
+	case EV_COMPRESSION_RIFLE_ALT:
+		return "EV_COMPRESSION_RIFLE_ALT";
+	case EV_COMPRESSION_RIFLE_HIT:
+		return "EV_COMPRESSION_RIFLE_HIT";
+	case EV_COMPRESSION_RIFLE_MISS:
+		return "EV_COMPRESSION_RIFLE_MISS";
+	case EV_COMPRESSION_RIFLE_ALT_MISS:
+		return "EV_COMPRESSION_RIFLE_ALT_MISS";
+	default:
+		return "EV_UNKNOWN";
+	}
+}
+#endif
+
 void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 	entityState_t	*es;
 	int				event;
@@ -131,6 +155,38 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	es = &cent->currentState;
 	event = es->event & ~EV_EVENT_BITS;
+
+#ifdef _XBOX
+	if ( event == EV_COMPRESSION_RIFLE || event == EV_COMPRESSION_RIFLE_ALT ||
+		event == EV_COMPRESSION_RIFLE_HIT || event == EV_COMPRESSION_RIFLE_MISS ||
+		event == EV_COMPRESSION_RIFLE_ALT_MISS )
+	{
+		static int s_stefxCompressionCgEventLogBudget = 160;
+		if ( s_stefxCompressionCgEventLogBudget > 0 )
+		{
+			vec3_t shotDelta;
+			float shotLen;
+
+			VectorSubtract( cent->lerpOrigin, es->origin2, shotDelta );
+			shotLen = VectorLength( shotDelta );
+			XBLF("STEFX: CG_EntityEvent compression ent=%d event=%d name=%s eType=%d weapon=%d parm=%d other=%d time=%d len=%g lerp=(%g,%g,%g) position=(%g,%g,%g) origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+				es->number,
+				event,
+				STEFX_CompressionEventName( event ),
+				es->eType,
+				es->weapon,
+				es->eventParm,
+				es->otherEntityNum,
+				cg.time,
+				shotLen,
+				cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2],
+				position[0], position[1], position[2],
+				es->origin[0], es->origin[1], es->origin[2],
+				es->origin2[0], es->origin2[1], es->origin2[2]);
+			s_stefxCompressionCgEventLogBudget--;
+		}
+	}
+#endif
 
 	if ( cg_debugEvents.integer ) {
 		CG_Printf( "ent:%3i  event:%3i ", es->number, event );
@@ -1151,6 +1207,28 @@ CG_CheckEvents
 ==============
 */
 void CG_CheckEvents( centity_t *cent ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( cent && cent->currentState.eType > ET_EVENTS )
+	{
+		static int s_stefxCheckEventsBudget = 128;
+		if ( s_stefxCheckEventsBudget > 0 )
+		{
+			XBLF("STEFX: CG_CheckEvents event-only ent=%d eType=%d event=%d weapon=%d prev=%d origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+				cent->currentState.number,
+				cent->currentState.eType,
+				cent->currentState.eType - ET_EVENTS,
+				cent->currentState.weapon,
+				cent->previousEvent,
+				cent->currentState.pos.trBase[0],
+				cent->currentState.pos.trBase[1],
+				cent->currentState.pos.trBase[2],
+				cent->currentState.origin2[0],
+				cent->currentState.origin2[1],
+				cent->currentState.origin2[2]);
+			--s_stefxCheckEventsBudget;
+		}
+	}
+#endif
 	// check for event-only entities
 	if ( cent->currentState.eType > ET_EVENTS ) {
 		if ( cent->previousEvent ) {
@@ -1176,4 +1254,3 @@ void CG_CheckEvents( centity_t *cent ) {
 
 	CG_EntityEvent( cent, cent->lerpOrigin );
 }
-

@@ -33,9 +33,19 @@ UI_ForceMenuOff
 */
 void UI_ForceMenuOff (void)
 {
+#ifdef _XBOX
+	XBLF("STEFX: UI_ForceMenuOff catcherBefore=0x%x paused='%s'",
+		ui.Key_GetCatcher(),
+		UI_Cvar_VariableString("cl_paused"));
+#endif
 	ui.Key_SetCatcher( ui.Key_GetCatcher() & ~KEYCATCH_UI );
 	ui.Key_ClearStates();
 	ui.Cvar_Set( "cl_paused", "0" );
+#ifdef _XBOX
+	XBLF("STEFX: UI_ForceMenuOff done catcherAfter=0x%x paused='%s'",
+		ui.Key_GetCatcher(),
+		UI_Cvar_VariableString("cl_paused"));
+#endif
 }
 
 
@@ -49,6 +59,14 @@ UI_SetActiveMenu -
 extern void S_StopAllSoundsExceptMusic( void );
 void UI_SetActiveMenu( const char* menuname,const char *menuID ) 
 {
+#ifdef _XBOX
+	XBLF("STEFX: UI_SetActiveMenu request menu='%s' menuID='%s' clsState=%d catcher=0x%x paused='%s'",
+		menuname ? menuname : "<null>",
+		menuID ? menuID : "",
+		cls.state,
+		ui.Key_GetCatcher(),
+		UI_Cvar_VariableString("cl_paused"));
+#endif
 	// Sooper-hack. After we play the ja08 cutscene, the game renders for a couple frames.
 	// So the cinematic code turns off Present(), and we have to turn it back on here:
 	extern bool connectSwapOverride;
@@ -58,10 +76,20 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 
 	if (cls.state != CA_DISCONNECTED && !ui.SG_GameAllowedToSaveHere(qtrue))	//don't check full sytem, only if incamera
 	{
+#ifdef _XBOX
+		XBLF("STEFX: UI_SetActiveMenu blocked reason=GameAllowedToSaveHere menu='%s' menuID='%s' clsState=%d catcher=0x%x",
+			menuname ? menuname : "<null>",
+			menuID ? menuID : "",
+			cls.state,
+			ui.Key_GetCatcher());
+#endif
 		return;
 	}
 
 	if ( !menuname ) {
+#ifdef _XBOX
+		XBLog_Write("STEFX: UI_SetActiveMenu route=forceOff null menu");
+#endif
 		UI_ForceMenuOff();
 		return;
 	}
@@ -73,15 +101,27 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 
 	// enusure minumum menu data is cached
 	Menu_Cache();
+#ifdef _XBOX
+	XBLF("STEFX: UI_SetActiveMenu after Menu_Cache menu='%s' menuID='%s' catcher=0x%x",
+		menuname,
+		menuID ? menuID : "",
+		ui.Key_GetCatcher());
+#endif
 
 	if ( Q_stricmp (menuname, "mainMenu") == 0 ) 
 	{
+#ifdef _XBOX
+		XBLog_Write("STEFX: UI_SetActiveMenu route=mainMenu");
+#endif
 		UI_MainMenu();
 		return;
 	}
 
 	if ( Q_stricmp (menuname, "ingame") == 0 ) 
 	{
+#ifdef _XBOX
+		XBLF("STEFX: UI_SetActiveMenu route=ingame menuID='%s'", menuID ? menuID : "");
+#endif
 		ui.Cvar_Set( "cl_paused", "1" );
 	//	S_StopAllSounds();
 
@@ -98,6 +138,9 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 
 	if ( Q_stricmp (menuname, "datapad") == 0 ) 
 	{
+#ifdef _XBOX
+		XBLog_Write("STEFX: UI_SetActiveMenu route=datapad");
+#endif
 		ui.Cvar_Set( "cl_paused", "1" );
 		S_StopAllSoundsExceptMusic();
 		UI_DataPadMenu();
@@ -106,6 +149,9 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 
 	if ( Q_stricmp (menuname, "missionfailed_menu") == 0 ) 
 	{
+#ifdef _XBOX
+		XBLog_Write("STEFX: UI_SetActiveMenu route=missionfailed_menu");
+#endif
 		Menus_CloseAll();
 		Menus_ActivateByName("missionfailed_menu");
 		ui.Key_SetCatcher( KEYCATCH_UI );
@@ -114,7 +160,9 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 //allows the 'noController' menu and similar menus to 'popup' over existing menu
 	if ( Q_stricmp (menuname, "ui_popup") == 0 ) 
 	{
-		
+#ifdef _XBOX
+		XBLF("STEFX: UI_SetActiveMenu route=ui_popup menuID='%s'", menuID ? menuID : "");
+#endif
 		Menus_ActivateByName(menuID);	
 		return;
 	}
@@ -123,10 +171,15 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 #ifdef _XBOX
 	{
 		Menus_CloseAll();
-		if (Menus_ActivateByName(menuname))
+		menuDef_t *activated = Menus_ActivateByName(menuname);
+		XBLF("STEFX: UI_SetActiveMenu route=direct menu='%s' activated=%p", menuname, (void*)activated);
+		if (activated)
 			ui.Key_SetCatcher( KEYCATCH_UI );
 		else
+		{
+			XBLF("STEFX: UI_SetActiveMenu fallback=mainMenu missing menu='%s'", menuname);
 			UI_MainMenu();
+		}
 	}
 #endif
 

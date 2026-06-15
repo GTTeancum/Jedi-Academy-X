@@ -72,6 +72,55 @@ static bool RB_XboxCanMergeGeneratedEntitySurf(const surfaceType_t *surface, int
 	return RB_XboxGeneratedEntityIsMergeSafe(entityNum) &&
 		RB_XboxGeneratedEntityIsMergeSafe(oldEntityNum);
 }
+
+static bool RB_XboxTrace2DShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	return strstr( name, "gfx/interface/" ) ||
+		strstr( name, "crosshair" ) ||
+		strstr( name, "gfx/effects/" ) ||
+		strstr( name, "gfx/misc/" );
+}
+
+static void RB_XboxForce2DOverlayState( const char *where )
+{
+	static int s_stefx2DStateLogBudget = 48;
+	static int s_stefx2DStateSkipBudget = 16;
+
+	if ( !glw_state || !glw_state->device )
+	{
+		if ( cls.state == CA_ACTIVE && s_stefx2DStateSkipBudget > 0 )
+		{
+			XBLF( "STEFX: RB_XboxForce2DOverlayState skipped where=%s glw=%p device=%p frame=%d projection2D=%d",
+				where ? where : "<null>", glw_state,
+				glw_state ? glw_state->device : NULL,
+				tr.frameCount, backEnd.projection2D );
+			--s_stefx2DStateSkipBudget;
+		}
+		return;
+	}
+
+	glw_state->device->SetRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+	glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+	glw_state->device->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
+
+	if ( cls.state == CA_ACTIVE && s_stefx2DStateLogBudget > 0 )
+	{
+		XBLF( "STEFX: RB_XboxForce2DOverlayState where=%s frame=%d projection2D=%d",
+			where ? where : "<null>", tr.frameCount, backEnd.projection2D );
+		--s_stefx2DStateLogBudget;
+	}
+}
 #endif
 
 bool tr_stencilled = false;
@@ -1464,11 +1513,15 @@ void	RB_SetGL2D (void) {
 	glMatrixMode(GL_PROJECTION);
     glLoadIdentity ();
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	glOrtho (0, 640, 480, 0, 0, 1);
+#else
 	extern int Menus_AnyFullScreenVisible(void);
 	if(glw_state->isWidescreen && !(Menus_AnyFullScreenVisible()) && cls.state == CA_ACTIVE)
 		glOrtho (0, 720, 480, 0, 0, 1);
 	else
         glOrtho (0, 640, 480, 0, 0, 1);
+#endif
 #else
 	glOrtho (0, 640, 480, 0, 0, 1);
 #endif
@@ -1481,6 +1534,11 @@ void	RB_SetGL2D (void) {
 
 	glDisable( GL_CULL_FACE );
 	glDisable( GL_CLIP_PLANE0 );
+#ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	RB_XboxForce2DOverlayState( "RB_SetGL2D" );
+#endif
+#endif
 
 	// set time for 2D shaders
 	backEnd.refdef.time = Sys_Milliseconds();
@@ -1531,6 +1589,26 @@ const void *RB_StretchPic ( const void *data ) {
 	if ( !backEnd.projection2D ) {
 		RB_SetGL2D();	//set culling and other states
 	}
+#ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( cls.state == CA_ACTIVE && RB_XboxTrace2DShader( shader ) )
+	{
+		static int s_stefxStretchBackendBudget = 240;
+		if ( s_stefxStretchBackendBudget > 0 )
+		{
+			XBLF( "STEFX: RB_StretchPic shader='%s' rect=(%g,%g %gx%g) st=(%g,%g %g,%g) color=%u,%u,%u,%u tessBefore=%d/%d projection2D=%d",
+				shader ? shader->name : "<null>",
+				cmd->x, cmd->y, cmd->w, cmd->h,
+				cmd->s1, cmd->t1, cmd->s2, cmd->t2,
+				(unsigned int)backEnd.color2D[0], (unsigned int)backEnd.color2D[1],
+				(unsigned int)backEnd.color2D[2], (unsigned int)backEnd.color2D[3],
+				tess.numVertexes, tess.numIndexes, backEnd.projection2D );
+			--s_stefxStretchBackendBudget;
+		}
+		RB_XboxForce2DOverlayState( "RB_StretchPic" );
+	}
+#endif
+#endif
 
 	RB_CHECKOVERFLOW( 4, 6 );
 	numVerts = tess.numVertexes;

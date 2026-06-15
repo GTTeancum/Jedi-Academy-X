@@ -581,6 +581,11 @@ gentity_t *G_TempEntity( vec3_t origin, int event ) {
 	e->classname = "tempEntity";
 	e->eventTime = level.time;
 	e->freeAfterEvent = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	// The Xbox hard-linked client/server loop can advance game time before
+	// the next local snapshot is built, especially under smoke fast-time.
+	e->eventTime += 1200;
+#endif
 
 	VectorCopy( origin, snapped );
 	SnapVector( snapped );		// save network bandwidth

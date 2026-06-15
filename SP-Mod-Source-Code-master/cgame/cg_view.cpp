@@ -550,6 +550,22 @@ void CG_ZoomUp_f( void )
 	}
 }
 
+void CG_ZoomOff_f( void )
+{
+	if ( cg_paused.integer || in_camera )
+	{
+		return;
+	}
+
+	if ( cg.zoomed )
+	{
+		cg.zoomLocked = qfalse;
+		cg.zoomed = qfalse;
+		cg.zoomTime = cg.time;
+		cgi_S_StartSound( cg.refdef.vieworg, ENTITYNUM_WORLD, CHAN_AUTO, cgs.media.zoomEnd );
+	}
+}
+
 
 /*
 ====================

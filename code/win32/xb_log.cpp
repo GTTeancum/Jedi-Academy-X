@@ -193,6 +193,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_playerBudget = 48;
     static int s_frameBudget = 192;
     static int s_renderBudget = 48;
+    static int s_textureEvidenceBudget = 96;
     static int s_cgameBudget = 48;
     static int s_assetBudget = 48;
     static int s_stefxClientThinkBudget = 96;
@@ -349,13 +350,15 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: engine EF CL_GetSnapshot", &s_frameBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: ACTIVE_MTEXTURE", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FORCE_TEXTURE_REBIND", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: TEX_STAGE_APPLY", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_AddAnimSurfaces", &s_renderBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: skipping MDR placeholder render", &s_efModelBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "EF: ACTIVE_MTEXTURE", &s_renderBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX: FORCE_TEXTURE_REBIND", &s_renderBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "JA: fakegl glBindTexture", &s_renderBudget);
     if (budgeted >= 0) return budgeted;

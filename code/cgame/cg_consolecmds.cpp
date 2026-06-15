@@ -207,13 +207,29 @@ void CG_ZoomUp_f( void )
 {
 }
 
+static void CG_ZoomOff_f( void )
+{
+	if ( cg.zoomMode != 0 )
+	{
+		cg.zoomMode = 0;
+		cg.zoomTime = cg.time;
+		cgi_S_StartSound( NULL, cg.snap ? cg.snap->ps.clientNum : ENTITYNUM_WORLD, CHAN_AUTO, cgs.media.zoomEnd );
+#ifdef _IMMERSION
+		if ( cg.snap )
+		{
+			cgi_FF_Start( cgs.media.zoomEndForce, cg.snap->ps.clientNum );
+		}
+#endif // _IMMERSION
+	}
+}
+
 static void CG_InfoDown_f( void ) {
-//	cg.showInformation = qtrue;
+	cg.showInformation = qtrue;
 }
 
 static void CG_InfoUp_f( void ) 
 {
-//	cg.showInformation = qfalse;
+	cg.showInformation = qfalse;
 }
 
 typedef struct {
@@ -255,6 +271,7 @@ Ghoul2 Insert End
 	{ "+zoom", CG_ZoomDown_f },
 	{ "-zoom", CG_ZoomUp_f },
 	{ "zoom", CG_ToggleBinoculars },
+	{ "zoomoff", CG_ZoomOff_f },
 	{ "la_zoom", CG_ToggleLAGoggles },
 	{ "invnext", CG_NextInventory_f },
 	{ "invprev", CG_PrevInventory_f },

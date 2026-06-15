@@ -2,6 +2,9 @@
 
 #include "cg_local.h"
 #include "FX_Public.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 /*
 -------------------------
@@ -36,12 +39,77 @@ FX_CompressionShot
 
 void FX_CompressionShot( vec3_t start, vec3_t end )
 {
+#ifdef _XBOX
+	{
+		static int s_stefxCompressionFxLogBudget = 32;
+		if ( s_stefxCompressionFxLogBudget > 0 )
+		{
+			XBLF("STEFX: FX_CompressionShot start=(%g,%g,%g) end=(%g,%g,%g) spark=%d ring=%d white=%d xboxBeam=%d",
+				start[0], start[1], start[2],
+				end[0], end[1], end[2],
+				cgs.media.sparkShader,
+				cgs.media.compressionRingShader,
+				cgs.media.whiteLaserShader,
+#if defined(STEFX_ELITE_FORCE_SP)
+				1
+#else
+				0
+#endif
+				);
+			s_stefxCompressionFxLogBudget--;
+		}
+	}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		vec3_t core = { 0.85f, 0.95f, 1.0f };
+		vec3_t glow = { 0.20f, 0.55f, 1.0f };
+		vec3_t delta;
+		float len;
+		FXLine *glowLine;
+		FXLine *coreLine;
+
+		VectorSubtract( start, end, delta );
+		len = VectorLength( delta );
+
+		glowLine = FX_AddLine( start, end,
+						1.0f,
+						5.0f, -2.0f,
+						0.95f, 0.0f,
+						glow, glow,
+						300.0f,
+						cgs.media.whiteLaserShader );
+
+		coreLine = FX_AddLine( start, end,
+						1.0f,
+						2.0f, -0.5f,
+						1.0f, 0.0f,
+						core, core,
+						240.0f,
+						cgs.media.sparkShader );
+
+		{
+			static int s_stefxCompressionFxLineBudget = 128;
+			if ( s_stefxCompressionFxLineBudget > 0 )
+			{
+				XBLF("STEFX: FX_CompressionShot lines len=%g glowLine=%p coreLine=%p glowWidth=5->3 glowAlpha=0.95->0 glowKill=300 glowShader=%d coreWidth=2->1.5 coreAlpha=1->0 coreKill=240 coreShader=%d startIsImpact=1 endIsMuzzle=1",
+					len,
+					glowLine,
+					coreLine,
+					cgs.media.whiteLaserShader,
+					cgs.media.sparkShader);
+				s_stefxCompressionFxLineBudget--;
+			}
+		}
+	}
+#else
 	FX_AddLine( start, end, 
 					1.0f, 
 					2.0f, 0.0f, 
 					1.0f, 0.0f, 
 					100.0f, 
 					cgs.media.sparkShader );
+#endif
 
 	FX_CompressionShockRing( start, end );
 }
@@ -121,6 +189,21 @@ void FX_CompressionExplosion( vec3_t origin, vec3_t normal )
 
 	//Sparks
 	numSparks = 4 + (random() * 4.0f);
+#ifdef _XBOX
+	{
+		static int s_stefxCompressionExplosionBudget = 96;
+		if ( s_stefxCompressionExplosionBudget > 0 )
+		{
+			XBLF("STEFX: FX_CompressionExplosion origin=(%g,%g,%g) normal=(%g,%g,%g) sparks=%d markShader=%d explosionShader=%d",
+				origin[0], origin[1], origin[2],
+				normal[0], normal[1], normal[2],
+				numSparks,
+				cgs.media.compressionMarkShader,
+				cgs.media.electricalExplosionSlowShader);
+			s_stefxCompressionExplosionBudget--;
+		}
+	}
+#endif
 
 	for ( i = 0; i < numSparks; i++ )
 	{	
@@ -185,7 +268,19 @@ FX_CompressionHit
 
 void FX_CompressionHit( vec3_t origin )
 {
-	FX_AddSprite( origin, 
+#ifdef _XBOX
+	{
+		static int s_stefxCompressionHitBudget = 96;
+		if ( s_stefxCompressionHitBudget > 0 )
+		{
+			XBLF("STEFX: FX_CompressionHit origin=(%g,%g,%g) shader=%d spriteScale=32->-128 kill=250",
+				origin[0], origin[1], origin[2],
+				cgs.media.prifleImpactShader);
+			s_stefxCompressionHitBudget--;
+		}
+	}
+#endif
+	FX_AddSprite( origin,
 					NULL,
 					NULL,
 					32.0f,
@@ -210,6 +305,19 @@ void FX_CompressionAltMiss( vec3_t origin, vec3_t normal )
 	vec3_t	velocity;
 	float	scale, dscale;
 	int		i;
+
+#ifdef _XBOX
+	{
+		static int s_stefxCompressionAltMissBudget = 32;
+		if ( s_stefxCompressionAltMissBudget > 0 )
+		{
+			XBLF("STEFX: FX_CompressionAltMiss origin=(%g,%g,%g) normal=(%g,%g,%g) smokePuffs=8",
+				origin[0], origin[1], origin[2],
+				normal[0], normal[1], normal[2]);
+			s_stefxCompressionAltMissBudget--;
+		}
+	}
+#endif
 
 	// Smoke puffs
 	for ( i = 0; i < 8; i++ )
@@ -239,5 +347,3 @@ void FX_CompressionAltMiss( vec3_t origin, vec3_t normal )
 
 	CG_ExplosionEffects( origin, 1.0f, 150 );
 }
-
-

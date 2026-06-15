@@ -447,6 +447,10 @@ static gentity_t *STEFX_SmokeFindStageEnemy(gentity_t *ent, int previousTarget)
 	return NULL;
 }
 
+static int s_stefxSmokeStageAimEnt = ENTITYNUM_NONE;
+static int s_stefxSmokeStageAimTime = -100000;
+static vec3_t s_stefxSmokeStageAimPoint = { 0.0f, 0.0f, 0.0f };
+
 static void STEFX_SmokeStageEnemy(gentity_t *ent, usercmd_t *ucmd)
 {
 	static int s_stefxStageBudget = 36;
@@ -559,6 +563,10 @@ static void STEFX_SmokeStageEnemy(gentity_t *ent, usercmd_t *ucmd)
 	{
 		target->enemy = ent;
 	}
+	s_stefxSmokeStageAimEnt = target->s.number;
+	s_stefxSmokeStageAimTime = level.time;
+	VectorCopy(newOrigin, s_stefxSmokeStageAimPoint);
+	s_stefxSmokeStageAimPoint[2] += 32.0f;
 	XBLF("STEFX: NPC_SetEnemy smoke stage self=%d class='%s' enemy=%d contents=0x%x clipmask=0x%x time=%d",
 		target->s.number,
 		target->classname ? target->classname : "<null>",
@@ -698,7 +706,43 @@ static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
 	range += 96.0f;
 	rangeSq = range * range;
 
-	for (i = 1; i < globals.num_entities; ++i)
+	if (gi.Cvar_VariableIntegerValue("stefx_smoke_stage_enemy") &&
+		s_stefxSmokeStageAimEnt > 0 &&
+		s_stefxSmokeStageAimEnt < globals.num_entities &&
+		level.time - s_stefxSmokeStageAimTime <= 1500)
+	{
+		gentity_t *target = &g_entities[s_stefxSmokeStageAimEnt];
+		vec3_t targetPoint;
+		vec3_t delta;
+		trace_t tr;
+		float distSq;
+
+		if (STEFX_SmokeStageEnemyIsUsable(ent, target, qfalse))
+		{
+			VectorCopy(s_stefxSmokeStageAimPoint, targetPoint);
+			VectorSubtract(targetPoint, start, delta);
+			distSq = VectorLengthSquared(delta);
+			if (distSq <= rangeSq)
+			{
+				gi.trace(&tr, start, NULL, NULL, targetPoint, ent->s.number, MASK_SHOT);
+				bestDistSq = distSq;
+				bestTarget = target;
+				VectorCopy(targetPoint, bestPoint);
+				bestTraceEnt = tr.entityNum;
+				bestTraceFrac = tr.fraction;
+				if (tr.entityNum == target->s.number)
+				{
+					bestTraceDistSq = distSq;
+					bestTraceTarget = target;
+					VectorCopy(targetPoint, bestTracePoint);
+					bestTraceTargetEnt = tr.entityNum;
+					bestTraceTargetFrac = tr.fraction;
+				}
+			}
+		}
+	}
+
+	for (i = 1; !bestTarget && !bestTraceTarget && i < globals.num_entities; ++i)
 	{
 		gentity_t *target = &g_entities[i];
 		vec3_t targetPoint;
@@ -719,48 +763,58 @@ static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
 			continue;
 		}
 
-		VectorCopy(target->currentOrigin, targetPoint);
-		if (target->client && VectorLengthSquared(target->client->renderInfo.eyePoint) > 1.0f)
 		{
-			VectorCopy(target->client->renderInfo.eyePoint, targetPoint);
-		}
-		else
-		{
-			targetPoint[0] += (target->mins[0] + target->maxs[0]) * 0.5f;
-			targetPoint[1] += (target->mins[1] + target->maxs[1]) * 0.5f;
-			targetPoint[2] += (target->mins[2] + target->maxs[2]) * 0.5f;
-			if (target->client && targetPoint[2] <= target->currentOrigin[2] + 4.0f)
-			{
-				targetPoint[2] = target->currentOrigin[2] + target->client->ps.viewheight * 0.5f;
-			}
-		}
+			vec3_t candidates[5];
+			int candidateCount = 0;
+			int candidateIndex;
 
-		VectorSubtract(targetPoint, start, delta);
-		distSq = VectorLengthSquared(delta);
-		if (distSq > rangeSq)
-		{
-			continue;
-		}
+			VectorCopy(target->currentOrigin, targetPoint);
+			targetPoint[2] += 32.0f;
+			VectorCopy(targetPoint, candidates[candidateCount++]);
 
-		gi.trace(&tr, start, NULL, NULL, targetPoint, ent->s.number, MASK_SHOT);
-		if (tr.entityNum == target->s.number)
-		{
-			if (distSq < bestTraceDistSq)
+			VectorCopy(target->currentOrigin, targetPoint);
+			targetPoint[2] += 24.0f;
+			VectorCopy(targetPoint, candidates[candidateCount++]);
+
+			VectorCopy(target->currentOrigin, targetPoint);
+			targetPoint[2] += 40.0f;
+			VectorCopy(targetPoint, candidates[candidateCount++]);
+
+			VectorCopy(target->currentOrigin, targetPoint);
+			targetPoint[2] += 16.0f;
+			VectorCopy(targetPoint, candidates[candidateCount++]);
+
+			for (candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex)
 			{
-				bestTraceDistSq = distSq;
-				bestTraceTarget = target;
-				VectorCopy(targetPoint, bestTracePoint);
-				bestTraceTargetEnt = tr.entityNum;
-				bestTraceTargetFrac = tr.fraction;
+				VectorCopy(candidates[candidateIndex], targetPoint);
+				VectorSubtract(targetPoint, start, delta);
+				distSq = VectorLengthSquared(delta);
+				if (distSq > rangeSq)
+				{
+					continue;
+				}
+
+				gi.trace(&tr, start, NULL, NULL, targetPoint, ent->s.number, MASK_SHOT);
+				if (tr.entityNum == target->s.number)
+				{
+					if (distSq < bestTraceDistSq)
+					{
+						bestTraceDistSq = distSq;
+						bestTraceTarget = target;
+						VectorCopy(targetPoint, bestTracePoint);
+						bestTraceTargetEnt = tr.entityNum;
+						bestTraceTargetFrac = tr.fraction;
+					}
+				}
+				else if (distSq < bestDistSq)
+				{
+					bestDistSq = distSq;
+					bestTarget = target;
+					VectorCopy(targetPoint, bestPoint);
+					bestTraceEnt = tr.entityNum;
+					bestTraceFrac = tr.fraction;
+				}
 			}
-		}
-		else if (distSq < bestDistSq)
-		{
-			bestDistSq = distSq;
-			bestTarget = target;
-			VectorCopy(targetPoint, bestPoint);
-			bestTraceEnt = tr.entityNum;
-			bestTraceFrac = tr.fraction;
 		}
 	}
 
@@ -817,7 +871,7 @@ static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
 
 		if (s_stefxSmokeAimBudget > 0)
 		{
-			XBLF("STEFX: smoke aim target ent=%d class='%s' targetname='%s' dist=%g desired=(%g,%g,%g) cmdAngles=(%d,%d,%d) traceEnt=%d frac=%g",
+			XBLF("STEFX: smoke aim target ent=%d class='%s' targetname='%s' dist=%g desired=(%g,%g,%g) cmdAngles=(%d,%d,%d) traceEnt=%d frac=%g start=(%g,%g,%g) point=(%g,%g,%g)",
 				bestTarget->s.number,
 				bestTarget->classname ? bestTarget->classname : "<null>",
 				bestTarget->targetname ? bestTarget->targetname : "<null>",
@@ -827,7 +881,9 @@ static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
 				ucmd->angles[YAW],
 				ucmd->angles[ROLL],
 				bestTraceEnt,
-				bestTraceFrac);
+				bestTraceFrac,
+				start[0], start[1], start[2],
+				bestPoint[0], bestPoint[1], bestPoint[2]);
 			s_stefxSmokeAimBudget--;
 		}
 	}

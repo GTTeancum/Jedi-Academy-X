@@ -1350,10 +1350,44 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 #endif
 
 	if (!targ->takedamage) {
+#ifdef _XBOX
+		if ( stefxDamageProbe )
+		{
+			static int s_stefxDamageSkipBudget = 96;
+			if ( s_stefxDamageSkipBudget > 0 )
+			{
+				XBLF("STEFX: G_Damage skip reason=notTakedamage targ=%d class='%s' health=%d attacker=%d damage=%d mod=%d",
+					targ ? targ->s.number : -1,
+					(targ && targ->classname) ? targ->classname : "<null>",
+					targ ? targ->health : -9999,
+					attacker ? attacker->s.number : -1,
+					damage,
+					mod);
+				s_stefxDamageSkipBudget--;
+			}
+		}
+#endif
 		return;
 	}
 
 	if ( targ->health <= 0 ) {
+#ifdef _XBOX
+		if ( stefxDamageProbe )
+		{
+			static int s_stefxDamageDeadSkipBudget = 96;
+			if ( s_stefxDamageDeadSkipBudget > 0 )
+			{
+				XBLF("STEFX: G_Damage skip reason=alreadyDead targ=%d class='%s' health=%d attacker=%d damage=%d mod=%d",
+					targ ? targ->s.number : -1,
+					(targ && targ->classname) ? targ->classname : "<null>",
+					targ ? targ->health : -9999,
+					attacker ? attacker->s.number : -1,
+					damage,
+					mod);
+				s_stefxDamageDeadSkipBudget--;
+			}
+		}
+#endif
 		return;
 	}
 
@@ -1375,7 +1409,28 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 		{
 			//Shield is up, take no damage
 			if ( targ->s.powerups & ( 1 << PW_HIROGEN_SHIELD ) )
+#ifdef _XBOX
+			{
+				if ( stefxDamageProbe )
+				{
+					static int s_stefxDamageHirogenShieldSkipBudget = 32;
+					if ( s_stefxDamageHirogenShieldSkipBudget > 0 )
+					{
+						XBLF("STEFX: G_Damage skip reason=hirogenShield targ=%d health=%d powerups=0x%x attacker=%d damage=%d mod=%d",
+							targ->s.number,
+							targ->health,
+							targ->s.powerups,
+							attacker ? attacker->s.number : -1,
+							damage,
+							mod);
+						s_stefxDamageHirogenShieldSkipBudget--;
+					}
+				}
 				return;
+			}
+#else
+				return;
+#endif
 		}
 	}
 
@@ -1383,6 +1438,23 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 
 	if ( client ) {
 		if ( client->noclip ) {
+#ifdef _XBOX
+			if ( stefxDamageProbe )
+			{
+				static int s_stefxDamageNoclipSkipBudget = 32;
+				if ( s_stefxDamageNoclipSkipBudget > 0 )
+				{
+					XBLF("STEFX: G_Damage skip reason=noclip targ=%d class='%s' health=%d attacker=%d damage=%d mod=%d",
+						targ->s.number,
+						targ->classname ? targ->classname : "<null>",
+						targ->health,
+						attacker ? attacker->s.number : -1,
+						damage,
+						mod);
+					s_stefxDamageNoclipSkipBudget--;
+				}
+			}
+#endif
 			return;
 		}
 	}

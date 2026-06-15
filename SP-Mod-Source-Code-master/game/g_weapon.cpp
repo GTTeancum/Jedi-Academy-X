@@ -81,6 +81,29 @@ qboolean W_CheckBorgAdapt( gentity_t *attacker, int weapon, gentity_t *traceEnt,
 		if ( g_entities[0].client )
 		{
 			int *borgAdaptHits = g_entities[0].client->ps.borgAdaptHits;
+#ifdef _XBOX
+			int stefxBorgAdaptBefore = borgAdaptHits[weapon];
+			static int s_stefxBorgAdaptBudget = 128;
+
+			if ( s_stefxBorgAdaptBudget > 0 )
+			{
+				XBLF("STEFX: BorgAdapt check attacker=%d attackerClass='%s' weapon=%d target=%d class='%s' targetname='%s' race=%d team=%d shields=0x%x health=%d hitsBefore=%d threshold=%d end=(%g,%g,%g)",
+					attacker ? attacker->s.number : -1,
+					(attacker && attacker->classname) ? attacker->classname : "<null>",
+					weapon,
+					traceEnt->s.number,
+					traceEnt->classname ? traceEnt->classname : "<null>",
+					traceEnt->targetname ? traceEnt->targetname : "<null>",
+					traceEnt->client ? traceEnt->client->race : -1,
+					traceEnt->client ? traceEnt->client->playerTeam : -1,
+					traceEnt->NPC ? traceEnt->NPC->aiFlags : 0,
+					traceEnt->health,
+					stefxBorgAdaptBefore,
+					BORG_ADAPT_NUM_HITS,
+					endpos[0], endpos[1], endpos[2]);
+				s_stefxBorgAdaptBudget--;
+			}
+#endif
 
 			//FIXME: use damage accumulated rather than number of hits?
 			borgAdaptHits[weapon]++;
@@ -108,6 +131,19 @@ qboolean W_CheckBorgAdapt( gentity_t *attacker, int weapon, gentity_t *traceEnt,
 				//make them still react to absorbed shots, but no anim
 				GEntity_PainFunc( traceEnt, attacker, -1 );
 
+#ifdef _XBOX
+				if ( s_stefxBorgAdaptBudget > 0 )
+				{
+					XBLF("STEFX: BorgAdapt absorbed attacker=%d weapon=%d target=%d hitsAfter=%d resultDamage=0 shieldUntil=%d health=%d",
+						attacker ? attacker->s.number : -1,
+						weapon,
+						traceEnt->s.number,
+						borgAdaptHits[weapon],
+						traceEnt->client ? traceEnt->client->ps.powerups[PW_BORG_SHIELD] : 0,
+						traceEnt->health);
+					s_stefxBorgAdaptBudget--;
+				}
+#endif
 				return qfalse;
 			}
 			else
@@ -118,6 +154,18 @@ qboolean W_CheckBorgAdapt( gentity_t *attacker, int weapon, gentity_t *traceEnt,
 				VectorScale(forward, -1, backward);
 				FX_BorgHit( endpos , backward );
 
+#ifdef _XBOX
+				if ( s_stefxBorgAdaptBudget > 0 )
+				{
+					XBLF("STEFX: BorgAdapt damageAllowed attacker=%d weapon=%d target=%d hitsAfter=%d resultDamage=1 health=%d",
+						attacker ? attacker->s.number : -1,
+						weapon,
+						traceEnt->s.number,
+						borgAdaptHits[weapon],
+						traceEnt->health);
+					s_stefxBorgAdaptBudget--;
+				}
+#endif
 				return qtrue;
 			}
 		}
@@ -207,6 +255,324 @@ void WP_FirePhaser( gentity_t *ent, qboolean alt_fire )
 #define	CRIFLE_DAMAGE		25
 #define COMPRESSION_SPREAD	100
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_CompressionVec3Bad( const vec3_t v )
+{
+	return (qboolean)( IS_NAN( v[0] ) || IS_NAN( v[1] ) || IS_NAN( v[2] ) );
+}
+
+static qboolean STEFX_CompressionBoundsBad( const vec3_t mins, const vec3_t maxs )
+{
+	if ( STEFX_CompressionVec3Bad( mins ) || STEFX_CompressionVec3Bad( maxs ) )
+	{
+		return qtrue;
+	}
+	if ( mins[0] > maxs[0] || mins[1] > maxs[1] || mins[2] > maxs[2] )
+	{
+		return qtrue;
+	}
+	if ( ( maxs[0] - mins[0] ) > 1024.0f ||
+		( maxs[1] - mins[1] ) > 1024.0f ||
+		( maxs[2] - mins[2] ) > 1024.0f )
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static void STEFX_CompressionGetEntityBounds( gentity_t *target, vec3_t boundsMins, vec3_t boundsMaxs )
+{
+	float pad;
+
+	if ( !STEFX_CompressionBoundsBad( target->absmin, target->absmax ) )
+	{
+		VectorCopy( target->absmin, boundsMins );
+		VectorCopy( target->absmax, boundsMaxs );
+	}
+	else
+	{
+		VectorAdd( target->currentOrigin, target->mins, boundsMins );
+		VectorAdd( target->currentOrigin, target->maxs, boundsMaxs );
+	}
+
+	pad = target->client ? 12.0f : 2.0f;
+	boundsMins[0] -= pad;
+	boundsMins[1] -= pad;
+	boundsMins[2] -= pad;
+	boundsMaxs[0] += pad;
+	boundsMaxs[1] += pad;
+	boundsMaxs[2] += pad;
+}
+
+static qboolean STEFX_CompressionRayBoundsFraction( const vec3_t start, const vec3_t end, const vec3_t boundsMins, const vec3_t boundsMaxs, float *hitFrac, float *exitFrac )
+{
+	vec3_t delta;
+	float enterFrac = 0.0f;
+	float leaveFrac = 1.0f;
+	int axis;
+
+	VectorSubtract( end, start, delta );
+
+	for ( axis = 0; axis < 3; ++axis )
+	{
+		float axisDelta = delta[axis];
+		float axisEnter;
+		float axisLeave;
+		float swap;
+
+		if ( axisDelta > -0.0001f && axisDelta < 0.0001f )
+		{
+			if ( start[axis] < boundsMins[axis] || start[axis] > boundsMaxs[axis] )
+			{
+				return qfalse;
+			}
+			continue;
+		}
+
+		axisEnter = ( boundsMins[axis] - start[axis] ) / axisDelta;
+		axisLeave = ( boundsMaxs[axis] - start[axis] ) / axisDelta;
+		if ( axisEnter > axisLeave )
+		{
+			swap = axisEnter;
+			axisEnter = axisLeave;
+			axisLeave = swap;
+		}
+		if ( axisEnter > enterFrac )
+		{
+			enterFrac = axisEnter;
+		}
+		if ( axisLeave < leaveFrac )
+		{
+			leaveFrac = axisLeave;
+		}
+		if ( enterFrac > leaveFrac )
+		{
+			return qfalse;
+		}
+	}
+
+	if ( leaveFrac < 0.0f || enterFrac > 1.0f )
+	{
+		return qfalse;
+	}
+
+	if ( enterFrac < 0.0f )
+	{
+		enterFrac = 0.0f;
+	}
+
+	if ( leaveFrac > 1.0f )
+	{
+		leaveFrac = 1.0f;
+	}
+
+	*hitFrac = enterFrac;
+	if ( exitFrac )
+	{
+		*exitFrac = leaveFrac;
+	}
+	return qtrue;
+}
+
+static qboolean STEFX_CompressionRepairTraceHit( gentity_t *attacker, trace_t *tr, const vec3_t start, const vec3_t end, int shotSeq )
+{
+	gentity_t *best = NULL;
+	vec3_t shotDelta;
+	float bestFrac = 2.0f;
+	float bestVisualFrac = 2.0f;
+	float oldFrac;
+	float allowedFrac;
+	int oldHit;
+	int considered = 0;
+	int intersected = 0;
+	int skippedAfterWorld = 0;
+	int i;
+	static int s_stefxCompressionCandidateBudget = 384;
+
+	if ( !attacker || !attacker->client || !tr )
+	{
+		return qfalse;
+	}
+	if ( attacker->s.number != 0 )
+	{
+		return qfalse;
+	}
+	if ( tr->entityNum >= 0 && tr->entityNum < ENTITYNUM_WORLD && g_entities[tr->entityNum].takedamage )
+	{
+		return qfalse;
+	}
+
+	oldHit = tr->entityNum;
+	oldFrac = tr->fraction;
+	allowedFrac = tr->fraction < 1.0f ? tr->fraction + 0.015f : 1.0f;
+	VectorSubtract( end, start, shotDelta );
+
+	for ( i = 1; i < globals.num_entities && i < ENTITYNUM_WORLD; ++i )
+	{
+		gentity_t *target = &g_entities[i];
+		vec3_t boundsMins;
+		vec3_t boundsMaxs;
+		float hitFrac = -1.0f;
+		float exitFrac = -1.0f;
+		float visualFrac = -1.0f;
+		qboolean rayHit;
+		qboolean acceptedCandidate;
+
+		if ( !target->inuse || target == attacker || target->owner == attacker )
+		{
+			continue;
+		}
+		if ( !target->takedamage || target->health <= 0 || ( target->flags & FL_NOTARGET ) )
+		{
+			continue;
+		}
+		if ( !target->client && !target->bmodel && target->contents == 0 )
+		{
+			continue;
+		}
+
+		considered++;
+		STEFX_CompressionGetEntityBounds( target, boundsMins, boundsMaxs );
+		rayHit = STEFX_CompressionRayBoundsFraction( start, end, boundsMins, boundsMaxs, &hitFrac, &exitFrac );
+		if ( !rayHit )
+		{
+			if ( s_stefxCompressionCandidateBudget > 0 )
+			{
+				XBLF("STEFX: WP_FireCompression fallback candidate shot=%d ent=%d class='%s' targetname='%s' decision=rayMiss health=%d client=%d npc=%d contents=0x%x origin=(%g,%g,%g) bounds=(%g,%g,%g)-(%g,%g,%g) allowedFrac=%g",
+					shotSeq,
+					target->s.number,
+					target->classname ? target->classname : "<null>",
+					target->targetname ? target->targetname : "<null>",
+					target->health,
+					target->client ? 1 : 0,
+					target->NPC ? 1 : 0,
+					target->contents,
+					target->currentOrigin[0], target->currentOrigin[1], target->currentOrigin[2],
+					boundsMins[0], boundsMins[1], boundsMins[2],
+					boundsMaxs[0], boundsMaxs[1], boundsMaxs[2],
+					allowedFrac);
+				s_stefxCompressionCandidateBudget--;
+			}
+			continue;
+		}
+
+		intersected++;
+		visualFrac = hitFrac;
+		if ( ( target->client || target->NPC ) && exitFrac > hitFrac )
+		{
+			if ( hitFrac <= 0.0001f )
+			{
+				visualFrac = exitFrac;
+			}
+			else
+			{
+				visualFrac = hitFrac + ( ( exitFrac - hitFrac ) * 0.5f );
+			}
+			if ( visualFrac > allowedFrac )
+			{
+				visualFrac = allowedFrac;
+			}
+			if ( visualFrac < hitFrac )
+			{
+				visualFrac = hitFrac;
+			}
+		}
+		acceptedCandidate = (qboolean)( hitFrac <= allowedFrac );
+		if ( s_stefxCompressionCandidateBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression fallback candidate shot=%d ent=%d class='%s' targetname='%s' decision=%s hitFrac=%g exitFrac=%g visualFrac=%g allowedFrac=%g bestFrac=%g health=%d client=%d npc=%d race=%d team=%d contents=0x%x clipmask=0x%x origin=(%g,%g,%g) bounds=(%g,%g,%g)-(%g,%g,%g)",
+				shotSeq,
+				target->s.number,
+				target->classname ? target->classname : "<null>",
+				target->targetname ? target->targetname : "<null>",
+				acceptedCandidate ? "intersects" : "afterWorld",
+				hitFrac,
+				exitFrac,
+				visualFrac,
+				allowedFrac,
+				bestFrac,
+				target->health,
+				target->client ? 1 : 0,
+				target->NPC ? 1 : 0,
+				target->client ? target->client->race : -1,
+				target->client ? target->client->playerTeam : -1,
+				target->contents,
+				target->clipmask,
+				target->currentOrigin[0], target->currentOrigin[1], target->currentOrigin[2],
+				boundsMins[0], boundsMins[1], boundsMins[2],
+				boundsMaxs[0], boundsMaxs[1], boundsMaxs[2]);
+			s_stefxCompressionCandidateBudget--;
+		}
+		if ( hitFrac > allowedFrac )
+		{
+			skippedAfterWorld++;
+			continue;
+		}
+		if ( hitFrac < bestFrac )
+		{
+			bestFrac = hitFrac;
+			bestVisualFrac = visualFrac;
+			best = target;
+		}
+	}
+
+	if ( best )
+	{
+		static int s_stefxCompressionRepairHitBudget = 64;
+
+		tr->entityNum = best->s.number;
+		tr->fraction = bestVisualFrac;
+		VectorMA( start, bestVisualFrac, shotDelta, tr->endpos );
+		tr->surfaceFlags = 0;
+		VectorScale( forward, -1.0f, tr->plane.normal );
+
+		if ( s_stefxCompressionRepairHitBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression fallback override shot=%d oldHit=%d oldFrac=%g newHit=%d entryFrac=%g visualFrac=%g class='%s' targetname='%s' client=%d npc=%d race=%d team=%d health=%d contents=0x%x clipmask=0x%x considered=%d intersected=%d skippedAfterWorld=%d hit=(%g,%g,%g)",
+				shotSeq,
+				oldHit,
+				oldFrac,
+				best->s.number,
+				bestFrac,
+				bestVisualFrac,
+				best->classname ? best->classname : "<null>",
+				best->targetname ? best->targetname : "<null>",
+				best->client ? 1 : 0,
+				best->NPC ? 1 : 0,
+				best->client ? best->client->race : -1,
+				best->client ? best->client->playerTeam : -1,
+				best->health,
+				best->contents,
+				best->clipmask,
+				considered,
+				intersected,
+				skippedAfterWorld,
+				tr->endpos[0], tr->endpos[1], tr->endpos[2]);
+			s_stefxCompressionRepairHitBudget--;
+		}
+		return qtrue;
+	}
+
+	{
+		static int s_stefxCompressionRepairMissBudget = 24;
+		if ( s_stefxCompressionRepairMissBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression fallback nohit shot=%d oldHit=%d oldFrac=%g allowedFrac=%g considered=%d intersected=%d skippedAfterWorld=%d",
+				shotSeq,
+				oldHit,
+				oldFrac,
+				allowedFrac,
+				considered,
+				intersected,
+				skippedAfterWorld);
+			s_stefxCompressionRepairMissBudget--;
+		}
+	}
+
+	return qfalse;
+}
+#endif
+
 //---------------------------------------------------------
 void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 //---------------------------------------------------------
@@ -219,6 +585,9 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 	vec3_t		start, end;
 	qboolean	do_damage = qtrue;
 	qboolean	render_impact = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	int			stefxShotSeq = 0;
+#endif
 
 	if ( ent->s.number == 0 && !cg_thirdPerson.integer )
 		// The trace start will originate at the eye so we can ensure that it hits the crosshair.
@@ -230,32 +599,80 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 	VectorMA( start, -8, forward, start );
 	VectorMA( start, 8192, forward, end );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( ent->s.number == 0 )
+	{
+		static int s_stefxCompressionShotSeq = 0;
+		static int s_stefxCompressionBeginBudget = 96;
+		stefxShotSeq = ++s_stefxCompressionShotSeq;
+		if ( s_stefxCompressionBeginBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression begin shot=%d alt=%d ent=%d weapon=%d view=(%g,%g,%g) playerOrigin=(%g,%g,%g) eye=(%g,%g,%g) muzzle=(%g,%g,%g) forward=(%g,%g,%g) traceStart=(%g,%g,%g) traceEnd=(%g,%g,%g) ammoIndex=%d ammo=%d",
+				stefxShotSeq,
+				alt_fire ? 1 : 0,
+				ent->s.number,
+				ent->s.weapon,
+				ent->client ? ent->client->ps.viewangles[0] : 0.0f,
+				ent->client ? ent->client->ps.viewangles[1] : 0.0f,
+				ent->client ? ent->client->ps.viewangles[2] : 0.0f,
+				ent->client ? ent->client->ps.origin[0] : ent->currentOrigin[0],
+				ent->client ? ent->client->ps.origin[1] : ent->currentOrigin[1],
+				ent->client ? ent->client->ps.origin[2] : ent->currentOrigin[2],
+				ent->client ? ent->client->renderInfo.eyePoint[0] : 0.0f,
+				ent->client ? ent->client->renderInfo.eyePoint[1] : 0.0f,
+				ent->client ? ent->client->renderInfo.eyePoint[2] : 0.0f,
+				muzzle[0], muzzle[1], muzzle[2],
+				forward[0], forward[1], forward[2],
+				start[0], start[1], start[2],
+				end[0], end[1], end[2],
+				ent->client ? weaponData[ent->s.weapon].ammoIndex : -1,
+				(ent->client && weaponData[ent->s.weapon].ammoIndex >= 0) ? ent->client->ps.ammo[weaponData[ent->s.weapon].ammoIndex] : -9999);
+			s_stefxCompressionBeginBudget--;
+		}
+	}
+#endif
+
 	gi.trace ( &tr, start, NULL, NULL, end, ent->s.number, MASK_SHOT );
 
+	traceEnt = &g_entities[ tr.entityNum ];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( STEFX_CompressionRepairTraceHit( ent, &tr, start, end, stefxShotSeq ) )
+	{
+		traceEnt = &g_entities[ tr.entityNum ];
+	}
+#endif
+
 	// If the beam hits a skybox, etc. it would look foolish to add in an explosion
-	if ( tr.surfaceFlags & SURF_NOIMPACT ) 
+	if ( tr.surfaceFlags & SURF_NOIMPACT )
 	{
 		render_impact = qfalse;
 	}
-	
-	traceEnt = &g_entities[ tr.entityNum ];
+
 #ifdef _XBOX
 	if ( ent->s.number == 0 )
 	{
 		static int s_stefxCompressionTraceLogBudget = 48;
 		if ( s_stefxCompressionTraceLogBudget > 0 )
 		{
-			XBLF("STEFX: WP_FireCompression trace alt=%d start=(%g,%g,%g) end=(%g,%g,%g) hitNum=%d frac=%g hitClass=%s hitClient=%d hitHealth=%d take=%d surf=0x%x endpos=(%g,%g,%g)",
+			XBLF("STEFX: WP_FireCompression trace shot=%d alt=%d start=(%g,%g,%g) end=(%g,%g,%g) hitNum=%d frac=%g hitClass=%s targetname='%s' hitClient=%d hitNPC=%d hitRace=%d hitTeam=%d hitHealth=%d take=%d contents=0x%x clipmask=0x%x surf=0x%x plane=(%g,%g,%g) endpos=(%g,%g,%g)",
+				stefxShotSeq,
 				alt_fire ? 1 : 0,
 				start[0], start[1], start[2],
 				end[0], end[1], end[2],
 				tr.entityNum,
 				tr.fraction,
 				(traceEnt && traceEnt->classname) ? traceEnt->classname : "<null>",
+				(traceEnt && traceEnt->targetname) ? traceEnt->targetname : "<null>",
 				(traceEnt && traceEnt->client) ? 1 : 0,
+				(traceEnt && traceEnt->NPC) ? 1 : 0,
+				(traceEnt && traceEnt->client) ? traceEnt->client->race : -1,
+				(traceEnt && traceEnt->client) ? traceEnt->client->playerTeam : -1,
 				traceEnt ? traceEnt->health : -9999,
 				traceEnt ? traceEnt->takedamage : 0,
+				traceEnt ? traceEnt->contents : 0,
+				traceEnt ? traceEnt->clipmask : 0,
 				tr.surfaceFlags,
+				tr.plane.normal[0], tr.plane.normal[1], tr.plane.normal[2],
 				tr.endpos[0], tr.endpos[1], tr.endpos[2]);
 			s_stefxCompressionTraceLogBudget--;
 		}
@@ -267,6 +684,9 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 		tent = G_TempEntity( tr.endpos, EV_COMPRESSION_RIFLE_ALT );
 	else
 		tent = G_TempEntity( tr.endpos, EV_COMPRESSION_RIFLE );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	tent->svFlags |= SVF_BROADCAST;
+#endif
 
 	// Only add in impact stuff when told to do so
 	if ( render_impact )
@@ -306,6 +726,12 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 				}
 			}
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( tent2 )
+		{
+			tent2->svFlags |= SVF_BROADCAST;
+		}
+#endif
 	}
 
 	// Stash origins, etc. so that the effect can have access to them.
@@ -318,8 +744,42 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 		tent2->s.weapon = tent->s.weapon = ent->s.weapon;
 	} 
 
+#ifdef _XBOX
+	if ( ent->s.number == 0 )
+	{
+		static int s_stefxCompressionEventLogBudget = 48;
+		if ( s_stefxCompressionEventLogBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression events shot=%d shotEnt=%d shotEType=%d shotEvent=%d shotOther=%d shotFlags=0x%x shotParm=%d impactEnt=%d impactEType=%d impactEvent=%d impactOther=%d impactFlags=0x%x impactParm=%d render=%d damageable=%d doDamage=%d target=%d targetClass='%s' targetHealth=%d muzzle=(%g,%g,%g) hit=(%g,%g,%g)",
+				stefxShotSeq,
+				tent ? tent->s.number : -1,
+				tent ? tent->s.eType : -1,
+				tent ? tent->s.event : -1,
+				tent ? tent->s.otherEntityNum : -1,
+				tent ? tent->svFlags : 0,
+				tent ? tent->s.eventParm : -1,
+				tent2 ? tent2->s.number : -1,
+				tent2 ? tent2->s.eType : -1,
+				tent2 ? tent2->s.event : -1,
+				tent2 ? tent2->s.otherEntityNum : -1,
+				tent2 ? tent2->svFlags : 0,
+				tent2 ? tent2->s.eventParm : -1,
+				render_impact ? 1 : 0,
+				(traceEnt && traceEnt->takedamage) ? 1 : 0,
+				do_damage ? 1 : 0,
+				traceEnt ? traceEnt->s.number : -1,
+				(traceEnt && traceEnt->classname) ? traceEnt->classname : "<null>",
+				traceEnt ? traceEnt->health : -9999,
+				muzzle[0], muzzle[1], muzzle[2],
+				tr.endpos[0], tr.endpos[1], tr.endpos[2]);
+			s_stefxCompressionEventLogBudget--;
+		}
+	}
+#endif
+
 	if ( traceEnt->takedamage && do_damage )
 	{
+		int stefxDamageBefore = traceEnt->health;
 		// Do less damage when it's an NPC that is shooting this weapon, this is done so that they can still shoot a lot
 		//	but not necessarily kill everything for you.
 		if ( ent->client->ps.clientNum != 0 )
@@ -327,6 +787,31 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 			damage *= 0.5;
 		}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( ent->s.number == 0 )
+		{
+			static int s_stefxCompressionDamageCallBudget = 96;
+			if ( s_stefxCompressionDamageCallBudget > 0 )
+			{
+				XBLF("STEFX: WP_FireCompression damage call shot=%d target=%d class='%s' targetname='%s' client=%d npc=%d race=%d team=%d healthBefore=%d damage=%d mod=%d alt=%d dflags=0x%x hit=(%g,%g,%g)",
+					stefxShotSeq,
+					traceEnt->s.number,
+					traceEnt->classname ? traceEnt->classname : "<null>",
+					traceEnt->targetname ? traceEnt->targetname : "<null>",
+					traceEnt->client ? 1 : 0,
+					traceEnt->NPC ? 1 : 0,
+					traceEnt->client ? traceEnt->client->race : -1,
+					traceEnt->client ? traceEnt->client->playerTeam : -1,
+					stefxDamageBefore,
+					damage,
+					alt_fire ? MOD_SNIPER : MOD_CRIFLE,
+					alt_fire ? 1 : 0,
+					alt_fire ? DAMAGE_NO_KNOCKBACK : 0,
+					tr.endpos[0], tr.endpos[1], tr.endpos[2]);
+				s_stefxCompressionDamageCallBudget--;
+			}
+		}
+#endif
 		if ( alt_fire )
 		{
 			G_Damage( traceEnt, ent, ent, forward, tr.endpos, damage, DAMAGE_NO_KNOCKBACK, MOD_SNIPER );
@@ -335,7 +820,43 @@ void WP_FireCompressionRifle ( gentity_t *ent, qboolean alt_fire )
 		{
 			G_Damage( traceEnt, ent, ent, forward, tr.endpos, damage, 0, MOD_CRIFLE );
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( ent->s.number == 0 )
+		{
+			static int s_stefxCompressionDamageReturnBudget = 96;
+			if ( s_stefxCompressionDamageReturnBudget > 0 )
+			{
+				XBLF("STEFX: WP_FireCompression damage return shot=%d target=%d healthBefore=%d healthAfter=%d delta=%d",
+					stefxShotSeq,
+					traceEnt->s.number,
+					stefxDamageBefore,
+					traceEnt->health,
+					stefxDamageBefore - traceEnt->health);
+				s_stefxCompressionDamageReturnBudget--;
+			}
+		}
+#endif
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	else if ( ent->s.number == 0 )
+	{
+		static int s_stefxCompressionDamageSkipBudget = 96;
+		if ( s_stefxCompressionDamageSkipBudget > 0 )
+		{
+			XBLF("STEFX: WP_FireCompression damage skip shot=%d target=%d class='%s' damageable=%d doDamage=%d render=%d health=%d reason=%s hit=(%g,%g,%g)",
+				stefxShotSeq,
+				traceEnt ? traceEnt->s.number : -1,
+				(traceEnt && traceEnt->classname) ? traceEnt->classname : "<null>",
+				(traceEnt && traceEnt->takedamage) ? 1 : 0,
+				do_damage ? 1 : 0,
+				render_impact ? 1 : 0,
+				traceEnt ? traceEnt->health : -9999,
+				(!traceEnt || !traceEnt->takedamage) ? "notDamageable" : (do_damage ? "unknown" : "adaptedOrShielded"),
+				tr.endpos[0], tr.endpos[1], tr.endpos[2]);
+			s_stefxCompressionDamageSkipBudget--;
+		}
+	}
+#endif
 }
 
 

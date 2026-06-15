@@ -7111,7 +7111,11 @@ void CG_Player( centity_t *cent ) {
 /*
 Ghoul2 Insert Start
 */
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (qfalse && cent->gent->ghoul2.size())	// Elite Force SP uses multipart MD3s; keep Ghoul2 dormant.
+#else
 	if (cent->gent->ghoul2.size())	//do we have ghoul models attached?
+#endif
 	{
 		refEntity_t			ent;
 		vec3_t				tempAngles;
@@ -8781,11 +8785,40 @@ extern void WP_SaberUpdateOldBladeData( gentity_t *ent );
 	refEntity_t		flashlight;
 	int				renderfx, i;
 	const weaponInfo_t	*weapon;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int		s_stefxMultipartPlayerLogBudget = 96;
+	qboolean		stefxLogMultipartPlayer = qfalse;
+#endif
 
 
 /*
 Ghoul2 Insert End
 */
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( s_stefxMultipartPlayerLogBudget > 0 && cg.time >= 1500 &&
+		( cent->currentState.number == 0 || cent->gent->NPC || cent->currentState.eType == ET_NPC ) )
+	{
+		stefxLogMultipartPlayer = qtrue;
+		--s_stefxMultipartPlayerLogBudget;
+		XBLF("STEFX: CG_Player MD3 path ent=%d npc=%d name='%s' ghoul2=%d models=(%d,%d,%d) skins=(%d,%d,%d) weapon=%d powerups=0x%x modelScale=(%g,%g,%g)",
+			cent->currentState.number,
+			cent->gent->NPC ? 1 : 0,
+			ci->name,
+			(int)cent->gent->ghoul2.size(),
+			ci->legsModel,
+			ci->torsoModel,
+			ci->headModel,
+			ci->legsSkin,
+			ci->torsoSkin,
+			ci->headSkin,
+			cent->currentState.weapon,
+			cent->currentState.powerups,
+			cent->currentState.modelScale[0],
+			cent->currentState.modelScale[1],
+			cent->currentState.modelScale[2]);
+	}
+#endif
 
 	memset( &legs, 0, sizeof(legs) );
 	memset( &torso, 0, sizeof(torso) );
@@ -8935,6 +8968,25 @@ Ghoul2 Insert End
 		CG_PositionRotatedEntityOnTag( &torso, &legs, legs.hModel, "tag_torso", &tag_torso );
 		VectorCopy( torso.origin, cent->gent->client->renderInfo.torsoPoint );
 		vectoangles( tag_torso.axis[0], cent->gent->client->renderInfo.torsoAngles );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxLogMultipartPlayer )
+		{
+			XBLF("STEFX: CG_Player torso tag ent=%d tagOrg=(%g,%g,%g) legsOrg=(%g,%g,%g) torsoOrg=(%g,%g,%g) frames=%d/%d back=%g",
+				cent->currentState.number,
+				tag_torso.origin[0],
+				tag_torso.origin[1],
+				tag_torso.origin[2],
+				legs.origin[0],
+				legs.origin[1],
+				legs.origin[2],
+				torso.origin[0],
+				torso.origin[1],
+				torso.origin[2],
+				legs.oldframe,
+				legs.frame,
+				legs.backlerp);
+		}
+#endif
 
 		torso.shadowPlane = shadowPlane;
 		torso.renderfx = renderfx;
@@ -8957,6 +9009,25 @@ Ghoul2 Insert End
 			CG_PositionRotatedEntityOnTag( &head, &torso, torso.hModel, "tag_head", &tag_head );
 			VectorCopy( head.origin, cent->gent->client->renderInfo.headPoint );
 			vectoangles( tag_head.axis[0], cent->gent->client->renderInfo.headAngles );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( stefxLogMultipartPlayer )
+			{
+				XBLF("STEFX: CG_Player head tag ent=%d tagOrg=(%g,%g,%g) torsoOrg=(%g,%g,%g) headOrg=(%g,%g,%g) frames=%d/%d back=%g",
+					cent->currentState.number,
+					tag_head.origin[0],
+					tag_head.origin[1],
+					tag_head.origin[2],
+					torso.origin[0],
+					torso.origin[1],
+					torso.origin[2],
+					head.origin[0],
+					head.origin[1],
+					head.origin[2],
+					torso.oldframe,
+					torso.frame,
+					torso.backlerp);
+			}
+#endif
 
 			head.shadowPlane = shadowPlane;
 			head.renderfx = renderfx;

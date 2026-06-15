@@ -59,6 +59,24 @@ void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame)
 	if ( state->number == (MAX_GENTITIES-1) ) {
 		return;		// entity was delta removed
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( state->eType > ET_EVENTS )
+	{
+		static int s_stefxParseEventBudget = 128;
+		if ( s_stefxParseEventBudget > 0 )
+		{
+			XBLF("STEFX: CL_ParsePacket event ent=%d eType=%d event=%d weapon=%d parseIndex=%d origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+				state->number,
+				state->eType,
+				state->eType - ET_EVENTS,
+				state->weapon,
+				cl.parseEntitiesNum & (MAX_PARSE_ENTITIES-1),
+				state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2],
+				state->origin2[0], state->origin2[1], state->origin2[2]);
+			--s_stefxParseEventBudget;
+		}
+	}
+#endif
 	cl.parseEntitiesNum++;
 	frame->numEntities++;
 }

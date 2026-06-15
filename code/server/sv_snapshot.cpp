@@ -249,6 +249,11 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 #ifdef _XBOX
 	static int s_xboxAddMissileBudget = 96;
 	qboolean xboxLogMissile = (gEnt && gEnt->s.eType == ET_MISSILE && s_xboxAddMissileBudget > 0);
+#if defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxAddEventBudget = 128;
+	qboolean stefxLogEvent = (sv_mapname && !Q_stricmp(sv_mapname->string, "borg1") &&
+		gEnt && gEnt->s.eType > ET_EVENTS && s_stefxAddEventBudget > 0);
+#endif
 #endif
 	// if we have already added this entity to this snapshot, don't add again
 	if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
@@ -261,6 +266,18 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 				sv.snapshotCounter);
 			--s_xboxAddMissileBudget;
 		}
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (stefxLogEvent)
+		{
+			XBLF("STEFX: SV_AddEntToSnapshot event duplicate ent=%d eType=%d weapon=%d sv=0x%x snapshot=%d",
+				gEnt->s.number,
+				gEnt->s.eType,
+				gEnt->s.weapon,
+				gEnt->svFlags,
+				sv.snapshotCounter);
+			--s_stefxAddEventBudget;
+		}
+#endif
 #endif
 		return;
 	}
@@ -278,6 +295,18 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 				MAX_SNAPSHOT_ENTITIES);
 			--s_xboxAddMissileBudget;
 		}
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (stefxLogEvent)
+		{
+			XBLF("STEFX: SV_AddEntToSnapshot event full ent=%d eType=%d weapon=%d num=%d max=%d",
+				gEnt->s.number,
+				gEnt->s.eType,
+				gEnt->s.weapon,
+				eNums->numSnapshotEntities,
+				MAX_SNAPSHOT_ENTITIES);
+			--s_stefxAddEventBudget;
+		}
+#endif
 #endif
 		return;
 	}
@@ -294,6 +323,18 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 				svs.numSnapshotEntities);
 			--s_xboxAddMissileBudget;
 		}
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (stefxLogEvent)
+		{
+			XBLF("STEFX: SV_AddEntToSnapshot event ring-full ent=%d eType=%d weapon=%d num=%d ring=%d",
+				gEnt->s.number,
+				gEnt->s.eType,
+				gEnt->s.weapon,
+				eNums->numSnapshotEntities,
+				svs.numSnapshotEntities);
+			--s_stefxAddEventBudget;
+		}
+#endif
 #endif
 		return;
 	}
@@ -314,6 +355,24 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 			svEnt->lastCluster);
 		--s_xboxAddMissileBudget;
 	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (stefxLogEvent)
+	{
+		XBLF("STEFX: SV_AddEntToSnapshot event add ent=%d eType=%d weapon=%d snapshotIndex=%d sv=0x%x area=%d/%d clusters=%d last=%d origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+			gEnt->s.number,
+			gEnt->s.eType,
+			gEnt->s.weapon,
+			eNums->numSnapshotEntities - 1,
+			gEnt->svFlags,
+			svEnt->areanum,
+			svEnt->areanum2,
+			svEnt->numClusters,
+			svEnt->lastCluster,
+			gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
+			gEnt->s.origin2[0], gEnt->s.origin2[1], gEnt->s.origin2[2]);
+		--s_stefxAddEventBudget;
+	}
+#endif
 #endif
 }
 
@@ -327,7 +386,7 @@ static qboolean s_xboxSnapshotCameraView = qfalse;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int entNum, const vec3_t origin,
 													int *actorBudget, int *itemBudget,
-													int *missileBudget, int *modelBudget,
+													int *missileBudget, int *eventBudget, int *modelBudget,
 													const char **reason ) {
 	float dx, dy, dz, distSq;
 
@@ -353,6 +412,15 @@ static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int en
 		}
 		(*missileBudget)--;
 		*reason = "missile";
+		return qtrue;
+	}
+
+	if ( ent->s.eType > ET_EVENTS ) {
+		if ( *eventBudget <= 0 ) {
+			return qfalse;
+		}
+		(*eventBudget)--;
+		*reason = "event";
 		return qtrue;
 	}
 
@@ -597,9 +665,11 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	int stefxBorg1ActorBudget = 96;
 	int stefxBorg1ItemBudget = 48;
 	int stefxBorg1MissileBudget = 64;
+	int stefxBorg1EventBudget = 96;
 	int stefxBorg1ModelBudget = 128;
 	int stefxBorg1BypassSent = 0;
 	static int s_stefxBorg1BypassLogBudget = 32;
+	static int s_stefxSnapshotEventScanBudget = 256;
 #endif
 	if (xboxTraceVisible)
 	{
@@ -671,6 +741,10 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		qboolean xboxFocusMover = qfalse;
 		qboolean xboxIsMissile = qfalse;
 		qboolean xboxLogMissile = qfalse;
+#if defined(STEFX_ELITE_FORCE_SP)
+		qboolean stefxSnapshotEvent = qfalse;
+		qboolean stefxLogSnapshotEvent = qfalse;
+#endif
 #endif
 
 		if (!ent->inuse) {
@@ -681,6 +755,25 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		xboxIsMissile = (ent->s.eType == ET_MISSILE);
 		xboxYavinFocusEnt = (!Q_stricmp(sv_mapname->string, "yavin1") && e >= 48 && e <= 60 && s_xboxYavinSnapshotFocusBudget > 0);
 		xboxLogMissile = (xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
+#if defined(STEFX_ELITE_FORCE_SP)
+		stefxSnapshotEvent = (sv_mapname && !Q_stricmp(sv_mapname->string, "borg1") && ent->s.eType > ET_EVENTS);
+		stefxLogSnapshotEvent = (stefxSnapshotEvent && !portal && s_stefxSnapshotEventScanBudget > 0);
+		if (stefxLogSnapshotEvent)
+		{
+			XBLF("STEFX: SV_EVENT candidate ent=%d linked=%d inuse=%d eType=%d sv=0x%x model=%d weapon=%d origin=(%g,%g,%g) current=(%g,%g,%g) origin2=(%g,%g,%g)",
+				e,
+				(int)ent->linked,
+				(int)ent->inuse,
+				ent->s.eType,
+				ent->svFlags,
+				ent->s.modelindex,
+				ent->s.weapon,
+				ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+				ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+				ent->s.origin2[0], ent->s.origin2[1], ent->s.origin2[2]);
+			--s_stefxSnapshotEventScanBudget;
+		}
+#endif
 		if (xboxYavinFocusEnt)
 		{
 			XBLF("JA: SV_YAVIN_SNAPSHOT candidate pass=%s ent=%d linked=%d inuse=%d sv=0x%x eType=%d model=%d origin=%g,%g,%g current=%g,%g,%g",
@@ -724,6 +817,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				XBLF("JA: SV_YAVIN_SNAPSHOT reject-permanent pass=%s ent=%d eFlags=0x%x",
 					portal ? "extra" : "main", e, ent->s.eFlags);
 			}
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxLogSnapshotEvent)
+			{
+				XBLF("STEFX: SV_EVENT reject-permanent ent=%d eType=%d eFlags=0x%x",
+					e, ent->s.eType, ent->s.eFlags);
+			}
+#endif
 #endif
 			continue;
 		}
@@ -749,6 +849,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
 				--s_xboxSnapshotMissileBudget;
 			}
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxLogSnapshotEvent)
+			{
+				XBLF("STEFX: SV_EVENT reject-unlinked ent=%d eType=%d sv=0x%x current=(%g,%g,%g)",
+					e,
+					ent->s.eType,
+					ent->svFlags,
+					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
+			}
+#endif
 			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
 			if (xboxFocusIndex >= 0 && !portal)
 			{
@@ -773,6 +883,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					e, ent->s.weapon, ent->svFlags);
 				--s_xboxSnapshotMissileBudget;
 			}
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxLogSnapshotEvent)
+			{
+				XBLF("STEFX: SV_EVENT reject-noclient ent=%d eType=%d sv=0x%x",
+					e, ent->s.eType, ent->svFlags);
+			}
+#endif
 			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
 			if (xboxFocusIndex >= 0 && !portal)
 			{
@@ -842,6 +959,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				XBLF("JA: SV_SNAPSHOT_MISSILE skip-duplicate ent=%d weapon=%d", e, ent->s.weapon);
 				--s_xboxSnapshotMissileBudget;
 			}
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxLogSnapshotEvent)
+			{
+				XBLF("STEFX: SV_EVENT skip-duplicate ent=%d eType=%d sv=0x%x",
+					e, ent->s.eType, ent->svFlags);
+			}
+#endif
 			if (xboxFocusIndex >= 0 && !portal)
 			{
 				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(skippedSnapshot) );
@@ -878,7 +1002,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			const char *stefxBypassReason = NULL;
 			if ( SV_STEFX_Borg1RawBspSnapshotBypass( ent, e, origin,
 					&stefxBorg1ActorBudget, &stefxBorg1ItemBudget,
-					&stefxBorg1MissileBudget, &stefxBorg1ModelBudget,
+					&stefxBorg1MissileBudget, &stefxBorg1EventBudget, &stefxBorg1ModelBudget,
 					&stefxBypassReason ) )
 			{
 				SV_AddEntToSnapshot( svEnt, ent, eNums );
@@ -1213,12 +1337,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		static int s_stefxBorg1BypassSummaryBudget = 16;
 		if ( s_stefxBorg1BypassSummaryBudget > 0 )
 		{
-			XBLF("STEFX: borg1 snapshot bypass summary sent=%d snapshotCount=%d remaining actor=%d item=%d missile=%d model=%d clientArea=%d clientCluster=%d",
+			XBLF("STEFX: borg1 snapshot bypass summary sent=%d snapshotCount=%d remaining actor=%d item=%d missile=%d event=%d model=%d clientArea=%d clientCluster=%d",
 				stefxBorg1BypassSent,
 				eNums ? eNums->numSnapshotEntities : -1,
 				stefxBorg1ActorBudget,
 				stefxBorg1ItemBudget,
 				stefxBorg1MissileBudget,
+				stefxBorg1EventBudget,
 				stefxBorg1ModelBudget,
 				clientarea,
 				clientcluster);
@@ -1527,6 +1652,24 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		ent = SV_GentityNum(entityNumbers.snapshotEntities[i]);
 		state = &svs.snapshotEntities[svs.nextSnapshotEntities % svs.numSnapshotEntities];
 		*state = ent->s;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( sv_mapname && !Q_stricmp( sv_mapname->string, "borg1" ) && state->eType > ET_EVENTS )
+		{
+			static int s_stefxSnapshotEventCopyBudget = 128;
+			if ( s_stefxSnapshotEventCopyBudget > 0 )
+			{
+				XBLF("STEFX: SV_EVENT copy ent=%d eType=%d weapon=%d frameIndex=%d ring=%d origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+					state->number,
+					state->eType,
+					state->weapon,
+					i,
+					svs.nextSnapshotEntities % svs.numSnapshotEntities,
+					state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2],
+					state->origin2[0], state->origin2[1], state->origin2[2]);
+				--s_stefxSnapshotEventCopyBudget;
+			}
+		}
+#endif
 		svs.nextSnapshotEntities++;
 		frame->num_entities++;
 	}

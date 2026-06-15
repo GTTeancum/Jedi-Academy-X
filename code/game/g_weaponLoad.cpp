@@ -24,6 +24,61 @@ typedef struct {
 	void	(*func)(centity_t *cent, const struct weaponInfo_s *weapon );
 } func_t;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_MapEliteForceWeaponToken( const char *tokenStr, int *weaponNum )
+{
+	struct map_s
+	{
+		const char *name;
+		int weapon;
+	};
+	static const map_s map[] =
+	{
+		{ "WP_PHASER", WP_BLASTER_PISTOL },
+		{ "WP_COMPRESSION_RIFLE", WP_BLASTER },
+		{ "WP_IMOD", WP_DISRUPTOR },
+		{ "WP_SCAVENGER_RIFLE", WP_REPEATER },
+		{ "WP_STASIS", WP_DEMP2 },
+		{ "WP_GRENADE_LAUNCHER", WP_THERMAL },
+		{ "WP_TETRION_DISRUPTOR", WP_FLECHETTE },
+		{ "WP_QUANTUM_BURST", WP_ROCKET_LAUNCHER },
+		{ "WP_DREADNOUGHT", WP_CONCUSSION },
+		{ "WP_PROTON_GUN", WP_CONCUSSION },
+		{ "WP_BORG_WEAPON", WP_BOT_LASER },
+		{ "WP_BORG_TASER", WP_BOT_LASER },
+		{ "WP_BORG_ASSIMILATOR", WP_MELEE },
+		{ "WP_BORG_DRILL", WP_MELEE },
+		{ "WP_BOT_WELDER", WP_BOT_LASER },
+		{ "WP_CHAOTICA_GUARD_GUN", WP_REPEATER },
+		{ "WP_BOT_ROCKET", WP_ROCKET_LAUNCHER },
+		{ "WP_FORGE_PROJ", WP_BOT_LASER },
+		{ "WP_FORGE_PSYCH", WP_BOT_LASER },
+		{ "WP_PARASITE", WP_BOT_LASER },
+		{ "WP_TRICORDER", WP_STUN_BATON },
+		{ "WP_VOYAGER_HYPO", WP_STUN_BATON },
+		{ "WP_BLUE_HYPO", WP_STUN_BATON },
+		{ "WP_RED_HYPO", WP_STUN_BATON },
+		{ "WP_KLINGON_BLADE", WP_TUSKEN_STAFF },
+		{ "WP_IMPERIAL_BLADE", WP_TUSKEN_STAFF },
+		{ "WP_DESPERADO", WP_BRYAR_PISTOL },
+		{ "WP_PALADIN", WP_BRYAR_PISTOL }
+	};
+	int i;
+
+	for ( i = 0; i < (int)( sizeof( map ) / sizeof( map[0] ) ); ++i )
+	{
+		if ( !Q_stricmp( tokenStr, map[i].name ) )
+		{
+			*weaponNum = map[i].weapon;
+			XBLF("STEFX: mapped EF weapon token %s -> carrier weapon %d", tokenStr, *weaponNum);
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+#endif
+
 // Bryar
 void FX_BryarProjectileThink(  centity_t *cent, const struct weaponInfo_s *weapon );
 void FX_BryarAltProjectileThink(  centity_t *cent, const struct weaponInfo_s *weapon );
@@ -287,8 +342,13 @@ void WPN_WeaponType( const char **holdBuf)
 		weaponNum = WP_NOGHRI_STICK;
 	else
 	{
-		weaponNum = 0;
-		gi.Printf(S_COLOR_YELLOW"WARNING: bad weapontype in external weapon data '%s'\n", tokenStr);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !STEFX_MapEliteForceWeaponToken( tokenStr, &weaponNum ) )
+#endif
+		{
+			weaponNum = 0;
+			gi.Printf(S_COLOR_YELLOW"WARNING: bad weapontype in external weapon data '%s'\n", tokenStr);
+		}
 	}
 
 	wpnParms.weaponNum = weaponNum;

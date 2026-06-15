@@ -1198,11 +1198,33 @@ static void CG_RegisterGraphics( void ) {
 	cg.loadLCARSStage = 8;
 
 	// Registering interface graphics
+#ifdef _XBOX
+	int stefxHudGraphicCount = 0;
+	int stefxHudGraphicMissing = 0;
+	XBLog_Write("STEFX: HUD media registration begin");
+#endif
 	for (i=0;i<IG_MAX;++i)
 	{
 		if (interface_graphics[i].file)
 		{
 			interface_graphics[i].graphic = cgi_R_RegisterShaderNoMip(interface_graphics[i].file);
+#ifdef _XBOX
+			++stefxHudGraphicCount;
+			if (!interface_graphics[i].graphic)
+			{
+				++stefxHudGraphicMissing;
+			}
+			XBLF("STEFX: HUD media interface_graphics[%d] file='%s' shader=%d initialType=%d color=%d rect=(%d,%d %dx%d)",
+				i,
+				interface_graphics[i].file,
+				interface_graphics[i].graphic,
+				interface_graphics[i].type,
+				interface_graphics[i].color,
+				interface_graphics[i].x,
+				interface_graphics[i].y,
+				interface_graphics[i].width,
+				interface_graphics[i].height);
+#endif
 		}
 
 		// Turn everything off at first
@@ -1213,6 +1235,12 @@ static void CG_RegisterGraphics( void ) {
 	}
 
 	interface_graphics[IG_GROW].type = SG_OFF;
+#ifdef _XBOX
+	XBLF("STEFX: HUD media registration done count=%d missing=%d growType=%d",
+		stefxHudGraphicCount,
+		stefxHudGraphicMissing,
+		interface_graphics[IG_GROW].type);
+#endif
 
 	//register speaker table skins
 	for ( i = 0; i < SP_MAX ; i++ )
@@ -1517,10 +1545,23 @@ void CG_Init( int serverCommandSequence ) {
 	cgi_AddCommand ("setobjective");
 	cgi_AddCommand ("viewobjective");
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	// Bring the original EF HUD online immediately for console testing; the
+	// normal staged grow animation still runs from CG_InterfaceStartup.
+	interface_graphics[IG_HEALTH_START].timer =	cg.time;
+	interface_graphics[IG_ARMOR_START].timer = 	cg.time + 100;
+	interface_graphics[IG_AMMO_START].timer = 	cg.time + 200;
+	XBLF("STEFX: HUD timers armed immediate health=%g armor=%g ammo=%g cgtime=%d",
+		interface_graphics[IG_HEALTH_START].timer,
+		interface_graphics[IG_ARMOR_START].timer,
+		interface_graphics[IG_AMMO_START].timer,
+		cg.time);
+#else
 	// Not until it's done will it be seen
 	interface_graphics[IG_HEALTH_START].timer =	cg.time + 3000;
 	interface_graphics[IG_ARMOR_START].timer = 	cg.time + 3100;
 	interface_graphics[IG_AMMO_START].timer = 	cg.time + 3200;
+#endif
 
 	cg.missionInfoFlashTime = 0;
 	cg.missionStatusShow = qfalse;

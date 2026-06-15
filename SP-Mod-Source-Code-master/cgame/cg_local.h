@@ -628,6 +628,7 @@ void CG_TestModelPrevSkin_f (void);
 
 void CG_ZoomDown_f( void );
 void CG_ZoomUp_f( void );
+void CG_ZoomOff_f( void );
 
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView );
 

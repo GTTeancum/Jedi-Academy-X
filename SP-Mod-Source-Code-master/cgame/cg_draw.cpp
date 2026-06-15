@@ -164,6 +164,24 @@ vec3_t	vup_n;
 int		infoStringCount;
 //===============================================================
 
+#ifdef _XBOX
+static qboolean STEFX_HUD_ShouldLogEvery( int *lastLogTime, int interval )
+{
+	if ( !lastLogTime )
+	{
+		return qfalse;
+	}
+
+	if ( *lastLogTime == 0 || cg.time < *lastLogTime || cg.time - *lastLogTime >= interval )
+	{
+		*lastLogTime = cg.time;
+		return qtrue;
+	}
+
+	return qfalse;
+}
+#endif
+
 
 
 /*
@@ -350,6 +368,9 @@ static void CG_DrawArmor(centity_t	*cent)
 	float		value,xLength;
 	playerState_t	*ps;
 	int			lengthMax;
+#ifdef _XBOX
+	static int	s_lastArmorLogTime = 0;
+#endif
 
 	ps = &cg.snap->ps;
 
@@ -408,6 +429,22 @@ static void CG_DrawArmor(centity_t	*cent)
 	// Armor full section
 	interface_graphics[IG_ARMOR_SLIDERFULL].width = xLength;
 
+#ifdef _XBOX
+	if ( STEFX_HUD_ShouldLogEvery( &s_lastArmorLogTime, 1000 ) )
+	{
+		XBLF("STEFX: HUD DrawArmor value=%g max=%d length=%g fullWidth=%d emptyX=%d emptyWidth=%d countColor=%d startupDone=%d cent=%d",
+			value,
+			max,
+			xLength,
+			interface_graphics[IG_ARMOR_SLIDERFULL].width,
+			interface_graphics[IG_ARMOR_SLIDEREMPTY].x,
+			interface_graphics[IG_ARMOR_SLIDEREMPTY].width,
+			interface_graphics[IG_ARMOR_COUNT].color,
+			cg.interfaceStartupDone,
+			cent ? cent->currentState.number : -1);
+	}
+#endif
+
 	CG_PrintInterfaceGraphics(IG_ARMOR_START + 1,IG_ARMOR_END);
 
 }
@@ -425,6 +462,9 @@ static void CG_DrawHealth(centity_t	*cent)
 	playerState_t	*ps;
 	int			lengthMax;
 	int			flashHealth;
+#ifdef _XBOX
+	static int	s_lastHealthLogTime = 0;
+#endif
 
 	ps = &cg.snap->ps;
 
@@ -505,6 +545,24 @@ static void CG_DrawHealth(centity_t	*cent)
 	// Health full section
 	interface_graphics[IG_HEALTH_SLIDERFULL].width = xLength;
 
+#ifdef _XBOX
+	if ( STEFX_HUD_ShouldLogEvery( &s_lastHealthLogTime, 1000 ) )
+	{
+		XBLF("STEFX: HUD DrawHealth value=%g max=%d flashBelow=%d length=%g fullWidth=%d emptyX=%d emptyWidth=%d countColor=%d sliderColor=%d startupDone=%d cent=%d",
+			value,
+			max,
+			flashHealth,
+			xLength,
+			interface_graphics[IG_HEALTH_SLIDERFULL].width,
+			interface_graphics[IG_HEALTH_SLIDEREMPTY].x,
+			interface_graphics[IG_HEALTH_SLIDEREMPTY].width,
+			interface_graphics[IG_HEALTH_COUNT].color,
+			interface_graphics[IG_HEALTH_SLIDERFULL].color,
+			cg.interfaceStartupDone,
+			cent ? cent->currentState.number : -1);
+	}
+#endif
+
 	// Print it
 	CG_PrintInterfaceGraphics(IG_HEALTH_START + 1,IG_HEALTH_END);
 }
@@ -521,17 +579,39 @@ static void CG_DrawAmmo(centity_t	*cent)
 	float		xLength;
 	playerState_t	*ps;
 	int			max,brightColor_i,darkColor_i,numColor_i;
+#ifdef _XBOX
+	static int	s_lastAmmoLogTime = 0;
+#endif
 
 	ps = &cg.snap->ps;
 
 	if (!cent->currentState.weapon ) // We don't have a weapon right now
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_lastAmmoLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD DrawAmmo skipped reason=noCurrentWeapon cent=%d psWeapon=%d",
+				cent ? cent->currentState.number : -1,
+				ps->weapon);
+		}
+#endif
 		return;
 	}
 
 	value = ps->ammo[weaponData[cent->currentState.weapon].ammoIndex];
 	if (value < 0)	// No ammo
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_lastAmmoLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD DrawAmmo skipped reason=negativeAmmo cent=%d currentWeapon=%d psWeapon=%d ammoIndex=%d value=%g",
+				cent ? cent->currentState.number : -1,
+				cent->currentState.weapon,
+				ps->weapon,
+				weaponData[cent->currentState.weapon].ammoIndex,
+				value);
+		}
+#endif
 		return;
 	}
 
@@ -615,6 +695,28 @@ static void CG_DrawAmmo(centity_t	*cent)
 	interface_graphics[IG_AMMO_SLIDEREMPTY].color = darkColor_i;
 	interface_graphics[IG_AMMO_COUNT].color = numColor_i;
 
+#ifdef _XBOX
+	if ( STEFX_HUD_ShouldLogEvery( &s_lastAmmoLogTime, 1000 ) )
+	{
+		XBLF("STEFX: HUD DrawAmmo value=%g max=%d length=%g currentWeapon=%d psWeapon=%d ammoIndex=%d bright=%d dark=%d numColor=%d fullWidth=%d emptyX=%d emptyWidth=%d weaponState=%d weaponTime=%d startupDone=%d",
+			value,
+			max,
+			xLength,
+			cent->currentState.weapon,
+			ps->weapon,
+			weaponData[cent->currentState.weapon].ammoIndex,
+			brightColor_i,
+			darkColor_i,
+			numColor_i,
+			interface_graphics[IG_AMMO_SLIDERFULL].width,
+			interface_graphics[IG_AMMO_SLIDEREMPTY].x,
+			interface_graphics[IG_AMMO_SLIDEREMPTY].width,
+			cg.predicted_player_state.weaponstate,
+			cg.predicted_player_state.weaponTime,
+			cg.interfaceStartupDone);
+	}
+#endif
+
 	// Print it
 	CG_PrintInterfaceGraphics(IG_AMMO_START + 1,IG_AMMO_END);
 }
@@ -626,10 +728,92 @@ CG_InterfaceStartup
 */
 static void CG_InterfaceStartup()
 {
+#ifdef _XBOX
+	static int s_lastStartupLogTime = 0;
+	if ( STEFX_HUD_ShouldLogEvery( &s_lastStartupLogTime, 250 ) )
+	{
+		XBLF("STEFX: HUD InterfaceStartup tick time=%d startupDone=%d growType=%d growTimer=%g healthTimer=%g armorTimer=%g ammoTimer=%g healthTypes=(%d,%d,%d,%d) armorTypes=(%d,%d,%d,%d) ammoTypes=(%d,%d,%d,%d)",
+			cg.time,
+			cg.interfaceStartupDone,
+			interface_graphics[IG_GROW].type,
+			interface_graphics[IG_GROW].timer,
+			interface_graphics[IG_HEALTH_START].timer,
+			interface_graphics[IG_ARMOR_START].timer,
+			interface_graphics[IG_AMMO_START].timer,
+			interface_graphics[IG_HEALTH_BEGINCAP].type,
+			interface_graphics[IG_HEALTH_SLIDERFULL].type,
+			interface_graphics[IG_HEALTH_SLIDEREMPTY].type,
+			interface_graphics[IG_HEALTH_COUNT].type,
+			interface_graphics[IG_ARMOR_BEGINCAP].type,
+			interface_graphics[IG_ARMOR_SLIDERFULL].type,
+			interface_graphics[IG_ARMOR_SLIDEREMPTY].type,
+			interface_graphics[IG_ARMOR_COUNT].type,
+			interface_graphics[IG_AMMO_UPPER_BEGINCAP].type,
+			interface_graphics[IG_AMMO_SLIDERFULL].type,
+			interface_graphics[IG_AMMO_SLIDEREMPTY].type,
+			interface_graphics[IG_AMMO_COUNT].type);
+	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( !cg.interfaceStartupDone && cg.time >= interface_graphics[IG_AMMO_START].timer )
+	{
+		interface_graphics[IG_HEALTH_BEGINCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_HEALTH_BOX1].type = SG_GRAPHIC;
+		interface_graphics[IG_HEALTH_ENDCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_HEALTH_ENDCAP].x = interface_graphics[IG_HEALTH_ENDCAP].max;
+		interface_graphics[IG_HEALTH_SLIDERFULL].type = SG_GRAPHIC;
+		interface_graphics[IG_HEALTH_SLIDEREMPTY].type = SG_GRAPHIC;
+		interface_graphics[IG_HEALTH_COUNT].type = SG_NUMBER;
+
+		interface_graphics[IG_ARMOR_BEGINCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_ARMOR_BOX1].type = SG_GRAPHIC;
+		interface_graphics[IG_ARMOR_ENDCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_ARMOR_ENDCAP].x = interface_graphics[IG_ARMOR_ENDCAP].max;
+		interface_graphics[IG_ARMOR_SLIDERFULL].type = SG_GRAPHIC;
+		interface_graphics[IG_ARMOR_SLIDEREMPTY].type = SG_GRAPHIC;
+		interface_graphics[IG_ARMOR_COUNT].type = SG_NUMBER;
+
+		interface_graphics[IG_AMMO_UPPER_BEGINCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_AMMO_UPPER_ENDCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_AMMO_UPPER_ENDCAP].x = interface_graphics[IG_AMMO_UPPER_ENDCAP].max;
+		interface_graphics[IG_AMMO_LOWER_BEGINCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_AMMO_LOWER_ENDCAP].type = SG_GRAPHIC;
+		interface_graphics[IG_AMMO_LOWER_ENDCAP].x = interface_graphics[IG_AMMO_LOWER_ENDCAP].max;
+		interface_graphics[IG_AMMO_SLIDERFULL].type = SG_GRAPHIC;
+		interface_graphics[IG_AMMO_SLIDEREMPTY].type = SG_GRAPHIC;
+		interface_graphics[IG_AMMO_COUNT].type = SG_NUMBER;
+
+		interface_graphics[IG_GROW].type = SG_OFF;
+		cg.interfaceStartupDone = 1;
+		XBLF("STEFX: HUD InterfaceStartup forced complete time=%d healthEndX=%d armorEndX=%d ammoUpperEndX=%d ammoLowerEndX=%d healthTypes=(%d,%d,%d) armorTypes=(%d,%d,%d) ammoTypes=(%d,%d,%d)",
+			cg.time,
+			interface_graphics[IG_HEALTH_ENDCAP].x,
+			interface_graphics[IG_ARMOR_ENDCAP].x,
+			interface_graphics[IG_AMMO_UPPER_ENDCAP].x,
+			interface_graphics[IG_AMMO_LOWER_ENDCAP].x,
+			interface_graphics[IG_HEALTH_SLIDERFULL].type,
+			interface_graphics[IG_HEALTH_SLIDEREMPTY].type,
+			interface_graphics[IG_HEALTH_COUNT].type,
+			interface_graphics[IG_ARMOR_SLIDERFULL].type,
+			interface_graphics[IG_ARMOR_SLIDEREMPTY].type,
+			interface_graphics[IG_ARMOR_COUNT].type,
+			interface_graphics[IG_AMMO_SLIDERFULL].type,
+			interface_graphics[IG_AMMO_SLIDEREMPTY].type,
+			interface_graphics[IG_AMMO_COUNT].type);
+		return;
+	}
+#endif
+#endif
 
 	// Turn on Health Graphics
 	if ((interface_graphics[IG_HEALTH_START].timer < cg.time) && (interface_graphics[IG_HEALTH_BEGINCAP].type == SG_OFF))
 	{
+#ifdef _XBOX
+		XBLF("STEFX: HUD InterfaceStartup health caps on time=%d shaderBegin=%d shaderBox=%d shaderEnd=%d",
+			cg.time,
+			interface_graphics[IG_HEALTH_BEGINCAP].graphic,
+			interface_graphics[IG_HEALTH_BOX1].graphic,
+			interface_graphics[IG_HEALTH_ENDCAP].graphic);
+#endif
 		cgi_S_StartSound( NULL, 0, CHAN_ITEM, cgs.media.interfaceSnd1);
 
 		interface_graphics[IG_HEALTH_BEGINCAP].type = SG_GRAPHIC;
@@ -642,6 +826,13 @@ static void CG_InterfaceStartup()
 	{
 		if (interface_graphics[IG_ARMOR_BEGINCAP].type == SG_OFF)
 		{
+#ifdef _XBOX
+			XBLF("STEFX: HUD InterfaceStartup armor caps on time=%d shaderBegin=%d shaderBox=%d shaderEnd=%d",
+				cg.time,
+				interface_graphics[IG_ARMOR_BEGINCAP].graphic,
+				interface_graphics[IG_ARMOR_BOX1].graphic,
+				interface_graphics[IG_ARMOR_ENDCAP].graphic);
+#endif
 			cgi_S_StartSound( NULL, 0, CHAN_ITEM, cgs.media.interfaceSnd1);
 		}
 
@@ -656,6 +847,14 @@ static void CG_InterfaceStartup()
 	{
 		if (interface_graphics[IG_AMMO_UPPER_BEGINCAP].type == SG_OFF)
 		{
+#ifdef _XBOX
+			XBLF("STEFX: HUD InterfaceStartup ammo caps on time=%d upperBegin=%d upperEnd=%d lowerBegin=%d lowerEnd=%d",
+				cg.time,
+				interface_graphics[IG_AMMO_UPPER_BEGINCAP].graphic,
+				interface_graphics[IG_AMMO_UPPER_ENDCAP].graphic,
+				interface_graphics[IG_AMMO_LOWER_BEGINCAP].graphic,
+				interface_graphics[IG_AMMO_LOWER_ENDCAP].graphic);
+#endif
 			cgi_S_StartSound( NULL, 0, CHAN_ITEM, cgs.media.interfaceSnd1);
 			interface_graphics[IG_GROW].type = SG_VAR;
 			interface_graphics[IG_GROW].timer = cg.time;
@@ -697,6 +896,17 @@ static void CG_InterfaceStartup()
 
 			cgi_S_StartSound( NULL, 0, CHAN_ITEM, cgs.media.interfaceSnd2);
 			cg.interfaceStartupDone = 1;	// All done
+#ifdef _XBOX
+			XBLF("STEFX: HUD InterfaceStartup complete time=%d healthEndX=%d armorEndX=%d ammoUpperEndX=%d ammoLowerEndX=%d healthSliderType=%d armorSliderType=%d ammoSliderType=%d",
+				cg.time,
+				interface_graphics[IG_HEALTH_ENDCAP].x,
+				interface_graphics[IG_ARMOR_ENDCAP].x,
+				interface_graphics[IG_AMMO_UPPER_ENDCAP].x,
+				interface_graphics[IG_AMMO_LOWER_ENDCAP].x,
+				interface_graphics[IG_HEALTH_SLIDERFULL].type,
+				interface_graphics[IG_ARMOR_SLIDERFULL].type,
+				interface_graphics[IG_AMMO_SLIDERFULL].type);
+#endif
 		}
 
 		interface_graphics[IG_GROW].timer = cg.time + 10;
@@ -911,9 +1121,21 @@ static void CG_DrawStats( void )
 	centity_t		*cent;
 	playerState_t	*ps;
 	vec3_t			angles;
+#ifdef _XBOX
+	static int		s_lastStatsLogTime = 0;
+#endif
 //	vec3_t		origin;
 
 	if ( cg_drawStatus.integer == 0 ) {
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_lastStatsLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD DrawStats skipped reason=cg_drawStatus0 time=%d draw2D=%d health=%d",
+				cg.time,
+				cg_draw2D.integer,
+				cg.snap ? cg.snap->ps.stats[STAT_HEALTH] : -999);
+		}
+#endif
 		return;
 	}
 
@@ -927,6 +1149,27 @@ static void CG_DrawStats( void )
 	{
 		CG_InterfaceStartup();
 	}
+
+#ifdef _XBOX
+	if ( STEFX_HUD_ShouldLogEvery( &s_lastStatsLogTime, 1000 ) )
+	{
+		XBLF("STEFX: HUD DrawStats draw time=%d client=%d weapon=%d currentWeapon=%d health=%d armor=%d ammo0=%d ammo1=%d ammo2=%d status=%d startupDone=%d oldHealth=%d oldArmor=%d oldAmmo=%d",
+			cg.time,
+			cg.snap->ps.clientNum,
+			ps->weapon,
+			cent ? cent->currentState.weapon : -1,
+			ps->stats[STAT_HEALTH],
+			ps->stats[STAT_ARMOR],
+			ps->ammo[0],
+			ps->ammo[1],
+			ps->ammo[2],
+			cg_drawStatus.integer,
+			cg.interfaceStartupDone,
+			cg.oldhealth,
+			cg.oldarmor,
+			cg.oldammo);
+	}
+#endif
 
 	CG_DrawArmor(cent);
 	CG_DrawHealth(cent);
@@ -998,20 +1241,49 @@ static void CG_DrawCrosshair(void) {
 	qhandle_t	hShader;
 	float		f;
 	float		x, y;
+#ifdef _XBOX
+	static int	s_lastCrosshairLogTime = 0;
+#endif
 
 	if ( !cg_drawCrosshair.integer ) 
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_lastCrosshairLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Crosshair skipped reason=cg_drawCrosshair0 time=%d weapon=%d third=%d",
+				cg.time,
+				cg.snap ? cg.snap->ps.weapon : -1,
+				cg.renderingThirdPerson);
+		}
+#endif
 		return;
 	}
 
 	if ( cg.renderingThirdPerson ) 
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_lastCrosshairLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Crosshair skipped reason=thirdPerson time=%d weapon=%d drawCrosshair=%d",
+				cg.time,
+				cg.snap ? cg.snap->ps.weapon : -1,
+				cg_drawCrosshair.integer);
+		}
+#endif
 		return;
 	}
 
 	// Don't bother drawing the crosshairs when we don't have a weapon
 	if ( cg.snap->ps.weapon == WP_NONE )
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_lastCrosshairLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Crosshair skipped reason=WP_NONE time=%d drawCrosshair=%d",
+				cg.time,
+				cg_drawCrosshair.integer);
+		}
+#endif
 		return;
 	}
 
@@ -1083,6 +1355,28 @@ static void CG_DrawCrosshair(void) {
 	CG_AdjustFrom640( &x, &y, &w, &h );
 
 	hShader = cgs.media.crosshairShader[ cg_drawCrosshair.integer % NUM_CROSSHAIRS ];
+
+#ifdef _XBOX
+	if ( STEFX_HUD_ShouldLogEvery( &s_lastCrosshairLogTime, 1000 ) )
+	{
+		XBLF("STEFX: HUD Crosshair draw time=%d weapon=%d drawCrosshair=%d shader=%d rect=(%g,%g %gx%g) ref=(%d,%d %dx%d) target=%d dist=%g sameTime=%d",
+			cg.time,
+			cg.snap->ps.weapon,
+			cg_drawCrosshair.integer,
+			hShader,
+			x + cg.refdef.x + 0.5 * (cg.refdef.width - w),
+			y + cg.refdef.y + 0.5 * (cg.refdef.height - h),
+			w,
+			h,
+			cg.refdef.x,
+			cg.refdef.y,
+			cg.refdef.width,
+			cg.refdef.height,
+			g_crosshairEntNum,
+			g_crosshairEntDist,
+			g_crosshairSameEntTime);
+	}
+#endif
 
 	cgi_R_DrawStretchPic( x + cg.refdef.x + 0.5 * (cg.refdef.width - w), 
 		y + cg.refdef.y + 0.5 * (cg.refdef.height - h), 
@@ -2352,25 +2646,77 @@ CG_Draw2D
 static void CG_Draw2D( void ) 
 {
 	centity_t *cent;
+#ifdef _XBOX
+	static int s_last2DLogTime = 0;
+#endif
 
 	cent = &cg_entities[cg.snap->ps.clientNum];
 
 	// if we are taking a levelshot for the menu, don't draw anything
 	if ( cg.levelShot ) 
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_last2DLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Draw2D skipped reason=levelShot time=%d snap=%p",
+				cg.time,
+				(void*)cg.snap);
+		}
+#endif
 		return;
 	}
 
 	if ( cg_draw2D.integer == 0 ) 
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_last2DLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Draw2D skipped reason=cg_draw2D0 time=%d drawStatus=%d health=%d",
+				cg.time,
+				cg_drawStatus.integer,
+				cg.snap ? cg.snap->ps.stats[STAT_HEALTH] : -999);
+		}
+#endif
 		return;
 	}
 
 	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) 
 	{
+#ifdef _XBOX
+		if ( STEFX_HUD_ShouldLogEvery( &s_last2DLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Draw2D intermission time=%d pmType=%d",
+				cg.time,
+				cg.snap->ps.pm_type);
+		}
+#endif
 		CG_DrawIntermission();
 		return;
 	}
+
+#ifdef _XBOX
+	if ( STEFX_HUD_ShouldLogEvery( &s_last2DLogTime, 1000 ) )
+	{
+		XBLF("STEFX: HUD Draw2D begin time=%d client=%d health=%d armor=%d weapon=%d currentWeapon=%d ammo0=%d ammo1=%d ammo2=%d drawStatus=%d drawCrosshair=%d showInfo=%d missionUpdated=%d inCamera=%d third=%d startupDone=%d cent=%d",
+			cg.time,
+			cg.snap->ps.clientNum,
+			cg.snap->ps.stats[STAT_HEALTH],
+			cg.snap->ps.stats[STAT_ARMOR],
+			cg.snap->ps.weapon,
+			cent ? cent->currentState.weapon : -1,
+			cg.snap->ps.ammo[0],
+			cg.snap->ps.ammo[1],
+			cg.snap->ps.ammo[2],
+			cg_drawStatus.integer,
+			cg_drawCrosshair.integer,
+			cg.showInformation,
+			missionInfo_Updated,
+			in_camera,
+			cg.renderingThirdPerson,
+			cg.interfaceStartupDone,
+			cent ? cent->currentState.number : -1);
+	}
+#endif
 
 	CGCam_DrawWideScreen();
 

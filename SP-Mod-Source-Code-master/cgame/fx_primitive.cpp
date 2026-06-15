@@ -5,6 +5,9 @@
 
 #include "cg_local.h"
 #include "FX_Public.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 /*
 -------------------------
@@ -970,14 +973,67 @@ void FXLine::Draw( void )
 {
 	vec3_t		lineDir, cross, viewDir, neworg;
 	polyVert_t	verts[4];
-	float		scale;
+	float		scale, lineLen, crossLen;
+#ifdef _XBOX
+	bool		xboxUsedCrossFallback = false;
+#endif
 
 	VectorSubtract( m_origin2, m_origin, lineDir );
+	lineLen = VectorNormalize( lineDir );
+	if ( lineLen <= 0.01f )
+	{
+#ifdef _XBOX
+		static int s_stefxFxLineDegenerateBudget = 16;
+		if ( s_stefxFxLineDegenerateBudget > 0 )
+		{
+			XBLF( "STEFX: FXLine::Draw skipped degenerate shader=%d origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+				m_shader,
+				m_origin[0], m_origin[1], m_origin[2],
+				m_origin2[0], m_origin2[1], m_origin2[2] );
+			--s_stefxFxLineDegenerateBudget;
+		}
+#endif
+		return;
+	}
+
 	VectorSubtract( m_origin2, cg.refdef.vieworg, viewDir );
+	VectorNormalize( viewDir );
 	CrossProduct( lineDir, viewDir, cross );
-	VectorNormalize( cross );
+	crossLen = VectorNormalize( cross );
+	if ( crossLen <= 0.05f )
+	{
+		VectorCopy( cg.refdef.viewaxis[1], cross );
+		if ( VectorNormalize( cross ) <= 0.001f )
+		{
+			VectorSet( cross, 0.0f, 1.0f, 0.0f );
+		}
+#ifdef _XBOX
+		xboxUsedCrossFallback = true;
+#endif
+	}
 
 	scale = m_scale * 0.5;
+
+#ifdef _XBOX
+	if ( m_shader == cgs.media.whiteLaserShader ||
+		m_shader == cgs.media.sparkShader ||
+		m_shader == cgs.media.phaserShader )
+	{
+		static int s_stefxFxLineDrawBudget = 160;
+		if ( s_stefxFxLineDrawBudget > 0 )
+		{
+			XBLF( "STEFX: FXLine::Draw shader=%d len=%g scale=%g alpha=%g rgb=(%g,%g,%g) crossLen=%g fallback=%d st=%g flags=0x%x origin=(%g,%g,%g) origin2=(%g,%g,%g) vieworg=(%g,%g,%g)",
+				m_shader, lineLen, m_scale, m_alpha,
+				m_RGB[0], m_RGB[1], m_RGB[2],
+				crossLen, xboxUsedCrossFallback ? 1 : 0,
+				m_stScale, m_flags,
+				m_origin[0], m_origin[1], m_origin[2],
+				m_origin2[0], m_origin2[1], m_origin2[2],
+				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2] );
+			--s_stefxFxLineDrawBudget;
+		}
+	}
+#endif
 
 	//Construct the oriented quad
 	VectorMA( m_origin, -scale, cross, verts[0].xyz );

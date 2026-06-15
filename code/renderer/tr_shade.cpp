@@ -14,7 +14,11 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+#ifndef VV_LIGHTING
+#include "../win32/glw_win_dx8.h"
+#endif
 extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
+extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam);
 
 static const char *RB_XboxImageLogName( const image_t *image )
 {
@@ -39,6 +43,127 @@ static const char *RB_XboxImageLogName( const image_t *image )
 #else
 	return "<image>";
 #endif
+}
+
+static qboolean RB_XboxIsEliteForceHudShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	return strstr( name, "gfx/interface/" ) ||
+		strstr( name, "crosshair" );
+}
+
+static qboolean RB_XboxIsEliteForceBeamShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	return !Q_stricmp( name, "gfx/effects/whitelaser" ) ||
+		!Q_stricmp( name, "gfx/misc/spark" );
+}
+
+static void RB_XboxForceEliteForceOverlayD3DState( const shader_t *shader, qboolean additive, const char *where )
+{
+	static int s_stefxForceOverlayLogBudget = 160;
+	static int s_stefxForceOverlaySkipBudget = 16;
+
+	if ( !glw_state || !glw_state->device )
+	{
+		if ( cls.state == CA_ACTIVE && s_stefxForceOverlaySkipBudget > 0 )
+		{
+			XBLF( "STEFX: RB_ForceOverlayD3D skipped where=%s shader='%s' glw=%p device=%p projection2D=%d frame=%d",
+				where ? where : "<null>", shader ? shader->name : "<null>",
+				glw_state, glw_state ? glw_state->device : NULL,
+				backEnd.projection2D, tr.frameCount );
+			--s_stefxForceOverlaySkipBudget;
+		}
+		return;
+	}
+
+	glw_state->device->SetRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+	glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+	glw_state->device->SetRenderState( D3DRS_SRCBLEND, additive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_DESTBLEND, additive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
+
+	if ( cls.state == CA_ACTIVE && s_stefxForceOverlayLogBudget > 0 )
+	{
+		XBLF( "STEFX: RB_ForceOverlayD3D where=%s shader='%s' additive=%d projection2D=%d frame=%d",
+			where ? where : "<null>", shader ? shader->name : "<null>",
+			additive ? 1 : 0, backEnd.projection2D, tr.frameCount );
+		--s_stefxForceOverlayLogBudget;
+	}
+}
+
+static void RB_XboxPrepareEliteForceOverlayStage( const shaderStage_t *stage, qboolean additive, const char *where )
+{
+	static int s_stefxPrepareOverlayBudget = 160;
+	const image_t *image = stage ? stage->bundle[0].image : NULL;
+
+	GL_SelectTexture( 1 );
+	glDisable( GL_TEXTURE_2D );
+	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	GL_SelectTexture( 0 );
+	glEnable( GL_TEXTURE_2D );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+	glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+
+	if ( additive )
+	{
+		glBlendFunc( GL_ONE, GL_ONE );
+	}
+	else
+	{
+		glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	}
+	glEnable( GL_BLEND );
+	glDisable( GL_ALPHA_TEST );
+	glDisable( GL_DEPTH_TEST );
+	glDepthMask( GL_FALSE );
+
+	if ( cls.state == CA_ACTIVE && s_stefxPrepareOverlayBudget > 0 )
+	{
+		XBLF( "STEFX: RB_PrepareOverlayStage where=%s shader='%s' img='%s' tex=%d additive=%d projection2D=%d verts=%d indexes=%d",
+			where ? where : "<null>", tess.shader ? tess.shader->name : "<null>",
+			image ? image->imgName : "<null>", image ? image->texnum : -1,
+			additive ? 1 : 0, backEnd.projection2D,
+			tess.numVertexes, tess.numIndexes );
+		--s_stefxPrepareOverlayBudget;
+	}
+}
+
+static void RB_XboxLogEliteForceOverlayDraw( const shaderStage_t *stage, qboolean hud, qboolean beam, const char *where )
+{
+	static int s_stefxOverlayDrawBudget = 192;
+
+	if ( cls.state == CA_ACTIVE && s_stefxOverlayDrawBudget > 0 )
+	{
+		const image_t *image = stage ? stage->bundle[0].image : NULL;
+
+		XBLF( "EF: OVERLAY_DRAW_SUBMIT where=%s shader='%s' img='%s' hud=%d beam=%d projection2D=%d verts=%d indexes=%d state=0x%x",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			image ? image->imgName : "<null>",
+			hud ? 1 : 0,
+			beam ? 1 : 0,
+			backEnd.projection2D,
+			tess.numVertexes,
+			tess.numIndexes,
+			stage ? stage->stateBits : 0 );
+		--s_stefxOverlayDrawBudget;
+	}
 }
 #endif
 
@@ -1294,11 +1419,46 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	static int activeTraceBudget = 48;
 	qboolean trace = RB_XboxShouldTraceSurface();
 	qboolean forceTrace = RB_XboxForceTraceSurface();
+	qboolean stefxBeamShader = RB_XboxIsEliteForceBeamShader( tess.shader );
+	qboolean stefxHudShader = backEnd.projection2D && RB_XboxIsEliteForceHudShader( tess.shader );
+	int stateBits = 0;
 #endif
 
 	pStage = &tess.xstages[stage];
 
 #ifdef _XBOX
+	stateBits = pStage->stateBits;
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		static int s_stefxMultitexOverlayBudget = 160;
+		const int oldStateBits = stateBits;
+
+		stateBits |= GLS_DEPTHTEST_DISABLE;
+		stateBits &= ~( GLS_DEPTHFUNC_EQUAL | GLS_DEPTHMASK_TRUE | GLS_ATEST_BITS );
+
+		if ( ( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) == 0 )
+		{
+			if ( stefxBeamShader )
+			{
+				stateBits |= GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
+			}
+			else
+			{
+				stateBits |= GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+			}
+		}
+
+		if ( cls.state == CA_ACTIVE && s_stefxMultitexOverlayBudget > 0 )
+		{
+			XBLF( "STEFX: DrawMultitextured overlay state shader='%s' stage=%d hud=%d beam=%d old=0x%x new=0x%x projection2D=%d verts=%d indexes=%d",
+				tess.shader ? tess.shader->name : "<null>", stage,
+				stefxHudShader ? 1 : 0, stefxBeamShader ? 1 : 0,
+				oldStateBits, stateBits, backEnd.projection2D,
+				input->numVertexes, input->numIndexes );
+			--s_stefxMultitexOverlayBudget;
+		}
+	}
+
 	if (!backEnd.projection2D && cls.state == CA_ACTIVE && activeTraceBudget > 0)
 	{
 		image_t *img0 = pStage->bundle[0].image;
@@ -1369,8 +1529,17 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 		}
 	}
 #endif
-	GL_State( pStage->stateBits );
 #ifdef _XBOX
+	GL_State( stateBits );
+#else
+	GL_State( pStage->stateBits );
+#endif
+#ifdef _XBOX
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured" );
+		RB_XboxPrepareEliteForceOverlayStage( pStage, stefxBeamShader, "DrawMultitextured" );
+	}
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
 		XBLF("JA: DrawMultitextured after GL_State shader='%s' stage=%d\n",
@@ -1460,6 +1629,12 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 #endif
 
 #ifdef _XBOX
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured before draw" );
+		RB_XboxLogEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "DrawMultitextured" );
+		JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
+	}
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
 		XBLF("JA: DrawMultitextured before draw shader='%s' stage=%d\n",
@@ -1468,6 +1643,12 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	}
 #endif
 	R_DrawElements( input->numIndexes, input->indexes );
+#ifdef _XBOX
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
+	}
+#endif
 #ifdef _XBOX
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
@@ -3466,6 +3647,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		colorGen_t	forceRGBGen = (colorGen_t)0;
 
 #ifdef _XBOX
+		qboolean stefxBeamShader = RB_XboxIsEliteForceBeamShader( tess.shader );
+		qboolean stefxHudShader = backEnd.projection2D && RB_XboxIsEliteForceHudShader( tess.shader );
 		tess.currentPass = stage;
 		if ( stage > 0 &&
 			( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) ==
@@ -3540,6 +3723,39 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				forceRGBGen = CGEN_ENTITY;
 			}
 		}
+
+#ifdef _XBOX
+		if ( stefxBeamShader || stefxHudShader )
+		{
+			static int s_stefxOverlayStateAdjustBudget = 160;
+			const int oldStateBits = stateBits;
+
+			stateBits |= GLS_DEPTHTEST_DISABLE;
+			stateBits &= ~( GLS_DEPTHFUNC_EQUAL | GLS_DEPTHMASK_TRUE | GLS_ATEST_BITS );
+
+			if ( ( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) == 0 )
+			{
+				if ( stefxBeamShader )
+				{
+					stateBits |= GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
+				}
+				else
+				{
+					stateBits |= GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+				}
+			}
+
+			if ( cls.state == CA_ACTIVE && s_stefxOverlayStateAdjustBudget > 0 )
+			{
+				XBLF( "STEFX: RB_IterateStagesGeneric overlay state shader='%s' stage=%d hud=%d beam=%d old=0x%x new=0x%x projection2D=%d verts=%d indexes=%d",
+					tess.shader ? tess.shader->name : "<null>", stage,
+					stefxHudShader ? 1 : 0, stefxBeamShader ? 1 : 0,
+					oldStateBits, stateBits, backEnd.projection2D,
+					input->numVertexes, input->numIndexes );
+				--s_stefxOverlayStateAdjustBudget;
+			}
+		}
+#endif
 
 		if (pStage->ss && pStage->ss->surfaceSpriteType)
 		{
@@ -3844,6 +4060,13 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			else
 			{
 				GL_State( stateBits );
+#ifdef _XBOX
+				if ( stefxBeamShader || stefxHudShader )
+				{
+					RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "RB_IterateStagesGeneric" );
+					RB_XboxPrepareEliteForceOverlayStage( pStage, stefxBeamShader, "RB_IterateStagesGeneric" );
+				}
+#endif
 			}
 
 			//
@@ -3855,9 +4078,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				XBLF("JA: RB_IterateStagesGeneric before single draw shader='%s' stage=%d\n",
 					tess.shader ? tess.shader->name : "<null>", stage);
 			}
+			if ( stefxBeamShader || stefxHudShader )
+			{
+				RB_XboxLogEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "RB_IterateStagesGeneric" );
+				JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
+			}
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "before single draw" );
 #endif
 			R_DrawElements( input->numIndexes, input->indexes );
+#ifdef _XBOX
+			if ( stefxBeamShader || stefxHudShader )
+			{
+				JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
+			}
+#endif
 #ifdef _XBOX
 			if ( forceTrace )
 			{

@@ -13,6 +13,23 @@
 #include "tr_lightmanager.h"
 #endif
 
+#ifdef _XBOX
+static bool R_XboxTracePolyShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	return strstr( name, "gfx/effects/" ) ||
+		strstr( name, "gfx/misc/" ) ||
+		strstr( name, "gfx/interface/" ) ||
+		strstr( name, "crosshair" );
+}
+#endif
+
 int			r_firstSceneDrawSurf;
 
 int			r_numdlights;
@@ -96,6 +113,19 @@ void R_AddPolygonSurfaces( void ) {
 
 	for ( i = 0, poly = tr.refdef.polys; i < tr.refdef.numPolys ; i++, poly++ ) {
 		sh = R_GetShaderByHandle( poly->hShader );
+#ifdef _XBOX
+		if ( cls.state == CA_ACTIVE && R_XboxTracePolyShader( sh ) )
+		{
+			static int s_stefxAddPolySurfBudget = 160;
+			if ( s_stefxAddPolySurfBudget > 0 )
+			{
+				XBLF( "STEFX: R_AddPolygonSurfaces shader='%s' handle=%d verts=%d fog=%d poly=%d/%d",
+					sh ? sh->name : "<null>", poly->hShader, poly->numVerts, poly->fogIndex,
+					i, tr.refdef.numPolys );
+				--s_stefxAddPolySurfBudget;
+			}
+		}
+#endif
 		R_AddDrawSurf( ( surfaceType_t * )poly, sh, poly->fogIndex, qfalse );
 	}
 }
@@ -125,6 +155,15 @@ void RE_AddPolyToScene( qhandle_t hShader , int numVerts, const polyVert_t *vert
 	}
 
 	if ( r_numpolyverts + numVerts > MAX_POLYVERTS || r_numpolys >= MAX_POLYS ) {
+#ifdef _XBOX
+		static int s_stefxPolyOverflowBudget = 32;
+		if ( s_stefxPolyOverflowBudget > 0 )
+		{
+			XBLF( "STEFX: RE_AddPolyToScene overflow handle=%d verts=%d numPolys=%d/%d polyVerts=%d/%d",
+				hShader, numVerts, r_numpolys, MAX_POLYS, r_numpolyverts, MAX_POLYVERTS );
+			--s_stefxPolyOverflowBudget;
+		}
+#endif
 #if defined(_DEBUG)
 		Com_Printf(S_COLOR_RED"Poly overflow!  Tell Brian.\n");
 #endif
@@ -181,6 +220,29 @@ void RE_AddPolyToScene( qhandle_t hShader , int numVerts, const polyVert_t *vert
 		}
 	}
 	poly->fogIndex = fogIndex;
+#ifdef _XBOX
+	{
+		shader_t *shader = R_GetShaderByHandle( hShader );
+		if ( cls.state == CA_ACTIVE && R_XboxTracePolyShader( shader ) )
+		{
+			static int s_stefxAddPolySceneBudget = 160;
+			if ( s_stefxAddPolySceneBudget > 0 )
+			{
+				const polyVert_t *v = poly->verts;
+				XBLF( "STEFX: RE_AddPolyToScene shader='%s' handle=%d verts=%d fog=%d storedPolys=%d storedVerts=%d v0=(%g,%g,%g) v1=(%g,%g,%g) color0=%u,%u,%u,%u",
+					shader ? shader->name : "<null>", hShader, numVerts, fogIndex,
+					r_numpolys, r_numpolyverts,
+					v[0].xyz[0], v[0].xyz[1], v[0].xyz[2],
+					numVerts > 1 ? v[1].xyz[0] : 0.0f,
+					numVerts > 1 ? v[1].xyz[1] : 0.0f,
+					numVerts > 1 ? v[1].xyz[2] : 0.0f,
+					(unsigned int)v[0].modulate[0], (unsigned int)v[0].modulate[1],
+					(unsigned int)v[0].modulate[2], (unsigned int)v[0].modulate[3] );
+				--s_stefxAddPolySceneBudget;
+			}
+		}
+	}
+#endif
 }
 
 

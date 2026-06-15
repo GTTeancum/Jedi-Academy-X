@@ -107,6 +107,7 @@ static consoleCommand_t	commands[] = {
 //	{ "info",CG_Info_f},
 	{ "+zoom", CG_ZoomDown_f },
 	{ "-zoom", CG_ZoomUp_f },
+	{ "zoomoff", CG_ZoomOff_f },
 	{ "+range", CG_RangeIncrease_f },
 	{ "-range", CG_RangeDecrease_f },
 	{ "sizeup", CG_SizeUp_f },

@@ -383,6 +383,27 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 	{
 		int entNum = ( clSnap->parseEntitiesNum + i ) & (MAX_PARSE_ENTITIES-1);
 		snapshot->entities[i] = cl.parseEntities[ entNum ];
+		if ( snapshot->entities[i].eType > ET_EVENTS )
+		{
+			static int s_stefxGetSnapshotEventBudget = 128;
+			if ( s_stefxGetSnapshotEventBudget > 0 )
+			{
+				XBLF("STEFX: engine EF CL_GetSnapshot event ent=%d eType=%d event=%d weapon=%d outIndex=%d parseIndex=%d origin=(%g,%g,%g) origin2=(%g,%g,%g)",
+					snapshot->entities[i].number,
+					snapshot->entities[i].eType,
+					snapshot->entities[i].eType - ET_EVENTS,
+					snapshot->entities[i].weapon,
+					i,
+					entNum,
+					snapshot->entities[i].pos.trBase[0],
+					snapshot->entities[i].pos.trBase[1],
+					snapshot->entities[i].pos.trBase[2],
+					snapshot->entities[i].origin2[0],
+					snapshot->entities[i].origin2[1],
+					snapshot->entities[i].origin2[2]);
+				--s_stefxGetSnapshotEventBudget;
+			}
+		}
 	}
 
 	return qtrue;

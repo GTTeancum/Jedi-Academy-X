@@ -99,6 +99,16 @@ static GLsizei ArrayStride(const ArrayBinding& binding);
 #ifdef _XBOX
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
+static int g_stefxOverlayDrawContext = 0;
+static int g_stefxOverlayDrawHud = 0;
+static int g_stefxOverlayDrawBeam = 0;
+
+extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam)
+{
+    g_stefxOverlayDrawContext = active ? 1 : 0;
+    g_stefxOverlayDrawHud = hud ? 1 : 0;
+    g_stefxOverlayDrawBeam = beam ? 1 : 0;
+}
 
 struct JkaFastVertex0 {
     float x, y, z;
@@ -333,6 +343,42 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
 
     bool drawOk = JkaFakeglDrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, fvf, vertexCount, primitiveCount,
         s_fastIndices, verts, stride) != 0;
+    {
+        static int s_efFastDrawSubmitBudget = 64;
+        static int s_efOverlayFastDrawSubmitBudget = 256;
+        bool logFastDraw = false;
+        if (g_stefxOverlayDrawContext) {
+            logFastDraw = s_efOverlayFastDrawSubmitBudget > 0;
+        } else {
+            logFastDraw = s_efFastDrawSubmitBudget > 0;
+        }
+
+        if (logFastDraw) {
+            const GLfloat *xyz0 = (const GLfloat *)g_vertexArray.pointer;
+            DWORD color0 = PackColorFromArray(0);
+            XBLF("EF: FAST_DRAW_SUBMIT ok=%d overlay=%d hud=%d beam=%d mode=0x%08x count=%d verts=%u prims=%u stages=%d fvf=0x%08lx texMask=0x%08x color0=0x%08lx xyz0=%g,%g,%g",
+                drawOk ? 1 : 0,
+                g_stefxOverlayDrawContext,
+                g_stefxOverlayDrawHud,
+                g_stefxOverlayDrawBeam,
+                (unsigned int)mode,
+                (int)count,
+                (unsigned int)vertexCount,
+                (unsigned int)primitiveCount,
+                texStages,
+                (unsigned long)fvf,
+                (unsigned int)g_texCoordArrayEnabled,
+                (unsigned long)color0,
+                xyz0 ? xyz0[0] : 0.0f,
+                xyz0 ? xyz0[1] : 0.0f,
+                xyz0 ? xyz0[2] : 0.0f);
+            if (g_stefxOverlayDrawContext) {
+                --s_efOverlayFastDrawSubmitBudget;
+            } else {
+                --s_efFastDrawSubmitBudget;
+            }
+        }
+    }
     for (UINT clear = 0; clear < vertexCount; ++clear) {
         s_fastRemap[s_fastSourceIndices[clear]] = 0xffffffffu;
     }
@@ -720,7 +766,7 @@ void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indic
     }
     /* Keep this path allocation-free. It preserves indexed topology and avoids
      * the per-index immediate expansion that hammers CPU bandwidth on Xbox. */
-    static const bool kUseFastIndexedUP = false;
+    static const bool kUseFastIndexedUP = true;
     if (kUseFastIndexedUP && JkaTryDrawElementsUP(mode, count, type, indices)) {
         return;
     }

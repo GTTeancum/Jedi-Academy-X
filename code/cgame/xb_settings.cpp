@@ -268,7 +268,7 @@ bool XBSettings::Missing( void )
 // Copy all stored settings into cvars
 void XBSettings::SetAll( void )
 {
-	Cvar_SetValue( "m_pitch", invertAim[0] ? 0.022f : -0.022f );
+	Cvar_SetValue( "m_pitch", invertAim[0] ? -0.022f : 0.022f );
 	Cvar_SetValue( "ui_thumbStickMode", thumbstickMode[0] );
 
 	Cvar_Set( "ui_buttonconfig", buttonConfigStrings[buttonMode[0]] );

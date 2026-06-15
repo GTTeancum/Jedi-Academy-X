@@ -2001,7 +2001,7 @@ RENDERER BACK END COMMAND QUEUE
 */
 
 #ifdef _XBOX
-#define	MAX_RENDER_COMMANDS	0x18000
+#define	MAX_RENDER_COMMANDS	0x40000
 #else
 #define	MAX_RENDER_COMMANDS	0x40000
 #endif
@@ -2095,7 +2095,11 @@ typedef enum {
 // the limits apply to the sum of all scenes in a frame --
 // the main view, all the 3D icons, etc
 #ifdef _XBOX
+#ifdef STEFX_ELITE_FORCE_SP
+#define	MAX_POLYS		2048
+#else
 #define	MAX_POLYS		512
+#endif
 #else
 #define	MAX_POLYS		2048
 #endif

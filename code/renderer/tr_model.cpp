@@ -684,17 +684,17 @@ static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size)
 		return qfalse;
 	}
 
-	if (name && (strstr(name, "models/players/hazard/") || strstr(name, "models\\players\\hazard\\")))
+	if (name && (strstr(name, "models/players/") || strstr(name, "models\\players\\")))
 	{
 #ifdef _XBOX
-		XBLF("STEFX: R_LoadMDR budget placeholder hazard model '%s' size=%d over cap=%d",
-			name, size, overCapLimit);
+		XBLF("STEFX: R_LoadMDR allowing over-cap player model '%s' size=%d cap=%d",
+			name ? name : "(null)", size, overCapLimit);
 #endif
-		return qtrue;
+		return qfalse;
 	}
 
 #ifdef _XBOX
-	XBLF("STEFX: R_LoadMDR budget placeholder non-borg model '%s' size=%d over cap=%d",
+	XBLF("STEFX: R_LoadMDR budget placeholder non-player model '%s' size=%d over cap=%d",
 		name ? name : "(null)", size, overCapLimit);
 #endif
 	return qtrue;
@@ -1071,6 +1071,21 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 			VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has too many bones (%i > %i)\n",
 				mod_name, mod->md4->numBones, MD4_MAX_BONES );
 			return qfalse;
+		}
+
+		md4Tag_t *tag = (md4Tag_t *)((byte *)mod->md4 + mod->md4->ofsTags);
+		for (i = 0; i < mod->md4->numTags; i++, tag++)
+		{
+			LL(tag->boneIndex);
+			if (tag->boneIndex < 0 || tag->boneIndex >= mod->md4->numBones)
+			{
+				VID_Printf( PRINT_WARNING, "R_LoadMDR: %s tag %s has invalid bone index %i of %i\n",
+					mod_name, tag->name, tag->boneIndex, mod->md4->numBones );
+#ifdef _XBOX
+				XBLF("STEFX: R_LoadMDR invalid tag model='%s' tag='%s' bone=%d bones=%d",
+					mod_name, tag->name, tag->boneIndex, mod->md4->numBones);
+#endif
+			}
 		}
 
 		lod = (md4LOD_t *)((byte *)mod->md4 + mod->md4->ofsLODs);
@@ -1510,6 +1525,147 @@ static md3Tag_t *R_GetTag( md3Header_t *mod, int frame, const char *tagName ) {
 	return NULL;
 }
 
+#ifdef STEFX_ELITE_FORCE_SP
+static md4Tag_t *R_STEFX_GetMDRTag( md4Header_t *mod, const char *tagName ) {
+	md4Tag_t		*tag;
+	int				i;
+
+	if ( !mod || !tagName || mod->numTags <= 0 ) {
+		return NULL;
+	}
+
+	tag = (md4Tag_t *)((byte *)mod + mod->ofsTags);
+	for ( i = 0 ; i < mod->numTags ; i++, tag++ ) {
+		if ( !strcmp( tag->name, tagName ) ) {
+			return tag;
+		}
+	}
+
+	return NULL;
+}
+
+static qboolean R_STEFX_GetMDRBone( md4Header_t *mod, int frame, int boneIndex, md4Bone_t *bone ) {
+	int				frameSize;
+
+	if ( !mod || !bone || boneIndex < 0 || boneIndex >= mod->numBones || mod->numFrames <= 0 ) {
+		return qfalse;
+	}
+
+	if ( frame < 0 ) {
+		frame = 0;
+	} else if ( frame >= mod->numFrames ) {
+		frame = mod->numFrames - 1;
+	}
+
+	if ( mod->ofsFrames < 0 ) {
+		md4CompFrame_t	*cframe;
+
+		frameSize = (int)( &((md4CompFrame_t *)0)->bones[ mod->numBones ] );
+		cframe = (md4CompFrame_t *)((byte *)mod - mod->ofsFrames + frame * frameSize );
+		MC_UnCompress( bone->matrix, cframe->bones[ boneIndex ].Comp );
+	} else {
+		md4Frame_t		*md4Frame;
+
+		frameSize = (int)( &((md4Frame_t *)0)->bones[ mod->numBones ] );
+		md4Frame = (md4Frame_t *)((byte *)mod + mod->ofsFrames + frame * frameSize );
+		*bone = md4Frame->bones[ boneIndex ];
+	}
+
+	return qtrue;
+}
+
+static qboolean R_STEFX_LerpMDRTag( orientation_t *tag, model_t *model, int startFrame, int endFrame,
+									float frac, const char *tagName ) {
+	md4Tag_t		*mdrTag;
+	md4Bone_t		startBone;
+	md4Bone_t		finishBone;
+	int				axis;
+	int				component;
+	float			frontLerp;
+	float			backLerp;
+
+	if ( !tag || !model || !model->md4 ) {
+		return qfalse;
+	}
+
+	mdrTag = R_STEFX_GetMDRTag( model->md4, tagName );
+	if ( !mdrTag ) {
+#if defined(_XBOX)
+		static int s_missingTagLogBudget = 0;
+		if ( s_missingTagLogBudget < 24 ) {
+			XBLF( "STEFX: R_LerpTag MDR missing tag='%s' model='%s' tags=%d",
+				tagName ? tagName : "(null)",
+				model->name,
+				model->md4->numTags );
+			s_missingTagLogBudget++;
+		}
+#endif
+		return qfalse;
+	}
+
+	if ( !R_STEFX_GetMDRBone( model->md4, startFrame, mdrTag->boneIndex, &startBone ) ||
+		 !R_STEFX_GetMDRBone( model->md4, endFrame, mdrTag->boneIndex, &finishBone ) ) {
+#if defined(_XBOX)
+		static int s_badTagLogBudget = 0;
+		if ( s_badTagLogBudget < 24 ) {
+			XBLF( "STEFX: R_LerpTag MDR bad bone tag='%s' model='%s' bone=%d bones=%d frames=%d/%d count=%d",
+				tagName ? tagName : "(null)",
+				model->name,
+				mdrTag->boneIndex,
+				model->md4->numBones,
+				startFrame,
+				endFrame,
+				model->md4->numFrames );
+			s_badTagLogBudget++;
+		}
+#endif
+		return qfalse;
+	}
+
+	frontLerp = frac;
+	backLerp = 1.0f - frac;
+
+	for ( component = 0 ; component < 3 ; component++ ) {
+		tag->origin[component] =
+			startBone.matrix[component][3] * backLerp +
+			finishBone.matrix[component][3] * frontLerp;
+	}
+
+	for ( axis = 0 ; axis < 3 ; axis++ ) {
+		for ( component = 0 ; component < 3 ; component++ ) {
+			tag->axis[axis][component] =
+				startBone.matrix[component][axis] * backLerp +
+				finishBone.matrix[component][axis] * frontLerp;
+		}
+		VectorNormalize( tag->axis[axis] );
+	}
+
+#if defined(_XBOX)
+	{
+		static int s_tagLogBudget = 0;
+		if ( s_tagLogBudget < 64 ) {
+			XBLF( "STEFX: R_LerpTag MDR ok tag='%s' model='%s' bone=%d frames=%d/%d frac=%g origin=(%g,%g,%g) axis0=(%g,%g,%g)",
+				tagName ? tagName : "(null)",
+				model->name,
+				mdrTag->boneIndex,
+				startFrame,
+				endFrame,
+				frac,
+				tag->origin[0],
+				tag->origin[1],
+				tag->origin[2],
+				tag->axis[0][0],
+				tag->axis[0][1],
+				tag->axis[0][2] );
+			s_tagLogBudget++;
+		}
+	}
+#endif
+
+	return qtrue;
+}
+#endif
+
 /*
 ================
 R_LerpTag
@@ -1528,6 +1684,18 @@ void	R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFra
 		start = R_GetTag( model->md3[0], startFrame, tagName );
 		finish = R_GetTag( model->md3[0], endFrame, tagName );
 	}
+#ifdef STEFX_ELITE_FORCE_SP
+	else if ( model->md4 )
+	{
+		if ( R_STEFX_LerpMDRTag( tag, model, startFrame, endFrame, frac, tagName ) ) {
+			return;
+		}
+
+		AxisClear( tag->axis );
+		VectorClear( tag->origin );
+		return;
+	}
+#endif
 	else
 	{
 		AxisClear( tag->axis );

@@ -154,7 +154,14 @@ static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent, qboolean
 	}
 	if ( cull == CULL_OUT )
 	{
-		return CULL_OUT;
+		if ( logCull )
+		{
+			XBLF( "STEFX: R_AddAnimSurfaces EF MDR cull bypass ent=%d h=%d model='%s'",
+				ent->e.number,
+				ent->e.hModel,
+				tr.currentModel ? tr.currentModel->name : "(null)" );
+		}
+		return CULL_CLIP;
 	}
 	return CULL_CLIP;
 }

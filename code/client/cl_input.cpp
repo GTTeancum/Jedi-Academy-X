@@ -93,18 +93,21 @@ static void STEFX_InstallDefaultXboxBindings( void )
 	}
 	s_installed = qtrue;
 
-	STEFX_SetDefaultXboxBinding( A_JOY12, "+attack" );
-	STEFX_SetDefaultXboxBinding( A_JOY11, "+altattack" );
-	STEFX_SetDefaultXboxBinding( A_JOY15, "+use" );
-	STEFX_SetDefaultXboxBinding( A_JOY14, "+moveup" );
-	STEFX_SetDefaultXboxBinding( A_JOY16, "weapprev" );
-	STEFX_SetDefaultXboxBinding( A_JOY13, "weapnext" );
-	STEFX_SetDefaultXboxBinding( A_JOY9, "weapprev" );
-	STEFX_SetDefaultXboxBinding( A_JOY10, "weapnext" );
-	STEFX_SetDefaultXboxBinding( A_JOY5, "weapnext" );
-	STEFX_SetDefaultXboxBinding( A_JOY7, "weapprev" );
-	STEFX_SetDefaultXboxBinding( A_JOY8, "weapon 1" );
-	STEFX_SetDefaultXboxBinding( A_JOY6, "weapon 2" );
+	STEFX_SetDefaultXboxBinding( A_JOY12, "+attack" );              // Right trigger
+	STEFX_SetDefaultXboxBinding( A_JOY10, "+altattack" );           // Black button
+	STEFX_SetDefaultXboxBinding( A_JOY11, "+moveup" );              // Left trigger
+	STEFX_SetDefaultXboxBinding( A_JOY9, "+movedown" );             // White button
+	STEFX_SetDefaultXboxBinding( A_JOY15, "+use" );                 // A
+	STEFX_SetDefaultXboxBinding( A_JOY14, "+button2" );             // B, mission info / use item
+	STEFX_SetDefaultXboxBinding( A_JOY16, "toggle cl_run" );        // X
+	STEFX_SetDefaultXboxBinding( A_JOY13, "centerview; zoomoff" );  // Y
+	STEFX_SetDefaultXboxBinding( A_JOY5, "+zoom" );                 // D-pad up
+	STEFX_SetDefaultXboxBinding( A_JOY7, "zoomoff" );               // D-pad down
+	STEFX_SetDefaultXboxBinding( A_JOY8, "weapprev" );              // D-pad left
+	STEFX_SetDefaultXboxBinding( A_JOY6, "weapnext" );              // D-pad right
+	STEFX_SetDefaultXboxBinding( A_JOY1, "datapad" );               // Back
+	STEFX_SetDefaultXboxBinding( A_JOY2, "+use" );                  // Left stick click, lean modifier
+	STEFX_SetDefaultXboxBinding( A_JOY3, "toggle cg_thirdperson" ); // Right stick click
 }
 
 static cvar_t *stefx_smokeInput;
@@ -1361,8 +1364,12 @@ void CL_InitInput( void ) {
 	Cmd_AddCommand ("-force_lightning", IN_Button1Up);
 	Cmd_AddCommand ("+useforce", IN_Button2Down);	//use current force power
 	Cmd_AddCommand ("-useforce", IN_Button2Up);
+	Cmd_AddCommand ("+button2", IN_Button2Down);
+	Cmd_AddCommand ("-button2", IN_Button2Up);
 	Cmd_AddCommand ("+force_drain", IN_Button3Down);//force drain
 	Cmd_AddCommand ("-force_drain", IN_Button3Up);
+	Cmd_AddCommand ("+button3", IN_Button3Down);
+	Cmd_AddCommand ("-button3", IN_Button3Up);
 	Cmd_AddCommand ("+walk", IN_Button4Down);//walking
 	Cmd_AddCommand ("-walk", IN_Button4Up);
 	Cmd_AddCommand ("+use", IN_Button5Down);//use object

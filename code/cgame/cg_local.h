@@ -454,6 +454,7 @@ typedef struct {
 	int			loadLCARSStage;
 
 	int			missionInfoFlashTime;
+	qboolean	showInformation;
 	qboolean	missionStatusShow;
 	int			missionStatusDeadTime;
 

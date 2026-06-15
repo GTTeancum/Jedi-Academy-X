@@ -902,6 +902,29 @@ void RB_SurfacePolychain( srfPoly_t *p ) {
 	int		numv;
 
 	RB_CHECKOVERFLOW( p->numVerts, 3*(p->numVerts - 2) );
+#ifdef _XBOX
+	if ( cls.state == CA_ACTIVE && tess.shader && tess.shader->name &&
+		( strstr( tess.shader->name, "gfx/effects/" ) ||
+		  strstr( tess.shader->name, "gfx/misc/" ) ||
+		  strstr( tess.shader->name, "gfx/interface/" ) ||
+		  strstr( tess.shader->name, "crosshair" ) ) )
+	{
+		static int s_stefxSurfacePolyBudget = 160;
+		if ( s_stefxSurfacePolyBudget > 0 )
+		{
+			XBLF( "STEFX: RB_SurfacePolychain shader='%s' verts=%d tessBefore=%d/%d v0=(%g,%g,%g) color0=%u,%u,%u,%u",
+				tess.shader->name, p->numVerts, tess.numVertexes, tess.numIndexes,
+				p->numVerts > 0 ? p->verts[0].xyz[0] : 0.0f,
+				p->numVerts > 0 ? p->verts[0].xyz[1] : 0.0f,
+				p->numVerts > 0 ? p->verts[0].xyz[2] : 0.0f,
+				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[0] : 0,
+				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[1] : 0,
+				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[2] : 0,
+				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[3] : 0 );
+			--s_stefxSurfacePolyBudget;
+		}
+	}
+#endif
 
 	// fan triangles into the tess array
 	numv = tess.numVertexes;

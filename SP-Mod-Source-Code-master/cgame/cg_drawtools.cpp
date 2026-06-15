@@ -534,6 +534,9 @@ CG_PrintInterfaceGraphics
 void CG_PrintInterfaceGraphics(int min,int max)
 {
 	int i;
+#ifdef _XBOX
+	static int s_stefxInterfaceDrawBudget = 160;
+#endif
 
 	// Printing graphics
 	for (i=min;i<max;++i)
@@ -548,6 +551,27 @@ void CG_PrintInterfaceGraphics(int min,int max)
 			{
 				cgi_R_SetColor(colorTable[interface_graphics[i].color]);
 
+#ifdef _XBOX
+				if (s_stefxInterfaceDrawBudget > 0)
+				{
+					XBLF("STEFX: HUD InterfaceDraw graphic idx=%d shader=%d file='%s' rect=(%d,%d %dx%d) color=%d rgba=(%g,%g,%g,%g) style=0x%x time=%d",
+						i,
+						interface_graphics[i].graphic,
+						interface_graphics[i].file ? interface_graphics[i].file : "",
+						interface_graphics[i].x,
+						interface_graphics[i].y,
+						interface_graphics[i].width,
+						interface_graphics[i].height,
+						interface_graphics[i].color,
+						colorTable[interface_graphics[i].color][0],
+						colorTable[interface_graphics[i].color][1],
+						colorTable[interface_graphics[i].color][2],
+						colorTable[interface_graphics[i].color][3],
+						interface_graphics[i].style,
+						cg.time);
+					--s_stefxInterfaceDrawBudget;
+				}
+#endif
 				CG_DrawPic( interface_graphics[i].x, 
 				interface_graphics[i].y,	
 				interface_graphics[i].width, 
@@ -559,6 +583,26 @@ void CG_PrintInterfaceGraphics(int min,int max)
 		{
 			cgi_R_SetColor(colorTable[interface_graphics[i].color]);
 
+#ifdef _XBOX
+			if (s_stefxInterfaceDrawBudget > 0)
+			{
+				XBLF("STEFX: HUD InterfaceDraw number idx=%d value=%d rect=(%d,%d %dx%d) color=%d rgba=(%g,%g,%g,%g) style=0x%x time=%d",
+					i,
+					interface_graphics[i].max,
+					interface_graphics[i].x,
+					interface_graphics[i].y,
+					interface_graphics[i].width,
+					interface_graphics[i].height,
+					interface_graphics[i].color,
+					colorTable[interface_graphics[i].color][0],
+					colorTable[interface_graphics[i].color][1],
+					colorTable[interface_graphics[i].color][2],
+					colorTable[interface_graphics[i].color][3],
+					interface_graphics[i].style,
+					cg.time);
+				--s_stefxInterfaceDrawBudget;
+			}
+#endif
 			CG_DrawNumField (
 				interface_graphics[i].x, 
 				interface_graphics[i].y, 3, 

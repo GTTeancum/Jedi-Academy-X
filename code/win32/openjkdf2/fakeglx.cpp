@@ -635,20 +635,6 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		--s_requestSeenLogBudget;
 	}
 
-	if (backBuffer && width > 0 && height > 0 && width <= 4096 && height <= 4096)
-	{
-		if (FakeGL_TryXGWriteSurface(backBuffer))
-		{
-			DeleteFileA(requestPath);
-			return;
-		}
-	}
-	if (FakeGL_TryXGWriteFrontBuffer(device))
-	{
-		DeleteFileA(requestPath);
-		return;
-	}
-
 	if (!backBuffer || !backBuffer->Data || width == 0 || height == 0 || width > 4096 || height > 4096)
 	{
 		if (s_rejectLogBudget > 0)
@@ -1783,8 +1769,20 @@ public:
 						HRESULT hrSetTexture = pD3DDev->SetTexture( i, pTexture);
 #ifdef _XBOX
 						{
-							static int s_efStageApplyBudget = 16;
-							if (i < 2 && s_efStageApplyBudget > 0 && (i == 1 || entry->m_id > 8))
+							static int s_efStage0ApplyBudget = 8;
+							static int s_efStage1ApplyBudget = 16;
+							bool logStageApply = false;
+							if (i == 1 && s_efStage1ApplyBudget > 0)
+							{
+								logStageApply = true;
+								--s_efStage1ApplyBudget;
+							}
+							else if (i == 0 && s_efStage0ApplyBudget > 0 && entry->m_id > 8)
+							{
+								logStageApply = true;
+								--s_efStage0ApplyBudget;
+							}
+							if (logStageApply)
 							{
 								XBLF("EF: TEX_STAGE_APPLY stage=%d texid=%d ptr=%p fmt=0x%08x internal=0x%08x env=0x%08x hr=0x%08lx",
 									i,
@@ -1794,7 +1792,6 @@ public:
 									(unsigned int)entry->m_internalFormat,
 									(unsigned int)m_stage[i].GetTextEnvMode(),
 									(unsigned long)hrSetTexture);
-								--s_efStageApplyBudget;
 							}
 						}
 						if (i == 1)

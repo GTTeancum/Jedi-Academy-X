@@ -1266,60 +1266,60 @@ function Update-EFControllerConfigs {
 
     Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\triggersConfig0.cfg" -Lines ($triggerUnbinds + @(
         'bind JOY12 "+attack"',
-        'bind JOY11 "+altattack"'
+        'bind JOY11 "+moveup"'
     ))
 
     Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\triggersConfig1.cfg" -Lines ($triggerUnbinds + @(
-        'bind JOY12 "+altattack"',
-        'bind JOY11 "+attack"'
+        'bind JOY12 "+attack"',
+        'bind JOY11 "+moveup"'
     ))
 
     Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig0.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
         'bind JOY15 "+use"',
-        'bind JOY14 "+movedown"',
-        'bind JOY16 "+zoom"',
-        'bind JOY13 "datapad"',
-        'bind JOY10 "weapnext"',
-        'bind JOY9 "weapprev"',
-        'bind JOY5 "invnext"',
-        'bind JOY7 "invprev"',
+        'bind JOY14 "+button2"',
+        'bind JOY16 "toggle cl_run"',
+        'bind JOY13 "centerview; zoomoff"',
+        'bind JOY10 "+altattack"',
+        'bind JOY9 "+movedown"',
+        'bind JOY5 "+zoom"',
+        'bind JOY7 "zoomoff"',
         'bind JOY8 "weapprev"',
         'bind JOY6 "weapnext"',
         'bind JOY1 "datapad"',
-        'bind JOY2 "+speed"',
-        'bind JOY3 "centerview"'
+        'bind JOY2 "+use"',
+        'bind JOY3 "toggle cg_thirdperson"'
     ))
 
     Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig1.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
         'bind JOY15 "+use"',
-        'bind JOY14 "+movedown"',
-        'bind JOY16 "+zoom"',
-        'bind JOY13 "datapad"',
-        'bind JOY10 "invnext"',
-        'bind JOY9 "invprev"',
-        'bind JOY5 "weapnext"',
-        'bind JOY7 "weapprev"',
-        'bind JOY8 "invprev"',
-        'bind JOY6 "invnext"',
-        'bind JOY1 "datapad"',
-        'bind JOY2 "+speed"',
-        'bind JOY3 "centerview"'
-    ))
-
-    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig2.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
-        'bind JOY13 "+use"',
-        'bind JOY14 "+movedown"',
-        'bind JOY16 "+zoom"',
-        'bind JOY15 "datapad"',
-        'bind JOY10 "weapprev"',
-        'bind JOY9 "weapnext"',
-        'bind JOY5 "invnext"',
-        'bind JOY7 "invprev"',
+        'bind JOY14 "+button2"',
+        'bind JOY16 "toggle cl_run"',
+        'bind JOY13 "centerview; zoomoff"',
+        'bind JOY10 "+altattack"',
+        'bind JOY9 "+movedown"',
+        'bind JOY5 "+zoom"',
+        'bind JOY7 "zoomoff"',
         'bind JOY8 "weapprev"',
         'bind JOY6 "weapnext"',
         'bind JOY1 "datapad"',
-        'bind JOY2 "+speed"',
-        'bind JOY3 "centerview"'
+        'bind JOY2 "+use"',
+        'bind JOY3 "toggle cg_thirdperson"'
+    ))
+
+    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig2.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
+        'bind JOY15 "+use"',
+        'bind JOY14 "+button2"',
+        'bind JOY16 "toggle cl_run"',
+        'bind JOY13 "centerview; zoomoff"',
+        'bind JOY10 "+altattack"',
+        'bind JOY9 "+movedown"',
+        'bind JOY5 "+zoom"',
+        'bind JOY7 "zoomoff"',
+        'bind JOY8 "weapprev"',
+        'bind JOY6 "weapnext"',
+        'bind JOY1 "datapad"',
+        'bind JOY2 "+use"',
+        'bind JOY3 "toggle cg_thirdperson"'
     ))
 }
 

@@ -7,6 +7,26 @@
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 extern bool Sys_IsDirectMapBoot(void);
+
+static bool R_XboxTraceStretchShader( const shader_t *shader, float x, float y, float w, float h )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	if ( strstr( name, "gfx/interface/" ) ||
+		strstr( name, "crosshair" ) ||
+		strstr( name, "gfx/effects/" ) ||
+		strstr( name, "gfx/misc/" ) )
+	{
+		return true;
+	}
+
+	return false;
+}
 #endif
 
 
@@ -171,6 +191,15 @@ void *R_GetCommandBuffer( int bytes ) {
 
 	// always leave room for the end of list command
 	if ( cmdList->used + bytes + 4 > MAX_RENDER_COMMANDS ) {
+#ifdef _XBOX
+		static int s_stefxCommandOverflowBudget = 64;
+		if ( s_stefxCommandOverflowBudget > 0 )
+		{
+			XBLF( "STEFX: R_GetCommandBuffer drop used=%d bytes=%d max=%d frame=%d active=%d",
+				cmdList->used, bytes, MAX_RENDER_COMMANDS, tr.frameCount, cls.state == CA_ACTIVE );
+			--s_stefxCommandOverflowBudget;
+		}
+#endif
 #if defined(_DEBUG) && defined(_XBOX)
 		Com_Printf(S_COLOR_RED"Command buffer overflow!  Tell Brian.\n");
 #endif
@@ -248,13 +277,25 @@ RE_StretchPic
 void RE_StretchPic ( float x, float y, float w, float h, 
 					  float s1, float t1, float s2, float t2, qhandle_t hShader ) {
 	stretchPicCommand_t	*cmd;
+	shader_t			*shader;
 
+	shader = R_GetShaderByHandle( hShader );
 	cmd = (stretchPicCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		static int s_stefxStretchDropBudget = 64;
+		if ( cls.state == CA_ACTIVE && R_XboxTraceStretchShader( shader, x, y, w, h ) && s_stefxStretchDropBudget > 0 )
+		{
+			XBLF( "STEFX: RE_StretchPic dropped shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d max=%d",
+				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
+				backEndData ? backEndData->commands.used : -1, MAX_RENDER_COMMANDS );
+			--s_stefxStretchDropBudget;
+		}
+#endif
 		return;
 	}
 	cmd->commandId = RC_STRETCH_PIC;
-	cmd->shader = R_GetShaderByHandle( hShader );
+	cmd->shader = shader;
 	cmd->x = x;
 	cmd->y = y;
 	cmd->w = w;
@@ -263,6 +304,18 @@ void RE_StretchPic ( float x, float y, float w, float h,
 	cmd->t1 = t1;
 	cmd->s2 = s2;
 	cmd->t2 = t2;
+#ifdef _XBOX
+	{
+		static int s_stefxStretchQueueBudget = 240;
+		if ( cls.state == CA_ACTIVE && R_XboxTraceStretchShader( shader, x, y, w, h ) && s_stefxStretchQueueBudget > 0 )
+		{
+			XBLF( "STEFX: RE_StretchPic queued shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d frame=%d",
+				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
+				backEndData ? backEndData->commands.used : -1, tr.frameCount );
+			--s_stefxStretchQueueBudget;
+		}
+	}
+#endif
 }
 
 /*

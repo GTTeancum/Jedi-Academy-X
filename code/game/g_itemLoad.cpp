@@ -26,6 +26,55 @@ struct
 	int	itemNum;
 } itemParms;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_MapEliteForceItemTag( const char *tokenStr, int *tag )
+{
+	struct map_s
+	{
+		const char *name;
+		int tag;
+	};
+	static const map_s map[] =
+	{
+		{ "WP_PHASER", WP_BLASTER_PISTOL },
+		{ "WP_COMPRESSION_RIFLE", WP_BLASTER },
+		{ "WP_IMOD", WP_DISRUPTOR },
+		{ "WP_SCAVENGER_RIFLE", WP_REPEATER },
+		{ "WP_STASIS", WP_DEMP2 },
+		{ "WP_GRENADE_LAUNCHER", WP_THERMAL },
+		{ "WP_TETRION_DISRUPTOR", WP_FLECHETTE },
+		{ "WP_QUANTUM_BURST", WP_ROCKET_LAUNCHER },
+		{ "WP_DREADNOUGHT", WP_CONCUSSION },
+		{ "WP_PROTON_GUN", WP_CONCUSSION },
+		{ "WP_BORG_WEAPON", WP_BOT_LASER },
+		{ "WP_BORG_TASER", WP_BOT_LASER },
+		{ "WP_BORG_ASSIMILATOR", WP_MELEE },
+		{ "WP_BORG_DRILL", WP_MELEE },
+		{ "WP_TRICORDER", WP_STUN_BATON },
+		{ "WP_VOYAGER_HYPO", WP_STUN_BATON },
+		{ "WP_BLUE_HYPO", WP_STUN_BATON },
+		{ "WP_RED_HYPO", WP_STUN_BATON },
+		{ "WP_KLINGON_BLADE", WP_TUSKEN_STAFF },
+		{ "WP_IMPERIAL_BLADE", WP_TUSKEN_STAFF },
+		{ "WP_DESPERADO", WP_BRYAR_PISTOL },
+		{ "WP_PALADIN", WP_BRYAR_PISTOL }
+	};
+	int i;
+
+	for ( i = 0; i < (int)( sizeof( map ) / sizeof( map[0] ) ); ++i )
+	{
+		if ( !Q_stricmp( tokenStr, map[i].name ) )
+		{
+			*tag = map[i].tag;
+			gi.Printf("STEFX: mapped EF item tag %s -> carrier tag %d\n", tokenStr, *tag);
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+#endif
+
 
 static void IT_ClassName (const char **holdBuf);
 static void IT_Count (const char **holdBuf);
@@ -485,13 +534,18 @@ static void IT_Tag(const char **holdBuf)
 	}
 	else
 	{
-		tag = WP_BRYAR_PISTOL;
-		//This error was slipping through too much, causing runaway exceptions and shutting down, so now it's a real error when not in Final
-#ifndef FINAL_BUILD
-		G_Error("ERROR: bad tagname in external item data '%s'\n", tokenStr);
-#else
-		gi.Printf("WARNING: bad tagname in external item data '%s'\n", tokenStr);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !STEFX_MapEliteForceItemTag( tokenStr, &tag ) )
 #endif
+		{
+			tag = WP_BRYAR_PISTOL;
+			//This error was slipping through too much, causing runaway exceptions and shutting down, so now it's a real error when not in Final
+#ifndef FINAL_BUILD
+			G_Error("ERROR: bad tagname in external item data '%s'\n", tokenStr);
+#else
+			gi.Printf("WARNING: bad tagname in external item data '%s'\n", tokenStr);
+#endif
+		}
 	}
 
 	bg_itemlist[itemParms.itemNum].giTag = tag;
