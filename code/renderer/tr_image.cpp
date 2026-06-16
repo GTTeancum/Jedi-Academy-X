@@ -538,7 +538,35 @@ Upload32
 ===============
 */
 #ifdef _XBOX
-extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
+extern "C" volatile unsigned int g_SPXBCmLoadState;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpHash;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpLen;
+
+static unsigned int R_XboxImageHashText(const char *text)
+{
+	unsigned int h = 2166136261u;
+	if (!text)
+	{
+		return 0;
+	}
+	while (*text)
+	{
+		h ^= (unsigned char)*text++;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static void R_XboxImageState(unsigned int state, const char *name, unsigned int value)
+{
+	g_SPXBCmLoadState = state;
+	g_SPXBCmLoadLumpHash = R_XboxImageHashText(name);
+	g_SPXBCmLoadLumpLen = value;
+}
+
+#define R_XBOX_IMAGE_STATE(state, name, value) R_XboxImageState((state), (name), (value))
+#else
+#define R_XBOX_IMAGE_STATE(state, name, value) ((void)0)
 #endif
 
 static void Upload32( const char *debugName, unsigned *data, 
@@ -549,18 +577,17 @@ static void Upload32( const char *debugName, unsigned *data,
 						  qboolean isLightmap, 
 						  int *pformat )
 {
+	R_XBOX_IMAGE_STATE(600, debugName, format);
 #ifdef _XBOX
-	XBLF("JA: Upload32 image='%s' size=%dx%d format=0x%08x mipcount=%d picmip=%d lightmap=%d\n",
-		debugName ? debugName : "<null>",
-		img_width,
-		img_height,
-		format,
-		mipcount,
-		picmip,
-		isLightmap);
+	if (format == GL_RGBA && debugName &&
+		(!strcmp(debugName, "*default") || !strcmp(debugName, "*screen")))
+	{
+		mipcount = 0;
+	}
 #endif
 	if (format == GL_RGBA)
 	{
+		R_XBOX_IMAGE_STATE(610, debugName, (unsigned int)((img_width << 16) | (img_height & 0xffff)));
 		int			samples;
 		int			i, c;
 		byte		*scan;
@@ -570,6 +597,7 @@ static void Upload32( const char *debugName, unsigned *data,
 		//
 		// perform optional picmip operation
 		//
+		R_XBOX_IMAGE_STATE(611, debugName, (unsigned int)(picmip ? r_picmip->integer : 0));
 		if ( picmip ) {
 			for(i = 0; i < r_picmip->integer; i++) {
 				R_MipMap( (byte *)data, width, height );
@@ -583,17 +611,20 @@ static void Upload32( const char *debugName, unsigned *data,
 				}
 			}
 		}
+		R_XBOX_IMAGE_STATE(612, debugName, (unsigned int)((width << 16) | (height & 0xffff)));
 		
 		//
 		// clamp to the current upper OpenGL limit
 		// scale both axis down equally so we don't have to
 		// deal with a half mip resampling
 		//
+		R_XBOX_IMAGE_STATE(613, debugName, (unsigned int)glConfig.maxTextureSize);
 		while ( width > glConfig.maxTextureSize	|| height > glConfig.maxTextureSize ) {
 			R_MipMap( (byte *)data, width, height );
 			width >>= 1;
 			height >>= 1;
 		}
+		R_XBOX_IMAGE_STATE(614, debugName, (unsigned int)((width << 16) | (height & 0xffff)));
 		
 		//
 		// scan the texture for each channel's max values
@@ -602,6 +633,7 @@ static void Upload32( const char *debugName, unsigned *data,
 		c = width*height;
 		scan = ((byte *)data);
 		samples = 3;
+		R_XBOX_IMAGE_STATE(615, debugName, (unsigned int)c);
 		for ( i = 0; i < c; i++ )
 		{
 			if ( scan[i*4 + 3] != 255 ) 
@@ -610,6 +642,7 @@ static void Upload32( const char *debugName, unsigned *data,
 				break;
 			}
 		}
+		R_XBOX_IMAGE_STATE(616, debugName, (unsigned int)samples);
 		
 		// select proper internal format
 		if ( samples == 3 )
@@ -654,12 +687,15 @@ static void Upload32( const char *debugName, unsigned *data,
 				*pformat = 4;
 			}
 		}
+		R_XBOX_IMAGE_STATE(617, debugName, (unsigned int)*pformat);
 		
 		// copy or resample data as appropriate for first MIP level
 		if (!mipcount)
 		{
+			R_XBOX_IMAGE_STATE(618, debugName, (unsigned int)((width << 16) | (height & 0xffff)));
 			glTexImage2D (GL_TEXTURE_2D, 0, *pformat, width, height, 0, 
 				GL_RGBA, GL_UNSIGNED_BYTE, data);
+			R_XBOX_IMAGE_STATE(619, debugName, (unsigned int)*pformat);
 		}
 		else
 		{
@@ -675,26 +711,25 @@ static void Upload32( const char *debugName, unsigned *data,
 					++total;
 				}
 				
+				R_XBOX_IMAGE_STATE(618, debugName, (unsigned int)total);
 				glTexImage2DEXT (GL_TEXTURE_2D, 0, total, *pformat, width, height, 
 					0, GL_RGBA, GL_UNSIGNED_BYTE, data );
+				R_XBOX_IMAGE_STATE(619, debugName, (unsigned int)*pformat);
 			}
 		}
 	}
 	else
 	{
 		*pformat = format;
+		R_XBOX_IMAGE_STATE(650, debugName, (unsigned int)mipcount);
 
-#ifdef _XBOX
-		JkaFakeglSetDDSUploadPicmip(picmip ? r_picmip->integer : 0);
-#endif
 		glTexImage2DEXT (GL_TEXTURE_2D, 0, mipcount,
 			format, img_width, img_height, 0, format, 
 			GL_UNSIGNED_BYTE, data);
-#ifdef _XBOX
-		JkaFakeglSetDDSUploadPicmip(0);
-#endif
+		R_XBOX_IMAGE_STATE(653, debugName, format);
 	}
 
+	R_XBOX_IMAGE_STATE(680, debugName, (unsigned int)mipcount);
 	if (mipcount)
 	{
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
@@ -711,21 +746,13 @@ static void Upload32( const char *debugName, unsigned *data,
 	}
 
 	GL_CheckErrors();
-#ifdef _XBOX
-	XBLF("JA: Upload32 done image='%s' pformat=0x%08x\n",
-		debugName ? debugName : "<null>",
-		pformat ? *pformat : 0);
-#endif
+	R_XBOX_IMAGE_STATE(690, debugName, pformat ? (unsigned int)*pformat : 0);
 }
 
 
 typedef tmap (int, image_t *)	AllocatedImages_t;
 								AllocatedImages_t* AllocatedImages = NULL;
 								AllocatedImages_t::iterator itAllocatedImages;
-#ifdef _XBOX
-typedef tmap (sstring_t, image_t *)	AllocatedImageNames_t;
-								AllocatedImageNames_t* AllocatedImageNames = NULL;
-#endif
 
 int giTextureBindNum = 1024;	// will be set to this anyway at runtime, but wtf?
 
@@ -762,14 +789,6 @@ static void R_Images_DeleteImageContents( image_t *pImage )
 	assert(pImage);	// should never be called with NULL
 	if (pImage)
 	{
-#ifdef _XBOX
-		if (AllocatedImageNames)
-		{
-			char canonicalName[MAX_QPATH];
-			Q_strncpyz(canonicalName, GenerateImageMappingName(pImage->imgName), sizeof(canonicalName));
-			AllocatedImageNames->erase(sstring_t(canonicalName));
-		}
-#endif
 		glDeleteTextures( 1, &pImage->texnum );
 		Z_Free(pImage);
 	}
@@ -867,14 +886,6 @@ void R_Images_Clear(void)
 		delete AllocatedImages;
 		AllocatedImages = NULL;
 	}
-#ifdef _XBOX
-	if( AllocatedImageNames )
-	{
-		AllocatedImageNames->clear();
-		delete AllocatedImageNames;
-		AllocatedImageNames = NULL;
-	}
-#endif
 
 	giTextureBindNum = 1024;
 
@@ -952,92 +963,39 @@ static image_t *R_FindImageFile_NoLoad(const char *name, int mipcount, qboolean 
 	if (!name) {
 		return NULL;
 	}
+	R_XBOX_IMAGE_STATE(700, name, (unsigned int)mipcount);
 
-	char canonicalName[MAX_QPATH];
-	Q_strncpyz(canonicalName, GenerateImageMappingName(name), sizeof(canonicalName));
-#ifdef _XBOX
-	qboolean probeImage = ( !Q_stricmp( canonicalName, "*white" ) || !Q_stricmp( canonicalName, "white" ) );
-	if ( probeImage ) {
-		XBLF("R_FindImageFile_NoLoad: name='%s' mapped='%s'\n", name, canonicalName);
-	}
-#endif
+	char *pName = GenerateImageMappingName(name);
+	R_XBOX_IMAGE_STATE(701, pName, (unsigned int)allowPicmip);
 
 	//
 	// see if the image is already loaded
 	//
-	int code = crc32(0, (const Bytef *)canonicalName, strlen(canonicalName));
+	int code = crc32(0, (const Bytef *)pName, strlen(pName));
+	R_XBOX_IMAGE_STATE(702, pName, (unsigned int)code);
 	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages->find(code);
-#ifdef _XBOX
-	if ( probeImage ) {
-		XBLF("R_FindImageFile_NoLoad: code=0x%08x found=%d\n", code, itAllocatedImage != AllocatedImages->end());
-	}
-#endif
+	R_XBOX_IMAGE_STATE(703, pName, (unsigned int)(itAllocatedImage != AllocatedImages->end()));
 	if (itAllocatedImage != AllocatedImages->end())
 	{	
 		image_t *pImage = (*itAllocatedImage).second;
 
 		// the white image can be used with any set of parms, but other mismatches are errors...
 		//
-		if ( strcmp( canonicalName, "*white" ) ) {
+		if ( strcmp( pName, "*white" ) ) {
 			if ( !!pImage->mipcount != !!mipcount ) {
-				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", canonicalName );
+				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", pName );
 			}
 //			if ( pImage->allowPicmip != !!allowPicmip ) {
-//				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", canonicalName );
+//				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", pName );
 //			}
 		}
 
 		pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+		R_XBOX_IMAGE_STATE(704, pName, (unsigned int)pImage->texnum);
 			  
 		return pImage;
 	}
-
-#ifdef _XBOX
-	if (AllocatedImageNames)
-	{
-		AllocatedImageNames_t::iterator itNamedImage = AllocatedImageNames->find(sstring_t(canonicalName));
-		if (itNamedImage != AllocatedImageNames->end())
-		{
-			image_t *pImage = (*itNamedImage).second;
-			if (pImage)
-			{
-				pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
-				return pImage;
-			}
-		}
-	}
-
-	// Retail de-dupes images by canonical name.  If the primary lookup misses
-	// because an older entry was keyed differently, reclaim the existing entry
-	// and normalize its key instead of allocating another image_t.
-	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
-	{
-		image_t *pImage = (*itImage).second;
-		if (!pImage)
-		{
-			continue;
-		}
-
-		char existingName[MAX_QPATH];
-		Q_strncpyz(existingName, GenerateImageMappingName(pImage->imgName), sizeof(existingName));
-		if (!Q_stricmp(existingName, canonicalName))
-		{
-			if (itImage->first != code)
-			{
-				AllocatedImages->erase(itImage);
-				pImage->imgCode = code;
-				(*AllocatedImages)[code] = pImage;
-			}
-			pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
-			if (AllocatedImageNames)
-			{
-				(*AllocatedImageNames)[sstring_t(canonicalName)] = pImage;
-			}
-			XBLF("JA: image cache recovered duplicate name='%s' tex=%d\n", canonicalName, pImage->texnum);
-			return pImage;
-		}
-	}
-#endif
+	R_XBOX_IMAGE_STATE(705, pName, 0);
 
 	return NULL;
 }
@@ -1057,34 +1015,45 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	image_t		*image;
 	qboolean	isLightmap = qfalse;
 
+	R_XBOX_IMAGE_STATE(500, name, format);
 	if (strlen(name) >= MAX_QPATH ) {
 		Com_Error (ERR_DROP, "R_CreateImage: \"%s\" is too long\n", name);
 	}
+	R_XBOX_IMAGE_STATE(501, name, (unsigned int)((width << 16) | (height & 0xffff)));
 
 	if(glConfig.clampToEdgeAvailable && glWrapClampMode == GL_CLAMP) {
 		glWrapClampMode = GL_CLAMP_TO_EDGE;
 	}
+	R_XBOX_IMAGE_STATE(502, name, (unsigned int)glWrapClampMode);
 
 	if (name[0] == '$' || strstr(name, "/lightmap") || strstr(name, "\\lightmap"))
 	{
 		isLightmap = qtrue;
 	}
+	R_XBOX_IMAGE_STATE(503, name, (unsigned int)isLightmap);
 
 	if ( (width&(width-1)) || (height&(height-1)) )
 	{
 		Com_Error( ERR_FATAL, "R_CreateImage: %s dimensions (%i x %i) not power of 2!\n",name,width,height);
 	}
+	R_XBOX_IMAGE_STATE(504, name, (unsigned int)mipcount);
 
+	R_XBOX_IMAGE_STATE(510, name, (unsigned int)allowPicmip);
 	image = R_FindImageFile_NoLoad(name, mipcount, allowPicmip, glWrapClampMode );
 	if (image) {
+		R_XBOX_IMAGE_STATE(511, name, (unsigned int)image->texnum);
 		return image;
 	}
+	R_XBOX_IMAGE_STATE(512, name, 0);
 
 	image = (image_t*) Z_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
+	R_XBOX_IMAGE_STATE(520, name, (unsigned int)image);
 
 	glGenTextures(1, (GLuint*)&image->texnum);
+	R_XBOX_IMAGE_STATE(530, name, (unsigned int)image->texnum);
 
 	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+	R_XBOX_IMAGE_STATE(540, name, (unsigned int)image->iLastLevelUsedOn);
 
 	image->mipcount = mipcount;
 //	image->allowPicmip = allowPicmip;
@@ -1101,34 +1070,40 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	image->isLightmap = isLightmap;
 
 	GL_SelectTexture( 0 );
+	R_XBOX_IMAGE_STATE(550, name, (unsigned int)image->texnum);
 
 	GL_Bind(image);
+	R_XBOX_IMAGE_STATE(560, name, (unsigned int)image->texnum);
 
+	R_XBOX_IMAGE_STATE(570, name, format);
 	Upload32( name, (unsigned *)pic,	image->width, image->height, 
 								format,
 								image->mipcount,
 								allowPicmip, 
 								isLightmap, 
 								&image->internalFormat );
+	R_XBOX_IMAGE_STATE(580, name, (unsigned int)image->internalFormat);
 
 	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
+	R_XBOX_IMAGE_STATE(590, name, (unsigned int)glWrapClampMode);
 	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
+	R_XBOX_IMAGE_STATE(591, name, (unsigned int)glWrapClampMode);
 
 	glBindTexture( GL_TEXTURE_2D, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
+	R_XBOX_IMAGE_STATE(592, name, (unsigned int)image->texnum);
 	glState.currenttextures[glState.currenttmu] = 0;	//mark it not bound
 
 	const char* psNewName = GenerateImageMappingName(name);
 	image->imgCode = crc32(0, (const Bytef *)psNewName, strlen(psNewName));
+	R_XBOX_IMAGE_STATE(593, name, (unsigned int)image->imgCode);
 
 	(*AllocatedImages)[ image->imgCode ] = image;
+	R_XBOX_IMAGE_STATE(594, name, (unsigned int)image);
 #ifdef _XBOX
-	if (!AllocatedImageNames)
-	{
-		AllocatedImageNames = new AllocatedImageNames_t;
-	}
-	(*AllocatedImageNames)[sstring_t(psNewName)] = image;
+	R_XBOX_IMAGE_STATE(595, name, (unsigned int)image);
 #endif
 
+	R_XBOX_IMAGE_STATE(599, name, (unsigned int)image->texnum);
 	return image;
 }
 
@@ -2436,10 +2411,6 @@ void	R_InitImages( void ) {
 #endif
 		AllocatedImages = new AllocatedImages_t;
 #ifdef _XBOX
-		if (!AllocatedImageNames)
-		{
-			AllocatedImageNames = new AllocatedImageNames_t;
-		}
 		XBLF("R_InitImages: AllocatedImages=%p\n", (void*)AllocatedImages);
 #endif
 	}

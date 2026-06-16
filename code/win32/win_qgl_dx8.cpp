@@ -6796,8 +6796,6 @@ static void dllTexImage1D(GLenum target, GLint level, GLint internalformat, GLsi
 	assert(0);
 }
 
-static int s_nativeDDSUploadPicmip;
-
 static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei width, GLsizei height, GLenum format, const GLvoid *pixels)
 {
 	D3DFORMAT f = D3DFMT_UNKNOWN;
@@ -6819,22 +6817,6 @@ static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei
 
 	if( numlevels == 0)
 		numlevels = 1;
-
-	if (s_nativeDDSUploadPicmip > 0 && numlevels > 1)
-	{
-		int skip = s_nativeDDSUploadPicmip;
-		if (skip >= numlevels)
-		{
-			skip = numlevels - 1;
-		}
-
-		while (skip-- > 0)
-		{
-			width = (width > 1) ? (width >> 1) : 1;
-			height = (height > 1) ? (height >> 1) : 1;
-			--numlevels;
-		}
-	}
 
 	info->mipmap = new IDirect3DTexture8;
 	info->size = XGSetTextureHeader( width,
@@ -8238,11 +8220,6 @@ void SaveCompressedScreenshot( void )
 BOOL LoadCompressedScreenshot( const char * /*filename*/ )
 {
 	return FALSE;
-}
-
-extern "C" void JkaFakeglSetDDSUploadPicmip( int picmip )
-{
-	s_nativeDDSUploadPicmip = (picmip > 0) ? picmip : 0;
 }
 
 // Extra functions bound to d3d_ commands for controlling crazy D3D performance things
