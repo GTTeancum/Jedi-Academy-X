@@ -982,25 +982,6 @@ function Update-ConsoleFileList {
     Write-Host "Updated console file list: $listFile ($($files.Count) files)"
 }
 
-function Copy-EFModelAlias {
-    param(
-        [string]$BaseEfDir,
-        [string]$SourceRelative,
-        [string]$AliasRelative
-    )
-
-    $source = Join-Path $BaseEfDir $SourceRelative
-    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-        Write-Warning "Missing EF model alias source: $source"
-        return
-    }
-
-    $alias = Join-Path $BaseEfDir $AliasRelative
-    New-Item -ItemType Directory -Path (Split-Path -Parent $alias) -Force | Out-Null
-    Copy-Item -LiteralPath $source -Destination $alias -Force
-    Write-Host "Updated EF model alias: $alias"
-}
-
 function Ensure-EFGobWriterType {
     if ("EFGobWriter" -as [type]) {
         return
@@ -1252,111 +1233,6 @@ function Update-EFModelGob {
     Write-Host "Updated EF model GOB: $gobPath ($($existing.Count) files, $($gobItem.Length) bytes)"
 }
 
-function Write-EFControllerConfigFile {
-    param(
-        [string]$BaseEfDir,
-        [string]$RelativePath,
-        [string[]]$Lines
-    )
-
-    $path = Join-Path $BaseEfDir $RelativePath
-    New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
-    $contents = ($Lines -join "`r`n") + "`r`n"
-    [System.IO.File]::WriteAllText($path, $contents, [System.Text.Encoding]::ASCII)
-    Write-Host "Updated EF Xbox controller config: $path"
-}
-
-function Update-EFControllerConfigs {
-    param(
-        [string]$BaseEfDir
-    )
-
-    $buttonUnbinds = @(
-        "unbind JOY1",
-        "unbind JOY2",
-        "unbind JOY3",
-        "unbind JOY5",
-        "unbind JOY6",
-        "unbind JOY7",
-        "unbind JOY8",
-        "unbind JOY9",
-        "unbind JOY10",
-        "unbind JOY13",
-        "unbind JOY14",
-        "unbind JOY15",
-        "unbind JOY16"
-    )
-
-    $triggerUnbinds = @(
-        "unbind JOY11",
-        "unbind JOY12"
-    )
-
-    $commonCvars = @(
-        'seta cl_freelook "1"',
-        'seta cl_run "1"',
-        'seta ui_thumbStickMode "0"'
-    )
-
-    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\triggersConfig0.cfg" -Lines ($triggerUnbinds + @(
-        'bind JOY12 "+attack"',
-        'bind JOY11 "+moveup"'
-    ))
-
-    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\triggersConfig1.cfg" -Lines ($triggerUnbinds + @(
-        'bind JOY12 "+attack"',
-        'bind JOY11 "+moveup"'
-    ))
-
-    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig0.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
-        'bind JOY15 "+use"',
-        'bind JOY14 "+button2"',
-        'bind JOY16 "toggle cl_run"',
-        'bind JOY13 "centerview; zoomoff"',
-        'bind JOY10 "+altattack"',
-        'bind JOY9 "+movedown"',
-        'bind JOY5 "+zoom"',
-        'bind JOY7 "zoomoff"',
-        'bind JOY8 "weapprev"',
-        'bind JOY6 "weapnext"',
-        'bind JOY1 "datapad"',
-        'bind JOY2 "+use"',
-        'bind JOY3 "toggle cg_thirdperson"'
-    ))
-
-    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig1.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
-        'bind JOY15 "+use"',
-        'bind JOY14 "+button2"',
-        'bind JOY16 "toggle cl_run"',
-        'bind JOY13 "centerview; zoomoff"',
-        'bind JOY10 "+altattack"',
-        'bind JOY9 "+movedown"',
-        'bind JOY5 "+zoom"',
-        'bind JOY7 "zoomoff"',
-        'bind JOY8 "weapprev"',
-        'bind JOY6 "weapnext"',
-        'bind JOY1 "datapad"',
-        'bind JOY2 "+use"',
-        'bind JOY3 "toggle cg_thirdperson"'
-    ))
-
-    Write-EFControllerConfigFile -BaseEfDir $BaseEfDir -RelativePath "cfg\spbuttonConfig2.cfg" -Lines ($buttonUnbinds + $commonCvars + @(
-        'bind JOY15 "+use"',
-        'bind JOY14 "+button2"',
-        'bind JOY16 "toggle cl_run"',
-        'bind JOY13 "centerview; zoomoff"',
-        'bind JOY10 "+altattack"',
-        'bind JOY9 "+movedown"',
-        'bind JOY5 "+zoom"',
-        'bind JOY7 "zoomoff"',
-        'bind JOY8 "weapprev"',
-        'bind JOY6 "weapnext"',
-        'bind JOY1 "datapad"',
-        'bind JOY2 "+use"',
-        'bind JOY3 "toggle cg_thirdperson"'
-    ))
-}
-
 function Copy-EFDataOverlay {
     param(
         [string]$BaseEfDir
@@ -1465,14 +1341,30 @@ function Update-EFXboxSoundBank {
     ) -WorkingDirectory $repoRoot
 }
 
+function Update-EFXboxAudioAssets {
+    param(
+        [string]$BaseEfDir
+    )
+
+    $audioScript = Join-Path $repoRoot "scripts\build_xbox_audio_assets.py"
+    if (-not (Test-Path -LiteralPath $audioScript -PathType Leaf)) {
+        Write-Warning "Missing EF Xbox audio asset builder: $audioScript"
+        return
+    }
+
+    Invoke-External -Exe $pythonExe -Arguments @(
+        $audioScript,
+        "--base-dir", $BaseEfDir,
+        "--encoder", "C:\XDK\xbox\bin\xbadpcmencode.exe"
+    ) -WorkingDirectory $repoRoot
+}
+
 function Update-EFConsoleAssetLists {
     $baseEfDir = Join-Path $repoReleaseDir "BaseEF"
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
-    Update-EFControllerConfigs -BaseEfDir $baseEfDir
-    Copy-EFModelAlias -BaseEfDir $baseEfDir -SourceRelative "models\players\crewthin\lower.mdr" -AliasRelative "models\xbox_alias\crewthin_lower.mdr"
-    Copy-EFModelAlias -BaseEfDir $baseEfDir -SourceRelative "models\players\crewthin\upper.mdr" -AliasRelative "models\xbox_alias\crewthin_upper.mdr"
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
     Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir
+    Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader"
 

@@ -226,6 +226,7 @@ foreach ($name in @(
     "ef_sp_level.txt",
     "ef_sp_commands.txt",
     "ef_sp_postmap_commands.txt",
+    "ef_sp_smoke_harness.txt",
     "ef_sp_active_commands.txt",
     "ef_sp_active_command_time.txt",
     "ef_sp_screenshot_request.txt",
@@ -236,6 +237,7 @@ foreach ($name in @(
 }
 
 Write-RuntimeFile "ef_sp_level.txt" ($Level + "`n")
+Write-RuntimeFile "ef_sp_smoke_harness.txt" "1`n"
 if ($RenderProbe) {
     Write-RuntimeFile "ef_sp_renderprobe.txt" "1`n"
 }
@@ -327,6 +329,7 @@ try {
     foreach ($name in @(
         "ef_sp_commands.txt",
         "ef_sp_postmap_commands.txt",
+        "ef_sp_smoke_harness.txt",
         "ef_sp_active_commands.txt",
         "ef_sp_active_command_time.txt",
         "ef_sp_screenshot_request.txt",

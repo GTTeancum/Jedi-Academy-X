@@ -155,6 +155,7 @@ def setup_release_inputs(release: Path, cxbx_root: Path, args: argparse.Namespac
         "ef_sp_screenshot_log.txt",
         "ef_sp_commands.txt",
         "ef_sp_postmap_commands.txt",
+        "ef_sp_smoke_harness.txt",
         "ef_sp_active_commands.txt",
         "ef_sp_active_command_time.txt",
     ]
@@ -162,6 +163,7 @@ def setup_release_inputs(release: Path, cxbx_root: Path, args: argparse.Namespac
         remove_runtime_file(roots, name)
 
     write_runtime_file(roots, "ef_sp_level.txt", args.level + "\n")
+    write_runtime_file(roots, "ef_sp_smoke_harness.txt", "1\n")
     smoke_cmd = (
         "cam_disable;"
         "set stefx_smoke_input 1;"
@@ -201,6 +203,7 @@ def cleanup_smoke_inputs(release: Path, cxbx_root: Path) -> None:
     cleanup_names = [
         "ef_sp_commands.txt",
         "ef_sp_postmap_commands.txt",
+        "ef_sp_smoke_harness.txt",
         "ef_sp_active_commands.txt",
         "ef_sp_active_command_time.txt",
         "ef_sp_cxbx_present_throttle.txt",
@@ -634,7 +637,7 @@ def main() -> int:
         "inputGateCleared": count_matches(log_text, r"STEFX: direct-map input gate cleared"),
         "xboxBindsInstalled": count_matches(
             log_text,
-            r"STEFX: (installed|confirmed|replaced) Xbox bind",
+            r"STEFX: ((installed|confirmed|replaced) Xbox bind|Xbox controls preserving default\.cfg)",
         ),
         "clientMoveResults": count_matches(log_text, r"STEFX: ClientThink PM state .* moved=1"),
         "playerAttackCmds": count_matches(log_text, r"STEFX: ClientThink player attack probe"),

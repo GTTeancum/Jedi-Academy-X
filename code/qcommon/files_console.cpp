@@ -34,28 +34,6 @@ static char* zi_stackBase = NULL;
 //===========================================================================
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-static const char *STEFX_GetMdrAliasPath(const char *filename)
-{
-	if (!filename)
-	{
-		return NULL;
-	}
-
-	if (!Q_stricmp(filename, "models/players/crewthin/lower.mdr") ||
-		!Q_stricmp(filename, "models\\players\\crewthin\\lower.mdr"))
-	{
-		return "models/xbox_alias/crewthin_lower.mdr";
-	}
-
-	if (!Q_stricmp(filename, "models/players/crewthin/upper.mdr") ||
-		!Q_stricmp(filename, "models\\players\\crewthin\\upper.mdr"))
-	{
-		return "models/xbox_alias/crewthin_upper.mdr";
-	}
-
-	return NULL;
-}
-
 static qboolean STEFX_ShouldTraceAssetOpen(const char *filename)
 {
 	return filename &&
@@ -228,7 +206,6 @@ static int STEFX_ReadLooseFileWithStdio(const char *filename, void **buffer)
 	searchpath_t *search;
 	const char *openName = filename;
 	char lowerOpenName[MAX_QPATH];
-	int aliasPass;
 	int casePass;
 
 	if (!STEFX_ShouldTryStdioWholeFileRead(filename))
@@ -236,110 +213,85 @@ static int STEFX_ReadLooseFileWithStdio(const char *filename, void **buffer)
 		return -1;
 	}
 
-	for (aliasPass = 0; aliasPass < 2; ++aliasPass)
+	for (casePass = 0; casePass < 2; ++casePass)
 	{
-		if (aliasPass == 1)
+		const char *caseOpenName = openName;
+		if (casePass == 1)
 		{
-			openName = STEFX_GetMdrAliasPath(filename);
-			if (!openName)
+			Q_strncpyz(lowerOpenName, openName, sizeof(lowerOpenName));
+			Q_strlwr(lowerOpenName);
+			if (!strcmp(lowerOpenName, openName))
 			{
-				break;
+				continue;
 			}
+			caseOpenName = lowerOpenName;
 		}
 
-		for (casePass = 0; casePass < 2; ++casePass)
+		for (search = fs_searchpaths; search; search = search->next)
 		{
-			const char *caseOpenName = openName;
-			if (casePass == 1)
+			char osname[MAX_OSPATH];
+			FILE *fp;
+			long len;
+			size_t bytesRead;
+
+			if (!search->dir)
 			{
-				Q_strncpyz(lowerOpenName, openName, sizeof(lowerOpenName));
-				Q_strlwr(lowerOpenName);
-				if (!strcmp(lowerOpenName, openName))
-				{
-					continue;
-				}
-				caseOpenName = lowerOpenName;
+				continue;
 			}
 
-			for (search = fs_searchpaths; search; search = search->next)
+			Q_strncpyz(osname, FS_BuildOSPath(search->dir->path, search->dir->gamedir, caseOpenName), sizeof(osname));
+			fp = fopen(osname, "rb");
+			if (!fp)
 			{
-				char osname[MAX_OSPATH];
-				FILE *fp;
-				long len;
-				size_t bytesRead;
+				continue;
+			}
 
-				if (!search->dir)
-				{
-					continue;
-				}
-
-				Q_strncpyz(osname, FS_BuildOSPath(search->dir->path, search->dir->gamedir, caseOpenName), sizeof(osname));
-				fp = fopen(osname, "rb");
-				if (!fp)
-				{
-					continue;
-				}
-
-				if (fseek(fp, 0, SEEK_END) != 0)
-				{
-					fclose(fp);
-					continue;
-				}
-				len = ftell(fp);
-				if (len < 0 || fseek(fp, 0, SEEK_SET) != 0)
-				{
-					fclose(fp);
-					continue;
-				}
-
-				if (!buffer)
-				{
-					fclose(fp);
-					XBLog_Write(va("STEFX: FS stdio fallback length file='%s' open='%s' os='%s' len=%ld caseRetry=%d",
-						filename, caseOpenName, osname, len, casePass));
-					return (int)len;
-				}
-
-				byte *buf = STEFX_AllocHeapFileBuffer((int)len, filename);
-				if (!buf)
-				{
-					fclose(fp);
-					continue;
-				}
-				bytesRead = fread(buf, 1, (size_t)len, fp);
+			if (fseek(fp, 0, SEEK_END) != 0)
+			{
 				fclose(fp);
+				continue;
+			}
+			len = ftell(fp);
+			if (len < 0 || fseek(fp, 0, SEEK_SET) != 0)
+			{
+				fclose(fp);
+				continue;
+			}
 
-				if (bytesRead != (size_t)len)
-				{
-					STEFX_FreeHeapFileBuffer(buf);
-					XBLog_Write(va("STEFX: FS stdio fallback short read file='%s' open='%s' os='%s' len=%ld read=%u",
-						filename,
-						caseOpenName,
-						osname,
-						len,
-						(unsigned int)bytesRead));
-					continue;
-				}
-
-				buf[len] = 0;
-				*buffer = buf;
-				if (aliasPass == 0)
-				{
-					XBLog_Write(va("STEFX: FS stdio fallback open file='%s' open='%s' os='%s' len=%ld caseRetry=%d",
-						filename, caseOpenName, osname, len, casePass));
-				}
-				else
-				{
-					XBLog_Write(va("STEFX: FS stdio fallback alias open file='%s' alias='%s' open='%s' os='%s' len=%ld caseRetry=%d",
-						filename,
-						openName,
-						caseOpenName,
-						osname,
-						len,
-						casePass));
-				}
+			if (!buffer)
+			{
+				fclose(fp);
+				XBLog_Write(va("STEFX: FS stdio fallback length file='%s' open='%s' os='%s' len=%ld caseRetry=%d",
+					filename, caseOpenName, osname, len, casePass));
 				return (int)len;
 			}
+
+			byte *buf = STEFX_AllocHeapFileBuffer((int)len, filename);
+			if (!buf)
+			{
+				fclose(fp);
+				continue;
+			}
+			bytesRead = fread(buf, 1, (size_t)len, fp);
+			fclose(fp);
+
+			if (bytesRead != (size_t)len)
+			{
+				STEFX_FreeHeapFileBuffer(buf);
+				XBLog_Write(va("STEFX: FS stdio fallback short read file='%s' open='%s' os='%s' len=%ld read=%u",
+					filename,
+					caseOpenName,
+					osname,
+					len,
+					(unsigned int)bytesRead));
+				continue;
+			}
+
+			buf[len] = 0;
+			*buffer = buf;
+			XBLog_Write(va("STEFX: FS stdio fallback open file='%s' open='%s' os='%s' len=%ld caseRetry=%d",
+				filename, caseOpenName, osname, len, casePass));
+			return (int)len;
 		}
 	}
 
@@ -647,75 +599,54 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 	searchpath_t *search;
 	const char *openName = filename;
 	char lowerOpenName[MAX_QPATH];
-	int aliasPass;
 	int casePass;
 
-	for (aliasPass = 0; aliasPass < 2; ++aliasPass)
+	for (casePass = 0; casePass < 2; ++casePass)
 	{
-		if (aliasPass == 1)
+		const char *caseOpenName = openName;
+		if (casePass == 1)
 		{
-			openName = STEFX_GetMdrAliasPath(filename);
-			if (!openName)
+			Q_strncpyz(lowerOpenName, openName, sizeof(lowerOpenName));
+			Q_strlwr(lowerOpenName);
+			if (!strcmp(lowerOpenName, openName))
 			{
-				break;
+				continue;
 			}
+			caseOpenName = lowerOpenName;
 		}
 
-		for (casePass = 0; casePass < 2; ++casePass)
+		for (search = fs_searchpaths; search; search = search->next)
 		{
-			const char *caseOpenName = openName;
-			if (casePass == 1)
+			if (!search->dir)
 			{
-				Q_strncpyz(lowerOpenName, openName, sizeof(lowerOpenName));
-				Q_strlwr(lowerOpenName);
-				if (!strcmp(lowerOpenName, openName))
-				{
-					continue;
-				}
-				caseOpenName = lowerOpenName;
+				continue;
 			}
 
-			for (search = fs_searchpaths; search; search = search->next)
-			{
-				if (!search->dir)
-				{
-					continue;
-				}
-
-				char* osname = FS_BuildOSPath(search->dir->path, search->dir->gamedir, caseOpenName);
+			char* osname = FS_BuildOSPath(search->dir->path, search->dir->gamedir, caseOpenName);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-				qboolean bufferedSoundRead = !Q_stricmpn(caseOpenName, "sound/", 6) || !Q_stricmpn(caseOpenName, "sound\\", 6);
-				qboolean bufferedWholeFileRead = STEFX_ShouldTryStdioWholeFileRead(caseOpenName) ||
-					strstr(caseOpenName, ".skin") ||
-					strstr(caseOpenName, "animation.cfg");
-				fsh[f].whandle = WF_Open(osname, true, (bufferedSoundRead || bufferedWholeFileRead) ? false : true);
+			qboolean bufferedSoundRead = !Q_stricmpn(caseOpenName, "sound/", 6) || !Q_stricmpn(caseOpenName, "sound\\", 6);
+			qboolean bufferedWholeFileRead = STEFX_ShouldTryStdioWholeFileRead(caseOpenName) ||
+				strstr(caseOpenName, ".skin") ||
+				strstr(caseOpenName, "animation.cfg");
+			fsh[f].whandle = WF_Open(osname, true, (bufferedSoundRead || bufferedWholeFileRead) ? false : true);
 #else
-				fsh[f].whandle = WF_Open(osname, true, false);
+			fsh[f].whandle = WF_Open(osname, true, false);
 #endif
-				if (fsh[f].whandle >= 0)
+			if (fsh[f].whandle >= 0)
+			{
+				int len;
+				fsh[f].used = qtrue;
+				fsh[f].zipFile = qfalse;
+				fsh[f].fileSize = 0;
+				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
+				len = FS_filelength(f);
+				fsh[f].fileSize = len;
+				if (STEFX_ShouldTraceAssetOpen(filename))
 				{
-					int len;
-					fsh[f].used = qtrue;
-					fsh[f].zipFile = qfalse;
-					fsh[f].fileSize = 0;
-					Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
-					len = FS_filelength(f);
-					fsh[f].fileSize = len;
-					if (STEFX_ShouldTraceAssetOpen(filename))
-					{
-						if (aliasPass == 0)
-						{
-							XBLog_Write(va("STEFX: FS loose asset open file='%s' open='%s' os='%s' len=%d caseRetry=%d",
-								filename, caseOpenName, osname, len, casePass));
-						}
-						else
-						{
-							XBLog_Write(va("STEFX: FS loose asset alias open file='%s' alias='%s' open='%s' os='%s' len=%d caseRetry=%d",
-								filename, openName, caseOpenName, osname, len, casePass));
-						}
-					}
-					return len;
+					XBLog_Write(va("STEFX: FS loose asset open file='%s' open='%s' os='%s' len=%d caseRetry=%d",
+						filename, caseOpenName, osname, len, casePass));
 				}
+				return len;
 			}
 		}
 	}
@@ -736,16 +667,6 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 		if (strstr(filename, ".mdr"))
 		{
 			XBLog_Write(va("STEFX: FS OS MDR open file='%s' code=%d os='%s' wh=%d", filename, fileCode, osname, fsh[f].whandle));
-		}
-		if (fsh[f].whandle < 0)
-		{
-			const char *aliasPath = STEFX_GetMdrAliasPath(filename);
-			if (aliasPath)
-			{
-				char* aliasOsName = FS_BuildOSPath(aliasPath);
-				fsh[f].whandle = WF_Open(aliasOsName, true, false);
-				XBLog_Write(va("STEFX: FS OS MDR alias retry file='%s' alias='%s' os='%s' wh=%d", filename, aliasPath, aliasOsName, fsh[f].whandle));
-			}
 		}
 #endif
 		if (fsh[f].whandle >= 0)

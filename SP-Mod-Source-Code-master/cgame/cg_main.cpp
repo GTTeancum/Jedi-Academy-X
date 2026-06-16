@@ -1327,12 +1327,25 @@ void CG_StartMusic( void ) {
 	char	*s;
 	char	parm1[MAX_QPATH], parm2[MAX_QPATH];
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_StartMusic enter");
+#endif
 	// start the background music
 	s = (char *)CG_ConfigString( CS_MUSIC );
 	Q_strncpyz( parm1, COM_Parse( &s ), sizeof( parm1 ) );
 	Q_strncpyz( parm2, COM_Parse( &s ), sizeof( parm2 ) );
+#ifdef _XBOX
+	XBLog_Write(va("STEFX: CG_StartMusic cs='%s' intro='%s' loop='%s'",
+		CG_ConfigString( CS_MUSIC ),
+		parm1,
+		parm2));
+	XBLog_Write("STEFX: CG_StartMusic before cgi_S_StartBackgroundTrack");
+#endif
 
 	cgi_S_StartBackgroundTrack( parm1, parm2 );
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_StartMusic after cgi_S_StartBackgroundTrack");
+#endif
 }
 
 /*
@@ -1523,13 +1536,6 @@ void CG_Init( int serverCommandSequence ) {
 	cgs.media.loadingquarter= cgi_R_RegisterShaderNoMip( "menu/loading/quarter.tga" );
 	cgs.media.loadingcorner	= cgi_R_RegisterShaderNoMip( "menu/common/corner_lr_8_16.tga" );
 	cgs.media.loadingtrim	= cgi_R_RegisterShaderNoMip( "menu/loading/trimupper.tga" );
-#ifdef _XBOX
-	{
-		qhandle_t introHandle = cgi_R_RegisterShaderNoMip( "textures/common/70yearjourney" );
-		XBLF("STEFX: intro shader preload 'textures/common/70yearjourney' handle=%d", introHandle);
-	}
-#endif
-
 	cg.loadLCARSStage		= 0;
 	cg.loadLCARScnt			= 0;
 

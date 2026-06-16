@@ -897,7 +897,12 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_S_REGISTERSOUND:
 		return S_RegisterSound( (const char *) VMA(1) );
 	case STEFX_CG_S_STARTBACKGROUNDTRACK:
-		S_StartBackgroundTrack( (const char *) VMA(1), (const char *) VMA(2), args[3] );
+#ifdef _XBOX
+		XBLog_Writef("STEFX: cgame background music syscall stefx intro='%s' loop='%s'",
+			(const char *) VMA(1),
+			(const char *) VMA(2));
+#endif
+		S_StartBackgroundTrack( (const char *) VMA(1), (const char *) VMA(2), qfalse );
 		return 0;
 	case STEFX_CG_FF_STARTFX:
 		FFFX_START( (ffFX_e) args[1] );
@@ -1290,7 +1295,16 @@ int CL_CgameSystemCalls( int *args ) {
 	case CG_S_REGISTERSOUND:
 		return S_RegisterSound( (const char *) VMA(1) );
 	case CG_S_STARTBACKGROUNDTRACK:
+#ifdef STEFX_ELITE_FORCE_SP
+#ifdef _XBOX
+		XBLog_Writef("STEFX: cgame background music syscall ef intro='%s' loop='%s'",
+			(const char *) VMA(1),
+			(const char *) VMA(2));
+#endif
+		S_StartBackgroundTrack( (const char *) VMA(1), (const char *) VMA(2), qfalse);
+#else
 		S_StartBackgroundTrack( (const char *) VMA(1), (const char *) VMA(2), args[3]);
+#endif
 		return 0;
 	case CG_S_GETSAMPLELENGTH:
 		return S_GetSampleLengthInMilliSeconds(  args[1]);

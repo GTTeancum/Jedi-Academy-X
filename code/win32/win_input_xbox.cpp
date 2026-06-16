@@ -42,6 +42,7 @@ struct inputstate_t
 };
 
 inputstate_t *in_state = NULL;
+static cvar_t *joy_deadzone = NULL;
 
 
 
@@ -204,6 +205,8 @@ void IN_Init( void )
 		XBLF("STEFX: IN_Init gamepad mask=0x%08x\n", deviceMask);
 		IN_ProcessChanges( deviceMask, 0 );
 
+		joy_deadzone = Cvar_Get( "joy_deadzone", "0.18", CVAR_ARCHIVE );
+
 		IN_RumbleInit();
 	}
 
@@ -211,9 +214,18 @@ static inline float _joyAxisConvert(SHORT x)
 {
 	// Change scale
 	float y = x / 32767.0;
+	float deadzone = joy_deadzone ? joy_deadzone->value : 0.18f;
 
-	// Cheesy deadzone
-	if(fabs(y) < 0.25f)
+	if (deadzone < 0.0f)
+	{
+		deadzone = 0.0f;
+	}
+	else if (deadzone > 0.95f)
+	{
+		deadzone = 0.95f;
+	}
+
+	if(fabs(y) < deadzone)
 	{
 		y = 0.0f;
 	}

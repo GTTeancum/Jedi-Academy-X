@@ -84,6 +84,7 @@ wavinfo_t GetWavInfo(byte *data)
 	unsigned short formatTag = 0;
 	unsigned short channels = 0;
 	unsigned int rate = 0;
+	unsigned int byteRate = 0;
 	unsigned short bits = 0;
 	unsigned int dataSize = 0;
 	unsigned int dataStart = 0;
@@ -101,6 +102,7 @@ wavinfo_t GetWavInfo(byte *data)
 			formatTag = *(unsigned short *)&chunkData[0];
 			channels = *(unsigned short *)&chunkData[2];
 			rate = *(unsigned int *)&chunkData[4];
+			byteRate = *(unsigned int *)&chunkData[8];
 			bits = *(unsigned short *)&chunkData[14];
 			fmtFound = 1;
 		}
@@ -130,6 +132,7 @@ wavinfo_t GetWavInfo(byte *data)
 	info.waveFormatTag = formatTag;
 	info.dataofs = dataStart;
 	info.size = dataSize;
+	info.byteRate = byteRate;
 
 	if (formatTag == WAVE_FORMAT_PCM)
 	{
@@ -159,8 +162,8 @@ wavinfo_t GetWavInfo(byte *data)
 	static int s_wavInfoLogCount = 0;
 	if (s_wavInfoLogCount < 32)
 	{
-		Com_PrintfAlways("STEFX: WAV info tag=0x%x channels=%d bits=%d rate=%d size=%d dataofs=%d format=0x%x\n",
-			formatTag, channels, bits, rate, dataSize, dataStart, info.format);
+		Com_PrintfAlways("STEFX: WAV info tag=0x%x channels=%d bits=%d rate=%d byteRate=%d size=%d dataofs=%d format=0x%x\n",
+			formatTag, channels, bits, rate, byteRate, dataSize, dataStart, info.format);
 		s_wavInfoLogCount++;
 	}
 #endif
@@ -369,14 +372,21 @@ static int S_LoadSound_FileNameAdjuster(char *psFilename)
 	code = S_TrySoundFileCode(tryName, "wxb");
 	if (code != -1) return code;
 
+#ifdef _XBOX
+	code = S_TrySoundFileCode(tryName, "wav");
+	if (code != -1) return code;
+#endif
+
 	if (Q_stricmp(originalExt, "wxb"))
 	{
 		code = S_TrySoundFileCode(tryName, originalExt);
 		if (code != -1) return code;
 	}
 
+#ifndef _XBOX
 	code = S_TrySoundFileCode(tryName, "wav");
 	if (code != -1) return code;
+#endif
 
 	code = S_TrySoundFileCode(tryName, "mp3");
 	if (code != -1) return code;
@@ -395,14 +405,21 @@ static int S_LoadSound_FileNameAdjuster(char *psFilename)
 			code = S_TrySoundFileCode(englishName, "wxb");
 			if (code != -1) return code;
 
+#ifdef _XBOX
+			code = S_TrySoundFileCode(englishName, "wav");
+			if (code != -1) return code;
+#endif
+
 			if (Q_stricmp(originalExt, "wxb"))
 			{
 				code = S_TrySoundFileCode(englishName, originalExt);
 				if (code != -1) return code;
 			}
 
+#ifndef _XBOX
 			code = S_TrySoundFileCode(englishName, "wav");
 			if (code != -1) return code;
+#endif
 
 			code = S_TrySoundFileCode(englishName, "mp3");
 			if (code != -1) return code;

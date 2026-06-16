@@ -96,6 +96,34 @@ static void Xbox_ScriptBroadcastVisual( gentity_t *ent, const char *reason )
 		--s_scriptBroadcastLogBudget;
 	}
 }
+
+static void Xbox_LogScriptVisualState( const gentity_t *ent, const char *op, const char *value )
+{
+	static int s_scriptVisualStateBudget = 96;
+
+	if ( s_scriptVisualStateBudget <= 0 || !ent )
+	{
+		return;
+	}
+	if ( !Xbox_ScriptVisualEntity( ent ) )
+	{
+		return;
+	}
+
+	XBLF("STEFX: ICARUS visual %s=%s ent=%d class='%s' target='%s' script='%s' model='%s' sv=0x%x eFlags=0x%x contents=0x%x time=%d",
+		op ? op : "<null>",
+		value ? value : "<null>",
+		ent->s.number,
+		ent->classname ? ent->classname : "<null>",
+		ent->targetname ? ent->targetname : "<null>",
+		ent->script_targetname ? ent->script_targetname : "<null>",
+		ent->model ? ent->model : "<null>",
+		ent->svFlags,
+		ent->s.eFlags,
+		ent->contents,
+		level.time);
+	--s_scriptVisualStateBudget;
+}
 #endif
 extern void CG_ChangeWeapon( int num );
 extern int	TAG_GetOrigin2( const char *owner, const char *name, vec3_t origin );
@@ -2985,6 +3013,10 @@ static void Q3_SetInvisible( int entID, qboolean invisible )
 			self->client->ps.eFlags |= EF_NODRAW;
 		}
 		self->contents = 0;
+#ifdef _XBOX
+		Xbox_LogScriptVisualState( self, "set_invisible", "true" );
+		Xbox_ScriptBroadcastVisual( self, "set_invisible_true" );
+#endif
 	}
 	else
 	{
@@ -2994,6 +3026,7 @@ static void Q3_SetInvisible( int entID, qboolean invisible )
 			self->client->ps.eFlags &= ~EF_NODRAW;
 		}
 #ifdef _XBOX
+		Xbox_LogScriptVisualState( self, "set_invisible", "false" );
 		Xbox_ScriptBroadcastVisual( self, "set_invisible_false" );
 #endif
 	}
@@ -6208,10 +6241,18 @@ static void Q3_SetShaderAnim( int entID, int disabled )
 	if ( disabled )
 	{
 		ent->s.eFlags |= EF_SHADER_ANIM;
+#ifdef _XBOX
+		Xbox_LogScriptVisualState( ent, "set_shader_anim", "true" );
+		Xbox_ScriptBroadcastVisual( ent, "set_shader_anim_true" );
+#endif
 	}
 	else
 	{
 		ent->s.eFlags &= ~EF_SHADER_ANIM;
+#ifdef _XBOX
+		Xbox_LogScriptVisualState( ent, "set_shader_anim", "false" );
+		Xbox_ScriptBroadcastVisual( ent, "set_shader_anim_false" );
+#endif
 	}
 }
 

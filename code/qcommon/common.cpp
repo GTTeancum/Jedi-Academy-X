@@ -63,6 +63,30 @@ cvar_t	*com_speedslog;		// 1 = buffer log, 2 = flush after each print
 extern cvar_t *inSplashMenu;
 extern cvar_t *controllerOut;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean Com_STEFXSmokeHarnessEnabled( void )
+{
+	static qboolean s_checked = qfalse;
+	static qboolean s_enabled = qfalse;
+	FILE *file;
+
+	if ( s_checked )
+	{
+		return s_enabled;
+	}
+	s_checked = qtrue;
+
+	file = fopen( "D:\\ef_sp_smoke_harness.txt", "r" );
+	if ( file )
+	{
+		fclose( file );
+		s_enabled = qtrue;
+	}
+
+	return s_enabled;
+}
+#endif
+
 #ifdef G2_PERFORMANCE_ANALYSIS
 cvar_t	*com_G2Report;
 #endif
@@ -1444,6 +1468,11 @@ Com_ModifyMsec
 int Com_ModifyMsec( int msec, float &fraction ) 
 {
 	int		clampTime;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean stefxSmokeFastTimeActive = (qboolean)(stefx_smokeFastTime && stefx_smokeFastTime->integer && Com_STEFXSmokeHarnessEnabled());
+#else
+	qboolean stefxSmokeFastTimeActive = (qboolean)(stefx_smokeFastTime && stefx_smokeFastTime->integer);
+#endif
 
 	fraction=0.0f;
 
@@ -1469,10 +1498,10 @@ int Com_ModifyMsec( int msec, float &fraction )
 		fraction=0.0f;
 	}
 
-	if ( com_skippingcin->integer || (stefx_smokeFastTime && stefx_smokeFastTime->integer) ) {
+	if ( com_skippingcin->integer || stefxSmokeFastTimeActive ) {
 		// we're skipping ahead so let it go a bit faster
 		clampTime = 500;
-		if ( stefx_smokeFastTime && stefx_smokeFastTime->integer && stefx_smokeFastTimeMsec )
+		if ( stefxSmokeFastTimeActive && stefx_smokeFastTimeMsec )
 		{
 			clampTime = stefx_smokeFastTimeMsec->integer;
 			if ( clampTime < 1 )

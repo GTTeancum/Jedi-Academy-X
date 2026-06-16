@@ -51,6 +51,29 @@ static qboolean STEFX_BoundsBad(const vec3_t mins, const vec3_t maxs)
 }
 
 #if defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SmokeHarnessEnabled(void)
+{
+	static qboolean s_checked = qfalse;
+	static qboolean s_enabled = qfalse;
+	FILE *file;
+
+	if (s_checked)
+	{
+		return s_enabled;
+	}
+	s_checked = qtrue;
+
+	file = fopen("D:\\ef_sp_smoke_harness.txt", "r");
+	if (file)
+	{
+		fclose(file);
+		s_enabled = qtrue;
+		XBL("STEFX: smoke harness marker enabled game automation");
+	}
+
+	return s_enabled;
+}
+
 static gentity_t *STEFX_Borg1SliceBestTarget(gentity_t *ent, int *nearCount, float *bestDistSq)
 {
 	gentity_t *best = NULL;
@@ -156,7 +179,7 @@ static void STEFX_Borg1SliceWarp(gentity_t *ent, usercmd_t *ucmd)
 	vec3_t angles;
 	gclient_t *client;
 
-	if (!ent || !ent->client || ent->s.number != 0 || !ucmd)
+	if (!ent || !ent->client || ent->s.number != 0 || !ucmd || !STEFX_SmokeHarnessEnabled())
 	{
 		return;
 	}
@@ -247,7 +270,7 @@ static qboolean STEFX_SmokeControlWindowActive(const usercmd_t *ucmd)
 	int startTime;
 	int endTime;
 
-	if (!ucmd)
+	if (!ucmd || !STEFX_SmokeHarnessEnabled())
 	{
 		return qfalse;
 	}

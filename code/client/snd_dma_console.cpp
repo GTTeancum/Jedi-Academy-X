@@ -619,6 +619,12 @@ static qboolean S_XboxMusicNameIsMP3(const char *name)
 	return (dot && !Q_stricmp(dot, ".mp3")) ? qtrue : qfalse;
 }
 
+static qboolean S_XboxMusicNameIsWAV(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	return (dot && !Q_stricmp(dot, ".wav")) ? qtrue : qfalse;
+}
+
 static void S_XboxMusicSetExtension(char *out, int outSize, const char *name, const char *ext)
 {
 	Q_strncpyz(out, name, outSize);
@@ -653,8 +659,29 @@ char* S_FixMusicFileName(const char* name)
 		}
 	}
 
+	char wavName[MAX_QPATH];
+	S_XboxMusicSetExtension(wavName, sizeof(wavName), xname, "wav");
+	if ((S_XboxMusicNameIsMP3(xname) || !S_XboxMusicNameHasExtension(xname) || S_XboxMusicNameIsWAV(xname)) &&
+		S_XboxMusicCandidateExists(wavName))
+	{
+		Q_strncpyz(xname, wavName, sizeof(xname));
+		static int s_xboxMusicWAVLogCount = 0;
+		if (s_xboxMusicWAVLogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox music resolved WAV '%s'\n", xname);
+			s_xboxMusicWAVLogCount++;
+		}
+		return xname;
+	}
+
 	if (S_XboxMusicNameHasExtension(xname) && S_XboxMusicCandidateExists(xname))
 	{
+		static int s_xboxMusicExactLogCount = 0;
+		if (s_xboxMusicExactLogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox music resolved exact '%s'\n", xname);
+			s_xboxMusicExactLogCount++;
+		}
 		return xname;
 	}
 
@@ -2661,6 +2688,12 @@ qboolean S_MusicFileExists( const char *psFilename )
 		return qfalse;
 	
 	FS_FCloseFile(fhTemp);
+	static int s_xboxMusicExistsLogCount = 0;
+	if (s_xboxMusicExistsLogCount < 96)
+	{
+		Com_Printf("STEFX: S_MusicFileExists '%s' -> '%s'\n", psFilename ? psFilename : "<null>", pLoadName);
+		s_xboxMusicExistsLogCount++;
+	}
 	return qtrue;
 }
 
@@ -2691,6 +2724,11 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	Q_strncpyz( sMusic_BackgroundLoop, loop, sizeof( sMusic_BackgroundLoop ));	
 
 	char* name = S_FixMusicFileName(intro);
+	Com_Printf("STEFX: S_StartBackgroundTrack_Actual intro='%s' fixed='%s' loop='%s' dynamic=%d\n",
+		intro ? intro : "<null>",
+		name ? name : "<null>",
+		loop ? loop : "<null>",
+		qbDynamic ? 1 : 0);
 
 	if ( !intro[0] ) {
 		S_StopBackgroundTrack_Actual( pMusicInfo );
@@ -2709,6 +2747,8 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	//
 	fileHandle_t handle;
 	int len = FS_FOpenFileRead( name, &handle, qtrue );
+	Com_Printf("STEFX: Xbox music file open '%s' len=%d handle=%d\n",
+		name ? name : "<null>", len, handle);
 	if ( !handle ) {
 		Com_Printf( S_COLOR_YELLOW "WARNING: couldn't open music file %s\n", name );
 		S_StopBackgroundTrack_Actual( pMusicInfo );
@@ -2764,24 +2804,42 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 #if defined(_XBOX) || defined(_WINDOWS)
 	{
 	// read enough of the file to get the header...
-	byte buffer[128];
+	byte buffer[4096];
+	memset(buffer, 0, sizeof(buffer));
 	FS_Read(buffer, sizeof(buffer), handle);
 	FS_FCloseFile( handle );
 
 	wavinfo_t info = GetWavInfo(buffer);
 	if ( info.size == 0 ) {
-		Com_Printf(S_COLOR_YELLOW "WARNING: Invalid format in %s\n", name);
+		Com_Printf(S_COLOR_YELLOW "WARNING: Invalid format in music file %s\n", name);
 		S_StopBackgroundTrack_Actual( pMusicInfo );
 		return qfalse;
 	}
 	
 	pMusicInfo->s_backgroundSize = info.size;
-	pMusicInfo->s_backgroundBPS = info.rate * info.width / 8;
-	if (info.format == AL_FORMAT_STEREO4)
+	if (info.waveFormatTag == WAVE_FORMAT_XBOX_ADPCM)
+	{
+		pMusicInfo->s_backgroundBPS = info.byteRate > 0 ? info.byteRate : ((info.rate * info.channels) / 2);
+	}
+	else
+	{
+		pMusicInfo->s_backgroundBPS = info.rate * info.width / 8;
+	}
+	if (info.waveFormatTag != WAVE_FORMAT_XBOX_ADPCM && info.format == AL_FORMAT_STEREO4)
 	{
 		pMusicInfo->s_backgroundBPS <<= 1;
 	}
 	pMusicInfo->iFileCode = Sys_GetFileCode(name);
+	Com_Printf("STEFX: Xbox WAV music loaded '%s' data=%d bps=%d rate=%d width=%d format=0x%x tag=0x%x byteRate=%d code=0x%x\n",
+		name,
+		info.size,
+		pMusicInfo->s_backgroundBPS,
+		info.rate,
+		info.width,
+		info.format,
+		info.waveFormatTag,
+		info.byteRate,
+		pMusicInfo->iFileCode);
 	}
 #elif defined(_GAMECUBE)
 	FS_FCloseFile( handle );
@@ -2792,6 +2850,13 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	
 	Q_strncpyz(pMusicInfo->sLoadedDataName, intro, sizeof(pMusicInfo->sLoadedDataName));
 	pMusicInfo->bLoaded = true;
+	Com_Printf("STEFX: Xbox music loaded state name='%s' loadedName='%s' code=0x%x loop=%d size=%d bps=%d\n",
+		name ? name : "<null>",
+		pMusicInfo->sLoadedDataName,
+		pMusicInfo->iFileCode,
+		pMusicInfo->bLooping ? 1 : 0,
+		pMusicInfo->s_backgroundSize,
+		pMusicInfo->s_backgroundBPS);
 	
 	return qtrue;
 }
@@ -3016,6 +3081,9 @@ void S_StartBackgroundTrack( const char *intro, const char *loop, qboolean bCall
 
 	if (!s_soundStarted)
 	{	//we have no sound, so don't even bother trying
+		Com_Printf("STEFX: S_StartBackgroundTrack skipped: sound not started intro='%s' loop='%s'\n",
+			intro ? intro : "<null>",
+			loop ? loop : "<null>");
 		return;
 	}
 
@@ -3033,10 +3101,18 @@ void S_StartBackgroundTrack( const char *intro, const char *loop, qboolean bCall
 	Q_strncpyz(sName,intro,sizeof(sName));
 
 #ifdef _XBOX
-	COM_DefaultExtension( sName, sizeof( sName ), ".mp3" );
+	COM_DefaultExtension( sName, sizeof( sName ), ".wav" );
 #else
 	COM_DefaultExtension( sName, sizeof( sName ), ".wxb" );
 #endif
+
+	Com_Printf("STEFX: S_StartBackgroundTrack intro='%s' loop='%s' default='%s' cgameStart=%d allowDynamic=%d dynAvail=%d\n",
+		intro,
+		loop,
+		sName,
+		bCalledByCGameStart ? 1 : 0,
+		s_allowDynamicMusic ? s_allowDynamicMusic->integer : -1,
+		Music_DynamicDataAvailable(intro) ? 1 : 0);
 
 	// if dynamic music not allowed, then just stream the explore music instead of playing dynamic...
 	//
@@ -3150,6 +3226,7 @@ void S_StopBackgroundTrack( void )
 static qboolean S_UpdateBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean bFirstOrOnlyMusicTrack, float fDefaultVolume) 
 {
 	float fMasterVol = fDefaultVolume; // s_musicVolume->value;
+	static int s_xboxMusicUpdateLogCount = 0;
 
 	if (bMusic_IsDynamic)
 	{
@@ -3186,6 +3263,25 @@ static qboolean S_UpdateBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolea
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	if (s_xboxMusicUpdateLogCount < 48)
+	{
+		ALint state = 0;
+		alGetStreami(AL_SOURCE_STATE, &state);
+		Com_Printf("STEFX: Xbox music update loadedName='%s' code=0x%x looping=%d state=%d vol=%g defaultVol=%g seek=%d play=%g total=%g\n",
+			pMusicInfo->sLoadedDataName,
+			pMusicInfo->iFileCode,
+			pMusicInfo->bLooping ? 1 : 0,
+			state,
+			pMusicInfo->fSmoothedOutVolume,
+			fDefaultVolume,
+			pMusicInfo->iFileSeekTo,
+			pMusicInfo->PlayTime(),
+			pMusicInfo->TotalTime());
+		s_xboxMusicUpdateLogCount++;
+	}
+#endif
+
 	// start playing if necessary
 	if ( pMusicInfo->bLooping )
 	{
@@ -3217,7 +3313,11 @@ static qboolean S_UpdateBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolea
 			char sTestName[MAX_QPATH*2];// *2 so COM_DefaultExtension doesn't do an ERR_DROP if there was no space
 			//	for an extension, since this is a "soft" test				
 			Q_strncpyz( sTestName, sMusic_BackgroundLoop, sizeof(sTestName));
+#ifdef _XBOX
+			COM_DefaultExtension(sTestName, sizeof(sTestName), ".wav");
+#else
 			COM_DefaultExtension(sTestName, sizeof(sTestName), ".mp3");
+#endif
 			
 			if (S_MusicFileExists( sTestName ))
 			{

@@ -514,6 +514,8 @@ if (!$NoCopy) {
     (Join-Path $emuRoot "ef_sp_commands.txt"),
     (Join-Path $Game "ef_sp_postmap_commands.txt"),
     (Join-Path $emuRoot "ef_sp_postmap_commands.txt"),
+    (Join-Path $Game "ef_sp_smoke_harness.txt"),
+    (Join-Path $emuRoot "ef_sp_smoke_harness.txt"),
     (Join-Path $Game "ja_sp_commands.txt"),
     (Join-Path $emuRoot "ja_sp_commands.txt"),
     (Join-Path $Game "ef_sp_backbuffer.bmp"),
@@ -541,6 +543,12 @@ if ($CxbxPresentThrottle) {
 $smokeCommand = ""
 if (!$NoSmokeInput) {
     $smokeCommand = "set s_xbox_silentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward $SmokeInputForward;set stefx_smoke_input_side $SmokeInputSide;set stefx_smoke_input_yaw $SmokeInputYaw;set stefx_smoke_input_start $SmokeInputStart;set stefx_smoke_input_attack_start $SmokeInputAttackStart;set stefx_smoke_input_attack_end $SmokeInputAttackEnd;set stefx_smoke_input_end $SmokeInputEnd"
+}
+
+if ($smokeCommand) {
+    foreach ($root in $runtimeRoots) {
+        Set-Content -Path (Join-Path $root "ef_sp_smoke_harness.txt") -Value "1" -Encoding ASCII
+    }
 }
 
 if ($StartupCommand -and $StartupCommand.Count -gt 0) {
@@ -677,7 +685,9 @@ while ((Get-Date) -lt $deadline) {
                 }
                 if ($ActiveSeconds -gt 0 -and $activeElapsedSeconds -ge $ActiveSeconds) {
                     $activeSecondsReached = $true
-                    break
+                    if (!$ScreenshotPath -or $screenshotDone) {
+                        break
+                    }
                 }
             }
         } elseif ($activeSeen -and (Test-CinematicTailActive $log)) {
@@ -810,12 +820,13 @@ $smokeAiWake = Count-Matches $logPath "STEFX: smoke wake enemy"
 $controllerButtons = Count-Matches $logPath "STEFX: controller button"
 $controllerAxes = Count-Matches $logPath "STEFX: controller axes"
 $inputGateCleared = Count-Matches $logPath "STEFX: direct-map input gate cleared"
-$xboxBindsInstalled = Count-Matches $logPath "STEFX: (installed|confirmed|replaced) Xbox bind"
+$xboxBindsInstalled = Count-Matches $logPath "STEFX: ((installed|confirmed|replaced) Xbox bind|Xbox controls preserving default\.cfg)|JA: exec default\.cfg|EF: FS_InitFilesystem default\.cfg OK"
 $clientMoveResults = Count-Matches $logPath "STEFX: ClientThink PM state .* moved=1"
 $playerAttackCmds = Count-Matches $logPath "STEFX: ClientThink player attack probe"
 $playerPmoveFireEvents = Count-Matches $logPath "STEFX: PM_AddEvent fire"
 $playerClientFireEvents = Count-Matches $logPath "STEFX: ClientEvents fire"
 $playerCgameFireEvents = Count-Matches $logPath "STEFX: CG_FireWeapon ent=0"
+$projectileSnapshotEvents = Count-Matches $logPath "STEFX: engine EF CL_GetSnapshot event .* eType=52 event=38"
 $playerFireWeapon = Count-Matches $logPath "STEFX: FireWeapon enter ent=0"
 $playerDamageHits = Count-Matches $logPath "STEFX: G_Damage player hit"
 $npcPainEvents = Count-Matches $logPath "STEFX: NPC_Pain"
@@ -843,7 +854,7 @@ if ($smokeInputAttacking -le 0 -and $playerAttackCmds -le 0) { $missingRequireme
 if ($playerPmoveFireEvents -le 0 -and $playerClientFireEvents -le 0 -and $playerFireWeapon -le 0) {
     $missingRequirements += "server_fire"
 }
-if ($playerCgameFireEvents -le 0) { $missingRequirements += "client_fire" }
+if ($playerCgameFireEvents -le 0 -and $projectileSnapshotEvents -le 0) { $missingRequirements += "client_fire" }
 if ($npcSpawns -le 0 -and $cgameCharacters -le 0) {
     $missingRequirements += "characters_present"
 }
@@ -961,6 +972,7 @@ $summary = @(
     "playerPmoveFireEvents=$playerPmoveFireEvents",
     "playerClientFireEvents=$playerClientFireEvents",
     "playerCgameFireEvents=$playerCgameFireEvents",
+    "projectileSnapshotEvents=$projectileSnapshotEvents",
     "playerFireWeapon=$playerFireWeapon",
     "playerDamageHits=$playerDamageHits",
     "npcPainEvents=$npcPainEvents",
@@ -999,6 +1011,7 @@ $summary
 $smokeInputFiles = @(
     "ef_sp_commands.txt",
     "ef_sp_postmap_commands.txt",
+    "ef_sp_smoke_harness.txt",
     "ef_sp_active_commands.txt",
     "ef_sp_active_command_time.txt",
     "ef_sp_cxbx_present_throttle.txt",

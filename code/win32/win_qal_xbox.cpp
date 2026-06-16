@@ -33,10 +33,11 @@
 #include <deque>
 #include <map>
 
-#define QAL_STREAM_WAIT_TIME (500)
-#define QAL_MAX_STREAM_PACKETS (2)
+#define QAL_STREAM_WAIT_TIME (10)
+#define QAL_MAX_STREAM_PACKETS (4)
 
-// About 1 second of audio at 44100, stereo, ADPCM
+// About 1 second of audio at 44100, stereo, ADPCM. MP3 fallback decodes to
+// PCM, so the stream worker must wake much more often than the packet duration.
 #define QAL_STREAM_PACKET_SIZE (44136)
 
 // Un-comment to enable 5-channel 3-d sound mixing
@@ -1023,9 +1024,22 @@ static int _streamFromMP3(void)
 			{
 				if (s_pState->m_Stream.m_Looping && _streamMP3Rewind())
 				{
+					static int s_streamMP3LoopLogCount = 0;
+					if (s_streamMP3LoopLogCount < 32)
+					{
+						XBLog_Write("STEFX: QAL MP3 stream loop rewind");
+						s_streamMP3LoopLogCount++;
+					}
 					continue;
 				}
 
+				static int s_streamMP3EndLogCount = 0;
+				if (s_streamMP3EndLogCount < 32)
+				{
+					XBLog_Writef("STEFX: QAL MP3 stream decode ended total=%d",
+						s_pState->m_Stream.m_MP3Stream.iBytesDecodedTotal);
+					s_streamMP3EndLogCount++;
+				}
 				s_pState->m_Stream.m_Playing = false;
 				break;
 			}
@@ -1069,6 +1083,12 @@ static int _streamFromFile(void)
 	{
 		if (DS_OK != s_pState->m_Stream.m_pFile->Process(NULL, &xmp))
 		{
+			static int s_streamFileProcessErrors = 0;
+			if (s_streamFileProcessErrors < 32)
+			{
+				XBLog_Write("STEFX: QAL wave stream Process failed");
+				s_streamFileProcessErrors++;
+			}
 			ReleaseMutex(Sys_FileStreamMutex);
 			return -1;
 		}
@@ -1088,6 +1108,12 @@ static int _streamFromFile(void)
 				if (DS_OK != s_pState->m_Stream.m_pFile->Seek(
 					0, FILE_BEGIN, NULL))
 				{
+					static int s_streamFileLoopErrors = 0;
+					if (s_streamFileLoopErrors < 32)
+					{
+						XBLog_Write("STEFX: QAL wave stream loop seek failed");
+						s_streamFileLoopErrors++;
+					}
 					ReleaseMutex(Sys_FileStreamMutex);
 					return -1;
 				}
@@ -1095,6 +1121,12 @@ static int _streamFromFile(void)
 			else
 			{
 				// reached end, finish up
+				static int s_streamFileEndLogCount = 0;
+				if (s_streamFileEndLogCount < 32)
+				{
+					XBLog_Writef("STEFX: QAL wave stream ended used=%u total=%u", used, total);
+					s_streamFileEndLogCount++;
+				}
 				s_pState->m_Stream.m_Playing = false;
 				ReleaseMutex(Sys_FileStreamMutex);
 				return used;
@@ -1131,8 +1163,9 @@ static void _streamToVoice(int size)
 
 static void _streamFill(void)
 {
-	// do we have any free packets?
-	if (XMEDIAPACKET_STATUS_PENDING !=
+	int packetsFilled = 0;
+	while (packetsFilled < QAL_MAX_STREAM_PACKETS &&
+		XMEDIAPACKET_STATUS_PENDING !=
 		s_pState->m_Stream.m_PacketStatus[s_pState->m_Stream.m_CurrentPacket])
 	{
 		// get some data
@@ -1144,12 +1177,28 @@ static void _streamFill(void)
 			// next packet...
 			++s_pState->m_Stream.m_CurrentPacket;
 			s_pState->m_Stream.m_CurrentPacket %= QAL_MAX_STREAM_PACKETS;
+			packetsFilled++;
 		}
 
 		if (!s_pState->m_Stream.m_Playing)
 		{
 			// Non-looping stream finished playback
 			s_pState->m_Stream.m_pVoice->Discontinuity();
+			break;
+		}
+
+		if (size <= 0)
+		{
+			static int s_streamNoDataLogCount = 0;
+			if (s_streamNoDataLogCount < 32)
+			{
+				XBLog_Writef("STEFX: QAL stream fill produced no data size=%d open=%d playing=%d",
+					size,
+					s_pState->m_Stream.m_Open ? 1 : 0,
+					s_pState->m_Stream.m_Playing ? 1 : 0);
+				s_streamNoDataLogCount++;
+			}
+			break;
 		}
 	}
 }
@@ -1296,6 +1345,8 @@ static void _streamOpen(DWORD file, DWORD offset, bool loop)
 		s_pState->m_Stream.m_UseMP3 = false;
 		s_pState->m_Stream.m_Playing = true;
 		s_pState->m_Stream.m_Open = true;
+		XBLog_Writef("STEFX: QAL wave stream open name='%s' code=0x%08x offset=%u loop=%d",
+			name, file, offset, loop ? 1 : 0);
 	}
 	else
 	{

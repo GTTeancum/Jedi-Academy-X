@@ -674,6 +674,10 @@ static qboolean STEFX_IsMdrModelName(const char *name)
 	return (ext && !Q_stricmp(ext, ".mdr"));
 }
 
+#if defined(_XBOX)
+static qhandle_t RE_RegisterModel_Actual( const char *name );
+#endif
+
 static qboolean STEFX_IsGhoul2ModelName(const char *name)
 {
 	const char *ext = name ? strrchr(name, '.') : NULL;
@@ -686,6 +690,11 @@ static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size);
 static qboolean STEFX_IsBorgPlayerModelName(const char *name)
 {
 	return (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")));
+}
+
+static qboolean STEFX_IsPlayerModelName(const char *name)
+{
+	return (name && (strstr(name, "models/players/") || strstr(name, "models\\players\\")));
 }
 
 static const char *STEFX_ModelPartToken(const char *name)
@@ -709,48 +718,32 @@ static const char *STEFX_ModelPartToken(const char *name)
 	return NULL;
 }
 
-static qhandle_t STEFX_FindLoadedBorgModelFallback(const char *name)
+static const char *STEFX_DefaultPlayerMdrFallbackName(const char *name)
 {
-	const char *part;
-	int i;
-
-	if (!STEFX_IsBorgPlayerModelName(name))
+	const char *part = STEFX_ModelPartToken(name);
+	if (!STEFX_IsPlayerModelName(name) || !STEFX_IsMdrModelName(name) || !part)
 	{
-		return 0;
+		return NULL;
 	}
 
-	part = STEFX_ModelPartToken(name);
-	if (!part)
+	if (!Q_stricmp(part, "lower."))
 	{
-		return 0;
+		return "models/players/hazard/lower.mdr";
+	}
+	if (!Q_stricmp(part, "upper."))
+	{
+		return "models/players/hazard/upper.mdr";
 	}
 
-	for (i = 1; i < tr.numModels; ++i)
-	{
-		model_t *loaded = tr.models[i];
-		if (!loaded || loaded->type == MOD_BAD || loaded->type == MOD_STEFX_MDR_PLACEHOLDER)
-		{
-			continue;
-		}
-		if (!STEFX_IsBorgPlayerModelName(loaded->name))
-		{
-			continue;
-		}
-		if (!strstr(loaded->name, part))
-		{
-			continue;
-		}
-		if (!Q_stricmp(loaded->name, name))
-		{
-			continue;
-		}
+	return NULL;
+}
 
-		XBLF("STEFX: RE_RegisterModel Borg alias fallback '%s' -> '%s' handle=%d type=%d",
-			name, loaded->name, loaded->index, loaded->type);
-		return loaded->index;
-	}
+static qboolean STEFX_IsDefaultPlayerMdrFallbackName(const char *name)
+{
+	const char *fallback;
 
-	return 0;
+	fallback = STEFX_DefaultPlayerMdrFallbackName(name);
+	return (qboolean)(fallback && !Q_stricmp(name, fallback));
 }
 #endif
 
@@ -769,7 +762,7 @@ static qboolean STEFX_RegisterGhoul2Disabled(model_t *mod, const char *name)
 	return qtrue;
 }
 
-static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *name)
+static qhandle_t STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *name)
 {
 	fileHandle_t f = 0;
 	unsigned int ident = 0;
@@ -778,7 +771,7 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 
 	if (!STEFX_IsMdrModelName(name))
 	{
-		return qfalse;
+		return 0;
 	}
 
 	len = FS_FOpenFileByMode(name, &f, FS_READ);
@@ -791,10 +784,35 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 		{
 			FS_FCloseFile(f);
 		}
-		return qfalse;
+		return 0;
 	}
 
 #if defined(_XBOX)
+	if (STEFX_IsPlayerModelName(name) && !STEFX_IsBorgPlayerModelName(name))
+	{
+		const int playerMdrFallbackLimit = 1536 * 1024;
+		const char *fallbackName = STEFX_DefaultPlayerMdrFallbackName(name);
+		if (len > playerMdrFallbackLimit && fallbackName && !STEFX_IsDefaultPlayerMdrFallbackName(name))
+		{
+			qhandle_t fallback;
+			FS_FCloseFile(f);
+			fallback = RE_RegisterModel_Actual(fallbackName);
+			if (fallback)
+			{
+				STEFX_InsertModelHandleAliasIntoHash(name, fallback);
+				XBLF("STEFX: RE_RegisterModel MDR hazard preflight fallback '%s' len=%d -> '%s' handle=%d",
+					name, len, fallbackName, fallback);
+				return fallback;
+			}
+
+			mod->type = MOD_BAD;
+			RE_InsertModelIntoHash(name, mod);
+			XBLF("STEFX: RE_RegisterModel MDR hazard preflight fallback failed '%s' len=%d fallback='%s'; inserted MOD_BAD",
+				name, len, fallbackName);
+			return mod->index;
+		}
+	}
+
 	if (!STEFX_ShouldUseMdrMemoryPlaceholder(name, len))
 	{
 #ifdef _XBOX
@@ -804,11 +822,11 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 		}
 #endif
 		FS_FCloseFile(f);
-		return qfalse;
+		return 0;
 	}
 #else
 	FS_FCloseFile(f);
-	return qfalse;
+	return 0;
 #endif
 
 	read = FS_Read(&ident, 4, f);
@@ -820,7 +838,7 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 #ifdef _XBOX
 		XBLF("EF: RE_RegisterModel MDR probe rejected '%s' read=%d ident=0x%08x", name, read, ident);
 #endif
-		return qfalse;
+		return 0;
 	}
 
 	mod->type = MOD_STEFX_MDR_PLACEHOLDER;
@@ -830,7 +848,7 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 #ifdef _XBOX
 	XBLF("EF: RE_RegisterModel accepted MDR placeholder '%s' handle=%d len=%d", name, mod->index, len);
 #endif
-	return qtrue;
+	return mod->index;
 }
 
 #if defined(_XBOX)
@@ -848,30 +866,17 @@ static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size)
 		return qfalse;
 	}
 
-#if defined(STEFX_ELITE_FORCE_SP)
-	if (name &&
-		(strstr(name, "models/players/hazard/upper.mdr") ||
-		 strstr(name, "models\\players\\hazard\\upper.mdr")))
+	if (STEFX_IsPlayerModelName(name))
 	{
 #ifdef _XBOX
-		XBLF("STEFX: R_LoadMDR allowing borg1 critical player upper '%s' size=%d cap=%d",
+		XBLF("STEFX: R_LoadMDR allowing exact player model '%s' size=%d cap=%d",
 			name ? name : "(null)", size, overCapLimit);
 #endif
 		return qfalse;
 	}
-#endif
-
-	if (name && (strstr(name, "models/players/") || strstr(name, "models\\players\\")))
-	{
-#ifdef _XBOX
-		XBLF("STEFX: R_LoadMDR budget placeholder non-borg player model '%s' size=%d over cap=%d",
-			name ? name : "(null)", size, overCapLimit);
-#endif
-		return qtrue;
-	}
 
 #ifdef _XBOX
-	XBLF("STEFX: R_LoadMDR budget placeholder non-player model '%s' size=%d over cap=%d",
+	XBLF("STEFX: R_LoadMDR budget placeholder model '%s' size=%d over cap=%d",
 		name ? name : "(null)", size, overCapLimit);
 #endif
 	return qtrue;
@@ -1010,9 +1015,10 @@ Ghoul2 Insert End
 	}
 
 #if defined(_XBOX)
-	if (STEFX_RegisterMdrPlaceholderIfPresent(mod, name))
+	qhandle_t stefxMdrPreflightHandle = STEFX_RegisterMdrPlaceholderIfPresent(mod, name);
+	if (stefxMdrPreflightHandle)
 	{
-		return mod->index;
+		return stefxMdrPreflightHandle;
 	}
 #endif
 
@@ -1159,16 +1165,28 @@ fail:
 	// again, we won't bother scanning the filesystem
 	mod->type = MOD_BAD;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (STEFX_IsBorgPlayerModelName(name))
+	if (STEFX_IsPlayerModelName(name))
 	{
-		qhandle_t fallback = STEFX_FindLoadedBorgModelFallback(name);
-		if (fallback)
+		const char *fallbackName = STEFX_DefaultPlayerMdrFallbackName(name);
+		if (fallbackName && !STEFX_IsDefaultPlayerMdrFallbackName(name))
 		{
-			STEFX_InsertModelHandleAliasIntoHash(name, fallback);
-			XBLF("STEFX: RE_RegisterModel Borg fail alias '%s' index=%d -> %d numLoaded=%d", name, mod->index, fallback, numLoaded);
-			return fallback;
+			qhandle_t fallback = RE_RegisterModel_Actual(fallbackName);
+			if (fallback)
+			{
+				STEFX_InsertModelHandleAliasIntoHash(name, fallback);
+				XBLF("STEFX: RE_RegisterModel MDR hazard fallback '%s' index=%d -> '%s' handle=%d numLoaded=%d",
+					name, mod->index, fallbackName, fallback, numLoaded);
+				return fallback;
+			}
+			XBLF("STEFX: RE_RegisterModel MDR hazard fallback failed '%s' index=%d fallback='%s' numLoaded=%d",
+				name, mod->index, fallbackName, numLoaded);
 		}
-		XBLF("STEFX: RE_RegisterModel Borg fail insert MOD_BAD '%s' index=%d numLoaded=%d", name, mod->index, numLoaded);
+		else if (fallbackName)
+		{
+			XBLF("STEFX: RE_RegisterModel MDR hazard fallback base failed '%s' index=%d numLoaded=%d",
+				name, mod->index, numLoaded);
+		}
+		XBLF("STEFX: RE_RegisterModel player fail insert MOD_BAD '%s' index=%d numLoaded=%d", name, mod->index, numLoaded);
 	}
 #endif
 	RE_InsertModelIntoHash(name, mod);

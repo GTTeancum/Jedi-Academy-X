@@ -7,6 +7,9 @@
 #include "cg_media.h"
 #include "FxScheduler.h"
 #include "cg_lights.h"
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#include "../win32/xb_log.h"
+#endif
 
 
 /*
@@ -188,6 +191,9 @@ static void CG_ServerCommand( void ) {
 	// Scroll text
 	if ( !strcmp( cmd, "st" ) ) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: EF servercmd st scrolltext key='%s' time=%d", CG_Argv(1), cg.time);
+#endif
 #ifdef _XBOX
 		if(cg.widescreen)
 			CG_ScrollText( CG_Argv(1), 720 - 16 );

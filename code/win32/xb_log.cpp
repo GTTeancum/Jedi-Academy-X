@@ -253,6 +253,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxUserMoveBudget = 16;
     static int s_stefxSmokeStageBudget = 20;
     static int s_stefxAudioRuntimeBudget = 48;
+    static int s_stefxMusicRuntimeBudget = 96;
     static int s_stefxHudBudget = 32;
     static int s_stefxViewWeaponBudget = 96;
     static int s_stefxSmokeCameraBudget = 96;
@@ -282,9 +283,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
         return 0;
     }
 
-    if (strstr(msg, "70yearjourney") ||
-        strstr(msg, "STEFX: intro shader preload") ||
-        strstr(msg, "STEFX: renderer intro shader preload")) {
+    if (strstr(msg, "STEFX: ICARUS visual") ||
+        strstr(msg, "STEFX: EF servercmd st scrolltext")) {
         return 0;
     }
 
@@ -338,12 +338,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: direct-map main controller selected", &s_stefxInputBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: direct-map input gate cleared", &s_stefxInputBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX: installed Xbox bind", &s_stefxInputBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX: confirmed Xbox bind", &s_stefxInputBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX: replaced Xbox bind", &s_stefxInputBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: G_Damage", &s_stefxDamageBudget);
     if (budgeted >= 0) return budgeted;
@@ -472,6 +466,26 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound FS read", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound read", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_StartMusic", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: cgame background music syscall", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: S_StartBackgroundTrack", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: S_MusicFileExists", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Xbox music", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Xbox WAV music", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Xbox music update", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "WARNING: Invalid format in music", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL wave stream", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL MP3", &s_stefxMusicRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: ICARUS Wait", &s_stefxIcarusRuntimeBudget);
     if (budgeted >= 0) return budgeted;

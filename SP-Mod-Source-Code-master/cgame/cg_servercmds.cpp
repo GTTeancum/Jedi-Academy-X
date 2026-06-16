@@ -131,6 +131,9 @@ static void CG_ServerCommand( void ) {
 	// Scroll text
 	if ( !strcmp( cmd, "st" ) ) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: EF servercmd st scrolltext key='%s' time=%d", CG_Argv(1), cg.time);
+#endif
 		CG_ScrollText( CG_Argv(1), SCREEN_HEIGHT * 0.25, BIGCHAR_WIDTH );
 		return;
 	}

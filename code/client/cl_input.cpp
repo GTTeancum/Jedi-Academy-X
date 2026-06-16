@@ -9,8 +9,6 @@
 #include "client_ui.h"
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 #include "../win32/xb_log.h"
-extern void Key_SetBinding( int keynum, const char *binding );
-extern char *Key_GetBinding( int keynum );
 #endif
 
 #ifdef _XBOX
@@ -55,61 +53,6 @@ qboolean	in_mlooking;
 
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-static void STEFX_SetDefaultXboxBinding( int keynum, const char *binding )
-{
-	const char *existing = Key_GetBinding( keynum );
-
-	if ( existing && existing[0] && !Q_stricmp( existing, binding ) )
-	{
-		XBLF("STEFX: confirmed Xbox bind %s -> %s",
-			Key_KeynumToString( keynum ),
-			existing);
-		return;
-	}
-
-	if ( existing && existing[0] )
-	{
-		XBLF("STEFX: replaced Xbox bind %s old='%s' new='%s'",
-			Key_KeynumToString( keynum ),
-			existing,
-			binding);
-	}
-	else
-	{
-		XBLF("STEFX: installed Xbox bind %s -> %s",
-			Key_KeynumToString( keynum ),
-			binding);
-	}
-	Key_SetBinding( keynum, binding );
-}
-
-static void STEFX_InstallDefaultXboxBindings( void )
-{
-	static qboolean s_installed = qfalse;
-
-	if ( s_installed )
-	{
-		return;
-	}
-	s_installed = qtrue;
-
-	STEFX_SetDefaultXboxBinding( A_JOY12, "+attack" );              // Right trigger
-	STEFX_SetDefaultXboxBinding( A_JOY10, "+altattack" );           // Black button
-	STEFX_SetDefaultXboxBinding( A_JOY11, "+moveup" );              // Left trigger
-	STEFX_SetDefaultXboxBinding( A_JOY9, "+movedown" );             // White button
-	STEFX_SetDefaultXboxBinding( A_JOY15, "+use" );                 // A
-	STEFX_SetDefaultXboxBinding( A_JOY14, "+button2" );             // B, mission info / use item
-	STEFX_SetDefaultXboxBinding( A_JOY16, "toggle cl_run" );        // X
-	STEFX_SetDefaultXboxBinding( A_JOY13, "centerview; zoomoff" );  // Y
-	STEFX_SetDefaultXboxBinding( A_JOY5, "+zoom" );                 // D-pad up
-	STEFX_SetDefaultXboxBinding( A_JOY7, "zoomoff" );               // D-pad down
-	STEFX_SetDefaultXboxBinding( A_JOY8, "weapprev" );              // D-pad left
-	STEFX_SetDefaultXboxBinding( A_JOY6, "weapnext" );              // D-pad right
-	STEFX_SetDefaultXboxBinding( A_JOY1, "datapad" );               // Back
-	STEFX_SetDefaultXboxBinding( A_JOY2, "+use" );                  // Left stick click, lean modifier
-	STEFX_SetDefaultXboxBinding( A_JOY3, "toggle cg_thirdperson" ); // Right stick click
-}
-
 static cvar_t *stefx_smokeInput;
 static cvar_t *stefx_smokeInputStart;
 static cvar_t *stefx_smokeInputEnd;
@@ -118,6 +61,29 @@ static cvar_t *stefx_smokeInputSide;
 static cvar_t *stefx_smokeInputYaw;
 static cvar_t *stefx_smokeInputAttackStart;
 static cvar_t *stefx_smokeInputAttackEnd;
+
+static qboolean STEFX_SmokeHarnessEnabled( void )
+{
+	static qboolean s_checked = qfalse;
+	static qboolean s_enabled = qfalse;
+	FILE *file;
+
+	if ( s_checked )
+	{
+		return s_enabled;
+	}
+	s_checked = qtrue;
+
+	file = fopen( "D:\\ef_sp_smoke_harness.txt", "r" );
+	if ( file )
+	{
+		fclose( file );
+		s_enabled = qtrue;
+		XBL("STEFX: smoke harness marker enabled client input");
+	}
+
+	return s_enabled;
+}
 
 static qboolean STEFX_ViewAnglesBad( const vec3_t angles )
 {
@@ -176,7 +142,7 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	qboolean active;
 	qboolean attacking;
 
-	if ( !cmd || !stefx_smokeInput || !stefx_smokeInput->integer )
+	if ( !cmd || !STEFX_SmokeHarnessEnabled() || !stefx_smokeInput || !stefx_smokeInput->integer )
 	{
 		return;
 	}
@@ -1387,7 +1353,6 @@ void CL_InitInput( void ) {
 	cl_nodelta = Cvar_Get ("cl_nodelta", "0", 0);
 	cl_debugMove = Cvar_Get ("cl_debugMove", "0", 0);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	STEFX_InstallDefaultXboxBindings();
 	STEFX_InitSmokeInputCvars();
 #endif
 }

@@ -89,6 +89,29 @@ static bool Sys_XboxReadFirstLineFromPaths(const char **paths, char *out, int ou
 	return false;
 }
 
+static bool Sys_XboxFileExists(const char *path)
+{
+	FILE *file = fopen(path, "r");
+	if (!file)
+	{
+		return false;
+	}
+	fclose(file);
+	return true;
+}
+
+static bool Sys_XboxNormalBootRequested(void)
+{
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (Sys_XboxFileExists("D:\\ef_sp_normal_boot.txt"))
+	{
+		XBL("STEFX: normal boot requested by D:\\ef_sp_normal_boot.txt\n");
+		return true;
+	}
+#endif
+	return false;
+}
+
 static bool Sys_XboxDirectMapRequested(void)
 {
 	char startupMap[MAX_QPATH];
@@ -100,6 +123,11 @@ static bool Sys_XboxDirectMapRequested(void)
 		NULL
 	};
 	startupMap[0] = '\0';
+
+	if (Sys_XboxNormalBootRequested())
+	{
+		return false;
+	}
 
 	if (Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), NULL))
 	{
@@ -145,6 +173,12 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	int startupCommandPathIndex;
 	int postMapCommandPathIndex;
 	startupMap[0] = '\0';
+
+	if (Sys_XboxNormalBootRequested())
+	{
+		XBL("JA: direct-map boot: disabled for normal EF story boot\n");
+		return false;
+	}
 
 	Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), &startupMapSource);
 

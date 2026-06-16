@@ -110,12 +110,35 @@ extern vmCvar_t	cg_thirdPersonAutoAlpha;
 void ClientEndPowerUps( gentity_t *ent );
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SmokeHarnessEnabled( void )
+{
+	static qboolean s_checked = qfalse;
+	static qboolean s_enabled = qfalse;
+	FILE *file;
+
+	if ( s_checked )
+	{
+		return s_enabled;
+	}
+	s_checked = qtrue;
+
+	file = fopen( "D:\\ef_sp_smoke_harness.txt", "r" );
+	if ( file )
+	{
+		fclose( file );
+		s_enabled = qtrue;
+		Com_PrintfAlways( "STEFX: smoke harness marker enabled game automation\n" );
+	}
+
+	return s_enabled;
+}
+
 static qboolean STEFX_SmokeControlWindowActive( const usercmd_t *ucmd )
 {
 	int startTime;
 	int endTime;
 
-	if ( !ucmd )
+	if ( !ucmd || !STEFX_SmokeHarnessEnabled() )
 	{
 		return qfalse;
 	}

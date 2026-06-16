@@ -16,6 +16,10 @@
 #include "openal/al.h"
 #include "openal/alc.h"
 
+#ifndef WAVE_FORMAT_XBOX_ADPCM
+#define WAVE_FORMAT_XBOX_ADPCM 0x0069
+#endif
+
 typedef int streamHandle_t;
 
 //from SND_AMBIENT
@@ -44,6 +48,7 @@ typedef struct {
 	int			channels;
 	int			dataofs;
 	int			waveFormatTag;
+	int			byteRate;
 } wavinfo_t;
 
 extern wavinfo_t GetWavInfo(byte *data);

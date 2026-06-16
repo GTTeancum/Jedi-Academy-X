@@ -2519,10 +2519,6 @@ void CG_Init( int serverCommandSequence ) {
 	cgs.media.loadTick		= cgi_R_RegisterShaderNoMip( "gfx/menus/newFront/GlowLoad" );
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init base shaders done");
-	{
-		qhandle_t introHandle = cgi_R_RegisterShaderNoMip( "textures/common/70yearjourney" );
-		XBLog_Write(va("STEFX: intro shader preload 'textures/common/70yearjourney' handle=%d", introHandle));
-	}
 #endif
 //	cgs.media.loadTickCap	= cgi_R_RegisterShaderNoMip( "gfx/hud/load_tick_cap" );
 	

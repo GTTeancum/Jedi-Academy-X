@@ -268,6 +268,10 @@ bool XBSettings::Missing( void )
 // Copy all stored settings into cvars
 void XBSettings::SetAll( void )
 {
+#if defined(STEFX_ELITE_FORCE_SP)
+	Com_Printf("STEFX: Xbox controls preserving default.cfg buttonMode=%d triggerMode=%d thumbstickMode=%d\n",
+		buttonMode[0], triggerMode[0], thumbstickMode[0]);
+#else
 	Cvar_SetValue( "m_pitch", invertAim[0] ? -0.022f : 0.022f );
 	Cvar_SetValue( "ui_thumbStickMode", thumbstickMode[0] );
 
@@ -300,6 +304,7 @@ void XBSettings::SetAll( void )
 		Cvar_SetValue( "hotswap2", hotswapSP[2] );
 	else
 		Cvar_Set( "hotswap2", "" );
+#endif
 
 	Cvar_SetValue( "s_effects_volume", effectsVolume );
 	Cvar_SetValue( "s_music_volume", musicVolume );
