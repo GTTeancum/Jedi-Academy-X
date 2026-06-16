@@ -24,6 +24,19 @@
 
 StencilShadow StencilShadower;
 
+extern "C" void JAMP_MarkLogicalTextureStageDirtyForExternalWrite(int stage);
+extern "C" void JAMP_SetRenderStateCachedForExternalWrite(DWORD type, DWORD value);
+extern "C" void JAMP_SetTextureCachedForExternalWrite(int stage, IDirect3DBaseTexture8 *texture);
+extern "C" void JAMP_SetTextureStageStateCachedForExternalWrite(int stage, DWORD type, DWORD value);
+extern "C" void JAMP_SetVertexShaderCachedForExternalWrite(DWORD mask);
+extern "C" void JAMP_SetVertexShaderConstantCachedForExternalWrite(DWORD reg, const void *data, DWORD count);
+
+#define SS_SetRenderState(state, value) JAMP_SetRenderStateCachedForExternalWrite((state), (DWORD)(value))
+#define SS_SetTexture(stage, texture) JAMP_SetTextureCachedForExternalWrite((stage), (IDirect3DBaseTexture8 *)(texture))
+#define SS_SetTextureStageState(stage, type, value) JAMP_SetTextureStageStateCachedForExternalWrite((stage), (type), (DWORD)(value))
+#define SS_SetVertexShader(shader) JAMP_SetVertexShaderCachedForExternalWrite((DWORD)(shader))
+#define SS_SetVertexShaderConstant(reg, data, count) JAMP_SetVertexShaderConstantCachedForExternalWrite((DWORD)(reg), (data), (DWORD)(count))
+
 
 StencilShadow::StencilShadow()
 {
@@ -219,13 +232,13 @@ bool StencilShadow::BuildFromLight()
 	
 	// Set the vertex shader constants
 	D3DXVECTOR4 light = D3DXVECTOR4(lightDir[0], lightDir[1], lightDir[2], 1.0f);
-	glw_state->device->SetVertexShaderConstant( CV_LIGHT_DIRECTION, light, 1 );
+	SS_SetVertexShaderConstant( CV_LIGHT_DIRECTION, light, 1 );
 
-	glw_state->device->SetVertexShaderConstant( CV_SHADOW_FACTORS, D3DXVECTOR4(backEnd.ori.origin[0],
+	SS_SetVertexShaderConstant( CV_SHADOW_FACTORS, D3DXVECTOR4(backEnd.ori.origin[0],
 																			   backEnd.ori.origin[1],
 																			   backEnd.ori.origin[2],
 																			   1.0f), 1);
-	glw_state->device->SetVertexShaderConstant( CV_SHADOW_PLANE, D3DXVECTOR4( backEnd.currentEntity->e.shadowPlane - 16.0f,
+	SS_SetVertexShaderConstant( CV_SHADOW_PLANE, D3DXVECTOR4( backEnd.currentEntity->e.shadowPlane - 16.0f,
 																			  backEnd.currentEntity->e.shadowPlane - 16.0f,
 																			  backEnd.currentEntity->e.shadowPlane - 16.0f,
 																			  1.0f), 1);
@@ -297,48 +310,48 @@ void StencilShadow::RenderShadow()
 
 	GL_Bind( tr.whiteImage );
 
-	glw_state->device->SetRenderState( D3DRS_LIGHTING, FALSE );
-	glw_state->device->SetRenderState( D3DRS_FOGENABLE, FALSE );
+	SS_SetRenderState( D3DRS_LIGHTING, FALSE );
+	SS_SetRenderState( D3DRS_FOGENABLE, FALSE );
 
-	glw_state->device->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_ONE );
-	glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_ZERO );
+	SS_SetRenderState( D3DRS_SRCBLEND, D3DBLEND_ONE );
+	SS_SetRenderState( D3DRS_DESTBLEND, D3DBLEND_ZERO );
 
     // Disable z-buffer writes (note: z-testing still occurs), and enable the
     // stencil-buffer
-    glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE,  FALSE );
-    glw_state->device->SetRenderState( D3DRS_STENCILENABLE, TRUE );
+    SS_SetRenderState( D3DRS_ZWRITEENABLE,  FALSE );
+    SS_SetRenderState( D3DRS_STENCILENABLE, TRUE );
 
     // Don't bother with interpolating color
-    glw_state->device->SetRenderState( D3DRS_SHADEMODE,     D3DSHADE_FLAT );
+    SS_SetRenderState( D3DRS_SHADEMODE,     D3DSHADE_FLAT );
 
-	glw_state->device->SetRenderState( D3DRS_ZFUNC,			D3DCMP_LESS );
+	SS_SetRenderState( D3DRS_ZFUNC,			D3DCMP_LESS );
 
     // Set up stencil compare function, reference value, and masks.
     // Stencil test passes if ((ref & mask) cmpfn (stencil & mask)) is true.
     // Note: since we set up the stencil-test to always pass, the STENCILFAIL
     // renderstate is really not needed.
-    glw_state->device->SetRenderState( D3DRS_STENCILFUNC,   D3DCMP_ALWAYS );
+    SS_SetRenderState( D3DRS_STENCILFUNC,   D3DCMP_ALWAYS );
 #ifdef _STENCIL_REVERSE
-	glw_state->device->SetRenderState( D3DRS_STENCILZFAIL,  D3DSTENCILOP_INCR );
-    glw_state->device->SetRenderState( D3DRS_STENCILFAIL,   D3DSTENCILOP_KEEP );
-	glw_state->device->SetRenderState( D3DRS_STENCILPASS,   D3DSTENCILOP_KEEP );
+	SS_SetRenderState( D3DRS_STENCILZFAIL,  D3DSTENCILOP_INCR );
+    SS_SetRenderState( D3DRS_STENCILFAIL,   D3DSTENCILOP_KEEP );
+	SS_SetRenderState( D3DRS_STENCILPASS,   D3DSTENCILOP_KEEP );
 #else
-	glw_state->device->SetRenderState( D3DRS_STENCILZFAIL,  D3DSTENCILOP_KEEP );
-    glw_state->device->SetRenderState( D3DRS_STENCILFAIL,   D3DSTENCILOP_KEEP );
-	glw_state->device->SetRenderState( D3DRS_STENCILPASS,   D3DSTENCILOP_INCR );	
+	SS_SetRenderState( D3DRS_STENCILZFAIL,  D3DSTENCILOP_KEEP );
+    SS_SetRenderState( D3DRS_STENCILFAIL,   D3DSTENCILOP_KEEP );
+	SS_SetRenderState( D3DRS_STENCILPASS,   D3DSTENCILOP_INCR );	
 #endif
 
     // If ztest passes, inc/decrement stencil buffer value
-    glw_state->device->SetRenderState( D3DRS_STENCILREF,       0x1 );
-    glw_state->device->SetRenderState( D3DRS_STENCILMASK,      0x7f ); //0xffffffff );
-    glw_state->device->SetRenderState( D3DRS_STENCILWRITEMASK, 0x7f ); //0xffffffff );
+    SS_SetRenderState( D3DRS_STENCILREF,       0x1 );
+    SS_SetRenderState( D3DRS_STENCILMASK,      0x7f ); //0xffffffff );
+    SS_SetRenderState( D3DRS_STENCILWRITEMASK, 0x7f ); //0xffffffff );
 
     // Make sure that no pixels get drawn to the frame buffer
-    glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-    glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, 0 );
+    SS_SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+    SS_SetRenderState( D3DRS_COLORWRITEENABLE, 0 );
 
-	glw_state->device->SetTexture(0, NULL);
-	glw_state->device->SetTexture(1, NULL);
+	SS_SetTexture(0, NULL);
+	SS_SetTexture(1, NULL);
 
 	// Compute the matrix set
     XGMATRIX matComposite, matProjectionViewport, matWorld;
@@ -348,13 +361,13 @@ void StencilShadow::RenderShadow()
 
 	// Transpose and set the composite matrix.
 	XGMatrixTranspose( &matComposite, &matComposite );
-	glw_state->device->SetVertexShaderConstant( CV_WORLDVIEWPROJ_0, &matComposite, 4 );
+	SS_SetVertexShaderConstant( CV_WORLDVIEWPROJ_0, &matComposite, 4 );
 
 	// Set viewport offsets.
 	float fViewportOffsets[4] = { 0.53125f, 0.53125f, 0.0f, 0.0f };
-	glw_state->device->SetVertexShaderConstant( CV_VIEWPORT_OFFSETS, &fViewportOffsets, 1 );
+	SS_SetVertexShaderConstant( CV_VIEWPORT_OFFSETS, &fViewportOffsets, 1 );
 
-	glw_state->device->SetVertexShader(m_dwVertexShaderShadow);
+	SS_SetVertexShader(m_dwVertexShaderShadow);
 
 #ifdef _STENCIL_REVERSE
 	glCullFace( GL_FRONT );
@@ -381,9 +394,9 @@ void StencilShadow::RenderShadow()
 
     // Decrement stencil buffer value
 #ifdef _STENCIL_REVERSE
-	glw_state->device->SetRenderState( D3DRS_STENCILZFAIL, D3DSTENCILOP_DECR );
+	SS_SetRenderState( D3DRS_STENCILZFAIL, D3DSTENCILOP_DECR );
 #else
-	glw_state->device->SetRenderState( D3DRS_STENCILPASS, D3DSTENCILOP_DECR );
+	SS_SetRenderState( D3DRS_STENCILPASS, D3DSTENCILOP_DECR );
 #endif
 
 	// Draw back-side of shadow volume in stencil/z only
@@ -395,18 +408,20 @@ void StencilShadow::RenderShadow()
 #endif
 
 	// Restore render states
-	glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALL );
+	SS_SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALL );
 
-    glw_state->device->SetRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
-	glw_state->device->SetRenderState( D3DRS_STENCILENABLE,    FALSE );
-	glw_state->device->SetRenderState( D3DRS_LIGHTING, lighting );
-	glw_state->device->SetRenderState( D3DRS_FOGENABLE, fog );
-	glw_state->device->SetRenderState( D3DRS_SRCBLEND, srcblend );
-	glw_state->device->SetRenderState( D3DRS_DESTBLEND, destblend );
-	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, alphablend );
-	glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE, zwrite );
-	glw_state->device->SetRenderState( D3DRS_ZFUNC, zfunc );
-	glw_state->device->SetRenderState( D3DRS_CULLMODE, cullmode );
+    SS_SetRenderState( D3DRS_SHADEMODE, D3DSHADE_GOURAUD );
+	SS_SetRenderState( D3DRS_STENCILENABLE,    FALSE );
+	SS_SetRenderState( D3DRS_LIGHTING, lighting );
+	SS_SetRenderState( D3DRS_FOGENABLE, fog );
+	SS_SetRenderState( D3DRS_SRCBLEND, srcblend );
+	SS_SetRenderState( D3DRS_DESTBLEND, destblend );
+	SS_SetRenderState( D3DRS_ALPHABLENDENABLE, alphablend );
+	SS_SetRenderState( D3DRS_ZWRITEENABLE, zwrite );
+	SS_SetRenderState( D3DRS_ZFUNC, zfunc );
+	SS_SetRenderState( D3DRS_CULLMODE, cullmode );
+	JAMP_MarkLogicalTextureStageDirtyForExternalWrite(0);
+	JAMP_MarkLogicalTextureStageDirtyForExternalWrite(1);
 #endif
 }
 
@@ -429,26 +444,26 @@ void StencilShadow::FinishShadows()
     // the stencil test is pseudo coded as:
     //    StencilRef CompFunc StencilBufferValue
     // so we set our renderstates with StencilRef = 1 and CompFunc = LESSEQUAL.
-    glw_state->device->SetRenderState( D3DRS_STENCILENABLE, TRUE );
-    glw_state->device->SetRenderState( D3DRS_STENCILREF,    0);//0x1 );
-    glw_state->device->SetRenderState( D3DRS_STENCILFUNC,   D3DCMP_NOTEQUAL);//D3DCMP_LESSEQUAL );
-    glw_state->device->SetRenderState( D3DRS_STENCILMASK,      0x7f ); // New!
-	glw_state->device->SetRenderState( D3DRS_STENCILWRITEMASK, 0x7f ); //255 );
+    SS_SetRenderState( D3DRS_STENCILENABLE, TRUE );
+    SS_SetRenderState( D3DRS_STENCILREF,    0);//0x1 );
+    SS_SetRenderState( D3DRS_STENCILFUNC,   D3DCMP_NOTEQUAL);//D3DCMP_LESSEQUAL );
+    SS_SetRenderState( D3DRS_STENCILMASK,      0x7f ); // New!
+	SS_SetRenderState( D3DRS_STENCILWRITEMASK, 0x7f ); //255 );
 
     // Set renderstates (disable z-buffering and turn on alphablending)
-    glw_state->device->SetRenderState( D3DRS_ZENABLE,          FALSE );
-    glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
-    glw_state->device->SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA );
-    glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
+    SS_SetRenderState( D3DRS_ZENABLE,          FALSE );
+    SS_SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+    SS_SetRenderState( D3DRS_SRCBLEND,  D3DBLEND_SRCALPHA );
+    SS_SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
 
     // Set the hardware to draw black, alpha-blending pixels
-    glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1 );
-    glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TFACTOR );
-    glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAOP,   D3DTOP_SELECTARG1 );
-    glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR );
-    glw_state->device->SetRenderState( D3DRS_TEXTUREFACTOR, 0x50000000 );
+    SS_SetTextureStageState( 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1 );
+    SS_SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TFACTOR );
+    SS_SetTextureStageState( 0, D3DTSS_ALPHAOP,   D3DTOP_SELECTARG1 );
+    SS_SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR );
+    SS_SetRenderState( D3DRS_TEXTUREFACTOR, 0x50000000 );
 
-	glw_state->device->SetRenderState( D3DRS_FOGENABLE, FALSE );
+	SS_SetRenderState( D3DRS_FOGENABLE, FALSE );
 
     // Draw the big, darkening square
     static FLOAT v[4][4] = 
@@ -459,16 +474,17 @@ void StencilShadow::FinishShadows()
         {   0 - 0.5f, 480 - 0.5f, 0.0f, 1.0f },
     };
 
-    glw_state->device->SetVertexShader( D3DFVF_XYZRHW );
+    SS_SetVertexShader( D3DFVF_XYZRHW );
     glw_state->device->DrawPrimitiveUP( D3DPT_QUADLIST, 1, v, sizeof(v[0]) );
 
     // Restore render states
-    glw_state->device->SetRenderState( D3DRS_ZENABLE,          TRUE );
-    glw_state->device->SetRenderState( D3DRS_STENCILENABLE,    FALSE );
-    glw_state->device->SetRenderState( D3DRS_LIGHTING, lighting );
-	glw_state->device->SetRenderState( D3DRS_FOGENABLE, fog );
-	glw_state->device->SetRenderState( D3DRS_SRCBLEND, srcblend );
-	glw_state->device->SetRenderState( D3DRS_DESTBLEND, destblend );
-	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, alphablend );
+    SS_SetRenderState( D3DRS_ZENABLE,          TRUE );
+    SS_SetRenderState( D3DRS_STENCILENABLE,    FALSE );
+    SS_SetRenderState( D3DRS_LIGHTING, lighting );
+	SS_SetRenderState( D3DRS_FOGENABLE, fog );
+	SS_SetRenderState( D3DRS_SRCBLEND, srcblend );
+	SS_SetRenderState( D3DRS_DESTBLEND, destblend );
+	SS_SetRenderState( D3DRS_ALPHABLENDENABLE, alphablend );
+	JAMP_MarkLogicalTextureStageDirtyForExternalWrite(0);
 #endif
 }

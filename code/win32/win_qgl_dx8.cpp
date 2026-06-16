@@ -1,286 +1,8634 @@
+
 /*
- * win_qgl_dx8.cpp — Plan-B (OpenJKDF2 1:1) slim adapter
- *
- * Owns nothing GL-related; just lifecycle plumbing.  The qgl_* function-
- * pointer table is GONE — JKA's renderer calls gl_* directly, linked to
- * OpenJKDF2's fakeglx.cpp (in code/win32/openjkdf2/fakeglx.cpp).  This
- * file's job in the new architecture:
- *
- *   1. Allocate / zero glw_state (storage for the renderer's viewport etc.)
- *   2. Drive wglCreateContext / wglMakeCurrent / FakeSwapBuffers wrappers
- *   3. Adopt OpenJKDF2's std3D_Startup initial GL state setup
- *      (glViewport, glMatrixMode, glOrtho, glLoadIdentity, glDisable for
- *       depth/cull/blend/etc.) so the first real frame draws against a
- *      known-good baseline
- *   4. Provide no-op QGL_Init / QGL_Shutdown / QGL_EnableLogging stubs so
- *      win_glimp.cpp's existing call sites still link
- *   5. Stub render-pass helpers (renderObject_*, CreateVertexShader/Pixel)
- *      that the win32 layer historically provided
- *
- * Backup of the previous Plan-A version (with qgl_* table and bridges)
- * lives at win_qgl_dx8.cpp.preB.bak.
+ * UNPUBLISHED -- Rights  reserved  under  the  copyright  laws  of the 
+ * United States.  Use  of a copyright notice is precautionary only and 
+ * does not imply publication or disclosure.                            
+ *                                                                      
+ * THIS DOCUMENTATION CONTAINS CONFIDENTIAL AND PROPRIETARY INFORMATION 
+ * OF    VICARIOUS   VISIONS,  INC.    ANY  DUPLICATION,  MODIFICATION, 
+ * DISTRIBUTION, OR DISCLOSURE IS STRICTLY PROHIBITED WITHOUT THE PRIOR 
+ * EXPRESS WRITTEN PERMISSION OF VICARIOUS VISIONS, INC.
  */
 
-#define APIENTRY __stdcall
-#define WINAPI   __stdcall
-
+// leave this as first line for PCH reasons...
+//
 #include "../server/exe_headers.h"
 
+
+/*
+** QGL_WIN.C
+**
+** This file implements the operating system binding of GL to QGL function
+** pointers.  When doing a port of Quake3 you must implement the following
+** two functions:
+**
+** QGL_Init() - loads libraries, assigns function pointers, etc.
+** QGL_Shutdown() - unloads libraries, NULLs function pointers
+*/
 #include <float.h>
 #include "../renderer/tr_local.h"
 #include "glw_win_dx8.h"
 #include "win_local.h"
 
+#include "xbox_texture_man.h"
+
 #ifdef _XBOX
-#include <xtl.h>
-#include <xb_log.h>
+#include <xgraphics.h>
+#include "win_lighteffects.h"
+#include "win_highdynamicrange.h"
+#include "xb_log.h"
+extern "C" volatile unsigned int g_SPXBCmLoadState;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpHash;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpLen;
+extern "C" volatile unsigned int g_SPXBFramebufferData;
+extern "C" volatile unsigned int g_SPXBFramebufferPitch;
+extern "C" volatile unsigned int g_SPXBFramebufferWidth;
+extern "C" volatile unsigned int g_SPXBFramebufferHeight;
+extern "C" volatile unsigned int g_SPXBFramebufferFormat;
+extern "C" volatile unsigned int g_SPXBFramebufferSize;
+#define XBOX_QGL_TEX_STATE(state, value) do { g_SPXBCmLoadState = (state); g_SPXBCmLoadLumpHash = 0x51474c54; g_SPXBCmLoadLumpLen = (unsigned int)(value); } while (0)
+#ifndef SP_XBOX_FRAMEBUFFER_TELEMETRY
+#define SP_XBOX_FRAMEBUFFER_TELEMETRY 0
 #endif
 
-/* StaticTextureAllocator is referenced from xbox_texture_man; we own the
- * single instance.  Symbol kept here for ABI continuity with the rest of
- * the win32 layer. */
-#include "xbox_texture_man.h"
+#ifndef FINAL_BUILD
+#include <d3d8perf.h>
+#endif
+
+#else
+#define XBOX_QGL_TEX_STATE(state, value) ((void)0)
+#endif
+
+// Global texture allocators:
 StaticTextureAllocator gTextures;
 
 #ifdef _XBOX
-extern "C" void* JkaStaticTextureAlloc(unsigned long size, GLuint texNum)
+#define XBOX_TEXTURE_POOL_SIZE (16*1024*1024)
+
+static void GLW_InitTexturePool( void )
 {
-    return gTextures.Allocate(size, texNum);
+	if ( gTextures.IsInitialized() )
+	{
+		XBLog_Write("GLW_Init: gTextures already initialized\n");
+		return;
+	}
+
+	XBLog_Write("GLW_Init: gTextures.Initialize (deferred from Z_Init)...\n");
+	gTextures.Initialize( XBOX_TEXTURE_POOL_SIZE );
+	if ( !gTextures.IsInitialized() )
+	{
+		XBLog_Write("GLW_Init: gTextures.Initialize FAILED\n");
+		Com_Error( ERR_FATAL, "GLW_Init: texture pool allocation failed" );
+	}
+	XBLog_Write("GLW_Init: gTextures.Initialize done\n");
 }
 #endif
+
+#include <vector>
 
 extern void Z_SetNewDeleteTemporary(bool);
 
-/* fakeglx.cpp lifecycle entry points.  fakeglx.cpp's file-scope wrappers
- * export as C linkage (_FakeSwapBuffers etc. per dumpbin), so our externs
- * here must be extern "C" to match. */
-extern "C" {
-    HGLRC wglCreateContext(void);
-    BOOL  wglMakeCurrent(void);
-    BOOL  wglDeleteContext(void);
-    void  FakeSwapBuffers(void);
-}
+#define GLW_USE_TRI_STRIPS 1
 
-/* Plan-B fix: glwstate_t storage is defined in win_glimp_console.cpp:54
- * as `glwstate_t *glw_state = NULL`.  Previously this file also defined
- * it which produced LNK4006 duplicate-definition warnings under
- * /FORCE:MULTIPLE — linker silently kept win_glimp_console's NULL
- * version and discarded our pointer-to-static.  Result: GLW_Init's
- * glw_state->X assignments were writing to a different (NULL) pointer
- * than tr_backend/etc. read from, masking all our state setup.
- *
- * Define the static storage here, but make win_glimp_console's
- * `glw_state` pointer point to it via a one-shot init in GLW_Init. */
-static glwstate_t s_glwState;
-extern glwstate_t *glw_state;  /* defined in win_glimp_console.cpp */
+#ifdef _XBOX
+#define GLW_MAX_DRAW_PACKET_SIZE 2040
+#else
+#define GLW_MAX_DRAW_PACKET_SIZE (SHADER_MAX_VERTEXES*12)
+#endif
 
-/* =========================================================================
- *  JKA-specific render-pass stubs (declared in glw_win_dx8.h).
- *  These were win32-layer helpers JKA's renderer no longer calls under
- *  Plan-B (fakeglx draws directly).  Kept as empty bodies so any
- *  straggling external references still link.
- * ========================================================================= */
-void renderObject_HACK(void) {}
-void renderObject_Light(int /*numIndexes*/, const unsigned short* /*indexes*/) {}
-void renderObject_Shadow(int /*primType*/, int /*numIndexes*/, const unsigned short* /*indexes*/) {}
-void renderObject_Env(void) {}
-void renderObject_Bump(void) {}
+#define MEMORY_PROFILE 1
 
-bool CreateVertexShader(const CHAR* /*strFilename*/, const DWORD* /*pdwVertexDecl*/, DWORD* pdwVertexShader)
+int texMemSize = 0;
+
+#if MEMORY_PROFILE
+ 
+static int getTexMemSize(IDirect3DTexture8* mipmap)
 {
-    if (pdwVertexShader) *pdwVertexShader = 0;
-    return false;
+	int levels = mipmap->GetLevelCount();
+	int size = 0;
+	while (levels--)
+	{ 
+		D3DSURFACE_DESC desc;
+		mipmap->GetLevelDesc(levels, &desc);
+		size += desc.Size;
+	}
+	return size;
 }
-bool CreatePixelShader(const CHAR* /*strFilename*/, DWORD* pdwPixelShader)
+#endif
+
+void QGL_EnableLogging( qboolean enable );
+
+void ( * qglAccum )(GLenum op, GLfloat value);
+void ( * qglAlphaFunc )(GLenum func, GLclampf ref);
+GLboolean ( * qglAreTexturesResident )(GLsizei n, const GLuint *textures, GLboolean *residences);
+void ( * qglArrayElement )(GLint i);
+void ( * qglBegin )(GLenum mode);
+void ( * qglBeginEXT )(GLenum mode, GLint verts, GLint colors, GLint normals, GLint tex0, GLint tex1);//, GLint tex2, GLint tex3);
+GLboolean ( * qglBeginFrame )(void);
+void ( * qglBeginShadow )(void);
+void ( * qglBindTexture )(GLenum target, GLuint texture);
+void ( * qglBitmap )(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove, GLfloat ymove, const GLubyte *bitmap);
+void ( * qglBlendFunc )(GLenum sfactor, GLenum dfactor);
+void ( * qglCallList )(GLuint lnum);
+void ( * qglCallLists )(GLsizei n, GLenum type, const GLvoid *lists);
+void ( * qglClear )(GLbitfield mask);
+void ( * qglClearAccum )(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+void ( * qglClearColor )(GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha);
+void ( * qglClearDepth )(GLclampd depth);
+void ( * qglClearIndex )(GLfloat c);
+void ( * qglClearStencil )(GLint s);
+void ( * qglClipPlane )(GLenum plane, const GLdouble *equation);
+void ( * qglColor3b )(GLbyte red, GLbyte green, GLbyte blue);
+void ( * qglColor3bv )(const GLbyte *v);
+void ( * qglColor3d )(GLdouble red, GLdouble green, GLdouble blue);
+void ( * qglColor3dv )(const GLdouble *v);
+void ( * qglColor3f )(GLfloat red, GLfloat green, GLfloat blue);
+void ( * qglColor3fv )(const GLfloat *v);
+void ( * qglColor3i )(GLint red, GLint green, GLint blue);
+void ( * qglColor3iv )(const GLint *v);
+void ( * qglColor3s )(GLshort red, GLshort green, GLshort blue);
+void ( * qglColor3sv )(const GLshort *v);
+void ( * qglColor3ub )(GLubyte red, GLubyte green, GLubyte blue);
+void ( * qglColor3ubv )(const GLubyte *v);
+void ( * qglColor3ui )(GLuint red, GLuint green, GLuint blue);
+void ( * qglColor3uiv )(const GLuint *v);
+void ( * qglColor3us )(GLushort red, GLushort green, GLushort blue);
+void ( * qglColor3usv )(const GLushort *v);
+void ( * qglColor4b )(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha);
+void ( * qglColor4bv )(const GLbyte *v);
+void ( * qglColor4d )(GLdouble red, GLdouble green, GLdouble blue, GLdouble alpha);
+void ( * qglColor4dv )(const GLdouble *v);
+void ( * qglColor4f )(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+void ( * qglColor4fv )(const GLfloat *v);
+void ( * qglColor4i )(GLint red, GLint green, GLint blue, GLint alpha);
+void ( * qglColor4iv )(const GLint *v);
+void ( * qglColor4s )(GLshort red, GLshort green, GLshort blue, GLshort alpha);
+void ( * qglColor4sv )(const GLshort *v);
+void ( * qglColor4ub )(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha);
+void ( * qglColor4ubv )(const GLubyte *v);
+void ( * qglColor4ui )(GLuint red, GLuint green, GLuint blue, GLuint alpha);
+void ( * qglColor4uiv )(const GLuint *v);
+void ( * qglColor4us )(GLushort red, GLushort green, GLushort blue, GLushort alpha);
+void ( * qglColor4usv )(const GLushort *v);
+void ( * qglColorMask )(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+void ( * qglColorMaterial )(GLenum face, GLenum mode);
+void ( * qglColorPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( * qglCopyPixels )(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type);
+void ( * qglCopyTexImage1D )(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLint border);
+void ( * qglCopyTexImage2D )(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border);
+void ( * qglCopyTexSubImage1D )(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width);
+void ( * qglCopyTexSubImage2D )(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
+void ( * qglCullFace )(GLenum mode);
+void ( * qglDeleteLists )(GLuint lnum, GLsizei range);
+void ( * qglDeleteTextures )(GLsizei n, const GLuint *textures);
+void ( * qglDepthFunc )(GLenum func);
+void ( * qglDepthMask )(GLboolean flag);
+void ( * qglDepthRange )(GLclampd zNear, GLclampd zFar);
+void ( * qglDisable )(GLenum cap);
+void ( * qglDisableClientState )(GLenum array);
+void ( * qglDrawArrays )(GLenum mode, GLint first, GLsizei count);
+void ( * qglDrawBuffer )(GLenum mode);
+void ( * qglDrawElements )(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);
+void ( * qglDrawPixels )(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
+void ( * qglEdgeFlag )(GLboolean flag);
+void ( * qglEdgeFlagPointer )(GLsizei stride, const GLvoid *pointer);
+void ( * qglEdgeFlagv )(const GLboolean *flag);
+void ( * qglEnable )(GLenum cap);
+void ( * qglEnableClientState )(GLenum array);
+void ( * qglEnd )(void);
+void ( * qglEndFrame )(void);
+void ( * qglEndShadow )(void);
+void ( * qglEndList )(void);
+void ( * qglEvalCoord1d )(GLdouble u);
+void ( * qglEvalCoord1dv )(const GLdouble *u);
+void ( * qglEvalCoord1f )(GLfloat u);
+void ( * qglEvalCoord1fv )(const GLfloat *u);
+void ( * qglEvalCoord2d )(GLdouble u, GLdouble v);
+void ( * qglEvalCoord2dv )(const GLdouble *u);
+void ( * qglEvalCoord2f )(GLfloat u, GLfloat v);
+void ( * qglEvalCoord2fv )(const GLfloat *u);
+void ( * qglEvalMesh1 )(GLenum mode, GLint i1, GLint i2);
+void ( * qglEvalMesh2 )(GLenum mode, GLint i1, GLint i2, GLint j1, GLint j2);
+void ( * qglEvalPoint1 )(GLint i);
+void ( * qglEvalPoint2 )(GLint i, GLint j);
+void ( * qglFeedbackBuffer )(GLsizei size, GLenum type, GLfloat *buffer);
+void ( * qglFinish )(void);
+void ( * qglFlush )(void);
+void ( * qglFlushShadow )(void);
+void ( * qglFogf )(GLenum pname, GLfloat param);
+void ( * qglFogfv )(GLenum pname, const GLfloat *params);
+void ( * qglFogi )(GLenum pname, GLint param);
+void ( * qglFogiv )(GLenum pname, const GLint *params);
+void ( * qglFrontFace )(GLenum mode);
+void ( * qglFrustum )(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar);
+GLuint ( * qglGenLists )(GLsizei range);
+void ( * qglGenTextures )(GLsizei n, GLuint *textures);
+void ( * qglGetBooleanv )(GLenum pname, GLboolean *params);
+void ( * qglGetClipPlane )(GLenum plane, GLdouble *equation);
+void ( * qglGetDoublev )(GLenum pname, GLdouble *params);
+GLenum ( * qglGetError )(void);
+void ( * qglGetFloatv )(GLenum pname, GLfloat *params);
+void ( * qglGetIntegerv )(GLenum pname, GLint *params);
+void ( * qglGetLightfv )(GLenum light, GLenum pname, GLfloat *params);
+void ( * qglGetLightiv )(GLenum light, GLenum pname, GLint *params);
+void ( * qglGetMapdv )(GLenum target, GLenum query, GLdouble *v);
+void ( * qglGetMapfv )(GLenum target, GLenum query, GLfloat *v);
+void ( * qglGetMapiv )(GLenum target, GLenum query, GLint *v);
+void ( * qglGetMaterialfv )(GLenum face, GLenum pname, GLfloat *params);
+void ( * qglGetMaterialiv )(GLenum face, GLenum pname, GLint *params);
+void ( * qglGetPixelMapfv )(GLenum gmap, GLfloat *values);
+void ( * qglGetPixelMapuiv )(GLenum gmap, GLuint *values);
+void ( * qglGetPixelMapusv )(GLenum gmap, GLushort *values);
+void ( * qglGetPointerv )(GLenum pname, GLvoid* *params);
+void ( * qglGetPolygonStipple )(GLubyte *mask);
+const GLubyte * ( * qglGetString )(GLenum name);
+void ( * qglGetTexEnvfv )(GLenum target, GLenum pname, GLfloat *params);
+void ( * qglGetTexEnviv )(GLenum target, GLenum pname, GLint *params);
+void ( * qglGetTexGendv )(GLenum coord, GLenum pname, GLdouble *params);
+void ( * qglGetTexGenfv )(GLenum coord, GLenum pname, GLfloat *params);
+void ( * qglGetTexGeniv )(GLenum coord, GLenum pname, GLint *params);
+void ( * qglGetTexImage )(GLenum target, GLint level, GLenum format, GLenum type, GLvoid *pixels);
+void ( * qglGetTexLevelParameterfv )(GLenum target, GLint level, GLenum pname, GLfloat *params);
+void ( * qglGetTexLevelParameteriv )(GLenum target, GLint level, GLenum pname, GLint *params);
+void ( * qglGetTexParameterfv )(GLenum target, GLenum pname, GLfloat *params);
+void ( * qglGetTexParameteriv )(GLenum target, GLenum pname, GLint *params);
+void ( * qglHint )(GLenum target, GLenum mode);
+void ( * qglIndexedTriToStrip )(GLsizei count, const GLushort *indices);
+void ( * qglIndexMask )(GLuint mask);
+void ( * qglIndexPointer )(GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( * qglIndexd )(GLdouble c);
+void ( * qglIndexdv )(const GLdouble *c);
+void ( * qglIndexf )(GLfloat c);
+void ( * qglIndexfv )(const GLfloat *c);
+void ( * qglIndexi )(GLint c);
+void ( * qglIndexiv )(const GLint *c);
+void ( * qglIndexs )(GLshort c);
+void ( * qglIndexsv )(const GLshort *c);
+void ( * qglIndexub )(GLubyte c);
+void ( * qglIndexubv )(const GLubyte *c);
+void ( * qglInitNames )(void);
+void ( * qglInterleavedArrays )(GLenum format, GLsizei stride, const GLvoid *pointer);
+GLboolean ( * qglIsEnabled )(GLenum cap);
+GLboolean ( * qglIsList )(GLuint lnum);
+GLboolean ( * qglIsTexture )(GLuint texture);
+void ( * qglLightModelf )(GLenum pname, GLfloat param);
+void ( * qglLightModelfv )(GLenum pname, const GLfloat *params);
+void ( * qglLightModeli )(GLenum pname, GLint param);
+void ( * qglLightModeliv )(GLenum pname, const GLint *params);
+void ( * qglLightf )(GLenum light, GLenum pname, GLfloat param);
+void ( * qglLightfv )(GLenum light, GLenum pname, const GLfloat *params);
+void ( * qglLighti )(GLenum light, GLenum pname, GLint param);
+void ( * qglLightiv )(GLenum light, GLenum pname, const GLint *params);
+void ( * qglLineStipple )(GLint factor, GLushort pattern);
+void ( * qglLineWidth )(GLfloat width);
+void ( * qglListBase )(GLuint base);
+void ( * qglLoadIdentity )(void);
+void ( * qglLoadMatrixd )(const GLdouble *m);
+void ( * qglLoadMatrixf )(const GLfloat *m);
+void ( * qglLoadName )(GLuint name);
+void ( * qglLogicOp )(GLenum opcode);
+void ( * qglMap1d )(GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble *points);
+void ( * qglMap1f )(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat *points);
+void ( * qglMap2d )(GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, const GLdouble *points);
+void ( * qglMap2f )(GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, const GLfloat *points);
+void ( * qglMapGrid1d )(GLint un, GLdouble u1, GLdouble u2);
+void ( * qglMapGrid1f )(GLint un, GLfloat u1, GLfloat u2);
+void ( * qglMapGrid2d )(GLint un, GLdouble u1, GLdouble u2, GLint vn, GLdouble v1, GLdouble v2);
+void ( * qglMapGrid2f )(GLint un, GLfloat u1, GLfloat u2, GLint vn, GLfloat v1, GLfloat v2);
+void ( * qglMaterialf )(GLenum face, GLenum pname, GLfloat param);
+void ( * qglMaterialfv )(GLenum face, GLenum pname, const GLfloat *params);
+void ( * qglMateriali )(GLenum face, GLenum pname, GLint param);
+void ( * qglMaterialiv )(GLenum face, GLenum pname, const GLint *params);
+void ( * qglMatrixMode )(GLenum mode);
+void ( * qglMultMatrixd )(const GLdouble *m);
+void ( * qglMultMatrixf )(const GLfloat *m);
+void ( * qglNewList )(GLuint lnum, GLenum mode);
+void ( * qglNormal3b )(GLbyte nx, GLbyte ny, GLbyte nz);
+void ( * qglNormal3bv )(const GLbyte *v);
+void ( * qglNormal3d )(GLdouble nx, GLdouble ny, GLdouble nz);
+void ( * qglNormal3dv )(const GLdouble *v);
+void ( * qglNormal3f )(GLfloat nx, GLfloat ny, GLfloat nz);
+void ( * qglNormal3fv )(const GLfloat *v);
+void ( * qglNormal3i )(GLint nx, GLint ny, GLint nz);
+void ( * qglNormal3iv )(const GLint *v);
+void ( * qglNormal3s )(GLshort nx, GLshort ny, GLshort nz);
+void ( * qglNormal3sv )(const GLshort *v);
+void ( * qglNormalPointer )(GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( * qglOrtho )(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar);
+void ( * qglPassThrough )(GLfloat token);
+void ( * qglPixelMapfv )(GLenum gmap, GLsizei mapsize, const GLfloat *values);
+void ( * qglPixelMapuiv )(GLenum gmap, GLsizei mapsize, const GLuint *values);
+void ( * qglPixelMapusv )(GLenum gmap, GLsizei mapsize, const GLushort *values);
+void ( * qglPixelStoref )(GLenum pname, GLfloat param);
+void ( * qglPixelStorei )(GLenum pname, GLint param);
+void ( * qglPixelTransferf )(GLenum pname, GLfloat param);
+void ( * qglPixelTransferi )(GLenum pname, GLint param);
+void ( * qglPixelZoom )(GLfloat xfactor, GLfloat yfactor);
+void ( * qglPointSize )(GLfloat size);
+void ( * qglPolygonMode )(GLenum face, GLenum mode);
+void ( * qglPolygonOffset )(GLfloat factor, GLfloat units);
+void ( * qglPolygonStipple )(const GLubyte *mask);
+void ( * qglPopAttrib )(void);
+void ( * qglPopClientAttrib )(void);
+void ( * qglPopMatrix )(void);
+void ( * qglPopName )(void);
+void ( * qglPrioritizeTextures )(GLsizei n, const GLuint *textures, const GLclampf *priorities);
+void ( * qglPushAttrib )(GLbitfield mask);
+void ( * qglPushClientAttrib )(GLbitfield mask);
+void ( * qglPushMatrix )(void);
+void ( * qglPushName )(GLuint name);
+void ( * qglRasterPos2d )(GLdouble x, GLdouble y);
+void ( * qglRasterPos2dv )(const GLdouble *v);
+void ( * qglRasterPos2f )(GLfloat x, GLfloat y);
+void ( * qglRasterPos2fv )(const GLfloat *v);
+void ( * qglRasterPos2i )(GLint x, GLint y);
+void ( * qglRasterPos2iv )(const GLint *v);
+void ( * qglRasterPos2s )(GLshort x, GLshort y);
+void ( * qglRasterPos2sv )(const GLshort *v);
+void ( * qglRasterPos3d )(GLdouble x, GLdouble y, GLdouble z);
+void ( * qglRasterPos3dv )(const GLdouble *v);
+void ( * qglRasterPos3f )(GLfloat x, GLfloat y, GLfloat z);
+void ( * qglRasterPos3fv )(const GLfloat *v);
+void ( * qglRasterPos3i )(GLint x, GLint y, GLint z);
+void ( * qglRasterPos3iv )(const GLint *v);
+void ( * qglRasterPos3s )(GLshort x, GLshort y, GLshort z);
+void ( * qglRasterPos3sv )(const GLshort *v);
+void ( * qglRasterPos4d )(GLdouble x, GLdouble y, GLdouble z, GLdouble w);
+void ( * qglRasterPos4dv )(const GLdouble *v);
+void ( * qglRasterPos4f )(GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+void ( * qglRasterPos4fv )(const GLfloat *v);
+void ( * qglRasterPos4i )(GLint x, GLint y, GLint z, GLint w);
+void ( * qglRasterPos4iv )(const GLint *v);
+void ( * qglRasterPos4s )(GLshort x, GLshort y, GLshort z, GLshort w);
+void ( * qglRasterPos4sv )(const GLshort *v);
+void ( * qglReadBuffer )(GLenum mode);
+void ( * qglReadPixels )(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLsizei twidth, GLsizei theight, GLvoid *pixels);
+void ( * qglCopyBackBufferToTexEXT )(float width, float height, float u1, float v1, float u2, float v2);
+void ( * qglCopyBackBufferToTex )(void);
+void ( * qglRectd )(GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2);
+void ( * qglRectdv )(const GLdouble *v1, const GLdouble *v2);
+void ( * qglRectf )(GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2);
+void ( * qglRectfv )(const GLfloat *v1, const GLfloat *v2);
+void ( * qglRecti )(GLint x1, GLint y1, GLint x2, GLint y2);
+void ( * qglRectiv )(const GLint *v1, const GLint *v2);
+void ( * qglRects )(GLshort x1, GLshort y1, GLshort x2, GLshort y2);
+void ( * qglRectsv )(const GLshort *v1, const GLshort *v2);
+GLint ( * qglRenderMode )(GLenum mode);
+void ( * qglRotated )(GLdouble angle, GLdouble x, GLdouble y, GLdouble z);
+void ( * qglRotatef )(GLfloat angle, GLfloat x, GLfloat y, GLfloat z);
+void ( * qglScaled )(GLdouble x, GLdouble y, GLdouble z);
+void ( * qglScalef )(GLfloat x, GLfloat y, GLfloat z);
+void ( * qglScissor )(GLint x, GLint y, GLsizei width, GLsizei height);
+void ( * qglSelectBuffer )(GLsizei size, GLuint *buffer);
+void ( * qglShadeModel )(GLenum mode);
+void ( * qglStencilFunc )(GLenum func, GLint ref, GLuint mask);
+void ( * qglStencilMask )(GLuint mask);
+void ( * qglStencilOp )(GLenum fail, GLenum zfail, GLenum zpass);
+void ( * qglTexCoord1d )(GLdouble s);
+void ( * qglTexCoord1dv )(const GLdouble *v);
+void ( * qglTexCoord1f )(GLfloat s);
+void ( * qglTexCoord1fv )(const GLfloat *v);
+void ( * qglTexCoord1i )(GLint s);
+void ( * qglTexCoord1iv )(const GLint *v);
+void ( * qglTexCoord1s )(GLshort s);
+void ( * qglTexCoord1sv )(const GLshort *v);
+void ( * qglTexCoord2d )(GLdouble s, GLdouble t);
+void ( * qglTexCoord2dv )(const GLdouble *v);
+void ( * qglTexCoord2f )(GLfloat s, GLfloat t);
+void ( * qglTexCoord2fv )(const GLfloat *v);
+void ( * qglTexCoord2i )(GLint s, GLint t);
+void ( * qglTexCoord2iv )(const GLint *v);
+void ( * qglTexCoord2s )(GLshort s, GLshort t);
+void ( * qglTexCoord2sv )(const GLshort *v);
+void ( * qglTexCoord3d )(GLdouble s, GLdouble t, GLdouble r);
+void ( * qglTexCoord3dv )(const GLdouble *v);
+void ( * qglTexCoord3f )(GLfloat s, GLfloat t, GLfloat r);
+void ( * qglTexCoord3fv )(const GLfloat *v);
+void ( * qglTexCoord3i )(GLint s, GLint t, GLint r);
+void ( * qglTexCoord3iv )(const GLint *v);
+void ( * qglTexCoord3s )(GLshort s, GLshort t, GLshort r);
+void ( * qglTexCoord3sv )(const GLshort *v);
+void ( * qglTexCoord4d )(GLdouble s, GLdouble t, GLdouble r, GLdouble q);
+void ( * qglTexCoord4dv )(const GLdouble *v);
+void ( * qglTexCoord4f )(GLfloat s, GLfloat t, GLfloat r, GLfloat q);
+void ( * qglTexCoord4fv )(const GLfloat *v);
+void ( * qglTexCoord4i )(GLint s, GLint t, GLint r, GLint q);
+void ( * qglTexCoord4iv )(const GLint *v);
+void ( * qglTexCoord4s )(GLshort s, GLshort t, GLshort r, GLshort q);
+void ( * qglTexCoord4sv )(const GLshort *v);
+void ( * qglTexCoordPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( * qglTexEnvf )(GLenum target, GLenum pname, GLfloat param);
+void ( * qglTexEnvfv )(GLenum target, GLenum pname, const GLfloat *params);
+void ( * qglTexEnvi )(GLenum target, GLenum pname, GLint param);
+void ( * qglTexEnviv )(GLenum target, GLenum pname, const GLint *params);
+void ( * qglTexGend )(GLenum coord, GLenum pname, GLdouble param);
+void ( * qglTexGendv )(GLenum coord, GLenum pname, const GLdouble *params);
+void ( * qglTexGenf )(GLenum coord, GLenum pname, GLfloat param);
+void ( * qglTexGenfv )(GLenum coord, GLenum pname, const GLfloat *params);
+void ( * qglTexGeni )(GLenum coord, GLenum pname, GLint param);
+void ( * qglTexGeniv )(GLenum coord, GLenum pname, const GLint *params);
+void ( * qglTexImage1D )(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+void ( * qglTexImage2D )(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+void ( * qglTexImage2DEXT )(GLenum target, GLint level, GLint numlevels, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels);
+void ( * qglTexParameterf )(GLenum target, GLenum pname, GLfloat param);
+void ( * qglTexParameterfv )(GLenum target, GLenum pname, const GLfloat *params);
+void ( * qglTexParameteri )(GLenum target, GLenum pname, GLint param);
+void ( * qglTexParameteriv )(GLenum target, GLenum pname, const GLint *params);
+void ( * qglTexSubImage1D )(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const GLvoid *pixels);
+void ( * qglTexSubImage2D )(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels);
+void ( * qglTranslated )(GLdouble x, GLdouble y, GLdouble z);
+void ( * qglTranslatef )(GLfloat x, GLfloat y, GLfloat z);
+void ( * qglVertex2d )(GLdouble x, GLdouble y);
+void ( * qglVertex2dv )(const GLdouble *v);
+void ( * qglVertex2f )(GLfloat x, GLfloat y);
+void ( * qglVertex2fv )(const GLfloat *v);
+void ( * qglVertex2i )(GLint x, GLint y);
+void ( * qglVertex2iv )(const GLint *v);
+void ( * qglVertex2s )(GLshort x, GLshort y);
+void ( * qglVertex2sv )(const GLshort *v);
+void ( * qglVertex3d )(GLdouble x, GLdouble y, GLdouble z);
+void ( * qglVertex3dv )(const GLdouble *v);
+void ( * qglVertex3f )(GLfloat x, GLfloat y, GLfloat z);
+void ( * qglVertex3fv )(const GLfloat *v);
+void ( * qglVertex3i )(GLint x, GLint y, GLint z);
+void ( * qglVertex3iv )(const GLint *v);
+void ( * qglVertex3s )(GLshort x, GLshort y, GLshort z);
+void ( * qglVertex3sv )(const GLshort *v);
+void ( * qglVertex4d )(GLdouble x, GLdouble y, GLdouble z, GLdouble w);
+void ( * qglVertex4dv )(const GLdouble *v);
+void ( * qglVertex4f )(GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+void ( * qglVertex4fv )(const GLfloat *v);
+void ( * qglVertex4i )(GLint x, GLint y, GLint z, GLint w);
+void ( * qglVertex4iv )(const GLint *v);
+void ( * qglVertex4s )(GLshort x, GLshort y, GLshort z, GLshort w);
+void ( * qglVertex4sv )(const GLshort *v);
+void ( * qglVertexPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
+void ( * qglViewport )(GLint x, GLint y, GLsizei width, GLsizei height);
+
+void ( * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
+void ( * qglActiveTextureARB )( GLenum texture );
+void ( * qglClientActiveTextureARB )( GLenum texture );
+void ( * qglLockArraysEXT )( GLint, GLint );
+void ( * qglUnlockArraysEXT )( void );
+
+static void _d3d_check(HRESULT err, const char* func)
 {
-    if (pdwPixelShader) *pdwPixelShader = 0;
-    return false;
+	if (err != D3D_OK)
+	{
+		MEMORYSTATUS status;
+		GlobalMemoryStatus(&status);
+		Sys_Print(va("%s returned %d!  Memfree=%d\n", func, err, status.dwAvailPhys));
+	}
 }
 
-/* Engine-side stragglers from the original win32 layer.  Not touched in
- * Plan-B; provided so the engine still links. */
+#ifdef _WINDOWS
+static bool surfaceToBMP(LPDIRECT3DDEVICE8 pd3dDevice, LPDIRECT3DSURFACE8 lpSurface, const char *fname)
+{
+	DWORD outpixel;
+	BITMAPFILEHEADER fh;
+	BITMAPINFOHEADER bi;
+	int outbyte, BufferIndex, width, height, pitch;
+	char *WriteBuffer;
+	FILE *file;
+	HRESULT Error;
+	IDirect3DSurface8 *pTempSurf = NULL;
+
+	// Get the surface description first
+	D3DSURFACE_DESC ddsd;
+	D3DLOCKED_RECT lrSurf;
+	
+	Error = lpSurface->GetDesc(&ddsd);
+	// This writes out 32 bit values, so whatever surface format we were passed in,
+	// copy it into a 32 bit surface
+	Error = pd3dDevice->CreateImageSurface(ddsd.Width, ddsd.Height, D3DFMT_A8R8G8B8, &pTempSurf);
+
+	Error = D3DXLoadSurfaceFromSurface(pTempSurf, NULL, NULL, lpSurface, NULL, NULL, D3DX_DEFAULT, 0);
+
+	file = fopen(fname, "wb");
+	if(!file)
+		return FALSE;
+
+	Error = pTempSurf->LockRect(&lrSurf, NULL, 0);
+
+	BufferIndex = 0;
+	width = ddsd.Width;
+	height = ddsd.Height;
+	pitch = lrSurf.Pitch;
+	WriteBuffer = new char[width * height * 3];
+
+	// Setup the file headers
+	((char*)&(fh.bfType))[0] = 'B';
+	((char*)&(fh.bfType))[1] = 'M';
+	fh.bfSize = (long)(sizeof(BITMAPINFOHEADER) + sizeof(BITMAPFILEHEADER) + width * height * 3);
+	fh.bfReserved1 = 0;
+	fh.bfReserved2 = 0;
+	fh.bfOffBits = sizeof(BITMAPINFOHEADER) + sizeof(BITMAPFILEHEADER);
+	bi.biSize = sizeof(BITMAPINFOHEADER);
+	bi.biWidth = width;
+	bi.biHeight = height;
+	bi.biPlanes = 1;
+	bi.biBitCount = 24;
+	bi.biCompression = BI_RGB;
+	bi.biSizeImage = 0;
+	bi.biXPelsPerMeter = 10000;
+	bi.biYPelsPerMeter = 10000;
+	bi.biClrUsed = 0;
+	bi.biClrImportant = 0;
+
+	fwrite(&fh, sizeof(BITMAPFILEHEADER), 1, file);
+	fwrite(&bi, sizeof(BITMAPINFOHEADER), 1, file);
+
+	char *Bitmap_in = (char*)lrSurf.pBits;
+
+	for(int y = height - 1; y >= 0; y--) 
+	{
+		for(int x = 0; x < width; x++)
+		{
+			outpixel = *((DWORD *)(Bitmap_in + x * 4 + y * pitch)); //Load a word
+
+			//Load up the Blue component and output it
+			outbyte = (((outpixel)&0x000000ff));//blue
+			WriteBuffer [BufferIndex++] = outbyte;
+
+			//Load up the green component and output it 
+			outbyte = (((outpixel>>8)&0x000000ff)); 
+			WriteBuffer [BufferIndex++] = outbyte;
+
+			//Load up the red component and output it 
+			outbyte = (((outpixel>>16)&0x000000ff));
+			WriteBuffer [BufferIndex++] = outbyte;
+		}
+	}
+
+	//At this point the buffer should be full, so just write it out
+	fwrite(WriteBuffer, BufferIndex, 1, file);
+
+	//Now unlock the surface and we're done
+	pTempSurf->UnlockRect();
+	pTempSurf->Release();
+
+	fclose(file);
+
+	delete [] WriteBuffer;
+	return true;
+}
+#endif
+
+/*
+=================
+_fixupScreenCoords
+
+Clamp coords to screen dimensions and fix Y direction.
+=================
+*/
+static void _fixupScreenCoords(GLint& x, GLint& y, GLsizei& width, GLsizei& height)
+{
+	if (x < 0) x = 0;
+	else if (x > glConfig.vidWidth) x = glConfig.vidWidth;
+	if (y < 0) y = 0;
+	else if (y > glConfig.vidHeight) y = glConfig.vidHeight;
+	
+	if (width < 0) width = 0;
+	else if (x + width > glConfig.vidWidth) width = glConfig.vidWidth - x;
+	if (height < 0) height = 0;
+	else if (y + height > glConfig.vidHeight) height = glConfig.vidHeight - y;
+
+	// GL and DX disagree on the direction of Y
+	y = glConfig.vidHeight - (y + height);
+}
+
+
+/*
+=================
+_convertCompare
+
+Convert GL compare function to DX function.
+=================
+*/
+static D3DCMPFUNC _convertCompare(GLenum func)
+{
+	switch (func)
+	{
+	case GL_NEVER: return D3DCMP_NEVER;
+	case GL_LESS: return D3DCMP_LESS;
+	case GL_EQUAL: return D3DCMP_EQUAL;
+	case GL_LEQUAL: return D3DCMP_LESSEQUAL;
+	case GL_GREATER: return D3DCMP_GREATER;
+	case GL_NOTEQUAL: return D3DCMP_NOTEQUAL;
+	case GL_GEQUAL: return D3DCMP_GREATEREQUAL;
+	default: case GL_ALWAYS: return D3DCMP_ALWAYS;
+	}
+}
+
+
+/*
+=================
+_convertBlendFactor
+
+Convert GL blend mode to DX blend mode.
+=================
+*/
+static D3DBLEND _convertBlendFactor(GLenum factor)
+{
+	switch (factor)
+	{
+	case GL_ZERO: return D3DBLEND_ZERO;
+	default: case GL_ONE: return D3DBLEND_ONE;
+	case GL_SRC_COLOR: return D3DBLEND_SRCCOLOR;
+	case GL_ONE_MINUS_SRC_COLOR: return D3DBLEND_INVSRCCOLOR;
+	case GL_SRC_ALPHA: return D3DBLEND_SRCALPHA;
+	case GL_ONE_MINUS_SRC_ALPHA: return D3DBLEND_INVSRCALPHA;
+	case GL_DST_COLOR: return D3DBLEND_DESTCOLOR;
+	case GL_ONE_MINUS_DST_COLOR: return D3DBLEND_INVDESTCOLOR;
+	case GL_DST_ALPHA: return D3DBLEND_DESTALPHA;
+	case GL_ONE_MINUS_DST_ALPHA: return D3DBLEND_INVDESTALPHA;
+	case GL_SRC_ALPHA_SATURATE: return D3DBLEND_SRCALPHASAT;
+	}
+}
+
+
+/*
+=================
+_convertPrimMode
+
+Convert GL primitive mode to DX primitive mode.
+=================
+*/
+static D3DPRIMITIVETYPE _convertPrimMode(GLenum mode)
+{
+	switch (mode)
+	{
+	case GL_POINTS: return D3DPT_POINTLIST;
+	case GL_LINES: return D3DPT_LINELIST;
+	case GL_LINE_STRIP: return D3DPT_LINESTRIP;
+	case GL_TRIANGLES: return D3DPT_TRIANGLELIST;
+	case GL_TRIANGLE_STRIP: return D3DPT_TRIANGLESTRIP;
+	case GL_TRIANGLE_FAN: return D3DPT_TRIANGLEFAN;
+#ifdef _XBOX
+	case GL_QUADS: return D3DPT_QUADLIST;
+	case GL_QUAD_STRIP: return D3DPT_QUADSTRIP;
+#else
+	case GL_QUADS: return D3DPT_TRIANGLELIST;
+	case GL_QUAD_STRIP: return D3DPT_TRIANGLESTRIP;
+#endif
+	case GL_POLYGON: return D3DPT_TRIANGLEFAN;
+	default: assert(0); return D3DPT_TRIANGLEFAN;
+	}
+}
+
+
+/*
+=================
+_updateDrawStride
+
+Update the stride of the draw array based on
+the number of vertex attributes.  The stride
+is in DWORDs.
+=================
+*/
+static void _updateDrawStride(GLint normal, GLint tex0, GLint tex1)
+{
+	glw_state->drawStride = 4;
+	if (normal) glw_state->drawStride += 3;
+	if (tex0) glw_state->drawStride += 2;
+	if (tex1) glw_state->drawStride += 2;
+}
+
+
+/*
+=================
+_updateShader
+
+Set the vertex shader based on the number
+of texture coordinates.
+=================
+*/
+#ifdef _XBOX
+static void JAMP_RecordShaderUpdate(qboolean changed);
+static void JAMP_InvalidateShaderCache(void);
+static void JAMP_InvalidateShaderConstantCache(void);
+static void JAMP_SetVertexShaderConstantCached(DWORD reg, const void *data, DWORD count);
+static void JAMP_SetPixelShaderConstantCached(DWORD reg, const void *data, DWORD count);
+static void JAMP_SetPixelShaderCached(DWORD shader);
+static void JAMP_SetCapCache(GLenum cap, bool flag);
+static qboolean JAMP_GetCapCache(GLenum cap, GLboolean *flag);
+static void JAMP_InvalidateCapCache(void);
+static void JAMP_SetRenderStateCached(DWORD type, DWORD value);
+static void JAMP_InvalidateRenderStateCache(void);
+static void JAMP_InvalidateRenderStateSlot(DWORD type);
+static void JAMP_SetTransformCached(DWORD state, const D3DMATRIX *matrix);
+static void JAMP_InvalidateTransformCache(void);
+static void JAMP_SetMaterialCached(const D3DMATERIAL8 *material);
+static void JAMP_SetLightCached(DWORD light, const D3DLIGHT8 *lightDef);
+static void JAMP_LightEnableCached(DWORD light, BOOL enable);
+static void JAMP_InvalidateMaterialLightCache(void);
+#endif
+
+static void _updateShader(bool normal, bool tex0, bool tex1)//, bool tex2, bool tex3)
+{
+	DWORD mask = D3DFVF_XYZ;
+	if (normal) mask |= D3DFVF_NORMAL;
+	mask |= D3DFVF_DIFFUSE;
+	if (tex0 && !tex1) mask |= D3DFVF_TEX1;
+	else if (tex1) mask |= D3DFVF_TEX2;
+
+#ifdef _XBOX
+	const qboolean changed = (mask != glw_state->shaderMask) ? qtrue : qfalse;
+	if (!changed)
+	{
+		JAMP_RecordShaderUpdate(qfalse);
+		return;
+	}
+#endif
+	glw_state->device->SetVertexShader(mask);
+	glw_state->shaderMask = mask;
+#ifdef _XBOX
+	JAMP_InvalidateShaderConstantCache();
+	JAMP_RecordShaderUpdate(qtrue);
+#endif
+}
+
+
+/*
+=================
+_getCurrentTexture
+
+Get the texture information for the currently
+bound texture at a stage.
+=================
+*/
+static glwstate_t::TextureInfo* _getCurrentTexture(int stage)
+{
+	glwstate_t::texturexlat_t::iterator i = glw_state->textureXlat.find(
+		glw_state->currentTexture[stage]);
+
+	if (i == glw_state->textureXlat.end()) return NULL;
+
+	glwstate_t::TextureInfo *info = &i->second;
+	if (!info->inMemory)
+	{
+		/* SP uses one static texture pool; no skin-texture fetch path. */
+	}
+	return info;
+}
+
+#ifdef _XBOX
+static int s_jampTexStageSets;
+static int s_jampTexStageSkips;
+static int s_jampTexStageInvalidates;
+static int s_jampTextureBindSets;
+static int s_jampTextureBindSkips;
+static int s_jampTextureBindInvalidates;
+static qboolean s_jampRenderMetricActive;
+static int s_jampRenderMetricFrame;
+
+#ifndef JAMP_XBOX_RENDER_METRICS
+#define JAMP_XBOX_RENDER_METRICS SP_XBOX_VERBOSE_RUNTIME_LOGS
+#endif
+
+#if JAMP_XBOX_RENDER_METRICS
+#define JAMP_METRIC_INC(x) do { if (s_jampRenderMetricActive) { (x)++; } } while (0)
+#define JAMP_METRIC_ADD(x, v) do { if (s_jampRenderMetricActive) { (x) += (v); } } while (0)
+#else
+#define JAMP_METRIC_INC(x) do { } while (0)
+#define JAMP_METRIC_ADD(x, v) do { } while (0)
+#endif
+
+#define JAMP_XBOX_D3D_STATE_CACHE 1
+#define JAMP_XBOX_TEXTURE_STAGE_STATE_CACHE 1
+#define JAMP_MAX_D3D_TEXTURE_STAGES 4
+#define JAMP_MAX_VERTEX_SHADER_CONSTANTS 96
+#define JAMP_MAX_PIXEL_SHADER_CONSTANTS 4
+
+static IDirect3DBaseTexture8 *s_jampTextureBindCache[JAMP_MAX_D3D_TEXTURE_STAGES];
+static GLboolean s_jampTextureBindCacheValid[JAMP_MAX_D3D_TEXTURE_STAGES];
+
+static void JAMP_SetTextureCached(int stage, IDirect3DBaseTexture8 *texture)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetTexture(stage, texture);
+	JAMP_METRIC_INC(s_jampTextureBindSets);
+	return;
+#else
+	if (stage < 0 || stage >= JAMP_MAX_D3D_TEXTURE_STAGES)
+	{
+		glw_state->device->SetTexture(stage, texture);
+		JAMP_METRIC_INC(s_jampTextureBindSets);
+		return;
+	}
+
+	if (s_jampTextureBindCacheValid[stage] && s_jampTextureBindCache[stage] == texture)
+	{
+		JAMP_METRIC_INC(s_jampTextureBindSkips);
+		return;
+	}
+
+	glw_state->device->SetTexture(stage, texture);
+	s_jampTextureBindCache[stage] = texture;
+	s_jampTextureBindCacheValid[stage] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampTextureBindSets);
+#endif
+}
+
+static void JAMP_InvalidateTextureBindCache(int stage)
+{
+	if (stage < 0 || stage >= JAMP_MAX_D3D_TEXTURE_STAGES)
+	{
+		return;
+	}
+	s_jampTextureBindCacheValid[stage] = GL_FALSE;
+	JAMP_METRIC_INC(s_jampTextureBindInvalidates);
+}
+
+static int JAMP_TextureStageStateSlot(DWORD type)
+{
+	switch (type)
+	{
+	case D3DTSS_COLOROP: return 0;
+	case D3DTSS_COLORARG1: return 1;
+	case D3DTSS_COLORARG2: return 2;
+	case D3DTSS_ALPHAOP: return 3;
+	case D3DTSS_ALPHAARG1: return 4;
+	case D3DTSS_ALPHAARG2: return 5;
+	case D3DTSS_MAXANISOTROPY: return 6;
+	case D3DTSS_MINFILTER: return 7;
+	case D3DTSS_MIPFILTER: return 8;
+	case D3DTSS_MAGFILTER: return 9;
+	case D3DTSS_ADDRESSU: return 10;
+	case D3DTSS_ADDRESSV: return 11;
+	case D3DTSS_TEXCOORDINDEX: return 12;
+	case D3DTSS_TEXTURETRANSFORMFLAGS: return 13;
+	case D3DTSS_ADDRESSW: return 14;
+	case D3DTSS_ALPHAKILL: return 15;
+	default: return -1;
+	}
+}
+
+static DWORD s_jampTexStageCache[JAMP_MAX_D3D_TEXTURE_STAGES][16];
+static GLboolean s_jampTexStageCacheValid[JAMP_MAX_D3D_TEXTURE_STAGES][16];
+
+static void JAMP_SetTextureStageStateCached(int stage, DWORD type, DWORD value)
+{
+#if !JAMP_XBOX_TEXTURE_STAGE_STATE_CACHE
+	glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
+	JAMP_METRIC_INC(s_jampTexStageSets);
+	return;
+#else
+	const int slot = JAMP_TextureStageStateSlot(type);
+	if (stage < 0 || stage >= JAMP_MAX_D3D_TEXTURE_STAGES || slot < 0)
+	{
+		glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
+		JAMP_METRIC_INC(s_jampTexStageSets);
+		return;
+	}
+
+	if (s_jampTexStageCacheValid[stage][slot] && s_jampTexStageCache[stage][slot] == value)
+	{
+		JAMP_METRIC_INC(s_jampTexStageSkips);
+		return;
+	}
+
+	glw_state->device->SetTextureStageState(stage, (D3DTEXTURESTAGESTATETYPE)type, value);
+	s_jampTexStageCache[stage][slot] = value;
+	s_jampTexStageCacheValid[stage][slot] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampTexStageSets);
+#endif
+}
+
+static void JAMP_InvalidateTextureStageStateCache(int stage)
+{
+	if (stage < 0 || stage >= JAMP_MAX_D3D_TEXTURE_STAGES)
+	{
+		return;
+	}
+
+	memset(s_jampTexStageCacheValid[stage], 0, sizeof(s_jampTexStageCacheValid[stage]));
+	JAMP_METRIC_INC(s_jampTexStageInvalidates);
+}
+
+static void JAMP_MarkTextureStagesDirty(void)
+{
+	for (int stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage)
+	{
+		glw_state->textureStageDirty[stage] = true;
+	}
+
+	for (int stage = 0; stage < JAMP_MAX_D3D_TEXTURE_STAGES; ++stage)
+	{
+		JAMP_InvalidateTextureBindCache(stage);
+		JAMP_InvalidateTextureStageStateCache(stage);
+	}
+}
+#endif
+
+
+/*
+=================
+_updateTextures
+
+Setup texture stages with color operations, filters
+and wrapping modes as needed.
+=================
+*/
+static void _updateTextures(void)
+{
+	for (int t = 0; t < GLW_MAX_TEXTURE_STAGES; ++t)
+	{
+		if (glw_state->textureStageDirty[t])
+		{
+			glw_state->textureStageDirty[t] = false;
+
+			if (glw_state->textureStageEnable[t] && glw_state->currentTexture[t])
+			{
+				glwstate_t::TextureInfo* info = _getCurrentTexture(t);
+				if (!info) continue;
+
+#ifdef _XBOX
+				JAMP_SetTextureCached(t, info->mipmap);
+#else
+				glw_state->device->SetTexture(t, info->mipmap);
+#endif
+#ifdef _XBOX
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLOROP, glw_state->textureEnv[t]);
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLORARG1, 
+						D3DTA_TEXTURE);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLORARG2, 
+						D3DTA_CURRENT);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAOP, 
+						glw_state->textureEnv[t]);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAARG1, 
+						D3DTA_TEXTURE);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAARG2, 
+						D3DTA_CURRENT);
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MAXANISOTROPY, 
+					info->anisotropy);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MINFILTER, 
+					info->minFilter);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MIPFILTER, 
+					info->mipFilter);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_MAGFILTER, 
+					info->magFilter);
+
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ADDRESSU, 
+					info->wrapU);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ADDRESSV, 
+					info->wrapV);
+
+				JAMP_SetTextureStageStateCached( t, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2 );
+				JAMP_SetTextureStageStateCached(t, D3DTSS_TEXCOORDINDEX, t);
+#else
+				glw_state->device->SetTextureStageState(t, D3DTSS_COLOROP, glw_state->textureEnv[t]);
+
+				glw_state->device->SetTextureStageState(t, D3DTSS_COLORARG1, 
+						D3DTA_TEXTURE);
+				glw_state->device->SetTextureStageState(t, D3DTSS_COLORARG2, 
+						D3DTA_CURRENT);
+				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAOP, 
+						glw_state->textureEnv[t]);
+				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAARG1, 
+						D3DTA_TEXTURE);
+				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAARG2, 
+						D3DTA_CURRENT);
+
+				glw_state->device->SetTextureStageState(t, D3DTSS_MAXANISOTROPY, 
+					info->anisotropy);
+				glw_state->device->SetTextureStageState(t, D3DTSS_MINFILTER, 
+					info->minFilter);
+				glw_state->device->SetTextureStageState(t, D3DTSS_MIPFILTER, 
+					info->mipFilter);
+				glw_state->device->SetTextureStageState(t, D3DTSS_MAGFILTER, 
+					info->magFilter);
+
+				glw_state->device->SetTextureStageState(t, D3DTSS_ADDRESSU, 
+					info->wrapU);
+				glw_state->device->SetTextureStageState(t, D3DTSS_ADDRESSV, 
+					info->wrapV);
+
+				glw_state->device->SetTextureStageState(t, D3DTSS_TEXCOORDINDEX, t);
+
+				glw_state->device->SetTextureStageState( t, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2 );
+
+				/* The original Xbox source leaves the hardware environment-map
+				   coordinate path disabled; keep the non-Xbox path in the same
+				   retail shape so stale shader pass state cannot leak into D3D. */
+#endif
+			}
+			else
+			{
+#ifdef _XBOX
+				JAMP_SetTextureCached(t, NULL);
+#else
+				glw_state->device->SetTexture(t, NULL);
+#endif
+#ifdef _XBOX
+				JAMP_SetTextureStageStateCached(t, D3DTSS_COLOROP, D3DTOP_DISABLE);
+				JAMP_SetTextureStageStateCached(t, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+#else
+				glw_state->device->SetTextureStageState(t, D3DTSS_COLOROP, D3DTOP_DISABLE);
+				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+#endif
+			}
+		}
+	}
+}
+
+#ifdef _XBOX
+static int s_jampTransformSets;
+static int s_jampTransformSkips;
+static int s_jampTransformInvalidates;
+
+static int JAMP_TransformSlot(DWORD state)
+{
+	switch (state)
+	{
+	case D3DTS_PROJECTION: return 0;
+	case D3DTS_VIEW: return 1;
+	case D3DTS_TEXTURE0: return 2;
+	case D3DTS_TEXTURE1: return 3;
+	default: return -1;
+	}
+}
+
+static D3DMATRIX s_jampTransformCache[4];
+static GLboolean s_jampTransformCacheValid[4];
+
+static void JAMP_SetTransformCached(DWORD state, const D3DMATRIX *matrix)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetTransform((D3DTRANSFORMSTATETYPE)state, matrix);
+	JAMP_METRIC_INC(s_jampTransformSets);
+	return;
+#else
+	const int slot = JAMP_TransformSlot(state);
+	if (slot < 0)
+	{
+		glw_state->device->SetTransform((D3DTRANSFORMSTATETYPE)state, matrix);
+		JAMP_METRIC_INC(s_jampTransformSets);
+		return;
+	}
+
+	if (s_jampTransformCacheValid[slot] &&
+		memcmp(&s_jampTransformCache[slot], matrix, sizeof(D3DMATRIX)) == 0)
+	{
+		JAMP_METRIC_INC(s_jampTransformSkips);
+		return;
+	}
+
+	glw_state->device->SetTransform((D3DTRANSFORMSTATETYPE)state, matrix);
+	memcpy(&s_jampTransformCache[slot], matrix, sizeof(D3DMATRIX));
+	s_jampTransformCacheValid[slot] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampTransformSets);
+#endif
+}
+
+static void JAMP_InvalidateTransformCache(void)
+{
+	memset(s_jampTransformCacheValid, 0, sizeof(s_jampTransformCacheValid));
+	JAMP_METRIC_INC(s_jampTransformInvalidates);
+}
+
+static int s_jampMaterialSets;
+static int s_jampMaterialSkips;
+static int s_jampLightSets;
+static int s_jampLightSkips;
+static int s_jampLightEnableSets;
+static int s_jampLightEnableSkips;
+static int s_jampMaterialLightInvalidates;
+
+static D3DMATERIAL8 s_jampMaterialCache;
+static GLboolean s_jampMaterialCacheValid;
+static D3DLIGHT8 s_jampLightCache[8];
+static GLboolean s_jampLightCacheValid[8];
+static BOOL s_jampLightEnableCache[8];
+static GLboolean s_jampLightEnableCacheValid[8];
+
+static void JAMP_SetMaterialCached(const D3DMATERIAL8 *material)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetMaterial(material);
+	JAMP_METRIC_INC(s_jampMaterialSets);
+	return;
+#else
+	if (s_jampMaterialCacheValid &&
+		memcmp(&s_jampMaterialCache, material, sizeof(D3DMATERIAL8)) == 0)
+	{
+		JAMP_METRIC_INC(s_jampMaterialSkips);
+		return;
+	}
+
+	glw_state->device->SetMaterial(material);
+	memcpy(&s_jampMaterialCache, material, sizeof(D3DMATERIAL8));
+	s_jampMaterialCacheValid = GL_TRUE;
+	JAMP_METRIC_INC(s_jampMaterialSets);
+#endif
+}
+
+static void JAMP_SetLightCached(DWORD light, const D3DLIGHT8 *lightDef)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetLight(light, lightDef);
+	JAMP_METRIC_INC(s_jampLightSets);
+	return;
+#else
+	if (light >= 8)
+	{
+		glw_state->device->SetLight(light, lightDef);
+		JAMP_METRIC_INC(s_jampLightSets);
+		return;
+	}
+
+	if (s_jampLightCacheValid[light] &&
+		memcmp(&s_jampLightCache[light], lightDef, sizeof(D3DLIGHT8)) == 0)
+	{
+		JAMP_METRIC_INC(s_jampLightSkips);
+		return;
+	}
+
+	glw_state->device->SetLight(light, lightDef);
+	memcpy(&s_jampLightCache[light], lightDef, sizeof(D3DLIGHT8));
+	s_jampLightCacheValid[light] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampLightSets);
+#endif
+}
+
+static void JAMP_LightEnableCached(DWORD light, BOOL enable)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->LightEnable(light, enable);
+	JAMP_METRIC_INC(s_jampLightEnableSets);
+	return;
+#else
+	if (light >= 8)
+	{
+		glw_state->device->LightEnable(light, enable);
+		JAMP_METRIC_INC(s_jampLightEnableSets);
+		return;
+	}
+
+	if (s_jampLightEnableCacheValid[light] && s_jampLightEnableCache[light] == enable)
+	{
+		JAMP_METRIC_INC(s_jampLightEnableSkips);
+		return;
+	}
+
+	glw_state->device->LightEnable(light, enable);
+	s_jampLightEnableCache[light] = enable;
+	s_jampLightEnableCacheValid[light] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampLightEnableSets);
+#endif
+}
+
+static void JAMP_InvalidateMaterialLightCache(void)
+{
+	s_jampMaterialCacheValid = GL_FALSE;
+	memset(s_jampLightCacheValid, 0, sizeof(s_jampLightCacheValid));
+	memset(s_jampLightEnableCacheValid, 0, sizeof(s_jampLightEnableCacheValid));
+	JAMP_METRIC_INC(s_jampMaterialLightInvalidates);
+}
+
+static UINT s_jampStreamSource0Stride;
+static GLboolean s_jampStreamSource0Valid;
+
+static void JAMP_SetStreamSourceNullCached(UINT streamNumber, UINT stride)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetStreamSource(streamNumber, NULL, stride);
+	return;
+#else
+	if (streamNumber == 0 &&
+		s_jampStreamSource0Valid &&
+		s_jampStreamSource0Stride == stride)
+	{
+		return;
+	}
+
+	glw_state->device->SetStreamSource(streamNumber, NULL, stride);
+	if (streamNumber == 0)
+	{
+		s_jampStreamSource0Stride = stride;
+		s_jampStreamSource0Valid = GL_TRUE;
+	}
+#endif
+}
+
+static void JAMP_InvalidateStreamSourceCache(void)
+{
+	s_jampStreamSource0Valid = GL_FALSE;
+}
+
+static void JAMP_InvalidateFrameD3DCache(void)
+{
+	int stage;
+
+	JAMP_InvalidateRenderStateCache();
+	JAMP_InvalidateTransformCache();
+	JAMP_InvalidateMaterialLightCache();
+	JAMP_InvalidateShaderCache();
+	JAMP_InvalidateStreamSourceCache();
+	JAMP_InvalidateCapCache();
+
+	for (stage = 0; stage < JAMP_MAX_D3D_TEXTURE_STAGES; ++stage)
+	{
+		JAMP_InvalidateTextureBindCache(stage);
+		JAMP_InvalidateTextureStageStateCache(stage);
+	}
+}
+
+extern "C" void JAMP_InvalidateD3DStateAfterExternalWrite(void)
+{
+	int stage;
+	int matrixMode;
+
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	JAMP_InvalidateFrameD3DCache();
+
+	for (stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage)
+	{
+		glw_state->textureStageDirty[stage] = true;
+	}
+
+	for (matrixMode = 0; matrixMode < glwstate_t::Num_MatrixModes; ++matrixMode)
+	{
+		glw_state->matricesDirty[matrixMode] = true;
+	}
+}
+
+extern "C" void JAMP_SetRenderStateCachedForExternalWrite(DWORD type, DWORD value)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	JAMP_SetRenderStateCached(type, value);
+}
+
+extern "C" void JAMP_SetTextureCachedForExternalWrite(int stage, IDirect3DBaseTexture8 *texture)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	JAMP_SetTextureCached(stage, texture);
+}
+
+extern "C" void JAMP_SetTextureStageStateCachedForExternalWrite(int stage, DWORD type, DWORD value)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	JAMP_SetTextureStageStateCached(stage, type, value);
+}
+
+extern "C" void JAMP_SetTransformCachedForExternalWrite(DWORD state, const D3DMATRIX *matrix)
+{
+	if (!glw_state || !glw_state->device || !matrix)
+	{
+		return;
+	}
+
+	JAMP_SetTransformCached(state, matrix);
+}
+
+extern "C" void JAMP_SetVertexShaderCachedForExternalWrite(DWORD mask)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	if (glw_state->shaderMask == mask)
+	{
+		JAMP_RecordShaderUpdate(qfalse);
+		return;
+	}
+
+	glw_state->device->SetVertexShader(mask);
+	glw_state->shaderMask = mask;
+	JAMP_InvalidateShaderConstantCache();
+	JAMP_RecordShaderUpdate(qtrue);
+}
+
+extern "C" void JAMP_SetPixelShaderCachedForExternalWrite(DWORD shader)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	JAMP_SetPixelShaderCached(shader);
+}
+
+extern "C" void JAMP_SetVertexShaderConstantCachedForExternalWrite(DWORD reg, const void *data, DWORD count)
+{
+	if (!glw_state || !glw_state->device || !data)
+	{
+		return;
+	}
+
+	JAMP_SetVertexShaderConstantCached(reg, data, count);
+}
+
+extern "C" void JAMP_SetPixelShaderConstantCachedForExternalWrite(DWORD reg, const void *data, DWORD count)
+{
+	if (!glw_state || !glw_state->device || !data)
+	{
+		return;
+	}
+
+	JAMP_SetPixelShaderConstantCached(reg, data, count);
+}
+
+extern "C" void JAMP_MarkLogicalTextureStagesDirtyForExternalWrite(void)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	for (int stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage)
+	{
+		glw_state->textureStageDirty[stage] = true;
+	}
+
+	JAMP_InvalidateCapCache();
+}
+
+extern "C" void JAMP_MarkLogicalTextureStageDirtyForExternalWrite(int stage)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	if (stage < 0 || stage >= GLW_MAX_TEXTURE_STAGES)
+	{
+		return;
+	}
+
+	glw_state->textureStageDirty[stage] = true;
+	JAMP_InvalidateCapCache();
+}
+
+extern "C" void JAMP_SetRenderStateCachedForLightEffects(DWORD type, DWORD value)
+{
+	JAMP_SetRenderStateCachedForExternalWrite(type, value);
+}
+
+extern "C" void JAMP_SetTextureCachedForLightEffects(int stage, IDirect3DBaseTexture8 *texture)
+{
+	JAMP_SetTextureCachedForExternalWrite(stage, texture);
+}
+
+extern "C" void JAMP_SetTextureStageStateCachedForLightEffects(int stage, DWORD type, DWORD value)
+{
+	JAMP_SetTextureStageStateCachedForExternalWrite(stage, type, value);
+}
+
+extern "C" void JAMP_SetTransformCachedForLightEffects(DWORD state, const D3DMATRIX *matrix)
+{
+	JAMP_SetTransformCachedForExternalWrite(state, matrix);
+}
+
+extern "C" void JAMP_SetPixelShaderCachedForLightEffects(DWORD shader)
+{
+	JAMP_SetPixelShaderCachedForExternalWrite(shader);
+}
+
+extern "C" void JAMP_SetVertexShaderConstantCachedForLightEffects(DWORD reg, const void *data, DWORD count)
+{
+	JAMP_SetVertexShaderConstantCachedForExternalWrite(reg, data, count);
+}
+
+extern "C" void JAMP_SetPixelShaderConstantCachedForLightEffects(DWORD reg, const void *data, DWORD count)
+{
+	JAMP_SetPixelShaderConstantCachedForExternalWrite(reg, data, count);
+}
+
+extern "C" void JAMP_InvalidateD3DStateAfterLightEffects(void)
+{
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	JAMP_InvalidateShaderCache();
+	JAMP_InvalidateCapCache();
+
+	for (int stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage)
+	{
+		glw_state->textureStageDirty[stage] = true;
+	}
+}
+
+static void JAMP_UpdateFramebufferTelemetry(void)
+{
+#if !SP_XBOX_FRAMEBUFFER_TELEMETRY
+	return;
+#else
+	if (!glw_state || !glw_state->device)
+	{
+		return;
+	}
+
+	D3DSurface *backBuffer = NULL;
+	HRESULT hrBackBuffer = glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+	if (FAILED(hrBackBuffer) || !backBuffer)
+	{
+		return;
+	}
+
+	const DWORD packedSize = backBuffer->Size;
+	DWORD width = glConfig.vidWidth ? glConfig.vidWidth : 640;
+	DWORD height = glConfig.vidHeight ? glConfig.vidHeight : 480;
+	DWORD pitch = width * 4;
+
+	if (packedSize)
+	{
+		width = (packedSize & D3DSIZE_WIDTH_MASK) + 1;
+		height = ((packedSize & D3DSIZE_HEIGHT_MASK) >> D3DSIZE_HEIGHT_SHIFT) + 1;
+		pitch = (((packedSize & D3DSIZE_PITCH_MASK) >> D3DSIZE_PITCH_SHIFT) + 1) * 64;
+	}
+
+	g_SPXBFramebufferData = backBuffer->Data;
+	g_SPXBFramebufferPitch = pitch;
+	g_SPXBFramebufferWidth = width;
+	g_SPXBFramebufferHeight = height;
+	g_SPXBFramebufferFormat = backBuffer->Format;
+	g_SPXBFramebufferSize = packedSize;
+
+	backBuffer->Release();
+#endif
+}
+#endif
+
+
+/*
+=================
+_updateMatrices
+
+Set the current projection and view transforms to
+the matrices at the top of the relevant stacks.
+=================
+*/
+static void _updateMatrices(void)
+{
+	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Projection])
+	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_PROJECTION,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
+#else
+		glw_state->device->SetTransform(D3DTS_PROJECTION, 
+			glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
+#endif
+
+		glw_state->matricesDirty[glwstate_t::MatrixMode_Projection] = false;
+	}
+
+	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Model])
+	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_VIEW,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
+#else
+		glw_state->device->SetTransform(D3DTS_VIEW, 
+			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
+#endif
+
+		glw_state->matricesDirty[glwstate_t::MatrixMode_Model] = false;
+	}
+
+	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Texture0])
+	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_TEXTURE0,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Texture0]->GetTop());
+#else
+		glw_state->device->SetTransform(D3DTS_TEXTURE0,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Texture0]->GetTop());
+#endif
+
+		glw_state->matricesDirty[glwstate_t::MatrixMode_Texture0] = false;
+	}
+
+	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Texture1])
+	{
+#ifdef _XBOX
+		JAMP_SetTransformCached(D3DTS_TEXTURE1,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Texture1]->GetTop());
+#else
+		glw_state->device->SetTransform(D3DTS_TEXTURE1,
+			glw_state->matrixStack[glwstate_t::MatrixMode_Texture1]->GetTop());
+#endif
+
+		glw_state->matricesDirty[glwstate_t::MatrixMode_Texture1] = false;
+	}
+}
+
+
+/*
+=================
+_getMaxVerts
+
+Calculate the maximum number of verts to draw
+given a total number to draw, stride and max
+packet size.
+=================
+*/
+static int _getMaxVerts(void)
+{
+	int max = glw_state->totalVertices;
+	if (max > GLW_MAX_DRAW_PACKET_SIZE / glw_state->drawStride)
+	{
+		max = GLW_MAX_DRAW_PACKET_SIZE / glw_state->drawStride;
+	}
+	return max;
+}
+
+static int _getMaxIndices(void)
+{
+	int max = glw_state->totalIndices;
+	if(max > 1022)
+		max = 1022;
+
+	return max;
+}
+
+#ifdef _XBOX
+/*
+=================
+_restartDrawPacket
+
+Encode a new draw packet header into the draw array.
+=================
+*/
+inline static DWORD* _restartDrawPacket(DWORD* packet, int verts)
+{
+	packet[0] = D3DPUSH_ENCODE(D3DPUSH_SET_BEGIN_END, 1);
+	packet[1] = glw_state->primitiveMode;
+	packet[2] = D3DPUSH_ENCODE(
+		D3DPUSH_NOINCREMENT_FLAG|D3DPUSH_INLINE_ARRAY, 
+		glw_state->drawStride * verts);
+	return packet + 3;
+}
+
+/*
+=================
+_terminateDrawPacket
+
+Finish up the last draw packet.
+=================
+*/
+inline static DWORD* _terminateDrawPacket(DWORD* packet)
+{
+	packet[0] = D3DPUSH_ENCODE(D3DPUSH_SET_BEGIN_END, 1);
+	packet[1] = 0;
+	return packet + 2;
+}
+
+#define CMD_DRAW_INDEX_BATCH 0x1800
+inline static DWORD* _restartIndexPacket(DWORD* packet, int numIndices)
+{
+	packet[0] = D3DPUSH_ENCODE(D3DPUSH_SET_BEGIN_END, 1);
+	packet[1] = glw_state->primitiveMode;
+	packet[2] = D3DPUSH_ENCODE(	D3DPUSH_NOINCREMENT_FLAG | CMD_DRAW_INDEX_BATCH, numIndices / 2 );
+	return packet + 3;
+}
+
+inline static DWORD* _terminateIndexPacket(DWORD* packet)
+{
+	packet[0] = D3DPUSH_ENCODE(D3DPUSH_SET_BEGIN_END, 1);
+	packet[1] = 0;
+	return packet + 2;
+}
+
+
+/*
+=================
+_handleDrawOverflow
+
+Prevent a draw packet from getting too
+big for the hardware by restarting it as needed.
+=================
+*/
+static void _handleDrawOverflow(void)
+{
+	if (glw_state->numVertices >= glw_state->maxVertices)
+	{
+		glw_state->drawArray += glw_state->numVertices *
+			glw_state->drawStride;
+		
+		glw_state->totalVertices -= glw_state->numVertices;
+		glw_state->maxVertices = _getMaxVerts();
+		glw_state->numVertices = 0;
+
+		glw_state->drawArray = _restartDrawPacket(
+			glw_state->drawArray, glw_state->maxVertices);
+	}
+}
+#else _XBOX
+inline static DWORD* _restartDrawPacket(DWORD* packet, int verts)
+{
+	return packet;
+}
+
+inline static DWORD* _terminateDrawPacket(DWORD* packet)
+{
+	return packet;
+}
+
+static void _handleDrawOverflow(void)
+{
+}
+#endif _XBOX
+
+
+/*
+=================
+_vertexElement
+
+Copy position information from the source vertex
+array into a draw array.
+=================
+*/
+#define _vertexElement(push, i)									\
+{																\
+	DWORD* vert = (DWORD*)((BYTE*)glw_state->vertexPointer +	\
+		(i) * glw_state->vertexStride);							\
+	(push)[0] = vert[0];										\
+	(push)[1] = vert[1];										\
+	(push)[2] = vert[2];										\
+}
+
+/*
+=================
+_colorElement
+
+Copy color information from the source color
+array into a draw array.
+=================
+*/
+#define _colorElement(push, i)									\
+{																\
+	DWORD col = *(DWORD*)((BYTE*)glw_state->colorPointer +		\
+		(i) * glw_state->colorStride);							\
+	(push)[0] =													\
+		((col & 0xFF000000) >> 0) |								\
+		((col & 0x00FF0000) >> 16) |							\
+		((col & 0x0000FF00) << 0) |								\
+		((col & 0x000000FF) << 16);								\
+}
+
+/*
+=================
+_texCoordElement
+
+Copy tex coord information from the source tex coord
+array into a draw array.
+=================
+*/
+#define _texCoordElement(push, i, t)							\
+{																\
+	DWORD* tc = (DWORD*)((BYTE*)glw_state->texCoordPointer[t] +	\
+		(i) * glw_state->texCoordStride[t]);					\
+	(push)[0] = tc[0];											\
+	(push)[1] = tc[1];											\
+}
+
+/*
+=================
+_normalElement
+
+  Copy normal information from the source normal
+  array into a draw array
+=================
+*/
+#define _normalElement(push, i)									\
+{																\
+	DWORD* norm = (DWORD*)((BYTE*)glw_state->normalPointer +	\
+		(i) * glw_state->normalStride);							\
+	(push)[0] = norm[0];										\
+	(push)[1] = norm[1];										\
+	(push)[2] = norm[2];										\
+}
+
+				
+#define _tangentElement(push, i)								\
+{																\
+	DWORD* tang = (DWORD*)((BYTE*)&tess.tangent[i]);				\
+	(push)[0] = tang[0];										\
+	(push)[1] = tang[1];										\
+	(push)[2] = tang[2];										\
+}
+
+
+
+/*
+=========================================================
+FAST INDEXED GEOMETRY DRAW LOOPS
+
+Used by core draw routines to quickly copy
+geometry from various source arrays to main
+draw array.
+=========================================================
+*/
+static void _drawElementsV(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		push[3] = glw_state->currentColor;
+		push += 4;
+	}
+}
+
+static void _drawElementsVN(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		push[6] = glw_state->currentColor;
+		push += 7;
+	}
+}
+
+static void _drawElementsVC(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_colorElement(&push[3], indices[i]);
+		push += 4;
+	}
+}
+
+static void _drawElementsVCN(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		_colorElement(&push[6], indices[i]);
+		push += 7;
+	}
+}
+
+static void _drawElementsVCT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_colorElement(&push[3], indices[i]);
+		_texCoordElement(&push[4], indices[i], 0);
+		push += 6;
+	}
+}
+
+static void _drawElementsVCNT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		_colorElement(&push[6], indices[i]);
+		_texCoordElement(&push[7], indices[i], 0);
+		push += 9;
+	}
+}
+
+static void _drawElementsVCTT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_colorElement(&push[3], indices[i]);
+		_texCoordElement(&push[4], indices[i], 0);
+		_texCoordElement(&push[6], indices[i], 1);
+		push += 8;
+	}
+}
+
+static void _drawElementsVCNTT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		_colorElement(&push[6], indices[i]);
+		_texCoordElement(&push[7], indices[i], 0);
+		_texCoordElement(&push[9], indices[i], 1);
+		push += 11;
+	}
+}
+
+static void _drawElementsVT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		push[3] = glw_state->currentColor;
+		_texCoordElement(&push[4], indices[i], 0);
+		push += 6;
+	}
+}
+
+static void _drawElementsVNT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		push[6] = glw_state->currentColor;
+		_texCoordElement(&push[7], indices[i], 0);
+		push += 9;
+	}
+}
+
+static void _drawElementsVTT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		push[3] = glw_state->currentColor;
+		_texCoordElement(&push[4], indices[i], 0);
+		_texCoordElement(&push[6], indices[i], 1);
+		push += 8;
+	}
+}
+
+static void _drawElementsVNTT(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		push[6] = glw_state->currentColor;
+		_texCoordElement(&push[7], indices[i], 0);
+		_texCoordElement(&push[9], indices[i], 1);
+		push += 11;
+	}
+}
+
+
+static void _drawElementsLightShader(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for(int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		_texCoordElement(&push[6], indices[i], 0);
+		_tangentElement(&push[8], indices[i]);
+		push += 11;
+	}
+}
+
+static void _drawElementsBumpShader(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for(int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		_texCoordElement(&push[6], indices[i], 0);
+		_texCoordElement(&push[8], indices[i], 1);
+		_tangentElement(&push[10], indices[i]);
+		push += 13;
+	}
+}
+
+static void _drawElementsEnvShader(GLsizei count, const GLushort* indices)
+{
+	DWORD* push = glw_state->drawArray;
+	for(int i = 0; i < count; ++i)
+	{
+		_vertexElement(&push[0], indices[i]);
+		_normalElement(&push[3], indices[i]);
+		push += 6;
+	}
+}
+
+typedef void(*drawelemfunc_t)(GLsizei, const GLushort*);
+static drawelemfunc_t _drawElementFuncTable[12] =
+{
+	_drawElementsV,
+	_drawElementsVN,
+	_drawElementsVT,
+	_drawElementsVNT,
+	_drawElementsVTT,
+	_drawElementsVNTT,
+	_drawElementsVC,
+	_drawElementsVCN,
+	_drawElementsVCT,
+	_drawElementsVCNT,
+	_drawElementsVCTT,
+	_drawElementsVCNTT,
+};
+
+
+
+/*
+=========================================================
+FAST GEOMETRY DRAW LOOPS
+
+Used by core draw routines to quickly copy
+geometry from various source arrays to main
+draw array.
+=========================================================
+*/
+static void _drawArraysV(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		push[3] = glw_state->currentColor;
+		push += 4;
+	}
+}
+
+static void _drawArraysVN(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_normalElement(&push[3], i);
+		push[6] = glw_state->currentColor;
+		push += 7;
+	}
+}
+
+static void _drawArraysVC(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_colorElement(&push[3], i);
+		push += 4;
+	}
+}
+
+static void _drawArraysVCN(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_normalElement(&push[3], i);
+		_colorElement(&push[6], i);
+		push += 7;
+	}
+}
+
+static void _drawArraysVCT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_colorElement(&push[3], i);
+		_texCoordElement(&push[4], i, 0);
+		push += 6;
+	}
+}
+
+static void _drawArraysVCNT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_normalElement(&push[3], i);
+		_colorElement(&push[6], i);
+		_texCoordElement(&push[7], i, 0);
+		push += 9;
+	}
+}
+
+static void _drawArraysVCTT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_colorElement(&push[3], i);
+		_texCoordElement(&push[4], i, 0);
+		_texCoordElement(&push[6], i, 1);
+		push += 8;
+	}
+}
+
+static void _drawArraysVCNTT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_normalElement(&push[3], i);
+		_colorElement(&push[6], i);
+		_texCoordElement(&push[7], i, 0);
+		_texCoordElement(&push[9], i, 1);
+		push += 11;
+	}
+}
+
+static void _drawArraysVT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		push[3] = glw_state->currentColor;
+		_texCoordElement(&push[4], i, 0);
+		push += 6;
+	}
+}
+
+static void _drawArraysVNT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_normalElement(&push[3], i);
+		push[6] = glw_state->currentColor;
+		_texCoordElement(&push[7], i, 0);
+		push += 9;
+	}
+}
+
+static void _drawArraysVTT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		push[3] = glw_state->currentColor;
+		_texCoordElement(&push[4], i, 0);
+		_texCoordElement(&push[6], i, 1);
+		push += 8;
+	}
+}
+
+static void _drawArraysVNTT(GLsizei first, GLsizei last)
+{
+	DWORD* push = glw_state->drawArray;
+	for (int i = first; i < last; ++i)
+	{
+		_vertexElement(&push[0], i);
+		_normalElement(&push[3], i);
+		push[6] = glw_state->currentColor;
+		_texCoordElement(&push[7], i, 0);
+		_texCoordElement(&push[9], i, 1);
+		push += 11;
+	}
+}
+
+typedef void(*drawarrayfunc_t)(GLsizei, GLsizei);
+static drawarrayfunc_t _drawArrayFuncTable[12] =
+{
+	_drawArraysV,
+	_drawArraysVN,
+	_drawArraysVT,
+	_drawArraysVNT,
+	_drawArraysVTT,
+	_drawArraysVNTT,
+	_drawArraysVC,
+	_drawArraysVCN,
+	_drawArraysVCT,
+	_drawArraysVCNT,
+	_drawArraysVCTT,
+	_drawArraysVCNTT,
+};
+
+
+/*
+=================
+_getDrawFunc
+
+Figure which drawing function we need based on
+what vertex components we have.  Use the returned
+integer to index the draw function tables.
+=================
+*/
+static int _getDrawFunc(void)
+{
+	int func = 0;
+	if (glw_state->colorArrayState) func += 6;
+	if (glw_state->texCoordArrayState[0]) func += 2;
+	if (glw_state->texCoordArrayState[1]) func += 2;
+	if (glw_state->normalArrayState) ++func;
+	return func;
+}
+
+
+static void dllAccum(GLenum op, GLfloat value)
+{
+	assert(false);
+}
+
+static void dllAlphaFunc(GLenum func, GLclampf ref)
+{
+	D3DCMPFUNC f = _convertCompare(func);
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_ALPHAFUNC, f);
+	JAMP_SetRenderStateCached(D3DRS_ALPHAREF, (DWORD)(ref * 255.));
+#else
+	glw_state->device->SetRenderState(D3DRS_ALPHAFUNC, f);
+	glw_state->device->SetRenderState(D3DRS_ALPHAREF, (DWORD)(ref * 255.));
+#endif
+}
+
+GLboolean dllAreTexturesResident(GLsizei n, const GLuint *textures, GLboolean *residences)
+{
+	assert(false);
+	return 1;
+}
+
+static void dllArrayElement(GLint i)
+{
+	assert(glw_state->inDrawBlock);
+	
+	_handleDrawOverflow();
+
+	DWORD* push = &glw_state->drawArray[glw_state->numVertices * 
+		glw_state->drawStride];
+
+	_vertexElement(push, i);
+	push += 3;
+	
+	if (glw_state->colorArrayState)
+	{
+		_colorElement(push, i);
+		++push;
+	}
+	else
+	{
+		*push++ = glw_state->currentColor;
+	}
+	
+	for (int t = 0; t < GLW_MAX_TEXTURE_STAGES; ++t)
+	{
+		if (glw_state->texCoordArrayState[t])
+		{
+			_texCoordElement(push, i, t);
+			push += 2;
+		}
+	}
+
+	++glw_state->numVertices;
+}
+
+#ifdef _XBOX
+static void JAMP_RecordBeginExt(int vertices);
+#endif
+
+// EXTENSION: Begin a drawing block with at verts vertices
+static void dllBeginEXT(GLenum mode, GLint verts, GLint colors, GLint normals, GLint tex0, GLint tex1)//, GLint tex2, GLint tex3)
+{
+	assert(!glw_state->inDrawBlock);
+
+	// start the draw block
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = _convertPrimMode(mode);
+
+	// update DX with any pending state changes
+	_updateDrawStride(normals, tex0, tex1);//, tex2, tex3);
+	_updateShader(normals, tex0, tex1);//, tex2, tex3);
+	_updateTextures();
+	_updateMatrices();
+
+	// set vertex counters
+	glw_state->numVertices = 0;
+	glw_state->totalVertices = verts;
+	glw_state->maxVertices = _getMaxVerts();	
+
+#ifdef _XBOX
+	JAMP_RecordBeginExt(verts);
+
+	// open a draw packet
+	//int num_packets = ((verts * glw_state->drawStride) / GLW_MAX_DRAW_PACKET_SIZE) + 1;
+	int num_packets;
+	if(glw_state->maxVertices == 0) {
+		num_packets = 1;
+	} else {
+		num_packets = (verts / glw_state->maxVertices) + (!!(verts % glw_state->maxVertices));
+	}
+	int cmd_size = num_packets * 3;
+	int vert_size = glw_state->drawStride * verts;
+	
+	glw_state->device->BeginPush(vert_size + cmd_size + 2, 
+		&glw_state->drawArray);
+	
+	glw_state->drawArray = _restartDrawPacket(
+		glw_state->drawArray, glw_state->maxVertices);
+#endif
+}
+
+static void dllBegin(GLenum mode)
+{
+	assert(0);
+}
+
+// EXTENSION: Start a new drawing frame
+GLboolean dllBeginFrame(void)
+{
+	if (!glw_state || !glw_state->device)
+	{
+#ifdef _XBOX
+		s_jampRenderMetricActive = qfalse;
+#endif
+		return GL_FALSE;
+	}
+#ifdef _XBOX
+	s_jampRenderMetricActive = qfalse;
+#endif
+	return GL_TRUE;
+}
+
+// EXTENSION: Begin shadow draw mode
+static void dllBeginShadow(void)
+{
+	//Intentionally left blank
+}
+
+static void dllBindTexture(GLenum target, GLuint texture)
+{
+	assert(target == GL_TEXTURE_2D);
+
+	if (glw_state->currentTexture[glw_state->serverTU] != texture)
+	{
+		glw_state->currentTexture[glw_state->serverTU] = texture;
+		glw_state->textureStageDirty[glw_state->serverTU] = true;
+	}
+}
+
+static void dllBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove, GLfloat ymove, const GLubyte *bitmap)
+{
+	assert(false);
+}
+
+static void dllBlendFunc(GLenum sfactor, GLenum dfactor)
+{
+	D3DBLEND s = _convertBlendFactor(sfactor);
+	D3DBLEND d = _convertBlendFactor(dfactor);
+	
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_SRCBLEND, s);
+	JAMP_SetRenderStateCached(D3DRS_DESTBLEND, d);
+#else
+	glw_state->device->SetRenderState(D3DRS_SRCBLEND, s);
+	glw_state->device->SetRenderState(D3DRS_DESTBLEND, d);
+#endif
+}
+
+static void dllCallList(GLuint lnum)
+{
+	assert(0);
+}
+
+static void dllCallLists(GLsizei n, GLenum type, const GLvoid *lists)
+{
+	assert(0);
+}
+
+static void dllClear(GLbitfield mask)
+{
+	DWORD m = 0;
+
+	if (mask & GL_COLOR_BUFFER_BIT) m |= D3DCLEAR_TARGET;
+	if (mask & GL_STENCIL_BUFFER_BIT) m |= D3DCLEAR_STENCIL;
+
+#ifdef _XBOX
+	// Clearing stencil when clearing depth buffer
+	// is faster on Xbox than just clearing depth alone.
+	if (mask & GL_DEPTH_BUFFER_BIT) m |= D3DCLEAR_ZBUFFER|D3DCLEAR_STENCIL;
+#else
+	if (mask & GL_DEPTH_BUFFER_BIT) m |= D3DCLEAR_ZBUFFER;
+#endif
+	
+	glw_state->device->Clear(0, NULL, m, glw_state->clearColor, 
+		glw_state->clearDepth, glw_state->clearStencil);
+}
+
+static void dllClearAccum(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
+{
+	assert(0);
+}
+
+static void dllClearColor(GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha)
+{
+	glw_state->clearColor = D3DCOLOR_COLORVALUE(red, green, blue, alpha);
+}
+
+static void dllClearDepth(GLclampd depth)
+{
+	glw_state->clearDepth = depth;
+}
+
+static void dllClearIndex(GLfloat c)
+{
+	assert(0);
+}
+
+static void dllClearStencil(GLint s)
+{
+	glw_state->clearStencil = s;
+}
+
+static void dllClipPlane(GLenum plane, const GLdouble *equation)
+{
+	//FIXME
+}
+
+static void setIntColor(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha)
+{
+	glw_state->currentColor = D3DCOLOR_RGBA(red, green, blue, alpha);
+}
+
+static void setFloatColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
+{
+	glw_state->currentColor = D3DCOLOR_COLORVALUE(red, green, blue, alpha);
+}
+
+static void dllColor3b(GLbyte red, GLbyte green, GLbyte blue)
+{
+	setIntColor(red, green, blue, 127);
+}
+
+static void dllColor3bv(const GLbyte *v)
+{
+	setIntColor(v[0], v[1], v[2], 127);
+}
+
+static void dllColor3d(GLdouble red, GLdouble green, GLdouble blue)
+{
+	setFloatColor(red, green, blue, 1.f);
+}
+
+static void dllColor3dv(const GLdouble *v)
+{
+	setFloatColor(v[0], v[1], v[2], 1.f);
+}
+
+static void dllColor3f(GLfloat red, GLfloat green, GLfloat blue)
+{
+	setFloatColor(red, green, blue, 1.f);
+}
+
+static void dllColor3fv(const GLfloat *v)
+{
+	setFloatColor(v[0], v[1], v[2], 1.f);
+}
+
+static void dllColor3i(GLint red, GLint green, GLint blue)
+{
+	setIntColor(red, green, blue, 127);
+}
+
+static void dllColor3iv(const GLint *v)
+{
+	setIntColor(v[0], v[1], v[2], 127);
+}
+
+static void dllColor3s(GLshort red, GLshort green, GLshort blue)
+{
+	setIntColor(red, green, blue, 127);
+}
+
+static void dllColor3sv(const GLshort *v)
+{
+	setIntColor(v[0], v[1], v[2], 127);
+}
+
+static void dllColor3ub(GLubyte red, GLubyte green, GLubyte blue)
+{
+	setIntColor(red, green, blue, 127);
+}
+
+static void dllColor3ubv(const GLubyte *v)
+{
+	setIntColor(v[0], v[1], v[2], 127);
+}
+
+static void dllColor3ui(GLuint red, GLuint green, GLuint blue)
+{
+	setIntColor(red, green, blue, 127);
+}
+
+static void dllColor3uiv(const GLuint *v)
+{
+	setIntColor(v[0], v[1], v[2], 127);
+}
+
+static void dllColor3us(GLushort red, GLushort green, GLushort blue)
+{
+	setIntColor(red, green, blue, 127);
+}
+
+static void dllColor3usv(const GLushort *v)
+{
+	setIntColor(v[0], v[1], v[2], 127);
+}
+
+static void dllColor4b(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha)
+{
+	setIntColor(red, green, blue, alpha);
+}
+
+static void dllColor4bv(const GLbyte *v)
+{
+	setIntColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4d(GLdouble red, GLdouble green, GLdouble blue, GLdouble alpha)
+{
+	setFloatColor(red, green, blue, alpha);
+}
+
+static void dllColor4dv(const GLdouble *v)
+{
+	setFloatColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4f(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
+{
+	setFloatColor(red, green, blue, alpha);
+}
+
+static void dllColor4fv(const GLfloat *v)
+{
+	setFloatColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4i(GLint red, GLint green, GLint blue, GLint alpha)
+{
+	setIntColor(red, green, blue, alpha);
+}
+
+static void dllColor4iv(const GLint *v)
+{
+	setIntColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4s(GLshort red, GLshort green, GLshort blue, GLshort alpha)
+{
+	setIntColor(red, green, blue, alpha);
+}
+
+static void dllColor4sv(const GLshort *v)
+{
+	setIntColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4ub(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha)
+{
+	setIntColor(red, green, blue, alpha);
+}
+
+static void dllColor4ubv(const GLubyte *v)
+{
+	setIntColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4ui(GLuint red, GLuint green, GLuint blue, GLuint alpha)
+{
+	setIntColor(red, green, blue, alpha);
+}
+
+static void dllColor4uiv(const GLuint *v)
+{
+	setIntColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColor4us(GLushort red, GLushort green, GLushort blue, GLushort alpha)
+{
+	setIntColor(red, green, blue, alpha);
+}
+
+static void dllColor4usv(const GLushort *v)
+{
+	setIntColor(v[0], v[1], v[2], v[3]);
+}
+
+static void dllColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha)
+{
+	DWORD m = 0;
+	if (red) m |= D3DCOLORWRITEENABLE_RED;
+	if (green) m |= D3DCOLORWRITEENABLE_GREEN;
+	if (blue) m |= D3DCOLORWRITEENABLE_BLUE;
+	if (alpha) m |= D3DCOLORWRITEENABLE_ALPHA;
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_COLORWRITEENABLE, m);
+#else
+	glw_state->device->SetRenderState(D3DRS_COLORWRITEENABLE, m);
+#endif
+}
+
+static void dllColorMaterial(GLenum face, GLenum mode)
+{
+	assert(0);
+}
+
+static void dllColorPointer(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer)
+{
+	assert(!glw_state->inDrawBlock);
+	assert(size == 4 && type == GL_UNSIGNED_BYTE);
+	
+	stride = (stride == 0) ? sizeof(GLint) : stride;
+
+	glw_state->colorPointer = pointer; 
+	glw_state->colorStride = stride;
+}
+
+static void dllCopyPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum type)
+{
+	assert(0);
+}
+
+static void dllCopyTexImage1D(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLint border)
+{
+	assert(0);
+}
+
+/**********
+copies a portion of the backbuffer to the current texture.
+the current texture must be a linear format texture, if
+a swizzled texture format is needed, use
+dllCopyBackBufferToTexEXT
+**********/
+static void dllCopyTexImage2D(GLenum target, GLint level, GLenum internalFormat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border)
+{
+	// check to make sure everything passed in is supported
+	assert((target == GL_TEXTURE_2D) && (level == 0) && (border == 0));
+
+	// locals
+	RECT						rSrc;
+	POINT						ptUpperLeft;
+	LPDIRECT3DSURFACE8			tSurf;
+	LPDIRECT3DSURFACE8			backbuffer;
+	glwstate_t::TextureInfo*	tex;
+	HRESULT						res;
+		
+	// get the current texture
+	tex = _getCurrentTexture(glw_state->serverTU);
+	if (tex == NULL)
+	{
+		return;
+	}
+
+	// set up the source rectangle
+	rSrc.left	= x;
+	rSrc.right	= x + width;
+	rSrc.top	= (480 - y) - height;
+	rSrc.bottom	= (480 - y);
+
+	// set up the target point
+	ptUpperLeft.x	= 0;
+	ptUpperLeft.y	= 0;
+
+	// attach the current texture to a surface
+	tex->mipmap->GetSurfaceLevel(0, &tSurf);
+
+	// attach the back buffer to a surface
+	res = glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
+
+	// copy the data
+	res = glw_state->device->CopyRects(backbuffer, &rSrc, 0, tSurf, &ptUpperLeft);
+
+	// release surfaces
+	tSurf->Release();
+	backbuffer->Release();
+}
+
+static void dllCopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width)
+{
+	assert(0);
+}
+
+static void dllCopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height)
+{
+	assert(0);
+}
+
+static void dllCullFace(GLenum mode)
+{
+	switch (mode)
+	{
+	default: case GL_BACK: glw_state->cullMode = D3DCULL_CW; break;
+	case GL_FRONT: glw_state->cullMode = D3DCULL_CCW; break;
+	}
+
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_CULLMODE, glw_state->cullMode);
+#else
+	glw_state->device->SetRenderState(D3DRS_CULLMODE, glw_state->cullMode);
+#endif
+}
+
+static void dllDeleteLists(GLuint lnum, GLsizei range)
+{
+	assert(0);
+}
+
+static void dllDeleteTextures(GLsizei n, const GLuint *textures)
+{
+	glw_state->device->SetTexture(0, NULL);
+	glw_state->device->SetTexture(1, NULL);
+#ifdef _XBOX
+	JAMP_MarkTextureStagesDirty();
+#endif
+//	glw_state->device->SetTexture(2, NULL);
+//	glw_state->device->SetTexture(3, NULL);
+
+	for (int t = 0; t < n; ++t)
+	{
+		glwstate_t::texturexlat_t::iterator i = 
+			glw_state->textureXlat.find(textures[t]);
+
+		if (i != glw_state->textureXlat.end())
+		{
+#if MEMORY_PROFILE
+			texMemSize -= getTexMemSize(i->second.mipmap);
+#endif
+			i->second.mipmap->BlockUntilNotBusy();
+			delete i->second.mipmap;
+			glw_state->textureXlat.erase(i);
+		}
+	}
+}
+
+static void dllDepthFunc(GLenum func)
+{
+	D3DCMPFUNC f = _convertCompare(func);
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_ZFUNC, f);
+#else
+	glw_state->device->SetRenderState(D3DRS_ZFUNC, f);
+#endif
+}
+
+static void dllDepthMask(GLboolean flag)
+{
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_ZWRITEENABLE, flag);
+#else
+	glw_state->device->SetRenderState(D3DRS_ZWRITEENABLE, flag);
+#endif
+}
+
+#ifdef _XBOX
+static int s_jampViewportSets;
+static int s_jampViewportSkips;
+static bool s_jampViewportValid;
+static D3DVIEWPORT8 s_jampViewportCache;
+
+static bool JAMP_SameViewport(const D3DVIEWPORT8& a, const D3DVIEWPORT8& b)
+{
+	return a.X == b.X &&
+		a.Y == b.Y &&
+		a.Width == b.Width &&
+		a.Height == b.Height &&
+		a.MinZ == b.MinZ &&
+		a.MaxZ == b.MaxZ;
+}
+
+static void JAMP_SetViewportCached(const D3DVIEWPORT8& viewport, bool force)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	(void)force;
+	glw_state->device->SetViewport(&viewport);
+	JAMP_METRIC_INC(s_jampViewportSets);
+	return;
+#else
+	if (!force && s_jampViewportValid && JAMP_SameViewport(s_jampViewportCache, viewport))
+	{
+		JAMP_METRIC_INC(s_jampViewportSkips);
+		return;
+	}
+
+	glw_state->device->SetViewport(&viewport);
+	s_jampViewportCache = viewport;
+	s_jampViewportValid = true;
+	JAMP_METRIC_INC(s_jampViewportSets);
+#endif
+}
+
+static int s_jampScissorSets;
+static int s_jampScissorSkips;
+static bool s_jampScissorValid;
+static bool s_jampScissorEnableCache;
+static D3DRECT s_jampScissorBoxCache;
+
+static bool JAMP_SameScissor(const D3DRECT& a, const D3DRECT& b)
+{
+	return a.x1 == b.x1 &&
+		a.y1 == b.y1 &&
+		a.x2 == b.x2 &&
+		a.y2 == b.y2;
+}
+
+static void JAMP_SetScissorsCached(bool enabled, const D3DRECT& rect, bool force)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	(void)force;
+	glw_state->device->SetScissors(enabled ? 1 : 0, FALSE, &rect);
+	JAMP_METRIC_INC(s_jampScissorSets);
+	return;
+#else
+	if (!force &&
+		s_jampScissorValid &&
+		s_jampScissorEnableCache == enabled &&
+		JAMP_SameScissor(s_jampScissorBoxCache, rect))
+	{
+		JAMP_METRIC_INC(s_jampScissorSkips);
+		return;
+	}
+
+	glw_state->device->SetScissors(enabled ? 1 : 0, FALSE, &rect);
+	s_jampScissorEnableCache = enabled;
+	s_jampScissorBoxCache = rect;
+	s_jampScissorValid = true;
+	JAMP_METRIC_INC(s_jampScissorSets);
+#endif
+}
+#endif
+
+static void dllDepthRange(GLclampd zNear, GLclampd zFar)
+{
+	glw_state->viewport.MinZ = zNear;
+	glw_state->viewport.MaxZ = zFar;
+#ifdef _XBOX
+	JAMP_SetViewportCached(glw_state->viewport, false);
+#else
+	glw_state->device->SetViewport(&glw_state->viewport);
+#endif
+}
+
+#ifdef _XBOX
+static int s_jampRenderStateSets;
+static int s_jampRenderStateSkips;
+static int s_jampRenderStateInvalidates;
+
+static int JAMP_RenderStateSlot(DWORD type)
+{
+	switch (type)
+	{
+	case D3DRS_ALPHAFUNC: return 0;
+	case D3DRS_ALPHAREF: return 1;
+	case D3DRS_SRCBLEND: return 2;
+	case D3DRS_DESTBLEND: return 3;
+	case D3DRS_COLORWRITEENABLE: return 4;
+	case D3DRS_CULLMODE: return 5;
+	case D3DRS_ZFUNC: return 6;
+	case D3DRS_ZWRITEENABLE: return 7;
+	case D3DRS_ALPHATESTENABLE: return 8;
+	case D3DRS_ALPHABLENDENABLE: return 9;
+	case D3DRS_ZENABLE: return 10;
+	case D3DRS_LIGHTING: return 11;
+	case D3DRS_POINTOFFSETENABLE: return 12;
+	case D3DRS_WIREFRAMEOFFSETENABLE: return 13;
+	case D3DRS_SOLIDOFFSETENABLE: return 14;
+	case D3DRS_STENCILENABLE: return 15;
+	case D3DRS_FOGENABLE: return 16;
+	case D3DRS_FOGDENSITY: return 17;
+	case D3DRS_FOGSTART: return 18;
+	case D3DRS_FOGEND: return 19;
+	case D3DRS_FOGCOLOR: return 20;
+	case D3DRS_FOGTABLEMODE: return 21;
+	case D3DRS_POINTSCALEENABLE: return 22;
+	case D3DRS_POINTSIZE: return 23;
+	case D3DRS_POINTSPRITEENABLE: return 24;
+	case D3DRS_POINTSIZE_MIN: return 25;
+	case D3DRS_POINTSCALE_A: return 26;
+	case D3DRS_POINTSCALE_B: return 27;
+	case D3DRS_POINTSCALE_C: return 28;
+	case D3DRS_SPECULARENABLE: return 29;
+	case D3DRS_TEXTUREFACTOR: return 30;
+	case D3DRS_FILLMODE: return 31;
+	case D3DRS_BACKFILLMODE: return 32;
+	case D3DRS_POLYGONOFFSETZOFFSET: return 33;
+	case D3DRS_POLYGONOFFSETZSLOPESCALE: return 34;
+	case D3DRS_SHADEMODE: return 35;
+	case D3DRS_STENCILFUNC: return 36;
+	case D3DRS_STENCILREF: return 37;
+	case D3DRS_STENCILMASK: return 38;
+	case D3DRS_STENCILWRITEMASK: return 39;
+	case D3DRS_STENCILFAIL: return 40;
+	case D3DRS_STENCILZFAIL: return 41;
+	case D3DRS_STENCILPASS: return 42;
+	default: return -1;
+	}
+}
+
+#define JAMP_RENDER_STATE_CACHE_SLOTS 43
+static DWORD s_jampRenderStateCache[JAMP_RENDER_STATE_CACHE_SLOTS];
+static GLboolean s_jampRenderStateCacheValid[JAMP_RENDER_STATE_CACHE_SLOTS];
+static const DWORD s_jampRenderStateTypes[JAMP_RENDER_STATE_CACHE_SLOTS] =
+{
+	D3DRS_ALPHAFUNC,
+	D3DRS_ALPHAREF,
+	D3DRS_SRCBLEND,
+	D3DRS_DESTBLEND,
+	D3DRS_COLORWRITEENABLE,
+	D3DRS_CULLMODE,
+	D3DRS_ZFUNC,
+	D3DRS_ZWRITEENABLE,
+	D3DRS_ALPHATESTENABLE,
+	D3DRS_ALPHABLENDENABLE,
+	D3DRS_ZENABLE,
+	D3DRS_LIGHTING,
+	D3DRS_POINTOFFSETENABLE,
+	D3DRS_WIREFRAMEOFFSETENABLE,
+	D3DRS_SOLIDOFFSETENABLE,
+	D3DRS_STENCILENABLE,
+	D3DRS_FOGENABLE,
+	D3DRS_FOGDENSITY,
+	D3DRS_FOGSTART,
+	D3DRS_FOGEND,
+	D3DRS_FOGCOLOR,
+	D3DRS_FOGTABLEMODE,
+	D3DRS_POINTSCALEENABLE,
+	D3DRS_POINTSIZE,
+	D3DRS_POINTSPRITEENABLE,
+	D3DRS_POINTSIZE_MIN,
+	D3DRS_POINTSCALE_A,
+	D3DRS_POINTSCALE_B,
+	D3DRS_POINTSCALE_C,
+	D3DRS_SPECULARENABLE,
+	D3DRS_TEXTUREFACTOR,
+	D3DRS_FILLMODE,
+	D3DRS_BACKFILLMODE,
+	D3DRS_POLYGONOFFSETZOFFSET,
+	D3DRS_POLYGONOFFSETZSLOPESCALE,
+	D3DRS_SHADEMODE,
+	D3DRS_STENCILFUNC,
+	D3DRS_STENCILREF,
+	D3DRS_STENCILMASK,
+	D3DRS_STENCILWRITEMASK,
+	D3DRS_STENCILFAIL,
+	D3DRS_STENCILZFAIL,
+	D3DRS_STENCILPASS
+};
+static qboolean s_jampPresentKeepsRenderState = qtrue;
+static int s_jampPresentProbeFrames = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 4 : 0;
+
+static void JAMP_SetRenderStateCached(DWORD type, DWORD value)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetRenderState((D3DRENDERSTATETYPE)type, value);
+	JAMP_METRIC_INC(s_jampRenderStateSets);
+	return;
+#else
+	const int slot = JAMP_RenderStateSlot(type);
+	if (slot < 0)
+	{
+		glw_state->device->SetRenderState((D3DRENDERSTATETYPE)type, value);
+		JAMP_METRIC_INC(s_jampRenderStateSets);
+		return;
+	}
+
+	if (s_jampRenderStateCacheValid[slot] && s_jampRenderStateCache[slot] == value)
+	{
+		JAMP_METRIC_INC(s_jampRenderStateSkips);
+		return;
+	}
+
+	glw_state->device->SetRenderState((D3DRENDERSTATETYPE)type, value);
+	s_jampRenderStateCache[slot] = value;
+	s_jampRenderStateCacheValid[slot] = GL_TRUE;
+	JAMP_METRIC_INC(s_jampRenderStateSets);
+#endif
+}
+
+static void JAMP_InvalidateRenderStateCache(void)
+{
+	memset(s_jampRenderStateCacheValid, 0, sizeof(s_jampRenderStateCacheValid));
+	JAMP_METRIC_INC(s_jampRenderStateInvalidates);
+}
+
+static void JAMP_InvalidateRenderStateSlot(DWORD type)
+{
+	const int slot = JAMP_RenderStateSlot(type);
+	if (slot < 0)
+	{
+		JAMP_InvalidateRenderStateCache();
+		return;
+	}
+	s_jampRenderStateCacheValid[slot] = GL_FALSE;
+	JAMP_METRIC_INC(s_jampRenderStateInvalidates);
+}
+
+static void JAMP_InvalidateRenderStateAfterPresent(void)
+{
+	if (!s_jampPresentKeepsRenderState)
+	{
+		JAMP_InvalidateRenderStateCache();
+		return;
+	}
+
+	if (s_jampPresentProbeFrames > 0)
+	{
+		int mismatches = 0;
+		int nonBlendMismatches = 0;
+
+		for (int slot = 0; slot < 36; ++slot)
+		{
+			DWORD actual;
+			if (!s_jampRenderStateCacheValid[slot])
+			{
+				continue;
+			}
+			glw_state->device->GetRenderState((D3DRENDERSTATETYPE)s_jampRenderStateTypes[slot], &actual);
+			if (actual != s_jampRenderStateCache[slot])
+			{
+				mismatches++;
+				if (s_jampRenderStateTypes[slot] != D3DRS_ALPHABLENDENABLE)
+				{
+					nonBlendMismatches++;
+				}
+			}
+		}
+
+		s_jampPresentProbeFrames--;
+		if (nonBlendMismatches)
+		{
+			s_jampPresentKeepsRenderState = qfalse;
+			Com_PrintfAlways("JAMP: Present changed %d cached render states; falling back to full render-state invalidation\n",
+				nonBlendMismatches);
+			JAMP_InvalidateRenderStateCache();
+			return;
+		}
+		if (mismatches)
+		{
+			JAMP_InvalidateRenderStateSlot(D3DRS_ALPHABLENDENABLE);
+			return;
+		}
+	}
+
+	JAMP_InvalidateRenderStateSlot(D3DRS_ALPHABLENDENABLE);
+}
+
+static void setPresent(bool vsync)
+{
+	//extern void ShowOSMemory();
+	//ShowOSMemory();
+
+	D3DPRESENT_PARAMETERS pp;
+	pp.BackBufferWidth = glConfig.vidWidth;
+	pp.BackBufferHeight = glConfig.vidHeight;
+	pp.BackBufferFormat = D3DFMT_A8R8G8B8;
+	pp.BackBufferCount = 1;
+	pp.MultiSampleType  = D3DMULTISAMPLE_NONE; //D3DMULTISAMPLE_4_SAMPLES_SUPERSAMPLE_LINEAR;
+	pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+	pp.hDeviceWindow = 0;
+	pp.Windowed  = FALSE;
+	pp.EnableAutoDepthStencil = TRUE;
+	pp.AutoDepthStencilFormat = D3DFMT_LIN_D24S8;
+	pp.Flags = 0;
+	pp.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
+	pp.FullScreen_PresentationInterval = 
+		vsync ? D3DPRESENT_INTERVAL_DEFAULT : D3DPRESENT_INTERVAL_IMMEDIATE;
+	pp.BufferSurfaces[0] = pp.BufferSurfaces[1] = pp.BufferSurfaces[2] = 0;
+	pp.DepthStencilSurface = 0;
+	glw_state->device->PersistDisplay();
+	glw_state->device->Reset(&pp);
+	JAMP_InvalidateFrameD3DCache();
+	JAMP_InvalidateRenderStateCache();
+	JAMP_InvalidateTransformCache();
+	JAMP_InvalidateMaterialLightCache();
+
+	//ShowOSMemory();
+}
+#endif
+
+static void setCap(GLenum cap, bool flag)
+{
+#ifdef _XBOX
+	GLboolean cachedFlag;
+	if (JAMP_GetCapCache(cap, &cachedFlag) && cachedFlag == (flag ? GL_TRUE : GL_FALSE))
+	{
+		return;
+	}
+#endif
+
+	switch (cap)
+	{
+	case GL_ALPHA_TEST:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_ALPHATESTENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_ALPHATESTENABLE, flag);
+#endif
+		break;
+	case GL_BLEND:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_ALPHABLENDENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_ALPHABLENDENABLE, flag);
+#endif
+		break;
+	case GL_CULL_FACE:
+		glw_state->cullEnable = flag;
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_CULLMODE, flag ? glw_state->cullMode : D3DCULL_NONE);
+#else
+		glw_state->device->SetRenderState(D3DRS_CULLMODE, 
+			flag ? glw_state->cullMode : D3DCULL_NONE);
+#endif
+		break;
+	case GL_DEPTH_TEST:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_ZENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_ZENABLE, flag);
+#endif
+		break;
+	case GL_LIGHTING:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_LIGHTING, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_LIGHTING, flag);
+#endif
+		break;
+#ifdef _XBOX
+	case GL_POLYGON_OFFSET_POINT:
+		JAMP_SetRenderStateCached(D3DRS_POINTOFFSETENABLE, flag);
+		break;
+	case GL_POLYGON_OFFSET_LINE:
+		JAMP_SetRenderStateCached(D3DRS_WIREFRAMEOFFSETENABLE, flag);
+		break;
+	case GL_POLYGON_OFFSET_FILL:
+		JAMP_SetRenderStateCached(D3DRS_SOLIDOFFSETENABLE, flag);
+		break;
+	case GL_SCISSOR_TEST:
+		glw_state->scissorEnable = flag;
+		JAMP_SetScissorsCached(flag, glw_state->scissorBox, false);
+		break;
+#endif
+	case GL_STENCIL_TEST:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_STENCILENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_STENCILENABLE, flag);
+#endif
+		break;
+	case GL_TEXTURE_2D: 
+		glw_state->textureStageEnable[glw_state->serverTU] = flag;
+		glw_state->textureStageDirty[glw_state->serverTU] = true;
+		break;
+	case GL_FOG:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_FOGENABLE, flag);
+#else
+		glw_state->device->SetRenderState(D3DRS_FOGENABLE, flag);
+#endif
+		break;
+#ifdef _XBOX
+	case GL_VSYNC:
+		setPresent(flag);
+		break;
+#endif
+	default: break;
+	}
+#ifdef _XBOX
+	JAMP_SetCapCache(cap, flag);
+#endif
+}
+
+static void dllDisable(GLenum cap)
+{
+	setCap(cap, false);
+}
+
+static void setArrayState(GLenum cap, bool state)
+{
+	switch (cap)
+	{
+	case GL_COLOR_ARRAY: glw_state->colorArrayState = state; break; 
+	case GL_TEXTURE_COORD_ARRAY: glw_state->texCoordArrayState[glw_state->clientTU] = state; break;
+	case GL_VERTEX_ARRAY: glw_state->vertexArrayState = state; break;
+	case GL_NORMAL_ARRAY: glw_state->normalArrayState = state; break;
+	}
+}
+
+static void dllDisableClientState(GLenum array)
+{
+	assert(!glw_state->inDrawBlock);
+	setArrayState(array, false);
+}
+
+#ifdef _WINDOWS
+static void _convertQuadsToTris(GLint first, GLsizei count)
+{
+	glw_state->vertexPointerBack = glw_state->vertexPointer;
+	glw_state->normalPointerBack = glw_state->normalPointer;
+	glw_state->colorPointerBack = glw_state->colorPointer;
+	glw_state->texCoordPointerBack[0] = glw_state->texCoordPointer[0];
+	glw_state->texCoordPointerBack[1] = glw_state->texCoordPointer[1];
+	
+	{
+		glw_state->vertexPointer = 
+			Z_Malloc(count * glw_state->vertexStride * 3 / 2, 
+			TAG_TEMP_WORKSPACE, qfalse);
+		for (int i = 0; i < count; i += 4)
+		{
+			int stride = glw_state->vertexStride / sizeof(float);
+			float* dst = (float*)glw_state->vertexPointer + (i * 3 / 2) * stride;
+			const float* src = (const float*)glw_state->vertexPointerBack + 
+				(first + i) * stride;
+			
+			for (int j = 0; j < 3; ++j)
+			{
+				dst[0 * stride + j] = src[0 * stride + j];
+				dst[1 * stride + j] = src[1 * stride + j];
+				dst[2 * stride + j] = src[2 * stride + j];
+				dst[3 * stride + j] = src[0 * stride + j];
+				dst[4 * stride + j] = src[2 * stride + j];
+				dst[5 * stride + j] = src[3 * stride + j];
+			}
+		}
+	}
+	
+	if (glw_state->normalArrayState)
+	{
+		glw_state->normalPointer = 
+			Z_Malloc(count * glw_state->normalStride * 3 / 2, 
+			TAG_TEMP_WORKSPACE, qfalse);
+		
+		for (int i = 0; i < count; i += 4)
+		{
+			int stride = glw_state->normalStride / sizeof(float);
+			float* dst = (float*)glw_state->normalPointer + (i * 3 / 2) * stride;
+			const float* src = (const float*)glw_state->normalPointerBack + 
+				(first + i) * stride;
+			
+			for (int j = 0; j < 3; ++j)
+			{
+				dst[0 * stride + j] = src[0 * stride + j];
+				dst[1 * stride + j] = src[1 * stride + j];
+				dst[2 * stride + j] = src[2 * stride + j];
+				dst[3 * stride + j] = src[0 * stride + j];
+				dst[4 * stride + j] = src[2 * stride + j];
+				dst[5 * stride + j] = src[3 * stride + j];
+			}
+		}
+	}
+	
+	if (glw_state->colorArrayState)
+	{
+		glw_state->colorPointer = 
+			Z_Malloc(count * glw_state->colorStride * 3 / 2, 
+			TAG_TEMP_WORKSPACE, qfalse);
+		
+		for (int i = 0; i < count; i += 4)
+		{
+			int stride = glw_state->colorStride / sizeof(DWORD);
+			DWORD* dst = (DWORD*)glw_state->colorPointer + (i * 3 / 2) * stride;
+			const DWORD* src = (const DWORD*)glw_state->colorPointerBack + 
+				(first + i) * stride;
+			
+			dst[0 * stride] = src[0 * stride];
+			dst[1 * stride] = src[1 * stride];
+			dst[2 * stride] = src[2 * stride];
+			dst[3 * stride] = src[0 * stride];
+			dst[4 * stride] = src[2 * stride];
+			dst[5 * stride] = src[3 * stride];
+		}
+	}
+	
+	for (int t = 0; t < GLW_MAX_TEXTURE_STAGES; ++t)
+	{
+		if (glw_state->texCoordArrayState[t])
+		{
+			glw_state->texCoordPointer[t] = 
+				Z_Malloc(count * glw_state->texCoordStride[t] * 3 / 2, 
+				TAG_TEMP_WORKSPACE, qfalse);
+			
+			for (int i = 0; i < count; i += 4)
+			{
+				int stride = glw_state->texCoordStride[t] / sizeof(float);
+				float* dst = (float*)glw_state->texCoordPointer[t] + (i * 3 / 2) * stride;
+				const float* src = (const float*)glw_state->texCoordPointerBack[t] + 
+					(first + i) * stride;
+				
+				for (int j = 0; j < 2; ++j)
+				{
+					dst[0 * stride + j] = src[0 * stride + j];
+					dst[1 * stride + j] = src[1 * stride + j];
+					dst[2 * stride + j] = src[2 * stride + j];
+					dst[3 * stride + j] = src[0 * stride + j];
+					dst[4 * stride + j] = src[2 * stride + j];
+					dst[5 * stride + j] = src[3 * stride + j];
+				}
+			}
+		}
+	}
+}
+
+static void _cleanupQuadsToTris(void)
+{
+	Z_Free(const_cast<void*>(glw_state->vertexPointer));
+	glw_state->vertexPointer = glw_state->vertexPointerBack;
+	
+	if (glw_state->normalArrayState)
+	{
+		Z_Free(const_cast<void*>(glw_state->normalPointer));
+		glw_state->normalPointer = glw_state->normalPointerBack;
+	}
+	
+	if (glw_state->colorArrayState)
+	{
+		Z_Free(const_cast<void*>(glw_state->colorPointer));
+		glw_state->colorPointer = glw_state->colorPointerBack;
+	}
+
+	for (int t = 0; t < GLW_MAX_TEXTURE_STAGES; ++t)
+	{
+		if (glw_state->texCoordArrayState[t])
+		{
+			Z_Free(const_cast<void*>(glw_state->texCoordPointer[t]));
+			glw_state->texCoordPointer[t] = glw_state->texCoordPointerBack[t];
+		}
+	}
+}
+#endif
+
+// NOTE: This is a core draw routine.  It should be fast.
+static void dllDrawArrays(GLenum mode, GLint first, GLsizei count)
+{
+#ifdef _WINDOWS
+	if (mode == GL_QUADS)
+	{
+		_convertQuadsToTris(first, count);
+		count = count * 3 / 2;
+		first = 0;
+	}
+#endif
+
+	// start the draw mode
+	qglBeginEXT(mode, count, glw_state->colorArrayState ? count : 0, 
+		glw_state->normalArrayState ? count : 0,
+		glw_state->texCoordArrayState[0] ? count : 0,
+		glw_state->texCoordArrayState[1] ? count : 0);
+
+	// get the draw function we need
+	drawarrayfunc_t func = _drawArrayFuncTable[_getDrawFunc()];
+
+#ifndef _XBOX
+	DWORD* base = glw_state->drawArray;
+#endif
+
+	int inc = glw_state->maxVertices;
+	// loop taking care not to draw too much at a time
+	for (int start = first; ; start += inc)//glw_state->maxVertices)
+	{
+		// draw glw_state->maxVertices amount of geometry
+		func(start, start + glw_state->maxVertices);
+		
+		// are we done yet?
+		glw_state->totalVertices -= glw_state->maxVertices;
+		if (glw_state->totalVertices <= 0)
+		{
+			glw_state->numVertices = glw_state->maxVertices;
+			break;
+		}
+		
+		// ready for another cycle
+		glw_state->drawArray += glw_state->maxVertices *
+			glw_state->drawStride;
+		glw_state->maxVertices = _getMaxVerts();
+
+		glw_state->drawArray = _restartDrawPacket(
+			glw_state->drawArray, glw_state->maxVertices); 
+	}
+	
+#ifndef _XBOX
+	glw_state->drawArray = base;
+#endif
+
+#ifdef _WINDOWS
+	if (mode == GL_QUADS)
+	{
+		_cleanupQuadsToTris();
+	}
+#endif
+
+	// finish up the draw
+	qglEnd();
+}
+
+static void dllDrawBuffer(GLenum mode)
+{
+	//FIXME
+}
+
+
+static void PushIndices(GLsizei count, const GLushort *indices)
+{
+	// open the index packet
+	// can only send 2047 indices thru at a time
+	// BUT, Microsoft recommends 511 pairs at a time (?)
+	int num_packets, numpairs;
+	bool singleindex = false;
+
+	numpairs = count / 2;
+
+	if(numpairs <= 511) 
+	{
+		num_packets = 1;
+
+		if(glw_state->maxIndices % 2)
+		{
+			glw_state->maxIndices -= 1;
+			singleindex = true;
+		}
+	} else 
+	{
+		num_packets = (count / glw_state->maxIndices) + (!!(count % glw_state->maxIndices));
+	}
+
+	glw_state->drawArray = _restartIndexPacket(glw_state->drawArray, glw_state->maxIndices);
+
+	int inc = glw_state->maxIndices;
+	for (int start = 0; ; start += inc)
+	{
+		// memcpy is faster than looping copy:
+		memcpy( glw_state->drawArray, indices+start, glw_state->maxIndices * sizeof(WORD) );
+		glw_state->drawArray += glw_state->maxIndices / 2;
+
+		/*
+		for(int i = start; i < start + glw_state->maxIndices; i += 2)
+		{
+			*glw_state->drawArray++ = (DWORD)(((WORD)indices[i + 1] << 16) + (WORD)indices[i]);
+		}
+		*/
+
+		// are we done yet?
+		glw_state->totalIndices -= glw_state->maxIndices;
+		if (glw_state->totalIndices <= 1)
+		{
+			glw_state->numIndices = glw_state->maxIndices;
+			break;
+		}
+
+		// ready for another cycle
+		//glw_state->drawArray += glw_state->maxVertices * glw_state->drawStride;
+		glw_state->maxIndices = _getMaxIndices();
+
+		if(glw_state->maxIndices % 2)
+		{
+			glw_state->maxIndices -= 1;
+			singleindex = true;
+		}
+
+		glw_state->drawArray = _restartIndexPacket(glw_state->drawArray, glw_state->maxIndices);
+	}
+
+#define CMD_DRAW_INDEX_LAST 0x1808 
+	if(singleindex)
+	{
+		*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_DRAW_INDEX_LAST, 1);
+		*glw_state->drawArray++ = indices[count - 1];
+	}
+}
+
+static void JAMP_CopyTexCoordStream(DWORD *dst, int unit)
+{
+	const BYTE *src = (const BYTE *)glw_state->texCoordPointer[unit];
+	const int stride = glw_state->texCoordStride[unit] ? glw_state->texCoordStride[unit] : sizeof(vec2_t);
+
+	if (!src)
+	{
+		memset(dst, 0, sizeof(vec2_t) * tess.numVertexes);
+		return;
+	}
+
+	if (stride == sizeof(vec2_t))
+	{
+		memcpy(dst, src, sizeof(vec2_t) * tess.numVertexes);
+		return;
+	}
+
+	for (int v = 0; v < tess.numVertexes; ++v)
+	{
+		memcpy(dst + (v * 2), src + (v * stride), sizeof(vec2_t));
+	}
+}
+
+#ifdef _XBOX
+#ifndef JAMP_USE_DRAWINDEXED_UP
+#define JAMP_USE_DRAWINDEXED_UP 0
+#endif
+
+static int s_jampUpDrawCalls;
+static int s_jampUpDrawVertices;
+static int s_jampUpDrawIndices;
+static int s_jampUpDrawBytes;
+static int s_jampUpMaxVertices;
+static int s_jampBeginExtCalls;
+static int s_jampBeginExtVertices;
+static int s_jampImmediateEndCalls;
+static int s_jampImmediateEndVertices;
+static int s_jampPushIndexedCalls;
+static int s_jampPushIndexedVertices;
+static int s_jampPushIndexedIndices;
+static int s_jampPrimitiveUPCalls;
+static int s_jampPrimitiveUPVertices;
+static int s_jampShaderSets;
+static int s_jampShaderSkips;
+static int s_jampShaderInvalidates;
+static DWORD s_jampPixelShaderCache;
+static GLboolean s_jampPixelShaderCacheValid;
+static int s_jampIsEnabledCacheHits;
+static int s_jampIsEnabledDeviceReads;
+
+static int JAMP_CapCacheSlot(GLenum cap)
+{
+	switch (cap)
+	{
+	case GL_ALPHA_TEST: return 0;
+	case GL_BLEND: return 1;
+	case GL_CULL_FACE: return 2;
+	case GL_DEPTH_TEST: return 3;
+	case GL_FOG: return 4;
+	case GL_LIGHTING: return 5;
+	case GL_POLYGON_OFFSET_FILL: return 6;
+	case GL_SCISSOR_TEST: return 7;
+	case GL_STENCIL_TEST: return 8;
+	case GL_TEXTURE_2D: return 9 + glw_state->serverTU;
+	default: return -1;
+	}
+}
+
+static GLboolean s_jampCapCache[9 + GLW_MAX_TEXTURE_STAGES];
+static GLboolean s_jampCapCacheValid[9 + GLW_MAX_TEXTURE_STAGES];
+
+static void JAMP_SetCapCache(GLenum cap, bool flag)
+{
+	const int slot = JAMP_CapCacheSlot(cap);
+	if (slot < 0)
+	{
+		return;
+	}
+	s_jampCapCache[slot] = flag ? GL_TRUE : GL_FALSE;
+	s_jampCapCacheValid[slot] = GL_TRUE;
+}
+
+static void JAMP_InvalidateCapCache(void)
+{
+	memset(s_jampCapCacheValid, 0, sizeof(s_jampCapCacheValid));
+}
+
+static qboolean JAMP_GetCapCache(GLenum cap, GLboolean *flag)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	(void)cap;
+	(void)flag;
+	return qfalse;
+#else
+	const int slot = JAMP_CapCacheSlot(cap);
+	if (slot < 0 || !s_jampCapCacheValid[slot])
+	{
+		return qfalse;
+	}
+	*flag = s_jampCapCache[slot];
+	JAMP_METRIC_INC(s_jampIsEnabledCacheHits);
+	return qtrue;
+#endif
+}
+
+static void JAMP_RecordUPDraw(int vertices, int indices, int strideBytes)
+{
+#if JAMP_XBOX_RENDER_METRICS
+	JAMP_METRIC_INC(s_jampUpDrawCalls);
+	JAMP_METRIC_ADD(s_jampUpDrawVertices, vertices);
+	JAMP_METRIC_ADD(s_jampUpDrawIndices, indices);
+	JAMP_METRIC_ADD(s_jampUpDrawBytes, vertices * strideBytes);
+	if (s_jampRenderMetricActive && vertices > s_jampUpMaxVertices)
+	{
+		s_jampUpMaxVertices = vertices;
+	}
+#else
+	(void)vertices;
+	(void)indices;
+	(void)strideBytes;
+#endif
+}
+
+static void JAMP_RecordBeginExt(int vertices)
+{
+#if JAMP_XBOX_RENDER_METRICS
+	JAMP_METRIC_INC(s_jampBeginExtCalls);
+	JAMP_METRIC_ADD(s_jampBeginExtVertices, vertices);
+#else
+	(void)vertices;
+#endif
+}
+
+static void JAMP_RecordImmediateEnd(int vertices)
+{
+#if JAMP_XBOX_RENDER_METRICS
+	JAMP_METRIC_INC(s_jampImmediateEndCalls);
+	JAMP_METRIC_ADD(s_jampImmediateEndVertices, vertices);
+#else
+	(void)vertices;
+#endif
+}
+
+static void JAMP_RecordPushIndexed(int vertices, int indices)
+{
+#if JAMP_XBOX_RENDER_METRICS
+	JAMP_METRIC_INC(s_jampPushIndexedCalls);
+	JAMP_METRIC_ADD(s_jampPushIndexedVertices, vertices);
+	JAMP_METRIC_ADD(s_jampPushIndexedIndices, indices);
+#else
+	(void)vertices;
+	(void)indices;
+#endif
+}
+
+static void JAMP_RecordPrimitiveUP(int vertices)
+{
+#if JAMP_XBOX_RENDER_METRICS
+	JAMP_METRIC_INC(s_jampPrimitiveUPCalls);
+	JAMP_METRIC_ADD(s_jampPrimitiveUPVertices, vertices);
+#else
+	(void)vertices;
+#endif
+}
+
+static void JAMP_RecordShaderUpdate(qboolean changed)
+{
+#if JAMP_XBOX_RENDER_METRICS
+	if (changed)
+	{
+		JAMP_METRIC_INC(s_jampShaderSets);
+	}
+	else
+	{
+		JAMP_METRIC_INC(s_jampShaderSkips);
+	}
+#else
+	(void)changed;
+#endif
+}
+
+static void JAMP_SetPixelShaderCached(DWORD shader)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetPixelShader(shader);
+	JAMP_RecordShaderUpdate(qtrue);
+	return;
+#else
+	if (s_jampPixelShaderCacheValid && s_jampPixelShaderCache == shader)
+	{
+		JAMP_RecordShaderUpdate(qfalse);
+		return;
+	}
+
+	glw_state->device->SetPixelShader(shader);
+	s_jampPixelShaderCache = shader;
+	s_jampPixelShaderCacheValid = GL_TRUE;
+	JAMP_InvalidateShaderConstantCache();
+	JAMP_RecordShaderUpdate(qtrue);
+#endif
+}
+
+static void JAMP_InvalidateShaderCache(void)
+{
+	glw_state->shaderMask = 0xffffffff;
+	s_jampPixelShaderCacheValid = GL_FALSE;
+	JAMP_InvalidateShaderConstantCache();
+	JAMP_METRIC_INC(s_jampShaderInvalidates);
+}
+
+static BYTE s_jampVertexShaderConstantCache[JAMP_MAX_VERTEX_SHADER_CONSTANTS][16];
+static GLboolean s_jampVertexShaderConstantCacheValid[JAMP_MAX_VERTEX_SHADER_CONSTANTS];
+static BYTE s_jampPixelShaderConstantCache[JAMP_MAX_PIXEL_SHADER_CONSTANTS][16];
+static GLboolean s_jampPixelShaderConstantCacheValid[JAMP_MAX_PIXEL_SHADER_CONSTANTS];
+
+static void JAMP_InvalidateShaderConstantCache(void)
+{
+	memset(s_jampVertexShaderConstantCacheValid, 0, sizeof(s_jampVertexShaderConstantCacheValid));
+	memset(s_jampPixelShaderConstantCacheValid, 0, sizeof(s_jampPixelShaderConstantCacheValid));
+}
+
+static qboolean JAMP_ShaderConstantRangeValid(GLboolean *valid, DWORD reg, DWORD count)
+{
+	DWORD i;
+	for (i = 0; i < count; ++i)
+	{
+		if (!valid[reg + i])
+		{
+			return qfalse;
+		}
+	}
+	return qtrue;
+}
+
+static void JAMP_MarkShaderConstantRangeValid(GLboolean *valid, DWORD reg, DWORD count)
+{
+	DWORD i;
+	for (i = 0; i < count; ++i)
+	{
+		valid[reg + i] = GL_TRUE;
+	}
+}
+
+static void JAMP_SetVertexShaderConstantCached(DWORD reg, const void *data, DWORD count)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetVertexShaderConstant(reg, data, count);
+	return;
+#else
+	if (!data || count == 0)
+	{
+		return;
+	}
+
+	if (reg + count > JAMP_MAX_VERTEX_SHADER_CONSTANTS)
+	{
+		glw_state->device->SetVertexShaderConstant(reg, data, count);
+		return;
+	}
+
+	const size_t bytes = (size_t)count * 16;
+	if (JAMP_ShaderConstantRangeValid(s_jampVertexShaderConstantCacheValid, reg, count) &&
+		memcmp(&s_jampVertexShaderConstantCache[reg][0], data, bytes) == 0)
+	{
+		return;
+	}
+
+	glw_state->device->SetVertexShaderConstant(reg, data, count);
+	memcpy(&s_jampVertexShaderConstantCache[reg][0], data, bytes);
+	JAMP_MarkShaderConstantRangeValid(s_jampVertexShaderConstantCacheValid, reg, count);
+#endif
+}
+
+static void JAMP_SetPixelShaderConstantCached(DWORD reg, const void *data, DWORD count)
+{
+#if !JAMP_XBOX_D3D_STATE_CACHE
+	glw_state->device->SetPixelShaderConstant(reg, data, count);
+	return;
+#else
+	if (!data || count == 0)
+	{
+		return;
+	}
+
+	if (reg + count > JAMP_MAX_PIXEL_SHADER_CONSTANTS)
+	{
+		glw_state->device->SetPixelShaderConstant(reg, data, count);
+		return;
+	}
+
+	const size_t bytes = (size_t)count * 16;
+	if (JAMP_ShaderConstantRangeValid(s_jampPixelShaderConstantCacheValid, reg, count) &&
+		memcmp(&s_jampPixelShaderConstantCache[reg][0], data, bytes) == 0)
+	{
+		return;
+	}
+
+	glw_state->device->SetPixelShaderConstant(reg, data, count);
+	memcpy(&s_jampPixelShaderConstantCache[reg][0], data, bytes);
+	JAMP_MarkShaderConstantRangeValid(s_jampPixelShaderConstantCacheValid, reg, count);
+#endif
+}
+
+static qboolean JAMP_DrawIndexedElementsUP(GLsizei count, const GLushort *indices, int normals, int tex0, int tex1)
+{
+	int strideDwords = 4;
+	if (normals) strideDwords += 3;
+	if (tex0) strideDwords += 2;
+	if (tex1) strideDwords += 2;
+
+	static std::vector<DWORD> s_interleaved;
+	const int neededDwords = strideDwords * tess.numVertexes;
+	if ((int)s_interleaved.size() < neededDwords)
+	{
+		s_interleaved.resize(neededDwords);
+	}
+
+	const DWORD drawColor = glw_state->currentColor;
+	const int useVertexColor = glw_state->colorArrayState;
+	const BYTE *tex0Base = tex0 ? (const BYTE *)glw_state->texCoordPointer[0] : NULL;
+	const BYTE *tex1Base = tex1 ? (const BYTE *)glw_state->texCoordPointer[1] : NULL;
+	const int tex0Stride = tex0 ? glw_state->texCoordStride[0] : 0;
+	const int tex1Stride = tex1 ? glw_state->texCoordStride[1] : 0;
+
+	if (!normals && tex0 && !tex1)
+	{
+		DWORD *dst = &s_interleaved[0];
+		for (int v = 0; v < tess.numVertexes; ++v, dst += 6)
+		{
+			float *dstf = (float *)dst;
+			const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+			dstf[0] = tess.xyz[v][0];
+			dstf[1] = tess.xyz[v][1];
+			dstf[2] = tess.xyz[v][2];
+			dst[3] = useVertexColor ? tess.svars.colors[v] : drawColor;
+			dstf[4] = tc0[0];
+			dstf[5] = tc0[1];
+		}
+	}
+	else if (normals && tex0 && !tex1)
+	{
+		DWORD *dst = &s_interleaved[0];
+		for (int v = 0; v < tess.numVertexes; ++v, dst += 9)
+		{
+			float *dstf = (float *)dst;
+			const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+			dstf[0] = tess.xyz[v][0];
+			dstf[1] = tess.xyz[v][1];
+			dstf[2] = tess.xyz[v][2];
+			dstf[3] = tess.normal[v][0];
+			dstf[4] = tess.normal[v][1];
+			dstf[5] = tess.normal[v][2];
+			dst[6] = useVertexColor ? tess.svars.colors[v] : drawColor;
+			dstf[7] = tc0[0];
+			dstf[8] = tc0[1];
+		}
+	}
+	else if (normals && tex0 && tex1)
+	{
+		DWORD *dst = &s_interleaved[0];
+		for (int v = 0; v < tess.numVertexes; ++v, dst += 11)
+		{
+			float *dstf = (float *)dst;
+			const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+			const float *tc1 = tex1Base ? (const float *)(tex1Base + v * tex1Stride) : tess.svars.texcoords[1][v];
+			dstf[0] = tess.xyz[v][0];
+			dstf[1] = tess.xyz[v][1];
+			dstf[2] = tess.xyz[v][2];
+			dstf[3] = tess.normal[v][0];
+			dstf[4] = tess.normal[v][1];
+			dstf[5] = tess.normal[v][2];
+			dst[6] = useVertexColor ? tess.svars.colors[v] : drawColor;
+			dstf[7] = tc0[0];
+			dstf[8] = tc0[1];
+			dstf[9] = tc1[0];
+			dstf[10] = tc1[1];
+		}
+	}
+	else
+	{
+		for (int v = 0; v < tess.numVertexes; ++v)
+		{
+			DWORD *dst = &s_interleaved[v * strideDwords];
+			float *dstf = (float *)dst;
+			int o = 0;
+
+			dstf[o++] = tess.xyz[v][0];
+			dstf[o++] = tess.xyz[v][1];
+			dstf[o++] = tess.xyz[v][2];
+
+			if (normals)
+			{
+				dstf[o++] = tess.normal[v][0];
+				dstf[o++] = tess.normal[v][1];
+				dstf[o++] = tess.normal[v][2];
+			}
+
+			dst[o++] = useVertexColor ? tess.svars.colors[v] : drawColor;
+
+			if (tex0)
+			{
+				const float *tc0 = tex0Base ? (const float *)(tex0Base + v * tex0Stride) : tess.svars.texcoords[0][v];
+				dstf[o++] = tc0[0];
+				dstf[o++] = tc0[1];
+			}
+
+			if (tex1)
+			{
+				const float *tc1 = tex1Base ? (const float *)(tex1Base + v * tex1Stride) : tess.svars.texcoords[1][v];
+				dstf[o++] = tc1[0];
+				dstf[o++] = tc1[1];
+			}
+		}
+	}
+
+	glw_state->device->DrawIndexedVerticesUP(
+		glw_state->primitiveMode,
+		count,
+		indices,
+		&s_interleaved[0],
+		strideDwords * 4);
+	JAMP_RecordUPDraw(tess.numVertexes, count, strideDwords * 4);
+
+	return qtrue;
+}
+#endif
+
+// NOTE: This is a core draw routine.  It should be fast.
+static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
+{
+	int normals, tex0, tex1, num_streams = 2;
+
+	assert(type == GL_UNSIGNED_SHORT);
+
+	normals = glw_state->normalArrayState ? tess.numVertexes : 0;
+	tex0 = glw_state->texCoordArrayState[0] ? tess.numVertexes : 0;
+	tex1 = glw_state->texCoordArrayState[1] ? tess.numVertexes : 0;
+
+	num_streams += ((normals > 0) + (tex0 > 0) + (tex1 > 0));
+
+	// start the draw block
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = _convertPrimMode(mode);
+
+	// update DX with any pending state changes
+	if(tess.currentPass == 0)
+	{
+		_updateDrawStride(normals, tex0, tex1);
+		glw_state->drawStride += normals ? 2 : 1;
+	}
+	else
+	{
+		glw_state->drawStride = 1;
+		if(normals && !tess.pNormal) glw_state->drawStride += 4;
+		if(tex0) glw_state->drawStride += 2;
+		if(tex1) glw_state->drawStride += 2;
+	}
+	_updateShader(normals, tex0, tex1);
+	_updateTextures();
+	_updateMatrices();
+
+#if defined(_XBOX) && JAMP_USE_DRAWINDEXED_UP
+	if (JAMP_DrawIndexedElementsUP(count, (const GLushort *)indices, normals, tex0, tex1))
+	{
+		glw_state->inDrawBlock = false;
+		return;
+	}
+#endif
+
+	glw_state->numIndices = 0;
+	glw_state->totalIndices = count;
+	glw_state->maxIndices = _getMaxIndices();
+
+#ifdef _XBOX
+	JAMP_SetStreamSourceNullCached(0, glw_state->drawStride * 4);
+#else
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
+#endif
+
+	int vert_size = glw_state->drawStride * tess.numVertexes;
+	int index_size = count / 2; 
+
+	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
+
+	glw_state->drawArray = (DWORD*)*((DWORD*)glw_state->device);
+
+	DWORD *jumpaddress = 0, *stream = 0;
+
+	// Only copy the geometry in on the first pass.
+	// Multiple passes reuse the position/normal streams like the retail Xbox renderer.
+	if(tess.currentPass == 0)
+	{
+		// Determine where the end of the vertex data is gonna be,
+		// that's where we're going to jump to
+		jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
+
+		// Write the jump address
+		*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
+
+		// Set up our own fake vertex buffer
+		stream = glw_state->drawArray;
+
+		memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
+		glw_state->drawArray += tess.numVertexes * 4;
+
+		if(normals)
+		{
+			memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+			glw_state->drawArray += tess.numVertexes * 4;
+		}
+
+		if(glw_state->colorArrayState)
+		{
+			memcpy(glw_state->drawArray, tess.svars.colors, sizeof(D3DCOLOR) * tess.numVertexes);
+		}
+		else
+		{
+			for( int v = 0; v < tess.numVertexes; ++v )
+				glw_state->drawArray[v] = glw_state->currentColor;
+		}
+		glw_state->drawArray += tess.numVertexes;
+
+		if(tex0)
+		{
+			JAMP_CopyTexCoordStream(glw_state->drawArray, 0);
+			glw_state->drawArray += tess.numVertexes * 2;
+		}
+
+		if(tex1)
+		{
+			JAMP_CopyTexCoordStream(glw_state->drawArray, 1);
+			glw_state->drawArray += tess.numVertexes * 2;
+		}
+	}
+	else
+	{
+		// Determine where the end of the vertex data is gonna be,
+		// that's where we're going to jump to
+		jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
+
+		// Write the jump address
+		*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
+
+		// Set up our own fake vertex buffer
+		stream = glw_state->drawArray;
+
+		if(normals && !tess.pNormal)
+		{
+			memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+			glw_state->drawArray += tess.numVertexes * 4;
+		}
+
+		if(glw_state->colorArrayState)
+		{
+			memcpy(glw_state->drawArray, tess.svars.colors, sizeof(D3DCOLOR) * tess.numVertexes);
+		}
+		else
+		{
+			for( int v = 0; v < tess.numVertexes; ++v )
+				glw_state->drawArray[v] = glw_state->currentColor;
+		}
+		glw_state->drawArray += tess.numVertexes;
+
+		if(tex0)
+		{
+			JAMP_CopyTexCoordStream(glw_state->drawArray, 0);
+			glw_state->drawArray += tess.numVertexes * 2;
+		}
+
+		if(tex1)
+		{
+			JAMP_CopyTexCoordStream(glw_state->drawArray, 1);
+			glw_state->drawArray += tess.numVertexes * 2;
+		}
+	}
+
+	// Write the vertex shader
+#define CMD_STREAM_STRIDEANDTYPE0 0x1760
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
+	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
+
+	if(1)
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	if(normals)
+	{
+		*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
+	}
+	else
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	*glw_state->drawArray++ = (4 << 8) | D3DVSDT_D3DCOLOR;
+
+	for(int i = 0; i < 5; i++)
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	if(tex0)
+	{
+		*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
+	}
+	else
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	if(tex1)
+	{
+		*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
+	}
+	else
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	for(int i = 0; i < 5; i++)
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+//	 Write the indicator to our vertex stream
+#define CMD_VERTEXSTREAM_XYZ		0x1720
+#define CMD_VERTEXSTREAM_NORMAL		0x1728
+#define CMD_VERTEXSTREAM_COLOR		0x172c
+#define CMD_VERTEXSTREAM_TEX0		0x1744
+#define CMD_VERTEXSTREAM_TEX1		0x1748
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_XYZ, 1);
+	if(tess.currentPass == 0)
+	{
+		*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+		tess.pXyz = stream;
+		stream += tess.numVertexes * 4;
+	}
+	else
+	{
+		*glw_state->drawArray++ = (DWORD)tess.pXyz & 0x7fffffff;
+	}
+
+	if(normals)
+	{
+		*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_NORMAL, 1);
+		if(!tess.pNormal)
+		{
+			*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+			tess.pNormal = stream;
+			stream += tess.numVertexes * 4;
+		}
+		else
+		{
+			*glw_state->drawArray++ = (DWORD)tess.pNormal & 0x7fffffff;
+		}
+	}
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_COLOR, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes;
+
+	if(tex0)
+	{
+		*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_TEX0, 1);
+		*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+		tess.pTex1 = stream;
+		stream += tess.numVertexes * 2;
+	}
+
+	if(tex1)
+	{
+		*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_TEX1, 1);
+		*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+		tess.pTex2 = stream;
+	}
+
+	// Send thru the index data
+	PushIndices(count, (GLushort*)indices);
+
+	// finish up the draw
+	glw_state->inDrawBlock = false;
+
+	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
+
+	glw_state->device->EndPush(push);
+	JAMP_RecordPushIndexed(tess.numVertexes, count);
+}
+
+static void dllDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels)
+{
+	assert(0);
+}
+
+static void dllEdgeFlag(GLboolean flag)
+{
+	assert(0);
+}
+
+static void dllEdgeFlagPointer(GLsizei stride, const GLvoid *pointer)
+{
+	assert(0);
+}
+
+static void dllEdgeFlagv(const GLboolean *flag)
+{
+	assert(0);
+}
+
+static void dllEnable(GLenum cap)
+{
+	setCap(cap, true);
+}
+
+static void dllEnableClientState(GLenum array)
+{
+	assert(!glw_state->inDrawBlock);
+	setArrayState(array, true);
+}
+
+static void dllEnd(void)
+{
+	assert(glw_state->inDrawBlock);
+	glw_state->inDrawBlock = false;
+#ifdef _XBOX
+	// on Xbox, just close the draw packet
+	DWORD* push = _terminateDrawPacket(
+		&glw_state->drawArray[glw_state->numVertices * 
+		glw_state->drawStride]);
+	
+	glw_state->device->EndPush(push);
+	JAMP_RecordImmediateEnd(glw_state->numVertices);
+#else
+	// on the PC, use DrawPrimitiveUp (a little slow)
+	int num = 0;
+	switch (glw_state->primitiveMode)
+	{
+	case D3DPT_POINTLIST: num = glw_state->numVertices; break;
+	case D3DPT_LINELIST: num = glw_state->numVertices / 2; break;
+	case D3DPT_LINESTRIP: num = glw_state->numVertices - 1; break;
+	case D3DPT_TRIANGLELIST: num = glw_state->numVertices / 3; break;
+	case D3DPT_TRIANGLESTRIP: num = glw_state->numVertices - 2; break;
+	case D3DPT_TRIANGLEFAN: num = glw_state->numVertices - 2; break;
+	}
+	
+	glw_state->device->DrawPrimitiveUP(
+		glw_state->primitiveMode, num, 
+		glw_state->drawArray, glw_state->drawStride * sizeof(DWORD));
+#endif
+}
+
+static void dllEndFrame(void)
+{
+#ifdef _XBOX
+	int jampEndFrameCount = s_jampRenderMetricFrame;
+	qboolean jampEndFrameTrace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && jampEndFrameCount < 2);
+	if (jampEndFrameTrace)
+	{
+		Com_PrintfAlways("JAMP: dllEndFrame #%d enter\n", jampEndFrameCount);
+	}
+#endif
+	assert(!glw_state->inDrawBlock);
+
+	// the blend state can get reset by Present()...
+	GLboolean blend = qglIsEnabled(GL_BLEND);
+	
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d before viewport reset\n", jampEndFrameCount);
+#endif
+	qglViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after viewport reset\n", jampEndFrameCount);
+#endif
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d before Present\n", jampEndFrameCount);
+#if SP_XBOX_FRAMEBUFFER_TELEMETRY
+	JAMP_UpdateFramebufferTelemetry();
+#endif
+#endif
+	glw_state->device->Present(NULL, NULL, NULL, NULL);
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after Present\n", jampEndFrameCount);
+	JAMP_InvalidateRenderStateAfterPresent();
+#endif
+
+	// restore the pre-Present state
+	if (blend) qglEnable(GL_BLEND);
+	else qglDisable(GL_BLEND);
+#ifdef _XBOX
+	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d exit\n", jampEndFrameCount);
+#if JAMP_XBOX_RENDER_METRICS
+	if (s_jampRenderMetricActive)
+	{
+		Com_PrintfAlways("JAMP: render metrics frame=%d upCalls=%d upVerts=%d upIdx=%d upKB=%d maxVerts=%d beginExt=%d/%d imm=%d/%d pushIdx=%d/%d/%d primUP=%d/%d shader=%d/%d/%d isen=%d/%d texState=%d/%d/%d texBind=%d/%d/%d rs=%d/%d/%d vp=%d/%d sc=%d/%d xf=%d/%d/%d mat=%d/%d lt=%d/%d le=%d/%d mlInv=%d\n",
+			jampEndFrameCount,
+			s_jampUpDrawCalls,
+			s_jampUpDrawVertices,
+			s_jampUpDrawIndices,
+			(s_jampUpDrawBytes + 1023) / 1024,
+			s_jampUpMaxVertices,
+			s_jampBeginExtCalls,
+			s_jampBeginExtVertices,
+			s_jampImmediateEndCalls,
+			s_jampImmediateEndVertices,
+			s_jampPushIndexedCalls,
+			s_jampPushIndexedVertices,
+			s_jampPushIndexedIndices,
+			s_jampPrimitiveUPCalls,
+			s_jampPrimitiveUPVertices,
+			s_jampShaderSets,
+			s_jampShaderSkips,
+			s_jampShaderInvalidates,
+			s_jampIsEnabledCacheHits,
+			s_jampIsEnabledDeviceReads,
+			s_jampTexStageSets,
+			s_jampTexStageSkips,
+			s_jampTexStageInvalidates,
+			s_jampTextureBindSets,
+			s_jampTextureBindSkips,
+			s_jampTextureBindInvalidates,
+			s_jampRenderStateSets,
+			s_jampRenderStateSkips,
+			s_jampRenderStateInvalidates,
+			s_jampViewportSets,
+			s_jampViewportSkips,
+			s_jampScissorSets,
+			s_jampScissorSkips,
+			s_jampTransformSets,
+			s_jampTransformSkips,
+			s_jampTransformInvalidates,
+			s_jampMaterialSets,
+			s_jampMaterialSkips,
+			s_jampLightSets,
+			s_jampLightSkips,
+			s_jampLightEnableSets,
+			s_jampLightEnableSkips,
+			s_jampMaterialLightInvalidates);
+		s_jampUpDrawCalls = 0;
+		s_jampUpDrawVertices = 0;
+		s_jampUpDrawIndices = 0;
+		s_jampUpDrawBytes = 0;
+		s_jampUpMaxVertices = 0;
+		s_jampBeginExtCalls = 0;
+		s_jampBeginExtVertices = 0;
+		s_jampImmediateEndCalls = 0;
+		s_jampImmediateEndVertices = 0;
+		s_jampPushIndexedCalls = 0;
+		s_jampPushIndexedVertices = 0;
+		s_jampPushIndexedIndices = 0;
+		s_jampPrimitiveUPCalls = 0;
+		s_jampPrimitiveUPVertices = 0;
+		s_jampShaderSets = 0;
+		s_jampShaderSkips = 0;
+		s_jampShaderInvalidates = 0;
+		s_jampIsEnabledCacheHits = 0;
+		s_jampIsEnabledDeviceReads = 0;
+		s_jampTexStageSets = 0;
+		s_jampTexStageSkips = 0;
+		s_jampTexStageInvalidates = 0;
+		s_jampTextureBindSets = 0;
+		s_jampTextureBindSkips = 0;
+		s_jampTextureBindInvalidates = 0;
+		s_jampRenderStateSets = 0;
+		s_jampRenderStateSkips = 0;
+		s_jampRenderStateInvalidates = 0;
+		s_jampViewportSets = 0;
+		s_jampViewportSkips = 0;
+		s_jampScissorSets = 0;
+		s_jampScissorSkips = 0;
+		s_jampTransformSets = 0;
+		s_jampTransformSkips = 0;
+		s_jampTransformInvalidates = 0;
+		s_jampMaterialSets = 0;
+		s_jampMaterialSkips = 0;
+		s_jampLightSets = 0;
+		s_jampLightSkips = 0;
+		s_jampLightEnableSets = 0;
+		s_jampLightEnableSkips = 0;
+		s_jampMaterialLightInvalidates = 0;
+	}
+#endif
+	s_jampRenderMetricFrame++;
+	s_jampRenderMetricActive = qfalse;
+#endif
+}
+
+// EXTENSION: End shadow draw mode
+static void dllEndShadow(void)
+{
+	//Intentionally left blank
+}
+
+static void dllEndList(void)
+{
+	assert(0);
+}
+
+static void dllEvalCoord1d(GLdouble u)
+{
+	assert(0);
+}
+
+static void dllEvalCoord1dv(const GLdouble *u)
+{
+	assert(0);
+}
+
+static void dllEvalCoord1f(GLfloat u)
+{
+	assert(0);
+}
+
+static void dllEvalCoord1fv(const GLfloat *u)
+{
+	assert(0);
+}
+
+static void dllEvalCoord2d(GLdouble u, GLdouble v)
+{
+	assert(0);
+}
+
+static void dllEvalCoord2dv(const GLdouble *u)
+{
+	assert(0);
+}
+
+static void dllEvalCoord2f(GLfloat u, GLfloat v)
+{
+	assert(0);
+}
+
+static void dllEvalCoord2fv(const GLfloat *u)
+{
+	assert(0);
+}
+
+static void dllEvalMesh1(GLenum mode, GLint i1, GLint i2)
+{
+	assert(0);
+}
+
+static void dllEvalMesh2(GLenum mode, GLint i1, GLint i2, GLint j1, GLint j2)
+{
+	assert(0);
+}
+
+static void dllEvalPoint1(GLint i)
+{
+	assert(0);
+}
+
+static void dllEvalPoint2(GLint i, GLint j)
+{
+	assert(0);
+}
+
+static void dllFeedbackBuffer(GLsizei size, GLenum type, GLfloat *buffer)
+{
+	assert(0);
+}
+
+static void dllFinish(void)
+{
+#ifdef _XBOX
+	glw_state->device->BlockUntilIdle();
+#endif
+}
+
+static void dllFlush(void)
+{
+#ifdef _XBOX
+	glw_state->device->BlockUntilIdle();
+#endif
+}
+
+// EXTENSION: Draw the shadow
+static void dllFlushShadow(void)
+{
+	//Intentionally left blank
+}
+
+static D3DFOGMODE _convertFogMode(GLint param)
+{
+	switch(param)
+	{
+	case GL_LINEAR: return D3DFOG_LINEAR; break;
+	case GL_EXP: return D3DFOG_EXP; break;
+	case GL_EXP2: return D3DFOG_EXP2; break;
+	}
+
+	return D3DFOG_NONE;
+}
+
+static void dllFogf(GLenum pname, GLfloat param)
+{
+	assert(pname == GL_FOG_DENSITY || pname == GL_FOG_START || pname == GL_FOG_END);	
+
+	switch(pname)
+	{
+	case GL_FOG_DENSITY:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached( D3DRS_FOGDENSITY, *(DWORD*)&param );
+#else
+		glw_state->device->SetRenderState( D3DRS_FOGDENSITY, *(DWORD*)&param );
+#endif
+		break;
+	case GL_FOG_START:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached( D3DRS_FOGSTART, *(DWORD*)&param );
+#else
+		glw_state->device->SetRenderState( D3DRS_FOGSTART, *(DWORD*)&param );
+#endif
+		break;
+	case GL_FOG_END:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached( D3DRS_FOGEND, *(DWORD*)&param );
+#else
+		glw_state->device->SetRenderState( D3DRS_FOGEND, *(DWORD*)&param );
+#endif
+		break;
+	}
+}
+
+static void dllFogfv(GLenum pname, const GLfloat *params)
+{
+	assert(pname == GL_FOG_COLOR);
+
+	D3DCOLOR color = D3DCOLOR_ARGB(0x00, 
+								  (int)(params[0] * 255.0f),
+								  (int)(params[1] * 255.0f),
+								  (int)(params[2] * 255.0f));
+
+#ifdef _XBOX
+	JAMP_SetRenderStateCached( D3DRS_FOGCOLOR, color );
+#else
+	glw_state->device->SetRenderState( D3DRS_FOGCOLOR, color );
+#endif
+}
+
+static void dllFogi(GLenum pname, GLint param)
+{
+	assert(pname == GL_FOG_MODE);
+
+#ifdef _XBOX
+	JAMP_SetRenderStateCached( D3DRS_FOGTABLEMODE, _convertFogMode(param) );
+#else
+	glw_state->device->SetRenderState( D3DRS_FOGTABLEMODE, _convertFogMode(param) );
+#endif
+}
+
+static void dllFogiv(GLenum pname, const GLint *params)
+{
+	assert(0);
+}
+
+static void dllFrontFace(GLenum mode)
+{
+	assert(0);
+}
+
+static void dllFrustum(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar)
+{
+	D3DXMATRIX m;
+	D3DXMatrixPerspectiveOffCenterRH(&m, left, right, bottom, top, zNear, zFar);
+	glw_state->matrixStack[glw_state->matrixMode]->MultMatrix(&m);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+GLuint dllGenLists(GLsizei range)
+{
+	assert(0);
+	return 0;
+}
+
+static void dllGenTextures(GLsizei n, GLuint *textures)
+{
+	for (int i = 0; i < n; ++i)
+	{
+		textures[i] = glw_state->textureBindNum++;
+	}
+}
+
+// Implemented only the states we use.
+template <typename T>
+static void _getState(GLenum pname, T *params)
+{
+	switch (pname)
+	{
+	case GL_CULL_FACE: params[0] = (T)glw_state->cullEnable; break;
+	case GL_MAX_TEXTURE_SIZE: params[0] = (T)512; break;
+	case GL_MAX_ACTIVE_TEXTURES_ARB: params[0] = GLW_MAX_TEXTURE_STAGES; break;
+	case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT: params[0] = 4; break;
+	default:
+		assert(0);
+		params[0] = (T)0;
+		break;
+	}
+}
+
+static void dllGetBooleanv(GLenum pname, GLboolean *params)
+{
+	_getState(pname, params);
+}
+
+static void dllGetClipPlane(GLenum plane, GLdouble *equation)
+{
+	assert(0);
+}
+
+static void dllGetDoublev(GLenum pname, GLdouble *params)
+{
+	_getState(pname, params);
+}
+
+GLenum dllGetError(void)
+{
+	return 0;
+}
+
+static void dllGetFloatv(GLenum pname, GLfloat *params)
+{
+	_getState(pname, params);
+}
+
+static void dllGetIntegerv(GLenum pname, GLint *params)
+{
+	_getState(pname, params);
+}
+
+static void dllGetLightfv(GLenum light, GLenum pname, GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllGetLightiv(GLenum light, GLenum pname, GLint *params)
+{
+	assert(0);
+}
+
+static void dllGetMapdv(GLenum target, GLenum query, GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllGetMapfv(GLenum target, GLenum query, GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllGetMapiv(GLenum target, GLenum query, GLint *v)
+{
+	assert(0);
+}
+
+static void dllGetMaterialfv(GLenum face, GLenum pname, GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllGetMaterialiv(GLenum face, GLenum pname, GLint *params)
+{
+	assert(0);
+}
+
+static void dllGetPixelMapfv(GLenum map, GLfloat *values)
+{
+	assert(0);
+}
+
+static void dllGetPixelMapuiv(GLenum map, GLuint *values)
+{
+	assert(0);
+}
+
+static void dllGetPixelMapusv(GLenum map, GLushort *values)
+{
+	assert(0);
+}
+
+static void dllGetPointerv(GLenum pname, GLvoid* *params)
+{
+	assert(0);
+}
+
+static void dllGetPolygonStipple(GLubyte *mask)
+{
+	assert(0);
+}
+
+const GLubyte * dllGetString(GLenum name)
+{
+	switch (name)
+	{
+	case GL_VENDOR: return (const unsigned char*)"Vicarious Visions";
+	case GL_RENDERER: return (const unsigned char*)"Optimized DX8/OpenGL Layer";
+	case GL_VERSION: return (const unsigned char*)"0.1";
+	case GL_EXTENSIONS:
+		return (const unsigned char*)
+			"EXT_texture_env_add GL_ARB_multitexture EXT_texture_filter_anisotropic";
+	default: return (const unsigned char*)"";
+	}
+}
+
+static void dllGetTexEnvfv(GLenum target, GLenum pname, GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllGetTexEnviv(GLenum target, GLenum pname, GLint *params)
+{
+	assert(0);
+}
+
+static void dllGetTexGendv(GLenum coord, GLenum pname, GLdouble *params)
+{
+	assert(0);
+}
+
+static void dllGetTexGenfv(GLenum coord, GLenum pname, GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllGetTexGeniv(GLenum coord, GLenum pname, GLint *params)
+{
+	assert(0);
+}
+
+static void dllGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid *pixels)
+{
+	assert(0);
+}
+
+static void dllGetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllGetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params)
+{
+	assert(0);
+}
+
+static void dllGetTexParameterfv(GLenum target, GLenum pname, GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllGetTexParameteriv(GLenum target, GLenum pname, GLint *params)
+{
+	assert(0);
+}
+
+static void dllHint(GLenum target, GLenum mode)
+{
+	assert(0);
+}
+
+// Convert an triangle index array (indices) to a 
+// triangle strip index array (dest) with primitive 
+// length array.
+static void buildStrips(GLuint* len, GLsizei* num_lens, GLushort* dest, GLsizei* num_indices, const GLushort* src)
+{
+	GLushort last[3];
+
+	// prime the strip
+	GLsizei cur_index = 0;
+	dest[cur_index++] = src[0];
+	dest[cur_index++] = src[1];
+	dest[cur_index++] = src[2];
+	GLuint cur_length = 3;
+	GLsizei num_strips = 0;
+
+	GLuint max_length = GLW_MAX_DRAW_PACKET_SIZE / glw_state->drawStride;
+	
+	last[0] = src[0];
+	last[1] = src[1];
+	last[2] = src[2];
+
+	qboolean even = qfalse;
+
+	for ( GLsizei i = 3; i < *num_indices; i += 3 )
+	{
+		// odd numbered triangle in potential strip
+		if ( !even )
+		{
+			// check previous triangle to see if we're continuing a strip
+			if ( ( src[i+0] == last[2] ) && ( src[i+1] == last[1] ) &&
+				cur_length < max_length )
+			{
+				++cur_length;
+				dest[cur_index++] = src[i+2];
+				even = qtrue;
+			}
+			// otherwise we're done with this strip so finish it and start
+			// a new one
+			else
+			{
+				len[num_strips++] = cur_length;
+				cur_length = 3;
+
+				dest[cur_index++] = src[i+0];
+				dest[cur_index++] = src[i+1];
+				dest[cur_index++] = src[i+2];
+
+				even = qfalse;
+			}
+		}
+		else
+		{
+			// check previous triangle to see if we're continuing a strip
+			if ( ( last[2] == src[i+1] ) && ( last[0] == src[i+0] ) &&
+				cur_length < max_length )
+			{
+				++cur_length;
+				dest[cur_index++] = src[i+2];
+				even = qfalse;
+			}
+			// otherwise we're done with this strip so finish it and start
+			// a new one
+			else
+			{
+				len[num_strips++] = cur_length;
+				cur_length = 3;
+
+				dest[cur_index++] = src[i+0];
+				dest[cur_index++] = src[i+1];
+				dest[cur_index++] = src[i+2];
+
+				even = qfalse;
+			}
+		}
+
+		// cache the last three vertices
+		last[0] = src[i+0];
+		last[1] = src[i+1];
+		last[2] = src[i+2];
+	}
+
+	len[num_strips++] = cur_length;
+	*num_lens = num_strips;
+	*num_indices = cur_index;
+
+	assert(num_strips <= GLW_MAX_STRIPS);
+}
+
+#ifdef _XBOX
+#ifndef CMD_STREAM_STRIDEANDTYPE0
+#define CMD_STREAM_STRIDEANDTYPE0 0x1760
+#endif
+#ifndef CMD_VERTEXSTREAM_XYZ
+#define CMD_VERTEXSTREAM_XYZ		0x1720
+#define CMD_VERTEXSTREAM_NORMAL		0x1728
+#define CMD_VERTEXSTREAM_COLOR		0x172c
+#define CMD_VERTEXSTREAM_TEX0		0x1744
+#define CMD_VERTEXSTREAM_TEX1		0x1748
+#endif
+
+static qboolean JAMP_CanReuseLightEffectSurfaceStreams()
+{
+	return ( tess.pXyz && tess.pTex1 ) ? qtrue : qfalse;
+}
+
+void renderObject_LightBeginSurface()
+{
+	int i;
+	DWORD *positionStream = NULL;
+	DWORD *normalStream = NULL;
+	DWORD *texCoordStream = NULL;
+	DWORD *tangentStream = NULL;
+	const qboolean reuseSurfaceStreams = JAMP_CanReuseLightEffectSurfaceStreams();
+	const qboolean uploadNormalStream = ( !reuseSurfaceStreams || !tess.pNormal );
+
+	assert( !glw_state->inDrawBlock );
+
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
+	glw_state->drawStride = 14;
+
+#ifdef _XBOX
+	JAMP_SetStreamSourceNullCached( 0, glw_state->drawStride * 4 );
+#else
+	glw_state->device->SetStreamSource( 0, NULL, glw_state->drawStride * 4 );
+#endif
+
+	int vert_size = ( reuseSurfaceStreams ? ( uploadNormalStream ? 8 : 4 ) : glw_state->drawStride ) * tess.numVertexes;
+	glw_state->device->BeginPush( vert_size + 60, &glw_state->drawArray );
+	glw_state->drawArray = (DWORD *)*((DWORD *)glw_state->device);
+
+	DWORD *jumpaddress = (DWORD *)*((DWORD *)glw_state->device) + ( vert_size + 1 );
+	DWORD *stream;
+
+	*glw_state->drawArray++ = ( (DWORD)jumpaddress & 0x7fffffff ) | 1;
+
+	stream = glw_state->drawArray;
+
+	if ( reuseSurfaceStreams )
+	{
+		positionStream = tess.pXyz;
+		texCoordStream = tess.pTex1;
+		if ( uploadNormalStream )
+		{
+			normalStream = stream;
+			memcpy( glw_state->drawArray, tess.normal, sizeof( vec4_t ) * tess.numVertexes );
+			glw_state->drawArray += tess.numVertexes * 4;
+			stream += tess.numVertexes * 4;
+		}
+		else
+		{
+			normalStream = tess.pNormal;
+		}
+		tangentStream = stream;
+		memcpy( glw_state->drawArray, tess.tangent, sizeof( vec4_t ) * tess.numVertexes );
+		glw_state->drawArray += tess.numVertexes * 4;
+	}
+	else
+	{
+		positionStream = stream;
+		memcpy( glw_state->drawArray, tess.xyz, sizeof( vec4_t ) * tess.numVertexes );
+		glw_state->drawArray += tess.numVertexes * 4;
+		stream += tess.numVertexes * 4;
+
+		normalStream = stream;
+		memcpy( glw_state->drawArray, tess.normal, sizeof( vec4_t ) * tess.numVertexes );
+		glw_state->drawArray += tess.numVertexes * 4;
+		stream += tess.numVertexes * 4;
+
+		texCoordStream = stream;
+		memcpy( glw_state->drawArray, tess.svars.texcoords[0], sizeof( vec2_t ) * tess.numVertexes );
+		glw_state->drawArray += tess.numVertexes * 2;
+		stream += tess.numVertexes * 2;
+
+		tangentStream = stream;
+		memcpy( glw_state->drawArray, tess.tangent, sizeof( vec4_t ) * tess.numVertexes );
+		glw_state->drawArray += tess.numVertexes * 4;
+	}
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE( CMD_STREAM_STRIDEANDTYPE0, 16 );
+
+	*glw_state->drawArray++ = ( 16 << 8 ) | D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = ( 16 << 8 ) | D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = ( 8 << 8 ) | D3DVSDT_FLOAT2;
+	*glw_state->drawArray++ = ( 16 << 8 ) | D3DVSDT_FLOAT3;
+
+	for ( i = 0; i < 12; i++ )
+	{
+		*glw_state->drawArray++ = ( ( glw_state->drawStride * 4 ) << 8 ) | D3DVSDT_NONE;
+	}
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE( 0x1720, 1 );
+	*glw_state->drawArray++ = (DWORD)positionStream & 0x7fffffff;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE( 0x1724, 1 );
+	*glw_state->drawArray++ = (DWORD)normalStream & 0x7fffffff;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE( 0x1728, 1 );
+	*glw_state->drawArray++ = (DWORD)texCoordStream & 0x7fffffff;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE( 0x172c, 1 );
+	*glw_state->drawArray++ = (DWORD)tangentStream & 0x7fffffff;
+
+	glw_state->inDrawBlock = false;
+	glw_state->device->EndPush( glw_state->drawArray );
+}
+
+void renderObject_LightDrawIndexes( int numIndexes, const glIndex_t *indexes )
+{
+	assert( !glw_state->inDrawBlock );
+
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
+	glw_state->drawStride = 14;
+
+	glw_state->numIndices = 0;
+	glw_state->totalIndices = numIndexes;
+	glw_state->maxIndices = _getMaxIndices();
+
+	int index_size = numIndexes / 2;
+	glw_state->device->BeginPush( index_size + 60, &glw_state->drawArray );
+	glw_state->drawArray = (DWORD *)*((DWORD *)glw_state->device);
+
+	PushIndices( numIndexes, (GLushort *)indexes );
+
+	glw_state->inDrawBlock = false;
+
+	DWORD *push = _terminateIndexPacket( glw_state->drawArray );
+	glw_state->device->EndPush( push );
+}
+
+void renderObject_Light( int numIndexes, const glIndex_t *indexes )
+{
+	int i;
+	DWORD *positionStream = NULL;
+	DWORD *normalStream = NULL;
+	DWORD *texCoordStream = NULL;
+	DWORD *tangentStream = NULL;
+	const qboolean reuseSurfaceStreams = JAMP_CanReuseLightEffectSurfaceStreams();
+	const qboolean uploadNormalStream = ( !reuseSurfaceStreams || !tess.pNormal );
+
+	// start the draw mode
+	assert(!glw_state->inDrawBlock);
+
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
+
+	glw_state->drawStride = 14;
+
+	glw_state->numIndices = 0;
+	glw_state->totalIndices = numIndexes;
+	glw_state->maxIndices = _getMaxIndices();
+
+#ifdef _XBOX
+	JAMP_SetStreamSourceNullCached(0, glw_state->drawStride * 4);
+#else
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
+#endif
+
+	int vert_size = ( reuseSurfaceStreams ? ( uploadNormalStream ? 8 : 4 ) : glw_state->drawStride ) * tess.numVertexes;
+	int index_size = numIndexes / 2;
+
+	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
+
+	glw_state->drawArray = (DWORD*)*((DWORD*)glw_state->device);
+
+	DWORD *jumpaddress = 0, *stream = 0;
+
+	jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
+
+	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
+
+	stream = glw_state->drawArray;
+
+	if ( reuseSurfaceStreams )
+	{
+		positionStream = tess.pXyz;
+		texCoordStream = tess.pTex1;
+		if ( uploadNormalStream )
+		{
+			normalStream = stream;
+			memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+			glw_state->drawArray += tess.numVertexes * 4;
+			stream += tess.numVertexes * 4;
+		}
+		else
+		{
+			normalStream = tess.pNormal;
+		}
+		tangentStream = stream;
+		memcpy(glw_state->drawArray, tess.tangent, sizeof(vec4_t) * tess.numVertexes);
+		glw_state->drawArray += tess.numVertexes * 4;
+	}
+	else
+	{
+		positionStream = stream;
+		memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
+		glw_state->drawArray += tess.numVertexes * 4;
+		stream += tess.numVertexes * 4;
+
+		normalStream = stream;
+		memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+		glw_state->drawArray += tess.numVertexes * 4;
+		stream += tess.numVertexes * 4;
+
+		texCoordStream = stream;
+		memcpy(glw_state->drawArray, tess.svars.texcoords[0], sizeof(vec2_t) * tess.numVertexes);
+		glw_state->drawArray += tess.numVertexes * 2;
+		stream += tess.numVertexes * 2;
+
+		tangentStream = stream;
+		memcpy(glw_state->drawArray, tess.tangent, sizeof(vec4_t) * tess.numVertexes);
+		glw_state->drawArray += tess.numVertexes * 4;
+	}
+
+#define CMD_STREAM_STRIDEANDTYPE0 0x1760
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
+
+	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
+	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
+
+	for(i = 0; i < 12; i++)
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
+	*glw_state->drawArray++ = (DWORD)positionStream & 0x7fffffff;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
+	*glw_state->drawArray++ = (DWORD)normalStream & 0x7fffffff;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1728, 1);
+	*glw_state->drawArray++ = (DWORD)texCoordStream & 0x7fffffff;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x172c, 1);
+	*glw_state->drawArray++ = (DWORD)tangentStream & 0x7fffffff;
+
+	PushIndices(numIndexes, (GLushort*)indexes);
+
+	glw_state->inDrawBlock = false;
+
+	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
+
+	glw_state->device->EndPush(push);
+}
+
+void renderObject_Shadow( int /*primType*/, int /*numIndexes*/, const unsigned short * /*indexes*/ )
+{
+	// SP stencil shadows are not part of the retail-tested native QGL bring-up yet.
+}
+
+void renderObject_Bump()
+{
+	// start the draw mode
+	assert(!glw_state->inDrawBlock);
+
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
+
+	glw_state->drawStride = 16;
+
+	glw_state->numIndices = 0;
+	glw_state->totalIndices = tess.numIndexes;
+	glw_state->maxIndices = _getMaxIndices();
+
+#ifdef _XBOX
+	JAMP_SetStreamSourceNullCached(0, glw_state->drawStride * 4);
+#else
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
+#endif
+
+	int vert_size = glw_state->drawStride * tess.numVertexes;
+	int index_size = tess.numIndexes / 2;
+
+	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
+
+	glw_state->drawArray = (DWORD*)*((DWORD*)glw_state->device);
+
+	DWORD *jumpaddress = 0, *stream = 0;
+
+	jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
+
+	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
+
+	stream = glw_state->drawArray;
+
+	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+	memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+	memcpy(glw_state->drawArray, tess.svars.texcoords[0], sizeof(vec2_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 2;
+
+	memcpy(glw_state->drawArray, tess.svars.texcoords[1], sizeof(vec2_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 2;
+
+	memcpy(glw_state->drawArray, tess.tangent, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+#define CMD_STREAM_STRIDEANDTYPE0 0x1760
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
+
+	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
+	*glw_state->drawArray++ = (8 << 8) | D3DVSDT_FLOAT2;
+	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
+
+	for(int i = 0; i < 11; i++)
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	tess.pXyz = stream;
+	stream += tess.numVertexes * 4;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	tess.pNormal = stream;
+	stream += tess.numVertexes * 4;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1728, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 2;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x172c, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 2;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1730, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 4;
+
+	PushIndices(tess.numIndexes, (GLushort*)tess.indexes);
+
+	glw_state->inDrawBlock = false;
+
+	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
+
+	glw_state->device->EndPush(push);
+}
+
+void renderObject_Env()
+{
+	// start the draw mode
+	assert(!glw_state->inDrawBlock);
+
+	glw_state->inDrawBlock = true;
+	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
+
+	_updateTextures();
+
+	glw_state->drawStride = 9;
+
+	glw_state->numIndices = 0;
+	glw_state->totalIndices = tess.numIndexes;
+	glw_state->maxIndices = _getMaxIndices();
+
+#ifdef _XBOX
+	JAMP_SetStreamSourceNullCached(0, glw_state->drawStride * 4);
+#else
+	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
+#endif
+
+	int vert_size = glw_state->drawStride * tess.numVertexes;
+	int index_size = tess.numIndexes / 2;
+
+	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
+
+	glw_state->drawArray = (DWORD*)*((DWORD*)glw_state->device);
+
+	DWORD *jumpaddress = 0, *stream = 0;
+
+	jumpaddress = (DWORD*)*((DWORD*)glw_state->device) + (vert_size + 1);
+
+	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
+
+	stream = glw_state->drawArray;
+
+	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+	memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+	memcpy(glw_state->drawArray, tess.svars.colors, sizeof(D3DCOLOR) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes;
+
+#define CMD_STREAM_STRIDEANDTYPE0 0x1760
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
+
+	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
+	*glw_state->drawArray++ = (4 << 8) | D3DVSDT_D3DCOLOR;
+
+	for(int i = 0; i < 13; i++)
+	{
+		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
+	}
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	tess.pXyz = stream;
+	stream += tess.numVertexes * 4;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	tess.pNormal = stream;
+	stream += tess.numVertexes * 4;
+
+	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1728, 1);
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes;
+
+	PushIndices(tess.numIndexes, (GLushort*)tess.indexes);
+
+	glw_state->inDrawBlock = false;
+
+	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
+
+	glw_state->device->EndPush(push);
+}
+#endif
+
+// EXTENSION: Take an array of triangle indices and draw
+// the appropriate triangle strips.  Virtually ALL geometry
+// is drawn with this function so it better be fast.
+static void dllIndexedTriToStrip(GLsizei count, const GLushort *indices)
+{
+//#ifndef _XBOX
+#ifdef GLW_USE_TRI_STRIPS
+
+	// update the render state
+	_updateDrawStride(glw_state->normalArrayState,
+		glw_state->texCoordArrayState[0] ? count : 0,
+		glw_state->texCoordArrayState[1] ? count : 0);
+	_updateShader(glw_state->normalArrayState,
+		glw_state->texCoordArrayState[0],
+		glw_state->texCoordArrayState[1]);
+	_updateTextures();
+	_updateMatrices();
+	
+	// convert triangles to strips -- guarantees that
+	// no strip exceeds the max draw packet size
+	if(tess.currentPass == 0)
+	{
+		buildStrips(glw_state->strip_lengths, 
+			&glw_state->num_strip_lengths, glw_state->strip_dest, &count, indices);
+	}
+
+	// Yeah, its a hack, but I gotta do this so bumpmapping
+	// doesnt go all crazy on the 'force speed' effect and 
+	// 'disintegration' effect
+	if(tess.shader && 
+		tess.shader->isBumpMap && 
+		(backEnd.currentEntity->e.renderfx & 
+// VVFIXME : This is probably wrong. It looks like RF_ALPHA_FADE is renamed
+// RF_RGB_TINT in MP. Substitute?
+#ifndef _JK2MP
+		(RF_ALPHA_FADE | RF_DISINTEGRATE1 | RF_DISINTEGRATE2)))
+#else
+		(RF_DISINTEGRATE1 | RF_DISINTEGRATE2)))
+#endif
+	{
+		if(tess.currentPass != 2)
+			return;
+	}
+
+#ifdef _XBOX
+	glw_state->primitiveMode = D3DPT_TRIANGLESTRIP;
+
+	// get the necessary draw function
+	drawelemfunc_t func = _drawElementFuncTable[_getDrawFunc()];
+	int stride = glw_state->drawStride;
+	
+	int index = 0;
+	for (int l = 0; l < glw_state->num_strip_lengths; ++l)
+	{
+		int cur_len = glw_state->strip_lengths[l];
+		
+		// start a draw packet
+		DWORD* push;
+		glw_state->device->BeginPush(stride * cur_len + 5, &push);
+		push = _restartDrawPacket(push, cur_len);
+		
+		// draw the geometry
+		glw_state->drawArray = push;
+		func(cur_len, &glw_state->strip_dest[index]);
+		index += cur_len;
+		
+		// finish the draw packet
+		push = _terminateDrawPacket(&push[stride * cur_len]);
+		glw_state->device->EndPush(push);
+	}
+#else _XBOX
+	// simplified render on the PC
+	int index = 0;
+	for (int l = 0; l < glw_state->num_strip_lengths; ++l)
+	{
+		dllDrawElements(GL_TRIANGLE_STRIP, glw_state->strip_lengths[l], 
+			GL_UNSIGNED_SHORT, &glw_state->strip_dest[index]);
+		index += glw_state->strip_lengths[l];
+	}
+#endif _XBOX
+
+#else GLW_USE_TRI_STRIPS
+	// just render simple triangles
+	dllDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, indices);
+#endif GLW_USE_TRI_STRIPS
+//#endif
+}
+
+static void dllIndexMask(GLuint mask)
+{
+	assert(0);
+}
+
+static void dllIndexPointer(GLenum type, GLsizei stride, const GLvoid *pointer)
+{
+	assert(0);
+}
+
+static void dllIndexd(GLdouble c)
+{
+	assert(0);
+}
+
+static void dllIndexdv(const GLdouble *c)
+{
+	assert(0);
+}
+
+static void dllIndexf(GLfloat c)
+{
+	assert(0);
+}
+
+static void dllIndexfv(const GLfloat *c)
+{
+	assert(0);
+}
+
+static void dllIndexi(GLint c)
+{
+	assert(0);
+}
+
+static void dllIndexiv(const GLint *c)
+{
+	assert(0);
+}
+
+static void dllIndexs(GLshort c)
+{
+	assert(0);
+}
+
+static void dllIndexsv(const GLshort *c)
+{
+	assert(0);
+}
+
+static void dllIndexub(GLubyte c)
+{
+	assert(0);
+}
+
+static void dllIndexubv(const GLubyte *c)
+{
+	assert(0);
+}
+
+static void dllInitNames(void)
+{
+	assert(0);
+}
+
+static void dllInterleavedArrays(GLenum format, GLsizei stride, const GLvoid *pointer)
+{
+	assert(0);
+}
+
+GLboolean dllIsEnabled(GLenum cap)
+{
+#ifdef _XBOX
+	GLboolean cachedFlag;
+	if (JAMP_GetCapCache(cap, &cachedFlag))
+	{
+		return cachedFlag;
+	}
+	JAMP_METRIC_INC(s_jampIsEnabledDeviceReads);
+#endif
+	DWORD flag;
+	switch (cap)
+	{
+	case GL_ALPHA_TEST: glw_state->device->GetRenderState(D3DRS_ALPHATESTENABLE, &flag); break;
+	case GL_BLEND: glw_state->device->GetRenderState(D3DRS_ALPHABLENDENABLE, &flag); break;
+	case GL_CULL_FACE: flag = glw_state->cullEnable; break;
+	case GL_DEPTH_TEST: glw_state->device->GetRenderState(D3DRS_ZENABLE, &flag); break;
+	case GL_FOG: glw_state->device->GetRenderState(D3DRS_FOGENABLE, &flag); break;
+	case GL_LIGHTING: glw_state->device->GetRenderState(D3DRS_LIGHTING, &flag); break;
+#ifdef _XBOX
+	case GL_POLYGON_OFFSET_FILL: glw_state->device->GetRenderState(D3DRS_SOLIDOFFSETENABLE, &flag); break;
+#else
+	case GL_POLYGON_OFFSET_FILL: return FALSE;
+#endif
+	case GL_SCISSOR_TEST: flag = glw_state->scissorEnable; break;
+	case GL_STENCIL_TEST: glw_state->device->GetRenderState(D3DRS_STENCILENABLE, &flag); break;
+	case GL_TEXTURE_2D: flag = glw_state->textureStageEnable[glw_state->serverTU]; break;
+	default: return FALSE;
+	}
+#ifdef _XBOX
+	JAMP_SetCapCache(cap, flag ? true : false);
+#endif
+	return flag;
+}
+
+GLboolean dllIsList(GLuint lnum)
+{
+	assert(0);
+	return 1;
+}
+
+GLboolean dllIsTexture(GLuint texture)
+{
+	assert(0);
+	return 1;
+}
+
+static void dllLightModelf(GLenum pname, GLfloat param)
+{
+	assert(0);
+}
+
+static void dllLightModelfv(GLenum pname, const GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllLightModeli(GLenum pname, GLint param)
+{
+	assert(0);
+}
+
+static void dllLightModeliv(GLenum pname, const GLint *params)
+{
+	assert(0);
+}
+
+static void dllLightf(GLenum light, GLenum pname, GLfloat param)
+{
+	assert(0);
+}
+
+static void dllLightfv(GLenum light, GLenum pname, const GLfloat *params)
+{
+	switch(pname)
+	{
+	case GL_AMBIENT:
+		{
+			glw_state->dirLight[light].Ambient.r = params[0] / 255.0f;
+			glw_state->dirLight[light].Ambient.g = params[1] / 255.0f;
+			glw_state->dirLight[light].Ambient.b = params[2] / 255.0f;
+		}
+		break;
+
+	case GL_DIFFUSE:
+		{
+			glw_state->dirLight[light].Diffuse.r = params[0] / 255.0f;
+			glw_state->dirLight[light].Diffuse.g = params[1] / 255.0f;
+			glw_state->dirLight[light].Diffuse.b = params[2] / 255.0f;
+		}
+		break;
+
+	case GL_SPECULAR:
+		{
+			glw_state->dirLight[light].Specular.r = params[0] / 255.0f;
+			glw_state->dirLight[light].Specular.g = params[1] / 255.0f;
+			glw_state->dirLight[light].Specular.b = params[2] / 255.0f;
+		}
+		break;
+	case GL_POSITION:
+		{
+			glw_state->dirLight[light].Position.x = params[0];
+			glw_state->dirLight[light].Position.y = params[1];
+			glw_state->dirLight[light].Position.z = params[2];
+		}
+		break;
+
+	case GL_SPOT_DIRECTION:
+		{
+			glw_state->dirLight[light].Direction.x = -params[0];
+			glw_state->dirLight[light].Direction.y = -params[1];
+			glw_state->dirLight[light].Direction.z = -params[2];
+		}
+		break;
+
+	default:
+		assert(0);
+		break;
+	}
+
+	// Sanity check to avoid assert in D3D?
+	if( (glw_state->dirLight[light].Direction.x * glw_state->dirLight[light].Direction.x +
+		glw_state->dirLight[light].Direction.y * glw_state->dirLight[light].Direction.y +
+		glw_state->dirLight[light].Direction.z * glw_state->dirLight[light].Direction.z) <= 0 )
+	{
+		assert( 0 && "Negative light direction in SetLight!" );
+		glw_state->dirLight[light].Direction.x = 1.0f;
+	}
+#ifdef _XBOX
+	JAMP_SetLightCached(light, &glw_state->dirLight[light]);
+	JAMP_LightEnableCached(light, TRUE);
+#else
+	glw_state->device->SetLight(light, &glw_state->dirLight[light]);
+	glw_state->device->LightEnable(light, true);
+#endif
+
+	// Do this so a dynamic light that has disappeared is removed
+	if(!light)
+	{
+#ifdef _XBOX
+		JAMP_LightEnableCached(1, FALSE);
+#else
+		glw_state->device->LightEnable(1, false);
+#endif
+	}
+}
+
+static void dllLighti(GLenum light, GLenum pname, GLint param)
+{
+	assert(0);
+}
+
+static void dllLightiv(GLenum light, GLenum pname, const GLint *params)
+{
+	assert(0);
+}
+
+static void dllLineStipple(GLint factor, GLushort pattern)
+{
+	assert(0);
+}
+
+static void dllLineWidth(GLfloat width)
+{
+//	assert(0);
+}
+
+static void dllListBase(GLuint base)
+{
+	assert(0);
+}
+
+static void dllLoadIdentity(void)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->LoadIdentity();
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllLoadMatrixd(const GLdouble *m)
+{
+	assert(0);
+}
+
+static void dllLoadMatrixf(const GLfloat *m)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->LoadMatrix((D3DXMATRIX*)m);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllLoadName(GLuint name)
+{
+	assert(0);
+}
+
+static void dllLogicOp(GLenum opcode)
+{
+	assert(0);
+}
+
+static void dllMap1d(GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble *points)
+{
+	assert(0);
+}
+
+static void dllMap1f(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat *points)
+{
+	assert(0);
+}
+
+static void dllMap2d(GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, const GLdouble *points)
+{
+	assert(0);
+}
+
+static void dllMap2f(GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, const GLfloat *points)
+{
+	assert(0);
+}
+
+static void dllMapGrid1d(GLint un, GLdouble u1, GLdouble u2)
+{
+	assert(0);
+}
+
+static void dllMapGrid1f(GLint un, GLfloat u1, GLfloat u2)
+{
+	assert(0);
+}
+
+static void dllMapGrid2d(GLint un, GLdouble u1, GLdouble u2, GLint vn, GLdouble v1, GLdouble v2)
+{
+	assert(0);
+}
+
+static void dllMapGrid2f(GLint un, GLfloat u1, GLfloat u2, GLint vn, GLfloat v1, GLfloat v2)
+{
+	assert(0);
+}
+
+static void dllMaterialf(GLenum face, GLenum pname, GLfloat param)
+{
+	assert(0);
+}
+
+static void dllMaterialfv(GLenum face, GLenum pname, const GLfloat *params)
+{
+	switch(pname)
+	{
+	case GL_AMBIENT:
+		glw_state->mtrl.Ambient.r = params[0] / 255.0f;
+		glw_state->mtrl.Ambient.g = params[1] / 255.0f;
+		glw_state->mtrl.Ambient.b = params[2] / 255.0f;
+		glw_state->mtrl.Ambient.a = params[3] / 255.0f;
+		break;
+
+	case GL_DIFFUSE:
+		glw_state->mtrl.Diffuse.r = params[0] / 255.0f;
+		glw_state->mtrl.Diffuse.g = params[1] / 255.0f;
+		glw_state->mtrl.Diffuse.b = params[2] / 255.0f;
+		glw_state->mtrl.Diffuse.a = params[3] / 255.0f;
+		break;
+
+	case GL_SPECULAR:
+		glw_state->mtrl.Specular.r = params[0] / 255.0f;
+		glw_state->mtrl.Specular.g = params[1] / 255.0f;
+		glw_state->mtrl.Specular.b = params[2] / 255.0f;
+		glw_state->mtrl.Specular.a = params[3] / 255.0f;
+		break;
+
+	case GL_EMISSION:
+		glw_state->mtrl.Emissive.r = params[0] / 255.0f;
+		glw_state->mtrl.Emissive.g = params[1] / 255.0f;
+		glw_state->mtrl.Emissive.b = params[2] / 255.0f;
+		glw_state->mtrl.Emissive.a = params[3] / 255.0f;
+		break;
+
+	default:
+		assert(0);
+		break;
+	}
+
+	if (glw_state->device)
+	{
+#ifdef _XBOX
+		JAMP_SetMaterialCached(&glw_state->mtrl);
+#else
+		glw_state->device->SetMaterial(&glw_state->mtrl);
+#endif
+	}
+}
+
+static void dllMateriali(GLenum face, GLenum pname, GLint param)
+{
+	assert(0);
+}
+
+static void dllMaterialiv(GLenum face, GLenum pname, const GLint *params)
+{
+	assert(0);
+}
+
+static void dllMatrixMode(GLenum mode)
+{
+	switch (mode)
+	{
+	case GL_MODELVIEW: glw_state->matrixMode = glwstate_t::MatrixMode_Model; break;
+	case GL_PROJECTION: glw_state->matrixMode = glwstate_t::MatrixMode_Projection; break;
+#ifdef _XBOX
+	case GL_TEXTURE0: glw_state->matrixMode = glwstate_t::MatrixMode_Texture0; break;
+	case GL_TEXTURE1: glw_state->matrixMode = glwstate_t::MatrixMode_Texture1; break;
+#endif
+	default: assert(false); break;
+	}
+}
+
+static void dllMultMatrixd(const GLdouble *m)
+{
+	assert(0);
+}
+
+static void dllMultMatrixf(const GLfloat *m)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->MultMatrixLocal((D3DXMATRIX*)m);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllNewList(GLuint lnum, GLenum mode)
+{
+	assert(0);
+}
+
+static void setNormal(float x, float y, float z)
+{
+	assert(glw_state->inDrawBlock);
+
+	_handleDrawOverflow();
+	
+	DWORD* push = &glw_state->drawArray[glw_state->numVertices * glw_state->drawStride + 4];
+	push[0] = *((DWORD*)&x);
+	push[1] = *((DWORD*)&y);
+	push[2] = *((DWORD*)&z);
+	push[3] = glw_state->currentColor;
+}
+static void dllNormal3b(GLbyte nx, GLbyte ny, GLbyte nz)
+{
+	assert(0);
+}
+
+static void dllNormal3bv(const GLbyte *v)
+{
+	assert(0);
+}
+
+static void dllNormal3d(GLdouble nx, GLdouble ny, GLdouble nz)
+{
+	assert(0);
+}
+
+static void dllNormal3dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllNormal3f(GLfloat nx, GLfloat ny, GLfloat nz)
+{
+	setNormal(nx, ny, nz);
+}
+
+static void dllNormal3fv(const GLfloat *v)
+{
+	setNormal(v[0], v[1], v[2]);
+}
+
+static void dllNormal3i(GLint nx, GLint ny, GLint nz)
+{
+	assert(0);
+}
+
+static void dllNormal3iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllNormal3s(GLshort nx, GLshort ny, GLshort nz)
+{
+	assert(0);
+}
+
+static void dllNormal3sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllNormalPointer(GLenum type, GLsizei stride, const GLvoid *pointer)
+{
+	assert(type == GL_FLOAT);
+	
+	stride = (stride == 0) ? (sizeof(GLfloat) * 3) : stride;
+
+	glw_state->normalPointer = pointer;
+	glw_state->normalStride = stride;
+}
+
+static void dllOrtho(GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar)
+{
+	D3DXMATRIX m;
+	D3DXMatrixOrthoOffCenterRH(&m, left, right, top, bottom, zNear, zFar);
+	glw_state->matrixStack[glw_state->matrixMode]->MultMatrix(&m);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllPassThrough(GLfloat token)
+{
+	assert(0);
+}
+
+static void dllPixelMapfv(GLenum map, GLsizei mapsize, const GLfloat *values)
+{
+	assert(0);
+}
+
+static void dllPixelMapuiv(GLenum map, GLsizei mapsize, const GLuint *values)
+{
+	assert(0);
+}
+
+static void dllPixelMapusv(GLenum map, GLsizei mapsize, const GLushort *values)
+{
+	assert(0);
+}
+
+static void dllPixelStoref(GLenum pname, GLfloat param)
+{
+	assert(0);
+}
+
+static void dllPixelStorei(GLenum pname, GLint param)
+{
+	assert(0);
+}
+
+static void dllPixelTransferf(GLenum pname, GLfloat param)
+{
+	assert(0);
+}
+
+static void dllPixelTransferi(GLenum pname, GLint param)
+{
+	assert(0);
+}
+
+static void dllPixelZoom(GLfloat xfactor, GLfloat yfactor)
+{
+	assert(0);
+}
+
+static void dllPointSize(GLfloat size)
+{
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_POINTSCALEENABLE, TRUE);
+	JAMP_SetRenderStateCached(D3DRS_POINTSIZE, *((DWORD*)&size));
+#else
+	glw_state->device->SetRenderState(D3DRS_POINTSCALEENABLE, TRUE);
+	glw_state->device->SetRenderState(D3DRS_POINTSIZE, *((DWORD*)&size));
+#endif
+}
+
+static void dllPolygonMode(GLenum face, GLenum mode)
+{
+	D3DFILLMODE m;
+	switch (mode)
+	{
+	case GL_POINT: m = D3DFILL_POINT; break;
+	case GL_LINE: m = D3DFILL_WIREFRAME; break;
+	case GL_FILL: m = D3DFILL_SOLID; break;
+	default: assert(0); break;
+	}
+
+	switch (face)
+	{
+	case GL_FRONT:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_FILLMODE, m);
+#else
+		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
+#endif
+		break;
+	case GL_BACK:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_BACKFILLMODE, m);
+#endif
+		break;
+	case GL_FRONT_AND_BACK:
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_FILLMODE, m);
+#else
+		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
+#endif
+#ifdef _XBOX
+		JAMP_SetRenderStateCached(D3DRS_BACKFILLMODE, m);
+#endif
+		break;
+	}
+}
+
+static void dllPolygonOffset(GLfloat factor, GLfloat units)
+{
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_POLYGONOFFSETZOFFSET, *((DWORD*)&factor));
+	JAMP_SetRenderStateCached(D3DRS_POLYGONOFFSETZSLOPESCALE, *((DWORD*)&units));
+#endif
+}
+
+static void dllPolygonStipple(const GLubyte *mask)
+{
+	assert(0);
+}
+
+static void dllPopAttrib(void)
+{
+	assert(0);
+}
+
+static void dllPopClientAttrib(void)
+{
+	assert(0);
+}
+
+static void dllPopMatrix(void)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->Pop();
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllPopName(void)
+{
+	assert(0);
+}
+
+static void dllPrioritizeTextures(GLsizei n, const GLuint *textures, const GLclampf *priorities)
+{
+	assert(0);
+}
+
+static void dllPushAttrib(GLbitfield mask)
+{
+	assert(0);
+}
+
+static void dllPushClientAttrib(GLbitfield mask)
+{
+	assert(0);
+}
+
+static void dllPushMatrix(void)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->Push();
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllPushName(GLuint name)
+{
+	assert(0);
+}
+
+static void dllRasterPos2d(GLdouble x, GLdouble y)
+{
+	assert(0);
+}
+
+static void dllRasterPos2dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos2f(GLfloat x, GLfloat y)
+{
+	assert(0);
+}
+
+static void dllRasterPos2fv(const GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos2i(GLint x, GLint y)
+{
+	assert(0);
+}
+
+static void dllRasterPos2iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos2s(GLshort x, GLshort y)
+{
+	assert(0);
+}
+
+static void dllRasterPos2sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos3d(GLdouble x, GLdouble y, GLdouble z)
+{
+	assert(0);
+}
+
+static void dllRasterPos3dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos3f(GLfloat x, GLfloat y, GLfloat z)
+{
+	assert(0);
+}
+
+static void dllRasterPos3fv(const GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos3i(GLint x, GLint y, GLint z)
+{
+	assert(0);
+}
+
+static void dllRasterPos3iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos3s(GLshort x, GLshort y, GLshort z)
+{
+	assert(0);
+}
+
+static void dllRasterPos3sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos4d(GLdouble x, GLdouble y, GLdouble z, GLdouble w)
+{
+	assert(0);
+}
+
+static void dllRasterPos4dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos4f(GLfloat x, GLfloat y, GLfloat z, GLfloat w)
+{
+	assert(0);
+}
+
+static void dllRasterPos4fv(const GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos4i(GLint x, GLint y, GLint z, GLint w)
+{
+	assert(0);
+}
+
+static void dllRasterPos4iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllRasterPos4s(GLshort x, GLshort y, GLshort z, GLshort w)
+{
+	assert(0);
+}
+
+static void dllRasterPos4sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllReadBuffer(GLenum mode)
+{
+	assert(0);
+}
+
+static void dllReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLsizei twidth, GLsizei theight, GLvoid *pixels)
+{
+	assert( 0 );
+	return;
+
+}
+
+/**********
+dllCopyBackBufferToTex
+Does a direct copy of the backbuffer to the current texture. The current texture
+must be linear, and it must be 640 x 480 in size. If a more complex copy is
+needed, use dllCopyBackBufferToTexEXT.
+**********/
+static void dllCopyBackBufferToTex()
+{
+	glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
+	if (info == NULL) return;
+
+	LPDIRECT3DSURFACE8 surf;
+	LPDIRECT3DSURFACE8 backbuffer;
+
+	info->mipmap->GetSurfaceLevel(0, &surf);
+	glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
+
+	glw_state->device->CopyRects(backbuffer, NULL, 0, surf, NULL);
+
+	surf->Release();
+	backbuffer->Release();
+}
+
+/**********
+dllCopyBackBufferToTexEXT
+Copies a portion of the backbuffer to a texture
+If the destination is a DXT1 texture, then the buffer will be compressed
+width	- width of the backbuffer polygon rendered to the destination texture
+height	- height of the backbuffer polygon rendered to the destination texture
+u,v		- describes the potion of the backbuffer to be copied in screen coords
+
+The active texture (that we're replacing) NEEDS to already have enough space!
+**********/
+static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float v1, float u2, float v2)
+{
+	glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
+	if (info == NULL) return;
+
+	struct QUAD { D3DXVECTOR4 p; FLOAT tu,tv;} q[4];
+	q[0].p	= D3DXVECTOR4( 0.0f, 0.0f, 1.0f, 1.0f );
+	q[0].tu = u1;		q[0].tv = v1;
+	q[1].p	= D3DXVECTOR4( width, 0.0f, 1.0f, 1.0f );
+	q[1].tu = u2;	q[1].tv = v1;
+	q[2].p	= D3DXVECTOR4( 0.0f, height , 1.0f, 1.0f );
+	q[2].tu = u1;		q[2].tv = v2;
+	q[3].p	= D3DXVECTOR4( width, height, 1.0f, 1.0f );
+	q[3].tu = u2;	q[3].tv = v2;
+
+
+	LPDIRECT3DSURFACE8	pSurface;
+	LPDIRECT3DSURFACE8	pBackBuffer;
+	LPDIRECT3DSURFACE8	pStencilBuffer;
+	D3DSURFACE_DESC		desc;
+	D3DTexture*			pRenderTex;
+	int					w	= 0;
+	int					h	= 0;
+
+	DWORD srcblend, destblend, alphablend, alphatest, zwrite, zenable, vShader, pShader;
+	DWORD colorop, colorarg1, addressu, addressv, minfilter, magfilter, colorwriteenable;
+
+	// save the current state
+	glw_state->device->GetRenderState( D3DRS_SRCBLEND, &srcblend );
+	glw_state->device->GetRenderState( D3DRS_DESTBLEND, &destblend );
+	glw_state->device->GetRenderState( D3DRS_ALPHABLENDENABLE, &alphablend );
+	glw_state->device->GetRenderState( D3DRS_ALPHATESTENABLE, &alphatest );
+	glw_state->device->GetRenderState( D3DRS_ZWRITEENABLE, &zwrite );
+	glw_state->device->GetRenderState( D3DRS_ZENABLE, &zenable );
+	glw_state->device->GetRenderState( D3DRS_COLORWRITEENABLE, &colorwriteenable);
+	glw_state->device->GetVertexShader( &vShader );
+	glw_state->device->GetPixelShader( &pShader );
+	// This function no longer makes ANY attempt to restore texture stages
+	glw_state->device->SetTexture(0, NULL);
+	glw_state->device->SetTexture(1, NULL);
+	glw_state->device->SetTexture(2, NULL);
+	glw_state->device->SetTexture(3, NULL);
+	glw_state->device->GetTextureStageState(0, D3DTSS_COLOROP, &colorop);
+	glw_state->device->GetTextureStageState(0, D3DTSS_COLORARG1, &colorarg1);
+	glw_state->device->GetTextureStageState(0, D3DTSS_ADDRESSU, &addressu);
+	glw_state->device->GetTextureStageState(0, D3DTSS_ADDRESSV, &addressv);
+	glw_state->device->GetTextureStageState(0, D3DTSS_MINFILTER, &minfilter);
+	glw_state->device->GetTextureStageState(0, D3DTSS_MAGFILTER, &magfilter);
+
+	// get the buffers
+	glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &pBackBuffer);
+	glw_state->device->GetDepthStencilSurface(&pStencilBuffer);
+
+	// get a surface desc
+	info->mipmap->GetLevelDesc(0, &desc);
+
+	// Check to see if the texture needs to be resized
+	if( desc.Width != width || desc.Height != height)
+	{
+		// We don't actually destroy/create the texture anymore.
+		// We just adjust the texture header. Thus, make sure the texture
+		// is big enough when you make it the first time!
+
+		// Replacing this with a while( IsBusy() ) loop makes it hang sometimes
+		// But I can't figure out who the fuck has a lock on the texture, or
+		// and it doesn't seem to cause any problems. (ie: using push on cloaked guys)
+		info->mipmap->BlockUntilNotBusy();
+
+		// Change the texture size
+		XGSetTextureHeader( width,
+							height,
+							1,
+							0,
+							desc.Format,
+							0,
+							info->mipmap,
+							0,
+							0 );
+
+		// Re-register the data:
+		info->mipmap->Register( info->data );
+	}
+
+	// check to see if we want a compressed output texture
+	if( desc.Format == D3DFMT_DXT1)
+	{
+
+		w	= desc.Width;
+		h	= desc.Height;
+
+		// create a new texture to use as a render target
+		_d3d_check(glw_state->device->CreateTexture( w,
+													 h,
+													 1,
+													 0,
+													 D3DFMT_LIN_X8R8G8B8,
+													 0,
+													 &pRenderTex ), "CreateTexture");
+	}
+	else
+	{
+		pRenderTex = info->mipmap;
+		
+	}
+
+#if 0
+	// Cxbx-R reports a pushbuffer fault if the backbuffer surface is bound as
+	// a texture. Retail hardware can hang in this CopyRects path, so the Xbox
+	// build stays on the original render-to-texture path below.
+	pRenderTex->GetSurfaceLevel(0, &pSurface);
+
+	{
+		float srcLeftF = (u1 < u2) ? u1 : u2;
+		float srcRightF = (u1 < u2) ? u2 : u1;
+		float srcTopF = (v1 < v2) ? v1 : v2;
+		float srcBottomF = (v1 < v2) ? v2 : v1;
+
+		if (srcLeftF < 0.0f) srcLeftF = 0.0f;
+		if (srcTopF < 0.0f) srcTopF = 0.0f;
+		if (srcRightF > glConfig.vidWidth) srcRightF = glConfig.vidWidth;
+		if (srcBottomF > glConfig.vidHeight) srcBottomF = glConfig.vidHeight;
+
+		RECT rSrc;
+		POINT ptUpperLeft;
+		rSrc.left = (LONG)srcLeftF;
+		rSrc.right = (LONG)(srcRightF + 0.5f);
+		rSrc.top = (LONG)srcTopF;
+		rSrc.bottom = (LONG)(srcBottomF + 0.5f);
+		ptUpperLeft.x = 0;
+		ptUpperLeft.y = 0;
+
+		static int s_jampBackBufferCopyLogCount = 0;
+		if (s_jampBackBufferCopyLogCount < 8)
+		{
+			char msg[256];
+			_snprintf(msg, sizeof(msg),
+				"JAMP: CopyBackBufferToTexEXT CopyRects dst=%dx%d src=%ld,%ld-%ld,%ld fmt=0x%x",
+				(int)width, (int)height, rSrc.left, rSrc.top, rSrc.right, rSrc.bottom, (unsigned int)desc.Format);
+			msg[sizeof(msg) - 1] = 0;
+			XBLog_Write(msg);
+			s_jampBackBufferCopyLogCount++;
+		}
+
+		if (rSrc.right > rSrc.left && rSrc.bottom > rSrc.top)
+		{
+			HRESULT copyHr = glw_state->device->CopyRects(pBackBuffer, &rSrc, 0, pSurface, &ptUpperLeft);
+			if (FAILED(copyHr))
+			{
+				char msg[192];
+				_snprintf(msg, sizeof(msg),
+					"JAMP: CopyBackBufferToTexEXT CopyRects failed hr=0x%08x dst=%dx%d src=%ld,%ld-%ld,%ld",
+					(unsigned int)copyHr, (int)width, (int)height, rSrc.left, rSrc.top, rSrc.right, rSrc.bottom);
+				msg[sizeof(msg) - 1] = 0;
+				XBLog_Write(msg);
+			}
+		}
+		else
+		{
+			XBLog_Write("JAMP: CopyBackBufferToTexEXT skipped invalid source rect");
+		}
+	}
+#else
+	// make our current surface a render target
+	pRenderTex->GetSurfaceLevel(0, &pSurface);
+	glw_state->device->SetRenderTarget( pSurface, NULL );
+	
+	// set texture 0 to the back buffer data
+	glw_state->device->SetTexture(0,(LPDIRECT3DTEXTURE8)pBackBuffer);
+
+	// set the texture 0 state
+	glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1 );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_ADDRESSU, D3DTADDRESS_CLAMP );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_ADDRESSV, D3DTADDRESS_CLAMP );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_MINFILTER, D3DTEXF_LINEAR );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_MAGFILTER, D3DTEXF_LINEAR );
+	
+	// set the render state
+	glw_state->device->SetRenderState( D3DRS_ZENABLE,         FALSE );
+    glw_state->device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, FALSE);
+    glw_state->device->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_SRCALPHA | D3DBLEND_INVSRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALL);
+
+	// set our vertex shader and draw the backbuffer to the texture
+	glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX1 );
+#ifdef _XBOX
+	JAMP_SetPixelShaderCached( 0 );
+#else
+	glw_state->device->SetPixelShader( NULL );
+#endif
+	glw_state->device->Clear(NULL,NULL,D3DCLEAR_TARGET,D3DCOLOR_COLORVALUE(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, 0);
+	glw_state->device->DrawPrimitiveUP( D3DPT_QUADSTRIP, 1, q, sizeof(QUAD) );
+#ifdef _XBOX
+	JAMP_RecordPrimitiveUP(4);
+#endif
+#endif
+
+	// now that everything is rendered, check again to see
+	// if we want a compressed texture
+	if( desc.Format == D3DFMT_DXT1)
+	{
+		LPDIRECT3DTEXTURE8	pSrcTex;
+		LPDIRECT3DTEXTURE8	pDstTex;
+		D3DLOCKED_RECT		srcLock;
+		D3DLOCKED_RECT		dstLock;
+
+		pSrcTex	= pRenderTex;
+		pDstTex	= info->mipmap;
+
+		// lock our textures
+		pSrcTex->LockRect(0, &srcLock, NULL, 0);
+		pDstTex->LockRect(0, &dstLock, NULL, 0);
+
+		// compress the texture
+		XGCompressRect(	dstLock.pBits,
+						D3DFMT_DXT1,
+						dstLock.Pitch,
+						w,
+						h,
+						srcLock.pBits,
+						D3DFMT_LIN_X8R8G8B8,
+						srcLock.Pitch,
+						1,
+						0 );
+
+		// unlock
+		pSrcTex->UnlockRect(0);
+		pDstTex->UnlockRect(0);
+
+		// release the render texture
+		pRenderTex->Release();
+	}
+
+	// return our state
+	glw_state->device->SetRenderState( D3DRS_SRCBLEND, srcblend );
+	glw_state->device->SetRenderState( D3DRS_DESTBLEND, destblend );
+	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, alphablend );
+	glw_state->device->SetRenderState( D3DRS_ALPHATESTENABLE, alphatest );
+	glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE, zwrite );
+	glw_state->device->SetRenderState( D3DRS_ZENABLE, zenable );
+	glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, colorwriteenable);
+
+	// Clear stage zero again. We're not being nice.
+	glw_state->device->SetTexture(0, NULL);
+
+	glw_state->device->SetTextureStageState(0, D3DTSS_COLOROP, colorop);
+	glw_state->device->SetTextureStageState(0, D3DTSS_COLORARG1, colorarg1);
+	glw_state->device->SetTextureStageState(0, D3DTSS_ADDRESSU, addressu);
+	glw_state->device->SetTextureStageState(0, D3DTSS_ADDRESSV, addressv);
+	glw_state->device->SetTextureStageState(0, D3DTSS_MINFILTER, minfilter);
+	glw_state->device->SetTextureStageState(0, D3DTSS_MAGFILTER, magfilter);
+
+	glw_state->device->SetVertexShader( vShader );
+#ifdef _XBOX
+	JAMP_SetPixelShaderCached( pShader );
+#else
+	glw_state->device->SetPixelShader( pShader );
+#endif
+
+	glw_state->device->SetRenderTarget( pBackBuffer, pStencilBuffer );
+
+	pSurface->Release();
+	pBackBuffer->Release();
+	pStencilBuffer->Release();
+
+#ifdef _XBOX
+	JAMP_SetViewportCached(glw_state->viewport, true);
+	JAMP_InvalidateD3DStateAfterExternalWrite();
+#else
+	glw_state->device->SetViewport(&glw_state->viewport);
+#endif
+}
+
+static void dllRectd(GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2)
+{
+	assert(0);
+}
+
+static void dllRectdv(const GLdouble *v1, const GLdouble *v2)
+{
+	assert(0);
+}
+
+static void dllRectf(GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2)
+{
+	assert(0);
+}
+
+static void dllRectfv(const GLfloat *v1, const GLfloat *v2)
+{
+	assert(0);
+}
+
+static void dllRecti(GLint x1, GLint y1, GLint x2, GLint y2)
+{
+	assert(0);
+}
+
+static void dllRectiv(const GLint *v1, const GLint *v2)
+{
+	assert(0);
+}
+
+static void dllRects(GLshort x1, GLshort y1, GLshort x2, GLshort y2)
+{
+	assert(0);
+}
+
+static void dllRectsv(const GLshort *v1, const GLshort *v2)
+{
+	assert(0);
+}
+
+GLint dllRenderMode(GLenum mode)
+{
+	assert(0);
+	return 0;
+}
+
+static void dllRotated(GLdouble angle, GLdouble x, GLdouble y, GLdouble z)
+{
+	assert(0);
+}
+
+static void dllRotatef(GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
+{
+	D3DXVECTOR3 v(x, y, z);
+	glw_state->matrixStack[glw_state->matrixMode]->RotateAxisLocal(&v, angle);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllScaled(GLdouble x, GLdouble y, GLdouble z)
+{
+	assert(0);
+}
+
+static void dllScalef(GLfloat x, GLfloat y, GLfloat z)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->Scale(x, y, z);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void dllScissor(GLint x, GLint y, GLsizei width, GLsizei height)
+{
+#ifdef _XBOX
+	_fixupScreenCoords(x, y, width, height);
+
+	glw_state->scissorBox.x1 = x;
+	glw_state->scissorBox.y1 = y;
+	glw_state->scissorBox.x2 = x + width;
+	glw_state->scissorBox.y2 = y + height;
+	
+	if (glw_state->scissorEnable)
+	{
+		JAMP_SetScissorsCached(true, glw_state->scissorBox, false);
+	}
+#endif
+}
+
+static void dllSelectBuffer(GLsizei size, GLuint *buffer)
+{
+	assert(0);
+}
+
+static void dllShadeModel(GLenum mode)
+{
+	D3DSHADEMODE m;
+	switch (mode)
+	{
+	case GL_FLAT: m = D3DSHADE_FLAT; break;
+	case GL_SMOOTH: default: m = D3DSHADE_GOURAUD; break;
+	}
+	
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_SHADEMODE, m);
+#else
+	glw_state->device->SetRenderState(D3DRS_SHADEMODE, m);
+#endif
+}
+
+static void dllStencilFunc(GLenum func, GLint ref, GLuint mask)
+{
+	D3DCMPFUNC f = _convertCompare(func);
+
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_STENCILFUNC, f);
+	JAMP_SetRenderStateCached(D3DRS_STENCILREF, ref);
+	JAMP_SetRenderStateCached(D3DRS_STENCILMASK, mask);
+#else
+	glw_state->device->SetRenderState(D3DRS_STENCILFUNC, f);
+	glw_state->device->SetRenderState(D3DRS_STENCILREF, ref);
+	glw_state->device->SetRenderState(D3DRS_STENCILMASK, mask);
+#endif
+}
+
+static void dllStencilMask(GLuint mask)
+{
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_STENCILWRITEMASK, mask);
+#else
+	glw_state->device->SetRenderState(D3DRS_STENCILWRITEMASK, mask);
+#endif
+}
+
+static D3DSTENCILOP _convertStencilOp(GLenum op)
+{
+	switch (op)
+	{
+	default: case GL_KEEP: return D3DSTENCILOP_KEEP;
+	case GL_ZERO: return D3DSTENCILOP_ZERO;
+	case GL_REPLACE: return D3DSTENCILOP_REPLACE;
+	case GL_INCR: return D3DSTENCILOP_INCR;
+	case GL_DECR: return D3DSTENCILOP_DECR;
+	case GL_INVERT: return D3DSTENCILOP_INVERT;
+	}
+}
+
+static void dllStencilOp(GLenum fail, GLenum zfail, GLenum zpass)
+{
+	D3DSTENCILOP f = _convertStencilOp(fail);
+	D3DSTENCILOP zf = _convertStencilOp(zfail);
+	D3DSTENCILOP zp = _convertStencilOp(zpass);
+
+#ifdef _XBOX
+	JAMP_SetRenderStateCached(D3DRS_STENCILFAIL, f);
+	JAMP_SetRenderStateCached(D3DRS_STENCILZFAIL, zf);
+	JAMP_SetRenderStateCached(D3DRS_STENCILPASS, zp);
+#else
+	glw_state->device->SetRenderState(D3DRS_STENCILFAIL, f);
+	glw_state->device->SetRenderState(D3DRS_STENCILZFAIL, zf);
+	glw_state->device->SetRenderState(D3DRS_STENCILPASS, zp);
+#endif
+}
+
+static void dllTexCoord1d(GLdouble s)
+{
+	assert(0);
+}
+
+static void dllTexCoord1dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord1f(GLfloat s)
+{
+	assert(0);
+}
+
+static void dllTexCoord1fv(const GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord1i(GLint s)
+{
+	assert(0);
+}
+
+static void dllTexCoord1iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord1s(GLshort s)
+{
+	assert(0);
+}
+
+static void dllTexCoord1sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void setTexCoord(float s, float t)
+{
+	assert(glw_state->inDrawBlock);
+
+	_handleDrawOverflow();
+
+	int off = 0;
+	if(glw_state->normalArrayState)
+		off = 3;
+	
+	DWORD* push = &glw_state->drawArray[
+		glw_state->numVertices * glw_state->drawStride + 
+		4 + off + glw_state->serverTU * 2];
+	
+	*push++ = *((DWORD*)&s);
+	*push++ = *((DWORD*)&t);
+}
+
+static void dllTexCoord2d(GLdouble s, GLdouble t)
+{
+	assert(0);
+}
+
+static void dllTexCoord2dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord2f(GLfloat s, GLfloat t)
+{
+	setTexCoord(s, t);
+}
+
+static void dllTexCoord2fv(const GLfloat *v)
+{
+	setTexCoord(v[0], v[1]);
+}
+
+static void dllTexCoord2i(GLint s, GLint t)
+{
+	assert(0);
+}
+
+static void dllTexCoord2iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord2s(GLshort s, GLshort t)
+{
+	assert(0);
+}
+
+static void dllTexCoord2sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord3d(GLdouble s, GLdouble t, GLdouble r)
+{
+	assert(0);
+}
+
+static void dllTexCoord3dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord3f(GLfloat s, GLfloat t, GLfloat r)
+{
+	assert(0);
+}
+
+static void dllTexCoord3fv(const GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord3i(GLint s, GLint t, GLint r)
+{
+	assert(0);
+}
+
+static void dllTexCoord3iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord3s(GLshort s, GLshort t, GLshort r)
+{
+	assert(0);
+}
+
+static void dllTexCoord3sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord4d(GLdouble s, GLdouble t, GLdouble r, GLdouble q)
+{
+	assert(0);
+}
+
+static void dllTexCoord4dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord4f(GLfloat s, GLfloat t, GLfloat r, GLfloat q)
+{
+	assert(0);
+}
+
+static void dllTexCoord4fv(const GLfloat *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord4i(GLint s, GLint t, GLint r, GLint q)
+{
+	assert(0);
+}
+
+static void dllTexCoord4iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllTexCoord4s(GLshort s, GLshort t, GLshort r, GLshort q)
+{
+	assert(0);
+}
+
+static void dllTexCoord4sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllTexCoordPointer(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer)
+{
+	assert(size == 2 && type == GL_FLOAT);
+
+	stride = (stride == 0) ? (sizeof(GLfloat) * 2) : stride;
+	
+	glw_state->texCoordPointer[glw_state->clientTU] = pointer;
+	glw_state->texCoordStride[glw_state->clientTU] = stride;
+}
+
+static void dllTexEnvf(GLenum target, GLenum pname, GLfloat param)
+{
+	qglTexEnvi(target, pname, (GLint)param);
+}
+
+static void dllTexEnvfv(GLenum target, GLenum pname, const GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllTexEnvi(GLenum target, GLenum pname, GLint param)
+{
+	assert(target == GL_TEXTURE_ENV && pname == GL_TEXTURE_ENV_MODE);
+
+	/*glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
+	if (!info) return;*/
+
+	D3DTEXTUREOP env;
+	switch (param)
+	{
+	case GL_MODULATE: default: env = D3DTOP_MODULATE; break;
+	case GL_REPLACE: env = D3DTOP_SELECTARG1; break;
+	// MATT! - I use GL_DECAL as the bumpmapping state
+	case GL_DECAL: env = D3DTOP_DOTPRODUCT3; break;
+	case GL_ADD: env = D3DTOP_ADD; break;
+	case GL_NONE: env = D3DTOP_DISABLE; break;
+	}
+
+	if (glw_state->textureEnv[glw_state->serverTU] != env)
+	{
+		glw_state->textureEnv[glw_state->serverTU] = env;
+		glw_state->textureStageDirty[glw_state->serverTU] = true;
+	}
+}
+
+static void dllTexEnviv(GLenum target, GLenum pname, const GLint *params)
+{
+	assert(0);
+}
+
+static void dllTexGend(GLenum coord, GLenum pname, GLdouble param)
+{
+	assert(0);
+}
+
+static void dllTexGendv(GLenum coord, GLenum pname, const GLdouble *params)
+{
+	assert(0);
+}
+
+static void dllTexGenf(GLenum coord, GLenum pname, GLfloat param)
+{
+	assert(0);
+}
+
+static void dllTexGenfv(GLenum coord, GLenum pname, const GLfloat *params)
+{
+	assert(0);
+}
+
+static void dllTexGeni(GLenum coord, GLenum pname, GLint param)
+{
+	assert(0);
+}
+
+static void dllTexGeniv(GLenum coord, GLenum pname, const GLint *params)
+{
+	assert(0);
+}
+
+static void dllTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border, GLenum format, GLenum type, const GLvoid *pixels)
+{
+	assert(0);
+}
+
+static int s_nativeDDSUploadPicmip;
+
+static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei width, GLsizei height, GLenum format, const GLvoid *pixels)
+{
+	D3DFORMAT f = D3DFMT_UNKNOWN;
+	switch( format )
+	{
+	case GL_DDS1_EXT:
+		f = D3DFMT_DXT1;
+		break;
+	case GL_DDS5_EXT:
+		f = D3DFMT_DXT5;
+		break;
+	case GL_DDS_RGB16_EXT:
+		f = D3DFMT_R5G6B5;
+		break;
+	case GL_DDS_RGBA32_EXT:
+		f = D3DFMT_A8R8G8B8;
+		break;
+	}
+
+	if( numlevels == 0)
+		numlevels = 1;
+
+	if (s_nativeDDSUploadPicmip > 0 && numlevels > 1)
+	{
+		int skip = s_nativeDDSUploadPicmip;
+		if (skip >= numlevels)
+		{
+			skip = numlevels - 1;
+		}
+
+		while (skip-- > 0)
+		{
+			width = (width > 1) ? (width >> 1) : 1;
+			height = (height > 1) ? (height >> 1) : 1;
+			--numlevels;
+		}
+	}
+
+	info->mipmap = new IDirect3DTexture8;
+	info->size = XGSetTextureHeader( width,
+					height,
+					numlevels,
+					0,
+					f,
+					0,
+					info->mipmap,
+					0,
+					0 );
+
+	DWORD fileSize = Z_Size(const_cast<void*>(pixels));
+	info->data = gTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	// Lightmaps need to be swizzled, they're in 565:
+	if( f == D3DFMT_R5G6B5 )
+	{
+		byte *pSrc = ((byte *)pixels)+(fileSize-info->size);
+		byte *pDst = (byte *)info->data;
+		DWORD level = numlevels;
+		DWORD curWidth = width;
+		DWORD curHeight = height;
+		while (level--)
+		{
+			XGSwizzleRect(pSrc, 0, NULL, pDst, curWidth, curHeight, NULL, 2);
+			pSrc += curWidth*curHeight*2;
+			pDst += curWidth*curHeight*2;
+			curWidth = (curWidth > 1) ? (curWidth >> 1) : 1;
+			curHeight = (curHeight > 1) ? (curHeight >> 1) : 1;
+		}
+	}
+	else
+	{
+		memcpy( info->data, ((byte *)pixels)+(fileSize-info->size), info->size );
+	}
+	info->mipmap->Register( info->data );
+	info->inMemory = true;
+}
+
+static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint internalformat, GLsizei width, GLsizei height, GLenum format, const GLvoid *pixels)
+{
+	XBOX_QGL_TEX_STATE(800, ((unsigned int)width << 16) | ((unsigned int)height & 0xffff));
+	// Fix number of levels:
+	if( numlevels == 0 )
+		numlevels = 1;
+	XBOX_QGL_TEX_STATE(801, (unsigned int)numlevels);
+
+	// What format should the resultant texture be:
+	D3DFORMAT dstFormat = D3DFMT_UNKNOWN;
+	switch(internalformat)
+	{
+	case GL_RGB5:
+	case GL_RGB4_S3TC:
+			dstFormat = D3DFMT_R5G6B5;
+		break;
+
+	case GL_RGBA4:
+			dstFormat = D3DFMT_A4R4G4B4;
+		break;
+
+	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
+			dstFormat = D3DFMT_DXT1;
+		break;
+
+	case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+			dstFormat = D3DFMT_DXT5;
+		break;
+
+	case GL_RGB8:
+	case 3:
+			dstFormat = D3DFMT_X8R8G8B8;
+		break;
+
+	case GL_LIN_RGBA8:
+			dstFormat = D3DFMT_LIN_A8R8G8B8;
+		break;
+	case GL_LIN_RGB8:
+			dstFormat = D3DFMT_LIN_X8R8G8B8;
+		break;
+
+	case GL_RGBA8:
+	case 4:
+			dstFormat = D3DFMT_A8R8G8B8;
+		break;
+	case GL_RGB:
+			dstFormat = D3DFMT_X8R8G8B8;
+		break;
+
+	default:
+		assert(0);
+	}
+	XBOX_QGL_TEX_STATE(802, (unsigned int)dstFormat);
+
+	// What format is our source data in:
+	D3DFORMAT srcFormat = D3DFMT_UNKNOWN;
+	float bpp;
+	int pitch;
+	switch(format)
+	{
+	case GL_RGB:
+			srcFormat = D3DFMT_X8R8G8B8;
+		bpp = 3;
+		break;
+		
+	case GL_RGBA:
+			srcFormat = D3DFMT_A8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_LIN_RGBA:
+			srcFormat = D3DFMT_LIN_A8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_LIN_RGBA8:
+			srcFormat = D3DFMT_LIN_A8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_LIN_RGB:
+			srcFormat = D3DFMT_LIN_X8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_LIN_RGB8:
+			srcFormat = D3DFMT_LIN_X8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_RGB8:
+			srcFormat = D3DFMT_X8R8G8B8;
+		bpp = 4;
+		break;
+
+	case GL_RGB_SWIZZLE_EXT:
+			srcFormat = D3DFMT_R5G6B5;
+		bpp = 2;
+		break;
+
+	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
+			srcFormat = D3DFMT_DXT1;
+		bpp = 0.5;
+		break;
+
+	default:
+		assert(0);
+	}
+	XBOX_QGL_TEX_STATE(803, (unsigned int)srcFormat);
+
+	pitch = (int)((float)width * bpp);
+	XBOX_QGL_TEX_STATE(804, (unsigned int)pitch);
+
+	RECT	srcRect;
+
+	srcRect.top = 0;
+	srcRect.left = 0;
+	srcRect.right = width;
+	srcRect.bottom = height;
+
+	XBOX_QGL_TEX_STATE(805, (unsigned int)numlevels);
+	info->mipmap = new IDirect3DTexture8;
+	info->size = XGSetTextureHeader( width,
+					height,
+					numlevels,
+					0,
+					dstFormat,
+					0,
+					info->mipmap,
+					0,
+					0 );
+	XBOX_QGL_TEX_STATE(806, (unsigned int)info->size);
+
+	info->data = gTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	XBOX_QGL_TEX_STATE(807, (unsigned int)info->data);
+	info->mipmap->Register( info->data );
+	XBOX_QGL_TEX_STATE(808, (unsigned int)info->mipmap);
+	info->inMemory = true;
+
+	IDirect3DSurface8 *pSurf = NULL;
+	XBOX_QGL_TEX_STATE(809, 0);
+	info->mipmap->GetSurfaceLevel( 0, &pSurf );
+	XBOX_QGL_TEX_STATE(810, (unsigned int)pSurf);
+
+	XBOX_QGL_TEX_STATE(811, (unsigned int)srcFormat);
+	D3DXLoadSurfaceFromMemory( pSurf,
+							   NULL,
+							   NULL,
+							   pixels,
+							   srcFormat,
+							   pitch,
+							   NULL,
+							   &srcRect,
+							   D3DX_DEFAULT,
+							   0 );
+	XBOX_QGL_TEX_STATE(812, 0);
+
+	pSurf->Release();
+	XBOX_QGL_TEX_STATE(813, 0);
+
+	// Generate mipmaps
+	if( numlevels > 1)
+	{
+		XBOX_QGL_TEX_STATE(814, (unsigned int)numlevels);
+		D3DXFilterTexture( info->mipmap,
+						   NULL,
+						   D3DX_DEFAULT,
+						   D3DX_DEFAULT );
+		XBOX_QGL_TEX_STATE(815, (unsigned int)numlevels);
+	}
+}
+
+// EXTENSION: glTexImage2D plus "numlevels" number of mipmaps
+static void dllTexImage2DEXT(GLenum target, GLint level, GLint numlevels, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels)
+{
+	assert(target == GL_TEXTURE_2D && border == 0 && type == GL_UNSIGNED_BYTE);
+
+	// In Direct3D, setting 0 for number of mipmap 
+	// levels means create the whole chain....
+	/*if(numlevels == 0)
+		numlevels = 1;*/
+
+	glwstate_t::TextureInfo* info;
+
+	glwstate_t::texturexlat_t::iterator current = 
+		glw_state->textureXlat.find(
+		glw_state->currentTexture[glw_state->serverTU]);
+
+	// If we already have a texture bound to this ID, remove it.
+	if (current != glw_state->textureXlat.end())
+	{
+		info = &current->second;
+
+		delete info->mipmap;
+		assert( 0 );	// Why is this happening? We're leaking texture memory!
+	}
+	// Otherwise, initialize it.
+	else
+	{
+		info = &glw_state->textureXlat[
+			glw_state->currentTexture[glw_state->serverTU]];
+
+		info->minFilter = D3DTEXF_NONE;
+		info->mipFilter = D3DTEXF_NONE;
+		info->magFilter = D3DTEXF_NONE;
+		info->anisotropy = 1.f;
+		info->wrapU = D3DTADDRESS_CLAMP;
+		info->wrapV = D3DTADDRESS_CLAMP;
+		info->fileOffset = -1;
+
+		glw_state->textureStageDirty[glw_state->serverTU] = true;
+	}
+
+	// force any DX allocs to temp memory
+//	Z_SetNewDeleteTemporary(true);
+
+	if (format == GL_DDS1_EXT || 
+		format == GL_DDS5_EXT || 
+		format == GL_DDS_RGB16_EXT || 
+		format == GL_DDS_RGBA32_EXT)
+	{
+		_texImageDDS(info, numlevels, width, height, format, pixels);
+	}
+	else
+	{
+		_texImageRGBA(info, numlevels, 
+			internalformat, width, height, 
+			format, pixels);
+	}
+
+	// Done DX calls to new and delete
+//	Z_SetNewDeleteTemporary(false);
+
+#if MEMORY_PROFILE
+	texMemSize += getTexMemSize(info->mipmap);
+#endif
+}
+
+static void dllTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const GLvoid *pixels)
+{
+	dllTexImage2DEXT(target, level, 1, internalformat, width, height, border, format, type, pixels);
+}
+
+static void dllTexParameteri(GLenum target, GLenum pname, GLint param)
+{
+	assert(target == GL_TEXTURE_2D);
+	
+	if (glw_state->currentTexture[glw_state->serverTU] == 0) return;
+
+	glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
+	if (!info) return;
+
+	const int textureStage = glw_state->serverTU;
+	const D3DTEXTUREFILTERTYPE oldMinFilter = info->minFilter;
+	const D3DTEXTUREFILTERTYPE oldMipFilter = info->mipFilter;
+	const D3DTEXTUREFILTERTYPE oldMagFilter = info->magFilter;
+	const D3DTEXTUREADDRESS oldWrapU = info->wrapU;
+	const D3DTEXTUREADDRESS oldWrapV = info->wrapV;
+	const float oldAnisotropy = info->anisotropy;
+	
+	switch (pname)
+	{
+	case GL_TEXTURE_MIN_FILTER:
+		switch (param)
+		{
+		case GL_NEAREST:
+			info->minFilter = D3DTEXF_POINT;
+			info->mipFilter = D3DTEXF_NONE;
+			break;
+		case GL_LINEAR:
+			info->minFilter = D3DTEXF_LINEAR;
+			info->mipFilter = D3DTEXF_NONE;
+			break;
+		case GL_NEAREST_MIPMAP_NEAREST:
+			info->minFilter = D3DTEXF_POINT;
+			info->mipFilter = D3DTEXF_POINT;
+			break;
+		case GL_LINEAR_MIPMAP_NEAREST:
+			info->minFilter = D3DTEXF_LINEAR;
+			info->mipFilter = D3DTEXF_POINT;
+			break;
+		case GL_NEAREST_MIPMAP_LINEAR:
+			info->minFilter = D3DTEXF_POINT;
+			info->mipFilter = D3DTEXF_LINEAR;
+			break;
+		case GL_LINEAR_MIPMAP_LINEAR:
+			info->minFilter = D3DTEXF_LINEAR;
+			info->mipFilter = D3DTEXF_LINEAR;
+			break;
+		}
+		info->anisotropy = 1.f;
+		break;
+	case GL_TEXTURE_MAG_FILTER:
+		switch (param)
+		{
+		case GL_NEAREST:
+			info->magFilter = D3DTEXF_POINT;
+			break;
+		case GL_LINEAR:
+			info->magFilter = D3DTEXF_LINEAR;
+			break;
+		}
+		info->anisotropy = 1.f;
+		break;
+	case GL_TEXTURE_WRAP_S:
+		switch (param)
+		{
+		case GL_REPEAT: info->wrapU = D3DTADDRESS_WRAP; break;
+		case GL_CLAMP: info->wrapU = D3DTADDRESS_CLAMP; break;
+		}
+		break;
+	case GL_TEXTURE_WRAP_T:
+		switch (param)
+		{
+		case GL_REPEAT: info->wrapV = D3DTADDRESS_WRAP; break;
+		case GL_CLAMP: info->wrapV = D3DTADDRESS_CLAMP; break;
+		}
+		break;
+	case GL_TEXTURE_MAX_ANISOTROPY_EXT:
+		info->anisotropy = (float)param;
+		info->minFilter = D3DTEXF_ANISOTROPIC;
+		info->magFilter = D3DTEXF_ANISOTROPIC;
+		break;
+	}
+
+	if (info->minFilter != oldMinFilter ||
+		info->mipFilter != oldMipFilter ||
+		info->magFilter != oldMagFilter ||
+		info->wrapU != oldWrapU ||
+		info->wrapV != oldWrapV ||
+		info->anisotropy != oldAnisotropy)
+	{
+		glw_state->textureStageDirty[textureStage] = true;
+	}
+}
+
+static void dllTexParameterf(GLenum target, GLenum pname, GLfloat param)
+{
+	dllTexParameteri(target, pname, param);
+}
+
+static void dllTexParameterfv(GLenum target, GLenum pname, const GLfloat *params)
+{
+	// Intentionally left blank
+}
+
+static void dllTexParameteriv(GLenum target, GLenum pname, const GLint *params)
+{
+	// Intentionally left blank
+}
+
+static void dllTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const GLvoid *pixels)
+{
+	assert(0);
+}
+
+static void dllTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels)
+{
+	assert(target == GL_TEXTURE_2D && level == 0 && type == GL_UNSIGNED_BYTE);
+
+	glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
+	if (info == NULL) return;
+
+	RECT sr;
+	sr.top = 0;
+	sr.left = 0;
+	sr.right = width;
+	sr.bottom = height;
+
+	RECT dr;
+	dr.top = xoffset;
+	dr.left = yoffset;
+	dr.right = xoffset + width;
+	dr.bottom = yoffset + height;
+
+	Z_SetNewDeleteTemporary(true);
+
+	LPDIRECT3DSURFACE8 surf;
+	info->mipmap->GetSurfaceLevel(0, &surf);
+	
+	// We use the supplied format to handle pixel data correctly, the way OGL would
+	D3DFORMAT srcFormat;
+	switch(format)
+	{
+		case GL_RGB:
+			srcFormat = D3DFMT_LIN_X8R8G8B8;
+			break;
+
+		case GL_RGBA:
+			srcFormat = D3DFMT_LIN_A8R8G8B8;
+			break;
+
+		default:
+			assert(0 && "Unsupported format in dllTexSubImage2D");
+			return;
+	}
+
+	D3DXLoadSurfaceFromMemory(surf, NULL, &dr, pixels, 
+		srcFormat, width * 4, NULL, &sr, D3DX_DEFAULT, 0);
+
+	surf->Release();
+
+	Z_SetNewDeleteTemporary(false);
+}
+
+static void dllTranslated(GLdouble x, GLdouble y, GLdouble z)
+{
+	assert(0);
+}
+
+static void dllTranslatef(GLfloat x, GLfloat y, GLfloat z)
+{
+	glw_state->matrixStack[glw_state->matrixMode]->TranslateLocal(x, y, z);
+	glw_state->matricesDirty[glw_state->matrixMode] = true;
+}
+
+static void setVertex(float x, float y, float z)
+{
+	assert(glw_state->inDrawBlock);
+
+	_handleDrawOverflow();
+	
+	DWORD* push = &glw_state->drawArray[glw_state->numVertices * glw_state->drawStride];
+	push[0] = *((DWORD*)&x);
+	push[1] = *((DWORD*)&y);
+	push[2] = *((DWORD*)&z);
+	push[3] = glw_state->currentColor;
+
+	++glw_state->numVertices;
+}
+
+static void dllVertex2d(GLdouble x, GLdouble y)
+{
+	assert(0);
+}
+
+static void dllVertex2dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllVertex2f(GLfloat x, GLfloat y)
+{
+	setVertex(x, y, 0.f);
+}
+
+static void dllVertex2fv(const GLfloat *v)
+{
+	setVertex(v[0], v[1], 0.f);
+}
+
+static void dllVertex2i(GLint x, GLint y)
+{
+	assert(0);
+}
+
+static void dllVertex2iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllVertex2s(GLshort x, GLshort y)
+{
+	assert(0);
+}
+
+static void dllVertex2sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllVertex3d(GLdouble x, GLdouble y, GLdouble z)
+{
+	assert(0);
+}
+
+static void dllVertex3dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllVertex3f(GLfloat x, GLfloat y, GLfloat z)
+{
+	setVertex(x, y, z);
+}
+
+static void dllVertex3fv(const GLfloat *v)
+{
+	setVertex(v[0], v[1], v[2]);
+}
+
+static void dllVertex3i(GLint x, GLint y, GLint z)
+{
+	assert(0);
+}
+
+static void dllVertex3iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllVertex3s(GLshort x, GLshort y, GLshort z)
+{
+	assert(0);
+}
+
+static void dllVertex3sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllVertex4d(GLdouble x, GLdouble y, GLdouble z, GLdouble w)
+{
+	assert(0);
+}
+
+static void dllVertex4dv(const GLdouble *v)
+{
+	assert(0);
+}
+
+static void dllVertex4f(GLfloat x, GLfloat y, GLfloat z, GLfloat w)
+{
+	setVertex(x, y, z);
+}
+
+static void dllVertex4fv(const GLfloat *v)
+{
+	setVertex(v[0], v[1], v[2]);
+}
+
+static void dllVertex4i(GLint x, GLint y, GLint z, GLint w)
+{
+	assert(0);
+}
+
+static void dllVertex4iv(const GLint *v)
+{
+	assert(0);
+}
+
+static void dllVertex4s(GLshort x, GLshort y, GLshort z, GLshort w)
+{
+	assert(0);
+}
+
+static void dllVertex4sv(const GLshort *v)
+{
+	assert(0);
+}
+
+static void dllVertexPointer(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer)
+{
+	assert(size == 3 && type == GL_FLOAT);
+	
+	stride = (stride == 0) ? (sizeof(GLfloat) * 3) : stride;
+
+	glw_state->vertexPointer = pointer;
+	glw_state->vertexStride = stride;
+}
+
+static void dllViewport(GLint x, GLint y, GLsizei width, GLsizei height)
+{
+	static int viewportLogCount = 0;
+	const GLint originalX = x;
+	const GLint originalY = y;
+	const GLsizei originalWidth = width;
+	const GLsizei originalHeight = height;
+	_fixupScreenCoords(x, y, width, height);
+
+	glw_state->viewport.X = x;
+	glw_state->viewport.Y = y;
+	glw_state->viewport.Width = width;
+	glw_state->viewport.Height = height;
+#ifdef _XBOX
+	if (viewportLogCount < 4)
+	{
+		Com_PrintfAlways("JAMP: viewport in=%d,%d %dx%d out=%d,%d %dx%d vid=%dx%d\n",
+			originalX, originalY, originalWidth, originalHeight,
+			x, y, width, height, glConfig.vidWidth, glConfig.vidHeight);
+		viewportLogCount++;
+	}
+#endif
+#ifdef _XBOX
+	JAMP_SetViewportCached(glw_state->viewport, false);
+#else
+	glw_state->device->SetViewport(&glw_state->viewport);
+#endif
+}
+
+
+static void dllMultiTexCoord2fARB(GLenum texture, GLfloat s, GLfloat t)
+{
+	assert(glw_state->inDrawBlock);
+
+	_handleDrawOverflow();
+
+	DWORD* push = &glw_state->drawArray[
+		glw_state->numVertices * glw_state->drawStride + 
+		4 + (texture - GL_TEXTURE0_ARB) * 2];
+	
+	*push++ = *((DWORD*)&s);
+	*push++ = *((DWORD*)&t);
+}
+
+static void dllActiveTextureARB(GLenum texture)
+{
+	assert(GLW_MAX_TEXTURE_STAGES > texture - GL_TEXTURE0_ARB);
+	glw_state->serverTU = texture - GL_TEXTURE0_ARB;
+}
+
+static void dllClientActiveTextureARB(GLenum texture)
+{
+	assert(GLW_MAX_TEXTURE_STAGES > texture - GL_TEXTURE0_ARB);
+	glw_state->clientTU = texture - GL_TEXTURE0_ARB;
+}
+
+
+/*
+** QGL_Shutdown
+**
+** Unloads the specified DLL then nulls out all the proc pointers.  This
+** is only called during a hard shutdown of the OGL subsystem (e.g. vid_restart).
+*/
+void QGL_Shutdown( void )
+{
+	Com_Printf ("...shutting down QGL\n" );
+
+	qglAccum                     = NULL;
+	qglAlphaFunc                 = NULL;
+	qglAreTexturesResident       = NULL;
+	qglArrayElement              = NULL;
+	qglBegin                     = NULL;
+	qglBeginEXT                  = NULL;
+	qglBeginFrame                = NULL;
+	qglBeginShadow               = NULL;
+	qglBindTexture               = NULL;
+	qglBitmap                    = NULL;
+	qglBlendFunc                 = NULL;
+	qglCallList                  = NULL;
+	qglCallLists                 = NULL;
+	qglClear                     = NULL;
+	qglClearAccum                = NULL;
+	qglClearColor                = NULL;
+	qglClearDepth                = NULL;
+	qglClearIndex                = NULL;
+	qglClearStencil              = NULL;
+	qglClipPlane                 = NULL;
+	qglColor3b                   = NULL;
+	qglColor3bv                  = NULL;
+	qglColor3d                   = NULL;
+	qglColor3dv                  = NULL;
+	qglColor3f                   = NULL;
+	qglColor3fv                  = NULL;
+	qglColor3i                   = NULL;
+	qglColor3iv                  = NULL;
+	qglColor3s                   = NULL;
+	qglColor3sv                  = NULL;
+	qglColor3ub                  = NULL;
+	qglColor3ubv                 = NULL;
+	qglColor3ui                  = NULL;
+	qglColor3uiv                 = NULL;
+	qglColor3us                  = NULL;
+	qglColor3usv                 = NULL;
+	qglColor4b                   = NULL;
+	qglColor4bv                  = NULL;
+	qglColor4d                   = NULL;
+	qglColor4dv                  = NULL;
+	qglColor4f                   = NULL;
+	qglColor4fv                  = NULL;
+	qglColor4i                   = NULL;
+	qglColor4iv                  = NULL;
+	qglColor4s                   = NULL;
+	qglColor4sv                  = NULL;
+	qglColor4ub                  = NULL;
+	qglColor4ubv                 = NULL;
+	qglColor4ui                  = NULL;
+	qglColor4uiv                 = NULL;
+	qglColor4us                  = NULL;
+	qglColor4usv                 = NULL;
+	qglColorMask                 = NULL;
+	qglColorMaterial             = NULL;
+	qglColorPointer              = NULL;
+	qglCopyPixels                = NULL;
+	qglCopyTexImage1D            = NULL;
+	qglCopyTexImage2D            = NULL;
+	qglCopyTexSubImage1D         = NULL;
+	qglCopyTexSubImage2D         = NULL;
+	qglCullFace                  = NULL;
+	qglDeleteLists               = NULL;
+	qglDeleteTextures            = NULL;
+	qglDepthFunc                 = NULL;
+	qglDepthMask                 = NULL;
+	qglDepthRange                = NULL;
+	qglDisable                   = NULL;
+	qglDisableClientState        = NULL;
+	qglDrawArrays                = NULL;
+	qglDrawBuffer                = NULL;
+	qglDrawElements              = NULL;
+	qglDrawPixels                = NULL;
+	qglEdgeFlag                  = NULL;
+	qglEdgeFlagPointer           = NULL;
+	qglEdgeFlagv                 = NULL;
+	qglEnable                    = NULL;
+	qglEnableClientState         = NULL;
+	qglEnd                       = NULL;
+	qglEndFrame                  = NULL;
+	qglEndShadow                 = NULL;
+	qglEndList                   = NULL;
+	qglEvalCoord1d               = NULL;
+	qglEvalCoord1dv              = NULL;
+	qglEvalCoord1f               = NULL;
+	qglEvalCoord1fv              = NULL;
+	qglEvalCoord2d               = NULL;
+	qglEvalCoord2dv              = NULL;
+	qglEvalCoord2f               = NULL;
+	qglEvalCoord2fv              = NULL;
+	qglEvalMesh1                 = NULL;
+	qglEvalMesh2                 = NULL;
+	qglEvalPoint1                = NULL;
+	qglEvalPoint2                = NULL;
+	qglFeedbackBuffer            = NULL;
+	qglFinish                    = NULL;
+	qglFlush                     = NULL;
+	qglFlushShadow               = NULL;
+	qglFogf                      = NULL;
+	qglFogfv                     = NULL;
+	qglFogi                      = NULL;
+	qglFogiv                     = NULL;
+	qglFrontFace                 = NULL;
+	qglFrustum                   = NULL;
+	qglGenLists                  = NULL;
+	qglGenTextures               = NULL;
+	qglGetBooleanv               = NULL;
+	qglGetClipPlane              = NULL;
+	qglGetDoublev                = NULL;
+	qglGetError                  = NULL;
+	qglGetFloatv                 = NULL;
+	qglGetIntegerv               = NULL;
+	qglGetLightfv                = NULL;
+	qglGetLightiv                = NULL;
+	qglGetMapdv                  = NULL;
+	qglGetMapfv                  = NULL;
+	qglGetMapiv                  = NULL;
+	qglGetMaterialfv             = NULL;
+	qglGetMaterialiv             = NULL;
+	qglGetPixelMapfv             = NULL;
+	qglGetPixelMapuiv            = NULL;
+	qglGetPixelMapusv            = NULL;
+	qglGetPointerv               = NULL;
+	qglGetPolygonStipple         = NULL;
+	qglGetString                 = NULL;
+	qglGetTexEnvfv               = NULL;
+	qglGetTexEnviv               = NULL;
+	qglGetTexGendv               = NULL;
+	qglGetTexGenfv               = NULL;
+	qglGetTexGeniv               = NULL;
+	qglGetTexImage               = NULL;
+	qglGetTexLevelParameterfv    = NULL;
+	qglGetTexLevelParameteriv    = NULL;
+	qglGetTexParameterfv         = NULL;
+	qglGetTexParameteriv         = NULL;
+	qglHint                      = NULL;
+	qglIndexedTriToStrip         = NULL;
+	qglIndexMask                 = NULL;
+	qglIndexPointer              = NULL;
+	qglIndexd                    = NULL;
+	qglIndexdv                   = NULL;
+	qglIndexf                    = NULL;
+	qglIndexfv                   = NULL;
+	qglIndexi                    = NULL;
+	qglIndexiv                   = NULL;
+	qglIndexs                    = NULL;
+	qglIndexsv                   = NULL;
+	qglIndexub                   = NULL;
+	qglIndexubv                  = NULL;
+	qglInitNames                 = NULL;
+	qglInterleavedArrays         = NULL;
+	qglIsEnabled                 = NULL;
+	qglIsList                    = NULL;
+	qglIsTexture                 = NULL;
+	qglLightModelf               = NULL;
+	qglLightModelfv              = NULL;
+	qglLightModeli               = NULL;
+	qglLightModeliv              = NULL;
+	qglLightf                    = NULL;
+	qglLightfv                   = NULL;
+	qglLighti                    = NULL;
+	qglLightiv                   = NULL;
+	qglLineStipple               = NULL;
+	qglLineWidth                 = NULL;
+	qglListBase                  = NULL;
+	qglLoadIdentity              = NULL;
+	qglLoadMatrixd               = NULL;
+	qglLoadMatrixf               = NULL;
+	qglLoadName                  = NULL;
+	qglLogicOp                   = NULL;
+	qglMap1d                     = NULL;
+	qglMap1f                     = NULL;
+	qglMap2d                     = NULL;
+	qglMap2f                     = NULL;
+	qglMapGrid1d                 = NULL;
+	qglMapGrid1f                 = NULL;
+	qglMapGrid2d                 = NULL;
+	qglMapGrid2f                 = NULL;
+	qglMaterialf                 = NULL;
+	qglMaterialfv                = NULL;
+	qglMateriali                 = NULL;
+	qglMaterialiv                = NULL;
+	qglMatrixMode                = NULL;
+	qglMultMatrixd               = NULL;
+	qglMultMatrixf               = NULL;
+	qglNewList                   = NULL;
+	qglNormal3b                  = NULL;
+	qglNormal3bv                 = NULL;
+	qglNormal3d                  = NULL;
+	qglNormal3dv                 = NULL;
+	qglNormal3f                  = NULL;
+	qglNormal3fv                 = NULL;
+	qglNormal3i                  = NULL;
+	qglNormal3iv                 = NULL;
+	qglNormal3s                  = NULL;
+	qglNormal3sv                 = NULL;
+	qglNormalPointer             = NULL;
+	qglOrtho                     = NULL;
+	qglPassThrough               = NULL;
+	qglPixelMapfv                = NULL;
+	qglPixelMapuiv               = NULL;
+	qglPixelMapusv               = NULL;
+	qglPixelStoref               = NULL;
+	qglPixelStorei               = NULL;
+	qglPixelTransferf            = NULL;
+	qglPixelTransferi            = NULL;
+	qglPixelZoom                 = NULL;
+	qglPointSize                 = NULL;
+	qglPolygonMode               = NULL;
+	qglPolygonOffset             = NULL;
+	qglPolygonStipple            = NULL;
+	qglPopAttrib                 = NULL;
+	qglPopClientAttrib           = NULL;
+	qglPopMatrix                 = NULL;
+	qglPopName                   = NULL;
+	qglPrioritizeTextures        = NULL;
+	qglPushAttrib                = NULL;
+	qglPushClientAttrib          = NULL;
+	qglPushMatrix                = NULL;
+	qglPushName                  = NULL;
+	qglRasterPos2d               = NULL;
+	qglRasterPos2dv              = NULL;
+	qglRasterPos2f               = NULL;
+	qglRasterPos2fv              = NULL;
+	qglRasterPos2i               = NULL;
+	qglRasterPos2iv              = NULL;
+	qglRasterPos2s               = NULL;
+	qglRasterPos2sv              = NULL;
+	qglRasterPos3d               = NULL;
+	qglRasterPos3dv              = NULL;
+	qglRasterPos3f               = NULL;
+	qglRasterPos3fv              = NULL;
+	qglRasterPos3i               = NULL;
+	qglRasterPos3iv              = NULL;
+	qglRasterPos3s               = NULL;
+	qglRasterPos3sv              = NULL;
+	qglRasterPos4d               = NULL;
+	qglRasterPos4dv              = NULL;
+	qglRasterPos4f               = NULL;
+	qglRasterPos4fv              = NULL;
+	qglRasterPos4i               = NULL;
+	qglRasterPos4iv              = NULL;
+	qglRasterPos4s               = NULL;
+	qglRasterPos4sv              = NULL;
+	qglReadBuffer                = NULL;
+	qglReadPixels                = NULL;
+	qglCopyBackBufferToTexEXT	 = NULL;
+	qglCopyBackBufferToTex		 = NULL;
+	qglRectd                     = NULL;
+	qglRectdv                    = NULL;
+	qglRectf                     = NULL;
+	qglRectfv                    = NULL;
+	qglRecti                     = NULL;
+	qglRectiv                    = NULL;
+	qglRects                     = NULL;
+	qglRectsv                    = NULL;
+	qglRenderMode                = NULL;
+	qglRotated                   = NULL;
+	qglRotatef                   = NULL;
+	qglScaled                    = NULL;
+	qglScalef                    = NULL;
+	qglScissor                   = NULL;
+	qglSelectBuffer              = NULL;
+	qglShadeModel                = NULL;
+	qglStencilFunc               = NULL;
+	qglStencilMask               = NULL;
+	qglStencilOp                 = NULL;
+	qglTexCoord1d                = NULL;
+	qglTexCoord1dv               = NULL;
+	qglTexCoord1f                = NULL;
+	qglTexCoord1fv               = NULL;
+	qglTexCoord1i                = NULL;
+	qglTexCoord1iv               = NULL;
+	qglTexCoord1s                = NULL;
+	qglTexCoord1sv               = NULL;
+	qglTexCoord2d                = NULL;
+	qglTexCoord2dv               = NULL;
+	qglTexCoord2f                = NULL;
+	qglTexCoord2fv               = NULL;
+	qglTexCoord2i                = NULL;
+	qglTexCoord2iv               = NULL;
+	qglTexCoord2s                = NULL;
+	qglTexCoord2sv               = NULL;
+	qglTexCoord3d                = NULL;
+	qglTexCoord3dv               = NULL;
+	qglTexCoord3f                = NULL;
+	qglTexCoord3fv               = NULL;
+	qglTexCoord3i                = NULL;
+	qglTexCoord3iv               = NULL;
+	qglTexCoord3s                = NULL;
+	qglTexCoord3sv               = NULL;
+	qglTexCoord4d                = NULL;
+	qglTexCoord4dv               = NULL;
+	qglTexCoord4f                = NULL;
+	qglTexCoord4fv               = NULL;
+	qglTexCoord4i                = NULL;
+	qglTexCoord4iv               = NULL;
+	qglTexCoord4s                = NULL;
+	qglTexCoord4sv               = NULL;
+	qglTexCoordPointer           = NULL;
+	qglTexEnvf                   = NULL;
+	qglTexEnvfv                  = NULL;
+	qglTexEnvi                   = NULL;
+	qglTexEnviv                  = NULL;
+	qglTexGend                   = NULL;
+	qglTexGendv                  = NULL;
+	qglTexGenf                   = NULL;
+	qglTexGenfv                  = NULL;
+	qglTexGeni                   = NULL;
+	qglTexGeniv                  = NULL;
+	qglTexImage1D                = NULL;
+	qglTexImage2D                = NULL;
+	qglTexImage2DEXT             = NULL;
+	qglTexParameterf             = NULL;
+	qglTexParameterfv            = NULL;
+	qglTexParameteri             = NULL;
+	qglTexParameteriv            = NULL;
+	qglTexSubImage1D             = NULL;
+	qglTexSubImage2D             = NULL;
+	qglTranslated                = NULL;
+	qglTranslatef                = NULL;
+	qglVertex2d                  = NULL;
+	qglVertex2dv                 = NULL;
+	qglVertex2f                  = NULL;
+	qglVertex2fv                 = NULL;
+	qglVertex2i                  = NULL;
+	qglVertex2iv                 = NULL;
+	qglVertex2s                  = NULL;
+	qglVertex2sv                 = NULL;
+	qglVertex3d                  = NULL;
+	qglVertex3dv                 = NULL;
+	qglVertex3f                  = NULL;
+	qglVertex3fv                 = NULL;
+	qglVertex3i                  = NULL;
+	qglVertex3iv                 = NULL;
+	qglVertex3s                  = NULL;
+	qglVertex3sv                 = NULL;
+	qglVertex4d                  = NULL;
+	qglVertex4dv                 = NULL;
+	qglVertex4f                  = NULL;
+	qglVertex4fv                 = NULL;
+	qglVertex4i                  = NULL;
+	qglVertex4iv                 = NULL;
+	qglVertex4s                  = NULL;
+	qglVertex4sv                 = NULL;
+	qglVertexPointer             = NULL;
+	qglViewport                  = NULL;
+
+	qglActiveTextureARB          = NULL;
+	qglClientActiveTextureARB    = NULL;
+	qglMultiTexCoord2fARB        = NULL;
+	qglLockArraysEXT             = NULL;
+	qglUnlockArraysEXT           = NULL;
+}
+
+/*
+** QGL_Init
+**
+** This is responsible for binding our qgl function pointers to 
+** the appropriate GL stuff.  In Windows this means doing a 
+** LoadLibrary and a bunch of calls to GetProcAddress.  On other
+** operating systems we need to do the right thing, whatever that
+** might be.
+*/
+qboolean QGL_Init( const char *dllname )
+{
+	qglAccum                     = dllAccum;
+	qglAlphaFunc                 = dllAlphaFunc;
+	qglAreTexturesResident       = dllAreTexturesResident;
+	qglArrayElement              = dllArrayElement;
+	qglBegin                     = dllBegin;
+	qglBeginEXT                  = dllBeginEXT;
+	qglBeginFrame                = dllBeginFrame;
+	qglBeginShadow               = dllBeginShadow;
+	qglBindTexture               = dllBindTexture;
+	qglBitmap                    = dllBitmap;
+	qglBlendFunc                 = dllBlendFunc;
+	qglCallList                  = dllCallList;
+	qglCallLists                 = dllCallLists;
+	qglClear                     = dllClear;
+	qglClearAccum                = dllClearAccum;
+	qglClearColor                = dllClearColor;
+	qglClearDepth                = dllClearDepth;
+	qglClearIndex                = dllClearIndex;
+	qglClearStencil              = dllClearStencil;
+	qglClipPlane                 = dllClipPlane;
+	qglColor3b                   = dllColor3b;
+	qglColor3bv                  = dllColor3bv;
+	qglColor3d                   = dllColor3d;
+	qglColor3dv                  = dllColor3dv;
+	qglColor3f                   = dllColor3f;
+	qglColor3fv                  = dllColor3fv;
+	qglColor3i                   = dllColor3i;
+	qglColor3iv                  = dllColor3iv;
+	qglColor3s                   = dllColor3s;
+	qglColor3sv                  = dllColor3sv;
+	qglColor3ub                  = dllColor3ub;
+	qglColor3ubv                 = dllColor3ubv;
+	qglColor3ui                  = dllColor3ui;
+	qglColor3uiv                 = dllColor3uiv;
+	qglColor3us                  = dllColor3us;
+	qglColor3usv                 = dllColor3usv;
+	qglColor4b                   = dllColor4b;
+	qglColor4bv                  = dllColor4bv;
+	qglColor4d                   = dllColor4d;
+	qglColor4dv                  = dllColor4dv;
+	qglColor4f                   = dllColor4f;
+	qglColor4fv                  = dllColor4fv;
+	qglColor4i                   = dllColor4i;
+	qglColor4iv                  = dllColor4iv;
+	qglColor4s                   = dllColor4s;
+	qglColor4sv                  = dllColor4sv;
+	qglColor4ub                  = dllColor4ub;
+	qglColor4ubv                 = dllColor4ubv;
+	qglColor4ui                  = dllColor4ui;
+	qglColor4uiv                 = dllColor4uiv;
+	qglColor4us                  = dllColor4us;
+	qglColor4usv                 = dllColor4usv;
+	qglColorMask                 = dllColorMask;
+	qglColorMaterial             = dllColorMaterial;
+	qglColorPointer              = dllColorPointer;
+	qglCopyPixels                = dllCopyPixels;
+	qglCopyTexImage1D            = dllCopyTexImage1D;
+	qglCopyTexImage2D            = dllCopyTexImage2D;
+	qglCopyTexSubImage1D         = dllCopyTexSubImage1D;
+	qglCopyTexSubImage2D         = dllCopyTexSubImage2D;
+	qglCullFace                  = dllCullFace;
+	qglDeleteLists               = dllDeleteLists;
+	qglDeleteTextures            = dllDeleteTextures;
+	qglDepthFunc                 = dllDepthFunc;
+	qglDepthMask                 = dllDepthMask;
+	qglDepthRange                = dllDepthRange;
+	qglDisable                   = dllDisable;
+	qglDisableClientState        = dllDisableClientState;
+	qglDrawArrays                = dllDrawArrays;
+	qglDrawBuffer                = dllDrawBuffer;
+	qglDrawElements              = dllDrawElements;
+	qglDrawPixels                = dllDrawPixels;
+	qglEdgeFlag                  = dllEdgeFlag;
+	qglEdgeFlagPointer           = dllEdgeFlagPointer;
+	qglEdgeFlagv                 = dllEdgeFlagv;
+	qglEnable                    = 	dllEnable                   ;
+	qglEnableClientState         = 	dllEnableClientState        ;
+	qglEnd                       = 	dllEnd                      ;
+	qglEndFrame                  = 	dllEndFrame                 ;
+	qglEndShadow                 = 	dllEndShadow                ;
+	qglEndList                   = 	dllEndList                  ;
+	qglEvalCoord1d				 = 	dllEvalCoord1d				;
+	qglEvalCoord1dv              = 	dllEvalCoord1dv             ;
+	qglEvalCoord1f               = 	dllEvalCoord1f              ;
+	qglEvalCoord1fv              = 	dllEvalCoord1fv             ;
+	qglEvalCoord2d               = 	dllEvalCoord2d              ;
+	qglEvalCoord2dv              = 	dllEvalCoord2dv             ;
+	qglEvalCoord2f               = 	dllEvalCoord2f              ;
+	qglEvalCoord2fv              = 	dllEvalCoord2fv             ;
+	qglEvalMesh1                 = 	dllEvalMesh1                ;
+	qglEvalMesh2                 = 	dllEvalMesh2                ;
+	qglEvalPoint1                = 	dllEvalPoint1               ;
+	qglEvalPoint2                = 	dllEvalPoint2               ;
+	qglFeedbackBuffer            = 	dllFeedbackBuffer           ;
+	qglFinish                    = 	dllFinish                   ;
+	qglFlush                     = 	dllFlush                    ;
+	qglFlushShadow               = 	dllFlushShadow              ;
+	qglFogf                      = 	dllFogf                     ;
+	qglFogfv                     = 	dllFogfv                    ;
+	qglFogi                      = 	dllFogi                     ;
+	qglFogiv                     = 	dllFogiv                    ;
+	qglFrontFace                 = 	dllFrontFace                ;
+	qglFrustum                   = 	dllFrustum                  ;
+	qglGenLists                  = 	dllGenLists                 ;
+	qglGenTextures               = 	dllGenTextures              ;
+	qglGetBooleanv               = 	dllGetBooleanv              ;
+	qglGetClipPlane              = 	dllGetClipPlane             ;
+	qglGetDoublev                = 	dllGetDoublev               ;
+	qglGetError                  = 	dllGetError                 ;
+	qglGetFloatv                 = 	dllGetFloatv                ;
+	qglGetIntegerv               = 	dllGetIntegerv              ;
+	qglGetLightfv                = 	dllGetLightfv               ;
+	qglGetLightiv                = 	dllGetLightiv               ;
+	qglGetMapdv                  = 	dllGetMapdv                 ;
+	qglGetMapfv                  = 	dllGetMapfv                 ;
+	qglGetMapiv                  = 	dllGetMapiv                 ;
+	qglGetMaterialfv             = 	dllGetMaterialfv            ;
+	qglGetMaterialiv             = 	dllGetMaterialiv            ;
+	qglGetPixelMapfv             = 	dllGetPixelMapfv            ;
+	qglGetPixelMapuiv            = 	dllGetPixelMapuiv           ;
+	qglGetPixelMapusv            = 	dllGetPixelMapusv           ;
+	qglGetPointerv               = 	dllGetPointerv              ;
+	qglGetPolygonStipple         = 	dllGetPolygonStipple        ;
+	qglGetString                 = 	dllGetString                ;
+	qglGetTexEnvfv               = 	dllGetTexEnvfv              ;
+	qglGetTexEnviv               = 	dllGetTexEnviv              ;
+	qglGetTexGendv               = 	dllGetTexGendv              ;
+	qglGetTexGenfv               = 	dllGetTexGenfv              ;
+	qglGetTexGeniv               = 	dllGetTexGeniv              ;
+	qglGetTexImage               = 	dllGetTexImage              ;
+//	qglGetTexLevelParameterfv    = 	dllGetTexLevelParameterfv   ;
+//	qglGetTexLevelParameteriv    = 	dllGetTexLevelParameteriv   ;
+	qglGetTexParameterfv         = 	dllGetTexParameterfv        ;
+	qglGetTexParameteriv         = 	dllGetTexParameteriv        ;
+	qglHint                      = 	dllHint                     ;
+	qglIndexedTriToStrip         =  dllIndexedTriToStrip        ;
+	qglIndexMask                 = 	dllIndexMask                ;
+	qglIndexPointer              = 	dllIndexPointer             ;
+	qglIndexd                    = 	dllIndexd                   ;
+	qglIndexdv                   = 	dllIndexdv                  ;
+	qglIndexf                    = 	dllIndexf                   ;
+	qglIndexfv                   = 	dllIndexfv                  ;
+	qglIndexi                    = 	dllIndexi                   ;
+	qglIndexiv                   = 	dllIndexiv                  ;
+	qglIndexs                    = 	dllIndexs                   ;
+	qglIndexsv                   = 	dllIndexsv                  ;
+	qglIndexub                   = 	dllIndexub                  ;
+	qglIndexubv                  = 	dllIndexubv                 ;
+	qglInitNames                 = 	dllInitNames                ;
+	qglInterleavedArrays         = 	dllInterleavedArrays        ;
+	qglIsEnabled                 = 	dllIsEnabled                ;
+	qglIsList                    = 	dllIsList                   ;
+	qglIsTexture                 = 	dllIsTexture                ;
+	qglLightModelf               = 	dllLightModelf              ;
+	qglLightModelfv              = 	dllLightModelfv             ;
+	qglLightModeli               = 	dllLightModeli              ;
+	qglLightModeliv              = 	dllLightModeliv             ;
+	qglLightf                    = 	dllLightf                   ;
+	qglLightfv                   = 	dllLightfv                  ;
+	qglLighti                    = 	dllLighti                   ;
+	qglLightiv                   = 	dllLightiv                  ;
+	qglLineStipple               = 	dllLineStipple              ;
+	qglLineWidth                 = 	dllLineWidth                ;
+	qglListBase                  = 	dllListBase                 ;
+	qglLoadIdentity              = 	dllLoadIdentity             ;
+	qglLoadMatrixd               = 	dllLoadMatrixd              ;
+	qglLoadMatrixf               = 	dllLoadMatrixf              ;
+	qglLoadName                  = 	dllLoadName                 ;
+	qglLogicOp                   = 	dllLogicOp                  ;
+	qglMap1d                     = 	dllMap1d                    ;
+	qglMap1f                     = 	dllMap1f                    ;
+	qglMap2d                     = 	dllMap2d                    ;
+	qglMap2f                     = 	dllMap2f                    ;
+	qglMapGrid1d                 = 	dllMapGrid1d                ;
+	qglMapGrid1f                 = 	dllMapGrid1f                ;
+	qglMapGrid2d                 = 	dllMapGrid2d                ;
+	qglMapGrid2f                 = 	dllMapGrid2f                ;
+	qglMaterialf                 = 	dllMaterialf                ;
+	qglMaterialfv                = 	dllMaterialfv               ;
+	qglMateriali                 = 	dllMateriali                ;
+	qglMaterialiv                = 	dllMaterialiv               ;
+	qglMatrixMode                = 	dllMatrixMode               ;
+	qglMultMatrixd               = 	dllMultMatrixd              ;
+	qglMultMatrixf               = 	dllMultMatrixf              ;
+	qglNewList                   = 	dllNewList                  ;
+	qglNormal3b                  = 	dllNormal3b                 ;
+	qglNormal3bv                 = 	dllNormal3bv                ;
+	qglNormal3d                  = 	dllNormal3d                 ;
+	qglNormal3dv                 = 	dllNormal3dv                ;
+	qglNormal3f                  = 	dllNormal3f                 ;
+	qglNormal3fv                 = 	dllNormal3fv                ;
+	qglNormal3i                  = 	dllNormal3i                 ;
+	qglNormal3iv                 = 	dllNormal3iv                ;
+	qglNormal3s                  = 	dllNormal3s                 ;
+	qglNormal3sv                 = 	dllNormal3sv                ;
+	qglNormalPointer             = 	dllNormalPointer            ;
+	qglOrtho                     = 	dllOrtho                    ;
+	qglPassThrough               = 	dllPassThrough              ;
+	qglPixelMapfv                = 	dllPixelMapfv               ;
+	qglPixelMapuiv               = 	dllPixelMapuiv              ;
+	qglPixelMapusv               = 	dllPixelMapusv              ;
+	qglPixelStoref               = 	dllPixelStoref              ;
+	qglPixelStorei               = 	dllPixelStorei              ;
+	qglPixelTransferf            = 	dllPixelTransferf           ;
+	qglPixelTransferi            = 	dllPixelTransferi           ;
+	qglPixelZoom                 = 	dllPixelZoom                ;
+	qglPointSize                 = 	dllPointSize                ;
+	qglPolygonMode               = 	dllPolygonMode              ;
+	qglPolygonOffset             = 	dllPolygonOffset            ;
+	qglPolygonStipple            = 	dllPolygonStipple           ;
+	qglPopAttrib                 = 	dllPopAttrib                ;
+	qglPopClientAttrib           = 	dllPopClientAttrib          ;
+	qglPopMatrix                 = 	dllPopMatrix                ;
+	qglPopName                   = 	dllPopName                  ;
+	qglPrioritizeTextures        = 	dllPrioritizeTextures       ;
+	qglPushAttrib                = 	dllPushAttrib               ;
+	qglPushClientAttrib          = 	dllPushClientAttrib         ;
+	qglPushMatrix                = 	dllPushMatrix               ;
+	qglPushName                  = 	dllPushName                 ;
+	qglRasterPos2d               = 	dllRasterPos2d              ;
+	qglRasterPos2dv              = 	dllRasterPos2dv             ;
+	qglRasterPos2f               = 	dllRasterPos2f              ;
+	qglRasterPos2fv              = 	dllRasterPos2fv             ;
+	qglRasterPos2i               = 	dllRasterPos2i              ;
+	qglRasterPos2iv              = 	dllRasterPos2iv             ;
+	qglRasterPos2s               = 	dllRasterPos2s              ;
+	qglRasterPos2sv              = 	dllRasterPos2sv             ;
+	qglRasterPos3d               = 	dllRasterPos3d              ;
+	qglRasterPos3dv              = 	dllRasterPos3dv             ;
+	qglRasterPos3f               = 	dllRasterPos3f              ;
+	qglRasterPos3fv              = 	dllRasterPos3fv             ;
+	qglRasterPos3i               = 	dllRasterPos3i              ;
+	qglRasterPos3iv              = 	dllRasterPos3iv             ;
+	qglRasterPos3s               = 	dllRasterPos3s              ;
+	qglRasterPos3sv              = 	dllRasterPos3sv             ;
+	qglRasterPos4d               = 	dllRasterPos4d              ;
+	qglRasterPos4dv              = 	dllRasterPos4dv             ;
+	qglRasterPos4f               = 	dllRasterPos4f              ;
+	qglRasterPos4fv              = 	dllRasterPos4fv             ;
+	qglRasterPos4i               = 	dllRasterPos4i              ;
+	qglRasterPos4iv              = 	dllRasterPos4iv             ;
+	qglRasterPos4s               = 	dllRasterPos4s              ;
+	qglRasterPos4sv              = 	dllRasterPos4sv             ;
+	qglReadBuffer                = 	dllReadBuffer               ;
+	qglReadPixels                = 	dllReadPixels               ;
+	qglCopyBackBufferToTexEXT	 =	dllCopyBackBufferToTexEXT	;
+	qglCopyBackBufferToTex		 =	dllCopyBackBufferToTex		;
+	qglRectd                     = 	dllRectd                    ;
+	qglRectdv                    = 	dllRectdv                   ;
+	qglRectf                     = 	dllRectf                    ;
+	qglRectfv                    = 	dllRectfv                   ;
+	qglRecti                     = 	dllRecti                    ;
+	qglRectiv                    = 	dllRectiv                   ;
+	qglRects                     = 	dllRects                    ;
+	qglRectsv                    = 	dllRectsv                   ;
+	qglRenderMode                = 	dllRenderMode               ;
+	qglRotated                   = 	dllRotated                  ;
+	qglRotatef                   = 	dllRotatef                  ;
+	qglScaled                    = 	dllScaled                   ;
+	qglScalef                    = 	dllScalef                   ;
+	qglScissor                   = 	dllScissor                  ;
+	qglSelectBuffer              = 	dllSelectBuffer             ;
+	qglShadeModel                = 	dllShadeModel               ;
+	qglStencilFunc               = 	dllStencilFunc              ;
+	qglStencilMask               = 	dllStencilMask              ;
+	qglStencilOp                 = 	dllStencilOp                ;
+	qglTexCoord1d                = 	dllTexCoord1d               ;
+	qglTexCoord1dv               = 	dllTexCoord1dv              ;
+	qglTexCoord1f                = 	dllTexCoord1f               ;
+	qglTexCoord1fv               = 	dllTexCoord1fv              ;
+	qglTexCoord1i                = 	dllTexCoord1i               ;
+	qglTexCoord1iv               = 	dllTexCoord1iv              ;
+	qglTexCoord1s                = 	dllTexCoord1s               ;
+	qglTexCoord1sv               = 	dllTexCoord1sv              ;
+	qglTexCoord2d                = 	dllTexCoord2d               ;
+	qglTexCoord2dv               = 	dllTexCoord2dv              ;
+	qglTexCoord2f                = 	dllTexCoord2f               ;
+	qglTexCoord2fv               = 	dllTexCoord2fv              ;
+	qglTexCoord2i                = 	dllTexCoord2i               ;
+	qglTexCoord2iv               = 	dllTexCoord2iv              ;
+	qglTexCoord2s                = 	dllTexCoord2s               ;
+	qglTexCoord2sv               = 	dllTexCoord2sv              ;
+	qglTexCoord3d                = 	dllTexCoord3d               ;
+	qglTexCoord3dv               = 	dllTexCoord3dv              ;
+	qglTexCoord3f                = 	dllTexCoord3f               ;
+	qglTexCoord3fv               = 	dllTexCoord3fv              ;
+	qglTexCoord3i                = 	dllTexCoord3i               ;
+	qglTexCoord3iv               = 	dllTexCoord3iv              ;
+	qglTexCoord3s                = 	dllTexCoord3s               ;
+	qglTexCoord3sv               = 	dllTexCoord3sv              ;
+	qglTexCoord4d                = 	dllTexCoord4d               ;
+	qglTexCoord4dv               = 	dllTexCoord4dv              ;
+	qglTexCoord4f                = 	dllTexCoord4f               ;
+	qglTexCoord4fv               = 	dllTexCoord4fv              ;
+	qglTexCoord4i                = 	dllTexCoord4i               ;
+	qglTexCoord4iv               = 	dllTexCoord4iv              ;
+	qglTexCoord4s                = 	dllTexCoord4s               ;
+	qglTexCoord4sv               = 	dllTexCoord4sv              ;
+	qglTexCoordPointer           = 	dllTexCoordPointer          ;
+	qglTexEnvf                   = 	dllTexEnvf                  ;
+	qglTexEnvfv                  = 	dllTexEnvfv                 ;
+	qglTexEnvi                   = 	dllTexEnvi                  ;
+	qglTexEnviv                  = 	dllTexEnviv                 ;
+	qglTexGend                   = 	dllTexGend                  ;
+	qglTexGendv                  = 	dllTexGendv                 ;
+	qglTexGenf                   = 	dllTexGenf                  ;
+	qglTexGenfv                  = 	dllTexGenfv                 ;
+	qglTexGeni                   = 	dllTexGeni                  ;
+	qglTexGeniv                  = 	dllTexGeniv                 ;
+	qglTexImage1D                = 	dllTexImage1D               ;
+	qglTexImage2D                = 	dllTexImage2D               ;
+	qglTexImage2DEXT             = 	dllTexImage2DEXT            ;
+	qglTexParameterf             = 	dllTexParameterf            ;
+	qglTexParameterfv            = 	dllTexParameterfv           ;
+	qglTexParameteri             = 	dllTexParameteri            ;
+	qglTexParameteriv            = 	dllTexParameteriv           ;
+	qglTexSubImage1D             = 	dllTexSubImage1D            ;
+	qglTexSubImage2D             = 	dllTexSubImage2D            ;
+	qglTranslated                = 	dllTranslated               ;
+	qglTranslatef                = 	dllTranslatef               ;
+	qglVertex2d                  = 	dllVertex2d                 ;
+	qglVertex2dv                 = 	dllVertex2dv                ;
+	qglVertex2f                  = 	dllVertex2f                 ;
+	qglVertex2fv                 = 	dllVertex2fv                ;
+	qglVertex2i                  = 	dllVertex2i                 ;
+	qglVertex2iv                 = 	dllVertex2iv                ;
+	qglVertex2s                  = 	dllVertex2s                 ;
+	qglVertex2sv                 = 	dllVertex2sv                ;
+	qglVertex3d                  = 	dllVertex3d                 ;
+	qglVertex3dv                 = 	dllVertex3dv                ;
+	qglVertex3f                  = 	dllVertex3f                 ;
+	qglVertex3fv                 = 	dllVertex3fv                ;
+	qglVertex3i                  = 	dllVertex3i                 ;
+	qglVertex3iv                 = 	dllVertex3iv                ;
+	qglVertex3s                  = 	dllVertex3s                 ;
+	qglVertex3sv                 = 	dllVertex3sv                ;
+	qglVertex4d                  = 	dllVertex4d                 ;
+	qglVertex4dv                 = 	dllVertex4dv                ;
+	qglVertex4f                  = 	dllVertex4f                 ;
+	qglVertex4fv                 = 	dllVertex4fv                ;
+	qglVertex4i                  = 	dllVertex4i                 ;
+	qglVertex4iv                 = 	dllVertex4iv                ;
+	qglVertex4s                  = 	dllVertex4s                 ;
+	qglVertex4sv                 = 	dllVertex4sv                ;
+	qglVertexPointer             = 	dllVertexPointer            ;
+	qglViewport                  = 	dllViewport                 ;
+
+	qglActiveTextureARB          =  dllActiveTextureARB         ;
+	qglClientActiveTextureARB    =  dllClientActiveTextureARB   ;
+	qglMultiTexCoord2fARB        =  dllMultiTexCoord2fARB       ;
+	qglLockArraysEXT             =  NULL                         ;
+	qglUnlockArraysEXT           =  NULL                         ;
+
+	return qtrue;
+}
+
+void QGL_EnableLogging( qboolean enable )
+{
+}
+
 bool connectSwapOverride = false;
 bool bHadPersistedSurface = false;
 
-void SaveCompressedScreenshot( void ) { /* no fakegl equivalent */ }
-int  LoadCompressedScreenshot( const char * /*filename*/ ) { return 0; }
-
-/* =========================================================================
- *  QGL_Init / QGL_Shutdown / QGL_EnableLogging
- *  ---
- *  Pre-Plan-B these allocated and populated a 350-entry qgl_* function-
- *  pointer table.  Under Plan-B the engine calls gl_* directly via the
- *  qgl_console.h → fakeglx.h chain — no pointer table to populate.
- *  These stubs exist purely so win_glimp.cpp's existing call sites still
- *  link.
- * ========================================================================= */
-qboolean QGL_Init( const char * /*dllname*/ )
+void SaveCompressedScreenshot( void )
 {
-#ifdef _XBOX
-    XBLog_Write("QGL_Init: no-op under Plan-B (gl_* called directly via fakeglx)\n");
-#endif
-    return qtrue;
+	// Save-thumbnail compression is orthogonal to the native renderer bring-up.
 }
 
-void QGL_Shutdown( void )
+BOOL LoadCompressedScreenshot( const char * /*filename*/ )
 {
+	return FALSE;
 }
 
-void QGL_EnableLogging( qboolean /*enable*/ )
+extern "C" void JkaFakeglSetDDSUploadPicmip( int picmip )
 {
+	s_nativeDDSUploadPicmip = (picmip > 0) ? picmip : 0;
 }
 
-/* =========================================================================
- *  GLW_Init / GLW_Shutdown — drive FakeGL lifecycle.
- *
- *  Per OpenJKDF2's std3D_Startup pattern (src/Platform/Xbox/std3D.c):
- *    1. wglCreateContext(NULL) → fakegl creates D3D8 device internally
- *    2. wglMakeCurrent(NULL, ctx) → set gFakeGL global
- *    3. Explicit initial GL state setup (glViewport, glMatrixMode, glOrtho,
- *       glDisable for depth/cull/blend/texture/alpha)
- *    4. 60-frame stability loop: glClear + FakeSwapBuffers
- *       (gives D3D8 device time to settle before the engine's first draw)
- *
- *  Step 4 is the missing piece in our previous attempts — without it,
- *  the very first engine draw catches D3D8 in an inconsistent state.
- * ========================================================================= */
+// Extra functions bound to d3d_ commands for controlling crazy D3D performance things
+#ifndef FINAL_BUILD
 
-static HGLRC s_fakeglContext = NULL;
+// D3D_AutoPerfData controls automatic display of performance information:
+// framerate, push buffer data, etc... Usage:
+// d3d_autoperf				- Toggle on and off
+// d3d_autoperf n			- Set display frequency in ms (default 5000)
+static void D3D_AutoPerfData_f( void )
+{
+	static DWORD sdwInterval = 5000;
+	static bool sbEnabled = false;
 
-void GLW_Init( int width, int height, int /*colorbits*/, qboolean /*cdsFullscreen*/ )
+	int numArgs = Cmd_Argc();
+
+	if (numArgs > 2)
+	{
+		Com_Printf("D3D_AutoPerfData_f: Too many arguments.\n");
+	}
+	else if (numArgs <= 1)
+	{
+		sbEnabled = !sbEnabled;
+		D3DPERF_SetShowFrameRateInterval(sbEnabled ? sdwInterval : 0);
+	}
+	else // numArgs == 2 -> Exactly one real argument
+	{
+		int new_interval = atoi(Cmd_Argv(1));
+
+		if (!new_interval)
+		{
+			// Fancy way to turn it off, don't change stored interval
+			sbEnabled = false;
+		}
+		else
+		{
+			// Force it on
+			sdwInterval = new_interval;
+			sbEnabled = true;
+		}
+		D3DPERF_SetShowFrameRateInterval(sbEnabled ? sdwInterval : 0);
+	}
+}
+
+#endif
+
+extern void GLimp_SetGamma(float);
+
+
+static void _createWindow(int width, int height, int colorbits, qboolean cdsFullscreen)
+{
+	glConfig.colorBits = colorbits;
+
+	if ( r_depthbits->integer == 0 ) {
+		if ( colorbits > 16 ) {
+			glConfig.depthBits = 24;
+		} else {
+			glConfig.depthBits = 16;
+		}
+	} else {
+		glConfig.depthBits = r_depthbits->integer;
+	}
+	
+	glConfig.stencilBits = r_stencilbits->integer;
+	if ( glConfig.depthBits < 24 )
+	{
+		glConfig.stencilBits = 0;
+	}
+	
+	glConfig.displayFrequency = 75;
+	glConfig.stereoEnabled = qfalse;
+
+	// VVFIXME : This is surely wrong.
+	glConfig.vidHeight = height;
+	glConfig.vidWidth = width;
+
+}
+
+enum VideoModes
+{
+	VM_480i = 0,
+	VM_480p,
+	VM_720p,
+	VM_1080i
+};
+
+// Global lighteffects instance, to avoid allocating any memory
+// during GLW_Init()
+static LightEffects *getLightEffects( void )
+{
+	static LightEffects le;
+	return &le;
+}
+
+void GLW_Init(int width, int height, int colorbits, qboolean cdsFullscreen)
+{
+//	glw_state = new glwstate_t;
+	glw_state = &g_glwState;
+	int mode = VM_480i;
+
+	glw_state->isWidescreen = false;
+	if( XGetVideoFlags() & XC_VIDEO_FLAGS_WIDESCREEN )
+	{
+		glw_state->isWidescreen = true;
+		width = 640;
+
+		if( XGetVideoFlags() & XC_VIDEO_FLAGS_HDTV_480p )
+		{
+			width = 640;
+			height = 480;
+			mode = VM_480p;
+		}
+
+		/*if( XGetVideoFlags() & XC_VIDEO_FLAGS_HDTV_720p )
+		{
+			width = 1280;
+			height = 720;
+			mode = VM_720p;
+		}
+
+		if( XGetVideoFlags() & XC_VIDEO_FLAGS_HDTV_1080i )
+		{
+			width = 1920;
+			height = 1080;
+			mode = VM_1080i;
+		}*/
+	}
+
+	_createWindow(width, height, colorbits, cdsFullscreen);
+	
+	glw_state->matrixMode = glwstate_t::MatrixMode_Model;
+	glw_state->inDrawBlock = false;
+	
+	glw_state->serverTU = 0;
+	glw_state->clientTU = 0;
+	
+	glw_state->colorArrayState = false;
+	glw_state->vertexArrayState = false;
+	glw_state->normalArrayState = false;
+
+	glw_state->cullEnable = true;
+	glw_state->cullMode = D3DCULL_CCW;
+
+	glw_state->scissorEnable = false;
+	glw_state->scissorBox.x1 = 0;
+	glw_state->scissorBox.y1 = 0;
+	glw_state->scissorBox.x2 = glConfig.vidWidth;
+	glw_state->scissorBox.y2 = glConfig.vidHeight;
+
+	glw_state->shaderMask = 0;
+
+	glw_state->clearColor = D3DCOLOR_RGBA(255, 255, 255, 255);
+	glw_state->clearDepth = 1.f;
+	glw_state->clearStencil = 0;
+
+	glw_state->currentColor = D3DCOLOR_RGBA(255, 255, 255, 255);
+
+	glw_state->viewport.MinZ = 0.f;
+	glw_state->viewport.MaxZ = 1.f;
+
+	for (int t = 0; t < GLW_MAX_TEXTURE_STAGES; ++t)
+	{
+		glw_state->textureEnv[t] = D3DTOP_MODULATE;
+		glw_state->texCoordArrayState[t] = false;
+		glw_state->currentTexture[t] = 0;
+		glw_state->textureStageDirty[t] = false;
+	}
+
+	glw_state->textureBindNum = 1;
+	
+D3DPRESENT_PARAMETERS present;
+	present.BackBufferWidth = width;
+	present.BackBufferHeight = height;
+	present.BackBufferFormat = D3DFMT_A8R8G8B8;
+	present.BackBufferCount = 1;
+	present.MultiSampleType = D3DMULTISAMPLE_NONE;
+	present.SwapEffect = D3DSWAPEFFECT_DISCARD;
+	present.hDeviceWindow = 0;
+	present.Windowed = FALSE;
+	present.EnableAutoDepthStencil = TRUE;
+	present.AutoDepthStencilFormat = D3DFMT_LIN_D24S8;
+	present.Flags = 0;
+	if( glw_state->isWidescreen )
+	{
+		present.Flags = D3DPRESENTFLAG_WIDESCREEN;
+		if(mode == VM_480p)
+		{
+			present.Flags |= D3DPRESENTFLAG_PROGRESSIVE;
+		}
+		//else if(mode == VM_720p)
+		//{
+		//	present.Flags |= D3DPRESENTFLAG_PROGRESSIVE;
+		//}
+		//else if(mode == VM_1080i)
+		//{
+		//	present.Flags |= D3DPRESENTFLAG_INTERLACED; // | D3DPRESENTFLAG_FIELD;
+		//}
+
+
+        present.Flags |= D3DPRESENTFLAG_WIDESCREEN;
+	}
+
+	present.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
+	present.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+	present.BufferSurfaces[0] = NULL;
+	present.BufferSurfaces[1] = NULL;
+	present.BufferSurfaces[2] = NULL;
+	present.DepthStencilSurface = NULL;
+
+	if (IDirect3D8::CreateDevice(D3DADAPTER_DEFAULT,
+								D3DDEVTYPE_HAL,
+								NULL,
+								D3DCREATE_HARDWARE_VERTEXPROCESSING,
+								&present,
+								&glw_state->device) != D3D_OK)
+	{
+		Com_Printf("Failed to create device. That's bad.\n");
+	}
+
+#ifdef _XBOX
+	GLW_InitTexturePool();
+#endif
+
+//	qglEnable(GL_VSYNC);
+	
+	for (int m = 0; m < glwstate_t::Num_MatrixModes; ++m)
+	{
+		D3DXCreateMatrixStack(0, &glw_state->matrixStack[m]);
+		glw_state->matrixStack[m]->LoadIdentity();
+		glw_state->matricesDirty[m] = false;
+	}
+
+	// VVFIXME: Hack - turn off lighting
+	dllDisable(GL_LIGHTING);
+
+	// Set a material (for lighting)
+	memset( &glw_state->mtrl, 0, sizeof(D3DMATERIAL8) );
+	glw_state->mtrl.Diffuse.r = glw_state->mtrl.Ambient.r = 1.0f;
+	glw_state->mtrl.Diffuse.g = glw_state->mtrl.Ambient.g = 1.0f;
+	glw_state->mtrl.Diffuse.b = glw_state->mtrl.Ambient.b = 1.0f;
+	glw_state->mtrl.Diffuse.a = glw_state->mtrl.Ambient.a = 1.0f;
+	if (glw_state->device)
+	{
+#ifdef _XBOX
+		JAMP_SetMaterialCached( &glw_state->mtrl );
+#else
+		glw_state->device->SetMaterial( &glw_state->mtrl );
+#endif
+	}
+	// Gamma hack
+	GLimp_SetGamma(1.3f);
+
+	// Set up our directional light (used for diffuse lighting)
+	for(int i = 0; i < 2; i++)
+	{
+		memset(&glw_state->dirLight[i], 0, sizeof(D3DLIGHT8));
+
+		// Set up a white point light.
+		glw_state->dirLight[i].Type = D3DLIGHT_DIRECTIONAL;
+		glw_state->dirLight[i].Diffuse.r  = 1.0f;
+		glw_state->dirLight[i].Diffuse.g  = 1.0f;
+		glw_state->dirLight[i].Diffuse.b  = 1.0f;
+		glw_state->dirLight[i].Direction.x = 1.0f;
+		glw_state->dirLight[i].Direction.y = 0.0f;
+		glw_state->dirLight[i].Direction.z = 0.0f;
+
+		// Don't attenuate.
+		glw_state->dirLight[i].Attenuation0 = 1.0f; 
+		glw_state->dirLight[i].Range        = 1000.0f;
+	}
+
+	//glw_state->drawArray = new DWORD[SHADER_MAX_VERTEXES * 12];
+	glw_state->drawArray = NULL;
+
+#ifdef _XBOX
+#ifdef VV_LIGHTING
+//	glw_state->lightEffects = new LightEffects;
+	glw_state->lightEffects = getLightEffects();
+#endif // VV_LIGHTING
+//	HDREffect.Initialize();
+#endif
+
+#ifndef FINAL_BUILD
+	Cmd_AddCommand("d3d_autoperf", D3D_AutoPerfData_f);
+#endif
+}
+
+void GLW_Shutdown(void)
 {
 #ifdef _XBOX
-    XBLog_Write("GLW_Init: starting (Plan-B / OpenJKDF2 1:1)\n");
+#ifdef VV_LIGHTING
+//	delete glw_state->lightEffects;
+	glw_state->lightEffects = NULL;
+#endif
 #endif
 
-    /* Plan-B fix: point win_glimp_console.cpp's `glw_state` (which it
-     * defaults to NULL) at our owned static storage.  Without this, the
-     * 150 glw_state->X uses elsewhere in the renderer would deref NULL. */
-    if (!glw_state) {
-        glw_state = &s_glwState;
+	for (int m = 0; m < glwstate_t::Num_MatrixModes; ++m)
+	{
+		glw_state->matrixStack[m]->Release();
+	}
+
+	if (glw_state->device) glw_state->device->Release();
+
 #ifdef _XBOX
-        XBLog_Write("GLW_Init: glw_state pointer set to s_glwState\n");
+//	delete glw_state->flareEffect;
 #endif
-    }
 
-    /* glConfig fields the engine reads. */
-    glConfig.vidWidth      = width;
-    glConfig.vidHeight     = height;
-    glConfig.colorBits     = 32;
-    glConfig.depthBits     = 24;
-    glConfig.stencilBits   = 8;
-    glConfig.deviceSupportsGamma = qfalse;
+//	delete glw_state;
+	glw_state = NULL;
+}
 
-    /* glw_state defaults — only touch scalar fields, never raw-memset
-     * (textureXlat is a std::map). */
-    glw_state->isWidescreen   = false;
-    glw_state->viewport.X      = 0;
-    glw_state->viewport.Y      = 0;
-    glw_state->viewport.Width  = (DWORD)width;
-    glw_state->viewport.Height = (DWORD)height;
-    glw_state->viewport.MinZ   = 0.0f;
-    glw_state->viewport.MaxZ   = 1.0f;
 
-#ifdef _XBOX
-    XBLog_Write("GLW_Init: calling wglCreateContext (fakegl owns D3D8 device)\n");
-#endif
-    s_fakeglContext = wglCreateContext();
-    if (!s_fakeglContext) {
-#ifdef _XBOX
-        XBLog_Write("GLW_Init: wglCreateContext FAILED — fakegl couldn't init D3D8\n");
-#endif
-        return;
-    }
 
-#ifdef _XBOX
+
+bool CreateVertexShader( const CHAR* strFilename, const DWORD* pdwVertexDecl, DWORD* pdwVertexShader )
+{
+    HRESULT hr;
+
+    // Open the vertex shader file
+    HANDLE hFile;
+    DWORD dwNumBytesRead;
+    hFile = CreateFile( strFilename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL );
+    if( hFile == INVALID_HANDLE_VALUE )
+        return false;
+
+    // Allocate memory to read the vertex shader file
+    DWORD dwSize = GetFileSize(hFile, NULL);
+    BYTE* pData  = new BYTE[dwSize+4];
+    if( NULL == pData )
     {
-        char b[64];
-        _snprintf(b, sizeof(b), "GLW_Init: wglCreateContext OK ctx=%p\n", (void*)s_fakeglContext);
-        b[sizeof(b)-1] = '\0';
-        XBLog_Write(b);
+        CloseHandle( hFile );
+        return false;
     }
-#endif
+    ZeroMemory( pData, dwSize+4 );
 
-    wglMakeCurrent();
-#ifdef _XBOX
-    XBLog_Write("GLW_Init: wglMakeCurrent OK\n");
+    // Read the pre-compiled vertex shader microcode
+    ReadFile(hFile, pData, dwSize, &dwNumBytesRead, 0);
+    
+    // Create the vertex shader
+    hr = glw_state->device->CreateVertexShader( pdwVertexDecl, (const DWORD*)pData,
+                                        pdwVertexShader, 0 );
 
-    /* CXBX-R cross-project audit divergence: gTextures.Initialize was
-     * deferred out of Z_Init.  Now that fakegl has done Direct3DCreate8
-     * + CreateDevice (above), NV2A pool is in a state where
-     * D3D_AllocContiguousMemory is safe.  20 MB matches
-     * z_memman_console.cpp's TEXTURE_POOL_SIZE. */
-    XBLog_Write("GLW_Init: gTextures.Initialize (deferred from Z_Init)...\n");
-    gTextures.Initialize(20 * 1024 * 1024);
-    XBLog_Write("GLW_Init: gTextures.Initialize done\n");
-#endif
-    /* Plan-B audit gotcha E was attempted (FakeGL_GetD3DDevice → glw_state->device
-     * wiring) but the supporting fakeglx.cpp additions correlated with a
-     * wglCreateContext regression on CXBX-R LLE GPU.  Reverted; glw_state->device
-     * stays NULL for now — Plan-C will revisit via a fakegl-free path. */
+    // Cleanup and return
+    CloseHandle( hFile );
+    delete [] pData;
 
-    /* Initial GL state — mirrors OpenJKDF2 std3D.c:373-383.
-     * fakegl lazily calls BeginScene on first glBegin (m_needBeginScene). */
-    glViewport(0, 0, width, height);
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, (GLdouble)width, (GLdouble)height, 0.0, -99999.0, 99999.0);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
-    glDisable(GL_BLEND);
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_ALPHA_TEST);
+	if(hr == S_OK)
+		return true;
 
-#ifdef _XBOX
-    XBLog_Write("GLW_Init: initial GL state set; skipping stability loop\n");
-
-    /* Plan-B: stability loop REMOVED.
-     *
-     * OpenJKDF2's std3D.c:387-398 runs a 60-frame `glClear+FakeSwapBuffers`
-     * loop right here.  On CXBX-R LLE GPU that pattern hangs in the very
-     * first FakeSwapBuffers call: SwapBuffers→EndScene without any prior
-     * BeginScene (fakegl's BeginScene fires lazily on first glBegin, but
-     * the loop never calls glBegin).
-     *
-     * The loop is purely diagnostic per OpenJKDF2's own comment
-     * ("confirms FakeGL's frame loop is alive") and not architecturally
-     * required.  SP_DoLicense's first qglBeginEXT triggers BeginScene
-     * naturally; its qglEndFrame then calls FakeSwapBuffers with the
-     * scene properly open → EndScene paired correctly.  Removing the
-     * loop avoids the unpaired EndScene without changing draw semantics. */
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);  /* one-time clear color set */
-
-    /* Plan-B: parallel CreateDevice removed (was a workaround for what
-     * we believed was a vsync hang).  Root cause was actually XDK 5849
-     * vs 5558 xboxkrnl ABI mismatch — fixed at the build script level
-     * (all libs now resolve from XDK 5558 via /LIBPATH).  glw_state->device
-     * stays NULL; the 150 JKA direct-D3D sites in tr_backend etc. will
-     * crash post-license — those are Plan-C scope (rewrite to gl_*). */
-    XBLog_Write("GLW_Init: parallel CreateDevice removed (lib-version fix supersedes)\n");
-
-    XBLog_Write("GLW_Init: complete\n");
-#endif
+	return false;
 }
 
-void GLW_Shutdown( void )
+
+bool CreatePixelShader( const CHAR* strFilename, DWORD* pdwPixelShader )
 {
-    if (s_fakeglContext) {
-        wglDeleteContext();
-        s_fakeglContext = NULL;
-    }
-}
+    HRESULT hr;
 
-/* =========================================================================
- *  Plan-B fix: GLimp_Init / GLimp_Shutdown / GLimp_EndFrame /
- *  GLimp_LogComment are NOT defined here.  They're already defined in
- *  win_glimp_console.cpp (lines 151, 180, 215, 234 etc.).  Defining
- *  them again here produced LNK4006 warnings under /FORCE:MULTIPLE;
- *  the linker discarded our versions and kept win_glimp_console's,
- *  which is what we want (it has the proper init flow that calls
- *  GLW_StartOpenGL → GLW_LoadOpenGL → GLW_CreateWindow → GLW_Init).
- *
- *  GLimp_EndFrame in win_glimp_console.cpp is currently empty.  If we
- *  need FakeSwapBuffers there, edit that file instead of redefining.
- * ========================================================================= */
+    // Open the pixel shader file
+    HANDLE hFile;
+    DWORD dwNumBytesRead;
+    hFile = CreateFile( strFilename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_EXISTING, FILE_ATTRIBUTE_READONLY, NULL );
+    if( hFile == INVALID_HANDLE_VALUE )
+        return false;
+
+    // Load the pre-compiled pixel shader microcode
+    D3DPIXELSHADERDEF_FILE psdf;
+    ReadFile( hFile, &psdf, sizeof(D3DPIXELSHADERDEF_FILE), &dwNumBytesRead, NULL );
+    
+    // Make sure the pixel shader is valid
+    if( psdf.FileID != D3DPIXELSHADERDEF_FILE_ID )
+    {
+        CloseHandle( hFile );
+        return false;
+    }
+
+    // Create the pixel shader
+    if( FAILED( hr = glw_state->device->CreatePixelShader( &(psdf.Psd), pdwPixelShader ) ) )
+    {
+        CloseHandle( hFile );
+        return false;
+    }
+
+    // Cleanup
+    CloseHandle( hFile );
+
+    return true;
+}

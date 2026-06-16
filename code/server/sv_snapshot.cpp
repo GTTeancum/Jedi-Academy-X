@@ -244,7 +244,7 @@ SV_AddEntToSnapshot
 */
 static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEntityNumbers_t *eNums ) {
 #ifdef _XBOX
-	static int s_xboxAddMissileBudget = 96;
+	static int s_xboxAddMissileBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 96 : 0;
 	qboolean xboxLogMissile = (gEnt && gEnt->s.eType == ET_MISSILE && s_xboxAddMissileBudget > 0);
 #endif
 	// if we have already added this entity to this snapshot, don't add again
@@ -509,9 +509,9 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	static int s_xboxSnapshotMoverFrameBudget = 0;
 	static int s_xboxSnapshotMoverDetailBudget = 0;
 	static int s_xboxSnapshotMoverFocusBudget = 0;
-	static int s_xboxSnapshotMissileBudget = 160;
-	static int s_xboxYavinSnapshotFocusBudget = 220;
-	static int s_xboxYavinCinematicActorBudget = 80;
+	static int s_xboxSnapshotMissileBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 160 : 0;
+	static int s_xboxYavinSnapshotFocusBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 220 : 0;
+	static int s_xboxYavinCinematicActorBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 80 : 0;
 	int xboxMoverTotal = 0;
 	int xboxMoverSent = 0;
 	int xboxMoverUnlinked = 0;
@@ -520,6 +520,8 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	int xboxMoverPvsRejected = 0;
 	int xboxMoverNoClusters = 0;
 	qboolean xboxTraceMovers = (s_xboxSnapshotMoverFrameBudget > 0 && !portal);
+	qboolean xboxTrackMoverFocus = (!portal && (xboxTraceMovers || s_xboxSnapshotMoverFocusBudget > 0 || s_xboxMoverFocusPrintBudget > 0));
+	qboolean xboxYavinCameraAreaBypass = (s_xboxSnapshotCameraView && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
 	int xboxFocusIndex = -1;
 	qboolean xboxYavinFocusEnt = qfalse;
 	static int s_xboxVisibleLogBudget = 0;
@@ -600,7 +602,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 #ifdef _XBOX
 		xboxIsMover = (ent->s.eType == ET_MOVER);
 		xboxIsMissile = (ent->s.eType == ET_MISSILE);
-		xboxYavinFocusEnt = (!Q_stricmp(sv_mapname->string, "yavin1") && e >= 48 && e <= 60 && s_xboxYavinSnapshotFocusBudget > 0);
+		xboxYavinFocusEnt = (s_xboxYavinSnapshotFocusBudget > 0 && e >= 48 && e <= 60 && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
 		xboxLogMissile = (xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
 		if (xboxYavinFocusEnt)
 		{
@@ -670,10 +672,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
 				--s_xboxSnapshotMissileBudget;
 			}
-			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
-			if (xboxFocusIndex >= 0 && !portal)
+			if (xboxTrackMoverFocus)
 			{
-				XboxMoverFocusRecord( xboxFocusIndex, ent, NULL, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(unlinked) );
+				xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
+				if (xboxFocusIndex >= 0)
+				{
+					XboxMoverFocusRecord( xboxFocusIndex, ent, NULL, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(unlinked) );
+				}
 			}
 #endif
 			continue;
@@ -694,10 +699,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					e, ent->s.weapon, ent->svFlags);
 				--s_xboxSnapshotMissileBudget;
 			}
-			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
-			if (xboxFocusIndex >= 0 && !portal)
+			if (xboxTrackMoverFocus)
 			{
-				XboxMoverFocusRecord( xboxFocusIndex, ent, SV_SvEntityForGentity( ent ), clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(noClient) );
+				xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
+				if (xboxFocusIndex >= 0)
+				{
+					XboxMoverFocusRecord( xboxFocusIndex, ent, SV_SvEntityForGentity( ent ), clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(noClient) );
+				}
 			}
 #endif
 			continue;
@@ -721,10 +729,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
 			--s_xboxSnapshotMissileBudget;
 		}
-		xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
-		if (xboxFocusIndex >= 0 && !portal)
+		if (xboxTrackMoverFocus)
 		{
-			XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(candidate) );
+			xboxFocusIndex = XboxMoverFocusIndex( ent->s.modelindex );
+			if (xboxFocusIndex >= 0)
+			{
+				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(candidate) );
+			}
 		}
 		xboxFocusMover = (xboxTraceMovers && xboxIsMover && s_xboxSnapshotMoverFocusBudget > 0 &&
 			((ent->s.modelindex >= 139 && ent->s.modelindex <= 152) ||
@@ -776,7 +787,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		}
 
 #ifdef _XBOX
-		if (s_xboxSnapshotCameraView && !Q_stricmp(sv_mapname->string, "yavin1") && ent->s.eType == ET_PLAYER && e > 0)
+		if (xboxYavinCameraAreaBypass && ent->s.eType == ET_PLAYER && e > 0)
 		{
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
 			if (s_xboxYavinCinematicActorBudget > 0)
@@ -855,8 +866,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			// we may need to check another one
 			if ( !CM_AreasConnected( clientarea, svEnt->areanum2 ) ) {
 #ifdef _XBOX
-				qboolean xboxCameraAreaBypass = (s_xboxSnapshotCameraView && !Q_stricmp(sv_mapname->string, "yavin1"));
-				if (xboxCameraAreaBypass)
+				if (xboxYavinCameraAreaBypass)
 				{
 					if (xboxYavinFocusEnt)
 					{
@@ -1268,6 +1278,10 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	if ( frame->ps.viewEntity > 0 && frame->ps.viewEntity < ENTITYNUM_WORLD )
 	{
 		gentity_t *viewEnt = SV_GentityNum( frame->ps.viewEntity );
+#ifdef _XBOX
+		static int s_xboxViewEntityPvsLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 80 : 0;
+		const qboolean xboxLogViewEntityPvs = (s_xboxViewEntityPvsLogBudget > 0 && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
+#endif
 		if ( viewEnt && viewEnt->inuse && viewEnt->linked && !(viewEnt->svFlags & SVF_NOCLIENT) )
 		{
 			vec3_t viewOrg;
@@ -1280,7 +1294,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 			memcpy( mainAreaBits, frame->areabits, sizeof( mainAreaBits ) );
 
 #ifdef _XBOX
-			if ( !Q_stricmp(sv_mapname->string, "yavin1") )
+			if ( xboxLogViewEntityPvs )
 			{
 				XBLF("JA: SV_YAVIN_VIEWENTITY_PVS begin viewEntity=%d eType=%d sv=0x%x model=%d org=%g,%g,%g viewOrg=%g,%g,%g deltaLenSq=%g entsBefore=%d",
 					frame->ps.viewEntity,
@@ -1306,7 +1320,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 			}
 
 #ifdef _XBOX
-			if ( !Q_stricmp(sv_mapname->string, "yavin1") )
+			if ( xboxLogViewEntityPvs )
 			{
 				XBLF("JA: SV_YAVIN_VIEWENTITY_PVS end viewEntity=%d entsAfter=%d areaBytes=%d",
 					frame->ps.viewEntity,
@@ -1316,7 +1330,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 #endif
 		}
 #ifdef _XBOX
-		else if ( !Q_stricmp(sv_mapname->string, "yavin1") )
+		else if ( xboxLogViewEntityPvs )
 		{
 			XBLF("JA: SV_YAVIN_VIEWENTITY_PVS skip viewEntity=%d valid=%d inuse=%d linked=%d sv=0x%x",
 				frame->ps.viewEntity,
@@ -1324,6 +1338,10 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 				viewEnt ? (int)viewEnt->inuse : 0,
 				viewEnt ? (int)viewEnt->linked : 0,
 				viewEnt ? viewEnt->svFlags : 0);
+		}
+		if ( xboxLogViewEntityPvs )
+		{
+			--s_xboxViewEntityPvsLogBudget;
 		}
 #endif
 	}

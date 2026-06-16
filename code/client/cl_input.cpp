@@ -10,6 +10,7 @@
 
 #ifdef _XBOX
 #include "cl_input_hotswap.h"
+#include "../win32/xb_log.h"
 #endif
 
 unsigned	frame_msec;
@@ -53,6 +54,8 @@ qboolean	in_mlooking;
 HotSwapManager swapMan1(HOTSWAP_ID_WHITE);
 HotSwapManager swapMan2(HOTSWAP_ID_BLACK);
 HotSwapManager swapMan3(HOTSWAP_ID_YELLOW);
+static cvar_t *cl_autolevel = NULL;
+static cvar_t *cg_thirdperson_cvar = NULL;
 
 
 void IN_HotSwap1On(void)
@@ -571,7 +574,8 @@ void CL_MouseMove( usercmd_t *cmd )
 		if (cg_crossHairStatus != 1 &&							// Not looking at an enemy
 			cl.joystickAxis[AXIS_FORWARD] &&					// Moving forward/backward
 			cl.frame.ps.groundEntityNum != ENTITYNUM_NONE &&	// Not in the air
-			Cvar_VariableIntegerValue("cl_autolevel") &&		// Autolevel is turned on
+			(cl_autolevel || (cl_autolevel = Cvar_Get("cl_autolevel", "0", CVAR_ARCHIVE))) &&
+			cl_autolevel->integer &&							// Autolevel is turned on
 			g_lastFireTime < Sys_Milliseconds() - 1000)			// Haven't fired recently
 		{
 			float normAngle = -SHORT2ANGLE(cl.frame.ps.delta_angles[PITCH]);
@@ -584,7 +588,8 @@ void CL_MouseMove( usercmd_t *cmd )
 			else if (diff < -180)
 				normAngle -= 360.0f * ((-diff+180) / 360);
 
-			if (Cvar_VariableIntegerValue("cg_thirdperson") == 1)
+			if ((cg_thirdperson_cvar || (cg_thirdperson_cvar = Cvar_Get("cg_thirdperson", "0", 0))) &&
+				cg_thirdperson_cvar->integer == 1)
 			{
 //				normAngle += 10;	// Removed by BTO, 2003/05/14, I hate it
 				autolevelSpeed *= 1.5f;
@@ -972,7 +977,7 @@ void CL_SendCmd( void ) {
 #ifdef _XBOX
 	{
 		static int s_xboxSendLogs = 0;
-		if (s_xboxSendLogs < 16 || cls.state < CA_LOADING)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxSendLogs < 16 || cls.state < CA_LOADING))
 		{
 			Com_PrintfAlways("JA: CL_SendCmd write state=%d cmd=%d serverId=%d remoteType=%d realtime=%d lastSent=%d\n",
 				(int)cls.state, cl.cmdNumber, cl.serverId,

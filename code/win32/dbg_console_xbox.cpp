@@ -135,12 +135,15 @@ HRESULT __stdcall DebugConsoleCmdProcessor( const CHAR* strCommand,
 //-----------------------------------------------------------------------------
 BOOL DebugConsoleHandleCommands()
 {
-    static BOOL bInitialized = FALSE;
+    static BOOL bInitAttempted = FALSE;
+    static BOOL bAvailable = FALSE;
     CHAR  strLocalBuf[MAXRCMDLENGTH+1]; // local copy of command
 
     // Initialize ourselves when we're first called.
-    if( !bInitialized )
+    if( !bInitAttempted )
     {
+        bInitAttempted = TRUE;
+
         // Register our command handler with the debug monitor
         HRESULT hr = DmRegisterCommandProcessor( g_strDebugConsoleCommandPrefix, 
                                                  DebugConsoleCmdProcessor );
@@ -150,8 +153,11 @@ BOOL DebugConsoleHandleCommands()
         // We'll also need a critical section to protect access to g_strRemoteBuf
         InitializeCriticalSection( &g_CriticalSection );
 
-        bInitialized = TRUE;
+        bAvailable = TRUE;
     }
+
+    if( !bAvailable )
+        return FALSE;
 
     // If there's nothing waiting, return.
     if( !g_strRemoteBuf[0] )

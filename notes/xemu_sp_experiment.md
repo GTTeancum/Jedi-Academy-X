@@ -1,0 +1,97 @@
+# XEMU SP Experiment Notes
+
+This branch is for the XEMU/LLE path only. Keep retail/CXBX behavior separate unless a fix is proven to be source-correct.
+
+## Current XEMU Launch
+
+Use absolute paths when launching XEMU. The smoke helper starts XEMU from the isolated emulator folder, so relative ISO paths can make XEMU boot with no disc mounted.
+
+```powershell
+python scripts\ja_xemu_smoke.py `
+  --iso C:\Programming\GitHub\Jedi-Academy-X\build\xemu\JediAcademyX_SP_normal.iso `
+  --hdd C:\Games\Emulators\Xemu\HDD\xbox_hdd.qcow2 `
+  --xemu-exe C:\Games\Emulators\Xemu\JACodex\xemu.exe `
+  --config-path C:\Games\Emulators\Xemu\JACodex\xemu.toml `
+  --name ja_sp_normal_logdump `
+  --port 4482 `
+  --duration 20 `
+  --interval 5 `
+  --no-screenshots `
+  --poll-xblog `
+  --sample-registers `
+  --fail-on-frozen `
+  --dump-phys 0x00b044c8:0x8000:sp_log_mirror `
+  --dump-phys 0x00b0c4c8:0x200:sp_log_lastline
+```
+
+## Log Sources
+
+Primary file logs are written by XBLog to `E:\ja_sp_log.txt` on the emulated HDD, with fallbacks to `F:\`, `G:\`, and `D:\ja_sp_log.txt`.
+
+For XEMU hangs, prefer the RAM mirror because it survives even when the HDD file is unavailable:
+
+- `_g_SPXBLogMirror`: current map VA `0x00d884c8`, physical `0x00b044c8`
+- `_g_SPXBLogLastLine`: current map VA `0x00d904c8`, physical `0x00b0c4c8`
+- `_g_SPXBBootPhase`: current map VA `0x008fed74`, physical `0x0067ad74`
+
+Decode a dumped mirror:
+
+```powershell
+$f = "C:\Programming\GitHub\Jedi-Academy-X\scripts\output\<run>_final_sp_log_mirror.bin"
+$bytes = [System.IO.File]::ReadAllBytes($f)
+$text = [System.Text.Encoding]::ASCII.GetString($bytes) -replace "`0",""
+$text -split "`n" | ? { $_.Trim().Length } | Select -Last 120
+```
+
+Reports land under `scripts\output\*.report.txt`; raw XEMU output is `*.xemu.txt`; final registers are `*_final_registers.txt`.
+
+## Current Finding
+
+Normal-boot SP reaches `CL_StartHunkUsers COMPLETE`, then stalls during the first Xbox UI/menu startup path. This branch now preserves UI, AssetCache, sound registration, and CL_Frame breadcrumbs in the Release XBLog mirror so the next XEMU run can identify the exact stop point.
+
+## 2026-06-15 Renderer/FPS Notes
+
+- Latest staged SP XBE: `%TEMP%\ja_xbox_latest_sp\default.xbe`.
+- Retail SP `GLW_Init` uses `D3DFMT_A8R8G8B8`, `D3DFMT_LIN_D24S8`, one backbuffer, hardware vertex processing, and default presentation interval. The active source cold CreateDevice already matched this.
+- The SP vsync `Reset` path now uses the same retail framebuffer/depth formats and fully invalidates the frame D3D cache after `Reset`.
+- Retail SP keeps the `strstr(shaderName, "terrain")` draw branch: terrain goes to the strip path while non-terrain uses the indexed draw path. Do not remove the terrain strip special case without stronger retail evidence.
+- Current likely FPS-sensitive levers that still need evidence are draw-packet batching/copy cost, DDS texture residency/picmip behavior, and non-render CPU work. Avoid fidelity-reducing changes such as disabling sky, lighting, fog, or world effects.
+
+## 2026-06-15 Retail Frame Lifecycle RE
+
+- Retail `qglBeginFrame` is `mov al, 1; ret` at `0x0009C9A0`. It does not call `BeginScene` and does not invalidate cached render state every frame.
+- Retail `qglEndFrame` is at `0x0009D830`: it queries `GL_BLEND`, resets the viewport, calls the D3D present path, then restores the blend enable/disable state.
+- SP native QGL now follows that retail lifecycle more closely: begin-frame only validates device presence, while reset/external-write paths still force full D3D cache invalidation.
+
+## 2026-06-15 Dynamic LightEffects Restore
+
+- Current SP had `LightEffects` fully stubbed, so `RB_StageIteratorGeneric` always fell back to the projected dynamic-light path when `tess.dlightBits` was set.
+- Retail/original Xbox-oriented source has a shader-backed dynamic-light path using `dlight.xvu`, `dlight.xpu`, a 3D falloff texture, and a normalization cubemap. The retail XBE contains the same asset path strings: `base\media\dlight.xvu` at file offset `0x2d2133`, `base\media\dlight.xpu` at `0x2d2097`, `base\media\defaultbump.dds` at `0x2d2017`, `base\media\diffspec.dds` at `0x2d1ffb`, and `base\media\environment.xvu` at `0x2d20b3`.
+- Restored a focused dynamic-light backend with D3D8 resources, a generated flat default bump texture, one-time init breadcrumbs, and fallback-on-init-failure. Specular/bump/environment stage handling remains on the existing Xbox path for now.
+- SP Release build succeeded after the change. The temp build root was deleted and the staged test XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe`.
+- Follow-up FPS pass reduced dynamic-light overhead without dropping fidelity: tangent generation now clears only live vertices and marks the tangent cache valid, LightEffects hoists surface constants/base texture/fog toggles out of the per-light loop, and multi-light surfaces reuse one uploaded light vertex stream while submitting per-light index batches.
+- SP Release build succeeded after the follow-up. The temp build root was deleted and the staged test XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe`.
+- 2026-06-16 follow-up kept the retail dynamic-light shader path intact while removing more CPU-side repeat work: the dynamic-light base-texture stage lookup is cached per shader, and LightEffects now prefers the retail `media/defaultbump.dds` through the renderer DDS path, with the generated flat bump retained only as a boot-safe fallback. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`5,382,144` bytes, `2026-06-16 00:18:17`).
+- 2026-06-16 retail LightEffects pass restored guarded native handling for specular, bump, and environment shader stages using the retail/original Xbox shader assets (`specular_dynamic`, `specular_static`, `bump`, `environment`) and `media/diffspec.dds`. These passes return false and fall back to the existing generic path if a required shader/texture is unavailable. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`5,386,240` bytes, `2026-06-16 00:34:30`).
+- 2026-06-16 LightEffects stream-reuse pass brought `renderObject_Light` closer to retail: when the normal surface pass has already uploaded position/normal/base-texcoord streams, native light passes now reuse those push-buffer stream addresses and upload only the missing normal stream plus tangents, with the full stream copy retained as a fallback. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`5,386,240` bytes, `2026-06-16 00:45:24`).
+- 2026-06-16 restored the retail/original post-upload pointer publish in `renderObject_Bump` and `renderObject_Env`: both helpers now set `tess.pXyz` and `tess.pNormal` after their stream writes, matching the original Xbox-oriented source and allowing later native passes to reuse those streams. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`5,386,240` bytes, `2026-06-16 00:54:13`).
+- 2026-06-16 restored original Xbox Release codegen intent in `scripts/build_xbox.ps1`: vcproj `OptimizeForProcessor="2"` now emits `/G6`, and `EnableEnhancedInstructionSet="1"` now emits `/arch:SSE`; the synthetic SP `x_exe` compiler settings also request both. `code/goblib/goblib.vcproj` now restores the original `OptimizeForProcessor="2"` attribute, so goblib builds with `/G6 /arch:SSE` as well. This is fidelity-neutral and matches the original Xbox-oriented Release config. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`5,509,120` bytes, `2026-06-16 01:16:04`).
+- 2026-06-16 restored the original Xbox Release linker optimization intent in `scripts/build_xbox.ps1`: vcproj `OptimizeReferences="2"` now emits `/OPT:REF`, `EnableCOMDATFolding="2"` now emits `/OPT:ICF`, and the synthetic SP `x_exe` linker settings request both. This is fidelity-neutral, removes unreferenced/duplicate code/data, and brought the staged SP XBE back down near retail size. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 01:25:43`).
+- 2026-06-16 restored the active SP `goblib` Release optimization shape to match the original Xbox project for the low-risk performance flags: `/Ox`, global optimization, `/G6`, `/arch:SSE`, and `/Oy`. The existing buffer-security setting was left unchanged because that affects port stub/runtime behavior. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 01:32:07`).
+- 2026-06-16 reduced LightEffects state churn without changing fidelity: the QGL texture cache now tracks `IDirect3DBaseTexture8` so native LightEffects can safely cache 2D, volume, and cube texture binds; LightEffects render/texture/stage/projection writes route through the cached setters; and the post-LightEffects recovery now dirties texture stages while preserving the cache instead of flushing texture bind/stage caches. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 02:12:35`).
+- 2026-06-16 restored the original Xbox snow particle path when a native D3D device is available: Hoth snow now uses the Xbox point-sprite cloud (`nCloud.Initialize(..., 1)`) instead of the temporary billboard fallback, while retaining the fallback only for missing-device safety. This matches the original Xbox-oriented renderer path and should reduce Hoth weather geometry cost without reducing visual fidelity. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 02:29:03`, SHA-256 `64FE7D00E520AB5875160A4D582539C22F3CF360DE9DEAC5BF743523459F4159`).
+- 2026-06-16 widened the internal Xbox D3D texture-stage cache to stages 0-3 while leaving the renderer's two logical GL stages untouched, added cached external-write wrappers, routed WorldEffects point-sprite state through them, and cached native LightEffects vertex-shader binds. Point sprites now mark only the logical GL texture stages dirty instead of flushing the whole frame D3D cache after each weather pass. This is fidelity-neutral state-churn reduction for Hoth snow and native dynamic-light/specular/bump passes. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 02:48:31`, SHA-256 `3725A235B67483BA0C16A43F68D1943EEC222C3ADBE75C1A1AF762477BDC7E8C`).
+- 2026-06-16 routed the native Xbox stencil-shadow volume and finish passes through the same cached external-write bridge, including the shadow darkening texture combiner and `D3DRS_TEXTUREFACTOR`. The pass now marks logical GL texture stages dirty after its native writes instead of forcing a full frame D3D cache flush. This keeps retail stencil-shadow rendering intact while reducing state churn in scenes with stencil shadows. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 03:04:36`, SHA-256 `D28F6D7B96A4A40DC4D6E144E6AB302A6E5F6FDAC2DF4F857FC074F5F75C12B9`).
+- 2026-06-16 routed the flare visibility depth probe through cached external-write wrappers for Z write, color mask, view transform, and vertex shader state. This removes the full frame D3D cache flush after each flare visibility test while preserving the same draw/test behavior. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 03:11:02`, SHA-256 `6CDEA378F56BF39BC6C0252D0A9AECE67E4E1A72CFF8F04A9EF00BB22FE52D0A`).
+- 2026-06-16 restored retail-style backend state-cache early returns for `GL_State`, `GL_SelectTexture`, and `GL_TexEnv`. The previous Xbox-only safety code re-emitted depth/blend/alpha/depth-mask state and texture env/unit selection even when unchanged; native weather, LightEffects, stencil-shadow, and flare paths now update or dirty the shared D3D cache instead. This is fidelity-neutral CPU/state-churn reduction across normal surface rendering. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 03:22:39`, SHA-256 `950792EDD4B4320B239DFEB0E388B35EF9D8ACC5EE5C9C3D332AD5A07ADD7092`).
+- 2026-06-16 made the Xbox QGL cap cache skip redundant `setCap` work, with native texture-stage passes invalidating the cap cache before returning to QGL. This keeps the defensive `GL_Bind` texture-enable recovery path available after weather/stencil/native passes, but prevents unchanged `glEnable(GL_TEXTURE_2D)` and similar cap requests from dirtying texture stages or re-emitting render states on every bind. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 03:34:47`, SHA-256 `29C976EB3A57D0B790D95280E34D6904178855CE8EFFA6CD4438EDEB4A3AEBE0`).
+- 2026-06-16 narrowed native-pass texture-stage recovery so weather point sprites dirty only logical stages 0 and 3, stencil volume setup dirties only stages 0 and 1, and stencil darkening dirties only stage 0. This preserves the same native D3D writes and QGL recovery while avoiding unnecessary `_updateTextures` work on untouched stages after those passes. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 03:51:32`, SHA-256 `A8EA93FB18EE6A3B9F0BC11C0635D69B9B26BD77AA9D9E6FF5E9265B26FB814F`).
+- 2026-06-16 added a behavior-neutral `CL_StartHunkUsers` ready fast path so the per-frame CL/SCR callers return immediately once renderer, sound init, sound registration, and cgame readiness are already satisfied. QGL texture parameter changes now dirty a texture stage only when filter/wrap/anisotropy values actually change, and the backbuffer copy-to-texture path now relies on the existing final external-write recovery instead of repeatedly invalidating D3D caches mid-pass. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 04:25:35`, SHA-256 `BC6830E56D52B24C2183FA9F44A2EE12ADD41E48E23D8269DFA01233E1E3B9CA`).
+- 2026-06-16 slimmed the normal Release `FRAME_HEARTBEAT` to frame/time/FPS only, leaving the heavy render-split telemetry behind `SP_XBOX_VERBOSE_RUNTIME_LOGS`. This preserves the once-per-second FPS breadcrumb while reducing gameplay log formatting and file/debug-output churn. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 04:36:50`, SHA-256 `ABC2C6BF483F6476E3089C65D2FCBAE02ABF1083B2BACA83C24324F1D9898AF8`).
+- 2026-06-16 made the SP smoke input/menu automation opt-in behind `SP_XBOX_SMOKE_AUTOMATION` and wrapped the disabled framebuffer telemetry call behind `SP_XBOX_FRAMEBUFFER_TELEMETRY`. Normal Release builds still keep direct-map boot and FPS heartbeats, but no longer touch the autosmoke marker/button files or call disabled framebuffer telemetry from per-frame hot paths. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,743,168` bytes, `2026-06-16 04:49:34`, SHA-256 `BAF633CDE849A09F1326C5823331F8E2C783A3EBC61A7E5AB6041DC76F0B9CC6`).
+- 2026-06-16 removed more normal Release diagnostic overhead without changing rendering: Xbox frontend/backend renderer timers now compile out unless `SP_XBOX_RENDER_TIMERS` is enabled, the two `RE_EndFrame` `Sleep(0)` yields are opt-in behind `SP_XBOX_END_FRAME_YIELD`, and `Com_Frame` stops calling `Sys_Milliseconds()` for the boot-only phase log after the first frames. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,743,168` bytes, `2026-06-16 05:07:01`, SHA-256 `8BD27316AD70BFFBC1845EE49FE240A38E677781997691A93D904A96B5822DB4`).
+- 2026-06-16 fixed one remaining server-side diagnostic timer leak in `SV_inPVS`: the area-portal early return now updates `timeInPVSCheck` only when `com_speeds` is enabled, matching the surrounding PVS exits and avoiding an unnecessary `Sys_Milliseconds()` call in normal gameplay. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,743,168` bytes, `2026-06-16 05:15:00`, SHA-256 `B2295F3D4B1C925F9DA17BD85D373FF74B2C8F63B756DAEA9025D5D2E1A92D17`).
+- 2026-06-16 removed another set of fidelity-neutral hot costs: LightEffects and backbuffer-copy pixel-shader binds now use the shared Xbox D3D shader cache, `CL_MouseMove` caches the `cl_autolevel` and `cg_thirdperson` cvar pointers instead of doing repeated string lookups, the retail-unavailable Xbox debug command processor fails closed after one XBDM registration attempt, and disabled snapshot diagnostics no longer do Yavin name checks or mover model scans in the per-entity loop. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,743,168` bytes, `2026-06-16 05:50:30`, SHA-256 `6619026FB200A6B0637282F0F54C1A01727EA56E44264676E9FB69702E3B7CCB`).
+- 2026-06-16 added conservative shader-constant caching for the native Xbox D3D bridge: vertex and pixel shader constants are skipped only when the same register range already contains identical bytes, and the cache invalidates on shader changes/full D3D invalidation. LightEffects and stencil shadows now route their native shader constant writes through this cache while preserving the same shader paths and fallback behavior. SP Release build succeeded; the temp build root was deleted and the staged XBE is `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 08:02:30`, SHA-256 `04FFA712E1B11B740DB4B5A9CA21872CD5111CD35B88AA6558D435B406550A55`).
+- 2026-06-16 tried a speculative viewEntity same-PVS shortcut and a narrower backbuffer-copy cache recovery. Visual testing rejected that build: menus were upside down before pink/orange corruption, and the Yavin intro showed missing actors. These were not retail-proven optimizations, so both were backed out. Keep the original second viewEntity visibility pass unless retail evidence proves a narrower rule. The rollback SP Release build succeeded and is staged as `%TEMP%\ja_xbox_latest_sp\default.xbe` (`4,747,264` bytes, `2026-06-16 09:39:50`, SHA-256 `6C94B1DE13016D7A8C4A916D5342B4EFB58F7577B64D563A0C8F315327B568E1`).
+- 2026-06-16 follow-up visual smoke for the rollback build could not produce an emulator-native capture: XEMU/QMP reported `unknown command: screendump`, monitor `screendump` failed, and the framebuffer telemetry buffer was empty. Do not claim the rollback build is newly visually validated from that run; it is only a build-verified rollback of the visually rejected changes.
