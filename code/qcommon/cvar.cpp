@@ -2,6 +2,9 @@
 
 #include "../game/q_shared.h"
 #include "qcommon.h"
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#include "../win32/xb_log.h"
+#endif
 
 cvar_t		*cvar_vars;
 cvar_t		*cvar_cheats;
@@ -1014,9 +1017,45 @@ void Cvar_Defrag(void)
 	cvar_t	*var;
 	int totalMem = 0;
 	int nextMemPoolSize;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	const int stefxMaxDefragBytes = 512 * 1024;
+	int largestLen[4] = { 0, 0, 0, 0 };
+	const char *largestName[4] = { NULL, NULL, NULL, NULL };
+#endif
 	
 	for (var = cvar_vars; var; var = var->next)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		const char *fields[4];
+		int field;
+		fields[0] = var->name;
+		fields[1] = var->string;
+		fields[2] = var->resetString;
+		fields[3] = var->latchedString;
+		for (field = 0; field < 4; ++field)
+		{
+			if (fields[field])
+			{
+				int len = strlen(fields[field]) + 1;
+				int slot;
+				for (slot = 0; slot < 4; ++slot)
+				{
+					if (len > largestLen[slot])
+					{
+						int move;
+						for (move = 3; move > slot; --move)
+						{
+							largestLen[move] = largestLen[move - 1];
+							largestName[move] = largestName[move - 1];
+						}
+						largestLen[slot] = len;
+						largestName[slot] = var->name;
+						break;
+					}
+				}
+			}
+		}
+#endif
 		if (var->name) {
 			totalMem += strlen(var->name) + 1;
 		}
@@ -1030,6 +1069,20 @@ void Cvar_Defrag(void)
 			totalMem += strlen(var->latchedString) + 1;
 		}
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (totalMem > stefxMaxDefragBytes)
+	{
+		XBLog_Write(va("STEFX: Cvar_Defrag skipped oversized total=%d limit=%d largest=%s/%d,%s/%d,%s/%d,%s/%d",
+			totalMem,
+			stefxMaxDefragBytes,
+			largestName[0] ? largestName[0] : "(null)", largestLen[0],
+			largestName[1] ? largestName[1] : "(null)", largestLen[1],
+			largestName[2] ? largestName[2] : "(null)", largestLen[2],
+			largestName[3] ? largestName[3] : "(null)", largestLen[3]));
+		return;
+	}
+#endif
 
 	char *mem = (char*)Z_Malloc(totalMem, TAG_SMALL, qfalse);
 	nextMemPoolSize = totalMem;

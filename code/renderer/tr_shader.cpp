@@ -211,7 +211,8 @@ static	texModInfo_t	texMods[MAX_SHADER_STAGES][TR_MAX_TEXMODS];
 static qboolean R_XboxTraceShaderName( const char *name )
 {
 	return ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ||
-		strstr( name, "gfx/mp/f_icon" ) ) );
+		strstr( name, "gfx/mp/f_icon" ) ||
+		strstr( name, "70yearjourney" ) ) );
 }
 
 static qboolean R_XboxTraceCurrentShader( void )

@@ -1462,6 +1462,8 @@ void CG_AddViewWeapon( playerState_t *ps )
 			cgi_R_AddRefEntityToScene( &gun );
 #ifdef _XBOX
 			if (xboxLogViewWeapon) {
+				XBLF("STEFX: CG_AddViewWeapon added weapon=%d saberNum=%d gunModel=%d handsModel=%d",
+					ps->weapon, saberNum, gun.hModel, weapon->handsModel);
 				XBLF("JA: CG_AddViewWeapon after AddRefEntity gun saberNum=%d", saberNum);
 			}
 #endif

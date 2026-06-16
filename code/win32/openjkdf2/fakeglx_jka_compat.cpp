@@ -27,6 +27,7 @@
 #include "../glw_win_dx8.h"
 #include "../xb_log.h"
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef _XBOX
 extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
@@ -179,7 +180,9 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     static GLushort *s_fastSourceIndices = NULL;
     static UINT s_fastSourceCount = 0;
     static UINT *s_fastRemap = NULL;
+    static UINT *s_fastRemapGeneration = NULL;
     static UINT s_fastRemapCount = 0;
+    static UINT s_fastGeneration = 1;
     if ((UINT)count > s_fastIndicesCount) {
         GLushort *newIndices = (GLushort *)realloc(s_fastIndices, count * sizeof(GLushort));
         if (!newIndices) {
@@ -204,27 +207,39 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
             return false;
         }
         s_fastRemap = newRemap;
+        UINT *newGeneration = (UINT *)realloc(s_fastRemapGeneration, newCount * sizeof(UINT));
+        if (!newGeneration) {
+            return false;
+        }
+        s_fastRemapGeneration = newGeneration;
         s_fastRemapCount = newCount;
         for (UINT i = oldCount; i < s_fastRemapCount; ++i) {
-            s_fastRemap[i] = 0xffffffffu;
+            s_fastRemap[i] = 0;
+            s_fastRemapGeneration[i] = 0;
         }
+    }
+
+    ++s_fastGeneration;
+    if (!s_fastGeneration) {
+        memset(s_fastRemapGeneration, 0, s_fastRemapCount * sizeof(UINT));
+        s_fastGeneration = 1;
     }
 
     UINT vertexCount = 0;
     for (GLsizei i = 0; i < count; ++i) {
         const UINT sourceIndex = idx[i];
-        UINT mappedIndex = s_fastRemap[sourceIndex];
-        if (mappedIndex == 0xffffffffu) {
+        UINT mappedIndex = 0;
+        if (s_fastRemapGeneration[sourceIndex] != s_fastGeneration) {
             if (vertexCount >= 65535u) {
-                for (UINT clear = 0; clear < vertexCount; ++clear) {
-                    s_fastRemap[s_fastSourceIndices[clear]] = 0xffffffffu;
-                }
                 return false;
             }
             mappedIndex = vertexCount;
+            s_fastRemapGeneration[sourceIndex] = s_fastGeneration;
             s_fastRemap[sourceIndex] = mappedIndex;
             s_fastSourceIndices[vertexCount] = (GLushort)sourceIndex;
             ++vertexCount;
+        } else {
+            mappedIndex = s_fastRemap[sourceIndex];
         }
         s_fastIndices[i] = (GLushort)mappedIndex;
     }
@@ -378,9 +393,6 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
                 --s_efFastDrawSubmitBudget;
             }
         }
-    }
-    for (UINT clear = 0; clear < vertexCount; ++clear) {
-        s_fastRemap[s_fastSourceIndices[clear]] = 0xffffffffu;
     }
     if (!drawOk) {
         static int s_fastDrawFailBudget = 16;

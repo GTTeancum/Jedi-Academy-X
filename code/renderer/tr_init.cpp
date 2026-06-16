@@ -1476,6 +1476,12 @@ void R_Init( void ) {
 	R_InitImages();
 	XBL("R_Init: R_InitShaders...\n");
 	R_InitShaders();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		qhandle_t introHandle = RE_RegisterShaderNoMip( "textures/common/70yearjourney" );
+		XBLog_Write(va("STEFX: renderer intro shader preload 'textures/common/70yearjourney' handle=%d", introHandle));
+	}
+#endif
 	XBL("R_Init: R_InitSkins...\n");
 	R_InitSkins();
 #ifndef _XBOX

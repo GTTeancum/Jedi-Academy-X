@@ -187,6 +187,37 @@ static int xbl_budgeted_prefix(const char *msg, const char *prefix, int *budget)
     return 1;
 }
 
+static int xbl_IsHighFrequencyDrawNoise(const char *msg)
+{
+    if (!msg) return 0;
+    return strstr(msg, "HUD Draw2D") ||
+        strstr(msg, "HUD DrawStats") ||
+        strstr(msg, "HUD DrawArmor") ||
+        strstr(msg, "HUD DrawHealth") ||
+        strstr(msg, "HUD DrawAmmo") ||
+        strstr(msg, "HUD Crosshair") ||
+        strstr(msg, "HUD InterfaceDraw") ||
+        strstr(msg, "RE_StretchPic queued") ||
+        strstr(msg, "RB_StretchPic") ||
+        strstr(msg, "RB_IterateStagesGeneric overlay state") ||
+        strstr(msg, "RB_PrepareOverlayStage") ||
+        strstr(msg, "OVERLAY_DRAW_SUBMIT") ||
+        strstr(msg, "RB_ForceOverlayD3D skipped") ||
+        strstr(msg, "renderer pre-present capture requested") ||
+        strstr(msg, "renderer screenshot retry blank") ||
+        strstr(msg, "FXLine::Draw") ||
+        strstr(msg, "R_AddPolygonSurfaces") ||
+        strstr(msg, "RB_SurfacePolychain") ||
+        strstr(msg, "R_LerpTag MDR ok") ||
+        strstr(msg, "RE_AddPolyToScene shader") ||
+        strstr(msg, "CGCam_UpdateFade") ||
+        strstr(msg, "CGCam_DrawFades") ||
+        strstr(msg, "CG_FillRect2") ||
+        strstr(msg, "engine EF DrawStretchPic large") ||
+        strstr(msg, "PVS cluster=") ||
+        strstr(msg, "worldvis");
+}
+
 static int xbl_ShouldDropVerbose(const char *msg)
 {
     int budgeted;
@@ -196,7 +227,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_textureEvidenceBudget = 96;
     static int s_cgameBudget = 48;
     static int s_assetBudget = 48;
-    static int s_stefxClientThinkBudget = 96;
+    static int s_stefxClientThinkBudget = 24;
     static int s_stefxPmoveBudget = 12;
     static int s_stefxTouchBudget = 12;
     static int s_stefxClipBudget = 8;
@@ -205,45 +236,95 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxModelBudget = 24;
     static int s_efModelBudget = 16;
     static int s_stefxGameFrameBudget = 24;
-    static int s_stefxNpcBudget = 96;
+    static int s_stefxNpcBudget = 24;
+    static int s_stefxNpcEnemyBudget = 32;
     static int s_stefxTraceBudget = 8;
     static int s_stefxCinematicGateBudget = 24;
     static int s_stefxAttackProbeBudget = 48;
     static int s_stefxSmokeAimBudget = 64;
-    static int s_stefxPmStateBudget = 64;
+    static int s_stefxPmStateBudget = 16;
     static int s_stefxInputBudget = 96;
     static int s_stefxDamageBudget = 64;
     static int s_stefxSyscallBudget = 24;
     static int s_stefxRunFrameBudget = 24;
     static int s_stefxWalkBudget = 4;
     static int s_stefxAirBudget = 4;
+    static int s_stefxClientPmBudget = 24;
+    static int s_stefxUserMoveBudget = 16;
+    static int s_stefxSmokeStageBudget = 20;
+    static int s_stefxAudioRuntimeBudget = 48;
+    static int s_stefxHudBudget = 32;
+    static int s_stefxViewWeaponBudget = 96;
+    static int s_stefxSmokeCameraBudget = 96;
+    static int s_stefxIcarusRuntimeBudget = 24;
+    static int s_stefxWeaponProofBudget = 48;
+    static int s_stefxProjectileProofBudget = 16;
+    static int s_stefxSnapshotEventBudget = 32;
+    static int s_stefxCaptureBudget = 64;
     static int s_efFastDrawBudget = 24;
     static int s_jaComPhaseBudget = 48;
     static int s_jaMainTightBudget = 48;
     static int s_jaEventBudget = 32;
     static int s_jaClFrameBudget = 192;
-    static int s_jaClEarlyBudget = 1024;
-    static int s_jaClEarlyEfBudget = 256;
+    static int s_jaClEarlyBudget = 64;
+    static int s_jaClEarlyEfBudget = 64;
     static int s_jaScrBudget = 96;
     static int s_jaCgDrawBudget = 64;
     static int s_jaComActiveBudget = 48;
 
     if (!msg) return 1;
 
+    if ((strstr(msg, "borg") || strstr(msg, "Borg")) &&
+        (strstr(msg, "STEFX: model disk fetch") ||
+         strstr(msg, "STEFX: model disk lower retry") ||
+         strstr(msg, "STEFX: RE_RegisterModel") ||
+         strstr(msg, "STEFX: R_LoadMDR"))) {
+        return 0;
+    }
+
+    if (strstr(msg, "70yearjourney") ||
+        strstr(msg, "STEFX: intro shader preload") ||
+        strstr(msg, "STEFX: renderer intro shader preload")) {
+        return 0;
+    }
+
+    if (strstr(msg, "JA: fakegl texture memory") ||
+        strstr(msg, "JA: fakegl registered texture denied") ||
+        strstr(msg, "JA: fakegl registered retry succeeded")) {
+        return 0;
+    }
+
+    if ((strstr(msg, "STEFX: FS loose asset") || strstr(msg, "STEFX: FS stdio fallback") || strstr(msg, "STEFX: WF_Open")) &&
+        (strstr(msg, "models\\players") || strstr(msg, "models/players"))) {
+        return 0;
+    }
+
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD Draw2D", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD DrawStats", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD DrawArmor", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD DrawHealth", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD DrawAmmo", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD Crosshair", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: HUD InterfaceDraw", &s_stefxHudBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: renderer screenshot", &s_stefxCaptureBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: renderer pre-present capture requested", &s_stefxCaptureBudget);
+    if (budgeted >= 0) return budgeted;
+
+    if (xbl_IsHighFrequencyDrawNoise(msg)) return 1;
+
     if (strstr(msg, "FRAME_HEARTBEAT") ||
         strstr(msg, "FATAL") ||
         strstr(msg, "ERROR") ||
         strstr(msg, "Out of memory") ||
         strstr(msg, "texture allocation failures") ||
-        strstr(msg, "STEFX: PM_Weapon probe") ||
-        strstr(msg, "STEFX: PM_AddEvent fire") ||
-        strstr(msg, "STEFX: ClientEvents fire") ||
-        strstr(msg, "STEFX: FireWeapon enter") ||
-        strstr(msg, "STEFX: WP_FireCompression trace") ||
-        strstr(msg, "STEFX: ClientThink PM state result") ||
-        strstr(msg, "STEFX: NPC_SetEnemy") ||
-        strstr(msg, "STEFX: smoke stage enemy") ||
-        strstr(msg, "STEFX: renderer screenshot") ||
         strstr(msg, "JA: fakegl framebuffer sample") ||
         strstr(msg, "repaired nonfinite") ||
         strstr(msg, "exit nonfinite") ||
@@ -266,7 +347,37 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: G_Damage", &s_stefxDamageBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: PM_Weapon probe", &s_stefxWeaponProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: PM_AddEvent fire", &s_stefxWeaponProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientEvents fire", &s_stefxWeaponProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FireWeapon enter", &s_stefxWeaponProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: WP_FireCompression", &s_stefxProjectileProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_FireWeapon", &s_stefxProjectileProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_EntityEvent", &s_stefxProjectileProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FX_CompressionShot", &s_stefxProjectileProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FX_CompressionHit", &s_stefxProjectileProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FX_CompressionExplosion", &s_stefxProjectileProofBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_EVENT", &s_stefxSnapshotEventBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_AddEntToSnapshot", &s_stefxSnapshotEventBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CL_ParsePacket event", &s_stefxSnapshotEventBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_CheckEvents", &s_stefxSnapshotEventBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink PM state", &s_stefxPmStateBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CLIENT_PM", &s_stefxClientPmBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: ClientThink", &s_stefxClientThinkBudget);
     if (budgeted >= 0) return budgeted;
@@ -280,6 +391,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke aim", &s_stefxSmokeAimBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke input applied", &s_stefxSmokeStageBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke ready weapon", &s_stefxSmokeStageBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke stage enemy", &s_stefxSmokeStageBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke wake", &s_stefxSmokeAimBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: smoke unlock", &s_stefxSmokeAimBudget);
@@ -289,6 +406,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: G_TouchTriggersLerped", &s_stefxTouchBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ClipMoveToEntities", &s_stefxClipBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_UserMove decoded", &s_stefxUserMoveBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ClientThink", &s_stefxUserMoveBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CL_CreateCmd", &s_stefxUserMoveBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: cg_vmMain enter command=", &s_stefxCgBudget);
     if (budgeted >= 0) return budgeted;
@@ -302,7 +425,29 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_GameStateReceived", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_AddViewWeapon added", &s_stefxViewWeaponBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_AddViewWeapon skip", &s_stefxViewWeaponBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_ViewWeapon decision", &s_stefxViewWeaponBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG smoke camera disable", &s_stefxSmokeCameraBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG smoke camera gate", &s_stefxSmokeCameraBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG smoke harness", &s_stefxSmokeCameraBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CGCam_Disable", &s_stefxSmokeCameraBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF cgame syscall", &s_stefxSyscallBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: model disk fetch", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: model disk lower retry", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: RE_RegisterModel", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadMDR", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: RE_RegisterModel accepted MDR placeholder", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
@@ -312,7 +457,29 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: G_RunThink", &s_stefxGameFrameBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: NPC_SetEnemy", &s_stefxNpcEnemyBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: NPC_", &s_stefxNpcBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL attach", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL play", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound direct fallback", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound OS read", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound FS read", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound read", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ICARUS Wait", &s_stefxIcarusRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ICARUS CallbackCommand", &s_stefxIcarusRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ICARUS SeqCallback", &s_stefxIcarusRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ICARUS SetCommand", &s_stefxIcarusRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: Trace ", &s_stefxTraceBudget);
     if (budgeted >= 0) return budgeted;
@@ -352,6 +519,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: ACTIVE_MTEXTURE", &s_textureEvidenceBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: CM_LoadMap raw BSP", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: R_LoadRawLightmaps", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: RAW_LIGHTMAP_STATS", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: FORCE_TEXTURE_REBIND", &s_textureEvidenceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: TEX_STAGE_APPLY", &s_textureEvidenceBudget);
@@ -383,8 +556,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
 
     if (!g_verboseLog) {
         if (strstr(msg, "FRAME_HEARTBEAT") ||
-            strstr(msg, "EF:") ||
-            strstr(msg, "STEFX:") ||
             strstr(msg, "direct-map boot") ||
             strstr(msg, "Com_Init") ||
             strstr(msg, "Swap_Init") ||
@@ -557,6 +728,16 @@ static int xbl_ShouldDropVerbose(const char *msg)
 static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
+    if (strstr(fmt, "STEFX: HUD ") ||
+        strstr(fmt, "STEFX: CG_AddViewWeapon") ||
+        strstr(fmt, "STEFX: CG_ViewWeapon") ||
+        strstr(fmt, "STEFX: CG smoke camera disable") ||
+        strstr(fmt, "STEFX: CG smoke camera gate") ||
+        strstr(fmt, "STEFX: CG smoke harness") ||
+        strstr(fmt, "STEFX: CGCam_Disable")) {
+        return 1;
+    }
+    if (xbl_IsHighFrequencyDrawNoise(fmt)) return 0;
     return strstr(fmt, "FRAME_HEARTBEAT") ||
         strstr(fmt, "EF:") ||
         strstr(fmt, "STEFX:") ||
@@ -680,6 +861,14 @@ static int xbl_ShouldFlushWrite(const char *msg)
     if (!msg) return 0;
     if (strstr(msg, "FRAME_HEARTBEAT")) return 0;
     return 1;
+}
+
+static int xbl_IsLogMarkerAt(const char *p)
+{
+    if (!p) return 0;
+    return xbl_starts_with(p, "STEFX:") ||
+        xbl_starts_with(p, "EF:") ||
+        xbl_starts_with(p, "JA:");
 }
 
 void XBLog_Init(void)
@@ -892,6 +1081,68 @@ void XBLog_Print(const char *msg)
     }
 }
 
+static void XBLog_PrintFilteredRecords(const char *msg)
+{
+    const char *start;
+    const char *p;
+
+    if (!msg) return;
+    if (g_verboseLog) {
+        XBLog_Print(msg);
+        return;
+    }
+
+    start = msg;
+    p = msg;
+    while (*p) {
+        if (p > start && (*p == '\n' || *p == '\r' || xbl_IsLogMarkerAt(p))) {
+            char chunk[XBL_BUF_SIZE];
+            int len = (int)(p - start);
+            if (len > 0) {
+                while (len > 0 && (start[len - 1] == '\n' || start[len - 1] == '\r')) {
+                    --len;
+                }
+                if (len > 0) {
+                    if (len > (int)sizeof(chunk) - 2) {
+                        len = (int)sizeof(chunk) - 2;
+                    }
+                    memcpy(chunk, start, len);
+                    chunk[len++] = '\n';
+                    chunk[len] = '\0';
+                    if (!xbl_ShouldDropVerbose(chunk)) {
+                        XBLog_Print(chunk);
+                    }
+                }
+            }
+            while (*p == '\n' || *p == '\r') {
+                ++p;
+            }
+            start = p;
+            continue;
+        }
+        ++p;
+    }
+
+    if (p > start) {
+        char chunk[XBL_BUF_SIZE];
+        int len = (int)(p - start);
+        while (len > 0 && (start[len - 1] == '\n' || start[len - 1] == '\r')) {
+            --len;
+        }
+        if (len > 0) {
+            if (len > (int)sizeof(chunk) - 2) {
+                len = (int)sizeof(chunk) - 2;
+            }
+            memcpy(chunk, start, len);
+            chunk[len++] = '\n';
+            chunk[len] = '\0';
+            if (!xbl_ShouldDropVerbose(chunk)) {
+                XBLog_Print(chunk);
+            }
+        }
+    }
+}
+
 void XBLog_Printf(const char *fmt, ...)
 {
     char    buf[XBL_BUF_SIZE];
@@ -901,8 +1152,7 @@ void XBLog_Printf(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 1] = '\0';
-    if (!g_verboseLog && xbl_ShouldDropVerbose(buf)) return;
-    XBLog_Print(buf);
+    XBLog_PrintFilteredRecords(buf);
 }
 
 const char *XBLog_GetPath(void)
@@ -983,13 +1233,12 @@ void XBLog_Write(const char *msg)
 {
     char buf[XBL_BUF_SIZE];
     if (!msg) return;
-    if (!g_verboseLog && xbl_ShouldDropVerbose(msg)) return;
     _snprintf(buf, sizeof(buf) - 2, "%s", msg);
     buf[sizeof(buf) - 2] = '\0';
     int len = (int)strlen(buf);
     buf[len] = '\n';
     buf[len + 1] = '\0';
-    XBLog_Print(buf);
+    XBLog_PrintFilteredRecords(buf);
 }
 
 void XBLog_Writef(const char *fmt, ...)
@@ -1001,10 +1250,9 @@ void XBLog_Writef(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 2, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 2] = '\0';
-    if (!g_verboseLog && xbl_ShouldDropVerbose(buf)) return;
     /* Append \n so old callers that omit it still get line breaks. */
     int len = (int)strlen(buf);
     buf[len]     = '\n';
     buf[len + 1] = '\0';
-    XBLog_Print(buf);
+    XBLog_PrintFilteredRecords(buf);
 }

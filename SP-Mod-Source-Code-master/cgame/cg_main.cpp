@@ -135,6 +135,9 @@ vmCvar_t	cg_stereoSeparation;
 vmCvar_t 	cg_developer;
 vmCvar_t 	cg_timescale;
 vmCvar_t	cg_skippingcin;
+vmCvar_t	cg_stefxSmokeUnlockPlayer;
+vmCvar_t	cg_stefxSmokeInput;
+vmCvar_t	cg_stefxSmokeInputStart;
 vmCvar_t	cg_language;
 
 vmCvar_t	cg_pano;
@@ -216,6 +219,9 @@ cvarTable_t		cvarTable[] = {
 	{ &cg_developer, "developer", "", 0 }, 
 	{ &cg_timescale, "timescale", "1", 0 }, 	
 	{ &cg_skippingcin, "skippingCinematic", "0", CVAR_ROM},
+	{ &cg_stefxSmokeUnlockPlayer, "stefx_smoke_unlock_player", "0", CVAR_TEMP },
+	{ &cg_stefxSmokeInput, "stefx_smoke_input", "0", CVAR_TEMP },
+	{ &cg_stefxSmokeInputStart, "stefx_smoke_input_start", "71000", CVAR_TEMP },
 	{ &cg_language,	"g_language", "", CVAR_ARCHIVE | CVAR_NORESTART},
 	{ &cg_virtualVoyager, "cg_virtualvoyager", "0", CVAR_NORESTART },
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "15000", CVAR_ARCHIVE  },
@@ -1517,6 +1523,12 @@ void CG_Init( int serverCommandSequence ) {
 	cgs.media.loadingquarter= cgi_R_RegisterShaderNoMip( "menu/loading/quarter.tga" );
 	cgs.media.loadingcorner	= cgi_R_RegisterShaderNoMip( "menu/common/corner_lr_8_16.tga" );
 	cgs.media.loadingtrim	= cgi_R_RegisterShaderNoMip( "menu/loading/trimupper.tga" );
+#ifdef _XBOX
+	{
+		qhandle_t introHandle = cgi_R_RegisterShaderNoMip( "textures/common/70yearjourney" );
+		XBLF("STEFX: intro shader preload 'textures/common/70yearjourney' handle=%d", introHandle);
+	}
+#endif
 
 	cg.loadLCARSStage		= 0;
 	cg.loadLCARScnt			= 0;

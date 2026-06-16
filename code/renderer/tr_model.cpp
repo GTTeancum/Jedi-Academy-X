@@ -151,6 +151,7 @@ static const byte FakeGLAFile[] =
 qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvBuffer, qboolean *pqbAlreadyCached)
 {
 	char sModelName[MAX_QPATH];
+	int len;
 
 	Q_strncpyz(sModelName,psModelFileName,sizeof(sModelName));
 	Q_strlwr  (sModelName);
@@ -175,10 +176,48 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 				return qtrue;	
 			}
 
-		FS_ReadFile( sModelName, ppvBuffer );
+		if ( ppvBuffer )
+		{
+			*ppvBuffer = NULL;
+		}
+		len = FS_ReadFile( psModelFileName, ppvBuffer );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( len <= 0 && strcmp( sModelName, psModelFileName ) )
+		{
+			if ( ppvBuffer )
+			{
+				*ppvBuffer = NULL;
+			}
+			int lowerLen = FS_ReadFile( sModelName, ppvBuffer );
+			if ( strstr( psModelFileName, "models/players/" ) || strstr( psModelFileName, "models\\players\\" ) )
+			{
+				XBLF( "STEFX: model disk lower retry original='%s' lower='%s' len=%d success=%d buffer=%p",
+					psModelFileName,
+					sModelName,
+					lowerLen,
+					(ppvBuffer && *ppvBuffer) ? 1 : 0,
+					ppvBuffer ? *ppvBuffer : NULL );
+			}
+			if ( lowerLen > 0 || (ppvBuffer && *ppvBuffer) )
+			{
+				len = lowerLen;
+			}
+		}
+#endif
 		*pqbAlreadyCached = qfalse;
 
 		const bool bSuccess = !!(*ppvBuffer);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( strstr( psModelFileName, "models/players/borg" ) || strstr( psModelFileName, "models\\players\\borg" ) )
+		{
+			XBLF( "STEFX: model disk fetch '%s' cacheKey='%s' len=%d success=%d buffer=%p",
+				psModelFileName,
+				sModelName,
+				len,
+				bSuccess ? 1 : 0,
+				*ppvBuffer );
+		}
+#endif
 
 		return bSuccess;
 	}
@@ -222,15 +261,44 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 #ifdef _XBOX
 			if (eTag == TAG_MODEL_MD3 || eTag == TAG_MODEL_GLM || eTag == TAG_MODEL_GLA)
 			{
-				pvDiskBufferIfJustLoaded = HeapAlloc(GetProcessHeap(), 0, iSize);
-				if (!pvDiskBufferIfJustLoaded)
+				int nameLen = strlen(sModelName);
+#if defined(STEFX_ELITE_FORCE_SP)
+				if (pvDiskBufferIfJustLoaded &&
+					nameLen >= 4 &&
+					!stricmp(&sModelName[nameLen - 4], ".mdr"))
 				{
-					pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
 					ModelBin.bHeapAllocated = qfalse;
+#ifdef _XBOX
+					if (strstr(sModelName, "models/players/"))
+					{
+						XBLF("STEFX: RE_RegisterModels_Malloc adopted MDR disk buffer model='%s' size=%d tag=%d",
+							sModelName, iSize, eTag);
+					}
+#endif
 				}
 				else
+#endif
 				{
-					ModelBin.bHeapAllocated = qtrue;
+					pvDiskBufferIfJustLoaded = HeapAlloc(GetProcessHeap(), 0, iSize);
+					if (!pvDiskBufferIfJustLoaded)
+					{
+#if defined(STEFX_ELITE_FORCE_SP)
+						XBLF("STEFX: RE_RegisterModels_Malloc heap failed model='%s' size=%d tag=%d; returning bad model",
+							sModelName, iSize, eTag);
+						ModelBin.pModelDiskImage = NULL;
+						ModelBin.iAllocSize = 0;
+						ModelBin.bHeapAllocated = qfalse;
+						*pqbAlreadyFound = qfalse;
+						return NULL;
+#else
+						pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
+						ModelBin.bHeapAllocated = qfalse;
+#endif
+					}
+					else
+					{
+						ModelBin.bHeapAllocated = qtrue;
+					}
 				}
 			}
 			else
@@ -579,6 +647,26 @@ void RE_InsertModelIntoHash(const char *name, model_t *mod)
 	mhHashTable[hash] = mh;
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static void STEFX_InsertModelHandleAliasIntoHash(const char *name, qhandle_t handle)
+{
+	int			hash;
+	modelHash_t	*mh;
+
+	if (!name || handle <= 0)
+	{
+		return;
+	}
+
+	hash = generateHashValue(name, FILE_HASH_SIZE);
+	mh = (modelHash_t*)Hunk_Alloc( sizeof( modelHash_t ), qtrue );
+	mh->next = mhHashTable[hash];
+	mh->handle = handle;
+	strcpy(mh->name, name);
+	mhHashTable[hash] = mh;
+}
+#endif
+
 #ifdef STEFX_ELITE_FORCE_SP
 static qboolean STEFX_IsMdrModelName(const char *name)
 {
@@ -594,6 +682,76 @@ static qboolean STEFX_IsGhoul2ModelName(const char *name)
 
 #if defined(_XBOX)
 static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size);
+
+static qboolean STEFX_IsBorgPlayerModelName(const char *name)
+{
+	return (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")));
+}
+
+static const char *STEFX_ModelPartToken(const char *name)
+{
+	if (!name)
+	{
+		return NULL;
+	}
+	if (strstr(name, "/lower.") || strstr(name, "\\lower."))
+	{
+		return "lower.";
+	}
+	if (strstr(name, "/upper.") || strstr(name, "\\upper."))
+	{
+		return "upper.";
+	}
+	if (strstr(name, "/head.") || strstr(name, "\\head."))
+	{
+		return "head.";
+	}
+	return NULL;
+}
+
+static qhandle_t STEFX_FindLoadedBorgModelFallback(const char *name)
+{
+	const char *part;
+	int i;
+
+	if (!STEFX_IsBorgPlayerModelName(name))
+	{
+		return 0;
+	}
+
+	part = STEFX_ModelPartToken(name);
+	if (!part)
+	{
+		return 0;
+	}
+
+	for (i = 1; i < tr.numModels; ++i)
+	{
+		model_t *loaded = tr.models[i];
+		if (!loaded || loaded->type == MOD_BAD || loaded->type == MOD_STEFX_MDR_PLACEHOLDER)
+		{
+			continue;
+		}
+		if (!STEFX_IsBorgPlayerModelName(loaded->name))
+		{
+			continue;
+		}
+		if (!strstr(loaded->name, part))
+		{
+			continue;
+		}
+		if (!Q_stricmp(loaded->name, name))
+		{
+			continue;
+		}
+
+		XBLF("STEFX: RE_RegisterModel Borg alias fallback '%s' -> '%s' handle=%d type=%d",
+			name, loaded->name, loaded->index, loaded->type);
+		return loaded->index;
+	}
+
+	return 0;
+}
 #endif
 
 static qboolean STEFX_RegisterGhoul2Disabled(model_t *mod, const char *name)
@@ -639,6 +797,12 @@ static qboolean STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *
 #if defined(_XBOX)
 	if (!STEFX_ShouldUseMdrMemoryPlaceholder(name, len))
 	{
+#ifdef _XBOX
+		if (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")))
+		{
+			XBLF("STEFX: RE_RegisterModel Borg MDR placeholder bypass '%s' len=%d", name, len);
+		}
+#endif
 		FS_FCloseFile(f);
 		return qfalse;
 	}
@@ -679,18 +843,31 @@ static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size)
 		return qfalse;
 	}
 
-	if (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")))
+	if (STEFX_IsBorgPlayerModelName(name))
 	{
 		return qfalse;
 	}
 
-	if (name && (strstr(name, "models/players/") || strstr(name, "models\\players\\")))
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (name &&
+		(strstr(name, "models/players/hazard/upper.mdr") ||
+		 strstr(name, "models\\players\\hazard\\upper.mdr")))
 	{
 #ifdef _XBOX
-		XBLF("STEFX: R_LoadMDR allowing over-cap player model '%s' size=%d cap=%d",
+		XBLF("STEFX: R_LoadMDR allowing borg1 critical player upper '%s' size=%d cap=%d",
 			name ? name : "(null)", size, overCapLimit);
 #endif
 		return qfalse;
+	}
+#endif
+
+	if (name && (strstr(name, "models/players/") || strstr(name, "models\\players\\")))
+	{
+#ifdef _XBOX
+		XBLF("STEFX: R_LoadMDR budget placeholder non-borg player model '%s' size=%d over cap=%d",
+			name ? name : "(null)", size, overCapLimit);
+#endif
+		return qtrue;
 	}
 
 #ifdef _XBOX
@@ -766,11 +943,30 @@ Ghoul2 Insert Start
 		if (Q_stricmp(mh->name, name) == 0) {
 			if (tr.models[mh->handle]->type == MOD_BAD)
 			{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (STEFX_IsBorgPlayerModelName(name))
+				{
+					XBLF("STEFX: RE_RegisterModel Borg MOD_BAD cache hit exact required '%s' handle=%d", name, mh->handle);
+				}
+#endif
 				return 0;
 			}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (STEFX_IsBorgPlayerModelName(name))
+			{
+				XBLF("STEFX: RE_RegisterModel Borg cache hit '%s' handle=%d type=%d", name, mh->handle, tr.models[mh->handle]->type);
+			}
+#endif
 			return mh->handle;
 		}
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_IsBorgPlayerModelName(name))
+	{
+		XBLF("STEFX: RE_RegisterModel Borg exact load required '%s'", name);
+	}
+#endif
 
 /*
 Ghoul2 Insert End
@@ -899,6 +1095,12 @@ Ghoul2 Insert End
 
 #ifdef STEFX_ELITE_FORCE_SP
 			case MD4_IDENT:
+#if defined(_XBOX)
+				if ( strstr( filename, "models/players/borg" ) || strstr( filename, "models\\players\\borg" ) )
+				{
+					XBLF( "STEFX: RE_RegisterModel loading Borg MDR '%s' cached=%d", filename, bAlreadyCached ? 1 : 0 );
+				}
+#endif
 				loaded = R_LoadMDR( mod, buf, filename, bAlreadyCached );
 				break;
 #endif
@@ -956,6 +1158,19 @@ fail:
 	// we still keep the model_t around, so if the model name is asked for
 	// again, we won't bother scanning the filesystem
 	mod->type = MOD_BAD;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_IsBorgPlayerModelName(name))
+	{
+		qhandle_t fallback = STEFX_FindLoadedBorgModelFallback(name);
+		if (fallback)
+		{
+			STEFX_InsertModelHandleAliasIntoHash(name, fallback);
+			XBLF("STEFX: RE_RegisterModel Borg fail alias '%s' index=%d -> %d numLoaded=%d", name, mod->index, fallback, numLoaded);
+			return fallback;
+		}
+		XBLF("STEFX: RE_RegisterModel Borg fail insert MOD_BAD '%s' index=%d numLoaded=%d", name, mod->index, numLoaded);
+	}
+#endif
 	RE_InsertModelIntoHash(name, mod);
 	return 0;
 }
@@ -969,6 +1184,13 @@ fail:
 qboolean gbInsideRegisterModel = qfalse;
 qhandle_t RE_RegisterModel( const char *name )
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean stefxBorgModelTrace = (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")));
+	if (stefxBorgModelTrace)
+	{
+		XBLF("STEFX: RE_RegisterModel Borg entry '%s'", name);
+	}
+#endif
 	gbInsideRegisterModel = qtrue;	// !!!!!!!!!!!!!!
 
 		qhandle_t q = RE_RegisterModel_Actual( name );
@@ -977,6 +1199,12 @@ if (!name || strlen(name) < 4 || stricmp(&name[strlen(name)-4],".gla")){
 	gbInsideRegisterModel = qfalse;		// GLA files recursively call this, so don't turn off half way. A reference count would be nice, but if any ERR_DROP ever occurs within the load then the refcount will be knackered from then on
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxBorgModelTrace)
+	{
+		XBLF("STEFX: RE_RegisterModel Borg exit '%s' -> %d", name, q);
+	}
+#endif
 	return q;
 }
 
@@ -1009,12 +1237,18 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 	{
 		VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has wrong version (%i should be %i)\n",
 			mod_name, version, MD4_VERSION );
+#if defined(_XBOX)
+		XBLF("STEFX: R_LoadMDR wrong version '%s' version=%d expected=%d", mod_name, version, MD4_VERSION);
+#endif
 		return qfalse;
 	}
 
 	if (size <= 0)
 	{
 		VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has invalid size %i\n", mod_name, size );
+#if defined(_XBOX)
+		XBLF("STEFX: R_LoadMDR invalid size '%s' size=%d", mod_name, size);
+#endif
 		return qfalse;
 	}
 
@@ -1036,13 +1270,31 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 
 	qboolean bAlreadyFound = qfalse;
 	mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
+	if (!mod->md4)
+	{
+#if defined(_XBOX)
+		XBLF("STEFX: R_LoadMDR allocation failed '%s' size=%d", mod_name, size);
+#endif
+		return qfalse;
+	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (!bAlreadyFound && mod->md4 == buffer)
+	{
+		bAlreadyCached = qtrue;
+		XBLF("STEFX: R_LoadMDR using adopted disk buffer '%s' size=%d", mod_name, size);
+	}
+#else
 	assert(bAlreadyCached == bAlreadyFound);
+#endif
 
 	if (!bAlreadyFound)
 	{
 #ifdef _XBOX
-		memcpy(mod->md4, buffer, size);
+		if (mod->md4 != buffer)
+		{
+			memcpy(mod->md4, buffer, size);
+		}
 #else
 		bAlreadyCached = qtrue;
 		assert(mod->md4 == buffer);
@@ -1197,6 +1449,13 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 
 	qboolean bAlreadyFound = qfalse;
 	mod->md3[lod] = (md3Header_t *) RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
+	if (!mod->md3[lod])
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: R_LoadMD3 allocation failed '%s' lod=%d size=%d", mod_name, lod, size);
+#endif
+		return qfalse;
+	}
 
 	assert(bAlreadyCached == bAlreadyFound);
 

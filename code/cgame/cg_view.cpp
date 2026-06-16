@@ -2166,6 +2166,28 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_PredictPlayerState();
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState done");
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( in_camera
+		&& ( cg_stefxSmokeUnlockPlayer.integer || cg_stefxSmokeInput.integer )
+		&& serverTime >= cg_stefxSmokeInputStart.integer )
+	{
+		static int s_stefxSmokeCameraDisableLogCount = 0;
+		if ( s_stefxSmokeCameraDisableLogCount < 16 )
+		{
+			XBLF("STEFX: CG smoke camera disable serverTime=%d start=%d cgTime=%d weapon=%d viewEntity=%d unlockCvar=%d inputCvar=%d",
+				serverTime,
+				cg_stefxSmokeInputStart.integer,
+				cg.time,
+				cg.snap ? cg.snap->ps.weapon : -1,
+				cg.snap ? cg.snap->ps.viewEntity : -1,
+				cg_stefxSmokeUnlockPlayer.integer,
+				cg_stefxSmokeInput.integer);
+			++s_stefxSmokeCameraDisableLogCount;
+		}
+		CGCam_Disable();
+	}
+#endif
+
 	if (cg.snap->ps.eFlags&EF_HELD_BY_SAND_CREATURE)
 	{
 		cg.zoomMode = 0;
@@ -2286,6 +2308,25 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 
 	// Don't draw the in-view weapon when in camera mode
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxViewWeaponDecisionLogCount = 0;
+		if (s_stefxViewWeaponDecisionLogCount < 48)
+		{
+			XBLF("STEFX: CG_ViewWeapon decision inCamera=%d pano=%d snapWeapon=%d viewEntity=%d world=%d predictedWeapon=%d third=%d zoom=%d drawGun=%d",
+				(int)in_camera,
+				cg_pano.integer,
+				cg.snap ? cg.snap->ps.weapon : -1,
+				cg.snap ? cg.snap->ps.viewEntity : -1,
+				ENTITYNUM_WORLD,
+				cg.predicted_player_state.weapon,
+				(int)cg.renderingThirdPerson,
+				(int)cg.zoomMode,
+				cg_drawGun.integer);
+			++s_stefxViewWeaponDecisionLogCount;
+		}
+	}
+#endif
 	if ( !in_camera 
 		&& !cg_pano.integer 
 		&& cg.snap->ps.weapon != WP_SABER

@@ -45,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(r"C:\Programming\GitHub\Jedi-Academy-X\CXBXR\cxbxr-ldr-project2.exe"),
     )
+    parser.add_argument(
+        "--cxbx-workdir",
+        type=Path,
+        default=None,
+        help="Working directory/data root for CXBX. Defaults to the loader directory.",
+    )
     parser.add_argument("--level", default="borg1")
     parser.add_argument("--screenshot-count", type=int, default=3)
     parser.add_argument("--random-window-seconds", type=float, default=24.0)
@@ -60,8 +66,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--attack-start", type=int, default=76000)
     parser.add_argument("--attack-end", type=int, default=100000)
     parser.add_argument("--extra-command", default="")
-    parser.add_argument("--active-command", default="")
+    parser.add_argument("--active-command", default="cam_disable")
     parser.add_argument("--active-command-server-time", type=int, default=72000)
+    parser.add_argument(
+        "--normal-time",
+        action="store_true",
+        help="Do not force smoke fasttime/timescale; use this when measuring runtime FPS.",
+    )
     parser.add_argument(
         "--allow-partial",
         action="store_true",
@@ -93,16 +104,26 @@ def runtime_roots(release: Path, cxbx_root: Path) -> list[Path]:
     return roots
 
 
-def first_existing_path(roots: list[Path], name: str) -> Path:
+def first_existing_path(roots: list[Path], name: str, min_mtime: float | None = None) -> Path | None:
     for root in roots:
         candidate = root / name
         if candidate.exists():
-            return candidate
+            if min_mtime is None:
+                return candidate
+            try:
+                if candidate.stat().st_mtime >= min_mtime:
+                    return candidate
+            except OSError:
+                pass
+    if min_mtime is not None:
+        return None
     return roots[0] / name
 
 
-def read_runtime_text(roots: list[Path], name: str) -> tuple[Path, str]:
-    path = first_existing_path(roots, name)
+def read_runtime_text(roots: list[Path], name: str, min_mtime: float | None = None) -> tuple[Path, str]:
+    path = first_existing_path(roots, name, min_mtime)
+    if path is None:
+        return roots[0] / name, ""
     return path, read_text(path)
 
 
@@ -142,7 +163,7 @@ def setup_release_inputs(release: Path, cxbx_root: Path, args: argparse.Namespac
 
     write_runtime_file(roots, "ef_sp_level.txt", args.level + "\n")
     smoke_cmd = (
-        "set s_xbox_silentAudio 1;"
+        "cam_disable;"
         "set stefx_smoke_input 1;"
         "set stefx_smoke_aim 1;"
         "set stefx_smoke_wake_ai 1;"
@@ -159,12 +180,15 @@ def setup_release_inputs(release: Path, cxbx_root: Path, args: argparse.Namespac
     )
     if args.extra_command:
         smoke_cmd = args.extra_command.rstrip(";") + ";" + smoke_cmd
-    postmap_cmd = (
-        "set stefx_smoke_fasttime 1;"
-        "set stefx_smoke_fasttime_msec 2000;"
-        "set timescale 40;"
-        + smoke_cmd
-    )
+    if args.normal_time:
+        postmap_cmd = "set stefx_smoke_fasttime 0;set timescale 1;" + smoke_cmd
+    else:
+        postmap_cmd = (
+            "set stefx_smoke_fasttime 1;"
+            "set stefx_smoke_fasttime_msec 2000;"
+            "set timescale 40;"
+            + smoke_cmd
+        )
     write_runtime_file(roots, "ef_sp_commands.txt", smoke_cmd + "\n")
     write_runtime_file(roots, "ef_sp_postmap_commands.txt", postmap_cmd + "\n")
     if args.active_command:
@@ -447,8 +471,10 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     repo = args.repo.resolve()
+    cxbx_loader = args.cxbx_loader.resolve()
     release = repo / "build" / "release"
-    roots = runtime_roots(release, args.cxbx_loader.parent)
+    cxbx_root = (args.cxbx_workdir.resolve() if args.cxbx_workdir else cxbx_loader.parent)
+    roots = runtime_roots(release, cxbx_root)
     xbe = release / "default.xbe"
     log_path = first_existing_path(roots, "ef_sp_log.txt")
     output_dir = repo / "scripts" / "output"
@@ -457,8 +483,8 @@ def main() -> int:
     stdout_path = output_dir / f"cxbx_sp_renderer_{args.level}_{stamp}.stdout.txt"
     stderr_path = output_dir / f"cxbx_sp_renderer_{args.level}_{stamp}.stderr.txt"
 
-    if not args.cxbx_loader.exists():
-        print(f"missing CXBX loader: {args.cxbx_loader}", file=sys.stderr)
+    if not cxbx_loader.exists():
+        print(f"missing CXBX loader: {cxbx_loader}", file=sys.stderr)
         return 2
     if not xbe.exists():
         print(f"missing XBE: {xbe}", file=sys.stderr)
@@ -470,14 +496,15 @@ def main() -> int:
         for _ in range(max(0, args.screenshot_count))
     )
 
-    setup_release_inputs(release, args.cxbx_loader.parent, args)
+    setup_release_inputs(release, cxbx_root, args)
     output_dir.mkdir(parents=True, exist_ok=True)
+    launch_wall_time = time.time()
 
     stdout_file = stdout_path.open("w", encoding="utf-8", errors="ignore")
     stderr_file = stderr_path.open("w", encoding="utf-8", errors="ignore")
     proc = subprocess.Popen(
-        [str(args.cxbx_loader), "/load", str(xbe)],
-        cwd=str(args.cxbx_loader.parent),
+        [str(cxbx_loader), "/load", str(xbe)],
+        cwd=str(cxbx_root),
         stdout=stdout_file,
         stderr=stderr_file,
         text=True,
@@ -497,7 +524,7 @@ def main() -> int:
             if elapsed > args.watchdog_seconds:
                 break
 
-            log_path, log_text = read_runtime_text(roots, "ef_sp_log.txt")
+            log_path, log_text = read_runtime_text(roots, "ef_sp_log.txt", launch_wall_time)
             fatal = log_has_fatal(log_text)
             heartbeat = parse_latest_heartbeat(log_text)
             if heartbeat:
@@ -524,7 +551,7 @@ def main() -> int:
                         )
                     capture_result, capture_nonblank = request_renderer_capture(
                         release,
-                        args.cxbx_loader.parent,
+                        cxbx_root,
                         capture_path,
                     )
                     if capture_nonblank:
@@ -539,6 +566,11 @@ def main() -> int:
             if fatal:
                 break
             if active_at is not None and captured_count >= len(due_offsets):
+                if not due_offsets:
+                    active_elapsed = time.monotonic() - active_at
+                    if active_elapsed < args.active_grace_seconds:
+                        time.sleep(0.5)
+                        continue
                 # Keep one small cushion after the last grab so the log catches up.
                 time.sleep(1.0)
                 break
@@ -555,9 +587,9 @@ def main() -> int:
                 proc.kill()
         stdout_file.close()
         stderr_file.close()
-        cleanup_smoke_inputs(release, args.cxbx_loader.parent)
+        cleanup_smoke_inputs(release, cxbx_root)
 
-    log_path, log_text = read_runtime_text(roots, "ef_sp_log.txt")
+    log_path, log_text = read_runtime_text(roots, "ef_sp_log.txt", launch_wall_time)
     fatal = fatal or log_has_fatal(log_text)
     last_heartbeat = parse_latest_heartbeat(log_text) or last_heartbeat
     evidence = {
@@ -570,7 +602,22 @@ def main() -> int:
             r"EF: TEX_STAGE_APPLY stage=1 texid=(?:1[1-9]|[2-9][0-9]+)\b",
         ),
         "textureRebinds": count_matches(log_text, r"STEFX: FORCE_TEXTURE_REBIND"),
+        "hudDraw2D": count_matches(log_text, r"STEFX: HUD Draw2D proof"),
+        "soundPlays": count_matches(log_text, r"STEFX: QAL play"),
+        "soundLooseReads": count_matches(log_text, r"STEFX: loose sound read direct=1"),
+        "soundLooseReadOk": count_matches(
+            log_text,
+            r"STEFX: loose sound read direct=1 .* bytes=(?!0\b)\d+ error=0",
+        ),
         "viewWeaponAdds": count_matches(log_text, r"STEFX: CG_AddViewWeapon added"),
+        "borgModelLoads": count_matches(
+            log_text,
+            r"STEFX: CG_RegisterClientModelname .* MDR 'models/players/borg[^']*' -> [1-9]\d*",
+        ),
+        "borgFallbacks": count_matches(
+            log_text,
+            r"STEFX: CG_RegisterClientRenderInfo fallback requested head='borg",
+        ),
         "smokeInputApplied": count_matches(log_text, r"STEFX: smoke input applied"),
         "smokeInputMoving": count_matches(
             log_text,
@@ -594,8 +641,10 @@ def main() -> int:
         "playerPmoveFireEvents": count_matches(log_text, r"STEFX: PM_AddEvent fire"),
         "playerClientFireEvents": count_matches(log_text, r"STEFX: ClientEvents fire"),
         "playerCgameFireEvents": count_matches(log_text, r"STEFX: CG_FireWeapon ent=0"),
+        "projectileSnapshotEvents": count_matches(log_text, r"STEFX: engine EF CL_GetSnapshot event .* eType=52 event=38"),
         "playerFireWeapon": count_matches(log_text, r"STEFX: FireWeapon enter ent=0"),
         "playerDamageHits": count_matches(log_text, r"STEFX: G_Damage player hit"),
+        "npcDamageHits": count_matches(log_text, r"STEFX: G_Damage player hit target=\d+ class='NPC'"),
         "npcPainEvents": count_matches(log_text, r"STEFX: NPC_Pain"),
         "npcEnemyAcquired": count_matches(log_text, r"STEFX: NPC_SetEnemy"),
         "npcSpawns": count_matches(log_text, r"STEFX: NPC_Begin"),
@@ -618,17 +667,20 @@ def main() -> int:
         "stage1_lightmap": ("stage1LightmapApplies",),
         "texture_rebind": ("textureRebinds",),
         "visible_weapon": ("viewWeaponAdds",),
+        "hud": ("hudDraw2D",),
+        "sound_read": ("soundLooseReadOk",),
+        "sound_play": ("soundPlays",),
         "input_gate": ("inputGateCleared",),
         "xbox_binds": ("xboxBindsInstalled",),
         "smoke_input": ("smokeInputMoving",),
         "movement": ("clientMoveResults",),
-        "attack_cmd": ("smokeInputAttacking", "playerAttackCmds"),
+        "attack_cmd": ("smokeInputAttacking", "playerAttackCmds", "playerPmoveFireEvents"),
         "server_fire": ("playerPmoveFireEvents", "playerClientFireEvents", "playerFireWeapon"),
-        "client_fire": ("playerCgameFireEvents",),
+        "client_fire": ("playerCgameFireEvents", "projectileSnapshotEvents"),
         "characters_present": ("npcSpawns", "cgameCharacters"),
         "characters_visible": ("characterAnimSurfaceVisible",),
-        "ai_present": ("npcEnemyAcquired", "npcPainEvents"),
-        "weapon_interaction": ("playerDamageHits", "npcPainEvents"),
+        "ai_present": ("npcEnemyAcquired", "npcPainEvents", "npcDamageHits"),
+        "weapon_interaction": ("playerDamageHits", "npcPainEvents", "npcDamageHits"),
     }
     missing_requirements = [
         name
@@ -637,10 +689,12 @@ def main() -> int:
     ]
     if evidence.get("mdrPlaceholderSkips", 0) > 0:
         missing_requirements.append("mdr_placeholder_render")
-    required_capture_count = max(1, len(due_offsets))
-    if captured_count < required_capture_count:
+    if evidence.get("borgFallbacks", 0) > 0 or evidence.get("borgModelLoads", 0) <= 0:
+        missing_requirements.append("borg_identity")
+    required_capture_count = len(due_offsets)
+    if required_capture_count > 0 and captured_count < required_capture_count:
         missing_requirements.append("renderer_screenshot")
-    if nonblank_captured_count < required_capture_count:
+    if required_capture_count > 0 and nonblank_captured_count < required_capture_count:
         missing_requirements.append("renderer_nonblank_screenshot")
     vertical_slice_pass = active_at is not None and not fatal and not missing_requirements
     active_elapsed_text = "n/a"

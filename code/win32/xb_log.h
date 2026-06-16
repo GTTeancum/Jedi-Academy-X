@@ -30,7 +30,7 @@ const char *XBLog_GetPath(void);
 
 /* Convenience macros — VC71 C89 mode doesn't support __VA_ARGS__,
    so XBLF is a direct function alias rather than a variadic macro. */
-#define XBL(msg)  XBLog_Print(msg)
+#define XBL(msg)  XBLog_Write(msg)
 #define XBLF      XBLog_Printf
 
 /* ── Backward-compat shims for existing call sites ─────────────────────

@@ -29,6 +29,8 @@ extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
 extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
 extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
 extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
+extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[16];
+extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
 #endif
 
 #include "client.h"
@@ -90,14 +92,19 @@ static int CL_STEFX_QueueActiveCommands(void)
 	char commandLine[1024];
 	int pathIndex;
 	int queued = 0;
+	static int s_missingLogBudget = 2;
 
 	for (pathIndex = 0; activeCommandPaths[pathIndex]; ++pathIndex)
 	{
 		FILE *activeCommandFile = fopen(activeCommandPaths[pathIndex], "r");
 		if (!activeCommandFile)
 		{
-			XBLF("STEFX: active command file missing '%s' errno=%d winerr=%lu",
-				activeCommandPaths[pathIndex], errno, GetLastError());
+			if (s_missingLogBudget > 0)
+			{
+				XBLF("STEFX: active command file missing '%s' errno=%d winerr=%lu",
+					activeCommandPaths[pathIndex], errno, GetLastError());
+				--s_missingLogBudget;
+			}
 			continue;
 		}
 
@@ -120,8 +127,11 @@ static int CL_STEFX_QueueActiveCommands(void)
 		break;
 	}
 
-	XBLF("STEFX: active command hook complete queued=%d state=%d cgame=%d sv=%d",
-		queued, (int)cls.state, (int)cls.cgameStarted, (int)com_sv_running->integer);
+	if (queued > 0)
+	{
+		XBLF("STEFX: active command hook complete queued=%d state=%d cgame=%d sv=%d",
+			queued, (int)cls.state, (int)cls.cgameStarted, (int)com_sv_running->integer);
+	}
 	return queued;
 }
 #endif
@@ -1267,10 +1277,13 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static qboolean s_stefxActiveCommandsQueued = qfalse;
 	static int s_stefxActiveCommandAttempts = 0;
+	static int s_stefxActiveCommandNextPollTime = 0;
 	if (!s_stefxActiveCommandsQueued && cls.state == CA_ACTIVE && cls.cgameStarted
-		&& cl.serverTime >= CL_STEFX_ActiveCommandServerTime())
+		&& cl.serverTime >= CL_STEFX_ActiveCommandServerTime()
+		&& cls.realtime >= s_stefxActiveCommandNextPollTime)
 	{
 		++s_stefxActiveCommandAttempts;
+		s_stefxActiveCommandNextPollTime = cls.realtime + 1000;
 		if (CL_STEFX_QueueActiveCommands() > 0 || s_stefxActiveCommandAttempts >= 20)
 		{
 			s_stefxActiveCommandsQueued = qtrue;
@@ -1695,7 +1708,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		const qboolean xboxTraceBootTail = (s_xboxBootTailLogBudget > 0);
 		if (!s_xboxLoggedAudioSkip)
 		{
-			XBLog_Write("JA: CL_Frame: running silent S_Update on Xbox smoke build");
+			XBLog_Write("JA: CL_Frame: running S_Update on Xbox");
 			s_xboxLoggedAudioSkip = qtrue;
 		}
 		if (xboxTraceBootTail)
@@ -1803,10 +1816,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		static unsigned int s_xboxLastSplitEntity = 0;
 		static unsigned int s_xboxLastSplitFinal = 0;
 		static unsigned int s_xboxLastSplitFlush = 0;
+		static unsigned int s_xboxLastSurfaceTypeCounts[16] = { 0 };
+		static unsigned int s_xboxLastEntityTypeCounts[16] = { 0 };
 		const int elapsed = cls.realtime - s_xboxLastCompletedHeartbeatTime;
 
 		if (elapsed >= 1000 || s_xboxLastCompletedHeartbeatTime == 0)
 		{
+			unsigned int surfaceTypeDelta[16];
+			unsigned int entityTypeDelta[16];
 			const int frameDelta = cls.framecount - s_xboxLastCompletedHeartbeatFrame;
 			const unsigned int drawLists = g_SPXBRenderDrawSurfLists - s_xboxLastDrawSurfLists;
 			const unsigned int surfaces = g_SPXBRenderSurfaces - s_xboxLastRenderSurfaces;
@@ -1821,11 +1838,18 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			const unsigned int splitFinal = g_SPXBRenderSplitFinal - s_xboxLastSplitFinal;
 			const unsigned int splitFlush = g_SPXBRenderSplitFlush - s_xboxLastSplitFlush;
 			int fps10 = 0;
-			char msg[512];
+			char msg[1024];
+			int msgLen;
+			int bucket;
 
 			if (elapsed > 0)
 			{
 				fps10 = (frameDelta * 10000) / elapsed;
+			}
+			for (bucket = 0; bucket < 16; ++bucket)
+			{
+				surfaceTypeDelta[bucket] = g_SPXBSurfaceTypeCounts[bucket] - s_xboxLastSurfaceTypeCounts[bucket];
+				entityTypeDelta[bucket] = g_SPXBEntityTypeCounts[bucket] - s_xboxLastEntityTypeCounts[bucket];
 			}
 
 			g_SPXBHeartbeatCount++;
@@ -1834,8 +1858,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			g_SPXBHeartbeatServerTime = cl.serverTime;
 			g_SPXBHeartbeatFps10 = fps10;
 
-			_snprintf(msg, sizeof(msg),
-				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%d.%d r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u\n",
+			msgLen = _snprintf(msg, sizeof(msg),
+				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%d.%d r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u",
 				cls.framecount,
 				cls.realtime,
 				cl.serverTime,
@@ -1858,6 +1882,29 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				splitEntity,
 				splitFinal,
 				splitFlush);
+			if (msgLen < 0 || msgLen >= (int)sizeof(msg))
+			{
+				msgLen = strlen(msg);
+			}
+			for (bucket = 0; bucket < 16 && msgLen > 0 && msgLen < (int)sizeof(msg) - 48; ++bucket)
+			{
+				if (surfaceTypeDelta[bucket])
+				{
+					msgLen += _snprintf(msg + msgLen, sizeof(msg) - msgLen, " sf%d=%u", bucket, surfaceTypeDelta[bucket]);
+				}
+			}
+			for (bucket = 0; bucket < 16 && msgLen > 0 && msgLen < (int)sizeof(msg) - 48; ++bucket)
+			{
+				if (entityTypeDelta[bucket])
+				{
+					msgLen += _snprintf(msg + msgLen, sizeof(msg) - msgLen, " rt%d=%u", bucket, entityTypeDelta[bucket]);
+				}
+			}
+			if (msgLen > 0 && msgLen < (int)sizeof(msg) - 2)
+			{
+				msg[msgLen++] = '\n';
+				msg[msgLen] = '\0';
+			}
 			msg[sizeof(msg) - 1] = '\0';
 			XBLog_Write(msg);
 
@@ -1875,6 +1922,11 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			s_xboxLastSplitEntity = g_SPXBRenderSplitEntity;
 			s_xboxLastSplitFinal = g_SPXBRenderSplitFinal;
 			s_xboxLastSplitFlush = g_SPXBRenderSplitFlush;
+			for (bucket = 0; bucket < 16; ++bucket)
+			{
+				s_xboxLastSurfaceTypeCounts[bucket] = g_SPXBSurfaceTypeCounts[bucket];
+				s_xboxLastEntityTypeCounts[bucket] = g_SPXBEntityTypeCounts[bucket];
+			}
 		}
 	}
 	if (cls.state == CA_ACTIVE)
@@ -2667,7 +2719,16 @@ static void checkAutoSave()
 				if(doAutoSave)
 				{
 					CG_CenterPrint( "@SP_INGAME_CHECKPOINT", SCREEN_HEIGHT * 0.25 );	//jump the network
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					XBLF("STEFX: checkAutoSave Xbox checkpoint disk save suppressed svTime=%d realtime=%d clsState=%d ui=%d delay=%d",
+						sv.time,
+						cls.realtime,
+						cls.state,
+						cls.uiStarted ? 1 : 0,
+						delayCountdown);
+#else
 					Cbuf_AddText( "save auto\n" );
+#endif
 				}
 				timeToCheckpoint = sv.time + 10000;
 				autosaveTrigger = false;

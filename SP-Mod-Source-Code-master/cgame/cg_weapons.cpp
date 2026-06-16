@@ -593,15 +593,46 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 
 	// no gun if in third person view
 	if ( cg.renderingThirdPerson )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int stefxViewWeaponThirdPersonLogBudget = 8;
+		if ( stefxViewWeaponThirdPersonLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_AddViewWeapon skip reason=thirdperson weapon=%d", ps ? ps->weapon : -1);
+			stefxViewWeaponThirdPersonLogBudget--;
+		}
+#endif
 		return;
+	}
 
 	if ( ps->pm_type == PM_INTERMISSION )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int stefxViewWeaponIntermissionLogBudget = 4;
+		if ( stefxViewWeaponIntermissionLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_AddViewWeapon skip reason=intermission weapon=%d", ps ? ps->weapon : -1);
+			stefxViewWeaponIntermissionLogBudget--;
+		}
+#endif
 		return;
+	}
 
 	cent = &cg_entities[cg.snap->ps.clientNum];
 	// allow the gun to be completely removed
 	if ( !cg_drawGun.integer || cg.zoomed ) {
 		vec3_t		origin;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int stefxViewWeaponHiddenLogBudget = 8;
+		if ( stefxViewWeaponHiddenLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_AddViewWeapon skip reason=hidden drawGun=%d zoomed=%d weapon=%d",
+				cg_drawGun.integer,
+				cg.zoomed ? 1 : 0,
+				ps ? ps->weapon : -1);
+			stefxViewWeaponHiddenLogBudget--;
+		}
+#endif
 
 		// special hack for lightning guns...
 		VectorCopy( cg.refdef.vieworg, origin );
@@ -614,7 +645,17 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 
 	// don't draw if testing a gun model
 	if ( cg.testGun )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int stefxViewWeaponTestGunLogBudget = 4;
+		if ( stefxViewWeaponTestGunLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_AddViewWeapon skip reason=testgun weapon=%d", ps ? ps->weapon : -1);
+			stefxViewWeaponTestGunLogBudget--;
+		}
+#endif
 		return;
+	}
 
 	// drop gun lower at higher fov
 	if ( cg_fov.integer > 80 ) {
@@ -662,6 +703,16 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 
 	gun.hModel = weapon->weaponModel;
 	if (!gun.hModel) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int stefxViewWeaponMissingModelLogBudget = 8;
+		if ( stefxViewWeaponMissingModelLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_AddViewWeapon skip reason=missingmodel weapon=%d handsModel=%d",
+				ps ? ps->weapon : -1,
+				weapon->handsModel);
+			stefxViewWeaponMissingModelLogBudget--;
+		}
+#endif
 		return;
 	}
 

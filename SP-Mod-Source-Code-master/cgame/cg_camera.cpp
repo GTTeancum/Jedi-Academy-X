@@ -1213,6 +1213,22 @@ void CGCam_RenderScene( void )
 {
 	CGCam_Update();
 	CG_CalcVrect();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxCameraRenderLogs = 0;
+		if (s_stefxCameraRenderLogs < 12)
+		{
+			XBLF("STEFX: CGCam_RenderScene time=%d view=(%g,%g,%g) angles=(%g,%g,%g) rect=%d,%d %dx%d fov=(%g,%g) info=0x%x",
+				cg.time,
+				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
+				cg.refdefViewAngles[0], cg.refdefViewAngles[1], cg.refdefViewAngles[2],
+				cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height,
+				cg.refdef.fov_x, cg.refdef.fov_y,
+				client_camera.info_state);
+			++s_stefxCameraRenderLogs;
+		}
+	}
+#endif
 }
 
 /*

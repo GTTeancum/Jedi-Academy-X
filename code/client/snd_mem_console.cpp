@@ -9,6 +9,15 @@
 
 #ifdef _XBOX
 #include <xtl.h>
+extern HANDLE Sys_FileStreamMutex;
+#endif
+
+#ifndef WAVE_FORMAT_PCM
+#define WAVE_FORMAT_PCM 1
+#endif
+
+#ifndef WAVE_FORMAT_XBOX_ADPCM
+#define WAVE_FORMAT_XBOX_ADPCM 0x0069
 #endif
 
 #define SND_MAX_LOADS 48
@@ -62,25 +71,98 @@ wavinfo_t GetWavInfo(byte *data)
 	info.size = ((*(int*)&data[20]) >> 1) + 96;
 	info.rate = *(int*)&data[8];
 #else
-	int dataofs = 0;
-	if (strncmp((char *)&data[dataofs + 0], "RIFF", 4) ||
-		strncmp((char *)&data[dataofs + 8], "WAVE", 4))
+	if (strncmp((char *)&data[0], "RIFF", 4) ||
+		strncmp((char *)&data[8], "WAVE", 4))
 	{
 		// invalid type, abort
 		return info;
 	}
-	dataofs += 12; // done with riff chunk
 
-	WAVEFORMATEX* wav = (WAVEFORMATEX*)&data[dataofs + 8];
-	info.format = wav->nChannels == 1 ? AL_FORMAT_MONO4 : AL_FORMAT_STEREO4;
-	info.rate = wav->nSamplesPerSec;
-	info.width = wav->wBitsPerSample;
-	dataofs += sizeof(WAVEFORMATEX) + wav->cbSize + 8; // done with fmt chunk
-	
-	info.size = *(int*)&data[dataofs + 4];
-	info.samples = (info.size * 2);
+	int dataofs = 12; // done with riff chunk
+	int fmtFound = 0;
+	int dataFound = 0;
+	unsigned short formatTag = 0;
+	unsigned short channels = 0;
+	unsigned int rate = 0;
+	unsigned short bits = 0;
+	unsigned int dataSize = 0;
+	unsigned int dataStart = 0;
 
-	dataofs += 8; // done with data chunk
+	while (dataofs > 0 && dataofs < 4096)
+	{
+		char chunkName[5];
+		memcpy(chunkName, &data[dataofs], 4);
+		chunkName[4] = 0;
+		unsigned int chunkSize = *(unsigned int *)&data[dataofs + 4];
+		byte *chunkData = &data[dataofs + 8];
+
+		if (!strncmp(chunkName, "fmt ", 4))
+		{
+			formatTag = *(unsigned short *)&chunkData[0];
+			channels = *(unsigned short *)&chunkData[2];
+			rate = *(unsigned int *)&chunkData[4];
+			bits = *(unsigned short *)&chunkData[14];
+			fmtFound = 1;
+		}
+		else if (!strncmp(chunkName, "data", 4))
+		{
+			dataSize = chunkSize;
+			dataStart = dataofs + 8;
+			dataFound = 1;
+		}
+
+		if (fmtFound && dataFound)
+		{
+			break;
+		}
+
+		dataofs += 8 + ((chunkSize + 1) & ~1);
+	}
+
+	if (!fmtFound || !dataFound || !channels || !rate || !bits)
+	{
+		return info;
+	}
+
+	info.rate = rate;
+	info.width = bits;
+	info.channels = channels;
+	info.waveFormatTag = formatTag;
+	info.dataofs = dataStart;
+	info.size = dataSize;
+
+	if (formatTag == WAVE_FORMAT_PCM)
+	{
+		if (channels == 1 && bits == 8) info.format = AL_FORMAT_MONO8;
+		else if (channels == 1 && bits == 16) info.format = AL_FORMAT_MONO16;
+		else if (channels == 2 && bits == 8) info.format = AL_FORMAT_STEREO8;
+		else if (channels == 2 && bits == 16) info.format = AL_FORMAT_STEREO16;
+		else
+		{
+			memset(&info, 0, sizeof(info));
+			return info;
+		}
+
+		info.samples = dataSize / (channels * (bits / 8));
+	}
+	else if (formatTag == WAVE_FORMAT_XBOX_ADPCM)
+	{
+		info.format = channels == 1 ? AL_FORMAT_MONO4 : AL_FORMAT_STEREO4;
+		info.samples = dataSize * 2;
+	}
+	else
+	{
+		memset(&info, 0, sizeof(info));
+		return info;
+	}
+
+	static int s_wavInfoLogCount = 0;
+	if (s_wavInfoLogCount < 32)
+	{
+		Com_PrintfAlways("STEFX: WAV info tag=0x%x channels=%d bits=%d rate=%d size=%d dataofs=%d format=0x%x\n",
+			formatTag, channels, bits, rate, dataSize, dataStart, info.format);
+		s_wavInfoLogCount++;
+	}
 #endif
 
 	return info;
@@ -90,13 +172,185 @@ wavinfo_t GetWavInfo(byte *data)
 //
 unsigned int Sys_GetSoundFileCode(const char* name);
 int Sys_GetSoundFileCodeSize(unsigned int filecode);
-static qboolean S_LoadSound_FileNameAdjuster(char *psFilename)
+const char *Sys_GetSoundFileCodeName(unsigned int code);
+
+extern "C"
 {
-	const char* ext = "wxb";
+char* C_MP3_GetUnpackedSize(void *pvData, int iDataLen, int *piUnpackedSize, int bStereoDesired);
+char* C_MP3_UnpackRawPCM(void *pvData, int iDataLen, int *piUnpackedSize, void *pbUnpackBuffer, int bStereoDesired);
+char* C_MP3_GetHeaderData(void *pvData, int iDataLen, int *piRate, int *piWidth, int *piChannels, int bStereoDesired);
+}
 
-	int len = strlen(psFilename);
+static qboolean S_DecodeMP3Sound(sfx_t *sfx, byte *sourceData, int sourceBytes, wavinfo_t *info)
+{
+	int unpackedBytes = 0;
+	int actualBytes = 0;
+	int rate = 0;
+	int widthBytes = 0;
+	int channels = 0;
+	char *error;
+	const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+	if (!name)
+	{
+		name = "<unknown>";
+	}
 
-	char *psVoice = strstr(psFilename,"chars");
+#ifdef _XBOX
+	WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
+#endif
+	error = C_MP3_GetUnpackedSize(sourceData, sourceBytes, &unpackedBytes, qfalse);
+	if (error || unpackedBytes <= 0)
+	{
+#ifdef _XBOX
+		ReleaseMutex(Sys_FileStreamMutex);
+#endif
+		static int s_mp3SizeErrorLogCount = 0;
+		if (s_mp3SizeErrorLogCount < 64)
+		{
+			Com_PrintfAlways("STEFX: MP3 size failed '%s' bytes=%d err='%s'\n",
+				name, sourceBytes, error ? error : "<none>");
+			s_mp3SizeErrorLogCount++;
+		}
+		return qfalse;
+	}
+
+	error = C_MP3_GetHeaderData(sourceData, sourceBytes, &rate, &widthBytes, &channels, qfalse);
+	if (error || rate <= 0 || widthBytes <= 0 || channels <= 0)
+	{
+#ifdef _XBOX
+		ReleaseMutex(Sys_FileStreamMutex);
+#endif
+		static int s_mp3HeaderErrorLogCount = 0;
+		if (s_mp3HeaderErrorLogCount < 64)
+		{
+			Com_PrintfAlways("STEFX: MP3 header failed '%s' bytes=%d err='%s'\n",
+				name, sourceBytes, error ? error : "<none>");
+			s_mp3HeaderErrorLogCount++;
+		}
+		return qfalse;
+	}
+#ifdef _XBOX
+	ReleaseMutex(Sys_FileStreamMutex);
+#endif
+
+	byte *decoded = (byte *)Z_Malloc(unpackedBytes + 2304, TAG_SND_RAWDATA, qtrue, 32);
+	if (!decoded)
+	{
+		return qfalse;
+	}
+
+	actualBytes = unpackedBytes;
+#ifdef _XBOX
+	WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
+#endif
+	error = C_MP3_UnpackRawPCM(sourceData, sourceBytes, &actualBytes, decoded, qfalse);
+#ifdef _XBOX
+	ReleaseMutex(Sys_FileStreamMutex);
+#endif
+	if (error || actualBytes <= 0)
+	{
+		static int s_mp3DecodeErrorLogCount = 0;
+		if (s_mp3DecodeErrorLogCount < 64)
+		{
+			Com_PrintfAlways("STEFX: MP3 decode failed '%s' bytes=%d err='%s'\n",
+				name, sourceBytes, error ? error : "<none>");
+			s_mp3DecodeErrorLogCount++;
+		}
+		Z_Free(decoded);
+		return qfalse;
+	}
+
+	memset(info, 0, sizeof(*info));
+	info->rate = rate;
+	info->width = widthBytes * 8;
+	info->channels = channels;
+	info->waveFormatTag = WAVE_FORMAT_PCM;
+	info->dataofs = 0;
+	info->size = actualBytes;
+	info->samples = actualBytes / (channels * widthBytes);
+	if (channels == 1 && widthBytes == 1) info->format = AL_FORMAT_MONO8;
+	else if (channels == 1 && widthBytes == 2) info->format = AL_FORMAT_MONO16;
+	else if (channels == 2 && widthBytes == 1) info->format = AL_FORMAT_STEREO8;
+	else if (channels == 2 && widthBytes == 2) info->format = AL_FORMAT_STEREO16;
+	else
+	{
+		Z_Free(decoded);
+		memset(info, 0, sizeof(*info));
+		return qfalse;
+	}
+
+	Z_Free(sfx->pSoundData);
+	sfx->pSoundData = decoded;
+
+	static int s_mp3DecodeLogCount = 0;
+	if (s_mp3DecodeLogCount < 128)
+	{
+		Com_PrintfAlways("STEFX: MP3 decoded '%s' src=%d pcm=%d rate=%d width=%d channels=%d format=0x%x\n",
+			name, sourceBytes, actualBytes, rate, widthBytes, channels, info->format);
+		s_mp3DecodeLogCount++;
+	}
+
+	return qtrue;
+}
+
+static int S_TrySoundFileCode(const char *name, const char *ext)
+{
+	char tryName[MAX_QPATH];
+	Q_strncpyz(tryName, name, sizeof(tryName));
+
+	int len = strlen(tryName);
+	if (len < 4)
+	{
+		return -1;
+	}
+
+	tryName[len - 3] = ext[0];
+	tryName[len - 2] = ext[1];
+	tryName[len - 1] = ext[2];
+	for (int i = 0; i < len; i++)
+	{
+		if (tryName[i] == '\\')
+		{
+			tryName[i] = '/';
+		}
+	}
+
+	unsigned int code = Sys_GetSoundFileCode(tryName);
+	if (Sys_GetSoundFileCodeSize(code) == -1)
+	{
+		return -1;
+	}
+
+	static int s_soundResolveLogCount = 0;
+	if (s_soundResolveLogCount < 96)
+	{
+		Com_PrintfAlways("STEFX: sound resolved '%s' code=0x%x size=%d\n",
+			tryName, code, Sys_GetSoundFileCodeSize(code));
+		s_soundResolveLogCount++;
+	}
+
+	return code;
+}
+
+static int S_LoadSound_FileNameAdjuster(char *psFilename)
+{
+	char tryName[MAX_QPATH];
+	char englishName[MAX_QPATH];
+	const char *originalExt;
+	int code;
+
+	Q_strncpyz(tryName, psFilename, sizeof(tryName));
+	Q_strlwr(tryName);
+
+	int len = strlen(tryName);
+	if (len < 4)
+	{
+		return -1;
+	}
+
+	originalExt = tryName + len - 3;
+
+	char *psVoice = strstr(tryName,"chars");
 	if (psVoice)
 	{
 		// account for foreign voices...
@@ -110,47 +364,59 @@ static qboolean S_LoadSound_FileNameAdjuster(char *psFilename)
 			psVoice = NULL;					// Flag that we didn't substitute
 	}
 
-	psFilename[len-3] = ext[0];
-	psFilename[len-2] = ext[1];
-	psFilename[len-1] = ext[2];
-	for(int i = 0; i < len; i++)
-	{
-		if(psFilename[i] == '/')
-		{
-			psFilename[i] = '\\';
-		}
-	}
-	unsigned int code = Sys_GetSoundFileCode( psFilename );
+	Q_strncpyz(englishName, tryName, sizeof(englishName));
 
-	if(Sys_GetSoundFileCodeSize(code) == -1)
+	code = S_TrySoundFileCode(tryName, "wxb");
+	if (code != -1) return code;
+
+	if (Q_stricmp(originalExt, "wxb"))
 	{
-		code	=  -1;
+		code = S_TrySoundFileCode(tryName, originalExt);
+		if (code != -1) return code;
 	}
 
-	if ( code == -1 )
+	code = S_TrySoundFileCode(tryName, "wav");
+	if (code != -1) return code;
+
+	code = S_TrySoundFileCode(tryName, "mp3");
+	if (code != -1) return code;
+
+	if (psVoice)
 	{
 		//hmmm, not found, ok, maybe we were trying a foreign noise ("arghhhhh.mp3" that doesn't matter?) but it
 		// was missing?   Can't tell really, since both types are now in sound/chars. Oh well, fall back to English for now...
-		
-		if (psVoice)	// were we trying to load foreign?
+		char *englishVoice = strstr(englishName, "chr_");
+		if (englishVoice)
 		{
 			// yep, so fallback to re-try the english...
 			//
-			strncpy(psVoice,"chars",5);
-			
-			psFilename[len-3] = ext[0];
-			psFilename[len-2] = ext[1];
-			psFilename[len-1] = ext[2];
-			code = Sys_GetSoundFileCode( psFilename );
+			strncpy(englishVoice, "chars", 5);
+
+			code = S_TrySoundFileCode(englishName, "wxb");
+			if (code != -1) return code;
+
+			if (Q_stricmp(originalExt, "wxb"))
+			{
+				code = S_TrySoundFileCode(englishName, originalExt);
+				if (code != -1) return code;
+			}
+
+			code = S_TrySoundFileCode(englishName, "wav");
+			if (code != -1) return code;
+
+			code = S_TrySoundFileCode(englishName, "mp3");
+			if (code != -1) return code;
 		}
 	}
 
-	if(Sys_GetSoundFileCodeSize(code) == -1)
+	static int s_soundMissingLogCount = 0;
+	if (s_soundMissingLogCount < 96)
 	{
-		code	=  -1;
+		Com_PrintfAlways("STEFX: sound missing base='%s'\n", tryName);
+		s_soundMissingLogCount++;
 	}
 
-	return code;
+	return -1;
 }
 
 /*
@@ -310,9 +576,14 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 
 	if (info.size == 0)
 	{
-		Z_Free(sfx->pSoundData);
-		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
-		return qfalse;
+		if (!S_DecodeMP3Sound(sfx, data, sfx->iSoundLength, &info))
+		{
+			Z_Free(sfx->pSoundData);
+			sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
+			return qfalse;
+		}
+
+		data = (byte*)sfx->pSoundData;
 	}
 	
 	sfx->iSoundLength = info.size;

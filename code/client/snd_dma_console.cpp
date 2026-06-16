@@ -54,12 +54,21 @@ static void S_UnCacheDynamicMusic( void );
 #include "../zlib/zlib.h"
 
 extern int Sys_GetFileCodeSize(int code);
+extern unsigned int Sys_GetSoundFileCode(const char* name);
 
 extern void Sys_StreamInit(void);
 extern void Sys_StreamShutdown(void);
 
 qboolean SND_RegisterAudio_Clean(void);
 void S_KillEntityChannel(int entnum, int chan);
+
+#ifdef _XBOX
+extern "C"
+{
+char* C_MP3_GetUnpackedSize(void *pvData, int iDataLen, int *piUnpackedSize, int bStereoDesired);
+char* C_MP3_GetHeaderData(void *pvData, int iDataLen, int *piRate, int *piWidth, int *piChannels, int bStereoDesired);
+}
+#endif
 
 //////////////////////////
 //
@@ -169,6 +178,8 @@ static qboolean s_xboxLipDataLoaded = qfalse;
 static int s_xboxSilentVoiceStartsLogged = 0;
 static int s_xboxSilentVoiceUpdatesLogged = 0;
 static void S_XboxUpdateSilentVoiceVolumes(void);
+static int S_XboxFallbackVoiceVolume(const channel_t *ch, int now);
+extern HANDLE Sys_FileStreamMutex;
 #endif
 
 struct listener_t
@@ -278,7 +289,16 @@ static void S_LoadLipSyncTables(void)
 
 	int len = FS_ReadFile(va("lipdata%s.idx", langSuffix), &buffer);
 	if( len == -1 )
+	{
+#ifdef _XBOX
+		s_xboxLipDataLoaded = qfalse;
+		Com_Printf("STEFX: Xbox lip-sync index lipdata%s.idx missing; continuing without lip-sync metadata.\n",
+			langSuffix);
+		return;
+#else
 		Com_Error(ERR_DROP, "ERROR: No lip sync index file\n");
+#endif
+	}
 	int numLipFiles = len / sizeof(LipFileInfo);
 	LipFileInfo *lbuf = (LipFileInfo *)buffer;
 
@@ -292,7 +312,18 @@ static void S_LoadLipSyncTables(void)
 
 	len = FS_ReadFile(va("lipdata%s.dat", langSuffix), &buffer);
 	if( len == -1 )
+	{
+#ifdef _XBOX
+		delete s_lipSyncMap;
+		s_lipSyncMap = NULL;
+		s_xboxLipDataLoaded = qfalse;
+		Com_Printf("STEFX: Xbox lip-sync data lipdata%s.dat missing; continuing without lip-sync metadata.\n",
+			langSuffix);
+		return;
+#else
 		Com_Error(ERR_DROP, "ERROR: No lip sync data file\n");
+#endif
+	}
 
 	Z_PushNewDeleteTag( TAG_LIPSYNC );
 	s_lipSyncData = new char[len];
@@ -441,55 +472,7 @@ void S_Init( void ) {
 	Com_Printf("------------------------------------\n");
 
 	S_InitLoad();
-
-	// Load all the lipsync index data first:
-	extern DWORD g_dwLanguage;
-	const char *langSuffix;
-	void *buffer;
-	switch( g_dwLanguage )
-	{
-#ifndef XBOX_DEMO	// Demo has no foreign audio
-		case XC_LANGUAGE_FRENCH:
-			langSuffix = "_f";
-			break;
-		case XC_LANGUAGE_GERMAN:
-			langSuffix = "_d";
-			break;
-#endif
-		case XC_LANGUAGE_ENGLISH:
-		default:
-			langSuffix = "_e";
-			break;
-	}
-	int len = FS_ReadFile(va("lipdata%s.idx", langSuffix), &buffer);
-	if( len == -1 )
-		Com_Error(ERR_DROP, "ERROR: No lip sync index file\n");
-	int numLipFiles = len / sizeof(LipFileInfo);
-	LipFileInfo *lbuf = (LipFileInfo *)buffer;
-
-	Z_PushNewDeleteTag( TAG_LIPSYNC );
-	s_lipSyncMap = new VVFixedMap< unsigned int, unsigned int >(numLipFiles);
-	Z_PopNewDeleteTag();
-
-	for( int i = 0; i < numLipFiles; ++i )
-		s_lipSyncMap->Insert(lbuf[i].offset, lbuf[i].crc);
-	FS_FreeFile(buffer);
-
-	// Now load the actual lip sync data
-	len = FS_ReadFile(va("lipdata%s.dat", langSuffix), &buffer);
-	if( len == -1 )
-		Com_Error(ERR_DROP, "ERROR: No lip sync data file\n");
-
-	Z_PushNewDeleteTag( TAG_LIPSYNC );
-	s_lipSyncData = new char[len];
-	Z_PopNewDeleteTag();
-
-	memcpy(s_lipSyncData, buffer, len);
-	FS_FreeFile(buffer);
-#ifdef _XBOX
-	s_xboxLipDataLoaded = qtrue;
-	Com_Printf("JA: Xbox real audio lip sync loaded entries=%d bytes=%d\n", numLipFiles, len);
-#endif
+	S_LoadLipSyncTables();
 }
 
 // only called from snd_restart. QA request...
@@ -607,18 +590,99 @@ void S_SetVolume(float volume)
 S_FixMusicFileExtension
 ==================
 */
+#ifdef _XBOX
+static qboolean S_XboxMusicCandidateExists(const char *name)
+{
+	fileHandle_t handle = 0;
+	int len = FS_FOpenFileRead(name, &handle, qtrue);
+	if (handle)
+	{
+		FS_FCloseFile(handle);
+		return len > 0 ? qtrue : qfalse;
+	}
+
+	return qfalse;
+}
+
+static qboolean S_XboxMusicNameHasExtension(const char *name)
+{
+	const char *slash = strrchr(name, '/');
+	const char *backslash = strrchr(name, '\\');
+	const char *dot = strrchr(name, '.');
+	const char *lastSep = slash > backslash ? slash : backslash;
+	return (dot && (!lastSep || dot > lastSep)) ? qtrue : qfalse;
+}
+
+static qboolean S_XboxMusicNameIsMP3(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	return (dot && !Q_stricmp(dot, ".mp3")) ? qtrue : qfalse;
+}
+
+static void S_XboxMusicSetExtension(char *out, int outSize, const char *name, const char *ext)
+{
+	Q_strncpyz(out, name, outSize);
+	if (S_XboxMusicNameHasExtension(out))
+	{
+		char stripped[MAX_QPATH];
+		COM_StripExtension(out, stripped);
+		Q_strncpyz(out, stripped, outSize);
+	}
+	Q_strcat(out, outSize, ".");
+	Q_strcat(out, outSize, ext);
+}
+#endif
+
 char* S_FixMusicFileName(const char* name)
 {
 	static char xname[MAX_QPATH];
 
 #if defined(_XBOX)
-	const char* ext = "wxb";
+	if (!name || !name[0])
+	{
+		xname[0] = 0;
+		return xname;
+	}
+
+	Q_strncpyz(xname, name, sizeof(xname));
+	for (int i = 0; xname[i]; ++i)
+	{
+		if (xname[i] == '\\')
+		{
+			xname[i] = '/';
+		}
+	}
+
+	if (S_XboxMusicNameHasExtension(xname) && S_XboxMusicCandidateExists(xname))
+	{
+		return xname;
+	}
+
+	char mp3Name[MAX_QPATH];
+	S_XboxMusicSetExtension(mp3Name, sizeof(mp3Name), xname, "mp3");
+	if (S_XboxMusicCandidateExists(mp3Name))
+	{
+		Q_strncpyz(xname, mp3Name, sizeof(xname));
+		static int s_xboxMusicMP3LogCount = 0;
+		if (s_xboxMusicMP3LogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox music resolved MP3 '%s'\n", xname);
+			s_xboxMusicMP3LogCount++;
+		}
+		return xname;
+	}
+
+	char wxbName[MAX_QPATH];
+	S_XboxMusicSetExtension(wxbName, sizeof(wxbName), xname, "wxb");
+	Q_strncpyz(xname, wxbName, sizeof(xname));
+	return xname;
 #elif defined(_WINDOWS)
 	const char* ext = "wav";
 #elif defined(_GAMECUBE)
 	const char* ext = "adp";
 #endif
 
+#if !defined(_XBOX)
 	Q_strncpyz(xname, name, sizeof(xname));
 	if (xname[strlen(xname) - 4] != '.')
 	{
@@ -632,6 +696,7 @@ char* S_FixMusicFileName(const char* name)
 		xname[len-2] = ext[1];
 		xname[len-1] = ext[2];
 	}
+#endif
 
 #ifdef _GAMECUBE
 	if (!strncmp("music/", xname, 6) ||
@@ -2331,6 +2396,27 @@ void _UpdateLipSyncData( channel_t*	ch)
 }
 
 #ifdef _XBOX
+static int S_XboxFallbackVoiceVolume(const channel_t *ch, int now)
+{
+	static const int pattern[] = { 1, 2, 4, 3, 2, 1, 3, 4 };
+	int elapsed;
+	int frame;
+
+	if ( !ch )
+	{
+		return -1;
+	}
+
+	elapsed = now - (int)ch->iLastPlayTime;
+	if ( elapsed < 0 )
+	{
+		elapsed = 0;
+	}
+
+	frame = ( elapsed / 90 ) % ( sizeof( pattern ) / sizeof( pattern[0] ) );
+	return pattern[frame];
+}
+
 static void S_XboxUpdateSilentVoiceVolumes(void)
 {
 	if (!s_entityWavVol || !s_channels)
@@ -2376,7 +2462,7 @@ static void S_XboxUpdateSilentVoiceVolumes(void)
 				ch->thesfx = NULL;
 				continue;
 			}
-			s_entityWavVol[ch->entnum] = 4;
+			s_entityWavVol[ch->entnum] = S_XboxFallbackVoiceVolume(ch, now);
 		}
 
 		if (s_xboxSilentVoiceUpdatesLogged < 48)
@@ -2422,14 +2508,32 @@ void S_Update_(void)
 			ch->entchannel == CHAN_VOICE_ATTEN || 
 			ch->entchannel == CHAN_VOICE_GLOBAL )
 		{
-			//s_entityWavVol[ch->entnum] = ch->bPlaying ? 4 : -1;
-			if(ch->bPlaying)
+			if ( ch->entnum >= 0 && ch->entnum < MAX_GENTITIES )
 			{
-				_UpdateLipSyncData(ch);
-			}
-			else
-			{
-				s_entityWavVol[ch->entnum] = -1;
+				if(ch->bPlaying)
+				{
+					if ( ch->thesfx->pLipSyncData )
+					{
+						_UpdateLipSyncData(ch);
+					}
+#ifdef _XBOX
+					else
+					{
+						s_entityWavVol[ch->entnum] = S_XboxFallbackVoiceVolume(ch, Sys_Milliseconds());
+						if (s_xboxSilentVoiceUpdatesLogged < 96)
+						{
+							Com_Printf("STEFX: Xbox voice fallback lip ent=%d chan=%d vol=%d sound='%s'\n",
+								ch->entnum, ch->entchannel, s_entityWavVol[ch->entnum],
+								ch->thesfx ? va("code=0x%08x", ch->thesfx->iFileCode) : "<null>");
+							s_xboxSilentVoiceUpdatesLogged++;
+						}
+					}
+#endif
+				}
+				else
+				{
+					s_entityWavVol[ch->entnum] = -1;
+				}
 			}
 
 		}
@@ -2611,7 +2715,54 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 		return qfalse;
 	}
 	
+#if defined(_XBOX)
+	if (S_XboxMusicNameIsMP3(name))
+	{
+		FS_FCloseFile(handle);
+
+		void *mp3Data = NULL;
+		int mp3Len = FS_ReadFile(name, &mp3Data);
+		if (mp3Len <= 0 || !mp3Data)
+		{
+			Com_Printf(S_COLOR_YELLOW "WARNING: couldn't read MP3 music file %s\n", name);
+			S_StopBackgroundTrack_Actual(pMusicInfo);
+			return qfalse;
+		}
+
+		int unpackedBytes = 0;
+		int rate = 0;
+		int widthBytes = 0;
+		int channels = 0;
+		WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
+		char *headerError = C_MP3_GetHeaderData(mp3Data, mp3Len, &rate, &widthBytes, &channels, qtrue);
+		char *sizeError = C_MP3_GetUnpackedSize(mp3Data, mp3Len, &unpackedBytes, qtrue);
+		ReleaseMutex(Sys_FileStreamMutex);
+		FS_FreeFile(mp3Data);
+
+		if (headerError || sizeError || unpackedBytes <= 0 || rate <= 0 || widthBytes <= 0 || channels <= 0)
+		{
+			Com_Printf(S_COLOR_YELLOW "WARNING: Invalid MP3 music %s header='%s' size='%s'\n",
+				name, headerError ? headerError : "<ok>", sizeError ? sizeError : "<ok>");
+			S_StopBackgroundTrack_Actual(pMusicInfo);
+			return qfalse;
+		}
+
+		pMusicInfo->s_backgroundSize = unpackedBytes;
+		pMusicInfo->s_backgroundBPS = rate * widthBytes * channels;
+		pMusicInfo->iFileCode = Sys_GetSoundFileCode(name);
+
+		static int s_xboxMusicLoadLogCount = 0;
+		if (s_xboxMusicLoadLogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox MP3 music loaded '%s' compressed=%d pcm=%d rate=%d width=%d channels=%d code=0x%x\n",
+				name, mp3Len, unpackedBytes, rate, widthBytes, channels, pMusicInfo->iFileCode);
+			s_xboxMusicLoadLogCount++;
+		}
+	}
+	else
+#endif
 #if defined(_XBOX) || defined(_WINDOWS)
+	{
 	// read enough of the file to get the header...
 	byte buffer[128];
 	FS_Read(buffer, sizeof(buffer), handle);
@@ -2630,14 +2781,16 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	{
 		pMusicInfo->s_backgroundBPS <<= 1;
 	}
+	pMusicInfo->iFileCode = Sys_GetFileCode(name);
+	}
 #elif defined(_GAMECUBE)
 	FS_FCloseFile( handle );
 	pMusicInfo->s_backgroundSize = len;
 	pMusicInfo->s_backgroundBPS = 48000 * 4 / 8 * 2;
+	pMusicInfo->iFileCode = Sys_GetFileCode(name);
 #endif
 	
 	Q_strncpyz(pMusicInfo->sLoadedDataName, intro, sizeof(pMusicInfo->sLoadedDataName));
-	pMusicInfo->iFileCode = Sys_GetFileCode(name);
 	pMusicInfo->bLoaded = true;
 	
 	return qtrue;
@@ -2879,7 +3032,11 @@ void S_StartBackgroundTrack( const char *intro, const char *loop, qboolean bCall
 	char sName[MAX_QPATH];
 	Q_strncpyz(sName,intro,sizeof(sName));
 
+#ifdef _XBOX
+	COM_DefaultExtension( sName, sizeof( sName ), ".mp3" );
+#else
 	COM_DefaultExtension( sName, sizeof( sName ), ".wxb" );
+#endif
 
 	// if dynamic music not allowed, then just stream the explore music instead of playing dynamic...
 	//

@@ -709,7 +709,7 @@ static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
 	if (gi.Cvar_VariableIntegerValue("stefx_smoke_stage_enemy") &&
 		s_stefxSmokeStageAimEnt > 0 &&
 		s_stefxSmokeStageAimEnt < globals.num_entities &&
-		level.time - s_stefxSmokeStageAimTime <= 1500)
+		level.time - s_stefxSmokeStageAimTime <= 45000)
 	{
 		gentity_t *target = &g_entities[s_stefxSmokeStageAimEnt];
 		vec3_t targetPoint;

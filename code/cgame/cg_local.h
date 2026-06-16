@@ -614,6 +614,11 @@ extern	vmCvar_t		cg_stereoSeparation;
 extern	vmCvar_t		cg_developer;
 extern	vmCvar_t		cg_timescale;
 extern	vmCvar_t		cg_skippingcin;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern	vmCvar_t		cg_stefxSmokeUnlockPlayer;
+extern	vmCvar_t		cg_stefxSmokeInput;
+extern	vmCvar_t		cg_stefxSmokeInputStart;
+#endif
 
 extern	vmCvar_t		cg_pano;
 extern	vmCvar_t		cg_panoNumShots;

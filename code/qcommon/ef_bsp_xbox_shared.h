@@ -137,6 +137,46 @@ typedef struct
 	efbspHeader_t *header;
 } efbspFile_t;
 
+extern qboolean FS_PK3PatchFileExists( const char *filename );
+
+static qboolean EFBSP_BuildXboxPatchName(const char *name, char *out, int outSize)
+{
+	const char *prefix = "maps/";
+	const char *ext;
+	const char *base;
+	int baseLen;
+
+	if (!name || !out || outSize <= 0)
+	{
+		return qfalse;
+	}
+	if (Q_stricmpn(name, prefix, 5))
+	{
+		return qfalse;
+	}
+
+	ext = strrchr(name, '.');
+	if (!ext || Q_stricmp(ext, ".bsp"))
+	{
+		return qfalse;
+	}
+
+	base = name + 5;
+	if (strchr(base, '/') || strchr(base, '\\'))
+	{
+		return qfalse;
+	}
+
+	baseLen = (int)(ext - base);
+	if (baseLen <= 0 || baseLen >= 48)
+	{
+		return qfalse;
+	}
+
+	Com_sprintf(out, outSize, "maps/xbox/%.*s.bsp", baseLen, base);
+	return qtrue;
+}
+
 static void *EFBSP_AllocTemp(int size)
 {
 	if (size <= 0)
@@ -156,10 +196,30 @@ static void EFBSP_FreeTemp(void *data)
 
 static qboolean EFBSP_LoadFile(const char *name, efbspFile_t *bsp)
 {
+	char patchName[MAX_QPATH];
+	const char *loadName;
+
 	memset(bsp, 0, sizeof(*bsp));
-	bsp->len = FS_ReadFile(name, (void **)&bsp->data);
+	loadName = name;
+	if (EFBSP_BuildXboxPatchName(name, patchName, sizeof(patchName)) && FS_PK3PatchFileExists(patchName))
+	{
+		Com_Printf("STEFX: EF BSP using Xbox patch '%s' for '%s'\n", patchName, name);
+		loadName = patchName;
+	}
+
+	bsp->len = FS_ReadFile(loadName, (void **)&bsp->data);
 	if (bsp->len <= 0 || !bsp->data)
 	{
+		if (loadName != name)
+		{
+			Com_Printf("STEFX: EF BSP patch read failed '%s'; falling back to '%s'\n", loadName, name);
+			bsp->len = FS_ReadFile(name, (void **)&bsp->data);
+			if (bsp->len > 0 && bsp->data)
+			{
+				bsp->header = (efbspHeader_t *)bsp->data;
+				return qtrue;
+			}
+		}
 		memset(bsp, 0, sizeof(*bsp));
 		return qfalse;
 	}

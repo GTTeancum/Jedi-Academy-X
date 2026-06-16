@@ -5,6 +5,7 @@
 #include "Q3_Interface.h"
 #include "g_local.h"
 #include "g_functions.h"
+#include "../win32/xb_log.h"
 extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
 
 //==========================================================
@@ -384,7 +385,10 @@ INACTIVE  Can't be used until activated
 */
 void target_relay_use_go (gentity_t *self ) 
 {
-	G_ActivateBehavior( self, BSET_USE );
+	if ( self->behaviorSet[BSET_USE] )
+	{
+		G_ActivateBehavior( self, BSET_USE );
+	}
 	
 	if ( self->spawnflags & 4 ) 
 	{
@@ -403,6 +407,21 @@ void target_relay_use_go (gentity_t *self )
 
 void target_relay_use (gentity_t *self, gentity_t *other, gentity_t *activator) 
 {
+#ifdef _XBOX
+	XBLF("STEFX: target_relay_use enter ent=%d targetname='%s' target='%s' other=%d otherClass='%s' activator=%d activatorClass='%s' delay=%d wait=%d flags=0x%x time=%d",
+		self ? self->s.number : -1,
+		self && self->targetname ? self->targetname : "",
+		self && self->target ? self->target : "",
+		other ? other->s.number : -1,
+		other && other->classname ? other->classname : "",
+		activator ? activator->s.number : -1,
+		activator && activator->classname ? activator->classname : "",
+		self ? self->delay : 0,
+		self ? self->wait : 0,
+		self ? self->spawnflags : 0,
+		level.time);
+#endif
+
 	if ( ( self->spawnflags & 1 ) && activator->client ) 
 	{//&& activator->client->ps.persistant[PERS_TEAM] != TEAM_RED ) {
 		return;
@@ -437,6 +456,9 @@ void target_relay_use (gentity_t *self, gentity_t *other, gentity_t *activator)
 
 	if ( self->wait < 0 )
 	{
+#ifdef _XBOX
+		XBLF("STEFX: target_relay_use disabling one-shot ent=%d targetname='%s'", self->s.number, self->targetname ? self->targetname : "");
+#endif
 		self->e_UseFunc = useF_NULL;
 	}
 	else
@@ -1186,13 +1208,41 @@ extern bool allowNormalAutosave;
 void target_autosave_use(gentity_t *self, gentity_t *other, gentity_t *activator)
 {
 	if(!allowNormalAutosave)
+	{
+#ifdef _XBOX
+		XBLF("STEFX: target_autosave_use blocked allowNormalAutosave=0 ent=%d targetname='%s' activator=%d time=%d",
+			self ? self->s.number : -1,
+			self && self->targetname ? self->targetname : "",
+			activator ? activator->s.number : -1,
+			level.time);
+#endif
 		return;
+	}
 
-	G_ActivateBehavior(self,BSET_USE);
-	//gi.SendServerCommand( NULL, "cp @SP_INGAME_CHECKPOINT" );
+#ifdef _XBOX
+	XBLF("STEFX: target_autosave_use enter ent=%d targetname='%s' other=%d otherClass='%s' activator=%d activatorClass='%s' time=%d -- Xbox checkpoint save skipped",
+		self ? self->s.number : -1,
+		self && self->targetname ? self->targetname : "",
+		other ? other->s.number : -1,
+		other && other->classname ? other->classname : "",
+		activator ? activator->s.number : -1,
+		activator && activator->classname ? activator->classname : "",
+		level.time);
+#endif
+
+	if (self->behaviorSet[BSET_USE])
+	{
+		G_ActivateBehavior(self,BSET_USE);
+	}
 	CG_CenterPrint( "@SP_INGAME_CHECKPOINT", SCREEN_HEIGHT * 0.25 );	//jump the network
 
-	gi.SendConsoleCommand( "wait 2;save auto\n" );
+#ifdef _XBOX
+	// Savegame writing is still PC/XDK-era blocking code in this port and can hard-freeze
+	// retail/Cxbx during borg1 checkpoints. Keep gameplay moving until saves are ported.
+	XBLF("STEFX: target_autosave_use exit ent=%d checkpoint message shown; disk save suppressed", self ? self->s.number : -1);
+#else
+	gi.SendConsoleCommand( "save auto*\n" );
+#endif
 }
 
 /*QUAKED target_autosave (1 0 0) (-4 -4 -4) (4 4 4)

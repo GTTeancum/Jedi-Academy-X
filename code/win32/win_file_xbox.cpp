@@ -49,6 +49,8 @@ static bool WF_ShouldTracePath(const char* name)
 	}
 
 	return strstr(name, ".mdr") || strstr(name, ".md3") || strstr(name, ".tik") ||
+		strstr(name, "\\sound\\") || strstr(name, "/sound/") ||
+		strstr(name, "sound\\") || strstr(name, "sound/") ||
 		strstr(name, "textures\\borg\\") || strstr(name, "textures/borg/") ||
 		strstr(name, "textures\\detail\\") || strstr(name, "textures/detail/") ||
 		strstr(name, "real_scripts\\") || strstr(name, "real_scripts/");
@@ -82,6 +84,8 @@ typedef struct { union { long Status; void *Pointer; }; unsigned long Informatio
 extern "C" long __stdcall NtCreateFile(HANDLE*, unsigned long, WF_NT_OA*, WF_NT_IOSB*,
 	LARGE_INTEGER*, unsigned long, unsigned long, unsigned long, unsigned long);
 extern "C" long __stdcall NtClose(HANDLE);
+extern "C" long __stdcall NtReadFile(HANDLE, HANDLE, void*, void*, WF_NT_IOSB*,
+	void*, unsigned long, LARGE_INTEGER*);
 
 static const char *WF_NtDrivePrefix(const char *name, int variant)
 {
@@ -319,6 +323,8 @@ int WF_Open(const char* name, bool read, bool aligned)
 		XBLog_Write(va("STEFX: WF_Open CreateFile failed slot=%d used=%d/%d aligned=%d err=%lu name='%s'", handle, WF_CountUsedHandles(), WF_MAX_OPEN_FILES, aligned ? 1 : 0, err, name ? name : "(null)"));
 	}
 	if (read && (strstr(name, ".mdr") || strstr(name, ".md3") || strstr(name, ".tik") ||
+		strstr(name, "\\sound\\") || strstr(name, "/sound/") ||
+		strstr(name, "sound\\") || strstr(name, "sound/") ||
 		strstr(name, ".IBI") || strstr(name, ".ibi") ||
 		strstr(name, ".pre") || strstr(name, ".PRE") ||
 		strstr(name, ".rof") || strstr(name, ".ROF")) &&
@@ -357,7 +363,33 @@ int WF_Read(void* buffer, int len, wfhandle_t handle)
 	assert(handle >= 0 && handle < WF_MAX_OPEN_FILES && 
 		s_FileTable[handle].m_bUsed);
 
-	DWORD bytes;
+	DWORD bytes = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (s_FileTable[handle].m_bNtHandle)
+	{
+		WF_NT_IOSB iosb;
+		long status = NtReadFile(s_FileTable[handle].m_Handle, NULL, NULL, NULL,
+			&iosb, buffer, len, NULL);
+		if (status < 0)
+		{
+			bytes = 0;
+			if (s_FileTable[handle].m_bErrorsFatal)
+			{
+#if defined(FINAL_BUILD)
+				extern void ERR_DiscFail(bool);
+				ERR_DiscFail(false);
+#else
+				assert(0);
+#endif
+			}
+		}
+		else
+		{
+			bytes = iosb.Information;
+		}
+		return bytes;
+	}
+#endif
 	if (!ReadFile(s_FileTable[handle].m_Handle, buffer, len, &bytes, 0) &&
 		s_FileTable[handle].m_bErrorsFatal)
 	{
@@ -395,7 +427,7 @@ int WF_Seek(int offset, int origin, wfhandle_t handle)
 	default: assert(false);
 	}
 
-	return SetFilePointer(s_FileTable[handle].m_Handle, offset, 0, origin) < 0;
+	return SetFilePointer(s_FileTable[handle].m_Handle, offset, 0, origin);
 }
 
 int WF_Tell(wfhandle_t handle)

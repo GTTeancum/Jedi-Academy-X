@@ -596,15 +596,23 @@ static void Upload32( const char *debugName, unsigned *data,
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		{
-			const int maxUploadSize = 128;
+			int maxUploadSize = 128;
 			int oldWidth = width;
 			int oldHeight = height;
 			static qboolean s_loggedStefxUploadCaps = qfalse;
 
+			if (!isLightmap &&
+				debugName &&
+				(strstr(debugName, "models/players/") || strstr(debugName, "models\\players\\")))
+			{
+				maxUploadSize = 64;
+			}
+
 			if (!s_loggedStefxUploadCaps)
 			{
-				XBLF("STEFX: Upload32 Xbox caps nonlightmap=%d lightmap=%d",
+				XBLF("STEFX: Upload32 Xbox caps nonlightmap=%d player=%d lightmap=%d",
 					128,
+					64,
 					128);
 				s_loggedStefxUploadCaps = qtrue;
 			}
@@ -1767,6 +1775,10 @@ Loads any of the supported image types into a cannonical
 32 bit format.
 =================
 */
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean FS_PK3PatchFileExists( const char *filename );
+#endif
+
 void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format ) {
 	char	name[MAX_QPATH];
 	int		i;
@@ -1788,8 +1800,10 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 	}
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	// Elite Force retail assets are overwhelmingly JPG/TGA.  A missing DDS
-	// CreateFile is expensive under CXBX, so only probe DDS when explicitly asked.
+	// Elite Force retail assets are overwhelmingly JPG/TGA.  A missing loose DDS
+	// CreateFile is expensive under CXBX, so automatic DDS substitution is gated
+	// by the loaded patch PK3 index.  Explicit .dds requests still use the normal
+	// filesystem path and therefore preserve loose-file priority.
 	const char *inputExt = strrchr(name, '.');
 	qboolean explicitDDS = (inputExt && !Q_stricmp(inputExt, ".dds"));
 	if (explicitDDS)
@@ -1799,6 +1813,29 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 		LoadDDS( name, pic, width, height, mipcount, format );
 		if( *pic )
 			return;
+	}
+	else
+	{
+		char ddsName[MAX_QPATH];
+		Q_strncpyz(ddsName, name, sizeof(ddsName));
+		COM_StripExtension(ddsName, ddsName);
+		COM_DefaultExtension(ddsName, sizeof(ddsName), ".dds");
+		if (FS_PK3PatchFileExists(ddsName))
+		{
+			LoadDDS(ddsName, pic, width, height, mipcount, format);
+			if (*pic)
+			{
+				static int s_xboxDDSPatchLoadLogCount = 0;
+				if (s_xboxDDSPatchLoadLogCount < 256 || (s_xboxDDSPatchLoadLogCount % 64) == 0)
+				{
+					XBLF("STEFX: R_LoadImage DDS patch '%s' %dx%d mips=%d fmt=0x%04x",
+						ddsName, *width, *height, *mipcount, *format);
+				}
+				++s_xboxDDSPatchLoadLogCount;
+				return;
+			}
+			XBLF("STEFX: R_LoadImage DDS patch listed but failed '%s'", ddsName);
+		}
 	}
 
 	COM_StripExtension(name, name);
@@ -2882,6 +2919,166 @@ bool RE_SplitSkins(const char *INname, char *skinhead, char *skintorso, char *sk
 
 
 qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin);
+
+#ifdef STEFX_ELITE_FORCE_SP
+#define STEFX_HEAD_SKIN_EXTENSION_FRAMES 8
+
+static qboolean RE_STEFX_IsHeadSkinBase( const char *name )
+{
+	const char *fileName;
+	const char *slash;
+	const char *backslash;
+	const char *ext;
+	const char *dash;
+
+	if ( !name || !name[0] )
+	{
+		return qfalse;
+	}
+
+	slash = strrchr( name, '/' );
+	backslash = strrchr( name, '\\' );
+	if ( backslash && ( !slash || backslash > slash ) )
+	{
+		slash = backslash;
+	}
+	fileName = slash ? slash + 1 : name;
+
+	if ( Q_stricmpn( fileName, "head_", 5 ) )
+	{
+		return qfalse;
+	}
+
+	ext = strrchr( fileName, '.' );
+	if ( !ext || Q_stricmp( ext, ".skin" ) )
+	{
+		return qfalse;
+	}
+
+	dash = strrchr( fileName, '-' );
+	if ( dash && dash < ext && dash[1] >= '0' && dash[1] <= '9' )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static void RE_STEFX_BuildHeadSkinFrameName( const char *baseName, int frame, char *outName, int outSize )
+{
+	char withoutExtension[MAX_QPATH];
+
+	Q_strncpyz( withoutExtension, baseName, sizeof( withoutExtension ) );
+	COM_StripExtension( withoutExtension, withoutExtension );
+	Com_sprintf( outName, outSize, "%s-%d.skin", withoutExtension, frame );
+}
+
+static qboolean RE_STEFX_SkinFileExists( const char *name )
+{
+	void *buffer = NULL;
+	const int len = FS_ReadFile( name, &buffer );
+
+	if ( buffer )
+	{
+		FS_FreeFile( buffer );
+	}
+
+	return len > 0 ? qtrue : qfalse;
+}
+
+static qboolean RE_STEFX_SkinHasHeadExtensions( qhandle_t baseSkin, const char *baseName )
+{
+	int frame;
+
+	if ( !RE_STEFX_IsHeadSkinBase( baseName ) )
+	{
+		return qfalse;
+	}
+
+	for ( frame = 1; frame <= STEFX_HEAD_SKIN_EXTENSION_FRAMES; ++frame )
+	{
+		char frameName[MAX_QPATH];
+		const qhandle_t frameSkin = baseSkin + frame;
+
+		if ( frameSkin <= 0 || frameSkin >= tr.numSkins || !tr.skins[frameSkin] || tr.skins[frameSkin]->numSurfaces == 0 )
+		{
+			return qfalse;
+		}
+
+		RE_STEFX_BuildHeadSkinFrameName( baseName, frame, frameName, sizeof( frameName ) );
+		if ( Q_stricmp( tr.skins[frameSkin]->name, frameName ) )
+		{
+			return qfalse;
+		}
+	}
+
+	return qtrue;
+}
+
+static qboolean RE_STEFX_RegisterHeadSkinExtensions( qhandle_t baseSkin, const char *baseName )
+{
+	int frame;
+
+	if ( !RE_STEFX_IsHeadSkinBase( baseName ) )
+	{
+		return qfalse;
+	}
+
+	if ( tr.numSkins + STEFX_HEAD_SKIN_EXTENSION_FRAMES > MAX_SKINS )
+	{
+		VID_Printf( PRINT_WARNING, "WARNING: EF head skin extensions for '%s' would exceed MAX_SKINS\n", baseName );
+		return qfalse;
+	}
+
+	for ( frame = 1; frame <= STEFX_HEAD_SKIN_EXTENSION_FRAMES; ++frame )
+	{
+		char frameName[MAX_QPATH];
+		RE_STEFX_BuildHeadSkinFrameName( baseName, frame, frameName, sizeof( frameName ) );
+		if ( !RE_STEFX_SkinFileExists( frameName ) )
+		{
+#if defined(_XBOX)
+			static int s_stefxMissingHeadSkinLogBudget = 32;
+			if ( s_stefxMissingHeadSkinLogBudget > 0 )
+			{
+				XBLF( "STEFX: EF head skin extensions missing frame base='%s' frame='%s'", baseName, frameName );
+				--s_stefxMissingHeadSkinLogBudget;
+			}
+#endif
+			return qfalse;
+		}
+	}
+
+	for ( frame = 1; frame <= STEFX_HEAD_SKIN_EXTENSION_FRAMES; ++frame )
+	{
+		char frameName[MAX_QPATH];
+		qhandle_t frameSkin;
+
+		RE_STEFX_BuildHeadSkinFrameName( baseName, frame, frameName, sizeof( frameName ) );
+		frameSkin = RE_RegisterSkin( frameName );
+		if ( frameSkin != baseSkin + frame )
+		{
+			VID_Printf( PRINT_WARNING, "WARNING: EF head skin extension '%s' registered as %d, expected %d\n",
+				frameName, frameSkin, baseSkin + frame );
+			return qfalse;
+		}
+	}
+
+#if defined(_XBOX)
+	{
+		static int s_stefxHeadSkinExtensionLogBudget = 64;
+		if ( s_stefxHeadSkinExtensionLogBudget > 0 )
+		{
+			XBLF( "STEFX: EF head skin extensions registered base='%s' skin=%d frames=%d",
+				baseName, baseSkin, STEFX_HEAD_SKIN_EXTENSION_FRAMES );
+			--s_stefxHeadSkinExtensionLogBudget;
+		}
+	}
+#endif
+
+	return qtrue;
+}
+#endif
+
 /*
 ===============
 RE_RegisterSkin
@@ -2963,6 +3160,15 @@ qhandle_t RE_RegisterSkin( const char *name) {
 	{//single skin
 		hSkin = RE_RegisterIndividualSkin(name, hSkin);
 	}
+#ifdef STEFX_ELITE_FORCE_SP
+	/*
+	 * EF facial texture extension skins are valid PC behavior, but eager-loading
+	 * every head_* frame on Xbox can exhaust file/texture resources before NPC
+	 * bodies register. Keep the helpers compiled for a later lazy path; always
+	 * return the base skin handle here so Borg/Hirogen/etc. do not fall through
+	 * to the Munro fallback model set.
+	 */
+#endif
 	return(hSkin);
 }
 

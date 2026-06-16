@@ -573,6 +573,17 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 
 	if(IN_GetMainController() == controller )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!_UIRunning && button == A_JOY4 && cls.state == CA_ACTIVE)
+		{
+			if (pressed)
+			{
+				Com_PrintfAlways("STEFX: Start ignored in active gameplay; EF pause/menu path not yet enabled\n");
+			}
+			return;
+		}
+#endif
+
 		// Always map start button to ESCAPE
 		if (!_UIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
 			Sys_QueEvent( 0, SE_KEY, A_ESCAPE, pressed, 0, NULL );

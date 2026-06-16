@@ -406,6 +406,40 @@ function Apply-ProjectSourceOverrides {
             })
         }
 
+        # Elite Force ships most voice/effect assets as MP3.  The console
+        # sound loader decodes those to PCM at load time, so link Raven's
+        # existing MP3 decoder C sources into the executable.
+        foreach ($mp3Source in @(
+            "code\mp3code\cdct.c",
+            "code\mp3code\csbt.c",
+            "code\mp3code\csbtL3.c",
+            "code\mp3code\csbtb.c",
+            "code\mp3code\cup.c",
+            "code\mp3code\cupL1.c",
+            "code\mp3code\cupini.c",
+            "code\mp3code\cupl3.c",
+            "code\mp3code\cwin.c",
+            "code\mp3code\cwinb.c",
+            "code\mp3code\cwinm.c",
+            "code\mp3code\hwin.c",
+            "code\mp3code\l3dq.c",
+            "code\mp3code\l3init.c",
+            "code\mp3code\mdct.c",
+            "code\mp3code\mhead.c",
+            "code\mp3code\msis.c",
+            "code\mp3code\towave.c",
+            "code\mp3code\uph.c",
+            "code\mp3code\upsf.c",
+            "code\mp3code\wavep.c"
+        )) {
+            $filtered.Add([pscustomobject]@{
+                RelativePath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $mp3Source)).Substring($repoRoot.Length + 1)
+                FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue $mp3Source
+                Extension    = ".c"
+                Tool         = $null
+            })
+        }
+
         # Elite Force retail assets are mostly JPG/TGA.  The inherited Xbox
         # project only carried the JPEG headers, so inject the existing
         # renderer wrapper and libjpeg sources for SP material loading.
@@ -1387,6 +1421,50 @@ function Remove-EFLegacyGobArtifacts {
     Write-Host "Elite Force assets use loose files and PK3 archives; no GOB generated."
 }
 
+function Update-EFXboxPatchPk3 {
+    param(
+        [string]$BaseEfDir
+    )
+
+    $patchScript = Join-Path $repoRoot "scripts\build_xbox_patch_pk3.py"
+    if (-not (Test-Path -LiteralPath $patchScript -PathType Leaf)) {
+        Write-Warning "Missing EF Xbox patch PK3 builder: $patchScript"
+        return
+    }
+
+    $outputPk3 = Join-Path $BaseEfDir "xbox0.pk3"
+    Invoke-External -Exe $pythonExe -Arguments @(
+        $patchScript,
+        "--base-dir", $BaseEfDir,
+        "--output", $outputPk3,
+        "--map", "borg1",
+        "--texture-mode", "borg1",
+        "--max-texture-size", "128",
+        "--max-player-texture-size", "64",
+        "--max-hud-texture-size", "128",
+        "--max-loadscreen-texture-size", "128"
+    ) -WorkingDirectory $repoRoot
+}
+
+function Update-EFXboxSoundBank {
+    param(
+        [string]$BaseEfDir
+    )
+
+    $soundBankScript = Join-Path $repoRoot "scripts\build_xbox_soundbank.py"
+    if (-not (Test-Path -LiteralPath $soundBankScript -PathType Leaf)) {
+        Write-Warning "Missing EF Xbox soundbank builder: $soundBankScript"
+        return
+    }
+
+    Invoke-External -Exe $pythonExe -Arguments @(
+        $soundBankScript,
+        "--base-dir", $BaseEfDir,
+        "--encoding", "xbadpcm",
+        "--encoder", "C:\XDK\xbox\bin\xbadpcmencode.exe"
+    ) -WorkingDirectory $repoRoot
+}
+
 function Update-EFConsoleAssetLists {
     $baseEfDir = Join-Path $repoReleaseDir "BaseEF"
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
@@ -1394,6 +1472,8 @@ function Update-EFConsoleAssetLists {
     Copy-EFModelAlias -BaseEfDir $baseEfDir -SourceRelative "models\players\crewthin\lower.mdr" -AliasRelative "models\xbox_alias\crewthin_lower.mdr"
     Copy-EFModelAlias -BaseEfDir $baseEfDir -SourceRelative "models\players\crewthin\upper.mdr" -AliasRelative "models\xbox_alias\crewthin_upper.mdr"
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir
+    Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader"
 
     $fileCodeCache = Join-Path $repoReleaseDir "xbx_filelist"

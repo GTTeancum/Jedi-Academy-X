@@ -304,6 +304,11 @@ vmCvar_t	cg_stereoSeparation;
 vmCvar_t 	cg_developer;
 vmCvar_t 	cg_timescale;
 vmCvar_t	cg_skippingcin;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+vmCvar_t	cg_stefxSmokeUnlockPlayer;
+vmCvar_t	cg_stefxSmokeInput;
+vmCvar_t	cg_stefxSmokeInputStart;
+#endif
 
 vmCvar_t	cg_pano;
 vmCvar_t	cg_panoNumShots;
@@ -423,6 +428,11 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_developer, "developer", "", 0 }, 
 	{ &cg_timescale, "timescale", "1", 0 }, 	
 	{ &cg_skippingcin, "skippingCinematic", "0", CVAR_ROM},
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{ &cg_stefxSmokeUnlockPlayer, "stefx_smoke_unlock_player", "0", CVAR_TEMP },
+	{ &cg_stefxSmokeInput, "stefx_smoke_input", "0", CVAR_TEMP },
+	{ &cg_stefxSmokeInputStart, "stefx_smoke_input_start", "71000", CVAR_TEMP },
+#endif
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "10000", 0  },
 	{ &cg_hudFiles, "cg_hudFiles", "ui/jahud.txt", CVAR_ARCHIVE},
 
@@ -1026,6 +1036,19 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	{
 		Com_sprintf( hfilename, sizeof( hfilename ), "models/players/%s/head_%s.skin", headModelName, headSkinName );
 		ci->headSkin = cgi_R_RegisterSkin( hfilename );
+		if ( ci->headSkin < 0 )
+		{
+			ci->extensions = qtrue;
+			ci->headSkin = -ci->headSkin;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			Com_Printf( "STEFX: EF head skin extensions active model='%s' skin='%s' base=%d\n",
+				headModelName, headSkinName, ci->headSkin );
+#endif
+		}
+		else
+		{
+			ci->extensions = qfalse;
+		}
 
 		if ( !ci->headSkin )
 		{
@@ -2496,6 +2519,10 @@ void CG_Init( int serverCommandSequence ) {
 	cgs.media.loadTick		= cgi_R_RegisterShaderNoMip( "gfx/menus/newFront/GlowLoad" );
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init base shaders done");
+	{
+		qhandle_t introHandle = cgi_R_RegisterShaderNoMip( "textures/common/70yearjourney" );
+		XBLog_Write(va("STEFX: intro shader preload 'textures/common/70yearjourney' handle=%d", introHandle));
+	}
 #endif
 //	cgs.media.loadTickCap	= cgi_R_RegisterShaderNoMip( "gfx/hud/load_tick_cap" );
 	

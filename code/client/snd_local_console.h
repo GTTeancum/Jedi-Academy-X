@@ -41,6 +41,9 @@ typedef struct {
 	int			width;
 	int			rate;
 	int			samples;
+	int			channels;
+	int			dataofs;
+	int			waveFormatTag;
 } wavinfo_t;
 
 extern wavinfo_t GetWavInfo(byte *data);

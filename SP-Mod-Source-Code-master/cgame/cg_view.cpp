@@ -5,6 +5,86 @@
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
 #define CG_XBOX_ACTIVE_LOG(msg) do { if (xboxDrawLog) XBLog_Write(msg); } while (0)
+extern void CM_SnapPVS(vec3_t origin, byte *buffer);
+extern qboolean player_locked;
+
+qboolean STEFX_XboxSuppressPlayerPresentation( void )
+{
+	const qboolean textOverlayActive =
+		(cg.scrollTextTime != 0
+		|| cg.captionTextTime != 0
+		|| cg.gameTextTime != 0
+		|| cg.gameNextTextTime > cg.time
+		|| cg.LCARSTextTime > cg.time) ? qtrue : qfalse;
+	return (in_camera || (player_locked && textOverlayActive)) ? qtrue : qfalse;
+}
+
+static qboolean STEFX_XboxSmokeHarnessPresent( void )
+{
+	static int s_smokeHarnessPresent = 0;
+	static int s_smokeHarnessMissLogCount = 0;
+	const char *paths[] = {
+		"D:\\ef_sp_commands.txt",
+		"E:\\ef_sp_commands.txt",
+		NULL
+	};
+	int i;
+
+	if ( s_smokeHarnessPresent )
+	{
+		return qtrue;
+	}
+
+	for ( i = 0; paths[i]; ++i )
+	{
+		FILE *f = fopen( paths[i], "r" );
+		if ( f )
+		{
+			fclose( f );
+			s_smokeHarnessPresent = 1;
+			XBLF("STEFX: CG smoke harness file detected '%s'", paths[i]);
+			break;
+		}
+	}
+
+	if ( !s_smokeHarnessPresent && s_smokeHarnessMissLogCount < 4 )
+	{
+		XBLF("STEFX: CG smoke harness file not visible miss=%d unlockCvar=%d inputCvar=%d",
+			s_smokeHarnessMissLogCount,
+			cg_stefxSmokeUnlockPlayer.integer,
+			cg_stefxSmokeInput.integer);
+		++s_smokeHarnessMissLogCount;
+	}
+
+	return s_smokeHarnessPresent ? qtrue : qfalse;
+}
+
+static qboolean STEFX_XboxSmokeCameraUnlockActive( int serverTime )
+{
+	static int s_smokeCameraGateLogCount = 0;
+	const int startTime = cg_stefxSmokeInputStart.integer > 0 ? cg_stefxSmokeInputStart.integer : 71000;
+	const qboolean cvarRequested =
+		(cg_stefxSmokeUnlockPlayer.integer != 0 || cg_stefxSmokeInput.integer != 0) ? qtrue : qfalse;
+	const qboolean fileRequested = STEFX_XboxSmokeHarnessPresent();
+	const qboolean active = cvarRequested && fileRequested && serverTime >= startTime;
+
+	if ( in_camera
+		&& s_smokeCameraGateLogCount < 32
+		&& ( s_smokeCameraGateLogCount < 4 || serverTime >= startTime - 1000 ) )
+	{
+		XBLF("STEFX: CG smoke camera gate serverTime=%d start=%d active=%d unlockCvar=%d inputCvar=%d file=%d weapon=%d",
+			serverTime,
+			startTime,
+			active ? 1 : 0,
+			cg_stefxSmokeUnlockPlayer.integer,
+			cg_stefxSmokeInput.integer,
+			fileRequested ? 1 : 0,
+			cg.snap ? cg.snap->ps.weapon : -1);
+		++s_smokeCameraGateLogCount;
+	}
+
+	return active;
+}
 #endif
 
 float cg_zoomFov;
@@ -1037,6 +1117,24 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_PredictPlayerState();
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_PredictPlayerState");
 #ifdef _XBOX
+	if ( in_camera && STEFX_XboxSmokeCameraUnlockActive( serverTime ) )
+	{
+		static int s_stefxSmokeCameraDisableLogCount = 0;
+		if ( s_stefxSmokeCameraDisableLogCount < 16 )
+		{
+			XBLF("STEFX: CG smoke camera disable serverTime=%d start=%d cgTime=%d weapon=%d unlockCvar=%d inputCvar=%d",
+				serverTime,
+				cg_stefxSmokeInputStart.integer,
+				cg.time,
+				cg.snap ? cg.snap->ps.weapon : -1,
+				cg_stefxSmokeUnlockPlayer.integer,
+				cg_stefxSmokeInput.integer);
+			++s_stefxSmokeCameraDisableLogCount;
+		}
+		CGCam_Disable();
+	}
+#endif
+#ifdef _XBOX
 	if (xboxDrawLog)
 	{
 		XBLF("STEFX: cgame predict state time=%d predOrg=(%g,%g,%g) predView=(%g,%g,%g) snapOrg=(%g,%g,%g) snapView=(%g,%g,%g) weapon=%d health=%d viewheight=%d",
@@ -1102,7 +1200,40 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 
 	// Don't draw the in-view weapon when in camera mode
+#ifdef _XBOX
+	{
+		static int s_stefxViewWeaponDecisionLogCount = 0;
+		const qboolean stefxSuppressPlayerPresentation = STEFX_XboxSuppressPlayerPresentation();
+		if (s_stefxViewWeaponDecisionLogCount < 8 || (!in_camera && s_stefxViewWeaponDecisionLogCount < 96))
+		{
+			XBLF("STEFX: CG_ViewWeapon decision inCamera=%d playerLocked=%d suppress=%d pano=%d snapWeapon=%d predictedWeapon=%d third=%d drawGun=%d zoomed=%d testGun=%d scrollTime=%d captionTime=%d gameTextTime=%d gameTextUntil=%d lcarsUntil=%d",
+				in_camera ? 1 : 0,
+				player_locked ? 1 : 0,
+				stefxSuppressPlayerPresentation ? 1 : 0,
+				cg_pano.integer,
+				cg.snap ? cg.snap->ps.weapon : -1,
+				cg.predicted_player_state.weapon,
+				cg.renderingThirdPerson ? 1 : 0,
+				cg_drawGun.integer,
+				cg.zoomed ? 1 : 0,
+				cg.testGun ? 1 : 0,
+				cg.scrollTextTime,
+				cg.captionTextTime,
+				cg.gameTextTime,
+				cg.gameNextTextTime,
+				cg.LCARSTextTime);
+			if (s_stefxViewWeaponDecisionLogCount < 160)
+			{
+				++s_stefxViewWeaponDecisionLogCount;
+			}
+		}
+	}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !STEFX_XboxSuppressPlayerPresentation() && !cg_pano.integer )
+#else
 	if ( !in_camera && !cg_pano.integer )
+#endif
 	{
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_AddViewWeapon");
 		CG_AddViewWeapon( &cg.predicted_player_state );
@@ -1119,6 +1250,22 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before refdef finalize");
 	cg.refdef.time = cg.time;
 	memcpy( cg.refdef.areamask, cg.snap->areamask, sizeof( cg.refdef.areamask ) );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( in_camera )
+	{
+		static int s_stefxCameraPvsLogs = 0;
+		CM_SnapPVS( cg.refdef.vieworg, cg.refdef.areamask );
+		if ( s_stefxCameraPvsLogs < 12 )
+		{
+			XBLF("STEFX: CG camera SnapPVS time=%d view=(%g,%g,%g) rdflags=0x%x fov=(%g,%g)",
+				cg.time,
+				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
+				cg.refdef.rdflags,
+				cg.refdef.fov_x, cg.refdef.fov_y);
+			++s_stefxCameraPvsLogs;
+		}
+	}
+#endif
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after refdef finalize");
 
 	// update audio positions

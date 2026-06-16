@@ -8,6 +8,8 @@
 #include "..\game\speakers.h"
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
+extern qboolean STEFX_XboxSuppressPlayerPresentation( void );
+extern qboolean player_locked;
 #endif
 
 
@@ -2648,9 +2650,34 @@ static void CG_Draw2D( void )
 	centity_t *cent;
 #ifdef _XBOX
 	static int s_last2DLogTime = 0;
+	static int s_last2DSuppressedLogTime = 0;
+	static int s_hudProofLogBudget = 16;
+	qboolean stefxSuppressPlayerPresentation = STEFX_XboxSuppressPlayerPresentation();
 #endif
 
 	cent = &cg_entities[cg.snap->ps.clientNum];
+#ifdef _XBOX
+	if ( s_hudProofLogBudget > 0 && cg.time >= 2500 )
+	{
+		XBLF("STEFX: HUD Draw2D proof time=%d client=%d health=%d armor=%d weapon=%d inCamera=%d playerLocked=%d suppress=%d draw2D=%d status=%d scrollTime=%d captionTime=%d gameTextTime=%d gameTextUntil=%d lcarsUntil=%d",
+			cg.time,
+			cg.snap ? cg.snap->ps.clientNum : -1,
+			cg.snap ? cg.snap->ps.stats[STAT_HEALTH] : -999,
+			cg.snap ? cg.snap->ps.stats[STAT_ARMOR] : -999,
+			cg.snap ? cg.snap->ps.weapon : -1,
+			in_camera ? 1 : 0,
+			player_locked ? 1 : 0,
+			stefxSuppressPlayerPresentation ? 1 : 0,
+			cg_draw2D.integer,
+			cg_drawStatus.integer,
+			cg.scrollTextTime,
+			cg.captionTextTime,
+			cg.gameTextTime,
+			cg.gameNextTextTime,
+			cg.LCARSTextTime);
+		--s_hudProofLogBudget;
+	}
+#endif
 
 	// if we are taking a levelshot for the menu, don't draw anything
 	if ( cg.levelShot ) 
@@ -2733,6 +2760,25 @@ static void CG_Draw2D( void )
 	CG_DrawGameText();
 
 	CG_DrawLCARSText();
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxSuppressPlayerPresentation )
+	{
+		if ( STEFX_HUD_ShouldLogEvery( &s_last2DSuppressedLogTime, 1000 ) )
+		{
+			XBLF("STEFX: HUD Draw2D skipped reason=playerPresentationSuppressed time=%d inCamera=%d playerLocked=%d scrollTime=%d captionTime=%d gameTextTime=%d gameTextUntil=%d lcarsUntil=%d",
+				cg.time,
+				in_camera ? 1 : 0,
+				player_locked ? 1 : 0,
+				cg.scrollTextTime,
+				cg.captionTextTime,
+				cg.gameTextTime,
+				cg.gameNextTextTime,
+				cg.LCARSTextTime);
+		}
+		return;
+	}
+#endif
 
 	if ( in_camera )
 		return;

@@ -267,6 +267,24 @@ static const char *FakeGL_FindScreenshotRequestPath(void)
 	return NULL;
 }
 
+static void FakeGL_DeleteScreenshotRequests(void)
+{
+	int i;
+	static const char *paths[] =
+	{
+		"D:\\ef_sp_screenshot_request.txt",
+		"E:\\ef_sp_screenshot_request.txt",
+		"T:\\ef_sp_screenshot_request.txt",
+		"ef_sp_screenshot_request.txt",
+		NULL
+	};
+
+	for (i = 0; paths[i]; ++i)
+	{
+		DeleteFileA(paths[i]);
+	}
+}
+
 static bool FakeGL_ScreenshotRequested(void)
 {
 	return FakeGL_FindScreenshotRequestPath() != NULL;
@@ -613,9 +631,9 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	const char *requestPath = FakeGL_FindScreenshotRequestPath();
 	const char *outputPath = "D:\\ef_sp_backbuffer.bmp";
 	const char *ntOutputPath = "\\Device\\Harddisk0\\Partition1\\ef_sp_backbuffer.bmp";
-	static int s_rejectLogBudget = 16;
-	static int s_blankRetryLogBudget = 64;
-	static int s_requestSeenLogBudget = 16;
+	static int s_rejectLogBudget = 4;
+	static int s_blankRetryLogBudget = 4;
+	static int s_requestSeenLogBudget = 4;
 	DWORD visibleSamples = 0;
 	DWORD maxBrightness = 0;
 
@@ -639,7 +657,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	{
 		if (s_rejectLogBudget > 0)
 		{
-			XBLF("STEFX: renderer screenshot retry invalid label='%s' surf=%p data=%p size=%ux%u pitch=%u",
+			XBLF("STEFX: renderer screenshot invalid label='%s' surf=%p data=%p size=%ux%u pitch=%u",
 				label,
 				backBuffer,
 				backBuffer ? backBuffer->Data : NULL,
@@ -648,6 +666,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 				(unsigned int)pitch);
 			--s_rejectLogBudget;
 		}
+		FakeGL_DeleteScreenshotRequests();
 		return;
 	}
 
@@ -659,7 +678,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	{
 		if (s_rejectLogBudget > 0)
 		{
-			XBLF("STEFX: renderer screenshot retry bad pitch label='%s' pitch=%u width=%u bpp=%u fmt=0x%08x",
+			XBLF("STEFX: renderer screenshot bad pitch label='%s' pitch=%u width=%u bpp=%u fmt=0x%08x",
 				label,
 				(unsigned int)pitch,
 				(unsigned int)width,
@@ -667,14 +686,21 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 				(unsigned int)backBuffer->Format);
 			--s_rejectLogBudget;
 		}
+		FakeGL_DeleteScreenshotRequests();
 		return;
 	}
 
 	if (!FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness))
 	{
+		if (FakeGL_TryXGWriteFrontBuffer(device))
+		{
+			XBLF("STEFX: renderer screenshot XGWrite consumed blank CPU surface label='%s'", label);
+			FakeGL_DeleteScreenshotRequests();
+			return;
+		}
 		if (s_blankRetryLogBudget > 0)
 		{
-			XBLF("STEFX: renderer screenshot retry blank label='%s' visibleSamples=%u maxBrightness=%u size=%ux%u pitch=%u fmt=0x%08x",
+			XBLF("STEFX: renderer screenshot blank label='%s' visibleSamples=%u maxBrightness=%u size=%ux%u pitch=%u fmt=0x%08x",
 				label,
 				(unsigned int)visibleSamples,
 				(unsigned int)maxBrightness,
@@ -684,6 +710,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 				(unsigned int)backBuffer->Format);
 			--s_blankRetryLogBudget;
 		}
+		FakeGL_DeleteScreenshotRequests();
 		return;
 	}
 
@@ -790,13 +817,14 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 			(unsigned int)height,
 			(unsigned int)pitch,
 			(unsigned int)backBuffer->Format);
-		DeleteFileA(requestPath);
+		FakeGL_DeleteScreenshotRequests();
 	}
 	else
 	{
 		XBLF("STEFX: renderer screenshot write failed '%s'", outputPath);
 		FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
 		DeleteFileA(outputPath);
+		FakeGL_DeleteScreenshotRequests();
 	}
 }
 
@@ -5741,7 +5769,6 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 		{
 			XBLF("STEFX: renderer pre-present capture requested swap=%d screenshot=%d probe=%d",
 				s_xboxSwapLogCount, screenshotRequestedNow ? 1 : 0, stefxSwapProbe ? 1 : 0);
-			UpdateFramebufferTelemetry(false);
 		}
 		if (skipPresentForCxbx && s_cxbxPresentThrottleLogBudget > 0)
 		{

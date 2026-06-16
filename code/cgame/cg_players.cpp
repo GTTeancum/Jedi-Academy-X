@@ -5528,14 +5528,14 @@ static qboolean CG_G2PlayerHeadAnims( centity_t *cent )
 CG_PlayerHeadExtension
 -------------------------
 */
-/*
 int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 {
 	clientInfo_t	*ci = &cent->gent->client->clientInfo;;
+	int			voiceVolume = CG_GetVoiceVolumeForCent( cent );
 
 	// if we have facial texture extensions, go get the sound override and add it to the face skin
 	// if we aren't talking, then it will be 0
-	if (ci->extensions && (gi.VoiceVolume[cent->gent->s.clientNum] > 0))
+	if (ci->extensions && (voiceVolume > 0))
 	{//FIXME: When talking, look at talkTarget, if any
 		//ALSO: When talking, add a head bob/movement on syllables - when gi.VoiceVolume[] changes drastically
 	
@@ -5543,10 +5543,14 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 		{//Dead people close their eyes and don't make faces!  They also tell no tales...  BUM BUM BAHHHHHHH!
 			//Make them always blink and frown
 			head->customSkin = ci->headSkin + 3;
-			return qtrue;
+			goto logAndReturn;
 		}
 
-		head->customSkin = ci->headSkin + 4+gi.VoiceVolume[cent->gent->s.clientNum];
+		if ( voiceVolume > 4 )
+		{
+			voiceVolume = 4;
+		}
+		head->customSkin = ci->headSkin + 4 + voiceVolume;
 		//reset the frown and blink timers
 	}
 	else
@@ -5562,7 +5566,7 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 		{
 			//Make them always blink and frown
 			head->customSkin = ci->headSkin + 3;
-			return qtrue;
+			goto logAndReturn;
 		}
 
 		if (!cent->gent->client->facial_blink)
@@ -5604,7 +5608,7 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 		// now, if we aren't auxing - lets see if we should be blinking or frowning
 		if (!add_in)
 		{
-			if( gi.VoiceVolume[cent->gent->s.clientNum] == -1 )
+			if( voiceVolume == -1 )
 			{//then we're talking and don't want to use blinking normal frames, force open eyes.
 				add_in = 0;
 				// reset blink timer
@@ -5675,9 +5679,37 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 		head->customSkin = ci->headSkin;
 	}
 
+logAndReturn:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxHeadExtensionLogBudget = 96;
+		static int s_stefxLastHeadSkin[MAX_GENTITIES];
+		static qboolean s_stefxHeadExtensionLogInit = qfalse;
+		const int entNum = cent ? cent->currentState.number : -1;
+		if ( !s_stefxHeadExtensionLogInit )
+		{
+			memset( s_stefxLastHeadSkin, 0x7f, sizeof( s_stefxLastHeadSkin ) );
+			s_stefxHeadExtensionLogInit = qtrue;
+		}
+		if ( s_stefxHeadExtensionLogBudget > 0 &&
+			entNum >= 0 && entNum < MAX_GENTITIES &&
+			s_stefxLastHeadSkin[entNum] != head->customSkin )
+		{
+			XBLF( "STEFX: EF face skin ent=%d client=%d ext=%d voice=%d base=%d skin=%d health=%d",
+				entNum,
+				cent->gent ? cent->gent->s.clientNum : -1,
+				ci->extensions ? 1 : 0,
+				CG_GetVoiceVolumeForCent( cent ),
+				ci->headSkin,
+				head->customSkin,
+				cent->gent ? cent->gent->health : -999 );
+			s_stefxLastHeadSkin[entNum] = head->customSkin;
+			--s_stefxHeadExtensionLogBudget;
+		}
+	}
+#endif
 	return qtrue;
 }
-*/
 
 //--------------------------------------------------------------
 // CG_GetTagWorldPosition
@@ -9002,7 +9034,7 @@ Ghoul2 Insert End
 			orientation_t	tag_head;
 
 			//Deal with facial expressions
-			//CG_PlayerHeadExtension( cent, &head );
+			CG_PlayerHeadExtension( cent, &head );
 
 			VectorCopy( cent->lerpOrigin, head.lightingOrigin );
 
