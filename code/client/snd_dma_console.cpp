@@ -1537,8 +1537,8 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 			if (s_xboxSilentVoiceStartsLogged < 32)
 			{
 				int lipLength = sfx->pLipSyncData ? *(int*)sfx->pLipSyncData : 0;
-				Com_Printf("JA: Xbox silent voice start ent=%d chan=%d handle=%d lip=%d samples=%d\n",
-					entityNum, entchannel, sfxHandle, sfx->pLipSyncData ? 1 : 0, lipLength);
+				Com_Printf("JA: Xbox silent voice start ent=%d chan=%d handle=%d lip=%d samples=%d durationMs=%d\n",
+					entityNum, entchannel, sfxHandle, sfx->pLipSyncData ? 1 : 0, lipLength, sfx->iSoundDurationMs);
 				s_xboxSilentVoiceStartsLogged++;
 			}
 		}
@@ -2259,8 +2259,49 @@ static void UpdatePlayState(channel_t *ch)
 		// Single shot sound
 		ALint state;
 		alGetSourcei(ch->alSource, AL_SOURCE_STATE, &state);
+		if (ch->thesfx &&
+			(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+			 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+			 (ch->thesfx->iFlags & SFX_FLAG_VOICE)) &&
+			ch->thesfx->iSoundDurationMs > 0)
+		{
+			const int age = Sys_Milliseconds() - (int)ch->iLastPlayTime;
+			if (age >= ch->thesfx->iSoundDurationMs + 150)
+			{
+				static int s_xboxVoiceDurationStopsLogged = 0;
+				if (s_xboxVoiceDurationStopsLogged < 64)
+				{
+					Com_Printf("STEFX: Xbox voice duration stop ent=%d chan=%d code=0x%x age=%d duration=%d alState=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, age, ch->thesfx->iSoundDurationMs, state);
+					s_xboxVoiceDurationStopsLogged++;
+				}
+				alSourceStop(ch->alSource);
+				alSourcei(ch->alSource, AL_BUFFER, 0);
+				if (ch->entnum >= 0 && ch->entnum < MAX_GENTITIES)
+				{
+					s_entityWavVol[ch->entnum] = 0;
+				}
+				ch->thesfx = NULL;
+				ch->bPlaying = false;
+				return;
+			}
+		}
 		if (state == AL_STOPPED)
 		{
+			if (ch->thesfx &&
+				(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+				 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+				 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+			{
+				static int s_xboxVoiceAlStopsLogged = 0;
+				if (s_xboxVoiceAlStopsLogged < 64)
+				{
+					Com_Printf("STEFX: Xbox voice AL stopped ent=%d chan=%d code=0x%x age=%d duration=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode,
+						Sys_Milliseconds() - (int)ch->iLastPlayTime, ch->thesfx->iSoundDurationMs);
+					s_xboxVoiceAlStopsLogged++;
+				}
+			}
 			alSourcei(ch->alSource, AL_BUFFER, 0);
 			ch->thesfx = NULL;
 			ch->bPlaying = false;
@@ -2297,6 +2338,11 @@ static void UpdateAttenuation(channel_t *ch)
 
 static void PlaySingleShot(channel_t *ch)
 {
+	const qboolean isVoice = (ch && ch->thesfx &&
+		(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+		 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+		 (ch->thesfx->iFlags & SFX_FLAG_VOICE))) ? qtrue : qfalse;
+
 	alSourcei(ch->alSource, AL_LOOPING, AL_FALSE);
 	
 	UpdateAttenuation(ch);
@@ -2308,11 +2354,42 @@ static void PlaySingleShot(channel_t *ch)
 	// Clear error state, and check for successful Play call
 	alGetError();
 	alSourcePlay(ch->alSource);
-	if (alGetError() == AL_NO_ERROR)
+	ALenum playError = alGetError();
+	if (playError == AL_NO_ERROR)
 	{
 		ch->bPlaying = true;
 		ch->iLastPlayTime = Sys_Milliseconds();
+#ifdef _XBOX
+		if (isVoice)
+		{
+			static int s_xboxVoicePlayStartLogs = 0;
+			if (s_xboxVoicePlayStartLogs < 64)
+			{
+				Com_Printf("STEFX: Xbox voice play start ent=%d chan=%d code=0x%x duration=%d buffer=%d\n",
+					ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iSoundDurationMs, ch->thesfx->Buffer);
+				s_xboxVoicePlayStartLogs++;
+			}
+		}
+#endif
 	}
+#ifdef _XBOX
+	else if (isVoice)
+	{
+		static int s_xboxVoicePlayFailLogs = 0;
+		if (s_xboxVoicePlayFailLogs < 64)
+		{
+			Com_Printf("STEFX: Xbox voice play failed ent=%d chan=%d code=0x%x error=0x%x buffer=%d\n",
+				ch->entnum, ch->entchannel, ch->thesfx->iFileCode, playError, ch->thesfx->Buffer);
+			s_xboxVoicePlayFailLogs++;
+		}
+		if (ch->entnum >= 0 && ch->entnum < MAX_GENTITIES)
+		{
+			s_entityWavVol[ch->entnum] = 0;
+		}
+		ch->thesfx = NULL;
+		ch->bPlaying = false;
+	}
+#endif
 }
 
 #ifdef _XBOX
@@ -2576,8 +2653,16 @@ static void S_XboxUpdateSilentVoiceVolumes(void)
 		else
 		{
 			int elapsed = now - (int)ch->iLastPlayTime;
-			if (elapsed > 1200)
+			int duration = ch->thesfx->iSoundDurationMs > 0 ? ch->thesfx->iSoundDurationMs : 1200;
+			if (elapsed > duration + 150)
 			{
+				static int s_xboxSilentVoiceStopsLogged = 0;
+				if (s_xboxSilentVoiceStopsLogged < 64)
+				{
+					Com_Printf("STEFX: Xbox silent voice duration stop ent=%d chan=%d code=0x%x elapsed=%d duration=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, elapsed, duration);
+					s_xboxSilentVoiceStopsLogged++;
+				}
 				s_entityWavVol[ch->entnum] = 0;
 				ch->bPlaying = false;
 				ch->thesfx = NULL;

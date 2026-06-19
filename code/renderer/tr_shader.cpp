@@ -3625,6 +3625,8 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 		return tr.defaultShader;
 	}
 
+	COM_StripExtension( name, strippedName );
+
 	// use (fullbright) vertex lighting if the bsp file doesn't have
 	// lightmaps
 /*	if ( lightmapIndex[0] >= 0 && lightmapIndex[0] >= tr.numLightmaps ) {
@@ -3632,8 +3634,19 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	}
 */
 	lightmapIndex = R_FindLightmap(lightmapIndex);
-
-	COM_StripExtension( name, strippedName );
+	shaderText = FindShaderInShaderText( strippedName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !shaderText && lightmapIndex[0] >= 0 && strstr( strippedName, "sky" ) )
+	{
+		static int s_stefxImplicitSkyFullbrightBudget = 24;
+		if ( s_stefxImplicitSkyFullbrightBudget > 0 )
+		{
+			XBLF("STEFX: implicit EF sky fullbright shader='%s' oldLm=%d", strippedName, lightmapIndex[0]);
+			--s_stefxImplicitSkyFullbrightBudget;
+		}
+		lightmapIndex = lightmapsFullBright;
+	}
+#endif
 #ifdef _XBOX
 	if ( probeShader ) {
 		XBLF("R_FindShader: stripped='%s'\n", strippedName);
@@ -3674,7 +3687,6 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	//
 	// attempt to define shader from an explicit parameter file
 	//
-	shaderText = FindShaderInShaderText( strippedName );
 	if ( shaderText ) {
 #ifdef _XBOX
 		if ( probeShader ) {

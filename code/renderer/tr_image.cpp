@@ -540,6 +540,25 @@ Upload32
 extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_XboxIsHighFidelityUIFont( const char *name )
+{
+	if ( !name )
+	{
+		return qfalse;
+	}
+
+	return ( !Q_stricmp( name, "gfx/2d/charsgrid_med" ) ||
+			 !Q_stricmp( name, "gfx/2d/charsgrid_med.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_medium" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_medium.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_tiny" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_tiny.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_big" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_big.tga" ) );
+}
+#endif
+
 static void Upload32( const char *debugName, unsigned *data, 
 						  int img_width, int img_height, 
 						  GLenum format,
@@ -596,11 +615,17 @@ static void Upload32( const char *debugName, unsigned *data,
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		{
+			const qboolean highFidelityUIFont = R_XboxIsHighFidelityUIFont( debugName );
 			int maxUploadSize = 128;
 			int oldWidth = width;
 			int oldHeight = height;
 			static qboolean s_loggedStefxUploadCaps = qfalse;
 
+			if ( highFidelityUIFont )
+			{
+				maxUploadSize = 256;
+			}
+			else
 			if (!isLightmap &&
 				debugName &&
 				(strstr(debugName, "models/players/") || strstr(debugName, "models\\players\\")))
@@ -615,6 +640,20 @@ static void Upload32( const char *debugName, unsigned *data,
 					64,
 					128);
 				s_loggedStefxUploadCaps = qtrue;
+			}
+
+			if ( highFidelityUIFont )
+			{
+				static int s_fontUploadLogs = 0;
+				if ( s_fontUploadLogs < 8 )
+				{
+					XBLF("STEFX: Upload32 high-fidelity UI font image='%s' source=%dx%d max=%d",
+						debugName ? debugName : "<null>",
+						width,
+						height,
+						maxUploadSize);
+					++s_fontUploadLogs;
+				}
 			}
 
 			while ( width > maxUploadSize || height > maxUploadSize )
@@ -691,6 +730,13 @@ static void Upload32( const char *debugName, unsigned *data,
 		}
 		else if ( samples == 4 )
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( R_XboxIsHighFidelityUIFont( debugName ) )
+			{
+				*pformat = GL_RGBA8;
+			}
+			else
+#endif
 			if ( r_texturebits->integer == 16 )
 			{
 				*pformat = GL_RGBA4;

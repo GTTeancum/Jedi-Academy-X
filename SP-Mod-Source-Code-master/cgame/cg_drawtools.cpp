@@ -929,7 +929,7 @@ static void CG_DrawProportionalString2( int x, int y, const char* str, vec4_t co
 			{
 				aw = (float)PROP_SPACE_BIG_WIDTH * cgs.screenXScale;
 			}
-			else if ( propMap[ch][2] != -1 ) 
+			else if ( propMapBig[ch][2] != -1 )
 			{
 				// Because some foreign characters were a little different
 				special = specialBigPropChars[ch][0];
@@ -1008,6 +1008,19 @@ void CG_DrawProportionalString( int x, int y, const char* str, int style, vec4_t
 	int		charstyle;
 
 	assert (str);
+
+#ifdef _XBOX
+	{
+		static int s_stefxPropTextLogs = 24;
+		if (s_stefxPropTextLogs > 0 &&
+			(strstr(str, "MISSION") || strstr(str, "OBJECTIVE") || strstr(str, "SECURITY") || strstr(str, "UPDATED")))
+		{
+			XBLF("STEFX: EF CG_DrawProportionalString text='%.64s' style=0x%x x=%d y=%d",
+				str, style, x, y);
+			s_stefxPropTextLogs--;
+		}
+	}
+#endif
 
 	if ((style & CG_BLINK) && ((cg.time/BLINK_DIVISOR) & 1))
 		return;
@@ -1131,9 +1144,6 @@ void CG_DrawProportionalString( int x, int y, const char* str, int style, vec4_t
 
  
 }
-
-
-
 
 /*
 =================

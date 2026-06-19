@@ -626,6 +626,18 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 	}
 	
 	sfx->iSoundLength = info.size;
+	if (info.byteRate > 0)
+	{
+		sfx->iSoundDurationMs = (int)(((__int64)info.size * 1000) / info.byteRate);
+	}
+	else if (info.samples > 0 && info.rate > 0)
+	{
+		sfx->iSoundDurationMs = (int)(((__int64)info.samples * 1000) / info.rate);
+	}
+	else
+	{
+		sfx->iSoundDurationMs = 0;
+	}
 
 	// make sure we have enough space for the sound
 	SND_update(sfx);
@@ -657,8 +669,8 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 	if ( sfx->iFlags & SFX_FLAG_VOICE )
 	{
 		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
-		Com_PrintfAlways("STEFX: S_EndLoadSound loaded name='%s' code=0x%x tag=0x%x fmt=0x%x size=%d rate=%d buffer=%d\n",
-			name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate, Buffer);
+		Com_PrintfAlways("STEFX: S_EndLoadSound loaded name='%s' code=0x%x tag=0x%x fmt=0x%x size=%d rate=%d byteRate=%d durationMs=%d buffer=%d\n",
+			name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate, info.byteRate, sfx->iSoundDurationMs, Buffer);
 	}
 #endif
 	

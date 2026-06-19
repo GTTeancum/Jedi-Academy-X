@@ -4199,11 +4199,9 @@ static void CG_Draw2D( void )
 
 			cgi_SP_GetStringTextString( "SP_INGAME_NEW_OBJECTIVE_INFO", text, sizeof(text) );
 			
-			int x_pos = 0;
-			y_pos = 20;
-			w = cgi_R_Font_StrLenPixels(text,cgs.media.qhFontSmall, 1.0f);
-			x_pos = (SCREEN_WIDTH/2)-(w/2);
-			cgi_R_Font_DrawString(x_pos, y_pos + 10, text,  colorTable[CT_LTRED1], cgs.media.qhFontMedium, -1, 1.0f);
+			y_pos = 44;
+			CG_DrawProportionalString(SCREEN_WIDTH / 2, y_pos, text,
+				CG_CENTER | CG_BIGFONT | CG_DROPSHADOW, colorTable[CT_LTRED1]);
 		}
 	}
 

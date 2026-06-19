@@ -4645,17 +4645,22 @@ void RB_EndSurface( void ) {
 			if(tess.currentStageIteratorFunc == RB_StageIteratorSky)
 			{	// don't process these tris at all
 #ifdef _XBOX
-				static int s_xboxSkyPortalFallbackLogBudget = 0;
+				static int s_xboxSkyPortalFallbackLogBudget = 32;
 				if (s_xboxSkyPortalFallbackLogBudget > 0)
 				{
-					XBLF("JA: XBOX_SKYPORTAL_MAIN_SKY_SKIP shader='%s' verts=%d indexes=%d rdflags=0x%x",
+					XBLF("JA: XBOX_SKYPORTAL_MAIN_SKY_GATE shader='%s' verts=%d indexes=%d rdflags=0x%x drawsky=%d action=%s",
 						tess.shader ? tess.shader->name : "<null>",
 						tess.numVertexes,
 						tess.numIndexes,
-						backEnd.refdef.rdflags);
+						backEnd.refdef.rdflags,
+						drawskyboxportal,
+						drawskyboxportal ? "skip" : "draw-main");
 					--s_xboxSkyPortalFallbackLogBudget;
 				}
-				return;
+				if (drawskyboxportal)
+				{
+					return;
+				}
 #else
 				return;
 #endif

@@ -64,6 +64,7 @@ extern wavinfo_t GetWavInfo(byte *data);
 typedef struct sfx_s {
 	int				iFlags;
 	int 			iSoundLength;			// length in bytes
+	int				iSoundDurationMs;		// decoded playback duration, used when AL stop state is unreliable
 	int				iLastTimeUsed;			// last time sound was played in ms
 	unsigned int				iFileCode;				// CRC of the file name
 	streamHandle_t	iStreamHandle;			// handle to the sound file when reading

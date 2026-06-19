@@ -828,7 +828,7 @@ Other things could be stuck in here, like birds in the sky, etc
 */
 void RB_StageIteratorSky( void ) {
 #ifdef _XBOX
-	static int s_xboxSkyIterLogBudget = 0;
+	static int s_xboxSkyIterLogBudget = 32;
 #endif
 	if ( r_fastsky->integer ) {
 #ifdef _XBOX
@@ -846,11 +846,15 @@ void RB_StageIteratorSky( void ) {
 #ifdef _XBOX
 		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
 		{
-			XBLF("JA: SKY_ITER xbox main-view portal skip shader='%s' rdflags=0x%x",
-				tess.shader ? tess.shader->name : "<null>", backEnd.refdef.rdflags);
+			XBLF("JA: SKY_ITER xbox main-view portal gate shader='%s' rdflags=0x%x drawsky=%d action=%s",
+				tess.shader ? tess.shader->name : "<null>", backEnd.refdef.rdflags, drawskyboxportal,
+				drawskyboxportal ? "skip" : "draw-main");
 			--s_xboxSkyIterLogBudget;
 		}
-		return;
+		if (drawskyboxportal)
+		{
+			return;
+		}
 #else
 		return;
 #endif

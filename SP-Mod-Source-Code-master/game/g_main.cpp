@@ -573,8 +573,40 @@ void G_CheckTasksCompleted (gentity_t *ent)
 		if ( !gi.S_Override[ent->s.number] )
 		{//not playing a voice sound
 			//return task_complete
+#ifdef _XBOX
+			if ( ent && ( ent->s.number == 0 || Q3_TaskIDPending( ent, TID_CHAN_VOICE ) ) )
+			{
+				static int s_stefxVoiceCompleteLogs = 0;
+				if (s_stefxVoiceCompleteLogs < 64)
+				{
+					XBLF("STEFX: G_CheckTasksCompleted voice complete ent=%d class='%s' task=%d time=%d sOverride=%d",
+						ent->s.number,
+						ent->classname ? ent->classname : "<null>",
+						ent->taskID[TID_CHAN_VOICE],
+						level.time,
+						gi.S_Override ? gi.S_Override[ent->s.number] : -999);
+					s_stefxVoiceCompleteLogs++;
+				}
+			}
+#endif
 			Q3_TaskIDComplete( ent, TID_CHAN_VOICE );
 		}
+#ifdef _XBOX
+		else
+		{
+			static int s_stefxVoicePendingLogs = 0;
+			if (s_stefxVoicePendingLogs < 64)
+			{
+				XBLF("STEFX: G_CheckTasksCompleted voice pending ent=%d class='%s' task=%d time=%d sOverride=%d",
+					ent->s.number,
+					ent->classname ? ent->classname : "<null>",
+					ent->taskID[TID_CHAN_VOICE],
+					level.time,
+					gi.S_Override ? gi.S_Override[ent->s.number] : -999);
+				s_stefxVoicePendingLogs++;
+			}
+		}
+#endif
 	}
 
 	if ( Q3_TaskIDPending( ent, TID_LOCATION ) )

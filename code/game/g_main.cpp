@@ -1167,8 +1167,31 @@ static void G_CheckTasksCompleted (gentity_t *ent)
 		if ( !gi.VoiceVolume[ent->s.number] )
 		{//not playing a voice sound
 			//return task_complete
+#ifdef _XBOX
+			static int s_xboxVoiceTaskCompleteLogs = 0;
+			if (s_xboxVoiceTaskCompleteLogs < 64)
+			{
+				Com_Printf("STEFX: G_CheckTasksCompleted voice complete ent=%d class='%s' task=%d time=%d\n",
+					ent->s.number, ent->classname ? ent->classname : "<null>",
+					ent->taskID[TID_CHAN_VOICE], level.time);
+				s_xboxVoiceTaskCompleteLogs++;
+			}
+#endif
 			Q3_TaskIDComplete( ent, TID_CHAN_VOICE );
 		}
+#ifdef _XBOX
+		else
+		{
+			static int s_xboxVoiceTaskPendingLogs = 0;
+			if (s_xboxVoiceTaskPendingLogs < 64)
+			{
+				Com_Printf("STEFX: G_CheckTasksCompleted voice pending ent=%d class='%s' task=%d vol=%d time=%d\n",
+					ent->s.number, ent->classname ? ent->classname : "<null>",
+					ent->taskID[TID_CHAN_VOICE], gi.VoiceVolume[ent->s.number], level.time);
+				s_xboxVoiceTaskPendingLogs++;
+			}
+		}
+#endif
 	}
 
 	if ( Q3_TaskIDPending( ent, TID_LOCATION ) )

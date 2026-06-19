@@ -486,6 +486,46 @@ CG_DrawProportionalString
 */
 void CG_DrawProportionalString( int x, int y, const char* str, int style, vec4_t color ) 
 {
-	//assert(!style);//call this directly if you need style (OR it into the font handle)
-	cgi_R_Font_DrawString (x, y, str, color, cgs.media.qhFontMedium, -1, 1.0f);
+	float scale = 1.0f;
+	int drawX = x;
+	vec4_t shadowColor = { 0, 0, 0, color[3] };
+
+	if (style & CG_TINYFONT)
+	{
+		scale = 0.65f;
+	}
+	else if (style & CG_SMALLFONT)
+	{
+		scale = 0.8f;
+	}
+	else
+	{
+		scale = 1.0f;
+	}
+
+	if (style & CG_CENTER)
+	{
+		const int w = cgi_R_Font_StrLenPixels(str, cgs.media.qhFontMedium, scale);
+		drawX = x - (w / 2);
+	}
+
+	if (style & CG_DROPSHADOW)
+	{
+		cgi_R_Font_DrawString(drawX + 2, y + 2, str, shadowColor, cgs.media.qhFontMedium, -1, scale);
+	}
+
+#ifdef _XBOX
+	{
+		static int s_xboxPropFontLogBudget = 24;
+		if (s_xboxPropFontLogBudget > 0 &&
+			(strstr(str, "MISSION") || strstr(str, "OBJECTIVE") || strstr(str, "SECURITY") || strstr(str, "UPDATED")))
+		{
+			XBLF("STEFX: CG_DrawProportionalString text='%.64s' style=0x%x scale=%g x=%d drawX=%d y=%d shadow=%d",
+				str, style, scale, x, drawX, y, (style & CG_DROPSHADOW) ? 1 : 0);
+			s_xboxPropFontLogBudget--;
+		}
+	}
+#endif
+
+	cgi_R_Font_DrawString(drawX, y, str, color, cgs.media.qhFontMedium, -1, scale);
 }
