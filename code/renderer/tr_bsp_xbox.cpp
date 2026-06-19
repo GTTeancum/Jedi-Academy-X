@@ -484,6 +484,24 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 #ifdef _XBOX
 	{
 		static int s_xboxShaderLogBudget = 0;
+		qboolean stefxIntroShader = (dsh->shader && (
+			!Q_stricmp( dsh->shader, "textures/common/70yearjourney" ) ||
+			!Q_stricmp( dsh->shader, "textures/common/enemyspace" ) ||
+			!Q_stricmp( dsh->shader, "textures/common/sevenspace" ) ||
+			!Q_stricmp( dsh->shader, "textures/common/tuvokhazard" ) ));
+		if ( stefxIntroShader )
+		{
+			XBLF("STEFX: INTRO_SHADER shaderNum=%d name='%s' mapSurf=0x%x mapCont=0x%x shader='%s' default=%d passes=%d sort=%g lm0=%d",
+				originalShaderNum,
+				dsh->shader,
+				dsh->surfaceFlags,
+				dsh->contentFlags,
+				shader ? shader->name : "<null>",
+				shader ? (int)shader->defaultShader : -1,
+				shader ? shader->numUnfoggedPasses : -1,
+				shader ? (double)shader->sort : -1.0,
+				lightmapNum ? lightmapNum[0] : -999);
+		}
 		if (s_xboxShaderLogBudget > 0 &&
 			((dsh->surfaceFlags & SURF_SKY) || shader->sky || shader->sort == SS_PORTAL))
 		{

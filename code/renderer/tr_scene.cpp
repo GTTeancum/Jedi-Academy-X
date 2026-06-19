@@ -273,6 +273,23 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 	backEndData->entities[r_numentities].lightingCalculated = qfalse;
 #ifdef _XBOX
 	backEndData->entities[r_numentities].visible = -1;
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (ent->reType == RT_MODEL && ent->hModel >= 2 && ent->hModel <= 8)
+	{
+		static int s_stefxSceneAddRefBudget = 96;
+		if (s_stefxSceneAddRefBudget > 0)
+		{
+			XBLog_Writef("STEFX: renderer AddRef accepted slot=%d ent=%d hModel=%d renderfx=0x%x origin=(%g,%g,%g) axis0=(%g,%g,%g)",
+				r_numentities,
+				ent->number,
+				ent->hModel,
+				ent->renderfx,
+				ent->origin[0], ent->origin[1], ent->origin[2],
+				ent->axis[0][0], ent->axis[0][1], ent->axis[0][2]);
+			--s_stefxSceneAddRefBudget;
+		}
+	}
+#endif
 #endif
 
 	r_numentities++;

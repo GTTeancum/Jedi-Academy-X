@@ -4,6 +4,9 @@
 #include "cg_local.h"
 #include "cg_media.h"
 #include "..\game\speakers.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 
 int precacheWav_i;	// Current high index of precacheWav array
@@ -488,6 +491,15 @@ void CG_ScrollText( const char *str, int y, int charWidth )
 	{
 		s = precacheText[text_i].text;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: CG_ScrollText original key='%s' textIndex=%d time=%d y=%d charWidth=%d first='%.64s'",
+		str ? str : "(null)",
+		text_i,
+		cg.time,
+		y,
+		charWidth,
+		s ? s : "");
+#endif
 
 	i = 0;
 	len = 0;
@@ -529,6 +541,12 @@ void CG_ScrollText( const char *str, int y, int charWidth )
 	len++;  // So the NULL will be properly placed at the end of the string of Q_strncpyz
 	Q_strncpyz( cg.printText[i], holds, len);
 	cg.captionTextTime = 0;		// No captions during scrolling
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: CG_ScrollText original ready key='%s' lines=%d firstLine='%.64s'",
+		str ? str : "(null)",
+		cg.scrollTextLines,
+		cg.printText[0]);
+#endif
 }
 
 #define SCROLL_LPM (1/50.0) // 1 line per 50 ms
@@ -549,6 +567,21 @@ void CG_DrawScrollText(void)
 	cgi_R_SetColor( textcolor_scroll );
 
 	y = cg.printTextY - (cg.time - cg.scrollTextTime) * SCROLL_LPM;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxScrollDrawBudget = 36;
+		if ( s_stefxScrollDrawBudget > 0 )
+		{
+			XBLF("STEFX: CG_DrawScrollText original active time=%d start=%d y=%d lines=%d firstLine='%.64s'",
+				cg.time,
+				cg.scrollTextTime,
+				y,
+				cg.scrollTextLines,
+				cg.printText[0]);
+			--s_stefxScrollDrawBudget;
+		}
+	}
+#endif
 
 	// See if text has finished scrolling off screen
 	if ((y + cg.scrollTextLines * pad) < 1)

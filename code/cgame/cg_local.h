@@ -392,6 +392,17 @@ typedef struct {
 	int			captionTextTime;
 	int			captionLetterTime;
 
+	int			gameNextTextTime;
+	int			gameTextCurrentLine;
+	int			gameTextTime;
+	int			gameTextSpeaker;
+	int			gameTextEntNum;
+	int			gameLetterTime;
+
+	char		LCARSText[MAX_LCARSTEXT][128];
+	int			LCARSTextLines;
+	int			LCARSTextTime;
+
 	// For flashing health armor counter
 	int			oldhealth;
 	int			oldHealthTime;
@@ -731,16 +742,20 @@ void CG_TileClear( void );
 //
 void CG_CenterPrint( const char *str, int y );
 void CG_DrawActive( stereoFrame_t stereoView );
-void CG_ScrollText( const char *str, int iPixelWidth );
-void CG_CaptionText( const char *str, int sound, int y );
+void CG_ScrollText( const char *str, int y, int charWidth );
+void CG_CaptionText( const char *str, int sound, int y, int charWidth );
 void CG_CaptionTextStop( void );
+void CG_GameText( int y, int charWidth );
+void CG_LCARSText( const char *str, int y, int charWidth );
 
 //
 // cg_text.c
 //
 void CG_DrawScrollText( void );
 void CG_DrawCaptionText( void );
+void CG_DrawGameText( void );
 void CG_DrawCenterString( void ); 
+void CG_DrawLCARSText( void );
 
 
 //

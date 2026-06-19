@@ -430,7 +430,7 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 	int			i;
 #ifdef _XBOX
 	static int s_xboxBmodelLogBudget = 0;
-	static int s_xboxBmodelFocusLogBudget = 0;
+	static int s_xboxBmodelFocusLogBudget = 96;
 	qboolean xboxLogBmodel = (s_xboxBmodelLogBudget > 0 && cls.state == CA_ACTIVE);
 	qboolean xboxFocusBmodel;
 	int xboxBmodelDrawSurfsBefore;
@@ -441,7 +441,10 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 	bmodel = pModel->bmodel;
 #ifdef _XBOX
 	xboxFocusBmodel = (s_xboxBmodelFocusLogBudget > 0 && cls.state == CA_ACTIVE &&
-		((ent->e.hModel >= 129 && ent->e.hModel <= 156) ||
+		(ent->e.hModel == 1 ||
+		 (ent->e.hModel >= 2 && ent->e.hModel <= 5) ||
+		 ent->e.hModel == 156 ||
+		 (ent->e.hModel >= 129 && ent->e.hModel <= 156) ||
 		 (ent->e.hModel >= 170 && ent->e.hModel <= 176) ||
 		 ent->e.hModel == 175 ||
 		 ent->e.hModel == 196 ||
@@ -473,7 +476,7 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 #ifdef _XBOX
 		if ( ent->e.renderfx & RF_XBOX_NOCULL_BMODEL )
 		{
-			static int s_xboxBmodelNoCullLogBudget = 0;
+			static int s_xboxBmodelNoCullLogBudget = 32;
 			if ( s_xboxBmodelNoCullLogBudget > 0 )
 			{
 				XBLF("JA: R_BMODEL_FORCE_NOCULL ent=%d hModel=%d model='%s' renderfx=0x%x",

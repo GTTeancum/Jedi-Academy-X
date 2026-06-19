@@ -595,6 +595,25 @@ void  Z_MorphMallocTag( void *pvAddress, memtag_t eDesiredTag );
 qboolean Z_IsFromZone(void *pvAddress, memtag_t eTag);	
 qboolean Z_IsFromTempPool(void *pvAddress);	
 
+typedef struct zmemstats_s {
+	int zoneSize;
+	int usedBytes;
+	int overheadBytes;
+	int peakBytes;
+	int freeBytes;
+	int freeBlocks;
+	int largestFreeBlock;
+	int modelMd3Bytes;
+	int modelGlmBytes;
+	int modelGlaBytes;
+	int bspBytes;
+	int soundRawBytes;
+	int filesysBytes;
+} zmemstats_t;
+
+void Z_GetMemoryStats(zmemstats_t *stats);
+qboolean Z_WouldAllocFit(int iSize, memtag_t eTag, int iAlign, int *realSize, int *alignPad, int *largestFreeBlock);
+
 #ifdef DEBUG_ZONE_ALLOCS
 
 	void *_D_Z_Malloc ( int iSize, memtag_t eTag, qboolean bZeroit, const char *psFile, int iLine );

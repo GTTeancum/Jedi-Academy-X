@@ -212,7 +212,10 @@ static qboolean R_XboxTraceShaderName( const char *name )
 {
 	return ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ||
 		strstr( name, "gfx/mp/f_icon" ) ||
-		strstr( name, "70yearjourney" ) ) );
+		!Q_stricmp( name, "textures/common/70yearjourney" ) ||
+		!Q_stricmp( name, "textures/common/enemyspace" ) ||
+		!Q_stricmp( name, "textures/common/sevenspace" ) ||
+		!Q_stricmp( name, "textures/common/tuvokhazard" ) ) );
 }
 
 static qboolean R_XboxTraceCurrentShader( void )

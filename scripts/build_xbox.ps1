@@ -1259,6 +1259,23 @@ function Copy-EFDataOverlay {
     }
 }
 
+function Copy-EFConfigOverlay {
+    param(
+        [string]$BaseEfDir
+    )
+
+    $sourceDefaultCfg = Join-Path $repoRoot "base\default.cfg"
+    $destDefaultCfg = Join-Path $BaseEfDir "default.cfg"
+
+    if (-not (Test-Path -LiteralPath $sourceDefaultCfg -PathType Leaf)) {
+        Write-Warning "Missing EF default config overlay: $sourceDefaultCfg"
+        return
+    }
+
+    Copy-Item -LiteralPath $sourceDefaultCfg -Destination $destDefaultCfg -Force
+    Write-Host "Updated EF config overlay: default.cfg"
+}
+
 function Get-EFRelativeFiles {
     param(
         [string]$BaseEfDir,
@@ -1314,11 +1331,11 @@ function Update-EFXboxPatchPk3 {
         "--base-dir", $BaseEfDir,
         "--output", $outputPk3,
         "--map", "borg1",
-        "--texture-mode", "borg1",
+        "--texture-mode", "all",
         "--max-texture-size", "128",
         "--max-player-texture-size", "64",
         "--max-hud-texture-size", "128",
-        "--max-loadscreen-texture-size", "128"
+        "--max-loadscreen-texture-size", "512"
     ) -WorkingDirectory $repoRoot
 }
 
@@ -1355,6 +1372,7 @@ function Update-EFXboxAudioAssets {
     Invoke-External -Exe $pythonExe -Arguments @(
         $audioScript,
         "--base-dir", $BaseEfDir,
+        "--all-sound",
         "--encoder", "C:\XDK\xbox\bin\xbadpcmencode.exe"
     ) -WorkingDirectory $repoRoot
 }
@@ -1362,6 +1380,7 @@ function Update-EFXboxAudioAssets {
 function Update-EFConsoleAssetLists {
     $baseEfDir = Join-Path $repoReleaseDir "BaseEF"
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
+    Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
     Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir

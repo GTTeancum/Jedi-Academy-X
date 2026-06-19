@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create Xbox-native ADPCM WAV alternates for MP3 music and voice assets."""
+"""Create Xbox-native ADPCM WAV alternates for MP3 music and sound assets."""
 
 from __future__ import annotations
 
@@ -24,15 +24,15 @@ def find_tool(explicit: Path | None, names: tuple[str, ...]) -> Path | None:
 def collect_mp3s(
     base_dir: Path,
     include_music: bool,
-    include_voice: bool,
-    all_voice: bool,
-    voice_filters: tuple[str, ...],
+    include_sound: bool,
+    all_sound: bool,
+    sound_filters: tuple[str, ...],
 ) -> list[tuple[Path, str]]:
     roots: list[tuple[Path, str]] = []
     if include_music:
         roots.append((base_dir / "music", "music"))
-    if include_voice:
-        roots.append((base_dir / "sound" / "voice", "voice"))
+    if include_sound:
+        roots.append((base_dir / "sound", "sound"))
 
     files: list[tuple[Path, str]] = []
     for root, kind in roots:
@@ -41,7 +41,7 @@ def collect_mp3s(
         for path in sorted(root.rglob("*.mp3")):
             if path.is_file():
                 rel = path.relative_to(base_dir).as_posix().lower()
-                if kind == "voice" and not all_voice and not any(token in rel for token in voice_filters):
+                if kind == "sound" and not all_sound and not any(token in rel for token in sound_filters):
                     continue
                 files.append((path, kind))
     return files
@@ -77,7 +77,7 @@ def convert_one(
 ) -> dict[str, object]:
     rel = source.relative_to(base_dir).as_posix().lower()
     output = source.with_suffix(".wav")
-    if not force and not needs_update(source, output):
+    if not force and output.exists():
         return {
             "path": rel,
             "output": output.relative_to(base_dir).as_posix().lower(),
@@ -97,7 +97,8 @@ def convert_one(
         "-i",
         str(source),
     ]
-    if kind == "voice":
+    rel = source.relative_to(base_dir).as_posix().lower()
+    if rel.startswith("sound/voice/"):
         ffmpeg_args.extend(["-ac", "1"])
     elif kind == "music":
         ffmpeg_args.extend(["-ac", "2"])
@@ -125,12 +126,12 @@ def build_audio_assets(
     ffmpeg: Path,
     encoder: Path,
     include_music: bool,
-    include_voice: bool,
-    all_voice: bool,
-    voice_filters: tuple[str, ...],
+    include_sound: bool,
+    all_sound: bool,
+    sound_filters: tuple[str, ...],
     force: bool,
 ) -> dict[str, object]:
-    mp3s = collect_mp3s(base_dir, include_music, include_voice, all_voice, voice_filters)
+    mp3s = collect_mp3s(base_dir, include_music, include_sound, all_sound, sound_filters)
     records: list[dict[str, object]] = []
     converted = 0
     current = 0
@@ -153,8 +154,8 @@ def build_audio_assets(
         "format": "stefx-xbox-audio-assets-v1",
         "encoding": "xbox-adpcm-wav",
         "source": "mp3",
-        "allVoice": all_voice,
-        "voiceFilters": list(voice_filters),
+        "allSound": all_sound,
+        "soundFilters": list(sound_filters),
         "records": len(records),
         "converted": converted,
         "current": current,
@@ -179,14 +180,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ffmpeg", type=Path, default=None)
     parser.add_argument("--encoder", type=Path, default=Path(r"C:\XDK\xbox\bin\xbadpcmencode.exe"))
     parser.add_argument("--skip-music", action="store_true")
-    parser.add_argument("--skip-voice", action="store_true")
-    parser.add_argument("--all-voice", action="store_true")
+    parser.add_argument("--skip-sound", action="store_true")
+    parser.add_argument("--all-sound", action="store_true")
+    parser.add_argument("--all-voice", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
-        "--voice-filter",
+        "--sound-filter",
         action="append",
         default=["/borg1/"],
-        help="Lowercase substring filter for voice paths when --all-voice is not set.",
+        help="Lowercase substring filter for sound paths when --all-sound is not set.",
     )
+    parser.add_argument("--voice-filter", action="append", default=[], help=argparse.SUPPRESS)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -205,9 +208,9 @@ def main() -> int:
         ffmpeg.resolve(),
         encoder.resolve(),
         not args.skip_music,
-        not args.skip_voice,
-        args.all_voice,
-        tuple(item.lower().replace("\\", "/") for item in args.voice_filter),
+        not args.skip_sound,
+        args.all_sound or args.all_voice,
+        tuple(item.lower().replace("\\", "/") for item in (args.sound_filter + args.voice_filter)),
         args.force,
     )
     print(json.dumps(manifest, indent=2, sort_keys=True))

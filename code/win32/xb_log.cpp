@@ -252,7 +252,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxClientPmBudget = 24;
     static int s_stefxUserMoveBudget = 16;
     static int s_stefxSmokeStageBudget = 20;
-    static int s_stefxAudioRuntimeBudget = 48;
+    static int s_stefxAudioRuntimeBudget = 160;
+    static int s_stefxIntroRuntimeBudget = 160;
     static int s_stefxMusicRuntimeBudget = 96;
     static int s_stefxHudBudget = 32;
     static int s_stefxViewWeaponBudget = 96;
@@ -263,6 +264,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxSnapshotEventBudget = 32;
     static int s_stefxCaptureBudget = 64;
     static int s_efFastDrawBudget = 24;
+    static int s_stefxAnimVisibleBudget = 128;
+    static int s_stefxAnimCullBudget = 48;
     static int s_jaComPhaseBudget = 48;
     static int s_jaMainTightBudget = 48;
     static int s_jaEventBudget = 32;
@@ -275,6 +278,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
 
     if (!msg) return 1;
 
+    if (strstr(msg, "STEFX: MDR memory") ||
+        strstr(msg, "STEFX: RE_RegisterModel MDR hazard preflight fallback") ||
+        strstr(msg, "STEFX: RE_RegisterModel MDR default player model cannot fit")) {
+        return 0;
+    }
+
     if ((strstr(msg, "borg") || strstr(msg, "Borg")) &&
         (strstr(msg, "STEFX: model disk fetch") ||
          strstr(msg, "STEFX: model disk lower retry") ||
@@ -284,7 +293,46 @@ static int xbl_ShouldDropVerbose(const char *msg)
     }
 
     if (strstr(msg, "STEFX: ICARUS visual") ||
-        strstr(msg, "STEFX: EF servercmd st scrolltext")) {
+        strstr(msg, "STEFX: EF servercmd st scrolltext") ||
+        strstr(msg, "STEFX: Q3_SetScrollTextColor") ||
+        strstr(msg, "STEFX: Q3_ScrollText") ||
+        strstr(msg, "STEFX: Q3_SetPrecacheFile") ||
+        strstr(msg, "STEFX: func_usable script target") ||
+        strstr(msg, "STEFX: func_usable script brush") ||
+        strstr(msg, "STEFX: ICARUS Camera") ||
+        strstr(msg, "STEFX: Q3_Camera") ||
+        strstr(msg, "STEFX: CGCam_Init") ||
+        strstr(msg, "STEFX: CGCam_Enable") ||
+        strstr(msg, "STEFX: CGCam_StartRoff") ||
+        strstr(msg, "STEFX: CGCam_RenderScene") ||
+        strstr(msg, "STEFX: CG_ScrollText") ||
+        strstr(msg, "STEFX: CG_DrawScrollText") ||
+        strstr(msg, "STEFX: INTRO_IMAGE") ||
+        strstr(msg, "STEFX: INTRO_DRAW") ||
+        strstr(msg, "STEFX: RB_ForceOverlayD3D") ||
+        strstr(msg, "STEFX: RB_PrepareOverlayStage") ||
+        strstr(msg, "STEFX: RB_IterateStagesGeneric overlay state") ||
+        strstr(msg, "STEFX: DrawMultitextured overlay state") ||
+        strstr(msg, "EF: OVERLAY_DRAW_SUBMIT") ||
+        strstr(msg, "EF: FAST_DRAW_SUBMIT") ||
+        strstr(msg, "EF: FAST_DRAW_SAMPLE") ||
+        strstr(msg, "STEFX: EF CG_SNAPSHOT") ||
+        strstr(msg, "STEFX: EF CG_AddPacketEntities bmodel") ||
+        strstr(msg, "STEFX: EF CG_BMODEL") ||
+        strstr(msg, "STEFX: EF AddRef bridge model") ||
+        strstr(msg, "STEFX: renderer AddRef accepted") ||
+        strstr(msg, "STEFX: INTRO_MODEL_SURF") ||
+        strstr(msg, "JA: R_BMODEL_FORCE_NOCULL") ||
+        strstr(msg, "JA: R_BMODEL ent=") ||
+        strstr(msg, "STEFX: SV_AddEntToSnapshot bmodel") ||
+        strstr(msg, "STEFX: SV_EmitPacketEntities bmodel") ||
+        strstr(msg, "STEFX: CL_ParsePacket bmodel") ||
+        strstr(msg, "STEFX: engine EF CL_GetSnapshot bmodel")) {
+        return 0;
+    }
+
+    if (strstr(msg, "JkaGlTexImage2D: converted BGRA32 DDS") ||
+        strstr(msg, "JkaGlTexImage2D: small DXT5 DDS using RGBA decode path")) {
         return 0;
     }
 
@@ -407,6 +455,24 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: CL_CreateCmd", &s_stefxUserMoveBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadImage intro resolve", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_CreateImage intro", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: INTRO_IMAGE", &s_stefxIntroRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF DrawStretchPic large", &s_stefxIntroRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_UseTargets2 target", &s_stefxIntroRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: func_usable broadcast", &s_stefxIntroRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: func_usable", &s_stefxIntroRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF S_STARTSOUND bridge", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF S_STARTLOCALSOUND bridge", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: cg_vmMain enter command=", &s_stefxCgBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF cgame R_RegisterModel", &s_stefxModelBudget);
@@ -443,6 +509,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadMDR", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: MDR memory", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: RE_RegisterModel accepted MDR placeholder", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadMDR overbudget placeholder", &s_efModelBudget);
@@ -458,6 +526,20 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL attach", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL play", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Q3_PlaySound", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_SoundOnEnt", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: S_RegisterSound", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: S_StartSound", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: S_StartLoadSound", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: S_EndLoadSound", &s_stefxAudioRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: WAV info", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound direct fallback", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
@@ -542,6 +624,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: FORCE_TEXTURE_REBIND", &s_textureEvidenceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "EF: TEX_STAGE_APPLY", &s_textureEvidenceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_AddAnimSurfaces visible", &s_stefxAnimVisibleBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_AddAnimSurfaces surface", &s_stefxAnimVisibleBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_AddAnimSurfaces cull out", &s_stefxAnimCullBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_AddAnimSurfaces", &s_renderBudget);
     if (budgeted >= 0) return budgeted;
@@ -654,10 +742,16 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "texture allocation failures")) {
             return 0;
         }
+        if (strstr(msg, "STEFX: MDR memory") ||
+            strstr(msg, "STEFX: RE_RegisterModel MDR hazard preflight fallback") ||
+            strstr(msg, "STEFX: RE_RegisterModel MDR default player model cannot fit")) {
+            return 0;
+        }
         return 1;
     }
 
     if (xbl_starts_with(msg, "JA: CG_Player ") ||
+        xbl_starts_with(msg, "STEFX: CG_Player ") ||
         xbl_starts_with(msg, "JA: CG_AddSaberBladeGo ")) {
         if (s_playerBudget > 0) {
             s_playerBudget--;
@@ -684,6 +778,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
 
     if (xbl_starts_with(msg, "JA: CG_AddPacketEntities") ||
         xbl_starts_with(msg, "JA: CG_AddCEntity") ||
+        xbl_starts_with(msg, "STEFX: CG_AddCEntity") ||
         xbl_starts_with(msg, "JA: CG_AddMarks") ||
         xbl_starts_with(msg, "JA: CG_G2") ||
         xbl_starts_with(msg, "JA: CG_RegisterWeapon") ||

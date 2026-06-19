@@ -13,6 +13,50 @@ extern void NPC_UseResponse ( gentity_t *self, gentity_t *user, qboolean useWhen
 extern void G_InitBoltOnData ( gentity_t *ent );
 extern int ffireLevel;
 extern const int FFIRE_LEVEL_RETALIATION;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_ShouldTraceScriptTarget( const char *targetname )
+{
+	return ( targetname && targetname[0] ) ? qtrue : qfalse;
+}
+
+static qboolean STEFX_ShouldAlwaysTraceScriptTarget( const char *targetname )
+{
+	return targetname && (
+		!Q_stricmp( targetname, "70year" ) ||
+		!Q_stricmp( targetname, "enemyspace" ) ||
+		!Q_stricmp( targetname, "sevenspace" ) ||
+		!Q_stricmp( targetname, "tuvokhazard" ) );
+}
+
+static void STEFX_LogScriptTargetEntity( const char *prefix, const char *targetname, const gentity_t *t )
+{
+	if ( !t )
+	{
+		XBLF("STEFX: G_UseTargets2 target %s target='%s' found=<null>",
+			prefix ? prefix : "<null>",
+			targetname ? targetname : "<null>");
+		return;
+	}
+
+	XBLF("STEFX: G_UseTargets2 target %s target='%s' ent=%d class='%s' tn='%s' model='%s' modelindex=%d use=%d sv=0x%x eFlags=0x%x solid=0x%x contents=0x%x count=%d linked=%d origin=(%g,%g,%g)",
+		prefix ? prefix : "<null>",
+		targetname ? targetname : "<null>",
+		t->s.number,
+		t->classname ? t->classname : "<null>",
+		t->targetname ? t->targetname : "<null>",
+		t->model ? t->model : "<null>",
+		t->s.modelindex,
+		t->e_UseFunc,
+		t->svFlags,
+		t->s.eFlags,
+		t->s.solid,
+		t->contents,
+		t->count,
+		t->linked ? 1 : 0,
+		t->currentOrigin[0], t->currentOrigin[1], t->currentOrigin[2]);
+}
+#endif
 /*
 =========================================================================
 
@@ -70,6 +114,7 @@ int G_SoundIndex( char *name ) {
 //===Bypass network for sounds on specific channels====================
 
 extern void cgi_S_StartSound( vec3_t origin, int entityNum, int entchannel, sfxHandle_t sfx );
+extern sfxHandle_t cgi_S_RegisterSound( const char *sample );
 #include "..\cgame\cg_media.h"	//access to cgs
 extern void CG_TryPlayCustomSound( vec3_t origin, int entityNum, soundChannel_t channel, const char *soundName, int customSoundSet );
 //NOTE: Do NOT Try to use this before the cgame DLL is valid, it will NOT work!
@@ -77,9 +122,44 @@ void G_SoundOnEnt (gentity_t *ent, soundChannel_t channel, const char *soundPath
 {
 	int	index = G_SoundIndex( (char *)soundPath );
 
+	if ( !ent || !soundPath || !soundPath[0] )
+	{
+		return;
+	}
+
+#ifdef _XBOX
+	if ( channel == CHAN_VOICE || channel == CHAN_VOICE_ATTEN )
+	{
+		XBLF("STEFX: G_SoundOnEnt voice ent=%d chan=%d index=%d precache=%d path='%s'",
+			ent->s.number,
+			channel,
+			index,
+			(index >= 0 && index < MAX_SOUNDS && cgs.sound_precache[index]) ? cgs.sound_precache[index] : 0,
+			soundPath);
+	}
+#endif
+
 	if ( cgs.sound_precache[ index ] ) 
 	{
 		cgi_S_StartSound( NULL, ent->s.number, channel, cgs.sound_precache[ index ] );
+	}
+	else if ( strchr( soundPath, '/' ) || strchr( soundPath, '\\' ) )
+	{
+		sfxHandle_t handle = cgi_S_RegisterSound( soundPath );
+#ifdef _XBOX
+		if ( channel == CHAN_VOICE || channel == CHAN_VOICE_ATTEN )
+		{
+			XBLF("STEFX: G_SoundOnEnt direct fullpath ent=%d chan=%d handle=%d path='%s'",
+				ent->s.number,
+				channel,
+				handle,
+				soundPath);
+		}
+#endif
+		if ( handle )
+		{
+			cgi_S_StartSound( NULL, ent->s.number, channel, handle );
+		}
 	}
 	else
 	{
@@ -260,22 +340,21 @@ gentity_t *G_PickTarget (char *targetname)
 void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 {
 	gentity_t		*t;
-#ifdef _XBOX
-	static int stefxUseTargetsLogBudget = 96;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxUseTargetsBudget = 192;
+	qboolean alwaysLog = STEFX_ShouldAlwaysTraceScriptTarget( string );
+	qboolean shouldLog = alwaysLog || (STEFX_ShouldTraceScriptTarget( string ) && s_stefxUseTargetsBudget > 0);
 	int foundCount = 0;
-	qboolean shouldLog = (qboolean)(stefxUseTargetsLogBudget > 0 && string &&
-		(!Q_stricmp(string, "intro3") || strstr(string, "intro") || strstr(string, "setupworld")));
 
 	if (shouldLog)
 	{
-		XBLF("STEFX: G_UseTargets2 enter ent=%d class='%s' targetname='%s' target='%s' activator=%d actTarget='%s'",
+		XBLF("STEFX: G_UseTargets2 target enter ent=%d class='%s' targetname='%s' target='%s' activator=%d actTarget='%s'",
 			ent ? ent->s.number : -1,
 			ent && ent->classname ? ent->classname : "",
 			ent && ent->targetname ? ent->targetname : "",
 			string ? string : "",
 			activator ? activator->s.number : -1,
 			activator && activator->targetname ? activator->targetname : "");
-		--stefxUseTargetsLogBudget;
 	}
 #endif
 	
@@ -287,19 +366,11 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 		t = NULL;
 		while ( (t = G_Find (t, FOFS(targetname), (char *) string)) != NULL )
 		{
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 			foundCount++;
 			if (shouldLog)
 			{
-				XBLF("STEFX: G_UseTargets2 found ent=%d class='%s' targetname='%s' use=%d inactive=%d behavior='%s' flags=0x%x count=%d",
-					t->s.number,
-					t->classname ? t->classname : "",
-					t->targetname ? t->targetname : "",
-					t->e_UseFunc,
-					(t->svFlags & SVF_INACTIVE) ? 1 : 0,
-					t->behaviorSet[BSET_USE] ? t->behaviorSet[BSET_USE] : "",
-					t->spawnflags,
-					t->count);
+				STEFX_LogScriptTargetEntity( "found", string, t );
 			}
 #endif
 			if (t == ent)
@@ -310,22 +381,17 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 			{
 				if (t->e_UseFunc != useF_NULL)	// check can be omitted
 				{
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 					if (shouldLog)
 					{
-						XBLF("STEFX: G_UseTargets2 before use target ent=%d", t->s.number);
+						STEFX_LogScriptTargetEntity( "before_use", string, t );
 					}
 #endif
 					GEntity_UseFunc(t, ent, activator);
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 					if (shouldLog)
 					{
-						XBLF("STEFX: G_UseTargets2 after use target ent=%d entInuse=%d actOrigin=(%g,%g,%g)",
-							t->s.number,
-							ent ? ent->inuse : -1,
-							activator && activator->client ? activator->client->ps.origin[0] : 0.0f,
-							activator && activator->client ? activator->client->ps.origin[1] : 0.0f,
-							activator && activator->client ? activator->client->ps.origin[2] : 0.0f);
+						STEFX_LogScriptTargetEntity( "after_use", string, t );
 					}
 #endif
 				}
@@ -337,10 +403,14 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 				return;
 			}
 		}
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (shouldLog)
 		{
-			XBLF("STEFX: G_UseTargets2 exit target='%s' found=%d", string ? string : "", foundCount);
+			XBLF("STEFX: G_UseTargets2 target exit target='%s' found=%d", string ? string : "", foundCount);
+			if ( !alwaysLog )
+			{
+				--s_stefxUseTargetsBudget;
+			}
 		}
 #endif
 	}

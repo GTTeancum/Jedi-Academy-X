@@ -1512,6 +1512,25 @@ void R_AddEntitySurfaces (void) {
 			R_RotateForEntity( ent, &tr.viewParms, &tr.or );
 
 			tr.currentModel = R_GetModelByHandle( ent->e.hModel );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( cls.state == CA_ACTIVE && ent->e.hModel >= 2 && ent->e.hModel <= 5 )
+			{
+				static int s_stefxIntroModelSurfaceBudget = 96;
+				if ( s_stefxIntroModelSurfaceBudget > 0 )
+				{
+					XBLF("STEFX: INTRO_MODEL_SURF ent=%d hModel=%d reType=%d model='%s' type=%d renderfx=0x%x origin=(%g,%g,%g) currentEntity=%d",
+						ent->e.number,
+						ent->e.hModel,
+						ent->e.reType,
+						tr.currentModel ? tr.currentModel->name : "<null>",
+						tr.currentModel ? (int)tr.currentModel->type : -1,
+						ent->e.renderfx,
+						ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+						tr.currentEntityNum);
+					--s_stefxIntroModelSurfaceBudget;
+				}
+			}
+#endif
 			if (!tr.currentModel) {
 				R_AddDrawSurf( &entitySurface, tr.defaultShader, 0, 0 );
 			} else {

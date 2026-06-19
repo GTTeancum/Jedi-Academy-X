@@ -64,6 +64,24 @@ HUD_TEXTURE_SEEDS = (
     "gfx/hud",
 )
 ALWAYS_TEXTURES = ()
+FULLSCREEN_TEXTURE_SEEDS = (
+    "textures/common/70yearjourney",
+    "textures/common/enemyspace",
+    "textures/common/sevenspace",
+    "textures/common/tuvokhazard",
+)
+ORIGINAL_FORMAT_TEXTURES = (
+    # These are script/cgame-owned intro assets. Until their Xbox-native
+    # conversion has visual proof, do not let xbox0.pk3 override the original
+    # JPG/TGA path that Elite Force scripts already drive correctly.
+    "gfx/2d/chars_big",
+    "gfx/2d/chars_medium",
+    "gfx/2d/chars_tiny",
+    "textures/common/70yearjourney",
+    "textures/common/enemyspace",
+    "textures/common/sevenspace",
+    "textures/common/tuvokhazard",
+)
 
 REFERENCE_RE = re.compile(r"\b(qer_editorimage|map|clampmap|animmap)\s+(.+)", re.IGNORECASE)
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -173,6 +191,22 @@ def is_always_texture(candidate: str) -> bool:
     return candidate in ALWAYS_TEXTURES
 
 
+def is_fullscreen_texture(candidate: str) -> bool:
+    candidate = normalized_rel(candidate)
+    path = Path(*candidate.split("/"))
+    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+        candidate = normalized_rel(path.with_suffix("").as_posix())
+    return candidate in FULLSCREEN_TEXTURE_SEEDS
+
+
+def should_preserve_original_texture(candidate: str) -> bool:
+    candidate = normalized_rel(candidate)
+    path = Path(*candidate.split("/"))
+    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+        candidate = normalized_rel(path.with_suffix("").as_posix())
+    return candidate in ORIGINAL_FORMAT_TEXTURES
+
+
 def directory_texture_candidates(base_dir: Path, rel_dirs: tuple[str, ...]) -> set[str]:
     candidates: set[str] = set()
     for rel_dir in rel_dirs:
@@ -185,18 +219,29 @@ def directory_texture_candidates(base_dir: Path, rel_dirs: tuple[str, ...]) -> s
     return candidates
 
 
-def resolve_texture_source(base_dir: Path, candidate: str) -> tuple[Path, str] | None:
+def all_image_candidates(base_dir: Path) -> set[str]:
+    candidates: set[str] = set()
+    for path in base_dir.rglob("*"):
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTS:
+            rel = normalized_rel(path.relative_to(base_dir).as_posix())
+            candidates.add(rel)
+    return candidates
+
+
+def resolve_texture_source(base_dir: Path, candidate: str, allow_all: bool = False) -> tuple[Path, str] | None:
     candidate = normalized_rel(candidate)
-    allowed = (
-        candidate.startswith("textures/")
-        or candidate.startswith("models/players/")
-        or candidate.startswith("gfx/")
-    )
+    if allow_all:
+        allowed = True
+    else:
+        allowed = (
+            candidate.startswith("textures/")
+            or candidate.startswith("models/players/")
+            or candidate.startswith("gfx/")
+        )
     if not allowed:
         return None
-    if candidate.startswith("textures/common/") and not is_always_texture(candidate):
+    if not allow_all and candidate.startswith("textures/common/") and not is_always_texture(candidate):
         return None
-
     rel_path = Path(*candidate.split("/"))
     if rel_path.suffix.lower() in IMAGE_EXTS:
         exact = base_dir / rel_path
@@ -217,7 +262,7 @@ def texture_size_for_path(out_rel: str, args: argparse.Namespace) -> int:
         return args.max_player_texture_size
     if out_rel.startswith("gfx/"):
         return args.max_hud_texture_size
-    if is_always_texture(out_rel):
+    if is_always_texture(out_rel) or is_fullscreen_texture(out_rel):
         return args.max_loadscreen_texture_size
     return args.max_texture_size
 
@@ -331,6 +376,77 @@ def dds_dxt1_header(width: int, height: int, linear_size: int) -> bytes:
     return b"DDS " + struct.pack("<31I", *fields)
 
 
+def dds_dxt5_header(width: int, height: int, linear_size: int) -> bytes:
+    DDSD_CAPS = 0x00000001
+    DDSD_HEIGHT = 0x00000002
+    DDSD_WIDTH = 0x00000004
+    DDSD_PIXELFORMAT = 0x00001000
+    DDSD_LINEARSIZE = 0x00080000
+    DDPF_FOURCC = 0x00000004
+    DDSCAPS_TEXTURE = 0x00001000
+
+    fields = [
+        124,
+        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_LINEARSIZE,
+        height,
+        width,
+        linear_size,
+        0,
+        1,
+        *([0] * 11),
+        32,
+        DDPF_FOURCC,
+        fourcc(b"DXT5"),
+        0,
+        0,
+        0,
+        0,
+        0,
+        DDSCAPS_TEXTURE,
+        0,
+        0,
+        0,
+        0,
+    ]
+    return b"DDS " + struct.pack("<31I", *fields)
+
+
+def dds_bgra32_header(width: int, height: int, pitch: int) -> bytes:
+    DDSD_CAPS = 0x00000001
+    DDSD_HEIGHT = 0x00000002
+    DDSD_WIDTH = 0x00000004
+    DDSD_PITCH = 0x00000008
+    DDSD_PIXELFORMAT = 0x00001000
+    DDPF_ALPHAPIXELS = 0x00000001
+    DDPF_RGB = 0x00000040
+    DDSCAPS_TEXTURE = 0x00001000
+
+    fields = [
+        124,
+        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT,
+        height,
+        width,
+        pitch,
+        0,
+        1,
+        *([0] * 11),
+        32,
+        DDPF_RGB | DDPF_ALPHAPIXELS,
+        0,
+        32,
+        0x00FF0000,
+        0x0000FF00,
+        0x000000FF,
+        0xFF000000,
+        DDSCAPS_TEXTURE,
+        0,
+        0,
+        0,
+        0,
+    ]
+    return b"DDS " + struct.pack("<31I", *fields)
+
+
 def rgb_to_565(color: tuple[int, int, int]) -> int:
     r, g, b = color
     return ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
@@ -398,6 +514,78 @@ def encode_dxt1(image: Image.Image) -> bytes:
     return bytes(payload)
 
 
+def encode_dxt5(image: Image.Image) -> bytes:
+    rgba = image.convert("RGBA")
+    pixels = list(rgba.getdata())
+    payload = bytearray()
+
+    for by in range(0, rgba.height, 4):
+        for bx in range(0, rgba.width, 4):
+            block: list[tuple[int, int, int, int]] = []
+            for y in range(4):
+                sy = min(by + y, rgba.height - 1)
+                for x in range(4):
+                    sx = min(bx + x, rgba.width - 1)
+                    block.append(pixels[sy * rgba.width + sx])
+
+            alphas = [px[3] for px in block]
+            a0 = max(alphas)
+            a1 = min(alphas)
+            alpha_palette = [
+                a0,
+                a1,
+                (6 * a0 + 1 * a1) // 7,
+                (5 * a0 + 2 * a1) // 7,
+                (4 * a0 + 3 * a1) // 7,
+                (3 * a0 + 4 * a1) // 7,
+                (2 * a0 + 5 * a1) // 7,
+                (1 * a0 + 6 * a1) // 7,
+            ]
+            alpha_indices = 0
+            for i, alpha in enumerate(alphas):
+                best = min(range(8), key=lambda idx: abs(alpha - alpha_palette[idx]))
+                alpha_indices |= best << (3 * i)
+
+            payload.extend(struct.pack("<BB", a0, a1))
+            payload.extend(alpha_indices.to_bytes(6, "little"))
+
+            rgb_block = [(r, g, b) for r, g, b, _a in block]
+            darkest = min(rgb_block, key=lambda c: c[0] * 3 + c[1] * 6 + c[2])
+            brightest = max(rgb_block, key=lambda c: c[0] * 3 + c[1] * 6 + c[2])
+            c0 = rgb_to_565(brightest)
+            c1 = rgb_to_565(darkest)
+            if c0 == c1:
+                c1 = max(0, c0 - 1)
+            elif c0 < c1:
+                c0, c1 = c1, c0
+
+            p0 = rgb_from_565(c0)
+            p1 = rgb_from_565(c1)
+            palette = (
+                p0,
+                p1,
+                (
+                    (2 * p0[0] + p1[0]) // 3,
+                    (2 * p0[1] + p1[1]) // 3,
+                    (2 * p0[2] + p1[2]) // 3,
+                ),
+                (
+                    (p0[0] + 2 * p1[0]) // 3,
+                    (p0[1] + 2 * p1[1]) // 3,
+                    (p0[2] + 2 * p1[2]) // 3,
+                ),
+            )
+
+            color_indices = 0
+            for i, color in enumerate(rgb_block):
+                best = min(range(4), key=lambda idx: color_distance_sq(color, palette[idx]))
+                color_indices |= best << (2 * i)
+
+            payload.extend(struct.pack("<HHI", c0, c1, color_indices))
+
+    return bytes(payload)
+
+
 def encode_rgb565(image: Image.Image) -> bytes:
     image = image.convert("RGB")
     payload = bytearray(image.width * image.height * 2)
@@ -423,12 +611,18 @@ def encode_bgra32(image: Image.Image) -> bytes:
     return bytes(payload)
 
 
-def build_dds(source: Path, max_size: int) -> tuple[bytes, dict[str, object]] | None:
+def build_dds(source: Path, max_size: int, force_bgra32: bool = False) -> tuple[bytes, dict[str, object]] | None:
     with Image.open(source) as opened:
         has_alpha = image_has_alpha(opened)
         image = resize_for_xbox(opened, max_size)
-        if has_alpha:
-            return None
+        if force_bgra32:
+            payload = encode_bgra32(image)
+            header = dds_bgra32_header(image.width, image.height, image.width * 4)
+            fmt = "bgra32"
+        elif has_alpha:
+            payload = encode_dxt5(image)
+            header = dds_dxt5_header(image.width, image.height, len(payload))
+            fmt = "dxt5"
         else:
             payload = encode_dxt1(image)
             header = dds_dxt1_header(image.width, image.height, len(payload))
@@ -469,12 +663,13 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
         candidates.update(directory_texture_candidates(base_dir, PLAYER_TEXTURE_SEEDS))
         candidates.update(directory_texture_candidates(base_dir, HUD_TEXTURE_SEEDS))
         candidates.update(ALWAYS_TEXTURES)
+        candidates.update(FULLSCREEN_TEXTURE_SEEDS)
 
         if args.texture_mode == "all":
-            candidates.update(directory_texture_candidates(base_dir, ("textures", "models/players", "gfx")))
+            candidates.update(all_image_candidates(base_dir))
 
         for candidate in sorted(candidates):
-            found = resolve_texture_source(base_dir, candidate)
+            found = resolve_texture_source(base_dir, candidate, args.texture_mode == "all")
             if found:
                 source, out_rel = found
                 resolved[out_rel] = source
@@ -483,6 +678,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
 
     textures: list[dict[str, object]] = []
     skipped_alpha: list[str] = []
+    preserved_original: list[str] = []
     with zipfile.ZipFile(out_path, "w") as zip_out:
         bsp_rel: str | None = None
         if args.include_bsp:
@@ -490,8 +686,11 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             zip_write_bytes(zip_out, bsp_rel, map_path.read_bytes())
 
         for out_rel, source in sorted(resolved.items()):
+            if should_preserve_original_texture(out_rel):
+                preserved_original.append(out_rel)
+                continue
             max_size = texture_size_for_path(out_rel, args)
-            built = build_dds(source, max_size)
+            built = build_dds(source, max_size, force_bgra32=is_fullscreen_texture(out_rel))
             if built is None:
                 skipped_alpha.append(out_rel)
                 continue
@@ -516,6 +715,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             "textures": textures,
             "skippedTextureCandidates": skipped,
             "skippedAlphaTextures": skipped_alpha,
+            "preservedOriginalTextures": preserved_original,
         }
         zip_write_bytes(
             zip_out,
@@ -533,6 +733,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
         "textures": len(textures),
         "skipped": len(skipped),
         "skippedAlpha": len(skipped_alpha),
+        "preservedOriginal": len(preserved_original),
     }
 
 
@@ -549,7 +750,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--max-texture-size", type=int, default=128)
     parser.add_argument("--max-player-texture-size", type=int, default=64)
     parser.add_argument("--max-hud-texture-size", type=int, default=128)
-    parser.add_argument("--max-loadscreen-texture-size", type=int, default=128)
+    parser.add_argument("--max-loadscreen-texture-size", type=int, default=512)
     parser.add_argument(
         "--include-bsp",
         action="store_true",

@@ -105,7 +105,7 @@ static memtag_t hunk_tag;
 #define MODEL_TEXTURE_POOL_SIZE		4*1024*1024
 
 #ifdef _XBOX
-#define ZONE_POOL_SIZE_RETAIL		(25*1024*1024)
+#define ZONE_POOL_SIZE_RETAIL		(28*1024*1024)
 #endif
 
 // SP savegames and Bink still use the original scratch sandbox.
@@ -210,6 +210,7 @@ static ZoneFreeBlock* s_FreeJumpTable[Z_JUMP_TABLE_SIZE];
 static unsigned int s_FreeJumpResolution;
 
 static void* s_PoolBase;
+static int s_PoolSize;
 static bool s_Initialized = false;
 
 static memtag_t s_newDeleteTagStack[32] = { TAG_NEWDEL };
@@ -379,6 +380,7 @@ void Com_InitZoneMemory(void)
 
 	s_Stats.m_CountFree = 1;
 	s_Stats.m_SizeFree = size;
+	s_PoolSize = size;
 
 	s_Initialized = true;
 
@@ -567,6 +569,135 @@ static ZoneFreeBlock* Z_FindLastFree(int iSize, int iHeaderSize,
 		}
 	}
 	return NULL;
+}
+
+static int Z_LargestFreeBlock_NoLock(void)
+{
+	int largest = 0;
+
+	for (ZoneFreeBlock* block = s_FreeStart.m_Next; block && block != &s_FreeEnd; block = block->m_Next)
+	{
+		if ((int)block->m_Size > largest)
+		{
+			largest = block->m_Size;
+		}
+	}
+
+	return largest;
+}
+
+void Z_GetMemoryStats(zmemstats_t *stats)
+{
+	if (!stats)
+	{
+		return;
+	}
+
+	if (!s_Initialized)
+	{
+		Com_InitZoneMemory();
+	}
+
+#ifndef _GAMECUBE
+	WaitForSingleObject(s_Mutex, INFINITE);
+#endif
+
+	memset(stats, 0, sizeof(*stats));
+	stats->zoneSize = s_PoolSize;
+	stats->usedBytes = s_Stats.m_SizeAlloc;
+	stats->overheadBytes = s_Stats.m_OverheadAlloc;
+	stats->peakBytes = s_Stats.m_PeakAlloc;
+	stats->freeBytes = s_Stats.m_SizeFree;
+	stats->freeBlocks = s_Stats.m_CountFree;
+	stats->largestFreeBlock = Z_LargestFreeBlock_NoLock();
+	stats->modelMd3Bytes = s_Stats.m_SizesPerTag[TAG_MODEL_MD3];
+	stats->modelGlmBytes = s_Stats.m_SizesPerTag[TAG_MODEL_GLM];
+	stats->modelGlaBytes = s_Stats.m_SizesPerTag[TAG_MODEL_GLA];
+	stats->bspBytes = s_Stats.m_SizesPerTag[TAG_BSP];
+	stats->soundRawBytes = s_Stats.m_SizesPerTag[TAG_SND_RAWDATA];
+	stats->filesysBytes = s_Stats.m_SizesPerTag[TAG_FILESYS];
+
+#ifndef _GAMECUBE
+	ReleaseMutex(s_Mutex);
+#endif
+}
+
+qboolean Z_WouldAllocFit(int iSize, memtag_t eTag, int iAlign, int *realSize, int *alignPad, int *largestFreeBlock)
+{
+	int header_size = sizeof(ZoneHeader);
+	int footer_size = 0;
+	int calcRealSize;
+	int calcAlignPad = 0;
+	ZoneFreeBlock* fblock;
+
+	if (iSize <= 0)
+	{
+		if (realSize)
+		{
+			*realSize = iSize;
+		}
+		if (alignPad)
+		{
+			*alignPad = 0;
+		}
+		if (largestFreeBlock)
+		{
+			*largestFreeBlock = 0;
+		}
+		return qfalse;
+	}
+
+	if (!s_Initialized)
+	{
+		Com_InitZoneMemory();
+	}
+
+	if (eTag == TAG_NEWDEL)
+	{
+		eTag = s_newDeleteTagStack[s_newDeleteTagStackTop];
+	}
+
+	if (Z_IsTagLinked(eTag))
+	{
+		header_size += sizeof(ZoneLinkHeader);
+	}
+#ifdef _DEBUG
+	header_size += sizeof(ZoneDebugHeader);
+	footer_size += sizeof(ZoneDebugFooter);
+#endif
+	calcRealSize = iSize + header_size + footer_size;
+
+#ifndef _GAMECUBE
+	WaitForSingleObject(s_Mutex, INFINITE);
+#endif
+
+	if (Z_IsTagTemp(eTag))
+	{
+		fblock = Z_FindLastFree(calcRealSize, header_size, footer_size, iAlign, calcAlignPad);
+	}
+	else
+	{
+		fblock = Z_FindFirstFree(calcRealSize, header_size, footer_size, iAlign, calcAlignPad);
+	}
+
+	if (realSize)
+	{
+		*realSize = calcRealSize + calcAlignPad;
+	}
+	if (alignPad)
+	{
+		*alignPad = calcAlignPad;
+	}
+	if (largestFreeBlock)
+	{
+		*largestFreeBlock = Z_LargestFreeBlock_NoLock();
+	}
+
+#ifndef _GAMECUBE
+	ReleaseMutex(s_Mutex);
+#endif
+
+	return fblock ? qtrue : qfalse;
 }
 
 static bool Z_ValidateFree(void)

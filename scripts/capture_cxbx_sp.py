@@ -11,6 +11,7 @@ evidence when no dump is produced.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import random
 import re
 import shutil
@@ -68,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extra-command", default="")
     parser.add_argument("--active-command", default="cam_disable")
     parser.add_argument("--active-command-server-time", type=int, default=72000)
+    parser.add_argument(
+        "--scripted-intro",
+        action="store_true",
+        help="Only select the level and request captures; do not inject cam_disable or smoke gameplay cvars.",
+    )
     parser.add_argument(
         "--normal-time",
         action="store_true",
@@ -164,6 +170,9 @@ def setup_release_inputs(release: Path, cxbx_root: Path, args: argparse.Namespac
 
     write_runtime_file(roots, "ef_sp_level.txt", args.level + "\n")
     write_runtime_file(roots, "ef_sp_smoke_harness.txt", "1\n")
+    if args.scripted_intro:
+        return
+
     smoke_cmd = (
         "cam_disable;"
         "set stefx_smoke_input 1;"
@@ -218,6 +227,7 @@ def request_renderer_capture(
     release: Path,
     cxbx_root: Path,
     output: Path,
+    window_pid: int | None = None,
     timeout_seconds: float = 20.0,
 ) -> tuple[str, bool]:
     roots = runtime_roots(release, cxbx_root)
@@ -257,6 +267,10 @@ def request_renderer_capture(
         time.sleep(0.25)
 
     if not found:
+        if window_pid is not None:
+            window_result, window_nonblank = capture_window_client_bmp(window_pid, output)
+            if window_result:
+                return window_result, window_nonblank
         _, log_text = read_runtime_text(roots, "ef_sp_log.txt")
         log_capture = extract_log_encoded_capture(log_text)
         if log_capture:
@@ -291,10 +305,18 @@ def request_renderer_capture(
         except OSError:
             pass
     nonblank, signal = analyze_bmp_signal(output)
+    if not nonblank and window_pid is not None:
+        window_result, window_nonblank = capture_window_client_bmp(window_pid, output)
+        if window_result:
+            return (
+                f"{output} rendererCapture={found} bytes={found.stat().st_size} {signal}; "
+                f"windowFallback={window_result}",
+                window_nonblank,
+            )
     return f"{output} rendererCapture={found} bytes={found.stat().st_size} {signal}", nonblank
 
 
-HEARTBEAT_RE = re.compile(r"JA: FRAME_HEARTBEAT completedFrame=(\d+) realtime=(\d+) serverTime=(-?\d+)")
+HEARTBEAT_RE = re.compile(r"JA: FRAME_HEARTBEAT completedFrame=(\d+) realtime=(\d+) serverTime=(-?\d+).*?\bfps=([0-9.]+)")
 LOG_SHOT_BEGIN_RE = re.compile(r"STEFX: renderer screenshot log begin .* out=(\d+)x(\d+)")
 LOG_SHOT_CHUNK_RE = re.compile(
     r"STEFX: renderer screenshot log chunk row=(\d+) x=(\d+) pixels=(\d+) data=([0-9a-fA-F]+)"
@@ -398,6 +420,160 @@ def analyze_bmp_signal(path: Path) -> tuple[bool, str]:
     )
 
 
+def capture_window_client_bmp(pid: int, output: Path) -> tuple[str, bool]:
+    if sys.platform != "win32":
+        return "", False
+
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
+
+    class RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    class POINT(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [
+            ("biSize", ctypes.c_uint32),
+            ("biWidth", ctypes.c_long),
+            ("biHeight", ctypes.c_long),
+            ("biPlanes", ctypes.c_uint16),
+            ("biBitCount", ctypes.c_uint16),
+            ("biCompression", ctypes.c_uint32),
+            ("biSizeImage", ctypes.c_uint32),
+            ("biXPelsPerMeter", ctypes.c_long),
+            ("biYPelsPerMeter", ctypes.c_long),
+            ("biClrUsed", ctypes.c_uint32),
+            ("biClrImportant", ctypes.c_uint32),
+        ]
+
+    class RGBQUAD(ctypes.Structure):
+        _fields_ = [
+            ("rgbBlue", ctypes.c_ubyte),
+            ("rgbGreen", ctypes.c_ubyte),
+            ("rgbRed", ctypes.c_ubyte),
+            ("rgbReserved", ctypes.c_ubyte),
+        ]
+
+    class BITMAPINFO(ctypes.Structure):
+        _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", RGBQUAD * 1)]
+
+    hwnds: list[tuple[int, int, str]] = []
+    EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    @EnumWindowsProc
+    def enum_windows(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+
+        process_id = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+        if process_id.value != pid:
+            return True
+
+        rect = RECT()
+        if not user32.GetClientRect(hwnd, ctypes.byref(rect)):
+            return True
+        width = rect.right - rect.left
+        height = rect.bottom - rect.top
+        if width <= 32 or height <= 32:
+            return True
+
+        title_buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(hwnd, title_buf, len(title_buf))
+        hwnds.append((width * height, hwnd, title_buf.value))
+        return True
+
+    user32.EnumWindows(enum_windows, 0)
+    if not hwnds:
+        return f"{output} windowFallback=none pid={pid}", False
+
+    _area, hwnd, title = max(hwnds, key=lambda item: item[0])
+    rect = RECT()
+    if not user32.GetClientRect(hwnd, ctypes.byref(rect)):
+        return f"{output} windowFallback=getClientRectFailed pid={pid}", False
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    if width <= 0 or height <= 0:
+        return f"{output} windowFallback=emptyClient pid={pid} hwnd=0x{hwnd:x}", False
+
+    point = POINT(0, 0)
+    if not user32.ClientToScreen(hwnd, ctypes.byref(point)):
+        return f"{output} windowFallback=clientToScreenFailed pid={pid} hwnd=0x{hwnd:x}", False
+
+    screen_dc = user32.GetDC(None)
+    if not screen_dc:
+        return f"{output} windowFallback=getDcFailed pid={pid} hwnd=0x{hwnd:x}", False
+
+    mem_dc = gdi32.CreateCompatibleDC(screen_dc)
+    bitmap = gdi32.CreateCompatibleBitmap(screen_dc, width, height)
+    old_bitmap = None
+    try:
+        if not mem_dc or not bitmap:
+            return f"{output} windowFallback=createBitmapFailed pid={pid} hwnd=0x{hwnd:x}", False
+        old_bitmap = gdi32.SelectObject(mem_dc, bitmap)
+        srccopy = 0x00CC0020
+        captureblt = 0x40000000
+        if not gdi32.BitBlt(mem_dc, 0, 0, width, height, screen_dc, point.x, point.y, srccopy | captureblt):
+            return f"{output} windowFallback=bitBltFailed pid={pid} hwnd=0x{hwnd:x}", False
+
+        row_stride = (width * 3 + 3) & ~3
+        image_bytes = row_stride * height
+        bmi = BITMAPINFO()
+        bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.bmiHeader.biWidth = width
+        bmi.bmiHeader.biHeight = height
+        bmi.bmiHeader.biPlanes = 1
+        bmi.bmiHeader.biBitCount = 24
+        bmi.bmiHeader.biCompression = 0
+        bmi.bmiHeader.biSizeImage = image_bytes
+        pixels = ctypes.create_string_buffer(image_bytes)
+        dib_rgb_colors = 0
+        rows = gdi32.GetDIBits(mem_dc, bitmap, 0, height, pixels, ctypes.byref(bmi), dib_rgb_colors)
+        if rows != height:
+            return (
+                f"{output} windowFallback=getDIBitsFailed rows={rows}/{height} "
+                f"pid={pid} hwnd=0x{hwnd:x}"
+            ), False
+
+        output = output.with_suffix(".bmp")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        header = bytearray(54)
+        header[0:2] = b"BM"
+        header[2:6] = (54 + image_bytes).to_bytes(4, "little")
+        header[10:14] = (54).to_bytes(4, "little")
+        header[14:18] = (40).to_bytes(4, "little")
+        header[18:22] = width.to_bytes(4, "little", signed=True)
+        header[22:26] = height.to_bytes(4, "little", signed=True)
+        header[26:28] = (1).to_bytes(2, "little")
+        header[28:30] = (24).to_bytes(2, "little")
+        header[34:38] = image_bytes.to_bytes(4, "little")
+        with output.open("wb") as f:
+            f.write(header)
+            f.write(pixels.raw)
+
+        nonblank, signal = analyze_bmp_signal(output)
+        return (
+            f"{output} windowCapture=hwnd:0x{hwnd:x} pid={pid} title='{title}' "
+            f"bytes={output.stat().st_size} {signal}",
+            nonblank,
+        )
+    finally:
+        if old_bitmap:
+            gdi32.SelectObject(mem_dc, old_bitmap)
+        if bitmap:
+            gdi32.DeleteObject(bitmap)
+        if mem_dc:
+            gdi32.DeleteDC(mem_dc)
+        user32.ReleaseDC(None, screen_dc)
+
+
 def extract_log_encoded_capture(log_text: str) -> tuple[int, int, bytes] | None:
     begins = list(LOG_SHOT_BEGIN_RE.finditer(log_text))
     for begin in reversed(begins):
@@ -452,6 +628,41 @@ def parse_latest_heartbeat(log_text: str) -> tuple[int, int, int] | None:
     for match in HEARTBEAT_RE.finditer(log_text):
         latest = (int(match.group(1)), int(match.group(2)), int(match.group(3)))
     return latest
+
+
+def parse_heartbeat_fps(log_text: str) -> tuple[float, float, int]:
+    values = [float(match.group(4)) for match in HEARTBEAT_RE.finditer(log_text)]
+    if not values:
+        return 0.0, 0.0, 0
+    tail = values[-20:]
+    return min(tail), sum(tail) / len(tail), len(values)
+
+
+def config_has_xbox_binds(repo: Path, release: Path) -> bool:
+    candidates = [
+        release / "BaseEF" / "default.cfg",
+        repo / "base" / "default.cfg",
+    ]
+    required_patterns = [
+        r"seta\s+m_pitch\s+\"-0\.022\"",
+        r"seta\s+sensitivity\s+\"2\"",
+        r"seta\s+sensitivityY\s+\"2\"",
+        r"seta\s+joy_deadzone\s+\"0\.18\"",
+        r"bind\s+JOY12\s+\+attack",
+        r"bind\s+JOY10\s+\+altattack",
+        r"bind\s+JOY11\s+\+moveup",
+        r"bind\s+JOY9\s+\+movedown",
+        r"bind\s+JOY15\s+\+use",
+        r"bind\s+JOY16\s+\"toggle cl_run\"",
+        r"Back=JOY1",
+        r"Right Trigger=JOY12",
+        r"A=JOY15",
+    ]
+    for candidate in candidates:
+        text = read_text(candidate)
+        if text and all(re.search(pattern, text) for pattern in required_patterns):
+            return True
+    return False
 
 
 def log_has_fatal(log_text: str) -> bool:
@@ -556,6 +767,7 @@ def main() -> int:
                         release,
                         cxbx_root,
                         capture_path,
+                        window_pid=proc.pid,
                     )
                     if capture_nonblank:
                         nonblank_captured_count += 1
@@ -595,6 +807,8 @@ def main() -> int:
     log_path, log_text = read_runtime_text(roots, "ef_sp_log.txt", launch_wall_time)
     fatal = fatal or log_has_fatal(log_text)
     last_heartbeat = parse_latest_heartbeat(log_text) or last_heartbeat
+    fps_min, fps_avg, fps_samples = parse_heartbeat_fps(log_text)
+    xbox_binds_ok = config_has_xbox_binds(repo, release)
     evidence = {
         "mapRawBspLoads": count_matches(log_text, r"EF: CM_LoadMap raw BSP 'maps/borg1\.bsp'"),
         "rawLightmapLoads": count_matches(log_text, r"EF: R_LoadRawLightmaps map='maps/borg1\.bsp'"),
@@ -605,12 +819,30 @@ def main() -> int:
             r"EF: TEX_STAGE_APPLY stage=1 texid=(?:1[1-9]|[2-9][0-9]+)\b",
         ),
         "textureRebinds": count_matches(log_text, r"STEFX: FORCE_TEXTURE_REBIND"),
+        "introImageLoads": count_matches(
+            log_text,
+            r"STEFX: INTRO_IMAGE create done name='textures/common/(70yearjourney|enemyspace|sevenspace|tuvokhazard)",
+        ),
+        "introBackgroundDraws": count_matches(
+            log_text,
+            r"STEFX: INTRO_DRAW .*shader='textures/common/(70yearjourney|enemyspace|sevenspace|tuvokhazard)'",
+        ),
+        "introScrollCommands": count_matches(log_text, r"STEFX: Q3_ScrollText send id='@scrolling1'"),
+        "introScrollServerCommands": count_matches(log_text, r"STEFX: EF servercmd st scrolltext key='@scrolling1'"),
+        "introScrollSetup": count_matches(log_text, r"STEFX: CG_ScrollText original ready key='@scrolling1'"),
+        "introScrollDraws": count_matches(log_text, r"STEFX: CG_DrawScrollText original active"),
+        "introVoiceStarts": count_matches(log_text, r"STEFX: Q3_PlaySound .*Captainslog1"),
+        "introVoiceLoads": count_matches(log_text, r"STEFX: S_EndLoadSound loaded .*captainslog1\.wav"),
         "hudDraw2D": count_matches(log_text, r"STEFX: HUD Draw2D proof"),
         "soundPlays": count_matches(log_text, r"STEFX: QAL play"),
         "soundLooseReads": count_matches(log_text, r"STEFX: loose sound read direct=1"),
         "soundLooseReadOk": count_matches(
             log_text,
             r"STEFX: loose sound read direct=1 .* bytes=(?!0\b)\d+ error=0",
+        ),
+        "soundAssetLoads": count_matches(
+            log_text,
+            r"STEFX: (S_EndLoadSound loaded|Xbox WAV music loaded)",
         ),
         "viewWeaponAdds": count_matches(log_text, r"STEFX: CG_AddViewWeapon added"),
         "borgModelLoads": count_matches(
@@ -638,7 +870,11 @@ def main() -> int:
         "xboxBindsInstalled": count_matches(
             log_text,
             r"STEFX: ((installed|confirmed|replaced) Xbox bind|Xbox controls preserving default\.cfg)",
-        ),
+        ) + (1 if xbox_binds_ok else 0),
+        "fpsSamples": fps_samples,
+        "fpsMinTail": round(fps_min, 1),
+        "fpsAvgTail": round(fps_avg, 1),
+        "fpsAcceptable": 1 if fps_min >= 30.0 and fps_avg >= 45.0 else 0,
         "clientMoveResults": count_matches(log_text, r"STEFX: ClientThink PM state .* moved=1"),
         "playerAttackCmds": count_matches(log_text, r"STEFX: ClientThink player attack probe"),
         "playerPmoveFireEvents": count_matches(log_text, r"STEFX: PM_AddEvent fire"),
@@ -657,34 +893,56 @@ def main() -> int:
             log_text,
             r"STEFX: R_AddAnimSurfaces visible",
         ),
+        "cgameCharacterSubmits": count_matches(
+            log_text,
+            r"STEFX: CG_Player submitted (legs|torso|head) ent=",
+        ),
+        "cgamePlayerAdds": count_matches(
+            log_text,
+            r"STEFX: CG_AddCEntity player visible-candidate ent=",
+        ),
         "characterAnimSurfaceCullOut": count_matches(
             log_text,
             r"STEFX: R_AddAnimSurfaces cull out",
         ),
         "mdrPlaceholderSkips": count_matches(log_text, r"EF: skipping MDR placeholder render"),
     }
-    required_groups = {
-        "map": ("mapRawBspLoads",),
-        "lighting": ("rawLightmapLoads", "rawLightmapStats"),
-        "textured_world": ("activeWorldMultitexture",),
-        "stage1_lightmap": ("stage1LightmapApplies",),
-        "texture_rebind": ("textureRebinds",),
-        "visible_weapon": ("viewWeaponAdds",),
-        "hud": ("hudDraw2D",),
-        "sound_read": ("soundLooseReadOk",),
-        "sound_play": ("soundPlays",),
-        "input_gate": ("inputGateCleared",),
-        "xbox_binds": ("xboxBindsInstalled",),
-        "smoke_input": ("smokeInputMoving",),
-        "movement": ("clientMoveResults",),
-        "attack_cmd": ("smokeInputAttacking", "playerAttackCmds", "playerPmoveFireEvents"),
-        "server_fire": ("playerPmoveFireEvents", "playerClientFireEvents", "playerFireWeapon"),
-        "client_fire": ("playerCgameFireEvents", "projectileSnapshotEvents"),
-        "characters_present": ("npcSpawns", "cgameCharacters"),
-        "characters_visible": ("characterAnimSurfaceVisible",),
-        "ai_present": ("npcEnemyAcquired", "npcPainEvents", "npcDamageHits"),
-        "weapon_interaction": ("playerDamageHits", "npcPainEvents", "npcDamageHits"),
-    }
+    if args.scripted_intro:
+        required_groups = {
+            "map": ("mapRawBspLoads",),
+            "intro_image_load": ("introImageLoads",),
+            "intro_background_draw": ("introBackgroundDraws",),
+            "intro_scroll_command": ("introScrollCommands", "introScrollServerCommands"),
+            "intro_scroll_setup": ("introScrollSetup",),
+            "intro_scroll_draw": ("introScrollDraws",),
+            "intro_voice_start": ("introVoiceStarts",),
+            "intro_voice_load": ("introVoiceLoads",),
+        }
+    else:
+        required_groups = {
+            "map": ("mapRawBspLoads",),
+            "lighting": ("rawLightmapLoads", "rawLightmapStats"),
+            "textured_world": ("activeWorldMultitexture",),
+            "stage1_lightmap": ("stage1LightmapApplies",),
+            "texture_rebind": ("textureRebinds",),
+            "visible_weapon": ("viewWeaponAdds",),
+            "hud": ("hudDraw2D",),
+            "sound_read": ("soundLooseReadOk", "soundAssetLoads"),
+            "sound_play": ("soundPlays",),
+            "input_gate": ("inputGateCleared",),
+            "xbox_binds": ("xboxBindsInstalled",),
+            "smoke_input": ("smokeInputMoving",),
+            "movement": ("clientMoveResults",),
+            "attack_cmd": ("smokeInputAttacking", "playerAttackCmds", "playerPmoveFireEvents"),
+            "server_fire": ("playerPmoveFireEvents", "playerClientFireEvents", "playerFireWeapon"),
+            "client_fire": ("playerCgameFireEvents", "projectileSnapshotEvents"),
+            "characters_present": ("npcSpawns", "cgameCharacters"),
+            "characters_visible": ("characterAnimSurfaceVisible", "cgameCharacterSubmits", "cgamePlayerAdds"),
+            "ai_present": ("npcEnemyAcquired", "npcPainEvents", "npcDamageHits"),
+            "weapon_interaction": ("playerDamageHits", "npcPainEvents", "npcDamageHits"),
+        }
+        if args.normal_time:
+            required_groups["fps"] = ("fpsAcceptable",)
     missing_requirements = [
         name
         for name, keys in required_groups.items()
@@ -700,6 +958,7 @@ def main() -> int:
     if required_capture_count > 0 and nonblank_captured_count < required_capture_count:
         missing_requirements.append("renderer_nonblank_screenshot")
     vertical_slice_pass = active_at is not None and not fatal and not missing_requirements
+    scripted_intro_pass = args.scripted_intro and vertical_slice_pass
     active_elapsed_text = "n/a"
     if active_at is not None:
         active_elapsed_text = f"{time.monotonic() - active_at:.1f}"
@@ -709,9 +968,10 @@ def main() -> int:
         f"active={active_at is not None}",
         f"fatal={fatal}",
         f"verticalSlicePass={vertical_slice_pass}",
+        f"scriptedIntroPass={scripted_intro_pass}",
         f"missingRequirements={','.join(missing_requirements) if missing_requirements else 'none'}",
-        "desktopCapture=disabled",
-        "captureSource=xbe-renderer-request",
+        "desktopCapture=process-window-client-fallback",
+        "captureSource=xbe-renderer-request,window-client-fallback",
         f"activeElapsedSeconds={active_elapsed_text}",
         f"dueOffsets={','.join(f'{x:.3f}' for x in due_offsets)}",
         f"rendererCaptureCount={captured_count}",

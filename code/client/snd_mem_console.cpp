@@ -10,6 +10,7 @@
 #ifdef _XBOX
 #include <xtl.h>
 extern HANDLE Sys_FileStreamMutex;
+extern void S_XboxOnSoundLoaded(sfx_t *sfx);
 #endif
 
 #ifndef WAVE_FORMAT_PCM
@@ -514,9 +515,22 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 	sfx->iSoundLength = Sys_StreamOpen(sfx->iFileCode, &sfx->iStreamHandle);
 	if ( sfx->iSoundLength <= 0 )
 	{
+#ifdef _XBOX
+		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		Com_PrintfAlways("STEFX: S_StartLoadSound open failed name='%s' code=0x%x len=%d\n",
+			name ? name : "<unknown>", sfx->iFileCode, sfx->iSoundLength);
+#endif
 		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
 		return qfalse;
 	}
+#ifdef _XBOX
+	if ( sfx->iFlags & SFX_FLAG_VOICE )
+	{
+		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		Com_PrintfAlways("STEFX: S_StartLoadSound name='%s' code=0x%x len=%d flags=0x%x\n",
+			name ? name : "<unknown>", sfx->iFileCode, sfx->iSoundLength, sfx->iFlags);
+	}
+#endif
 
 #ifdef _GAMECUBE
 	// Allocate a buffer to read into...
@@ -593,6 +607,14 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 
 	if (info.size == 0)
 	{
+#ifdef _XBOX
+		if ( sfx->iFlags & SFX_FLAG_VOICE )
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			Com_PrintfAlways("STEFX: S_EndLoadSound wav parse empty name='%s' code=0x%x raw=%d\n",
+				name ? name : "<unknown>", sfx->iFileCode, sfx->iSoundLength);
+		}
+#endif
 		if (!S_DecodeMP3Sound(sfx, data, sfx->iSoundLength, &info))
 		{
 			Z_Free(sfx->pSoundData);
@@ -619,10 +641,26 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 		sfx->iSoundLength, info.rate);
 	if (alGetError() != AL_NO_ERROR)
 	{
+#ifdef _XBOX
+		if ( sfx->iFlags & SFX_FLAG_VOICE )
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			Com_PrintfAlways("STEFX: S_EndLoadSound alBufferData failed name='%s' code=0x%x tag=0x%x fmt=0x%x size=%d rate=%d\n",
+				name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate);
+		}
+#endif
 		Z_Free(sfx->pSoundData);
 		sfx->iFlags |= SFX_FLAG_UNLOADED;
 		return qfalse;
 	}
+#ifdef _XBOX
+	if ( sfx->iFlags & SFX_FLAG_VOICE )
+	{
+		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		Com_PrintfAlways("STEFX: S_EndLoadSound loaded name='%s' code=0x%x tag=0x%x fmt=0x%x size=%d rate=%d buffer=%d\n",
+			name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate, Buffer);
+	}
+#endif
 	
 	sfx->Buffer = Buffer;
 
@@ -652,6 +690,9 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 	sfx->pSoundData = NULL;
 #endif
 	sfx->iFlags |= SFX_FLAG_RESIDENT;
+#ifdef _XBOX
+	S_XboxOnSoundLoaded(sfx);
+#endif
 
 	return qtrue;
 }

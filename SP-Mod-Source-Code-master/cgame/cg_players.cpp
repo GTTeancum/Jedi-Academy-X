@@ -3171,8 +3171,9 @@ void CG_Player( centity_t *cent ) {
 	CG_GetPlayerLightLevel( cent );
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( cent && s_stefxPlayerLogBudget > 0 && cg.time >= 2500 && cg.time <= 5000 &&
-		( cent->currentState.number == 78 || cent->currentState.number == 154 ) )
+	if ( cent && s_stefxPlayerLogBudget > 0 &&
+		( ( cg.time >= 2500 && cg.time <= 5000 && ( cent->currentState.number == 78 || cent->currentState.number == 154 ) ) ||
+		  ( cg.time >= 65000 && cent->currentState.number != cg.snap->ps.clientNum ) ) )
 	{
 		stefxLogPlayer = qtrue;
 		s_stefxPlayerLogBudget--;

@@ -710,6 +710,7 @@ extern volatile unsigned int g_SPXBClientFieldAfter;
 }
 #endif
 static void G_ResetGentityArrayForMap( void );
+extern void Q3_SetPrecacheFile( const char *file );
 void InitGame(  const char *mapname, const char *spawntarget, int checkSum, const char *entities, int levelTime, int randomSeed, int globalTime, SavedGameJustLoaded_e eSavedGameJustLoaded, qboolean qbLoadTransition )
 {
 	//rww - default this to 0, we will auto-set it to 1 if we run into a terrain ent
@@ -899,6 +900,33 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	g_SPXBGamePhase = 120;
 	gi.Printf("JA: InitGame after G_FindTeams\n");
 #endif
+
+	// EF scripts depend on these per-map .pre files for scroll text keys and
+	// dialogue metadata.  Keep this driven by the original real_scripts data.
+	const char *mapForPrecache = mapname ? mapname : level.mapname;
+#ifdef _XBOX
+	gi.Printf("STEFX: InitGame before Q3_SetPrecacheFile behaved map='%s'\n", mapForPrecache ? mapForPrecache : "(null)");
+#endif
+	if ( strrchr( mapForPrecache, '/' ) )
+	{
+		Q3_SetPrecacheFile( va( "%s/behaved", strrchr( mapForPrecache, '/' ) ) );
+	}
+	else
+	{
+		Q3_SetPrecacheFile( va( "%s/behaved", mapForPrecache ) );
+	}
+
+#ifdef _XBOX
+	gi.Printf("STEFX: InitGame before Q3_SetPrecacheFile extra map='%s'\n", mapForPrecache ? mapForPrecache : "(null)");
+#endif
+	if ( strrchr( mapForPrecache, '/' ) )
+	{
+		Q3_SetPrecacheFile( va( "%s/extra", strrchr( mapForPrecache, '/' ) ) );
+	}
+	else
+	{
+		Q3_SetPrecacheFile( va( "%s/extra", mapForPrecache ) );
+	}
 
 //	SaveRegisteredItems();
 

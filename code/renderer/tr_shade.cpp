@@ -71,6 +71,77 @@ static qboolean RB_XboxIsEliteForceBeamShader( const shader_t *shader )
 		!Q_stricmp( name, "gfx/misc/spark" );
 }
 
+static qboolean RB_XboxIsEliteForceIntroShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	return !Q_stricmp( name, "textures/common/70yearjourney" ) ||
+		!Q_stricmp( name, "textures/common/enemyspace" ) ||
+		!Q_stricmp( name, "textures/common/sevenspace" ) ||
+		!Q_stricmp( name, "textures/common/tuvokhazard" );
+}
+
+static void RB_XboxLogEliteForceIntroDraw( const char *where )
+{
+	static int s_stefxIntroDraw70YearBudget = 12;
+	static int s_stefxIntroDrawEnemyBudget = 12;
+	static int s_stefxIntroDrawTuvokBudget = 12;
+	static int s_stefxIntroDrawSevenBudget = 12;
+	int *budget = NULL;
+	const shaderStage_t *stage = NULL;
+	const image_t *image = NULL;
+
+	if ( !RB_XboxIsEliteForceIntroShader( tess.shader ) )
+	{
+		return;
+	}
+
+	if ( !Q_stricmp( tess.shader->name, "textures/common/70yearjourney" ) )
+	{
+		budget = &s_stefxIntroDraw70YearBudget;
+	}
+	else if ( !Q_stricmp( tess.shader->name, "textures/common/enemyspace" ) )
+	{
+		budget = &s_stefxIntroDrawEnemyBudget;
+	}
+	else if ( !Q_stricmp( tess.shader->name, "textures/common/tuvokhazard" ) )
+	{
+		budget = &s_stefxIntroDrawTuvokBudget;
+	}
+	else if ( !Q_stricmp( tess.shader->name, "textures/common/sevenspace" ) )
+	{
+		budget = &s_stefxIntroDrawSevenBudget;
+	}
+
+	if ( !budget || *budget <= 0 )
+	{
+		return;
+	}
+
+	if ( tess.shader && tess.shader->numUnfoggedPasses > 0 )
+	{
+		stage = &tess.shader->stages[0];
+		image = stage->bundle[0].image;
+	}
+
+	XBLF( "STEFX: INTRO_DRAW where=%s shader='%s' img='%s' tex=%d verts=%d indexes=%d passes=%d fog=%d xyz0=(%g,%g,%g) st0=(%g,%g) color0=0x%08lx",
+		where ? where : "<null>",
+		tess.shader ? tess.shader->name : "<null>",
+		RB_XboxImageLogName( image ),
+		image ? image->texnum : -1,
+		tess.numVertexes,
+		tess.numIndexes,
+		tess.shader ? tess.shader->numUnfoggedPasses : -1,
+		tess.fogNum,
+		tess.numVertexes > 0 ? tess.xyz[0][0] : 0.0f,
+		tess.numVertexes > 0 ? tess.xyz[0][1] : 0.0f,
+		tess.numVertexes > 0 ? tess.xyz[0][2] : 0.0f,
+		tess.numVertexes > 0 ? tess.svars.texcoords[0][0][0] : 0.0f,
+		tess.numVertexes > 0 ? tess.svars.texcoords[0][0][1] : 0.0f,
+		tess.numVertexes > 0 ? (unsigned long)tess.svars.colors[0] : 0 );
+	--*budget;
+}
+
 static void RB_XboxForceEliteForceOverlayD3DState( const shader_t *shader, qboolean additive, const char *where )
 {
 	static int s_stefxForceOverlayLogBudget = 160;
@@ -4171,6 +4242,7 @@ void RB_StageIteratorGeneric( void )
 #ifdef _XBOX
 	RB_XboxLogRenderSuspectSurface("RB_StageIteratorGeneric");
 	RB_XboxLogModelShaderSurface("RB_StageIteratorGeneric");
+	RB_XboxLogEliteForceIntroDraw("RB_StageIteratorGeneric");
 	if ( RB_XboxShouldSkipYavinSkyOverlay( tess.shader ) )
 	{
 		static int s_xboxYavinSkyOverlaySkipLogBudget = 0;

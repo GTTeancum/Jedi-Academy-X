@@ -634,6 +634,25 @@ static void CG_Mover( centity_t *cent ) {
 		ent.hModel = cgs.model_draw[s1->modelindex];
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( in_camera && s1->solid == SOLID_BMODEL && !(s1->eFlags & EF_NODRAW) )
+	{
+		static int s_stefxCameraBmodelNoCullBudget = 24;
+
+		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
+		if ( s_stefxCameraBmodelNoCullBudget > 0 )
+		{
+			XBLF("STEFX: EF camera bmodel no-cull ent=%d model=%d hModel=%d eFlags=0x%x origin=(%g,%g,%g)",
+				s1->number,
+				s1->modelindex,
+				ent.hModel,
+				s1->eFlags,
+				ent.origin[0], ent.origin[1], ent.origin[2]);
+			--s_stefxCameraBmodelNoCullBudget;
+		}
+	}
+#endif
+
 	// If there isn't an hModel for this mover, an RGB axis model will get drawn.
 	if ( !ent.hModel )
 	{
@@ -1341,6 +1360,38 @@ static void CG_AddCEntity( centity_t *cent )
 		CG_General( cent );
 		break;
 	case ET_PLAYER:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			static int s_stefxPlayerAddBudget = 96;
+			if ( s_stefxPlayerAddBudget > 0 &&
+				cg.time >= 65000 &&
+				cent->currentState.number != cg.snap->ps.clientNum )
+			{
+				const char *npcType = "";
+				const char *targetname = "";
+
+				if ( cent->gent )
+				{
+					npcType = cent->gent->NPC_type ? cent->gent->NPC_type : "";
+					targetname = cent->gent->targetname ? cent->gent->targetname : "";
+				}
+
+				XBLF("STEFX: CG_AddCEntity player visible-candidate ent=%d time=%d eFlags=0x%x weapon=%d npc='%s' target='%s' gent=%p client=%p lerp=(%g,%g,%g)",
+					cent->currentState.number,
+					cg.time,
+					cent->currentState.eFlags,
+					cent->currentState.weapon,
+					npcType,
+					targetname,
+					cent->gent,
+					cent->gent ? cent->gent->client : NULL,
+					cent->lerpOrigin[0],
+					cent->lerpOrigin[1],
+					cent->lerpOrigin[2]);
+				--s_stefxPlayerAddBudget;
+			}
+		}
+#endif
 		CG_Player( cent );
 		break;
 	case ET_ITEM:

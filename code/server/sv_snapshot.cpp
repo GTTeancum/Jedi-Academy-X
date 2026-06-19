@@ -16,6 +16,11 @@ extern bool g_xboxDirectMapBootQueued;
 extern bool Sys_IsDirectMapBoot(void);
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean SV_STEFX_IsBrushMoverState( const entityState_t *state );
+static qboolean SV_STEFX_IsBroadcastBrushMover( const gentity_t *ent );
+#endif
+
 
 /*
 =============================================================================
@@ -72,6 +77,27 @@ static void SV_EmitPacketEntities( clientSnapshot_t *from, clientSnapshot_t *to,
 			newent = &svs.snapshotEntities[(to->first_entity+newindex) % svs.numSnapshotEntities];
 			newnum = newent->number;
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( SV_STEFX_IsBrushMoverState( newent ) )
+		{
+			static int s_stefxEmitBrushBudget = 160;
+			if ( s_stefxEmitBrushBudget > 0 )
+			{
+				XBLF("STEFX: SV_EmitPacketEntities bmodel ent=%d model=%d eType=%d solid=0x%x eFlags=0x%x newindex=%d first=%d num=%d fromNum=%d",
+					newent->number,
+					newent->modelindex,
+					newent->eType,
+					newent->solid,
+					newent->eFlags,
+					newindex,
+					to ? to->first_entity : -1,
+					to ? to->num_entities : -1,
+					from_num_entities);
+				--s_stefxEmitBrushBudget;
+			}
+		}
+#endif
 
 		if ( oldindex >= from_num_entities ) {
 			oldnum = 9999;
@@ -251,8 +277,11 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 	qboolean xboxLogMissile = (gEnt && gEnt->s.eType == ET_MISSILE && s_xboxAddMissileBudget > 0);
 #if defined(STEFX_ELITE_FORCE_SP)
 	static int s_stefxAddEventBudget = 128;
+	static int s_stefxAddBrushMoverBudget = 128;
 	qboolean stefxLogEvent = (sv_mapname && !Q_stricmp(sv_mapname->string, "borg1") &&
 		gEnt && gEnt->s.eType > ET_EVENTS && s_stefxAddEventBudget > 0);
+	qboolean stefxLogBrushMover = (SV_STEFX_IsBroadcastBrushMover( gEnt ) &&
+		s_stefxAddBrushMoverBudget > 0);
 #endif
 #endif
 	// if we have already added this entity to this snapshot, don't add again
@@ -276,6 +305,18 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 				gEnt->svFlags,
 				sv.snapshotCounter);
 			--s_stefxAddEventBudget;
+		}
+		if (stefxLogBrushMover)
+		{
+			XBLF("STEFX: SV_AddEntToSnapshot bmodel duplicate ent=%d model=%d eType=%d solid=0x%x sv=0x%x eFlags=0x%x snapshotCounter=%d",
+				gEnt->s.number,
+				gEnt->s.modelindex,
+				gEnt->s.eType,
+				gEnt->s.solid,
+				gEnt->svFlags,
+				gEnt->s.eFlags,
+				sv.snapshotCounter);
+			--s_stefxAddBrushMoverBudget;
 		}
 #endif
 #endif
@@ -306,6 +347,19 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 				MAX_SNAPSHOT_ENTITIES);
 			--s_stefxAddEventBudget;
 		}
+		if (stefxLogBrushMover)
+		{
+			XBLF("STEFX: SV_AddEntToSnapshot bmodel full ent=%d model=%d eType=%d solid=0x%x sv=0x%x eFlags=0x%x num=%d max=%d",
+				gEnt->s.number,
+				gEnt->s.modelindex,
+				gEnt->s.eType,
+				gEnt->s.solid,
+				gEnt->svFlags,
+				gEnt->s.eFlags,
+				eNums->numSnapshotEntities,
+				MAX_SNAPSHOT_ENTITIES);
+			--s_stefxAddBrushMoverBudget;
+		}
 #endif
 #endif
 		return;
@@ -333,6 +387,19 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 				eNums->numSnapshotEntities,
 				svs.numSnapshotEntities);
 			--s_stefxAddEventBudget;
+		}
+		if (stefxLogBrushMover)
+		{
+			XBLF("STEFX: SV_AddEntToSnapshot bmodel ring-full ent=%d model=%d eType=%d solid=0x%x sv=0x%x eFlags=0x%x num=%d ring=%d",
+				gEnt->s.number,
+				gEnt->s.modelindex,
+				gEnt->s.eType,
+				gEnt->s.solid,
+				gEnt->svFlags,
+				gEnt->s.eFlags,
+				eNums->numSnapshotEntities,
+				svs.numSnapshotEntities);
+			--s_stefxAddBrushMoverBudget;
 		}
 #endif
 #endif
@@ -372,6 +439,23 @@ static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEnt
 			gEnt->s.origin2[0], gEnt->s.origin2[1], gEnt->s.origin2[2]);
 		--s_stefxAddEventBudget;
 	}
+	if (stefxLogBrushMover)
+	{
+		XBLF("STEFX: SV_AddEntToSnapshot bmodel add ent=%d model=%d eType=%d solid=0x%x snapshotIndex=%d sv=0x%x eFlags=0x%x area=%d/%d clusters=%d last=%d origin=(%g,%g,%g)",
+			gEnt->s.number,
+			gEnt->s.modelindex,
+			gEnt->s.eType,
+			gEnt->s.solid,
+			eNums->numSnapshotEntities - 1,
+			gEnt->svFlags,
+			gEnt->s.eFlags,
+			svEnt->areanum,
+			svEnt->areanum2,
+			svEnt->numClusters,
+			svEnt->lastCluster,
+			gEnt->s.pos.trBase[0], gEnt->s.pos.trBase[1], gEnt->s.pos.trBase[2]);
+		--s_stefxAddBrushMoverBudget;
+	}
 #endif
 #endif
 }
@@ -384,6 +468,28 @@ static qboolean s_xboxSnapshotCameraView = qfalse;
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean SV_STEFX_IsBrushMoverState( const entityState_t *state )
+{
+	if ( !state || (state->eFlags & EF_NODRAW) )
+	{
+		return qfalse;
+	}
+	return ( state->eType == ET_MOVER && state->solid == SOLID_BMODEL ) ? qtrue : qfalse;
+}
+
+static qboolean SV_STEFX_IsBroadcastBrushMover( const gentity_t *ent )
+{
+	if ( !ent || (ent->svFlags & SVF_NOCLIENT) || (ent->s.eFlags & EF_NODRAW) )
+	{
+		return qfalse;
+	}
+	if ( ent->s.eType != ET_MOVER || ent->s.solid != SOLID_BMODEL )
+	{
+		return qfalse;
+	}
+	return (ent->svFlags & SVF_BROADCAST) ? qtrue : qfalse;
+}
+
 static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int entNum, const vec3_t origin,
 													int *actorBudget, int *itemBudget,
 													int *missileBudget, int *eventBudget, int *modelBudget,
@@ -1459,20 +1565,26 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	//if in camera mode use camera position instead
 #ifdef _XBOX
 	qboolean xboxUseCameraPos = qfalse;
+#if defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxCameraPvsLogBudget = 24;
+#endif
 	if (xboxTraceBuild)
 	{
 		Com_PrintfAlways("JA: SV_BuildClientSnapshot camera gate direct=%d\n",
 			Sys_IsDirectMapBoot() ? 1 : 0);
 	}
-	if (!Sys_IsDirectMapBoot())
+	if (xboxTraceBuild) Com_PrintfAlways("JA: SV_BuildClientSnapshot before CG_CAMERA_POS\n");
+	xboxUseCameraPos = VM_Call( CG_CAMERA_POS, org) ? qtrue : qfalse;
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( s_stefxCameraPvsLogBudget > 0 && ( xboxUseCameraPos || Sys_IsDirectMapBoot() ) )
 	{
-		if (xboxTraceBuild) Com_PrintfAlways("JA: SV_BuildClientSnapshot before CG_CAMERA_POS\n");
-		xboxUseCameraPos = VM_Call( CG_CAMERA_POS, org) ? qtrue : qfalse;
+		XBLF("STEFX: SV_BuildClientSnapshot camera-pvs direct=%d used=%d org=(%g,%g,%g)",
+			Sys_IsDirectMapBoot() ? 1 : 0,
+			xboxUseCameraPos ? 1 : 0,
+			org[0], org[1], org[2]);
+		--s_stefxCameraPvsLogBudget;
 	}
-	else if (xboxTraceBuild)
-	{
-		Com_PrintfAlways("JA: SV_BuildClientSnapshot direct-map skipped CG_CAMERA_POS\n");
-	}
+#endif
 	if (xboxUseCameraPos)
 #else
 	if (VM_Call( CG_CAMERA_POS, org))

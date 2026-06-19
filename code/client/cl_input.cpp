@@ -651,6 +651,25 @@ void CL_JoystickMove( usercmd_t *cmd )
 	cmd->forwardmove = ClampChar( cmd->forwardmove + cl.joystickAxis[AXIS_FORWARD] );
 	cmd->upmove = ClampChar( cmd->upmove + cl.joystickAxis[AXIS_UP] );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !cl_run->integer && ( cmd->forwardmove || cmd->rightmove ) )
+	{
+		int maxComponent = abs( cmd->forwardmove );
+		int sideComponent = abs( cmd->rightmove );
+		if ( sideComponent > maxComponent )
+		{
+			maxComponent = sideComponent;
+		}
+		if ( maxComponent > 64 )
+		{
+			cmd->forwardmove = ClampChar( ( cmd->forwardmove * 64 ) / maxComponent );
+			cmd->rightmove = ClampChar( ( cmd->rightmove * 64 ) / maxComponent );
+		}
+		cmd->buttons |= BUTTON_WALKING;
+		return;
+	}
+#endif
+
 	// Smarter run-speed detection, taking diagonals into account!
 	if( (cmd->forwardmove * cmd->forwardmove + cmd->rightmove * cmd->rightmove) < (MOVE_RUN * MOVE_RUN) )
 		cmd->buttons |= BUTTON_WALKING;
@@ -931,9 +950,11 @@ usercmd_t CL_CreateCmd( void ) {
 
 		if ( s_cmdLogBudget > 0 && ( interestingCmd || s_cmdLogBudget > 72 ) )
 		{
-			Com_PrintfAlways("STEFX: CL_CreateCmd state=%d serverTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d joy=(%d,%d,%d) view=(%g,%g,%g) old=(%g,%g,%g)\n",
+			Com_PrintfAlways("STEFX: CL_CreateCmd state=%d serverTime=%d frame_msec=%u cl_run=%d move=(%d,%d,%d) buttons=0x%x weapon=%d joy=(%d,%d,%d) view=(%g,%g,%g) old=(%g,%g,%g)\n",
 				(int)cls.state,
 				cmd.serverTime,
+				frame_msec,
+				cl_run ? cl_run->integer : -1,
 				cmd.forwardmove,
 				cmd.rightmove,
 				cmd.upmove,

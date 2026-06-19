@@ -42,6 +42,32 @@ void CGCam_Init( void )
 	extern qboolean qbVidRestartOccured;
 	if (!qbVidRestartOccured)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( in_camera && client_camera.info_state )
+		{
+			XBLF("STEFX: CGCam_Init preserving pre-init scripted camera info=0x%x roff='%s' fov=%g fade=(%g,%g,%g,%g)",
+				client_camera.info_state,
+				client_camera.sRoff,
+				client_camera.FOV,
+				client_camera.fade_color[0],
+				client_camera.fade_color[1],
+				client_camera.fade_color[2],
+				client_camera.fade_color[3]);
+			return;
+		}
+		if ( in_camera || client_camera.info_state || client_camera.sRoff[0] || client_camera.fade_color[3] )
+		{
+			XBLF("STEFX: CGCam_Init clearing EF camera state in_camera=%d info=0x%x roff='%s' fov=%g fade=(%g,%g,%g,%g)",
+				in_camera ? 1 : 0,
+				client_camera.info_state,
+				client_camera.sRoff,
+				client_camera.FOV,
+				client_camera.fade_color[0],
+				client_camera.fade_color[1],
+				client_camera.fade_color[2],
+				client_camera.fade_color[3]);
+		}
+#endif
 		memset( &client_camera, 0, sizeof ( camera_t ) );
 	}
 }
@@ -1141,6 +1167,11 @@ void CGCam_Update( void )
 
 	//Update shaking if there's any
 	CGCam_UpdateShake( cg.refdef.vieworg, cg.refdefViewAngles );
+
+	// Follow/track updates can change the final camera angles after the early
+	// pan step above. Keep the renderer axis aligned with the final scripted
+	// camera state rather than the stale pre-follow state.
+	AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
 }
 
 extern void CG_FillRect2( float x, float y, float width, float height, const float *color );
@@ -1211,6 +1242,10 @@ CGCam_RenderScene
 */
 void CGCam_RenderScene( void )
 {
+	// Original EF assumes the vrect has already been prepared before the first
+	// camera frame. The Xbox direct-map path can enter camera mode before any
+	// normal player-view frame has run, so prepare it before FOV math.
+	CG_CalcVrect();
 	CGCam_Update();
 	CG_CalcVrect();
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -1218,12 +1253,13 @@ void CGCam_RenderScene( void )
 		static int s_stefxCameraRenderLogs = 0;
 		if (s_stefxCameraRenderLogs < 12)
 		{
-			XBLF("STEFX: CGCam_RenderScene time=%d view=(%g,%g,%g) angles=(%g,%g,%g) rect=%d,%d %dx%d fov=(%g,%g) info=0x%x",
+			XBLog_Writef("STEFX: CGCam_RenderScene time=%d view=(%g,%g,%g) angles=(%g,%g,%g) rect=%d,%d %dx%d fov=(%g,%g) axis0=(%g,%g,%g) info=0x%x",
 				cg.time,
 				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
 				cg.refdefViewAngles[0], cg.refdefViewAngles[1], cg.refdefViewAngles[2],
 				cg.refdef.x, cg.refdef.y, cg.refdef.width, cg.refdef.height,
 				cg.refdef.fov_x, cg.refdef.fov_y,
+				cg.refdef.viewaxis[0][0], cg.refdef.viewaxis[0][1], cg.refdef.viewaxis[0][2],
 				client_camera.info_state);
 			++s_stefxCameraRenderLogs;
 		}

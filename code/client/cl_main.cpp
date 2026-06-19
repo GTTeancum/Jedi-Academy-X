@@ -52,7 +52,6 @@ extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern void FS_STEFX_PrecacheFile(const char *qpath);
 #endif
-
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static int CL_STEFX_ActiveCommandServerTime(void)
 {
@@ -1097,7 +1096,6 @@ void CL_CheckUserinfo( void ) {
 
 }
 
-
 /*
 ==================
 CL_Frame
@@ -1605,7 +1603,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #ifdef _XBOX
 			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY skippingcin before SCR_UpdateScreen");
 #endif
-			SCR_UpdateScreen();
+			{
+				SCR_UpdateScreen();
+			}
 #ifdef _XBOX
 			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY skippingcin after SCR_UpdateScreen");
 #endif
@@ -1659,7 +1659,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				XBLF("JA: CL_EARLY before SCR_UpdateScreen state=%d activeCount=%d realtime=%d serverTime=%d",
 					(int)cls.state, s_xboxActiveScreenBoundaryCount, cls.realtime, cl.serverTime);
 			}
-			SCR_UpdateScreen();
+			{
+				SCR_UpdateScreen();
+			}
 			if (xboxTraceEarlyActive)
 			{
 				XBLF("JA: CL_EARLY after SCR_UpdateScreen state=%d activeCount=%d realtime=%d serverTime=%d",

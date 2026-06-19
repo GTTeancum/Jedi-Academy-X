@@ -20,6 +20,9 @@
 #define	RF_WRAP_FRAMES		512		// mod the model frames by the maxframes to allow continuous
 									// animation without needing to know the frame count
 #define	RF_CAP_FRAMES		1024	// cap the model frames by the maxframes for one shot anims
+#ifdef _XBOX
+#define RF_XBOX_NOCULL_BMODEL 0x800000 // local brush-model cull is unreliable for some moving BSP entities
+#endif
 
 // refdef flags
 #define RDF_NOWORLDMODEL	1		// used for player configuration screen

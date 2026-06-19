@@ -20,6 +20,37 @@ extern void CG_ForcePushBlur( const vec3_t org, qboolean darkSide = qfalse );
 extern void CG_AddForceSightShell( refEntity_t *ent, centity_t *cent );
 extern qboolean CG_PlayerCanSeeCent( centity_t *cent );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_IsVisibleBrushMoverState( const entityState_t *state )
+{
+	if ( !state )
+	{
+		return qfalse;
+	}
+	return ( state->eType == ET_MOVER && state->solid == SOLID_BMODEL && !(state->eFlags & EF_NODRAW) );
+}
+
+static const char *STEFX_BrushMoverName( const centity_t *cent )
+{
+	if ( cent && cent->gent )
+	{
+		if ( cent->gent->targetname && cent->gent->targetname[0] )
+		{
+			return cent->gent->targetname;
+		}
+		if ( cent->gent->classname && cent->gent->classname[0] )
+		{
+			return cent->gent->classname;
+		}
+		if ( cent->gent->model && cent->gent->model[0] )
+		{
+			return cent->gent->model;
+		}
+	}
+	return "<brush-mover>";
+}
+#endif
+
 /*
 ======================
 CG_PositionEntityOnTag
@@ -1306,7 +1337,9 @@ static void CG_Mover( centity_t *cent ) {
 	entityState_t		*s1;
 #ifdef _XBOX
 	static int s_xboxMoverLogBudget = 0;
+	static int s_stefxBrushMoverLogBudget = 96;
 	qboolean xboxLogMover = (s_xboxMoverLogBudget > 0);
+	qboolean stefxBrushMover = STEFX_IsVisibleBrushMoverState( &cent->currentState );
 #endif
 
 	s1 = &cent->currentState;
@@ -1338,6 +1371,27 @@ Ghoul2 Insert End
 		ent.hModel = cgs.model_draw[s1->modelindex];
 	}
 #ifdef _XBOX
+	if ( stefxBrushMover )
+	{
+		ent.renderfx |= RF_XBOX_NOCULL_BMODEL;
+		if ( s_stefxBrushMoverLogBudget > 0 )
+		{
+			XBLF("STEFX: EF CG_BMODEL ent=%d target='%s' solid=0x%x model=%d model2=%d hModel=%d inlineH=%d drawH=%d eFlags=0x%x gentSv=0x%x origin=(%g,%g,%g) lerp=(%g,%g,%g)",
+				s1->number,
+				STEFX_BrushMoverName( cent ),
+				s1->solid,
+				s1->modelindex,
+				s1->modelindex2,
+				ent.hModel,
+				(s1->modelindex >= 0 && s1->modelindex < MAX_MODELS) ? cgs.inlineDrawModel[s1->modelindex] : 0,
+				(s1->modelindex >= 0 && s1->modelindex < MAX_MODELS) ? cgs.model_draw[s1->modelindex] : 0,
+				s1->eFlags,
+				cent->gent ? cent->gent->svFlags : 0,
+				s1->origin[0], s1->origin[1], s1->origin[2],
+				cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
+			--s_stefxBrushMoverLogBudget;
+		}
+	}
 	if ( cent->gent && cent->gent->classname && !Q_stricmp( cent->gent->classname, "func_door" ) )
 	{
 		static int s_xboxMoverDoorNoCullLogBudget = 0;
@@ -1380,6 +1434,17 @@ Ghoul2 Insert End
 	if ( !ent.hModel )
 	{
 #ifdef _XBOX
+		if ( stefxBrushMover && s_stefxBrushMoverLogBudget > 0 )
+		{
+			XBLF("STEFX: EF CG_BMODEL_DROP_NO_HMODEL ent=%d target='%s' solid=0x%x model=%d model2=%d eFlags=0x%x",
+				s1->number,
+				STEFX_BrushMoverName( cent ),
+				s1->solid,
+				s1->modelindex,
+				s1->modelindex2,
+				s1->eFlags);
+			--s_stefxBrushMoverLogBudget;
+		}
 		if (xboxLogMover)
 		{
 			XBLF("JA: CG_MOVER_DROP_NO_HMODEL ent=%d class='%s' solid=%d model=%d model2=%d",
@@ -1432,6 +1497,16 @@ Ghoul2 Insert End
 	if ( (s1->eFlags & EF_NODRAW) )
 	{
 #ifdef _XBOX
+		if ( stefxBrushMover && s_stefxBrushMoverLogBudget > 0 )
+		{
+			XBLF("STEFX: EF CG_BMODEL_DROP_NODRAW ent=%d target='%s' hModel=%d model=%d model2=%d",
+				s1->number,
+				STEFX_BrushMoverName( cent ),
+				ent.hModel,
+				s1->modelindex,
+				s1->modelindex2);
+			--s_stefxBrushMoverLogBudget;
+		}
 		if (xboxLogMover)
 		{
 			XBLF("JA: CG_MOVER_DROP_NODRAW ent=%d class='%s' hModel=%d model=%d model2=%d",
@@ -1473,6 +1548,19 @@ Ghoul2 Insert End
 	// add to refresh list
 #ifdef _XBOX
 	ent.number = cent->currentState.number;
+	if ( stefxBrushMover && s_stefxBrushMoverLogBudget > 0 )
+	{
+		XBLF("STEFX: EF CG_BMODEL_ADD ent=%d target='%s' hModel=%d model=%d model2=%d reType=%d frame=%d renderfx=0x%x",
+			s1->number,
+			STEFX_BrushMoverName( cent ),
+			ent.hModel,
+			s1->modelindex,
+			s1->modelindex2,
+			ent.reType,
+			ent.frame,
+			ent.renderfx);
+		--s_stefxBrushMoverLogBudget;
+	}
 	if (xboxLogMover)
 	{
 		XBLF("JA: CG_MOVER_ADD ent=%d class='%s' hModel=%d model=%d model2=%d reType=%d frame=%d",
@@ -2523,7 +2611,10 @@ static void CG_AddCEntity( centity_t *cent )
 			XBLF("JA: CG_AddCEntity no gent return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
 		}
 #endif
-		return;
+		if ( cent->currentState.eType != ET_MOVER || cent->currentState.solid != SOLID_BMODEL )
+		{
+			return;
+		}
 	}
 
 	cent->snapShotTime = cg.time;
@@ -2735,6 +2826,28 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 	// add each entity sent over by the server
 	for ( num = 0 ; num < cg.snap->numEntities ; num++ ) {
 		cent = &cg_entities[ cg.snap->entities[ num ].number ];
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( STEFX_IsVisibleBrushMoverState( &cg.snap->entities[num] ) )
+		{
+			static int s_stefxBrushPacketBudget = 160;
+			if ( s_stefxBrushPacketBudget > 0 )
+			{
+				XBLF("STEFX: EF CG_AddPacketEntities bmodel snapIndex=%d ent=%d target='%s' type=%d solid=0x%x model=%d model2=%d eFlags=0x%x centType=%d gent=%p",
+					num,
+					cg.snap->entities[num].number,
+					STEFX_BrushMoverName( cent ),
+					cg.snap->entities[num].eType,
+					cg.snap->entities[num].solid,
+					cg.snap->entities[num].modelindex,
+					cg.snap->entities[num].modelindex2,
+					cg.snap->entities[num].eFlags,
+					cent->currentState.eType,
+					cent->gent);
+				--s_stefxBrushPacketBudget;
+			}
+		}
+#endif
 
 #ifdef _XBOX
 		if ( xboxTracePacketEnts )

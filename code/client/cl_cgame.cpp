@@ -21,6 +21,18 @@
 #if defined(STEFX_ELITE_FORCE_SP)
 #include "../qcommon/stefx_snapshot_abi.h"
 #endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean CL_STEFX_IsVisibleBrushMoverEntity( const entityState_t *state )
+{
+	if ( !state )
+	{
+		return qfalse;
+	}
+	return state->eType == ET_MOVER && state->solid == SOLID_BMODEL && !(state->eFlags & EF_NODRAW);
+}
+#endif
+
 #ifdef _IMMERSION
 #include "../ff/cl_ff.h"
 #include "../ff/ff.h"
@@ -383,6 +395,29 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 	{
 		int entNum = ( clSnap->parseEntitiesNum + i ) & (MAX_PARSE_ENTITIES-1);
 		snapshot->entities[i] = cl.parseEntities[ entNum ];
+		if ( CL_STEFX_IsVisibleBrushMoverEntity( &snapshot->entities[i] ) )
+		{
+			static int s_stefxGetSnapshotBModelBudget = 160;
+			if ( s_stefxGetSnapshotBModelBudget > 0 )
+			{
+				XBLF("STEFX: engine EF CL_GetSnapshot bmodel ent=%d eType=%d model=%d model2=%d solid=0x%x eFlags=0x%x outIndex=%d parseIndex=%d pos=(%g,%g,%g) apos=(%g,%g,%g)",
+					snapshot->entities[i].number,
+					snapshot->entities[i].eType,
+					snapshot->entities[i].modelindex,
+					snapshot->entities[i].modelindex2,
+					snapshot->entities[i].solid,
+					snapshot->entities[i].eFlags,
+					i,
+					entNum,
+					snapshot->entities[i].pos.trBase[0],
+					snapshot->entities[i].pos.trBase[1],
+					snapshot->entities[i].pos.trBase[2],
+					snapshot->entities[i].apos.trBase[0],
+					snapshot->entities[i].apos.trBase[1],
+					snapshot->entities[i].apos.trBase[2]);
+				--s_stefxGetSnapshotBModelBudget;
+			}
+		}
 		if ( snapshot->entities[i].eType > ET_EVENTS )
 		{
 			static int s_stefxGetSnapshotEventBudget = 128;
@@ -865,17 +900,29 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_CM_MARKFRAGMENTS:
 		return re.MarkFragments( args[1], (float(*)[3]) VMA(2), (const float *) VMA(3), args[4], (float *) VMA(5), args[6], (markFragment_t *) VMA(7) );
 	case STEFX_CG_S_STARTSOUND:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (!cls.cgameStarted)
 		{
-			return 0;
+			XBLF("STEFX: EF S_STARTSOUND bridge early started=%d ent=%d chan=%d handle=%d origin=%08x",
+				cls.cgameStarted ? 1 : 0,
+				args[2],
+				args[3],
+				args[4],
+				args[1]);
 		}
+#endif
 		S_StartSound( (float *) VMA(1), args[2], (soundChannel_t)args[3], args[4] );
 		return 0;
 	case STEFX_CG_S_STARTLOCALSOUND:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (!cls.cgameStarted)
 		{
-			return 0;
+			XBLF("STEFX: EF S_STARTLOCALSOUND bridge early started=%d handle=%d chan=%d",
+				cls.cgameStarted ? 1 : 0,
+				args[1],
+				args[2]);
 		}
+#endif
 		S_StartLocalSound( args[1], args[2] );
 		return 0;
 	case STEFX_CG_S_CLEARLOOPINGSOUNDS:
@@ -932,14 +979,39 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_R_REGISTERSKIN:
 		return re.RegisterSkin( (const char *) VMA(1) );
 	case STEFX_CG_R_REGISTERSHADER:
-		return re.RegisterShader( (const char *) VMA(1) );
+		{
+			const char *shaderName = (const char *) VMA(1);
+			return re.RegisterShader( shaderName );
+		}
 	case STEFX_CG_R_REGISTERSHADERNOMIP:
-		return re.RegisterShaderNoMip( (const char *) VMA(1) );
+		{
+			const char *shaderName = (const char *) VMA(1);
+			return re.RegisterShaderNoMip( shaderName );
+		}
 	case STEFX_CG_R_CLEARSCENE:
 		re.ClearScene();
 		return 0;
 	case STEFX_CG_R_ADDREFENTITYTOSCENE:
-		re.AddRefEntityToScene( (const refEntity_t *) VMA(1) );
+		{
+			const refEntity_t *refEnt = (const refEntity_t *) VMA(1);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (refEnt && refEnt->reType == RT_MODEL && refEnt->hModel >= 2 && refEnt->hModel <= 8)
+			{
+				static int s_stefxAddRefBridgeBudget = 96;
+				if (s_stefxAddRefBridgeBudget > 0)
+				{
+					XBLog_Writef("STEFX: EF AddRef bridge model ent=%d hModel=%d renderfx=0x%x origin=(%g,%g,%g) axis0=(%g,%g,%g)",
+						refEnt->number,
+						refEnt->hModel,
+						refEnt->renderfx,
+						refEnt->origin[0], refEnt->origin[1], refEnt->origin[2],
+						refEnt->axis[0][0], refEnt->axis[0][1], refEnt->axis[0][2]);
+					--s_stefxAddRefBridgeBudget;
+				}
+			}
+#endif
+			re.AddRefEntityToScene( refEnt );
+		}
 		return 0;
 	case STEFX_CG_R_GETLIGHTING:
 		return re.GetLighting( (const float * ) VMA(1), (float *) VMA(2), (float *) VMA(3), (float *) VMA(4) );
@@ -985,9 +1057,10 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 			static int s_stefxStretchPicBudget = 48;
 			if ( s_stefxStretchPicBudget > 0 && w >= 600.0f && h >= 400.0f )
 			{
-				XBLF("STEFX: engine EF DrawStretchPic large xy=(%g,%g) wh=(%g,%g) st=(%g,%g,%g,%g) shader=%d",
+				XBLF("STEFX: EF DrawStretchPic large shader=%d xy=(%g,%g) wh=(%g,%g) st=(%g,%g,%g,%g)",
+					args[9],
 					VMF(1), VMF(2), w, h,
-					VMF(5), VMF(6), VMF(7), VMF(8), args[9]);
+					VMF(5), VMF(6), VMF(7), VMF(8));
 				--s_stefxStretchPicBudget;
 			}
 		}

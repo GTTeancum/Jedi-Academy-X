@@ -325,9 +325,16 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
             return;
         }
 #ifdef _XBOX
-        if (fourcc == FOURCC_DXT1 || fourcc == FOURCC_DXT3 || fourcc == FOURCC_DXT5 ||
-            internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/ ||
-            internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/) {
+        const bool smallDxt5Sheet =
+            (fourcc == FOURCC_DXT5 && dW <= 256 && dH <= 256);
+        static int s_smallDxt5DecodeLogBudget = 64;
+        if (smallDxt5Sheet && s_smallDxt5DecodeLogBudget > 0) {
+            XBLog_Write("JkaGlTexImage2D: small DXT5 DDS using RGBA decode path");
+            --s_smallDxt5DecodeLogBudget;
+        }
+        if ((fourcc == FOURCC_DXT1 || fourcc == FOURCC_DXT3 ||
+             (fourcc == FOURCC_DXT5 && !smallDxt5Sheet)) ||
+            internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/) {
             int levels = (numlevels > 0) ? numlevels : ddsMipCount;
             if (levels <= 0) levels = 1;
             int picmip = s_jkaDdsUploadPicmip;
@@ -371,9 +378,18 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
         else if (internalformat == 0x9998) {
             rgba = (DWORD*)malloc((size_t)dW * dH * sizeof(DWORD));
             if (rgba) {
-                memcpy(rgba, data, (size_t)dW * dH * sizeof(DWORD));
+                BYTE *dst = (BYTE*)rgba;
+                const BYTE *src = data;
+                for (int i = 0; i < dW * dH; ++i) {
+                    dst[0] = src[2];
+                    dst[1] = src[1];
+                    dst[2] = src[0];
+                    dst[3] = src[3];
+                    dst += 4;
+                    src += 4;
+                }
 #ifdef _XBOX
-                XBLog_Write("JkaGlTexImage2D: converted RGBA32 DDS to regular RGBA upload");
+                XBLog_Write("JkaGlTexImage2D: converted BGRA32 DDS to regular RGBA upload");
 #endif
             }
         }

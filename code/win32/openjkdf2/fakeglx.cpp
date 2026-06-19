@@ -692,7 +692,15 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 
 	if (!FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness))
 	{
-		if (FakeGL_TryXGWriteFrontBuffer(device))
+		const bool postPresent = !strcmp(label, "post-present");
+		const bool prePresent = !strcmp(label, "pre-present");
+		if (prePresent && FakeGL_TryXGWriteSurface(backBuffer))
+		{
+			XBLF("STEFX: renderer screenshot XGWrite used pre-present backbuffer surface label='%s'", label);
+			FakeGL_DeleteScreenshotRequests();
+			return;
+		}
+		if (postPresent && FakeGL_TryXGWriteFrontBuffer(device))
 		{
 			XBLF("STEFX: renderer screenshot XGWrite consumed blank CPU surface label='%s'", label);
 			FakeGL_DeleteScreenshotRequests();
@@ -710,7 +718,10 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 				(unsigned int)backBuffer->Format);
 			--s_blankRetryLogBudget;
 		}
-		FakeGL_DeleteScreenshotRequests();
+		if (postPresent)
+		{
+			FakeGL_DeleteScreenshotRequests();
+		}
 		return;
 	}
 
@@ -5769,6 +5780,7 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 		{
 			XBLF("STEFX: renderer pre-present capture requested swap=%d screenshot=%d probe=%d",
 				s_xboxSwapLogCount, screenshotRequestedNow ? 1 : 0, stefxSwapProbe ? 1 : 0);
+			UpdateFramebufferTelemetry(false);
 		}
 		if (skipPresentForCxbx && s_cxbxPresentThrottleLogBudget > 0)
 		{
@@ -6074,9 +6086,11 @@ private:
 	{
 		switch (internalformat)
 		{
+		case GL_RGB:
 		case GL_RGB5:
 		case GL_RGB8:
 			return 3;
+		case GL_RGBA:
 		case GL_RGBA4:
 		case GL_RGBA8:
 		case GL_RGB5_A1:

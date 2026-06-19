@@ -16,7 +16,9 @@
 #include "events.h"
 #include "g_nav.h"
 #include "..\cgame\cg_camera.h"
+#include "..\cgame\cg_text_precache.h"
 #include "..\game\objectives.h"
+#include "..\game\speakers.h"
 #include "g_roff.h"
 #include "..\cgame\cg_local.h"
 #include "wp_saber.h"
@@ -26,6 +28,7 @@
 #endif
 
 extern	cvar_t	*com_buildScript;
+qboolean G_ParseString( char **data, char **s );
 
 extern void InitMover( gentity_t *ent );
 extern void MatchTeam( gentity_t *teamLeader, int moverState, int time );
@@ -41,6 +44,42 @@ extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
 //extern void FX_BorgTeleport( vec3_t org );
 static void Q3_SetWeapon (int entID, const char *wp_name);
 static void Q3_SetItem (int entID, const char *item_name);
+
+speakerTable_t speakerTable[SP_MAX] =
+{
+	"NONE",				"",					0,	"", 0, qfalse,
+	"JANEWAY",			"janeway",			0,	"default", 0, qfalse,
+	"CHAKOTAY",			"chakotay",			0,	"default", 0, qfalse,
+	"TUVOK",			"tuvok",			0,	"default", 0, qfalse,
+	"TORRES",			"torres",			0,	"default", 0, qfalse,
+	"PARIS",			"paris",			0,	"default", 0, qfalse,
+	"NEELIX",			"neelix",			0,	"default", 0, qfalse,
+	"SEVEN",			"seven",			0,	"default", 0, qfalse,
+	"DOCTOR",			"doctor",			0,	"default", 0, qfalse,
+	"KIM",				"kim",				0,	"default", 0, qfalse,
+	"FOSTER",			"foster",			0,	"default", 0, qfalse,
+	"MUNRO",			"munro",			0,	"default", 0, qfalse,
+	"BIESSMAN",			"biessman",			0,	"default", 0, qfalse,
+	"CHANG",			"chang",			0,	"default", 0, qfalse,
+	"CHELL",			"chell",			0,	"default", 0, qfalse,
+	"JUROT",			"telsia",			0,	"jurot", 0, qfalse,
+	"TELSIA",			"telsia",			0,	"default", 0, qfalse,
+	"KENN",				"munro",			0,	"kenn", 0, qfalse,
+	"CSATLOS",			"oviedo_h",			0,	"jaworski", 0, qfalse,
+	"NELSON",			"chell",			0,	"long", 0, qfalse,
+	"ODELL",			"chang",			0,	"odell", 0, qfalse,
+	"OVIEDO",			"oviedo_h",			0,	"default", 0, qfalse,
+	"JAWORSKI",			"oviedo_h",			0,	"csatlos", 0, qfalse,
+	"LAIRD",			"garren",			0,	"mackey", 0, qfalse,
+	"LANG",				"chakotay",			0,	"nelson", 0, qfalse,
+	"RENNER",			"munrocrew",		0,	"jon", 0, qfalse,
+	"PELLETIER",		"pelletier",		0,	"default", 0, qfalse,
+	"GREEN",			"green",			0,	"default", 0, qfalse,
+	"SALMA",			"garren",			0,	"salma", 0, qfalse,
+	"HIROGENALPHA",		"hirogen_boss",		0,	"default", 0, qfalse,
+	"DOCKREEGE",		"imperial4",		0,	"default", 0, qfalse,
+	"COMPUTER",			"",					0,	"", 0, qfalse,
+};
 
 #ifdef _XBOX
 static qboolean Xbox_ScriptVisualEntity( const gentity_t *ent )
@@ -1060,7 +1099,7 @@ Get the current game time
 =============
 G_AddSexToPlayerString
 
-Take any string, look for "jaden_male/" replace with "jaden_fmle/" based on "sex"
+Take any string, look for "munro/" replace with "alexa/" based on "sex"
 And: Take any string, look for "/mr_" replace with "/ms_" based on "sex" 
 returns qtrue if changed to ms
 =============
@@ -1071,9 +1110,9 @@ static qboolean G_AddSexToPlayerString ( char *string, qboolean qDoBoth )
 
 	if VALIDSTRING( string ) {
 		if ( g_sex->string[0] == 'f' ) {
-			start = strstr( string, "jaden_male/" );
+			start = strstr( string, "munro/" );
 			if ( start != NULL ) {
-				strncpy( start, "jaden_fmle", 10 );
+				strncpy( start, "alexa", 5 );
 				return qtrue;
 			} else {
 				start = strrchr( string, '/' );		//get the last slash before the wav
@@ -4441,7 +4480,211 @@ static void Q3_SetDelayScriptTime(int entID, int delayTime)
 	ent->delayScriptTime = level.time + delayTime;
 }
 
-	
+
+/*
+============
+Q3_SetPrecacheFile
+
+EF loads map-local .pre files from real_scripts so script text keys such as
+@scrolling1 resolve through the original cgame text precache path.
+============
+*/
+void Q3_SetPrecacheFile( const char *file )
+{
+	char	*buffer;
+	char	*holdBuf;
+	char	*tokenStr;
+	int		len, i;
+	char	*holdText;
+	char	filename[MAX_QPATH];
+	char	finalName[MAX_QPATH];
+	int		textBefore = precacheText_i;
+	int		wavBefore = precacheWav_i;
+	int		textLogged = 0;
+	int		wavLogged = 0;
+
+	G_LanguageFilename( va( "%s/%s", Q3_SCRIPT_DIR, file ), "pre", (char *)&finalName );
+
+#ifdef _XBOX
+	XBLF( "STEFX: Q3_SetPrecacheFile request='%s' final='%s' textBefore=%d wavBefore=%d",
+		file ? file : "(null)", finalName, textBefore, wavBefore );
+#endif
+
+	len = gi.FS_ReadFile( finalName, (void **)&buffer );
+
+	if ( len < 1 )
+	{
+		Q3_DebugPrint( WL_ERROR, "Invalid Precache file %s!\n", file );
+#ifdef _XBOX
+		XBLF( "STEFX: Q3_SetPrecacheFile failed request='%s' final='%s' len=%d",
+			file ? file : "(null)", finalName, len );
+#endif
+		return;
+	}
+
+#ifdef _XBOX
+	XBLF( "STEFX: Q3_SetPrecacheFile loaded final='%s' len=%d", finalName, len );
+#endif
+
+	holdBuf = buffer;
+	COM_BeginParseSession();
+
+	while ( holdBuf )
+	{
+		tokenStr = COM_ParseExt( &holdBuf, qtrue );
+
+		if ( !holdBuf )
+		{
+			break;
+		}
+
+		holdText = G_NewString( tokenStr );
+
+		G_ParseString( &holdBuf, &tokenStr );
+
+		if ( holdText )
+		{
+			if ( !( stricmp( holdText, "ROF" ) ) )
+			{
+				if ( tokenStr )
+				{
+					G_LoadRoff( tokenStr );
+				}
+				else
+				{
+					Q3_DebugPrint( WL_ERROR, "ROF token found in %s.pre but no rof file was specified!\n", file );
+				}
+			}
+			else if ( holdText[0] == '@' )
+			{
+				precacheText[precacheText_i].key = holdText;
+				precacheText[precacheText_i].text = G_NewString( tokenStr );
+
+#ifdef _XBOX
+				if ( textLogged < 16 || strstr( holdText, "scrolling" ) )
+				{
+					XBLF( "STEFX: Q3_SetPrecacheFile text[%d] key='%s' len=%d first='%.48s'",
+						precacheText_i,
+						precacheText[precacheText_i].key ? precacheText[precacheText_i].key : "(null)",
+						precacheText[precacheText_i].text ? (int)strlen( precacheText[precacheText_i].text ) : 0,
+						precacheText[precacheText_i].text ? precacheText[precacheText_i].text : "" );
+					textLogged++;
+				}
+#endif
+
+				precacheText_i++;
+
+				if ( precacheText_i >= MAX_PRECACHETEXT )
+				{
+					precacheText_i = MAX_PRECACHETEXT - 1;
+					Com_Printf( S_COLOR_RED"Exceeded max text in Precache Array!\n" );
+					break;
+				}
+			}
+			else
+			{
+				COM_StripExtension( (const char *)holdText, holdText );
+				COM_DefaultExtension( holdText, MAX_QPATH, ".wav" );
+				precacheWav[precacheWav_i].wavFile = strlwr( holdText );
+
+				if ( com_buildScript->integer )
+				{
+					G_SoundIndex( holdText );
+				}
+
+				qboolean qbMatches = G_AddSexToPlayerString( holdText, qfalse );
+				if ( qbMatches )
+				{
+					G_SoundIndex( holdText );
+				}
+
+				if ( !Q_stricmp( tokenStr, "NOTEXT" ) )
+				{
+					precacheWav[precacheWav_i].textKey[0] = '\0';
+					precacheWav[precacheWav_i].speaker = SP_NONE;
+				}
+				else
+				{
+					if ( tokenStr[0] == '\0' )
+					{
+						Q3_DebugPrint( WL_ERROR, "You forgot to put NOTEXT or text after wav '%s'!\n", precacheWav[precacheWav_i].wavFile );
+					}
+					else
+					{
+						Com_sprintf( precacheWav[precacheWav_i].textKey, sizeof( precacheWav[precacheWav_i].textKey ), "@wav%d", precacheText_i );
+						precacheText[precacheText_i].key = precacheWav[precacheWav_i].textKey;
+						precacheText[precacheText_i].text = G_NewString( tokenStr );
+
+						G_ParseString( &holdBuf, &tokenStr );
+						if ( ( tokenStr[0] ) && ( strcmp( tokenStr, "COMPUTER" ) ) )
+						{
+							for ( i = 0; i < SP_MAX; ++i )
+							{
+								if ( !strcmp( tokenStr, speakerTable[i].stringID ) )
+								{
+									precacheWav[precacheWav_i].speaker = i;
+									if ( !speakerTable[i].headModel )
+									{
+										if ( speakerTable[i].headModelFile[0] )
+										{
+											Com_sprintf( filename, sizeof( filename ), "models/players/%s/head.md3", speakerTable[i].headModelFile );
+											speakerTable[i].headModel = G_ModelIndex( filename );
+										}
+									}
+									break;
+								}
+							}
+
+							if ( i == SP_MAX )
+							{
+								precacheWav[precacheWav_i].speaker = SP_NONE;
+								Q3_DebugPrint( WL_WARNING, "Precache unable to locate speaker '%s'!\n", tokenStr );
+							}
+						}
+						else
+						{
+							precacheWav[precacheWav_i].speaker = SP_NONE;
+						}
+						precacheText_i++;
+					}
+				}
+
+#ifdef _XBOX
+				if ( wavLogged < 16 || strstr( precacheWav[precacheWav_i].wavFile, "captainslog" ) )
+				{
+					XBLF( "STEFX: Q3_SetPrecacheFile wav[%d] file='%s' textKey='%s' speaker=%d",
+						precacheWav_i,
+						precacheWav[precacheWav_i].wavFile ? precacheWav[precacheWav_i].wavFile : "(null)",
+						precacheWav[precacheWav_i].textKey,
+						precacheWav[precacheWav_i].speaker );
+					wavLogged++;
+				}
+#endif
+
+				precacheWav_i++;
+
+				if ( precacheWav_i >= MAX_PRECACHEWAV )
+				{
+					precacheWav_i = MAX_PRECACHEWAV - 1;
+					Com_Printf( S_COLOR_RED"Exceeded max sounds in Precache Array!\n" );
+				}
+			}
+		}
+	}
+
+	gi.FS_FreeFile( buffer );
+
+#ifdef _XBOX
+	XBLF( "STEFX: Q3_SetPrecacheFile complete request='%s' textTotal=%d wavTotal=%d textAdded=%d wavAdded=%d",
+		file ? file : "(null)",
+		precacheText_i,
+		precacheWav_i,
+		precacheText_i - textBefore,
+		precacheWav_i - wavBefore );
+#endif
+}
+
+
 /*
 ============
 Q3_SetIgnorePain
@@ -7519,6 +7762,12 @@ CQuake3GameInterface::CQuake3GameInterface() : IGameInterface()
 
 	m_entFilter = -1;
 
+	precacheWav_i = 0;
+	precacheText_i = 0;
+#ifdef _XBOX
+	XBLog_Write( "STEFX: Q3 interface reset EF text/wav precache arrays" );
+#endif
+
 	gclient_t* client = &level.clients[0];
 	memset(&client->sess, 0, sizeof(client->sess));
 }
@@ -7971,21 +8220,59 @@ unsigned int CQuake3GameInterface::GetTime( void )
 
 //	 DWORD	CQuake3GameInterface::GetTimeScale(void ) {}
 
+/*
+============
+HeadText
+============
+*/
+static void HeadText( int index, int entID, char *finalName )
+{
+	int index2 = G_SoundIndex( (char *)finalName );
+
+	if ( entID == 0 && precacheWav[index].speaker != SP_MUNRO )
+	{
+		gi.SendServerCommand( NULL, "gt %s %i %i %i", precacheWav[index].textKey, precacheWav[index].speaker, -1, index2 );
+	}
+	else
+	{
+		gi.SendServerCommand( NULL, "gt %s %i %i %i", precacheWav[index].textKey, precacheWav[index].speaker, entID, index2 );
+	}
+
+#ifdef _XBOX
+	Com_Printf("STEFX: HeadText wavIndex=%d ent=%d final='%s' textKey='%s' speaker=%d soundIndex=%d\n",
+		index,
+		entID,
+		finalName ? finalName : "(null)",
+		precacheWav[index].textKey,
+		precacheWav[index].speaker,
+		index2);
+#endif
+}
+
 // NOTE: This extern does not really fit here, fix later please...
 extern void G_SoundBroadcast( gentity_t *ent, int soundIndex );
 // Plays a sound from an entity.
 int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, const char *channel )
 {
 	gentity_t		*ent = &g_entities[entID];
+	gentity_t		*ent2 = &g_entities[0];
+	int				i;
 	char			finalName[MAX_QPATH];
+#ifdef _XBOX
+	char			sourceLowerName[MAX_QPATH];
+#endif
 	soundChannel_t	voice_chan = CHAN_VOICE; // set a default so the compiler doesn't bitch
 	qboolean		type_voice = qfalse;
 
 	Q_strncpyz( finalName, name, MAX_QPATH, 0 );
 	strlwr(finalName);
+#ifdef _XBOX
+	Q_strncpyz( sourceLowerName, finalName, sizeof(sourceLowerName) );
+#endif
 	G_AddSexToPlayerString( finalName, qtrue );
 
 	COM_StripExtension( (const char *)finalName, finalName );
+	COM_DefaultExtension( finalName, MAX_QPATH, ".wav" );
 
 	int soundHandle = G_SoundIndex( (char *) finalName );
 	bool bBroadcast = false;
@@ -8014,6 +8301,26 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 		bBroadcast = true;
 	}
 
+#ifdef _XBOX
+	if ( type_voice || strstr( finalName, "sound/voice/" ) || strstr( finalName, "captainslog" ) )
+	{
+		Com_Printf("STEFX: Q3_PlaySound task=%d ent=%d class='%s' name='%s' channel='%s' sourceLower='%s' final='%s' handle=%d voice=%d broadcast=%d in_camera=%d sex='%s' time=%d\n",
+			taskID,
+			entID,
+			ent && ent->classname ? ent->classname : "(null)",
+			name ? name : "(null)",
+			channel ? channel : "(null)",
+			sourceLowerName,
+			finalName,
+			soundHandle,
+			(int)type_voice,
+			(int)bBroadcast,
+			(int)in_camera,
+			g_sex ? g_sex->string : "<null>",
+			level.time);
+	}
+#endif
+
 	// if we're in-camera, check for skipping cinematic and ifso, no subtitle print (since screen is not being
 	//	updated anyway during skipping). This stops leftover subtitles being left onscreen after unskipping.
 	//
@@ -8021,32 +8328,68 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 		(!g_skippingcin || !g_skippingcin->integer)
 		)	// paranoia towards project end <g>
 	{
-		// Text on
-		// certain NPC's we always want to use subtitles regardless of subtitle setting
-		if (g_subtitles->integer == 1 || (ent->NPC && (ent->NPC->scriptFlags & SCF_USE_SUBTITLES) ) ) // Show all text
+		for ( i = 0; i < precacheWav_i; i++ )
 		{
-			if ( in_camera)	// Cinematic
-			{					
-				gi.SendServerCommand( NULL, "ct \"%s\" %i", finalName, soundHandle );
-			}
-			else //if (precacheWav[i].speaker==SP_NONE)	//  lower screen text
+			if ( strcmp( finalName, precacheWav[i].wavFile ) == 0 )
 			{
-				gentity_t		*ent2 = &g_entities[0];
-				// the numbers in here were either the original ones Bob entered (350), or one arrived at from checking the distance Chell stands at in stasis2 by the computer core that was submitted as a bug report...
-				//
-				if (bBroadcast || (DistanceSquared(ent->currentOrigin, ent2->currentOrigin) < ((voice_chan == CHAN_VOICE_ATTEN)?(350 * 350):(1200 * 1200)) ) )
+#ifdef _XBOX
+				Com_Printf("STEFX: Q3_PlaySound precache match wavIndex=%d final='%s' textKey='%s' speaker=%d subtitles=%d in_camera=%d\n",
+					i,
+					finalName,
+					precacheWav[i].textKey,
+					precacheWav[i].speaker,
+					g_subtitles ? g_subtitles->integer : -1,
+					in_camera ? 1 : 0);
+#endif
+				if ( precacheWav[i].textKey[0] )
 				{
-					gi.SendServerCommand( NULL, "ct \"%s\" %i", finalName, soundHandle );
+					if ( g_subtitles->integer == 0 )
+					{
+						if ( !in_camera && ( precacheWav[i].speaker != SP_NONE ) )
+						{
+							HeadText( i, entID, finalName );
+						}
+					}
+					else if ( g_subtitles->integer == 1 || ( ent->NPC && ( ent->NPC->scriptFlags & SCF_USE_SUBTITLES ) ) )
+					{
+						if ( in_camera )
+						{
+							gi.SendServerCommand( NULL, "ct \"%s\" %i", precacheWav[i].textKey, soundHandle );
+						}
+						else if ( precacheWav[i].speaker == SP_NONE )
+						{
+							if ( bBroadcast || ( DistanceSquared( ent->currentOrigin, ent2->currentOrigin ) < ( ( voice_chan == CHAN_VOICE_ATTEN ) ? ( 350 * 350 ) : ( 1200 * 1200 ) ) ) )
+							{
+								gi.SendServerCommand( NULL, "ct \"%s\" %i", precacheWav[i].textKey, soundHandle );
+							}
+						}
+						else if ( precacheWav[i].speaker != SP_NONE )
+						{
+							HeadText( i, entID, finalName );
+						}
+					}
+					else if ( g_subtitles->integer == 2 )
+					{
+						if ( in_camera )
+						{
+							gi.SendServerCommand( NULL, "ct \"%s\" %i", precacheWav[i].textKey, soundHandle );
+						}
+						else if ( precacheWav[i].speaker != SP_NONE )
+						{
+							HeadText( i, entID, finalName );
+						}
+					}
 				}
+				break;
 			}
 		}
-		// Cinematic only
-		else if (g_subtitles->integer == 2) // Show only talking head text and CINEMATIC
+
+		if ( i == precacheWav_i )
 		{
-			if ( in_camera)	// Cinematic text
-			{							
-				gi.SendServerCommand( NULL, "ct \"%s\" %i", finalName, soundHandle);
-			}
+			Q3_DebugPrint( WL_WARNING, "Script sound not in .pre files: %s!\n", finalName );
+#ifdef _XBOX
+			Com_Printf("STEFX: Q3_PlaySound precache miss final='%s' wavTotal=%d\n", finalName, precacheWav_i);
+#endif
 		}
 	}
 
@@ -11405,6 +11748,8 @@ void	CQuake3GameInterface::PrecacheSound( const char *name )
 		G_SoundIndex( finalName );
 	}
 	G_AddSexToPlayerString( finalName, qtrue );	//now get female
+	COM_StripExtension( (const char *)finalName, finalName );
+	COM_DefaultExtension( finalName, MAX_QPATH, ".wav" );
 
 	G_SoundIndex( finalName );
 }

@@ -1311,6 +1311,11 @@ Change color text prints in
 static void Q3_SetScrollTextColor ( const char *color)
 {
 	SetTextColor(textcolor_scroll,color);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Q3_SetScrollTextColor color='%s' rgba=(%g,%g,%g,%g)",
+		color ? color : "(null)",
+		textcolor_scroll[0], textcolor_scroll[1], textcolor_scroll[2], textcolor_scroll[3]);
+#endif
 }
 
 /*
@@ -1322,6 +1327,12 @@ Prints a message in the center of the screen
 */
 static void Q3_ScrollText ( const char *id)
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Q3_ScrollText send id='%s' precacheText=%d color=(%g,%g,%g,%g)",
+		id ? id : "(null)",
+		precacheText_i,
+		textcolor_scroll[0], textcolor_scroll[1], textcolor_scroll[2], textcolor_scroll[3]);
+#endif
 	gi.SendServerCommand( NULL, "st \"%s\"", id);
 
 	return;
@@ -1517,6 +1528,24 @@ static int Q3_PlaySound( int taskID, int entID, const char *name, const char *ch
 		voice_chan = CHAN_VOICE_ATTEN;
 		type_voice = qtrue;
 	}
+
+#ifdef _XBOX
+	if ( type_voice || strstr( finalName, "sound/voice/" ) || strstr( finalName, "captainslog" ) )
+	{
+		XBLF("STEFX: Q3_PlaySound task=%d ent=%d class='%s' name='%s' channel='%s' final='%s' handle=%d voice=%d broadcast=%d in_camera=%d time=%d",
+			taskID,
+			entID,
+			ent && ent->classname ? ent->classname : "(null)",
+			name ? name : "(null)",
+			channel ? channel : "(null)",
+			finalName,
+			soundHandle,
+			(int)type_voice,
+			(int)bBroadcast,
+			(int)in_camera,
+			level.time);
+	}
+#endif
 
 	
 	// Is it in the list of precached wavs???
@@ -4585,14 +4614,26 @@ void Q3_SetPrecacheFile (const char *file)
 
 	G_LanguageFilename(va( "%s/%s", Q3_SCRIPT_DIR, file),"pre",(char *) &finalName);
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Q3_SetPrecacheFile request='%s' final='%s' textBefore=%d wavBefore=%d",
+		file ? file : "(null)", finalName, precacheText_i, precacheWav_i);
+#endif
 	len = gi.FS_ReadFile(finalName,(void **) &buffer);
 //	len = gi.FS_ReadFile(va( "%s/%s%s", Q3_SCRIPT_DIR, file,".pre"),(void **) &buffer);
 
 	if (len < 1)
 	{
 		Q3_DebugPrint( WL_ERROR, "Invalid Precache file %s!\n", file );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: Q3_SetPrecacheFile failed request='%s' final='%s' len=%d",
+			file ? file : "(null)", finalName, len);
+#endif
 		return;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Q3_SetPrecacheFile loaded final='%s' len=%d", finalName, len);
+#endif
 
 	holdBuf = buffer;
 	COM_BeginParseSession();
@@ -4627,6 +4668,16 @@ void Q3_SetPrecacheFile (const char *file)
 			{
 				precacheText[precacheText_i].key = holdText;
 				precacheText[precacheText_i].text = G_NewString(tokenStr);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (precacheText_i < 16 || strstr( holdText, "scrolling" ))
+				{
+					XBLF("STEFX: Q3_SetPrecacheFile text[%d] key='%s' len=%d first='%.48s'",
+						precacheText_i,
+						precacheText[precacheText_i].key ? precacheText[precacheText_i].key : "(null)",
+						precacheText[precacheText_i].text ? (int)strlen(precacheText[precacheText_i].text) : 0,
+						precacheText[precacheText_i].text ? precacheText[precacheText_i].text : "");
+				}
+#endif
 
 				precacheText_i++;
 
@@ -4723,6 +4774,10 @@ void Q3_SetPrecacheFile (const char *file)
 	}
 
 	gi.FS_FreeFile( buffer );	//let go of the buffer
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: Q3_SetPrecacheFile complete request='%s' textTotal=%d wavTotal=%d",
+		file ? file : "(null)", precacheText_i, precacheWav_i);
+#endif
 }
 	
 /*

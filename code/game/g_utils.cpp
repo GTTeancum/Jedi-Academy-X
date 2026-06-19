@@ -288,6 +288,7 @@ void G_EntityPosition( int i, vec3_t ret )
 //===Bypass network for sounds on specific channels====================
 
 extern void cgi_S_StartSound( const vec3_t origin, int entityNum, int entchannel, sfxHandle_t sfx );
+extern sfxHandle_t cgi_S_RegisterSound( const char *sample );
 #include "..\cgame\cg_media.h"	//access to cgs
 extern qboolean CG_TryPlayCustomSound( vec3_t origin, int entityNum, soundChannel_t channel, const char *soundName, int customSoundSet );
 extern cvar_t *g_timescale;
@@ -326,6 +327,24 @@ void G_SoundOnEnt( gentity_t *ent, soundChannel_t channel, const char *soundPath
 	if ( cgs.sound_precache[ index ] ) 
 	{
 		cgi_S_StartSound( NULL, ent->s.number, channel, cgs.sound_precache[ index ] );
+	}
+	else if ( soundPath && ( strchr( soundPath, '/' ) || strchr( soundPath, '\\' ) ) )
+	{
+		sfxHandle_t handle = cgi_S_RegisterSound( soundPath );
+#ifdef _XBOX
+		if (channel == CHAN_VOICE || channel == CHAN_VOICE_ATTEN || channel == CHAN_VOICE_GLOBAL)
+		{
+			Com_Printf("STEFX: G_SoundOnEnt direct fullpath ent=%d chan=%d handle=%d path='%s'\n",
+				ent->s.number,
+				channel,
+				handle,
+				soundPath ? soundPath : "<null>");
+		}
+#endif
+		if ( handle )
+		{
+			cgi_S_StartSound( NULL, ent->s.number, channel, handle );
+		}
 	}
 	else
 	{
@@ -651,9 +670,69 @@ gentity_t *G_PickTarget (char *targetname)
 	return choice[rand() % num_choices];
 }
 
+#ifdef _XBOX
+static qboolean STEFX_ShouldTraceTarget( const char *targetname )
+{
+	static int s_stefxTargetTraceBudget = 160;
+
+	if ( !targetname || !targetname[0] )
+	{
+		return qfalse;
+	}
+	if ( s_stefxTargetTraceBudget <= 0 )
+	{
+		return qfalse;
+	}
+	--s_stefxTargetTraceBudget;
+	return qtrue;
+}
+
+static void STEFX_LogTargetEntity( const char *prefix, const char *targetname, const gentity_t *t )
+{
+	if ( !t )
+	{
+		Com_Printf("STEFX: G_UseTargets2 target %s target='%s' found=<null>\n",
+			prefix ? prefix : "<null>",
+			targetname ? targetname : "<null>");
+		return;
+	}
+
+	Com_Printf("STEFX: G_UseTargets2 target %s target='%s' ent=%d class='%s' tn='%s' model='%s' modelindex=%d use=%d sv=0x%x eFlags=0x%x solid=0x%x contents=0x%x count=%d linked=%d origin=(%g,%g,%g)\n",
+		prefix ? prefix : "<null>",
+		targetname ? targetname : "<null>",
+		t->s.number,
+		t->classname ? t->classname : "<null>",
+		t->targetname ? t->targetname : "<null>",
+		t->model ? t->model : "<null>",
+		t->s.modelindex,
+		t->e_UseFunc,
+		t->svFlags,
+		t->s.eFlags,
+		t->s.solid,
+		t->contents,
+		t->count,
+		t->linked ? 1 : 0,
+		t->currentOrigin[0], t->currentOrigin[1], t->currentOrigin[2]);
+}
+#endif
+
 void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 {
 	gentity_t		*t;
+#ifdef _XBOX
+	qboolean stefxTraceTarget = STEFX_ShouldTraceTarget( string );
+	int stefxFoundTargets = 0;
+
+	if ( stefxTraceTarget )
+	{
+		Com_Printf("STEFX: G_UseTargets2 target enter target='%s' ent=%d class='%s' activator=%d actClass='%s'\n",
+			string ? string : "<null>",
+			ent ? ent->s.number : -1,
+			ent && ent->classname ? ent->classname : "<null>",
+			activator ? activator->s.number : -1,
+			activator && activator->classname ? activator->classname : "<null>");
+	}
+#endif
 	
 //
 // fire targets
@@ -665,7 +744,19 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 			t = ent;
 			if (t->e_UseFunc != useF_NULL)	// check can be omitted
 			{
+#ifdef _XBOX
+				if ( stefxTraceTarget )
+				{
+					STEFX_LogTargetEntity( "before_self_use", string, t );
+				}
+#endif
 				GEntity_UseFunc(t, ent, activator);
+#ifdef _XBOX
+				if ( stefxTraceTarget )
+				{
+					STEFX_LogTargetEntity( "after_self_use", string, t );
+				}
+#endif
 			}
 
 			if (!ent->inuse)
@@ -679,13 +770,32 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 			t = NULL;
 			while ( (t = G_Find (t, FOFS(targetname), (char *) string)) != NULL )
 			{
+#ifdef _XBOX
+				if ( stefxTraceTarget )
+				{
+					++stefxFoundTargets;
+					STEFX_LogTargetEntity( "found", string, t );
+				}
+#endif
 				if (t == ent)
 				{
 	//				gi.Printf ("WARNING: Entity used itself.\n");
 				}
 				if (t->e_UseFunc != useF_NULL)	// check can be omitted
 				{
+#ifdef _XBOX
+					if ( stefxTraceTarget )
+					{
+						STEFX_LogTargetEntity( "before_use", string, t );
+					}
+#endif
 					GEntity_UseFunc(t, ent, activator);
+#ifdef _XBOX
+					if ( stefxTraceTarget )
+					{
+						STEFX_LogTargetEntity( "after_use", string, t );
+					}
+#endif
 				}
 
 				if (!ent->inuse)
@@ -696,6 +806,14 @@ void G_UseTargets2 (gentity_t *ent, gentity_t *activator, const char *string)
 			}
 		}
 	}
+#ifdef _XBOX
+	if ( stefxTraceTarget )
+	{
+		Com_Printf("STEFX: G_UseTargets2 target exit target='%s' found=%d\n",
+			string ? string : "<null>",
+			stefxFoundTargets);
+	}
+#endif
 }
 
 /*

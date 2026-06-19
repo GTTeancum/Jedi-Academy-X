@@ -2,6 +2,65 @@
 // not necessarily every single frame
 
 #include "cg_local.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_IsVisibleBrushMoverSnapshotEntity( const entityState_t *state )
+{
+	if ( !state )
+	{
+		return qfalse;
+	}
+	return ( state->eType == ET_MOVER && state->solid == SOLID_BMODEL && !(state->eFlags & EF_NODRAW) );
+}
+
+static void STEFX_LogBrushMoverSnapshotEntity( const char *phase, int index, const entityState_t *state )
+{
+	static int s_stefxBrushSnapBudget = 192;
+
+	if ( !STEFX_IsVisibleBrushMoverSnapshotEntity( state ) || s_stefxBrushSnapBudget <= 0 )
+	{
+		return;
+	}
+
+	XBLF("STEFX: EF CG_SNAPSHOT_%s bmodel index=%d ent=%d type=%d solid=0x%x model=%d model2=%d eFlags=0x%x origin=(%g,%g,%g) pos=(%g,%g,%g)",
+		phase,
+		index,
+		state->number,
+		state->eType,
+		state->solid,
+		state->modelindex,
+		state->modelindex2,
+		state->eFlags,
+		state->origin[0], state->origin[1], state->origin[2],
+		state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2]);
+	--s_stefxBrushSnapBudget;
+}
+
+static void STEFX_LogSnapshotLayout( const char *phase, const snapshot_t *snap )
+{
+	static int s_stefxLayoutLogged = 0;
+
+	if ( s_stefxLayoutLogged )
+	{
+		return;
+	}
+
+	XBLF("STEFX: EF CG_SNAPSHOT_LAYOUT phase=%s snapshot=%d ps=%d entity=%d numOfs=%d entitiesOfs=%d snap=%p entities=%p num=%d",
+		phase,
+		(int)sizeof(snapshot_t),
+		(int)sizeof(playerState_t),
+		(int)sizeof(entityState_t),
+		(int)((byte *)&(((snapshot_t *)0)->numEntities)),
+		(int)((byte *)&(((snapshot_t *)0)->entities)),
+		snap,
+		snap ? snap->entities : NULL,
+		snap ? snap->numEntities : -1);
+	s_stefxLayoutLogged = 1;
+}
+#endif
 
 /*
 ==================
@@ -12,6 +71,13 @@ void CG_ResetEntity( centity_t *cent ) {
 	// if an event is set, assume it is new enough to use
 	// if the event had timed out, it would have been cleared
 	cent->previousEvent = 0;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !cent->gent && cent->currentState.number >= 0 && cent->currentState.number < MAX_GENTITIES )
+	{
+		cent->gent = &g_entities[cent->currentState.number];
+	}
+#endif
 
 	cent->trailTime = cg.snap->serverTime;
 
@@ -61,6 +127,9 @@ void CG_SetInitialSnapshot( snapshot_t *snap ) {
 	entityState_t	*state;
 
 	cg.snap = snap;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_LogSnapshotLayout( "initial", snap );
+#endif
 
 	// sort out solid entities
 	//CG_BuildSolidList();
@@ -73,9 +142,18 @@ void CG_SetInitialSnapshot( snapshot_t *snap ) {
 
 	for ( i = 0 ; i < cg.snap->numEntities ; i++ ) {
 		state = &cg.snap->entities[ i ];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogBrushMoverSnapshotEntity( "INITIAL", i, state );
+#endif
 		cent = &cg_entities[ state->number ];
 
 		cent->currentState = *state;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !cent->gent )
+		{
+			cent->gent = &g_entities[state->number];
+		}
+#endif
 		cent->interpolate = qfalse;
 		cent->currentValid = qtrue;
 
@@ -180,7 +258,16 @@ void CG_SetNextSnap( snapshot_t *snap ) {
 	// check for extrapolation errors
 	for ( num = 0 ; num < snap->numEntities ; num++ ) {
 		es = &snap->entities[num];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogBrushMoverSnapshotEntity( "NEXT", num, es );
+#endif
 		cent = &cg_entities[ es->number ];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !cent->gent )
+		{
+			cent->gent = &g_entities[es->number];
+		}
+#endif
 		CG_SetEntityNextState( cent, es );
 	}
 
@@ -371,4 +458,3 @@ void CG_ProcessSnapshots( void ) {
 		CG_Error( "CG_ProcessSnapshots: cg.nextSnap->serverTime <= cg.time" );
 	}
 }
-

@@ -268,7 +268,10 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	int				cull;
 	int				i, whichLod;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	static int		s_stefxAnimSurfLogBudget = 96;
+	static int		s_stefxAnimSurfEnterBudget = 24;
+	static int		s_stefxAnimSurfCullBudget = 24;
+	static int		s_stefxAnimSurfVisibleBudget = 96;
+	qboolean		stefxTrackAnimSurf = qfalse;
 	qboolean		stefxLogAnimSurf = qfalse;
 #endif
 
@@ -276,22 +279,25 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( s_stefxAnimSurfLogBudget > 0 &&
-		( ent->e.number == 78 || ent->e.number == 143 || ent->e.number == 154 ) )
+	if ( tr.refdef.time >= 65000 &&
+		tr.currentModel && strstr( tr.currentModel->name, "models/players/" ) )
 	{
-		stefxLogAnimSurf = qtrue;
-		s_stefxAnimSurfLogBudget--;
-		XBLF( "STEFX: R_AddAnimSurfaces enter ent=%d h=%d model='%s' frame=%d old=%d rf=0x%x personal=%d origin=(%g,%g,%g)",
-			ent->e.number,
-			ent->e.hModel,
-			tr.currentModel ? tr.currentModel->name : "(null)",
-			ent->e.frame,
-			ent->e.oldframe,
-			ent->e.renderfx,
-			personalModel,
-			ent->e.origin[0],
-			ent->e.origin[1],
-			ent->e.origin[2] );
+		stefxTrackAnimSurf = qtrue;
+		if ( s_stefxAnimSurfEnterBudget > 0 )
+		{
+			--s_stefxAnimSurfEnterBudget;
+			XBLF( "STEFX: R_AddAnimSurfaces enter ent=%d h=%d model='%s' frame=%d old=%d rf=0x%x personal=%d origin=(%g,%g,%g)",
+				ent->e.number,
+				ent->e.hModel,
+				tr.currentModel ? tr.currentModel->name : "(null)",
+				ent->e.frame,
+				ent->e.oldframe,
+				ent->e.renderfx,
+				personalModel,
+				ent->e.origin[0],
+				ent->e.origin[1],
+				ent->e.origin[2] );
+		}
 	}
 #endif
 
@@ -335,14 +341,15 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	// is outside the view frustum.
 	//
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	cull = R_STEFX_ACullModel( header, ent, stefxLogAnimSurf );
+	cull = R_STEFX_ACullModel( header, ent, stefxTrackAnimSurf && s_stefxAnimSurfCullBudget > 0 );
 #else
 	cull = R_ACullModel ( header, ent );
 #endif
 	if ( cull == CULL_OUT ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogAnimSurf )
+		if ( stefxTrackAnimSurf && s_stefxAnimSurfCullBudget > 0 )
 		{
+			--s_stefxAnimSurfCullBudget;
 			XBLF( "STEFX: R_AddAnimSurfaces cull out ent=%d h=%d model='%s' frame=%d old=%d",
 				ent->e.number,
 				ent->e.hModel,
@@ -364,8 +371,10 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 		lod = (md4LOD_t*)( (byte *)lod + lod->ofsEnd );
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( stefxLogAnimSurf )
+	if ( stefxTrackAnimSurf && s_stefxAnimSurfVisibleBudget > 0 )
 	{
+		stefxLogAnimSurf = qtrue;
+		--s_stefxAnimSurfVisibleBudget;
 		XBLF( "STEFX: R_AddAnimSurfaces visible ent=%d h=%d lod=%d surfaces=%d cull=%d",
 			ent->e.number,
 			ent->e.hModel,

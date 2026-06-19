@@ -1591,16 +1591,35 @@ int CTaskManager::Camera( CTask *task )
 		VALIDATE( Get( m_ownerID, block, memberNum, &sVal ) );
 
 		(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d camera( PATH, \"%s\"); [%d]", m_ownerID, sVal, task->GetTimeStamp() );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: ICARUS Camera dispatch PATH owner=%d guid=%d path='%s' time=%d",
+			m_ownerID,
+			task ? task->GetGUID() : -1,
+			sVal ? sVal : "<null>",
+			(m_owner->GetInterface())->I_GetTime());
+#endif
 		ie->I_CameraPath( sVal );
 		break;
 
 	case TYPE_ENABLE:
 		(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d camera( ENABLE ); [%d]", m_ownerID, task->GetTimeStamp() );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: ICARUS Camera dispatch ENABLE owner=%d guid=%d time=%d",
+			m_ownerID,
+			task ? task->GetGUID() : -1,
+			(m_owner->GetInterface())->I_GetTime());
+#endif
 		ie->I_CameraEnable();
 		break;
 
 	case TYPE_DISABLE:
 		(m_owner->GetInterface())->I_DPrintf( WL_DEBUG, "%4d camera( DISABLE ); [%d]", m_ownerID, task->GetTimeStamp() );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: ICARUS Camera dispatch DISABLE owner=%d guid=%d time=%d",
+			m_ownerID,
+			task ? task->GetGUID() : -1,
+			(m_owner->GetInterface())->I_GetTime());
+#endif
 		ie->I_CameraDisable();
 		break;
 	

@@ -194,19 +194,14 @@ static void CG_ServerCommand( void ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		XBLF("STEFX: EF servercmd st scrolltext key='%s' time=%d", CG_Argv(1), cg.time);
 #endif
-#ifdef _XBOX
-		if(cg.widescreen)
-			CG_ScrollText( CG_Argv(1), 720 - 16 );
-		else
-#endif
-		CG_ScrollText( CG_Argv(1), SCREEN_WIDTH - 16 );
+		CG_ScrollText( CG_Argv(1), SCREEN_HEIGHT * 0.25, BIGCHAR_WIDTH );
 		return;
 	}
 
 	// Cinematic text
 	if ( !strcmp( cmd, "ct" ) ) 
 	{
-		CG_CaptionText( CG_Argv(1), cgs.sound_precache[atoi(CG_Argv(2))], SCREEN_HEIGHT * 0.25 );
+		CG_CaptionText( CG_Argv(1), cgs.sound_precache[atoi(CG_Argv(2))], SCREEN_HEIGHT * 0.25, SMALLCHAR_WIDTH );
 		return;
 	}
 
@@ -217,11 +212,24 @@ static void CG_ServerCommand( void ) {
 		return;
 	}
 
+	// Game text spoken by a character
+	if ( !strcmp( cmd, "gt" ) )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: EF servercmd gt text='%s' speaker=%s ent=%s sound=%s time=%d",
+			CG_Argv(1), CG_Argv(2), CG_Argv(3), CG_Argv(4), cg.time);
+#endif
+		CG_GameText( SCREEN_HEIGHT * 0.25, SMALLCHAR_WIDTH );
+		return;
+	}
 
 	// Text to appear in center of screen with an LCARS frame around it. 
 	if ( !strcmp( cmd, "lt" ) ) 
 	{
-		CG_Printf("CG_LCARSText() being called. Tell Ste\nString: \"%s\"\n",CG_Argv(1));
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: EF servercmd lt text='%s' time=%d", CG_Argv(1), cg.time);
+#endif
+		CG_LCARSText( CG_Argv(1), SCREEN_HEIGHT * 0.25, SMALLCHAR_WIDTH );
 		return;
 	}
 

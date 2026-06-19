@@ -11,6 +11,17 @@
 #include "../win32/xb_log.h"
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean CL_STEFX_IsVisibleBrushMoverState( const entityState_t *state )
+{
+	if ( !state )
+	{
+		return qfalse;
+	}
+	return state->eType == ET_MOVER && state->solid == SOLID_BMODEL && !(state->eFlags & EF_NODRAW);
+}
+#endif
+
 char *svc_strings[256] = {
 	"svc_bad",
 
@@ -60,6 +71,24 @@ void CL_DeltaEntity (msg_t *msg, clSnapshot_t *frame)
 		return;		// entity was delta removed
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( CL_STEFX_IsVisibleBrushMoverState( state ) )
+	{
+		static int s_stefxParseBModelBudget = 160;
+		if ( s_stefxParseBModelBudget > 0 )
+		{
+			XBLF("STEFX: CL_ParsePacket bmodel ent=%d eType=%d model=%d model2=%d solid=0x%x eFlags=0x%x parseIndex=%d pos=(%g,%g,%g) apos=(%g,%g,%g)",
+				state->number,
+				state->eType,
+				state->modelindex,
+				state->modelindex2,
+				state->solid,
+				state->eFlags,
+				cl.parseEntitiesNum & (MAX_PARSE_ENTITIES-1),
+				state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2],
+				state->apos.trBase[0], state->apos.trBase[1], state->apos.trBase[2]);
+			--s_stefxParseBModelBudget;
+		}
+	}
 	if ( state->eType > ET_EVENTS )
 	{
 		static int s_stefxParseEventBudget = 128;

@@ -1092,6 +1092,10 @@ static image_t *R_FindImageFile_NoLoad(const char *name, int mipcount, qboolean 
 	return NULL;
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_ShouldTraceIntroImage( const char *name );
+#endif
+
 
 /*
 ================
@@ -1154,6 +1158,24 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 
 	GL_Bind(image);
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_ShouldTraceIntroImage(name) ||
+		!Q_stricmp(name, "gfx/2d/chars_big") ||
+		!Q_stricmp(name, "gfx/2d/chars_medium") ||
+		!Q_stricmp(name, "gfx/2d/chars_tiny") ||
+		!Q_stricmp(name, "gfx/2d/charsgrid_med"))
+	{
+		XBLF("STEFX: INTRO_IMAGE create begin name='%s' wh=%dx%d fmt=0x%04x mips=%d picmip=%d tex=%u",
+			name,
+			image->width,
+			image->height,
+			format,
+			image->mipcount,
+			allowPicmip,
+			image->texnum);
+	}
+#endif
+
 	Upload32( name, (unsigned *)pic,	image->width, image->height, 
 								format,
 								image->mipcount,
@@ -1166,6 +1188,22 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 
 	glBindTexture( GL_TEXTURE_2D, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
 	glState.currenttextures[glState.currenttmu] = 0;	//mark it not bound
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_ShouldTraceIntroImage(name) ||
+		!Q_stricmp(name, "gfx/2d/chars_big") ||
+		!Q_stricmp(name, "gfx/2d/chars_medium") ||
+		!Q_stricmp(name, "gfx/2d/chars_tiny") ||
+		!Q_stricmp(name, "gfx/2d/charsgrid_med"))
+	{
+		XBLF("STEFX: INTRO_IMAGE create done name='%s' wh=%dx%d internal=0x%04x tex=%u",
+			name,
+			image->width,
+			image->height,
+			image->internalFormat,
+			image->texnum);
+	}
+#endif
 
 	const char* psNewName = GenerateImageMappingName(name);
 	image->imgCode = crc32(0, (const Bytef *)psNewName, strlen(psNewName));
@@ -1777,6 +1815,15 @@ Loads any of the supported image types into a cannonical
 */
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern qboolean FS_PK3PatchFileExists( const char *filename );
+
+static qboolean STEFX_ShouldTraceIntroImage( const char *name )
+{
+	return name && (
+		strstr( name, "textures/common/70yearjourney" ) ||
+		strstr( name, "textures/common/enemyspace" ) ||
+		strstr( name, "textures/common/sevenspace" ) ||
+		strstr( name, "textures/common/tuvokhazard" ) );
+}
 #endif
 
 void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format ) {
@@ -1812,7 +1859,9 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 		COM_DefaultExtension(name, sizeof(name), ".dds");
 		LoadDDS( name, pic, width, height, mipcount, format );
 		if( *pic )
+		{
 			return;
+		}
 	}
 	else
 	{
@@ -1822,6 +1871,10 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 		COM_DefaultExtension(ddsName, sizeof(ddsName), ".dds");
 		if (FS_PK3PatchFileExists(ddsName))
 		{
+			if (STEFX_ShouldTraceIntroImage(ddsName))
+			{
+				XBLF("STEFX: INTRO_IMAGE DDS candidate request='%s' dds='%s'", shortname, ddsName);
+			}
 			LoadDDS(ddsName, pic, width, height, mipcount, format);
 			if (*pic)
 			{
@@ -1830,6 +1883,11 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 				{
 					XBLF("STEFX: R_LoadImage DDS patch '%s' %dx%d mips=%d fmt=0x%04x",
 						ddsName, *width, *height, *mipcount, *format);
+				}
+				if (STEFX_ShouldTraceIntroImage(ddsName))
+				{
+					XBLF("STEFX: INTRO_IMAGE DDS loaded request='%s' dds='%s' wh=%dx%d mips=%d fmt=0x%04x",
+						shortname, ddsName, *width, *height, *mipcount, *format);
 				}
 				++s_xboxDDSPatchLoadLogCount;
 				return;
@@ -1841,6 +1899,11 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 	COM_StripExtension(name, name);
 	COM_DefaultExtension(name, sizeof(name), ".jpg");
 	int jpgLen = LoadJPG( name, pic, width, height );
+	if (STEFX_ShouldTraceIntroImage(name))
+	{
+		XBLF("STEFX: INTRO_IMAGE JPG attempt request='%s' name='%s' len=%d pic=%p wh=%dx%d",
+			shortname, name, jpgLen, (void *)*pic, *width, *height);
+	}
 	if (strstr(name, "textures/borg/") || strstr(name, "textures/detail/"))
 	{
 		static int s_xboxJpgProbeLogCount = 0;

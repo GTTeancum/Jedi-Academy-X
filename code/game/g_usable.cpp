@@ -12,25 +12,235 @@ extern void	InitMover( gentity_t *ent );
 
 extern gentity_t	*G_TestEntityPosition( gentity_t *ent );
 
-#ifdef _XBOX
-static void Xbox_BroadcastFuncUsable( gentity_t *ent, const char *reason )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+typedef struct stefxScriptTargetCache_s
+{
+	char target[MAX_QPATH];
+	qboolean referenced;
+} stefxScriptTargetCache_t;
+
+static stefxScriptTargetCache_t s_stefxScriptTargetCache[128];
+static int s_stefxScriptTargetCacheCount = 0;
+static char s_stefxScriptTargetMap[MAX_QPATH] = "";
+
+static qboolean STEFX_IsScriptTokenBoundary( int c )
+{
+	if ( c >= 'a' && c <= 'z' )
+	{
+		return qfalse;
+	}
+	if ( c >= 'A' && c <= 'Z' )
+	{
+		return qfalse;
+	}
+	if ( c >= '0' && c <= '9' )
+	{
+		return qfalse;
+	}
+	return ( c == '_' ) ? qfalse : qtrue;
+}
+
+static qboolean STEFX_BufferContainsScriptToken( const char *buffer, int len, const char *token )
+{
+	int tokenLen;
+	int i;
+
+	if ( !buffer || len <= 0 || !token || !token[0] )
+	{
+		return qfalse;
+	}
+
+	tokenLen = strlen( token );
+	if ( tokenLen <= 0 || tokenLen > len )
+	{
+		return qfalse;
+	}
+
+	for ( i = 0; i <= len - tokenLen; ++i )
+	{
+		if ( memcmp( buffer + i, token, tokenLen ) )
+		{
+			continue;
+		}
+		if ( i > 0 && !STEFX_IsScriptTokenBoundary( (unsigned char)buffer[i - 1] ) )
+		{
+			continue;
+		}
+		if ( i + tokenLen < len && !STEFX_IsScriptTokenBoundary( (unsigned char)buffer[i + tokenLen] ) )
+		{
+			continue;
+		}
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean STEFX_ScriptFileReferencesTarget( const char *scriptPath, const char *targetname )
+{
+	int len;
+	char *buffer;
+	qboolean referenced;
+
+	len = gi.FS_ReadFile( scriptPath, (void **)&buffer );
+	if ( len <= 0 || !buffer )
+	{
+		return qfalse;
+	}
+
+	referenced = STEFX_BufferContainsScriptToken( buffer, len, targetname );
+	gi.FS_FreeFile( buffer );
+	if ( referenced )
+	{
+		XBLF("STEFX: func_usable script target referenced target='%s' script='%s'", targetname, scriptPath);
+	}
+	return referenced;
+}
+
+static qboolean STEFX_LevelScriptsReferenceTarget( const char *targetname )
+{
+	char listbuf[4096];
+	char scriptDir[MAX_QPATH];
+	char scriptPath[MAX_QPATH];
+	char *cursor;
+	static const char *directScripts[] =
+	{
+		"intro.IBI",
+		"intro2.IBI",
+		"setupworld.IBI"
+	};
+	int numFiles;
+	int i;
+
+	if ( !targetname || !targetname[0] )
+	{
+		return qfalse;
+	}
+
+	if ( Q_stricmp( s_stefxScriptTargetMap, level.mapname ) )
+	{
+		s_stefxScriptTargetCacheCount = 0;
+		Q_strncpyz( s_stefxScriptTargetMap, level.mapname, sizeof(s_stefxScriptTargetMap) );
+		XBLF("STEFX: func_usable script target cache reset map='%s'", level.mapname);
+	}
+
+	for ( i = 0; i < s_stefxScriptTargetCacheCount; ++i )
+	{
+		if ( !Q_stricmp( s_stefxScriptTargetCache[i].target, targetname ) )
+		{
+			return s_stefxScriptTargetCache[i].referenced;
+		}
+	}
+
+	Com_sprintf( scriptDir, sizeof(scriptDir), "real_scripts/%s", level.mapname );
+	for ( i = 0; i < (int)(sizeof(directScripts) / sizeof(directScripts[0])); ++i )
+	{
+		Com_sprintf( scriptPath, sizeof(scriptPath), "%s/%s", scriptDir, directScripts[i] );
+		if ( STEFX_ScriptFileReferencesTarget( scriptPath, targetname ) )
+		{
+			if ( s_stefxScriptTargetCacheCount < (int)(sizeof(s_stefxScriptTargetCache) / sizeof(s_stefxScriptTargetCache[0])) )
+			{
+				Q_strncpyz( s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].target, targetname, sizeof(s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].target) );
+				s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].referenced = qtrue;
+				++s_stefxScriptTargetCacheCount;
+			}
+			return qtrue;
+		}
+	}
+
+	numFiles = gi.FS_GetFileList( scriptDir, ".IBI", listbuf, sizeof(listbuf) );
+	cursor = listbuf;
+	for ( i = 0; i < numFiles; ++i )
+	{
+		Com_sprintf( scriptPath, sizeof(scriptPath), "%s/%s", scriptDir, cursor );
+		if ( STEFX_ScriptFileReferencesTarget( scriptPath, targetname ) )
+		{
+			if ( s_stefxScriptTargetCacheCount < (int)(sizeof(s_stefxScriptTargetCache) / sizeof(s_stefxScriptTargetCache[0])) )
+			{
+				Q_strncpyz( s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].target, targetname, sizeof(s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].target) );
+				s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].referenced = qtrue;
+				++s_stefxScriptTargetCacheCount;
+			}
+			return qtrue;
+		}
+		cursor += strlen( cursor ) + 1;
+	}
+
+	if ( s_stefxScriptTargetCacheCount < (int)(sizeof(s_stefxScriptTargetCache) / sizeof(s_stefxScriptTargetCache[0])) )
+	{
+		Q_strncpyz( s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].target, targetname, sizeof(s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].target) );
+		s_stefxScriptTargetCache[s_stefxScriptTargetCacheCount].referenced = qfalse;
+		++s_stefxScriptTargetCacheCount;
+	}
+	return qfalse;
+}
+
+static qboolean STEFX_ShouldBroadcastFuncUsable( const gentity_t *ent )
+{
+	if ( !ent || !ent->model || ent->model[0] != '*' )
+	{
+		return qfalse;
+	}
+	if ( ent->svFlags & SVF_NOCLIENT )
+	{
+		return qfalse;
+	}
+	if ( ent->s.eFlags & EF_NODRAW )
+	{
+		return qfalse;
+	}
+	return STEFX_LevelScriptsReferenceTarget( ent->targetname );
+}
+
+static void STEFX_BroadcastFuncUsable( gentity_t *ent, const char *reason )
 {
 	static int s_xboxFuncUsableBroadcastBudget = 96;
 
-	ent->svFlags |= SVF_BROADCAST;
+	if ( !STEFX_ShouldBroadcastFuncUsable( ent ) )
+	{
+		return;
+	}
+
+	ent->svFlags |= ( SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN );
 	if ( s_xboxFuncUsableBroadcastBudget > 0 )
 	{
-		XBLF("JA: FUNC_USABLE_BROADCAST reason=%s ent=%d model='%s' target='%s' script='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x",
+		XBLF("STEFX: func_usable broadcast reason=%s ent=%d class='%s' model='%s' target='%s' script='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x solid=0x%x contents=0x%x count=%d origin=(%g,%g,%g)",
 			reason ? reason : "<null>",
 			ent->s.number,
+			ent->classname ? ent->classname : "<null>",
 			ent->model ? ent->model : "<null>",
 			ent->targetname ? ent->targetname : "<null>",
 			ent->script_targetname ? ent->script_targetname : "<null>",
 			ent->spawnflags,
 			ent->svFlags,
-			ent->s.eFlags);
+			ent->s.eFlags,
+			ent->s.solid,
+			ent->contents,
+			ent->count,
+			ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
 		--s_xboxFuncUsableBroadcastBudget;
 	}
+}
+
+static void STEFX_LogFuncUsableState( gentity_t *ent, const char *reason )
+{
+	if ( !ent || !ent->model || ent->model[0] != '*' )
+	{
+		return;
+	}
+	XBLF("STEFX: func_usable %s ent=%d model='%s' target='%s' spawnflags=0x%x sv=0x%x eFlags=0x%x solid=0x%x contents=0x%x count=%d linked=%d origin=(%g,%g,%g)",
+		reason ? reason : "<null>",
+		ent->s.number,
+		ent->model ? ent->model : "<null>",
+		ent->targetname ? ent->targetname : "<null>",
+		ent->spawnflags,
+		ent->svFlags,
+		ent->s.eFlags,
+		ent->s.solid,
+		ent->contents,
+		ent->count,
+		ent->linked ? 1 : 0,
+		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
 }
 #endif
 
@@ -49,11 +259,14 @@ void func_wait_return_solid( gentity_t *self )
 		*/
 		//if we moved, we want the *current* origin, not our start origin!
 		VectorCopy( self->currentOrigin, self->s.pos.trBase );
-		gi.linkentity( self );
 		self->svFlags &= ~SVF_NOCLIENT;
 		self->s.eFlags &= ~EF_NODRAW;
-#ifdef _XBOX
-		Xbox_BroadcastFuncUsable( self, "return_solid" );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_BroadcastFuncUsable( self, "return_solid" );
+#endif
+		gi.linkentity( self );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogFuncUsableState( self, "return_solid_linked" );
 #endif
 		self->e_UseFunc = useF_func_usable_use;
 		self->clipmask = 0;
@@ -104,6 +317,9 @@ qboolean G_EntIsRemovableUsable( int entNum )
 
 void func_usable_use( gentity_t *self, gentity_t *other, gentity_t *activator )
 {//Toggle on and off
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_LogFuncUsableState( self, "use_begin" );
+#endif
 	if ( other == activator )
 	{//directly used by use button trace
 		if ( (self->spawnflags&32) )
@@ -167,6 +383,9 @@ void func_usable_use( gentity_t *self, gentity_t *other, gentity_t *activator )
 		self->svFlags |= SVF_NOCLIENT;
 		self->s.eFlags |= EF_NODRAW;
 		self->count = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogFuncUsableState( self, "use_hidden" );
+#endif
 
 		if(self->target && self->target[0])
 		{
@@ -239,6 +458,9 @@ void SP_func_usable( gentity_t *self )
 		self->s.eFlags |= EF_NODRAW;
 		self->count = 0;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_LogFuncUsableState( self, "spawn_after_startoff" );
+#endif
 
 	if (self->spawnflags & 2)
 	{
@@ -267,11 +489,16 @@ void SP_func_usable( gentity_t *self )
 
 	gi.linkentity (self);
 
-#ifdef _XBOX
-	if ( (self->targetname && self->targetname[0]) || (self->script_targetname && self->script_targetname[0]) )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !(self->svFlags & SVF_NOCLIENT) && !(self->s.eFlags & EF_NODRAW) )
 	{
-		Xbox_BroadcastFuncUsable( self, "spawn_scripted" );
+		STEFX_BroadcastFuncUsable( self, "spawn_visible" );
 	}
+	else
+	{
+		STEFX_LogFuncUsableState( self, "spawn_hidden_waiting_for_script" );
+	}
+	STEFX_LogFuncUsableState( self, "spawn_linked" );
 #endif
 
 	int forceVisible = 0;

@@ -1062,6 +1062,10 @@ sfxHandle_t	S_RegisterSound(const char *name)
 	Q_strlwr( fixedName );
 
 	char *psVoice = strstr(fixedName, "chars");
+	if( !psVoice )
+	{
+		psVoice = strstr(fixedName, "sound/voice/");
+	}
 	if( psVoice )
 	{
 		// Need to replace "chars" with "chr_f" or "chr_d" if we're in a foreign
@@ -1082,10 +1086,10 @@ sfxHandle_t	S_RegisterSound(const char *name)
 #ifdef _XBOX
 		{
 			static int s_xboxVoiceRegistersLogged = 0;
-			if (s_xboxSilentAudio && s_xboxVoiceRegistersLogged < 24)
+			if (s_xboxVoiceRegistersLogged < 96)
 			{
-				Com_Printf("JA: Xbox silent voice register handle=%d lip=%d name='%s'\n",
-					handle, sfx->pLipSyncData ? 1 : 0, fixedName);
+				Com_Printf("STEFX: S_RegisterSound voice handle=%d flags=0x%x fileCode=0x%x lip=%d name='%s'\n",
+					handle, sfx->iFlags, sfx->iFileCode, sfx->pLipSyncData ? 1 : 0, fixedName);
 				s_xboxVoiceRegistersLogged++;
 			}
 		}
@@ -1234,11 +1238,30 @@ channel_t *S_PickChannel(int entnum, int entchannel, bool is2D, sfx_t* sfx)
 	if (ch_firstToDie->bPlaying)
 	{
 #ifdef _XBOX
-		// We have an insane amount of channels on the Xbox
-		// and stopping one is a blocking operation.  Let's
-		// just assume that no one will care if a sound is
-		// dropped when over 100 are already playing...
-		return NULL;
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx && (sfx->iFlags & SFX_FLAG_VOICE)))
+		{
+			static int s_xboxVoiceChannelReclaims = 0;
+			if (s_xboxVoiceChannelReclaims < 64)
+			{
+				Com_Printf("STEFX: S_PickChannel reclaim voice ent=%d chan=%d oldEnt=%d oldChan=%d oldCode=0x%x newCode=0x%x\n",
+					entnum, entchannel, ch_firstToDie->entnum, ch_firstToDie->entchannel,
+					ch_firstToDie->thesfx ? ch_firstToDie->thesfx->iFileCode : 0,
+					sfx ? sfx->iFileCode : 0);
+				s_xboxVoiceChannelReclaims++;
+			}
+			alSourceStop(ch_firstToDie->alSource);
+			ch_firstToDie->bPlaying = false;
+		}
+		else
+		{
+			// We have an insane amount of channels on the Xbox
+			// and stopping one is a blocking operation.  Let's
+			// just assume that no one will care if a sound is
+			// dropped when over 100 are already playing...
+			return NULL;
+		}
 #else
 		// Stop sound
 		alSourceStop(ch_firstToDie->alSource);
@@ -1430,6 +1453,7 @@ Entchannel 0 will never override a playing sound
 #include "../game/g_local.h"
 extern int Sys_GetSoundFileCodeSize(unsigned int code);
 extern unsigned int Sys_GetSoundFileCodeFlags(unsigned int code);
+extern const char *Sys_GetSoundFileCodeName(unsigned int code);
 void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel, sfxHandle_t sfxHandle ) 
 {
 	channel_t	*ch;
@@ -1527,6 +1551,23 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	}
 
 	int flags = Sys_GetSoundFileCodeFlags(sfx->iFileCode);
+#ifdef _XBOX
+	if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+		entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+		(sfx->iFlags & SFX_FLAG_VOICE))
+	{
+		const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		Com_Printf("STEFX: S_StartSound name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x bankSize=%d resident=%d\n",
+			soundName ? soundName : "<unknown>",
+			entityNum,
+			entchannel,
+			sfxHandle,
+			sfx->iFileCode,
+			sfx->iFlags,
+			Sys_GetSoundFileCodeSize(sfx->iFileCode),
+			(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0);
+	}
+#endif
 
 	if (sfx->iFlags & SFX_FLAG_UNLOADED){
 		S_StartLoadSound(sfx);
@@ -1612,6 +1653,17 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	
 	ch = S_PickChannel( entityNum, entchannel, is2D, sfx );
 	if (!ch) {
+#ifdef _XBOX
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx->iFlags & SFX_FLAG_VOICE))
+		{
+			Com_Printf("STEFX: S_StartSound no channel ent=%d chan=%d handle=%d code=0x%x flags=0x%x resident=%d loading=%d\n",
+				entityNum, entchannel, sfxHandle, sfx->iFileCode, sfx->iFlags,
+				(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+				(sfx->iFlags & SFX_FLAG_LOADING) ? 1 : 0);
+		}
+#endif
 		return;
 	}
 
@@ -1630,6 +1682,9 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	ch->entnum = entityNum;
 	ch->entchannel = entchannel;
 	ch->thesfx = sfx;
+	ch->bPlaying = false;
+	ch->bLooping = false;
+	ch->iLastPlayTime = 0;
 
 	if (entchannel < CHAN_AMBIENT && IsListenerEnt(ch->entnum))
 	{
@@ -2260,6 +2315,45 @@ static void PlaySingleShot(channel_t *ch)
 	}
 }
 
+#ifdef _XBOX
+void S_XboxOnSoundLoaded(sfx_t *sfx)
+{
+	if (!sfx || !(sfx->iFlags & SFX_FLAG_RESIDENT))
+	{
+		return;
+	}
+
+	for (int i = 0; i < s_numChannels; ++i)
+	{
+		channel_t *ch = &s_channels[i];
+		if (ch->thesfx != sfx || ch->bPlaying || ch->bLooping)
+		{
+			continue;
+		}
+
+		if (sfx->Buffer == 0)
+		{
+			continue;
+		}
+
+		if (ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+			ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+			(sfx->iFlags & SFX_FLAG_VOICE))
+		{
+			static int s_xboxLoadedWakeLogged = 0;
+			if (s_xboxLoadedWakeLogged < 64)
+			{
+				Com_Printf("STEFX: S_XboxOnSoundLoaded wake ent=%d chan=%d code=0x%x flags=0x%x buffer=%d\n",
+					ch->entnum, ch->entchannel, sfx->iFileCode, sfx->iFlags, sfx->Buffer);
+				s_xboxLoadedWakeLogged++;
+			}
+		}
+
+		PlaySingleShot(ch);
+	}
+}
+#endif
+
 void UpdateLoopingSounds()
 {
 	// Look for non-processed loops that are ready to play
@@ -2523,10 +2617,28 @@ void S_Update_(void)
 
 		if ( ch->thesfx->iFlags & SFX_FLAG_UNLOADED )
 		{
-			// if the sound is not going to be loaded, force the 
-			// playing flag high, stop the source, and hope that 
-			// the update code cleans it up...
-			ch->bPlaying = true;
+			// Keep one-shot sounds pending until their async load completes.
+			// Marking them playing here causes UpdatePlayState to discard the
+			// channel before PlaySingleShot ever attaches the loaded buffer.
+#ifdef _XBOX
+			if (!ch->bLooping)
+			{
+				static int s_xboxPendingUnloadLogged = 0;
+				if (s_xboxPendingUnloadLogged < 64 &&
+					(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+					 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+					 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+				{
+					Com_Printf("STEFX: S_Update pending unloaded ent=%d chan=%d code=0x%x flags=0x%x\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iFlags);
+					s_xboxPendingUnloadLogged++;
+				}
+			}
+#endif
+			if (!ch->bLooping)
+			{
+				ch->bPlaying = false;
+			}
 			alSourceStop(ch->alSource);
 			continue;
 		}
@@ -2565,8 +2677,6 @@ void S_Update_(void)
 
 		}
 
-		if ( !(ch->thesfx->iFlags & SFX_FLAG_RESIDENT) ) continue;
-
 		UpdatePosition(ch);
 		UpdateGain(ch);
 
@@ -2576,6 +2686,39 @@ void S_Update_(void)
 		}
 		else
 		{
+#ifdef _XBOX
+			if ( !(ch->thesfx->iFlags & SFX_FLAG_RESIDENT) )
+			{
+				static int s_xboxPendingNonResidentLogged = 0;
+				if (s_xboxPendingNonResidentLogged < 64 &&
+					(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+					 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+					 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+				{
+					Com_Printf("STEFX: S_Update waiting nonresident ent=%d chan=%d code=0x%x flags=0x%x buffer=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iFlags, ch->thesfx->Buffer);
+					s_xboxPendingNonResidentLogged++;
+				}
+				continue;
+			}
+#else
+			if ( !(ch->thesfx->iFlags & SFX_FLAG_RESIDENT) ) continue;
+#endif
+#ifdef _XBOX
+			if (ch->thesfx &&
+				(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+				 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+				 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+			{
+				static int s_xboxPendingPlayLogged = 0;
+				if (s_xboxPendingPlayLogged < 64)
+				{
+					Com_Printf("STEFX: S_Update pending play ent=%d chan=%d code=0x%x flags=0x%x buffer=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iFlags, ch->thesfx->Buffer);
+					s_xboxPendingPlayLogged++;
+				}
+			}
+#endif
 			PlaySingleShot(ch);
 		}
 	}

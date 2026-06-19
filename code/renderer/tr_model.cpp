@@ -283,13 +283,20 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 					if (!pvDiskBufferIfJustLoaded)
 					{
 #if defined(STEFX_ELITE_FORCE_SP)
-						XBLF("STEFX: RE_RegisterModels_Malloc heap failed model='%s' size=%d tag=%d; returning bad model",
+						XBLF("STEFX: RE_RegisterModels_Malloc heap failed model='%s' size=%d tag=%d; falling back to zone",
 							sModelName, iSize, eTag);
-						ModelBin.pModelDiskImage = NULL;
-						ModelBin.iAllocSize = 0;
 						ModelBin.bHeapAllocated = qfalse;
-						*pqbAlreadyFound = qfalse;
-						return NULL;
+						pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
+						if (!pvDiskBufferIfJustLoaded)
+						{
+							XBLF("STEFX: RE_RegisterModels_Malloc zone fallback failed model='%s' size=%d tag=%d; returning bad model",
+								sModelName, iSize, eTag);
+							ModelBin.pModelDiskImage = NULL;
+							ModelBin.iAllocSize = 0;
+							ModelBin.bHeapAllocated = qfalse;
+							*pqbAlreadyFound = qfalse;
+							return NULL;
+						}
 #else
 						pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
 						ModelBin.bHeapAllocated = qfalse;
@@ -686,6 +693,7 @@ static qboolean STEFX_IsGhoul2ModelName(const char *name)
 
 #if defined(_XBOX)
 static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size);
+static void STEFX_LogMdrMemoryStats(const char *phase, const char *name, int fileLen, int requestSize, int realSize, int alignPad, int fit);
 
 static qboolean STEFX_IsBorgPlayerModelName(const char *name)
 {
@@ -790,25 +798,43 @@ static qhandle_t STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char 
 #if defined(_XBOX)
 	if (STEFX_IsPlayerModelName(name) && !STEFX_IsBorgPlayerModelName(name))
 	{
-		const int playerMdrFallbackLimit = 1536 * 1024;
 		const char *fallbackName = STEFX_DefaultPlayerMdrFallbackName(name);
-		if (len > playerMdrFallbackLimit && fallbackName && !STEFX_IsDefaultPlayerMdrFallbackName(name))
-		{
-			qhandle_t fallback;
-			FS_FCloseFile(f);
-			fallback = RE_RegisterModel_Actual(fallbackName);
-			if (fallback)
-			{
-				STEFX_InsertModelHandleAliasIntoHash(name, fallback);
-				XBLF("STEFX: RE_RegisterModel MDR hazard preflight fallback '%s' len=%d -> '%s' handle=%d",
-					name, len, fallbackName, fallback);
-				return fallback;
-			}
+		int requestSize = len + 1;
+		int realSize = 0;
+		int alignPad = 0;
+		int largestFreeBlock = 0;
+		qboolean wouldFit = Z_WouldAllocFit(requestSize, TAG_MODEL_MD3, 32, &realSize, &alignPad, &largestFreeBlock);
 
+		STEFX_LogMdrMemoryStats("preflight", name, len, requestSize, realSize, alignPad, wouldFit ? 1 : 0);
+
+		if (!wouldFit && fallbackName && !STEFX_IsDefaultPlayerMdrFallbackName(name))
+		{
+			FS_FCloseFile(f);
 			mod->type = MOD_BAD;
 			RE_InsertModelIntoHash(name, mod);
-			XBLF("STEFX: RE_RegisterModel MDR hazard preflight fallback failed '%s' len=%d fallback='%s'; inserted MOD_BAD",
-				name, len, fallbackName);
+			XBLF("STEFX: RE_RegisterModel MDR player part cannot fit '%s' len=%d request=%d real=%d largest=%d shortfall=%d fallbackSuppressed='%s'; inserted MOD_BAD",
+				name,
+				len,
+				requestSize,
+				realSize,
+				largestFreeBlock,
+				(realSize > largestFreeBlock) ? (realSize - largestFreeBlock) : 0,
+				fallbackName);
+			return mod->index;
+		}
+
+		if (!wouldFit)
+		{
+			FS_FCloseFile(f);
+			mod->type = MOD_BAD;
+			RE_InsertModelIntoHash(name, mod);
+			XBLF("STEFX: RE_RegisterModel MDR default player model cannot fit '%s' len=%d request=%d real=%d largest=%d shortfall=%d; inserted MOD_BAD",
+				name,
+				len,
+				requestSize,
+				realSize,
+				largestFreeBlock,
+				(realSize > largestFreeBlock) ? (realSize - largestFreeBlock) : 0);
 			return mod->index;
 		}
 	}
@@ -880,6 +906,38 @@ static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size)
 		name ? name : "(null)", size, overCapLimit);
 #endif
 	return qtrue;
+}
+
+static void STEFX_LogMdrMemoryStats(const char *phase, const char *name, int fileLen, int requestSize, int realSize, int alignPad, int fit)
+{
+	zmemstats_t stats;
+	int shortfall;
+
+	Z_GetMemoryStats(&stats);
+	shortfall = (realSize > stats.largestFreeBlock) ? (realSize - stats.largestFreeBlock) : 0;
+
+	XBLF("STEFX: MDR memory %s model='%s' fileLen=%d request=%d real=%d alignPad=%d fit=%d shortfall=%d zoneSize=%d used=%d overhead=%d free=%d largest=%d freeBlocks=%d peak=%d md3=%d glm=%d gla=%d bsp=%d sndRaw=%d filesys=%d",
+		phase ? phase : "(null)",
+		name ? name : "(null)",
+		fileLen,
+		requestSize,
+		realSize,
+		alignPad,
+		fit,
+		shortfall,
+		stats.zoneSize,
+		stats.usedBytes,
+		stats.overheadBytes,
+		stats.freeBytes,
+		stats.largestFreeBlock,
+		stats.freeBlocks,
+		stats.peakBytes,
+		stats.modelMd3Bytes,
+		stats.modelGlmBytes,
+		stats.modelGlaBytes,
+		stats.bspBytes,
+		stats.soundRawBytes,
+		stats.filesysBytes);
 }
 #endif
 #endif
@@ -1271,6 +1329,11 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 	}
 
 #if defined(_XBOX)
+	if (STEFX_IsPlayerModelName(mod_name))
+	{
+		STEFX_LogMdrMemoryStats("load-start", mod_name, size, size, size, 0, 1);
+	}
+
 	if (STEFX_ShouldUseMdrMemoryPlaceholder(mod_name, size))
 	{
 		mod->type = MOD_STEFX_MDR_PLACEHOLDER;
@@ -1415,6 +1478,10 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 #ifdef _XBOX
 	XBLF("STEFX: R_LoadMDR loaded '%s' frames=%d bones=%d lods=%d size=%d",
 		mod_name, mod->md4->numFrames, mod->md4->numBones, mod->md4->numLODs, size);
+	if (STEFX_IsPlayerModelName(mod_name))
+	{
+		STEFX_LogMdrMemoryStats("load-done", mod_name, size, size, size, 0, 1);
+	}
 #endif
 	return qtrue;
 }
