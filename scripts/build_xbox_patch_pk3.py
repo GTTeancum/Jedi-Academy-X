@@ -75,8 +75,12 @@ ORIGINAL_FORMAT_TEXTURES = (
     # conversion has visual proof, do not let xbox0.pk3 override the original
     # JPG/TGA path that Elite Force scripts already drive correctly.
     "gfx/2d/chars_big",
+    "gfx/2d/charsgrid_med",
     "gfx/2d/chars_medium",
     "gfx/2d/chars_tiny",
+    # Dark/detail-heavy sky backing loses too much signal in the current DXT1
+    # conversion, so keep the stock JPG until the Xbox-native path is proven.
+    "textures/borg/borgsky",
     "textures/common/70yearjourney",
     "textures/common/enemyspace",
     "textures/common/sevenspace",
