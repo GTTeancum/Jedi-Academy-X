@@ -213,13 +213,13 @@ void SP_DrawTexture(void* pixels, float width, float height, float vShift)
 #endif
 	glBeginEXT (GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0);
 #ifdef _XBOX
-		glTexCoord2f( 0,  1 );
+		glTexCoord2f( 0,  0 );
 		glVertex2f(x1, y1);
-		glTexCoord2f( 1,  1 );
+		glTexCoord2f( 1,  0 );
 		glVertex2f(x2, y1);
-		glTexCoord2f( 0, 0 );
+		glTexCoord2f( 0, 1 );
 		glVertex2f(x1, y2);
-		glTexCoord2f( 1, 0 );
+		glTexCoord2f( 1, 1 );
 		glVertex2f(x2, y2);
 #else
 		glTexCoord2f( 0,  0 );

@@ -1380,6 +1380,44 @@ HUDMenuItem_t otherHUDBits[] =
 "righthud",	"frame",				0,  0,  0,  0, 0.0f, 0.0f, 0.0f, 0.0f, NULL,	// OHB_FRAME_RIGHT
 };
 
+#ifdef _XBOX
+static void CG_OffsetHudItem( HUDMenuItem_t *item, int xOffset, int yOffset )
+{
+	item->xPos += xOffset;
+	item->yPos += yOffset;
+}
+
+static void CG_ApplyXboxHudCornerAnchors( void )
+{
+	int i;
+	const int xInset = 48;
+	const int yInset = 36;
+
+	for ( i = 0; i < MAX_HUD_TICS; ++i )
+	{
+		CG_OffsetHudItem( &healthTics[i], -xInset, yInset );
+		CG_OffsetHudItem( &armorTics[i], -xInset, yInset );
+		CG_OffsetHudItem( &forceTics[i], xInset, yInset );
+		CG_OffsetHudItem( &ammoTics[i], xInset, yInset );
+	}
+
+	CG_OffsetHudItem( &otherHUDBits[OHB_HEALTHAMOUNT], -xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_ARMORAMOUNT], -xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_SCANLINE_LEFT], -xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_FRAME_LEFT], -xInset, yInset );
+
+	CG_OffsetHudItem( &otherHUDBits[OHB_FORCEAMOUNT], xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_AMMOAMOUNT], xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_SABERSTYLE_STRONG], xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_SABERSTYLE_MEDIUM], xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_SABERSTYLE_FAST], xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_SCANLINE_RIGHT], xInset, yInset );
+	CG_OffsetHudItem( &otherHUDBits[OHB_FRAME_RIGHT], xInset, yInset );
+
+	XBLog_Write("JA: CG_RegisterGraphics applied Xbox HUD corner anchors");
+}
+#endif
+
 /*const char *HolocronIcons[] = {
 	"gfx/mp/f_icon_lt_heal",		//FP_HEAL,
 	"gfx/mp/f_icon_levitation",		//FP_LEVITATION,
@@ -1671,6 +1709,7 @@ static void CG_RegisterGraphics( void ) {
 	}
 #ifdef _XBOX
 	XBLog_Write("JA: CG_RegisterGraphics after HUD tic info");
+	CG_ApplyXboxHudCornerAnchors();
 #endif
 
 
@@ -2524,10 +2563,8 @@ void CG_Init( int serverCommandSequence ) {
 
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init before CG_LoadHudMenu");
-	XBLog_Write("JA: CG_Init skipping CG_LoadHudMenu on Xbox during level bootstrap");
-#else
-	CG_LoadHudMenu();      // load new hud stuff
 #endif
+	CG_LoadHudMenu();      // load new hud stuff
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init after CG_LoadHudMenu");
 #endif
@@ -2973,6 +3010,10 @@ void CG_DrawAlert( vec3_t origin, float rating )
 
 #define MAX_MENUDEFFILE				4096
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBBootPhase;
+#endif
+
 //
 // ==============================
 // new hud stuff ( mission pack )
@@ -3193,7 +3234,7 @@ void cgi_UI_EndParseSession(char *buf);
 CG_ParseMenu();
 =================
 */
-void CG_ParseMenu(const char *menuFile) 
+void CG_ParseMenu(const char *menuFile)
 {
 	char			*token;
 	int				result;
@@ -3201,10 +3242,14 @@ void CG_ParseMenu(const char *menuFile)
 
 	//Com_Printf("Parsing menu file:%s\n", menuFile);
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x750;
 	XBLog_Write(va("JA: CG_ParseMenu begin file=%s", menuFile ? menuFile : "<null>"));
 #endif
 
 	result = cgi_UI_StartParseSession((char *) menuFile,&buf);
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x751;
+#endif
 
 	if (!result)
 	{
@@ -3260,12 +3305,19 @@ void CG_ParseMenu(const char *menuFile)
 		if (Q_stricmp(token, "menudef") == 0) 
 		{
 			// start a new menu
+#ifdef _XBOX
+			g_SPXBBootPhase = 0x752;
+#endif
 			cgi_UI_Menu_New(p);
+#ifdef _XBOX
+			g_SPXBBootPhase = 0x753;
+#endif
 		}
 	}
 
 	cgi_UI_EndParseSession(buf);
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x754;
 	XBLog_Write(va("JA: CG_ParseMenu done file=%s", menuFile ? menuFile : "<null>"));
 #endif
 
@@ -3277,10 +3329,13 @@ CG_Load_Menu();
 
 =================
 */
-qboolean CG_Load_Menu( const char **p) 
+qboolean CG_Load_Menu( const char **p)
 {
 	const char *token;
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x740;
+#endif
 	token = COM_ParseExt(p, qtrue);
 
 	if (token[0] != '{') 
@@ -3304,9 +3359,16 @@ qboolean CG_Load_Menu( const char **p)
 		}
 
 #ifdef _XBOX
+		g_SPXBBootPhase = 0x742;
 		XBLog_Write(va("JA: CG_Load_Menu include=%s", token));
 #endif
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x743;
+#endif
 		CG_ParseMenu(token); 
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x744;
+#endif
 	}
 	return qfalse;
 }
@@ -3317,7 +3379,7 @@ CG_LoadMenus();
 
 =================
 */
-void CG_LoadMenus(const char *menuFile) 
+void CG_LoadMenus(const char *menuFile)
 {
 	const char	*token;
 	const char	*p;
@@ -3327,10 +3389,14 @@ void CG_LoadMenus(const char *menuFile)
 
 	start = cgi_Milliseconds();
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x731;
 	XBLog_Write(va("JA: CG_LoadMenus begin file=%s", menuFile ? menuFile : "<null>"));
 #endif
 
 	len = cgi_FS_FOpenFile( menuFile, &f, FS_READ );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x732;
+#endif
 	if ( !f ) 
 	{
 		cgi_Error( va( S_COLOR_YELLOW "menu file not found: %s, using default\n", menuFile ) );
@@ -3351,6 +3417,9 @@ void CG_LoadMenus(const char *menuFile)
 	cgi_FS_Read( buf, len, f );
 	buf[len] = 0;
 	cgi_FS_FCloseFile( f );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x733;
+#endif
 	
 //	COM_Compress(buf);
 
@@ -3373,8 +3442,14 @@ void CG_LoadMenus(const char *menuFile)
 
 		if (Q_stricmp(token, "loadmenu") == 0) 
 		{
+#ifdef _XBOX
+			g_SPXBBootPhase = 0x734;
+#endif
 			if (CG_Load_Menu(&p)) 
 			{
+#ifdef _XBOX
+				g_SPXBBootPhase = 0x735;
+#endif
 				continue;
 			} 
 			else 
@@ -3386,6 +3461,7 @@ void CG_LoadMenus(const char *menuFile)
 
 	//Com_Printf("UI menu load time = %d milli seconds\n", cgi_Milliseconds() - start);
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x736;
 	XBLog_Write(va("JA: CG_LoadMenus done file=%s ms=%d", menuFile ? menuFile : "<null>", cgi_Milliseconds() - start));
 #endif
 }
@@ -3396,7 +3472,7 @@ CG_LoadHudMenu();
 
 =================
 */
-void CG_LoadHudMenu(void) 
+void CG_LoadHudMenu(void)
 {
 	const char *hudSet;
 /*
@@ -3445,21 +3521,31 @@ void CG_LoadHudMenu(void)
 */	
 //	Init_Display(&cgDC);
 
+#ifdef _XBOX
+	XBLog_Write("JA: CG_LoadHudMenu reset UI menu/string state before HUD parse");
+	cgi_UI_Menu_Reset();
+	cgi_UI_String_Init();
+#else
 //	cgi_UI_String_Init();
 
 //	cgi_UI_Menu_Reset();
+#endif
 	
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x730;
+#endif
 	hudSet = cg_hudFiles.string;
 	if (hudSet[0] == '\0') 
 	{
 		hudSet = "ui/jahud.txt";
 	}
-
 #ifdef _XBOX
 	XBLog_Write(va("JA: CG_LoadHudMenu begin hudSet=%s", hudSet));
+	g_SPXBBootPhase = 0x737;
 #endif
 	CG_LoadMenus(hudSet);
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x738;
 	XBLog_Write("JA: CG_LoadHudMenu done");
 #endif
 }
