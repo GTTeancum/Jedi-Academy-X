@@ -31,6 +31,114 @@ static int s_xboxCgNonLocalG2LogCount = 0;
 #define XBOX_CG_PLAYER_TRACE_LIMIT 0
 #define XBOX_CG_G2_TRACE_LIMIT 0
 #define XBOX_CG_NONLOCAL_G2_TRACE_LIMIT 0
+#if defined(STEFX_ELITE_FORCE_SP)
+static int s_stefxCgPlayerTraceBudget = 512;
+static int s_stefxThirdPersonTraceBudget = 96;
+static void STEFX_LogCgPlayerTrace( const char *phase, const centity_t *cent )
+{
+	const gentity_t *gent;
+	const char *classname;
+	const char *npcType;
+	const char *clientName;
+	const char *renderModel;
+	int infoValid;
+	int ghoul2Count;
+	int playerModel;
+	int svFlags;
+
+	if ( !cent || s_stefxCgPlayerTraceBudget <= 0 )
+	{
+		return;
+	}
+
+	gent = cent->gent;
+	classname = "<null>";
+	npcType = "<null>";
+	clientName = "<no-client>";
+	renderModel = "<no-client>";
+	infoValid = -1;
+	ghoul2Count = -1;
+	playerModel = -1;
+	svFlags = 0;
+	if ( gent )
+	{
+		svFlags = gent->svFlags;
+		playerModel = gent->playerModel;
+		ghoul2Count = gent->ghoul2.size();
+		if ( gent->classname && gent->classname[0] )
+		{
+			classname = gent->classname;
+		}
+		if ( gent->NPC_type && gent->NPC_type[0] )
+		{
+			npcType = gent->NPC_type;
+		}
+		if ( gent->client )
+		{
+			infoValid = gent->client->clientInfo.infoValid;
+			clientName = gent->client->clientInfo.name;
+			renderModel = gent->client->renderInfo.modelName;
+		}
+	}
+
+	XBLog_Printf("STEFX: EF CG_Player %s ent=%d clientNum=%d class='%s' npc='%s' ci='%s' renderModel='%s' gent=%p client=%p infoValid=%d eFlags=0x%x sv=0x%x weapon=%d model=%d model2=%d playerModel=%d ghoul2=%d origin=(%g,%g,%g) lerp=(%g,%g,%g) in_camera=%d psClient=%d third=%d\n",
+		phase ? phase : "<null>",
+		cent->currentState.number,
+		cent->currentState.clientNum,
+		classname,
+		npcType,
+		clientName ? clientName : "<null>",
+		renderModel ? renderModel : "<null>",
+		gent,
+		gent ? gent->client : NULL,
+		infoValid,
+		cent->currentState.eFlags,
+		svFlags,
+		cent->currentState.weapon,
+		cent->currentState.modelindex,
+		cent->currentState.modelindex2,
+		playerModel,
+		ghoul2Count,
+		cent->currentState.origin[0], cent->currentState.origin[1], cent->currentState.origin[2],
+		cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2],
+		in_camera,
+		(cg.snap ? cg.snap->ps.clientNum : -1),
+		cg.renderingThirdPerson);
+	--s_stefxCgPlayerTraceBudget;
+}
+
+static void STEFX_LogThirdPersonPart( const char *part, const centity_t *cent, const refEntity_t *ref )
+{
+	if ( s_stefxThirdPersonTraceBudget <= 0 || !cent || !ref || !cg.snap )
+	{
+		return;
+	}
+
+	if ( cent->currentState.number != cg.snap->ps.clientNum || !cg.renderingThirdPerson )
+	{
+		return;
+	}
+
+	XBLog_Printf("STEFX_THIRD_PERSON: part=%s ent=%d hModel=%d skin=%d frame=%d oldframe=%d backlerp=%g renderfx=0x%x origin=(%g,%g,%g) axis0=(%g,%g,%g) psWeapon=%d viewEntity=%d\n",
+		part ? part : "<null>",
+		cent->currentState.number,
+		ref->hModel,
+		ref->customSkin,
+		ref->frame,
+		ref->oldframe,
+		ref->backlerp,
+		ref->renderfx,
+		ref->origin[0],
+		ref->origin[1],
+		ref->origin[2],
+		ref->axis[0][0],
+		ref->axis[0][1],
+		ref->axis[0][2],
+		cg.snap->ps.weapon,
+		cg.snap->ps.viewEntity);
+	--s_stefxThirdPersonTraceBudget;
+}
+#endif
 #endif
 /*
 
@@ -557,6 +665,63 @@ void CG_NewClientinfo( int clientNum )
 	
 	Q_strncpyz(			g_entities[clientNum].client->renderInfo.headModelName, v,
 				sizeof(	g_entities[clientNum].client->renderInfo.headModelName), qtrue);
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] ||
+		!g_entities[clientNum].client->renderInfo.torsoModelName[0] ||
+		!g_entities[clientNum].client->renderInfo.headModelName[0] )
+	{
+		const char *sex = Info_ValueForKey( configstring, "sex" );
+		if ( !sex || !sex[0] )
+		{
+			sex = "f";
+		}
+		const qboolean female = ( sex[0] == 'f' || sex[0] == 'F' );
+
+		if ( female )
+		{
+			if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.legsModelName, "hazardfemale/default",
+					sizeof( g_entities[clientNum].client->renderInfo.legsModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.torsoModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.torsoModelName, "hazardfemale/default",
+					sizeof( g_entities[clientNum].client->renderInfo.torsoModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.headModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.headModelName, "alexa/default",
+					sizeof( g_entities[clientNum].client->renderInfo.headModelName ), qtrue );
+			}
+		}
+		else
+		{
+			if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.legsModelName, "hazard/default",
+					sizeof( g_entities[clientNum].client->renderInfo.legsModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.torsoModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.torsoModelName, "hazard/default",
+					sizeof( g_entities[clientNum].client->renderInfo.torsoModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.headModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.headModelName, "munro/default",
+					sizeof( g_entities[clientNum].client->renderInfo.headModelName ), qtrue );
+			}
+		}
+		XBLF( "STEFX_THIRD_PERSON: CG_NewClientinfo filled model keys client=%d sex='%s' head='%s' torso='%s' legs='%s'",
+			clientNum,
+			sex ? sex : "<null>",
+			g_entities[clientNum].client->renderInfo.headModelName,
+			g_entities[clientNum].client->renderInfo.torsoModelName,
+			g_entities[clientNum].client->renderInfo.legsModelName );
+	}
+#endif
 
 	// sounds
 	v = Info_ValueForKey( configstring, "snd" );
@@ -1664,7 +1829,7 @@ static void CG_BreathPuffs( centity_t *cent, vec3_t angles, vec3_t origin )
 	}
 
 	// TODO: It'd be nice if they breath faster when they're more damaged or when running...
-	if ( gi.VoiceVolume[cent->currentState.number] > 0 )
+	if ( gi.S_Override[cent->gent->s.clientNum] > 0 )
 	{//make breath when talking
 		client->breathPuffTime = cg.time + 300; // every 200 ms
 	}
@@ -1679,21 +1844,14 @@ static void CG_BreathPuffs( centity_t *cent, vec3_t angles, vec3_t origin )
 
 static int CG_GetVoiceVolumeForCent( centity_t *cent )
 {
-	int entityVolume = 0;
-	int clientVolume = 0;
-	const int entityNum = cent ? cent->currentState.number : -1;
 	const int clientNum = (cent && cent->gent) ? cent->gent->s.clientNum : -1;
 
-	if (entityNum >= 0 && entityNum < MAX_GENTITIES)
-		entityVolume = gi.VoiceVolume[entityNum];
-
 	if (clientNum >= 0 && clientNum < MAX_GENTITIES)
-		clientVolume = gi.VoiceVolume[clientNum];
+	{
+		return gi.S_Override[clientNum];
+	}
 
-	if (entityNum != clientNum && entityVolume)
-		return entityVolume;
-
-	return clientVolume;
+	return 0;
 }
 
 static qboolean CG_CheckLookTarget( centity_t *cent, vec3_t	lookAngles, float *lookingSpeed )
@@ -2983,7 +3141,7 @@ static void CG_G2PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t angles )
 #ifdef _XBOX
 			if (xboxLogG2Angles) {
 				XBLF("JA: CG_G2PlayerAngles before CG_AddHeadBob ent=%d voicePtr=%p clientNum=%d",
-					cent->currentState.number, gi.VoiceVolume, cent->gent->s.clientNum);
+					cent->currentState.number, gi.S_Override, cent->gent->s.clientNum);
 			}
 #endif
 			talking = CG_AddHeadBob( cent, lookAngles );
@@ -5467,8 +5625,8 @@ static qboolean CG_G2PlayerHeadAnims( centity_t *cent )
 					cent->currentState.number,
 					cent->gent->s.clientNum,
 					voiceVolume,
-					(cent->currentState.number >= 0 && cent->currentState.number < MAX_GENTITIES) ? gi.VoiceVolume[cent->currentState.number] : -999,
-					(cent->gent->s.clientNum >= 0 && cent->gent->s.clientNum < MAX_GENTITIES) ? gi.VoiceVolume[cent->gent->s.clientNum] : -999,
+					(cent->currentState.number >= 0 && cent->currentState.number < MAX_GENTITIES) ? gi.S_Override[cent->currentState.number] : -999,
+					(cent->gent->s.clientNum >= 0 && cent->gent->s.clientNum < MAX_GENTITIES) ? gi.S_Override[cent->gent->s.clientNum] : -999,
 					cent->gent->health);
 				s_xboxLastFaceVoice[cent->currentState.number] = voiceVolume;
 				++s_xboxFaceVoiceLogs;
@@ -5537,7 +5695,7 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 	// if we aren't talking, then it will be 0
 	if (ci->extensions && (voiceVolume > 0))
 	{//FIXME: When talking, look at talkTarget, if any
-		//ALSO: When talking, add a head bob/movement on syllables - when gi.VoiceVolume[] changes drastically
+		//ALSO: When talking, add a head bob/movement on syllables - when gi.S_Override[] changes drastically
 	
 		if ( cent->gent->health <= 0 )
 		{//Dead people close their eyes and don't make faces!  They also tell no tales...  BUM BUM BAHHHHHHH!
@@ -5546,11 +5704,7 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 			goto logAndReturn;
 		}
 
-		if ( voiceVolume > 4 )
-		{
-			voiceVolume = 4;
-		}
-		head->customSkin = ci->headSkin + 4 + voiceVolume;
+		head->customSkin = ci->headSkin + voiceVolume;
 		//reset the frown and blink timers
 	}
 	else
@@ -5737,6 +5891,7 @@ void CG_GetTagWorldPosition( refEntity_t *model, char *tag, vec3_t pos, vec3_t a
 }
 
 static qboolean calcedMp = qfalse;
+extern void CG_RegisterClientModels( int entityNum );
 
 /*
 -------------------------
@@ -7080,19 +7235,32 @@ void CG_Player( centity_t *cent ) {
 	entityState_t	*ent;
 	const weaponData_t  *wData = NULL;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_LogCgPlayerTrace( "enter", cent );
+#endif
+
 	if ( cent->currentState.eFlags & EF_NODRAW ) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgPlayerTrace( "return-EF_NODRAW", cent );
+#endif
 		return;
 	}
 
 	//make sure this thing has a gent and client
 	if(!cent->gent)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgPlayerTrace( "return-no-gent", cent );
+#endif
 		return;
 	}
 
 	if(!cent->gent->client)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgPlayerTrace( "return-no-client", cent );
+#endif
 		return;
 	}
 
@@ -7119,6 +7287,9 @@ void CG_Player( centity_t *cent ) {
 			--s_xboxCameraLocalPlayerSkipBudget;
 		}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgPlayerTrace( "return-camera-local-player", cent );
+#endif
 		return;
 	}
 
@@ -7129,10 +7300,43 @@ void CG_Player( centity_t *cent ) {
 
 	ci = &cent->gent->client->clientInfo;
 
+	if ( !ci->infoValid ||
+		!ci->legsModel ||
+		( cent->gent->client->renderInfo.torsoModelName[0] && !ci->torsoModel ) ||
+		( cent->gent->client->renderInfo.headModelName[0] && !ci->headModel ) )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxRegisterRetryBudget = 64;
+		if ( s_stefxRegisterRetryBudget > 0 )
+		{
+			XBLog_Printf("STEFX: CG_Player register retry ent=%d info=%d models=(%d,%d,%d) ri=(%s,%s,%s) third=%d\n",
+				cent->currentState.number,
+				ci->infoValid,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				cent->gent->client->renderInfo.legsModelName,
+				cent->gent->client->renderInfo.torsoModelName,
+				cent->gent->client->renderInfo.headModelName,
+				cg.renderingThirdPerson);
+			--s_stefxRegisterRetryBudget;
+		}
+#endif
+		CG_RegisterClientModels( cent->currentState.number );
+		ci = &cent->gent->client->clientInfo;
+	}
+
 	if ( !ci->infoValid ) 
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgPlayerTrace( "return-info-invalid", cent );
+#endif
 		return;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_LogCgPlayerTrace( "ready", cent );
+#endif
 
 	G_RagDoll(cent->gent, cent->lerpAngles);
 
@@ -8943,6 +9147,28 @@ Ghoul2 Insert End
 	legs.hModel = ci->legsModel;
 	legs.customSkin = ci->legsSkin;
 
+	if (!legs.hModel)
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxZeroLegsBudget = 64;
+		if (s_stefxZeroLegsBudget > 0)
+		{
+			XBLog_Printf("STEFX: CG_Player abort zero legs model ent=%d info=%d skins=(%d,%d,%d) ri=(%s,%s,%s) third=%d\n",
+				cent->currentState.number,
+				ci->infoValid,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin,
+				cent->gent->client->renderInfo.legsModelName,
+				cent->gent->client->renderInfo.torsoModelName,
+				cent->gent->client->renderInfo.headModelName,
+				cg.renderingThirdPerson);
+			--s_stefxZeroLegsBudget;
+		}
+#endif
+		return;
+	}
+
 	VectorCopy( cent->lerpOrigin, legs.origin );
 
 	//Scale applied to a refEnt will apply to any models attached to it... 
@@ -8978,12 +9204,9 @@ Ghoul2 Insert End
 	VectorCopy (legs.origin, legs.oldorigin);	// don't positionally lerp at all
 
 	CG_AddRefEntityWithPowerups( &legs, cent->currentState.powerups, cent );
-
-	// if the model failed, allow the default nullmodel to be displayed
-	if (!legs.hModel) 
-	{
-		return;
-	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_LogThirdPersonPart( "legs", cent, &legs );
+#endif
 
 	//
 	// add the torso
@@ -9024,6 +9247,9 @@ Ghoul2 Insert End
 		torso.renderfx = renderfx;
 
 		CG_AddRefEntityWithPowerups( &torso, cent->currentState.powerups, cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogThirdPersonPart( "torso", cent, &torso );
+#endif
 
 		//
 		// add the head
@@ -9065,6 +9291,9 @@ Ghoul2 Insert End
 			head.renderfx = renderfx;
 
 			CG_AddRefEntityWithPowerups( &head, cent->currentState.powerups, cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_LogThirdPersonPart( "head", cent, &head );
+#endif
 
 			if ( cent->gent && cent->gent->NPC && ( cent->gent->NPC->confusionTime > cg.time || cent->gent->NPC->charmedTime > cg.time || cent->gent->NPC->controlledTime > cg.time) )
 			{

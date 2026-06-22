@@ -457,26 +457,59 @@ void ClientUserinfoChanged( int clientNum ) {
 	Q_strncpyz( sound, Info_ValueForKey (userinfo, "snd"), sizeof( sound ) );
 
 
-	// set model
-	//Q_strncpyz( headModel, Info_ValueForKey (userinfo, "headModel"), sizeof( headModel ) );
-	//Q_strncpyz( torsoModel, Info_ValueForKey (userinfo, "torsoModel"), sizeof( torsoModel ) );
-	//Q_strncpyz( legsModel, Info_ValueForKey (userinfo, "legsModel"), sizeof( legsModel ) );
-	headModel[0]=0;
-	torsoModel[0]=0;
-	legsModel[0]=0;
-
 	// sex
 	sex = Info_ValueForKey( userinfo, "sex" );
 	if ( !sex[0] ) {
 		sex = "m";
 	}
 
+	// Elite Force stores the multipart player model in userinfo.  JA had
+	// stripped these keys, which left the local third-person player as null axes.
+	Q_strncpyz( headModel, Info_ValueForKey (userinfo, "headModel"), sizeof( headModel ) );
+	Q_strncpyz( torsoModel, Info_ValueForKey (userinfo, "torsoModel"), sizeof( torsoModel ) );
+	Q_strncpyz( legsModel, Info_ValueForKey (userinfo, "legsModel"), sizeof( legsModel ) );
+	if ( !headModel[0] || !torsoModel[0] || !legsModel[0] )
+	{
+		if ( sex[0] == 'f' || sex[0] == 'F' )
+		{
+			if ( !headModel[0] )
+			{
+				Q_strncpyz( headModel, "alexa/default", sizeof( headModel ) );
+			}
+			if ( !torsoModel[0] )
+			{
+				Q_strncpyz( torsoModel, "hazardfemale/default", sizeof( torsoModel ) );
+			}
+			if ( !legsModel[0] )
+			{
+				Q_strncpyz( legsModel, "hazardfemale/default", sizeof( legsModel ) );
+			}
+		}
+		else
+		{
+			if ( !headModel[0] )
+			{
+				Q_strncpyz( headModel, "munro/default", sizeof( headModel ) );
+			}
+			if ( !torsoModel[0] )
+			{
+				Q_strncpyz( torsoModel, "hazard/default", sizeof( torsoModel ) );
+			}
+			if ( !legsModel[0] )
+			{
+				Q_strncpyz( legsModel, "hazard/default", sizeof( legsModel ) );
+			}
+		}
+		Com_Printf( "STEFX_THIRD_PERSON: ClientUserinfoChanged filled model keys client=%d sex='%s' head='%s' torso='%s' legs='%s'\n",
+			clientNum, sex, headModel, torsoModel, legsModel );
+	}
+
 	// send over a subset of the userinfo keys so other clients can
 	// print scoreboards, display models, and play custom sounds
 
-	s = va("n\\%s\\t\\%i\\headModel\\%s\\torsoModel\\%s\\legsModel\\%s\\hc\\%i\\snd\\%s",
+	s = va("n\\%s\\t\\%i\\headModel\\%s\\torsoModel\\%s\\legsModel\\%s\\sex\\%s\\hc\\%i\\snd\\%s",
 		client->pers.netname, client->sess.sessionTeam, headModel, torsoModel, legsModel, 
-		client->pers.maxHealth, sound );
+		sex, client->pers.maxHealth, sound );
 
 	gi.SetConfigstring( CS_PLAYERS+clientNum, s );
 }

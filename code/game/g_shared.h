@@ -58,9 +58,9 @@ typedef enum //# material_e
 } material_t;
 
 //===From cg_local.h================================================
-#define	DEFAULT_HEADMODEL	""
-#define	DEFAULT_TORSOMODEL	""
-#define	DEFAULT_LEGSMODEL	"mouse"
+#define	DEFAULT_HEADMODEL	"munro"
+#define	DEFAULT_TORSOMODEL	"hazard"
+#define	DEFAULT_LEGSMODEL	"hazard"
 
 // each client has an associated clientInfo_t
 // that contains media references necessary to present the

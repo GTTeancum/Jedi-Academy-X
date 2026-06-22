@@ -15,6 +15,7 @@
 #endif
 
 #ifdef _XBOX
+#include "../win32/xb_log.h"
 #include "../win32/glw_win_dx8.h"
 #include "../win32/win_stencilshadow.h"
 #include <xgraphics.h>
@@ -197,6 +198,30 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 		return(0);
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( tr.currentModel->type == MOD_MDR &&
+		tr.currentModel->name[0] &&
+		strstr( tr.currentModel->name, "models/players/" ) )
+	{
+		static int s_stefxMdrLodLockBudget = 128;
+		if ( s_stefxMdrLodLockBudget > 0 )
+		{
+			XBLog_Printf("STEFX_LOD: ent=%d model='%s' lod=0 reason=player_mdr_lock numLods=%d r_lodbias=%d r_lodscale=%g renderfx=0x%x origin=(%g,%g,%g)\n",
+				ent->e.number,
+				tr.currentModel->name,
+				tr.currentModel->numLods,
+				r_lodbias ? r_lodbias->integer : 0,
+				r_lodscale ? r_lodscale->value : 0.0f,
+				ent->e.renderfx,
+				ent->e.origin[0],
+				ent->e.origin[1],
+				ent->e.origin[2]);
+			--s_stefxMdrLodLockBudget;
+		}
+		return 0;
+	}
+#endif
+
 	// multiple LODs exist, so compute projected bounding sphere
 	// and use that as a criteria for selecting LOD
 //	if ( tr.currentModel->md3[0] ) 
@@ -230,6 +255,34 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 		lod = tr.currentModel->numLods - 1;
 	if ( lod < 0 )
 		lod = 0;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxLodTraceBudget = 256;
+		if (s_stefxLodTraceBudget > 0 && tr.currentModel && tr.currentModel->name[0])
+		{
+			const char *modelName = tr.currentModel->name;
+			if (strstr(modelName, "models/players/") || ent->e.number == 0)
+			{
+				XBLog_Printf("STEFX_LOD: ent=%d model='%s' lod=%d numLods=%d flod=%g projectedRadius=%g radius=%g r_lodbias=%d r_lodscale=%g renderfx=0x%x origin=(%g,%g,%g)\n",
+					ent->e.number,
+					modelName,
+					lod,
+					tr.currentModel->numLods,
+					flod,
+					projectedRadius,
+					radius,
+					r_lodbias ? r_lodbias->integer : 0,
+					r_lodscale ? r_lodscale->value : 0.0f,
+					ent->e.renderfx,
+					ent->e.origin[0],
+					ent->e.origin[1],
+					ent->e.origin[2]);
+				--s_stefxLodTraceBudget;
+			}
+		}
+	}
+#endif
 
 	return lod;
 }

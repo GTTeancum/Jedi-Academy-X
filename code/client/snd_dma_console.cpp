@@ -1232,6 +1232,23 @@ channel_t *S_PickChannel(int entnum, int entchannel, bool is2D, sfx_t* sfx)
 	if (ch_firstToDie->thesfx && ch_firstToDie->thesfx->iFlags & SFX_FLAG_LOADING)
 	{
 		// If the sound is loading, just give up...
+#ifdef _XBOX
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx && (sfx->iFlags & SFX_FLAG_VOICE)) ||
+			(ch_firstToDie->thesfx && (ch_firstToDie->thesfx->iFlags & SFX_FLAG_VOICE)))
+		{
+			static int s_xboxVoiceLoadingDropLogs = 0;
+			if (s_xboxVoiceLoadingDropLogs < 64)
+			{
+				Com_Printf("STEFX_VOICE_TRACE: pick drop loading voice ent=%d chan=%d oldEnt=%d oldChan=%d oldCode=0x%x newCode=0x%x\n",
+					entnum, entchannel, ch_firstToDie->entnum, ch_firstToDie->entchannel,
+					ch_firstToDie->thesfx ? ch_firstToDie->thesfx->iFileCode : 0,
+					sfx ? sfx->iFileCode : 0);
+				s_xboxVoiceLoadingDropLogs++;
+			}
+		}
+#endif
 		return NULL;
 	}
 	
@@ -1270,6 +1287,24 @@ channel_t *S_PickChannel(int entnum, int entchannel, bool is2D, sfx_t* sfx)
 	}
 
 	// Reset channel variables
+#ifdef _XBOX
+	if (ch_firstToDie->thesfx &&
+		(ch_firstToDie->entchannel == CHAN_VOICE || ch_firstToDie->entchannel == CHAN_VOICE_ATTEN ||
+		 ch_firstToDie->entchannel == CHAN_VOICE_GLOBAL || ch_firstToDie->entchannel == CHAN_ANNOUNCER ||
+		 (ch_firstToDie->thesfx->iFlags & SFX_FLAG_VOICE)))
+	{
+		static int s_xboxVoiceResetLogs = 0;
+		if (s_xboxVoiceResetLogs < 64)
+		{
+			Com_Printf("STEFX_VOICE_TRACE: pick reset voice oldEnt=%d oldChan=%d oldCode=0x%x oldPlaying=%d oldLoading=%d newEnt=%d newChan=%d newCode=0x%x\n",
+				ch_firstToDie->entnum, ch_firstToDie->entchannel, ch_firstToDie->thesfx->iFileCode,
+				ch_firstToDie->bPlaying ? 1 : 0,
+				(ch_firstToDie->thesfx->iFlags & SFX_FLAG_LOADING) ? 1 : 0,
+				entnum, entchannel, sfx ? sfx->iFileCode : 0);
+			s_xboxVoiceResetLogs++;
+		}
+	}
+#endif
 	alSourcei(ch_firstToDie->alSource, AL_BUFFER, 0);
 	ch_firstToDie->thesfx = NULL;
 	ch_firstToDie->bLooping = false;
@@ -1454,6 +1489,103 @@ Entchannel 0 will never override a playing sound
 extern int Sys_GetSoundFileCodeSize(unsigned int code);
 extern unsigned int Sys_GetSoundFileCodeFlags(unsigned int code);
 extern const char *Sys_GetSoundFileCodeName(unsigned int code);
+
+#ifdef _XBOX
+static qboolean S_XboxDN3ProofMapActive(void)
+{
+	const char *mapname = NULL;
+
+	if (level.mapname[0] && !Q_stricmp(level.mapname, "dn3"))
+	{
+		return qtrue;
+	}
+
+	mapname = Cvar_VariableString("mapname");
+	if (mapname && mapname[0] && !Q_stricmp(mapname, "dn3"))
+	{
+		return qtrue;
+	}
+
+	mapname = Cvar_VariableString("cl_mapname");
+	if (mapname && mapname[0] && !Q_stricmp(mapname, "dn3"))
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static void S_XboxDN3ProofLogSoundStart(int entityNum, soundChannel_t entchannel, sfxHandle_t sfxHandle, const sfx_t *sfx)
+{
+	if (!sfx)
+	{
+		return;
+	}
+
+	const char *name = (sfx->iFileCode == -1) ? NULL : Sys_GetSoundFileCodeName(sfx->iFileCode);
+	if (!name)
+	{
+		name = "<unknown>";
+	}
+
+	const char *category = "sfx";
+	int *budget = NULL;
+	static int voiceBudget = 48;
+	static int weaponBudget = 48;
+	static int foleyBudget = 48;
+	static int ambientBudget = 32;
+	static int otherBudget = 32;
+
+	if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+		entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+		(sfx->iFlags & SFX_FLAG_VOICE))
+	{
+		category = "vo";
+		budget = &voiceBudget;
+	}
+	else if (entchannel == CHAN_WEAPON || strstr(name, "weapons/") || strstr(name, "weapon/"))
+	{
+		category = "weapon";
+		budget = &weaponBudget;
+	}
+	else if (entchannel == CHAN_AMBIENT || strstr(name, "ambient") || strstr(name, "world/"))
+	{
+		category = "ambient";
+		budget = &ambientBudget;
+	}
+	else if (entchannel == CHAN_BODY || entchannel == CHAN_ITEM ||
+		entchannel == CHAN_LOCAL_SOUND || strstr(name, "foot") || strstr(name, "step") ||
+		strstr(name, "pain") || strstr(name, "fall"))
+	{
+		category = "foley";
+		budget = &foleyBudget;
+	}
+	else
+	{
+		budget = &otherBudget;
+	}
+
+	if (*budget <= 0)
+	{
+		return;
+	}
+
+	Com_Printf("STEFX_DN3_PROOF: audio start category=%s name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x resident=%d levelMap='%s' map='%s' cl_map='%s'\n",
+		category,
+		name,
+		entityNum,
+		entchannel,
+		sfxHandle,
+		sfx->iFileCode,
+		sfx->iFlags,
+		(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+		level.mapname,
+		Cvar_VariableString("mapname"),
+		Cvar_VariableString("cl_mapname"));
+	--(*budget);
+}
+#endif
+
 void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel, sfxHandle_t sfxHandle ) 
 {
 	channel_t	*ch;
@@ -1481,6 +1613,9 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
+#ifdef _XBOX
+	S_XboxDN3ProofLogSoundStart(entityNum, entchannel, sfxHandle, sfx);
+#endif
 
 #ifdef _XBOX
 	if (!s_xboxSilentAudio)
@@ -1552,12 +1687,73 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 
 	int flags = Sys_GetSoundFileCodeFlags(sfx->iFileCode);
 #ifdef _XBOX
+	{
+		const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		const char *category = "sfx";
+		int *budget = NULL;
+		static int voiceBudget = 48;
+		static int weaponBudget = 48;
+		static int foleyBudget = 48;
+		static int ambientBudget = 32;
+		static int otherBudget = 32;
+
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx->iFlags & SFX_FLAG_VOICE))
+		{
+			category = "vo";
+			budget = &voiceBudget;
+		}
+		else if (entchannel == CHAN_WEAPON ||
+			(soundName && (strstr(soundName, "weapons/") || strstr(soundName, "weapon/") ||
+				strstr(soundName, "weapons\\") || strstr(soundName, "weapon\\"))))
+		{
+			category = "weapon";
+			budget = &weaponBudget;
+		}
+		else if (entchannel == CHAN_AMBIENT ||
+			(soundName && (strstr(soundName, "ambient") || strstr(soundName, "world/") || strstr(soundName, "world\\"))))
+		{
+			category = "ambient";
+			budget = &ambientBudget;
+		}
+		else if (entchannel == CHAN_BODY || entchannel == CHAN_ITEM ||
+			entchannel == CHAN_LOCAL_SOUND ||
+			(soundName && (strstr(soundName, "foot") || strstr(soundName, "step") ||
+				strstr(soundName, "pain") || strstr(soundName, "fall"))))
+		{
+			category = "foley";
+			budget = &foleyBudget;
+		}
+		else
+		{
+			budget = &otherBudget;
+		}
+
+		if (*budget > 0)
+		{
+			Com_Printf("STEFX_DN3_PROOF: audio start category=%s name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x resident=%d levelMap='%s' map='%s' cl_map='%s'\n",
+				category,
+				soundName ? soundName : "<unknown>",
+				entityNum,
+				entchannel,
+				sfxHandle,
+				sfx->iFileCode,
+				sfx->iFlags,
+				(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+				level.mapname,
+				Cvar_VariableString("mapname"),
+				Cvar_VariableString("cl_mapname"));
+			--(*budget);
+		}
+	}
+
 	if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
 		entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
 		(sfx->iFlags & SFX_FLAG_VOICE))
 	{
 		const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
-		Com_Printf("STEFX: S_StartSound name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x bankSize=%d resident=%d\n",
+		Com_Printf("STEFX_DN3_PROOF: audio start category=vo name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x bankSize=%d resident=%d\n",
 			soundName ? soundName : "<unknown>",
 			entityNum,
 			entchannel,
@@ -1693,6 +1889,18 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	if ( entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN || entchannel == CHAN_VOICE_GLOBAL ) 
 	{
 		s_entityWavVol[ ch->entnum ] = -1;	//we've started the sound but it's silent for now
+#ifdef _XBOX
+		static int s_xboxVoiceAssignLogs = 0;
+		if (s_xboxVoiceAssignLogs < 128)
+		{
+			const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			Com_Printf("STEFX_VOICE_TRACE: assigned ent=%d chan=%d source=%u code=0x%x flags=0x%x resident=%d buffer=%u name='%s'\n",
+				ch->entnum, ch->entchannel, ch->alSource, sfx->iFileCode, sfx->iFlags,
+				(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0, sfx->Buffer,
+				soundName ? soundName : "<unknown>");
+			s_xboxVoiceAssignLogs++;
+		}
+#endif
 	}
 }
 
@@ -1752,6 +1960,22 @@ void S_KillEntityChannel(int entnum, int chan)
 			ch->entnum == entnum &&
 			ch->entchannel == chan)
 		{
+#ifdef _XBOX
+			if (ch->thesfx &&
+				(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+				 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+				 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+			{
+				static int s_xboxVoiceKillLogs = 0;
+				if (s_xboxVoiceKillLogs < 64)
+				{
+					Com_Printf("STEFX_VOICE_TRACE: kill entity channel ent=%d chan=%d code=0x%x playing=%d loading=%d\n",
+						entnum, chan, ch->thesfx->iFileCode, ch->bPlaying ? 1 : 0,
+						(ch->thesfx->iFlags & SFX_FLAG_LOADING) ? 1 : 0);
+					s_xboxVoiceKillLogs++;
+				}
+			}
+#endif
 			alSourceStop(ch->alSource);
 			ch->bPlaying = false;
 	
@@ -2343,6 +2567,23 @@ static void PlaySingleShot(channel_t *ch)
 		 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
 		 (ch->thesfx->iFlags & SFX_FLAG_VOICE))) ? qtrue : qfalse;
 
+#ifdef _XBOX
+	if (isVoice)
+	{
+		static int s_xboxVoicePrePlayLogs = 0;
+		if (s_xboxVoicePrePlayLogs < 128)
+		{
+			const char *soundName = Sys_GetSoundFileCodeName(ch->thesfx->iFileCode);
+			Com_Printf("STEFX_VOICE_TRACE: pre play ent=%d chan=%d source=%u code=0x%x flags=0x%x resident=%d buffer=%u duration=%d name='%s'\n",
+				ch->entnum, ch->entchannel, ch->alSource, ch->thesfx->iFileCode,
+				ch->thesfx->iFlags, (ch->thesfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+				ch->thesfx->Buffer, ch->thesfx->iSoundDurationMs,
+				soundName ? soundName : "<unknown>");
+			s_xboxVoicePrePlayLogs++;
+		}
+	}
+#endif
+
 	alSourcei(ch->alSource, AL_LOOPING, AL_FALSE);
 	
 	UpdateAttenuation(ch);
@@ -2365,8 +2606,11 @@ static void PlaySingleShot(channel_t *ch)
 			static int s_xboxVoicePlayStartLogs = 0;
 			if (s_xboxVoicePlayStartLogs < 64)
 			{
-				Com_Printf("STEFX: Xbox voice play start ent=%d chan=%d code=0x%x duration=%d buffer=%d\n",
-					ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iSoundDurationMs, ch->thesfx->Buffer);
+				const char *soundName = Sys_GetSoundFileCodeName(ch->thesfx->iFileCode);
+				Com_Printf("STEFX: Xbox voice play start ent=%d chan=%d source=%u code=0x%x duration=%d buffer=%d name='%s'\n",
+					ch->entnum, ch->entchannel, ch->alSource, ch->thesfx->iFileCode,
+					ch->thesfx->iSoundDurationMs, ch->thesfx->Buffer,
+					soundName ? soundName : "<unknown>");
 				s_xboxVoicePlayStartLogs++;
 			}
 		}
@@ -2427,6 +2671,32 @@ void S_XboxOnSoundLoaded(sfx_t *sfx)
 		}
 
 		PlaySingleShot(ch);
+	}
+
+	if (sfx->iFlags & SFX_FLAG_VOICE)
+	{
+		qboolean found = qfalse;
+		for (int i = 0; i < s_numChannels; ++i)
+		{
+			channel_t *ch = &s_channels[i];
+			if (ch->thesfx == sfx)
+			{
+				found = qtrue;
+				break;
+			}
+		}
+		if (!found)
+		{
+			static int s_xboxLoadedNoWaiterLogged = 0;
+			if (s_xboxLoadedNoWaiterLogged < 64)
+			{
+				const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+				Com_Printf("STEFX_VOICE_TRACE: loaded voice has no channel code=0x%x flags=0x%x buffer=%u name='%s'\n",
+					sfx->iFileCode, sfx->iFlags, sfx->Buffer,
+					soundName ? soundName : "<unknown>");
+				s_xboxLoadedNoWaiterLogged++;
+			}
+		}
 	}
 }
 #endif
@@ -2631,7 +2901,9 @@ static void S_XboxUpdateSilentVoiceVolumes(void)
 
 		if (ch->entchannel != CHAN_VOICE &&
 			ch->entchannel != CHAN_VOICE_ATTEN &&
-			ch->entchannel != CHAN_VOICE_GLOBAL)
+			ch->entchannel != CHAN_VOICE_GLOBAL &&
+			ch->entchannel != CHAN_ANNOUNCER &&
+			!(ch->thesfx->iFlags & SFX_FLAG_VOICE))
 			continue;
 
 		if (ch->entnum < 0 || ch->entnum >= MAX_GENTITIES)
@@ -2730,7 +3002,9 @@ void S_Update_(void)
 		
 		if ( ch->entchannel == CHAN_VOICE || 
 			ch->entchannel == CHAN_VOICE_ATTEN || 
-			ch->entchannel == CHAN_VOICE_GLOBAL )
+			ch->entchannel == CHAN_VOICE_GLOBAL ||
+			ch->entchannel == CHAN_ANNOUNCER ||
+			(ch->thesfx->iFlags & SFX_FLAG_VOICE) )
 		{
 			if ( ch->entnum >= 0 && ch->entnum < MAX_GENTITIES )
 			{
@@ -2739,11 +3013,45 @@ void S_Update_(void)
 					if ( ch->thesfx->pLipSyncData )
 					{
 						_UpdateLipSyncData(ch);
+#ifdef _XBOX
+						{
+							static int s_stefxLipTraceBudget = 160;
+							if (s_stefxLipTraceBudget > 0)
+							{
+								Com_Printf("STEFX_LIPTRACE: source=lipdata ent=%d chan=%d vol=%d code=0x%x flags=0x%x age=%d duration=%d playing=%d\n",
+									ch->entnum,
+									ch->entchannel,
+									s_entityWavVol[ch->entnum],
+									ch->thesfx->iFileCode,
+									ch->thesfx->iFlags,
+									Sys_Milliseconds() - (int)ch->iLastPlayTime,
+									ch->thesfx->iSoundDurationMs,
+									ch->bPlaying ? 1 : 0);
+								--s_stefxLipTraceBudget;
+							}
+						}
+#endif
 					}
 #ifdef _XBOX
 					else
 					{
 						s_entityWavVol[ch->entnum] = S_XboxFallbackVoiceVolume(ch, Sys_Milliseconds());
+						{
+							static int s_stefxFallbackLipTraceBudget = 160;
+							if (s_stefxFallbackLipTraceBudget > 0)
+							{
+								Com_Printf("STEFX_LIPTRACE: source=fallback ent=%d chan=%d vol=%d code=0x%x flags=0x%x age=%d duration=%d playing=%d\n",
+									ch->entnum,
+									ch->entchannel,
+									s_entityWavVol[ch->entnum],
+									ch->thesfx->iFileCode,
+									ch->thesfx->iFlags,
+									Sys_Milliseconds() - (int)ch->iLastPlayTime,
+									ch->thesfx->iSoundDurationMs,
+									ch->bPlaying ? 1 : 0);
+								--s_stefxFallbackLipTraceBudget;
+							}
+						}
 						if (s_xboxSilentVoiceUpdatesLogged < 96)
 						{
 							Com_Printf("STEFX: Xbox voice fallback lip ent=%d chan=%d vol=%d sound='%s'\n",
@@ -2952,11 +3260,21 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	Q_strncpyz( sMusic_BackgroundLoop, loop, sizeof( sMusic_BackgroundLoop ));	
 
 	char* name = S_FixMusicFileName(intro);
-	Com_Printf("STEFX: S_StartBackgroundTrack_Actual intro='%s' fixed='%s' loop='%s' dynamic=%d\n",
+	Com_Printf("STEFX_DN3_PROOF: music request intro='%s' fixed='%s' loop='%s' dynamic=%d\n",
 		intro ? intro : "<null>",
 		name ? name : "<null>",
 		loop ? loop : "<null>",
 		qbDynamic ? 1 : 0);
+#ifdef _XBOX
+	Com_Printf("STEFX_DN3_PROOF: music request intro='%s' fixed='%s' loop='%s' dynamic=%d levelMap='%s' map='%s' cl_map='%s'\n",
+		intro ? intro : "<null>",
+		name ? name : "<null>",
+		loop ? loop : "<null>",
+		qbDynamic ? 1 : 0,
+		level.mapname,
+		Cvar_VariableString("mapname"),
+		Cvar_VariableString("cl_mapname"));
+#endif
 
 	if ( !intro[0] ) {
 		S_StopBackgroundTrack_Actual( pMusicInfo );

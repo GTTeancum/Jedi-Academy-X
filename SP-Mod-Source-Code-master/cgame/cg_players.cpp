@@ -302,6 +302,55 @@ void CG_NewClientinfo( int clientNum )
 
 	// sounds
 	cvar_t	*sex = gi.cvar( "sex", "male", 0 );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] ||
+		!g_entities[clientNum].client->renderInfo.torsoModelName[0] ||
+		!g_entities[clientNum].client->renderInfo.headModelName[0] )
+	{
+		if ( Q_stricmp("female", sex->string ) == 0 || sex->string[0] == 'f' || sex->string[0] == 'F' )
+		{
+			if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.legsModelName, "hazardfemale/default",
+					sizeof( g_entities[clientNum].client->renderInfo.legsModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.torsoModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.torsoModelName, "hazardfemale/default",
+					sizeof( g_entities[clientNum].client->renderInfo.torsoModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.headModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.headModelName, "alexa/default",
+					sizeof( g_entities[clientNum].client->renderInfo.headModelName ), qtrue );
+			}
+		}
+		else
+		{
+			if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.legsModelName, "hazard/default",
+					sizeof( g_entities[clientNum].client->renderInfo.legsModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.torsoModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.torsoModelName, "hazard/default",
+					sizeof( g_entities[clientNum].client->renderInfo.torsoModelName ), qtrue );
+			}
+			if ( !g_entities[clientNum].client->renderInfo.headModelName[0] )
+			{
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.headModelName, "munro/default",
+					sizeof( g_entities[clientNum].client->renderInfo.headModelName ), qtrue );
+			}
+		}
+		XBLF( "STEFX_THIRD_PERSON: CG_NewClientinfo filled model keys client=%d sex='%s' head='%s' torso='%s' legs='%s'",
+			clientNum,
+			sex->string,
+			g_entities[clientNum].client->renderInfo.headModelName,
+			g_entities[clientNum].client->renderInfo.torsoModelName,
+			g_entities[clientNum].client->renderInfo.legsModelName );
+	}
+#endif
 	if ( Q_stricmp("female", sex->string ) == 0 )
 	{
 		ci->customBasicSoundDir = "alexa";
@@ -2527,6 +2576,11 @@ CG_PlayerHeadExtension
 int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 {
 	clientInfo_t	*ci = &cent->gent->client->clientInfo;;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	const int entNum = cent ? cent->currentState.number : -1;
+	const int clientNum = ( cent && cent->gent ) ? cent->gent->s.clientNum : -1;
+	const int voiceVolume = ( clientNum >= 0 && clientNum < MAX_GENTITIES ) ? gi.S_Override[clientNum] : 0;
+#endif
 
 	// if we have facial texture extensions, go get the sound override and add it to the face skin
 	// if we aren't talking, then it will be 0
@@ -2669,6 +2723,40 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 	{
 		head->customSkin = ci->headSkin;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxFaceSkinBudget = 128;
+		static int s_stefxLastHeadSkin[MAX_GENTITIES];
+		static qboolean s_stefxFaceSkinInit = qfalse;
+
+		if ( !s_stefxFaceSkinInit )
+		{
+			int i;
+			for ( i = 0; i < MAX_GENTITIES; ++i )
+			{
+				s_stefxLastHeadSkin[i] = -99999;
+			}
+			s_stefxFaceSkinInit = qtrue;
+		}
+
+		if ( s_stefxFaceSkinBudget > 0 &&
+			entNum >= 0 && entNum < MAX_GENTITIES &&
+			( voiceVolume > 0 || s_stefxLastHeadSkin[entNum] != head->customSkin ) )
+		{
+			XBLF( "STEFX: EF face skin ent=%d client=%d ext=%d voice=%d base=%d skin=%d health=%d",
+				entNum,
+				clientNum,
+				ci->extensions ? 1 : 0,
+				voiceVolume,
+				ci->headSkin,
+				head->customSkin,
+				cent && cent->gent ? cent->gent->health : -999 );
+			s_stefxLastHeadSkin[entNum] = head->customSkin;
+			--s_stefxFaceSkinBudget;
+		}
+	}
+#endif
 
 	return qtrue;
 }
@@ -3162,7 +3250,9 @@ void CG_Player( centity_t *cent ) {
 	entityState_t *ent;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int		s_stefxPlayerLogBudget = 96;
+	static int		s_stefxThirdPersonLogBudget = 96;
 	qboolean		stefxLogPlayer = qfalse;
+	qboolean		stefxLogThirdPerson = qfalse;
 #endif
 
 	calcedMp = qfalse;
@@ -3172,8 +3262,7 @@ void CG_Player( centity_t *cent ) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if ( cent && s_stefxPlayerLogBudget > 0 &&
-		( ( cg.time >= 2500 && cg.time <= 5000 && ( cent->currentState.number == 78 || cent->currentState.number == 154 ) ) ||
-		  ( cg.time >= 65000 && cent->currentState.number != cg.snap->ps.clientNum ) ) )
+		cent->currentState.number != cg.snap->ps.clientNum )
 	{
 		stefxLogPlayer = qtrue;
 		s_stefxPlayerLogBudget--;
@@ -3188,14 +3277,37 @@ void CG_Player( centity_t *cent ) {
 			cent->currentState.pos.trBase[1],
 			cent->currentState.pos.trBase[2] );
 	}
+	if ( cent && cg.snap && s_stefxThirdPersonLogBudget > 0 &&
+		cent->currentState.number == cg.snap->ps.clientNum &&
+		cg_thirdPerson.integer )
+	{
+		stefxLogThirdPerson = qtrue;
+		s_stefxThirdPersonLogBudget--;
+		XBLog_Printf( "STEFX_THIRD_PERSON: enter ent=%d time=%d eFlags=0x%x gent=%p client=%p infoValid=%d models=(%d,%d,%d) skins=(%d,%d,%d) psWeapon=%d\n",
+			cent->currentState.number,
+			cg.time,
+			cent->currentState.eFlags,
+			cent->gent,
+			cent->gent ? cent->gent->client : NULL,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.infoValid : -1,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.legsModel : 0,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.torsoModel : 0,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.headModel : 0,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.legsSkin : 0,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.torsoSkin : 0,
+			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.headSkin : 0,
+			cg.snap->ps.weapon );
+	}
 #endif
 
 	if ( cent->currentState.eFlags & EF_NODRAW ) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer )
+		if ( stefxLogPlayer || stefxLogThirdPerson )
 		{
-			XBLF( "STEFX: CG_Player return EF_NODRAW ent=%d", cent->currentState.number );
+			XBLF( "STEFX_THIRD_PERSON: return reason=EF_NODRAW ent=%d eFlags=0x%x",
+				cent->currentState.number,
+				cent->currentState.eFlags );
 		}
 #endif
 		return;
@@ -3207,9 +3319,11 @@ void CG_Player( centity_t *cent ) {
 	if(!cent->gent)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer )
+		if ( stefxLogPlayer || stefxLogThirdPerson )
 		{
-			XBLF( "STEFX: CG_Player return no gent ent=%d", cent->currentState.number );
+			XBLF( "STEFX_THIRD_PERSON: return reason=no_gent ent=%d eFlags=0x%x",
+				cent->currentState.number,
+				cent->currentState.eFlags );
 		}
 #endif
 		return;
@@ -3218,9 +3332,12 @@ void CG_Player( centity_t *cent ) {
 	if(!cent->gent->client)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer )
+		if ( stefxLogPlayer || stefxLogThirdPerson )
 		{
-			XBLF( "STEFX: CG_Player return no client ent=%d", cent->currentState.number );
+			XBLF( "STEFX_THIRD_PERSON: return reason=no_client ent=%d eFlags=0x%x gent=%p",
+				cent->currentState.number,
+				cent->currentState.eFlags,
+				cent->gent );
 		}
 #endif
 		return;
@@ -3229,9 +3346,13 @@ void CG_Player( centity_t *cent ) {
 	if ((in_camera) && !(cent->currentState.eFlags & EF_NPC))	// If player in camera then no need for shadow
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer )
+		if ( stefxLogPlayer || stefxLogThirdPerson )
 		{
-			XBLF( "STEFX: CG_Player return in_camera ent=%d", cent->currentState.number );
+			XBLF( "STEFX_THIRD_PERSON: return reason=in_camera ent=%d eFlags=0x%x cg_thirdPerson=%d renderingThirdPerson=%d",
+				cent->currentState.number,
+				cent->currentState.eFlags,
+				cg_thirdPerson.integer,
+				cg.renderingThirdPerson );
 		}
 #endif
 		return;
@@ -3247,9 +3368,9 @@ void CG_Player( centity_t *cent ) {
 	if ( !ci->infoValid ) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer )
+		if ( stefxLogPlayer || stefxLogThirdPerson )
 		{
-			XBLF( "STEFX: CG_Player return info invalid ent=%d name='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d",
+			XBLF( "STEFX_THIRD_PERSON: return reason=info_invalid ent=%d name='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d",
 				cent->currentState.number,
 				ci->name,
 				ci->legsModel,
@@ -3398,15 +3519,36 @@ void CG_Player( centity_t *cent ) {
 			legs.origin[1],
 			legs.origin[2] );
 	}
+	if ( stefxLogThirdPerson )
+	{
+		XBLog_Printf( "STEFX_THIRD_PERSON: part=legs ent=%d hModel=%d skin=%d frame=%d oldframe=%d backlerp=%g renderfx=0x%x origin=(%g,%g,%g)\n",
+			cent->currentState.number,
+			legs.hModel,
+			legs.customSkin,
+			legs.frame,
+			legs.oldframe,
+			legs.backlerp,
+			legs.renderfx,
+			legs.origin[0],
+			legs.origin[1],
+			legs.origin[2] );
+	}
 #endif
 
 	// if the model failed, allow the default nullmodel to be displayed
 	if (!legs.hModel) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer )
+		if ( stefxLogPlayer || stefxLogThirdPerson )
 		{
-			XBLF( "STEFX: CG_Player return no legs model ent=%d", cent->currentState.number );
+			XBLF( "STEFX_THIRD_PERSON: return reason=no_legs_model ent=%d models=(%d,%d,%d) skins=(%d,%d,%d)",
+				cent->currentState.number,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin );
 		}
 #endif
 		return;
@@ -3441,6 +3583,20 @@ void CG_Player( centity_t *cent ) {
 				torso.customSkin,
 				torso.frame,
 				torso.oldframe,
+				torso.renderfx,
+				torso.origin[0],
+				torso.origin[1],
+				torso.origin[2] );
+		}
+		if ( stefxLogThirdPerson )
+		{
+			XBLog_Printf( "STEFX_THIRD_PERSON: part=torso ent=%d hModel=%d skin=%d frame=%d oldframe=%d backlerp=%g renderfx=0x%x origin=(%g,%g,%g)\n",
+				cent->currentState.number,
+				torso.hModel,
+				torso.customSkin,
+				torso.frame,
+				torso.oldframe,
+				torso.backlerp,
 				torso.renderfx,
 				torso.origin[0],
 				torso.origin[1],
@@ -3525,6 +3681,20 @@ void CG_Player( centity_t *cent ) {
 					head.customSkin,
 					head.frame,
 					head.oldframe,
+					head.renderfx,
+					head.origin[0],
+					head.origin[1],
+					head.origin[2] );
+			}
+			if ( stefxLogThirdPerson )
+			{
+				XBLog_Printf( "STEFX_THIRD_PERSON: part=head ent=%d hModel=%d skin=%d frame=%d oldframe=%d backlerp=%g renderfx=0x%x origin=(%g,%g,%g)\n",
+					cent->currentState.number,
+					head.hModel,
+					head.customSkin,
+					head.frame,
+					head.oldframe,
+					head.backlerp,
 					head.renderfx,
 					head.origin[0],
 					head.origin[1],

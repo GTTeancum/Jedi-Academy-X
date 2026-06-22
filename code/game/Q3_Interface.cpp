@@ -959,14 +959,28 @@ static void Q3_SetStatusText(const char *StatusTextEnum)
 	switch (statusTextID)
 	{
 	case STAT_INSUBORDINATION:
+		statusTextIndex = IGT_INSUBORDINATION;
+		break;
 	case STAT_YOUCAUSEDDEATHOFTEAMMATE:
+		statusTextIndex = IGT_YOUCAUSEDDEATHOFTEAMMATE;
+		break;
 	case STAT_DIDNTPROTECTTECH:
+		statusTextIndex = IGT_DIDNTPROTECTTECH;
+		break;
 	case STAT_DIDNTPROTECT7OF9:
+		statusTextIndex = IGT_DIDNTPROTECT7OF9;
+		break;
 	case STAT_NOTSTEALTHYENOUGH:
+		statusTextIndex = IGT_NOTSTEALTHYENOUGH;
+		break;
 	case STAT_STEALTHTACTICSNECESSARY:
+		statusTextIndex = IGT_STEALTHTACTICSNECESSARY;
+		break;
 	case STAT_WATCHYOURSTEP:
+		statusTextIndex = IGT_WATCHYOURSTEP;
+		break;
 	case STAT_JUDGEMENTMUCHDESIRED:
-		statusTextIndex = statusTextID;
+		statusTextIndex = IGT_JUDGEMENTMUCHDESIRED;
 		break;
 	default:
 		assert(0);
@@ -1097,14 +1111,14 @@ Get the current game time
 
 /*
 =============
-G_AddSexToPlayerString
+G_AddSexToMunroString
 
 Take any string, look for "munro/" replace with "alexa/" based on "sex"
 And: Take any string, look for "/mr_" replace with "/ms_" based on "sex" 
 returns qtrue if changed to ms
 =============
 */
-static qboolean G_AddSexToPlayerString ( char *string, qboolean qDoBoth )
+qboolean G_AddSexToMunroString ( char *string, qboolean qDoBoth )
 {
 	char *start;
 
@@ -2360,6 +2374,42 @@ static void Q3_SetPlayerTeam( int entID, const char *teamName )
 	}
 
 	newTeam = (team_t)GetIDForString( teamTable, teamName );
+	if ( ent->s.number == 0 )
+	{
+		if ( ent->client->playerTeam == TEAM_STARFLEET && newTeam == TEAM_DISGUISE )
+		{
+			SetUpperAnim( 0, TORSO_WEAPONIDLE3 );
+			SetLowerAnim( 0, BOTH_STAND2 );
+
+			if ( g_sex && g_sex->string[0] == 'f' )
+			{
+				gi.SendConsoleCommand( "headModel alexascav/default; torsoModel impfem/default; legsModel impfem/default\n");
+			}
+			else
+			{
+				gi.SendConsoleCommand( "headModel munroscav/default; torsoModel imperial/raider; legsModel imperial/raider\n");
+			}
+			Q3_SetWeapon( 0, "scavenger" );
+			Com_Printf( "STEFX_THIRD_PERSON: Q3_SetPlayerTeam disguise model sex='%s' team=%d->%d\n",
+				g_sex ? g_sex->string : "<null>", ent->client->playerTeam, newTeam );
+		}
+		else if ( ent->client->playerTeam == TEAM_DISGUISE && newTeam == TEAM_STARFLEET )
+		{
+			SetUpperAnim( 0, TORSO_WEAPONIDLE3 );
+			SetLowerAnim( 0, BOTH_STAND2 );
+
+			if ( g_sex && g_sex->string[0] == 'f' )
+			{
+				gi.SendConsoleCommand( "headModel alexa/default; torsoModel hazardfemale/default; legsModel hazardfemale/default\n");
+			}
+			else
+			{
+				gi.SendConsoleCommand( "headModel munro/default; torsoModel hazard/default; legsModel hazard/default\n");
+			}
+			Com_Printf( "STEFX_THIRD_PERSON: Q3_SetPlayerTeam hazard model sex='%s' team=%d->%d\n",
+				g_sex ? g_sex->string : "<null>", ent->client->playerTeam, newTeam );
+		}
+	}
 	ent->client->playerTeam = newTeam;
 }
 
@@ -4592,7 +4642,7 @@ void Q3_SetPrecacheFile( const char *file )
 					G_SoundIndex( holdText );
 				}
 
-				qboolean qbMatches = G_AddSexToPlayerString( holdText, qfalse );
+				qboolean qbMatches = G_AddSexToMunroString( holdText, qfalse );
 				if ( qbMatches )
 				{
 					G_SoundIndex( holdText );
@@ -8269,7 +8319,7 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 #ifdef _XBOX
 	Q_strncpyz( sourceLowerName, finalName, sizeof(sourceLowerName) );
 #endif
-	G_AddSexToPlayerString( finalName, qtrue );
+	G_AddSexToMunroString( finalName, qtrue );
 
 	COM_StripExtension( (const char *)finalName, finalName );
 	COM_DefaultExtension( finalName, MAX_QPATH, ".wav" );
@@ -11747,7 +11797,7 @@ void	CQuake3GameInterface::PrecacheSound( const char *name )
 	{	//get the male sound first
 		G_SoundIndex( finalName );
 	}
-	G_AddSexToPlayerString( finalName, qtrue );	//now get female
+	G_AddSexToMunroString( finalName, qtrue );	//now get female
 	COM_StripExtension( (const char *)finalName, finalName );
 	COM_DefaultExtension( finalName, MAX_QPATH, ".wav" );
 
