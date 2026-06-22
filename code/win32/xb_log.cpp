@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#define XB_LOG_IMPLEMENTATION
 #include "xb_log.h"
 
 /* ── NT kernel types (minimal subset) ── */
@@ -82,6 +83,21 @@ __declspec(dllexport) volatile unsigned int g_SPXBCmdArgv0First4 = 0x1111001E;
 __declspec(dllexport) volatile unsigned int g_SPXBCmdNameFirst4 = 0x1111001F;
 __declspec(dllexport) volatile unsigned int g_SPXBMapPhase = 0x1111001A;
 __declspec(dllexport) volatile unsigned int g_SPXBMapHash = 0x1111001B;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapState = 0x1111001C;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapLastError = 0x1111001D;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapPathIndex = 0x1111001E;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapFirst4 = 0x1111001F;
+__declspec(dllexport) volatile unsigned int g_SPXBSvMapState = 0x11110020;
+__declspec(dllexport) volatile unsigned int g_SPXBClHunkState = 0x11110021;
+__declspec(dllexport) volatile unsigned int g_SPXBComErrorCode = 0x11110022;
+__declspec(dllexport) volatile unsigned int g_SPXBComErrorHash = 0x11110023;
+__declspec(dllexport) volatile unsigned int g_SPXBComErrorFirst4 = 0x11110024;
+__declspec(dllexport) volatile unsigned int g_SPXBComErrorNext4 = 0x11110025;
+__declspec(dllexport) volatile unsigned int g_SPXBClHunkCaller = 0x11110026;
+__declspec(dllexport) volatile unsigned int g_SPXBClHunkCallCount = 0x11110027;
+__declspec(dllexport) volatile unsigned int g_SPXBCmLoadState = 0x11110028;
+__declspec(dllexport) volatile unsigned int g_SPXBCmLoadLumpHash = 0x11110029;
+__declspec(dllexport) volatile unsigned int g_SPXBCmLoadLumpLen = 0x1111002A;
 __declspec(dllexport) volatile unsigned int g_SPXBGamePhase = 0x1111001C;
 __declspec(dllexport) volatile unsigned int g_SPXBGameEntityCount = 0x1111001D;
 __declspec(dllexport) volatile unsigned int g_SPXBGameClassHash = 0x1111001E;
@@ -113,6 +129,19 @@ __declspec(dllexport) volatile unsigned int g_SPXBCinPhase = 0x11110031;
 __declspec(dllexport) volatile unsigned int g_SPXBCinHandle = 0x11110032;
 __declspec(dllexport) volatile unsigned int g_SPXBCinStatus = 0x11110033;
 __declspec(dllexport) volatile unsigned int g_SPXBCinLoopCount = 0x11110034;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkPhase = 0x11110100;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkRunCount = 0x11110101;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkWaitLoops = 0x11110102;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkWaitBreaks = 0x11110103;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkFrameNum = 0x11110104;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkFrames = 0x11110105;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkOpenFlags = 0x11110106;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkWidth = 0x11110107;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkHeight = 0x11110108;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkAlpha = 0x11110109;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkCopySkipped = 0x1111010A;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkStartResult = 0x1111010B;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkStatus = 0x1111010C;
 __declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[16] = {
     0x11110040, 0x11110041, 0x11110042, 0x11110043,
     0x11110044, 0x11110045, 0x11110046, 0x11110047,
@@ -125,6 +154,90 @@ __declspec(dllexport) volatile unsigned int g_SPXBEntityTypeCounts[16] = {
     0x11110058, 0x11110059, 0x1111005A, 0x1111005B,
     0x1111005C, 0x1111005D, 0x1111005E, 0x1111005F
 };
+__declspec(dllexport) volatile unsigned int g_SPXBKeyCatchers = 0x11110060;
+__declspec(dllexport) volatile unsigned int g_SPXBKeyLastKey = 0x11110061;
+__declspec(dllexport) volatile unsigned int g_SPXBKeyLastDown = 0x11110062;
+__declspec(dllexport) volatile unsigned int g_SPXBKeyLastPhaseHash = 0x11110063;
+__declspec(dllexport) volatile unsigned int g_SPXBKeyTraceCount = 0x11110064;
+__declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonCount = 0x11110065;
+__declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonPressCount = 0x11110066;
+__declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonReleaseCount = 0x11110067;
+__declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonUiStartMs = 0x11110068;
+__declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonLast = 0x11110069;
+__declspec(dllexport) volatile unsigned int g_SPXBUISetActiveCount = 0x1111006A;
+__declspec(dllexport) volatile unsigned int g_SPXBUIActiveMenuHash = 0x1111006B;
+__declspec(dllexport) volatile unsigned int g_SPXBUIActiveResult = 0x1111006C;
+__declspec(dllexport) volatile unsigned int g_SPXBUIMainMenuCount = 0x1111006D;
+__declspec(dllexport) volatile unsigned int g_SPXBUIKeyEventCount = 0x1111006E;
+__declspec(dllexport) volatile unsigned int g_SPXBUIKeyLast = 0x1111006F;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndPhase = 0x111100AD;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndMenuHash = 0x111100AE;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndItemHash = 0x111100AF;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndScriptHash = 0x111100B0;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndPopup = 0x111100B1;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndResponse = 0x111100B2;
+__declspec(dllexport) volatile unsigned int g_SPXBFrontEndController = 0x111100B3;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderDrawSurfCount = 0x11110070;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderDrawSurfDelta = 0x11110071;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderLeafCount = 0x11110072;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCullPatch = 0x11110073;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCullMd3 = 0x11110074;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCullBox = 0x11110075;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderDlightSurfaces = 0x11110076;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderDlightCulled = 0x11110077;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyIterCalls = 0x11110078;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyPortalMainFallbacks = 0x11110079;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyClipCalls = 0x1111007A;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyBoxDrawCalls = 0x1111007B;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyBoxSidesDrawn = 0x1111007C;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyNoOuterBox = 0x1111007D;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyCloudBuilds = 0x1111007E;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyGenericCalls = 0x1111007F;
+__declspec(dllexport) volatile unsigned int g_SPXBWorldSurfaceAddCalls = 0x11110080;
+__declspec(dllexport) volatile unsigned int g_SPXBWorldSkySurfaceAdds = 0x11110081;
+__declspec(dllexport) volatile unsigned int g_SPXBWorldPortalSurfaceAdds = 0x11110082;
+__declspec(dllexport) volatile unsigned int g_SPXBDrawSurfTotalAdds = 0x11110083;
+__declspec(dllexport) volatile unsigned int g_SPXBDrawSurfSkyAdds = 0x11110084;
+__declspec(dllexport) volatile unsigned int g_SPXBDrawSurfPortalAdds = 0x11110085;
+__declspec(dllexport) volatile unsigned int g_SPXBDrawSurfForceSightSkips = 0x11110086;
+__declspec(dllexport) volatile unsigned int g_SPXBCGameRenderCalls = 0x11110087;
+__declspec(dllexport) volatile unsigned int g_SPXBCGameDrawFrameReturns = 0x11110088;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderSceneCalls = 0x11110089;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderSceneNoWorld = 0x1111008A;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderViewCalls = 0x1111008B;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderViewWorldCalls = 0x1111008C;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenDrawCalls = 0x1111008D;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenForceDirectCalls = 0x1111008E;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenFullscreenSkips = 0x1111008F;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenCinematicDraws = 0x11110090;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenCGameCalls = 0x11110091;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenUIRefreshes = 0x11110092;
+__declspec(dllexport) volatile unsigned int g_SPXBScreenDirectReturns = 0x11110093;
+__declspec(dllexport) volatile unsigned int g_SPXBCLFrameEnterCalls = 0x11110094;
+__declspec(dllexport) volatile unsigned int g_SPXBCLFrameDirectReturns = 0x11110095;
+__declspec(dllexport) volatile unsigned int g_SPXBCLFrameBeforeScreen = 0x11110096;
+__declspec(dllexport) volatile unsigned int g_SPXBCLFrameAfterScreen = 0x11110097;
+__declspec(dllexport) volatile unsigned int g_SPXBCLFrameCompleted = 0x11110098;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderRegistrationState = 0x11110099;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderStretchPicCalls = 0x1111009A;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderStretchPicCmdNull = 0x1111009B;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBeginFrameCalls = 0x1111009C;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBeginFrameUnregistered = 0x1111009D;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderEndFrameCalls = 0x1111009E;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderEndFrameUnregistered = 0x1111009F;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderEndFrameCmdNull = 0x111100A0;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderEndFrameBeginFail = 0x111100A1;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderIssueCalls = 0x111100A2;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderIssueCmdUsed = 0x111100A3;
+__declspec(dllexport) volatile unsigned int g_SPXBCompatBeginFrameCalls = 0x111100A4;
+__declspec(dllexport) volatile unsigned int g_SPXBCompatEndFrameCalls = 0x111100A5;
+__declspec(dllexport) volatile unsigned int g_SPXBFakeSwapBuffersCalls = 0x111100A6;
+__declspec(dllexport) volatile unsigned int g_SPXBDx8BeginFrameCalls = 0x111100A7;
+__declspec(dllexport) volatile unsigned int g_SPXBDx8EndFrameCalls = 0x111100A8;
+__declspec(dllexport) volatile unsigned int g_SPXBDx8PresentCalls = 0x111100A9;
+__declspec(dllexport) volatile unsigned int g_SPXBDx8PresentHr = 0x111100AA;
+__declspec(dllexport) volatile unsigned int g_SPXBDx8FramebufferUpdates = 0x111100AB;
+__declspec(dllexport) volatile unsigned int g_SPXBDx8FramebufferBackBufferFail = 0x111100AC;
 __declspec(dllexport) volatile char g_SPXBLogMirror[32768];
 __declspec(dllexport) volatile char g_SPXBLogLastLine[512];
 __declspec(dllexport) volatile char g_SPXBCmdLast[128];
@@ -187,44 +300,41 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (!msg) return 1;
     if (!g_verboseLog) {
         if (strstr(msg, "FRAME_HEARTBEAT") ||
+            strstr(msg, "SMOKE_BUTTON") ||
             strstr(msg, "direct-map boot") ||
             strstr(msg, "Server:") ||
             strstr(msg, "SV_InitGameProgs") ||
             strstr(msg, "InitGame") ||
             strstr(msg, "G_AllocGentities") ||
             strstr(msg, "G_SpawnEntitiesFromString") ||
-            strstr(msg, "CL_StartHunkUsers") ||
+            strstr(msg, "CL_Init:") ||
+            strstr(msg, "CL_StartHunkUsers: ready fast path") ||
+            strstr(msg, "CL_InitUI") ||
             strstr(msg, "CL_InitCGame") ||
-            strstr(msg, "CL_SetCGameTime") ||
-            strstr(msg, "Com_EventLoop") ||
-            strstr(msg, "COM_PHASE") ||
-            strstr(msg, "CIN_PHASE") ||
-            strstr(msg, "CIN_RunCinematic") ||
+            strstr(msg, "SCR_Init") ||
+            strstr(msg, "UI_Init") ||
+            strstr(msg, "_UI_Init") ||
+            strstr(msg, "UI_SetActiveMenu") ||
             strstr(msg, "BinkVideo::Start") ||
-            strstr(msg, "ICARUS_RUN") ||
-            strstr(msg, "CAMERA_") ||
-            strstr(msg, "MAIN_TIGHT") ||
-            strstr(msg, "fakegl CreateTexture") ||
-            strstr(msg, "fakegl using fallback") ||
-            strstr(msg, "CG_DRAW_ACTIVE_FRAME") ||
             strstr(msg, "CG_Init") ||
+            strstr(msg, "CG_LoadHudMenu") ||
+            strstr(msg, "CG_LoadMenus") ||
+            strstr(msg, "CG_Load_Menu") ||
+            strstr(msg, "CG_ParseMenu") ||
+            strstr(msg, "cgi_UI_StartParseSession") ||
+            strstr(msg, "VM_DllSyscall CG_UI_STARTPARSE") ||
+            strstr(msg, "CG trap UI_STARTPARSE") ||
+            strstr(msg, "UI Menu_New") ||
+            strstr(msg, "UI Menu_Parse") ||
+            strstr(msg, "UI PC_StartParseSession") ||
             strstr(msg, "CG_GameStateReceived") ||
             strstr(msg, "CG_RegisterGraphics") ||
             strstr(msg, "CG_NewClientinfo") ||
             strstr(msg, "VM_Call(CG_INIT)") ||
-            strstr(msg, "R_FindShader:") ||
-            strstr(msg, "ParseShader:") ||
-            strstr(msg, "ParseStage:") ||
-            strstr(msg, "FinishShader:") ||
-            strstr(msg, "RE_RegisterShaderNoMip:") ||
-            strstr(msg, "RE_RegisterShader:") ||
             strstr(msg, "cls.state = CA_PRIMED") ||
         strstr(msg, "cls.state = CA_ACTIVE - GAME IS RUNNING") ||
         strstr(msg, "R_Register forcing r_") ||
         strstr(msg, "R_Register Xbox lighting baseline") ||
-        strstr(msg, "XBOX_WORLD_STAGE") ||
-        strstr(msg, "XBOX_LIGHTMAP_STATS") ||
-        strstr(msg, "R_SetColorMappings") ||
         strstr(msg, "FATAL") ||
         strstr(msg, "ERROR") ||
             strstr(msg, "Out of memory") ||
@@ -238,6 +348,9 @@ static int xbl_ShouldDropVerbose(const char *msg)
     }
 
     if (strstr(msg, "FRAME_HEARTBEAT") ||
+        strstr(msg, "SMOKE_BUTTON") ||
+        strstr(msg, "KEY_TRACE") ||
+        strstr(msg, "UI_TRACE") ||
         strstr(msg, "FATAL") ||
         strstr(msg, "ERROR") ||
         strstr(msg, "Out of memory") ||
@@ -306,7 +419,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (xbl_starts_with(msg, "JA: RE_EndFrame") ||
         xbl_starts_with(msg, "JA: RE_BeginFrame") ||
         xbl_starts_with(msg, "JA: CL_Frame") ||
-        xbl_starts_with(msg, "JA: CL_StartHunkUsers") ||
         xbl_starts_with(msg, "JA: CL_SendCmd") ||
         xbl_starts_with(msg, "JA: R_IssueRenderCommands") ||
         xbl_starts_with(msg, "JA: RB_ExecuteRenderCommands") ||
@@ -331,35 +443,36 @@ static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
     return strstr(fmt, "FRAME_HEARTBEAT") ||
+        strstr(fmt, "SMOKE_BUTTON") ||
         strstr(fmt, "direct-map boot") ||
         strstr(fmt, "Server:") ||
         strstr(fmt, "SV_InitGameProgs") ||
         strstr(fmt, "InitGame") ||
         strstr(fmt, "G_AllocGentities") ||
         strstr(fmt, "G_SpawnEntitiesFromString") ||
-        strstr(fmt, "CL_StartHunkUsers") ||
+        strstr(fmt, "CL_Init:") ||
+        strstr(fmt, "CL_InitUI") ||
         strstr(fmt, "CL_InitCGame") ||
-        strstr(fmt, "CL_SetCGameTime") ||
-        strstr(fmt, "Com_EventLoop") ||
-        strstr(fmt, "COM_PHASE") ||
+        strstr(fmt, "SCR_Init") ||
+        strstr(fmt, "UI_Init") ||
+        strstr(fmt, "_UI_Init") ||
+        strstr(fmt, "UI_SetActiveMenu") ||
         strstr(fmt, "CMD_TRACE") ||
-        strstr(fmt, "CIN_PHASE") ||
-        strstr(fmt, "CIN_RunCinematic") ||
         strstr(fmt, "BinkVideo::Start") ||
-        strstr(fmt, "MAIN_TIGHT") ||
-        strstr(fmt, "fakegl CreateTexture") ||
-        strstr(fmt, "fakegl using fallback") ||
         strstr(fmt, "CG_Init") ||
+        strstr(fmt, "CG_LoadHudMenu") ||
+        strstr(fmt, "CG_LoadMenus") ||
+        strstr(fmt, "CG_Load_Menu") ||
+        strstr(fmt, "CG_ParseMenu") ||
+        strstr(fmt, "cgi_UI_StartParseSession") ||
+        strstr(fmt, "VM_DllSyscall CG_UI_STARTPARSE") ||
+        strstr(fmt, "CG trap UI_STARTPARSE") ||
+        strstr(fmt, "UI PC_StartParseSession") ||
         strstr(fmt, "CG_GameStateReceived") ||
         strstr(fmt, "CG_RegisterGraphics") ||
         strstr(fmt, "CG_NewClientinfo") ||
         strstr(fmt, "VM_Call(CG_INIT)") ||
-        strstr(fmt, "R_FindShader:") ||
-        strstr(fmt, "ParseShader:") ||
-        strstr(fmt, "ParseStage:") ||
-        strstr(fmt, "FinishShader:") ||
-        strstr(fmt, "RE_RegisterShaderNoMip:") ||
-        strstr(fmt, "RE_RegisterShader:") ||
+        strstr(fmt, "CAMERA_") ||
         strstr(fmt, "cls.state = CA_PRIMED") ||
         strstr(fmt, "cls.state = CA_ACTIVE - GAME IS RUNNING") ||
         strstr(fmt, "FATAL") ||
@@ -410,8 +523,15 @@ static void xbl_FlushHandle(HANDLE h, int isNt)
 static int xbl_ShouldFlushWrite(const char *msg)
 {
     if (!msg) return 0;
-    if (strstr(msg, "FRAME_HEARTBEAT")) return 0;
-    return 1;
+    if (strstr(msg, "=== Jedi Academy Xbox SP log ===")) return 1;
+    if (strstr(msg, "FATAL")) return 1;
+    if (strstr(msg, "ERROR")) return 1;
+    if (strstr(msg, "Out of memory")) return 1;
+    if (strstr(msg, "Received Exception")) return 1;
+    if (strstr(msg, "EIP")) return 1;
+    if (strstr(msg, "Z_Malloc():")) return 1;
+    if (strstr(msg, "texture allocation failures")) return 1;
+    return 0;
 }
 
 void XBLog_Init(void)
@@ -419,12 +539,13 @@ void XBLog_Init(void)
     int  i;
     long status;
 
+    g_SPXBBootPhase = 0x30;
     g_hLogFile = INVALID_HANDLE_VALUE;
     g_logIsNt  = 0;
     g_logPath  = NULL;
     g_hMirrorLogFile = INVALID_HANDLE_VALUE;
     g_mirrorLogPath = NULL;
-    g_verboseLog = 0;
+    g_verboseLog = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 1 : 0;
     g_SPXBLogMirrorPos = 0;
     g_SPXBLogWriteCount = 0;
     g_SPXBHeartbeatCount = 0;
@@ -459,6 +580,21 @@ void XBLog_Init(void)
     g_SPXBCmdFunctionNameLast[0] = 0;
     g_SPXBMapPhase = 0;
     g_SPXBMapHash = 0;
+    g_SPXBDirectMapState = 0;
+    g_SPXBDirectMapLastError = 0;
+    g_SPXBDirectMapPathIndex = 0;
+    g_SPXBDirectMapFirst4 = 0;
+    g_SPXBSvMapState = 0;
+    g_SPXBClHunkState = 0;
+    g_SPXBComErrorCode = 0;
+    g_SPXBComErrorHash = 0;
+    g_SPXBComErrorFirst4 = 0;
+    g_SPXBComErrorNext4 = 0;
+    g_SPXBClHunkCaller = 0;
+    g_SPXBClHunkCallCount = 0;
+    g_SPXBCmLoadState = 0;
+    g_SPXBCmLoadLumpHash = 0;
+    g_SPXBCmLoadLumpLen = 0;
     g_SPXBGamePhase = 0;
     g_SPXBGameEntityCount = 0;
     g_SPXBGameClassHash = 0;
@@ -480,6 +616,74 @@ void XBLog_Init(void)
     g_SPXBRenderSplitEntity = 0;
     g_SPXBRenderSplitFinal = 0;
     g_SPXBRenderSplitFlush = 0;
+    g_SPXBFrontEndPhase = 0;
+    g_SPXBFrontEndMenuHash = 0;
+    g_SPXBFrontEndItemHash = 0;
+    g_SPXBFrontEndScriptHash = 0;
+    g_SPXBFrontEndPopup = 0;
+    g_SPXBFrontEndResponse = 0;
+    g_SPXBFrontEndController = 0;
+    g_SPXBRenderDrawSurfCount = 0;
+    g_SPXBRenderDrawSurfDelta = 0;
+    g_SPXBRenderLeafCount = 0;
+    g_SPXBRenderCullPatch = 0;
+    g_SPXBRenderCullMd3 = 0;
+    g_SPXBRenderCullBox = 0;
+    g_SPXBRenderDlightSurfaces = 0;
+    g_SPXBRenderDlightCulled = 0;
+    g_SPXBSkyIterCalls = 0;
+    g_SPXBSkyPortalMainFallbacks = 0;
+    g_SPXBSkyClipCalls = 0;
+    g_SPXBSkyBoxDrawCalls = 0;
+    g_SPXBSkyBoxSidesDrawn = 0;
+    g_SPXBSkyNoOuterBox = 0;
+    g_SPXBSkyCloudBuilds = 0;
+    g_SPXBSkyGenericCalls = 0;
+    g_SPXBWorldSurfaceAddCalls = 0;
+    g_SPXBWorldSkySurfaceAdds = 0;
+    g_SPXBWorldPortalSurfaceAdds = 0;
+    g_SPXBDrawSurfTotalAdds = 0;
+    g_SPXBDrawSurfSkyAdds = 0;
+    g_SPXBDrawSurfPortalAdds = 0;
+    g_SPXBDrawSurfForceSightSkips = 0;
+    g_SPXBCGameRenderCalls = 0;
+    g_SPXBCGameDrawFrameReturns = 0;
+    g_SPXBRenderSceneCalls = 0;
+    g_SPXBRenderSceneNoWorld = 0;
+    g_SPXBRenderViewCalls = 0;
+    g_SPXBRenderViewWorldCalls = 0;
+    g_SPXBScreenDrawCalls = 0;
+    g_SPXBScreenForceDirectCalls = 0;
+    g_SPXBScreenFullscreenSkips = 0;
+    g_SPXBScreenCinematicDraws = 0;
+    g_SPXBScreenCGameCalls = 0;
+    g_SPXBScreenUIRefreshes = 0;
+    g_SPXBScreenDirectReturns = 0;
+    g_SPXBCLFrameEnterCalls = 0;
+    g_SPXBCLFrameDirectReturns = 0;
+    g_SPXBCLFrameBeforeScreen = 0;
+    g_SPXBCLFrameAfterScreen = 0;
+    g_SPXBCLFrameCompleted = 0;
+    g_SPXBRenderRegistrationState = 0;
+    g_SPXBRenderStretchPicCalls = 0;
+    g_SPXBRenderStretchPicCmdNull = 0;
+    g_SPXBRenderBeginFrameCalls = 0;
+    g_SPXBRenderBeginFrameUnregistered = 0;
+    g_SPXBRenderEndFrameCalls = 0;
+    g_SPXBRenderEndFrameUnregistered = 0;
+    g_SPXBRenderEndFrameCmdNull = 0;
+    g_SPXBRenderEndFrameBeginFail = 0;
+    g_SPXBRenderIssueCalls = 0;
+    g_SPXBRenderIssueCmdUsed = 0;
+    g_SPXBCompatBeginFrameCalls = 0;
+    g_SPXBCompatEndFrameCalls = 0;
+    g_SPXBFakeSwapBuffersCalls = 0;
+    g_SPXBDx8BeginFrameCalls = 0;
+    g_SPXBDx8EndFrameCalls = 0;
+    g_SPXBDx8PresentCalls = 0;
+    g_SPXBDx8PresentHr = 0;
+    g_SPXBDx8FramebufferUpdates = 0;
+    g_SPXBDx8FramebufferBackBufferFail = 0;
     g_SPXBFramebufferData = 0;
     g_SPXBFramebufferPitch = 0;
     g_SPXBFramebufferWidth = 0;
@@ -490,6 +694,19 @@ void XBLog_Init(void)
     g_SPXBCinHandle = 0;
     g_SPXBCinStatus = 0;
     g_SPXBCinLoopCount = 0;
+    g_SPXBBinkPhase = 0;
+    g_SPXBBinkRunCount = 0;
+    g_SPXBBinkWaitLoops = 0;
+    g_SPXBBinkWaitBreaks = 0;
+    g_SPXBBinkFrameNum = 0;
+    g_SPXBBinkFrames = 0;
+    g_SPXBBinkOpenFlags = 0;
+    g_SPXBBinkWidth = 0;
+    g_SPXBBinkHeight = 0;
+    g_SPXBBinkAlpha = 0;
+    g_SPXBBinkCopySkipped = 0;
+    g_SPXBBinkStartResult = 0;
+    g_SPXBBinkStatus = 0;
     g_SPXBCinArgLast[0] = 0;
     for (i = 0; i < 16; ++i) {
         g_SPXBSurfaceTypeCounts[i] = 0;
@@ -502,6 +719,7 @@ void XBLog_Init(void)
         g_SPXBLogLastLine[i] = 0;
     }
 
+    g_SPXBBootPhase = 0x31;
     /*
      * CXBX-R maps D: to the title directory.  Retail D: is read-only, so this
      * quietly fails there, but on emulator it gives us a fresh log beside
@@ -509,11 +727,13 @@ void XBLog_Init(void)
      */
     g_hMirrorLogFile = CreateFileA("D:\\ja_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
         NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
+    g_SPXBBootPhase = 0x32;
     if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
         SetFilePointer(g_hMirrorLogFile, 0, NULL, FILE_END);
         g_mirrorLogPath = "D:\\ja_sp_log.txt";
     }
 
+    g_SPXBBootPhase = 0x33;
     /*
      * Strategy 1: NtCreateFile to raw device paths (retail hw + CXBX-R).
      * Use FILE_OPEN_IF (3) + FILE_APPEND_DATA so we append to the file that
@@ -528,6 +748,7 @@ void XBLog_Init(void)
             NULL
         };
         for (i = 0; ntPaths[i]; ++i) {
+            g_SPXBBootPhase = 0x340 + (unsigned int)i;
             XBL_STR  name;
             XBL_OA   oa;
             XBL_IOSB iosb;
@@ -547,6 +768,7 @@ void XBLog_Init(void)
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
+                g_SPXBBootPhase = 0x35;
                 XBL("=== Jedi Academy Xbox SP log ===\n");
                 return;
             }
@@ -554,6 +776,7 @@ void XBLog_Init(void)
     }
 
     /* Strategy 2: CreateFileA with drive letters — append if exists, create if not */
+    g_SPXBBootPhase = 0x36;
     {
         static const char *caPaths[] = {
             "D:\\ja_sp_log.txt",
@@ -563,6 +786,7 @@ void XBLog_Init(void)
             NULL
         };
         for (i = 0; caPaths[i]; ++i) {
+            g_SPXBBootPhase = 0x370 + (unsigned int)i;
             g_hLogFile = CreateFileA(caPaths[i], FILE_APPEND_DATA, FILE_SHARE_READ,
                 NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
             if (g_hLogFile != INVALID_HANDLE_VALUE) {
@@ -570,6 +794,7 @@ void XBLog_Init(void)
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
                 g_logIsNt = 0;
                 g_logPath = caPaths[i];
+                g_SPXBBootPhase = 0x38;
                 XBL("=== Jedi Academy Xbox SP log ===\n");
                 return;
             }

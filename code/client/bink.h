@@ -446,7 +446,10 @@ RADEXPFUNC U32  RADEXPLINK BinkGetKeyFrame(HBINK bnk,U32 frame,S32 flags);
 RADEXPFUNC S32  RADEXPLINK BinkSetVideoOnOff(HBINK bnk,S32 onoff);
 RADEXPFUNC S32  RADEXPLINK BinkSetSoundOnOff(HBINK bnk,S32 onoff);
 RADEXPFUNC void RADEXPLINK BinkFreeGlocalMemory( void );
-#ifdef _XBOX
+// The Xbox Xdemo Bink 1.1d library uses the older two-argument volume and
+// one-argument track APIs. Retail JA's movie start path does not select tracks,
+// but volume fading still calls into Bink while cinematics run.
+#if defined(SP_XBOX_USE_XDEMO_BINK)
 RADEXPFUNC void RADEXPLINK BinkSetVolume(HBINK bnk, S32 volume);
 #else
 RADEXPFUNC void RADEXPLINK BinkSetVolume(HBINK bnk, U32 trackid, S32 volume);
@@ -482,7 +485,11 @@ RADEXPFUNC U32  RADEXPLINK BinkGetTrackID(HBINK bnk,U32 trackindex);
 RADEXPFUNC void RADEXPLINK BinkGetSummary(HBINK bnk,BINKSUMMARY PTR4* sum);
 RADEXPFUNC void RADEXPLINK BinkGetRealtime(HBINK bink,BINKREALTIME PTR4* run,U32 frames);
 
+#if defined(SP_XBOX_USE_XDEMO_BINK)
+RADEXPFUNC void RADEXPLINK BinkSetSoundTrack(U32 track);
+#else
 RADEXPFUNC void RADEXPLINK BinkSetSoundTrack(U32 total_tracks, U32 PTR4* tracks);
+#endif
 RADEXPFUNC void RADEXPLINK BinkSetIO(BINKIOOPEN io);
 RADEXPFUNC void RADEXPLINK BinkSetFrameRate(U32 forcerate,U32 forceratediv);
 RADEXPFUNC void RADEXPLINK BinkSetSimulate(U32 sim);

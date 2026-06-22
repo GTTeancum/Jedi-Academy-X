@@ -3,13 +3,22 @@ param(
     [ValidateSet("sp", "mp", "all")]
     [string]$Target,
 
-    [switch]$Clean
+    [switch]$Clean,
+
+    [string[]]$ExtraDefine = @(),
+
+    [string]$ArtifactRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$buildArtifactRoot = $null
+if (-not [string]::IsNullOrWhiteSpace($ArtifactRoot)) {
+    $buildArtifactRoot = [System.IO.Path]::GetFullPath($ArtifactRoot)
+}
+$builtOutputDirs = New-Object System.Collections.Generic.List[string]
 $xdkRoot = "C:\XDK"
 $vc71Dir = Join-Path $xdkRoot "xbox\bin\vc71"
 $xdkBin = Join-Path $xdkRoot "xbox\bin"
@@ -177,6 +186,15 @@ function Convert-CompilerFlags {
     if ($favor -eq "1") { $flags.Add("/Ot") }
     elseif ($favor -eq "2") { $flags.Add("/Os") }
 
+    $processor = Get-XmlAttr -Node $Tool -Name "OptimizeForProcessor"
+    if ($processor -eq "1") { $flags.Add("/G5") }
+    elseif ($processor -eq "2") { $flags.Add("/G6") }
+    elseif ($processor -eq "3") { $flags.Add("/G7") }
+
+    $enhancedInstructionSet = Get-XmlAttr -Node $Tool -Name "EnableEnhancedInstructionSet"
+    if ($enhancedInstructionSet -eq "1") { $flags.Add("/arch:SSE") }
+    elseif ($enhancedInstructionSet -eq "2") { $flags.Add("/arch:SSE2") }
+
     if ((Get-XmlAttr -Node $Tool -Name "RuntimeLibrary") -eq "0") { $flags.Add("/MT") }
 
     $omitFp = Get-XmlAttr -Node $Tool -Name "OmitFramePointers"
@@ -267,51 +285,10 @@ function Apply-ProjectSourceOverrides {
             }
             $filtered.Add($source)
         }
+        # Plan-C: SP is back on the retail-shaped native Xbox DX8/QGL path.
+        # Do not inject OpenJKDF2 FakeGL compatibility units here; native
+        # win_qgl_dx8.cpp owns device creation, texture upload, and QGL binding.
 
-        # Plan-B (OpenJKDF2 1:1): d3dx8_compat.cpp removed — we now link
-        # real d3dx8.lib from XDK 5558.  Local shim no longer needed.
-
-        # Plan-B (OpenJKDF2 1:1): add OpenJKDF2's fakeglx.cpp (byte-identical
-        # copy at code\win32\openjkdf2\fakeglx.cpp).  Compiled with /FI
-        # platform_xbox.h force-include — that header is OpenJKDF2's compat
-        # shim providing stdint, snprintf, BOOL, etc. that fakeglx.cpp
-        # expects.  Replaces the prior xquake\gl_fakegl.cpp graft.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\fakeglx.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx.cpp"
-            Extension    = ".cpp"
-            Tool         = [pscustomobject]@{
-                Name                      = "VCCLCompilerTool"
-                PrependIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
-                AdditionalOptions         = "/FI`"openjkdf2/platform_xbox.h`""
-            }
-        })
-
-        # Plan-B compat layer: gl_* functions JKA calls that fakeglx.cpp
-        # doesn't export.  Real implementations where possible; deferred
-        # for paths beyond SP_DoLicense.  See file head comment.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\fakeglx_jka_compat.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx_jka_compat.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
-
-        # XDK 5558 headers are now first in the include path, so the old
-        # 5849-signature D3D shim is no longer needed and would collide with
-        # the official prototypes.
-
-        # Plan-B DDS bridge: JKA uses DXT1/3/5 compressed textures via
-        # GL_DDS*_EXT internalformats that fakeglx can't decode.  This
-        # file's JkaGlTexImage2D detects them, decodes to RGBA, and
-        # forwards to fakegl's real glTexImage2D.  qgl_console.h
-        # #define-redirects JKA call sites to JkaGlTexImage2D.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\glteximage_dds.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\glteximage_dds.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
 
         $filtered.Add([pscustomobject]@{
             RelativePath = "..\win32\dbg_console_xbox_stub.cpp"
@@ -367,10 +344,14 @@ function Invoke-External {
         if ($useResponseFile) {
             $responseFile = [System.IO.Path]::GetTempFileName()
             $Arguments | Set-Content -Path $responseFile -Encoding ASCII
-            & $Exe "@$responseFile"
+            & $Exe "@$responseFile" 2>&1 | ForEach-Object { Write-Host $_ }
+        }
+        elseif ($Exe -ieq $mlExe) {
+            $cmdLine = '"' + $Exe + '" ' + $argLine + ' 2>&1'
+            & cmd.exe /d /c $cmdLine | ForEach-Object { Write-Host $_ }
         }
         else {
-            & $Exe @Arguments
+            & $Exe @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
         }
         if ($LASTEXITCODE -ne 0) {
             throw "$Exe failed with exit code $LASTEXITCODE"
@@ -428,6 +409,12 @@ function Build-Project {
 
     $outputDir = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value $outputDirRaw -Macros $macros)
     $intDir = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value $intDirRaw -Macros $macros)
+    if ($buildArtifactRoot) {
+        $projectKey = (($ProjectPath -replace '\.vcproj$', '') -replace '[\\/:*?"<>|]', '_')
+        $artifactProjectRoot = Join-Path $buildArtifactRoot $projectKey
+        $outputDir = Join-Path $artifactProjectRoot "Release"
+        $intDir = Join-Path $artifactProjectRoot "obj"
+    }
     $macros.OutDir = $outputDir
     $macros.IntDir = $intDir
 
@@ -464,7 +451,7 @@ function Build-Project {
             # undeclared.  Without _USE_XGMATH, xgmath.h's D3DX-compat
             # block (line 976+) is inactive — D3DXMATRIX is the real
             # d3dx8math.h class, ID3DXMatrixStack is declared.
-            PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
+            PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;SP_XBOX_HOT_TELEMETRY=1;SP_XBOX_SMOKE_AUTOMATION=1;SP_XBOX_XEMU_BINK_NOTHREADIO=1;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
             # Plan-B audit: REVERTED /O2 → /Ox.  The /O2-match-OpenJKDF2
             # attempt regressed the build — wglCreateContext no longer
             # completed on CXBX-R LLE GPU (hardware test 2026-05-17 both
@@ -477,6 +464,8 @@ function Build-Project {
             InlineFunctionExpansion = "2"
             EnableIntrinsicFunctions = "true"
             FavorSizeOrSpeed = "1"
+            OptimizeForProcessor = "2"
+            EnableEnhancedInstructionSet = "1"
             OmitFramePointers = "true"
             StringPooling = "true"
             RuntimeLibrary = "0"
@@ -516,12 +505,17 @@ function Build-Project {
             OutputFile = ".\Release\default.exe"
             # XDK 5558 lib path FIRST so xboxkrnl, xgraphics, xapilib,
             # xonline, dsound, libc all resolve from 5558 (matching
-            # OpenJKDF2).  5849 paths kept as fallback for dmusic.lib
-            # and any other lib 5558 doesn't have.
-            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+            # OpenJKDF2).  Prefer the RM4/Jade Xbox Bink library: despite its
+            # file timestamp, its RAD copyright/version family and sectioned
+            # converter model match retail JA better than the older Xdemo lib.
+            # 5849 paths remain as fallback for dmusic.lib and any other
+            # lib 5558 doesn't have.
+            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;Z:\Programming\RM4+JadeSrc\Libraries\GX8\bink;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\XDK\xbox\lib;C:\XDK\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             ProgramDatabaseFile = '.\Release\x_exe.pdb'
+            OptimizeReferences = "2"
+            EnableCOMDATFolding = "2"
             SubSystem = "2"
             EntryPointSymbol = "WinMainCRTStartup"
             SetChecksum = "true"
@@ -570,6 +564,11 @@ function Build-Project {
     foreach ($define in (Split-VcList (Expand-VcString -Value (Get-XmlAttr -Node $compilerTool -Name "PreprocessorDefinitions") -Macros $macros))) {
         $baseFlags.Add("/D$define")
     }
+    foreach ($define in $ExtraDefine) {
+        if (-not [string]::IsNullOrWhiteSpace($define)) {
+            $baseFlags.Add("/D$define")
+        }
+    }
 
     $sources = Get-ProjectSourceFiles -Xml $xml -ConfigurationName $configurationName -ProjectDir $projectDir -Macros $macros
     $sources = Apply-ProjectSourceOverrides -ProjectPath $ProjectPath -Sources $sources
@@ -579,12 +578,36 @@ function Build-Project {
         $sourceHandled = $false
         switch ($source.Extension) {
             ".vsh" {
-                Invoke-External -Exe $xsasmExe -Arguments @($source.FullPath) -WorkingDirectory $projectDir
+                if ($buildArtifactRoot) {
+                    $shaderOutDir = Join-Path $outputDir "x_shaders"
+                    New-Item -ItemType Directory -Path $shaderOutDir -Force | Out-Null
+                    $shaderBase = [System.IO.Path]::GetFileNameWithoutExtension($source.FullPath)
+                    Invoke-External -Exe $xsasmExe -Arguments @(
+                        $source.FullPath,
+                        (Join-Path $shaderOutDir ($shaderBase + ".xvu")),
+                        (Join-Path $shaderOutDir ($shaderBase + ".xsc")),
+                        (Join-Path $shaderOutDir ($shaderBase + ".lst"))
+                    ) -WorkingDirectory $projectDir
+                } else {
+                    Invoke-External -Exe $xsasmExe -Arguments @($source.FullPath) -WorkingDirectory $projectDir
+                }
                 $sourceHandled = $true
                 break
             }
             ".psh" {
-                Invoke-External -Exe $xsasmExe -Arguments @($source.FullPath) -WorkingDirectory $projectDir
+                if ($buildArtifactRoot) {
+                    $shaderOutDir = Join-Path $outputDir "x_shaders"
+                    New-Item -ItemType Directory -Path $shaderOutDir -Force | Out-Null
+                    $shaderBase = [System.IO.Path]::GetFileNameWithoutExtension($source.FullPath)
+                    Invoke-External -Exe $xsasmExe -Arguments @(
+                        $source.FullPath,
+                        (Join-Path $shaderOutDir ($shaderBase + ".xpu")),
+                        (Join-Path $shaderOutDir ($shaderBase + ".xsc")),
+                        (Join-Path $shaderOutDir ($shaderBase + ".lst"))
+                    ) -WorkingDirectory $projectDir
+                } else {
+                    Invoke-External -Exe $xsasmExe -Arguments @($source.FullPath) -WorkingDirectory $projectDir
+                }
                 $sourceHandled = $true
                 break
             }
@@ -680,14 +703,24 @@ function Build-Project {
 
     if ($configuration.ConfigurationType -eq "4") {
         $outputFile = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value (Get-XmlAttr -Node $libTool -Name "OutputFile") -Macros $macros)
+        if ($buildArtifactRoot) {
+            $outputFile = Join-Path $outputDir ([System.IO.Path]::GetFileName($outputFile))
+        }
         New-Item -ItemType Directory -Path (Split-Path -Parent $outputFile) -Force | Out-Null
         Invoke-External -Exe $libExe -Arguments (@("/nologo", "/OUT:$outputFile") + $objectFiles) -WorkingDirectory $projectDir
+        if ($buildArtifactRoot -and -not $builtOutputDirs.Contains($outputDir)) {
+            $builtOutputDirs.Add($outputDir)
+        }
         return
     }
 
     if ($configuration.ConfigurationType -eq "1" -or ($configuration.ConfigurationType -eq "0" -and $linkTool)) {
         $outputFile = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value (Get-XmlAttr -Node $linkTool -Name "OutputFile") -Macros $macros)
         $pdbPath = Resolve-ProjectPath -BaseDir $projectDir -PathValue (Expand-VcString -Value (Get-XmlAttr -Node $linkTool -Name "ProgramDatabaseFile") -Macros $macros)
+        if ($buildArtifactRoot) {
+            $outputFile = Join-Path $outputDir ([System.IO.Path]::GetFileName($outputFile))
+            $pdbPath = Join-Path $outputDir ([System.IO.Path]::GetFileName($pdbPath))
+        }
         $linkArgs = New-Object System.Collections.Generic.List[string]
         $linkArgs.Add("/NOLOGO")
 
@@ -698,6 +731,12 @@ function Build-Project {
             }
         }
 
+        if ($buildArtifactRoot) {
+            foreach ($libDir in $builtOutputDirs) {
+                $linkArgs.Add("/LIBPATH:$libDir")
+            }
+            $linkArgs.Add("/LIBPATH:$outputDir")
+        }
         foreach ($libDir in (Split-VcList (Expand-VcString -Value (Get-XmlAttr -Node $linkTool -Name "AdditionalLibraryDirectories") -Macros $macros))) {
             $linkArgs.Add("/LIBPATH:$((Resolve-ProjectPath -BaseDir $projectDir -PathValue $libDir))")
         }
@@ -709,6 +748,14 @@ function Build-Project {
         if ((Get-XmlAttr -Node $linkTool -Name "GenerateDebugInformation") -eq "true") {
             $linkArgs.Add("/DEBUG")
             $linkArgs.Add("/PDB:$pdbPath")
+        }
+
+        if ((Get-XmlAttr -Node $linkTool -Name "OptimizeReferences") -eq "2") {
+            $linkArgs.Add("/OPT:REF")
+        }
+
+        if ((Get-XmlAttr -Node $linkTool -Name "EnableCOMDATFolding") -eq "2") {
+            $linkArgs.Add("/OPT:ICF")
         }
 
         $mapPath = [System.IO.Path]::ChangeExtension($outputFile, ".map")
@@ -741,6 +788,9 @@ function Build-Project {
             $xbeFile = [System.IO.Path]::ChangeExtension($outputFile, ".xbe")
             $patchScript = Join-Path $projectDir "patchxbe.py"
             Invoke-External -Exe $pythonExe -Arguments @($patchScript, $outputFile, $xbeFile) -WorkingDirectory $projectDir
+        }
+        if ($buildArtifactRoot -and -not $builtOutputDirs.Contains($outputDir)) {
+            $builtOutputDirs.Add($outputDir)
         }
         return
     }

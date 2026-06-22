@@ -44,7 +44,7 @@
 				ReBuildCommandLine="$(SolutionDir)build_xbox.bat sp clean &amp;&amp; $(SolutionDir)build_xbox.bat sp"
 				CleanCommandLine="$(SolutionDir)build_xbox.bat sp clean"
 				Output="$(OutDir)\default.exe"
-				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				PreprocessorDefinitions="NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;SP_XBOX_HOT_TELEMETRY=1;SP_XBOX_SMOKE_AUTOMATION=1;SP_XBOX_XEMU_BINK_NOTHREADIO=1;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				IncludeSearchPath="C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
 			/>
 			<Tool

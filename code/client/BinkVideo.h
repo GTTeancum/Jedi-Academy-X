@@ -52,7 +52,7 @@ public:
 	
 	BinkVideo();
 	~BinkVideo();
-	bool	Start(const char *filename, float xOrigin, float yOrigin, float width, float height);
+	bool	Start(const char *filename, float xOrigin, float yOrigin, float width, float height, bool fullscreenMovie);
 	bool	Run(void);
 	void	Stop(void);
 	void	SetExtents(float xOrigin, float yOrigin, float width, float height);

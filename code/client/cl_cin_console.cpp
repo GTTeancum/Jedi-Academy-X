@@ -154,7 +154,7 @@ Fetch and decompress the pending frame
 e_status CIN_RunCinematic (int handle)
 {
 	char cinLog[256];
-	static int runLogBudget = 16;
+	static int runLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 16 : 0;
 #ifdef _XBOX
 	g_SPXBCinPhase = 300;
 	g_SPXBCinHandle = (unsigned int)handle;
@@ -207,7 +207,8 @@ e_status CIN_RunCinematic (int handle)
 					shader ? SHADER_VIDEO_PATH : XBOX_VIDEO_PATH,
 					cinFiles[handle].filename),
 				cinFiles[handle].x, cinFiles[handle].y,
-				cinFiles[handle].w, cinFiles[handle].h))
+				cinFiles[handle].w, cinFiles[handle].h,
+				!shader))
 		{
 #ifdef _XBOX
 			g_SPXBCinPhase = 313;
@@ -507,11 +508,20 @@ bool CIN_PlayAllFrames( const char *arg, int x, int y, int w, int h, int systemB
 			g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
 			if (g_SPXBCinLoopCount <= 8)
 			{
-				XBLF("JA: CIN_PHASE loop %u before SCR_UpdateScreen handle=%d status=%d anykey=%d state=%d",
+				XBLF("JA: CIN_PHASE loop %u before BinkVideo::Run handle=%d status=%d anykey=%d state=%d",
 					(unsigned int)g_SPXBCinLoopCount, Handle, (int)bVideo.GetStatus(), kg.anykeydown, (int)cls.state);
 			}
 #endif
-			SCR_UpdateScreen	();
+			if( !bVideo.Run() )
+			{
+#ifdef _XBOX
+				g_SPXBCinPhase = 114;
+				g_SPXBCinStatus = (unsigned int)bVideo.GetStatus();
+				XBLF("JA: CIN_PHASE loop %u BinkVideo::Run returned false handle=%d status=%d",
+					(unsigned int)g_SPXBCinLoopCount, Handle, (int)bVideo.GetStatus());
+#endif
+				break;
+			}
 #ifdef _XBOX
 			g_SPXBCinPhase = 111;
 #endif
