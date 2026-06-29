@@ -21,6 +21,7 @@ void		UI_LoadMenus(const char *menuFile, qboolean reset);
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../renderer/tr_lightmanager.h"
+#include "../win32/xb_log.h"
 
 //MAP HACK!
 extern cvar_t *cl_mapname;
@@ -5713,6 +5714,28 @@ menuDef_t *Menus_ActivateByName(const char *p)
 	menuDef_t *m = NULL;
 	menuDef_t *focus = Menu_GetFocused();
 
+#ifdef _XBOX
+	XBLF("STEFX_INPUT_UI_Menus_ActivateByName begin menu='%s' menuCount=%d focus='%s'",
+		p ? p : "<null>",
+		menuCount,
+		(focus && focus->window.name) ? focus->window.name : "");
+#endif
+	if (!p || !p[0])
+	{
+#ifdef _XBOX
+		XBLog_Write("STEFX_INPUT_UI_Menus_ActivateByName ignored empty menu name");
+#endif
+		return NULL;
+	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( UI_EFQmenu_RouteMenuName( p ) )
+	{
+		XBLF("STEFX_INPUT_UI_Menus_ActivateByName menu='%s' consumed by EF route", p);
+		return NULL;
+	}
+#endif
+
 	for (i = 0; i < menuCount; i++) 
 	{
 		// Look for the name in the current list of windows
@@ -5721,6 +5744,9 @@ menuDef_t *Menus_ActivateByName(const char *p)
 	
 			
 			m = &Menus[i];
+#ifdef _XBOX
+			XBLF("STEFX_INPUT_UI_Menus_ActivateByName found menu='%s' index=%d", p, i);
+#endif
             Menus_Activate(m);
 			if (openMenuCount < MAX_OPEN_MENUS && focus != NULL) 
 			{
@@ -5757,6 +5783,9 @@ menuDef_t *Menus_ActivateByName(const char *p)
 		else
 		{
 			Com_Printf(S_COLOR_YELLOW"WARNING: Menus_ActivateByName: Unable to find menu '%s'\n",p);
+#ifdef _XBOX
+			XBLF("STEFX_INPUT_UI_Menus_ActivateByName missing menu='%s'", p);
+#endif
 		}
 	}
 
@@ -5787,7 +5816,16 @@ menuDef_t *Menus_ActivateByName(const char *p)
 	}
 
 	// Want to handle a mouse move on the new menu in case your already over an item
-	Menu_HandleMouseMove ( m, DC->cursorx, DC->cursory );
+	if (m)
+	{
+		Menu_HandleMouseMove ( m, DC->cursorx, DC->cursory );
+	}
+#ifdef _XBOX
+	XBLF("STEFX_INPUT_UI_Menus_ActivateByName done menu='%s' result=%p openMenuCount=%d",
+		p,
+		(void *)m,
+		openMenuCount);
+#endif
 
 
 	
@@ -12022,6 +12060,29 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 		Menu_MapHack(key);
 #endif
 
+	if (down && !Q_stricmp(menu->window.name, "missionfailed_menu"))
+	{
+		char binding[256];
+		binding[0] = '\0';
+		if (!(key & K_CHAR_FLAG) && DC && DC->getBindingBuf)
+		{
+			DC->getBindingBuf(key, binding, sizeof(binding));
+		}
+
+		if (key == A_PAGE_DOWN || key == A_JOY12 || !Q_stricmp(binding, "+attack"))
+		{
+#ifdef _XBOX
+			XBLF("STEFX_DN3_PROOF: missionfailed attack reload key=%d binding='%s'", key, binding);
+#endif
+			itemDef_t it;
+			memset(&it, 0, sizeof(it));
+			it.parent = menu;
+			Item_RunScript(&it, "uiscript load_auto");
+			inHandler = qfalse;
+			return;
+		}
+	}
+
 	// get the item with focus
 	for (i = 0; i < menu->itemCount; i++) 
 	{
@@ -12382,7 +12443,11 @@ void G_DemoEnd()
 	trap_Key_ClearStates();
 	Cvar_Set( "cl_paused", "0" );
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	UI_SetActiveMenu("mainMenu", NULL);
+#else
 	UI_SetActiveMenu("splashMenu", NULL);
+#endif
 
 //	g_demoStartFade = 0;
 //	g_demoStartTransition = 0;
@@ -12391,12 +12456,17 @@ void G_DemoEnd()
 
 void PlayDemo()
 {
+#if defined(STEFX_ELITE_FORCE_SP)
+	UpdateDemoTimer();
+	return;
+#else
 //	bool keypressed = false;
 	G_DemoStart();
 	CIN_PlayAllFrames( "attract", 0, 0, 640, 480, 0, true );
 //	while (!keypressed)
 //		keypressed = CIN_PlayAllFrames( "atvi.bik", 0, 0, 640, 480, 0, true );
 	G_DemoEnd();
+#endif
 }
 
 void UpdateDemoTimer()
@@ -12406,6 +12476,9 @@ void UpdateDemoTimer()
 
 bool TestDemoTimer()
 {
+#if defined(STEFX_ELITE_FORCE_SP)
+	return false;
+#else
 //JLF TEMP DEBUG
 //	return false;
 
@@ -12421,6 +12494,7 @@ bool TestDemoTimer()
 			return true;
 	}
 	return false;
+#endif
 }
 
 //END DEMOCODE

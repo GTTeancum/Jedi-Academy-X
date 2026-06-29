@@ -30,7 +30,271 @@ typedef struct {
 	int		textcolor2;		// Highlight color
 } uifield_t;
 
+//
+// Elite Force qmenu support.  The active Xbox UI API stays JA-derived, but
+// EF-owned screens need the original qmenu model instead of parser menus.
+//
+#define MAX_MENUDEPTH			8
+#define MAX_QMENUITEMS			64
+
+#define MTYPE_SLIDER			0
+#define MTYPE_LIST				1
+#define MTYPE_ACTION			2
+#define MTYPE_SPINCONTROL		3
+#define MTYPE_SEPARATOR			4
+#define MTYPE_FIELD				5
+#define MTYPE_RADIOBUTTON		6
+#define MTYPE_BITMAP			7
+#define MTYPE_TEXT				8
+#define MTYPE_SCROLLLIST		9
+
+#define QMF_LEFT_JUSTIFY		0x00000001
+#define QMF_GRAYED				0x00000002
+#define QMF_NUMBERSONLY			0x00000004
+#define QMF_HIGHLIGHT_IF_FOCUS	0x00000008
+#define QMF_BLINK				0x00000010
+#define QMF_CENTER_JUSTIFY		0x00000020
+#define QMF_RIGHT_JUSTIFY		0x00000040
+#define QMF_HASMOUSEFOCUS		0x00000080
+#define QMF_OWNERDRAW			0x00000100
+#define QMF_RBONOFFSTYLE		0x00000200
+#define QMF_HIGHLIGHT			0x00000400
+#define QMF_MOUSEONLY			0x00000800
+#define QMF_HIDDEN				0x00001000
+#define QMF_SMALLFONT			0x00002000
+#define QMF_INACTIVE			0x00004000
+#define QMF_HIGHLIGHTIFFOCUS2	0x00008000
+
+#define QM_GOTFOCUS				1
+#define QM_LOSTFOCUS			2
+#define QM_ACTIVATED			3
+
+typedef struct _tag_menuframework
+{
+	const char* title;
+	int	cursor;
+	int cursor_prev;
+
+	int	nitems;
+	void *items[MAX_QMENUITEMS];
+
+	const char *statusbar;
+
+	void (*opening) (void);
+	void (*closing) (void);
+	void (*draw) (void);
+	sfxHandle_t (*key) (int key);
+
+	qboolean	wrapAround;
+	qboolean	fullscreen;
+
+	qboolean	initialized;
+	float		openingStart;
+	float		closingStart;
+	float		subSeqStatus[8];
+	int			cnt;
+	int			descX;
+	int			descY;
+	int			listX;
+	int			listY;
+	int			titleX;
+	int			titleY;
+	int			titleI;
+	int			footNoteEnum;
+} menuframework_s;
+
+typedef struct
+{
+	int type;
+	const char *name;
+	int	id;
+	int x, y;
+	int left;
+	int	top;
+	int	right;
+	int	bottom;
+	menuframework_s *parent;
+	int menuPosition;
+	unsigned flags;
+
+	const char *statusbar;
+
+	void (*callback)( void *self, int notification );
+	void (*statusbarfunc)( void *self );
+	void (*ownerdraw)( void *self );
+} menucommon_s;
+
+
+typedef struct
+{
+	menucommon_s generic;
+	uifield_t	field;
+} menufield_s;
+
+typedef struct
+{
+	menucommon_s generic;
+	float minvalue;
+	float maxvalue;
+	float curvalue;
+	int focusWidth;
+	int focusHeight;
+	int color;
+	int color2;
+	int shader;
+	int width;
+	int height;
+	char *thumbName;
+	int thumbShader;
+	int thumbWidth;
+	int thumbHeight;
+	int thumbColor;
+	int thumbColor2;
+	int thumbGraphicWidth;
+	char *picName;
+	int picShader;
+	int picWidth;
+	int picHeight;
+	int picX;
+	int picY;
+	int textX;
+	int textY;
+	int textEnum;
+	int textcolor;
+	int textcolor2;
+	float range;
+} menuslider_s;
+
+typedef struct
+{
+	menucommon_s generic;
+	int	oldvalue;
+	int curvalue;
+	int	numitems;
+	int	top;
+	const char **itemnames;
+	int		*listnames;
+	int width;
+	int height;
+	int	columns;
+	int	seperation;
+	int color;
+	int color2;
+	int textEnum;
+	int textX;
+	int textY;
+	int textcolor;
+	int textcolor2;
+	byte updated;
+} menulist_s;
+
+typedef struct
+{
+	menucommon_s generic;
+	int color;
+	int color2;
+	int color3;
+	int textEnum;
+	int textEnum2;
+	int textX;
+	int textY;
+	int textcolor;
+	int textcolor2;
+	int textcolor3;
+	int width;
+	int height;
+	byte updated;
+} menuaction_s;
+
+typedef struct
+{
+	menucommon_s generic;
+} menuseparator_s;
+
+typedef struct
+{
+	menucommon_s generic;
+	int curvalue;
+} menuradiobutton_s;
+
+typedef struct
+{
+	menucommon_s	generic;
+	char*			focuspic;
+	int				shader;
+	int				focusshader;
+	int				focusX;
+	int				focusY;
+	int				focusWidth;
+	int				focusHeight;
+	int				width;
+	int				height;
+	int				color;
+	int				color2;
+	char			*textPtr;
+	int				textEnum;
+	int				textEnum2;
+	int				textX;
+	int				textY;
+	int				textcolor;
+	int				textcolor2;
+	int				textStyle;
+} menubitmap_s;
+
+typedef struct
+{
+	menucommon_s generic;
+	int				type;
+	int				width;
+	int				height;
+	int				color;
+	int				color2;
+	int				textEnum;
+	int				textX;
+	int				textY;
+	int				textcolor;
+	int				textcolor2;
+} menubutton_s;
+
+typedef struct
+{
+	menucommon_s	generic;
+	char*			string;
+	int				normaltextEnum;
+	int				buttontextEnum;
+	int				normaltextEnum2;
+	int				buttontextEnum2;
+	int				normaltextEnum3;
+	int				buttontextEnum3;
+	int				style;
+	int				color;
+	int				color2;
+	int				focusX;
+	int				focusY;
+	int				focusWidth;
+	int				focusHeight;
+} menutext_s;
+
 extern void		Menu_Cache( void );
+extern void		Menu_Focus( menucommon_s *m );
+extern void		Menu_AddItem( menuframework_s *menu, void *item );
+extern void		Menu_AdjustCursor( menuframework_s *menu, int dir );
+extern void		Menu_Center( menuframework_s *menu );
+extern void		Menu_Draw( menuframework_s *menu );
+extern void		*Menu_ItemAtCursor( menuframework_s *m );
+extern sfxHandle_t Menu_ActivateItem( menuframework_s *s, menucommon_s* item );
+extern void		Menu_SetStatusBar( menuframework_s *s, const char *string );
+extern void		Menu_SlideItem( menuframework_s *s, int dir );
+extern void		Menu_SetCursor( menuframework_s *s, int cursor );
+extern sfxHandle_t Menu_DefaultKey( menuframework_s *s, int key );
+extern void		UI_PushMenu( menuframework_s *menu );
+extern void		UI_PopMenu( void );
+extern qboolean	UI_EFQmenu_IsActive( void );
+extern void		UI_EFQmenu_ClearState( const char *reason );
+extern void		UI_EFQmenu_Draw( int realtime );
+extern void		UI_EFQmenu_KeyEvent( int key, qboolean down );
+extern qboolean	UI_EFQmenu_ConsoleCommand( const char *cmd );
+extern qboolean	UI_EFQmenu_RouteMenuName( const char *menuName );
 
 //
 // ui_field.c
@@ -47,6 +311,25 @@ extern void UI_MainMenu(void);
 extern void UI_InGameMenu(const char*holoFlag);
 extern void AssetCache(void);
 extern void UI_DataPadMenu(void);
+extern qboolean UI_EFMainMenu_IsActive(void);
+extern void UI_EFMainMenu_Cache(void);
+extern void UI_EFMainMenu_Open(void);
+extern void UI_EFMainMenu_OpenNewGame(void);
+extern void UI_EFMainMenu_OpenLoadGame(void);
+extern void UI_EFMainMenu_OpenConfigure(void);
+extern void UI_EFMainMenu_OpenAudio(void);
+extern void UI_EFMainMenu_OpenVideo(void);
+extern void UI_EFMainMenu_OpenController(void);
+extern void UI_EFMainMenu_OpenStub(const char *title, const char *line);
+extern void UI_EFMainMenu_Deactivate(void);
+extern void UI_EFMainMenu_Draw(int realtime);
+extern void UI_EFMainMenu_KeyEvent(int key, qboolean down);
+extern qboolean UI_EFPauseMenu_IsActive(void);
+extern void UI_EFPauseMenu_Cache(void);
+extern void UI_EFPauseMenu_Open(const char *menuID);
+extern void UI_EFPauseMenu_Deactivate(void);
+extern void UI_EFPauseMenu_Draw(int realtime);
+extern void UI_EFPauseMenu_KeyEvent(int key, qboolean down);
 
 //
 // ui_connect.c
@@ -68,6 +351,9 @@ typedef struct {
 	int					realtime;
 	int					cursorx;
 	int					cursory;
+	int					menusp;
+	menuframework_s*	activemenu;
+	menuframework_s*	stack[MAX_MENUDEPTH];
 	
 	glconfig_t			glconfig;
 	qboolean			debugMode;
@@ -84,6 +370,7 @@ extern void			UI_FillRect( float x, float y, float width, float height, const fl
 extern void			UI_DrawString( int x, int y, const char* str, int style, vec4_t color );
 extern void			UI_DrawHandlePic( float x, float y, float w, float h, qhandle_t hShader ); 
 extern void			UI_UpdateScreen( void );
+extern void			UI_ForceMenuOff( void );
 extern int			UI_RegisterFont(const char *fontName);
 extern void			UI_SetColor( const float *rgba );
 extern char			*UI_Cvar_VariableString( const char *var_name );

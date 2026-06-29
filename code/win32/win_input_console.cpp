@@ -14,6 +14,7 @@
 
 #include "win_local.h"
 #include "win_input.h"
+#include "xb_log.h"
 
 cvar_t *inSplashMenu = NULL;
 cvar_t *controllerOut = NULL;
@@ -38,6 +39,90 @@ bool wasPlugged[4];
 int mainControllerDelayedUnplug = 0;
 
 PadInfo _padInfo; // gamepad thumbstick buffer
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean UI_EFMainMenu_IsActive( void );
+
+static qboolean IN_STEFX_IsFrontendButton(fakeAscii_t button)
+{
+	switch (button)
+	{
+	case A_JOY5:
+	case A_JOY7:
+	case A_JOY8:
+	case A_JOY6:
+	case A_JOY15:
+	case A_JOY14:
+	case A_JOY16:
+	case A_JOY13:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static void IN_STEFX_QueueFrontendKey(fakeAscii_t key, qboolean down, const char *source)
+{
+	static int s_logBudget = 80;
+
+	if (s_logBudget > 0)
+	{
+		XBLF("STEFX_FRONTEND_INPUT source='%s' key=%d down=%d state=%d catcher=0x%x splash=%d",
+			source ? source : "",
+			(int)key,
+			down ? 1 : 0,
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers,
+			inSplashMenu ? inSplashMenu->integer : -1);
+		--s_logBudget;
+	}
+
+	Sys_QueEvent(0, SE_KEY, key, down, 0, NULL);
+}
+
+static void IN_STEFX_PulseFrontendKey(fakeAscii_t key, const char *source)
+{
+	IN_STEFX_QueueFrontendKey(key, qtrue, source);
+	IN_STEFX_QueueFrontendKey(key, qfalse, source);
+}
+
+static void IN_STEFX_UpdateFrontendThumbstick(void)
+{
+	static fakeAscii_t s_lastKey = (fakeAscii_t)0;
+	static int s_nextRepeatTime = 0;
+	const float threshold = 0.50f;
+	const int repeatMsec = 170;
+	const float x = _padInfo.joyInfo[0].x;
+	const float y = _padInfo.joyInfo[0].y;
+	const float absX = x < 0.0f ? -x : x;
+	const float absY = y < 0.0f ? -y : y;
+	fakeAscii_t key = (fakeAscii_t)0;
+	const int now = Sys_Milliseconds();
+
+	if (absX < threshold && absY < threshold)
+	{
+		s_lastKey = (fakeAscii_t)0;
+		s_nextRepeatTime = 0;
+		return;
+	}
+
+	if (absY >= absX)
+	{
+		key = y > 0.0f ? A_JOY5 : A_JOY7;
+	}
+	else
+	{
+		key = x > 0.0f ? A_JOY6 : A_JOY8;
+	}
+
+	if (key != s_lastKey || now >= s_nextRepeatTime)
+	{
+		IN_STEFX_PulseFrontendKey(key, "thumbstick");
+		s_lastKey = key;
+		s_nextRepeatTime = now + repeatMsec;
+	}
+}
+#endif
 
 /**********************************************************
 *
@@ -469,20 +554,70 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	lastControllerUsed	= controller;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	extern int Key_GetCatcher( void );
+	const bool liveUIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
+	const qboolean stefxMenuButton = (button == A_JOY4 || button == A_JOY1);
+	const qboolean stefxGameplayMenuBind =
+		stefxMenuButton &&
+		controller == IN_GetMainController() &&
+		cls.state == CA_ACTIVE &&
+		(!inSplashMenu || !inSplashMenu->integer) &&
+		(!controllerOut || controllerOut->integer < 0) &&
+		UI_STEFX_ShouldDispatchGameplayMenuBind();
+	const qboolean stefxFrontendActive =
+		liveUIRunning &&
+		controller == IN_GetMainController() &&
+		UI_EFMainMenu_IsActive();
 	{
 		static int s_stefxButtonLogBudget = 64;
-		if ( s_stefxButtonLogBudget > 0 && (pressed || cls.state == CA_ACTIVE) )
+		const qboolean forceMenuButtonLog = stefxMenuButton;
+		if ( forceMenuButtonLog || (s_stefxButtonLogBudget > 0 && (pressed || cls.state == CA_ACTIVE)) )
 		{
-			Com_PrintfAlways("STEFX: controller button port=%d main=%d button=%d pressed=%d ui=%d state=%d splash=%d\n",
+			XBLF("STEFX_INPUT_BUTTON port=%d main=%d button=%d pressed=%d uiCached=%d uiLive=%d state=%d splash=%d controllerOut=%d",
 				controller,
 				IN_GetMainController(),
 				(int)button,
 				pressed ? 1 : 0,
 				_UIRunning ? 1 : 0,
+				liveUIRunning ? 1 : 0,
 				(int)cls.state,
-				inSplashMenu ? inSplashMenu->integer : -1);
-			--s_stefxButtonLogBudget;
+				inSplashMenu ? inSplashMenu->integer : -1,
+				controllerOut ? controllerOut->integer : -999);
+			if (!forceMenuButtonLog)
+			{
+				--s_stefxButtonLogBudget;
+			}
 		}
+	}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxMenuButton)
+	{
+		XBLF("STEFX_MENU_INPUT gate button=%d pressed=%d main=%d uiCached=%d uiLive=%d state=%d splash=%d controllerOut=%d gameplayBind=%d",
+			(int)button,
+			pressed ? 1 : 0,
+			IN_GetMainController(),
+			_UIRunning ? 1 : 0,
+			liveUIRunning ? 1 : 0,
+			(int)cls.state,
+			inSplashMenu ? inSplashMenu->integer : -1,
+			controllerOut ? controllerOut->integer : -999,
+			stefxGameplayMenuBind ? 1 : 0);
+	}
+
+	if (stefxGameplayMenuBind)
+	{
+		XBLF("STEFX_MENU_INPUT dispatch button=%d pressed=%d state=%d catcher=0x%x",
+			(int)button, pressed ? 1 : 0, (int)cls.state, Key_GetCatcher());
+		CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-menu" );
+		return;
+	}
+
+	if (stefxFrontendActive && IN_STEFX_IsFrontendButton(button))
+	{
+		IN_STEFX_QueueFrontendKey(button, pressed ? qtrue : qfalse, "button");
+		return;
 	}
 #endif
 
@@ -566,32 +701,72 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	int controllerout	= controllerOut->integer;
 	if(controllerout != -1)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!liveUIRunning && cls.state == CA_ACTIVE && controller == IN_GetMainController())
+		{
+			XBLF("STEFX_INPUT_STALE_CONTROLLEROUT controllerOut=%d button=%d pressed=%d",
+				controllerout, (int)button, pressed ? 1 : 0);
+		}
+		else
+#endif
+		{
 		if(controllerout == controller && (button == A_JOY4))// || button == A_JOY15))
 			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
 		return;
+		}
 	}
 
 	if(IN_GetMainController() == controller )
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if (!_UIRunning && button == A_JOY4 && cls.state == CA_ACTIVE)
+		if (!liveUIRunning && stefxMenuButton && cls.state != CA_ACTIVE &&
+			cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic())
 		{
-			if (pressed)
-			{
-				Com_PrintfAlways("STEFX: Start ignored in active gameplay; EF pause/menu path not yet enabled\n");
-			}
+			XBLF("STEFX_INPUT_MENU_IGNORED_LOADING button=%d pressed=%d state=%d",
+				(int)button, pressed ? 1 : 0, (int)cls.state);
+			return;
+		}
+
+		if (!liveUIRunning && (button == A_JOY4 || button == A_JOY1) && cls.state == CA_ACTIVE)
+		{
+			XBLF("STEFX_INPUT_GAMEPLAY_BUTTON button=%d pressed=%d",
+				(int)button, pressed ? 1 : 0);
+		}
+
+		if (!liveUIRunning && stefxMenuButton && cls.state == CA_ACTIVE)
+		{
+			XBLF("STEFX_INPUT_GAMEPLAY_DISPATCH button=%d pressed=%d",
+				(int)button, pressed ? 1 : 0);
+			CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-gameplay" );
 			return;
 		}
 #endif
 
 		// Always map start button to ESCAPE
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!liveUIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
+		{
+			XBLF("STEFX_INPUT_START_ESCAPE_SUPPRESSED pressed=%d",
+				pressed ? 1 : 0);
+		}
+		else
+#endif
 		if (!_UIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
 			Sys_QueEvent( 0, SE_KEY, A_ESCAPE, pressed, 0, NULL );
 
 #ifdef DEBUG_CONTROLLER
 		if (controller != 3)
 #endif
+		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (!liveUIRunning && (button == A_JOY4 || button == A_JOY1) && cls.state == CA_ACTIVE)
+			{
+				XBLF("STEFX_INPUT_GAMEPLAY_QUEUE button=%d pressed=%d",
+					(int)button, pressed ? 1 : 0);
+			}
+#endif
 			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
+		}
 	}
 
 #ifdef DEBUG_CONTROLLER
@@ -614,11 +789,18 @@ Updates thumbstick events based on _padInfo and ui_thumbStickMode
 void IN_CommonUpdate()
 {
 	extern int Key_GetCatcher( void );
-	_UIRunning = Key_GetCatcher() == KEYCATCH_UI;
+	_UIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
 
 	// Even in the UI, only the main controller should be able to scroll:
 	if( _UIRunning && _padInfo.padId == IN_GetMainController() )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (UI_EFMainMenu_IsActive())
+		{
+			IN_STEFX_UpdateFrontendThumbstick();
+			return;
+		}
+#endif
 		Sys_QueEvent( 0,
 					  SE_MOUSE,
 					  (_padInfo.joyInfo[0].x + _padInfo.joyInfo[1].x) *  4.0f,

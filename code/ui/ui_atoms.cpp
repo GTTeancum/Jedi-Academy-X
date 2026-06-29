@@ -38,6 +38,11 @@ void UI_ForceMenuOff (void)
 		ui.Key_GetCatcher(),
 		UI_Cvar_VariableString("cl_paused"));
 #endif
+	uis.menusp = 0;
+	uis.activemenu = NULL;
+	memset(uis.stack, 0, sizeof(uis.stack));
+	UI_EFMainMenu_Deactivate();
+	UI_EFPauseMenu_Deactivate();
 	ui.Key_SetCatcher( ui.Key_GetCatcher() & ~KEYCATCH_UI );
 	ui.Key_ClearStates();
 	ui.Cvar_Set( "cl_paused", "0" );
@@ -60,7 +65,7 @@ extern void S_StopAllSoundsExceptMusic( void );
 void UI_SetActiveMenu( const char* menuname,const char *menuID ) 
 {
 #ifdef _XBOX
-	XBLF("STEFX: UI_SetActiveMenu request menu='%s' menuID='%s' clsState=%d catcher=0x%x paused='%s'",
+	XBLF("STEFX_INPUT_UI_SetActiveMenu request menu='%s' menuID='%s' clsState=%d catcher=0x%x paused='%s'",
 		menuname ? menuname : "<null>",
 		menuID ? menuID : "",
 		cls.state,
@@ -90,6 +95,7 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 #ifdef _XBOX
 		XBLog_Write("STEFX: UI_SetActiveMenu route=forceOff null menu");
 #endif
+		UI_EFMainMenu_Deactivate();
 		UI_ForceMenuOff();
 		return;
 	}
@@ -101,26 +107,49 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 
 	// enusure minumum menu data is cached
 	Menu_Cache();
+
+	if ( Q_stricmp (menuname, "main") == 0
+		|| Q_stricmp (menuname, "mainMenu") == 0
+		|| Q_stricmp (menuname, "splashMenu") == 0
+		)
+	{
 #ifdef _XBOX
-	XBLF("STEFX: UI_SetActiveMenu after Menu_Cache menu='%s' menuID='%s' catcher=0x%x",
+		XBLF("STEFX_INPUT_UI_SetActiveMenu route=EF-main menu='%s'", menuname);
+#endif
+		UI_EFMainMenu_Open();
+		return;
+	}
+
+	if ( UI_EFQmenu_RouteMenuName( menuname ) )
+	{
+#ifdef _XBOX
+		XBLF("STEFX_INPUT_UI_SetActiveMenu menu='%s' consumed by EF route", menuname);
+#endif
+		return;
+	}
+
+#ifdef _XBOX
+	XBLF("STEFX_INPUT_UI_SetActiveMenu after Menu_Cache menu='%s' menuID='%s' catcher=0x%x",
 		menuname,
 		menuID ? menuID : "",
 		ui.Key_GetCatcher());
 #endif
 
-	if ( Q_stricmp (menuname, "mainMenu") == 0 ) 
-	{
-#ifdef _XBOX
-		XBLog_Write("STEFX: UI_SetActiveMenu route=mainMenu");
-#endif
-		UI_MainMenu();
-		return;
-	}
-
 	if ( Q_stricmp (menuname, "ingame") == 0 ) 
 	{
+		if ( menuID && menuID[0] && ( UI_EFQmenu_ConsoleCommand( menuID ) || UI_EFQmenu_RouteMenuName( menuID ) ) )
+		{
 #ifdef _XBOX
-		XBLF("STEFX: UI_SetActiveMenu route=ingame menuID='%s'", menuID ? menuID : "");
+			XBLF("STEFX_INPUT_UI_SetActiveMenu ingame menuID='%s' consumed by EF route", menuID);
+#endif
+			return;
+		}
+
+		UI_EFMainMenu_Deactivate();
+#ifdef _XBOX
+		XBLF("STEFX_INPUT_UI_SetActiveMenu route=ingame begin menuID='%s' catcher=0x%x",
+			menuID ? menuID : "",
+			ui.Key_GetCatcher());
 #endif
 		ui.Cvar_Set( "cl_paused", "1" );
 	//	S_StopAllSounds();
@@ -132,28 +161,46 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 	//	if (menuID)
 	//		UI_InGameMenu(NULL);
 		//END NOT USED
+#ifdef _XBOX
+		XBLog_Write("STEFX_INPUT_UI_SetActiveMenu route=ingame calling UI_InGameMenu");
+#endif
 		UI_InGameMenu(menuID);
+#ifdef _XBOX
+		XBLF("STEFX_INPUT_UI_SetActiveMenu route=ingame done catcher=0x%x paused='%s'",
+			ui.Key_GetCatcher(),
+			UI_Cvar_VariableString("cl_paused"));
+#endif
 		return;
 	}
 
 	if ( Q_stricmp (menuname, "datapad") == 0 ) 
 	{
+		UI_EFMainMenu_Deactivate();
 #ifdef _XBOX
-		XBLog_Write("STEFX: UI_SetActiveMenu route=datapad");
+		XBLF("STEFX_INPUT_UI_SetActiveMenu route=datapad begin catcher=0x%x", ui.Key_GetCatcher());
 #endif
 		ui.Cvar_Set( "cl_paused", "1" );
 		S_StopAllSoundsExceptMusic();
+#ifdef _XBOX
+		XBLog_Write("STEFX_INPUT_UI_SetActiveMenu route=datapad calling UI_DataPadMenu");
+#endif
 		UI_DataPadMenu();
+#ifdef _XBOX
+		XBLF("STEFX_INPUT_UI_SetActiveMenu route=datapad done catcher=0x%x paused='%s'",
+			ui.Key_GetCatcher(),
+			UI_Cvar_VariableString("cl_paused"));
+#endif
 		return;
 	}
 
 	if ( Q_stricmp (menuname, "missionfailed_menu") == 0 ) 
 	{
 #ifdef _XBOX
-		XBLog_Write("STEFX: UI_SetActiveMenu route=missionfailed_menu");
+		XBLog_Write("STEFX: UI_SetActiveMenu route=missionfailed_menu -> EF load game");
 #endif
-		Menus_CloseAll();
-		Menus_ActivateByName("missionfailed_menu");
+		ui.Cvar_Set( "cl_paused", "1" );
+		ui.Cvar_Set( "ui_missionfailed", "1" );
+		UI_EFQmenu_ConsoleCommand("ui_ef_loadgame");
 		ui.Key_SetCatcher( KEYCATCH_UI );
 		return;
 	}
@@ -163,25 +210,26 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 #ifdef _XBOX
 		XBLF("STEFX: UI_SetActiveMenu route=ui_popup menuID='%s'", menuID ? menuID : "");
 #endif
+		if ( UI_EFQmenu_RouteMenuName( menuID ) )
+		{
+#ifdef _XBOX
+			XBLF("STEFX: UI_SetActiveMenu ui_popup menuID='%s' consumed by EF route", menuID ? menuID : "");
+#endif
+			return;
+		}
 		Menus_ActivateByName(menuID);	
 		return;
 	}
 	
-//JLF SPLASHMAIN MPSKIPPED
+	// Elite Force-owned UI routes must be added explicitly above.  Do not fall
+	// through to inherited JA parser menus for unresolved frontend/load names.
 #ifdef _XBOX
-	{
-		Menus_CloseAll();
-		menuDef_t *activated = Menus_ActivateByName(menuname);
-		XBLF("STEFX: UI_SetActiveMenu route=direct menu='%s' activated=%p", menuname, (void*)activated);
-		if (activated)
-			ui.Key_SetCatcher( KEYCATCH_UI );
-		else
-		{
-			XBLF("STEFX: UI_SetActiveMenu fallback=mainMenu missing menu='%s'", menuname);
-			UI_MainMenu();
-		}
-	}
+	XBLF("STEFX: UI_SetActiveMenu missing EF menu route='%s' menuID='%s' catcher=0x%x",
+		menuname ? menuname : "",
+		menuID ? menuID : "",
+		ui.Key_GetCatcher());
 #endif
+	return;
 
 }
 
@@ -222,42 +270,12 @@ UI_Cache
 */
 static void UI_Cache_f( void ) 
 {
- int index;
+#ifdef _XBOX
+	XBLog_Write("STEFX: UI_Cache_f using EF frontend/pause caches; replaced inherited JA mission-select preload");
+#endif
 	Menu_Cache();
-
-extern const char *lukeForceStatusSounds[];
-extern const char *kyleForceStatusSounds[];
-
-	for (index = 0; index < 5; index++)
-	{
-		DC->registerSound(lukeForceStatusSounds[index], qfalse);
-		DC->registerSound(kyleForceStatusSounds[index], qfalse);
-	}
-	for (index = 1; index <= 18; index++)
-	{
-		DC->registerSound(va("sound/chars/storyinfo/%d",index), qfalse);
-	}
-	trap_S_RegisterSound("sound/chars/kyle/04kyk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/kyle/05kyk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/kyle/07kyk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/kyle/14kyk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/kyle/21kyk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/kyle/24kyk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/kyle/25kyk001.mp3", qfalse);
-
-	trap_S_RegisterSound("sound/chars/luke/06luk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/luke/08luk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/luke/22luk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/luke/23luk001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/protocol/12pro001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/protocol/15pro001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/protocol/16pro001.mp3", qfalse);
-	trap_S_RegisterSound("sound/chars/wedge/13wea001.mp3", qfalse);
-
-
-	Menus_ActivateByName("ingameMissionSelect1");
-	Menus_ActivateByName("ingameMissionSelect2");
-	Menus_ActivateByName("ingameMissionSelect3");
+	UI_EFMainMenu_Cache();
+	UI_EFPauseMenu_Cache();
 }
 
 
@@ -309,6 +327,14 @@ qboolean UI_ConsoleCommand( void )
 	if ( Q_stricmp (cmd, "ui_load") == 0 ) 
 	{
 		UI_Load();
+		return qtrue;
+	}
+
+	if ( UI_EFQmenu_ConsoleCommand( cmd ) )
+	{
+#ifdef _XBOX
+		XBLF("STEFX: EF frontend command '%s' handled by EF qmenu bridge", cmd);
+#endif
 		return qtrue;
 	}
 
@@ -531,8 +557,10 @@ UI_LoadMenu_f
 */
 static void UI_LoadMenu_f( void ) 
 {
-	trap_Key_SetCatcher( KEYCATCH_UI );
-	Menus_ActivateByName("ingameloadMenu");
+#ifdef _XBOX
+	XBLog_Write("STEFX: UI_LoadMenu_f routing to EF qmenu load screen");
+#endif
+	UI_EFQmenu_ConsoleCommand("ui_ef_loadgame");
 }
 
 /*
@@ -540,12 +568,14 @@ static void UI_LoadMenu_f( void )
 UI_SaveMenu_f
 ===============
 */
-static void UI_SaveMenu_f( void ) 
+static void UI_SaveMenu_f( void )
 {
 //	ui.PrecacheScreenshot();
 
-	trap_Key_SetCatcher( KEYCATCH_UI );
-	Menus_ActivateByName("ingamesaveMenu");
+#ifdef _XBOX
+	XBLog_Write("STEFX: UI_SaveMenu_f routing to EF qmenu save screen");
+#endif
+	UI_EFQmenu_ConsoleCommand("ui_ef_savegame");
 }
 
 

@@ -1101,6 +1101,18 @@
 				>
 			</File>
 			<File
+				RelativePath="..\ui\ui_ef_frontend.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\ui\ui_ef_pause.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\ui\ui_ef_qmenu.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\ui\ui_main.cpp"
 				>
 			</File>

@@ -240,6 +240,76 @@ static inline float _joyAxisConvert(SHORT x)
 // This should be smarter.
 #define IN_ANALOG_BUTTON_THRESHOLD 64
 
+#if defined(STEFX_ELITE_FORCE_SP)
+static WORD s_stefxLastMenuButtons[IN_MAX_CONTROLLERS] = { 0, 0, 0, 0 };
+static bool s_stefxMenuButtonsPrimed[IN_MAX_CONTROLLERS] = { false, false, false, false };
+
+static void IN_STEFX_UpdateMenuButtonEdge(int port, WORD changed, WORD current, WORD mask, fakeAscii_t button, const char *name)
+{
+	if (changed & mask)
+	{
+		const bool pressed = (current & mask) != 0;
+		XBLF("STEFX_INPUT_MENU_RAW_DISPATCH port=%d name='%s' mask=0x%04x fakeAscii=%d pressed=%d main=%d state=%d catcher=0x%x",
+			port,
+			name,
+			(unsigned int)mask,
+			(int)button,
+			pressed ? 1 : 0,
+			IN_GetMainController(),
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers);
+		XBLF("STEFX_MENU_INPUT raw port=%d name='%s' fakeAscii=%d pressed=%d buttons=0x%04x state=%d catcher=0x%x",
+			port,
+			name,
+			(int)button,
+			pressed ? 1 : 0,
+			(unsigned int)current,
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers);
+		IN_CommonJoyPress(port, button, pressed);
+	}
+}
+
+static void IN_STEFX_UpdateMenuButtons(int port, WORD buttons)
+{
+	const WORD menuMask = XINPUT_GAMEPAD_START | XINPUT_GAMEPAD_BACK;
+	const WORD current = buttons & menuMask;
+	WORD changed;
+
+	if (!s_stefxMenuButtonsPrimed[port])
+	{
+		s_stefxLastMenuButtons[port] = current;
+		s_stefxMenuButtonsPrimed[port] = true;
+		XBLF("STEFX_INPUT_MENU_PRIME port=%d buttons=0x%04x main=%d state=%d catcher=0x%x",
+			port,
+			(unsigned int)current,
+			IN_GetMainController(),
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers);
+		return;
+	}
+
+	changed = (WORD)(current ^ s_stefxLastMenuButtons[port]);
+	if (!changed)
+	{
+		return;
+	}
+
+	XBLF("STEFX_INPUT_MENU_RAW port=%d buttons=0x%04x last=0x%04x changed=0x%04x main=%d state=%d catcher=0x%x",
+		port,
+		(unsigned int)current,
+		(unsigned int)s_stefxLastMenuButtons[port],
+		(unsigned int)changed,
+		IN_GetMainController(),
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers);
+
+	s_stefxLastMenuButtons[port] = current;
+	IN_STEFX_UpdateMenuButtonEdge(port, changed, current, XINPUT_GAMEPAD_START, A_JOY4, "START");
+	IN_STEFX_UpdateMenuButtonEdge(port, changed, current, XINPUT_GAMEPAD_BACK, A_JOY1, "BACK");
+}
+#endif
+
 void IN_UpdateGamepad(int port)
 {
 	static bool loggedFirstState[IN_MAX_CONTROLLERS] = { false, false, false, false };
@@ -324,17 +394,41 @@ void IN_UpdateGamepad(int port)
 	// Get old state
 	XINPUT_STATE &oldState(in_state->controllers[port].state);
 
+#if defined(STEFX_ELITE_FORCE_SP)
+	IN_STEFX_UpdateMenuButtons(port, newState.Gamepad.wButtons);
+#endif
+
 	int buttonIdx;
 	bool oldPressed, newPressed;
 
 	// Check all digital buttons first
 	for (buttonIdx = 0; buttonIdx < IN_NUM_DIGITAL_BUTTONS; ++buttonIdx)
 	{
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (buttonIdx == 4 || buttonIdx == 5)
+		{
+			continue;
+		}
+#endif
 		oldPressed = oldState.Gamepad.wButtons & (1 << buttonIdx);
 		newPressed = newState.Gamepad.wButtons & (1 << buttonIdx);
 
 		if (oldPressed != newPressed)
+		{
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (buttonIdx == 4 || buttonIdx == 5)
+			{
+				XBLF("STEFX_INPUT_MENU_DIGITAL_EDGE port=%d buttonIdx=%d fakeAscii=%d pressed=%d state=%d catcher=0x%x",
+					port,
+					buttonIdx,
+					(int)digitalXlat[buttonIdx],
+					newPressed ? 1 : 0,
+					(int)cls.state,
+					(unsigned int)cls.keyCatchers);
+			}
+#endif
 			IN_CommonJoyPress(port, digitalXlat[buttonIdx], newPressed);
+		}
 	}
 
 	// Now check all analog buttons
