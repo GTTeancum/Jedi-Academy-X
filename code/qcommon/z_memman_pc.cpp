@@ -5,6 +5,9 @@
 #include "../qcommon/sstring.h"
 
 #include "platform.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #ifdef DEBUG_ZONE_ALLOCS
 int giZoneSnaphotNum=0;
@@ -89,6 +92,23 @@ cvar_t	*com_validateZone;
 
 zone_t	TheZone = {0};
 
+#ifdef _XBOX
+static const char *Z_XboxTagName(memtag_t eTag)
+{
+	if (eTag >= 0 && eTag < TAG_COUNT)
+	{
+		return psTagStrings[eTag];
+	}
+	return "UNKNOWN";
+}
+
+static void Z_XboxLogRecovery(const char *psStage, int iPass, int iSize, int iRealSize, memtag_t eTag, int iRecoveredBytes)
+{
+	XBLF("JA: Z_Malloc recovery stage=%s pass=%d size=%d real=%d tag=%s recovered=%d zoneCurrent=%d zonePeak=%d zoneCount=%d\n",
+		psStage ? psStage : "(null)", iPass, iSize, iRealSize, Z_XboxTagName(eTag), iRecoveredBytes,
+		TheZone.Stats.iCurrent, TheZone.Stats.iPeak, TheZone.Stats.iCount);
+}
+#endif
 
 
 
@@ -219,6 +239,9 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 	// Allocate a chunk...
 	//
 	zoneHeader_t *pMemory = NULL;
+#ifdef _XBOX
+	int iRecoveryPass = 0;
+#endif
 	while (pMemory == NULL)
 	{
 		#ifdef _WIN32
@@ -235,6 +258,18 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 		}
 		if (!pMemory)
 		{
+#ifdef _XBOX
+			iRecoveryPass++;
+			Z_XboxLogRecovery("begin", iRecoveryPass, iSize, iRealSize, eTag, 0);
+			if (iRecoveryPass > 64)
+			{
+				Z_XboxLogRecovery("giveup-pass-limit", iRecoveryPass, iSize, iRealSize, eTag, 0);
+				Com_Printf(S_COLOR_RED"Z_Malloc(): recovery pass limit hit for %d bytes (TAG_%s)\n", iSize, Z_XboxTagName(eTag));
+				Z_Details_f();
+				Com_Error(ERR_FATAL,"Z_Malloc(): recovery pass limit hit for %d bytes (TAG_%s)", iSize, Z_XboxTagName(eTag));
+				return NULL;
+			}
+#endif
 			// new bit, if we fail to malloc memory, try dumping some of the cached stuff that's non-vital and try again...
 			//
 
@@ -242,6 +277,9 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 			//
 			if (CM_DeleteCachedMap(qfalse))
 			{
+#ifdef _XBOX
+				Z_XboxLogRecovery("freed-cached-map", iRecoveryPass, iSize, iRealSize, eTag, 0);
+#endif
 				gbMemFreeupOccured = qtrue;
 				continue;		// we've just ditched a whole load of memory, so try again with the malloc
 			}
@@ -252,6 +290,9 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 			extern qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel);
 			if (SND_RegisterAudio_LevelLoadEnd(qtrue))
 			{
+#ifdef _XBOX
+				Z_XboxLogRecovery("freed-unused-sounds", iRecoveryPass, iSize, iRealSize, eTag, 0);
+#endif
 				gbMemFreeupOccured = qtrue;
 				continue;		// we've dropped at least one sound, so try again with the malloc
 			}
@@ -262,6 +303,9 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 			extern qboolean RE_RegisterImages_LevelLoadEnd(void);
 			if (RE_RegisterImages_LevelLoadEnd())
 			{
+#ifdef _XBOX
+				Z_XboxLogRecovery("freed-unused-images", iRecoveryPass, iSize, iRealSize, eTag, 0);
+#endif
 				gbMemFreeupOccured = qtrue;
 				continue;		// we've dropped at least one image, so try again with the malloc
 			}
@@ -272,6 +316,9 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 			extern qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel);
 			if (RE_RegisterModels_LevelLoadEnd(qtrue))
 			{
+#ifdef _XBOX
+				Z_XboxLogRecovery("freed-unused-models", iRecoveryPass, iSize, iRealSize, eTag, 0);
+#endif
 				gbMemFreeupOccured = qtrue;
 				continue;
 			}
@@ -300,11 +347,17 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int unusedAlign)
 						if (iBytesFreed >= iRealSize)
 							break;	// early opt-out since we've managed to recover enough (mem-contiguity issues aside)
 					}
+#ifdef _XBOX
+					Z_XboxLogRecovery("freed-oldest-sounds", iRecoveryPass, iSize, iRealSize, eTag, iBytesFreed);
+#endif
 					gbMemFreeupOccured = qtrue;
 					continue;
 				}
 			}
 
+#ifdef _XBOX
+			Z_XboxLogRecovery("giveup-no-recovery", iRecoveryPass, iSize, iRealSize, eTag, 0);
+#endif
 			// sigh, dunno what else to try, I guess we'll have to give up and report this as an out-of-mem error...
 			//
 			// findlabel:  "recovermem"
