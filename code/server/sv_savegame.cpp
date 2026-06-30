@@ -407,6 +407,73 @@ static qboolean SG_XboxCreateFailure(const char *context)
 	return qfalse;
 }
 
+static void SG_XboxFreeFullBuffer(const char *context)
+{
+	if (sg_FullBuffer)
+	{
+		XBLF("JA: SG: TempFree full buffer context=%s fullBuffer=%p", SG_XboxContextName(context), sg_FullBuffer);
+		TempFree();
+		sg_FullBuffer = NULL;
+		sg_FullBufferPtr = NULL;
+		sg_FullBufferEnd = NULL;
+	}
+}
+
+static qboolean SG_XboxReadFailure(const char *context)
+{
+	XBLF("JA: SG: read failure cleanup context=%s handle=%p bufferSize=%d currentPos=%d fullComp=%d fullBuffer=%p",
+		SG_XboxContextName(context), sg_Handle, sg_BufferSize, sg_CurrentBufferPos, (int)gFullCompressionOn, sg_FullBuffer);
+	SG_XboxEndSignatureHandle(&sg_sigHandleRead, context);
+	CompressMem_FreeScratchBuffer();
+	SG_XboxFreeFullBuffer(context);
+	SG_XboxCloseFileHandle(context);
+	return qfalse;
+}
+
+static qboolean SG_XboxReadExact(void *data, DWORD size, DWORD *bytesRead, const char *context)
+{
+	DWORD localBytesRead = 0;
+	DWORD *outBytesRead = bytesRead ? bytesRead : &localBytesRead;
+
+	*outBytesRead = 0;
+
+	if (size == 0)
+	{
+		return qtrue;
+	}
+
+	if (!SG_XboxHandleValid(sg_Handle) ||
+		!ReadFile(sg_Handle, data, size, outBytesRead, NULL) ||
+		*outBytesRead != size)
+	{
+		XBLF("JA: SG: ReadFile failed context=%s requested=%lu read=%lu handle=%p",
+			SG_XboxContextName(context), size, *outBytesRead, sg_Handle);
+		return SG_XboxReadFailure(context);
+	}
+
+	return qtrue;
+}
+
+static qboolean SG_XboxReadSignatureUpdate(const void *data, DWORD size, const char *context)
+{
+	DWORD result;
+
+	if (!SG_XboxHandleValid(sg_sigHandleRead))
+	{
+		XBLF("JA: SG: read signature handle invalid context=%s handle=%p", SG_XboxContextName(context), sg_sigHandleRead);
+		return SG_XboxReadFailure(context);
+	}
+
+	result = XCalculateSignatureUpdate(sg_sigHandleRead, (BYTE *)data, size);
+	if (result != ERROR_SUCCESS)
+	{
+		XBLF("JA: SG: read signature update failed context=%s result=%lu", SG_XboxContextName(context), result);
+		return SG_XboxReadFailure(context);
+	}
+
+	return qtrue;
+}
+
 static qboolean SG_XboxWriteExact(const void *data, DWORD size, const char *context)
 {
 	DWORD bytesWritten = 0;
@@ -576,14 +643,7 @@ void SG_Shutdown()
 	SG_XboxEndSignatureHandle(&sg_sigHandle, "SG_Shutdown.writeSig");
 	SG_XboxEndSignatureHandle(&sg_sigHandleRead, "SG_Shutdown.readSig");
 	CompressMem_FreeScratchBuffer();
-	if (sg_FullBuffer)
-	{
-		XBLF("JA: SG_Shutdown TempFree fullBuffer=%p", sg_FullBuffer);
-		TempFree();
-		sg_FullBuffer = NULL;
-		sg_FullBufferPtr = NULL;
-		sg_FullBufferEnd = NULL;
-	}
+	SG_XboxFreeFullBuffer("SG_Shutdown");
 	SG_XboxCloseFileHandle("SG_Shutdown");
 #endif
 
@@ -1937,7 +1997,7 @@ qboolean SG_WriteSavegame(const char *psPathlessBaseName, qboolean qbAutosave)
 	return qtrue;
 }
 
-void loadCompressedData();
+qboolean loadCompressedData();
 
 qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 {
@@ -1976,7 +2036,11 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 	SG_Read('MPCM', sMapCmd, sizeof(sMapCmd));
 #ifdef SG_USE_ZLIB
 #ifdef SG_FULLCOMPRESSION
-	loadCompressedData();
+	if (!loadCompressedData())
+	{
+		sv_testsave->integer = iPrevTestSave;
+		return qfalse;
+	}
 	
 #endif
 #endif
@@ -2002,45 +2066,73 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 
 
 	//finish reading the file (blank data)
-	int fillBufferSize = SG_FILESIZE;
+	int fillBufferSize = 0;
 	DWORD  bytesRead;
-	qboolean dwSuccess;
-	byte * fillBuffer =  (byte *) Z_Malloc(fillBufferSize, TAG_TEMP_WORKSPACE, qfalse);
-	memset ( fillBuffer, 0, fillBufferSize);	
+	DWORD  dwSuccess;
+	byte * fillBuffer = NULL;
 
-	if(!ReadFile(sg_Handle,&fillBufferSize, sizeof(fillBufferSize), &bytesRead, NULL))
-		{	
-				Z_Free (fillBuffer);
-				return qfalse;
-		}
-	if(fillBufferSize) {
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandleRead, (BYTE*)(&fillBufferSize),sizeof(fillBufferSize));
-
-	
-		if(!ReadFile(sg_Handle,fillBuffer, fillBufferSize, &bytesRead, NULL))
-		{	
-			Z_Free (fillBuffer);
-			return qfalse;
-		}
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandleRead, (BYTE*)(fillBuffer),fillBufferSize);
+	if(!SG_XboxReadExact(&fillBufferSize, sizeof(fillBufferSize), &bytesRead, "SG_ReadSavegame.fillSize.read"))
+	{
+		sv_testsave->integer = iPrevTestSave;
+		return qfalse;
 	}
 
-	
-	Z_Free (fillBuffer);
+	if(!SG_XboxReadSignatureUpdate(&fillBufferSize, sizeof(fillBufferSize), "SG_ReadSavegame.fillSize.sig"))
+	{
+		sv_testsave->integer = iPrevTestSave;
+		return qfalse;
+	}
+
+	if(fillBufferSize < 0 || fillBufferSize > SG_FILESIZE)
+	{
+		XBLF("JA: SG: invalid fill size size=%d max=%d", fillBufferSize, SG_FILESIZE);
+		SG_XboxReadFailure("SG_ReadSavegame.fillSize.invalid");
+		sv_testsave->integer = iPrevTestSave;
+		return qfalse;
+	}
+
+	if(fillBufferSize)
+	{
+		fillBuffer =  (byte *) Z_Malloc(fillBufferSize, TAG_TEMP_WORKSPACE, qfalse);
+		if(!fillBuffer)
+		{
+			SG_XboxReadFailure("SG_ReadSavegame.fillBuffer.alloc");
+			sv_testsave->integer = iPrevTestSave;
+			return qfalse;
+		}
+		memset ( fillBuffer, 0, fillBufferSize);
+
+		if(!SG_XboxReadExact(fillBuffer, fillBufferSize, &bytesRead, "SG_ReadSavegame.fillBuffer.read"))
+		{
+			Z_Free (fillBuffer);
+			sv_testsave->integer = iPrevTestSave;
+			return qfalse;
+		}
+
+		if(!SG_XboxReadSignatureUpdate(fillBuffer, fillBufferSize, "SG_ReadSavegame.fillBuffer.sig"))
+		{
+			Z_Free (fillBuffer);
+			sv_testsave->integer = iPrevTestSave;
+			return qfalse;
+		}
+
+		Z_Free (fillBuffer);
+	}
 
 	//sigend here
-	dwSuccess =XCalculateSignatureEnd( sg_sigHandleRead, &sg_validationHeaderRead.Signature );
-	assert( dwSuccess == ERROR_SUCCESS );
+	dwSuccess = XCalculateSignatureEnd( sg_sigHandleRead, &sg_validationHeaderRead.Signature );
+	if ( dwSuccess != ERROR_SUCCESS )
+	{
+		XBLF("JA: SG: read signature end failed result=%lu", dwSuccess);
+		SG_XboxReadFailure("SG_ReadSavegame.SignatureEnd");
+		sv_testsave->integer = iPrevTestSave;
+		return qfalse;
+	}
 	sg_sigHandleRead = NULL;
 
 	DWORD dwSigSize = XCalculateSignatureGetSize( XCALCSIG_FLAG_SAVE_GAME );
 
-	if ( sg_FullBuffer)
-	{	
-//		Z_Free(sg_FullBuffer);
-		TempFree();
-		sg_FullBuffer = NULL;
-	}
+	SG_XboxFreeFullBuffer("SG_ReadSavegame.done");
 
 	if(!SG_Close())
 	{
@@ -2569,113 +2661,145 @@ int SG_ReadBytes(void * chid, int bytesize, fileHandle_t fhSG)
 }
 */
 
-void loadCompressedData()
+qboolean loadCompressedData()
 {
 	//get the size of the compressed data
 	int compressedsize;
 	int uncompressedsize;
-	byte * compressbuffer;
+	byte * compressbuffer = NULL;
 	DWORD bytesRead;
 	int bufferTransferSize;
 	byte * compressBufferPtr;
-	byte * bufferptr;
+	int compressedBytesToRead;
 
-	
 	//read the uncompressed size out of buffer
-	SG_ReadBytes(&uncompressedsize, sizeof(uncompressedsize), NULL);
+	if (SG_ReadBytes(&uncompressedsize, sizeof(uncompressedsize), NULL) != sizeof(uncompressedsize))
+	{
+		return SG_XboxReadFailure("loadCompressedData.uncompressedSize.read");
+	}
 
 	//read the compressed size out of the buffer
-	SG_ReadBytes(&compressedsize, sizeof(compressedsize), NULL);
-
-
-
-	//ReadFile(sg_Handle, &compressedsize, sizeof ( compressedsize), &bytesRead,NULL);
-
-	//ReadFile(sg_Handle,&uncompressedsize, sizeof ( uncompressedsize), &bytesRead, NULL);
-	
-	//transfer the little buffer over to the big one
+	if (SG_ReadBytes(&compressedsize, sizeof(compressedsize), NULL) != sizeof(compressedsize))
+	{
+		return SG_XboxReadFailure("loadCompressedData.compressedSize.read");
+	}
 
 	bufferTransferSize = sg_BufferSize - sg_CurrentBufferPos;
-	compressedsize += bufferTransferSize;
-	compressbuffer = CompressMem_AllocScratchBuffer(compressedsize);	
-	bufferptr = &(sg_Buffer[sg_CurrentBufferPos]);
-	memcpy (compressbuffer, bufferptr,bufferTransferSize);
-
-/*	{
-		byte * cbuffer, *tbuffer;
-		cbuffer = compressbuffer;
-		tbuffer = sg_testbuffer;
-		int i;
-		for( i = 0 ; i < bufferTransferSize;i++)
-		{
-			if ( *cbuffer != *tbuffer)
-			{
-				Com_Printf("ZLib Error: wrong data index %i!!!\n", i);
-			}
-			cbuffer++;
-			tbuffer++;
-		}
+	if (uncompressedsize <= 0 || compressedsize < 0 ||
+		bufferTransferSize < 0 || bufferTransferSize > SG_BUFFERSIZE ||
+		compressedsize > 0x7fffffff - bufferTransferSize)
+	{
+		XBLF("JA: SG: invalid compressed load sizes uncomp=%d comp=%d buffered=%d bufferSize=%d currentPos=%d",
+			uncompressedsize, compressedsize, bufferTransferSize, sg_BufferSize, sg_CurrentBufferPos);
+		return SG_XboxReadFailure("loadCompressedData.invalidSizes");
 	}
-	int memcmpval = memcmp(sg_testbuffer,compressbuffer, bufferTransferSize);
-	if (memcmpval!=0)
-			Com_Printf("ZLib Error: wrong data1!!!\n");
-*/
+
+	compressedBytesToRead = compressedsize;
+	compressedsize += bufferTransferSize;
+	compressbuffer = CompressMem_AllocScratchBuffer(compressedsize);
+	if (!compressbuffer)
+	{
+		XBLF("JA: SG: compressed scratch alloc failed total=%d uncomp=%d buffered=%d",
+			compressedsize, uncompressedsize, bufferTransferSize);
+		return SG_XboxReadFailure("loadCompressedData.scratch.alloc");
+	}
+
+	if (bufferTransferSize > 0)
+	{
+		memcpy(compressbuffer, &(sg_Buffer[sg_CurrentBufferPos]), bufferTransferSize);
+	}
+
 	//get stuff uncompressed and into a buffer
 	compressBufferPtr = compressbuffer + bufferTransferSize;
 	//clear the little buffer
 	sg_BufferSize = 0;
-	bufferptr = sg_Buffer;
+	sg_CurrentBufferPos = 0;
 
-	if(compressedsize - bufferTransferSize == SG_ZIB_COMPRESSEDBUFFERSIZE) {
+	XBLF("JA: SG: loadCompressedData begin uncomp=%d compRead=%d buffered=%d",
+		uncompressedsize, compressedBytesToRead, bufferTransferSize);
+
+	if(compressedBytesToRead == SG_ZIB_COMPRESSEDBUFFERSIZE)
+	{
 		//File wasn't compressed.
+		int bytesRemaining = uncompressedsize - bufferTransferSize;
+		if (bytesRemaining < 0)
+		{
+			XBLF("JA: SG: uncompressed full buffer underflow uncomp=%d buffered=%d",
+				uncompressedsize, bufferTransferSize);
+			return SG_XboxReadFailure("loadCompressedData.uncompressed.underflow");
+		}
+
 		sg_FullBuffer = (byte *) TempAlloc( uncompressedsize );
+		if (!sg_FullBuffer)
+		{
+			XBLF("JA: SG: uncompressed TempAlloc failed size=%d", uncompressedsize);
+			return SG_XboxReadFailure("loadCompressedData.uncompressed.alloc");
+		}
 		memset(sg_FullBuffer, 0, uncompressedsize);
 		sg_FullBufferPtr = sg_FullBuffer;
 		sg_FullBufferEnd = sg_FullBuffer + uncompressedsize;
 
-		memcpy(sg_FullBuffer, sg_Buffer + sg_CurrentBufferPos, bufferTransferSize - sg_CurrentBufferPos);
-
-		if(ReadFile(sg_Handle,sg_FullBuffer + bufferTransferSize, uncompressedsize - bufferTransferSize, &bytesRead, NULL)) {
-			if (bytesRead ==0)
-			{
-				CompressMem_FreeScratchBuffer();
-				return;
-			}
-
-			DWORD dwSuccess = XCalculateSignatureUpdate( sg_sigHandleRead, (BYTE*)(sg_FullBuffer + bufferTransferSize),
-														  uncompressedsize - bufferTransferSize);
+		if (bufferTransferSize > 0)
+		{
+			memcpy(sg_FullBuffer, compressbuffer, bufferTransferSize);
 		}
 
-
-	} else {
-
-		if(ReadFile(sg_Handle,compressBufferPtr, compressedsize - bufferTransferSize, &bytesRead, NULL))
-
+		if (bytesRemaining > 0)
 		{
-			if (bytesRead ==0)
+			if (!SG_XboxReadExact(sg_FullBuffer + bufferTransferSize, bytesRemaining, &bytesRead,
+				"loadCompressedData.uncompressedData.read"))
 			{
-				CompressMem_FreeScratchBuffer();
-				return;
+				return qfalse;
 			}
 
-			DWORD dwSuccess = XCalculateSignatureUpdate( sg_sigHandleRead, (BYTE*)(compressBufferPtr),
-														  compressedsize - bufferTransferSize);
-
-		//	if (memcmp(sg_testbuffer,compressbuffer, compressedsize)!=0)
-		//		Com_Printf("ZLib Error: wrong data2!!!\n");
-		
-	//		sg_FullBuffer = (byte *) Z_Malloc(uncompressedsize, TAG_TEMP_WORKSPACE, qfalse);
-			sg_FullBuffer = (byte *) TempAlloc( uncompressedsize );
-			sg_FullBufferPtr = sg_FullBuffer;
-			sg_FullBufferEnd = sg_FullBuffer + uncompressedsize;
-
-			
-			DeCompress_ZLIB((byte *)sg_FullBuffer, uncompressedsize, compressbuffer, compressedsize);
+			if (!SG_XboxReadSignatureUpdate(sg_FullBuffer + bufferTransferSize, bytesRemaining,
+				"loadCompressedData.uncompressedData.sig"))
+			{
+				return qfalse;
+			}
 		}
 	}
+	else
+	{
+		if (compressedBytesToRead > 0)
+		{
+			if (!SG_XboxReadExact(compressBufferPtr, compressedBytesToRead, &bytesRead,
+				"loadCompressedData.compressedData.read"))
+			{
+				return qfalse;
+			}
+
+			if (!SG_XboxReadSignatureUpdate(compressBufferPtr, compressedBytesToRead,
+				"loadCompressedData.compressedData.sig"))
+			{
+				return qfalse;
+			}
+		}
+
+//		sg_FullBuffer = (byte *) Z_Malloc(uncompressedsize, TAG_TEMP_WORKSPACE, qfalse);
+		sg_FullBuffer = (byte *) TempAlloc( uncompressedsize );
+		if (!sg_FullBuffer)
+		{
+			XBLF("JA: SG: compressed TempAlloc failed size=%d", uncompressedsize);
+			return SG_XboxReadFailure("loadCompressedData.compressed.alloc");
+		}
+		sg_FullBufferPtr = sg_FullBuffer;
+		sg_FullBufferEnd = sg_FullBuffer + uncompressedsize;
+
+		if (DeCompress_ZLIB((byte *)sg_FullBuffer, uncompressedsize, compressbuffer, compressedsize) != uncompressedsize)
+		{
+			XBLF("JA: SG: decompress failed uncomp=%d compTotal=%d compRead=%d buffered=%d",
+				uncompressedsize, compressedsize, compressedBytesToRead, bufferTransferSize);
+			return SG_XboxReadFailure("loadCompressedData.decompress");
+		}
+	}
+
 	sg_CurrentBufferPos = 0;
 	gFullCompressionOn = qtrue;
 	CompressMem_FreeScratchBuffer();
+	XBLF("JA: SG: loadCompressedData ok uncomp=%d compRead=%d buffered=%d",
+		uncompressedsize, compressedBytesToRead, bufferTransferSize);
+	return qtrue;
 }
 
 
