@@ -4,9 +4,6 @@
 #include "cm_patch.h"
 #include "../renderer/tr_local.h"
 #include "../RMG/RM_Headers.h"
-#ifdef _XBOX
-#include "../win32/xb_log.h"
-#endif
 
 #include "sparc.h"
 #include "../zlib/zlib.h"
@@ -851,16 +848,7 @@ void CM_ClearMap( void )
 //	MAT_Shutdown();
 #endif
 
-#ifdef _XBOX
-	if (TheRandomMissionManager)
-	{
-		XBLF("JA: CM_ClearMap deleting TheRandomMissionManager ptr=%p", TheRandomMissionManager);
-		delete TheRandomMissionManager;
-		TheRandomMissionManager = 0;
-	}
-
-
-#else
+#ifndef _XBOX
 	if (TheRandomMissionManager)
 	{
 		delete TheRandomMissionManager;
