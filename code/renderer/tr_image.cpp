@@ -817,6 +817,29 @@ static void GL_ResetBinds(void)
 //
 void R_Images_DeleteLightMaps(void)
 {
+#ifdef _XBOX
+	int iLightmapsRetained = 0;
+
+	if (!AllocatedImages)
+	{
+		XBL("JA: R_Images_DeleteLightMaps skipped: no allocated image table\n");
+		return;
+	}
+
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	{
+		image_t *pImage = (*itImage).second;
+		if (pImage && pImage->isLightmap)
+		{
+			iLightmapsRetained++;
+		}
+	}
+
+	XBLF("JA: R_Images_DeleteLightMaps retained=%d total=%d texturePool=%lu staticPoolNoFree\n",
+		iLightmapsRetained, (int)AllocatedImages->size(), gTextures.Size());
+	GL_ResetBinds();
+	return;
+#else
 	assert( 0 && "This function will wreak havoc on texture pool!" );
 	qboolean bEraseOccured = qfalse;
 	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); bEraseOccured?itImage:++itImage)
@@ -835,6 +858,7 @@ void R_Images_DeleteLightMaps(void)
 	}
 
 	GL_ResetBinds();
+#endif
 }
 
 
@@ -924,6 +948,49 @@ void RE_RegisterImages_Info_f( void )
 //
 qboolean RE_RegisterImages_LevelLoadEnd(void)
 {
+	if (!AllocatedImages)
+	{
+#ifdef _XBOX
+		XBL("JA: RE_RegisterImages_LevelLoadEnd skipped: no allocated image table\n");
+#endif
+		return qfalse;
+	}
+
+#ifdef _XBOX
+	int iTotalImages = 0;
+	int iSystemImages = 0;
+	int iStaleImages = 0;
+	int iLightmaps = 0;
+	const int iCurrentLevel = RE_RegisterMedia_GetLevel();
+
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	{
+		image_t *pImage = (*itImage).second;
+		if (!pImage)
+		{
+			continue;
+		}
+
+		iTotalImages++;
+		if (pImage->isSystem)
+		{
+			iSystemImages++;
+		}
+		if (pImage->isLightmap)
+		{
+			iLightmaps++;
+		}
+		if (!pImage->isSystem && pImage->iLastLevelUsedOn != iCurrentLevel)
+		{
+			iStaleImages++;
+		}
+	}
+
+	XBLF("JA: RE_RegisterImages_LevelLoadEnd retain total=%d stale=%d system=%d lightmaps=%d level=%d texturePool=%lu staticPoolNoFree\n",
+		iTotalImages, iStaleImages, iSystemImages, iLightmaps, iCurrentLevel, gTextures.Size());
+	GL_ResetBinds();
+	return qfalse;
+#else
 	qboolean bEraseOccured = qfalse;
 	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); bEraseOccured?itImage:++itImage)
 	{			
@@ -950,6 +1017,7 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 	GL_ResetBinds();
 
 	return bEraseOccured;
+#endif
 }
 
 
