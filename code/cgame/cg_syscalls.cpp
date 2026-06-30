@@ -452,7 +452,18 @@ void		cgi_GetCurrentSnapshotNumber( int *snapshotNumber, int *serverTime ) {
 }
 
 qboolean	cgi_GetSnapshot( int snapshotNumber, snapshot_t *snapshot ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	enum { STEFX_CG_GETSNAPSHOT = 59 };
+	static int s_stefxGetSnapshotBridgeBudget = 16;
+	if ( s_stefxGetSnapshotBridgeBudget > 0 )
+	{
+		XBLF("STEFX: EF cgame requesting EF snapshot trap snapshot=%d buffer=%p", snapshotNumber, snapshot);
+		--s_stefxGetSnapshotBridgeBudget;
+	}
+	return syscall( STEFX_CG_GETSNAPSHOT, snapshotNumber, snapshot );
+#else
 	return syscall( CG_GETSNAPSHOT, snapshotNumber, snapshot );
+#endif
 }
 
 qboolean	cgi_GetDefaultState(int entityIndex, entityState_t *state )

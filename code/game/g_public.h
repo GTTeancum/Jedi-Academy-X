@@ -284,7 +284,7 @@ typedef struct {
 	qboolean	(*EntityContact)( const vec3_t mins, const vec3_t maxs, const gentity_t *ent );
 
 	// sound volume values
-	int		*VoiceVolume;
+	int		*S_Override;
 
 	// dynamic memory allocator for things that need to be freed
 	void		*(*Malloc)( int iSize, memtag_t eTag, qboolean bZeroIt);	// see qcommon/tags.h for choices

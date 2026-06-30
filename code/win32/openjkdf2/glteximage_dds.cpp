@@ -325,15 +325,8 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
             return;
         }
 #ifdef _XBOX
-        const bool smallDxt5Sheet =
-            (fourcc == FOURCC_DXT5 && dW <= 256 && dH <= 256);
-        static int s_smallDxt5DecodeLogBudget = 64;
-        if (smallDxt5Sheet && s_smallDxt5DecodeLogBudget > 0) {
-            XBLog_Write("JkaGlTexImage2D: small DXT5 DDS using RGBA decode path");
-            --s_smallDxt5DecodeLogBudget;
-        }
         if ((fourcc == FOURCC_DXT1 || fourcc == FOURCC_DXT3 ||
-             (fourcc == FOURCC_DXT5 && !smallDxt5Sheet)) ||
+             fourcc == FOURCC_DXT5) ||
             internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/) {
             int levels = (numlevels > 0) ? numlevels : ddsMipCount;
             if (levels <= 0) levels = 1;

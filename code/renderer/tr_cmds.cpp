@@ -314,6 +314,15 @@ void RE_StretchPic ( float x, float y, float w, float h,
 				backEndData ? backEndData->commands.used : -1, tr.frameCount );
 			--s_stefxStretchQueueBudget;
 		}
+#if defined(STEFX_ELITE_FORCE_SP)
+		if ( cls.state != CA_ACTIVE && s_stefxStretchQueueBudget > 0 )
+		{
+			XBLF( "STEFX_FRONTEND_2D_QUEUE shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d frame=%d state=%d catcher=0x%x",
+				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
+				backEndData ? backEndData->commands.used : -1, tr.frameCount, cls.state, cls.keyCatchers );
+			--s_stefxStretchQueueBudget;
+		}
+#endif
 	}
 #endif
 }
@@ -690,6 +699,18 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: skipping dissolve for direct-map boot");
 	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	else if ( cls.state == CA_DISCONNECTED )
+	{
+		static int s_stefxFrontendDissolveSkipBudget = 16;
+		if (s_stefxFrontendDissolveSkipBudget > 0)
+		{
+			XBLF("STEFX: RE_EndFrame skipping dissolve for disconnected frontend catcher=0x%x cmdUsed=%d",
+				cls.keyCatchers, backEndData ? backEndData->commands.used : -1);
+			--s_stefxFrontendDissolveSkipBudget;
+		}
+	}
+#endif
 	else
 	{
 		RE_ProcessDissolve(); // render the disolve now

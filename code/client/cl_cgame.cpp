@@ -395,6 +395,30 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 	{
 		int entNum = ( clSnap->parseEntitiesNum + i ) & (MAX_PARSE_ENTITIES-1);
 		snapshot->entities[i] = cl.parseEntities[ entNum ];
+		if ( snapshot->entities[i].eType == ET_PLAYER )
+		{
+			static int s_stefxGetSnapshotActorBudget = 256;
+			if ( s_stefxGetSnapshotActorBudget > 0 )
+			{
+				XBLF("STEFX: engine EF CL_GetSnapshot actor ent=%d clientNum=%d eType=%d eFlags=0x%x weapon=%d model=%d model2=%d outIndex=%d parseIndex=%d origin=(%g,%g,%g) current=(%g,%g,%g)",
+					snapshot->entities[i].number,
+					snapshot->entities[i].clientNum,
+					snapshot->entities[i].eType,
+					snapshot->entities[i].eFlags,
+					snapshot->entities[i].weapon,
+					snapshot->entities[i].modelindex,
+					snapshot->entities[i].modelindex2,
+					i,
+					entNum,
+					snapshot->entities[i].pos.trBase[0],
+					snapshot->entities[i].pos.trBase[1],
+					snapshot->entities[i].pos.trBase[2],
+					snapshot->entities[i].origin[0],
+					snapshot->entities[i].origin[1],
+					snapshot->entities[i].origin[2]);
+				--s_stefxGetSnapshotActorBudget;
+			}
+		}
 		if ( CL_STEFX_IsVisibleBrushMoverEntity( &snapshot->entities[i] ) )
 		{
 			static int s_stefxGetSnapshotBModelBudget = 160;
@@ -687,6 +711,26 @@ void CM_SnapPVS(vec3_t origin,byte *buffer);
 #ifdef _XBOX
 extern bool Sys_IsDirectMapBoot(void);
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static void CL_STEFX_DrawDirectMapLoadScreen( const char *source )
+{
+	static int s_directMapLoadScreenBudget = 16;
+	extern void SP_DrawSPLoadScreen( void );
+
+	if ( s_directMapLoadScreenBudget > 0 )
+	{
+		XBLF("STEFX: %s presenting EF loadscreen during direct-map boot state=%d realtime=%d",
+			source ? source : "CG_UPDATESCREEN", (int)cls.state, cls.realtime);
+		--s_directMapLoadScreenBudget;
+	}
+
+	XBLog_Write("STEFX: direct-map loadscreen before SP_DrawSPLoadScreen");
+	SP_DrawSPLoadScreen();
+	XBLog_Write("STEFX: direct-map loadscreen after SP_DrawSPLoadScreen before EndFrame");
+	re.EndFrame( NULL, NULL );
+	XBLog_Write("STEFX: direct-map loadscreen EndFrame done");
+}
+#endif
 //#define	VMA(x) VM_ArgPtr(args[x])
 #define	VMA(x) ((void*)args[x])
 #define	VMF(x)	((float *)args)[x]
@@ -872,10 +916,13 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		return 0;
 	case STEFX_CG_UPDATESCREEN:
 		Com_EventLoop();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ( Sys_IsDirectMapBoot() )
 		{
+			CL_STEFX_DrawDirectMapLoadScreen( "STEFX_CG_UPDATESCREEN" );
 			return 0;
 		}
+#endif
 		SCR_UpdateScreen();
 		return 0;
 	case STEFX_CG_CM_LOADMAP:
@@ -1233,15 +1280,10 @@ int CL_CgameSystemCalls( int *args ) {
 	case CG_UPDATESCREEN:
 		// this is used during lengthy level loading, so pump message loop
 		Com_EventLoop();	// FIXME: if a server restarts here, BAD THINGS HAPPEN!
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ( Sys_IsDirectMapBoot() )
 		{
-			static qboolean s_loggedDirectMapUpdateSkip = qfalse;
-			if ( !s_loggedDirectMapUpdateSkip )
-			{
-				XBLog_Write( "JA: CG_UPDATESCREEN skipped SCR_UpdateScreen for direct-map boot" );
-				s_loggedDirectMapUpdateSkip = qtrue;
-			}
+			CL_STEFX_DrawDirectMapLoadScreen( "CG_UPDATESCREEN" );
 			return 0;
 		}
 #endif
@@ -2075,16 +2117,7 @@ void CL_FirstSnapshot( void ) {
 	extern void Demo_TimerPause( bool bPaused );
 	Demo_TimerPause( false );
 
-	// Need to copy in the force powers (that were configured in the front-end)
 	playerState_t *pState = svs.clients[0].gentity->client;
-	extern int demoForcePowerLevel[16];
-	pState->forcePowersKnown = 0;
-	for( int i = 0; i < NUM_FORCE_POWERS; ++i )
-	{
-		pState->forcePowerLevel[i] = demoForcePowerLevel[i];
-		if( pState->forcePowerLevel[i] )
-			pState->forcePowersKnown |= (1 << i);
-	}
 
 	// Give us the right weapons, and max ammo:
 	extern int demoWeapon1;

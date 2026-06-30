@@ -133,6 +133,96 @@ static qboolean STEFX_SmokeHarnessEnabled( void )
 	return s_enabled;
 }
 
+static int STEFX_ActiveCommandServerTime( void )
+{
+	static qboolean s_checked = qfalse;
+	static int s_serverTime = 72000;
+	FILE *file;
+
+	if ( s_checked )
+	{
+		return s_serverTime;
+	}
+	s_checked = qtrue;
+
+	file = fopen( "D:\\ef_sp_active_command_time.txt", "r" );
+	if ( file )
+	{
+		char line[64];
+		if ( fgets( line, sizeof( line ), file ) )
+		{
+			const int parsed = atoi( line );
+			if ( parsed >= 0 )
+			{
+				s_serverTime = parsed;
+			}
+		}
+		fclose( file );
+	}
+	Com_PrintfAlways( "STEFX_SAVELOAD: game active command gate=%d\n", s_serverTime );
+	return s_serverTime;
+}
+
+static void STEFX_QueueActiveCommandFromGame( const usercmd_t *ucmd )
+{
+	static qboolean s_queued = qfalse;
+	static int s_missingLogBudget = 2;
+	const char *paths[] = {
+		"D:\\ef_sp_active_commands.txt",
+		"E:\\ef_sp_active_commands.txt",
+		NULL
+	};
+	int i;
+
+	if ( s_queued || !ucmd || !STEFX_SmokeHarnessEnabled() )
+	{
+		return;
+	}
+	if ( ucmd->serverTime < STEFX_ActiveCommandServerTime() )
+	{
+		return;
+	}
+
+	for ( i = 0; paths[i]; ++i )
+	{
+		FILE *file = fopen( paths[i], "r" );
+		char commandLine[1024];
+
+		if ( !file )
+		{
+			if ( s_missingLogBudget > 0 )
+			{
+				Com_PrintfAlways( "STEFX_SAVELOAD: game active command missing '%s'\n", paths[i] );
+				--s_missingLogBudget;
+			}
+			continue;
+		}
+
+		Com_PrintfAlways( "STEFX_SAVELOAD: game active command opened '%s' serverTime=%d levelTime=%d\n",
+			paths[i], ucmd->serverTime, level.time );
+		while ( fgets( commandLine, sizeof( commandLine ), file ) )
+		{
+			commandLine[strcspn( commandLine, "\r\n" )] = '\0';
+			if ( !commandLine[0] )
+			{
+				continue;
+			}
+			Com_PrintfAlways( "STEFX_SAVELOAD: game queue active command '%s'\n", commandLine );
+			gi.SendConsoleCommand( va( "%s\n", commandLine ) );
+			s_queued = qtrue;
+		}
+		fclose( file );
+		break;
+	}
+
+	if ( !s_queued )
+	{
+		Com_PrintfAlways( "STEFX_SAVELOAD: game active command no command queued serverTime=%d levelTime=%d\n",
+			ucmd->serverTime, level.time );
+		s_queued = qtrue;
+	}
+}
+
 static qboolean STEFX_SmokeControlWindowActive( const usercmd_t *ucmd )
 {
 	int startTime;
@@ -5091,6 +5181,7 @@ extern cvar_t	*g_skippingcin;
 		{
 			static int s_stefxRawPlayerCmdBudget = 64;
 			const int interestingButtons = ucmd ? (ucmd->buttons & ~(BUTTON_WALKING)) : 0;
+			STEFX_QueueActiveCommandFromGame( ucmd );
 			if ( ucmd && s_stefxRawPlayerCmdBudget > 0 &&
 				( ucmd->forwardmove || ucmd->rightmove || ucmd->upmove ||
 				  interestingButtons || s_stefxRawPlayerCmdBudget > 58 ) )
@@ -5249,23 +5340,14 @@ extern cvar_t	*g_skippingcin;
 			}
 		}
 
-		if ( (player_locked 
-				|| (ent->client->ps.eFlags&EF_FORCE_GRIPPED) 
-				|| (ent->client->ps.eFlags&EF_FORCE_DRAINED)
-				|| (ent->client->ps.legsAnim==BOTH_PLAYER_PA_1)
-				|| (ent->client->ps.legsAnim==BOTH_PLAYER_PA_2)
-				|| (ent->client->ps.legsAnim==BOTH_PLAYER_PA_3))
-			&& ent->client->ps.pm_type < PM_DEAD ) // unless dead
-		{//lock out player control
-			if ( !player_locked )
-			{
-				VectorClear( ucmd->angles );
-			}
+		if ( player_locked && ent->client->ps.pm_type < PM_DEAD )
+		{//lock out player control unless dead
+			int missionStatusButtons = (cg.missionStatusShow) ? (ucmd->buttons & (BUTTON_ATTACK | BUTTON_USE_HOLDABLE)) : 0;
+			VectorClear( ucmd->angles );
 			ucmd->forwardmove = 0;
 			ucmd->rightmove = 0;
-			ucmd->buttons = 0;
+			ucmd->buttons = missionStatusButtons;
 			ucmd->upmove = 0;
-			PM_AdjustAnglesToGripper( ent, ucmd );
 		}
 		if ( ent->client->ps.leanofs )
 		{//no shooting while leaning
@@ -5938,41 +6020,55 @@ extern cvar_t	*g_skippingcin;
 	// check for respawning
 	if ( client->ps.stats[STAT_HEALTH] <= 0 ) 
 	{
-		if( client->ps.clientNum == 0 )
-		{
-			Cbuf_ExecuteText(EXEC_NOW, "-moveup");
-			Cbuf_ExecuteText(EXEC_NOW, "-movedown");
-			Cbuf_ExecuteText(EXEC_NOW, "-hotswap1");
-			Cbuf_ExecuteText(EXEC_NOW, "-hotswap2");
-			Cbuf_ExecuteText(EXEC_NOW, "-hotswap3");
-			Cbuf_ExecuteText(EXEC_NOW, "-attack");
-			Cbuf_ExecuteText(EXEC_NOW, "-altattack");
-			Cbuf_ExecuteText(EXEC_NOW, "-use");
-			Cbuf_ExecuteText(EXEC_NOW, "-useforce");
-		}
+		qboolean missionAnalysisVisible = (qboolean)(ent->s.number == 0 && client->ps.pm_type == PM_DEAD && cg.missionStatusDeadTime < level.time);
 
 		// wait for the attack button to be pressed
-		if ( ent->NPC == NULL && level.time > client->respawnTime ) 
+		if ( ent->NPC == NULL && (level.time > client->respawnTime || missionAnalysisVisible) )
 		{
 			// don't allow respawn if they are still flying through the
 			// air, unless 10 extra seconds have passed, meaning something
 			// strange is going on, like the corpse is caught in a wind tunnel
-			/*
-			if ( level.time < client->respawnTime + 10000 ) 
+			if ( !missionAnalysisVisible && level.time < client->respawnTime + 10000 )
 			{
 				if ( client->ps.groundEntityNum == ENTITYNUM_NONE ) 
 				{
+#ifdef _XBOX
+					if ( ent->s.number == 0 )
+					{
+						static int s_stefxMissionAirBlockBudget = 24;
+						if (s_stefxMissionAirBlockBudget > 0)
+						{
+							XBLF("STEFX: mission/dead respawn blocked airborne time=%d respawnTime=%d buttons=0x%x healthStat=%d",
+								level.time,
+								client->respawnTime,
+								ucmd->buttons,
+								client->ps.stats[STAT_HEALTH]);
+							s_stefxMissionAirBlockBudget--;
+						}
+					}
+#endif
 					return;
 				}
 			}
-			*/
 
 			// pressing attack or use is the normal respawn method
-			//if ( ucmd->buttons & ( BUTTON_ATTACK ) ) 
-			//{
-	
-			//	respawn( ent );
-			//}
+			if ( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_USE_HOLDABLE ) ) 
+			{
+#ifdef _XBOX
+				if ( ent->s.number == 0 )
+				{
+					XBLF("STEFX: mission/dead respawn input accepted time=%d buttons=0x%x healthStat=%d entHealth=%d missionAnalysisVisible=%d ground=%d respawnTime=%d",
+						level.time,
+						ucmd->buttons,
+						client->ps.stats[STAT_HEALTH],
+						ent->health,
+						missionAnalysisVisible,
+						client->ps.groundEntityNum,
+						client->respawnTime);
+				}
+#endif
+				respawn( ent );
+			}
 		}
 		if ( ent 
 			&& !ent->s.number 
@@ -6000,6 +6096,50 @@ extern cvar_t	*g_skippingcin;
 			}
 		}
 		return;
+	}
+
+	if ((cg.missionStatusShow) && ((cg.missionStatusDeadTime + 1) < level.time))
+	{
+		if ( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_USE_HOLDABLE ) ) 
+		{
+			int failedObjectives = 0;
+			int objectiveIndex;
+
+			for (objectiveIndex = 0; objectiveIndex < MAX_OBJECTIVES; ++objectiveIndex)
+			{
+				if (client->sess.mission_objectives[objectiveIndex].status == OBJECTIVE_STAT_FAILED)
+				{
+					failedObjectives++;
+				}
+			}
+
+#ifdef _XBOX
+			if ( ent->s.number == 0 )
+			{
+				XBLF("STEFX: missionStatusShow input accepted time=%d buttons=0x%x missionDeadTime=%d failedObjectives=%d statusTextIndex=%d",
+					level.time,
+					ucmd->buttons,
+					cg.missionStatusDeadTime,
+					failedObjectives,
+					statusTextIndex);
+			}
+#endif
+			if (failedObjectives > 0 || statusTextIndex >= 0)
+			{
+#ifdef _XBOX
+				if ( ent->s.number == 0 )
+				{
+					XBLog_Write("STEFX: missionStatusShow failed analysis requesting respawn load");
+				}
+#endif
+				respawn( ent );
+				return;
+			}
+
+			cg.missionStatusShow = 0;
+			ScoreBoardReset();
+//			Q3_TaskIDComplete( ent, TID_MISSIONSTATUS );
+		}
 	}
 
 	// perform once-a-second actions

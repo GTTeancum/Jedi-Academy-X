@@ -77,12 +77,40 @@ stringID_table_t TeamTable[] =
 {
 	"free", TEAM_FREE,			// caution, some code checks a team_t via "if (!team_t_varname)" so I guess this should stay as entry 0, great or what? -slc
 	ENUM2STRING(TEAM_FREE),			// caution, some code checks a team_t via "if (!team_t_varname)" so I guess this should stay as entry 0, great or what? -slc
+	"none", TEAM_FREE,
 	"player", TEAM_PLAYER,
 	ENUM2STRING(TEAM_PLAYER),
+	"starfleet", TEAM_STARFLEET,
+	ENUM2STRING(TEAM_STARFLEET),
 	"enemy", TEAM_ENEMY,
 	ENUM2STRING(TEAM_ENEMY),
 	"neutral", TEAM_NEUTRAL,	// most droids are team_neutral, there are some exceptions like Probe,Seeker,Interrogator
 	ENUM2STRING(TEAM_NEUTRAL),	// most droids are team_neutral, there are some exceptions like Probe,Seeker,Interrogator
+	"borg", TEAM_BORG,
+	ENUM2STRING(TEAM_BORG),
+	"parasite", TEAM_PARASITE,
+	ENUM2STRING(TEAM_PARASITE),
+	"scavengers", TEAM_SCAVENGERS,
+	ENUM2STRING(TEAM_SCAVENGERS),
+	"klingon", TEAM_KLINGON,
+	ENUM2STRING(TEAM_KLINGON),
+	"malon", TEAM_MALON,
+	ENUM2STRING(TEAM_MALON),
+	"hirogen", TEAM_HIROGEN,
+	ENUM2STRING(TEAM_HIROGEN),
+	"imperial", TEAM_IMPERIAL,
+	ENUM2STRING(TEAM_IMPERIAL),
+	"stasis", TEAM_STASIS,
+	ENUM2STRING(TEAM_STASIS),
+	"species8472", TEAM_8472,
+	ENUM2STRING(TEAM_8472),
+	"dreadnought", TEAM_BOTS,
+	"bots", TEAM_BOTS,
+	ENUM2STRING(TEAM_BOTS),
+	"forge", TEAM_FORGE,
+	ENUM2STRING(TEAM_FORGE),
+	"disguise", TEAM_DISGUISE,
+	ENUM2STRING(TEAM_DISGUISE),
 	"",	-1
 };
 

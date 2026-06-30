@@ -38,6 +38,13 @@ static vec3_t sky_clip[6] =
 static float	sky_mins[2][6], sky_maxs[2][6];
 static float	sky_min, sky_max;
 
+#ifdef _XBOX
+static qboolean STEFX_IsJunkSkyShader( const shader_t *shader )
+{
+	return shader && strstr( shader->name, "textures/common/junk_sky" );
+}
+#endif
+
 /*
 ================
 AddSkyPolygon
@@ -385,13 +392,34 @@ static void DrawSkyBox( shader_t *shader )
 {
 	int		i;
 #ifdef _XBOX
-	static int s_xboxSkyBoxLogBudget = 0;
-	const qboolean xboxForceFullPortalSky =
-		(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL) ? qtrue : qfalse;
+	static int s_xboxSkyBoxLogBudget = 32;
+	/*
+	 * The stock renderer clips skybox sides down to only the screen-space
+	 * spans touched by sky polygons.  On Xbox the EF BSP/world path can leave
+	 * small or even whole-side gaps there, which exposes the cleared background
+	 * through hull breaches.  Drawing the full skybox is still depth-tested
+	 * behind normal world geometry, so it restores the intended EF backing
+	 * without relying on a DN1-specific shader override.
+	 */
+	const qboolean xboxForceFullSky = qtrue;
+	const qboolean traceJunkSky = STEFX_IsJunkSkyShader( shader );
 #endif
 
 	sky_min = 0.0f;
 	sky_max = 1.0f;
+
+#ifdef _XBOX
+	if (traceJunkSky && s_xboxSkyBoxLogBudget > 0)
+	{
+		XBLF("STEFX_SKYBOX begin shader='%s' rdflags=0x%x origin=%g,%g,%g",
+			shader ? shader->name : "<null>",
+			backEnd.refdef.rdflags,
+			backEnd.viewParms.or.origin[0],
+			backEnd.viewParms.or.origin[1],
+			backEnd.viewParms.or.origin[2]);
+		--s_xboxSkyBoxLogBudget;
+	}
+#endif
 
 	memset( s_skyTexCoords, 0, sizeof( s_skyTexCoords ) );
 
@@ -400,7 +428,7 @@ static void DrawSkyBox( shader_t *shader )
 		int sky_mins_subd[2], sky_maxs_subd[2];
 		int s, t;
 #ifdef _XBOX
-		if (xboxForceFullPortalSky)
+		if (xboxForceFullSky)
 		{
 			sky_mins[0][i] = -1.0f;
 			sky_mins[1][i] = -1.0f;
@@ -418,10 +446,12 @@ static void DrawSkyBox( shader_t *shader )
 			 ( sky_mins[1][i] >= sky_maxs[1][i] ) )
 		{
 #ifdef _XBOX
-			if (s_xboxSkyBoxLogBudget > 0 && cls.state == CA_ACTIVE)
+			if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyBoxLogBudget > 0)
 			{
-				XBLF("JA: SKYBOX side=%d skipped mins=%g,%g maxs=%g,%g image='%s' fallback=%d",
-					i, sky_mins[0][i], sky_mins[1][i], sky_maxs[0][i], sky_maxs[1][i],
+				XBLF("STEFX_SKYBOX side=%d skipped shader='%s' mins=%g,%g maxs=%g,%g image='%s' fallback=%d",
+					i,
+					shader ? shader->name : "<null>",
+					sky_mins[0][i], sky_mins[1][i], sky_maxs[0][i], sky_maxs[1][i],
 					shader->sky->outerbox[i] ? shader->sky->outerbox[i]->imgName : "<null>",
 					(int)(shader->sky->outerbox[i] == tr.defaultImage));
 				--s_xboxSkyBoxLogBudget;
@@ -472,14 +502,18 @@ static void DrawSkyBox( shader_t *shader )
 			         sky_mins_subd,
 					 sky_maxs_subd );
 #ifdef _XBOX
-		if (s_xboxSkyBoxLogBudget > 0 && cls.state == CA_ACTIVE)
+		if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyBoxLogBudget > 0)
 		{
-			XBLF("JA: SKYBOX side=%d drawn subdMin=%d,%d subdMax=%d,%d image='%s' tex=%d fallback=%d fullPortal=%d",
-				i, sky_mins_subd[0], sky_mins_subd[1], sky_maxs_subd[0], sky_maxs_subd[1],
+			XBLF("STEFX_SKYBOX side=%d drawn shader='%s' subdMin=%d,%d subdMax=%d,%d image='%s' wh=%dx%d tex=%d fallback=%d fullPortal=%d",
+				i,
+				shader ? shader->name : "<null>",
+				sky_mins_subd[0], sky_mins_subd[1], sky_maxs_subd[0], sky_maxs_subd[1],
 				shader->sky->outerbox[i] ? shader->sky->outerbox[i]->imgName : "<null>",
+				shader->sky->outerbox[i] ? shader->sky->outerbox[i]->width : 0,
+				shader->sky->outerbox[i] ? shader->sky->outerbox[i]->height : 0,
 				shader->sky->outerbox[i] ? shader->sky->outerbox[i]->texnum : -1,
 				(int)(shader->sky->outerbox[i] == tr.defaultImage),
-				(int)xboxForceFullPortalSky);
+				(int)xboxForceFullSky);
 			--s_xboxSkyBoxLogBudget;
 		}
 #endif
@@ -828,13 +862,14 @@ Other things could be stuck in here, like birds in the sky, etc
 */
 void RB_StageIteratorSky( void ) {
 #ifdef _XBOX
-	static int s_xboxSkyIterLogBudget = 32;
+	static int s_xboxSkyIterLogBudget = 16;
+	qboolean traceJunkSky = STEFX_IsJunkSkyShader( tess.shader );
 #endif
 	if ( r_fastsky->integer ) {
 #ifdef _XBOX
-		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+		if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyIterLogBudget > 0)
 		{
-			XBLF("JA: SKY_ITER skip fastsky shader='%s'", tess.shader ? tess.shader->name : "<null>");
+			XBLF("STEFX_SKY_ITER skip fastsky shader='%s'", tess.shader ? tess.shader->name : "<null>");
 			--s_xboxSkyIterLogBudget;
 		}
 #endif
@@ -844,9 +879,9 @@ void RB_StageIteratorSky( void ) {
 	if (skyboxportal && !(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL))
 	{
 #ifdef _XBOX
-		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+		if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyIterLogBudget > 0)
 		{
-			XBLF("JA: SKY_ITER xbox main-view portal gate shader='%s' rdflags=0x%x drawsky=%d action=%s",
+			XBLF("STEFX_SKY_ITER xbox main-view portal gate shader='%s' rdflags=0x%x drawsky=%d action=%s",
 				tess.shader ? tess.shader->name : "<null>", backEnd.refdef.rdflags, drawskyboxportal,
 				drawskyboxportal ? "skip" : "draw-main");
 			--s_xboxSkyIterLogBudget;
@@ -865,9 +900,9 @@ void RB_StageIteratorSky( void ) {
 	// to be drawn
 	RB_ClipSkyPolygons( &tess );
 #ifdef _XBOX
-	if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+	if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyIterLogBudget > 0)
 	{
-		XBLF("JA: SKY_ITER clipped shader='%s' verts=%d indexes=%d outer0='%s' fallback0=%d rdflags=0x%x skyportal=%d",
+		XBLF("STEFX_SKY_ITER clipped shader='%s' verts=%d indexes=%d outer0='%s' fallback0=%d rdflags=0x%x skyportal=%d",
 			tess.shader ? tess.shader->name : "<null>",
 			tess.numVertexes,
 			tess.numIndexes,
@@ -905,9 +940,9 @@ void RB_StageIteratorSky( void ) {
 		glPopMatrix();
 	}
 #ifdef _XBOX
-	else if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+	else if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyIterLogBudget > 0)
 	{
-		XBLF("JA: SKY_ITER no outer skybox shader='%s' outer0='%s' fallback0=%d",
+		XBLF("STEFX_SKY_ITER no outer skybox shader='%s' outer0='%s' fallback0=%d",
 			tess.shader ? tess.shader->name : "<null>",
 			(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0]) ? tess.shader->sky->outerbox[0]->imgName : "<null>",
 			(int)(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0] == tr.defaultImage));
@@ -919,9 +954,9 @@ void RB_StageIteratorSky( void ) {
 	// by the generic shader routine
 	R_BuildCloudData( &tess );
 #ifdef _XBOX
-	if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
+	if ((traceJunkSky || cls.state == CA_ACTIVE) && s_xboxSkyIterLogBudget > 0)
 	{
-		XBLF("JA: SKY_ITER clouddata shader='%s' verts=%d indexes=%d passes=%d",
+		XBLF("STEFX_SKY_ITER clouddata shader='%s' verts=%d indexes=%d passes=%d",
 			tess.shader ? tess.shader->name : "<null>",
 			tess.numVertexes,
 			tess.numIndexes,

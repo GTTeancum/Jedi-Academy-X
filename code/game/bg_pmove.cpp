@@ -4073,7 +4073,7 @@ static void PM_CrashLand( void )
 				{
 					G_SoundOnEnt( pm->gent, CHAN_BODY, va("sound/player/bodyfall_water%d.wav",Q_irand(1,3)) );
 				}
-				if ( gi.VoiceVolume[pm->ps->clientNum]
+				if ( gi.S_Override[pm->ps->clientNum]
 					&& pm->gent->NPC && (pm->gent->NPC->aiFlags&NPCAI_DIE_ON_IMPACT) )
 				{//I was talking, so cut it off... with a jump sound?
 					if ( !(pm->ps->eFlags&EF_NODRAW) )

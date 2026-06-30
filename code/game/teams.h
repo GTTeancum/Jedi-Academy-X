@@ -7,6 +7,19 @@ typedef enum //# team_e
 	TEAM_PLAYER,
 	TEAM_ENEMY,
 	TEAM_NEUTRAL,	// most droids are team_neutral, there are some exceptions like Probe,Seeker,Interrogator
+	TEAM_STARFLEET = TEAM_PLAYER,
+	TEAM_BORG = 4,
+	TEAM_PARASITE,
+	TEAM_SCAVENGERS,
+	TEAM_KLINGON,
+	TEAM_MALON,
+	TEAM_HIROGEN,
+	TEAM_IMPERIAL,
+	TEAM_STASIS,
+	TEAM_8472,
+	TEAM_BOTS,
+	TEAM_FORGE,
+	TEAM_DISGUISE,
 
 	//# #eol
 	TEAM_NUM_TEAMS

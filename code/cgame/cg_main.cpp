@@ -2521,6 +2521,33 @@ void CG_Init( int serverCommandSequence ) {
 	XBLog_Write("JA: CG_Init base shaders done");
 #endif
 //	cgs.media.loadTickCap	= cgi_R_RegisterShaderNoMip( "gfx/hud/load_tick_cap" );
+
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_Init EF loadscreen media begin");
+#endif
+	cgs.media.loading1		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece1.tga" );
+	cgs.media.loading2		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece2.tga" );
+	cgs.media.loading3		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece3.tga" );
+	cgs.media.loading4		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece4.tga" );
+	cgs.media.loading5		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece5.tga" );
+	cgs.media.loading6		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece6.tga" );
+	cgs.media.loading7		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece7.tga" );
+	cgs.media.loading8		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece8.tga" );
+	cgs.media.loading9		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece9.tga" );
+	cgs.media.loadingcircle	= cgi_R_RegisterShaderNoMip( "menu/loading/arrowpiece.tga" );
+	cgs.media.loadingquarter	= cgi_R_RegisterShaderNoMip( "menu/loading/quarter.tga" );
+	cgs.media.loadingcorner	= cgi_R_RegisterShaderNoMip( "menu/common/corner_lr_8_16.tga" );
+	cgs.media.loadingtrim	= cgi_R_RegisterShaderNoMip( "menu/loading/trimupper.tga" );
+	cg.loadLCARSStage		= 0;
+	cg.loadLCARScnt			= 0;
+#ifdef _XBOX
+	XBLF("STEFX: CG_Init EF loadscreen media handles %d %d %d %d %d %d %d %d %d circle=%d quarter=%d corner=%d trim=%d",
+		cgs.media.loading1, cgs.media.loading2, cgs.media.loading3,
+		cgs.media.loading4, cgs.media.loading5, cgs.media.loading6,
+		cgs.media.loading7, cgs.media.loading8, cgs.media.loading9,
+		cgs.media.loadingcircle, cgs.media.loadingquarter,
+		cgs.media.loadingcorner, cgs.media.loadingtrim);
+#endif
 	
 	const char	*force_icon_files[NUM_FORCE_POWERS] = 
 	{//icons matching enums forcePowers_t
@@ -2587,8 +2614,6 @@ void CG_Init( int serverCommandSequence ) {
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init after CG_TransitionPermanent");
 #endif
-
-	cg.loadLCARSStage		= 0;
 
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init before CG_GameStateReceived");

@@ -485,6 +485,14 @@ void SP_misc_weather_zone( gentity_t *ent );
 void SP_reference_tag ( gentity_t *ent );
 
 void SP_NPC_spawner( gentity_t *self );
+void SP_NPC_starfleet( gentity_t *self );
+void SP_NPC_starfleet_random( gentity_t *self );
+void SP_NPC_Tuvok( gentity_t *self );
+void SP_NPC_Munro( gentity_t *self );
+void SP_NPC_MunroScav( gentity_t *self );
+void SP_NPC_Telsia( gentity_t *self );
+void SP_NPC_Chang( gentity_t *self );
+void SP_NPC_Chell( gentity_t *self );
 
 void SP_NPC_Vehicle( gentity_t *self );
 void SP_NPC_Player( gentity_t *self );
@@ -719,6 +727,14 @@ spawn_t	spawns[] = {
 
 	//new NPC ents
 	{"NPC_spawner", SP_NPC_spawner},
+	{"NPC_starfleet", SP_NPC_starfleet},
+	{"NPC_starfleet_random", SP_NPC_starfleet_random},
+	{"NPC_Tuvok", SP_NPC_Tuvok},
+	{"NPC_Munro", SP_NPC_Munro},
+	{"NPC_MunroScav", SP_NPC_MunroScav},
+	{"NPC_Telsia", SP_NPC_Telsia},
+	{"NPC_Chang", SP_NPC_Chang},
+	{"NPC_Chell", SP_NPC_Chell},
 
 	{"NPC_Vehicle", SP_NPC_Vehicle },
 	{"NPC_Player", SP_NPC_Player },

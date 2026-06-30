@@ -26,6 +26,219 @@ static void SP_SetDrawTextureContext(const char *context)
 }
 #endif
 
+typedef struct
+{
+	qhandle_t piece[9];
+	qhandle_t circle;
+	qhandle_t quarter;
+	qhandle_t white;
+	int tinyFont;
+	qboolean initialized;
+} spEfLoadingAssets_t;
+
+static spEfLoadingAssets_t s_spEfLoadingAssets;
+static int s_spEfLoadingPulse;
+static qboolean s_spEfLoadingFontWarned;
+
+#define SP_EF_LOAD_TEXT_RIGHT 0x0001
+
+static void SP_RegisterEFLoadingAssets(void)
+{
+	if (s_spEfLoadingAssets.initialized)
+	{
+		return;
+	}
+
+	s_spEfLoadingAssets.piece[0] = re.RegisterShaderNoMip("menu/loading/smpiece1.tga");
+	s_spEfLoadingAssets.piece[1] = re.RegisterShaderNoMip("menu/loading/smpiece2.tga");
+	s_spEfLoadingAssets.piece[2] = re.RegisterShaderNoMip("menu/loading/smpiece3.tga");
+	s_spEfLoadingAssets.piece[3] = re.RegisterShaderNoMip("menu/loading/smpiece4.tga");
+	s_spEfLoadingAssets.piece[4] = re.RegisterShaderNoMip("menu/loading/smpiece5.tga");
+	s_spEfLoadingAssets.piece[5] = re.RegisterShaderNoMip("menu/loading/smpiece6.tga");
+	s_spEfLoadingAssets.piece[6] = re.RegisterShaderNoMip("menu/loading/smpiece7.tga");
+	s_spEfLoadingAssets.piece[7] = re.RegisterShaderNoMip("menu/loading/smpiece8.tga");
+	s_spEfLoadingAssets.piece[8] = re.RegisterShaderNoMip("menu/loading/smpiece9.tga");
+	s_spEfLoadingAssets.circle = re.RegisterShaderNoMip("menu/loading/arrowpiece.tga");
+	s_spEfLoadingAssets.quarter = re.RegisterShaderNoMip("menu/loading/quarter.tga");
+	s_spEfLoadingAssets.white = re.RegisterShaderNoMip("white");
+	s_spEfLoadingAssets.tinyFont = re.RegisterFont("ergoec");
+	s_spEfLoadingAssets.initialized = qtrue;
+
+#ifdef _XBOX
+	XBLF("SPL: EF loading assets handles %d %d %d %d %d %d %d %d %d circle=%d quarter=%d white=%d tinyFont=%d",
+		s_spEfLoadingAssets.piece[0], s_spEfLoadingAssets.piece[1],
+		s_spEfLoadingAssets.piece[2], s_spEfLoadingAssets.piece[3],
+		s_spEfLoadingAssets.piece[4], s_spEfLoadingAssets.piece[5],
+		s_spEfLoadingAssets.piece[6], s_spEfLoadingAssets.piece[7],
+		s_spEfLoadingAssets.piece[8], s_spEfLoadingAssets.circle,
+		s_spEfLoadingAssets.quarter, s_spEfLoadingAssets.white,
+		s_spEfLoadingAssets.tinyFont);
+#endif
+}
+
+static qboolean SP_EFLoadingAssetsReady(void)
+{
+	int i;
+
+	for (i = 0; i < 9; i++)
+	{
+		if (!s_spEfLoadingAssets.piece[i])
+		{
+#ifdef _XBOX
+			XBLF("SPL: EF loading asset missing piece=%d", i + 1);
+#endif
+			return qfalse;
+		}
+	}
+
+	if (!s_spEfLoadingAssets.circle || !s_spEfLoadingAssets.quarter || !s_spEfLoadingAssets.white)
+	{
+#ifdef _XBOX
+		XBLF("SPL: EF loading asset missing circle=%d quarter=%d white=%d",
+			s_spEfLoadingAssets.circle, s_spEfLoadingAssets.quarter,
+			s_spEfLoadingAssets.white);
+#endif
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static void SP_DrawEFLoadingPic(float x, float y, float w, float h, qhandle_t shader, int colorIndex)
+{
+	float s0 = 0.0f;
+	float s1 = 1.0f;
+	float t0 = 0.0f;
+	float t1 = 1.0f;
+
+	if (!shader)
+	{
+		return;
+	}
+
+	if (w < 0.0f)
+	{
+		w = -w;
+		s0 = 1.0f;
+		s1 = 0.0f;
+	}
+	if (h < 0.0f)
+	{
+		h = -h;
+		t0 = 1.0f;
+		t1 = 0.0f;
+	}
+
+	re.SetColor(colorTable[colorIndex]);
+	re.DrawStretchPic(x, y, w, h, s0, t0, s1, t1, shader);
+}
+
+static void SP_DrawEFLoadingPicStage(float x, float y, float w, float h, qhandle_t shader, int stage, int threshold, int darkColor, int litColor)
+{
+	SP_DrawEFLoadingPic(x, y, w, h, shader, (stage < threshold) ? darkColor : litColor);
+}
+
+static void SP_DrawEFLoadingText(int x, int y, const char *text, int style)
+{
+	const float scale = 0.65f;
+
+	if (!s_spEfLoadingAssets.tinyFont)
+	{
+#ifdef _XBOX
+		if (!s_spEfLoadingFontWarned)
+		{
+			XBLog_Write("SPL: EF loading tiny font missing; drawing LCARS art without numeric labels\n");
+			s_spEfLoadingFontWarned = qtrue;
+		}
+#endif
+		return;
+	}
+
+	if (style & SP_EF_LOAD_TEXT_RIGHT)
+	{
+		x -= re.Font_StrLenPixels(text, s_spEfLoadingAssets.tinyFont, scale);
+	}
+
+	re.Font_DrawString(x, y, text, colorTable[CT_BLACK], s_spEfLoadingAssets.tinyFont, -1, scale);
+}
+
+static qboolean SP_DrawEFLoadingScreen(void)
+{
+	const int x = 10;
+	const int y = 244;
+	const int stage = 0;
+
+	SP_RegisterEFLoadingAssets();
+	if (!SP_EFLoadingAssetsReady())
+	{
+#ifdef _XBOX
+		XBLog_Write("SPL: EF loading assets missing; JA LoadSP fallback removed");
+#endif
+		return qfalse;
+	}
+
+#ifdef _XBOX
+	XBLF("SPL: drawing EF LCARS load screen from menu/loading assets stage=%d", stage);
+#endif
+
+	re.SetColor(colorTable[CT_BLACK]);
+	re.DrawStretchPic(0, 0, 640, 480, 0, 0, 0, 0, s_spEfLoadingAssets.white);
+
+	SP_DrawEFLoadingPicStage(x + 18, y + 102, 128, 64, s_spEfLoadingAssets.piece[0], stage, 1, CT_VDKPURPLE3, CT_VLTPURPLE3);
+	SP_DrawEFLoadingPicStage(x,      y + 37,   64, 64, s_spEfLoadingAssets.piece[1], stage, 2, CT_VDKBLUE1, CT_VLTBLUE1);
+	SP_DrawEFLoadingPicStage(x + 17, y,       128, 64, s_spEfLoadingAssets.piece[2], stage, 3, CT_VDKPURPLE1, CT_LTPURPLE1);
+	SP_DrawEFLoadingPicStage(x + 99, y,       128,128, s_spEfLoadingAssets.piece[3], stage, 4, CT_VDKPURPLE2, CT_LTPURPLE2);
+	SP_DrawEFLoadingPicStage(x +137, y + 81,   64, 64, s_spEfLoadingAssets.piece[4], stage, 5, CT_VDKBLUE2, CT_VLTBLUE2);
+	SP_DrawEFLoadingPicStage(x + 45, y + 99,  128, 64, s_spEfLoadingAssets.piece[5], stage, 6, CT_VDKORANGE, CT_LTORANGE);
+	SP_DrawEFLoadingPicStage(x + 38, y + 24,   64,128, s_spEfLoadingAssets.piece[6], stage, 7, CT_VDKBLUE2, CT_LTBLUE2);
+	SP_DrawEFLoadingPicStage(x + 78, y + 20,  128, 64, s_spEfLoadingAssets.piece[7], stage, 8, CT_VDKPURPLE1, CT_LTPURPLE1);
+	SP_DrawEFLoadingPicStage(x +112, y + 66,   64,128, s_spEfLoadingAssets.piece[8], stage, 9, CT_VDKBROWN1, CT_VLTBROWN1);
+	SP_DrawEFLoadingPicStage(x + 62, y + 44,  128,128, s_spEfLoadingAssets.circle, stage, 9, CT_DKBLUE2, CT_LTBLUE2);
+
+	SP_DrawEFLoadingPic(x +  61, y + 43,  32,  32, s_spEfLoadingAssets.quarter, CT_DKPURPLE2);
+	SP_DrawEFLoadingPic(x + 135, y + 43, -32,  32, s_spEfLoadingAssets.quarter, CT_DKPURPLE2);
+	SP_DrawEFLoadingPic(x + 135, y +117, -32, -32, s_spEfLoadingAssets.quarter, CT_DKPURPLE2);
+	SP_DrawEFLoadingPic(x +  61, y +117,  32, -32, s_spEfLoadingAssets.quarter, CT_DKPURPLE2);
+
+	s_spEfLoadingPulse++;
+	if (s_spEfLoadingPulse > 3)
+	{
+		s_spEfLoadingPulse = 0;
+	}
+
+	switch (s_spEfLoadingPulse)
+	{
+	case 0:
+		SP_DrawEFLoadingPic(x +  61, y + 43,  32,  32, s_spEfLoadingAssets.quarter, CT_LTPURPLE2);
+		break;
+	case 1:
+		SP_DrawEFLoadingPic(x + 135, y + 43, -32,  32, s_spEfLoadingAssets.quarter, CT_LTPURPLE2);
+		break;
+	case 2:
+		SP_DrawEFLoadingPic(x + 135, y +117, -32, -32, s_spEfLoadingAssets.quarter, CT_LTPURPLE2);
+		break;
+	default:
+		SP_DrawEFLoadingPic(x +  61, y +117,  32, -32, s_spEfLoadingAssets.quarter, CT_LTPURPLE2);
+		break;
+	}
+
+	SP_DrawEFLoadingText(x +  21, y + 150, "0987", 0);
+	SP_DrawEFLoadingText(x +   3, y +  90, "18", 0);
+	SP_DrawEFLoadingText(x +  24, y +  20, "7", 0);
+	SP_DrawEFLoadingText(x +  93, y +   5, "51", SP_EF_LOAD_TEXT_RIGHT);
+	SP_DrawEFLoadingText(x + 103, y +   5, "35", 0);
+	SP_DrawEFLoadingText(x + 165, y +  83, "21", 0);
+	SP_DrawEFLoadingText(x + 101, y + 149, "67", 0);
+	SP_DrawEFLoadingText(x + 123, y +  36, "8", 0);
+	SP_DrawEFLoadingText(x +  90, y +  65, "1", SP_EF_LOAD_TEXT_RIGHT);
+	SP_DrawEFLoadingText(x + 105, y +  65, "2", 0);
+	SP_DrawEFLoadingText(x + 105, y +  87, "3", 0);
+	SP_DrawEFLoadingText(x +  91, y +  87, "4", SP_EF_LOAD_TEXT_RIGHT);
+
+	re.SetColor(NULL);
+	return qtrue;
+}
+
 /*********
 SP_DisplayIntros
 Draws intro movies to the screen
@@ -33,7 +246,10 @@ Draws intro movies to the screen
 void SP_DisplayLogos(void)
 {
 	if( !Sys_QuickStart() )
-		CIN_PlayAllFrames( "logos", 0, 0, 640, 480, 0, true );
+	{
+		CIN_PlayAllFrames( "eflogo", 0, 0, 640, 480, 0, true );
+		CIN_PlayAllFrames( "intro", 0, 0, 640, 480, 0, true );
+	}
 }
 
 /*********
@@ -406,42 +622,11 @@ void SP_DoLicense(void)
 	XBLog_Write("SPL: Sys_QuickStart false\n");
 #endif
 
-	// Load the license screen
-	void *license;
-	extern const char *Sys_RemapPath( const char *filename );
 #ifdef _XBOX
-	XBLog_Write("SPL: calling Sys_RemapPath...\n");
+	XBLog_Write("SPL: EF movies own intro; standalone legacy license screen removed\n");
 #endif
-	const char *path = Sys_RemapPath( "base\\media\\LicenseScreen" );
-#ifdef _XBOX
-	{ char b[160]; _snprintf(b, sizeof(b), "SPL: Sys_RemapPath -> '%s'\n", path ? path : "(null)"); b[sizeof(b)-1]=0; XBLog_Write(b); }
-	XBLog_Write("SPL: calling SP_LoadFileWithLanguage...\n");
-#endif
-	license = SP_LoadFileWithLanguage( path );
-#ifdef _XBOX
-	{ char b[80]; _snprintf(b, sizeof(b), "SPL: SP_LoadFileWithLanguage -> %p\n", license); b[sizeof(b)-1]=0; XBLog_Write(b); }
-#endif
-
-	if (license)
-	{
-#ifdef _XBOX
-		XBLog_Write("SPL: calling SP_DrawTexture(license, 512, 512, 0)...\n");
-		SP_SetDrawTextureContext("LicenseScreen");
-#endif
-		SP_DrawTexture(license, 512, 512, 0);
-#ifdef _XBOX
-		XBLog_Write("SPL: SP_DrawTexture returned, calling Z_Free\n");
-#endif
-		Z_Free(license);
-	}
-#ifdef _XBOX
-	XBLog_Write("SPL: setting SP_LicenseDone = true\n");
-#endif
-
 	SP_LicenseDone = true;
-#ifdef _XBOX
-	XBLog_Write("SPL: SP_DoLicense done\n");
-#endif
+	return;
 }
 
 /*
@@ -476,15 +661,14 @@ void SP_DrawSPLoadScreen( void )
 	XBLog_Write("SPL: SP_DrawSPLoadScreen entry\n");
 	SP_SetDrawTextureContext("LoadSP");
 #endif
-	// Load the texture:
-	extern const char *Sys_RemapPath( const char *filename );
-	void *image = SP_LoadFileWithLanguage( Sys_RemapPath("base\\media\\LoadSP") );
-
-	if( image )
+	if (SP_DrawEFLoadingScreen())
 	{
-		SP_DrawTexture(image, 512, 512, 0);
-		Z_Free(image);
+		return;
 	}
+#ifdef _XBOX
+	XBLog_Write("SPL: EF LCARS load screen unavailable; JA LoadSP fallback removed");
+#endif
+	return;
 }
 
 /*

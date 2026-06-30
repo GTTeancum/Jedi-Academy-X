@@ -39,6 +39,227 @@ static bool GetCoordsForLeaf(int leafNum, vec3_t coords)
 
 	return false;
 }
+
+static const char *R_XboxMapShaderNameForSurface( const msurface_t *surf )
+{
+	if ( !surf || !tr.world || surf->xboxDebugShaderNum < 0 || surf->xboxDebugShaderNum >= tr.world->numShaders )
+	{
+		return "<bad>";
+	}
+
+	return tr.world->shaders[surf->xboxDebugShaderNum].shader;
+}
+
+static void R_XboxLogWorldSurfaceSubmit( const char *result, const msurface_t *surf, int dlightBits, qboolean noViewCount )
+{
+	const shader_t *shader;
+	const char *shaderName;
+	const char *mapShaderName;
+	const char *mapName;
+	int type;
+
+	if ( !surf )
+	{
+		return;
+	}
+
+	shader = surf->shader;
+	shaderName = shader ? shader->name : "<null>";
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	mapName = tr.world ? tr.world->name : "<noworld>";
+	type = surf->data ? (int)*surf->data : -1;
+
+	XBLF("STEFX_SURFACE_SUBMIT result='%s' map='%s' frame=%d view=%d ent=%d code=%d shaderNum=%d mapName='%s' resolved='%s' type=%d fog=%d dlight=0x%x noView=%d draw=%d sky=%d sort=%g default=%d explicit=%d passes=%d boundsMin=%g,%g,%g boundsMax=%g,%g,%g viewOrg=%g,%g,%g",
+		result ? result : "<null>",
+		mapName,
+		tr.frameCount,
+		tr.viewCount,
+		tr.currentEntityNum,
+		surf->xboxDebugCode,
+		surf->xboxDebugShaderNum,
+		mapShaderName,
+		shaderName,
+		type,
+		surf->fogIndex,
+		dlightBits,
+		(int)noViewCount,
+		tr.refdef.numDrawSurfs,
+		(int)(shader && shader->sky != NULL),
+		shader ? (double)shader->sort : -1.0,
+		shader ? shader->defaultShader : -1,
+		shader ? shader->explicitlyDefined : -1,
+		shader ? shader->numUnfoggedPasses : -1,
+		(double)surf->xboxDebugMins[0],
+		(double)surf->xboxDebugMins[1],
+		(double)surf->xboxDebugMins[2],
+		(double)surf->xboxDebugMaxs[0],
+		(double)surf->xboxDebugMaxs[1],
+		(double)surf->xboxDebugMaxs[2],
+		(double)tr.refdef.vieworg[0],
+		(double)tr.refdef.vieworg[1],
+		(double)tr.refdef.vieworg[2]);
+}
+
+static qboolean R_XboxTraceJunkSkySurface( const msurface_t *surf )
+{
+	const char *mapShaderName;
+	const char *resolvedName;
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
+	return ( strstr( mapShaderName, "textures/common/junk_sky" ) ||
+			 strstr( resolvedName, "textures/common/junk_sky" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
+{
+	int i;
+	msurface_t **mark;
+
+	if ( firstCode )
+	{
+		*firstCode = -1;
+	}
+	if ( firstShaderNum )
+	{
+		*firstShaderNum = -1;
+	}
+	if ( !leaf || !tr.world || !tr.world->marksurfaces )
+	{
+		return qfalse;
+	}
+
+	if ( leaf->firstMarkSurfNum < 0 ||
+		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+	{
+		return qfalse;
+	}
+
+	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+	for ( i = 0; i < leaf->nummarksurfaces; ++i )
+	{
+		msurface_t *surf = mark[i];
+		if ( R_XboxTraceJunkSkySurface( surf ) )
+		{
+			if ( firstCode )
+			{
+				*firstCode = surf->xboxDebugCode;
+			}
+			if ( firstShaderNum )
+			{
+				*firstShaderNum = surf->xboxDebugShaderNum;
+			}
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static void R_XboxLogJunkSkyLeafVisibility( const char *phase, const byte *vis )
+{
+	static int s_junkLeafSummaryBudget = 24;
+	static int s_junkLeafDetailBudget = 96;
+	int i;
+	int junkLeafs = 0;
+	int visibleJunkLeafs = 0;
+	int pvsRejected = 0;
+	int areaRejected = 0;
+	int clusterRejected = 0;
+
+	if ( !tr.world || !tr.world->leafs || !tr.world->marksurfaces )
+	{
+		return;
+	}
+
+	for ( i = 0; i < tr.world->numleafs; ++i )
+	{
+		mleaf_s *leaf = &tr.world->leafs[i];
+		int firstCode = -1;
+		int firstShaderNum = -1;
+		int pvsVisible = 1;
+		int areaMasked = 0;
+		qboolean hasJunk = R_XboxLeafHasJunkSkySurface( leaf, &firstCode, &firstShaderNum );
+
+		if ( !hasJunk )
+		{
+			continue;
+		}
+
+		++junkLeafs;
+
+		if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
+		{
+			pvsVisible = 0;
+			++clusterRejected;
+		}
+		else if ( vis )
+		{
+			pvsVisible = (vis[leaf->cluster >> 3] & (1 << (leaf->cluster & 7))) ? 1 : 0;
+			if ( !pvsVisible )
+			{
+				++pvsRejected;
+			}
+		}
+
+		if ( leaf->area >= 0 &&
+			(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
+		{
+			areaMasked = 1;
+			++areaRejected;
+		}
+
+		if ( leaf->visframe == tr.visCount )
+		{
+			++visibleJunkLeafs;
+		}
+
+		if ( s_junkLeafDetailBudget > 0 )
+		{
+			XBLF("STEFX_JUNK_LEAF phase='%s' leaf=%d cluster=%d area=%d marks=%d firstMark=%d visframe=%d visCount=%d pvs=%d areaMasked=%d firstCode=%d shaderNum=%d viewOrg=%g,%g,%g",
+				phase ? phase : "<null>",
+				i,
+				leaf->cluster,
+				leaf->area,
+				leaf->nummarksurfaces,
+				leaf->firstMarkSurfNum,
+				leaf->visframe,
+				tr.visCount,
+				pvsVisible,
+				areaMasked,
+				firstCode,
+				firstShaderNum,
+				tr.refdef.vieworg[0],
+				tr.refdef.vieworg[1],
+				tr.refdef.vieworg[2]);
+			--s_junkLeafDetailBudget;
+		}
+	}
+
+	if ( s_junkLeafSummaryBudget > 0 && junkLeafs > 0 )
+	{
+		XBLF("STEFX_JUNK_LEAF_SUMMARY phase='%s' map='%s' cluster=%d visCount=%d junkLeafs=%d visible=%d pvsRejected=%d areaRejected=%d clusterRejected=%d rootVis=%d viewOrg=%g,%g,%g",
+			phase ? phase : "<null>",
+			tr.world->name,
+			tr.viewCluster,
+			tr.visCount,
+			junkLeafs,
+			visibleJunkLeafs,
+			pvsRejected,
+			areaRejected,
+			clusterRejected,
+			(tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+			tr.refdef.vieworg[0],
+			tr.refdef.vieworg[1],
+			tr.refdef.vieworg[2]);
+		--s_junkLeafSummaryBudget;
+	}
+}
 #endif
 
 /*
@@ -324,8 +545,19 @@ void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount )
 static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse ) {
 #endif
 #ifdef _XBOX
-	static int s_xboxWorldAddLogBudget = 64;
-	static int s_xboxWorldCullLogBudget = 32;
+	static int s_xboxWorldAddLogBudget = 16;
+	static int s_xboxWorldCullLogBudget = 8;
+	static int s_xboxWorldTraceAddBudget = 0;
+	static int s_xboxWorldTraceCullBudget = 0;
+	static int s_xboxJunkSkyWorldBudget = 32;
+	static int s_xboxJunkSkyDrawBoundaryBudget = 32;
+	const qboolean traceJunkSky = R_XboxTraceJunkSkySurface( surf );
+
+	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "enter", surf, dlightBits, noViewCount );
+		--s_xboxJunkSkyWorldBudget;
+	}
 #endif
 	/*
 	if ( surf->viewCount == tr.viewCount ) {
@@ -340,6 +572,13 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	{
 		if ( surf->viewCount == tr.viewCount ) 
 		{
+#ifdef _XBOX
+			if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+			{
+				R_XboxLogWorldSurfaceSubmit( "already", surf, dlightBits, noViewCount );
+				--s_xboxJunkSkyWorldBudget;
+			}
+#endif
 			// already in this view, but lets make sure all the dlight bits are set
 			if ( *surf->data == SF_FACE ) 
 			{
@@ -365,6 +604,16 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	// try to cull before dlighting or adding
 	if ( R_CullSurface( surf->data, surf->shader ) ) {
 #ifdef _XBOX
+		if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+		{
+			R_XboxLogWorldSurfaceSubmit( "culled-junk-sky", surf, dlightBits, noViewCount );
+			--s_xboxJunkSkyWorldBudget;
+		}
+		if (s_xboxWorldTraceCullBudget > 0)
+		{
+			R_XboxLogWorldSurfaceSubmit( "culled", surf, dlightBits, noViewCount );
+			--s_xboxWorldTraceCullBudget;
+		}
 		if (s_xboxWorldCullLogBudget > 0)
 		{
 			XBLF("JA: R_AddWorldSurface culled shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x",
@@ -381,6 +630,16 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	}
 
 #ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "add-junk-sky", surf, dlightBits, noViewCount );
+		--s_xboxJunkSkyWorldBudget;
+	}
+	if (s_xboxWorldTraceAddBudget > 0)
+	{
+		R_XboxLogWorldSurfaceSubmit( "add", surf, dlightBits, noViewCount );
+		--s_xboxWorldTraceAddBudget;
+	}
 	if (s_xboxWorldAddLogBudget > 0)
 	{
 		XBLF("JA: R_AddWorldSurface add shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d drawBefore=%d",
@@ -407,7 +666,31 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 		dlightBits = ( dlightBits != 0 );
 	}
 
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyDrawBoundaryBudget > 0 )
+	{
+		XBLF("STEFX_SURFACE_SUBMIT result='before-drawsurf' map='%s' code=%d shader='%s' drawBefore=%d fog=%d dlight=0x%x",
+			tr.world ? tr.world->name : "<noworld>",
+			surf->xboxDebugCode,
+			surf->shader ? surf->shader->name : "<null>",
+			tr.refdef.numDrawSurfs,
+			surf->fogIndex,
+			dlightBits);
+		--s_xboxJunkSkyDrawBoundaryBudget;
+	}
+#endif
 	R_AddDrawSurf( surf->data, surf->shader, surf->fogIndex, dlightBits );
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyDrawBoundaryBudget > 0 )
+	{
+		XBLF("STEFX_SURFACE_SUBMIT result='after-drawsurf' map='%s' code=%d shader='%s' drawAfter=%d",
+			tr.world ? tr.world->name : "<noworld>",
+			surf->xboxDebugCode,
+			surf->shader ? surf->shader->name : "<null>",
+			tr.refdef.numDrawSurfs);
+		--s_xboxJunkSkyDrawBoundaryBudget;
+	}
+#endif
 } 
 
 /*
@@ -1026,6 +1309,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				leaf ? leaf->visframe : -1);
 			--s_xboxMarkLeavesSameLogBudget;
 		}
+		R_XboxLogJunkSkyLeafVisibility( "same-cluster", NULL );
 #endif
 		return;
 	}
@@ -1055,6 +1339,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				leaf ? leaf->visframe : -1);
 			--s_xboxMarkLeavesLogBudget;
 		}
+		R_XboxLogJunkSkyLeafVisibility( "all-visible", NULL );
 #endif
 		return;
 	}
@@ -1135,6 +1420,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				leafOverride ? leafOverride->visframe : -1);
 			--s_xboxMarkLeavesLogBudget;
 		}
+		R_XboxLogJunkSkyLeafVisibility( "marked", vis );
 	}
 #endif
 }

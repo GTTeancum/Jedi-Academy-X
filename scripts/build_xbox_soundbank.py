@@ -8,7 +8,7 @@ import json
 import shutil
 import struct
 import subprocess
-import tempfile
+import os
 import zlib
 from pathlib import Path
 
@@ -72,8 +72,7 @@ def find_default_encoder() -> Path | None:
     return Path(found) if found else None
 
 
-def encode_xbadpcm(source: Path, encoded_root: Path, encoder: Path) -> Path:
-    out_path = encoded_root / source.name
+def encode_xbadpcm(source: Path, out_path: Path, encoder: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     info = read_wave_info(source)
@@ -127,15 +126,29 @@ def build_soundbank(base_dir: Path, encoding: str, encoder: Path | None) -> dict
         if encoder is None or not encoder.exists():
             raise RuntimeError("xbadpcm encoding requested, but xbadpcmencode.exe was not found")
 
+    temp_root = base_dir.parent / "tmp" / "soundbank"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    for stale in temp_root.glob("stefx_xbadpcm_*"):
+        try:
+            if stale.is_dir():
+                shutil.rmtree(stale, ignore_errors=True)
+            else:
+                stale.unlink()
+        except OSError:
+            pass
+
     with bank_path.open("wb") as bank:
-        with tempfile.TemporaryDirectory(prefix="stefx_xbadpcm_") as temp_dir:
-            encoded_root = Path(temp_dir)
+        encoded_root = temp_root / ("stefx_xbadpcm_%d" % os.getpid())
+        shutil.rmtree(encoded_root, ignore_errors=True)
+        encoded_root.mkdir(parents=True, exist_ok=True)
+        temp_name = str(encoded_root)
+        try:
             for source in wavs:
                 qpath = normalized_qpath(source.relative_to(base_dir))
                 original_bytes += source.stat().st_size
                 bank_source = source
                 if encoding == "xbadpcm":
-                    bank_source = encode_xbadpcm(source, encoded_root / str(len(records)), encoder)
+                    bank_source = encode_xbadpcm(source, encoded_root / ("%06d_%s" % (len(records), source.name)), encoder)
                     if read_wave_format_tag(bank_source) == 0x0069:
                         encoded_count += 1
                     else:
@@ -146,7 +159,8 @@ def build_soundbank(base_dir: Path, encoding: str, encoder: Path | None) -> dict
                 records.append((code, offset, len(data), 0, qpath))
                 bank.write(data)
                 offset += len(data)
-
+        finally:
+            shutil.rmtree(temp_name, ignore_errors=True)
     records.sort(key=lambda item: item[0])
     with table_path.open("wb") as table:
         for code, sound_offset, size, flags, _qpath in records:
@@ -211,3 +225,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+
+

@@ -212,6 +212,8 @@ static qboolean R_XboxTraceShaderName( const char *name )
 {
 	return ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ||
 		strstr( name, "gfx/mp/f_icon" ) ||
+		!Q_stricmp( name, "textures/borg/borgsky" ) ||
+		!Q_stricmp( name, "textures/borg/xpanelb" ) ||
 		!Q_stricmp( name, "textures/common/70yearjourney" ) ||
 		!Q_stricmp( name, "textures/common/enemyspace" ) ||
 		!Q_stricmp( name, "textures/common/sevenspace" ) ||
@@ -242,7 +244,7 @@ static void ClearGlobalShader(void)
 		stages[i].bundle[0].texMods = texMods[i];
 		stages[i].mGLFogColorOverride = GLFOGOVERRIDE_NONE;
 	}
-	shader.contentFlags = CONTENTS_SOLID | CONTENTS_OPAQUE;
+	shader.contentFlags = CONTENTS_SOLID;
 }
 
 
@@ -318,12 +320,19 @@ shader_t *R_FindShaderByName( const char *name ) {
 	return tr.defaultShader;
 }
 
-/*
 void R_RemapShader(const char *shaderName, const char *newShaderName, const char *timeOffset) {
 	char		strippedName[MAX_QPATH];
 	int			hash;
 	shader_t	*sh, *sh2;
 	qhandle_t	h;
+	int			remapCount;
+
+#ifdef _XBOX
+	XBLF("STEFX_REMAP_REQUEST old='%s' new='%s' time='%s'",
+		shaderName ? shaderName : "<null>",
+		newShaderName ? newShaderName : "<null>",
+		timeOffset ? timeOffset : "<null>");
+#endif
 
 	sh = R_FindShaderByName( shaderName );
 	if (sh == NULL || sh == tr.defaultShader) {
@@ -350,6 +359,7 @@ void R_RemapShader(const char *shaderName, const char *newShaderName, const char
 	// even tho they might have different lightmaps
 	COM_StripExtension( shaderName, strippedName );
 	hash = generateHashValue(strippedName);
+	remapCount = 0;
 	for (sh = sh_hashTable[hash]; sh; sh = sh->next) {
 		if (Q_stricmp(sh->name, strippedName) == 0) {
 			if (sh != sh2) {
@@ -357,13 +367,23 @@ void R_RemapShader(const char *shaderName, const char *newShaderName, const char
 			} else {
 				sh->remappedShader = NULL;
 			}
+			remapCount++;
 		}
 	}
 	if (timeOffset) {
 		sh2->timeOffset = atof(timeOffset);
 	}
+#ifdef _XBOX
+	XBLF("STEFX_REMAP_APPLIED old='%s' new='%s' count=%d newDefault=%d newPasses=%d newSort=%d timeOffset=%g",
+		strippedName,
+		sh2 ? sh2->name : "<null>",
+		remapCount,
+		sh2 == tr.defaultShader,
+		sh2 ? sh2->numUnfoggedPasses : -1,
+		sh2 ? sh2->sort : -1,
+		sh2 ? sh2->timeOffset : 0.0f);
+#endif
 }
-*/
 
 /*
 ===============
@@ -2194,6 +2214,9 @@ static void ParseSkyParms( const char **text ) {
 	const char	*suf[6] = {"rt", "lf", "bk", "ft", "up", "dn"};
 	char		pathname[MAX_QPATH];
 	int			i;
+#ifdef _XBOX
+	qboolean	traceXboxSky = (strstr(shader.name, "textures/common/junk_sky") != NULL);
+#endif
 
 	shader.sky = (skyParms_t *)Hunk_Alloc( sizeof( skyParms_t ), qtrue );
 
@@ -2204,6 +2227,12 @@ static void ParseSkyParms( const char **text ) {
 		return;
 	}
 	if ( strcmp( token, "-" ) ) {
+#ifdef _XBOX
+		if (traceXboxSky)
+		{
+			XBLF("STEFX_SKY_PARMS shader='%s' outer='%s'", shader.name, token);
+		}
+#endif
 		for (i=0 ; i<6 ; i++) {
 			Com_sprintf( pathname, sizeof(pathname), "%s_%s", token, suf[i] );
 			shader.sky->outerbox[i] = R_FindImageFile( ( char * ) pathname, qtrue, qtrue, 0, GL_CLAMP );
@@ -2214,6 +2243,19 @@ static void ParseSkyParms( const char **text ) {
 					shader.sky->outerbox[i] = tr.defaultImage;
 				}
 			}
+#ifdef _XBOX
+			if (traceXboxSky)
+			{
+				XBLF("STEFX_SKY_PARMS face=%d path='%s' image='%s' wh=%dx%d tex=%d fallback=%d",
+					i,
+					pathname,
+					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->imgName : "<null>",
+					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->width : 0,
+					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->height : 0,
+					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->texnum : -1,
+					(int)(shader.sky->outerbox[i] == tr.defaultImage));
+			}
+#endif
 		}
 	}
 
@@ -2300,22 +2342,22 @@ typedef struct {
 const infoParm_t	infoParms[] = {
 	// Game content Flags
 	{"nonsolid", 	~CONTENTS_SOLID,	0, 				0 },						// special hack to clear solid flag
-	{"nonopaque", 	~CONTENTS_OPAQUE,	0, 				0 },						// special hack to clear opaque flag
+	{"nonopaque", 	-1,					0, 				0 },
 	{"lava",		~CONTENTS_SOLID,	0,				CONTENTS_LAVA },			// very damaging
 	{"slime",		~CONTENTS_SOLID,	0,				CONTENTS_SLIME },			// mildly damaging
 	{"water",		~CONTENTS_SOLID,	0,				CONTENTS_WATER },
 	{"fog",			~CONTENTS_SOLID,	0,				CONTENTS_FOG},				// carves surfaces entering
 	{"shotclip",	~CONTENTS_SOLID,	0,				CONTENTS_SHOTCLIP },		/* block shots, but not people */
-	{"playerclip",	~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_PLAYERCLIP },	   	/* block only the player */ 
-	{"monsterclip",	~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_MONSTERCLIP },		
-	{"botclip",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_BOTCLIP },		   	/* NPC do not enter */															
-	{"trigger",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_TRIGGER },
-	{"nodrop",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_NODROP },			// don't drop items or leave bodies (death fog, lava, etc)
-	{"terrain",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_TERRAIN },		   	/* use special terrain collsion */										
-	{"ladder",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_LADDER },			// climb up in it like water
-	{"abseil",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_ABSEIL },			// can abseil down this brush
-	{"outside",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_OUTSIDE },			// volume is considered to be in the outside (i.e. not indoors)
-	{"inside",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_INSIDE },			// volume is considered to be inside (i.e. indoors)
+	{"playerclip",	~CONTENTS_SOLID,	0,				CONTENTS_PLAYERCLIP },	   	/* block only the player */
+	{"monsterclip",	~CONTENTS_SOLID,	0,				CONTENTS_MONSTERCLIP },
+	{"botclip",		~CONTENTS_SOLID,	0,				CONTENTS_BOTCLIP },		   	/* NPC do not enter */
+	{"trigger",		~CONTENTS_SOLID,	0,				CONTENTS_TRIGGER },
+	{"nodrop",		~CONTENTS_SOLID,	0,				CONTENTS_NODROP },			// don't drop items or leave bodies (death fog, lava, etc)
+	{"terrain",		-1,					0,				0 },
+	{"ladder",		~CONTENTS_SOLID,	0,				CONTENTS_LADDER },			// climb up in it like water
+	{"abseil",		-1,					0,				0 },
+	{"outside",		-1,					0,				0 },
+	{"inside",		-1,					0,				0 },
 																		
 	{"detail",		-1,					0,				CONTENTS_DETAIL },			// don't include in structural bsp
 	{"trans",		-1,					0,				CONTENTS_TRANSLUCENT },		// surface has an alpha component
@@ -2331,9 +2373,9 @@ const infoParm_t	infoParms[] = {
 	{"nosteps",		-1,					SURF_NOSTEPS,	0 },
 	{"nodlight",	-1,					SURF_NODLIGHT,	0 },					   	/* don't ever add dynamic lights */
 	{"metalsteps",	-1,					SURF_METALSTEPS,0 },
-	{"nomiscents",	-1,					SURF_NOMISCENTS,0 },						/* No misc ents on this surface */
+	{"nomiscents",	-1,					0,				0 },
 	{"forcefield",	-1,					SURF_FORCEFIELD,0 },
-	{"forcesight",	-1,					SURF_FORCESIGHT,0 },						// only visible with force sight
+	{"forcesight",	-1,					0,				0 },
 };
 
 
@@ -2365,30 +2407,14 @@ static void ParseSurfaceParm( const char **text ) {
 ParseMaterial
 =================
 */
-const char *materialNames[MATERIAL_LAST] =
-{
-	MATERIALS
-};
-
 static void ParseMaterial( const char **text ) 
 {
 	char	*token;
-	int		i;
 
 	token = COM_ParseExt( text, qfalse );
 	if ( token[0] == 0 ) 
 	{
 		Com_Printf( S_COLOR_YELLOW "WARNING: missing material in shader '%s'\n", shader.name );
-		return;
-	}
-	for(i = 0; i < MATERIAL_LAST; i++)
-	{
-		if ( !stricmp( token, materialNames[i] ) ) 
-		{
-			shader.surfaceFlags &= ~MATERIAL_MASK;//safety, clear it first
-			shader.surfaceFlags |= i;
-			break;
-		}
 	}
 }
 
@@ -3635,18 +3661,6 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 */
 	lightmapIndex = R_FindLightmap(lightmapIndex);
 	shaderText = FindShaderInShaderText( strippedName );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( !shaderText && lightmapIndex[0] >= 0 && strstr( strippedName, "sky" ) )
-	{
-		static int s_stefxImplicitSkyFullbrightBudget = 24;
-		if ( s_stefxImplicitSkyFullbrightBudget > 0 )
-		{
-			XBLF("STEFX: implicit EF sky fullbright shader='%s' oldLm=%d", strippedName, lightmapIndex[0]);
-			--s_stefxImplicitSkyFullbrightBudget;
-		}
-		lightmapIndex = lightmapsFullBright;
-	}
-#endif
 #ifdef _XBOX
 	if ( probeShader ) {
 		XBLF("R_FindShader: stripped='%s'\n", strippedName);

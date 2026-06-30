@@ -49,6 +49,122 @@ static const char *STEFX_BrushMoverName( const centity_t *cent )
 	}
 	return "<brush-mover>";
 }
+
+static qboolean STEFX_IsPlayerState( const entityState_t *state )
+{
+	return ( state && state->eType == ET_PLAYER );
+}
+
+static void STEFX_LogCgamePlayerEntity( const char *phase, int snapIndex, const centity_t *cent )
+{
+	static int s_stefxCgamePlayerBudget = 384;
+	const gentity_t *gent;
+	const char *classname;
+	const char *npcType;
+	const char *clientName;
+	const char *renderModel;
+
+	if ( !cent || !STEFX_IsPlayerState( &cent->currentState ) || s_stefxCgamePlayerBudget <= 0 )
+	{
+		return;
+	}
+
+	gent = cent->gent;
+	classname = "<null>";
+	npcType = "<null>";
+	clientName = "<no-client>";
+	renderModel = "<no-client>";
+	if ( gent )
+	{
+		if ( gent->classname && gent->classname[0] )
+		{
+			classname = gent->classname;
+		}
+		if ( gent->NPC_type && gent->NPC_type[0] )
+		{
+			npcType = gent->NPC_type;
+		}
+		if ( gent->client )
+		{
+			clientName = gent->client->clientInfo.name;
+			renderModel = gent->client->renderInfo.modelName;
+		}
+	}
+
+	XBLF("STEFX: EF CG_CENTITY_PLAYER %s snapIndex=%d ent=%d clientNum=%d class='%s' npc='%s' ci='%s' renderModel='%s' currentValid=%d interpolate=%d eFlags=0x%x weapon=%d model=%d model2=%d origin=(%g,%g,%g) lerp=(%g,%g,%g) gent=%p client=%p",
+		phase,
+		snapIndex,
+		cent->currentState.number,
+		cent->currentState.clientNum,
+		classname,
+		npcType,
+		clientName ? clientName : "<null>",
+		renderModel ? renderModel : "<null>",
+		cent->currentValid,
+		cent->interpolate,
+		cent->currentState.eFlags,
+		cent->currentState.weapon,
+		cent->currentState.modelindex,
+		cent->currentState.modelindex2,
+		cent->currentState.origin[0], cent->currentState.origin[1], cent->currentState.origin[2],
+		cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2],
+		gent,
+		gent ? gent->client : NULL);
+	--s_stefxCgamePlayerBudget;
+}
+
+static void STEFX_LogPacketPlayerDirect( int snapIndex, const entityState_t *snapState, const centity_t *cent )
+{
+	static int s_stefxPacketPlayerDirectBudget = 192;
+	const gentity_t *gent;
+	const char *npcType;
+	const char *clientName;
+	const char *renderModel;
+
+	if ( !snapState || snapState->eType != ET_PLAYER || s_stefxPacketPlayerDirectBudget <= 0 )
+	{
+		return;
+	}
+
+	gent = cent ? cent->gent : NULL;
+	npcType = "<null>";
+	clientName = "<no-client>";
+	renderModel = "<no-client>";
+	if ( gent )
+	{
+		if ( gent->NPC_type && gent->NPC_type[0] )
+		{
+			npcType = gent->NPC_type;
+		}
+		if ( gent->client )
+		{
+			clientName = gent->client->clientInfo.name;
+			renderModel = gent->client->renderInfo.modelName;
+		}
+	}
+
+	XBLF("STEFX: EF CG_PACKET_PLAYER_DIRECT snapIndex=%d snapEnt=%d snapType=%d snapClient=%d centEnt=%d centType=%d centClient=%d currentValid=%d nextState=%p gent=%p client=%p npc='%s' ci='%s' renderModel='%s' snapModel=%d snapSkin=%d centModel=%d centSkin=%d voiceByClient=%d",
+		snapIndex,
+		snapState->number,
+		snapState->eType,
+		snapState->clientNum,
+		cent ? cent->currentState.number : -1,
+		cent ? cent->currentState.eType : -1,
+		cent ? cent->currentState.clientNum : -1,
+		cent ? cent->currentValid : 0,
+		cent ? cent->nextState : NULL,
+		gent,
+		gent ? gent->client : NULL,
+		npcType,
+		clientName ? clientName : "<null>",
+		renderModel ? renderModel : "<null>",
+		snapState->modelindex,
+		snapState->modelindex2,
+		cent ? cent->currentState.modelindex : -1,
+		cent ? cent->currentState.modelindex2 : -1,
+		(gent && gent->s.clientNum >= 0 && gent->s.clientNum < MAX_GENTITIES) ? gi.S_Override[gent->s.clientNum] : -999);
+	--s_stefxPacketPlayerDirectBudget;
+}
 #endif
 
 /*
@@ -2562,12 +2678,12 @@ CG_AddCEntity
 static void CG_AddCEntity( centity_t *cent ) 
 {
 #ifdef _XBOX
-	static int s_xboxAddCEntityTraceBudget = 0;
+	static int s_xboxAddCEntityTraceBudget = 384;
 	const qboolean xboxTraceEnt = (s_xboxAddCEntityTraceBudget > 0 && cent != NULL &&
 		(cent->currentState.number == 0 || cent->currentState.eType == ET_MOVER || cent->currentState.eType == ET_PLAYER));
 	if ( xboxTraceEnt )
 	{
-		XBLF("JA: CG_AddCEntity enter ent=%d type=%d gent=%p valid=%d currentValid=%d weapon=%d",
+		XBLF("STEFX: EF CG_AddCEntity enter ent=%d type=%d gent=%p valid=%d currentValid=%d weapon=%d",
 			cent ? cent->currentState.number : -1,
 			cent ? cent->currentState.eType : -1,
 			cent ? cent->gent : NULL,
@@ -2576,7 +2692,7 @@ static void CG_AddCEntity( centity_t *cent )
 			cent ? cent->currentState.weapon : -1);
 		if ( cent && cent->gent && cent->gent->client )
 		{
-			XBLF("JA: CG_AddCEntity player detail ent=%d npc='%s' ci='%s' renderModel='%s' playerModel=%d ghoul2=%d modelindex=%d modelindex2=%d eFlags=0x%x sv=0x%x",
+			XBLF("STEFX: EF CG_AddCEntity player detail ent=%d npc='%s' ci='%s' renderModel='%s' playerModel=%d ghoul2=%d modelindex=%d modelindex2=%d eFlags=0x%x sv=0x%x",
 				cent->currentState.number,
 				cent->gent->NPC_type ? cent->gent->NPC_type : "<null>",
 				cent->gent->client->clientInfo.name,
@@ -2596,7 +2712,7 @@ static void CG_AddCEntity( centity_t *cent )
 #ifdef _XBOX
 		if ( xboxTraceEnt )
 		{
-			XBLF("JA: CG_AddCEntity event-only return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+			XBLF("STEFX: EF CG_AddCEntity event-only return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
 		}
 #endif
 		return;
@@ -2608,7 +2724,7 @@ static void CG_AddCEntity( centity_t *cent )
 #ifdef _XBOX
 		if ( xboxTraceEnt )
 		{
-			XBLF("JA: CG_AddCEntity no gent return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+			XBLF("STEFX: EF CG_AddCEntity no gent return ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
 		}
 #endif
 		if ( cent->currentState.eType != ET_MOVER || cent->currentState.solid != SOLID_BMODEL )
@@ -2623,14 +2739,14 @@ static void CG_AddCEntity( centity_t *cent )
 #ifdef _XBOX
 	if ( xboxTraceEnt )
 	{
-		XBLF("JA: CG_AddCEntity before lerp ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+		XBLF("STEFX: EF CG_AddCEntity before lerp ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
 	}
 #endif
 	CG_CalcEntityLerpPositions( cent );
 #ifdef _XBOX
 	if ( xboxTraceEnt )
 	{
-		XBLF("JA: CG_AddCEntity after lerp ent=%d origin=%g,%g,%g", cent->currentState.number,
+		XBLF("STEFX: EF CG_AddCEntity after lerp ent=%d origin=%g,%g,%g", cent->currentState.number,
 			cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
 	}
 #endif
@@ -2656,7 +2772,7 @@ Ghoul2 Insert Start
 				? cgs.model_draw[cent->currentState.modelindex] : -1;
 			const int skinHandle = (cent->currentState.modelindex2 >= 0 && cent->currentState.modelindex2 < MAX_CHARSKINS)
 				? cgs.skins[cent->currentState.modelindex2] : -1;
-			XBLF("JA: CG_AddCEntity before SetGhoul2ModelIndexes ent=%d ghoul2=%d playerModel=%d modelindex=%d modelHandle=%d skinIndex=%d skinHandle=%d",
+			XBLF("STEFX: EF CG_AddCEntity before SetGhoul2ModelIndexes ent=%d ghoul2=%d playerModel=%d modelindex=%d modelHandle=%d skinIndex=%d skinHandle=%d",
 				cent->currentState.number,
 				cent->gent->ghoul2.size(),
 				cent->gent->playerModel,
@@ -2670,7 +2786,7 @@ Ghoul2 Insert Start
 #ifdef _XBOX
 		if ( xboxTraceEnt )
 		{
-			XBLF("JA: CG_AddCEntity after SetGhoul2ModelIndexes ent=%d", cent->currentState.number);
+			XBLF("STEFX: EF CG_AddCEntity after SetGhoul2ModelIndexes ent=%d", cent->currentState.number);
 		}
 #endif
 	}
@@ -2692,7 +2808,13 @@ Ghoul2 Insert End
 		CG_General( cent );
 		break;
 	case ET_PLAYER:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgamePlayerEntity( "before-CG_Player", -1, cent );
+#endif
 		CG_Player( cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogCgamePlayerEntity( "after-CG_Player", -1, cent );
+#endif
 		break;
 	case ET_ITEM:
 		CG_Item( cent );
@@ -2727,7 +2849,7 @@ Ghoul2 Insert End
 #ifdef _XBOX
 	if ( xboxTraceEnt )
 	{
-		XBLF("JA: CG_AddCEntity exit ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
+		XBLF("STEFX: EF CG_AddCEntity exit ent=%d type=%d", cent->currentState.number, cent->currentState.eType);
 	}
 #endif
 }
@@ -2846,6 +2968,11 @@ void CG_AddPacketEntities( qboolean isPortal ) {
 					cent->gent);
 				--s_stefxBrushPacketBudget;
 			}
+		}
+		else if ( STEFX_IsPlayerState( &cg.snap->entities[num] ) )
+		{
+			STEFX_LogPacketPlayerDirect( num, &cg.snap->entities[num], cent );
+			STEFX_LogCgamePlayerEntity( "packet", num, cent );
 		}
 #endif
 

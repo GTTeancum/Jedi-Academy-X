@@ -81,17 +81,11 @@ int CM_PointLeafnum_r( const vec3_t p, int num, clipMap_t *local ) {
 	cNode_t		*node;
 	cplane_t	*plane;
 
-#ifdef _XBOX
-	if(!tr.world) {
-		return 0;
-	}
-#endif
-
 	while (num >= 0)
 	{
 		node = local->nodes + num;
 #ifdef _XBOX
-		plane = cmg.planes + tr.world->nodes[num].planeNum;
+		plane = cmg.planes + node->planeNum.GetValue();
 #else
 		plane = node->plane;
 #endif
@@ -200,12 +194,6 @@ void CM_BoxLeafnums_r( leafList_t *ll, int nodenum ) {
 	cNode_t		*node;
 	int			s;
 
-#ifdef _XBOX
-	if(!tr.world) {
-		return;
-	}
-#endif
-
 	while (1) {
 		if (nodenum < 0) {
 			ll->storeLeafs( ll, nodenum );
@@ -215,7 +203,7 @@ void CM_BoxLeafnums_r( leafList_t *ll, int nodenum ) {
 		node = &cmg.nodes[nodenum];
 
 #ifdef _XBOX
-		plane = cmg.planes + tr.world->nodes[nodenum].planeNum;
+		plane = cmg.planes + node->planeNum.GetValue();
 #else
 		plane = node->plane;
 #endif

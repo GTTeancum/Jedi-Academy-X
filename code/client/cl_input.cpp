@@ -59,6 +59,8 @@ static cvar_t *stefx_smokeInputEnd;
 static cvar_t *stefx_smokeInputForward;
 static cvar_t *stefx_smokeInputSide;
 static cvar_t *stefx_smokeInputYaw;
+static cvar_t *stefx_smokeViewPitch;
+static cvar_t *stefx_smokeViewYaw;
 static cvar_t *stefx_smokeInputAttackStart;
 static cvar_t *stefx_smokeInputAttackEnd;
 
@@ -122,6 +124,8 @@ static void STEFX_InitSmokeInputCvars( void )
 	stefx_smokeInputForward = Cvar_Get( "stefx_smoke_input_forward", "90", CVAR_TEMP );
 	stefx_smokeInputSide = Cvar_Get( "stefx_smoke_input_side", "0", CVAR_TEMP );
 	stefx_smokeInputYaw = Cvar_Get( "stefx_smoke_input_yaw", "0", CVAR_TEMP );
+	stefx_smokeViewPitch = Cvar_Get( "stefx_smoke_view_pitch", "9999", CVAR_TEMP );
+	stefx_smokeViewYaw = Cvar_Get( "stefx_smoke_view_yaw", "9999", CVAR_TEMP );
 	stefx_smokeInputAttackStart = Cvar_Get( "stefx_smoke_input_attack_start", "19000", CVAR_TEMP );
 	stefx_smokeInputAttackEnd = Cvar_Get( "stefx_smoke_input_attack_end", "23000", CVAR_TEMP );
 
@@ -139,6 +143,8 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	int forwardMove;
 	int sideMove;
 	int yawMove;
+	int viewPitch;
+	int viewYaw;
 	qboolean active;
 	qboolean attacking;
 
@@ -154,6 +160,33 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	forwardMove = stefx_smokeInputForward ? stefx_smokeInputForward->integer : 90;
 	sideMove = stefx_smokeInputSide ? stefx_smokeInputSide->integer : 0;
 	yawMove = stefx_smokeInputYaw ? stefx_smokeInputYaw->integer : 0;
+	viewPitch = stefx_smokeViewPitch ? stefx_smokeViewPitch->integer : 9999;
+	viewYaw = stefx_smokeViewYaw ? stefx_smokeViewYaw->integer : 9999;
+
+	if ( viewPitch != 9999 || viewYaw != 9999 )
+	{
+		if ( viewPitch != 9999 )
+		{
+			cl.viewangles[PITCH] = (float)viewPitch;
+			cmd->angles[PITCH] = ANGLE2SHORT( cl.viewangles[PITCH] );
+		}
+		if ( viewYaw != 9999 )
+		{
+			cl.viewangles[YAW] = (float)viewYaw;
+			cmd->angles[YAW] = ANGLE2SHORT( cl.viewangles[YAW] );
+		}
+		if ( s_logBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX: smoke view override serverTime=%d pitch=%d yaw=%d final=(%g,%g,%g)\n",
+				serverTime,
+				viewPitch,
+				viewYaw,
+				cl.viewangles[0],
+				cl.viewangles[1],
+				cl.viewangles[2] );
+			--s_logBudget;
+		}
+	}
 
 	active = ( serverTime >= startTime && ( endTime <= 0 || serverTime <= endTime ) );
 	if ( !active )
@@ -263,62 +296,9 @@ bool CL_ExtendSelectTime(void)
 
 static void IN_UseGivenForce(void)
 {
-	char *c = Cmd_Argv(1);
-	int forceNum=-1;
-	int genCmdNum = 0;
-
-	if(c) {
-		forceNum = atoi(c);
-	} else {
-		return;
-	}
-
-	switch(forceNum) {
-	case FP_DRAIN:
-		genCmdNum = GENCMD_FORCE_DRAIN;
-		break;
-	case FP_PUSH:
-		genCmdNum = GENCMD_FORCE_THROW;
-		break;
-	case FP_SPEED:
-		genCmdNum = GENCMD_FORCE_SPEED;
-		break;
-	case FP_PULL:
-		genCmdNum = GENCMD_FORCE_PULL;
-		break;
-	case FP_TELEPATHY:
-		genCmdNum = GENCMD_FORCE_DISTRACT;
-		break;
-	case FP_GRIP:
-		genCmdNum = GENCMD_FORCE_GRIP;
-		break;
-	case FP_LIGHTNING:
-		genCmdNum = GENCMD_FORCE_LIGHTNING;
-		break;
-	case FP_RAGE:
-		genCmdNum = GENCMD_FORCE_RAGE;
-		break;
-	case FP_PROTECT:
-		genCmdNum = GENCMD_FORCE_PROTECT;
-		break;
-	case FP_ABSORB:
-		genCmdNum = GENCMD_FORCE_ABSORB;
-		break;
-	case FP_SEE:
-		genCmdNum = GENCMD_FORCE_SEEING;
-		break;
-	case FP_HEAL:
-		genCmdNum = GENCMD_FORCE_HEAL;
-		break;
-	default:
-		assert(0);
-		break;
-	}
-
-	if(genCmdNum) {
-		cl.gcmdSendValue = qtrue;
-		cl.gcmdValue = genCmdNum;
-	}
+#ifdef _XBOX
+	XBLF("STEFX_INPUT: ignored JA useGivenForce command arg='%s'", Cmd_Argv(1));
+#endif
 }
 
 

@@ -1596,208 +1596,13 @@ typedef enum
 
 #define	MAX_POWERUPS			16
 #define	MAX_WEAPONS				32		
-#define MAX_AMMO				10		
-#define MAX_INVENTORY			15		// See INV_MAX
-#define MAX_SECURITY_KEYS		5
-#define MAX_SECURITY_KEY_MESSSAGE		24
+#define MAX_AMMO				4
 
 #define	MAX_PS_EVENTS			2		// this must be a power of 2 unless you change some &'s to %'s -ste
 
-
-#define MAX_WORLD_COORD		( 64*1024 )
-#define MIN_WORLD_COORD		( -64*1024 )
+#define MAX_WORLD_COORD		( 128*1024 )
+#define MIN_WORLD_COORD		( -128*1024 )
 #define WORLD_SIZE			( MAX_WORLD_COORD - MIN_WORLD_COORD )
-
-typedef enum
-{
-	WHL_NONE,
-	WHL_ANKLES,
-	WHL_KNEES,
-	WHL_WAIST,
-	WHL_TORSO,
-	WHL_SHOULDERS,
-	WHL_HEAD,
-	WHL_UNDER
-} waterHeightLevel_t;
-
-// !!!!!!! loadsave affecting struct !!!!!!!
-typedef struct 
-{
-	// Actual trail stuff
-	int		inAction;	// controls whether should we even consider starting one
-	int		duration;	// how long each trail seg stays in existence
-	int		lastTime;	// time a saber segement was last stored
-	vec3_t	base;
-	vec3_t	tip;
-
-	// Marks stuff
-	qboolean	haveOldPos[2];
-	vec3_t		oldPos[2];		
-	vec3_t		oldNormal[2];	// store this in case we don't have a connect-the-dots situation
-							//	..then we'll need the normal to project a mark blob onto the impact point
-} saberTrail_t;
-#define MAX_SABER_TRAIL_SEGS 8
-
-// !!!!!!!!!!!!! loadsave affecting struct !!!!!!!!!!!!!!!
-typedef struct
-{
-	qboolean	active;
-	saber_colors_t	color;
-	float		radius;
-	float		length;
-	float		lengthMax;
-	float		lengthOld;
-	vec3_t		muzzlePoint;
-	vec3_t		muzzlePointOld;
-	vec3_t		muzzleDir;
-	vec3_t		muzzleDirOld;
-	saberTrail_t	trail;
-	void		ActivateTrail ( float duration )
-				{
-					trail.inAction = qtrue;
-					trail.duration = duration;
-				};
-	void		DeactivateTrail ( float duration )
-				{
-					trail.inAction = qfalse;
-					trail.duration = duration;
-				};
-} bladeInfo_t;
-#define MAX_BLADES 8
-
-typedef enum
-{
-	SS_NONE = 0,
-	SS_FAST,
-	SS_MEDIUM,
-	SS_STRONG,
-	SS_DESANN,
-	SS_TAVION,
-	SS_DUAL,
-	SS_STAFF,
-	SS_NUM_SABER_STYLES
-} saber_styles_t;
-
-// !!!!!!!!!!!! loadsave affecting struct !!!!!!!!!!!!!!!!!!!!!!!!!!
-typedef struct
-{
-	char		*name;						//entry in sabers.cfg, if any
-	char		*fullName;					//the "Proper Name" of the saber, shown in the UI
-	saberType_t	type;						//none, single or staff
-	char		*model;						//hilt model
-	char		*skin;						//hilt custom skin
-	int			soundOn;					//game soundindex for turning on sound
-	int			soundLoop;					//game soundindex for hum/loop sound
-	int			soundOff;					//game soundindex for turning off sound
-	int			numBlades;
-	bladeInfo_t	blade[MAX_BLADES];			//blade info - like length, trail, origin, dir, etc.
-	saber_styles_t	style;					//locked style to use, if any
-	int			maxChain;					//how many moves can be chained in a row with this weapon (-1 is infinite, 0 is use default behavior)
-	qboolean	lockable;					//can get into a saberlock
-	qboolean	throwable;					//whether or not this saber can be thrown - FIXME: maybe make this a max level of force saber throw that can be used with this saber?
-	qboolean	disarmable;					//whether or not this saber can be dropped
-	qboolean	activeBlocking;				//whether or not to try to block incoming shots with this saber
-	qboolean	twoHanded;					//uses both hands
-	int			forceRestrictions;			//force powers that cannot be used while this saber is on (bitfield) - FIXME: maybe make this a limit on the max level, per force power, that can be used with this type?
-	int			lockBonus;					//in saberlocks, this type of saber pushes harder or weaker
-	int			parryBonus;					//added to strength of parry with this saber
-	int			breakParryBonus;			//added to strength when hit a parry
-	int			disarmBonus;				//added to disarm chance when win saberlock or have a good parry (knockaway)
-	saber_styles_t	singleBladeStyle;		//makes it so that you use a different style if you only have the first blade active
-	qboolean	singleBladeThrowable;		//makes it so that you can throw this saber if only the first blade is on
-	char		*brokenSaber1;				//if saber is actually hit by another saber, it can be cut in half/broken and will be replaced with this saber in your right hand
-	char		*brokenSaber2;				//if saber is actually hit by another saber, it can be cut in half/broken and will be replaced with this saber in your left hand
-	qboolean	returnDamage;				//when returning from a saber throw, it keeps spinning and doing damage
-	void		Activate( void )
-				{
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						blade[i].active = qtrue;
-					}
-				};
-
-	void		Deactivate( void )
-				{
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						blade[i].active = qfalse;
-					}
-				};
-
-	// Description: Activate a specific Blade of this Saber.
-	// Created: 10/03/02 by Aurelio Reis, Modified: 10/03/02 by Aurelio Reis.
-	//	[in]		int iBlade		Which Blade to activate.
-	//	[in]		bool bActive	Whether to activate it (default true), or deactivate it (false).
-	//	[return]	void
-	void		BladeActivate( int iBlade, qboolean bActive = qtrue )
-				{
-					// Validate blade ID/Index.
-					if ( iBlade < 0 || iBlade >= numBlades )
-						return;
-
-					blade[iBlade].active = bActive;
-				}
-
-	qboolean	Active() 
-				{
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						if ( blade[i].active )
-						{
-							return qtrue;
-						}
-					}
-					return qfalse;
-				}
-	void		SetLength( float length )
-				{
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						blade[i].length = length;
-					}
-				}
-	float		Length() 
-				{//return largest length
-					float len1 = 0;
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						if ( blade[i].length > len1 )
-						{
-							len1 = blade[i].length; 
-						}
-					}
-					return len1;
-				};
-	float		LengthMax() 
-				{ 
-					float len1 = 0;
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						if ( blade[i].lengthMax > len1 )
-						{
-							len1 = blade[i].lengthMax; 
-						}
-					}
-					return len1;
-				};
-	void		ActivateTrail ( float duration )
-				{
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						blade[i].ActivateTrail( duration );
-					}
-				};
-	void		DeactivateTrail ( float duration )
-				{
-					for ( int i = 0; i < numBlades; i++ )
-					{
-						blade[i].DeactivateTrail( duration );
-					}
-				};
-} saberInfo_t;
-
-
-#define MAX_SABERS 2	// if this ever changes then update the table "static const save_field_t savefields_gClient[]"!!!!!!!!!!!!
 
 // playerState_t is the information needed by both the client and server
 // to predict player motion and actions
@@ -1820,20 +1625,21 @@ typedef struct playerState_s {
 	vec3_t		origin;
 	vec3_t		velocity;
 	int			weaponTime;
-	int			weaponChargeTime;
 	int			rechargeTime;		// for the phaser
+	short		useTime;
 	int			gravity;
-	int			leanofs;			
-	int			friction;
+	signed char	leanofs;
+	short		friction;
 	int			speed;
 	int			delta_angles[3];	// add to command angles to get view direction
 									// changed by spawns, rotating objects, and teleporters
 
 	int			groundEntityNum;// ENTITYNUM_NONE = in air
-	int			legsAnim;		// 
+	int			legsAnim;		// mask off ANIM_TOGGLEBIT
 	int			legsAnimTimer;	// don't change low priority animations on legs until this runs out
-	int			torsoAnim;		// 
+	int			torsoAnim;		// mask off ANIM_TOGGLEBIT
 	int			torsoAnimTimer;	// don't change low priority animations on torso until this runs out
+	int			scale;
 	int			movementDir;	// a number 0 to 7 that represents the relative angle
 								// of movement to the view angle (axial and diagonals)
 								// when at rest, the value will remain unchanged
@@ -1853,231 +1659,25 @@ typedef struct playerState_s {
 	int			weapon;			// copied to entityState_t->weapon
 	int			weaponstate;
 
-	int			batteryCharge;
-
 	vec3_t		viewangles;		// for fixed views
-	float		legsYaw;		// actual legs forward facing
 	int			viewheight;
 
 	// damage feedback
-	int			damageEvent;							// when it changes, latch the other parms
+	int			damageEvent;	// when it changes, latch the other parms
 	int			damageYaw;
 	int			damagePitch;
 	int			damageCount;
 
 	int			stats[MAX_STATS];
-	int			persistant[MAX_PERSISTANT];				// stats that aren't cleared on death
-	int			powerups[MAX_POWERUPS];					// level.time that the powerup runs out
+	int			persistant[MAX_PERSISTANT];	// stats that aren't cleared on death
+	int			powerups[MAX_POWERUPS];	// level.time that the powerup runs out
 	int			ammo[MAX_AMMO];
-	int			inventory[MAX_INVENTORY];							// Count of each inventory item.
-	char  		security_key_message[MAX_SECURITY_KEYS][MAX_SECURITY_KEY_MESSSAGE];	// Security key types 
+	int			borgAdaptHits[MAX_WEAPONS];
 
-	vec3_t		serverViewOrg;
-
-	qboolean	saberInFlight;
-
-	int			viewEntity;		// For overriding player movement controls and vieworg
-	int			forcePowersActive;	//prediction needs to know this
-
-	//NEW vehicle stuff
-	// This has been localized to the vehicle stuff (NOTE: We can still use it later, I'm just commenting it to
-	// root out all the calls. We can store the data in vehicles and update by copying it here).
-	//int			vehicleIndex;	// Index into vehicleData table
-	//vec3_t		vehicleAngles;	// current angles of your vehicle
-	//int			vehicleArmor;	// current armor of your vehicle (explodes if drops to 0)
-
-	// !!
+	vec3_t		pushVec;
 	// not communicated over the net at all
-	// !!
-	//int			vehicleLastFXTime;				//timer for all cgame-FX...?
-	//int			vehicleExplodeTime;				//when it will go BOOM!
-
-	int			useTime;	//not sent
-	int			lastShotTime;//last time you shot your weapon
 	int			ping;			// server to game info for scoreboard
-	int			lastOnGround;	//last time you were on the ground
-	int			lastStationary;	//last time you were on the ground
-	int			weaponShotCount;
-
-	//FIXME: maybe allocate all these structures (saber, force powers, vehicles) 
-	//			or descend them as classes - so not every client has all this info
-	saberInfo_t	saber[MAX_SABERS];
-	qboolean	dualSabers;
-	qboolean	SaberStaff( void ) { return ( saber[0].type == SABER_STAFF || (dualSabers && saber[1].type == SABER_STAFF) ); };
-	qboolean	SaberActive() { return ( saber[0].Active() || (dualSabers&&saber[1].Active()) ); };
-	void		SetSaberLength( float length )
-				{
-					saber[0].SetLength( length );
-					if ( dualSabers )
-					{
-						saber[1].SetLength( length );
-					}
-				}
-	float		SaberLength() 
-				{//return largest length
-					float len1 = saber[0].Length();
-					if ( dualSabers && saber[1].Length() > len1 )
-					{
-						return saber[1].Length(); 
-					}
-					return len1;
-				};
-	float		SaberLengthMax() 
-				{ 
-					if ( saber[0].LengthMax() > saber[1].LengthMax() )
-					{
-						return saber[0].LengthMax();
-					}
-					else if ( dualSabers )
-					{
-						return saber[1].LengthMax(); 
-					}
-					return 0.0f;
-				};
-
-	// Activate or deactivate a specific Blade of a Saber.
-	// Created: 10/03/02 by Aurelio Reis, Modified: 10/03/02 by Aurelio Reis.
-	//	[in]	int iSaber		Which Saber to modify.
-	//	[in]	int iBlade		Which blade to modify (0 - (NUM_BLADES - 1)).
-	//	[in]	bool bActive	Whether to make it active (default true) or inactive (false).
-	//	[return]	void
-	void		SaberBladeActivate( int iSaber, int iBlade, qboolean bActive = qtrue )
-	{
-		// Validate saber (if it's greater than or equal to zero, OR it above the first saber but we
-		// are not doing duel Sabers, leave, something is not right.
-		if ( iSaber < 0 || ( iSaber > 0  && !dualSabers ) )
-			return;
-
-		saber[iSaber].BladeActivate( iBlade, bActive );
-	}
-
-	void		SaberActivate( void )
-				{
-					saber[0].Activate();
-					if ( dualSabers )
-					{
-						saber[1].Activate();
-					}
-				}
-	void		SaberDeactivate( void ) 
-				{ 
-					saber[0].Deactivate(); 
-					saber[1].Deactivate();
-				};
-	void		SaberActivateTrail ( float duration )
-				{
-					saber[0].ActivateTrail( duration );
-					if ( dualSabers )
-					{
-						saber[1].ActivateTrail( duration );
-					}
-				};
-	void		SaberDeactivateTrail ( float duration )
-				{
-					saber[0].DeactivateTrail( duration );
-					if ( dualSabers )
-					{
-						saber[1].DeactivateTrail( duration );
-					}
-				};
-	int			SaberDisarmBonus( void )
-				{
-					int disarmBonus = 0;
-					if ( saber[0].Active() )
-					{
-						disarmBonus += saber[0].disarmBonus;
-					}
-					if ( dualSabers && saber[1].Active() )
-					{//bonus for having 2 sabers
-						disarmBonus += 1 + saber[1].disarmBonus;
-					}
-					return disarmBonus;
-				};
-	int			SaberParryBonus( void )
-				{
-					int parryBonus = 0;
-					if ( saber[0].Active() )
-					{
-						parryBonus += saber[0].parryBonus;
-					}
-					if ( dualSabers && saber[1].Active() )
-					{//bonus for having 2 sabers
-						parryBonus += 1 + saber[1].parryBonus;
-					}
-					return parryBonus;
-				};
-
-	short		saberMove;
-	short		saberMoveNext;
-	short		saberBounceMove;
-	short		saberBlocking;
-	short		saberBlocked;
-	short		leanStopDebounceTime;
-
-	int			saberEntityNum;
-	float		saberEntityDist;
-	int			saberThrowTime;
-	int			saberEntityState;
-	int			saberDamageDebounceTime;
-	int			saberHitWallSoundDebounceTime;
-	int			saberEventFlags;
-	int			saberBlockingTime;
-	int			saberAnimLevel;
-	int			saberAttackChainCount;
-	int			saberLockTime;
-	int			saberLockEnemy;
-	int			saberStylesKnown;
-
-	int			forcePowersKnown;
-	int			forcePowerDuration[NUM_FORCE_POWERS];	//for effects that have a duration
-	int			forcePowerDebounce[NUM_FORCE_POWERS];	//for effects that must have an interval
-	int			forcePower;
-	int			forcePowerMax;
-	int			forcePowerRegenDebounceTime;
-	int			forcePowerRegenRate;				//default is 100ms
-	int			forcePowerRegenAmount;				//default is 1
-	int			forcePowerLevel[NUM_FORCE_POWERS];		//so we know the max forceJump power you have
-	float		forceJumpZStart;					//So when you land, you don't get hurt as much
-	float		forceJumpCharge;					//you're current forceJump charge-up level, increases the longer you hold the force jump button down
-	int			forceGripEntityNum;					//what entity I'm gripping
-	vec3_t		forceGripOrg;						//where the gripped ent should be lifted to
-	int			forceDrainEntityNum;				//what entity I'm draining
-	vec3_t		forceDrainOrg;						//where the drained ent should be lifted to
-	int			forceHealCount;						//how many points of force heal have been applied so far
-	
-	//new Jedi Academy force powers
-	int			forceAllowDeactivateTime;
-	int			forceRageDrainTime;
-	int			forceRageRecoveryTime;
-	int			forceDrainEntNum;
-	float		forceDrainTime;
-	int			forcePowersForced;					//client is being forced to use these powers (FIXME: and only these?)
-	int			pullAttackEntNum;
-	int			pullAttackTime;
-	int			lastKickedEntNum;
-
-	int			taunting;							//replaced BUTTON_GESTURE
-
-	float		jumpZStart;							//So when you land, you don't get hurt as much
-	vec3_t		moveDir;
-
-	float		waterheight;						//exactly what the z org of the water is (will be +4 above if under water, -4 below if not in water)
-	waterHeightLevel_t	waterHeightLevel;					//how high it really is
-
-	//testing IK grabbing
-	qboolean	ikStatus;		//for IK
-	int			heldClient;		//for IK, who I'm grabbing, if anyone
-	int			heldByClient;	//for IK, someone is grabbing me
-	int			heldByBolt;		//for IK, what bolt I'm attached to on the holdersomeone is grabbing me by
-	int			heldByBone;		//for IK, what bone I'm being held by
-
-	//vehicle turn-around stuff... FIXME: only vehicles need this in SP...
-	int			vehTurnaroundIndex;
-	int			vehTurnaroundTime;
-
-	//NOTE: not really used in SP, just for Fighter Vehicle damage stuff
-	int			brokenLimbs;
-	int			electrifyTime;
+	byte		leanStopDebounceTime;
 } playerState_t;
 
 
@@ -2089,38 +1689,20 @@ typedef struct playerState_s {
 // so they aren't game/cgame only definitions
 //
 #define	BUTTON_ATTACK		1
-#define	BUTTON_FORCE_LIGHTNING	2			// displays talk balloon and disables actions
-#define	BUTTON_USE_FORCE	4
-#define	BUTTON_FORCE_DRAIN	8			// draining
-#define	BUTTON_VEH_SPEED	8			// used for some horrible vehicle hack... :)
+#define	BUTTON_TALK			2			// displays talk balloon and disables actions
+#define	BUTTON_USE_HOLDABLE	4
+#define	BUTTON_GESTURE		8
 #define	BUTTON_WALKING		16			// walking can't just be infered from MOVE_RUN because a key pressed late in the frame will
 										// only generate a small move value for that frame walking will use different animations and
 										// won't generate footsteps 
 #define	BUTTON_USE			32			// the ol' use key returns!
-#define BUTTON_FORCEGRIP	64			// 
+#define BUTTON_CAREFUL		64			// Use run2, walk2, stand2, guard idles, etc.
 #define BUTTON_ALT_ATTACK	128
 
-#define	BUTTON_FORCE_FOCUS	256			// any key whatsoever
+#define	BUTTON_ANY			256			// any key whatsoever
 
 #define	MOVE_RUN			120			// if forwardmove or rightmove are >= MOVE_RUN,
 										// then BUTTON_WALKING should be set
-
-
-typedef enum
-{
-	GENCMD_FORCE_HEAL = 1,
-	GENCMD_FORCE_SPEED,
-	GENCMD_FORCE_THROW,
-	GENCMD_FORCE_PULL,
-	GENCMD_FORCE_DISTRACT,
-	GENCMD_FORCE_GRIP,
-	GENCMD_FORCE_LIGHTNING,
-	GENCMD_FORCE_RAGE,
-	GENCMD_FORCE_PROTECT,
-	GENCMD_FORCE_ABSORB,
-	GENCMD_FORCE_DRAIN,
-	GENCMD_FORCE_SEEING,
-} genCmds_t;
 
 
 // usercmd_t is sent to the server each client frame
@@ -2206,39 +1788,14 @@ typedef struct entityState_s {// !!!!!!!!!!! LOADSAVE-affecting struct !!!!!!!!!
 	// for players
 	int		powerups;		// bit flags
 	int		weapon;			// determines weapon and flash model, etc
-	int		legsAnim;		// 
+	int		legsAnim;		// mask off ANIM_TOGGLEBIT
 	int		legsAnimTimer;	// don't change low priority animations on legs until this runs out
-	int		torsoAnim;		// 
+	int		torsoAnim;		// mask off ANIM_TOGGLEBIT
 	int		torsoAnimTimer;	// don't change low priority animations on torso until this runs out
 
 	int		scale;			//Scale players
 
-#if !defined(STEFX_ELITE_FORCE_SP)
-	//FIXME: why did IMMERSION dupe these 2 fields here?  There's no reason for this!!!
-	qboolean	saberInFlight;
-	qboolean	saberActive;
-
-	//int		vehicleIndex;		// What kind of vehicle you're driving
-	vec3_t	vehicleAngles;		// 
-	int		vehicleArmor;		// current armor of your vehicle (explodes if drops to 0)
-	// 0 if not in a vehicle, otherwise the client number.
-	int m_iVehicleNum;
-
-/*
-Ghoul2 Insert Start
-*/
-	vec3_t	modelScale;		// used to scale models in any axis
-	int		radius;			// used for culling all the ghoul models attached to this ent NOTE - this is automatically scaled by Ghoul2 if/when you scale the model. This is a 100% size value
-	int		boltInfo;		// info used for bolting entities to Ghoul2 models - NOT used for bolting ghoul2 models to themselves, more for stuff like bolting effects to ghoul2 models
-/*
-Ghoul2 Insert End
-*/
-
-	qboolean	isPortalEnt;
-#else
-	vec3_t	pushVec;
-#endif
-
+	vec3_t		pushVec;
 } entityState_t;
 
 typedef enum {

@@ -7,7 +7,7 @@ import argparse
 import json
 import shutil
 import subprocess
-import tempfile
+import os
 from pathlib import Path
 
 
@@ -138,8 +138,22 @@ def build_audio_assets(
     source_bytes = 0
     output_bytes = 0
 
-    with tempfile.TemporaryDirectory(prefix="stefx_xaudio_") as temp_name:
-        temp_dir = Path(temp_name)
+    temp_root = base_dir.parent / "tmp" / "audio"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    for stale in temp_root.glob("stefx_xaudio_*"):
+        try:
+            if stale.is_dir():
+                shutil.rmtree(stale, ignore_errors=True)
+            else:
+                stale.unlink()
+        except OSError:
+            pass
+
+    temp_dir = temp_root / ("stefx_xaudio_%d" % os.getpid())
+    shutil.rmtree(temp_dir, ignore_errors=True)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_name = str(temp_dir)
+    try:
         for source, kind in mp3s:
             record = convert_one(source, kind, base_dir, temp_dir, ffmpeg, encoder, force)
             records.append(record)
@@ -149,7 +163,8 @@ def build_audio_assets(
                 converted += 1
             else:
                 current += 1
-
+    finally:
+        shutil.rmtree(temp_name, ignore_errors=True)
     manifest = {
         "format": "stefx-xbox-audio-assets-v1",
         "encoding": "xbox-adpcm-wav",
@@ -219,3 +234,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+

@@ -1164,7 +1164,7 @@ static void G_CheckTasksCompleted (gentity_t *ent)
 {
 	if ( Q3_TaskIDPending( ent, TID_CHAN_VOICE ) )
 	{
-		if ( !gi.VoiceVolume[ent->s.number] )
+		if ( !gi.S_Override[ent->s.number] )
 		{//not playing a voice sound
 			//return task_complete
 #ifdef _XBOX
@@ -1187,7 +1187,7 @@ static void G_CheckTasksCompleted (gentity_t *ent)
 			{
 				Com_Printf("STEFX: G_CheckTasksCompleted voice pending ent=%d class='%s' task=%d vol=%d time=%d\n",
 					ent->s.number, ent->classname ? ent->classname : "<null>",
-					ent->taskID[TID_CHAN_VOICE], gi.VoiceVolume[ent->s.number], level.time);
+					ent->taskID[TID_CHAN_VOICE], gi.S_Override[ent->s.number], level.time);
 				s_xboxVoiceTaskPendingLogs++;
 			}
 		}

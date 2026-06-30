@@ -6,9 +6,7 @@
 #include "../renderer/tr_local.h"
 #include "BinkVideo.h"
 #include "RAD.h"
-#include "../win32/xbox_texture_man.h"
 #include "../win32/xb_log.h"
-#include <xgraphics.h>
 
 #include "../client/client.h"
 
@@ -21,6 +19,27 @@ extern void *TempAlloc( unsigned long size );
 extern void TempFree( void );
 
 extern void SP_DrawSPLoadScreen( void );
+
+static bool BinkVideo_IsEFFrontendIntroMovie(const char *filename)
+{
+	if (!filename || !filename[0])
+	{
+		return false;
+	}
+
+	const char *base = filename;
+	const char *scan;
+	for (scan = filename; *scan; ++scan)
+	{
+		if (*scan == '\\' || *scan == '/' || *scan == ':')
+		{
+			base = scan + 1;
+		}
+	}
+
+	return !Q_stricmp(base, "intro.bik") || !Q_stricmp(base, "intro") ||
+		!Q_stricmp(base, "intro_lo.bik") || !Q_stricmp(base, "intro_lo");
+}
 
 #ifdef _XBOX
 extern "C" volatile unsigned int g_SPXBCinPhase;
@@ -62,12 +81,6 @@ BinkVideo::BinkVideo()
 	initialized = false;
 	loadScreenOnStop = false;
 
-	Image[0].surface = NULL;
-	Image[0].texture = NULL;
-	overlayMemory[0] = NULL;
-	Image[1].surface = NULL;
-	Image[1].texture = NULL;
-	overlayMemory[1] = NULL;
 
 	stopNextFrame = false;
 }
@@ -77,17 +90,15 @@ BinkVideo::BinkVideo()
 *********/
 BinkVideo::~BinkVideo()
 {
-	Free(buffer);
-	BinkClose(bink);
-	if( overlayMemory[0] )
+	if( buffer )
 	{
-		D3D_FreeContiguousMemory( overlayMemory[0] );
-		overlayMemory[0] = NULL;
+		BonePoolTempFree( buffer );
+		buffer = NULL;
 	}
-	if( overlayMemory[1] )
+	if( bink )
 	{
-		D3D_FreeContiguousMemory( overlayMemory[1] );
-		overlayMemory[1] = NULL;
+		BinkClose( bink );
+		bink = NULL;
 	}
 }
 
@@ -146,11 +157,20 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 #endif
 	}
 
-	// Hack! Remember if this was the logo movies, so that we can show the load screen later:
-	if( strstr( filename, "logos" ) )
+	// EF owns the frontend movie path; only the final EF intro movie hands off to loading.
+	if( BinkVideo_IsEFFrontendIntroMovie( filename ) )
+	{
 		loadScreenOnStop = true;
+	}
 	else
+	{
 		loadScreenOnStop = false;
+	}
+#ifdef _XBOX
+	XBLF("STEFX: BinkVideo::Start loadScreenOnStop=%d file='%s'",
+		loadScreenOnStop ? 1 : 0,
+		filename ? filename : "<null>");
+#endif
 
 	// Blow away all sounds that aren't playing - this helps prevent crashing:
 #ifdef _XBOX
@@ -255,94 +275,30 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	g_SPXBCinPhase = 421;
 #endif
 
-	// Full-screen movies (without alpha) need a pair of YUV2 textures:
+	// Full-screen EF movies use the renderer scratch texture path.  The inherited
+	// JA YUY2 overlay path presents as flat green on the current Xbox renderer.
 	if( !alpha )
 	{
+		U32 frameBytes;
 #ifdef _XBOX
 		g_SPXBCinPhase = 430;
 #endif
-		// Make our two textures:
-		Image[0].texture = new IDirect3DTexture8;
-		Image[1].texture = new IDirect3DTexture8;
+		frameBytes = bink->Width * bink->Height * 4;
+		buffer = BonePoolTempAlloc( frameBytes );
 #ifdef _XBOX
 		g_SPXBCinPhase = 431;
 #endif
-		XBLog_Write("JA: BinkVideo::Start allocated overlay texture headers");
-
-		// Fill in the texture headers:
-		DWORD pixelSize = 
-		XGSetTextureHeader( bink->Width,
-							bink->Height,
-							1,
-							0,
-							D3DFMT_YUY2,
-							0,
-							Image[0].texture,
-							0,
-							0 );
-
-		XGSetTextureHeader( bink->Width,
-							bink->Height,
-							1,
-							0,
-							D3DFMT_YUY2,
-							0,
-							Image[1].texture,
-							0,
-							0 );
-
-		overlayMemory[0] = D3D_AllocContiguousMemory( pixelSize, 0 );
-		overlayMemory[1] = D3D_AllocContiguousMemory( pixelSize, 0 );
-#ifdef _XBOX
-		g_SPXBCinPhase = 432;
-#endif
-		if( !overlayMemory[0] || !overlayMemory[1] )
+		if( !buffer )
 		{
-			XBLog_Write("JA: BinkVideo::Start overlay memory allocation failed");
-			if( overlayMemory[0] )
-			{
-				D3D_FreeContiguousMemory( overlayMemory[0] );
-				overlayMemory[0] = NULL;
-			}
-			if( overlayMemory[1] )
-			{
-				D3D_FreeContiguousMemory( overlayMemory[1] );
-				overlayMemory[1] = NULL;
-			}
-			delete Image[0].texture;
-			Image[0].texture = NULL;
-			delete Image[1].texture;
-			Image[1].texture = NULL;
+			XBLF("STEFX: BinkVideo::Start raw frame buffer allocation failed bytes=%u w=%u h=%u",
+				frameBytes, bink->Width, bink->Height);
 			BinkClose( bink );
 			bink = NULL;
 			return false;
 		}
 
-		Image[0].texture->Register( overlayMemory[0] );
-		Image[1].texture->Register( overlayMemory[1] );
-#ifdef _XBOX
-		g_SPXBCinPhase = 433;
-#endif
-		XBLog_Write("JA: BinkVideo::Start registered overlay texture memory");
-
-		// Turn on overlays:
-		glw_state->device->EnableOverlay( TRUE );
-#ifdef _XBOX
-		g_SPXBCinPhase = 434;
-#endif
-		XBLog_Write("JA: BinkVideo::Start enabled overlay");
-
-		// Get surface pointers:
-		Image[0].texture->GetSurfaceLevel( 0, &Image[0].surface );
-		Image[1].texture->GetSurfaceLevel( 0, &Image[1].surface );
-#ifdef _XBOX
-		g_SPXBCinPhase = 435;
-#endif
-		XBLog_Write("JA: BinkVideo::Start got overlay surfaces");
-
-		// Just to be safe:
-		currentImage = 0;
-		buffer = NULL;
+		XBLF("STEFX: BinkVideo::Start using EF raw frame path w=%u h=%u bytes=%u",
+			bink->Width, bink->Height, frameBytes);
 	}
 	else
 	{
@@ -376,12 +332,36 @@ the next frame. Only used for full-screen movies (no alpha).
 *********/
 bool BinkVideo::Run(void)
 {
+	static unsigned int s_binkRunCalls = 0;
+	static unsigned int s_binkWaitSpinWarnings = 0;
+
 	// Make sure movie is running:
 	if( status == NS_BV_STOPPED )
 		return false;
 
 	// Wait for proper frame timing:
-	while(BinkWait(bink));
+	unsigned int waitSpins = 0;
+	while(BinkWait(bink))
+	{
+		++waitSpins;
+		if (waitSpins > 2000000)
+		{
+			if (s_binkWaitSpinWarnings < 8)
+			{
+				XBLF("STEFX: BinkVideo::Run wait guard frame=%u/%u spins=%u status=%d",
+					bink ? bink->FrameNum : 0, bink ? bink->Frames : 0, waitSpins, status);
+				++s_binkWaitSpinWarnings;
+			}
+			break;
+		}
+	}
+	++s_binkRunCalls;
+	if (s_binkRunCalls <= 4 || (s_binkRunCalls % 120) == 0)
+	{
+		XBLF("STEFX: BinkVideo::Run frame=%u/%u calls=%u status=%d looping=%d stopNext=%d",
+			bink ? bink->FrameNum : 0, bink ? bink->Frames : 0, s_binkRunCalls,
+			status, looping ? 1 : 0, stopNextFrame ? 1 : 0);
+	}
 
 	// Are we supposed to stop now?
 	if( stopNextFrame )
@@ -392,20 +372,17 @@ bool BinkVideo::Run(void)
 		return false;
 	}
 
-	// Try to decompress the frame:
-	if( DecompressFrame( &Image[currentImage ^ 1] ) == 0 )
+	// Try to decompress and draw the frame through the EF renderer path.
+	if( DecompressFrameToBuffer() == 0 )
 	{
-		// The blt succeeded, update our current image index.
-		currentImage ^= 1;
-
-		// Draw the next frame.
-		Draw( &Image[currentImage] );
+		DrawFrameBuffer();
 	}
 
 	// Are we done? Set a flag, we don't want to stop until next frame, so the
 	// last frame stays up for the right amount of time!
 	if( bink->FrameNum == bink->Frames && !looping )
 	{
+		XBLF("STEFX: BinkVideo::Run reached final frame=%u/%u", bink->FrameNum, bink->Frames);
 		stopNextFrame = true;
 	}
 
@@ -456,18 +433,15 @@ void* BinkVideo::GetBinkData(void)
 	return buffer;
 }
 
-/********
-Draw
-Draws the current movie full-screen
-********/
-void BinkVideo::Draw( OVERLAYINFO * oi )
+void BinkVideo::DrawFrameBuffer( void )
 {
-	// Draw the image on the screen (centered)...
-	RECT dst_rect = { 0, 0, 640, 480 };
-	RECT src_rect = { 0, 0, bink->Width, bink->Height };
+	if( !bink || !buffer )
+	{
+		return;
+	}
 
-	// Update this bugger.
-	glw_state->device->UpdateOverlay( oi->surface, &src_rect, &dst_rect, FALSE, 0 );
+	re.DrawStretchRaw( (int)x1, (int)y1, (int)(x2 - x1), (int)(y2 - y1),
+		bink->Width, bink->Height, (const byte *)buffer, 0, qtrue );
 }
 
 /*********
@@ -477,71 +451,43 @@ Stops the current movie, and clears it from memory
 void BinkVideo::Stop(void)
 {
 	XBLog_Write("JA: BinkVideo::Stop enter");
+	bool hadMovie = (bink != NULL) || (buffer != NULL) || (status != NS_BV_STOPPED);
+
 	if( bink ) {
 		BinkClose( bink );
+		bink = NULL;
 	}
 
-	if( alpha )
+	if( buffer )
 	{
-		// Release all the temp space we grabbed, no texture cleanup to do:
-		if( buffer )
-			BonePoolTempFree( buffer );
+		BonePoolTempFree( buffer );
+		buffer = NULL;
 	}
-	else
+
+	if( hadMovie && !alpha )
 	{
-		// We wrap all this in a single check - it should be all or nothing:
-		if( Image[0].surface )
+#ifdef _XBOX
+		XBLF("STEFX: BinkVideo::Stop raw path loadScreenOnStop=%d", loadScreenOnStop ? 1 : 0);
+#endif
+		if( loadScreenOnStop )
 		{
-			// Release surfaces:
-			Image[0].surface->Release();
-			Image[0].surface = NULL;
-
-			Image[1].surface->Release();
-			Image[1].surface = NULL;
-
-			// Clean up the textures we made for the overlay stuff:
-			Image[0].texture->BlockUntilNotBusy();
-			delete Image[0].texture;
-			Image[0].texture = NULL;
-
-			Image[1].texture->BlockUntilNotBusy();
-			delete Image[1].texture;
-			Image[1].texture = NULL;
-
-			// We're going to be stripping the overlay off, leave a black screen,
-			// unless it was the logo movies that we just played, in which case we
-			// draw the loading screen!
-			if( loadScreenOnStop )
-			{
-				SP_DrawSPLoadScreen();
-				glw_state->device->BlockUntilVerticalBlank();
-
-				// Filth. Don't call Present until this gets cleared.
-				extern bool connectSwapOverride;
-				connectSwapOverride = true;
-			}
-			else
-			{
-				glw_state->device->Clear( 0, NULL, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0, 0, 0, 0), 0, 0 );
-				glw_state->device->Present( NULL, NULL, NULL, NULL );
-				glw_state->device->Clear( 0, NULL, D3DCLEAR_TARGET, D3DCOLOR_COLORVALUE(0, 0, 0, 0), 0, 0 );
-				glw_state->device->Present( NULL, NULL, NULL, NULL );
-				glw_state->device->BlockUntilVerticalBlank();
-			}
-
-			// Turn overlays back off:
-			glw_state->device->EnableOverlay( FALSE );
-
-			if( overlayMemory[0] )
-			{
-				D3D_FreeContiguousMemory( overlayMemory[0] );
-				overlayMemory[0] = NULL;
-			}
-			if( overlayMemory[1] )
-			{
-				D3D_FreeContiguousMemory( overlayMemory[1] );
-				overlayMemory[1] = NULL;
-			}
+#ifdef _XBOX
+			XBLog_Write("STEFX: BinkVideo::Stop drawing EF SP load screen after frontend intro");
+#endif
+			SP_DrawSPLoadScreen();
+#ifdef _XBOX
+			XBLog_Write("STEFX: BinkVideo::Stop flushing EF SP load screen after frontend intro");
+#endif
+			re.EndFrame( NULL, NULL );
+#ifdef _XBOX
+			XBLog_Write("STEFX: BinkVideo::Stop EF SP load screen flush done");
+#endif
+		}
+		else
+		{
+#ifdef _XBOX
+			XBLog_Write("STEFX: BinkVideo::Stop no post-movie clear; renderer owns presentation");
+#endif
 		}
 	}
 
@@ -591,32 +537,31 @@ void BinkVideo::SetMasterVolume(S32 volume)
 	}
 }
 
-/*********
-DecompressFrame
-Decompresses current frame and copies the data to
-the buffer
-*********/
-S32 BinkVideo::DecompressFrame( OVERLAYINFO *oi )
+S32 BinkVideo::DecompressFrameToBuffer( void )
 {
 	S32 copy_skipped;
-	D3DLOCKED_RECT lock_rect;
+	static unsigned int s_rawCopyLogBudget = 8;
 
-	// Decompress the Bink frame.
+	if( !bink || !buffer )
+	{
+		return 1;
+	}
+
 	BinkDoFrame( bink );
 
-	// Lock the 3D image so that we can copy the decompressed frame into it.
-	oi->texture->LockRect( 0, &lock_rect, 0, 0 );
-
-	// Copy the decompressed frame into the 3D image.
 	copy_skipped = BinkCopyToBuffer( bink,
-									 lock_rect.pBits,
-									 lock_rect.Pitch,
+									 buffer,
+									 bink->Width * 4,
 									 bink->Height,
 									 0, 0,
-									 BINKSURFACEYUY2 | BINKCOPYALL );
+									 BINKSURFACE32R | BINKCOPYNOSCALING );
 
-	// Unlock the 3D image.
-	oi->texture->UnlockRect( 0 );
+	if( s_rawCopyLogBudget > 0 )
+	{
+		XBLF("STEFX: BinkVideo::DecompressFrameToBuffer frame=%u/%u pitch=%u copySkipped=%d surface=32R noscale",
+			bink->FrameNum, bink->Frames, bink->Width * 4, copy_skipped);
+		--s_rawCopyLogBudget;
+	}
 
 	return copy_skipped;
 }

@@ -15,6 +15,7 @@
 #ifdef _XBOX
 #pragma pack(push, 1)
 typedef struct {
+	NotSoShort	planeNum;
 	short		children[2];		// negative numbers are leafs
 } cNode_t;
 #pragma pack(pop)

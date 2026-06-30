@@ -490,6 +490,93 @@ static qboolean SV_STEFX_IsBroadcastBrushMover( const gentity_t *ent )
 	return (ent->svFlags & SVF_BROADCAST) ? qtrue : qfalse;
 }
 
+static qboolean SV_STEFX_IsPlayerEntity( const gentity_t *ent )
+{
+	return ( ent && ent->s.eType == ET_PLAYER );
+}
+
+static void SV_STEFX_LogSnapshotPlayer( const char *phase, int entNum, const gentity_t *ent,
+										const svEntity_t *svEnt, int clientarea, int clientcluster,
+										const snapshotEntityNumbers_t *eNums )
+{
+	static int s_stefxSnapshotPlayerBudget = 640;
+
+	if ( !SV_STEFX_IsPlayerEntity( ent ) || s_stefxSnapshotPlayerBudget <= 0 )
+	{
+		return;
+	}
+
+	XBLF("STEFX: SV_SNAPSHOT_PLAYER %s ent=%d clientNum=%d linked=%d inuse=%d sv=0x%x eFlags=0x%x solid=0x%x client=%p weapon=%d model=%d model2=%d area=%d/%d clusters=%d last=%d clientArea=%d clientCluster=%d snapCount=%d origin=(%g,%g,%g) current=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+		phase ? phase : "<null>",
+		entNum,
+		ent->s.clientNum,
+		(int)ent->linked,
+		(int)ent->inuse,
+		ent->svFlags,
+		ent->s.eFlags,
+		ent->s.solid,
+		ent->client,
+		ent->s.weapon,
+		ent->s.modelindex,
+		ent->s.modelindex2,
+		svEnt ? svEnt->areanum : -1,
+		svEnt ? svEnt->areanum2 : -1,
+		svEnt ? svEnt->numClusters : -1,
+		svEnt ? svEnt->lastCluster : -1,
+		clientarea,
+		clientcluster,
+		eNums ? eNums->numSnapshotEntities : -1,
+		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+		ent->mins[0], ent->mins[1], ent->mins[2],
+		ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+	--s_stefxSnapshotPlayerBudget;
+}
+
+static qboolean SV_STEFX_IsActorCandidate( const gentity_t *ent )
+{
+	return ( ent && ( ent->client || ( ent->svFlags & SVF_NPC ) || ent->s.eType == ET_PLAYER ) );
+}
+
+static void SV_STEFX_LogSnapshotActor( const char *phase, int entNum, const gentity_t *ent,
+										const svEntity_t *svEnt, int clientarea, int clientcluster,
+										const snapshotEntityNumbers_t *eNums )
+{
+	static int s_stefxSnapshotActorBudget = 768;
+
+	if ( !SV_STEFX_IsActorCandidate( ent ) || s_stefxSnapshotActorBudget <= 0 )
+	{
+		return;
+	}
+
+	XBLF("STEFX: SV_ACTOR_SCAN %s ent=%d clientNum=%d linked=%d inuse=%d sv=0x%x eType=%d eFlags=0x%x solid=0x%x client=%p weapon=%d model=%d model2=%d area=%d/%d clusters=%d last=%d clientArea=%d clientCluster=%d snapCount=%d origin=(%g,%g,%g) current=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+		phase ? phase : "<null>",
+		entNum,
+		ent->s.clientNum,
+		(int)ent->linked,
+		(int)ent->inuse,
+		ent->svFlags,
+		ent->s.eType,
+		ent->s.eFlags,
+		ent->s.solid,
+		ent->client,
+		ent->s.weapon,
+		ent->s.modelindex,
+		ent->s.modelindex2,
+		svEnt ? svEnt->areanum : -1,
+		svEnt ? svEnt->areanum2 : -1,
+		svEnt ? svEnt->numClusters : -1,
+		svEnt ? svEnt->lastCluster : -1,
+		clientarea,
+		clientcluster,
+		eNums ? eNums->numSnapshotEntities : -1,
+		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+		ent->mins[0], ent->mins[1], ent->mins[2],
+		ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+	--s_stefxSnapshotActorBudget;
+}
+
 static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int entNum, const vec3_t origin,
 													int *actorBudget, int *itemBudget,
 													int *missileBudget, int *eventBudget, int *modelBudget,
@@ -850,6 +937,8 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 #if defined(STEFX_ELITE_FORCE_SP)
 		qboolean stefxSnapshotEvent = qfalse;
 		qboolean stefxLogSnapshotEvent = qfalse;
+		qboolean stefxSnapshotPlayer = qfalse;
+		qboolean stefxSnapshotActor = qfalse;
 #endif
 #endif
 
@@ -862,6 +951,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		xboxYavinFocusEnt = (!Q_stricmp(sv_mapname->string, "yavin1") && e >= 48 && e <= 60 && s_xboxYavinSnapshotFocusBudget > 0);
 		xboxLogMissile = (xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
 #if defined(STEFX_ELITE_FORCE_SP)
+		stefxSnapshotActor = (!portal && SV_STEFX_IsActorCandidate( ent ));
+		if (stefxSnapshotActor)
+		{
+			SV_STEFX_LogSnapshotActor( "candidate", e, ent, NULL, clientarea, clientcluster, eNums );
+		}
+		stefxSnapshotPlayer = (!portal && SV_STEFX_IsPlayerEntity( ent ));
+		if (stefxSnapshotPlayer)
+		{
+			SV_STEFX_LogSnapshotPlayer( "candidate", e, ent, NULL, clientarea, clientcluster, eNums );
+		}
 		stefxSnapshotEvent = (sv_mapname && !Q_stricmp(sv_mapname->string, "borg1") && ent->s.eType > ET_EVENTS);
 		stefxLogSnapshotEvent = (stefxSnapshotEvent && !portal && s_stefxSnapshotEventScanBudget > 0);
 		if (stefxLogSnapshotEvent)
@@ -924,6 +1023,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					portal ? "extra" : "main", e, ent->s.eFlags);
 			}
 #if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxSnapshotPlayer)
+			{
+				SV_STEFX_LogSnapshotPlayer( "reject-permanent", e, ent, NULL, clientarea, clientcluster, eNums );
+			}
+			if (stefxSnapshotActor)
+			{
+				SV_STEFX_LogSnapshotActor( "reject-permanent", e, ent, NULL, clientarea, clientcluster, eNums );
+			}
 			if (stefxLogSnapshotEvent)
 			{
 				XBLF("STEFX: SV_EVENT reject-permanent ent=%d eType=%d eFlags=0x%x",
@@ -956,6 +1063,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				--s_xboxSnapshotMissileBudget;
 			}
 #if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxSnapshotPlayer)
+			{
+				SV_STEFX_LogSnapshotPlayer( "reject-unlinked", e, ent, NULL, clientarea, clientcluster, eNums );
+			}
+			if (stefxSnapshotActor)
+			{
+				SV_STEFX_LogSnapshotActor( "reject-unlinked", e, ent, NULL, clientarea, clientcluster, eNums );
+			}
 			if (stefxLogSnapshotEvent)
 			{
 				XBLF("STEFX: SV_EVENT reject-unlinked ent=%d eType=%d sv=0x%x current=(%g,%g,%g)",
@@ -990,6 +1105,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				--s_xboxSnapshotMissileBudget;
 			}
 #if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxSnapshotPlayer)
+			{
+				SV_STEFX_LogSnapshotPlayer( "reject-noclient", e, ent, NULL, clientarea, clientcluster, eNums );
+			}
+			if (stefxSnapshotActor)
+			{
+				SV_STEFX_LogSnapshotActor( "reject-noclient", e, ent, NULL, clientarea, clientcluster, eNums );
+			}
 			if (stefxLogSnapshotEvent)
 			{
 				XBLF("STEFX: SV_EVENT reject-noclient ent=%d eType=%d sv=0x%x",
@@ -1007,6 +1130,12 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 
 		svEnt = SV_SvEntityForGentity( ent );
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (stefxSnapshotActor)
+		{
+			SV_STEFX_LogSnapshotActor( "linked", e, ent, svEnt, clientarea, clientcluster, eNums );
+		}
+#endif
 		if (xboxLogMissile)
 		{
 			XBLF("JA: SV_SNAPSHOT_MISSILE candidate ent=%d weapon=%d linked=%d sv=0x%x area=%d/%d clusters=%d last=%d clientArea=%d clientCluster=%d origin=%g,%g,%g",
@@ -1071,6 +1200,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				XBLF("STEFX: SV_EVENT skip-duplicate ent=%d eType=%d sv=0x%x",
 					e, ent->s.eType, ent->svFlags);
 			}
+			if (stefxSnapshotPlayer)
+			{
+				SV_STEFX_LogSnapshotPlayer( "skip-duplicate", e, ent, svEnt, clientarea, clientcluster, eNums );
+			}
+			if (stefxSnapshotActor)
+			{
+				SV_STEFX_LogSnapshotActor( "skip-duplicate", e, ent, svEnt, clientarea, clientcluster, eNums );
+			}
 #endif
 			if (xboxFocusIndex >= 0 && !portal)
 			{
@@ -1113,6 +1250,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_AddEntToSnapshot( svEnt, ent, eNums );
 				++stefxBorg1BypassSent;
+				if (stefxSnapshotPlayer)
+				{
+					SV_STEFX_LogSnapshotPlayer( "sent-borg1-bypass", e, ent, svEnt, clientarea, clientcluster, eNums );
+				}
+				if (stefxSnapshotActor)
+				{
+					SV_STEFX_LogSnapshotActor( "sent-borg1-bypass", e, ent, svEnt, clientarea, clientcluster, eNums );
+				}
 				if ( s_stefxBorg1BypassLogBudget > 0 )
 				{
 					XBLF("STEFX: borg1 snapshot bypass send ent=%d reason=%s eType=%d model=%d model2=%d weapon=%d client=%p sv=0x%x origin=(%g,%g,%g) count=%d",
@@ -1142,6 +1287,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		if ( ent->svFlags & SVF_BROADCAST || !e) {
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxSnapshotPlayer)
+			{
+				SV_STEFX_LogSnapshotPlayer( "sent-broadcast", e, ent, svEnt, clientarea, clientcluster, eNums );
+			}
+			if (stefxSnapshotActor)
+			{
+				SV_STEFX_LogSnapshotActor( "sent-broadcast", e, ent, svEnt, clientarea, clientcluster, eNums );
+			}
+#endif
 			if (xboxYavinFocusEnt)
 			{
 				XBLF("JA: SV_YAVIN_SNAPSHOT sent-broadcast pass=%s ent=%d snapshot=%d",
@@ -1222,6 +1377,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				}
 				else
 				{
+#if defined(STEFX_ELITE_FORCE_SP)
+					if (stefxSnapshotPlayer)
+					{
+						SV_STEFX_LogSnapshotPlayer( "reject-area", e, ent, svEnt, clientarea, clientcluster, eNums );
+					}
+					if (stefxSnapshotActor)
+					{
+						SV_STEFX_LogSnapshotActor( "reject-area", e, ent, svEnt, clientarea, clientcluster, eNums );
+					}
+#endif
 					if (xboxYavinFocusEnt)
 					{
 						XBLF("JA: SV_YAVIN_SNAPSHOT reject-area pass=%s ent=%d clientArea=%d entArea=%d/%d clientCluster=%d clusters=%d last=%d",
@@ -1267,6 +1432,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// check individual leafs
 		if ( !svEnt->numClusters ) {
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (stefxSnapshotPlayer)
+			{
+				SV_STEFX_LogSnapshotPlayer( "reject-noclusters", e, ent, svEnt, clientarea, clientcluster, eNums );
+			}
+			if (stefxSnapshotActor)
+			{
+				SV_STEFX_LogSnapshotActor( "reject-noclusters", e, ent, svEnt, clientarea, clientcluster, eNums );
+			}
+#endif
 			if (xboxYavinFocusEnt)
 			{
 				XBLF("JA: SV_YAVIN_SNAPSHOT reject-noclusters pass=%s ent=%d area=%d/%d",
@@ -1319,6 +1494,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				}
 				if ( l == svEnt->lastCluster ) {
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+					if (stefxSnapshotPlayer)
+					{
+						SV_STEFX_LogSnapshotPlayer( "reject-pvs-overflow", e, ent, svEnt, clientarea, clientcluster, eNums );
+					}
+					if (stefxSnapshotActor)
+					{
+						SV_STEFX_LogSnapshotActor( "reject-pvs-overflow", e, ent, svEnt, clientarea, clientcluster, eNums );
+					}
+#endif
 					if (xboxYavinFocusEnt)
 					{
 						XBLF("JA: SV_YAVIN_SNAPSHOT reject-pvs-overflow pass=%s ent=%d clientCluster=%d last=%d",
@@ -1347,6 +1532,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				}
 			} else {
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+				if (stefxSnapshotPlayer)
+				{
+					SV_STEFX_LogSnapshotPlayer( "reject-pvs", e, ent, svEnt, clientarea, clientcluster, eNums );
+				}
+				if (stefxSnapshotActor)
+				{
+					SV_STEFX_LogSnapshotActor( "reject-pvs", e, ent, svEnt, clientarea, clientcluster, eNums );
+				}
+#endif
 				if (xboxYavinFocusEnt)
 				{
 					XBLF("JA: SV_YAVIN_SNAPSHOT reject-pvs pass=%s ent=%d clientCluster=%d clusters=%d firstCluster=%d area=%d/%d",
@@ -1384,6 +1579,16 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		// add it
 		SV_AddEntToSnapshot( svEnt, ent, eNums );
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (stefxSnapshotPlayer)
+		{
+			SV_STEFX_LogSnapshotPlayer( "sent-pvs", e, ent, svEnt, clientarea, clientcluster, eNums );
+		}
+		if (stefxSnapshotActor)
+		{
+			SV_STEFX_LogSnapshotActor( "sent-pvs", e, ent, svEnt, clientarea, clientcluster, eNums );
+		}
+#endif
 		if (xboxYavinFocusEnt)
 		{
 			XBLF("JA: SV_YAVIN_SNAPSHOT sent-pvs pass=%s ent=%d snapshot=%d clientArea=%d clientCluster=%d area=%d/%d clusters=%d firstCluster=%d",

@@ -600,6 +600,14 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 	const char *openName = filename;
 	char lowerOpenName[MAX_QPATH];
 	int casePass;
+	qboolean traceDefaultCfg = !Q_stricmp(filename, "default.cfg");
+
+#if defined(_XBOX)
+	if (traceDefaultCfg)
+	{
+		XBLog_Write("STEFX: FS default.cfg loose lookup begin");
+	}
+#endif
 
 	for (casePass = 0; casePass < 2; ++casePass)
 	{
@@ -623,6 +631,12 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 			}
 
 			char* osname = FS_BuildOSPath(search->dir->path, search->dir->gamedir, caseOpenName);
+#if defined(_XBOX)
+			if (traceDefaultCfg)
+			{
+				XBLog_Write(va("STEFX: FS default.cfg loose try open='%s' os='%s' caseRetry=%d", caseOpenName, osname, casePass));
+			}
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 			qboolean bufferedSoundRead = !Q_stricmpn(caseOpenName, "sound/", 6) || !Q_stricmpn(caseOpenName, "sound\\", 6);
 			qboolean bufferedWholeFileRead = STEFX_ShouldTryStdioWholeFileRead(caseOpenName) ||
@@ -641,6 +655,10 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
 				len = FS_filelength(f);
 				fsh[f].fileSize = len;
+				if (traceDefaultCfg)
+				{
+					XBLog_Write(va("STEFX: FS default.cfg loose OK len=%d caseRetry=%d", len, casePass));
+				}
 				if (STEFX_ShouldTraceAssetOpen(filename))
 				{
 					XBLog_Write(va("STEFX: FS loose asset open file='%s' open='%s' os='%s' len=%d caseRetry=%d",
@@ -651,6 +669,12 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 		}
 	}
 
+#if defined(_XBOX)
+	if (traceDefaultCfg)
+	{
+		XBLog_Write("STEFX: FS default.cfg loose lookup miss");
+	}
+#endif
 	return -1;
 #else
 	qboolean allowConsoleList = qfalse;
@@ -1059,6 +1083,14 @@ static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 	pack_t			*pak;
 	fileInPack_t	*pakFile;
 	long			hash;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean traceDefaultCfg = !Q_stricmp(filename, "default.cfg");
+
+	if (traceDefaultCfg)
+	{
+		XBLog_Write("STEFX: FS default.cfg PK3 lookup begin");
+	}
+#endif
 
 	for (search = fs_searchpaths; search; search = search->next)
 	{
@@ -1069,6 +1101,12 @@ static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 
 		pak = search->pack;
 		hash = FS_HashFileName(filename, pak->hashSize);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (traceDefaultCfg)
+		{
+			XBLog_Write(va("STEFX: FS default.cfg PK3 scan pk3='%s' hash=%ld files=%d", pak->pakFilename, hash, pak->numfiles));
+		}
+#endif
 		pakFile = pak->hashTable[hash];
 		while (pakFile)
 		{
@@ -1103,6 +1141,12 @@ static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 				fsh[f].fileSize = len;
 				fsh[f].zipFilePos = pakFile->pos;
 				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (traceDefaultCfg)
+				{
+					XBLog_Write(va("STEFX: FS default.cfg PK3 OK pk3='%s' len=%d", pak->pakFilename, len));
+				}
+#endif
 				if (STEFX_ShouldTraceAssetOpen(filename))
 				{
 					XBLog_Write(va("STEFX: FS PK3 asset open file='%s' pk3='%s' len=%d", filename, pak->pakFilename, len));
@@ -1113,6 +1157,12 @@ static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 		}
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (traceDefaultCfg)
+	{
+		XBLog_Write("STEFX: FS default.cfg PK3 lookup miss");
+	}
+#endif
 	return -1;
 }
 
@@ -1156,6 +1206,7 @@ separate file or a ZIP file.
 int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueFILE )
 {
 	FS_CheckInit();
+	qboolean traceDefaultCfg = !Q_stricmp(filename ? filename : "", "default.cfg");
 	
 	if ( file == NULL ) {
 		Com_Error( ERR_FATAL, "FS_FOpenFileRead: NULL 'file' parameter passed\n" );
@@ -1178,6 +1229,13 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 	fsh[*file].handleFiles.unique = uniqueFILE;
 
 	int len;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (traceDefaultCfg)
+	{
+		XBLog_Write(va("STEFX: FS default.cfg read begin handle=%d unique=%d", *file, (int)uniqueFILE));
+	}
+#endif
 	
 #if defined(STEFX_ELITE_FORCE_SP)
 	len = FS_FOpenFileReadOS(filename, *file);
@@ -1200,7 +1258,16 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 	}
 #endif
 
-	if (len >= 0) return len;
+	if (len >= 0)
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (traceDefaultCfg)
+		{
+			XBLog_Write(va("STEFX: FS default.cfg read success len=%d handle=%d", len, *file));
+		}
+#endif
+		return len;
+	}
 
 	Com_DPrintf ("Can't find %s\n", filename);
 	
@@ -1586,15 +1653,48 @@ void FS_FreeFile( void *buffer )
 
 int	FS_FOpenFileByMode( const char *qpath, fileHandle_t *f, fsMode_t mode )
 {
+	int r;
+	qboolean sync;
+
 	FS_CheckInit();
 
-	if (mode != FS_READ)
-	{
+	if ( !f ) {
+		Com_Error( ERR_FATAL, "FS_FOpenFileByMode: NULL file handle for '%s'", qpath ? qpath : "(null)" );
+		return -1;
+	}
+
+	sync = qfalse;
+	r = 0;
+
+	switch( mode ) {
+	case FS_READ:
+		r = FS_FOpenFileRead( qpath, f, qtrue );
+		break;
+	case FS_WRITE:
+		*f = FS_FOpenFileWrite( qpath );
+		break;
+	case FS_APPEND_SYNC:
+		sync = qtrue;
+	case FS_APPEND:
+		*f = FS_FOpenFileWrite( qpath );
+		if ( *f ) {
+			WF_Seek( 0, SEEK_END, fsh[*f].whandle );
+		}
+		break;
+	default:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: FS_FOpenFileByMode bad mode=%d qpath='%s'", mode, qpath ? qpath : "(null)");
+#endif
 		Com_Error( ERR_FATAL, "FSH_FOpenFile: bad mode" );
 		return -1;
 	}
-	
-	return FS_FOpenFileRead( qpath, f, qtrue );
+
+	if ( *f ) {
+		fsh[*f].handleSync = sync;
+		fsh[*f].fileSize = r;
+	}
+
+	return r;
 }
 
 

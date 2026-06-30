@@ -507,6 +507,17 @@ void CL_ParseGamestate( msg_t *msg ) {
 	Com_PrintfAlways("JA: CL_ParseGamestate set CA_LOADING; CL_StartHunkUsers\n");
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		extern void SP_DrawSPLoadScreen( void );
+		Com_PrintfAlways("STEFX: CL_ParseGamestate early SP loadscreen begin\n");
+		SP_DrawSPLoadScreen();
+		Com_PrintfAlways("STEFX: CL_ParseGamestate early SP loadscreen draw done\n");
+		re.EndFrame( NULL, NULL );
+		Com_PrintfAlways("STEFX: CL_ParseGamestate early SP loadscreen flush done\n");
+	}
+#endif
+
 	CL_StartHunkUsers();
 #ifdef _XBOX
 	Com_PrintfAlways("JA: CL_ParseGamestate CL_StartHunkUsers returned state=%d cgame=%d\n",

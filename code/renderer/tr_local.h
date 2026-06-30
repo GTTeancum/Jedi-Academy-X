@@ -500,7 +500,7 @@ typedef struct shader_s {
 	bool hasGlow;
 //#endif
 
-//	struct shader_s		*remappedShader;                  // current shader this one is remapped too
+	struct shader_s		*remappedShader;                  // current shader this one is remapped too
 	struct	shader_s	*next;
 } shader_t;
 
@@ -793,6 +793,12 @@ typedef struct msurface_s {
 	int					fogIndex;
 
 	surfaceType_t		*data;			// any of srf*_t
+#ifdef _XBOX
+	int					xboxDebugCode;
+	int					xboxDebugShaderNum;
+	vec3_t				xboxDebugMins;
+	vec3_t				xboxDebugMaxs;
+#endif
 } msurface_t;
 
 

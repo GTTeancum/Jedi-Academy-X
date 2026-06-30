@@ -104,6 +104,7 @@ struct QALState
 	{
 		void* m_Data;
 		DWORD m_DataOffset;
+		char m_DebugName[128];
 		union
 		{
 			WAVEFORMATEX pcm;
@@ -553,8 +554,9 @@ static void _attachBuffer(ALuint source, ALuint buffer)
 	if (s_qalAttachLogCount < 128)
 	{
 		WAVEFORMATEX *fmt = (WAVEFORMATEX *)&binfo->m_WAVFormat.pcm;
-		XBLog_Writef("STEFX: QAL attach source=%u buffer=%u tag=0x%x channels=%u bits=%u rate=%u offset=%u size=%u",
-			source, buffer, fmt->wFormatTag, fmt->nChannels, fmt->wBitsPerSample,
+		XBLog_Writef("STEFX: QAL attach source=%u buffer=%u name='%s' tag=0x%x channels=%u bits=%u rate=%u offset=%u size=%u",
+			source, buffer, binfo->m_DebugName[0] ? binfo->m_DebugName : "<unknown>",
+			fmt->wFormatTag, fmt->nChannels, fmt->wBitsPerSample,
 			fmt->nSamplesPerSec, binfo->m_DataOffset, binfo->m_Size);
 		s_qalAttachLogCount++;
 	}
@@ -669,7 +671,14 @@ ALvoid alSourcei( ALuint source, ALenum param, ALint value )
 		break;
 
 	case AL_BUFFER:
-		if (value) _attachBuffer(source, value);
+		if (value)
+		{
+			_attachBuffer(source, value);
+		}
+		else
+		{
+			_dettachBuffer(source);
+		}
 		break;
 
 	default:
@@ -747,6 +756,31 @@ ALvoid alSourcePlay( ALuint source )
 
 	if (!info->m_Buffer)
 	{
+		static int s_qalPlayNoBufferLogCount = 0;
+		if (s_qalPlayNoBufferLogCount < 64)
+		{
+			XBLog_Writef("STEFX: QAL play skipped source=%u reason=no-buffer voices=%d",
+				source, (int)info->m_Voices.size());
+			s_qalPlayNoBufferLogCount++;
+		}
+		return;
+	}
+
+	if (info->m_Voices.empty())
+	{
+		static int s_qalPlayNoVoicesLogCount = 0;
+		if (s_qalPlayNoVoicesLogCount < 64)
+		{
+			const char *name = "<unknown>";
+			QALState::buffer_t::iterator b = s_pState->m_Buffers.find(info->m_Buffer);
+			if (b != s_pState->m_Buffers.end() && b->second && b->second->m_DebugName[0])
+			{
+				name = b->second->m_DebugName;
+			}
+			XBLog_Writef("STEFX: QAL play skipped source=%u buffer=%u name='%s' reason=no-voices",
+				source, info->m_Buffer, name);
+			s_qalPlayNoVoicesLogCount++;
+		}
 		return;
 	}
 
@@ -761,8 +795,14 @@ ALvoid alSourcePlay( ALuint source )
 	static int s_qalPlayLogCount = 0;
 	if (s_qalPlayLogCount < 128)
 	{
-		XBLog_Writef("STEFX: QAL play source=%u buffer=%u loop=%d voices=%d",
-			source, info->m_Buffer, info->m_Loop ? 1 : 0, (int)info->m_Voices.size());
+		const char *name = "<unknown>";
+		QALState::buffer_t::iterator b = s_pState->m_Buffers.find(info->m_Buffer);
+		if (b != s_pState->m_Buffers.end() && b->second && b->second->m_DebugName[0])
+		{
+			name = b->second->m_DebugName;
+		}
+		XBLog_Writef("STEFX: QAL play source=%u buffer=%u name='%s' loop=%d voices=%d",
+			source, info->m_Buffer, name, info->m_Loop ? 1 : 0, (int)info->m_Voices.size());
 		s_qalPlayLogCount++;
 	}
 }
@@ -806,6 +846,7 @@ ALvoid alGenBuffers( ALsizei n, ALuint* buffers )
 		info->m_Valid = false;
 		info->m_Data = NULL;
 		info->m_DataOffset = 0;
+		info->m_DebugName[0] = '\0';
 		info->m_Size = 0;
 
 		s_pState->m_Buffers[s_pState->m_NextBuffer] = info;
@@ -904,6 +945,29 @@ ALvoid alBufferData( ALuint buffer, ALenum format, ALvoid* data, ALsizei size, A
 			fmt->nSamplesPerSec, info->m_DataOffset, info->m_Size);
 		s_qalBufferLogCount++;
 	}
+}
+
+void QAL_XboxSetBufferDebugName(ALuint buffer, const char *name)
+{
+	if (!s_pState)
+	{
+		return;
+	}
+
+	QALState::buffer_t::iterator b = s_pState->m_Buffers.find(buffer);
+	if (b == s_pState->m_Buffers.end() || !b->second)
+	{
+		return;
+	}
+
+	if (!name)
+	{
+		b->second->m_DebugName[0] = '\0';
+		return;
+	}
+
+	strncpy(b->second->m_DebugName, name, sizeof(b->second->m_DebugName) - 1);
+	b->second->m_DebugName[sizeof(b->second->m_DebugName) - 1] = '\0';
 }
 
 

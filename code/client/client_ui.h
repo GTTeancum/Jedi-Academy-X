@@ -9,5 +9,8 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID );
 void UI_UpdateConnectionMessageString( char *string );
 qboolean UI_ConsoleCommand( void ) ;
 qboolean _UI_IsFullscreen( void );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+qboolean UI_STEFX_ShouldDispatchGameplayMenuBind( void );
+#endif
 
 #endif //__CLIENTUI_H__

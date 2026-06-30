@@ -370,7 +370,7 @@ void S_Init( void ) {
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
 
 #ifdef _XBOX
-	cv = Cvar_Get("s_xbox_silentAudio", "0", CVAR_ARCHIVE);
+	cv = Cvar_Get("s_xbox_smokeSilentAudio", "0", CVAR_TEMP);
 	s_xboxSilentAudio = (cv && cv->integer) ? qtrue : qfalse;
 	s_soundMuted = s_xboxSilentAudio ? qtrue : qfalse;
 	Com_Printf("JA: Xbox audio mode=%s; lip-sync metadata remains enabled.\n",

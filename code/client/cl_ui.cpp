@@ -341,14 +341,69 @@ qboolean UI_GameCommand( void ) {
 	return UI_ConsoleCommand();
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean CL_STEFX_EnsureUIStarted( const char *source )
+{
+	if ( cls.uiStarted )
+	{
+		return qtrue;
+	}
+
+	if ( cls.state < CA_CONNECTED || !cls.rendererStarted )
+	{
+		XBLF("STEFX: %s cannot start UI state=%d renderer=%d cgame=%d",
+			source ? source : "UI",
+			(int)cls.state,
+			(int)cls.rendererStarted,
+			(int)cls.cgameStarted);
+		return qfalse;
+	}
+
+	XBLF("STEFX: %s starting Xbox UI on demand state=%d renderer=%d cgame=%d",
+		source ? source : "UI",
+		(int)cls.state,
+		(int)cls.rendererStarted,
+		(int)cls.cgameStarted);
+	cls.uiStarted = qtrue;
+	CL_InitUI();
+	XBLF("STEFX: %s UI start complete uiStarted=%d catcher=0x%x",
+		source ? source : "UI",
+		(int)cls.uiStarted,
+		(unsigned int)cls.keyCatchers);
+	return cls.uiStarted ? qtrue : qfalse;
+}
+#endif
 
 void CL_GenericMenu_f(void)
 {		
 	char *arg = Cmd_Argv( 1 );
+	if ( !arg || !arg[0] )
+	{
+		arg = NULL;
+	}
 
-	if (cls.uiStarted) {
+#ifdef _XBOX
+	XBLF("STEFX: CL_GenericMenu_f uiStarted=%d cgameStarted=%d state=%d catcher=0x%x arg='%s'",
+		cls.uiStarted ? 1 : 0,
+		cls.cgameStarted ? 1 : 0,
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers,
+		arg ? arg : "");
+#endif
+	if (
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CL_STEFX_EnsureUIStarted( "CL_GenericMenu_f" )
+#else
+		cls.uiStarted
+#endif
+	) {
 		UI_SetActiveMenu("ingame",arg);
 	}
+#ifdef _XBOX
+	else {
+		XBLog_Write("STEFX: CL_GenericMenu_f blocked because UI is not started");
+	}
+#endif
 }
 
 
@@ -359,9 +414,27 @@ void CL_EndScreenDissolve_f(void)
 
 void CL_DataPad_f(void)
 {		
-	if (cls.uiStarted && cls.cgameStarted && (cls.state == CA_ACTIVE) ) {
+#ifdef _XBOX
+	XBLF("STEFX: CL_DataPad_f uiStarted=%d cgameStarted=%d state=%d catcher=0x%x",
+		cls.uiStarted ? 1 : 0,
+		cls.cgameStarted ? 1 : 0,
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers);
+#endif
+	if (
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CL_STEFX_EnsureUIStarted( "CL_DataPad_f" ) &&
+#else
+		cls.uiStarted &&
+#endif
+		cls.cgameStarted && (cls.state == CA_ACTIVE) ) {
 		UI_SetActiveMenu("datapad",NULL);
 	}
+#ifdef _XBOX
+	else {
+		XBLog_Write("STEFX: CL_DataPad_f blocked by state gate");
+	}
+#endif
 }
 
 /*

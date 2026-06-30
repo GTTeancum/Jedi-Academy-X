@@ -4,7 +4,9 @@ Logged 2026-06-19 for tracking only. Do not treat these as immediate work items 
 
 ## Presentation And UI
 - Restore animated faces when characters talk.
+- Move loading presentation earlier than the cgame loading phase if possible. Current EF `CG_DrawInformation` path is correctly wired once `CA_LOADING`/cgame exist, but black screen can remain during pre-cgame transition work.
 - Add a real pause menu for the Start button path. `cg_paused` is currently mapped but does nothing useful. The pause experience should include typical `RESUME`, `SAVE`, `LOAD`, and `OPTIONS` elements, display `PAUSED` somewhere on screen, and be perfectly LCARS themed.
+- Investigate pause-menu item actions. `SAVE`, `LOAD`, `CONFIGURE`, `QUIT`, `EXIT`, and related entries appear to still be wired into Jedi Academy menus/flows instead of Elite Force behavior.
 - Begin wiring in the actual game intro and main menu.
 
 ## Character And Cinematic Issues

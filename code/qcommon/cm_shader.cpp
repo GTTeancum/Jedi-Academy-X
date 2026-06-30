@@ -211,22 +211,22 @@ infoParm_t	svInfoParms[] =
 {
 	// Game content Flags
 	{"nonsolid", 	~CONTENTS_SOLID,	0, 				0 },						// special hack to clear solid flag
-	{"nonopaque", 	~CONTENTS_OPAQUE,	0, 				0 },						// special hack to clear opaque flag
+	{"nonopaque", 	-1,					0, 				0 },
 	{"lava",		~CONTENTS_SOLID,	0,				CONTENTS_LAVA },			// very damaging
 	{"slime",		~CONTENTS_SOLID,	0,				CONTENTS_SLIME },			// mildly damaging
 	{"water",		~CONTENTS_SOLID,	0,				CONTENTS_WATER },
 	{"fog",			~CONTENTS_SOLID,	0,				CONTENTS_FOG},				// carves surfaces entering
 	{"shotclip",	~CONTENTS_SOLID,	0,				CONTENTS_SHOTCLIP },		/* block shots, but not people */
-	{"playerclip",	~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_PLAYERCLIP },	   	/* block only the player */ 
-	{"monsterclip",	~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_MONSTERCLIP },		
-	{"botclip",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_BOTCLIP },		   	/* NPC do not enter */															
-	{"trigger",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_TRIGGER },
-	{"nodrop",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_NODROP },			// don't drop items or leave bodies (death fog, lava, etc)
-	{"terrain",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_TERRAIN },		   	/* use special terrain collsion */										
-	{"ladder",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_LADDER },			// climb up in it like water
-	{"abseil",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_ABSEIL },			// can abseil down this brush
-	{"outside",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_OUTSIDE },			// volume is considered to be in the outside (i.e. not indoors)
-	{"inside",		~(CONTENTS_SOLID|CONTENTS_OPAQUE),0,CONTENTS_INSIDE },			// volume is considered to be inside (i.e. indoors)
+	{"playerclip",	~CONTENTS_SOLID,	0,				CONTENTS_PLAYERCLIP },	   	/* block only the player */
+	{"monsterclip",	~CONTENTS_SOLID,	0,				CONTENTS_MONSTERCLIP },
+	{"botclip",		~CONTENTS_SOLID,	0,				CONTENTS_BOTCLIP },		   	/* NPC do not enter */
+	{"trigger",		~CONTENTS_SOLID,	0,				CONTENTS_TRIGGER },
+	{"nodrop",		~CONTENTS_SOLID,	0,				CONTENTS_NODROP },			// don't drop items or leave bodies (death fog, lava, etc)
+	{"terrain",		-1,					0,				0 },
+	{"ladder",		~CONTENTS_SOLID,	0,				CONTENTS_LADDER },			// climb up in it like water
+	{"abseil",		-1,					0,				0 },
+	{"outside",		-1,					0,				0 },
+	{"inside",		-1,					0,				0 },
 																		
 	{"detail",		-1,					0,				CONTENTS_DETAIL },			// don't include in structural bsp
 	{"trans",		-1,					0,				CONTENTS_TRANSLUCENT },		// surface has an alpha component
@@ -242,9 +242,9 @@ infoParm_t	svInfoParms[] =
 	{"nosteps",		-1,					SURF_NOSTEPS,	0 },
 	{"nodlight",	-1,					SURF_NODLIGHT,	0 },					   	/* don't ever add dynamic lights */
 	{"metalsteps",	-1,					SURF_METALSTEPS,0 },
-	{"nomiscents",	-1,					SURF_NOMISCENTS,0 },						/* No misc ents on this surface */
+	{"nomiscents",	-1,					0,				0 },
 	{"forcefield",	-1,					SURF_FORCEFIELD,0 },
-	{"forcesight",	-1,					SURF_FORCESIGHT,0 },						// only visible with force sight
+	{"forcesight",	-1,					0,				0 },
 };
 
 void SV_ParseSurfaceParm( CCMShader * shader, const char **text ) 
@@ -271,30 +271,14 @@ void SV_ParseSurfaceParm( CCMShader * shader, const char **text )
 ParseMaterial
 =================
 */
-const char *svMaterialNames[MATERIAL_LAST] =
-{
-	MATERIALS
-};
-
 void SV_ParseMaterial( CCMShader *shader, const char **text ) 
 {
 	char	*token;
-	int		i;
 
 	token = COM_ParseExt( text, qfalse );
 	if ( !token[0] ) 
 	{
 		Com_Printf( S_COLOR_YELLOW "WARNING: missing material in shader '%s'\n", shader->shader );
-		return;
-	}
-	for(i = 0; i < MATERIAL_LAST; i++)
-	{
-		if ( !Q_stricmp( token, svMaterialNames[i] ) ) 
-		{
-			shader->surfaceFlags &= ~MATERIAL_MASK;//safety, clear it first
-			shader->surfaceFlags |= i;
-			break;
-		}
 	}
 }
 
@@ -501,7 +485,7 @@ CCMShader *CM_GetShaderInfo( const char *name )
 	out = (CCMShader *)Hunk_Alloc( sizeof( CCMShader ), qtrue );
 	// Set defaults
 	Q_strncpyz(out->shader, name, MAX_QPATH);
-	out->contentFlags = CONTENTS_SOLID | CONTENTS_OPAQUE;
+	out->contentFlags = CONTENTS_SOLID;
 
 	// Parse in any text if it exists
 	def = CM_GetShaderText(name);

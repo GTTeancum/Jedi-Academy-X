@@ -470,5 +470,8 @@ void CL_ShutdownUI( void );
 void CL_GenericMenu_f(void);
 void CL_DataPad_f(void);
 void CL_EndScreenDissolve_f(void);
+#ifdef _XBOX
+qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const char *source );
+#endif
 
 #endif //__CLIENT_H__

@@ -681,6 +681,9 @@ CLIENT / SERVER SYSTEMS
 void CL_InitKeyCommands( void );
 // the keyboard binding interface must be setup before execing
 // config files, but the rest of client startup will happen later
+#ifdef _XBOX
+void Key_XboxAuditMenuBindings( void );
+#endif
 
 void CL_Init( void );
 void CL_Disconnect( void );

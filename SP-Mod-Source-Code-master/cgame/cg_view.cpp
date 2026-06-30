@@ -10,13 +10,14 @@ extern qboolean player_locked;
 
 qboolean STEFX_XboxSuppressPlayerPresentation( void )
 {
-	const qboolean textOverlayActive =
-		(cg.scrollTextTime != 0
-		|| cg.captionTextTime != 0
+	const qboolean introScrollActive = (cg.scrollTextTime != 0) ? qtrue : qfalse;
+	const qboolean lockedTextOverlayActive =
+		(cg.captionTextTime != 0
 		|| cg.gameTextTime != 0
 		|| cg.gameNextTextTime > cg.time
 		|| cg.LCARSTextTime > cg.time) ? qtrue : qfalse;
-	return (in_camera || (player_locked && textOverlayActive)) ? qtrue : qfalse;
+
+	return (in_camera || introScrollActive || (player_locked && lockedTextOverlayActive)) ? qtrue : qfalse;
 }
 
 static qboolean STEFX_XboxSmokeHarnessPresent( void )

@@ -11,6 +11,9 @@
 
 #include <math.h>
 #include "sparc.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #define EF_BSP_IDENT_STRING "IBSP"
 #define EF_BSP_VERSION 46
@@ -332,6 +335,33 @@ static int EFBSP_ShaderCount(const efbspFile_t *bsp)
 static int EFBSP_SurfaceCount(const efbspFile_t *bsp)
 {
 	return EFBSP_CheckedCount("surfaces", EFBSP_LumpLen(bsp, EF_LUMP_SURFACES), sizeof(efbspSurface_t));
+}
+
+static void *EFBSP_ConvertShaders(const efbspFile_t *bsp, int *outLen)
+{
+	int count = EFBSP_ShaderCount(bsp);
+	dshader_t *in = (dshader_t *)EFBSP_LumpData(bsp, EF_LUMP_SHADERS);
+	dshader_t *out = (dshader_t *)EFBSP_AllocTemp(count * sizeof(dshader_t));
+	int i;
+
+	for (i = 0; i < count; ++i)
+	{
+		out[i] = in[i];
+
+#ifdef _XBOX
+		if (strstr(out[i].shader, "common/") || strstr(out[i].shader, "junk") ||
+			strstr(out[i].shader, "sky") || strstr(out[i].shader, "portal"))
+		{
+			XBLF("STEFX_EFBSP_FLAGS shader='%s' surf=0x%x cont=0x%x",
+				out[i].shader,
+				out[i].surfaceFlags,
+				out[i].contentFlags);
+		}
+#endif
+	}
+
+	*outLen = count * sizeof(dshader_t);
+	return out;
 }
 
 static void *EFBSP_CopyLump(const efbspFile_t *bsp, int lump, int *outLen)

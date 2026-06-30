@@ -6,6 +6,10 @@
 #include "client.h"
 #include "client_ui.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 /*
 
 key up events are sent even if in console mode
@@ -356,7 +360,30 @@ keyname_t keynames[MAX_KEYS] =
 	{ 0x13e, 0x13e, "AUX30", A_AUX30, false								},
 	{ 0x13f, 0x13f, "AUX31", A_AUX31, false								}
 };
+static int Key_BindingIndexForKeynum( int keynum )
+{
+	int i;
 
+	if ( keynum < 0 || keynum >= MAX_KEYS )
+	{
+		return -1;
+	}
+
+	for ( i = 0 ; i < MAX_KEYS ; i++ )
+	{
+		if ( keynames[i].keynum == keynum )
+		{
+			return keynames[i].upper;
+		}
+	}
+
+	return keynum;
+}
+
+static qboolean Key_IsXboxMenuKeynum( int keynum )
+{
+	return ( keynum == A_JOY1 || keynum == A_JOY4 ) ? qtrue : qfalse;
+}
 
 
 
@@ -880,13 +907,19 @@ Key_IsDown
 ===================
 */
 qboolean Key_IsDown( int keynum ) {
+	int bindingIndex;
+
 	if ( keynum == -1 ) {
 		return qfalse;
 	}
 
-	return kg.keys[ keynames[keynum].upper ].down;
-}
+	bindingIndex = Key_BindingIndexForKeynum( keynum );
+	if ( bindingIndex < 0 ) {
+		return qfalse;
+	}
 
+	return kg.keys[ bindingIndex ].down;
+}
 
 /*
 ===================
@@ -1089,20 +1122,33 @@ Key_SetBinding
 ===================
 */
 void Key_SetBinding( int keynum, const char *binding ) {
+	int bindingIndex;
+
 	if ( keynum == -1 ) {
 		return;
 	}
 
+	bindingIndex = Key_BindingIndexForKeynum( keynum );
+	if ( bindingIndex < 0 ) {
+		return;
+	}
+
+#ifdef _XBOX
+	if ( Key_IsXboxMenuKeynum( keynum ) ) {
+		XBLF("STEFX_INPUT_BIND key=%d slot=%d value='%s'", keynum, bindingIndex, binding ? binding : "");
+	}
+#endif
+
 	// free old bindings
-	if ( kg.keys[ keynames[keynum].upper ].binding ) {
-		Z_Free( kg.keys[ keynames[keynum].upper ].binding );
-		kg.keys[ keynames[keynum].upper ].binding = NULL;
+	if ( kg.keys[ bindingIndex ].binding ) {
+		Z_Free( kg.keys[ bindingIndex ].binding );
+		kg.keys[ bindingIndex ].binding = NULL;
 	}
 			
 	// allocate memory for new binding
 	if (binding)
 	{
-		kg.keys[ keynames[keynum].upper ].binding = CopyString( binding );
+		kg.keys[ bindingIndex ].binding = CopyString( binding );
 	}
 
 	// consider this like modifying an archived cvar, so the
@@ -1110,21 +1156,45 @@ void Key_SetBinding( int keynum, const char *binding ) {
 	cvar_modifiedFlags |= CVAR_ARCHIVE;
 }
 
-
 /*
 ===================
 Key_GetBinding
 ===================
 */
 char *Key_GetBinding( int keynum ) {
+	int bindingIndex;
+
 	if ( keynum == -1 ) {
 		return "";
 	}
 
 	assert (keynum < (sizeof(kg.keys)/sizeof(kg.keys[0])));
-	return kg.keys[ keynum ].binding;
+	bindingIndex = Key_BindingIndexForKeynum( keynum );
+	if ( bindingIndex < 0 ) {
+		return "";
+	}
+	return kg.keys[ bindingIndex ].binding;
 }
 
+
+#ifdef _XBOX
+void Key_XboxAuditMenuBindings( void ) {
+	int joy1 = Key_StringToKeynum( "JOY1" );
+	int joy4 = Key_StringToKeynum( "JOY4" );
+	int slot1 = Key_BindingIndexForKeynum( joy1 );
+	int slot4 = Key_BindingIndexForKeynum( joy4 );
+	const char *bind1 = ( slot1 >= 0 ) ? kg.keys[ slot1 ].binding : NULL;
+	const char *bind4 = ( slot4 >= 0 ) ? kg.keys[ slot4 ].binding : NULL;
+
+	XBLF( "STEFX_INPUT_AUDIT JOY1 key=%d slot=%d binding='%s' JOY4 key=%d slot=%d binding='%s'",
+		joy1,
+		slot1,
+		bind1 ? bind1 : "",
+		joy4,
+		slot4,
+		bind4 ? bind4 : "" );
+}
+#endif
 
 /*
 ===================
@@ -1196,8 +1266,9 @@ void Key_Bind_f (void)
 
 	if (c == 2)
 	{
-		if (kg.keys[b].binding)
-			Com_Printf ("\"%s\" = \"%s\"\n", Cmd_Argv(1), kg.keys[b].binding );
+		const char *binding = Key_GetBinding( b );
+		if (binding && binding[0])
+			Com_Printf ("\"%s\" = \"%s\"\n", Cmd_Argv(1), binding );
 		else
 			Com_Printf ("\"%s\" is not bound\n", Cmd_Argv(1) );
 		return;
@@ -1271,9 +1342,16 @@ void CL_ActionEvent(int key, qboolean down, ulong time)
 {
 	const char	*kb;
 	char		cmd[1024];
+	int		bindingIndex;
 
 	// send the bound action
-	kb = kg.keys[ keynames[key].upper ].binding;
+	bindingIndex = Key_BindingIndexForKeynum( key );
+	kb = ( bindingIndex >= 0 ) ? kg.keys[ bindingIndex ].binding : NULL;
+#ifdef _XBOX
+	if ( down && Key_IsXboxMenuKeynum( key ) ) {
+		XBLF("STEFX_INPUT_ACTION key=%d slot=%d binding='%s' state=%d catcher=0x%x", key, bindingIndex, kb ? kb : "", (int)cls.state, (unsigned int)cls.keyCatchers);
+	}
+#endif
 	if(kb)
 	{
 		if (kb[0] == '+') 
@@ -1291,7 +1369,6 @@ void CL_ActionEvent(int key, qboolean down, ulong time)
 		}
 	}
 }
-
 /*
 ===================
 CL_KeyEvent
@@ -1302,13 +1379,19 @@ Called by the system for both key up and key down events
 void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	char	*kb;
 	char	cmd[1024];
+	int		bindingIndex;
+
+	bindingIndex = Key_BindingIndexForKeynum( key );
+	if ( bindingIndex < 0 ) {
+		return;
+	}
 
 	// update auto-repeat status and BUTTON_ANY status
-	kg.keys[ keynames[key].upper ].down = down;
+	kg.keys[ bindingIndex ].down = down;
 	if (down)
 	{
-		kg.keys[ keynames[key].upper ].repeats++;
-		if ( kg.keys[ keynames[key].upper ].repeats == 1)
+		kg.keys[ bindingIndex ].repeats++;
+		if ( kg.keys[ bindingIndex ].repeats == 1)
 		{
 			kg.anykeydown = true;
 			kg.keyDownCount++;
@@ -1316,7 +1399,7 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	}
 	else
 	{
-		kg.keys[ keynames[key].upper ].repeats = 0;
+		kg.keys[ bindingIndex ].repeats = 0;
 		kg.keyDownCount--;
 		if(kg.keyDownCount <= 0)
 		{
@@ -1391,7 +1474,7 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	// an action started before a mode switch.
 	//
 	if (!down) {
-		kb = kg.keys[ keynames[key].upper ].binding;
+		kb = kg.keys[ bindingIndex ].binding;
 		if (kb && kb[0] == '+') {
 			// button commands add keynum and time as parms so that multiple
 			// sources can be discriminated and subframe corrected
@@ -1422,7 +1505,82 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	}
 }
 
+#ifdef _XBOX
+qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const char *source ) {
+	int bindingIndex;
+	const char *kb;
 
+	bindingIndex = Key_BindingIndexForKeynum( key );
+	kb = ( bindingIndex >= 0 ) ? kg.keys[ bindingIndex ].binding : NULL;
+
+	if ( Key_IsXboxMenuKeynum( key ) ) {
+		XBLF("STEFX_INPUT_DIRECT_DISPATCH source='%s' key=%d slot=%d down=%d binding='%s' state=%d catcher=0x%x",
+			source ? source : "",
+			key,
+			bindingIndex,
+			down ? 1 : 0,
+			kb ? kb : "",
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers);
+	}
+
+	if ( !kb || !kb[0] ) {
+		return qfalse;
+	}
+
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( !Q_stricmp( kb, "datapad" ) ) {
+		const char *infoCommand = down ? "+info\n" : "-info\n";
+
+		XBLF("STEFX_INPUT_DIRECT_DATAPAD_TO_INFO source='%s' key=%d slot=%d down=%d command='%s'",
+			source ? source : "",
+			key,
+			bindingIndex,
+			down ? 1 : 0,
+			down ? "+info" : "-info");
+		Cbuf_AddText( infoCommand );
+
+		if ( Key_IsXboxMenuKeynum( key ) ) {
+			XBLF("STEFX_INPUT_DIRECT_DISPATCH_DONE source='%s' key=%d down=%d catcher=0x%x",
+				source ? source : "",
+				key,
+				down ? 1 : 0,
+				(unsigned int)cls.keyCatchers);
+		}
+
+		return qtrue;
+	}
+#endif
+
+	if ( kb[0] == '+' ) {
+		CL_KeyEvent( key, down, time );
+	} else if ( down ) {
+		XBLF("STEFX_INPUT_DIRECT_COMMAND source='%s' key=%d slot=%d command='%s'",
+			source ? source : "",
+			key,
+			bindingIndex,
+			kb);
+		Cbuf_AddText( kb );
+		Cbuf_AddText( "\n" );
+	} else {
+		XBLF("STEFX_INPUT_DIRECT_COMMAND_UP_IGNORED source='%s' key=%d slot=%d command='%s'",
+			source ? source : "",
+			key,
+			bindingIndex,
+			kb);
+	}
+
+	if ( Key_IsXboxMenuKeynum( key ) ) {
+		XBLF("STEFX_INPUT_DIRECT_DISPATCH_DONE source='%s' key=%d down=%d catcher=0x%x",
+			source ? source : "",
+			key,
+			down ? 1 : 0,
+			(unsigned int)cls.keyCatchers);
+	}
+
+	return qtrue;
+}
+#endif
 /*
 ===================
 CL_CharEvent

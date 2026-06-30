@@ -463,6 +463,7 @@ typedef struct {
 	int			headStartTime;
 
 	int			loadLCARSStage;
+	int			loadLCARScnt;
 
 	int			missionInfoFlashTime;
 	qboolean	showInformation;

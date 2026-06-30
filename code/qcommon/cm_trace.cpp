@@ -808,12 +808,6 @@ void CM_TraceThroughTree( traceWork_t *tw, clipMap_t *local, int num, float p1f,
 	int			side;
 	float		midf;
 
-#ifdef _XBOX
-	if(!tr.world) {
-		return;
-	}
-#endif
-
 	if (tw->trace.fraction <= p1f) {
 		return;		// already hit something nearer
 	}
@@ -830,7 +824,7 @@ void CM_TraceThroughTree( traceWork_t *tw, clipMap_t *local, int num, float p1f,
 	//
 	node = local->nodes + num;
 #ifdef _XBOX
-	plane = cmg.planes + tr.world->nodes[num].planeNum;
+	plane = cmg.planes + node->planeNum.GetValue();
 #else   mnode_s
 	plane = node->plane;
 #endif

@@ -11,6 +11,7 @@
 #include <xtl.h>
 extern HANDLE Sys_FileStreamMutex;
 extern void S_XboxOnSoundLoaded(sfx_t *sfx);
+extern void QAL_XboxSetBufferDebugName(ALuint buffer, const char *name);
 #endif
 
 #ifndef WAVE_FORMAT_PCM
@@ -524,11 +525,49 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 		return qfalse;
 	}
 #ifdef _XBOX
-	if ( sfx->iFlags & SFX_FLAG_VOICE )
 	{
 		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
-		Com_PrintfAlways("STEFX: S_StartLoadSound name='%s' code=0x%x len=%d flags=0x%x\n",
-			name ? name : "<unknown>", sfx->iFileCode, sfx->iSoundLength, sfx->iFlags);
+		const char *category = "sfx";
+		int *budget = NULL;
+		static int voiceBudget = 48;
+		static int weaponBudget = 48;
+		static int ambientBudget = 32;
+		static int foleyBudget = 48;
+		static int otherBudget = 32;
+
+		if (sfx->iFlags & SFX_FLAG_VOICE)
+		{
+			category = "vo";
+			budget = &voiceBudget;
+		}
+		else if (name && (strstr(name, "weapons/") || strstr(name, "weapon/") ||
+			strstr(name, "weapons\\") || strstr(name, "weapon\\")))
+		{
+			category = "weapon";
+			budget = &weaponBudget;
+		}
+		else if (name && (strstr(name, "ambient") || strstr(name, "world/") || strstr(name, "world\\")))
+		{
+			category = "ambient";
+			budget = &ambientBudget;
+		}
+		else if (name && (strstr(name, "foot") || strstr(name, "step") ||
+			strstr(name, "pain") || strstr(name, "fall")))
+		{
+			category = "foley";
+			budget = &foleyBudget;
+		}
+		else
+		{
+			budget = &otherBudget;
+		}
+
+		if (*budget > 0)
+		{
+			Com_PrintfAlways("STEFX_DN3_PROOF: audio load category=%s name='%s' code=0x%x len=%d flags=0x%x\n",
+				category, name ? name : "<unknown>", sfx->iFileCode, sfx->iSoundLength, sfx->iFlags);
+			--(*budget);
+		}
 	}
 #endif
 
@@ -666,11 +705,33 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 		return qfalse;
 	}
 #ifdef _XBOX
-	if ( sfx->iFlags & SFX_FLAG_VOICE )
 	{
 		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
-		Com_PrintfAlways("STEFX: S_EndLoadSound loaded name='%s' code=0x%x tag=0x%x fmt=0x%x size=%d rate=%d byteRate=%d durationMs=%d buffer=%d\n",
-			name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate, info.byteRate, sfx->iSoundDurationMs, Buffer);
+		const char *category = "sfx";
+
+		QAL_XboxSetBufferDebugName(Buffer, name ? name : "<unknown>");
+
+		if (sfx->iFlags & SFX_FLAG_VOICE)
+		{
+			category = "vo";
+		}
+		else if (name && (strstr(name, "weapons/") || strstr(name, "weapon/") ||
+			strstr(name, "weapons\\") || strstr(name, "weapon\\")))
+		{
+			category = "weapon";
+		}
+		else if (name && (strstr(name, "ambient") || strstr(name, "world/") || strstr(name, "world\\")))
+		{
+			category = "ambient";
+		}
+		else if (name && (strstr(name, "foot") || strstr(name, "step") ||
+			strstr(name, "pain") || strstr(name, "fall")))
+		{
+			category = "foley";
+		}
+
+		Com_PrintfAlways("STEFX_DN3_PROOF: audio buffer category=%s name='%s' code=0x%x tag=0x%x fmt=0x%x size=%d rate=%d byteRate=%d durationMs=%d buffer=%d\n",
+			category, name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate, info.byteRate, sfx->iSoundDurationMs, Buffer);
 	}
 #endif
 	

@@ -25,10 +25,12 @@ param(
     [int]$SmokeInputYaw = 0,
     [int]$SmokeInputAttackStart = 76000,
     [int]$SmokeInputAttackEnd = 100000,
+    [switch]$NoSmokeAudioMute,
     [switch]$RequireVerticalSlice,
     [switch]$AllowNoActive,
     [switch]$NoCopy,
     [switch]$Visible,
+    [switch]$CxbxHostCapture,
     [switch]$CxbxPresentThrottle
 )
 
@@ -272,7 +274,85 @@ function Get-ScreenshotOutputPath([string]$Path, [int]$Index, [int]$Count) {
     return Join-Path $dir ("{0}_{1:D2}{2}" -f $base, ($Index + 1), $ext)
 }
 
+function Save-CxbxHostCaptureScreenshot([string]$Path) {
+    if (!$script:cxbxHostCaptureTriggerPath -or !$script:cxbxHostCaptureBmpPath) {
+        return "cxbx host capture not configured"
+    }
+
+    $requestStartedUtc = [DateTime]::UtcNow
+    if ([System.IO.Path]::GetExtension($Path).ToLowerInvariant() -eq ".bmp") {
+        $Path = [System.IO.Path]::ChangeExtension($Path, ".png")
+    }
+
+    Remove-Item $script:cxbxHostCaptureBmpPath,$script:cxbxHostCaptureTriggerPath -Force -ErrorAction SilentlyContinue
+    $triggerDir = Split-Path -Parent $script:cxbxHostCaptureTriggerPath
+    if ($triggerDir) {
+        New-Item -ItemType Directory -Path $triggerDir -Force | Out-Null
+    }
+    Set-Content -Path $script:cxbxHostCaptureTriggerPath -Value "capture" -Encoding ASCII
+
+    $deadline = (Get-Date).AddSeconds(20)
+    $bmpPath = $null
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $script:cxbxHostCaptureBmpPath) {
+            $item = Get-Item $script:cxbxHostCaptureBmpPath
+            if ($item.Length -gt 54 -and $item.LastWriteTimeUtc -ge $requestStartedUtc.AddSeconds(-1)) {
+                $bmpPath = $script:cxbxHostCaptureBmpPath
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    Remove-Item $script:cxbxHostCaptureTriggerPath -Force -ErrorAction SilentlyContinue
+
+    if (!$bmpPath) {
+        return "cxbx host capture timeout trigger='$script:cxbxHostCaptureTriggerPath' output='$script:cxbxHostCaptureBmpPath'"
+    }
+
+    $bmpItem = Get-Item $bmpPath
+    if ($bmpItem.Length -le 54) {
+        return "cxbx host capture empty bmp='$bmpPath' length=$($bmpItem.Length)"
+    }
+
+    $dir = Split-Path -Parent $Path
+    if ($dir) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+
+    $ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($ext -eq ".bmp") {
+        $Path = [System.IO.Path]::ChangeExtension($Path, ".png")
+        $ext = ".png"
+    }
+
+    Add-Type -AssemblyName System.Drawing
+    $img = New-Object System.Drawing.Bitmap $bmpPath
+    try {
+        $format = [System.Drawing.Imaging.ImageFormat]::Png
+        if ($ext -eq ".jpg" -or $ext -eq ".jpeg") {
+            $format = [System.Drawing.Imaging.ImageFormat]::Jpeg
+        }
+        $img.Save($Path, $format)
+        if (Test-BitmapEffectivelyBlank $img) {
+            return "cxbx host capture blank bmp='$bmpPath' output='$Path' size=$($img.Width)x$($img.Height) length=$($bmpItem.Length)"
+        }
+
+        return "cxbx host captured image sourceBmp='$(Split-Path $bmpPath -Leaf)' output='$Path' size=$($img.Width)x$($img.Height) length=$($bmpItem.Length)"
+    } finally {
+        $img.Dispose()
+    }
+}
+
 function Save-RendererScreenshot([string]$Path) {
+    if ($CxbxHostCapture) {
+        return Save-CxbxHostCaptureScreenshot $Path
+    }
+
+    $requestStartedUtc = [DateTime]::UtcNow
+    if ([System.IO.Path]::GetExtension($Path).ToLowerInvariant() -eq ".bmp") {
+        $Path = [System.IO.Path]::ChangeExtension($Path, ".png")
+    }
     $requestPaths = @(
         (Join-Path $Game "ef_sp_screenshot_request.txt"),
         (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_screenshot_request.txt"),
@@ -312,7 +392,7 @@ function Save-RendererScreenshot([string]$Path) {
         foreach ($candidate in $bmpCandidates) {
             if (Test-Path $candidate) {
                 $item = Get-Item $candidate
-                if ($item.Length -gt 54) {
+                if ($item.Length -gt 54 -and $item.LastWriteTimeUtc -ge $requestStartedUtc.AddSeconds(-1)) {
                     $bmpPath = $candidate
                     break
                 }
@@ -354,11 +434,8 @@ function Save-RendererScreenshot([string]$Path) {
 
     $ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
     if ($ext -eq ".bmp") {
-        Copy-Item $bmpPath $Path -Force
-        $requestPaths | ForEach-Object {
-            Remove-Item $_ -Force -ErrorAction SilentlyContinue
-        }
-        return "renderer captured bmp='$bmpPath' output='$Path' length=$($bmpItem.Length)"
+        $Path = [System.IO.Path]::ChangeExtension($Path, ".png")
+        $ext = ".png"
     }
 
     Add-Type -AssemblyName System.Drawing
@@ -381,7 +458,7 @@ function Save-RendererScreenshot([string]$Path) {
         $requestPaths | ForEach-Object {
             Remove-Item $_ -Force -ErrorAction SilentlyContinue
         }
-        return "renderer captured bmp='$bmpPath' output='$Path' size=$($img.Width)x$($img.Height) length=$($bmpItem.Length)"
+        return "renderer captured image sourceBmp='$(Split-Path $bmpPath -Leaf)' output='$Path' size=$($img.Width)x$($img.Height) length=$($bmpItem.Length)"
     } finally {
         $img.Dispose()
     }
@@ -523,9 +600,21 @@ if (!$NoCopy) {
     (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_xgshot.bmp"),
     (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_backbuffer.bmp"),
     (Join-Path $Cxbx "ef_sp_xgshot.bmp"),
-    (Join-Path $Cxbx "ef_sp_backbuffer.bmp")
+    (Join-Path $Cxbx "ef_sp_backbuffer.bmp"),
+    (Join-Path $Cxbx "codex_frame_capture_request.txt"),
+    (Join-Path $Cxbx "codex_frame_capture.bmp")
 ) | ForEach-Object {
     Remove-Item $_ -Force -ErrorAction SilentlyContinue
+}
+
+$script:cxbxHostCaptureTriggerPath = ""
+$script:cxbxHostCaptureBmpPath = ""
+if ($CxbxHostCapture) {
+    $script:cxbxHostCaptureTriggerPath = Join-Path $Cxbx "codex_frame_capture_request.txt"
+    $script:cxbxHostCaptureBmpPath = Join-Path $Cxbx "codex_frame_capture.bmp"
+    $env:CXBXR_CAPTURE_TRIGGER = $script:cxbxHostCaptureTriggerPath
+    $env:CXBXR_CAPTURE_OUTPUT = $script:cxbxHostCaptureBmpPath
+    Remove-Item Env:\CXBXR_CAPTURE_IMMEDIATE -ErrorAction SilentlyContinue
 }
 
 if ($Level) {
@@ -542,7 +631,8 @@ if ($CxbxPresentThrottle) {
 
 $smokeCommand = ""
 if (!$NoSmokeInput) {
-    $smokeCommand = "set s_xbox_silentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward $SmokeInputForward;set stefx_smoke_input_side $SmokeInputSide;set stefx_smoke_input_yaw $SmokeInputYaw;set stefx_smoke_input_start $SmokeInputStart;set stefx_smoke_input_attack_start $SmokeInputAttackStart;set stefx_smoke_input_attack_end $SmokeInputAttackEnd;set stefx_smoke_input_end $SmokeInputEnd"
+    $audioMuteCommand = if ($NoSmokeAudioMute) { "" } else { "set s_xbox_smokeSilentAudio 1;" }
+    $smokeCommand = "${audioMuteCommand}set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward $SmokeInputForward;set stefx_smoke_input_side $SmokeInputSide;set stefx_smoke_input_yaw $SmokeInputYaw;set stefx_smoke_input_start $SmokeInputStart;set stefx_smoke_input_attack_start $SmokeInputAttackStart;set stefx_smoke_input_attack_end $SmokeInputAttackEnd;set stefx_smoke_input_end $SmokeInputEnd"
 }
 
 if ($smokeCommand) {
@@ -643,6 +733,7 @@ while ((Get-Date) -lt $deadline) {
             $screenshotDone = $true
             $screenshotTrigger = "log:$ScreenshotAfterLogPattern"
             $screenshotTriggers += $screenshotTrigger
+            break
         }
 
         $heartbeat = Get-HeartbeatInfo $log
@@ -943,7 +1034,7 @@ $summary = @(
     "newestSourceLastWriteTime=$newestSourceLastWriteTime",
     "xbeOlderThanSource=$xbeOlderThanSource",
     "desktopCapture=disabled",
-    "captureSource=xbe-renderer-request",
+    "captureSource=$(if ($CxbxHostCapture) { 'cxbx-host-backbuffer' } else { 'xbe-renderer-request' })",
     "mapRawBspLoads=$mapRawBspLoads",
     "rawLightmapLoads=$rawLightmapLoads",
     "rawLightmapStats=$rawLightmapStats",

@@ -4159,12 +4159,11 @@ static void CG_Draw2D( void )
 		CG_DrawCenterString();
 	}
 
-/*	if (cg.showInformation)
+	if (cg.showInformation)
 	{
-//		CG_DrawMissionInformation();
+		CG_DrawMissionInformation();
 	}
 	else 
-*/	
 	if (missionInfo_Updated)
 	{	
 		if (cg.predicted_player_state.pm_type != PM_DEAD)

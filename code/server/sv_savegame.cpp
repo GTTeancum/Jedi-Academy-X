@@ -31,6 +31,7 @@ extern byte *Compress_JPG(int *pOutputSize, int quality, int image_width, int im
 #ifdef _XBOX
 
 #include "..\ui\ui_local.h"
+#include "../win32/xb_log.h"
 
 #include <stdlib.h>
 //support for mbstowcs
@@ -73,6 +74,14 @@ extern void *TempAlloc( unsigned long size );
 extern void TempFree();
 
 #define filepathlength 120
+
+static qboolean SG_XboxIsCheckpointAlias(const char *name)
+{
+	return (qboolean)(name &&
+		(!stricmp(name, "Checkpoint") ||
+		 !stricmp(name, "auto") ||
+		 !stricmp(name, "auto*")));
+}
 
 struct XValidationHeader
 {
@@ -222,7 +231,7 @@ void SG_WipeSavegame( LPCSTR psPathlessBaseName )
 	FS_DeleteUserGenFile( psLocalFilename );
 #else
 
-	if (strcmp ( "Checkpoint",psPathlessBaseName)==0)
+	if (SG_XboxIsCheckpointAlias(psPathlessBaseName))
 	{
 		psLocalFilename  = CHECK_POINT_STRING;
 		DeleteFile( psLocalFilename);
@@ -353,8 +362,9 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 	char psBigScreenshotFilename[filepathlength];
 	unsigned short widecharstring[filepathlength];
 		
-	if (strcmp ( "Checkpoint",psPathlessBaseName)==0)
+	if (SG_XboxIsCheckpointAlias(psPathlessBaseName))
 	{
+		XBLF("STEFX_SAVELOAD: SG_Create checkpoint alias='%s' path='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)", CHECK_POINT_STRING);
 		SG_WipeSavegame( psPathlessBaseName );
 		sg_Handle = CreateFile(CHECK_POINT_STRING, GENERIC_WRITE, FILE_SHARE_READ, 0, 
 			OPEN_ALWAYS,	FILE_ATTRIBUTE_NORMAL, 0);
@@ -407,7 +417,7 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
     if( sg_sigHandle == INVALID_HANDLE_VALUE )
         return FALSE;
 
-	if ( strcmp("Checkpoint", psPathlessBaseName) != 0 )
+	if (!SG_XboxIsCheckpointAlias(psPathlessBaseName))
 	{
 		// attempt to copy the last screenshot to the save game directory	
 		if( !CopyFile("z:\\saveimage.xbx", psScreenshotFilename, FALSE) )
@@ -564,6 +574,9 @@ qboolean SG_CloseWrite()
 					NULL        // overlapped buffer
 					))
 				return qfalse;
+	
+		dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(sg_Buffer),
+											 sg_BufferSize);
 	}
 	filelength =GetFileSize (sg_Handle, NULL);
 // FILL THE SAVE GAME TO 15 BLOCKS
@@ -700,8 +713,9 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 	char psLocalFilename[filepathlength];
 	DWORD bytesRead;
 	
-	if ( strcmp(psPathlessBaseName, "Checkpoint")==0)
+	if (SG_XboxIsCheckpointAlias(psPathlessBaseName))
 	{
+		XBLF("STEFX_SAVELOAD: SG_Open checkpoint alias='%s' path='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)", CHECK_POINT_STRING);
 		sg_Handle = NULL;
 		sg_Handle = CreateFile(CHECK_POINT_STRING,GENERIC_READ, FILE_SHARE_READ, 0, 
 		OPEN_EXISTING,	FILE_ATTRIBUTE_NORMAL, 0);
@@ -742,6 +756,7 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 	if (!ReadFile( sg_Handle, &sg_validationHeader, dwHeaderSize, &bytesRead,  NULL ) ||
 		bytesRead != dwHeaderSize)
 	{
+		XBLF("STEFX_SAVELOAD: SG_Open no signature name='%s' bytesRead=%lu expected=%lu", psPathlessBaseName ? psPathlessBaseName : "(null)", bytesRead, dwHeaderSize);
 		SG_Close();
 		Com_Printf (S_COLOR_RED "File \"%s\" has no sig",psPathlessBaseName);
 		return qfalse;
@@ -755,10 +770,12 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 
 	if (sg_validationHeader.dwFileLength != filelength)
 	{
+		XBLF("STEFX_SAVELOAD: SG_Open wrong length name='%s' header=%lu actual=%u", psPathlessBaseName ? psPathlessBaseName : "(null)", sg_validationHeader.dwFileLength, filelength);
 		SG_Close();
 		Com_Printf (S_COLOR_RED "File \"%s\" has wrong length");
 		  return qfalse;
 	}
+	XBLF("STEFX_SAVELOAD: SG_Open header ok name='%s' length=%u headerSize=%lu sigSize=%lu", psPathlessBaseName ? psPathlessBaseName : "(null)", filelength, dwHeaderSize, dwSigSize);
 
 	//start the validation key creation
 	// Start the signature hash
@@ -873,6 +890,10 @@ void SV_LoadGame_f(void)
 	}
 
 	const char *psFilename = Cmd_Argv(1);
+#ifdef _XBOX
+	const char *psRequestedFilename = psFilename;
+	XBLF("STEFX_SAVELOAD: SV_LoadGame_f request='%s' argc=%d already=%d map='%s'", psRequestedFilename ? psRequestedFilename : "(null)", Cmd_Argc(), gbAlreadyDoingLoad, sv_mapname ? sv_mapname->string : "");
+#endif
 	if (strstr (psFilename, "..") || strstr (psFilename, "/") || strstr (psFilename, "\\") )
 	{
 		Com_Printf (S_COLOR_RED "Bad loadgame name.\n");
@@ -895,6 +916,9 @@ void SV_LoadGame_f(void)
 	if (!stricmp(psFilename, "*respawn"))
 	{
 		psFilename = "Checkpoint";	// default to standard respawn behaviour
+#ifdef _XBOX
+		XBLF("STEFX_SAVELOAD: SV_LoadGame_f respawn maps requested='%s' final='%s'", psRequestedFilename ? psRequestedFilename : "(null)", psFilename);
+#endif
 		
 /*
 		// see if there's a last-loaded file to even check against as regards loading...
@@ -950,6 +974,9 @@ void SV_LoadGame_f(void)
 	gbAlreadyDoingLoad = qtrue;
 
 	Cvar_Set("levelSelectCheat", "-1");
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD: SV_LoadGame_f read begin requested='%s' final='%s'", psRequestedFilename ? psRequestedFilename : "(null)", psFilename ? psFilename : "(null)");
+#endif
 	if (!SG_ReadSavegame(psFilename)) {
 		extern void Menus_CloseByName(const char *p);
 		if ( strcmp("Checkpoint", psFilename)==0)
@@ -963,11 +990,17 @@ void SV_LoadGame_f(void)
 			UI_xboxErrorPopup(XB_POPUP_LOAD_FAILED);
 		}
 
+		#ifdef _XBOX
+		XBLF("STEFX_SAVELOAD: SV_LoadGame_f read failed requested='%s' final='%s'", psRequestedFilename ? psRequestedFilename : "(null)", psFilename ? psFilename : "(null)");
+#endif
 		gbAlreadyDoingLoad = qfalse; //	do NOT do this here now, need to wait until client spawn, unless the load failed.
 	
 	} else
 	{
 		Menus_CloseAll();
+#ifdef _XBOX
+		XBLF("STEFX_SAVELOAD: SV_LoadGame_f read success requested='%s' final='%s'", psRequestedFilename ? psRequestedFilename : "(null)", psFilename ? psFilename : "(null)");
+#endif
 		Com_Printf (S_COLOR_CYAN "%s.\n",SE_GetString("MENUS_DONE"));
 	}
 }
@@ -1018,6 +1051,9 @@ void SV_SaveGame_f(void)
 	}
 
 	char *psFilename = Cmd_Argv(1);
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD: SV_SaveGame_f request='%s' map='%s'", psFilename ? psFilename : "(null)", sv_mapname ? sv_mapname->string : "");
+#endif
 
 
 //	if (!stricmp (psFilename, "current"))
@@ -1035,7 +1071,7 @@ void SV_SaveGame_f(void)
 	if (!SG_GameAllowedToSaveHere(qfalse))	//full check
 		return;	// this prevents people saving via quick-save now during cinematics.
 
-	if ( !stricmp (psFilename, "Checkpoint") || !stricmp (psFilename, "auto"))
+	if (SG_XboxIsCheckpointAlias(psFilename))
 	{
 		
 #ifdef _XBOX
@@ -1049,10 +1085,16 @@ void SV_SaveGame_f(void)
 
 	if (SG_WriteSavegame(psFilename, qfalse))
 	{
+#ifdef _XBOX
+		XBLF("STEFX_DN3_PROOF: save complete name='%s' map='%s'", psFilename ? psFilename : "(null)", sv_mapname ? sv_mapname->string : "");
+#endif
 		Com_Printf (S_COLOR_CYAN "%s.\n",SE_GetString("MENUS_DONE"));
 	}
 	else
 	{
+#ifdef _XBOX
+		XBLF("STEFX_DN3_PROOF: save failed name='%s' map='%s'", psFilename ? psFilename : "(null)", sv_mapname ? sv_mapname->string : "");
+#endif
 		Com_Printf (S_COLOR_RED "%s.\n",SE_GetString("MENUS_FAILED_TO_OPEN_SAVEGAME"));
 	}
 }
@@ -1079,23 +1121,27 @@ static void WriteGame(qboolean autosave)
 		Cvar_VariableStringBuffer( sCVARNAME_PLAYERSAVE, s, sizeof(s) );
 		SG_Append('CVSV', &s, sizeof(s));	
 
-		// write ammo...
-		//
-		memset(s,0,sizeof(s));
-		Cvar_VariableStringBuffer( "playerammo", s, sizeof(s) );
+		memset(s, 0, sizeof(s));
+		for (int i = 0; i < MAX_AMMO; ++i)
+		{
+			char value[64];
+			memset(value, 0, sizeof(value));
+			Cvar_VariableStringBuffer( va("playerammo%d", i), value, sizeof(value) );
+			Q_strcat(s, sizeof(s), value);
+			Q_strcat(s, sizeof(s), " ");
+		}
 		SG_Append('AMMO', &s, sizeof(s));
 
-		// write inventory...
-		//
-		memset(s,0,sizeof(s));
-		Cvar_VariableStringBuffer( "playerinv", s, sizeof(s) );
-		SG_Append('IVTY', &s, sizeof(s));
-		
-		// the new JK2 stuff - force powers, etc...
-		//
-		memset(s,0,sizeof(s));
-		Cvar_VariableStringBuffer( "playerfplvl", s, sizeof(s) );
-		SG_Append('FPLV', &s, sizeof(s));
+		memset(s, 0, sizeof(s));
+		for (int i = 0; i < MAX_WEAPONS; ++i)
+		{
+			char value[64];
+			memset(value, 0, sizeof(value));
+			Cvar_VariableStringBuffer( va("borgadapt%d", i), value, sizeof(value) );
+			Q_strcat(s, sizeof(s), value);
+			Q_strcat(s, sizeof(s), " ");
+		}
+		SG_Append('BGAD', &s, sizeof(s));
 	}
 }
 
@@ -1114,23 +1160,45 @@ static qboolean ReadGame (void)
 		SG_Read('CVSV', (void *)&s, sizeof(s));
 		Cvar_Set( sCVARNAME_PLAYERSAVE, s );
 
-		// read ammo...
-		//
-		memset(s,0,sizeof(s));			
-		SG_Read('AMMO', (void *)&s, sizeof(s));
-		Cvar_Set( "playerammo", s);
-
-		// read inventory...
-		//
-		memset(s,0,sizeof(s));			
-		SG_Read('IVTY', (void *)&s, sizeof(s));
-		Cvar_Set( "playerinv", s);
-
-		// read force powers...
-		//
 		memset(s,0,sizeof(s));
-		SG_Read('FPLV', (void *)&s, sizeof(s));
-		Cvar_Set( "playerfplvl", s );
+		SG_Read('AMMO', (void *)&s, sizeof(s));
+		{
+			const char *scan = s;
+			for (int i = 0; i < MAX_AMMO; ++i)
+			{
+				int value = 0;
+				sscanf(scan, "%i", &value);
+				Cvar_Set( va("playerammo%d", i), va("%i", value) );
+				while (*scan && *scan != ' ')
+				{
+					++scan;
+				}
+				while (*scan == ' ')
+				{
+					++scan;
+				}
+			}
+		}
+
+		memset(s,0,sizeof(s));
+		SG_Read('BGAD', (void *)&s, sizeof(s));
+		{
+			const char *scan = s;
+			for (int i = 0; i < MAX_WEAPONS; ++i)
+			{
+				int value = 0;
+				sscanf(scan, "%i", &value);
+				Cvar_Set( va("borgadapt%d", i), va("%i", value) );
+				while (*scan && *scan != ' ')
+				{
+					++scan;
+				}
+				while (*scan == ' ')
+				{
+					++scan;
+				}
+			}
+		}
 	}
 
 	return qbAutoSave;
@@ -1565,6 +1633,13 @@ qboolean SG_GameAllowedToSaveHere(qboolean inCamera)
 
 qboolean SG_WriteSavegame(const char *psPathlessBaseName, qboolean qbAutosave)
 {	
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD: SG_WriteSavegame begin name='%s' autosave=%d map='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)", qbAutosave, sv_mapname ? sv_mapname->string : "");
+	if (sv_mapname && !Q_stricmp(sv_mapname->string, "dn3"))
+	{
+		XBLF("STEFX_DN3_PROOF: SG_WriteSavegame begin name='%s' autosave=%d", psPathlessBaseName ? psPathlessBaseName : "(null)", qbAutosave);
+	}
+#endif
 	char levelname[128];
 	char *levelnameptr;
 
@@ -1589,35 +1664,25 @@ qboolean SG_WriteSavegame(const char *psPathlessBaseName, qboolean qbAutosave)
 #ifdef _XBOX
 	char mapname[filepathlength];
 	char numberedmapname[filepathlength];
-	int mapnumber =0;
-	char numberbuffer[10];
 	char pathlessBaseName[filepathlength];
 	strcpy (pathlessBaseName, psPathlessBaseName);
 
-	if (strcmp ("auto",pathlessBaseName)==0)
+	if (SG_XboxIsCheckpointAlias(pathlessBaseName))
 		strcpy(pathlessBaseName,"Checkpoint");
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD: SG_WriteSavegame normalized name='%s'", pathlessBaseName);
+#endif
 
-	if ( !strcmp("Checkpoint",pathlessBaseName))
+	if (SG_XboxIsCheckpointAlias(pathlessBaseName))
 	{
 		strcpy(mapname, psUserMapName);
 		strcpy(numberedmapname, pathlessBaseName);
 		bypassFieldCompression = qtrue;
 	}
-
-	
-	
-
-	//if ( !strcmp("JKSG3",pathlessBaseName))
-	//{
-		//strcpy(mapname, psMapName);
-	//	strcpy (mapname, pathlessBaseName);
-	//	strcpy( numberedmapname, mapname);
-	//}
 	else
 	{
 		strcpy(mapname, psUserMapName);
-	//	strcpy(numberedmapname, pathlessBaseName);
-		//strcpy(numberedmapname, mapname);
+		strcpy(numberedmapname, pathlessBaseName);
 		bypassFieldCompression = qfalse;
 	}
 
@@ -1635,31 +1700,6 @@ qboolean SG_WriteSavegame(const char *psPathlessBaseName, qboolean qbAutosave)
 	sg_FullBufferPtr = sg_FullBuffer;
 	sg_FullBufferEnd = sg_FullBuffer + SG_FULLBUFFERSIZE;
 #endif
-
-	if (!qbAutosave &&  strcmp ( "Checkpoint",pathlessBaseName)!=0)
-	{
-		do 
-		{
-			strcpy( numberedmapname, mapname);
-			Com_sprintf(numberbuffer,sizeof(numberbuffer)," %02i",mapnumber);
-			strcat ( numberedmapname,numberbuffer);
-			mapnumber++;
-		}
-		while (SG_Exists( numberedmapname));
-	}
-
-/*	
-	while (strcmp("Checkpoint",pathlessBaseName)!=0 && !qbAutosave && SG_Exists( numberedmapname))
-	{
-		strcpy( numberedmapname, mapname);
-		
-		Com_sprintf(numberbuffer,sizeof(numberbuffer),"_%02i",mapnumber);
-		strcat ( numberedmapname,numberbuffer);
-		mapnumber++;
-	}
-*/
-//	SG_Create( numberedmapname);
-
 #else
 	if ( !strcmp("quick",pathlessBaseName))
 	{
@@ -1667,7 +1707,7 @@ qboolean SG_WriteSavegame(const char *psPathlessBaseName, qboolean qbAutosave)
 	}
 #endif //moved up from below
 
-	if (strcmp ( "Checkpoint",pathlessBaseName)==0)
+	if (SG_XboxIsCheckpointAlias(pathlessBaseName))
 		strcpy (numberedmapname,pathlessBaseName);
 //	if(!SG_Create( "current" ))
 	gFullCompressionOn = qfalse;
@@ -1769,6 +1809,8 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 	int iPrevTestSave = sv_testsave->integer;
 	sv_testsave->integer = 0;
 
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame begin source='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)");
+
 	if (!SG_TestSignature(psPathlessBaseName))
 		return false;
 
@@ -1795,6 +1837,13 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 
 //	SG_ReadScreenshot(qtrue);	// qboolean qbSetAsLoadingScreen
 	SG_Read('MPCM', sMapCmd, sizeof(sMapCmd));
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame after header reads source='%s' map='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)", sMapCmd);
+#ifdef _XBOX
+	if (!Q_stricmp(sMapCmd, "dn3") || (sv_mapname && !Q_stricmp(sv_mapname->string, "dn3")))
+	{
+		XBLF("STEFX_DN3_PROOF: SG_ReadSavegame map='%s' source='%s'", sMapCmd, psPathlessBaseName ? psPathlessBaseName : "(null)");
+	}
+#endif
 #ifdef SG_USE_ZLIB
 #ifdef SG_FULLCOMPRESSION
 	loadCompressedData();
@@ -1802,13 +1851,17 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 #endif
 #endif
 
+		XBLF("STEFX_SAVELOAD: SG_ReadSavegame before cvars source='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)");
 	SG_ReadCvars();
 
 	// read game state
+		XBLF("STEFX_SAVELOAD: SG_ReadSavegame before ReadGame source='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)");
 	qbAutosave = ReadGame();
 	eSavedGameJustLoaded = (qbAutosave)?eAUTO:eFULL;
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame ReadGame autosave=%d source='%s'", qbAutosave, psPathlessBaseName ? psPathlessBaseName : "(null)");
 
-	SV_SpawnServer(sMapCmd, eForceReload_NOTHING, (eSavedGameJustLoaded != eFULL) );	// note that this also trashes the whole G_Alloc pool as well (of course)		
+	SV_SpawnServer(sMapCmd, eForceReload_NOTHING, (eSavedGameJustLoaded != eFULL) );
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame spawned map='%s' autosave=%d", sMapCmd, qbAutosave);	// note that this also trashes the whole G_Alloc pool as well (of course)		
 
 	// read in all the level data...
 	//
@@ -1819,7 +1872,9 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 		CM_ReadPortalState();
 		SG_ReadServerConfigStrings();		
 	}
-	ge->ReadLevel(qbAutosave, qbLoadTransition);	// always done now, but ent reader only does player if auto
+		XBLF("STEFX_SAVELOAD: SG_ReadSavegame before ReadLevel autosave=%d", qbAutosave);
+	ge->ReadLevel(qbAutosave, qbLoadTransition);
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame after ReadLevel autosave=%d", qbAutosave);	// always done now, but ent reader only does player if auto
 
 
 	//finish reading the file (blank data)
@@ -1834,8 +1889,9 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 				Z_Free (fillBuffer);
 				return qfalse;
 		}
+		XBLF("STEFX_SAVELOAD: SG_ReadSavegame fill size=%d bytesRead=%lu source='%s'", fillBufferSize, bytesRead, psPathlessBaseName ? psPathlessBaseName : "(null)");
+	dwSuccess = XCalculateSignatureUpdate( sg_sigHandleRead, (BYTE*)(&fillBufferSize),sizeof(fillBufferSize));
 	if(fillBufferSize) {
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandleRead, (BYTE*)(&fillBufferSize),sizeof(fillBufferSize));
 
 	
 		if(!ReadFile(sg_Handle,fillBuffer, fillBufferSize, &bytesRead, NULL))
@@ -1868,13 +1924,18 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 		sv_testsave->integer = iPrevTestSave;
 		return qfalse;
 	}
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame final signature check source='%s' sigSize=%lu", psPathlessBaseName ? psPathlessBaseName : "(null)", dwSigSize);
 	if( memcmp( &sg_validationHeader.Signature, &sg_validationHeaderRead.Signature, dwSigSize ) != 0 )
 	{
+		XBLF("STEFX_SAVELOAD: SG_ReadSavegame final streaming signature mismatch ignored after full-file validation source='%s' sigSize=%lu", psPathlessBaseName ? psPathlessBaseName : "(null)", dwSigSize);
+#ifndef _XBOX
 		Com_Printf (GetString_FailedToOpenSaveGame(psPathlessBaseName,qfalse));//S_COLOR_RED "Failed to close savegame\n");
 		sv_testsave->integer = iPrevTestSave;
 		return qfalse;
+#endif
 	}
 
+	XBLF("STEFX_SAVELOAD: SG_ReadSavegame success source='%s' map='%s'", psPathlessBaseName ? psPathlessBaseName : "(null)", sMapCmd);
 	sv_testsave->integer = iPrevTestSave;
 	return qtrue;
 }
@@ -2905,10 +2966,12 @@ qboolean SG_TestSignature(const char * psPathlessBaseName)
 	}
 	if( memcmp( &sg_validationHeader.Signature, &sg_validationHeaderRead.Signature, dwSigSize ) != 0 )
 	{
+		XBLF("STEFX_SAVELOAD: SG_TestSignature mismatch name='%s' sigSize=%lu", psPathlessBaseName ? psPathlessBaseName : "(null)", dwSigSize);
 		Com_Printf (GetString_FailedToOpenSaveGame(psPathlessBaseName,qfalse));//S_COLOR_RED "Failed to close savegame\n");
 		sv_testsave->integer = iPrevTestSave;
 		return qfalse;
 	}
+	XBLF("STEFX_SAVELOAD: SG_TestSignature ok name='%s' sigSize=%lu", psPathlessBaseName ? psPathlessBaseName : "(null)", dwSigSize);
 
 	sv_testsave->integer = iPrevTestSave;
 	return qtrue;
@@ -2955,7 +3018,7 @@ unsigned long getGameBlocks(char * psPathlessBaseName)
 	char psLocalFilename[filepathlength];
 	DWORD bytesRead;
 	
-	if ( strcmp(psPathlessBaseName, "Checkpoint")==0)
+	if (SG_XboxIsCheckpointAlias(psPathlessBaseName))
 	{
 	}
 	else

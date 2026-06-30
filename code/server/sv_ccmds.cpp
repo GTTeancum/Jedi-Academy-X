@@ -160,8 +160,6 @@ void SV_Player_EndOfLevelSave(void)
 		Cvar_Set( sCVARNAME_PLAYERSAVE, "");	// default to blank
 
 //		clientSnapshot_t*	pFrame = &cl->frames[cl->netchan.outgoingSequence & PACKET_MASK];
-		const char	*s2;
-#if defined(STEFX_ELITE_FORCE_SP)
 		const stefxPlayerState_t *pState = (const stefxPlayerState_t *)cl->gentity->client;
 		const char *s = va("%i %i %i %i %i %f %f %f",
 							pState->stats[STAT_HEALTH],
@@ -184,95 +182,6 @@ void SV_Player_EndOfLevelSave(void)
 		{
 			Cvar_Set( va("borgadapt%d", i), va("%i", pState->borgAdaptHits[i]) );
 		}
-#else
-		playerState_t*		pState = cl->gentity->client;
-			//				|general info				  |-force powers |-saber 1										   |-saber 2										  |-general saber
-		const char *s = va("%i %i %i %i %i %i %i %f %f %f %i %i %i %i %i %s %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %s %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i %i",
-							pState->stats[STAT_HEALTH],
-							pState->stats[STAT_ARMOR],
-							pState->stats[STAT_WEAPONS],
-							pState->stats[STAT_ITEMS],
-							pState->weapon,
-							pState->weaponstate,
-							pState->batteryCharge,
-							pState->viewangles[0],
-							pState->viewangles[1],
-							pState->viewangles[2],
-							//force power data
-							pState->forcePowersKnown,
-							pState->forcePower,
-							pState->forcePowerMax,
-							pState->forcePowerRegenRate,
-							pState->forcePowerRegenAmount,
-							//saber 1 data
-							pState->saber[0].name,
-							pState->saber[0].blade[0].active,
-							pState->saber[0].blade[1].active,
-							pState->saber[0].blade[2].active,
-							pState->saber[0].blade[3].active,
-							pState->saber[0].blade[4].active,
-							pState->saber[0].blade[5].active,
-							pState->saber[0].blade[6].active,
-							pState->saber[0].blade[7].active,
-							pState->saber[0].blade[0].color,
-							pState->saber[0].blade[1].color,
-							pState->saber[0].blade[2].color,
-							pState->saber[0].blade[3].color,
-							pState->saber[0].blade[4].color,
-							pState->saber[0].blade[5].color,
-							pState->saber[0].blade[6].color,
-							pState->saber[0].blade[7].color,
-							//saber 2 data
-							pState->saber[1].name,
-							pState->saber[1].blade[0].active,
-							pState->saber[1].blade[1].active,
-							pState->saber[1].blade[2].active,
-							pState->saber[1].blade[3].active,
-							pState->saber[1].blade[4].active,
-							pState->saber[1].blade[5].active,
-							pState->saber[1].blade[6].active,
-							pState->saber[1].blade[7].active,
-							pState->saber[1].blade[0].color,
-							pState->saber[1].blade[1].color,
-							pState->saber[1].blade[2].color,
-							pState->saber[1].blade[3].color,
-							pState->saber[1].blade[4].color,
-							pState->saber[1].blade[5].color,
-							pState->saber[1].blade[6].color,
-							pState->saber[1].blade[7].color,
-							//general saber data
-							pState->saberStylesKnown,
-							pState->saberAnimLevel,
-							pState->saberLockEnemy,
-							pState->saberLockTime
-							);
-		Cvar_Set( sCVARNAME_PLAYERSAVE, s );
-
-		//ammo
-		s2 = "";
-		for (i=0;i< AMMO_MAX; i++)
-		{
-			s2 = va("%s %i",s2, pState->ammo[i]);
-		}
-		Cvar_Set( "playerammo", s2 );
-
-		//inventory
-		s2 = "";
-		for (i=0;i< INV_MAX; i++)
-		{
-			s2 = va("%s %i",s2, pState->inventory[i]);
-		}
-		Cvar_Set( "playerinv", s2 );
-
-		// the new JK2 stuff - force powers, etc...
-		//
-		s2 = "";
-		for (i=0;i< NUM_FORCE_POWERS; i++)
-		{
-			s2 = va("%s %i",s2, pState->forcePowerLevel[i]);
-		}
-		Cvar_Set( "playerfplvl", s2 );
-#endif
 	}
 }
 

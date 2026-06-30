@@ -13,11 +13,12 @@ from __future__ import annotations
 import argparse
 import ctypes
 import random
+import struct
 import re
-import shutil
 import subprocess
 import sys
 import time
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--smoke-forward", type=int, default=127)
     parser.add_argument("--smoke-side", type=int, default=0)
     parser.add_argument("--smoke-yaw", type=int, default=0)
+    parser.add_argument("--smoke-view-pitch", type=int, default=9999)
+    parser.add_argument("--smoke-view-yaw", type=int, default=9999)
     parser.add_argument("--smoke-start", type=int, default=71000)
     parser.add_argument("--smoke-end", type=int, default=112000)
     parser.add_argument("--attack-start", type=int, default=76000)
@@ -78,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--normal-time",
         action="store_true",
         help="Do not force smoke fasttime/timescale; use this when measuring runtime FPS.",
+    )
+    parser.add_argument(
+        "--allow-window-capture",
+        action="store_true",
+        help="Allow CXBX window-client capture if the XBE renderer capture is blank or unavailable.",
     )
     parser.add_argument(
         "--allow-partial",
@@ -184,6 +192,8 @@ def setup_release_inputs(release: Path, cxbx_root: Path, args: argparse.Namespac
         f"set stefx_smoke_input_forward {args.smoke_forward};"
         f"set stefx_smoke_input_side {args.smoke_side};"
         f"set stefx_smoke_input_yaw {args.smoke_yaw};"
+        f"set stefx_smoke_view_pitch {args.smoke_view_pitch};"
+        f"set stefx_smoke_view_yaw {args.smoke_view_yaw};"
         f"set stefx_smoke_input_start {args.smoke_start};"
         f"set stefx_smoke_input_attack_start {args.attack_start};"
         f"set stefx_smoke_input_attack_end {args.attack_end};"
@@ -231,6 +241,7 @@ def request_renderer_capture(
     timeout_seconds: float = 20.0,
 ) -> tuple[str, bool]:
     roots = runtime_roots(release, cxbx_root)
+    request_wall_time = time.time()
     request_paths = [root / "ef_sp_screenshot_request.txt" for root in roots]
     candidates = []
     for root in roots:
@@ -257,9 +268,11 @@ def request_renderer_capture(
     while time.monotonic() < deadline:
         for candidate in candidates:
             try:
-                if candidate.exists() and candidate.stat().st_size > 54:
-                    found = candidate
-                    break
+                if candidate.exists():
+                    stat = candidate.stat()
+                    if stat.st_size > 54 and stat.st_mtime >= request_wall_time - 1.0:
+                        found = candidate
+                        break
             except OSError:
                 pass
         if found:
@@ -275,18 +288,18 @@ def request_renderer_capture(
         log_capture = extract_log_encoded_capture(log_text)
         if log_capture:
             src_width, src_height, src_rgb = log_capture
-            output = output.with_suffix(".bmp")
+            output = output.with_suffix(".png")
             scaled_rgb = scale_rgb_nearest(src_width, src_height, src_rgb, 640, 480)
-            write_bmp_rgb(output, 640, 480, scaled_rgb)
+            write_png_rgb(output, 640, 480, scaled_rgb)
             for request in request_paths:
                 try:
                     request.unlink()
                 except OSError:
                     pass
-            nonblank, signal = analyze_bmp_signal(output)
+            nonblank, signal = analyze_rgb_signal(640, 480, scaled_rgb)
             return (
                 f"{output} rendererLogCapture={src_width}x{src_height}->640x480 "
-                f"bytes={output.stat().st_size} {signal}",
+                f"pngBytes={output.stat().st_size} {signal}",
                 nonblank,
             )
         for request in request_paths:
@@ -296,24 +309,43 @@ def request_renderer_capture(
                 pass
         return f"renderer capture timeout requests={';'.join(str(p) for p in request_paths)}", False
 
-    output = output.with_suffix(".bmp")
+    output = output.with_suffix(".png")
     output.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(found, output)
+    nonblank, signal = analyze_bmp_signal(found)
+    try:
+        bmp_width, bmp_height, bmp_rgb = read_bmp_rgb(found)
+        write_png_rgb(output, bmp_width, bmp_height, bmp_rgb)
+        png_detail = f" pngBytes={output.stat().st_size} pngSize={bmp_width}x{bmp_height}"
+    except (OSError, ValueError) as exc:
+        png_detail = f" pngWriteError={exc}"
     for request in request_paths:
         try:
             request.unlink()
         except OSError:
             pass
-    nonblank, signal = analyze_bmp_signal(output)
-    if not nonblank and window_pid is not None:
-        window_result, window_nonblank = capture_window_client_bmp(window_pid, output)
-        if window_result:
+    if not nonblank:
+        if window_pid is not None:
+            window_result, window_nonblank = capture_window_client_bmp(window_pid, output)
+            if window_result:
+                return (
+                    f"{output} rendererCapture={found} bytes={found.stat().st_size}{png_detail} {signal}; "
+                    f"windowFallback={window_result}",
+                    window_nonblank,
+                )
+        _, log_text = read_runtime_text(roots, "ef_sp_log.txt")
+        log_capture = extract_log_encoded_capture(log_text)
+        if log_capture:
+            src_width, src_height, src_rgb = log_capture
+            scaled_rgb = scale_rgb_nearest(src_width, src_height, src_rgb, 640, 480)
+            write_png_rgb(output, 640, 480, scaled_rgb)
+            log_nonblank, log_signal = analyze_rgb_signal(640, 480, scaled_rgb)
             return (
-                f"{output} rendererCapture={found} bytes={found.stat().st_size} {signal}; "
-                f"windowFallback={window_result}",
-                window_nonblank,
+                f"{output} rendererCapture={found} bytes={found.stat().st_size}{png_detail} {signal}; "
+                f"rendererLogCapture={src_width}x{src_height}->640x480 "
+                f"pngBytes={output.stat().st_size} {log_signal}",
+                log_nonblank,
             )
-    return f"{output} rendererCapture={found} bytes={found.stat().st_size} {signal}", nonblank
+    return f"{output} rendererCapture={found} bytes={found.stat().st_size}{png_detail} {signal}", nonblank
 
 
 HEARTBEAT_RE = re.compile(r"JA: FRAME_HEARTBEAT completedFrame=(\d+) realtime=(\d+) serverTime=(-?\d+).*?\bfps=([0-9.]+)")
@@ -324,35 +356,110 @@ LOG_SHOT_CHUNK_RE = re.compile(
 LOG_SHOT_END_RE = re.compile(r"STEFX: renderer screenshot log end")
 
 
-def write_bmp_rgb(path: Path, width: int, height: int, rgb: bytes) -> None:
-    row_stride = (width * 3 + 3) & ~3
-    image_bytes = row_stride * height
-    header = bytearray(54)
-    header[0:2] = b"BM"
-    header[2:6] = (54 + image_bytes).to_bytes(4, "little")
-    header[10:14] = (54).to_bytes(4, "little")
-    header[14:18] = (40).to_bytes(4, "little")
-    header[18:22] = width.to_bytes(4, "little")
-    header[22:26] = height.to_bytes(4, "little")
-    header[26:28] = (1).to_bytes(2, "little")
-    header[28:30] = (24).to_bytes(2, "little")
-    header[34:38] = image_bytes.to_bytes(4, "little")
+def write_png_rgb(path: Path, width: int, height: int, rgb: bytes) -> None:
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        crc = zlib.crc32(kind + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", crc)
 
+    if width <= 0 or height <= 0 or len(rgb) < width * height * 3:
+        raise ValueError(f"invalid png rgb data width={width} height={height} bytes={len(rgb)}")
+
+    row_len = width * 3
+    scanlines = bytearray()
+    for y in range(height):
+        scanlines.append(0)
+        start = y * row_len
+        scanlines.extend(rgb[start : start + row_len])
+
+    png = bytearray(b"\x89PNG\r\n\x1a\n")
+    png.extend(chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)))
+    png.extend(chunk(b"IDAT", zlib.compress(bytes(scanlines), 6)))
+    png.extend(chunk(b"IEND", b""))
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        f.write(header)
-        pad = b"\0" * (row_stride - width * 3)
-        for y in range(height - 1, -1, -1):
-            row = bytearray()
-            base = y * width * 3
-            for x in range(width):
-                r = rgb[base + x * 3 + 0]
-                g = rgb[base + x * 3 + 1]
-                b = rgb[base + x * 3 + 2]
-                row.extend((b, g, r))
-            f.write(row)
-            f.write(pad)
+    path.write_bytes(bytes(png))
 
+
+def read_bmp_rgb(path: Path) -> tuple[int, int, bytes]:
+    data = path.read_bytes()
+    if len(data) < 54 or data[0:2] != b"BM":
+        raise ValueError(f"invalid bmp bytes={len(data)}")
+    pixel_offset = int.from_bytes(data[10:14], "little")
+    dib_size = int.from_bytes(data[14:18], "little")
+    if dib_size < 40 or len(data) < 14 + dib_size:
+        raise ValueError(f"unsupported dib dib={dib_size} bytes={len(data)}")
+    width = int.from_bytes(data[18:22], "little", signed=True)
+    height_signed = int.from_bytes(data[22:26], "little", signed=True)
+    planes = int.from_bytes(data[26:28], "little")
+    bpp = int.from_bytes(data[28:30], "little")
+    compression = int.from_bytes(data[30:34], "little")
+    if width <= 0 or height_signed == 0 or planes != 1 or compression != 0 or bpp not in (24, 32):
+        raise ValueError(
+            f"unsupported bmp width={width} height={height_signed} planes={planes} bpp={bpp} compression={compression}"
+        )
+    height = abs(height_signed)
+    row_stride = ((width * bpp + 31) // 32) * 4
+    need = pixel_offset + row_stride * height
+    if need > len(data):
+        raise ValueError(f"truncated bmp width={width} height={height} bpp={bpp} need={need} bytes={len(data)}")
+
+    top_down = height_signed < 0
+    bytes_per_pixel = bpp // 8
+    rgb = bytearray(width * height * 3)
+    for y in range(height):
+        stored_y = y if top_down else (height - 1 - y)
+        row_base = pixel_offset + stored_y * row_stride
+        out_base = y * width * 3
+        for x in range(width):
+            pix = row_base + x * bytes_per_pixel
+            out = out_base + x * 3
+            rgb[out + 0] = data[pix + 2]
+            rgb[out + 1] = data[pix + 1]
+            rgb[out + 2] = data[pix + 0]
+    return width, height, bytes(rgb)
+
+
+def analyze_rgb_signal(width: int, height: int, rgb: bytes) -> tuple[bool, str]:
+    if width <= 0 or height <= 0 or len(rgb) < width * height * 3:
+        return False, f"signal=invalidRgb width={width} height={height} bytes={len(rgb)}"
+
+    crop_left = width // 20
+    crop_right = width - crop_left
+    crop_top = height // 12
+    crop_bottom = height - (height // 20)
+    if crop_right <= crop_left or crop_bottom <= crop_top:
+        crop_left, crop_top, crop_right, crop_bottom = 0, 0, width, height
+
+    step_x = max(1, (crop_right - crop_left) // 64)
+    step_y = max(1, (crop_bottom - crop_top) // 48)
+    samples = 0
+    bright = 0
+    luma_total = 0.0
+    max_luma = 0.0
+    color_variance = 0.0
+
+    for y in range(crop_top, crop_bottom, step_y):
+        row_base = y * width * 3
+        for x in range(crop_left, crop_right, step_x):
+            pix = row_base + x * 3
+            r = rgb[pix]
+            g = rgb[pix + 1]
+            b = rgb[pix + 2]
+            luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            color_variance += abs(float(r) - float(g)) + abs(float(g) - float(b))
+            samples += 1
+            luma_total += luma
+            max_luma = max(max_luma, luma)
+            if luma > 4.0:
+                bright += 1
+
+    avg_luma = luma_total / samples if samples else 0.0
+    avg_color_delta = color_variance / samples if samples else 0.0
+    nonblank = bright >= 16 and max_luma > 12.0 and avg_luma > 2.0 and avg_color_delta > 0.5
+    return nonblank, (
+        f"signal={'nonblank' if nonblank else 'blank'} width={width} height={height} "
+        f"bpp=24 avgLuma={avg_luma:.2f} maxLuma={max_luma:.2f} "
+        f"avgColorDelta={avg_color_delta:.2f} bright={bright}/{samples}"
+    )
 
 def analyze_bmp_signal(path: Path) -> tuple[bool, str]:
     try:
@@ -387,8 +494,17 @@ def analyze_bmp_signal(path: Path) -> tuple[bool, str]:
             f"need={pixel_offset + row_stride * height} bytes={len(data)}"
         )
 
-    step_x = max(1, width // 64)
-    step_y = max(1, height // 48)
+    # Ignore window chrome and edge artifacts. A previous fallback capture could
+    # pass from the bright CXBX title bar while the game client area was black.
+    crop_left = width // 20
+    crop_right = width - crop_left
+    crop_top = height // 12
+    crop_bottom = height - (height // 20)
+    if crop_right <= crop_left or crop_bottom <= crop_top:
+        crop_left, crop_top, crop_right, crop_bottom = 0, 0, width, height
+
+    step_x = max(1, (crop_right - crop_left) // 64)
+    step_y = max(1, (crop_bottom - crop_top) // 48)
     samples = 0
     bright = 0
     luma_total = 0.0
@@ -396,15 +512,18 @@ def analyze_bmp_signal(path: Path) -> tuple[bool, str]:
     bytes_per_pixel = bpp // 8
     top_down = height_signed < 0
 
-    for y in range(0, height, step_y):
+    color_variance = 0.0
+
+    for y in range(crop_top, crop_bottom, step_y):
         stored_y = y if top_down else (height - 1 - y)
         row_base = pixel_offset + stored_y * row_stride
-        for x in range(0, width, step_x):
+        for x in range(crop_left, crop_right, step_x):
             pix = row_base + x * bytes_per_pixel
             b = data[pix]
             g = data[pix + 1]
             r = data[pix + 2]
             luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            color_variance += abs(float(r) - float(g)) + abs(float(g) - float(b))
             samples += 1
             luma_total += luma
             if luma > max_luma:
@@ -413,10 +532,12 @@ def analyze_bmp_signal(path: Path) -> tuple[bool, str]:
                 bright += 1
 
     avg_luma = luma_total / samples if samples else 0.0
-    nonblank = bright >= 4 and max_luma > 8.0 and avg_luma > 1.0
+    avg_color_delta = color_variance / samples if samples else 0.0
+    nonblank = bright >= 16 and max_luma > 12.0 and avg_luma > 2.0 and avg_color_delta > 0.5
     return nonblank, (
         f"signal={'nonblank' if nonblank else 'blank'} width={width} height={height} "
-        f"bpp={bpp} avgLuma={avg_luma:.2f} maxLuma={max_luma:.2f} bright={bright}/{samples}"
+        f"bpp={bpp} avgLuma={avg_luma:.2f} maxLuma={max_luma:.2f} "
+        f"avgColorDelta={avg_color_delta:.2f} bright={bright}/{samples}"
     )
 
 
@@ -503,16 +624,16 @@ def capture_window_client_bmp(pid: int, output: Path) -> tuple[str, bool]:
     if width <= 0 or height <= 0:
         return f"{output} windowFallback=emptyClient pid={pid} hwnd=0x{hwnd:x}", False
 
-    point = POINT(0, 0)
-    if not user32.ClientToScreen(hwnd, ctypes.byref(point)):
+    origin = POINT(0, 0)
+    if not user32.ClientToScreen(hwnd, ctypes.byref(origin)):
         return f"{output} windowFallback=clientToScreenFailed pid={pid} hwnd=0x{hwnd:x}", False
 
-    screen_dc = user32.GetDC(None)
-    if not screen_dc:
-        return f"{output} windowFallback=getDcFailed pid={pid} hwnd=0x{hwnd:x}", False
+    desktop_dc = user32.GetDC(0)
+    if not desktop_dc:
+        return f"{output} windowFallback=getDesktopDcFailed pid={pid} hwnd=0x{hwnd:x}", False
 
-    mem_dc = gdi32.CreateCompatibleDC(screen_dc)
-    bitmap = gdi32.CreateCompatibleBitmap(screen_dc, width, height)
+    mem_dc = gdi32.CreateCompatibleDC(desktop_dc)
+    bitmap = gdi32.CreateCompatibleBitmap(desktop_dc, width, height)
     old_bitmap = None
     try:
         if not mem_dc or not bitmap:
@@ -520,7 +641,7 @@ def capture_window_client_bmp(pid: int, output: Path) -> tuple[str, bool]:
         old_bitmap = gdi32.SelectObject(mem_dc, bitmap)
         srccopy = 0x00CC0020
         captureblt = 0x40000000
-        if not gdi32.BitBlt(mem_dc, 0, 0, width, height, screen_dc, point.x, point.y, srccopy | captureblt):
+        if not gdi32.BitBlt(mem_dc, 0, 0, width, height, desktop_dc, origin.x, origin.y, srccopy | captureblt):
             return f"{output} windowFallback=bitBltFailed pid={pid} hwnd=0x{hwnd:x}", False
 
         row_stride = (width * 3 + 3) & ~3
@@ -542,26 +663,25 @@ def capture_window_client_bmp(pid: int, output: Path) -> tuple[str, bool]:
                 f"pid={pid} hwnd=0x{hwnd:x}"
             ), False
 
-        output = output.with_suffix(".bmp")
+        output = output.with_suffix(".png")
         output.parent.mkdir(parents=True, exist_ok=True)
-        header = bytearray(54)
-        header[0:2] = b"BM"
-        header[2:6] = (54 + image_bytes).to_bytes(4, "little")
-        header[10:14] = (54).to_bytes(4, "little")
-        header[14:18] = (40).to_bytes(4, "little")
-        header[18:22] = width.to_bytes(4, "little", signed=True)
-        header[22:26] = height.to_bytes(4, "little", signed=True)
-        header[26:28] = (1).to_bytes(2, "little")
-        header[28:30] = (24).to_bytes(2, "little")
-        header[34:38] = image_bytes.to_bytes(4, "little")
-        with output.open("wb") as f:
-            f.write(header)
-            f.write(pixels.raw)
-
-        nonblank, signal = analyze_bmp_signal(output)
+        raw = pixels.raw
+        rgb = bytearray(width * height * 3)
+        for y in range(height):
+            stored_y = height - 1 - y
+            row_base = stored_y * row_stride
+            out_base = y * width * 3
+            for x in range(width):
+                src = row_base + x * 3
+                dst = out_base + x * 3
+                rgb[dst + 0] = raw[src + 2]
+                rgb[dst + 1] = raw[src + 1]
+                rgb[dst + 2] = raw[src + 0]
+        write_png_rgb(output, width, height, bytes(rgb))
+        nonblank, signal = analyze_rgb_signal(width, height, bytes(rgb))
         return (
-            f"{output} windowCapture=hwnd:0x{hwnd:x} pid={pid} title='{title}' "
-            f"bytes={output.stat().st_size} {signal}",
+            f"{output} windowCapture=BitBltClient hwnd:0x{hwnd:x} pid={pid} title='{title}' "
+            f"pngBytes={output.stat().st_size} {signal}",
             nonblank,
         )
     finally:
@@ -571,7 +691,7 @@ def capture_window_client_bmp(pid: int, output: Path) -> tuple[str, bool]:
             gdi32.DeleteObject(bitmap)
         if mem_dc:
             gdi32.DeleteDC(mem_dc)
-        user32.ReleaseDC(None, screen_dc)
+        user32.ReleaseDC(0, desktop_dc)
 
 
 def extract_log_encoded_capture(log_text: str) -> tuple[int, int, bytes] | None:
@@ -649,12 +769,15 @@ def config_has_xbox_binds(repo: Path, release: Path) -> bool:
         r"seta\s+sensitivityY\s+\"2\"",
         r"seta\s+joy_deadzone\s+\"0\.18\"",
         r"bind\s+JOY12\s+\+attack",
-        r"bind\s+JOY10\s+\+altattack",
-        r"bind\s+JOY11\s+\+moveup",
-        r"bind\s+JOY9\s+\+movedown",
-        r"bind\s+JOY15\s+\+use",
-        r"bind\s+JOY16\s+\"toggle cl_run\"",
+        r"bind\s+JOY11\s+\+altattack",
+        r"bind\s+JOY15\s+\+moveup",
+        r"bind\s+JOY14\s+\+movedown",
+        r"bind\s+JOY16\s+\+use",
+        r"bind\s+JOY2\s+\"toggle cl_run\"",
+        r"bind\s+JOY1\s+datapad",
+        r"bind\s+JOY4\s+uimenu",
         r"Back=JOY1",
+        r"Start=JOY4",
         r"Right Trigger=JOY12",
         r"A=JOY15",
     ]
@@ -755,7 +878,7 @@ def main() -> int:
                 active_elapsed = time.monotonic() - active_at
                 if active_elapsed >= due_offsets[captured_count]:
                     capture_path = output_dir / (
-                        f"{args.level}_renderer_{stamp}_{captured_count + 1:02d}.bmp"
+                        f"{args.level}_renderer_{stamp}_{captured_count + 1:02d}.png"
                     )
                     frame_text = ""
                     if last_heartbeat:
@@ -767,7 +890,7 @@ def main() -> int:
                         release,
                         cxbx_root,
                         capture_path,
-                        window_pid=proc.pid,
+                        window_pid=proc.pid if args.allow_window_capture else None,
                     )
                     if capture_nonblank:
                         nonblank_captured_count += 1
@@ -813,6 +936,14 @@ def main() -> int:
         "mapRawBspLoads": count_matches(log_text, r"EF: CM_LoadMap raw BSP 'maps/borg1\.bsp'"),
         "rawLightmapLoads": count_matches(log_text, r"EF: R_LoadRawLightmaps map='maps/borg1\.bsp'"),
         "rawLightmapStats": count_matches(log_text, r"EF: RAW_LIGHTMAP_STATS index="),
+        "rendererLightmapsLoaded": count_matches(
+            log_text,
+            r"EF: CM_LoadMap raw BSP 'maps/borg1\.bsp'.*rendererLightmapsLoaded=1",
+        ),
+        "rendererLightmapMode": count_matches(
+            log_text,
+            r"EF: CM_LoadMap raw BSP 'maps/borg1\.bsp'.*lightmapMode=[1-9]",
+        ),
         "activeWorldMultitexture": count_matches(log_text, r"EF: ACTIVE_MTEXTURE shader='textures/"),
         "stage1LightmapApplies": count_matches(
             log_text,
@@ -871,6 +1002,10 @@ def main() -> int:
             log_text,
             r"STEFX: ((installed|confirmed|replaced) Xbox bind|Xbox controls preserving default\.cfg)",
         ) + (1 if xbox_binds_ok else 0),
+        "xboxBindAudit": count_matches(
+            log_text,
+            r"STEFX_INPUT_AUDIT JOY1 .*binding='datapad'.*JOY4 .*binding='uimenu'",
+        ),
         "fpsSamples": fps_samples,
         "fpsMinTail": round(fps_min, 1),
         "fpsAvgTail": round(fps_avg, 1),
@@ -921,7 +1056,13 @@ def main() -> int:
     else:
         required_groups = {
             "map": ("mapRawBspLoads",),
-            "lighting": ("rawLightmapLoads", "rawLightmapStats"),
+            "lighting": (
+                "rawLightmapLoads",
+                "rawLightmapStats",
+                "rendererLightmapsLoaded",
+                "rendererLightmapMode",
+                "stage1LightmapApplies",
+            ),
             "textured_world": ("activeWorldMultitexture",),
             "stage1_lightmap": ("stage1LightmapApplies",),
             "texture_rebind": ("textureRebinds",),
@@ -930,12 +1071,18 @@ def main() -> int:
             "sound_read": ("soundLooseReadOk", "soundAssetLoads"),
             "sound_play": ("soundPlays",),
             "input_gate": ("inputGateCleared",),
-            "xbox_binds": ("xboxBindsInstalled",),
+            "xbox_binds": ("xboxBindsInstalled", "xboxBindAudit"),
             "smoke_input": ("smokeInputMoving",),
             "movement": ("clientMoveResults",),
             "attack_cmd": ("smokeInputAttacking", "playerAttackCmds", "playerPmoveFireEvents"),
             "server_fire": ("playerPmoveFireEvents", "playerClientFireEvents", "playerFireWeapon"),
-            "client_fire": ("playerCgameFireEvents", "projectileSnapshotEvents"),
+            "client_fire": (
+                "playerCgameFireEvents",
+                "projectileSnapshotEvents",
+                "playerClientFireEvents",
+                "playerFireWeapon",
+                "playerDamageHits",
+            ),
             "characters_present": ("npcSpawns", "cgameCharacters"),
             "characters_visible": ("characterAnimSurfaceVisible", "cgameCharacterSubmits", "cgamePlayerAdds"),
             "ai_present": ("npcEnemyAcquired", "npcPainEvents", "npcDamageHits"),
@@ -970,8 +1117,8 @@ def main() -> int:
         f"verticalSlicePass={vertical_slice_pass}",
         f"scriptedIntroPass={scripted_intro_pass}",
         f"missingRequirements={','.join(missing_requirements) if missing_requirements else 'none'}",
-        "desktopCapture=process-window-client-fallback",
-        "captureSource=xbe-renderer-request,window-client-fallback",
+        f"desktopCapture={'window-client-fallback-enabled' if args.allow_window_capture else 'disabled'}",
+        f"captureSource=xbe-renderer-request,xbe-log-encoded{',window-client-fallback' if args.allow_window_capture else ''}",
         f"activeElapsedSeconds={active_elapsed_text}",
         f"dueOffsets={','.join(f'{x:.3f}' for x in due_offsets)}",
         f"rendererCaptureCount={captured_count}",

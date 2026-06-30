@@ -1040,7 +1040,7 @@ void NPC_UseResponse( gentity_t *self, gentity_t *user, qboolean useWhenDone )
 		return;
 	}
 
-	if ( gi.VoiceVolume[self->s.number] )
+	if ( gi.S_Override[self->s.number] )
 	{//I'm talking already
 		if ( !useWhenDone )
 		{//you're not trying to use me
@@ -1124,7 +1124,7 @@ void NPC_Use( gentity_t *self, gentity_t *other, gentity_t *activator )
 					G_ActivateBehavior( self, BSET_USE );
 				}
 			}
-			else if ( !self->enemy && activator->s.number == 0 && !gi.VoiceVolume[self->s.number] && !(self->NPC->scriptFlags&SCF_NO_RESPONSE) )
+			else if ( !self->enemy && activator->s.number == 0 && !gi.S_Override[self->s.number] && !(self->NPC->scriptFlags&SCF_NO_RESPONSE) )
 			{//I don't have an enemy and I'm not talking and I was used by the player
 				NPC_UseResponse( self, other, qfalse );
 			}
@@ -1143,7 +1143,7 @@ void NPC_Use( gentity_t *self, gentity_t *other, gentity_t *activator )
 		else if ( !self->enemy 
 			//&& self->client->NPC_class == CLASS_VEHICLE
 			&& activator->s.number == 0 
-			&& !gi.VoiceVolume[self->s.number] 
+			&& !gi.S_Override[self->s.number] 
 			&& !(self->NPC->scriptFlags&SCF_NO_RESPONSE) )
 		{//I don't have an enemy and I'm not talking and I was used by the player
 			NPC_UseResponse( self, other, qfalse );

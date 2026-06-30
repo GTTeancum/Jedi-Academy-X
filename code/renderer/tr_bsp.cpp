@@ -1257,7 +1257,7 @@ void R_LoadEntities( lump_t *l, world_t &worldData ) {
 		Q_strncpyz(value, token, sizeof(value));
 
 		// check for remapping of shaders for vertex lighting
-/*		s = "vertexremapshader";
+		s = "vertexremapshader";
 		if (!Q_strncmp(keyname, s, strlen(s)) ) {
 			s = strchr(value, ';');
 			if (!s) {
@@ -1266,6 +1266,9 @@ void R_LoadEntities( lump_t *l, world_t &worldData ) {
 			}
 			*s++ = 0;
 			if (r_vertexLight->integer) {
+#ifdef _XBOX
+				XBLF("STEFX_REMAP_WORLDSPAWN vertex old='%s' new='%s'", value, s);
+#endif
 				R_RemapShader(value, s, "0");
 			}
 			continue;
@@ -1279,10 +1282,13 @@ void R_LoadEntities( lump_t *l, world_t &worldData ) {
 				break;
 			}
 			*s++ = 0;
+#ifdef _XBOX
+			XBLF("STEFX_REMAP_WORLDSPAWN old='%s' new='%s'", value, s);
+#endif
 			R_RemapShader(value, s, "0");
 			continue;
 		}
-*/		if (!Q_stricmp(keyname, "distanceCull")) {
+		if (!Q_stricmp(keyname, "distanceCull")) {
 			sscanf(value, "%f", &tr.distanceCull );
 			continue;
 		}

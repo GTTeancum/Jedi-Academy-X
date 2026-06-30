@@ -14,6 +14,7 @@ int			CM_TotalMapContents();
 
 clipHandle_t CM_InlineModel( int index );		// 0 = world, 1 + are bmodels
 clipHandle_t CM_TempBoxModel( const vec3_t mins, const vec3_t maxs );//, const int contents );
+clipHandle_t CM_TempBoxModelContents( const vec3_t mins, const vec3_t maxs, const int contents );
 
 int		CM_ModelContents( clipHandle_t model, int subBSPIndex );
 

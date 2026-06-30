@@ -6,6 +6,7 @@
 
 #include "server.h"
 #ifdef _XBOX
+#include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBSvFrameCount;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 #endif
@@ -35,6 +36,97 @@ cvar_t	*sv_mapChecksum;
 cvar_t	*sv_serverid;
 cvar_t	*sv_testsave;			// Run the savegame enumeration every game frame
 cvar_t	*sv_compress_saved_games;	// compress the saved games on the way out (only affect saver, loader can read both)
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int SV_STEFX_ActiveCommandServerTime(void)
+{
+	static qboolean initialized = qfalse;
+	static int serverTime = 72000;
+
+	if (!initialized)
+	{
+		FILE *timeFile = fopen("D:\\ef_sp_active_command_time.txt", "r");
+		initialized = qtrue;
+		if (timeFile)
+		{
+			char line[64];
+			if (fgets(line, sizeof(line), timeFile))
+			{
+				const int parsed = atoi(line);
+				if (parsed >= 0)
+				{
+					serverTime = parsed;
+				}
+			}
+			fclose(timeFile);
+		}
+		XBLF("STEFX_SAVELOAD: server active command gate=%d", serverTime);
+	}
+
+	return serverTime;
+}
+
+static int SV_STEFX_QueueActiveCommands(void)
+{
+	const char *activeCommandPaths[] = {
+		"D:\\ef_sp_active_commands.txt",
+		"E:\\ef_sp_active_commands.txt",
+		NULL
+	};
+	char commandLine[1024];
+	int pathIndex;
+	int queued = 0;
+	static int s_missingLogBudget = 2;
+
+	for (pathIndex = 0; activeCommandPaths[pathIndex]; ++pathIndex)
+	{
+		FILE *activeCommandFile = fopen(activeCommandPaths[pathIndex], "r");
+		if (!activeCommandFile)
+		{
+			if (s_missingLogBudget > 0)
+			{
+				XBLF("STEFX_SAVELOAD: server active command missing '%s'", activeCommandPaths[pathIndex]);
+				--s_missingLogBudget;
+			}
+			continue;
+		}
+
+		XBLF("STEFX_SAVELOAD: server active command opened '%s'", activeCommandPaths[pathIndex]);
+		while (fgets(commandLine, sizeof(commandLine), activeCommandFile))
+		{
+			commandLine[strcspn(commandLine, "\r\n")] = '\0';
+			if (!commandLine[0])
+			{
+				continue;
+			}
+
+			XBLF("STEFX_SAVELOAD: server queue active command '%s'", commandLine);
+			Cbuf_AddText(commandLine);
+			Cbuf_AddText("\n");
+			++queued;
+		}
+		fclose(activeCommandFile);
+		if (queued > 0)
+		{
+			if (remove(activeCommandPaths[pathIndex]) == 0)
+			{
+				XBLF("STEFX_SAVELOAD: server active command consumed '%s'", activeCommandPaths[pathIndex]);
+			}
+			else
+			{
+				XBLF("STEFX_SAVELOAD: server active command consume failed '%s' errno=%d", activeCommandPaths[pathIndex], errno);
+			}
+		}
+		break;
+	}
+
+	if (queued > 0)
+	{
+		XBLF("STEFX_SAVELOAD: server active command queued=%d state=%d svTime=%d", queued, sv.state, sv.time);
+	}
+	return queued;
+}
+#endif
 
 /*
 =============================================================================
@@ -630,6 +722,36 @@ void SV_Frame( int msec,float fractionMsec ) {
 	}
 
 	SG_TestSave();	// returns immediately if not active, used for fake-save-every-cycle to test (mainly) Icarus disk code
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static qboolean s_activeCommandsQueued = qfalse;
+		static int s_activeCommandAttempts = 0;
+		static int s_activeCommandNextPollTime = 0;
+		static qboolean s_activeCommandStateLogged = qfalse;
+		if (!s_activeCommandsQueued && sv.state == SS_GAME && !s_activeCommandStateLogged)
+		{
+			s_activeCommandStateLogged = qtrue;
+			XBLF("STEFX_SAVELOAD: server active command state entered state=%d svTime=%d residual=%d clientState=%d",
+				sv.state,
+				sv.time,
+				sv.timeResidual,
+				svs.clients ? svs.clients[0].state : -1);
+		}
+		if (!s_activeCommandsQueued && sv.state == SS_GAME
+			&& sv.time >= SV_STEFX_ActiveCommandServerTime()
+			&& sv.time >= s_activeCommandNextPollTime)
+		{
+			++s_activeCommandAttempts;
+			s_activeCommandNextPollTime = sv.time + 1000;
+			if (SV_STEFX_QueueActiveCommands() > 0 || s_activeCommandAttempts >= 20)
+			{
+				s_activeCommandsQueued = qtrue;
+				XBLF("STEFX_SAVELOAD: server active command armed-off attempts=%d", s_activeCommandAttempts);
+			}
+		}
+	}
+#endif
 
 	// check timeouts
 	SV_CheckTimeouts ();

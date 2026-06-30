@@ -108,6 +108,19 @@ typedef struct {
 
 	qhandle_t	loadTick;
 //	qhandle_t	loadTickCap;
+	qhandle_t	loading1;
+	qhandle_t	loading2;
+	qhandle_t	loading3;
+	qhandle_t	loading4;
+	qhandle_t	loading5;
+	qhandle_t	loading6;
+	qhandle_t	loading7;
+	qhandle_t	loading8;
+	qhandle_t	loading9;
+	qhandle_t	loadingcircle;
+	qhandle_t	loadingquarter;
+	qhandle_t	loadingcorner;
+	qhandle_t	loadingtrim;
 
 	//			HUD artwork
 //	int			currentBackground;

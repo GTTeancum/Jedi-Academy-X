@@ -2,12 +2,12 @@
 # patchxbe.py - Jedi Academy Xbox SP build post-processor
 # Usage: patchxbe.py <exe_path> <xbe_out_path>
 
-import sys, os, struct, subprocess
+import sys, os, struct, subprocess, time
 
 exe_path = sys.argv[1]
 xbe_path = sys.argv[2]
 
-# ── Step 1: Strip KERNEL32.DLL from PE import table ──────────────────────
+# Step 1: Strip KERNEL32.DLL from PE import table
 
 def rva_to_offset(data, rva, pe_offset):
     num_sections = struct.unpack_from('<H', data, pe_offset + 6)[0]
@@ -62,7 +62,7 @@ if import_rva:
                     data[dst+mlen:dst+mlen+DESC] = b'\x00' * DESC
                     break
 
-# ── Step 1b: Remove empty PE sections (e.g. .rsrc with no data) ─────────
+# Step 1b: Remove empty PE sections (e.g. .rsrc with no data)
 # imagebld chokes on sections with zero raw size and zero virtual size
 
 opt_size = struct.unpack_from('<H', data, pe_off + 20)[0]
@@ -91,25 +91,25 @@ if removed:
     struct.pack_into('<H', data, pe_off + 6, num_sec - removed)
     print("Section count: %d -> %d" % (num_sec, num_sec - removed))
 
-# ── Step 2: Patch PE subsystem to Xbox (14) ──────────────────────────────
+# Step 2: Patch PE subsystem to Xbox (14)
 
 sub_off = pe_off + 24 + 68
 old_sub = struct.unpack_from('<H', data, sub_off)[0]
 struct.pack_into('<H', data, sub_off, 14)
 print("Subsystem: %d -> 14 (Xbox)" % old_sub)
 
-temp_exe = exe_path + '.xbox.tmp'
+temp_exe = exe_path + ('.xbox.%d.tmp' % os.getpid())
 with open(temp_exe, 'wb') as f:
     f.write(data)
 
-# ── Step 3: Run imagebld ─────────────────────────────────────────────────
+# Step 3: Run imagebld
 
 # Plan-B (OpenJKDF2 1:1): use XDK 5558's imagebld since the EXE is now
 # linked against XDK 5558's d3d8/d3dx8/libc.  XDK 5849's imagebld appears
 # to silently strip .text section content from XDK 5558-linked objs
 # (XBE drops from 5MB to 1.2MB; runtime log shows our code missing).
 # OpenJKDF2's build_xbox.bat uses %XDK_ROOT%\bin\imagebld.exe where
-# XDK_ROOT=C:\XDK_5558\XDK\xbox — matching that exactly.
+# XDK_ROOT=C:\XDK_5558\XDK\xbox - matching that exactly.
 imagebld = r'C:\XDK_5558\XDK\xbox\bin\imagebld.exe'
 map_path  = exe_path.replace('.exe', '.map')
 
@@ -136,7 +136,15 @@ if os.path.exists(map_path):
 
 print("Running imagebld...")
 result = subprocess.call(cmd)
-os.remove(temp_exe)
+for cleanup_try in range(10):
+    try:
+        os.remove(temp_exe)
+        break
+    except OSError as e:
+        if cleanup_try == 9:
+            print("warning: could not remove temporary imagebld input %s: %s" % (temp_exe, e))
+        else:
+            time.sleep(0.25)
 
 if result != 0:
     print("imagebld failed with code %d" % result)
@@ -144,7 +152,7 @@ if result != 0:
 
 print("XBE created: " + xbe_path)
 
-# ── Step 4: Inject missing D3D8 + XGRAPHC library version entries ─────────
+# Step 4: Inject missing D3D8 + XGRAPHC library version entries
 
 print("Checking library version entries for CXBX-Reloaded HLE...")
 
@@ -240,3 +248,5 @@ else:
     print("  Library table updated (%d -> %d entries)" % (lib_count, new_count))
 
 print("Done. %s ready for CXBX-Reloaded." % os.path.basename(xbe_path))
+
+

@@ -41,6 +41,93 @@ static void STEFX_LogBrushMoverSnapshotEntity( const char *phase, int index, con
 		state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2]);
 	--s_stefxBrushSnapBudget;
 }
+
+static qboolean STEFX_IsPlayerSnapshotEntity( const entityState_t *state )
+{
+	return ( state && state->eType == ET_PLAYER );
+}
+
+static void STEFX_LogPlayerSnapshotEntity( const char *phase, int index, const entityState_t *state )
+{
+	static int s_stefxPlayerSnapBudget = 384;
+	const gentity_t *gent;
+	const char *classname;
+	const char *npcType;
+	const char *clientName;
+	const char *renderModel;
+
+	if ( !STEFX_IsPlayerSnapshotEntity( state ) || s_stefxPlayerSnapBudget <= 0 )
+	{
+		return;
+	}
+
+	gent = NULL;
+	classname = "<null>";
+	npcType = "<null>";
+	clientName = "<no-client>";
+	renderModel = "<no-client>";
+	if ( state->number >= 0 && state->number < MAX_GENTITIES )
+	{
+		gent = &g_entities[state->number];
+		if ( gent->classname && gent->classname[0] )
+		{
+			classname = gent->classname;
+		}
+		if ( gent->NPC_type && gent->NPC_type[0] )
+		{
+			npcType = gent->NPC_type;
+		}
+		if ( gent->client )
+		{
+			clientName = gent->client->clientInfo.name;
+			renderModel = gent->client->renderInfo.modelName;
+		}
+	}
+
+	XBLF("STEFX: EF CG_SNAPSHOT_%s player index=%d ent=%d clientNum=%d class='%s' npc='%s' ci='%s' renderModel='%s' eFlags=0x%x weapon=%d model=%d model2=%d origin=(%g,%g,%g) pos=(%g,%g,%g) gent=%p client=%p",
+		phase,
+		index,
+		state->number,
+		state->clientNum,
+		classname,
+		npcType,
+		clientName ? clientName : "<null>",
+		renderModel ? renderModel : "<null>",
+		state->eFlags,
+		state->weapon,
+		state->modelindex,
+		state->modelindex2,
+		state->origin[0], state->origin[1], state->origin[2],
+		state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2],
+		gent,
+		gent ? gent->client : NULL);
+	--s_stefxPlayerSnapBudget;
+}
+
+static void STEFX_LogRawSnapshotEntity( const char *phase, int index, const entityState_t *state )
+{
+	static int s_stefxRawSnapBudget = 96;
+
+	if ( !state || s_stefxRawSnapBudget <= 0 || index >= 8 )
+	{
+		return;
+	}
+
+	XBLF("STEFX: EF CG_SNAPSHOT_RAW_%s index=%d ent=%d type=%d client=%d eFlags=0x%x weapon=%d model=%d model2=%d solid=0x%x origin=(%g,%g,%g) current=(%g,%g,%g)",
+		phase,
+		index,
+		state->number,
+		state->eType,
+		state->clientNum,
+		state->eFlags,
+		state->weapon,
+		state->modelindex,
+		state->modelindex2,
+		state->solid,
+		state->pos.trBase[0], state->pos.trBase[1], state->pos.trBase[2],
+		state->origin[0], state->origin[1], state->origin[2]);
+	--s_stefxRawSnapBudget;
+}
 #endif
 
 /*
@@ -126,7 +213,9 @@ void CG_SetInitialSnapshot( snapshot_t *snap ) {
 	for ( i = 0 ; i < cg.snap->numEntities ; i++ ) {
 		state = &cg.snap->entities[ i ];
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogRawSnapshotEntity( "INITIAL", i, state );
 		STEFX_LogBrushMoverSnapshotEntity( "INITIAL", i, state );
+		STEFX_LogPlayerSnapshotEntity( "INITIAL", i, state );
 #endif
 		cent = &cg_entities[ state->number ];
 
@@ -252,7 +341,9 @@ void CG_SetNextSnap( snapshot_t *snap ) {
 	for ( num = 0 ; num < snap->numEntities ; num++ ) {
 		es = &snap->entities[num];
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_LogRawSnapshotEntity( "NEXT", num, es );
 		STEFX_LogBrushMoverSnapshotEntity( "NEXT", num, es );
+		STEFX_LogPlayerSnapshotEntity( "NEXT", num, es );
 #endif
 		cent = &cg_entities[ es->number ];
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)

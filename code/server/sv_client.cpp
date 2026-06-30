@@ -251,6 +251,7 @@ SV_ClientEnterWorld
 void SV_ClientEnterWorld( client_t *client, usercmd_t *cmd, SavedGameJustLoaded_e eSavedGameJustLoaded ) {
 	int		clientNum;
 	gentity_t	*ent;
+	SavedGameJustLoaded_e savedGameState = eSavedGameJustLoaded;
 
 	Com_DPrintf ("SV_ClientEnterWorld() from %s\n", client->name);
 	client->state = CS_ACTIVE;
@@ -271,6 +272,32 @@ void SV_ClientEnterWorld( client_t *client, usercmd_t *cmd, SavedGameJustLoaded_
 
 	// call the game begin function
 	ge->ClientBegin( client - svs.clients, cmd, eSavedGameJustLoaded );
+
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
+	if ( sv_mapname->string[0]!='_' )
+	{
+		char savename[MAX_QPATH];
+		if ( savedGameState == eNO )
+		{
+			Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave begin map='%s' svTime=%d\n", sv_mapname->string, sv.time);
+			SG_WriteSavegame("auto",qtrue);
+			Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave wrote auto map='%s'\n", sv_mapname->string);
+			if ( strnicmp(sv_mapname->string, "academy", 7) != 0)
+			{
+				Com_sprintf (savename, sizeof(savename), "auto_%s",sv_mapname->string);
+				SG_WriteSavegame(savename,qtrue);//can't use va becuase it's nested
+				Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave wrote '%s'\n", savename);
+			}
+		}
+		else if ( qbLoadTransition == qtrue )
+		{
+			Com_sprintf (savename, sizeof(savename), "hub/%s", sv_mapname->string );
+			SG_WriteSavegame( savename, qfalse );//save a full one
+			SG_WriteSavegame( "auto", qfalse );//need a copy for auto, too
+			Com_PrintfAlways("STEFX_SAVELOAD: client-enter transition autosave wrote hub and auto map='%s'\n", sv_mapname->string);
+		}
+	}
+#endif
 }
 
 /*
@@ -571,27 +598,6 @@ static void SV_UserMove( client_t *cl, msg_t *msg ) {
 	if ( cl->state == CS_PRIMED ) {
 
 		SV_ClientEnterWorld( cl, &cmds[0], eSavedGameJustLoaded );
-#ifndef _XBOX	// No auto-saving for now?
-		if ( sv_mapname->string[0]!='_' )
-		{
-			char savename[MAX_QPATH];
-			if ( eSavedGameJustLoaded == eNO )
-			{
-				SG_WriteSavegame("auto",qtrue);
-				if ( strnicmp(sv_mapname->string, "academy", 7) != 0)
-				{
-					Com_sprintf (savename, sizeof(savename), "auto_%s",sv_mapname->string);
-					SG_WriteSavegame(savename,qtrue);//can't use va becuase it's nested
-				}
-			}
-			else if ( qbLoadTransition == qtrue )
-			{
-				Com_sprintf (savename, sizeof(savename), "hub/%s", sv_mapname->string );
-				SG_WriteSavegame( savename, qfalse );//save a full one
-				SG_WriteSavegame( "auto", qfalse );//need a copy for auto, too
-			}
-		}
-#endif
 		eSavedGameJustLoaded = eNO;
 		// the moves can be processed normaly
 	}

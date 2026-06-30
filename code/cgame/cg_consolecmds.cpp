@@ -225,11 +225,17 @@ static void CG_ZoomOff_f( void )
 
 static void CG_InfoDown_f( void ) {
 	cg.showInformation = qtrue;
+#ifdef _XBOX
+	Com_PrintfAlways("STEFX: CG_InfoDown_f showInformation=1 time=%d\n", cg.time);
+#endif
 }
 
 static void CG_InfoUp_f( void ) 
 {
 	cg.showInformation = qfalse;
+#ifdef _XBOX
+	Com_PrintfAlways("STEFX: CG_InfoUp_f showInformation=0 time=%d\n", cg.time);
+#endif
 }
 
 typedef struct {

@@ -1364,7 +1364,6 @@ static void CG_AddCEntity( centity_t *cent )
 		{
 			static int s_stefxPlayerAddBudget = 96;
 			if ( s_stefxPlayerAddBudget > 0 &&
-				cg.time >= 65000 &&
 				cent->currentState.number != cg.snap->ps.clientNum )
 			{
 				const char *npcType = "";

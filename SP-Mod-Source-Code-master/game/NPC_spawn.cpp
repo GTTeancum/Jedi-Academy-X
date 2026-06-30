@@ -12,6 +12,36 @@ static const char *STEFX_NPCSafeString(const char *s)
 {
 	return s ? s : "<null>";
 }
+static void STEFX_LogNPCState(const char *phase, gentity_t *ent)
+{
+	if (!ent)
+	{
+		XBLF("STEFX_NPC_STATE %s ent=<null>", phase ? phase : "<null>");
+		return;
+	}
+
+	XBLF("STEFX_NPC_STATE %s ent=%d ptr=%08x class='%s' npcType='%s' targetname='%s' inuse=%d linked=%d sv=0x%x eType=%d eFlags=0x%x client=%08x npc=%08x health=%d contents=0x%x weapon=%d origin=(%g,%g,%g) current=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+		phase ? phase : "<null>",
+		ent->s.number,
+		(unsigned int)ent,
+		STEFX_NPCSafeString(ent->classname),
+		STEFX_NPCSafeString(ent->NPC_type),
+		STEFX_NPCSafeString(ent->targetname),
+		ent->inuse,
+		ent->linked,
+		ent->svFlags,
+		ent->s.eType,
+		ent->s.eFlags,
+		(unsigned int)ent->client,
+		(unsigned int)ent->NPC,
+		ent->health,
+		ent->contents,
+		ent->client ? ent->client->ps.weapon : -1,
+		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+		ent->mins[0], ent->mins[1], ent->mins[2],
+		ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+}
 #endif
 
 extern cvar_t *g_sex;
@@ -554,6 +584,9 @@ vec3_t	spawn_origin, spawn_angles;
 	//visible to player and NPCs
 	ent->flags &= ~FL_NOTARGET;
 	ent->s.eFlags &= ~EF_NODRAW;
+#ifdef _XBOX
+	STEFX_LogNPCState("begin-visible-flags", ent);
+#endif
 
 	NPC_SetFX_SpawnStates( ent );
 	
@@ -601,10 +634,12 @@ vec3_t	spawn_origin, spawn_angles;
 		G_KillBox( ent );
 #ifdef _XBOX
 		XBLF("STEFX: NPC_Begin ent=%d after G_KillBox before first linkentity", ent->s.number);
+		STEFX_LogNPCState("begin-before-first-link", ent);
 #endif
 		gi.linkentity (ent);
 #ifdef _XBOX
 		XBLF("STEFX: NPC_Begin ent=%d after first linkentity", ent->s.number);
+		STEFX_LogNPCState("begin-after-first-link", ent);
 #endif
 	}
 
@@ -724,10 +759,12 @@ vec3_t	spawn_origin, spawn_angles;
 	VectorClear( ent->NPC->lastClearOrigin );
 #ifdef _XBOX
 	XBLF("STEFX: NPC_Begin ent=%d before final linkentity", ent->s.number);
+	STEFX_LogNPCState("begin-before-final-link", ent);
 #endif
 	gi.linkentity( ent );
 #ifdef _XBOX
 	XBLF("STEFX: NPC_Begin ent=%d complete", ent->s.number);
+	STEFX_LogNPCState("begin-complete", ent);
 #endif
 }
 
@@ -861,6 +898,9 @@ void NPC_Spawn_Go( gentity_t *ent )
 	}
 	
 	newent->svFlags |= SVF_NPC;
+#ifdef _XBOX
+	STEFX_LogNPCState("spawn-after-svf-npc", newent);
+#endif
 	newent->fullName = ent->fullName;
 
 	newent->NPC = New_NPC_t();	
@@ -970,7 +1010,13 @@ void NPC_Spawn_Go( gentity_t *ent )
 
 	newent->classname = "NPC";
 	newent->NPC_type = ent->NPC_type;
+#ifdef _XBOX
+	STEFX_LogNPCState("spawn-before-unlink", newent);
+#endif
 	gi.unlinkentity(newent);
+#ifdef _XBOX
+	STEFX_LogNPCState("spawn-after-unlink", newent);
+#endif
 	
 	VectorCopy(ent->s.origin, newent->s.origin);
 	VectorCopy(ent->s.origin, newent->client->ps.origin);
@@ -983,6 +1029,9 @@ void NPC_Spawn_Go( gentity_t *ent )
 	newent->NPC->desiredYaw =ent->s.angles[YAW];
 	
 	gi.linkentity(newent);
+#ifdef _XBOX
+	STEFX_LogNPCState("spawn-initial-link", newent);
+#endif
 	newent->health = ent->health;
 	newent->spawnflags = ent->spawnflags;
 
@@ -997,6 +1046,9 @@ void NPC_Spawn_Go( gentity_t *ent )
 
 //==New stuff=====================================================================
 	newent->s.eType	= ET_PLAYER;
+#ifdef _XBOX
+	STEFX_LogNPCState("spawn-etype-player", newent);
+#endif
 	
 	//FIXME: Call CopyParms
 	if ( ent->parms )
@@ -1023,6 +1075,9 @@ void NPC_Spawn_Go( gentity_t *ent )
 	newent->nextthink = level.time + FRAMETIME;
 
 	gi.linkentity (newent);
+#ifdef _XBOX
+	STEFX_LogNPCState("spawn-hidden-link", newent);
+#endif
 
 	if(ent->e_UseFunc == useF_NULL)
 	{

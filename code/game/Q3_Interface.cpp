@@ -81,6 +81,138 @@ speakerTable_t speakerTable[SP_MAX] =
 	"COMPUTER",			"",					0,	"", 0, qfalse,
 };
 
+// EF keeps this compatibility table so older ICARUS scripts can still drive
+// body animations through their legacy token names.
+static stringID_table_t animTableOld[] =
+{
+	// Both
+	"death1",		BOTH_DEATH1,
+	"dead1",		BOTH_DEAD1,
+	"death2",		BOTH_DEATH2,
+	"dead2",		BOTH_DEAD2,
+	"death3",		BOTH_DEATH3,
+	"dead3",		BOTH_DEAD3,
+	"death4",		BOTH_DEATH4,
+	"dead4",		BOTH_DEAD4,
+	"death5",		BOTH_DEATH5,
+	"dead5",		BOTH_DEAD5,
+
+	// Torso
+	"gesture1",		BOTH_GESTURE1,
+	"gesture",		BOTH_GESTURE1,
+	"torso_idle",	BOTH_STAND1,
+	"torso_stand",	BOTH_STAND1,
+	"torso_stand2",	BOTH_STAND2,
+	"ready",		BOTH_STAND2,
+	"drop",			TORSO_DROPWEAP1,
+	"raise",		TORSO_RAISEWEAP1,
+	"attack",		BOTH_ATTACK1,
+	"torso_attack",	BOTH_ATTACK1,
+	"torso_attack1",BOTH_ATTACK1,
+	"torso_attack2",BOTH_ATTACK2,
+
+	// Legs
+	"legs_idle",	BOTH_STAND1,
+	"legs_idlecr",	BOTH_CROUCH1IDLE,
+	"legs_walkcr",	BOTH_CROUCH1WALK,
+	"walk",			BOTH_WALK1,
+	"legs_walk",	BOTH_WALK1,
+	"run",			BOTH_RUN1,
+	"legs_run",		BOTH_RUN1,
+	"back",			LEGS_RUNBACK1,
+	"legs_back",	LEGS_RUNBACK1,
+	"legs_jump",	BOTH_JUMP1,
+	"legs_land",	BOTH_LAND1,
+	"jumpb",		BOTH_JUMPBACK1,
+	"landb",		BOTH_LANDBACK1,
+	"turn",			LEGS_TURN1,
+	"swim",			BOTH_SWIM1,
+
+	// Crew anim aliases
+	"BOTH_PAIN1",BOTH_PAIN1,
+	"BOTH_PAIN2",BOTH_PAIN2,
+	"BOTH_PAIN3",BOTH_PAIN3,
+
+	"BOTH_DEATHFORWARD",BOTH_DEATHFORWARD1,
+	"BOTH_DEADFORWARD",BOTH_DEADFORWARD1,
+	"BOTH_DEATHBACKWARD",BOTH_DEATHBACKWARD1,
+	"BOTH_DEADBACKWARD",BOTH_DEADBACKWARD1,
+	"BOTH_DEATHFORWARD2",BOTH_DEATHFORWARD2,
+	"BOTH_DEADFORWARD2",BOTH_DEADFORWARD2,
+	"BOTH_DEATHBACK2",BOTH_DEATHBACKWARD2,
+	"BOTH_DEADBACK2",BOTH_DEATHBACKWARD2,
+	"BOTH_WRITHINGDEATH",BOTH_LYINGDEATH1,
+	"BOTH_WRITHINGDEAD",BOTH_LYINGDEAD1,
+	"BOTH_STUMBLEDEATH",BOTH_STUMBLEDEATH1,
+	"BOTH_STUMBLEDEAD",BOTH_STUMBLEDEAD1,
+	"BOTH_FALLDEATH",BOTH_FALLDEATH1,
+	"BOTH_FALLDEAD",BOTH_FALLDEAD1LAND,
+	"BOTH_SITTING1",BOTH_SIT3TO1,
+	"BOTH_SITTING2",BOTH_SIT1TO2,
+	"BOTH_SITTING3",BOTH_SIT2TO3,
+
+	"TORSO_RUN",BOTH_RUN1,
+	"TORSO_CONSOLE",BOTH_CONSOLE1,
+	"TORSO_CONSOLE2",BOTH_CONSOLE2,
+	"TORSO_CROUCH",BOTH_CROUCH1,
+	"TORSO_WALKCR",BOTH_CROUCH1WALK,
+	"TORSO_IDLECR",BOTH_CROUCH1IDLE,
+	"TORSO_WALK",BOTH_WALK1,
+	"TORSO_PAIN",BOTH_PAIN1,
+	"TORSO_PLUGIN",BOTH_PLUGIN1,
+	"TORSO_PLUGOUT",BOTH_PLUGOUT1,
+	"TORSO_JUMP",BOTH_JUMP1,
+	"TORSO_INAIR",BOTH_INAIR1,
+	"TORSO_LAND",BOTH_LAND1,
+	"TORSO_SITTING",BOTH_SIT3TO1,
+	"TORSO_WREADY1",TORSO_WEAPONREADY1,
+	"TORSO_WREADY2",TORSO_WEAPONREADY2,
+	"TORSO_TRICORDER",TORSO_TRICORDER1,
+	"TORSO_MEDICORDER",TORSO_MEDICORDER1,
+	"TORSO_INJURED",BOTH_INJURED1,
+	"TORSO_WRITHING",BOTH_WRITHING1,
+	"TORSO_CRAWLBACK",BOTH_CRAWLBACK1,
+	"TORSO_PAIN2WRITHE",BOTH_PAIN2WRITHE1,
+	"TORSO_CONSOLE1IDLE",BOTH_CONSOLE1IDLE,
+	"TORSO_CONSOLE1RIGHT",BOTH_CONSOLE1RIGHT,
+	"TORSO_CONSOLE1LEFT",BOTH_CONSOLE1LEFT,
+	"TORSO_SITTING1",BOTH_SIT3TO1,
+	"TORSO_SITTING2",BOTH_SIT1TO2,
+	"TORSO_SITTING3",BOTH_SIT2TO3,
+	"TORSO_GUARD_LOOKAROUND", BOTH_GUARD_LOOKAROUND1,
+	"TORSO_GUARD_IDLE", BOTH_GUARD_IDLE1,
+	"TORSO_WIDLE",TORSO_WEAPONIDLE1,
+	"TORSO_ACTIVATEBELT1",TORSO_RAISEHELMET1,
+
+	"LEGS_ATTACK",BOTH_ATTACK1,
+	"LEGS_ATTACK2",BOTH_ATTACK2,
+	"LEGS_CONSOLE",BOTH_CONSOLE1,
+	"LEGS_CONSOLE2",BOTH_CONSOLE2,
+	"LEGS_CROUCH",BOTH_CROUCH1,
+	"LEGS_PAIN",BOTH_PAIN1,
+	"LEGS_PLUGIN",BOTH_PLUGIN1,
+	"LEGS_PLUGOUT",BOTH_PLUGOUT1,
+	"LEGS_INAIR",BOTH_INAIR1,
+	"LEGS_SITTING",BOTH_SIT3TO1,
+	"LEGS_TRICORDER",BOTH_STAND1,
+	"LEGS_MEDICORDER",BOTH_STAND1,
+	"LEGS_INJURED",BOTH_INJURED1,
+	"LEGS_WRITHING",BOTH_WRITHING1,
+	"LEGS_CRAWLBACK",BOTH_CRAWLBACK1,
+	"LEGS_PAIN2WRITHE",BOTH_PAIN2WRITHE1,
+	"LEGS_CONSOLE1IDLE",BOTH_CONSOLE1IDLE,
+	"LEGS_CONSOLE1RIGHT",BOTH_CONSOLE1RIGHT,
+	"LEGS_CONSOLE1LEFT",BOTH_CONSOLE1LEFT,
+	"LEGS_SITTING1",BOTH_SIT3TO1,
+	"LEGS_SITTING2",BOTH_SIT1TO2,
+	"LEGS_SITTING3",BOTH_SIT2TO3,
+	"LEGS_SITPOSE",BOTH_SIT3TO1,
+	"LEGS_GUARD_LOOKAROUND", BOTH_GUARD_LOOKAROUND1,
+	"LEGS_GUARD_IDLE", BOTH_GUARD_IDLE1,
+
+	"",	0,
+};
+
 #ifdef _XBOX
 static qboolean Xbox_ScriptVisualEntity( const gentity_t *ent )
 {
@@ -2136,15 +2268,72 @@ static qboolean Q3_SetAnimUpper( int entID, const char *anim_name )
 
 	if( animID == -1 )
 	{
-		Quake3Game()->DebugPrint( IGameInterface::WL_WARNING, "Q3_SetAnimUpper: unknown animation sequence '%s'\n", anim_name );
-		return qfalse;
+		animID = GetIDForString( animTableOld, anim_name );
+		if( animID == -1 )
+		{
+			Quake3Game()->DebugPrint( IGameInterface::WL_WARNING, "Q3_SetAnimUpper: unknown animation sequence '%s'\n", anim_name );
+#ifdef _XBOX
+			{
+				static int stefxUpperUnknownBudget = 64;
+				if (stefxUpperUnknownBudget > 0)
+				{
+					Com_Printf("STEFX_ANIM: upper unknown ent=%d target='%s' anim='%s'\n",
+						entID, g_entities[entID].targetname ? g_entities[entID].targetname : "<none>", anim_name);
+					--stefxUpperUnknownBudget;
+				}
+			}
+#endif
+			return qfalse;
+		}
+#ifdef _XBOX
+		{
+			static int stefxUpperLegacyBudget = 96;
+			if (stefxUpperLegacyBudget > 0)
+			{
+				Com_Printf("STEFX_ANIM: upper legacy ent=%d target='%s' anim='%s' id=%d canonical='%s'\n",
+					entID,
+					g_entities[entID].targetname ? g_entities[entID].targetname : "<none>",
+					anim_name,
+					animID,
+					ENUM2STRING(animID));
+				--stefxUpperLegacyBudget;
+			}
+		}
+#endif
 	}
 	
 	if ( !PM_HasAnimation( &g_entities[entID], animID ) )
 	{
+#ifdef _XBOX
+		{
+			static int stefxUpperMissingBudget = 96;
+			if (stefxUpperMissingBudget > 0)
+			{
+				Com_Printf("STEFX_ANIM: upper missing ent=%d target='%s' anim='%s' id=%d model='%s'\n",
+					entID,
+					g_entities[entID].targetname ? g_entities[entID].targetname : "<none>",
+					anim_name,
+					animID,
+					g_entities[entID].client ? g_entities[entID].client->renderInfo.torsoModelName : "<no-client>");
+				--stefxUpperMissingBudget;
+			}
+		}
+#endif
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	if (strstr(anim_name, "TALK") || strstr(anim_name, "GESTURE"))
+	{
+		static int stefxUpperTalkBudget = 96;
+		if (stefxUpperTalkBudget > 0)
+		{
+			Com_Printf("STEFX_ANIM: upper set ent=%d target='%s' anim='%s' id=%d\n",
+				entID, g_entities[entID].targetname ? g_entities[entID].targetname : "<none>", anim_name, animID);
+			--stefxUpperTalkBudget;
+		}
+	}
+#endif
 	SetUpperAnim( entID, animID );
 	return qtrue;
 }
@@ -2167,15 +2356,72 @@ static qboolean Q3_SetAnimLower( int entID, const char *anim_name )
 
 	if( animID == -1 )
 	{
-		Quake3Game()->DebugPrint( IGameInterface::WL_WARNING, "Q3_SetAnimLower: unknown animation sequence '%s'\n", anim_name );
-		return qfalse;
+		animID = GetIDForString( animTableOld, anim_name );
+		if( animID == -1 )
+		{
+			Quake3Game()->DebugPrint( IGameInterface::WL_WARNING, "Q3_SetAnimLower: unknown animation sequence '%s'\n", anim_name );
+#ifdef _XBOX
+			{
+				static int stefxLowerUnknownBudget = 64;
+				if (stefxLowerUnknownBudget > 0)
+				{
+					Com_Printf("STEFX_ANIM: lower unknown ent=%d target='%s' anim='%s'\n",
+						entID, g_entities[entID].targetname ? g_entities[entID].targetname : "<none>", anim_name);
+					--stefxLowerUnknownBudget;
+				}
+			}
+#endif
+			return qfalse;
+		}
+#ifdef _XBOX
+		{
+			static int stefxLowerLegacyBudget = 96;
+			if (stefxLowerLegacyBudget > 0)
+			{
+				Com_Printf("STEFX_ANIM: lower legacy ent=%d target='%s' anim='%s' id=%d canonical='%s'\n",
+					entID,
+					g_entities[entID].targetname ? g_entities[entID].targetname : "<none>",
+					anim_name,
+					animID,
+					ENUM2STRING(animID));
+				--stefxLowerLegacyBudget;
+			}
+		}
+#endif
 	}
 	
 	if ( !PM_HasAnimation( &g_entities[entID], animID ) )
 	{
+#ifdef _XBOX
+		{
+			static int stefxLowerMissingBudget = 96;
+			if (stefxLowerMissingBudget > 0)
+			{
+				Com_Printf("STEFX_ANIM: lower missing ent=%d target='%s' anim='%s' id=%d model='%s'\n",
+					entID,
+					g_entities[entID].targetname ? g_entities[entID].targetname : "<none>",
+					anim_name,
+					animID,
+					g_entities[entID].client ? g_entities[entID].client->renderInfo.legsModelName : "<no-client>");
+				--stefxLowerMissingBudget;
+			}
+		}
+#endif
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	if (strstr(anim_name, "TALK") || strstr(anim_name, "GESTURE"))
+	{
+		static int stefxLowerTalkBudget = 96;
+		if (stefxLowerTalkBudget > 0)
+		{
+			Com_Printf("STEFX_ANIM: lower set ent=%d target='%s' anim='%s' id=%d\n",
+				entID, g_entities[entID].targetname ? g_entities[entID].targetname : "<none>", anim_name, animID);
+			--stefxLowerTalkBudget;
+		}
+	}
+#endif
 	SetLowerAnim( entID, animID );
 	return qtrue;
 }

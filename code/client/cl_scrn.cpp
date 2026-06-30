@@ -408,11 +408,39 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// if the menu is going to cover the entire screen, we
 	// don't need to render anything under it
 #ifdef _XBOX
-	const qboolean xboxForceDirectMapGameDraw = (Sys_IsDirectMapBoot() && cls.state == CA_ACTIVE);
+	const qboolean xboxUiCatcherActive = (cls.uiStarted && (cls.keyCatchers & KEYCATCH_UI));
+	const qboolean xboxForceDirectMapGameDraw = (Sys_IsDirectMapBoot() && cls.state == CA_ACTIVE && !xboxUiCatcherActive);
 #else
 	const qboolean xboxForceDirectMapGameDraw = qfalse;
 #endif
-	if ( xboxForceDirectMapGameDraw || !_UI_IsFullscreen() ) {
+#ifdef _XBOX
+	static int stefxCinematicFullscreenBypassLogBudget = 4;
+	const qboolean stefxCinematicNeedsDraw =
+		(cls.state == CA_CINEMATIC || CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy());
+	if (stefxCinematicNeedsDraw && _UI_IsFullscreen() && stefxCinematicFullscreenBypassLogBudget > 0)
+	{
+		XBLF("STEFX: SCR_DrawScreenField drawing cinematic despite fullscreen UI state=%d catcher=0x%x",
+			(int)cls.state, (unsigned int)cls.keyCatchers);
+		--stefxCinematicFullscreenBypassLogBudget;
+	}
+	{
+		static int s_stefxCinDecisionBudget = 24;
+		if (stefxCinematicNeedsDraw && s_stefxCinDecisionBudget > 0)
+		{
+			XBLF("STEFX_CIN_DRAW: screen decision state=%d uiStarted=%d catcher=0x%x fullscreen=%d needs=%d forceMap=%d",
+				(int)cls.state,
+				(int)cls.uiStarted,
+				(unsigned int)cls.keyCatchers,
+				_UI_IsFullscreen() ? 1 : 0,
+				stefxCinematicNeedsDraw ? 1 : 0,
+				xboxForceDirectMapGameDraw ? 1 : 0);
+			--s_stefxCinDecisionBudget;
+		}
+	}
+#else
+	const qboolean stefxCinematicNeedsDraw = qfalse;
+#endif
+	if ( stefxCinematicNeedsDraw || xboxForceDirectMapGameDraw || !_UI_IsFullscreen() ) {
 		switch( cls.state ) {
 		default:
 			Com_Error( ERR_FATAL, "SCR_DrawScreenField: bad cls.state" );
@@ -422,7 +450,10 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			break;
 		case CA_DISCONNECTED:
 			// force menu up
-			UI_SetActiveMenu( "mainMenu",NULL );	//			VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_MAIN );
+			if (!(cls.keyCatchers & KEYCATCH_UI))
+			{
+				UI_SetActiveMenu( "mainMenu",NULL );	//			VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_MAIN );
+			}
 			break;
 		case CA_CONNECTING:
 		case CA_CHALLENGING:
@@ -528,6 +559,16 @@ void SCR_UpdateScreen( void ) {
 	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
 		? (s_xboxUpdateScreenActiveTraceCount < 16 || ((s_xboxUpdateScreenActiveTraceCount & 255) == 0))
 		: (s_xboxUpdateScreenTraceCount < 8);
+	static int s_xboxUpdateScreenCinematicTraceCount = 0;
+	if (cls.state == CA_CINEMATIC && s_xboxUpdateScreenCinematicTraceCount < 24)
+	{
+		XBLF("STEFX_CIN_DRAW: update enter state=%d ui=%d cgame=%d catcher=0x%x recursive=%d",
+			(int)cls.state,
+			cls.uiStarted ? 1 : 0,
+			cls.cgameStarted ? 1 : 0,
+			(unsigned int)cls.keyCatchers,
+			recursive);
+	}
 	if (xboxTraceScreenLate)
 	{
 		XBLF("JA: CL_EARLY SCR_UpdateScreen enter state=%d frame=%d realtime=%d serverTime=%d recursive=%d stereo=%d",
@@ -539,6 +580,14 @@ void SCR_UpdateScreen( void ) {
 	CL_StartHunkUsers();
 
 #ifdef _XBOX
+	if (cls.state == CA_CINEMATIC && s_xboxUpdateScreenCinematicTraceCount < 24)
+	{
+		XBLF("STEFX_CIN_DRAW: update after hunk state=%d ui=%d cgame=%d catcher=0x%x",
+			(int)cls.state,
+			cls.uiStarted ? 1 : 0,
+			cls.cgameStarted ? 1 : 0,
+			(unsigned int)cls.keyCatchers);
+	}
 	if (xboxTraceScreenLate)
 	{
 		XBLF("JA: CL_EARLY SCR_UpdateScreen after CL_StartHunkUsers state=%d ui=%d cgame=%d",
@@ -614,6 +663,15 @@ void SCR_UpdateScreen( void ) {
 	recursive = 0;
 #ifdef _XBOX
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen before return");
+	if (cls.state == CA_CINEMATIC && s_xboxUpdateScreenCinematicTraceCount < 24)
+	{
+		XBLF("STEFX_CIN_DRAW: update exit state=%d ui=%d cgame=%d catcher=0x%x",
+			(int)cls.state,
+			cls.uiStarted ? 1 : 0,
+			cls.cgameStarted ? 1 : 0,
+			(unsigned int)cls.keyCatchers);
+		++s_xboxUpdateScreenCinematicTraceCount;
+	}
 #endif
 }
 

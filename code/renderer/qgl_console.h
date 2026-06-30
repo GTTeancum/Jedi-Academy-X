@@ -1162,6 +1162,10 @@ void JkaGlMultiTexCoord2fARB(GLenum target, GLfloat s, GLfloat t);
 /* #define glMultMatrixf        JkaGlMultMatrixf -- disabled 2026-05-17 */
 /* #define glMultiTexCoord2fARB JkaGlMultiTexCoord2fARB -- disabled 2026-05-17 */
 
+#ifdef _XBOX
+void JkaFakeglSetEliteForceScriptPanelDrawContext(int active);
+#endif
+
 /* Standard GL: glTexParameterfv (vector variant, e.g. for border color). */
 void glTexParameterfv(GLenum target, GLenum pname, const GLfloat *params);
 

@@ -12,6 +12,9 @@
 #include "g_functions.h"
 #include "wp_saber.h"
 #include "g_vehicles.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern qboolean G_CheckInSolid (gentity_t *self, qboolean fix);
 extern void ClientUserinfoChanged( int clientNum );
@@ -35,7 +38,70 @@ extern int WP_SaberInitBladeData( gentity_t *ent );
 extern void ST_ClearTimers( gentity_t *ent );
 extern void Jedi_ClearTimers( gentity_t *ent );
 extern void Howler_ClearTimers( gentity_t *self );
+extern cvar_t *g_sex;
 #define	NSF_DROP_TO_FLOOR	16
+
+static const char *STEFX_NPCString( const char *value )
+{
+	return ( value && value[0] ) ? value : "<null>";
+}
+
+static void STEFX_LogNPCSpawner( const char *phase, gentity_t *ent )
+{
+#ifdef _XBOX
+	if ( !ent )
+	{
+		gi.Printf( "STEFX_NPC: %s ent=<null>\n", STEFX_NPCString( phase ) );
+		return;
+	}
+
+	gi.Printf( "STEFX_NPC: %s ent=%d class='%s' npc='%s' target='%s' npcTarget='%s' spawnscript='%s' count=%d flags=0x%x sv=0x%x origin=(%.0f %.0f %.0f)\n",
+		STEFX_NPCString( phase ),
+		ent->s.number,
+		STEFX_NPCString( ent->classname ),
+		STEFX_NPCString( ent->NPC_type ),
+		STEFX_NPCString( ent->targetname ),
+		STEFX_NPCString( ent->NPC_targetname ),
+		STEFX_NPCString( ent->behaviorSet[BSET_SPAWN] ),
+		ent->count,
+		ent->spawnflags,
+		ent->svFlags,
+		ent->s.origin[0],
+		ent->s.origin[1],
+		ent->s.origin[2] );
+#endif
+}
+
+static void STEFX_LogNPCSnapshotState( const char *phase, gentity_t *ent )
+{
+#ifdef _XBOX
+	static int s_stateBudget = 192;
+	if ( !ent || s_stateBudget <= 0 )
+	{
+		return;
+	}
+
+	XBLog_Writef( "STEFX_NPC_STATE phase='%s' ent=%d class='%s' npc='%s' inuse=%d linked=%d sv=0x%x eType=%d eFlags=0x%x solid=0x%x client=%p weapon=%d health=%d origin=(%g,%g,%g) current=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+		STEFX_NPCString( phase ),
+		ent->s.number,
+		STEFX_NPCString( ent->classname ),
+		STEFX_NPCString( ent->NPC_type ),
+		ent->inuse,
+		ent->linked,
+		ent->svFlags,
+		ent->s.eType,
+		ent->s.eFlags,
+		ent->s.solid,
+		ent->client,
+		ent->client ? ent->client->ps.weapon : -999,
+		ent->health,
+		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
+		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
+		ent->mins[0], ent->mins[1], ent->mins[2],
+		ent->maxs[0], ent->maxs[1], ent->maxs[2] );
+	--s_stateBudget;
+#endif
+}
 
 
 //void HirogenAlpha_Precache( void );
@@ -993,6 +1059,8 @@ void NPC_Begin (gentity_t *ent)
 	usercmd_t	ucmd;
 	gentity_t	*spawnPoint = NULL;
 
+	STEFX_LogNPCSpawner( "Begin enter", ent );
+
 	memset( &ucmd, 0, sizeof( ucmd ) );
 
 	if ( !(ent->spawnflags & SFB_NOTSOLID) )
@@ -1222,6 +1290,7 @@ void NPC_Begin (gentity_t *ent)
 			G_KillBox( ent );
 		}
 		gi.linkentity (ent);
+		STEFX_LogNPCSnapshotState( "begin-first-link", ent );
 	}
 
 	// don't allow full run speed for a bit
@@ -1316,6 +1385,7 @@ void NPC_Begin (gentity_t *ent)
 	ClientThink( ent->s.number, &ucmd );
 
 	gi.linkentity( ent );
+	STEFX_LogNPCSnapshotState( "begin-final-link", ent );
 
 	if ( ent->client->playerTeam == TEAM_ENEMY || ent->client->playerTeam == TEAM_FREE )
 	{//valid enemy spawned
@@ -1327,6 +1397,22 @@ void NPC_Begin (gentity_t *ent)
 			}
 		}
 	}
+
+#ifdef _XBOX
+	XBLog_Writef( "STEFX_NPC Begin complete ent=%d npc='%s' team=%d enemyTeam=%d class=%d weapon=%d health=%d flags=0x%x eFlags=0x%x linked=%d sv=0x%x solid=0x%x",
+		ent->s.number,
+		STEFX_NPCString( ent->NPC_type ),
+		ent->client ? ent->client->playerTeam : -999,
+		ent->client ? ent->client->enemyTeam : -999,
+		ent->client ? ent->client->NPC_class : -999,
+		ent->client ? ent->client->ps.weapon : -999,
+		ent->health,
+		ent->flags,
+		ent->s.eFlags,
+		ent->linked,
+		ent->svFlags,
+		ent->s.solid );
+#endif
 }
 
 /*
@@ -1448,6 +1534,8 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 	int			index;
 	vec3_t		saveOrg;
 
+	STEFX_LogNPCSpawner( fullSpawnNow ? "Spawn_Do full begin" : "Spawn_Do scheduled begin", ent );
+
 /*	//Do extra code for stasis spawners
 	if ( Q_stricmp( ent->classname, "NPC_Stasis" ) == 0 )
 	{
@@ -1505,6 +1593,15 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 		}
 		return NULL;
 	}
+
+#ifdef _XBOX
+	gi.Printf( "STEFX_NPC: Spawn_Do allocated sourceEnt=%d newEnt=%d sourceClass='%s' sourceNPC='%s' full=%d\n",
+		ent->s.number,
+		newent->s.number,
+		STEFX_NPCString( ent->classname ),
+		STEFX_NPCString( ent->NPC_type ),
+		fullSpawnNow );
+#endif
 
 	newent->client = (gclient_s *)gi.Malloc(sizeof(gclient_s), TAG_G_ALLOC, qtrue);
 	
@@ -1625,9 +1722,21 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 	VectorCopy(ent->s.origin, newent->currentOrigin);
 	G_SetOrigin(newent, ent->s.origin);//just to be sure!
 	//NOTE: on vehicles, anything in the .npc file will STOMP data on the NPC that's set by the vehicle
+#ifdef _XBOX
+	gi.Printf( "STEFX_NPC: ParseParms begin newEnt=%d npc='%s' sourceClass='%s'\n",
+		newent->s.number,
+		STEFX_NPCString( ent->NPC_type ),
+		STEFX_NPCString( ent->classname ) );
+#endif
 	if ( !NPC_ParseParms( ent->NPC_type, newent ) )
 	{
 		gi.Printf ( S_COLOR_RED "ERROR: Couldn't spawn NPC %s\n", ent->NPC_type );
+#ifdef _XBOX
+		gi.Printf( "STEFX_NPC: ParseParms FAILED newEnt=%d npc='%s' sourceClass='%s'\n",
+			newent->s.number,
+			STEFX_NPCString( ent->NPC_type ),
+			STEFX_NPCString( ent->classname ) );
+#endif
 		G_FreeEntity( newent );
 		if ( ent->spawnflags & NSF_DROP_TO_FLOOR )
 		{
@@ -1635,6 +1744,15 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 		}
 		return NULL;
 	}
+#ifdef _XBOX
+	gi.Printf( "STEFX_NPC: ParseParms ok newEnt=%d npc='%s' team=%d enemyTeam=%d class=%d weapon=%d\n",
+		newent->s.number,
+		STEFX_NPCString( ent->NPC_type ),
+		newent->client ? newent->client->playerTeam : -999,
+		newent->client ? newent->client->enemyTeam : -999,
+		newent->client ? newent->client->NPC_class : -999,
+		newent->client ? newent->client->ps.weapon : -999 );
+#endif
 
 	if ( ent->NPC_type )
 	{
@@ -1694,6 +1812,7 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 
 //==New stuff=====================================================================
 	newent->s.eType	= ET_PLAYER;
+	STEFX_LogNPCSnapshotState( "spawn-etype-player", newent );
 	
 	//FIXME: Call CopyParms
 	if ( ent->parms )
@@ -1740,6 +1859,7 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 	NPC_DefaultScriptFlags( newent );
 
 	gi.linkentity (newent);
+	STEFX_LogNPCSnapshotState( "spawn-linked-hidden", newent );
 
 	if(ent->e_UseFunc == useF_NULL)
 	{
@@ -1958,6 +2078,8 @@ void SP_NPC_spawner( gentity_t *self)
 	extern void NPC_PrecacheAnimationCFG( const char *NPC_type );
 	float	fDelay;
 
+	STEFX_LogNPCSpawner( "Spawner init begin", self );
+
 	//register/precache the models needed for this NPC, not anymore
 	//self->classname = "NPC_spawner";
 
@@ -2054,6 +2176,137 @@ void SP_NPC_spawner( gentity_t *self)
 			RegisterItem( FindItemForInventory( INV_SECURITY_KEY ) );
 		}
 	}
+
+	STEFX_LogNPCSpawner( "Spawner init complete", self );
+}
+
+static void STEFX_NPC_StarfleetFromType( gentity_t *self, const char *fallbackType, const char *sourceClass, qboolean forceType )
+{
+	if ( forceType || !self->NPC_type || !self->NPC_type[0] )
+	{
+		self->NPC_type = (char *)fallbackType;
+	}
+
+	self->classname = "NPC_starfleet";
+
+#ifdef _XBOX
+	gi.Printf( "STEFX_NPC: EF wrapper source='%s' finalClass='%s' npc='%s' force=%d target='%s' npcTarget='%s'\n",
+		STEFX_NPCString( sourceClass ),
+		STEFX_NPCString( self->classname ),
+		STEFX_NPCString( self->NPC_type ),
+		forceType,
+		STEFX_NPCString( self->targetname ),
+		STEFX_NPCString( self->NPC_targetname ) );
+#endif
+
+	SP_NPC_spawner( self );
+}
+
+void SP_NPC_starfleet( gentity_t *self )
+{
+	STEFX_NPC_StarfleetFromType( self, "Security", "NPC_starfleet", qfalse );
+}
+
+void SP_NPC_starfleet_random( gentity_t *self )
+{
+	int random;
+
+	if ( !self->NPC_type || !self->NPC_type[0] )
+	{
+		self->NPC_type = ( Q_irand( 0, 1 ) == 0 ) ? "male" : "female";
+	}
+
+	if ( !Q_stricmp( "female", self->NPC_type ) )
+	{
+		random = Q_irand( 0, 8 );
+		switch ( random )
+		{
+		case 0: self->NPC_type = "GoldF1"; break;
+		case 1: self->NPC_type = "GoldF2"; break;
+		case 2: self->NPC_type = "GoldF3"; break;
+		case 3: self->NPC_type = "redF1"; break;
+		case 4: self->NPC_type = "redF2"; break;
+		case 5: self->NPC_type = "redF3"; break;
+		case 6: self->NPC_type = "blueF1"; break;
+		case 7: self->NPC_type = "blueF2"; break;
+		default: self->NPC_type = "blueF3"; break;
+		}
+	}
+	else if ( !Q_stricmp( "male", self->NPC_type ) )
+	{
+		random = Q_irand( 0, 23 );
+		switch ( random )
+		{
+		case 0: self->NPC_type = "goldm1"; break;
+		case 1: self->NPC_type = "goldm2"; break;
+		case 2: self->NPC_type = "goldm3"; break;
+		case 3: self->NPC_type = "goldm4"; break;
+		case 4: self->NPC_type = "goldm5"; break;
+		case 5: self->NPC_type = "goldm6"; break;
+		case 6: self->NPC_type = "goldm7"; break;
+		case 7: self->NPC_type = "goldm8"; break;
+		case 8: self->NPC_type = "bluem1"; break;
+		case 9: self->NPC_type = "bluem2"; break;
+		case 10: self->NPC_type = "bluem3"; break;
+		case 11: self->NPC_type = "bluem4"; break;
+		case 12: self->NPC_type = "bluem5"; break;
+		case 13: self->NPC_type = "bluem6"; break;
+		case 14: self->NPC_type = "bluem7"; break;
+		case 15: self->NPC_type = "bluem8"; break;
+		case 16: self->NPC_type = "redm1"; break;
+		case 17: self->NPC_type = "redm2"; break;
+		case 18: self->NPC_type = "redm3"; break;
+		case 19: self->NPC_type = "redm4"; break;
+		case 20: self->NPC_type = "redm5"; break;
+		case 21: self->NPC_type = "redm6"; break;
+		case 22: self->NPC_type = "redm7"; break;
+		default: self->NPC_type = "redm8"; break;
+		}
+	}
+
+	STEFX_NPC_StarfleetFromType( self, self->NPC_type, "NPC_starfleet_random", qfalse );
+}
+
+void SP_NPC_Tuvok( gentity_t *self )
+{
+	STEFX_NPC_StarfleetFromType( self, "Tuvok", "NPC_Tuvok", qfalse );
+}
+
+void SP_NPC_Munro( gentity_t *self )
+{
+	qboolean lieutenant = ( self->NPC_type && self->NPC_type[0] && !Q_stricmp( "lt", self->NPC_type ) );
+	qboolean female = ( g_sex && g_sex->string && g_sex->string[0] == 'f' );
+
+	if ( female )
+	{
+		STEFX_NPC_StarfleetFromType( self, lieutenant ? "alexandria_lt" : "alexandria", "NPC_Munro", qtrue );
+	}
+	else
+	{
+		STEFX_NPC_StarfleetFromType( self, lieutenant ? "munro_lt" : "munro", "NPC_Munro", qtrue );
+	}
+}
+
+void SP_NPC_MunroScav( gentity_t *self )
+{
+	qboolean female = ( g_sex && g_sex->string && g_sex->string[0] == 'f' );
+
+	STEFX_NPC_StarfleetFromType( self, female ? "alexascav" : "munroscav", "NPC_MunroScav", qtrue );
+}
+
+void SP_NPC_Telsia( gentity_t *self )
+{
+	STEFX_NPC_StarfleetFromType( self, "Telsia", "NPC_Telsia", qtrue );
+}
+
+void SP_NPC_Chang( gentity_t *self )
+{
+	STEFX_NPC_StarfleetFromType( self, "Chang", "NPC_Chang", qtrue );
+}
+
+void SP_NPC_Chell( gentity_t *self )
+{
+	STEFX_NPC_StarfleetFromType( self, "Chell", "NPC_Chell", qtrue );
 }
 
 

@@ -942,7 +942,8 @@ static const netField_t	playerStateFields[] =
 { PSF(velocity[1]), 0 },
 { PSF(velocity[2]), 0 },
 { PSF(weaponTime), -16 },
-{ PSF(weaponChargeTime), 32 }, //? really need 32 bits??
+{ PSF(rechargeTime), -16 },
+{ PSF(useTime), -16 },
 { PSF(gravity), 16 },
 { PSF(leanofs), -8 },
 { PSF(friction), 16 },
@@ -951,9 +952,11 @@ static const netField_t	playerStateFields[] =
 { PSF(delta_angles[1]), 16 },
 { PSF(delta_angles[2]), 16 },
 { PSF(groundEntityNum), GENTITYNUM_BITS },
-//{ PSF(animationTimer), 16 },
 { PSF(legsAnim), 16 },
+{ PSF(legsAnimTimer), 16 },
 { PSF(torsoAnim), 16 },
+{ PSF(torsoAnimTimer), 16 },
+{ PSF(scale), 10 },
 { PSF(movementDir), 4 },
 { PSF(eFlags), 32 },
 { PSF(eventSequence), 16 },
@@ -963,10 +966,10 @@ static const netField_t	playerStateFields[] =
 { PSF(eventParms[1]), -9 },
 { PSF(externalEvent), 8 },
 { PSF(externalEventParm), 8 },
+{ PSF(externalEventTime), 32 },
 { PSF(clientNum), 32 },
 { PSF(weapon), 5 },
 { PSF(weaponstate),	  4 },
-{ PSF(batteryCharge),	16 },
 { PSF(viewangles[0]), 0 },
 { PSF(viewangles[1]), 0 },
 { PSF(viewangles[2]), 0 },
@@ -975,23 +978,9 @@ static const netField_t	playerStateFields[] =
 { PSF(damageYaw), 8 },
 { PSF(damagePitch), -8 },
 { PSF(damageCount), 8 },
-//{ PSF(saberColor), 8 },
-//{ PSF(saberActive), 8 },
-//{ PSF(saberLength), 32 },
-//{ PSF(saberLengthMax), 32 },
-{ PSF(forcePowersActive), 32},
-{ PSF(saberInFlight), 8 },
-
-/*{ PSF(vehicleIndex), 32 },			// WOAH, what do we do with this stuff???
-{ PSF(vehicleArmor), 32 },
-{ PSF(vehicleAngles[0]), 0 },
-{ PSF(vehicleAngles[1]), 0 },
-{ PSF(vehicleAngles[2]), 0 },*/
-
-{ PSF(viewEntity), 32 },
-{ PSF(serverViewOrg[0]), 0 },
-{ PSF(serverViewOrg[1]), 0 },
-{ PSF(serverViewOrg[2]), 0 },
+{ PSF(pushVec[0]), 0 },
+{ PSF(pushVec[1]), 0 },
+{ PSF(pushVec[2]), 0 },
 };
 
 /*
@@ -1007,6 +996,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 	int				persistantbits;
 	int				ammobits;
 	int				powerupbits;
+	unsigned int	borgbits;
 	int				numFields;
 	int				c;
 	const netField_t	*field;
@@ -1104,28 +1094,19 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 		MSG_WriteBits( msg, 0, 1 );	// no change
 	}
 
-	statsbits = 0;
-	for (i=0 ; i<MAX_INVENTORY ; i++) 
-	{
-		if (to->inventory[i] != from->inventory[i]) 
-		{
-			statsbits |= 1<<i;
+	borgbits = 0;
+	for (i=0 ; i<MAX_WEAPONS ; i++) {
+		if (to->borgAdaptHits[i] != from->borgAdaptHits[i]) {
+			borgbits |= 1u<<i;
 		}
 	}
-	if ( statsbits ) 
-	{
+	if ( borgbits ) {
 		MSG_WriteBits( msg, 1, 1 );	// changed
-		MSG_WriteShort( msg, statsbits );
-		for (i=0 ; i<MAX_INVENTORY ; i++)
-		{
-			if (statsbits & (1<<i) )
-			{
-				MSG_WriteShort (msg, to->inventory[i]);
-			}
-		}
-	} 
-	else 
-	{
+		MSG_WriteLong( msg, (int)borgbits );
+		for (i=0 ; i<MAX_WEAPONS ; i++)
+			if (borgbits & (1u<<i) )
+				MSG_WriteSShort (msg, to->borgAdaptHits[i]);
+	} else {
 		MSG_WriteBits( msg, 0, 1 );	// no change
 	}
 }
@@ -1226,13 +1207,13 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 		}
 	}
 
-	// parse inventory
+	// parse Borg adaptation hit counters
 	if ( MSG_ReadBits( msg, 1 ) ) {
-		LOG("PS_INVENTORY");
-		bits = MSG_ReadShort (msg);
-		for (i=0 ; i<MAX_INVENTORY ; i++) {
+		LOG("PS_BORG_ADAPT");
+		bits = MSG_ReadLong (msg);
+		for (i=0 ; i<MAX_WEAPONS ; i++) {
 			if (bits & (1<<i) ) {
-				to->inventory[i] = MSG_ReadShort(msg);
+				to->borgAdaptHits[i] = MSG_ReadSShort(msg);
 			}
 		}
 	}

@@ -1128,7 +1128,7 @@ extern	cvar_t	*com_buildScript;
 void target_autosave_use(gentity_t *self, gentity_t *other, gentity_t *activator)
 {
 #ifdef _XBOX
-	XBLF("STEFX: target_autosave_use enter ent=%d targetname='%s' other=%d otherClass='%s' activator=%d activatorClass='%s' time=%d -- Xbox checkpoint save skipped",
+	XBLF("STEFX: target_autosave_use enter ent=%d targetname='%s' other=%d otherClass='%s' activator=%d activatorClass='%s' time=%d",
 		self ? self->s.number : -1,
 		self && self->targetname ? self->targetname : "",
 		other ? other->s.number : -1,
@@ -1143,12 +1143,9 @@ void target_autosave_use(gentity_t *self, gentity_t *other, gentity_t *activator
 		G_ActivateBehavior(self,BSET_USE);
 	}
 #ifdef _XBOX
-	// The savegame path still uses blocking PC/XDK-era disk work in this port.
-	// Suppress checkpoint writes for now so borg1 can continue past autosave triggers.
-	XBLF("STEFX: target_autosave_use exit ent=%d disk save suppressed", self ? self->s.number : -1);
-#else
-	gi.SendConsoleCommand( "save auto*\n" );
+	XBLF("STEFX: target_autosave_use queue save auto* ent=%d", self ? self->s.number : -1);
 #endif
+	gi.SendConsoleCommand( "save auto*\n" );
 }
 
 /*QUAKED target_autosave (1 0 0) (-4 -4 -4) (4 4 4)

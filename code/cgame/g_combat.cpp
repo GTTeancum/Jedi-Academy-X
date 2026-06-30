@@ -4306,7 +4306,7 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 			NPC_SetAnim(self, SETANIM_BOTH, deathAnim, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD);
 			//HMM: check for nodrop?
 			G_SoundOnEnt( self, CHAN_BODY, "sound/player/fallsplat.wav" );
-			if ( gi.VoiceVolume[self->s.number]
+			if ( gi.S_Override[self->s.number]
 				&& self->NPC && (self->NPC->aiFlags&NPCAI_DIE_ON_IMPACT) )
 			{//I was talking, so cut it off... with a jump sound?
 				G_SoundOnEnt( self, CHAN_VOICE_ATTEN, "*pain100.wav" );
@@ -4574,7 +4574,7 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 				&& meansOfDeath!=MOD_EXPLOSIVE_SPLASH )
 			{//no sound when killed by headshot (explosions don't count)
 				G_AlertTeam( self, attacker, 512, 0 );
-				if ( gi.VoiceVolume[self->s.number] )
+				if ( gi.S_Override[self->s.number] )
 				{//I was talking, so cut it off... with a jump sound?
 					G_SoundOnEnt( self, CHAN_VOICE, "*jump1.wav" );
 				}

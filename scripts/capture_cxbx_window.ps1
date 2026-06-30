@@ -12,7 +12,8 @@ param(
     [int]$WatchdogSeconds = 180,
     [int]$Count = 3,
     [int]$IntervalSeconds = 2,
-    [string]$OutputPrefix = ""
+    [string]$OutputPrefix = "",
+    [switch]$AllowExternalRuntimeRoots
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,10 +67,12 @@ public static class CxbxWindowCaptureNative {
 
 function Get-RuntimeRoots {
     $roots = @($Game)
-    $emuPartition = Join-Path $Cxbx "EmuDisk\Partition1"
-    foreach ($candidate in @($emuPartition, $Cxbx)) {
-        if ($roots -notcontains $candidate) {
-            $roots += $candidate
+    if ($AllowExternalRuntimeRoots) {
+        $emuPartition = Join-Path $Cxbx "EmuDisk\Partition1"
+        foreach ($candidate in @($emuPartition, $Cxbx)) {
+            if ($roots -notcontains $candidate) {
+                $roots += $candidate
+            }
         }
     }
     return $roots
@@ -83,17 +86,24 @@ function Remove-RuntimeFile([string]$Name) {
 
 function Write-RuntimeFile([string]$Name, [string]$Text) {
     foreach ($root in (Get-RuntimeRoots)) {
-        New-Item -ItemType Directory -Force -Path $root | Out-Null
-        Set-Content -LiteralPath (Join-Path $root $Name) -Value $Text -Encoding ASCII
+        try {
+            New-Item -ItemType Directory -Force -Path $root -ErrorAction Stop | Out-Null
+            Set-Content -LiteralPath (Join-Path $root $Name) -Value $Text -Encoding ASCII -ErrorAction Stop
+        } catch {
+            Write-Verbose ("Could not write runtime file '{0}' under '{1}': {2}" -f $Name, $root, $_.Exception.Message)
+        }
     }
 }
 
 function Get-LogText {
-    foreach ($path in @(
-        (Join-Path $Game "ef_sp_log.txt"),
-        (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_log.txt"),
-        (Join-Path $Cxbx "ef_sp_log.txt")
-    )) {
+    $paths = @((Join-Path $Game "ef_sp_log.txt"))
+    if ($AllowExternalRuntimeRoots) {
+        $paths += @(
+            (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_log.txt"),
+            (Join-Path $Cxbx "ef_sp_log.txt")
+        )
+    }
+    foreach ($path in $paths) {
         if (Test-Path $path) {
             return Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue
         }
@@ -111,6 +121,7 @@ function Get-LastServerTime([string]$LogText) {
 
 function Find-CxbxWindow([int[]]$ProcessIds) {
     $script:found = [IntPtr]::Zero
+    $script:foundArea = 0
     [CxbxWindowCaptureNative+EnumWindowsProc]$callback = {
         param([IntPtr]$hWnd, [IntPtr]$lParam)
         if (![CxbxWindowCaptureNative]::IsWindowVisible($hWnd)) {
@@ -126,12 +137,23 @@ function Find-CxbxWindow([int[]]$ProcessIds) {
         if ($title.ToString() -notmatch "Cxbx|Reloaded|project2|Star Trek|Elite Force") {
             return $true
         }
-        $script:found = $hWnd
-        return $false
+        $rect = New-Object CxbxWindowCaptureNative+RECT
+        if (![CxbxWindowCaptureNative]::GetWindowRect($hWnd, [ref]$rect)) {
+            return $true
+        }
+        $width = [Math]::Max(0, $rect.Right - $rect.Left)
+        $height = [Math]::Max(0, $rect.Bottom - $rect.Top)
+        $area = $width * $height
+        if ($area -gt $script:foundArea) {
+            $script:foundArea = $area
+            $script:found = $hWnd
+        }
+        return $true
     }
     [void][CxbxWindowCaptureNative]::EnumWindows($callback, [IntPtr]::Zero)
     $result = $script:found
     $script:found = [IntPtr]::Zero
+    $script:foundArea = 0
     return $result
 }
 
@@ -243,11 +265,11 @@ if ($RenderProbe) {
 }
 $useBorg1SliceWarp = (!$NoBorg1SliceWarp -and $Level -ieq "borg1")
 if ($useBorg1SliceWarp) {
-    $sliceCommand = "set s_xbox_silentAudio 1;set stefx_borg1_slice_warp 1;+attack"
+    $sliceCommand = "set s_xbox_smokeSilentAudio 1;set stefx_borg1_slice_warp 1;+attack"
     Write-RuntimeFile "ef_sp_commands.txt" ($sliceCommand + "`n")
     Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $sliceCommand + "`n")
 } else {
-    $smokeCommand = "set s_xbox_silentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward 127;set stefx_smoke_input_side 0;set stefx_smoke_input_yaw 0;set stefx_smoke_input_start 6000;set stefx_smoke_input_attack_start 6500;set stefx_smoke_input_attack_end 22000;set stefx_smoke_input_end 36000"
+    $smokeCommand = "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward 127;set stefx_smoke_input_side 0;set stefx_smoke_input_yaw 0;set stefx_smoke_input_start 6000;set stefx_smoke_input_attack_start 6500;set stefx_smoke_input_attack_end 22000;set stefx_smoke_input_end 36000"
     Write-RuntimeFile "ef_sp_commands.txt" ($smokeCommand + "`n")
     Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $smokeCommand + "`n")
 }
@@ -339,3 +361,5 @@ try {
         Remove-RuntimeFile $name
     }
 }
+
+

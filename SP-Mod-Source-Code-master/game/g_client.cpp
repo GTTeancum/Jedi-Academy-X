@@ -307,7 +307,17 @@ respawn
 void respawn( gentity_t *ent ) {
 
 	if (Q_stricmpn(level.mapname,"_holo",5)) {
+#ifdef _XBOX
+		XBLF("STEFX: respawn load checkpoint map='%s' ent=%d health=%d statHealth=%d",
+			level.mapname,
+			ent ? ent->s.number : -1,
+			ent ? ent->health : -9999,
+			(ent && ent->client) ? ent->client->ps.stats[STAT_HEALTH] : -9999);
+#endif
 		gi.SendConsoleCommand("load *respawn\n");	// special case
+#ifdef _XBOX
+		XBLog_Write("STEFX: respawn load command queued");
+#endif
 	}
 	else {//we're on the holodeck
 		int			flags;

@@ -114,7 +114,7 @@ static void RB_XboxForce2DOverlayState( const char *where )
 	glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
 
-	if ( cls.state == CA_ACTIVE && s_stefx2DStateLogBudget > 0 )
+	if ( s_stefx2DStateLogBudget > 0 )
 	{
 		XBLF( "STEFX: RB_XboxForce2DOverlayState where=%s frame=%d projection2D=%d",
 			where ? where : "<null>", tr.frameCount, backEnd.projection2D );
@@ -1591,6 +1591,22 @@ const void *RB_StretchPic ( const void *data ) {
 	}
 #ifdef _XBOX
 #if defined(STEFX_ELITE_FORCE_SP)
+	if ( cls.state != CA_ACTIVE )
+	{
+		static int s_stefxFrontendStretchBackendBudget = 240;
+		if ( s_stefxFrontendStretchBackendBudget > 0 )
+		{
+			XBLF( "STEFX_FRONTEND_2D_BACKEND shader='%s' rect=(%g,%g %gx%g) st=(%g,%g %g,%g) color=%u,%u,%u,%u tessBefore=%d/%d projection2D=%d state=%d catcher=0x%x",
+				shader ? shader->name : "<null>",
+				cmd->x, cmd->y, cmd->w, cmd->h,
+				cmd->s1, cmd->t1, cmd->s2, cmd->t2,
+				(unsigned int)backEnd.color2D[0], (unsigned int)backEnd.color2D[1],
+				(unsigned int)backEnd.color2D[2], (unsigned int)backEnd.color2D[3],
+				tess.numVertexes, tess.numIndexes, backEnd.projection2D,
+				cls.state, cls.keyCatchers );
+			--s_stefxFrontendStretchBackendBudget;
+		}
+	}
 	if ( cls.state == CA_ACTIVE && RB_XboxTrace2DShader( shader ) )
 	{
 		static int s_stefxStretchBackendBudget = 240;
@@ -1605,8 +1621,8 @@ const void *RB_StretchPic ( const void *data ) {
 				tess.numVertexes, tess.numIndexes, backEnd.projection2D );
 			--s_stefxStretchBackendBudget;
 		}
-		RB_XboxForce2DOverlayState( "RB_StretchPic" );
 	}
+	RB_XboxForce2DOverlayState( "RB_StretchPic" );
 #endif
 #endif
 
@@ -2105,6 +2121,17 @@ const void	*RB_SwapBuffers( const void *data ) {
 	static int s_xboxSwapCommandTraceCount = 0;
 	static int s_xboxSwapCommandTraceBudget = 8;
 	const qboolean xboxTraceSwapCommand = (cls.state == CA_ACTIVE && s_xboxSwapCommandTraceBudget > 0);
+#if defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxFrontendSwapTraceBudget = 24;
+	const qboolean stefxTraceFrontendSwap =
+		(cls.state != CA_ACTIVE && (cls.keyCatchers & KEYCATCH_UI) && s_stefxFrontendSwapTraceBudget > 0);
+	if (stefxTraceFrontendSwap)
+	{
+		XBLF("STEFX_FRONTEND_2D_SWAP enter state=%d catcher=0x%x tessIndexes=%d tessVerts=%d shader='%s' projection2D=%d",
+			(int)cls.state, (unsigned int)cls.keyCatchers, tess.numIndexes, tess.numVertexes,
+			tess.shader ? tess.shader->name : "<null>", backEnd.projection2D);
+	}
+#endif
 	if (xboxTraceSwapCommand)
 	{
 		XBLF("JA: RB_SwapBuffers #%d enter tessIndexes=%d finishCalled=%d",
@@ -2117,9 +2144,16 @@ const void	*RB_SwapBuffers( const void *data ) {
 #ifdef _XBOX
 		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: RB_EndSurface...");
 #endif
-		RB_EndSurface();
+	RB_EndSurface();
 #ifdef _XBOX
 		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: RB_EndSurface done");
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (stefxTraceFrontendSwap)
+		{
+			XBLF("STEFX_FRONTEND_2D_SWAP after RB_EndSurface tessIndexes=%d tessVerts=%d",
+				tess.numIndexes, tess.numVertexes);
+		}
+#endif
 #endif
 	}
 
@@ -2173,6 +2207,14 @@ const void	*RB_SwapBuffers( const void *data ) {
 		s_xboxSwapCommandTraceCount++;
 		--s_xboxSwapCommandTraceBudget;
 	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (stefxTraceFrontendSwap)
+	{
+		XBLF("STEFX_FRONTEND_2D_SWAP exit state=%d catcher=0x%x",
+			(int)cls.state, (unsigned int)cls.keyCatchers);
+		--s_stefxFrontendSwapTraceBudget;
+	}
+#endif
 #endif
 
 	backEnd.projection2D = qfalse;

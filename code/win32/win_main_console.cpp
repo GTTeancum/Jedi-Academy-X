@@ -134,11 +134,7 @@ static bool Sys_XboxDirectMapRequested(void)
 		return true;
 	}
 
-#if defined(STEFX_ELITE_FORCE_SP)
-	return true;
-#else
 	return false;
-#endif
 }
 
 bool Sys_IsDirectMapBoot(void)
@@ -185,13 +181,8 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 #if defined(STEFX_ELITE_FORCE_SP)
 	if (!startupMap[0])
 	{
-		Q_strncpyz(startupMap, "borg1", sizeof(startupMap));
-		startupMapSource = "EF Xbox default";
-	}
-
-	if (!Q_stricmp(startupMap, "borg1"))
-	{
-		XBL("JA: direct-map boot: EF borg1 default, original map scripts left in control\n");
+		XBL("STEFX: direct-map boot: no explicit level file, normal EF frontend boot\n");
+		return false;
 	}
 #endif
 
@@ -217,13 +208,8 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 
 	if (!startupMap[0])
 	{
-#if defined(STEFX_ELITE_FORCE_SP)
-		Q_strncpyz(startupMap, "borg1", sizeof(startupMap));
-		startupMapSource = "EF Xbox default";
-#else
 		XBL("JA: direct-map boot: no ja_sp_level.txt map, normal boot\n");
 		return false;
-#endif
 	}
 
 	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame source=%s",
@@ -597,7 +583,11 @@ bool Sys_QuickStart( void )
 		// Fix the video path:
 		extern char XBOX_VIDEO_PATH[64];
 		strcpy( XBOX_VIDEO_PATH, demoBasePath );
+#if defined(STEFX_ELITE_FORCE_SP)
+		strcat( XBOX_VIDEO_PATH, "\\BaseEF\\video\\" );
+#else
 		strcat( XBOX_VIDEO_PATH, "\\base\\video\\" );
+#endif
 	}
 
 	return retVal;
@@ -1655,7 +1645,7 @@ void *Sys_GetGameAPI (void *parms)
 	efImport.unlinkentity = jaImport->unlinkentity;
 	efImport.EntitiesInBox = jaImport->EntitiesInBox;
 	efImport.EntityContact = jaImport->EntityContact;
-	efImport.S_Override = jaImport->VoiceVolume;
+	efImport.S_Override = jaImport->S_Override;
 	efImport.Malloc = STEFX_GameMalloc;
 	efImport.Free = STEFX_GameFree;
 

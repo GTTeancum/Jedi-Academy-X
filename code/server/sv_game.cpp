@@ -399,7 +399,7 @@ SV_AdjustAreaPortalState
 ========================
 */
 void SV_AdjustAreaPortalState( gentity_t *ent, qboolean open ) {
-	if ( !(ent->contents&CONTENTS_OPAQUE) )	{
+	if ( !(ent->contents&CONTENTS_SOLID) )	{
 #ifndef FINAL_BUILD
 //		Com_Printf( "INFO: entity number %d not opaque: not affecting area portal!\n", ent->s.number );
 #endif
@@ -683,7 +683,7 @@ void SV_InitGameProgs (void) {
 	import.AdjustAreaPortalState = SV_AdjustAreaPortalState;
 	import.AreasConnected = CM_AreasConnected;
 
-	import.VoiceVolume = s_entityWavVol;
+	import.S_Override = s_entityWavVol;
 
 	import.Malloc = G_ZMalloc_Helper;
 	import.Free = Z_Free;

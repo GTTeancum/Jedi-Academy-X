@@ -1,6 +1,7 @@
 
 #include "g_local.h"
 #include "g_functions.h"
+#include "objectives.h"
 #include "..\cgame\cg_local.h"
 #include "Q3_Interface.h"
 #ifdef _XBOX
@@ -1053,6 +1054,26 @@ void P_WorldEffects( gentity_t *ent ) {
 		if (ent->health > 0
 			&& ent->painDebounceTime < level.time	) {
 
+#ifdef _XBOX
+			if (ent->s.number == 0)
+			{
+				static int s_stefxWorldHazardBudget = 48;
+				if (s_stefxWorldHazardBudget > 0)
+				{
+					XBLF("STEFX: world hazard damage ent=0 waterlevel=%d watertype=0x%x origin=(%g,%g,%g) health=%d lavaBit=0x%x slimeBit=0x%x",
+						waterlevel,
+						ent->watertype,
+						ent->currentOrigin[0],
+						ent->currentOrigin[1],
+						ent->currentOrigin[2],
+						ent->health,
+						CONTENTS_LAVA,
+						CONTENTS_SLIME);
+					s_stefxWorldHazardBudget--;
+				}
+			}
+#endif
+
 			if (ent->watertype & CONTENTS_LAVA) {
 				G_Damage (ent, NULL, NULL, NULL, NULL, 
 					15*waterlevel, 0, MOD_LAVA);
@@ -2082,10 +2103,11 @@ extern vmCvar_t cg_thirdPerson;
 		}
 
 		if ( player_locked && ent->client->ps.pm_type < PM_DEAD ) {//lock out player control unless dead
+			int missionStatusButtons = (cg.missionStatusShow) ? (ucmd->buttons & (BUTTON_ATTACK | BUTTON_USE_HOLDABLE)) : 0;
 			VectorClear(ucmd->angles) ;
 			ucmd->forwardmove = 0;
 			ucmd->rightmove = 0;
-			ucmd->buttons = 0;
+			ucmd->buttons = missionStatusButtons;
 			ucmd->upmove = 0;
 		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -2551,19 +2573,60 @@ extern vmCvar_t cg_thirdPerson;
 	client->buttons = ucmd->buttons;
 	client->latched_buttons |= client->buttons & ~client->oldbuttons;
 
+#ifdef _XBOX
+	if ( ent->s.number == 0 && (client->ps.stats[STAT_HEALTH] <= 0 || cg.missionStatusShow) )
+	{
+		static int s_stefxMissionInputBudget = 96;
+		if (s_stefxMissionInputBudget > 0)
+		{
+			XBLF("STEFX: mission input state time=%d map='%s' missionShow=%d missionDeadTime=%d healthStat=%d entHealth=%d pmType=%d buttons=0x%x old=0x%x latched=0x%x respawnTime=%d ground=%d",
+				level.time,
+				level.mapname,
+				cg.missionStatusShow,
+				cg.missionStatusDeadTime,
+				client->ps.stats[STAT_HEALTH],
+				ent->health,
+				client->ps.pm_type,
+				ucmd->buttons,
+				client->oldbuttons,
+				client->latched_buttons,
+				client->respawnTime,
+				client->ps.groundEntityNum);
+			s_stefxMissionInputBudget--;
+		}
+	}
+#endif
+
 	// check for respawning
 	if ( client->ps.stats[STAT_HEALTH] <= 0 ) 
 	{
+		qboolean missionAnalysisVisible = (qboolean)(ent->s.number == 0 && client->ps.pm_type == PM_DEAD && cg.missionStatusDeadTime < level.time);
+
 		// wait for the attack button to be pressed
-		if ( ent->NPC == NULL && level.time > client->respawnTime ) 
+		if ( ent->NPC == NULL && (level.time > client->respawnTime || missionAnalysisVisible) )
 		{
 			// don't allow respawn if they are still flying through the
 			// air, unless 10 extra seconds have passed, meaning something
 			// strange is going on, like the corpse is caught in a wind tunnel
-			if ( level.time < client->respawnTime + 10000 ) 
+			if ( !missionAnalysisVisible && level.time < client->respawnTime + 10000 )
 			{
 				if ( client->ps.groundEntityNum == ENTITYNUM_NONE ) 
 				{
+#ifdef _XBOX
+					if ( ent->s.number == 0 )
+					{
+						static int s_stefxMissionAirBlockBudget = 24;
+						if (s_stefxMissionAirBlockBudget > 0)
+						{
+							XBLF("STEFX: mission/dead respawn blocked airborne time=%d respawnTime=%d buttons=0x%x healthStat=%d",
+								level.time,
+								client->respawnTime,
+								ucmd->buttons,
+								client->ps.stats[STAT_HEALTH]);
+							s_stefxMissionAirBlockBudget--;
+						}
+					}
+#endif
 					return;
 				}
 			}
@@ -2571,6 +2634,19 @@ extern vmCvar_t cg_thirdPerson;
 			// pressing attack or use is the normal respawn method
 			if ( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_USE_HOLDABLE ) ) 
 			{
+#ifdef _XBOX
+				if ( ent->s.number == 0 )
+				{
+					XBLF("STEFX: mission/dead respawn input accepted time=%d buttons=0x%x healthStat=%d entHealth=%d missionAnalysisVisible=%d ground=%d respawnTime=%d",
+						level.time,
+						ucmd->buttons,
+						client->ps.stats[STAT_HEALTH],
+						ent->health,
+						missionAnalysisVisible,
+						client->ps.groundEntityNum,
+						client->respawnTime);
+				}
+#endif
 				respawn( ent );
 			}
 		}
@@ -2581,6 +2657,40 @@ extern vmCvar_t cg_thirdPerson;
 	{
 		if ( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_USE_HOLDABLE ) ) 
 		{
+			int failedObjectives = 0;
+			int objectiveIndex;
+
+			for (objectiveIndex = 0; objectiveIndex < MAX_OBJECTIVES; ++objectiveIndex)
+			{
+				if (client->sess.mission_objectives[objectiveIndex].status == OBJECTIVE_STAT_FAILED)
+				{
+					failedObjectives++;
+				}
+			}
+
+#ifdef _XBOX
+			if ( ent->s.number == 0 )
+			{
+				XBLF("STEFX: missionStatusShow input accepted time=%d buttons=0x%x missionDeadTime=%d failedObjectives=%d statusTextIndex=%d",
+					level.time,
+					ucmd->buttons,
+					cg.missionStatusDeadTime,
+					failedObjectives,
+					statusTextIndex);
+			}
+#endif
+			if (failedObjectives > 0 || statusTextIndex >= 0)
+			{
+#ifdef _XBOX
+				if ( ent->s.number == 0 )
+				{
+					XBLog_Write("STEFX: missionStatusShow failed analysis requesting respawn load");
+				}
+#endif
+				respawn( ent );
+				return;
+			}
+
 			cg.missionStatusShow = 0;
 			ScoreBoardReset();
 //			Q3_TaskIDComplete( ent, TID_MISSIONSTATUS );

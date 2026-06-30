@@ -94,6 +94,23 @@ static qboolean CM_EFCanReuseRawMap( const char *name )
 	}
 	return qtrue;
 }
+
+static void CM_EFLogMemoryStats( const char *label, const char *name )
+{
+	zmemstats_t stats;
+
+	Z_GetMemoryStats( &stats );
+	XBLF("STEFX: BSP_MEM label='%s' map='%s' used=%d peak=%d free=%d largest=%d bsp=%d filesys=%d sound=%d",
+		label ? label : "(null)",
+		name ? name : "(null)",
+		stats.usedBytes,
+		stats.peakBytes,
+		stats.freeBytes,
+		stats.largestFreeBlock,
+		stats.bspBytes,
+		stats.filesysBytes,
+		stats.soundRawBytes);
+}
 #endif
 
 byte		*cmod_base;
@@ -146,7 +163,6 @@ void CMod_LoadShaders( void *data, int len ) {
 	}
 	cmg.shaders = (CCMShader *) Z_Malloc( count * sizeof( *cmg.shaders ), TAG_BSP, qfalse);
 	cmg.numShaders = count;
-
 	s_worldData.shaders = (dshader_t *) Z_Malloc ( count*sizeof(dshader_t), TAG_BSP, qfalse );
 	s_worldData.numShaders = count;
 
@@ -160,6 +176,14 @@ void CMod_LoadShaders( void *data, int len ) {
 		Q_strncpyz(s_worldData.shaders[i].shader, in->shader, MAX_QPATH);
 		s_worldData.shaders[i].contentFlags = in->contentFlags;
 		s_worldData.shaders[i].surfaceFlags = in->surfaceFlags;
+
+#ifdef STEFX_ELITE_FORCE_SP
+		XBLF("STEFX_SHADER_LUMP index=%d name='%s' surf=0x%x cont=0x%x",
+			i,
+			s_worldData.shaders[i].shader,
+			out->surfaceFlags,
+			out->contentFlags);
+#endif
 	}
 }
 
@@ -247,6 +271,7 @@ void CMod_LoadNodes( void *data, int len ) {
 
 	for (i=0 ; i<count ; i++, out++, in++)
 	{
+		out->planeNum = in->planeNum;
 		out->children[0] = in->children[0];
 		out->children[1] = in->children[1];
 	}
@@ -700,6 +725,7 @@ extern void R_LoadShaders( void );
 extern void R_LoadLightmaps( void *data, int len, const char *psMapName );
 #ifdef STEFX_ELITE_FORCE_SP
 extern void R_LoadRawLightmaps( void *data, int len, const char *psMapName );
+extern qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName );
 extern void R_EFBeginRawWorldMapLoad( const char *name );
 extern qboolean R_EFLoadRawWorldDataFromBSP( const char *name, const efbspFile_t *efbsp );
 #endif
@@ -786,6 +812,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 		{
 			int shaderCount;
 			int num_surfs;
+			void *shaders;
 			void *verts;
 			void *indexes;
 			void *patches;
@@ -799,15 +826,39 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			void *models;
 			void *nodes;
 			void *visibility;
-			int vertsLen, indexesLen, patchesLen, trisurfsLen, facesLen, flaresLen;
+			int shadersLen, vertsLen, indexesLen, patchesLen, trisurfsLen, facesLen, flaresLen;
 			int leafsLen, leafbrushesLen, brushsidesLen, brushesLen, modelsLen, nodesLen, visibilityLen;
+			qboolean rendererLightmapsLoaded;
+			int rendererLightmapMode;
+			zmemstats_t rawBspStats;
 
 			EFBSP_Validate(&efbsp, name);
 			R_EFBeginRawWorldMapLoad(name);
 			last_checksum = LittleLong(Com_BlockChecksum(efbsp.data, efbsp.len));
 			shaderCount = EFBSP_ShaderCount(&efbsp);
 			num_surfs = EFBSP_SurfaceCount(&efbsp);
-			XBLF("EF: CM_LoadMap raw BSP '%s' bytes=%d checksum=0x%08x shaders=%d surfaces=%d verts=%d indexes=%d lightmaps=%d",
+			rendererLightmapsLoaded = qfalse;
+			rendererLightmapMode = 0;
+			if (R_LoadXboxOptimizedLightmaps(name))
+			{
+				rendererLightmapsLoaded = qtrue;
+				rendererLightmapMode = 2;
+				XBLog_Write("STEFX: CM_LoadMap optimized lightmaps loaded");
+			}
+			else if (EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS) > 0)
+			{
+				rendererLightmapsLoaded = qtrue;
+				rendererLightmapMode = 1;
+				R_LoadRawLightmaps(EFBSP_LumpData(&efbsp, EF_LUMP_LIGHTMAPS), EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS), name);
+				XBLog_Write("EF: CM_LoadMap raw lightmaps loaded");
+			}
+			else
+			{
+				Com_Error(ERR_DROP, "CM_LoadMap: %s has no raw lightmaps and no optimized lightmap sidecar", name);
+			}
+			UpdateLoadingAnimation();
+			Z_GetMemoryStats(&rawBspStats);
+			XBLF("EF: CM_LoadMap raw BSP '%s' bytes=%d checksum=0x%08x shaders=%d surfaces=%d verts=%d indexes=%d lightmaps=%d rendererLightmapsLoaded=%d lightmapMode=%d memUsed=%d memPeak=%d memFree=%d memLargest=%d memBsp=%d memFilesys=%d memSound=%d",
 				name,
 				efbsp.len,
 				last_checksum,
@@ -815,9 +866,20 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 				num_surfs,
 				EFBSP_CheckedCount("drawverts", EFBSP_LumpLen(&efbsp, EF_LUMP_DRAWVERTS), sizeof(efbspDrawVert_t)),
 				EFBSP_CheckedCount("drawindexes", EFBSP_LumpLen(&efbsp, EF_LUMP_DRAWINDEXES), sizeof(int)),
-				EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS) / (128 * 128 * 3));
+				EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS) / (128 * 128 * 3),
+				rendererLightmapsLoaded,
+				rendererLightmapMode,
+				rawBspStats.usedBytes,
+				rawBspStats.peakBytes,
+				rawBspStats.freeBytes,
+				rawBspStats.largestFreeBlock,
+				rawBspStats.bspBytes,
+				rawBspStats.filesysBytes,
+				rawBspStats.soundRawBytes);
 
-			CMod_LoadShaders(EFBSP_LumpData(&efbsp, EF_LUMP_SHADERS), EFBSP_LumpLen(&efbsp, EF_LUMP_SHADERS));
+			shaders = EFBSP_ConvertShaders(&efbsp, &shadersLen);
+			CMod_LoadShaders(shaders, shadersLen);
+			EFBSP_FreeTemp(shaders);
 			if (!clientload)
 			{
 				R_LoadShaders();
@@ -827,9 +889,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 
 			if (!clientload)
 			{
-				R_LoadRawLightmaps(EFBSP_LumpData(&efbsp, EF_LUMP_LIGHTMAPS), EFBSP_LumpLen(&efbsp, EF_LUMP_LIGHTMAPS), name);
-				XBLog_Write("EF: CM_LoadMap raw lightmaps loaded");
-				UpdateLoadingAnimation();
+				XBLF("STEFX: CM_LoadMap renderer lightmaps already loaded=%d clientload=%d", rendererLightmapsLoaded, clientload);
 			}
 			else
 			{
@@ -948,6 +1008,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			CM_CleanLeafCache();
 			XBLF("EF: CM_LoadMap raw BSP complete clientload=%d name='%s' submodels=%d clusters=%d areas=%d checksum=%u",
 				clientload, cmg.name, cmg.numSubModels, cmg.numClusters, cmg.numAreas, last_checksum);
+			CM_EFLogMemoryStats(clientload ? "complete clientload" : "complete serverload", name);
 			EFBSP_FreeFile(&efbsp);
 			return;
 		}
@@ -1341,7 +1402,7 @@ To keep everything totally uniform, bounding boxes are turned into small
 BSP trees instead of being compared directly.
 ===================
 */
-clipHandle_t CM_TempBoxModel( const vec3_t mins, const vec3_t maxs) {//, const int contents ) {
+clipHandle_t CM_TempBoxModelContents( const vec3_t mins, const vec3_t maxs, const int contents ) {
 	box_planes[0].dist = maxs[0];
 	box_planes[1].dist = -maxs[0];
 	box_planes[2].dist = mins[0];
@@ -1358,10 +1419,13 @@ clipHandle_t CM_TempBoxModel( const vec3_t mins, const vec3_t maxs) {//, const i
 	VectorCopy( mins, box_brush->bounds[0] );
 	VectorCopy( maxs, box_brush->bounds[1] );
 
-	//FIXME: this is the "correct" way, but not the way JK2 was designed around... fix for further projects
-	//box_brush->contents = contents;
+	box_brush->contents = contents;
 
 	return BOX_MODEL_HANDLE;
+}
+
+clipHandle_t CM_TempBoxModel( const vec3_t mins, const vec3_t maxs ) {
+	return CM_TempBoxModelContents( mins, maxs, CONTENTS_BODY );
 }
 
 

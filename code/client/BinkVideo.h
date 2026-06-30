@@ -14,17 +14,11 @@ typedef enum {
 	NS_BV_STOPPED,		// Movie is stopped
 };
 
-struct OVERLAYINFO
-{
-	D3DTexture *texture;
-	D3DSurface *surface;
-};
-
 class BinkVideo
 {
 private:
 	HBINK	bink;
-	void	*buffer;	// Only used for movies with alpha
+	void	*buffer;	// Raw frame buffer for Bink movie frames
 //	int		texture;
 	int		status;
 	bool	looping;
@@ -34,22 +28,18 @@ private:
 	float   x2;
 	float	y2;
 
-	bool	loadScreenOnStop;	// Set to true when we play the logos, so we know to show the loading screen
+	bool	loadScreenOnStop;	// Set for the frontend intro movie that should hand off to the loading screen
 
 	bool	stopNextFrame;		// Used to stop movies with *correct* timing
 
-	OVERLAYINFO	Image[2];
-	void		*overlayMemory[2];
-
-	unsigned	currentImage;
 
 	bool	initialized;
 
-	void	Draw( OVERLAYINFO *oi );
-	S32		DecompressFrame( OVERLAYINFO *oi );
+	void	DrawFrameBuffer( void );
+	S32		DecompressFrameToBuffer( void );
 
 public:
-	
+
 	BinkVideo();
 	~BinkVideo();
 	bool	Start(const char *filename, float xOrigin, float yOrigin, float width, float height);

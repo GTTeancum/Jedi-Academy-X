@@ -557,6 +557,7 @@ static qboolean R_XboxIsHighFidelityUIFont( const char *name )
 			 !Q_stricmp( name, "gfx/2d/chars_big" ) ||
 			 !Q_stricmp( name, "gfx/2d/chars_big.tga" ) );
 }
+
 #endif
 
 static void Upload32( const char *debugName, unsigned *data, 
@@ -1868,7 +1869,8 @@ static qboolean STEFX_ShouldTraceIntroImage( const char *name )
 		strstr( name, "textures/common/70yearjourney" ) ||
 		strstr( name, "textures/common/enemyspace" ) ||
 		strstr( name, "textures/common/sevenspace" ) ||
-		strstr( name, "textures/common/tuvokhazard" ) );
+		strstr( name, "textures/common/tuvokhazard" ) ||
+		strstr( name, "env/junk_" ) );
 }
 #endif
 
@@ -1925,7 +1927,7 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 			if (*pic)
 			{
 				static int s_xboxDDSPatchLoadLogCount = 0;
-				if (s_xboxDDSPatchLoadLogCount < 256 || (s_xboxDDSPatchLoadLogCount % 64) == 0)
+				if (s_xboxDDSPatchLoadLogCount < 1024 || (s_xboxDDSPatchLoadLogCount % 128) == 0)
 				{
 					XBLF("STEFX: R_LoadImage DDS patch '%s' %dx%d mips=%d fmt=0x%04x",
 						ddsName, *width, *height, *mipcount, *format);
@@ -3227,6 +3229,12 @@ qhandle_t RE_RegisterSkin( const char *name) {
 			if( skin->numSurfaces == 0 ) {
 				return 0;		// default skin
 			}
+#ifdef STEFX_ELITE_FORCE_SP
+			if ( RE_STEFX_IsHeadSkinBase( name ) && RE_STEFX_SkinHasHeadExtensions( hSkin, name ) )
+			{
+				return -hSkin;
+			}
+#endif
 			return(hSkin);
 		}
 	}
@@ -3270,13 +3278,13 @@ qhandle_t RE_RegisterSkin( const char *name) {
 		hSkin = RE_RegisterIndividualSkin(name, hSkin);
 	}
 #ifdef STEFX_ELITE_FORCE_SP
-	/*
-	 * EF facial texture extension skins are valid PC behavior, but eager-loading
-	 * every head_* frame on Xbox can exhaust file/texture resources before NPC
-	 * bodies register. Keep the helpers compiled for a later lazy path; always
-	 * return the base skin handle here so Borg/Hirogen/etc. do not fall through
-	 * to the Munro fallback model set.
-	 */
+	if ( RE_STEFX_IsHeadSkinBase( name ) )
+	{
+		if ( RE_STEFX_SkinHasHeadExtensions( hSkin, name ) || RE_STEFX_RegisterHeadSkinExtensions( hSkin, name ) )
+		{
+			return -hSkin;
+		}
+	}
 #endif
 	return(hSkin);
 }

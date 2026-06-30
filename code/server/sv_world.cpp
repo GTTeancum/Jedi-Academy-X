@@ -112,7 +112,7 @@ clipHandle_t SV_ClipHandleForEntity( const gentity_t *ent ) {
 					ent->maxs[0], ent->maxs[1], ent->maxs[2]);
 			}
 			s_badClipEntityLogCount++;
-			return CM_TempBoxModel(ent->mins, ent->maxs);
+			return CM_TempBoxModelContents(ent->mins, ent->maxs, ent->contents);
 		}
 		// explicit hulls in the BSP model
 		return CM_InlineModel( ent->s.modelindex );
@@ -125,7 +125,7 @@ clipHandle_t SV_ClipHandleForEntity( const gentity_t *ent ) {
 #endif
 
 	// create a temp tree from bounding box sizes
-	return CM_TempBoxModel( ent->mins, ent->maxs );//, ent->contents );
+	return CM_TempBoxModelContents( ent->mins, ent->maxs, ent->contents );
 }
 
 
@@ -301,7 +301,10 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	svEntity_t	*ent;
 #ifdef _XBOX
 	static int	s_xboxLinkLogCount = 0;
+	static int	s_stefxActorLinkBudget = 384;
 	qboolean	xboxLogThisLink = (s_xboxLinkLogCount < 24);
+	qboolean	stefxActorLink = (s_stefxActorLinkBudget > 0 && gEnt &&
+		( gEnt->client || ( gEnt->svFlags & SVF_NPC ) || gEnt->s.eType == ET_PLAYER ));
 
 	if (xboxLogThisLink)
 	{
@@ -315,6 +318,23 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 			gEnt ? gEnt->maxs[0] : 0, gEnt ? gEnt->maxs[1] : 0, gEnt ? gEnt->maxs[2] : 0);
 		s_xboxLinkLogCount++;
 	}
+	if (stefxActorLink)
+	{
+		XBLF("STEFX: SV_ACTOR_LINK enter ent=%d ptr=%p inuse=%d linked=%d sv=0x%x eType=%d eFlags=0x%x client=%p contents=0x%x origin=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+			gEnt ? gEnt->s.number : -1,
+			gEnt,
+			gEnt ? gEnt->inuse : 0,
+			gEnt ? gEnt->linked : 0,
+			gEnt ? gEnt->svFlags : 0,
+			gEnt ? gEnt->s.eType : -1,
+			gEnt ? gEnt->s.eFlags : 0,
+			gEnt ? gEnt->client : NULL,
+			gEnt ? gEnt->contents : 0,
+			gEnt ? gEnt->currentOrigin[0] : 0, gEnt ? gEnt->currentOrigin[1] : 0, gEnt ? gEnt->currentOrigin[2] : 0,
+			gEnt ? gEnt->mins[0] : 0, gEnt ? gEnt->mins[1] : 0, gEnt ? gEnt->mins[2] : 0,
+			gEnt ? gEnt->maxs[0] : 0, gEnt ? gEnt->maxs[1] : 0, gEnt ? gEnt->maxs[2] : 0);
+		--s_stefxActorLinkBudget;
+	}
 #endif
 
 	// this should never be called with a freed entity
@@ -323,6 +343,11 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 		if (xboxLogThisLink)
 		{
 			XBLog_Write("STEFX: SV_LinkEntity skipped not inuse");
+		}
+		if (stefxActorLink)
+		{
+			XBLF("STEFX: SV_ACTOR_LINK reject-not-inuse ent=%d", gEnt ? gEnt->s.number : -1);
+			--s_stefxActorLinkBudget;
 		}
 #endif
 		return;
@@ -534,22 +559,6 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	ent->areanum = -1;
 	ent->areanum2 = -1;
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	// EF raw BSP collision still needs a proper CM leaf adapter.  Until that is
-	// in place, do not let entity spawn/link crash in the Q3 leaf walker.
-	num_leafs = 1;
-	lastLeaf = 0;
-	ent->numClusters = 1;
-	ent->clusternums[0] = 0;
-	ent->lastCluster = 0;
-	ent->areanum = 0;
-	ent->areanum2 = -1;
-	if (xboxLogThisLink)
-	{
-		XBLF("STEFX: SV_LinkEntity raw BSP leaf fallback ent=%d clusters=%d first=%d area=%d",
-			gEnt->s.number, ent->numClusters, ent->clusternums[0], ent->areanum);
-	}
-#else
 	//get all leafs, including solids
 #ifdef _XBOX
 	if (xboxLogThisLink)
@@ -576,6 +585,19 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 		if (xboxLogThisLink)
 		{
 			XBLog_Write("STEFX: SV_LinkEntity no leafs");
+		}
+		if (stefxActorLink)
+		{
+			XBLF("STEFX: SV_ACTOR_LINK no-leafs ent=%d linked=%d sv=0x%x eType=%d eFlags=0x%x origin=(%g,%g,%g) absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
+				gEnt->s.number,
+				gEnt->linked,
+				gEnt->svFlags,
+				gEnt->s.eType,
+				gEnt->s.eFlags,
+				gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
+				gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
+				gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+			--s_stefxActorLinkBudget;
 		}
 #endif
 		return;
@@ -616,7 +638,6 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	if ( i != num_leafs ) {
 		ent->lastCluster = CM_LeafCluster( lastLeaf );
 	}
-#endif
 
 	// find the first world sector node that the ent's box crosses
 	node = sv_worldSectors;
@@ -643,6 +664,25 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	{
 		XBLF("STEFX: SV_LinkEntity done ent=%d linked=%d clusters=%d area=%d area2=%d",
 			gEnt->s.number, gEnt->linked, ent->numClusters, ent->areanum, ent->areanum2);
+	}
+	if (stefxActorLink)
+	{
+		XBLF("STEFX: SV_ACTOR_LINK done ent=%d linked=%d sv=0x%x eType=%d eFlags=0x%x solid=0x%x clusters=%d firstCluster=%d last=%d area=%d/%d origin=(%g,%g,%g) absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
+			gEnt->s.number,
+			gEnt->linked,
+			gEnt->svFlags,
+			gEnt->s.eType,
+			gEnt->s.eFlags,
+			gEnt->s.solid,
+			ent->numClusters,
+			ent->numClusters > 0 ? ent->clusternums[0] : -1,
+			ent->lastCluster,
+			ent->areanum,
+			ent->areanum2,
+			gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
+			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
+			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+		--s_stefxActorLinkBudget;
 	}
 #endif
 }

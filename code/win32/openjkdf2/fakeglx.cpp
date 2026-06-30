@@ -700,6 +700,11 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 			FakeGL_DeleteScreenshotRequests();
 			return;
 		}
+		if (prePresent)
+		{
+			XBLF("STEFX: renderer screenshot pre-present blank; deferring capture until post-present label='%s'", label);
+			return;
+		}
 		if (postPresent && FakeGL_TryXGWriteFrontBuffer(device))
 		{
 			XBLF("STEFX: renderer screenshot XGWrite consumed blank CPU surface label='%s'", label);
@@ -2928,6 +2933,9 @@ private:
 	DWORD m_stickyAllocSize;
 	char* m_subImageScratch;
 	DWORD m_subImageScratchSize;
+#ifdef _XBOX
+	bool m_stefxEliteForceScriptPanelDraw;
+#endif
 
 	bool m_hintGenerateMipMaps;
 
@@ -3421,6 +3429,9 @@ public:
 		m_stickyAllocSize = 0;
 		m_subImageScratch = 0;
 		m_subImageScratchSize = 0;
+#ifdef _XBOX
+		m_stefxEliteForceScriptPanelDraw = false;
+#endif
 
 		m_glRenderStateDirty = true;
 
@@ -3639,6 +3650,11 @@ public:
 	}
 
 #ifdef _XBOX
+	void SetEliteForceScriptPanelDrawContext(int active)
+	{
+		m_stefxEliteForceScriptPanelDraw = active != 0;
+	}
+
 	bool DrawIndexedPrimitiveUPXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
 		UINT vertexCount, UINT primitiveCount, const void *indices,
 		const void *vertices, UINT stride)
@@ -3702,6 +3718,31 @@ public:
 			return false;
 		}
 
+		if (m_stefxEliteForceScriptPanelDraw)
+		{
+			static int s_stefxPanelFakeglApplyBudget = 160;
+			const float fZOffset = -1.0f;
+			const float fZSlopeScale = -1.0f;
+			m_pD3DDev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+			m_pD3DDev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+			m_pD3DDev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+			m_pD3DDev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+			m_pD3DDev->SetRenderState(D3DRS_SOLIDOFFSETENABLE, TRUE);
+			m_pD3DDev->SetRenderState(D3DRS_POLYGONOFFSETZOFFSET, *((const DWORD*)&fZOffset));
+			m_pD3DDev->SetRenderState(D3DRS_POLYGONOFFSETZSLOPESCALE, *((const DWORD*)&fZSlopeScale));
+			if (s_stefxPanelFakeglApplyBudget > 0)
+			{
+				XBLF("STEFX_SCRIPT_PANEL_FAKEGL_APPLY prims=%u verts=%u stride=%u fvf=0x%08lx zEnable=0 zWrite=0 zOffset=%g zSlope=%g",
+					(unsigned int)primitiveCount,
+					(unsigned int)vertexCount,
+					(unsigned int)stride,
+					(unsigned long)typeDesc,
+					fZOffset,
+					fZSlopeScale);
+				--s_stefxPanelFakeglApplyBudget;
+			}
+		}
+
 		if (stefxLateIndexed)
 		{
 			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP before draw frame=%d", g_stefxFakeglSwapFrame);
@@ -3732,6 +3773,19 @@ public:
 				--s_xboxIndexedDrawFailBudget;
 			}
 			return false;
+		}
+
+		if (m_stefxEliteForceScriptPanelDraw)
+		{
+			static int s_stefxPanelFakeglResetBudget = 80;
+			m_pD3DDev->SetRenderState(D3DRS_SOLIDOFFSETENABLE, FALSE);
+			if (s_stefxPanelFakeglResetBudget > 0)
+			{
+				XBLF("STEFX_SCRIPT_PANEL_FAKEGL_RESET prims=%u verts=%u",
+					(unsigned int)primitiveCount,
+					(unsigned int)vertexCount);
+				--s_stefxPanelFakeglResetBudget;
+			}
 		}
 
 		g_SPXBFakeGLPrimitiveCalls++;
@@ -4939,7 +4993,7 @@ public:
 				(unsigned int)destPixelFormat, pixelBytes);
 		}
 		HRESULT hr = E_OUTOFMEMORY;
-		if (false && destPixelFormat == D3DFMT_R5G6B5)
+		if (destPixelFormat == D3DFMT_R5G6B5)
 		{
 			hr = CreateRegisteredXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap, &registeredTextureBytes, &registeredTextureData);
 			if (SUCCEEDED(hr) && pMipMap && registeredTextureData)
@@ -6862,6 +6916,15 @@ extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType
 	}
 	return gFakeGL->DrawIndexedPrimitiveUPXbox(dptPrimitiveType, typeDesc,
 		vertexCount, primitiveCount, indices, vertices, stride) ? 1 : 0;
+}
+
+extern "C" void JkaFakeglSetEliteForceScriptPanelDrawContext(int active)
+{
+	if (!gFakeGL)
+	{
+		return;
+	}
+	gFakeGL->SetEliteForceScriptPanelDrawContext(active);
 }
 #endif
 

@@ -1340,6 +1340,11 @@ R_AddDrawSurf
 void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fogIndex, int dlightMap ) 
 {
 	int			index;
+#ifdef _XBOX
+	static int s_xboxJunkSkyDrawSurfBudget = 32;
+	const qboolean traceJunkSky = (shader && shader->name &&
+		strstr( shader->name, "textures/common/junk_sky" )) ? qtrue : qfalse;
+#endif
 
 	// instead of checking for overflow, we just mask the index
 	// so it wraps around
@@ -1350,10 +1355,19 @@ void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fo
 		fogIndex = tr.world->numfogs;
 	}
 
-	if ( (shader->surfaceFlags & SURF_FORCESIGHT) && !(tr.refdef.rdflags & RDF_ForceSightOn) )
-	{	//if shader is only seen with ForceSight and we don't have ForceSight on, then don't draw
-		return;
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyDrawSurfBudget > 0 )
+	{
+		XBLF("STEFX_JUNK_SKY_DRAWSURF enter shader='%s' fog=%d dlight=%d surfaceFlags=0x%x rdflags=0x%x drawBefore=%d",
+			shader->name,
+			fogIndex,
+			dlightMap,
+			shader->surfaceFlags,
+			tr.refdef.rdflags,
+			tr.refdef.numDrawSurfs);
+		--s_xboxJunkSkyDrawSurfBudget;
 	}
+#endif
 
 	// the sort data is packed into a single 32 bit value so it can be
 	// compared quickly during the qsorting process
@@ -1361,6 +1375,20 @@ void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fo
 		| tr.shiftedEntityNum | ( fogIndex << QSORT_FOGNUM_SHIFT ) | (int)dlightMap;
 	tr.refdef.drawSurfs[index].surface = (surfaceType_t *)surface;
 	tr.refdef.numDrawSurfs++;
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyDrawSurfBudget > 0 )
+	{
+		XBLF("STEFX_JUNK_SKY_DRAWSURF added shader='%s' fog=%d dlight=%d sort=0x%x drawIndex=%d total=%d rdflags=0x%x",
+			shader->name,
+			fogIndex,
+			dlightMap,
+			tr.refdef.drawSurfs[index].sort,
+			index,
+			tr.refdef.numDrawSurfs,
+			tr.refdef.rdflags);
+		--s_xboxJunkSkyDrawSurfBudget;
+	}
+#endif
 }
 
 /*

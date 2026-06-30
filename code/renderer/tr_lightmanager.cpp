@@ -24,6 +24,80 @@ static int s_xboxVVDiffuseLogCount = 0;
 static int s_xboxVVDiffuseEntityLogCount = 0;
 static int s_xboxVVAddDlightLogCount = 0;
 static int s_xboxVVWorldDlightLogCount = 0;
+
+static qboolean VV_XboxTraceJunkSkySurface( const msurface_t *surf )
+{
+	const char *mapShaderName = "";
+	const char *resolvedName = "";
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	if ( tr.world &&
+		tr.world->shaders &&
+		surf->xboxDebugShaderNum >= 0 &&
+		surf->xboxDebugShaderNum < tr.world->numShaders )
+	{
+		mapShaderName = tr.world->shaders[surf->xboxDebugShaderNum].shader;
+	}
+	if ( surf->shader && surf->shader->name )
+	{
+		resolvedName = surf->shader->name;
+	}
+
+	return ( strstr( mapShaderName, "textures/common/junk_sky" ) ||
+			 strstr( resolvedName, "textures/common/junk_sky" ) ) ? qtrue : qfalse;
+}
+
+static int VV_XboxCountJunkSkyMarks( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
+{
+	int i;
+	int count = 0;
+	msurface_t **mark;
+
+	if ( firstCode )
+	{
+		*firstCode = -1;
+	}
+	if ( firstShaderNum )
+	{
+		*firstShaderNum = -1;
+	}
+	if ( !leaf || !tr.world || !tr.world->marksurfaces )
+	{
+		return 0;
+	}
+	if ( leaf->firstMarkSurfNum < 0 ||
+		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+	{
+		return 0;
+	}
+
+	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+	for ( i = 0; i < leaf->nummarksurfaces; ++i )
+	{
+		msurface_t *surf = mark[i];
+		if ( VV_XboxTraceJunkSkySurface( surf ) )
+		{
+			if ( count == 0 )
+			{
+				if ( firstCode )
+				{
+					*firstCode = surf->xboxDebugCode;
+				}
+				if ( firstShaderNum )
+				{
+					*firstShaderNum = surf->xboxDebugShaderNum;
+				}
+			}
+			++count;
+		}
+	}
+
+	return count;
+}
 #endif
 
 
@@ -739,10 +813,14 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 		if (s_xboxRecursiveWorldLogBudget > 0)
 		{
 			int xboxLeafIndex = -1;
+			int junkMarkCount = 0;
+			int junkFirstCode = -1;
+			int junkFirstShaderNum = -1;
 			if (tr.world && tr.world->leafs && leaf >= tr.world->leafs && leaf < tr.world->leafs + tr.world->numleafs)
 			{
 				xboxLeafIndex = (int)(leaf - tr.world->leafs);
 			}
+			junkMarkCount = VV_XboxCountJunkSkyMarks( leaf, &junkFirstCode, &junkFirstShaderNum );
 			XBLF("JA: VV_R_RecursiveWorldNode leaf=%d cluster=%d area=%d marks=%d firstMark=%d drawBefore=%d bounds=(%d,%d,%d)-(%d,%d,%d)",
 				xboxLeafIndex,
 				leaf->cluster,
@@ -753,6 +831,24 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 				node->mins[0], node->mins[1], node->mins[2],
 				node->maxs[0], node->maxs[1], node->maxs[2]);
 			--s_xboxRecursiveWorldLogBudget;
+			if (junkMarkCount > 0)
+			{
+				XBLF("STEFX_JUNK_VISIT leaf=%d cluster=%d area=%d junkMarks=%d firstCode=%d shaderNum=%d drawBefore=%d visframe=%d visCount=%d bounds=(%d,%d,%d)-(%d,%d,%d) viewOrg=%g,%g,%g",
+					xboxLeafIndex,
+					leaf->cluster,
+					leaf->area,
+					junkMarkCount,
+					junkFirstCode,
+					junkFirstShaderNum,
+					tr.refdef.numDrawSurfs,
+					leaf->visframe,
+					tr.visCount,
+					node->mins[0], node->mins[1], node->mins[2],
+					node->maxs[0], node->maxs[1], node->maxs[2],
+					tr.refdef.vieworg[0],
+					tr.refdef.vieworg[1],
+					tr.refdef.vieworg[2]);
+			}
 		}
 #endif
 		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
@@ -762,6 +858,25 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			// spans multiple leafs
 			surf = *mark;
 #ifdef _XBOX
+			if (VV_XboxTraceJunkSkySurface( surf ))
+			{
+				XBLF("STEFX_JUNK_MARK surfaceCode=%d shaderNum=%d shader='%s' data=%d fog=%d dlight=0x%x drawBefore=%d viewCount=%d trView=%d boundsMin=%g,%g,%g boundsMax=%g,%g,%g",
+					surf ? surf->xboxDebugCode : -1,
+					surf ? surf->xboxDebugShaderNum : -1,
+					(surf && surf->shader) ? surf->shader->name : "<null>",
+					(surf && surf->data) ? (int)*surf->data : -1,
+					surf ? surf->fogIndex : -1,
+					dlightBits,
+					tr.refdef.numDrawSurfs,
+					surf ? surf->viewCount : -1,
+					tr.viewCount,
+					surf ? surf->xboxDebugMins[0] : 0.0f,
+					surf ? surf->xboxDebugMins[1] : 0.0f,
+					surf ? surf->xboxDebugMins[2] : 0.0f,
+					surf ? surf->xboxDebugMaxs[0] : 0.0f,
+					surf ? surf->xboxDebugMaxs[1] : 0.0f,
+					surf ? surf->xboxDebugMaxs[2] : 0.0f);
+			}
 			// MATT! - this is a temp hack until bspthing starts parsing flares
 			if(surf->data)
 #endif

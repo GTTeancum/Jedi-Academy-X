@@ -766,11 +766,6 @@ void Hunk_Clear( void )
 
 	extern void CIN_CloseAllVideos();
 				CIN_CloseAllVideos();
-
-#if !defined(STEFX_ELITE_FORCE_SP)
-	extern void R_ClearStuffToStopGhoul2CrashingThings(void);
-				R_ClearStuffToStopGhoul2CrashingThings();
-#endif
 }
 #endif
 
@@ -1184,9 +1179,9 @@ void Com_Init( char *commandLine ) {
 		GLimp_Init();
 		XBLog_Write("JA: GLimp_Init done");
 		// put up the license screen
-		XBLog_Write("JA: SP_DoLicense...");
+		XBLog_Write("STEFX: SP_DoLicense (EF intro owns frontend movies)...");
 		SP_DoLicense();
-		XBLog_Write("JA: SP_DoLicense done");
+		XBLog_Write("STEFX: SP_DoLicense done");
 #endif
 
 		XBLog_Write("JA: Cmd_Init...");
@@ -1214,17 +1209,7 @@ void Com_Init( char *commandLine ) {
 		Sys_StreamInit();
 		XBLog_Write("JA: Sys_StreamInit done");
 
-#if defined(STEFX_ELITE_FORCE_SP)
 		XBLog_Write("STEFX: Ghoul2 info array init skipped");
-#else
-		// This just forces the static singleton in the function to call
-		// its constructor, which allocates a stupid 12 byte block of
-		// memory that never gets freed. Otherwise, it ends up stranded in
-		// the middle of the zone:
-		XBLog_Write("JA: TheGhoul2InfoArray...");
-		TheGhoul2InfoArray();
-		XBLog_Write("JA: TheGhoul2InfoArray done");
-#endif
 #endif
 
 		XBLog_Write("JA: FS_InitFilesystem...");
@@ -1246,6 +1231,11 @@ void Com_Init( char *commandLine ) {
 		XBLog_Write("JA: Cbuf_Execute (configs)...");
 		Cbuf_Execute ();
 		XBLog_Write("JA: Config execution done");
+#ifdef _XBOX
+		XBLog_Write("STEFX_INPUT_AUDIT begin");
+		Key_XboxAuditMenuBindings();
+		XBLog_Write("STEFX_INPUT_AUDIT end");
+#endif
 
 		// override anything from the config files with command line args
 		Com_StartupVariable( NULL );
@@ -1351,17 +1341,25 @@ void Com_Init( char *commandLine ) {
 		XBLog_Write("JA: Com_Init fully initialized");
 
 		// add + commands from command line
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 		if ( !Com_AddStartupCommands() ) {
 #ifdef NDEBUG
 			// if the user didn't give any commands, run default action
 //			if ( !com_dedicated->integer ) 
 			{
-				Cbuf_AddText ("cinematic openinglogos\n");
-//				if( !com_introPlayed->integer ) {
-//					Cvar_Set( com_introPlayed->name, "1" );
-//					Cvar_Set( "nextmap", "cinematic intro" );
-//				}
+#ifdef _XBOX
+				if (Sys_IsDirectMapBoot())
+				{
+					XBLog_Write("STEFX: skipping EF frontend intro movies for explicit direct-map boot");
+				}
+				else
+				{
+					XBLog_Write("STEFX: normal EF frontend boot goes straight to PS2 main menu");
+				}
+#else
+				Cbuf_AddText ("cinematic eflogo\n");
+				Cbuf_AddText ("cinematic intro\n");
+#endif
 			}
 #endif	
 		}

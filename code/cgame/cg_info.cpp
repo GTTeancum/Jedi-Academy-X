@@ -4,6 +4,9 @@
 //#include "cg_local.h"
 #include "cg_media.h"
 #include "..\game\objectives.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 
 // For printing objectives
@@ -303,6 +306,46 @@ void CG_DrawDataPadObjectives(const centity_t *cent )
 	}
 }
 
+void CG_DrawMissionInformation( void )
+{
+	centity_t *cent;
+
+	if ( !cg.snap )
+	{
+#ifdef _XBOX
+		Com_PrintfAlways("STEFX: CG_DrawMissionInformation skipped no snapshot time=%d\n", cg.time);
+#endif
+		return;
+	}
+
+	if ( cg.predicted_player_state.pm_type == PM_DEAD )
+	{
+#ifdef _XBOX
+		Com_PrintfAlways("STEFX: CG_DrawMissionInformation skipped dead time=%d\n", cg.time);
+#endif
+		return;
+	}
+
+	cent = &cg_entities[cg.snap->ps.clientNum];
+
+#ifdef _XBOX
+	{
+		static int s_missionInfoLogBudget = 24;
+		if ( s_missionInfoLogBudget > 0 )
+		{
+			Com_PrintfAlways("STEFX: CG_DrawMissionInformation draw client=%d time=%d\n",
+				cg.snap->ps.clientNum,
+				cg.time);
+			--s_missionInfoLogBudget;
+		}
+	}
+#endif
+
+	CG_DrawDataPadObjectives( cent );
+	missionInfo_Updated = qfalse;
+	cg.missionInfoFlashTime = 0;
+}
+
 /*
 
 //-------------------------------------------------------
@@ -397,16 +440,155 @@ static void CG_LoadScreen_PersonalInfo(void)
 
 static void CG_LoadBar(void)
 {
-	cgi_R_SetColor( colorTable[CT_WHITE]);
+	int			x,y;
 
-	int glowHeight = (cg.loadLCARSStage / 9.0f) * 147;
-	int glowTop = (280 + 147) - glowHeight;
+	// Round LCARS buttons
+	y = 244;
+	x = 10;
+	if (cg.loadLCARSStage < 1)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKPURPLE3]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_VLTPURPLE3]);
+	}
+	CG_DrawPic( x + 18,   y +102, 128,  64,cgs.media.loading1);
 
-	// Draw glow:
-	CG_DrawPic(280, glowTop, 73, glowHeight, cgs.media.loadTick);
+	if (cg.loadLCARSStage < 2)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKBLUE1]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_VLTBLUE1]);
+	}
+	CG_DrawPic(      x,   y + 37,  64,  64,cgs.media.loading2);
 
-	// Draw saber:
-	CG_DrawPic(280, 265, 73, 147, cgs.media.levelLoad);
+	if (cg.loadLCARSStage < 3)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKPURPLE1]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_LTPURPLE1]);
+	}
+	CG_DrawPic( x + 17,        y, 128,  64,cgs.media.loading3);
+
+	if (cg.loadLCARSStage < 4)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKPURPLE2]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_LTPURPLE2]);
+	}
+	CG_DrawPic( x + 99,        y, 128, 128,cgs.media.loading4);
+
+	if (cg.loadLCARSStage < 5)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKBLUE2]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_VLTBLUE2]);
+	}
+	CG_DrawPic( x +137,   y + 81,  64,  64,cgs.media.loading5);
+
+	if (cg.loadLCARSStage < 6)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKORANGE]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_LTORANGE]);
+	}
+	CG_DrawPic( x + 45,   y + 99, 128,  64,cgs.media.loading6);
+
+	if (cg.loadLCARSStage < 7)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKBLUE2]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_LTBLUE2]);
+	}
+	CG_DrawPic( x + 38,   y + 24,  64, 128,cgs.media.loading7);
+
+	if (cg.loadLCARSStage < 8)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKPURPLE1]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_LTPURPLE1]);
+	}
+	CG_DrawPic( x + 78,   y + 20, 128,  64,cgs.media.loading8);
+
+	if (cg.loadLCARSStage < 9)
+	{
+		cgi_R_SetColor( colorTable[CT_VDKBROWN1]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_VLTBROWN1]);
+	}
+	CG_DrawPic( x +112,   y + 66,  64, 128,cgs.media.loading9);
+
+	if (cg.loadLCARSStage < 9)
+	{
+		cgi_R_SetColor( colorTable[CT_DKBLUE2]);
+	}
+	else
+	{
+		cgi_R_SetColor( colorTable[CT_LTBLUE2]);
+	}
+	CG_DrawPic( x + 62,   y + 44, 128, 128,cgs.media.loadingcircle);
+
+	cg.loadLCARScnt++;
+	if (cg.loadLCARScnt > 3)
+	{
+		cg.loadLCARScnt = 0;
+	}
+
+	cgi_R_SetColor( colorTable[CT_DKPURPLE2]);
+	CG_DrawPic( x +  61,   y + 43,  32,  32,cgs.media.loadingquarter);
+	CG_DrawPic( x + 135,   y + 43, -32,  32,cgs.media.loadingquarter);
+	CG_DrawPic( x + 135,   y +117, -32, -32,cgs.media.loadingquarter);
+	CG_DrawPic( x +  61,   y +117,  32, -32,cgs.media.loadingquarter);
+
+	cgi_R_SetColor( colorTable[CT_LTPURPLE2]);
+	switch (cg.loadLCARScnt)
+	{
+	case 0 :
+		CG_DrawPic( x +  61,   y + 43,  32,  32,cgs.media.loadingquarter);
+		break;
+	case 1 :
+		CG_DrawPic( x + 135,   y + 43, -32,  32,cgs.media.loadingquarter);
+		break;
+	case 2 :
+		CG_DrawPic( x + 135,   y +117, -32, -32,cgs.media.loadingquarter);
+		break;
+	case 3 :
+		CG_DrawPic( x +  61,   y +117,  32, -32,cgs.media.loadingquarter);
+		break;
+	}
+
+	CG_DrawProportionalString( x +  21, y + 150, "0987",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x +   3, y +  90,   "18",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x +  24, y +  20,    "7",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x +  93, y +   5,   "51",CG_RIGHT|CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x + 103, y +   5,   "35",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x + 165, y +  83,   "21",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x + 101, y + 149,   "67",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x + 123, y +  36,   "8",CG_TINYFONT, colorTable[CT_BLACK]);
+
+	CG_DrawProportionalString( x +  90, y +  65, "1",CG_RIGHT|CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x + 105, y +  65, "2",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x + 105, y +  87, "3",CG_TINYFONT, colorTable[CT_BLACK]);
+	CG_DrawProportionalString( x +  91, y +  87, "4",CG_RIGHT|CG_TINYFONT, colorTable[CT_BLACK]);
+
+	cgi_R_SetColor( NULL );
 }
 
 int CG_WeaponCheck( int weaponIndex );
@@ -573,76 +755,110 @@ Draw all the status / pacifier stuff during level loading
 ====================
 */
 void CG_DrawInformation( void ) {
-	int		y;
+	const char	*s;
+	const char	*info;
+	qhandle_t	levelshot;
+	qhandle_t	detail;
+	int			y,index;
+
+	info = CG_ConfigString( CS_SERVERINFO );
 
 	// draw the dialog background
-	const char	*info	= CG_ConfigString( CS_SERVERINFO );
-	const char	*s		= Info_ValueForKey( info, "mapname" );
-
-	extern SavedGameJustLoaded_e g_eSavedGameJustLoaded;	// hack! (hey, it's the last week of coding, ok?
-
-	if ( g_eSavedGameJustLoaded != eFULL && (!strcmp(s,"yavin1") || !strcmp(s,"demo")) )//special case for first map!
+	s = Info_ValueForKey( info, "mapname" );
+#ifdef _XBOX
 	{
-		char	text[1024]={0};
+		static int s_loadscreenLogBudget = 16;
+		if ( s_loadscreenLogBudget > 0 )
+		{
+			XBLF("STEFX: EF loadscreen draw map='%s' stage=%d text='%s'",
+				s ? s : "", cg.loadLCARSStage, cg.infoScreenText);
+			--s_loadscreenLogBudget;
+		}
+	}
+#endif
+	levelshot = cgi_R_RegisterShaderNoMip( va( "levelshots/%s.tga", s ) );
+	if ( !levelshot )
+	{
+		levelshot = cgi_R_RegisterShaderNoMip( va( "levelshots/%s.jpg", s ) );
+	}
+	if ( !levelshot )
+	{
+		levelshot = cgi_R_RegisterShaderNoMip( va( "levelshots/%s", s ) );
+	}
+	if ( !levelshot )
+	{
+		levelshot = cgi_R_RegisterShaderNoMip( "levelshots/unknownmap.tga" );
+	}
+	if ( !levelshot )
+	{
+		levelshot = cgi_R_RegisterShaderNoMip( "levelshots/unknownmap.jpg" );
+	}
 
-		//
-		cgi_R_SetColor( colorTable[CT_BLACK] );
-		CG_DrawPic( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, cgs.media.whiteShader );
-
-		cgi_SP_GetStringTextString( "SP_INGAME_ALONGTIME", text, sizeof(text) );
-
-		int w = cgi_R_Font_StrLenPixels(text,cgs.media.qhFontMedium, 1.0f);
-		cgi_R_Font_DrawString((320)-(w/2), 140, text,  colorTable[CT_ICON_BLUE], cgs.media.qhFontMedium, -1, 1.0f);
+	extern SavedGameJustLoaded_e g_eSavedGameJustLoaded;	// hack! (hey, it's the last week of coding, ok?)
+	if ( !levelshot || g_eSavedGameJustLoaded == eFULL )
+	{
+		// The EF fallback keeps the previous frame/save screenshot. The Xbox renderer
+		// does not currently expose that path, so keep the real EF loading chrome visible.
+#ifdef _XBOX
+		static qboolean s_loggedMissingLevelshot = qfalse;
+		if ( !s_loggedMissingLevelshot )
+		{
+			XBLF("STEFX: EF loadscreen no levelshot or full-save fallback map='%s' handle=%d saveMode=%d",
+				s ? s : "", levelshot, (int)g_eSavedGameJustLoaded);
+			s_loggedMissingLevelshot = qtrue;
+		}
+#endif
+		CG_FillRect( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, colorTable[CT_BLACK] );
 	}
 	else
 	{
-		qhandle_t levelshot = cgi_R_RegisterShaderNoMip( va( "levelshots/%s", s ) );
-		if (!levelshot) {
-			levelshot = cgi_R_RegisterShaderNoMip( "menu/art/unknownmap" );	
-		}
-
-		qhandle_t levelshot2 = cgi_R_RegisterShaderNoMip( va( "levelshots/%s2", s ) );
-		if (!levelshot2) {
-			levelshot2 = levelshot;
-		}
-
-		CG_DrawLoadingScreen(levelshot, levelshot2, s);
-		cgi_UI_MenuPaintAll();
+		// put up the pre-defined levelshot for this map
+		cgi_R_SetColor( NULL );
+		CG_DrawPic( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, levelshot );
 	}
+
+	// blend a detail texture over it
+	detail = cgi_R_RegisterShader( "levelShotDetail" );
+	cgi_R_DrawStretchPic( 0, 0, cgs.glconfig.vidWidth, cgs.glconfig.vidHeight, 0, 0, 1, 1, detail );
 
 	CG_LoadBar();
 
-
-	// the first 150 rows are reserved for the client connection
-	// screen to write into
-//	if ( cg.processedSnapshotNum == 0 ) 
+	// the first 150 rows are reserved for the client connection screen to write into
+	if ( cg.processedSnapshotNum == 0 )
 	{
-		// still loading
-		// print the current item being loaded
-
-#ifdef _DEBUG
-		cgi_R_Font_DrawString( 40, 416, va("LOADING ... %s",cg.infoScreenText),colorTable[CT_LTGOLD1], cgs.media.qhFontSmall, -1, 1.0f );
+		// still loading: print the current item being loaded on non-release builds
+#ifndef NDEBUG
+		if (cg.infoScreenText[0] != '@')
+		{
+			CG_DrawProportionalString( 28, 407, va("LOADING ... %s",cg.infoScreenText),CG_SMALLFONT,colorTable[CT_LTBLUE1] );
+		}
 #endif
 	}
 
 	// draw info string information
-
 	y = 20;
 	// map-specific message (long map name)
 	s = CG_ConfigString( CS_MESSAGE );
+	index = atoi(s);
 
-	if ( s[0] ) 
+	if ( s[0] )
 	{
-		if (s[0] == '@')
-		{	
+		if (index>0)
+		{
+			const char	*str = CG_GetStringEdString("MENUS", va("MENUS%d",index));
+			CG_CenterGiantLine( y, str );
+		}
+		else if (s[0] == '@')
+		{
 			char text[1024]={0};
 			cgi_SP_GetStringTextString( s+1, text, sizeof(text) );
-			cgi_R_Font_DrawString( 15, y, va("\"%s\"",text),colorTable[CT_WHITE],cgs.media.qhFontMedium, -1, 1.0f );
+			CG_CenterGiantLine( y, text );
 		}
-		else 
+		else
 		{
-			cgi_R_Font_DrawString( 15, y, va("\"%s\"",s),colorTable[CT_WHITE],cgs.media.qhFontMedium, -1, 1.0f );
+			CG_CenterGiantLine( y, s );
 		}
-		y += 20;
 	}
+
+	cgi_R_SetColor( NULL );
 }
