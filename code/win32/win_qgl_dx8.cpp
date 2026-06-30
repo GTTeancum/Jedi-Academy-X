@@ -82,6 +82,20 @@ static void GLW_InitTexturePool( void )
 	}
 	XBLog_Write("GLW_Init: gTextures.Initialize done\n");
 }
+
+extern "C" void* JkaStaticTextureAlloc(unsigned long size, GLuint texNum)
+{
+	try
+	{
+		return gTextures.Allocate(size, texNum);
+	}
+	catch (...)
+	{
+		XBLog_Writef("JA: StaticTextureAllocator allocation failed tex=%u size=%lu used=%lu capacity=%lu available=%lu",
+			(unsigned int)texNum, size, gTextures.Size(), gTextures.Capacity(), gTextures.Available());
+		return NULL;
+	}
+}
 #endif
 
 #include <vector>
@@ -1444,6 +1458,7 @@ static void JAMP_UpdateFramebufferTelemetry(void)
 	HRESULT hrBackBuffer = glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
 	if (FAILED(hrBackBuffer) || !backBuffer)
 	{
+		SPXB_HOT_INC(g_SPXBDx8FramebufferBackBufferFail);
 		return;
 	}
 
@@ -1465,6 +1480,7 @@ static void JAMP_UpdateFramebufferTelemetry(void)
 	g_SPXBFramebufferHeight = height;
 	g_SPXBFramebufferFormat = backBuffer->Format;
 	g_SPXBFramebufferSize = packedSize;
+	SPXB_HOT_INC(g_SPXBDx8FramebufferUpdates);
 
 	backBuffer->Release();
 #endif
@@ -2258,6 +2274,9 @@ static void dllBegin(GLenum mode)
 // EXTENSION: Start a new drawing frame
 GLboolean dllBeginFrame(void)
 {
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBDx8BeginFrameCalls);
+#endif
 	if (!glw_state || !glw_state->device)
 	{
 #ifdef _XBOX
@@ -4170,9 +4189,12 @@ static void dllEnd(void)
 #endif
 }
 
+bool connectSwapOverride = false;
+
 static void dllEndFrame(void)
 {
 #ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBDx8EndFrameCalls);
 	int jampEndFrameCount = s_jampRenderMetricFrame;
 	qboolean jampEndFrameTrace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && jampEndFrameCount < 2);
 	if (jampEndFrameTrace)
@@ -4198,10 +4220,28 @@ static void dllEndFrame(void)
 	JAMP_UpdateFramebufferTelemetry();
 #endif
 #endif
-	glw_state->device->Present(NULL, NULL, NULL, NULL);
+	HRESULT presentHr = D3D_OK;
+	if( !connectSwapOverride )
+	{
+		presentHr = glw_state->device->Present(NULL, NULL, NULL, NULL);
 #ifdef _XBOX
-	if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after Present\n", jampEndFrameCount);
-	JAMP_InvalidateRenderStateAfterPresent();
+		SPXB_HOT_INC(g_SPXBDx8PresentCalls);
+		SPXB_HOT_SET(g_SPXBDx8PresentHr, (unsigned int)presentHr);
+		if (jampEndFrameTrace) Com_PrintfAlways("JAMP: dllEndFrame #%d after Present\n", jampEndFrameCount);
+		JAMP_InvalidateRenderStateAfterPresent();
+#endif
+	}
+#ifdef _XBOX
+	else
+	{
+		static int s_xboxConnectSwapSkipLogCount = 0;
+		if (s_xboxConnectSwapSkipLogCount < 8)
+		{
+			XBLF("JA: dllEndFrame skipped Present for connectSwapOverride count=%d",
+				s_xboxConnectSwapSkipLogCount);
+			++s_xboxConnectSwapSkipLogCount;
+		}
+	}
 #endif
 
 	// restore the pre-Present state
@@ -6830,7 +6870,11 @@ static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei
 					0 );
 
 	DWORD fileSize = Z_Size(const_cast<void*>(pixels));
-	info->data = gTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	info->data = JkaStaticTextureAlloc( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	if( !info->data )
+	{
+		Com_Error( ERR_FATAL, "Upload32: Xbox texture pool allocation failed for %d bytes", info->size );
+	}
 	// Lightmaps need to be swizzled, they're in 565:
 	if( f == D3DFMT_R5G6B5 )
 	{
@@ -6989,7 +7033,11 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 					0 );
 	XBOX_QGL_TEX_STATE(806, (unsigned int)info->size);
 
-	info->data = gTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	info->data = JkaStaticTextureAlloc( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	if( !info->data )
+	{
+		Com_Error( ERR_FATAL, "Upload32: Xbox texture pool allocation failed for %d bytes", info->size );
+	}
 	XBOX_QGL_TEX_STATE(807, (unsigned int)info->data);
 	info->mipmap->Register( info->data );
 	XBOX_QGL_TEX_STATE(808, (unsigned int)info->mipmap);
@@ -8209,7 +8257,6 @@ void QGL_EnableLogging( qboolean enable )
 {
 }
 
-bool connectSwapOverride = false;
 bool bHadPersistedSurface = false;
 
 void SaveCompressedScreenshot( void )

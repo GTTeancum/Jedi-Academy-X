@@ -835,8 +835,8 @@ void R_Images_DeleteLightMaps(void)
 		}
 	}
 
-	XBLF("JA: R_Images_DeleteLightMaps retained=%d total=%d texturePool=%lu staticPoolNoFree\n",
-		iLightmapsRetained, (int)AllocatedImages->size(), gTextures.Size());
+	XBLF("JA: R_Images_DeleteLightMaps retained=%d total=%d texturePool=%lu capacity=%lu available=%lu staticPoolNoFree\n",
+		iLightmapsRetained, (int)AllocatedImages->size(), gTextures.Size(), gTextures.Capacity(), gTextures.Available());
 	GL_ResetBinds();
 	return;
 #else
@@ -986,8 +986,8 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 		}
 	}
 
-	XBLF("JA: RE_RegisterImages_LevelLoadEnd retain total=%d stale=%d system=%d lightmaps=%d level=%d texturePool=%lu staticPoolNoFree\n",
-		iTotalImages, iStaleImages, iSystemImages, iLightmaps, iCurrentLevel, gTextures.Size());
+	XBLF("JA: RE_RegisterImages_LevelLoadEnd retain total=%d stale=%d system=%d lightmaps=%d level=%d texturePool=%lu capacity=%lu available=%lu staticPoolNoFree\n",
+		iTotalImages, iStaleImages, iSystemImages, iLightmaps, iCurrentLevel, gTextures.Size(), gTextures.Capacity(), gTextures.Available());
 	GL_ResetBinds();
 	return qfalse;
 #else

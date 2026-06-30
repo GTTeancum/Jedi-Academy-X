@@ -21,10 +21,22 @@
 class StaticTextureAllocator
 {
 public:
-	StaticTextureAllocator( void ) { }
+	StaticTextureAllocator( void )
+		: base(NULL),
+		  allocPoint(0),
+		  poolSize(0),
+		  maxAlloc(0),
+		  swappedSize(0),
+		  swappedPoint(0),
+		  swappedBackup(NULL)
+	{
+	}
 
 	void Initialize( unsigned long size )
 	{
+		if ( base )
+			return;
+
 		base = (unsigned char *) D3D_AllocContiguousMemory( size, 0 );
 		allocPoint = 0;
 		poolSize = size;
@@ -34,13 +46,24 @@ public:
 		swappedBackup = NULL;
 	}
 
+	bool IsInitialized( void ) const
+	{
+		return base != NULL && poolSize != 0;
+	}
+
 	// No bookkeeping necessary, texNum is unused:
 	void *Allocate( unsigned long size, GLuint texNum )
 	{
-#ifndef FINAL_BUILD
+		if( !IsInitialized() )
+		{
+			OutputDebugStringA("JA: StaticTextureAllocator used before Initialize\n");
+			throw "Static texture pool uninitialized";
+		}
 		if( allocPoint + size > poolSize )
+		{
+			OutputDebugStringA("JA: StaticTextureAllocator pool full\n");
 			throw "Static texture pool full";
-#endif
+		}
 
 		// Current location:
 		void *retVal = base + allocPoint;
@@ -59,6 +82,9 @@ public:
 
 	void Reset( void )
 	{
+		if ( !IsInitialized() )
+			return;
+
 		// Just move our allocation marker back to the start:
 		allocPoint = 0;
 	}
@@ -106,6 +132,18 @@ public:
 	unsigned long Size( void )
 	{
 		return allocPoint;
+	}
+
+	unsigned long Capacity( void )
+	{
+		return poolSize;
+	}
+
+	unsigned long Available( void )
+	{
+		if ( !IsInitialized() || allocPoint >= poolSize )
+			return 0;
+		return poolSize - allocPoint;
 	}
 
 private:
