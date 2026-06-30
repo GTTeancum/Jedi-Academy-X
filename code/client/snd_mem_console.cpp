@@ -9,12 +9,27 @@
 
 #ifdef _XBOX
 #include <xtl.h>
+#include "../win32/xb_log.h"
 #endif
 
 #define SND_MAX_LOADS 48
 static sfx_t** s_LoadList = NULL;
 static int s_LoadListSize = 0;
 qboolean gbInsideLoadSound = qfalse;	// Needed to link VVFIXME
+
+#ifdef _XBOX
+static void S_SetInsideLoadSound(qboolean inside, const char *where)
+{
+	static int s_xboxInsideLoadLogCount = 0;
+	gbInsideLoadSound = inside;
+
+	if (s_xboxInsideLoadLogCount < 16)
+	{
+		XBLF("JA: S_LoadSound guard %s inside=%d pending=%d", where, (int)inside, s_LoadListSize);
+		s_xboxInsideLoadLogCount++;
+	}
+}
+#endif
 
 extern int Sys_GetFileCode(const char *name);
 
@@ -196,6 +211,56 @@ void S_UpdateLoading(void) {
 	}
 }
 
+qboolean S_CancelLoadSound( sfx_t *sfx )
+{
+	int removed = 0;
+	qboolean wasLoading;
+	streamHandle_t streamHandle;
+
+	if (!sfx)
+	{
+		return qfalse;
+	}
+
+	wasLoading = (sfx->iFlags & SFX_FLAG_LOADING) ? qtrue : qfalse;
+	streamHandle = sfx->iStreamHandle;
+
+	for (int i = 0; i < SND_MAX_LOADS; ++i)
+	{
+		if (s_LoadList[i] == sfx)
+		{
+			s_LoadList[i] = NULL;
+			if (s_LoadListSize > 0)
+			{
+				--s_LoadListSize;
+			}
+			removed++;
+		}
+	}
+
+#ifdef _XBOX
+	if (wasLoading || removed)
+	{
+		static int s_xboxCancelLoadLogCount = 0;
+		if (s_xboxCancelLoadLogCount < 16)
+		{
+			XBLF("JA: S_CancelLoadSound sfx=%p flags=0x%x handle=%d data=%p removed=%d pending=%d",
+				sfx, sfx->iFlags, streamHandle, sfx->pSoundData, removed, s_LoadListSize);
+			s_xboxCancelLoadLogCount++;
+		}
+	}
+#endif
+
+	if (streamHandle)
+	{
+		Sys_StreamClose(streamHandle);
+		sfx->iStreamHandle = 0;
+	}
+
+	sfx->iFlags &= ~SFX_FLAG_LOADING;
+	return (wasLoading || removed) ? qtrue : qfalse;
+}
+
 /*
 ==============
 S_BeginLoadSound
@@ -203,14 +268,22 @@ S_BeginLoadSound
 */
 qboolean S_StartLoadSound( sfx_t *sfx )
 {
+	qboolean started = qfalse;
+
 	assert(sfx->iFlags & SFX_FLAG_UNLOADED);
 	sfx->iFlags &= ~SFX_FLAG_UNLOADED;
+
+#ifdef _XBOX
+	S_SetInsideLoadSound(qtrue, "start");
+#else
+	gbInsideLoadSound = qtrue;
+#endif
 	
 	// Valid file?
 	if (sfx->iFileCode == -1)
 	{
 		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
-		return qfalse;
+		goto done;
 	}
 
 #if PROFILE_SOUND
@@ -231,8 +304,9 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 	sfx->iSoundLength = Sys_StreamOpen(sfx->iFileCode, &sfx->iStreamHandle);
 	if ( sfx->iSoundLength <= 0 )
 	{
+		sfx->iStreamHandle = 0;
 		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
-		return qfalse;
+		goto done;
 	}
 
 #ifdef _GAMECUBE
@@ -251,10 +325,12 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 	{
 		if(sfx->pSoundData) {
 			Z_Free(sfx->pSoundData);
+			sfx->pSoundData = NULL;
 		}
 		Sys_StreamClose(sfx->iStreamHandle);
+		sfx->iStreamHandle = 0;
 		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
-		return qfalse;
+		goto done;
 	}
 	sfx->iFlags |= SFX_FLAG_LOADING;
 
@@ -269,7 +345,15 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 		}
 	}
 
-	return qtrue;
+	started = qtrue;
+
+done:
+#ifdef _XBOX
+	S_SetInsideLoadSound(qfalse, started ? "start-ok" : "start-fail");
+#else
+	gbInsideLoadSound = qfalse;
+#endif
+	return started;
 }
 
 /*
@@ -354,7 +438,8 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 #if defined(_XBOX)
 	{
 		static int s_xboxRawSoundTransferCount = 0;
-		if (s_xboxRawSoundTransferCount < 32 || (s_xboxRawSoundTransferCount & 127) == 0)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS &&
+			(s_xboxRawSoundTransferCount < 32 || (s_xboxRawSoundTransferCount & 127) == 0))
 		{
 			Com_PrintfAlways("JA: S_EndLoadSound transferred raw sound to QAL count=%d bytes=%d buffer=%d\n",
 				s_xboxRawSoundTransferCount, sfx->iSoundLength, Buffer);

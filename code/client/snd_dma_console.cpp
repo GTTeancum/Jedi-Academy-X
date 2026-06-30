@@ -47,6 +47,7 @@ void S_StopAllSounds(void);
 static void S_UpdateBackgroundTrack( void );
 unsigned int S_HashName( const char *name );
 static int SND_FreeSFXMem(sfx_t *sfx);
+extern qboolean gbInsideLoadSound;
 
 /*static void S_FreeAllSFXMem(void);
 static void S_UnCacheDynamicMusic( void );
@@ -3524,6 +3525,60 @@ static qboolean SND_SFXInUseByChannel(sfx_t *sfx)
 	return qfalse;
 }
 
+static int SND_DetachSFXFromChannels(sfx_t *sfx)
+{
+	int detached = 0;
+
+	if (!s_channels || !sfx)
+	{
+		return 0;
+	}
+
+	for (int iChannel = 0; iChannel < s_numChannels; iChannel++)
+	{
+		channel_t *ch = &s_channels[iChannel];
+
+		if (ch->thesfx != sfx)
+		{
+			continue;
+		}
+
+#ifdef _XBOX
+		if (detached < 8)
+		{
+			XBLF("JA: SND_DetachSFXFromChannels idx=%d ent=%d chan=%d playing=%d source=%d flags=0x%x",
+				iChannel, ch->entnum, ch->entchannel, (int)ch->bPlaying, ch->alSource, sfx->iFlags);
+		}
+#endif
+
+		if (ch->bPlaying)
+		{
+			if (ch->alSource)
+			{
+				alSourceStop(ch->alSource);
+			}
+			ch->bPlaying = false;
+		}
+
+		if (ch->alSource)
+		{
+			alSourcei(ch->alSource, AL_BUFFER, 0);
+		}
+
+		if (ch->entnum >= 0 && ch->entnum < MAX_GENTITIES && s_entityWavVol)
+		{
+			s_entityWavVol[ch->entnum] = 0;
+		}
+
+		sfx->pLipSyncData = NULL;
+		ch->thesfx = NULL;
+		ch->bLooping = false;
+		detached++;
+	}
+
+	return detached;
+}
+
 qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel /* 99% qfalse */)
 {
 	if ( !s_soundStarted || !s_sfxBlock || !s_sfxCodes ) {
@@ -3541,11 +3596,21 @@ qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 	int invalidatedCount = 0;
 	int channelSkipCount = 0;
 	int loadingSkipCount = 0;
+	int channelDetachCount = 0;
+	int loadingCancelCount = 0;
 
 #ifdef _XBOX
 	XBLF("JA: SND_RegisterAudio_LevelLoadEnd begin level=%d force=%d", currentLevel, (int)bDeleteEverythingNotUsedThisLevel);
 #endif
 	Com_DPrintf( "SND_RegisterAudio_LevelLoadEnd():\n");
+
+	if (gbInsideLoadSound)
+	{
+#ifdef _XBOX
+		XBLF("JA: SND_RegisterAudio_LevelLoadEnd skipped inside sound load force=%d", (int)bDeleteEverythingNotUsedThisLevel);
+#endif
+		return qfalse;
+	}
 
 	extern void S_DrainRawSoundData(void);
 	S_DrainRawSoundData();
@@ -3578,14 +3643,32 @@ qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 
 		if (sfx->iFlags & SFX_FLAG_LOADING)
 		{
-			loadingSkipCount++;
-			continue;
+			if (!bDeleteEverythingNotUsedThisLevel)
+			{
+				loadingSkipCount++;
+				continue;
+			}
+
+			if (S_CancelLoadSound(sfx))
+			{
+				loadingCancelCount++;
+			}
 		}
 
 		if (SND_SFXInUseByChannel(sfx))
 		{
-			channelSkipCount++;
-			continue;
+			if (!bDeleteEverythingNotUsedThisLevel)
+			{
+				channelSkipCount++;
+				continue;
+			}
+
+			channelDetachCount += SND_DetachSFXFromChannels(sfx);
+			if (SND_SFXInUseByChannel(sfx))
+			{
+				channelSkipCount++;
+				continue;
+			}
 		}
 
 		if ((sfx->iFlags & SFX_FLAG_RESIDENT) || sfx->Buffer || sfx->pSoundData)
@@ -3604,8 +3687,9 @@ qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 	}
 
 #ifdef _XBOX
-	XBLF("JA: SND_RegisterAudio_LevelLoadEnd end level=%d stale=%d freed=%d invalidated=%d channelSkip=%d loadingSkip=%d dropped=%d",
-		currentLevel, staleCount, freedCount, invalidatedCount, channelSkipCount, loadingSkipCount, (int)bAtLeastOneSoundDropped);
+	XBLF("JA: SND_RegisterAudio_LevelLoadEnd end level=%d stale=%d freed=%d invalidated=%d channelSkip=%d loadingSkip=%d channelDetach=%d loadingCancel=%d dropped=%d",
+		currentLevel, staleCount, freedCount, invalidatedCount, channelSkipCount, loadingSkipCount,
+		channelDetachCount, loadingCancelCount, (int)bAtLeastOneSoundDropped);
 #endif
 	Com_DPrintf( "SND_RegisterAudio_LevelLoadEnd(): Ok\n");
 

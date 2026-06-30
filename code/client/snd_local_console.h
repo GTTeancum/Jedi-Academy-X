@@ -105,6 +105,7 @@ int S_GetFileCode( const char* sSoundName );
 
 qboolean S_StartLoadSound( sfx_t *sfx );
 qboolean S_EndLoadSound( sfx_t *sfx );
+qboolean S_CancelLoadSound( sfx_t *sfx );
 
 void S_InitLoad(void);
 void S_CloseLoad(void);
