@@ -133,6 +133,7 @@ qboolean qbSGReadIsTestOnly = qfalse;	// this MUST be left in this state
 char sLastSaveFileLoaded[MAX_QPATH]={0};
 
 #define iSG_MAPCMD_SIZE MAX_QPATH
+#define SG_MAX_CHUNK_ALLOC (16 * 1024 * 1024)
 
 #ifndef LPCSTR
 typedef const char * LPCSTR;
@@ -2706,6 +2707,19 @@ int SG_Seek( fileHandle_t fhSaveGame, long offset, int origin )
 
 
 
+static void SG_FreeReadAllocation(void *pvAddress, void **ppvAddressPtr, qboolean qbAllocatedHere)
+{
+	if (qbAllocatedHere && pvAddress)
+	{
+		Z_Free(pvAddress);
+		if (ppvAddressPtr)
+		{
+			*ppvAddressPtr = NULL;
+		}
+	}
+}
+
+
 // Pass in pvAddress (or NULL if you want memory to be allocated)
 //	if pvAddress==NULL && ppvAddressPtr == NULL then the block is discarded/skipped.
 //
@@ -2723,6 +2737,7 @@ static int SG_Read_Actual(unsigned long chid, void *pvAddress, int iLength, void
 	char			sChidText1[MAX_QPATH];
 	char			sChidText2[MAX_QPATH];
 	qboolean		qbTransient = qfalse;
+	qboolean		qbAllocatedHere = qfalse;
 
 	Com_DPrintf("Attempting read of chunk %s length %d\n", SG_GetChidText(chid), iLength);
 
@@ -2773,11 +2788,21 @@ static int SG_Read_Actual(unsigned long chid, void *pvAddress, int iLength, void
 	}
 	iLength = uiLoadedLength;	// for retval
 
+	if (iLength < 0 || iLength > SG_MAX_CHUNK_ALLOC)
+	{
+		return 0;
+	}
+
 	// alloc?...
 	//
 	if ( !pvAddress )
 	{
 		pvAddress = Z_Malloc(iLength, TAG_SAVEGAME, qfalse);
+		if (!pvAddress)
+		{
+			return 0;
+		}
+		qbAllocatedHere = qtrue;
 		//
 		// Pass load address back...
 		//
@@ -2800,19 +2825,41 @@ static int SG_Read_Actual(unsigned long chid, void *pvAddress, int iLength, void
 		// read compressed data length...
 		//
 		uiLoaded += SG_ReadBytes( &uiCompressedLength, sizeof(uiCompressedLength),fhSaveGame);
+		if (uiCompressedLength == 0 || uiCompressedLength > SG_MAX_CHUNK_ALLOC)
+		{
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
+			return 0;
+		}
 		//
 		// alloc space...
 		//	
 		byte *pTempRLEData = (byte *)Z_Malloc(uiCompressedLength, TAG_SAVEGAME, qfalse);
+		if (!pTempRLEData)
+		{
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
+			return 0;
+		}
 		//
 		// read compressed data...
 		//
-		uiLoaded += SG_ReadBytes( pTempRLEData,  uiCompressedLength, fhSaveGame );
+		int iDataRead = SG_ReadBytes( pTempRLEData,  uiCompressedLength, fhSaveGame );
+		uiLoaded += iDataRead;
+		if (iDataRead != (int)uiCompressedLength)
+		{
+			Z_Free( pTempRLEData );
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
+			return 0;
+		}
 		//
 		// decompress it...
 		//
 #ifdef SG_USE_ZLIB
-		DeCompress_ZLIB((byte *)pvAddress, iLength, pTempRLEData, uiCompressedLength);
+		if (DeCompress_ZLIB((byte *)pvAddress, iLength, pTempRLEData, uiCompressedLength) != iLength)
+		{
+			Z_Free( pTempRLEData );
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
+			return 0;
+		}
 		
 #else
 		DeCompress_RLE((byte *)pvAddress, pTempRLEData, iLength);
@@ -2824,7 +2871,13 @@ static int SG_Read_Actual(unsigned long chid, void *pvAddress, int iLength, void
 	}
 	else
 	{
-		uiLoaded += SG_ReadBytes(  pvAddress, iLength, fhSaveGame );
+		int iDataRead = SG_ReadBytes(  pvAddress, iLength, fhSaveGame );
+		uiLoaded += iDataRead;
+		if (iDataRead != iLength)
+		{
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
+			return 0;
+		}
 	}
 	// Get checksum...
 	//
@@ -2839,15 +2892,13 @@ static int SG_Read_Actual(unsigned long chid, void *pvAddress, int iLength, void
 	
 		if (!qbSGReadIsTestOnly)
 		{
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
 			return 0;
 			//Com_Error(ERR_DROP, "Failed checksum check for chunk", SG_GetChidText(chid));
 		}
 		else
 		{
-			if ( qbTransient )
-			{
-				Z_Free( pvAddress );
-			}
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
 		}
 		return 0;
 	}
@@ -2858,15 +2909,13 @@ static int SG_Read_Actual(unsigned long chid, void *pvAddress, int iLength, void
 	{
 		if (!qbSGReadIsTestOnly)
 		{
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
 			return 0;
 			//Com_Error(ERR_DROP, "Error during loading chunk %s", SG_GetChidText(chid));
 		}
 		else
 		{
-			if ( qbTransient )
-			{
-				Z_Free( pvAddress );
-			}
+			SG_FreeReadAllocation(pvAddress, ppvAddressPtr, qbAllocatedHere);
 		}
 		return 0;
 	}
