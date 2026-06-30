@@ -173,6 +173,29 @@ static int s_xboxSilentVoiceUpdatesLogged = 0;
 static void S_XboxUpdateSilentVoiceVolumes(void);
 #endif
 
+static void S_FreeLipSyncTables(void)
+{
+#ifdef _XBOX
+	XBLF("JA: S_FreeLipSyncTables map=%p data=%p loaded=%d\n",
+		s_lipSyncMap, s_lipSyncData, (int)s_xboxLipDataLoaded);
+#endif
+	if (s_lipSyncMap)
+	{
+		delete s_lipSyncMap;
+		s_lipSyncMap = NULL;
+	}
+
+	if (s_lipSyncData)
+	{
+		delete [] s_lipSyncData;
+		s_lipSyncData = NULL;
+	}
+
+#ifdef _XBOX
+	s_xboxLipDataLoaded = qfalse;
+#endif
+}
+
 struct listener_t
 {
 	ALuint handle;
@@ -262,6 +285,8 @@ static void S_LoadLipSyncTables(void)
 	const char *langSuffix;
 	void *buffer;
 
+	S_FreeLipSyncTables();
+
 	switch( g_dwLanguage )
 	{
 #ifndef XBOX_DEMO	// Demo has no foreign audio
@@ -294,7 +319,10 @@ static void S_LoadLipSyncTables(void)
 
 	len = FS_ReadFile(va("lipdata%s.dat", langSuffix), &buffer);
 	if( len == -1 )
+	{
+		S_FreeLipSyncTables();
 		Com_Error(ERR_DROP, "ERROR: No lip sync data file\n");
+	}
 
 	Z_PushNewDeleteTag( TAG_LIPSYNC );
 	s_lipSyncData = new char[len];
@@ -448,6 +476,7 @@ void S_Init( void ) {
 	extern DWORD g_dwLanguage;
 	const char *langSuffix;
 	void *buffer;
+	S_FreeLipSyncTables();
 	switch( g_dwLanguage )
 	{
 #ifndef XBOX_DEMO	// Demo has no foreign audio
@@ -480,7 +509,10 @@ void S_Init( void ) {
 	// Now load the actual lip sync data
 	len = FS_ReadFile(va("lipdata%s.dat", langSuffix), &buffer);
 	if( len == -1 )
+	{
+		S_FreeLipSyncTables();
 		Com_Error(ERR_DROP, "ERROR: No lip sync data file\n");
+	}
 
 	Z_PushNewDeleteTag( TAG_LIPSYNC );
 	s_lipSyncData = new char[len];
@@ -529,6 +561,7 @@ void S_Shutdown( void )
 
 	delete [] s_entityWavVol;
 	s_entityWavVol = NULL;
+	S_FreeLipSyncTables();
 
 	if ( !s_soundStarted ) {
 		return;
