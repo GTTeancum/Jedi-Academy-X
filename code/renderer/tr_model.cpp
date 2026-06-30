@@ -7,6 +7,9 @@
 #include "tr_local.h"
 #include "MatComp.h"
 #include "../qcommon/sstring.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #define	LL(x) x=LittleLong(x)
 
@@ -275,11 +278,43 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 
 // dump any models not being used by this level if we're running low on memory...
 //
-static int GetModelDataAllocSize(void)
+static int GetModelDataZoneAllocSize(void)
 {
 	return	Z_MemSize( TAG_MODEL_MD3) +
 			Z_MemSize( TAG_MODEL_GLM) +
 			Z_MemSize( TAG_MODEL_GLA);
+}
+
+#ifdef _XBOX
+static int GetModelDataHeapAllocSize(void)
+{
+	int iHeapBytes = 0;
+
+	if (!CachedModels)
+	{
+		return 0;
+	}
+
+	for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end(); ++itModel)
+	{
+		CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
+		if (CachedModel.bHeapAllocated && CachedModel.pModelDiskImage)
+		{
+			iHeapBytes += CachedModel.iAllocSize;
+		}
+	}
+
+	return iHeapBytes;
+}
+#endif
+
+static int GetModelDataAllocSize(void)
+{
+	int iBytes = GetModelDataZoneAllocSize();
+#ifdef _XBOX
+	iBytes += GetModelDataHeapAllocSize();
+#endif
+	return iBytes;
 }
 extern cvar_t *r_modelpoolmegs;
 //
@@ -298,6 +333,19 @@ qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 	{
 		int iLoadedModelBytes	=	GetModelDataAllocSize();
 		const int iMaxModelBytes=	r_modelpoolmegs->integer * 1024 * 1024;
+#ifdef _XBOX
+		static int s_xboxModelPoolLogCount = 0;
+		const int iZoneModelBytes = GetModelDataZoneAllocSize();
+		const int iHeapModelBytes = GetModelDataHeapAllocSize();
+		if (s_xboxModelPoolLogCount < 8 &&
+			(iHeapModelBytes || iLoadedModelBytes > iMaxModelBytes || bDeleteEverythingNotUsedThisLevel))
+		{
+			++s_xboxModelPoolLogCount;
+			XBLF("JA: RE_RegisterModels_LevelLoadEnd modelBytes total=%d zone=%d heap=%d max=%d force=%d level=%d\n",
+				iLoadedModelBytes, iZoneModelBytes, iHeapModelBytes, iMaxModelBytes,
+				(int)bDeleteEverythingNotUsedThisLevel, RE_RegisterMedia_GetLevel());
+		}
+#endif
 
 		qboolean bEraseOccured = qfalse;
 		for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end() && ( bDeleteEverythingNotUsedThisLevel || iLoadedModelBytes > iMaxModelBytes ); bEraseOccured?itModel:++itModel)
