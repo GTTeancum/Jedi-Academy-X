@@ -31,6 +31,7 @@ extern byte *Compress_JPG(int *pOutputSize, int quality, int image_width, int im
 #ifdef _XBOX
 
 #include "..\ui\ui_local.h"
+#include "..\win32\xb_log.h"
 
 #include <stdlib.h>
 //support for mbstowcs
@@ -343,6 +344,99 @@ static byte *CompressMem_AllocScratchBuffer(int iSize)
 
 qboolean gbSGWriteFailed = qfalse;
 
+#ifdef _XBOX
+static qboolean SG_XboxHandleValid(HANDLE handle)
+{
+	return (handle != NULL && handle != INVALID_HANDLE_VALUE) ? qtrue : qfalse;
+}
+
+static const char *SG_XboxContextName(const char *context)
+{
+	return context ? context : "(null)";
+}
+
+static void SG_XboxEndSignatureHandle(HANDLE *sigHandle, const char *context)
+{
+	if (!sigHandle)
+	{
+		return;
+	}
+
+	if (SG_XboxHandleValid(*sigHandle))
+	{
+		XCALCSIG_SIGNATURE throwAwaySignature;
+		DWORD result = XCalculateSignatureEnd(*sigHandle, &throwAwaySignature);
+		XBLF("JA: SG: signature cleanup context=%s result=%lu", SG_XboxContextName(context), result);
+	}
+
+	*sigHandle = NULL;
+}
+
+static void SG_XboxCloseFileHandle(const char *context)
+{
+	if (SG_XboxHandleValid(sg_Handle))
+	{
+		XBLF("JA: SG: CloseHandle context=%s handle=%p", SG_XboxContextName(context), sg_Handle);
+		CloseHandle(sg_Handle);
+	}
+	else if (sg_Handle == INVALID_HANDLE_VALUE)
+	{
+		XBLF("JA: SG: clearing invalid handle context=%s", SG_XboxContextName(context));
+	}
+
+	sg_Handle = NULL;
+}
+
+static qboolean SG_XboxWriteFailure(const char *context)
+{
+	gbSGWriteFailed = qtrue;
+	XBLF("JA: SG: write failure cleanup context=%s handle=%p bufferSize=%d fullComp=%d",
+		SG_XboxContextName(context), sg_Handle, sg_BufferSize, (int)gFullCompressionOn);
+	SG_XboxEndSignatureHandle(&sg_sigHandle, context);
+	CompressMem_FreeScratchBuffer();
+	SG_XboxCloseFileHandle(context);
+	return qfalse;
+}
+
+static qboolean SG_XboxCreateFailure(const char *context)
+{
+	gbSGWriteFailed = qtrue;
+	XBLF("JA: SG: create failure cleanup context=%s handle=%p", SG_XboxContextName(context), sg_Handle);
+	SG_XboxEndSignatureHandle(&sg_sigHandle, context);
+	SG_XboxCloseFileHandle(context);
+	return qfalse;
+}
+
+static qboolean SG_XboxWriteExact(const void *data, DWORD size, const char *context)
+{
+	DWORD bytesWritten = 0;
+
+	if (!SG_XboxHandleValid(sg_Handle) ||
+		!WriteFile(sg_Handle, data, size, &bytesWritten, NULL) ||
+		bytesWritten != size)
+	{
+		XBLF("JA: SG: WriteFile failed context=%s requested=%lu wrote=%lu handle=%p",
+			SG_XboxContextName(context), size, bytesWritten, sg_Handle);
+		return SG_XboxWriteFailure(context);
+	}
+
+	return qtrue;
+}
+
+static qboolean SG_XboxSignatureUpdate(const void *data, DWORD size, const char *context)
+{
+	DWORD result = XCalculateSignatureUpdate(sg_sigHandle, (BYTE *)data, size);
+
+	if (result != ERROR_SUCCESS)
+	{
+		XBLF("JA: SG: signature update failed context=%s result=%lu", SG_XboxContextName(context), result);
+		return SG_XboxWriteFailure(context);
+	}
+
+	return qtrue;
+}
+#endif
+
 static qboolean SG_Create( LPCSTR psPathlessBaseName )
 {
 	gbSGWriteFailed = qfalse;
@@ -352,10 +446,17 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 	char psScreenshotFilename[filepathlength];
 	char psBigScreenshotFilename[filepathlength];
 	unsigned short widecharstring[filepathlength];
+
+	psLocalFilename[0] = 0;
+	psScreenshotFilename[0] = 0;
+	psBigScreenshotFilename[0] = 0;
+	sg_Handle = NULL;
+	sg_sigHandle = NULL;
 		
 	if (strcmp ( "Checkpoint",psPathlessBaseName)==0)
 	{
 		SG_WipeSavegame( psPathlessBaseName );
+		Q_strncpyz(psLocalFilename, CHECK_POINT_STRING, sizeof(psLocalFilename));
 		sg_Handle = CreateFile(CHECK_POINT_STRING, GENERIC_WRITE, FILE_SHARE_READ, 0, 
 			OPEN_ALWAYS,	FILE_ATTRIBUTE_NORMAL, 0);
 		bSavingCheckpoint = true;
@@ -365,7 +466,10 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 		bSavingCheckpoint = false;
 		mbstowcs((wchar_t*)widecharstring, psPathlessBaseName, filepathlength);
 		if ( ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)widecharstring, OPEN_ALWAYS, 0, psLocalFilename, filepathlength))
-			return qfalse;
+		{
+			XBLF("JA: SG_Create XCreateSaveGame failed name=%s", psPathlessBaseName ? psPathlessBaseName : "(null)");
+			return SG_XboxCreateFailure("SG_Create.XCreateSaveGame");
+		}
 
 		// create the path for the screenshot file
 		strcpy(psScreenshotFilename, psLocalFilename);
@@ -381,10 +485,17 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 		sg_Handle = CreateFile(psLocalFilename, GENERIC_WRITE, FILE_SHARE_READ, 0, 
 			OPEN_ALWAYS,	FILE_ATTRIBUTE_NORMAL, 0);
 	}
+
+	if (!SG_XboxHandleValid(sg_Handle))
+	{
+		Com_Printf(GetString_FailedToOpenSaveGame(psLocalFilename[0] ? psLocalFilename : psPathlessBaseName,qfalse));
+		return SG_XboxCreateFailure("SG_Create.CreateFile");
+	}
+
+	XBLF("JA: SG_Create opened handle=%p name=%s checkpoint=%d", sg_Handle, psPathlessBaseName ? psPathlessBaseName : "(null)", (int)bSavingCheckpoint);
 	//clear the buffer
 	sg_BufferSize = 0;
 
-	DWORD bytesWritten;
 // save spot for validation
 
 //calculate the size of the signature
@@ -394,18 +505,17 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 //clear the signature
 	ZeroMemory( &sg_validationHeader, dwHeaderSize );
 
-
-	WriteFile(sg_Handle,            // handle to file
-			  &sg_validationHeader,                // data buffer
-				dwHeaderSize,     // number of bytes to write
-				&bytesWritten,  // number of bytes written
-				NULL        // overlapped buffer
-				);
+	if (!SG_XboxWriteExact(&sg_validationHeader, dwHeaderSize, "SG_Create.header"))
+	{
+		return qfalse;
+	}
 	//start the validation key creation
 	// Start the signature hash
     sg_sigHandle = XCalculateSignatureBegin( 0 );
     if( sg_sigHandle == INVALID_HANDLE_VALUE )
-        return FALSE;
+	{
+		return SG_XboxCreateFailure("SG_Create.SignatureBegin");
+	}
 
 	if ( strcmp("Checkpoint", psPathlessBaseName) != 0 )
 	{
@@ -428,15 +538,13 @@ static qboolean SG_Create( LPCSTR psPathlessBaseName )
 	fhSaveGame = FS_FOpenFileWrite( psLocalFilename );
 #endif
 
-#ifdef _XBOX
-	if (!sg_Handle)
-#else
+#ifndef _XBOX
 	if(!fhSaveGame)
-#endif
 	{
 		Com_Printf(GetString_FailedToOpenSaveGame(psLocalFilename,qfalse));//S_COLOR_RED "Failed to create new savegame file \"%s\"\n", psLocalFilename );
 		return qfalse;
 	}
+#endif
 
 #ifdef SG_PROFILE
 	assert( save_info.empty() );
@@ -459,6 +567,26 @@ void SG_Shutdown()
 		fhSaveGame = NULL;
 	}
 
+#ifdef _XBOX
+	if (sg_Handle || sg_sigHandle || sg_sigHandleRead || sg_FullBuffer)
+	{
+		XBLF("JA: SG_Shutdown Xbox cleanup handle=%p writeSig=%p readSig=%p fullBuffer=%p",
+			sg_Handle, sg_sigHandle, sg_sigHandleRead, sg_FullBuffer);
+	}
+	SG_XboxEndSignatureHandle(&sg_sigHandle, "SG_Shutdown.writeSig");
+	SG_XboxEndSignatureHandle(&sg_sigHandleRead, "SG_Shutdown.readSig");
+	CompressMem_FreeScratchBuffer();
+	if (sg_FullBuffer)
+	{
+		XBLF("JA: SG_Shutdown TempFree fullBuffer=%p", sg_FullBuffer);
+		TempFree();
+		sg_FullBuffer = NULL;
+		sg_FullBufferPtr = NULL;
+		sg_FullBufferEnd = NULL;
+	}
+	SG_XboxCloseFileHandle("SG_Shutdown");
+#endif
+
 	eSavedGameJustLoaded = eNO;	// important to do this if we ERR_DROP during loading, else next map you load after
 								//	a bad save-file you'll arrive at dead :-)
 
@@ -473,9 +601,17 @@ int Compress_ZLIB(const byte *pIn, int iLength, byte *pOut,int &outLength);
 
 qboolean SG_CloseWrite()
 {
-	DWORD bytesWritten;
 	DWORD dwSuccess;
-	unsigned int filelength ;
+	unsigned int filelength;
+
+	if (!SG_XboxHandleValid(sg_Handle))
+	{
+		return SG_XboxWriteFailure("SG_CloseWrite.noHandle");
+	}
+	if (gbSGWriteFailed)
+	{
+		return SG_XboxWriteFailure("SG_CloseWrite.priorWriteFailure");
+	}
 	
 	if (gFullCompressionOn)
 	{
@@ -483,12 +619,20 @@ qboolean SG_CloseWrite()
 		int sg_CompressedBufferSize;
 		byte * sg_CompressedBuffer = NULL;
 		//write out the compressed buffer
+		if (!sg_FullBuffer || !sg_FullBufferPtr)
+		{
+			return SG_XboxWriteFailure("SG_CloseWrite.fullBuffer.missing");
+		}
 		sg_FullBufferSize = sg_FullBufferPtr - sg_FullBuffer;
 #ifdef _DEBUG
 		Com_Printf (" FullBufferSize = %i\n", sg_FullBufferSize);
 #endif
 		sg_CompressedBufferSize = SG_ZIB_COMPRESSEDBUFFERSIZE;
 		sg_CompressedBuffer =  CompressMem_AllocScratchBuffer(sg_CompressedBufferSize);//allocate memory
+		if (!sg_CompressedBuffer)
+		{
+			return SG_XboxWriteFailure("SG_CloseWrite.compressScratch.alloc");
+		}
 		memset(sg_CompressedBuffer, 0, sg_CompressedBufferSize);
 		
 		sg_CompressedBufferSize = Compress_ZLIB( sg_FullBuffer,sg_FullBufferSize, sg_CompressedBuffer,sg_CompressedBufferSize);
@@ -498,55 +642,55 @@ qboolean SG_CloseWrite()
 	//	sg_testbuffer = (byte*) Z_Malloc ( sg_CompressedBufferSize, TAG_TEMP_WORKSPACE, qfalse);
 	//	memcpy(sg_testbuffer, sg_CompressedBuffer, sg_CompressedBufferSize);
 		// size of original data
-		if (!WriteFile(sg_Handle, 
-					&sg_FullBufferSize, 
-					sizeof( sg_FullBufferSize),  
-					&bytesWritten,  
-					NULL        
-					))
-				return qfalse;
+		if (!SG_XboxWriteExact(&sg_FullBufferSize, sizeof(sg_FullBufferSize), "SG_CloseWrite.fullSize.write"))
+		{
+			return qfalse;
+		}
 
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(&sg_FullBufferSize),
-                                                     sizeof( sg_FullBufferSize));
+		if (!SG_XboxSignatureUpdate(&sg_FullBufferSize, sizeof(sg_FullBufferSize), "SG_CloseWrite.fullSize.sig"))
+		{
+			return qfalse;
+		}
 		//size of compressed data
-		if (!WriteFile(sg_Handle, 
-					&sg_CompressedBufferSize, 
-					sizeof( sg_CompressedBufferSize),   
-					&bytesWritten,  
-					NULL        
-					))
-				return qfalse;
+		if (!SG_XboxWriteExact(&sg_CompressedBufferSize, sizeof(sg_CompressedBufferSize), "SG_CloseWrite.compressedSize.write"))
+		{
+			return qfalse;
+		}
 
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(&sg_CompressedBufferSize),
-                                                     sizeof( sg_CompressedBufferSize));
+		if (!SG_XboxSignatureUpdate(&sg_CompressedBufferSize, sizeof(sg_CompressedBufferSize), "SG_CloseWrite.compressedSize.sig"))
+		{
+			return qfalse;
+		}
 		//get the file size
 		filelength =GetFileSize (sg_Handle, NULL);
+		if (filelength == INVALID_FILE_SIZE)
+		{
+			return SG_XboxWriteFailure("SG_CloseWrite.fileSize.afterSizes");
+		}
 		//find out how much space is left in the file
 
 		//If compression didn't happen, write the whole thing.
 		if(sg_CompressedBufferSize == SG_ZIB_COMPRESSEDBUFFERSIZE) {
-			if (!WriteFile(sg_Handle,  
-						sg_FullBuffer,  
-						sg_FullBufferSize, 
-						&bytesWritten, 
-						NULL        
-						))
-					return qfalse;
+			if (!SG_XboxWriteExact(sg_FullBuffer, sg_FullBufferSize, "SG_CloseWrite.fullBuffer.write"))
+			{
+				return qfalse;
+			}
 
-			dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(sg_FullBuffer),
-														 sg_FullBufferSize);
+			if (!SG_XboxSignatureUpdate(sg_FullBuffer, sg_FullBufferSize, "SG_CloseWrite.fullBuffer.sig"))
+			{
+				return qfalse;
+			}
 		} else {
 			//compressed data
-			if (!WriteFile(sg_Handle,  
-						sg_CompressedBuffer,  
-						sg_CompressedBufferSize, 
-						&bytesWritten, 
-						NULL        
-						))
-					return qfalse;
+			if (!SG_XboxWriteExact(sg_CompressedBuffer, sg_CompressedBufferSize, "SG_CloseWrite.compressedBuffer.write"))
+			{
+				return qfalse;
+			}
 
-			dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(sg_CompressedBuffer),
-														 sg_CompressedBufferSize);
+			if (!SG_XboxSignatureUpdate(sg_CompressedBuffer, sg_CompressedBufferSize, "SG_CloseWrite.compressedBuffer.sig"))
+			{
+				return qfalse;
+			}
 		}
 
 		CompressMem_FreeScratchBuffer();
@@ -557,64 +701,71 @@ qboolean SG_CloseWrite()
 	else
 	{
 		//clear the buffer to the file
-		if (!WriteFile(sg_Handle,                    // handle to file
-					sg_Buffer,                // data buffer
-					sg_BufferSize,     // number of bytes to write
-					&bytesWritten,  // number of bytes written
-					NULL        // overlapped buffer
-					))
-				return qfalse;
+		if (!SG_XboxWriteExact(sg_Buffer, sg_BufferSize, "SG_CloseWrite.sgBuffer.write"))
+		{
+			return qfalse;
+		}
 	}
 	filelength =GetFileSize (sg_Handle, NULL);
+	if (filelength == INVALID_FILE_SIZE)
+	{
+		return SG_XboxWriteFailure("SG_CloseWrite.fileSize.beforeFill");
+	}
 // FILL THE SAVE GAME TO 15 BLOCKS
 		
 	int fillBufferSize = SG_FILESIZE - filelength - sizeof(fillBufferSize);;
 	if(fillBufferSize > 0) {
 		byte * fillBuffer =  (byte *) Z_Malloc(fillBufferSize, TAG_TEMP_WORKSPACE, qfalse);
+		if (!fillBuffer)
+		{
+			return SG_XboxWriteFailure("SG_CloseWrite.fill.alloc");
+		}
 		memset ( fillBuffer, 0, fillBufferSize);	
 
 		//size of fill data
-		if (!WriteFile(sg_Handle, 
-					&fillBufferSize, 
-					sizeof( fillBufferSize),   
-					&bytesWritten,  
-					NULL        
-					))
-				return qfalse;
-
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(&fillBufferSize),
-														sizeof( fillBufferSize));
-
-
-		if (!WriteFile(sg_Handle,                    // handle to file
-					fillBuffer,                // data buffer
-					fillBufferSize,     // number of bytes to write
-					&bytesWritten,  // number of bytes written
-					NULL        // overlapped buffer
-					))
+		if (!SG_XboxWriteExact(&fillBufferSize, sizeof(fillBufferSize), "SG_CloseWrite.fillSize.write"))
 		{
-				Z_Free (fillBuffer);
-				return qfalse;
+			Z_Free(fillBuffer);
+			return qfalse;
 		}
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(fillBuffer),
-														fillBufferSize);
+
+		if (!SG_XboxSignatureUpdate(&fillBufferSize, sizeof(fillBufferSize), "SG_CloseWrite.fillSize.sig"))
+		{
+			Z_Free(fillBuffer);
+			return qfalse;
+		}
+
+
+		if (!SG_XboxWriteExact(fillBuffer, fillBufferSize, "SG_CloseWrite.fillBuffer.write"))
+		{
+			Z_Free(fillBuffer);
+			return qfalse;
+		}
+		if (!SG_XboxSignatureUpdate(fillBuffer, fillBufferSize, "SG_CloseWrite.fillBuffer.sig"))
+		{
+			Z_Free(fillBuffer);
+			return qfalse;
+		}
 		Z_Free (fillBuffer);
 	} else {
 		fillBufferSize = 0;
-		if (!WriteFile(sg_Handle, 
-					&fillBufferSize, 
-					sizeof( fillBufferSize),   
-					&bytesWritten,  
-					NULL        
-					))
-				return qfalse;
-		dwSuccess = XCalculateSignatureUpdate( sg_sigHandle, (BYTE*)(&fillBufferSize),
-														sizeof( fillBufferSize));
+		if (!SG_XboxWriteExact(&fillBufferSize, sizeof(fillBufferSize), "SG_CloseWrite.fillZero.write"))
+		{
+			return qfalse;
+		}
+		if (!SG_XboxSignatureUpdate(&fillBufferSize, sizeof(fillBufferSize), "SG_CloseWrite.fillZero.sig"))
+		{
+			return qfalse;
+		}
 	}
 
 
 	//get the length of the file
 	filelength =GetFileSize (sg_Handle, NULL);
+	if (filelength == INVALID_FILE_SIZE)
+	{
+		return SG_XboxWriteFailure("SG_CloseWrite.fileSize.final");
+	}
 
 		
 
@@ -623,7 +774,12 @@ qboolean SG_CloseWrite()
 	sg_validationHeader.dwFileLength = filelength;
 	// Release signature resources
     dwSuccess =XCalculateSignatureEnd( sg_sigHandle, &sg_validationHeader.Signature );
-	assert( dwSuccess == ERROR_SUCCESS );
+	if (dwSuccess != ERROR_SUCCESS)
+	{
+		sg_sigHandle = NULL;
+		return SG_XboxWriteFailure("SG_CloseWrite.SignatureEnd");
+	}
+	sg_sigHandle = NULL;
 	//seek to the first of the file
 	SG_Seek(NULL,0,FS_SEEK_SET);
 	//SetFilePointer(sg_Handle,0,0,FILE_BEGIN);
@@ -631,7 +787,10 @@ qboolean SG_CloseWrite()
 	DWORD dwSigSize = XCalculateSignatureGetSize( XCALCSIG_FLAG_SAVE_GAME );
 	DWORD dwHeaderSize = sizeof(DWORD) + dwSigSize;
 
-	WriteFile (sg_Handle, &sg_validationHeader,dwHeaderSize,&bytesWritten, NULL);
+	if (!SG_XboxWriteExact(&sg_validationHeader, dwHeaderSize, "SG_CloseWrite.header.write"))
+	{
+		return qfalse;
+	}
 	return SG_Close();
 }
 #endif
@@ -644,8 +803,9 @@ qboolean SG_CloseWrite()
 qboolean SG_Close()
 {
 #ifdef _XBOX
-	CloseHandle(sg_Handle);
-	sg_Handle = NULL;
+	SG_XboxEndSignatureHandle(&sg_sigHandle, "SG_Close.writeSig");
+	SG_XboxEndSignatureHandle(&sg_sigHandleRead, "SG_Close.readSig");
+	SG_XboxCloseFileHandle("SG_Close");
 
 #else
 	assert( fhSaveGame );	
@@ -699,10 +859,14 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 	char directoryInfo[filepathlength];
 	char psLocalFilename[filepathlength];
 	DWORD bytesRead;
+
+	psLocalFilename[0] = 0;
+	sg_Handle = NULL;
+	sg_sigHandleRead = NULL;
 	
 	if ( strcmp(psPathlessBaseName, "Checkpoint")==0)
 	{
-		sg_Handle = NULL;
+		Q_strncpyz(psLocalFilename, CHECK_POINT_STRING, sizeof(psLocalFilename));
 		sg_Handle = CreateFile(CHECK_POINT_STRING,GENERIC_READ, FILE_SHARE_READ, 0, 
 		OPEN_EXISTING,	FILE_ATTRIBUTE_NORMAL, 0);
 	}
@@ -710,17 +874,20 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 	{
 		mbstowcs((wchar_t*)saveGameName, psPathlessBaseName,filepathlength);
 	
-		XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength);
+		if (ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength))
+		{
+			XBLF("JA: SG_Open XCreateSaveGame failed name=%s", psPathlessBaseName ? psPathlessBaseName : "(null)");
+			return qfalse;
+		}
 
 		strcpy (psLocalFilename , directoryInfo);
 		strcat (psLocalFilename , "JK3SG.xsv");		
 
-		sg_Handle = NULL;
 		sg_Handle = CreateFile(psLocalFilename, GENERIC_READ, FILE_SHARE_READ, 0, 
 			OPEN_EXISTING,	FILE_ATTRIBUTE_NORMAL, 0);	
 	}
 
-	if (!sg_Handle)
+	if (!SG_XboxHandleValid(sg_Handle))
 #else
 
 	LPCSTR psLocalFilename = SG_AddSavePath( psPathlessBaseName );	
@@ -730,11 +897,15 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
 
 	{
 //		Com_Printf(S_COLOR_RED "Failed to open savegame file %s\n", psLocalFilename);
+#ifdef _XBOX
+		SG_XboxCloseFileHandle("SG_Open.CreateFile");
+#endif
 		Com_DPrintf(GetString_FailedToOpenSaveGame(psLocalFilename, qtrue));
 
 		return qfalse;
 	}
 #ifdef _XBOX
+	XBLF("JA: SG_Open opened handle=%p name=%s", sg_Handle, psPathlessBaseName ? psPathlessBaseName : "(null)");
 	//read the validation header
 
 	DWORD dwSigSize = XCalculateSignatureGetSize( XCALCSIG_FLAG_SAVE_GAME );
@@ -765,6 +936,7 @@ qboolean SG_Open( LPCSTR psPathlessBaseName )
     sg_sigHandleRead = XCalculateSignatureBegin( 0 );
     if( sg_sigHandleRead == INVALID_HANDLE_VALUE )
 	{
+		XBLF("JA: SG_Open signature begin failed name=%s", psPathlessBaseName ? psPathlessBaseName : "(null)");
 		SG_Close();
         return FALSE;
 	}
@@ -1365,7 +1537,14 @@ int SG_GetSaveGameComment(const char *psPathlessBaseName, char *sComment, char *
 	}
 	qbSGReadIsTestOnly = qfalse;
 
-	XCalculateSignatureEnd( sg_sigHandleRead, &sg_validationHeaderRead.Signature );
+	{
+		DWORD dwSuccess = XCalculateSignatureEnd( sg_sigHandleRead, &sg_validationHeaderRead.Signature );
+		if (dwSuccess != ERROR_SUCCESS)
+		{
+			XBLF("JA: SG_GetSaveGameComment signature end failed result=%lu", dwSuccess);
+		}
+		sg_sigHandleRead = NULL;
+	}
 
 	if (!SG_Close())
 	{
@@ -1852,6 +2031,7 @@ qboolean SG_ReadSavegame(const char *psPathlessBaseName)
 	//sigend here
 	dwSuccess =XCalculateSignatureEnd( sg_sigHandleRead, &sg_validationHeaderRead.Signature );
 	assert( dwSuccess == ERROR_SUCCESS );
+	sg_sigHandleRead = NULL;
 
 	DWORD dwSigSize = XCalculateSignatureGetSize( XCALCSIG_FLAG_SAVE_GAME );
 
@@ -2894,6 +3074,7 @@ qboolean SG_TestSignature(const char * psPathlessBaseName)
 	//sigend here
 	dwSuccess = XCalculateSignatureEnd( sg_sigHandleRead, &sg_validationHeaderRead.Signature );
 	assert( dwSuccess == ERROR_SUCCESS );
+	sg_sigHandleRead = NULL;
 
 	DWORD dwSigSize = XCalculateSignatureGetSize( XCALCSIG_FLAG_SAVE_GAME );
 
@@ -2954,27 +3135,37 @@ unsigned long getGameBlocks(char * psPathlessBaseName)
 	char directoryInfo[filepathlength];
 	char psLocalFilename[filepathlength];
 	DWORD bytesRead;
+
+	psLocalFilename[0] = 0;
+	sg_Handle = NULL;
 	
 	if ( strcmp(psPathlessBaseName, "Checkpoint")==0)
 	{
+		Q_strncpyz(psLocalFilename, CHECK_POINT_STRING, sizeof(psLocalFilename));
+		sg_Handle = CreateFile(CHECK_POINT_STRING, GENERIC_READ, FILE_SHARE_READ, 0,
+			OPEN_EXISTING,	FILE_ATTRIBUTE_NORMAL, 0);
 	}
 	else
 	{
 		mbstowcs((wchar_t*)saveGameName, psPathlessBaseName,filepathlength);
 	
-		XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength);
+		if (ERROR_SUCCESS != XCreateSaveGame("U:\\", (LPCWSTR)saveGameName, OPEN_EXISTING, 0,directoryInfo, filepathlength))
+		{
+			XBLF("JA: getGameBlocks XCreateSaveGame failed name=%s", psPathlessBaseName ? psPathlessBaseName : "(null)");
+			return 0;
+		}
 
 		strcpy (psLocalFilename , directoryInfo);
 		strcat (psLocalFilename , "JK3SG.xsv");		
 
-		sg_Handle = NULL;
 		sg_Handle = CreateFile(psLocalFilename, GENERIC_READ, FILE_SHARE_READ, 0, 
 			OPEN_EXISTING,	FILE_ATTRIBUTE_NORMAL, 0);	
 	}
 
-	if (!sg_Handle)
+	if (!SG_XboxHandleValid(sg_Handle))
 	{
 //		Com_Printf(S_COLOR_RED "Failed to open savegame file %s\n", psLocalFilename);
+		SG_XboxCloseFileHandle("getGameBlocks.CreateFile");
 		Com_DPrintf(GetString_FailedToOpenSaveGame(psLocalFilename, qtrue));
 
 		return 0;
