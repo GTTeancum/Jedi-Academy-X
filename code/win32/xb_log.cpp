@@ -38,6 +38,9 @@ extern "C" long __stdcall NtFlushBuffersFile(HANDLE, XBL_IOSB*);
 
 /* ── State ── */
 #define XBL_BUF_SIZE 512
+#define XBL_FILE_SOFT_CAP_BYTES (12 * 1024 * 1024)
+#define XBL_FLUSH_EVERY_WRITES 32
+#define XBL_FLUSH_EVERY_BYTES (64 * 1024)
 static HANDLE g_hLogFile     = INVALID_HANDLE_VALUE;
 static int    g_logIsNt      = 0;   /* 1 = NtCreateFile handle, 0 = CreateFileA */
 static const char *g_logPath = NULL;
@@ -45,6 +48,10 @@ static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
 static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
 static int g_debugStringMirror = 0;
+static unsigned int g_fileLogBytes = 0;
+static unsigned int g_fileLogFlushBytes = 0;
+static unsigned int g_fileLogFlushWrites = 0;
+static int g_fileLogCapNotified = 0;
 
 extern "C" {
 __declspec(dllexport) volatile unsigned int g_SPXBLogMagic = 0x53504546; /* 'SPEF' */
@@ -1062,7 +1069,7 @@ static long xbl_NtCreate(const char *path, HANDLE *out)
         &oa, &iosb, NULL,
         FILE_ATTRIBUTE_NORMAL, 0,
         5,                            /* FILE_OVERWRITE_IF */
-        0x20 | 0x02 | 0x40);         /* SYNCHRONOUS_IO_NONALERT | WRITE_THROUGH | NON_DIRECTORY */
+        0x20 | 0x02);               /* SYNCHRONOUS_IO_NONALERT | NON_DIRECTORY */
 }
 
 static void xbl_FlushHandle(HANDLE h, int isNt)
@@ -1076,11 +1083,70 @@ static void xbl_FlushHandle(HANDLE h, int isNt)
     }
 }
 
-static int xbl_ShouldFlushWrite(const char *msg)
+static int xbl_IsCriticalLogLine(const char *msg)
 {
     if (!msg) return 0;
+    return strstr(msg, "FATAL") ||
+        strstr(msg, "ERROR") ||
+        strstr(msg, "ERR_FATAL") ||
+        strstr(msg, "ERR_DROP") ||
+        strstr(msg, "ASSERT") ||
+        strstr(msg, "Received Exception") ||
+        strstr(msg, "EIP") ||
+        strstr(msg, "Out of memory") ||
+        strstr(msg, "Z_Malloc():") ||
+        strstr(msg, "allocation failed") ||
+        strstr(msg, "alloc failed") ||
+        strstr(msg, "denied") ||
+        strstr(msg, "overBudget") ||
+        strstr(msg, "XBLog file cap reached") ||
+        strstr(msg, "crash") ||
+        strstr(msg, "failed");
+}
+
+static int xbl_ShouldFlushWrite(const char *msg, DWORD len)
+{
+    if (!msg) return 0;
+    if (xbl_IsCriticalLogLine(msg)) {
+        g_fileLogFlushBytes = 0;
+        g_fileLogFlushWrites = 0;
+        return 1;
+    }
     if (strstr(msg, "FRAME_HEARTBEAT")) return 0;
-    return 1;
+
+    g_fileLogFlushBytes += len;
+    ++g_fileLogFlushWrites;
+
+    if (g_fileLogFlushWrites >= XBL_FLUSH_EVERY_WRITES ||
+        g_fileLogFlushBytes >= XBL_FLUSH_EVERY_BYTES) {
+        g_fileLogFlushBytes = 0;
+        g_fileLogFlushWrites = 0;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int xbl_ShouldWriteFileLine(const char **msg, DWORD *len)
+{
+    static const char s_capMsg[] =
+        "STEFX: XBLog file cap reached; file logging now keeps memory mirror and critical lines only\n";
+
+    if (!msg || !*msg || !len) return 0;
+    if (xbl_IsCriticalLogLine(*msg)) return 1;
+
+    if (g_fileLogBytes + *len <= XBL_FILE_SOFT_CAP_BYTES) {
+        return 1;
+    }
+
+    if (!g_fileLogCapNotified) {
+        g_fileLogCapNotified = 1;
+        *msg = s_capMsg;
+        *len = (DWORD)strlen(s_capMsg);
+        return 1;
+    }
+
+    return 0;
 }
 
 static int xbl_IsLogMarkerAt(const char *p)
@@ -1103,6 +1169,10 @@ void XBLog_Init(void)
     g_hMirrorLogFile = INVALID_HANDLE_VALUE;
     g_mirrorLogPath = NULL;
     g_verboseLog = 0;
+    g_fileLogBytes = 0;
+    g_fileLogFlushBytes = 0;
+    g_fileLogFlushWrites = 0;
+    g_fileLogCapNotified = 0;
     g_SPXBLogMirrorPos = 0;
     g_SPXBLogWriteCount = 0;
     g_SPXBHeartbeatCount = 0;
@@ -1186,7 +1256,7 @@ void XBLog_Init(void)
      * default.xbe for each boot like the Unreal Tournament Xbox port does.
      */
     g_hMirrorLogFile = CreateFileA("D:\\ef_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
-        NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
+        NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
         SetFilePointer(g_hMirrorLogFile, 0, NULL, FILE_END);
         g_mirrorLogPath = "D:\\ef_sp_log.txt";
@@ -1221,7 +1291,7 @@ void XBLog_Init(void)
                 &oa, &iosb, NULL,
                 FILE_ATTRIBUTE_NORMAL, 0,
                 3,                   /* FILE_OPEN_IF */
-                0x20 | 0x02 | 0x40);
+                0x20 | 0x02);
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
@@ -1242,7 +1312,7 @@ void XBLog_Init(void)
         };
         for (i = 0; caPaths[i]; ++i) {
             g_hLogFile = CreateFileA(caPaths[i], FILE_APPEND_DATA, FILE_SHARE_READ,
-                NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
+                NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
             if (g_hLogFile != INVALID_HANDLE_VALUE) {
                 /* Seek to end so we append after the precrt line */
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
@@ -1284,7 +1354,11 @@ void XBLog_Print(const char *msg)
     }
     len = (DWORD)strlen(msg);
     xbl_MirrorWrite(msg, len);
-    const int forceFlush = xbl_ShouldFlushWrite(msg);
+    if (!xbl_ShouldWriteFileLine(&msg, &len)) {
+        return;
+    }
+    g_fileLogBytes += len;
+    const int forceFlush = xbl_ShouldFlushWrite(msg, len);
     if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
         DWORD written;
         WriteFile(g_hMirrorLogFile, msg, len, &written, NULL);
