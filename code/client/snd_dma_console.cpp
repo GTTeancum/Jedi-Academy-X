@@ -825,7 +825,7 @@ void S_BeginRegistration( void )
 #ifdef _XBOX
 	{
 		static int s_xboxRealBeginRegistrationLogCount = 0;
-		if (!s_xboxSilentAudio && s_xboxRealBeginRegistrationLogCount < 8)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && !s_xboxSilentAudio && s_xboxRealBeginRegistrationLogCount < 8)
 		{
 			Com_Printf("JA: Xbox real S_BeginRegistration listeners=%d channels=%d default=%d registered=%d\n",
 				s_numListeners, s_numChannels, s_defaultSound, s_registered);
@@ -992,7 +992,7 @@ sfxHandle_t	S_RegisterSound(const char *name)
 #ifdef _XBOX
 		{
 			static int s_xboxVoiceRegistersLogged = 0;
-			if (s_xboxSilentAudio && s_xboxVoiceRegistersLogged < 24)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSilentAudio && s_xboxVoiceRegistersLogged < 24)
 			{
 				Com_Printf("JA: Xbox silent voice register handle=%d lip=%d name='%s'\n",
 					handle, sfx->pLipSyncData ? 1 : 0, fixedName);
@@ -1372,7 +1372,7 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	if (!s_xboxSilentAudio)
 	{
 		static int s_xboxRealSoundStartsLogged = 0;
-		if (s_xboxRealSoundStartsLogged < 48 &&
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxRealSoundStartsLogged < 48 &&
 			(entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
 			 entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
 			 (sfx->iFlags & SFX_FLAG_VOICE)))
@@ -1420,7 +1420,7 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 			if (entityNum >= 0 && entityNum < MAX_GENTITIES)
 				s_entityWavVol[entityNum] = -1;
 
-			if (s_xboxSilentVoiceStartsLogged < 32)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSilentVoiceStartsLogged < 32)
 			{
 				int lipLength = sfx->pLipSyncData ? *(int*)sfx->pLipSyncData : 0;
 				Com_Printf("JA: Xbox silent voice start ent=%d chan=%d handle=%d lip=%d samples=%d\n",
@@ -2381,7 +2381,7 @@ static void S_XboxUpdateSilentVoiceVolumes(void)
 			s_entityWavVol[ch->entnum] = 4;
 		}
 
-		if (s_xboxSilentVoiceUpdatesLogged < 48)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSilentVoiceUpdatesLogged < 48)
 		{
 			Com_Printf("JA: Xbox silent voice update ent=%d chan=%d vol=%d age=%d lip=%d\n",
 				ch->entnum, ch->entchannel, s_entityWavVol[ch->entnum],

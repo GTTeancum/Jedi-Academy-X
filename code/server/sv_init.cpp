@@ -7,7 +7,11 @@
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBMapPhase;
 extern "C" volatile unsigned int g_SPXBMapHash;
+extern "C" volatile unsigned int g_SPXBSvMapState;
+extern "C" volatile unsigned int g_SPXBClHunkCaller;
+extern "C" volatile unsigned int g_SPXBClHunkCallCount;
 extern "C" volatile char g_SPXBMapLast[64];
+extern bool Sys_IsDirectMapBoot(void);
 
 static unsigned int SV_InitXboxHashText(const char *text)
 {
@@ -402,6 +406,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	Q_strncpyz( server, iServer, sizeof(server), qtrue );
 #ifdef _XBOX
 	g_SPXBMapPhase = 10;
+	g_SPXBSvMapState = 10;
 	g_SPXBMapHash = SV_InitXboxHashText(server);
 	SV_InitXboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), server);
 #endif
@@ -452,6 +457,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 #ifdef _XBOX
 	g_SPXBMapPhase = 11;
+	g_SPXBSvMapState = 11;
 	// disable vsync during load for speed
 	glDisable(GL_VSYNC);
 #endif
@@ -516,15 +522,18 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 */
 #ifdef _XBOX
 	g_SPXBMapPhase = 12;
+	g_SPXBSvMapState = 12;
 	// We've over-freed the info array above, this puts it back into a working state
 	Ghoul2InfoArray_Reset();
 
 	extern void Z_DumpMemMap_f(void);
 	extern void Z_Details_f(void);
 	extern void Z_TagPointers(memtag_t);
-	Z_DumpMemMap_f();
-//	Z_TagPointers(TAG_ALL);
-	Z_Details_f();
+	if ( Cvar_VariableIntegerValue( "xbox_mapmemdump" ) ) {
+		Z_DumpMemMap_f();
+//		Z_TagPointers(TAG_ALL);
+		Z_Details_f();
+	}
 #endif
 
 	InitLoadingAnimation();
@@ -568,31 +577,41 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 #ifdef _XBOX
 	g_SPXBMapPhase = 13;
+	g_SPXBSvMapState = 13;
 	XBLog_Write("JA: CL_StartHunkUsers...");
+	g_SPXBMapPhase = 130;
+	g_SPXBSvMapState = 130;
 	UpdateLoadingAnimation();
-	CL_StartHunkUsers();
+	g_SPXBMapPhase = 131;
+	g_SPXBSvMapState = 131;
+	{
+		g_SPXBClHunkCaller = 1;
+		g_SPXBClHunkCallCount++;
+		g_SPXBMapPhase = 1311;
+		g_SPXBSvMapState = 1311;
+		CL_StartHunkUsers();
+		g_SPXBMapPhase = 1312;
+		g_SPXBSvMapState = 1312;
+	}
+	g_SPXBMapPhase = 132;
+	g_SPXBSvMapState = 132;
 	UpdateLoadingAnimation();
 	g_SPXBMapPhase = 14;
-	XBLog_Write("JA: SV_SpawnServer: precache humanoid GLA before BSP load...");
-	{
-		const qhandle_t normalHumanoid = RE_RegisterModel("models/players/_humanoid/_humanoid.gla");
-		char cinematicHumanoid[MAX_QPATH];
-		Com_sprintf(cinematicHumanoid, sizeof(cinematicHumanoid),
-			"models/players/_humanoid_%s/_humanoid_%s.gla", server, server);
-		const qhandle_t cinematicHumanoidHandle = RE_RegisterModel(cinematicHumanoid);
-		XBLF("JA: SV_SpawnServer: humanoid GLA handles normal=%d cinematic=%d path='%s'",
-			normalHumanoid, cinematicHumanoidHandle, cinematicHumanoid);
-	}
+	g_SPXBSvMapState = 14;
 	g_SPXBMapPhase = 15;
+	g_SPXBSvMapState = 15;
 	XBLog_Write("JA: CM_LoadMap...");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
 	g_SPXBMapPhase = 16;
+	g_SPXBSvMapState = 16;
 	XBLog_Write("JA: CM_LoadMap done");
 	UpdateLoadingAnimation();
 	g_SPXBMapPhase = 17;
+	g_SPXBSvMapState = 17;
 	XBLog_Write("JA: RE_LoadWorldMap...");
 	RE_LoadWorldMap(va("maps/%s.bsp", server));
 	g_SPXBMapPhase = 18;
+	g_SPXBSvMapState = 18;
 	XBLog_Write("JA: RE_LoadWorldMap done");
 	UpdateLoadingAnimation();
 #else
@@ -619,17 +638,20 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// load and spawn all other entities
 #ifdef _XBOX
 	g_SPXBMapPhase = 19;
+	g_SPXBSvMapState = 19;
 #endif
 	XBLog_Write("JA: SV_InitGameProgs...");
 	SV_InitGameProgs();
 #ifdef _XBOX
 	g_SPXBMapPhase = 20;
+	g_SPXBSvMapState = 20;
 #endif
 	XBLog_Write("JA: SV_InitGameProgs done");
 
 	// run a few frames to allow everything to settle
 #ifdef _XBOX
 	g_SPXBMapPhase = 21;
+	g_SPXBSvMapState = 21;
 #endif
 	for ( i = 0 ;i < 3 ; i++ ) {
 		ge->RunFrame( sv.time );
@@ -638,12 +660,14 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	}
 #ifdef _XBOX
 	g_SPXBMapPhase = 22;
+	g_SPXBSvMapState = 22;
 #endif
 	ge->ConnectNavs(sv_mapname->string, sv_mapChecksum->integer);
 
 	// create a baseline for more efficient communications
 #ifdef _XBOX
 	g_SPXBMapPhase = 23;
+	g_SPXBSvMapState = 23;
 #endif
 	SV_CreateBaseline ();
 
@@ -674,6 +698,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// run another frame to allow things to look at all connected clients
 #ifdef _XBOX
 	g_SPXBMapPhase = 24;
+	g_SPXBSvMapState = 24;
 #endif
 	ge->RunFrame( sv.time );
 	sv.time += 100;
@@ -705,6 +730,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	StopLoadingAnimation();
 #ifdef _XBOX
 	g_SPXBMapPhase = 25;
+	g_SPXBSvMapState = 25;
 #endif
 
 	Com_Printf ("-----------------------------------\n");

@@ -202,6 +202,13 @@ __declspec(dllexport) volatile unsigned int g_SPXBDrawSurfPortalAdds = 0x1111008
 __declspec(dllexport) volatile unsigned int g_SPXBDrawSurfForceSightSkips = 0x11110086;
 __declspec(dllexport) volatile unsigned int g_SPXBCGameRenderCalls = 0x11110087;
 __declspec(dllexport) volatile unsigned int g_SPXBCGameDrawFrameReturns = 0x11110088;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingInfoFrames = 0x111100B4;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingSnapshotsProcessed = 0x111100B5;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingStateInfoHandoffs = 0x111100B6;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingTransitionCommands = 0x111100B7;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingTransitionScreenUpdates = 0x111100B8;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingLastClientState = 0x111100B9;
+__declspec(dllexport) volatile unsigned int g_SPXBLoadingLastServerTime = 0x111100BA;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSceneCalls = 0x11110089;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSceneNoWorld = 0x1111008A;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderViewCalls = 0x1111008B;
@@ -327,6 +334,9 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "UI Menu_New") ||
             strstr(msg, "UI Menu_Parse") ||
             strstr(msg, "UI PC_StartParseSession") ||
+            strstr(msg, "UI PC_EndParseSession") ||
+            strstr(msg, "UI Menus_CloseAll") ||
+            strstr(msg, "UI_LoadMenus") ||
             strstr(msg, "CG_GameStateReceived") ||
             strstr(msg, "CG_RegisterGraphics") ||
             strstr(msg, "CG_NewClientinfo") ||
@@ -468,6 +478,9 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "VM_DllSyscall CG_UI_STARTPARSE") ||
         strstr(fmt, "CG trap UI_STARTPARSE") ||
         strstr(fmt, "UI PC_StartParseSession") ||
+        strstr(fmt, "UI PC_EndParseSession") ||
+        strstr(fmt, "UI Menus_CloseAll") ||
+        strstr(fmt, "UI_LoadMenus") ||
         strstr(fmt, "CG_GameStateReceived") ||
         strstr(fmt, "CG_RegisterGraphics") ||
         strstr(fmt, "CG_NewClientinfo") ||
@@ -648,6 +661,13 @@ void XBLog_Init(void)
     g_SPXBDrawSurfForceSightSkips = 0;
     g_SPXBCGameRenderCalls = 0;
     g_SPXBCGameDrawFrameReturns = 0;
+    g_SPXBLoadingInfoFrames = 0;
+    g_SPXBLoadingSnapshotsProcessed = 0;
+    g_SPXBLoadingStateInfoHandoffs = 0;
+    g_SPXBLoadingTransitionCommands = 0;
+    g_SPXBLoadingTransitionScreenUpdates = 0;
+    g_SPXBLoadingLastClientState = 0;
+    g_SPXBLoadingLastServerTime = 0;
     g_SPXBRenderSceneCalls = 0;
     g_SPXBRenderSceneNoWorld = 0;
     g_SPXBRenderViewCalls = 0;
