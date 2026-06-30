@@ -7904,6 +7904,7 @@ void ReadSaveDirectory (void)
 
     // Any saves?
 	searchhandle = XFindFirstSaveGame( "U:\\", &SaveGameData );
+	XBLF("JA: ReadSaveDirectory XFindFirstSaveGame handle=%p", searchhandle);
 	if ( searchhandle != INVALID_HANDLE_VALUE )
 	{
 		do
@@ -7960,6 +7961,8 @@ void ReadSaveDirectory (void)
 			
 			retval =XFindNextSaveGame( searchhandle, &SaveGameData );
 		}while(retval);
+		XBLF("JA: ReadSaveDirectory XFindClose handle=%p saveCount=%d", searchhandle, s_savegame.saveFileCnt);
+		XFindClose( searchhandle );
 	}
 
 	if ( newGameAvailable)
