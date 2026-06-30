@@ -3,7 +3,9 @@ param(
     [ValidateSet("sp", "mp", "all")]
     [string]$Target,
 
-    [switch]$Clean
+    [switch]$Clean,
+
+    [switch]$SkipAssets
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,26 +36,26 @@ foreach ($tool in $requiredTools) {
 # OpenJKDF2 (the FakeGL graft reference per RENDERER_GRAFT.md) successfully
 # builds against XDK 5558 with 5849 as a fallback for the few headers 5558
 # is missing (stdint.h, winsock2.h, etc.).  The 5558 SDK has the production
-# retail static D3D8 lib (xbox\public\xdk\lib\d3d8.lib, 1.8 MB) — the same
+# retail static D3D8 lib (xbox\public\xdk\lib\d3d8.lib, 1.8 MB) ??? the same
 # variant the shipped JKA Xbox uses (libv "D3D8" no suffix, qfe=4).  XDK
 # 5849's licensee distribution stripped this lib, leaving only debug and
-# instrumented variants — which we suspect causes the kernel to apply
+# instrumented variants ??? which we suspect causes the kernel to apply
 # restrictive shims that hang CreateDevice.
 #
-# Tool binaries (CL.Exe, Link.Exe) are vc71-era and version-agnostic — we
+# Tool binaries (CL.Exe, Link.Exe) are vc71-era and version-agnostic ??? we
 # keep using C:\XDK\xbox\bin\vc71 since the same compiler shipped with
 # both XDKs.
 #
 # 5558 source (xbox source repo extract):
-#   xbox\public\xdk\inc       — primary headers (FAT 2757-line d3d8.h)
-#   xbox\public\sdk\inc       — additional 5558 headers
-#   xbox\public\xdk\lib       — primary libs (incl. retail d3d8.lib)
-#   xbox\public\sdk\lib\i386  — broader lib set (xgraphics, xnet, etc.)
+#   xbox\public\xdk\inc       ??? primary headers (FAT 2757-line d3d8.h)
+#   xbox\public\sdk\inc       ??? additional 5558 headers
+#   xbox\public\xdk\lib       ??? primary libs (incl. retail d3d8.lib)
+#   xbox\public\sdk\lib\i386  ??? broader lib set (xgraphics, xnet, etc.)
 #
 # 5849 fallback (our installed XDK):
-#   C:\XDK\xbox\include       — for headers 5558 lacks (stdint, winsock2)
+#   C:\XDK\xbox\include       ??? for headers 5558 lacks (stdint, winsock2)
 #   C:\XDK\include
-#   C:\XDK\xbox\lib           — for any lib 5558 doesn't have
+#   C:\XDK\xbox\lib           ??? for any lib 5558 doesn't have
 #   C:\XDK\lib
 $xboxSrcXdkInc = "C:\Programming\GitHub\xbox\public\xdk\inc"
 $xboxSrcSdkInc = "C:\Programming\GitHub\xbox\public\sdk\inc"
@@ -71,11 +73,11 @@ $vcIncludeDirs = @(
 # headers in JKA-specific source files.  Surgical 5558-d3d8-only is enough:
 # we just need the fat d3d8.h with Xbox extensions inline, so the retail
 # d3d8.lib (also from 5558) sees the matching API surface.  All other headers
-# stay on 5849 — same as everything we've built against to date.
+# stay on 5849 ??? same as everything we've built against to date.
 
 $vcLibDirs = @(
     "C:\XDK_5558\XDK\xbox\lib",        # Plan-B (OpenJKDF2 1:1): primary XDK 5558
-                                        # install path — d3d8.lib, d3dx8.lib, libc.lib
+                                        # install path ??? d3d8.lib, d3dx8.lib, libc.lib
                                         # all resolved from here (same as OpenJKDF2's
                                         # build_xbox.bat: XDK_ROOT=C:\XDK_5558\XDK\xbox)
     $xboxSrcXdkLib,                    # 5558 source-repo (extra Xbox-only libs)
@@ -344,12 +346,12 @@ function Apply-ProjectSourceOverrides {
             $filtered.Add($source)
         }
 
-        # Plan-B (OpenJKDF2 1:1): d3dx8_compat.cpp removed — we now link
+        # Plan-B (OpenJKDF2 1:1): d3dx8_compat.cpp removed ??? we now link
         # real d3dx8.lib from XDK 5558.  Local shim no longer needed.
 
         # Plan-B (OpenJKDF2 1:1): add OpenJKDF2's fakeglx.cpp (byte-identical
         # copy at code\win32\openjkdf2\fakeglx.cpp).  Compiled with /FI
-        # platform_xbox.h force-include — that header is OpenJKDF2's compat
+        # platform_xbox.h force-include ??? that header is OpenJKDF2's compat
         # shim providing stdint, snprintf, BOOL, etc. that fakeglx.cpp
         # expects.  Replaces the prior xquake\gl_fakegl.cpp graft.
         $filtered.Add([pscustomobject]@{
@@ -549,10 +551,24 @@ function Invoke-External {
         if ($useResponseFile) {
             $responseFile = [System.IO.Path]::GetTempFileName()
             $Arguments | Set-Content -Path $responseFile -Encoding ASCII
-            & $Exe "@$responseFile"
+            $savedErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & $Exe "@$responseFile" 2>&1 | ForEach-Object { Write-Host $_ }
+            }
+            finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
         }
         else {
-            & $Exe @Arguments
+            $savedErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                & $Exe @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+            }
+            finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
         }
         if ($LASTEXITCODE -ne 0) {
             throw "$Exe failed with exit code $LASTEXITCODE"
@@ -633,9 +649,9 @@ function Build-Project {
     if (-not $compilerTool -and $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $compilerTool = [pscustomobject]@{
             # Plan-B (OpenJKDF2 1:1): match build_xbox.bat line 48 include order
-            #   $repoRoot\code\win32       — our local shims still take precedence
-            #   C:\XDK_5558\XDK\xbox\include — primary (matches OpenJKDF2 XDK_ROOT\include)
-            #   C:\XDK\xbox\include        — 5849 fallback for headers 5558 lacks
+            #   $repoRoot\code\win32       ??? our local shims still take precedence
+            #   C:\XDK_5558\XDK\xbox\include ??? primary (matches OpenJKDF2 XDK_ROOT\include)
+            #   C:\XDK\xbox\include        ??? 5849 fallback for headers 5558 lacks
             #   C:\XDK\include
             #   C:\XDK\bink_stub
             AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
@@ -644,16 +660,16 @@ function Build-Project {
             # top of d3dx8math.h causes that header to skip its body if
             # __XGMATH_H__ is defined first, leaving ID3DXMatrixStack
             # undeclared.  Without _USE_XGMATH, xgmath.h's D3DX-compat
-            # block (line 976+) is inactive — D3DXMATRIX is the real
+            # block (line 976+) is inactive ??? D3DXMATRIX is the real
             # d3dx8math.h class, ID3DXMatrixStack is declared.
             PreprocessorDefinitions = "NDEBUG;_XBOX;_JK2EXE;WIN32;VV_LIGHTING;STEFX_ELITE_FORCE_SP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
-            # Plan-B audit: REVERTED /O2 → /Ox.  The /O2-match-OpenJKDF2
-            # attempt regressed the build — wglCreateContext no longer
+            # Plan-B audit: REVERTED /O2 ??? /Ox.  The /O2-match-OpenJKDF2
+            # attempt regressed the build ??? wglCreateContext no longer
             # completed on CXBX-R LLE GPU (hardware test 2026-05-17 both
             # with D24S8 and D16 depth formats).  Last known good
             # baseline (which reached SP_DoLicense / SDT:glEndFrame)
             # used /Ox; reverting to that.  The OpenJKDF2 /O2 match was
-            # cosmetic — VC7.1 /Ox is a superset (/O2 + /Ob2 /Oi /Ot /Oy
+            # cosmetic ??? VC7.1 /Ox is a superset (/O2 + /Ob2 /Oi /Ot /Oy
             # /Gs already set) so the divergence was minor.
             Optimization = "3"
             InlineFunctionExpansion = "2"
@@ -672,14 +688,14 @@ function Build-Project {
             # Plan-B (OpenJKDF2 1:1 alignment): adopt OpenJKDF2's actual
             # build_xbox.bat link list verbatim where physically possible.
             # OpenJKDF2 links: d3d8.lib d3dx8.lib dsound.lib xboxkrnl.lib
-            # xgraphics.lib xonline.lib libc.lib xapilib.lib — all from
+            # xgraphics.lib xonline.lib libc.lib xapilib.lib ??? all from
             # C:\XDK_5558\XDK\xbox\lib (their exact XDK 5558 install path).
             #
             # JKA additions on top of OpenJKDF2's list:
-            #   x_game.lib, goblib.lib — JKA-specific intermediate libs
-            #   dmusic.lib            — JKA uses DirectMusic for ingame music
+            #   x_game.lib, goblib.lib ??? JKA-specific intermediate libs
+            #   dmusic.lib            ??? JKA uses DirectMusic for ingame music
             #
-            # libcmt.lib → libc.lib: matches OpenJKDF2's choice.
+            # libcmt.lib ??? libc.lib: matches OpenJKDF2's choice.
             # Add d3dx8.lib (OpenJKDF2 links it; replaces our local
             # d3dx8_compat.cpp shim, which we'll remove from the source
             # list below).
@@ -689,7 +705,7 @@ function Build-Project {
             # ALL resolved from XDK 5558 via the /LIBPATH below.  The
             # previous build's absolute paths for d3d8/d3dx8 worked but
             # left xboxkrnl/xgraphics/xapilib/etc. resolving to XDK 5849
-            # — fakegl's Present hung because xboxkrnl 5849's push-buffer
+            # ??? fakegl's Present hung because xboxkrnl 5849's push-buffer
             # sync ABI differs from XDK 5558's expectations (fakegl was
             # compiled against 5558 includes).  OpenJKDF2's build uses
             # /LIBPATH:%XDK_ROOT%\lib with XDK_ROOT=C:\XDK_5558\XDK\xbox,
@@ -1240,22 +1256,59 @@ function Copy-EFDataOverlay {
 
     $sourceExtData = Join-Path $repoRoot "SP-Mod-Source-Code-master\BaseEF\ext_data"
     $destExtData = Join-Path $BaseEfDir "ext_data"
+    $sourceUi = Join-Path $repoRoot "base\ui"
+    $destUi = Join-Path $BaseEfDir "ui"
+    $sourceMenu = Join-Path $repoRoot "base\menu"
+    $destMenu = Join-Path $BaseEfDir "menu"
 
     if (-not (Test-Path -LiteralPath $sourceExtData -PathType Container)) {
         Write-Warning "Missing EF ext_data source: $sourceExtData"
-        return
+    } else {
+        New-Item -ItemType Directory -Path $destExtData -Force | Out-Null
+        foreach ($fileName in @("addon.npc", "boltOns.cfg", "infostrings.dat", "items.dat", "NPCs.cfg", "weapons.dat")) {
+            $source = Join-Path $sourceExtData $fileName
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                Write-Warning "Missing EF ext_data file: $source"
+                continue
+            }
+
+            Copy-Item -LiteralPath $source -Destination (Join-Path $destExtData $fileName) -Force
+            Write-Host "Updated EF ext_data overlay: $fileName"
+        }
     }
 
-    New-Item -ItemType Directory -Path $destExtData -Force | Out-Null
-    foreach ($fileName in @("addon.npc", "boltOns.cfg", "infostrings.dat", "items.dat", "NPCs.cfg", "weapons.dat")) {
-        $source = Join-Path $sourceExtData $fileName
-        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-            Write-Warning "Missing EF ext_data file: $source"
-            continue
+    if (-not (Test-Path -LiteralPath $sourceUi -PathType Container)) {
+        Write-Warning "Missing EF UI script source: $sourceUi"
+    } else {
+        $sourceUiFull = (Resolve-Path -LiteralPath $sourceUi).Path
+        $copiedUiScripts = 0
+        Get-ChildItem -LiteralPath $sourceUi -Recurse -File | Where-Object {
+            ($_.Extension -ieq ".txt" -or $_.Extension -ieq ".menu") -and $_.Name -ine "vssver.scc"
+        } | ForEach-Object {
+            $relative = $_.FullName.Substring($sourceUiFull.Length).TrimStart('\', '/')
+            $destination = Join-Path $destUi $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+            $copiedUiScripts++
         }
 
-        Copy-Item -LiteralPath $source -Destination (Join-Path $destExtData $fileName) -Force
-        Write-Host "Updated EF ext_data overlay: $fileName"
+        Write-Host "Updated EF UI script overlay: $copiedUiScripts files"
+    }
+
+    if (Test-Path -LiteralPath $sourceMenu -PathType Container) {
+        $sourceMenuFull = (Resolve-Path -LiteralPath $sourceMenu).Path
+        $copiedMenuAssets = 0
+        Get-ChildItem -LiteralPath $sourceMenu -Recurse -File | Where-Object {
+            $_.Extension -iin @(".tga", ".jpg", ".jpeg", ".png") -and $_.Name -ine "vssver.scc"
+        } | ForEach-Object {
+            $relative = $_.FullName.Substring($sourceMenuFull.Length).TrimStart('\', '/')
+            $destination = Join-Path $destMenu $relative
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+            Copy-Item -LiteralPath $_.FullName -Destination $destination -Force
+            $copiedMenuAssets++
+        }
+
+        Write-Host "Updated EF menu asset overlay: $copiedMenuAssets files"
     }
 }
 
@@ -1264,16 +1317,14 @@ function Copy-EFConfigOverlay {
         [string]$BaseEfDir
     )
 
-    $sourceDefaultCfg = Join-Path $repoRoot "base\default.cfg"
     $destDefaultCfg = Join-Path $BaseEfDir "default.cfg"
 
-    if (-not (Test-Path -LiteralPath $sourceDefaultCfg -PathType Leaf)) {
-        Write-Warning "Missing EF default config overlay: $sourceDefaultCfg"
+    if (Test-Path -LiteralPath $destDefaultCfg -PathType Leaf) {
+        Write-Host "Preserved EF config overlay without modification: default.cfg"
         return
     }
 
-    Copy-Item -LiteralPath $sourceDefaultCfg -Destination $destDefaultCfg -Force
-    Write-Host "Updated EF config overlay: default.cfg"
+    Write-Warning "EF config overlay missing: $destDefaultCfg"
 }
 
 function Get-EFRelativeFiles {
@@ -1332,6 +1383,9 @@ function Update-EFXboxPatchPk3 {
         "--output", $outputPk3,
         "--map", "borg1",
         "--texture-mode", "all",
+        "--bsp-mode", "optimized-lightmaps",
+        "--bsp-maps", "campaign",
+        "--lightmap-boost", "2.5",
         "--max-texture-size", "128",
         "--max-player-texture-size", "64",
         "--max-hud-texture-size", "128",
@@ -1389,8 +1443,12 @@ function Update-EFConsoleAssetLists {
 
     $fileCodeCache = Join-Path $repoReleaseDir "xbx_filelist"
     if (Test-Path -LiteralPath $fileCodeCache -PathType Leaf) {
-        Remove-Item -LiteralPath $fileCodeCache -Force
-        Write-Host "Removed stale filecode cache: $fileCodeCache"
+        try {
+            Remove-Item -LiteralPath $fileCodeCache -Force -ErrorAction Stop
+            Write-Host "Removed stale filecode cache: $fileCodeCache"
+        } catch {
+            Write-Warning "Could not remove stale filecode cache ${fileCodeCache}: $($_.Exception.Message)"
+        }
     }
 }
 
@@ -1411,12 +1469,20 @@ $mpProjects = @(
 switch ($Target) {
     "sp"  {
         Invoke-BuildGraph -Projects $spProjects
-        Update-EFConsoleAssetLists
+        if (-not $SkipAssets) {
+            Update-EFConsoleAssetLists
+        } else {
+            Write-Host "Skipping EF asset packaging/copy phase."
+        }
     }
     "mp"  { Invoke-BuildGraph -Projects $mpProjects }
     "all" {
         Invoke-BuildGraph -Projects $spProjects
-        Update-EFConsoleAssetLists
+        if (-not $SkipAssets) {
+            Update-EFConsoleAssetLists
+        } else {
+            Write-Host "Skipping EF asset packaging/copy phase."
+        }
         Invoke-BuildGraph -Projects $mpProjects
     }
 }

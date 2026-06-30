@@ -443,31 +443,46 @@ memory on the hunk from cgame, ui, and renderer
 */
 void CL_MapLoading( void ) {
 	XBLog_Write("JA: CL_MapLoading entered");
+	XBLog_Write("JA: CL_MapLoading before com_cl_running check");
 	if ( !com_cl_running->integer ) {
+		XBLog_Write("JA: CL_MapLoading early return com_cl_running false");
 		return;
 	}
+	XBLog_Write("JA: CL_MapLoading after com_cl_running check");
 
+	XBLog_Write("JA: CL_MapLoading before Con_Close");
 	Con_Close();
+	XBLog_Write("JA: CL_MapLoading after Con_Close");
 	cls.keyCatchers = 0;
+	XBLog_Write("JA: CL_MapLoading keyCatchers cleared");
 
 	// if we are already connected to the local host, stay connected
+	XBLog_Write("JA: CL_MapLoading before localhost branch");
 	if ( cls.state >= CA_CONNECTED && !Q_stricmp( cls.servername, "localhost" ) )  {
+		XBLog_Write("JA: CL_MapLoading localhost reconnect branch");
 		cls.state = CA_CONNECTED;		// so the connect screen is drawn
 		memset( cls.updateInfoString, 0, sizeof( cls.updateInfoString ) );
 //		memset( clc.serverMessage, 0, sizeof( clc.serverMessage ) );
 		memset( &cl.gameState, 0, sizeof( cl.gameState ) );
 		clc.lastPacketSentTime = -9999;
+		XBLog_Write("JA: CL_MapLoading before SCR_UpdateScreen localhost");
 		SCR_UpdateScreen();
+		XBLog_Write("JA: CL_MapLoading after SCR_UpdateScreen localhost");
 	} else {
+		XBLog_Write("JA: CL_MapLoading fresh localhost branch");
 		// clear nextmap so the cinematic shutdown doesn't execute it
+		XBLog_Write("JA: CL_MapLoading before nextmap clear");
 		Cvar_Set( "nextmap", "" );
+		XBLog_Write("JA: CL_MapLoading after nextmap clear");
 #ifdef _XBOX	// This was done at E3 time - it's nasty, but we may just keep it.
 		connstate_t oldState = cls.state;
 		cls.state = CA_CHALLENGING;
 		XBLog_Write("JA: CL_MapLoading skipping transitional SCR_UpdateScreen on Xbox");
 		cls.state = oldState;
 #endif
+		XBLog_Write("JA: CL_MapLoading before CL_Disconnect");
 		CL_Disconnect();
+		XBLog_Write("JA: CL_MapLoading after CL_Disconnect");
 		Q_strncpyz( cls.servername, "localhost", sizeof(cls.servername) );
 		cls.state = CA_CHALLENGING;		// so the connect screen is drawn
 		cls.keyCatchers = 0;
@@ -478,10 +493,14 @@ void CL_MapLoading( void ) {
 		NET_StringToAdr( cls.servername, &clc.serverAddress);
 		// we don't need a challenge on the localhost
 
+		XBLog_Write("JA: CL_MapLoading before CL_CheckForResend");
 		CL_CheckForResend();
+		XBLog_Write("JA: CL_MapLoading after CL_CheckForResend");
 	}
 
+	XBLog_Write("JA: CL_MapLoading before CL_FlushMemory");
 	CL_FlushMemory();
+	XBLog_Write("JA: CL_MapLoading after CL_FlushMemory");
 }
 
 /*
@@ -1276,7 +1295,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	static qboolean s_stefxActiveCommandsQueued = qfalse;
 	static int s_stefxActiveCommandAttempts = 0;
 	static int s_stefxActiveCommandNextPollTime = 0;
-	if (!s_stefxActiveCommandsQueued && cls.state == CA_ACTIVE && cls.cgameStarted
+	static qboolean s_stefxActiveCommandStateLogged = qfalse;
+	if (!s_stefxActiveCommandsQueued && cls.state == CA_ACTIVE && !s_stefxActiveCommandStateLogged)
+	{
+		s_stefxActiveCommandStateLogged = qtrue;
+		XBLF("STEFX: active command state entered state=%d cgame=%d serverTime=%d realtime=%d",
+			(int)cls.state, (int)cls.cgameStarted, cl.serverTime, cls.realtime);
+	}
+	if (!s_stefxActiveCommandsQueued && cls.state == CA_ACTIVE
 		&& cl.serverTime >= CL_STEFX_ActiveCommandServerTime()
 		&& cls.realtime >= s_stefxActiveCommandNextPollTime)
 	{
@@ -1294,6 +1320,15 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		&& !com_sv_running->integer ) {		
 		// if disconnected, bring up the menu
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (!CL_CheckPendingCinematic())
+		{
+			XBLF("STEFX: frontend activating EF main menu firstRun=%d quickStart=%d",
+				firstRun ? 1 : 0,
+				Sys_QuickStart() ? 1 : 0);
+			UI_SetActiveMenu("main", NULL);
+		}
+#else
 		if (firstRun && !Sys_QuickStart())
 		{
 			// Fresh boot
@@ -1317,13 +1352,18 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			UI_SetActiveMenu("mainMenu", NULL);
 #endif
 		}
+#endif
 #else
 		if (!CL_CheckPendingCinematic())	// this avoid having the menu flash for one frame before pending cinematics
 		{
 			UI_SetActiveMenu("mainMenu", NULL);
 		}
 #endif
+#if !defined(STEFX_ELITE_FORCE_SP)
 		S_StartBackgroundTrack("music/mp/MP_action4.mp3","",0);
+#else
+		XBLog_Write("STEFX: frontend skipped inherited JA menu music");
+#endif
 	}
 
 #ifdef _XBOX
@@ -1392,23 +1432,35 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	//	}
 	//	frameCount++;
 	//}
-	// Always calculate framerate, bias the LOD if low
+	// Elite Force leaves LOD selection to the renderer/cvars.  The inherited JA
+	// Xbox path changed r_lodbias at runtime, which makes multipart EF actors
+	// pop between model LODs at close range.
 	avgFrametime+=msec;
-	extern bool in_camera;
 	float framerate = 1000.0f*(1.0/(avgFrametime/32.0f));
-	static int lodFrameCount = 0;
 	static cvar_t *lodBiasCvar = NULL;
 	if ( !lodBiasCvar )
 	{
 		lodBiasCvar = Cvar_Get( "r_lodbias", "0", CVAR_ARCHIVE );
 	}
 	int bias = lodBiasCvar ? lodBiasCvar->integer : 0;
-	static qboolean wasInCamera = qfalse;
 #ifdef _XBOX
 	if (xboxTraceEarlyActive)
 	{
-		XBLF("JA: CL_EARLY before lod staticFrame=%u avg=%g framerate=%g bias=%d inCamera=%d",
-			frameCount, avgFrametime, framerate, bias, in_camera ? 1 : 0);
+		XBLF("STEFX: CL_EARLY EF LOD staticFrame=%u avg=%g framerate=%g r_lodbias=%d",
+			frameCount, avgFrametime, framerate, bias);
+	}
+	{
+		static int s_stefxLodCvarTraceBudget = 64;
+		if (s_stefxLodCvarTraceBudget > 0 && !(frameCount & 0x1f))
+		{
+			XBLog_Printf("STEFX_LOD_CVAR: frame=%u avgMsec=%g framerate=%g r_lodbias=%d r_lodscale=%s\n",
+				frameCount,
+				avgFrametime,
+				framerate,
+				bias,
+				Cvar_VariableString("r_lodscale"));
+			--s_stefxLodCvarTraceBudget;
+		}
 	}
 #endif
 	if(!(frameCount&0x1f))
@@ -1420,58 +1472,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			Com_Printf(mess);
 		}
 		avgFrametime=0.0f;
-
-		// If we drop below 20FPS, pull down the LOD bias
-		if(framerate < 20.0f && bias == 0)
-		{
-#ifdef _XBOX
-			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY before Cvar_SetValue lowfps bias=%d framerate=%g", bias + 1, framerate);
-#endif
-			bias++;
-			Cvar_SetValue("r_lodbias", bias);
-#ifdef _XBOX
-			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY after Cvar_SetValue lowfps bias=%d", bias);
-#endif
-			lodFrameCount = -1;
-		}
-
-		lodFrameCount++;
-		if(lodFrameCount==5 && bias > 0)
-		{
-#ifdef _XBOX
-			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY before Cvar_SetValue recover bias=%d", bias - 1);
-#endif
-			bias--;
-			Cvar_SetValue("r_lodbias", bias);
-#ifdef _XBOX
-			if (xboxTraceEarlyActive) XBLF("JA: CL_EARLY after Cvar_SetValue recover bias=%d", bias);
-#endif
-			lodFrameCount = 0;
-		}
 	}
 	frameCount++;
-#ifdef _XBOX
-	if (xboxTraceEarlyActive)
-	{
-		XBLF("JA: CL_EARLY after lod staticFrame=%u bias=%d lodFrameCount=%d", frameCount, bias, lodFrameCount);
-	}
-#endif
-
-	if(in_camera)
-	{
-		// No LOD stuff during cutscenes
-		if ( !wasInCamera || bias != 0 )
-		{
-#ifdef _XBOX
-			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY before camera Cvar_SetValue r_lodbias 0");
-#endif
-			Cvar_SetValue("r_lodbias", 0);
-#ifdef _XBOX
-			if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after camera Cvar_SetValue r_lodbias 0");
-#endif
-		}
-	}
-	wasInCamera = in_camera ? qtrue : qfalse;
 
 	cls.frametimeFraction=fractionMsec;
 	cls.realtime += msec;
@@ -1804,6 +1806,30 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	}
 	if (cls.state == CA_ACTIVE)
 	{
+#if defined(STEFX_ELITE_FORCE_SP)
+		static qboolean s_stefxActiveCommandsQueuedLate = qfalse;
+		static int s_stefxActiveCommandAttemptsLate = 0;
+		static int s_stefxActiveCommandNextPollTimeLate = 0;
+		static qboolean s_stefxActiveCommandStateLoggedLate = qfalse;
+		if (!s_stefxActiveCommandsQueuedLate && !s_stefxActiveCommandStateLoggedLate)
+		{
+			s_stefxActiveCommandStateLoggedLate = qtrue;
+			XBLF("STEFX: active command late state entered state=%d cgame=%d serverTime=%d realtime=%d",
+				(int)cls.state, (int)cls.cgameStarted, cl.serverTime, cls.realtime);
+		}
+		if (!s_stefxActiveCommandsQueuedLate
+			&& cl.serverTime >= CL_STEFX_ActiveCommandServerTime()
+			&& cls.realtime >= s_stefxActiveCommandNextPollTimeLate)
+		{
+			++s_stefxActiveCommandAttemptsLate;
+			s_stefxActiveCommandNextPollTimeLate = cls.realtime + 1000;
+			if (CL_STEFX_QueueActiveCommands() > 0 || s_stefxActiveCommandAttemptsLate >= 20)
+			{
+				s_stefxActiveCommandsQueuedLate = qtrue;
+				XBLF("STEFX: active command late armed-off attempts=%d", s_stefxActiveCommandAttemptsLate);
+			}
+		}
+#endif
 		static int s_xboxLastCompletedHeartbeatTime = 0;
 		static int s_xboxLastCompletedHeartbeatFrame = 0;
 		static unsigned int s_xboxLastDrawSurfLists = 0;
@@ -2022,7 +2048,103 @@ This is the only place that any of these functions are called from
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static void CL_STEFX_PrecacheBorg1VerticalSliceFiles(void)
 {
-	static qboolean s_done = qfalse;
+	static qboolean s_borg1_done = qfalse;
+	static qboolean s_dn1_done = qfalse;
+	const char *mapName = cl_mapname ? cl_mapname->string : "";
+	static const char *dn1Files[] =
+	{
+		"ext_data/weapons.dat",
+		"ext_data/items.dat",
+		"ext_data/infostrings.dat",
+		"ext_data/objectives.dat",
+		"ext_data/tactical.dat",
+		"ext_data/boltOns.cfg",
+		"ext_data/NPCs.cfg",
+		"ext_data/addon.npc",
+		"maps/dn1.nav",
+		"maps/dn1.sqd",
+		"real_scripts/common/cinematicMode.IBI",
+		"real_scripts/common/endlevel.IBI",
+		"real_scripts/common/guard.IBI",
+		"real_scripts/common/security.IBI",
+		"real_scripts/common/setupsecurity.IBI",
+		"real_scripts/common/useparm1.IBI",
+		"real_scripts/dn1/beamin.IBI",
+		"real_scripts/dn1/behaved.pre",
+		"real_scripts/dn1/breakpipe.IBI",
+		"real_scripts/dn1/brokendoor.IBI",
+		"real_scripts/dn1/chellel.IBI",
+		"real_scripts/dn1/chellel2.IBI",
+		"real_scripts/dn1/closefloor.IBI",
+		"real_scripts/dn1/defmedlab.IBI",
+		"real_scripts/dn1/door2.IBI",
+		"real_scripts/dn1/door2a.IBI",
+		"real_scripts/dn1/door3.IBI",
+		"real_scripts/dn1/door3a.IBI",
+		"real_scripts/dn1/down.IBI",
+		"real_scripts/dn1/envrestore.IBI",
+		"real_scripts/dn1/extra.pre",
+		"real_scripts/dn1/fire.IBI",
+		"real_scripts/dn1/hall.IBI",
+		"real_scripts/dn1/hanger_el.IBI",
+		"real_scripts/dn1/hanger_el2.IBI",
+		"real_scripts/dn1/hibernation.IBI",
+		"real_scripts/dn1/left.IBI",
+		"real_scripts/dn1/loadguys.IBI",
+		"real_scripts/dn1/meddoor.IBI",
+		"real_scripts/dn1/munrolead.IBI",
+		"real_scripts/dn1/parasite.IBI",
+		"real_scripts/dn1/parasite2.IBI",
+		"real_scripts/dn1/parasite2a.IBI",
+		"real_scripts/dn1/pkill.IBI",
+		"real_scripts/dn1/right.IBI",
+		"real_scripts/dn1/setformation.IBI",
+		"real_scripts/dn1/space.IBI",
+		"real_scripts/dn1/spawnguys.IBI",
+		"real_scripts/dn1/up.IBI",
+		"real_scripts/dn1/vent.IBI",
+		"real_scripts/dn1/watchit.IBI",
+		"models/players/hazard/lower.mdr",
+		"models/players/hazard/upper.mdr",
+		"models/players/hazard/lower_default.skin",
+		"models/players/hazard/upper_default.skin",
+		"models/players/hazard/animation.cfg",
+		"models/players/hazardfemale/lower.mdr",
+		"models/players/hazardfemale/upper.mdr",
+		"models/players/hazardfemale/lower_default.skin",
+		"models/players/hazardfemale/upper_default.skin",
+		"models/players/hazardfemale/animation.cfg",
+		"models/players/crewthin/lower.mdr",
+		"models/players/crewthin/upper.mdr",
+		"models/players/crewthin/lower_default.skin",
+		"models/players/crewthin/upper_tuvok.skin",
+		"models/players/crewthin/animation.cfg",
+		"models/players/alexandria/head.md3",
+		"models/players/alexandria/head_default.skin",
+		"models/players/munro/head.md3",
+		"models/players/munro/head_default.skin",
+		"models/players/tuvok/head.md3",
+		"models/players/tuvok/head_default.skin",
+		"models/players/tuvok_h/head.md3",
+		"models/players/tuvok_h/head_default.skin",
+		"models/players/chang/head.md3",
+		"models/players/chang/head_default.skin",
+		"models/players/chell/head.md3",
+		"models/players/chell/head_default.skin",
+		"models/players/telsia/head.md3",
+		"models/players/telsia/head_default.skin",
+		"models/weaphits/explosion.md3",
+		"models/weapons2/phaser/phaser.md3",
+		"models/weapons2/phaser/phaser_hand.md3",
+		"models/weapons2/phaser/phaser_flash.md3",
+		"models/weapons2/prifle/prifle.md3",
+		"models/weapons2/prifle/prifle_hand.md3",
+		"models/weapons2/prifle/prifle_flash.md3",
+		"models/weapons2/imod/imod2.md3",
+		"models/weapons2/imod/imod2_hand.md3",
+		"models/weapons2/imod/imod2_flash.md3",
+		NULL
+	};
 	static const char *files[] =
 	{
 		"ext_data/weapons.dat",
@@ -2158,11 +2280,34 @@ static void CL_STEFX_PrecacheBorg1VerticalSliceFiles(void)
 	};
 	int i;
 
-	if (s_done)
+	if (!Q_stricmp(mapName, "dn1"))
+	{
+		if (s_dn1_done)
+		{
+			return;
+		}
+		s_dn1_done = qtrue;
+
+		XBLog_Write("STEFX: dn1 vertical slice file precache begin");
+		for (i = 0; dn1Files[i]; ++i)
+		{
+			FS_STEFX_PrecacheFile(dn1Files[i]);
+		}
+		XBLog_Write("STEFX: dn1 vertical slice file precache done");
+		return;
+	}
+
+	if (Q_stricmp(mapName, "borg1"))
+	{
+		XBLF("STEFX: vertical slice file precache skipped map='%s'", mapName);
+		return;
+	}
+
+	if (s_borg1_done)
 	{
 		return;
 	}
-	s_done = qtrue;
+	s_borg1_done = qtrue;
 
 	XBLog_Write("STEFX: borg1 vertical slice file precache begin");
 	for (i = 0; files[i]; ++i)
@@ -2722,12 +2867,13 @@ static void checkAutoSave()
 				{
 					CG_CenterPrint( "@SP_INGAME_CHECKPOINT", SCREEN_HEIGHT * 0.25 );	//jump the network
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-					XBLF("STEFX: checkAutoSave Xbox checkpoint disk save suppressed svTime=%d realtime=%d clsState=%d ui=%d delay=%d",
+					XBLF("STEFX_SAVELOAD: checkAutoSave queue save auto svTime=%d realtime=%d clsState=%d ui=%d delay=%d",
 						sv.time,
 						cls.realtime,
 						cls.state,
 						cls.uiStarted ? 1 : 0,
 						delayCountdown);
+					Cbuf_AddText( "save auto\n" );
 #else
 					Cbuf_AddText( "save auto\n" );
 #endif

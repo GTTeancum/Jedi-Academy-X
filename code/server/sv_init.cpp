@@ -318,89 +318,40 @@ qboolean CM_SameMap(char *server);
 qboolean CM_HasTerrain(void);
 void Cvar_Defrag(void);
 
-// Load-time animation hackery:
-struct OVERLAYINFO
-{
-	void *texture;
-	void *surface;
-};
-
-OVERLAYINFO Image;
-static int loadingX = 290;
+// EF-owned load-time screen pulses. The old JA/Xbox YUY2 overlay animation was
+// removed because EF loading chrome is drawn through the renderer path instead.
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean s_efLoadingAnimationActive = qfalse;
+static int s_efLoadingAnimationDrawCount = 0;
+static int s_efLoadingAnimationLogBudget = 16;
+#endif
 
 void InitLoadingAnimation( void )
 {
-/*
-	// Make our two textures:
-	Image.texture = new IDirect3DTexture9;
-
-	// Fill in the texture headers:
-	DWORD pixelSize = 
-	XGSetTextureHeader( 4,
-						4,
-						1,
-						0,
-						D3DFMT_YUY2,
-						0,
-						Image.texture,
-						0,
-						0 );
-
-	// Get pixel data, texNum is unused:
-	byte *pixels = (byte *)gTextures.Allocate( pixelSize, 0 );
-
-	// texNum is unused:
-	Image.texture->Register( pixels );
-
-	// Turn on overlays:
-	glw_state->device->EnableOverlay( TRUE );
-
-	// Get surface pointers:
-	Image.texture->GetSurfaceLevel( 0, &Image.surface );
-
-	D3DLOCKED_RECT lock;
-	Image.surface->LockRect( &lock, NULL, D3DLOCK_TILED );
-
-	// Grey?
-	memset( lock.pBits, 0x7f7f7f7f, lock.Pitch * 4 );
-
-	Image.surface->UnlockRect();
-
-	// Just to be safe:
-//	loadingIndex = 0;
-*/
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	s_efLoadingAnimationActive = qfalse;
+	s_efLoadingAnimationDrawCount = 0;
+	s_efLoadingAnimationLogBudget = 16;
+	XBLog_Write("STEFX: EF loading animation disabled during map load");
+#endif
 }
 
 void UpdateLoadingAnimation( void )
 {
-/*
-	// Draw the image tiny, in the bottom of the screen:
-	RECT dst_rect = { loadingX, 390, loadingX + 8, 398 };
-	RECT src_rect = { 0, 0, 4, 4 };
-
-	// Update this bugger.
-	glw_state->device->UpdateOverlay( Image.surface, &src_rect, &dst_rect, FALSE, 0 );
-	loadingX += 4;
-	if (loadingX > 342 )
-		loadingX = 290;
-*/
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !s_efLoadingAnimationActive )
+	{
+		return;
+	}
+#endif
 }
 
 void StopLoadingAnimation( void )
 {
-/*
-	// Release surfaces:
-	Image.surface->Release();
-	Image.surface = NULL;
-
-	// Clean up the textures we made for the overlay stuff:
-	Image.texture->BlockUntilNotBusy();
-	delete Image.texture;
-	Image.texture = NULL;
-
-	// Turn overlays back off:
-	glw_state->device->EnableOverlay( FALSE );
-*/
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: EF loading animation stop count=%d", s_efLoadingAnimationDrawCount);
+	s_efLoadingAnimationActive = qfalse;
+#endif
 }
 
 /*
@@ -423,8 +374,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	g_SPXBMapHash = SV_InitXboxHashText(server);
 	SV_InitXboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), server);
 #endif
-	XBLog_Write("JA: SV_SpawnServer entered:");
-	XBLog_Write(server);
+	XBLF("JA: SV_SpawnServer entered map='%s' reload=%d dissolve=%d", server, eForceReload, bAllowScreenDissolve);
 
 #ifdef XBOX_DEMO
 	// Pause the timer if "someone is playing"
@@ -447,21 +397,33 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 	// Failsafe to ensure that we don't have rumbling during level load
 	extern void IN_KillRumbleScripts( void );
+	XBLog_Write("JA: SV_SpawnServer before IN_KillRumbleScripts");
 	IN_KillRumbleScripts();
+	XBLog_Write("JA: SV_SpawnServer after IN_KillRumbleScripts");
 #endif
 
+	XBLog_Write("JA: SV_SpawnServer before RE_RegisterMedia_LevelLoadBegin");
 	RE_RegisterMedia_LevelLoadBegin( server, eForceReload, bAllowScreenDissolve );
+	XBLog_Write("JA: SV_SpawnServer after RE_RegisterMedia_LevelLoadBegin");
 
 
+	XBLog_Write("JA: SV_SpawnServer before cl_paused/timescale reset");
 	Cvar_SetValue( "cl_paused", 0 );
 	Cvar_Set( "timescale", "1" );//jic we were skipping
+	XBLog_Write("JA: SV_SpawnServer after cl_paused/timescale reset");
 
 	// shut down the existing game if it is running
+	XBLog_Write("JA: SV_SpawnServer before SV_ShutdownGameProgs");
 	SV_ShutdownGameProgs(qtrue);
+	XBLog_Write("JA: SV_SpawnServer after SV_ShutdownGameProgs");
 
 	Com_Printf ("------ Server Initialization ------\n%s\n", com_version->string);
+	XBLog_Write("JA: SV_SpawnServer before Server print");
 	Com_Printf ("Server: %s\n",server);	
+	XBLog_Write("JA: SV_SpawnServer after Server print");
+	XBLog_Write("JA: SV_SpawnServer before ui_mapname set");
 	Cvar_Set( "ui_mapname", server );
+	XBLog_Write("JA: SV_SpawnServer after ui_mapname set");
 
 #ifndef FINAL_BUILD
 //	extern unsigned long texturePointMax;
@@ -471,22 +433,32 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #ifdef _XBOX
 	g_SPXBMapPhase = 11;
 	// disable vsync during load for speed
+	XBLog_Write("JA: SV_SpawnServer before glDisable GL_VSYNC");
 	glDisable(GL_VSYNC);
+	XBLog_Write("JA: SV_SpawnServer after glDisable GL_VSYNC");
 #endif
 
 	// Hope this is correct - InitGame gets called later, which does this,
 	// but UI_DrawConnect (in CL_MapLoading) needs it now, to properly
 	// mimic CG_DrawInformation:
 	extern SavedGameJustLoaded_e g_eSavedGameJustLoaded;
+	XBLog_Write("JA: SV_SpawnServer before saved-game load flag set");
 	g_eSavedGameJustLoaded = eSavedGameJustLoaded;
+	XBLog_Write("JA: SV_SpawnServer after saved-game load flag set");
 
 	// don't let sound stutter and dump all stuff on the hunk
+	XBLog_Write("JA: SV_SpawnServer before CL_MapLoading");
 	CL_MapLoading();
+	XBLog_Write("JA: SV_SpawnServer after CL_MapLoading");
 
+	XBLog_Write("JA: SV_SpawnServer before CM_SameMap");
 	if (!CM_SameMap(server))
 	{ //rww - only clear if not loading the same map
+		XBLog_Write("JA: SV_SpawnServer before CM_ClearMap");
 		CM_ClearMap();
+		XBLog_Write("JA: SV_SpawnServer after CM_ClearMap");
 	}
+	XBLog_Write("JA: SV_SpawnServer after CM_SameMap/clear");
 #ifndef _XBOX
 	else if (CM_HasTerrain())
 	{ //always clear when going between maps with terrain
@@ -616,6 +588,10 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	XBLog_Write("STEFX: Ghoul2 humanoid GLA precache skipped");
 #endif
 	g_SPXBMapPhase = 15;
+#if defined(STEFX_ELITE_FORCE_SP)
+	XBLog_Write("STEFX: SV_SpawnServer pre-BSP EF loadscreen pulse");
+	UpdateLoadingAnimation();
+#endif
 	XBLog_Write("JA: CM_LoadMap...");
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
 	g_SPXBMapPhase = 16;

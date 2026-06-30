@@ -253,7 +253,13 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxUserMoveBudget = 16;
     static int s_stefxSmokeStageBudget = 20;
     static int s_stefxAudioRuntimeBudget = 160;
+    static int s_stefxVoiceTraceBudget = 96;
+    static int s_stefxFaceTraceBudget = 96;
+    static int s_stefxPlayerRenderBudget = 160;
+    static int s_stefxSaveLoadBudget = 64;
     static int s_stefxIntroRuntimeBudget = 160;
+    static int s_stefxFrontendBudget = 128;
+    static int s_stefxFsConfigBudget = 64;
     static int s_stefxMusicRuntimeBudget = 96;
     static int s_stefxHudBudget = 32;
     static int s_stefxViewWeaponBudget = 96;
@@ -263,6 +269,18 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxProjectileProofBudget = 16;
     static int s_stefxSnapshotEventBudget = 32;
     static int s_stefxCaptureBudget = 64;
+    static int s_stefxShaderTraceBudget = 256;
+    static int s_stefxSurfaceTraceBudget = 256;
+    static int s_stefxSurfaceSubmitTraceBudget = 192;
+    static int s_stefxDrawStageTraceBudget = 96;
+    static int s_stefxScriptPanelTraceBudget = 512;
+    static int s_stefxInputTraceBudget = 256;
+    static int s_stefxSkyTraceBudget = 96;
+    static int s_stefxNpcStateBudget = 128;
+    static int s_stefxActorTraceBudget = 192;
+    static int s_stefxLodTraceBudget = 256;
+    static int s_stefxThirdPersonTraceBudget = 160;
+    static int s_stefxLipTraceBudget = 160;
     static int s_efFastDrawBudget = 24;
     static int s_stefxAnimVisibleBudget = 128;
     static int s_stefxAnimCullBudget = 48;
@@ -277,6 +295,39 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_jaComActiveBudget = 48;
 
     if (!msg) return 1;
+
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF main menu", &s_stefxFrontendBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF LCARS", &s_stefxFrontendBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FS default.cfg", &s_stefxFsConfigBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SHADER_", &s_stefxShaderTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SURFACE_SUBMIT", &s_stefxSurfaceSubmitTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SURFACE", &s_stefxSurfaceTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_DRAW_STAGE", &s_stefxDrawStageTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SCRIPT_PANEL", &s_stefxScriptPanelTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_INPUT", &s_stefxInputTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_JUNK", &s_stefxSkyTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SKY", &s_stefxSkyTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_NPC_STATE", &s_stefxNpcStateBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ACTOR", &s_stefxActorTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_LOD", &s_stefxLodTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_THIRD_PERSON", &s_stefxThirdPersonTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_LIPTRACE", &s_stefxLipTraceBudget);
+    if (budgeted >= 0) return budgeted;
 
     if (strstr(msg, "STEFX: MDR memory") ||
         strstr(msg, "STEFX: RE_RegisterModel MDR hazard preflight fallback") ||
@@ -539,6 +590,30 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: S_EndLoadSound", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_VOICE_TRACE", &s_stefxVoiceTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Xbox voice", &s_stefxVoiceTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF face skin", &s_stefxFaceTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF head skin extensions", &s_stefxFaceTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF CG_Player", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF CG_AddCEntity", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF CG_AddPacketEntities", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF CG_PACKET_PLAYER_DIRECT", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF CG_SNAPSHOT", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: EF CG_CENTITY_PLAYER", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_Player", &s_stefxPlayerRenderBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SAVELOAD", &s_stefxSaveLoadBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: WAV info", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: loose sound direct fallback", &s_stefxAudioRuntimeBudget);
@@ -683,6 +758,11 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "Sys_Init") ||
             strstr(msg, "Netchan_Init") ||
             strstr(msg, "SV_Init") ||
+            strstr(msg, "SV_Map_") ||
+            strstr(msg, "SV_SpawnServer") ||
+            strstr(msg, "CL_MapLoading") ||
+            strstr(msg, "CL_FlushMemory") ||
+            strstr(msg, "SPL:") ||
             strstr(msg, "CL_Init") ||
             strstr(msg, "CL_Frame") ||
             strstr(msg, "UI_Init") ||
@@ -708,6 +788,10 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "CIN_PHASE") ||
             strstr(msg, "CIN_RunCinematic") ||
             strstr(msg, "BinkVideo::Start") ||
+            strstr(msg, "BinkVideo::Run") ||
+            strstr(msg, "STEFX_FRONTEND_2D") ||
+            strstr(msg, "STEFX_MENU_") ||
+            strstr(msg, "RB_XboxForce2DOverlayState") ||
             strstr(msg, "ICARUS_RUN") ||
             strstr(msg, "CAMERA_") ||
             strstr(msg, "MAIN_TIGHT") ||
@@ -837,6 +921,25 @@ static int xbl_ShouldDropVerbose(const char *msg)
 static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
+    if (strstr(fmt, "STEFX_SHADER_") ||
+        strstr(fmt, "STEFX_SURFACE") ||
+        strstr(fmt, "STEFX_DRAW_STAGE") ||
+        strstr(fmt, "STEFX_SCRIPT_PANEL") ||
+        strstr(fmt, "STEFX_MENU_INPUT") ||
+        strstr(fmt, "STEFX_MENU_") ||
+        strstr(fmt, "STEFX_INPUT") ||
+        strstr(fmt, "STEFX_LOD") ||
+        strstr(fmt, "STEFX_THIRD_PERSON") ||
+        strstr(fmt, "STEFX_LIPTRACE") ||
+        strstr(fmt, "STEFX_VOICE_TRACE") ||
+        strstr(fmt, "STEFX_CIN_DRAW") ||
+        strstr(fmt, "STEFX_SAVELOAD") ||
+        strstr(fmt, "STEFX_NPC_STATE") ||
+        strstr(fmt, "STEFX: SV_ACTOR") ||
+        strstr(fmt, "STEFX_JUNK") ||
+        strstr(fmt, "STEFX_SKY")) {
+        return 1;
+    }
     if (strstr(fmt, "STEFX: HUD ") ||
         strstr(fmt, "STEFX: CG_AddViewWeapon") ||
         strstr(fmt, "STEFX: CG_ViewWeapon") ||
@@ -875,6 +978,11 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "Sys_Init") ||
         strstr(fmt, "Netchan_Init") ||
         strstr(fmt, "SV_Init") ||
+        strstr(fmt, "SV_Map_") ||
+        strstr(fmt, "SV_SpawnServer") ||
+        strstr(fmt, "CL_MapLoading") ||
+        strstr(fmt, "CL_FlushMemory") ||
+        strstr(fmt, "SPL:") ||
         strstr(fmt, "CL_Init") ||
         strstr(fmt, "CL_Frame") ||
         strstr(fmt, "CL_EARLY") ||
@@ -903,6 +1011,9 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "CIN_PHASE") ||
         strstr(fmt, "CIN_RunCinematic") ||
         strstr(fmt, "BinkVideo::Start") ||
+        strstr(fmt, "BinkVideo::Run") ||
+        strstr(fmt, "STEFX_FRONTEND_2D") ||
+        strstr(fmt, "RB_XboxForce2DOverlayState") ||
         strstr(fmt, "MAIN_TIGHT") ||
         strstr(fmt, "fakegl CreateTexture") ||
         strstr(fmt, "fakegl CPU partial") ||
@@ -976,6 +1087,7 @@ static int xbl_IsLogMarkerAt(const char *p)
 {
     if (!p) return 0;
     return xbl_starts_with(p, "STEFX:") ||
+        xbl_starts_with(p, "STEFX_") ||
         xbl_starts_with(p, "EF:") ||
         xbl_starts_with(p, "JA:");
 }

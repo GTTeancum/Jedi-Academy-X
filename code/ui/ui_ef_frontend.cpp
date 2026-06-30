@@ -231,6 +231,10 @@ static float s_audioMusic = 0.25f;
 static float s_audioVoice = 1.0f;
 static qboolean s_audioTouched = qfalse;
 static int s_videoCorner = 0;
+static char s_menuSmokeTarget[32];
+static int s_menuSmokeStage = 0;
+static int s_menuSmokeNextRealtime = 0;
+static int s_menuSmokeDownRemaining = 0;
 static char s_stubTitle[64];
 static char s_stubLine[96];
 static char s_fontBuffer[EF_FRONTEND_FONT_BUFFER];
@@ -1708,6 +1712,12 @@ static void EFFe_StartMap(const char *mapName)
 {
 #ifdef _XBOX
 	XBLF("STEFX: EF new game start map='%s' difficulty=%d genderMale=%d catcher=0x%x", mapName ? mapName : "", s_newgameDifficulty, s_newgameGenderMale, ui.Key_GetCatcher());
+	ui.Printf("STEFX_MENU_NEWGAME_START map='%s' cursor=%d difficulty=%d genderMale=%d catcher=0x%x\n",
+		mapName ? mapName : "",
+		s_cursor,
+		s_newgameDifficulty,
+		s_newgameGenderMale,
+		ui.Key_GetCatcher());
 #endif
 	EFFe_SetNewGameDifficulty(s_newgameDifficulty);
 	EFFe_SetNewGameGender(s_newgameGenderMale ? qtrue : qfalse);
@@ -1735,6 +1745,10 @@ static void EFFe_SetScreen(efFrontendScreen_t screen, int cursor)
 	}
 #ifdef _XBOX
 	XBLF("STEFX: EF frontend screen set screen='%s' cursor=%d", EFFe_ScreenName(s_screen), s_cursor);
+	ui.Printf("STEFX_MENU_SCREEN_SET screen='%s' cursor=%d catcher=0x%x\n",
+		EFFe_ScreenName(s_screen),
+		s_cursor,
+		ui.Key_GetCatcher());
 #endif
 }
 
@@ -1888,6 +1902,10 @@ static void EFFe_HandleMainKey(int key)
 		{
 #ifdef _XBOX
 			XBLF("STEFX: EF frontend command label='%s' command='%s'", EFFe_ButtonText(&s_buttons[s_cursor], 0), s_buttons[s_cursor].commandName);
+			ui.Printf("STEFX_MENU_MAIN_ACCEPT cursor=%d label='%s' command='%s'\n",
+				s_cursor,
+				EFFe_ButtonText(&s_buttons[s_cursor], 0),
+				s_buttons[s_cursor].commandName ? s_buttons[s_cursor].commandName : "");
 #endif
 			EFFe_ActivateButton(&s_buttons[s_cursor]);
 		}
@@ -1927,6 +1945,12 @@ static void EFFe_HandleNewGameKey(int key)
 	{
 		return;
 	}
+
+#ifdef _XBOX
+	ui.Printf("STEFX_MENU_NEWGAME_ACCEPT cursor=%d item='%s'\n",
+		s_cursor,
+		(s_cursor >= 0 && s_cursor < EF_FRONTEND_NEWGAME_COUNT) ? s_newgameItems[s_cursor] : "<bad>");
+#endif
 
 	if (s_cursor <= 3)
 	{
@@ -2053,6 +2077,122 @@ static void EFFe_HandleControllerKey(int key)
 	}
 }
 
+static void EFFe_RunMenuSmoke(int realtime)
+{
+#ifdef _XBOX
+	char target[32];
+	int desiredCursor;
+
+	ui.Cvar_VariableStringBuffer("stefx_menu_smoke", target, sizeof(target));
+	if (!target[0] || !Q_stricmp(target, "0"))
+	{
+		s_menuSmokeStage = 0;
+		s_menuSmokeTarget[0] = '\0';
+		return;
+	}
+
+	if (Q_stricmp(target, "tutorial") && Q_stricmp(target, "engage"))
+	{
+		ui.Printf("STEFX_MENU_SMOKE invalid target='%s'\n", target);
+		ui.Cvar_Set("stefx_menu_smoke", "0");
+		s_menuSmokeStage = 0;
+		s_menuSmokeTarget[0] = '\0';
+		return;
+	}
+
+	if (!s_menuSmokeStage || Q_stricmp(target, s_menuSmokeTarget))
+	{
+		Q_strncpyz(s_menuSmokeTarget, target, sizeof(s_menuSmokeTarget));
+		s_menuSmokeStage = 1;
+		s_menuSmokeNextRealtime = realtime + 500;
+		desiredCursor = !Q_stricmp(target, "tutorial") ? 6 : 7;
+		s_menuSmokeDownRemaining = desiredCursor;
+		ui.Printf("STEFX_MENU_SMOKE begin target='%s' desiredCursor=%d screen='%s' cursor=%d realtime=%d\n",
+			s_menuSmokeTarget,
+			desiredCursor,
+			EFFe_ScreenName(s_screen),
+			s_cursor,
+			realtime);
+		return;
+	}
+
+	if (realtime < s_menuSmokeNextRealtime)
+	{
+		return;
+	}
+
+	if (s_menuSmokeStage == 1)
+	{
+		if (s_screen != EF_SCREEN_MAIN)
+		{
+			ui.Printf("STEFX_MENU_SMOKE wait-main screen='%s' cursor=%d realtime=%d\n",
+				EFFe_ScreenName(s_screen),
+				s_cursor,
+				realtime);
+			s_menuSmokeNextRealtime = realtime + 250;
+			return;
+		}
+		ui.Printf("STEFX_MENU_SMOKE main-accept cursor=%d realtime=%d\n", s_cursor, realtime);
+		EFFe_HandleMainKey(A_ENTER);
+		s_menuSmokeStage = 2;
+		s_menuSmokeNextRealtime = realtime + 500;
+		return;
+	}
+
+	if (s_menuSmokeStage == 2)
+	{
+		if (s_screen != EF_SCREEN_NEWGAME)
+		{
+			ui.Printf("STEFX_MENU_SMOKE wait-newgame screen='%s' cursor=%d realtime=%d\n",
+				EFFe_ScreenName(s_screen),
+				s_cursor,
+				realtime);
+			s_menuSmokeNextRealtime = realtime + 250;
+			return;
+		}
+		if (s_menuSmokeDownRemaining > 0)
+		{
+			ui.Printf("STEFX_MENU_SMOKE newgame-down remainingBefore=%d cursor=%d realtime=%d\n",
+				s_menuSmokeDownRemaining,
+				s_cursor,
+				realtime);
+			EFFe_HandleNewGameKey(A_CURSOR_DOWN);
+			s_menuSmokeDownRemaining--;
+			s_menuSmokeNextRealtime = realtime + 160;
+			return;
+		}
+		s_menuSmokeStage = 3;
+		s_menuSmokeNextRealtime = realtime + 250;
+		return;
+	}
+
+	if (s_menuSmokeStage == 3)
+	{
+		if (s_screen != EF_SCREEN_NEWGAME)
+		{
+			ui.Printf("STEFX_MENU_SMOKE abort-before-accept screen='%s' cursor=%d realtime=%d\n",
+				EFFe_ScreenName(s_screen),
+				s_cursor,
+				realtime);
+			ui.Cvar_Set("stefx_menu_smoke", "0");
+			s_menuSmokeStage = 0;
+			return;
+		}
+		ui.Printf("STEFX_MENU_SMOKE newgame-accept target='%s' cursor=%d item='%s' realtime=%d\n",
+			s_menuSmokeTarget,
+			s_cursor,
+			(s_cursor >= 0 && s_cursor < EF_FRONTEND_NEWGAME_COUNT) ? s_newgameItems[s_cursor] : "<bad>",
+			realtime);
+		EFFe_HandleNewGameKey(A_ENTER);
+		ui.Cvar_Set("stefx_menu_smoke", "0");
+		s_menuSmokeStage = 0;
+		s_menuSmokeTarget[0] = '\0';
+	}
+#else
+	(void)realtime;
+#endif
+}
+
 qboolean UI_EFMainMenu_IsActive(void)
 {
 	return s_active;
@@ -2149,6 +2289,7 @@ void UI_EFMainMenu_Draw(int realtime)
 #endif
 		s_loggedDraw = qtrue;
 	}
+	EFFe_RunMenuSmoke(realtime);
 	++s_drawFrames;
 	if ((s_drawFrames % 300) == 0)
 	{
@@ -2165,6 +2306,14 @@ void UI_EFMainMenu_KeyEvent(int key, qboolean down)
 	{
 		return;
 	}
+
+#ifdef _XBOX
+	ui.Printf("STEFX_MENU_KEY screen='%s' key=%d cursorBefore=%d catcher=0x%x\n",
+		EFFe_ScreenName(s_screen),
+		key,
+		s_cursor,
+		ui.Key_GetCatcher());
+#endif
 
 	switch (s_screen)
 	{
@@ -2201,4 +2350,13 @@ void UI_EFMainMenu_KeyEvent(int key, qboolean down)
 	default:
 		break;
 	}
+
+#ifdef _XBOX
+	ui.Printf("STEFX_MENU_KEY_DONE screen='%s' key=%d cursorAfter=%d catcher=0x%x active=%d\n",
+		EFFe_ScreenName(s_screen),
+		key,
+		s_cursor,
+		ui.Key_GetCatcher(),
+		s_active ? 1 : 0);
+#endif
 }
