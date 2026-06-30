@@ -980,6 +980,9 @@ void R_Images_Clear(void)
 	glw_state->textureBindNum = 1;
 
 	gTextures.Reset();
+#ifdef _XBOX
+	FakeGL_ResetRegisteredTextureBudget();
+#endif
 /*
 	extern unsigned long texturePoint;
 	texturePoint = 0;

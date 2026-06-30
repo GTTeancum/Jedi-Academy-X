@@ -116,6 +116,9 @@ const GLubyte *glGetString(GLenum name);
 
 /* fakegl-specific. */
 void FakeSwapBuffers(void);
+#ifdef _XBOX
+void FakeGL_ResetRegisteredTextureBudget(void);
+#endif
 
 #ifdef __cplusplus
 }

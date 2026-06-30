@@ -121,6 +121,21 @@ extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
 
+extern "C" void FakeGL_ResetRegisteredTextureBudget(void)
+{
+	if (g_fakeglRegisteredTextureCount || g_fakeglRegisteredTextureBytes || g_fakeglRegisteredTextureDenied)
+	{
+		XBLF("JA: fakegl registered texture budget reset count=%u regKB=%u denied=%u",
+			(unsigned int)g_fakeglRegisteredTextureCount,
+			(unsigned int)(g_fakeglRegisteredTextureBytes / 1024),
+			(unsigned int)g_fakeglRegisteredTextureDenied);
+	}
+
+	g_fakeglRegisteredTextureCount = 0;
+	g_fakeglRegisteredTextureBytes = 0;
+	g_fakeglRegisteredTextureDenied = 0;
+}
+
 static void FakeGL_WriteLe16(BYTE *dst, WORD value)
 {
 	dst[0] = (BYTE)(value & 0xff);
