@@ -46,6 +46,13 @@ static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
 static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
 
+#define XBL_DISK_LOG_SOFT_LIMIT (4u * 1024u * 1024u)
+#define XBL_DISK_LOG_HARD_LIMIT (5u * 1024u * 1024u)
+static unsigned int g_logDiskBytes = 0;
+static unsigned int g_mirrorLogDiskBytes = 0;
+static int g_logDiskLimitAnnounced = 0;
+static int g_mirrorLogDiskLimitAnnounced = 0;
+
 extern "C" {
 __declspec(dllexport) volatile unsigned int g_SPXBLogMagic = 0x53504A41; /* 'SPJA' */
 __declspec(dllexport) volatile unsigned int g_SPXBBootPhase = 0x11110001;
@@ -351,7 +358,15 @@ static int xbl_ShouldDropVerbose(const char *msg)
             strstr(msg, "Received Exception") ||
             strstr(msg, "EIP") ||
             strstr(msg, "Z_Malloc():") ||
-            strstr(msg, "texture allocation failures")) {
+            strstr(msg, "texture allocation failures") ||
+            strstr(msg, "XBLog disk cap") ||
+            strstr(msg, "S_LoadSound guard") ||
+            strstr(msg, "S_CancelLoadSound") ||
+            strstr(msg, "SND_DetachSFXFromChannels") ||
+            strstr(msg, "SND_RegisterAudio_LevelLoadEnd") ||
+            strstr(msg, "RE_RegisterModels_LevelLoadEnd") ||
+            strstr(msg, "RE_RegisterImages_LevelLoadEnd") ||
+            strstr(msg, "Sys_Stream")) {
             return 0;
         }
         return 1;
@@ -494,7 +509,15 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "Received Exception") ||
         strstr(fmt, "EIP") ||
         strstr(fmt, "Z_Malloc():") ||
-        strstr(fmt, "texture allocation failures");
+        strstr(fmt, "texture allocation failures") ||
+        strstr(fmt, "XBLog disk cap") ||
+        strstr(fmt, "S_LoadSound guard") ||
+        strstr(fmt, "S_CancelLoadSound") ||
+        strstr(fmt, "SND_DetachSFXFromChannels") ||
+        strstr(fmt, "SND_RegisterAudio_LevelLoadEnd") ||
+        strstr(fmt, "RE_RegisterModels_LevelLoadEnd") ||
+        strstr(fmt, "RE_RegisterImages_LevelLoadEnd") ||
+        strstr(fmt, "Sys_Stream");
 }
 
 static int xbl_FileExists(const char *path)
@@ -547,6 +570,36 @@ static int xbl_ShouldFlushWrite(const char *msg)
     return 0;
 }
 
+static int xbl_PrepareDiskWrite(const char **msg, DWORD *len, unsigned int *bytes,
+    int *limitAnnounced, int critical)
+{
+    static const char limitMsg[] = "JA: XBLog disk cap reached; continuing in memory mirror only\n";
+
+    if (!msg || !*msg || !len || !bytes || !limitAnnounced) return 0;
+
+    if (*bytes + *len <= XBL_DISK_LOG_SOFT_LIMIT) {
+        *bytes += *len;
+        return 1;
+    }
+
+    if (critical && *bytes + *len <= XBL_DISK_LOG_HARD_LIMIT) {
+        *bytes += *len;
+        return 1;
+    }
+
+    if (!*limitAnnounced) {
+        *msg = limitMsg;
+        *len = sizeof(limitMsg) - 1;
+        *limitAnnounced = 1;
+        if (*bytes + *len <= XBL_DISK_LOG_HARD_LIMIT) {
+            *bytes += *len;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 void XBLog_Init(void)
 {
     int  i;
@@ -559,6 +612,10 @@ void XBLog_Init(void)
     g_hMirrorLogFile = INVALID_HANDLE_VALUE;
     g_mirrorLogPath = NULL;
     g_verboseLog = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 1 : 0;
+    g_logDiskBytes = 0;
+    g_mirrorLogDiskBytes = 0;
+    g_logDiskLimitAnnounced = 0;
+    g_mirrorLogDiskLimitAnnounced = 0;
     g_SPXBLogMirrorPos = 0;
     g_SPXBLogWriteCount = 0;
     g_SPXBHeartbeatCount = 0;
@@ -756,9 +813,9 @@ void XBLog_Init(void)
     g_SPXBBootPhase = 0x33;
     /*
      * Strategy 1: NtCreateFile to raw device paths (retail hw + CXBX-R).
-     * Use FILE_OPEN_IF (3) + FILE_APPEND_DATA so we append to the file that
-     * XBLog_PreCRTProbe already created, preserving the "precrt_ok" line.
-     * Falls back to FILE_OVERWRITE_IF if the file doesn't exist yet.
+     * E: appends to the file XBLog_PreCRTProbe already created, preserving
+     * the "precrt_ok" line. F:/G: are fallback-only and start fresh so a
+     * long run cannot keep appending to an old fallback log forever.
      */
     {
         static const char *ntPaths[] = {
@@ -778,24 +835,26 @@ void XBLog_Init(void)
             oa.RootDirectory   = NULL;
             oa.ObjectName      = &name;
             oa.Attributes      = 0x40;
-            /* FILE_APPEND_DATA | SYNCHRONIZE, FILE_OPEN_IF (3) = open existing or create */
+            const unsigned long createDisposition = (i == 0) ? 3 : 5;
+            /* E: FILE_OPEN_IF, fallback drives: FILE_OVERWRITE_IF. */
             status = NtCreateFile(&g_hLogFile,
                 0x04 | 0x00100000,   /* FILE_APPEND_DATA | SYNCHRONIZE */
                 &oa, &iosb, NULL,
                 FILE_ATTRIBUTE_NORMAL, 0,
-                3,                   /* FILE_OPEN_IF */
+                createDisposition,
                 0x20 | 0x02 | 0x40);
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
                 g_SPXBBootPhase = 0x35;
                 XBL("=== Jedi Academy Xbox SP log ===\n");
+                XBL("JA: XBLog disk cap soft=4194304 hard=5242880\n");
                 return;
             }
         }
     }
 
-    /* Strategy 2: CreateFileA with drive letters — append if exists, create if not */
+    /* Strategy 2: CreateFileA with drive letters. Start fresh on fallback paths. */
     g_SPXBBootPhase = 0x36;
     {
         static const char *caPaths[] = {
@@ -808,14 +867,15 @@ void XBLog_Init(void)
         for (i = 0; caPaths[i]; ++i) {
             g_SPXBBootPhase = 0x370 + (unsigned int)i;
             g_hLogFile = CreateFileA(caPaths[i], FILE_APPEND_DATA, FILE_SHARE_READ,
-                NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
+                NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH, NULL);
             if (g_hLogFile != INVALID_HANDLE_VALUE) {
-                /* Seek to end so we append after the precrt line */
+                /* FILE_APPEND_DATA keeps writes at EOF even for a fresh file. */
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
                 g_logIsNt = 0;
                 g_logPath = caPaths[i];
                 g_SPXBBootPhase = 0x38;
                 XBL("=== Jedi Academy Xbox SP log ===\n");
+                XBL("JA: XBLog disk cap soft=4194304 hard=5242880\n");
                 return;
             }
         }
@@ -851,19 +911,34 @@ void XBLog_Print(const char *msg)
     xbl_MirrorWrite(msg, len);
     const int forceFlush = xbl_ShouldFlushWrite(msg);
     if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        const char *diskMsg = msg;
+        DWORD diskLen = len;
         DWORD written;
-        WriteFile(g_hMirrorLogFile, msg, len, &written, NULL);
-        if (forceFlush) xbl_FlushHandle(g_hMirrorLogFile, 0);
+        if (xbl_PrepareDiskWrite(&diskMsg, &diskLen, &g_mirrorLogDiskBytes,
+            &g_mirrorLogDiskLimitAnnounced, forceFlush)) {
+            WriteFile(g_hMirrorLogFile, diskMsg, diskLen, &written, NULL);
+            if (forceFlush) xbl_FlushHandle(g_hMirrorLogFile, 0);
+        }
     }
     if (g_hLogFile == INVALID_HANDLE_VALUE) return;
     if (g_logIsNt) {
+        const char *diskMsg = msg;
+        DWORD diskLen = len;
         XBL_IOSB iosb;
-        NtWriteFile(g_hLogFile, NULL, NULL, NULL, &iosb, (void*)msg, len, NULL);
-        if (forceFlush) xbl_FlushHandle(g_hLogFile, 1);
+        if (xbl_PrepareDiskWrite(&diskMsg, &diskLen, &g_logDiskBytes,
+            &g_logDiskLimitAnnounced, forceFlush)) {
+            NtWriteFile(g_hLogFile, NULL, NULL, NULL, &iosb, (void*)diskMsg, diskLen, NULL);
+            if (forceFlush) xbl_FlushHandle(g_hLogFile, 1);
+        }
     } else {
+        const char *diskMsg = msg;
+        DWORD diskLen = len;
         DWORD written;
-        WriteFile(g_hLogFile, msg, len, &written, NULL);
-        if (forceFlush) xbl_FlushHandle(g_hLogFile, 0);
+        if (xbl_PrepareDiskWrite(&diskMsg, &diskLen, &g_logDiskBytes,
+            &g_logDiskLimitAnnounced, forceFlush)) {
+            WriteFile(g_hLogFile, diskMsg, diskLen, &written, NULL);
+            if (forceFlush) xbl_FlushHandle(g_hLogFile, 0);
+        }
     }
 }
 
