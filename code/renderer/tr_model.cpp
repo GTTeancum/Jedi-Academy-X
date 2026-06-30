@@ -365,6 +365,61 @@ static int GetModelDataAllocSize(void)
 			Z_MemSize( TAG_MODEL_GLM) +
 			Z_MemSize( TAG_MODEL_GLA);
 }
+
+static int GetCachedModelDataAllocSize(int *heapBytes, int *zoneBytes, int *modelCount)
+{
+	int totalBytes = 0;
+
+	if (heapBytes)
+	{
+		*heapBytes = 0;
+	}
+	if (zoneBytes)
+	{
+		*zoneBytes = 0;
+	}
+	if (modelCount)
+	{
+		*modelCount = 0;
+	}
+	if (!CachedModels)
+	{
+		return 0;
+	}
+
+	for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end(); ++itModel)
+	{
+		CachedEndianedModelBinary_t &cachedModel = (*itModel).second;
+		if (!cachedModel.pModelDiskImage || cachedModel.iAllocSize <= 0)
+		{
+			continue;
+		}
+
+		totalBytes += cachedModel.iAllocSize;
+		if (modelCount)
+		{
+			++(*modelCount);
+		}
+#ifdef _XBOX
+		if (cachedModel.bHeapAllocated)
+		{
+			if (heapBytes)
+			{
+				*heapBytes += cachedModel.iAllocSize;
+			}
+		}
+		else
+#endif
+		{
+			if (zoneBytes)
+			{
+				*zoneBytes += cachedModel.iAllocSize;
+			}
+		}
+	}
+
+	return totalBytes;
+}
 extern cvar_t *r_modelpoolmegs;
 //
 // return qtrue if at least one cached model was freed (which tells z_malloc()-fail recovery code to try again)
@@ -380,15 +435,24 @@ qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 	}
 	else
 	{
-		int iLoadedModelBytes	=	GetModelDataAllocSize();
+		int iHeapModelBytes = 0;
+		int iZoneCachedModelBytes = 0;
+		int iCachedModelCount = 0;
+		int iLoadedModelBytes	=	GetCachedModelDataAllocSize(&iHeapModelBytes, &iZoneCachedModelBytes, &iCachedModelCount);
 		const int iMaxModelBytes=	r_modelpoolmegs->integer * 1024 * 1024;
 
 		qboolean bEraseOccured = qfalse;
+		int iFreedModelBytes = 0;
+		int iFreedModelCount = 0;
+#ifdef _XBOX
+		const int iZoneTaggedModelBytes = GetModelDataAllocSize();
+#endif
 		for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end() && ( bDeleteEverythingNotUsedThisLevel || iLoadedModelBytes > iMaxModelBytes ); bEraseOccured?itModel:++itModel)
 		{			
 			bEraseOccured = qfalse;
 
 			CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
+			const int iCachedAllocSize = CachedModel.iAllocSize;
 
 			qboolean bDeleteThis = qfalse;
 
@@ -419,14 +483,32 @@ qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 #endif
 					//CachedModel.pModelDiskImage = NULL;	// REM for reference, erase() call below negates the need for it.
 					bAtLeastoneModelFreed = qtrue;
+					iFreedModelBytes += iCachedAllocSize;
+					++iFreedModelCount;
 				}
 
 				itModel = CachedModels->erase(itModel);
 				bEraseOccured = qtrue;
 
-				iLoadedModelBytes = GetModelDataAllocSize();				
+				iLoadedModelBytes = GetCachedModelDataAllocSize(&iHeapModelBytes, &iZoneCachedModelBytes, &iCachedModelCount);
 			}
 		}
+#ifdef _XBOX
+		if (iFreedModelCount > 0 || iLoadedModelBytes > iMaxModelBytes)
+		{
+			XBLF("STEFX: model cache level-end level=%d cached=%d heap=%d zoneCache=%d zoneTagged=%d cap=%d freed=%d freedBytes=%d force=%d overBudget=%d",
+				RE_RegisterMedia_GetLevel(),
+				iLoadedModelBytes,
+				iHeapModelBytes,
+				iZoneCachedModelBytes,
+				iZoneTaggedModelBytes,
+				iMaxModelBytes,
+				iFreedModelCount,
+				iFreedModelBytes,
+				bDeleteEverythingNotUsedThisLevel ? 1 : 0,
+				iLoadedModelBytes > iMaxModelBytes ? 1 : 0);
+		}
+#endif
 	}
 
 	//VID_Printf( PRINT_DEVELOPER, "RE_RegisterModels_LevelLoadEnd(): Ok\n");	
