@@ -1546,6 +1546,24 @@ public:
 		bool bCinematic = strstr( mdxa->name, "_humanoid_" );
 		int clientIndex = bCinematic ? 1 : 0;
 
+		if ( clients[clientIndex] )
+		{
+#ifdef _XBOX
+			XBLF("JA: TheBonePool.Register replacing client=%d name='%s'\n", clientIndex, mdxa->name);
+#endif
+			for( int i = 0; i < PAGES_IN_RAM; ++i )
+			{
+				if( pages[i].owner &&
+					pages[i].owner >= clients[clientIndex]->pages &&
+					pages[i].owner < clients[clientIndex]->pages + clients[clientIndex]->numPages )
+				{
+					pages[i].owner = NULL;
+				}
+			}
+			delete clients[clientIndex];
+			clients[clientIndex] = NULL;
+		}
+
 		Z_PushNewDeleteTag( TAG_MODEL_GLA );
 		clients[clientIndex] = new vvBonePoolClient( mdxa, bCinematic );
 		Z_PopNewDeleteTag();
