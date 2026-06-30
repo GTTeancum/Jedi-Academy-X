@@ -51,6 +51,7 @@ extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern void FS_STEFX_PrecacheFile(const char *qpath);
+extern void FS_STEFX_ClearPrecache(const char *reason);
 #endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static int CL_STEFX_ActiveCommandServerTime(void)
@@ -2048,8 +2049,8 @@ This is the only place that any of these functions are called from
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static void CL_STEFX_PrecacheBorg1VerticalSliceFiles(void)
 {
-	static qboolean s_borg1_done = qfalse;
-	static qboolean s_dn1_done = qfalse;
+	static char s_precacheMapName[MAX_QPATH] = { 0 };
+	static qboolean s_precacheCheckedForMap = qfalse;
 	const char *mapName = cl_mapname ? cl_mapname->string : "";
 	static const char *dn1Files[] =
 	{
@@ -2279,42 +2280,47 @@ static void CL_STEFX_PrecacheBorg1VerticalSliceFiles(void)
 		NULL
 	};
 	int i;
+	const char *label = NULL;
+	const char * const *precacheFiles = NULL;
+
+	if (Q_stricmp(s_precacheMapName, mapName))
+	{
+		XBLF("STEFX: vertical slice file precache map change old='%s' new='%s'",
+			s_precacheMapName[0] ? s_precacheMapName : "(none)",
+			mapName && mapName[0] ? mapName : "(none)");
+		FS_STEFX_ClearPrecache("map change");
+		Q_strncpyz(s_precacheMapName, mapName, sizeof(s_precacheMapName));
+		s_precacheCheckedForMap = qfalse;
+	}
+
+	if (s_precacheCheckedForMap)
+	{
+		return;
+	}
+	s_precacheCheckedForMap = qtrue;
 
 	if (!Q_stricmp(mapName, "dn1"))
 	{
-		if (s_dn1_done)
-		{
-			return;
-		}
-		s_dn1_done = qtrue;
-
-		XBLog_Write("STEFX: dn1 vertical slice file precache begin");
-		for (i = 0; dn1Files[i]; ++i)
-		{
-			FS_STEFX_PrecacheFile(dn1Files[i]);
-		}
-		XBLog_Write("STEFX: dn1 vertical slice file precache done");
-		return;
+		label = "dn1";
+		precacheFiles = dn1Files;
 	}
-
-	if (Q_stricmp(mapName, "borg1"))
+	else if (!Q_stricmp(mapName, "borg1"))
+	{
+		label = "borg1";
+		precacheFiles = files;
+	}
+	else
 	{
 		XBLF("STEFX: vertical slice file precache skipped map='%s'", mapName);
 		return;
 	}
 
-	if (s_borg1_done)
+	XBLog_Write(va("STEFX: %s vertical slice file precache begin", label));
+	for (i = 0; precacheFiles[i]; ++i)
 	{
-		return;
+		FS_STEFX_PrecacheFile(precacheFiles[i]);
 	}
-	s_borg1_done = qtrue;
-
-	XBLog_Write("STEFX: borg1 vertical slice file precache begin");
-	for (i = 0; files[i]; ++i)
-	{
-		FS_STEFX_PrecacheFile(files[i]);
-	}
-	XBLog_Write("STEFX: borg1 vertical slice file precache done");
+	XBLog_Write(va("STEFX: %s vertical slice file precache done", label));
 }
 #endif
 

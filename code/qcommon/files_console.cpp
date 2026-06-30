@@ -56,6 +56,7 @@ static qboolean STEFX_ShouldTryStdioWholeFileRead(const char *filename)
 }
 
 #define STEFX_PRECACHE_FILES_MAX 128
+#define STEFX_PRECACHE_BYTES_MAX (16 * 1024 * 1024)
 
 typedef struct stefxPrecacheFile_s
 {
@@ -66,6 +67,7 @@ typedef struct stefxPrecacheFile_s
 
 static stefxPrecacheFile_t s_stefxPrecacheFiles[STEFX_PRECACHE_FILES_MAX];
 static int s_stefxPrecacheFileCount = 0;
+static int s_stefxPrecacheBytes = 0;
 
 static memtag_t STEFX_WholeFileTag(const char *qpath)
 {
@@ -166,7 +168,8 @@ void FS_STEFX_PrecacheFile(const char *qpath)
 
 	if (s_stefxPrecacheFileCount >= STEFX_PRECACHE_FILES_MAX)
 	{
-		XBLog_Write(va("STEFX: FS precache full, skipping '%s'", qpath));
+		XBLog_Write(va("STEFX: FS precache file cap full, skipping '%s' count=%d/%d bytes=%d",
+			qpath, s_stefxPrecacheFileCount, STEFX_PRECACHE_FILES_MAX, s_stefxPrecacheBytes));
 		return;
 	}
 
@@ -178,6 +181,14 @@ void FS_STEFX_PrecacheFile(const char *qpath)
 			FS_FCloseFile(h);
 		}
 		XBLog_Write(va("STEFX: FS precache miss '%s' len=%d handle=%d", qpath, len, h));
+		return;
+	}
+
+	if (len > STEFX_PRECACHE_BYTES_MAX - s_stefxPrecacheBytes)
+	{
+		FS_FCloseFile(h);
+		XBLog_Write(va("STEFX: FS precache byte cap full, skipping '%s' len=%d bytes=%d/%d",
+			qpath, len, s_stefxPrecacheBytes, STEFX_PRECACHE_BYTES_MAX));
 		return;
 	}
 
@@ -196,9 +207,38 @@ void FS_STEFX_PrecacheFile(const char *qpath)
 	s_stefxPrecacheFiles[s_stefxPrecacheFileCount].data = buf;
 	s_stefxPrecacheFiles[s_stefxPrecacheFileCount].len = len;
 	++s_stefxPrecacheFileCount;
+	s_stefxPrecacheBytes += len;
 
-	XBLog_Write(va("STEFX: FS precache ok '%s' len=%d count=%d/%d",
-		qpath, len, s_stefxPrecacheFileCount, STEFX_PRECACHE_FILES_MAX));
+	XBLog_Write(va("STEFX: FS precache ok '%s' len=%d count=%d/%d bytes=%d/%d",
+		qpath, len, s_stefxPrecacheFileCount, STEFX_PRECACHE_FILES_MAX,
+		s_stefxPrecacheBytes, STEFX_PRECACHE_BYTES_MAX));
+}
+
+void FS_STEFX_ClearPrecache(const char *reason)
+{
+	int i;
+	int oldCount = s_stefxPrecacheFileCount;
+	int oldBytes = s_stefxPrecacheBytes;
+
+	for (i = 0; i < s_stefxPrecacheFileCount; ++i)
+	{
+		if (s_stefxPrecacheFiles[i].data)
+		{
+			Z_Free(s_stefxPrecacheFiles[i].data);
+		}
+		s_stefxPrecacheFiles[i].name[0] = '\0';
+		s_stefxPrecacheFiles[i].data = NULL;
+		s_stefxPrecacheFiles[i].len = 0;
+	}
+
+	s_stefxPrecacheFileCount = 0;
+	s_stefxPrecacheBytes = 0;
+
+	if (oldCount || oldBytes)
+	{
+		XBLog_Write(va("STEFX: FS precache clear reason='%s' count=%d bytes=%d",
+			reason ? reason : "(none)", oldCount, oldBytes));
+	}
 }
 
 static int STEFX_ReadLooseFileWithStdio(const char *filename, void **buffer)
