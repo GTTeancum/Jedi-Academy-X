@@ -19,6 +19,8 @@ static	cvar_t		*fs_openorder;
 #if defined(STEFX_ELITE_FORCE_SP)
 #define MAX_FILEHASH_SIZE 1024
 #define MAX_PAKFILES 1024
+#define STEFX_ZIP_SEEK_SCRATCH_SIZE (8 * 1024)
+static byte s_stefxZipSeekScratch[STEFX_ZIP_SEEK_SCRATCH_SIZE];
 #endif
 
 // Zlib Tech Ref says decompression should use about 44kb.  I'll
@@ -1428,6 +1430,117 @@ FS_Seek
 
 =================
 */
+#if defined(STEFX_ELITE_FORCE_SP)
+static qboolean FS_ResetZipCurrentFile(fileHandle_t f)
+{
+	unzCloseCurrentFile(fsh[f].handleFiles.file.z);
+
+	if (unzSetCurrentFileInfoPosition(fsh[f].handleFiles.file.z, fsh[f].zipFilePos) != UNZ_OK)
+	{
+#if defined(_XBOX)
+		XBLog_Write(va("STEFX: FS PK3 seek reset position failed file='%s'", fsh[f].name));
+#endif
+		return qfalse;
+	}
+
+	if (unzOpenCurrentFile(fsh[f].handleFiles.file.z) != UNZ_OK)
+	{
+#if defined(_XBOX)
+		XBLog_Write(va("STEFX: FS PK3 seek reopen failed file='%s'", fsh[f].name));
+#endif
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static int FS_DiscardZipBytes(fileHandle_t f, int bytesToDiscard)
+{
+	int skipped = 0;
+
+	while (bytesToDiscard > 0)
+	{
+		const int block = bytesToDiscard > STEFX_ZIP_SEEK_SCRATCH_SIZE ? STEFX_ZIP_SEEK_SCRATCH_SIZE : bytesToDiscard;
+		const int read = FS_Read(s_stefxZipSeekScratch, block, f);
+
+		if (read <= 0)
+		{
+#if defined(_XBOX)
+			XBLog_Write(va("STEFX: FS PK3 seek discard failed file='%s' wanted=%d skipped=%d read=%d",
+				fsh[f].name, bytesToDiscard, skipped, read));
+#endif
+			return -1;
+		}
+
+		skipped += read;
+		bytesToDiscard -= read;
+	}
+
+	return skipped;
+}
+
+static int FS_SeekZipFile(fileHandle_t f, long offset, int origin)
+{
+	const int current = unztell(fsh[f].handleFiles.file.z);
+	int target;
+
+	if (origin == FS_SEEK_CUR && current < 0)
+	{
+#if defined(_XBOX)
+		XBLog_Write(va("STEFX: FS PK3 seek tell failed file='%s' offset=%ld", fsh[f].name, offset));
+#endif
+		return -1;
+	}
+
+	switch (origin)
+	{
+	case FS_SEEK_SET:
+		target = offset;
+		break;
+	case FS_SEEK_CUR:
+		target = current + offset;
+		break;
+	case FS_SEEK_END:
+		target = fsh[f].fileSize + offset;
+		break;
+	default:
+		Com_Error(ERR_FATAL, "Bad origin in FS_Seek\n");
+		return -1;
+	}
+
+	if (target < 0 || target > fsh[f].fileSize)
+	{
+#if defined(_XBOX)
+		XBLog_Write(va("STEFX: FS PK3 seek out of range file='%s' offset=%ld origin=%d current=%d size=%d target=%d",
+			fsh[f].name, offset, origin, current, fsh[f].fileSize, target));
+#endif
+		return -1;
+	}
+
+	if (target < current || origin == FS_SEEK_SET || origin == FS_SEEK_END)
+	{
+		if (!FS_ResetZipCurrentFile(f))
+		{
+			return -1;
+		}
+
+		if (target == 0)
+		{
+			return 0;
+		}
+
+		return FS_DiscardZipBytes(f, target) < 0 ? -1 : target;
+	}
+
+	if (target == current)
+	{
+		return current;
+	}
+
+	return FS_DiscardZipBytes(f, target - current) < 0 ? -1 : target;
+}
+#endif
+
 int FS_Seek( fileHandle_t f, long offset, int origin )
 {
 	FS_CheckInit();
@@ -1436,23 +1549,7 @@ int FS_Seek( fileHandle_t f, long offset, int origin )
 #if defined(STEFX_ELITE_FORCE_SP)
 	if (fsh[f].zipFile)
 	{
-		char foo[65536];
-		if (offset == 0 && origin == FS_SEEK_SET)
-		{
-			unzSetCurrentFileInfoPosition(fsh[f].handleFiles.file.z, fsh[f].zipFilePos);
-			return unzOpenCurrentFile(fsh[f].handleFiles.file.z);
-		}
-		else if (offset < 65536)
-		{
-			unzSetCurrentFileInfoPosition(fsh[f].handleFiles.file.z, fsh[f].zipFilePos);
-			unzOpenCurrentFile(fsh[f].handleFiles.file.z);
-			return FS_Read(foo, offset, f);
-		}
-		else
-		{
-			Com_Error( ERR_FATAL, "PK3 FILE FSEEK NOT YET IMPLEMENTED for big offsets(%s)\n", fsh[f].name );
-			return -1;
-		}
+		return FS_SeekZipFile(f, offset, origin);
 	}
 	else
 	{
