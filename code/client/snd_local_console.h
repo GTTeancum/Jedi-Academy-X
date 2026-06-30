@@ -66,6 +66,7 @@ typedef struct sfx_s {
 	int 			iSoundLength;			// length in bytes
 	int				iSoundDurationMs;		// decoded playback duration, used when AL stop state is unreliable
 	int				iLastTimeUsed;			// last time sound was played in ms
+	short			iLastLevelUsedOn;		// used for cacheing purposes
 	unsigned int				iFileCode;				// CRC of the file name
 	streamHandle_t	iStreamHandle;			// handle to the sound file when reading
 	void*			pSoundData;				// buffer to hold sound as we are loading it

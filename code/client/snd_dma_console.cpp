@@ -55,6 +55,7 @@ static void S_UnCacheDynamicMusic( void );
 
 extern int Sys_GetFileCodeSize(int code);
 extern unsigned int Sys_GetSoundFileCode(const char* name);
+extern int RE_RegisterMedia_GetLevel(void);
 
 extern void Sys_StreamInit(void);
 extern void Sys_StreamShutdown(void);
@@ -4092,14 +4093,26 @@ void S_AvertMusicDisaster(void)
 
 int SND_GetMemoryUsed(void)
 {
-	ALint used;
+	ALint used = 0;
 	alGeti(AL_MEMORY_USED, &used);
 	return used;
 }
 
+static int SND_GetSoundPoolLimitBytes(void)
+{
+	int megs = s_soundpoolmegs ? s_soundpoolmegs->integer : 6;
+
+	if (megs <= 0)
+	{
+		megs = 6;
+	}
+
+	return megs * 1024 * 1024;
+}
+
 void SND_update(sfx_t *sfx) 
 {
-	while ( SND_GetMemoryUsed() > (3 * 1024 * 1024))	// s_soundpoolmegs
+	while ( SND_GetMemoryUsed() > SND_GetSoundPoolLimitBytes())
 	{
 		int iBytesFreed = SND_FreeOldestSound(sfx);
 		if (iBytesFreed == 0)
@@ -4143,8 +4156,21 @@ void S_DisplayFreeMemory()
 void SND_TouchSFX(sfx_t *sfx)
 {
 	sfx->iLastTimeUsed		= Com_Milliseconds()+1;
+	sfx->iLastLevelUsedOn	= (short)RE_RegisterMedia_GetLevel();
 }
 
+static qboolean SND_SFXInUseByChannel(sfx_t *sfx)
+{
+	for (int iChannel = 0; iChannel < s_numChannels; iChannel++)
+	{
+		if (s_channels[iChannel].thesfx == sfx)
+		{
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
 
 // currently this is only called during snd_shutdown or snd_restart
 //
@@ -4280,7 +4306,91 @@ qboolean SND_RegisterAudio_Clean(void)
 
 qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel /* 99% qfalse */)
 {
-        return qfalse;
+	if ( !s_soundStarted ) {
+		return qfalse;
+	}
+
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		return qfalse;
+	}
+#endif
+
+	qboolean bAtLeastOneSoundDropped = qfalse;
+	int iLoadedAudioBytes = SND_GetMemoryUsed();
+	const int iMaxAudioBytes = SND_GetSoundPoolLimitBytes();
+	const int iCurrentLevel = RE_RegisterMedia_GetLevel();
+	int iFreedSounds = 0;
+	int iFreedBytes = 0;
+	int iSkippedChannels = 0;
+
+	Com_DPrintf( "SND_RegisterAudio_LevelLoadEnd():\n");
+
+	extern void S_DrainRawSoundData(void);
+	S_DrainRawSoundData();
+
+	for (int i = 0; i < MAX_SFX && (iLoadedAudioBytes > iMaxAudioBytes || bDeleteEverythingNotUsedThisLevel); ++i)
+	{
+		if (s_sfxCodes[i] == INVALID_CODE || i == s_defaultSound) continue;
+
+		sfx_t *sfx = &s_sfxBlock[i];
+
+		if ((sfx->iFlags & (SFX_FLAG_DEFAULT | SFX_FLAG_LOADING)) ||
+			!(sfx->iFlags & SFX_FLAG_RESIDENT))
+		{
+			continue;
+		}
+
+		qboolean bDeleteThis = bDeleteEverythingNotUsedThisLevel ?
+			(sfx->iLastLevelUsedOn != iCurrentLevel) :
+			(sfx->iLastLevelUsedOn < iCurrentLevel);
+
+		if (!bDeleteThis)
+		{
+			continue;
+		}
+
+		if (SND_SFXInUseByChannel(sfx))
+		{
+			iSkippedChannels++;
+			continue;
+		}
+
+		const int iBytesFreed = SND_FreeSFXMem(sfx);
+		if (iBytesFreed > 0)
+		{
+			iFreedBytes += iBytesFreed;
+			iFreedSounds++;
+			bAtLeastOneSoundDropped = qtrue;
+		}
+
+		if (sfx->iFlags & SFX_FLAG_DEMAND)
+		{
+			s_sfxCodes[i] = INVALID_CODE;
+		}
+
+		iLoadedAudioBytes = SND_GetMemoryUsed();
+	}
+
+#ifdef _XBOX
+	if (iFreedSounds || iLoadedAudioBytes > iMaxAudioBytes || iSkippedChannels)
+	{
+		Com_Printf("STEFX: audio cache level-end level=%d loaded=%d cap=%d freed=%d freedBytes=%d skippedChannels=%d force=%d overBudget=%d\n",
+			iCurrentLevel,
+			iLoadedAudioBytes,
+			iMaxAudioBytes,
+			iFreedSounds,
+			iFreedBytes,
+			iSkippedChannels,
+			bDeleteEverythingNotUsedThisLevel ? 1 : 0,
+			(iLoadedAudioBytes > iMaxAudioBytes) ? 1 : 0);
+	}
+#endif
+
+	Com_DPrintf( "SND_RegisterAudio_LevelLoadEnd(): Ok\n");
+
+	return bAtLeastOneSoundDropped;
 }
 
 qboolean S_FileExists( const char *psFilename )
