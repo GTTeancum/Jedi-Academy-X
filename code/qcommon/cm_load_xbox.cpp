@@ -859,12 +859,7 @@ void CM_ClearMap( void )
 		TheRandomMissionManager = 0;
 	}
 
-	if (cmg.landScape)
-	{
-		XBLF("JA: CM_ClearMap deleting landscape ptr=%p", cmg.landScape);
-		delete cmg.landScape;
-		cmg.landScape = 0;
-	}
+
 #else
 	if (TheRandomMissionManager)
 	{
