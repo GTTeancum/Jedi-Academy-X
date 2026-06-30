@@ -14,6 +14,9 @@
 
 #include "../client/client.h"
 #include "win_local.h"
+#ifdef _XBOX
+#include "xb_log.h"
+#endif
 #include "../qcommon/qcommon.h"
 #include "../zlib/zlib.h"
 
@@ -81,6 +84,29 @@ static HANDLE	soundfile	= INVALID_HANDLE_VALUE;
 static VVFixedMap< sound_file_t, unsigned int >* soundLookup = NULL;
 
 void Sys_StreamInitialize( void );
+
+static bool Sys_StreamHandleValid( HANDLE h )
+{
+	return h != NULL && h != INVALID_HANDLE_VALUE;
+}
+
+static void Sys_StreamCloseSoundBank( void )
+{
+#ifdef _XBOX
+	XBLF("JA: Sys_StreamCloseSoundBank soundfile=%p lookup=%p\n", soundfile, soundLookup);
+#endif
+	if ( Sys_StreamHandleValid( soundfile ) )
+	{
+		CloseHandle( soundfile );
+	}
+	soundfile = INVALID_HANDLE_VALUE;
+
+	if ( soundLookup )
+	{
+		delete soundLookup;
+		soundLookup = NULL;
+	}
+}
 
 static DWORD WINAPI _streamThread(LPVOID)
 {
@@ -190,6 +216,14 @@ static void _sendIORequest(const IORequest& req)
 
 void Sys_IORequestQueueClear(void)
 {
+	if (!s_IORequestQueue || !Sys_StreamHandleValid( s_QueueMutex ))
+	{
+#ifdef _XBOX
+		XBLF("JA: Sys_IORequestQueueClear skipped queue=%p mutex=%p\n", s_IORequestQueue, s_QueueMutex);
+#endif
+		return;
+	}
+
 	WaitForSingleObject(s_QueueMutex, INFINITE);
 	delete s_IORequestQueue;
 	s_IORequestQueue = new requestqueue_t;
@@ -198,6 +232,9 @@ void Sys_IORequestQueueClear(void)
 
 void Sys_StreamInit(void)
 {
+#ifdef _XBOX
+	XBL("JA: Sys_StreamInit begin\n");
+#endif
 	Sys_StreamInitialize();
 
 	// Create array for storing open streams
@@ -215,28 +252,63 @@ void Sys_StreamInit(void)
 	s_QueueMutex = CreateMutex(NULL, FALSE, NULL);
 	s_QueueLen = CreateSemaphore(NULL, 0, STREAM_MAX_OPEN * 3, NULL);
 	s_Thread = CreateThread(NULL, 64*1024, _streamThread, 0, 0, NULL);
+#ifdef _XBOX
+	XBLF("JA: Sys_StreamInit done thread=%p queue=%p streams=%p soundfile=%p lookup=%p\n",
+		s_Thread, s_IORequestQueue, s_Streams, soundfile, soundLookup);
+#endif
 }
 
 void Sys_StreamShutdown(void)
 {
-	// Tell the IO thread to shutdown
-	IORequest req;
-	req.type = IOREQ_SHUTDOWN;
-	_sendIORequest(req);
+#ifdef _XBOX
+	XBLF("JA: Sys_StreamShutdown begin thread=%p queue=%p streams=%p soundfile=%p lookup=%p\n",
+		s_Thread, s_IORequestQueue, s_Streams, soundfile, soundLookup);
+#endif
+	if (Sys_StreamHandleValid( s_Thread ) && s_IORequestQueue && Sys_StreamHandleValid( s_QueueMutex ) && Sys_StreamHandleValid( s_QueueLen ))
+	{
+		// Tell the IO thread to shutdown
+		IORequest req;
+		req.type = IOREQ_SHUTDOWN;
+		_sendIORequest(req);
 
-	// Wait for thread to close
-	WaitForSingleObject(s_Thread, INFINITE);
-	
-	// Kill IO thread
-	CloseHandle(s_Thread);
-	CloseHandle(s_QueueLen);
-	CloseHandle(s_QueueMutex);
+		// Wait for thread to close
+		WaitForSingleObject(s_Thread, INFINITE);
+	}
+
+	if (Sys_StreamHandleValid( s_Thread ))
+	{
+		CloseHandle(s_Thread);
+	}
+	s_Thread = INVALID_HANDLE_VALUE;
+	if (Sys_StreamHandleValid( s_QueueLen ))
+	{
+		CloseHandle(s_QueueLen);
+	}
+	s_QueueLen = INVALID_HANDLE_VALUE;
+	if (Sys_StreamHandleValid( s_QueueMutex ))
+	{
+		CloseHandle(s_QueueMutex);
+	}
+	s_QueueMutex = INVALID_HANDLE_VALUE;
 
 	// Remove queue of IO requests
-	delete s_IORequestQueue;
+	if (s_IORequestQueue)
+	{
+		delete s_IORequestQueue;
+		s_IORequestQueue = NULL;
+	}
 	
 	// Remove streaming table
-	Z_Free(s_Streams);
+	if (s_Streams)
+	{
+		Z_Free(s_Streams);
+		s_Streams = NULL;
+	}
+
+	Sys_StreamCloseSoundBank();
+#ifdef _XBOX
+	XBL("JA: Sys_StreamShutdown done\n");
+#endif
 }
 
 static streamHandle_t GetFreeHandle(void)
@@ -436,6 +508,11 @@ extern const char *Sys_RemapPath( const char *filename );
 
 void Sys_StreamInitialize( void )
 {
+#ifdef _XBOX
+	XBL("JA: Sys_StreamInitialize begin\n");
+#endif
+	Sys_StreamCloseSoundBank();
+
 	// open the sound file
 	soundfile	= CreateFile(
 		Sys_RemapPath("base\\soundbank\\sound.bnk"),
@@ -445,6 +522,9 @@ void Sys_StreamInitialize( void )
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_READONLY | FILE_FLAG_RANDOM_ACCESS,
 		NULL );
+#ifdef _XBOX
+	XBLF("JA: Sys_StreamInitialize sound.bnk handle=%p\n", soundfile);
+#endif
 
 	// fill in the lookup table
 	HANDLE	table	= INVALID_HANDLE_VALUE;
@@ -457,6 +537,15 @@ void Sys_StreamInitialize( void )
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
 		NULL );
+#ifdef _XBOX
+	XBLF("JA: Sys_StreamInitialize sound.tbl handle=%p\n", table);
+#endif
+	if (!Sys_StreamHandleValid( table ))
+	{
+		Sys_StreamCloseSoundBank();
+		Com_Error(0,"Could not open sound index file.\n");
+		return;
+	}
 
 	DWORD	fileSize	= 0;
 	fileSize = GetFileSize(
@@ -480,7 +569,13 @@ void Sys_StreamInitialize( void )
 		NULL );
 
 	if(bytesRead != fileSize)
+	{
+		Z_Free(restore);
+		CloseHandle(table);
+		Sys_StreamCloseSoundBank();
 		Com_Error(0,"Could not read sound index file.\n");
+		return;
+	}
 
 	CloseHandle(table);
 
@@ -505,6 +600,9 @@ void Sys_StreamInitialize( void )
 
 	soundLookup->Sort();
 	Z_Free(restore);
+#ifdef _XBOX
+	XBLF("JA: Sys_StreamInitialize done records=%d soundfile=%p lookup=%p\n", numberOfRecords, soundfile, soundLookup);
+#endif
 #if PROFILE_SOUND
 	Sys_LoadSoundCRCFile();
 #endif
