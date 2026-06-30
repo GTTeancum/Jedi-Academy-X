@@ -1013,6 +1013,38 @@ void RE_RegisterImages_Info_f( void )
 //
 qboolean RE_RegisterImages_LevelLoadEnd(void)
 {
+	if (!AllocatedImages)
+	{
+		GL_ResetBinds();
+		return qfalse;
+	}
+
+#ifdef _XBOX
+	int staleCount = 0;
+	int totalCount = 0;
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	{
+		image_t *pImage = (*itImage).second;
+		++totalCount;
+		if (pImage && !pImage->isSystem && pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel())
+		{
+			++staleCount;
+		}
+	}
+	if (staleCount)
+	{
+		static int s_xboxStaleImageLogCount = 0;
+		if (s_xboxStaleImageLogCount < 16)
+		{
+			XBLF("STEFX: Xbox image level-end kept stale images stale=%d total=%d level=%d",
+				staleCount, totalCount, RE_RegisterMedia_GetLevel());
+			++s_xboxStaleImageLogCount;
+		}
+	}
+
+	GL_ResetBinds();
+	return staleCount ? qtrue : qfalse;
+#else
 	qboolean bEraseOccured = qfalse;
 	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); bEraseOccured?itImage:++itImage)
 	{			
@@ -1039,6 +1071,7 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 	GL_ResetBinds();
 
 	return bEraseOccured;
+#endif
 }
 
 
