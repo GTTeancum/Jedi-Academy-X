@@ -73,6 +73,9 @@ void IN_ProcessChanges(DWORD dwInsert, DWORD dwRemove)
 				XInputClose( in_state->controllers[port].handle );
 				in_state->controllers[port].handle = 0;
 			}
+#if defined(STEFX_ELITE_FORCE_SP)
+			CL_STEFX_SplitScreen_RecordPadState( port, qfalse, IN_GetMainController(), 0, NULL, 0, 0, 0, 0 );
+#endif
 			IN_PadUnplugged(port);
 
 		}
@@ -315,6 +318,7 @@ void IN_UpdateGamepad(int port)
 	static bool loggedFirstState[IN_MAX_CONTROLLERS] = { false, false, false, false };
 #if defined(STEFX_ELITE_FORCE_SP)
 	static int activeStateLogBudget[IN_MAX_CONTROLLERS] = { 16, 16, 16, 16 };
+	static int splitSecondaryLogBudget[IN_MAX_CONTROLLERS] = { 16, 16, 16, 16 };
 #endif
 	// Lookup table to convert the digital buttons to fakeAscii_t, in mask order
 	const fakeAscii_t digitalXlat[IN_NUM_DIGITAL_BUTTONS] = {
@@ -343,6 +347,10 @@ void IN_UpdateGamepad(int port)
 	// Get new state
 	XINPUT_STATE newState;
 	XInputGetState( in_state->controllers[port].handle, &newState );
+#if defined(STEFX_ELITE_FORCE_SP)
+	CL_STEFX_SplitScreen_RecordPadState( port, qtrue, IN_GetMainController(), newState.Gamepad.wButtons, newState.Gamepad.bAnalogButtons,
+		newState.Gamepad.sThumbLX, newState.Gamepad.sThumbLY, newState.Gamepad.sThumbRX, newState.Gamepad.sThumbRY );
+#endif
 	if (!loggedFirstState[port])
 	{
 		XBLF("STEFX: first gamepad state port=%d buttons=0x%04x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d\n",
@@ -388,6 +396,34 @@ void IN_UpdateGamepad(int port)
 			newState.Gamepad.sThumbRX,
 			newState.Gamepad.sThumbRY);
 		activeStateLogBudget[port]--;
+	}
+#endif
+
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (Cvar_VariableIntegerValue("stefx_splitScreen") && CL_STEFX_SplitScreen_ShouldReservePadForP2(port, IN_GetMainController()))
+	{
+		if (splitSecondaryLogBudget[port] > 0)
+		{
+			XBLF("STEFX_SPLIT_INPUT secondary pad reserved for P2 port=%d rawMain=%d buttons=0x%04x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d state=%d catcher=0x%x",
+				port,
+				IN_GetMainController(),
+				newState.Gamepad.wButtons,
+				newState.Gamepad.bAnalogButtons[0],
+				newState.Gamepad.bAnalogButtons[1],
+				newState.Gamepad.bAnalogButtons[2],
+				newState.Gamepad.bAnalogButtons[3],
+				newState.Gamepad.bAnalogButtons[6],
+				newState.Gamepad.bAnalogButtons[7],
+				newState.Gamepad.sThumbLX,
+				newState.Gamepad.sThumbLY,
+				newState.Gamepad.sThumbRX,
+				newState.Gamepad.sThumbRY,
+				(int)cls.state,
+				(unsigned int)cls.keyCatchers);
+			splitSecondaryLogBudget[port]--;
+		}
+		in_state->controllers[port].state = newState;
+		return;
 	}
 #endif
 

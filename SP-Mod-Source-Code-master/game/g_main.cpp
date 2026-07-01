@@ -47,6 +47,7 @@ extern char *G_GetLocationForEnt( gentity_t *ent );
 void G_RunFrame (int levelTime);
 void CG_LoadInterface (void);
 void ClearNPCGlobals( void );
+void SetClientViewAngle( gentity_t *ent, vec3_t angle );
 
 void ClearPlayerAlertEvents( void );
 #define	ALERT_CLEAR_TIME	200
@@ -67,6 +68,748 @@ extern const int FFIRE_LEVEL_RETALIATION;
 int	teamCount[TEAM_NUM_TEAMS];
 int	teamLastEnemyTime[TEAM_NUM_TEAMS];
 int	teamEnemyCount[TEAM_NUM_TEAMS];
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles );
+void CG_RegisterClientModels( int entityNum );
+void NPC_SetAnim( gentity_t *ent, int type, int anim, int priority );
+
+#define STEFX_SPLIT_P2_TARGETNAME "stefx_split_p2"
+
+static int s_stefxSplitP2EntNum = ENTITYNUM_NONE;
+
+static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 );
+static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles );
+
+static qboolean STEFX_SplitCoopActive( void )
+{
+	const int split = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
+	const int players = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+	return (qboolean)( split && players >= 2 );
+}
+
+static qboolean STEFX_SplitCoopP1Female( void )
+{
+	return (qboolean)( g_sex && g_sex->string && ( g_sex->string[0] == 'f' || g_sex->string[0] == 'F' ) );
+}
+
+static const char *STEFX_SplitCoopP2NPCType( void )
+{
+	return STEFX_SplitCoopP1Female() ? "munro" : "alexandria";
+}
+
+static void STEFX_SplitCoopDesiredModelNames( qboolean female, const char **legs, const char **torso, const char **head )
+{
+	if ( female )
+	{
+		*legs = "hazardfemale/default";
+		*torso = "hazardfemale/default";
+		*head = "alexandria/default";
+	}
+	else
+	{
+		*legs = "hazard/default";
+		*torso = "hazard/default";
+		*head = "munro/default";
+	}
+}
+
+static void STEFX_SplitCoopApplyP2Model( gentity_t *p2 )
+{
+	static int s_modelLogBudget = 16;
+	const char *legs;
+	const char *torso;
+	const char *head;
+	const qboolean p1Female = STEFX_SplitCoopP1Female();
+	const qboolean p2Female = (qboolean)!p1Female;
+
+	if ( !p2 || !p2->client )
+	{
+		return;
+	}
+
+	STEFX_SplitCoopDesiredModelNames( p2Female, &legs, &torso, &head );
+	if ( !Q_stricmp( p2->client->renderInfo.legsModelName, legs )
+		&& !Q_stricmp( p2->client->renderInfo.torsoModelName, torso )
+		&& !Q_stricmp( p2->client->renderInfo.headModelName, head ) )
+	{
+		return;
+	}
+
+	Q_strncpyz( p2->client->renderInfo.legsModelName, legs, sizeof( p2->client->renderInfo.legsModelName ), qtrue );
+	Q_strncpyz( p2->client->renderInfo.torsoModelName, torso, sizeof( p2->client->renderInfo.torsoModelName ), qtrue );
+	Q_strncpyz( p2->client->renderInfo.headModelName, head, sizeof( p2->client->renderInfo.headModelName ), qtrue );
+	p2->client->clientInfo.infoValid = qfalse;
+	CG_RegisterClientModels( p2->s.number );
+
+	if ( s_modelLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP model ent=%d p1Sex='%s' p2Sex='%s' npc='%s' renderNames=(%s,%s,%s) infoValid=%d models=(%d,%d,%d)",
+			p2->s.number,
+			p1Female ? "female" : "male",
+			p2Female ? "female" : "male",
+			p2->NPC_type ? p2->NPC_type : "<null>",
+			p2->client->renderInfo.legsModelName,
+			p2->client->renderInfo.torsoModelName,
+			p2->client->renderInfo.headModelName,
+			p2->client->clientInfo.infoValid ? 1 : 0,
+			p2->client->clientInfo.legsModel,
+			p2->client->clientInfo.torsoModel,
+			p2->client->clientInfo.headModel );
+		--s_modelLogBudget;
+	}
+}
+
+static qboolean STEFX_SplitCoopP2Valid( void )
+{
+	if ( s_stefxSplitP2EntNum <= 0 || s_stefxSplitP2EntNum >= MAX_GENTITIES )
+	{
+		return qfalse;
+	}
+	if ( !g_entities[s_stefxSplitP2EntNum].inuse || !g_entities[s_stefxSplitP2EntNum].client )
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static gentity_t *STEFX_SplitCoopFindP2( void )
+{
+	gentity_t *ent = NULL;
+
+	if ( STEFX_SplitCoopP2Valid() )
+	{
+		return &g_entities[s_stefxSplitP2EntNum];
+	}
+
+	while ( ( ent = G_Find( ent, FOFS( targetname ), (char *)STEFX_SPLIT_P2_TARGETNAME ) ) != NULL )
+	{
+		if ( ent->inuse && ent->client )
+		{
+			s_stefxSplitP2EntNum = ent->s.number;
+			gi.cvar_set( "stefx_splitScreenP2Entity", va( "%d", s_stefxSplitP2EntNum ) );
+			return ent;
+		}
+	}
+
+	s_stefxSplitP2EntNum = ENTITYNUM_NONE;
+	return NULL;
+}
+
+static qboolean STEFX_SplitCoopP1Ready( void )
+{
+	return (qboolean)( g_entities
+		&& g_entities[0].inuse
+		&& g_entities[0].client
+		&& g_entities[0].health > 0 );
+}
+
+static gentity_t *STEFX_SplitCoopSpawnP2( void )
+{
+	static int s_spawnLogBudget = 16;
+	gentity_t *p1;
+	gentity_t *spawner;
+	gentity_t *p2;
+	vec3_t angles;
+	vec3_t origin;
+	const char *npcType;
+
+	if ( !STEFX_SplitCoopP1Ready() )
+	{
+		return NULL;
+	}
+
+	p2 = STEFX_SplitCoopFindP2();
+	if ( p2 )
+	{
+		return p2;
+	}
+
+	p1 = &g_entities[0];
+	npcType = STEFX_SplitCoopP2NPCType();
+	STEFX_SplitCoopPlacementFromP1( origin, angles );
+
+	spawner = G_Spawn();
+	if ( !spawner )
+	{
+		XBLog_Write( "STEFX_SPLIT_COOP spawn failed: no EF spawner entity" );
+		return NULL;
+	}
+
+	spawner->classname = "NPC_starfleet";
+	spawner->NPC_type = G_NewString( npcType );
+	spawner->NPC_targetname = G_NewString( STEFX_SPLIT_P2_TARGETNAME );
+	spawner->count = 1;
+	spawner->delay = 0;
+	spawner->wait = 500;
+	spawner->owner = p1;
+	spawner->health = p1->max_health > 0 ? p1->max_health : 100;
+	VectorCopy( origin, spawner->s.origin );
+	VectorCopy( angles, spawner->s.angles );
+	G_SetOrigin( spawner, origin );
+	gi.linkentity( spawner );
+
+	if ( s_spawnLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP spawn request p1Sex='%s' p2NPC='%s' origin=(%g,%g,%g) angles=(%g,%g,%g)",
+			g_sex && g_sex->string ? g_sex->string : "<null>",
+			npcType,
+			origin[0],
+			origin[1],
+			origin[2],
+			angles[0],
+			angles[1],
+			angles[2] );
+		--s_spawnLogBudget;
+	}
+
+	NPC_Spawn( spawner, spawner, spawner );
+	spawner->e_ThinkFunc = thinkF_G_FreeEntity;
+	spawner->nextthink = level.time + FRAMETIME;
+
+	p2 = STEFX_SplitCoopFindP2();
+	if ( !p2 )
+	{
+		gi.cvar_set( "stefx_splitScreenP2Entity", "-1" );
+		return NULL;
+	}
+
+	XBLF( "STEFX_SPLIT_COOP spawn found ent=%d npc='%s' flags=0x%x eFlags=0x%x think=%d nextthink=%d",
+		p2->s.number,
+		p2->NPC_type ? p2->NPC_type : "<null>",
+		p2->flags,
+		p2->s.eFlags,
+		p2->e_ThinkFunc,
+		p2->nextthink );
+
+	return p2;
+}
+
+static qboolean STEFX_SplitCoopTryPlacement( const vec3_t candidate, vec3_t origin )
+{
+	trace_t floorTrace;
+	trace_t bodyTrace;
+	vec3_t start;
+	vec3_t end;
+	vec3_t mins;
+	vec3_t maxs;
+	const int clipmask = ( MASK_NPCSOLID & ~CONTENTS_BODY );
+
+	VectorCopy( candidate, start );
+	start[2] += 32.0f;
+	VectorCopy( candidate, end );
+	end[2] -= 96.0f;
+
+	gi.trace( &floorTrace, start, NULL, NULL, end, ENTITYNUM_NONE, clipmask );
+	if ( floorTrace.allsolid || floorTrace.startsolid || floorTrace.fraction >= 1.0f || floorTrace.plane.normal[2] < 0.7f )
+	{
+		return qfalse;
+	}
+
+	VectorSet( mins, DEFAULT_MINS_0, DEFAULT_MINS_1, DEFAULT_MINS_2 );
+	VectorSet( maxs, DEFAULT_MAXS_0, DEFAULT_MAXS_1, DEFAULT_MAXS_2 );
+	VectorCopy( floorTrace.endpos, origin );
+	origin[2] -= DEFAULT_MINS_2;
+	origin[2] += 0.125f;
+
+	gi.trace( &bodyTrace, origin, mins, maxs, origin, ENTITYNUM_NONE, clipmask );
+	if ( bodyTrace.allsolid || bodyTrace.startsolid )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles )
+{
+	static int s_placementLogBudget = 32;
+	static const float offsets[][2] = {
+		{ 48.0f, 16.0f },
+		{ -48.0f, 16.0f },
+		{ 0.0f, -56.0f },
+		{ 56.0f, -32.0f },
+		{ -56.0f, -32.0f },
+		{ 0.0f, 64.0f },
+		{ 80.0f, 0.0f },
+		{ -80.0f, 0.0f }
+	};
+	gentity_t *p1 = &g_entities[0];
+	vec3_t forward;
+	vec3_t right;
+	vec3_t candidate;
+	int i;
+
+	VectorCopy( p1->client->ps.viewangles, angles );
+	angles[PITCH] = 0.0f;
+	angles[ROLL] = 0.0f;
+	AngleVectors( angles, forward, right, NULL );
+
+	for ( i = 0; i < (int)( sizeof( offsets ) / sizeof( offsets[0] ) ); ++i )
+	{
+		VectorCopy( p1->currentOrigin, candidate );
+		VectorMA( candidate, offsets[i][0], right, candidate );
+		VectorMA( candidate, offsets[i][1], forward, candidate );
+		if ( STEFX_SplitCoopTryPlacement( candidate, origin ) )
+		{
+			if ( s_placementLogBudget > 0 )
+			{
+				XBLF( "STEFX_SPLIT_COOP placement idx=%d p1=(%g,%g,%g) candidate=(%g,%g,%g) origin=(%g,%g,%g)",
+					i,
+					p1->currentOrigin[0],
+					p1->currentOrigin[1],
+					p1->currentOrigin[2],
+					candidate[0],
+					candidate[1],
+					candidate[2],
+					origin[0],
+					origin[1],
+					origin[2] );
+				--s_placementLogBudget;
+			}
+			return;
+		}
+	}
+
+	VectorCopy( p1->currentOrigin, origin );
+	VectorMA( origin, 48.0f, right, origin );
+	VectorMA( origin, 16.0f, forward, origin );
+	origin[2] += 8.0f;
+	if ( s_placementLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP placement fallback p1=(%g,%g,%g) origin=(%g,%g,%g)",
+			p1->currentOrigin[0],
+			p1->currentOrigin[1],
+			p1->currentOrigin[2],
+			origin[0],
+			origin[1],
+			origin[2] );
+		--s_placementLogBudget;
+	}
+}
+
+static qboolean STEFX_SplitCoopP2Dead( const gentity_t *p2 )
+{
+	if ( !p2 || !p2->client )
+	{
+		return qtrue;
+	}
+	return (qboolean)( p2->health <= 0
+		|| p2->client->ps.stats[STAT_HEALTH] <= 0
+		|| p2->client->ps.pm_type == PM_DEAD
+		|| ( p2->s.eFlags & EF_DEAD ) );
+}
+
+static void STEFX_SplitCoopRecoverP2( gentity_t *p2 )
+{
+	static int s_recoverLogBudget = 16;
+	vec3_t origin;
+	vec3_t angles;
+	int oldHealth;
+	int oldPmType;
+	int maxHealth;
+
+	if ( !p2 || !p2->client || !STEFX_SplitCoopP1Ready() )
+	{
+		return;
+	}
+
+	oldHealth = p2->health;
+	oldPmType = p2->client->ps.pm_type;
+	maxHealth = p2->max_health > 0 ? p2->max_health : 100;
+	STEFX_SplitCoopPlacementFromP1( origin, angles );
+
+	p2->health = maxHealth;
+	p2->client->ps.stats[STAT_MAX_HEALTH] = maxHealth;
+	p2->client->ps.stats[STAT_HEALTH] = maxHealth;
+	p2->client->ps.pm_type = PM_NORMAL;
+	p2->client->ps.pm_flags &= ~( PMF_ALL_TIMES | PMF_RESPAWNED );
+	p2->client->ps.pm_time = 0;
+	p2->client->ps.weaponTime = 0;
+	p2->client->ps.weaponstate = WEAPON_READY;
+	p2->client->ps.legsAnimTimer = 0;
+	p2->client->ps.torsoAnimTimer = 0;
+	VectorClear( p2->client->ps.velocity );
+	VectorCopy( origin, p2->client->ps.origin );
+	p2->client->respawnTime = level.time;
+	p2->client->renderInfo.lookTarget = ENTITYNUM_NONE;
+
+	p2->takedamage = qtrue;
+	p2->contents = CONTENTS_BODY;
+	p2->clipmask = MASK_NPCSOLID;
+	p2->maxs[2] = DEFAULT_MAXS_2;
+	p2->s.eFlags &= ~( EF_DEAD | EF_NODRAW );
+	p2->s.eFlags |= EF_NPC;
+	p2->s.eFlags ^= EF_TELEPORT_BIT;
+	p2->flags &= ~FL_NOTARGET;
+	p2->s.powerups = 0;
+	p2->enemy = NULL;
+	p2->lastEnemy = NULL;
+	p2->activator = NULL;
+	p2->s.loopSound = 0;
+	memset( p2->client->ps.powerups, 0, sizeof( p2->client->ps.powerups ) );
+	VectorClear( p2->client->damage_from );
+	p2->client->damage_armor = 0;
+	p2->client->damage_blood = 0;
+	p2->client->damage_knockback = 0;
+
+	G_SetOrigin( p2, origin );
+	SetClientViewAngle( p2, angles );
+	NPC_SetAnim( p2, SETANIM_BOTH, BOTH_STAND1, SETANIM_FLAG_OVERRIDE );
+	STEFX_SplitCoopEnsureBaseLoadout( p2 );
+	STEFX_SplitCoopApplyP2Model( p2 );
+	gi.linkentity( p2 );
+
+	if ( s_recoverLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP recover ent=%d oldHealth=%d newHealth=%d oldPm=%d origin=(%g,%g,%g) angles=(%g,%g,%g)",
+			p2->s.number,
+			oldHealth,
+			p2->health,
+			oldPmType,
+			origin[0],
+			origin[1],
+			origin[2],
+			angles[0],
+			angles[1],
+			angles[2] );
+		--s_recoverLogBudget;
+	}
+}
+
+static void STEFX_SplitCoopTestKillP2( gentity_t *p2 )
+{
+	static int s_lastForcedKillSerial = 0;
+	static int s_forceLogBudget = 8;
+	int serial;
+
+	if ( !p2 || !p2->client )
+	{
+		return;
+	}
+
+	serial = gi.Cvar_VariableIntegerValue( "stefx_splitScreenTestKillP2" );
+	if ( !serial || serial == s_lastForcedKillSerial || STEFX_SplitCoopP2Dead( p2 ) )
+	{
+		return;
+	}
+
+	s_lastForcedKillSerial = serial;
+	p2->health = 0;
+	p2->client->ps.stats[STAT_HEALTH] = 0;
+	p2->client->ps.pm_type = PM_DEAD;
+	p2->s.eFlags |= EF_DEAD;
+	p2->takedamage = qfalse;
+
+	if ( s_forceLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP test-kill ent=%d serial=%d",
+			p2->s.number,
+			serial );
+		--s_forceLogBudget;
+	}
+}
+
+static qboolean STEFX_SplitCoopP2ReadyForControl( gentity_t *p2 )
+{
+	return (qboolean)( p2
+		&& p2->inuse
+		&& p2->client
+		&& !( p2->s.eFlags & EF_NODRAW )
+		&& p2->e_ThinkFunc != thinkF_NPC_Begin );
+}
+
+static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
+{
+	static int s_loadoutLogBudget = 16;
+	int ammoIndex;
+	int oldWeapon;
+	int oldWeapons;
+	qboolean changed = qfalse;
+
+	if ( !p2 || !p2->client )
+	{
+		return;
+	}
+
+	oldWeapon = p2->client->ps.weapon;
+	oldWeapons = p2->client->ps.stats[STAT_WEAPONS];
+
+	p2->client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_NONE );
+	p2->client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_PHASER );
+	p2->client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_COMPRESSION_RIFLE );
+
+	ammoIndex = weaponData[WP_PHASER].ammoIndex;
+	if ( ammoIndex >= 0 && ammoIndex < MAX_AMMO && p2->client->ps.ammo[ammoIndex] <= 0 )
+	{
+		p2->client->ps.ammo[ammoIndex] = ammoData[ammoIndex].max;
+		changed = qtrue;
+	}
+
+	ammoIndex = weaponData[WP_COMPRESSION_RIFLE].ammoIndex;
+	if ( ammoIndex >= 0 && ammoIndex < MAX_AMMO && p2->client->ps.ammo[ammoIndex] <= 0 )
+	{
+		p2->client->ps.ammo[ammoIndex] = ammoData[ammoIndex].max;
+		changed = qtrue;
+	}
+
+	if ( p2->client->ps.weapon <= WP_NONE || p2->client->ps.weapon >= WP_NUM_WEAPONS )
+	{
+		p2->client->ps.weapon = WP_COMPRESSION_RIFLE;
+		p2->s.weapon = WP_COMPRESSION_RIFLE;
+		changed = qtrue;
+	}
+	else if ( p2->s.weapon == WP_NONE )
+	{
+		p2->s.weapon = p2->client->ps.weapon;
+		changed = qtrue;
+	}
+
+	if ( p2->NPC )
+	{
+		ammoIndex = weaponData[p2->client->ps.weapon].ammoIndex;
+		if ( ammoIndex >= 0 && ammoIndex < MAX_AMMO )
+		{
+			p2->NPC->currentAmmo = p2->client->ps.ammo[ammoIndex];
+		}
+	}
+
+	if ( s_loadoutLogBudget > 0 && ( changed || oldWeapon != p2->client->ps.weapon || oldWeapons != p2->client->ps.stats[STAT_WEAPONS] ) )
+	{
+		XBLF( "STEFX_SPLIT_COOP loadout ent=%d oldWeapon=%d newWeapon=%d oldBits=0x%x newBits=0x%x ammo=(%d,%d,%d,%d)",
+			p2->s.number,
+			oldWeapon,
+			p2->client->ps.weapon,
+			oldWeapons,
+			p2->client->ps.stats[STAT_WEAPONS],
+			p2->client->ps.ammo[0],
+			p2->client->ps.ammo[1],
+			p2->client->ps.ammo[2],
+			p2->client->ps.ammo[3] );
+		--s_loadoutLogBudget;
+	}
+}
+
+static void STEFX_SplitCoopTakeControl( gentity_t *p2 )
+{
+	if ( !p2 || !p2->client )
+	{
+		return;
+	}
+
+	p2->client->playerTeam = TEAM_STARFLEET;
+	p2->client->enemyTeam = TEAM_BORG;
+	p2->client->ps.persistant[PERS_TEAM] = TEAM_STARFLEET;
+	if ( p2->NPC )
+	{
+		p2->NPC->behaviorState = BS_WAIT;
+		p2->NPC->defaultBehavior = BS_WAIT;
+		p2->NPC->scriptFlags = 0;
+	}
+	p2->flags &= ~FL_NOTARGET;
+	p2->s.eFlags &= ~EF_NODRAW;
+	p2->e_ThinkFunc = thinkF_NULL;
+	p2->nextthink = 0;
+	STEFX_SplitCoopEnsureBaseLoadout( p2 );
+	STEFX_SplitCoopApplyP2Model( p2 );
+}
+
+static qboolean STEFX_SplitCoopWeaponSelectable( const gentity_t *p2, int weapon )
+{
+	if ( !p2 || !p2->client )
+	{
+		return qfalse;
+	}
+	if ( weapon < FIRST_WEAPON || weapon > MAX_PLAYER_WEAPONS )
+	{
+		return qfalse;
+	}
+	return (qboolean)( p2->client->ps.stats[STAT_WEAPONS] & ( 1 << weapon ) );
+}
+
+static int STEFX_SplitCoopChooseUsableWeapon( const gentity_t *p2, int preferredWeapon )
+{
+	if ( STEFX_SplitCoopWeaponSelectable( p2, preferredWeapon ) && preferredWeapon != WP_NONE )
+	{
+		return preferredWeapon;
+	}
+	if ( STEFX_SplitCoopWeaponSelectable( p2, WP_COMPRESSION_RIFLE ) )
+	{
+		return WP_COMPRESSION_RIFLE;
+	}
+	if ( STEFX_SplitCoopWeaponSelectable( p2, WP_PHASER ) )
+	{
+		return WP_PHASER;
+	}
+	return WP_NONE;
+}
+
+static int STEFX_SplitCoopCycleWeapon( const gentity_t *p2, int currentWeapon, int weaponDelta )
+{
+	int i;
+	int weapon;
+	const int direction = weaponDelta > 0 ? 1 : -1;
+
+	if ( !p2 || !p2->client || !weaponDelta )
+	{
+		return currentWeapon;
+	}
+	if ( currentWeapon == WP_BLUE_HYPO || currentWeapon == WP_RED_HYPO )
+	{
+		return currentWeapon;
+	}
+
+	weapon = currentWeapon;
+	for ( i = 0; i <= MAX_PLAYER_WEAPONS; ++i )
+	{
+		weapon += direction;
+		if ( weapon < FIRST_WEAPON || weapon > MAX_PLAYER_WEAPONS )
+		{
+			weapon = direction > 0 ? FIRST_WEAPON : MAX_PLAYER_WEAPONS;
+		}
+		if ( STEFX_SplitCoopWeaponSelectable( p2, weapon ) )
+		{
+			return weapon;
+		}
+	}
+
+	return currentWeapon;
+}
+
+static void STEFX_SplitCoopRunFrame( void )
+{
+	static qboolean s_loggedInactive = qfalse;
+	static int s_frameLogBudget = 80;
+	static int s_stateLogBudget = 64;
+	static int s_weaponLogBudget = 24;
+	gentity_t *p2;
+	usercmd_t cmd;
+	vec3_t outAngles;
+	int sourcePort = -1;
+	int weaponDelta = 0;
+	int oldWeapon;
+	qboolean hasP2Input;
+	int splitCvar;
+	int playersCvar;
+	int p2Cvar;
+
+	splitCvar = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
+	playersCvar = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+	p2Cvar = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+	if ( s_stateLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP state time=%d split=%d players=%d p2Cvar=%d cachedP2=%d p1Ready=%d",
+			level.time,
+			splitCvar,
+			playersCvar,
+			p2Cvar,
+			s_stefxSplitP2EntNum,
+			STEFX_SplitCoopP1Ready() ? 1 : 0 );
+		--s_stateLogBudget;
+	}
+
+	if ( !STEFX_SplitCoopActive() )
+	{
+		if ( !s_loggedInactive )
+		{
+			gi.cvar_set( "stefx_splitScreenP2Entity", "-1" );
+			s_stefxSplitP2EntNum = ENTITYNUM_NONE;
+			s_loggedInactive = qtrue;
+		}
+		return;
+	}
+	s_loggedInactive = qfalse;
+
+	p2 = STEFX_SplitCoopFindP2();
+	if ( !p2 )
+	{
+		p2 = STEFX_SplitCoopSpawnP2();
+		if ( !p2 )
+		{
+			return;
+		}
+	}
+
+	if ( !STEFX_SplitCoopP2ReadyForControl( p2 ) )
+	{
+		if ( s_frameLogBudget > 72 )
+		{
+			XBLF( "STEFX_SPLIT_COOP waiting ent=%d eFlags=0x%x think=%d nextthink=%d",
+				p2->s.number,
+				p2->s.eFlags,
+				p2->e_ThinkFunc,
+				p2->nextthink );
+			--s_frameLogBudget;
+		}
+		return;
+	}
+
+	STEFX_SplitCoopTestKillP2( p2 );
+	if ( STEFX_SplitCoopP2Dead( p2 ) )
+	{
+		STEFX_SplitCoopRecoverP2( p2 );
+	}
+
+	STEFX_SplitCoopTakeControl( p2 );
+
+	hasP2Input = CL_STEFX_SplitScreen_BuildP2Usercmd( &cmd, p2->client->ps.viewangles, p2->client->ps.delta_angles, level.time, &sourcePort, &weaponDelta, outAngles );
+	if ( !hasP2Input )
+	{
+		memset( &cmd, 0, sizeof( cmd ) );
+		cmd.serverTime = level.time;
+		cmd.angles[PITCH] = ANGLE2SHORT( p2->client->ps.viewangles[PITCH] ) - p2->client->ps.delta_angles[PITCH];
+		cmd.angles[YAW] = ANGLE2SHORT( p2->client->ps.viewangles[YAW] ) - p2->client->ps.delta_angles[YAW];
+		cmd.angles[ROLL] = 0;
+	}
+
+	cmd.weapon = p2->client->ps.weapon;
+	if ( !STEFX_SplitCoopWeaponSelectable( p2, cmd.weapon ) || cmd.weapon == WP_NONE )
+	{
+		const int p1Weapon = g_entities[0].client ? g_entities[0].client->ps.weapon : WP_NONE;
+		cmd.weapon = STEFX_SplitCoopChooseUsableWeapon( p2, p1Weapon );
+	}
+	oldWeapon = cmd.weapon;
+	cmd.weapon = STEFX_SplitCoopCycleWeapon( p2, cmd.weapon, weaponDelta );
+	if ( s_weaponLogBudget > 0 && weaponDelta )
+	{
+		XBLF( "STEFX_SPLIT_COOP weapon cycle ent=%d delta=%d old=%d new=%d bits=0x%x",
+			p2->s.number,
+			weaponDelta,
+			oldWeapon,
+			cmd.weapon,
+			p2->client->ps.stats[STAT_WEAPONS] );
+		--s_weaponLogBudget;
+	}
+
+	ClientThink( p2->s.number, &cmd );
+	ClientEndFrame( p2 );
+	PlayerStateToEntityState( &p2->client->ps, &p2->s );
+	gi.linkentity( p2 );
+
+	if ( s_frameLogBudget > 0 && ( hasP2Input || s_frameLogBudget > 56 ) )
+	{
+		XBLF( "STEFX_SPLIT_COOP frame time=%d ent=%d input=%d port=%d npc='%s' origin=(%g,%g,%g) view=(%g,%g,%g) move=(%d,%d,%d) buttons=0x%x weapon=%d health=%d",
+			level.time,
+			p2->s.number,
+			hasP2Input ? 1 : 0,
+			sourcePort,
+			p2->NPC_type ? p2->NPC_type : "<null>",
+			p2->currentOrigin[0],
+			p2->currentOrigin[1],
+			p2->currentOrigin[2],
+			p2->client->ps.viewangles[PITCH],
+			p2->client->ps.viewangles[YAW],
+			p2->client->ps.viewangles[ROLL],
+			cmd.forwardmove,
+			cmd.rightmove,
+			cmd.upmove,
+			cmd.buttons,
+			p2->client->ps.weapon,
+			p2->health );
+		--s_frameLogBudget;
+	}
+}
+#endif
 /*
 ================
 G_FindTeams
@@ -1063,6 +1806,10 @@ void G_RunFrame( int levelTime ) {
 	{
 		XBLog_Write("STEFX: G_RunFrame after alert maintenance");
 	}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SplitCoopRunFrame();
 #endif
 
 	//Run the frame for all entities

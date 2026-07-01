@@ -409,15 +409,26 @@ Also called by Com_Error
 void CL_FlushMemory( void ) {
 
 	// clear sounds (moved higher up within this func to avoid the odd sound stutter)
+	XBLog_Write("JA: CL_FlushMemory entered");
+	XBLog_Write("JA: CL_FlushMemory before S_DisableSounds");
 	S_DisableSounds();
+	XBLog_Write("JA: CL_FlushMemory after S_DisableSounds");
 
 	// unload the old VM
+	XBLog_Write("JA: CL_FlushMemory before CL_ShutdownCGame");
 	CL_ShutdownCGame();
+	XBLog_Write("JA: CL_FlushMemory after CL_ShutdownCGame");
 
+	XBLog_Write("JA: CL_FlushMemory before CL_ShutdownUI");
 	CL_ShutdownUI();
+	XBLog_Write("JA: CL_FlushMemory after CL_ShutdownUI");
 
 	if ( re.Shutdown ) {
+		XBLog_Write("JA: CL_FlushMemory before re.Shutdown");
 		re.Shutdown( qfalse );		// don't destroy window or context
+		XBLog_Write("JA: CL_FlushMemory after re.Shutdown");
+	} else {
+		XBLog_Write("JA: CL_FlushMemory re.Shutdown missing");
 	}
 
 	//rwwFIXMEFIXME: The game server appears to continue running, so clearing common bsp data causes crashing and other bad things
@@ -427,6 +438,7 @@ void CL_FlushMemory( void ) {
 
 	cls.soundRegistered = qfalse;
 	cls.rendererStarted = qfalse;
+	XBLog_Write("JA: CL_FlushMemory complete");
 #ifdef _IMMERSION
 	CL_ShutdownFF();
 	cls.forceStarted = qfalse;

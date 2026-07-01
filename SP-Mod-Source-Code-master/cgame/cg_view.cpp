@@ -7,6 +7,109 @@
 #define CG_XBOX_ACTIVE_LOG(msg) do { if (xboxDrawLog) XBLog_Write(msg); } while (0)
 extern void CM_SnapPVS(vec3_t origin, byte *buffer);
 extern qboolean player_locked;
+extern void CGCam_Disable( void );
+extern void RE_STEFX_SplitScreen_SetP2Refdef( const refdef_t *refdef, qboolean valid );
+
+static qboolean CG_STEFX_SplitScreenActive( void )
+{
+	static int s_activeLogBudget = 64;
+	if ( s_activeLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_VIEW state time=%d split=%d players=%d p2=%d snap=%d client=%d camera=%d locked=%d",
+			cg.time,
+			cg_stefxSplitScreen.integer,
+			cg_stefxSplitScreenPlayers.integer,
+			cg_stefxSplitScreenP2Entity.integer,
+			cg.snap ? 1 : 0,
+			cg.snap ? cg.snap->ps.clientNum : -1,
+			in_camera ? 1 : 0,
+			player_locked ? 1 : 0 );
+		--s_activeLogBudget;
+	}
+	return (qboolean)( cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 );
+}
+
+static void CG_STEFX_UpdateSplitP2Refdef( void )
+{
+	static int s_logBudget = 48;
+	int p2EntNum;
+	gentity_t *p2;
+	refdef_t p2Refdef;
+	vec3_t angles;
+	vec3_t forward;
+	vec3_t up;
+	vec3_t target;
+	vec3_t desired;
+	vec3_t mins = { -4.0f, -4.0f, -4.0f };
+	vec3_t maxs = { 4.0f, 4.0f, 4.0f };
+	trace_t trace;
+	qboolean zoomActive;
+
+	RE_STEFX_SplitScreen_SetP2Refdef( NULL, qfalse );
+
+	if ( !CG_STEFX_SplitScreenActive() )
+	{
+		return;
+	}
+
+	p2EntNum = cg_stefxSplitScreenP2Entity.integer;
+	if ( p2EntNum <= 0 || p2EntNum >= MAX_GENTITIES || !g_entities[p2EntNum].inuse || !g_entities[p2EntNum].client )
+	{
+		if ( s_logBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_VIEW no p2 refdef ent=%d active=%d players=%d",
+				p2EntNum,
+				cg_stefxSplitScreen.integer,
+				cg_stefxSplitScreenPlayers.integer );
+			--s_logBudget;
+		}
+		return;
+	}
+
+	p2 = &g_entities[p2EntNum];
+	zoomActive = (qboolean)( cg_stefxSplitScreenP2Zoom.integer != 0 );
+	VectorCopy( p2->currentOrigin, target );
+	target[2] += p2->client->ps.viewheight > 0 ? p2->client->ps.viewheight : 54;
+	VectorCopy( p2->client->ps.viewangles, angles );
+	angles[ROLL] = 0.0f;
+	AngleVectors( angles, forward, NULL, up );
+	VectorCopy( target, desired );
+	VectorMA( desired, -96.0f, forward, desired );
+	VectorMA( desired, 20.0f, up, desired );
+	CG_Trace( &trace, target, mins, maxs, desired, p2EntNum, MASK_SOLID );
+
+	p2Refdef = cg.refdef;
+	VectorCopy( trace.endpos, p2Refdef.vieworg );
+	AnglesToAxis( angles, p2Refdef.viewaxis );
+	if ( zoomActive )
+	{
+		p2Refdef.fov_x = 45.0f;
+	}
+	p2Refdef.time = cg.time;
+	memcpy( p2Refdef.areamask, cg.snap->areamask, sizeof( p2Refdef.areamask ) );
+	CM_SnapPVS( p2Refdef.vieworg, p2Refdef.areamask );
+	RE_STEFX_SplitScreen_SetP2Refdef( &p2Refdef, qtrue );
+
+	if ( s_logBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_VIEW p2 refdef ent=%d npc='%s' target=(%g,%g,%g) view=(%g,%g,%g) angles=(%g,%g,%g) fovX=%g zoom=%d trace=%g",
+			p2EntNum,
+			p2->NPC_type ? p2->NPC_type : "<null>",
+			target[0],
+			target[1],
+			target[2],
+			p2Refdef.vieworg[0],
+			p2Refdef.vieworg[1],
+			p2Refdef.vieworg[2],
+			angles[0],
+			angles[1],
+			angles[2],
+			p2Refdef.fov_x,
+			zoomActive ? 1 : 0,
+			trace.fraction );
+		--s_logBudget;
+	}
+}
 
 qboolean STEFX_XboxSuppressPlayerPresentation( void )
 {
@@ -1153,6 +1256,30 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// decide on third person view
 	cg.renderingThirdPerson = cg_thirdPerson.integer || (cg.snap->ps.stats[STAT_HEALTH] <= 0);
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( CG_STEFX_SplitScreenActive() )
+	{
+		static int s_splitThirdPersonLogBudget = 24;
+		cg.zoomed = qfalse;
+		cg.renderingThirdPerson = qtrue;
+		if ( in_camera )
+		{
+			CGCam_Disable();
+		}
+		player_locked = qfalse;
+		if ( s_splitThirdPersonLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_VIEW forcing third-person active=%d players=%d p2=%d serverTime=%d camera=%d",
+				cg_stefxSplitScreen.integer,
+				cg_stefxSplitScreenPlayers.integer,
+				cg_stefxSplitScreenP2Entity.integer,
+				serverTime,
+				in_camera ? 1 : 0 );
+			--s_splitThirdPersonLogBudget;
+		}
+	}
+#endif
+
 	if ( in_camera )
 	{
 		// The camera takes over the view
@@ -1266,6 +1393,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 			++s_stefxCameraPvsLogs;
 		}
 	}
+	CG_STEFX_UpdateSplitP2Refdef();
 #endif
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after refdef finalize");
 

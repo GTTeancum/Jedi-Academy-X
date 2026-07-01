@@ -290,6 +290,44 @@ static qboolean STEFX_SmokeControlWindowActive(const usercmd_t *ucmd)
 	return (qboolean)(ucmd->serverTime >= startTime && (endTime <= 0 || ucmd->serverTime <= endTime));
 }
 
+static qboolean STEFX_SmokeShouldDrivePlayer(gentity_t *ent)
+{
+	int smokePlayer;
+	int p2EntNum;
+
+	if (!ent)
+	{
+		return qfalse;
+	}
+
+	smokePlayer = gi.Cvar_VariableIntegerValue("stefx_smoke_player");
+	if (smokePlayer == 2)
+	{
+		p2EntNum = gi.Cvar_VariableIntegerValue("stefx_splitScreenP2Entity");
+		return (qboolean)(p2EntNum > 0 && ent->s.number == p2EntNum);
+	}
+
+	return (qboolean)(ent->s.number == 0);
+}
+
+static qboolean STEFX_SplitCoopIsP2ControlledEntity(const gentity_t *ent)
+{
+	int p2EntNum;
+
+	if (!ent || !ent->client)
+	{
+		return qfalse;
+	}
+	if (!gi.Cvar_VariableIntegerValue("stefx_splitScreen") ||
+		gi.Cvar_VariableIntegerValue("stefx_splitScreenPlayers") < 2)
+	{
+		return qfalse;
+	}
+
+	p2EntNum = gi.Cvar_VariableIntegerValue("stefx_splitScreenP2Entity");
+	return (qboolean)(p2EntNum > 0 && ent->s.number == p2EntNum);
+}
+
 static void STEFX_SmokeUnlockPlayerControl(gentity_t *ent, usercmd_t *ucmd)
 {
 	static int s_stefxSmokeUnlockBudget = 16;
@@ -337,7 +375,7 @@ static void STEFX_SmokeReadyPlayerWeapon(gentity_t *ent, usercmd_t *ucmd)
 	int newAmmo = -9999;
 	int minAmmo;
 
-	if (!ent || ent->s.number != 0 || !ent->client || !ucmd)
+	if (!ent || !STEFX_SmokeShouldDrivePlayer(ent) || !ent->client || !ucmd)
 	{
 		return;
 	}
@@ -495,7 +533,7 @@ static void STEFX_SmokeStageEnemy(gentity_t *ent, usercmd_t *ucmd)
 	trace_t losTrace;
 	float stageDistance;
 
-	if (!ent || !ent->client || ent->s.number != 0 || !ucmd)
+	if (!ent || !ent->client || !STEFX_SmokeShouldDrivePlayer(ent) || !ucmd)
 	{
 		return;
 	}
@@ -582,19 +620,28 @@ static void STEFX_SmokeStageEnemy(gentity_t *ent, usercmd_t *ucmd)
 
 	G_SetOrigin(target, newOrigin);
 	gi.linkentity(target);
-	G_SetEnemy(target, ent);
-	if (target->enemy != ent)
+	if (!gi.Cvar_VariableIntegerValue("stefx_smoke_stage_enemy_no_set_enemy"))
 	{
-		target->enemy = ent;
+		G_SetEnemy(target, ent);
+		if (target->enemy != ent)
+		{
+			target->enemy = ent;
+		}
+	}
+	else if (target->enemy == ent)
+	{
+		target->enemy = NULL;
 	}
 	s_stefxSmokeStageAimEnt = target->s.number;
 	s_stefxSmokeStageAimTime = level.time;
 	VectorCopy(newOrigin, s_stefxSmokeStageAimPoint);
 	s_stefxSmokeStageAimPoint[2] += 32.0f;
-	XBLF("STEFX: NPC_SetEnemy smoke stage self=%d class='%s' enemy=%d contents=0x%x clipmask=0x%x time=%d",
+	XBLF("STEFX: NPC_SetEnemy smoke stage self=%d class='%s' enemy=%d driver=%d setEnemy=%d contents=0x%x clipmask=0x%x time=%d",
 		target->s.number,
 		target->classname ? target->classname : "<null>",
+		target->enemy ? target->enemy->s.number : -1,
 		ent->s.number,
+		gi.Cvar_VariableIntegerValue("stefx_smoke_stage_enemy_no_set_enemy") ? 0 : 1,
 		target->contents,
 		target->clipmask,
 		level.time);
@@ -699,7 +746,7 @@ static void STEFX_SmokeAimAtLiveEnemy(gentity_t *ent, usercmd_t *ucmd)
 	{
 		return;
 	}
-	if (ent->s.number != 0)
+	if (!STEFX_SmokeShouldDrivePlayer(ent))
 	{
 		return;
 	}
@@ -2006,6 +2053,10 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 	static int	s_stefxPlayerCameraGateBudget = 96;
 	static int	s_stefxPlayerMoveProbeBudget = 96;
 	qboolean	stefxPostMoveProbe = qfalse;
+#if defined(STEFX_ELITE_FORCE_SP)
+	static int	s_stefxSplitP2MoveProbeBudget = 96;
+	qboolean	stefxSplitP2Control = STEFX_SplitCoopIsP2ControlledEntity(ent);
+#endif
 
 	if ( s_stefxPostMoveProbeBudget > 0 )
 	{
@@ -2111,9 +2162,6 @@ extern vmCvar_t cg_thirdPerson;
 			ucmd->upmove = 0;
 		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		STEFX_SmokeReadyPlayerWeapon(ent, ucmd);
-		STEFX_SmokeStageEnemy(ent, ucmd);
-		STEFX_SmokeAimAtLiveEnemy(ent, ucmd);
 		{
 			static int s_stefxPlayerCmdBudget = 80;
 			int logButtons = ucmd->buttons & ~BUTTON_WALKING;
@@ -2175,6 +2223,32 @@ extern vmCvar_t cg_thirdPerson;
 		XBLF("STEFX: ClientThink_real ent=%d after G_NPCMunroMatchPlayerWeapon", ent->s.number);
 #endif
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SmokeReadyPlayerWeapon(ent, ucmd);
+	STEFX_SmokeStageEnemy(ent, ucmd);
+	STEFX_SmokeAimAtLiveEnemy(ent, ucmd);
+	if ( stefxSplitP2Control && ucmd && s_stefxSplitP2MoveProbeBudget > 0 &&
+		( ucmd->forwardmove || ucmd->rightmove || ucmd->upmove || (ucmd->buttons & ~BUTTON_WALKING) ) )
+	{
+		stefxPostMoveProbe = qtrue;
+		--s_stefxSplitP2MoveProbeBudget;
+		XBLF("STEFX_SPLIT_MOVE probe armed ent=%d time=%d serverTime=%d remaining=%d origin=(%g,%g,%g) view=(%g,%g,%g) move=(%d,%d,%d) buttons=0x%x",
+			ent->s.number,
+			level.time,
+			ucmd->serverTime,
+			s_stefxSplitP2MoveProbeBudget,
+			ent->client ? ent->client->ps.origin[0] : 0.0f,
+			ent->client ? ent->client->ps.origin[1] : 0.0f,
+			ent->client ? ent->client->ps.origin[2] : 0.0f,
+			ent->client ? ent->client->ps.viewangles[PITCH] : 0.0f,
+			ent->client ? ent->client->ps.viewangles[YAW] : 0.0f,
+			ent->client ? ent->client->ps.viewangles[ROLL] : 0.0f,
+			ucmd->forwardmove,
+			ucmd->rightmove,
+			ucmd->upmove,
+			ucmd->buttons);
+	}
+#endif
 	client = ent->client;
 
 	// mark the time, so the connection sprite can be removed
@@ -2239,6 +2313,46 @@ extern vmCvar_t cg_thirdPerson;
 	}
 
 	// set speed
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxSplitP2Control )
+	{
+		const qboolean stefxP2Moving = (qboolean)( ucmd->forwardmove || ucmd->rightmove || ucmd->upmove );
+		int stefxP2Speed = g_speed ? (int)g_speed->value : 250;
+
+		if ( stefxP2Speed <= 0 )
+		{
+			stefxP2Speed = 250;
+		}
+
+		client->ps.friction = 6;
+		client->ps.speed = stefxP2Speed;
+		if ( ent->NPC )
+		{
+			ent->NPC->desiredSpeed = stefxP2Moving ? stefxP2Speed : 0;
+			ent->NPC->currentSpeed = stefxP2Moving ? stefxP2Speed : 0;
+			ent->NPC->desiredYaw = client->ps.viewangles[YAW];
+			ent->NPC->lockedDesiredYaw = ent->NPC->desiredYaw;
+		}
+		VectorCopy( client->ps.viewangles, ent->currentAngles );
+
+		if ( stefxPostMoveProbe )
+		{
+			XBLF("STEFX_SPLIT_MOVE speed setup ent=%d time=%d speed=%d npcCurrent=%d npcDesired=%d yaw=%g moving=%d cmd=(%d,%d,%d) buttons=0x%x",
+				ent->s.number,
+				level.time,
+				client->ps.speed,
+				ent->NPC ? ent->NPC->currentSpeed : -1,
+				ent->NPC ? ent->NPC->desiredSpeed : -1,
+				client->ps.viewangles[YAW],
+				stefxP2Moving ? 1 : 0,
+				ucmd->forwardmove,
+				ucmd->rightmove,
+				ucmd->upmove,
+				ucmd->buttons);
+		}
+	}
+	else
+#endif
 	if ( ent->NPC != NULL )
 	{//we don't actually scale the ucmd, we use actual speeds
 		if ( ent->NPC->combatMove == qfalse )

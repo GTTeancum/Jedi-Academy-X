@@ -302,12 +302,20 @@ void CG_NewClientinfo( int clientNum )
 
 	// sounds
 	cvar_t	*sex = gi.cvar( "sex", "male", 0 );
+	qboolean p1Female = (qboolean)( sex && sex->string && ( Q_stricmp( "female", sex->string ) == 0 || sex->string[0] == 'f' || sex->string[0] == 'F' ) );
+	qboolean isFemale = p1Female;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean splitP2Client = qfalse;
+	if ( cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 && clientNum == cg_stefxSplitScreenP2Entity.integer )
+	{
+		isFemale = (qboolean)!p1Female;
+		splitP2Client = qtrue;
+	}
 	if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] ||
 		!g_entities[clientNum].client->renderInfo.torsoModelName[0] ||
 		!g_entities[clientNum].client->renderInfo.headModelName[0] )
 	{
-		if ( Q_stricmp("female", sex->string ) == 0 || sex->string[0] == 'f' || sex->string[0] == 'F' )
+		if ( isFemale )
 		{
 			if ( !g_entities[clientNum].client->renderInfo.legsModelName[0] )
 			{
@@ -321,7 +329,7 @@ void CG_NewClientinfo( int clientNum )
 			}
 			if ( !g_entities[clientNum].client->renderInfo.headModelName[0] )
 			{
-				Q_strncpyz( g_entities[clientNum].client->renderInfo.headModelName, "alexa/default",
+				Q_strncpyz( g_entities[clientNum].client->renderInfo.headModelName, "alexandria/default",
 					sizeof( g_entities[clientNum].client->renderInfo.headModelName ), qtrue );
 			}
 		}
@@ -343,15 +351,17 @@ void CG_NewClientinfo( int clientNum )
 					sizeof( g_entities[clientNum].client->renderInfo.headModelName ), qtrue );
 			}
 		}
-		XBLF( "STEFX_THIRD_PERSON: CG_NewClientinfo filled model keys client=%d sex='%s' head='%s' torso='%s' legs='%s'",
+		XBLF( "STEFX_THIRD_PERSON: CG_NewClientinfo filled model keys client=%d role='%s' p1Sex='%s' modelSex='%s' head='%s' torso='%s' legs='%s'",
 			clientNum,
-			sex->string,
+			splitP2Client ? "P2" : "P1",
+			sex && sex->string ? sex->string : "<null>",
+			isFemale ? "female" : "male",
 			g_entities[clientNum].client->renderInfo.headModelName,
 			g_entities[clientNum].client->renderInfo.torsoModelName,
 			g_entities[clientNum].client->renderInfo.legsModelName );
 	}
 #endif
-	if ( Q_stricmp("female", sex->string ) == 0 )
+	if ( isFemale )
 	{
 		ci->customBasicSoundDir = "alexa";
 	}
@@ -1144,7 +1154,7 @@ void CG_PlayerAnimSounds( animsounds_t *animSounds, int frame, int entNum )
 	int		holdSnd = -1;
 	qboolean	playSound = qfalse;
 
-	if ( entNum == 0 && !cg_thirdPerson.integer )
+	if ( entNum == 0 && !cg.renderingThirdPerson )
 	{//player in first person view does not play any keyframed sounds
 		return;
 	}
@@ -1504,7 +1514,7 @@ static qboolean CG_CheckLookTarget( centity_t *cent, vec3_t	lookAngles, float *l
 
 			//FIXME: Ignore small deltas from current angles so we don't bob our head in synch with theirs?
 
-			if ( cent->gent->client->renderInfo.lookTarget == 0 && !cg_thirdPerson.integer )
+			if ( cent->gent->client->renderInfo.lookTarget == 0 && !cg.renderingThirdPerson )
 			{//Special case- use cg.refdef.vieworg if looking at player and not in third person view
 				VectorCopy( cg.refdef.vieworg, lookOrg );
 			}
@@ -2271,7 +2281,7 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 	qboolean	spark = qfalse, impact = qtrue, weak = qfalse;
 
 	// for lightning weapons coming from the player, it had better hit the crosshairs or else..
-	if ( cent->gent->s.number || cg_thirdPerson.integer == 2 )
+	if ( cent->gent->s.number || cg.renderingThirdPerson )
 	{
 		VectorCopy( origin, org );
 	}
@@ -3251,8 +3261,12 @@ void CG_Player( centity_t *cent ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int		s_stefxPlayerLogBudget = 96;
 	static int		s_stefxThirdPersonLogBudget = 96;
+	static int		s_stefxSplitP1ModelLogBudget = 6;
+	static int		s_stefxSplitP2ModelLogBudget = 6;
 	qboolean		stefxLogPlayer = qfalse;
 	qboolean		stefxLogThirdPerson = qfalse;
+	qboolean		stefxLogSplitModel = qfalse;
+	const char		*stefxSplitRole = "";
 #endif
 
 	calcedMp = qfalse;
@@ -3279,7 +3293,7 @@ void CG_Player( centity_t *cent ) {
 	}
 	if ( cent && cg.snap && s_stefxThirdPersonLogBudget > 0 &&
 		cent->currentState.number == cg.snap->ps.clientNum &&
-		cg_thirdPerson.integer )
+		cg.renderingThirdPerson )
 	{
 		stefxLogThirdPerson = qtrue;
 		s_stefxThirdPersonLogBudget--;
@@ -3298,12 +3312,38 @@ void CG_Player( centity_t *cent ) {
 			cent->gent && cent->gent->client ? cent->gent->client->clientInfo.headSkin : 0,
 			cg.snap->ps.weapon );
 	}
+	if ( cent && cg.snap && cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 )
+	{
+		if ( cent->currentState.number == cg.snap->ps.clientNum && s_stefxSplitP1ModelLogBudget > 0 )
+		{
+			stefxLogSplitModel = qtrue;
+			stefxSplitRole = "P1";
+			--s_stefxSplitP1ModelLogBudget;
+		}
+		else if ( cent->currentState.number == cg_stefxSplitScreenP2Entity.integer && s_stefxSplitP2ModelLogBudget > 0 )
+		{
+			stefxLogSplitModel = qtrue;
+			stefxSplitRole = "P2";
+			--s_stefxSplitP2ModelLogBudget;
+		}
+		if ( stefxLogSplitModel )
+		{
+			XBLF( "STEFX_SPLIT_MODEL enter role=%s ent=%d time=%d renderingThird=%d eFlags=0x%x gent=%p client=%p",
+				stefxSplitRole,
+				cent->currentState.number,
+				cg.time,
+				cg.renderingThirdPerson ? 1 : 0,
+				cent->currentState.eFlags,
+				cent->gent,
+				cent->gent ? cent->gent->client : NULL );
+		}
+	}
 #endif
 
 	if ( cent->currentState.eFlags & EF_NODRAW ) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer || stefxLogThirdPerson )
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=EF_NODRAW ent=%d eFlags=0x%x",
 				cent->currentState.number,
@@ -3319,7 +3359,7 @@ void CG_Player( centity_t *cent ) {
 	if(!cent->gent)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer || stefxLogThirdPerson )
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=no_gent ent=%d eFlags=0x%x",
 				cent->currentState.number,
@@ -3332,7 +3372,7 @@ void CG_Player( centity_t *cent ) {
 	if(!cent->gent->client)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer || stefxLogThirdPerson )
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=no_client ent=%d eFlags=0x%x gent=%p",
 				cent->currentState.number,
@@ -3346,7 +3386,7 @@ void CG_Player( centity_t *cent ) {
 	if ((in_camera) && !(cent->currentState.eFlags & EF_NPC))	// If player in camera then no need for shadow
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer || stefxLogThirdPerson )
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=in_camera ent=%d eFlags=0x%x cg_thirdPerson=%d renderingThirdPerson=%d",
 				cent->currentState.number,
@@ -3358,7 +3398,7 @@ void CG_Player( centity_t *cent ) {
 		return;
 	}
 
-	if(cent->currentState.number == 0 && !cg_thirdPerson.integer )
+	if(cent->currentState.number == 0 && !cg.renderingThirdPerson )
 	{
 		calcedMp = qtrue;
 	}
@@ -3368,7 +3408,7 @@ void CG_Player( centity_t *cent ) {
 	if ( !ci->infoValid ) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer || stefxLogThirdPerson )
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=info_invalid ent=%d name='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d",
 				cent->currentState.number,
@@ -3398,6 +3438,25 @@ void CG_Player( centity_t *cent ) {
 			ci->torsoSkin,
 			ci->headSkin,
 			ci->animFileIndex,
+			cent->currentState.weapon,
+			cent->gent->client->race,
+			cent->gent->client->playerTeam );
+	}
+	if ( stefxLogSplitModel )
+	{
+		XBLF( "STEFX_SPLIT_MODEL valid role=%s ent=%d name='%s' renderNames=(%s,%s,%s) models=(%d,%d,%d) skins=(%d,%d,%d) weapon=%d race=%d team=%d",
+			stefxSplitRole,
+			cent->currentState.number,
+			ci->name,
+			cent->gent->client->renderInfo.legsModelName,
+			cent->gent->client->renderInfo.torsoModelName,
+			cent->gent->client->renderInfo.headModelName,
+			ci->legsModel,
+			ci->torsoModel,
+			ci->headModel,
+			ci->legsSkin,
+			ci->torsoSkin,
+			ci->headSkin,
 			cent->currentState.weapon,
 			cent->gent->client->race,
 			cent->gent->client->playerTeam );
@@ -3533,13 +3592,25 @@ void CG_Player( centity_t *cent ) {
 			legs.origin[1],
 			legs.origin[2] );
 	}
+	if ( stefxLogSplitModel )
+	{
+		XBLF( "STEFX_SPLIT_MODEL part=legs role=%s ent=%d h=%d skin=%d rf=0x%x origin=(%g,%g,%g)",
+			stefxSplitRole,
+			cent->currentState.number,
+			legs.hModel,
+			legs.customSkin,
+			legs.renderfx,
+			legs.origin[0],
+			legs.origin[1],
+			legs.origin[2] );
+	}
 #endif
 
 	// if the model failed, allow the default nullmodel to be displayed
 	if (!legs.hModel) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogPlayer || stefxLogThirdPerson )
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=no_legs_model ent=%d models=(%d,%d,%d) skins=(%d,%d,%d)",
 				cent->currentState.number,
@@ -3597,6 +3668,18 @@ void CG_Player( centity_t *cent ) {
 				torso.frame,
 				torso.oldframe,
 				torso.backlerp,
+				torso.renderfx,
+				torso.origin[0],
+				torso.origin[1],
+				torso.origin[2] );
+		}
+		if ( stefxLogSplitModel )
+		{
+			XBLF( "STEFX_SPLIT_MODEL part=torso role=%s ent=%d h=%d skin=%d rf=0x%x origin=(%g,%g,%g)",
+				stefxSplitRole,
+				cent->currentState.number,
+				torso.hModel,
+				torso.customSkin,
 				torso.renderfx,
 				torso.origin[0],
 				torso.origin[1],
@@ -3695,6 +3778,18 @@ void CG_Player( centity_t *cent ) {
 					head.frame,
 					head.oldframe,
 					head.backlerp,
+					head.renderfx,
+					head.origin[0],
+					head.origin[1],
+					head.origin[2] );
+			}
+			if ( stefxLogSplitModel )
+			{
+				XBLF( "STEFX_SPLIT_MODEL part=head role=%s ent=%d h=%d skin=%d rf=0x%x origin=(%g,%g,%g)",
+					stefxSplitRole,
+					cent->currentState.number,
+					head.hModel,
+					head.customSkin,
 					head.renderfx,
 					head.origin[0],
 					head.origin[1],

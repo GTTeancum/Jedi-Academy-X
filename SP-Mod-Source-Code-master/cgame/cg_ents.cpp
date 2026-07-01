@@ -1422,6 +1422,233 @@ static void CG_AddCEntity( centity_t *cent )
 	}
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SplitP2SceneSupplementActive( int *p2EntNum )
+{
+	int entNum;
+
+	entNum = cg_stefxSplitScreenP2Entity.integer;
+	if ( p2EntNum )
+	{
+		*p2EntNum = entNum;
+	}
+
+	return (qboolean)(
+		cg_stefxSplitScreen.integer &&
+		cg_stefxSplitScreenPlayers.integer >= 2 &&
+		entNum > 0 &&
+		entNum < MAX_GENTITIES &&
+		g_entities &&
+		g_entities[entNum].inuse &&
+		g_entities[entNum].client );
+}
+
+static float STEFX_SplitSceneDistanceSquared( const vec3_t a, const vec3_t b )
+{
+	vec3_t delta;
+
+	VectorSubtract( a, b, delta );
+	return VectorLengthSquared( delta );
+}
+
+static qboolean STEFX_SplitClientActorCanSupplement( const gentity_t *gent )
+{
+	if ( !gent || !gent->client )
+	{
+		return qfalse;
+	}
+	if ( gent->client->ps.clientNum != gent->s.number )
+	{
+		return qfalse;
+	}
+	if ( gent->client->ps.pm_type == PM_INTERMISSION || gent->client->ps.pm_type == PM_SPECTATOR )
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static qboolean STEFX_SplitNonClientEntityHasVisibleState( const gentity_t *gent )
+{
+	if ( !gent || gent->client )
+	{
+		return qfalse;
+	}
+	return (qboolean)( gent->s.modelindex || gent->s.modelindex2 || gent->s.constantLight );
+}
+
+static qboolean STEFX_SplitShouldSupplementP2Entity( const gentity_t *gent, const gentity_t *p2, int entNum, float *distSq, qboolean *clientActor )
+{
+	float radiusSq;
+	float currentDistSq;
+
+	if ( clientActor )
+	{
+		*clientActor = qfalse;
+	}
+
+	if ( !gent || !p2 || !gent->inuse )
+	{
+		return qfalse;
+	}
+	if ( entNum <= 0 || entNum >= MAX_GENTITIES || gent->s.number != entNum )
+	{
+		return qfalse;
+	}
+	if ( gent->svFlags & SVF_NOCLIENT )
+	{
+		return qfalse;
+	}
+	if ( gent->s.eType >= ET_EVENTS || gent->s.eType == ET_INVISIBLE || ( gent->s.eFlags & EF_NODRAW ) )
+	{
+		return qfalse;
+	}
+
+	if ( entNum == cg_stefxSplitScreenP2Entity.integer )
+	{
+		if ( distSq )
+		{
+			*distSq = 0.0f;
+		}
+		return qtrue;
+	}
+
+	currentDistSq = STEFX_SplitSceneDistanceSquared( gent->currentOrigin, p2->currentOrigin );
+	if ( distSq )
+	{
+		*distSq = currentDistSq;
+	}
+
+	radiusSq = 4096.0f * 4096.0f;
+	if ( currentDistSq > radiusSq )
+	{
+		return qfalse;
+	}
+
+	if ( gent->client )
+	{
+		if ( !STEFX_SplitClientActorCanSupplement( gent ) )
+		{
+			return qfalse;
+		}
+		if ( clientActor )
+		{
+			*clientActor = qtrue;
+		}
+		return qtrue;
+	}
+
+	if ( !STEFX_SplitNonClientEntityHasVisibleState( gent ) )
+	{
+		return qfalse;
+	}
+
+	switch ( gent->s.eType )
+	{
+	case ET_ITEM:
+	case ET_MISSILE:
+	case ET_MOVER:
+	case ET_BEAM:
+	case ET_PORTAL:
+	case ET_THINKER:
+	case ET_GENERAL:
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEntities )
+{
+	static int s_splitSceneSummaryBudget = 96;
+	static int s_splitSceneDetailBudget = 128;
+	int p2EntNum;
+	int entNum;
+	int added;
+	int considered;
+	int upper;
+	gentity_t *p2;
+
+	if ( !STEFX_SplitP2SceneSupplementActive( &p2EntNum ) )
+	{
+		return;
+	}
+
+	p2 = &g_entities[p2EntNum];
+	upper = MAX_GENTITIES;
+
+	added = 0;
+	considered = 0;
+	for ( entNum = 1; entNum < upper; ++entNum )
+	{
+		qboolean clientActor;
+		float distSq;
+		gentity_t *gent;
+		centity_t *cent;
+
+		if ( primarySnapshotEntities && primarySnapshotEntities[entNum] )
+		{
+			continue;
+		}
+
+		gent = &g_entities[entNum];
+		clientActor = qfalse;
+		distSq = 0.0f;
+		if ( !STEFX_SplitShouldSupplementP2Entity( gent, p2, entNum, &distSq, &clientActor ) )
+		{
+			continue;
+		}
+
+		++considered;
+		cent = &cg_entities[entNum];
+		if ( clientActor )
+		{
+			PlayerStateToEntityState( &gent->client->ps, &cent->currentState );
+		}
+		else
+		{
+			cent->currentState = gent->s;
+		}
+		cent->nextState = cent->currentState;
+		cent->interpolate = qfalse;
+		cent->currentValid = qtrue;
+		cent->gent = gent;
+
+		CG_AddCEntity( cent );
+		++added;
+
+		if ( s_splitSceneDetailBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_SCENE supplement ent=%d type=%d clientActor=%d npc='%s' class='%s' distSq=%g p2=%d",
+				entNum,
+				cent->currentState.eType,
+				clientActor ? 1 : 0,
+				gent->NPC_type ? gent->NPC_type : "",
+				gent->classname ? gent->classname : "",
+				distSq,
+				p2EntNum );
+			--s_splitSceneDetailBudget;
+		}
+	}
+
+	if ( s_splitSceneSummaryBudget > 0 && ( added > 0 || cg.time < 8000 ) )
+	{
+		XBLF( "STEFX_SPLIT_SCENE summary p2=%d snap=%d considered=%d added=%d upper=%d p2Origin=(%g,%g,%g)",
+			p2EntNum,
+			cg.snap ? cg.snap->numEntities : -1,
+			considered,
+			added,
+			upper,
+			p2->currentOrigin[0],
+			p2->currentOrigin[1],
+			p2->currentOrigin[2] );
+		--s_splitSceneSummaryBudget;
+	}
+}
+#endif
+
 /*
 ===============
 CG_AddPacketEntities
@@ -1432,6 +1659,11 @@ void CG_AddPacketEntities( void ) {
 	int					num;
 	centity_t			*cent;
 	playerState_t		*ps;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	byte				stefxPrimarySnapshotEntities[MAX_GENTITIES];
+
+	memset( stefxPrimarySnapshotEntities, 0, sizeof( stefxPrimarySnapshotEntities ) );
+#endif
 
 	// set cg.frameInterpolation
 	if ( cg.nextSnap ) {
@@ -1468,7 +1700,16 @@ void CG_AddPacketEntities( void ) {
 
 	// add each entity sent over by the server
 	for ( num = 0 ; num < cg.snap->numEntities ; num++ ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( cg.snap->entities[ num ].number >= 0 && cg.snap->entities[ num ].number < MAX_GENTITIES )
+		{
+			stefxPrimarySnapshotEntities[ cg.snap->entities[ num ].number ] = 1;
+		}
+#endif
 		cent = &cg_entities[ cg.snap->entities[ num ].number ];
 		CG_AddCEntity( cent );
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SplitSupplementP2SceneEntities( stefxPrimarySnapshotEntities );
+#endif
 }

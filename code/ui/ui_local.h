@@ -320,6 +320,7 @@ extern void UI_EFMainMenu_OpenConfigure(void);
 extern void UI_EFMainMenu_OpenAudio(void);
 extern void UI_EFMainMenu_OpenVideo(void);
 extern void UI_EFMainMenu_OpenController(void);
+extern void UI_EFMainMenu_StartSplitScreenBaseline(void);
 extern void UI_EFMainMenu_OpenStub(const char *title, const char *line);
 extern void UI_EFMainMenu_Deactivate(void);
 extern void UI_EFMainMenu_Draw(int realtime);

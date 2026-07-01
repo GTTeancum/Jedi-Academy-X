@@ -38,6 +38,20 @@ extern void PM_SetTorsoAnimTimer( gentity_t *ent, int *torsoAnimTimer, int time 
 extern int PM_PickAnim( gentity_t *self, int minAnim, int maxAnim );
 extern qboolean PM_InOnGroundAnim (gentity_t *self);
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_SplitCoopPlayerPair( const gentity_t *a, const gentity_t *b )
+{
+	const int split = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
+	const int players = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+	const int p2EntNum = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+	return (qboolean)( split && players >= 2
+		&& p2EntNum > 0 && p2EntNum < MAX_GENTITIES
+		&& a && b && a->client && b->client
+		&& ( ( a->s.number == 0 && b->s.number == p2EntNum )
+			|| ( b->s.number == 0 && a->s.number == p2EntNum ) ) );
+}
+#endif
+
 /*
 ============
 AddScore
@@ -1397,6 +1411,24 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker, vec3_
 	if ( !attacker ) {
 		attacker = &g_entities[ENTITYNUM_WORLD];
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( targ != attacker && STEFX_SplitCoopPlayerPair( targ, attacker ) )
+	{
+		static int s_stefxSplitDamageSkipBudget = 32;
+		if ( s_stefxSplitDamageSkipBudget > 0 )
+		{
+			XBLF( "STEFX: G_Damage skip reason=splitPlayerPair targ=%d attacker=%d damage=%d dflags=0x%x mod=%d",
+				targ ? targ->s.number : -1,
+				attacker ? attacker->s.number : -1,
+				damage,
+				dflags,
+				mod );
+			--s_stefxSplitDamageSkipBudget;
+		}
+		return;
+	}
+#endif
 
 	if ( attacker->s.number != 0 && damage >= 2 && targ->s.number != 0 && attacker->client && attacker->client->playerTeam == TEAM_STARFLEET )
 	{//player-helpers do only half damage to enemies

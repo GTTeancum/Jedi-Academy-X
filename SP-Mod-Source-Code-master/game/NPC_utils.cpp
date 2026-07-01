@@ -1,5 +1,8 @@
 //NPC_utils.cpp
 #include "b_local.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 int	teamNumbers[TEAM_NUM_TEAMS];
 int	teamStrength[TEAM_NUM_TEAMS];
@@ -8,7 +11,102 @@ int	teamCounter[TEAM_NUM_TEAMS];
 #define	VALID_ATTACK_CONE	2.0f	//Degrees
 void GetAnglesForDirection( const vec3_t p1, const vec3_t p2, vec3_t out );
 qboolean NPC_CheckDisguise( gentity_t *ent );
+qboolean NPC_TargetVisible( gentity_t *ent );
 extern void Q3_DebugPrint( int level, const char *format, ... );
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int STEFX_SplitCoopP2EntityNumForAI( void )
+{
+	int p2EntNum;
+	gentity_t *p2;
+
+	if ( !gi.Cvar_VariableIntegerValue( "stefx_splitScreen" )
+		|| gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) < 2 )
+	{
+		return ENTITYNUM_NONE;
+	}
+
+	p2EntNum = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+	if ( p2EntNum <= 0 || p2EntNum >= globals.num_entities )
+	{
+		return ENTITYNUM_NONE;
+	}
+
+	p2 = &g_entities[p2EntNum];
+	if ( !p2->inuse || !p2->client || p2->health <= 0 )
+	{
+		return ENTITYNUM_NONE;
+	}
+	if ( ( p2->flags & FL_NOTARGET ) || ( p2->s.eFlags & EF_NODRAW ) )
+	{
+		return ENTITYNUM_NONE;
+	}
+
+	return p2EntNum;
+}
+
+static qboolean STEFX_SplitCoopIsPlayerEntity( const gentity_t *ent )
+{
+	int p2EntNum;
+
+	if ( !ent )
+	{
+		return qfalse;
+	}
+	if ( ent == &g_entities[0] )
+	{
+		return qtrue;
+	}
+
+	p2EntNum = STEFX_SplitCoopP2EntityNumForAI();
+	return (qboolean)( p2EntNum != ENTITYNUM_NONE && ent == &g_entities[p2EntNum] );
+}
+
+static gentity_t *STEFX_SplitCoopNearestVisiblePlayer( qboolean requireValidEnemy )
+{
+	int candidates[2];
+	int numCandidates = 1;
+	int i;
+	int p2EntNum;
+	float bestDist = Q3_INFINITE;
+	gentity_t *best = NULL;
+
+	candidates[0] = 0;
+	p2EntNum = STEFX_SplitCoopP2EntityNumForAI();
+	if ( p2EntNum != ENTITYNUM_NONE )
+	{
+		candidates[numCandidates++] = p2EntNum;
+	}
+
+	for ( i = 0; i < numCandidates; ++i )
+	{
+		gentity_t *candidate = &g_entities[candidates[i]];
+		float dist;
+
+		if ( !candidate->inuse || !candidate->client || candidate->health <= 0 )
+		{
+			continue;
+		}
+		if ( requireValidEnemy && !NPC_ValidEnemy( candidate ) )
+		{
+			continue;
+		}
+		if ( !NPC_TargetVisible( candidate ) )
+		{
+			continue;
+		}
+
+		dist = DistanceSquared( NPC->currentOrigin, candidate->currentOrigin );
+		if ( dist < bestDist )
+		{
+			bestDist = dist;
+			best = candidate;
+		}
+	}
+
+	return best;
+}
+#endif
 
 /*
 static void CalcEntitySpot ( gentity_t *ent, spot_t spot, vec3_t point ) 
@@ -1027,8 +1125,13 @@ gentity_t *NPC_PickEnemyExt( void )
 		if ( event->level == AEL_DISCOVERED )
 		{
 			//If it's the player, attack him
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( STEFX_SplitCoopIsPlayerEntity( event->owner ) )
+				return event->owner;
+#else
 			if ( event->owner == &g_entities[0] )
 				return event->owner;
+#endif
 
 			//If it's on our team, then take its enemy as well
 			if ( ( event->owner->client ) && ( event->owner->client->playerTeam == NPC->client->playerTeam ) )
@@ -1047,7 +1150,11 @@ NPC_FindPlayer
 
 qboolean NPC_FindPlayer( void )
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	return (qboolean)( STEFX_SplitCoopNearestVisiblePlayer( qfalse ) != NULL );
+#else
 	return NPC_TargetVisible( &g_entities[0] );
+#endif
 }
 
 /*
@@ -1063,9 +1170,40 @@ static qboolean NPC_CheckPlayerDistance( void )
 		return qfalse;
 
 	//Only do this for non-players
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( STEFX_SplitCoopIsPlayerEntity( NPC->enemy ) )
+#else
 	if ( NPC->enemy->s.number == 0 )
+#endif
 		return qfalse;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	gentity_t	*player = STEFX_SplitCoopNearestVisiblePlayer( qtrue );
+
+	if ( !player )
+		return qfalse;
+
+	float	distance = DistanceSquared( NPC->currentOrigin, NPC->enemy->currentOrigin );
+
+	if ( distance > DistanceSquared( NPC->currentOrigin, player->currentOrigin ) )
+	{
+		static int	s_stefxSplitDistanceLogBudget = 32;
+		const int	oldEnemyNum = NPC->enemy ? NPC->enemy->s.number : -1;
+
+		G_SetEnemy( NPC, player );
+		if ( s_stefxSplitDistanceLogBudget > 0 && player->s.number == STEFX_SplitCoopP2EntityNumForAI() )
+		{
+			XBLF( "STEFX_SPLIT_AI utility-distance self=%d p2=%d oldEnemy=%d",
+				NPC ? NPC->s.number : -1,
+				player->s.number,
+				oldEnemyNum );
+			--s_stefxSplitDistanceLogBudget;
+		}
+		return qtrue;
+	}
+
+	return qfalse;
+#else
 	//Must be within our FOV
 	if ( InFOV( &g_entities[0], NPC, NPCInfo->stats.hfov, NPCInfo->stats.vfov ) == qfalse )
 		return qfalse;
@@ -1079,6 +1217,7 @@ static qboolean NPC_CheckPlayerDistance( void )
 	}
 
 	return qfalse;
+#endif
 }
 
 /*
@@ -1324,4 +1463,3 @@ qboolean NPC_CheckLookTarget( gentity_t *self )
 
 	return qfalse;
 }
-

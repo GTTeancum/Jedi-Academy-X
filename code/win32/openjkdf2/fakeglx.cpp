@@ -709,21 +709,9 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	{
 		const bool postPresent = !strcmp(label, "post-present");
 		const bool prePresent = !strcmp(label, "pre-present");
-		if (prePresent && FakeGL_TryXGWriteSurface(backBuffer))
-		{
-			XBLF("STEFX: renderer screenshot XGWrite used pre-present backbuffer surface label='%s'", label);
-			FakeGL_DeleteScreenshotRequests();
-			return;
-		}
 		if (prePresent)
 		{
 			XBLF("STEFX: renderer screenshot pre-present blank; deferring capture until post-present label='%s'", label);
-			return;
-		}
-		if (postPresent && FakeGL_TryXGWriteFrontBuffer(device))
-		{
-			XBLF("STEFX: renderer screenshot XGWrite consumed blank CPU surface label='%s'", label);
-			FakeGL_DeleteScreenshotRequests();
 			return;
 		}
 		if (s_blankRetryLogBudget > 0)
@@ -740,7 +728,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		}
 		if (postPresent)
 		{
-			FakeGL_DeleteScreenshotRequests();
+			XBLF("STEFX: renderer screenshot retry blank label='%s'; keeping request for next present", label);
 		}
 		return;
 	}

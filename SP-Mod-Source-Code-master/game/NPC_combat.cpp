@@ -10,6 +10,38 @@ extern qboolean NPC_CheckDisguise( gentity_t *ent );
 extern qboolean NPC_CheckLookTarget( gentity_t *self );
 extern void NPC_ClearLookTarget( gentity_t *self );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int STEFX_SplitCoopP2EntityNumForAI( void )
+{
+	int p2EntNum;
+	gentity_t *p2;
+
+	if ( !gi.Cvar_VariableIntegerValue( "stefx_splitScreen" )
+		|| gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) < 2 )
+	{
+		return ENTITYNUM_NONE;
+	}
+
+	p2EntNum = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+	if ( p2EntNum <= 0 || p2EntNum >= globals.num_entities )
+	{
+		return ENTITYNUM_NONE;
+	}
+
+	p2 = &g_entities[p2EntNum];
+	if ( !p2->inuse || !p2->client || p2->health <= 0 )
+	{
+		return ENTITYNUM_NONE;
+	}
+	if ( ( p2->flags & FL_NOTARGET ) || ( p2->s.eFlags & EF_NODRAW ) )
+	{
+		return ENTITYNUM_NONE;
+	}
+
+	return p2EntNum;
+}
+#endif
+
 void G_ClearEnemy (gentity_t *self)
 {
 	NPC_CheckLookTarget( self );
@@ -971,6 +1003,10 @@ gentity_t *NPC_PickEnemy (gentity_t *closestTo, int enemyTeam, qboolean checkVis
 	qboolean	failed = qfalse;
 	int			visChecks = (CHECK_360|CHECK_FOV|CHECK_VISRANGE);
 	int			minVis = VIS_FOV;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	int			stefxSplitP2Candidate = ENTITYNUM_NONE;
+	static int	s_stefxSplitPickLogBudget = 48;
+#endif
 
 	if (!enemyTeam)
 	{
@@ -991,103 +1027,163 @@ gentity_t *NPC_PickEnemy (gentity_t *closestTo, int enemyTeam, qboolean checkVis
 
 	if( findPlayersFirst || enemyTeam == TEAM_PLAYER )
 	{//try to find a player first
-		newenemy = &g_entities[0];
-		if( newenemy->client && !(newenemy->flags & FL_NOTARGET) && !(newenemy->s.eFlags & EF_NODRAW))
-		{
-			if( newenemy->health > 0 )
-			{
-				if( enemyTeam == TEAM_PLAYER || newenemy->client->playerTeam == enemyTeam || 
-					( enemyTeam == TEAM_STARFLEET && !NPC_CheckDisguise( newenemy ) ) )
-				{//FIXME:  check for range and FOV or vis?
-					if( newenemy != NPC->lastEnemy )
-					{//Make sure we're not just going back and forth here
-						if ( gi.inPVS(newenemy->currentOrigin, NPC->currentOrigin) )
-						{
-							if(NPCInfo->behaviorState == BS_INVESTIGATE ||	NPCInfo->behaviorState == BS_PATROL)
-							{
-								if(!NPC->enemy)
-								{
-									if(!InVisrange(newenemy))
-									{
-										failed = qtrue;
-									}
-									else if(NPC_CheckVisibility ( newenemy, CHECK_360|CHECK_FOV|CHECK_VISRANGE ) != VIS_FOV)
-									{
-										failed = qtrue;
-									}
-								}
-							}
+		int playerCandidates[2];
+		int numPlayerCandidates = 1;
+		int playerCandidateIndex;
 
-							if ( !failed )
+		playerCandidates[0] = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		stefxSplitP2Candidate = STEFX_SplitCoopP2EntityNumForAI();
+		if ( stefxSplitP2Candidate != ENTITYNUM_NONE )
+		{
+			playerCandidates[numPlayerCandidates++] = stefxSplitP2Candidate;
+		}
+#endif
+		for ( playerCandidateIndex = 0; playerCandidateIndex < numPlayerCandidates; ++playerCandidateIndex )
+		{
+			failed = qfalse;
+			newenemy = &g_entities[playerCandidates[playerCandidateIndex]];
+			if( newenemy->client && !(newenemy->flags & FL_NOTARGET) && !(newenemy->s.eFlags & EF_NODRAW))
+			{
+				if( newenemy->health > 0 )
+				{
+					if( enemyTeam == TEAM_PLAYER || newenemy->client->playerTeam == enemyTeam ||
+						( enemyTeam == TEAM_STARFLEET && !NPC_CheckDisguise( newenemy ) ) )
+					{//FIXME:  check for range and FOV or vis?
+						if( newenemy != NPC->lastEnemy )
+						{//Make sure we're not just going back and forth here
+							if ( gi.inPVS(newenemy->currentOrigin, NPC->currentOrigin) )
 							{
-								VectorSubtract( closestTo->currentOrigin, newenemy->currentOrigin, diff );
-								relDist = VectorLengthSquared(diff);
-								if ( newenemy->client->hiddenDist > 0 )
+								if(NPCInfo->behaviorState == BS_INVESTIGATE ||	NPCInfo->behaviorState == BS_PATROL)
 								{
-									if( relDist > newenemy->client->hiddenDist*newenemy->client->hiddenDist )
+									if(!NPC->enemy)
 									{
-										//out of hidden range
-										if ( VectorLengthSquared( newenemy->client->hiddenDir ) )
-										{//They're only hidden from a certain direction, check
-											float	dot;
-											VectorNormalize( diff );
-											dot = DotProduct( newenemy->client->hiddenDir, diff ); 
-											if ( dot > 0.5 )
-											{//I'm not looking in the right dir toward them to see them 
-												failed = qtrue;
-											}
-											else
-											{
-												Debug_Printf(debugNPCAI, DEBUG_LEVEL_INFO, "%s saw %s trying to hide - hiddenDir %s targetDir %s dot %f\n", NPC->targetname, newenemy->targetname, vtos(newenemy->client->hiddenDir), vtos(diff), dot );
-											}
+										if(!InVisrange(newenemy))
+										{
+											failed = qtrue;
 										}
-										else
+										else if(NPC_CheckVisibility ( newenemy, CHECK_360|CHECK_FOV|CHECK_VISRANGE ) != VIS_FOV)
 										{
 											failed = qtrue;
 										}
 									}
-									else
-									{
-										Debug_Printf(debugNPCAI, DEBUG_LEVEL_INFO, "%s saw %s trying to hide - hiddenDist %f\n", NPC->targetname, newenemy->targetname, newenemy->client->hiddenDist );
-									}
 								}
 
-								if(!failed)
+								if ( !failed )
 								{
-									if(findClosest)
+									VectorSubtract( closestTo->currentOrigin, newenemy->currentOrigin, diff );
+									relDist = VectorLengthSquared(diff);
+									if ( newenemy->client->hiddenDist > 0 )
 									{
-										if(relDist < bestDist)
+										if( relDist > newenemy->client->hiddenDist*newenemy->client->hiddenDist )
 										{
-											if(!NPC_EnemyTooFar(newenemy, relDist, qfalse))
-											{
-												if(checkVis)
-												{
-													if( NPC_CheckVisibility ( newenemy, visChecks ) == minVis )
-													{
-														bestDist = relDist;
-														closestEnemy = newenemy;
-													}
+											//out of hidden range
+											if ( VectorLengthSquared( newenemy->client->hiddenDir ) )
+											{//They're only hidden from a certain direction, check
+												float	dot;
+												VectorNormalize( diff );
+												dot = DotProduct( newenemy->client->hiddenDir, diff );
+												if ( dot > 0.5 )
+												{//I'm not looking in the right dir toward them to see them
+													failed = qtrue;
 												}
 												else
 												{
-													bestDist = relDist;
-													closestEnemy = newenemy;
+													Debug_Printf(debugNPCAI, DEBUG_LEVEL_INFO, "%s saw %s trying to hide - hiddenDir %s targetDir %s dot %f\n", NPC->targetname, newenemy->targetname, vtos(newenemy->client->hiddenDir), vtos(diff), dot );
 												}
 											}
-										}
-									}
-									else if(!NPC_EnemyTooFar(newenemy, 0, qfalse))
-									{
-										if(checkVis)
-										{
-											if( NPC_CheckVisibility ( newenemy, CHECK_360|CHECK_FOV|CHECK_VISRANGE ) == VIS_FOV )
+											else
 											{
-												choice[num_choices++] = newenemy->s.number;
+												failed = qtrue;
 											}
 										}
 										else
 										{
-											choice[num_choices++] = newenemy->s.number;
+											Debug_Printf(debugNPCAI, DEBUG_LEVEL_INFO, "%s saw %s trying to hide - hiddenDist %f\n", NPC->targetname, newenemy->targetname, newenemy->client->hiddenDist );
+										}
+									}
+
+									if(!failed)
+									{
+										if(findClosest)
+										{
+											if(relDist < bestDist)
+											{
+												if(!NPC_EnemyTooFar(newenemy, relDist, qfalse))
+												{
+													if(checkVis)
+													{
+														if( NPC_CheckVisibility ( newenemy, visChecks ) == minVis )
+														{
+															bestDist = relDist;
+															closestEnemy = newenemy;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+															if ( newenemy->s.number == stefxSplitP2Candidate && s_stefxSplitPickLogBudget > 0 )
+															{
+																XBLF( "STEFX_SPLIT_AI priority-candidate mode=closest self=%d p2=%d dist=%g checkVis=%d",
+																	NPC ? NPC->s.number : -1,
+																	stefxSplitP2Candidate,
+																	relDist,
+																	checkVis ? 1 : 0 );
+																--s_stefxSplitPickLogBudget;
+															}
+#endif
+														}
+													}
+													else
+													{
+														bestDist = relDist;
+														closestEnemy = newenemy;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+														if ( newenemy->s.number == stefxSplitP2Candidate && s_stefxSplitPickLogBudget > 0 )
+														{
+															XBLF( "STEFX_SPLIT_AI priority-candidate mode=closest self=%d p2=%d dist=%g checkVis=%d",
+																NPC ? NPC->s.number : -1,
+																stefxSplitP2Candidate,
+																relDist,
+																checkVis ? 1 : 0 );
+															--s_stefxSplitPickLogBudget;
+														}
+#endif
+													}
+												}
+											}
+										}
+										else if(!NPC_EnemyTooFar(newenemy, 0, qfalse))
+										{
+											if(checkVis)
+											{
+												if( NPC_CheckVisibility ( newenemy, CHECK_360|CHECK_FOV|CHECK_VISRANGE ) == VIS_FOV )
+												{
+													choice[num_choices++] = newenemy->s.number;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+													if ( newenemy->s.number == stefxSplitP2Candidate && s_stefxSplitPickLogBudget > 0 )
+													{
+														XBLF( "STEFX_SPLIT_AI priority-candidate mode=choice self=%d p2=%d choices=%d checkVis=%d",
+															NPC ? NPC->s.number : -1,
+															stefxSplitP2Candidate,
+															num_choices,
+															checkVis ? 1 : 0 );
+														--s_stefxSplitPickLogBudget;
+													}
+#endif
+												}
+											}
+											else
+											{
+												choice[num_choices++] = newenemy->s.number;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+												if ( newenemy->s.number == stefxSplitP2Candidate && s_stefxSplitPickLogBudget > 0 )
+												{
+													XBLF( "STEFX_SPLIT_AI priority-candidate mode=choice self=%d p2=%d choices=%d checkVis=%d",
+														NPC ? NPC->s.number : -1,
+														stefxSplitP2Candidate,
+														num_choices,
+														checkVis ? 1 : 0 );
+													--s_stefxSplitPickLogBudget;
+												}
+#endif
+											}
 										}
 									}
 								}
@@ -1101,11 +1197,33 @@ gentity_t *NPC_PickEnemy (gentity_t *closestTo, int enemyTeam, qboolean checkVis
 
 	if (findClosest && closestEnemy)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Candidate != ENTITYNUM_NONE && s_stefxSplitPickLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_AI priority-result mode=closest self=%d p2=%d enemy=%d bestDist=%g",
+				NPC ? NPC->s.number : -1,
+				stefxSplitP2Candidate,
+				closestEnemy ? closestEnemy->s.number : -1,
+				bestDist );
+			--s_stefxSplitPickLogBudget;
+		}
+#endif
 		return closestEnemy;
 	}
 
 	if (num_choices)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Candidate != ENTITYNUM_NONE && s_stefxSplitPickLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_AI priority-result mode=choice self=%d p2=%d choices=%d first=%d",
+				NPC ? NPC->s.number : -1,
+				stefxSplitP2Candidate,
+				num_choices,
+				choice[0] );
+			--s_stefxSplitPickLogBudget;
+		}
+#endif
 		return &g_entities[ choice[rand() % num_choices] ];
 	}
 

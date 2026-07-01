@@ -282,6 +282,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxDrawStageTraceBudget = 96;
     static int s_stefxScriptPanelTraceBudget = 512;
     static int s_stefxInputTraceBudget = 256;
+    static int s_stefxSplitTraceBudget = 256;
     static int s_stefxSkyTraceBudget = 96;
     static int s_stefxNpcStateBudget = 128;
     static int s_stefxActorTraceBudget = 192;
@@ -320,6 +321,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX_SCRIPT_PANEL", &s_stefxScriptPanelTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_INPUT", &s_stefxInputTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SPLIT", &s_stefxSplitTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_JUNK", &s_stefxSkyTraceBudget);
     if (budgeted >= 0) return budgeted;
@@ -935,6 +938,7 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "STEFX_MENU_INPUT") ||
         strstr(fmt, "STEFX_MENU_") ||
         strstr(fmt, "STEFX_INPUT") ||
+        strstr(fmt, "STEFX_SPLIT") ||
         strstr(fmt, "STEFX_LOD") ||
         strstr(fmt, "STEFX_THIRD_PERSON") ||
         strstr(fmt, "STEFX_LIPTRACE") ||

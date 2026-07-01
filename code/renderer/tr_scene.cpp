@@ -337,6 +337,177 @@ to handle mirrors,
 @@@@@@@@@@@@@@@@@@@@@
 */
 extern int	recursivePortalCount;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean s_stefxSplitP2RefdefValid = qfalse;
+static refdef_t s_stefxSplitP2Refdef;
+
+void RE_STEFX_SplitScreen_SetP2Refdef(const refdef_t *refdef, qboolean valid)
+{
+	if (!valid || !refdef)
+	{
+		s_stefxSplitP2RefdefValid = qfalse;
+		return;
+	}
+
+	s_stefxSplitP2Refdef = *refdef;
+	s_stefxSplitP2RefdefValid = qtrue;
+}
+
+static qboolean R_STEFX_GetP2Refdef(refdef_t *out)
+{
+	if (!s_stefxSplitP2RefdefValid)
+	{
+		return qfalse;
+	}
+	if (out)
+	{
+		*out = s_stefxSplitP2Refdef;
+	}
+	return qtrue;
+}
+
+static int R_STEFX_ClampSplitPlayers(int players)
+{
+	if (players < 1)
+	{
+		return 1;
+	}
+	if (players > 4)
+	{
+		return 4;
+	}
+	return players;
+}
+
+static qboolean R_STEFX_ShouldRenderSplitScreen(const refdef_t *fd, int *players)
+{
+	int requestedPlayers;
+
+	if (!fd)
+	{
+		return qfalse;
+	}
+	if (!Cvar_VariableIntegerValue("stefx_splitScreen"))
+	{
+		return qfalse;
+	}
+	if (fd->rdflags & (RDF_SKYBOXPORTAL | RDF_NOWORLDMODEL))
+	{
+		return qfalse;
+	}
+	if (fd->width <= 1 || fd->height <= 1)
+	{
+		return qfalse;
+	}
+
+	requestedPlayers = R_STEFX_ClampSplitPlayers(Cvar_VariableIntegerValue("stefx_splitScreenPlayers"));
+	if (requestedPlayers < 2)
+	{
+		return qfalse;
+	}
+
+	if (players)
+	{
+		*players = requestedPlayers;
+	}
+	return qtrue;
+}
+
+static float R_STEFX_CalcFovYForViewport(float fovX, int width, int height)
+{
+	float x;
+
+	if (width <= 0 || height <= 0)
+	{
+		return fovX;
+	}
+
+	x = (float)width / tan(fovX / 360.0f * M_PI);
+	return atan2((float)height, x) * 360.0f / M_PI;
+}
+
+static void R_STEFX_SetSplitViewport(trRefdef_t *refdef, viewParms_t *parms, const trRefdef_t *sourceRefdef, const viewParms_t *sourceParms, int slot, int players)
+{
+	int x;
+	int y;
+	int w;
+	int h;
+	int halfW;
+	int halfH;
+
+	*refdef = *sourceRefdef;
+	*parms = *sourceParms;
+
+	x = sourceRefdef->x;
+	y = sourceRefdef->y;
+	w = sourceRefdef->width;
+	h = sourceRefdef->height;
+	players = R_STEFX_ClampSplitPlayers(players);
+
+	if (players == 2)
+	{
+		const int topHeight = sourceRefdef->height / 2;
+
+		y = sourceRefdef->y + (slot ? topHeight : 0);
+		h = slot ? (sourceRefdef->height - topHeight) : topHeight;
+	}
+	else if (players >= 3)
+	{
+		halfW = sourceRefdef->width / 2;
+		halfH = sourceRefdef->height / 2;
+		x = sourceRefdef->x + ((slot & 1) ? halfW : 0);
+		y = sourceRefdef->y + ((slot & 2) ? halfH : 0);
+		w = (slot & 1) ? (sourceRefdef->width - halfW) : halfW;
+		h = (slot & 2) ? (sourceRefdef->height - halfH) : halfH;
+	}
+
+	refdef->x = x;
+	refdef->y = y;
+	refdef->width = w;
+	refdef->height = h;
+	refdef->fov_y = R_STEFX_CalcFovYForViewport(refdef->fov_x, w, h);
+
+	parms->viewportX = x;
+	parms->viewportY = glConfig.vidHeight - (y + h);
+	parms->viewportWidth = w;
+	parms->viewportHeight = h;
+	parms->fovX = refdef->fov_x;
+	parms->fovY = refdef->fov_y;
+}
+
+static void R_STEFX_ApplyExternalSplitView(trRefdef_t *refdef, viewParms_t *parms, const refdef_t *externalRefdef)
+{
+	int i;
+
+	if (!refdef || !parms || !externalRefdef)
+	{
+		return;
+	}
+
+	refdef->fov_x = externalRefdef->fov_x;
+	refdef->fov_y = R_STEFX_CalcFovYForViewport(refdef->fov_x, refdef->width, refdef->height);
+	VectorCopy(externalRefdef->vieworg, refdef->vieworg);
+	VectorCopy(externalRefdef->viewaxis[0], refdef->viewaxis[0]);
+	VectorCopy(externalRefdef->viewaxis[1], refdef->viewaxis[1]);
+	VectorCopy(externalRefdef->viewaxis[2], refdef->viewaxis[2]);
+	refdef->time = externalRefdef->time;
+	refdef->areamaskModified = qtrue;
+	for (i = 0; i < MAX_MAP_AREA_BYTES; ++i)
+	{
+		refdef->areamask[i] = externalRefdef->areamask[i];
+	}
+
+	parms->fovX = refdef->fov_x;
+	parms->fovY = refdef->fov_y;
+	VectorCopy(refdef->vieworg, parms->or.origin);
+	VectorCopy(refdef->viewaxis[0], parms->or.axis[0]);
+	VectorCopy(refdef->viewaxis[1], parms->or.axis[1]);
+	VectorCopy(refdef->viewaxis[2], parms->or.axis[2]);
+	VectorCopy(refdef->vieworg, parms->pvsOrigin);
+}
+#endif
+
 void RE_RenderScene( const refdef_t *fd ) {
 	viewParms_t		parms;
 	int				startTime;
@@ -520,7 +691,78 @@ void RE_RenderScene( const refdef_t *fd ) {
 			parms.or.origin[2]);
 	}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		int splitPlayers = 1;
+		if (R_STEFX_ShouldRenderSplitScreen(fd, &splitPlayers))
+		{
+			int slot;
+			trRefdef_t sourceRefdef = tr.refdef;
+			viewParms_t sourceParms = parms;
+			refdef_t p2Refdef;
+			qboolean hasP2Refdef = R_STEFX_GetP2Refdef(&p2Refdef);
+			static qboolean s_loggedSplitViewports = qfalse;
+			const qboolean logSplitViewports = !s_loggedSplitViewports;
+
+			if (logSplitViewports)
+			{
+				XBLF("STEFX_SPLITSCREEN_RENDER armed players=%d p2Refdef=%d source=%d,%d %dx%d gl=%d,%d %dx%d fov=%g/%g",
+					splitPlayers,
+					hasP2Refdef ? 1 : 0,
+					sourceRefdef.x,
+					sourceRefdef.y,
+					sourceRefdef.width,
+					sourceRefdef.height,
+					sourceParms.viewportX,
+					sourceParms.viewportY,
+					sourceParms.viewportWidth,
+					sourceParms.viewportHeight,
+					sourceRefdef.fov_x,
+					sourceRefdef.fov_y);
+			}
+
+			for (slot = 0; slot < splitPlayers; ++slot)
+			{
+				R_STEFX_SetSplitViewport(&tr.refdef, &parms, &sourceRefdef, &sourceParms, slot, splitPlayers);
+				if (slot == 1 && hasP2Refdef)
+				{
+					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef);
+				}
+				if (logSplitViewports)
+				{
+					XBLF("STEFX_SPLITSCREEN_RENDER slot=%d p2View=%d ref=%d,%d %dx%d gl=%d,%d %dx%d fov=%g/%g view=(%g,%g,%g)",
+						slot,
+						(slot == 1 && hasP2Refdef) ? 1 : 0,
+						tr.refdef.x,
+						tr.refdef.y,
+						tr.refdef.width,
+						tr.refdef.height,
+						parms.viewportX,
+						parms.viewportY,
+						parms.viewportWidth,
+						parms.viewportHeight,
+						tr.refdef.fov_x,
+						tr.refdef.fov_y,
+						tr.refdef.vieworg[0],
+						tr.refdef.vieworg[1],
+						tr.refdef.vieworg[2]);
+				}
+				recursivePortalCount = 0;
+				R_RenderView( &parms );
+			}
+
+			s_loggedSplitViewports = qtrue;
+			tr.refdef = sourceRefdef;
+			parms = sourceParms;
+		}
+		else
+		{
+			R_RenderView( &parms );
+		}
+	}
+#else
 	R_RenderView( &parms );
+#endif
 #ifdef _XBOX
 	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene after R_RenderView");
 #endif

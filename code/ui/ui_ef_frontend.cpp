@@ -14,6 +14,7 @@
 #define EF_FRONTEND_FONT_BUFFER 20000
 #define EF_FRONTEND_BUTTON_TEXT_BUFFER 14000
 #define EF_FRONTEND_MBT_MAX 250
+#define EF_SPLITSCREEN_BASELINE_MAP "borg1"
 
 #define EF_FRONTEND_FONT_TINY 0
 #define EF_FRONTEND_FONT_MEDIUM 1
@@ -234,6 +235,7 @@ static int s_videoCorner = 0;
 static char s_menuSmokeTarget[32];
 static int s_menuSmokeStage = 0;
 static int s_menuSmokeNextRealtime = 0;
+static int s_menuSmokeMainDownRemaining = 0;
 static int s_menuSmokeDownRemaining = 0;
 static char s_stubTitle[64];
 static char s_stubLine[96];
@@ -1721,6 +1723,10 @@ static void EFFe_StartMap(const char *mapName)
 #endif
 	EFFe_SetNewGameDifficulty(s_newgameDifficulty);
 	EFFe_SetNewGameGender(s_newgameGenderMale ? qtrue : qfalse);
+	ui.Cvar_Set("stefx_splitScreen", "0");
+	ui.Cvar_Set("stefx_splitScreenPlayers", "1");
+	ui.Cvar_Set("stefx_splitScreenMode", "sp");
+	ui.Cvar_Set("stefx_splitScreenP2Entity", "-1");
 	s_active = qfalse;
 	UI_ForceMenuOff();
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
@@ -2082,21 +2088,28 @@ static void EFFe_RunMenuSmoke(int realtime)
 #ifdef _XBOX
 	char target[32];
 	int desiredCursor;
+	int newGameCursor;
+	qboolean targetHolomatch;
 
 	ui.Cvar_VariableStringBuffer("stefx_menu_smoke", target, sizeof(target));
 	if (!target[0] || !Q_stricmp(target, "0"))
 	{
 		s_menuSmokeStage = 0;
 		s_menuSmokeTarget[0] = '\0';
+		s_menuSmokeMainDownRemaining = 0;
 		return;
 	}
 
-	if (Q_stricmp(target, "tutorial") && Q_stricmp(target, "engage"))
+	targetHolomatch = (qboolean)!Q_stricmp(target, "holomatch");
+	desiredCursor = targetHolomatch ? 2 : 0;
+	newGameCursor = !Q_stricmp(target, "tutorial") ? 6 : (!Q_stricmp(target, "engage") ? 7 : 0);
+	if (Q_stricmp(target, "tutorial") && Q_stricmp(target, "engage") && !targetHolomatch)
 	{
 		ui.Printf("STEFX_MENU_SMOKE invalid target='%s'\n", target);
 		ui.Cvar_Set("stefx_menu_smoke", "0");
 		s_menuSmokeStage = 0;
 		s_menuSmokeTarget[0] = '\0';
+		s_menuSmokeMainDownRemaining = 0;
 		return;
 	}
 
@@ -2105,11 +2118,12 @@ static void EFFe_RunMenuSmoke(int realtime)
 		Q_strncpyz(s_menuSmokeTarget, target, sizeof(s_menuSmokeTarget));
 		s_menuSmokeStage = 1;
 		s_menuSmokeNextRealtime = realtime + 500;
-		desiredCursor = !Q_stricmp(target, "tutorial") ? 6 : 7;
-		s_menuSmokeDownRemaining = desiredCursor;
-		ui.Printf("STEFX_MENU_SMOKE begin target='%s' desiredCursor=%d screen='%s' cursor=%d realtime=%d\n",
+		s_menuSmokeMainDownRemaining = desiredCursor;
+		s_menuSmokeDownRemaining = newGameCursor;
+		ui.Printf("STEFX_MENU_SMOKE begin target='%s' mainCursor=%d subCursor=%d screen='%s' cursor=%d realtime=%d\n",
 			s_menuSmokeTarget,
 			desiredCursor,
+			newGameCursor,
 			EFFe_ScreenName(s_screen),
 			s_cursor,
 			realtime);
@@ -2132,8 +2146,36 @@ static void EFFe_RunMenuSmoke(int realtime)
 			s_menuSmokeNextRealtime = realtime + 250;
 			return;
 		}
-		ui.Printf("STEFX_MENU_SMOKE main-accept cursor=%d realtime=%d\n", s_cursor, realtime);
+		if (s_menuSmokeMainDownRemaining > 0)
+		{
+			ui.Printf("STEFX_MENU_SMOKE main-down remainingBefore=%d cursor=%d realtime=%d\n",
+				s_menuSmokeMainDownRemaining,
+				s_cursor,
+				realtime);
+			EFFe_HandleMainKey(A_CURSOR_DOWN);
+			s_menuSmokeMainDownRemaining--;
+			s_menuSmokeNextRealtime = realtime + 160;
+			return;
+		}
+		if (s_cursor != desiredCursor)
+		{
+			ui.Printf("STEFX_MENU_SMOKE main-align target='%s' cursorBefore=%d cursorAfter=%d realtime=%d\n",
+				s_menuSmokeTarget,
+				s_cursor,
+				desiredCursor,
+				realtime);
+			s_cursor = desiredCursor;
+		}
+		ui.Printf("STEFX_MENU_SMOKE main-accept target='%s' cursor=%d realtime=%d\n", s_menuSmokeTarget, s_cursor, realtime);
 		EFFe_HandleMainKey(A_ENTER);
+		if (!Q_stricmp(s_menuSmokeTarget, "holomatch"))
+		{
+			ui.Cvar_Set("stefx_menu_smoke", "0");
+			s_menuSmokeStage = 0;
+			s_menuSmokeTarget[0] = '\0';
+			s_menuSmokeMainDownRemaining = 0;
+			return;
+		}
 		s_menuSmokeStage = 2;
 		s_menuSmokeNextRealtime = realtime + 500;
 		return;
@@ -2161,6 +2203,15 @@ static void EFFe_RunMenuSmoke(int realtime)
 			s_menuSmokeNextRealtime = realtime + 160;
 			return;
 		}
+		if (s_cursor != newGameCursor)
+		{
+			ui.Printf("STEFX_MENU_SMOKE newgame-align target='%s' cursorBefore=%d cursorAfter=%d realtime=%d\n",
+				s_menuSmokeTarget,
+				s_cursor,
+				newGameCursor,
+				realtime);
+			s_cursor = newGameCursor;
+		}
 		s_menuSmokeStage = 3;
 		s_menuSmokeNextRealtime = realtime + 250;
 		return;
@@ -2176,6 +2227,7 @@ static void EFFe_RunMenuSmoke(int realtime)
 				realtime);
 			ui.Cvar_Set("stefx_menu_smoke", "0");
 			s_menuSmokeStage = 0;
+			s_menuSmokeMainDownRemaining = 0;
 			return;
 		}
 		ui.Printf("STEFX_MENU_SMOKE newgame-accept target='%s' cursor=%d item='%s' realtime=%d\n",
@@ -2187,6 +2239,7 @@ static void EFFe_RunMenuSmoke(int realtime)
 		ui.Cvar_Set("stefx_menu_smoke", "0");
 		s_menuSmokeStage = 0;
 		s_menuSmokeTarget[0] = '\0';
+		s_menuSmokeMainDownRemaining = 0;
 	}
 #else
 	(void)realtime;
@@ -2234,6 +2287,32 @@ void UI_EFMainMenu_OpenVideo(void)
 void UI_EFMainMenu_OpenController(void)
 {
 	EFFe_OpenScreen(EF_SCREEN_CONTROLLER, 0, "ef-controller-open");
+}
+
+void UI_EFMainMenu_StartSplitScreenBaseline(void)
+{
+#ifdef _XBOX
+	char splitValue[16];
+	char playersValue[16];
+	XBLF("STEFX: EF split-screen coop start map='%s' players=2 catcher=0x%x", EF_SPLITSCREEN_BASELINE_MAP, ui.Key_GetCatcher());
+	ui.Printf("STEFX_MENU_SPLITSCREEN_START map='%s' players=2 cursor=%d catcher=0x%x\n",
+		EF_SPLITSCREEN_BASELINE_MAP,
+		s_cursor,
+		ui.Key_GetCatcher());
+#endif
+	ui.Cvar_Set("stefx_splitScreen", "1");
+	ui.Cvar_Set("stefx_splitScreenPlayers", "2");
+	ui.Cvar_Set("stefx_splitScreenMode", "coop");
+	ui.Cvar_Set("stefx_splitScreenP2Entity", "-1");
+#ifdef _XBOX
+	ui.Cvar_VariableStringBuffer("stefx_splitScreen", splitValue, sizeof(splitValue));
+	ui.Cvar_VariableStringBuffer("stefx_splitScreenPlayers", playersValue, sizeof(playersValue));
+	ui.Printf("STEFX_MENU_SPLITSCREEN_CVARS split='%s' players='%s'\n", splitValue, playersValue);
+#endif
+	s_active = qfalse;
+	UI_ForceMenuOff();
+	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
+	ui.Cmd_ExecuteText(EXEC_APPEND, "map " EF_SPLITSCREEN_BASELINE_MAP "\n");
 }
 
 void UI_EFMainMenu_OpenStub(const char *title, const char *line)

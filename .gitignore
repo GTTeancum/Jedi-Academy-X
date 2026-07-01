@@ -17,3 +17,6 @@
 /code/goblib/Release/
 /code/x_exe/Release/
 /scripts/output/
+
+# Local-only licensed reference drops
+/third_party_private/

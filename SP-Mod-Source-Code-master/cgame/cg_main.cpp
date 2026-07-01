@@ -138,6 +138,10 @@ vmCvar_t	cg_skippingcin;
 vmCvar_t	cg_stefxSmokeUnlockPlayer;
 vmCvar_t	cg_stefxSmokeInput;
 vmCvar_t	cg_stefxSmokeInputStart;
+vmCvar_t	cg_stefxSplitScreen;
+vmCvar_t	cg_stefxSplitScreenPlayers;
+vmCvar_t	cg_stefxSplitScreenP2Entity;
+vmCvar_t	cg_stefxSplitScreenP2Zoom;
 vmCvar_t	cg_language;
 
 vmCvar_t	cg_pano;
@@ -222,6 +226,10 @@ cvarTable_t		cvarTable[] = {
 	{ &cg_stefxSmokeUnlockPlayer, "stefx_smoke_unlock_player", "0", CVAR_TEMP },
 	{ &cg_stefxSmokeInput, "stefx_smoke_input", "0", CVAR_TEMP },
 	{ &cg_stefxSmokeInputStart, "stefx_smoke_input_start", "71000", CVAR_TEMP },
+	{ &cg_stefxSplitScreen, "stefx_splitScreen", "0", CVAR_TEMP },
+	{ &cg_stefxSplitScreenPlayers, "stefx_splitScreenPlayers", "1", CVAR_TEMP },
+	{ &cg_stefxSplitScreenP2Entity, "stefx_splitScreenP2Entity", "-1", CVAR_TEMP },
+	{ &cg_stefxSplitScreenP2Zoom, "stefx_splitScreenP2Zoom", "0", CVAR_TEMP },
 	{ &cg_language,	"g_language", "", CVAR_ARCHIVE | CVAR_NORESTART},
 	{ &cg_virtualVoyager, "cg_virtualvoyager", "0", CVAR_NORESTART },
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "15000", CVAR_ARCHIVE  },
@@ -1142,6 +1150,9 @@ static void CG_RegisterGraphics( void ) {
 		cgs.model_draw[i] = cgi_R_RegisterModel( modelName );
 	}
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_RegisterGraphics before client config loop");
+#endif
 	for (i=0 ; i<MAX_CLIENTS ; i++) 
 	{
 		const char		*clientInfo;
@@ -1153,9 +1164,20 @@ static void CG_RegisterGraphics( void ) {
 		}
 
 		//feedback( va("client %i", i ) );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterGraphics client-config idx=%d before CG_NewClientinfo", i);
+#endif
 		CG_NewClientinfo( i );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterGraphics client-config idx=%d after CG_NewClientinfo", i);
+#endif
 	}
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_RegisterGraphics after client config loop");
+	XBLog_Write("STEFX: CG_RegisterGraphics before entity precache loop");
+	int stefxEntityPrecacheLogBudget = 96;
+#endif
 	for (i=0 ; i < ENTITYNUM_WORLD ; i++)
 	{
 		if(&g_entities[i])
@@ -1166,13 +1188,70 @@ static void CG_RegisterGraphics( void ) {
 				//We presume this
 				{
 					CG_LoadingString( va("client %s", g_entities[i].client->clientInfo.name ) );
+#ifdef _XBOX
+					if ( stefxEntityPrecacheLogBudget > 0 )
+					{
+						XBLF("STEFX: CG_RegisterGraphics entity=%d client npc='%s' team=%d weapon=%d before CG_RegisterClientModels",
+							i,
+							g_entities[i].NPC_type ? g_entities[i].NPC_type : "<null>",
+							g_entities[i].client->playerTeam,
+							g_entities[i].client->ps.weapon);
+					}
+#endif
 					CG_RegisterClientModels(i);
+#ifdef _XBOX
+					if ( stefxEntityPrecacheLogBudget > 0 )
+					{
+						XBLF("STEFX: CG_RegisterGraphics entity=%d after CG_RegisterClientModels", i);
+					}
+#endif
 					if ( i != 0 )
 					{//Client weapons already precached
+#ifdef _XBOX
+						if ( stefxEntityPrecacheLogBudget > 0 )
+						{
+							XBLF("STEFX: CG_RegisterGraphics entity=%d before CG_RegisterWeapon weapon=%d",
+								i,
+								g_entities[i].client->ps.weapon);
+						}
+#endif
 						CG_RegisterWeapon( g_entities[i].client->ps.weapon );
+#ifdef _XBOX
+						if ( stefxEntityPrecacheLogBudget > 0 )
+						{
+							XBLF("STEFX: CG_RegisterGraphics entity=%d after CG_RegisterWeapon", i);
+							XBLF("STEFX: CG_RegisterGraphics entity=%d before CG_RegisterNPCCustomSounds npc='%s'",
+								i,
+								g_entities[i].NPC_type ? g_entities[i].NPC_type : "<null>");
+						}
+#endif
 						CG_RegisterNPCCustomSounds( &g_entities[i].client->clientInfo );
+#ifdef _XBOX
+						if ( stefxEntityPrecacheLogBudget > 0 )
+						{
+							XBLF("STEFX: CG_RegisterGraphics entity=%d after CG_RegisterNPCCustomSounds", i);
+							XBLF("STEFX: CG_RegisterGraphics entity=%d before CG_RegisterNPCEffects team=%d",
+								i,
+								g_entities[i].client->playerTeam);
+						}
+#endif
 						CG_RegisterNPCEffects( g_entities[i].client->playerTeam );
+#ifdef _XBOX
+						if ( stefxEntityPrecacheLogBudget > 0 )
+						{
+							XBLF("STEFX: CG_RegisterGraphics entity=%d after CG_RegisterNPCEffects", i);
+							XBLF("STEFX: CG_RegisterGraphics entity=%d before CG_PrecachePlayerGreetingSound npc='%s'",
+								i,
+								g_entities[i].NPC_type ? g_entities[i].NPC_type : "<null>");
+						}
+#endif
 						CG_PrecachePlayerGreetingSound( g_entities[i].NPC_type );
+#ifdef _XBOX
+						if ( stefxEntityPrecacheLogBudget > 0 )
+						{
+							XBLF("STEFX: CG_RegisterGraphics entity=%d after CG_PrecachePlayerGreetingSound", i);
+						}
+#endif
 						if ( g_entities[i].NPC_type && Q_stricmp( "satan", g_entities[i].NPC_type ) == 0 )
 						{//very special case
 							for ( int x = 0; x < 4; x++ ) {
@@ -1180,18 +1259,51 @@ static void CG_RegisterGraphics( void ) {
 							}
 						}
 					}
+#ifdef _XBOX
+					if ( stefxEntityPrecacheLogBudget > 0 )
+					{
+						--stefxEntityPrecacheLogBudget;
+					}
+#endif
 				}
 			}
 			else if ( g_entities[i].svFlags & SVF_NPC_PRECACHE && g_entities[i].NPC_type && g_entities[i].NPC_type[0] )
 			{//Precache the NPC_type
 				//FIXME: make sure we didn't precache this NPC_type already
 				CG_LoadingString( va("NPC %s", g_entities[i].NPC_type ) );
+#ifdef _XBOX
+				if ( stefxEntityPrecacheLogBudget > 0 )
+				{
+					XBLF("STEFX: CG_RegisterGraphics entity=%d npc-precache npc='%s' before NPC_Precache",
+						i,
+						g_entities[i].NPC_type);
+				}
+#endif
 				NPC_Precache( &g_entities[i] );
+#ifdef _XBOX
+				if ( stefxEntityPrecacheLogBudget > 0 )
+				{
+					XBLF("STEFX: CG_RegisterGraphics entity=%d after NPC_Precache before greeting npc='%s'",
+						i,
+						g_entities[i].NPC_type);
+				}
+#endif
 				CG_PrecachePlayerGreetingSound( g_entities[i].NPC_type );
+#ifdef _XBOX
+				if ( stefxEntityPrecacheLogBudget > 0 )
+				{
+					XBLF("STEFX: CG_RegisterGraphics entity=%d after npc-precache greeting", i);
+					--stefxEntityPrecacheLogBudget;
+				}
+#endif
 			}
 		}
 	}
 
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_RegisterGraphics after entity precache loop");
+	XBLog_Write("STEFX: CG_RegisterGraphics before default greeting precache");
+#endif
 	//always precache these, I guess...
 	CG_PrecachePlayerGreetingSound( "crewman" );
 	CG_PrecachePlayerGreetingSound( "ensign" );
@@ -1200,6 +1312,9 @@ static void CG_RegisterGraphics( void ) {
 	CG_PrecachePlayerGreetingSound( "generic2" );
 	CG_PrecachePlayerGreetingSound( "generic3" );
 	CG_PrecachePlayerGreetingSound( "generic4" );
+#ifdef _XBOX
+	XBLog_Write("STEFX: CG_RegisterGraphics after default greeting precache");
+#endif
 
 	cg.loadLCARSStage = 8;
 

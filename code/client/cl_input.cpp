@@ -64,6 +64,767 @@ static cvar_t *stefx_smokeViewYaw;
 static cvar_t *stefx_smokeInputAttackStart;
 static cvar_t *stefx_smokeInputAttackEnd;
 
+#define STEFX_SPLIT_MAX_PADS 4
+#define STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD 30
+#define STEFX_SPLIT_THUMB_DEADZONE 7849
+#define STEFX_SPLIT_BUTTON_DPAD_UP (1u << 0)
+#define STEFX_SPLIT_BUTTON_BACK (1u << 5)
+#define STEFX_SPLIT_BUTTON_LEFT_THUMB (1u << 6)
+#define STEFX_SPLIT_BUTTON_RIGHT_THUMB (1u << 7)
+
+typedef struct {
+	qboolean connected;
+	int mainController;
+	unsigned int buttons;
+	byte analogButtons[8];
+	int thumbLX;
+	int thumbLY;
+	int thumbRX;
+	int thumbRY;
+	int lastServerTime;
+	vec3_t viewangles;
+	qboolean viewanglesValid;
+	qboolean weaponNextDown;
+	qboolean weaponPrevDown;
+	qboolean zoomDown;
+	qboolean datapadDown;
+	qboolean thirdPersonToggleDown;
+	qboolean runToggleDown;
+	qboolean runEnabled;
+	qboolean synthetic;
+} stefxSplitPadState_t;
+
+static stefxSplitPadState_t s_stefxSplitPads[STEFX_SPLIT_MAX_PADS];
+
+static qboolean STEFX_SplitMainControllerValid( int mainController )
+{
+	return (qboolean)( mainController >= 0 && mainController < STEFX_SPLIT_MAX_PADS );
+}
+
+static int STEFX_SplitEffectiveMainController( int rawMainController, qboolean includeSynthetic )
+{
+	static int s_invalidMainLogBudget = 16;
+	int port;
+	int firstConnected = -1;
+	int firstRealConnected = -1;
+	int storedMainController = -1;
+	int effectiveMain = -1;
+	int mask = 0;
+	qboolean rawMainConnected = qfalse;
+	qboolean syntheticConnected = qfalse;
+
+	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+	{
+		if ( !s_stefxSplitPads[port].connected
+			|| ( !includeSynthetic && s_stefxSplitPads[port].synthetic ) )
+		{
+			continue;
+		}
+		mask |= 1 << port;
+		if ( firstConnected < 0 )
+		{
+			firstConnected = port;
+		}
+		if ( !s_stefxSplitPads[port].synthetic && firstRealConnected < 0 )
+		{
+			firstRealConnected = port;
+		}
+		if ( s_stefxSplitPads[port].synthetic )
+		{
+			syntheticConnected = qtrue;
+		}
+		if ( port == rawMainController )
+		{
+			rawMainConnected = qtrue;
+		}
+		if ( STEFX_SplitMainControllerValid( s_stefxSplitPads[port].mainController ) )
+		{
+			storedMainController = s_stefxSplitPads[port].mainController;
+		}
+	}
+
+	if ( STEFX_SplitMainControllerValid( rawMainController ) && rawMainConnected )
+	{
+		effectiveMain = rawMainController;
+	}
+	else if ( STEFX_SplitMainControllerValid( storedMainController )
+		&& s_stefxSplitPads[storedMainController].connected
+		&& ( includeSynthetic || !s_stefxSplitPads[storedMainController].synthetic ) )
+	{
+		effectiveMain = storedMainController;
+	}
+	else if ( includeSynthetic
+		&& syntheticConnected
+		&& firstRealConnected < 0
+		&& STEFX_SplitMainControllerValid( rawMainController ) )
+	{
+		effectiveMain = rawMainController;
+	}
+	else if ( firstRealConnected >= 0 )
+	{
+		effectiveMain = firstRealConnected;
+	}
+	else if ( firstConnected >= 0 )
+	{
+		effectiveMain = firstConnected;
+	}
+	else if ( !STEFX_SplitMainControllerValid( effectiveMain ) )
+	{
+		effectiveMain = 0;
+	}
+
+	if ( s_invalidMainLogBudget > 0
+		&& Cvar_VariableIntegerValue( "stefx_splitScreen" )
+		&& ( rawMainController != effectiveMain
+			|| !STEFX_SplitMainControllerValid( rawMainController )
+			|| !rawMainConnected ) )
+	{
+		XBLF( "STEFX_SPLIT_INPUT effective main raw=%d effective=%d mask=0x%x includeSynthetic=%d",
+			rawMainController,
+			effectiveMain,
+			mask,
+			includeSynthetic ? 1 : 0 );
+		--s_invalidMainLogBudget;
+	}
+
+	return effectiveMain;
+}
+
+static float STEFX_SplitNormalizeThumb( int value )
+{
+	float normalized;
+
+	if ( value > -STEFX_SPLIT_THUMB_DEADZONE && value < STEFX_SPLIT_THUMB_DEADZONE )
+	{
+		return 0.0f;
+	}
+
+	normalized = value / 32767.0f;
+	if ( normalized > 1.0f )
+	{
+		normalized = 1.0f;
+	}
+	else if ( normalized < -1.0f )
+	{
+		normalized = -1.0f;
+	}
+	return normalized;
+}
+
+static signed char STEFX_SplitAxisToMove( float value )
+{
+	int move = (int)( value * 127.0f );
+
+	if ( move > 127 )
+	{
+		move = 127;
+	}
+	else if ( move < -127 )
+	{
+		move = -127;
+	}
+
+	return (signed char)move;
+}
+
+static void STEFX_SplitApplyRunState( stefxSplitPadState_t *pad, usercmd_t *cmd )
+{
+	int maxComponent;
+	int sideComponent;
+
+	if ( !pad || !cmd )
+	{
+		return;
+	}
+
+	if ( !pad->runEnabled && ( cmd->forwardmove || cmd->rightmove ) )
+	{
+		maxComponent = abs( cmd->forwardmove );
+		sideComponent = abs( cmd->rightmove );
+		if ( sideComponent > maxComponent )
+		{
+			maxComponent = sideComponent;
+		}
+		if ( maxComponent > 64 )
+		{
+			cmd->forwardmove = ClampChar( ( cmd->forwardmove * 64 ) / maxComponent );
+			cmd->rightmove = ClampChar( ( cmd->rightmove * 64 ) / maxComponent );
+		}
+		cmd->buttons |= BUTTON_WALKING;
+		return;
+	}
+
+	if ( ( cmd->forwardmove * cmd->forwardmove + cmd->rightmove * cmd->rightmove ) < ( MOVE_RUN * MOVE_RUN ) )
+	{
+		cmd->buttons |= BUTTON_WALKING;
+	}
+}
+
+static qboolean STEFX_SplitRealSecondaryPadConnected( void )
+{
+	int port;
+	const int effectiveMain = STEFX_SplitEffectiveMainController( -1, qfalse );
+
+	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+	{
+		if ( s_stefxSplitPads[port].connected
+			&& !s_stefxSplitPads[port].synthetic
+			&& port != effectiveMain )
+		{
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+static void STEFX_SplitScreen_UpdateTestP2Pad( int serverTime )
+{
+	static qboolean s_fakePadConnected = qfalse;
+	static int s_fakePadLogBudget = 32;
+	byte analogButtons[8];
+	unsigned int buttons = 0;
+	int phase;
+	const int fakePort = 3;
+	const int testMode = Cvar_VariableIntegerValue( "stefx_splitScreenTestP2Pad" );
+
+	if ( !testMode || STEFX_SplitRealSecondaryPadConnected() )
+	{
+		if ( s_fakePadConnected )
+		{
+			if ( s_stefxSplitPads[fakePort].synthetic )
+			{
+				CL_STEFX_SplitScreen_RecordPadState( fakePort, qfalse, 0, 0, NULL, 0, 0, 0, 0 );
+				s_stefxSplitPads[fakePort].synthetic = qfalse;
+			}
+			else if ( s_fakePadLogBudget > 0 )
+			{
+				XBLF( "STEFX_SPLIT_INPUT fakepad release skipped port=%d reason='real pad owns state'",
+					fakePort );
+				--s_fakePadLogBudget;
+			}
+			s_fakePadConnected = qfalse;
+		}
+		return;
+	}
+
+	memset( analogButtons, 0, sizeof( analogButtons ) );
+	phase = ( serverTime / 700 ) & 3;
+
+	analogButtons[7] = (byte)( ( ( serverTime / 500 ) & 1 ) ? 90 : 0 ); /* Right trigger: attack */
+	analogButtons[2] = (byte)( ( ( serverTime / 1600 ) & 3 ) == 1 ? 90 : 0 ); /* X: use */
+	analogButtons[3] = (byte)( ( serverTime >= 1900 && serverTime < 2000 ) ? 90 : 0 ); /* Y: centerview */
+	analogButtons[5] = (byte)( ( ( serverTime / 1200 ) & 1 ) ? 90 : 0 ); /* White: next weapon */
+
+	if ( ( ( serverTime / 900 ) & 3 ) == 2 )
+	{
+		buttons |= STEFX_SPLIT_BUTTON_DPAD_UP; /* D-pad up: P2-local zoom */
+	}
+	if ( serverTime >= 2300 && serverTime < 2400 )
+	{
+		buttons |= STEFX_SPLIT_BUTTON_LEFT_THUMB; /* Left stick click: P2-local run toggle */
+	}
+	if ( serverTime >= 2100 && serverTime < 2200 )
+	{
+		buttons |= STEFX_SPLIT_BUTTON_BACK; /* Back: should stay P2-local and not open global UI */
+	}
+	if ( serverTime >= 2200 && serverTime < 2300 )
+	{
+		buttons |= STEFX_SPLIT_BUTTON_RIGHT_THUMB; /* Right stick click: split keeps both bodies visible */
+	}
+
+	CL_STEFX_SplitScreen_RecordPadState(
+		fakePort,
+		qtrue,
+		0,
+		buttons,
+		analogButtons,
+		phase == 1 ? 12000 : ( phase == 3 ? -12000 : 0 ),
+		22000,
+		9000,
+		0 );
+	s_stefxSplitPads[fakePort].synthetic = qtrue;
+	s_fakePadConnected = qtrue;
+
+	if ( s_fakePadLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_INPUT fakepad mode=%d port=%d time=%d buttons=0x%x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d",
+			testMode,
+			fakePort,
+			serverTime,
+			buttons,
+			analogButtons[0],
+			analogButtons[1],
+			analogButtons[2],
+			analogButtons[3],
+			analogButtons[6],
+			analogButtons[7],
+			phase == 1 ? 12000 : ( phase == 3 ? -12000 : 0 ),
+			22000,
+			9000,
+			0 );
+		--s_fakePadLogBudget;
+	}
+}
+
+static qboolean STEFX_SplitScreen_BuildTestP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles )
+{
+	static int s_testLogBudget = 32;
+	static qboolean s_testAnglesValid = qfalse;
+	static int s_testLastServerTime = 0;
+	static int s_testLastWeaponBucket = -1;
+	static vec3_t s_testAngles;
+	int testMode;
+	int frameMsec;
+	int phase;
+	int weaponBucket;
+
+	testMode = Cvar_VariableIntegerValue( "stefx_splitScreenTestP2Input" );
+	if ( !testMode )
+	{
+		return qfalse;
+	}
+
+	if ( !s_testAnglesValid )
+	{
+		VectorCopy( currentAngles, s_testAngles );
+		s_testAnglesValid = qtrue;
+		s_testLastServerTime = serverTime;
+	}
+
+	frameMsec = serverTime - s_testLastServerTime;
+	if ( frameMsec < 0 || frameMsec > 100 )
+	{
+		frameMsec = 16;
+	}
+	else if ( frameMsec == 0 )
+	{
+		frameMsec = 1;
+	}
+	s_testLastServerTime = serverTime;
+
+	s_testAngles[YAW] = AngleNormalize360( s_testAngles[YAW] + 70.0f * ( frameMsec / 1000.0f ) );
+	s_testAngles[PITCH] = 0.0f;
+	s_testAngles[ROLL] = 0.0f;
+
+	phase = ( serverTime / 700 ) & 3;
+	memset( cmd, 0, sizeof( *cmd ) );
+	cmd->serverTime = serverTime;
+	cmd->forwardmove = 72;
+	if ( phase == 1 )
+	{
+		cmd->rightmove = 48;
+	}
+	else if ( phase == 3 )
+	{
+		cmd->rightmove = -48;
+	}
+
+	cmd->angles[PITCH] = ANGLE2SHORT( s_testAngles[PITCH] ) - ( deltaAngles ? deltaAngles[PITCH] : 0 );
+	cmd->angles[YAW] = ANGLE2SHORT( s_testAngles[YAW] ) - ( deltaAngles ? deltaAngles[YAW] : 0 );
+	cmd->angles[ROLL] = 0;
+
+	if ( outAngles )
+	{
+		VectorCopy( s_testAngles, outAngles );
+	}
+	if ( sourcePort )
+	{
+		*sourcePort = -2;
+	}
+	if ( weaponDelta )
+	{
+		*weaponDelta = 0;
+		if ( testMode >= 2 )
+		{
+			weaponBucket = serverTime / 1200;
+			if ( weaponBucket != s_testLastWeaponBucket )
+			{
+				*weaponDelta = 1;
+				s_testLastWeaponBucket = weaponBucket;
+			}
+		}
+	}
+
+	if ( s_testLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_INPUT testcmd mode=%d time=%d move=(%d,%d,%d) buttons=0x%x weaponDelta=%d view=(%g,%g,%g)",
+			testMode,
+			serverTime,
+			cmd->forwardmove,
+			cmd->rightmove,
+			cmd->upmove,
+			cmd->buttons,
+			weaponDelta ? *weaponDelta : 0,
+			s_testAngles[PITCH],
+			s_testAngles[YAW],
+			s_testAngles[ROLL] );
+		--s_testLogBudget;
+	}
+
+	return qtrue;
+}
+
+void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int mainController, unsigned int buttons, const byte *analogButtons, int thumbLX, int thumbLY, int thumbRX, int thumbRY )
+{
+	static int s_recordLogBudget = 48;
+	static qboolean s_lastConnected[STEFX_SPLIT_MAX_PADS] = { qfalse, qfalse, qfalse, qfalse };
+	static int s_lastMainController[STEFX_SPLIT_MAX_PADS] = { -2, -2, -2, -2 };
+	stefxSplitPadState_t *pad;
+
+	if ( port < 0 || port >= STEFX_SPLIT_MAX_PADS )
+	{
+		return;
+	}
+
+	pad = &s_stefxSplitPads[port];
+	if ( s_recordLogBudget > 0 &&
+		( s_lastConnected[port] != connected || s_lastMainController[port] != mainController ) )
+	{
+		XBLF( "STEFX_SPLIT_INPUT padstate port=%d connected=%d main=%d buttons=0x%x rawLX=%d rawLY=%d rawRX=%d rawRY=%d",
+			port,
+			connected ? 1 : 0,
+			mainController,
+			buttons,
+			thumbLX,
+			thumbLY,
+			thumbRX,
+			thumbRY );
+		--s_recordLogBudget;
+	}
+	s_lastConnected[port] = connected;
+	s_lastMainController[port] = mainController;
+
+	pad->connected = connected;
+	pad->mainController = mainController;
+
+	if ( !connected )
+	{
+		pad->buttons = 0;
+		memset( pad->analogButtons, 0, sizeof( pad->analogButtons ) );
+		pad->thumbLX = pad->thumbLY = pad->thumbRX = pad->thumbRY = 0;
+		pad->viewanglesValid = qfalse;
+		pad->weaponNextDown = qfalse;
+		pad->weaponPrevDown = qfalse;
+		if ( pad->zoomDown )
+		{
+			Cvar_Set( "stefx_splitScreenP2Zoom", "0" );
+		}
+		pad->zoomDown = qfalse;
+		pad->datapadDown = qfalse;
+		pad->thirdPersonToggleDown = qfalse;
+		pad->runToggleDown = qfalse;
+		pad->runEnabled = qfalse;
+		pad->synthetic = qfalse;
+		return;
+	}
+
+	pad->buttons = buttons;
+	pad->synthetic = qfalse;
+	if ( analogButtons )
+	{
+		memcpy( pad->analogButtons, analogButtons, sizeof( pad->analogButtons ) );
+	}
+	else
+	{
+		memset( pad->analogButtons, 0, sizeof( pad->analogButtons ) );
+	}
+	pad->thumbLX = thumbLX;
+	pad->thumbLY = thumbLY;
+	pad->thumbRX = thumbRX;
+	pad->thumbRY = thumbRY;
+}
+
+qboolean CL_STEFX_SplitScreen_ShouldReservePadForP2( int port, int mainController )
+{
+	const int effectiveMain = STEFX_SplitEffectiveMainController( mainController, qfalse );
+
+	if ( port < 0 || port >= STEFX_SPLIT_MAX_PADS )
+	{
+		return qfalse;
+	}
+	return (qboolean)( port != effectiveMain );
+}
+
+qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles )
+{
+	static int s_noPadLogBudget = 12;
+	static int s_selectLogBudget = 24;
+	static int s_cmdLogBudget = 48;
+	static int s_weaponLogBudget = 24;
+	static int s_utilityLogBudget = 32;
+	int port;
+	int chosenPort = -1;
+	int connectedMask = 0;
+	int rawMainController = -1;
+	int effectiveMainController;
+	stefxSplitPadState_t *pad = NULL;
+	float leftX;
+	float leftY;
+	float rightX;
+	float rightY;
+	int frameMsec;
+	qboolean weaponNextDown;
+	qboolean weaponPrevDown;
+	qboolean runToggleDown;
+	qboolean zoomDown;
+	qboolean datapadDown;
+	qboolean thirdPersonToggleDown;
+
+	if ( !cmd )
+	{
+		return qfalse;
+	}
+	if ( weaponDelta )
+	{
+		*weaponDelta = 0;
+	}
+
+	STEFX_SplitScreen_UpdateTestP2Pad( serverTime );
+
+	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+	{
+		if ( s_stefxSplitPads[port].connected )
+		{
+			connectedMask |= 1 << port;
+			rawMainController = s_stefxSplitPads[port].mainController;
+		}
+	}
+
+	effectiveMainController = STEFX_SplitEffectiveMainController( rawMainController, qtrue );
+	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+	{
+		if ( s_stefxSplitPads[port].connected
+			&& port != effectiveMainController
+			&& chosenPort < 0 )
+		{
+			chosenPort = port;
+		}
+	}
+
+	if ( chosenPort < 0 )
+	{
+		if ( STEFX_SplitScreen_BuildTestP2Usercmd( cmd, currentAngles, deltaAngles, serverTime, sourcePort, weaponDelta, outAngles ) )
+		{
+			return qtrue;
+		}
+		if ( s_noPadLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+		{
+			XBLF( "STEFX_SPLIT_INPUT no secondary controller mask=0x%x rawMain=%d effectiveMain=%d main0=%d main1=%d main2=%d main3=%d",
+				connectedMask,
+				rawMainController,
+				effectiveMainController,
+				s_stefxSplitPads[0].mainController,
+				s_stefxSplitPads[1].mainController,
+				s_stefxSplitPads[2].mainController,
+				s_stefxSplitPads[3].mainController );
+			--s_noPadLogBudget;
+		}
+		return qfalse;
+	}
+
+	pad = &s_stefxSplitPads[chosenPort];
+	if ( s_selectLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		XBLF( "STEFX_SPLIT_INPUT selected secondary controller port=%d rawMain=%d effectiveMain=%d mask=0x%x buttons=0x%x A=%u B=%u X=%u Y=%u LT=%u RT=%u rawLX=%d rawLY=%d rawRX=%d rawRY=%d",
+			chosenPort,
+			pad->mainController,
+			effectiveMainController,
+			connectedMask,
+			pad->buttons,
+			pad->analogButtons[0],
+			pad->analogButtons[1],
+			pad->analogButtons[2],
+			pad->analogButtons[3],
+			pad->analogButtons[6],
+			pad->analogButtons[7],
+			pad->thumbLX,
+			pad->thumbLY,
+			pad->thumbRX,
+			pad->thumbRY );
+		--s_selectLogBudget;
+	}
+	if ( !pad->viewanglesValid )
+	{
+		VectorCopy( currentAngles, pad->viewangles );
+		pad->viewanglesValid = qtrue;
+		pad->lastServerTime = serverTime;
+		pad->runEnabled = (qboolean)Cvar_VariableIntegerValue( "cl_run" );
+	}
+
+	frameMsec = serverTime - pad->lastServerTime;
+	if ( frameMsec < 0 || frameMsec > 100 )
+	{
+		frameMsec = 16;
+	}
+	else if ( frameMsec == 0 )
+	{
+		frameMsec = 1;
+	}
+	pad->lastServerTime = serverTime;
+
+	leftX = STEFX_SplitNormalizeThumb( pad->thumbLX );
+	leftY = STEFX_SplitNormalizeThumb( pad->thumbLY );
+	rightX = STEFX_SplitNormalizeThumb( pad->thumbRX );
+	rightY = STEFX_SplitNormalizeThumb( pad->thumbRY );
+
+	pad->viewangles[YAW] = AngleNormalize360( pad->viewangles[YAW] - rightX * 220.0f * ( frameMsec / 1000.0f ) );
+	pad->viewangles[PITCH] = AngleNormalize180( pad->viewangles[PITCH] - rightY * 160.0f * ( frameMsec / 1000.0f ) );
+	if ( pad->viewangles[PITCH] > 80.0f )
+	{
+		pad->viewangles[PITCH] = 80.0f;
+	}
+	else if ( pad->viewangles[PITCH] < -80.0f )
+	{
+		pad->viewangles[PITCH] = -80.0f;
+	}
+	pad->viewangles[ROLL] = 0.0f;
+
+	memset( cmd, 0, sizeof( *cmd ) );
+	cmd->serverTime = serverTime;
+	cmd->forwardmove = STEFX_SplitAxisToMove( leftY );
+	cmd->rightmove = STEFX_SplitAxisToMove( leftX );
+
+	runToggleDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_LEFT_THUMB );
+	if ( runToggleDown && !pad->runToggleDown )
+	{
+		pad->runEnabled = (qboolean)!pad->runEnabled;
+		XBLF( "STEFX_SPLIT_INPUT run toggle port=%d run=%d",
+			chosenPort,
+			pad->runEnabled ? 1 : 0 );
+	}
+	pad->runToggleDown = runToggleDown;
+	STEFX_SplitApplyRunState( pad, cmd );
+
+	zoomDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_UP );
+	if ( zoomDown != pad->zoomDown )
+	{
+		Cvar_Set( "stefx_splitScreenP2Zoom", zoomDown ? "1" : "0" );
+		if ( s_utilityLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_INPUT p2 zoom %s port=%d buttons=0x%x",
+				zoomDown ? "on" : "off",
+				chosenPort,
+				pad->buttons );
+			--s_utilityLogBudget;
+		}
+	}
+	pad->zoomDown = zoomDown;
+
+	datapadDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_BACK );
+	if ( datapadDown && !pad->datapadDown && s_utilityLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_INPUT p2 datapad requested port=%d ignored=1 reason='single-player global UI remains P1-owned'",
+			chosenPort );
+		--s_utilityLogBudget;
+	}
+	pad->datapadDown = datapadDown;
+
+	thirdPersonToggleDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_RIGHT_THUMB );
+	if ( thirdPersonToggleDown && !pad->thirdPersonToggleDown && s_utilityLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_INPUT p2 third-person toggle requested port=%d ignored=1 reason='split-screen forces both player bodies visible'",
+			chosenPort );
+		--s_utilityLogBudget;
+	}
+	pad->thirdPersonToggleDown = thirdPersonToggleDown;
+
+	if ( pad->analogButtons[0] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	{
+		cmd->upmove = 127;
+	}
+	else if ( pad->analogButtons[1] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	{
+		cmd->upmove = -127;
+	}
+
+	if ( pad->analogButtons[7] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	{
+		cmd->buttons |= BUTTON_ATTACK;
+	}
+	if ( pad->analogButtons[6] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	{
+		cmd->buttons |= BUTTON_ALT_ATTACK;
+	}
+	if ( pad->analogButtons[2] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	{
+		cmd->buttons |= BUTTON_USE;
+	}
+
+	if ( pad->analogButtons[3] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	{
+		pad->viewangles[PITCH] = 0.0f;
+		if ( pad->zoomDown )
+		{
+			Cvar_Set( "stefx_splitScreenP2Zoom", "0" );
+			pad->zoomDown = qfalse;
+			zoomDown = qfalse;
+		}
+	}
+
+	weaponPrevDown = (qboolean)( pad->analogButtons[4] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD );
+	weaponNextDown = (qboolean)( pad->analogButtons[5] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD );
+	if ( weaponDelta )
+	{
+		if ( weaponNextDown && !pad->weaponNextDown )
+		{
+			*weaponDelta = 1;
+		}
+		else if ( weaponPrevDown && !pad->weaponPrevDown )
+		{
+			*weaponDelta = -1;
+		}
+	}
+	if ( s_weaponLogBudget > 0 && weaponDelta && *weaponDelta )
+	{
+		XBLF( "STEFX_SPLIT_INPUT weapon edge port=%d delta=%d black=%u white=%u",
+			chosenPort,
+			*weaponDelta,
+			pad->analogButtons[4],
+			pad->analogButtons[5] );
+		--s_weaponLogBudget;
+	}
+	pad->weaponPrevDown = weaponPrevDown;
+	pad->weaponNextDown = weaponNextDown;
+
+	cmd->angles[PITCH] = ANGLE2SHORT( pad->viewangles[PITCH] ) - ( deltaAngles ? deltaAngles[PITCH] : 0 );
+	cmd->angles[YAW] = ANGLE2SHORT( pad->viewangles[YAW] ) - ( deltaAngles ? deltaAngles[YAW] : 0 );
+	cmd->angles[ROLL] = 0;
+
+	if ( outAngles )
+	{
+		VectorCopy( pad->viewangles, outAngles );
+	}
+	if ( sourcePort )
+	{
+		*sourcePort = chosenPort;
+	}
+
+	if ( s_cmdLogBudget > 0 && ( cmd->forwardmove || cmd->rightmove || cmd->upmove || cmd->buttons || rightX || rightY || zoomDown || datapadDown || thirdPersonToggleDown ) )
+	{
+		XBLF( "STEFX_SPLIT_INPUT cmd port=%d time=%d move=(%d,%d,%d) buttons=0x%x run=%d zoom=%d datapad=%d tpToggle=%d view=(%g,%g,%g) rawLX=%d rawLY=%d rawRX=%d rawRY=%d",
+			chosenPort,
+			serverTime,
+			cmd->forwardmove,
+			cmd->rightmove,
+			cmd->upmove,
+			cmd->buttons,
+			pad->runEnabled ? 1 : 0,
+			zoomDown ? 1 : 0,
+			datapadDown ? 1 : 0,
+			thirdPersonToggleDown ? 1 : 0,
+			pad->viewangles[PITCH],
+			pad->viewangles[YAW],
+			pad->viewangles[ROLL],
+			pad->thumbLX,
+			pad->thumbLY,
+			pad->thumbRX,
+			pad->thumbRY );
+		--s_cmdLogBudget;
+	}
+
+	return qtrue;
+}
+
 static qboolean STEFX_SmokeHarnessEnabled( void )
 {
 	static qboolean s_checked = qfalse;

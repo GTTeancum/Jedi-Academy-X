@@ -1069,7 +1069,7 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 	}
 	if (!Q_stricmp(cmd, "ui_ef_holomatch"))
 	{
-		UI_EFMainMenu_OpenStub("ELITE FORCE : HOLOMATCH", "HOLOMATCH IS NOT AVAILABLE YET");
+		UI_EFMainMenu_StartSplitScreenBaseline();
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_crew"))
