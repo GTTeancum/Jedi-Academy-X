@@ -46,8 +46,8 @@ static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
 static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
 
-#define XBL_DISK_LOG_SOFT_LIMIT (4u * 1024u * 1024u)
-#define XBL_DISK_LOG_HARD_LIMIT (5u * 1024u * 1024u)
+#define XBL_DISK_LOG_SOFT_LIMIT (96u * 1024u * 1024u)
+#define XBL_DISK_LOG_HARD_LIMIT (128u * 1024u * 1024u)
 static unsigned int g_logDiskBytes = 0;
 static unsigned int g_mirrorLogDiskBytes = 0;
 static int g_logDiskLimitAnnounced = 0;
@@ -149,6 +149,19 @@ __declspec(dllexport) volatile unsigned int g_SPXBBinkAlpha = 0x11110109;
 __declspec(dllexport) volatile unsigned int g_SPXBBinkCopySkipped = 0x1111010A;
 __declspec(dllexport) volatile unsigned int g_SPXBBinkStartResult = 0x1111010B;
 __declspec(dllexport) volatile unsigned int g_SPXBBinkStatus = 0x1111010C;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkAllocSeq = 0x1111010D;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastAllocSize = 0x1111010E;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastAllocPtr = 0x1111010F;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkFreeSeq = 0x11110110;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastFreePtr = 0x11110111;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastAvailPhys = 0x11110112;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastZoneAlloc = 0x11110113;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastZoneFree = 0x11110114;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkLastTempPool = 0x11110115;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkMemCode = 0x11110116;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkOutstandingCount = 0x11110117;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkOutstandingBytes = 0x11110118;
+__declspec(dllexport) volatile unsigned int g_SPXBBinkPeakOutstandingBytes = 0x11110119;
 __declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[16] = {
     0x11110040, 0x11110041, 0x11110042, 0x11110043,
     0x11110044, 0x11110045, 0x11110046, 0x11110047,
@@ -171,6 +184,16 @@ __declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonPressCount = 0x1111
 __declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonReleaseCount = 0x11110067;
 __declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonUiStartMs = 0x11110068;
 __declspec(dllexport) volatile unsigned int g_SPXBSmokeButtonLast = 0x11110069;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakCommandCount = 0x111100BB;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakCommandExecuted = 0x111100BC;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakCommandLastHash = 0x111100BD;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakCommandLastAtMs = 0x111100BE;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakCommandLastElapsed = 0x111100BF;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakTraceCount = 0x11110120;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakTraceScopeHash = 0x11110121;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakTraceEventHash = 0x11110122;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakTraceNameHash = 0x11110123;
+__declspec(dllexport) volatile unsigned int g_SPXBSoakTraceLastFreePhys = 0x11110124;
 __declspec(dllexport) volatile unsigned int g_SPXBUISetActiveCount = 0x1111006A;
 __declspec(dllexport) volatile unsigned int g_SPXBUIActiveMenuHash = 0x1111006B;
 __declspec(dllexport) volatile unsigned int g_SPXBUIActiveResult = 0x1111006C;
@@ -303,6 +326,19 @@ static int xbl_starts_with(const char *msg, const char *prefix)
     return 1;
 }
 
+static unsigned int xbl_HashText(const char *text)
+{
+    unsigned int h = 2166136261u;
+    if (!text) {
+        return 0;
+    }
+    while (*text) {
+        h ^= (unsigned char)*text++;
+        h *= 16777619u;
+    }
+    return h;
+}
+
 static int xbl_ShouldDropVerbose(const char *msg)
 {
     static int s_playerBudget = 160;
@@ -315,6 +351,10 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (!g_verboseLog) {
         if (strstr(msg, "FRAME_HEARTBEAT") ||
             strstr(msg, "SMOKE_BUTTON") ||
+            strstr(msg, "SOAK_COMMAND") ||
+            strstr(msg, "SOAKTRACE") ||
+            strstr(msg, "SOAKMEM") ||
+            strstr(msg, "SV_Map") ||
             strstr(msg, "direct-map boot") ||
             strstr(msg, "Server:") ||
             strstr(msg, "SV_InitGameProgs") ||
@@ -374,6 +414,10 @@ static int xbl_ShouldDropVerbose(const char *msg)
 
     if (strstr(msg, "FRAME_HEARTBEAT") ||
         strstr(msg, "SMOKE_BUTTON") ||
+        strstr(msg, "SOAK_COMMAND") ||
+        strstr(msg, "SOAKTRACE") ||
+        strstr(msg, "SOAKMEM") ||
+        strstr(msg, "SV_Map") ||
         strstr(msg, "KEY_TRACE") ||
         strstr(msg, "UI_TRACE") ||
         strstr(msg, "FATAL") ||
@@ -469,6 +513,8 @@ static int xbl_FormatMayBeCritical(const char *fmt)
     if (!fmt) return 0;
     return strstr(fmt, "FRAME_HEARTBEAT") ||
         strstr(fmt, "SMOKE_BUTTON") ||
+        strstr(fmt, "SOAKTRACE") ||
+        strstr(fmt, "SOAKMEM") ||
         strstr(fmt, "direct-map boot") ||
         strstr(fmt, "Server:") ||
         strstr(fmt, "SV_InitGameProgs") ||
@@ -562,6 +608,8 @@ static int xbl_ShouldFlushWrite(const char *msg)
     if (strstr(msg, "=== Jedi Academy Xbox SP log ===")) return 1;
     if (strstr(msg, "FATAL")) return 1;
     if (strstr(msg, "ERROR")) return 1;
+    if (strstr(msg, "SOAKTRACE")) return 1;
+    if (strstr(msg, "SOAKMEM")) return 1;
     if (strstr(msg, "Out of memory")) return 1;
     if (strstr(msg, "Received Exception")) return 1;
     if (strstr(msg, "EIP")) return 1;
@@ -784,6 +832,24 @@ void XBLog_Init(void)
     g_SPXBBinkCopySkipped = 0;
     g_SPXBBinkStartResult = 0;
     g_SPXBBinkStatus = 0;
+    g_SPXBBinkAllocSeq = 0;
+    g_SPXBBinkLastAllocSize = 0;
+    g_SPXBBinkLastAllocPtr = 0;
+    g_SPXBBinkFreeSeq = 0;
+    g_SPXBBinkLastFreePtr = 0;
+    g_SPXBBinkLastAvailPhys = 0;
+    g_SPXBBinkLastZoneAlloc = 0;
+    g_SPXBBinkLastZoneFree = 0;
+    g_SPXBBinkLastTempPool = 0;
+    g_SPXBBinkMemCode = 0;
+    g_SPXBBinkOutstandingCount = 0;
+    g_SPXBBinkOutstandingBytes = 0;
+    g_SPXBBinkPeakOutstandingBytes = 0;
+    g_SPXBSoakTraceCount = 0;
+    g_SPXBSoakTraceScopeHash = 0;
+    g_SPXBSoakTraceEventHash = 0;
+    g_SPXBSoakTraceNameHash = 0;
+    g_SPXBSoakTraceLastFreePhys = 0;
     g_SPXBCinArgLast[0] = 0;
     for (i = 0; i < 16; ++i) {
         g_SPXBSurfaceTypeCounts[i] = 0;
@@ -848,7 +914,7 @@ void XBLog_Init(void)
                 g_logPath = ntPaths[i];
                 g_SPXBBootPhase = 0x35;
                 XBL("=== Jedi Academy Xbox SP log ===\n");
-                XBL("JA: XBLog disk cap soft=4194304 hard=5242880\n");
+                XBL("JA: XBLog disk cap soft=100663296 hard=134217728\n");
                 return;
             }
         }
@@ -875,7 +941,7 @@ void XBLog_Init(void)
                 g_logPath = caPaths[i];
                 g_SPXBBootPhase = 0x38;
                 XBL("=== Jedi Academy Xbox SP log ===\n");
-                XBL("JA: XBLog disk cap soft=4194304 hard=5242880\n");
+                XBL("JA: XBLog disk cap soft=100663296 hard=134217728\n");
                 return;
             }
         }
@@ -940,6 +1006,49 @@ void XBLog_Print(const char *msg)
             if (forceFlush) xbl_FlushHandle(g_hLogFile, 0);
         }
     }
+}
+
+void XBLog_SoakTrace(const char *scope, const char *eventName, const char *name,
+    int a, int b, int c, int d)
+{
+    const char *safeScope = scope ? scope : "-";
+    const char *safeEvent = eventName ? eventName : "-";
+    const char *safeName = name ? name : "-";
+    unsigned int id = ++g_SPXBSoakTraceCount;
+
+    g_SPXBSoakTraceScopeHash = xbl_HashText(safeScope);
+    g_SPXBSoakTraceEventHash = xbl_HashText(safeEvent);
+    g_SPXBSoakTraceNameHash = xbl_HashText(safeName);
+
+#ifdef _XBOX
+    MEMORYSTATUS stat;
+    xboxZoneStats_t zoneStats;
+    memset(&stat, 0, sizeof(stat));
+    stat.dwLength = sizeof(stat);
+    GlobalMemoryStatus(&stat);
+    memset(&zoneStats, 0, sizeof(zoneStats));
+    Z_XboxGetStats(&zoneStats);
+    g_SPXBSoakTraceLastFreePhys = stat.dwAvailPhys;
+
+    XBLog_Writef("JA: SOAKTRACE id=%u sc=%s ev=%s nm=%s a=%d b=%d c=%d d=%d boot=0x%08x map=%u sv=%u clh=%u cm=%u/%08x/%u game=%u log=%u phys=%u/%u",
+        id, safeScope, safeEvent, safeName, a, b, c, d,
+        (unsigned int)g_SPXBBootPhase, (unsigned int)g_SPXBMapPhase,
+        (unsigned int)g_SPXBSvMapState, (unsigned int)g_SPXBClHunkState,
+        (unsigned int)g_SPXBCmLoadState, (unsigned int)g_SPXBCmLoadLumpHash,
+        (unsigned int)g_SPXBCmLoadLumpLen, (unsigned int)g_SPXBGamePhase,
+        (unsigned int)g_SPXBLogWriteCount, (unsigned int)stat.dwAvailPhys,
+        (unsigned int)stat.dwTotalPhys);
+    XBLog_Writef("JA: SOAKMEM id=%u z=%d alloc=%d free=%d peak=%d over=%d blk=%d/%d lvl=%d hnk=%d th=%d misc=%d glm=%d gla=%d md3=%d snd=%d bink=%d tmp=%d",
+        id, zoneStats.initialized, zoneStats.sizeAlloc, zoneStats.sizeFree,
+        zoneStats.peakAlloc, zoneStats.overheadAlloc, zoneStats.countAlloc,
+        zoneStats.countFree, zoneStats.levelMemory, zoneStats.hunkMemory,
+        zoneStats.tempHunkMemory, zoneStats.miscMemory, zoneStats.glmMemory,
+        zoneStats.glaMemory, zoneStats.md3Memory, zoneStats.soundMemory,
+        zoneStats.binkMemory, zoneStats.tempPoolUsed);
+#else
+    XBLog_Writef("JA: SOAKTRACE id=%u sc=%s ev=%s nm=%s a=%d b=%d c=%d d=%d",
+        id, safeScope, safeEvent, safeName, a, b, c, d);
+#endif
 }
 
 void XBLog_Printf(const char *fmt, ...)

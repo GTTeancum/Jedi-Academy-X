@@ -594,6 +594,10 @@ int	  Z_Size	( void *pvAddress);
 void  Z_MorphMallocTag( void *pvAddress, memtag_t eDesiredTag );
 qboolean Z_IsFromZone(void *pvAddress, memtag_t eTag);	
 qboolean Z_IsFromTempPool(void *pvAddress);	
+#ifdef _XBOX
+void Z_XboxReleaseSystemReserve(const char *reason);
+void Z_XboxRestoreSystemReserve(const char *reason);
+#endif
 
 #ifdef DEBUG_ZONE_ALLOCS
 

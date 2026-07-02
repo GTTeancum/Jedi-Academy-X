@@ -56,6 +56,7 @@
 #include <Xtl.h>
 #include "../cgame/cg_local.h"
 #include "../win32/xbox_texture_man.h"
+#include "../win32/xb_log.h"
 #endif
 
 // Where do hunk allocations go?
@@ -100,6 +101,8 @@ static memtag_t hunk_tag;
 
 #ifdef _XBOX
 #define ZONE_POOL_SIZE_RETAIL		(25*1024*1024)
+#define ZONE_SYSTEM_PHYS_RESERVE_RETAIL	(2*1024*1024)
+#define ZONE_BINK_SYSTEM_RESERVE_RETAIL	(1024*1024)
 #endif
 
 // SP savegames and Bink still use the original scratch sandbox.
@@ -107,6 +110,77 @@ static memtag_t hunk_tag;
 
 __declspec (align(32)) char s_TempAllocPool[TEMP_ALLOC_POOL_SIZE];
 int s_TempAllocPoint = 0;
+
+#ifdef _XBOX
+static void *s_XboxSystemReserve = NULL;
+static int s_XboxSystemReserveSize = 0;
+
+static void Z_XboxLogSystemReserve(const char *action, const char *reason, void *ptr, int size, DWORD beforeAvail, DWORD afterAvail)
+{
+	char msg[192];
+
+	_snprintf(msg, sizeof(msg), "JA: zone system reserve %s reason=%s ptr=%p size=%d availBefore=%u availAfter=%u",
+		action ? action : "<null>",
+		reason ? reason : "<null>",
+		ptr,
+		size,
+		(unsigned int)beforeAvail,
+		(unsigned int)afterAvail);
+	msg[sizeof(msg) - 1] = '\0';
+	OutputDebugStringA(msg);
+	XBLog_Write(msg);
+}
+
+void Z_XboxReleaseSystemReserve(const char *reason)
+{
+	MEMORYSTATUS beforeStatus;
+	MEMORYSTATUS afterStatus;
+	void *released;
+	int releasedSize;
+
+	GlobalMemoryStatus(&beforeStatus);
+	released = s_XboxSystemReserve;
+	releasedSize = s_XboxSystemReserveSize;
+	if( released )
+	{
+		D3D_FreeContiguousMemory(released);
+		s_XboxSystemReserve = NULL;
+		s_XboxSystemReserveSize = 0;
+		GlobalMemoryStatus(&afterStatus);
+		Z_XboxLogSystemReserve("released", reason, released, releasedSize, beforeStatus.dwAvailPhys, afterStatus.dwAvailPhys);
+		return;
+	}
+
+	GlobalMemoryStatus(&afterStatus);
+	Z_XboxLogSystemReserve("release-none", reason, NULL, 0, beforeStatus.dwAvailPhys, afterStatus.dwAvailPhys);
+}
+
+void Z_XboxRestoreSystemReserve(const char *reason)
+{
+	MEMORYSTATUS beforeStatus;
+	MEMORYSTATUS afterStatus;
+
+	GlobalMemoryStatus(&beforeStatus);
+	if( s_XboxSystemReserve )
+	{
+		GlobalMemoryStatus(&afterStatus);
+		Z_XboxLogSystemReserve("restore-already-held", reason, s_XboxSystemReserve, s_XboxSystemReserveSize, beforeStatus.dwAvailPhys, afterStatus.dwAvailPhys);
+		return;
+	}
+
+	s_XboxSystemReserve = D3D_AllocContiguousMemory(ZONE_BINK_SYSTEM_RESERVE_RETAIL, 0);
+	s_XboxSystemReserveSize = s_XboxSystemReserve ? ZONE_BINK_SYSTEM_RESERVE_RETAIL : 0;
+	GlobalMemoryStatus(&afterStatus);
+	if( s_XboxSystemReserve )
+	{
+		Z_XboxLogSystemReserve("restored", reason, s_XboxSystemReserve, s_XboxSystemReserveSize, beforeStatus.dwAvailPhys, afterStatus.dwAvailPhys);
+	}
+	else
+	{
+		Z_XboxLogSystemReserve("restore-failed", reason, NULL, ZONE_BINK_SYSTEM_RESERVE_RETAIL, beforeStatus.dwAvailPhys, afterStatus.dwAvailPhys);
+	}
+}
+#endif
 
 void *TempAlloc( unsigned long size )
 {
@@ -322,28 +396,38 @@ void Com_InitZoneMemory(void)
 
 #ifdef _XBOX
 	// Retail Z_Init allocates a fixed 0x1000000-byte pool with
-	// D3D_AllocContiguousMemory before renderer device creation.
+	// D3D_AllocContiguousMemory before renderer device creation.  Keep a
+	// small non-zone reserve for later file, sound, and Bink startup work.
 	{
 		char msg[160];
-		_snprintf(msg, sizeof(msg), "JA: retail zone D3D_AllocContiguousMemory request=%d calculated=%d\n",
-			ZONE_POOL_SIZE_RETAIL, (int)size);
+		_snprintf(msg, sizeof(msg), "JA: retail zone D3D_AllocContiguousMemory request=%d reserve=%d calculated=%d avail=%u",
+			ZONE_POOL_SIZE_RETAIL - ZONE_SYSTEM_PHYS_RESERVE_RETAIL,
+			ZONE_SYSTEM_PHYS_RESERVE_RETAIL,
+			(int)size,
+			(unsigned int)status.dwAvailPhys);
 		msg[sizeof(msg) - 1] = '\0';
 		OutputDebugStringA(msg);
+		XBLog_Write(msg);
 	}
-	size = ZONE_POOL_SIZE_RETAIL;
+	size = ZONE_POOL_SIZE_RETAIL - ZONE_SYSTEM_PHYS_RESERVE_RETAIL;
 	s_PoolBase = D3D_AllocContiguousMemory(size, 0);
 	if (!s_PoolBase)
 	{
 		OutputDebugStringA("JA: retail zone D3D_AllocContiguousMemory FAILED\n");
+		XBLog_Write("JA: retail zone D3D_AllocContiguousMemory FAILED");
 		Com_Error(ERR_FATAL, "Zone: D3D_AllocContiguousMemory(%d) failed", (int)size);
 	}
 	{
+		MEMORYSTATUS afterStatus;
 		char msg[160];
-		_snprintf(msg, sizeof(msg), "JA: retail zone pool allocated base=%p size=%d\n",
-			s_PoolBase, (int)size);
+		GlobalMemoryStatus(&afterStatus);
+		_snprintf(msg, sizeof(msg), "JA: retail zone pool allocated base=%p size=%d availAfter=%u",
+			s_PoolBase, (int)size, (unsigned int)afterStatus.dwAvailPhys);
 		msg[sizeof(msg) - 1] = '\0';
 		OutputDebugStringA(msg);
+		XBLog_Write(msg);
 	}
+	Z_XboxRestoreSystemReserve("zone-init");
 #else
 	s_PoolBase = GlobalAlloc(0, size);
 #endif
@@ -416,6 +500,7 @@ void Com_ShutdownZoneMemory(void)
 	// Free the pool
 #ifndef _GAMECUBE
 #ifdef _XBOX
+	Z_XboxReleaseSystemReserve("zone-shutdown");
 	D3D_FreeContiguousMemory(s_PoolBase);
 #else
 	GlobalFree(s_PoolBase);
@@ -1565,6 +1650,41 @@ int Z_GetMiscMemory(void)
 		s_Stats.m_SizesPerTag[TAG_BINK] +
 		s_Stats.m_SizesPerTag[TAG_SND_RAWDATA]);
 }
+
+#ifdef _XBOX
+void Z_XboxGetStats(xboxZoneStats_t *stats)
+{
+	if (!stats)
+	{
+		return;
+	}
+
+	memset(stats, 0, sizeof(*stats));
+	stats->initialized = s_Initialized ? 1 : 0;
+	if (!s_Initialized)
+	{
+		stats->tempPoolUsed = s_TempAllocPoint;
+		return;
+	}
+
+	stats->countAlloc = s_Stats.m_CountAlloc;
+	stats->sizeAlloc = s_Stats.m_SizeAlloc;
+	stats->overheadAlloc = s_Stats.m_OverheadAlloc;
+	stats->peakAlloc = s_Stats.m_PeakAlloc;
+	stats->countFree = s_Stats.m_CountFree;
+	stats->sizeFree = s_Stats.m_SizeFree;
+	stats->levelMemory = Z_GetLevelMemory();
+	stats->hunkMemory = s_Stats.m_SizesPerTag[TAG_HUNK_MARK1] + s_Stats.m_SizesPerTag[TAG_HUNK_MARK2];
+	stats->tempHunkMemory = s_Stats.m_SizesPerTag[TAG_TEMP_HUNKALLOC];
+	stats->miscMemory = Z_GetMiscMemory();
+	stats->glmMemory = s_Stats.m_SizesPerTag[TAG_MODEL_GLM];
+	stats->glaMemory = s_Stats.m_SizesPerTag[TAG_MODEL_GLA];
+	stats->md3Memory = s_Stats.m_SizesPerTag[TAG_MODEL_MD3];
+	stats->soundMemory = s_Stats.m_SizesPerTag[TAG_SND_RAWDATA];
+	stats->binkMemory = s_Stats.m_SizesPerTag[TAG_BINK];
+	stats->tempPoolUsed = s_TempAllocPoint;
+}
+#endif
 
 #if defined(_GAMECUBE) || defined(_XBOX)
 static int texMemSize = 0;

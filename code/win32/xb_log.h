@@ -26,6 +26,8 @@ void XBLog_Init(void);
 void XBLog_Shutdown(void);
 void XBLog_Print(const char *msg);
 void XBLog_Printf(const char *fmt, ...);
+void XBLog_SoakTrace(const char *scope, const char *eventName, const char *name,
+    int a, int b, int c, int d);
 const char *XBLog_GetPath(void);
 
 /* Convenience macros — VC71 C89 mode doesn't support __VA_ARGS__,
@@ -39,12 +41,36 @@ const char *XBLog_GetPath(void);
 void XBLog_Write(const char *msg);
 void XBLog_Writef(const char *fmt, ...);
 
+#ifdef _XBOX
+typedef struct xboxZoneStats_s {
+	int initialized;
+	int countAlloc;
+	int sizeAlloc;
+	int overheadAlloc;
+	int peakAlloc;
+	int countFree;
+	int sizeFree;
+	int levelMemory;
+	int hunkMemory;
+	int tempHunkMemory;
+	int miscMemory;
+	int glmMemory;
+	int glaMemory;
+	int md3Memory;
+	int soundMemory;
+	int binkMemory;
+	int tempPoolUsed;
+} xboxZoneStats_t;
+
+void Z_XboxGetStats(xboxZoneStats_t *stats);
+#endif
+
 #ifndef SP_XBOX_HOT_TELEMETRY
 #define SP_XBOX_HOT_TELEMETRY 0
 #endif
 
 #ifndef SP_XBOX_VERBOSE_RUNTIME_LOGS
-#define SP_XBOX_VERBOSE_RUNTIME_LOGS 0
+#define SP_XBOX_VERBOSE_RUNTIME_LOGS 1
 #endif
 
 #ifndef SP_XBOX_SMOKE_AUTOMATION
@@ -80,6 +106,16 @@ extern volatile unsigned int g_SPXBSmokeButtonPressCount;
 extern volatile unsigned int g_SPXBSmokeButtonReleaseCount;
 extern volatile unsigned int g_SPXBSmokeButtonUiStartMs;
 extern volatile unsigned int g_SPXBSmokeButtonLast;
+extern volatile unsigned int g_SPXBSoakCommandCount;
+extern volatile unsigned int g_SPXBSoakCommandExecuted;
+extern volatile unsigned int g_SPXBSoakCommandLastHash;
+extern volatile unsigned int g_SPXBSoakCommandLastAtMs;
+extern volatile unsigned int g_SPXBSoakCommandLastElapsed;
+extern volatile unsigned int g_SPXBSoakTraceCount;
+extern volatile unsigned int g_SPXBSoakTraceScopeHash;
+extern volatile unsigned int g_SPXBSoakTraceEventHash;
+extern volatile unsigned int g_SPXBSoakTraceNameHash;
+extern volatile unsigned int g_SPXBSoakTraceLastFreePhys;
 extern volatile unsigned int g_SPXBUISetActiveCount;
 extern volatile unsigned int g_SPXBUIActiveMenuHash;
 extern volatile unsigned int g_SPXBUIActiveResult;
@@ -153,6 +189,19 @@ extern volatile unsigned int g_SPXBDx8PresentCalls;
 extern volatile unsigned int g_SPXBDx8PresentHr;
 extern volatile unsigned int g_SPXBDx8FramebufferUpdates;
 extern volatile unsigned int g_SPXBDx8FramebufferBackBufferFail;
+extern volatile unsigned int g_SPXBBinkAllocSeq;
+extern volatile unsigned int g_SPXBBinkLastAllocSize;
+extern volatile unsigned int g_SPXBBinkLastAllocPtr;
+extern volatile unsigned int g_SPXBBinkFreeSeq;
+extern volatile unsigned int g_SPXBBinkLastFreePtr;
+extern volatile unsigned int g_SPXBBinkLastAvailPhys;
+extern volatile unsigned int g_SPXBBinkLastZoneAlloc;
+extern volatile unsigned int g_SPXBBinkLastZoneFree;
+extern volatile unsigned int g_SPXBBinkLastTempPool;
+extern volatile unsigned int g_SPXBBinkMemCode;
+extern volatile unsigned int g_SPXBBinkOutstandingCount;
+extern volatile unsigned int g_SPXBBinkOutstandingBytes;
+extern volatile unsigned int g_SPXBBinkPeakOutstandingBytes;
 #endif
 
 #ifdef __cplusplus

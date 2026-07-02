@@ -8,6 +8,10 @@
 #include "sparc.h"
 #include "../zlib/zlib.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
+
 static SPARC<byte> visData;
 
 void *SparcAllocator(unsigned int size)
@@ -624,6 +628,37 @@ extern void R_LoadShaders( void );
 extern void R_LoadLightmaps( void *data, int len, const char *psMapName );
 extern byte *fileBase;
 extern void UpdateLoadingAnimation();
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBCmLoadState;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpHash;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpLen;
+
+static unsigned int CM_XboxHashText(const char *text)
+{
+	unsigned int h = 2166136261u;
+	if (!text) {
+		return 0;
+	}
+	while (*text) {
+		h ^= (unsigned char)*text++;
+		h *= 16777619u;
+	}
+	return h;
+}
+
+static void CM_XboxSetLoadState(unsigned int state, const char *lump, int len)
+{
+	g_SPXBCmLoadState = state;
+	g_SPXBCmLoadLumpHash = CM_XboxHashText(lump);
+	g_SPXBCmLoadLumpLen = (unsigned int)len;
+	XBLog_SoakTrace("CM_LoadMap", lump ? lump : "-", cmg.name,
+		(int)state, len, cmg.numSubModels, TotalSubModels);
+}
+#define CM_XBOX_LOAD_STATE(state, lump, len) CM_XboxSetLoadState((state), (lump), (len))
+#else
+#define CM_XBOX_LOAD_STATE(state, lump, len) ((void)0)
+#endif
+
 static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *checksum ) {
 	const int		*buf = NULL;
 	const int		*surfBuf = NULL;
@@ -632,6 +667,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	char			stripName[MAX_QPATH];
 	Lump			outputLump;
 
+	CM_XBOX_LOAD_STATE(100, name, 0);
 	if ( !name || !name[0] ) {
 		Com_Error( ERR_DROP, "CM_LoadMap: NULL name" );
 	}
@@ -644,11 +680,13 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	Com_DPrintf( "CM_LoadMap( %s, %i )\n", name, clientload );
 
 	if ( !strcmp( cmg.name, name ) && clientload ) {
+		CM_XBOX_LOAD_STATE(110, name, (int)last_checksum);
 		*checksum = last_checksum;
 		return;
 	}
 
 	// free old stuff
+	CM_XBOX_LOAD_STATE(120, name, clientload);
 	extern qboolean vidRestartReloadMap;
 	int* ap;
 	if (vidRestartReloadMap) ap = cmg.areaPortals;
@@ -656,6 +694,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	if (vidRestartReloadMap) cmg.areaPortals = ap;
 	
 	if ( !name[0] ) {
+		CM_XBOX_LOAD_STATE(130, name, 0);
 		cmg.numLeafs = 1; 
 		cmg.numClusters = 1;
 		cmg.numAreas = 1;
@@ -666,19 +705,27 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	
 	last_checksum = crc32(0, (const Bytef *)name, strlen(name));
 	COM_StripExtension(name, stripName);
+	CM_XBOX_LOAD_STATE(140, stripName, (int)last_checksum);
 
 	UpdateLoadingAnimation();
 
 	// load into heap
+	CM_XBOX_LOAD_STATE(200, "shaders", 0);
 	outputLump.load(stripName, "shaders");
+	CM_XBOX_LOAD_STATE(201, "shaders", outputLump.len);
 	CMod_LoadShaders( outputLump.data, outputLump.len );
+	CM_XBOX_LOAD_STATE(202, "shaders", outputLump.len);
 	R_LoadShaders();
+	CM_XBOX_LOAD_STATE(203, "shaders", outputLump.len);
 	
 	UpdateLoadingAnimation();
 
 	strcpy(lmName, name);
+	CM_XBOX_LOAD_STATE(210, "lightmaps", 0);
 	outputLump.load(stripName, "lightmaps");
+	CM_XBOX_LOAD_STATE(211, "lightmaps", outputLump.len);
 	R_LoadLightmaps( outputLump.data, outputLump.len, lmName);
+	CM_XBOX_LOAD_STATE(212, "lightmaps", outputLump.len);
 	
 	UpdateLoadingAnimation();
 
@@ -687,110 +734,165 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 		outputLump.clear();
 
 		Lump misc;
+		CM_XBOX_LOAD_STATE(220, "misc", 0);
 		misc.load(stripName, "misc");
+		CM_XBOX_LOAD_STATE(221, "misc", misc.len);
 		
 		int num_surfs = *(int*)misc.data;
 		misc.clear();
 		
+		CM_XBOX_LOAD_STATE(222, "surfaces", num_surfs);
 		R_LoadSurfaces(num_surfs);
+		CM_XBOX_LOAD_STATE(223, "surfaces", num_surfs);
 
 		UpdateLoadingAnimation();
 
 		Lump verts;
+		CM_XBOX_LOAD_STATE(230, "verts", 0);
 		verts.load(stripName, "verts");
+		CM_XBOX_LOAD_STATE(231, "verts", verts.len);
 
 		Lump patches;
+		CM_XBOX_LOAD_STATE(232, "patches", 0);
 		patches.load(stripName, "patches");
+		CM_XBOX_LOAD_STATE(233, "patches", patches.len);
 
 		UpdateLoadingAnimation();
 
+		CM_XBOX_LOAD_STATE(234, "patches", patches.len);
 		CMod_LoadPatches(verts.data, verts.len,
 			patches.data, patches.len,
 			num_surfs );
+		CM_XBOX_LOAD_STATE(235, "patches", patches.len);
 		R_LoadPatches(verts.data, verts.len, 
 			patches.data, patches.len);
+		CM_XBOX_LOAD_STATE(236, "patches", patches.len);
 
 		UpdateLoadingAnimation();
 
 		patches.clear();
 
 		Lump indexes;
+		CM_XBOX_LOAD_STATE(240, "indexes", 0);
 		indexes.load(stripName, "indexes");
+		CM_XBOX_LOAD_STATE(241, "indexes", indexes.len);
 
 		Lump trisurfs;
+		CM_XBOX_LOAD_STATE(242, "trisurfs", 0);
 		trisurfs.load(stripName, "trisurfs");
+		CM_XBOX_LOAD_STATE(243, "trisurfs", trisurfs.len);
 
 		UpdateLoadingAnimation();
 
+		CM_XBOX_LOAD_STATE(244, "trisurfs", trisurfs.len);
 		R_LoadTriSurfs(indexes.data, indexes.len,
 			verts.data, verts.len, 
 			trisurfs.data, trisurfs.len);
+		CM_XBOX_LOAD_STATE(245, "trisurfs", trisurfs.len);
 
 		trisurfs.clear();
 	
 		UpdateLoadingAnimation();
 
 		Lump faces;
+		CM_XBOX_LOAD_STATE(250, "faces", 0);
 		faces.load(stripName, "faces");
+		CM_XBOX_LOAD_STATE(251, "faces", faces.len);
 
+		CM_XBOX_LOAD_STATE(252, "faces", faces.len);
 		R_LoadFaces(indexes.data, indexes.len,
 			verts.data, verts.len, 
 			faces.data, faces.len);
+		CM_XBOX_LOAD_STATE(253, "faces", faces.len);
 
 		UpdateLoadingAnimation();
 
 		Lump flares;
+		CM_XBOX_LOAD_STATE(260, "flares", 0);
 		flares.load(stripName, "flares");
+		CM_XBOX_LOAD_STATE(261, "flares", flares.len);
 
 		R_LoadFlares(flares.data, flares.len);
+		CM_XBOX_LOAD_STATE(262, "flares", flares.len);
 	}
 	
 	UpdateLoadingAnimation();
 
+	CM_XBOX_LOAD_STATE(270, "leafs", 0);
 	outputLump.load(stripName, "leafs");
+	CM_XBOX_LOAD_STATE(271, "leafs", outputLump.len);
 	CMod_LoadLeafs (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(272, "leafs", outputLump.len);
 
+	CM_XBOX_LOAD_STATE(273, "leafbrushes", 0);
 	outputLump.load(stripName, "leafbrushes");
+	CM_XBOX_LOAD_STATE(274, "leafbrushes", outputLump.len);
 	CMod_LoadLeafBrushes (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(275, "leafbrushes", outputLump.len);
 	
 	UpdateLoadingAnimation();
 
 	cmg.leafsurfaces = NULL;
+	CM_XBOX_LOAD_STATE(280, "planes", 0);
 	outputLump.load(stripName, "planes");
+	CM_XBOX_LOAD_STATE(281, "planes", outputLump.len);
 	CMod_LoadPlanes (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(282, "planes", outputLump.len);
 	
+	CM_XBOX_LOAD_STATE(283, "brushsides", 0);
 	outputLump.load(stripName, "brushsides");
+	CM_XBOX_LOAD_STATE(284, "brushsides", outputLump.len);
 	CMod_LoadBrushSides (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(285, "brushsides", outputLump.len);
+	CM_XBOX_LOAD_STATE(286, "brushes", 0);
 	outputLump.load(stripName, "brushes");
+	CM_XBOX_LOAD_STATE(287, "brushes", outputLump.len);
 	CMod_LoadBrushes (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(288, "brushes", outputLump.len);
 
 	UpdateLoadingAnimation();
 
+	CM_XBOX_LOAD_STATE(290, "models", 0);
 	outputLump.load(stripName, "models");
+	CM_XBOX_LOAD_STATE(291, "models", outputLump.len);
 	CMod_LoadSubmodels (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(292, "models", outputLump.len);
 
+	CM_XBOX_LOAD_STATE(293, "nodes", 0);
 	outputLump.load(stripName, "nodes");
+	CM_XBOX_LOAD_STATE(294, "nodes", outputLump.len);
 	CMod_LoadNodes (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(295, "nodes", outputLump.len);
 
 	UpdateLoadingAnimation();
 
+	CM_XBOX_LOAD_STATE(300, "entities", 0);
 	outputLump.load(stripName, "entities");
+	CM_XBOX_LOAD_STATE(301, "entities", outputLump.len);
 	CMod_LoadEntityString (outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(302, "entities", outputLump.len);
 
+	CM_XBOX_LOAD_STATE(303, "visibility", 0);
 	outputLump.load(stripName, "visibility");
+	CM_XBOX_LOAD_STATE(304, "visibility", outputLump.len);
 	CMod_LoadVisibility( outputLump.data, outputLump.len);
+	CM_XBOX_LOAD_STATE(305, "visibility", outputLump.len);
 
 	UpdateLoadingAnimation();
 
 	TotalSubModels += cmg.numSubModels;
 	
+	CM_XBOX_LOAD_STATE(310, "boxhull", TotalSubModels);
 	CM_InitBoxHull ();
+	CM_XBOX_LOAD_STATE(311, "boxhull", TotalSubModels);
 
 	*checksum = last_checksum;	
 
 	// do this whether or not the map was cached from last load...
 	//
+	CM_XBOX_LOAD_STATE(320, "flood", cmg.numAreas);
 	CM_FloodAreaConnections ();
+	CM_XBOX_LOAD_STATE(321, "flood", cmg.numAreas);
 
 	UpdateLoadingAnimation();
 
@@ -798,7 +900,9 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	if ( !clientload ) {
 		Q_strncpyz( cmg.name, name, sizeof( cmg.name ) );
 	}
+	CM_XBOX_LOAD_STATE(330, name, *checksum);
 	CM_CleanLeafCache();
+	CM_XBOX_LOAD_STATE(331, name, *checksum);
 }
 
 // need a wrapper function around this because of multiple returns, need to ensure bool is correct...

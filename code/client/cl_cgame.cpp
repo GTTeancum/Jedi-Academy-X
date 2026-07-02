@@ -6,6 +6,8 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBCGameRenderCalls;
+extern "C" volatile unsigned int g_SPXBCGameDrawFrameReturns;
 #endif
 
 #include "../ui/ui_shared.h"
@@ -27,6 +29,7 @@
 #include "vmachine.h"
 
 vm_t	cgvm;
+
 /*
 Ghoul2 Insert Start
 */
@@ -383,7 +386,11 @@ Just adds default parameters that cgame doesn't need to know about
 void CL_CM_LoadMap( const char *mapname ) {
 	int		checksum;
 
+	XBLog_SoakTrace("CL_CM_LoadMap", "before-CM_LoadMap", mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cl.serverTime, (int)clc.serverCommandSequence);
 	CM_LoadMap( mapname, qtrue, &checksum );
+	XBLog_SoakTrace("CL_CM_LoadMap", "after-CM_LoadMap", mapname,
+		(int)cls.state, checksum, (int)cl.serverTime, (int)clc.serverCommandSequence);
 }
 #else
 void CL_CM_LoadMap( const char *mapname, qboolean subBSP ) {
@@ -400,12 +407,28 @@ CL_ShutdonwCGame
 ====================
 */
 void CL_ShutdownCGame( void ) {
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_ShutdownCGame", "enter", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cgvm.entryPoint, (int)cl.serverTime);
+#endif
 	cls.cgameStarted = qfalse;
 
 	if ( !cgvm.entryPoint) {
+#ifdef _XBOX
+		XBLog_SoakTrace("CL_ShutdownCGame", "no-entrypoint", cl.mapname,
+			(int)cls.state, (int)cls.cgameStarted, (int)cgvm.entryPoint, (int)cl.serverTime);
+#endif
 		return;
 	}
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_ShutdownCGame", "before-CG_SHUTDOWN", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cgvm.entryPoint, (int)cl.serverTime);
+#endif
 	VM_Call( CG_SHUTDOWN );
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_ShutdownCGame", "after-CG_SHUTDOWN", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cgvm.entryPoint, (int)cl.serverTime);
+#endif
 #ifndef _XBOX	// Not using it
 	RM_ShutdownTerrain();
 #endif
@@ -436,6 +459,7 @@ void *VM_ArgPtr( int intValue );
 void CM_SnapPVS(vec3_t origin,byte *buffer);
 #ifdef _XBOX
 extern bool Sys_IsDirectMapBoot(void);
+extern "C" volatile unsigned int g_SPXBBootPhase;
 #endif
 //#define	VMA(x) VM_ArgPtr(args[x])
 #define	VMA(x) ((void*)args[x])
@@ -873,7 +897,13 @@ Ghoul2 Insert End
 		return 0;
 
 	case CG_UI_MENU_NEW:
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x755;
+#endif
 		Menu_New((char *) VMA(1));
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x756;
+#endif
 		return 0;
 
 	case CG_UI_PARSE_INT:
@@ -892,24 +922,41 @@ Ghoul2 Insert End
 	{
 #ifdef _XBOX
 		const char *parseName = (const char *) VMA(1);
+		g_SPXBBootPhase = 0x790;
+		XBLF("JA: CG trap UI_STARTPARSE raw fileArg=0x%08x outArg=0x%08x",
+			args[1],
+			args[2]);
 		Com_PrintfAlways("JA: CG trap UI_STARTPARSE begin file=%s\n", parseName ? parseName : "(null)");
 #endif
 		int parseLen = PC_StartParseSession((char *) VMA(1),(char **) VMA(2));
 #ifdef _XBOX
+		g_SPXBBootPhase = 0x791;
 		Com_PrintfAlways("JA: CG trap UI_STARTPARSE done file=%s len=%d\n", parseName ? parseName : "(null)", parseLen);
 #endif
 		return parseLen;
 	}
 
 	case CG_UI_ENDPARSESESSION:
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x792;
+#endif
 		PC_EndParseSession((char *) VMA(1));
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x793;
+#endif
 		return 0;
 
 	case CG_UI_PARSEEXT:
 		char **holdPtr;
 
 		holdPtr = (char **) VMA(1);
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x794;
+#endif
 		*holdPtr = PC_ParseExt();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x795;
+#endif
 		return 0;
 
 	case CG_UI_MENUCLOSE_ALL:
@@ -1064,6 +1111,10 @@ void CL_InitCGame( void ) {
 	int		t1, t2;
 
 	XBLog_Write("JA: CL_InitCGame entered");
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "enter", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 
 	t1 = Sys_Milliseconds();
 
@@ -1076,35 +1127,75 @@ void CL_InitCGame( void ) {
 	Com_sprintf( cl.mapname, sizeof( cl.mapname ), "maps/%s.bsp", mapname );
 	XBLog_Write("JA: Loading map:");
 	XBLog_Write(cl.mapname);
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "mapname", cl.mapname,
+		(int)cls.state, (int)cl.gameState.dataCount, (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 
 	cls.state = CA_LOADING;
 	XBLog_Write("JA: cls.state = CA_LOADING");
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "state-CA_LOADING", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 
 	// init for this gamestate
 	XBLog_Write("JA: VM_Call(CG_INIT)...");
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "before-CG_INIT", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 	VM_Call( CG_INIT, clc.serverCommandSequence );
 	XBLog_Write("JA: VM_Call(CG_INIT) done");
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "after-CG_INIT", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 
 	// we will send a usercmd this frame, which
 	// will cause the server to send us the first snapshot
 	cls.state = CA_PRIMED;
 	XBLog_Write("JA: cls.state = CA_PRIMED");
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "state-CA_PRIMED", cl.mapname,
+		(int)cls.state, (int)cls.cgameStarted, (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 
 	t2 = Sys_Milliseconds();
 
 	//Com_Printf( "CL_InitCGame: %5.2f seconds\n", (t2-t1)/1000.0 );
 	// have the renderer touch all its images, so they are present
 	// on the card even if the driver does deferred loading
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "before-re.EndRegistration", cl.mapname,
+		(int)cls.state, (t2 - t1), (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 	re.EndRegistration();
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "after-re.EndRegistration", cl.mapname,
+		(int)cls.state, (t2 - t1), (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 
 	// make sure everything is paged in
 //	if (!Sys_LowPhysicalMemory()) 
 	{
+#ifdef _XBOX
+		XBLog_SoakTrace("CL_InitCGame", "before-Com_TouchMemory", cl.mapname,
+			(int)cls.state, (t2 - t1), (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 		Com_TouchMemory();
+#ifdef _XBOX
+		XBLog_SoakTrace("CL_InitCGame", "after-Com_TouchMemory", cl.mapname,
+			(int)cls.state, (t2 - t1), (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 	}
 
 	// clear anything that got printed
 	Con_ClearNotify ();
+#ifdef _XBOX
+	XBLog_SoakTrace("CL_InitCGame", "done", cl.mapname,
+		(int)cls.state, (t2 - t1), (int)cl.serverTime, (int)clc.serverCommandSequence);
+#endif
 }
 
 
@@ -1141,10 +1232,11 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	}
 #endif
 #ifdef _XBOX
-	static int s_xboxCGameRenderCount = 0;
-	const int xboxLogThisFrame = (cls.state == CA_ACTIVE && s_xboxCGameRenderCount < 24);
-	if (xboxLogThisFrame)
-	{
+static int s_xboxCGameRenderCount = 0;
+const int xboxLogThisFrame = (SP_XBOX_HOT_TELEMETRY && cls.state == CA_ACTIVE && s_xboxCGameRenderCount < 24);
+SPXB_HOT_INC(g_SPXBCGameRenderCalls);
+if (xboxLogThisFrame)
+{
 		XBLF("JA: CL_CGameRendering #%d enter state=%d serverTime=%d stereo=%d",
 			s_xboxCGameRenderCount, (int)cls.state, cl.serverTime, (int)stereo);
 	}
@@ -1161,13 +1253,17 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 		XBLog_Write("JA: CL_CGameRendering: VM_Call(CG_DRAW_ACTIVE_FRAME)...");
 	}
 #endif
-	VM_Call( CG_DRAW_ACTIVE_FRAME,timei, stereo, qfalse );
+	VM_Call( CG_DRAW_ACTIVE_FRAME, timei, stereo, qfalse );
 #ifdef _XBOX
-	if (xboxLogThisFrame)
-	{
+SPXB_HOT_INC(g_SPXBCGameDrawFrameReturns);
+if (xboxLogThisFrame)
+{
 		XBLog_Write("JA: CL_CGameRendering: VM_Call(CG_DRAW_ACTIVE_FRAME) returned");
 	}
-	s_xboxCGameRenderCount++;
+	if (SP_XBOX_HOT_TELEMETRY)
+	{
+		s_xboxCGameRenderCount++;
+	}
 #endif
 //	VM_Debug( 0 );
 }
@@ -1377,7 +1473,8 @@ void CL_SetCGameTime( void ) {
 			return;
 		}
 #ifdef _XBOX
-		if (s_xboxPrimedSetTimeLogCount < 32 || (s_xboxPrimedSetTimeLogCount & 63) == 0)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS &&
+			(s_xboxPrimedSetTimeLogCount < 32 || (s_xboxPrimedSetTimeLogCount & 63) == 0))
 		{
 			XBLF("JA: CL_SetCGameTime primed count=%d newSnapshots=%d frameValid=%d frameMsg=%d serverTime=%d realtime=%d",
 				s_xboxPrimedSetTimeLogCount,
@@ -1396,7 +1493,8 @@ void CL_SetCGameTime( void ) {
 
 		if ( cls.state != CA_ACTIVE ) {
 #ifdef _XBOX
-			if (s_xboxPrimedSetTimeLogCount < 32 || (s_xboxPrimedSetTimeLogCount & 63) == 0)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS &&
+				(s_xboxPrimedSetTimeLogCount < 32 || (s_xboxPrimedSetTimeLogCount & 63) == 0))
 			{
 				XBLog_Write("JA: CL_SetCGameTime still not active after primed check");
 			}

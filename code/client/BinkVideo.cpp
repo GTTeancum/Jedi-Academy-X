@@ -39,25 +39,240 @@ extern "C" volatile unsigned int g_SPXBBinkAlpha;
 extern "C" volatile unsigned int g_SPXBBinkCopySkipped;
 extern "C" volatile unsigned int g_SPXBBinkStartResult;
 extern "C" volatile unsigned int g_SPXBBinkStatus;
+extern "C" volatile unsigned int g_SPXBBinkAllocSeq;
+extern "C" volatile unsigned int g_SPXBBinkLastAllocSize;
+extern "C" volatile unsigned int g_SPXBBinkLastAllocPtr;
+extern "C" volatile unsigned int g_SPXBBinkFreeSeq;
+extern "C" volatile unsigned int g_SPXBBinkLastFreePtr;
+extern "C" volatile unsigned int g_SPXBBinkLastAvailPhys;
+extern "C" volatile unsigned int g_SPXBBinkLastZoneAlloc;
+extern "C" volatile unsigned int g_SPXBBinkLastZoneFree;
+extern "C" volatile unsigned int g_SPXBBinkLastTempPool;
+extern "C" volatile unsigned int g_SPXBBinkMemCode;
+extern "C" volatile unsigned int g_SPXBBinkOutstandingCount;
+extern "C" volatile unsigned int g_SPXBBinkOutstandingBytes;
+extern "C" volatile unsigned int g_SPXBBinkPeakOutstandingBytes;
 #endif
 
 #ifndef SP_XBOX_BINK_WAIT_CAP
 #define SP_XBOX_BINK_WAIT_CAP 2500000
 #endif
 
+#ifdef _XBOX
+static void BinkLogMemoryState(unsigned int code, const char *where)
+{
+	MEMORYSTATUS stat;
+	xboxZoneStats_t zoneStats;
+
+	memset(&stat, 0, sizeof(stat));
+	memset(&zoneStats, 0, sizeof(zoneStats));
+	GlobalMemoryStatus(&stat);
+	Z_XboxGetStats(&zoneStats);
+	g_SPXBBinkMemCode = code;
+	g_SPXBBinkLastAvailPhys = (unsigned int)stat.dwAvailPhys;
+	g_SPXBBinkLastZoneAlloc = (unsigned int)zoneStats.sizeAlloc;
+	g_SPXBBinkLastZoneFree = (unsigned int)zoneStats.sizeFree;
+	g_SPXBBinkLastTempPool = (unsigned int)zoneStats.tempPoolUsed;
+
+	XBLF("JA: BinkVideo::Mem %s availPhys=%u zoneAlloc=%d zoneFree=%d peak=%d level=%d hunk=%d tempHunk=%d misc=%d sound=%d bink=%d tempPool=%d",
+		where ? where : "<null>",
+		(unsigned int)stat.dwAvailPhys,
+		zoneStats.sizeAlloc,
+		zoneStats.sizeFree,
+		zoneStats.peakAlloc,
+		zoneStats.levelMemory,
+		zoneStats.hunkMemory,
+		zoneStats.tempHunkMemory,
+		zoneStats.miscMemory,
+		zoneStats.soundMemory,
+		zoneStats.binkMemory,
+		zoneStats.tempPoolUsed);
+}
+
+typedef struct binkAllocTrack_s
+{
+	void *ptr;
+	U32 size;
+} binkAllocTrack_t;
+
+static binkAllocTrack_t s_binkAllocTrack[32];
+
+static void BinkTrackAlloc(void *ptr, U32 size)
+{
+	int i;
+
+	if( !ptr )
+	{
+		return;
+	}
+
+	for( i = 0; i < (int)(sizeof(s_binkAllocTrack) / sizeof(s_binkAllocTrack[0])); ++i )
+	{
+		if( s_binkAllocTrack[i].ptr == ptr )
+		{
+			if( g_SPXBBinkOutstandingBytes >= s_binkAllocTrack[i].size )
+			{
+				g_SPXBBinkOutstandingBytes -= s_binkAllocTrack[i].size;
+			}
+			s_binkAllocTrack[i].size = size;
+			g_SPXBBinkOutstandingBytes += size;
+			if( g_SPXBBinkOutstandingBytes > g_SPXBBinkPeakOutstandingBytes )
+			{
+				g_SPXBBinkPeakOutstandingBytes = g_SPXBBinkOutstandingBytes;
+			}
+			return;
+		}
+	}
+
+	for( i = 0; i < (int)(sizeof(s_binkAllocTrack) / sizeof(s_binkAllocTrack[0])); ++i )
+	{
+		if( !s_binkAllocTrack[i].ptr )
+		{
+			s_binkAllocTrack[i].ptr = ptr;
+			s_binkAllocTrack[i].size = size;
+			++g_SPXBBinkOutstandingCount;
+			g_SPXBBinkOutstandingBytes += size;
+			if( g_SPXBBinkOutstandingBytes > g_SPXBBinkPeakOutstandingBytes )
+			{
+				g_SPXBBinkPeakOutstandingBytes = g_SPXBBinkOutstandingBytes;
+			}
+			return;
+		}
+	}
+
+	XBLog_Write("JA: BinkVideo::TrackAlloc overflow");
+}
+
+static void BinkTrackFree(void *ptr)
+{
+	int i;
+
+	if( !ptr )
+	{
+		return;
+	}
+
+	for( i = 0; i < (int)(sizeof(s_binkAllocTrack) / sizeof(s_binkAllocTrack[0])); ++i )
+	{
+		if( s_binkAllocTrack[i].ptr == ptr )
+		{
+			if( g_SPXBBinkOutstandingBytes >= s_binkAllocTrack[i].size )
+			{
+				g_SPXBBinkOutstandingBytes -= s_binkAllocTrack[i].size;
+			}
+			if( g_SPXBBinkOutstandingCount > 0 )
+			{
+				--g_SPXBBinkOutstandingCount;
+			}
+			s_binkAllocTrack[i].ptr = NULL;
+			s_binkAllocTrack[i].size = 0;
+			return;
+		}
+	}
+}
+
+static void BinkTrackClearTemp(void)
+{
+	int i;
+	unsigned int clearedCount = 0;
+	unsigned int clearedBytes = 0;
+
+	for( i = 0; i < (int)(sizeof(s_binkAllocTrack) / sizeof(s_binkAllocTrack[0])); ++i )
+	{
+		if( s_binkAllocTrack[i].ptr && Z_IsFromTempPool(s_binkAllocTrack[i].ptr) )
+		{
+			clearedBytes += s_binkAllocTrack[i].size;
+			if( g_SPXBBinkOutstandingBytes >= s_binkAllocTrack[i].size )
+			{
+				g_SPXBBinkOutstandingBytes -= s_binkAllocTrack[i].size;
+			}
+			if( g_SPXBBinkOutstandingCount > 0 )
+			{
+				--g_SPXBBinkOutstandingCount;
+			}
+			s_binkAllocTrack[i].ptr = NULL;
+			s_binkAllocTrack[i].size = 0;
+			++clearedCount;
+		}
+	}
+
+	XBLF("JA: BinkVideo::TrackClearTemp cleared=%u bytes=%u active=%u activeBytes=%u",
+		clearedCount, clearedBytes,
+		(unsigned int)g_SPXBBinkOutstandingCount,
+		(unsigned int)g_SPXBBinkOutstandingBytes);
+}
+#endif
+
 // Allocation wrappers, that go to our static 2.5MB buffer:
 static void PTR4* RADEXPLINK AllocWrapper(U32 size)
 {
+#ifdef _XBOX
+	static unsigned int s_binkAllocSeq = 0;
+#endif
+	void *retVal;
+
 	// Give bink pre-initialized sound mem on xbox
 	if(size == XBOX_BINK_SND_MEM) {
+#ifdef _XBOX
+		++s_binkAllocSeq;
+		g_SPXBBinkAllocSeq = s_binkAllocSeq;
+		g_SPXBBinkLastAllocSize = (unsigned int)size;
+		g_SPXBBinkLastAllocPtr = (unsigned int)binkSndMem;
+		BinkTrackAlloc(binkSndMem, size);
+		XBLF("JA: BinkVideo::AllocWrapper #%u shared-sound size=%u ptr=%p active=%u bytes=%u",
+			s_binkAllocSeq, (unsigned int)size, binkSndMem,
+			(unsigned int)g_SPXBBinkOutstandingCount,
+			(unsigned int)g_SPXBBinkOutstandingBytes);
+#endif
 		return binkSndMem;
 	}
 
-	return BinkVideo::Allocate(size);
+	retVal = BinkVideo::Allocate(size);
+#ifdef _XBOX
+	++s_binkAllocSeq;
+	g_SPXBBinkAllocSeq = s_binkAllocSeq;
+	g_SPXBBinkLastAllocSize = (unsigned int)size;
+	g_SPXBBinkLastAllocPtr = (unsigned int)retVal;
+	BinkTrackAlloc(retVal, size);
+	XBLF("JA: BinkVideo::AllocWrapper #%u size=%u ptr=%p active=%u bytes=%u",
+		s_binkAllocSeq, (unsigned int)size, retVal,
+		(unsigned int)g_SPXBBinkOutstandingCount,
+		(unsigned int)g_SPXBBinkOutstandingBytes);
+#endif
+	return retVal;
 }
 
 static void RADEXPLINK FreeWrapper(void PTR4* ptr)
 {
+#ifdef _XBOX
+	static unsigned int s_binkFreeSeq = 0;
+#endif
+#ifdef _XBOX
+	BinkTrackFree(ptr);
+#endif
+	if( ptr == binkSndMem )
+	{
+#ifdef _XBOX
+		++s_binkFreeSeq;
+		g_SPXBBinkFreeSeq = s_binkFreeSeq;
+		g_SPXBBinkLastFreePtr = (unsigned int)ptr;
+		XBLF("JA: BinkVideo::FreeWrapper #%u keeping shared Bink sound buffer ptr=%p active=%u bytes=%u",
+			s_binkFreeSeq, ptr,
+			(unsigned int)g_SPXBBinkOutstandingCount,
+			(unsigned int)g_SPXBBinkOutstandingBytes);
+#endif
+		return;
+	}
+
+#ifdef _XBOX
+	++s_binkFreeSeq;
+	g_SPXBBinkFreeSeq = s_binkFreeSeq;
+	g_SPXBBinkLastFreePtr = (unsigned int)ptr;
+	XBLF("JA: BinkVideo::FreeWrapper #%u ptr=%p active=%u bytes=%u",
+		s_binkFreeSeq, ptr,
+		(unsigned int)g_SPXBBinkOutstandingCount,
+		(unsigned int)g_SPXBBinkOutstandingBytes);
+#endif
 	BinkVideo::Free(ptr);
 }
 
@@ -152,7 +367,11 @@ BinkVideo::BinkVideo()
 BinkVideo::~BinkVideo()
 {
 	Free(buffer);
-	BinkClose(bink);
+	if( bink )
+	{
+		BinkClose(bink);
+		bink = NULL;
+	}
 	if( overlayMemory[0] || overlayMemory[1] )
 	{
 		gTextures.UnswapTextureMemory();
@@ -172,6 +391,7 @@ void BinkVideo::AllocateXboxMem(void)
 	// Force the sound memory to come from the Zone:
 	binkSndMem = (char *) Z_Malloc(XBOX_BINK_SND_MEM, TAG_BINK, qfalse, 32);
 	initialized = true;
+	BinkLogMemoryState(10, "after-AllocateXboxMem");
 	XBLog_Write("JA: BinkVideo::AllocateXboxMem exit");
 }
 
@@ -183,6 +403,8 @@ void BinkVideo::FreeXboxMem(void)
 	XBLog_Write("JA: BinkVideo::FreeXboxMem enter");
 	initialized = false;
 	Z_Free(binkSndMem);
+	binkSndMem = NULL;
+	BinkLogMemoryState(20, "after-FreeXboxMem");
 	XBLog_Write("JA: BinkVideo::FreeXboxMem exit");
 }
 
@@ -191,17 +413,18 @@ void BinkVideo::FreeXboxMem(void)
 Start
 Opens a bink file and gets it ready to play
 *********/
-bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float width, float height, bool fullscreenMovie)
+bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float width, float height, bool fullscreenMovie, bool inGameMovie)
 {
 #ifdef _XBOX
 	g_SPXBCinPhase = 400;
 	g_SPXBCinStatus = (unsigned int)status;
 #endif
 	char binkLog[256];
-	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start enter file='%s' initialized=%d status=%d fullscreen=%d", filename ? filename : "<null>", initialized ? 1 : 0, status, fullscreenMovie ? 1 : 0);
+	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start enter file='%s' initialized=%d status=%d fullscreen=%d ingame=%d", filename ? filename : "<null>", initialized ? 1 : 0, status, fullscreenMovie ? 1 : 0, inGameMovie ? 1 : 0);
 	binkLog[sizeof(binkLog) - 1] = '\0';
 	XBLog_Write(binkLog);
 	assert(initialized);
+	BinkLogMemoryState(100, "Start-enter");
 
 	// Check to see if a video is being played.
 	if(status == NS_BV_PLAYING)
@@ -230,6 +453,7 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 #ifdef _XBOX
 	g_SPXBCinPhase = 404;
 #endif
+	BinkLogMemoryState(110, "after-SND_FreeOldestSound");
 
 	// Just use the zone for bink allocations:
 	RADSetMemory( AllocWrapper, FreeWrapper );
@@ -252,11 +476,21 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	}
 
 #if defined(_XBOX) && !defined(SP_XBOX_USE_XDEMO_BINK)
+	static bool s_yuy2ConverterLoaded = false;
 	if( fullscreenMovie )
 	{
-		XBLog_Write("JA: BinkVideo::Start select RM4 YUY2 converter");
-		BinkUnloadConverter( BINKCONVERTERSALL );
-		BinkLoadConverter( BINKSURFACEYUY2 );
+		if( !s_yuy2ConverterLoaded )
+		{
+			XBLog_Write("JA: BinkVideo::Start load RM4 YUY2 converter once");
+			BinkUnloadConverter( BINKCONVERTERSALL );
+			BinkLoadConverter( BINKSURFACEYUY2 );
+			s_yuy2ConverterLoaded = true;
+		}
+		else
+		{
+			XBLog_Write("JA: BinkVideo::Start reuse RM4 YUY2 converter");
+		}
+		BinkLogMemoryState(115, "after-converter-setup");
 	}
 #endif
 
@@ -289,7 +523,28 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 #if defined(SP_XBOX_XEMU_BINK_NOTHREADIO)
 	binkOpenFlags |= BINKNOTHREADEDIO;
 #endif
+	if( inGameMovie )
+	{
+		XBLog_Write("JA: BinkVideo::Start in-game path using normal SP Bink open flags");
+	}
+
+#ifdef _XBOX
+	if( !filename || !filename[0] )
+	{
+		g_SPXBCinPhase = 414;
+		g_SPXBBinkPhase = 86;
+		g_SPXBBinkStartResult = 0xBAD00005;
+		g_SPXBBinkStatus = (unsigned int)status;
+		XBLog_Write("JA: BinkVideo::Start empty filename before BinkOpen");
+		return false;
+	}
+	// Do not probe with a separate CreateFile here. Retail JA SP lets RAD own
+	// the file open/IO lifecycle, and this path runs in very low memory.
+	g_SPXBBinkPhase = 87;
+	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start before direct BinkOpen file='%s' flags=0x%x", filename ? filename : "<null>", binkOpenFlags);
+#else
 	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start before BinkOpen file='%s' flags=0x%x", filename ? filename : "<null>", binkOpenFlags);
+#endif
 	binkLog[sizeof(binkLog) - 1] = '\0';
 	XBLog_Write(binkLog);
 #ifdef _XBOX
@@ -309,11 +564,18 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 	g_SPXBBinkStartResult = 0;
 	g_SPXBBinkStatus = (unsigned int)status;
 #endif
+#ifdef _XBOX
+	BinkLogMemoryState(118, "before-system-reserve-release");
+	Z_XboxReleaseSystemReserve("BinkOpen");
+	BinkLogMemoryState(119, "after-system-reserve-release");
+#endif
+	BinkLogMemoryState(120, "before-BinkOpen");
 	bink = BinkOpen( filename, binkOpenFlags );
 #ifdef _XBOX
 	g_SPXBCinPhase = 411;
 	g_SPXBBinkPhase = bink ? 11 : 14;
 #endif
+	BinkLogMemoryState(130, "after-BinkOpen");
 	if(!bink)
 	{
 #ifdef _XBOX
@@ -324,6 +586,10 @@ bool BinkVideo::Start(const char *filename, float xOrigin, float yOrigin, float 
 		_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start BinkOpen failed file='%s' flags=0x%x err='%s'", filename ? filename : "<null>", binkOpenFlags, BinkGetError());
 		binkLog[sizeof(binkLog) - 1] = '\0';
 		XBLog_Write(binkLog);
+#ifdef _XBOX
+		Z_XboxRestoreSystemReserve("BinkOpen-failed");
+		BinkLogMemoryState(131, "after-system-reserve-restore-failed-open");
+#endif
 		return false;
 	}
 	_snprintf(binkLog, sizeof(binkLog) - 1, "JA: BinkVideo::Start BinkOpen ok file='%s' w=%d h=%d frames=%d flags=0x%x", filename ? filename : "<null>", bink->Width, bink->Height, bink->Frames, bink->OpenFlags);
@@ -783,8 +1049,13 @@ void BinkVideo::Stop(void)
 		XBLog_Write("JA: BinkVideo::Stop close bink");
 #ifdef _XBOX
 		g_SPXBBinkPhase = 225;
+		BinkLogMemoryState(200, "before-BinkClose");
 #endif
 		BinkClose( bink );
+		bink = NULL;
+#ifdef _XBOX
+		BinkLogMemoryState(210, "after-BinkClose");
+#endif
 	}
 
 	x1		= 0.0f;
@@ -796,10 +1067,25 @@ void BinkVideo::Stop(void)
 	status	= NS_BV_STOPPED;
 
 	// Now free all the temp memory that Bink took with it's internal allocations:
+#ifdef _XBOX
+	BinkTrackClearTemp();
+#endif
 	TempFree();
+#ifdef _XBOX
+	BinkLogMemoryState(220, "after-TempFree");
+	Z_XboxRestoreSystemReserve("BinkStop");
+	BinkLogMemoryState(230, "after-system-reserve-restore");
+#endif
 
 	if( !alpha && (cls.state == CA_CINEMATIC || cls.state == CA_ACTIVE) )
         re.InitDissolve(qfalse);
+
+	stopNextFrame = false;
+	currentImage = 0;
+	looping = false;
+	alpha = false;
+	loadScreenOnStop = false;
+
 #ifdef _XBOX
 	g_SPXBBinkPhase = 230;
 	g_SPXBBinkFrameNum = 0;
