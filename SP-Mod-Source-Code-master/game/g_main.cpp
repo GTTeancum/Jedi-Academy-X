@@ -364,14 +364,14 @@ static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles )
 {
 	static int s_placementLogBudget = 32;
 	static const float offsets[][2] = {
-		{ 0.0f, -64.0f },
-		{ 48.0f, 16.0f },
-		{ -48.0f, 16.0f },
+		{ 56.0f, 24.0f },
+		{ -56.0f, 24.0f },
+		{ 80.0f, 0.0f },
+		{ -80.0f, 0.0f },
 		{ 56.0f, -32.0f },
 		{ -56.0f, -32.0f },
 		{ 0.0f, 64.0f },
-		{ 80.0f, 0.0f },
-		{ -80.0f, 0.0f }
+		{ 0.0f, -72.0f }
 	};
 	gentity_t *p1 = &g_entities[0];
 	vec3_t forward;
@@ -592,13 +592,18 @@ static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
 		changed = qtrue;
 	}
 
-	if ( p2->client->ps.weapon <= WP_NONE || p2->client->ps.weapon >= WP_NUM_WEAPONS )
+	if ( p2->client->ps.weapon <= WP_NONE
+		|| p2->client->ps.weapon >= WP_NUM_WEAPONS
+		|| p2->client->ps.weapon > MAX_PLAYER_WEAPONS
+		|| !( p2->client->ps.stats[STAT_WEAPONS] & ( 1 << p2->client->ps.weapon ) ) )
 	{
 		p2->client->ps.weapon = WP_COMPRESSION_RIFLE;
 		p2->s.weapon = WP_COMPRESSION_RIFLE;
+		p2->client->ps.weaponTime = 0;
+		p2->client->ps.weaponstate = WEAPON_READY;
 		changed = qtrue;
 	}
-	else if ( p2->s.weapon == WP_NONE )
+	else if ( p2->s.weapon != p2->client->ps.weapon )
 	{
 		p2->s.weapon = p2->client->ps.weapon;
 		changed = qtrue;
@@ -857,6 +862,7 @@ static void STEFX_SplitCoopRunFrame( void )
 	ClientThink( p2->s.number, &cmd );
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 81); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);
+	STEFX_SplitCoopEnsureBaseLoadout( p2 );
 	ClientEndFrame( p2 );
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 82); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);

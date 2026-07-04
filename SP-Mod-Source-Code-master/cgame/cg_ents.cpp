@@ -1514,7 +1514,7 @@ static qboolean STEFX_SplitShouldSupplementP2Entity( const gentity_t *gent, cons
 		{
 			*distSq = 0.0f;
 		}
-		return qtrue;
+		return (qboolean)( cg.renderingThirdPerson != 0 );
 	}
 
 	currentDistSq = STEFX_SplitSceneDistanceSquared( gent->currentOrigin, p2->currentOrigin );
@@ -1598,7 +1598,7 @@ static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEnt
 		gentity_t *gent;
 		centity_t *cent;
 
-		if ( primarySnapshotEntities && primarySnapshotEntities[entNum] && entNum != p2EntNum )
+		if ( primarySnapshotEntities && primarySnapshotEntities[entNum] )
 		{
 			continue;
 		}

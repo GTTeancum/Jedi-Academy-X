@@ -59,6 +59,26 @@ foreach ($entry in $Maps) {
 }
 $Maps = $normalizedMaps
 
+function Normalize-CommandLines {
+    param(
+        [string[]]$Values
+    )
+
+    $normalized = @()
+    foreach ($entry in $Values) {
+        foreach ($piece in ($entry -split ',')) {
+            $trimmed = $piece.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+                $normalized += $trimmed
+            }
+        }
+    }
+    return $normalized
+}
+
+$Command = @(Normalize-CommandLines -Values $Command)
+$PostMapCommand = @(Normalize-CommandLines -Values $PostMapCommand)
+
 $normalizedDumps = @()
 foreach ($entry in $DumpMem) {
     foreach ($piece in ($entry -split ',')) {

@@ -359,6 +359,40 @@ def monitor_framebuffer_dump(sock, path, phys_delta=None):
         return False, "framebuffer convert failed: %s" % exc
 
 
+def framebuffer_capture_suspicious(path):
+    try:
+        img = Image.open(path).convert("RGB")
+        width, height = img.size
+        if width <= 0 or height <= 0:
+            return True, "empty image"
+
+        step = max(1, min(width, height) // 120)
+        top_lit = top_total = bottom_lit = bottom_total = 0
+        for y in range(0, height, step):
+            in_top = y < (height // 2)
+            for x in range(0, width, step):
+                r, g, b = img.getpixel((x, y))
+                lit = (r + g + b) > 18
+                if in_top:
+                    top_total += 1
+                    if lit:
+                        top_lit += 1
+                else:
+                    bottom_total += 1
+                    if lit:
+                        bottom_lit += 1
+
+        total = top_total + bottom_total
+        lit_total = top_lit + bottom_lit
+        total_ratio = (float(lit_total) / float(total)) if total else 0.0
+        top_ratio = (float(top_lit) / float(top_total)) if top_total else 0.0
+        bottom_ratio = (float(bottom_lit) / float(bottom_total)) if bottom_total else 0.0
+        suspicious = total_ratio < 0.12 or top_ratio < 0.12 or bottom_ratio < 0.12
+        return suspicious, "lit=%.3f top=%.3f bottom=%.3f" % (total_ratio, top_ratio, bottom_ratio)
+    except Exception as exc:
+        return False, "quality check failed: %s" % exc
+
+
 def monitor_screendump(sock, path, phys_delta=None):
     return monitor_framebuffer_dump(sock, path, phys_delta)
 
@@ -837,6 +871,16 @@ def main():
         "_g_SPXBWeaponLoadSlot4First4",
         "_g_SPXBWeaponRegFirst4",
         "_g_SPXBWeaponRegClassHash",
+        "_g_SPXBSplitP1Viewheight",
+        "_g_SPXBSplitP2Viewheight",
+        "_g_SPXBSplitP2Standheight",
+        "_g_SPXBSplitP2Crouchheight",
+        "_g_SPXBSplitP1Weapon",
+        "_g_SPXBSplitP2Weapon",
+        "_g_SPXBSplitP2PmFlags",
+        "_g_SPXBSplitP2EffectiveViewheight",
+        "_g_SPXBSplitP2StateWeapon",
+        "_g_SPXBSplitP2EffectiveWeapon",
         "_g_SPXBSplitCameraMode",
         "_g_SPXBSplitP1TraceFrac1000",
         "_g_SPXBSplitP1LocalX1000",
@@ -1082,6 +1126,16 @@ def main():
                         weapon_load_slot4_first4 = word_for("_g_SPXBWeaponLoadSlot4First4")
                         weapon_reg_first4 = word_for("_g_SPXBWeaponRegFirst4")
                         weapon_reg_class_hash = word_for("_g_SPXBWeaponRegClassHash")
+                        split_p1_viewheight = word_for("_g_SPXBSplitP1Viewheight")
+                        split_p2_viewheight = word_for("_g_SPXBSplitP2Viewheight")
+                        split_p2_standheight = word_for("_g_SPXBSplitP2Standheight")
+                        split_p2_crouchheight = word_for("_g_SPXBSplitP2Crouchheight")
+                        split_p1_weapon = word_for("_g_SPXBSplitP1Weapon")
+                        split_p2_weapon = word_for("_g_SPXBSplitP2Weapon")
+                        split_p2_pm_flags = word_for("_g_SPXBSplitP2PmFlags")
+                        split_p2_effective_viewheight = word_for("_g_SPXBSplitP2EffectiveViewheight")
+                        split_p2_state_weapon = word_for("_g_SPXBSplitP2StateWeapon")
+                        split_p2_effective_weapon = word_for("_g_SPXBSplitP2EffectiveWeapon")
                         split_camera_mode = word_for("_g_SPXBSplitCameraMode")
                         split_p1_trace = word_for("_g_SPXBSplitP1TraceFrac1000")
                         split_p1_local_x = word_for("_g_SPXBSplitP1LocalX1000")
@@ -1103,7 +1157,7 @@ def main():
                         sv_probe_b = word_for("_g_SPXBSVProbeB")
                         sv_probe_c = word_for("_g_SPXBSVProbeC")
                         sv_probe_d = word_for("_g_SPXBSVProbeD")
-                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
+                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d hgt=%u/%u/%u/%u wp=%u/%u eff=%u/%u/%u pm=0x%08x p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
                              heartbeat_rt, heartbeat_st, heartbeat_fps10 / 10.0,
@@ -1137,6 +1191,13 @@ def main():
                               signed32(split_p1_local_x), signed32(split_p1_local_y), signed32(split_p1_local_z),
                               signed32(split_p2_local_x), signed32(split_p2_local_y), signed32(split_p2_local_z),
                               signed32(split_local_diff_x), signed32(split_local_diff_y), signed32(split_local_diff_z),
+                              split_p1_viewheight, split_p2_viewheight,
+                              split_p2_standheight, split_p2_crouchheight,
+                              split_p1_weapon, split_p2_weapon,
+                              split_p2_effective_viewheight,
+                              split_p2_state_weapon,
+                              split_p2_effective_weapon,
+                              split_p2_pm_flags,
                               split_p2_refdef,
                               split_p2_scene_considered, split_p2_scene_added, split_p2_scene_self,
                               split_p2_model_enter, split_p2_model_return, split_p2_model_info,
@@ -1191,6 +1252,22 @@ def main():
                     if xblog_va_for_probe is not None and xblog_addr is not None:
                         xblog_phys_delta = xblog_va_for_probe - xblog_addr
                     ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
+                    if ok:
+                        suspicious, quality = framebuffer_capture_suspicious(png)
+                        retry = 0
+                        while suspicious and retry < 4:
+                            retry += 1
+                            time.sleep(0.12)
+                            ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
+                            if not ok:
+                                detail = "%s retry=%d after suspicious %s" % (detail, retry, quality)
+                                break
+                            suspicious, quality = framebuffer_capture_suspicious(png)
+                        detail = "%s quality=%s retries=%d%s" % (
+                            detail,
+                            quality,
+                            retry,
+                            " suspicious" if suspicious else "")
                     if ok:
                         shot_paths.append(png)
                     log("shot=%02d t=%.1f ok=%s bytes=%s detail=%s" %

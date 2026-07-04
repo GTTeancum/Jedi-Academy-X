@@ -698,6 +698,7 @@ static void CG_AddViewWeaponForSlot( playerState_t *ps, centity_t *cent, int spl
 	const weaponData_t  *wData;
 	clientInfo_t	*ci;
 	float		fovOffset;
+	qboolean	showImpulseFlash;
 
 	if ( !ps || !cent ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -935,7 +936,13 @@ static void CG_AddViewWeaponForSlot( playerState_t *ps, centity_t *cent, int spl
 		CG_LightningBolt( cent, flash.origin );
 
 		// check to see if there should be an impulse flash
-		if ( ( cg.time - cg_entities[ cg.snap->ps.clientNum ].muzzleFlashTime <= MUZZLE_FLASH_TIME ) ||
+		showImpulseFlash = qfalse;
+		if ( cent && cent->muzzleFlashTime > 0 && cg.time >= cent->muzzleFlashTime &&
+			cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME )
+		{
+			showImpulseFlash = qtrue;
+		}
+		if ( showImpulseFlash ||
 		   ( ( ps->weapon == WP_PHASER ) && (  cent->currentState.eFlags & EF_FIRING ) ) )
 		{
 			flash.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON | splitSlotRenderfx;
