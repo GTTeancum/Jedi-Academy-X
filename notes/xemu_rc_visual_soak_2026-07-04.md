@@ -91,6 +91,39 @@ Evidence:
 - `scripts/output/xemu_verify_borg6_p2_takecontrol_capture_borg6_20260704_171330.report.txt`
 - `scripts/output/xemu_verify_borg6_p2_takecontrol_capture_borg6_20260704_171330_contact.png`
 
+## Follow-up: Post-takeover XEMU sweep
+
+- Ran a third-person XEMU sweep across borg3, borg6, and forge5 after commit
+  `88c250f1`. All three runs reached gameplay and exited cleanly with P2
+  game-side state populated (`game=2/28/2/238` on borg6) and renderer-side P2
+  state no longer relying on zero-height/zero-weapon fallbacks.
+- The giant red/black weapon flare did not recur in these contact sheets, and
+  P2 no longer appeared to be missing entirely from gameplay frames.
+- Remaining visual concern: P2's lower viewport can still be crowded by team
+  bodies or pushed into nearby walls/void-adjacent composition in third person.
+  This looks like camera placement/composition rather than missing renderer PVS,
+  because the renderer split path applies P1/source PVS data to the P2 refdef.
+- A matching run named `xemu_rc_post_takecontrol_firstperson` was not valid
+  first-person proof. The run did not repack the ISO, telemetry still reported
+  `cam=1`, and the contact sheets were visually third-person. Future command
+  changes that must affect the XEMU ISO need `-Repack` or another verified
+  command-injection path.
+- The duplicate-add/supplement path exists because the normal SP entity loop is
+  built from P1's snapshot. In split-screen, P2 can need a body, actors, movers,
+  items, or missiles that were not present in P1's snapshot. The risk is that
+  supplementing P2's own actor in third person can overlap with the view-local
+  body/self proxy path, which can look like duplicate tearing if both survive
+  the same frame.
+
+Evidence:
+
+- `scripts/output/xemu_rc_post_takecontrol_thirdperson_borg3_20260704_172033_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_thirdperson_borg6_20260704_172200_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_thirdperson_forge5_20260704_172328_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_borg3_20260704_172942_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_borg6_20260704_173110_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_forge5_20260704_173237_contact.png`
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving
