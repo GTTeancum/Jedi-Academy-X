@@ -149,6 +149,33 @@ Evidence:
 - `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_forge5_20260704_175002_contact.png`
 - `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_forge5_20260704_175002.report.txt`
 
+## Follow-up: First-person baseline without automated P2 movement
+
+- Reran the same first-person XEMU sweep with `stefx_splitScreenTestP2Input 0`
+  to separate baseline camera/render quality from the automated P2 stress
+  driver.
+- Borg3, borg6, and forge5 all reached gameplay and produced valid framebuffer
+  captures. Telemetry stayed in first person (`cam=0`) with populated P2 state:
+  borg3 `game=2/28/2/251`, borg6 `game=2/28/2/238`, forge5
+  `game=2/28/2/266`.
+- Borg3 baseline looks clean: both viewports show stable first-person weapons,
+  HUD, and readable world composition.
+- Borg6 and forge5 remain visually compromised at rest: P2 is valid and armed,
+  but the lower viewport starts too close to wall/column geometry. This makes
+  the next release-readiness fix a P2 initial placement/camera-composition
+  problem, not a missing weapon or missing split render problem.
+- Removed the large scratch repack logs after preserving contact sheets and
+  reports.
+
+Evidence:
+
+- `scripts/output/xemu_rc_firstperson_no_p2_auto_borg3_20260704_180731_contact.png`
+- `scripts/output/xemu_rc_firstperson_no_p2_auto_borg3_20260704_180731.report.txt`
+- `scripts/output/xemu_rc_firstperson_no_p2_auto_borg6_20260704_181130_contact.png`
+- `scripts/output/xemu_rc_firstperson_no_p2_auto_borg6_20260704_181130.report.txt`
+- `scripts/output/xemu_rc_firstperson_no_p2_auto_forge5_20260704_181504_contact.png`
+- `scripts/output/xemu_rc_firstperson_no_p2_auto_forge5_20260704_181504.report.txt`
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving
