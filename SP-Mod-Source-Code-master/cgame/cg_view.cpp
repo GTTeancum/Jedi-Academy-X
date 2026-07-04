@@ -482,8 +482,7 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	p2Refdef = cg.refdef;
 	if ( thirdPersonMode )
 	{
-		CG_STEFX_ApplyP1RelativeViewToP2( &p2EffectivePs, &p2Refdef, viewAngles );
-		traceFraction = s_stefxLastP1ThirdPersonTraceFraction;
+		CG_STEFX_CalcThirdPersonViewForPlayer( &p2EffectivePs, p2EffectivePs.origin, p2EffectivePs.viewangles, p2EntNum, p2Refdef.vieworg, viewAngles, &traceFraction );
 	}
 	else
 	{
