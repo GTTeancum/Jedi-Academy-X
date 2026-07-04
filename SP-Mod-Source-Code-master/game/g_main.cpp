@@ -89,6 +89,12 @@ extern "C" volatile unsigned int g_SPXBSplitP2GameWeapon;
 extern "C" volatile unsigned int g_SPXBSplitP2GameViewheight;
 extern "C" volatile unsigned int g_SPXBSplitP2GameStateWeapon;
 extern "C" volatile unsigned int g_SPXBSplitP2GameClientNum;
+extern "C" volatile unsigned int g_SPXBSplitP2GameStage;
+extern "C" volatile unsigned int g_SPXBSplitP2GameSplit;
+extern "C" volatile unsigned int g_SPXBSplitP2GamePlayers;
+extern "C" volatile unsigned int g_SPXBSplitP2GameP2Cvar;
+extern "C" volatile unsigned int g_SPXBSplitP2GameCached;
+extern "C" volatile unsigned int g_SPXBSplitP2GameP1Ready;
 
 #define STEFX_GAME_TRACE_STAGE(phase, subphase) \
 	do { g_SPXBPhaseLast = (phase); g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = (phase); g_SPXBSVProbeSubphase = (subphase); } while (0)
@@ -101,6 +107,16 @@ static int s_stefxSplitP2EntNum = ENTITYNUM_NONE;
 
 static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 );
 static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles );
+
+static void STEFX_SplitCoopRecordP2Lifecycle( int stage, int split, int players, int p2Cvar, qboolean p1Ready )
+{
+	g_SPXBSplitP2GameStage = (unsigned int)stage;
+	g_SPXBSplitP2GameSplit = (unsigned int)split;
+	g_SPXBSplitP2GamePlayers = (unsigned int)players;
+	g_SPXBSplitP2GameP2Cvar = (unsigned int)p2Cvar;
+	g_SPXBSplitP2GameCached = (unsigned int)s_stefxSplitP2EntNum;
+	g_SPXBSplitP2GameP1Ready = p1Ready ? 1 : 0;
+}
 
 static void STEFX_SplitCoopRecordP2GameState( const gentity_t *p2 )
 {
@@ -800,10 +816,13 @@ static void STEFX_SplitCoopRunFrame( void )
 	int splitCvar;
 	int playersCvar;
 	int p2Cvar;
+	qboolean p1Ready;
 
 	splitCvar = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
 	playersCvar = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
 	p2Cvar = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+	p1Ready = STEFX_SplitCoopP1Ready();
+	STEFX_SplitCoopRecordP2Lifecycle( 10, splitCvar, playersCvar, p2Cvar, p1Ready );
 	if ( s_stateLogBudget > 0 )
 	{
 		XBLF( "STEFX_SPLIT_COOP state time=%d split=%d players=%d p2Cvar=%d cachedP2=%d p1Ready=%d",
@@ -812,12 +831,13 @@ static void STEFX_SplitCoopRunFrame( void )
 			playersCvar,
 			p2Cvar,
 			s_stefxSplitP2EntNum,
-			STEFX_SplitCoopP1Ready() ? 1 : 0 );
+			p1Ready ? 1 : 0 );
 		--s_stateLogBudget;
 	}
 
 	if ( !STEFX_SplitCoopActive() )
 	{
+		STEFX_SplitCoopRecordP2Lifecycle( 20, splitCvar, playersCvar, p2Cvar, p1Ready );
 		if ( !s_loggedInactive )
 		{
 			gi.cvar_set( "stefx_splitScreenP2Entity", "-1" );
@@ -832,6 +852,7 @@ static void STEFX_SplitCoopRunFrame( void )
 	if ( level.framenum <= 3 )
 	{
 		static int s_startupSpawnDeferLogBudget = 3;
+		STEFX_SplitCoopRecordP2Lifecycle( 30, splitCvar, playersCvar, p2Cvar, p1Ready );
 		STEFX_GAME_TRACE_STAGE(0x53504C54, 78); /* SPLT */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)s_stefxSplitP2EntNum, 0);
 		if ( s_startupSpawnDeferLogBudget > 0 )
@@ -850,13 +871,16 @@ static void STEFX_SplitCoopRunFrame( void )
 		p2 = STEFX_SplitCoopSpawnP2();
 		if ( !p2 )
 		{
+			STEFX_SplitCoopRecordP2Lifecycle( 40, splitCvar, playersCvar, p2Cvar, p1Ready );
 			STEFX_SplitCoopRecordP2GameState( NULL );
 			return;
 		}
 	}
+	STEFX_SplitCoopRecordP2Lifecycle( 50, splitCvar, playersCvar, p2->s.number, p1Ready );
 
 	if ( !STEFX_SplitCoopP2ReadyForControl( p2 ) )
 	{
+		STEFX_SplitCoopRecordP2Lifecycle( 60, splitCvar, playersCvar, p2->s.number, p1Ready );
 		if ( s_frameLogBudget > 72 )
 		{
 			XBLF( "STEFX_SPLIT_COOP waiting ent=%d eFlags=0x%x think=%d nextthink=%d",
@@ -924,15 +948,18 @@ static void STEFX_SplitCoopRunFrame( void )
 
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 80); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)cmd.serverTime, (unsigned int)cmd.buttons, (unsigned int)cmd.weapon);
+	STEFX_SplitCoopRecordP2Lifecycle( 70, splitCvar, playersCvar, p2->s.number, p1Ready );
 	ClientThink( p2->s.number, &cmd );
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 81); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);
 	STEFX_SplitCoopEnsureBaseLoadout( p2 );
 	ClientEndFrame( p2 );
+	STEFX_SplitCoopRecordP2Lifecycle( 80, splitCvar, playersCvar, p2->s.number, p1Ready );
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 82); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);
 	PlayerStateToEntityState( &p2->client->ps, &p2->s );
 	STEFX_SplitCoopRecordP2GameState( p2 );
+	STEFX_SplitCoopRecordP2Lifecycle( 90, splitCvar, playersCvar, p2->s.number, p1Ready );
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 83); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->s.eType, (unsigned int)p2->s.eFlags, (unsigned int)p2->linked);
 	gi.linkentity( p2 );
