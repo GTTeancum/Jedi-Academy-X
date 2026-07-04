@@ -38,6 +38,22 @@ All six XEMU runs exited with code 0 and `alive_at_end`.
   still renders via fallback. Treat this as a watch item for co-op gameplay
   correctness, not a closed release item.
 
+## Follow-up: P2 duplicate-add and raw-state audit
+
+- The old duplicate-add/supplement path was a split-screen bootstrap for cases
+  where the primary snapshot did not include the P2 body or nearby actors from
+  P2's view. It could add the same P2 actor once as world geometry and again as
+  the view-local self/body proxy, which explains the tearing/duplication seen
+  when both paths survived in the same frame.
+- The weapon draw path is separate from the scene supplement path. First-person
+  weapon telemetry is recorded under `vw=...`, while the P2 body supplement is
+  recorded under `scene=...`; limiting duplicate body adds should not be treated
+  as a weapon-render fix.
+- Borg6 telemetry still shows the renderer relying on effective P2 fallbacks:
+  `hgt=28/0/32/16`, `wp=2/0`, and `eff=28/0/2`. That means the visible frame can
+  look acceptable while P2's raw client state remains incomplete. This needs a
+  state hygiene fix or a source-of-truth fix before calling the RC soak clean.
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving
