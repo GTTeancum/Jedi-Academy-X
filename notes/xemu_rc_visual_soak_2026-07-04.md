@@ -176,6 +176,33 @@ Evidence:
 - `scripts/output/xemu_rc_firstperson_no_p2_auto_forge5_20260704_181504_contact.png`
 - `scripts/output/xemu_rc_firstperson_no_p2_auto_forge5_20260704_181504.report.txt`
 
+## Follow-up: Camera-aware P2 placement
+
+- Reworked P2 initial placement scoring so candidates are judged by forward
+  view clearance plus their relationship to P1. P2 now strongly prefers
+  diagonal/behind-P1 positions and is penalized for landing directly in P1's
+  forward view.
+- Built the SP XBE with `scripts/build_xbox.ps1 -Target sp -SkipAssets` after
+  stopping a full build that had already produced a fresh XBE but was still in
+  the unrelated soundbank packaging phase.
+- Reran the two compromised first-person maps with `-Repack`,
+  `stefx_splitScreenTestP2Input 0`, `stefx_smoke_fasttime 0`, and `timescale 1`.
+  Both runs reached gameplay with `cam=0`, `wp=2/2`, and populated P2 state.
+- Borg6 improved: P2 no longer starts directly in P1's forward view, and the
+  lower viewport is no longer buried in the old wall/body composition.
+- Forge5 improved: P2 moved from the old close-wall origin
+  `view=-607/-419/-659` to `view=-688/-486/-659`, with the lower viewport
+  showing a more open starting composition.
+- Removed the large scratch repack logs after preserving contact sheets and
+  reports.
+
+Evidence:
+
+- `scripts/output/xemu_rc_p2_behind_placement_firstperson_borg6_20260704_191253_contact.png`
+- `scripts/output/xemu_rc_p2_behind_placement_firstperson_borg6_20260704_191253.report.txt`
+- `scripts/output/xemu_rc_p2_behind_placement_firstperson_forge5_20260704_191612_contact.png`
+- `scripts/output/xemu_rc_p2_behind_placement_firstperson_forge5_20260704_191612.report.txt`
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving

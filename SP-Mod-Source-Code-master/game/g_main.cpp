@@ -379,35 +379,77 @@ static float STEFX_SplitCoopTraceClearance( const vec3_t start, const vec3_t dir
 	return trace.fraction * distance;
 }
 
-static float STEFX_SplitCoopPlacementScore( const vec3_t origin, const vec3_t forward, const vec3_t right )
+static float STEFX_SplitCoopPlacementScore( const vec3_t origin, const vec3_t p1Origin, const vec3_t forward, const vec3_t right )
 {
 	vec3_t eye;
 	vec3_t left;
 	vec3_t back;
+	vec3_t separation;
 	float forwardClear;
 	float rightClear;
 	float leftClear;
 	float backClear;
+	float forwardOffset;
+	float sideOffset;
+	float sideAbs;
+	float dist;
+	float score;
 
 	VectorCopy( origin, eye );
 	eye[2] += DEFAULT_MAXS_2 + STANDARD_VIEWHEIGHT_OFFSET;
 	VectorScale( right, -1.0f, left );
 	VectorScale( forward, -1.0f, back );
 
-	forwardClear = STEFX_SplitCoopTraceClearance( eye, forward, 128.0f );
-	rightClear = STEFX_SplitCoopTraceClearance( eye, right, 48.0f );
-	leftClear = STEFX_SplitCoopTraceClearance( eye, left, 48.0f );
-	backClear = STEFX_SplitCoopTraceClearance( eye, back, 48.0f );
+	forwardClear = STEFX_SplitCoopTraceClearance( eye, forward, 192.0f );
+	rightClear = STEFX_SplitCoopTraceClearance( eye, right, 96.0f );
+	leftClear = STEFX_SplitCoopTraceClearance( eye, left, 96.0f );
+	backClear = STEFX_SplitCoopTraceClearance( eye, back, 80.0f );
 
-	if ( forwardClear < 48.0f || rightClear < 16.0f || leftClear < 16.0f || backClear < 12.0f )
+	if ( forwardClear < 80.0f || ( rightClear < 6.0f && leftClear < 6.0f ) )
 	{
 		return -1.0f;
 	}
 
-	return forwardClear + ( rightClear * 0.75f ) + ( leftClear * 0.75f ) + ( backClear * 0.35f );
+	VectorSubtract( origin, p1Origin, separation );
+	separation[2] = 0.0f;
+	forwardOffset = DotProduct( separation, forward );
+	sideOffset = DotProduct( separation, right );
+	sideAbs = sideOffset < 0.0f ? -sideOffset : sideOffset;
+	dist = VectorLength( separation );
+
+	score = ( forwardClear * 1.5f )
+		+ rightClear
+		+ leftClear
+		+ ( backClear * 0.5f )
+		+ ( dist * 0.25f )
+		+ ( sideAbs * 0.75f );
+
+	if ( forwardOffset > 64.0f )
+	{
+		score -= forwardOffset * 5.0f;
+	}
+	else if ( forwardOffset > 0.0f )
+	{
+		score -= forwardOffset * 2.0f;
+	}
+	else
+	{
+		score += ( -forwardOffset ) * 2.5f;
+	}
+
+	if ( dist < 96.0f )
+	{
+		score -= ( 96.0f - dist ) * 2.0f;
+	}
+	if ( sideAbs < 32.0f && forwardOffset < 0.0f )
+	{
+		score -= ( 32.0f - sideAbs ) * 2.0f;
+	}
+
+	return score;
 }
 
-static qboolean STEFX_SplitCoopTryPlacement( const vec3_t candidate, const vec3_t forward, const vec3_t right, vec3_t origin, float *score )
+static qboolean STEFX_SplitCoopTryPlacement( const vec3_t candidate, const vec3_t p1Origin, const vec3_t forward, const vec3_t right, vec3_t origin, float *score )
 {
 	trace_t floorTrace;
 	trace_t bodyTrace;
@@ -441,7 +483,7 @@ static qboolean STEFX_SplitCoopTryPlacement( const vec3_t candidate, const vec3_
 		return qfalse;
 	}
 
-	placementScore = STEFX_SplitCoopPlacementScore( origin, forward, right );
+	placementScore = STEFX_SplitCoopPlacementScore( origin, p1Origin, forward, right );
 	if ( placementScore < 0.0f )
 	{
 		return qfalse;
@@ -458,20 +500,22 @@ static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles )
 {
 	static int s_placementLogBudget = 32;
 	static const float offsets[][2] = {
-		{ 0.0f, 96.0f },
-		{ 72.0f, 72.0f },
-		{ -72.0f, 72.0f },
-		{ 96.0f, 32.0f },
-		{ -96.0f, 32.0f },
-		{ 128.0f, 0.0f },
-		{ -128.0f, 0.0f },
-		{ 80.0f, -48.0f },
-		{ -80.0f, -48.0f },
-		{ 0.0f, -96.0f },
-		{ 56.0f, 24.0f },
-		{ -56.0f, 24.0f },
-		{ 80.0f, 0.0f },
-		{ -80.0f, 0.0f }
+		{ 72.0f, -96.0f },
+		{ -72.0f, -96.0f },
+		{ 96.0f, -128.0f },
+		{ -96.0f, -128.0f },
+		{ 128.0f, -80.0f },
+		{ -128.0f, -80.0f },
+		{ 0.0f, -144.0f },
+		{ 160.0f, -48.0f },
+		{ -160.0f, -48.0f },
+		{ 160.0f, 0.0f },
+		{ -160.0f, 0.0f },
+		{ 112.0f, 48.0f },
+		{ -112.0f, 48.0f },
+		{ 0.0f, 112.0f },
+		{ 80.0f, 80.0f },
+		{ -80.0f, 80.0f }
 	};
 	gentity_t *p1 = &g_entities[0];
 	vec3_t forward;
@@ -494,7 +538,7 @@ static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles )
 		VectorMA( candidate, offsets[i][0], right, candidate );
 		VectorMA( candidate, offsets[i][1], forward, candidate );
 		float score = -1.0f;
-		if ( STEFX_SplitCoopTryPlacement( candidate, forward, right, origin, &score ) && score > bestScore )
+		if ( STEFX_SplitCoopTryPlacement( candidate, p1->currentOrigin, forward, right, origin, &score ) && score > bestScore )
 		{
 			bestScore = score;
 			bestIndex = i;
