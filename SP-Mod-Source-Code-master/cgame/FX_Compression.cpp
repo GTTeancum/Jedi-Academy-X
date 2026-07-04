@@ -111,7 +111,20 @@ void FX_CompressionShot( vec3_t start, vec3_t end )
 					cgs.media.sparkShader );
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxCompressionRingSkipBudget = 16;
+		if ( s_stefxCompressionRingSkipBudget > 0 )
+		{
+			XBLF("STEFX: FX_CompressionShot skip shock ring xbox alpha path start=(%g,%g,%g) end=(%g,%g,%g)",
+				start[0], start[1], start[2],
+				end[0], end[1], end[2]);
+			--s_stefxCompressionRingSkipBudget;
+		}
+	}
+#else
 	FX_CompressionShockRing( start, end );
+#endif
 }
 
 /*
