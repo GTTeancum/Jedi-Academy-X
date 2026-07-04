@@ -25,9 +25,14 @@ int G_GetBoltOnIndex( const char *boltOnName )
 		}
 	}
 
+#ifdef _XBOX
+	gi.Printf( S_COLOR_YELLOW"WARNING: Unknown boltOn name: %s; skipping on Xbox\n", boltOnName );
+	return MAX_GAME_BOLTONS;
+#else
 	G_Error( "ERROR: Unknown boltOn name: %s!\n", boltOnName );
 
 	return MAX_GAME_BOLTONS;
+#endif
 }
 
 void G_RegisterBoltOns (void)
@@ -399,6 +404,27 @@ void G_LoadBoltOns( void )
 	gi.FS_FreeFile( buffer );
 
 	G_RegisterBoltOns();
+#ifdef _XBOX
+	int scoutbotIndex = -1;
+	int warriorbotIndex = -1;
+	for ( int i = 0; i < numBoltOns; i++ )
+	{
+		if ( Q_stricmp( knownBoltOns[i].name, "headbot_scoutbot" ) == 0 )
+		{
+			scoutbotIndex = i;
+		}
+		else if ( Q_stricmp( knownBoltOns[i].name, "headbot_warriorbot" ) == 0 )
+		{
+			warriorbotIndex = i;
+		}
+	}
+	gi.Printf( "STEFX: G_LoadBoltOns loaded count=%d first='%s' last='%s' warrior=%d scout=%d\n",
+		numBoltOns,
+		numBoltOns > 0 ? knownBoltOns[0].name : "<none>",
+		numBoltOns > 0 ? knownBoltOns[numBoltOns - 1].name : "<none>",
+		warriorbotIndex,
+		scoutbotIndex );
+#endif
 }
 
 byte G_AddBoltOn( gentity_t *ent, const char *boltOnName )
@@ -598,4 +624,3 @@ void G_InitBoltOnData ( gentity_t *ent )
 		}
 	}
 }
-

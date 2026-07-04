@@ -3,6 +3,7 @@
 
 #include "g_local.h"
 #include "g_items.h"
+#include "../../code/win32/xb_log.h"
 
 #define PICKUPSOUND "sound/weapons/w_pkup.wav"
 
@@ -523,19 +524,80 @@ static void IT_ParseParms(char *buffer)
 
 }
 
+#ifdef _XBOX
+static int IT_CountLoadedItems( void )
+{
+	int i;
+	int count = 0;
+
+	for ( i = 1 ; i < bg_numItems ; i++ )
+	{
+		if ( bg_itemlist[i].classname )
+		{
+			++count;
+		}
+	}
+
+	return count;
+}
+
+static void IT_LogItemEntry( const char *phase, int itemNum )
+{
+	if ( itemNum <= 0 || itemNum >= bg_numItems )
+	{
+		XBLog_Writef( "STEFX: IT_LoadItemParms %s item=%d out of range bg_numItems=%d",
+			phase ? phase : "<null>",
+			itemNum,
+			bg_numItems );
+		return;
+	}
+
+	XBLog_Writef( "STEFX: IT_LoadItemParms %s item=%d class='%s' type=%d tag=%d pickup='%s'",
+		phase ? phase : "<null>",
+		itemNum,
+		bg_itemlist[itemNum].classname ? bg_itemlist[itemNum].classname : "<null>",
+		bg_itemlist[itemNum].giType,
+		bg_itemlist[itemNum].giTag,
+		bg_itemlist[itemNum].pickup_name ? bg_itemlist[itemNum].pickup_name : "<null>" );
+}
+#endif
+
 
 void IT_LoadItemParms (void)
 {
-	char *buffer;
+	char *buffer = NULL;
 	int len;
 	char	finalName[MAX_QPATH];
 
 	G_LanguageFilename("ext_data/items","dat",(char *) &finalName);
 
+#ifdef _XBOX
+	XBLog_Writef( "STEFX: IT_LoadItemParms FS_ReadFile '%s'", finalName );
+#endif
 	len = gi.FS_ReadFile(finalName,(void **) &buffer);
+#ifdef _XBOX
+	XBLog_Writef( "STEFX: IT_LoadItemParms read len=%d buffer=%p", len, buffer );
+#endif
+	if ( len <= 0 || !buffer )
+	{
+#ifdef _XBOX
+		XBLog_Writef( "STEFX: IT_LoadItemParms missing/empty '%s'", finalName );
+#endif
+		return;
+	}
 
+#ifdef _XBOX
+	XBLog_Write( "STEFX: IT_LoadItemParms parse begin" );
+#endif
 	IT_ParseParms(buffer);
+#ifdef _XBOX
+	XBLog_Writef( "STEFX: IT_LoadItemParms parse done loaded=%d", IT_CountLoadedItems() );
+	IT_LogItemEntry( "phaser", ITM_PHASER_PICKUP );
+	IT_LogItemEntry( "compression", ITM_COMPRESSION_RIFLE_PICKUP );
+#endif
 
 	gi.FS_FreeFile( buffer );	//let go of the buffer
+#ifdef _XBOX
+	XBLog_Write( "STEFX: IT_LoadItemParms done" );
+#endif
 }
-

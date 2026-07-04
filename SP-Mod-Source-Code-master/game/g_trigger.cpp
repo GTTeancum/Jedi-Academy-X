@@ -1,6 +1,33 @@
 #include "g_local.h"
 #include "g_functions.h"
 
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+
+static int s_stefxTriggerLogBudget = 64;
+
+static void STEFX_TriggerLog( const char *stage, gentity_t *ent )
+{
+	if ( s_stefxTriggerLogBudget <= 0 )
+	{
+		return;
+	}
+
+	--s_stefxTriggerLogBudget;
+	XBLF("STEFX: Trigger %s ent=%d class='%s' model='%s' target='%s' bmodel=%d modelindex=%d contents=0x%x mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+		stage,
+		ent ? ent->s.number : -1,
+		(ent && ent->classname) ? ent->classname : "",
+		(ent && ent->model) ? ent->model : "",
+		(ent && ent->targetname) ? ent->targetname : "",
+		ent ? ent->bmodel : 0,
+		ent ? ent->s.modelindex : -1,
+		ent ? ent->contents : 0,
+		ent ? ent->mins[0] : 0, ent ? ent->mins[1] : 0, ent ? ent->mins[2] : 0,
+		ent ? ent->maxs[0] : 0, ent ? ent->maxs[1] : 0, ent ? ent->maxs[2] : 0);
+}
+#endif
+
 #define ENTDIST_PLAYER	1
 #define ENTDIST_NPC		2
 
@@ -10,10 +37,19 @@ extern qboolean G_ClearTrace( vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end
 extern qboolean SpotWouldTelefrag2( gentity_t *mover, vec3_t dest );
 
 void InitTrigger( gentity_t *self ) {
+#ifdef _XBOX
+	STEFX_TriggerLog( "Init enter", self );
+#endif
 	if (!VectorCompare (self->s.angles, vec3_origin))
 		G_SetMovedir (self->s.angles, self->movedir);
 
+#ifdef _XBOX
+	STEFX_TriggerLog( "Init before SetBrushModel", self );
+#endif
 	gi.SetBrushModel( self, self->model );
+#ifdef _XBOX
+	STEFX_TriggerLog( "Init after SetBrushModel", self );
+#endif
 	self->contents = CONTENTS_TRIGGER;		// replaces the -1 from gi.SetBrushModel
 	self->svFlags = SVF_NOCLIENT;
 
@@ -21,6 +57,9 @@ void InitTrigger( gentity_t *self ) {
 	{
 		self->svFlags |= SVF_INACTIVE;
 	}
+#ifdef _XBOX
+	STEFX_TriggerLog( "Init done", self );
+#endif
 }
 
 
@@ -355,6 +394,9 @@ so, the basic time between firing is a random time between
 */
 void SP_trigger_once( gentity_t *ent ) 
 {
+#ifdef _XBOX
+	STEFX_TriggerLog( "once enter", ent );
+#endif
 	ent->wait = -1;
 
 	ent->e_TouchFunc = touchF_Touch_Multi;
@@ -368,8 +410,17 @@ void SP_trigger_once( gentity_t *ent )
 
 	ent->delay *= 1000;//1 = 1 msec, 1000 = 1 sec
 
+#ifdef _XBOX
+	STEFX_TriggerLog( "once before InitTrigger", ent );
+#endif
 	InitTrigger( ent );
+#ifdef _XBOX
+	STEFX_TriggerLog( "once before linkentity", ent );
+#endif
 	gi.linkentity (ent);
+#ifdef _XBOX
+	STEFX_TriggerLog( "once done", ent );
+#endif
 }
 
 

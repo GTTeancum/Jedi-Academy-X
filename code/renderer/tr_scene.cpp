@@ -7,6 +7,16 @@
 #include "tr_local.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBSplitSlotActive;
+extern "C" volatile unsigned int g_SPXBSplitSlot0DrawDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1DrawDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot0Cluster;
+extern "C" volatile unsigned int g_SPXBSplitSlot1Cluster;
+extern "C" volatile unsigned int g_SPXBSplitP2Ent;
+extern "C" volatile unsigned int g_SPXBSplitP2RendererRefs;
+extern "C" volatile unsigned int g_SPXBSplitP2RendererLastModel;
+extern "C" volatile unsigned int g_SPXBSplitP2RendererLastRenderfx;
+extern "C" volatile unsigned int g_SPXBSplitP2RendererLastZ;
 #endif
 
 #ifdef VV_LIGHTING
@@ -274,6 +284,13 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 #ifdef _XBOX
 	backEndData->entities[r_numentities].visible = -1;
 #if defined(STEFX_ELITE_FORCE_SP)
+	if ( ent->reType == RT_MODEL && ent->number > 0 && ent->number == (int)g_SPXBSplitP2Ent )
+	{
+		++g_SPXBSplitP2RendererRefs;
+		g_SPXBSplitP2RendererLastModel = (unsigned int)ent->hModel;
+		g_SPXBSplitP2RendererLastRenderfx = (unsigned int)ent->renderfx;
+		g_SPXBSplitP2RendererLastZ = (unsigned int)(int)ent->origin[2];
+	}
 	if (ent->reType == RT_MODEL && ent->hModel >= 2 && ent->hModel <= 8)
 	{
 		static int s_stefxSceneAddRefBudget = 96;
@@ -341,6 +358,7 @@ extern int	recursivePortalCount;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static qboolean s_stefxSplitP2RefdefValid = qfalse;
 static refdef_t s_stefxSplitP2Refdef;
+static vec3_t s_stefxSplitP2PvsOrigin;
 
 void RE_STEFX_SplitScreen_SetP2Refdef(const refdef_t *refdef, qboolean valid)
 {
@@ -351,10 +369,21 @@ void RE_STEFX_SplitScreen_SetP2Refdef(const refdef_t *refdef, qboolean valid)
 	}
 
 	s_stefxSplitP2Refdef = *refdef;
+	VectorCopy(refdef->vieworg, s_stefxSplitP2PvsOrigin);
 	s_stefxSplitP2RefdefValid = qtrue;
 }
 
-static qboolean R_STEFX_GetP2Refdef(refdef_t *out)
+void RE_STEFX_SplitScreen_SetP2PvsOrigin(const vec3_t origin)
+{
+	if (!origin)
+	{
+		return;
+	}
+
+	VectorCopy(origin, s_stefxSplitP2PvsOrigin);
+}
+
+static qboolean R_STEFX_GetP2Refdef(refdef_t *out, vec3_t pvsOrigin)
 {
 	if (!s_stefxSplitP2RefdefValid)
 	{
@@ -363,6 +392,10 @@ static qboolean R_STEFX_GetP2Refdef(refdef_t *out)
 	if (out)
 	{
 		*out = s_stefxSplitP2Refdef;
+	}
+	if (pvsOrigin)
+	{
+		VectorCopy(s_stefxSplitP2PvsOrigin, pvsOrigin);
 	}
 	return qtrue;
 }
@@ -476,7 +509,7 @@ static void R_STEFX_SetSplitViewport(trRefdef_t *refdef, viewParms_t *parms, con
 	parms->fovY = refdef->fov_y;
 }
 
-static void R_STEFX_ApplyExternalSplitView(trRefdef_t *refdef, viewParms_t *parms, const refdef_t *externalRefdef)
+static void R_STEFX_ApplyExternalSplitView(trRefdef_t *refdef, viewParms_t *parms, const refdef_t *externalRefdef, const vec3_t pvsOrigin)
 {
 	int i;
 
@@ -504,7 +537,14 @@ static void R_STEFX_ApplyExternalSplitView(trRefdef_t *refdef, viewParms_t *parm
 	VectorCopy(refdef->viewaxis[0], parms->or.axis[0]);
 	VectorCopy(refdef->viewaxis[1], parms->or.axis[1]);
 	VectorCopy(refdef->viewaxis[2], parms->or.axis[2]);
-	VectorCopy(refdef->vieworg, parms->pvsOrigin);
+	if (pvsOrigin)
+	{
+		VectorCopy(pvsOrigin, parms->pvsOrigin);
+	}
+	else
+	{
+		VectorCopy(refdef->vieworg, parms->pvsOrigin);
+	}
 }
 #endif
 
@@ -697,12 +737,15 @@ void RE_RenderScene( const refdef_t *fd ) {
 		if (R_STEFX_ShouldRenderSplitScreen(fd, &splitPlayers))
 		{
 			int slot;
+			int splitDrawSurfBase;
 			trRefdef_t sourceRefdef = tr.refdef;
 			viewParms_t sourceParms = parms;
 			refdef_t p2Refdef;
-			qboolean hasP2Refdef = R_STEFX_GetP2Refdef(&p2Refdef);
+			vec3_t p2PvsOrigin;
+			qboolean hasP2Refdef = R_STEFX_GetP2Refdef(&p2Refdef, p2PvsOrigin);
 			static qboolean s_loggedSplitViewports = qfalse;
 			const qboolean logSplitViewports = !s_loggedSplitViewports;
+			splitDrawSurfBase = tr.refdef.numDrawSurfs;
 
 			if (logSplitViewports)
 			{
@@ -723,16 +766,39 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 			for (slot = 0; slot < splitPlayers; ++slot)
 			{
+				int splitSlotDrawStart;
 				R_STEFX_SetSplitViewport(&tr.refdef, &parms, &sourceRefdef, &sourceParms, slot, splitPlayers);
+				tr.refdef.numDrawSurfs = splitDrawSurfBase;
+				g_SPXBSplitSlotActive = (unsigned int)(slot + 1);
+				if (slot == 0)
+				{
+					g_SPXBSplitSlot0DrawDelta = 0;
+					g_SPXBSplitSlot0Cluster = 0xffffffffu;
+				}
+				else if (slot == 1)
+				{
+					g_SPXBSplitSlot1DrawDelta = 0;
+					g_SPXBSplitSlot1Cluster = 0xffffffffu;
+				}
 				if (slot == 1 && hasP2Refdef)
 				{
-					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef);
+					/* Some EF maps report a valid-looking chase-camera cluster whose
+					   PVS marks no world leaves. Keep the P2 camera independent, but
+					   seed world visibility from P1 so the retry stays PVS-bounded. */
+					int areaByte;
+					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, sourceParms.pvsOrigin);
+					for (areaByte = 0; areaByte < MAX_MAP_AREA_BYTES; ++areaByte)
+					{
+						tr.refdef.areamask[areaByte] = sourceRefdef.areamask[areaByte];
+					}
+					tr.refdef.areamaskModified = qtrue;
 				}
 				if (logSplitViewports)
 				{
-					XBLF("STEFX_SPLITSCREEN_RENDER slot=%d p2View=%d ref=%d,%d %dx%d gl=%d,%d %dx%d fov=%g/%g view=(%g,%g,%g)",
+					XBLF("STEFX_SPLITSCREEN_RENDER slot=%d p2View=%d drawBase=%d ref=%d,%d %dx%d gl=%d,%d %dx%d fov=%g/%g view=(%g,%g,%g) pvs=(%g,%g,%g)",
 						slot,
 						(slot == 1 && hasP2Refdef) ? 1 : 0,
+						splitDrawSurfBase,
 						tr.refdef.x,
 						tr.refdef.y,
 						tr.refdef.width,
@@ -745,14 +811,34 @@ void RE_RenderScene( const refdef_t *fd ) {
 						tr.refdef.fov_y,
 						tr.refdef.vieworg[0],
 						tr.refdef.vieworg[1],
-						tr.refdef.vieworg[2]);
+						tr.refdef.vieworg[2],
+						parms.pvsOrigin[0],
+						parms.pvsOrigin[1],
+						parms.pvsOrigin[2]);
 				}
 				recursivePortalCount = 0;
+				splitSlotDrawStart = tr.refdef.numDrawSurfs;
 				R_RenderView( &parms );
+				if (slot == 0)
+				{
+					g_SPXBSplitSlot0DrawDelta = (unsigned int)(tr.refdef.numDrawSurfs - splitSlotDrawStart);
+					g_SPXBSplitSlot0Cluster = (unsigned int)tr.viewCluster;
+				}
+				else if (slot == 1)
+				{
+					g_SPXBSplitSlot1DrawDelta = (unsigned int)(tr.refdef.numDrawSurfs - splitSlotDrawStart);
+					g_SPXBSplitSlot1Cluster = (unsigned int)tr.viewCluster;
+				}
+				if (tr.refdef.numDrawSurfs > splitDrawSurfBase)
+				{
+					splitDrawSurfBase = tr.refdef.numDrawSurfs;
+				}
 			}
+			g_SPXBSplitSlotActive = 0;
 
 			s_loggedSplitViewports = qtrue;
 			tr.refdef = sourceRefdef;
+			tr.refdef.numDrawSurfs = splitDrawSurfBase;
 			parms = sourceParms;
 		}
 		else

@@ -19,6 +19,22 @@ extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComSpinCount;
+extern "C" volatile unsigned int g_SPXBComMsec;
+extern "C" volatile unsigned int g_SPXBComFrameTime;
+extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBSVProbePhase;
+extern "C" volatile unsigned int g_SPXBSVProbeSubphase;
+extern "C" volatile unsigned int g_SPXBSVProbeA;
+extern "C" volatile unsigned int g_SPXBSVProbeB;
+extern "C" volatile unsigned int g_SPXBSVProbeC;
+extern "C" volatile unsigned int g_SPXBSVProbeD;
+#define STEFX_PM_TRACE_STAGE(subphase) \
+	do { g_SPXBPhaseLast = 0x504D4F56; g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = 0x504D4F56; g_SPXBSVProbeSubphase = (subphase); } while (0)
+#define STEFX_PM_TRACE_DETAIL(a, b, c, d) \
+	do { g_SPXBComSpinCount = (a); g_SPXBComMsec = (b); g_SPXBComFrameTime = (c); g_SPXBComLastTime = (d); g_SPXBSVProbeA = (a); g_SPXBSVProbeB = (b); g_SPXBSVProbeC = (c); g_SPXBSVProbeD = (d); } while (0)
 #endif
 
 extern	bool		in_camera;
@@ -1185,9 +1201,7 @@ void ClientImpacts( gentity_t *ent, pmove_t *pm ) {
 			XBLF("STEFX: ClientImpacts observed out-of-range numtouch ent=%d numtouch=%d max=%d",
 				ent->s.number, pm->numtouch, MAXTOUCH);
 		}
-#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 		pm->numtouch = (pm->numtouch < 0) ? 0 : MAXTOUCH;
-#endif
 	}
 #endif
 
@@ -1209,9 +1223,7 @@ void ClientImpacts( gentity_t *ent, pmove_t *pm ) {
 				XBLF("STEFX: ClientImpacts observed ent=%d touch[%d]=%d out of range",
 					ent->s.number, i, pm->touchents[i]);
 			}
-#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 			continue;
-#endif
 		}
 #endif
 		other = &g_entities[ pm->touchents[i] ];
@@ -1223,9 +1235,7 @@ void ClientImpacts( gentity_t *ent, pmove_t *pm ) {
 				XBLF("STEFX: ClientImpacts observed ent=%d touch[%d]=%d not inuse",
 					ent->s.number, i, pm->touchents[i]);
 			}
-#if defined(STEFX_XBOX_SURVIVAL_HACKS)
 			continue;
-#endif
 		}
 #endif
 
@@ -2653,26 +2663,41 @@ extern vmCvar_t cg_thirdPerson;
 #ifdef _XBOX
 	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d before post-Pmove linkentity", ent->s.number);
 	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before linkentity\n");
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(60); STEFX_PM_TRACE_DETAIL(ent->s.number, ent->client ? ent->client->ps.commandTime : 0, pm.cmd.serverTime, 0); }
+#endif
 #endif
 	gi.linkentity( ent );
 	ent->client->hiddenDist = 0;
 #ifdef _XBOX
 	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after post-Pmove linkentity before triggers", ent->s.number);
 	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after linkentity\n");
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(61); STEFX_PM_TRACE_DETAIL(ent->s.number, ent->linked, ent->contents, 0); }
+#endif
 #endif
 	if ( !ent->client->noclip ) 
 	{
 #ifdef _XBOX
 		if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before G_TouchTriggersLerped\n");
+#if defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(62); STEFX_PM_TRACE_DETAIL(ent->s.number, ent->client->noclip, ent->contents, 0); }
+#endif
 #endif
 		G_TouchTriggersLerped( ent );
 #ifdef _XBOX
 		if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after G_TouchTriggersLerped\n");
+#if defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(63); STEFX_PM_TRACE_DETAIL(ent->s.number, ent->linked, ent->contents, 0); }
+#endif
 #endif
 	}
 
 	// touch other objects
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(64); STEFX_PM_TRACE_DETAIL(ent->s.number, pm.numtouch, pm.touchents[0], pm.touchents[1]); }
+#endif
 	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d before ClientImpacts", ent->s.number);
 	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM before ClientImpacts\n");
 #endif
@@ -2680,12 +2705,18 @@ extern vmCvar_t cg_thirdPerson;
 #ifdef _XBOX
 	if ( stefxPostMoveProbe ) XBLF("STEFX: ClientThink_real ent=%d after ClientImpacts", ent->s.number);
 	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM after ClientImpacts\n");
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(65); STEFX_PM_TRACE_DETAIL(ent->s.number, pm.numtouch, ent->client ? ent->client->ps.eventSequence : 0, 0); }
+#endif
 #endif
 
 	// swap and latch button actions
 	client->oldbuttons = client->buttons;
 	client->buttons = ucmd->buttons;
 	client->latched_buttons |= client->buttons & ~client->oldbuttons;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(66); STEFX_PM_TRACE_DETAIL(ent->s.number, client->buttons, client->oldbuttons, client->latched_buttons); }
+#endif
 
 #ifdef _XBOX
 	if ( ent->s.number == 0 && (client->ps.stats[STAT_HEALTH] <= 0 || cg.missionStatusShow) )
@@ -2712,9 +2743,15 @@ extern vmCvar_t cg_thirdPerson;
 #endif
 
 	// check for respawning
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(67); STEFX_PM_TRACE_DETAIL(ent->s.number, client->ps.stats[STAT_HEALTH], ent->health, cg.missionStatusShow); }
+#endif
 	if ( client->ps.stats[STAT_HEALTH] <= 0 ) 
 	{
 		qboolean missionAnalysisVisible = (qboolean)(ent->s.number == 0 && client->ps.pm_type == PM_DEAD && cg.missionStatusDeadTime < level.time);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(68); STEFX_PM_TRACE_DETAIL(ent->s.number, missionAnalysisVisible, client->respawnTime, client->ps.groundEntityNum); }
+#endif
 
 		// wait for the attack button to be pressed
 		if ( ent->NPC == NULL && (level.time > client->respawnTime || missionAnalysisVisible) )
@@ -2767,6 +2804,9 @@ extern vmCvar_t cg_thirdPerson;
 		return;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(69); STEFX_PM_TRACE_DETAIL(ent->s.number, cg.missionStatusShow, cg.missionStatusDeadTime, level.time); }
+#endif
 	if ((cg.missionStatusShow) && ((cg.missionStatusDeadTime + 1) < level.time))
 	{
 		if ( ucmd->buttons & ( BUTTON_ATTACK | BUTTON_USE_HOLDABLE ) ) 
@@ -2814,6 +2854,9 @@ extern vmCvar_t cg_thirdPerson;
 	//ClientTimerActions( ent, msec );
 #ifdef _XBOX
 	if ( stefxPostMoveProbe ) XBL("STEFX: CLIENT_PM ClientThink_real exit\n");
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxPostMoveProbe ) { STEFX_PM_TRACE_STAGE(70); STEFX_PM_TRACE_DETAIL(ent->s.number, client->ps.stats[STAT_HEALTH], client->buttons, client->latched_buttons); }
+#endif
 #endif
 
 	//DEBUG INFO
@@ -2858,17 +2901,29 @@ void ClientThink( int clientNum, usercmd_t *ucmd ) {
 		ClientThink_real( ent, ucmd );
 	}
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PM_TRACE_STAGE(71);
+	STEFX_PM_TRACE_DETAIL(ent ? ent->s.number : -1, ent && ent->client ? ent->client->ps.stats[STAT_HEALTH] : 0, ent ? ent->health : 0, 0);
+#endif
 	static int s_clientThinkReturnLogBudget = 8;
 	if (s_clientThinkReturnLogBudget > 0)
 	{
 		XBL("STEFX: CLIENT_PM ClientThink returned\n");
 		s_clientThinkReturnLogBudget--;
 	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PM_TRACE_STAGE(72);
+	STEFX_PM_TRACE_DETAIL(ent ? ent->s.number : -1, ent && ent->client ? ent->client->buttons : 0, ent && ent->client ? ent->client->latched_buttons : 0, 0);
+#endif
 	if (stefxClientThinkEntryLog)
 	{
-		XBLF("STEFX: ClientThink ent=%d complete", ent->s.number);
+		XBLog_WriteRingMarker("STEFX: ClientThink complete");
 		s_stefxClientThinkEntryLogBudget--;
 	}
+#if defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PM_TRACE_STAGE(73);
+	STEFX_PM_TRACE_DETAIL(ent ? ent->s.number : -1, ent && ent->client ? ent->client->ps.stats[STAT_HEALTH] : 0, ent ? ent->health : 0, 0);
+#endif
 #endif
 }
 

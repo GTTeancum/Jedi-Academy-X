@@ -5,6 +5,7 @@
 #include "resource.h"
 #include <float.h>
 #include <stdio.h>
+#include <errno.h>
 #include <malloc.h>
 #include "../game/g_public.h"
 #include <xonline.h>
@@ -26,6 +27,9 @@ extern "C" volatile unsigned int g_SPXBClsState;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBComSubphase;
 extern "C" volatile unsigned int g_SPXBComFrameCount;
+extern "C" volatile unsigned int g_SPXBDirectMapStatus;
+extern "C" volatile unsigned int g_SPXBDirectMapHash;
+extern "C" volatile unsigned int g_SPXBDirectMapQueuedCount;
 
 /* NT kernel prototypes for the early main() probe (file-scope required by VC71) */
 extern "C" long __stdcall NtCreateFile(void**, unsigned long, void*, void*,
@@ -49,6 +53,21 @@ extern byte		sys_packetReceived[MAX_MSGLEN];
 #ifdef _XBOX
 bool g_xboxDirectMapBootQueued = false;
 
+static unsigned int Sys_XboxDirectMapHashText(const char *text)
+{
+	unsigned int hash = 2166136261u;
+	if (!text)
+	{
+		return 0;
+	}
+	while (*text)
+	{
+		hash ^= (unsigned char)*text++;
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
 static bool Sys_XboxReadFirstLineFromPaths(const char **paths, char *out, int outSize, const char **usedPath)
 {
 	int pathIndex;
@@ -67,6 +86,10 @@ static bool Sys_XboxReadFirstLineFromPaths(const char **paths, char *out, int ou
 	for (pathIndex = 0; paths[pathIndex]; ++pathIndex)
 	{
 		FILE *startupMapFile = fopen(paths[pathIndex], "r");
+#if defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: direct-map marker fopen path='%s' result=%s errno=%d",
+			paths[pathIndex], startupMapFile ? "ok" : "miss", startupMapFile ? 0 : errno);
+#endif
 		if (startupMapFile)
 		{
 			if (fgets(out, outSize, startupMapFile))
@@ -81,8 +104,17 @@ static bool Sys_XboxReadFirstLineFromPaths(const char **paths, char *out, int ou
 				{
 					*usedPath = paths[pathIndex];
 				}
+#if defined(STEFX_ELITE_FORCE_SP)
+				XBLF("STEFX: direct-map marker read path='%s' value='%s'",
+					paths[pathIndex], out);
+#endif
+				g_SPXBDirectMapStatus = 20;
+				g_SPXBDirectMapHash = Sys_XboxDirectMapHashText(out);
 				return true;
 			}
+#if defined(STEFX_ELITE_FORCE_SP)
+			XBLF("STEFX: direct-map marker empty path='%s'", paths[pathIndex]);
+#endif
 		}
 	}
 
@@ -103,7 +135,8 @@ static bool Sys_XboxFileExists(const char *path)
 static bool Sys_XboxNormalBootRequested(void)
 {
 #if defined(STEFX_ELITE_FORCE_SP)
-	if (Sys_XboxFileExists("D:\\ef_sp_normal_boot.txt"))
+	if (Sys_XboxFileExists("D:\\ef_sp_normal_boot.txt") ||
+		Sys_XboxFileExists("d:\\ef_sp_normal_boot.txt"))
 	{
 		XBL("STEFX: normal boot requested by D:\\ef_sp_normal_boot.txt\n");
 		return true;
@@ -118,8 +151,10 @@ static bool Sys_XboxDirectMapRequested(void)
 	const char *startupMapPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
 		"D:\\ef_sp_level.txt",
+		"d:\\ef_sp_level.txt",
 #endif
 		"D:\\ja_sp_level.txt",
+		"d:\\ja_sp_level.txt",
 		NULL
 	};
 	startupMap[0] = '\0';
@@ -149,20 +184,25 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	const char *startupMapPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
 		"D:\\ef_sp_level.txt",
+		"d:\\ef_sp_level.txt",
 #endif
 		"D:\\ja_sp_level.txt",
+		"d:\\ja_sp_level.txt",
 		NULL
 	};
 	const char *startupCommandPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
 		"D:\\ef_sp_commands.txt",
+		"d:\\ef_sp_commands.txt",
 #endif
 		"D:\\ja_sp_commands.txt",
+		"d:\\ja_sp_commands.txt",
 		NULL
 	};
 	const char *postMapCommandPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
 		"D:\\ef_sp_postmap_commands.txt",
+		"d:\\ef_sp_postmap_commands.txt",
 #endif
 		NULL
 	};
@@ -172,15 +212,18 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 
 	if (Sys_XboxNormalBootRequested())
 	{
+		g_SPXBDirectMapStatus = 5;
 		XBL("JA: direct-map boot: disabled for normal EF story boot\n");
 		return false;
 	}
 
+	g_SPXBDirectMapStatus = 10;
 	Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), &startupMapSource);
 
 #if defined(STEFX_ELITE_FORCE_SP)
 	if (!startupMap[0])
 	{
+		g_SPXBDirectMapStatus = 30;
 		XBL("STEFX: direct-map boot: no explicit level file, normal EF frontend boot\n");
 		return false;
 	}
@@ -189,9 +232,15 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	for (startupCommandPathIndex = 0; startupCommandPaths[startupCommandPathIndex]; ++startupCommandPathIndex)
 	{
 		FILE *startupCommandFile = fopen(startupCommandPaths[startupCommandPathIndex], "r");
+#if defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: direct-map startup command fopen path='%s' result=%s errno=%d",
+			startupCommandPaths[startupCommandPathIndex], startupCommandFile ? "ok" : "miss",
+			startupCommandFile ? 0 : errno);
+#endif
 		if (startupCommandFile)
 		{
 			char commandLine[1024];
+			g_SPXBDirectMapStatus = 40;
 			while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
 			{
 				commandLine[strcspn(commandLine, "\r\n")] = '\0';
@@ -208,10 +257,13 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 
 	if (!startupMap[0])
 	{
+		g_SPXBDirectMapStatus = 31;
 		XBL("JA: direct-map boot: no ja_sp_level.txt map, normal boot\n");
 		return false;
 	}
 
+	g_SPXBDirectMapStatus = 50;
+	g_SPXBDirectMapHash = Sys_XboxDirectMapHashText(startupMap);
 	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame source=%s",
 		startupMap,
 		startupMapSource ? startupMapSource : "<unknown>");
@@ -219,9 +271,15 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	for (postMapCommandPathIndex = 0; postMapCommandPaths[postMapCommandPathIndex]; ++postMapCommandPathIndex)
 	{
 		FILE *postMapCommandFile = fopen(postMapCommandPaths[postMapCommandPathIndex], "r");
+#if defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: direct-map post command fopen path='%s' result=%s errno=%d",
+			postMapCommandPaths[postMapCommandPathIndex], postMapCommandFile ? "ok" : "miss",
+			postMapCommandFile ? 0 : errno);
+#endif
 		if (postMapCommandFile)
 		{
 			char commandLine[1024];
+			g_SPXBDirectMapStatus = 55;
 			while (fgets(commandLine, sizeof(commandLine), postMapCommandFile))
 			{
 				commandLine[strcspn(commandLine, "\r\n")] = '\0';
@@ -236,6 +294,11 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 		}
 	}
 	g_xboxDirectMapBootQueued = true;
+	g_SPXBDirectMapQueuedCount++;
+	g_SPXBDirectMapStatus = 60;
+	XBL("JA: direct-map boot: executing queued startup/map commands now\n");
+	Cbuf_Execute();
+	g_SPXBDirectMapStatus = 70;
 	return true;
 }
 #endif
@@ -1336,28 +1399,15 @@ static void STEFX_Trace(stefx_trace_t *results, const vec3_t start, const vec3_t
 	memset(&jaTrace, 0, sizeof(jaTrace));
 	if (s_traceLogCount < 64)
 	{
-		XBLF("STEFX: Trace enter count=%d fn=%08x pass=%d mask=0x%x efSize=%d jaSize=%d start=(%g,%g,%g) end=(%g,%g,%g) mins=%08x maxs=%08x",
-			s_traceLogCount,
-			(unsigned int)s_stefxTrace.trace_func,
-			passEntityNum,
-			contentmask,
-			sizeof(stefx_trace_t),
-			sizeof(trace_t),
-			start[0], start[1], start[2],
-			end[0], end[1], end[2],
-			(unsigned int)mins,
-			(unsigned int)maxs);
+		g_SPXBPhaseLast = 0x54524144; /* TRAD */
+		g_SPXBComSubphase = 1;
 	}
 	s_stefxTrace(&jaTrace, start, mins, maxs, end, passEntityNum, contentmask, G2_NOCOLLIDE, 0);
 	STEFX_CopyTraceToEf(results, &jaTrace);
 	if (s_traceLogCount < 64)
 	{
-		XBLF("STEFX: Trace exit count=%d fraction=%g allsolid=%d startsolid=%d ent=%d",
-			s_traceLogCount,
-			jaTrace.fraction,
-			jaTrace.allsolid,
-			jaTrace.startsolid,
-			jaTrace.entityNum);
+		g_SPXBPhaseLast = 0x54524144; /* TRAD */
+		g_SPXBComSubphase = 2;
 	}
 	s_traceLogCount++;
 }

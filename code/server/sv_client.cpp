@@ -276,25 +276,32 @@ void SV_ClientEnterWorld( client_t *client, usercmd_t *cmd, SavedGameJustLoaded_
 #if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
 	if ( sv_mapname->string[0]!='_' )
 	{
-		char savename[MAX_QPATH];
-		if ( savedGameState == eNO )
+		if ( Sys_IsDirectMapBoot() )
 		{
-			Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave begin map='%s' svTime=%d\n", sv_mapname->string, sv.time);
-			SG_WriteSavegame("auto",qtrue);
-			Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave wrote auto map='%s'\n", sv_mapname->string);
-			if ( strnicmp(sv_mapname->string, "academy", 7) != 0)
-			{
-				Com_sprintf (savename, sizeof(savename), "auto_%s",sv_mapname->string);
-				SG_WriteSavegame(savename,qtrue);//can't use va becuase it's nested
-				Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave wrote '%s'\n", savename);
-			}
+			Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave skipped for direct-map boot map='%s' state=%d\n", sv_mapname->string, savedGameState);
 		}
-		else if ( qbLoadTransition == qtrue )
+		else
 		{
-			Com_sprintf (savename, sizeof(savename), "hub/%s", sv_mapname->string );
-			SG_WriteSavegame( savename, qfalse );//save a full one
-			SG_WriteSavegame( "auto", qfalse );//need a copy for auto, too
-			Com_PrintfAlways("STEFX_SAVELOAD: client-enter transition autosave wrote hub and auto map='%s'\n", sv_mapname->string);
+			char savename[MAX_QPATH];
+			if ( savedGameState == eNO )
+			{
+				Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave begin map='%s' svTime=%d\n", sv_mapname->string, sv.time);
+				SG_WriteSavegame("auto",qtrue);
+				Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave wrote auto map='%s'\n", sv_mapname->string);
+				if ( strnicmp(sv_mapname->string, "academy", 7) != 0)
+				{
+					Com_sprintf (savename, sizeof(savename), "auto_%s",sv_mapname->string);
+					SG_WriteSavegame(savename,qtrue);//can't use va becuase it's nested
+					Com_PrintfAlways("STEFX_SAVELOAD: client-enter autosave wrote '%s'\n", savename);
+				}
+			}
+			else if ( qbLoadTransition == qtrue )
+			{
+				Com_sprintf (savename, sizeof(savename), "hub/%s", sv_mapname->string );
+				SG_WriteSavegame( savename, qfalse );//save a full one
+				SG_WriteSavegame( "auto", qfalse );//need a copy for auto, too
+				Com_PrintfAlways("STEFX_SAVELOAD: client-enter transition autosave wrote hub and auto map='%s'\n", sv_mapname->string);
+			}
 		}
 	}
 #endif

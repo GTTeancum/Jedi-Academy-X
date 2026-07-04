@@ -6,6 +6,14 @@
 #include "../../code/win32/xb_log.h"
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean cg_stefxSplitHudViewportActive;
+extern float cg_stefxSplitHudViewportX;
+extern float cg_stefxSplitHudViewportY;
+extern float cg_stefxSplitHudViewportW;
+extern float cg_stefxSplitHudViewportH;
+#endif
+
 /*
 ================
 CG_AdjustFrom640
@@ -14,6 +22,16 @@ Adjusted for resolution and screen aspect ratio
 ================
 */
 void CG_AdjustFrom640( float *x, float *y, float *w, float *h ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( cg_stefxSplitHudViewportActive )
+	{
+		*x = cg_stefxSplitHudViewportX + ( *x * cg_stefxSplitHudViewportW / 640.0f );
+		*y = cg_stefxSplitHudViewportY + ( *y * cg_stefxSplitHudViewportH / 480.0f );
+		*w = *w * cg_stefxSplitHudViewportW / 640.0f;
+		*h = *h * cg_stefxSplitHudViewportH / 480.0f;
+		return;
+	}
+#endif
 #if 0
 	// adjust for wide screens
 	if ( cgs.glconfig.vidWidth * 480 > cgs.glconfig.vidHeight * 640 ) {
@@ -26,6 +44,32 @@ void CG_AdjustFrom640( float *x, float *y, float *w, float *h ) {
 	*w *= cgs.screenXScale;
 	*h *= cgs.screenYScale;
 }
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+qboolean cg_stefxSplitHudViewportActive = qfalse;
+float cg_stefxSplitHudViewportX = 0.0f;
+float cg_stefxSplitHudViewportY = 0.0f;
+float cg_stefxSplitHudViewportW = 640.0f;
+float cg_stefxSplitHudViewportH = 480.0f;
+
+void CG_STEFX_SetSplitHudViewport( float x, float y, float w, float h )
+{
+	cg_stefxSplitHudViewportActive = qtrue;
+	cg_stefxSplitHudViewportX = x;
+	cg_stefxSplitHudViewportY = y;
+	cg_stefxSplitHudViewportW = w;
+	cg_stefxSplitHudViewportH = h;
+}
+
+void CG_STEFX_ClearSplitHudViewport( void )
+{
+	cg_stefxSplitHudViewportActive = qfalse;
+	cg_stefxSplitHudViewportX = 0.0f;
+	cg_stefxSplitHudViewportY = 0.0f;
+	cg_stefxSplitHudViewportW = 640.0f;
+	cg_stefxSplitHudViewportH = 480.0f;
+}
+#endif
 
 /*
 -------------------------

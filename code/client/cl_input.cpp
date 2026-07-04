@@ -95,6 +95,9 @@ typedef struct {
 } stefxSplitPadState_t;
 
 static stefxSplitPadState_t s_stefxSplitPads[STEFX_SPLIT_MAX_PADS];
+static int s_stefxSplitPrimaryPad = -1;
+static int s_stefxSplitSecondaryPad = -1;
+static qboolean s_stefxSplitRecordingSyntheticPad = qfalse;
 
 static qboolean STEFX_SplitMainControllerValid( int mainController )
 {
@@ -190,6 +193,151 @@ static int STEFX_SplitEffectiveMainController( int rawMainController, qboolean i
 	return effectiveMain;
 }
 
+static int STEFX_SplitRealConnectedPadCount( void )
+{
+	int port;
+	int count = 0;
+
+	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+	{
+		if ( s_stefxSplitPads[port].connected && !s_stefxSplitPads[port].synthetic )
+		{
+			++count;
+		}
+	}
+
+	return count;
+}
+
+static qboolean STEFX_SplitPadHasMeaningfulInput( unsigned int buttons, const byte *analogButtons, int thumbLX, int thumbLY, int thumbRX, int thumbRY )
+{
+	int i;
+
+	if ( buttons )
+	{
+		return qtrue;
+	}
+	if ( analogButtons )
+	{
+		for ( i = 0; i < 8; ++i )
+		{
+			if ( analogButtons[i] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+			{
+				return qtrue;
+			}
+		}
+	}
+	if ( thumbLX <= -STEFX_SPLIT_THUMB_DEADZONE || thumbLX >= STEFX_SPLIT_THUMB_DEADZONE ||
+		thumbLY <= -STEFX_SPLIT_THUMB_DEADZONE || thumbLY >= STEFX_SPLIT_THUMB_DEADZONE ||
+		thumbRX <= -STEFX_SPLIT_THUMB_DEADZONE || thumbRX >= STEFX_SPLIT_THUMB_DEADZONE ||
+		thumbRY <= -STEFX_SPLIT_THUMB_DEADZONE || thumbRY >= STEFX_SPLIT_THUMB_DEADZONE )
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
+static qboolean STEFX_SplitPadUsableForRealInput( int port )
+{
+	return (qboolean)(
+		port >= 0 &&
+		port < STEFX_SPLIT_MAX_PADS &&
+		s_stefxSplitPads[port].connected &&
+		!s_stefxSplitPads[port].synthetic );
+}
+
+static void STEFX_SplitReleaseObservedPad( int port )
+{
+	static int s_releaseLogBudget = 16;
+
+	if ( port < 0 || port >= STEFX_SPLIT_MAX_PADS )
+	{
+		return;
+	}
+
+	if ( s_stefxSplitPrimaryPad == port )
+	{
+		s_stefxSplitPrimaryPad = STEFX_SplitPadUsableForRealInput( s_stefxSplitSecondaryPad ) ? s_stefxSplitSecondaryPad : -1;
+		s_stefxSplitSecondaryPad = -1;
+		if ( s_releaseLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+		{
+			XBLF( "STEFX_SPLIT_INPUT ownership primary released port=%d promoted=%d",
+				port,
+				s_stefxSplitPrimaryPad );
+			--s_releaseLogBudget;
+		}
+	}
+	else if ( s_stefxSplitSecondaryPad == port )
+	{
+		s_stefxSplitSecondaryPad = -1;
+		if ( s_releaseLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+		{
+			XBLF( "STEFX_SPLIT_INPUT ownership secondary released port=%d primary=%d",
+				port,
+				s_stefxSplitPrimaryPad );
+			--s_releaseLogBudget;
+		}
+	}
+}
+
+static void STEFX_SplitObserveRealPadActivity( int port, unsigned int buttons, const byte *analogButtons, int thumbLX, int thumbLY, int thumbRX, int thumbRY )
+{
+	static int s_claimLogBudget = 32;
+
+	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		s_stefxSplitPrimaryPad = -1;
+		s_stefxSplitSecondaryPad = -1;
+		return;
+	}
+	if ( port < 0 || port >= STEFX_SPLIT_MAX_PADS || s_stefxSplitPads[port].synthetic || s_stefxSplitRecordingSyntheticPad )
+	{
+		return;
+	}
+	if ( !STEFX_SplitPadHasMeaningfulInput( buttons, analogButtons, thumbLX, thumbLY, thumbRX, thumbRY ) )
+	{
+		return;
+	}
+
+	if ( !STEFX_SplitPadUsableForRealInput( s_stefxSplitPrimaryPad ) )
+	{
+		s_stefxSplitPrimaryPad = port;
+		if ( s_stefxSplitSecondaryPad == port )
+		{
+			s_stefxSplitSecondaryPad = -1;
+		}
+		if ( s_claimLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_INPUT ownership primary claimed port=%d buttons=0x%x LX=%d LY=%d RX=%d RY=%d",
+				port,
+				buttons,
+				thumbLX,
+				thumbLY,
+				thumbRX,
+				thumbRY );
+			--s_claimLogBudget;
+		}
+		return;
+	}
+
+	if ( port != s_stefxSplitPrimaryPad && !STEFX_SplitPadUsableForRealInput( s_stefxSplitSecondaryPad ) )
+	{
+		s_stefxSplitSecondaryPad = port;
+		if ( s_claimLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_INPUT ownership secondary claimed port=%d primary=%d buttons=0x%x LX=%d LY=%d RX=%d RY=%d",
+				port,
+				s_stefxSplitPrimaryPad,
+				buttons,
+				thumbLX,
+				thumbLY,
+				thumbRX,
+				thumbRY );
+			--s_claimLogBudget;
+		}
+	}
+}
+
 static float STEFX_SplitNormalizeThumb( int value )
 {
 	float normalized;
@@ -262,19 +410,7 @@ static void STEFX_SplitApplyRunState( stefxSplitPadState_t *pad, usercmd_t *cmd 
 
 static qboolean STEFX_SplitRealSecondaryPadConnected( void )
 {
-	int port;
-	const int effectiveMain = STEFX_SplitEffectiveMainController( -1, qfalse );
-
-	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
-	{
-		if ( s_stefxSplitPads[port].connected
-			&& !s_stefxSplitPads[port].synthetic
-			&& port != effectiveMain )
-		{
-			return qtrue;
-		}
-	}
-	return qfalse;
+	return STEFX_SplitPadUsableForRealInput( s_stefxSplitSecondaryPad );
 }
 
 static void STEFX_SplitScreen_UpdateTestP2Pad( int serverTime )
@@ -332,6 +468,7 @@ static void STEFX_SplitScreen_UpdateTestP2Pad( int serverTime )
 		buttons |= STEFX_SPLIT_BUTTON_RIGHT_THUMB; /* Right stick click: split keeps both bodies visible */
 	}
 
+	s_stefxSplitRecordingSyntheticPad = qtrue;
 	CL_STEFX_SplitScreen_RecordPadState(
 		fakePort,
 		qtrue,
@@ -342,6 +479,7 @@ static void STEFX_SplitScreen_UpdateTestP2Pad( int serverTime )
 		22000,
 		9000,
 		0 );
+	s_stefxSplitRecordingSyntheticPad = qfalse;
 	s_stefxSplitPads[fakePort].synthetic = qtrue;
 	s_fakePadConnected = qtrue;
 
@@ -515,11 +653,12 @@ void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int main
 		pad->runToggleDown = qfalse;
 		pad->runEnabled = qfalse;
 		pad->synthetic = qfalse;
+		STEFX_SplitReleaseObservedPad( port );
 		return;
 	}
 
 	pad->buttons = buttons;
-	pad->synthetic = qfalse;
+	pad->synthetic = s_stefxSplitRecordingSyntheticPad;
 	if ( analogButtons )
 	{
 		memcpy( pad->analogButtons, analogButtons, sizeof( pad->analogButtons ) );
@@ -532,17 +671,66 @@ void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int main
 	pad->thumbLY = thumbLY;
 	pad->thumbRX = thumbRX;
 	pad->thumbRY = thumbRY;
+	STEFX_SplitObserveRealPadActivity( port, buttons, analogButtons, thumbLX, thumbLY, thumbRX, thumbRY );
+}
+
+int CL_STEFX_SplitScreen_PrimaryPadForMainController( void )
+{
+	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		return -1;
+	}
+	if ( STEFX_SplitPadUsableForRealInput( s_stefxSplitPrimaryPad ) )
+	{
+		return s_stefxSplitPrimaryPad;
+	}
+	return -1;
 }
 
 qboolean CL_STEFX_SplitScreen_ShouldReservePadForP2( int port, int mainController )
 {
 	const int effectiveMain = STEFX_SplitEffectiveMainController( mainController, qfalse );
+	const int realPadCount = STEFX_SplitRealConnectedPadCount();
+	static int s_singlePadLogBudget = 16;
+	static int s_waitLogBudget = 16;
 
 	if ( port < 0 || port >= STEFX_SPLIT_MAX_PADS )
 	{
 		return qfalse;
 	}
-	return (qboolean)( port != effectiveMain );
+	if ( port == s_stefxSplitPrimaryPad )
+	{
+		return qfalse;
+	}
+	if ( STEFX_SplitPadUsableForRealInput( s_stefxSplitSecondaryPad ) )
+	{
+		return (qboolean)( port == s_stefxSplitSecondaryPad );
+	}
+	if ( s_waitLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		XBLF( "STEFX_SPLIT_INPUT reserve p2 suppressed port=%d main=%d effective=%d realPads=%d primary=%d secondary=%d reason='waiting for active second pad'",
+			port,
+			mainController,
+			effectiveMain,
+			realPadCount,
+			s_stefxSplitPrimaryPad,
+			s_stefxSplitSecondaryPad );
+		--s_waitLogBudget;
+	}
+	if ( realPadCount < 2 )
+	{
+		if ( s_singlePadLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+		{
+			XBLF( "STEFX_SPLIT_INPUT reserve p2 suppressed port=%d main=%d effective=%d realPads=%d reason='single real pad remains P1-owned'",
+				port,
+				mainController,
+				effectiveMain,
+				realPadCount );
+			--s_singlePadLogBudget;
+		}
+		return qfalse;
+	}
+	return qfalse;
 }
 
 qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles )
@@ -591,14 +779,11 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 	}
 
 	effectiveMainController = STEFX_SplitEffectiveMainController( rawMainController, qtrue );
-	for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+	if ( STEFX_SplitPadUsableForRealInput( s_stefxSplitSecondaryPad )
+		&& s_stefxSplitSecondaryPad != s_stefxSplitPrimaryPad
+		&& s_stefxSplitSecondaryPad != effectiveMainController )
 	{
-		if ( s_stefxSplitPads[port].connected
-			&& port != effectiveMainController
-			&& chosenPort < 0 )
-		{
-			chosenPort = port;
-		}
+		chosenPort = s_stefxSplitSecondaryPad;
 	}
 
 	if ( chosenPort < 0 )
@@ -609,10 +794,12 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 		}
 		if ( s_noPadLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
 		{
-			XBLF( "STEFX_SPLIT_INPUT no secondary controller mask=0x%x rawMain=%d effectiveMain=%d main0=%d main1=%d main2=%d main3=%d",
+			XBLF( "STEFX_SPLIT_INPUT no secondary controller mask=0x%x rawMain=%d effectiveMain=%d primary=%d secondary=%d main0=%d main1=%d main2=%d main3=%d",
 				connectedMask,
 				rawMainController,
 				effectiveMainController,
+				s_stefxSplitPrimaryPad,
+				s_stefxSplitSecondaryPad,
 				s_stefxSplitPads[0].mainController,
 				s_stefxSplitPads[1].mainController,
 				s_stefxSplitPads[2].mainController,

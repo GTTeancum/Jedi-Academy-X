@@ -11,6 +11,27 @@
 #ifdef _XBOX
 #include "../qcommon/sparc.h"
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBSplitSlotActive;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldRetryDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldFallback;
+extern "C" volatile unsigned int g_SPXBSplitSlot0MarkedLeaves;
+extern "C" volatile unsigned int g_SPXBSplitSlot1MarkedLeaves;
+extern "C" volatile unsigned int g_SPXBSplitSlot0PvsRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot1PvsRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot0AreaRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot1AreaRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot0RootVis;
+extern "C" volatile unsigned int g_SPXBSplitSlot1RootVis;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAttempts;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAttempts;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldCulled;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldCulled;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAlready;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAlready;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAdded;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAdded;
 #endif
 
 static bool lookingForWorstLeaf = false;
@@ -570,8 +591,28 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 
 	if (!noViewCount)
 	{
+#ifdef _XBOX
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0WorldAttempts++;
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1WorldAttempts++;
+		}
+#endif
 		if ( surf->viewCount == tr.viewCount ) 
 		{
+#ifdef _XBOX
+			if (g_SPXBSplitSlotActive == 1)
+			{
+				g_SPXBSplitSlot0WorldAlready++;
+			}
+			else if (g_SPXBSplitSlotActive == 2)
+			{
+				g_SPXBSplitSlot1WorldAlready++;
+			}
+#endif
 #ifdef _XBOX
 			if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
 			{
@@ -603,6 +644,16 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 
 	// try to cull before dlighting or adding
 	if ( R_CullSurface( surf->data, surf->shader ) ) {
+#ifdef _XBOX
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0WorldCulled++;
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1WorldCulled++;
+		}
+#endif
 #ifdef _XBOX
 		if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
 		{
@@ -656,6 +707,16 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	}
 #endif
 
+#ifdef _XBOX
+	if (g_SPXBSplitSlotActive == 1)
+	{
+		g_SPXBSplitSlot0WorldAdded++;
+	}
+	else if (g_SPXBSplitSlotActive == 2)
+	{
+		g_SPXBSplitSlot1WorldAdded++;
+	}
+#endif
 	// check for dlighting
 	if ( dlightBits ) {
 #ifdef VV_LIGHTING
@@ -1299,6 +1360,20 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 
 	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
 #ifdef _XBOX
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0MarkedLeaves = 0xffffffffu;
+			g_SPXBSplitSlot0PvsRejected = 0;
+			g_SPXBSplitSlot0AreaRejected = 0;
+			g_SPXBSplitSlot0RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1MarkedLeaves = 0xffffffffu;
+			g_SPXBSplitSlot1PvsRejected = 0;
+			g_SPXBSplitSlot1AreaRejected = 0;
+			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
 		if (s_xboxMarkLeavesSameLogBudget > 0)
 		{
 			XBLF("JA: R_MarkLeaves same cluster=%d visCount=%d areaModified=%d rootVis=%d leafVis=%d",
@@ -1328,6 +1403,20 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			if (tr.world->leafs[i].contents != CONTENTS_SOLID) {
 				tr.world->leafs[i].visframe = tr.visCount;
 			}
+		}
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0MarkedLeaves = (unsigned int)tr.world->numleafs;
+			g_SPXBSplitSlot0PvsRejected = 0;
+			g_SPXBSplitSlot0AreaRejected = 0;
+			g_SPXBSplitSlot0RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1MarkedLeaves = (unsigned int)tr.world->numleafs;
+			g_SPXBSplitSlot1PvsRejected = 0;
+			g_SPXBSplitSlot1AreaRejected = 0;
+			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
 		}
 		if (s_xboxMarkLeavesLogBudget > 0) {
 			XBLF("JA: R_MarkLeaves all-visible cluster=%d visCount=%d nodes=%d leafs=%d rootVis=%d leafVis=%d",
@@ -1419,6 +1508,20 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
 				leafOverride ? leafOverride->visframe : -1);
 			--s_xboxMarkLeavesLogBudget;
+		}
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0MarkedLeaves = (unsigned int)markedLeaves;
+			g_SPXBSplitSlot0PvsRejected = (unsigned int)pvsRejected;
+			g_SPXBSplitSlot0AreaRejected = (unsigned int)areaRejected;
+			g_SPXBSplitSlot0RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1MarkedLeaves = (unsigned int)markedLeaves;
+			g_SPXBSplitSlot1PvsRejected = (unsigned int)pvsRejected;
+			g_SPXBSplitSlot1AreaRejected = (unsigned int)areaRejected;
+			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
 		}
 		R_XboxLogJunkSkyLeafVisibility( "marked", vis );
 	}
@@ -1543,6 +1646,7 @@ void R_AddWorldSurfaces (void) {
 
 	const int xboxLeafsBefore = tr.pc.c_leafs;
 	const int xboxDrawBefore = tr.refdef.numDrawSurfs;
+	int xboxWorldDelta;
 
 #ifdef _XBOX
 	if (s_xboxAddWorldLogBudget > 0)
@@ -1559,8 +1663,57 @@ void R_AddWorldSurfaces (void) {
 			tr.world ? tr.world->nummarksurfaces : -1);
 	}
 #endif
+	if (g_SPXBSplitSlotActive == 2)
+	{
+		g_SPXBSplitSlot1WorldRetryDelta = 0;
+		g_SPXBSplitSlot1WorldFallback = 0;
+		g_SPXBSplitSlot1WorldAttempts = 0;
+		g_SPXBSplitSlot1WorldCulled = 0;
+		g_SPXBSplitSlot1WorldAlready = 0;
+		g_SPXBSplitSlot1WorldAdded = 0;
+	}
+	else if (g_SPXBSplitSlotActive == 1)
+	{
+		g_SPXBSplitSlot0WorldAttempts = 0;
+		g_SPXBSplitSlot0WorldCulled = 0;
+		g_SPXBSplitSlot0WorldAlready = 0;
+		g_SPXBSplitSlot0WorldAdded = 0;
+	}
+
 	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
+	xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
+
+	if (g_SPXBSplitSlotActive == 2 && xboxWorldDelta == 0 && tr.world && tr.world->nodes)
+	{
+		const int retryBefore = tr.refdef.numDrawSurfs;
+		g_SPXBSplitSlot1WorldFallback = 1;
+		++tr.viewCount;
+		VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
+		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
+		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
+	}
+
+	if (g_SPXBSplitSlotActive == 2 && xboxWorldDelta == 0 && tr.world && tr.world->nodes)
+	{
+		const int retryBefore = tr.refdef.numDrawSurfs;
+
+		g_SPXBSplitSlot1WorldFallback = 2;
+		++tr.viewCount;
+		/* Keep this retry bounded by the PVS. The earlier all-visible probe proved
+		   the render path, but it is too expensive for a release soak. */
+		VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 0, ( 1 << VVLightMan.num_dlights ) - 1 );
+		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
+		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
+	}
 #ifdef _XBOX
+	if (g_SPXBSplitSlotActive == 1)
+	{
+		g_SPXBSplitSlot0WorldDelta = (unsigned int)xboxWorldDelta;
+	}
+	else if (g_SPXBSplitSlotActive == 2)
+	{
+		g_SPXBSplitSlot1WorldDelta = (unsigned int)xboxWorldDelta;
+	}
 	{
 		static int s_stefxWorldVisBudget = 24;
 		if (s_stefxWorldVisBudget > 0)
@@ -1568,7 +1721,7 @@ void R_AddWorldSurfaces (void) {
 			XBLF("STEFX: worldvis cluster=%d leafDelta=%d drawDelta=%d totalDraw=%d visCount=%d rootVis=%d r_novis=%d r_nocull=%d bounds=(%g,%g,%g)-(%g,%g,%g)",
 				tr.viewCluster,
 				tr.pc.c_leafs - xboxLeafsBefore,
-				tr.refdef.numDrawSurfs - xboxDrawBefore,
+				xboxWorldDelta,
 				tr.refdef.numDrawSurfs,
 				tr.visCount,
 				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,

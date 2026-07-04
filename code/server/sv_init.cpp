@@ -7,7 +7,17 @@
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBMapPhase;
 extern "C" volatile unsigned int g_SPXBMapHash;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComSpinCount;
 extern "C" volatile char g_SPXBMapLast[64];
+
+static void SV_InitXboxTrace( unsigned int phase, unsigned int subphase, unsigned int detail )
+{
+	g_SPXBPhaseLast = phase;
+	g_SPXBComSubphase = subphase;
+	g_SPXBComSpinCount = detail;
+}
 
 static unsigned int SV_InitXboxHashText(const char *text)
 {
@@ -638,14 +648,23 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// run a few frames to allow everything to settle
 #ifdef _XBOX
 	g_SPXBMapPhase = 21;
+	SV_InitXboxTrace( 0x53565350, 2100, 0 ); /* SVSP */
+	XBLog_WriteRingMarker("JA: SV_SpawnServer ring before settle loop log");
 	XBLog_Write("JA: SV_SpawnServer before settle RunFrame loop");
+	SV_InitXboxTrace( 0x53565350, 2101, 0 ); /* SVSP */
+	XBLog_WriteRingMarker("JA: SV_SpawnServer ring after settle loop log");
 #endif
 	for ( i = 0 ;i < 3 ; i++ ) {
 #ifdef _XBOX
+		SV_InitXboxTrace( 0x53565350, 2110, (unsigned int)i ); /* SVSP */
+		XBLog_WriteRingMarker("JA: SV_SpawnServer ring before settle RunFrame");
 		XBLF("JA: SV_SpawnServer settle RunFrame %d before time=%d", i, sv.time);
+		SV_InitXboxTrace( 0x53565350, 2111, (unsigned int)i ); /* SVSP */
 #endif
 		ge->RunFrame( sv.time );
 #ifdef _XBOX
+		SV_InitXboxTrace( 0x53565350, 2112, (unsigned int)i ); /* SVSP */
+		XBLog_WriteRingMarker("JA: SV_SpawnServer ring after settle RunFrame");
 		XBLF("JA: SV_SpawnServer settle RunFrame %d after time=%d", i, sv.time);
 #endif
 		sv.time += 100;

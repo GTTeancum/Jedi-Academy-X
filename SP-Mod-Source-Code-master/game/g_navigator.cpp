@@ -526,24 +526,27 @@ bool CNavigator::Load( const char *filename, int checksum )
 	Com_sprintf( navPath, sizeof( navPath ), "maps/%s.nav", filename );
 
 	//Attempt to load the file
-	gi.FS_FOpenFile( navPath, &file, FS_READ );
 #ifdef _XBOX
-	XBLF("STEFX: Navigator Load '%s' expected checksum=0x%08x file=%p", filename ? filename : "(null)", checksum, file);
+	file = 0;
+	XBLog_Write( va( "STEFX: Navigator Load begin map='%s' path='%s' checksum=0x%08x",
+		filename ? filename : "(null)", navPath, checksum ) );
+	if ( !STEFX_NavOpenMemoryFile( navPath, &file ) )
+	{
+		XBLog_Write( "STEFX: Navigator Load memory path missed, trying FS handle" );
+		gi.FS_FOpenFile( navPath, &file, FS_READ );
+		XBLog_Write( va( "STEFX: Navigator Load FS handle=%d", (int)file ) );
+	}
+#else
+	gi.FS_FOpenFile( navPath, &file, FS_READ );
 #endif
 
 	//See if we succeeded
 	if ( file == NULL )
 	{
 #ifdef _XBOX
-		if ( !STEFX_NavOpenMemoryFile( navPath, &file ) )
-		{
-			XBLF("STEFX: Navigator Load '%s' missing", filename ? filename : "(null)");
-			return false;
-		}
+		XBLog_Write( va( "STEFX: Navigator Load missing map='%s'", filename ? filename : "(null)" ) );
+		return false;
 #else
-#ifdef _XBOX
-		XBLF("STEFX: Navigator Load '%s' missing", filename ? filename : "(null)");
-#endif
 		return false;
 #endif
 	}
@@ -554,7 +557,7 @@ bool CNavigator::Load( const char *filename, int checksum )
 	if ( navID != NAV_HEADER_ID )
 	{
 #ifdef _XBOX
-		XBLF("STEFX: Navigator Load '%s' bad header=0x%08x", filename ? filename : "(null)", navID);
+		XBLog_Write( va( "STEFX: Navigator Load bad header map='%s' header=0x%08x", filename ? filename : "(null)", navID ) );
 #endif
 		STEFX_NavClose( file );
 		return false;
@@ -566,7 +569,7 @@ bool CNavigator::Load( const char *filename, int checksum )
 	if ( check != checksum )
 	{
 #ifdef _XBOX
-		XBLF("STEFX: Navigator Load '%s' checksum mismatch file=0x%08x expected=0x%08x", filename ? filename : "(null)", check, checksum);
+		XBLog_Write( va( "STEFX: Navigator Load checksum mismatch map='%s' file=0x%08x expected=0x%08x", filename ? filename : "(null)", check, checksum ) );
 #endif
 		STEFX_NavClose( file );
 		return false;
@@ -574,7 +577,7 @@ bool CNavigator::Load( const char *filename, int checksum )
 
 	int numNodes = GetInt( file );
 #ifdef _XBOX
-	XBLF("STEFX: Navigator Load '%s' accepted nodes=%d", filename ? filename : "(null)", numNodes);
+	XBLog_Write( va( "STEFX: Navigator Load accepted map='%s' nodes=%d", filename ? filename : "(null)", numNodes ) );
 #endif
 	
 	for ( int i = 0; i < numNodes; i++ )
@@ -584,7 +587,7 @@ bool CNavigator::Load( const char *filename, int checksum )
 		if ( node->Load( numNodes, file ) == false )
 		{
 #ifdef _XBOX
-			XBLF("STEFX: Navigator Load '%s' failed at node=%d/%d", filename ? filename : "(null)", i, numNodes);
+			XBLog_Write( va( "STEFX: Navigator Load failed map='%s' node=%d/%d", filename ? filename : "(null)", i, numNodes ) );
 #endif
 			STEFX_NavClose( file );
 			return false;

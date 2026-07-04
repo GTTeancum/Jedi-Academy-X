@@ -257,7 +257,13 @@ void PM_AddTouchEnt( int entityNum ) {
 	if ( entityNum == ENTITYNUM_WORLD ) {
 		return;
 	}
-	if ( pm->numtouch == MAXTOUCH ) {
+	if ( pm->numtouch >= MAXTOUCH ) {
+#ifdef _XBOX
+		if ( pm->numtouch > MAXTOUCH ) {
+			XBLF("STEFX: PM_AddTouchEnt repairing out-of-range numtouch=%d max=%d", pm->numtouch, MAXTOUCH);
+			pm->numtouch = MAXTOUCH;
+		}
+#endif
 		return;
 	}
 

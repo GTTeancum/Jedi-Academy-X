@@ -20,6 +20,12 @@ int			numSpawnVarChars;
 char		spawnVarChars[MAX_SPAWN_VARS_CHARS];
 
 #ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBGamePhase;
+extern "C" volatile unsigned int g_SPXBGameEntityCount;
+extern "C" volatile unsigned int g_SPXBGameClassHash;
+extern "C" volatile unsigned int g_SPXBMapPhase;
+extern "C" volatile unsigned int g_SPXBMapHash;
+
 static const char *STEFX_SpawnVarValue( const char *key )
 {
 	int i;
@@ -33,6 +39,33 @@ static const char *STEFX_SpawnVarValue( const char *key )
 	}
 
 	return "";
+}
+
+static unsigned int STEFX_SpawnHashString( const char *s )
+{
+	unsigned int hash = 2166136261u;
+
+	if ( !s )
+	{
+		return 0;
+	}
+
+	while ( *s )
+	{
+		hash ^= (unsigned char)*s++;
+		hash *= 16777619u;
+	}
+
+	return hash;
+}
+
+static void STEFX_SpawnProbe( unsigned int phase, int entityIndex, const char *className, const char *targetName )
+{
+	g_SPXBGamePhase = phase;
+	g_SPXBGameEntityCount = (unsigned int)entityIndex;
+	g_SPXBGameClassHash = STEFX_SpawnHashString( className );
+	g_SPXBMapPhase = STEFX_SpawnHashString( targetName );
+	g_SPXBMapHash = (unsigned int)numSpawnVars;
 }
 #endif
 
@@ -987,9 +1020,11 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	const char	*traceClassname = STEFX_SpawnVarValue( "classname" );
 	const char	*traceTargetname = STEFX_SpawnVarValue( "targetname" );
 	const char	*traceOrigin = STEFX_SpawnVarValue( "origin" );
-	static int	stefxSpawnEntityLogBudget = 12;
+	static int	stefxSpawnEntityLogBudget = 128;
 	static int	stefxSpawnFieldLogBudget = 16;
 	qboolean	xboxSpawnLog = (qboolean)(stefxSpawnEntityLogBudget > 0);
+
+	STEFX_SpawnProbe( 0x53424547, -1, traceClassname, traceTargetname ); /* SBEG */
 
 	if (xboxSpawnLog && stefxSpawnEntityLogBudget > 0)
 	{
@@ -1005,6 +1040,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	// get the next free entity
 	ent = G_Spawn();
 #ifdef _XBOX
+	STEFX_SpawnProbe( 0x53414C43, ent ? ent->s.number : -1, traceClassname, traceTargetname ); /* SALC */
 	if (xboxSpawnLog)
 	{
 		XBLF("STEFX: Spawn entity allocated ent=%d ptr=%p class='%s'", ent ? ent->s.number : -1, ent, traceClassname);
@@ -1021,10 +1057,14 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 #endif
 		G_ParseField( spawnVars[i][0], spawnVars[i][1], ent );
 	}
+#ifdef _XBOX
+	STEFX_SpawnProbe( 0x53504152, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SPAR */
+#endif
 
 	G_SpawnInt( "notsingle", "0", &i );
 	if ( i || !SpawnForCurrentDifficultySetting( ent ) ) {
 #ifdef _XBOX
+		STEFX_SpawnProbe( 0x53534B50, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SSKP */
 		if (xboxSpawnLog)
 		{
 			XBLF("STEFX: Spawn entity skipped ent=%d class='%s' notsingle=%d", ent ? ent->s.number : -1, traceClassname, i);
@@ -1060,6 +1100,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 
 	// if we didn't get a classname, don't bother spawning anything
 #ifdef _XBOX
+	STEFX_SpawnProbe( 0x5343414C, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SCAL */
 	if (xboxSpawnLog)
 	{
 		XBLF("STEFX: Spawn entity before call ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1067,6 +1108,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 #endif
 	if ( !G_CallSpawn( ent ) ) {
 #ifdef _XBOX
+		STEFX_SpawnProbe( 0x534E4F53, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SNOS */
 		if (xboxSpawnLog)
 		{
 			XBLF("STEFX: Spawn entity no spawn ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1076,6 +1118,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 		return;
 	}
 #ifdef _XBOX
+	STEFX_SpawnProbe( 0x53434F4B, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SCOK */
 	if (xboxSpawnLog)
 	{
 		XBLF("STEFX: Spawn entity after call ent=%d class='%s' inuse=%d", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, ent ? ent->inuse : -1);
@@ -1086,6 +1129,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	if ( ICARUS_ValidEnt( ent ) )
 	{
 #ifdef _XBOX
+		STEFX_SpawnProbe( 0x53494342, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SICB */
 		if (xboxSpawnLog)
 		{
 			XBLF("STEFX: Spawn entity before ICARUS ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1093,6 +1137,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 #endif
 		ICARUS_InitEnt( ent );
 #ifdef _XBOX
+		STEFX_SpawnProbe( 0x53494341, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SICA */
 		if (xboxSpawnLog)
 		{
 			XBLF("STEFX: Spawn entity after ICARUS init ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1106,6 +1151,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 				if ( ent->behaviorSet[BSET_SPAWN] )
 				{
 #ifdef _XBOX
+					STEFX_SpawnProbe( 0x53414242, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SABB */
 					if (xboxSpawnLog)
 					{
 						XBLF("STEFX: Spawn entity before spawn behavior ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1113,6 +1159,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 #endif
 					G_ActivateBehavior( ent, BSET_SPAWN );
 #ifdef _XBOX
+					STEFX_SpawnProbe( 0x53414241, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SABA */
 					if (xboxSpawnLog)
 					{
 						XBLF("STEFX: Spawn entity after spawn behavior ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1124,6 +1171,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	}
 
 #ifdef _XBOX
+	STEFX_SpawnProbe( 0x53424F42, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SBOB */
 	if (xboxSpawnLog)
 	{
 		XBLF("STEFX: Spawn entity before boltOn ent=%d class='%s'", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname);
@@ -1131,6 +1179,7 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 #endif
 	G_InitBoltOnData( ent );
 #ifdef _XBOX
+	STEFX_SpawnProbe( 0x53444F4E, ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, traceTargetname ); /* SDON */
 	if (xboxSpawnLog)
 	{
 		XBLF("STEFX: Spawn entity done ent=%d class='%s' inuse=%d", ent ? ent->s.number : -1, ent && ent->classname ? ent->classname : traceClassname, ent ? ent->inuse : -1);
@@ -1360,8 +1409,11 @@ void G_SpawnEntitiesFromString( const char *entityString ) {
 	while( G_ParseSpawnVars( &entities ) ) 
 	{
 #ifdef _XBOX
+		const char *loopClassname = STEFX_SpawnVarValue( "classname" );
+		const char *loopTargetname = STEFX_SpawnVarValue( "targetname" );
 		traceEntityCount++;
-		XBLF("STEFX: SpawnEntities loop entity=%d", traceEntityCount);
+		STEFX_SpawnProbe( 0x534C4F50, traceEntityCount, loopClassname, loopTargetname ); /* SLOP */
+		XBLF("STEFX: SpawnEntities loop entity=%d class='%s' target='%s'", traceEntityCount, loopClassname, loopTargetname);
 #endif
 		G_SpawnGEntityFromSpawnVars();
 	}	

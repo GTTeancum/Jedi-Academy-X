@@ -1423,6 +1423,10 @@ static void CG_AddCEntity( centity_t *cent )
 }
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBSplitP2SceneConsidered;
+extern "C" volatile unsigned int g_SPXBSplitP2SceneAdded;
+extern "C" volatile unsigned int g_SPXBSplitP2SceneSelfAdded;
+
 static qboolean STEFX_SplitP2SceneSupplementActive( int *p2EntNum )
 {
 	int entNum;
@@ -1568,8 +1572,13 @@ static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEnt
 	int entNum;
 	int added;
 	int considered;
+	int selfAdded;
 	int upper;
 	gentity_t *p2;
+
+	g_SPXBSplitP2SceneConsidered = 0;
+	g_SPXBSplitP2SceneAdded = 0;
+	g_SPXBSplitP2SceneSelfAdded = 0;
 
 	if ( !STEFX_SplitP2SceneSupplementActive( &p2EntNum ) )
 	{
@@ -1581,6 +1590,7 @@ static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEnt
 
 	added = 0;
 	considered = 0;
+	selfAdded = 0;
 	for ( entNum = 1; entNum < upper; ++entNum )
 	{
 		qboolean clientActor;
@@ -1588,7 +1598,7 @@ static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEnt
 		gentity_t *gent;
 		centity_t *cent;
 
-		if ( primarySnapshotEntities && primarySnapshotEntities[entNum] )
+		if ( primarySnapshotEntities && primarySnapshotEntities[entNum] && entNum != p2EntNum )
 		{
 			continue;
 		}
@@ -1618,6 +1628,10 @@ static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEnt
 
 		CG_AddCEntity( cent );
 		++added;
+		if ( entNum == p2EntNum )
+		{
+			++selfAdded;
+		}
 
 		if ( s_splitSceneDetailBudget > 0 )
 		{
@@ -1632,6 +1646,10 @@ static void STEFX_SplitSupplementP2SceneEntities( const byte *primarySnapshotEnt
 			--s_splitSceneDetailBudget;
 		}
 	}
+
+	g_SPXBSplitP2SceneConsidered = (unsigned int)considered;
+	g_SPXBSplitP2SceneAdded = (unsigned int)added;
+	g_SPXBSplitP2SceneSelfAdded = (unsigned int)selfAdded;
 
 	if ( s_splitSceneSummaryBudget > 0 && ( added > 0 || cg.time < 8000 ) )
 	{

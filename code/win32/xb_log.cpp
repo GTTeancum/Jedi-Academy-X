@@ -111,6 +111,85 @@ __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitDlight = 0x1111002D
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitEntity = 0x1111002E;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitFinal = 0x1111002F;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitFlush = 0x11110030;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlotActive = 0x11110060;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0DrawDelta = 0x11110061;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1DrawDelta = 0x11110062;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0WorldDelta = 0x11110063;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldDelta = 0x11110064;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0Cluster = 0x11110065;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1Cluster = 0x11110066;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldRetryDelta = 0x11110074;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldFallback = 0x11110075;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0MarkedLeaves = 0x11110076;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1MarkedLeaves = 0x11110077;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0PvsRejected = 0x11110078;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1PvsRejected = 0x11110079;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0AreaRejected = 0x1111007A;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1AreaRejected = 0x1111007B;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0RootVis = 0x1111007C;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1RootVis = 0x1111007D;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0WorldAttempts = 0x1111007E;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldAttempts = 0x1111007F;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0WorldCulled = 0x11110080;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldCulled = 0x11110081;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0WorldAlready = 0x11110082;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldAlready = 0x11110083;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0WorldAdded = 0x11110084;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1WorldAdded = 0x11110085;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2Ent = 0x11110067;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2TraceFrac1000 = 0x11110068;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ViewX = 0x11110069;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ViewY = 0x1111006A;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ViewZ = 0x1111006B;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2PsX = 0x1111006C;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2PsY = 0x1111006D;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2PsZ = 0x1111006E;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2CurX = 0x1111006F;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2CurY = 0x11110070;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2CurZ = 0x11110071;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2AnglesPitch = 0x11110072;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2AnglesYaw = 0x11110073;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2RefdefValid = 0x11110090;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2SceneConsidered = 0x11110091;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2SceneAdded = 0x11110092;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2SceneSelfAdded = 0x11110093;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelEnter = 0x11110094;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelReturn = 0x11110095;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelInfoValid = 0x11110096;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelSubmitted = 0x11110097;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelLegs = 0x11110098;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelTorso = 0x11110099;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelHead = 0x1111009A;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2ModelRenderfx = 0x1111009B;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2RendererRefs = 0x1111009C;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2RendererLastModel = 0x1111009D;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2RendererLastRenderfx = 0x1111009E;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2RendererLastZ = 0x1111009F;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1Adds = 0x111100AB;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2Adds = 0x111100AC;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1Skips = 0x111100AD;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2Skips = 0x111100AE;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1Model = 0x111100AF;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2Model = 0x111100B0;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1Renderfx = 0x111100B1;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2Renderfx = 0x111100B2;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1RendererAdds = 0x111100B3;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2RendererAdds = 0x111100B4;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1RendererFiltered = 0x111100B5;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2RendererFiltered = 0x111100B6;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP1LastSkip = 0x111100B7;
+__declspec(dllexport) volatile unsigned int g_SPXBViewWeaponP2LastSkip = 0x111100B8;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitCameraMode = 0x111100A0;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP1TraceFrac1000 = 0x111100A1;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP1LocalX1000 = 0x111100A2;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP1LocalY1000 = 0x111100A3;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP1LocalZ1000 = 0x111100A4;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2LocalX1000 = 0x111100A5;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2LocalY1000 = 0x111100A6;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitP2LocalZ1000 = 0x111100A7;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitLocalDiffX1000 = 0x111100A8;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitLocalDiffY1000 = 0x111100A9;
+__declspec(dllexport) volatile unsigned int g_SPXBSplitLocalDiffZ1000 = 0x111100AA;
 __declspec(dllexport) volatile unsigned int g_SPXBFramebufferData = 0x11110031;
 __declspec(dllexport) volatile unsigned int g_SPXBFramebufferPitch = 0x11110032;
 __declspec(dllexport) volatile unsigned int g_SPXBFramebufferWidth = 0x11110033;
@@ -121,6 +200,16 @@ __declspec(dllexport) volatile unsigned int g_SPXBCinPhase = 0x11110031;
 __declspec(dllexport) volatile unsigned int g_SPXBCinHandle = 0x11110032;
 __declspec(dllexport) volatile unsigned int g_SPXBCinStatus = 0x11110033;
 __declspec(dllexport) volatile unsigned int g_SPXBCinLoopCount = 0x11110034;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapStatus = 0x11110035;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapHash = 0x11110036;
+__declspec(dllexport) volatile unsigned int g_SPXBDirectMapQueuedCount = 0x11110037;
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbeMagic = 0x53565052; /* 'SVPR' */
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbePhase = 0x11120001;
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbeSubphase = 0x11120002;
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbeA = 0x11120003;
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbeB = 0x11120004;
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbeC = 0x11120005;
+__declspec(dllexport) volatile unsigned int g_SPXBSVProbeD = 0x11120006;
 __declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[16] = {
     0x11110040, 0x11110041, 0x11110042, 0x11110043,
     0x11110044, 0x11110045, 0x11110046, 0x11110047,
@@ -212,6 +301,11 @@ static int xbl_IsHighFrequencyDrawNoise(const char *msg)
         strstr(msg, "RB_ForceOverlayD3D skipped") ||
         strstr(msg, "renderer pre-present capture requested") ||
         strstr(msg, "renderer screenshot retry blank") ||
+        strstr(msg, "STEFX_FRONTEND_2D_BACKEND") ||
+        strstr(msg, "STEFX_CG_UPDATESCREEN presenting EF loadscreen") ||
+        strstr(msg, "SPL: SP_DrawSPLoadScreen entry") ||
+        strstr(msg, "SPL: drawing EF LCARS load screen") ||
+        strstr(msg, "JA: RE_EndFrame: skipping dissolve for direct-map boot") ||
         strstr(msg, "FXLine::Draw") ||
         strstr(msg, "R_AddPolygonSurfaces") ||
         strstr(msg, "RB_SurfacePolychain") ||
@@ -234,12 +328,13 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_textureEvidenceBudget = 96;
     static int s_cgameBudget = 48;
     static int s_assetBudget = 48;
-    static int s_stefxClientThinkBudget = 24;
+    static int s_stefxClientThinkBudget = 96;
     static int s_stefxPmoveBudget = 12;
-    static int s_stefxTouchBudget = 12;
+    static int s_stefxTouchBudget = 64;
     static int s_stefxClipBudget = 8;
+    static int s_stefxTriggerBudget = 96;
     static int s_stefxCgBudget = 8;
-    static int s_stefxCgInitBudget = 32;
+    static int s_stefxCgInitBudget = 96;
     static int s_stefxModelBudget = 24;
     static int s_efModelBudget = 16;
     static int s_stefxGameFrameBudget = 24;
@@ -256,7 +351,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxRunFrameBudget = 24;
     static int s_stefxWalkBudget = 4;
     static int s_stefxAirBudget = 4;
-    static int s_stefxClientPmBudget = 24;
+    static int s_stefxClientPmBudget = 96;
     static int s_stefxUserMoveBudget = 16;
     static int s_stefxSmokeStageBudget = 20;
     static int s_stefxAudioRuntimeBudget = 160;
@@ -276,16 +371,16 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxProjectileProofBudget = 16;
     static int s_stefxSnapshotEventBudget = 32;
     static int s_stefxCaptureBudget = 64;
-    static int s_stefxShaderTraceBudget = 256;
-    static int s_stefxSurfaceTraceBudget = 256;
-    static int s_stefxSurfaceSubmitTraceBudget = 192;
+    static int s_stefxShaderTraceBudget = 0;
+    static int s_stefxSurfaceTraceBudget = 0;
+    static int s_stefxSurfaceSubmitTraceBudget = 0;
     static int s_stefxDrawStageTraceBudget = 96;
     static int s_stefxScriptPanelTraceBudget = 512;
     static int s_stefxInputTraceBudget = 256;
     static int s_stefxSplitTraceBudget = 256;
     static int s_stefxSkyTraceBudget = 96;
-    static int s_stefxNpcStateBudget = 128;
-    static int s_stefxActorTraceBudget = 192;
+    static int s_stefxNpcStateBudget = 8;
+    static int s_stefxActorTraceBudget = 8;
     static int s_stefxLodTraceBudget = 256;
     static int s_stefxThirdPersonTraceBudget = 160;
     static int s_stefxLipTraceBudget = 160;
@@ -510,6 +605,18 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ClipMoveToEntities", &s_stefxClipBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Trigger", &s_stefxTriggerBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_TRIGGER_LINK", &s_stefxTriggerBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_SetBrushModel", &s_stefxTriggerBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_AreaEntities", &s_stefxTriggerBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_LinkEntity bad sector", &s_stefxTriggerBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_LinkEntity bad absbox", &s_stefxTriggerBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_UserMove decoded", &s_stefxUserMoveBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ClientThink", &s_stefxUserMoveBudget);
@@ -535,6 +642,20 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF S_STARTLOCALSOUND bridge", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: cg_vmMain enter command=", &s_stefxCgBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: IT_LoadItemParms", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: ClearRegisteredItems", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FindItemForWeapon", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Navigator", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SpawnEntities", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: Spawn entity", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: G_CallSpawn", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF cgame R_RegisterModel", &s_stefxModelBudget);
     if (budgeted >= 0) return budgeted;
@@ -931,9 +1052,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
 static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
-    if (strstr(fmt, "STEFX_SHADER_") ||
-        strstr(fmt, "STEFX_SURFACE") ||
-        strstr(fmt, "STEFX_DRAW_STAGE") ||
+    if (strstr(fmt, "STEFX_DRAW_STAGE") ||
         strstr(fmt, "STEFX_SCRIPT_PANEL") ||
         strstr(fmt, "STEFX_MENU_INPUT") ||
         strstr(fmt, "STEFX_MENU_") ||
@@ -1232,6 +1351,85 @@ void XBLog_Init(void)
     g_SPXBRenderSplitEntity = 0;
     g_SPXBRenderSplitFinal = 0;
     g_SPXBRenderSplitFlush = 0;
+    g_SPXBSplitSlotActive = 0;
+    g_SPXBSplitSlot0DrawDelta = 0;
+    g_SPXBSplitSlot1DrawDelta = 0;
+    g_SPXBSplitSlot0WorldDelta = 0;
+    g_SPXBSplitSlot1WorldDelta = 0;
+    g_SPXBSplitSlot0Cluster = 0;
+    g_SPXBSplitSlot1Cluster = 0;
+    g_SPXBSplitSlot1WorldRetryDelta = 0;
+    g_SPXBSplitSlot1WorldFallback = 0;
+    g_SPXBSplitSlot0MarkedLeaves = 0;
+    g_SPXBSplitSlot1MarkedLeaves = 0;
+    g_SPXBSplitSlot0PvsRejected = 0;
+    g_SPXBSplitSlot1PvsRejected = 0;
+    g_SPXBSplitSlot0AreaRejected = 0;
+    g_SPXBSplitSlot1AreaRejected = 0;
+    g_SPXBSplitSlot0RootVis = 0;
+    g_SPXBSplitSlot1RootVis = 0;
+    g_SPXBSplitSlot0WorldAttempts = 0;
+    g_SPXBSplitSlot1WorldAttempts = 0;
+    g_SPXBSplitSlot0WorldCulled = 0;
+    g_SPXBSplitSlot1WorldCulled = 0;
+    g_SPXBSplitSlot0WorldAlready = 0;
+    g_SPXBSplitSlot1WorldAlready = 0;
+    g_SPXBSplitSlot0WorldAdded = 0;
+    g_SPXBSplitSlot1WorldAdded = 0;
+    g_SPXBSplitP2Ent = 0;
+    g_SPXBSplitP2TraceFrac1000 = 0;
+    g_SPXBSplitP2ViewX = 0;
+    g_SPXBSplitP2ViewY = 0;
+    g_SPXBSplitP2ViewZ = 0;
+    g_SPXBSplitP2PsX = 0;
+    g_SPXBSplitP2PsY = 0;
+    g_SPXBSplitP2PsZ = 0;
+    g_SPXBSplitP2CurX = 0;
+    g_SPXBSplitP2CurY = 0;
+    g_SPXBSplitP2CurZ = 0;
+    g_SPXBSplitP2AnglesPitch = 0;
+    g_SPXBSplitP2AnglesYaw = 0;
+    g_SPXBSplitP2RefdefValid = 0;
+    g_SPXBSplitP2SceneConsidered = 0;
+    g_SPXBSplitP2SceneAdded = 0;
+    g_SPXBSplitP2SceneSelfAdded = 0;
+    g_SPXBSplitP2ModelEnter = 0;
+    g_SPXBSplitP2ModelReturn = 0;
+    g_SPXBSplitP2ModelInfoValid = 0;
+    g_SPXBSplitP2ModelSubmitted = 0;
+    g_SPXBSplitP2ModelLegs = 0;
+    g_SPXBSplitP2ModelTorso = 0;
+    g_SPXBSplitP2ModelHead = 0;
+    g_SPXBSplitP2ModelRenderfx = 0;
+    g_SPXBSplitP2RendererRefs = 0;
+    g_SPXBSplitP2RendererLastModel = 0;
+    g_SPXBSplitP2RendererLastRenderfx = 0;
+    g_SPXBSplitP2RendererLastZ = 0;
+    g_SPXBViewWeaponP1Adds = 0;
+    g_SPXBViewWeaponP2Adds = 0;
+    g_SPXBViewWeaponP1Skips = 0;
+    g_SPXBViewWeaponP2Skips = 0;
+    g_SPXBViewWeaponP1Model = 0;
+    g_SPXBViewWeaponP2Model = 0;
+    g_SPXBViewWeaponP1Renderfx = 0;
+    g_SPXBViewWeaponP2Renderfx = 0;
+    g_SPXBViewWeaponP1RendererAdds = 0;
+    g_SPXBViewWeaponP2RendererAdds = 0;
+    g_SPXBViewWeaponP1RendererFiltered = 0;
+    g_SPXBViewWeaponP2RendererFiltered = 0;
+    g_SPXBViewWeaponP1LastSkip = 0;
+    g_SPXBViewWeaponP2LastSkip = 0;
+    g_SPXBSplitCameraMode = 0;
+    g_SPXBSplitP1TraceFrac1000 = 0;
+    g_SPXBSplitP1LocalX1000 = 0;
+    g_SPXBSplitP1LocalY1000 = 0;
+    g_SPXBSplitP1LocalZ1000 = 0;
+    g_SPXBSplitP2LocalX1000 = 0;
+    g_SPXBSplitP2LocalY1000 = 0;
+    g_SPXBSplitP2LocalZ1000 = 0;
+    g_SPXBSplitLocalDiffX1000 = 0;
+    g_SPXBSplitLocalDiffY1000 = 0;
+    g_SPXBSplitLocalDiffZ1000 = 0;
     g_SPXBFramebufferData = 0;
     g_SPXBFramebufferPitch = 0;
     g_SPXBFramebufferWidth = 0;
@@ -1242,6 +1440,16 @@ void XBLog_Init(void)
     g_SPXBCinHandle = 0;
     g_SPXBCinStatus = 0;
     g_SPXBCinLoopCount = 0;
+    g_SPXBDirectMapStatus = 0;
+    g_SPXBDirectMapHash = 0;
+    g_SPXBDirectMapQueuedCount = 0;
+    g_SPXBSVProbeMagic = 0x53565052; /* 'SVPR' */
+    g_SPXBSVProbePhase = 0;
+    g_SPXBSVProbeSubphase = 0;
+    g_SPXBSVProbeA = 0;
+    g_SPXBSVProbeB = 0;
+    g_SPXBSVProbeC = 0;
+    g_SPXBSVProbeD = 0;
     g_SPXBCinArgLast[0] = 0;
     for (i = 0; i < 16; ++i) {
         g_SPXBSurfaceTypeCounts[i] = 0;
@@ -1452,6 +1660,19 @@ void XBLog_Printf(const char *fmt, ...)
     va_end(args);
     buf[sizeof(buf) - 1] = '\0';
     XBLog_PrintFilteredRecords(buf);
+}
+
+void XBLog_WriteRingMarker(const char *msg)
+{
+    char buf[XBL_BUF_SIZE];
+    int len;
+    if (!msg) return;
+    _snprintf(buf, sizeof(buf) - 2, "%s", msg);
+    buf[sizeof(buf) - 2] = '\0';
+    len = (int)strlen(buf);
+    buf[len] = '\n';
+    buf[len + 1] = '\0';
+    xbl_MirrorWrite(buf, len + 1);
 }
 
 const char *XBLog_GetPath(void)

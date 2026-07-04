@@ -3905,7 +3905,33 @@ public:
 		if ( mask & GL_STENCIL_BUFFER_BIT )
 			clearMask |= D3DCLEAR_STENCIL;
 
-		m_pD3DDev->Clear(0, NULL, clearMask, m_glClearColor, 1.0f, 0 );
+		const D3DRECT *clearRects = NULL;
+		DWORD clearRectCount = 0;
+		if (m_glScissorTest &&
+			m_glScissorRect.x2 > m_glScissorRect.x1 &&
+			m_glScissorRect.y2 > m_glScissorRect.y1)
+		{
+			clearRects = &m_glScissorRect;
+			clearRectCount = 1;
+		}
+#ifdef _XBOX
+		{
+			static int s_xboxClearLogCount = 0;
+			if (s_xboxClearLogCount < 24)
+			{
+				XBLF("JA: fakegl Clear mask=0x%08lx rects=%lu scissor=%d rect=%ld,%ld,%ld,%ld",
+					(unsigned long)clearMask,
+					(unsigned long)clearRectCount,
+					m_glScissorTest ? 1 : 0,
+					m_glScissorRect.x1,
+					m_glScissorRect.y1,
+					m_glScissorRect.x2,
+					m_glScissorRect.y2);
+			}
+			++s_xboxClearLogCount;
+		}
+#endif
+		m_pD3DDev->Clear(clearRectCount, clearRects, clearMask, m_glClearColor, 1.0f, 0 );
 	}
 
 	void glClearColor (GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha)
@@ -5833,6 +5859,10 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 		const bool skipPresentForCxbx = cxbxPresentThrottle &&
 			s_xboxSwapLogCount >= 96;
 		static int s_cxbxPresentThrottleLogBudget = 16;
+		if (s_xboxSwapLogCount < 64)
+		{
+			UpdateFramebufferTelemetry(false);
+		}
 		if (screenshotRequestedNow)
 		{
 			XBLF("STEFX: renderer pre-present capture requested swap=%d screenshot=%d probe=%d",

@@ -26,6 +26,7 @@ void XBLog_Init(void);
 void XBLog_Shutdown(void);
 void XBLog_Print(const char *msg);
 void XBLog_Printf(const char *fmt, ...);
+void XBLog_WriteRingMarker(const char *msg);
 const char *XBLog_GetPath(void);
 
 /* Convenience macros — VC71 C89 mode doesn't support __VA_ARGS__,

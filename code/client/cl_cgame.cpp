@@ -2091,6 +2091,14 @@ void CL_FirstSnapshot( void ) {
 
 	cls.state = CA_ACTIVE;
 	XBLog_Write("JA: cls.state = CA_ACTIVE - GAME IS RUNNING");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( Sys_IsDirectMapBoot() && (cls.keyCatchers & KEYCATCH_UI) )
+	{
+		XBLF("STEFX: direct-map first snapshot clearing UI catcher=0x%x", (unsigned int)cls.keyCatchers);
+		UI_SetActiveMenu(NULL, NULL);
+		XBLF("STEFX: direct-map first snapshot UI cleared catcher=0x%x", (unsigned int)cls.keyCatchers);
+	}
+#endif
 
 	// set the timedelta so we are exactly on this first frame
 	cl.serverTimeDelta = cl.frame.serverTime - cls.realtime;

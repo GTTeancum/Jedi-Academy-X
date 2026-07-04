@@ -1184,7 +1184,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	static bool firstRun = true;
 	if(firstRun)
 	{
-		if (Sys_IsDirectMapBoot())
+		if (g_xboxDirectMapBootQueued)
 		{
 			XBLog_Write("JA: CL_Frame firstRun: direct-map boot already queued by main");
 			firstRun = false;
@@ -1195,7 +1195,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		startupMap[0] = '\0';
 		const char *startupMapPaths[] = {
 			"D:\\ef_sp_level.txt",
+			"d:\\ef_sp_level.txt",
 			"D:\\ja_sp_level.txt",
+			"d:\\ja_sp_level.txt",
 			NULL
 		};
 		int startupMapPathIndex;
@@ -1220,7 +1222,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 
 		const char *startupCommandPaths[] = {
 			"D:\\ef_sp_commands.txt",
+			"d:\\ef_sp_commands.txt",
 			"D:\\ja_sp_commands.txt",
+			"d:\\ja_sp_commands.txt",
 			NULL
 		};
 		int startupCommandPathIndex;
@@ -1247,6 +1251,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		{
 			XBLF("JA: CL_Frame firstRun: ja_sp_level.txt requested devmap %s before CL_StartHunkUsers", startupMap);
 			Cbuf_AddText(va("devmap %s\n", startupMap));
+			g_xboxDirectMapBootQueued = true;
 			firstRun = false;
 			return;
 		}
@@ -1334,7 +1339,16 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		// if disconnected, bring up the menu
 #ifdef _XBOX
 #if defined(STEFX_ELITE_FORCE_SP)
-		if (!CL_CheckPendingCinematic())
+		if (Sys_IsDirectMapBoot())
+		{
+			static qboolean s_loggedDirectMapFrontendSkip = qfalse;
+			if (!s_loggedDirectMapFrontendSkip)
+			{
+				s_loggedDirectMapFrontendSkip = qtrue;
+				XBLog_Write("STEFX: frontend activation skipped for direct-map boot");
+			}
+		}
+		else if (!CL_CheckPendingCinematic())
 		{
 			XBLF("STEFX: frontend activating EF main menu firstRun=%d quickStart=%d",
 				firstRun ? 1 : 0,
@@ -2378,10 +2392,15 @@ void CL_StartHunkUsers( void ) {
 		// load character sets
 //		cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/bigchars" );
 		cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("JA: CL_StartHunkUsers: charSetShader=%d, bypass RegisterShader white for XEMU", cls.charSetShader);
+		cls.whiteShader = 0;
+#else
 #ifdef _XBOX
 		XBLF("JA: CL_StartHunkUsers: charSetShader=%d, RegisterShader white...", cls.charSetShader);
 #endif
 		cls.whiteShader = re.RegisterShader( "white" );
+#endif
 #ifdef _XBOX
 		XBLF("JA: CL_StartHunkUsers: whiteShader=%d", cls.whiteShader);
 #endif

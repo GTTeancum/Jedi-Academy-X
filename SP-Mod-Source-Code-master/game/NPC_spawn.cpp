@@ -8,39 +8,31 @@
 
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComSpinCount;
+extern "C" volatile unsigned int g_SPXBComMsec;
+extern "C" volatile unsigned int g_SPXBComFrameTime;
+extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBSVProbePhase;
+extern "C" volatile unsigned int g_SPXBSVProbeSubphase;
+extern "C" volatile unsigned int g_SPXBSVProbeA;
+extern "C" volatile unsigned int g_SPXBSVProbeB;
+extern "C" volatile unsigned int g_SPXBSVProbeC;
+extern "C" volatile unsigned int g_SPXBSVProbeD;
+#define STEFX_NPC_TRACE_STAGE(subphase) \
+	do { g_SPXBPhaseLast = 0x4E504342; g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = 0x4E504342; g_SPXBSVProbeSubphase = (subphase); } while (0)
+#define STEFX_NPC_TRACE_DETAIL(a, b, c, d) \
+	do { g_SPXBComSpinCount = (a); g_SPXBComMsec = (b); g_SPXBComFrameTime = (c); g_SPXBComLastTime = (d); g_SPXBSVProbeA = (a); g_SPXBSVProbeB = (b); g_SPXBSVProbeC = (c); g_SPXBSVProbeD = (d); } while (0)
 static const char *STEFX_NPCSafeString(const char *s)
 {
 	return s ? s : "<null>";
 }
 static void STEFX_LogNPCState(const char *phase, gentity_t *ent)
 {
-	if (!ent)
-	{
-		XBLF("STEFX_NPC_STATE %s ent=<null>", phase ? phase : "<null>");
-		return;
-	}
-
-	XBLF("STEFX_NPC_STATE %s ent=%d ptr=%08x class='%s' npcType='%s' targetname='%s' inuse=%d linked=%d sv=0x%x eType=%d eFlags=0x%x client=%08x npc=%08x health=%d contents=0x%x weapon=%d origin=(%g,%g,%g) current=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
-		phase ? phase : "<null>",
-		ent->s.number,
-		(unsigned int)ent,
-		STEFX_NPCSafeString(ent->classname),
-		STEFX_NPCSafeString(ent->NPC_type),
-		STEFX_NPCSafeString(ent->targetname),
-		ent->inuse,
-		ent->linked,
-		ent->svFlags,
-		ent->s.eType,
-		ent->s.eFlags,
-		(unsigned int)ent->client,
-		(unsigned int)ent->NPC,
-		ent->health,
-		ent->contents,
-		ent->client ? ent->client->ps.weapon : -1,
-		ent->s.origin[0], ent->s.origin[1], ent->s.origin[2],
-		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
-		ent->mins[0], ent->mins[1], ent->mins[2],
-		ent->maxs[0], ent->maxs[1], ent->maxs[2]);
+	(void)phase;
+	(void)ent;
+	(void)0;
 }
 #endif
 
@@ -494,15 +486,7 @@ void NPC_SetFX_SpawnStates( gentity_t *ent )
 void NPC_Begin (gentity_t *ent)
 {
 	#ifdef _XBOX
-	XBLF("STEFX: NPC_Begin enter ent=%d ptr=%08x class=%s client=%08x npc=%08x spawnflags=0x%x wait=%d health=%d",
-		(ent ? ent->s.number : -1),
-		(unsigned int)ent,
-		(ent ? STEFX_NPCSafeString(ent->classname) : "<null>"),
-		(ent ? (unsigned int)ent->client : 0),
-		(ent ? (unsigned int)ent->NPC : 0),
-		(ent ? ent->spawnflags : 0),
-		(ent ? ent->wait : 0),
-		(ent ? ent->health : 0));
+	XBLog_Write("STEFX: NPC_Begin enter");
 #endif
 vec3_t	spawn_origin, spawn_angles;
 	gclient_t	*client;
@@ -673,28 +657,35 @@ vec3_t	spawn_origin, spawn_angles;
 	
 #ifdef _XBOX
 	XBLF("STEFX: NPC_Begin ent=%d before ClientThink", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(10);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	ClientThink(ent->s.number, &ucmd);
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d after ClientThink", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(11);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 
 	//ICARUS include
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d before ICARUS_InitEnt", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(12);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	ICARUS_InitEnt( ent );
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d after ICARUS_InitEnt", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(13);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 
 //==NPC initialization
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d before SetNPCGlobals", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(14);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	SetNPCGlobals( ent );
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d after SetNPCGlobals npcinfo=%08x", ent->s.number, (unsigned int)NPCInfo);
+	STEFX_NPC_TRACE_STAGE(15);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	memset( &ucmd, 0, sizeof( ucmd ) );
 
@@ -703,11 +694,13 @@ vec3_t	spawn_origin, spawn_angles;
 	NPCInfo->shotTime = 0;
 	NPC_ClearGoal();
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d before NPC_ChangeWeapon weapon=%d", ent->s.number, ent->client->ps.weapon);
+	STEFX_NPC_TRACE_STAGE(16);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	NPC_ChangeWeapon( ent->client->ps.weapon );
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d after NPC_ChangeWeapon", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(17);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 
 //==Final NPC initialization
@@ -725,11 +718,13 @@ vec3_t	spawn_origin, spawn_angles;
 	if ( ent->behaviorSet[BSET_SPAWN] )
 	{
 #ifdef _XBOX
-		XBLF("STEFX: NPC_Begin ent=%d before spawn behavior", ent->s.number);
+		STEFX_NPC_TRACE_STAGE(18);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 		G_ActivateBehavior( ent, BSET_SPAWN );
 #ifdef _XBOX
-		XBLF("STEFX: NPC_Begin ent=%d after spawn behavior", ent->s.number);
+		STEFX_NPC_TRACE_STAGE(19);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	}
 
@@ -739,31 +734,37 @@ vec3_t	spawn_origin, spawn_angles;
 	ent->nextthink = level.time + FRAMETIME + Q_irand(0, 100);
 
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d before NPC_SetMiscDefaultData", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(20);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	NPC_SetMiscDefaultData( ent );
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d after NPC_SetMiscDefaultData", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(21);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 
 	if ( !(ent->spawnflags & SFB_STARTINSOLID) )
 	{//Not okay to start in solid
 #ifdef _XBOX
-		XBLF("STEFX: NPC_Begin ent=%d before G_CheckInSolid", ent->s.number);
+		STEFX_NPC_TRACE_STAGE(22);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 		G_CheckInSolid( ent, qtrue );
 #ifdef _XBOX
-		XBLF("STEFX: NPC_Begin ent=%d after G_CheckInSolid", ent->s.number);
+		STEFX_NPC_TRACE_STAGE(23);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 #endif
 	}
 	VectorClear( ent->NPC->lastClearOrigin );
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d before final linkentity", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(24);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 	STEFX_LogNPCState("begin-before-final-link", ent);
 #endif
 	gi.linkentity( ent );
 #ifdef _XBOX
-	XBLF("STEFX: NPC_Begin ent=%d complete", ent->s.number);
+	STEFX_NPC_TRACE_STAGE(25);
+	STEFX_NPC_TRACE_DETAIL((unsigned int)ent->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)ent->client->ps.weapon);
 	STEFX_LogNPCState("begin-complete", ent);
 #endif
 }

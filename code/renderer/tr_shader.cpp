@@ -211,14 +211,25 @@ static	texModInfo_t	texMods[MAX_SHADER_STAGES][TR_MAX_TEXMODS];
 static qboolean R_XboxTraceShaderName( const char *name )
 {
 	return ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ||
+		!Q_stricmp( name, "gfx/2d/charsgrid_med" ) ||
+		!Q_stricmp( name, "gfx/2d/charsgrid_med.tga" ) ||
+		!Q_stricmp( name, "gfx/2d/chars_medium" ) ||
+		!Q_stricmp( name, "gfx/2d/chars_medium.tga" ) ||
+		!Q_stricmp( name, "gfx/2d/chars_tiny" ) ||
+		!Q_stricmp( name, "gfx/2d/chars_tiny.tga" ) ||
+		!Q_stricmp( name, "gfx/2d/chars_big" ) ||
+		!Q_stricmp( name, "gfx/2d/chars_big.tga" ) ||
 		strstr( name, "gfx/mp/f_icon" ) ||
 		!Q_stricmp( name, "textures/borg/borgsky" ) ||
-		!Q_stricmp( name, "textures/borg/xpanelb" ) ||
 		!Q_stricmp( name, "textures/common/70yearjourney" ) ||
 		!Q_stricmp( name, "textures/common/enemyspace" ) ||
 		!Q_stricmp( name, "textures/common/sevenspace" ) ||
 		!Q_stricmp( name, "textures/common/tuvokhazard" ) ) );
 }
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static unsigned int s_xboxShaderFindProgress;
+#endif
 
 static qboolean R_XboxTraceCurrentShader( void )
 {
@@ -3652,6 +3663,12 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	}
 
 	COM_StripExtension( name, strippedName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	++s_xboxShaderFindProgress;
+	if ( ( s_xboxShaderFindProgress & 0x7f ) == 0 ) {
+		XBLF("STEFX: shader progress count=%u name='%s'", s_xboxShaderFindProgress, strippedName);
+	}
+#endif
 
 	// use (fullbright) vertex lighting if the bsp file doesn't have
 	// lightmaps
@@ -3725,7 +3742,7 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	// if not defined in the in-memory shader descriptions,
 	// look for a single TGA, BMP, or PCX
 	//
-	if ( !Q_stricmp( strippedName, "*white" ) ) {
+	if ( !Q_stricmp( strippedName, "*white" ) || !Q_stricmp( strippedName, "white" ) ) {
 		image = tr.whiteImage;
 #ifdef _XBOX
 		if ( probeShader ) {

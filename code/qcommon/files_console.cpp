@@ -41,12 +41,53 @@ static qboolean STEFX_ShouldTraceAssetOpen(const char *filename)
 	return filename &&
 		(strstr(filename, ".mdr") || strstr(filename, ".md3") ||
 		 strstr(filename, ".skin") || strstr(filename, "animation.cfg") ||
+		 strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items") ||
+		 strstr(filename, "ext_data/NPCs") || strstr(filename, "ext_data\\NPCs") ||
+		 strstr(filename, "ext_data/addon") || strstr(filename, "ext_data\\addon") ||
+		 strstr(filename, "maps/") || strstr(filename, "maps\\") ||
+		 strstr(filename, "gfx/2d/chars") || strstr(filename, "gfx\\2d\\chars") ||
 		 strstr(filename, "real_scripts/") || strstr(filename, "real_scripts\\"));
+}
+
+static qboolean STEFX_IsPlayerAnimationCfg(const char *filename)
+{
+	return filename &&
+		(strstr(filename, "animation.cfg") &&
+		 (strstr(filename, "models/players/") || strstr(filename, "models\\players\\")));
+}
+
+static qboolean STEFX_IsCriticalWholeFileRead(const char *filename)
+{
+	const char *ext;
+
+	if (!filename)
+	{
+		return qfalse;
+	}
+
+	ext = strrchr(filename, '.');
+	return !Q_stricmp(filename, "default.cfg") ||
+		(ext && !Q_stricmp(ext, ".dat") &&
+		 (strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items"))) ||
+		(ext && !Q_stricmp(ext, ".cfg") &&
+		 (strstr(filename, "ext_data/NPCs") || strstr(filename, "ext_data\\NPCs"))) ||
+		(ext && !Q_stricmp(ext, ".npc") &&
+		 (strstr(filename, "ext_data/") || strstr(filename, "ext_data\\"))) ||
+		(ext && !Q_stricmp(ext, ".nav") &&
+		 (strstr(filename, "maps/") || strstr(filename, "maps\\"))) ||
+		(ext && !Q_stricmp(ext, ".sqd") &&
+		 (strstr(filename, "maps/") || strstr(filename, "maps\\"))) ||
+		strstr(filename, "gfx/2d/chars") || strstr(filename, "gfx\\2d\\chars");
 }
 
 static qboolean STEFX_ShouldTryStdioWholeFileRead(const char *filename)
 {
 	const char *ext = filename ? strrchr(filename, '.') : NULL;
+
+	if (STEFX_IsCriticalWholeFileRead(filename))
+	{
+		return qtrue;
+	}
 
 	return ext &&
 		(!Q_stricmp(ext, ".mdr") ||
@@ -703,8 +744,16 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 				}
 				if (STEFX_ShouldTraceAssetOpen(filename))
 				{
-					XBLog_Write(va("STEFX: FS loose asset open file='%s' open='%s' os='%s' len=%d caseRetry=%d",
-						filename, caseOpenName, osname, len, casePass));
+					if (STEFX_IsPlayerAnimationCfg(filename))
+					{
+						XBLog_Write(va("STEFX: FS player animation open file='%s' len=%d caseRetry=%d",
+							filename, len, casePass));
+					}
+					else
+					{
+						XBLog_Write(va("STEFX: FS loose asset open file='%s' open='%s' os='%s' len=%d caseRetry=%d",
+							filename, caseOpenName, osname, len, casePass));
+					}
 				}
 				return len;
 			}
@@ -790,7 +839,14 @@ static int FS_FOpenFileReadGOB( const char *filename, fileHandle_t f )
 		if (strstr(filename, ".mdr") || strstr(filename, ".md3") ||
 			strstr(filename, ".skin") || strstr(filename, "animation.cfg"))
 		{
-			XBLog_Write(va("STEFX: FS GOB model open file='%s' gob='%s' len=%d", filename, gobname, len));
+			if (STEFX_IsPlayerAnimationCfg(filename))
+			{
+				XBLog_Write(va("STEFX: FS player animation GOB file='%s' len=%d", filename, len));
+			}
+			else
+			{
+				XBLog_Write(va("STEFX: FS GOB model open file='%s' gob='%s' len=%d", filename, gobname, len));
+			}
 		}
 #endif
 		return len;
@@ -1191,7 +1247,14 @@ static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 #endif
 				if (STEFX_ShouldTraceAssetOpen(filename))
 				{
-					XBLog_Write(va("STEFX: FS PK3 asset open file='%s' pk3='%s' len=%d", filename, pak->pakFilename, len));
+					if (STEFX_IsPlayerAnimationCfg(filename))
+					{
+						XBLog_Write(va("STEFX: FS player animation PK3 file='%s' len=%d", filename, len));
+					}
+					else
+					{
+						XBLog_Write(va("STEFX: FS PK3 asset open file='%s' pk3='%s' len=%d", filename, pak->pakFilename, len));
+					}
 				}
 				return len;
 			}

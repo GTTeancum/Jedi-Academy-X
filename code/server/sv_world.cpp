@@ -39,13 +39,45 @@ static const float superSizedAdd=64.0f;
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComSpinCount;
+extern "C" volatile unsigned int g_SPXBComMsec;
+extern "C" volatile unsigned int g_SPXBComFrameTime;
+extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBSVProbePhase;
+extern "C" volatile unsigned int g_SPXBSVProbeSubphase;
+extern "C" volatile unsigned int g_SPXBSVProbeA;
+extern "C" volatile unsigned int g_SPXBSVProbeB;
+extern "C" volatile unsigned int g_SPXBSVProbeC;
+extern "C" volatile unsigned int g_SPXBSVProbeD;
+#define STEFX_SV_TRACE_STAGE(phase, subphase) \
+	do { g_SPXBPhaseLast = (phase); g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = (phase); g_SPXBSVProbeSubphase = (subphase); } while (0)
+#define STEFX_SV_TRACE_DETAIL(a, b, c, d) \
+	do { g_SPXBComSpinCount = (a); g_SPXBComMsec = (b); g_SPXBComFrameTime = (c); g_SPXBComLastTime = (d); g_SPXBSVProbeA = (a); g_SPXBSVProbeB = (b); g_SPXBSVProbeC = (c); g_SPXBSVProbeD = (d); } while (0)
+
+static qboolean STEFX_SVFloatBitsBad(const float *v)
+{
+	const unsigned int bits = *(const unsigned int *)v;
+	const unsigned int absBits = bits & 0x7fffffff;
+	const unsigned int expBits = bits & 0x7f800000;
+
+	if (expBits == 0x7f800000)
+	{
+		return qtrue;
+	}
+	if (absBits > 0x49800000)
+	{
+		return qtrue;
+	}
+	return qfalse;
+}
+
 static qboolean STEFX_SVVec3Bad(const vec3_t v)
 {
-	const float limit = 1048576.0f;
-	return (qboolean)(IS_NAN(v[0]) || IS_NAN(v[1]) || IS_NAN(v[2]) ||
-		v[0] < -limit || v[0] > limit ||
-		v[1] < -limit || v[1] > limit ||
-		v[2] < -limit || v[2] > limit);
+	return (qboolean)(STEFX_SVFloatBitsBad(&v[0]) ||
+		STEFX_SVFloatBitsBad(&v[1]) ||
+		STEFX_SVFloatBitsBad(&v[2]));
 }
 
 static qboolean STEFX_SVBoundsBad(const vec3_t mins, const vec3_t maxs)
@@ -65,6 +97,38 @@ static qboolean STEFX_SVBoundsBad(const vec3_t mins, const vec3_t maxs)
 		return qtrue;
 	}
 	return qfalse;
+}
+
+static qboolean STEFX_IsValidSvEntityPtr(const svEntity_t *ent)
+{
+	const unsigned int base = (unsigned int)&sv.svEntities[0];
+	const unsigned int end = base + sizeof(sv.svEntities);
+	const unsigned int ptr = (unsigned int)ent;
+	const unsigned int stride = sizeof(svEntity_t);
+
+	if (!ent || ptr < base || ptr >= end)
+	{
+		return qfalse;
+	}
+
+	return (qboolean)(((ptr - base) % stride) == 0);
+}
+
+static qboolean STEFX_IsValidGEntityPtr(const gentity_t *ent)
+{
+	const unsigned int base = ge && ge->gentities ? (unsigned int)ge->gentities : 0;
+	const unsigned int stride = ge ? (unsigned int)ge->gentitySize : 0;
+	const unsigned int ptr = (unsigned int)ent;
+
+	if (!base || !stride || !ent || ptr < base)
+	{
+		return qfalse;
+	}
+	if (ptr >= base + stride * MAX_GENTITIES)
+	{
+		return qfalse;
+	}
+	return (qboolean)(((ptr - base) % stride) == 0);
 }
 #endif
 
@@ -302,9 +366,12 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 #ifdef _XBOX
 	static int	s_xboxLinkLogCount = 0;
 	static int	s_stefxActorLinkBudget = 384;
+	static int	s_stefxTriggerLinkBudget = 96;
 	qboolean	xboxLogThisLink = (s_xboxLinkLogCount < 24);
 	qboolean	stefxActorLink = (s_stefxActorLinkBudget > 0 && gEnt &&
 		( gEnt->client || ( gEnt->svFlags & SVF_NPC ) || gEnt->s.eType == ET_PLAYER ));
+	qboolean	stefxTriggerLink = (s_stefxTriggerLinkBudget > 0 && gEnt &&
+		(gEnt->contents & CONTENTS_TRIGGER));
 
 	if (xboxLogThisLink)
 	{
@@ -320,20 +387,20 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	}
 	if (stefxActorLink)
 	{
-		XBLF("STEFX: SV_ACTOR_LINK enter ent=%d ptr=%p inuse=%d linked=%d sv=0x%x eType=%d eFlags=0x%x client=%p contents=0x%x origin=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
-			gEnt ? gEnt->s.number : -1,
-			gEnt,
-			gEnt ? gEnt->inuse : 0,
-			gEnt ? gEnt->linked : 0,
-			gEnt ? gEnt->svFlags : 0,
-			gEnt ? gEnt->s.eType : -1,
-			gEnt ? gEnt->s.eFlags : 0,
-			gEnt ? gEnt->client : NULL,
-			gEnt ? gEnt->contents : 0,
-			gEnt ? gEnt->currentOrigin[0] : 0, gEnt ? gEnt->currentOrigin[1] : 0, gEnt ? gEnt->currentOrigin[2] : 0,
-			gEnt ? gEnt->mins[0] : 0, gEnt ? gEnt->mins[1] : 0, gEnt ? gEnt->mins[2] : 0,
-			gEnt ? gEnt->maxs[0] : 0, gEnt ? gEnt->maxs[1] : 0, gEnt ? gEnt->maxs[2] : 0);
+		XBLog_Write("STEFX: SV_ACTOR_LINK enter");
 		--s_stefxActorLinkBudget;
+	}
+	if (stefxTriggerLink)
+	{
+		XBLF("STEFX: SV_TRIGGER_LINK enter ent=%d contents=0x%x bmodel=%d modelindex=%d origin=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+			gEnt->s.number,
+			gEnt->contents,
+			gEnt->bmodel,
+			gEnt->s.modelindex,
+			gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
+			gEnt->mins[0], gEnt->mins[1], gEnt->mins[2],
+			gEnt->maxs[0], gEnt->maxs[1], gEnt->maxs[2]);
+		--s_stefxTriggerLinkBudget;
 	}
 #endif
 
@@ -349,6 +416,11 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 			XBLF("STEFX: SV_ACTOR_LINK reject-not-inuse ent=%d", gEnt ? gEnt->s.number : -1);
 			--s_stefxActorLinkBudget;
 		}
+		if (stefxTriggerLink)
+		{
+			XBLF("STEFX: SV_TRIGGER_LINK reject-not-inuse ent=%d", gEnt ? gEnt->s.number : -1);
+			--s_stefxTriggerLinkBudget;
+		}
 #endif
 		return;
 	}
@@ -359,6 +431,11 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	{
 		XBLF("STEFX: SV_LinkEntity svEntity=%p worldSector=%p", ent, ent ? ent->worldSector : NULL);
 	}
+	if (stefxTriggerLink)
+	{
+		XBLF("STEFX: SV_TRIGGER_LINK svEntity=%p worldSector=%p", ent, ent ? ent->worldSector : NULL);
+		--s_stefxTriggerLinkBudget;
+	}
 #endif
 
 	if ( ent->worldSector ) {
@@ -367,12 +444,22 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 		{
 			XBLog_Write("STEFX: SV_LinkEntity before unlink old worldSector");
 		}
+		if (stefxTriggerLink)
+		{
+			XBLog_Write("STEFX: SV_TRIGGER_LINK before unlink old worldSector");
+			--s_stefxTriggerLinkBudget;
+		}
 #endif
 		SV_UnlinkEntity( gEnt );	// unlink from old position
 #ifdef _XBOX
 		if (xboxLogThisLink)
 		{
 			XBLog_Write("STEFX: SV_LinkEntity after unlink old worldSector");
+		}
+		if (stefxTriggerLink)
+		{
+			XBLog_Write("STEFX: SV_TRIGGER_LINK after unlink old worldSector");
+			--s_stefxTriggerLinkBudget;
 		}
 #endif
 	}
@@ -382,6 +469,11 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	if (xboxLogThisLink)
 	{
 		XBLF("STEFX: SV_LinkEntity before solid encode bmodel=%d contents=0x%x", gEnt->bmodel, gEnt->contents);
+	}
+	if (stefxTriggerLink)
+	{
+		XBLF("STEFX: SV_TRIGGER_LINK before solid encode bmodel=%d contents=0x%x", gEnt->bmodel, gEnt->contents);
+		--s_stefxTriggerLinkBudget;
 	}
 #endif
 	if ( gEnt->bmodel ) {
@@ -551,6 +643,19 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
 			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
 	}
+	if (stefxTriggerLink)
+	{
+		XBLF("STEFX: SV_TRIGGER_LINK after absbox expanded absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
+			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
+			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+		--s_stefxTriggerLinkBudget;
+	}
+	if (STEFX_SVBoundsBad(gEnt->absmin, gEnt->absmax))
+	{
+		XBLF("STEFX: SV_LinkEntity bad absbox ent=%d bmodel=%d contents=0x%x; leaving unlinked",
+			gEnt ? gEnt->s.number : -1, gEnt ? gEnt->bmodel : 0, gEnt ? gEnt->contents : 0);
+		return;
+	}
 #endif
 
 	// link to PVS leafs
@@ -565,6 +670,11 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	{
 		XBLog_Write("STEFX: SV_LinkEntity before CM_BoxLeafnums");
 	}
+	if (stefxTriggerLink)
+	{
+		XBLog_Write("STEFX: SV_TRIGGER_LINK before CM_BoxLeafnums");
+		--s_stefxTriggerLinkBudget;
+	}
 #endif
 	num_leafs = CM_BoxLeafnums( gEnt->absmin, gEnt->absmax,
 		leafs, MAX_TOTAL_ENT_LEAFS, &lastLeaf );
@@ -575,6 +685,11 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 			num_leafs, lastLeaf,
 			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
 			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+	}
+	if (stefxTriggerLink)
+	{
+		XBLF("STEFX: SV_TRIGGER_LINK leafs=%d lastLeaf=%d", num_leafs, lastLeaf);
+		--s_stefxTriggerLinkBudget;
 	}
 #endif
 
@@ -588,16 +703,13 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 		}
 		if (stefxActorLink)
 		{
-			XBLF("STEFX: SV_ACTOR_LINK no-leafs ent=%d linked=%d sv=0x%x eType=%d eFlags=0x%x origin=(%g,%g,%g) absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
-				gEnt->s.number,
-				gEnt->linked,
-				gEnt->svFlags,
-				gEnt->s.eType,
-				gEnt->s.eFlags,
-				gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
-				gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
-				gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+			XBLog_Write("STEFX: SV_ACTOR_LINK no-leafs");
 			--s_stefxActorLinkBudget;
+		}
+		if (stefxTriggerLink)
+		{
+			XBLog_Write("STEFX: SV_TRIGGER_LINK no-leafs");
+			--s_stefxTriggerLinkBudget;
 		}
 #endif
 		return;
@@ -654,6 +766,14 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	}
 	
 	// link it in
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (node->entities && !STEFX_IsValidSvEntityPtr(node->entities))
+	{
+		XBLF("STEFX: SV_LinkEntity bad sector head node=%p ent=%d head=%p; clearing head",
+			node, gEnt ? gEnt->s.number : -1, node->entities);
+		node->entities = NULL;
+	}
+#endif
 	ent->worldSector = node;
 	ent->nextEntityInWorldSector = node->entities;
 	node->entities = ent;
@@ -667,22 +787,14 @@ void SV_LinkEntity( gentity_t *gEnt ) {
 	}
 	if (stefxActorLink)
 	{
-		XBLF("STEFX: SV_ACTOR_LINK done ent=%d linked=%d sv=0x%x eType=%d eFlags=0x%x solid=0x%x clusters=%d firstCluster=%d last=%d area=%d/%d origin=(%g,%g,%g) absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
-			gEnt->s.number,
-			gEnt->linked,
-			gEnt->svFlags,
-			gEnt->s.eType,
-			gEnt->s.eFlags,
-			gEnt->s.solid,
-			ent->numClusters,
-			ent->numClusters > 0 ? ent->clusternums[0] : -1,
-			ent->lastCluster,
-			ent->areanum,
-			ent->areanum2,
-			gEnt->currentOrigin[0], gEnt->currentOrigin[1], gEnt->currentOrigin[2],
-			gEnt->absmin[0], gEnt->absmin[1], gEnt->absmin[2],
-			gEnt->absmax[0], gEnt->absmax[1], gEnt->absmax[2]);
+		XBLog_Write("STEFX: SV_ACTOR_LINK done");
 		--s_stefxActorLinkBudget;
+	}
+	if (stefxTriggerLink)
+	{
+		XBLF("STEFX: SV_TRIGGER_LINK done ent=%d linked=%d clusters=%d area=%d area2=%d",
+			gEnt->s.number, gEnt->linked, ent->numClusters, ent->areanum, ent->areanum2);
+		--s_stefxTriggerLinkBudget;
 	}
 #endif
 }
@@ -715,13 +827,76 @@ void SV_AreaEntities_r( worldSector_t *node, areaParms_t *ap ) {
 	svEntity_t	*check, *next;
 	gentity_t	*gcheck;
 	int			count;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_areaLogBudget = 64;
+	qboolean logThisArea = (s_areaLogBudget > 0);
+
+	if (logThisArea)
+	{
+		STEFX_SV_TRACE_STAGE(0x41524541, 1); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)node, node ? (unsigned int)node->axis : 0xffffffff, ap ? (unsigned int)ap->count : 0, ap ? (unsigned int)ap->maxcount : 0);
+		XBLF("STEFX: SV_AreaEntities_r enter node=%p axis=%d count=%d max=%d", node, node ? node->axis : -99, ap ? ap->count : -1, ap ? ap->maxcount : -1);
+		--s_areaLogBudget;
+	}
+#endif
 
 	count = 0;
 
 	for ( check = node->entities  ; check ; check = next ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 20); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, (unsigned int)check, 0, 0);
+		if (!STEFX_IsValidSvEntityPtr(check))
+		{
+			XBLF("STEFX: SV_AreaEntities_r invalid check node=%p sv=%p count=%d", node, check, count);
+			break;
+		}
+#endif
 		next = check->nextEntityInWorldSector;
+		count++;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 21); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, (unsigned int)check, (unsigned int)next, 0);
+		if (next && !STEFX_IsValidSvEntityPtr(next))
+		{
+			XBLF("STEFX: SV_AreaEntities_r invalid next node=%p sv=%p next=%p count=%d", node, check, next, count);
+			next = NULL;
+		}
+		if (next == check)
+		{
+			XBLF("STEFX: SV_AreaEntities_r self-cycle guard node=%p sv=%p count=%d", node, check, count);
+			next = NULL;
+		}
+		else if (count > MAX_GENTITIES)
+		{
+			XBLF("STEFX: SV_AreaEntities_r overflow guard node=%p sv=%p next=%p count=%d", node, check, next, count);
+			next = NULL;
+		}
+#endif
 
 		gcheck = SV_GEntityForSvEntity( check );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 22); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, (unsigned int)gcheck, 0, 0);
+		if (!STEFX_IsValidGEntityPtr(gcheck))
+		{
+			XBLF("STEFX: SV_AreaEntities_r invalid gentity node=%p sv=%p g=%p count=%d", node, check, gcheck, count);
+			continue;
+		}
+		STEFX_SV_TRACE_STAGE(0x41524541, 27); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, (unsigned int)gcheck->s.number, (unsigned int)gcheck->linked, (unsigned int)gcheck->contents);
+		if (STEFX_SVBoundsBad(gcheck->absmin, gcheck->absmax))
+		{
+			XBLF("STEFX: SV_AreaEntities_r bad bounds ent=%d linked=%d contents=0x%x count=%d",
+				gcheck ? gcheck->s.number : -1, gcheck ? gcheck->linked : 0, gcheck ? gcheck->contents : 0, count);
+			STEFX_SV_TRACE_STAGE(0x41524541, 28); /* AREA */
+			STEFX_SV_TRACE_DETAIL((unsigned int)count, gcheck ? (unsigned int)gcheck->s.number : 0xffffffff, (unsigned int)next, (unsigned int)ap->count);
+			continue;
+		}
+		STEFX_SV_TRACE_STAGE(0x41524541, 26); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, gcheck ? (unsigned int)gcheck->s.number : 0xffffffff, (unsigned int)ap->count, 0);
+#endif
 
 		if ( gcheck->absmin[0] > ap->maxs[0]
 		|| gcheck->absmin[1] > ap->maxs[1]
@@ -729,6 +904,12 @@ void SV_AreaEntities_r( worldSector_t *node, areaParms_t *ap ) {
 		|| gcheck->absmax[0] < ap->mins[0]
 		|| gcheck->absmax[1] < ap->mins[1]
 		|| gcheck->absmax[2] < ap->mins[2]) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_SV_TRACE_STAGE(0x41524541, 23); /* AREA */
+			STEFX_SV_TRACE_DETAIL((unsigned int)count, gcheck ? (unsigned int)gcheck->s.number : 0xffffffff, (unsigned int)next, (unsigned int)ap->count);
+			STEFX_SV_TRACE_STAGE(0x41524541, 29); /* AREA */
+			STEFX_SV_TRACE_DETAIL((unsigned int)count, gcheck ? (unsigned int)gcheck->s.number : 0xffffffff, (unsigned int)next, (unsigned int)ap->count);
+#endif
 			continue;
 		}
 
@@ -737,21 +918,72 @@ void SV_AreaEntities_r( worldSector_t *node, areaParms_t *ap ) {
 			return;
 		}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 24); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, gcheck ? (unsigned int)gcheck->s.number : 0xffffffff, (unsigned int)ap->count, (unsigned int)ap->maxcount);
+#endif
 		ap->list[ap->count] = gcheck;
 		ap->count++;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 25); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)count, gcheck ? (unsigned int)gcheck->s.number : 0xffffffff, (unsigned int)ap->count, 0);
+#endif
 	}
 	
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SV_TRACE_STAGE(0x41524541, 30); /* AREA */
+	STEFX_SV_TRACE_DETAIL((unsigned int)node, node ? (unsigned int)node->axis : 0xffffffff, (unsigned int)count, ap ? (unsigned int)ap->count : 0);
+#endif
 	if (node->axis == -1) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 31); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)count, (unsigned int)ap->count, 0);
+		if (logThisArea)
+		{
+			STEFX_SV_TRACE_STAGE(0x41524541, 3); /* AREA */
+			STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)count, (unsigned int)ap->count, 0);
+		}
+#endif
 		return;		// terminal node
 	}
 
 	// recurse down both sides
 	if ( ap->maxs[node->axis] > node->dist ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 32); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)node->axis, (unsigned int)ap->count, (unsigned int)node->children[0]);
+		if (logThisArea)
+		{
+			STEFX_SV_TRACE_STAGE(0x41524541, 4); /* AREA */
+			STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)node->axis, (unsigned int)ap->count, 0);
+		}
+#endif
 		SV_AreaEntities_r ( node->children[0], ap );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 34); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)node->axis, (unsigned int)ap->count, (unsigned int)node->children[0]);
+#endif
 	}
 	if ( ap->mins[node->axis] < node->dist ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 33); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)node->axis, (unsigned int)ap->count, (unsigned int)node->children[1]);
+		if (logThisArea)
+		{
+			STEFX_SV_TRACE_STAGE(0x41524541, 5); /* AREA */
+			STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)node->axis, (unsigned int)ap->count, 0);
+		}
+#endif
 		SV_AreaEntities_r ( node->children[1], ap );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_SV_TRACE_STAGE(0x41524541, 35); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)node, (unsigned int)node->axis, (unsigned int)ap->count, (unsigned int)node->children[1]);
+#endif
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_SV_TRACE_STAGE(0x41524541, 36); /* AREA */
+	STEFX_SV_TRACE_DETAIL((unsigned int)node, node ? (unsigned int)node->axis : 0xffffffff, (unsigned int)ap->count, 0);
+#endif
 }
 
 /*
@@ -761,6 +993,19 @@ SV_AreaEntities
 */
 int SV_AreaEntities( const vec3_t mins, const vec3_t maxs, gentity_t **elist, int maxcount ) {
 	areaParms_t		ap;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_areaCallLogBudget = 32;
+	qboolean logThisAreaCall = (s_areaCallLogBudget > 0);
+
+	if (logThisAreaCall)
+	{
+		STEFX_SV_TRACE_STAGE(0x41524541, 0); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)maxcount, 0, 0, 0);
+		XBLF("STEFX: SV_AreaEntities enter max=%d mins=(%g,%g,%g) maxs=(%g,%g,%g)",
+			maxcount, mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2]);
+		--s_areaCallLogBudget;
+	}
+#endif
 
 	ap.mins = mins;
 	ap.maxs = maxs;
@@ -779,6 +1024,14 @@ int SV_AreaEntities( const vec3_t mins, const vec3_t maxs, gentity_t **elist, in
 #endif
 	SV_AreaEntities_r( sv_worldSectors, &ap );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisAreaCall)
+	{
+		STEFX_SV_TRACE_STAGE(0x41524541, 6); /* AREA */
+		STEFX_SV_TRACE_DETAIL((unsigned int)ap.count, (unsigned int)maxcount, 0, 0);
+		XBLF("STEFX: SV_AreaEntities done count=%d max=%d", ap.count, maxcount);
+	}
+#endif
 	return ap.count;
 }
 
@@ -936,20 +1189,22 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 	const float		*origin, *angles;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_clipLogCount = 0;
-	qboolean logThisClip = (s_clipLogCount < 16);
+	qboolean logThisClip = qtrue;
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisClip)
+	{
+		STEFX_SV_TRACE_STAGE(0x434C4950, 1); /* CLIP */
+		STEFX_SV_TRACE_DETAIL(0, (unsigned int)clip->contentmask, (unsigned int)clip->passEntityNum, 0);
+	}
+#endif
 	num = SV_AreaEntities( clip->boxmins, clip->boxmaxs, touchlist, MAX_GENTITIES);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (logThisClip)
 	{
-		XBLF("STEFX: SV_ClipMoveToEntities count=%d pass=%d mask=0x%x areaEnts=%d boxmins=(%g,%g,%g) boxmaxs=(%g,%g,%g)",
-			s_clipLogCount,
-			clip->passEntityNum,
-			clip->contentmask,
-			num,
-			clip->boxmins[0], clip->boxmins[1], clip->boxmins[2],
-			clip->boxmaxs[0], clip->boxmaxs[1], clip->boxmaxs[2]);
+		STEFX_SV_TRACE_STAGE(0x434C4950, 2); /* CLIP */
+		STEFX_SV_TRACE_DETAIL(0, (unsigned int)num, (unsigned int)clip->passEntityNum, (unsigned int)clip->contentmask);
 	}
 #endif
 
@@ -967,20 +1222,8 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (logThisClip)
 		{
-			XBLF("STEFX: SV_ClipMoveToEntities touch[%d]=%08x num=%d contents=0x%x bmodel=%d owner=%08x modelindex=%d mins=(%g,%g,%g) maxs=(%g,%g,%g)",
-				i,
-				(unsigned int)touch,
-				touch ? touch->s.number : -1,
-				touch ? touch->contents : 0,
-				touch ? touch->bmodel : 0,
-				touch ? (unsigned int)touch->owner : 0,
-				touch ? touch->s.modelindex : -1,
-				touch ? touch->mins[0] : 0.0f,
-				touch ? touch->mins[1] : 0.0f,
-				touch ? touch->mins[2] : 0.0f,
-				touch ? touch->maxs[0] : 0.0f,
-				touch ? touch->maxs[1] : 0.0f,
-				touch ? touch->maxs[2] : 0.0f);
+			STEFX_SV_TRACE_STAGE(0x434C4950, 3); /* CLIP */
+			STEFX_SV_TRACE_DETAIL((unsigned int)i, touch ? (unsigned int)touch->s.number : 0xffffffff, touch ? (unsigned int)touch->contents : 0, (unsigned int)clip->contentmask);
 		}
 #endif
 
@@ -1010,14 +1253,16 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (logThisClip)
 		{
-			XBLF("STEFX: SV_ClipMoveToEntities touch[%d] before ClipHandle", i);
+			STEFX_SV_TRACE_STAGE(0x434C4950, 4); /* CLIP */
+			STEFX_SV_TRACE_DETAIL((unsigned int)i, touch ? (unsigned int)touch->s.number : 0xffffffff, touch ? (unsigned int)touch->contents : 0, (unsigned int)clip->contentmask);
 		}
 #endif
 		clipHandle = SV_ClipHandleForEntity (touch);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (logThisClip)
 		{
-			XBLF("STEFX: SV_ClipMoveToEntities touch[%d] clipHandle=%d before CM_TransformedBoxTrace", i, clipHandle);
+			STEFX_SV_TRACE_STAGE(0x434C4950, 5); /* CLIP */
+			STEFX_SV_TRACE_DETAIL((unsigned int)i, (unsigned int)clipHandle, touch ? (unsigned int)touch->s.number : 0xffffffff, touch ? (unsigned int)touch->contents : 0);
 		}
 #endif
 
@@ -1070,8 +1315,8 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 			if (logThisClip)
 			{
-				XBLF("STEFX: SV_ClipMoveToEntities touch[%d] after CM_TransformedBoxTrace frac=%g allsolid=%d startsolid=%d",
-					i, trace.fraction, trace.allsolid, trace.startsolid);
+				STEFX_SV_TRACE_STAGE(0x434C4950, 6); /* CLIP */
+				STEFX_SV_TRACE_DETAIL((unsigned int)i, (unsigned int)clipHandle, (unsigned int)trace.entityNum, (unsigned int)trace.contents);
 			}
 #endif
 		//FIXME: when startsolid in another ent, doesn't return correct entityNum 
@@ -1209,8 +1454,7 @@ Ghoul2 Insert Start
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (logThisClip)
 	{
-		XBLF("STEFX: SV_ClipMoveToEntities exit count=%d final frac=%g ent=%d allsolid=%d startsolid=%d",
-			s_clipLogCount, clip->trace.fraction, clip->trace.entityNum, clip->trace.allsolid, clip->trace.startsolid);
+		STEFX_SV_TRACE_STAGE(0x434C4950, 7); /* CLIP */
 	}
 	s_clipLogCount++;
 #endif
@@ -1257,18 +1501,11 @@ Ghoul2 Insert End
 	float		world_frac;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_svTraceLogCount = 0;
-	qboolean logThisTrace = (s_svTraceLogCount < 16);
+	qboolean logThisTrace = qtrue;
 	if (logThisTrace)
 	{
-		XBLF("STEFX: SV_Trace enter count=%d pass=%d mask=0x%x g2=%d start=(%g,%g,%g) end=(%g,%g,%g) mins=%08x maxs=%08x",
-			s_svTraceLogCount,
-			passEntityNum,
-			contentmask,
-			eG2TraceType,
-			start[0], start[1], start[2],
-			end[0], end[1], end[2],
-			(unsigned int)mins,
-			(unsigned int)maxs);
+		STEFX_SV_TRACE_STAGE(0x54524345, 1); /* TRCE */
+		STEFX_SV_TRACE_DETAIL(0, (unsigned int)contentmask, (unsigned int)passEntityNum, (unsigned int)eG2TraceType);
 	}
 #endif
 
@@ -1298,8 +1535,7 @@ Ghoul2 Insert End
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (logThisTrace)
 	{
-		XBLF("STEFX: SV_Trace after CM_BoxTrace frac=%g allsolid=%d startsolid=%d ent=%d",
-			clip.trace.fraction, clip.trace.allsolid, clip.trace.startsolid, clip.trace.entityNum);
+		STEFX_SV_TRACE_STAGE(0x54524345, 2); /* TRCE */
 	}
 #endif
 	clip.trace.entityNum = clip.trace.fraction != 1.0 ? ENTITYNUM_WORLD : ENTITYNUM_NONE;
@@ -1309,7 +1545,7 @@ Ghoul2 Insert End
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (logThisTrace)
 		{
-			XBLF("STEFX: SV_Trace early world-block exit count=%d", s_svTraceLogCount);
+			STEFX_SV_TRACE_STAGE(0x54524345, 6); /* TRCE */
 			s_svTraceLogCount++;
 		}
 #endif
@@ -1376,15 +1612,22 @@ Ghoul2 Insert End
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (logThisTrace)
 	{
-		XBLF("STEFX: SV_Trace before SV_ClipMoveToEntities worldFrac=%g", world_frac);
+		STEFX_SV_TRACE_STAGE(0x54524345, 3); /* TRCE */
 	}
 #endif
-	SV_ClipMoveToEntities ( &clip );
+	if ( clip.contentmask ) {
+		SV_ClipMoveToEntities ( &clip );
+	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	else if (logThisTrace)
+	{
+		STEFX_SV_TRACE_STAGE(0x54524345, 8); /* TRCE */
+	}
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (logThisTrace)
 	{
-		XBLF("STEFX: SV_Trace after SV_ClipMoveToEntities frac=%g ent=%d allsolid=%d startsolid=%d",
-			clip.trace.fraction, clip.trace.entityNum, clip.trace.allsolid, clip.trace.startsolid);
+		STEFX_SV_TRACE_STAGE(0x54524345, 4); /* TRCE */
 	}
 #endif
 
@@ -1394,8 +1637,7 @@ Ghoul2 Insert End
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (logThisTrace)
 	{
-		XBLF("STEFX: SV_Trace exit count=%d frac=%g ent=%d allsolid=%d startsolid=%d",
-			s_svTraceLogCount, results->fraction, results->entityNum, results->allsolid, results->startsolid);
+		STEFX_SV_TRACE_STAGE(0x54524345, 5); /* TRCE */
 	}
 	s_svTraceLogCount++;
 #endif

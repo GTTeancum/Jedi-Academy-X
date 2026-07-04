@@ -2,6 +2,7 @@
 #include "g_functions.h"
 #include "g_infostrings.h"
 #include "g_items.h"
+#include "../../code/win32/xb_log.h"
 
 extern void CrystalAmmoSettings(gentity_t *ent);
 extern	cvar_t	*g_spskill;
@@ -519,12 +520,30 @@ ClearRegisteredItems
 void ClearRegisteredItems( void ) {
 	memset( itemRegistered, 0, sizeof( itemRegistered ) );
 
+#ifdef _XBOX
+	XBLog_Writef( "STEFX: ClearRegisteredItems base begin bg_numItems=%d phaser[%d]={class='%s' type=%d tag=%d} compression[%d]={class='%s' type=%d tag=%d}",
+		bg_numItems,
+		ITM_PHASER_PICKUP,
+		bg_itemlist[ITM_PHASER_PICKUP].classname ? bg_itemlist[ITM_PHASER_PICKUP].classname : "<null>",
+		bg_itemlist[ITM_PHASER_PICKUP].giType,
+		bg_itemlist[ITM_PHASER_PICKUP].giTag,
+		ITM_COMPRESSION_RIFLE_PICKUP,
+		bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].classname ? bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].classname : "<null>",
+		bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].giType,
+		bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].giTag );
+#endif
 	// players always start with the base weapon
 	RegisterItem( FindItemForWeapon( WP_PHASER ) );	//these are given in g_client, ClientSpawn()
 	RegisterItem( FindItemForWeapon( WP_COMPRESSION_RIFLE ) );
+#ifdef _XBOX
+	XBLog_Write( "STEFX: ClearRegisteredItems base weapons registered" );
+#endif
 
 extern void Player_CacheFromPrevLevel(void);//g_client.cpp
 	Player_CacheFromPrevLevel();	//reads from transition carry-over;
+#ifdef _XBOX
+	XBLog_Write( "STEFX: ClearRegisteredItems complete" );
+#endif
 }
 
 /*
@@ -697,4 +716,3 @@ void G_RunItem( gentity_t *ent ) {
 
 	G_BounceItem( ent, &tr );
 }
-

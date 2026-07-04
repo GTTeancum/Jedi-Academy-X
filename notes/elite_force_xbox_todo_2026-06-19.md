@@ -16,6 +16,9 @@ Logged 2026-06-19 for tracking only. Do not treat these as immediate work items 
 - Several tested levels heavier than `borg1` load, but other systems such as characters fail, presumably due to out-of-memory conditions.
 - Investigate map conversion to lumps and other optimization paths if needed.
 
+## Packaging And Assets
+- Go back to PK3-only packaging: keep the original PK3s as the base data, then layer `xbox[number].pk3` files as Xbox patch archives.
+
 ## Future Modes
 - Once the game is running well in all aspects, pivot to co-op.
 - Co-op P1 should take either Munro (male) or Alexa (female).

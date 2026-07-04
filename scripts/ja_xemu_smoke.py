@@ -64,6 +64,8 @@ def parse_key_schedule(spec):
 
 def resolve_map_symbol(symbol):
     map_paths = [
+        os.path.join("build", "release", "default.map"),
+        os.path.join("build", "release", "ja-release.map"),
         os.path.join("code", "x_exe", "Release", "default.map"),
         os.path.join("code", "x_exe", "Release", "ja-release.map"),
         os.path.join("codemp", "x_exe", "Release", "default.map"),
@@ -203,7 +205,20 @@ def parse_monitor_words(text, base_addr=None):
 
 def probe_xblog_physical_addr(sock, boot_va, preferred_delta, log):
     candidates = []
-    for delta in (preferred_delta, 0x2a4000, 0x284000):
+    for delta in (
+        preferred_delta,
+        0x2a3000,
+        0x2a4000,
+        0x287000,
+        0x286000,
+        0x285000,
+        0x284000,
+        0x283000,
+        0x282000,
+        0x281000,
+        0x280000,
+        0x264000,
+    ):
         if delta and delta not in candidates:
             candidates.append(delta)
 
@@ -221,6 +236,19 @@ def probe_xblog_physical_addr(sock, boot_va, preferred_delta, log):
             return addr
         log("xblog_probe miss delta=0x%x addr=0x%08x words=%s" %
             (delta, addr, ",".join("0x%08x" % w for w in words[:5])))
+
+        scan_start = max(0, (addr - 0x1000) & ~3)
+        try:
+            scan_reply = monitor_cmd(sock, "xp/2048wx 0x%08x" % scan_start, 0.8)
+        except OSError:
+            continue
+        scan_words = parse_monitor_words(scan_reply)
+        for i in range(0, max(0, len(scan_words) - 5)):
+            if scan_words[i] == 0x53504546 and scan_words[i + 4] == 0x48424653:
+                found_addr = scan_start + i * 4 + 4
+                found_delta = boot_va - found_addr
+                log("xblog_probe scanned delta=0x%x addr=0x%08x" % (found_delta, found_addr))
+                return found_addr
     return None
 
 
@@ -263,14 +291,43 @@ def monitor_framebuffer_dump(sock, path, phys_delta=None):
             return False, "framebuffer symbol missing: %s" % name
         addrs[name] = resolved[0]
 
-    data = monitor_read_u32(sock, addrs["_g_SPXBFramebufferData"], phys_delta) or 0
-    pitch = monitor_read_u32(sock, addrs["_g_SPXBFramebufferPitch"], phys_delta) or 0
-    width = monitor_read_u32(sock, addrs["_g_SPXBFramebufferWidth"], phys_delta) or 0
-    height = monitor_read_u32(sock, addrs["_g_SPXBFramebufferHeight"], phys_delta) or 0
+    candidate_deltas = []
+    if phys_delta is not None:
+        candidate_deltas.append(phys_delta)
+    candidate_deltas.extend([None, 0x284000, 0x2a4000, 0x2a3000, 0x280000, 0x2a5000, 0x2a6000])
+
+    seen_deltas = set()
+    data = pitch = width = height = 0
+    used_delta = None
+    probe_details = []
+    for candidate_delta in candidate_deltas:
+        key = -1 if candidate_delta is None else candidate_delta
+        if key in seen_deltas:
+            continue
+        seen_deltas.add(key)
+
+        probe_data = monitor_read_u32(sock, addrs["_g_SPXBFramebufferData"], candidate_delta) or 0
+        probe_pitch = monitor_read_u32(sock, addrs["_g_SPXBFramebufferPitch"], candidate_delta) or 0
+        probe_width = monitor_read_u32(sock, addrs["_g_SPXBFramebufferWidth"], candidate_delta) or 0
+        probe_height = monitor_read_u32(sock, addrs["_g_SPXBFramebufferHeight"], candidate_delta) or 0
+        probe_details.append("%s:data=0x%08x pitch=%u size=%ux%u" % (
+            "virt" if candidate_delta is None else "0x%x" % candidate_delta,
+            probe_data, probe_pitch, probe_width, probe_height))
+
+        if (probe_data != 0 and probe_pitch != 0 and probe_width != 0 and probe_height != 0 and
+            probe_width <= 1920 and probe_height <= 1080 and probe_pitch >= probe_width * 4):
+            data = probe_data
+            pitch = probe_pitch
+            width = probe_width
+            height = probe_height
+            used_delta = candidate_delta
+            break
+
     if data == 0 or pitch == 0 or width == 0 or height == 0:
-        return False, "framebuffer telemetry empty data=0x%08x pitch=%u size=%ux%u" % (data, pitch, width, height)
+        return False, "framebuffer telemetry empty probes=%s" % "; ".join(probe_details[:8])
     if width > 1920 or height > 1080 or pitch < width * 4:
-        return False, "framebuffer telemetry invalid data=0x%08x pitch=%u size=%ux%u" % (data, pitch, width, height)
+        return False, "framebuffer telemetry invalid data=0x%08x pitch=%u size=%ux%u probes=%s" % (
+            data, pitch, width, height, "; ".join(probe_details[:8]))
 
     bin_path = os.path.abspath(os.path.splitext(path)[0] + ".fb.bin")
     byte_count = pitch * height
@@ -296,7 +353,8 @@ def monitor_framebuffer_dump(sock, path, phys_delta=None):
             os.remove(bin_path)
         except Exception:
             pass
-        return True, "guest framebuffer %ux%u pitch=%u data=0x%08x" % (width, height, pitch, data)
+        return True, "guest framebuffer %ux%u pitch=%u data=0x%08x delta=%s" % (
+            width, height, pitch, data, "virt" if used_delta is None else "0x%x" % used_delta)
     except Exception as exc:
         return False, "framebuffer convert failed: %s" % exc
 
@@ -390,7 +448,82 @@ def dump_physical_memory(sock, prefix, specs, log):
             continue
         log("final_dump_phys=%s" % dump_path)
         if reply.strip():
-            log("final_dump_phys_reply=%s" % reply.strip().replace("\n", "\\n"))
+            log("final_dump_phys_reply=present bytes=%u" % len(reply))
+
+
+def dump_virtual_memory_binary(sock, prefix, specs, log):
+    if sock is None:
+        return
+    for spec in specs:
+        parts = spec.split(":", 2)
+        if len(parts) < 2:
+            log("final_dump_bin_mem_invalid=%s" % spec)
+            continue
+        try:
+            addr = int(parts[0], 0)
+            length = int(parts[1], 0)
+        except ValueError:
+            log("final_dump_bin_mem_invalid=%s" % spec)
+            continue
+        name = parts[2] if len(parts) > 2 and parts[2] else "mem_%08x" % addr
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+        dump_path = os.path.abspath("%s_final_%s.bin" % (prefix, safe_name))
+        monitor_path = dump_path.replace("\\", "/")
+        try:
+            reply = monitor_cmd(sock, 'memsave 0x%08x 0x%x "%s"' % (addr, length, monitor_path), 4.0)
+        except OSError as exc:
+            log("final_dump_bin_mem_unavailable=%s err=%s" % (spec, exc))
+            continue
+        log("final_dump_bin_mem=%s" % dump_path)
+        if reply.strip():
+            log("final_dump_bin_mem_reply=present bytes=%u" % len(reply))
+
+
+def append_xblog_auto_dumps(specs, phys_delta, log):
+    if phys_delta is None:
+        log("xblog_auto_dump skipped reason=no-phys-delta")
+        return specs
+
+    out = list(specs)
+    for symbol, length, name in (
+        ("_g_SPXBLogMirror", 0x8000, "sp_log_mirror_auto"),
+        ("_g_SPXBLogLastLine", 0x200, "sp_log_lastline_auto"),
+        ("_g_SPXBSVProbeMagic", 0x40, "stefx_sv_probe_auto"),
+    ):
+        va, map_path = resolve_map_symbol(symbol)
+        if va is None:
+            log("xblog_auto_dump skipped symbol=%s reason=unresolved" % symbol)
+            continue
+        phys = va - phys_delta
+        if phys <= 0:
+            log("xblog_auto_dump skipped symbol=%s va=0x%08x delta=0x%x" % (symbol, va, phys_delta))
+            continue
+        out.append("0x%08x:0x%x:%s" % (phys, length, name))
+        log("xblog_auto_dump symbol=%s va=0x%08x phys=0x%08x len=0x%x map=%s" %
+            (symbol, va, phys, length, map_path))
+        bss_phys = phys + 0x1000
+        bss_name = "%s_bss" % name
+        out.append("0x%08x:0x%x:%s" % (bss_phys, length, bss_name))
+        log("xblog_auto_dump_bss symbol=%s va=0x%08x phys=0x%08x len=0x%x" %
+            (symbol, va, bss_phys, length))
+    return out
+
+
+def append_xblog_auto_virtual_dumps(specs, log):
+    out = list(specs)
+    for symbol, length, name in (
+        ("_g_SPXBLogMirror", 0x8000, "sp_log_mirror_auto_vmem"),
+        ("_g_SPXBLogLastLine", 0x200, "sp_log_lastline_auto_vmem"),
+        ("_g_SPXBSVProbeMagic", 0x40, "stefx_sv_probe_auto_vmem"),
+    ):
+        va, map_path = resolve_map_symbol(symbol)
+        if va is None:
+            log("xblog_auto_vmem skipped symbol=%s reason=unresolved" % symbol)
+            continue
+        out.append("0x%08x:0x%x:%s" % (va, length, name))
+        log("xblog_auto_vmem symbol=%s va=0x%08x len=0x%x map=%s" %
+            (symbol, va, length, map_path))
+    return out
 
 
 def main():
@@ -403,6 +536,8 @@ def main():
     parser.add_argument("--hdd", default=r"C:\Games\Emulators\Xemu\HDD\jediacademy_hdd.qcow2")
     parser.add_argument("--xemu-exe", default=XEMU_JA,
                         help="Xemu executable to launch. Defaults to the JA-isolated copy.")
+    parser.add_argument("--config-path", default="",
+                        help="Optional xemu.toml path to update and pass to Xemu with -config_path.")
     parser.add_argument("--explicit-xbox-machine", action="store_true",
                         help="Launch with explicit OG Xbox machine/BIOS/HDD/DVD args instead of relying on xemu.toml.")
     parser.add_argument("--visible", action="store_true")
@@ -420,8 +555,12 @@ def main():
     parser.add_argument("--keep-net", action="store_true")
     parser.add_argument("--dump-mem", action="append", default=[],
                         help="Dump guest memory before closing monitor: addr:length[:name]")
+    parser.add_argument("--dump-bin-mem", action="append", default=[],
+                        help="Dump guest virtual memory bytes with monitor memsave: addr:length[:name]")
     parser.add_argument("--dump-phys", action="append", default=[],
                         help="Dump guest physical memory before closing monitor: addr:length[:name]")
+    parser.add_argument("--xblog-auto-dumps", action="store_true",
+                        help="Add XBLog mirror/last-line physical and virtual dumps from resolved symbols.")
     parser.add_argument("--watch-cr2", default="",
                         help="Poll registers and dump memory when CR2 matches this value")
     parser.add_argument("--poll-xblog", action="store_true",
@@ -435,8 +574,10 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    ensure_xemu_copy()
     xemu_exe = os.path.abspath(args.xemu_exe)
+    if os.path.normcase(xemu_exe) == os.path.normcase(os.path.abspath(XEMU_JA)):
+        ensure_xemu_copy()
+    config_path = os.path.abspath(args.config_path) if args.config_path else XEMU_TOML
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
     prefix = os.path.join(OUT_DIR, "%s_%s" % (args.name, stamp))
@@ -444,8 +585,8 @@ def main():
     report = prefix + ".report.txt"
     toml_backup = None
 
-    if os.path.exists(XEMU_TOML):
-        with open(XEMU_TOML, "r", encoding="utf-8", errors="replace") as f:
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8", errors="replace") as f:
             toml_backup = f.read()
         toml = re.sub(r"hdd_path = '.*'", lambda _m: "hdd_path = '%s'" % args.hdd, toml_backup)
         toml = re.sub(r"dvd_path = '.*'", lambda _m: "dvd_path = '%s'" % args.iso, toml)
@@ -454,7 +595,7 @@ def main():
         if args.smoke_keymap:
             toml = re.sub(r"(?ms)\n?\[input\.keyboard_controller_scancode_map\]\n.*?(?=\n\[|\Z)", "", toml)
             toml = toml.rstrip() + "\n\n" + SMOKE_KEYBOARD_MAP + "\n"
-        with open(XEMU_TOML, "w", encoding="utf-8", errors="replace") as f:
+        with open(config_path, "w", encoding="utf-8", errors="replace") as f:
             f.write(toml)
 
     if args.explicit_xbox_machine:
@@ -472,6 +613,8 @@ def main():
             xemu_exe,
             "-dvd_path", args.iso,
         ]
+    if args.config_path:
+        argv += ["-config_path", config_path]
     if not args.no_monitor:
         argv += ["-monitor", "tcp:127.0.0.1:%d,server,nowait" % args.port]
     if not args.visible:
@@ -491,9 +634,24 @@ def main():
         print(msg)
         lines.append(msg)
 
+    xblog_auto_phys_pending = False
+    if args.xblog_auto_dumps:
+        phys_delta_for_auto = None
+        try:
+            phys_delta_for_auto = int(args.poll_xblog_phys_delta, 0)
+        except ValueError:
+            phys_delta_for_auto = None
+        if args.poll_xblog:
+            xblog_auto_phys_pending = True
+            log("xblog_auto_dump deferred reason=awaiting-probed-phys-delta")
+        else:
+            args.dump_phys = append_xblog_auto_dumps(args.dump_phys, phys_delta_for_auto, log)
+        args.dump_bin_mem = append_xblog_auto_virtual_dumps(args.dump_bin_mem, log)
+
     log("launch: %s" % " ".join(argv))
     logf = open(raw_log, "w", encoding="utf-8", errors="replace")
-    proc = subprocess.Popen(argv, cwd=XEMU_DIR, stdout=logf, stderr=subprocess.STDOUT)
+    xemu_cwd = os.path.dirname(xemu_exe) or XEMU_DIR
+    proc = subprocess.Popen(argv, cwd=xemu_cwd, stdout=logf, stderr=subprocess.STDOUT)
     log("pid=%d" % proc.pid)
     monitor_key_events = parse_key_schedule(args.monitor_keys)
     shot_paths = []
@@ -553,6 +711,28 @@ def main():
     next_xblog_poll = 0.0
     last_xblog_write_count = None
     xblog_offsets = resolve_symbol_offsets("_g_SPXBBootPhase", [
+        "_g_SPXBMainLoopCount",
+        "_g_SPXBComFrameCount",
+        "_g_SPXBSvFrameCount",
+        "_g_SPXBClFrameCount",
+        "_g_SPXBClsState",
+        "_g_SPXBClServerTime",
+        "_g_SPXBClsFrameCount",
+        "_g_SPXBPhaseLast",
+        "_g_SPXBComSubphase",
+        "_g_SPXBComSpinCount",
+        "_g_SPXBComMsec",
+        "_g_SPXBComFrameTime",
+        "_g_SPXBComLastTime",
+        "_g_SPXBCbufExecCount",
+        "_g_SPXBCmdExecCount",
+        "_g_SPXBCmdPhase",
+        "_g_SPXBCmdHash",
+        "_g_SPXBCmdArgc",
+        "_g_SPXBMapPhase",
+        "_g_SPXBMapHash",
+        "_g_SPXBGamePhase",
+        "_g_SPXBGameEntityCount",
         "_g_SPXBRenderBackendMsec",
         "_g_SPXBFakeGLPrimitiveCalls",
         "_g_SPXBFakeGLPrimitiveVerts",
@@ -563,6 +743,95 @@ def main():
         "_g_SPXBRenderSplitEntity",
         "_g_SPXBRenderSplitFinal",
         "_g_SPXBRenderSplitFlush",
+        "_g_SPXBSplitSlotActive",
+        "_g_SPXBSplitSlot0DrawDelta",
+        "_g_SPXBSplitSlot1DrawDelta",
+        "_g_SPXBSplitSlot0WorldDelta",
+        "_g_SPXBSplitSlot1WorldDelta",
+        "_g_SPXBSplitSlot0Cluster",
+        "_g_SPXBSplitSlot1Cluster",
+        "_g_SPXBSplitSlot1WorldRetryDelta",
+        "_g_SPXBSplitSlot1WorldFallback",
+        "_g_SPXBSplitSlot0MarkedLeaves",
+        "_g_SPXBSplitSlot1MarkedLeaves",
+        "_g_SPXBSplitSlot0PvsRejected",
+        "_g_SPXBSplitSlot1PvsRejected",
+        "_g_SPXBSplitSlot0AreaRejected",
+        "_g_SPXBSplitSlot1AreaRejected",
+        "_g_SPXBSplitSlot0RootVis",
+        "_g_SPXBSplitSlot1RootVis",
+        "_g_SPXBSplitSlot0WorldAttempts",
+        "_g_SPXBSplitSlot1WorldAttempts",
+        "_g_SPXBSplitSlot0WorldCulled",
+        "_g_SPXBSplitSlot1WorldCulled",
+        "_g_SPXBSplitSlot0WorldAlready",
+        "_g_SPXBSplitSlot1WorldAlready",
+        "_g_SPXBSplitSlot0WorldAdded",
+        "_g_SPXBSplitSlot1WorldAdded",
+        "_g_SPXBSplitP2Ent",
+        "_g_SPXBSplitP2TraceFrac1000",
+        "_g_SPXBSplitP2ViewX",
+        "_g_SPXBSplitP2ViewY",
+        "_g_SPXBSplitP2ViewZ",
+        "_g_SPXBSplitP2PsX",
+        "_g_SPXBSplitP2PsY",
+        "_g_SPXBSplitP2PsZ",
+        "_g_SPXBSplitP2CurX",
+        "_g_SPXBSplitP2CurY",
+        "_g_SPXBSplitP2CurZ",
+        "_g_SPXBSplitP2AnglesPitch",
+        "_g_SPXBSplitP2AnglesYaw",
+        "_g_SPXBSplitP2RefdefValid",
+        "_g_SPXBSplitP2SceneConsidered",
+        "_g_SPXBSplitP2SceneAdded",
+        "_g_SPXBSplitP2SceneSelfAdded",
+        "_g_SPXBSplitP2ModelEnter",
+        "_g_SPXBSplitP2ModelReturn",
+        "_g_SPXBSplitP2ModelInfoValid",
+        "_g_SPXBSplitP2ModelSubmitted",
+        "_g_SPXBSplitP2ModelLegs",
+        "_g_SPXBSplitP2ModelTorso",
+        "_g_SPXBSplitP2ModelHead",
+        "_g_SPXBSplitP2ModelRenderfx",
+        "_g_SPXBSplitP2RendererRefs",
+        "_g_SPXBSplitP2RendererLastModel",
+        "_g_SPXBSplitP2RendererLastRenderfx",
+        "_g_SPXBSplitP2RendererLastZ",
+        "_g_SPXBViewWeaponP1Adds",
+        "_g_SPXBViewWeaponP2Adds",
+        "_g_SPXBViewWeaponP1Skips",
+        "_g_SPXBViewWeaponP2Skips",
+        "_g_SPXBViewWeaponP1Model",
+        "_g_SPXBViewWeaponP2Model",
+        "_g_SPXBViewWeaponP1Renderfx",
+        "_g_SPXBViewWeaponP2Renderfx",
+        "_g_SPXBViewWeaponP1RendererAdds",
+        "_g_SPXBViewWeaponP2RendererAdds",
+        "_g_SPXBViewWeaponP1RendererFiltered",
+        "_g_SPXBViewWeaponP2RendererFiltered",
+        "_g_SPXBViewWeaponP1LastSkip",
+        "_g_SPXBViewWeaponP2LastSkip",
+        "_g_SPXBSplitCameraMode",
+        "_g_SPXBSplitP1TraceFrac1000",
+        "_g_SPXBSplitP1LocalX1000",
+        "_g_SPXBSplitP1LocalY1000",
+        "_g_SPXBSplitP1LocalZ1000",
+        "_g_SPXBSplitP2LocalX1000",
+        "_g_SPXBSplitP2LocalY1000",
+        "_g_SPXBSplitP2LocalZ1000",
+        "_g_SPXBSplitLocalDiffX1000",
+        "_g_SPXBSplitLocalDiffY1000",
+        "_g_SPXBSplitLocalDiffZ1000",
+        "_g_SPXBDirectMapStatus",
+        "_g_SPXBDirectMapHash",
+        "_g_SPXBDirectMapQueuedCount",
+        "_g_SPXBSVProbeMagic",
+        "_g_SPXBSVProbePhase",
+        "_g_SPXBSVProbeSubphase",
+        "_g_SPXBSVProbeA",
+        "_g_SPXBSVProbeB",
+        "_g_SPXBSVProbeC",
+        "_g_SPXBSVProbeD",
     ])
     capture_enabled = (not args.no_screenshots) and display_mode not in ("none", "egl-headless", "nographic")
 
@@ -576,6 +845,10 @@ def main():
                     sock, xblog_va_for_probe, int(args.poll_xblog_phys_delta, 0), log)
                 if probed_addr is not None:
                     xblog_addr = probed_addr
+                    if xblog_auto_phys_pending:
+                        probed_delta = xblog_va_for_probe - xblog_addr
+                        args.dump_phys = append_xblog_auto_dumps(args.dump_phys, probed_delta, log)
+                        xblog_auto_phys_pending = False
         else:
             log("monitor=disabled")
         start = time.time()
@@ -629,6 +902,16 @@ def main():
                     reply = monitor_cmd(sock, "%s/%dwx 0x%08x" % (xblog_cmd, poll_words, xblog_addr), 0.4)
                     words = parse_monitor_words(reply, xblog_addr)
                     if len(words) >= 9:
+                        telemetry_words = words
+                        if xblog_cmd == "xp" and xblog_va_for_probe is not None:
+                            telemetry_addr = xblog_va_for_probe - 0x284000
+                            try:
+                                telemetry_reply = monitor_cmd(sock, "xp/%dwx 0x%08x" % (poll_words, telemetry_addr), 0.4)
+                                telemetry_probe = parse_monitor_words(telemetry_reply, telemetry_addr)
+                                if len(telemetry_probe) >= len(words):
+                                    telemetry_words = telemetry_probe
+                            except OSError:
+                                pass
                         boot_phase = words[0]
                         mirror_pos = words[1]
                         write_count = words[2]
@@ -642,26 +925,183 @@ def main():
                         last_xblog_write_count = write_count
                         def word_for(symbol):
                             idx = xblog_offsets.get(symbol)
-                            if idx is None or idx >= len(words):
+                            if idx is None or idx >= len(telemetry_words):
                                 return 0
-                            return words[idx]
+                            return telemetry_words[idx]
+                        def signed32(value):
+                            return value - 0x100000000 if value & 0x80000000 else value
                         render_backend = word_for("_g_SPXBRenderBackendMsec")
                         primitive_calls = word_for("_g_SPXBFakeGLPrimitiveCalls")
                         primitive_verts = word_for("_g_SPXBFakeGLPrimitiveVerts")
                         state_flushes = word_for("_g_SPXBFakeGLStateFlushes")
+                        main_loop_count = word_for("_g_SPXBMainLoopCount")
+                        com_frame_count = word_for("_g_SPXBComFrameCount")
+                        sv_frame_count = word_for("_g_SPXBSvFrameCount")
+                        cl_frame_count = word_for("_g_SPXBClFrameCount")
+                        cls_state = word_for("_g_SPXBClsState")
+                        cl_server_time = word_for("_g_SPXBClServerTime")
+                        cls_frame_count = word_for("_g_SPXBClsFrameCount")
+                        phase_last = word_for("_g_SPXBPhaseLast")
+                        com_subphase = word_for("_g_SPXBComSubphase")
+                        com_spin_count = word_for("_g_SPXBComSpinCount")
+                        com_msec = word_for("_g_SPXBComMsec")
+                        com_frame_time = word_for("_g_SPXBComFrameTime")
+                        com_last_time = word_for("_g_SPXBComLastTime")
+                        cbuf_exec_count = word_for("_g_SPXBCbufExecCount")
+                        cmd_exec_count = word_for("_g_SPXBCmdExecCount")
+                        cmd_phase = word_for("_g_SPXBCmdPhase")
+                        cmd_hash = word_for("_g_SPXBCmdHash")
+                        cmd_argc = word_for("_g_SPXBCmdArgc")
+                        map_phase = word_for("_g_SPXBMapPhase")
+                        map_hash = word_for("_g_SPXBMapHash")
+                        game_phase = word_for("_g_SPXBGamePhase")
+                        game_entity_count = word_for("_g_SPXBGameEntityCount")
                         split_shader = word_for("_g_SPXBRenderSplitShader")
                         split_fog = word_for("_g_SPXBRenderSplitFog")
                         split_dlight = word_for("_g_SPXBRenderSplitDlight")
                         split_entity = word_for("_g_SPXBRenderSplitEntity")
                         split_final = word_for("_g_SPXBRenderSplitFinal")
                         split_flush = word_for("_g_SPXBRenderSplitFlush")
-                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u" %
+                        split_slot_active = word_for("_g_SPXBSplitSlotActive")
+                        split_slot0_draw = word_for("_g_SPXBSplitSlot0DrawDelta")
+                        split_slot1_draw = word_for("_g_SPXBSplitSlot1DrawDelta")
+                        split_slot0_world = word_for("_g_SPXBSplitSlot0WorldDelta")
+                        split_slot1_world = word_for("_g_SPXBSplitSlot1WorldDelta")
+                        split_slot0_cluster = word_for("_g_SPXBSplitSlot0Cluster")
+                        split_slot1_cluster = word_for("_g_SPXBSplitSlot1Cluster")
+                        split_slot1_retry = word_for("_g_SPXBSplitSlot1WorldRetryDelta")
+                        split_slot1_fallback = word_for("_g_SPXBSplitSlot1WorldFallback")
+                        split_slot0_marked = word_for("_g_SPXBSplitSlot0MarkedLeaves")
+                        split_slot1_marked = word_for("_g_SPXBSplitSlot1MarkedLeaves")
+                        split_slot0_pvsrej = word_for("_g_SPXBSplitSlot0PvsRejected")
+                        split_slot1_pvsrej = word_for("_g_SPXBSplitSlot1PvsRejected")
+                        split_slot0_arearej = word_for("_g_SPXBSplitSlot0AreaRejected")
+                        split_slot1_arearej = word_for("_g_SPXBSplitSlot1AreaRejected")
+                        split_slot0_rootvis = word_for("_g_SPXBSplitSlot0RootVis")
+                        split_slot1_rootvis = word_for("_g_SPXBSplitSlot1RootVis")
+                        split_slot0_attempt = word_for("_g_SPXBSplitSlot0WorldAttempts")
+                        split_slot1_attempt = word_for("_g_SPXBSplitSlot1WorldAttempts")
+                        split_slot0_culled = word_for("_g_SPXBSplitSlot0WorldCulled")
+                        split_slot1_culled = word_for("_g_SPXBSplitSlot1WorldCulled")
+                        split_slot0_already = word_for("_g_SPXBSplitSlot0WorldAlready")
+                        split_slot1_already = word_for("_g_SPXBSplitSlot1WorldAlready")
+                        split_slot0_added = word_for("_g_SPXBSplitSlot0WorldAdded")
+                        split_slot1_added = word_for("_g_SPXBSplitSlot1WorldAdded")
+                        split_p2_ent = word_for("_g_SPXBSplitP2Ent")
+                        split_p2_trace = word_for("_g_SPXBSplitP2TraceFrac1000")
+                        split_p2_view_x = word_for("_g_SPXBSplitP2ViewX")
+                        split_p2_view_y = word_for("_g_SPXBSplitP2ViewY")
+                        split_p2_view_z = word_for("_g_SPXBSplitP2ViewZ")
+                        split_p2_ps_x = word_for("_g_SPXBSplitP2PsX")
+                        split_p2_ps_y = word_for("_g_SPXBSplitP2PsY")
+                        split_p2_ps_z = word_for("_g_SPXBSplitP2PsZ")
+                        split_p2_cur_x = word_for("_g_SPXBSplitP2CurX")
+                        split_p2_cur_y = word_for("_g_SPXBSplitP2CurY")
+                        split_p2_cur_z = word_for("_g_SPXBSplitP2CurZ")
+                        split_p2_pitch = word_for("_g_SPXBSplitP2AnglesPitch")
+                        split_p2_yaw = word_for("_g_SPXBSplitP2AnglesYaw")
+                        split_p2_refdef = word_for("_g_SPXBSplitP2RefdefValid")
+                        split_p2_scene_considered = word_for("_g_SPXBSplitP2SceneConsidered")
+                        split_p2_scene_added = word_for("_g_SPXBSplitP2SceneAdded")
+                        split_p2_scene_self = word_for("_g_SPXBSplitP2SceneSelfAdded")
+                        split_p2_model_enter = word_for("_g_SPXBSplitP2ModelEnter")
+                        split_p2_model_return = word_for("_g_SPXBSplitP2ModelReturn")
+                        split_p2_model_info = word_for("_g_SPXBSplitP2ModelInfoValid")
+                        split_p2_model_submitted = word_for("_g_SPXBSplitP2ModelSubmitted")
+                        split_p2_model_legs = word_for("_g_SPXBSplitP2ModelLegs")
+                        split_p2_model_torso = word_for("_g_SPXBSplitP2ModelTorso")
+                        split_p2_model_head = word_for("_g_SPXBSplitP2ModelHead")
+                        split_p2_model_renderfx = word_for("_g_SPXBSplitP2ModelRenderfx")
+                        split_p2_renderer_refs = word_for("_g_SPXBSplitP2RendererRefs")
+                        split_p2_renderer_model = word_for("_g_SPXBSplitP2RendererLastModel")
+                        split_p2_renderer_renderfx = word_for("_g_SPXBSplitP2RendererLastRenderfx")
+                        split_p2_renderer_z = word_for("_g_SPXBSplitP2RendererLastZ")
+                        vw_p1_adds = word_for("_g_SPXBViewWeaponP1Adds")
+                        vw_p2_adds = word_for("_g_SPXBViewWeaponP2Adds")
+                        vw_p1_skips = word_for("_g_SPXBViewWeaponP1Skips")
+                        vw_p2_skips = word_for("_g_SPXBViewWeaponP2Skips")
+                        vw_p1_model = word_for("_g_SPXBViewWeaponP1Model")
+                        vw_p2_model = word_for("_g_SPXBViewWeaponP2Model")
+                        vw_p1_rf = word_for("_g_SPXBViewWeaponP1Renderfx")
+                        vw_p2_rf = word_for("_g_SPXBViewWeaponP2Renderfx")
+                        vw_p1_render_adds = word_for("_g_SPXBViewWeaponP1RendererAdds")
+                        vw_p2_render_adds = word_for("_g_SPXBViewWeaponP2RendererAdds")
+                        vw_p1_render_filtered = word_for("_g_SPXBViewWeaponP1RendererFiltered")
+                        vw_p2_render_filtered = word_for("_g_SPXBViewWeaponP2RendererFiltered")
+                        vw_p1_last_skip = word_for("_g_SPXBViewWeaponP1LastSkip")
+                        vw_p2_last_skip = word_for("_g_SPXBViewWeaponP2LastSkip")
+                        split_camera_mode = word_for("_g_SPXBSplitCameraMode")
+                        split_p1_trace = word_for("_g_SPXBSplitP1TraceFrac1000")
+                        split_p1_local_x = word_for("_g_SPXBSplitP1LocalX1000")
+                        split_p1_local_y = word_for("_g_SPXBSplitP1LocalY1000")
+                        split_p1_local_z = word_for("_g_SPXBSplitP1LocalZ1000")
+                        split_p2_local_x = word_for("_g_SPXBSplitP2LocalX1000")
+                        split_p2_local_y = word_for("_g_SPXBSplitP2LocalY1000")
+                        split_p2_local_z = word_for("_g_SPXBSplitP2LocalZ1000")
+                        split_local_diff_x = word_for("_g_SPXBSplitLocalDiffX1000")
+                        split_local_diff_y = word_for("_g_SPXBSplitLocalDiffY1000")
+                        split_local_diff_z = word_for("_g_SPXBSplitLocalDiffZ1000")
+                        direct_status = word_for("_g_SPXBDirectMapStatus")
+                        direct_hash = word_for("_g_SPXBDirectMapHash")
+                        direct_queued = word_for("_g_SPXBDirectMapQueuedCount")
+                        sv_probe_magic = word_for("_g_SPXBSVProbeMagic")
+                        sv_probe_phase = word_for("_g_SPXBSVProbePhase")
+                        sv_probe_subphase = word_for("_g_SPXBSVProbeSubphase")
+                        sv_probe_a = word_for("_g_SPXBSVProbeA")
+                        sv_probe_b = word_for("_g_SPXBSVProbeB")
+                        sv_probe_c = word_for("_g_SPXBSVProbeC")
+                        sv_probe_d = word_for("_g_SPXBSVProbeD")
+                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
                              heartbeat_rt, heartbeat_st, heartbeat_fps10 / 10.0,
+                             main_loop_count, com_frame_count, sv_frame_count,
+                             cl_frame_count, cls_state, cl_server_time, cls_frame_count,
+                             phase_last, com_subphase, com_spin_count, com_msec,
+                             com_frame_time, com_last_time, cbuf_exec_count,
+                             cmd_exec_count, cmd_phase, cmd_hash, cmd_argc,
+                             map_phase, map_hash, game_phase, game_entity_count,
                              render_backend, primitive_calls, primitive_verts,
                              state_flushes, split_shader, split_fog, split_dlight,
-                             split_entity, split_final, split_flush))
+                             split_entity, split_final, split_flush,
+                             split_slot_active, split_slot0_draw, split_slot1_draw,
+                             split_slot0_world, split_slot1_world,
+                             split_slot1_retry, split_slot1_fallback,
+                             signed32(split_slot0_cluster), signed32(split_slot1_cluster),
+                             signed32(split_slot0_marked), signed32(split_slot1_marked),
+                             split_slot0_pvsrej, split_slot1_pvsrej,
+                             split_slot0_arearej, split_slot1_arearej,
+                             signed32(split_slot0_rootvis), signed32(split_slot1_rootvis),
+                             split_slot0_attempt, split_slot1_attempt,
+                             split_slot0_culled, split_slot1_culled,
+                             split_slot0_already, split_slot1_already,
+                             split_slot0_added, split_slot1_added,
+                             split_p2_ent, split_p2_trace,
+                              signed32(split_p2_view_x), signed32(split_p2_view_y), signed32(split_p2_view_z),
+                              signed32(split_p2_ps_x), signed32(split_p2_ps_y), signed32(split_p2_ps_z),
+                              signed32(split_p2_cur_x), signed32(split_p2_cur_y), signed32(split_p2_cur_z),
+                              signed32(split_p2_pitch), signed32(split_p2_yaw),
+                              split_camera_mode, split_p1_trace,
+                              signed32(split_p1_local_x), signed32(split_p1_local_y), signed32(split_p1_local_z),
+                              signed32(split_p2_local_x), signed32(split_p2_local_y), signed32(split_p2_local_z),
+                              signed32(split_local_diff_x), signed32(split_local_diff_y), signed32(split_local_diff_z),
+                              split_p2_refdef,
+                              split_p2_scene_considered, split_p2_scene_added, split_p2_scene_self,
+                              split_p2_model_enter, split_p2_model_return, split_p2_model_info,
+                              split_p2_model_submitted,
+                              split_p2_model_legs, split_p2_model_torso, split_p2_model_head,
+                              split_p2_model_renderfx,
+                              split_p2_renderer_refs, split_p2_renderer_model,
+                              split_p2_renderer_renderfx, signed32(split_p2_renderer_z),
+                              vw_p1_adds, vw_p2_adds, vw_p1_skips, vw_p2_skips,
+                              vw_p1_model, vw_p2_model,
+                              vw_p1_rf, vw_p2_rf,
+                              vw_p1_render_adds, vw_p2_render_adds,
+                              vw_p1_render_filtered, vw_p2_render_filtered,
+                              vw_p1_last_skip, vw_p2_last_skip,
+                              direct_status, direct_hash, direct_queued,
+                             sv_probe_magic, sv_probe_phase, sv_probe_subphase,
+                             sv_probe_a, sv_probe_b, sv_probe_c, sv_probe_d))
                     elif len(words) >= 3:
                         boot_phase = words[0]
                         mirror_pos = words[1]
@@ -714,6 +1154,7 @@ def main():
 
         if sock is not None:
             dump_monitor_state(sock, prefix, "final", args.dump_mem, log)
+            dump_virtual_memory_binary(sock, prefix, args.dump_bin_mem, log)
             dump_physical_memory(sock, prefix, args.dump_phys, log)
     finally:
         if sock:
@@ -728,7 +1169,7 @@ def main():
                 proc.kill()
         logf.close()
         if toml_backup is not None:
-            with open(XEMU_TOML, "w", encoding="utf-8", errors="replace") as f:
+            with open(config_path, "w", encoding="utf-8", errors="replace") as f:
                 f.write(toml_backup)
 
     contact = prefix + "_contact.png"

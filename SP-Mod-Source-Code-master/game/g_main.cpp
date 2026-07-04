@@ -71,8 +71,25 @@ int	teamEnemyCount[TEAM_NUM_TEAMS];
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles );
-void CG_RegisterClientModels( int entityNum );
 void NPC_SetAnim( gentity_t *ent, int type, int anim, int priority );
+
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComSpinCount;
+extern "C" volatile unsigned int g_SPXBComMsec;
+extern "C" volatile unsigned int g_SPXBComFrameTime;
+extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBSVProbePhase;
+extern "C" volatile unsigned int g_SPXBSVProbeSubphase;
+extern "C" volatile unsigned int g_SPXBSVProbeA;
+extern "C" volatile unsigned int g_SPXBSVProbeB;
+extern "C" volatile unsigned int g_SPXBSVProbeC;
+extern "C" volatile unsigned int g_SPXBSVProbeD;
+
+#define STEFX_GAME_TRACE_STAGE(phase, subphase) \
+	do { g_SPXBPhaseLast = (phase); g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = (phase); g_SPXBSVProbeSubphase = (subphase); } while (0)
+#define STEFX_GAME_TRACE_DETAIL(a, b, c, d) \
+	do { g_SPXBComSpinCount = (a); g_SPXBComMsec = (b); g_SPXBComFrameTime = (c); g_SPXBComLastTime = (d); g_SPXBSVProbeA = (a); g_SPXBSVProbeB = (b); g_SPXBSVProbeC = (c); g_SPXBSVProbeD = (d); } while (0)
 
 #define STEFX_SPLIT_P2_TARGETNAME "stefx_split_p2"
 
@@ -140,11 +157,10 @@ static void STEFX_SplitCoopApplyP2Model( gentity_t *p2 )
 	Q_strncpyz( p2->client->renderInfo.torsoModelName, torso, sizeof( p2->client->renderInfo.torsoModelName ), qtrue );
 	Q_strncpyz( p2->client->renderInfo.headModelName, head, sizeof( p2->client->renderInfo.headModelName ), qtrue );
 	p2->client->clientInfo.infoValid = qfalse;
-	CG_RegisterClientModels( p2->s.number );
 
 	if ( s_modelLogBudget > 0 )
 	{
-		XBLF( "STEFX_SPLIT_COOP model ent=%d p1Sex='%s' p2Sex='%s' npc='%s' renderNames=(%s,%s,%s) infoValid=%d models=(%d,%d,%d)",
+		XBLF( "STEFX_SPLIT_COOP model ent=%d p1Sex='%s' p2Sex='%s' npc='%s' renderNames=(%s,%s,%s) infoValid=%d models=(%d,%d,%d) deferredRegister=1",
 			p2->s.number,
 			p1Female ? "female" : "male",
 			p2Female ? "female" : "male",
@@ -282,6 +298,29 @@ static gentity_t *STEFX_SplitCoopSpawnP2( void )
 		p2->e_ThinkFunc,
 		p2->nextthink );
 
+	VectorCopy( origin, p2->client->ps.origin );
+	VectorClear( p2->client->ps.velocity );
+	p2->client->ps.pm_time = 0;
+	p2->client->ps.pm_flags &= ~( PMF_ALL_TIMES | PMF_RESPAWNED );
+	p2->client->renderInfo.lookTarget = ENTITYNUM_NONE;
+	G_SetOrigin( p2, origin );
+	SetClientViewAngle( p2, angles );
+	p2->s.eFlags ^= EF_TELEPORT_BIT;
+	gi.linkentity( p2 );
+
+	if ( s_spawnLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP spawn placed ent=%d origin=(%g,%g,%g) angles=(%g,%g,%g)",
+			p2->s.number,
+			origin[0],
+			origin[1],
+			origin[2],
+			angles[0],
+			angles[1],
+			angles[2] );
+		--s_spawnLogBudget;
+	}
+
 	return p2;
 }
 
@@ -325,9 +364,9 @@ static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles )
 {
 	static int s_placementLogBudget = 32;
 	static const float offsets[][2] = {
+		{ 0.0f, -64.0f },
 		{ 48.0f, 16.0f },
 		{ -48.0f, 16.0f },
-		{ 0.0f, -56.0f },
 		{ 56.0f, -32.0f },
 		{ -56.0f, -32.0f },
 		{ 0.0f, 64.0f },
@@ -607,7 +646,9 @@ static void STEFX_SplitCoopTakeControl( gentity_t *p2 )
 		p2->NPC->scriptFlags = 0;
 	}
 	p2->flags &= ~FL_NOTARGET;
+	p2->svFlags &= ~( SVF_NOCLIENT | SVF_BROADCAST );
 	p2->s.eFlags &= ~EF_NODRAW;
+	p2->client->ps.eFlags &= ~EF_NODRAW;
 	p2->e_ThinkFunc = thinkF_NULL;
 	p2->nextthink = 0;
 	STEFX_SplitCoopEnsureBaseLoadout( p2 );
@@ -720,6 +761,21 @@ static void STEFX_SplitCoopRunFrame( void )
 	}
 	s_loggedInactive = qfalse;
 
+	if ( level.framenum <= 3 )
+	{
+		static int s_startupSpawnDeferLogBudget = 3;
+		STEFX_GAME_TRACE_STAGE(0x53504C54, 78); /* SPLT */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)s_stefxSplitP2EntNum, 0);
+		if ( s_startupSpawnDeferLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_COOP deferring P2 spawn/control during startup settle frame=%d time=%d",
+				level.framenum,
+				level.time );
+			--s_startupSpawnDeferLogBudget;
+		}
+		return;
+	}
+
 	p2 = STEFX_SplitCoopFindP2();
 	if ( !p2 )
 	{
@@ -751,6 +807,21 @@ static void STEFX_SplitCoopRunFrame( void )
 	}
 
 	STEFX_SplitCoopTakeControl( p2 );
+	if ( level.framenum <= 3 )
+	{
+		static int s_startupDeferLogBudget = 3;
+		STEFX_GAME_TRACE_STAGE(0x53504C54, 79); /* SPLT */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)p2->e_ThinkFunc);
+		if ( s_startupDeferLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_COOP deferring P2 control during startup settle frame=%d time=%d ent=%d",
+				level.framenum,
+				level.time,
+				p2->s.number );
+			--s_startupDeferLogBudget;
+		}
+		return;
+	}
 
 	hasP2Input = CL_STEFX_SplitScreen_BuildP2Usercmd( &cmd, p2->client->ps.viewangles, p2->client->ps.delta_angles, level.time, &sourcePort, &weaponDelta, outAngles );
 	if ( !hasP2Input )
@@ -781,10 +852,20 @@ static void STEFX_SplitCoopRunFrame( void )
 		--s_weaponLogBudget;
 	}
 
+	STEFX_GAME_TRACE_STAGE(0x53504C54, 80); /* SPLT */
+	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)cmd.serverTime, (unsigned int)cmd.buttons, (unsigned int)cmd.weapon);
 	ClientThink( p2->s.number, &cmd );
+	STEFX_GAME_TRACE_STAGE(0x53504C54, 81); /* SPLT */
+	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);
 	ClientEndFrame( p2 );
+	STEFX_GAME_TRACE_STAGE(0x53504C54, 82); /* SPLT */
+	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);
 	PlayerStateToEntityState( &p2->client->ps, &p2->s );
+	STEFX_GAME_TRACE_STAGE(0x53504C54, 83); /* SPLT */
+	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->s.eType, (unsigned int)p2->s.eFlags, (unsigned int)p2->linked);
 	gi.linkentity( p2 );
+	STEFX_GAME_TRACE_STAGE(0x53504C54, 84); /* SPLT */
+	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->linked, (unsigned int)p2->contents, (unsigned int)p2->health);
 
 	if ( s_frameLogBudget > 0 && ( hasP2Input || s_frameLogBudget > 56 ) )
 	{
@@ -1762,6 +1843,10 @@ void G_RunFrame( int levelTime ) {
 	level.previousTime = level.time;
 	level.time = levelTime;
 	msec = level.time - level.previousTime;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_GAME_TRACE_STAGE(0x4752464D, 1); /* GRFM */
+	STEFX_GAME_TRACE_DETAIL((unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)msec, (unsigned int)globals.num_entities);
+#endif
 #ifdef _XBOX
 	xbLogFrame = (qboolean)(level.framenum == 1);
 	if (xbLogFrame)
@@ -1817,21 +1902,32 @@ void G_RunFrame( int levelTime ) {
 	{
 		if ( !ent->inuse )
 			continue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 20); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->s.eType, (unsigned int)ent->svFlags, (unsigned int)ent->nextthink);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{
-			XBLF("STEFX: G_RunFrame ent=%d begin class='%s' target='%s' eType=%d client=%p svFlags=0x%08x nextthink=%d",
+			XBLF("STEFX: G_RunFrame ent=%d begin class=%p targetname=%p eType=%d client=%p svFlags=0x%08x nextthink=%d eventTime=%d free=%d unlink=%d",
 				i,
-				ent->classname ? ent->classname : "(null)",
-				ent->targetname ? ent->targetname : "(null)",
+				ent->classname,
+				ent->targetname,
 				ent->s.eType,
 				ent->client,
 				ent->svFlags,
-				ent->nextthink);
+				ent->nextthink,
+				ent->eventTime,
+				ent->freeAfterEvent,
+				ent->unlinkAfterEvent);
 		}
 #endif
 
 		// clear events that are too old
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 21); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->eventTime, (unsigned int)ent->freeAfterEvent, (unsigned int)ent->unlinkAfterEvent);
+#endif
 		if ( level.time - ent->eventTime > EVENT_VALID_MSEC ) {
 			if ( ent->s.event ) {
 				ent->s.event = 0;	// &= EV_EVENT_BITS;
@@ -1849,11 +1945,19 @@ void G_RunFrame( int levelTime ) {
 				gi.unlinkentity( ent );
 			}
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 22); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->freeAfterEvent, (unsigned int)ent->unlinkAfterEvent);
+#endif
 
 		// temporary entities don't think
 		if ( ent->freeAfterEvent )
 			continue;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 23); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->taskManager, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{
@@ -1861,6 +1965,10 @@ void G_RunFrame( int levelTime ) {
 		}
 #endif
 		G_CheckTasksCompleted(ent);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 24); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{
@@ -1868,7 +1976,15 @@ void G_RunFrame( int levelTime ) {
 		}
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 25); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->s.pos.trType, (unsigned int)ent->s.apos.trType);
+#endif
 		G_Roff( ent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 26); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->s.pos.trType, (unsigned int)ent->s.apos.trType);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{
@@ -1895,6 +2011,10 @@ void G_RunFrame( int levelTime ) {
 		{
 			G_AnimateBoltOns( ent );
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 28); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->s.frame, (unsigned int)ent->client);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{
@@ -1989,7 +2109,15 @@ void G_RunFrame( int levelTime ) {
 			XBLF("STEFX: G_RunFrame ent=%d before G_RunThink", i);
 		}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 31); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
+#endif
 		G_RunThink( ent );	// be aware that ent may be free after returning from here, at least one func frees them
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 32); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{
@@ -1997,7 +2125,15 @@ void G_RunFrame( int levelTime ) {
 		}
 #endif
 		ClearNPCGlobals();			//	but these 2 funcs are ok
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 33); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->client, (unsigned int)ent->NPC);
+#endif
 		UpdateTeamCounters( ent );	//	   to call anyway on a freed ent.
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_GAME_TRACE_STAGE(0x4752464D, 34); /* GRFM */
+		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)teamEnemyCount[0], (unsigned int)teamEnemyCount[1]);
+#endif
 #ifdef _XBOX
 		if (xbLogFrame)
 		{

@@ -49,6 +49,8 @@ static bool WF_ShouldTracePath(const char* name)
 	}
 
 	return strstr(name, ".mdr") || strstr(name, ".md3") || strstr(name, ".tik") ||
+		strstr(name, "default.cfg") ||
+		strstr(name, "gfx\\2d\\chars") || strstr(name, "gfx/2d/chars") ||
 		strstr(name, "\\sound\\") || strstr(name, "/sound/") ||
 		strstr(name, "sound\\") || strstr(name, "sound/") ||
 		strstr(name, "textures\\borg\\") || strstr(name, "textures/borg/") ||

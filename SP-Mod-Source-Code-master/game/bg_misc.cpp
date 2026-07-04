@@ -4,6 +4,7 @@
 #include "g_local.h"
 #include "bg_public.h"
 #include "g_items.h"
+#include "../../code/win32/xb_log.h"
 
 extern weaponData_t weaponData[WP_NUM_WEAPONS];
 extern ammoData_t ammoData[AMMO_MAX];
@@ -125,6 +126,34 @@ gitem_t	*FindItemForWeapon( weapon_t weapon ) {
 		}
 	}
 
+#ifdef _XBOX
+	{
+		static int s_findWeaponMissBudget = 8;
+		if ( s_findWeaponMissBudget > 0 )
+		{
+			XBLog_Writef( "STEFX: FindItemForWeapon miss weapon=%d bg_numItems=%d phaser[%d]={class='%s' type=%d tag=%d} compression[%d]={class='%s' type=%d tag=%d}",
+				weapon,
+				bg_numItems,
+				ITM_PHASER_PICKUP,
+				bg_itemlist[ITM_PHASER_PICKUP].classname ? bg_itemlist[ITM_PHASER_PICKUP].classname : "<null>",
+				bg_itemlist[ITM_PHASER_PICKUP].giType,
+				bg_itemlist[ITM_PHASER_PICKUP].giTag,
+				ITM_COMPRESSION_RIFLE_PICKUP,
+				bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].classname ? bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].classname : "<null>",
+				bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].giType,
+				bg_itemlist[ITM_COMPRESSION_RIFLE_PICKUP].giTag );
+			for ( i = 1 ; i < bg_numItems && i <= 12 ; i++ )
+			{
+				XBLog_Writef( "STEFX: FindItemForWeapon sample item[%d] class='%s' type=%d tag=%d",
+					i,
+					bg_itemlist[i].classname ? bg_itemlist[i].classname : "<null>",
+					bg_itemlist[i].giType,
+					bg_itemlist[i].giTag );
+			}
+			--s_findWeaponMissBudget;
+		}
+	}
+#endif
 	Com_Error( ERR_DROP, "Couldn't find item for weapon %i", weapon);
 	return NULL;
 }
@@ -441,5 +470,4 @@ qboolean	BG_PlayerTouchesItem( playerState_t *ps, entityState_t *item, int atTim
 
 	return qtrue;
 }
-
 

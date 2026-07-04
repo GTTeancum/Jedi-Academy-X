@@ -2954,6 +2954,33 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 #ifdef _XBOX
 	if (xboxDrawActiveLog) XBLog_Write("JA: CL_EARLY EF CG_DrawActive before CG_Draw2D");
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 )
+	{
+		static int s_stefxSplitHudLogBudget = 16;
+		const float hudW = cgs.glconfig.vidWidth > 0 ? (float)cgs.glconfig.vidWidth : 640.0f;
+		const float hudH = cgs.glconfig.vidHeight > 0 ? (float)cgs.glconfig.vidHeight : 480.0f;
+		const float halfH = hudH * 0.5f;
+
+		if ( s_stefxSplitHudLogBudget > 0 )
+		{
+			XBLF("STEFX_SPLIT_HUD: draw two viewport HUDs screen=%gx%g half=%g client=%d p2=%d",
+				hudW,
+				hudH,
+				halfH,
+				cg.snap ? cg.snap->ps.clientNum : -1,
+				cg_stefxSplitScreenP2Entity.integer);
+			--s_stefxSplitHudLogBudget;
+		}
+
+		CG_STEFX_SetSplitHudViewport( 0.0f, 0.0f, hudW, halfH );
+		CG_Draw2D();
+		CG_STEFX_SetSplitHudViewport( 0.0f, halfH, hudW, halfH );
+		CG_Draw2D();
+		CG_STEFX_ClearSplitHudViewport();
+	}
+	else
+#endif
 	CG_Draw2D();
 #ifdef _XBOX
 	if (xboxDrawActiveLog) XBLog_Write("JA: CL_EARLY EF CG_DrawActive after CG_Draw2D");
