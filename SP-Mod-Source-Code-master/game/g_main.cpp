@@ -85,6 +85,10 @@ extern "C" volatile unsigned int g_SPXBSVProbeA;
 extern "C" volatile unsigned int g_SPXBSVProbeB;
 extern "C" volatile unsigned int g_SPXBSVProbeC;
 extern "C" volatile unsigned int g_SPXBSVProbeD;
+extern "C" volatile unsigned int g_SPXBSplitP2GameWeapon;
+extern "C" volatile unsigned int g_SPXBSplitP2GameViewheight;
+extern "C" volatile unsigned int g_SPXBSplitP2GameStateWeapon;
+extern "C" volatile unsigned int g_SPXBSplitP2GameClientNum;
 
 #define STEFX_GAME_TRACE_STAGE(phase, subphase) \
 	do { g_SPXBPhaseLast = (phase); g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = (phase); g_SPXBSVProbeSubphase = (subphase); } while (0)
@@ -97,6 +101,23 @@ static int s_stefxSplitP2EntNum = ENTITYNUM_NONE;
 
 static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 );
 static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles );
+
+static void STEFX_SplitCoopRecordP2GameState( const gentity_t *p2 )
+{
+	if ( !p2 || !p2->client )
+	{
+		g_SPXBSplitP2GameWeapon = 0;
+		g_SPXBSplitP2GameViewheight = 0;
+		g_SPXBSplitP2GameStateWeapon = 0;
+		g_SPXBSplitP2GameClientNum = 0xffffffffu;
+		return;
+	}
+
+	g_SPXBSplitP2GameWeapon = (unsigned int)p2->client->ps.weapon;
+	g_SPXBSplitP2GameViewheight = (unsigned int)p2->client->ps.viewheight;
+	g_SPXBSplitP2GameStateWeapon = (unsigned int)p2->s.weapon;
+	g_SPXBSplitP2GameClientNum = (unsigned int)p2->client->ps.clientNum;
+}
 
 static qboolean STEFX_SplitCoopActive( void )
 {
@@ -554,8 +575,7 @@ static qboolean STEFX_SplitCoopP2ReadyForControl( gentity_t *p2 )
 	return (qboolean)( p2
 		&& p2->inuse
 		&& p2->client
-		&& !( p2->s.eFlags & EF_NODRAW )
-		&& p2->e_ThinkFunc != thinkF_NPC_Begin );
+		&& !( p2->s.eFlags & EF_NODRAW ) );
 }
 
 static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
@@ -564,6 +584,8 @@ static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
 	int ammoIndex;
 	int oldWeapon;
 	int oldWeapons;
+	int oldClientNum;
+	int oldViewheight;
 	qboolean changed = qfalse;
 
 	if ( !p2 || !p2->client )
@@ -573,6 +595,36 @@ static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
 
 	oldWeapon = p2->client->ps.weapon;
 	oldWeapons = p2->client->ps.stats[STAT_WEAPONS];
+	oldClientNum = p2->client->ps.clientNum;
+	oldViewheight = p2->client->ps.viewheight;
+
+	if ( p2->client->ps.clientNum != p2->s.number )
+	{
+		p2->client->ps.clientNum = p2->s.number;
+		changed = qtrue;
+	}
+	if ( p2->client->standheight <= 0 )
+	{
+		p2->client->standheight = DEFAULT_MAXS_2;
+		changed = qtrue;
+	}
+	if ( p2->client->crouchheight <= 0 )
+	{
+		p2->client->crouchheight = CROUCH_MAXS_2;
+		changed = qtrue;
+	}
+	if ( p2->maxs[2] <= 0 )
+	{
+		p2->maxs[2] = DEFAULT_MAXS_2;
+		changed = qtrue;
+	}
+	if ( p2->client->ps.viewheight < 8 || p2->client->ps.viewheight > 96 )
+	{
+		p2->client->ps.viewheight = ( p2->client->ps.pm_flags & PMF_DUCKED )
+			? p2->client->crouchheight + STANDARD_VIEWHEIGHT_OFFSET
+			: p2->client->standheight + STANDARD_VIEWHEIGHT_OFFSET;
+		changed = qtrue;
+	}
 
 	p2->client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_NONE );
 	p2->client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_PHASER );
@@ -618,14 +670,24 @@ static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
 		}
 	}
 
-	if ( s_loadoutLogBudget > 0 && ( changed || oldWeapon != p2->client->ps.weapon || oldWeapons != p2->client->ps.stats[STAT_WEAPONS] ) )
+	if ( s_loadoutLogBudget > 0 && ( changed
+		|| oldWeapon != p2->client->ps.weapon
+		|| oldWeapons != p2->client->ps.stats[STAT_WEAPONS]
+		|| oldClientNum != p2->client->ps.clientNum
+		|| oldViewheight != p2->client->ps.viewheight ) )
 	{
-		XBLF( "STEFX_SPLIT_COOP loadout ent=%d oldWeapon=%d newWeapon=%d oldBits=0x%x newBits=0x%x ammo=(%d,%d,%d,%d)",
+		XBLF( "STEFX_SPLIT_COOP loadout ent=%d oldWeapon=%d newWeapon=%d oldBits=0x%x newBits=0x%x oldClient=%d newClient=%d oldView=%d newView=%d heights=%d/%d ammo=(%d,%d,%d,%d)",
 			p2->s.number,
 			oldWeapon,
 			p2->client->ps.weapon,
 			oldWeapons,
 			p2->client->ps.stats[STAT_WEAPONS],
+			oldClientNum,
+			p2->client->ps.clientNum,
+			oldViewheight,
+			p2->client->ps.viewheight,
+			p2->client->standheight,
+			p2->client->crouchheight,
 			p2->client->ps.ammo[0],
 			p2->client->ps.ammo[1],
 			p2->client->ps.ammo[2],
@@ -760,6 +822,7 @@ static void STEFX_SplitCoopRunFrame( void )
 		{
 			gi.cvar_set( "stefx_splitScreenP2Entity", "-1" );
 			s_stefxSplitP2EntNum = ENTITYNUM_NONE;
+			STEFX_SplitCoopRecordP2GameState( NULL );
 			s_loggedInactive = qtrue;
 		}
 		return;
@@ -787,6 +850,7 @@ static void STEFX_SplitCoopRunFrame( void )
 		p2 = STEFX_SplitCoopSpawnP2();
 		if ( !p2 )
 		{
+			STEFX_SplitCoopRecordP2GameState( NULL );
 			return;
 		}
 	}
@@ -802,6 +866,7 @@ static void STEFX_SplitCoopRunFrame( void )
 				p2->nextthink );
 			--s_frameLogBudget;
 		}
+		STEFX_SplitCoopRecordP2GameState( p2 );
 		return;
 	}
 
@@ -867,6 +932,7 @@ static void STEFX_SplitCoopRunFrame( void )
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 82); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->client->ps.stats[STAT_HEALTH], (unsigned int)p2->health, (unsigned int)p2->linked);
 	PlayerStateToEntityState( &p2->client->ps, &p2->s );
+	STEFX_SplitCoopRecordP2GameState( p2 );
 	STEFX_GAME_TRACE_STAGE(0x53504C54, 83); /* SPLT */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)p2->s.number, (unsigned int)p2->s.eType, (unsigned int)p2->s.eFlags, (unsigned int)p2->linked);
 	gi.linkentity( p2 );

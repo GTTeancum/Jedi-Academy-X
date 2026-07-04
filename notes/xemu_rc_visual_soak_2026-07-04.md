@@ -54,6 +54,28 @@ All six XEMU runs exited with code 0 and `alive_at_end`.
   look acceptable while P2's raw client state remains incomplete. This needs a
   state hygiene fix or a source-of-truth fix before calling the RC soak clean.
 
+## Follow-up: Borg6 game-side P2 telemetry
+
+- Added game-side P2 telemetry (`game=weapon/viewheight/stateWeapon/clientNum`)
+  next to the existing renderer-side `hgt`, `wp`, and `eff` fields.
+- A Borg6 proof with startup split commands still showed renderer-side P2
+  fallback (`hgt=28/0/32/16`, `wp=2/0`, `eff=28/0/2`) and game-side zero state
+  (`game=0/0/0/0`).
+- A Borg6 proof with the same split commands moved to post-map command timing
+  also still showed `game=0/0/0/0`, so the failure is deeper than startup-vs-
+  post-map command ordering.
+- Current evidence points to the game-side co-op lifecycle not owning the live
+  Borg6 P2 actor, while cgame still renders an entity selected by
+  `stefx_splitScreenP2Entity`. The next fix should instrument or repair the
+  game-side P2 selection/activation path rather than adding more renderer
+  fallbacks.
+
+Evidence:
+
+- `scripts/output/xemu_verify_borg6_p2_game_state_nodump_borg6_20260704_155648.report.txt`
+- `scripts/output/xemu_verify_borg6_p2_state_hygiene_borg6_20260704_161201.report.txt`
+- `scripts/output/xemu_verify_borg6_p2_state_postmap_borg6_20260704_161822.report.txt`
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving
