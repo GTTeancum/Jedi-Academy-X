@@ -25,6 +25,7 @@ Logged 2026-06-19 for tracking only. Do not treat these as immediate work items 
 - Co-op P2 should get the other character, or possibly custom characters designed by the project manager.
 - Co-op P2 should be treated as a pawn: no cutscene visibility, and Hazard Team AI should not follow them.
 - Enemy AI should still attack P2.
+- Co-op split-screen camera parity remains unfinished: P2 must match P1's first-person and third-person relative camera behavior, and P2 visibility from P1's view still needs sign-off.
 - Multiplayer deathmatch and CTF are stretch goals.
 
 ## Expansion Content

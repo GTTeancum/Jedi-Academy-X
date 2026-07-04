@@ -16,6 +16,46 @@ extern ammoData_t ammoData[];
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBWeaponLoadStage;
+extern "C" volatile unsigned int g_SPXBWeaponLoadReadLen;
+extern "C" volatile unsigned int g_SPXBWeaponLoadTypeWeapon;
+extern "C" volatile unsigned int g_SPXBWeaponLoadModelWeapon;
+extern "C" volatile unsigned int g_SPXBWeaponLoadModelHash;
+extern "C" volatile unsigned int g_SPXBWeaponLoadSlot4Hash;
+extern "C" volatile unsigned int g_SPXBWeaponLoadSlot4Ammo;
+extern "C" volatile unsigned int g_SPXBWeaponLoadSlot4First4;
+
+static unsigned int STEFX_WeaponLoadHash( const char *path )
+{
+	unsigned int hash = 5381;
+	const unsigned char *p = (const unsigned char *)path;
+
+	while ( p && *p )
+	{
+		hash = ((hash << 5) + hash) ^ *p++;
+	}
+
+	return hash;
+}
+
+static unsigned int STEFX_WeaponLoadFirst4( const char *path )
+{
+	const unsigned char *p = (const unsigned char *)path;
+	unsigned int v = 0;
+
+	if ( !p )
+	{
+		return 0;
+	}
+
+	if ( p[0] ) { v |= (unsigned int)p[0]; }
+	if ( p[1] ) { v |= (unsigned int)p[1] << 8; }
+	if ( p[2] ) { v |= (unsigned int)p[2] << 16; }
+	if ( p[3] ) { v |= (unsigned int)p[3] << 24; }
+	return v;
+}
+#endif
 
 typedef struct {
 	char	*name;
@@ -237,6 +277,10 @@ void WPN_WeaponType(char **holdBuf)
 	}
 
 	wpnParms.weaponNum = weaponNum;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponLoadStage = 3;
+	g_SPXBWeaponLoadTypeWeapon = (unsigned int)weaponNum;
+#endif
 }
 
 //--------------------------------------------
@@ -282,6 +326,16 @@ void WPN_WeaponModel(char **holdBuf)
 	}
 
 	Q_strncpyz(weaponData[wpnParms.weaponNum].weaponMdl,tokenStr,len);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponLoadStage = 4;
+	g_SPXBWeaponLoadModelWeapon = (unsigned int)wpnParms.weaponNum;
+	g_SPXBWeaponLoadModelHash = STEFX_WeaponLoadHash( weaponData[wpnParms.weaponNum].weaponMdl );
+	if ( wpnParms.weaponNum == WP_SCAVENGER_RIFLE )
+	{
+		g_SPXBWeaponLoadSlot4Hash = STEFX_WeaponLoadHash( weaponData[WP_SCAVENGER_RIFLE].weaponMdl );
+		g_SPXBWeaponLoadSlot4First4 = STEFX_WeaponLoadFirst4( weaponData[WP_SCAVENGER_RIFLE].weaponMdl );
+	}
+#endif
 }
 
 //--------------------------------------------
@@ -1034,10 +1088,24 @@ void WP_LoadWeaponParms (void)
 
 #ifdef _XBOX
 	XBLog_Write("STEFX: WP_LoadWeaponParms FS_ReadFile ext_data/weapons.dat");
+#if defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponLoadStage = 1;
+	g_SPXBWeaponLoadReadLen = 0;
+	g_SPXBWeaponLoadTypeWeapon = 0;
+	g_SPXBWeaponLoadModelWeapon = 0;
+	g_SPXBWeaponLoadModelHash = 0;
+	g_SPXBWeaponLoadSlot4Hash = 0;
+	g_SPXBWeaponLoadSlot4Ammo = 0;
+	g_SPXBWeaponLoadSlot4First4 = 0;
+#endif
 #endif
 	len = gi.FS_ReadFile("ext_data/weapons.dat",(void **) &buffer);
 #ifdef _XBOX
 	XBLog_Writef("STEFX: WP_LoadWeaponParms read len=%d buffer=%p", len, buffer);
+#if defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponLoadStage = 2;
+	g_SPXBWeaponLoadReadLen = (unsigned int)len;
+#endif
 #endif
 
 	if (len == -1)
@@ -1054,10 +1122,24 @@ void WP_LoadWeaponParms (void)
 	WP_ParseParms(buffer);
 #ifdef _XBOX
 	XBLog_Write("STEFX: WP_LoadWeaponParms parse done");
+#if defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponLoadStage = 5;
+	g_SPXBWeaponLoadSlot4Hash = STEFX_WeaponLoadHash( weaponData[WP_SCAVENGER_RIFLE].weaponMdl );
+	g_SPXBWeaponLoadSlot4Ammo = (unsigned int)weaponData[WP_SCAVENGER_RIFLE].ammoIndex;
+	g_SPXBWeaponLoadSlot4First4 = STEFX_WeaponLoadFirst4( weaponData[WP_SCAVENGER_RIFLE].weaponMdl );
+	XBLog_Writef("STEFX: WP_LoadWeaponParms slot4 model='%s' ammo=%d hash=0x%08x first4=0x%08x",
+		weaponData[WP_SCAVENGER_RIFLE].weaponMdl,
+		weaponData[WP_SCAVENGER_RIFLE].ammoIndex,
+		g_SPXBWeaponLoadSlot4Hash,
+		g_SPXBWeaponLoadSlot4First4);
+#endif
 #endif
 
 	gi.FS_FreeFile( buffer );	//let go of the buffer
 #ifdef _XBOX
 	XBLog_Write("STEFX: WP_LoadWeaponParms done");
+#if defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponLoadStage = 6;
+#endif
 #endif
 }

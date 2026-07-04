@@ -11,6 +11,19 @@
 #include "../win32/xb_log.h"
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceStage;
+extern "C" volatile unsigned int g_SPXBWeaponModelTracePathHash;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceDiskLen;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceDiskSuccess;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceIdent;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceVersion;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceSize;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceLoaded;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceHandle;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceFailCode;
+#endif
+
 #define	LL(x) x=LittleLong(x)
 #ifndef MD4_IDENT
 #define MD4_IDENT			(('5'<<24)+('M'<<16)+('D'<<8)+'R')
@@ -144,6 +157,25 @@ static const byte FakeGLAFile[] =
 0x00, 0x80, 0x00, 0x80, 0x00, 0x80
 };
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_IsWeaponDiskModelName(const char *name)
+{
+	return (name && (strstr(name, "models/weapons2/") || strstr(name, "models\\weapons2\\")));
+}
+
+static unsigned int STEFX_ModelTraceHash(const char *name)
+{
+	unsigned int hash = 5381;
+	const unsigned char *p = (const unsigned char *)name;
+
+	while (p && *p)
+	{
+		hash = ((hash << 5) + hash) ^ *p++;
+	}
+
+	return hash;
+}
+#endif
 
 // returns qtrue if loaded, and sets the supplied qbool to true if it was from cache (instead of disk)
 //   (which we need to know to avoid LittleLong()ing everything again (well, the Mac needs to know anyway)...
@@ -189,7 +221,9 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 				*ppvBuffer = NULL;
 			}
 			int lowerLen = FS_ReadFile( sModelName, ppvBuffer );
-			if ( strstr( psModelFileName, "models/players/" ) || strstr( psModelFileName, "models\\players\\" ) )
+			if ( strstr( psModelFileName, "models/players/" ) ||
+				strstr( psModelFileName, "models\\players\\" ) ||
+				STEFX_IsWeaponDiskModelName( psModelFileName ) )
 			{
 				XBLF( "STEFX: model disk lower retry original='%s' lower='%s' len=%d success=%d buffer=%p",
 					psModelFileName,
@@ -208,7 +242,9 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 
 		const bool bSuccess = !!(*ppvBuffer);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( strstr( psModelFileName, "models/players/borg" ) || strstr( psModelFileName, "models\\players\\borg" ) )
+		if ( strstr( psModelFileName, "models/players/borg" ) ||
+			strstr( psModelFileName, "models\\players\\borg" ) ||
+			STEFX_IsWeaponDiskModelName( psModelFileName ) )
 		{
 			XBLF( "STEFX: model disk fetch '%s' cacheKey='%s' len=%d success=%d buffer=%p",
 				psModelFileName,
@@ -216,6 +252,14 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 				len,
 				bSuccess ? 1 : 0,
 				*ppvBuffer );
+		}
+		if ( STEFX_IsWeaponDiskModelName( psModelFileName ) )
+		{
+			g_SPXBWeaponModelTraceStage = 1;
+			g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( psModelFileName );
+			g_SPXBWeaponModelTraceDiskLen = (unsigned int)len;
+			g_SPXBWeaponModelTraceDiskSuccess = bSuccess ? 1 : 0;
+			g_SPXBWeaponModelTraceFailCode = bSuccess ? 0 : 1;
 		}
 #endif
 
@@ -225,6 +269,20 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 	{
 		*ppvBuffer = ModelBin.pModelDiskImage;
 		*pqbAlreadyCached = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (STEFX_IsWeaponDiskModelName(psModelFileName))
+		{
+			g_SPXBWeaponModelTraceStage = 2;
+			g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( psModelFileName );
+			g_SPXBWeaponModelTraceDiskSuccess = 1;
+			g_SPXBWeaponModelTraceFailCode = 0;
+			XBLF("STEFX: model disk cache hit '%s' size=%d heap=%d buffer=%p",
+				psModelFileName,
+				ModelBin.iAllocSize,
+				ModelBin.bHeapAllocated ? 1 : 0,
+				ModelBin.pModelDiskImage);
+		}
+#endif
 		return qtrue;
 	}
 }
@@ -1057,6 +1115,9 @@ Ghoul2 Insert Start
 /*
 Ghoul2 Insert End
 */
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean stefxWeaponModelTrace = STEFX_IsWeaponDiskModelName(name);
+#endif
 
 	if ( !name || !name[0] ) {
 		VID_Printf( PRINT_WARNING, "RE_RegisterModel: NULL name\n" );
@@ -1089,6 +1150,10 @@ Ghoul2 Insert Start
 			if (tr.models[mh->handle]->type == MOD_BAD)
 			{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (stefxWeaponModelTrace)
+				{
+					XBLF("STEFX: RE_RegisterModel weapon MOD_BAD cache hit '%s' handle=%d", name, mh->handle);
+				}
 				if (STEFX_IsBorgPlayerModelName(name))
 				{
 					XBLF("STEFX: RE_RegisterModel Borg MOD_BAD cache hit exact required '%s' handle=%d", name, mh->handle);
@@ -1097,6 +1162,10 @@ Ghoul2 Insert Start
 				return 0;
 			}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (stefxWeaponModelTrace)
+			{
+				XBLF("STEFX: RE_RegisterModel weapon cache hit '%s' handle=%d type=%d", name, mh->handle, tr.models[mh->handle]->type);
+			}
 			if (STEFX_IsBorgPlayerModelName(name))
 			{
 				XBLF("STEFX: RE_RegisterModel Borg cache hit '%s' handle=%d type=%d", name, mh->handle, tr.models[mh->handle]->type);
@@ -1107,6 +1176,15 @@ Ghoul2 Insert Start
 	}
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxWeaponModelTrace)
+	{
+		g_SPXBWeaponModelTraceStage = 10;
+		g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( name );
+		g_SPXBWeaponModelTraceHandle = 0;
+		g_SPXBWeaponModelTraceLoaded = 0;
+		g_SPXBWeaponModelTraceFailCode = 0;
+		XBLF("STEFX: RE_RegisterModel weapon load required '%s'", name);
+	}
 	if (STEFX_IsBorgPlayerModelName(name))
 	{
 		XBLF("STEFX: RE_RegisterModel Borg exact load required '%s'", name);
@@ -1254,6 +1332,15 @@ Ghoul2 Insert End
 			default:
 
 				VID_Printf (PRINT_WARNING,"RE_RegisterModel: unknown fileid for %s\n", filename);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (stefxWeaponModelTrace)
+				{
+					g_SPXBWeaponModelTraceStage = 14;
+					g_SPXBWeaponModelTraceIdent = ident;
+					g_SPXBWeaponModelTraceFailCode = 2;
+					XBLF("STEFX: RE_RegisterModel weapon unknown ident '%s' ident=0x%08x", filename, ident);
+				}
+#endif
 				goto fail;
 		}
 		
@@ -1264,6 +1351,15 @@ Ghoul2 Insert End
 		if ( !loaded ) {
 			if ( lod == 0 ) {
 				VID_Printf (PRINT_WARNING,"RE_RegisterModel: cannot load %s\n", filename);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (stefxWeaponModelTrace)
+				{
+					g_SPXBWeaponModelTraceStage = 15;
+					g_SPXBWeaponModelTraceLoaded = 0;
+					g_SPXBWeaponModelTraceFailCode = 3;
+					XBLF("STEFX: RE_RegisterModel weapon load failed '%s' lod=%d", filename, lod);
+				}
+#endif
 				goto fail;
 			} else {
 				break;
@@ -1292,6 +1388,16 @@ Ghoul2 Insert Start
 */
 
 	RE_InsertModelIntoHash(name, mod);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxWeaponModelTrace)
+	{
+		g_SPXBWeaponModelTraceStage = 20;
+		g_SPXBWeaponModelTraceHandle = (unsigned int)mod->index;
+		g_SPXBWeaponModelTraceLoaded = (unsigned int)numLoaded;
+		g_SPXBWeaponModelTraceFailCode = 0;
+		XBLF("STEFX: RE_RegisterModel weapon loaded '%s' handle=%d lods=%d", name, mod->index, mod->numLods);
+	}
+#endif
 	return mod->index;
 /*
 Ghoul2 Insert End
@@ -1305,6 +1411,17 @@ fail:
 	// again, we won't bother scanning the filesystem
 	mod->type = MOD_BAD;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxWeaponModelTrace)
+	{
+		g_SPXBWeaponModelTraceStage = 30;
+		g_SPXBWeaponModelTraceHandle = (unsigned int)mod->index;
+		g_SPXBWeaponModelTraceLoaded = (unsigned int)numLoaded;
+		if (g_SPXBWeaponModelTraceFailCode == 0)
+		{
+			g_SPXBWeaponModelTraceFailCode = 4;
+		}
+		XBLF("STEFX: RE_RegisterModel weapon fail insert MOD_BAD '%s' index=%d numLoaded=%d", name, mod->index, numLoaded);
+	}
 	if (STEFX_IsPlayerModelName(name))
 	{
 		const char *fallbackName = STEFX_DefaultPlayerMdrFallbackName(name);
@@ -1604,10 +1721,38 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		version = LittleLong(version);
 		size	= LittleLong(size);
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_IsWeaponDiskModelName(mod_name))
+	{
+		g_SPXBWeaponModelTraceStage = 11;
+		g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( mod_name );
+		g_SPXBWeaponModelTraceVersion = (unsigned int)version;
+		g_SPXBWeaponModelTraceSize = (unsigned int)size;
+		g_SPXBWeaponModelTraceFailCode = 0;
+		XBLF("STEFX: R_LoadMD3 weapon begin '%s' lod=%d cached=%d version=%d size=%d",
+			mod_name,
+			lod,
+			bAlreadyCached ? 1 : 0,
+			version,
+			size);
+	}
+#endif
 	
 	if (version != MD3_VERSION) {
 		VID_Printf( PRINT_WARNING, "R_LoadMD3: %s has wrong version (%i should be %i)\n",
 				 mod_name, version, MD3_VERSION);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (STEFX_IsWeaponDiskModelName(mod_name))
+		{
+			g_SPXBWeaponModelTraceStage = 12;
+			g_SPXBWeaponModelTraceVersion = (unsigned int)version;
+			g_SPXBWeaponModelTraceFailCode = 5;
+			XBLF("STEFX: R_LoadMD3 weapon wrong version '%s' version=%d expected=%d",
+				mod_name,
+				version,
+				MD3_VERSION);
+		}
+#endif
 		return qfalse;
 	}
 
@@ -1619,6 +1764,12 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	if (!mod->md3[lod])
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (STEFX_IsWeaponDiskModelName(mod_name))
+		{
+			g_SPXBWeaponModelTraceStage = 13;
+			g_SPXBWeaponModelTraceSize = (unsigned int)size;
+			g_SPXBWeaponModelTraceFailCode = 6;
+		}
 		XBLF("STEFX: R_LoadMD3 allocation failed '%s' lod=%d size=%d", mod_name, lod, size);
 #endif
 		return qfalse;
@@ -1654,11 +1805,28 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 
 	if ( mod->md3[lod]->numFrames < 1 ) {
 		VID_Printf( PRINT_WARNING, "R_LoadMD3: %s has no frames\n", mod_name );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (STEFX_IsWeaponDiskModelName(mod_name))
+		{
+			g_SPXBWeaponModelTraceStage = 16;
+			g_SPXBWeaponModelTraceFailCode = 7;
+			XBLF("STEFX: R_LoadMD3 weapon no frames '%s'", mod_name);
+		}
+#endif
 		return qfalse;
 	}
 
 	if (bAlreadyFound)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (STEFX_IsWeaponDiskModelName(mod_name))
+		{
+			g_SPXBWeaponModelTraceStage = 17;
+			g_SPXBWeaponModelTraceLoaded = 1;
+			g_SPXBWeaponModelTraceFailCode = 0;
+			XBLF("STEFX: R_LoadMD3 weapon cache reused '%s' lod=%d", mod_name, lod);
+		}
+#endif
 		return qtrue;	// All done. Stop, go no further, do not pass Go...
 	}
 
@@ -1776,6 +1944,14 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		// find the next surface
 		surf = (md3Surface_t *)( (byte *)surf + surf->ofsEnd );
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_IsWeaponDiskModelName(mod_name))
+	{
+		g_SPXBWeaponModelTraceStage = 18;
+		g_SPXBWeaponModelTraceLoaded = 1;
+		g_SPXBWeaponModelTraceFailCode = 0;
+	}
+#endif
     
 	return qtrue;
 }

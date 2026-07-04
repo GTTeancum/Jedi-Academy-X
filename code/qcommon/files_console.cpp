@@ -42,6 +42,7 @@ static qboolean STEFX_ShouldTraceAssetOpen(const char *filename)
 		(strstr(filename, ".mdr") || strstr(filename, ".md3") ||
 		 strstr(filename, ".skin") || strstr(filename, "animation.cfg") ||
 		 strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items") ||
+		 strstr(filename, "ext_data/weapons") || strstr(filename, "ext_data\\weapons") ||
 		 strstr(filename, "ext_data/NPCs") || strstr(filename, "ext_data\\NPCs") ||
 		 strstr(filename, "ext_data/addon") || strstr(filename, "ext_data\\addon") ||
 		 strstr(filename, "maps/") || strstr(filename, "maps\\") ||
@@ -68,7 +69,8 @@ static qboolean STEFX_IsCriticalWholeFileRead(const char *filename)
 	ext = strrchr(filename, '.');
 	return !Q_stricmp(filename, "default.cfg") ||
 		(ext && !Q_stricmp(ext, ".dat") &&
-		 (strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items"))) ||
+		 ((strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items")) ||
+		  (strstr(filename, "ext_data/weapons") || strstr(filename, "ext_data\\weapons")))) ||
 		(ext && !Q_stricmp(ext, ".cfg") &&
 		 (strstr(filename, "ext_data/NPCs") || strstr(filename, "ext_data\\NPCs"))) ||
 		(ext && !Q_stricmp(ext, ".npc") &&

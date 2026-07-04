@@ -28,6 +28,44 @@ extern "C" volatile unsigned int g_SPXBViewWeaponP1Renderfx;
 extern "C" volatile unsigned int g_SPXBViewWeaponP2Renderfx;
 extern "C" volatile unsigned int g_SPXBViewWeaponP1LastSkip;
 extern "C" volatile unsigned int g_SPXBViewWeaponP2LastSkip;
+extern "C" volatile unsigned int g_SPXBWeaponRegWeapon;
+extern "C" volatile unsigned int g_SPXBWeaponRegPathHash;
+extern "C" volatile unsigned int g_SPXBWeaponRegViewModel;
+extern "C" volatile unsigned int g_SPXBWeaponRegWorldModel;
+extern "C" volatile unsigned int g_SPXBWeaponRegHandsModel;
+extern "C" volatile unsigned int g_SPXBWeaponRegFailCode;
+extern "C" volatile unsigned int g_SPXBWeaponRegFirst4;
+extern "C" volatile unsigned int g_SPXBWeaponRegClassHash;
+
+static unsigned int CG_STEFX_PathHash( const char *path )
+{
+	unsigned int hash = 5381;
+	const unsigned char *p = (const unsigned char *)path;
+
+	while ( p && *p )
+	{
+		hash = ((hash << 5) + hash) ^ *p++;
+	}
+
+	return hash;
+}
+
+static unsigned int CG_STEFX_First4( const char *path )
+{
+	const unsigned char *p = (const unsigned char *)path;
+	unsigned int v = 0;
+
+	if ( !p )
+	{
+		return 0;
+	}
+
+	if ( p[0] ) { v |= (unsigned int)p[0]; }
+	if ( p[1] ) { v |= (unsigned int)p[1] << 8; }
+	if ( p[2] ) { v |= (unsigned int)p[2] << 16; }
+	if ( p[3] ) { v |= (unsigned int)p[3] << 24; }
+	return v;
+}
 
 static int CG_STEFX_ViewWeaponSlotFromRenderfx( int splitSlotRenderfx )
 {
@@ -102,6 +140,14 @@ void CG_RegisterWeapon( int weaponNum ) {
 	weaponInfo->registered = qtrue;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	stefxMissingViewModel = qfalse;
+	g_SPXBWeaponRegWeapon = (unsigned int)weaponNum;
+	g_SPXBWeaponRegPathHash = CG_STEFX_PathHash( weaponData[weaponNum].weaponMdl );
+	g_SPXBWeaponRegFirst4 = CG_STEFX_First4( weaponData[weaponNum].weaponMdl );
+	g_SPXBWeaponRegClassHash = CG_STEFX_PathHash( weaponData[weaponNum].classname );
+	g_SPXBWeaponRegViewModel = 0;
+	g_SPXBWeaponRegWorldModel = 0;
+	g_SPXBWeaponRegHandsModel = 0;
+	g_SPXBWeaponRegFailCode = 0;
 #endif
 
 	// find the weapon in the item list
@@ -138,6 +184,14 @@ void CG_RegisterWeapon( int weaponNum ) {
 
 	// set up in view weapon model
 	weaponInfo->weaponModel = cgi_R_RegisterModel( weaponData[weaponNum].weaponMdl );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponRegViewModel = (unsigned int)weaponInfo->weaponModel;
+	XBLF( "STEFX: CG_RegisterWeapon view weapon=%d class='%s' model='%s' handle=%d",
+		weaponNum,
+		weaponData[weaponNum].classname,
+		weaponData[weaponNum].weaponMdl,
+		weaponInfo->weaponModel );
+#endif
 
 	if ( weaponInfo->weaponModel == NULL )
 	{
@@ -149,6 +203,7 @@ void CG_RegisterWeapon( int weaponNum ) {
 			weaponData[weaponNum].classname );
 		weaponInfo->weaponModel = 0;
 		stefxMissingViewModel = qtrue;
+		g_SPXBWeaponRegFailCode = 1;
 #else
 		CG_Error( "Couldn't find weapon model %s\n", weaponData[weaponNum].classname);
 		return;
@@ -201,6 +256,7 @@ void CG_RegisterWeapon( int weaponNum ) {
 		weaponInfo->weaponWorldModel = weaponInfo->weaponModel;
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponRegWorldModel = (unsigned int)weaponInfo->weaponWorldModel;
 	if ( stefxMissingViewModel )
 	{
 		CG_Printf( "STEFX: CG_RegisterWeapon world fallback status weapon=%s world='%s' worldModel=%d\n",
@@ -243,6 +299,15 @@ void CG_RegisterWeapon( int weaponNum ) {
 	if ( !weaponInfo->handsModel ) {
 		weaponInfo->handsModel = cgi_R_RegisterModel( "models/weapons2/prifle/prifle_hand.md3" );
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBWeaponRegHandsModel = (unsigned int)weaponInfo->handsModel;
+	XBLF( "STEFX: CG_RegisterWeapon done weapon=%d view=%d world=%d hands=%d fail=%d",
+		weaponNum,
+		weaponInfo->weaponModel,
+		weaponInfo->weaponWorldModel,
+		weaponInfo->handsModel,
+		g_SPXBWeaponRegFailCode );
+#endif
 
 	// register the sounds for the weapon
 	if (weaponData[weaponNum].firingSnd[0]) {

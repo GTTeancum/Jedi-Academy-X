@@ -811,6 +811,32 @@ def main():
         "_g_SPXBViewWeaponP2RendererFiltered",
         "_g_SPXBViewWeaponP1LastSkip",
         "_g_SPXBViewWeaponP2LastSkip",
+        "_g_SPXBWeaponRegWeapon",
+        "_g_SPXBWeaponRegPathHash",
+        "_g_SPXBWeaponRegViewModel",
+        "_g_SPXBWeaponRegWorldModel",
+        "_g_SPXBWeaponRegHandsModel",
+        "_g_SPXBWeaponRegFailCode",
+        "_g_SPXBWeaponModelTraceStage",
+        "_g_SPXBWeaponModelTracePathHash",
+        "_g_SPXBWeaponModelTraceDiskLen",
+        "_g_SPXBWeaponModelTraceDiskSuccess",
+        "_g_SPXBWeaponModelTraceIdent",
+        "_g_SPXBWeaponModelTraceVersion",
+        "_g_SPXBWeaponModelTraceSize",
+        "_g_SPXBWeaponModelTraceLoaded",
+        "_g_SPXBWeaponModelTraceHandle",
+        "_g_SPXBWeaponModelTraceFailCode",
+        "_g_SPXBWeaponLoadStage",
+        "_g_SPXBWeaponLoadReadLen",
+        "_g_SPXBWeaponLoadTypeWeapon",
+        "_g_SPXBWeaponLoadModelWeapon",
+        "_g_SPXBWeaponLoadModelHash",
+        "_g_SPXBWeaponLoadSlot4Hash",
+        "_g_SPXBWeaponLoadSlot4Ammo",
+        "_g_SPXBWeaponLoadSlot4First4",
+        "_g_SPXBWeaponRegFirst4",
+        "_g_SPXBWeaponRegClassHash",
         "_g_SPXBSplitCameraMode",
         "_g_SPXBSplitP1TraceFrac1000",
         "_g_SPXBSplitP1LocalX1000",
@@ -1030,6 +1056,32 @@ def main():
                         vw_p2_render_filtered = word_for("_g_SPXBViewWeaponP2RendererFiltered")
                         vw_p1_last_skip = word_for("_g_SPXBViewWeaponP1LastSkip")
                         vw_p2_last_skip = word_for("_g_SPXBViewWeaponP2LastSkip")
+                        weapon_reg_weapon = word_for("_g_SPXBWeaponRegWeapon")
+                        weapon_reg_hash = word_for("_g_SPXBWeaponRegPathHash")
+                        weapon_reg_view = word_for("_g_SPXBWeaponRegViewModel")
+                        weapon_reg_world = word_for("_g_SPXBWeaponRegWorldModel")
+                        weapon_reg_hands = word_for("_g_SPXBWeaponRegHandsModel")
+                        weapon_reg_fail = word_for("_g_SPXBWeaponRegFailCode")
+                        weapon_model_stage = word_for("_g_SPXBWeaponModelTraceStage")
+                        weapon_model_hash = word_for("_g_SPXBWeaponModelTracePathHash")
+                        weapon_model_disk_len = word_for("_g_SPXBWeaponModelTraceDiskLen")
+                        weapon_model_disk_success = word_for("_g_SPXBWeaponModelTraceDiskSuccess")
+                        weapon_model_ident = word_for("_g_SPXBWeaponModelTraceIdent")
+                        weapon_model_version = word_for("_g_SPXBWeaponModelTraceVersion")
+                        weapon_model_size = word_for("_g_SPXBWeaponModelTraceSize")
+                        weapon_model_loaded = word_for("_g_SPXBWeaponModelTraceLoaded")
+                        weapon_model_handle = word_for("_g_SPXBWeaponModelTraceHandle")
+                        weapon_model_fail = word_for("_g_SPXBWeaponModelTraceFailCode")
+                        weapon_load_stage = word_for("_g_SPXBWeaponLoadStage")
+                        weapon_load_read_len = word_for("_g_SPXBWeaponLoadReadLen")
+                        weapon_load_type_weapon = word_for("_g_SPXBWeaponLoadTypeWeapon")
+                        weapon_load_model_weapon = word_for("_g_SPXBWeaponLoadModelWeapon")
+                        weapon_load_model_hash = word_for("_g_SPXBWeaponLoadModelHash")
+                        weapon_load_slot4_hash = word_for("_g_SPXBWeaponLoadSlot4Hash")
+                        weapon_load_slot4_ammo = word_for("_g_SPXBWeaponLoadSlot4Ammo")
+                        weapon_load_slot4_first4 = word_for("_g_SPXBWeaponLoadSlot4First4")
+                        weapon_reg_first4 = word_for("_g_SPXBWeaponRegFirst4")
+                        weapon_reg_class_hash = word_for("_g_SPXBWeaponRegClassHash")
                         split_camera_mode = word_for("_g_SPXBSplitCameraMode")
                         split_p1_trace = word_for("_g_SPXBSplitP1TraceFrac1000")
                         split_p1_local_x = word_for("_g_SPXBSplitP1LocalX1000")
@@ -1051,7 +1103,7 @@ def main():
                         sv_probe_b = word_for("_g_SPXBSVProbeB")
                         sv_probe_c = word_for("_g_SPXBSVProbeC")
                         sv_probe_d = word_for("_g_SPXBSVProbeD")
-                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
+                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
                              heartbeat_rt, heartbeat_st, heartbeat_fps10 / 10.0,
@@ -1096,11 +1148,22 @@ def main():
                               vw_p1_adds, vw_p2_adds, vw_p1_skips, vw_p2_skips,
                               vw_p1_model, vw_p2_model,
                               vw_p1_rf, vw_p2_rf,
-                              vw_p1_render_adds, vw_p2_render_adds,
-                              vw_p1_render_filtered, vw_p2_render_filtered,
-                              vw_p1_last_skip, vw_p2_last_skip,
-                              direct_status, direct_hash, direct_queued,
-                             sv_probe_magic, sv_probe_phase, sv_probe_subphase,
+                               vw_p1_render_adds, vw_p2_render_adds,
+                               vw_p1_render_filtered, vw_p2_render_filtered,
+                               vw_p1_last_skip, vw_p2_last_skip,
+                               weapon_reg_weapon, weapon_reg_hash,
+                               weapon_reg_first4, weapon_reg_class_hash,
+                               weapon_reg_view, weapon_reg_world, weapon_reg_hands,
+                               weapon_reg_fail, weapon_load_stage, weapon_load_read_len,
+                               weapon_load_type_weapon, weapon_load_model_weapon,
+                               weapon_load_model_hash, weapon_load_slot4_hash,
+                               weapon_load_slot4_ammo, weapon_load_slot4_first4,
+                               weapon_model_stage, weapon_model_hash,
+                               weapon_model_disk_len, weapon_model_disk_success,
+                               weapon_model_ident, weapon_model_version, weapon_model_size,
+                               weapon_model_loaded, weapon_model_handle, weapon_model_fail,
+                               direct_status, direct_hash, direct_queued,
+                              sv_probe_magic, sv_probe_phase, sv_probe_subphase,
                              sv_probe_a, sv_probe_b, sv_probe_c, sv_probe_d))
                     elif len(words) >= 3:
                         boot_phase = words[0]
