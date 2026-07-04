@@ -269,6 +269,27 @@ foreach ($mapName in $Maps) {
     Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_log.txt") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $stageDir "memmap.txt") -Force -ErrorAction SilentlyContinue
 
+    if (-not $Repack) {
+        $controlFiles = @(
+            (Join-Path $stageDir "ef_sp_level.txt"),
+            (Join-Path $stageDir "ef_sp_commands.txt"),
+            (Join-Path $stageDir "ef_sp_postmap_commands.txt")
+        ) | Where-Object { Test-Path -LiteralPath $_ }
+        $isoWriteTime = if (Test-Path -LiteralPath $Iso) {
+            [System.IO.File]::GetLastWriteTimeUtc($Iso)
+        }
+        else {
+            [DateTime]::MinValue
+        }
+        $newerControls = @($controlFiles | Where-Object {
+            [System.IO.File]::GetLastWriteTimeUtc($_) -gt $isoWriteTime
+        })
+
+        if ($newerControls.Count -gt 0) {
+            Write-Warning "Stage control files are newer than the ISO. Use -Repack for authoritative map/command changes; otherwise this run may launch stale ISO contents."
+        }
+    }
+
     if ($Repack) {
         if (-not (Test-Path $builtXbe)) {
             throw "Built XBE not found: $builtXbe"
