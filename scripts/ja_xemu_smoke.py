@@ -270,7 +270,11 @@ def monitor_pmemsave(sock, phys_addr, byte_count, path):
             os.remove(path)
     except Exception:
         pass
-    monitor_cmd(sock, "pmemsave 0x%08x 0x%x %s" % (phys_addr, byte_count, monitor_path), 1.0)
+    monitor_cmd(sock, "pmemsave 0x%08x 0x%x %s" % (phys_addr, byte_count, monitor_path), 2.0)
+    for _ in range(100):
+        if os.path.exists(path) and os.path.getsize(path) >= byte_count:
+            return True
+        time.sleep(0.1)
     return os.path.exists(path) and os.path.getsize(path) >= byte_count
 
 

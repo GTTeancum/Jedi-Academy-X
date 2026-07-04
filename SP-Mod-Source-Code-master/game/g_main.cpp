@@ -714,11 +714,19 @@ static void STEFX_SplitCoopEnsureBaseLoadout( gentity_t *p2 )
 
 static void STEFX_SplitCoopTakeControl( gentity_t *p2 )
 {
+	static int s_takeControlLogBudget = 12;
+	int oldSvFlags;
+	int oldEFlags;
+	int oldPsEFlags;
+
 	if ( !p2 || !p2->client )
 	{
 		return;
 	}
 
+	oldSvFlags = p2->svFlags;
+	oldEFlags = p2->s.eFlags;
+	oldPsEFlags = p2->client->ps.eFlags;
 	p2->client->playerTeam = TEAM_STARFLEET;
 	p2->client->enemyTeam = TEAM_BORG;
 	p2->client->ps.persistant[PERS_TEAM] = TEAM_STARFLEET;
@@ -736,6 +744,21 @@ static void STEFX_SplitCoopTakeControl( gentity_t *p2 )
 	p2->nextthink = 0;
 	STEFX_SplitCoopEnsureBaseLoadout( p2 );
 	STEFX_SplitCoopApplyP2Model( p2 );
+
+	if ( s_takeControlLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP take-control ent=%d sv=0x%x->0x%x ef=0x%x->0x%x pse=0x%x->0x%x think=%d next=%d",
+			p2->s.number,
+			oldSvFlags,
+			p2->svFlags,
+			oldEFlags,
+			p2->s.eFlags,
+			oldPsEFlags,
+			p2->client->ps.eFlags,
+			p2->e_ThinkFunc,
+			p2->nextthink );
+		--s_takeControlLogBudget;
+	}
 }
 
 static qboolean STEFX_SplitCoopWeaponSelectable( const gentity_t *p2, int weapon )
@@ -878,6 +901,7 @@ static void STEFX_SplitCoopRunFrame( void )
 	}
 	STEFX_SplitCoopRecordP2Lifecycle( 50, splitCvar, playersCvar, p2->s.number, p1Ready );
 
+	STEFX_SplitCoopTakeControl( p2 );
 	if ( !STEFX_SplitCoopP2ReadyForControl( p2 ) )
 	{
 		STEFX_SplitCoopRecordP2Lifecycle( 60, splitCvar, playersCvar, p2->s.number, p1Ready );

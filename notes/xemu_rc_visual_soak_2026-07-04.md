@@ -76,6 +76,21 @@ Evidence:
 - `scripts/output/xemu_verify_borg6_p2_state_hygiene_borg6_20260704_161201.report.txt`
 - `scripts/output/xemu_verify_borg6_p2_state_postmap_borg6_20260704_161822.report.txt`
 
+## Follow-up: Borg6 P2 lifecycle deadlock
+
+- Added game-side P2 lifecycle telemetry (`glife=stage/split/players/p2ent/cache/p1ready`) to separate missing telemetry from missing simulation.
+- A Borg6 proof before the fix reached `glife=60/1/2/238/238/1`, meaning P2 existed and P1 was ready, but the loop stopped at the P2 ready-for-control gate.
+- The ready gate was circular: it rejected P2 while `EF_NODRAW` was still set, but the takeover path that clears `EF_NODRAW` only ran after that gate.
+- Moved P2 takeover before the gate and added a one-shot flag transition breadcrumb in `STEFX_SplitCoopTakeControl`.
+- The fixed Borg6 XEMU proof reached `glife=90/1/2/238/238/1`, with game-side `game=2/28/2/238`, renderer-side `hgt=28/28/32/16`, `wp=2/2`, and three successful 640x480 framebuffer captures.
+
+Evidence:
+
+- `scripts/output/xemu_verify_borg6_p2_lifecycle_borg6_20260704_165100.report.txt`
+- `scripts/output/xemu_verify_borg6_p2_takecontrol_borg6_20260704_170946.report.txt`
+- `scripts/output/xemu_verify_borg6_p2_takecontrol_capture_borg6_20260704_171330.report.txt`
+- `scripts/output/xemu_verify_borg6_p2_takecontrol_capture_borg6_20260704_171330_contact.png`
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving
