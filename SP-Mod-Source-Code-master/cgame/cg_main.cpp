@@ -142,6 +142,7 @@ vmCvar_t	cg_stefxSplitScreen;
 vmCvar_t	cg_stefxSplitScreenPlayers;
 vmCvar_t	cg_stefxSplitScreenP2Entity;
 vmCvar_t	cg_stefxSplitScreenP2Zoom;
+vmCvar_t	cg_stefxSplitScreenWeaponUp;
 vmCvar_t	cg_language;
 
 vmCvar_t	cg_pano;
@@ -230,6 +231,7 @@ cvarTable_t		cvarTable[] = {
 	{ &cg_stefxSplitScreenPlayers, "stefx_splitScreenPlayers", "1", CVAR_TEMP },
 	{ &cg_stefxSplitScreenP2Entity, "stefx_splitScreenP2Entity", "-1", CVAR_TEMP },
 	{ &cg_stefxSplitScreenP2Zoom, "stefx_splitScreenP2Zoom", "0", CVAR_TEMP },
+	{ &cg_stefxSplitScreenWeaponUp, "stefx_splitScreenWeaponUp", "1", CVAR_TEMP },
 	{ &cg_language,	"g_language", "", CVAR_ARCHIVE | CVAR_NORESTART},
 	{ &cg_virtualVoyager, "cg_virtualvoyager", "0", CVAR_NORESTART },
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "15000", CVAR_ARCHIVE  },

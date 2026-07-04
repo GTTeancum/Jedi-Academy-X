@@ -595,6 +595,7 @@ extern	vmCvar_t		cg_stefxSplitScreen;
 extern	vmCvar_t		cg_stefxSplitScreenPlayers;
 extern	vmCvar_t		cg_stefxSplitScreenP2Entity;
 extern	vmCvar_t		cg_stefxSplitScreenP2Zoom;
+extern	vmCvar_t		cg_stefxSplitScreenWeaponUp;
 extern	vmCvar_t		cg_language;
 
 extern	vmCvar_t		cg_pano;
@@ -660,6 +661,10 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView );
 
 
 void CG_AdjustFrom640( float *x, float *y, float *w, float *h );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+void CG_STEFX_SetSplitHudViewport( float x, float y, float w, float h );
+void CG_STEFX_ClearSplitHudViewport( void );
+#endif
 void CG_FillRect( float x, float y, float width, float height, const float *color );
 void CG_Scissor( float x, float y, float width, float height);
 void CG_DrawPic( float x, float y, float width, float height, qhandle_t hShader );
@@ -764,6 +769,9 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire );
 //void CG_ChargeWeapon( centity_t *cent );
 
 void CG_AddViewWeapon (playerState_t *ps);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+void CG_STEFX_AddSplitViewWeapon( playerState_t *ps, centity_t *cent, const refdef_t *viewRefdef, const vec3_t viewAngles, int slot );
+#endif
 void CG_DrawWeaponSelect( void );
 
 void CG_OutOfAmmoChange( void );	// should this be in pmove?

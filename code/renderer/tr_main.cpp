@@ -12,6 +12,11 @@
 #endif
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBSplitSlotActive;
+extern "C" volatile unsigned int g_SPXBViewWeaponP1RendererAdds;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2RendererAdds;
+extern "C" volatile unsigned int g_SPXBViewWeaponP1RendererFiltered;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2RendererFiltered;
 #endif
 
 void R_AddTerrainSurfaces(void);
@@ -1489,6 +1494,33 @@ void R_AddEntitySurfaces (void) {
 		  tr.currentEntityNum++ ) {
 		ent = tr.currentEntity = &tr.refdef.entities[tr.currentEntityNum];
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_HIDE_SLOT0 ) && g_SPXBSplitSlotActive == 1 ) {
+			continue;
+		}
+		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_HIDE_SLOT1 ) && g_SPXBSplitSlotActive == 2 ) {
+			continue;
+		}
+		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_SLOT0 ) && g_SPXBSplitSlotActive != 1 ) {
+			if ( ent->e.renderfx & RF_FIRST_PERSON ) {
+				++g_SPXBViewWeaponP1RendererFiltered;
+			}
+			continue;
+		}
+		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_SLOT1 ) && g_SPXBSplitSlotActive != 2 ) {
+			if ( ent->e.renderfx & RF_FIRST_PERSON ) {
+				++g_SPXBViewWeaponP2RendererFiltered;
+			}
+			continue;
+		}
+		if ( g_SPXBSplitSlotActive == 2 &&
+			( ent->e.renderfx & RF_FIRST_PERSON ) &&
+			!( ent->e.renderfx & RF_STEFX_SPLIT_SLOT1 ) ) {
+			++g_SPXBViewWeaponP1RendererFiltered;
+			continue;
+		}
+#endif
+
 		ent->needDlights = qfalse;
 
 		// preshift the value we are going to OR into the drawsurf sort
@@ -1510,6 +1542,17 @@ void R_AddEntitySurfaces (void) {
 		if ( (ent->e.renderfx & RF_FIRST_PERSON) && tr.viewParms.isPortal) {
 			continue;
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( ent->e.renderfx & RF_FIRST_PERSON ) {
+			if ( g_SPXBSplitSlotActive == 2 && ( ent->e.renderfx & RF_STEFX_SPLIT_SLOT1 ) ) {
+				++g_SPXBViewWeaponP2RendererAdds;
+			}
+			else if ( g_SPXBSplitSlotActive == 1 && !( ent->e.renderfx & RF_STEFX_SPLIT_SLOT1 ) ) {
+				++g_SPXBViewWeaponP1RendererAdds;
+			}
+		}
+#endif
 
 
 		// simple generated models, like sprites and beams, are not culled

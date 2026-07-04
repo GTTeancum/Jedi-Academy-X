@@ -52,6 +52,10 @@
 
 #ifdef _XBOX
 #define RF_XBOX_NOCULL_BMODEL 0x800000 // local brush-model cull is unreliable for some moving BSP entities
+#define RF_STEFX_SPLIT_SLOT0  0x01000000 // first-person split-screen entity for top/P1 view only
+#define RF_STEFX_SPLIT_SLOT1  0x02000000 // first-person split-screen entity for bottom/P2 view only
+#define RF_STEFX_SPLIT_HIDE_SLOT0 0x04000000 // hide third-person self model from top/P1 view
+#define RF_STEFX_SPLIT_HIDE_SLOT1 0x08000000 // hide third-person self model from bottom/P2 view
 #endif
 
 // refdef flags

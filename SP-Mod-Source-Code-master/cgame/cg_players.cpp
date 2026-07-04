@@ -20,6 +20,17 @@ taken from the entityState_t
 qboolean CG_RegisterClientModelname( clientInfo_t *ci, const char *headModelName, const char *headSkinName, 
 									const char *torsoModelName, const char *torsoSkinName, 
 									const char *legsModelName, const char *legsSkinName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void CG_RegisterClientModels (int entityNum);
+extern "C" volatile unsigned int g_SPXBSplitP2ModelEnter;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelReturn;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelInfoValid;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelSubmitted;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelLegs;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelTorso;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelHead;
+extern "C" volatile unsigned int g_SPXBSplitP2ModelRenderfx;
+#endif
 
 void CG_PlayerAnimSounds( animsounds_t *animSounds, int frame, int entNum );
 extern void FX_BorgDeathSparkParticles( vec3_t origin, vec3_t angles, vec3_t vel, vec3_t user );
@@ -3263,9 +3274,15 @@ void CG_Player( centity_t *cent ) {
 	static int		s_stefxThirdPersonLogBudget = 96;
 	static int		s_stefxSplitP1ModelLogBudget = 6;
 	static int		s_stefxSplitP2ModelLogBudget = 6;
+	static int		s_stefxSplitP2RegisterLogBudget = 12;
+	static int		s_stefxSplitFlashSuppressLogBudget = 24;
 	qboolean		stefxLogPlayer = qfalse;
 	qboolean		stefxLogThirdPerson = qfalse;
 	qboolean		stefxLogSplitModel = qfalse;
+	qboolean		stefxSplitActive = qfalse;
+	qboolean		stefxSplitP2Model = qfalse;
+	qboolean		stefxSuppressSplitFlash = qfalse;
+	qboolean		stefxSuppressSplitSelfWeapon = qfalse;
 	const char		*stefxSplitRole = "";
 #endif
 
@@ -3314,17 +3331,28 @@ void CG_Player( centity_t *cent ) {
 	}
 	if ( cent && cg.snap && cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 )
 	{
-		if ( cent->currentState.number == cg.snap->ps.clientNum && s_stefxSplitP1ModelLogBudget > 0 )
+		stefxSplitActive = qtrue;
+		stefxSuppressSplitFlash = qtrue;
+		if ( cent->currentState.number == cg.snap->ps.clientNum )
 		{
-			stefxLogSplitModel = qtrue;
 			stefxSplitRole = "P1";
-			--s_stefxSplitP1ModelLogBudget;
+			if ( s_stefxSplitP1ModelLogBudget > 0 )
+			{
+				stefxLogSplitModel = qtrue;
+				--s_stefxSplitP1ModelLogBudget;
+			}
 		}
-		else if ( cent->currentState.number == cg_stefxSplitScreenP2Entity.integer && s_stefxSplitP2ModelLogBudget > 0 )
+		else if ( cent->currentState.number == cg_stefxSplitScreenP2Entity.integer )
 		{
-			stefxLogSplitModel = qtrue;
+			stefxSplitP2Model = qtrue;
 			stefxSplitRole = "P2";
-			--s_stefxSplitP2ModelLogBudget;
+			++g_SPXBSplitP2ModelEnter;
+			g_SPXBSplitP2ModelReturn = 0;
+			if ( s_stefxSplitP2ModelLogBudget > 0 )
+			{
+				stefxLogSplitModel = qtrue;
+				--s_stefxSplitP2ModelLogBudget;
+			}
 		}
 		if ( stefxLogSplitModel )
 		{
@@ -3343,6 +3371,10 @@ void CG_Player( centity_t *cent ) {
 	if ( cent->currentState.eFlags & EF_NODRAW ) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelReturn = 1;
+		}
 		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=EF_NODRAW ent=%d eFlags=0x%x",
@@ -3359,6 +3391,10 @@ void CG_Player( centity_t *cent ) {
 	if(!cent->gent)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelReturn = 2;
+		}
 		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=no_gent ent=%d eFlags=0x%x",
@@ -3372,6 +3408,10 @@ void CG_Player( centity_t *cent ) {
 	if(!cent->gent->client)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelReturn = 3;
+		}
 		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=no_client ent=%d eFlags=0x%x gent=%p",
@@ -3386,6 +3426,10 @@ void CG_Player( centity_t *cent ) {
 	if ((in_camera) && !(cent->currentState.eFlags & EF_NPC))	// If player in camera then no need for shadow
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelReturn = 4;
+		}
 		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=in_camera ent=%d eFlags=0x%x cg_thirdPerson=%d renderingThirdPerson=%d",
@@ -3405,9 +3449,55 @@ void CG_Player( centity_t *cent ) {
 
 	ci = &cent->gent->client->clientInfo;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxSplitActive &&
+		cent->currentState.number == cg_stefxSplitScreenP2Entity.integer &&
+		!ci->infoValid )
+	{
+		if ( s_stefxSplitP2RegisterLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_MODEL registering dynamic P2 ent=%d renderNames=(%s,%s,%s) models=(%d,%d,%d) skins=(%d,%d,%d)",
+				cent->currentState.number,
+				cent->gent->client->renderInfo.legsModelName,
+				cent->gent->client->renderInfo.torsoModelName,
+				cent->gent->client->renderInfo.headModelName,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin );
+			--s_stefxSplitP2RegisterLogBudget;
+		}
+		CG_RegisterClientModels( cent->currentState.number );
+		ci = &cent->gent->client->clientInfo;
+		if ( s_stefxSplitP2RegisterLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_MODEL registered dynamic P2 ent=%d infoValid=%d models=(%d,%d,%d) skins=(%d,%d,%d)",
+				cent->currentState.number,
+				ci->infoValid ? 1 : 0,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin );
+			--s_stefxSplitP2RegisterLogBudget;
+		}
+	}
+#endif
+
 	if ( !ci->infoValid ) 
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelReturn = 5;
+			g_SPXBSplitP2ModelInfoValid = 0;
+			g_SPXBSplitP2ModelLegs = (unsigned int)ci->legsModel;
+			g_SPXBSplitP2ModelTorso = (unsigned int)ci->torsoModel;
+			g_SPXBSplitP2ModelHead = (unsigned int)ci->headModel;
+		}
 		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
 		{
 			XBLF( "STEFX_THIRD_PERSON: return reason=info_invalid ent=%d name='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d",
@@ -3444,6 +3534,13 @@ void CG_Player( centity_t *cent ) {
 	}
 	if ( stefxLogSplitModel )
 	{
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelInfoValid = ci->infoValid ? 1 : 0;
+			g_SPXBSplitP2ModelLegs = (unsigned int)ci->legsModel;
+			g_SPXBSplitP2ModelTorso = (unsigned int)ci->torsoModel;
+			g_SPXBSplitP2ModelHead = (unsigned int)ci->headModel;
+		}
 		XBLF( "STEFX_SPLIT_MODEL valid role=%s ent=%d name='%s' renderNames=(%s,%s,%s) models=(%d,%d,%d) skins=(%d,%d,%d) weapon=%d race=%d team=%d",
 			stefxSplitRole,
 			cent->currentState.number,
@@ -3512,6 +3609,20 @@ void CG_Player( centity_t *cent ) {
 
 	// get the player model information
 	renderfx = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxSplitActive && !cg.renderingThirdPerson )
+	{
+		if ( cent->currentState.number == cg.snap->ps.clientNum )
+		{
+			renderfx |= RF_STEFX_SPLIT_HIDE_SLOT0;
+		}
+		else if ( cent->currentState.number == cg_stefxSplitScreenP2Entity.integer )
+		{
+			renderfx |= RF_STEFX_SPLIT_HIDE_SLOT1;
+		}
+	}
+	else
+#endif
 	if ( cent->currentState.number == cg.snap->ps.clientNum && !cg.renderingThirdPerson ) 
 	{
 		renderfx = RF_THIRD_PERSON;			// only draw in mirrors
@@ -3565,6 +3676,13 @@ void CG_Player( centity_t *cent ) {
 
 	CG_AddRefEntityWithPowerups( &legs, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxSplitP2Model )
+	{
+		++g_SPXBSplitP2ModelSubmitted;
+		g_SPXBSplitP2ModelReturn = 10;
+		g_SPXBSplitP2ModelRenderfx = (unsigned int)legs.renderfx;
+		g_SPXBSplitP2ModelLegs = (unsigned int)legs.hModel;
+	}
 	if ( stefxLogPlayer )
 	{
 		XBLF( "STEFX: CG_Player submitted legs ent=%d h=%d skin=%d frame=%d old=%d rf=0x%x origin=(%g,%g,%g)",
@@ -3904,6 +4022,22 @@ void CG_Player( centity_t *cent ) {
 			gun.shadowPlane = shadowPlane;
 			gun.renderfx = renderfx;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( stefxSuppressSplitSelfWeapon )
+			{
+				static int s_stefxSplitSelfWeaponSuppressLogBudget = 24;
+				if ( s_stefxSplitSelfWeaponSuppressLogBudget > 0 )
+				{
+					XBLF( "STEFX_SPLIT_MODEL suppress local self weapon ent=%d role=%s weapon=%d model=%d",
+						cent->currentState.number,
+						stefxSplitRole,
+						cent->currentState.weapon,
+						gun.hModel );
+					--s_stefxSplitSelfWeaponSuppressLogBudget;
+				}
+			}
+			else
+#endif
 			if ( cent->currentState.weapon != WP_BORG_TASER || Q_stricmp( "satan", cent->gent->NPC_type ) != 0 )
 			{//uber-hack: satan's robot doesn't actually draw the weapon in-hand
 				CG_AddRefEntityWithPowerups( &gun, 
@@ -3916,47 +4050,74 @@ void CG_Player( centity_t *cent ) {
 			//
 
 			// impulse flash
-			if ( cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( !stefxSuppressSplitSelfWeapon )
 			{
-				if ( cent->gent->alt_fire && weapon->flashaModel ) {
-					if (weapon->flasha2Model && ( rand() & 1 ) ) {
-						flash.hModel = weapon->flasha2Model;
-					} else {
-						flash.hModel = weapon->flashaModel;
-					}
-				}
-				else {
-					// always fallback to main flash
-					if (weapon->flash2Model && ( rand() & 1 ) ) {
-						flash.hModel = weapon->flash2Model;
-					} else {
-						flash.hModel = weapon->flashModel;
-					}
-				}
-
-				if (flash.hModel) 
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if ( stefxSuppressSplitFlash && cent->muzzleFlashTime > 0 &&
+					cg.time >= cent->muzzleFlashTime &&
+					cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME &&
+					s_stefxSplitFlashSuppressLogBudget > 0 )
 				{
-					CG_PositionEntityOnTag( &flash, &gun, gun.hModel, "tag_flash");
-					flash.renderfx = renderfx | RF_NOSHADOW;
-					cgi_R_AddRefEntityToScene( &flash );
-
-					// make a dlight for the flash
-					if ( wData->flashColor[0] || wData->flashColor[1] || wData->flashColor[2] ) {
-						cgi_R_AddLightToScene( flash.origin, 200 + (rand()&31), wData->flashColor[0],
-							wData->flashColor[1], wData->flashColor[2] );
+					XBLF( "STEFX_SPLIT_MODEL suppress third-person flash ent=%d role=%s weapon=%d flashTime=%d now=%d",
+						cent->currentState.number,
+						stefxSplitRole,
+						cent->currentState.weapon,
+						cent->muzzleFlashTime,
+						cg.time );
+					--s_stefxSplitFlashSuppressLogBudget;
+				}
+				if ( !stefxSuppressSplitFlash &&
+					cent->muzzleFlashTime > 0 &&
+					cg.time >= cent->muzzleFlashTime &&
+					cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME )
+#else
+				if ( cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME )
+#endif
+				{
+					if ( cent->gent->alt_fire && weapon->flashaModel ) {
+						if (weapon->flasha2Model && ( rand() & 1 ) ) {
+							flash.hModel = weapon->flasha2Model;
+						} else {
+							flash.hModel = weapon->flashaModel;
+						}
+					}
+					else {
+						// always fallback to main flash
+						if (weapon->flash2Model && ( rand() & 1 ) ) {
+							flash.hModel = weapon->flash2Model;
+						} else {
+							flash.hModel = weapon->flashModel;
+						}
 					}
 
-					if(!calcedMp)
+					if (flash.hModel)
 					{
-						// add lightning bolt
-						CG_LightningBolt( cent, flash.origin );
+						CG_PositionEntityOnTag( &flash, &gun, gun.hModel, "tag_flash");
+						flash.renderfx = renderfx | RF_NOSHADOW;
+						cgi_R_AddRefEntityToScene( &flash );
 
-						VectorCopy( flash.origin, cent->gent->client->renderInfo.muzzlePoint );
-						cent->gent->client->renderInfo.mPCalcTime = cg.time;
-						calcedMp = qtrue;
+						// make a dlight for the flash
+						if ( wData->flashColor[0] || wData->flashColor[1] || wData->flashColor[2] ) {
+							cgi_R_AddLightToScene( flash.origin, 200 + (rand()&31), wData->flashColor[0],
+								wData->flashColor[1], wData->flashColor[2] );
+						}
+
+						if(!calcedMp)
+						{
+							// add lightning bolt
+							CG_LightningBolt( cent, flash.origin );
+
+							VectorCopy( flash.origin, cent->gent->client->renderInfo.muzzlePoint );
+							cent->gent->client->renderInfo.mPCalcTime = cg.time;
+							calcedMp = qtrue;
+						}
 					}
 				}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 			}
+#endif
 
 			if (!calcedMp)
 			{// Set the muzzle point

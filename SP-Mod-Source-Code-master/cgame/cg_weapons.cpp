@@ -17,6 +17,54 @@ extern void CG_LightningBolt( centity_t *cent, vec3_t origin );
 
 #define	PHASER_HOLDFRAME	2
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBViewWeaponP1Adds;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2Adds;
+extern "C" volatile unsigned int g_SPXBViewWeaponP1Skips;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2Skips;
+extern "C" volatile unsigned int g_SPXBViewWeaponP1Model;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2Model;
+extern "C" volatile unsigned int g_SPXBViewWeaponP1Renderfx;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2Renderfx;
+extern "C" volatile unsigned int g_SPXBViewWeaponP1LastSkip;
+extern "C" volatile unsigned int g_SPXBViewWeaponP2LastSkip;
+
+static int CG_STEFX_ViewWeaponSlotFromRenderfx( int splitSlotRenderfx )
+{
+	return ( splitSlotRenderfx & RF_STEFX_SPLIT_SLOT1 ) ? 2 : 1;
+}
+
+static void CG_STEFX_ViewWeaponSkip( int splitSlotRenderfx, unsigned int reason )
+{
+	if ( CG_STEFX_ViewWeaponSlotFromRenderfx( splitSlotRenderfx ) == 2 )
+	{
+		++g_SPXBViewWeaponP2Skips;
+		g_SPXBViewWeaponP2LastSkip = reason;
+	}
+	else
+	{
+		++g_SPXBViewWeaponP1Skips;
+		g_SPXBViewWeaponP1LastSkip = reason;
+	}
+}
+
+static void CG_STEFX_ViewWeaponAdd( int splitSlotRenderfx, int model, int renderfx )
+{
+	if ( CG_STEFX_ViewWeaponSlotFromRenderfx( splitSlotRenderfx ) == 2 )
+	{
+		++g_SPXBViewWeaponP2Adds;
+		g_SPXBViewWeaponP2Model = (unsigned int)model;
+		g_SPXBViewWeaponP2Renderfx = (unsigned int)renderfx;
+	}
+	else
+	{
+		++g_SPXBViewWeaponP1Adds;
+		g_SPXBViewWeaponP1Model = (unsigned int)model;
+		g_SPXBViewWeaponP1Renderfx = (unsigned int)renderfx;
+	}
+}
+#endif
+
 /*
 =================
 CG_RegisterWeapon
@@ -34,8 +82,8 @@ void CG_RegisterWeapon( int weaponNum ) {
 	int				itemIndex;
 	int				ammoIndex;
 	int				firstNullItem;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
-	qboolean		stefxWeaponModelFallback = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean		stefxMissingViewModel;
 #endif
 
 	weaponInfo = &cg_weapons[weaponNum];
@@ -52,6 +100,9 @@ void CG_RegisterWeapon( int weaponNum ) {
 	// clear out the memory we use
 	memset( weaponInfo, 0, sizeof( *weaponInfo ) );
 	weaponInfo->registered = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	stefxMissingViewModel = qfalse;
+#endif
 
 	// find the weapon in the item list
 	item = NULL;
@@ -93,16 +144,11 @@ void CG_RegisterWeapon( int weaponNum ) {
 		CG_Printf( "STEFX: CG_RegisterWeapon missing view model '%s' for weapon %s\n",
 			weaponData[weaponNum].weaponMdl,
 			weaponData[weaponNum].classname );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
-		CG_Printf( "STEFX: CG_RegisterWeapon survival fallback model %d\n", cgs.media.explosionModel );
-		weaponInfo->weaponModel = cgs.media.explosionModel;
-		if ( weaponInfo->weaponModel == NULL )
-		{
-			CG_Printf( "STEFX: CG_RegisterWeapon no fallback model for weapon %s; weapon visuals disabled\n",
-				weaponData[weaponNum].classname );
-			return;
-		}
-		stefxWeaponModelFallback = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_Printf( "STEFX: CG_RegisterWeapon missing view model for weapon %s; continuing with world/FX registration\n",
+			weaponData[weaponNum].classname );
+		weaponInfo->weaponModel = 0;
+		stefxMissingViewModel = qtrue;
 #else
 		CG_Error( "Couldn't find weapon model %s\n", weaponData[weaponNum].classname);
 		return;
@@ -110,25 +156,17 @@ void CG_RegisterWeapon( int weaponNum ) {
 	}
 
 	// calc midpoint for rotation
-	cgi_R_ModelBounds( weaponInfo->weaponModel, mins, maxs );
-	for ( i = 0 ; i < 3 ; i++ ) {
-		weaponInfo->weaponMidpoint[i] = mins[i] + 0.5 * ( maxs[i] - mins[i] );
+	if ( weaponInfo->weaponModel ) {
+		cgi_R_ModelBounds( weaponInfo->weaponModel, mins, maxs );
+		for ( i = 0 ; i < 3 ; i++ ) {
+			weaponInfo->weaponMidpoint[i] = mins[i] + 0.5 * ( maxs[i] - mins[i] );
+		}
+	}
+	else {
+		VectorClear( weaponInfo->weaponMidpoint );
 	}
 	// setup the shader we will use for the icon
 	weaponInfo->weaponIcon = cgi_R_RegisterShaderNoMip( weaponData[weaponNum].weaponIcon);
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
-	if ( stefxWeaponModelFallback )
-	{
-		weaponInfo->weaponWorldModel = weaponInfo->weaponModel;
-		weaponInfo->handsModel = weaponInfo->weaponModel;
-		XBLF("STEFX: CG_RegisterWeapon Xbox fallback ready weapon=%d class='%s' model=%d",
-			weaponNum,
-			weaponData[weaponNum].classname,
-			weaponInfo->weaponModel);
-		goto stefx_register_weapon_sounds;
-	}
-#endif
 
 	ammo = NULL;
 	for ( ammoIndex = 1 ; ammoIndex < bg_numItems ; ammoIndex++ ) {
@@ -162,6 +200,15 @@ void CG_RegisterWeapon( int weaponNum ) {
 	if ( !weaponInfo->weaponWorldModel) {
 		weaponInfo->weaponWorldModel = weaponInfo->weaponModel;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxMissingViewModel )
+	{
+		CG_Printf( "STEFX: CG_RegisterWeapon world fallback status weapon=%s world='%s' worldModel=%d\n",
+			weaponData[weaponNum].classname,
+			item->world_model ? item->world_model : "<null>",
+			weaponInfo->weaponWorldModel );
+	}
+#endif
 
 	// set up the in view flash frame - 1
 	strcpy( path, weaponData[weaponNum].weaponMdl );
@@ -197,9 +244,6 @@ void CG_RegisterWeapon( int weaponNum ) {
 		weaponInfo->handsModel = cgi_R_RegisterModel( "models/weapons2/prifle/prifle_hand.md3" );
 	}
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURVIVAL_HACKS)
-stefx_register_weapon_sounds:
-#endif
 	// register the sounds for the weapon
 	if (weaponData[weaponNum].firingSnd[0]) {
 		weaponInfo->firingSound = cgi_S_RegisterSound( weaponData[weaponNum].firingSnd );
@@ -580,16 +624,22 @@ CG_AddViewWeapon
 Add the weapon, and flash for the player's view
 ==============
 */
-void CG_AddViewWeapon( playerState_t *ps ) {
+static void CG_AddViewWeaponForSlot( playerState_t *ps, centity_t *cent, int splitSlotRenderfx ) {
 	refEntity_t	hand;
 	refEntity_t	gun;
 	refEntity_t	flash;
 	vec3_t		angles;
 	const weaponInfo_t	*weapon;
 	const weaponData_t  *wData;
-	centity_t	*cent;
 	clientInfo_t	*ci;
 	float		fovOffset;
+
+	if ( !ps || !cent ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_STEFX_ViewWeaponSkip( splitSlotRenderfx, 1 );
+#endif
+		return;
+	}
 
 	// no gun if in third person view
 	if ( cg.renderingThirdPerson )
@@ -601,6 +651,9 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 			XBLF("STEFX: CG_AddViewWeapon skip reason=thirdperson weapon=%d", ps ? ps->weapon : -1);
 			stefxViewWeaponThirdPersonLogBudget--;
 		}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_STEFX_ViewWeaponSkip( splitSlotRenderfx, 2 );
 #endif
 		return;
 	}
@@ -615,10 +668,12 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 			stefxViewWeaponIntermissionLogBudget--;
 		}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_STEFX_ViewWeaponSkip( splitSlotRenderfx, 3 );
+#endif
 		return;
 	}
 
-	cent = &cg_entities[cg.snap->ps.clientNum];
 	// allow the gun to be completely removed
 	if ( !cg_drawGun.integer || cg.zoomed ) {
 		vec3_t		origin;
@@ -640,6 +695,9 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 		VectorMA( origin, -6, cg.refdef.viewaxis[1], origin );
 		CG_LightningBolt( cent, origin );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_STEFX_ViewWeaponSkip( splitSlotRenderfx, 4 );
+#endif
 		return;
 	}
 
@@ -653,6 +711,9 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 			XBLF("STEFX: CG_AddViewWeapon skip reason=testgun weapon=%d", ps ? ps->weapon : -1);
 			stefxViewWeaponTestGunLogBudget--;
 		}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_STEFX_ViewWeaponSkip( splitSlotRenderfx, 5 );
 #endif
 		return;
 	}
@@ -676,6 +737,12 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 	VectorMA( hand.origin, cg_gun_x.value, cg.refdef.viewaxis[0], hand.origin );
 	VectorMA( hand.origin, cg_gun_y.value, cg.refdef.viewaxis[1], hand.origin );
 	VectorMA( hand.origin, (cg_gun_z.value+fovOffset), cg.refdef.viewaxis[2], hand.origin );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 && cg_stefxSplitScreenWeaponUp.value != 0.0f )
+	{
+		VectorMA( hand.origin, cg_stefxSplitScreenWeaponUp.value, cg.refdef.viewaxis[2], hand.origin );
+	}
+#endif
 
 	AnglesToAxis( angles, hand.axis );
 
@@ -713,24 +780,30 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 			stefxViewWeaponMissingModelLogBudget--;
 		}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CG_STEFX_ViewWeaponSkip( splitSlotRenderfx, 6 );
+#endif
 		return;
 	}
 
 	AnglesToAxis( angles, gun.axis );
 	CG_PositionEntityOnTag( &gun, &hand, weapon->handsModel, "tag_weapon");
 
-	gun.renderfx = RF_MINLIGHT | RF_DEPTHHACK | RF_FIRST_PERSON;
+	gun.renderfx = RF_MINLIGHT | RF_DEPTHHACK | RF_FIRST_PERSON | splitSlotRenderfx;
 
 	cgi_R_AddRefEntityToScene( &gun );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	CG_STEFX_ViewWeaponAdd( splitSlotRenderfx, gun.hModel, gun.renderfx );
 	{
 		static int stefxViewWeaponLogBudget = 16;
 		if ( stefxViewWeaponLogBudget > 0 )
 		{
-			XBLF("STEFX: CG_AddViewWeapon added weapon=%d gunModel=%d handsModel=%d frame=%d origin=(%g,%g,%g)",
+			XBLF("STEFX: CG_AddViewWeapon added slot=%d weapon=%d gunModel=%d handsModel=%d slotfx=0x%x frame=%d origin=(%g,%g,%g)",
+				CG_STEFX_ViewWeaponSlotFromRenderfx( splitSlotRenderfx ),
 				ps->weapon,
 				weapon->weaponModel,
 				weapon->handsModel,
+				splitSlotRenderfx,
 				gun.frame,
 				gun.origin[0],
 				gun.origin[1],
@@ -800,7 +873,7 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 		if ( ( cg.time - cg_entities[ cg.snap->ps.clientNum ].muzzleFlashTime <= MUZZLE_FLASH_TIME ) ||
 		   ( ( ps->weapon == WP_PHASER ) && (  cent->currentState.eFlags & EF_FIRING ) ) )
 		{
-			flash.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON;
+			flash.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON | splitSlotRenderfx;
 			cgi_R_AddRefEntityToScene( &flash );
 		}
 	}
@@ -815,6 +888,41 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 		cent->gent->client->renderInfo.mPCalcTime = cg.time;
 	}
 }
+
+void CG_AddViewWeapon( playerState_t *ps ) {
+	CG_AddViewWeaponForSlot( ps, &cg_entities[cg.snap->ps.clientNum], 0 );
+}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+void CG_STEFX_AddSplitViewWeapon( playerState_t *ps, centity_t *cent, const refdef_t *viewRefdef, const vec3_t viewAngles, int slot ) {
+	refdef_t savedRefdef;
+	vec3_t savedViewAngles;
+	qboolean savedThirdPerson;
+	int slotRenderfx;
+
+	if ( !ps || !cent || !viewRefdef || slot <= 0 ) {
+		return;
+	}
+	if ( cg.renderingThirdPerson ) {
+		return;
+	}
+
+	savedRefdef = cg.refdef;
+	VectorCopy( cg.refdefViewAngles, savedViewAngles );
+	savedThirdPerson = cg.renderingThirdPerson;
+
+	cg.refdef = *viewRefdef;
+	VectorCopy( viewAngles, cg.refdefViewAngles );
+	cg.renderingThirdPerson = qfalse;
+
+	slotRenderfx = ( slot == 1 ) ? RF_STEFX_SPLIT_SLOT1 : RF_STEFX_SPLIT_SLOT0;
+	CG_AddViewWeaponForSlot( ps, cent, slotRenderfx );
+
+	cg.refdef = savedRefdef;
+	VectorCopy( savedViewAngles, cg.refdefViewAngles );
+	cg.renderingThirdPerson = savedThirdPerson;
+}
+#endif
 
 /*
 ==============================================================================
