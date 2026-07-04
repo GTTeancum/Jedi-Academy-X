@@ -124,6 +124,31 @@ Evidence:
 - `scripts/output/xemu_rc_post_takecontrol_firstperson_borg6_20260704_173110_contact.png`
 - `scripts/output/xemu_rc_post_takecontrol_firstperson_forge5_20260704_173237_contact.png`
 
+## Follow-up: Repacked first-person XEMU proof
+
+- Reran the first-person proof with `-Repack` so the XEMU ISO actually carried
+  `cg_thirdPerson 0`. This replaces the invalid no-repack run above.
+- Borg3, borg6, and forge5 all reached gameplay and produced three valid
+  640x480 framebuffer captures each. The contact sheets show split HUD and
+  first-person weapon rendering in both player viewports.
+- Telemetry proves this was first-person (`cam=0`), with populated P2 state on
+  all three maps: borg3 `game=2/28/2/251`, borg6 `game=2/28/2/238`, forge5
+  `game=2/28/2/266`, and `glife=90/1/2/...`.
+- The large red/black weapon flare still did not recur.
+- The remaining release-readiness concern is composition rather than weapon
+  draw: the lower/P2 viewport can be crowded by nearby bodies or wall geometry,
+  especially with `stefx_splitScreenTestP2Input 1` driving automated movement.
+  Treat this as a P2 spacing/camera/automation review item, not as solved.
+
+Evidence:
+
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_borg3_20260704_174448_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_borg3_20260704_174448.report.txt`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_borg6_20260704_174739_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_borg6_20260704_174739.report.txt`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_forge5_20260704_175002_contact.png`
+- `scripts/output/xemu_rc_post_takecontrol_firstperson_repack_forge5_20260704_175002.report.txt`
+
 ## Cleanup
 
 Removed transient `repack_sp_*_20260704_*.log` scratch logs after preserving
