@@ -418,10 +418,14 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxSnapshotEventBudget = 32;
     static int s_stefxCaptureBudget = 64;
     static int s_stefxShaderTraceBudget = 0;
-    static int s_stefxSurfaceTraceBudget = 0;
-    static int s_stefxSurfaceSubmitTraceBudget = 0;
+    static int s_stefxSurfaceTraceBudget = 256;
+    static int s_stefxSurfaceSubmitTraceBudget = 512;
     static int s_stefxDrawStageTraceBudget = 96;
+    static int s_stefxEffectDrawTraceBudget = 240;
     static int s_stefxScriptPanelTraceBudget = 512;
+    static int s_stefxWorldFallbackBudget = 96;
+    static int s_stefxBorgLeafTraceBudget = 256;
+    static int s_stefxBorgDirectTraceBudget = 256;
     static int s_stefxInputTraceBudget = 256;
     static int s_stefxSplitTraceBudget = 256;
     static int s_stefxSkyTraceBudget = 96;
@@ -458,6 +462,24 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX_SURFACE", &s_stefxSurfaceTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_DRAW_STAGE", &s_stefxDrawStageTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_POLY", &s_stefxEffectDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_STAGE", &s_stefxEffectDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_ENTITY_ADD", &s_stefxEffectDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_SPRITE", &s_stefxEffectDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_BEAM", &s_stefxEffectDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_WORLD_FALLBACK", &s_stefxWorldFallbackBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_WORLD_SKIP", &s_stefxWorldFallbackBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_LEAF", &s_stefxBorgLeafTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_DIRECT", &s_stefxBorgDirectTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_SCRIPT_PANEL", &s_stefxScriptPanelTraceBudget);
     if (budgeted >= 0) return budgeted;
@@ -1101,7 +1123,11 @@ static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
     if (strstr(fmt, "STEFX_DRAW_STAGE") ||
+        strstr(fmt, "STEFX_SURFACE") ||
+        strstr(fmt, "STEFX_EFFECT_STAGE") ||
         strstr(fmt, "STEFX_SCRIPT_PANEL") ||
+        strstr(fmt, "STEFX_BORG_LEAF") ||
+        strstr(fmt, "STEFX_BORG_DIRECT") ||
         strstr(fmt, "STEFX_MENU_INPUT") ||
         strstr(fmt, "STEFX_MENU_") ||
         strstr(fmt, "STEFX_INPUT") ||

@@ -52,6 +52,9 @@ cvar_t	*r_drawfog;
 cvar_t	*r_speeds;
 cvar_t	*r_fullbright;
 cvar_t	*r_novis;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+cvar_t	*stefx_xbox_world_novis;
+#endif
 cvar_t	*r_nocull;
 cvar_t	*r_facePlaneCull;
 cvar_t	*r_showcluster;
@@ -1286,6 +1289,9 @@ void R_Register( void )
 	r_ignore = Cvar_Get( "r_ignore", "1", CVAR_TEMP );
 	r_nocull = Cvar_Get ("r_nocull", "0", CVAR_CHEAT);
 	r_novis = Cvar_Get ("r_novis", "0", CVAR_CHEAT);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	stefx_xbox_world_novis = Cvar_Get( "stefx_xbox_world_novis", "0", CVAR_TEMP );
+#endif
 	r_showcluster = Cvar_Get ("r_showcluster", "0", CVAR_CHEAT);
 	r_speeds = Cvar_Get ("r_speeds", "0", CVAR_CHEAT);
 	r_verbose = Cvar_Get( "r_verbose", "0", CVAR_CHEAT );
