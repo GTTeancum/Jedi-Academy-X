@@ -754,6 +754,28 @@ static void R_EFLogSurfaceShader( const char *type, int code, int shaderNum, int
 		mapShader = &s_worldData.shaders[shaderNum];
 	}
 
+	if ( !mapShader || !mapShader->shader ||
+		( Q_stricmp( mapShader->shader, "textures/common/black" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/static2" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/static2_nonsolid" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/borgfield" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/borgfield_nonsolid" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/borgfield_opaque" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/bars" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/bars2" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/basic1" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/forceborder" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/forceborder2" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/forceborder3" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/energy1" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/energy1_solid" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/energy1_green" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/bigborg" ) &&
+		  Q_stricmp( mapShader->shader, "textures/borg/oddlight1" ) ) )
+	{
+		return;
+	}
+
 	R_EFBoundsForVerts( verts, firstVert, numVerts, mins, maxs );
 
 	XBLF("STEFX_SURFACE type='%s' map='%s' code=%d shaderNum=%d mapName='%s' resolved='%s' mapSurf=0x%x mapCont=0x%x fog=%d verts=%d firstVert=%d indexes=%d firstIndex=%d lm=%d,%d,%d,%d styles=%u,%u,%u,%u boundsMin=%g,%g,%g boundsMax=%g,%g,%g default=%d explicit=%d passes=%d sort=%g",
@@ -853,6 +875,76 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 
 	return shader;
 }
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static surfaceType_t s_stefxSkipSurfaceData = SF_SKIP;
+
+static qboolean R_EFShouldSkipBorg6BlackBackingSurface( const dshader_t *mapShader, int surfaceCode )
+{
+	if ( !mapShader || Q_stricmp( s_worldData.name, "maps/borg6.bsp" ) )
+	{
+		return qfalse;
+	}
+
+	if ( Q_stricmp( mapShader->shader, "textures/common/black" ) )
+	{
+		return qfalse;
+	}
+
+	return ( surfaceCode == 2426 || surfaceCode == 3910 ) ? qtrue : qfalse;
+}
+
+static qboolean R_EFShouldSkipRawDrawSurface( int shaderNum, int surfaceCode )
+{
+	const dshader_t *mapShader;
+
+	if ( shaderNum < 0 || shaderNum >= s_worldData.numShaders )
+	{
+		return qfalse;
+	}
+
+	mapShader = &s_worldData.shaders[shaderNum];
+	if ( mapShader->surfaceFlags & SURF_NODRAW )
+	{
+		return qtrue;
+	}
+
+	if ( !Q_stricmp( mapShader->shader, "noshader" ) )
+	{
+		return qtrue;
+	}
+
+	if ( R_EFShouldSkipBorg6BlackBackingSurface( mapShader, surfaceCode ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static void R_EFSkipRawDrawSurface( msurface_t *surf, int shaderNum, const char *type )
+{
+	static int s_skipLogBudget = 64;
+	const dshader_t *mapShader = ( shaderNum >= 0 && shaderNum < s_worldData.numShaders ) ? &s_worldData.shaders[shaderNum] : NULL;
+
+	if ( surf )
+	{
+		surf->shader = tr.defaultShader;
+		surf->data = &s_stefxSkipSurfaceData;
+	}
+
+	if ( s_skipLogBudget > 0 )
+	{
+		XBLF("STEFX_WORLD_SKIP raw draw surface type='%s' shaderNum=%d mapName='%s' surf=0x%x contents=0x%x",
+			type ? type : "<null>",
+			shaderNum,
+			mapShader ? mapShader->shader : "<bad>",
+			mapShader ? mapShader->surfaceFlags : 0,
+			mapShader ? mapShader->contentFlags : 0);
+		--s_skipLogBudget;
+	}
+}
+#endif
 
 bool NeedVertexColors(shader_t *shader)
 {
@@ -1100,13 +1192,21 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 	// get fog volume
 	surf->fogIndex = ds->fogNum + 1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+	if ( R_EFShouldSkipRawDrawSurface( ds->shaderNum, ds->code ) )
+	{
+		R_EFSkipRawDrawSurface( surf, ds->shaderNum, "face" );
+		return;
+	}
+#endif
+
 	// get shader value
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
 #ifdef _XBOX
-	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
 	R_EFLogSurfaceShader( "face", ds->code, ds->shaderNum, surf->fogIndex,
 		ds->verts, ds->indexes, lightmapNum, ds->lightmapStyles, verts, surf->shader );
 #endif
@@ -1250,7 +1350,6 @@ static void ParseMesh ( dpatch_t *ds, mapVert_t *verts, msurface_t *surf,
 	short			lightmapNum[MAXLIGHTMAPS];
 	vec3_t			bounds[2];
 	vec3_t			tmpVec;
-	static surfaceType_t	skipData = SF_SKIP;
 
 	for(i=0;i<MAXLIGHTMAPS;i++)
 	{
@@ -1260,23 +1359,24 @@ static void ParseMesh ( dpatch_t *ds, mapVert_t *verts, msurface_t *surf,
 	// get fog volume
 	surf->fogIndex = ds->fogNum + 1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+	if ( R_EFShouldSkipRawDrawSurface( ds->shaderNum, ds->code ) )
+	{
+		R_EFSkipRawDrawSurface( surf, ds->shaderNum, "patch" );
+		return;
+	}
+#endif
+
 	// get shader value
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
 #ifdef _XBOX
-	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
 	R_EFLogSurfaceShader( "patch", ds->code, ds->shaderNum, surf->fogIndex,
 		ds->verts, 0, lightmapNum, ds->lightmapStyles, verts, surf->shader );
 #endif
-
-	// we may have a nodraw surface, because they might still need to
-	// be around for movement clipping
-	if ( s_worldData.shaders[ ds->shaderNum ].surfaceFlags & SURF_NODRAW ) {
-		surf->data = &skipData;
-		return;
-	}
 
 	width = ds->patchWidth;
 	height = ds->patchHeight;
@@ -1343,13 +1443,21 @@ static void ParseTriSurf( dtrisurf_t *ds, mapVert_t *verts, msurface_t *surf, sh
 	// get fog volume
 	surf->fogIndex = ds->fogNum + 1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+	if ( R_EFShouldSkipRawDrawSurface( ds->shaderNum, ds->code ) )
+	{
+		R_EFSkipRawDrawSurface( surf, ds->shaderNum, "trisurf" );
+		return;
+	}
+#endif
+
 	// get shader
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapsVertex, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
 #ifdef _XBOX
-	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
 	R_EFLogSurfaceShader( "trisurf", ds->code, ds->shaderNum, surf->fogIndex,
 		ds->verts, ds->indexes, lightmapsVertex, ds->lightmapStyles, verts, surf->shader );
 #endif

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import struct
@@ -25,7 +26,7 @@ warnings.filterwarnings(
 )
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageEnhance, ImageStat
 except ImportError as exc:  # pragma: no cover - this is an operator error path
     raise SystemExit("Pillow is required to build XBOX0.PK3") from exc
 
@@ -116,10 +117,30 @@ ORIGINAL_FORMAT_TEXTURES = (
     # Dark/detail-heavy sky backing loses too much signal in the current DXT1
     # conversion, so keep the stock JPG until the Xbox-native path is proven.
     "textures/borg/borgsky",
+    # Borg forcefields and cutout panels depend on precise alpha/additive
+    # behavior. Keep these on the stock TGA/JPG upload path until the Xbox DDS
+    # path has matching XEMU/console visual proof.
+    "textures/borg/bars",
+    "textures/borg/bars2",
+    "textures/borg/basic1",
+    "textures/borg/forceborder",
+    "textures/borg/forceborder2",
+    "textures/borg/forceborder3",
+    "textures/borg/static",
+    "textures/borg/static2",
+    "textures/borg/static_yellow",
     "textures/common/70yearjourney",
     "textures/common/enemyspace",
     "textures/common/sevenspace",
     "textures/common/tuvokhazard",
+)
+BORG_ADDITIVE_SIGNAL_TEXTURES = (
+    # The stock Borg forcefield noise plates are extremely dark. They are drawn
+    # as additive overlays over black backing surfaces, so the Xbox path needs a
+    # stronger source signal to avoid reading as flat black panels in XEMU.
+    "textures/borg/static",
+    "textures/borg/static2",
+    "textures/borg/static_yellow",
 )
 
 XBOX_PATCH_SHADER_TEXT = """\
@@ -256,6 +277,83 @@ def should_preserve_original_texture(candidate: str) -> bool:
     if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
         candidate = normalized_rel(path.with_suffix("").as_posix())
     return candidate in ORIGINAL_FORMAT_TEXTURES
+
+
+def should_preserve_source_texture(candidate: str, source: Path) -> bool:
+    if should_preserve_original_texture(candidate):
+        return True
+
+    candidate = normalized_rel(candidate)
+    path = Path(*candidate.split("/"))
+    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+        candidate = normalized_rel(path.with_suffix("").as_posix())
+
+    if not candidate.startswith("textures/borg/"):
+        return False
+
+    try:
+        with Image.open(source) as image:
+            return image_has_alpha(image)
+    except OSError:
+        return False
+
+
+def is_borg_additive_signal_texture(candidate: str) -> bool:
+    candidate = normalized_rel(candidate)
+    path = Path(*candidate.split("/"))
+    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+        candidate = normalized_rel(path.with_suffix("").as_posix())
+    return candidate in BORG_ADDITIVE_SIGNAL_TEXTURES
+
+
+def preserved_source_texture_bytes(candidate: str, source: Path) -> tuple[bytes, bool]:
+    if not is_borg_additive_signal_texture(candidate):
+        return source.read_bytes(), False
+
+    suffix = source.suffix.lower()
+    try:
+        with Image.open(source) as image:
+            has_alpha = image_has_alpha(image)
+            alpha = image.getchannel("A") if has_alpha else None
+            rgb = image.convert("RGB")
+            stat = ImageStat.Stat(rgb)
+            high_channels = [high for _low, high in rgb.getextrema()]
+            if max(stat.mean) >= 70.0 and max(high_channels) >= 200:
+                return source.read_bytes(), False
+
+            rgb = ImageEnhance.Brightness(rgb).enhance(4.0)
+            rgb = ImageEnhance.Contrast(rgb).enhance(1.35)
+            rgb = ImageEnhance.Color(rgb).enhance(1.15)
+            if alpha:
+                boosted = rgb.convert("RGBA")
+                boosted.putalpha(alpha)
+            else:
+                boosted = rgb
+
+            out = io.BytesIO()
+            if suffix in (".jpg", ".jpeg"):
+                boosted.convert("RGB").save(out, format="JPEG", quality=95, subsampling=0)
+            elif suffix == ".png":
+                boosted.save(out, format="PNG")
+            elif suffix == ".tga":
+                boosted.save(out, format="TGA")
+            else:
+                return source.read_bytes(), False
+            return out.getvalue(), True
+    except OSError:
+        return source.read_bytes(), False
+
+
+def write_bytes_if_changed(path: Path, data: bytes) -> bool:
+    try:
+        if path.is_file() and path.read_bytes() == data:
+            return False
+    except OSError:
+        pass
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return True
 
 
 def should_use_rgb565_texture(candidate: str) -> bool:
@@ -927,6 +1025,10 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     textures: list[dict[str, object]] = []
     skipped_alpha: list[str] = []
     preserved_original: list[str] = []
+    preserved_original_sources: list[str] = []
+    boosted_original_sources: list[str] = []
+    refreshed_loose_original_sources: list[str] = []
+    written_original_sources: set[str] = set()
     bsp_optimizations: list[dict[str, object]] = []
     ui_scripts: list[str] = []
     with zipfile.ZipFile(out_path, "w") as zip_out:
@@ -959,7 +1061,17 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 bsp_optimizations.append(report)
 
         for out_rel, source in sorted(resolved.items()):
-            if should_preserve_original_texture(out_rel):
+            if should_preserve_source_texture(out_rel, source):
+                source_rel = normalized_rel(source.relative_to(base_dir).as_posix())
+                if source_rel not in written_original_sources:
+                    source_bytes, boosted = preserved_source_texture_bytes(out_rel, source)
+                    zip_write_bytes(zip_out, source_rel, source_bytes)
+                    written_original_sources.add(source_rel)
+                    preserved_original_sources.append(source_rel)
+                    if boosted:
+                        boosted_original_sources.append(source_rel)
+                        if write_bytes_if_changed(base_dir / Path(*source_rel.split("/")), source_bytes):
+                            refreshed_loose_original_sources.append(source_rel)
                 preserved_original.append(out_rel)
                 continue
             max_size = texture_size_for_path(out_rel, args)
@@ -994,6 +1106,9 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             "skippedTextureCandidates": skipped,
             "skippedAlphaTextures": skipped_alpha,
             "preservedOriginalTextures": preserved_original,
+            "preservedOriginalTextureSources": preserved_original_sources,
+            "boostedOriginalTextureSources": boosted_original_sources,
+            "refreshedLooseOriginalTextureSources": refreshed_loose_original_sources,
             "patchShaders": [XBOX_PATCH_SHADER_PATH],
             "uiScriptCount": len(ui_scripts),
             "uiScripts": ui_scripts,
