@@ -426,6 +426,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxWorldFallbackBudget = 96;
     static int s_stefxBorgLeafTraceBudget = 256;
     static int s_stefxBorgDirectTraceBudget = 256;
+    static int s_stefxBorgAlphaTraceBudget = 256;
     static int s_stefxInputTraceBudget = 256;
     static int s_stefxSplitTraceBudget = 256;
     static int s_stefxSkyTraceBudget = 96;
@@ -480,6 +481,12 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_LEAF", &s_stefxBorgLeafTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_DIRECT", &s_stefxBorgDirectTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_BRIDGE", &s_stefxBorgDirectTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_BLACK_SKIP", &s_stefxBorgDirectTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_ALPHA", &s_stefxBorgAlphaTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_SCRIPT_PANEL", &s_stefxScriptPanelTraceBudget);
     if (budgeted >= 0) return budgeted;
@@ -1128,6 +1135,8 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "STEFX_SCRIPT_PANEL") ||
         strstr(fmt, "STEFX_BORG_LEAF") ||
         strstr(fmt, "STEFX_BORG_DIRECT") ||
+        strstr(fmt, "STEFX_BORG_BRIDGE") ||
+        strstr(fmt, "STEFX_BORG_BLACK_SKIP") ||
         strstr(fmt, "STEFX_MENU_INPUT") ||
         strstr(fmt, "STEFX_MENU_") ||
         strstr(fmt, "STEFX_INPUT") ||

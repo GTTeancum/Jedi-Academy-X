@@ -891,7 +891,7 @@ static qboolean R_EFShouldSkipBorg6BlackBackingSurface( const dshader_t *mapShad
 		return qfalse;
 	}
 
-	return ( surfaceCode == 2426 || surfaceCode == 3910 ) ? qtrue : qfalse;
+	return qtrue;
 }
 
 static qboolean R_EFShouldSkipRawDrawSurface( int shaderNum, int surfaceCode )

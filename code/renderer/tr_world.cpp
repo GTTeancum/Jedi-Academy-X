@@ -205,12 +205,28 @@ static qboolean R_XboxTraceBorgBlackCandidateSurface( const msurface_t *surf )
 		!Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
 		!Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/bars" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/bars" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/bars2" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/bars2" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/basic1" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/basic1" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder2" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder2" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder3" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder3" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/energy1" ) ||
 		!Q_stricmp( resolvedName, "textures/borg/energy1" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/energy1_solid" ) ||
 		!Q_stricmp( resolvedName, "textures/borg/energy1_solid" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ) ? qtrue : qfalse;
+		!Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/bigborg" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/bigborg" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/oddlight1" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/oddlight1" ) ) ? qtrue : qfalse;
 }
 
 static qboolean R_XboxTraceBorgVisibleFieldSurface( const msurface_t *surf )
@@ -235,12 +251,99 @@ static qboolean R_XboxTraceBorgVisibleFieldSurface( const msurface_t *surf )
 		!Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
 		!Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/bars" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/bars" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/bars2" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/bars2" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/basic1" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/basic1" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder2" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder2" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder3" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder3" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/energy1" ) ||
 		!Q_stricmp( resolvedName, "textures/borg/energy1" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/energy1_solid" ) ||
 		!Q_stricmp( resolvedName, "textures/borg/energy1_solid" ) ||
 		!Q_stricmp( mapShaderName, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ) ? qtrue : qfalse;
+		!Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/bigborg" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/bigborg" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/oddlight1" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/oddlight1" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxTraceBorgBridgeWindowSurface( const msurface_t *surf )
+{
+	const char *mapShaderName;
+	const char *resolvedName;
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
+	return ( !Q_stricmp( mapShaderName, "textures/borg/static" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/static" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/static2" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/static2" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder2" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder2" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/forceborder3" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/forceborder3" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/borgfield" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/borgfield" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/borgfield_nonsolid" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
+		!Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
+		!Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxWorldIsBorg6( void )
+{
+	return ( tr.world && tr.world->name && !Q_stricmp( tr.world->name, "maps/borg6.bsp" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxSurfaceIsCommonBlack( const msurface_t *surf )
+{
+	const char *mapShaderName;
+	const char *resolvedName;
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
+	return ( !Q_stricmp( mapShaderName, "textures/common/black" ) ||
+		!Q_stricmp( resolvedName, "textures/common/black" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxShouldSkipBorgBridgeSurface( const msurface_t *surf )
+{
+	if ( !surf || !surf->data )
+	{
+		return qtrue;
+	}
+
+	if ( *surf->data == SF_SKIP )
+	{
+		return qtrue;
+	}
+
+	if ( R_XboxSurfaceIsCommonBlack( surf ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
 }
 
 static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
@@ -325,6 +428,51 @@ static qboolean R_XboxLeafHasBorgBlackCandidateSurface( const mleaf_s *leaf, int
 			if ( firstShaderNum )
 			{
 				*firstShaderNum = surf->xboxDebugShaderNum;
+			}
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static qboolean R_XboxLeafHasBorgVisibleFieldSurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
+{
+	int i;
+	msurface_t **mark;
+
+	if ( firstCode )
+	{
+		*firstCode = -1;
+	}
+	if ( firstShaderNum )
+	{
+		*firstShaderNum = -1;
+	}
+	if ( !leaf || !tr.world || !tr.world->marksurfaces )
+	{
+		return qfalse;
+	}
+
+	if ( leaf->firstMarkSurfNum < 0 ||
+		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+	{
+		return qfalse;
+	}
+
+	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+	for ( i = 0; i < leaf->nummarksurfaces; ++i )
+	{
+		msurface_t *surf = mark[i];
+		if ( R_XboxTraceBorgBridgeWindowSurface( surf ) )
+		{
+			if ( firstCode )
+			{
+				*firstCode = surf ? surf->xboxDebugCode : -1;
+			}
+			if ( firstShaderNum )
+			{
+				*firstShaderNum = surf ? surf->xboxDebugShaderNum : -1;
 			}
 			return qtrue;
 		}
@@ -640,6 +788,183 @@ static int R_XboxAddVisibleBorgFieldSurfaces( int dlightBits )
 
 	return added;
 }
+
+static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
+{
+	typedef struct
+	{
+		short mins[3];
+		short maxs[3];
+	} borgBridgeBounds_t;
+	const int maxBridgeBounds = 128;
+	const int bridgeMargin = 96;
+	borgBridgeBounds_t bridgeBounds[128];
+	static int s_borgBridgeLogBudget = 48;
+	static int s_borgBridgeEnterBudget = 16;
+	int i;
+	int fieldSourceLeaves = 0;
+	int fieldBoundsStored = 0;
+	int candidateLeaves = 0;
+	int visibleLeaves = 0;
+	int areaMaskedLeaves = 0;
+	int bridgeLeaves = 0;
+	int attempts = 0;
+	int added = 0;
+	int skippedBlack = 0;
+	int skippedSkip = 0;
+
+	if ( s_borgBridgeEnterBudget > 0 )
+	{
+		XBLF("STEFX_BORG_BRIDGE_ENTER map='%s' frame=%d view=%d slot=%u world=%p leafs=%p marks=%p numleafs=%d nummarks=%d",
+			(tr.world && tr.world->name) ? tr.world->name : "<noworld>",
+			tr.frameCount,
+			tr.viewCount,
+			g_SPXBSplitSlotActive,
+			tr.world,
+			tr.world ? tr.world->leafs : NULL,
+			tr.world ? tr.world->marksurfaces : NULL,
+			tr.world ? tr.world->numleafs : -1,
+			tr.world ? tr.world->nummarksurfaces : -1);
+		--s_borgBridgeEnterBudget;
+	}
+
+	if ( !R_XboxWorldIsBorg6() || !tr.world->leafs || !tr.world->marksurfaces )
+	{
+		return 0;
+	}
+
+	for ( i = 0; i < tr.world->numleafs; ++i )
+	{
+		int k;
+		int firstCode = -1;
+		int firstShaderNum = -1;
+		mleaf_s *leaf = &tr.world->leafs[i];
+
+		if ( !R_XboxLeafHasBorgVisibleFieldSurface( leaf, &firstCode, &firstShaderNum ) )
+		{
+			continue;
+		}
+
+		++fieldSourceLeaves;
+		if ( fieldBoundsStored < maxBridgeBounds )
+		{
+			for ( k = 0; k < 3; ++k )
+			{
+				bridgeBounds[fieldBoundsStored].mins[k] = leaf->mins[k];
+				bridgeBounds[fieldBoundsStored].maxs[k] = leaf->maxs[k];
+			}
+			++fieldBoundsStored;
+		}
+	}
+
+	if ( fieldBoundsStored <= 0 )
+	{
+		return 0;
+	}
+
+	for ( i = 0; i < tr.world->numleafs; ++i )
+	{
+		int j;
+		int k;
+		qboolean touchesField = qfalse;
+		msurface_t **mark;
+		mleaf_s *leaf = &tr.world->leafs[i];
+
+		for ( k = 0; k < fieldBoundsStored; ++k )
+		{
+			if ( leaf->maxs[0] < bridgeBounds[k].mins[0] - bridgeMargin ||
+				leaf->mins[0] > bridgeBounds[k].maxs[0] + bridgeMargin ||
+				leaf->maxs[1] < bridgeBounds[k].mins[1] - bridgeMargin ||
+				leaf->mins[1] > bridgeBounds[k].maxs[1] + bridgeMargin ||
+				leaf->maxs[2] < bridgeBounds[k].mins[2] - bridgeMargin ||
+				leaf->mins[2] > bridgeBounds[k].maxs[2] + bridgeMargin )
+			{
+				continue;
+			}
+
+			touchesField = qtrue;
+			break;
+		}
+
+		if ( !touchesField )
+		{
+			continue;
+		}
+
+		++candidateLeaves;
+
+		if ( leaf->visframe == tr.visCount )
+		{
+			++visibleLeaves;
+			continue;
+		}
+
+		if ( leaf->area >= 0 &&
+			(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
+		{
+			++areaMaskedLeaves;
+		}
+
+		if ( leaf->firstMarkSurfNum < 0 ||
+			leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+		{
+			continue;
+		}
+
+		++bridgeLeaves;
+		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+		for ( j = 0; j < leaf->nummarksurfaces; ++j )
+		{
+			msurface_t *surf = mark[j];
+			int drawBefore;
+
+			if ( R_XboxSurfaceIsCommonBlack( surf ) )
+			{
+				++skippedBlack;
+				continue;
+			}
+
+			if ( R_XboxShouldSkipBorgBridgeSurface( surf ) )
+			{
+				++skippedSkip;
+				continue;
+			}
+
+			drawBefore = tr.refdef.numDrawSurfs;
+			++attempts;
+			R_AddWorldSurface( surf, dlightBits );
+			if ( tr.refdef.numDrawSurfs > drawBefore )
+			{
+				++added;
+			}
+		}
+	}
+
+	if ( s_borgBridgeLogBudget > 0 && candidateLeaves > 0 )
+	{
+		XBLF("STEFX_BORG_BRIDGE map='%s' frame=%d view=%d slot=%u visCount=%d fieldSourceLeaves=%d fieldBoundsStored=%d margin=%d candidateLeaves=%d visibleLeaves=%d areaMaskedLeaves=%d bridgeLeaves=%d attempts=%d added=%d skippedBlack=%d skippedSkip=%d drawTotal=%d",
+			tr.world->name,
+			tr.frameCount,
+			tr.viewCount,
+			g_SPXBSplitSlotActive,
+			tr.visCount,
+			fieldSourceLeaves,
+			fieldBoundsStored,
+			bridgeMargin,
+			candidateLeaves,
+			visibleLeaves,
+			areaMaskedLeaves,
+			bridgeLeaves,
+			attempts,
+			added,
+			skippedBlack,
+			skippedSkip,
+			tr.refdef.numDrawSurfs);
+		--s_borgBridgeLogBudget;
+	}
+
+	return added;
+}
 #endif
 
 /*
@@ -947,6 +1272,24 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 		--s_xboxBorgSurfaceWorldBudget;
 	}
 	R_XboxLogWorldFallbackSurface( "enter", surf, dlightBits, noViewCount );
+	if ( R_XboxWorldIsBorg6() && R_XboxSurfaceIsCommonBlack( surf ) )
+	{
+		static int s_xboxBorgCommonBlackSkipBudget = 64;
+		if ( s_xboxBorgCommonBlackSkipBudget > 0 )
+		{
+			XBLF("STEFX_BORG_BLACK_SKIP map='%s' frame=%d view=%d slot=%u code=%d shaderNum=%d mapName='%s' shader='%s'",
+				tr.world ? tr.world->name : "<noworld>",
+				tr.frameCount,
+				tr.viewCount,
+				g_SPXBSplitSlotActive,
+				surf ? surf->xboxDebugCode : -1,
+				surf ? surf->xboxDebugShaderNum : -1,
+				R_XboxMapShaderNameForSurface( surf ),
+				(surf && surf->shader) ? surf->shader->name : "<null>");
+			--s_xboxBorgCommonBlackSkipBudget;
+		}
+		return;
+	}
 #endif
 	/*
 	if ( surf->viewCount == tr.viewCount ) {
@@ -2135,6 +2478,7 @@ void R_AddWorldSurfaces (void) {
 		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
 	}
 	R_XboxAddVisibleBorgFieldSurfaces( ( 1 << VVLightMan.num_dlights ) - 1 );
+	R_XboxAddBorg6BridgeLeafSurfaces( ( 1 << VVLightMan.num_dlights ) - 1 );
 	xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
 #ifdef _XBOX
 	if (g_SPXBSplitSlotActive == 1)
