@@ -325,14 +325,31 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 					nameLen >= 4 &&
 					!stricmp(&sModelName[nameLen - 4], ".mdr"))
 				{
-					ModelBin.bHeapAllocated = qfalse;
-#ifdef _XBOX
-					if (strstr(sModelName, "models/players/"))
+					void *heapModel = HeapAlloc(GetProcessHeap(), 0, iSize);
+					if (heapModel)
 					{
-						XBLF("STEFX: RE_RegisterModels_Malloc adopted MDR disk buffer model='%s' size=%d tag=%d",
-							sModelName, iSize, eTag);
-					}
+						memcpy(heapModel, pvDiskBufferIfJustLoaded, iSize);
+						pvDiskBufferIfJustLoaded = heapModel;
+						ModelBin.bHeapAllocated = qtrue;
+#ifdef _XBOX
+						if (strstr(sModelName, "models/players/"))
+						{
+							XBLF("STEFX: RE_RegisterModels_Malloc heap-copied MDR model='%s' size=%d tag=%d",
+								sModelName, iSize, eTag);
+						}
 #endif
+					}
+					else
+					{
+						ModelBin.bHeapAllocated = qfalse;
+#ifdef _XBOX
+						if (strstr(sModelName, "models/players/"))
+						{
+							XBLF("STEFX: RE_RegisterModels_Malloc MDR heap copy failed, adopting zone buffer model='%s' size=%d tag=%d",
+								sModelName, iSize, eTag);
+						}
+#endif
+					}
 				}
 				else
 #endif
