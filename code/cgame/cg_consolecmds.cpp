@@ -16,6 +16,45 @@ void CG_NextForcePower_f( void );
 void CG_PrevForcePower_f( void );
 void CG_LoadHud_f( void );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern int statusTextIndex;
+extern void CG_MissionFailed(void);
+
+static void CG_STEFX_TestPause_f( void )
+{
+	Com_PrintfAlways("STEFX_MODAL_TEST pause trigger time=%d paused=%d missionStatus=%d\n",
+		cg.time,
+		cg_paused.integer,
+		cg.missionStatusShow ? 1 : 0);
+	cgi_UI_SetActive_Menu("ingame");
+}
+
+static void CG_STEFX_TestObjectives_f( void )
+{
+	Com_PrintfAlways("STEFX_MODAL_TEST objectives trigger time=%d paused=%d missionStatus=%d\n",
+		cg.time,
+		cg_paused.integer,
+		cg.missionStatusShow ? 1 : 0);
+	cgi_Cvar_Set("stefx_objectivesOverlay", "1");
+	cgi_SendConsoleCommand("+info\n");
+}
+
+static void CG_STEFX_TestMissionFailed_f( void )
+{
+	Com_PrintfAlways("STEFX_MODAL_TEST missionfailed trigger time=%d paused=%d missionStatus=%d failedScreen=%d\n",
+		cg.time,
+		cg_paused.integer,
+		cg.missionStatusShow ? 1 : 0,
+		cg.missionFailedScreen ? 1 : 0);
+
+	statusTextIndex = -1;
+	cg.missionStatusShow = qtrue;
+	cg.missionStatusDeadTime = cg.time + 1000;
+	cg.missionFailedScreen = qfalse;
+	CG_MissionFailed();
+}
+#endif
+
 /*
 ====================
 CG_ColorFromString
@@ -226,6 +265,7 @@ static void CG_ZoomOff_f( void )
 static void CG_InfoDown_f( void ) {
 	cg.showInformation = qtrue;
 #ifdef _XBOX
+	cgi_Cvar_Set("stefx_objectivesOverlay", "1");
 	Com_PrintfAlways("STEFX: CG_InfoDown_f showInformation=1 time=%d\n", cg.time);
 #endif
 }
@@ -234,6 +274,7 @@ static void CG_InfoUp_f( void )
 {
 	cg.showInformation = qfalse;
 #ifdef _XBOX
+	cgi_Cvar_Set("stefx_objectivesOverlay", "0");
 	Com_PrintfAlways("STEFX: CG_InfoUp_f showInformation=0 time=%d\n", cg.time);
 #endif
 }
@@ -290,6 +331,11 @@ Ghoul2 Insert End
 	{ "dpinvprev", CG_DPPrevInventory_f },
 	{ "dpforcenext", CG_DPNextForcePower_f },
 	{ "dpforceprev", CG_DPPrevForcePower_f },
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{ "stefx_test_pause", CG_STEFX_TestPause_f },
+	{ "stefx_test_objectives", CG_STEFX_TestObjectives_f },
+	{ "stefx_test_missionfailed", CG_STEFX_TestMissionFailed_f },
+#endif
 //	{ "color", CG_SetColor_f },
 };
 

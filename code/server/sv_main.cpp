@@ -38,6 +38,8 @@ cvar_t	*sv_testsave;			// Run the savegame enumeration every game frame
 cvar_t	*sv_compress_saved_games;	// compress the saved games on the way out (only affect saver, loader can read both)
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void STEFX_TestMissionFailedFromGame( const char *source );
+
 static int SV_STEFX_ActiveCommandServerTime(void)
 {
 	static qboolean initialized = qfalse;
@@ -101,6 +103,14 @@ static int SV_STEFX_QueueActiveCommands(void)
 			}
 
 			XBLF("STEFX_SAVELOAD: server queue active command '%s'", commandLine);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (Q_stricmp(commandLine, "stefx_test_missionfailed") == 0)
+			{
+				STEFX_TestMissionFailedFromGame("server-active-command");
+				++queued;
+				continue;
+			}
+#endif
 			Cbuf_AddText(commandLine);
 			Cbuf_AddText("\n");
 			++queued;

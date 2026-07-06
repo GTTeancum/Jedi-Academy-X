@@ -1,10 +1,39 @@
 
 #include "g_local.h"
 #include "boltOns.h"
+#include "objectives.h"
+#include "..\cgame\cg_text.h"
+#include "..\cgame\cg_local.h"
+#ifdef _XBOX
+#include "../../code/win32/xb_log.h"
+#endif
 
 extern int ICARUS_RunScript( gentity_t *ent, const char *name );
 extern team_t TranslateTeamName( const char *name );
 extern char	*TeamNames[TEAM_NUM_TEAMS];
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+void STEFX_TestMissionFailedFromGame( const char *source )
+{
+	gentity_t *ent = &g_entities[0];
+
+	XBLF("STEFX_MODAL_TEST game missionfailed trigger source='%s' levelTime=%d health=%d missionStatus=%d statusText=%d",
+		source ? source : "",
+		level.time,
+		ent ? ent->health : -999,
+		cg.missionStatusShow,
+		statusTextIndex);
+
+	statusTextIndex = IGT_INSUBORDINATION;
+	cg.missionStatusShow = 1;
+	cg.missionStatusDeadTime = level.time + 1000;
+
+	XBLF("STEFX_MODAL_TEST game missionfailed armed levelTime=%d missionDeadTime=%d statusText=%d",
+		level.time,
+		cg.missionStatusDeadTime,
+		statusTextIndex);
+}
+#endif
 
 /*
 ===================
@@ -109,6 +138,14 @@ qboolean	ConsoleCommand( void ) {
 		Svcmd_GameMem_f();
 		return qtrue;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( Q_stricmp( cmd, "stefx_test_missionfailed" ) == 0 )
+	{
+		STEFX_TestMissionFailedFromGame( "console" );
+		return qtrue;
+	}
+#endif
 
 //	if (Q_stricmp (cmd, "addbot") == 0) {
 //		Svcmd_AddBot_f();
@@ -259,4 +296,3 @@ qboolean	ConsoleCommand( void ) {
 	
 	return qfalse;
 }
-

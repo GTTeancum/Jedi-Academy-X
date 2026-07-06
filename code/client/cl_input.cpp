@@ -68,6 +68,7 @@ static cvar_t *stefx_smokeInputAttackEnd;
 #define STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD 30
 #define STEFX_SPLIT_THUMB_DEADZONE 7849
 #define STEFX_SPLIT_BUTTON_DPAD_UP (1u << 0)
+#define STEFX_SPLIT_BUTTON_START (1u << 4)
 #define STEFX_SPLIT_BUTTON_BACK (1u << 5)
 #define STEFX_SPLIT_BUTTON_LEFT_THUMB (1u << 6)
 #define STEFX_SPLIT_BUTTON_RIGHT_THUMB (1u << 7)
@@ -87,6 +88,7 @@ typedef struct {
 	qboolean weaponNextDown;
 	qboolean weaponPrevDown;
 	qboolean zoomDown;
+	qboolean pauseDown;
 	qboolean datapadDown;
 	qboolean thirdPersonToggleDown;
 	qboolean runToggleDown;
@@ -244,6 +246,48 @@ static qboolean STEFX_SplitPadUsableForRealInput( int port )
 		port < STEFX_SPLIT_MAX_PADS &&
 		s_stefxSplitPads[port].connected &&
 		!s_stefxSplitPads[port].synthetic );
+}
+
+static qboolean STEFX_SplitScreen_GlobalModalOwnsInput( usercmd_t *cmd, int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles, const vec3_t currentAngles )
+{
+	static int s_modalLogBudget = 12;
+	const qboolean uiCatcher = (qboolean)(( cls.keyCatchers & KEYCATCH_UI ) != 0);
+	const qboolean paused = (qboolean)( com_sv_running && sv_paused && cl_paused &&
+		com_sv_running->integer && sv_paused->integer && cl_paused->integer );
+
+	if ( !uiCatcher && !paused )
+	{
+		return qfalse;
+	}
+
+	if ( cmd )
+	{
+		memset( cmd, 0, sizeof( *cmd ) );
+		cmd->serverTime = serverTime;
+	}
+	if ( sourcePort )
+	{
+		*sourcePort = -1;
+	}
+	if ( weaponDelta )
+	{
+		*weaponDelta = 0;
+	}
+	if ( outAngles )
+	{
+		VectorCopy( currentAngles, outAngles );
+	}
+
+	if ( s_modalLogBudget > 0 && Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		XBLF( "STEFX_SPLIT_INPUT modal owns input; P2 cmd suppressed time=%d catcher=0x%x sv_paused=%d cl_paused=%d",
+			serverTime,
+			(unsigned int)cls.keyCatchers,
+			sv_paused ? sv_paused->integer : -1,
+			cl_paused ? cl_paused->integer : -1 );
+		--s_modalLogBudget;
+	}
+	return qtrue;
 }
 
 static void STEFX_SplitReleaseObservedPad( int port )
@@ -461,7 +505,7 @@ static void STEFX_SplitScreen_UpdateTestP2Pad( int serverTime )
 	}
 	if ( serverTime >= 2100 && serverTime < 2200 )
 	{
-		buttons |= STEFX_SPLIT_BUTTON_BACK; /* Back: should stay P2-local and not open global UI */
+		buttons |= STEFX_SPLIT_BUTTON_BACK; /* Back: objectives */
 	}
 	if ( serverTime >= 2200 && serverTime < 2300 )
 	{
@@ -510,6 +554,8 @@ static qboolean STEFX_SplitScreen_BuildTestP2Usercmd( usercmd_t *cmd, const vec3
 	static qboolean s_testAnglesValid = qfalse;
 	static int s_testLastServerTime = 0;
 	static int s_testLastWeaponBucket = -1;
+	static int s_testMenuMode = 0;
+	static qboolean s_testMenuQueued = qfalse;
 	static vec3_t s_testAngles;
 	int testMode;
 	int frameMsec;
@@ -519,6 +565,48 @@ static qboolean STEFX_SplitScreen_BuildTestP2Usercmd( usercmd_t *cmd, const vec3
 	testMode = Cvar_VariableIntegerValue( "stefx_splitScreenTestP2Input" );
 	if ( !testMode )
 	{
+		if ( s_testMenuMode == 3 && s_testMenuQueued )
+		{
+			Cbuf_AddText( "-info\n" );
+			Cvar_Set( "stefx_objectivesOverlay", "0" );
+			XBLF( "STEFX_SPLIT_INPUT synthetic p2 objectives released queued='-info' time=%d",
+				serverTime );
+		}
+		s_testMenuMode = 0;
+		s_testMenuQueued = qfalse;
+		return qfalse;
+	}
+	if ( testMode != s_testMenuMode )
+	{
+		if ( s_testMenuMode == 3 && s_testMenuQueued )
+		{
+			Cbuf_AddText( "-info\n" );
+			Cvar_Set( "stefx_objectivesOverlay", "0" );
+			XBLF( "STEFX_SPLIT_INPUT synthetic p2 objectives released queued='-info' time=%d",
+				serverTime );
+		}
+		s_testMenuMode = testMode;
+		s_testMenuQueued = qfalse;
+	}
+
+	if ( testMode == 3 || testMode == 4 )
+	{
+		memset( cmd, 0, sizeof( *cmd ) );
+		cmd->serverTime = serverTime;
+		if ( !s_testMenuQueued )
+		{
+			const char *command = ( testMode == 3 ) ? "+info\n" : "uimenu\n";
+			Cbuf_AddText( command );
+			if ( testMode == 3 )
+			{
+				Cvar_Set( "stefx_objectivesOverlay", "1" );
+			}
+			XBLF( "STEFX_SPLIT_INPUT synthetic p2 %s requested queued='%s' time=%d",
+				( testMode == 3 ) ? "objectives" : "pause",
+				( testMode == 3 ) ? "+info" : "uimenu",
+				serverTime );
+			s_testMenuQueued = qtrue;
+		}
 		return qfalse;
 	}
 
@@ -674,19 +762,6 @@ void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int main
 	STEFX_SplitObserveRealPadActivity( port, buttons, analogButtons, thumbLX, thumbLY, thumbRX, thumbRY );
 }
 
-int CL_STEFX_SplitScreen_PrimaryPadForMainController( void )
-{
-	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
-	{
-		return -1;
-	}
-	if ( STEFX_SplitPadUsableForRealInput( s_stefxSplitPrimaryPad ) )
-	{
-		return s_stefxSplitPrimaryPad;
-	}
-	return -1;
-}
-
 qboolean CL_STEFX_SplitScreen_ShouldReservePadForP2( int port, int mainController )
 {
 	const int effectiveMain = STEFX_SplitEffectiveMainController( mainController, qfalse );
@@ -755,6 +830,7 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 	qboolean weaponPrevDown;
 	qboolean runToggleDown;
 	qboolean zoomDown;
+	qboolean pauseDown;
 	qboolean datapadDown;
 	qboolean thirdPersonToggleDown;
 
@@ -765,6 +841,11 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 	if ( weaponDelta )
 	{
 		*weaponDelta = 0;
+	}
+
+	if ( STEFX_SplitScreen_GlobalModalOwnsInput( cmd, serverTime, sourcePort, weaponDelta, outAngles, currentAngles ) )
+	{
+		return qfalse;
 	}
 
 	STEFX_SplitScreen_UpdateTestP2Pad( serverTime );
@@ -868,6 +949,47 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 
 	memset( cmd, 0, sizeof( *cmd ) );
 	cmd->serverTime = serverTime;
+
+	pauseDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_START );
+	datapadDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_BACK );
+	if ( pauseDown && !pad->pauseDown )
+	{
+		pad->pauseDown = pauseDown;
+		pad->datapadDown = datapadDown;
+		Cbuf_AddText( "uimenu\n" );
+		XBLF( "STEFX_SPLIT_INPUT p2 pause requested port=%d queued='uimenu' time=%d",
+			chosenPort,
+			serverTime );
+		return qfalse;
+	}
+	if ( datapadDown && !pad->datapadDown )
+	{
+		pad->pauseDown = pauseDown;
+		pad->datapadDown = datapadDown;
+		Cbuf_AddText( "+info\n" );
+		Cvar_Set( "stefx_objectivesOverlay", "1" );
+		XBLF( "STEFX_SPLIT_INPUT p2 objectives requested port=%d queued='+info' time=%d",
+			chosenPort,
+			serverTime );
+		return qfalse;
+	}
+	if ( !datapadDown && pad->datapadDown )
+	{
+		Cbuf_AddText( "-info\n" );
+		Cvar_Set( "stefx_objectivesOverlay", "0" );
+		XBLF( "STEFX_SPLIT_INPUT p2 objectives released port=%d queued='-info' time=%d",
+			chosenPort,
+			serverTime );
+	}
+	if ( datapadDown )
+	{
+		pad->pauseDown = pauseDown;
+		pad->datapadDown = datapadDown;
+		return qfalse;
+	}
+	pad->pauseDown = pauseDown;
+	pad->datapadDown = datapadDown;
+
 	cmd->forwardmove = STEFX_SplitAxisToMove( leftY );
 	cmd->rightmove = STEFX_SplitAxisToMove( leftX );
 
@@ -896,15 +1018,6 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 		}
 	}
 	pad->zoomDown = zoomDown;
-
-	datapadDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_BACK );
-	if ( datapadDown && !pad->datapadDown && s_utilityLogBudget > 0 )
-	{
-		XBLF( "STEFX_SPLIT_INPUT p2 datapad requested port=%d ignored=1 reason='single-player global UI remains P1-owned'",
-			chosenPort );
-		--s_utilityLogBudget;
-	}
-	pad->datapadDown = datapadDown;
 
 	thirdPersonToggleDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_RIGHT_THUMB );
 	if ( thirdPersonToggleDown && !pad->thirdPersonToggleDown && s_utilityLogBudget > 0 )
@@ -2190,6 +2303,20 @@ void CL_SendCmd( void ) {
 
 	// don't send commands if paused
 	if ( com_sv_running->integer && sv_paused->integer && cl_paused->integer ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxPausedSendBudget = 12;
+		if ( s_stefxPausedSendBudget > 0 )
+		{
+			Com_PrintfAlways( "STEFX_MODAL_TEST primary cmd suppressed state=%d catcher=0x%x sv_paused=%d cl_paused=%d realtime=%d serverTime=%d\n",
+				(int)cls.state,
+				(unsigned int)cls.keyCatchers,
+				sv_paused->integer,
+				cl_paused->integer,
+				cls.realtime,
+				cl.serverTime );
+			--s_stefxPausedSendBudget;
+		}
+#endif
 		return;
 	}
 
