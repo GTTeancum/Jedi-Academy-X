@@ -1848,7 +1848,15 @@ void NPC_Precache ( gentity_t *spawner )
 			ri.torsoModelName,
 			ri.headModelName);
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		gi.Printf("STEFX: NPC_Precache defers md3 client render info type='%s' legs='%s' torso='%s' head='%s'\n",
+			spawner->NPC_type ? spawner->NPC_type : "<null>",
+			ri.legsModelName,
+			ri.torsoModelName,
+			ri.headModelName);
+#else
 		CG_RegisterClientRenderInfo( &ci, &ri );
+#endif
 	}
 	else
 	{
