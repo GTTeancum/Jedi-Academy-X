@@ -111,6 +111,7 @@ static const DWORD FAKEGL_REGISTERED_TEXTURE_SOFT_CAP = 7 * 1024 * 1024;
 static const DWORD FAKEGL_REGISTERED_TEXTURE_MIN_FREE = 512 * 1024;
 static bool g_stefxSkipSwapBlockUntilIdle = false;
 static int g_stefxFakeglSwapFrame = 0;
+static char g_stefxFakeglTextureDebugName[128] = "<none>";
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
@@ -120,6 +121,30 @@ extern "C" volatile unsigned int g_SPXBFramebufferWidth;
 extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
+
+extern "C" void JkaFakeglSetTextureDebugName(const char *name)
+{
+	int i;
+	if (!name || !name[0])
+	{
+		name = "<none>";
+	}
+	strncpy(g_stefxFakeglTextureDebugName, name, sizeof(g_stefxFakeglTextureDebugName) - 1);
+	g_stefxFakeglTextureDebugName[sizeof(g_stefxFakeglTextureDebugName) - 1] = '\0';
+	for (i = 0; g_stefxFakeglTextureDebugName[i]; ++i)
+	{
+		if (g_stefxFakeglTextureDebugName[i] == '\n' ||
+			g_stefxFakeglTextureDebugName[i] == '\r')
+		{
+			g_stefxFakeglTextureDebugName[i] = ' ';
+		}
+	}
+}
+
+static const char *FakeGL_CurrentTextureDebugName(void)
+{
+	return g_stefxFakeglTextureDebugName[0] ? g_stefxFakeglTextureDebugName : "<none>";
+}
 
 extern "C" void FakeGL_ResetRegisteredTextureBudget(void)
 {
@@ -651,6 +676,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	static int s_requestSeenLogBudget = 4;
 	DWORD visibleSamples = 0;
 	DWORD maxBrightness = 0;
+	bool visibleSignal;
 
 	if (!requestPath)
 	{
@@ -705,13 +731,20 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		return;
 	}
 
-	if (!FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness))
+	visibleSignal = FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness);
+	if (!visibleSignal)
 	{
 		const bool postPresent = !strcmp(label, "post-present");
 		const bool prePresent = !strcmp(label, "pre-present");
 		if (prePresent)
 		{
 			XBLF("STEFX: renderer screenshot pre-present blank; deferring capture until post-present label='%s'", label);
+			return;
+		}
+		if (FakeGL_TryXGWriteSurface(backBuffer))
+		{
+			XBLF("STEFX: renderer screenshot XGWrite succeeded after blank raw surface label='%s'", label);
+			FakeGL_DeleteScreenshotRequests();
 			return;
 		}
 		if (s_blankRetryLogBudget > 0)
@@ -3180,10 +3213,24 @@ private:
 		}
 	}
 
-	void TrackTextureFailure(void)
+	void TrackTextureFailure(const char *where, DWORD width, DWORD height, DWORD levels,
+		GLint internalformat, GLenum format, D3DFORMAT destPixelFormat, HRESULT hr,
+		DWORD requestBytes)
 	{
 		g_fakeglTextureFailures++;
-		XBLF("JA: fakegl texture allocation failures=%u\n", g_fakeglTextureFailures);
+		XBLog_Writef("STEFX_TEX_FAIL where=%s image='%s' tex=%d size=%ux%u levels=%u internal=0x%08x format=0x%08x dest=0x%08x hr=0x%08lx request=%u failures=%u",
+			where ? where : "(null)",
+			FakeGL_CurrentTextureDebugName(),
+			m_textures.GetCurrentID(),
+			(unsigned int)width,
+			(unsigned int)height,
+			(unsigned int)levels,
+			(unsigned int)internalformat,
+			(unsigned int)format,
+			(unsigned int)destPixelFormat,
+			(unsigned long)hr,
+			(unsigned int)requestBytes,
+			(unsigned int)g_fakeglTextureFailures);
 	}
 
 	void LogTextureMemoryPressure(const char *where, DWORD requestBytes, HRESULT hr)
@@ -3196,8 +3243,10 @@ private:
 
 		MEMORYSTATUS stat;
 		GlobalMemoryStatus(&stat);
-		XBLF("JA: fakegl texture memory where=%s request=%u hr=0x%08lx physFreeKB=%lu virtFreeKB=%lu texCount=%u texKB=%u failures=%u regCount=%u regKB=%u regDenied=%u poolUsedKB=%lu poolFreeKB=%lu poolCapKB=%lu\n",
+		XBLF("JA: fakegl texture memory where=%s image='%s' tex=%d request=%u hr=0x%08lx physFreeKB=%lu virtFreeKB=%lu texCount=%u texKB=%u failures=%u regCount=%u regKB=%u regDenied=%u poolUsedKB=%lu poolFreeKB=%lu poolCapKB=%lu\n",
 			where ? where : "(null)",
+			FakeGL_CurrentTextureDebugName(),
+			m_textures.GetCurrentID(),
 			(unsigned int)requestBytes,
 			(unsigned long)hr,
 			(unsigned long)(stat.dwAvailPhys / 1024),
@@ -3561,11 +3610,13 @@ public:
 	{
 		if ( m_glAlphaFunc != func || m_glAlphaFuncRef != ref )
 		{
-			SetRenderStateDirty();
 			m_glAlphaFunc = func;
 			m_glAlphaFuncRef = ref;
-			m_glAlphaStateDirty = true;
 		}
+		// Q3 re-sends draw-critical state on Xbox because some renderer paths
+		// touch D3D directly. Refresh D3D even when fakegl's logical cache matches.
+		SetRenderStateDirty();
+		m_glAlphaStateDirty = true;
 	}
 	
 	void glBegin (GLenum mode)
@@ -3879,11 +3930,11 @@ public:
 	{
 		if ( m_glBlendFuncSFactor != sfactor || m_glBlendFuncDFactor != dfactor ) 
 		{
-			SetRenderStateDirty();
 			m_glBlendFuncSFactor = sfactor;
 			m_glBlendFuncDFactor = dfactor;
-			m_glBlendStateDirty = true;
 		}
+		SetRenderStateDirty();
+		m_glBlendStateDirty = true;
 	}
 
 	inline void glClear (GLbitfield mask)
@@ -4041,30 +4092,30 @@ public:
 	{
 		if ( m_glCullFaceMode != mode ) 
 		{
-			SetRenderStateDirty();
 			m_glCullFaceMode = mode;
-			m_glCullStateDirty = true;
 		}
+		SetRenderStateDirty();
+		m_glCullStateDirty = true;
 	}
 
 	void glDepthFunc (GLenum func)
 	{
 		if ( m_glDepthFunc != func ) 
 		{
-			SetRenderStateDirty();
 			m_glDepthFunc = func;
-			m_glDepthStateDirty = true;
 		}
+		SetRenderStateDirty();
+		m_glDepthStateDirty = true;
 	}
 
 	void glDepthMask (GLboolean flag)
 	{
 		if ( m_glDepthMask != (flag != 0) ) 
 		{
-			SetRenderStateDirty();
 			m_glDepthMask = flag != 0 ? true : false;
-			m_glDepthStateDirty = true;
 		}
+		SetRenderStateDirty();
+		m_glDepthStateDirty = true;
 	}
 
 	void glDepthRange (GLclampd zNear, GLclampd zFar)
@@ -4100,36 +4151,36 @@ public:
 		case GL_ALPHA_TEST:
 			if ( m_glAlphaTest != value ) 
 			{
-				SetRenderStateDirty();
 				m_glAlphaTest = value;
-				m_glAlphaStateDirty = true;
 			}
+			SetRenderStateDirty();
+			m_glAlphaStateDirty = true;
 			break;
 		case GL_BLEND:
 			if ( m_glBlend != value )
 			{
-				SetRenderStateDirty();
 				m_textureState.SetMainBlend(value); 
 				m_glBlend = value;
-				m_glBlendStateDirty = true;
 			}
+			SetRenderStateDirty();
+			m_glBlendStateDirty = true;
 			break;
 		case GL_CULL_FACE:
 			if ( m_glCullFace != value )
 			{
-				SetRenderStateDirty();
 				m_glCullFace = value;
-				m_glCullStateDirty = true;
 			}
+			SetRenderStateDirty();
+			m_glCullStateDirty = true;
 			break;
 		case GL_DEPTH_TEST:
-			if ( m_glDepthTest != value ) 
+			if ( m_glDepthTest != value )
 			{
-				SetRenderStateDirty();
 				m_glDepthTest = value;
-				m_glDepthStateDirty = true;
 			}
-		break;
+			SetRenderStateDirty();
+			m_glDepthStateDirty = true;
+			break;
 		case GL_TEXTURE_2D:
 			if ( m_textureState.GetTexture2D() != value )
 			{
@@ -4879,7 +4930,9 @@ public:
 			if ( FAILED(hr) )
 			{
 #ifdef _XBOX
-				TrackTextureFailure();
+				TrackTextureFailure("rgba", (DWORD)width, (DWORD)height, (DWORD)levels,
+					internalformat, format, destPixelFormat, hr,
+					EstimateTextureBytes(destPixelFormat, width, height, levels));
 				XBLF("JA: fakegl CreateTexture failed tex=%d size=%dx%d levels=%d internal=0x%08x format=0x%08x dest=0x%08x\n",
 					m_textures.GetCurrentID(),
 					width,
@@ -5049,6 +5102,31 @@ public:
 		{
 			hr = CreateXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap);
 		}
+		if ((FAILED(hr) || !pMipMap) && !ownsTextureHeader)
+		{
+			HRESULT createTextureHr = hr;
+			XBLF("JA: fakegl DDS CreateTexture2 failed tex=%d hr=0x%08lx; retry registered texture memory\n",
+				m_textures.GetCurrentID(), (unsigned long)createTextureHr);
+			hr = CreateRegisteredXboxTexture(width, height, levels, 0, destPixelFormat,
+				&pMipMap, &registeredTextureBytes, &registeredTextureData);
+			if (SUCCEEDED(hr) && pMipMap && registeredTextureData)
+			{
+				ownsTextureHeader = true;
+				XBLF("JA: fakegl DDS registered retry succeeded tex=%d ptr=%p bytes=%u after hr=0x%08lx\n",
+					m_textures.GetCurrentID(), (void*)pMipMap, registeredTextureBytes,
+					(unsigned long)createTextureHr);
+			}
+			else
+			{
+				XBLF("JA: fakegl DDS registered retry failed tex=%d hr=0x%08lx createHr=0x%08lx\n",
+					m_textures.GetCurrentID(), (unsigned long)hr,
+					(unsigned long)createTextureHr);
+				pMipMap = NULL;
+				registeredTextureData = NULL;
+				registeredTextureBytes = 0;
+				ownsTextureHeader = false;
+			}
+		}
 #else
 		HRESULT hr = CreateXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap);
 #endif
@@ -5063,7 +5141,9 @@ public:
 		if (FAILED(hr) || !pMipMap)
 		{
 #ifdef _XBOX
-			TrackTextureFailure();
+			TrackTextureFailure("dds", (DWORD)width, (DWORD)height, (DWORD)levels,
+				internalformat, internalformat, destPixelFormat, hr,
+				EstimateTextureBytes(destPixelFormat, (DWORD)width, (DWORD)height, levels));
 			LogTextureMemoryPressure("CreateTexture2-dds-failed",
 				EstimateTextureBytes(destPixelFormat, (DWORD)width, (DWORD)height, levels), hr);
 			XBLF("JA: fakegl DDS CreateTexture failed tex=%d size=%dx%d levels=%d internal=0x%08x dest=0x%08x bytes=%u\n",
@@ -5084,14 +5164,14 @@ public:
 #ifdef _XBOX
 		src = ddsStart;
 		remaining = ddsBytes;
-		if (ownsTextureHeader && registeredTextureData && destPixelFormat == D3DFMT_R5G6B5)
+		if (ownsTextureHeader && registeredTextureData)
 		{
 			const BYTE* sp = src;
 			BYTE* dp = (BYTE*)registeredTextureData;
 			DWORD levelWidth = (DWORD)width;
 			DWORD levelHeight = (DWORD)height;
 			DWORD copyBytes = 0;
-			bool rgb16Ok = true;
+			bool registeredOk = true;
 			for (int level = 0; level < levels; ++level)
 			{
 				DWORD rowBytes = DDSLevelRowBytes(destPixelFormat, levelWidth);
@@ -5099,12 +5179,22 @@ public:
 				DWORD levelBytes = rowBytes * rows;
 				if (remaining < levelBytes || copyBytes + levelBytes > registeredTextureBytes)
 				{
-					XBLF("JA: fakegl DDS RGB16 registered upload truncated tex=%d level=%d need=%u remaining=%u registered=%u copied=%u\n",
+					XBLF("JA: fakegl DDS registered upload truncated tex=%d level=%d need=%u remaining=%u registered=%u copied=%u\n",
 						m_textures.GetCurrentID(), level, levelBytes, remaining, registeredTextureBytes, copyBytes);
-					rgb16Ok = false;
+					registeredOk = false;
 					break;
 				}
-				XGSwizzleRect(sp, 0, NULL, dp, levelWidth, levelHeight, NULL, BytesPerPixel(destPixelFormat));
+				if (destPixelFormat == D3DFMT_DXT1 ||
+					destPixelFormat == D3DFMT_DXT3 ||
+					destPixelFormat == D3DFMT_DXT5)
+				{
+					memcpy(dp, sp, levelBytes);
+				}
+				else
+				{
+					XGSwizzleRect(sp, rowBytes, NULL, dp, levelWidth, levelHeight, NULL,
+						BytesPerPixel(destPixelFormat));
+				}
 				sp += levelBytes;
 				dp += levelBytes;
 				remaining -= levelBytes;
@@ -5114,42 +5204,23 @@ public:
 				if (levelHeight > 1)
 					levelHeight >>= 1;
 			}
-			if (rgb16Ok)
+			if (registeredOk)
 			{
 				m_textures.SetTexture(pMipMap, destPixelFormat, internalformat, ownsTextureHeader);
 				m_textureState.DirtyTexture(m_textures.GetCurrentID());
 				if (logDdsDetail)
 				{
-					XBLF("JA: fakegl DDS RGB16 registered swizzle tex=%d bytes=%u registeredBytes=%u ptr=%p",
-						m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData);
+					XBLF("JA: fakegl DDS registered upload tex=%d bytes=%u registeredBytes=%u ptr=%p dest=0x%08x",
+						m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData,
+						(unsigned int)destPixelFormat);
 					++s_ddsDetailLogs;
 				}
-				TrackTextureAlloc("dds-rgb16-registered", copyBytes);
+				TrackTextureAlloc("dds-registered", copyBytes);
 				return true;
 			}
 			delete (D3DTexture*)pMipMap;
 			pMipMap = NULL;
 			return false;
-		}
-		if (false && ownsTextureHeader && registeredTextureData &&
-			(destPixelFormat == D3DFMT_DXT1 ||
-			 destPixelFormat == D3DFMT_DXT3 ||
-			 destPixelFormat == D3DFMT_DXT5))
-		{
-			DWORD copyBytes = remaining;
-			if (registeredTextureBytes && copyBytes > registeredTextureBytes)
-				copyBytes = registeredTextureBytes;
-			memcpy(registeredTextureData, src, copyBytes);
-			m_textures.SetTexture(pMipMap, destPixelFormat, internalformat, ownsTextureHeader);
-			m_textureState.DirtyTexture(m_textures.GetCurrentID());
-			if (logDdsDetail)
-			{
-				XBLF("JA: fakegl DDS registered direct copy tex=%d bytes=%u registeredBytes=%u ptr=%p",
-					m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData);
-				++s_ddsDetailLogs;
-			}
-			TrackTextureAlloc("dds", copyBytes);
-			return true;
 		}
 #endif
 		DWORD levelWidth = (DWORD)width;
@@ -5960,11 +6031,29 @@ private:
 		{
 			m_glAlphaStateDirty = false;
 			// Alpha test
+			const DWORD alphaFunc = m_glAlphaTest ? GLToDXCompare(m_glAlphaFunc) : D3DCMP_ALWAYS;
+			const DWORD alphaRef = (DWORD)(255 * m_glAlphaFuncRef);
 			m_pD3DDev->SetRenderState( D3DRS_ALPHATESTENABLE,
 				m_glAlphaTest ? TRUE : FALSE );
-			m_pD3DDev->SetRenderState(D3DRS_ALPHAFUNC,
-				m_glAlphaTest ? GLToDXCompare(m_glAlphaFunc) : D3DCMP_ALWAYS);
-			m_pD3DDev->SetRenderState(D3DRS_ALPHAREF, 255 * m_glAlphaFuncRef);
+			m_pD3DDev->SetRenderState(D3DRS_ALPHAFUNC, alphaFunc);
+			m_pD3DDev->SetRenderState(D3DRS_ALPHAREF, alphaRef);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( m_glAlphaTest )
+			{
+				static int s_stefxAlphaStateLogBudget = 64;
+				if ( s_stefxAlphaStateLogBudget > 0 )
+				{
+					XBLF("STEFX_ALPHA_STATE enable=1 glFunc=0x%08x dxFunc=%lu ref=%lu blend=%d depthFunc=0x%08x depthMask=%d",
+						(unsigned int)m_glAlphaFunc,
+						(unsigned long)alphaFunc,
+						(unsigned long)alphaRef,
+						m_glBlend ? 1 : 0,
+						(unsigned int)m_glDepthFunc,
+						m_glDepthMask ? 1 : 0);
+					--s_stefxAlphaStateLogBudget;
+				}
+			}
+#endif
 		}
 		if ( m_glBlendStateDirty )
 		{

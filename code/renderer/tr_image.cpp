@@ -538,6 +538,7 @@ Upload32
 */
 #ifdef _XBOX
 extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
+extern "C" void JkaFakeglSetTextureDebugName(const char *name);
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -558,6 +559,23 @@ static qboolean R_XboxIsHighFidelityUIFont( const char *name )
 			 !Q_stricmp( name, "gfx/2d/chars_big.tga" ) );
 }
 
+static qboolean R_XboxIsBorgAlphaCutoutTexture( const char *name )
+{
+	if ( !name )
+	{
+		return qfalse;
+	}
+
+	return ( !Q_stricmp( name, "textures/borg/bars" ) ||
+			 !Q_stricmp( name, "textures/borg/bars.tga" ) ||
+			 !Q_stricmp( name, "textures/borg/bars2" ) ||
+			 !Q_stricmp( name, "textures/borg/bars2.tga" ) ||
+			 !Q_stricmp( name, "textures/borg/basic1" ) ||
+			 !Q_stricmp( name, "textures/borg/basic1.tga" ) ||
+			 !Q_stricmp( name, "textures/borg/borgladder" ) ||
+			 !Q_stricmp( name, "textures/borg/borgladder.tga" ) );
+}
+
 #endif
 
 static void Upload32( const char *debugName, unsigned *data, 
@@ -569,6 +587,7 @@ static void Upload32( const char *debugName, unsigned *data,
 						  int *pformat )
 {
 #ifdef _XBOX
+	JkaFakeglSetTextureDebugName(debugName ? debugName : "<null>");
 	XBLF("JA: Upload32 image='%s' size=%dx%d format=0x%08x mipcount=%d picmip=%d lightmap=%d\n",
 		debugName ? debugName : "<null>",
 		img_width,
@@ -585,6 +604,10 @@ static void Upload32( const char *debugName, unsigned *data,
 		byte		*scan;
 		int			width = img_width;
 		int			height = img_height; 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		qboolean	stefxBorgAlphaProbe =
+			R_XboxIsBorgAlphaCutoutTexture( debugName );
+#endif
 		
 		//
 		// perform optional picmip operation
@@ -692,12 +715,45 @@ static void Upload32( const char *debugName, unsigned *data,
 		c = width*height;
 		scan = ((byte *)data);
 		samples = 3;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		int alphaMin = 255;
+		int alphaMax = 0;
+		int alphaLt128 = 0;
+		int alphaGe128 = 0;
+#endif
 		for ( i = 0; i < c; i++ )
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( stefxBorgAlphaProbe )
+			{
+				int alpha = scan[i*4 + 3];
+				if ( alpha < alphaMin )
+				{
+					alphaMin = alpha;
+				}
+				if ( alpha > alphaMax )
+				{
+					alphaMax = alpha;
+				}
+				if ( alpha < 128 )
+				{
+					++alphaLt128;
+				}
+				else
+				{
+					++alphaGe128;
+				}
+			}
+#endif
 			if ( scan[i*4 + 3] != 255 ) 
 			{
 				samples = 4;
-				break;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if ( !stefxBorgAlphaProbe )
+#endif
+				{
+					break;
+				}
 			}
 		}
 		
@@ -732,7 +788,8 @@ static void Upload32( const char *debugName, unsigned *data,
 		else if ( samples == 4 )
 		{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if ( R_XboxIsHighFidelityUIFont( debugName ) )
+			if ( R_XboxIsHighFidelityUIFont( debugName ) ||
+				R_XboxIsBorgAlphaCutoutTexture( debugName ) )
 			{
 				*pformat = GL_RGBA8;
 			}
@@ -751,6 +808,27 @@ static void Upload32( const char *debugName, unsigned *data,
 				*pformat = 4;
 			}
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxBorgAlphaProbe )
+		{
+			XBLF("STEFX_BORG_ALPHA_UPLOAD image='%s' source=%dx%d upload=%dx%d samples=%d internal=0x%x alphaMin=%d alphaMax=%d alphaLt128=%d alphaGe128=%d texbits=%d picmip=%d lightmap=%d",
+				debugName,
+				img_width,
+				img_height,
+				width,
+				height,
+				samples,
+				*pformat,
+				alphaMin,
+				alphaMax,
+				alphaLt128,
+				alphaGe128,
+				r_texturebits ? r_texturebits->integer : -1,
+				picmip,
+				isLightmap);
+		}
+#endif
 
 		// copy or resample data as appropriate for first MIP level
 		if (!mipcount)
@@ -812,6 +890,7 @@ static void Upload32( const char *debugName, unsigned *data,
 	XBLF("JA: Upload32 done image='%s' pformat=0x%08x\n",
 		debugName ? debugName : "<null>",
 		pformat ? *pformat : 0);
+	JkaFakeglSetTextureDebugName("<none>");
 #endif
 }
 

@@ -1131,6 +1131,7 @@ static int xbl_FormatMayBeCritical(const char *fmt)
     if (!fmt) return 0;
     if (strstr(fmt, "STEFX_DRAW_STAGE") ||
         strstr(fmt, "STEFX_SURFACE") ||
+        strstr(fmt, "STEFX_TEX_") ||
         strstr(fmt, "STEFX_EFFECT_STAGE") ||
         strstr(fmt, "STEFX_SCRIPT_PANEL") ||
         strstr(fmt, "STEFX_BORG_LEAF") ||
@@ -1229,6 +1230,8 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "RB_XboxForce2DOverlayState") ||
         strstr(fmt, "MAIN_TIGHT") ||
         strstr(fmt, "fakegl CreateTexture") ||
+        strstr(fmt, "fakegl DDS") ||
+        strstr(fmt, "fakegl texture memory") ||
         strstr(fmt, "fakegl CPU partial") ||
         strstr(fmt, "fakegl using fallback") ||
         strstr(fmt, "CG_Init") ||
