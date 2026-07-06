@@ -346,6 +346,8 @@ static qboolean R_XboxShouldSkipBorgBridgeSurface( const msurface_t *surf )
 	return qfalse;
 }
 
+static const byte *R_ClusterPVS (int cluster);
+
 static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
 {
 	int i;
@@ -791,19 +793,17 @@ static int R_XboxAddVisibleBorgFieldSurfaces( int dlightBits )
 
 static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
 {
-	typedef struct
-	{
-		short mins[3];
-		short maxs[3];
-	} borgBridgeBounds_t;
-	const int maxBridgeBounds = 128;
-	const int bridgeMargin = 96;
-	borgBridgeBounds_t bridgeBounds[128];
+	const int maxBridgeClusters = 96;
+	int bridgeClusters[96];
 	static int s_borgBridgeLogBudget = 48;
 	static int s_borgBridgeEnterBudget = 16;
 	int i;
+	int k;
 	int fieldSourceLeaves = 0;
-	int fieldBoundsStored = 0;
+	int fieldClustersStored = 0;
+	int duplicateFieldClusters = 0;
+	int overflowFieldClusters = 0;
+	int pvsSourcesUsed = 0;
 	int candidateLeaves = 0;
 	int visibleLeaves = 0;
 	int areaMaskedLeaves = 0;
@@ -840,117 +840,143 @@ static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
 		int firstShaderNum = -1;
 		mleaf_s *leaf = &tr.world->leafs[i];
 
+		if ( leaf->visframe != tr.visCount )
+		{
+			continue;
+		}
+
+		if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
+		{
+			continue;
+		}
+
 		if ( !R_XboxLeafHasBorgVisibleFieldSurface( leaf, &firstCode, &firstShaderNum ) )
 		{
 			continue;
 		}
 
 		++fieldSourceLeaves;
-		if ( fieldBoundsStored < maxBridgeBounds )
+
+		for ( k = 0; k < fieldClustersStored; ++k )
 		{
-			for ( k = 0; k < 3; ++k )
+			if ( bridgeClusters[k] == leaf->cluster )
 			{
-				bridgeBounds[fieldBoundsStored].mins[k] = leaf->mins[k];
-				bridgeBounds[fieldBoundsStored].maxs[k] = leaf->maxs[k];
+				break;
 			}
-			++fieldBoundsStored;
 		}
+
+		if ( k < fieldClustersStored )
+		{
+			++duplicateFieldClusters;
+			continue;
+		}
+
+		if ( fieldClustersStored >= maxBridgeClusters )
+		{
+			++overflowFieldClusters;
+			continue;
+		}
+
+		bridgeClusters[fieldClustersStored++] = leaf->cluster;
 	}
 
-	if ( fieldBoundsStored <= 0 )
+	if ( fieldClustersStored <= 0 )
 	{
 		return 0;
 	}
 
-	for ( i = 0; i < tr.world->numleafs; ++i )
+	for ( k = 0; k < fieldClustersStored; ++k )
 	{
-		int j;
-		int k;
-		qboolean touchesField = qfalse;
-		msurface_t **mark;
-		mleaf_s *leaf = &tr.world->leafs[i];
+		const byte *vis = R_ClusterPVS( bridgeClusters[k] );
 
-		for ( k = 0; k < fieldBoundsStored; ++k )
+		if ( !vis )
 		{
-			if ( leaf->maxs[0] < bridgeBounds[k].mins[0] - bridgeMargin ||
-				leaf->mins[0] > bridgeBounds[k].maxs[0] + bridgeMargin ||
-				leaf->maxs[1] < bridgeBounds[k].mins[1] - bridgeMargin ||
-				leaf->mins[1] > bridgeBounds[k].maxs[1] + bridgeMargin ||
-				leaf->maxs[2] < bridgeBounds[k].mins[2] - bridgeMargin ||
-				leaf->mins[2] > bridgeBounds[k].maxs[2] + bridgeMargin )
+			continue;
+		}
+		++pvsSourcesUsed;
+
+		for ( i = 0; i < tr.world->numleafs; ++i )
+		{
+			int j;
+			msurface_t **mark;
+			mleaf_s *leaf = &tr.world->leafs[i];
+
+			if ( leaf->visframe == tr.visCount )
+			{
+				if ( k == 0 )
+				{
+					++visibleLeaves;
+				}
+				continue;
+			}
+
+			if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
 			{
 				continue;
 			}
 
-			touchesField = qtrue;
-			break;
-		}
-
-		if ( !touchesField )
-		{
-			continue;
-		}
-
-		++candidateLeaves;
-
-		if ( leaf->visframe == tr.visCount )
-		{
-			++visibleLeaves;
-			continue;
-		}
-
-		if ( leaf->area >= 0 &&
-			(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
-		{
-			++areaMaskedLeaves;
-		}
-
-		if ( leaf->firstMarkSurfNum < 0 ||
-			leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
-		{
-			continue;
-		}
-
-		++bridgeLeaves;
-		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-		for ( j = 0; j < leaf->nummarksurfaces; ++j )
-		{
-			msurface_t *surf = mark[j];
-			int drawBefore;
-
-			if ( R_XboxSurfaceIsCommonBlack( surf ) )
+			if ( !( vis[leaf->cluster >> 3] & ( 1 << ( leaf->cluster & 7 ) ) ) )
 			{
-				++skippedBlack;
 				continue;
 			}
 
-			if ( R_XboxShouldSkipBorgBridgeSurface( surf ) )
+			++candidateLeaves;
+
+			if ( leaf->area >= 0 &&
+				(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
 			{
-				++skippedSkip;
+				++areaMaskedLeaves;
+			}
+
+			if ( leaf->firstMarkSurfNum < 0 ||
+				leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+			{
 				continue;
 			}
 
-			drawBefore = tr.refdef.numDrawSurfs;
-			++attempts;
-			R_AddWorldSurface( surf, dlightBits );
-			if ( tr.refdef.numDrawSurfs > drawBefore )
+			++bridgeLeaves;
+			mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+			for ( j = 0; j < leaf->nummarksurfaces; ++j )
 			{
-				++added;
+				msurface_t *surf = mark[j];
+				int drawBefore;
+
+				if ( R_XboxSurfaceIsCommonBlack( surf ) )
+				{
+					++skippedBlack;
+					continue;
+				}
+
+				if ( R_XboxShouldSkipBorgBridgeSurface( surf ) )
+				{
+					++skippedSkip;
+					continue;
+				}
+
+				drawBefore = tr.refdef.numDrawSurfs;
+				++attempts;
+				R_AddWorldSurface( surf, dlightBits );
+				if ( tr.refdef.numDrawSurfs > drawBefore )
+				{
+					++added;
+				}
 			}
 		}
 	}
 
 	if ( s_borgBridgeLogBudget > 0 && candidateLeaves > 0 )
 	{
-		XBLF("STEFX_BORG_BRIDGE map='%s' frame=%d view=%d slot=%u visCount=%d fieldSourceLeaves=%d fieldBoundsStored=%d margin=%d candidateLeaves=%d visibleLeaves=%d areaMaskedLeaves=%d bridgeLeaves=%d attempts=%d added=%d skippedBlack=%d skippedSkip=%d drawTotal=%d",
+		XBLF("STEFX_BORG_BRIDGE map='%s' frame=%d view=%d slot=%u visCount=%d mode='field-pvs' fieldSourceLeaves=%d fieldClusters=%d duplicateClusters=%d overflowClusters=%d pvsSources=%d candidateLeaves=%d visibleLeaves=%d areaMaskedLeaves=%d bridgeLeaves=%d attempts=%d added=%d skippedBlack=%d skippedSkip=%d drawTotal=%d",
 			tr.world->name,
 			tr.frameCount,
 			tr.viewCount,
 			g_SPXBSplitSlotActive,
 			tr.visCount,
 			fieldSourceLeaves,
-			fieldBoundsStored,
-			bridgeMargin,
+			fieldClustersStored,
+			duplicateFieldClusters,
+			overflowFieldClusters,
+			pvsSourcesUsed,
 			candidateLeaves,
 			visibleLeaves,
 			areaMaskedLeaves,
