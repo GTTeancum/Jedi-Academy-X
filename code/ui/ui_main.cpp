@@ -3518,10 +3518,16 @@ void _UI_Init( qboolean inGameLoad )
 
 	if (inGameLoad)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#ifdef _XBOX
+		XBLog_Write("STEFX: _UI_Init skipping inherited JA parser menu set during in-game load");
+#endif
+#else
 #ifdef _XBOX
 		XBLog_Write("JA: _UI_Init: UI_LoadMenus ui/ingame.txt...");
 #endif
 		UI_LoadMenus("ui/ingame.txt", qtrue);
+#endif
 	}
 	else
 	{
@@ -3545,7 +3551,13 @@ void _UI_Init( qboolean inGameLoad )
 
 	if (inGameLoad)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#ifdef _XBOX
+		XBLog_Write("STEFX: _UI_Init skipping inherited JA AssetCache during in-game load");
+#endif
+#else
 		AssetCache();
+#endif
 	}
 	else
 	{
@@ -3894,6 +3906,16 @@ void UI_Load(void)
 	char *menuSet;
 	char lastName[1024];
 	menuDef_t *menu = Menu_GetFocused();
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#ifdef _XBOX
+	XBLog_Write("STEFX: UI_Load EF cache refresh replaces inherited JA parser reload");
+#endif
+	Menu_Cache();
+	UI_EFMainMenu_Cache();
+	UI_EFPauseMenu_Cache();
+	return;
+#endif
 
 	if (!uiInfo.inGameLoad)
 	{
@@ -5526,7 +5548,11 @@ void UI_InGameMenu(const char*menuID)
 		}
 		else
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			XBLF("STEFX_INPUT_UI_InGameMenu blocked inherited explicit JA menu '%s'", menuID ? menuID : "");
+#else
 			Menus_ActivateByName(menuID);
+#endif
 		}
 	}
 	else

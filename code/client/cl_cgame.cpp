@@ -1659,7 +1659,12 @@ Ghoul2 Insert End
 		return 0;
 
 	case CG_UI_MENU_OPENBYNAME:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: CG_UI_MENU_OPENBYNAME routing through EF active menu name='%s'", (const char *) VMA(1));
+		UI_SetActiveMenu((const char *) VMA(1), NULL);
+#else
 		Menus_OpenByName((const char *) VMA(1));
+#endif
 		return 0;
 
 	case CG_UI_MENU_RESET:

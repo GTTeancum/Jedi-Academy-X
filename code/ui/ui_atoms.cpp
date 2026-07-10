@@ -223,8 +223,13 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 #endif
 			return;
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: UI_SetActiveMenu blocked inherited ui_popup menuID='%s'", menuID ? menuID : "");
+		return;
+#else
 		Menus_ActivateByName(menuID);	
 		return;
+#endif
 	}
 	
 	// Elite Force-owned UI routes must be added explicitly above.  Do not fall

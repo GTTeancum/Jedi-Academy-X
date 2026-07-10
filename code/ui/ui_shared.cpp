@@ -5734,6 +5734,8 @@ menuDef_t *Menus_ActivateByName(const char *p)
 		XBLF("STEFX_INPUT_UI_Menus_ActivateByName menu='%s' consumed by EF route", p);
 		return NULL;
 	}
+	XBLF("STEFX_INPUT_UI_Menus_ActivateByName blocked inherited JA parser menu='%s'", p);
+	return NULL;
 #endif
 
 	for (i = 0; i < menuCount; i++) 
