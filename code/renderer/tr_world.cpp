@@ -812,6 +812,7 @@ static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
 	int added = 0;
 	int skippedBlack = 0;
 	int skippedSkip = 0;
+	int skippedNonBridge = 0;
 
 	if ( s_borgBridgeEnterBudget > 0 )
 	{
@@ -953,6 +954,12 @@ static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
 					continue;
 				}
 
+				if ( !R_XboxTraceBorgBridgeWindowSurface( surf ) )
+				{
+					++skippedNonBridge;
+					continue;
+				}
+
 				drawBefore = tr.refdef.numDrawSurfs;
 				++attempts;
 				R_AddWorldSurface( surf, dlightBits );
@@ -966,7 +973,7 @@ static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
 
 	if ( s_borgBridgeLogBudget > 0 && candidateLeaves > 0 )
 	{
-		XBLF("STEFX_BORG_BRIDGE map='%s' frame=%d view=%d slot=%u visCount=%d mode='field-pvs' fieldSourceLeaves=%d fieldClusters=%d duplicateClusters=%d overflowClusters=%d pvsSources=%d candidateLeaves=%d visibleLeaves=%d areaMaskedLeaves=%d bridgeLeaves=%d attempts=%d added=%d skippedBlack=%d skippedSkip=%d drawTotal=%d",
+		XBLF("STEFX_BORG_BRIDGE map='%s' frame=%d view=%d slot=%u visCount=%d mode='field-pvs' fieldSourceLeaves=%d fieldClusters=%d duplicateClusters=%d overflowClusters=%d pvsSources=%d candidateLeaves=%d visibleLeaves=%d areaMaskedLeaves=%d bridgeLeaves=%d attempts=%d added=%d skippedBlack=%d skippedSkip=%d skippedNonBridge=%d drawTotal=%d",
 			tr.world->name,
 			tr.frameCount,
 			tr.viewCount,
@@ -985,6 +992,7 @@ static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
 			added,
 			skippedBlack,
 			skippedSkip,
+			skippedNonBridge,
 			tr.refdef.numDrawSurfs);
 		--s_borgBridgeLogBudget;
 	}
