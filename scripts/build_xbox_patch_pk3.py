@@ -149,6 +149,106 @@ XBOX_PATCH_SHADER_TEXT = """\
 // Keep borg1 structural panels script-neutral: textures/borg/xpanelb is an
 // implicit BSP material in the stock map, so texture fidelity is handled by the
 // DDS asset format rather than by overriding the shader script.
+
+textures/borg/borgfield_flicker
+{
+    qer_editorimage textures/borg/static.jpg
+    surfaceparm nomarks
+    surfaceparm nolightmap
+    surfaceparm trans
+    {
+        map textures/borg/static.jpg
+        blendFunc GL_ONE GL_ONE
+        rgbGen wave random 0 1 0 0.8
+        tcMod scroll 1292.7 11233.9
+    }
+}
+
+textures/borg/borgfield_opaque
+{
+    qer_editorimage textures/borg/static.jpg
+    surfaceparm nomarks
+    surfaceparm nolightmap
+    {
+        map textures/borg/static.jpg
+        blendFunc GL_ONE GL_ZERO
+        tcMod scroll 1292.7 11233.9
+    }
+    {
+        map textures/borg/static.jpg
+        detail
+        rgbGen wave sin 0.85 0.15 0 1
+        blendFunc GL_ONE GL_ONE
+        tcMod scroll -1292.7 -11233.9
+    }
+    {
+        map textures/borg/static.jpg
+        detail
+        rgbGen wave sin 0.85 0.15 0 1
+        blendFunc GL_ONE GL_ONE
+        tcMod scroll -1200 1200
+    }
+}
+
+textures/borg/borgfield
+{
+    qer_editorimage textures/borg/static.jpg
+    surfaceparm nomarks
+    surfaceparm nolightmap
+    surfaceparm trans
+    {
+        map textures/borg/static.jpg
+        blendFunc GL_ONE GL_ONE
+        tcMod scroll 1292.7 11233.9
+    }
+}
+
+textures/borg/borgfield_nonsolid
+{
+    qer_editorimage textures/borg/static.jpg
+    surfaceparm nomarks
+    surfaceparm nolightmap
+    surfaceparm nonsolid
+    surfaceparm playerclip
+    surfaceparm trans
+    surfaceparm shotclip
+    surfaceparm forcefield
+    {
+        map textures/borg/static.jpg
+        blendFunc GL_ONE GL_ONE
+        tcMod scroll 1292.7 11233.9
+    }
+}
+
+textures/borg/static2
+{
+    qer_editorimage textures/borg/static2.jpg
+    surfaceparm nomarks
+    surfaceparm nolightmap
+    surfaceparm trans
+    {
+        map textures/borg/static2.jpg
+        blendFunc GL_ONE GL_ONE
+        tcMod scroll 1292.7 11233.9
+    }
+}
+
+textures/borg/static2_nonsolid
+{
+    qer_editorimage textures/borg/static2.jpg
+    surfaceparm nomarks
+    surfaceparm nolightmap
+    surfaceparm nonsolid
+    surfaceparm playerclip
+    surfaceparm trans
+    surfaceparm shotclip
+    surfaceparm forcefield
+    {
+        map textures/borg/static2.jpg
+        blendFunc GL_ONE GL_ONE
+        tcMod scroll 1292.7 11233.9
+    }
+}
 """
 
 XBOX_PATCH_SHADER_PATH = "scripts/xbox_borg_fix.shader"
