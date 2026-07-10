@@ -165,6 +165,8 @@ function Initialize-StageFromSource {
         "ef_sp_level.txt",
         "ef_sp_commands.txt",
         "ef_sp_postmap_commands.txt",
+        "ef_sp_active_commands.txt",
+        "ef_sp_active_command_time.txt",
         "ja_sp_level.txt",
         "ja_sp_commands.txt",
         "ja_sp_postmap_commands.txt",
