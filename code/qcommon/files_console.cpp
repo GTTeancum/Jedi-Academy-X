@@ -41,6 +41,7 @@ static qboolean STEFX_ShouldTraceAssetOpen(const char *filename)
 	return filename &&
 		(strstr(filename, ".mdr") || strstr(filename, ".md3") ||
 		 strstr(filename, ".skin") || strstr(filename, "animation.cfg") ||
+		 strstr(filename, "textures/borg/ybeam") ||
 		 strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items") ||
 		 strstr(filename, "ext_data/weapons") || strstr(filename, "ext_data\\weapons") ||
 		 strstr(filename, "ext_data/NPCs") || strstr(filename, "ext_data\\NPCs") ||
@@ -94,6 +95,10 @@ static qboolean STEFX_ShouldTryStdioWholeFileRead(const char *filename)
 	return ext &&
 		(!Q_stricmp(ext, ".mdr") ||
 		 !Q_stricmp(ext, ".md3") ||
+		 !Q_stricmp(ext, ".tga") ||
+		 !Q_stricmp(ext, ".jpg") ||
+		 !Q_stricmp(ext, ".jpeg") ||
+		 !Q_stricmp(ext, ".dds") ||
 		 !Q_stricmp(ext, ".tik") ||
 		 !Q_stricmp(ext, ".IBI") ||
 		 !Q_stricmp(ext, ".pre") ||
@@ -1818,7 +1823,28 @@ int FS_ReadFile( const char *qpath, void **buffer )
 
 //	Z_Label(buf, qpath);
 
-	FS_Read(buf, len, h);
+	int bytesRead = FS_Read(buf, len, h);
+	if (bytesRead != len)
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLog_Write(va("STEFX: FS_ReadFile short read file='%s' len=%d read=%d handle=%d",
+			qpath,
+			len,
+			bytesRead,
+			h));
+#endif
+		FS_FCloseFile(h);
+		Z_Free(buf);
+		*buffer = NULL;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		len = STEFX_ReadLooseFileWithStdio(qpath, buffer);
+		if (len >= 0)
+		{
+			return len;
+		}
+#endif
+		return -1;
+	}
 
 	// guarantee that it will have a trailing 0 for string operations
 	buf[len] = 0;

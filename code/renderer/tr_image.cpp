@@ -1518,9 +1518,12 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	byte *pOut	= NULL;
 	byte *pIn	= NULL;
 	byte *pPalette = NULL;
+	TGAHeader_t parsedHeader;
+	TGAHeader_t *pHeader = &parsedHeader;
 
 
 	*pic = NULL;
+	memset(&parsedHeader, 0, sizeof(parsedHeader));
 
 #define TGA_FORMAT_ERROR(blah) {sprintf(sErrorString,blah); bFormatErrors = true; goto TGADone;}
 //#define TGA_FORMAT_ERROR(blah) Com_Error( ERR_DROP, blah );
@@ -1534,8 +1537,23 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 		return 0;
 	}
 
-	TGAHeader_t *pHeader = (TGAHeader_t *) pTempLoadedBuffer;
+	if (filelen < (int)sizeof(TGAHeader_t))
+	{
+		TGA_FORMAT_ERROR("LoadTGA: file too short for TGA header\n");
+	}
 
+	parsedHeader.byIDFieldLength = pTempLoadedBuffer[0];
+	parsedHeader.byColourmapType = pTempLoadedBuffer[1];
+	parsedHeader.byImageType = pTempLoadedBuffer[2];
+	parsedHeader.w1stColourMapEntry = (word)(pTempLoadedBuffer[3] | (pTempLoadedBuffer[4] << 8));
+	parsedHeader.wColourMapLength = (word)(pTempLoadedBuffer[5] | (pTempLoadedBuffer[6] << 8));
+	parsedHeader.byColourMapEntrySize = pTempLoadedBuffer[7];
+	parsedHeader.wImageXOrigin = (word)(pTempLoadedBuffer[8] | (pTempLoadedBuffer[9] << 8));
+	parsedHeader.wImageYOrigin = (word)(pTempLoadedBuffer[10] | (pTempLoadedBuffer[11] << 8));
+	parsedHeader.wImageWidth = (word)(pTempLoadedBuffer[12] | (pTempLoadedBuffer[13] << 8));
+	parsedHeader.wImageHeight = (word)(pTempLoadedBuffer[14] | (pTempLoadedBuffer[15] << 8));
+	parsedHeader.byImagePlanes = pTempLoadedBuffer[16];
+	parsedHeader.byScanLineOrder = pTempLoadedBuffer[17];
 	bool bPalettedTga = (pHeader->byImageType == 1);
 
 	if (bPalettedTga)
@@ -1881,7 +1899,18 @@ TGADone:
 	if (bFormatErrors)
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLF("STEFX: LoadTGA format error file='%s' error='%s'", name, sErrorString);
+		XBLF("STEFX: LoadTGA format error file='%s' error='%s' type=%u cmap=%u first=%u len=%u entry=%u wh=%ux%u planes=%u attr=0x%02x filelen=%d",
+			name, sErrorString,
+			(unsigned int)pHeader->byImageType,
+			(unsigned int)pHeader->byColourmapType,
+			(unsigned int)pHeader->w1stColourMapEntry,
+			(unsigned int)pHeader->wColourMapLength,
+			(unsigned int)pHeader->byColourMapEntrySize,
+			(unsigned int)pHeader->wImageWidth,
+			(unsigned int)pHeader->wImageHeight,
+			(unsigned int)pHeader->byImagePlanes,
+			(unsigned int)pHeader->byScanLineOrder,
+			filelen);
 #endif
 		Com_Error( ERR_DROP, "%s( File: \"%s\" )\n",sErrorString,name);
 	}

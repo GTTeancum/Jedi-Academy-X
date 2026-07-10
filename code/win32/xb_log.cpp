@@ -700,6 +700,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadImage intro resolve", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: LoadTGA", &s_stefxCgInitBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_CreateImage intro", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: INTRO_IMAGE", &s_stefxIntroRuntimeBudget);
