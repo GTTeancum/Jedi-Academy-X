@@ -422,6 +422,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxSurfaceSubmitTraceBudget = 512;
     static int s_stefxDrawStageTraceBudget = 96;
     static int s_stefxEffectDrawTraceBudget = 240;
+    static int s_stefxBorgStaticStageBudget = 128;
     static int s_stefxScriptPanelTraceBudget = 512;
     static int s_stefxWorldFallbackBudget = 96;
     static int s_stefxBorgLeafTraceBudget = 256;
@@ -467,6 +468,10 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_POLY", &s_stefxEffectDrawTraceBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_STAGE", &s_stefxEffectDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_STATIC_STAGE", &s_stefxBorgStaticStageBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_STATIC_FLUSH", &s_stefxBorgStaticStageBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_ENTITY_ADD", &s_stefxEffectDrawTraceBudget);
     if (budgeted >= 0) return budgeted;

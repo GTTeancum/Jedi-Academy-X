@@ -117,18 +117,14 @@ ORIGINAL_FORMAT_TEXTURES = (
     # Dark/detail-heavy sky backing loses too much signal in the current DXT1
     # conversion, so keep the stock JPG until the Xbox-native path is proven.
     "textures/borg/borgsky",
-    # Borg forcefields and cutout panels depend on precise alpha/additive
-    # behavior. Keep these on the stock TGA/JPG upload path until the Xbox DDS
-    # path has matching XEMU/console visual proof.
+    # Borg forcefield borders and solid cutout panels keep the stock upload path
+    # until their alpha behavior has hardware-near visual proof.
     "textures/borg/bars",
     "textures/borg/bars2",
     "textures/borg/basic1",
     "textures/borg/forceborder",
     "textures/borg/forceborder2",
     "textures/borg/forceborder3",
-    "textures/borg/static",
-    "textures/borg/static2",
-    "textures/borg/static_yellow",
     "textures/common/70yearjourney",
     "textures/common/enemyspace",
     "textures/common/sevenspace",
@@ -152,12 +148,12 @@ XBOX_PATCH_SHADER_TEXT = """\
 
 textures/borg/borgfield_flicker
 {
-    qer_editorimage textures/borg/static.jpg
+    qer_editorimage textures/borg/static.dds
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm trans
     {
-        map textures/borg/static.jpg
+        map textures/borg/static.dds
         blendFunc GL_ONE GL_ONE
         rgbGen wave random 0 1 0 0.8
         tcMod scroll 1292.7 11233.9
@@ -166,23 +162,23 @@ textures/borg/borgfield_flicker
 
 textures/borg/borgfield_opaque
 {
-    qer_editorimage textures/borg/static.jpg
+    qer_editorimage textures/borg/static.dds
     surfaceparm nomarks
     surfaceparm nolightmap
     {
-        map textures/borg/static.jpg
+        map textures/borg/static.dds
         blendFunc GL_ONE GL_ZERO
         tcMod scroll 1292.7 11233.9
     }
     {
-        map textures/borg/static.jpg
+        map textures/borg/static.dds
         detail
         rgbGen wave sin 0.85 0.15 0 1
         blendFunc GL_ONE GL_ONE
         tcMod scroll -1292.7 -11233.9
     }
     {
-        map textures/borg/static.jpg
+        map textures/borg/static.dds
         detail
         rgbGen wave sin 0.85 0.15 0 1
         blendFunc GL_ONE GL_ONE
@@ -192,12 +188,12 @@ textures/borg/borgfield_opaque
 
 textures/borg/borgfield
 {
-    qer_editorimage textures/borg/static.jpg
+    qer_editorimage textures/borg/static.dds
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm trans
     {
-        map textures/borg/static.jpg
+        map textures/borg/static.dds
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -205,7 +201,7 @@ textures/borg/borgfield
 
 textures/borg/borgfield_nonsolid
 {
-    qer_editorimage textures/borg/static.jpg
+    qer_editorimage textures/borg/static.dds
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm nonsolid
@@ -214,7 +210,7 @@ textures/borg/borgfield_nonsolid
     surfaceparm shotclip
     surfaceparm forcefield
     {
-        map textures/borg/static.jpg
+        map textures/borg/static.dds
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -222,12 +218,12 @@ textures/borg/borgfield_nonsolid
 
 textures/borg/static2
 {
-    qer_editorimage textures/borg/static2.jpg
+    qer_editorimage textures/borg/static2.dds
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm trans
     {
-        map textures/borg/static2.jpg
+        map textures/borg/static2.dds
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -235,7 +231,7 @@ textures/borg/static2
 
 textures/borg/static2_nonsolid
 {
-    qer_editorimage textures/borg/static2.jpg
+    qer_editorimage textures/borg/static2.dds
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm nonsolid
@@ -244,7 +240,7 @@ textures/borg/static2_nonsolid
     surfaceparm shotclip
     surfaceparm forcefield
     {
-        map textures/borg/static2.jpg
+        map textures/borg/static2.dds
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -411,6 +407,27 @@ def preserved_source_texture_bytes(candidate: str, source: Path) -> tuple[bytes,
         return source.read_bytes(), False
 
     suffix = source.suffix.lower()
+    boosted = boosted_borg_additive_signal_image(source)
+    if boosted is None:
+        return source.read_bytes(), False
+
+    boosted_image, source_unchanged = boosted
+    if source_unchanged:
+        return source.read_bytes(), False
+
+    out = io.BytesIO()
+    if suffix in (".jpg", ".jpeg"):
+        boosted_image.convert("RGB").save(out, format="JPEG", quality=95, subsampling=0)
+    elif suffix == ".png":
+        boosted_image.save(out, format="PNG")
+    elif suffix == ".tga":
+        boosted_image.save(out, format="TGA")
+    else:
+        return source.read_bytes(), False
+    return out.getvalue(), True
+
+
+def boosted_borg_additive_signal_image(source: Path) -> tuple[Image.Image, bool] | None:
     try:
         with Image.open(source) as image:
             has_alpha = image_has_alpha(image)
@@ -419,7 +436,7 @@ def preserved_source_texture_bytes(candidate: str, source: Path) -> tuple[bytes,
             stat = ImageStat.Stat(rgb)
             high_channels = [high for _low, high in rgb.getextrema()]
             if max(stat.mean) >= 70.0 and max(high_channels) >= 200:
-                return source.read_bytes(), False
+                return image.copy(), True
 
             rgb = ImageEnhance.Brightness(rgb).enhance(4.0)
             rgb = ImageEnhance.Contrast(rgb).enhance(1.35)
@@ -430,18 +447,9 @@ def preserved_source_texture_bytes(candidate: str, source: Path) -> tuple[bytes,
             else:
                 boosted = rgb
 
-            out = io.BytesIO()
-            if suffix in (".jpg", ".jpeg"):
-                boosted.convert("RGB").save(out, format="JPEG", quality=95, subsampling=0)
-            elif suffix == ".png":
-                boosted.save(out, format="PNG")
-            elif suffix == ".tga":
-                boosted.save(out, format="TGA")
-            else:
-                return source.read_bytes(), False
-            return out.getvalue(), True
+            return boosted.copy(), False
     except OSError:
-        return source.read_bytes(), False
+        return None
 
 
 def write_bytes_if_changed(path: Path, data: bytes) -> bool:
@@ -913,10 +921,19 @@ def build_dds(
     max_size: int,
     force_bgra32: bool = False,
     force_rgb565: bool = False,
+    boost_borg_additive_signal: bool = False,
 ) -> tuple[bytes, dict[str, object]] | None:
     with Image.open(source) as opened:
-        has_alpha = image_has_alpha(opened)
-        image = resize_for_xbox(opened, max_size)
+        source_image = opened
+        boosted_signal = False
+        if boost_borg_additive_signal:
+            boosted = boosted_borg_additive_signal_image(source)
+            if boosted is not None:
+                source_image, source_unchanged = boosted
+                boosted_signal = not source_unchanged
+
+        has_alpha = image_has_alpha(source_image)
+        image = resize_for_xbox(source_image, max_size)
         if force_rgb565:
             payload = encode_rgb565(image)
             header = dds_header(
@@ -950,6 +967,8 @@ def build_dds(
             "height": image.height,
             "bytes": len(header) + len(payload),
         }
+        if boosted_signal:
+            info["boostedBorgSignal"] = True
         return header + payload, info
 
 
@@ -1180,6 +1199,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 max_size,
                 force_bgra32=is_fullscreen_texture(out_rel),
                 force_rgb565=should_use_rgb565_texture(out_rel),
+                boost_borg_additive_signal=is_borg_additive_signal_texture(out_rel),
             )
             if built is None:
                 skipped_alpha.append(out_rel)
