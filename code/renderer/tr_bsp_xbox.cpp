@@ -879,9 +879,9 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static surfaceType_t s_stefxSkipSurfaceData = SF_SKIP;
 
-static qboolean R_EFShouldSkipBorg6BlackBackingSurface( const dshader_t *mapShader, int surfaceCode )
+static qboolean R_EFShouldSkipBorgBlackBackingSurface( const dshader_t *mapShader, int surfaceCode )
 {
-	if ( !mapShader || Q_stricmp( s_worldData.name, "maps/borg6.bsp" ) )
+	if ( !mapShader || Q_stricmpn( s_worldData.name, "maps/borg", 9 ) )
 	{
 		return qfalse;
 	}
@@ -914,7 +914,7 @@ static qboolean R_EFShouldSkipRawDrawSurface( int shaderNum, int surfaceCode )
 		return qtrue;
 	}
 
-	if ( R_EFShouldSkipBorg6BlackBackingSurface( mapShader, surfaceCode ) )
+	if ( R_EFShouldSkipBorgBlackBackingSurface( mapShader, surfaceCode ) )
 	{
 		return qtrue;
 	}
