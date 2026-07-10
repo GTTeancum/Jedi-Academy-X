@@ -44,6 +44,7 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 if ([string]::IsNullOrWhiteSpace($Iso)) {
     $Iso = $defaultIso
 }
+$Iso = [System.IO.Path]::GetFullPath($Iso)
 
 $normalizedMaps = @()
 if ($Maps.Count -eq 0) {
