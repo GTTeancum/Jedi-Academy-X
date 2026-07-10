@@ -1517,6 +1517,7 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	byte *pRGBA = NULL;	
 	byte *pOut	= NULL;
 	byte *pIn	= NULL;
+	byte *pPalette = NULL;
 
 
 	*pic = NULL;
@@ -1535,32 +1536,53 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 
 	TGAHeader_t *pHeader = (TGAHeader_t *) pTempLoadedBuffer;
 
-	if (pHeader->byColourmapType!=0)
+	bool bPalettedTga = (pHeader->byImageType == 1);
+
+	if (bPalettedTga)
 	{	
-		TGA_FORMAT_ERROR("LoadTGA: colourmaps not supported\n" );		
+		if (pHeader->byColourmapType != 1)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: colour mapped images must include a colourmap\n");
+		}
+		if (pHeader->byImagePlanes != 8)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: colour mapped images must be 8 bit\n");
+		}
+		if (pHeader->wColourMapLength == 0 || pHeader->wColourMapLength > 256)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: ColourMapLength must be 1..256 for colour mapped images\n");
+		}
+		if (pHeader->byColourMapEntrySize != 24 && pHeader->byColourMapEntrySize != 32)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: ColourMapEntrySize must be 24 or 32 for colour mapped images\n");
+		}
+	}
+	else if (pHeader->byColourmapType!=0)
+	{
+		TGA_FORMAT_ERROR("LoadTGA: colourmaps not supported\n" );
 	}
 
-	if (pHeader->byImageType != 2 && pHeader->byImageType != 3 && pHeader->byImageType != 10)
+	if (pHeader->byImageType != 1 && pHeader->byImageType != 2 && pHeader->byImageType != 3 && pHeader->byImageType != 10)
 	{
-		TGA_FORMAT_ERROR("LoadTGA: Only type 2 (RGB), 3 (gray), and 10 (RLE-RGB) images supported\n");		
+		TGA_FORMAT_ERROR("LoadTGA: Only type 1 (mapped), 2 (RGB), 3 (gray), and 10 (RLE-RGB) images supported\n");
 	}
 		
-	if (pHeader->w1stColourMapEntry != 0)
+	if (!bPalettedTga && pHeader->w1stColourMapEntry != 0)
 	{
 		TGA_FORMAT_ERROR("LoadTGA: colourmaps not supported\n" );		
 	}
 
-	if (pHeader->wColourMapLength !=0 && pHeader->wColourMapLength != 256)
+	if (!bPalettedTga && pHeader->wColourMapLength !=0 && pHeader->wColourMapLength != 256)
 	{
 		TGA_FORMAT_ERROR("LoadTGA: ColourMapLength must be either 0 or 256\n" );
 	}
 
-	if (pHeader->byColourMapEntrySize != 0 && pHeader->byColourMapEntrySize != 24)
+	if (!bPalettedTga && pHeader->byColourMapEntrySize != 0 && pHeader->byColourMapEntrySize != 24)
 	{
 		TGA_FORMAT_ERROR("LoadTGA: ColourMapEntrySize must be either 0 or 24\n" );
 	}
 
-	if ( ( pHeader->byImagePlanes != 24 && pHeader->byImagePlanes != 32) && (pHeader->byImagePlanes != 8 && pHeader->byImageType != 3))
+	if ( !bPalettedTga && ( pHeader->byImagePlanes != 24 && pHeader->byImagePlanes != 32) && (pHeader->byImagePlanes != 8 && pHeader->byImageType != 3))
 	{
 		TGA_FORMAT_ERROR("LoadTGA: Only type 2 (RGB), 3 (gray), and 10 (RGB) TGA images supported\n");
 	}
@@ -1663,7 +1685,38 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 
 	byte red,green,blue,alpha;
 
-	if ( pHeader->byImageType == 2 || pHeader->byImageType == 3 )	// RGB or greyscale
+	if ( pHeader->byImageType == 1 )	// colour mapped
+	{
+		pPalette = pIn;
+		pIn += pHeader->wColourMapLength * (pHeader->byColourMapEntrySize / 8);
+
+		for (int y=iYStart, iYCount=0; iYCount<pHeader->wImageHeight; y+=iYStep, iYCount++)
+		{
+			pOut = pRGBA + y * pHeader->wImageWidth * 4;
+			for (int x=iXStart, iXCount=0; iXCount<pHeader->wImageWidth; x+=iXStep, iXCount++)
+			{
+				int index = (int)(*pIn++) - (int)pHeader->w1stColourMapEntry;
+				if (index < 0 || index >= pHeader->wColourMapLength)
+				{
+					red = green = blue = 0;
+					alpha = 255;
+				}
+				else
+				{
+					byte *entry = pPalette + index * (pHeader->byColourMapEntrySize / 8);
+					blue = entry[0];
+					green = entry[1];
+					red = entry[2];
+					alpha = (pHeader->byColourMapEntrySize == 32) ? entry[3] : 255;
+				}
+				*pOut++ = red;
+				*pOut++ = green;
+				*pOut++ = blue;
+				*pOut++ = alpha;
+			}
+		}
+	}
+	else if ( pHeader->byImageType == 2 || pHeader->byImageType == 3 )	// RGB or greyscale
 	{
 		for (int y=iYStart, iYCount=0; iYCount<pHeader->wImageHeight; y+=iYStep, iYCount++)
 		{
@@ -1827,6 +1880,9 @@ TGADone:
 
 	if (bFormatErrors)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: LoadTGA format error file='%s' error='%s'", name, sErrorString);
+#endif
 		Com_Error( ERR_DROP, "%s( File: \"%s\" )\n",sErrorString,name);
 	}
 	return filelen;

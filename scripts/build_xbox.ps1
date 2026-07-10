@@ -710,7 +710,7 @@ function Build-Project {
             # compiled against 5558 includes).  OpenJKDF2's build uses
             # /LIBPATH:%XDK_ROOT%\lib with XDK_ROOT=C:\XDK_5558\XDK\xbox,
             # so ALL their libs are 5558.  Matching exactly here.
-            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib;binkxbox.lib"
+            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib"
             OutputFile = "$repoReleaseDir\default.exe"
             # XDK 5558 lib path FIRST so xboxkrnl, xgraphics, xapilib,
             # xonline, dsound, libc all resolve from 5558 (matching

@@ -127,6 +127,7 @@ CG_CustomSound
 
 ================
 */
+extern sfxHandle_t CG_RegisterSexedSound(char* string);
 static sfxHandle_t	CG_CustomSound( int entityNum, const char *soundName, int customSoundSet ) 
 {
 	clientInfo_t *ci;
@@ -159,6 +160,16 @@ static sfxHandle_t	CG_CustomSound( int entityNum, const char *soundName, int cus
 			{
 				if ( !Q_stricmp( soundName, cg_customBasicSoundNames[i] ) ) 
 				{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( !ci->sounds[i] && ci->customBasicSoundDir && ci->customBasicSoundDir[0] )
+					{
+						char finalName[MAX_QPATH];
+						Q_strncpyz(finalName, soundName + 1, sizeof(finalName), qtrue);
+						ci->sounds[i] = CG_RegisterSexedSound( va("sound/voice/%s/misc/%s", ci->customBasicSoundDir, finalName) );
+						XBLF("STEFX: lazy NPC basic sound ent=%d dir='%s' name='%s' handle=%d",
+							entityNum, ci->customBasicSoundDir, finalName, ci->sounds[i]);
+					}
+#endif
 					return ci->sounds[i];
 				}
 			}
@@ -172,6 +183,16 @@ static sfxHandle_t	CG_CustomSound( int entityNum, const char *soundName, int cus
 			{
 				if ( !Q_stricmp( soundName, cg_customCombatSoundNames[i] ) ) 
 				{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( !ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS] && ci->customCombatSoundDir && ci->customCombatSoundDir[0] )
+					{
+						char finalName[MAX_QPATH];
+						Q_strncpyz(finalName, soundName + 1, sizeof(finalName), qtrue);
+						ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS] = CG_RegisterSexedSound( va("sound/voice/%s/misc/%s", ci->customCombatSoundDir, finalName) );
+						XBLF("STEFX: lazy NPC combat sound ent=%d dir='%s' name='%s' handle=%d",
+							entityNum, ci->customCombatSoundDir, finalName, ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS]);
+					}
+#endif
 					return ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS];
 				}
 			}
@@ -185,6 +206,16 @@ static sfxHandle_t	CG_CustomSound( int entityNum, const char *soundName, int cus
 			{
 				if ( !Q_stricmp( soundName, cg_customExtraSoundNames[i] ) ) 
 				{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( !ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS] && ci->customExtraSoundDir && ci->customExtraSoundDir[0] )
+					{
+						char finalName[MAX_QPATH];
+						Q_strncpyz(finalName, soundName + 1, sizeof(finalName), qtrue);
+						ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS] = CG_RegisterSexedSound( va("sound/voice/%s/misc/%s", ci->customExtraSoundDir, finalName) );
+						XBLF("STEFX: lazy NPC extra sound ent=%d dir='%s' name='%s' handle=%d",
+							entityNum, ci->customExtraSoundDir, finalName, ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS]);
+					}
+#endif
 					return ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS];
 				}
 			}
@@ -198,6 +229,16 @@ static sfxHandle_t	CG_CustomSound( int entityNum, const char *soundName, int cus
 			{
 				if ( !Q_stricmp( soundName, cg_customScavSoundNames[i] ) ) 
 				{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( !ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS+MAX_CUSTOM_EXTRA_SOUNDS] && ci->customScavSoundDir && ci->customScavSoundDir[0] )
+					{
+						char finalName[MAX_QPATH];
+						Q_strncpyz(finalName, soundName + 1, sizeof(finalName), qtrue);
+						ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS+MAX_CUSTOM_EXTRA_SOUNDS] = CG_RegisterSexedSound( va("sound/voice/%s/misc/%s", ci->customScavSoundDir, finalName) );
+						XBLF("STEFX: lazy NPC scav sound ent=%d dir='%s' name='%s' handle=%d",
+							entityNum, ci->customScavSoundDir, finalName, ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS+MAX_CUSTOM_EXTRA_SOUNDS]);
+					}
+#endif
 					return ci->sounds[i+MAX_CUSTOM_BASIC_SOUNDS+MAX_CUSTOM_COMBAT_SOUNDS+MAX_CUSTOM_EXTRA_SOUNDS];
 				}
 			}
@@ -398,11 +439,22 @@ void CG_NewClientinfo( int clientNum )
 /*
 CG_RegisterNPCCustomSounds
 */
-extern sfxHandle_t CG_RegisterSexedSound(char* string);
 void CG_RegisterNPCCustomSounds( clientInfo_t *ci )
 {
 	const char	*s;
 	int			i;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( ci )
+	{
+		XBLF("STEFX: deferring NPC custom sounds basic='%s' combat='%s' extra='%s' scav='%s'",
+			ci->customBasicSoundDir ? ci->customBasicSoundDir : "",
+			ci->customCombatSoundDir ? ci->customCombatSoundDir : "",
+			ci->customExtraSoundDir ? ci->customExtraSoundDir : "",
+			ci->customScavSoundDir ? ci->customScavSoundDir : "");
+	}
+	return;
+#endif
 
 	// sounds
 
@@ -3483,6 +3535,41 @@ void CG_Player( centity_t *cent ) {
 				ci->torsoSkin,
 				ci->headSkin );
 			--s_stefxSplitP2RegisterLogBudget;
+		}
+	}
+
+	if ( !ci->infoValid && cent->currentState.number != 0 )
+	{
+		static int s_stefxDeferredModelLogBudget = 64;
+
+		if ( s_stefxDeferredModelLogBudget > 0 )
+		{
+			XBLF( "STEFX: dynamic client model registration ent=%d npc='%s' renderNames=(%s,%s,%s) models=(%d,%d,%d)",
+				cent->currentState.number,
+				cent->gent->NPC_type ? cent->gent->NPC_type : "<null>",
+				cent->gent->client->renderInfo.legsModelName,
+				cent->gent->client->renderInfo.torsoModelName,
+				cent->gent->client->renderInfo.headModelName,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel );
+		}
+
+		CG_RegisterClientModels( cent->currentState.number );
+		ci = &cent->gent->client->clientInfo;
+
+		if ( s_stefxDeferredModelLogBudget > 0 )
+		{
+			XBLF( "STEFX: dynamic client model registered ent=%d infoValid=%d models=(%d,%d,%d) skins=(%d,%d,%d)",
+				cent->currentState.number,
+				ci->infoValid ? 1 : 0,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin );
+			--s_stefxDeferredModelLogBudget;
 		}
 	}
 #endif
