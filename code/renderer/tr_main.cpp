@@ -1575,6 +1575,36 @@ void R_AddEntitySurfaces (void) {
 				continue;
 			}
 			shader = R_GetShaderByHandle( ent->e.customShader );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( cls.state == CA_ACTIVE )
+			{
+				static int s_stefxEffectEntityAddBudget = 192;
+				if ( s_stefxEffectEntityAddBudget > 0 )
+				{
+					XBLF("STEFX_EFFECT_ENTITY_ADD slot=%u ent=%d ref=%d reType=%d shaderHandle=%d shader='%s' default=%d explicit=%d sort=%g rf=0x%x radius=%g rot=%g skin=%d rgba=%u,%u,%u,%u origin=%g,%g,%g old=%g,%g,%g",
+						g_SPXBSplitSlotActive,
+						tr.currentEntityNum,
+						ent->e.number,
+						ent->e.reType,
+						ent->e.customShader,
+						shader ? shader->name : "<null>",
+						shader ? shader->defaultShader : -1,
+						shader ? shader->explicitlyDefined : -1,
+						shader ? (double)shader->sort : -1.0,
+						ent->e.renderfx,
+						ent->e.radius,
+						ent->e.rotation,
+						ent->e.skinNum,
+						(unsigned int)ent->e.shaderRGBA[0],
+						(unsigned int)ent->e.shaderRGBA[1],
+						(unsigned int)ent->e.shaderRGBA[2],
+						(unsigned int)ent->e.shaderRGBA[3],
+						ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+						ent->e.oldorigin[0], ent->e.oldorigin[1], ent->e.oldorigin[2]);
+					--s_stefxEffectEntityAddBudget;
+				}
+			}
+#endif
 			R_AddDrawSurf( &entitySurface, shader, R_SpriteFogNum( ent ), 0 );
 			break;
 

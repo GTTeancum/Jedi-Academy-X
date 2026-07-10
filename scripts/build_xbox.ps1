@@ -1406,16 +1406,19 @@ function Update-EFBorgShaderScript {
 
     $text = Get-Content -LiteralPath $borgShader -Raw
     $patched = $text.
-        Replace("textures/borg/static.tga", "textures/borg/static.dds").
-        Replace("textures/borg/static2.tga", "textures/borg/static2.dds").
-        Replace("textures/borg/static_yellow.tga", "textures/borg/static_yellow.dds").
-        Replace("textures/borg/static.jpg", "textures/borg/static.dds").
-        Replace("textures/borg/static2.jpg", "textures/borg/static2.dds").
-        Replace("textures/borg/static_yellow.jpg", "textures/borg/static_yellow.dds")
+        Replace("textures/borg/static.tga", "textures/borg/static").
+        Replace("textures/borg/static2.tga", "textures/borg/static2").
+        Replace("textures/borg/static_yellow.tga", "textures/borg/static_yellow").
+        Replace("textures/borg/static.jpg", "textures/borg/static").
+        Replace("textures/borg/static2.jpg", "textures/borg/static2").
+        Replace("textures/borg/static_yellow.jpg", "textures/borg/static_yellow").
+        Replace("textures/borg/static.dds", "textures/borg/static").
+        Replace("textures/borg/static2.dds", "textures/borg/static2").
+        Replace("textures/borg/static_yellow.dds", "textures/borg/static_yellow")
 
     if ($patched -ne $text) {
         Set-Content -LiteralPath $borgShader -Value $patched -Encoding ASCII
-        Write-Host "Patched Borg static shader image references to staged DDS assets: $borgShader"
+        Write-Host "Patched Borg static shader image references to extensionless staged assets: $borgShader"
     }
 }
 

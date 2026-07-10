@@ -350,25 +350,6 @@ void IN_UpdateGamepad(int port)
 #if defined(STEFX_ELITE_FORCE_SP)
 	CL_STEFX_SplitScreen_RecordPadState( port, qtrue, IN_GetMainController(), newState.Gamepad.wButtons, newState.Gamepad.bAnalogButtons,
 		newState.Gamepad.sThumbLX, newState.Gamepad.sThumbLY, newState.Gamepad.sThumbRX, newState.Gamepad.sThumbRY );
-	if (Cvar_VariableIntegerValue("stefx_splitScreen"))
-	{
-		static int s_splitPrimaryClaimLogBudget = 16;
-		const int splitPrimary = CL_STEFX_SplitScreen_PrimaryPadForMainController();
-		if (splitPrimary >= 0 && splitPrimary != IN_GetMainController())
-		{
-			if (s_splitPrimaryClaimLogBudget > 0)
-			{
-				XBLF("STEFX_SPLIT_INPUT main controller reassigned old=%d new=%d activePort=%d state=%d catcher=0x%x",
-					IN_GetMainController(),
-					splitPrimary,
-					port,
-					(int)cls.state,
-					(unsigned int)cls.keyCatchers);
-				--s_splitPrimaryClaimLogBudget;
-			}
-			IN_SetMainController(splitPrimary);
-		}
-	}
 #endif
 	if (!loggedFirstState[port])
 	{

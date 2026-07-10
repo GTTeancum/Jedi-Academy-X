@@ -279,8 +279,7 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( tr.refdef.time >= 65000 &&
-		tr.currentModel && strstr( tr.currentModel->name, "models/players/" ) )
+	if ( tr.currentModel && strstr( tr.currentModel->name, "models/players/" ) )
 	{
 		stefxTrackAnimSurf = qtrue;
 		if ( s_stefxAnimSurfEnterBudget > 0 )
@@ -409,6 +408,10 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 
 	surface = (md4Surface_t *)( (byte *)lod + lod->ofsSurfaces );
 	for ( i = 0 ; i < lod->numSurfaces ; i++ ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		qboolean skinMatched = qfalse;
+		int skinMatchIndex = -1;
+#endif
 		if ( ent->e.customShader ) {
 			shader = cust_shader;
 		} else if ( ent->e.customSkin > 0 && ent->e.customSkin < tr.numSkins ) {
@@ -423,6 +426,10 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 				// the names have both been lowercased
 				if ( !strcmp( skin->surfaces[j]->name, surface->name ) ) {
 					shader = skin->surfaces[j]->shader;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					skinMatched = qtrue;
+					skinMatchIndex = j;
+#endif
 					break;
 				}
 			}
@@ -432,7 +439,7 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ( stefxLogAnimSurf && i < 4 )
 		{
-			XBLF( "STEFX: R_AddAnimSurfaces surface ent=%d h=%d i=%d name='%s' shader='%s' fog=%d customSkin=%d default=%d",
+			XBLF( "STEFX: R_AddAnimSurfaces surface ent=%d h=%d i=%d name='%s' shader='%s' fog=%d customSkin=%d skinMatched=%d skinMatch=%d default=%d sourceShader='%s'",
 				ent->e.number,
 				ent->e.hModel,
 				i,
@@ -440,7 +447,10 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 				shader ? shader->name : "(null)",
 				fogNum,
 				ent->e.customSkin,
-				shader == tr.defaultShader );
+				skinMatched,
+				skinMatchIndex,
+				shader == tr.defaultShader,
+				surface->shader );
 		}
 #endif
 		// we will add shadows even if the main object isn't visible in the view

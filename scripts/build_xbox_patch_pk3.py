@@ -98,6 +98,12 @@ RGB565_TEXTURES = (
     "env/junk_ft",
     "env/junk_up",
     "env/junk_dn",
+    # Animated Borg static/forcefield plates are only 64x64, but XEMU shows the
+    # DXT1 upload path as the fallback grid on the forcefield shader. Keep them
+    # Xbox-native while avoiding compressed texture upload for this hot path.
+    "textures/borg/static",
+    "textures/borg/static2",
+    "textures/borg/static_yellow",
 )
 ALWAYS_TEXTURES = ()
 FULLSCREEN_TEXTURE_SEEDS = (
@@ -148,12 +154,12 @@ XBOX_PATCH_SHADER_TEXT = """\
 
 textures/borg/borgfield_flicker
 {
-    qer_editorimage textures/borg/static.dds
+    qer_editorimage textures/borg/static
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm trans
     {
-        map textures/borg/static.dds
+        map textures/borg/static
         blendFunc GL_ONE GL_ONE
         rgbGen wave random 0 1 0 0.8
         tcMod scroll 1292.7 11233.9
@@ -162,23 +168,23 @@ textures/borg/borgfield_flicker
 
 textures/borg/borgfield_opaque
 {
-    qer_editorimage textures/borg/static.dds
+    qer_editorimage textures/borg/static
     surfaceparm nomarks
     surfaceparm nolightmap
     {
-        map textures/borg/static.dds
+        map textures/borg/static
         blendFunc GL_ONE GL_ZERO
         tcMod scroll 1292.7 11233.9
     }
     {
-        map textures/borg/static.dds
+        map textures/borg/static
         detail
         rgbGen wave sin 0.85 0.15 0 1
         blendFunc GL_ONE GL_ONE
         tcMod scroll -1292.7 -11233.9
     }
     {
-        map textures/borg/static.dds
+        map textures/borg/static
         detail
         rgbGen wave sin 0.85 0.15 0 1
         blendFunc GL_ONE GL_ONE
@@ -188,12 +194,12 @@ textures/borg/borgfield_opaque
 
 textures/borg/borgfield
 {
-    qer_editorimage textures/borg/static.dds
+    qer_editorimage textures/borg/static
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm trans
     {
-        map textures/borg/static.dds
+        map textures/borg/static
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -201,7 +207,7 @@ textures/borg/borgfield
 
 textures/borg/borgfield_nonsolid
 {
-    qer_editorimage textures/borg/static.dds
+    qer_editorimage textures/borg/static
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm nonsolid
@@ -210,7 +216,7 @@ textures/borg/borgfield_nonsolid
     surfaceparm shotclip
     surfaceparm forcefield
     {
-        map textures/borg/static.dds
+        map textures/borg/static
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -218,12 +224,12 @@ textures/borg/borgfield_nonsolid
 
 textures/borg/static2
 {
-    qer_editorimage textures/borg/static2.dds
+    qer_editorimage textures/borg/static2
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm trans
     {
-        map textures/borg/static2.dds
+        map textures/borg/static2
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }
@@ -231,7 +237,7 @@ textures/borg/static2
 
 textures/borg/static2_nonsolid
 {
-    qer_editorimage textures/borg/static2.dds
+    qer_editorimage textures/borg/static2
     surfaceparm nomarks
     surfaceparm nolightmap
     surfaceparm nonsolid
@@ -240,7 +246,7 @@ textures/borg/static2_nonsolid
     surfaceparm shotclip
     surfaceparm forcefield
     {
-        map textures/borg/static2.dds
+        map textures/borg/static2
         blendFunc GL_ONE GL_ONE
         tcMod scroll 1292.7 11233.9
     }

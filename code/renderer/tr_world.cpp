@@ -310,6 +310,11 @@ static qboolean R_XboxWorldIsBorg6( void )
 	return ( tr.world && tr.world->name && !Q_stricmp( tr.world->name, "maps/borg6.bsp" ) ) ? qtrue : qfalse;
 }
 
+static qboolean R_XboxWorldIsBorgMap( void )
+{
+	return ( tr.world && tr.world->name && !Q_stricmpn( tr.world->name, "maps/borg", 9 ) ) ? qtrue : qfalse;
+}
+
 static qboolean R_XboxSurfaceIsCommonBlack( const msurface_t *surf )
 {
 	const char *mapShaderName;
@@ -1306,7 +1311,7 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 		--s_xboxBorgSurfaceWorldBudget;
 	}
 	R_XboxLogWorldFallbackSurface( "enter", surf, dlightBits, noViewCount );
-	if ( R_XboxWorldIsBorg6() && R_XboxSurfaceIsCommonBlack( surf ) )
+	if ( R_XboxWorldIsBorgMap() && R_XboxSurfaceIsCommonBlack( surf ) )
 	{
 		static int s_xboxBorgCommonBlackSkipBudget = 64;
 		if ( s_xboxBorgCommonBlackSkipBudget > 0 )

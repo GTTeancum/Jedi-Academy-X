@@ -909,6 +909,30 @@ def main():
         "_g_SPXBDirectMapStatus",
         "_g_SPXBDirectMapHash",
         "_g_SPXBDirectMapQueuedCount",
+        "_g_SPXBBorgStaticStageCount",
+        "_g_SPXBBorgStaticFallbackCount",
+        "_g_SPXBBorgStaticLastSlot",
+        "_g_SPXBBorgStaticLastStage",
+        "_g_SPXBBorgStaticLastShaderHash",
+        "_g_SPXBBorgStaticLastImageHash",
+        "_g_SPXBBorgStaticLastTexnum",
+        "_g_SPXBBorgStaticLastFormat",
+        "_g_SPXBBorgStaticLastWidth",
+        "_g_SPXBBorgStaticLastHeight",
+        "_g_SPXBBorgStaticLastStateBits",
+        "_g_SPXBBorgStaticLastBlendBits",
+        "_g_SPXBFallbackStageCount",
+        "_g_SPXBFallbackLastSlot",
+        "_g_SPXBFallbackLastStage",
+        "_g_SPXBFallbackLastBundle",
+        "_g_SPXBFallbackLastShaderHash",
+        "_g_SPXBFallbackLastImageHash",
+        "_g_SPXBFallbackLastTexnum",
+        "_g_SPXBFallbackLastFormat",
+        "_g_SPXBFallbackLastWidth",
+        "_g_SPXBFallbackLastHeight",
+        "_g_SPXBFallbackLastStateBits",
+        "_g_SPXBFallbackLastBlendBits",
         "_g_SPXBSVProbeMagic",
         "_g_SPXBSVProbePhase",
         "_g_SPXBSVProbeSubphase",
@@ -1174,6 +1198,30 @@ def main():
                         direct_status = word_for("_g_SPXBDirectMapStatus")
                         direct_hash = word_for("_g_SPXBDirectMapHash")
                         direct_queued = word_for("_g_SPXBDirectMapQueuedCount")
+                        borg_static_stage = word_for("_g_SPXBBorgStaticStageCount")
+                        borg_static_fallback = word_for("_g_SPXBBorgStaticFallbackCount")
+                        borg_static_slot = word_for("_g_SPXBBorgStaticLastSlot")
+                        borg_static_stage_num = word_for("_g_SPXBBorgStaticLastStage")
+                        borg_static_shader = word_for("_g_SPXBBorgStaticLastShaderHash")
+                        borg_static_image = word_for("_g_SPXBBorgStaticLastImageHash")
+                        borg_static_texnum = word_for("_g_SPXBBorgStaticLastTexnum")
+                        borg_static_format = word_for("_g_SPXBBorgStaticLastFormat")
+                        borg_static_width = word_for("_g_SPXBBorgStaticLastWidth")
+                        borg_static_height = word_for("_g_SPXBBorgStaticLastHeight")
+                        borg_static_state = word_for("_g_SPXBBorgStaticLastStateBits")
+                        borg_static_blend = word_for("_g_SPXBBorgStaticLastBlendBits")
+                        fallback_stage = word_for("_g_SPXBFallbackStageCount")
+                        fallback_slot = word_for("_g_SPXBFallbackLastSlot")
+                        fallback_stage_num = word_for("_g_SPXBFallbackLastStage")
+                        fallback_bundle = word_for("_g_SPXBFallbackLastBundle")
+                        fallback_shader = word_for("_g_SPXBFallbackLastShaderHash")
+                        fallback_image = word_for("_g_SPXBFallbackLastImageHash")
+                        fallback_texnum = word_for("_g_SPXBFallbackLastTexnum")
+                        fallback_format = word_for("_g_SPXBFallbackLastFormat")
+                        fallback_width = word_for("_g_SPXBFallbackLastWidth")
+                        fallback_height = word_for("_g_SPXBFallbackLastHeight")
+                        fallback_state = word_for("_g_SPXBFallbackLastStateBits")
+                        fallback_blend = word_for("_g_SPXBFallbackLastBlendBits")
                         sv_probe_magic = word_for("_g_SPXBSVProbeMagic")
                         sv_probe_phase = word_for("_g_SPXBSVProbePhase")
                         sv_probe_subphase = word_for("_g_SPXBSVProbeSubphase")
@@ -1181,7 +1229,7 @@ def main():
                         sv_probe_b = word_for("_g_SPXBSVProbeB")
                         sv_probe_c = word_for("_g_SPXBSVProbeC")
                         sv_probe_d = word_for("_g_SPXBSVProbeD")
-                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d hgt=%u/%u/%u/%u wp=%u/%u eff=%u/%u/%u game=%u/%u/%u/%u glife=%u/%u/%u/%d/%d/%u pm=0x%08x p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
+                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d hgt=%u/%u/%u/%u wp=%u/%u eff=%u/%u/%u game=%u/%u/%u/%u glife=%u/%u/%u/%d/%d/%u pm=0x%08x p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u direct=%u/0x%08x/%u bstatic=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x/%u/%u/0x%08x/0x%08x fb=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x/%u/%u/0x%08x/0x%08x svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
                              heartbeat_rt, heartbeat_st, heartbeat_fps10 / 10.0,
@@ -1258,6 +1306,18 @@ def main():
                                weapon_model_ident, weapon_model_version, weapon_model_size,
                                weapon_model_loaded, weapon_model_handle, weapon_model_fail,
                                direct_status, direct_hash, direct_queued,
+                               borg_static_stage, borg_static_fallback,
+                               borg_static_slot, borg_static_stage_num,
+                               borg_static_shader, borg_static_image,
+                               borg_static_texnum, borg_static_format,
+                               borg_static_width, borg_static_height,
+                               borg_static_state, borg_static_blend,
+                               fallback_stage, fallback_slot,
+                               fallback_stage_num, fallback_bundle,
+                               fallback_shader, fallback_image,
+                               fallback_texnum, fallback_format,
+                               fallback_width, fallback_height,
+                               fallback_state, fallback_blend,
                               sv_probe_magic, sv_probe_phase, sv_probe_subphase,
                              sv_probe_a, sv_probe_b, sv_probe_c, sv_probe_d))
                     elif len(words) >= 3:

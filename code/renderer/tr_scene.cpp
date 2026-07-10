@@ -782,16 +782,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 				}
 				if (slot == 1 && hasP2Refdef)
 				{
-					/* Some EF maps report a valid-looking chase-camera cluster whose
-					   PVS marks no world leaves. Keep the P2 camera independent, but
-					   seed world visibility from P1 so the retry stays PVS-bounded. */
-					int areaByte;
-					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, sourceParms.pvsOrigin);
-					for (areaByte = 0; areaByte < MAX_MAP_AREA_BYTES; ++areaByte)
-					{
-						tr.refdef.areamask[areaByte] = sourceRefdef.areamask[areaByte];
-					}
-					tr.refdef.areamaskModified = qtrue;
+					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, p2PvsOrigin);
 				}
 				if (logSplitViewports)
 				{

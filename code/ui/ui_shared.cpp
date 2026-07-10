@@ -1643,6 +1643,15 @@ Menus_OpenByName
 */
 void Menus_OpenByName(const char *p) 
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( UI_EFQmenu_RouteMenuName( p ) )
+	{
+		XBLF("STEFX_INPUT_UI_Menus_OpenByName menu='%s' consumed by EF route", p ? p : "");
+		return;
+	}
+	XBLF("STEFX_INPUT_UI_Menus_OpenByName blocked inherited JA parser menu='%s'", p ? p : "");
+	return;
+#endif
 	Menus_ActivateByName(p);
 }
 

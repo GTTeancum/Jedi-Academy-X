@@ -7,6 +7,9 @@
 #include "../../code/win32/xb_log.h"
 #define CG_XBOX_ACTIVE_LOG(msg) do { if (xboxDrawLog) XBLog_Write(msg); } while (0)
 extern void CM_SnapPVS(vec3_t origin, byte *buffer);
+extern int CM_PointLeafnum( const vec3_t p );
+extern int CM_LeafArea( int leafnum );
+extern int CM_WriteAreaBits( byte *buffer, int area );
 extern qboolean player_locked;
 extern void CGCam_Disable( void );
 extern void RE_STEFX_SplitScreen_SetP2Refdef( const refdef_t *refdef, qboolean valid );
@@ -72,6 +75,59 @@ static void CG_STEFX_CalcEyeOrigin( const playerState_t *ps, vec3_t eye )
 {
 	VectorCopy( ps->origin, eye );
 	eye[2] += ps->viewheight;
+}
+
+static void CG_STEFX_BuildSplitAreamask( const char *label, const vec3_t cameraOrigin, const vec3_t playerEye, byte *buffer )
+{
+	static int s_logBudget = 64;
+	byte visibleAreas[MAX_MAP_AREA_BYTES];
+	int i;
+	int cameraLeaf;
+	int cameraArea;
+	int playerLeaf;
+	int playerArea;
+
+	if ( !buffer )
+	{
+		return;
+	}
+
+	memset( visibleAreas, 0, sizeof( visibleAreas ) );
+	if ( cg.snap )
+	{
+		for ( i = 0 ; i < MAX_MAP_AREA_BYTES ; ++i )
+		{
+			visibleAreas[i] = (byte)( ~cg.snap->areamask[i] );
+		}
+	}
+
+	cameraLeaf = CM_PointLeafnum( cameraOrigin );
+	cameraArea = CM_LeafArea( cameraLeaf );
+	playerLeaf = CM_PointLeafnum( playerEye );
+	playerArea = CM_LeafArea( playerLeaf );
+	CM_WriteAreaBits( visibleAreas, cameraArea );
+	CM_WriteAreaBits( visibleAreas, playerArea );
+
+	for ( i = 0 ; i < MAX_MAP_AREA_BYTES/4 ; ++i )
+	{
+		((int *)buffer)[i] = ((int *)visibleAreas)[i] ^ -1;
+	}
+
+	if ( s_logBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_AREAMASK label=%s cam=(%g,%g,%g) camLeaf=%d camArea=%d eye=(%g,%g,%g) eyeLeaf=%d eyeArea=%d snap0=0x%02x vis0=0x%02x out0=0x%02x",
+			label ? label : "<null>",
+			cameraOrigin[0], cameraOrigin[1], cameraOrigin[2],
+			cameraLeaf,
+			cameraArea,
+			playerEye[0], playerEye[1], playerEye[2],
+			playerLeaf,
+			playerArea,
+			cg.snap ? cg.snap->areamask[0] : 0,
+			visibleAreas[0],
+			buffer[0] );
+		--s_logBudget;
+	}
 }
 
 static int CG_STEFX_ValidSplitViewheight( int viewheight )
@@ -489,7 +545,6 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 		CG_STEFX_ApplyP1RelativeViewToP2( &p2EffectivePs, &p2Refdef, viewAngles );
 	}
 	g_SPXBSplitP2TraceFrac1000 = (traceFraction >= 0.0f) ? (unsigned int)( traceFraction * 1000.0f ) : 0;
-	VectorCopy( p2Refdef.vieworg, pvsOrigin );
 	g_SPXBSplitP2ViewX = (unsigned int)(int)p2Refdef.vieworg[0];
 	g_SPXBSplitP2ViewY = (unsigned int)(int)p2Refdef.vieworg[1];
 	g_SPXBSplitP2ViewZ = (unsigned int)(int)p2Refdef.vieworg[2];
@@ -501,7 +556,8 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	}
 	p2Refdef.time = cg.time;
 	memcpy( p2Refdef.areamask, cg.snap->areamask, sizeof( p2Refdef.areamask ) );
-	CM_SnapPVS( pvsOrigin, p2Refdef.areamask );
+	VectorCopy( p2Refdef.vieworg, pvsOrigin );
+	CG_STEFX_BuildSplitAreamask( "p2", pvsOrigin, target, p2Refdef.areamask );
 	RE_STEFX_SplitScreen_SetP2Refdef( &p2Refdef, qtrue );
 	RE_STEFX_SplitScreen_SetP2PvsOrigin( pvsOrigin );
 	g_SPXBSplitP2RefdefValid = 1;
@@ -1817,14 +1873,25 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	cg.refdef.time = cg.time;
 	memcpy( cg.refdef.areamask, cg.snap->areamask, sizeof( cg.refdef.areamask ) );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( in_camera )
+	if ( in_camera || ( CG_STEFX_SplitScreenActive() && cg.renderingThirdPerson ) )
 	{
 		static int s_stefxCameraPvsLogs = 0;
-		CM_SnapPVS( cg.refdef.vieworg, cg.refdef.areamask );
+		if ( CG_STEFX_SplitScreenActive() && cg.renderingThirdPerson )
+		{
+			vec3_t playerEye;
+			CG_STEFX_CalcEyeOrigin( &cg.predicted_player_state, playerEye );
+			CG_STEFX_BuildSplitAreamask( "p1", cg.refdef.vieworg, playerEye, cg.refdef.areamask );
+		}
+		else
+		{
+			CM_SnapPVS( cg.refdef.vieworg, cg.refdef.areamask );
+		}
 		if ( s_stefxCameraPvsLogs < 12 )
 		{
-			XBLF("STEFX: CG camera SnapPVS time=%d view=(%g,%g,%g) rdflags=0x%x fov=(%g,%g)",
+			XBLF("STEFX: CG camera SnapPVS time=%d split=%d third=%d view=(%g,%g,%g) rdflags=0x%x fov=(%g,%g)",
 				cg.time,
+				CG_STEFX_SplitScreenActive() ? 1 : 0,
+				cg.renderingThirdPerson ? 1 : 0,
 				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
 				cg.refdef.rdflags,
 				cg.refdef.fov_x, cg.refdef.fov_y);
