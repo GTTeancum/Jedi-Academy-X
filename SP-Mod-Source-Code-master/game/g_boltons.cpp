@@ -601,7 +601,13 @@ byte G_BoltOnNumberForName( gentity_t *ent, const char *boltOnName )
 
 	for ( int i = 0; i < MAX_BOLT_ONS; i++ )
 	{
-		if ( !Q_stricmp( boltOnName, knownBoltOns[ent->client->renderInfo.boltOns[i].index].name ) )
+		int boltOnIndex = ent->client->renderInfo.boltOns[i].index;
+		if ( boltOnIndex < 0 || boltOnIndex >= numBoltOns )
+		{
+			continue;
+		}
+
+		if ( !Q_stricmp( boltOnName, knownBoltOns[boltOnIndex].name ) )
 		{//Found it, return it
 			return i;
 		}

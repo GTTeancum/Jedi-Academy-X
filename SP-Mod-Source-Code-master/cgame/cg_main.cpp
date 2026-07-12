@@ -754,72 +754,6 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 	return qtrue;
 }
 
-static qboolean CG_CopyResidentClientVisuals( clientInfo_t *dst, const char *reason )
-{
-	clientInfo_t *src = NULL;
-	int i;
-
-	if ( !dst )
-	{
-		return qfalse;
-	}
-
-	if ( g_entities[0].client &&
-		g_entities[0].client->clientInfo.infoValid &&
-		g_entities[0].client->clientInfo.legsModel &&
-		g_entities[0].client->clientInfo.torsoModel &&
-		g_entities[0].client->clientInfo.headModel )
-	{
-		src = &g_entities[0].client->clientInfo;
-	}
-
-	if ( !src )
-	{
-		for ( i = 0; i < MAX_CLIENTS; ++i )
-		{
-			if ( cgs.clientinfo[i].infoValid &&
-				cgs.clientinfo[i].legsModel &&
-				cgs.clientinfo[i].torsoModel &&
-				cgs.clientinfo[i].headModel )
-			{
-				src = &cgs.clientinfo[i];
-				break;
-			}
-		}
-	}
-
-	if ( !src )
-	{
-#ifdef _XBOX
-		XBLF("STEFX: no resident client visual fallback for %s", reason ? reason : "<null>");
-#endif
-		return qfalse;
-	}
-
-	dst->legsModel = src->legsModel;
-	dst->torsoModel = src->torsoModel;
-	dst->headModel = src->headModel;
-	dst->legsSkin = src->legsSkin;
-	dst->torsoSkin = src->torsoSkin;
-	dst->headSkin = src->headSkin;
-	dst->extensions = src->extensions;
-	dst->animFileIndex = src->animFileIndex;
-
-#ifdef _XBOX
-	XBLF("STEFX: resident client visual fallback reason='%s' src='%s' models=(%d,%d,%d) skins=(%d,%d,%d) anim=%d",
-		reason ? reason : "<null>",
-		src->name,
-		dst->legsModel,
-		dst->torsoModel,
-		dst->headModel,
-		dst->legsSkin,
-		dst->torsoSkin,
-		dst->headSkin,
-		dst->animFileIndex);
-#endif
-	return qtrue;
-}
-
 
 void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 {
@@ -901,12 +835,6 @@ void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 #ifdef _XBOX
 		XBLF("STEFX: CG_RegisterClientRenderInfo fallback requested head='%s' torso='%s' legs='%s'",
 			headModelName, torsoModelName, legsModelName);
-#endif
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( CG_CopyResidentClientVisuals( ci, legsModelName ) )
-		{
-			return;
-		}
 #endif
 #if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
 		XBLog_Write("STEFX: CG_RegisterClientRenderInfo using Xbox-visible hirogen fallback");
@@ -1252,9 +1180,12 @@ static void CG_RegisterGraphics( void ) {
 	XBLog_Write("STEFX: CG_RegisterGraphics before entity precache loop");
 	int stefxEntityPrecacheLogBudget = 96;
 #endif
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterGraphics entity precache limit=%d", ENTITYNUM_WORLD);
+#endif
 	for (i=0 ; i < ENTITYNUM_WORLD ; i++)
 	{
-		if(&g_entities[i])
+		if(g_entities[i].inuse || i == 0)
 		{
 			if(g_entities[i].client)
 			{

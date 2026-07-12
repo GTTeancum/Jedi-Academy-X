@@ -111,30 +111,6 @@ __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitDlight = 0x1111002D
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitEntity = 0x1111002E;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitFinal = 0x1111002F;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitFlush = 0x11110030;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticStageCount = 0;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticFallbackCount = 0;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastSlot = 0x11110102;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastStage = 0x11110103;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastShaderHash = 0x11110104;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastImageHash = 0x11110105;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastTexnum = 0x11110106;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastFormat = 0x11110107;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastWidth = 0x11110108;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastHeight = 0x11110109;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastStateBits = 0x1111010A;
-__declspec(dllexport) volatile unsigned int g_SPXBBorgStaticLastBlendBits = 0x1111010B;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackStageCount = 0;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastSlot = 0x1111010D;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastStage = 0x1111010E;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastBundle = 0x1111010F;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastShaderHash = 0x11110110;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastImageHash = 0x11110111;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastTexnum = 0x11110112;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastFormat = 0x11110113;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastWidth = 0x11110114;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastHeight = 0x11110115;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastStateBits = 0x11110116;
-__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastBlendBits = 0x11110117;
 __declspec(dllexport) volatile unsigned int g_SPXBSplitSlotActive = 0x11110060;
 __declspec(dllexport) volatile unsigned int g_SPXBSplitSlot0DrawDelta = 0x11110061;
 __declspec(dllexport) volatile unsigned int g_SPXBSplitSlot1DrawDelta = 0x11110062;
@@ -229,26 +205,6 @@ __declspec(dllexport) volatile unsigned int g_SPXBWeaponLoadSlot4Ammo = 0x111100
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponLoadSlot4First4 = 0x111100D0;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponRegFirst4 = 0x111100D1;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponRegClassHash = 0x111100D2;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP1Viewheight = 0x111100D3;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2Viewheight = 0x111100D4;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2Standheight = 0x111100D5;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2Crouchheight = 0x111100D6;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP1Weapon = 0x111100D7;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2Weapon = 0x111100D8;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2PmFlags = 0x111100D9;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2EffectiveViewheight = 0x111100DA;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2StateWeapon = 0x111100DB;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2EffectiveWeapon = 0x111100DC;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameWeapon = 0x111100DD;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameViewheight = 0x111100DE;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameStateWeapon = 0x111100DF;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameClientNum = 0x111100E0;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameStage = 0x111100E1;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameSplit = 0x111100E2;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GamePlayers = 0x111100E3;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameP2Cvar = 0x111100E4;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameCached = 0x111100E5;
-__declspec(dllexport) volatile unsigned int g_SPXBSplitP2GameP1Ready = 0x111100E6;
 __declspec(dllexport) volatile unsigned int g_SPXBSplitCameraMode = 0x111100A0;
 __declspec(dllexport) volatile unsigned int g_SPXBSplitP1TraceFrac1000 = 0x111100A1;
 __declspec(dllexport) volatile unsigned int g_SPXBSplitP1LocalX1000 = 0x111100A2;
@@ -266,6 +222,53 @@ __declspec(dllexport) volatile unsigned int g_SPXBFramebufferWidth = 0x11110033;
 __declspec(dllexport) volatile unsigned int g_SPXBFramebufferHeight = 0x11110034;
 __declspec(dllexport) volatile unsigned int g_SPXBFramebufferFormat = 0x11110035;
 __declspec(dllexport) volatile unsigned int g_SPXBFramebufferSize = 0x11110036;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyTraceMagic = 0x534B5921; /* 'SKY!' */
+__declspec(dllexport) volatile unsigned int g_SPXBSkyOuterPresentMask = 0x11110101;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyOuterFallbackMask = 0x11110102;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyOuterTexMask = 0x11110103;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyOuterDrawMask = 0x11110104;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyLastPasses = 0x11110105;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyLastSort = 0x11110106;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveMagic = 0x534B5952; /* 'SKYR' */
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveCount = 0x11110111;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveShaderNum = 0x11110112;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveMapHash = 0x11110113;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveResolvedHash = 0x11110114;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveSurfaceFlags = 0x11110115;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveDefault = 0x11110116;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveExplicit = 0x11110117;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveHasSky = 0x11110118;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolvePasses = 0x11110119;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveSortX1000 = 0x1111011A;
+__declspec(dllexport) volatile unsigned int g_SPXBSkyResolveLightmap0 = 0x1111011B;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanMagic = 0x53484452; /* 'SHDR' */
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanScriptsFound = 0x11110131;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanShadersFound = 0x11110132;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanLoaded = 0x11110133;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanBytes = 0x11110134;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanEntries = 0x11110135;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanSkyLightSeen = 0x11110136;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanJunkSkySeen = 0x11110137;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderLookupMagic = 0x534C4B50; /* 'SLKP' */
+__declspec(dllexport) volatile unsigned int g_SPXBShaderLookupCount = 0x11110141;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderLookupHash = 0x11110142;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderLookupIndexedFound = 0x11110143;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderLookupLinearFound = 0x11110144;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderLookupEntries = 0x11110145;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackTraceMagic = 0x46424B21; /* 'FBK!' */
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackStageCount = 0x11110121;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastShaderHash = 0x11110122;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastImageHash = 0x11110123;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastStage = 0x11110124;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastPasses = 0x11110125;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastFlags = 0x11110126;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastTexnum = 0x11110127;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastLightmap = 0x11110128;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastStateBits = 0x11110129;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastIndexes = 0x1111012A;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastX1000 = 0x1111012B;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastY1000 = 0x1111012C;
+__declspec(dllexport) volatile unsigned int g_SPXBFallbackLastZ1000 = 0x1111012D;
 __declspec(dllexport) volatile unsigned int g_SPXBCinPhase = 0x11110031;
 __declspec(dllexport) volatile unsigned int g_SPXBCinHandle = 0x11110032;
 __declspec(dllexport) volatile unsigned int g_SPXBCinStatus = 0x11110033;
@@ -441,25 +444,27 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxProjectileProofBudget = 16;
     static int s_stefxSnapshotEventBudget = 32;
     static int s_stefxCaptureBudget = 64;
-    static int s_stefxShaderTraceBudget = 0;
+    static int s_stefxShaderTraceBudget = 256;
     static int s_stefxSurfaceTraceBudget = 256;
-    static int s_stefxSurfaceSubmitTraceBudget = 512;
+    static int s_stefxSurfaceSubmitTraceBudget = 256;
     static int s_stefxDrawStageTraceBudget = 96;
-    static int s_stefxEffectDrawTraceBudget = 240;
-    static int s_stefxBorgStaticStageBudget = 128;
+    static int s_stefxDrawContextTraceBudget = 256;
+    static int s_stefxMaterialPathTraceBudget = 256;
+    static int s_stefxLightingTraceBudget = 256;
+    static int s_stefxTextureProofBudget = 256;
+    static int s_stefxAlphaProofBudget = 64;
     static int s_stefxScriptPanelTraceBudget = 512;
-    static int s_stefxWorldFallbackBudget = 96;
-    static int s_stefxBorgLeafTraceBudget = 256;
-    static int s_stefxBorgDirectTraceBudget = 256;
-    static int s_stefxBorgAlphaTraceBudget = 256;
     static int s_stefxInputTraceBudget = 256;
     static int s_stefxSplitTraceBudget = 256;
     static int s_stefxSkyTraceBudget = 96;
+    static int s_stefxSkyDrawTraceBudget = 256;
+    static int s_stefxWorldLoadBudget = 256;
+    static int s_stefxMapLoadBudget = 256;
     static int s_stefxNpcStateBudget = 8;
     static int s_stefxActorTraceBudget = 8;
     static int s_stefxLodTraceBudget = 256;
     static int s_stefxThirdPersonTraceBudget = 160;
-    static int s_stefxLipTraceBudget = 160;
+    static int s_stefxLipTraceBudget = 8;
     static int s_efFastDrawBudget = 24;
     static int s_stefxAnimVisibleBudget = 128;
     static int s_stefxAnimCullBudget = 48;
@@ -489,33 +494,31 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_DRAW_STAGE", &s_stefxDrawStageTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_POLY", &s_stefxEffectDrawTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_DRAW_CONTEXT", &s_stefxDrawContextTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_STAGE", &s_stefxEffectDrawTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: POST_STAGE_PATH", &s_stefxMaterialPathTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_STATIC_STAGE", &s_stefxBorgStaticStageBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: TRACE_BRANCH", &s_stefxMaterialPathTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_STATIC_FLUSH", &s_stefxBorgStaticStageBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: PLAYER_MODEL", &s_stefxMaterialPathTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_ENTITY_ADD", &s_stefxEffectDrawTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "EF: ACTIVE_STAGE", &s_stefxMaterialPathTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_SPRITE", &s_stefxEffectDrawTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_LIGHTGRID", &s_stefxLightingTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_EFFECT_BEAM", &s_stefxEffectDrawTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_ENTITY_LIGHT", &s_stefxLightingTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_WORLD_FALLBACK", &s_stefxWorldFallbackBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_DIFFUSE", &s_stefxLightingTraceBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_WORLD_SKIP", &s_stefxWorldFallbackBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: DDS_TRACE", &s_stefxTextureProofBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_LEAF", &s_stefxBorgLeafTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadImage DDS patch", &s_stefxTextureProofBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_DIRECT", &s_stefxBorgDirectTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadImage JPG", &s_stefxTextureProofBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_BRIDGE", &s_stefxBorgDirectTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadImage TGA", &s_stefxTextureProofBudget);
     if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_BLACK_SKIP", &s_stefxBorgDirectTraceBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_BORG_ALPHA", &s_stefxBorgAlphaTraceBudget);
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_ALPHA_STATE", &s_stefxAlphaProofBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_SCRIPT_PANEL", &s_stefxScriptPanelTraceBudget);
     if (budgeted >= 0) return budgeted;
@@ -525,7 +528,21 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_JUNK", &s_stefxSkyTraceBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SKY_ITER", &s_stefxSkyDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_SKYBOX", &s_stefxSkyDrawTraceBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_SKY", &s_stefxSkyTraceBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: CM_LoadMap", &s_stefxMapLoadBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CM_LoadMap", &s_stefxMapLoadBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: CM raw BSP", &s_stefxMapLoadBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "EF: RE_LoadWorldMap", &s_stefxWorldLoadBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: RE_LoadWorldMap", &s_stefxWorldLoadBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_NPC_STATE", &s_stefxNpcStateBudget);
     if (budgeted >= 0) return budgeted;
@@ -602,7 +619,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
         return 0;
     }
 
-    if ((strstr(msg, "STEFX: FS loose asset") || strstr(msg, "STEFX: FS stdio fallback") || strstr(msg, "STEFX: WF_Open")) &&
+    if ((strstr(msg, "STEFX: FS loose asset") || strstr(msg, "STEFX: FS stdio fallback") ||
+        strstr(msg, "STEFX: FS whole-file") || strstr(msg, "STEFX: WF_Open")) &&
         (strstr(msg, "models\\players") || strstr(msg, "models/players"))) {
         return 0;
     }
@@ -721,6 +739,10 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_LinkEntity bad absbox", &s_stefxTriggerBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_UserMove header", &s_stefxUserMoveBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_UserMove drop", &s_stefxUserMoveBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_UserMove decoded", &s_stefxUserMoveBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: SV_ClientThink", &s_stefxUserMoveBudget);
@@ -728,8 +750,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: CL_CreateCmd", &s_stefxUserMoveBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_LoadImage intro resolve", &s_stefxCgInitBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX: LoadTGA", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: R_CreateImage intro", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
@@ -769,6 +789,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_RegisterClientRenderInfo", &s_stefxModelBudget);
     if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: dynamic client model", &s_stefxModelBudget);
+    if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_RegisterGraphics", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: CG_GameStateReceived", &s_stefxCgInitBudget);
@@ -794,6 +816,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: model disk fetch", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: model disk lower retry", &s_efModelBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: FS whole-file", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: RE_RegisterModel", &s_efModelBudget);
     if (budgeted >= 0) return budgeted;
@@ -882,6 +906,8 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL wave stream", &s_stefxMusicRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: QAL MP3", &s_stefxMusicRuntimeBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: deferring NPC custom sounds", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: ICARUS Wait", &s_stefxIcarusRuntimeBudget);
     if (budgeted >= 0) return budgeted;
@@ -1116,9 +1142,11 @@ static int xbl_ShouldDropVerbose(const char *msg)
         return 1;
     }
 
-    if (xbl_starts_with(msg, "JA: Upload32") ||
-        xbl_starts_with(msg, "JkaGlTexImage2D:") ||
-        xbl_starts_with(msg, "JA: fakegl DDS top-mip skip") ||
+	if (xbl_starts_with(msg, "JA: Upload32") ||
+		xbl_starts_with(msg, "STEFX_BORG_ALPHA_UPLOAD") ||
+		xbl_starts_with(msg, "STEFX_FAKEGL_FORMAT") ||
+		xbl_starts_with(msg, "JkaGlTexImage2D:") ||
+		xbl_starts_with(msg, "JA: fakegl DDS top-mip skip") ||
         xbl_starts_with(msg, "JA: fakegl DDS single-mip cap") ||
         xbl_starts_with(msg, "JA: fakegl DDS CreateTexture pre") ||
         xbl_starts_with(msg, "JA: fakegl DDS CreateTexture post") ||
@@ -1160,15 +1188,18 @@ static int xbl_ShouldDropVerbose(const char *msg)
 static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
-    if (strstr(fmt, "STEFX_DRAW_STAGE") ||
-        strstr(fmt, "STEFX_SURFACE") ||
-        strstr(fmt, "STEFX_TEX_") ||
-        strstr(fmt, "STEFX_EFFECT_STAGE") ||
-        strstr(fmt, "STEFX_SCRIPT_PANEL") ||
-        strstr(fmt, "STEFX_BORG_LEAF") ||
-        strstr(fmt, "STEFX_BORG_DIRECT") ||
-        strstr(fmt, "STEFX_BORG_BRIDGE") ||
-        strstr(fmt, "STEFX_BORG_BLACK_SKIP") ||
+	if (strstr(fmt, "STEFX_DRAW_STAGE") ||
+        strstr(fmt, "STEFX_DRAW_CONTEXT") ||
+		strstr(fmt, "STEFX_SHADER_") ||
+		strstr(fmt, "STEFX_SURFACE") ||
+		strstr(fmt, "STEFX_LIGHTGRID") ||
+		strstr(fmt, "STEFX_ENTITY_LIGHT") ||
+		strstr(fmt, "STEFX_DIFFUSE") ||
+		strstr(fmt, "STEFX: DDS_TRACE") ||
+		strstr(fmt, "STEFX_BORG_ALPHA_UPLOAD") ||
+		strstr(fmt, "STEFX_ALPHA_STATE") ||
+		strstr(fmt, "STEFX_FAKEGL_FORMAT") ||
+		strstr(fmt, "STEFX_SCRIPT_PANEL") ||
         strstr(fmt, "STEFX_MENU_INPUT") ||
         strstr(fmt, "STEFX_MENU_") ||
         strstr(fmt, "STEFX_INPUT") ||
@@ -1261,8 +1292,6 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "RB_XboxForce2DOverlayState") ||
         strstr(fmt, "MAIN_TIGHT") ||
         strstr(fmt, "fakegl CreateTexture") ||
-        strstr(fmt, "fakegl DDS") ||
-        strstr(fmt, "fakegl texture memory") ||
         strstr(fmt, "fakegl CPU partial") ||
         strstr(fmt, "fakegl using fallback") ||
         strstr(fmt, "CG_Init") ||
@@ -1562,26 +1591,6 @@ void XBLog_Init(void)
     g_SPXBWeaponLoadSlot4First4 = 0;
     g_SPXBWeaponRegFirst4 = 0;
     g_SPXBWeaponRegClassHash = 0;
-    g_SPXBSplitP1Viewheight = 0;
-    g_SPXBSplitP2Viewheight = 0;
-    g_SPXBSplitP2Standheight = 0;
-    g_SPXBSplitP2Crouchheight = 0;
-    g_SPXBSplitP1Weapon = 0;
-    g_SPXBSplitP2Weapon = 0;
-    g_SPXBSplitP2PmFlags = 0;
-    g_SPXBSplitP2EffectiveViewheight = 0;
-    g_SPXBSplitP2StateWeapon = 0;
-    g_SPXBSplitP2EffectiveWeapon = 0;
-    g_SPXBSplitP2GameWeapon = 0;
-    g_SPXBSplitP2GameViewheight = 0;
-    g_SPXBSplitP2GameStateWeapon = 0;
-    g_SPXBSplitP2GameClientNum = 0;
-    g_SPXBSplitP2GameStage = 0;
-    g_SPXBSplitP2GameSplit = 0;
-    g_SPXBSplitP2GamePlayers = 0;
-    g_SPXBSplitP2GameP2Cvar = 0;
-    g_SPXBSplitP2GameCached = 0;
-    g_SPXBSplitP2GameP1Ready = 0;
     g_SPXBSplitCameraMode = 0;
     g_SPXBSplitP1TraceFrac1000 = 0;
     g_SPXBSplitP1LocalX1000 = 0;
@@ -1599,6 +1608,53 @@ void XBLog_Init(void)
     g_SPXBFramebufferHeight = 0;
     g_SPXBFramebufferFormat = 0;
     g_SPXBFramebufferSize = 0;
+    g_SPXBSkyTraceMagic = 0x534B5921; /* 'SKY!' */
+    g_SPXBSkyOuterPresentMask = 0;
+    g_SPXBSkyOuterFallbackMask = 0;
+    g_SPXBSkyOuterTexMask = 0;
+    g_SPXBSkyOuterDrawMask = 0;
+    g_SPXBSkyLastPasses = 0;
+    g_SPXBSkyLastSort = 0;
+    g_SPXBSkyResolveMagic = 0x534B5952; /* 'SKYR' */
+    g_SPXBSkyResolveCount = 0;
+    g_SPXBSkyResolveShaderNum = 0;
+    g_SPXBSkyResolveMapHash = 0;
+    g_SPXBSkyResolveResolvedHash = 0;
+    g_SPXBSkyResolveSurfaceFlags = 0;
+    g_SPXBSkyResolveDefault = 0;
+    g_SPXBSkyResolveExplicit = 0;
+    g_SPXBSkyResolveHasSky = 0;
+    g_SPXBSkyResolvePasses = 0;
+    g_SPXBSkyResolveSortX1000 = 0;
+    g_SPXBSkyResolveLightmap0 = 0;
+    g_SPXBShaderScanMagic = 0x53484452; /* 'SHDR' */
+    g_SPXBShaderScanScriptsFound = 0;
+    g_SPXBShaderScanShadersFound = 0;
+    g_SPXBShaderScanLoaded = 0;
+    g_SPXBShaderScanBytes = 0;
+    g_SPXBShaderScanEntries = 0;
+    g_SPXBShaderScanSkyLightSeen = 0;
+    g_SPXBShaderScanJunkSkySeen = 0;
+    g_SPXBShaderLookupMagic = 0x534C4B50; /* 'SLKP' */
+    g_SPXBShaderLookupCount = 0;
+    g_SPXBShaderLookupHash = 0;
+    g_SPXBShaderLookupIndexedFound = 0;
+    g_SPXBShaderLookupLinearFound = 0;
+    g_SPXBShaderLookupEntries = 0;
+    g_SPXBFallbackTraceMagic = 0x46424B21; /* 'FBK!' */
+    g_SPXBFallbackStageCount = 0;
+    g_SPXBFallbackLastShaderHash = 0;
+    g_SPXBFallbackLastImageHash = 0;
+    g_SPXBFallbackLastStage = 0;
+    g_SPXBFallbackLastPasses = 0;
+    g_SPXBFallbackLastFlags = 0;
+    g_SPXBFallbackLastTexnum = 0;
+    g_SPXBFallbackLastLightmap = 0;
+    g_SPXBFallbackLastStateBits = 0;
+    g_SPXBFallbackLastIndexes = 0;
+    g_SPXBFallbackLastX1000 = 0;
+    g_SPXBFallbackLastY1000 = 0;
+    g_SPXBFallbackLastZ1000 = 0;
     g_SPXBCinPhase = 0;
     g_SPXBCinHandle = 0;
     g_SPXBCinStatus = 0;

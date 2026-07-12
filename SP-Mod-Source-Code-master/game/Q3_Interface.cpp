@@ -6397,7 +6397,7 @@ static void Q3_SetActiveBoltOnAnimLoop( int entID, qboolean loopAnim )
 	}
 	else
 	{
-		NPC->client->renderInfo.boltOns[ent->activeBoltOn].loopAnim = loopAnim;
+		ent->client->renderInfo.boltOns[ent->activeBoltOn].loopAnim = loopAnim;
 	}
 }
 
