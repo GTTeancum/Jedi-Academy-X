@@ -770,7 +770,20 @@ void NPC_Precache ( gentity_t *spawner )
 		}
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	// Xbox registers the live entity model when it first draws. Loading full
+	// temporary NPC bodies here can exhaust CXBX-R/Xbox resources on large maps.
+	{
+		static int s_xboxNPCTempModelSkipLogBudget = 32;
+		if ( s_xboxNPCTempModelSkipLogBudget > 0 )
+		{
+			gi.Printf( "STEFX: deferring temp NPC precache model '%s'\n", spawner->NPC_type );
+			--s_xboxNPCTempModelSkipLogBudget;
+		}
+	}
+#else
 	CG_RegisterClientRenderInfo( &ci, &ri );
+#endif
 	CG_RegisterNPCCustomSounds( &ci );
 	CG_RegisterNPCEffects( playerTeam );
 	//FIXME: precache the beam-in/exit sound and effect if not silentspawn

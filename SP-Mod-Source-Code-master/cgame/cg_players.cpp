@@ -423,6 +423,11 @@ void CG_NewClientinfo( int clientNum )
 	}
 
 	//player uses only the basic custom sound set, not the combat or extra
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("STEFX: deferring client custom sounds ent=%d basic='%s'",
+		clientNum,
+		ci->customBasicSoundDir ? ci->customBasicSoundDir : "");
+#else
 	for ( i = 0 ; i < MAX_CUSTOM_BASIC_SOUNDS ; i++ ) 
 	{
 		s = cg_customBasicSoundNames[i];
@@ -432,6 +437,7 @@ void CG_NewClientinfo( int clientNum )
 		}
 		ci->sounds[i] = cgi_S_RegisterSound( va("sound/voice/%s/misc/%s", ci->customBasicSoundDir, s + 1) );
 	}
+#endif
 
 	ci->infoValid = qfalse;
 }
