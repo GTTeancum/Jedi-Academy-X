@@ -35,6 +35,10 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *name
 #ifdef STEFX_ELITE_FORCE_SP
 static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *name, qboolean &bAlreadyCached );
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean FS_STEFX_IsHeapFileBuffer(const void *buffer);
+extern qboolean FS_STEFX_FreeHeapFileBuffer(void *buffer);
+#endif
 
 /*
 Ghoul2 Insert Start
@@ -99,7 +103,10 @@ static void RE_RegisterModels_FreeDiskImage(CachedEndianedModelBinary_t &cachedM
 
 	if (cachedModel.bHeapAllocated)
 	{
-		HeapFree(GetProcessHeap(), 0, cachedModel.pModelDiskImage);
+		if (!FS_STEFX_FreeHeapFileBuffer(cachedModel.pModelDiskImage))
+		{
+			HeapFree(GetProcessHeap(), 0, cachedModel.pModelDiskImage);
+		}
 	}
 	else
 	{
@@ -242,8 +249,8 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 
 		const bool bSuccess = !!(*ppvBuffer);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( strstr( psModelFileName, "models/players/borg" ) ||
-			strstr( psModelFileName, "models\\players\\borg" ) ||
+		if ( strstr( psModelFileName, "models/players/" ) ||
+			strstr( psModelFileName, "models\\players\\" ) ||
 			STEFX_IsWeaponDiskModelName( psModelFileName ) )
 		{
 			XBLF( "STEFX: model disk fetch '%s' cacheKey='%s' len=%d success=%d buffer=%p",
@@ -325,31 +332,14 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 					nameLen >= 4 &&
 					!stricmp(&sModelName[nameLen - 4], ".mdr"))
 				{
-					void *heapModel = HeapAlloc(GetProcessHeap(), 0, iSize);
-					if (heapModel)
-					{
-						memcpy(heapModel, pvDiskBufferIfJustLoaded, iSize);
-						pvDiskBufferIfJustLoaded = heapModel;
-						ModelBin.bHeapAllocated = qtrue;
+					ModelBin.bHeapAllocated = FS_STEFX_IsHeapFileBuffer(pvDiskBufferIfJustLoaded);
 #ifdef _XBOX
-						if (strstr(sModelName, "models/players/"))
-						{
-							XBLF("STEFX: RE_RegisterModels_Malloc heap-copied MDR model='%s' size=%d tag=%d",
-								sModelName, iSize, eTag);
-						}
-#endif
-					}
-					else
+					if (strstr(sModelName, "models/players/"))
 					{
-						ModelBin.bHeapAllocated = qfalse;
-#ifdef _XBOX
-						if (strstr(sModelName, "models/players/"))
-						{
-							XBLF("STEFX: RE_RegisterModels_Malloc MDR heap copy failed, adopting zone buffer model='%s' size=%d tag=%d",
-								sModelName, iSize, eTag);
-						}
-#endif
+						XBLF("STEFX: RE_RegisterModels_Malloc adopted MDR disk buffer model='%s' size=%d tag=%d heap=%d",
+							sModelName, iSize, eTag, ModelBin.bHeapAllocated ? 1 : 0);
 					}
+#endif
 				}
 				else
 #endif
@@ -1350,6 +1340,10 @@ Ghoul2 Insert End
 
 				VID_Printf (PRINT_WARNING,"RE_RegisterModel: unknown fileid for %s\n", filename);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (STEFX_IsPlayerModelName(filename))
+				{
+					XBLF("STEFX: RE_RegisterModel player unknown ident '%s' ident=0x%08x", filename, ident);
+				}
 				if (stefxWeaponModelTrace)
 				{
 					g_SPXBWeaponModelTraceStage = 14;

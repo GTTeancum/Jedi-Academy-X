@@ -454,6 +454,10 @@ function Save-RendererScreenshot([string]$Path) {
                 }
                 return "renderer log captured after blank bmp='$bmpPath'; $logCapture"
             }
+            $requestPaths | ForEach-Object {
+                Remove-Item $_ -Force -ErrorAction SilentlyContinue
+            }
+            return "renderer screenshot blank bmp='$bmpPath' output='$Path' size=$($img.Width)x$($img.Height) length=$($bmpItem.Length)"
         }
         $requestPaths | ForEach-Object {
             Remove-Item $_ -Force -ErrorAction SilentlyContinue
@@ -959,7 +963,7 @@ $rendererScreenshotsNonblank = $false
 if ($ScreenshotPath -and $screenshotDone -and $screenshotResults.Count -ge $ScreenshotCount) {
     $rendererScreenshotsComplete = $true
     $blankOrFailedShots = @($screenshotResults | Where-Object {
-        $_ -match "timeout|failed|empty|after blank"
+        $_ -match "timeout|failed|empty|\bblank\b|after blank"
     }).Count
     $rendererScreenshotsNonblank = ($blankOrFailedShots -eq 0)
 }

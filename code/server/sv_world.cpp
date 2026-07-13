@@ -1183,12 +1183,13 @@ SV_ClipMoveToEntities
 */
 void SV_ClipMoveToEntities( moveclip_t *clip ) {
 	int			i, num;
-	gentity_t		*touchlist[MAX_GENTITIES], *touch, *owner;
+	gentity_t		*touchlist[MAX_GENTITIES], *touch, *owner, *touchOwner;
 	trace_t		trace, oldTrace;
 	clipHandle_t	clipHandle;
 	const float		*origin, *angles;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_clipLogCount = 0;
+	static int s_clipBadEntityLogCount = 0;
 	qboolean logThisClip = qtrue;
 #endif
 
@@ -1209,10 +1210,65 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 #endif
 
 	if ( clip->passEntityNum != ENTITYNUM_NONE ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		gentity_t *passEnt = NULL;
+		if (logThisClip)
+		{
+			STEFX_SV_TRACE_STAGE(0x434C4950, 20); /* CLIP */
+			STEFX_SV_TRACE_DETAIL((unsigned int)num, (unsigned int)clip->passEntityNum,
+				ge ? (unsigned int)ge->gentitySize : 0, ge ? (unsigned int)ge->gentities : 0);
+		}
+		if ( clip->passEntityNum < 0 || clip->passEntityNum >= MAX_GENTITIES || !ge || !ge->gentities || ge->gentitySize <= 0 )
+		{
+			if (s_clipBadEntityLogCount < 64)
+			{
+				XBLF("STEFX: SV_ClipMoveToEntities invalid passEntityNum=%d ge=%p gentities=%p size=%d num=%d",
+					clip->passEntityNum, ge, ge ? ge->gentities : NULL, ge ? ge->gentitySize : 0, num);
+			}
+			s_clipBadEntityLogCount++;
+			owner = NULL;
+		}
+		else
+		{
+			passEnt = SV_GentityNum( clip->passEntityNum );
+			if (logThisClip)
+			{
+				STEFX_SV_TRACE_STAGE(0x434C4950, 21); /* CLIP */
+				STEFX_SV_TRACE_DETAIL((unsigned int)num, (unsigned int)clip->passEntityNum, (unsigned int)passEnt, 0);
+			}
+			if (!STEFX_IsValidGEntityPtr(passEnt))
+			{
+				if (s_clipBadEntityLogCount < 64)
+				{
+					XBLF("STEFX: SV_ClipMoveToEntities invalid pass entity pass=%d ptr=%p ge=%p gentities=%p size=%d",
+						clip->passEntityNum, passEnt, ge, ge ? ge->gentities : NULL, ge ? ge->gentitySize : 0);
+				}
+				s_clipBadEntityLogCount++;
+				owner = NULL;
+			}
+			else
+			{
+				owner = passEnt->owner;
+			}
+		}
+		if (logThisClip)
+		{
+			STEFX_SV_TRACE_STAGE(0x434C4950, 22); /* CLIP */
+			STEFX_SV_TRACE_DETAIL((unsigned int)num, (unsigned int)clip->passEntityNum, (unsigned int)owner, 0);
+		}
+#else
 		owner = ( SV_GentityNum( clip->passEntityNum ) )->owner;
+#endif
 	} else {
 		owner = NULL;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (logThisClip)
+	{
+		STEFX_SV_TRACE_STAGE(0x434C4950, 23); /* CLIP */
+		STEFX_SV_TRACE_DETAIL((unsigned int)num, (unsigned int)clip->passEntityNum, (unsigned int)owner, 0);
+	}
+#endif
 
 	for ( i=0 ; i<num ; i++ ) {
 		if (clip->trace.allsolid) {
@@ -1220,10 +1276,33 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 		}
 		touch = touchlist[i];
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!STEFX_IsValidGEntityPtr(touch))
+		{
+			if (s_clipBadEntityLogCount < 64)
+			{
+				XBLF("STEFX: SV_ClipMoveToEntities invalid touch i=%d num=%d ptr=%p pass=%d",
+					i, num, touch, clip->passEntityNum);
+			}
+			s_clipBadEntityLogCount++;
+			continue;
+		}
 		if (logThisClip)
 		{
 			STEFX_SV_TRACE_STAGE(0x434C4950, 3); /* CLIP */
 			STEFX_SV_TRACE_DETAIL((unsigned int)i, touch ? (unsigned int)touch->s.number : 0xffffffff, touch ? (unsigned int)touch->contents : 0, (unsigned int)clip->contentmask);
+		}
+#endif
+		touchOwner = touch->owner;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (touchOwner && !STEFX_IsValidGEntityPtr(touchOwner))
+		{
+			if (s_clipBadEntityLogCount < 64)
+			{
+				XBLF("STEFX: SV_ClipMoveToEntities invalid touch owner i=%d touch=%d owner=%p pass=%d",
+					i, touch->s.number, touchOwner, clip->passEntityNum);
+			}
+			s_clipBadEntityLogCount++;
+			touchOwner = NULL;
 		}
 #endif
 
@@ -1232,13 +1311,13 @@ void SV_ClipMoveToEntities( moveclip_t *clip ) {
 			if (touch->s.number == clip->passEntityNum) {
 				continue; // don't clip against the pass entity
 			}
-			if (touch->owner && touch->owner->s.number == clip->passEntityNum) {
+			if (touchOwner && touchOwner->s.number == clip->passEntityNum) {
 				continue;	// don't clip against own missiles
 			}
 			if ( owner == touch) {
 				continue;	// don't clip against owner
 			}
-			if ( owner && touch->owner == owner) {
+			if ( owner && touchOwner == owner) {
 				continue;	// don't clip against other missiles from our owner
 			}
 		}

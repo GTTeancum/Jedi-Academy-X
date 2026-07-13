@@ -103,12 +103,42 @@ extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 static int g_stefxOverlayDrawContext = 0;
 static int g_stefxOverlayDrawHud = 0;
 static int g_stefxOverlayDrawBeam = 0;
+static int g_stefxDrawContextActive = 0;
+static char g_stefxDrawContextShader[128] = "";
+static int g_stefxDrawContextStage = -1;
+static int g_stefxDrawContextExpectedStages = 0;
+static unsigned int g_stefxDrawContextStateBits = 0;
 
 extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam)
 {
     g_stefxOverlayDrawContext = active ? 1 : 0;
     g_stefxOverlayDrawHud = hud ? 1 : 0;
     g_stefxOverlayDrawBeam = beam ? 1 : 0;
+}
+
+extern "C" void JkaFakeglSetEliteForceDrawContext(const char *shader, int stage, int expectedStages, unsigned int stateBits)
+{
+    static int s_setContextBudget = 64;
+
+    g_stefxDrawContextActive = shader && shader[0] ? 1 : 0;
+    if (g_stefxDrawContextActive) {
+        strncpy(g_stefxDrawContextShader, shader, sizeof(g_stefxDrawContextShader) - 1);
+        g_stefxDrawContextShader[sizeof(g_stefxDrawContextShader) - 1] = '\0';
+    } else {
+        g_stefxDrawContextShader[0] = '\0';
+    }
+    g_stefxDrawContextStage = stage;
+    g_stefxDrawContextExpectedStages = expectedStages;
+    g_stefxDrawContextStateBits = stateBits;
+
+    if (s_setContextBudget > 0 && g_stefxDrawContextActive) {
+        XBLF("STEFX_DRAW_CONTEXT_SET shader='%s' stage=%d expectedStages=%d state=0x%08x",
+            g_stefxDrawContextShader,
+            g_stefxDrawContextStage,
+            g_stefxDrawContextExpectedStages,
+            g_stefxDrawContextStateBits);
+        --s_setContextBudget;
+    }
 }
 
 struct JkaFastVertex0 {
@@ -302,6 +332,7 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
 
     static int s_fastDrawLogBudget = 16;
     static int s_efFastDrawStage2Budget = 96;
+    static int s_stefxDrawContextBudget = 256;
     const bool efLogFastDraw = (texStages >= 2 && s_efFastDrawStage2Budget > 0) ||
         (s_fastDrawLogBudget > 0);
     if (efLogFastDraw) {
@@ -354,6 +385,22 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
         if (texStages >= 2 && s_efFastDrawStage2Budget > 0) {
             --s_efFastDrawStage2Budget;
         }
+    }
+    if (g_stefxDrawContextActive && s_stefxDrawContextBudget > 0) {
+        DWORD color0 = PackColorFromArray(0);
+        XBLF("STEFX_DRAW_CONTEXT shader='%s' stage=%d expectedStages=%d actualStages=%d texMask=0x%08x fvf=0x%08lx state=0x%08x count=%d verts=%u prims=%u color0=0x%08lx",
+            g_stefxDrawContextShader,
+            g_stefxDrawContextStage,
+            g_stefxDrawContextExpectedStages,
+            texStages,
+            (unsigned int)g_texCoordArrayEnabled,
+            (unsigned long)fvf,
+            g_stefxDrawContextStateBits,
+            (int)count,
+            (unsigned int)vertexCount,
+            (unsigned int)primitiveCount,
+            (unsigned long)color0);
+        --s_stefxDrawContextBudget;
     }
 
     bool drawOk = JkaFakeglDrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, fvf, vertexCount, primitiveCount,

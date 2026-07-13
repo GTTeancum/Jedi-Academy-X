@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import re
 import struct
@@ -26,7 +25,7 @@ warnings.filterwarnings(
 )
 
 try:
-    from PIL import Image, ImageEnhance, ImageStat
+    from PIL import Image
 except ImportError as exc:  # pragma: no cover - this is an operator error path
     raise SystemExit("Pillow is required to build XBOX0.PK3") from exc
 
@@ -98,12 +97,6 @@ RGB565_TEXTURES = (
     "env/junk_ft",
     "env/junk_up",
     "env/junk_dn",
-    # Animated Borg static/forcefield plates are only 64x64, but XEMU shows the
-    # DXT1 upload path as the fallback grid on the forcefield shader. Keep them
-    # Xbox-native while avoiding compressed texture upload for this hot path.
-    "textures/borg/static",
-    "textures/borg/static2",
-    "textures/borg/static_yellow",
 )
 ALWAYS_TEXTURES = ()
 FULLSCREEN_TEXTURE_SEEDS = (
@@ -123,26 +116,28 @@ ORIGINAL_FORMAT_TEXTURES = (
     # Dark/detail-heavy sky backing loses too much signal in the current DXT1
     # conversion, so keep the stock JPG until the Xbox-native path is proven.
     "textures/borg/borgsky",
-    # Borg forcefield borders and solid cutout panels keep the stock upload path
-    # until their alpha behavior has hardware-near visual proof.
+    # These Borg materials rely on the stock EF shader scripts and authored
+    # alpha/additive masks. DDS overrides have produced black panel/field
+    # artifacts in CXBX-R/XEMU, so keep the original assets as the authority.
     "textures/borg/bars",
     "textures/borg/bars2",
     "textures/borg/basic1",
+    "textures/borg/bigborg",
     "textures/borg/forceborder",
     "textures/borg/forceborder2",
     "textures/borg/forceborder3",
+    "textures/borg/green1",
+    "textures/borg/green1_dos",
+    "textures/borg/oddlight1",
+    "textures/borg/oddlight1dam",
+    "textures/borg/oddlight1mult",
+    "textures/borg/static",
+    "textures/borg/static2",
+    "textures/borg/static_yellow",
     "textures/common/70yearjourney",
     "textures/common/enemyspace",
     "textures/common/sevenspace",
     "textures/common/tuvokhazard",
-)
-BORG_ADDITIVE_SIGNAL_TEXTURES = (
-    # The stock Borg forcefield noise plates are extremely dark. They are drawn
-    # as additive overlays over black backing surfaces, so the Xbox path needs a
-    # stronger source signal to avoid reading as flat black panels in XEMU.
-    "textures/borg/static",
-    "textures/borg/static2",
-    "textures/borg/static_yellow",
 )
 
 XBOX_PATCH_SHADER_TEXT = """\
@@ -151,106 +146,6 @@ XBOX_PATCH_SHADER_TEXT = """\
 // Keep borg1 structural panels script-neutral: textures/borg/xpanelb is an
 // implicit BSP material in the stock map, so texture fidelity is handled by the
 // DDS asset format rather than by overriding the shader script.
-
-textures/borg/borgfield_flicker
-{
-    qer_editorimage textures/borg/static
-    surfaceparm nomarks
-    surfaceparm nolightmap
-    surfaceparm trans
-    {
-        map textures/borg/static
-        blendFunc GL_ONE GL_ONE
-        rgbGen wave random 0 1 0 0.8
-        tcMod scroll 1292.7 11233.9
-    }
-}
-
-textures/borg/borgfield_opaque
-{
-    qer_editorimage textures/borg/static
-    surfaceparm nomarks
-    surfaceparm nolightmap
-    {
-        map textures/borg/static
-        blendFunc GL_ONE GL_ZERO
-        tcMod scroll 1292.7 11233.9
-    }
-    {
-        map textures/borg/static
-        detail
-        rgbGen wave sin 0.85 0.15 0 1
-        blendFunc GL_ONE GL_ONE
-        tcMod scroll -1292.7 -11233.9
-    }
-    {
-        map textures/borg/static
-        detail
-        rgbGen wave sin 0.85 0.15 0 1
-        blendFunc GL_ONE GL_ONE
-        tcMod scroll -1200 1200
-    }
-}
-
-textures/borg/borgfield
-{
-    qer_editorimage textures/borg/static
-    surfaceparm nomarks
-    surfaceparm nolightmap
-    surfaceparm trans
-    {
-        map textures/borg/static
-        blendFunc GL_ONE GL_ONE
-        tcMod scroll 1292.7 11233.9
-    }
-}
-
-textures/borg/borgfield_nonsolid
-{
-    qer_editorimage textures/borg/static
-    surfaceparm nomarks
-    surfaceparm nolightmap
-    surfaceparm nonsolid
-    surfaceparm playerclip
-    surfaceparm trans
-    surfaceparm shotclip
-    surfaceparm forcefield
-    {
-        map textures/borg/static
-        blendFunc GL_ONE GL_ONE
-        tcMod scroll 1292.7 11233.9
-    }
-}
-
-textures/borg/static2
-{
-    qer_editorimage textures/borg/static2
-    surfaceparm nomarks
-    surfaceparm nolightmap
-    surfaceparm trans
-    {
-        map textures/borg/static2
-        blendFunc GL_ONE GL_ONE
-        tcMod scroll 1292.7 11233.9
-    }
-}
-
-textures/borg/static2_nonsolid
-{
-    qer_editorimage textures/borg/static2
-    surfaceparm nomarks
-    surfaceparm nolightmap
-    surfaceparm nonsolid
-    surfaceparm playerclip
-    surfaceparm trans
-    surfaceparm shotclip
-    surfaceparm forcefield
-    {
-        map textures/borg/static2
-        blendFunc GL_ONE GL_ONE
-        tcMod scroll 1292.7 11233.9
-    }
-}
 """
 
 XBOX_PATCH_SHADER_PATH = "scripts/xbox_borg_fix.shader"
@@ -379,95 +274,6 @@ def should_preserve_original_texture(candidate: str) -> bool:
     if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
         candidate = normalized_rel(path.with_suffix("").as_posix())
     return candidate in ORIGINAL_FORMAT_TEXTURES
-
-
-def should_preserve_source_texture(candidate: str, source: Path) -> bool:
-    if should_preserve_original_texture(candidate):
-        return True
-
-    candidate = normalized_rel(candidate)
-    path = Path(*candidate.split("/"))
-    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
-        candidate = normalized_rel(path.with_suffix("").as_posix())
-
-    if not candidate.startswith("textures/borg/"):
-        return False
-
-    try:
-        with Image.open(source) as image:
-            return image_has_alpha(image)
-    except OSError:
-        return False
-
-
-def is_borg_additive_signal_texture(candidate: str) -> bool:
-    candidate = normalized_rel(candidate)
-    path = Path(*candidate.split("/"))
-    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
-        candidate = normalized_rel(path.with_suffix("").as_posix())
-    return candidate in BORG_ADDITIVE_SIGNAL_TEXTURES
-
-
-def preserved_source_texture_bytes(candidate: str, source: Path) -> tuple[bytes, bool]:
-    if not is_borg_additive_signal_texture(candidate):
-        return source.read_bytes(), False
-
-    suffix = source.suffix.lower()
-    boosted = boosted_borg_additive_signal_image(source)
-    if boosted is None:
-        return source.read_bytes(), False
-
-    boosted_image, source_unchanged = boosted
-    if source_unchanged:
-        return source.read_bytes(), False
-
-    out = io.BytesIO()
-    if suffix in (".jpg", ".jpeg"):
-        boosted_image.convert("RGB").save(out, format="JPEG", quality=95, subsampling=0)
-    elif suffix == ".png":
-        boosted_image.save(out, format="PNG")
-    elif suffix == ".tga":
-        boosted_image.save(out, format="TGA")
-    else:
-        return source.read_bytes(), False
-    return out.getvalue(), True
-
-
-def boosted_borg_additive_signal_image(source: Path) -> tuple[Image.Image, bool] | None:
-    try:
-        with Image.open(source) as image:
-            has_alpha = image_has_alpha(image)
-            alpha = image.getchannel("A") if has_alpha else None
-            rgb = image.convert("RGB")
-            stat = ImageStat.Stat(rgb)
-            high_channels = [high for _low, high in rgb.getextrema()]
-            if max(stat.mean) >= 70.0 and max(high_channels) >= 200:
-                return image.copy(), True
-
-            rgb = ImageEnhance.Brightness(rgb).enhance(4.0)
-            rgb = ImageEnhance.Contrast(rgb).enhance(1.35)
-            rgb = ImageEnhance.Color(rgb).enhance(1.15)
-            if alpha:
-                boosted = rgb.convert("RGBA")
-                boosted.putalpha(alpha)
-            else:
-                boosted = rgb
-
-            return boosted.copy(), False
-    except OSError:
-        return None
-
-
-def write_bytes_if_changed(path: Path, data: bytes) -> bool:
-    try:
-        if path.is_file() and path.read_bytes() == data:
-            return False
-    except OSError:
-        pass
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
-    return True
 
 
 def should_use_rgb565_texture(candidate: str) -> bool:
@@ -927,19 +733,10 @@ def build_dds(
     max_size: int,
     force_bgra32: bool = False,
     force_rgb565: bool = False,
-    boost_borg_additive_signal: bool = False,
 ) -> tuple[bytes, dict[str, object]] | None:
     with Image.open(source) as opened:
-        source_image = opened
-        boosted_signal = False
-        if boost_borg_additive_signal:
-            boosted = boosted_borg_additive_signal_image(source)
-            if boosted is not None:
-                source_image, source_unchanged = boosted
-                boosted_signal = not source_unchanged
-
-        has_alpha = image_has_alpha(source_image)
-        image = resize_for_xbox(source_image, max_size)
+        has_alpha = image_has_alpha(opened)
+        image = resize_for_xbox(opened, max_size)
         if force_rgb565:
             payload = encode_rgb565(image)
             header = dds_header(
@@ -973,8 +770,6 @@ def build_dds(
             "height": image.height,
             "bytes": len(header) + len(payload),
         }
-        if boosted_signal:
-            info["boostedBorgSignal"] = True
         return header + payload, info
 
 
@@ -1118,6 +913,18 @@ def ui_script_files(base_dir: Path) -> list[Path]:
     )
 
 
+def shader_script_files(base_dir: Path) -> list[Path]:
+    scripts_dir = base_dir / "scripts"
+    if not scripts_dir.is_dir():
+        return []
+
+    files = sorted(path for path in scripts_dir.glob("*.shader") if path.is_file())
+    manifest = scripts_dir / "_console_shader_list_"
+    if manifest.is_file():
+        files.append(manifest)
+    return files
+
+
 def build_patch(args: argparse.Namespace) -> dict[str, object]:
     base_dir = args.base_dir.resolve()
     map_path = base_dir / "maps" / f"{args.map}.bsp"
@@ -1150,14 +957,18 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     textures: list[dict[str, object]] = []
     skipped_alpha: list[str] = []
     preserved_original: list[str] = []
-    preserved_original_sources: list[str] = []
-    boosted_original_sources: list[str] = []
-    refreshed_loose_original_sources: list[str] = []
-    written_original_sources: set[str] = set()
+    preserved_original_sources: list[dict[str, str]] = []
+    preserved_original_written: set[str] = set()
     bsp_optimizations: list[dict[str, object]] = []
     ui_scripts: list[str] = []
+    shader_scripts: list[str] = []
     with zipfile.ZipFile(out_path, "w") as zip_out:
         zip_write_bytes(zip_out, XBOX_PATCH_SHADER_PATH, XBOX_PATCH_SHADER_TEXT.encode("ascii"))
+
+        for shader_path in shader_script_files(base_dir):
+            shader_rel = normalized_rel(shader_path.relative_to(base_dir).as_posix())
+            zip_write_bytes(zip_out, shader_rel, shader_path.read_bytes())
+            shader_scripts.append(shader_rel)
 
         for ui_path in ui_script_files(base_dir):
             ui_rel = normalized_rel(ui_path.relative_to(base_dir).as_posix())
@@ -1186,18 +997,19 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 bsp_optimizations.append(report)
 
         for out_rel, source in sorted(resolved.items()):
-            if should_preserve_source_texture(out_rel, source):
+            if should_preserve_original_texture(out_rel):
                 source_rel = normalized_rel(source.relative_to(base_dir).as_posix())
-                if source_rel not in written_original_sources:
-                    source_bytes, boosted = preserved_source_texture_bytes(out_rel, source)
-                    zip_write_bytes(zip_out, source_rel, source_bytes)
-                    written_original_sources.add(source_rel)
-                    preserved_original_sources.append(source_rel)
-                    if boosted:
-                        boosted_original_sources.append(source_rel)
-                        if write_bytes_if_changed(base_dir / Path(*source_rel.split("/")), source_bytes):
-                            refreshed_loose_original_sources.append(source_rel)
+                if source_rel not in preserved_original_written:
+                    zip_write_bytes(zip_out, source_rel, source.read_bytes())
+                    preserved_original_written.add(source_rel)
                 preserved_original.append(out_rel)
+                preserved_original_sources.append(
+                    {
+                        "path": source_rel,
+                        "source": source_rel,
+                        "skippedOverride": out_rel,
+                    }
+                )
                 continue
             max_size = texture_size_for_path(out_rel, args)
             built = build_dds(
@@ -1205,7 +1017,6 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 max_size,
                 force_bgra32=is_fullscreen_texture(out_rel),
                 force_rgb565=should_use_rgb565_texture(out_rel),
-                boost_borg_additive_signal=is_borg_additive_signal_texture(out_rel),
             )
             if built is None:
                 skipped_alpha.append(out_rel)
@@ -1233,9 +1044,9 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             "skippedAlphaTextures": skipped_alpha,
             "preservedOriginalTextures": preserved_original,
             "preservedOriginalTextureSources": preserved_original_sources,
-            "boostedOriginalTextureSources": boosted_original_sources,
-            "refreshedLooseOriginalTextureSources": refreshed_loose_original_sources,
             "patchShaders": [XBOX_PATCH_SHADER_PATH],
+            "shaderScriptCount": len(shader_scripts),
+            "shaderScripts": shader_scripts,
             "uiScriptCount": len(ui_scripts),
             "uiScripts": ui_scripts,
             "bspMode": args.bsp_mode,
@@ -1268,6 +1079,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
         "skipped": len(skipped),
         "skippedAlpha": len(skipped_alpha),
         "preservedOriginal": len(preserved_original),
+        "preservedOriginalSources": len(preserved_original_written),
         "uiScripts": len(ui_scripts),
         "bspMode": args.bsp_mode,
         "bspMaps": args.bsp_maps,

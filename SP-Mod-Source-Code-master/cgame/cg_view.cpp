@@ -7,9 +7,6 @@
 #include "../../code/win32/xb_log.h"
 #define CG_XBOX_ACTIVE_LOG(msg) do { if (xboxDrawLog) XBLog_Write(msg); } while (0)
 extern void CM_SnapPVS(vec3_t origin, byte *buffer);
-extern int CM_PointLeafnum( const vec3_t p );
-extern int CM_LeafArea( int leafnum );
-extern int CM_WriteAreaBits( byte *buffer, int area );
 extern qboolean player_locked;
 extern void CGCam_Disable( void );
 extern void RE_STEFX_SplitScreen_SetP2Refdef( const refdef_t *refdef, qboolean valid );
@@ -39,16 +36,6 @@ extern "C" volatile unsigned int g_SPXBSplitP2LocalZ1000;
 extern "C" volatile unsigned int g_SPXBSplitLocalDiffX1000;
 extern "C" volatile unsigned int g_SPXBSplitLocalDiffY1000;
 extern "C" volatile unsigned int g_SPXBSplitLocalDiffZ1000;
-extern "C" volatile unsigned int g_SPXBSplitP1Viewheight;
-extern "C" volatile unsigned int g_SPXBSplitP2Viewheight;
-extern "C" volatile unsigned int g_SPXBSplitP2Standheight;
-extern "C" volatile unsigned int g_SPXBSplitP2Crouchheight;
-extern "C" volatile unsigned int g_SPXBSplitP1Weapon;
-extern "C" volatile unsigned int g_SPXBSplitP2Weapon;
-extern "C" volatile unsigned int g_SPXBSplitP2PmFlags;
-extern "C" volatile unsigned int g_SPXBSplitP2EffectiveViewheight;
-extern "C" volatile unsigned int g_SPXBSplitP2StateWeapon;
-extern "C" volatile unsigned int g_SPXBSplitP2EffectiveWeapon;
 
 static float s_stefxLastP1ThirdPersonTraceFraction = -1.0f;
 
@@ -77,141 +64,6 @@ static void CG_STEFX_CalcEyeOrigin( const playerState_t *ps, vec3_t eye )
 	eye[2] += ps->viewheight;
 }
 
-static void CG_STEFX_BuildSplitAreamask( const char *label, const vec3_t cameraOrigin, const vec3_t playerEye, byte *buffer )
-{
-	static int s_logBudget = 64;
-	byte visibleAreas[MAX_MAP_AREA_BYTES];
-	int i;
-	int cameraLeaf;
-	int cameraArea;
-	int playerLeaf;
-	int playerArea;
-
-	if ( !buffer )
-	{
-		return;
-	}
-
-	memset( visibleAreas, 0, sizeof( visibleAreas ) );
-	if ( cg.snap )
-	{
-		for ( i = 0 ; i < MAX_MAP_AREA_BYTES ; ++i )
-		{
-			visibleAreas[i] = (byte)( ~cg.snap->areamask[i] );
-		}
-	}
-
-	cameraLeaf = CM_PointLeafnum( cameraOrigin );
-	cameraArea = CM_LeafArea( cameraLeaf );
-	playerLeaf = CM_PointLeafnum( playerEye );
-	playerArea = CM_LeafArea( playerLeaf );
-	CM_WriteAreaBits( visibleAreas, cameraArea );
-	CM_WriteAreaBits( visibleAreas, playerArea );
-
-	for ( i = 0 ; i < MAX_MAP_AREA_BYTES/4 ; ++i )
-	{
-		((int *)buffer)[i] = ((int *)visibleAreas)[i] ^ -1;
-	}
-
-	if ( s_logBudget > 0 )
-	{
-		XBLF( "STEFX_SPLIT_AREAMASK label=%s cam=(%g,%g,%g) camLeaf=%d camArea=%d eye=(%g,%g,%g) eyeLeaf=%d eyeArea=%d snap0=0x%02x vis0=0x%02x out0=0x%02x",
-			label ? label : "<null>",
-			cameraOrigin[0], cameraOrigin[1], cameraOrigin[2],
-			cameraLeaf,
-			cameraArea,
-			playerEye[0], playerEye[1], playerEye[2],
-			playerLeaf,
-			playerArea,
-			cg.snap ? cg.snap->areamask[0] : 0,
-			visibleAreas[0],
-			buffer[0] );
-		--s_logBudget;
-	}
-}
-
-static int CG_STEFX_ValidSplitViewheight( int viewheight )
-{
-	return ( viewheight >= 8 && viewheight <= 96 ) ? viewheight : 0;
-}
-
-static int CG_STEFX_EffectiveSplitViewheight( const gentity_t *ent, const playerState_t *ps )
-{
-	int viewheight;
-	int bodyHeight;
-
-	if ( ps )
-	{
-		viewheight = CG_STEFX_ValidSplitViewheight( ps->viewheight );
-		if ( viewheight )
-		{
-			return viewheight;
-		}
-	}
-
-	bodyHeight = DEFAULT_MAXS_2;
-	if ( ent && ent->client )
-	{
-		if ( ps && ( ps->pm_flags & PMF_DUCKED ) )
-		{
-			bodyHeight = ent->client->crouchheight > 0 ? ent->client->crouchheight : DEFAULT_MAXS_2;
-		}
-		else
-		{
-			bodyHeight = ent->client->standheight > 0 ? ent->client->standheight : DEFAULT_MAXS_2;
-		}
-	}
-
-	viewheight = bodyHeight + STANDARD_VIEWHEIGHT_OFFSET;
-	if ( !CG_STEFX_ValidSplitViewheight( viewheight ) )
-	{
-		viewheight = DEFAULT_MAXS_2 + STANDARD_VIEWHEIGHT_OFFSET;
-	}
-	return viewheight;
-}
-
-static int CG_STEFX_ValidSplitWeapon( int weapon )
-{
-	return ( weapon > WP_NONE && weapon < WP_NUM_WEAPONS ) ? weapon : WP_NONE;
-}
-
-static int CG_STEFX_EffectiveSplitWeapon( const gentity_t *ent, const centity_t *cent, const playerState_t *ps )
-{
-	int weapon;
-
-	weapon = ps ? CG_STEFX_ValidSplitWeapon( ps->weapon ) : WP_NONE;
-	if ( weapon != WP_NONE )
-	{
-		return weapon;
-	}
-
-	weapon = cent ? CG_STEFX_ValidSplitWeapon( cent->currentState.weapon ) : WP_NONE;
-	if ( weapon != WP_NONE )
-	{
-		return weapon;
-	}
-
-	weapon = ent ? CG_STEFX_ValidSplitWeapon( ent->s.weapon ) : WP_NONE;
-	if ( weapon != WP_NONE )
-	{
-		return weapon;
-	}
-
-	return WP_COMPRESSION_RIFLE;
-}
-
-static void CG_STEFX_BuildEffectiveSplitP2State( const gentity_t *p2, const centity_t *p2Cent, playerState_t *outPs )
-{
-	if ( !p2 || !p2->client || !outPs )
-	{
-		return;
-	}
-
-	*outPs = p2->client->ps;
-	outPs->viewheight = CG_STEFX_EffectiveSplitViewheight( p2, outPs );
-	outPs->weapon = CG_STEFX_EffectiveSplitWeapon( p2, p2Cent, outPs );
-}
-
 static void CG_STEFX_CalcViewDeltaInAxis( const vec3_t eye, const vec3_t viewOrg, const vec3_t axis[3], vec3_t worldDelta, vec3_t localDelta )
 {
 	VectorSubtract( viewOrg, eye, worldDelta );
@@ -232,7 +84,7 @@ static unsigned int CG_STEFX_Fixed1000( float value )
 	return (unsigned int)(int)( value * 1000.0f );
 }
 
-static void CG_STEFX_ApplyP1RelativeViewToP2( const playerState_t *p2Ps, refdef_t *p2Refdef, vec3_t outViewAngles )
+static void CG_STEFX_ApplyP1FirstPersonRelativeViewToP2( const gentity_t *p2, refdef_t *p2Refdef, vec3_t outViewAngles )
 {
 	vec3_t p1Eye;
 	vec3_t p1LocalDelta;
@@ -245,13 +97,13 @@ static void CG_STEFX_ApplyP1RelativeViewToP2( const playerState_t *p2Ps, refdef_
 	CG_STEFX_CalcViewDeltaInAxis( p1Eye, cg.refdef.vieworg, cg.refdef.viewaxis, p1WorldDelta, p1LocalDelta );
 	CG_STEFX_AngleSubtractVec( cg.refdefViewAngles, cg.predicted_player_state.viewangles, p1AngleDelta );
 
-	VectorCopy( p2Ps->viewangles, outViewAngles );
+	VectorCopy( p2->client->ps.viewangles, outViewAngles );
 	outViewAngles[PITCH] = AngleNormalize180( outViewAngles[PITCH] + p1AngleDelta[PITCH] );
 	outViewAngles[YAW] = AngleNormalize360( outViewAngles[YAW] + p1AngleDelta[YAW] );
 	outViewAngles[ROLL] = AngleNormalize180( outViewAngles[ROLL] + p1AngleDelta[ROLL] );
 	AnglesToAxis( outViewAngles, p2Axis );
 
-	CG_STEFX_CalcEyeOrigin( p2Ps, p2Eye );
+	CG_STEFX_CalcEyeOrigin( &p2->client->ps, p2Eye );
 	VectorCopy( p2Eye, p2Refdef->vieworg );
 	VectorMA( p2Refdef->vieworg, p1LocalDelta[0], p2Axis[0], p2Refdef->vieworg );
 	VectorMA( p2Refdef->vieworg, p1LocalDelta[1], p2Axis[1], p2Refdef->vieworg );
@@ -335,7 +187,7 @@ static void CG_STEFX_CalcThirdPersonViewForPlayer( const playerState_t *ps, cons
 	outViewAngles[YAW] -= cg_thirdPersonAngle.value;
 }
 
-static void CG_STEFX_LogSplitCameraCompare( const gentity_t *p2, const playerState_t *p2Ps, const refdef_t *p2Refdef, const vec3_t p2ViewAngles, qboolean thirdPersonMode, float p2TraceFraction )
+static void CG_STEFX_LogSplitCameraCompare( const gentity_t *p2, const refdef_t *p2Refdef, const vec3_t p2ViewAngles, qboolean thirdPersonMode, float p2TraceFraction )
 {
 	static int s_logBudget = 160;
 	centity_t *p1Cent;
@@ -352,7 +204,7 @@ static void CG_STEFX_LogSplitCameraCompare( const gentity_t *p2, const playerSta
 	vec3_t p2PlayerLocal;
 	vec3_t localDiff;
 
-	if ( !p2 || !p2->client || !p2Ps || !p2Refdef )
+	if ( !p2 || !p2->client || !p2Refdef )
 	{
 		return;
 	}
@@ -361,12 +213,12 @@ static void CG_STEFX_LogSplitCameraCompare( const gentity_t *p2, const playerSta
 	p2Cent = &cg_entities[p2->s.number];
 
 	CG_STEFX_CalcEyeOrigin( &cg.predicted_player_state, p1Eye );
-	CG_STEFX_CalcEyeOrigin( p2Ps, p2Eye );
+	CG_STEFX_CalcEyeOrigin( &p2->client->ps, p2Eye );
 	CG_STEFX_CalcViewDeltaInAxis( p1Eye, cg.refdef.vieworg, cg.refdef.viewaxis, p1WorldDelta, p1ViewLocal );
 	CG_STEFX_CalcViewDeltaInAxis( p2Eye, p2Refdef->vieworg, p2Refdef->viewaxis, p2WorldDelta, p2ViewLocal );
 
 	AngleVectors( cg.predicted_player_state.viewangles, p1PlayerAxis[0], p1PlayerAxis[1], p1PlayerAxis[2] );
-	AngleVectors( p2Ps->viewangles, p2PlayerAxis[0], p2PlayerAxis[1], p2PlayerAxis[2] );
+	AngleVectors( p2->client->ps.viewangles, p2PlayerAxis[0], p2PlayerAxis[1], p2PlayerAxis[2] );
 	p1PlayerLocal[0] = DotProduct( p1WorldDelta, p1PlayerAxis[0] );
 	p1PlayerLocal[1] = DotProduct( p1WorldDelta, p1PlayerAxis[1] );
 	p1PlayerLocal[2] = DotProduct( p1WorldDelta, p1PlayerAxis[2] );
@@ -416,12 +268,12 @@ static void CG_STEFX_LogSplitCameraCompare( const gentity_t *p2, const playerSta
 			p1PlayerLocal[0], p1PlayerLocal[1], p1PlayerLocal[2] );
 
 		XBLF( "STEFX_SPLIT_CAM P2 ps=(%g,%g,%g) cur=(%g,%g,%g) lerp=(%g,%g,%g) eye=(%g,%g,%g) view=(%g,%g,%g) aim=(%g,%g,%g) cam=(%g,%g,%g) dEye=(%g,%g,%g) localView=(%g,%g,%g) localAim=(%g,%g,%g) localDiff=(%g,%g,%g)",
-			p2Ps->origin[0], p2Ps->origin[1], p2Ps->origin[2],
+			p2->client->ps.origin[0], p2->client->ps.origin[1], p2->client->ps.origin[2],
 			p2->currentOrigin[0], p2->currentOrigin[1], p2->currentOrigin[2],
 			p2Cent->lerpOrigin[0], p2Cent->lerpOrigin[1], p2Cent->lerpOrigin[2],
 			p2Eye[0], p2Eye[1], p2Eye[2],
 			p2Refdef->vieworg[0], p2Refdef->vieworg[1], p2Refdef->vieworg[2],
-			p2Ps->viewangles[0], p2Ps->viewangles[1], p2Ps->viewangles[2],
+			p2->client->ps.viewangles[0], p2->client->ps.viewangles[1], p2->client->ps.viewangles[2],
 			p2ViewAngles[0], p2ViewAngles[1], p2ViewAngles[2],
 			p2WorldDelta[0], p2WorldDelta[1], p2WorldDelta[2],
 			p2ViewLocal[0], p2ViewLocal[1], p2ViewLocal[2],
@@ -469,16 +321,6 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	g_SPXBSplitLocalDiffX1000 = 0;
 	g_SPXBSplitLocalDiffY1000 = 0;
 	g_SPXBSplitLocalDiffZ1000 = 0;
-	g_SPXBSplitP1Viewheight = 0;
-	g_SPXBSplitP2Viewheight = 0;
-	g_SPXBSplitP2Standheight = 0;
-	g_SPXBSplitP2Crouchheight = 0;
-	g_SPXBSplitP1Weapon = 0;
-	g_SPXBSplitP2Weapon = 0;
-	g_SPXBSplitP2PmFlags = 0;
-	g_SPXBSplitP2EffectiveViewheight = 0;
-	g_SPXBSplitP2StateWeapon = 0;
-	g_SPXBSplitP2EffectiveWeapon = 0;
 
 	if ( !CG_STEFX_SplitScreenActive() )
 	{
@@ -504,47 +346,29 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	zoomActive = (qboolean)( cg_stefxSplitScreenP2Zoom.integer != 0 );
 	thirdPersonMode = (qboolean)( cg.renderingThirdPerson != 0 );
 	traceFraction = -1.0f;
-	centity_t p2WeaponCent;
-	playerState_t p2EffectivePs;
-	memset( &p2WeaponCent, 0, sizeof( p2WeaponCent ) );
-	CG_STEFX_BuildEffectiveSplitP2State( p2, &cg_entities[p2EntNum], &p2EffectivePs );
-	p2WeaponCent = cg_entities[p2EntNum];
-	if ( CG_STEFX_ValidSplitWeapon( p2WeaponCent.currentState.weapon ) == WP_NONE )
-	{
-		p2WeaponCent.currentState.weapon = p2EffectivePs.weapon;
-	}
 	g_SPXBSplitP2PsX = (unsigned int)(int)p2->client->ps.origin[0];
 	g_SPXBSplitP2PsY = (unsigned int)(int)p2->client->ps.origin[1];
 	g_SPXBSplitP2PsZ = (unsigned int)(int)p2->client->ps.origin[2];
 	g_SPXBSplitP2CurX = (unsigned int)(int)p2->currentOrigin[0];
 	g_SPXBSplitP2CurY = (unsigned int)(int)p2->currentOrigin[1];
 	g_SPXBSplitP2CurZ = (unsigned int)(int)p2->currentOrigin[2];
-	g_SPXBSplitP1Viewheight = (unsigned int)(int)cg.predicted_player_state.viewheight;
-	g_SPXBSplitP2Viewheight = (unsigned int)(int)p2->client->ps.viewheight;
-	g_SPXBSplitP2Standheight = (unsigned int)(int)p2->client->standheight;
-	g_SPXBSplitP2Crouchheight = (unsigned int)(int)p2->client->crouchheight;
-	g_SPXBSplitP1Weapon = (unsigned int)(int)cg.predicted_player_state.weapon;
-	g_SPXBSplitP2Weapon = (unsigned int)(int)p2->client->ps.weapon;
-	g_SPXBSplitP2PmFlags = (unsigned int)p2->client->ps.pm_flags;
-	g_SPXBSplitP2EffectiveViewheight = (unsigned int)(int)p2EffectivePs.viewheight;
-	g_SPXBSplitP2StateWeapon = (unsigned int)(int)cg_entities[p2EntNum].currentState.weapon;
-	g_SPXBSplitP2EffectiveWeapon = (unsigned int)(int)p2EffectivePs.weapon;
-	VectorCopy( p2EffectivePs.origin, target );
-	target[2] += p2EffectivePs.viewheight;
-	VectorCopy( p2EffectivePs.viewangles, angles );
+	VectorCopy( p2->client->ps.origin, target );
+	target[2] += p2->client->ps.viewheight;
+	VectorCopy( p2->client->ps.viewangles, angles );
 	g_SPXBSplitP2AnglesPitch = (unsigned int)(int)angles[PITCH];
 	g_SPXBSplitP2AnglesYaw = (unsigned int)(int)angles[YAW];
 
 	p2Refdef = cg.refdef;
 	if ( thirdPersonMode )
 	{
-		CG_STEFX_CalcThirdPersonViewForPlayer( &p2EffectivePs, p2EffectivePs.origin, p2EffectivePs.viewangles, p2EntNum, p2Refdef.vieworg, viewAngles, &traceFraction );
+		CG_STEFX_CalcThirdPersonViewForPlayer( &p2->client->ps, p2->client->ps.origin, p2->client->ps.viewangles, p2EntNum, p2Refdef.vieworg, viewAngles, &traceFraction );
 	}
 	else
 	{
-		CG_STEFX_ApplyP1RelativeViewToP2( &p2EffectivePs, &p2Refdef, viewAngles );
+		CG_STEFX_ApplyP1FirstPersonRelativeViewToP2( p2, &p2Refdef, viewAngles );
 	}
 	g_SPXBSplitP2TraceFrac1000 = (traceFraction >= 0.0f) ? (unsigned int)( traceFraction * 1000.0f ) : 0;
+	VectorCopy( p2Refdef.vieworg, pvsOrigin );
 	g_SPXBSplitP2ViewX = (unsigned int)(int)p2Refdef.vieworg[0];
 	g_SPXBSplitP2ViewY = (unsigned int)(int)p2Refdef.vieworg[1];
 	g_SPXBSplitP2ViewZ = (unsigned int)(int)p2Refdef.vieworg[2];
@@ -556,15 +380,14 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	}
 	p2Refdef.time = cg.time;
 	memcpy( p2Refdef.areamask, cg.snap->areamask, sizeof( p2Refdef.areamask ) );
-	VectorCopy( p2Refdef.vieworg, pvsOrigin );
-	CG_STEFX_BuildSplitAreamask( "p2", pvsOrigin, target, p2Refdef.areamask );
+	CM_SnapPVS( pvsOrigin, p2Refdef.areamask );
 	RE_STEFX_SplitScreen_SetP2Refdef( &p2Refdef, qtrue );
 	RE_STEFX_SplitScreen_SetP2PvsOrigin( pvsOrigin );
 	g_SPXBSplitP2RefdefValid = 1;
-	CG_STEFX_LogSplitCameraCompare( p2, &p2EffectivePs, &p2Refdef, viewAngles, thirdPersonMode, traceFraction );
+	CG_STEFX_LogSplitCameraCompare( p2, &p2Refdef, viewAngles, thirdPersonMode, traceFraction );
 	if ( !thirdPersonMode )
 	{
-		CG_STEFX_AddSplitViewWeapon( &p2EffectivePs, &p2WeaponCent, &p2Refdef, viewAngles, 1 );
+		CG_STEFX_AddSplitViewWeapon( &p2->client->ps, &cg_entities[p2EntNum], &p2Refdef, viewAngles, 1 );
 	}
 
 	if ( s_logBudget > 0 )
@@ -1873,25 +1696,14 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	cg.refdef.time = cg.time;
 	memcpy( cg.refdef.areamask, cg.snap->areamask, sizeof( cg.refdef.areamask ) );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( in_camera || ( CG_STEFX_SplitScreenActive() && cg.renderingThirdPerson ) )
+	if ( in_camera )
 	{
 		static int s_stefxCameraPvsLogs = 0;
-		if ( CG_STEFX_SplitScreenActive() && cg.renderingThirdPerson )
-		{
-			vec3_t playerEye;
-			CG_STEFX_CalcEyeOrigin( &cg.predicted_player_state, playerEye );
-			CG_STEFX_BuildSplitAreamask( "p1", cg.refdef.vieworg, playerEye, cg.refdef.areamask );
-		}
-		else
-		{
-			CM_SnapPVS( cg.refdef.vieworg, cg.refdef.areamask );
-		}
+		CM_SnapPVS( cg.refdef.vieworg, cg.refdef.areamask );
 		if ( s_stefxCameraPvsLogs < 12 )
 		{
-			XBLF("STEFX: CG camera SnapPVS time=%d split=%d third=%d view=(%g,%g,%g) rdflags=0x%x fov=(%g,%g)",
+			XBLF("STEFX: CG camera SnapPVS time=%d view=(%g,%g,%g) rdflags=0x%x fov=(%g,%g)",
 				cg.time,
-				CG_STEFX_SplitScreenActive() ? 1 : 0,
-				cg.renderingThirdPerson ? 1 : 0,
 				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
 				cg.refdef.rdflags,
 				cg.refdef.fov_x, cg.refdef.fov_y);

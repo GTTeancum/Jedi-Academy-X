@@ -7,6 +7,7 @@
 #include "anims.h"
 #include "wp_saber.h"
 #include "g_Vehicles.h"
+#include "boltOns.h"
 #if !defined(RUFL_HSTRING_INC)
 	#include "..\Rufl\hstring.h"
 #endif
@@ -1848,15 +1849,7 @@ void NPC_Precache ( gentity_t *spawner )
 			ri.torsoModelName,
 			ri.headModelName);
 #endif
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		gi.Printf("STEFX: NPC_Precache defers md3 client render info type='%s' legs='%s' torso='%s' head='%s'\n",
-			spawner->NPC_type ? spawner->NPC_type : "<null>",
-			ri.legsModelName,
-			ri.torsoModelName,
-			ri.headModelName);
-#else
 		CG_RegisterClientRenderInfo( &ci, &ri );
-#endif
 	}
 	else
 	{
@@ -2011,6 +2004,7 @@ qboolean NPC_ParseParms( const char *NPCName, gentity_t *NPC )
 
 	NPC->s.modelScale[0] = NPC->s.modelScale[1] = NPC->s.modelScale[2] = 1.0f;
 
+	VectorSet( ri->scaleXYZ, 100, 100, 100 );
 	*(int*)ri->customRGBA=-1;
 
 	if ( !Q_stricmp( "random", NPCName ) )
@@ -2063,6 +2057,83 @@ qboolean NPC_ParseParms( const char *NPCName, gentity_t *NPC )
 				break;
 			}
 	//===MODEL PROPERTIES===========================================================
+			if ( !Q_stricmp( token, "scale" ) ) 
+			{
+				if ( G_ParseInt( &p, &n ) ) 
+				{
+					SkipRestOfLine( &p );
+					continue;
+				}
+				if ( n < 0 ) 
+				{
+					gi.Printf( S_COLOR_YELLOW"WARNING: bad %s in NPC '%s'\n", token, NPCName );
+					continue;
+				}
+				ri->scaleXYZ[0] = ri->scaleXYZ[1] = ri->scaleXYZ[2] = n;
+				continue;
+			}
+
+			if ( !Q_stricmp( token, "scaleX" ) ) 
+			{
+				if ( G_ParseInt( &p, &n ) ) 
+				{
+					SkipRestOfLine( &p );
+					continue;
+				}
+				if ( n < 0 ) 
+				{
+					gi.Printf( S_COLOR_YELLOW"WARNING: bad %s in NPC '%s'\n", token, NPCName );
+					continue;
+				}
+				ri->scaleXYZ[0] = n;
+				continue;
+			}
+
+			if ( !Q_stricmp( token, "scaleY" ) ) 
+			{
+				if ( G_ParseInt( &p, &n ) ) 
+				{
+					SkipRestOfLine( &p );
+					continue;
+				}
+				if ( n < 0 ) 
+				{
+					gi.Printf( S_COLOR_YELLOW"WARNING: bad %s in NPC '%s'\n", token, NPCName );
+					continue;
+				}
+				ri->scaleXYZ[1] = n;
+				continue;
+			}
+
+			if ( !Q_stricmp( token, "scaleZ" ) ) 
+			{
+				if ( G_ParseInt( &p, &n ) ) 
+				{
+					SkipRestOfLine( &p );
+					continue;
+				}
+				if ( n < 0 ) 
+				{
+					gi.Printf( S_COLOR_YELLOW"WARNING: bad %s in NPC '%s'\n", token, NPCName );
+					continue;
+				}
+				ri->scaleXYZ[2] = n;
+				continue;
+			}
+
+			if ( !Q_stricmp( token, "boltOn" ) ) 
+			{
+				if ( G_ParseString( &p, &value ) ) 
+				{
+					continue;
+				}
+#ifdef _XBOX
+				gi.Printf( "STEFX: NPC '%s' add boltOn '%s'\n", NPCName, value );
+#endif
+				G_AddBoltOn( NPC, value );
+				continue;
+			}
+
 			// custom color
 			if ( !Q_stricmp( token, "customRGBA" ) ) 
 			{

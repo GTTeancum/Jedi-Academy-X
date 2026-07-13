@@ -21,7 +21,6 @@ extern saber_colors_t TranslateSaberColor( const char *name );
 
 extern void G_SetWeapon( gentity_t *self, int wp );
 extern stringID_table_t WPTable[];
-extern void G_PlayerGuiltDeath( void );
 
 extern cvar_t	*g_char_model;
 extern cvar_t	*g_char_skin_head;
@@ -34,40 +33,6 @@ extern cvar_t	*g_saber;
 extern cvar_t	*g_saber2;
 extern cvar_t	*g_saber_color;
 extern cvar_t	*g_saber2_color;
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-void STEFX_TestMissionFailedFromGame( const char *source )
-{
-	gentity_t *ent = &g_entities[0];
-
-	XBLF("STEFX_MODAL_TEST game missionfailed trigger source='%s' levelTime=%d health=%d missionStatus=%d statusText=%d",
-		source ? source : "",
-		level.time,
-		ent ? ent->health : -999,
-		cg.missionStatusShow ? 1 : 0,
-		statusTextIndex);
-
-	if ( ent && ent->client )
-	{
-		if ( ent->health >= 0 )
-		{
-			G_PlayerGuiltDeath();
-		}
-
-		ent->health = 0;
-		ent->client->respawnTime = level.time + 2000;
-	}
-
-	statusTextIndex = MISSIONFAILED_TURNED;
-	cg.missionStatusShow = qtrue;
-	cg.missionStatusDeadTime = level.time + 1000;
-
-	XBLF("STEFX_MODAL_TEST game missionfailed armed levelTime=%d missionDeadTime=%d statusText=%d",
-		level.time,
-		cg.missionStatusDeadTime,
-		statusTextIndex);
-}
-#endif
 
 /*
 ===================
@@ -972,14 +937,6 @@ qboolean	ConsoleCommand( void ) {
 		Svcmd_GameMem_f();
 		return qtrue;
 	}
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( Q_stricmp( cmd, "stefx_test_missionfailed" ) == 0 )
-	{
-		STEFX_TestMissionFailedFromGame( "console" );
-		return qtrue;
-	}
-#endif
 
 //	if (Q_stricmp (cmd, "addbot") == 0) {
 //		Svcmd_AddBot_f();

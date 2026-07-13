@@ -249,12 +249,50 @@ __declspec(dllexport) volatile unsigned int g_SPXBShaderScanBytes = 0x11110134;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderScanEntries = 0x11110135;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderScanSkyLightSeen = 0x11110136;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderScanJunkSkySeen = 0x11110137;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanManifestActive = 0x11110138;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanManifestReadLen = 0x11110139;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanManifestCount = 0x1111013A;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanRawBytes = 0x1111013B;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanVoyagerListed = 0x1111013C;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanVoyagerReadLen = 0x1111013D;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanVoyagerSkyToken = 0x1111013E;
+__declspec(dllexport) volatile unsigned int g_SPXBShaderScanCommonReadLen = 0x1111013F;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderLookupMagic = 0x534C4B50; /* 'SLKP' */
 __declspec(dllexport) volatile unsigned int g_SPXBShaderLookupCount = 0x11110141;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderLookupHash = 0x11110142;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderLookupIndexedFound = 0x11110143;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderLookupLinearFound = 0x11110144;
 __declspec(dllexport) volatile unsigned int g_SPXBShaderLookupEntries = 0x11110145;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP1Submitted = 0x11110150;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP2Submitted = 0x11110151;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP1Attached = 0x11110152;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP2Attached = 0x11110153;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP1Model = 0x11110154;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP2Model = 0x11110155;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP1Renderfx = 0x11110156;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetP2Renderfx = 0x11110157;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererRefs = 0x11110158;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererSurfaces = 0x11110159;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererFiltered = 0x1111015A;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererLastModel = 0x1111015B;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererLastRenderfx = 0x1111015C;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererLastEnt = 0x1111015D;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererLastFilter = 0x1111015E;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetRendererLastSurfaceModel = 0x1111015F;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetGameP1Ensure = 0x11110160;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetGameP2Ensure = 0x11110161;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetGameP1Slot = 0x11110162;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetGameP2Slot = 0x11110163;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetCgameP1Slot0 = 0x11110164;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetCgameP1Slot1 = 0x11110165;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetCgameP2Slot0 = 0x11110166;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetCgameP2Slot1 = 0x11110167;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetBoltOnLoadLen = 0x11110168;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetBoltOnCount = 0x11110169;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetBoltOnHelmetIndex = 0x1111016A;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetAddAttempts = 0x1111016B;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetAddKnownIndex = 0x1111016C;
+__declspec(dllexport) volatile unsigned int g_SPXBHelmetAddFailCode = 0x1111016D;
 __declspec(dllexport) volatile unsigned int g_SPXBFallbackTraceMagic = 0x46424B21; /* 'FBK!' */
 __declspec(dllexport) volatile unsigned int g_SPXBFallbackStageCount = 0x11110121;
 __declspec(dllexport) volatile unsigned int g_SPXBFallbackLastShaderHash = 0x11110122;
@@ -554,6 +592,16 @@ static int xbl_ShouldDropVerbose(const char *msg)
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX_LIPTRACE", &s_stefxLipTraceBudget);
     if (budgeted >= 0) return budgeted;
+
+    if (strstr(msg, "STEFX: CG bolt section") ||
+        strstr(msg, "STEFX: CG helmet slots") ||
+        strstr(msg, "STEFX: CG helmet boltOn") ||
+        strstr(msg, "STEFX: helmet command") ||
+        strstr(msg, "STEFX: helmet bolton") ||
+        strstr(msg, "STEFX_SPLIT_COOP helmet ensure") ||
+        strstr(msg, "STEFX_SPLIT_MODEL part=head")) {
+        return 0;
+    }
 
     if (strstr(msg, "STEFX: MDR memory") ||
         strstr(msg, "STEFX: RE_RegisterModel MDR hazard preflight fallback") ||
@@ -1639,12 +1687,50 @@ void XBLog_Init(void)
     g_SPXBShaderScanEntries = 0;
     g_SPXBShaderScanSkyLightSeen = 0;
     g_SPXBShaderScanJunkSkySeen = 0;
+    g_SPXBShaderScanManifestActive = 0;
+    g_SPXBShaderScanManifestReadLen = 0;
+    g_SPXBShaderScanManifestCount = 0;
+    g_SPXBShaderScanRawBytes = 0;
+    g_SPXBShaderScanVoyagerListed = 0;
+    g_SPXBShaderScanVoyagerReadLen = 0;
+    g_SPXBShaderScanVoyagerSkyToken = 0;
+    g_SPXBShaderScanCommonReadLen = 0;
     g_SPXBShaderLookupMagic = 0x534C4B50; /* 'SLKP' */
     g_SPXBShaderLookupCount = 0;
     g_SPXBShaderLookupHash = 0;
     g_SPXBShaderLookupIndexedFound = 0;
     g_SPXBShaderLookupLinearFound = 0;
     g_SPXBShaderLookupEntries = 0;
+    g_SPXBHelmetP1Submitted = 0;
+    g_SPXBHelmetP2Submitted = 0;
+    g_SPXBHelmetP1Attached = 0;
+    g_SPXBHelmetP2Attached = 0;
+    g_SPXBHelmetP1Model = 0;
+    g_SPXBHelmetP2Model = 0;
+    g_SPXBHelmetP1Renderfx = 0;
+    g_SPXBHelmetP2Renderfx = 0;
+    g_SPXBHelmetRendererRefs = 0;
+    g_SPXBHelmetRendererSurfaces = 0;
+    g_SPXBHelmetRendererFiltered = 0;
+    g_SPXBHelmetRendererLastModel = 0;
+    g_SPXBHelmetRendererLastRenderfx = 0;
+    g_SPXBHelmetRendererLastEnt = 0;
+    g_SPXBHelmetRendererLastFilter = 0;
+    g_SPXBHelmetRendererLastSurfaceModel = 0;
+    g_SPXBHelmetGameP1Ensure = 0;
+    g_SPXBHelmetGameP2Ensure = 0;
+    g_SPXBHelmetGameP1Slot = 0;
+    g_SPXBHelmetGameP2Slot = 0;
+    g_SPXBHelmetCgameP1Slot0 = 0;
+    g_SPXBHelmetCgameP1Slot1 = 0;
+    g_SPXBHelmetCgameP2Slot0 = 0;
+    g_SPXBHelmetCgameP2Slot1 = 0;
+    g_SPXBHelmetBoltOnLoadLen = 0;
+    g_SPXBHelmetBoltOnCount = 0;
+    g_SPXBHelmetBoltOnHelmetIndex = 0;
+    g_SPXBHelmetAddAttempts = 0;
+    g_SPXBHelmetAddKnownIndex = 0;
+    g_SPXBHelmetAddFailCode = 0;
     g_SPXBFallbackTraceMagic = 0x46424B21; /* 'FBK!' */
     g_SPXBFallbackStageCount = 0;
     g_SPXBFallbackLastShaderHash = 0;

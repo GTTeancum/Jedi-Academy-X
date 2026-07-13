@@ -754,6 +754,14 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	Com_DPrintf( "CM_LoadMap( %s, %i )\n", name, clientload );
 
 #ifdef STEFX_ELITE_FORCE_SP
+	XBLF("EF: CM_LoadMap enter name='%s' clientload=%d cmg='%s' raw='%s' ready=%d submodels=%d cmodels=%08x",
+		name,
+		clientload,
+		cmg.name[0] ? cmg.name : "(none)",
+		s_efRawLoadedMapName[0] ? s_efRawLoadedMapName : "(none)",
+		s_efRawLoadedMapReady,
+		cmg.numSubModels,
+		(unsigned int)cmg.cmodels);
 	if ( clientload ) {
 		XBLF("STEFX: CM_LoadMap client request name='%s' cmg='%s' raw='%s' ready=%d submodels=%d cmodels=%08x checksum=0x%08x",
 			name,
@@ -808,6 +816,8 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 #ifdef STEFX_ELITE_FORCE_SP
 	{
 		efbspFile_t efbsp;
+		memset(&efbsp, 0, sizeof(efbsp));
+		XBLF("EF: CM_LoadMap raw probe begin name='%s' clientload=%d", name, clientload);
 		if (EFBSP_LoadFile(name, &efbsp))
 		{
 			int shaderCount;
@@ -832,6 +842,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			int rendererLightmapMode;
 			zmemstats_t rawBspStats;
 
+			XBLF("EF: CM_LoadMap raw probe loaded name='%s' bytes=%d clientload=%d", name, efbsp.len, clientload);
 			EFBSP_Validate(&efbsp, name);
 			R_EFBeginRawWorldMapLoad(name);
 			last_checksum = LittleLong(Com_BlockChecksum(efbsp.data, efbsp.len));
@@ -1013,7 +1024,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			return;
 		}
 
-		XBLF("EF: CM_LoadMap raw BSP '%s' not found; emergency sidecar fallback only", name);
+		XBLF("EF: CM_LoadMap raw probe missing name='%s' clientload=%d; emergency sidecar fallback only", name, clientload);
 	}
 #endif
 

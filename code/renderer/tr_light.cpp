@@ -386,13 +386,15 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	VectorNormalize2( direction, ent->lightDir );
 
 #ifdef _XBOX
-	if ( s_xboxLightGridLogCount < 8 ) {
-		XBLF("JA: LIGHTGRID #%d ent=%p hModel=%d reType=%d origin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
+	if ( s_xboxLightGridLogCount < 64 && ent->e.hModel > 0 ) {
+		XBLF("STEFX_LIGHTGRID #%d ent=%p hModel=%d reType=%d renderfx=0x%x origin=%g,%g,%g lightOrigin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
 			s_xboxLightGridLogCount,
 			ent,
 			ent->e.hModel,
 			ent->e.reType,
+			ent->e.renderfx,
 			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			startLightOrigin[0], startLightOrigin[1], startLightOrigin[2],
 			pos[0], pos[1], pos[2],
 			frac[0], frac[1], frac[2],
 			totalFactor,

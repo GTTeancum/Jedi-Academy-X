@@ -10,7 +10,6 @@
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/xb_log.h"
-extern "C" volatile unsigned int g_SPXBSplitSlotActive;
 #endif
 
 /*
@@ -152,41 +151,6 @@ static void RB_SurfaceSprite( void ) {
 
 	// calculate the xyz locations for the four corners
 	radius = backEnd.currentEntity->e.radius;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( cls.state == CA_ACTIVE )
-	{
-		static int s_stefxEffectSpriteBudget = 192;
-		if ( s_stefxEffectSpriteBudget > 0 )
-		{
-			trRefEntity_t *ent = backEnd.currentEntity;
-			XBLF("STEFX_EFFECT_SPRITE slot=%u ent=%d reType=%d shader='%s' default=%d explicit=%d sort=%g rf=0x%x radius=%g rot=%g skin=%d rgba=%u,%u,%u,%u origin=%g,%g,%g old=%g,%g,%g tess=%d/%d",
-				g_SPXBSplitSlotActive,
-				ent ? ent->e.number : -1,
-				ent ? ent->e.reType : -1,
-				tess.shader ? tess.shader->name : "<null>",
-				tess.shader ? tess.shader->defaultShader : -1,
-				tess.shader ? tess.shader->explicitlyDefined : -1,
-				tess.shader ? (double)tess.shader->sort : -1.0,
-				ent ? ent->e.renderfx : 0,
-				ent ? ent->e.radius : 0.0f,
-				ent ? ent->e.rotation : 0.0f,
-				ent ? ent->e.skinNum : 0,
-				ent ? (unsigned int)ent->e.shaderRGBA[0] : 0,
-				ent ? (unsigned int)ent->e.shaderRGBA[1] : 0,
-				ent ? (unsigned int)ent->e.shaderRGBA[2] : 0,
-				ent ? (unsigned int)ent->e.shaderRGBA[3] : 0,
-				ent ? ent->e.origin[0] : 0.0f,
-				ent ? ent->e.origin[1] : 0.0f,
-				ent ? ent->e.origin[2] : 0.0f,
-				ent ? ent->e.oldorigin[0] : 0.0f,
-				ent ? ent->e.oldorigin[1] : 0.0f,
-				ent ? ent->e.oldorigin[2] : 0.0f,
-				tess.numVertexes,
-				tess.numIndexes);
-			--s_stefxEffectSpriteBudget;
-		}
-	}
-#endif
 	if ( backEnd.currentEntity->e.rotation == 0 ) {
 		VectorScale( backEnd.viewParms.or.axis[1], radius, left );
 		VectorScale( backEnd.viewParms.or.axis[2], radius, up );
@@ -943,38 +907,20 @@ void RB_SurfacePolychain( srfPoly_t *p ) {
 		( strstr( tess.shader->name, "gfx/effects/" ) ||
 		  strstr( tess.shader->name, "gfx/misc/" ) ||
 		  strstr( tess.shader->name, "gfx/interface/" ) ||
-		  strstr( tess.shader->name, "powerups/" ) ||
 		  strstr( tess.shader->name, "crosshair" ) ) )
 	{
 		static int s_stefxSurfacePolyBudget = 160;
 		if ( s_stefxSurfacePolyBudget > 0 )
 		{
-			trRefEntity_t *ent = backEnd.currentEntity;
-			XBLF( "STEFX_EFFECT_POLY shader='%s' ent=%d reType=%d renderfx=0x%x verts=%d tessBefore=%d/%d v0=(%g,%g,%g) v1=(%g,%g,%g) v2=(%g,%g,%g) v3=(%g,%g,%g) color0=%u,%u,%u,%u origin=(%g,%g,%g)",
-				tess.shader->name,
-				ent ? ent->e.number : -1,
-				ent ? ent->e.reType : -1,
-				ent ? ent->e.renderfx : 0,
-				p->numVerts, tess.numVertexes, tess.numIndexes,
+			XBLF( "STEFX: RB_SurfacePolychain shader='%s' verts=%d tessBefore=%d/%d v0=(%g,%g,%g) color0=%u,%u,%u,%u",
+				tess.shader->name, p->numVerts, tess.numVertexes, tess.numIndexes,
 				p->numVerts > 0 ? p->verts[0].xyz[0] : 0.0f,
 				p->numVerts > 0 ? p->verts[0].xyz[1] : 0.0f,
 				p->numVerts > 0 ? p->verts[0].xyz[2] : 0.0f,
-				p->numVerts > 1 ? p->verts[1].xyz[0] : 0.0f,
-				p->numVerts > 1 ? p->verts[1].xyz[1] : 0.0f,
-				p->numVerts > 1 ? p->verts[1].xyz[2] : 0.0f,
-				p->numVerts > 2 ? p->verts[2].xyz[0] : 0.0f,
-				p->numVerts > 2 ? p->verts[2].xyz[1] : 0.0f,
-				p->numVerts > 2 ? p->verts[2].xyz[2] : 0.0f,
-				p->numVerts > 3 ? p->verts[3].xyz[0] : 0.0f,
-				p->numVerts > 3 ? p->verts[3].xyz[1] : 0.0f,
-				p->numVerts > 3 ? p->verts[3].xyz[2] : 0.0f,
 				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[0] : 0,
 				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[1] : 0,
 				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[2] : 0,
-				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[3] : 0,
-				ent ? ent->e.origin[0] : 0.0f,
-				ent ? ent->e.origin[1] : 0.0f,
-				ent ? ent->e.origin[2] : 0.0f );
+				p->numVerts > 0 ? (unsigned int)p->verts[0].modulate[3] : 0 );
 			--s_stefxSurfacePolyBudget;
 		}
 	}
@@ -1366,36 +1312,6 @@ static void RB_SurfaceBeam( void )
 	vec3_t oldorigin, origin;
 
 	e = &backEnd.currentEntity->e;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( cls.state == CA_ACTIVE )
-	{
-		static int s_stefxEffectBeamBudget = 96;
-		if ( s_stefxEffectBeamBudget > 0 )
-		{
-			XBLF("STEFX_EFFECT_BEAM slot=%u ent=%d reType=%d shader='%s' default=%d explicit=%d sort=%g rf=0x%x radius=%g rot=%g skin=%d rgba=%u,%u,%u,%u origin=%g,%g,%g old=%g,%g,%g tess=%d/%d",
-				g_SPXBSplitSlotActive,
-				e->number,
-				e->reType,
-				tess.shader ? tess.shader->name : "<null>",
-				tess.shader ? tess.shader->defaultShader : -1,
-				tess.shader ? tess.shader->explicitlyDefined : -1,
-				tess.shader ? (double)tess.shader->sort : -1.0,
-				e->renderfx,
-				e->radius,
-				e->rotation,
-				e->skinNum,
-				(unsigned int)e->shaderRGBA[0],
-				(unsigned int)e->shaderRGBA[1],
-				(unsigned int)e->shaderRGBA[2],
-				(unsigned int)e->shaderRGBA[3],
-				e->origin[0], e->origin[1], e->origin[2],
-				e->oldorigin[0], e->oldorigin[1], e->oldorigin[2],
-				tess.numVertexes,
-				tess.numIndexes);
-			--s_stefxEffectBeamBudget;
-		}
-	}
-#endif
 
 	oldorigin[0] = e->oldorigin[0];
 	oldorigin[1] = e->oldorigin[1];

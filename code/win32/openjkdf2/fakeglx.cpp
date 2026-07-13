@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "stdio.h"
 #include "stdlib.h"
+#include "string.h"
 #ifdef _XBOX
 #define _JKA_DDS_BRIDGE_INTERNAL_
 #endif
@@ -141,9 +142,27 @@ extern "C" void JkaFakeglSetTextureDebugName(const char *name)
 	}
 }
 
-static const char *FakeGL_CurrentTextureDebugName(void)
+extern "C" const char *JkaFakeglGetTextureDebugName(void)
 {
 	return g_stefxFakeglTextureDebugName[0] ? g_stefxFakeglTextureDebugName : "<none>";
+}
+
+static const char *FakeGL_CurrentTextureDebugName(void)
+{
+	return JkaFakeglGetTextureDebugName();
+}
+
+static bool FakeGL_ShouldTraceDDSImage(const char *name)
+{
+	if (!name)
+	{
+		return false;
+	}
+	return strstr(name, "textures/borg/bars") ||
+		strstr(name, "textures/borg/bars2") ||
+		strstr(name, "textures/borg/basic1") ||
+		strstr(name, "textures/borg/borgladder") ||
+		strstr(name, "env/junk_");
 }
 
 extern "C" void FakeGL_ResetRegisteredTextureBudget(void)
@@ -676,7 +695,6 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	static int s_requestSeenLogBudget = 4;
 	DWORD visibleSamples = 0;
 	DWORD maxBrightness = 0;
-	bool visibleSignal;
 
 	if (!requestPath)
 	{
@@ -731,20 +749,13 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		return;
 	}
 
-	visibleSignal = FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness);
-	if (!visibleSignal)
+	if (!FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness))
 	{
 		const bool postPresent = !strcmp(label, "post-present");
 		const bool prePresent = !strcmp(label, "pre-present");
 		if (prePresent)
 		{
 			XBLF("STEFX: renderer screenshot pre-present blank; deferring capture until post-present label='%s'", label);
-			return;
-		}
-		if (FakeGL_TryXGWriteSurface(backBuffer))
-		{
-			XBLF("STEFX: renderer screenshot XGWrite succeeded after blank raw surface label='%s'", label);
-			FakeGL_DeleteScreenshotRequests();
 			return;
 		}
 		if (s_blankRetryLogBudget > 0)
@@ -758,6 +769,18 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 				(unsigned int)pitch,
 				(unsigned int)backBuffer->Format);
 			--s_blankRetryLogBudget;
+		}
+		if (postPresent && FakeGL_TryXGWriteFrontBuffer(device))
+		{
+			XBLF("STEFX: renderer screenshot frontbuffer XGWrite succeeded after blank raw surface label='%s'", label);
+			FakeGL_DeleteScreenshotRequests();
+			return;
+		}
+		if (FakeGL_TryXGWriteSurface(backBuffer))
+		{
+			XBLF("STEFX: renderer screenshot XGWrite succeeded after blank raw surface label='%s'", label);
+			FakeGL_DeleteScreenshotRequests();
+			return;
 		}
 		if (postPresent)
 		{
@@ -3243,10 +3266,8 @@ private:
 
 		MEMORYSTATUS stat;
 		GlobalMemoryStatus(&stat);
-		XBLF("JA: fakegl texture memory where=%s image='%s' tex=%d request=%u hr=0x%08lx physFreeKB=%lu virtFreeKB=%lu texCount=%u texKB=%u failures=%u regCount=%u regKB=%u regDenied=%u poolUsedKB=%lu poolFreeKB=%lu poolCapKB=%lu\n",
+		XBLF("JA: fakegl texture memory where=%s request=%u hr=0x%08lx physFreeKB=%lu virtFreeKB=%lu texCount=%u texKB=%u failures=%u regCount=%u regKB=%u regDenied=%u poolUsedKB=%lu poolFreeKB=%lu poolCapKB=%lu\n",
 			where ? where : "(null)",
-			FakeGL_CurrentTextureDebugName(),
-			m_textures.GetCurrentID(),
 			(unsigned int)requestBytes,
 			(unsigned long)hr,
 			(unsigned long)(stat.dwAvailPhys / 1024),
@@ -4174,7 +4195,7 @@ public:
 			m_glCullStateDirty = true;
 			break;
 		case GL_DEPTH_TEST:
-			if ( m_glDepthTest != value )
+			if ( m_glDepthTest != value ) 
 			{
 				m_glDepthTest = value;
 			}
@@ -4974,8 +4995,17 @@ public:
 	bool UploadDDSTexture(GLint internalformat, GLsizei width, GLsizei height,
 		GLint mipcount, const GLvoid *pixels, DWORD pixelBytes)
 	{
+		const char* debugName = FakeGL_CurrentTextureDebugName();
+		const bool traceDds = FakeGL_ShouldTraceDDSImage(debugName);
+
 		if (!m_pD3DDev || !pixels || width <= 0 || height <= 0)
 		{
+			if (traceDds)
+			{
+				XBLF("STEFX: DDS_TRACE fakegl reject image='%s' reason=bad-input tex=%d size=%dx%d internal=0x%08x bytes=%u",
+					debugName, m_textures.GetCurrentID(), width, height,
+					(unsigned int)internalformat, (unsigned int)pixelBytes);
+			}
 			return false;
 		}
 
@@ -4995,14 +5025,33 @@ public:
 				destPixelFormat = D3DFMT_A8R8G8B8;
 				break;
 			default:
+				if (traceDds)
+				{
+					XBLF("STEFX: DDS_TRACE fakegl reject image='%s' reason=unknown-format tex=%d internal=0x%08x bytes=%u",
+						debugName, m_textures.GetCurrentID(),
+						(unsigned int)internalformat, (unsigned int)pixelBytes);
+				}
 				return false;
 		}
 
 		int levels = mipcount > 0 ? mipcount : 1;
+		if (traceDds)
+		{
+			XBLF("STEFX: DDS_TRACE fakegl enter image='%s' tex=%d size=%dx%d levels=%d internal=0x%08x dest=0x%08x bytes=%u",
+				debugName, m_textures.GetCurrentID(), width, height, levels,
+				(unsigned int)internalformat, (unsigned int)destPixelFormat,
+				(unsigned int)pixelBytes);
+		}
 #ifdef _XBOX
 		int availableLevels = DDSAvailableLevels(destPixelFormat, (DWORD)width, (DWORD)height, pixelBytes);
 		if (availableLevels <= 0)
 		{
+			if (traceDds)
+			{
+				XBLF("STEFX: DDS_TRACE fakegl reject image='%s' reason=no-complete-levels tex=%d size=%dx%d internal=0x%08x bytes=%u",
+					debugName, m_textures.GetCurrentID(), width, height,
+					(unsigned int)internalformat, (unsigned int)pixelBytes);
+			}
 			XBLF("JA: fakegl DDS upload rejected tex=%d size=%dx%d internal=0x%08x bytes=%u no complete levels\n",
 				m_textures.GetCurrentID(), width, height, internalformat, pixelBytes);
 			return false;
@@ -5074,6 +5123,12 @@ public:
 				m_textures.GetCurrentID(), width, height, levels,
 				(unsigned int)destPixelFormat, pixelBytes);
 		}
+		if (traceDds)
+		{
+			XBLF("STEFX: DDS_TRACE fakegl create-pre image='%s' tex=%d size=%dx%d levels=%d dest=0x%08x bytes=%u",
+				debugName, m_textures.GetCurrentID(), width, height, levels,
+				(unsigned int)destPixelFormat, (unsigned int)pixelBytes);
+		}
 		HRESULT hr = E_OUTOFMEMORY;
 		if (destPixelFormat == D3DFMT_R5G6B5)
 		{
@@ -5137,10 +5192,22 @@ public:
 				m_textures.GetCurrentID(), (unsigned long)hr, (void*)pMipMap,
 				ownsTextureHeader ? 1 : 0, registeredTextureBytes);
 		}
+		if (traceDds)
+		{
+			XBLF("STEFX: DDS_TRACE fakegl create-post image='%s' tex=%d hr=0x%08lx ptr=%p registered=%d allocBytes=%u",
+				debugName, m_textures.GetCurrentID(), (unsigned long)hr,
+				(void*)pMipMap, ownsTextureHeader ? 1 : 0,
+				(unsigned int)registeredTextureBytes);
+		}
 #endif
 		if (FAILED(hr) || !pMipMap)
 		{
 #ifdef _XBOX
+			if (traceDds)
+			{
+				XBLF("STEFX: DDS_TRACE fakegl create-failed image='%s' tex=%d hr=0x%08lx fallback-attempt=1",
+					debugName, m_textures.GetCurrentID(), (unsigned long)hr);
+			}
 			TrackTextureFailure("dds", (DWORD)width, (DWORD)height, (DWORD)levels,
 				internalformat, internalformat, destPixelFormat, hr,
 				EstimateTextureBytes(destPixelFormat, (DWORD)width, (DWORD)height, levels));
@@ -5151,6 +5218,12 @@ public:
 				destPixelFormat, pixelBytes);
 			if (UseFallbackTexture(destPixelFormat, internalformat))
 			{
+				if (traceDds)
+				{
+					XBLF("STEFX: DDS_TRACE fakegl fallback-used image='%s' tex=%d dest=0x%08x",
+						debugName, m_textures.GetCurrentID(),
+						(unsigned int)destPixelFormat);
+				}
 				XBLF("JA: fakegl DDS using fallback texture tex=%d after allocation failure\n",
 					m_textures.GetCurrentID());
 				return true;
@@ -5164,14 +5237,14 @@ public:
 #ifdef _XBOX
 		src = ddsStart;
 		remaining = ddsBytes;
-		if (ownsTextureHeader && registeredTextureData)
+		if (ownsTextureHeader && registeredTextureData && destPixelFormat == D3DFMT_R5G6B5)
 		{
 			const BYTE* sp = src;
 			BYTE* dp = (BYTE*)registeredTextureData;
 			DWORD levelWidth = (DWORD)width;
 			DWORD levelHeight = (DWORD)height;
 			DWORD copyBytes = 0;
-			bool registeredOk = true;
+			bool rgb16Ok = true;
 			for (int level = 0; level < levels; ++level)
 			{
 				DWORD rowBytes = DDSLevelRowBytes(destPixelFormat, levelWidth);
@@ -5179,22 +5252,12 @@ public:
 				DWORD levelBytes = rowBytes * rows;
 				if (remaining < levelBytes || copyBytes + levelBytes > registeredTextureBytes)
 				{
-					XBLF("JA: fakegl DDS registered upload truncated tex=%d level=%d need=%u remaining=%u registered=%u copied=%u\n",
+					XBLF("JA: fakegl DDS RGB16 registered upload truncated tex=%d level=%d need=%u remaining=%u registered=%u copied=%u\n",
 						m_textures.GetCurrentID(), level, levelBytes, remaining, registeredTextureBytes, copyBytes);
-					registeredOk = false;
+					rgb16Ok = false;
 					break;
 				}
-				if (destPixelFormat == D3DFMT_DXT1 ||
-					destPixelFormat == D3DFMT_DXT3 ||
-					destPixelFormat == D3DFMT_DXT5)
-				{
-					memcpy(dp, sp, levelBytes);
-				}
-				else
-				{
-					XGSwizzleRect(sp, rowBytes, NULL, dp, levelWidth, levelHeight, NULL,
-						BytesPerPixel(destPixelFormat));
-				}
+				XGSwizzleRect(sp, rowBytes, NULL, dp, levelWidth, levelHeight, NULL, BytesPerPixel(destPixelFormat));
 				sp += levelBytes;
 				dp += levelBytes;
 				remaining -= levelBytes;
@@ -5204,23 +5267,42 @@ public:
 				if (levelHeight > 1)
 					levelHeight >>= 1;
 			}
-			if (registeredOk)
+			if (rgb16Ok)
 			{
 				m_textures.SetTexture(pMipMap, destPixelFormat, internalformat, ownsTextureHeader);
 				m_textureState.DirtyTexture(m_textures.GetCurrentID());
 				if (logDdsDetail)
 				{
-					XBLF("JA: fakegl DDS registered upload tex=%d bytes=%u registeredBytes=%u ptr=%p dest=0x%08x",
-						m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData,
-						(unsigned int)destPixelFormat);
+					XBLF("JA: fakegl DDS RGB16 registered swizzle tex=%d bytes=%u registeredBytes=%u ptr=%p",
+						m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData);
 					++s_ddsDetailLogs;
 				}
-				TrackTextureAlloc("dds-registered", copyBytes);
+				TrackTextureAlloc("dds-rgb16-registered", copyBytes);
 				return true;
 			}
 			delete (D3DTexture*)pMipMap;
 			pMipMap = NULL;
 			return false;
+		}
+		if (false && ownsTextureHeader && registeredTextureData &&
+			(destPixelFormat == D3DFMT_DXT1 ||
+			 destPixelFormat == D3DFMT_DXT3 ||
+			 destPixelFormat == D3DFMT_DXT5))
+		{
+			DWORD copyBytes = remaining;
+			if (registeredTextureBytes && copyBytes > registeredTextureBytes)
+				copyBytes = registeredTextureBytes;
+			memcpy(registeredTextureData, src, copyBytes);
+			m_textures.SetTexture(pMipMap, destPixelFormat, internalformat, ownsTextureHeader);
+			m_textureState.DirtyTexture(m_textures.GetCurrentID());
+			if (logDdsDetail)
+			{
+				XBLF("JA: fakegl DDS registered direct copy tex=%d bytes=%u registeredBytes=%u ptr=%p",
+					m_textures.GetCurrentID(), copyBytes, registeredTextureBytes, registeredTextureData);
+				++s_ddsDetailLogs;
+			}
+			TrackTextureAlloc("dds", copyBytes);
+			return true;
 		}
 #endif
 		DWORD levelWidth = (DWORD)width;
@@ -5281,6 +5363,13 @@ public:
 				XBLF("JA: fakegl DDS LockRect post tex=%d level=%d hr=0x%08lx bits=%p pitch=%ld",
 					m_textures.GetCurrentID(), level, (unsigned long)hr,
 					lockedRect.pBits, (long)lockedRect.Pitch);
+			}
+			if (traceDds)
+			{
+				XBLF("STEFX: DDS_TRACE fakegl lock image='%s' tex=%d level=%d hr=0x%08lx rowBytes=%u rows=%u pitch=%ld",
+					debugName, m_textures.GetCurrentID(), level,
+					(unsigned long)hr, (unsigned int)rowBytes,
+					(unsigned int)rows, (long)lockedRect.Pitch);
 			}
 #endif
 			if (FAILED(hr))
@@ -5362,6 +5451,12 @@ public:
 			XBLF("JA: fakegl DDS SetTextureEntry tex=%d ptr=%p",
 				m_textures.GetCurrentID(), (void*)pMipMap);
 			++s_ddsDetailLogs;
+		}
+		if (traceDds)
+		{
+			XBLF("STEFX: DDS_TRACE fakegl set-texture image='%s' tex=%d ptr=%p dest=0x%08x remaining=%u",
+				debugName, m_textures.GetCurrentID(), (void*)pMipMap,
+				(unsigned int)destPixelFormat, (unsigned int)remaining);
 		}
 		TrackTextureAlloc("dds", pixelBytes);
 		static int s_ddsUploadLogs = 0;

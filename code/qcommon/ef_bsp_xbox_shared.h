@@ -210,13 +210,16 @@ static qboolean EFBSP_LoadFile(const char *name, efbspFile_t *bsp)
 		loadName = patchName;
 	}
 
+	XBLF("STEFX: EF BSP load request name='%s' load='%s'", name, loadName);
 	bsp->len = FS_ReadFile(loadName, (void **)&bsp->data);
+	XBLF("STEFX: EF BSP load result load='%s' len=%d data=%p", loadName, bsp->len, bsp->data);
 	if (bsp->len <= 0 || !bsp->data)
 	{
 		if (loadName != name)
 		{
 			Com_Printf("STEFX: EF BSP patch read failed '%s'; falling back to '%s'\n", loadName, name);
 			bsp->len = FS_ReadFile(name, (void **)&bsp->data);
+			XBLF("STEFX: EF BSP fallback result name='%s' len=%d data=%p", name, bsp->len, bsp->data);
 			if (bsp->len > 0 && bsp->data)
 			{
 				bsp->header = (efbspHeader_t *)bsp->data;

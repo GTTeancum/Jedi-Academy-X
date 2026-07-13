@@ -3016,7 +3016,7 @@ void S_Update_(void)
 						_UpdateLipSyncData(ch);
 #ifdef _XBOX
 						{
-							static int s_stefxLipTraceBudget = 160;
+							static int s_stefxLipTraceBudget = 8;
 							if (s_stefxLipTraceBudget > 0)
 							{
 								Com_Printf("STEFX_LIPTRACE: source=lipdata ent=%d chan=%d vol=%d code=0x%x flags=0x%x age=%d duration=%d playing=%d\n",
@@ -3038,7 +3038,7 @@ void S_Update_(void)
 					{
 						s_entityWavVol[ch->entnum] = S_XboxFallbackVoiceVolume(ch, Sys_Milliseconds());
 						{
-							static int s_stefxFallbackLipTraceBudget = 160;
+							static int s_stefxFallbackLipTraceBudget = 8;
 							if (s_stefxFallbackLipTraceBudget > 0)
 							{
 								Com_Printf("STEFX_LIPTRACE: source=fallback ent=%d chan=%d vol=%d code=0x%x flags=0x%x age=%d duration=%d playing=%d\n",
@@ -3053,7 +3053,7 @@ void S_Update_(void)
 								--s_stefxFallbackLipTraceBudget;
 							}
 						}
-						if (s_xboxSilentVoiceUpdatesLogged < 96)
+						if (s_xboxSilentVoiceUpdatesLogged < 8)
 						{
 							Com_Printf("STEFX: Xbox voice fallback lip ent=%d chan=%d vol=%d sound='%s'\n",
 								ch->entnum, ch->entchannel, s_entityWavVol[ch->entnum],

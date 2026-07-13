@@ -2392,15 +2392,10 @@ void CL_StartHunkUsers( void ) {
 		// load character sets
 //		cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/bigchars" );
 		cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLF("JA: CL_StartHunkUsers: charSetShader=%d, bypass RegisterShader white for XEMU", cls.charSetShader);
-		cls.whiteShader = 0;
-#else
 #ifdef _XBOX
 		XBLF("JA: CL_StartHunkUsers: charSetShader=%d, RegisterShader white...", cls.charSetShader);
 #endif
 		cls.whiteShader = re.RegisterShader( "white" );
-#endif
 #ifdef _XBOX
 		XBLF("JA: CL_StartHunkUsers: whiteShader=%d", cls.whiteShader);
 #endif

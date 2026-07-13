@@ -2,6 +2,7 @@
 
 // leave this line at the top for all g_xxxx.cpp files...
 #include "g_headers.h"
+#include "boltOns.h"
 
 
 #include "Q3_Interface.h"
@@ -932,6 +933,7 @@ void G_InitGentity( gentity_t *e, qboolean bFreeG2 )
 	e->m_iIcarusID = IIcarusInterface::ICARUS_INVALID;
 	e->classname = "noclass";
 	e->s.number = e - g_entities;
+	G_InitBoltOnData( e );
 	
 	//Navigational setups
 	e->waypoint				= WAYPOINT_NONE;

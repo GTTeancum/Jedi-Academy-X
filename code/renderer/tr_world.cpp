@@ -121,50 +121,6 @@ static void R_XboxLogWorldSurfaceSubmit( const char *result, const msurface_t *s
 		(double)tr.refdef.vieworg[2]);
 }
 
-static qboolean R_XboxWorldSurfaceUsesFallbackShader( const msurface_t *surf )
-{
-	if ( !surf || !surf->shader )
-	{
-		return qfalse;
-	}
-
-	return ( surf->shader == tr.defaultShader || surf->shader->defaultShader ) ? qtrue : qfalse;
-}
-
-static void R_XboxLogWorldFallbackSurface( const char *result, const msurface_t *surf, int dlightBits, qboolean noViewCount )
-{
-	static int s_fallbackLogBudget = 96;
-	const char *mapShaderName;
-	const char *shaderName;
-
-	if ( s_fallbackLogBudget <= 0 || !R_XboxWorldSurfaceUsesFallbackShader( surf ) )
-	{
-		return;
-	}
-
-	mapShaderName = R_XboxMapShaderNameForSurface( surf );
-	shaderName = ( surf && surf->shader && surf->shader->name ) ? surf->shader->name : "<null>";
-	XBLF("STEFX_WORLD_FALLBACK result='%s' map='%s' frame=%d view=%d ent=%d code=%d shaderNum=%d mapName='%s' resolved='%s' type=%d fog=%d dlight=0x%x noView=%d draw=%d default=%d explicit=%d passes=%d",
-		result ? result : "<null>",
-		tr.world ? tr.world->name : "<noworld>",
-		tr.frameCount,
-		tr.viewCount,
-		tr.currentEntityNum,
-		surf ? surf->xboxDebugCode : -1,
-		surf ? surf->xboxDebugShaderNum : -1,
-		mapShaderName,
-		shaderName,
-		( surf && surf->data ) ? (int)*surf->data : -1,
-		surf ? surf->fogIndex : -1,
-		dlightBits,
-		(int)noViewCount,
-		tr.refdef.numDrawSurfs,
-		( surf && surf->shader ) ? surf->shader->defaultShader : -1,
-		( surf && surf->shader ) ? surf->shader->explicitlyDefined : -1,
-		( surf && surf->shader ) ? surf->shader->numUnfoggedPasses : -1);
-	--s_fallbackLogBudget;
-}
-
 static qboolean R_XboxTraceJunkSkySurface( const msurface_t *surf )
 {
 	const char *mapShaderName;
@@ -181,7 +137,7 @@ static qboolean R_XboxTraceJunkSkySurface( const msurface_t *surf )
 			 strstr( resolvedName, "textures/common/junk_sky" ) ) ? qtrue : qfalse;
 }
 
-static qboolean R_XboxTraceBorgBlackCandidateSurface( const msurface_t *surf )
+static qboolean R_XboxTraceBorgSuspectSurface( const msurface_t *surf )
 {
 	const char *mapShaderName;
 	const char *resolvedName;
@@ -194,164 +150,74 @@ static qboolean R_XboxTraceBorgBlackCandidateSurface( const msurface_t *surf )
 	mapShaderName = R_XboxMapShaderNameForSurface( surf );
 	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
 	return ( !Q_stricmp( mapShaderName, "textures/common/black" ) ||
-		!Q_stricmp( resolvedName, "textures/common/black" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/static2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/static2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/static2_nonsolid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/static2_nonsolid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/bars" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/bars" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/bars2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/bars2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/basic1" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/basic1" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder3" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder3" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/energy1" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/energy1_solid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1_solid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/bigborg" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/bigborg" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/oddlight1" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/oddlight1" ) ) ? qtrue : qfalse;
+			 !Q_stricmp( resolvedName, "textures/common/black" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/static2" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/static2" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/static2_nonsolid" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/static2_nonsolid" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgfield" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgfield" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgfield_nonsolid" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/energy1" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/energy1" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/energy1_solid" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/energy1_solid" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/energy1_green" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/bars" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/bars" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgladder" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgladder" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/bigborg" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/bigborg" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/oddlight1" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/oddlight1" ) ) ? qtrue : qfalse;
 }
 
-static qboolean R_XboxTraceBorgVisibleFieldSurface( const msurface_t *surf )
+static qboolean R_XboxTraceScavengerSuspectSurface( const msurface_t *surf )
 {
 	const char *mapShaderName;
 	const char *resolvedName;
+	const shader_t *shader;
 
-	if ( !surf )
+	if ( !surf || !tr.world || Q_stricmpn( tr.world->name, "maps/scav", 9 ) )
 	{
 		return qfalse;
 	}
 
 	mapShaderName = R_XboxMapShaderNameForSurface( surf );
-	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
-	return ( !Q_stricmp( mapShaderName, "textures/borg/static2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/static2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/static2_nonsolid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/static2_nonsolid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/bars" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/bars" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/bars2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/bars2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/basic1" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/basic1" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder3" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder3" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/energy1" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/energy1_solid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1_solid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/bigborg" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/bigborg" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/oddlight1" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/oddlight1" ) ) ? qtrue : qfalse;
-}
+	shader = surf->shader;
+	resolvedName = ( shader && shader->name ) ? shader->name : "";
 
-static qboolean R_XboxTraceBorgBridgeWindowSurface( const msurface_t *surf )
-{
-	const char *mapShaderName;
-	const char *resolvedName;
-
-	if ( !surf )
-	{
-		return qfalse;
-	}
-
-	mapShaderName = R_XboxMapShaderNameForSurface( surf );
-	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
-	return ( !Q_stricmp( mapShaderName, "textures/borg/static" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/static" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/static2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/static2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder2" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder2" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/forceborder3" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/forceborder3" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
-		!Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ) ? qtrue : qfalse;
-}
-
-static qboolean R_XboxWorldIsBorg6( void )
-{
-	return ( tr.world && tr.world->name && !Q_stricmp( tr.world->name, "maps/borg6.bsp" ) ) ? qtrue : qfalse;
-}
-
-static qboolean R_XboxWorldIsBorgMap( void )
-{
-	return ( tr.world && tr.world->name && !Q_stricmpn( tr.world->name, "maps/borg", 9 ) ) ? qtrue : qfalse;
-}
-
-static qboolean R_XboxSurfaceIsCommonBlack( const msurface_t *surf )
-{
-	const char *mapShaderName;
-	const char *resolvedName;
-
-	if ( !surf )
-	{
-		return qfalse;
-	}
-
-	mapShaderName = R_XboxMapShaderNameForSurface( surf );
-	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
-	return ( !Q_stricmp( mapShaderName, "textures/common/black" ) ||
-		!Q_stricmp( resolvedName, "textures/common/black" ) ) ? qtrue : qfalse;
-}
-
-static qboolean R_XboxShouldSkipBorgBridgeSurface( const msurface_t *surf )
-{
-	if ( !surf || !surf->data )
-	{
-		return qtrue;
-	}
-
-	if ( *surf->data == SF_SKIP )
-	{
-		return qtrue;
-	}
-
-	if ( R_XboxSurfaceIsCommonBlack( surf ) )
+	if ( !Q_stricmp( mapShaderName, "textures/common/sky_light" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/sky_light" ) ||
+		 !Q_stricmp( mapShaderName, "textures/common/junk_sky" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/junk_sky" ) ||
+		 !Q_stricmp( mapShaderName, "textures/scavenger/m_wallgrid" ) ||
+		 !Q_stricmp( resolvedName, "textures/scavenger/m_wallgrid" ) ||
+		 !Q_stricmp( mapShaderName, "textures/scavenger/k_control_portal" ) ||
+		 !Q_stricmp( resolvedName, "textures/scavenger/k_control_portal" ) ||
+		 !Q_stricmp( mapShaderName, "textures/engineering/glass_nolightmap" ) ||
+		 !Q_stricmp( resolvedName, "textures/engineering/glass_nolightmap" ) ||
+		 !Q_stricmp( mapShaderName, "textures/engineering/glass_nolightmap_nonsolid" ) ||
+		 !Q_stricmp( resolvedName, "textures/engineering/glass_nolightmap_nonsolid" ) ||
+		 !Q_stricmp( mapShaderName, "textures/common/portal" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/portal" ) ||
+		 !Q_stricmp( mapShaderName, "textures/common/black" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/black" ) )
 	{
 		return qtrue;
 	}
 
 	return qfalse;
 }
-
-static const byte *R_ClusterPVS (int cluster);
 
 static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
 {
@@ -390,96 +256,6 @@ static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode
 			if ( firstShaderNum )
 			{
 				*firstShaderNum = surf->xboxDebugShaderNum;
-			}
-			return qtrue;
-		}
-	}
-
-	return qfalse;
-}
-
-static qboolean R_XboxLeafHasBorgBlackCandidateSurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
-{
-	int i;
-	msurface_t **mark;
-
-	if ( firstCode )
-	{
-		*firstCode = -1;
-	}
-	if ( firstShaderNum )
-	{
-		*firstShaderNum = -1;
-	}
-	if ( !leaf || !tr.world || !tr.world->marksurfaces )
-	{
-		return qfalse;
-	}
-
-	if ( leaf->firstMarkSurfNum < 0 ||
-		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
-	{
-		return qfalse;
-	}
-
-	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-	for ( i = 0; i < leaf->nummarksurfaces; ++i )
-	{
-		msurface_t *surf = mark[i];
-		if ( R_XboxTraceBorgBlackCandidateSurface( surf ) )
-		{
-			if ( firstCode )
-			{
-				*firstCode = surf->xboxDebugCode;
-			}
-			if ( firstShaderNum )
-			{
-				*firstShaderNum = surf->xboxDebugShaderNum;
-			}
-			return qtrue;
-		}
-	}
-
-	return qfalse;
-}
-
-static qboolean R_XboxLeafHasBorgVisibleFieldSurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
-{
-	int i;
-	msurface_t **mark;
-
-	if ( firstCode )
-	{
-		*firstCode = -1;
-	}
-	if ( firstShaderNum )
-	{
-		*firstShaderNum = -1;
-	}
-	if ( !leaf || !tr.world || !tr.world->marksurfaces )
-	{
-		return qfalse;
-	}
-
-	if ( leaf->firstMarkSurfNum < 0 ||
-		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
-	{
-		return qfalse;
-	}
-
-	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-	for ( i = 0; i < leaf->nummarksurfaces; ++i )
-	{
-		msurface_t *surf = mark[i];
-		if ( R_XboxTraceBorgBridgeWindowSurface( surf ) )
-		{
-			if ( firstCode )
-			{
-				*firstCode = surf ? surf->xboxDebugCode : -1;
-			}
-			if ( firstShaderNum )
-			{
-				*firstShaderNum = surf ? surf->xboxDebugShaderNum : -1;
 			}
 			return qtrue;
 		}
@@ -586,423 +362,6 @@ static void R_XboxLogJunkSkyLeafVisibility( const char *phase, const byte *vis )
 			tr.refdef.vieworg[2]);
 		--s_junkLeafSummaryBudget;
 	}
-}
-
-static void R_XboxLogBorgBlackLeafVisibility( const char *phase, const byte *vis )
-{
-	static int s_borgLeafSummaryBudget = 32;
-	static int s_borgLeafDetailBudget = 160;
-	int i;
-	int borgLeafs = 0;
-	int visibleBorgLeafs = 0;
-	int pvsRejected = 0;
-	int areaRejected = 0;
-	int clusterRejected = 0;
-
-	if ( !tr.world || !tr.world->leafs || !tr.world->marksurfaces )
-	{
-		return;
-	}
-
-	for ( i = 0; i < tr.world->numleafs; ++i )
-	{
-		mleaf_s *leaf = &tr.world->leafs[i];
-		int firstCode = -1;
-		int firstShaderNum = -1;
-		int pvsVisible = 1;
-		int areaMasked = 0;
-		qboolean hasBorg = R_XboxLeafHasBorgBlackCandidateSurface( leaf, &firstCode, &firstShaderNum );
-
-		if ( !hasBorg )
-		{
-			continue;
-		}
-
-		++borgLeafs;
-
-		if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
-		{
-			pvsVisible = 0;
-			++clusterRejected;
-		}
-		else if ( vis )
-		{
-			pvsVisible = (vis[leaf->cluster >> 3] & (1 << (leaf->cluster & 7))) ? 1 : 0;
-			if ( !pvsVisible )
-			{
-				++pvsRejected;
-			}
-		}
-
-		if ( leaf->area >= 0 &&
-			(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
-		{
-			areaMasked = 1;
-			++areaRejected;
-		}
-
-		if ( leaf->visframe == tr.visCount )
-		{
-			++visibleBorgLeafs;
-		}
-
-		if ( s_borgLeafDetailBudget > 0 )
-		{
-			XBLF("STEFX_BORG_LEAF phase='%s' map='%s' frame=%d view=%d slot=%u leaf=%d cluster=%d area=%d marks=%d firstMark=%d visframe=%d visCount=%d pvs=%d areaMasked=%d firstCode=%d shaderNum=%d viewOrg=%g,%g,%g",
-				phase ? phase : "<null>",
-				tr.world->name,
-				tr.frameCount,
-				tr.viewCount,
-				g_SPXBSplitSlotActive,
-				i,
-				leaf->cluster,
-				leaf->area,
-				leaf->nummarksurfaces,
-				leaf->firstMarkSurfNum,
-				leaf->visframe,
-				tr.visCount,
-				pvsVisible,
-				areaMasked,
-				firstCode,
-				firstShaderNum,
-				tr.refdef.vieworg[0],
-				tr.refdef.vieworg[1],
-				tr.refdef.vieworg[2]);
-			--s_borgLeafDetailBudget;
-		}
-	}
-
-	if ( s_borgLeafSummaryBudget > 0 && borgLeafs > 0 )
-	{
-		XBLF("STEFX_BORG_LEAF_SUMMARY phase='%s' map='%s' frame=%d view=%d slot=%u cluster=%d visCount=%d borgLeafs=%d visible=%d pvsRejected=%d areaRejected=%d clusterRejected=%d rootVis=%d viewOrg=%g,%g,%g",
-			phase ? phase : "<null>",
-			tr.world->name,
-			tr.frameCount,
-			tr.viewCount,
-			g_SPXBSplitSlotActive,
-			tr.viewCluster,
-			tr.visCount,
-			borgLeafs,
-			visibleBorgLeafs,
-			pvsRejected,
-			areaRejected,
-			clusterRejected,
-			(tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
-			tr.refdef.vieworg[0],
-			tr.refdef.vieworg[1],
-			tr.refdef.vieworg[2]);
-		--s_borgLeafSummaryBudget;
-	}
-}
-
-static int R_XboxAddVisibleBorgFieldSurfaces( int dlightBits )
-{
-	static int s_borgDirectLogBudget = 96;
-	int i;
-	int leavesChecked = 0;
-	int visibleCandidateLeaves = 0;
-	int attempts = 0;
-	int added = 0;
-
-	if ( !tr.world || !tr.world->name || !tr.world->leafs || !tr.world->marksurfaces )
-	{
-		return 0;
-	}
-
-	if ( Q_stricmpn( tr.world->name, "maps/borg", 9 ) )
-	{
-		return 0;
-	}
-
-	for ( i = 0; i < tr.world->numleafs; ++i )
-	{
-		int j;
-		msurface_t **mark;
-		mleaf_s *leaf = &tr.world->leafs[i];
-		qboolean leafHadCandidate = qfalse;
-
-		if ( leaf->visframe != tr.visCount )
-		{
-			continue;
-		}
-		if ( leaf->firstMarkSurfNum < 0 ||
-			leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
-		{
-			continue;
-		}
-
-		++leavesChecked;
-		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-		for ( j = 0; j < leaf->nummarksurfaces; ++j )
-		{
-			msurface_t *surf = mark[j];
-			int drawBefore;
-
-			if ( !R_XboxTraceBorgVisibleFieldSurface( surf ) )
-			{
-				continue;
-			}
-
-			if ( !leafHadCandidate )
-			{
-				++visibleCandidateLeaves;
-				leafHadCandidate = qtrue;
-			}
-			drawBefore = tr.refdef.numDrawSurfs;
-			++attempts;
-			if ( s_borgDirectLogBudget > 0 )
-			{
-				XBLF("STEFX_BORG_DIRECT action='submit' map='%s' frame=%d view=%d slot=%u leaf=%d cluster=%d code=%d shaderNum=%d mapName='%s' resolved='%s' drawBefore=%d surfView=%d trView=%d dlight=0x%x",
-					tr.world->name,
-					tr.frameCount,
-					tr.viewCount,
-					g_SPXBSplitSlotActive,
-					i,
-					leaf->cluster,
-					surf ? surf->xboxDebugCode : -1,
-					surf ? surf->xboxDebugShaderNum : -1,
-					R_XboxMapShaderNameForSurface( surf ),
-					(surf && surf->shader) ? surf->shader->name : "<null>",
-					drawBefore,
-					surf ? surf->viewCount : -1,
-					tr.viewCount,
-					dlightBits);
-				--s_borgDirectLogBudget;
-			}
-			R_AddWorldSurface( surf, dlightBits );
-			if ( tr.refdef.numDrawSurfs > drawBefore )
-			{
-				++added;
-			}
-		}
-	}
-
-	if ( s_borgDirectLogBudget > 0 && attempts > 0 )
-	{
-		XBLF("STEFX_BORG_DIRECT_SUMMARY map='%s' frame=%d view=%d slot=%u visCount=%d leavesChecked=%d candidateLeaves=%d attempts=%d added=%d drawTotal=%d",
-			tr.world->name,
-			tr.frameCount,
-			tr.viewCount,
-			g_SPXBSplitSlotActive,
-			tr.visCount,
-			leavesChecked,
-			visibleCandidateLeaves,
-			attempts,
-			added,
-			tr.refdef.numDrawSurfs);
-		--s_borgDirectLogBudget;
-	}
-
-	return added;
-}
-
-static int R_XboxAddBorg6BridgeLeafSurfaces( int dlightBits )
-{
-	const int maxBridgeClusters = 96;
-	int bridgeClusters[96];
-	static int s_borgBridgeLogBudget = 48;
-	static int s_borgBridgeEnterBudget = 16;
-	int i;
-	int k;
-	int fieldSourceLeaves = 0;
-	int fieldClustersStored = 0;
-	int duplicateFieldClusters = 0;
-	int overflowFieldClusters = 0;
-	int pvsSourcesUsed = 0;
-	int candidateLeaves = 0;
-	int visibleLeaves = 0;
-	int areaMaskedLeaves = 0;
-	int bridgeLeaves = 0;
-	int attempts = 0;
-	int added = 0;
-	int skippedBlack = 0;
-	int skippedSkip = 0;
-	int skippedNonBridge = 0;
-
-	if ( s_borgBridgeEnterBudget > 0 )
-	{
-		XBLF("STEFX_BORG_BRIDGE_ENTER map='%s' frame=%d view=%d slot=%u world=%p leafs=%p marks=%p numleafs=%d nummarks=%d",
-			(tr.world && tr.world->name) ? tr.world->name : "<noworld>",
-			tr.frameCount,
-			tr.viewCount,
-			g_SPXBSplitSlotActive,
-			tr.world,
-			tr.world ? tr.world->leafs : NULL,
-			tr.world ? tr.world->marksurfaces : NULL,
-			tr.world ? tr.world->numleafs : -1,
-			tr.world ? tr.world->nummarksurfaces : -1);
-		--s_borgBridgeEnterBudget;
-	}
-
-	if ( !R_XboxWorldIsBorg6() || !tr.world->leafs || !tr.world->marksurfaces )
-	{
-		return 0;
-	}
-
-	for ( i = 0; i < tr.world->numleafs; ++i )
-	{
-		int k;
-		int firstCode = -1;
-		int firstShaderNum = -1;
-		mleaf_s *leaf = &tr.world->leafs[i];
-
-		if ( leaf->visframe != tr.visCount )
-		{
-			continue;
-		}
-
-		if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
-		{
-			continue;
-		}
-
-		if ( !R_XboxLeafHasBorgVisibleFieldSurface( leaf, &firstCode, &firstShaderNum ) )
-		{
-			continue;
-		}
-
-		++fieldSourceLeaves;
-
-		for ( k = 0; k < fieldClustersStored; ++k )
-		{
-			if ( bridgeClusters[k] == leaf->cluster )
-			{
-				break;
-			}
-		}
-
-		if ( k < fieldClustersStored )
-		{
-			++duplicateFieldClusters;
-			continue;
-		}
-
-		if ( fieldClustersStored >= maxBridgeClusters )
-		{
-			++overflowFieldClusters;
-			continue;
-		}
-
-		bridgeClusters[fieldClustersStored++] = leaf->cluster;
-	}
-
-	if ( fieldClustersStored <= 0 )
-	{
-		return 0;
-	}
-
-	for ( k = 0; k < fieldClustersStored; ++k )
-	{
-		const byte *vis = R_ClusterPVS( bridgeClusters[k] );
-
-		if ( !vis )
-		{
-			continue;
-		}
-		++pvsSourcesUsed;
-
-		for ( i = 0; i < tr.world->numleafs; ++i )
-		{
-			int j;
-			msurface_t **mark;
-			mleaf_s *leaf = &tr.world->leafs[i];
-
-			if ( leaf->visframe == tr.visCount )
-			{
-				if ( k == 0 )
-				{
-					++visibleLeaves;
-				}
-				continue;
-			}
-
-			if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
-			{
-				continue;
-			}
-
-			if ( !( vis[leaf->cluster >> 3] & ( 1 << ( leaf->cluster & 7 ) ) ) )
-			{
-				continue;
-			}
-
-			++candidateLeaves;
-
-			if ( leaf->area >= 0 &&
-				(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
-			{
-				++areaMaskedLeaves;
-			}
-
-			if ( leaf->firstMarkSurfNum < 0 ||
-				leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
-			{
-				continue;
-			}
-
-			++bridgeLeaves;
-			mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-			for ( j = 0; j < leaf->nummarksurfaces; ++j )
-			{
-				msurface_t *surf = mark[j];
-				int drawBefore;
-
-				if ( R_XboxSurfaceIsCommonBlack( surf ) )
-				{
-					++skippedBlack;
-					continue;
-				}
-
-				if ( R_XboxShouldSkipBorgBridgeSurface( surf ) )
-				{
-					++skippedSkip;
-					continue;
-				}
-
-				if ( !R_XboxTraceBorgBridgeWindowSurface( surf ) )
-				{
-					++skippedNonBridge;
-					continue;
-				}
-
-				drawBefore = tr.refdef.numDrawSurfs;
-				++attempts;
-				R_AddWorldSurface( surf, dlightBits );
-				if ( tr.refdef.numDrawSurfs > drawBefore )
-				{
-					++added;
-				}
-			}
-		}
-	}
-
-	if ( s_borgBridgeLogBudget > 0 && candidateLeaves > 0 )
-	{
-		XBLF("STEFX_BORG_BRIDGE map='%s' frame=%d view=%d slot=%u visCount=%d mode='field-pvs' fieldSourceLeaves=%d fieldClusters=%d duplicateClusters=%d overflowClusters=%d pvsSources=%d candidateLeaves=%d visibleLeaves=%d areaMaskedLeaves=%d bridgeLeaves=%d attempts=%d added=%d skippedBlack=%d skippedSkip=%d skippedNonBridge=%d drawTotal=%d",
-			tr.world->name,
-			tr.frameCount,
-			tr.viewCount,
-			g_SPXBSplitSlotActive,
-			tr.visCount,
-			fieldSourceLeaves,
-			fieldClustersStored,
-			duplicateFieldClusters,
-			overflowFieldClusters,
-			pvsSourcesUsed,
-			candidateLeaves,
-			visibleLeaves,
-			areaMaskedLeaves,
-			bridgeLeaves,
-			attempts,
-			added,
-			skippedBlack,
-			skippedSkip,
-			skippedNonBridge,
-			tr.refdef.numDrawSurfs);
-		--s_borgBridgeLogBudget;
-	}
-
-	return added;
 }
 #endif
 
@@ -1295,39 +654,26 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	static int s_xboxWorldTraceCullBudget = 0;
 	static int s_xboxJunkSkyWorldBudget = 32;
 	static int s_xboxJunkSkyDrawBoundaryBudget = 32;
-	static int s_xboxBorgSurfaceWorldBudget = 256;
-	static int s_xboxBorgSurfaceDrawBoundaryBudget = 128;
+	static int s_xboxBorgSuspectWorldBudget = 96;
+	static int s_xboxScavengerSuspectWorldBudget = 192;
 	const qboolean traceJunkSky = R_XboxTraceJunkSkySurface( surf );
-	const qboolean traceBorgBlackCandidate = R_XboxTraceBorgBlackCandidateSurface( surf );
+	const qboolean traceBorgSuspect = R_XboxTraceBorgSuspectSurface( surf );
+	const qboolean traceScavengerSuspect = R_XboxTraceScavengerSuspectSurface( surf );
 
 	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
 	{
 		R_XboxLogWorldSurfaceSubmit( "enter", surf, dlightBits, noViewCount );
 		--s_xboxJunkSkyWorldBudget;
 	}
-	if ( traceBorgBlackCandidate && s_xboxBorgSurfaceWorldBudget > 0 )
+	if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
 	{
-		R_XboxLogWorldSurfaceSubmit( "borg-enter", surf, dlightBits, noViewCount );
-		--s_xboxBorgSurfaceWorldBudget;
+		R_XboxLogWorldSurfaceSubmit( "borg-suspect-enter", surf, dlightBits, noViewCount );
+		--s_xboxBorgSuspectWorldBudget;
 	}
-	R_XboxLogWorldFallbackSurface( "enter", surf, dlightBits, noViewCount );
-	if ( R_XboxWorldIsBorgMap() && R_XboxSurfaceIsCommonBlack( surf ) )
+	if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
 	{
-		static int s_xboxBorgCommonBlackSkipBudget = 64;
-		if ( s_xboxBorgCommonBlackSkipBudget > 0 )
-		{
-			XBLF("STEFX_BORG_BLACK_SKIP map='%s' frame=%d view=%d slot=%u code=%d shaderNum=%d mapName='%s' shader='%s'",
-				tr.world ? tr.world->name : "<noworld>",
-				tr.frameCount,
-				tr.viewCount,
-				g_SPXBSplitSlotActive,
-				surf ? surf->xboxDebugCode : -1,
-				surf ? surf->xboxDebugShaderNum : -1,
-				R_XboxMapShaderNameForSurface( surf ),
-				(surf && surf->shader) ? surf->shader->name : "<null>");
-			--s_xboxBorgCommonBlackSkipBudget;
-		}
-		return;
+		R_XboxLogWorldSurfaceSubmit( "scav-suspect-enter", surf, dlightBits, noViewCount );
+		--s_xboxScavengerSuspectWorldBudget;
 	}
 #endif
 	/*
@@ -1369,12 +715,16 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 				R_XboxLogWorldSurfaceSubmit( "already", surf, dlightBits, noViewCount );
 				--s_xboxJunkSkyWorldBudget;
 			}
-			if ( traceBorgBlackCandidate && s_xboxBorgSurfaceWorldBudget > 0 )
+			if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
 			{
-				R_XboxLogWorldSurfaceSubmit( "borg-already", surf, dlightBits, noViewCount );
-				--s_xboxBorgSurfaceWorldBudget;
+				R_XboxLogWorldSurfaceSubmit( "borg-suspect-already", surf, dlightBits, noViewCount );
+				--s_xboxBorgSuspectWorldBudget;
 			}
-			R_XboxLogWorldFallbackSurface( "already", surf, dlightBits, noViewCount );
+			if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+			{
+				R_XboxLogWorldSurfaceSubmit( "scav-suspect-already", surf, dlightBits, noViewCount );
+				--s_xboxScavengerSuspectWorldBudget;
+			}
 #endif
 			// already in this view, but lets make sure all the dlight bits are set
 			if ( *surf->data == SF_FACE ) 
@@ -1416,10 +766,15 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 			R_XboxLogWorldSurfaceSubmit( "culled-junk-sky", surf, dlightBits, noViewCount );
 			--s_xboxJunkSkyWorldBudget;
 		}
-		if ( traceBorgBlackCandidate && s_xboxBorgSurfaceWorldBudget > 0 )
+		if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
 		{
-			R_XboxLogWorldSurfaceSubmit( "borg-culled", surf, dlightBits, noViewCount );
-			--s_xboxBorgSurfaceWorldBudget;
+			R_XboxLogWorldSurfaceSubmit( "borg-suspect-culled", surf, dlightBits, noViewCount );
+			--s_xboxBorgSuspectWorldBudget;
+		}
+		if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+		{
+			R_XboxLogWorldSurfaceSubmit( "scav-suspect-culled", surf, dlightBits, noViewCount );
+			--s_xboxScavengerSuspectWorldBudget;
 		}
 		if (s_xboxWorldTraceCullBudget > 0)
 		{
@@ -1437,7 +792,6 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 				dlightBits);
 			--s_xboxWorldCullLogBudget;
 		}
-		R_XboxLogWorldFallbackSurface( "culled", surf, dlightBits, noViewCount );
 #endif
 		return;
 	}
@@ -1448,17 +802,21 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 		R_XboxLogWorldSurfaceSubmit( "add-junk-sky", surf, dlightBits, noViewCount );
 		--s_xboxJunkSkyWorldBudget;
 	}
-	if ( traceBorgBlackCandidate && s_xboxBorgSurfaceWorldBudget > 0 )
+	if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
 	{
-		R_XboxLogWorldSurfaceSubmit( "borg-add", surf, dlightBits, noViewCount );
-		--s_xboxBorgSurfaceWorldBudget;
+		R_XboxLogWorldSurfaceSubmit( "borg-suspect-add", surf, dlightBits, noViewCount );
+		--s_xboxBorgSuspectWorldBudget;
+	}
+	if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "scav-suspect-add", surf, dlightBits, noViewCount );
+		--s_xboxScavengerSuspectWorldBudget;
 	}
 	if (s_xboxWorldTraceAddBudget > 0)
 	{
 		R_XboxLogWorldSurfaceSubmit( "add", surf, dlightBits, noViewCount );
 		--s_xboxWorldTraceAddBudget;
 	}
-	R_XboxLogWorldFallbackSurface( "add", surf, dlightBits, noViewCount );
 	if (s_xboxWorldAddLogBudget > 0)
 	{
 		XBLF("JA: R_AddWorldSurface add shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d drawBefore=%d",
@@ -1507,30 +865,6 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 			dlightBits);
 		--s_xboxJunkSkyDrawBoundaryBudget;
 	}
-	if ( traceBorgBlackCandidate && s_xboxBorgSurfaceDrawBoundaryBudget > 0 )
-	{
-		XBLF("STEFX_SURFACE_SUBMIT result='borg-before-drawsurf' map='%s' frame=%d view=%d code=%d shaderNum=%d mapName='%s' shader='%s' drawBefore=%d fog=%d dlight=0x%x boundsMin=%g,%g,%g boundsMax=%g,%g,%g viewOrg=%g,%g,%g",
-			tr.world ? tr.world->name : "<noworld>",
-			tr.frameCount,
-			tr.viewCount,
-			surf->xboxDebugCode,
-			surf->xboxDebugShaderNum,
-			R_XboxMapShaderNameForSurface( surf ),
-			surf->shader ? surf->shader->name : "<null>",
-			tr.refdef.numDrawSurfs,
-			surf->fogIndex,
-			dlightBits,
-			(double)surf->xboxDebugMins[0],
-			(double)surf->xboxDebugMins[1],
-			(double)surf->xboxDebugMins[2],
-			(double)surf->xboxDebugMaxs[0],
-			(double)surf->xboxDebugMaxs[1],
-			(double)surf->xboxDebugMaxs[2],
-			(double)tr.refdef.vieworg[0],
-			(double)tr.refdef.vieworg[1],
-			(double)tr.refdef.vieworg[2]);
-		--s_xboxBorgSurfaceDrawBoundaryBudget;
-	}
 #endif
 	R_AddDrawSurf( surf->data, surf->shader, surf->fogIndex, dlightBits );
 #ifdef _XBOX
@@ -1542,19 +876,6 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 			surf->shader ? surf->shader->name : "<null>",
 			tr.refdef.numDrawSurfs);
 		--s_xboxJunkSkyDrawBoundaryBudget;
-	}
-	if ( traceBorgBlackCandidate && s_xboxBorgSurfaceDrawBoundaryBudget > 0 )
-	{
-		XBLF("STEFX_SURFACE_SUBMIT result='borg-after-drawsurf' map='%s' frame=%d view=%d code=%d shaderNum=%d mapName='%s' shader='%s' drawAfter=%d",
-			tr.world ? tr.world->name : "<noworld>",
-			tr.frameCount,
-			tr.viewCount,
-			surf->xboxDebugCode,
-			surf->xboxDebugShaderNum,
-			R_XboxMapShaderNameForSurface( surf ),
-			surf->shader ? surf->shader->name : "<null>",
-			tr.refdef.numDrawSurfs);
-		--s_xboxBorgSurfaceDrawBoundaryBudget;
 	}
 #endif
 } 
@@ -2121,7 +1442,6 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	int		markedLeaves = 0;
 	int		negativeCluster = 0;
 	int		leafIndex = -1;
-	const qboolean stefxForceAllVisible = ( stefx_xbox_world_novis && stefx_xbox_world_novis->integer ) ? qtrue : qfalse;
 	static int s_xboxMarkLeavesLogBudget = 48;
 	static int s_xboxMarkLeavesSameLogBudget = 16;
 #endif
@@ -2164,7 +1484,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	// if the cluster is the same and the area visibility matrix
 	// hasn't changed, we don't need to mark everything again
 
-	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified && g_SPXBSplitSlotActive == 0 ) {
+	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
 #ifdef _XBOX
 		if (g_SPXBSplitSlotActive == 1)
 		{
@@ -2191,7 +1511,6 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			--s_xboxMarkLeavesSameLogBudget;
 		}
 		R_XboxLogJunkSkyLeafVisibility( "same-cluster", NULL );
-		R_XboxLogBorgBlackLeafVisibility( "same-cluster", NULL );
 #endif
 		return;
 	}
@@ -2199,7 +1518,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	tr.visCount++;
 	tr.viewCluster = cluster;
 
-	if ( r_novis->integer || stefxForceAllVisible || tr.viewCluster == -1 ) {
+	if ( r_novis->integer || tr.viewCluster == -1 ) {
 		for (i=0 ; i<tr.world->numnodes ; i++) {
 			if (tr.world->nodes[i].contents != CONTENTS_SOLID) {
 				tr.world->nodes[i].visframe = tr.visCount;
@@ -2226,19 +1545,16 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
 		}
 		if (s_xboxMarkLeavesLogBudget > 0) {
-			XBLF("JA: R_MarkLeaves all-visible cluster=%d visCount=%d nodes=%d leafs=%d rootVis=%d leafVis=%d r_novis=%d stefx_novis=%d",
+			XBLF("JA: R_MarkLeaves all-visible cluster=%d visCount=%d nodes=%d leafs=%d rootVis=%d leafVis=%d",
 				tr.viewCluster,
 				tr.visCount,
 				tr.world ? tr.world->numnodes : -1,
 				tr.world ? tr.world->numleafs : -1,
 				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
-				leaf ? leaf->visframe : -1,
-				r_novis ? r_novis->integer : -1,
-				stefxForceAllVisible ? 1 : 0);
+				leaf ? leaf->visframe : -1);
 			--s_xboxMarkLeavesLogBudget;
 		}
 		R_XboxLogJunkSkyLeafVisibility( "all-visible", NULL );
-		R_XboxLogBorgBlackLeafVisibility( "all-visible", NULL );
 #endif
 		return;
 	}
@@ -2334,7 +1650,6 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
 		}
 		R_XboxLogJunkSkyLeafVisibility( "marked", vis );
-		R_XboxLogBorgBlackLeafVisibility( "marked", vis );
 	}
 #endif
 }
@@ -2516,9 +1831,6 @@ void R_AddWorldSurfaces (void) {
 		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
 		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
 	}
-	R_XboxAddVisibleBorgFieldSurfaces( ( 1 << VVLightMan.num_dlights ) - 1 );
-	R_XboxAddBorg6BridgeLeafSurfaces( ( 1 << VVLightMan.num_dlights ) - 1 );
-	xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
 #ifdef _XBOX
 	if (g_SPXBSplitSlotActive == 1)
 	{

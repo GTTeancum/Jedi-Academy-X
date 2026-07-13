@@ -443,6 +443,9 @@
 				RelativePath=".\g_breakable.cpp">
 			</File>
 			<File
+				RelativePath=".\g_boltons.cpp">
+			</File>
+			<File
 				RelativePath=".\g_camera.cpp">
 			</File>
 			<File

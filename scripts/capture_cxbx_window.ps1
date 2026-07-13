@@ -8,6 +8,8 @@ param(
     [string]$WaitLogPattern = "",
     [int]$FastTimeMsec = 200,
     [switch]$NoBorg1SliceWarp,
+    [switch]$NoSmokeInput,
+    [switch]$SplitScreenCoop,
     [switch]$RenderProbe,
     [int]$WatchdogSeconds = 180,
     [int]$Count = 3,
@@ -264,12 +266,20 @@ if ($RenderProbe) {
     Write-RuntimeFile "ef_sp_renderprobe.txt" "1`n"
 }
 $useBorg1SliceWarp = (!$NoBorg1SliceWarp -and $Level -ieq "borg1")
-if ($useBorg1SliceWarp) {
-    $sliceCommand = "set s_xbox_smokeSilentAudio 1;set stefx_borg1_slice_warp 1;+attack"
+$splitCommand = ""
+if ($SplitScreenCoop) {
+    $splitCommand = "set stefx_splitScreen 1;set stefx_splitScreenPlayers 2;set stefx_splitScreenMode coop;set stefx_splitScreenP2Entity -1;"
+}
+if ($NoSmokeInput) {
+    $smokeCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 0;set stefx_smoke_aim 0;set stefx_smoke_wake_ai 0;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 0"
+    Write-RuntimeFile "ef_sp_commands.txt" ($smokeCommand + "`n")
+    Write-RuntimeFile "ef_sp_postmap_commands.txt" ($smokeCommand + "`n")
+} elseif ($useBorg1SliceWarp) {
+    $sliceCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_borg1_slice_warp 1;+attack"
     Write-RuntimeFile "ef_sp_commands.txt" ($sliceCommand + "`n")
     Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $sliceCommand + "`n")
 } else {
-    $smokeCommand = "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward 127;set stefx_smoke_input_side 0;set stefx_smoke_input_yaw 0;set stefx_smoke_input_start 6000;set stefx_smoke_input_attack_start 6500;set stefx_smoke_input_attack_end 22000;set stefx_smoke_input_end 36000"
+    $smokeCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward 127;set stefx_smoke_input_side 0;set stefx_smoke_input_yaw 0;set stefx_smoke_input_start 6000;set stefx_smoke_input_attack_start 6500;set stefx_smoke_input_attack_end 22000;set stefx_smoke_input_end 36000"
     Write-RuntimeFile "ef_sp_commands.txt" ($smokeCommand + "`n")
     Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $smokeCommand + "`n")
 }
@@ -329,6 +339,8 @@ try {
         "waitLogPattern=$WaitLogPattern",
         "fastTimeMsec=$FastTimeMsec",
         "borg1SliceWarp=$useBorg1SliceWarp",
+        "splitScreenCoop=$SplitScreenCoop",
+        "noSmokeInput=$NoSmokeInput",
         "processIds=$($newIds -join ',')"
     )
     for ($i = 0; $i -lt $Count; $i++) {

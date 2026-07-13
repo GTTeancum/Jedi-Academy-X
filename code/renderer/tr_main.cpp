@@ -17,6 +17,12 @@ extern "C" volatile unsigned int g_SPXBViewWeaponP1RendererAdds;
 extern "C" volatile unsigned int g_SPXBViewWeaponP2RendererAdds;
 extern "C" volatile unsigned int g_SPXBViewWeaponP1RendererFiltered;
 extern "C" volatile unsigned int g_SPXBViewWeaponP2RendererFiltered;
+extern "C" volatile unsigned int g_SPXBHelmetP1Model;
+extern "C" volatile unsigned int g_SPXBHelmetP2Model;
+extern "C" volatile unsigned int g_SPXBHelmetRendererSurfaces;
+extern "C" volatile unsigned int g_SPXBHelmetRendererFiltered;
+extern "C" volatile unsigned int g_SPXBHelmetRendererLastFilter;
+extern "C" volatile unsigned int g_SPXBHelmetRendererLastSurfaceModel;
 #endif
 
 void R_AddTerrainSurfaces(void);
@@ -42,6 +48,24 @@ static float	s_flipMatrix[16] = {
 // entities that will have procedurally generated surfaces will just
 // point at this for their sorting surface
 surfaceType_t	entitySurface = SF_ENTITY;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_STEFX_IsSplitHelmetModel( qhandle_t model )
+{
+	return (qboolean)( model &&
+		( model == (qhandle_t)g_SPXBHelmetP1Model ||
+			model == (qhandle_t)g_SPXBHelmetP2Model ) );
+}
+
+static void R_STEFX_RecordHelmetFilter( const trRefEntity_t *ent, unsigned int reason )
+{
+	if ( ent && R_STEFX_IsSplitHelmetModel( ent->e.hModel ) )
+	{
+		++g_SPXBHelmetRendererFiltered;
+		g_SPXBHelmetRendererLastFilter = reason;
+	}
+}
+#endif
 
 /*
 =================
@@ -1496,27 +1520,32 @@ void R_AddEntitySurfaces (void) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_HIDE_SLOT0 ) && g_SPXBSplitSlotActive == 1 ) {
+			R_STEFX_RecordHelmetFilter( ent, 1u );
 			continue;
 		}
 		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_HIDE_SLOT1 ) && g_SPXBSplitSlotActive == 2 ) {
+			R_STEFX_RecordHelmetFilter( ent, 2u );
 			continue;
 		}
 		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_SLOT0 ) && g_SPXBSplitSlotActive != 1 ) {
 			if ( ent->e.renderfx & RF_FIRST_PERSON ) {
 				++g_SPXBViewWeaponP1RendererFiltered;
 			}
+			R_STEFX_RecordHelmetFilter( ent, 3u );
 			continue;
 		}
 		if ( ( ent->e.renderfx & RF_STEFX_SPLIT_SLOT1 ) && g_SPXBSplitSlotActive != 2 ) {
 			if ( ent->e.renderfx & RF_FIRST_PERSON ) {
 				++g_SPXBViewWeaponP2RendererFiltered;
 			}
+			R_STEFX_RecordHelmetFilter( ent, 4u );
 			continue;
 		}
 		if ( g_SPXBSplitSlotActive == 2 &&
 			( ent->e.renderfx & RF_FIRST_PERSON ) &&
 			!( ent->e.renderfx & RF_STEFX_SPLIT_SLOT1 ) ) {
 			++g_SPXBViewWeaponP1RendererFiltered;
+			R_STEFX_RecordHelmetFilter( ent, 5u );
 			continue;
 		}
 #endif
@@ -1540,6 +1569,9 @@ void R_AddEntitySurfaces (void) {
 		// mirrors, because the true body position will already be drawn
 		//
 		if ( (ent->e.renderfx & RF_FIRST_PERSON) && tr.viewParms.isPortal) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			R_STEFX_RecordHelmetFilter( ent, 6u );
+#endif
 			continue;
 		}
 
@@ -1575,36 +1607,6 @@ void R_AddEntitySurfaces (void) {
 				continue;
 			}
 			shader = R_GetShaderByHandle( ent->e.customShader );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if ( cls.state == CA_ACTIVE )
-			{
-				static int s_stefxEffectEntityAddBudget = 192;
-				if ( s_stefxEffectEntityAddBudget > 0 )
-				{
-					XBLF("STEFX_EFFECT_ENTITY_ADD slot=%u ent=%d ref=%d reType=%d shaderHandle=%d shader='%s' default=%d explicit=%d sort=%g rf=0x%x radius=%g rot=%g skin=%d rgba=%u,%u,%u,%u origin=%g,%g,%g old=%g,%g,%g",
-						g_SPXBSplitSlotActive,
-						tr.currentEntityNum,
-						ent->e.number,
-						ent->e.reType,
-						ent->e.customShader,
-						shader ? shader->name : "<null>",
-						shader ? shader->defaultShader : -1,
-						shader ? shader->explicitlyDefined : -1,
-						shader ? (double)shader->sort : -1.0,
-						ent->e.renderfx,
-						ent->e.radius,
-						ent->e.rotation,
-						ent->e.skinNum,
-						(unsigned int)ent->e.shaderRGBA[0],
-						(unsigned int)ent->e.shaderRGBA[1],
-						(unsigned int)ent->e.shaderRGBA[2],
-						(unsigned int)ent->e.shaderRGBA[3],
-						ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
-						ent->e.oldorigin[0], ent->e.oldorigin[1], ent->e.oldorigin[2]);
-					--s_stefxEffectEntityAddBudget;
-				}
-			}
-#endif
 			R_AddDrawSurf( &entitySurface, shader, R_SpriteFogNum( ent ), 0 );
 			break;
 
@@ -1637,6 +1639,13 @@ void R_AddEntitySurfaces (void) {
 			} else {
 				switch ( tr.currentModel->type ) {
 				case MOD_MESH:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( R_STEFX_IsSplitHelmetModel( ent->e.hModel ) )
+					{
+						++g_SPXBHelmetRendererSurfaces;
+						g_SPXBHelmetRendererLastSurfaceModel = (unsigned int)ent->e.hModel;
+					}
+#endif
 					R_AddMD3Surfaces( ent );
 					break;
 				case MOD_BRUSH:

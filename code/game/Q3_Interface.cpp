@@ -23,6 +23,7 @@
 #include "..\cgame\cg_local.h"
 #include "wp_saber.h"
 #include "g_vehicles.h"
+#include "boltOns.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 #endif
@@ -628,6 +629,15 @@ stringID_table_t setTable[] =
 	ENUM2STRING(SET_VIDEO_PLAY),
 	ENUM2STRING(SET_VIDEO_FADE_IN),
 	ENUM2STRING(SET_VIDEO_FADE_OUT),
+	stringIDExpand("+boltOn", SET_BOLTON_ON),
+	stringIDExpand("-boltOn", SET_BOLTON_OFF),
+	stringIDExpand("+beamBoltOn", SET_BEAMIN_BOLTON),
+	stringIDExpand("-beamBoltOn", SET_BEAMOUT_BOLTON),
+	stringIDExpand("!boltOn", SET_BOLTON_DROP),
+	stringIDExpand("@boltOn", SET_BOLTON_ACTIVE),
+	stringIDExpand("boltOnStartFrame", SET_BOLTON_STARTFRAME),
+	stringIDExpand("boltOnEndFrame", SET_BOLTON_ENDFRAME),
+	stringIDExpand("boltOnLoopAnim", SET_BOLTON_ANIMLOOP),
 	ENUM2STRING(SET_REMOVE_TARGET),
 	ENUM2STRING(SET_LOADGAME),
 	ENUM2STRING(SET_MENU_SCREEN),
@@ -7306,6 +7316,161 @@ static void Q3_SetLockPlayerWeapons( int entID, qboolean locked )
 	
 }
 
+static gentity_t *Q3_GetBoltOnEntity( int entID, const char *context )
+{
+	gentity_t *ent;
+
+	if ( entID < 0 || entID >= MAX_GENTITIES )
+	{
+#ifdef _XBOX
+		gi.Printf( "STEFX: %s invalid entID=%d\n", context, entID );
+#endif
+		return NULL;
+	}
+
+	ent = &g_entities[entID];
+	if ( !ent || !ent->inuse )
+	{
+#ifdef _XBOX
+		gi.Printf( "STEFX: %s inactive entID=%d\n", context, entID );
+#endif
+		return NULL;
+	}
+
+	return ent;
+}
+
+static boltOnInfo_t *Q3_GetActiveBoltOnInfo( gentity_t *ent )
+{
+	if ( !ent )
+	{
+		return NULL;
+	}
+
+	if ( !ent->client )
+	{
+		return &ent->boltOn;
+	}
+
+	if ( ent->activeBoltOn < 0 || ent->activeBoltOn >= MAX_BOLT_ONS )
+	{
+		return NULL;
+	}
+
+	return &ent->client->renderInfo.boltOns[ent->activeBoltOn];
+}
+
+static void Q3_AddBoltOn( int entID, const char *boltOnName )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_AddBoltOn" );
+	if ( !ent )
+	{
+		return;
+	}
+
+	ent->activeBoltOn = G_AddBoltOn( ent, boltOnName );
+#ifdef _XBOX
+	gi.Printf( "STEFX: Q3_AddBoltOn ent=%d name='%s' slot=%d\n", entID, boltOnName ? boltOnName : "<null>", ent->activeBoltOn );
+#endif
+}
+
+static void Q3_BeamInBoltOn( int entID, const char *boltOnName )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_BeamInBoltOn" );
+	boltOnInfo_t *boltOnInfo;
+	if ( !ent )
+	{
+		return;
+	}
+
+	ent->activeBoltOn = G_AddBoltOn( ent, boltOnName );
+	boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( !boltOnInfo )
+	{
+		return;
+	}
+
+	boltOnInfo->fxFlags |= BOLTON_BEAMIN;
+	boltOnInfo->startTime = level.time;
+	G_AddEvent( ent, EV_GENERAL_SOUND, G_SoundIndex( "sound/weapons/change.wav" ) );
+}
+
+static void Q3_BeamOutBoltOn( int entID, const char *boltOnName )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_BeamOutBoltOn" );
+	if ( !ent )
+	{
+		return;
+	}
+
+	G_RemoveBoltOn( ent, boltOnName );
+	G_AddEvent( ent, EV_GENERAL_SOUND, G_SoundIndex( "sound/weapons/change.wav" ) );
+}
+
+static void Q3_RemoveBoltOn( int entID, const char *boltOnName )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_RemoveBoltOn" );
+	if ( ent )
+	{
+		G_RemoveBoltOn( ent, boltOnName );
+	}
+}
+
+static void Q3_DropBoltOn( int entID, const char *boltOnName )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_DropBoltOn" );
+	if ( ent )
+	{
+		G_DropBoltOn( ent, boltOnName );
+	}
+}
+
+static void Q3_SetActiveBoltOn( int entID, const char *boltOnName )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOn" );
+	byte boltOn;
+	if ( !ent )
+	{
+		return;
+	}
+
+	boltOn = G_BoltOnNumberForName( ent, boltOnName );
+	if ( boltOn < MAX_BOLT_ONS )
+	{
+		ent->activeBoltOn = boltOn;
+	}
+}
+
+void Q3_SetActiveBoltOnStartFrame( int entID, int startFrame )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOnStartFrame" );
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( boltOnInfo )
+	{
+		boltOnInfo->startFrame = startFrame;
+	}
+}
+
+void Q3_SetActiveBoltOnEndFrame( int entID, int endFrame )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOnEndFrame" );
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( boltOnInfo )
+	{
+		boltOnInfo->endFrame = endFrame;
+	}
+}
+
+static void Q3_SetActiveBoltOnAnimLoop( int entID, qboolean loopAnim )
+{
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOnAnimLoop" );
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( boltOnInfo )
+	{
+		boltOnInfo->loopAnim = loopAnim;
+	}
+}
+
 
 /*
 ============
@@ -10055,6 +10220,43 @@ extern void LockDoors(gentity_t *const ent);
 			gi.cvar_set("cl_VidFadeDown", "0");
 		}
 		break;
+
+	case SET_BOLTON_ON:
+		Q3_AddBoltOn( entID, (const char *)data );
+		break;
+
+	case SET_BOLTON_OFF:
+		Q3_RemoveBoltOn( entID, (const char *)data );
+		break;
+
+	case SET_BEAMIN_BOLTON:
+		Q3_BeamInBoltOn( entID, (const char *)data );
+		break;
+
+	case SET_BEAMOUT_BOLTON:
+		Q3_BeamOutBoltOn( entID, (const char *)data );
+		break;
+
+	case SET_BOLTON_DROP:
+		Q3_DropBoltOn( entID, (const char *)data );
+		break;
+
+	case SET_BOLTON_ACTIVE:
+		Q3_SetActiveBoltOn( entID, (const char *)data );
+		break;
+
+	case SET_BOLTON_STARTFRAME:
+		Q3_SetActiveBoltOnStartFrame( entID, atoi( (const char *)data ) );
+		break;
+
+	case SET_BOLTON_ENDFRAME:
+		Q3_SetActiveBoltOnEndFrame( entID, atoi( (const char *)data ) );
+		break;
+
+	case SET_BOLTON_ANIMLOOP:
+		Q3_SetActiveBoltOnAnimLoop( entID, !Q_stricmp( (const char *)data, "true" ) );
+		break;
+
 	case SET_REMOVE_TARGET:
 		Q3_SetRemoveTarget( entID, (const char *) data );
 		break;

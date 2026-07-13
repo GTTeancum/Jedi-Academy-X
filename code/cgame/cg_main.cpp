@@ -1928,48 +1928,23 @@ Ghoul2 Insert End
 		gameEntityLimit,
 		globals.num_entities);
 #endif
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	int stefxEagerClientModels = 0;
-	int stefxDeferredClientModels = 0;
-#endif
 	for (i=0 ; i < gameEntityLimit ; i++)
 	{
 		if(PInUse(i) || i == 0)
 		{
 			if(g_entities[i].client)
 			{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-				if (i >= MAX_CLIENTS)
-				{
-					++stefxDeferredClientModels;
-					if (stefxDeferredClientModels <= 32)
-					{
-						XBLF("STEFX: CG_RegisterGraphics deferring NPC client model ent=%d npc='%s' ri=(%s,%s,%s)",
-							i,
-							g_entities[i].NPC_type ? g_entities[i].NPC_type : "",
-							g_entities[i].client->renderInfo.legsModelName,
-							g_entities[i].client->renderInfo.torsoModelName,
-							g_entities[i].client->renderInfo.headModelName);
-					}
-				}
-				else
-#endif
-				{
 				//if(!g_entities[i].client->clientInfo.infoValid)
 				//We presume this
 				{
 					CG_LoadingString( va("client %s", g_entities[i].client->clientInfo.name ) );
 					CG_RegisterClientModels(i);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-					++stefxEagerClientModels;
-#endif
 					if ( i != 0 )
 					{//Client weapons already precached
 						CG_RegisterWeapon( g_entities[i].client->ps.weapon );
 						CG_RegisterNPCCustomSounds( &g_entities[i].client->clientInfo );
 						//CG_RegisterNPCEffects( g_entities[i].client->playerTeam );
 					}
-				}
 				}
 			}
 			else if ( g_entities[i].svFlags & SVF_NPC_PRECACHE && g_entities[i].NPC_type && g_entities[i].NPC_type[0] )
@@ -1992,11 +1967,6 @@ Ghoul2 Insert End
 	}
 #ifdef _XBOX
 	XBLog_Write("JA: CG_RegisterGraphics after entity client/NPC precache");
-#if defined(STEFX_ELITE_FORCE_SP)
-	XBLF("STEFX: CG_RegisterGraphics client model preload eager=%d deferred=%d",
-		stefxEagerClientModels,
-		stefxDeferredClientModels);
-#endif
 #endif
 
 	CG_LoadingString( "static models" );

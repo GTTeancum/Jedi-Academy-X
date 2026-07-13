@@ -12,6 +12,7 @@
 #include "g_functions.h"
 #include "wp_saber.h"
 #include "g_vehicles.h"
+#include "boltOns.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 #endif
@@ -1722,6 +1723,7 @@ gentity_t *NPC_Spawn_Do( gentity_t *ent, qboolean fullSpawnNow )
 	VectorCopy(ent->s.origin, newent->currentOrigin);
 	G_SetOrigin(newent, ent->s.origin);//just to be sure!
 	//NOTE: on vehicles, anything in the .npc file will STOMP data on the NPC that's set by the vehicle
+	G_InitBoltOnData( newent );
 #ifdef _XBOX
 	gi.Printf( "STEFX_NPC: ParseParms begin newEnt=%d npc='%s' sourceClass='%s'\n",
 		newent->s.number,

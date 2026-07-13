@@ -602,16 +602,16 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	XBLog_Write("STEFX: SV_SpawnServer pre-BSP EF loadscreen pulse");
 	UpdateLoadingAnimation();
 #endif
-	XBLog_Write("JA: CM_LoadMap...");
+	XBLF("EF: SV_SpawnServer before CM_LoadMap map='%s' checksum=%d", server, checksum);
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
 	g_SPXBMapPhase = 16;
-	XBLog_Write("JA: CM_LoadMap done");
+	XBLF("EF: SV_SpawnServer after CM_LoadMap map='%s' checksum=%d", server, checksum);
 	UpdateLoadingAnimation();
 	g_SPXBMapPhase = 17;
-	XBLog_Write("JA: RE_LoadWorldMap...");
+	XBLF("EF: SV_SpawnServer before RE_LoadWorldMap map='%s'", server);
 	RE_LoadWorldMap(va("maps/%s.bsp", server));
 	g_SPXBMapPhase = 18;
-	XBLog_Write("JA: RE_LoadWorldMap done");
+	XBLF("EF: SV_SpawnServer after RE_LoadWorldMap map='%s'", server);
 	UpdateLoadingAnimation();
 #else
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum, qfalse );

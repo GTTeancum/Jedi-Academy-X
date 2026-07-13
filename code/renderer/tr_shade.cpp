@@ -18,47 +18,23 @@
 #include "../win32/glw_win_dx8.h"
 #endif
 extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
-extern "C" volatile unsigned int g_SPXBSplitSlotActive;
-extern "C" volatile unsigned int g_SPXBBorgStaticStageCount;
-extern "C" volatile unsigned int g_SPXBBorgStaticFallbackCount;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastSlot;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastStage;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastShaderHash;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastImageHash;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastTexnum;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastFormat;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastWidth;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastHeight;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastStateBits;
-extern "C" volatile unsigned int g_SPXBBorgStaticLastBlendBits;
+#if defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBFallbackTraceMagic;
 extern "C" volatile unsigned int g_SPXBFallbackStageCount;
-extern "C" volatile unsigned int g_SPXBFallbackLastSlot;
-extern "C" volatile unsigned int g_SPXBFallbackLastStage;
-extern "C" volatile unsigned int g_SPXBFallbackLastBundle;
 extern "C" volatile unsigned int g_SPXBFallbackLastShaderHash;
 extern "C" volatile unsigned int g_SPXBFallbackLastImageHash;
+extern "C" volatile unsigned int g_SPXBFallbackLastStage;
+extern "C" volatile unsigned int g_SPXBFallbackLastPasses;
+extern "C" volatile unsigned int g_SPXBFallbackLastFlags;
 extern "C" volatile unsigned int g_SPXBFallbackLastTexnum;
-extern "C" volatile unsigned int g_SPXBFallbackLastFormat;
-extern "C" volatile unsigned int g_SPXBFallbackLastWidth;
-extern "C" volatile unsigned int g_SPXBFallbackLastHeight;
+extern "C" volatile unsigned int g_SPXBFallbackLastLightmap;
 extern "C" volatile unsigned int g_SPXBFallbackLastStateBits;
-extern "C" volatile unsigned int g_SPXBFallbackLastBlendBits;
+extern "C" volatile unsigned int g_SPXBFallbackLastIndexes;
+extern "C" volatile unsigned int g_SPXBFallbackLastX1000;
+extern "C" volatile unsigned int g_SPXBFallbackLastY1000;
+extern "C" volatile unsigned int g_SPXBFallbackLastZ1000;
+#endif
 extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam);
-
-static unsigned int RB_XboxNameHash( const char *name )
-{
-	unsigned int hash = 2166136261u;
-	if ( !name )
-	{
-		return 0;
-	}
-	while ( *name )
-	{
-		hash ^= (unsigned char)*name++;
-		hash *= 16777619u;
-	}
-	return hash;
-}
 
 static const char *RB_XboxImageLogName( const image_t *image )
 {
@@ -83,28 +59,6 @@ static const char *RB_XboxImageLogName( const image_t *image )
 #else
 	return "<image>";
 #endif
-}
-
-static qboolean RB_XboxIsBorgAlphaCutoutShaderName( const char *name )
-{
-	return name &&
-		( !Q_stricmp( name, "textures/borg/bars" ) ||
-		  !Q_stricmp( name, "textures/borg/bars2" ) ||
-		  !Q_stricmp( name, "textures/borg/basic1" ) ||
-		  !Q_stricmp( name, "textures/borg/borgladder" ) );
-}
-
-static qboolean RB_XboxIsBorgStaticOrFieldShaderName( const char *name )
-{
-	return name &&
-		( !Q_stricmp( name, "textures/borg/static" ) ||
-		  !Q_stricmp( name, "textures/borg/static2" ) ||
-		  !Q_stricmp( name, "textures/borg/static2_nonsolid" ) ||
-		  !Q_stricmp( name, "textures/borg/static_yellow" ) ||
-		  !Q_stricmp( name, "textures/borg/borgfield" ) ||
-		  !Q_stricmp( name, "textures/borg/borgfield_flicker" ) ||
-		  !Q_stricmp( name, "textures/borg/borgfield_nonsolid" ) ||
-		  !Q_stricmp( name, "textures/borg/borgfield_opaque" ) );
 }
 
 static qboolean RB_XboxIsEliteForceHudShader( const shader_t *shader )
@@ -446,7 +400,6 @@ static void RB_XboxLogEliteForceOverlayDraw( const shaderStage_t *stage, qboolea
 	}
 }
 
-#if defined(STEFX_ELITE_FORCE_SP)
 static qboolean RB_XboxIsEliteForceLegacyMaskedWorldOverlayShader( const shader_t *shader )
 {
 	const char *name = shader ? shader->name : NULL;
@@ -498,7 +451,6 @@ static int RB_XboxAdjustEliteForceLegacyMaskedWorldOverlayState( const shaderSta
 
 	return stateBits;
 }
-#endif
 #endif
 
 /*
@@ -638,9 +590,45 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 
 #ifdef _XBOX
 qboolean RB_IsCurrentShaderTransparent( void );
+extern "C" void JkaFakeglSetEliteForceDrawContext(const char *shader, int stage, int expectedStages, unsigned int stateBits);
 
 static qboolean RB_XboxShouldTraceSurface( void )
 {
+	const char *name;
+
+	if ( cls.state != CA_ACTIVE || !tess.shader || !tess.shader->name )
+	{
+		return qfalse;
+	}
+
+	name = tess.shader->name;
+	if ( !Q_stricmp( name, "textures/common/black" ) ||
+		!Q_stricmp( name, "textures/borg/static2" ) ||
+		!Q_stricmp( name, "textures/borg/static2_nonsolid" ) ||
+		!Q_stricmp( name, "textures/borg/borgfield" ) ||
+		!Q_stricmp( name, "textures/borg/borgfield_nonsolid" ) ||
+		!Q_stricmp( name, "textures/borg/borgfield_opaque" ) ||
+		!Q_stricmp( name, "textures/borg/energy1" ) ||
+		!Q_stricmp( name, "textures/borg/energy1_solid" ) ||
+		!Q_stricmp( name, "textures/borg/energy1_green" ) ||
+		!Q_stricmp( name, "textures/borg/bars" ) ||
+		!Q_stricmp( name, "textures/borg/bars2" ) ||
+		!Q_stricmp( name, "textures/borg/basic1" ) ||
+		!Q_stricmp( name, "textures/borg/borgladder" ) ||
+		!Q_stricmp( name, "textures/borg/bigborg" ) ||
+		!Q_stricmp( name, "textures/borg/oddlight1" ) ||
+		!Q_stricmp( name, "textures/common/sky_light" ) ||
+		!Q_stricmp( name, "textures/common/junk_sky" ) ||
+		!Q_stricmp( name, "textures/scavenger/m_wallgrid" ) ||
+		!Q_stricmp( name, "textures/scavenger/k_control_portal" ) ||
+		!Q_stricmp( name, "textures/engineering/glass_nolightmap" ) ||
+		!Q_stricmp( name, "textures/engineering/glass_nolightmap_nonsolid" ) ||
+		!Q_stricmp( name, "textures/common/portal" ) ||
+		strstr( name, "models/players/" ) )
+	{
+		return qtrue;
+	}
+
 	return qfalse;
 #if 0
 	if (cls.state == CA_ACTIVE)
@@ -685,20 +673,23 @@ static qboolean RB_XboxForceTraceSurface( void )
 #endif
 }
 
-static qboolean RB_XboxImageLooksFallback( const image_t *image );
-
 static void RB_XboxLogWorldDrawStage( const char *where, shaderCommands_t *input, const shaderStage_t *stage, int stageNum, int stateBits )
 {
 	static int s_stefxWorldDrawStageBudget = 4096;
-	static int s_stefxEffectDrawStageBudget = 160;
-	static int s_stefxBorgAlphaStageBudget = 128;
+	static int s_stefxDrawContextCallBudget = 128;
 	const image_t *img0;
 	const image_t *img1;
 	unsigned long color0;
-	qboolean effectTrace;
-	qboolean borgAlphaTrace;
 
 	if ( backEnd.projection2D || cls.state != CA_ACTIVE || !input || !stage || !tess.shader )
+	{
+		return;
+	}
+	if ( !RB_XboxShouldTraceSurface() )
+	{
+		return;
+	}
+	if ( s_stefxWorldDrawStageBudget <= 0 )
 	{
 		return;
 	}
@@ -706,204 +697,24 @@ static void RB_XboxLogWorldDrawStage( const char *where, shaderCommands_t *input
 	img0 = stage->bundle[0].image;
 	img1 = stage->bundle[1].image;
 	color0 = input->numVertexes > 0 ? (unsigned long)input->svars.colors[0] : 0;
-	borgAlphaTrace = RB_XboxIsBorgAlphaCutoutShaderName( tess.shader->name );
-	effectTrace = ( ( backEnd.currentEntity && backEnd.currentEntity->e.reType != RT_MODEL ) ||
-		( backEnd.currentEntity && ( backEnd.currentEntity->e.renderfx & ( RF_FIRST_PERSON | RF_DISTORTION | RF_NODEPTH | RF_DEPTHHACK | RF_ALPHA_FADE ) ) ) ||
-		( tess.shader->name && ( strstr( tess.shader->name, "powerups/" ) || strstr( tess.shader->name, "gfx/" ) || strstr( tess.shader->name, "weapon" ) || strstr( tess.shader->name, "flare" ) || strstr( tess.shader->name, "borg" ) ) ) ||
-		( img0 && img0->imgName && ( strstr( img0->imgName, "gfx/effects/grid" ) || strstr( img0->imgName, "decoystatic" ) || strstr( img0->imgName, "teleport" ) ) ) ||
-		( img1 && img1->imgName && ( strstr( img1->imgName, "gfx/effects/grid" ) || strstr( img1->imgName, "decoystatic" ) || strstr( img1->imgName, "teleport" ) ) ) ) ? qtrue : qfalse;
 
-	if ( RB_XboxImageLooksFallback( img0 ) || ( img1 && RB_XboxImageLooksFallback( img1 ) ) )
+	if ( s_stefxDrawContextCallBudget > 0 )
 	{
-		const image_t *fallbackImage = RB_XboxImageLooksFallback( img0 ) ? img0 : img1;
-		++g_SPXBFallbackStageCount;
-		g_SPXBFallbackLastSlot = g_SPXBSplitSlotActive;
-		g_SPXBFallbackLastStage = (unsigned int)stageNum;
-		g_SPXBFallbackLastBundle = ( fallbackImage == img0 ) ? 0 : 1;
-		g_SPXBFallbackLastShaderHash = RB_XboxNameHash( tess.shader->name );
-		g_SPXBFallbackLastImageHash = RB_XboxNameHash( RB_XboxImageLogName( fallbackImage ) );
-		g_SPXBFallbackLastTexnum = fallbackImage ? (unsigned int)fallbackImage->texnum : 0xFFFFFFFFu;
-		g_SPXBFallbackLastFormat = fallbackImage ? (unsigned int)fallbackImage->internalFormat : 0xFFFFFFFFu;
-		g_SPXBFallbackLastWidth = fallbackImage ? (unsigned int)fallbackImage->width : 0;
-		g_SPXBFallbackLastHeight = fallbackImage ? (unsigned int)fallbackImage->height : 0;
-		g_SPXBFallbackLastStateBits = (unsigned int)stateBits;
-		g_SPXBFallbackLastBlendBits = (unsigned int)( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) );
-	}
-
-	if ( borgAlphaTrace && s_stefxBorgAlphaStageBudget > 0 )
-	{
-		trRefEntity_t *ent = backEnd.currentEntity;
-		XBLF("STEFX_BORG_ALPHA_STAGE slot=%u where=%s shader='%s' stage=%d passes=%d verts=%d indexes=%d fog=%d ent=%d reType=%d state=0x%x atest=0x%x depthMask=%d depthEqual=%d blend=0x%x sort=%g default=%d explicit=%d cull=%d rgb=%d alpha=%d color0=0x%08lx img0='%s' tex0=%d ifmt0=0x%x wh0=%dx%d lm0=%d tc0=%d img1='%s' tex1=%d ifmt1=0x%x wh1=%dx%d lm1=%d tc1=%d st0=%g,%g st1=%g,%g xyz0=%g,%g,%g viewOrg=%g,%g,%g",
-			g_SPXBSplitSlotActive,
+		XBLF("STEFX_DRAW_CONTEXT_CALL where=%s shader='%s' stage=%d passes=%d state=0x%x verts=%d indexes=%d",
 			where ? where : "<null>",
 			tess.shader->name,
 			stageNum,
-			tess.shader ? tess.shader->numUnfoggedPasses : -1,
-			input->numVertexes,
-			input->numIndexes,
-			tess.fogNum,
-			ent ? ent->e.number : -1,
-			ent ? ent->e.reType : -1,
+			tess.shader ? tess.shader->numUnfoggedPasses : 0,
 			stateBits,
-			(int)( stateBits & GLS_ATEST_BITS ),
-			(int)(( stateBits & GLS_DEPTHMASK_TRUE ) != 0),
-			(int)(( stateBits & GLS_DEPTHFUNC_EQUAL ) != 0),
-			(int)( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ),
-			tess.shader ? (double)tess.shader->sort : -1.0,
-			tess.shader ? tess.shader->defaultShader : -1,
-			tess.shader ? tess.shader->explicitlyDefined : -1,
-			tess.shader ? tess.shader->cullType : -1,
-			stage->rgbGen,
-			stage->alphaGen,
-			color0,
-			RB_XboxImageLogName( img0 ),
-			img0 ? img0->texnum : -1,
-			img0 ? img0->internalFormat : -1,
-			img0 ? img0->width : -1,
-			img0 ? img0->height : -1,
-			stage->bundle[0].isLightmap ? 1 : 0,
-			stage->bundle[0].tcGen,
-			RB_XboxImageLogName( img1 ),
-			img1 ? img1->texnum : -1,
-			img1 ? img1->internalFormat : -1,
-			img1 ? img1->width : -1,
-			img1 ? img1->height : -1,
-			stage->bundle[1].isLightmap ? 1 : 0,
-			stage->bundle[1].tcGen,
-			input->numVertexes > 0 ? input->svars.texcoords[0][0][0] : 0.0f,
-			input->numVertexes > 0 ? input->svars.texcoords[0][0][1] : 0.0f,
-			input->numVertexes > 0 ? input->svars.texcoords[1][0][0] : 0.0f,
-			input->numVertexes > 0 ? input->svars.texcoords[1][0][1] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][0] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][1] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][2] : 0.0f,
-			tr.refdef.vieworg[0],
-			tr.refdef.vieworg[1],
-			tr.refdef.vieworg[2]);
-		--s_stefxBorgAlphaStageBudget;
-	}
-
-	if ( RB_XboxIsBorgStaticOrFieldShaderName( tess.shader->name ) )
-	{
-		static int s_stefxBorgStaticStageBudget = 160;
-		qboolean fallback0 = RB_XboxImageLooksFallback( img0 );
-		qboolean fallback1 = img1 ? RB_XboxImageLooksFallback( img1 ) : qfalse;
-		++g_SPXBBorgStaticStageCount;
-		if ( fallback0 || fallback1 )
-		{
-			++g_SPXBBorgStaticFallbackCount;
-		}
-		g_SPXBBorgStaticLastSlot = g_SPXBSplitSlotActive;
-		g_SPXBBorgStaticLastStage = (unsigned int)stageNum;
-		g_SPXBBorgStaticLastShaderHash = RB_XboxNameHash( tess.shader->name );
-		g_SPXBBorgStaticLastImageHash = RB_XboxNameHash( RB_XboxImageLogName( img0 ) );
-		g_SPXBBorgStaticLastTexnum = img0 ? (unsigned int)img0->texnum : 0xFFFFFFFFu;
-		g_SPXBBorgStaticLastFormat = img0 ? (unsigned int)img0->internalFormat : 0xFFFFFFFFu;
-		g_SPXBBorgStaticLastWidth = img0 ? (unsigned int)img0->width : 0;
-		g_SPXBBorgStaticLastHeight = img0 ? (unsigned int)img0->height : 0;
-		g_SPXBBorgStaticLastStateBits = (unsigned int)stateBits;
-		g_SPXBBorgStaticLastBlendBits = (unsigned int)( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) );
-		if ( s_stefxBorgStaticStageBudget > 0 )
-		{
-			trRefEntity_t *ent = backEnd.currentEntity;
-			XBLF("STEFX_BORG_STATIC_STAGE slot=%u where=%s shader='%s' stage=%d passes=%d verts=%d indexes=%d fog=%d ent=%d reType=%d state=0x%x blend=0x%x depthMask=%d sort=%g default=%d explicit=%d cull=%d rgb=%d alpha=%d img0='%s' tex0=%d fmt0=0x%x wh0=%dx%d fallback0=%d lm0=%d tc0=%d img1='%s' tex1=%d fmt1=0x%x wh1=%dx%d fallback1=%d lm1=%d tc1=%d st0=%g,%g st1=%g,%g xyz0=%g,%g,%g viewOrg=%g,%g,%g",
-				g_SPXBSplitSlotActive,
-				where ? where : "<null>",
-				tess.shader->name,
-				stageNum,
-				tess.shader ? tess.shader->numUnfoggedPasses : -1,
-				input->numVertexes,
-				input->numIndexes,
-				tess.fogNum,
-				ent ? ent->e.number : -1,
-				ent ? ent->e.reType : -1,
-				stateBits,
-				(int)( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ),
-				(int)(( stateBits & GLS_DEPTHMASK_TRUE ) != 0),
-				tess.shader ? (double)tess.shader->sort : -1.0,
-				tess.shader ? tess.shader->defaultShader : -1,
-				tess.shader ? tess.shader->explicitlyDefined : -1,
-				tess.shader ? tess.shader->cullType : -1,
-				stage->rgbGen,
-				stage->alphaGen,
-				RB_XboxImageLogName( img0 ),
-				img0 ? img0->texnum : -1,
-				img0 ? img0->internalFormat : -1,
-				img0 ? img0->width : -1,
-				img0 ? img0->height : -1,
-				(int)fallback0,
-				stage->bundle[0].isLightmap ? 1 : 0,
-				stage->bundle[0].tcGen,
-				RB_XboxImageLogName( img1 ),
-				img1 ? img1->texnum : -1,
-				img1 ? img1->internalFormat : -1,
-				img1 ? img1->width : -1,
-				img1 ? img1->height : -1,
-				(int)fallback1,
-				stage->bundle[1].isLightmap ? 1 : 0,
-				stage->bundle[1].tcGen,
-				input->numVertexes > 0 ? input->svars.texcoords[0][0][0] : 0.0f,
-				input->numVertexes > 0 ? input->svars.texcoords[0][0][1] : 0.0f,
-				input->numVertexes > 0 ? input->svars.texcoords[1][0][0] : 0.0f,
-				input->numVertexes > 0 ? input->svars.texcoords[1][0][1] : 0.0f,
-				input->numVertexes > 0 ? input->xyz[0][0] : 0.0f,
-				input->numVertexes > 0 ? input->xyz[0][1] : 0.0f,
-				input->numVertexes > 0 ? input->xyz[0][2] : 0.0f,
-				tr.refdef.vieworg[0],
-				tr.refdef.vieworg[1],
-				tr.refdef.vieworg[2]);
-			--s_stefxBorgStaticStageBudget;
-		}
-	}
-
-	if ( s_stefxWorldDrawStageBudget <= 0 )
-	{
-		return;
-	}
-
-	if ( effectTrace && s_stefxEffectDrawStageBudget > 0 )
-	{
-		trRefEntity_t *ent = backEnd.currentEntity;
-		XBLF("STEFX_EFFECT_STAGE slot=%u where=%s shader='%s' stage=%d passes=%d verts=%d indexes=%d fog=%d ent=%d reType=%d renderfx=0x%x state=0x%x sort=%g default=%d explicit=%d cull=%d rgb=%d alpha=%d color0=0x%08lx img0='%s' tex0=%d lm0=%d tc0=%d img1='%s' tex1=%d lm1=%d tc1=%d st0=%g,%g st1=%g,%g xyz0=%g,%g,%g origin=%g,%g,%g",
-			g_SPXBSplitSlotActive,
-			where ? where : "<null>",
-			tess.shader->name,
-			stageNum,
-			tess.shader ? tess.shader->numUnfoggedPasses : -1,
 			input->numVertexes,
-			input->numIndexes,
-			tess.fogNum,
-			ent ? ent->e.number : -1,
-			ent ? ent->e.reType : -1,
-			ent ? ent->e.renderfx : 0,
-			stateBits,
-			tess.shader ? (double)tess.shader->sort : -1.0,
-			tess.shader ? tess.shader->defaultShader : -1,
-			tess.shader ? tess.shader->explicitlyDefined : -1,
-			tess.shader ? tess.shader->cullType : -1,
-			stage->rgbGen,
-			stage->alphaGen,
-			color0,
-			RB_XboxImageLogName( img0 ),
-			img0 ? img0->texnum : -1,
-			stage->bundle[0].isLightmap ? 1 : 0,
-			stage->bundle[0].tcGen,
-			RB_XboxImageLogName( img1 ),
-			img1 ? img1->texnum : -1,
-			stage->bundle[1].isLightmap ? 1 : 0,
-			stage->bundle[1].tcGen,
-			input->numVertexes > 0 ? input->svars.texcoords[0][0][0] : 0.0f,
-			input->numVertexes > 0 ? input->svars.texcoords[0][0][1] : 0.0f,
-			input->numVertexes > 0 ? input->svars.texcoords[1][0][0] : 0.0f,
-			input->numVertexes > 0 ? input->svars.texcoords[1][0][1] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][0] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][1] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][2] : 0.0f,
-			ent ? ent->e.origin[0] : 0.0f,
-			ent ? ent->e.origin[1] : 0.0f,
-			ent ? ent->e.origin[2] : 0.0f);
-		--s_stefxEffectDrawStageBudget;
+			input->numIndexes);
+		--s_stefxDrawContextCallBudget;
 	}
+
+	JkaFakeglSetEliteForceDrawContext( tess.shader->name,
+		stageNum,
+		tess.shader ? tess.shader->numUnfoggedPasses : 0,
+		(unsigned int)stateBits );
 
 	XBLF("STEFX_DRAW_STAGE where=%s shader='%s' stage=%d passes=%d verts=%d indexes=%d fog=%d ent=%p reType=%d state=0x%x sort=%g default=%d explicit=%d sky=%d cull=%d env=%d rgb=%d alpha=%d color0=0x%08lx img0='%s' tex0=%d lm0=%d vtxlm0=%d tc0=%d img1='%s' tex1=%d lm1=%d vtxlm1=%d tc1=%d st0=%g,%g st1=%g,%g xyz0=%g,%g,%g",
 		where ? where : "<null>",
@@ -979,6 +790,101 @@ static qboolean RB_XboxImageLooksFallback( const image_t *image )
 	}
 	return qfalse;
 }
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static unsigned int RB_XboxHashTraceName( const char *text )
+{
+	unsigned int hash = 2166136261u;
+
+	if ( !text )
+	{
+		return 0;
+	}
+
+	while ( *text )
+	{
+		unsigned char c = (unsigned char)*text++;
+		if ( c >= 'A' && c <= 'Z' )
+		{
+			c = (unsigned char)( c + ( 'a' - 'A' ) );
+		}
+		hash ^= c;
+		hash *= 16777619u;
+	}
+
+	return hash ? hash : 1u;
+}
+
+static void RB_XboxUpdateFallbackStageTelemetry( const shaderCommands_t *input, const shaderStage_t *stage, int stageNum, int stateBits )
+{
+	static int s_stefxFallbackStageLogBudget = 24;
+	const image_t *image0;
+	const image_t *image1;
+	qboolean fallback0;
+	qboolean fallback1;
+	const image_t *fallbackImage;
+	unsigned int flags;
+
+	if ( backEnd.projection2D || cls.state != CA_ACTIVE || !input || !stage || !tess.shader )
+	{
+		return;
+	}
+
+	image0 = stage->bundle[0].image;
+	image1 = stage->bundle[1].image;
+	fallback0 = RB_XboxImageLooksFallback( image0 );
+	fallback1 = ( image1 && RB_XboxImageLooksFallback( image1 ) ) ? qtrue : qfalse;
+	if ( !fallback0 && !fallback1 )
+	{
+		return;
+	}
+
+	fallbackImage = fallback0 ? image0 : image1;
+	flags = ( fallback0 ? 1u : 0u ) |
+		( fallback1 ? 2u : 0u ) |
+		( stage->bundle[0].isLightmap ? 0x10u : 0u ) |
+		( stage->bundle[1].isLightmap ? 0x20u : 0u ) |
+		( stage->bundle[0].vertexLightmap ? 0x40u : 0u ) |
+		( tess.shader->sky ? 0x100u : 0u ) |
+		( tess.shader->defaultShader ? 0x200u : 0u ) |
+		( tess.shader->explicitlyDefined ? 0x400u : 0u );
+
+	g_SPXBFallbackTraceMagic = 0x46424B21; /* 'FBK!' */
+	++g_SPXBFallbackStageCount;
+	g_SPXBFallbackLastShaderHash = RB_XboxHashTraceName( tess.shader->name );
+	g_SPXBFallbackLastImageHash = RB_XboxHashTraceName( RB_XboxImageLogName( fallbackImage ) );
+	g_SPXBFallbackLastStage = (unsigned int)stageNum;
+	g_SPXBFallbackLastPasses = (unsigned int)tess.shader->numUnfoggedPasses;
+	g_SPXBFallbackLastFlags = flags;
+	g_SPXBFallbackLastTexnum = fallbackImage ? (unsigned int)fallbackImage->texnum : 0xffffffffu;
+	g_SPXBFallbackLastLightmap = (unsigned int)(
+		( stage->bundle[0].isLightmap ? 1 : 0 ) |
+		( stage->bundle[1].isLightmap ? 2 : 0 ) |
+		( stage->bundle[0].vertexLightmap ? 4 : 0 ) );
+	g_SPXBFallbackLastStateBits = (unsigned int)stateBits;
+	g_SPXBFallbackLastIndexes = (unsigned int)input->numIndexes;
+	g_SPXBFallbackLastX1000 = ( input->numVertexes > 0 ) ? (unsigned int)(int)( input->xyz[0][0] * 1000.0f ) : 0;
+	g_SPXBFallbackLastY1000 = ( input->numVertexes > 0 ) ? (unsigned int)(int)( input->xyz[0][1] * 1000.0f ) : 0;
+	g_SPXBFallbackLastZ1000 = ( input->numVertexes > 0 ) ? (unsigned int)(int)( input->xyz[0][2] * 1000.0f ) : 0;
+
+	if ( s_stefxFallbackStageLogBudget > 0 )
+	{
+		XBLF("STEFX_FALLBACK_STAGE shader='%s' image='%s' stage=%d passes=%d flags=0x%x state=0x%x tex=%d indexes=%d xyz=%g,%g,%g",
+			tess.shader->name ? tess.shader->name : "<null>",
+			RB_XboxImageLogName( fallbackImage ),
+			stageNum,
+			tess.shader->numUnfoggedPasses,
+			flags,
+			stateBits,
+			fallbackImage ? fallbackImage->texnum : -1,
+			input->numIndexes,
+			input->numVertexes > 0 ? input->xyz[0][0] : 0.0f,
+			input->numVertexes > 0 ? input->xyz[0][1] : 0.0f,
+			input->numVertexes > 0 ? input->xyz[0][2] : 0.0f);
+		--s_stefxFallbackStageLogBudget;
+	}
+}
+#endif
 
 #if defined(STEFX_ELITE_FORCE_SP)
 static void RB_STEFX_ForceNextTextureBind( int unit, const shaderStage_t *stage, const textureBundle_t *bundle )
@@ -1138,14 +1044,226 @@ static qboolean RB_XboxIsModelShader( const shader_t *shader )
 		strstr(shader->name, "models/weapons2/");
 }
 
+#if defined(STEFX_ELITE_FORCE_SP)
 static qboolean RB_XboxIsEliteForcePlayerModelShader( const shader_t *shader )
 {
 	return shader && shader->name && strstr( shader->name, "models/players/" );
 }
 
+static void RB_XboxLogEliteForcePlayerModelReject( const shaderStage_t *stage, const char *reason )
+{
+	static int s_stefxPlayerModelRejectLogs = 96;
+	const char *shaderName;
+	const char *img0Name;
+	trRefEntity_t *ent;
+
+	if ( s_stefxPlayerModelRejectLogs <= 0 )
+	{
+		return;
+	}
+
+	shaderName = ( tess.shader && tess.shader->name ) ? tess.shader->name : "<null>";
+	img0Name = stage ? RB_XboxImageName( stage->bundle[0].image ) : "<null-stage>";
+	if ( !strstr( shaderName, "models/players/" ) &&
+		!strstr( img0Name, "models/players/" ) )
+	{
+		return;
+	}
+
+	ent = backEnd.currentEntity;
+	XBLF("STEFX: PLAYER_MODEL_REJECT reason=%s cls=%d projection2D=%d ent=%p reType=%d rtModel=%d h=%d shader='%s' stage=%p img0='%s' img1='%s' bundle1=%d verts=%d indexes=%d scene=%d rdflags=0x%x",
+		reason ? reason : "<null>",
+		cls.state,
+		backEnd.projection2D ? 1 : 0,
+		ent,
+		ent ? ent->e.reType : -1,
+		RT_MODEL,
+		ent ? ent->e.hModel : -1,
+		shaderName,
+		stage,
+		img0Name,
+		stage ? RB_XboxImageName( stage->bundle[1].image ) : "<null-stage>",
+		(stage && stage->bundle[1].image) ? 1 : 0,
+		tess.numVertexes,
+		tess.numIndexes,
+		tr.sceneCount,
+		backEnd.refdef.rdflags );
+	--s_stefxPlayerModelRejectLogs;
+}
+
+static qboolean RB_XboxIsEliteForcePlayerModelSingleStageDraw( const shaderStage_t *stage )
+{
+	trRefEntity_t *ent = backEnd.currentEntity;
+
+	if ( cls.state != CA_ACTIVE )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "cls_state" );
+		return qfalse;
+	}
+	if ( backEnd.projection2D )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "projection2D" );
+		return qfalse;
+	}
+	if ( !ent )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "no_entity" );
+		return qfalse;
+	}
+	if ( ent->e.reType != RT_MODEL )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "reType" );
+		return qfalse;
+	}
+	if ( !stage )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "no_stage" );
+		return qfalse;
+	}
+	if ( stage->bundle[1].image )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "stage1_image" );
+		return qfalse;
+	}
+	if ( !RB_XboxIsEliteForcePlayerModelShader( tess.shader ) )
+	{
+		RB_XboxLogEliteForcePlayerModelReject( stage, "shader" );
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static void RB_XboxPrepareEliteForcePlayerModelDraw( const shaderStage_t *stage )
+{
+	static int s_stefxPlayerModelStateLogs = 96;
+	static int s_stefxPlayerModelPrepareEnterLogs = 96;
+
+	if ( s_stefxPlayerModelPrepareEnterLogs > 0 &&
+		RB_XboxIsEliteForcePlayerModelShader( tess.shader ) )
+	{
+		XBLF("STEFX: PLAYER_MODEL_PREPARE_ENTER ent=%p reType=%d shader='%s' stage=%p img0='%s' img1='%s' bundle1=%d verts=%d indexes=%d",
+			backEnd.currentEntity,
+			backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
+			tess.shader ? tess.shader->name : "<null>",
+			stage,
+			stage ? RB_XboxImageName( stage->bundle[0].image ) : "<null-stage>",
+			stage ? RB_XboxImageName( stage->bundle[1].image ) : "<null-stage>",
+			(stage && stage->bundle[1].image) ? 1 : 0,
+			tess.numVertexes,
+			tess.numIndexes );
+		--s_stefxPlayerModelPrepareEnterLogs;
+	}
+
+	if ( !RB_XboxIsEliteForcePlayerModelSingleStageDraw( stage ) )
+	{
+		return;
+	}
+
+	/*
+	 * EF MDR bodies and MD3 heads are ordinary one-texture model draws.
+	 * World lightmap/multitexture submissions can leave stage 1 live in the
+	 * Xbox fake-GL bridge, so make the one-stage contract explicit here.
+	 */
+	GL_SelectTexture( 1 );
+	glDisable( GL_TEXTURE_2D );
+	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	if ( glw_state && glw_state->device )
+	{
+		glw_state->device->SetTexture( 1, NULL );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+	}
+	GL_SelectTexture( 0 );
+	glEnable( GL_TEXTURE_2D );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+	glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+	if ( glw_state && glw_state->device )
+	{
+		glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+	}
+
+	if ( s_stefxPlayerModelStateLogs > 0 )
+	{
+		XBLF("STEFX: PLAYER_MODEL_STAGE_RESET ent=%d h=%d shader='%s' img0='%s' tex0=%d fallback0=%d verts=%d indexes=%d state=0x%x",
+			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
+			backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
+			tess.shader ? tess.shader->name : "<null>",
+			RB_XboxImageName( stage->bundle[0].image ),
+			stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
+			(int)RB_XboxImageLooksFallback( stage->bundle[0].image ),
+			tess.numVertexes,
+			tess.numIndexes,
+			stage->stateBits );
+		--s_stefxPlayerModelStateLogs;
+	}
+}
+
+static void RB_XboxLogEliteForcePlayerModelDrawInputs( const shaderStage_t *stage, const char *where )
+{
+	static int s_stefxPlayerModelDrawInputLogs = 96;
+	int i;
+	int minColor[4] = { 255, 255, 255, 255 };
+	int maxColor[4] = { 0, 0, 0, 0 };
+
+	if ( !RB_XboxIsEliteForcePlayerModelSingleStageDraw( stage ) ||
+		s_stefxPlayerModelDrawInputLogs <= 0 )
+	{
+		return;
+	}
+
+	for ( i = 0; i < tess.numVertexes; ++i )
+	{
+		int c;
+		unsigned long packedColor = tess.svars.colors[i];
+		int colorComponents[4];
+		colorComponents[0] = (int)((packedColor >> 16) & 0xff);
+		colorComponents[1] = (int)((packedColor >> 8) & 0xff);
+		colorComponents[2] = (int)(packedColor & 0xff);
+		colorComponents[3] = (int)((packedColor >> 24) & 0xff);
+		for ( c = 0; c < 4; ++c )
+		{
+			int color = colorComponents[c];
+			if ( color < minColor[c] )
+			{
+				minColor[c] = color;
+			}
+			if ( color > maxColor[c] )
+			{
+				maxColor[c] = color;
+			}
+		}
+	}
+
+	XBLF("STEFX: PLAYER_MODEL_DRAW_INPUT %s ent=%d h=%d shader='%s' img0='%s' tex0=%d fallback0=%d verts=%d indexes=%d colorMin=(%d,%d,%d,%d) colorMax=(%d,%d,%d,%d) state=0x%x scene=%d rdflags=0x%x",
+		where ? where : "<null>",
+		backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
+		backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
+		tess.shader ? tess.shader->name : "<null>",
+		RB_XboxImageName( stage->bundle[0].image ),
+		stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
+		(int)RB_XboxImageLooksFallback( stage->bundle[0].image ),
+		tess.numVertexes,
+		tess.numIndexes,
+		minColor[0], minColor[1], minColor[2], minColor[3],
+		maxColor[0], maxColor[1], maxColor[2], maxColor[3],
+		stage->stateBits,
+		tr.sceneCount,
+		backEnd.refdef.rdflags );
+	--s_stefxPlayerModelDrawInputLogs;
+}
+#endif
+
 static void RB_XboxLogModelShaderSurface( const char *where )
 {
-	static int modelBudget = 96;
+	static int modelBudget = 160;
 	const shader_t *shader = tess.shader;
 	int i;
 	trRefEntity_t *ent = backEnd.currentEntity;
@@ -1370,121 +1488,6 @@ static void RB_XboxPrepareYavinIntroModelDraw( const shaderStage_t *stage )
 	}
 }
 
-static qboolean RB_XboxIsEliteForcePlayerModelSingleStageDraw( const shaderStage_t *stage )
-{
-	trRefEntity_t *ent = backEnd.currentEntity;
-
-	if ( cls.state != CA_ACTIVE || backEnd.projection2D ||
-		!ent || ent->e.reType != RT_MODEL ||
-		!stage || stage->bundle[1].image ||
-		!RB_XboxIsEliteForcePlayerModelShader( tess.shader ) )
-	{
-		return qfalse;
-	}
-
-	return qtrue;
-}
-
-static void RB_XboxPrepareEliteForcePlayerModelDraw( const shaderStage_t *stage )
-{
-	static int s_stefxPlayerModelStateLogs = 96;
-
-	if ( !RB_XboxIsEliteForcePlayerModelSingleStageDraw( stage ) )
-	{
-		return;
-	}
-
-	/*
-	 * EF MDR bodies and MD3 heads are ordinary one-texture model draws.
-	 * World lightmap/multitexture submissions can leave stage 1 live in the
-	 * Xbox fake-GL bridge, so make the one-stage contract explicit here.
-	 */
-	GL_SelectTexture( 1 );
-	glDisable( GL_TEXTURE_2D );
-	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
-	if ( glw_state && glw_state->device )
-	{
-		glw_state->device->SetTexture( 1, NULL );
-		glw_state->device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
-		glw_state->device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
-		glw_state->device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
-	}
-	GL_SelectTexture( 0 );
-	glEnable( GL_TEXTURE_2D );
-	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
-	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
-	glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
-
-	if ( s_stefxPlayerModelStateLogs > 0 )
-	{
-		XBLF("STEFX: PLAYER_MODEL_STAGE_RESET ent=%d h=%d shader='%s' img0='%s' tex0=%d fallback0=%d verts=%d indexes=%d state=0x%x",
-			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
-			backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
-			tess.shader ? tess.shader->name : "<null>",
-			RB_XboxImageName( stage->bundle[0].image ),
-			stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
-			(int)RB_XboxImageLooksFallback( stage->bundle[0].image ),
-			tess.numVertexes,
-			tess.numIndexes,
-			stage->stateBits );
-		--s_stefxPlayerModelStateLogs;
-	}
-}
-
-static void RB_XboxLogEliteForcePlayerModelDrawInputs( const shaderStage_t *stage, const char *where )
-{
-	static int s_stefxPlayerModelDrawInputLogs = 96;
-	int i;
-	int minColor[4] = { 255, 255, 255, 255 };
-	int maxColor[4] = { 0, 0, 0, 0 };
-
-	if ( !RB_XboxIsEliteForcePlayerModelSingleStageDraw( stage ) ||
-		s_stefxPlayerModelDrawInputLogs <= 0 )
-	{
-		return;
-	}
-
-	for ( i = 0; i < tess.numVertexes; ++i )
-	{
-		int c;
-		unsigned long packedColor = tess.svars.colors[i];
-		int colorComponents[4];
-		colorComponents[0] = (int)((packedColor >> 16) & 0xff);
-		colorComponents[1] = (int)((packedColor >> 8) & 0xff);
-		colorComponents[2] = (int)(packedColor & 0xff);
-		colorComponents[3] = (int)((packedColor >> 24) & 0xff);
-		for ( c = 0; c < 4; ++c )
-		{
-			int color = colorComponents[c];
-			if ( color < minColor[c] )
-			{
-				minColor[c] = color;
-			}
-			if ( color > maxColor[c] )
-			{
-				maxColor[c] = color;
-			}
-		}
-	}
-
-	XBLF("STEFX: PLAYER_MODEL_DRAW_INPUT %s ent=%d h=%d shader='%s' img0='%s' tex0=%d fallback0=%d verts=%d indexes=%d colorMin=(%d,%d,%d,%d) colorMax=(%d,%d,%d,%d) state=0x%x scene=%d rdflags=0x%x",
-		where ? where : "<null>",
-		backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
-		backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
-		tess.shader ? tess.shader->name : "<null>",
-		RB_XboxImageName( stage->bundle[0].image ),
-		stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
-		(int)RB_XboxImageLooksFallback( stage->bundle[0].image ),
-		tess.numVertexes,
-		tess.numIndexes,
-		minColor[0], minColor[1], minColor[2], minColor[3],
-		maxColor[0], maxColor[1], maxColor[2], maxColor[3],
-		stage->stateBits,
-		tr.sceneCount,
-		backEnd.refdef.rdflags );
-	--s_stefxPlayerModelDrawInputLogs;
-}
-
 static int RB_XboxAdjustYavinIntroModelState( const shaderStage_t *stage, int stateBits )
 {
 	static int s_yavinIntroDepthLogs = 0;
@@ -1700,6 +1703,7 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 {
 	static int traceBudget = 16;
 	static int chunkTraceBudget = 24;
+	static int s_stefxDrawSubmitContextCallBudget = 128;
 	qboolean trace;
 	int indexBase;
 	const int maxChunkIndexes = 384 * 3;
@@ -1723,10 +1727,32 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 
 	if ( numIndexes <= maxChunkIndexes )
 	{
+		if ( trace && s_stefxDrawSubmitContextCallBudget > 0 )
+		{
+			XBLF("STEFX_DRAW_CONTEXT_CALL where=RB_XboxDrawElementsChunked shader='%s' stage=%d passes=%d state=0x%x indexes=%d verts=%d chunk=0",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.currentPass,
+				tess.shader ? tess.shader->numUnfoggedPasses : 0,
+				tess.xstages[tess.currentPass].stateBits,
+				numIndexes,
+				tess.numVertexes);
+			--s_stefxDrawSubmitContextCallBudget;
+		}
+		if ( trace )
+		{
+			JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>",
+				tess.currentPass,
+				tess.shader ? tess.shader->numUnfoggedPasses : 0,
+				tess.xstages[tess.currentPass].stateBits );
+		}
 		glDrawElements( GL_TRIANGLES,
 			numIndexes,
 			GL_INDEX_TYPE,
 			indexes );
+		if ( trace )
+		{
+			JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
+		}
 		return;
 	}
 
@@ -1755,10 +1781,34 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 			--chunkTraceBudget;
 		}
 
+		if ( trace && s_stefxDrawSubmitContextCallBudget > 0 )
+		{
+			XBLF("STEFX_DRAW_CONTEXT_CALL where=RB_XboxDrawElementsChunked shader='%s' stage=%d passes=%d state=0x%x indexes=%d verts=%d chunk=%d",
+				tess.shader ? tess.shader->name : "<null>",
+				tess.currentPass,
+				tess.shader ? tess.shader->numUnfoggedPasses : 0,
+				tess.xstages[tess.currentPass].stateBits,
+				chunkIndexes,
+				tess.numVertexes,
+				indexBase);
+			--s_stefxDrawSubmitContextCallBudget;
+		}
+
+		if ( trace )
+		{
+			JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>",
+				tess.currentPass,
+				tess.shader ? tess.shader->numUnfoggedPasses : 0,
+				tess.xstages[tess.currentPass].stateBits );
+		}
 		glDrawElements( GL_TRIANGLES,
 			chunkIndexes,
 			GL_INDEX_TYPE,
 			indexes + indexBase );
+		if ( trace )
+		{
+			JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
+		}
 
 		RB_XboxRenderYield();
 		indexBase += chunkIndexes;
@@ -2263,6 +2313,9 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 #endif
 #ifdef _XBOX
 	stateBits = RB_XboxAdjustEliteForceScriptPanelState( pStage, stateBits, "DrawMultitextured" );
+#if defined(STEFX_ELITE_FORCE_SP)
+	stateBits = RB_XboxAdjustEliteForceLegacyMaskedWorldOverlayState( pStage, stateBits, stage, "DrawMultitextured" );
+#endif
 	GL_State( stateBits );
 #else
 	GL_State( pStage->stateBits );
@@ -2369,6 +2422,10 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 		JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
 	}
 	RB_XboxBeginEliteForceScriptPanelFakeglState( pStage, "DrawMultitextured" );
+	if ( trace )
+	{
+		JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>", stage, 2, (unsigned int)stateBits );
+	}
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
 		XBLF("JA: DrawMultitextured before draw shader='%s' stage=%d\n",
@@ -2378,6 +2435,10 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 #endif
 	R_DrawElements( input->numIndexes, input->indexes );
 #ifdef _XBOX
+	if ( trace )
+	{
+		JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
+	}
 	RB_XboxEndEliteForceScriptPanelFakeglState( "DrawMultitextured" );
 	if ( stefxBeamShader || stefxHudShader )
 	{
@@ -4490,9 +4551,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				--s_stefxOverlayStateAdjustBudget;
 			}
 		}
-#if defined(STEFX_ELITE_FORCE_SP)
-		stateBits = RB_XboxAdjustEliteForceLegacyMaskedWorldOverlayState( pStage, stateBits, stage, "RB_IterateStagesGeneric" );
-#endif
 #endif
 
 		if (pStage->ss && pStage->ss->surfaceSpriteType)
@@ -4531,7 +4589,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			ComputeColors( pStage, forceAlphaGen, forceRGBGen );
 #ifdef _XBOX
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ComputeColors" );
+#if defined(STEFX_ELITE_FORCE_SP)
 			RB_XboxLogEliteForcePlayerModelDrawInputs( pStage, "after ComputeColors" );
+#endif
 			RB_XboxForceYavinIntroModelColors( pStage );
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ColorForce" );
 			if ( forceTrace )
@@ -4556,6 +4616,26 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				tess.shader ? tess.shader->name : "<null>", stage);
 		}
 		RB_XboxLogWorldDrawStage( "RB_IterateStagesGeneric", input, pStage, stage, stateBits );
+#if defined(STEFX_ELITE_FORCE_SP)
+		RB_XboxUpdateFallbackStageTelemetry( input, pStage, stage, stateBits );
+#endif
+		if ( RB_XboxShouldTraceSurface() )
+		{
+			static int s_stefxPostStagePathBudget = 96;
+			if ( s_stefxPostStagePathBudget > 0 )
+			{
+				XBLF("STEFX: POST_STAGE_PATH shader='%s' stage=%d bundle1=%d isLightmap0=%d rgb=%d alpha=%d state=0x%x setArraysOnce=%d",
+					tess.shader ? tess.shader->name : "<null>",
+					stage,
+					pStage->bundle[1].image ? 1 : 0,
+					pStage->bundle[0].isLightmap ? 1 : 0,
+					pStage->rgbGen,
+					pStage->alphaGen,
+					stateBits,
+					setArraysOnce ? 1 : 0 );
+				--s_stefxPostStagePathBudget;
+			}
+		}
 		if ( !backEnd.projection2D && cls.state == CA_ACTIVE )
 		{
 			static int s_efActiveStageBudget = 12;
@@ -4721,6 +4801,28 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		// do multitexture
 		//
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( RB_XboxShouldTraceSurface() )
+		{
+			static int s_stefxPlayerModelBranchLogs = 96;
+			if ( s_stefxPlayerModelBranchLogs > 0 )
+			{
+				XBLF("STEFX: TRACE_BRANCH shader='%s' isPlayer=%d stage=%d bundle1=%d img0='%s' img1='%s' vertexLightmap=%d rgb=%d alpha=%d state=0x%x setArraysOnce=%d",
+					tess.shader ? tess.shader->name : "<null>",
+					RB_XboxIsEliteForcePlayerModelShader( tess.shader ) ? 1 : 0,
+					stage,
+					pStage->bundle[1].image ? 1 : 0,
+					RB_XboxImageName( pStage->bundle[0].image ),
+					RB_XboxImageName( pStage->bundle[1].image ),
+					pStage->bundle[0].vertexLightmap ? 1 : 0,
+					pStage->rgbGen,
+					pStage->alphaGen,
+					stateBits,
+					setArraysOnce ? 1 : 0 );
+				--s_stefxPlayerModelBranchLogs;
+			}
+		}
+#endif
 		if ( pStage->bundle[1].image != 0 )
 		{
 #ifdef _XBOX
@@ -4776,10 +4878,15 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 					XBLF("JA: RB_IterateStagesGeneric after bind single shader='%s' stage=%d\n",
 						tess.shader ? tess.shader->name : "<null>", stage);
 				}
+#if defined(STEFX_ELITE_FORCE_SP)
 				RB_XboxPrepareEliteForcePlayerModelDraw( pStage );
+#endif
 				RB_XboxPrepareYavinIntroModelDraw( pStage );
 				stateBits = RB_XboxAdjustYavinIntroModelState( pStage, stateBits );
 				stateBits = RB_XboxAdjustEliteForceScriptPanelState( pStage, stateBits, "RB_IterateStagesGeneric" );
+#if defined(STEFX_ELITE_FORCE_SP)
+				stateBits = RB_XboxAdjustEliteForceLegacyMaskedWorldOverlayState( pStage, stateBits, stage, "RB_IterateStagesGeneric" );
+#endif
 			}
 #else
 				R_BindAnimatedImage( &pStage->bundle[0] );
@@ -4827,10 +4934,20 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			}
 			RB_XboxBeginEliteForceScriptPanelFakeglState( pStage, "RB_IterateStagesGeneric" );
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "before single draw" );
+#if defined(STEFX_ELITE_FORCE_SP)
 			RB_XboxLogEliteForcePlayerModelDrawInputs( pStage, "before single draw" );
+#endif
+			if ( forceTrace )
+			{
+				JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>", stage, 1, (unsigned int)stateBits );
+			}
 #endif
 			R_DrawElements( input->numIndexes, input->indexes );
 #ifdef _XBOX
+			if ( forceTrace )
+			{
+				JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
+			}
 			RB_XboxEndEliteForceScriptPanelFakeglState( "RB_IterateStagesGeneric" );
 			if ( stefxBeamShader || stefxHudShader )
 			{
@@ -5410,38 +5527,6 @@ void RB_EndSurface( void ) {
 		}
 		static int traceBudget = 0;
 		qboolean trace = RB_XboxShouldTraceSurface();
-		if ( tess.shader && RB_XboxIsBorgStaticOrFieldShaderName( tess.shader->name ) )
-		{
-			static int s_stefxBorgStaticFlushBudget = 64;
-			if ( s_stefxBorgStaticFlushBudget > 0 )
-			{
-				const shaderStage_t *stage0 = tess.numPasses > 0 ? &tess.xstages[0] : NULL;
-				const image_t *img0 = stage0 ? stage0->bundle[0].image : NULL;
-				const image_t *img1 = stage0 ? stage0->bundle[1].image : NULL;
-				XBLF("STEFX_BORG_STATIC_FLUSH slot=%u shader='%s' verts=%d indexes=%d passes=%d fog=%d dlight=0x%x ent=%d reType=%d func=%p img0='%s' tex0=%d wh0=%dx%d fallback0=%d img1='%s' tex1=%d wh1=%dx%d fallback1=%d",
-					g_SPXBSplitSlotActive,
-					tess.shader ? tess.shader->name : "<null>",
-					tess.numVertexes,
-					tess.numIndexes,
-					tess.numPasses,
-					tess.fogNum,
-					tess.dlightBits,
-					tr.currentEntityNum,
-					backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
-					tess.currentStageIteratorFunc,
-					RB_XboxImageLogName( img0 ),
-					img0 ? img0->texnum : -1,
-					img0 ? img0->width : -1,
-					img0 ? img0->height : -1,
-					(int)RB_XboxImageLooksFallback( img0 ),
-					RB_XboxImageLogName( img1 ),
-					img1 ? img1->texnum : -1,
-					img1 ? img1->width : -1,
-					img1 ? img1->height : -1,
-					(int)RB_XboxImageLooksFallback( img1 ));
-				--s_stefxBorgStaticFlushBudget;
-			}
-		}
 
 		if ( trace && traceBudget > 0 )
 		{

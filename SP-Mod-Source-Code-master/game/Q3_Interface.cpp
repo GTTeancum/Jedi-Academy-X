@@ -6161,6 +6161,469 @@ static void Q3_SetInterface( int entID, const char *data )
 	gi.cvar_set("cg_drawStatus", data);
 }
 
+#define Q3_BOLTON_OP_ADD		1
+#define Q3_BOLTON_OP_BEAMIN		2
+#define Q3_BOLTON_OP_BEAMOUT	3
+#define Q3_BOLTON_OP_REMOVE		4
+#define Q3_BOLTON_OP_DROP		5
+#define Q3_BOLTON_OP_ACTIVE		6
+#define Q3_BOLTON_OP_START		7
+#define Q3_BOLTON_OP_END		8
+#define Q3_BOLTON_OP_LOOP		9
+
+static gentity_t *Q3_GetBoltOnEntity( int entID, const char *context )
+{
+	gentity_t *ent;
+
+	if ( entID < 0 || entID >= MAX_GENTITIES )
+	{
+#ifdef _XBOX
+		XBLF( "STEFX: %s invalid entID=%d", context ? context : "Q3_BoltOn", entID );
+#endif
+		return NULL;
+	}
+
+	ent = &g_entities[entID];
+	if ( !ent || !ent->inuse )
+	{
+#ifdef _XBOX
+		XBLF( "STEFX: %s inactive entID=%d", context ? context : "Q3_BoltOn", entID );
+#endif
+		return NULL;
+	}
+
+	return ent;
+}
+
+static gentity_t *Q3_GetPrimaryPlayerEntity( void )
+{
+	gentity_t *ent = &g_entities[0];
+
+	if ( !ent || !ent->inuse || !ent->client )
+	{
+		return NULL;
+	}
+
+	return ent;
+}
+
+static gentity_t *Q3_GetSplitCoopP2Entity( void )
+{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	int split = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
+	int players = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+	int entNum = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+	gentity_t *ent;
+
+	if ( !split || players < 2 || entNum <= 0 || entNum >= MAX_GENTITIES )
+	{
+		return NULL;
+	}
+
+	ent = &g_entities[entNum];
+	if ( !ent || !ent->inuse || !ent->client )
+	{
+		return NULL;
+	}
+
+	return ent;
+#else
+	return NULL;
+#endif
+}
+
+static qboolean Q3_NameContainsNoCase( const char *name, const char *needle )
+{
+	int needleLen;
+
+	if ( !name || !needle || !needle[0] )
+	{
+		return qfalse;
+	}
+
+	needleLen = strlen( needle );
+	while ( *name )
+	{
+		if ( !Q_stricmpn( name, needle, needleLen ) )
+		{
+			return qtrue;
+		}
+		name++;
+	}
+
+	return qfalse;
+}
+
+static qboolean Q3_IsHelmetBoltOnName( const char *boltOnName )
+{
+	if ( !boltOnName || !boltOnName[0] )
+	{
+		return qfalse;
+	}
+
+	return (qboolean)( !Q_stricmp( boltOnName, "helmet" ) || !Q_stricmp( boltOnName, "helmet_lhand" ) );
+}
+
+static qboolean Q3_IsWornHelmetBoltOnName( const char *boltOnName )
+{
+	return (qboolean)( boltOnName && !Q_stricmp( boltOnName, "helmet" ) );
+}
+
+static qboolean Q3_IsMunroScriptTarget( int entID, const gentity_t *ent )
+{
+	if ( entID == 0 )
+	{
+		return qtrue;
+	}
+
+	if ( !ent )
+	{
+		return qfalse;
+	}
+
+	if ( Q3_NameContainsNoCase( ent->targetname, "munro" ) ||
+		Q3_NameContainsNoCase( ent->script_targetname, "munro" ) ||
+		Q3_NameContainsNoCase( ent->NPC_type, "munro" ) )
+	{
+		return qtrue;
+	}
+
+	if ( ent->client && Q3_NameContainsNoCase( ent->client->squadname, "munro" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean Q3_SplitCoopActive( void )
+{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	const int split = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
+	const int players = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+	return (qboolean)( split && players >= 2 );
+#else
+	return qfalse;
+#endif
+}
+
+static qboolean Q3_IsHazardSuitScriptTarget( const gentity_t *ent )
+{
+	if ( !ent || !ent->client )
+	{
+		return qfalse;
+	}
+
+	if ( Q3_NameContainsNoCase( ent->client->renderInfo.torsoModelName, "hazard" ) ||
+		Q3_NameContainsNoCase( ent->client->renderInfo.legsModelName, "hazard" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static boltOnInfo_t *Q3_GetActiveBoltOnInfo( gentity_t *ent )
+{
+	if ( !ent )
+	{
+		return NULL;
+	}
+
+	if ( !ent->client )
+	{
+		if ( ent->activeBoltOn >= MAX_BOLT_ONS )
+		{
+			return NULL;
+		}
+		return &ent->boltOn;
+	}
+
+	if ( ent->activeBoltOn >= MAX_BOLT_ONS )
+	{
+		return NULL;
+	}
+
+	return &ent->client->renderInfo.boltOns[ent->activeBoltOn];
+}
+
+static qboolean Q3_ActiveBoltOnIsWornHelmet( gentity_t *ent )
+{
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+
+	if ( !boltOnInfo || boltOnInfo->index < 0 || boltOnInfo->index >= MAX_GAME_BOLTONS )
+	{
+		return qfalse;
+	}
+
+	return Q3_IsWornHelmetBoltOnName( knownBoltOns[boltOnInfo->index].name );
+}
+
+static void Q3_LogBoltOnOp( const char *context, gentity_t *ent, const char *boltOnName, byte slot )
+{
+#ifdef _XBOX
+	static int s_boltOnLogBudget = 160;
+	if ( s_boltOnLogBudget <= 0 )
+	{
+		return;
+	}
+
+	XBLF( "STEFX: %s ent=%d class='%s' target='%s' scriptTarget='%s' npc='%s' boltOn='%s' slot=%d time=%d",
+		context ? context : "Q3_BoltOn",
+		ent ? ent->s.number : -1,
+		ent && ent->classname ? ent->classname : "<null>",
+		ent && ent->targetname ? ent->targetname : "<null>",
+		ent && ent->script_targetname ? ent->script_targetname : "<null>",
+		ent && ent->NPC_type ? ent->NPC_type : "<null>",
+		boltOnName ? boltOnName : "<active>",
+		(int)slot,
+		level.time );
+	--s_boltOnLogBudget;
+#endif
+}
+
+static void Q3_LogHelmetCommandEntry( const char *context, int entID, const char *boltOnName )
+{
+#ifdef _XBOX
+	static int s_helmetCommandLogBudget = 192;
+	gentity_t *ent = NULL;
+
+	if ( s_helmetCommandLogBudget <= 0 || !Q3_IsHelmetBoltOnName( boltOnName ) )
+	{
+		return;
+	}
+
+	if ( entID >= 0 && entID < MAX_GENTITIES )
+	{
+		ent = &g_entities[entID];
+	}
+
+	XBLF( "STEFX: helmet command %s entID=%d inuse=%d class='%s' target='%s' scriptTarget='%s' npc='%s' boltOn='%s' munroTarget=%d hazardTarget=%d split=%d time=%d",
+		context ? context : "<null>",
+		entID,
+		( ent && ent->inuse ) ? 1 : 0,
+		( ent && ent->classname ) ? ent->classname : "<null>",
+		( ent && ent->targetname ) ? ent->targetname : "<null>",
+		( ent && ent->script_targetname ) ? ent->script_targetname : "<null>",
+		( ent && ent->NPC_type ) ? ent->NPC_type : "<null>",
+		boltOnName ? boltOnName : "<null>",
+		Q3_IsMunroScriptTarget( entID, ent ) ? 1 : 0,
+		Q3_IsHazardSuitScriptTarget( ent ) ? 1 : 0,
+		Q3_SplitCoopActive() ? 1 : 0,
+		level.time );
+	--s_helmetCommandLogBudget;
+#endif
+}
+
+static byte Q3_AddBoltOnToEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	byte boltOn;
+
+	if ( !ent )
+	{
+		return MAX_BOLT_ONS;
+	}
+
+	boltOn = G_AddBoltOn( ent, boltOnName );
+	if ( boltOn >= MAX_BOLT_ONS && ent->client )
+	{
+		boltOn = G_BoltOnNumberForName( ent, boltOnName );
+	}
+
+	if ( boltOn < MAX_BOLT_ONS )
+	{
+		ent->activeBoltOn = boltOn;
+	}
+
+	Q3_LogBoltOnOp( context, ent, boltOnName, boltOn );
+	return boltOn;
+}
+
+static void Q3_BeamInActiveBoltOnForEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	boltOnInfo_t *boltOnInfo;
+
+	if ( !ent )
+	{
+		return;
+	}
+
+	boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( !boltOnInfo )
+	{
+		Q3_LogBoltOnOp( context, ent, boltOnName, MAX_BOLT_ONS );
+		return;
+	}
+
+	boltOnInfo->fxFlags |= BOLTON_BEAMIN;
+	boltOnInfo->startTime = level.time;
+	G_AddEvent( ent, EV_GENERAL_SOUND, G_SoundIndex( "sound/weapons/change.wav" ) );
+	Q3_LogBoltOnOp( context, ent, boltOnName, ent->activeBoltOn );
+}
+
+static void Q3_BeamInBoltOnForEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	Q3_AddBoltOnToEntity( ent, boltOnName, context );
+	Q3_BeamInActiveBoltOnForEntity( ent, boltOnName, context );
+}
+
+static void Q3_BeamOutBoltOnForEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	if ( !ent )
+	{
+		return;
+	}
+
+	G_RemoveBoltOn( ent, boltOnName );
+	G_AddEvent( ent, EV_GENERAL_SOUND, G_SoundIndex( "sound/weapons/change.wav" ) );
+	Q3_LogBoltOnOp( context, ent, boltOnName, MAX_BOLT_ONS );
+}
+
+static void Q3_RemoveBoltOnFromEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	if ( ent )
+	{
+		G_RemoveBoltOn( ent, boltOnName );
+		Q3_LogBoltOnOp( context, ent, boltOnName, MAX_BOLT_ONS );
+	}
+}
+
+static void Q3_DropBoltOnFromEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	if ( ent )
+	{
+		G_DropBoltOn( ent, boltOnName );
+		Q3_LogBoltOnOp( context, ent, boltOnName, MAX_BOLT_ONS );
+	}
+}
+
+static void Q3_SetActiveBoltOnForEntity( gentity_t *ent, const char *boltOnName, const char *context )
+{
+	byte boltOn;
+
+	if ( !ent )
+	{
+		return;
+	}
+
+	boltOn = G_BoltOnNumberForName( ent, boltOnName );
+	if ( boltOn < MAX_BOLT_ONS )
+	{
+		ent->activeBoltOn = boltOn;
+	}
+
+	Q3_LogBoltOnOp( context, ent, boltOnName, boltOn );
+}
+
+static void Q3_SetActiveBoltOnStartFrameForEntity( gentity_t *ent, int startFrame, const char *context )
+{
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( boltOnInfo )
+	{
+		boltOnInfo->startFrame = startFrame;
+		Q3_LogBoltOnOp( context, ent, NULL, ent->activeBoltOn );
+	}
+}
+
+static void Q3_SetActiveBoltOnEndFrameForEntity( gentity_t *ent, int endFrame, const char *context )
+{
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( boltOnInfo )
+	{
+		boltOnInfo->endFrame = endFrame;
+		Q3_LogBoltOnOp( context, ent, NULL, ent->activeBoltOn );
+	}
+}
+
+static void Q3_SetActiveBoltOnAnimLoopForEntity( gentity_t *ent, qboolean loopAnim, const char *context )
+{
+	boltOnInfo_t *boltOnInfo = Q3_GetActiveBoltOnInfo( ent );
+	if ( boltOnInfo )
+	{
+		boltOnInfo->loopAnim = loopAnim;
+		Q3_LogBoltOnOp( context, ent, NULL, ent->activeBoltOn );
+	}
+}
+
+static qboolean Q3_ShouldMirrorPlayerHelmetBoltOn( int entID, gentity_t *sourceEnt, const char *boltOnName )
+{
+	if ( boltOnName )
+	{
+		if ( !Q3_IsWornHelmetBoltOnName( boltOnName ) )
+		{
+			return qfalse;
+		}
+	}
+	else if ( !Q3_ActiveBoltOnIsWornHelmet( sourceEnt ) )
+	{
+		return qfalse;
+	}
+
+	if ( Q3_IsMunroScriptTarget( entID, sourceEnt ) )
+	{
+		return qtrue;
+	}
+
+	return (qboolean)( Q3_SplitCoopActive() && Q3_IsHazardSuitScriptTarget( sourceEnt ) );
+}
+
+static void Q3_ApplyMirrorBoltOnOp( gentity_t *ent, const char *boltOnName, const char *context, int op, int intValue, qboolean boolValue )
+{
+	switch ( op )
+	{
+	case Q3_BOLTON_OP_ADD:
+		Q3_AddBoltOnToEntity( ent, boltOnName, context );
+		break;
+	case Q3_BOLTON_OP_BEAMIN:
+		Q3_BeamInBoltOnForEntity( ent, boltOnName, context );
+		break;
+	case Q3_BOLTON_OP_BEAMOUT:
+		Q3_BeamOutBoltOnForEntity( ent, boltOnName, context );
+		break;
+	case Q3_BOLTON_OP_REMOVE:
+		Q3_RemoveBoltOnFromEntity( ent, boltOnName, context );
+		break;
+	case Q3_BOLTON_OP_DROP:
+		Q3_DropBoltOnFromEntity( ent, boltOnName, context );
+		break;
+	case Q3_BOLTON_OP_ACTIVE:
+		Q3_SetActiveBoltOnForEntity( ent, boltOnName, context );
+		break;
+	case Q3_BOLTON_OP_START:
+		Q3_SetActiveBoltOnStartFrameForEntity( ent, intValue, context );
+		break;
+	case Q3_BOLTON_OP_END:
+		Q3_SetActiveBoltOnEndFrameForEntity( ent, intValue, context );
+		break;
+	case Q3_BOLTON_OP_LOOP:
+		Q3_SetActiveBoltOnAnimLoopForEntity( ent, boolValue, context );
+		break;
+	}
+}
+
+static void Q3_MirrorPlayerHelmetBoltOn( int entID, gentity_t *sourceEnt, const char *boltOnName, const char *context, int op, int intValue, qboolean boolValue )
+{
+	gentity_t *p1;
+	gentity_t *p2;
+
+	if ( !Q3_ShouldMirrorPlayerHelmetBoltOn( entID, sourceEnt, boltOnName ) )
+	{
+		return;
+	}
+
+	p1 = Q3_GetPrimaryPlayerEntity();
+	if ( p1 && p1 != sourceEnt )
+	{
+		Q3_ApplyMirrorBoltOnOp( p1, boltOnName, context, op, intValue, boolValue );
+	}
+
+	p2 = Q3_GetSplitCoopP2Entity();
+	if ( p2 && p2 != sourceEnt && p2 != p1 )
+	{
+		Q3_ApplyMirrorBoltOnOp( p2, boltOnName, context, op, intValue, boolValue );
+	}
+}
+
 
 /*
 ============
@@ -6173,15 +6636,18 @@ Q3_AddBoltOn
 */
 static void Q3_AddBoltOn( int entID, const char *boltOnName )
 {
-	gentity_t	*ent = &g_entities[entID];
+	gentity_t *ent;
+
+	Q3_LogHelmetCommandEntry( "Q3_AddBoltOn", entID, boltOnName );
+
+	ent = Q3_GetBoltOnEntity( entID, "Q3_AddBoltOn" );
 	if ( !ent )
 	{
-		//FIXME: error message
 		return;
 	}
 
-	//Add it
-	ent->activeBoltOn = G_AddBoltOn( ent, boltOnName );
+	Q3_AddBoltOnToEntity( ent, boltOnName, "Q3_AddBoltOn" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, boltOnName, "Q3_AddBoltOn mirror", Q3_BOLTON_OP_ADD, 0, qfalse );
 }
 
 
@@ -6196,20 +6662,15 @@ Q3_BeamInBoltOn
 */
 static void Q3_BeamInBoltOn( int entID, const char *boltOnName )
 {
-	gentity_t	*ent = &g_entities[entID];
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_BeamInBoltOn" );
+	Q3_LogHelmetCommandEntry( "Q3_BeamInBoltOn", entID, boltOnName );
 	if ( !ent )
 	{
-		//FIXME: error message
 		return;
 	}
 
-	//Add it
-	ent->activeBoltOn = G_AddBoltOn( ent, boltOnName );
-	ent->client->renderInfo.boltOns[ent->activeBoltOn].fxFlags = 1;	// BOLTON_BEAMIN
-	ent->client->renderInfo.boltOns[ent->activeBoltOn].startTime = level.time;
-
-	// This sound should already be pre-cached
-	G_AddEvent( ent, EV_GENERAL_SOUND, G_SoundIndex( "sound/weapons/change.wav" ));
+	Q3_BeamInBoltOnForEntity( ent, boltOnName, "Q3_BeamInBoltOn" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, boltOnName, "Q3_BeamInBoltOn mirror", Q3_BOLTON_OP_BEAMIN, 0, qfalse );
 }
 
 
@@ -6224,19 +6685,15 @@ Q3_BeamOutBoltOn
 */
 static void Q3_BeamOutBoltOn( int entID, const char *boltOnName )
 {
-	gentity_t	*ent = &g_entities[entID];
-
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_BeamOutBoltOn" );
+	Q3_LogHelmetCommandEntry( "Q3_BeamOutBoltOn", entID, boltOnName );
 	if ( !ent )
 	{
-		// FIXME: error message
 		return;
 	}
 
-	// Remove it
-	G_RemoveBoltOn( ent, boltOnName );
-
-	// This sound should already be pre-cached
-	G_AddEvent( ent, EV_GENERAL_SOUND, G_SoundIndex( "sound/weapons/change.wav" ));
+	Q3_BeamOutBoltOnForEntity( ent, boltOnName, "Q3_BeamOutBoltOn" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, boltOnName, "Q3_BeamOutBoltOn mirror", Q3_BOLTON_OP_BEAMOUT, 0, qfalse );
 }
 
 
@@ -6251,7 +6708,15 @@ Q3_RemoveBoltOn
 */
 static void Q3_RemoveBoltOn( int entID, const char *boltOnName )
 {
-	G_RemoveBoltOn( &g_entities[entID], boltOnName );
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_RemoveBoltOn" );
+	Q3_LogHelmetCommandEntry( "Q3_RemoveBoltOn", entID, boltOnName );
+	if ( !ent )
+	{
+		return;
+	}
+
+	Q3_RemoveBoltOnFromEntity( ent, boltOnName, "Q3_RemoveBoltOn" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, boltOnName, "Q3_RemoveBoltOn mirror", Q3_BOLTON_OP_REMOVE, 0, qfalse );
 }
 
 
@@ -6266,7 +6731,15 @@ Q3_DropBoltOn
 */
 static void Q3_DropBoltOn( int entID, const char *boltOnName )
 {
-	G_DropBoltOn( &g_entities[entID], boltOnName );
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_DropBoltOn" );
+	Q3_LogHelmetCommandEntry( "Q3_DropBoltOn", entID, boltOnName );
+	if ( !ent )
+	{
+		return;
+	}
+
+	Q3_DropBoltOnFromEntity( ent, boltOnName, "Q3_DropBoltOn" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, boltOnName, "Q3_DropBoltOn mirror", Q3_BOLTON_OP_DROP, 0, qfalse );
 }
 
 
@@ -6281,22 +6754,15 @@ Q3_SetActiveBoltOn
 */
 static void Q3_SetActiveBoltOn( int entID, const char *boltOnName )
 {
-	gentity_t	*ent = &g_entities[entID];
-
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOn" );
+	Q3_LogHelmetCommandEntry( "Q3_SetActiveBoltOn", entID, boltOnName );
 	if ( !ent )
 	{
-		//FIXME: error message
 		return;
 	}
 
-	byte	boltOn;
-
-	boltOn = G_BoltOnNumberForName( ent, boltOnName );
-
-	if ( boltOn >= 0 && boltOn < MAX_BOLT_ONS )
-	{
-		ent->activeBoltOn = boltOn;
-	}
+	Q3_SetActiveBoltOnForEntity( ent, boltOnName, "Q3_SetActiveBoltOn" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, boltOnName, "Q3_SetActiveBoltOn mirror", Q3_BOLTON_OP_ACTIVE, 0, qfalse );
 }
 
 
@@ -6311,26 +6777,14 @@ Q3_SetActiveBoltOnStartFrame
 */
 void Q3_SetActiveBoltOnStartFrame( int entID, int startFrame )
 {
-	gentity_t	*ent = &g_entities[entID];
-
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOnStartFrame" );
 	if ( !ent )
 	{
 		return;
 	}
 
-	if ( ent->activeBoltOn < 0 || ent->activeBoltOn >= MAX_BOLT_ONS )
-	{
-		return;
-	}
-
-	if ( !ent->client )
-	{
-		ent->boltOn.startFrame = startFrame;
-	}
-	else
-	{
-		ent->client->renderInfo.boltOns[ent->activeBoltOn].startFrame = startFrame;
-	}
+	Q3_SetActiveBoltOnStartFrameForEntity( ent, startFrame, "Q3_SetActiveBoltOnStartFrame" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, NULL, "Q3_SetActiveBoltOnStartFrame mirror", Q3_BOLTON_OP_START, startFrame, qfalse );
 }
 
 
@@ -6345,26 +6799,14 @@ Q3_SetActiveBoltOnEndFrame
 */
 void Q3_SetActiveBoltOnEndFrame( int entID, int endFrame )
 {
-	gentity_t *ent = &g_entities[entID];
-
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOnEndFrame" );
 	if ( !ent )
 	{
 		return;
 	}
 
-	if ( ent->activeBoltOn < 0 || ent->activeBoltOn >= MAX_BOLT_ONS )
-	{
-		return;
-	}
-
-	if ( !ent->client )
-	{
-		ent->boltOn.endFrame = endFrame;
-	}
-	else
-	{
-		ent->client->renderInfo.boltOns[ent->activeBoltOn].endFrame = endFrame;
-	}
+	Q3_SetActiveBoltOnEndFrameForEntity( ent, endFrame, "Q3_SetActiveBoltOnEndFrame" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, NULL, "Q3_SetActiveBoltOnEndFrame mirror", Q3_BOLTON_OP_END, endFrame, qfalse );
 }
 
 
@@ -6379,26 +6821,14 @@ Q3_SetActiveBoltOnAnimLoop
 */
 static void Q3_SetActiveBoltOnAnimLoop( int entID, qboolean loopAnim )
 {
-	gentity_t *ent = &g_entities[entID];
-
+	gentity_t *ent = Q3_GetBoltOnEntity( entID, "Q3_SetActiveBoltOnAnimLoop" );
 	if ( !ent )
 	{
 		return;
 	}
 
-	if ( ent->activeBoltOn < 0 || ent->activeBoltOn >= MAX_BOLT_ONS )
-	{
-		return;
-	}
-
-	if ( !ent->client )
-	{
-		ent->boltOn.loopAnim = loopAnim;
-	}
-	else
-	{
-		ent->client->renderInfo.boltOns[ent->activeBoltOn].loopAnim = loopAnim;
-	}
+	Q3_SetActiveBoltOnAnimLoopForEntity( ent, loopAnim, "Q3_SetActiveBoltOnAnimLoop" );
+	Q3_MirrorPlayerHelmetBoltOn( entID, ent, NULL, "Q3_SetActiveBoltOnAnimLoop mirror", Q3_BOLTON_OP_LOOP, 0, loopAnim );
 }
 
 

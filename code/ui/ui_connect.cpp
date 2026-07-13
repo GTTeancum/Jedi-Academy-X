@@ -4,10 +4,6 @@
 
 #include "ui_local.h"
 
-#ifdef _XBOX
-#include "../win32/xb_log.h"
-#endif
-
 /*
 ===============================================================================
 
@@ -28,16 +24,6 @@ UI_DrawConnect
 */
 void UI_DrawConnect( const char *servername, const char *updateInfoString )
 {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	extern void SP_DrawSPLoadScreen( void );
-	XBLF("STEFX: UI_DrawConnect replacing inherited JA loadingMenu server='%s' update='%s' state=%d map='%s'",
-		servername ? servername : "",
-		updateInfoString ? updateInfoString : "",
-		cls.state,
-		Cvar_VariableString( "ui_mapname" ));
-	SP_DrawSPLoadScreen();
-	return;
-#else
 	// We need to use this special hack variable, nothing else is set up yet:
 	const char *s = Cvar_VariableString( "ui_mapname" );
 
@@ -91,7 +77,6 @@ void UI_DrawConnect( const char *servername, const char *updateInfoString )
 	// Now, force it to draw:
 	extern void Menu_Paint( menuDef_t *menu, qboolean forcePaint );
 	Menu_Paint( menu, qtrue );
-#endif
 }
 
 

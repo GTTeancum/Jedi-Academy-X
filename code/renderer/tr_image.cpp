@@ -561,19 +561,27 @@ static qboolean R_XboxIsHighFidelityUIFont( const char *name )
 
 static qboolean R_XboxIsBorgAlphaCutoutTexture( const char *name )
 {
+	char canonicalName[MAX_QPATH];
+	int i;
+
 	if ( !name )
 	{
 		return qfalse;
 	}
 
-	return ( !Q_stricmp( name, "textures/borg/bars" ) ||
-			 !Q_stricmp( name, "textures/borg/bars.tga" ) ||
-			 !Q_stricmp( name, "textures/borg/bars2" ) ||
-			 !Q_stricmp( name, "textures/borg/bars2.tga" ) ||
-			 !Q_stricmp( name, "textures/borg/basic1" ) ||
-			 !Q_stricmp( name, "textures/borg/basic1.tga" ) ||
-			 !Q_stricmp( name, "textures/borg/borgladder" ) ||
-			 !Q_stricmp( name, "textures/borg/borgladder.tga" ) );
+	Q_strncpyz( canonicalName, GenerateImageMappingName( name ), sizeof( canonicalName ) );
+	for ( i = 0; canonicalName[i]; ++i )
+	{
+		if ( canonicalName[i] == '\\' )
+		{
+			canonicalName[i] = '/';
+		}
+	}
+
+	return ( !Q_stricmp( canonicalName, "textures/borg/bars" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/borgladder" ) );
 }
 
 #endif
@@ -748,12 +756,7 @@ static void Upload32( const char *debugName, unsigned *data,
 			if ( scan[i*4 + 3] != 255 ) 
 			{
 				samples = 4;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-				if ( !stefxBorgAlphaProbe )
-#endif
-				{
-					break;
-				}
+				break;
 			}
 		}
 		
@@ -813,7 +816,7 @@ static void Upload32( const char *debugName, unsigned *data,
 		if ( stefxBorgAlphaProbe )
 		{
 			XBLF("STEFX_BORG_ALPHA_UPLOAD image='%s' source=%dx%d upload=%dx%d samples=%d internal=0x%x alphaMin=%d alphaMax=%d alphaLt128=%d alphaGe128=%d texbits=%d picmip=%d lightmap=%d",
-				debugName,
+				debugName ? debugName : "<null>",
 				img_width,
 				img_height,
 				width,
@@ -859,6 +862,30 @@ static void Upload32( const char *debugName, unsigned *data,
 	{
 		*pformat = format;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( R_XboxIsBorgAlphaCutoutTexture( debugName ) )
+		{
+			XBLF("STEFX: DDS_TRACE upload32 image='%s' source=%dx%d fmt=0x%08x mips=%d picmip=%d lightmap=%d",
+				debugName ? debugName : "<null>",
+				img_width,
+				img_height,
+				(unsigned int)format,
+				mipcount,
+				picmip,
+				isLightmap);
+		}
+		else if ( debugName && strstr( debugName, "env/junk_" ) )
+		{
+			XBLF("STEFX: DDS_TRACE upload32 image='%s' source=%dx%d fmt=0x%08x mips=%d picmip=%d lightmap=%d",
+				debugName,
+				img_width,
+				img_height,
+				(unsigned int)format,
+				mipcount,
+				picmip,
+				isLightmap);
+		}
+#endif
 #ifdef _XBOX
 		JkaFakeglSetDDSUploadPicmip(picmip ? r_picmip->integer : 0);
 #endif
@@ -1520,6 +1547,7 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	byte *pPalette = NULL;
 	TGAHeader_t parsedHeader;
 	TGAHeader_t *pHeader = &parsedHeader;
+	bool bPalettedTga = false;
 
 
 	*pic = NULL;
@@ -1539,7 +1567,12 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 
 	if (filelen < (int)sizeof(TGAHeader_t))
 	{
-		TGA_FORMAT_ERROR("LoadTGA: file too short for TGA header\n");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: LoadTGA too-short name='%s' len=%d header=%d", name ? name : "<null>", filelen, (int)sizeof(TGAHeader_t));
+#endif
+		sprintf(sErrorString, "LoadTGA: file too short for TGA header (File: \"%s\", len=%d)", name ? name : "<null>", filelen);
+		bFormatErrors = true;
+		goto TGADone;
 	}
 
 	parsedHeader.byIDFieldLength = pTempLoadedBuffer[0];
@@ -1554,10 +1587,10 @@ int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	parsedHeader.wImageHeight = (word)(pTempLoadedBuffer[14] | (pTempLoadedBuffer[15] << 8));
 	parsedHeader.byImagePlanes = pTempLoadedBuffer[16];
 	parsedHeader.byScanLineOrder = pTempLoadedBuffer[17];
-	bool bPalettedTga = (pHeader->byImageType == 1);
+	bPalettedTga = (pHeader->byImageType == 1);
 
 	if (bPalettedTga)
-	{	
+	{
 		if (pHeader->byColourmapType != 1)
 		{
 			TGA_FORMAT_ERROR("LoadTGA: colour mapped images must include a colourmap\n");
@@ -1898,20 +1931,6 @@ TGADone:
 
 	if (bFormatErrors)
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLF("STEFX: LoadTGA format error file='%s' error='%s' type=%u cmap=%u first=%u len=%u entry=%u wh=%ux%u planes=%u attr=0x%02x filelen=%d",
-			name, sErrorString,
-			(unsigned int)pHeader->byImageType,
-			(unsigned int)pHeader->byColourmapType,
-			(unsigned int)pHeader->w1stColourMapEntry,
-			(unsigned int)pHeader->wColourMapLength,
-			(unsigned int)pHeader->byColourMapEntrySize,
-			(unsigned int)pHeader->wImageWidth,
-			(unsigned int)pHeader->wImageHeight,
-			(unsigned int)pHeader->byImagePlanes,
-			(unsigned int)pHeader->byScanLineOrder,
-			filelen);
-#endif
 		Com_Error( ERR_DROP, "%s( File: \"%s\" )\n",sErrorString,name);
 	}
 	return filelen;

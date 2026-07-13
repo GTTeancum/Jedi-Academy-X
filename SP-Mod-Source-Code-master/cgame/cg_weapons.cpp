@@ -698,7 +698,6 @@ static void CG_AddViewWeaponForSlot( playerState_t *ps, centity_t *cent, int spl
 	const weaponData_t  *wData;
 	clientInfo_t	*ci;
 	float		fovOffset;
-	qboolean	showImpulseFlash;
 
 	if ( !ps || !cent ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -936,17 +935,29 @@ static void CG_AddViewWeaponForSlot( playerState_t *ps, centity_t *cent, int spl
 		CG_LightningBolt( cent, flash.origin );
 
 		// check to see if there should be an impulse flash
-		showImpulseFlash = qfalse;
-		if ( cent && cent->muzzleFlashTime > 0 && cg.time >= cent->muzzleFlashTime &&
-			cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME )
-		{
-			showImpulseFlash = qtrue;
-		}
-		if ( showImpulseFlash ||
+		if ( ( cg.time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME ) ||
 		   ( ( ps->weapon == WP_PHASER ) && (  cent->currentState.eFlags & EF_FIRING ) ) )
 		{
 			flash.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON | splitSlotRenderfx;
 			cgi_R_AddRefEntityToScene( &flash );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			{
+				static int stefxViewWeaponFlashLogBudget = 24;
+				if ( stefxViewWeaponFlashLogBudget > 0 )
+				{
+					XBLF("STEFX: CG_AddViewWeapon flash slot=%d ent=%d weapon=%d flashModel=%d slotfx=0x%x flashTime=%d now=%d firing=%d",
+						CG_STEFX_ViewWeaponSlotFromRenderfx( splitSlotRenderfx ),
+						cent->currentState.number,
+						ps->weapon,
+						flash.hModel,
+						splitSlotRenderfx,
+						cent->muzzleFlashTime,
+						cg.time,
+						( cent->currentState.eFlags & EF_FIRING ) ? 1 : 0 );
+					stefxViewWeaponFlashLogBudget--;
+				}
+			}
+#endif
 		}
 	}
 	else
@@ -962,7 +973,16 @@ static void CG_AddViewWeaponForSlot( playerState_t *ps, centity_t *cent, int spl
 }
 
 void CG_AddViewWeapon( playerState_t *ps ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	int splitSlotRenderfx = 0;
+	if ( cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 )
+	{
+		splitSlotRenderfx = RF_STEFX_SPLIT_SLOT0;
+	}
+	CG_AddViewWeaponForSlot( ps, &cg_entities[cg.snap->ps.clientNum], splitSlotRenderfx );
+#else
 	CG_AddViewWeaponForSlot( ps, &cg_entities[cg.snap->ps.clientNum], 0 );
+#endif
 }
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)

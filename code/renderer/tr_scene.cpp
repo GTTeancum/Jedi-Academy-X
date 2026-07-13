@@ -17,6 +17,12 @@ extern "C" volatile unsigned int g_SPXBSplitP2RendererRefs;
 extern "C" volatile unsigned int g_SPXBSplitP2RendererLastModel;
 extern "C" volatile unsigned int g_SPXBSplitP2RendererLastRenderfx;
 extern "C" volatile unsigned int g_SPXBSplitP2RendererLastZ;
+extern "C" volatile unsigned int g_SPXBHelmetP1Model;
+extern "C" volatile unsigned int g_SPXBHelmetP2Model;
+extern "C" volatile unsigned int g_SPXBHelmetRendererRefs;
+extern "C" volatile unsigned int g_SPXBHelmetRendererLastModel;
+extern "C" volatile unsigned int g_SPXBHelmetRendererLastRenderfx;
+extern "C" volatile unsigned int g_SPXBHelmetRendererLastEnt;
 #endif
 
 #ifdef VV_LIGHTING
@@ -38,6 +44,15 @@ static bool R_XboxTracePolyShader( const shader_t *shader )
 		strstr( name, "gfx/interface/" ) ||
 		strstr( name, "crosshair" );
 }
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static bool R_STEFX_IsSplitHelmetModel( qhandle_t model )
+{
+	return model &&
+		( model == (qhandle_t)g_SPXBHelmetP1Model ||
+			model == (qhandle_t)g_SPXBHelmetP2Model );
+}
+#endif
 #endif
 
 int			r_firstSceneDrawSurf;
@@ -284,6 +299,13 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 #ifdef _XBOX
 	backEndData->entities[r_numentities].visible = -1;
 #if defined(STEFX_ELITE_FORCE_SP)
+	if ( ent->reType == RT_MODEL && R_STEFX_IsSplitHelmetModel( ent->hModel ) )
+	{
+		++g_SPXBHelmetRendererRefs;
+		g_SPXBHelmetRendererLastModel = (unsigned int)ent->hModel;
+		g_SPXBHelmetRendererLastRenderfx = (unsigned int)ent->renderfx;
+		g_SPXBHelmetRendererLastEnt = (unsigned int)ent->number;
+	}
 	if ( ent->reType == RT_MODEL && ent->number > 0 && ent->number == (int)g_SPXBSplitP2Ent )
 	{
 		++g_SPXBSplitP2RendererRefs;
@@ -782,7 +804,16 @@ void RE_RenderScene( const refdef_t *fd ) {
 				}
 				if (slot == 1 && hasP2Refdef)
 				{
-					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, p2PvsOrigin);
+					/* Some EF maps report a valid-looking chase-camera cluster whose
+					   PVS marks no world leaves. Keep the P2 camera independent, but
+					   seed world visibility from P1 so the retry stays PVS-bounded. */
+					int areaByte;
+					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, sourceParms.pvsOrigin);
+					for (areaByte = 0; areaByte < MAX_MAP_AREA_BYTES; ++areaByte)
+					{
+						tr.refdef.areamask[areaByte] = sourceRefdef.areamask[areaByte];
+					}
+					tr.refdef.areamaskModified = qtrue;
 				}
 				if (logSplitViewports)
 				{

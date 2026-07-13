@@ -175,11 +175,6 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 
 	if ( Q_stricmp (menuname, "datapad") == 0 ) 
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLog_Write("STEFX_INPUT_UI_SetActiveMenu route=datapad suppressed inherited JA datapad shell");
-		ui.Cvar_Set( "stefx_objectivesOverlay", "1" );
-		return;
-#else
 		UI_EFMainMenu_Deactivate();
 #ifdef _XBOX
 		XBLF("STEFX_INPUT_UI_SetActiveMenu route=datapad begin catcher=0x%x", ui.Key_GetCatcher());
@@ -196,7 +191,6 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 			UI_Cvar_VariableString("cl_paused"));
 #endif
 		return;
-#endif
 	}
 
 	if ( Q_stricmp (menuname, "missionfailed_menu") == 0 ) 
@@ -223,13 +217,8 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 #endif
 			return;
 		}
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLF("STEFX: UI_SetActiveMenu blocked inherited ui_popup menuID='%s'", menuID ? menuID : "");
-		return;
-#else
 		Menus_ActivateByName(menuID);	
 		return;
-#endif
 	}
 	
 	// Elite Force-owned UI routes must be added explicitly above.  Do not fall

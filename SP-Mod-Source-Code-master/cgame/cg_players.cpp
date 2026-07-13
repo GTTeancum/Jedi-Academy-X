@@ -30,6 +30,18 @@ extern "C" volatile unsigned int g_SPXBSplitP2ModelLegs;
 extern "C" volatile unsigned int g_SPXBSplitP2ModelTorso;
 extern "C" volatile unsigned int g_SPXBSplitP2ModelHead;
 extern "C" volatile unsigned int g_SPXBSplitP2ModelRenderfx;
+extern "C" volatile unsigned int g_SPXBHelmetP1Submitted;
+extern "C" volatile unsigned int g_SPXBHelmetP2Submitted;
+extern "C" volatile unsigned int g_SPXBHelmetP1Attached;
+extern "C" volatile unsigned int g_SPXBHelmetP2Attached;
+extern "C" volatile unsigned int g_SPXBHelmetP1Model;
+extern "C" volatile unsigned int g_SPXBHelmetP2Model;
+extern "C" volatile unsigned int g_SPXBHelmetP1Renderfx;
+extern "C" volatile unsigned int g_SPXBHelmetP2Renderfx;
+extern "C" volatile unsigned int g_SPXBHelmetCgameP1Slot0;
+extern "C" volatile unsigned int g_SPXBHelmetCgameP1Slot1;
+extern "C" volatile unsigned int g_SPXBHelmetCgameP2Slot0;
+extern "C" volatile unsigned int g_SPXBHelmetCgameP2Slot1;
 #endif
 
 void CG_PlayerAnimSounds( animsounds_t *animSounds, int frame, int entNum );
@@ -3996,12 +4008,14 @@ void CG_Player( centity_t *cent ) {
 			}
 			if ( stefxLogSplitModel )
 			{
-				XBLF( "STEFX_SPLIT_MODEL part=head role=%s ent=%d h=%d skin=%d rf=0x%x origin=(%g,%g,%g)",
+				XBLF( "STEFX_SPLIT_MODEL part=head role=%s ent=%d h=%d skin=%d rf=0x%x slot0=%d slot1=%d origin=(%g,%g,%g)",
 					stefxSplitRole,
 					cent->currentState.number,
 					head.hModel,
 					head.customSkin,
 					head.renderfx,
+					cent->gent->client->renderInfo.boltOns[0].index,
+					cent->gent->client->renderInfo.boltOns[1].index,
 					head.origin[0],
 					head.origin[1],
 					head.origin[2] );
@@ -4260,6 +4274,93 @@ void CG_Player( centity_t *cent ) {
 
 
 	boltOnInfo_t	*boltOnInfo;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		static int s_stefxBoltSectionLogBudget = 160;
+		static int s_stefxHelmetSlotLogBudget = 256;
+		static int s_stefxHelmetSlotLastTime[2] = { -999999, -999999 };
+		static int s_stefxHelmetSlotLastIndex0[2] = { -999999, -999999 };
+		static int s_stefxHelmetSlotLastIndex1[2] = { -999999, -999999 };
+		int roleIndex = -1;
+
+		if ( s_stefxBoltSectionLogBudget > 0 &&
+			( cent->currentState.number == 0 ||
+				cent->currentState.number == cg_stefxSplitScreenP2Entity.integer ||
+				cent->gent->client->renderInfo.boltOns[0].index >= 0 ||
+				cent->gent->client->renderInfo.boltOns[1].index >= 0 ) )
+		{
+			XBLog_Printf( "STEFX: CG bolt section ent=%d role=%s psClient=%d p2Cvar=%d time=%d numBoltOns=%d slot0=%d slot1=%d head=%d torso=%d legs=%d\n",
+				cent->currentState.number,
+				stefxSplitRole,
+				cg.snap ? cg.snap->ps.clientNum : -1,
+				cg_stefxSplitScreenP2Entity.integer,
+				cg.time,
+				numBoltOns,
+				cent->gent->client->renderInfo.boltOns[0].index,
+				cent->gent->client->renderInfo.boltOns[1].index,
+				head.hModel,
+				torso.hModel,
+				legs.hModel );
+			--s_stefxBoltSectionLogBudget;
+		}
+
+		if ( cg.snap && cent->currentState.number == cg.snap->ps.clientNum )
+		{
+			roleIndex = 0;
+		}
+		else if ( cent->currentState.number == cg_stefxSplitScreenP2Entity.integer )
+		{
+			roleIndex = 1;
+		}
+
+		if ( roleIndex >= 0 && s_stefxHelmetSlotLogBudget > 0 )
+		{
+			int slot0Index = cent->gent->client->renderInfo.boltOns[0].index;
+			int slot1Index = cent->gent->client->renderInfo.boltOns[1].index;
+			const char *slot0Name = ( slot0Index >= 0 && slot0Index < numBoltOns ) ? knownBoltOns[slot0Index].name : "<empty>";
+			const char *slot1Name = ( slot1Index >= 0 && slot1Index < numBoltOns ) ? knownBoltOns[slot1Index].name : "<empty>";
+			qboolean changed = (qboolean)( slot0Index != s_stefxHelmetSlotLastIndex0[roleIndex] ||
+				slot1Index != s_stefxHelmetSlotLastIndex1[roleIndex] );
+
+			if ( roleIndex == 0 )
+			{
+				g_SPXBHelmetCgameP1Slot0 = (unsigned int)slot0Index;
+				g_SPXBHelmetCgameP1Slot1 = (unsigned int)slot1Index;
+			}
+			else
+			{
+				g_SPXBHelmetCgameP2Slot0 = (unsigned int)slot0Index;
+				g_SPXBHelmetCgameP2Slot1 = (unsigned int)slot1Index;
+			}
+
+			if ( changed || cg.time - s_stefxHelmetSlotLastTime[roleIndex] >= 5000 )
+			{
+				XBLF( "STEFX: CG helmet slots ent=%d role=%s roleIndex=%d psClient=%d p2Cvar=%d time=%d numBoltOns=%d slot0=(idx:%d name:%s fx:0x%x) slot1=(idx:%d name:%s fx:0x%x) head=%d torso=%d legs=%d eFlags=0x%x",
+					cent->currentState.number,
+					stefxSplitRole,
+					roleIndex,
+					cg.snap ? cg.snap->ps.clientNum : -1,
+					cg_stefxSplitScreenP2Entity.integer,
+					cg.time,
+					numBoltOns,
+					slot0Index,
+					slot0Name,
+					cent->gent->client->renderInfo.boltOns[0].fxFlags,
+					slot1Index,
+					slot1Name,
+					cent->gent->client->renderInfo.boltOns[1].fxFlags,
+					head.hModel,
+					torso.hModel,
+					legs.hModel,
+					cent->currentState.eFlags );
+				--s_stefxHelmetSlotLogBudget;
+				s_stefxHelmetSlotLastTime[roleIndex] = cg.time;
+				s_stefxHelmetSlotLastIndex0[roleIndex] = slot0Index;
+				s_stefxHelmetSlotLastIndex1[roleIndex] = slot1Index;
+			}
+		}
+	}
+#endif
 	//Bolt-Ons
 	for ( i = 0; i < MAX_BOLT_ONS; i++ )
 	{
@@ -4271,8 +4372,27 @@ void CG_Player( centity_t *cent ) {
 			boltOn_t		*boltOn;
 			refEntity_t		boltOnRefEnt;
 			qboolean		attached = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			qboolean		isHelmetBoltOn = qfalse;
+			int				stefxHelmetRoleIndex = -1;
+			static int		s_stefxHelmetSubmitLogBudget = 256;
+#endif
 
 			boltOn = &knownBoltOns[index];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			isHelmetBoltOn = (qboolean)( !Q_stricmp( boltOn->name, "helmet" ) || !Q_stricmp( boltOn->name, "helmet_lhand" ) );
+			if ( isHelmetBoltOn )
+			{
+				if ( cg.snap && cent->currentState.number == cg.snap->ps.clientNum )
+				{
+					stefxHelmetRoleIndex = 0;
+				}
+				else if ( cent->currentState.number == cg_stefxSplitScreenP2Entity.integer )
+				{
+					stefxHelmetRoleIndex = 1;
+				}
+			}
+#endif
 			switch( boltOn->targetModel )
 			{
 			case MODEL_HEAD:
@@ -4303,10 +4423,81 @@ void CG_Player( centity_t *cent ) {
 				break;
 			}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( isHelmetBoltOn && s_stefxHelmetSubmitLogBudget > 0 )
+			{
+				vec3_t helmetDelta;
+
+				if ( attached )
+				{
+					VectorSubtract( boltOnRefEnt.origin, head.origin, helmetDelta );
+				}
+				else
+				{
+					VectorClear( helmetDelta );
+				}
+
+				XBLF( "STEFX: CG helmet boltOn ent=%d slot=%d name='%s' attached=%d target=%d model=%d fx=0x%x time=%d head=%d torso=%d legs=%d gun=%d eFlags=0x%x rf=0x%x renderNames=(%s,%s,%s) headOrg=(%g,%g,%g) boltOrg=(%g,%g,%g) delta=(%g,%g,%g) headAxis0=(%g,%g,%g) boltAxis0=(%g,%g,%g)",
+					cent->currentState.number,
+					i,
+					boltOn->name,
+					attached ? 1 : 0,
+					boltOn->targetModel,
+					boltOn->model.modelIndex,
+					boltOnInfo->fxFlags,
+					cg.time,
+					head.hModel,
+					torso.hModel,
+					legs.hModel,
+					gun.hModel,
+					cent->currentState.eFlags,
+					attached ? boltOnRefEnt.renderfx : renderfx,
+					cent->gent->client->renderInfo.legsModelName,
+					cent->gent->client->renderInfo.torsoModelName,
+					cent->gent->client->renderInfo.headModelName,
+					head.origin[0],
+					head.origin[1],
+					head.origin[2],
+					attached ? boltOnRefEnt.origin[0] : 0.0f,
+					attached ? boltOnRefEnt.origin[1] : 0.0f,
+					attached ? boltOnRefEnt.origin[2] : 0.0f,
+					helmetDelta[0],
+					helmetDelta[1],
+					helmetDelta[2],
+					head.axis[0][0],
+					head.axis[0][1],
+					head.axis[0][2],
+					attached ? boltOnRefEnt.axis[0][0] : 0.0f,
+					attached ? boltOnRefEnt.axis[0][1] : 0.0f,
+					attached ? boltOnRefEnt.axis[0][2] : 0.0f );
+				--s_stefxHelmetSubmitLogBudget;
+			}
+#endif
+
 			if ( attached )
 			{
 				boltOnRefEnt.shadowPlane = shadowPlane;
 				boltOnRefEnt.renderfx = renderfx;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if ( isHelmetBoltOn && stefxSplitActive )
+				{
+					boltOnRefEnt.renderfx &= ~( RF_STEFX_SPLIT_HIDE_SLOT0 | RF_STEFX_SPLIT_HIDE_SLOT1 );
+				}
+				if ( isHelmetBoltOn && stefxHelmetRoleIndex == 0 )
+				{
+					++g_SPXBHelmetP1Submitted;
+					g_SPXBHelmetP1Attached = attached ? 1u : 0u;
+					g_SPXBHelmetP1Model = (unsigned int)boltOnRefEnt.hModel;
+					g_SPXBHelmetP1Renderfx = (unsigned int)boltOnRefEnt.renderfx;
+				}
+				else if ( isHelmetBoltOn && stefxHelmetRoleIndex == 1 )
+				{
+					++g_SPXBHelmetP2Submitted;
+					g_SPXBHelmetP2Attached = attached ? 1u : 0u;
+					g_SPXBHelmetP2Model = (unsigned int)boltOnRefEnt.hModel;
+					g_SPXBHelmetP2Renderfx = (unsigned int)boltOnRefEnt.renderfx;
+				}
+#endif
 				//need to apply effects to boltOns too
 				CG_AddRefEntityWithPowerups( &boltOnRefEnt, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
 

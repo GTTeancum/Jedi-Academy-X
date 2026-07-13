@@ -24,6 +24,7 @@
 #include <xtl.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../xb_log.h"
 
 /* qgl_console.h will define glTexImage2D -> JkaGlTexImage2D for JKA call
  * sites.  We need fakegl's REAL glTexImage2D here, so undef the redirect
@@ -37,8 +38,21 @@ extern "C" void glTexImage2D(GLenum target, GLint level, GLint internalformat,
 extern "C" void XBLog_Write(const char *msg);
 extern "C" int JkaFakeglUploadDDS(GLint internalformat, GLsizei width, GLsizei height,
                                    GLint mipcount, const GLvoid *pixels, DWORD pixelBytes);
+extern "C" const char *JkaFakeglGetTextureDebugName(void);
 
 static int s_jkaDdsUploadPicmip = 0;
+
+static bool StefxDDSShouldTraceName(const char *name)
+{
+    if (!name) {
+        return false;
+    }
+    return strstr(name, "textures/borg/bars") ||
+        strstr(name, "textures/borg/bars2") ||
+        strstr(name, "textures/borg/basic1") ||
+        strstr(name, "textures/borg/borgladder") ||
+        strstr(name, "env/junk_");
+}
 
 extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip)
 {
@@ -302,6 +316,8 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
 
     DWORD *rgba = NULL;
     int dW = width, dH = height;
+    const char *traceName = JkaFakeglGetTextureDebugName();
+    const bool stefxTraceDDS = StefxDDSShouldTraceName(traceName);
 
     /* JKA's GL_DDS1_EXT / GL_DDS5_EXT inputs are full DDS containers
      * (header + data).  Standard S3TC inputs are just raw block data. */
@@ -314,6 +330,13 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
         const BYTE *data;
         int ddsMipCount, ddsBpp;
         DWORD fourcc = ParseDDSContainer(pixels, &dW, &dH, &ddsMipCount, &ddsBpp, &data);
+        if (stefxTraceDDS) {
+            XBLog_Writef("STEFX: DDS_TRACE bridge image='%s' internal=0x%08x call=%dx%d dds=%dx%d mips=%d bpp=%d fourcc=0x%08x picmip=%d hasHeader=%d",
+                traceName, (unsigned int)internalformat,
+                width, height, dW, dH, ddsMipCount, ddsBpp,
+                (unsigned int)fourcc, s_jkaDdsUploadPicmip,
+                hasDdsHeader ? 1 : 0);
+        }
         if (!hasDdsHeader && fourcc == 0 && type == GL_UNSIGNED_BYTE) {
             /* R_CreateBuiltinImages seeds *savegame with an ordinary RGBA
              * scratch buffer but tags it GL_DDS1_EXT so later savegame loads
@@ -343,8 +366,21 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
                 XBLog_Write("JkaGlTexImage2D: DDS picmip applied before direct upload");
             }
             DWORD payloadBytes = DDSPayloadBytes(fourcc, dW, dH, levels, ddsBpp);
+            if (stefxTraceDDS) {
+                XBLog_Writef("STEFX: DDS_TRACE bridge direct-attempt image='%s' internal=0x%08x size=%dx%d levels=%d payload=%u fourcc=0x%08x",
+                    traceName, (unsigned int)internalformat, dW, dH,
+                    levels, (unsigned int)payloadBytes, (unsigned int)fourcc);
+            }
             if (JkaFakeglUploadDDS(internalformat, dW, dH, levels, data, payloadBytes)) {
+                if (stefxTraceDDS) {
+                    XBLog_Writef("STEFX: DDS_TRACE bridge direct-ok image='%s' internal=0x%08x size=%dx%d levels=%d",
+                        traceName, (unsigned int)internalformat, dW, dH, levels);
+                }
                 return;
+            }
+            if (stefxTraceDDS) {
+                XBLog_Writef("STEFX: DDS_TRACE bridge direct-failed image='%s' internal=0x%08x size=%dx%d levels=%d",
+                    traceName, (unsigned int)internalformat, dW, dH, levels);
             }
             XBLog_Write("JkaGlTexImage2D: direct DDS upload failed; skipping RGBA decode on Xbox");
             return;
@@ -404,6 +440,10 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
     }
 
     if (rgba) {
+        if (stefxTraceDDS) {
+            XBLog_Writef("STEFX: DDS_TRACE bridge rgba-decode image='%s' upload=%dx%d internal=0x%08x",
+                traceName, dW, dH, (unsigned int)internalformat);
+        }
         ClampXboxTexture(&rgba, &dW, &dH);
         glTexImage2D(target, level, GL_RGBA, dW, dH, border,
                      GL_RGBA, GL_UNSIGNED_BYTE, rgba);

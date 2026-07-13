@@ -239,6 +239,15 @@ typedef enum //# setType_e
 	SET_NO_ANGLES, //## %t="BOOL_TYPES" # This NPC/player will not have any bone angle overrides or pitch or roll (should only be used in cinematics)
 
 	//# #sep calls
+	SET_BOLTON_ON,			//## %s="Bolton name" # Turn on a boltOn
+	SET_BOLTON_OFF,			//## %s="Bolton name" # Turn off a boltOn
+	SET_BEAMIN_BOLTON,		//## %s="Bolton name" # Beam in a boltOn
+	SET_BEAMOUT_BOLTON,		//## %s="Bolton name" # Beam out a boltOn
+	SET_BOLTON_DROP,		//## %s="Bolton name" # Drop a boltOn
+	SET_BOLTON_ACTIVE,		//## %s="Bolton name" # Name of active boltOn
+	SET_BOLTON_STARTFRAME,	//## %d="0" # Active boltOn start frame
+	SET_BOLTON_ENDFRAME,	//## %d="0" # Active boltOn end frame
+	SET_BOLTON_ANIMLOOP,	//## %t="BOOL_TYPES" # Active boltOn loops animation
 	SET_SKILL,//## %r%d="0" # Cannot set this, only get it - valid values are 0 through 3
 
 	//# #sep Special tables

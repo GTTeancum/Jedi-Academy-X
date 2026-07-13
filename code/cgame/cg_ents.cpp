@@ -10,10 +10,12 @@
 #include "FxScheduler.h"
 #include "..\game\wp_saber.h"
 #include "..\game\g_vehicles.h"
+#include "..\game\boltOns.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 #endif
 
+extern qboolean CG_ApplyBoltOnToRefEnt( refEntity_t *newBoltOn, boltOn_t *boltOn, boltOnInfo_t *bOInfo, const vec3_t org, refEntity_t *targModel );
 extern void CG_AddSaberBlade( centity_t *cent, centity_t *scent, refEntity_t *saber, int renderfx, int modelIndex, vec3_t origin, vec3_t angles);
 extern void CG_CheckSaberInWater( centity_t *cent, centity_t *scent, int modelIndex, vec3_t origin, vec3_t angles );
 extern void CG_ForcePushBlur( const vec3_t org, qboolean darkSide = qfalse );
@@ -329,10 +331,34 @@ static void CG_EntityEffects( centity_t *cent ) {
 	}
 }
 
-void CG_AddRefEntWithTransportEffect ( centity_t *cent, refEntity_t *ent )
+static void CG_AddBoltOns( centity_t *cent, refEntity_t *refEnt )
+{
+	refEntity_t boltOnRefEnt;
+
+	if ( !cent || !cent->gent || !refEnt || !refEnt->hModel )
+	{
+		return;
+	}
+
+	if ( cent->gent->boltOn.index < 0 || cent->gent->boltOn.index >= numBoltOns )
+	{
+		return;
+	}
+
+	if ( CG_ApplyBoltOnToRefEnt( &boltOnRefEnt, &knownBoltOns[cent->gent->boltOn.index], &cent->gent->boltOn, cent->lerpOrigin, refEnt ) )
+	{
+		cgi_R_AddRefEntityToScene( &boltOnRefEnt );
+	}
+}
+
+void CG_AddRefEntWithTransportEffect ( centity_t *cent, refEntity_t *ent, qboolean boltOns = qtrue )
 {
 	// We are a normal thing....
 	cgi_R_AddRefEntityToScene (ent);
+	if ( boltOns )
+	{
+		CG_AddBoltOns( cent, ent );
+	}
 
 	if ( ent->renderfx & RF_PULSATE && cent->gent->owner && cent->gent->owner->health &&
 		!cent->gent->owner->s.number && cent->gent->owner->client && //only for player

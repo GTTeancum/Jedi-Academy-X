@@ -1141,12 +1141,8 @@ static qboolean UI_DeferMenuScript ( const char **args )
 
 		if ( deferred )
 		{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			XBLF("STEFX: VideoSetup blocked inherited warning parser menu '%s'", warningMenuName ? warningMenuName : "");
-#else
 			// Open the warning menu
 			Menus_OpenByName(warningMenuName);
-#endif
 		}
 
 		return deferred;
@@ -1450,11 +1446,7 @@ static qboolean UI_RunMenuScript ( const char **args )
 			}
 			else
 			{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-				XBLog_Write("STEFX: UI script closeingame skipped inherited mainhud activation");
-#else
 				Menus_ActivateByName("mainhud");
-#endif
 			}
 #ifdef _XBOX
 			XBLF("STEFX: UI script closeingame done catcherAfter=0x%x paused='%s'",
@@ -1474,11 +1466,7 @@ static qboolean UI_RunMenuScript ( const char **args )
 			trap_Key_ClearStates();
 			Cvar_Set( "cl_paused", "0" );
 			Menus_CloseAll();
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			XBLog_Write("STEFX: UI script closedatapad skipped inherited mainhud activation");
-#else
 			Menus_ActivateByName("mainhud");
-#endif
 
 			Cvar_Set( "cg_updatedDataPadForcePower1", "0" );
 			Cvar_Set( "cg_updatedDataPadForcePower2", "0" );
@@ -3530,16 +3518,10 @@ void _UI_Init( qboolean inGameLoad )
 
 	if (inGameLoad)
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-#ifdef _XBOX
-		XBLog_Write("STEFX: _UI_Init skipping inherited JA parser menu set during in-game load");
-#endif
-#else
 #ifdef _XBOX
 		XBLog_Write("JA: _UI_Init: UI_LoadMenus ui/ingame.txt...");
 #endif
 		UI_LoadMenus("ui/ingame.txt", qtrue);
-#endif
 	}
 	else
 	{
@@ -3563,13 +3545,7 @@ void _UI_Init( qboolean inGameLoad )
 
 	if (inGameLoad)
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-#ifdef _XBOX
-		XBLog_Write("STEFX: _UI_Init skipping inherited JA AssetCache during in-game load");
-#endif
-#else
 		AssetCache();
-#endif
 	}
 	else
 	{
@@ -3665,10 +3641,6 @@ UI_ParseMenu
 */
 void UI_ParseMenu(const char *menuFile)
 {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLF("STEFX: blocked inherited JA UI_ParseMenu file='%s'", menuFile ? menuFile : "(null)");
-	return;
-#endif
 	char	*buffer,*holdBuffer,*token2;
 	int len;
 	int menuDefs = 0;
@@ -3825,10 +3797,6 @@ UI_LoadMenus
 */
 void UI_LoadMenus(const char *menuFile, qboolean reset)
 {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLF("STEFX: blocked inherited JA UI_LoadMenus file='%s' reset=%d", menuFile ? menuFile : "(null)", (int)reset);
-	return;
-#endif
 //	pc_token_t token;
 //	int handle;
 	int start;
@@ -3926,16 +3894,6 @@ void UI_Load(void)
 	char *menuSet;
 	char lastName[1024];
 	menuDef_t *menu = Menu_GetFocused();
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-#ifdef _XBOX
-	XBLog_Write("STEFX: UI_Load EF cache refresh replaces inherited JA parser reload");
-#endif
-	Menu_Cache();
-	UI_EFMainMenu_Cache();
-	UI_EFPauseMenu_Cache();
-	return;
-#endif
 
 	if (!uiInfo.inGameLoad)
 	{
@@ -5428,12 +5386,6 @@ UI_DataPadMenu
 */
 void UI_DataPadMenu(void)
 {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLog_Write("STEFX_INPUT_UI_DataPadMenu replaced inherited JA datapad parser menu with EF objectives overlay");
-	ui.Cvar_Set( "stefx_objectivesOverlay", "1" );
-	ui.Key_SetCatcher( KEYCATCH_UI );
-	return;
-#endif
 	int	newForcePower,newObjective;
 
 #ifdef _XBOX
@@ -5574,11 +5526,7 @@ void UI_InGameMenu(const char*menuID)
 		}
 		else
 		{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			XBLF("STEFX_INPUT_UI_InGameMenu blocked inherited explicit JA menu '%s'", menuID ? menuID : "");
-#else
 			Menus_ActivateByName(menuID);
-#endif
 		}
 	}
 	else
@@ -6068,10 +6016,6 @@ void UI_SetItemVisible(menuDef_t *menu,const char *itemname,qboolean visible);
 // if this is the first time into the force power allocation screen, show the INSTRUCTION screen
 static void	UI_ForceHelpActive( void )
 {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLog_Write("STEFX: UI_ForceHelpActive blocked inherited JA force-help menu");
-	return;
-#endif
 	int	tier_storyinfo = Cvar_VariableIntegerValue( "tier_storyinfo" );
 
 	// First time, show instructions
@@ -6691,10 +6635,6 @@ static void UI_CheckForForceCheat( void )
 
 	// Twiddling controls was a mess. Instead, just skip this menu and go to weapons:
 	Menus_CloseAll();
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLog_Write("STEFX: UI_InitForceSelect blocked inherited JA weapon-select menu");
-	return;
-#endif
 	Menus_OpenByName( "ingameWpnSelect" );
 }
 
@@ -7043,10 +6983,6 @@ static void UI_EquipWeapon ( const int weaponIndex )
 
 static void	UI_LoadMissionSelectMenu( const char *cvarName )
 {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLF("STEFX: UI_LoadMissionSelectMenu blocked inherited JA mission-select cvar='%s'", cvarName ? cvarName : "");
-	return;
-#endif
 	int holdLevel = (int)trap_Cvar_VariableValue(cvarName);
 
 	// Figure out which tier menu to load
@@ -7479,11 +7415,7 @@ void UI_CheckVid1Data(const char *menuTo,const char *warningMenuName)
 	if (!applyChanges)
 	{
 //		Menus_CloseAll();
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLF("STEFX: UI_CheckVidReset blocked inherited goto parser menu '%s'", menuTo ? menuTo : "");
-#else
 		Menus_OpenByName(menuTo);
-#endif
 		return;
 	}
 
@@ -7491,11 +7423,7 @@ void UI_CheckVid1Data(const char *menuTo,const char *warningMenuName)
 	{
 //		Menus_SaveGoToMenu(menuTo);							// Save menu you're going to
 //		Menus_HideItems(menu->window.name);					// HIDE videMenu in case you have to come back
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLF("STEFX: UI_CheckVidReset blocked inherited warning parser menu '%s'", warningMenuName ? warningMenuName : "");
-#else
 		Menus_OpenByName(warningMenuName);				// Give warning
-#endif
 	}
 	else
 	{
@@ -8338,12 +8266,7 @@ void UI_xboxErrorPopup(xbErrorPopupType popup)
 	// Display the menu - but first make sure to close it, in case it's open.
 	// Fixes a bug where openMenuCount gets screwed up.
 	Menus_CloseByName( "xbox_error_popup" );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	XBLF("STEFX: UI_xboxErrorPopup blocked inherited JA popup menu type=%d", popup);
-	return;
-#else
 	Menus_ActivateByName( "xbox_error_popup" );
-#endif
 }
 
 extern unsigned long getGameBlocks(char * filename);

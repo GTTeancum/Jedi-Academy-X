@@ -1514,7 +1514,7 @@ static qboolean STEFX_SplitShouldSupplementP2Entity( const gentity_t *gent, cons
 		{
 			*distSq = 0.0f;
 		}
-		return (qboolean)( cg.renderingThirdPerson != 0 );
+		return qtrue;
 	}
 
 	currentDistSq = STEFX_SplitSceneDistanceSquared( gent->currentOrigin, p2->currentOrigin );

@@ -10,6 +10,7 @@
 #include "wp_saber.h"
 #include "g_vehicles.h"
 #include "objectives.h"
+#include "boltOns.h"
 
 extern int WP_SaberInitBladeData( gentity_t *ent );
 extern void G_CreateG2AttachedWeaponModel( gentity_t *ent, const char *weaponModel, int boltNum, int weaponNum );
@@ -2327,6 +2328,7 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 		client->ps.friction = 6;
 		client->ps.gravity = g_gravity->value;
 		ent->flags &= ~FL_NO_KNOCKBACK;
+		VectorSet( client->renderInfo.scaleXYZ, 100, 100, 100 );
 		client->renderInfo.lookTarget = ENTITYNUM_NONE;
 		client->renderInfo.lookTargetClearTime = 0;
 		client->renderInfo.lookMode = LM_ENT;
@@ -2487,6 +2489,8 @@ qboolean ClientSpawn(gentity_t *ent, SavedGameJustLoaded_e eSavedGameJustLoaded 
 		// Make sure no Sequencer exists then Get a new one.
 		IIcarusInterface::GetIcarus()->DeleteIcarusID( ent->m_iIcarusID );
 		ent->m_iIcarusID = IIcarusInterface::GetIcarus()->GetIcarusID( ent->s.number );
+
+		G_InitBoltOnData( ent );
 
 		if ( spawnPoint->spawnflags & 64 )	//NOWEAPON
 		{//player starts with absolutely no weapons

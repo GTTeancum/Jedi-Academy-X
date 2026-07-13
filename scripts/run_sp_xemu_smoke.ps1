@@ -8,6 +8,7 @@ param(
     [switch]$Build,
     [int]$Duration = 90,
     [int]$Interval = 10,
+    [int]$FirstShotDelay = 20,
     [string]$Name = "",
     [string]$Iso = "",
     [string]$Port = "4460",
@@ -17,6 +18,7 @@ param(
     [string]$WatchCr2 = "",
     [switch]$PollXBlog,
     [switch]$XBlogAutoDumps,
+    [switch]$VisualCheck,
     [string]$PollXBlogAddr = "",
     [string]$PollXBlogPhysDelta = "0x284000",
     [switch]$VideoDebug,
@@ -44,7 +46,6 @@ New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 if ([string]::IsNullOrWhiteSpace($Iso)) {
     $Iso = $defaultIso
 }
-$Iso = [System.IO.Path]::GetFullPath($Iso)
 
 $normalizedMaps = @()
 if ($Maps.Count -eq 0) {
@@ -59,26 +60,6 @@ foreach ($entry in $Maps) {
     }
 }
 $Maps = $normalizedMaps
-
-function Normalize-CommandLines {
-    param(
-        [string[]]$Values
-    )
-
-    $normalized = @()
-    foreach ($entry in $Values) {
-        foreach ($piece in ($entry -split ',')) {
-            $trimmed = $piece.Trim()
-            if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
-                $normalized += $trimmed
-            }
-        }
-    }
-    return $normalized
-}
-
-$Command = @(Normalize-CommandLines -Values $Command)
-$PostMapCommand = @(Normalize-CommandLines -Values $PostMapCommand)
 
 $normalizedDumps = @()
 foreach ($entry in $DumpMem) {
@@ -166,8 +147,6 @@ function Initialize-StageFromSource {
         "ef_sp_level.txt",
         "ef_sp_commands.txt",
         "ef_sp_postmap_commands.txt",
-        "ef_sp_active_commands.txt",
-        "ef_sp_active_command_time.txt",
         "ja_sp_level.txt",
         "ja_sp_commands.txt",
         "ja_sp_postmap_commands.txt",
@@ -272,27 +251,6 @@ foreach ($mapName in $Maps) {
     Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_log.txt") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $stageDir "memmap.txt") -Force -ErrorAction SilentlyContinue
 
-    if (-not $Repack) {
-        $controlFiles = @(
-            (Join-Path $stageDir "ef_sp_level.txt"),
-            (Join-Path $stageDir "ef_sp_commands.txt"),
-            (Join-Path $stageDir "ef_sp_postmap_commands.txt")
-        ) | Where-Object { Test-Path -LiteralPath $_ }
-        $isoWriteTime = if (Test-Path -LiteralPath $Iso) {
-            [System.IO.File]::GetLastWriteTimeUtc($Iso)
-        }
-        else {
-            [DateTime]::MinValue
-        }
-        $newerControls = @($controlFiles | Where-Object {
-            [System.IO.File]::GetLastWriteTimeUtc($_) -gt $isoWriteTime
-        })
-
-        if ($newerControls.Count -gt 0) {
-            Write-Warning "Stage control files are newer than the ISO. Use -Repack for authoritative map/command changes; otherwise this run may launch stale ISO contents."
-        }
-    }
-
     if ($Repack) {
         if (-not (Test-Path $builtXbe)) {
             throw "Built XBE not found: $builtXbe"
@@ -338,6 +296,7 @@ foreach ($mapName in $Maps) {
         "--port", $Port,
         "--duration", "$Duration",
         "--interval", "$Interval",
+        "--first-shot-delay", "$FirstShotDelay",
         "--smoke-keymap"
     )
 
@@ -391,8 +350,27 @@ foreach ($mapName in $Maps) {
 
     Push-Location $repoRoot
     try {
+        $runStart = Get-Date
         python @argsList
-        $results += [pscustomobject]@{ Map = $mapName; ExitCode = $LASTEXITCODE; Name = $runName }
+        $runExitCode = $LASTEXITCODE
+        if ($VisualCheck -and $runExitCode -eq 0) {
+            $report = Get-ChildItem -LiteralPath $outputDir -Filter "${runName}_*.report.txt" -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -ge $runStart.AddMinutes(-1) } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+            if ($null -eq $report) {
+                Write-Host "Visual check failed: no report found for $runName"
+                $runExitCode = 1
+            }
+            else {
+                $prefix = $report.FullName -replace '\.report\.txt$', ''
+                python (Join-Path $repoRoot "scripts\check_visual_smoke.py") "${prefix}_*.png" --log $report.FullName
+                if ($LASTEXITCODE -ne 0) {
+                    $runExitCode = $LASTEXITCODE
+                }
+            }
+        }
+        $results += [pscustomobject]@{ Map = $mapName; ExitCode = $runExitCode; Name = $runName }
     }
     finally {
         Pop-Location

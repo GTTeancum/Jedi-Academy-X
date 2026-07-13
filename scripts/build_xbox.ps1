@@ -1393,35 +1393,6 @@ function Update-EFXboxPatchPk3 {
     ) -WorkingDirectory $repoRoot
 }
 
-function Update-EFBorgShaderScript {
-    param(
-        [string]$BaseEfDir
-    )
-
-    $borgShader = Join-Path $BaseEfDir "scripts\borg.shader"
-    if (-not (Test-Path -LiteralPath $borgShader -PathType Leaf)) {
-        Write-Warning "Missing Borg shader script for Xbox patching: $borgShader"
-        return
-    }
-
-    $text = Get-Content -LiteralPath $borgShader -Raw
-    $patched = $text.
-        Replace("textures/borg/static.tga", "textures/borg/static").
-        Replace("textures/borg/static2.tga", "textures/borg/static2").
-        Replace("textures/borg/static_yellow.tga", "textures/borg/static_yellow").
-        Replace("textures/borg/static.jpg", "textures/borg/static").
-        Replace("textures/borg/static2.jpg", "textures/borg/static2").
-        Replace("textures/borg/static_yellow.jpg", "textures/borg/static_yellow").
-        Replace("textures/borg/static.dds", "textures/borg/static").
-        Replace("textures/borg/static2.dds", "textures/borg/static2").
-        Replace("textures/borg/static_yellow.dds", "textures/borg/static_yellow")
-
-    if ($patched -ne $text) {
-        Set-Content -LiteralPath $borgShader -Value $patched -Encoding ASCII
-        Write-Host "Patched Borg static shader image references to extensionless staged assets: $borgShader"
-    }
-}
-
 function Update-EFXboxSoundBank {
     param(
         [string]$BaseEfDir
@@ -1465,7 +1436,6 @@ function Update-EFConsoleAssetLists {
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
-    Update-EFBorgShaderScript -BaseEfDir $baseEfDir
     Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
@@ -1516,3 +1486,4 @@ switch ($Target) {
         Invoke-BuildGraph -Projects $mpProjects
     }
 }
+

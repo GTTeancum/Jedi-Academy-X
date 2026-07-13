@@ -384,7 +384,7 @@ typedef struct {
 
 typedef struct {
 	byte			active;
-//	byte			isDetail;
+	byte			isDetail;
 	byte			isEnvironment;
 	byte			isSpecular;
 	byte			isBumpMap;
@@ -1325,9 +1325,6 @@ extern	cvar_t	*r_speeds;				// various levels of information display
 extern  cvar_t	*r_detailTextures;		// enables/disables detail texturing stages
 
 extern	cvar_t	*r_novis;				// disable/enable usage of PVS
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-extern	cvar_t	*stefx_xbox_world_novis;	// Xbox diagnostic: force world leaves visible
-#endif
 extern	cvar_t	*r_nocull;
 extern	cvar_t	*r_facePlaneCull;		// enables culling of planar surfaces with back side test
 extern	cvar_t	*r_nocurves;

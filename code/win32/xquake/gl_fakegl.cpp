@@ -2304,6 +2304,21 @@ public:
 
 		D3DFORMAT srcPixelFormat = GLToDXPixelFormat(internalformat, format);
 		D3DFORMAT destPixelFormat = srcPixelFormat;
+#ifdef _XBOX
+		if ( g_force16bitTextures && ( internalformat == GL_RGBA8 || internalformat == GL_RGB8 ) )
+		{
+			static int s_xboxExplicit32BitTextureLogs = 0;
+			if ( s_xboxExplicit32BitTextureLogs < 16 )
+			{
+				Con_Printf("STEFX_FAKEGL_FORMAT explicit32 internal=0x%04x src=%d wh=%dx%d\n",
+					internalformat,
+					(int)srcPixelFormat,
+					(int)width,
+					(int)height);
+				++s_xboxExplicit32BitTextureLogs;
+			}
+		}
+#endif
 		// Can the surface handle that format?
 		hr = m_pD3D->CheckDeviceFormat(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, m_d3dsdBackBuffer.Format,
 			0, D3DRTYPE_TEXTURE, destPixelFormat);
@@ -2773,6 +2788,14 @@ private:
 			switch ( format ) {
 			case GL_RGBA:
 				switch ( internalformat ) {
+				case GL_RGBA8:
+					d3dFormat = D3DFMT_A8R8G8B8; break;
+				case GL_RGB8:
+					d3dFormat = D3DFMT_X8R8G8B8; break;
+				case GL_RGBA4:
+					d3dFormat = D3DFMT_A4R4G4B4; break;
+				case GL_RGB5:
+					d3dFormat = D3DFMT_R5G6B5; break;
 				default:
 				case 4:
 //					d3dFormat = D3DFMT_A1R5G5B5; break;

@@ -10,6 +10,7 @@
 #include "..\game\anims.h"
 #include "..\game\wp_saber.h"
 #include "..\game\g_vehicles.h"
+#include "..\game\boltOns.h"
 #include "..\Rufl\hstring.h"
 
 #define	LOOK_SWING_SCALE	0.5f
@@ -5009,6 +5010,57 @@ void CG_AddForceSightShell( refEntity_t *ent, centity_t *cent )
 	cgi_R_AddRefEntityToScene( ent );
 }
 
+qboolean CG_ApplyBoltOnToRefEnt( refEntity_t *newBoltOn, boltOn_t *boltOn, boltOnInfo_t *bOInfo, const vec3_t org, refEntity_t *targModel )
+{
+	int i;
+	vec3_t dir;
+
+	if ( !newBoltOn || !boltOn || !bOInfo || !targModel )
+	{
+		return qfalse;
+	}
+
+	memset( newBoltOn, 0, sizeof(*newBoltOn) );
+
+	newBoltOn->hModel = cgs.model_draw[boltOn->model.modelIndex];
+	if ( !newBoltOn->hModel )
+	{
+		return qfalse;
+	}
+
+	newBoltOn->frame = bOInfo->frame;
+	VectorCopy( org, newBoltOn->lightingOrigin );
+
+	AnglesToAxis( boltOn->angleOffsets, newBoltOn->axis );
+	for ( i = 0; i < 3; i++ )
+	{
+		if ( boltOn->model.scaleXYZ[i] != 100.0f )
+		{
+			VectorScale( newBoltOn->axis[i], boltOn->model.scaleXYZ[i] / 100.0f, newBoltOn->axis[i] );
+			newBoltOn->nonNormalizedAxes = qtrue;
+		}
+	}
+
+	CG_PositionRotatedEntityOnTag( newBoltOn, targModel, targModel->hModel, boltOn->targetTag, NULL );
+
+	vectoangles( newBoltOn->axis[0], bOInfo->lastAngles );
+	for ( i = 0; i < 3; i++ )
+	{
+		if ( boltOn->originOffsets[i] )
+		{
+			VectorCopy( newBoltOn->axis[i], dir );
+			if ( newBoltOn->nonNormalizedAxes )
+			{
+				VectorNormalize( dir );
+			}
+			VectorMA( newBoltOn->origin, boltOn->originOffsets[i], dir, newBoltOn->origin );
+		}
+	}
+
+	VectorCopy( newBoltOn->origin, bOInfo->lastOrigin );
+	return qtrue;
+}
+
 /*
 ===============
 CG_AddRefEntityWithPowerups
@@ -9019,7 +9071,7 @@ extern void WP_SaberUpdateOldBladeData( gentity_t *ent );
 	refEntity_t		gun;
 	refEntity_t		flash;
 	refEntity_t		flashlight;
-	int				renderfx, i;
+	int				renderfx, i, index;
 	const weaponInfo_t	*weapon;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int		s_stefxMultipartPlayerLogBudget = 96;
@@ -9538,6 +9590,88 @@ Ghoul2 Insert End
 		vectoangles( legs.axis[0], cent->gent->client->renderInfo.eyeAngles );
 	}
 
+	}
+
+	{
+		boltOnInfo_t *boltOnInfo;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxBoltOnSubmitBudget = 64;
+#endif
+		for ( i = 0; i < MAX_BOLT_ONS; i++ )
+		{
+			boltOnInfo = &cent->gent->client->renderInfo.boltOns[i];
+			index = boltOnInfo->index;
+
+			if ( index >= 0 && index < numBoltOns )
+			{
+				boltOn_t *boltOn;
+				refEntity_t boltOnRefEnt;
+				qboolean attached = qfalse;
+
+				boltOn = &knownBoltOns[index];
+				switch ( boltOn->targetModel )
+				{
+				case MODEL_HEAD:
+					if ( head.hModel )
+					{
+						attached = CG_ApplyBoltOnToRefEnt( &boltOnRefEnt, boltOn, boltOnInfo, cent->lerpOrigin, &head );
+					}
+					break;
+				case MODEL_TORSO:
+					if ( torso.hModel )
+					{
+						attached = CG_ApplyBoltOnToRefEnt( &boltOnRefEnt, boltOn, boltOnInfo, cent->lerpOrigin, &torso );
+					}
+					break;
+				case MODEL_LEGS:
+					if ( legs.hModel )
+					{
+						attached = CG_ApplyBoltOnToRefEnt( &boltOnRefEnt, boltOn, boltOnInfo, cent->lerpOrigin, &legs );
+					}
+					break;
+				case MODEL_WEAPON1:
+					if ( gun.hModel )
+					{
+						attached = CG_ApplyBoltOnToRefEnt( &boltOnRefEnt, boltOn, boltOnInfo, cent->lerpOrigin, &gun );
+					}
+					break;
+				default:
+					break;
+				}
+
+				if ( attached )
+				{
+					boltOnRefEnt.shadowPlane = shadowPlane;
+					boltOnRefEnt.renderfx = renderfx;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+					if ( s_stefxBoltOnSubmitBudget > 0 )
+					{
+						XBLog_Printf( "STEFX: CG_Player boltOn submit ent=%d slot=%d index=%d name='%s' target=%d model=%d\n",
+							cent->currentState.number,
+							i,
+							index,
+							boltOn->name,
+							boltOn->targetModel,
+							boltOn->model.modelIndex );
+						--s_stefxBoltOnSubmitBudget;
+					}
+#endif
+					CG_AddRefEntityWithPowerups( &boltOnRefEnt, cent->currentState.powerups & ~(1 << PW_DISINT_6), cent );
+
+					if ( boltOnInfo->fxFlags & BOLTON_BEAMIN )
+					{
+						boltOnRefEnt.customShader = cgs.media.transportShader;
+						boltOnRefEnt.shaderTime = ( boltOnInfo->startTime + 2000 ) * 0.001f;
+						CG_AddRefEntityWithPowerups( &boltOnRefEnt, cent->currentState.powerups & ~(1 << PW_DISINT_6), cent );
+
+						if ( boltOnInfo->startTime + 1900 < cg.time )
+						{
+							boltOnInfo->fxFlags &= ~BOLTON_BEAMIN;
+						}
+					}
+				}
+			}
+		}
 	}
 
 	//FIXME: for debug, allow to draw a cone of the NPC's FOV...

@@ -28,7 +28,6 @@ extern void ChangeWeapon( gentity_t *ent, int newWeapon );
 extern void ScoreBoardReset(void);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
-extern void STEFX_TestMissionFailedFromGame( const char *source );
 #endif
 extern void WP_SaberReflectCheck( gentity_t *self, usercmd_t *ucmd  );
 extern void WP_SaberUpdate( gentity_t *self, usercmd_t *ucmd );
@@ -209,14 +208,6 @@ static void STEFX_QueueActiveCommandFromGame( const usercmd_t *ucmd )
 				continue;
 			}
 			Com_PrintfAlways( "STEFX_SAVELOAD: game queue active command '%s'\n", commandLine );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if ( Q_stricmp( commandLine, "stefx_test_missionfailed" ) == 0 )
-			{
-				STEFX_TestMissionFailedFromGame( "active-command" );
-				s_queued = qtrue;
-				continue;
-			}
-#endif
 			gi.SendConsoleCommand( va( "%s\n", commandLine ) );
 			s_queued = qtrue;
 		}

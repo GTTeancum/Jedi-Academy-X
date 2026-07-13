@@ -270,11 +270,7 @@ def monitor_pmemsave(sock, phys_addr, byte_count, path):
             os.remove(path)
     except Exception:
         pass
-    monitor_cmd(sock, "pmemsave 0x%08x 0x%x %s" % (phys_addr, byte_count, monitor_path), 2.0)
-    for _ in range(100):
-        if os.path.exists(path) and os.path.getsize(path) >= byte_count:
-            return True
-        time.sleep(0.1)
+    monitor_cmd(sock, "pmemsave 0x%08x 0x%x %s" % (phys_addr, byte_count, monitor_path), 1.0)
     return os.path.exists(path) and os.path.getsize(path) >= byte_count
 
 
@@ -361,40 +357,6 @@ def monitor_framebuffer_dump(sock, path, phys_delta=None):
             width, height, pitch, data, "virt" if used_delta is None else "0x%x" % used_delta)
     except Exception as exc:
         return False, "framebuffer convert failed: %s" % exc
-
-
-def framebuffer_capture_suspicious(path):
-    try:
-        img = Image.open(path).convert("RGB")
-        width, height = img.size
-        if width <= 0 or height <= 0:
-            return True, "empty image"
-
-        step = max(1, min(width, height) // 120)
-        top_lit = top_total = bottom_lit = bottom_total = 0
-        for y in range(0, height, step):
-            in_top = y < (height // 2)
-            for x in range(0, width, step):
-                r, g, b = img.getpixel((x, y))
-                lit = (r + g + b) > 18
-                if in_top:
-                    top_total += 1
-                    if lit:
-                        top_lit += 1
-                else:
-                    bottom_total += 1
-                    if lit:
-                        bottom_lit += 1
-
-        total = top_total + bottom_total
-        lit_total = top_lit + bottom_lit
-        total_ratio = (float(lit_total) / float(total)) if total else 0.0
-        top_ratio = (float(top_lit) / float(top_total)) if top_total else 0.0
-        bottom_ratio = (float(bottom_lit) / float(bottom_total)) if bottom_total else 0.0
-        suspicious = total_ratio < 0.12 or top_ratio < 0.12 or bottom_ratio < 0.12
-        return suspicious, "lit=%.3f top=%.3f bottom=%.3f" % (total_ratio, top_ratio, bottom_ratio)
-    except Exception as exc:
-        return False, "quality check failed: %s" % exc
 
 
 def monitor_screendump(sock, path, phys_delta=None):
@@ -571,6 +533,8 @@ def main():
     parser.add_argument("--port", type=int, default=4460)
     parser.add_argument("--duration", type=int, default=60)
     parser.add_argument("--interval", type=int, default=5)
+    parser.add_argument("--first-shot-delay", type=float, default=0.0,
+                        help="Seconds to wait before the first framebuffer capture.")
     parser.add_argument("--hdd", default=r"C:\Games\Emulators\Xemu\HDD\jediacademy_hdd.qcow2")
     parser.add_argument("--xemu-exe", default=XEMU_JA,
                         help="Xemu executable to launch. Defaults to the JA-isolated copy.")
@@ -875,26 +839,6 @@ def main():
         "_g_SPXBWeaponLoadSlot4First4",
         "_g_SPXBWeaponRegFirst4",
         "_g_SPXBWeaponRegClassHash",
-        "_g_SPXBSplitP1Viewheight",
-        "_g_SPXBSplitP2Viewheight",
-        "_g_SPXBSplitP2Standheight",
-        "_g_SPXBSplitP2Crouchheight",
-        "_g_SPXBSplitP1Weapon",
-        "_g_SPXBSplitP2Weapon",
-        "_g_SPXBSplitP2PmFlags",
-        "_g_SPXBSplitP2EffectiveViewheight",
-        "_g_SPXBSplitP2StateWeapon",
-        "_g_SPXBSplitP2EffectiveWeapon",
-        "_g_SPXBSplitP2GameWeapon",
-        "_g_SPXBSplitP2GameViewheight",
-        "_g_SPXBSplitP2GameStateWeapon",
-        "_g_SPXBSplitP2GameClientNum",
-        "_g_SPXBSplitP2GameStage",
-        "_g_SPXBSplitP2GameSplit",
-        "_g_SPXBSplitP2GamePlayers",
-        "_g_SPXBSplitP2GameP2Cvar",
-        "_g_SPXBSplitP2GameCached",
-        "_g_SPXBSplitP2GameP1Ready",
         "_g_SPXBSplitCameraMode",
         "_g_SPXBSplitP1TraceFrac1000",
         "_g_SPXBSplitP1LocalX1000",
@@ -909,30 +853,91 @@ def main():
         "_g_SPXBDirectMapStatus",
         "_g_SPXBDirectMapHash",
         "_g_SPXBDirectMapQueuedCount",
-        "_g_SPXBBorgStaticStageCount",
-        "_g_SPXBBorgStaticFallbackCount",
-        "_g_SPXBBorgStaticLastSlot",
-        "_g_SPXBBorgStaticLastStage",
-        "_g_SPXBBorgStaticLastShaderHash",
-        "_g_SPXBBorgStaticLastImageHash",
-        "_g_SPXBBorgStaticLastTexnum",
-        "_g_SPXBBorgStaticLastFormat",
-        "_g_SPXBBorgStaticLastWidth",
-        "_g_SPXBBorgStaticLastHeight",
-        "_g_SPXBBorgStaticLastStateBits",
-        "_g_SPXBBorgStaticLastBlendBits",
+        "_g_SPXBSkyTraceMagic",
+        "_g_SPXBSkyOuterPresentMask",
+        "_g_SPXBSkyOuterFallbackMask",
+        "_g_SPXBSkyOuterTexMask",
+        "_g_SPXBSkyOuterDrawMask",
+        "_g_SPXBSkyLastPasses",
+        "_g_SPXBSkyLastSort",
+        "_g_SPXBSkyResolveMagic",
+        "_g_SPXBSkyResolveCount",
+        "_g_SPXBSkyResolveShaderNum",
+        "_g_SPXBSkyResolveMapHash",
+        "_g_SPXBSkyResolveResolvedHash",
+        "_g_SPXBSkyResolveSurfaceFlags",
+        "_g_SPXBSkyResolveDefault",
+        "_g_SPXBSkyResolveExplicit",
+        "_g_SPXBSkyResolveHasSky",
+        "_g_SPXBSkyResolvePasses",
+        "_g_SPXBSkyResolveSortX1000",
+        "_g_SPXBSkyResolveLightmap0",
+        "_g_SPXBShaderScanMagic",
+        "_g_SPXBShaderScanScriptsFound",
+        "_g_SPXBShaderScanShadersFound",
+        "_g_SPXBShaderScanLoaded",
+        "_g_SPXBShaderScanBytes",
+        "_g_SPXBShaderScanEntries",
+        "_g_SPXBShaderScanSkyLightSeen",
+        "_g_SPXBShaderScanJunkSkySeen",
+        "_g_SPXBShaderScanManifestActive",
+        "_g_SPXBShaderScanManifestReadLen",
+        "_g_SPXBShaderScanManifestCount",
+        "_g_SPXBShaderScanRawBytes",
+        "_g_SPXBShaderScanVoyagerListed",
+        "_g_SPXBShaderScanVoyagerReadLen",
+        "_g_SPXBShaderScanVoyagerSkyToken",
+        "_g_SPXBShaderScanCommonReadLen",
+        "_g_SPXBShaderLookupMagic",
+        "_g_SPXBShaderLookupCount",
+        "_g_SPXBShaderLookupHash",
+        "_g_SPXBShaderLookupIndexedFound",
+        "_g_SPXBShaderLookupLinearFound",
+        "_g_SPXBShaderLookupEntries",
+        "_g_SPXBHelmetP1Submitted",
+        "_g_SPXBHelmetP2Submitted",
+        "_g_SPXBHelmetP1Attached",
+        "_g_SPXBHelmetP2Attached",
+        "_g_SPXBHelmetP1Model",
+        "_g_SPXBHelmetP2Model",
+        "_g_SPXBHelmetP1Renderfx",
+        "_g_SPXBHelmetP2Renderfx",
+        "_g_SPXBHelmetRendererRefs",
+        "_g_SPXBHelmetRendererSurfaces",
+        "_g_SPXBHelmetRendererFiltered",
+        "_g_SPXBHelmetRendererLastModel",
+        "_g_SPXBHelmetRendererLastRenderfx",
+        "_g_SPXBHelmetRendererLastEnt",
+        "_g_SPXBHelmetRendererLastFilter",
+        "_g_SPXBHelmetRendererLastSurfaceModel",
+        "_g_SPXBHelmetGameP1Ensure",
+        "_g_SPXBHelmetGameP2Ensure",
+        "_g_SPXBHelmetGameP1Slot",
+        "_g_SPXBHelmetGameP2Slot",
+        "_g_SPXBHelmetCgameP1Slot0",
+        "_g_SPXBHelmetCgameP1Slot1",
+        "_g_SPXBHelmetCgameP2Slot0",
+        "_g_SPXBHelmetCgameP2Slot1",
+        "_g_SPXBHelmetBoltOnLoadLen",
+        "_g_SPXBHelmetBoltOnCount",
+        "_g_SPXBHelmetBoltOnHelmetIndex",
+        "_g_SPXBHelmetAddAttempts",
+        "_g_SPXBHelmetAddKnownIndex",
+        "_g_SPXBHelmetAddFailCode",
+        "_g_SPXBFallbackTraceMagic",
         "_g_SPXBFallbackStageCount",
-        "_g_SPXBFallbackLastSlot",
-        "_g_SPXBFallbackLastStage",
-        "_g_SPXBFallbackLastBundle",
         "_g_SPXBFallbackLastShaderHash",
         "_g_SPXBFallbackLastImageHash",
+        "_g_SPXBFallbackLastStage",
+        "_g_SPXBFallbackLastPasses",
+        "_g_SPXBFallbackLastFlags",
         "_g_SPXBFallbackLastTexnum",
-        "_g_SPXBFallbackLastFormat",
-        "_g_SPXBFallbackLastWidth",
-        "_g_SPXBFallbackLastHeight",
+        "_g_SPXBFallbackLastLightmap",
         "_g_SPXBFallbackLastStateBits",
-        "_g_SPXBFallbackLastBlendBits",
+        "_g_SPXBFallbackLastIndexes",
+        "_g_SPXBFallbackLastX1000",
+        "_g_SPXBFallbackLastY1000",
+        "_g_SPXBFallbackLastZ1000",
         "_g_SPXBSVProbeMagic",
         "_g_SPXBSVProbePhase",
         "_g_SPXBSVProbeSubphase",
@@ -960,7 +965,7 @@ def main():
         else:
             log("monitor=disabled")
         start = time.time()
-        next_shot = 0.0
+        next_shot = max(0.0, float(args.first_shot_delay))
         shot = 0
         while time.time() - start < args.duration:
             elapsed = time.time() - start
@@ -1011,15 +1016,6 @@ def main():
                     words = parse_monitor_words(reply, xblog_addr)
                     if len(words) >= 9:
                         telemetry_words = words
-                        if xblog_cmd == "xp" and xblog_va_for_probe is not None:
-                            telemetry_addr = xblog_va_for_probe - 0x284000
-                            try:
-                                telemetry_reply = monitor_cmd(sock, "xp/%dwx 0x%08x" % (poll_words, telemetry_addr), 0.4)
-                                telemetry_probe = parse_monitor_words(telemetry_reply, telemetry_addr)
-                                if len(telemetry_probe) >= len(words):
-                                    telemetry_words = telemetry_probe
-                            except OSError:
-                                pass
                         boot_phase = words[0]
                         mirror_pos = words[1]
                         write_count = words[2]
@@ -1164,26 +1160,6 @@ def main():
                         weapon_load_slot4_first4 = word_for("_g_SPXBWeaponLoadSlot4First4")
                         weapon_reg_first4 = word_for("_g_SPXBWeaponRegFirst4")
                         weapon_reg_class_hash = word_for("_g_SPXBWeaponRegClassHash")
-                        split_p1_viewheight = word_for("_g_SPXBSplitP1Viewheight")
-                        split_p2_viewheight = word_for("_g_SPXBSplitP2Viewheight")
-                        split_p2_standheight = word_for("_g_SPXBSplitP2Standheight")
-                        split_p2_crouchheight = word_for("_g_SPXBSplitP2Crouchheight")
-                        split_p1_weapon = word_for("_g_SPXBSplitP1Weapon")
-                        split_p2_weapon = word_for("_g_SPXBSplitP2Weapon")
-                        split_p2_pm_flags = word_for("_g_SPXBSplitP2PmFlags")
-                        split_p2_effective_viewheight = word_for("_g_SPXBSplitP2EffectiveViewheight")
-                        split_p2_state_weapon = word_for("_g_SPXBSplitP2StateWeapon")
-                        split_p2_effective_weapon = word_for("_g_SPXBSplitP2EffectiveWeapon")
-                        split_p2_game_weapon = word_for("_g_SPXBSplitP2GameWeapon")
-                        split_p2_game_viewheight = word_for("_g_SPXBSplitP2GameViewheight")
-                        split_p2_game_state_weapon = word_for("_g_SPXBSplitP2GameStateWeapon")
-                        split_p2_game_client_num = word_for("_g_SPXBSplitP2GameClientNum")
-                        split_p2_game_stage = word_for("_g_SPXBSplitP2GameStage")
-                        split_p2_game_split = word_for("_g_SPXBSplitP2GameSplit")
-                        split_p2_game_players = word_for("_g_SPXBSplitP2GamePlayers")
-                        split_p2_game_p2cvar = word_for("_g_SPXBSplitP2GameP2Cvar")
-                        split_p2_game_cached = word_for("_g_SPXBSplitP2GameCached")
-                        split_p2_game_p1ready = word_for("_g_SPXBSplitP2GameP1Ready")
                         split_camera_mode = word_for("_g_SPXBSplitCameraMode")
                         split_p1_trace = word_for("_g_SPXBSplitP1TraceFrac1000")
                         split_p1_local_x = word_for("_g_SPXBSplitP1LocalX1000")
@@ -1198,30 +1174,91 @@ def main():
                         direct_status = word_for("_g_SPXBDirectMapStatus")
                         direct_hash = word_for("_g_SPXBDirectMapHash")
                         direct_queued = word_for("_g_SPXBDirectMapQueuedCount")
-                        borg_static_stage = word_for("_g_SPXBBorgStaticStageCount")
-                        borg_static_fallback = word_for("_g_SPXBBorgStaticFallbackCount")
-                        borg_static_slot = word_for("_g_SPXBBorgStaticLastSlot")
-                        borg_static_stage_num = word_for("_g_SPXBBorgStaticLastStage")
-                        borg_static_shader = word_for("_g_SPXBBorgStaticLastShaderHash")
-                        borg_static_image = word_for("_g_SPXBBorgStaticLastImageHash")
-                        borg_static_texnum = word_for("_g_SPXBBorgStaticLastTexnum")
-                        borg_static_format = word_for("_g_SPXBBorgStaticLastFormat")
-                        borg_static_width = word_for("_g_SPXBBorgStaticLastWidth")
-                        borg_static_height = word_for("_g_SPXBBorgStaticLastHeight")
-                        borg_static_state = word_for("_g_SPXBBorgStaticLastStateBits")
-                        borg_static_blend = word_for("_g_SPXBBorgStaticLastBlendBits")
-                        fallback_stage = word_for("_g_SPXBFallbackStageCount")
-                        fallback_slot = word_for("_g_SPXBFallbackLastSlot")
-                        fallback_stage_num = word_for("_g_SPXBFallbackLastStage")
-                        fallback_bundle = word_for("_g_SPXBFallbackLastBundle")
-                        fallback_shader = word_for("_g_SPXBFallbackLastShaderHash")
-                        fallback_image = word_for("_g_SPXBFallbackLastImageHash")
-                        fallback_texnum = word_for("_g_SPXBFallbackLastTexnum")
-                        fallback_format = word_for("_g_SPXBFallbackLastFormat")
-                        fallback_width = word_for("_g_SPXBFallbackLastWidth")
-                        fallback_height = word_for("_g_SPXBFallbackLastHeight")
-                        fallback_state = word_for("_g_SPXBFallbackLastStateBits")
-                        fallback_blend = word_for("_g_SPXBFallbackLastBlendBits")
+                        sky_magic = word_for("_g_SPXBSkyTraceMagic")
+                        sky_present = word_for("_g_SPXBSkyOuterPresentMask")
+                        sky_fallback = word_for("_g_SPXBSkyOuterFallbackMask")
+                        sky_tex = word_for("_g_SPXBSkyOuterTexMask")
+                        sky_draw = word_for("_g_SPXBSkyOuterDrawMask")
+                        sky_passes = word_for("_g_SPXBSkyLastPasses")
+                        sky_sort = word_for("_g_SPXBSkyLastSort")
+                        skyres_magic = word_for("_g_SPXBSkyResolveMagic")
+                        skyres_count = word_for("_g_SPXBSkyResolveCount")
+                        skyres_shader_num = word_for("_g_SPXBSkyResolveShaderNum")
+                        skyres_map_hash = word_for("_g_SPXBSkyResolveMapHash")
+                        skyres_resolved_hash = word_for("_g_SPXBSkyResolveResolvedHash")
+                        skyres_surface_flags = word_for("_g_SPXBSkyResolveSurfaceFlags")
+                        skyres_default = word_for("_g_SPXBSkyResolveDefault")
+                        skyres_explicit = word_for("_g_SPXBSkyResolveExplicit")
+                        skyres_has_sky = word_for("_g_SPXBSkyResolveHasSky")
+                        skyres_passes = word_for("_g_SPXBSkyResolvePasses")
+                        skyres_sort_x1000 = word_for("_g_SPXBSkyResolveSortX1000")
+                        skyres_lightmap0 = word_for("_g_SPXBSkyResolveLightmap0")
+                        shader_scan_magic = word_for("_g_SPXBShaderScanMagic")
+                        shader_scan_scripts = word_for("_g_SPXBShaderScanScriptsFound")
+                        shader_scan_shaders = word_for("_g_SPXBShaderScanShadersFound")
+                        shader_scan_loaded = word_for("_g_SPXBShaderScanLoaded")
+                        shader_scan_bytes = word_for("_g_SPXBShaderScanBytes")
+                        shader_scan_entries = word_for("_g_SPXBShaderScanEntries")
+                        shader_scan_sky_light = word_for("_g_SPXBShaderScanSkyLightSeen")
+                        shader_scan_junk_sky = word_for("_g_SPXBShaderScanJunkSkySeen")
+                        shader_scan_manifest_active = word_for("_g_SPXBShaderScanManifestActive")
+                        shader_scan_manifest_read_len = word_for("_g_SPXBShaderScanManifestReadLen")
+                        shader_scan_manifest_count = word_for("_g_SPXBShaderScanManifestCount")
+                        shader_scan_raw_bytes = word_for("_g_SPXBShaderScanRawBytes")
+                        shader_scan_voyager_listed = word_for("_g_SPXBShaderScanVoyagerListed")
+                        shader_scan_voyager_read_len = word_for("_g_SPXBShaderScanVoyagerReadLen")
+                        shader_scan_voyager_sky_token = word_for("_g_SPXBShaderScanVoyagerSkyToken")
+                        shader_scan_common_read_len = word_for("_g_SPXBShaderScanCommonReadLen")
+                        shader_lookup_magic = word_for("_g_SPXBShaderLookupMagic")
+                        shader_lookup_count = word_for("_g_SPXBShaderLookupCount")
+                        shader_lookup_hash = word_for("_g_SPXBShaderLookupHash")
+                        shader_lookup_indexed = word_for("_g_SPXBShaderLookupIndexedFound")
+                        shader_lookup_linear = word_for("_g_SPXBShaderLookupLinearFound")
+                        shader_lookup_entries = word_for("_g_SPXBShaderLookupEntries")
+                        helmet_p1_submitted = word_for("_g_SPXBHelmetP1Submitted")
+                        helmet_p2_submitted = word_for("_g_SPXBHelmetP2Submitted")
+                        helmet_p1_attached = word_for("_g_SPXBHelmetP1Attached")
+                        helmet_p2_attached = word_for("_g_SPXBHelmetP2Attached")
+                        helmet_p1_model = word_for("_g_SPXBHelmetP1Model")
+                        helmet_p2_model = word_for("_g_SPXBHelmetP2Model")
+                        helmet_p1_rf = word_for("_g_SPXBHelmetP1Renderfx")
+                        helmet_p2_rf = word_for("_g_SPXBHelmetP2Renderfx")
+                        helmet_renderer_refs = word_for("_g_SPXBHelmetRendererRefs")
+                        helmet_renderer_surfaces = word_for("_g_SPXBHelmetRendererSurfaces")
+                        helmet_renderer_filtered = word_for("_g_SPXBHelmetRendererFiltered")
+                        helmet_renderer_last_model = word_for("_g_SPXBHelmetRendererLastModel")
+                        helmet_renderer_last_rf = word_for("_g_SPXBHelmetRendererLastRenderfx")
+                        helmet_renderer_last_ent = word_for("_g_SPXBHelmetRendererLastEnt")
+                        helmet_renderer_last_filter = word_for("_g_SPXBHelmetRendererLastFilter")
+                        helmet_renderer_last_surface_model = word_for("_g_SPXBHelmetRendererLastSurfaceModel")
+                        helmet_game_p1_ensure = word_for("_g_SPXBHelmetGameP1Ensure")
+                        helmet_game_p2_ensure = word_for("_g_SPXBHelmetGameP2Ensure")
+                        helmet_game_p1_slot = word_for("_g_SPXBHelmetGameP1Slot")
+                        helmet_game_p2_slot = word_for("_g_SPXBHelmetGameP2Slot")
+                        helmet_cgame_p1_slot0 = word_for("_g_SPXBHelmetCgameP1Slot0")
+                        helmet_cgame_p1_slot1 = word_for("_g_SPXBHelmetCgameP1Slot1")
+                        helmet_cgame_p2_slot0 = word_for("_g_SPXBHelmetCgameP2Slot0")
+                        helmet_cgame_p2_slot1 = word_for("_g_SPXBHelmetCgameP2Slot1")
+                        helmet_bolton_load_len = word_for("_g_SPXBHelmetBoltOnLoadLen")
+                        helmet_bolton_count = word_for("_g_SPXBHelmetBoltOnCount")
+                        helmet_bolton_index = word_for("_g_SPXBHelmetBoltOnHelmetIndex")
+                        helmet_add_attempts = word_for("_g_SPXBHelmetAddAttempts")
+                        helmet_add_known_index = word_for("_g_SPXBHelmetAddKnownIndex")
+                        helmet_add_fail = word_for("_g_SPXBHelmetAddFailCode")
+                        fb_magic = word_for("_g_SPXBFallbackTraceMagic")
+                        fb_count = word_for("_g_SPXBFallbackStageCount")
+                        fb_shader = word_for("_g_SPXBFallbackLastShaderHash")
+                        fb_image = word_for("_g_SPXBFallbackLastImageHash")
+                        fb_stage = word_for("_g_SPXBFallbackLastStage")
+                        fb_passes = word_for("_g_SPXBFallbackLastPasses")
+                        fb_flags = word_for("_g_SPXBFallbackLastFlags")
+                        fb_texnum = word_for("_g_SPXBFallbackLastTexnum")
+                        fb_lightmap = word_for("_g_SPXBFallbackLastLightmap")
+                        fb_state = word_for("_g_SPXBFallbackLastStateBits")
+                        fb_indexes = word_for("_g_SPXBFallbackLastIndexes")
+                        fb_x = word_for("_g_SPXBFallbackLastX1000")
+                        fb_y = word_for("_g_SPXBFallbackLastY1000")
+                        fb_z = word_for("_g_SPXBFallbackLastZ1000")
                         sv_probe_magic = word_for("_g_SPXBSVProbeMagic")
                         sv_probe_phase = word_for("_g_SPXBSVProbePhase")
                         sv_probe_subphase = word_for("_g_SPXBSVProbeSubphase")
@@ -1229,7 +1266,7 @@ def main():
                         sv_probe_b = word_for("_g_SPXBSVProbeB")
                         sv_probe_c = word_for("_g_SPXBSVProbeC")
                         sv_probe_d = word_for("_g_SPXBSVProbeD")
-                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d hgt=%u/%u/%u/%u wp=%u/%u eff=%u/%u/%u game=%u/%u/%u/%u glife=%u/%u/%u/%d/%d/%u pm=0x%08x p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u direct=%u/0x%08x/%u bstatic=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x/%u/%u/0x%08x/0x%08x fb=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x/%u/%u/0x%08x/0x%08x svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
+                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u sky=0x%08x/%u/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
                              heartbeat_rt, heartbeat_st, heartbeat_fps10 / 10.0,
@@ -1263,23 +1300,6 @@ def main():
                               signed32(split_p1_local_x), signed32(split_p1_local_y), signed32(split_p1_local_z),
                               signed32(split_p2_local_x), signed32(split_p2_local_y), signed32(split_p2_local_z),
                               signed32(split_local_diff_x), signed32(split_local_diff_y), signed32(split_local_diff_z),
-                              split_p1_viewheight, split_p2_viewheight,
-                              split_p2_standheight, split_p2_crouchheight,
-                              split_p1_weapon, split_p2_weapon,
-                               split_p2_effective_viewheight,
-                               split_p2_state_weapon,
-                               split_p2_effective_weapon,
-                               split_p2_game_weapon,
-                               split_p2_game_viewheight,
-                               split_p2_game_state_weapon,
-                               split_p2_game_client_num,
-                               split_p2_game_stage,
-                               split_p2_game_split,
-                               split_p2_game_players,
-                               signed32(split_p2_game_p2cvar),
-                               signed32(split_p2_game_cached),
-                               split_p2_game_p1ready,
-                               split_p2_pm_flags,
                               split_p2_refdef,
                               split_p2_scene_considered, split_p2_scene_added, split_p2_scene_self,
                               split_p2_model_enter, split_p2_model_return, split_p2_model_info,
@@ -1305,21 +1325,64 @@ def main():
                                weapon_model_disk_len, weapon_model_disk_success,
                                weapon_model_ident, weapon_model_version, weapon_model_size,
                                weapon_model_loaded, weapon_model_handle, weapon_model_fail,
+                               sky_magic, sky_present, sky_fallback, sky_tex,
+                               sky_draw, sky_passes, sky_sort,
                                direct_status, direct_hash, direct_queued,
-                               borg_static_stage, borg_static_fallback,
-                               borg_static_slot, borg_static_stage_num,
-                               borg_static_shader, borg_static_image,
-                               borg_static_texnum, borg_static_format,
-                               borg_static_width, borg_static_height,
-                               borg_static_state, borg_static_blend,
-                               fallback_stage, fallback_slot,
-                               fallback_stage_num, fallback_bundle,
-                               fallback_shader, fallback_image,
-                               fallback_texnum, fallback_format,
-                               fallback_width, fallback_height,
-                               fallback_state, fallback_blend,
-                              sv_probe_magic, sv_probe_phase, sv_probe_subphase,
+                             sv_probe_magic, sv_probe_phase, sv_probe_subphase,
                              sv_probe_a, sv_probe_b, sv_probe_c, sv_probe_d))
+                        if (helmet_game_p1_ensure or helmet_game_p2_ensure or
+                                helmet_cgame_p1_slot0 or helmet_cgame_p1_slot1 or
+                                helmet_cgame_p2_slot0 or helmet_cgame_p2_slot1 or
+                                helmet_p1_submitted or helmet_p2_submitted or
+                                helmet_renderer_refs or helmet_renderer_surfaces or
+                                helmet_renderer_filtered or helmet_bolton_load_len or
+                                helmet_bolton_count or helmet_add_attempts):
+                            log("xbloghelmet t=%.1f load=%u/%u/%u add=%u/%u/%u game=%u/%u/%u/%u cgame=%u/%u/%u/%u p1=%u/%u/%u/0x%08x p2=%u/%u/%u/0x%08x rend=%u/%u/%u/%u/0x%08x/%u/%u/%u" %
+                                (elapsed,
+                                 helmet_bolton_load_len, helmet_bolton_count,
+                                 helmet_bolton_index, helmet_add_attempts,
+                                 helmet_add_known_index, helmet_add_fail,
+                                 helmet_game_p1_ensure, helmet_game_p2_ensure,
+                                 helmet_game_p1_slot, helmet_game_p2_slot,
+                                 helmet_cgame_p1_slot0, helmet_cgame_p1_slot1,
+                                 helmet_cgame_p2_slot0, helmet_cgame_p2_slot1,
+                                 helmet_p1_submitted, helmet_p1_attached,
+                                 helmet_p1_model, helmet_p1_rf,
+                                 helmet_p2_submitted, helmet_p2_attached,
+                                 helmet_p2_model, helmet_p2_rf,
+                                 helmet_renderer_refs, helmet_renderer_surfaces,
+                                 helmet_renderer_filtered, helmet_renderer_last_model,
+                                 helmet_renderer_last_rf, helmet_renderer_last_ent,
+                                 helmet_renderer_last_filter,
+                                 helmet_renderer_last_surface_model))
+                        if fb_count or fb_shader or fb_image:
+                            log("xblogfb t=%.1f magic=0x%08x count=%u shader=0x%08x image=0x%08x stage=%u passes=%u flags=0x%08x tex=%u lm=%u state=0x%08x idx=%u xyz=%d/%d/%d" %
+                                (elapsed, fb_magic, fb_count, fb_shader, fb_image,
+                                 fb_stage, fb_passes, fb_flags, fb_texnum,
+                                 fb_lightmap, fb_state, fb_indexes,
+                                 signed32(fb_x), signed32(fb_y), signed32(fb_z)))
+                        if skyres_count or skyres_map_hash or skyres_resolved_hash:
+                            log("xblogskyres t=%.1f magic=0x%08x count=%u shaderNum=%u map=0x%08x resolved=0x%08x surf=0x%08x default=%u explicit=%u hasSky=%u passes=%u sort1000=%d lm0=%d" %
+                                (elapsed, skyres_magic, skyres_count, skyres_shader_num,
+                                 skyres_map_hash, skyres_resolved_hash, skyres_surface_flags,
+                                 skyres_default, skyres_explicit, skyres_has_sky,
+                                 skyres_passes, signed32(skyres_sort_x1000),
+                                 signed32(skyres_lightmap0)))
+                        if shader_scan_loaded or shader_lookup_count:
+                            log("xblogshader t=%.1f scan=0x%08x scripts=%u shaders=%u loaded=%u bytes=%u raw=%u entries=%u skyLight=%u junkSky=%u manifest=%u/%u/%u voyager=%u/%u/%u common=%u lookup=0x%08x count=%u hash=0x%08x indexed=%u linear=%u lookupEntries=%u" %
+                                (elapsed, shader_scan_magic, shader_scan_scripts,
+                                 shader_scan_shaders, shader_scan_loaded, shader_scan_bytes,
+                                 shader_scan_raw_bytes, shader_scan_entries,
+                                 shader_scan_sky_light, shader_scan_junk_sky,
+                                 shader_scan_manifest_active,
+                                 shader_scan_manifest_read_len,
+                                 shader_scan_manifest_count,
+                                 shader_scan_voyager_listed,
+                                 shader_scan_voyager_read_len,
+                                 shader_scan_voyager_sky_token,
+                                 shader_scan_common_read_len,
+                                 shader_lookup_magic, shader_lookup_count, shader_lookup_hash,
+                                 shader_lookup_indexed, shader_lookup_linear, shader_lookup_entries))
                     elif len(words) >= 3:
                         boot_phase = words[0]
                         mirror_pos = words[1]
@@ -1346,22 +1409,6 @@ def main():
                     if xblog_va_for_probe is not None and xblog_addr is not None:
                         xblog_phys_delta = xblog_va_for_probe - xblog_addr
                     ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
-                    if ok:
-                        suspicious, quality = framebuffer_capture_suspicious(png)
-                        retry = 0
-                        while suspicious and retry < 4:
-                            retry += 1
-                            time.sleep(0.12)
-                            ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
-                            if not ok:
-                                detail = "%s retry=%d after suspicious %s" % (detail, retry, quality)
-                                break
-                            suspicious, quality = framebuffer_capture_suspicious(png)
-                        detail = "%s quality=%s retries=%d%s" % (
-                            detail,
-                            quality,
-                            retry,
-                            " suspicious" if suspicious else "")
                     if ok:
                         shot_paths.append(png)
                     log("shot=%02d t=%.1f ok=%s bytes=%s detail=%s" %

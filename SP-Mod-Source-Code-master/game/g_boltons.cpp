@@ -1,5 +1,6 @@
 #include "b_local.h"
 #include "boltOns.h"
+#include "../../code/win32/xb_log.h"
 //#include "b_public.h"
 
 //extern void G_ParseBoltOnList( boltOn_t *boltOn );
@@ -14,6 +15,196 @@ extern qboolean G_ParseFloat( char **data, float *f );
 boltOn_t	knownBoltOns[MAX_GAME_BOLTONS];
 int			numBoltOns;
 char	boltOnList[0x10000];
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean s_stefxHelmetMirrorGuard = qfalse;
+
+extern "C" volatile unsigned int g_SPXBHelmetBoltOnLoadLen;
+extern "C" volatile unsigned int g_SPXBHelmetBoltOnCount;
+extern "C" volatile unsigned int g_SPXBHelmetBoltOnHelmetIndex;
+extern "C" volatile unsigned int g_SPXBHelmetAddAttempts;
+extern "C" volatile unsigned int g_SPXBHelmetAddKnownIndex;
+extern "C" volatile unsigned int g_SPXBHelmetAddFailCode;
+
+static qboolean STEFX_BoltOnNameContainsNoCase( const char *name, const char *needle )
+{
+	int needleLen;
+
+	if ( !name || !needle || !needle[0] )
+	{
+		return qfalse;
+	}
+
+	needleLen = strlen( needle );
+	while ( *name )
+	{
+		if ( !Q_stricmpn( name, needle, needleLen ) )
+		{
+			return qtrue;
+		}
+		++name;
+	}
+
+	return qfalse;
+}
+
+static qboolean STEFX_BoltOnIsHelmet( const char *boltOnName )
+{
+	return (qboolean)( boltOnName &&
+		( !Q_stricmp( boltOnName, "helmet" ) || !Q_stricmp( boltOnName, "helmet_lhand" ) ) );
+}
+
+static qboolean STEFX_BoltOnIsWornHelmet( const char *boltOnName )
+{
+	return (qboolean)( boltOnName && !Q_stricmp( boltOnName, "helmet" ) );
+}
+
+static qboolean STEFX_BoltOnEntityIsMunroScriptTarget( gentity_t *ent )
+{
+	if ( !ent )
+	{
+		return qfalse;
+	}
+
+	if ( ent == &g_entities[0] )
+	{
+		return qtrue;
+	}
+
+	if ( STEFX_BoltOnNameContainsNoCase( ent->targetname, "munro" ) ||
+		STEFX_BoltOnNameContainsNoCase( ent->script_targetname, "munro" ) ||
+		STEFX_BoltOnNameContainsNoCase( ent->NPC_type, "munro" ) )
+	{
+		return qtrue;
+	}
+
+	if ( ent->client && STEFX_BoltOnNameContainsNoCase( ent->client->squadname, "munro" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static void STEFX_BoltOnTraceHelmetOp( const char *op, gentity_t *ent, const char *boltOnName, int slot, int knownIndex )
+{
+	static int s_logBudget = 512;
+	const char *squadName;
+	int p2EntNum;
+
+	if ( s_logBudget <= 0 || !STEFX_BoltOnIsHelmet( boltOnName ) )
+	{
+		return;
+	}
+
+	squadName = ( ent && ent->client && ent->client->squadname ) ? ent->client->squadname : "<null>";
+	p2EntNum = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+
+	XBLog_Writef( "STEFX: helmet bolton %s trace ent=%d inuse=%d class='%s' target='%s' scriptTarget='%s' npc='%s' squad='%s' client=%d munroTarget=%d boltOn='%s' slot=%d index=%d active=%d p2Cvar=%d time=%d",
+		op ? op : "<null>",
+		ent ? ent->s.number : -1,
+		ent ? ent->inuse : 0,
+		ent && ent->classname ? ent->classname : "<null>",
+		ent && ent->targetname ? ent->targetname : "<null>",
+		ent && ent->script_targetname ? ent->script_targetname : "<null>",
+		ent && ent->NPC_type ? ent->NPC_type : "<null>",
+		squadName,
+		( ent && ent->client ) ? 1 : 0,
+		STEFX_BoltOnEntityIsMunroScriptTarget( ent ),
+		boltOnName ? boltOnName : "<null>",
+		slot,
+		knownIndex,
+		ent ? ent->activeBoltOn : -1,
+		p2EntNum,
+		level.time );
+	--s_logBudget;
+}
+
+static gentity_t *STEFX_BoltOnGetP2( void )
+{
+	int split = gi.Cvar_VariableIntegerValue( "stefx_splitScreen" );
+	int players = gi.Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+	int entNum = gi.Cvar_VariableIntegerValue( "stefx_splitScreenP2Entity" );
+
+	if ( !split || players < 2 || entNum <= 0 || entNum >= MAX_GENTITIES )
+	{
+		return NULL;
+	}
+
+	if ( !g_entities[entNum].inuse || !g_entities[entNum].client )
+	{
+		return NULL;
+	}
+
+	return &g_entities[entNum];
+}
+
+static void STEFX_BoltOnMirrorHelmetToPlayer( gentity_t *player, gentity_t *source, const char *boltOnName, qboolean add )
+{
+	byte slot;
+
+	if ( !player || !player->client || player == source )
+	{
+		return;
+	}
+
+	if ( add )
+	{
+		slot = G_BoltOnNumberForName( player, boltOnName );
+		if ( slot >= MAX_BOLT_ONS )
+		{
+			slot = G_AddBoltOn( player, boltOnName );
+			if ( slot >= MAX_BOLT_ONS )
+			{
+				slot = G_BoltOnNumberForName( player, boltOnName );
+			}
+		}
+		if ( slot < MAX_BOLT_ONS )
+		{
+			player->activeBoltOn = slot;
+		}
+	}
+	else
+	{
+		G_RemoveBoltOn( player, boltOnName );
+	}
+}
+
+static void STEFX_BoltOnMirrorPlayerHelmet( gentity_t *source, const char *boltOnName, qboolean add )
+{
+	static int s_logBudget = 96;
+	gentity_t *p1;
+	gentity_t *p2;
+
+	if ( s_stefxHelmetMirrorGuard || !STEFX_BoltOnIsWornHelmet( boltOnName ) ||
+		!STEFX_BoltOnEntityIsMunroScriptTarget( source ) )
+	{
+		return;
+	}
+
+	p1 = &g_entities[0];
+	p2 = STEFX_BoltOnGetP2();
+
+	s_stefxHelmetMirrorGuard = qtrue;
+	STEFX_BoltOnMirrorHelmetToPlayer( p1, source, boltOnName, add );
+	STEFX_BoltOnMirrorHelmetToPlayer( p2, source, boltOnName, add );
+	s_stefxHelmetMirrorGuard = qfalse;
+
+	if ( s_logBudget > 0 )
+	{
+		XBLog_Writef( "STEFX: helmet bolton mirror %s source=%d target='%s' scriptTarget='%s' npc='%s' boltOn='%s' p2=%d time=%d",
+			add ? "add" : "remove",
+			source ? source->s.number : -1,
+			source && source->targetname ? source->targetname : "<null>",
+			source && source->script_targetname ? source->script_targetname : "<null>",
+			source && source->NPC_type ? source->NPC_type : "<null>",
+			boltOnName ? boltOnName : "<null>",
+			p2 ? p2->s.number : -1,
+			level.time );
+		--s_logBudget;
+	}
+}
+#endif
 
 int G_GetBoltOnIndex( const char *boltOnName ) 
 {
@@ -387,9 +578,15 @@ void G_LoadBoltOns( void )
 	int			len;
 	const char	filename[] = "ext_data/boltOns.cfg";
 	char		*buffer;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	int helmetIndex = MAX_GAME_BOLTONS;
+#endif
 
 	gi.Printf( "Parsing %s\n", filename );
 	len = gi.FS_ReadFile( filename, (void **) &buffer );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBHelmetBoltOnLoadLen = ( len >= 0 ) ? (unsigned int)len : 0xFFFFFFFF;
+#endif
 	if ( len == -1 ) 
 	{
 		gi.Printf( "file not found\n" );
@@ -409,6 +606,10 @@ void G_LoadBoltOns( void )
 	int warriorbotIndex = -1;
 	for ( int i = 0; i < numBoltOns; i++ )
 	{
+		if ( Q_stricmp( knownBoltOns[i].name, "helmet" ) == 0 )
+		{
+			helmetIndex = i;
+		}
 		if ( Q_stricmp( knownBoltOns[i].name, "headbot_scoutbot" ) == 0 )
 		{
 			scoutbotIndex = i;
@@ -418,6 +619,8 @@ void G_LoadBoltOns( void )
 			warriorbotIndex = i;
 		}
 	}
+	g_SPXBHelmetBoltOnCount = (unsigned int)numBoltOns;
+	g_SPXBHelmetBoltOnHelmetIndex = (unsigned int)helmetIndex;
 	gi.Printf( "STEFX: G_LoadBoltOns loaded count=%d first='%s' last='%s' warrior=%d scout=%d\n",
 		numBoltOns,
 		numBoltOns > 0 ? knownBoltOns[0].name : "<none>",
@@ -430,17 +633,47 @@ void G_LoadBoltOns( void )
 byte G_AddBoltOn( gentity_t *ent, const char *boltOnName )
 {
 	int freeSlot, newIndex;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean traceHelmet = STEFX_BoltOnIsHelmet( boltOnName );
+	if ( traceHelmet )
+	{
+		g_SPXBHelmetAddAttempts++;
+		g_SPXBHelmetAddFailCode = 0;
+	}
+#endif
 
 	if ( !ent || !boltOnName || !boltOnName[0] )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( traceHelmet )
+		{
+			g_SPXBHelmetAddFailCode = 1;
+		}
+#endif
 		return BOLTON_NONE;
 	}
 
 	newIndex = G_GetBoltOnIndex( boltOnName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( traceHelmet )
+	{
+		g_SPXBHelmetAddKnownIndex = (unsigned int)newIndex;
+	}
+#endif
 	if ( newIndex < 0 || newIndex >= numBoltOns )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( traceHelmet )
+		{
+			g_SPXBHelmetAddFailCode = 2;
+		}
+#endif
 		return BOLTON_NONE;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_BoltOnTraceHelmetOp( "add-begin", ent, boltOnName, -1, newIndex );
+#endif
 
 	if ( !ent->client )
 	{
@@ -462,19 +695,34 @@ byte G_AddBoltOn( gentity_t *ent, const char *boltOnName )
 #ifndef FINAL_BUILD
 				gi.Printf("WARNING: %s already has boltOn turned on!\n", ent->targetname, boltOnName );
 #endif
-				return BOLTON_NONE;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				STEFX_BoltOnTraceHelmetOp( "add-duplicate", ent, boltOnName, freeSlot, newIndex );
+				STEFX_BoltOnMirrorPlayerHelmet( ent, boltOnName, qtrue );
+#endif
+				return freeSlot;
 			}
 		}
 
 		if ( freeSlot >= MAX_BOLT_ONS )
 		{
 			gi.Printf("WARNING: %s out of free boltOn slots! (MAX = %d)\n", ent->targetname, MAX_BOLT_ONS );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( traceHelmet )
+			{
+				g_SPXBHelmetAddFailCode = 3;
+			}
+#endif
 			return BOLTON_NONE;
 		}
 
 		G_ClearBoltOnInfo( &ent->client->renderInfo.boltOns[freeSlot] );
 		ent->client->renderInfo.boltOns[freeSlot].index = newIndex;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_BoltOnTraceHelmetOp( "add-applied", ent, boltOnName, freeSlot, newIndex );
+	STEFX_BoltOnMirrorPlayerHelmet( ent, boltOnName, qtrue );
+#endif
 
 	return freeSlot;
 }
@@ -494,6 +742,10 @@ void G_RemoveBoltOn( gentity_t *ent, const char *boltOnName )
 		return;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_BoltOnTraceHelmetOp( "remove-begin", ent, boltOnName, -1, namedIndex );
+#endif
+
 	if ( !ent->client )
 	{
 		if ( ent->boltOn.index == namedIndex )
@@ -511,6 +763,11 @@ void G_RemoveBoltOn( gentity_t *ent, const char *boltOnName )
 			}
 		}
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_BoltOnTraceHelmetOp( "remove-applied", ent, boltOnName, -1, namedIndex );
+	STEFX_BoltOnMirrorPlayerHelmet( ent, boltOnName, qfalse );
+#endif
 }
 
 void G_DropBoltOn( gentity_t *ent, const char *boltOnName )

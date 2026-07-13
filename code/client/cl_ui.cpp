@@ -428,13 +428,7 @@ void CL_DataPad_f(void)
 		cls.uiStarted &&
 #endif
 		cls.cgameStarted && (cls.state == CA_ACTIVE) ) {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		XBLog_Write("STEFX: CL_DataPad_f redirects inherited JA datapad command to EF +info");
-		Cvar_Set( "stefx_objectivesOverlay", "1" );
-		Cbuf_AddText( "+info\n" );
-#else
 		UI_SetActiveMenu("datapad",NULL);
-#endif
 	}
 #ifdef _XBOX
 	else {

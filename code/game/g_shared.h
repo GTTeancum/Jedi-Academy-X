@@ -128,6 +128,32 @@ typedef enum
 	NUM_TARGET_MODELS
 } targetModel_t;
 
+#define MAX_BOLT_ONS	8
+
+typedef struct modelInfo_s
+{
+	int		modelIndex;
+	vec3_t	scaleXYZ;
+	vec3_t	customRGB;
+	int		customAlpha;
+} modelInfo_t;
+
+typedef struct boltOnInfo_s
+{
+	int			index;
+	vec3_t		lastOrigin;
+	vec3_t		lastAngles;
+	int			frame;
+	int			startFrame;
+	int			endFrame;
+	int			startTime;
+	int			fxFlags;
+	qboolean	loopAnim;
+} boltOnInfo_t;
+
+#define BOLTON_BEAMIN	0x0001
+#define BOLTON_BEAMOUT	0x0002
+
 //renderFlags
 #define	RF_LOCKEDANGLE	1
 
@@ -164,6 +190,7 @@ typedef struct renderInfo_s
 
 	//Fields to apply to entire model set, individual model's equivalents will modify this value
 	byte	customRGBA[4];//Red Green Blue, 0 = don't apply
+	vec3_t	scaleXYZ;//Multi-axis scale, percentage-based
 
 	//Allow up to 4 PCJ lookup values to be stored here.
 	//The resolve to configstrings which contain the name of the
@@ -184,6 +211,8 @@ typedef struct renderInfo_s
 	vec3_t	boneAngles2; //angles of boneIndex2
 	vec3_t	boneAngles3; //angles of boneIndex3
 	vec3_t	boneAngles4; //angles of boneIndex4
+
+	boltOnInfo_t	boltOns[MAX_BOLT_ONS];
 
 	//RF?
 	int			renderFlags;
@@ -818,6 +847,8 @@ Ghoul2 Insert End
 	//FIXME: can these be removed/condensed/absorbed?
 	//Rendering info
 	//int			color;
+	boltOnInfo_t	boltOn;
+	int				activeBoltOn;
 
 	//Force effects
 	int			forcePushTime;

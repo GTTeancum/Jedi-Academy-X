@@ -12,6 +12,7 @@
 #include "g_navigator.h"
 #include "b_local.h"
 #include "anims.h"
+#include "boltOns.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 #endif
@@ -834,11 +835,17 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	g_SPXBGamePhase = 134;
 #endif
 
-	//Load sabers.cfg data
+	// Elite Force NPC definitions can reference boltOns directly.
 #ifdef _XBOX
 	g_SPXBGamePhase = 110;
+	gi.Printf("STEFX: InitGame before G_LoadBoltOns\n");
+#endif
+	G_LoadBoltOns();
+#ifdef _XBOX
+	gi.Printf("STEFX: InitGame after G_LoadBoltOns before WP_SaberLoadParms\n");
 	gi.Printf("JA: InitGame before WP_SaberLoadParms\n");
 #endif
+	//Load sabers.cfg data
 	WP_SaberLoadParms();
 #ifdef _XBOX
 	g_SPXBGamePhase = 111;
@@ -1371,6 +1378,77 @@ static void G_Animate ( gentity_t *self )
 	else
 	{
 		self->s.frame = self->endFrame;
+	}
+}
+
+/*
+-------------------------
+G_AnimateBoltOn
+-------------------------
+*/
+static void G_AnimateBoltOn( boltOnInfo_t *boltOn )
+{
+	if ( boltOn->frame == boltOn->endFrame )
+	{
+		if ( boltOn->loopAnim )
+		{
+			boltOn->frame = boltOn->startFrame;
+		}
+		return;
+	}
+
+	if ( boltOn->startFrame < boltOn->endFrame )
+	{
+		if ( boltOn->frame < boltOn->startFrame || boltOn->frame > boltOn->endFrame )
+		{
+			boltOn->frame = boltOn->startFrame;
+		}
+		else
+		{
+			boltOn->frame++;
+		}
+	}
+	else if ( boltOn->startFrame > boltOn->endFrame )
+	{
+		if ( boltOn->frame > boltOn->startFrame || boltOn->frame < boltOn->endFrame )
+		{
+			boltOn->frame = boltOn->startFrame;
+		}
+		else
+		{
+			boltOn->frame--;
+		}
+	}
+	else
+	{
+		boltOn->frame = boltOn->endFrame;
+	}
+}
+
+static void G_AnimateBoltOns( gentity_t *self )
+{
+	int i;
+
+	if ( !self )
+	{
+		return;
+	}
+
+	if ( !self->client )
+	{
+		if ( self->boltOn.index >= 0 && self->boltOn.index < numBoltOns )
+		{
+			G_AnimateBoltOn( &self->boltOn );
+		}
+		return;
+	}
+
+	for ( i = 0; i < MAX_BOLT_ONS; i++ )
+	{
+		if ( self->client->renderInfo.boltOns[i].index >= 0 && self->client->renderInfo.boltOns[i].index < numBoltOns )
+		{
+			G_AnimateBoltOn( &self->client->renderInfo.boltOns[i] );
+		}
 	}
 }
 
@@ -2279,6 +2357,7 @@ void G_RunFrame( int levelTime ) {
 		G_CheckTasksCompleted(ent);
 
 		G_Roff( ent );
+		G_AnimateBoltOns( ent );
 
 		if( !ent->client )
 		{

@@ -208,6 +208,29 @@ static	shader_t		shader;
 static	texModInfo_t	texMods[MAX_SHADER_STAGES][TR_MAX_TEXMODS];
 
 #ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBShaderScanMagic;
+extern "C" volatile unsigned int g_SPXBShaderScanScriptsFound;
+extern "C" volatile unsigned int g_SPXBShaderScanShadersFound;
+extern "C" volatile unsigned int g_SPXBShaderScanLoaded;
+extern "C" volatile unsigned int g_SPXBShaderScanBytes;
+extern "C" volatile unsigned int g_SPXBShaderScanEntries;
+extern "C" volatile unsigned int g_SPXBShaderScanSkyLightSeen;
+extern "C" volatile unsigned int g_SPXBShaderScanJunkSkySeen;
+extern "C" volatile unsigned int g_SPXBShaderScanManifestActive;
+extern "C" volatile unsigned int g_SPXBShaderScanManifestReadLen;
+extern "C" volatile unsigned int g_SPXBShaderScanManifestCount;
+extern "C" volatile unsigned int g_SPXBShaderScanRawBytes;
+extern "C" volatile unsigned int g_SPXBShaderScanVoyagerListed;
+extern "C" volatile unsigned int g_SPXBShaderScanVoyagerReadLen;
+extern "C" volatile unsigned int g_SPXBShaderScanVoyagerSkyToken;
+extern "C" volatile unsigned int g_SPXBShaderScanCommonReadLen;
+extern "C" volatile unsigned int g_SPXBShaderLookupMagic;
+extern "C" volatile unsigned int g_SPXBShaderLookupCount;
+extern "C" volatile unsigned int g_SPXBShaderLookupHash;
+extern "C" volatile unsigned int g_SPXBShaderLookupIndexedFound;
+extern "C" volatile unsigned int g_SPXBShaderLookupLinearFound;
+extern "C" volatile unsigned int g_SPXBShaderLookupEntries;
+
 static qboolean R_XboxTraceShaderName( const char *name )
 {
 	return ( name && ( !Q_stricmp( name, "*white" ) || !Q_stricmp( name, "white" ) ||
@@ -221,10 +244,40 @@ static qboolean R_XboxTraceShaderName( const char *name )
 		!Q_stricmp( name, "gfx/2d/chars_big.tga" ) ||
 		strstr( name, "gfx/mp/f_icon" ) ||
 		!Q_stricmp( name, "textures/borg/borgsky" ) ||
+		!Q_stricmp( name, "textures/common/sky_light" ) ||
+		!Q_stricmp( name, "textures/common/junk_sky" ) ||
 		!Q_stricmp( name, "textures/common/70yearjourney" ) ||
 		!Q_stricmp( name, "textures/common/enemyspace" ) ||
 		!Q_stricmp( name, "textures/common/sevenspace" ) ||
-		!Q_stricmp( name, "textures/common/tuvokhazard" ) ) );
+		!Q_stricmp( name, "textures/common/tuvokhazard" ) ||
+		strstr( name, "models/players/" ) ) );
+}
+
+static unsigned int R_XboxShaderTraceHash( const char *name )
+{
+	unsigned int hash = 2166136261u;
+
+	if ( !name )
+	{
+		return 0;
+	}
+
+	while ( *name )
+	{
+		char c = *name++;
+		if ( c >= 'A' && c <= 'Z' )
+		{
+			c = (char)( c - 'A' + 'a' );
+		}
+		if ( c == '\\' )
+		{
+			c = '/';
+		}
+		hash ^= (unsigned char)c;
+		hash *= 16777619u;
+	}
+
+	return hash;
 }
 
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -1645,7 +1698,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text, int stageIn
 		//
 		else if ( !Q_stricmp( token, "detail" ) )
 		{
-//			stage->isDetail = true;
+			stage->isDetail = qtrue;
 		}
 		//
 		// blendfunc <srcFactor> <dstFactor>
@@ -2226,7 +2279,8 @@ static void ParseSkyParms( const char **text ) {
 	char		pathname[MAX_QPATH];
 	int			i;
 #ifdef _XBOX
-	qboolean	traceXboxSky = (strstr(shader.name, "textures/common/junk_sky") != NULL);
+	qboolean	traceXboxSky = (strstr(shader.name, "textures/common/junk_sky") != NULL ||
+		strstr(shader.name, "textures/common/sky_light") != NULL);
 #endif
 
 	shader.sky = (skyParms_t *)Hunk_Alloc( sizeof( skyParms_t ), qtrue );
@@ -3444,14 +3498,14 @@ static shader_t *FinishShader( void ) {
 	shader.numUnfoggedPasses = stage;
 
 	// fogonly shaders don't have any normal passes
-	if ( stage == 0 ) {
+	if ( stage == 0 && !shader.sky ) {
 		shader.sort = SS_FOG;
 	}
 
 #ifdef _XBOX
 	if ( R_XboxTraceCurrentShader() ) {
-		XBLF("FinishShader: generate shader='%s' passes=%d sort=%d default=%d\n",
-			shader.name, shader.numUnfoggedPasses, shader.sort, shader.defaultShader);
+		XBLF("FinishShader: generate shader='%s' passes=%d sort=%g default=%d\n",
+			shader.name, shader.numUnfoggedPasses, (double)shader.sort, shader.defaultShader);
 		{
 			static int s_xboxBorgFinishStageBudget = 96;
 			int xboxStageLog;
@@ -3498,7 +3552,13 @@ If found, it will return a valid shader
 =====================
 */
 static const char *FindShaderInShaderText( const char *shadername ) {
-	char *p = s_shaderText;
+	const char *p = s_shaderText;
+	char *token;
+	const char *indexedText = NULL;
+	const char *linearText = NULL;
+#ifdef _XBOX
+	qboolean traceLookup = R_XboxTraceShaderName( shadername );
+#endif
 
 	if ( !p ) {
 		return NULL;
@@ -3510,11 +3570,54 @@ static const char *FindShaderInShaderText( const char *shadername ) {
 	Q_strncpyz(sLowerCaseName,shadername,sizeof(sLowerCaseName));
 	strlwr(sLowerCaseName);	// Q_strlwr is pretty gay, so I'm not using it
 
-	return ShaderEntryPtrs_Lookup(sLowerCaseName);
+	indexedText = ShaderEntryPtrs_Lookup(sLowerCaseName);
+	if ( indexedText )
+	{
+#ifdef _XBOX
+		if ( traceLookup )
+		{
+			g_SPXBShaderLookupMagic = 0x534C4B50; /* 'SLKP' */
+			g_SPXBShaderLookupCount++;
+			g_SPXBShaderLookupHash = R_XboxShaderTraceHash( shadername );
+			g_SPXBShaderLookupIndexedFound = 1;
+			g_SPXBShaderLookupLinearFound = 0;
+			g_SPXBShaderLookupEntries = g_SPXBShaderScanEntries;
+		}
+#endif
+		return indexedText;
+	}
+
+	while ( 1 ) {
+		token = COM_ParseExt( &p, qtrue );
+		if ( token[0] == 0 ) {
+			break;
+		}
+
+		if ( token[0] == '{' ) {
+			SkipBracedSection( &p );
+		} else if ( !Q_stricmp( token, shadername ) ) {
+			linearText = p;
+			break;
+		} else {
+			SkipRestOfLine( &p );
+		}
+	}
+
+#ifdef _XBOX
+	if ( traceLookup )
+	{
+		g_SPXBShaderLookupMagic = 0x534C4B50; /* 'SLKP' */
+		g_SPXBShaderLookupCount++;
+		g_SPXBShaderLookupHash = R_XboxShaderTraceHash( shadername );
+		g_SPXBShaderLookupIndexedFound = 0;
+		g_SPXBShaderLookupLinearFound = linearText ? 1u : 0u;
+		g_SPXBShaderLookupEntries = g_SPXBShaderScanEntries;
+	}
+#endif
+
+	return linearText;
 
 #else
-
-	char *token;
 
 	// look for label
 	// note that this could get confused if a shader name is used inside
@@ -4057,6 +4160,17 @@ static void SetupShaderEntryPtrs(void)
 			// token = a string of this shader name, p = ptr within s_shadertext it's found at, so store it...
 			//
 			ShaderEntryPtrs_Insert(token,p);			
+#ifdef _XBOX
+			g_SPXBShaderScanEntries++;
+			if ( !Q_stricmp( token, "textures/common/sky_light" ) )
+			{
+				g_SPXBShaderScanSkyLightSeen = 1;
+			}
+			else if ( !Q_stricmp( token, "textures/common/junk_sky" ) )
+			{
+				g_SPXBShaderScanJunkSkySeen = 1;
+			}
+#endif
 			SkipRestOfLine( &p );		// now legally skip over this name and go get the next one
 		}
 	}
@@ -4075,6 +4189,83 @@ a single large text block that can be scanned for shader names
 =====================
 */
 #define	MAX_SHADER_FILES	1024
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_XboxLoadShaderManifest( const char *shaderDir, char **manifestFiles, int maxFiles, char **manifestTextOut, int *numShaderOut )
+{
+	char manifestName[MAX_QPATH];
+	char *manifestText = NULL;
+	char *cursor;
+	int manifestLen;
+	int count = 0;
+
+	*manifestTextOut = NULL;
+	*numShaderOut = 0;
+
+	Com_sprintf( manifestName, sizeof( manifestName ), "%s/_console_shader_list_", shaderDir );
+	manifestLen = FS_ReadFile( manifestName, (void **)&manifestText );
+	g_SPXBShaderScanManifestReadLen = (unsigned int)((manifestLen > 0) ? manifestLen : 0);
+	if ( manifestLen <= 0 || !manifestText )
+	{
+		if ( manifestText )
+		{
+			FS_FreeFile( manifestText );
+		}
+		XBLog_Write(va("R_InitShaders: no manifest '%s', using directory list", manifestName));
+		return qfalse;
+	}
+
+	cursor = manifestText;
+	while ( *cursor && count < maxFiles )
+	{
+		char *start;
+		char *end;
+
+		while ( *cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n' )
+		{
+			*cursor++ = '\0';
+		}
+
+		start = cursor;
+		while ( *cursor && *cursor != '\r' && *cursor != '\n' )
+		{
+			++cursor;
+		}
+		if ( *cursor )
+		{
+			*cursor++ = '\0';
+		}
+
+		end = start + strlen( start );
+		while ( end > start && ( end[-1] == ' ' || end[-1] == '\t' ) )
+		{
+			*--end = '\0';
+		}
+
+		if ( !start[0] || start[0] == '#' )
+		{
+			continue;
+		}
+
+		manifestFiles[count++] = start;
+	}
+
+	if ( count <= 0 )
+	{
+		XBLog_Write(va("R_InitShaders: empty manifest '%s', using directory list", manifestName));
+		FS_FreeFile( manifestText );
+		return qfalse;
+	}
+
+	*manifestTextOut = manifestText;
+	*numShaderOut = count;
+	g_SPXBShaderScanManifestActive = 1;
+	g_SPXBShaderScanManifestCount = (unsigned int)count;
+	XBLog_Write(va("R_InitShaders: manifest '%s' provides %d shader files", manifestName, count));
+	return qtrue;
+}
+#endif
+
 static void ScanAndLoadShaderFiles( void )
 {
 	char **shaderFiles;
@@ -4086,6 +4277,11 @@ static void ScanAndLoadShaderFiles( void )
 	int numShaderDirs = 0;
 	long sum = 0;
 	int totalShaders = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	char *manifestFiles[MAX_SHADER_FILES];
+	char *manifestText;
+	qboolean manifestActive;
+#endif
 	const char *shaderDirs[] = {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		"scripts",
@@ -4093,9 +4289,56 @@ static void ScanAndLoadShaderFiles( void )
 		"shaders"
 	};
 
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x53484452; /* 'SHDR' */
+	g_SPXBShaderScanScriptsFound = 0;
+	g_SPXBShaderScanShadersFound = 0;
+	g_SPXBShaderScanLoaded = 0;
+	g_SPXBShaderScanBytes = 0;
+	g_SPXBShaderScanEntries = 0;
+	g_SPXBShaderScanSkyLightSeen = 0;
+	g_SPXBShaderScanJunkSkySeen = 0;
+	g_SPXBShaderScanManifestActive = 0;
+	g_SPXBShaderScanManifestReadLen = 0;
+	g_SPXBShaderScanManifestCount = 0;
+	g_SPXBShaderScanRawBytes = 0;
+	g_SPXBShaderScanVoyagerListed = 0;
+	g_SPXBShaderScanVoyagerReadLen = 0;
+	g_SPXBShaderScanVoyagerSkyToken = 0;
+	g_SPXBShaderScanCommonReadLen = 0;
+#endif
+
 	// scan for shader files
 	for ( dirIndex = 0; dirIndex < (int)(sizeof(shaderDirs) / sizeof(shaderDirs[0])); ++dirIndex ) {
-		shaderFiles = FS_ListFiles( shaderDirs[dirIndex], ".shader", &numShaders );
+		shaderFiles = NULL;
+		numShaders = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		manifestText = NULL;
+		manifestActive = qfalse;
+		if ( !Q_stricmp( shaderDirs[dirIndex], "scripts" ) )
+		{
+			manifestActive = R_XboxLoadShaderManifest( shaderDirs[dirIndex], manifestFiles, MAX_SHADER_FILES - totalShaders, &manifestText, &numShaders );
+			if ( manifestActive )
+			{
+				shaderFiles = manifestFiles;
+			}
+		}
+		if ( !manifestActive )
+#endif
+		{
+			shaderFiles = FS_ListFiles( shaderDirs[dirIndex], ".shader", &numShaders );
+		}
+
+#ifdef _XBOX
+		if ( !Q_stricmp( shaderDirs[dirIndex], "scripts" ) )
+		{
+			g_SPXBShaderScanScriptsFound = (unsigned int)numShaders;
+		}
+		else if ( !Q_stricmp( shaderDirs[dirIndex], "shaders" ) )
+		{
+			g_SPXBShaderScanShadersFound = (unsigned int)numShaders;
+		}
+#endif
 
 		if ( !shaderFiles || !numShaders )
 		{
@@ -4117,21 +4360,58 @@ static void ScanAndLoadShaderFiles( void )
 		for ( i = 0; i < numShaders; i++ )
 		{
 			char filename[MAX_QPATH];
+			int readLen;
 
 			Com_sprintf( filename, sizeof( filename ), "%s/%s", shaderDirs[dirIndex], shaderFiles[i] );
+#ifdef _XBOX
+			XBLog_Write(va("R_InitShaders: loading shader file '%s'", filename));
+#endif
 			//VID_Printf( PRINT_DEVELOPER, "...loading '%s'\n", filename );
 			// Looks like stripping out crap in the shaders will save about 200k
-			FS_ReadFile( filename, (void **)&buffers[totalShaders] );
+			readLen = FS_ReadFile( filename, (void **)&buffers[totalShaders] );
 			if ( !buffers[totalShaders] ) {
 				Com_Error( ERR_DROP, "Couldn't load %s", filename );
 			}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( readLen > 0 )
+			{
+				g_SPXBShaderScanRawBytes += (unsigned int)readLen;
+			}
+			if ( !Q_stricmp( shaderFiles[i], "voyager.shader" ) )
+			{
+				g_SPXBShaderScanVoyagerListed = 1;
+				g_SPXBShaderScanVoyagerReadLen = (unsigned int)((readLen > 0) ? readLen : 0);
+				if ( strstr( buffers[totalShaders], "textures/common/sky_light" ) ||
+					strstr( buffers[totalShaders], "textures/common/junk_sky" ) )
+				{
+					g_SPXBShaderScanVoyagerSkyToken = 1;
+				}
+			}
+			else if ( !Q_stricmp( shaderFiles[i], "common.shader" ) )
+			{
+				g_SPXBShaderScanCommonReadLen = (unsigned int)((readLen > 0) ? readLen : 0);
+			}
+#endif
 			sum += (bufferSizes[totalShaders] = COM_Compress( buffers[totalShaders] ));
+#ifdef _XBOX
+			g_SPXBShaderScanBytes = (unsigned int)sum;
+#endif
 			++totalShaders;
+#ifdef _XBOX
+			g_SPXBShaderScanLoaded = (unsigned int)totalShaders;
+#endif
 		}
 
 		++numShaderDirs;
 
 		// free up memory
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( manifestActive )
+		{
+			FS_FreeFile( manifestText );
+		}
+		else
+#endif
 		FS_FreeFileList( shaderFiles );
 
 		if ( totalShaders >= MAX_SHADER_FILES ) {
@@ -4153,10 +4433,9 @@ static void ScanAndLoadShaderFiles( void )
 	s_shaderText = (char *) Hunk_Alloc( sum + totalShaders*2, qtrue );
 
 	// free in reverse order, so the temp files are all dumped
-	for ( i = totalShaders - 1, sum = 0; i >= 0 ; i-- ) {
-		strcat( s_shaderText + sum, "\n" );
-		strcat( s_shaderText + sum, buffers[i] );
-		sum += bufferSizes[i];
+	for ( i = totalShaders - 1; i >= 0 ; i-- ) {
+		strcat( s_shaderText, "\n" );
+		strcat( s_shaderText, buffers[i] );
 		FS_FreeFile( buffers[i] );
 	}
 

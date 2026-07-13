@@ -35,29 +35,6 @@ extern int g_rocketLockEntNum;
 extern int g_rocketLockTime;
 extern int g_rocketSlackTime;
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-extern "C" void XBLog_Write(const char *msg);
-
-static qboolean CG_STEFX_DrawGlobalModal2D(void)
-{
-	static qboolean s_loggedGlobalPaint = qfalse;
-
-	if (!cg_paused.integer)
-	{
-		return qfalse;
-	}
-
-	cgi_UI_MenuPaintAll();
-
-	if (!s_loggedGlobalPaint)
-	{
-		XBLog_Write("STEFX: CG_Draw2D painted global modal UI and suppressed gameplay HUD");
-		s_loggedGlobalPaint = qtrue;
-	}
-	return qtrue;
-}
-#endif
-
 vec3_t	vfwd;
 vec3_t	vright;
 vec3_t	vup;
@@ -2338,14 +2315,7 @@ static void CG_DrawStats( void )
 		return;
 	}
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (!cg_paused.integer && !cg.missionStatusShow)
-	{
-		cgi_UI_MenuPaintAll();
-	}
-#else
 	cgi_UI_MenuPaintAll();
-#endif
 
 	qboolean drawHud = qtrue;
 
@@ -4070,13 +4040,6 @@ static void CG_Draw2D( void )
 	}
 
 	CG_Draw2DScreenTints();
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (CG_STEFX_DrawGlobalModal2D())
-	{
-		return;
-	}
-#endif
 
 	//end credits
 	if (cg_endcredits.integer)
