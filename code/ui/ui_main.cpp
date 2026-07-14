@@ -730,17 +730,78 @@ static int cvarTableSize = sizeof(cvarTable) / sizeof(cvarTable[0]);
 
 void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, int iMaxPixelWidth, int style, int iFontIndex);
 int Key_GetCatcher( void );
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBUIKeyCatcher;
+extern "C" volatile unsigned int g_SPXBUIPauseActive;
+extern "C" volatile unsigned int g_SPXBUIQmenuActive;
+extern "C" volatile unsigned int g_SPXBUIRefreshCount;
+#endif
 
 #define	UI_FPS_FRAMES	4
 void _UI_Refresh( int realtime )
 {
 	static int index;
 	static int	previousTimes[UI_FPS_FRAMES];
+#ifdef _XBOX
+	static int stefxUIRefreshTraceBudget = 24;
+	g_SPXBUIKeyCatcher = (unsigned int)Key_GetCatcher();
+	g_SPXBUIPauseActive = (unsigned int)(UI_EFPauseMenu_IsActive() ? 1 : 0);
+	g_SPXBUIQmenuActive = (unsigned int)(UI_EFQmenu_IsActive() ? 1 : 0);
+	if ((Key_GetCatcher() & KEYCATCH_UI) && stefxUIRefreshTraceBudget > 0)
+	{
+		XBLF("STEFX: UI refresh enter realtime=%d catcher=0x%x pause=%d qmenu=%d main=%d objectives='%s' paused='%s'",
+			realtime,
+			Key_GetCatcher(),
+			UI_EFPauseMenu_IsActive() ? 1 : 0,
+			UI_EFQmenu_IsActive() ? 1 : 0,
+			UI_EFMainMenu_IsActive() ? 1 : 0,
+			Cvar_VariableString("stefx_objectivesOverlay"),
+			Cvar_VariableString("cl_paused"));
+		--stefxUIRefreshTraceBudget;
+	}
+#endif
 
 	if ( !( Key_GetCatcher() & KEYCATCH_UI ) )
 	{
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBUIRefreshCount++;
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (UI_EFQmenu_IsActive())
+	{
+		UI_EFQmenu_Draw(realtime);
+		return;
+	}
+
+	if (UI_EFPauseMenu_IsActive())
+	{
+		UI_EFPauseMenu_Draw(realtime);
+		return;
+	}
+
+	if (UI_EFMainMenu_IsActive())
+	{
+		UI_EFMainMenu_Draw(realtime);
+		return;
+	}
+
+	if (Cvar_VariableIntegerValue("stefx_objectivesOverlay"))
+	{
+		static qboolean stefxObjectiveOverlayLogged = qfalse;
+		if (!stefxObjectiveOverlayLogged)
+		{
+			XBLF("STEFX: UI refresh drawing full-screen objectives overlay realtime=%d catcher=0x%x",
+				realtime,
+				Key_GetCatcher());
+			stefxObjectiveOverlayLogged = qtrue;
+		}
+		ui.Draw_DataPad(DP_OBJECTIVES);
+		return;
+	}
+#endif
 
 	extern void SE_CheckForLanguageUpdates(void);
 	SE_CheckForLanguageUpdates();
@@ -5526,7 +5587,11 @@ void UI_InGameMenu(const char*menuID)
 		}
 		else
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			XBLF("STEFX_INPUT_UI_InGameMenu missing EF explicit menu route='%s'", menuID ? menuID : "");
+#else
 			Menus_ActivateByName(menuID);
+#endif
 		}
 	}
 	else

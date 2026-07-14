@@ -421,6 +421,7 @@ void IN_UpdateGamepad(int port)
 #if defined(STEFX_ELITE_FORCE_SP)
 	if (Cvar_VariableIntegerValue("stefx_splitScreen") && CL_STEFX_SplitScreen_ShouldReservePadForP2(port, IN_GetMainController()))
 	{
+		IN_STEFX_UpdateMenuButtons(port, newState.Gamepad.wButtons);
 		if (splitSecondaryLogBudget[port] > 0)
 		{
 			XBLF("STEFX_SPLIT_INPUT secondary pad reserved for P2 port=%d rawMain=%d buttons=0x%04x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d state=%d catcher=0x%x",

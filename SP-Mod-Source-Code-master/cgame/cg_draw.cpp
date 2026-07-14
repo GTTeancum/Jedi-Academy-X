@@ -2816,6 +2816,12 @@ static void CG_Draw2D( void )
 
 	if (cg.showInformation)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( cg_stefxObjectivesOverlay.integer )
+		{
+		}
+		else
+#endif
 		CG_DrawMissionInformation();
 	}
 	else if (missionInfo_Updated)

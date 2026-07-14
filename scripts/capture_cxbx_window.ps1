@@ -10,7 +10,11 @@ param(
     [switch]$NoBorg1SliceWarp,
     [switch]$NoSmokeInput,
     [switch]$SplitScreenCoop,
+    [switch]$TestP2Pad,
+    [int]$TestP2PadMode = 1,
     [switch]$RenderProbe,
+    [string]$ActiveCommand = "",
+    [int]$ActiveCommandServerTime = 2500,
     [int]$WatchdogSeconds = 180,
     [int]$Count = 3,
     [int]$IntervalSeconds = 2,
@@ -269,6 +273,9 @@ $useBorg1SliceWarp = (!$NoBorg1SliceWarp -and $Level -ieq "borg1")
 $splitCommand = ""
 if ($SplitScreenCoop) {
     $splitCommand = "set stefx_splitScreen 1;set stefx_splitScreenPlayers 2;set stefx_splitScreenMode coop;set stefx_splitScreenP2Entity -1;"
+    if ($TestP2Pad) {
+        $splitCommand += "set stefx_splitScreenTestP2Pad $TestP2PadMode;"
+    }
 }
 if ($NoSmokeInput) {
     $smokeCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 0;set stefx_smoke_aim 0;set stefx_smoke_wake_ai 0;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 0"
@@ -282,6 +289,10 @@ if ($NoSmokeInput) {
     $smokeCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward 127;set stefx_smoke_input_side 0;set stefx_smoke_input_yaw 0;set stefx_smoke_input_start 6000;set stefx_smoke_input_attack_start 6500;set stefx_smoke_input_attack_end 22000;set stefx_smoke_input_end 36000"
     Write-RuntimeFile "ef_sp_commands.txt" ($smokeCommand + "`n")
     Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $smokeCommand + "`n")
+}
+if ($ActiveCommand) {
+    Write-RuntimeFile "ef_sp_active_commands.txt" ($ActiveCommand.TrimEnd(";") + "`n")
+    Write-RuntimeFile "ef_sp_active_command_time.txt" ([string]$ActiveCommandServerTime + "`n")
 }
 
 $loader = Join-Path $Cxbx $LoaderName

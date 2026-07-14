@@ -713,6 +713,14 @@ def main():
     next_xblog_poll = 0.0
     last_xblog_write_count = None
     xblog_offsets = resolve_symbol_offsets("_g_SPXBBootPhase", [
+        "_g_SPXBUIStateMagic",
+        "_g_SPXBUIStarted",
+        "_g_SPXBUIKeyCatcher",
+        "_g_SPXBUIPauseActive",
+        "_g_SPXBUIQmenuActive",
+        "_g_SPXBUIRefreshCount",
+        "_g_SPXBUIPauseOpenCount",
+        "_g_SPXBUIPauseDrawCount",
         "_g_SPXBMainLoopCount",
         "_g_SPXBComFrameCount",
         "_g_SPXBSvFrameCount",
@@ -1266,6 +1274,14 @@ def main():
                         sv_probe_b = word_for("_g_SPXBSVProbeB")
                         sv_probe_c = word_for("_g_SPXBSVProbeC")
                         sv_probe_d = word_for("_g_SPXBSVProbeD")
+                        ui_magic = word_for("_g_SPXBUIStateMagic")
+                        ui_started = word_for("_g_SPXBUIStarted")
+                        ui_catcher = word_for("_g_SPXBUIKeyCatcher")
+                        ui_pause = word_for("_g_SPXBUIPauseActive")
+                        ui_qmenu = word_for("_g_SPXBUIQmenuActive")
+                        ui_refresh = word_for("_g_SPXBUIRefreshCount")
+                        ui_pause_open = word_for("_g_SPXBUIPauseOpenCount")
+                        ui_pause_draw = word_for("_g_SPXBUIPauseDrawCount")
                         log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u sky=0x%08x/%u/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
@@ -1327,9 +1343,12 @@ def main():
                                weapon_model_loaded, weapon_model_handle, weapon_model_fail,
                                sky_magic, sky_present, sky_fallback, sky_tex,
                                sky_draw, sky_passes, sky_sort,
-                               direct_status, direct_hash, direct_queued,
+                             direct_status, direct_hash, direct_queued,
                              sv_probe_magic, sv_probe_phase, sv_probe_subphase,
                              sv_probe_a, sv_probe_b, sv_probe_c, sv_probe_d))
+                        log("xblogui t=%.1f magic=0x%08x started=%u catcher=0x%08x pause=%u qmenu=%u refresh=%u open=%u draw=%u" %
+                            (elapsed, ui_magic, ui_started, ui_catcher, ui_pause,
+                             ui_qmenu, ui_refresh, ui_pause_open, ui_pause_draw))
                         if (helmet_game_p1_ensure or helmet_game_p2_ensure or
                                 helmet_cgame_p1_slot0 or helmet_cgame_p1_slot1 or
                                 helmet_cgame_p2_slot0 or helmet_cgame_p2_slot1 or

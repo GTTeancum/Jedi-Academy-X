@@ -11,6 +11,11 @@
 
 #include "vmachine.h"
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void UI_EFPauseMenu_Open( const char *menuID );
+extern qboolean UI_EFPauseMenu_IsActive( void );
+#endif
+
 int PC_ReadTokenHandle(int handle, struct pc_token_s *pc_token);
 
 int CL_UISystemCalls( int *args );
@@ -120,6 +125,18 @@ Key_GetCatcher
 */
 void Key_SetCatcher( int catcher ) 
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	static int s_stefxKeyCatcherLogBudget = 64;
+	if (cls.keyCatchers != catcher && s_stefxKeyCatcherLogBudget > 0)
+	{
+		XBLog_Write(va("STEFX: Key_SetCatcher change old=0x%x new=0x%x overlay='%s' paused='%s'",
+			(unsigned int)cls.keyCatchers,
+			(unsigned int)catcher,
+			Cvar_VariableString("stefx_objectivesOverlay"),
+			Cvar_VariableString("cl_paused")));
+		--s_stefxKeyCatcherLogBudget;
+	}
+#endif
 	cls.keyCatchers = catcher;
 }
 
@@ -342,10 +359,25 @@ qboolean UI_GameCommand( void ) {
 }
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean s_stefxObjectivesOverlayOwnsCatcher = qfalse;
+static qboolean s_stefxObjectivesOverlayActive = qfalse;
+static qboolean s_stefxPauseMenuRequested = qfalse;
+
 static qboolean CL_STEFX_EnsureUIStarted( const char *source )
 {
+	XBLF("STEFX: %s ensure UI enter uiStarted=%d state=%d renderer=%d cgame=%d catcher=0x%x",
+		source ? source : "UI",
+		(int)cls.uiStarted,
+		(int)cls.state,
+		(int)cls.rendererStarted,
+		(int)cls.cgameStarted,
+		(unsigned int)cls.keyCatchers);
+
 	if ( cls.uiStarted )
 	{
+		XBLF("STEFX: %s ensure UI already started catcher=0x%x",
+			source ? source : "UI",
+			(unsigned int)cls.keyCatchers);
 		return qtrue;
 	}
 
@@ -371,6 +403,278 @@ static qboolean CL_STEFX_EnsureUIStarted( const char *source )
 		(int)cls.uiStarted,
 		(unsigned int)cls.keyCatchers);
 	return cls.uiStarted ? qtrue : qfalse;
+}
+
+void CL_STEFX_SetObjectivesOverlay( qboolean active, const char *source )
+{
+	const char *tag = source ? source : "objectives-overlay";
+
+	XBLF("STEFX: objectives overlay request source='%s' active=%d uiStarted=%d state=%d catcher=0x%x overlay='%s' paused='%s'",
+		tag,
+		active ? 1 : 0,
+		(int)cls.uiStarted,
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers,
+		Cvar_VariableString( "stefx_objectivesOverlay" ),
+		Cvar_VariableString( "cl_paused" ));
+
+	if ( active )
+	{
+		if ( !CL_STEFX_EnsureUIStarted( tag ) )
+		{
+			XBLF("STEFX: objectives overlay blocked source='%s' state=%d renderer=%d cgame=%d catcher=0x%x",
+				tag,
+				(int)cls.state,
+				(int)cls.rendererStarted,
+				(int)cls.cgameStarted,
+				(unsigned int)cls.keyCatchers);
+			return;
+		}
+
+		s_stefxObjectivesOverlayActive = qtrue;
+		Cvar_Set( "stefx_objectivesOverlay", "1" );
+		XBLF("STEFX: objectives overlay cvar overlay='%s'",
+			Cvar_VariableString( "stefx_objectivesOverlay" ));
+		Cvar_Set( "cl_paused", "1" );
+		XBLF("STEFX: objectives overlay cvar paused='%s'",
+			Cvar_VariableString( "cl_paused" ));
+		Key_SetCatcher( Key_GetCatcher() | KEYCATCH_UI );
+		XBLF("STEFX: objectives overlay keycatcher set catcher=0x%x",
+			(unsigned int)cls.keyCatchers);
+		s_stefxObjectivesOverlayOwnsCatcher = qtrue;
+		XBLF("STEFX: objectives overlay open source='%s' catcher=0x%x overlay='%s' paused='%s'",
+			tag,
+			(unsigned int)cls.keyCatchers,
+			Cvar_VariableString( "stefx_objectivesOverlay" ),
+			Cvar_VariableString( "cl_paused" ));
+		return;
+	}
+
+	s_stefxObjectivesOverlayActive = qfalse;
+	Cvar_Set( "stefx_objectivesOverlay", "0" );
+	Cvar_Set( "cl_paused", "0" );
+	if ( s_stefxObjectivesOverlayOwnsCatcher )
+	{
+		Key_SetCatcher( Key_GetCatcher() & ~KEYCATCH_UI );
+		s_stefxObjectivesOverlayOwnsCatcher = qfalse;
+	}
+	XBLF("STEFX: objectives overlay close source='%s' catcher=0x%x overlay='%s' paused='%s'",
+		tag,
+		(unsigned int)cls.keyCatchers,
+		Cvar_VariableString( "stefx_objectivesOverlay" ),
+		Cvar_VariableString( "cl_paused" ));
+}
+
+qboolean CL_STEFX_ObjectivesOverlayActive( void )
+{
+	return s_stefxObjectivesOverlayActive;
+}
+
+qboolean CL_STEFX_MissionFailedOverlayActive( void )
+{
+	return (qboolean)( ( cls.keyCatchers & KEYCATCH_UI ) != 0
+		&& Cvar_VariableIntegerValue( "stefx_missionFailedOverlay" ) != 0 );
+}
+
+static const char *CL_STEFX_MissionFailedReasonText( const char *text )
+{
+	if ( !text || !text[0] )
+	{
+		return "MISSION OBJECTIVE FAILED";
+	}
+
+	if ( text[0] != '@' )
+	{
+		return text;
+	}
+
+	if ( strstr( text, "PLAYER" ) )
+	{
+		return "YOU HAVE BEEN INCAPACITATED";
+	}
+	if ( strstr( text, "TOOMANYALLIESDIED" ) )
+	{
+		return "TOO MANY TEAMMATES HAVE FALLEN";
+	}
+	if ( strstr( text, "TURNED" ) )
+	{
+		return "YOU TURNED ON YOUR TEAMMATES";
+	}
+	if ( strstr( text, "UNKNOWN" ) )
+	{
+		return "MISSION OBJECTIVE FAILED";
+	}
+
+	return "A MISSION-CRITICAL ALLY WAS LOST";
+}
+
+static void CL_STEFX_DrawCenteredBigString( int y, const char *text, vec4_t color )
+{
+	int x;
+
+	if ( !text || !text[0] )
+	{
+		return;
+	}
+
+	x = 320 - ( Q_PrintStrlen( text ) * 16 ) / 2;
+	SCR_DrawBigStringColor( x, y, text, color );
+}
+
+void CL_STEFX_DrawMissionFailedOverlay( void )
+{
+	static qboolean s_stefxMissionFailedDrawLogged = qfalse;
+	const char *reason;
+	vec4_t darkBlue = { 0.015f, 0.015f, 0.229f, 1.0f };
+	vec4_t black = { 0.0f, 0.0f, 0.0f, 1.0f };
+	vec4_t red = { 1.0f, 0.0f, 0.0f, 1.0f };
+	vec4_t gold = { 1.0f, 0.682f, 0.0f, 1.0f };
+
+	if ( !CL_STEFX_MissionFailedOverlayActive() )
+	{
+		s_stefxMissionFailedDrawLogged = qfalse;
+		return;
+	}
+
+	if ( !s_stefxMissionFailedDrawLogged )
+	{
+		XBLF( "STEFX: client drawing full-screen missionfailed overlay catcher=0x%x paused='%s' text='%s'",
+			(unsigned int)cls.keyCatchers,
+			Cvar_VariableString( "cl_paused" ),
+			Cvar_VariableString( "ui_missionfailed_text" ) );
+		s_stefxMissionFailedDrawLogged = qtrue;
+	}
+
+	re.SetColor( NULL );
+	SCR_FillRect( 0.0f, 0.0f, 640.0f, 480.0f, black );
+	SCR_FillRect( 50.0f, 10.0f, 540.0f, 80.0f, darkBlue );
+	SCR_FillRect( 140.0f, 352.0f, 360.0f, 108.0f, darkBlue );
+
+	re.SetColor( gold );
+	re.DrawStretchPic( 128.0f, 348.0f, 384.0f, 3.0f, 0, 0, 0, 0, cls.whiteShader );
+	re.DrawStretchPic( 128.0f, 462.0f, 384.0f, 3.0f, 0, 0, 0, 0, cls.whiteShader );
+	re.SetColor( NULL );
+
+	reason = CL_STEFX_MissionFailedReasonText( Cvar_VariableString( "ui_missionfailed_text" ) );
+	CL_STEFX_DrawCenteredBigString( 32, "MISSION FAILED", red );
+	CL_STEFX_DrawCenteredBigString( 64, reason, red );
+	CL_STEFX_DrawCenteredBigString( 382, "LOAD AUTOSAVE", gold );
+	CL_STEFX_DrawCenteredBigString( 414, "LOAD SAVED GAME", gold );
+}
+
+void CL_STEFX_DrawObjectivesOverlay( void )
+{
+	static qboolean s_stefxObjectivesOverlayDrawLogged = qfalse;
+
+	if ( !s_stefxObjectivesOverlayActive )
+	{
+		return;
+	}
+
+	if ( !s_stefxObjectivesOverlayDrawLogged )
+	{
+		XBLog_Write( "STEFX: client drawing full-screen objectives overlay" );
+		s_stefxObjectivesOverlayDrawLogged = qtrue;
+	}
+
+	CL_DrawDatapad( DP_OBJECTIVES );
+}
+
+void CL_STEFX_RequestPauseMenu( const char *source )
+{
+	s_stefxPauseMenuRequested = qtrue;
+	XBLF( "STEFX: pause menu request queued source='%s' state=%d catcher=0x%x",
+		source ? source : "unknown",
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers );
+}
+
+void CL_STEFX_ServiceMenuRequests( void )
+{
+	static int s_serviceTraceBudget = 16;
+
+	if ( s_serviceTraceBudget > 0 && cls.state == CA_ACTIVE )
+	{
+		XBLF( "STEFX: pause menu service tick pending=%d state=%d cgameStarted=%d catcher=0x%x serverTime=%d",
+			s_stefxPauseMenuRequested ? 1 : 0,
+			(int)cls.state,
+			(int)cls.cgameStarted,
+			(unsigned int)cls.keyCatchers,
+			cl.serverTime );
+		--s_serviceTraceBudget;
+	}
+
+	if ( !s_stefxPauseMenuRequested )
+	{
+		return;
+	}
+
+	s_stefxPauseMenuRequested = qfalse;
+	XBLF( "STEFX: pause menu request service state=%d uiStarted=%d cgameStarted=%d catcher=0x%x",
+		(int)cls.state,
+		(int)cls.uiStarted,
+		(int)cls.cgameStarted,
+		(unsigned int)cls.keyCatchers );
+
+	if ( cls.state != CA_ACTIVE || !cls.cgameStarted )
+	{
+		XBLog_Write( "STEFX: pause menu request dropped because game is not active" );
+		return;
+	}
+
+	if ( CL_STEFX_ObjectivesOverlayActive() )
+	{
+		CL_STEFX_SetObjectivesOverlay( qfalse, "pause-menu-service-close-objectives" );
+	}
+
+	if ( !CL_STEFX_EnsureUIStarted( "pause-menu-service" ) )
+	{
+		XBLog_Write( "STEFX: pause menu request dropped because UI could not start" );
+		return;
+	}
+
+	XBLF( "STEFX: pause menu direct open before active=%d catcher=0x%x paused='%s'",
+		UI_EFPauseMenu_IsActive() ? 1 : 0,
+		(unsigned int)cls.keyCatchers,
+		Cvar_VariableString( "cl_paused" ) );
+	UI_EFPauseMenu_Open( NULL );
+	XBLF( "STEFX: pause menu request serviced direct active=%d catcher=0x%x paused='%s'",
+		UI_EFPauseMenu_IsActive() ? 1 : 0,
+		(unsigned int)cls.keyCatchers,
+		Cvar_VariableString( "cl_paused" ) );
+}
+
+void CL_STEFX_ObjectivesOverlay_f( void )
+{
+	qboolean active = qtrue;
+
+	if ( Cmd_Argc() > 1 )
+	{
+		active = atoi( Cmd_Argv( 1 ) ) ? qtrue : qfalse;
+	}
+
+	CL_STEFX_SetObjectivesOverlay( active, "ef_objectives_overlay" );
+}
+
+void CL_STEFX_MissionFailedOverlay_f( void )
+{
+	XBLF("STEFX: missionfailed overlay command uiStarted=%d cgameStarted=%d state=%d catcher=0x%x",
+		cls.uiStarted ? 1 : 0,
+		cls.cgameStarted ? 1 : 0,
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers);
+	if ( !CL_STEFX_EnsureUIStarted( "ef_missionfailed_overlay" ) )
+	{
+		XBLog_Write( "STEFX: missionfailed overlay command blocked because UI could not start" );
+		return;
+	}
+
+	Cvar_Set( "ui_missionfailed_text", "@SP_INGAME_MISSIONFAILED_PLAYER" );
+	UI_SetActiveMenu( "missionfailed_menu", NULL );
+	XBLF("STEFX: missionfailed overlay command done catcher=0x%x paused='%s' missionfailed='%s'",
+		(unsigned int)cls.keyCatchers,
+		Cvar_VariableString( "cl_paused" ),
+		Cvar_VariableString( "ui_missionfailed" ));
 }
 #endif
 
@@ -428,7 +732,11 @@ void CL_DataPad_f(void)
 		cls.uiStarted &&
 #endif
 		cls.cgameStarted && (cls.state == CA_ACTIVE) ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		CL_STEFX_SetObjectivesOverlay( qtrue, "CL_DataPad_f" );
+#else
 		UI_SetActiveMenu("datapad",NULL);
+#endif
 	}
 #ifdef _XBOX
 	else {

@@ -4,6 +4,9 @@
 #include "ui_local.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBUIPauseOpenCount;
+extern "C" volatile unsigned int g_SPXBUIPauseDrawCount;
+extern "C" volatile unsigned int g_SPXBUIPauseActive;
 #endif
 
 #define EF_MNT_MAX 1073
@@ -1055,11 +1058,15 @@ void UI_EFPauseMenu_Deactivate(void)
 #endif
 	}
 	s_active = qfalse;
+#ifdef _XBOX
+	g_SPXBUIPauseActive = 0;
+#endif
 }
 
 void UI_EFPauseMenu_Open(const char *menuID)
 {
 #ifdef _XBOX
+	g_SPXBUIPauseOpenCount++;
 	XBLF("STEFX_INPUT_PAUSE_OPEN_BEGIN menuID='%s' catcher=0x%x",
 		menuID ? menuID : "",
 		ui.Key_GetCatcher());
@@ -1073,6 +1080,9 @@ void UI_EFPauseMenu_Open(const char *menuID)
 	UI_EFQmenu_ClearState("ef-pause-open");
 	s_cursor = 0;
 	s_active = qtrue;
+#ifdef _XBOX
+	g_SPXBUIPauseActive = 1;
+#endif
 	s_loggedDraw = qfalse;
 	s_loggedTextDraws = 0;
 	ui.Cvar_Set("cl_paused", "1");
@@ -1094,6 +1104,7 @@ void UI_EFPauseMenu_Draw(int realtime)
 	}
 
 #ifdef _XBOX
+	g_SPXBUIPauseDrawCount++;
 	if (!s_loggedDraw) {
 		XBLF("STEFX_INPUT_PAUSE_DRAW first realtime=%d catcher=0x%x cursor=%d system=%d",
 			realtime,

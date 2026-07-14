@@ -225,15 +225,22 @@ static void CG_ZoomOff_f( void )
 
 static void CG_InfoDown_f( void ) {
 	cg.showInformation = qtrue;
-#ifdef _XBOX
-	Com_PrintfAlways("STEFX: CG_InfoDown_f showInformation=1 time=%d\n", cg.time);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	cgi_Cvar_Set( "stefx_objectivesOverlay", "1" );
+	cgi_Cvar_Set( "cl_paused", "1" );
+	cgi_SendConsoleCommand( "ef_objectives_overlay 1\n" );
+	cg.showInformation = qfalse;
+	Com_PrintfAlways("STEFX: CG_InfoDown_f objectives overlay requested time=%d\n", cg.time);
 #endif
 }
 
 static void CG_InfoUp_f( void ) 
 {
 	cg.showInformation = qfalse;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	cgi_Cvar_Set( "stefx_objectivesOverlay", "0" );
+	cgi_Cvar_Set( "cl_paused", "0" );
+	cgi_SendConsoleCommand( "ef_objectives_overlay 0\n" );
 	Com_PrintfAlways("STEFX: CG_InfoUp_f showInformation=0 time=%d\n", cg.time);
 #endif
 }

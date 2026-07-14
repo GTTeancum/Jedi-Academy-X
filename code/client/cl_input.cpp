@@ -68,6 +68,7 @@ static cvar_t *stefx_smokeInputAttackEnd;
 #define STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD 30
 #define STEFX_SPLIT_THUMB_DEADZONE 7849
 #define STEFX_SPLIT_BUTTON_DPAD_UP (1u << 0)
+#define STEFX_SPLIT_BUTTON_START (1u << 4)
 #define STEFX_SPLIT_BUTTON_BACK (1u << 5)
 #define STEFX_SPLIT_BUTTON_LEFT_THUMB (1u << 6)
 #define STEFX_SPLIT_BUTTON_RIGHT_THUMB (1u << 7)
@@ -88,6 +89,7 @@ typedef struct {
 	qboolean weaponPrevDown;
 	qboolean zoomDown;
 	qboolean datapadDown;
+	qboolean pauseDown;
 	qboolean thirdPersonToggleDown;
 	qboolean runToggleDown;
 	qboolean runEnabled;
@@ -446,26 +448,36 @@ static void STEFX_SplitScreen_UpdateTestP2Pad( int serverTime )
 	memset( analogButtons, 0, sizeof( analogButtons ) );
 	phase = ( serverTime / 700 ) & 3;
 
-	analogButtons[7] = (byte)( ( ( serverTime / 500 ) & 1 ) ? 90 : 0 ); /* Right trigger: attack */
-	analogButtons[2] = (byte)( ( ( serverTime / 1600 ) & 3 ) == 1 ? 90 : 0 ); /* X: use */
-	analogButtons[3] = (byte)( ( serverTime >= 1900 && serverTime < 2000 ) ? 90 : 0 ); /* Y: centerview */
-	analogButtons[5] = (byte)( ( ( serverTime / 1200 ) & 1 ) ? 90 : 0 ); /* White: next weapon */
+	if ( testMode == 2 )
+	{
+		if ( serverTime >= 2000 && serverTime < 2300 )
+		{
+			buttons |= STEFX_SPLIT_BUTTON_START; /* Start: test P2 full-screen pause overlay */
+		}
+	}
+	else
+	{
+		analogButtons[7] = (byte)( ( ( serverTime / 500 ) & 1 ) ? 90 : 0 ); /* Right trigger: attack */
+		analogButtons[2] = (byte)( ( ( serverTime / 1600 ) & 3 ) == 1 ? 90 : 0 ); /* X: use */
+		analogButtons[3] = (byte)( ( serverTime >= 1900 && serverTime < 2000 ) ? 90 : 0 ); /* Y: centerview */
+		analogButtons[5] = (byte)( ( ( serverTime / 1200 ) & 1 ) ? 90 : 0 ); /* White: next weapon */
 
-	if ( ( ( serverTime / 900 ) & 3 ) == 2 )
-	{
-		buttons |= STEFX_SPLIT_BUTTON_DPAD_UP; /* D-pad up: P2-local zoom */
-	}
-	if ( serverTime >= 2300 && serverTime < 2400 )
-	{
-		buttons |= STEFX_SPLIT_BUTTON_LEFT_THUMB; /* Left stick click: P2-local run toggle */
-	}
-	if ( serverTime >= 2100 && serverTime < 2200 )
-	{
-		buttons |= STEFX_SPLIT_BUTTON_BACK; /* Back: should stay P2-local and not open global UI */
-	}
-	if ( serverTime >= 2200 && serverTime < 2300 )
-	{
-		buttons |= STEFX_SPLIT_BUTTON_RIGHT_THUMB; /* Right stick click: split keeps both bodies visible */
+		if ( ( ( serverTime / 900 ) & 3 ) == 2 )
+		{
+			buttons |= STEFX_SPLIT_BUTTON_DPAD_UP; /* D-pad up: P2-local zoom */
+		}
+		if ( serverTime >= 2300 && serverTime < 2400 )
+		{
+			buttons |= STEFX_SPLIT_BUTTON_LEFT_THUMB; /* Left stick click: P2-local run toggle */
+		}
+		if ( serverTime >= 2000 && serverTime < 2300 )
+		{
+			buttons |= STEFX_SPLIT_BUTTON_BACK; /* Back: test P2 full-screen objectives overlay */
+		}
+		if ( serverTime >= 2200 && serverTime < 2300 )
+		{
+			buttons |= STEFX_SPLIT_BUTTON_RIGHT_THUMB; /* Right stick click: split keeps both bodies visible */
+		}
 	}
 
 	s_stefxSplitRecordingSyntheticPad = qtrue;
@@ -786,6 +798,20 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 		chosenPort = s_stefxSplitSecondaryPad;
 	}
 
+	if ( chosenPort < 0 && Cvar_VariableIntegerValue( "stefx_splitScreenTestP2Pad" ) )
+	{
+		for ( port = 0; port < STEFX_SPLIT_MAX_PADS; ++port )
+		{
+			if ( s_stefxSplitPads[port].connected
+				&& s_stefxSplitPads[port].synthetic
+				&& port != effectiveMainController )
+			{
+				chosenPort = port;
+				break;
+			}
+		}
+	}
+
 	if ( chosenPort < 0 )
 	{
 		if ( STEFX_SplitScreen_BuildTestP2Usercmd( cmd, currentAngles, deltaAngles, serverTime, sourcePort, weaponDelta, outAngles ) )
@@ -898,13 +924,58 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 	pad->zoomDown = zoomDown;
 
 	datapadDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_BACK );
-	if ( datapadDown && !pad->datapadDown && s_utilityLogBudget > 0 )
+	if ( datapadDown != pad->datapadDown )
 	{
-		XBLF( "STEFX_SPLIT_INPUT p2 datapad requested port=%d ignored=1 reason='single-player global UI remains P1-owned'",
-			chosenPort );
-		--s_utilityLogBudget;
+		XBLF( "STEFX_SPLIT_INPUT p2 datapad before overlay call port=%d down=%d catcher=0x%x overlay='%s' paused='%s'",
+			chosenPort,
+			datapadDown ? 1 : 0,
+			(unsigned int)cls.keyCatchers,
+			Cvar_VariableString( "stefx_objectivesOverlay" ),
+			Cvar_VariableString( "cl_paused" ) );
+		if ( datapadDown )
+		{
+			CL_STEFX_SetObjectivesOverlay(
+				CL_STEFX_ObjectivesOverlayActive() ? qfalse : qtrue,
+				"p2-split-datapad-toggle" );
+		}
+		XBLF( "STEFX_SPLIT_INPUT p2 datapad after overlay call port=%d down=%d catcher=0x%x overlay='%s' paused='%s'",
+			chosenPort,
+			datapadDown ? 1 : 0,
+			(unsigned int)cls.keyCatchers,
+			Cvar_VariableString( "stefx_objectivesOverlay" ),
+			Cvar_VariableString( "cl_paused" ) );
+		if ( s_utilityLogBudget > 0 )
+		{
+			XBLF( "STEFX_SPLIT_INPUT p2 datapad edge port=%d down=%d handled='objectives-overlay'",
+				chosenPort,
+				datapadDown ? 1 : 0 );
+			--s_utilityLogBudget;
+		}
 	}
 	pad->datapadDown = datapadDown;
+
+	{
+		qboolean pauseDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_START );
+		if ( pauseDown && !pad->pauseDown )
+		{
+			XBLF( "STEFX_SPLIT_INPUT p2 pause requested port=%d catcher=0x%x objectives=%d paused='%s'",
+				chosenPort,
+				(unsigned int)cls.keyCatchers,
+				CL_STEFX_ObjectivesOverlayActive() ? 1 : 0,
+				Cvar_VariableString( "cl_paused" ) );
+			if ( CL_STEFX_ObjectivesOverlayActive() )
+			{
+				CL_STEFX_SetObjectivesOverlay( qfalse, "p2-split-pause-close-objectives" );
+			}
+			CL_STEFX_RequestPauseMenu( "p2-split-start" );
+			XBLF( "STEFX_SPLIT_INPUT p2 pause request queued port=%d catcher=0x%x paused='%s' realtime=%d",
+				chosenPort,
+				(unsigned int)cls.keyCatchers,
+				Cvar_VariableString( "cl_paused" ),
+				cls.realtime );
+		}
+		pad->pauseDown = pauseDown;
+	}
 
 	thirdPersonToggleDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_RIGHT_THUMB );
 	if ( thirdPersonToggleDown && !pad->thirdPersonToggleDown && s_utilityLogBudget > 0 )

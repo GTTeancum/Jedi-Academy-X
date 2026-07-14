@@ -630,6 +630,8 @@ extern	vmCvar_t		cg_skippingcin;
 extern	vmCvar_t		cg_stefxSmokeUnlockPlayer;
 extern	vmCvar_t		cg_stefxSmokeInput;
 extern	vmCvar_t		cg_stefxSmokeInputStart;
+extern	vmCvar_t		cg_stefxSplitScreen;
+extern	vmCvar_t		cg_stefxObjectivesOverlay;
 #endif
 
 extern	vmCvar_t		cg_pano;

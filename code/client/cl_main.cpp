@@ -11,6 +11,8 @@ extern "C" volatile unsigned int g_SPXBHeartbeatFrame;
 extern "C" volatile unsigned int g_SPXBHeartbeatRealtime;
 extern "C" volatile unsigned int g_SPXBHeartbeatServerTime;
 extern "C" volatile unsigned int g_SPXBHeartbeatFps10;
+extern "C" volatile unsigned int g_SPXBUIStarted;
+extern "C" volatile unsigned int g_SPXBUIKeyCatcher;
 extern "C" volatile unsigned int g_SPXBClFrameCount;
 extern "C" volatile unsigned int g_SPXBClsState;
 extern "C" volatile unsigned int g_SPXBClServerTime;
@@ -61,8 +63,19 @@ static int CL_STEFX_ActiveCommandServerTime(void)
 
 	if (!initialized)
 	{
-		FILE *timeFile = fopen("D:\\ef_sp_active_command_time.txt", "r");
+		const char *timePaths[] = {
+			"D:\\ef_sp_client_active_command_time.txt",
+			"E:\\ef_sp_client_active_command_time.txt",
+			"D:\\ef_sp_active_command_time.txt",
+			NULL
+		};
+		FILE *timeFile = NULL;
+		int pathIndex;
 		initialized = qtrue;
+		for (pathIndex = 0; timePaths[pathIndex] && !timeFile; ++pathIndex)
+		{
+			timeFile = fopen(timePaths[pathIndex], "r");
+		}
 		if (timeFile)
 		{
 			char line[64];
@@ -85,6 +98,8 @@ static int CL_STEFX_ActiveCommandServerTime(void)
 static int CL_STEFX_QueueActiveCommands(void)
 {
 	const char *activeCommandPaths[] = {
+		"D:\\ef_sp_client_active_commands.txt",
+		"E:\\ef_sp_client_active_commands.txt",
 		"D:\\ef_sp_active_commands.txt",
 		"E:\\ef_sp_active_commands.txt",
 		NULL
@@ -1150,6 +1165,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	g_SPXBClsState = (unsigned int)cls.state;
 	g_SPXBClServerTime = (unsigned int)cl.serverTime;
 	g_SPXBClsFrameCount = (unsigned int)cls.framecount;
+	g_SPXBUIStarted = (unsigned int)(cls.uiStarted ? 1 : 0);
+	g_SPXBUIKeyCatcher = (unsigned int)cls.keyCatchers;
 	g_SPXBPhaseLast = 0x434C4631; /* 'CLF1' */
 	const qboolean xboxTraceEarlyActive = (cls.state == CA_ACTIVE && cls.framecount >= 54 && cls.framecount < 70);
 	if (xboxTraceEarlyActive)
@@ -1413,6 +1430,9 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	CL_XboxAutoSmokeTick();
 #ifdef _XBOX
 	if (xboxTraceEarlyActive) XBLog_Write("JA: CL_EARLY after CL_XboxAutoSmokeTick");
+#endif
+#if defined(STEFX_ELITE_FORCE_SP)
+	CL_STEFX_ServiceMenuRequests();
 #endif
 #endif
 
@@ -2646,6 +2666,10 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("ingamecinematic", CL_PlayInGameCinematic_f);
 	Cmd_AddCommand ("uimenu", CL_GenericMenu_f);
 	Cmd_AddCommand ("datapad", CL_DataPad_f);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	Cmd_AddCommand ("ef_objectives_overlay", CL_STEFX_ObjectivesOverlay_f);
+	Cmd_AddCommand ("ef_missionfailed_overlay", CL_STEFX_MissionFailedOverlay_f);
+#endif
 	Cmd_AddCommand ("endscreendissolve", CL_EndScreenDissolve_f);
 #ifdef _IMMERSION
 	Cmd_AddCommand ("ff_restart", CL_FF_Restart_f);

@@ -43,6 +43,8 @@ void UI_ForceMenuOff (void)
 	memset(uis.stack, 0, sizeof(uis.stack));
 	UI_EFMainMenu_Deactivate();
 	UI_EFPauseMenu_Deactivate();
+	ui.Cvar_Set( "stefx_objectivesOverlay", "0" );
+	ui.Cvar_Set( "stefx_missionFailedOverlay", "0" );
 	ui.Key_SetCatcher( ui.Key_GetCatcher() & ~KEYCATCH_UI );
 	ui.Key_ClearStates();
 	ui.Cvar_Set( "cl_paused", "0" );
@@ -103,10 +105,14 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 	//make sure force-speed and slowmodeath doesn't slow down menus - NOTE: they should reset the timescale when the game un-pauses
 	Cvar_SetValue( "timescale", 1.0f );
 
+#if !defined(_XBOX) || !defined(STEFX_ELITE_FORCE_SP)
 	UI_Cursor_Show(qtrue);
+#endif
 
 	// enusure minumum menu data is cached
+#if !defined(_XBOX) || !defined(STEFX_ELITE_FORCE_SP)
 	Menu_Cache();
+#endif
 
 	if ( Q_stricmp (menuname, "main") == 0
 		|| Q_stricmp (menuname, "mainMenu") == 0
@@ -117,6 +123,22 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 		XBLF("STEFX_INPUT_UI_SetActiveMenu route=EF-main menu='%s'", menuname);
 #endif
 		UI_EFMainMenu_Open();
+		return;
+	}
+
+	if ( Q_stricmp (menuname, "missionfailed_menu") == 0 ) 
+	{
+#ifdef _XBOX
+		XBLog_Write("STEFX: UI_SetActiveMenu route=missionfailed_menu -> EF client overlay");
+#endif
+		ui.Cvar_Set( "cl_paused", "1" );
+		ui.Cvar_Set( "ui_missionfailed", "1" );
+		ui.Cvar_Set( "stefx_missionFailedOverlay", "1" );
+		if ( !UI_Cvar_VariableString( "ui_missionfailed_text" )[0] )
+		{
+			ui.Cvar_Set( "ui_missionfailed_text", "@SP_INGAME_MISSIONFAILED_PLAYER" );
+		}
+		ui.Key_SetCatcher( KEYCATCH_UI );
 		return;
 	}
 
@@ -193,17 +215,6 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 		return;
 	}
 
-	if ( Q_stricmp (menuname, "missionfailed_menu") == 0 ) 
-	{
-#ifdef _XBOX
-		XBLog_Write("STEFX: UI_SetActiveMenu route=missionfailed_menu -> EF load game");
-#endif
-		ui.Cvar_Set( "cl_paused", "1" );
-		ui.Cvar_Set( "ui_missionfailed", "1" );
-		UI_EFQmenu_ConsoleCommand("ui_ef_loadgame");
-		ui.Key_SetCatcher( KEYCATCH_UI );
-		return;
-	}
 //allows the 'noController' menu and similar menus to 'popup' over existing menu
 	if ( Q_stricmp (menuname, "ui_popup") == 0 ) 
 	{
@@ -217,8 +228,13 @@ void UI_SetActiveMenu( const char* menuname,const char *menuID )
 #endif
 			return;
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: UI_SetActiveMenu ui_popup missing EF menuID route='%s'", menuID ? menuID : "");
+		return;
+#else
 		Menus_ActivateByName(menuID);	
 		return;
+#endif
 	}
 	
 	// Elite Force-owned UI routes must be added explicitly above.  Do not fall
@@ -373,6 +389,18 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 
 	uis.scaley = uis.glconfig.vidHeight * (1.0/480.0);
 	uis.scalex = uis.glconfig.vidWidth * (1.0/640.0);
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( inGameLoad )
+	{
+		if ( !uis.whiteShader )
+		{
+			uis.whiteShader = ui.R_RegisterShader( "white" );
+		}
+		XBLog_Write("STEFX: UI_Init minimal EF in-game path; inherited JA menu init skipped");
+		return;
+	}
+#endif
 
 #ifdef _XBOX
 	XBLog_Write("JA: UI_Init: Menu_Cache...");

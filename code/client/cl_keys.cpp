@@ -1530,15 +1530,12 @@ qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const c
 
 #if defined(STEFX_ELITE_FORCE_SP)
 	if ( !Q_stricmp( kb, "datapad" ) ) {
-		const char *infoCommand = down ? "+info\n" : "-info\n";
-
-		XBLF("STEFX_INPUT_DIRECT_DATAPAD_TO_INFO source='%s' key=%d slot=%d down=%d command='%s'",
+		XBLF("STEFX_INPUT_DIRECT_DATAPAD_OVERLAY source='%s' key=%d slot=%d down=%d",
 			source ? source : "",
 			key,
 			bindingIndex,
-			down ? 1 : 0,
-			down ? "+info" : "-info");
-		Cbuf_AddText( infoCommand );
+			down ? 1 : 0);
+		CL_STEFX_SetObjectivesOverlay( down ? qtrue : qfalse, "direct-datapad-bind" );
 
 		if ( Key_IsXboxMenuKeynum( key ) ) {
 			XBLF("STEFX_INPUT_DIRECT_DISPATCH_DONE source='%s' key=%d down=%d catcher=0x%x",

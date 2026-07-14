@@ -596,6 +596,7 @@ extern	vmCvar_t		cg_stefxSplitScreenPlayers;
 extern	vmCvar_t		cg_stefxSplitScreenP2Entity;
 extern	vmCvar_t		cg_stefxSplitScreenP2Zoom;
 extern	vmCvar_t		cg_stefxSplitScreenWeaponUp;
+extern	vmCvar_t		cg_stefxObjectivesOverlay;
 extern	vmCvar_t		cg_language;
 
 extern	vmCvar_t		cg_pano;

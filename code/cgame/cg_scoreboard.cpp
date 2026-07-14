@@ -78,6 +78,9 @@ void CG_MissionFailed(void)
 	{ 
 		cgi_UI_SetActive_Menu("missionfailed_menu");
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		cg.missionFailedScreen = qtrue;
+#else
 		// If you're in camera mode when when you lose (Chewie kills you)
 		// then the above fails. This should check for that. We'll end up
 		// waiting until the camera stuff stops:
@@ -85,6 +88,7 @@ void CG_MissionFailed(void)
 			return;
 
 		cg.missionFailedScreen = qtrue;
+#endif
 
 		switch (statusTextIndex)
 		{

@@ -557,9 +557,17 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	extern int Key_GetCatcher( void );
 	const bool liveUIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
 	const qboolean stefxMenuButton = (button == A_JOY4 || button == A_JOY1);
+	const qboolean stefxReservedP2GlobalMenuBind =
+		stefxMenuButton &&
+		Cvar_VariableIntegerValue("stefx_splitScreen") &&
+		CL_STEFX_SplitScreen_ShouldReservePadForP2(controller, IN_GetMainController()) &&
+		cls.state == CA_ACTIVE &&
+		(!inSplashMenu || !inSplashMenu->integer) &&
+		(!controllerOut || controllerOut->integer < 0) &&
+		UI_STEFX_ShouldDispatchGameplayMenuBind();
 	const qboolean stefxGameplayMenuBind =
 		stefxMenuButton &&
-		controller == IN_GetMainController() &&
+		(controller == IN_GetMainController() || stefxReservedP2GlobalMenuBind) &&
 		cls.state == CA_ACTIVE &&
 		(!inSplashMenu || !inSplashMenu->integer) &&
 		(!controllerOut || controllerOut->integer < 0) &&

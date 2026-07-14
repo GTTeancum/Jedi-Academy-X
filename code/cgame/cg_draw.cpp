@@ -4161,6 +4161,18 @@ static void CG_Draw2D( void )
 
 	if (cg.showInformation)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( cg_stefxSplitScreen.integer && cg_stefxObjectivesOverlay.integer )
+		{
+			static int stefxObjectiveSkipLogBudget = 3;
+			if ( stefxObjectiveSkipLogBudget > 0 )
+			{
+				Com_PrintfAlways("STEFX: CG_Draw2D skipped per-viewport objectives overlay time=%d\n", cg.time);
+				stefxObjectiveSkipLogBudget--;
+			}
+		}
+		else
+#endif
 		CG_DrawMissionInformation();
 	}
 	else 

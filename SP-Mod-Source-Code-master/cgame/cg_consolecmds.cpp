@@ -76,11 +76,22 @@ void Lock_Disable ( void )
 #if 1
 static void CG_InfoDown_f( void ) {
 	cg.showInformation = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	cgi_Cvar_Set( "stefx_objectivesOverlay", "1" );
+	cgi_Cvar_Set( "cl_paused", "1" );
+	cgi_SendConsoleCommand( "ef_objectives_overlay 1\n" );
+	cg.showInformation = qfalse;
+#endif
 }
 
 static void CG_InfoUp_f( void ) 
 {
 	cg.showInformation = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	cgi_Cvar_Set( "stefx_objectivesOverlay", "0" );
+	cgi_Cvar_Set( "cl_paused", "0" );
+	cgi_SendConsoleCommand( "ef_objectives_overlay 0\n" );
+#endif
 }
 #else
 /*static void CG_Info_f( void ) {

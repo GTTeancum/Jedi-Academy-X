@@ -22,6 +22,7 @@ qboolean CG_ConsoleCommand( void );
 void CG_Shutdown( void );
 int CG_GetCameraPos( vec3_t camerapos );
 void CG_LoadIngameText(void);
+void CG_DrawMissionInformation( void );
 
 #define NUM_CHUNKS		6
 #define BORG_CHUNKS		3	
@@ -78,6 +79,23 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 		return CG_CrosshairPlayer();
 	case CG_CAMERA_POS:
 		return CG_GetCameraPos( (float*)arg0);
+	case CG_DRAW_DATAPAD_OBJECTIVES:
+		if ( cg.snap )
+		{
+#ifdef _XBOX
+			static int stefxObjectivesDrawLogBudget = 8;
+			if ( stefxObjectivesDrawLogBudget > 0 )
+			{
+				XBLF("STEFX: cg_vmMain full-frame objectives draw client=%d time=%d",
+					cg.snap->ps.clientNum,
+					cg.time);
+				stefxObjectivesDrawLogBudget--;
+			}
+#endif
+			CG_STEFX_ClearSplitHudViewport();
+			CG_DrawMissionInformation();
+		}
+		return 0;
 	}
 	return -1;
 }
@@ -143,6 +161,7 @@ vmCvar_t	cg_stefxSplitScreenPlayers;
 vmCvar_t	cg_stefxSplitScreenP2Entity;
 vmCvar_t	cg_stefxSplitScreenP2Zoom;
 vmCvar_t	cg_stefxSplitScreenWeaponUp;
+vmCvar_t	cg_stefxObjectivesOverlay;
 vmCvar_t	cg_language;
 
 vmCvar_t	cg_pano;
@@ -232,6 +251,7 @@ cvarTable_t		cvarTable[] = {
 	{ &cg_stefxSplitScreenP2Entity, "stefx_splitScreenP2Entity", "-1", CVAR_TEMP },
 	{ &cg_stefxSplitScreenP2Zoom, "stefx_splitScreenP2Zoom", "0", CVAR_TEMP },
 	{ &cg_stefxSplitScreenWeaponUp, "stefx_splitScreenWeaponUp", "1", CVAR_TEMP },
+	{ &cg_stefxObjectivesOverlay, "stefx_objectivesOverlay", "0", CVAR_TEMP },
 	{ &cg_language,	"g_language", "", CVAR_ARCHIVE | CVAR_NORESTART},
 	{ &cg_virtualVoyager, "cg_virtualvoyager", "0", CVAR_NORESTART },
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "15000", CVAR_ARCHIVE  },

@@ -3,6 +3,8 @@ param(
     [string[]]$Maps = @(),
     [string[]]$Command = @(),
     [string[]]$PostMapCommand = @(),
+    [string[]]$ActiveCommand = @(),
+    [int]$ActiveCommandServerTime = 72000,
     [switch]$Headless,
     [switch]$Repack,
     [switch]$Build,
@@ -147,6 +149,10 @@ function Initialize-StageFromSource {
         "ef_sp_level.txt",
         "ef_sp_commands.txt",
         "ef_sp_postmap_commands.txt",
+        "ef_sp_client_active_commands.txt",
+        "ef_sp_client_active_command_time.txt",
+        "ef_sp_active_commands.txt",
+        "ef_sp_active_command_time.txt",
         "ja_sp_level.txt",
         "ja_sp_commands.txt",
         "ja_sp_postmap_commands.txt",
@@ -234,6 +240,10 @@ foreach ($mapName in $Maps) {
     Remove-Item -LiteralPath (Join-Path $stageDir "ja_sp_level.txt") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $stageDir "ja_sp_commands.txt") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $stageDir "ja_sp_postmap_commands.txt") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_client_active_commands.txt") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_client_active_command_time.txt") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_active_commands.txt") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_active_command_time.txt") -Force -ErrorAction SilentlyContinue
 
     Set-Content -LiteralPath (Join-Path $stageDir "ef_sp_level.txt") -Value $mapName -Encoding ASCII
     if ($Command.Count -gt 0) {
@@ -247,6 +257,16 @@ foreach ($mapName in $Maps) {
     }
     else {
         Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_postmap_commands.txt") -Force -ErrorAction SilentlyContinue
+    }
+    if ($ActiveCommand.Count -gt 0) {
+        Set-Content -LiteralPath (Join-Path $stageDir "ef_sp_client_active_commands.txt") -Value $ActiveCommand -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $stageDir "ef_sp_client_active_command_time.txt") -Value ([string]$ActiveCommandServerTime) -Encoding ASCII
+    }
+    else {
+        Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_client_active_commands.txt") -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_client_active_command_time.txt") -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_active_commands.txt") -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_active_command_time.txt") -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_log.txt") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $stageDir "memmap.txt") -Force -ErrorAction SilentlyContinue

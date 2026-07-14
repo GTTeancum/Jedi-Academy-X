@@ -84,6 +84,7 @@ int	force_icons[NUM_FORCE_POWERS];
 
 void CG_DrawDataPadHUD( centity_t *cent );
 void CG_DrawDataPadObjectives(const centity_t *cent );
+void CG_DrawMissionInformation( void );
 void CG_DrawDataPadIconBackground(const int backgroundType);
 void CG_DrawDataPadWeaponSelect( void );
 void CG_DrawDataPadForceSelect( void );
@@ -154,8 +155,17 @@ Ghoul2 Insert End
 	case CG_DRAW_DATAPAD_OBJECTIVES:
 		if (cg.snap)
 		{
-			cent = &cg_entities[cg.snap->ps.clientNum];
-			CG_DrawDataPadObjectives(cent);
+#ifdef _XBOX
+			static int stefxObjectivesDrawLogBudget = 8;
+			if ( stefxObjectivesDrawLogBudget > 0 )
+			{
+				Com_PrintfAlways("STEFX: cg_vmMain full-frame objectives draw client=%d time=%d\n",
+					cg.snap->ps.clientNum,
+					cg.time);
+				--stefxObjectivesDrawLogBudget;
+			}
+#endif
+			CG_DrawMissionInformation();
 		}
 		return 0;
 
@@ -308,6 +318,8 @@ vmCvar_t	cg_skippingcin;
 vmCvar_t	cg_stefxSmokeUnlockPlayer;
 vmCvar_t	cg_stefxSmokeInput;
 vmCvar_t	cg_stefxSmokeInputStart;
+vmCvar_t	cg_stefxSplitScreen;
+vmCvar_t	cg_stefxObjectivesOverlay;
 #endif
 
 vmCvar_t	cg_pano;
@@ -432,6 +444,8 @@ static cvarTable_t cvarTable[] = {
 	{ &cg_stefxSmokeUnlockPlayer, "stefx_smoke_unlock_player", "0", CVAR_TEMP },
 	{ &cg_stefxSmokeInput, "stefx_smoke_input", "0", CVAR_TEMP },
 	{ &cg_stefxSmokeInputStart, "stefx_smoke_input_start", "71000", CVAR_TEMP },
+	{ &cg_stefxSplitScreen, "stefx_splitScreen", "0", 0 },
+	{ &cg_stefxObjectivesOverlay, "stefx_objectivesOverlay", "0", 0 },
 #endif
 	{ &cg_missionInfoFlashTime, "cg_missionInfoFlashTime", "10000", 0  },
 	{ &cg_hudFiles, "cg_hudFiles", "ui/jahud.txt", CVAR_ARCHIVE},
@@ -1629,6 +1643,10 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.messageLitOn = cgi_R_RegisterShaderNoMip( "gfx/hud/message_on" );
 	cgs.media.messageLitOff = cgi_R_RegisterShaderNoMip( "gfx/hud/message_off" );
 	cgs.media.messageObjCircle = cgi_R_RegisterShaderNoMip( "gfx/hud/objective_circle" );
+	cgs.media.objectiveCornerUpper = cgi_R_RegisterShaderNoMip( "menu/objectives/swoop1.tga" );
+	cgs.media.objectiveCornerLower = cgi_R_RegisterShaderNoMip( "menu/objectives/swoop2.tga" );
+	cgs.media.objectivePending = cgi_R_RegisterShaderNoMip( "menu/objectives/circle_out.tga" );
+	cgs.media.objectiveComplete = cgi_R_RegisterShaderNoMip( "menu/objectives/circle.tga" );
 
 	cgs.media.DPForcePowerOverlay = cgi_R_RegisterShader( "gfx/hud/force_swirl" );
 

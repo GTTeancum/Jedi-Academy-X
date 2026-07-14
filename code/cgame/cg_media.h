@@ -231,6 +231,10 @@ typedef struct {
 	qhandle_t	messageLitOn;
 	qhandle_t	messageLitOff;
 	qhandle_t	messageObjCircle;
+	qhandle_t	objectiveCornerUpper;
+	qhandle_t	objectiveCornerLower;
+	qhandle_t	objectivePending;
+	qhandle_t	objectiveComplete;
 
 //	qhandle_t	batteryChargeShader;
 	qhandle_t	useableHint;

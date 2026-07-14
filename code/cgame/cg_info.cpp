@@ -306,6 +306,199 @@ void CG_DrawDataPadObjectives(const centity_t *cent )
 	}
 }
 
+static void STEFX_ObjectiveLabel( const char *key, const char *fallback, char *buffer, int bufferSize )
+{
+	if ( !buffer || bufferSize <= 0 )
+	{
+		return;
+	}
+
+	buffer[0] = '\0';
+	if ( key )
+	{
+		cgi_SP_GetStringTextString( key, buffer, bufferSize );
+	}
+	if ( !buffer[0] )
+	{
+		Q_strncpyz( buffer, fallback ? fallback : "", bufferSize );
+	}
+}
+
+static void STEFX_MissionPrintLine( objectives_t objective, int color, int objectIndex, int *missionYcnt )
+{
+	char objectiveText[2048];
+	char finalText[2048];
+	char holdText[1024];
+	char holdText2[2];
+	char *str;
+	char *strBegin;
+	const char *suffix;
+	int y, pixelLen, charLen;
+
+	if ( !missionYcnt )
+	{
+		return;
+	}
+
+	STEFX_ObjectiveLabel( va( "OBJECTIVES_%s", objectiveTable[objectIndex].name ), "", objectiveText, sizeof( objectiveText ) );
+	if ( !objectiveText[0] )
+	{
+		return;
+	}
+
+	if ( objective.status == OBJECTIVE_STAT_FAILED )
+	{
+		suffix = " - FAILED";
+	}
+	else if ( objective.status == OBJECTIVE_STAT_SUCCEEDED )
+	{
+		suffix = " - SUCCEEDED";
+	}
+	else
+	{
+		suffix = "";
+	}
+
+	Q_strncpyz( finalText, objectiveText, sizeof( finalText ) );
+	Q_strcat( finalText, sizeof( finalText ), suffix );
+
+	pixelLen = CG_ProportionalStringWidth( finalText, CG_SMALLFONT );
+	str = finalText;
+
+	if ( pixelLen < 500 )
+	{
+		y = 79 + ( 18 * ( *missionYcnt ) );
+		CG_DrawProportionalString( 108, y, str, CG_SMALLFONT, colorTable[color] );
+		++( *missionYcnt );
+		return;
+	}
+
+	pixelLen = 0;
+	charLen = 0;
+	holdText2[1] = '\0';
+	strBegin = str;
+
+	while ( *str )
+	{
+		holdText2[0] = *str;
+		pixelLen += CG_ProportionalStringWidth( holdText2, CG_SMALLFONT );
+		pixelLen += 2;
+		++charLen;
+
+		if ( pixelLen > 500 )
+		{
+			while ( charLen && *str != ' ' )
+			{
+				--str;
+				--charLen;
+			}
+
+			if ( *str == ' ' )
+			{
+				++str;
+			}
+
+			Q_strncpyz( holdText, strBegin, charLen );
+			holdText[charLen] = '\0';
+			strBegin = str;
+			pixelLen = 0;
+			charLen = 1;
+
+			y = 79 + ( 18 * ( *missionYcnt ) );
+			CG_DrawProportionalString( 108, y, holdText, CG_SMALLFONT, colorTable[color] );
+			++( *missionYcnt );
+		}
+		else if ( *( str + 1 ) == '\0' )
+		{
+			++charLen;
+			Q_strncpyz( holdText, strBegin, charLen );
+			y = 79 + ( 18 * ( *missionYcnt ) );
+			CG_DrawProportionalString( 108, y, holdText, CG_SMALLFONT, colorTable[color] );
+			++( *missionYcnt );
+			break;
+		}
+		++str;
+	}
+}
+
+static void STEFX_MissionInformationFrame( centity_t *cent )
+{
+	char label[128];
+	vec4_t newColor;
+	int i, missionYcnt;
+	int color;
+
+	newColor[0] = colorTable[CT_BLACK][0];
+	newColor[1] = colorTable[CT_BLACK][1];
+	newColor[2] = colorTable[CT_BLACK][2];
+	newColor[3] = 0.5f;
+	cgi_R_SetColor( newColor );
+	CG_DrawPic( 77, 50, 535, 174, cgs.media.whiteShader );
+	CG_DrawPic( 30, 218, 47, 9, cgs.media.whiteShader );
+	CG_DrawPic( 77, 224, 535, 44, cgs.media.whiteShader );
+
+	cgi_R_SetColor( colorTable[CT_DKPURPLE3] );
+	CG_DrawPic( 30, 50, 64, 32, cgs.media.objectiveCornerUpper );
+	CG_DrawPic( 50, 50, 353, 22, cgs.media.whiteShader );
+	CG_DrawPic( 30, 67, 47, 154, cgs.media.whiteShader );
+
+	STEFX_ObjectiveLabel( "SP_INGAME_MISSIONINFORMATION", "MISSION INFORMATION", label, sizeof( label ) );
+	CG_DrawProportionalString( 611, 50, label, CG_RIGHT | CG_BIGFONT, colorTable[CT_LTBLUE1] );
+
+	cgi_R_SetColor( colorTable[CT_DKPURPLE3] );
+	CG_DrawPic( 81, 224, 521, 16, cgs.media.whiteShader );
+	CG_DrawPic( 602, 224, 16, 32, cgs.media.objectiveCornerLower );
+
+	STEFX_ObjectiveLabel( "SP_INGAME_TACTICALINFO", "TACTICAL INFORMATION", label, sizeof( label ) );
+	CG_DrawProportionalString( 96, 224, label, CG_SMALLFONT, colorTable[CT_BLACK] );
+	STEFX_ObjectiveLabel( "SP_INGAME_OBJECTIVES", "OBJECTIVES", label, sizeof( label ) );
+	CG_DrawProportionalString( 96, 56, label, CG_SMALLFONT, colorTable[CT_BLACK] );
+
+	missionYcnt = 0;
+	for ( i = 0; i < MAX_OBJECTIVES; ++i )
+	{
+		if ( cent->gent->client->sess.mission_objectives[i].display )
+		{
+			if ( cent->gent->client->sess.mission_objectives[i].status == OBJECTIVE_STAT_SUCCEEDED )
+			{
+				cgi_R_SetColor( colorTable[CT_LTBLUE1] );
+				CG_DrawPic( 88, 79 + ( 18 * missionYcnt ), 16, 16, cgs.media.objectiveComplete );
+				cgi_R_SetColor( colorTable[CT_DKBLUE1] );
+				CG_DrawPic( 88, 79 + ( 18 * missionYcnt ), 16, 16, cgs.media.objectivePending );
+				color = CT_LTBLUE1;
+			}
+			else if ( cent->gent->client->sess.mission_objectives[i].status == OBJECTIVE_STAT_FAILED )
+			{
+				cgi_R_SetColor( colorTable[CT_LTRED1] );
+				CG_DrawPic( 88, 79 + ( 18 * missionYcnt ), 16, 16, cgs.media.objectiveComplete );
+				cgi_R_SetColor( colorTable[CT_DKRED1] );
+				CG_DrawPic( 88, 79 + ( 18 * missionYcnt ), 16, 16, cgs.media.objectivePending );
+				color = CT_LTRED1;
+			}
+			else
+			{
+				cgi_R_SetColor( colorTable[CT_LTGOLD1] );
+				CG_DrawPic( 88, 79 + ( 18 * missionYcnt ), 16, 16, cgs.media.objectivePending );
+				color = CT_LTGOLD1;
+			}
+
+			STEFX_MissionPrintLine( cent->gent->client->sess.mission_objectives[i], color, i, &missionYcnt );
+		}
+	}
+
+	if ( !missionYcnt )
+	{
+		STEFX_ObjectiveLabel( "SP_INGAME_OBJNONE", "NONE", label, sizeof( label ) );
+		CG_DrawProportionalString( 108, 79, label, CG_SMALLFONT, colorTable[CT_LTBLUE1] );
+	}
+
+	cgi_R_SetColor( colorTable[CT_DKPURPLE3] );
+	CG_DrawPic( 30, 224, 47, 38, cgs.media.whiteShader );
+	CG_DrawPic( 604, 232, 8, 30, cgs.media.whiteShader );
+	CG_DrawPic( 30, 262, 582, 8, cgs.media.whiteShader );
+	cgi_R_SetColor( NULL );
+}
+
 void CG_DrawMissionInformation( void )
 {
 	centity_t *cent;
@@ -341,7 +534,7 @@ void CG_DrawMissionInformation( void )
 	}
 #endif
 
-	CG_DrawDataPadObjectives( cent );
+	STEFX_MissionInformationFrame( cent );
 	missionInfo_Updated = qfalse;
 	cg.missionInfoFlashTime = 0;
 }

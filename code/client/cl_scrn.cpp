@@ -408,10 +408,32 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// if the menu is going to cover the entire screen, we
 	// don't need to render anything under it
 #ifdef _XBOX
-	const qboolean xboxUiCatcherActive = (cls.uiStarted && (cls.keyCatchers & KEYCATCH_UI));
-	const qboolean xboxForceDirectMapGameDraw = (Sys_IsDirectMapBoot() && cls.state == CA_ACTIVE && !xboxUiCatcherActive);
+	const qboolean xboxUiCatcherActive = (qboolean)((cls.keyCatchers & KEYCATCH_UI) != 0);
+	const qboolean stefxObjectivesOverlayClientActive = CL_STEFX_ObjectivesOverlayActive();
+	const qboolean stefxMissionFailedOverlayClientActive = CL_STEFX_MissionFailedOverlayActive();
+	const qboolean xboxForceDirectMapGameDraw =
+		(Sys_IsDirectMapBoot() && cls.state == CA_ACTIVE && !xboxUiCatcherActive && !stefxObjectivesOverlayClientActive && !stefxMissionFailedOverlayClientActive);
+	const qboolean stefxObjectivesOverlayActive =
+		(qboolean)(stefxObjectivesOverlayClientActive || Cvar_VariableIntegerValue("stefx_objectivesOverlay") != 0);
+	static int s_stefxObjectivesScreenTraceBudget = 16;
 #else
 	const qboolean xboxForceDirectMapGameDraw = qfalse;
+	const qboolean stefxObjectivesOverlayActive = qfalse;
+#endif
+#ifdef _XBOX
+	if ((stefxObjectivesOverlayActive || xboxUiCatcherActive) && s_stefxObjectivesScreenTraceBudget > 0)
+	{
+		XBLog_Write(va("STEFX: SCR objective overlay decision state=%d serverTime=%d uiStarted=%d catcher=0x%x overlay='%s' paused='%s' fullscreen=%d forceMap=%d",
+			(int)cls.state,
+			cl.serverTime,
+			(int)cls.uiStarted,
+			(unsigned int)cls.keyCatchers,
+			Cvar_VariableString("stefx_objectivesOverlay"),
+			Cvar_VariableString("cl_paused"),
+			_UI_IsFullscreen() ? 1 : 0,
+			xboxForceDirectMapGameDraw ? 1 : 0));
+		--s_stefxObjectivesScreenTraceBudget;
+	}
 #endif
 #ifdef _XBOX
 	static int stefxCinematicFullscreenBypassLogBudget = 4;
@@ -498,14 +520,34 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// draw downloading progress bar
 
 	// the menu draws next
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxObjectivesOverlayClientActive )
+	{
+		CL_STEFX_DrawObjectivesOverlay();
+		return;
+	}
+	if ( stefxMissionFailedOverlayClientActive )
+	{
+		CL_STEFX_DrawMissionFailedOverlay();
+		return;
+	}
+#endif
 #ifdef _XBOX
 	if (xboxForceDirectMapGameDraw) {
+		if (stefxObjectivesOverlayActive)
+		{
+			XBLog_Write("STEFX: SCR objective overlay blocked by direct-map return");
+		}
 		if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField direct-map return before UI");
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: skipping UI refresh for direct-map active frame");
 		return;
 	}
 #endif
 	#ifdef _XBOX
+	if (stefxObjectivesOverlayActive)
+	{
+		XBLog_Write("STEFX: SCR objective overlay calling _UI_Refresh");
+	}
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: _UI_Refresh...");
 	#endif
 	_UI_Refresh( cls.realtime );
