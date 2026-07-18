@@ -987,6 +987,41 @@ int SV_GameSystemCalls( int *args ) {
 	case BOTLIB_GET_CONSOLE_MESSAGE:
 		return SV_BotGetConsoleMessage( args[1], (char *)VMA(2), args[3] );
 	case BOTLIB_USER_COMMAND:
+	#if defined(STEFX_ELITE_FORCE_MP)
+		{
+			static unsigned char s_botCommandProof[MAX_CLIENTS];
+			const int clientNum = args[1];
+			const usercmd_t *cmd = (const usercmd_t *)VMA(2);
+			unsigned char proof = 1;
+
+			if ( cmd->forwardmove || cmd->rightmove || cmd->upmove )
+			{
+				proof |= 2;
+			}
+			if ( cmd->buttons & BUTTON_ATTACK )
+			{
+				proof |= 4;
+			}
+			if ( cmd->buttons & BUTTON_ALT_ATTACK )
+			{
+				proof |= 8;
+			}
+
+			if ( clientNum >= 0 && clientNum < MAX_CLIENTS &&
+				(proof & ~s_botCommandProof[clientNum]) )
+			{
+				s_botCommandProof[clientNum] |= proof;
+				Com_Printf( "STEFX_HM: official EF bot usercmd client=%d proof=0x%02x weapon=%d buttons=0x%x move='%d %d %d'\n",
+					clientNum,
+					s_botCommandProof[clientNum],
+					cmd->weapon,
+					cmd->buttons,
+					cmd->forwardmove,
+					cmd->rightmove,
+					cmd->upmove );
+			}
+		}
+	#endif
 		SV_ClientThink( &svs.clients[args[1]], (struct usercmd_s *)VMA(2) );
 		return 0;
 

@@ -309,6 +309,11 @@ REQUIRED_HOLOMATCH_BOT_SETUP_MARKERS = {
         "STEFX_HM: official EF bot AI allocation state initialized",
         "STEFX_HM: JA waypoint loader retired; official EF AAS route active",
     ],
+    "codemp/server/sv_game.cpp": [
+        "STEFX_HM: official EF bot usercmd client=",
+        "cmd->forwardmove || cmd->rightmove || cmd->upmove",
+        "cmd->buttons & BUTTON_ALT_ATTACK",
+    ],
     "codemp/game/ef_ai_compat.h": [
         "static void EF_AI_MirrorCarrierAmmoForOfficialBot(playerState_t *state)",
         "weaponData[weapons[i]].ammoIndex",
@@ -518,6 +523,25 @@ OFFICIAL_EF_CARRIER_WEAPON_MAP = {
     7: "WP_DISRUPTOR",
     8: "WP_REPEATER",
     9: "WP_ROCKET_LAUNCHER",
+}
+
+OFFICIAL_EF_BOT_ACTION_FLAGS = {
+    "ACTION_ATTACK": 0x0001,
+    "ACTION_USE": 0x0002,
+    "ACTION_RESPAWN": 0x0004,
+    "ACTION_JUMP": 0x0008,
+    "ACTION_MOVEUP": 0x0008,
+    "ACTION_CROUCH": 0x0010,
+    "ACTION_MOVEDOWN": 0x0010,
+    "ACTION_MOVEFORWARD": 0x0020,
+    "ACTION_MOVEBACK": 0x0040,
+    "ACTION_MOVELEFT": 0x0080,
+    "ACTION_MOVERIGHT": 0x0100,
+    "ACTION_DELAYEDJUMP": 0x0200,
+    "ACTION_TALK": 0x0400,
+    "ACTION_GESTURE": 0x0800,
+    "ACTION_WALK": 0x1000,
+    "ACTION_ALT_ATTACK": 0x2000,
 }
 
 REQUIRED_HOLOMATCH_BOTFILE_ALIASES = {
@@ -1123,6 +1147,44 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_weapon_boundary)
         )
 
+    botlib_header = (repo_root / "codemp" / "game" / "botlib.h").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    action_block_match = re.search(
+        r"#if defined\(STEFX_ELITE_FORCE_MP\)(.*?)#else", botlib_header, re.DOTALL
+    )
+    if not action_block_match:
+        fail("Holomatch botlib.h is missing its official EF action-flag block")
+    action_defines = {
+        name: value
+        for name, value in re.findall(
+            r"^#define\s+(ACTION_[A-Z0-9_]+)\s+([^\s/]+)",
+            action_block_match.group(1),
+            re.MULTILINE,
+        )
+    }
+    resolved_action_flags: dict[str, int] = {}
+    for name in OFFICIAL_EF_BOT_ACTION_FLAGS:
+        value = action_defines.get(name, "")
+        seen: set[str] = set()
+        while value.startswith("ACTION_") and value not in seen:
+            seen.add(value)
+            value = action_defines.get(value, "")
+        try:
+            resolved_action_flags[name] = int(value, 0)
+        except ValueError:
+            resolved_action_flags[name] = -1
+    bad_action_flags = {
+        name: resolved_action_flags.get(name)
+        for name, expected in OFFICIAL_EF_BOT_ACTION_FLAGS.items()
+        if resolved_action_flags.get(name) != expected
+    }
+    if bad_action_flags:
+        fail(
+            "Holomatch botlib action flags must match official EF, including move-up/jump and move-down/crouch aliases: "
+            + json.dumps(bad_action_flags, sort_keys=True)
+        )
+
     forbidden_source_includes: list[str] = []
     for folder_rel in ("codemp/ui", "codemp/cgame", "codemp/game"):
         folder = repo_root / folder_rel
@@ -1538,6 +1600,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "officialEfBotAiFiles": len(OFFICIAL_EF_AI_SHA256),
         "officialEfBotAiByteExact": True,
         "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
+        "officialEfBotActionFlags": len(OFFICIAL_EF_BOT_ACTION_FLAGS),
         "compiledJaBotAiSources": 0,
         "inputSpEarlyDeviceInit": True,
         "inputJoyDeadzoneDefault": "0.18",
@@ -2146,6 +2209,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"couldn't load skill %d from %s",
         b"STEFX_HM: official EF bot AI allocation state initialized",
         b"STEFX_HM: official EF bot ammo view mirrored from carrier ammo buckets",
+        b"STEFX_HM: official EF bot usercmd client=",
         b"STEFX_HM: JA waypoint loader retired; official EF AAS route active",
         b"STEFX_HM: addbot using official EF character name=",
         b"STEFX_HM: input Plan-B XInitDevices completed before D3D init",
