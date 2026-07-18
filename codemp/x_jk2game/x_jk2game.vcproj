@@ -95,7 +95,7 @@
 			>
 			<File RelativePath="..\game\ef_ai\ai_main.c">
 				<FileConfiguration Name="Release|Win32">
-					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h /DEF_AI_STATE_COPY_BOUNDARY=1" />
 				</FileConfiguration>
 			</File>
 			<File RelativePath="..\game\ef_ai\ai_chat.c">

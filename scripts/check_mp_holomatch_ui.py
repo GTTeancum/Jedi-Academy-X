@@ -310,6 +310,10 @@ REQUIRED_HOLOMATCH_BOT_SETUP_MARKERS = {
         "STEFX_HM: JA waypoint loader retired; official EF AAS route active",
     ],
     "codemp/game/ef_ai_compat.h": [
+        "static void EF_AI_MirrorCarrierAmmoForOfficialBot(playerState_t *state)",
+        "weaponData[weapons[i]].ammoIndex",
+        "state->ammo[weapons[i]] = ammoValues[i];",
+        "STEFX_HM: official EF bot ammo view mirrored from carrier ammo buckets",
         "static int EF_AI_OfficialWeaponToCarrier(int weapon)",
         "if (weapon >= 11 && weapon <= 19)",
         "return alt ? base + WP_NUM_WEAPONS : base;",
@@ -1063,6 +1067,9 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
 
     game_project = repo_root / "codemp" / "x_jk2game" / "x_jk2game.vcproj"
     game_project_paths = project_paths(game_project)
+    game_project_text = game_project.read_text(encoding="utf-8", errors="ignore")
+    if "/DEF_AI_STATE_COPY_BOUNDARY=1" not in game_project_text:
+        fail("official EF ai_main.c must compile with the copied-player-state ammo boundary")
     missing_official_ai_sources = sorted(
         norm_path(path) for path in REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES
         if norm_path(path) not in game_project_paths
@@ -2138,6 +2145,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"BotAISetupClient: client %d already setup",
         b"couldn't load skill %d from %s",
         b"STEFX_HM: official EF bot AI allocation state initialized",
+        b"STEFX_HM: official EF bot ammo view mirrored from carrier ammo buckets",
         b"STEFX_HM: JA waypoint loader retired; official EF AAS route active",
         b"STEFX_HM: addbot using official EF character name=",
         b"STEFX_HM: input Plan-B XInitDevices completed before D3D init",
@@ -2165,6 +2173,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         "checked": True,
         "xbe": str(xbe),
         "baseGame": "BaseEF",
+        "officialBotAmmoBoundary": True,
         "legacyBaseRouteCount": 0,
         "legacyStringCount": 0,
     }

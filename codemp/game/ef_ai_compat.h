@@ -77,6 +77,57 @@ static vmCvar_t ef_ai_disabled_cvar;
 #define g_pModDisintegration ef_ai_disabled_cvar
 #define g_pModSpecialties ef_ai_disabled_cvar
 
+#if defined(EF_AI_STATE_COPY_BOUNDARY)
+static void EF_AI_MirrorCarrierAmmoForOfficialBot(playerState_t *state)
+{
+	static const int weapons[] = {
+		WP_BRYAR_PISTOL,
+		WP_BLASTER,
+		WP_DEMP2,
+		WP_BOWCASTER,
+		WP_FLECHETTE,
+		WP_THERMAL,
+		WP_DISRUPTOR,
+		WP_REPEATER,
+		WP_ROCKET_LAUNCHER
+	};
+	int ammoValues[sizeof(weapons) / sizeof(weapons[0])];
+	int i;
+	static qboolean logged = qfalse;
+
+	for (i = 0; i < (int)(sizeof(weapons) / sizeof(weapons[0])); ++i)
+	{
+		int ammoIndex = weaponData[weapons[i]].ammoIndex;
+		ammoValues[i] = (ammoIndex >= 0 && ammoIndex < MAX_WEAPONS)
+			? state->ammo[ammoIndex]
+			: 0;
+	}
+	for (i = 0; i < (int)(sizeof(weapons) / sizeof(weapons[0])); ++i)
+	{
+		state->ammo[weapons[i]] = ammoValues[i];
+	}
+
+	if (!logged)
+	{
+		G_Printf("STEFX_HM: official EF bot ammo view mirrored from carrier ammo buckets\n");
+		logged = qtrue;
+	}
+}
+
+static void *EF_AI_CopyWithStateBoundary(void *dest, const void *source, size_t bytes)
+{
+	void *result = ::memcpy(dest, source, bytes);
+
+	if (bytes == sizeof(playerState_t))
+	{
+		EF_AI_MirrorCarrierAmmoForOfficialBot((playerState_t *)dest);
+	}
+	return result;
+}
+
+#define memcpy EF_AI_CopyWithStateBoundary
+#endif
+
 static char *BG_FindClassnameForHoldable(int holdable)
 {
 	(void)holdable;
