@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import struct
@@ -292,23 +293,56 @@ REQUIRED_HOLOMATCH_MODEL_MARKERS = {
 }
 
 REQUIRED_HOLOMATCH_BOT_SETUP_MARKERS = {
-    "codemp/game/ai_main.c": [
-        "botlibSetupResult = trap_BotLibSetup();",
-        "botlibSetupResult != BLERR_NOERROR",
-        "STEFX_HM: BotAISetup trap_BotLibSetup done result=%d",
-        "trap_FS_FOpenFile( aasPath, &aasFile, FS_READ );",
-        "STEFX_HM: official EF AAS package probe map='%s'",
-        "generated waypoint route remains available for Xbox BSP",
-        "trap_BotLibVarSet( \"sv_mapChecksum\", ckSum.string );",
-        "STEFX_HM: official EF AAS botlib checksum var set value='%s'",
-        "botLibMapLoadResult = trap_BotLibLoadMap( mapname.string );",
-        "STEFX_HM: official EF AAS botlib load result=%d map='%s'",
+    "codemp/game/ef_ai/ai_main.c": [
+        "int BotAISetupClient(int client, struct bot_settings_s *settings)",
+        "trap_BotLoadCharacter(settings->characterfile, settings->skill)",
+        "trap_BotLibLoadMap( mapname.string )",
+        "errnum = BotInitLibrary();",
+        "int BotAIStartFrame(int time)",
     ],
-    "codemp/game/ai_wpnav.c": [
-        "STEFX_HM: fallback bot waypoint inherited CalculatePaths skipped map='%s'",
-        "STEFX_HM: fallback bot waypoint local links done map='%s'",
-        "STEFX_HM: fallback bot waypoint trap path calculation skipped map='%s'; local Holomatch links active",
+    "codemp/game/g_bot.c": [
+        'Info_SetValueForKey( userinfo, "characterfile", s );',
+        "STEFX_HM: addbot using official EF character name='%s' file='%s'",
     ],
+    "codemp/game/ef_ai_xbox_support.c": [
+        "STEFX_HM: official EF bot AI allocation state initialized",
+        "STEFX_HM: JA waypoint loader retired; official EF AAS route active",
+    ],
+}
+
+OFFICIAL_EF_AI_SHA256 = {
+    "ai_chat.c": "f9c33a49fa21c0ad203fc4da865fca5bbbbf71b446e5b3ce5ec020943c35eb1f",
+    "ai_chat.h": "a6f6790be9fd6e3b9ed9221cd94da5cdbcc9c32ac88cb5de538469c6bfde33e7",
+    "ai_cmd.c": "73f24bfa4286aaec88540a786fc95b4077ba3dba7b451a5435309900d21aa94d",
+    "ai_cmd.h": "ec7a75c66ec3187e12c2a719243e8b932ca1fb3b73189175d0ce4dc1fc156293",
+    "ai_dmnet.c": "1da7940f184a807ba284c48f0cddfc4175eddb4d99a1c10fede2b371f5f4d171",
+    "ai_dmnet.h": "ecf04ce9492491a1e2a9881711dbcb6793a3ba93a1d40c6d60d510b6e2682cce",
+    "ai_dmq3.c": "b841530903a135e63eb56106fa1bbad682912c83b6add1fdf99e7a41f1ff020d",
+    "ai_dmq3.h": "32a88bfcf2cc788a44179165fc7b19d69463e2bdb6c0f25741b6e4ae3a62e974",
+    "ai_main.c": "6f0efaa939115a2027230cfb266b94688400373d3436cddd7423f4270567a482",
+    "ai_main.h": "6815a64483be95bb371443d0ed5eb6596fd9221ad63d1e9661b51d3262ebbe1e",
+    "ai_team.c": "f96421f8c16595a3d0a74ae9211914b9849e73a2ca1c441a92326721125173f0",
+    "ai_team.h": "4f9003f804011a0ba4b174e636dcc6d96f528a555b8511f0e73c208e2a8210ca",
+    "chars.h": "28e2c0f22d9203e1f237a0ec46de0f20d90acd0a13928132bfc10de0d43b3598",
+    "inv.h": "31f2f58791b9e47adf911dae1d5441236dc9d43dff2685fd13f2ab4e3a680b62",
+    "match.h": "c7880bd4c2b653514a8aaf406493aa19af5e3377fe61312f1552bfe0bce0f438",
+    "syn.h": "9b8e2cb96c979b3a2ded6d0f9a70d39d9af531f596baea5a4d042411771ac831",
+}
+
+REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES = {
+    "../game/ef_ai/ai_main.c",
+    "../game/ef_ai/ai_chat.c",
+    "../game/ef_ai/ai_cmd.c",
+    "../game/ef_ai/ai_dmnet.c",
+    "../game/ef_ai/ai_dmq3.c",
+    "../game/ef_ai/ai_team.c",
+    "../game/ef_ai_xbox_support.c",
+}
+
+FORBIDDEN_JA_AI_PROJECT_SOURCES = {
+    "../game/ai_main.c",
+    "../game/ai_util.c",
+    "../game/ai_wpnav.c",
 }
 
 REQUIRED_HOLOMATCH_INPUT_MARKERS = {
@@ -332,9 +366,11 @@ REQUIRED_HOLOMATCH_COMBAT_MARKERS = {
         "+map hm_borg1",
         "STEFX_HM: direct Holomatch startup bypasses menus; loading hm_borg1 from command line",
     ],
-    "codemp/game/ai_main.c": [
-        "STEFX_HM: direct Holomatch combat bot command client=",
-        "BUTTON_ALT_ATTACK",
+    "codemp/game/ef_ai/ai_dmq3.c": [
+        "void BotChooseWeapon(bot_state_t *bs)",
+        "trap_BotChooseBestFightWeapon(bs->ws, bs->inventory, BotUseMeleeWeapon(bs))",
+        "void BotDeathmatchAI(bot_state_t *bs, float thinktime)",
+        "trap_EA_Attack(bs->client);",
     ],
     "codemp/game/g_weapon.c": [
         "#define STEFX_HM_PHASER_DAMAGE",
@@ -964,6 +1000,44 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(forbidden_project_paths)
         )
 
+    game_project = repo_root / "codemp" / "x_jk2game" / "x_jk2game.vcproj"
+    game_project_paths = project_paths(game_project)
+    missing_official_ai_sources = sorted(
+        norm_path(path) for path in REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES
+        if norm_path(path) not in game_project_paths
+    )
+    if missing_official_ai_sources:
+        fail(
+            "Holomatch game project is missing official EF 1.2 bot AI source(s): "
+            + ", ".join(missing_official_ai_sources)
+        )
+
+    compiled_ja_ai_sources = sorted(
+        norm_path(path) for path in FORBIDDEN_JA_AI_PROJECT_SOURCES
+        if norm_path(path) in game_project_paths
+    )
+    if compiled_ja_ai_sources:
+        fail(
+            "Holomatch game project still compiles inherited JA bot AI source(s): "
+            + ", ".join(compiled_ja_ai_sources)
+        )
+
+    official_ai_dir = repo_root / "codemp" / "game" / "ef_ai"
+    bad_official_ai_hashes: list[str] = []
+    for filename, expected_hash in sorted(OFFICIAL_EF_AI_SHA256.items()):
+        path = official_ai_dir / filename
+        if not path.is_file():
+            bad_official_ai_hashes.append(f"{filename}: missing")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            bad_official_ai_hashes.append(f"{filename}: {actual_hash}")
+    if bad_official_ai_hashes:
+        fail(
+            "official EF 1.2 bot AI source must remain byte-for-byte unchanged: "
+            + ", ".join(bad_official_ai_hashes)
+        )
+
     forbidden_source_includes: list[str] = []
     for folder_rel in ("codemp/ui", "codemp/cgame", "codemp/game"):
         folder = repo_root / folder_rel
@@ -1376,6 +1450,9 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "rendererSolidFillReset": True,
         "rendererDdsOnlyUpload": True,
         "holomatchDefaultPlayerModel": "munro/default",
+        "officialEfBotAiFiles": len(OFFICIAL_EF_AI_SHA256),
+        "officialEfBotAiByteExact": True,
+        "compiledJaBotAiSources": 0,
         "inputSpEarlyDeviceInit": True,
         "inputJoyDeadzoneDefault": "0.18",
         "combatPhaserDamageProof": True,
@@ -1864,13 +1941,11 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: cgame skipped legacy renderer font registration; EF prop-font atlas owns Holomatch text",
         b"STEFX_HM: cgame EF prop fonts loaded=",
         b"STEFX_HM: cgame EF prop text draw",
-        b"STEFX_HM: BotAISetup trap_BotLibSetup done result=",
-        b"STEFX_HM: official EF AAS package probe map=",
-        b"STEFX_HM: official EF AAS botlib checksum var set value=",
-        b"STEFX_HM: official EF AAS botlib load result=",
-        b"STEFX_HM: fallback bot waypoint inherited CalculatePaths skipped map=",
-        b"STEFX_HM: fallback bot waypoint local links done map=",
-        b"STEFX_HM: fallback bot waypoint trap path calculation skipped map=",
+        b"BotAISetupClient: client %d already setup",
+        b"couldn't load skill %d from %s",
+        b"STEFX_HM: official EF bot AI allocation state initialized",
+        b"STEFX_HM: JA waypoint loader retired; official EF AAS route active",
+        b"STEFX_HM: addbot using official EF character name=",
         b"STEFX_HM: input Plan-B XInitDevices completed before D3D init",
         b"STEFX_HM: MP using SP-style fakegl pushbuffer path; main skipped legacy Direct3D_SetPushBufferSize",
         b"STEFX: IN_Init gamepad mask=",

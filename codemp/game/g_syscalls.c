@@ -642,6 +642,10 @@ int trap_BotGetServerCommand(int clientNum, char *message, int size) {
 	return syscall( BOTLIB_GET_CONSOLE_MESSAGE, clientNum, message, size );
 }
 
+int trap_BotGetConsoleMessage(int clientNum, char *message, int size) {
+	return syscall( BOTLIB_GET_CONSOLE_MESSAGE, clientNum, message, size );
+}
+
 void trap_BotUserCommand(int clientNum, usercmd_t *ucmd) {
 	syscall( BOTLIB_USER_COMMAND, clientNum, ucmd );
 }
@@ -952,8 +956,8 @@ void trap_BotSetChatGender(int chatstate, int gender) {
 	syscall( BOTLIB_AI_SET_CHAT_GENDER, chatstate, gender );
 }
 
-void trap_BotSetChatName(int chatstate, char *name, int client) {
-	syscall( BOTLIB_AI_SET_CHAT_NAME, chatstate, name, client );
+void trap_BotSetChatName(int chatstate, char *name) {
+	syscall( BOTLIB_AI_SET_CHAT_NAME, chatstate, name );
 }
 
 void trap_BotResetGoalState(int goalstate) {
@@ -1000,12 +1004,12 @@ int trap_BotGetSecondGoal(int goalstate, void /* struct bot_goal_s */ *goal) {
 	return syscall( BOTLIB_AI_GET_SECOND_GOAL, goalstate, goal );
 }
 
-int trap_BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags) {
-	return syscall( BOTLIB_AI_CHOOSE_LTG_ITEM, goalstate, origin, inventory, travelflags );
+int trap_BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, qboolean botRoamsOnly) {
+	return syscall( BOTLIB_AI_CHOOSE_LTG_ITEM, goalstate, origin, inventory, travelflags, botRoamsOnly );
 }
 
-int trap_BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, void /* struct bot_goal_s */ *ltg, float maxtime) {
-	return syscall( BOTLIB_AI_CHOOSE_NBG_ITEM, goalstate, origin, inventory, travelflags, ltg, PASSFLOAT(maxtime) );
+int trap_BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, void /* struct bot_goal_s */ *ltg, float maxtime, qboolean botRoamsOnly) {
+	return syscall( BOTLIB_AI_CHOOSE_NBG_ITEM, goalstate, origin, inventory, travelflags, ltg, PASSFLOAT(maxtime), botRoamsOnly );
 }
 
 int trap_BotTouchingGoal(vec3_t origin, void /* struct bot_goal_s */ *goal) {
@@ -1122,8 +1126,8 @@ void trap_BotInitMoveState(int handle, void /* struct bot_initmove_s */ *initmov
 	syscall( BOTLIB_AI_INIT_MOVE_STATE, handle, initmove );
 }
 
-int trap_BotChooseBestFightWeapon(int weaponstate, int *inventory) {
-	return syscall( BOTLIB_AI_CHOOSE_BEST_FIGHT_WEAPON, weaponstate, inventory );
+int trap_BotChooseBestFightWeapon(int weaponstate, int *inventory, qboolean meleeRange) {
+	return syscall( BOTLIB_AI_CHOOSE_BEST_FIGHT_WEAPON, weaponstate, inventory, meleeRange );
 }
 
 void trap_BotGetWeaponInfo(int weaponstate, int weapon, void /* struct weaponinfo_s */ *weaponinfo) {

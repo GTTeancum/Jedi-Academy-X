@@ -75,7 +75,7 @@ int BotSetupWeaponAI(void);
 //shut down the weapon AI
 void BotShutdownWeaponAI(void);
 //returns the best weapon to fight with
-int BotChooseBestFightWeapon(int weaponstate, int *inventory);
+int BotChooseBestFightWeapon(int weaponstate, int *inventory, qboolean meleeRange);
 //returns the information of the current weapon
 void BotGetWeaponInfo(int weaponstate, int weapon, weaponinfo_t *weaponinfo);
 //loads the weapon weights

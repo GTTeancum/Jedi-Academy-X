@@ -1192,7 +1192,7 @@ int SV_GameSystemCalls( int *args ) {
 		botlib_export->ai.BotSetChatGender( args[1], args[2] );
 		return 0;
 	case BOTLIB_AI_SET_CHAT_NAME:
-		botlib_export->ai.BotSetChatName( args[1], (char *)VMA(2), args[3] );
+		botlib_export->ai.BotSetChatName( args[1], (char *)VMA(2) );
 		return 0;
 	case BOTLIB_AI_RESET_GOAL_STATE:
 		botlib_export->ai.BotResetGoalState( args[1] );
@@ -1226,9 +1226,9 @@ int SV_GameSystemCalls( int *args ) {
 	case BOTLIB_AI_GET_SECOND_GOAL:
 		return botlib_export->ai.BotGetSecondGoal( args[1], (struct bot_goal_s *)VMA(2) );
 	case BOTLIB_AI_CHOOSE_LTG_ITEM:
-		return botlib_export->ai.BotChooseLTGItem( args[1], (float *)VMA(2), (int *)VMA(3), args[4] );
+		return botlib_export->ai.BotChooseLTGItem( args[1], (float *)VMA(2), (int *)VMA(3), args[4], args[5] );
 	case BOTLIB_AI_CHOOSE_NBG_ITEM:
-		return botlib_export->ai.BotChooseNBGItem( args[1], (float *)VMA(2), (int *)VMA(3), args[4], (struct bot_goal_s *)VMA(5), VMF(6) );
+		return botlib_export->ai.BotChooseNBGItem( args[1], (float *)VMA(2), (int *)VMA(3), args[4], (struct bot_goal_s *)VMA(5), VMF(6), args[7] );
 	case BOTLIB_AI_TOUCHING_GOAL:
 		return botlib_export->ai.BotTouchingGoal( (float *)VMA(1), (struct bot_goal_s *)VMA(2) );
 	case BOTLIB_AI_ITEM_GOAL_IN_VIS_BUT_NOT_VISIBLE:
@@ -1303,7 +1303,7 @@ int SV_GameSystemCalls( int *args ) {
 		return 0;
 
 	case BOTLIB_AI_CHOOSE_BEST_FIGHT_WEAPON:
-		return botlib_export->ai.BotChooseBestFightWeapon( args[1], (int *)VMA(2) );
+		return botlib_export->ai.BotChooseBestFightWeapon( args[1], (int *)VMA(2), args[3] );
 	case BOTLIB_AI_GET_WEAPON_INFO:
 		botlib_export->ai.BotGetWeaponInfo( args[1], args[2], (struct weaponinfo_s *)VMA(3) );
 		return 0;

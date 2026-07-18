@@ -1,0 +1,171 @@
+#ifndef EF_AI_COMPAT_H
+#define EF_AI_COMPAT_H
+
+#include "g_local.h"
+
+// The files in game/ef_ai are untouched EF 1.2 sources.  This header is
+// force-included by the Xbox project so carrier IDs remain an Xbox boundary.
+
+#define GT_TOURNAMENT GT_DUEL
+
+#define AIGT_SINGLE_PLAYER 0
+#define AIGT_TEAM 1
+#define AIGT_OTHER 2
+
+#define PERS_CLASS PERS_CAPTURES
+#define PC_NOCLASS 0
+#define PC_ACTIONHERO 1
+#define PC_BORG 2
+#define PC_MEDIC 3
+
+#define PW_GHOST PW_CLOAKED
+#define PW_INVIS PW_CLOAKED
+#define PW_HASTE PW_SPEED
+#define PW_REGEN PW_FORCE_BOON
+#define PW_FLIGHT PW_FORCE_ENLIGHTENED_LIGHT
+#define PW_SEEKER PW_SPEEDBURST
+
+#define WP_PHASER WP_BRYAR_PISTOL
+#define WP_COMPRESSION_RIFLE WP_BLASTER
+#define WP_IMOD WP_DEMP2
+#define WP_SCAVENGER_RIFLE WP_BOWCASTER
+#define WP_STASIS WP_FLECHETTE
+#define WP_GRENADE_LAUNCHER WP_THERMAL
+#define WP_TETRION_DISRUPTOR WP_DISRUPTOR
+#define WP_QUANTUM_BURST WP_REPEATER
+#define WP_DREADNOUGHT WP_ROCKET_LAUNCHER
+#define WP_VOYAGER_HYPO WP_STUN_BATON
+#define WP_BORG_ASSIMILATOR WP_MELEE
+#define WP_BORG_WEAPON WP_MELEE
+
+#define MOD_PHASER MOD_BRYAR_PISTOL
+#define MOD_PHASER_ALT MOD_BRYAR_PISTOL_ALT
+#define MOD_CRIFLE MOD_BLASTER
+#define MOD_CRIFLE_SPLASH (MOD_MAX + 1)
+#define MOD_CRIFLE_ALT (MOD_MAX + 2)
+#define MOD_CRIFLE_ALT_SPLASH (MOD_MAX + 3)
+#define MOD_IMOD MOD_DEMP2
+#define MOD_IMOD_ALT MOD_DEMP2_ALT
+#define MOD_SCAVENGER MOD_BOWCASTER
+#define MOD_SCAVENGER_ALT (MOD_MAX + 4)
+#define MOD_SCAVENGER_ALT_SPLASH (MOD_MAX + 5)
+#define MOD_STASIS MOD_FLECHETTE
+#define MOD_STASIS_ALT MOD_FLECHETTE_ALT_SPLASH
+#define MOD_GRENADE MOD_THERMAL
+#define MOD_GRENADE_ALT (MOD_MAX + 6)
+#define MOD_GRENADE_SPLASH MOD_THERMAL_SPLASH
+#define MOD_GRENADE_ALT_SPLASH MOD_TRIP_MINE_SPLASH
+#define MOD_TETRION MOD_DISRUPTOR
+#define MOD_TETRION_ALT MOD_DISRUPTOR_SPLASH
+#define MOD_DREADNOUGHT MOD_ROCKET
+#define MOD_DREADNOUGHT_ALT MOD_ROCKET_HOMING
+#define MOD_QUANTUM MOD_REPEATER
+#define MOD_QUANTUM_SPLASH MOD_REPEATER_ALT_SPLASH
+#define MOD_QUANTUM_ALT MOD_CONC
+#define MOD_QUANTUM_ALT_SPLASH MOD_CONC_ALT
+#define MOD_KNOCKOUT (MOD_MAX + 7)
+#define MOD_RESPAWN (MOD_MAX + 8)
+#define MOD_EXPLOSION (MOD_MAX + 9)
+
+#define EV_TEAM_SOUND EV_GLOBAL_TEAM_SOUND
+#define MAX_TEAM_SOUNDS (GTS_TEAMS_ARE_TIED + 1)
+#define RETURN_FLAG_SOUND GTS_RED_RETURN
+
+#define HI_DETPACK HI_NUM_HOLDABLE
+
+static vmCvar_t ef_ai_disabled_cvar;
+#define g_pModDisintegration ef_ai_disabled_cvar
+#define g_pModSpecialties ef_ai_disabled_cvar
+
+static char *BG_FindClassnameForHoldable(int holdable)
+{
+	(void)holdable;
+	return NULL;
+}
+
+static int EF_AI_OfficialWeaponToCarrier(int weapon)
+{
+	qboolean alt = qfalse;
+	int base = weapon;
+
+	if (weapon >= 11 && weapon <= 19)
+	{
+		alt = qtrue;
+		base -= 10;
+	}
+
+	switch (base)
+	{
+	case 1: base = WP_BRYAR_PISTOL; break;
+	case 2: base = WP_BLASTER; break;
+	case 3: base = WP_DEMP2; break;
+	case 4: base = WP_BOWCASTER; break;
+	case 5: base = WP_FLECHETTE; break;
+	case 6: base = WP_THERMAL; break;
+	case 7: base = WP_DISRUPTOR; break;
+	case 8: base = WP_REPEATER; break;
+	case 9: base = WP_ROCKET_LAUNCHER; break;
+	default: return WP_NONE;
+	}
+
+	return alt ? base + WP_NUM_WEAPONS : base;
+}
+
+static int EF_AI_CarrierWeaponToOfficial(int weapon)
+{
+	qboolean alt = qfalse;
+	int base = weapon;
+
+	if (base > WP_NUM_WEAPONS)
+	{
+		alt = qtrue;
+		base -= WP_NUM_WEAPONS;
+	}
+
+	switch (base)
+	{
+	case WP_BRYAR_PISTOL: base = 1; break;
+	case WP_BLASTER: base = 2; break;
+	case WP_DEMP2: base = 3; break;
+	case WP_BOWCASTER: base = 4; break;
+	case WP_FLECHETTE: base = 5; break;
+	case WP_THERMAL: base = 6; break;
+	case WP_DISRUPTOR: base = 7; break;
+	case WP_REPEATER: base = 8; break;
+	case WP_ROCKET_LAUNCHER: base = 9; break;
+	default: return 0;
+	}
+
+	return alt ? base + 10 : base;
+}
+
+static int EF_AI_BotChooseBestFightWeapon(int weaponstate, int *inventory, qboolean meleeRange)
+{
+	return EF_AI_OfficialWeaponToCarrier(
+		game::trap_BotChooseBestFightWeapon(weaponstate, inventory, meleeRange));
+}
+
+static void EF_AI_BotGetWeaponInfo(int weaponstate, int weapon, void *weaponinfo)
+{
+	game::trap_BotGetWeaponInfo(
+		weaponstate,
+		EF_AI_CarrierWeaponToOfficial(weapon),
+		weaponinfo);
+}
+
+static void EF_AI_EA_SelectWeapon(int client, int weapon)
+{
+	if (weapon > WP_NUM_WEAPONS)
+	{
+		weapon -= WP_NUM_WEAPONS;
+	}
+	game::trap_EA_SelectWeapon(client, weapon);
+}
+
+#define trap_BotChooseBestFightWeapon EF_AI_BotChooseBestFightWeapon
+#define trap_BotGetWeaponInfo EF_AI_BotGetWeaponInfo
+#define trap_EA_SelectWeapon EF_AI_EA_SelectWeapon
+
+#define G_Alloc(size) ((bot_state_t *)G_Alloc(size))
+
+#endif

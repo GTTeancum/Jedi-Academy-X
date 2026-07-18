@@ -93,5 +93,5 @@ int BotLoadChatFile(int chatstate, char *chatfile, char *chatname);
 //store the gender of the bot in the chat state
 void BotSetChatGender(int chatstate, int gender);
 //store the bot name in the chat state
-void BotSetChatName(int chatstate, char *name, int client);
+void BotSetChatName(int chatstate, char *name);
 

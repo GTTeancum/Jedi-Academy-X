@@ -2765,7 +2765,7 @@ int BotChatLength(int chatstate)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void BotEnterChat(int chatstate, int clientto, int sendto)
+void BotEnterChat(int chatstate, int client, int sendto)
 {
 	bot_chatstate_t *cs;
 
@@ -2781,13 +2781,13 @@ void BotEnterChat(int chatstate, int clientto, int sendto)
 		else {
 			switch(sendto) {
 				case CHAT_TEAM:
-					EA_Command(cs->client, va("say_team %s", cs->chatmessage));
+					EA_Command(client, va("say_team %s", cs->chatmessage));
 					break;
 				case CHAT_TELL:
-					EA_Command(cs->client, va("tell %d %s", clientto, cs->chatmessage));
+					EA_Command(client, va("say %s", cs->chatmessage));
 					break;
 				default: //CHAT_ALL
-					EA_Command(cs->client, va("say %s", cs->chatmessage));
+					EA_Command(client, va("say %s", cs->chatmessage));
 					break;
 			}
 		}
@@ -2839,13 +2839,12 @@ void BotSetChatGender(int chatstate, int gender)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void BotSetChatName(int chatstate, char *name, int client)
+void BotSetChatName(int chatstate, char *name)
 {
 	bot_chatstate_t *cs;
 
 	cs = BotChatStateFromHandle(chatstate);
 	if (!cs) return;
-	cs->client = client;
 	Com_Memset(cs->name, 0, sizeof(cs->name));
 	strncpy(cs->name, name, sizeof(cs->name));
 	cs->name[sizeof(cs->name)-1] = '\0';

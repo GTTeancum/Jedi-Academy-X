@@ -1265,7 +1265,7 @@ int BotGetSecondGoal(int goalstate, bot_goal_t *goal)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-int BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags)
+int BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, qboolean botRoamsOnly)
 {
 	int areanum, t, weightnum;
 	float weight, bestweight, avoidtime;
@@ -1304,6 +1304,8 @@ int BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelfla
 	//go through the items in the level
 	for (li = levelitems; li; li = li->next)
 	{
+		if (botRoamsOnly && !(li->flags & IFL_ROAM))
+			continue;
 		if (g_gametype == GT_SINGLE_PLAYER) {
 			if (li->flags & IFL_NOTSINGLE)
 				continue;
@@ -1433,7 +1435,7 @@ int BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelfla
 // Changes Globals:		-
 //===========================================================================
 int BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelflags,
-														bot_goal_t *ltg, float maxtime)
+												bot_goal_t *ltg, float maxtime, qboolean botRoamsOnly)
 {
 	int areanum, t, weightnum, ltg_time;
 	float weight, bestweight, avoidtime;
@@ -1475,6 +1477,8 @@ int BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelfla
 	//go through the items in the level
 	for (li = levelitems; li; li = li->next)
 	{
+		if (botRoamsOnly && !(li->flags & IFL_ROAM))
+			continue;
 		if (g_gametype == GT_SINGLE_PLAYER) {
 			if (li->flags & IFL_NOTSINGLE)
 				continue;

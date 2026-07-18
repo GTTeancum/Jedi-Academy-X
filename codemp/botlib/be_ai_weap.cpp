@@ -384,12 +384,14 @@ void BotGetWeaponInfo(int weaponstate, int weapon, weaponinfo_t *weaponinfo)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-int BotChooseBestFightWeapon(int weaponstate, int *inventory)
+int BotChooseBestFightWeapon(int weaponstate, int *inventory, qboolean meleeRange)
 {
 	int i, index, bestweapon;
 	float weight, bestweight;
 	weaponconfig_t *wc;
 	bot_weaponstate_t *ws;
+
+	(void)meleeRange;
 
 	ws = BotWeaponStateFromHandle(weaponstate);
 	if (!ws) return 0;

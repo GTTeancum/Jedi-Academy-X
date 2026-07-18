@@ -4420,7 +4420,7 @@ void ClientDisconnect( int clientNum ) {
 	CalculateRanks();
 
 	if ( ent->r.svFlags & SVF_BOT ) {
-		BotAIShutdownClient( clientNum, qfalse );
+		BotAIShutdownClient( clientNum );
 	}
 
 #if defined(STEFX_ELITE_FORCE_MP)

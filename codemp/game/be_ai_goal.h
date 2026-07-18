@@ -56,13 +56,13 @@ int BotGetTopGoal(int goalstate, bot_goal_t *goal);
 //get the second goal on the stack
 int BotGetSecondGoal(int goalstate, bot_goal_t *goal);
 //choose the best long term goal item for the bot
-int BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags);
+int BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, qboolean botRoamsOnly);
 //choose the best nearby goal item for the bot
 //the item may not be further away from the current bot position than maxtime
 //also the travel time from the nearby goal towards the long term goal may not
 //be larger than the travel time towards the long term goal from the current bot position
 int BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelflags,
-							bot_goal_t *ltg, float maxtime);
+										bot_goal_t *ltg, float maxtime, qboolean botRoamsOnly);
 //returns true if the bot touches the goal
 int BotTouchingGoal(vec3_t origin, bot_goal_t *goal);
 //returns true if the goal should be visible but isn't

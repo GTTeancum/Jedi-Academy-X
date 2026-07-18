@@ -2,6 +2,9 @@
 //
 // g_local.h -- local definitions for game module
 
+#ifndef G_LOCAL_H
+#define G_LOCAL_H
+
 #include "q_shared.h"
 #include "bg_public.h"
 #include "bg_vehicles.h"
@@ -1504,16 +1507,17 @@ void B_CleanupAlloc(void);
 //bot settings
 typedef struct bot_settings_s
 {
-	char personalityfile[MAX_FILEPATH];
-	float skill;
+	char characterfile[MAX_FILEPATH];
+	int skill;
 	char team[MAX_FILEPATH];
+	char pclass[MAX_FILEPATH];
 } bot_settings_t;
 
 int BotAISetup( int restart );
 int BotAIShutdown( int restart );
 int BotAILoadMap( int restart );
-int BotAISetupClient(int client, struct bot_settings_s *settings, qboolean restart);
-int BotAIShutdownClient( int client, qboolean restart );
+int BotAISetupClient(int client, struct bot_settings_s *settings);
+int BotAIShutdownClient( int client );
 int BotAIStartFrame( int time );
 
 #include "g_team.h" // teamplay specific stuff
@@ -1765,6 +1769,7 @@ int		trap_BotLibTest(int parm0, char *parm1, vec3_t parm2, vec3_t parm3);
 
 int		trap_BotGetSnapshotEntity( int clientNum, int sequence );
 int		trap_BotGetServerCommand(int clientNum, char *message, int size);
+int		trap_BotGetConsoleMessage(int clientNum, char *message, int size);
 void	trap_BotUserCommand(int client, usercmd_t *ucmd);
 
 int		trap_AAS_BBoxAreas(vec3_t absmins, vec3_t absmaxs, int *areas, int maxareas);
@@ -1858,7 +1863,7 @@ void	trap_UnifyWhiteSpaces(char *string);
 void	trap_BotReplaceSynonyms(char *string, unsigned long int context);
 int		trap_BotLoadChatFile(int chatstate, char *chatfile, char *chatname);
 void	trap_BotSetChatGender(int chatstate, int gender);
-void	trap_BotSetChatName(int chatstate, char *name, int client);
+void	trap_BotSetChatName(int chatstate, char *name);
 void	trap_BotResetGoalState(int goalstate);
 void	trap_BotRemoveFromAvoidGoals(int goalstate, int number);
 void	trap_BotResetAvoidGoals(int goalstate);
@@ -1870,8 +1875,8 @@ void	trap_BotDumpGoalStack(int goalstate);
 void	trap_BotGoalName(int number, char *name, int size);
 int		trap_BotGetTopGoal(int goalstate, void /* struct bot_goal_s */ *goal);
 int		trap_BotGetSecondGoal(int goalstate, void /* struct bot_goal_s */ *goal);
-int		trap_BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags);
-int		trap_BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, void /* struct bot_goal_s */ *ltg, float maxtime);
+int		trap_BotChooseLTGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, qboolean botRoamsOnly);
+int		trap_BotChooseNBGItem(int goalstate, vec3_t origin, int *inventory, int travelflags, void /* struct bot_goal_s */ *ltg, float maxtime, qboolean botRoamsOnly);
 int		trap_BotTouchingGoal(vec3_t origin, void /* struct bot_goal_s */ *goal);
 int		trap_BotItemGoalInVisButNotVisible(int viewer, vec3_t eye, vec3_t viewangles, void /* struct bot_goal_s */ *goal);
 int		trap_BotGetNextCampSpotGoal(int num, void /* struct bot_goal_s */ *goal);
@@ -1902,7 +1907,7 @@ void	trap_BotFreeMoveState(int handle);
 void	trap_BotInitMoveState(int handle, void /* struct bot_initmove_s */ *initmove);
 void	trap_BotAddAvoidSpot(int movestate, vec3_t origin, float radius, int type);
 
-int		trap_BotChooseBestFightWeapon(int weaponstate, int *inventory);
+int		trap_BotChooseBestFightWeapon(int weaponstate, int *inventory, qboolean meleeRange);
 void	trap_BotGetWeaponInfo(int weaponstate, int weapon, void /* struct weaponinfo_s */ *weaponinfo);
 int		trap_BotLoadWeaponWeights(int weaponstate, char *filename);
 int		trap_BotAllocWeaponState(void);
@@ -2004,3 +2009,5 @@ void trap_Bot_UpdateWaypoints(int wpnum, wpobject_t **wps);
 void trap_Bot_CalculatePaths(int rmg);
 
 #include "../namespace_end.h"
+
+#endif // G_LOCAL_H

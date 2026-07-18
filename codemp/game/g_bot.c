@@ -812,11 +812,12 @@ qboolean G_BotConnect( int clientNum, qboolean restart ) {
 
 	trap_GetUserinfo( clientNum, userinfo, sizeof(userinfo) );
 
-	Q_strncpyz( settings.personalityfile, Info_ValueForKey( userinfo, "personality" ), sizeof(settings.personalityfile) );
-	settings.skill = atof( Info_ValueForKey( userinfo, "skill" ) );
+	Q_strncpyz( settings.characterfile, Info_ValueForKey( userinfo, "characterfile" ), sizeof(settings.characterfile) );
+	settings.skill = atoi( Info_ValueForKey( userinfo, "skill" ) );
 	Q_strncpyz( settings.team, Info_ValueForKey( userinfo, "team" ), sizeof(settings.team) );
+	Q_strncpyz( settings.pclass, Info_ValueForKey( userinfo, "class" ), sizeof(settings.pclass) );
 
-	if (!BotAISetupClient( clientNum, &settings, restart )) {
+	if (!BotAISetupClient( clientNum, &settings )) {
 		trap_DropClient( clientNum, "BotAISetupClient failed" );
 		return qfalse;
 	}
@@ -840,7 +841,6 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	char			*model;
 //	char			*headmodel;
 	char			userinfo[MAX_INFO_STRING];
-	char			personalityPath[MAX_TOKEN_CHARS];
 	int				preTeam = 0;
 
 	// get the botinfo from bots.txt
@@ -934,33 +934,26 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	}
 	Info_SetValueForKey( userinfo, key, s );
 
-	s = Info_ValueForKey(botinfo, "personality");
-	personalityPath[0] = 0;
 #if defined(STEFX_ELITE_FORCE_MP)
+	s = Info_ValueForKey(botinfo, "aifile");
 	if (!*s)
 	{
-		s = Info_ValueForKey(botinfo, "aifile");
-		if (*s)
-		{
-			Com_sprintf( personalityPath, sizeof( personalityPath ), "botfiles/%s", s );
-			s = personalityPath;
-			G_Printf( "STEFX_HM: addbot using EF aifile personality name='%s' file='%s'\n", name, s );
-		}
+		s = "bots/munro_c.c";
+		G_Printf( "STEFX_HM: addbot missing aifile name='%s'; using bots/munro_c.c\n", name );
 	}
-#endif
+	Info_SetValueForKey( userinfo, "characterfile", s );
+	G_Printf( "STEFX_HM: addbot using official EF character name='%s' file='%s'\n", name, s );
+#else
+	s = Info_ValueForKey(botinfo, "personality");
 	if (!*s )
 	{
-#if defined(STEFX_ELITE_FORCE_MP)
-		Info_SetValueForKey( userinfo, "personality", "botfiles/bots/munro_c.c" );
-		G_Printf( "STEFX_HM: addbot missing personality/aifile name='%s'; using botfiles/bots/munro_c.c\n", name );
-#else
 		Info_SetValueForKey( userinfo, "personality", "botfiles/default.jkb" );
-#endif
 	}
 	else
 	{
 		Info_SetValueForKey( userinfo, "personality", s );
 	}
+#endif
 
 	// have the server allocate a client slot
 	clientNum = trap_BotAllocateClient();
@@ -1000,7 +993,7 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 		}
 	}
 //	Info_SetValueForKey( userinfo, "characterfile", Info_ValueForKey( botinfo, "aifile" ) );
-	Info_SetValueForKey( userinfo, "skill", va( "%5.2f", skill ) );
+	Info_SetValueForKey( userinfo, "skill", va( "%i", (int)skill ) );
 	Info_SetValueForKey( userinfo, "team", team );
 
 	bot = &g_entities[ clientNum ];

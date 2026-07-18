@@ -320,7 +320,7 @@ typedef struct ai_export_s
 	void	(*BotReplaceSynonyms)(char *string, unsigned long int context);
 	int		(*BotLoadChatFile)(int chatstate, char *chatfile, char *chatname);
 	void	(*BotSetChatGender)(int chatstate, int gender);
-	void	(*BotSetChatName)(int chatstate, char *name, int client);
+	void	(*BotSetChatName)(int chatstate, char *name);
 	//-----------------------------------
 	// be_ai_goal.h
 	//-----------------------------------
@@ -335,9 +335,9 @@ typedef struct ai_export_s
 	void	(*BotGoalName)(int number, char *name, int size);
 	int		(*BotGetTopGoal)(int goalstate, struct bot_goal_s *goal);
 	int		(*BotGetSecondGoal)(int goalstate, struct bot_goal_s *goal);
-	int		(*BotChooseLTGItem)(int goalstate, vec3_t origin, int *inventory, int travelflags);
+	int		(*BotChooseLTGItem)(int goalstate, vec3_t origin, int *inventory, int travelflags, qboolean botRoamsOnly);
 	int		(*BotChooseNBGItem)(int goalstate, vec3_t origin, int *inventory, int travelflags,
-								struct bot_goal_s *ltg, float maxtime);
+								struct bot_goal_s *ltg, float maxtime, qboolean botRoamsOnly);
 	int		(*BotTouchingGoal)(vec3_t origin, struct bot_goal_s *goal);
 	int		(*BotItemGoalInVisButNotVisible)(int viewer, vec3_t eye, vec3_t viewangles, struct bot_goal_s *goal);
 	int		(*BotGetLevelItemGoal)(int index, char *classname, struct bot_goal_s *goal);
@@ -372,7 +372,7 @@ typedef struct ai_export_s
 	//-----------------------------------
 	// be_ai_weap.h
 	//-----------------------------------
-	int		(*BotChooseBestFightWeapon)(int weaponstate, int *inventory);
+	int		(*BotChooseBestFightWeapon)(int weaponstate, int *inventory, qboolean meleeRange);
 	void	(*BotGetWeaponInfo)(int weaponstate, int weapon, struct weaponinfo_s *weaponinfo);
 	int		(*BotLoadWeaponWeights)(int weaponstate, char *filename);
 	int		(*BotAllocWeaponState)(void);

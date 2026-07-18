@@ -45,7 +45,7 @@
 				EnableIntrinsicFunctions="true"
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="false"
-				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include"
+				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..\game"
 				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;QAGAME;_JK2;_XBOX;_LIB;_GAME;GAME_HARD_LINKED;_JK2MP;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="true"
 				RuntimeLibrary="0"
@@ -93,45 +93,41 @@
 		<Filter
 			Name="Source Files"
 			>
-			<File
-				RelativePath="..\game\ai_main.c"
-				>
-								<FileConfiguration
-					Name="Release|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
+			<File RelativePath="..\game\ef_ai\ai_main.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
 				</FileConfiguration>
-							</File>
-			<File
-				RelativePath="..\game\ai_util.c"
-				>
-								<FileConfiguration
-					Name="Release|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
+			</File>
+			<File RelativePath="..\game\ef_ai\ai_chat.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
 				</FileConfiguration>
-							</File>
-			<File
-				RelativePath="..\game\ai_wpnav.c"
-				>
-								<FileConfiguration
-					Name="Release|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
+			</File>
+			<File RelativePath="..\game\ef_ai\ai_cmd.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
 				</FileConfiguration>
-							</File>
+			</File>
+			<File RelativePath="..\game\ef_ai\ai_dmnet.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
+				</FileConfiguration>
+			</File>
+			<File RelativePath="..\game\ef_ai\ai_dmq3.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
+				</FileConfiguration>
+			</File>
+			<File RelativePath="..\game\ef_ai\ai_team.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" ForcedIncludeFiles="..\game\ef_ai_compat.h" AdditionalOptions="/FI..\game\ef_ai_compat.h" />
+				</FileConfiguration>
+			</File>
+			<File RelativePath="..\game\ef_ai_xbox_support.c">
+				<FileConfiguration Name="Release|Win32">
+					<Tool Name="VCCLCompilerTool" UsePrecompiledHeader="0" CompileAs="2" />
+				</FileConfiguration>
+			</File>
 			<File
 				RelativePath="..\game\AnimalNPC.c"
 				>
