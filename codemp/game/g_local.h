@@ -404,6 +404,7 @@ typedef struct {
 	float		lastreturnedflag;
 	float		flagsince;
 	float		lastfraggedcarrier;
+	float		lastFireTime;		// Official EF weapon telemetry timestamp.
 } playerTeamState_t;
 
 // the auto following clients don't follow a specific client

@@ -363,6 +363,10 @@ OFFICIAL_EF_COMBAT_SHA256 = {
     "g_combat.c": "13a5ae0a1f68d9bd99c8f1b5ff2e6b2a1e7b8917d34373a6a1a49ba5d45b375e",
 }
 
+OFFICIAL_EF_WEAPON_SHA256 = {
+    "g_weapon.c": "20f716a53d5b6d7718886c384665367082c8baf8269e39f231796593da317137",
+}
+
 OFFICIAL_EF_PLAYER_CLASSES = {
     "PC_NOCLASS": 0,
     "PC_INFILTRATOR": 1,
@@ -386,6 +390,7 @@ REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES = {
     "../game/ef_ai_xbox_support.c",
     "../game/ef_game/g_bot_xbox.cpp",
     "../game/ef_game/g_combat_xbox.cpp",
+    "../game/ef_game/g_weapon_xbox.cpp",
 }
 
 FORBIDDEN_JA_AI_PROJECT_SOURCES = {
@@ -394,6 +399,7 @@ FORBIDDEN_JA_AI_PROJECT_SOURCES = {
     "../game/ai_wpnav.c",
     "../game/g_bot.c",
     "../game/g_combat.c",
+    "../game/g_weapon.c",
 }
 
 REQUIRED_HOLOMATCH_INPUT_MARKERS = {
@@ -423,10 +429,15 @@ REQUIRED_HOLOMATCH_COMBAT_MARKERS = {
         "void BotDeathmatchAI(bot_state_t *bs, float thinktime)",
         "trap_EA_Attack(bs->client);",
     ],
-    "codemp/game/g_weapon.c": [
-        "#define STEFX_HM_PHASER_DAMAGE",
-        "#define STEFX_HM_PHASER_MIN_DAMAGE",
-        "STEFX_HM: server EF Phaser applied damage attacker=",
+    "codemp/game/ef_game/g_weapon.c": [
+        "#define\tPHASER_DAMAGE",
+        "void WP_FirePhaser( gentity_t *ent, qboolean alt_fire )",
+        "void FireWeapon( gentity_t *ent, qboolean alt_fire )",
+    ],
+    "codemp/game/ef_game/g_weapon_xbox.cpp": [
+        '#include "g_weapon.c"',
+        "STEFX_HM_OfficialDamage",
+        "STEFX_HM: official EF weapon dispatcher active",
     ],
     "codemp/game/ef_game/g_combat.c": [
         "void AddScore( gentity_t *ent, int score )",
@@ -1221,6 +1232,21 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_official_combat_hashes)
         )
 
+    bad_official_weapon_hashes: list[str] = []
+    for filename, expected_hash in sorted(OFFICIAL_EF_WEAPON_SHA256.items()):
+        path = official_game_dir / filename
+        if not path.is_file():
+            bad_official_weapon_hashes.append(f"{filename}: missing")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            bad_official_weapon_hashes.append(f"{filename}: {actual_hash}")
+    if bad_official_weapon_hashes:
+        fail(
+            "official EF 1.2 weapon source must remain byte-for-byte unchanged: "
+            + ", ".join(bad_official_weapon_hashes)
+        )
+
     ef_ai_compat = (repo_root / "codemp" / "game" / "ef_ai_compat.h").read_text(
         encoding="utf-8", errors="ignore"
     )
@@ -1723,6 +1749,8 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "officialEfBotLifecycleByteExact": True,
         "officialEfCombatFiles": len(OFFICIAL_EF_COMBAT_SHA256),
         "officialEfCombatByteExact": True,
+        "officialEfWeaponFiles": len(OFFICIAL_EF_WEAPON_SHA256),
+        "officialEfWeaponByteExact": True,
         "officialEfPlayerClasses": len(OFFICIAL_EF_PLAYER_CLASSES),
         "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
         "officialEfBotActionFlags": len(OFFICIAL_EF_BOT_ACTION_FLAGS),
@@ -2398,7 +2426,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX: QAL downloaded effects image bytes=",
         b"STEFX: QAL MP3 stream open name=",
         b"EF: Sys_StreamInitialize soundbank records=",
-        b"STEFX_HM: server EF Phaser applied damage attacker=",
+        b"STEFX_HM: official EF weapon dispatcher active",
         b"STEFX_HM: retired JA carrier combat hook invoked name=",
         b"STEFX_HM: cgame skipped EF moving missile dlight on Xbox renderer weapon=",
         b"STEFX_HM: cgame rendered EF alternate missile safe sprite weapon=",
