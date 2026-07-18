@@ -15,6 +15,9 @@
 #ifndef VV_LIGHTING
 #include "../win32/glw_win_dx8.h"
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../client/client.h"
+#endif
 #endif
 
 #include "tr_QuickSprite.h"
@@ -228,40 +231,6 @@ static qboolean JAMP_XboxIsEliteForceBeamShader( const shader_t *shader )
 		!Q_stricmp( name, "gfx/misc/spark" );
 }
 
-static void JAMP_XboxForceEliteForceSolidFillMode( const char *where )
-{
-	static int s_stefxOverlaySolidFillLogBudget = 4;
-	static int s_stefxOverlaySolidFillSkipBudget = 2;
-
-	if ( !glw_state || !glw_state->device )
-	{
-		if ( s_stefxOverlaySolidFillSkipBudget > 0 )
-		{
-			XBLF( "STEFX_HM: renderer EF overlay solid fill skipped where=%s shader='%s' glw=%p device=%p frame=%d",
-				where ? where : "<null>",
-				tess.shader ? tess.shader->name : "<null>",
-				glw_state,
-				glw_state ? glw_state->device : NULL,
-				tr.frameCount );
-			--s_stefxOverlaySolidFillSkipBudget;
-		}
-		return;
-	}
-
-	glw_state->device->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
-	glw_state->device->SetRenderState( D3DRS_BACKFILLMODE, D3DFILL_SOLID );
-
-	if ( s_stefxOverlaySolidFillLogBudget > 0 )
-	{
-		XBLF( "STEFX_HM: renderer EF overlay solid fill mode where=%s shader='%s' projection2D=%d frame=%d",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			backEnd.projection2D,
-			tr.frameCount );
-		--s_stefxOverlaySolidFillLogBudget;
-	}
-}
-
 static int JAMP_XboxAdjustEliteForceOverlayState( const shaderStage_t *stage, int stateBits, qboolean hud, qboolean beam, const char *where )
 {
 	static int s_stefxOverlayStateBudget = 8;
@@ -306,22 +275,19 @@ static int JAMP_XboxAdjustEliteForceOverlayState( const shaderStage_t *stage, in
 	return stateBits;
 }
 
-static void JAMP_XboxForceEliteForceOverlayD3DState( qboolean additive, const char *where )
+static void RB_XboxForceEliteForceOverlayD3DState( const shader_t *shader, qboolean additive, const char *where )
 {
-	static int s_stefxForceOverlayLogBudget = 8;
-	static int s_stefxForceOverlaySkipBudget = 2;
+	static int s_stefxForceOverlayLogBudget = 160;
+	static int s_stefxForceOverlaySkipBudget = 16;
 
 	if ( !glw_state || !glw_state->device )
 	{
-		if ( s_stefxForceOverlaySkipBudget > 0 )
+		if ( cls.state == CA_ACTIVE && s_stefxForceOverlaySkipBudget > 0 )
 		{
-			XBLF( "STEFX_HM: renderer EF overlay D3D skipped where=%s shader='%s' glw=%p device=%p projection2D=%d frame=%d",
-				where ? where : "<null>",
-				tess.shader ? tess.shader->name : "<null>",
-				glw_state,
-				glw_state ? glw_state->device : NULL,
-				backEnd.projection2D,
-				tr.frameCount );
+			XBLF( "STEFX: RB_ForceOverlayD3D skipped where=%s shader='%s' glw=%p device=%p projection2D=%d frame=%d",
+				where ? where : "<null>", shader ? shader->name : "<null>",
+				glw_state, glw_state ? glw_state->device : NULL,
+				backEnd.projection2D, tr.frameCount );
 			--s_stefxForceOverlaySkipBudget;
 		}
 		return;
@@ -334,74 +300,63 @@ static void JAMP_XboxForceEliteForceOverlayD3DState( qboolean additive, const ch
 	glw_state->device->SetRenderState( D3DRS_SRCBLEND, additive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_DESTBLEND, additive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
-	JAMP_XboxForceEliteForceSolidFillMode( where );
 
-	if ( s_stefxForceOverlayLogBudget > 0 )
+	if ( cls.state == CA_ACTIVE && s_stefxForceOverlayLogBudget > 0 )
 	{
-		XBLF( "STEFX_HM: renderer EF overlay D3D state where=%s shader='%s' additive=%d projection2D=%d frame=%d",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			additive ? 1 : 0,
-			backEnd.projection2D,
-			tr.frameCount );
+		XBLF( "STEFX: RB_ForceOverlayD3D where=%s shader='%s' additive=%d projection2D=%d frame=%d",
+			where ? where : "<null>", shader ? shader->name : "<null>",
+			additive ? 1 : 0, backEnd.projection2D, tr.frameCount );
 		--s_stefxForceOverlayLogBudget;
 	}
 }
 
-static void JAMP_XboxPrepareEliteForceOverlayStage( qboolean additive, const char *where )
+static void RB_XboxPrepareEliteForceOverlayStage( const shaderStage_t *stage, qboolean additive, const char *where )
 {
-	static int s_stefxPrepareOverlayBudget = 8;
+	static int s_stefxPrepareOverlayBudget = 160;
+	const image_t *image = stage ? stage->bundle[0].image : NULL;
 
 	GL_SelectTexture( 1 );
-	qglDisable( GL_TEXTURE_2D );
-	qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	glDisable( GL_TEXTURE_2D );
+	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 	GL_SelectTexture( 0 );
-	qglEnable( GL_TEXTURE_2D );
-	qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
-	qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
-	GL_TexEnv( GL_MODULATE );
+	glEnable( GL_TEXTURE_2D );
+	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+	glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
 
 	if ( additive )
 	{
-		qglBlendFunc( GL_ONE, GL_ONE );
+		glBlendFunc( GL_ONE, GL_ONE );
 	}
 	else
 	{
-		qglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+		glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 	}
-	qglEnable( GL_BLEND );
-	qglDisable( GL_ALPHA_TEST );
-	qglDisable( GL_DEPTH_TEST );
-	qglDepthMask( GL_FALSE );
+	glEnable( GL_BLEND );
+	glDisable( GL_ALPHA_TEST );
+	glDisable( GL_DEPTH_TEST );
+	glDepthMask( GL_FALSE );
 
-	if ( s_stefxPrepareOverlayBudget > 0 )
+	if ( cls.state == CA_ACTIVE && s_stefxPrepareOverlayBudget > 0 )
 	{
-		XBLF( "STEFX_HM: renderer EF overlay prepare where=%s shader='%s' additive=%d projection2D=%d verts=%d indexes=%d",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			additive ? 1 : 0,
-			backEnd.projection2D,
-			tess.numVertexes,
-			tess.numIndexes );
+		XBLF( "STEFX: RB_PrepareOverlayStage where=%s shader='%s' img='%s' tex=%d additive=%d projection2D=%d verts=%d indexes=%d",
+			where ? where : "<null>", tess.shader ? tess.shader->name : "<null>",
+			image ? image->imgName : "<null>", image ? image->texnum : -1,
+			additive ? 1 : 0, backEnd.projection2D,
+			tess.numVertexes, tess.numIndexes );
 		--s_stefxPrepareOverlayBudget;
 	}
 }
 
-static void JAMP_XboxBeginEliteForceOverlayDraw( const shaderStage_t *stage, qboolean hud, qboolean beam, const char *where )
+static void RB_XboxLogEliteForceOverlayDraw( const shaderStage_t *stage, qboolean hud, qboolean beam, const char *where )
 {
-	static int s_stefxOverlayDrawBudget = 8;
-	const image_t *image = stage ? stage->bundle[0].image : NULL;
+	static int s_stefxOverlayDrawBudget = 192;
 
-	if ( !hud && !beam )
+	if ( cls.state == CA_ACTIVE && s_stefxOverlayDrawBudget > 0 )
 	{
-		return;
-	}
+		const image_t *image = stage ? stage->bundle[0].image : NULL;
 
-	JAMP_XboxForceEliteForceOverlayD3DState( beam, where );
-
-	if ( s_stefxOverlayDrawBudget > 0 )
-	{
-		XBLF( "STEFX_HM: renderer EF overlay draw where=%s shader='%s' img='%s' hud=%d beam=%d projection2D=%d verts=%d indexes=%d state=0x%x",
+		XBLF( "EF: OVERLAY_DRAW_SUBMIT where=%s shader='%s' img='%s' hud=%d beam=%d projection2D=%d verts=%d indexes=%d state=0x%x",
 			where ? where : "<null>",
 			tess.shader ? tess.shader->name : "<null>",
 			image ? image->imgName : "<null>",
@@ -412,16 +367,6 @@ static void JAMP_XboxBeginEliteForceOverlayDraw( const shaderStage_t *stage, qbo
 			tess.numIndexes,
 			stage ? stage->stateBits : 0 );
 		--s_stefxOverlayDrawBudget;
-	}
-
-	JkaFakeglSetEliteForceOverlayDrawContext( 1, hud, beam );
-}
-
-static void JAMP_XboxEndEliteForceOverlayDraw( qboolean active )
-{
-	if ( active )
-	{
-		JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
 	}
 }
 #endif
@@ -1115,8 +1060,8 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	GL_State( stateBits );
 	if ( stefxBeamShader || stefxHudShader )
 	{
-		JAMP_XboxForceEliteForceOverlayD3DState( stefxBeamShader, "DrawMultitextured" );
-		JAMP_XboxPrepareEliteForceOverlayStage( stefxBeamShader, "DrawMultitextured" );
+		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured" );
+		RB_XboxPrepareEliteForceOverlayStage( pStage, stefxBeamShader, "DrawMultitextured" );
 	}
 #else
 	GL_State( pStage->stateBits );
@@ -1161,11 +1106,19 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	R_BindAnimatedImage( &pStage->bundle[1] );
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	JAMP_XboxBeginEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "DrawMultitextured" );
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured before draw" );
+		RB_XboxLogEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "DrawMultitextured" );
+		JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
+	}
 #endif
 	R_DrawElements( input->numIndexes, input->indexes );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	JAMP_XboxEndEliteForceOverlayDraw( stefxBeamShader || stefxHudShader );
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
+	}
 #endif
 
 	//
@@ -1175,7 +1128,14 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	qglDisable( GL_TEXTURE_2D );
 #ifdef _XBOX
 	qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
-	JAMP_ResetXboxSingleTextureStageState( "DrawMultitextured" );
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		GL_SelectTexture( 0 );
+	}
+	else
+	{
+		JAMP_ResetXboxSingleTextureStageState( "DrawMultitextured" );
+	}
 #else
 	GL_SelectTexture( 0 );
 #endif
@@ -2976,7 +2936,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			// set state
 			//
 #ifdef _XBOX
-			JAMP_ResetXboxSingleTextureStageState( "single-stage" );
+			if ( !stefxBeamShader && !stefxHudShader )
+			{
+				JAMP_ResetXboxSingleTextureStageState( "single-stage" );
+			}
 #endif
 			if ( (tess.shader == tr.distortionShader) || 
 				 (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_DISTORTION)) )
@@ -3024,8 +2987,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
 				if ( stefxBeamShader || stefxHudShader )
 				{
-					JAMP_XboxForceEliteForceOverlayD3DState( stefxBeamShader, "RB_IterateStagesGeneric" );
-					JAMP_XboxPrepareEliteForceOverlayStage( stefxBeamShader, "RB_IterateStagesGeneric" );
+					RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "RB_IterateStagesGeneric" );
+					RB_XboxPrepareEliteForceOverlayStage( pStage, stefxBeamShader, "RB_IterateStagesGeneric" );
 				}
 #endif
 			}
@@ -3038,11 +3001,18 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				stage, input->numVertexes, input->numIndexes, stateBits);
 #endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-			JAMP_XboxBeginEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "RB_IterateStagesGeneric" );
+			if ( stefxBeamShader || stefxHudShader )
+			{
+				RB_XboxLogEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "RB_IterateStagesGeneric" );
+				JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
+			}
 #endif
 			R_DrawElements( input->numIndexes, input->indexes );	
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-			JAMP_XboxEndEliteForceOverlayDraw( stefxBeamShader || stefxHudShader );
+			if ( stefxBeamShader || stefxHudShader )
+			{
+				JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
+			}
 #endif
 #ifdef _XBOX
 			JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d after draw v=%d i=%d state=%d",

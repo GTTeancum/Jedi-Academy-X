@@ -113,6 +113,9 @@ static const DWORD FAKEGL_REGISTERED_TEXTURE_MIN_FREE = 512 * 1024;
 static bool g_stefxSkipSwapBlockUntilIdle = false;
 static int g_stefxFakeglSwapFrame = 0;
 static char g_stefxFakeglTextureDebugName[128] = "<none>";
+static int g_stefxFakeglOverlayDrawContext = 0;
+static int g_stefxFakeglOverlayDrawHud = 0;
+static int g_stefxFakeglOverlayDrawBeam = 0;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
@@ -140,6 +143,13 @@ extern "C" void JkaFakeglSetTextureDebugName(const char *name)
 			g_stefxFakeglTextureDebugName[i] = ' ';
 		}
 	}
+}
+
+extern "C" void JkaFakeglSetEliteForceOverlayDeviceContext(int active, int hud, int beam)
+{
+	g_stefxFakeglOverlayDrawContext = active ? 1 : 0;
+	g_stefxFakeglOverlayDrawHud = hud ? 1 : 0;
+	g_stefxFakeglOverlayDrawBeam = beam ? 1 : 0;
 }
 
 extern "C" const char *JkaFakeglGetTextureDebugName(void)
@@ -4013,6 +4023,50 @@ public:
 		{
 			g_SPXBFakeGLStateFlushes++;
 			SetGLRenderState();
+		}
+
+		if (g_stefxFakeglOverlayDrawContext)
+		{
+			static int s_stefxOverlayDeviceStateBudget = 32;
+			const GLuint texture0 = m_textureState.GetStageTexture(0);
+			TextureEntry *textureEntry0 = m_textures.GetEntry(texture0);
+
+			/* This is the SP renderer's overlay state block, applied through the
+			 * fake-GL device that owns the actual Xbox draw submission. */
+			m_pD3DDev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+			m_pD3DDev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+			m_pD3DDev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+			m_pD3DDev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+			m_pD3DDev->SetRenderState(D3DRS_SRCBLEND,
+				g_stefxFakeglOverlayDrawBeam ? D3DBLEND_ONE : D3DBLEND_SRCALPHA);
+			m_pD3DDev->SetRenderState(D3DRS_DESTBLEND,
+				g_stefxFakeglOverlayDrawBeam ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
+			m_pD3DDev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+			m_pD3DDev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+			m_pD3DDev->SetRenderState(D3DRS_BACKFILLMODE, D3DFILL_SOLID);
+
+			if (s_stefxOverlayDeviceStateBudget > 0)
+			{
+				XBLF("STEFX_OVERLAY_DEVICE_STATE hud=%d beam=%d blend=%d src=0x%08x dst=0x%08x depth=%d depthMask=%d alphaTest=%d textureDirty=%d stage0Dirty=%d stage0Enabled=%d stage0Tex=%u stage0Env=0x%08x entry=%p mip=%p format=0x%08x internal=0x%08x",
+					g_stefxFakeglOverlayDrawHud,
+					g_stefxFakeglOverlayDrawBeam,
+					m_glBlend ? 1 : 0,
+					(unsigned int)m_glBlendFuncSFactor,
+					(unsigned int)m_glBlendFuncDFactor,
+					m_glDepthTest ? 1 : 0,
+					m_glDepthMask ? 1 : 0,
+					m_glAlphaTest ? 1 : 0,
+					m_textureState.GetDirty() ? 1 : 0,
+					m_textureState.GetStageDirty(0) ? 1 : 0,
+					m_textureState.GetStageTexture2D(0) ? 1 : 0,
+					(unsigned int)texture0,
+					(unsigned int)m_textureState.GetStageTextEnvMode(0),
+					textureEntry0,
+					textureEntry0 ? textureEntry0->m_mipMap : NULL,
+					textureEntry0 ? (unsigned int)textureEntry0->m_format : 0,
+					textureEntry0 ? (unsigned int)textureEntry0->m_internalFormat : 0);
+				--s_stefxOverlayDeviceStateBudget;
+			}
 		}
 
 		if (stefxLateIndexed)

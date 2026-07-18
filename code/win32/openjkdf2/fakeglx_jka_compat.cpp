@@ -109,11 +109,24 @@ static int g_stefxDrawContextStage = -1;
 static int g_stefxDrawContextExpectedStages = 0;
 static unsigned int g_stefxDrawContextStateBits = 0;
 
+extern "C" void JkaFakeglSetEliteForceOverlayDeviceContext(int active, int hud, int beam);
+
 extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam)
 {
+    static int s_overlayContextBudget = 48;
+
     g_stefxOverlayDrawContext = active ? 1 : 0;
     g_stefxOverlayDrawHud = hud ? 1 : 0;
     g_stefxOverlayDrawBeam = beam ? 1 : 0;
+    JkaFakeglSetEliteForceOverlayDeviceContext(active, hud, beam);
+
+    if (s_overlayContextBudget > 0) {
+        XBLF("STEFX_OVERLAY_CONTEXT active=%d hud=%d beam=%d",
+            g_stefxOverlayDrawContext,
+            g_stefxOverlayDrawHud,
+            g_stefxOverlayDrawBeam);
+        --s_overlayContextBudget;
+    }
 }
 
 extern "C" void JkaFakeglSetEliteForceDrawContext(const char *shader, int stage, int expectedStages, unsigned int stateBits)
@@ -181,9 +194,40 @@ static DWORD PackColorFromArray(GLuint i)
 
 static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
 {
+    if (g_stefxOverlayDrawContext) {
+        static int s_overlayFastEntryBudget = 24;
+        if (s_overlayFastEntryBudget > 0) {
+            XBLF("STEFX_OVERLAY_FAST_ENTRY hud=%d beam=%d mode=0x%08x count=%d type=0x%08x client=0x%08x texMask=0x%08x vertexPtr=%08x vType=0x%08x vSize=%d",
+                g_stefxOverlayDrawHud,
+                g_stefxOverlayDrawBeam,
+                (unsigned int)mode,
+                (int)count,
+                (unsigned int)type,
+                (unsigned int)g_clientArrays,
+                (unsigned int)g_texCoordArrayEnabled,
+                (unsigned int)g_vertexArray.pointer,
+                (unsigned int)g_vertexArray.type,
+                (int)g_vertexArray.size);
+            --s_overlayFastEntryBudget;
+        }
+    }
+
     if (mode != GL_TRIANGLES || type != GL_UNSIGNED_SHORT || !indices ||
         !g_vertexArray.pointer || g_vertexArray.type != GL_FLOAT || g_vertexArray.size < 3 ||
         count <= 0 || (count % 3) != 0) {
+        if (g_stefxOverlayDrawContext) {
+            static int s_overlayFastShapeRejectBudget = 24;
+            if (s_overlayFastShapeRejectBudget > 0) {
+                XBLF("STEFX_OVERLAY_FAST_REJECT reason=shape mode=0x%08x type=0x%08x count=%d vertexPtr=%08x vType=0x%08x vSize=%d",
+                    (unsigned int)mode,
+                    (unsigned int)type,
+                    (int)count,
+                    (unsigned int)g_vertexArray.pointer,
+                    (unsigned int)g_vertexArray.type,
+                    (int)g_vertexArray.size);
+                --s_overlayFastShapeRejectBudget;
+            }
+        }
         static int s_fastDrawRejectBudget = 16;
         if (s_fastDrawRejectBudget > 0) {
             XBLF("JA: JkaTryDrawElementsUP reject mode=0x%08x type=0x%08x count=%d vertexPtr=%08x vType=0x%08x vSize=%d",
@@ -280,6 +324,20 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     }
     if ((g_texCoordArrayEnabled & 2u) && g_texCoordArray[1].pointer && g_texCoordArray[1].type == GL_FLOAT && g_texCoordArray[1].size >= 2) {
         texStages = 2;
+    }
+
+    if (g_stefxOverlayDrawContext) {
+        static int s_overlayFastStageBudget = 24;
+        if (s_overlayFastStageBudget > 0) {
+            XBLF("STEFX_OVERLAY_FAST_STAGE hud=%d beam=%d stages=%d texMask=0x%08x count=%d verts=%u",
+                g_stefxOverlayDrawHud,
+                g_stefxOverlayDrawBeam,
+                texStages,
+                (unsigned int)g_texCoordArrayEnabled,
+                (int)count,
+                (unsigned int)vertexCount);
+            --s_overlayFastStageBudget;
+        }
     }
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
@@ -417,6 +475,22 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
 
     bool drawOk = JkaFakeglDrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, fvf, vertexCount, primitiveCount,
         s_fastIndices, verts, stride) != 0;
+    if (g_stefxOverlayDrawContext) {
+        static int s_overlayFastResultBudget = 24;
+        if (s_overlayFastResultBudget > 0) {
+            XBLF("STEFX_OVERLAY_FAST_RESULT ok=%d hud=%d beam=%d stages=%d texMask=0x%08x fvf=0x%08lx count=%d verts=%u prims=%u",
+                drawOk ? 1 : 0,
+                g_stefxOverlayDrawHud,
+                g_stefxOverlayDrawBeam,
+                texStages,
+                (unsigned int)g_texCoordArrayEnabled,
+                (unsigned long)fvf,
+                (int)count,
+                (unsigned int)vertexCount,
+                (unsigned int)primitiveCount);
+            --s_overlayFastResultBudget;
+        }
+    }
     {
         static int s_efFastDrawSubmitBudget = 12;
         static int s_efOverlayFastDrawSubmitBudget = 16;
@@ -817,6 +891,25 @@ void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indic
 {
     if (!indices) return;
 #ifdef _XBOX
+    if (g_stefxOverlayDrawContext) {
+        static int s_overlayDrawElementsBudget = 24;
+        if (s_overlayDrawElementsBudget > 0) {
+            const GLushort *idx16 = (type == GL_UNSIGNED_SHORT) ? (const GLushort *)indices : NULL;
+            XBLF("STEFX_OVERLAY_DRAW_ELEMENTS hud=%d beam=%d mode=0x%08x count=%d type=0x%08x idx0=%u,%u,%u client=0x%08x texMask=0x%08x vertexPtr=%08x",
+                g_stefxOverlayDrawHud,
+                g_stefxOverlayDrawBeam,
+                (unsigned int)mode,
+                (int)count,
+                (unsigned int)type,
+                idx16 && count > 0 ? (unsigned int)idx16[0] : 0,
+                idx16 && count > 1 ? (unsigned int)idx16[1] : 0,
+                idx16 && count > 2 ? (unsigned int)idx16[2] : 0,
+                (unsigned int)g_clientArrays,
+                (unsigned int)g_texCoordArrayEnabled,
+                (unsigned int)g_vertexArray.pointer);
+            --s_overlayDrawElementsBudget;
+        }
+    }
     {
         static int s_glDrawElementsEntryBudget = 48;
         if (s_glDrawElementsEntryBudget > 0) {

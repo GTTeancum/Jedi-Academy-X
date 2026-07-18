@@ -199,10 +199,11 @@ REQUIRED_RENDERER_SP_WHOLESALE_MARKERS = (
     "glOrtho (0, 640, 480, 0, 0, 1);",
 )
 REQUIRED_RENDERER_SOLID_FILL_MARKERS = {
-    "codemp/renderer/tr_shade.cpp": [
-        "STEFX_HM: renderer EF overlay solid fill mode where=",
+    "code/win32/openjkdf2/fakeglx.cpp": [
+        "g_stefxFakeglOverlayDrawContext",
         "D3DRS_FILLMODE, D3DFILL_SOLID",
         "D3DRS_BACKFILLMODE, D3DFILL_SOLID",
+        "STEFX_OVERLAY_DEVICE_STATE",
     ],
 }
 REQUIRED_RENDERER_MDR_FRAME_CLAMP_MARKERS = {
@@ -990,7 +991,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
                 missing_solid_fill_markers.append(f"{rel}: {marker}")
     if missing_solid_fill_markers:
         fail(
-            "Holomatch renderer must force Xbox solid fill mode around world and EF overlay paths: "
+            "Holomatch renderer must force Xbox solid fill mode through the shared fakeGL overlay path: "
             + ", ".join(missing_solid_fill_markers)
         )
     missing_mdr_frame_clamp_markers = []
@@ -1589,7 +1590,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX: RB_XboxForce2DOverlayState where=",
         b"STEFX_FRONTEND_2D_BACKEND shader=",
         b"STEFX: RB_StretchPic shader=",
-        b"STEFX_HM: renderer EF overlay solid fill mode where=",
+        b"STEFX_OVERLAY_DEVICE_STATE",
         b"STEFX_HM: renderer clamped EF MDR frame model=",
         b"STEFX_HM: renderer loaded shader manifest",
         b"STEFX_HM: renderer using SP-style GL_RGBA screen texture; legacy MP GL_LIN_RGBA8 path disabled",
