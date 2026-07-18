@@ -1202,6 +1202,9 @@ void CL_CheckForResend( void ) {
 	int		port;
 	char	info[MAX_INFO_STRING];
 	char	data[MAX_INFO_STRING];
+#if defined(STEFX_ELITE_FORCE_MP)
+	qboolean stefxLocalAddress;
+#endif
 
 	CM_START_LOOP();
 
@@ -1210,9 +1213,23 @@ void CL_CheckForResend( void ) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	stefxLocalAddress = NET_IsLocalAddress( clc->serverAddress );
+#endif
+
 	if ( cls.realtime - clc->connectTime < RETRANSMIT_TIMEOUT ) {
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: CL_CheckForResend send state=%d realtime=%d connectTime=%d addressType=%d local=%d packets=%d\n",
+		cls.state,
+		cls.realtime,
+		clc->connectTime,
+		clc->serverAddress.type,
+		stefxLocalAddress,
+		clc->connectPacketCount );
+#endif
 
 	clc->connectTime = cls.realtime;	// for retransmit requests
 	clc->connectPacketCount++;
@@ -1226,7 +1243,16 @@ void CL_CheckForResend( void ) {
 	switch ( cls.state ) {
 	case CA_CONNECTING:
 		// requesting a challenge
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_CheckForResend getchallenge begin attempt=%d local=%d\n",
+			clc->connectPacketCount,
+			stefxLocalAddress );
+#endif
 		NET_OutOfBandPrint(NS_CLIENT, clc->serverAddress, "getchallenge");
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_CheckForResend getchallenge sent attempt=%d\n",
+			clc->connectPacketCount );
+#endif
 		break;
 		
 	case CA_CHALLENGING:
@@ -1245,39 +1271,66 @@ void CL_CheckForResend( void ) {
 		// This stuff needs to be parsed in SV_DirectConnect(). SOF2 sent a raw
 		// XBPlayerInfo, which changed net traffic type. I'm just sending what I
 		// need to, and doing text encode to avoid other changes.
-
-		// Send our Xbox Address
-		char sxnaddr[XNADDR_STRING_LEN];
-		XnAddrToString(Net_GetXNADDR(), sxnaddr);
-		Info_SetValueForKey(info, "xnaddr", sxnaddr);
-
-		// Send our XUID if we're logged on and it's good
-		if (logged_on)
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxLocalAddress )
 		{
-			XONLINE_USER *pUser = &XBLLoggedOnUsers[ IN_GetMainController() ];
-			if (pUser && pUser->hr == S_OK)
-			{
-				char sxuid[XUID_STRING_LEN];
-				XUIDToString(&pUser->xuid, sxuid);
-				Info_SetValueForKey(info, "xuid", sxuid);
-			}
+			Com_Printf( "STEFX_HM: client direct Holomatch local connect skips inherited Xbox Live userinfo fields\n" );
 		}
+		else
+#endif
+		{
+			// Send our Xbox Address
+			char sxnaddr[XNADDR_STRING_LEN];
+#if defined(STEFX_ELITE_FORCE_MP)
+			Com_Printf( "STEFX_HM: CL_CheckForResend Xbox address userinfo begin\n" );
+#endif
+			XnAddrToString(Net_GetXNADDR(), sxnaddr);
+			Info_SetValueForKey(info, "xnaddr", sxnaddr);
+#if defined(STEFX_ELITE_FORCE_MP)
+			Com_Printf( "STEFX_HM: CL_CheckForResend Xbox address userinfo done\n" );
+#endif
 
-		// If we're allowed to take a private slot (ie, we joined a friend or got invited):
-		if (XBL_MM_CanUsePrivateSlot())
-			Info_SetValueForKey(info, "xbps", "1");
+			// Send our XUID if we're logged on and it's good
+			if (logged_on)
+			{
+				XONLINE_USER *pUser = &XBLLoggedOnUsers[ IN_GetMainController() ];
+				if (pUser && pUser->hr == S_OK)
+				{
+					char sxuid[XUID_STRING_LEN];
+					XUIDToString(&pUser->xuid, sxuid);
+					Info_SetValueForKey(info, "xuid", sxuid);
+				}
+			}
+
+			// If we're allowed to take a private slot (ie, we joined a friend or got invited):
+#if defined(STEFX_ELITE_FORCE_MP)
+			Com_Printf( "STEFX_HM: CL_CheckForResend private-slot userinfo begin\n" );
+#endif
+			if (XBL_MM_CanUsePrivateSlot())
+				Info_SetValueForKey(info, "xbps", "1");
+#if defined(STEFX_ELITE_FORCE_MP)
+			Com_Printf( "STEFX_HM: CL_CheckForResend private-slot userinfo done\n" );
+#endif
+		}
 
 		sprintf(data, "connect \"%s\"", info );
 #if defined(STEFX_ELITE_FORCE_MP)
-		if ( NET_IsLocalAddress( clc->serverAddress ) )
+		if ( stefxLocalAddress )
 		{
 			Com_Printf( "STEFX_HM: client sent local Holomatch connect packet attempt=%d qport=%d protocol=%d\n",
 				clc->connectPacketCount,
 				atoi( Info_ValueForKey( info, "qport" ) ),
 				PROTOCOL_VERSION );
 		}
+		Com_Printf( "STEFX_HM: CL_CheckForResend connect OOB begin bytes=%d local=%d\n",
+			(int)strlen(data),
+			stefxLocalAddress );
 #endif
 		NET_OutOfBandData( NS_CLIENT, clc->serverAddress, (unsigned char *)data, strlen(data) );
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_CheckForResend connect OOB sent attempt=%d\n",
+			clc->connectPacketCount );
+#endif
 
 		// the most current userinfo has been sent, so watch for any
 		// newer changes to userinfo variables
@@ -1453,6 +1506,15 @@ void CL_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 
 	// server connection
 	if ( !Q_stricmp(c, "connectResponse") ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( NET_IsLocalAddress( from ) || NET_IsLocalAddress( clc->serverAddress ) )
+		{
+			Com_Printf( "STEFX_HM: client received local Holomatch connectResponse state=%d fromType=%d serverType=%d\n",
+				cls.state,
+				from.type,
+				clc->serverAddress.type );
+		}
+#endif
 		if ( cls.state >= CA_CONNECTED ) {
 			Com_Printf ("Dup connect received.  Ignored.\n");
 			return;
@@ -1474,6 +1536,14 @@ void CL_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 			Netchan_Setup (NS_CLIENT, &clc->netchan, from, Cvar_VariableValue( "net_qport" ) );
 
 		cls.state = CA_CONNECTED;
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( NET_IsLocalAddress( from ) || NET_IsLocalAddress( clc->serverAddress ) )
+		{
+			Com_Printf( "STEFX_HM: client accepted local Holomatch connectResponse state=%d qport=%d\n",
+				cls.state,
+				clc->netchan.qport );
+		}
+#endif
 		clc->lastPacketSentTime = -9999;		// send first packet immediately
 		return;
 	}

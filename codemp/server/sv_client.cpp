@@ -442,6 +442,9 @@ gotnewcl:
 	// But we MUST keep svs.clients in sync with the player list, so that clients
 	// can keep their cgs.clientinfo in sync as well. So...
 	int index = newcl - svs.clients;
+#if defined(STEFX_ELITE_FORCE_MP)
+	bool stefxLocalDirect = NET_IsLocalAddress( from ) ? true : false;
+#endif
 
 	// Sanity check
 	assert( index >= 0 && index < MAX_ONLINE_PLAYERS );
@@ -465,6 +468,28 @@ gotnewcl:
 		// We don't need to grab much off the net here. Everything should still be valid.
 		// In particular, keep the old refIndex. If they sent an XUID, we'll update that,
 		// but if not we want to continue using their fake one from earlier.
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxLocalDirect )
+		{
+			XBPlayerInfo *pPlayer = &xbOnlineInfo.xbPlayerList[index];
+
+			if ( !pPlayer->isActive )
+			{
+				memset(pPlayer, 0, sizeof(XBPlayerInfo));
+				pPlayer->xuid.qwUserID = svs.clientRefNum;
+				pPlayer->refIndex = svs.clientRefNum++;
+			}
+
+			Q_strncpyz( pPlayer->name, Info_ValueForKey( userinfo, "name" ), sizeof( pPlayer->name ) );
+			pPlayer->isActive = true;
+
+			Com_Printf( "STEFX_HM: server refreshed local Holomatch player info slot=%d ref=%d\n",
+				index,
+				pPlayer->refIndex );
+		}
+		else
+#endif
+		{
 		if (logged_on)
 		{
 			StringToXUID(&xbOnlineInfo.xbPlayerList[index].xuid, sxuid);
@@ -472,6 +497,7 @@ gotnewcl:
 
 		// Ensure the client is active
 		xbOnlineInfo.xbPlayerList[index].isActive = true;
+		}
 	}
 	else
 	{
@@ -484,6 +510,22 @@ gotnewcl:
 		// Zero it out to start with
 		memset(pPlayer, 0, sizeof(XBPlayerInfo));
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxLocalDirect )
+		{
+			pPlayer->xuid.qwUserID = svs.clientRefNum;
+			Q_strncpyz( pPlayer->name, Info_ValueForKey( userinfo, "name" ), sizeof( pPlayer->name ) );
+			pPlayer->refIndex = svs.clientRefNum++;
+			pPlayer->isActive = true;
+
+			Com_Printf( "STEFX_HM: server created local Holomatch player info slot=%d ref=%d name='%s'\n",
+				index,
+				pPlayer->refIndex,
+				pPlayer->name );
+		}
+		else
+#endif
+		{
 		// Copy XNADDR
 		StringToXnAddr(&pPlayer->xbAddr, Info_ValueForKey( userinfo, "xnaddr" ));
 
@@ -503,12 +545,23 @@ gotnewcl:
 
 		pPlayer->refIndex = svs.clientRefNum++;
 		pPlayer->isActive = true;
+		}
 	}
 
 	// For dedicated servers (in particular) we want our stored (converted)
 	// inAddr to be correct - so we have to do it here, rather than in cl_parse
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalDirect )
+	{
+		Com_Printf( "STEFX_HM: server skipped Xbox address conversion for local Holomatch client slot=%d\n",
+			index );
+	}
+	else
+#endif
+	{
 	XNetXnAddrToInAddr( &xbOnlineInfo.xbPlayerList[index].xbAddr, Net_GetXNKID(),
 						&xbOnlineInfo.xbPlayerList[index].inAddr );
+	}
 
 	// Set our refIndex for later. We also remember if they were a private slot
 	// candidate when they joined, so we can free up the right type of slot when
@@ -603,7 +656,21 @@ gotnewcl:
     //
 #ifdef _XBOX
 	if (!reconnect)
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		if ( NET_IsLocalAddress( from ) )
+		{
+			Com_Printf( "STEFX_HM: server skipped matchmaking add for local Holomatch client=%d\n",
+				clientNum );
+		}
+		else
+		{
+			XBL_MM_AddPlayer( usePrivateSlot );
+		}
+	}
+#else
 	    XBL_MM_AddPlayer( usePrivateSlot );
+#endif
 #endif
 
 	// send the connect packet to the client
@@ -692,14 +759,29 @@ void SV_DropClient( client_t *drop, const char *reason ) {
 		}
 
 		// update the advertised session
-		XBL_MM_RemovePlayer( drop->usePrivateSlot );
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( NET_IsLocalAddress( drop->netchan.remoteAddress ) )
+		{
+			Com_Printf( "STEFX_HM: server skipped matchmaking remove for local Holomatch client=%d\n",
+				index );
+		}
+		else
+#endif
+		{
+			XBL_MM_RemovePlayer( drop->usePrivateSlot );
+		}
 
 		// If we're a dedicated server, then we won't process this in cl_parse, so do everything here:
 		if( com_dedicated->integer )
 		{
 			xbOnlineInfo.xbPlayerList[index].isActive = false;
 			g_Voice.OnPlayerDisconnect( &xbOnlineInfo.xbPlayerList[index] );
-			XBL_PL_RemoveActivePeer(&xbOnlineInfo.xbPlayerList[index].xuid, index);
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( !NET_IsLocalAddress( drop->netchan.remoteAddress ) )
+#endif
+			{
+				XBL_PL_RemoveActivePeer(&xbOnlineInfo.xbPlayerList[index].xuid, index);
+			}
 		}
 	}
 #endif
@@ -762,6 +844,11 @@ void SV_SendClientGameState( client_t *client ) {
 	entityState_t	*base, nullstate;
 	msg_t		msg;
 	byte		msgBuffer[MAX_MSGLEN];
+#if defined(STEFX_ELITE_FORCE_MP)
+	qboolean	stefxLocalClient = NET_IsLocalAddress( client->netchan.remoteAddress );
+	int			stefxConfigstringsWritten = 0;
+	int			stefxBaselinesWritten = 0;
+#endif
 
 	// MW - my attempt to fix illegible server message errors caused by 
 	// packet fragmentation of initial snapshot.
@@ -785,6 +872,16 @@ void SV_SendClientGameState( client_t *client ) {
 
 	Com_DPrintf ("SV_SendClientGameState() for %s\n", client->name);
 	Com_DPrintf( "Going from CS_CONNECTED to CS_PRIMED for %s\n", client->name );
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalClient )
+	{
+		Com_Printf( "STEFX_HM: server gamestate begin client=%d state=%d outgoing=%d reliable=%d\n",
+			(int)( client - svs.clients ),
+			client->state,
+			client->netchan.outgoingSequence,
+			client->reliableSequence );
+	}
+#endif
 	client->state = CS_PRIMED;
 	client->pureAuthentic = 0;
 
@@ -815,6 +912,9 @@ void SV_SendClientGameState( client_t *client ) {
 			MSG_WriteByte( &msg, svc_configstring );
 			MSG_WriteShort( &msg, start );
 			MSG_WriteBigString( &msg, sv.configstrings[start] );
+#if defined(STEFX_ELITE_FORCE_MP)
+			stefxConfigstringsWritten++;
+#endif
 		}
 	}
 
@@ -827,6 +927,9 @@ void SV_SendClientGameState( client_t *client ) {
 		}
 		MSG_WriteByte( &msg, svc_baseline );
 		MSG_WriteDeltaEntity( &msg, &nullstate, base, qtrue );
+#if defined(STEFX_ELITE_FORCE_MP)
+		stefxBaselinesWritten++;
+#endif
 	}
 
 	MSG_WriteByte( &msg, svc_EOF );
@@ -835,6 +938,17 @@ void SV_SendClientGameState( client_t *client ) {
 
 	// write the checksum feed
 	MSG_WriteLong( &msg, sv.checksumFeed);
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalClient )
+	{
+		Com_Printf( "STEFX_HM: server gamestate packed client=%d bytes=%d configstrings=%d baselines=%d checksum=%d\n",
+			(int)( client - svs.clients ),
+			msg.cursize,
+			stefxConfigstringsWritten,
+			stefxBaselinesWritten,
+			sv.checksumFeed );
+	}
+#endif
 
 	//rwwRMG - send info for the terrain
 /*
@@ -888,6 +1002,16 @@ void SV_SendClientGameState( client_t *client ) {
 
 	// deliver this to the client
 	SV_SendMessageToClient( &msg, client );
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalClient )
+	{
+		Com_Printf( "STEFX_HM: server gamestate sent client=%d state=%d outgoing=%d gamestateMsg=%d\n",
+			(int)( client - svs.clients ),
+			client->state,
+			client->netchan.outgoingSequence,
+			client->gamestateMessageNum );
+	}
+#endif
 }
 
 
@@ -1017,13 +1141,34 @@ SV_ClientEnterWorld
 void SV_ClientEnterWorld( client_t *client, usercmd_t *cmd ) {
 	int		clientNum;
 	sharedEntity_t *ent;
+#if defined(STEFX_ELITE_FORCE_MP)
+	qboolean stefxLocalClient = NET_IsLocalAddress( client->netchan.remoteAddress );
+#endif
 
 	Com_DPrintf( "Going from CS_PRIMED to CS_ACTIVE for %s\n", client->name );
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalClient )
+	{
+		Com_Printf( "STEFX_HM: server client enter world begin client=%d state=%d\n",
+			(int)( client - svs.clients ),
+			client->state );
+	}
+#endif
 	client->state = CS_ACTIVE;
 
 #ifdef _XBOX
 	//update XbOnlineInfo with client
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalClient )
+	{
+		Com_Printf( "STEFX_HM: server skipped Xbox peer-info blob for local Holomatch client=%d\n",
+			(int)( client - svs.clients ) );
+	}
+	else
+#endif
+	{
 	SV_SendClientXbInfo(client);
+	}
 #endif
 
 	// set up the entity for the client
@@ -1041,6 +1186,14 @@ void SV_ClientEnterWorld( client_t *client, usercmd_t *cmd ) {
 
 	// call the game begin function
 	VM_Call( gvm, GAME_CLIENT_BEGIN, client - svs.clients );
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxLocalClient )
+	{
+		Com_Printf( "STEFX_HM: server client enter world done client=%d state=%d\n",
+			clientNum,
+			client->state );
+	}
+#endif
 }
 
 /*
