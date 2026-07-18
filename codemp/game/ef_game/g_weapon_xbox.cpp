@@ -23,8 +23,10 @@
 
 #define EF_AWARD_IMPRESSIVE 0
 #define EF_AWARD_MASK 0
-#define EF_BOUNCE ( 1 << 5 )
-#define EF_BOUNCE_HALF ( 1 << 6 )
+#undef EF_MISSILE_STICK
+#define EF_BOUNCE 0x00000010
+#define EF_BOUNCE_HALF 0x00000020
+#define EF_MISSILE_STICK 0x00000040
 
 #define EV_COMPRESSION_RIFLE EV_BULLET
 #define EV_COMPRESSION_RIFLE_ALT EV_MISSILE_HIT
@@ -114,8 +116,7 @@ enum
 	STEFX_RETIRED_EMPLACED_GUN = 1 << 5,
 	STEFX_RETIRED_VEH_MUZZLE = 1 << 6,
 	STEFX_RETIRED_VEH_WEAPON = 1 << 7,
-	STEFX_RETIRED_VEH_FIRE_FX = 1 << 8,
-	STEFX_RETIRED_LASER_TRAP_STICK = 1 << 9
+	STEFX_RETIRED_VEH_FIRE_FX = 1 << 8
 };
 
 static unsigned int stefx_hm_retiredWeaponHooksLogged;
@@ -224,13 +225,4 @@ void G_VehMuzzleFireFX( gentity_t *ent, gentity_t *broadcaster,
 	(void)muzzlesFired;
 	STEFX_HM_LogRetiredWeaponHook( STEFX_RETIRED_VEH_FIRE_FX,
 		"G_VehMuzzleFireFX" );
-}
-
-void laserTrapStick( gentity_t *ent, vec3_t endpos, vec3_t normal )
-{
-	(void)ent;
-	(void)endpos;
-	(void)normal;
-	STEFX_HM_LogRetiredWeaponHook( STEFX_RETIRED_LASER_TRAP_STICK,
-		"laserTrapStick" );
 }

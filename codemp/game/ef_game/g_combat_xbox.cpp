@@ -153,8 +153,7 @@ enum
 	STEFX_RETIRED_DISMEMBER = 1 << 4,
 	STEFX_RETIRED_TOSS_WEAPON = 1 << 5,
 	STEFX_RETIRED_HEAVY_MELEE = 1 << 6,
-	STEFX_RETIRED_HIT_LOCATION = 1 << 7,
-	STEFX_RETIRED_TRIPWIRE = 1 << 8
+	STEFX_RETIRED_HIT_LOCATION = 1 << 7
 };
 
 static unsigned int stefx_hm_retiredCarrierHooksLogged;
@@ -298,10 +297,4 @@ int G_GetHitLocation( gentity_t *target, vec3_t point )
 	(void)point;
 	STEFX_HM_LogRetiredCarrierHook( STEFX_RETIRED_HIT_LOCATION, "G_GetHitLocation" );
 	return HL_NONE;
-}
-
-void tripwireThink( gentity_t *ent )
-{
-	(void)ent;
-	STEFX_HM_LogRetiredCarrierHook( STEFX_RETIRED_TRIPWIRE, "tripwireThink" );
 }

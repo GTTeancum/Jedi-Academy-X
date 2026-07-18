@@ -367,6 +367,10 @@ OFFICIAL_EF_WEAPON_SHA256 = {
     "g_weapon.c": "20f716a53d5b6d7718886c384665367082c8baf8269e39f231796593da317137",
 }
 
+OFFICIAL_EF_MISSILE_SHA256 = {
+    "g_missile.c": "f748840109ac1dc78e714c4afce69b464f890dc2a1ca875ddd29da60275e0d12",
+}
+
 OFFICIAL_EF_PLAYER_CLASSES = {
     "PC_NOCLASS": 0,
     "PC_INFILTRATOR": 1,
@@ -391,6 +395,7 @@ REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES = {
     "../game/ef_game/g_bot_xbox.cpp",
     "../game/ef_game/g_combat_xbox.cpp",
     "../game/ef_game/g_weapon_xbox.cpp",
+    "../game/ef_game/g_missile_xbox.cpp",
 }
 
 FORBIDDEN_JA_AI_PROJECT_SOURCES = {
@@ -400,6 +405,7 @@ FORBIDDEN_JA_AI_PROJECT_SOURCES = {
     "../game/g_bot.c",
     "../game/g_combat.c",
     "../game/g_weapon.c",
+    "../game/g_missile.c",
 }
 
 REQUIRED_HOLOMATCH_INPUT_MARKERS = {
@@ -438,6 +444,16 @@ REQUIRED_HOLOMATCH_COMBAT_MARKERS = {
         '#include "g_weapon.c"',
         "STEFX_HM_OfficialDamage",
         "STEFX_HM: official EF weapon dispatcher active",
+    ],
+    "codemp/game/ef_game/g_missile.c": [
+        "void tripwireThink ( gentity_t *ent )",
+        "void G_MissileImpact( gentity_t *ent, trace_t *trace )",
+        "void G_RunMissile( gentity_t *ent )",
+    ],
+    "codemp/game/ef_game/g_missile_xbox.cpp": [
+        '#include "g_missile.c"',
+        "STEFX_HM_OfficialDamage",
+        "STEFX_HM: official EF missile simulation active",
     ],
     "codemp/game/ef_game/g_combat.c": [
         "void AddScore( gentity_t *ent, int score )",
@@ -1247,6 +1263,21 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_official_weapon_hashes)
         )
 
+    bad_official_missile_hashes: list[str] = []
+    for filename, expected_hash in sorted(OFFICIAL_EF_MISSILE_SHA256.items()):
+        path = official_game_dir / filename
+        if not path.is_file():
+            bad_official_missile_hashes.append(f"{filename}: missing")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            bad_official_missile_hashes.append(f"{filename}: {actual_hash}")
+    if bad_official_missile_hashes:
+        fail(
+            "official EF 1.2 missile source must remain byte-for-byte unchanged: "
+            + ", ".join(bad_official_missile_hashes)
+        )
+
     ef_ai_compat = (repo_root / "codemp" / "game" / "ef_ai_compat.h").read_text(
         encoding="utf-8", errors="ignore"
     )
@@ -1751,6 +1782,8 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "officialEfCombatByteExact": True,
         "officialEfWeaponFiles": len(OFFICIAL_EF_WEAPON_SHA256),
         "officialEfWeaponByteExact": True,
+        "officialEfMissileFiles": len(OFFICIAL_EF_MISSILE_SHA256),
+        "officialEfMissileByteExact": True,
         "officialEfPlayerClasses": len(OFFICIAL_EF_PLAYER_CLASSES),
         "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
         "officialEfBotActionFlags": len(OFFICIAL_EF_BOT_ACTION_FLAGS),
@@ -2427,6 +2460,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX: QAL MP3 stream open name=",
         b"EF: Sys_StreamInitialize soundbank records=",
         b"STEFX_HM: official EF weapon dispatcher active",
+        b"STEFX_HM: official EF missile simulation active",
         b"STEFX_HM: retired JA carrier combat hook invoked name=",
         b"STEFX_HM: cgame skipped EF moving missile dlight on Xbox renderer weapon=",
         b"STEFX_HM: cgame rendered EF alternate missile safe sprite weapon=",

@@ -454,7 +454,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\game\g_missile.c"
+				RelativePath="..\game\ef_game\g_missile_xbox.cpp"
 				>
 								<FileConfiguration
 					Name="Release|Win32"
