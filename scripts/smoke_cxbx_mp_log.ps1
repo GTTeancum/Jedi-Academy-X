@@ -7,7 +7,6 @@ param(
     [int]$MaxLogStaleSeconds = 45,
     [switch]$KeepAlive,
     [switch]$Visible,
-    [switch]$NoSmokeProof,
     [string]$CaptureOutput = "",
     [int]$CaptureTimeoutSec = 45
 )
@@ -175,11 +174,6 @@ foreach ($log in @($logCandidates + $phaseCandidates)) {
 }
 
 Remove-RuntimeFlag $runtimeRoots "ef_mp_cxbx_present_throttle.txt"
-if (!$NoSmokeProof) {
-    Set-RuntimeFlag $runtimeRoots "ef_mp_smoke_proof.txt" "1"
-} else {
-    Remove-RuntimeFlag $runtimeRoots "ef_mp_smoke_proof.txt"
-}
 
 $beforeIds = @(Get-CxbxProcesses | Select-Object -ExpandProperty Id)
 $launchTime = Get-Date
@@ -326,7 +320,6 @@ try {
     }
     if (!$KeepAlive) {
         Remove-RuntimeFlag $runtimeRoots "ef_mp_cxbx_present_throttle.txt"
-        Remove-RuntimeFlag $runtimeRoots "ef_mp_smoke_proof.txt"
     }
 }
 
@@ -338,7 +331,7 @@ $lines.Add("started=$launchTime")
 $lines.Add("xbe=$xbe")
 $lines.Add("loader=$loader")
 $lines.Add("windowStyle=$windowStyle")
-$lines.Add("smokeProof=$($(if ($NoSmokeProof) { 'disabled' } else { 'enabled' }))")
+$lines.Add("combatProof=organic bot play only")
 $lines.Add("maxLogStaleSeconds=$MaxLogStaleSeconds")
 if ($CaptureOutput) {
     $lines.Add("captureOutput=$(Resolve-FullPath $CaptureOutput)")

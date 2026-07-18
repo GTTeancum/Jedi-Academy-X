@@ -416,6 +416,15 @@ FORBIDDEN_HOLOMATCH_COMBAT_MARKERS = {
     "STEFX_HM: bot converted EF Holomatch alternate fire command to primary fire weapon=",
 }
 
+FORBIDDEN_SYNTHETIC_COMBAT_MARKERS = {
+    "ef_mp_smoke_proof.txt",
+    "STEFX_HolomatchVerticalSliceProof",
+    "STEFX_HolomatchSmokeProofEnabled",
+    "STEFX_HolomatchProofClientReady",
+    "vertical slice proof applying real server damage",
+    "vertical slice proof forcing normal respawn",
+}
+
 REQUIRED_BRIDGE_MARKERS = {
     "return UI_EFSP_VmMain(command, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);",
 }
@@ -1522,6 +1531,25 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             "Holomatch bots must keep alternate fire enabled; remove primary-fire-only workaround marker(s): "
             + ", ".join(forbidden_combat_markers)
         )
+    synthetic_combat_sources = {
+        "codemp/game/g_main.c": (repo_root / "codemp" / "game" / "g_main.c").read_text(
+            encoding="utf-8", errors="ignore"
+        ),
+        "scripts/smoke_cxbx_mp_log.ps1": (
+            repo_root / "scripts" / "smoke_cxbx_mp_log.ps1"
+        ).read_text(encoding="utf-8", errors="ignore"),
+    }
+    synthetic_combat_hits = sorted(
+        f"{rel}: {marker}"
+        for rel, text in synthetic_combat_sources.items()
+        for marker in FORBIDDEN_SYNTHETIC_COMBAT_MARKERS
+        if marker in text
+    )
+    if synthetic_combat_hits:
+        fail(
+            "Holomatch combat proof must come from organic bot play; remove synthetic damage/respawn marker(s): "
+            + ", ".join(synthetic_combat_hits)
+        )
 
     bridge_text = (repo_root / "codemp" / "ui" / "ui_stefx_spbridge.cpp").read_text(
         encoding="utf-8", errors="ignore"
@@ -1616,6 +1644,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "inputSpEarlyDeviceInit": True,
         "inputJoyDeadzoneDefault": "0.18",
         "combatPhaserDamageProof": True,
+        "syntheticCombatProofDead": True,
         **dead_code,
     }
 
@@ -2214,6 +2243,16 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         fail(
             "efmp.xbe contains primary-fire-only bot workaround marker(s): "
             + ", ".join(forbidden_combat_hits)
+        )
+    synthetic_combat_hits = sorted(
+        value
+        for value in FORBIDDEN_SYNTHETIC_COMBAT_MARKERS
+        if value.encode("ascii") in data
+    )
+    if synthetic_combat_hits:
+        fail(
+            "efmp.xbe contains synthetic combat proof marker(s): "
+            + ", ".join(synthetic_combat_hits)
         )
 
     required = {
