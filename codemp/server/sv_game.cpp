@@ -1326,6 +1326,7 @@ int SV_GameSystemCalls( int *args ) {
 	case G_R_REGISTERSKIN:
 		return RE_RegisterServerSkin((const char *)VMA(1));
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	case G_G2_LISTBONES:
 		G2API_ListBones( (CGhoul2Info *) VMA(1), args[2]);
 		return 0;
@@ -1614,6 +1615,7 @@ int SV_GameSystemCalls( int *args ) {
 
 
 		return 0;
+#endif
 
 /*
 	case G_SET_ACTIVE_SUBBSP:

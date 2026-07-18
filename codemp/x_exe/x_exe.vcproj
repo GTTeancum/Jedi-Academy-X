@@ -552,6 +552,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\win32\win_sp_renderer_boundary.cpp"
+				>
+			</File>
+			<File
 				RelativePath="xbox_crt_stubs.cpp"
 				>
 			</File>
@@ -708,10 +712,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\modelmem.h"
-				>
-			</File>
-			<File
 				RelativePath="..\renderer\tr_animation.cpp"
 				>
 			</File>
@@ -728,7 +728,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_curve_xbox.cpp"
+				RelativePath="..\renderer\tr_curve.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\renderer\tr_draw.cpp"
 				>
 			</File>
 			<File
@@ -740,11 +744,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_ghoul2.cpp"
+				RelativePath="..\renderer\tr_image.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_image_xbox.cpp"
+				RelativePath="..\renderer\tr_jpeg_interface.cpp"
 				>
 			</File>
 			<File
@@ -753,6 +757,10 @@
 			</File>
 			<File
 				RelativePath="..\renderer\tr_light.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\renderer\tr_lightmanager.cpp"
 				>
 			</File>
 			<File
@@ -816,6 +824,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\renderer\tr_stl.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\renderer\tr_surface.cpp"
 				>
 			</File>
@@ -824,7 +836,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\cgame\tr_types.h"
+				RelativePath="..\renderer\tr_types.h"
 				>
 			</File>
 			<File
@@ -868,51 +880,15 @@
 				>
 			</File>
 			<File
+				RelativePath="..\win32\win_stencilshadow.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\win32\win_stencilshadow.h"
+				>
+			</File>
+			<File
 				RelativePath="..\win32\xbox_texture_man.h"
-				>
-			</File>
-		</Filter>
-		<Filter
-			Name="Ghoul2"
-			>
-			<File
-				RelativePath="..\ghoul2\g2.h"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_api.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_bolts.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_bones.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_gore.h"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_local.h"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_misc.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\g2_surfaces.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\ghoul2\ghoul2_shared.h"
-				>
-			</File>
-			<File
-				RelativePath="..\renderer\mdx_format.h"
 				>
 			</File>
 		</Filter>

@@ -1,6 +1,6 @@
 // this include must remain at the top of every CPP file
 //#include "../game/q_math.h"
-//#include "tr_headers.h"
+#include "tr_local.h"
 
 // tr_QuickSprite.h: interface for the CQuickSprite class.
 //
@@ -26,12 +26,13 @@ private:
 			vec2_t			mFogTextureCoords[SHADER_MAX_VERTEXES];
 			unsigned long	mColors[SHADER_MAX_VERTEXES];
 			int				mNextVert;
+			qboolean		mTurnCullBackOn;
 
 			void Flush(void);
 
 public:
-			CQuickSpriteSystem();
-	virtual ~CQuickSpriteSystem();
+			CQuickSpriteSystem(void);
+			~CQuickSpriteSystem(void);
 
 			void StartGroup(textureBundle_t *bundle, unsigned long glbits, int fogIndex = -1);
 			void EndGroup(void);

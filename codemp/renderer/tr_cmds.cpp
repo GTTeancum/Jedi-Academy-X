@@ -1,17 +1,34 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
 
 #include "tr_local.h"
-
 #ifdef _XBOX
-#include "../cgame/cg_local.h"
-#include "../client/cl_data.h"
 #include "../win32/xb_log.h"
+extern bool Sys_IsDirectMapBoot(void);
+
+static bool R_XboxTraceStretchShader( const shader_t *shader, float x, float y, float w, float h )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	if ( strstr( name, "gfx/interface/" ) ||
+		strstr( name, "crosshair" ) ||
+		strstr( name, "gfx/effects/" ) ||
+		strstr( name, "gfx/misc/" ) )
+	{
+		return true;
+	}
+
+	return false;
+}
 #endif
 
-#ifndef _XBOX
-#define XBLog_Phase(msg) ((void)0)
-#endif
 
 /*
 =====================
@@ -22,40 +39,40 @@ void R_PerformanceCounters( void ) {
 #ifndef _XBOX
 	if ( !r_speeds->integer ) {
 		// clear the counters even if we aren't printing
-		Com_Memset( &tr.pc, 0, sizeof( tr.pc ) );
-		Com_Memset( &backEnd.pc, 0, sizeof( backEnd.pc ) );
+		memset( &tr.pc, 0, sizeof( tr.pc ) );
+		memset( &backEnd.pc, 0, sizeof( backEnd.pc ) );
 		return;
 	}
 
 	if (r_speeds->integer == 1) {
 		const float texSize = R_SumOfUsedImages( qfalse )/(8*1048576.0f)*(r_texturebits->integer?r_texturebits->integer:glConfig.colorBits);
-		Com_Printf ( "%i/%i shdrs/srfs %i leafs %i vrts %i/%i tris %.2fMB tex %.2f dc\n",
+		VID_Printf (PRINT_ALL, "%i/%i shdrs/srfs %i leafs %i vrts %i/%i tris %.2fMB tex %.2f dc\n",
 			backEnd.pc.c_shaders, backEnd.pc.c_surfaces, tr.pc.c_leafs, backEnd.pc.c_vertexes, 
 			backEnd.pc.c_indexes/3, backEnd.pc.c_totalIndexes/3, 
 			texSize, backEnd.pc.c_overDraw / (float)(glConfig.vidWidth * glConfig.vidHeight) ); 
 	} else if (r_speeds->integer == 2) {
-		Com_Printf ( "(patch) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
+		VID_Printf (PRINT_ALL, "(patch) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
 			tr.pc.c_sphere_cull_patch_in, tr.pc.c_sphere_cull_patch_clip, tr.pc.c_sphere_cull_patch_out, 
 			tr.pc.c_box_cull_patch_in, tr.pc.c_box_cull_patch_clip, tr.pc.c_box_cull_patch_out );
-		Com_Printf ( "(md3) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
+		VID_Printf (PRINT_ALL, "(md3) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
 			tr.pc.c_sphere_cull_md3_in, tr.pc.c_sphere_cull_md3_clip, tr.pc.c_sphere_cull_md3_out, 
 			tr.pc.c_box_cull_md3_in, tr.pc.c_box_cull_md3_clip, tr.pc.c_box_cull_md3_out );
 	} else if (r_speeds->integer == 3) {
-		Com_Printf ( "viewcluster: %i\n", tr.viewCluster );
+		VID_Printf (PRINT_ALL, "viewcluster: %i\n", tr.viewCluster );
 	} else if (r_speeds->integer == 4) {
 		if ( backEnd.pc.c_dlightVertexes ) {
-			Com_Printf ( "dlight srf:%i  culled:%i  verts:%i  tris:%i\n", 
+			VID_Printf (PRINT_ALL, "dlight srf:%i  culled:%i  verts:%i  tris:%i\n", 
 				tr.pc.c_dlightSurfaces, tr.pc.c_dlightSurfacesCulled,
 				backEnd.pc.c_dlightVertexes, backEnd.pc.c_dlightIndexes / 3 );
 		}
 	} 
 	else if (r_speeds->integer == 5 )
 	{
-		Com_Printf ("zFar: %.0f\n", tr.viewParms.zFar );
+		VID_Printf( PRINT_ALL, "zFar: %.0f\n", tr.viewParms.zFar );
 	}
 	else if (r_speeds->integer == 6 )
 	{
-		Com_Printf ("flare adds:%i tests:%i renders:%i\n", 
+		VID_Printf( PRINT_ALL, "flare adds:%i tests:%i renders:%i\n", 
 			backEnd.pc.c_flareAdds, backEnd.pc.c_flareTests, backEnd.pc.c_flareRenders );
 	}
 	else if (r_speeds->integer == 7) {
@@ -63,13 +80,13 @@ void R_PerformanceCounters( void ) {
 		const float backBuff= glConfig.vidWidth * glConfig.vidHeight * glConfig.colorBits / (8.0f * 1024*1024);
 		const float depthBuff= glConfig.vidWidth * glConfig.vidHeight * glConfig.depthBits / (8.0f * 1024*1024);
 		const float stencilBuff= glConfig.vidWidth * glConfig.vidHeight * glConfig.stencilBits / (8.0f * 1024*1024);
-		Com_Printf ( "Tex MB %.2f + buffers %.2f MB = Total %.2fMB\n",
+		VID_Printf (PRINT_ALL, "Tex MB %.2f + buffers %.2f MB = Total %.2fMB\n",
 			texSize, backBuff*2+depthBuff+stencilBuff, texSize+backBuff*2+depthBuff+stencilBuff); 
 	}
 #endif
 
-	Com_Memset( &tr.pc, 0, sizeof( tr.pc ) );
-	Com_Memset( &backEnd.pc, 0, sizeof( backEnd.pc ) );
+	memset( &tr.pc, 0, sizeof( tr.pc ) );
+	memset( &backEnd.pc, 0, sizeof( backEnd.pc ) );
 }
 
 
@@ -94,19 +111,25 @@ void R_ShutdownCommandBuffers( void ) {
 R_IssueRenderCommands
 ====================
 */
+int	c_blockedOnRender;
+int	c_blockedOnMain;
+
 void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 	renderCommandList_t	*cmdList;
 
 	cmdList = &backEndData->commands;
-	assert(cmdList); // bk001205
 #ifdef _XBOX
+	static int s_xboxIssueCommandTraceCount = 0;
+	const qboolean xboxTraceIssueCommands = (cls.state == CA_ACTIVE)
+		? (s_xboxIssueCommandTraceCount < 16)
+		: qtrue;
+	if (xboxTraceIssueCommands)
 	{
-		char phaseMsg[128];
-		_snprintf(phaseMsg, sizeof(phaseMsg), "R_IssueRenderCommands enter used=%d perf=%d", cmdList->used, runPerformanceCounters ? 1 : 0);
-		phaseMsg[sizeof(phaseMsg) - 1] = 0;
-		XBLog_Phase(phaseMsg);
+		XBLF("JA: R_IssueRenderCommands enter used=%d perf=%d skip=%d",
+			cmdList->used, runPerformanceCounters, r_skipBackEnd ? r_skipBackEnd->integer : -1);
 	}
 #endif
+
 	// add an end-of-list command
 	*(int *)(cmdList->cmds + cmdList->used) = RC_END_OF_LIST;
 
@@ -116,31 +139,20 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 	// at this point, the back end thread is idle, so it is ok
 	// to look at it's performance counters
 	if ( runPerformanceCounters ) {
-#ifdef _XBOX
-		XBLog_Phase("R_IssueRenderCommands before counters");
-#endif
 		R_PerformanceCounters();
-#ifdef _XBOX
-		XBLog_Phase("R_IssueRenderCommands after counters");
-#endif
 	}
 
 	// actually start the commands going
 	if ( !r_skipBackEnd->integer ) {
 		// let it start on the new batch
-#ifdef _XBOX
-		XBLog_Phase("R_IssueRenderCommands before backend");
-#endif
 		RB_ExecuteRenderCommands( cmdList->cmds );
-#ifdef _XBOX
-		XBLog_Phase("R_IssueRenderCommands after backend");
-#endif
 	}
 #ifdef _XBOX
-	else {
-		XBLog_Phase("R_IssueRenderCommands skipped backend");
+	if (xboxTraceIssueCommands)
+	{
+		XBLog_Write("JA: R_IssueRenderCommands done");
+		s_xboxIssueCommandTraceCount++;
 	}
-	XBLog_Phase("R_IssueRenderCommands exit");
 #endif
 }
 
@@ -179,6 +191,15 @@ void *R_GetCommandBuffer( int bytes ) {
 
 	// always leave room for the end of list command
 	if ( cmdList->used + bytes + 4 > MAX_RENDER_COMMANDS ) {
+#ifdef _XBOX
+		static int s_stefxCommandOverflowBudget = 64;
+		if ( s_stefxCommandOverflowBudget > 0 )
+		{
+			XBLF( "STEFX: R_GetCommandBuffer drop used=%d bytes=%d max=%d frame=%d active=%d",
+				cmdList->used, bytes, MAX_RENDER_COMMANDS, tr.frameCount, cls.state == CA_ACTIVE );
+			--s_stefxCommandOverflowBudget;
+		}
+#endif
 #if defined(_DEBUG) && defined(_XBOX)
 		Com_Printf(S_COLOR_RED"Command buffer overflow!  Tell Brian.\n");
 #endif
@@ -215,10 +236,6 @@ void	R_AddDrawSurfCmd( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	cmd->refdef = tr.refdef;
 	cmd->viewParms = tr.viewParms;
-
-#ifdef _XBOX
-	cmd->clientNum = ClientManager::ActiveClientNum();
-#endif
 }
 
 
@@ -237,16 +254,18 @@ void	RE_SetColor( const float *rgba ) {
 		return;
 	}
 	cmd->commandId = RC_SET_COLOR;
-	if ( !rgba ) {
-		static float colorWhite[4] = { 1, 1, 1, 1 };
-
-		rgba = colorWhite;
+	if ( rgba ) {
+		cmd->color[0] = rgba[0];
+		cmd->color[1] = rgba[1];
+		cmd->color[2] = rgba[2];
+		cmd->color[3] = rgba[3];
+		return;
 	}
 
-	cmd->color[0] = rgba[0];
-	cmd->color[1] = rgba[1];
-	cmd->color[2] = rgba[2];
-	cmd->color[3] = rgba[3];
+	cmd->color[0] = 1;
+	cmd->color[1] = 1;
+	cmd->color[2] = 1;
+	cmd->color[3] = 1;
 }
 
 
@@ -258,13 +277,25 @@ RE_StretchPic
 void RE_StretchPic ( float x, float y, float w, float h, 
 					  float s1, float t1, float s2, float t2, qhandle_t hShader ) {
 	stretchPicCommand_t	*cmd;
+	shader_t			*shader;
 
+	shader = R_GetShaderByHandle( hShader );
 	cmd = (stretchPicCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		static int s_stefxStretchDropBudget = 64;
+		if ( cls.state == CA_ACTIVE && R_XboxTraceStretchShader( shader, x, y, w, h ) && s_stefxStretchDropBudget > 0 )
+		{
+			XBLF( "STEFX: RE_StretchPic dropped shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d max=%d",
+				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
+				backEndData ? backEndData->commands.used : -1, MAX_RENDER_COMMANDS );
+			--s_stefxStretchDropBudget;
+		}
+#endif
 		return;
 	}
 	cmd->commandId = RC_STRETCH_PIC;
-	cmd->shader = R_GetShaderByHandle( hShader );
+	cmd->shader = shader;
 	cmd->x = x;
 	cmd->y = y;
 	cmd->w = w;
@@ -273,6 +304,27 @@ void RE_StretchPic ( float x, float y, float w, float h,
 	cmd->t1 = t1;
 	cmd->s2 = s2;
 	cmd->t2 = t2;
+#ifdef _XBOX
+	{
+		static int s_stefxStretchQueueBudget = 240;
+		if ( cls.state == CA_ACTIVE && R_XboxTraceStretchShader( shader, x, y, w, h ) && s_stefxStretchQueueBudget > 0 )
+		{
+			XBLF( "STEFX: RE_StretchPic queued shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d frame=%d",
+				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
+				backEndData ? backEndData->commands.used : -1, tr.frameCount );
+			--s_stefxStretchQueueBudget;
+		}
+#if defined(STEFX_ELITE_FORCE_SP)
+		if ( cls.state != CA_ACTIVE && s_stefxStretchQueueBudget > 0 )
+		{
+			XBLF( "STEFX_FRONTEND_2D_QUEUE shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d frame=%d state=%d catcher=0x%x",
+				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
+				backEndData ? backEndData->commands.used : -1, tr.frameCount, cls.state, cls.keyCatchers );
+			--s_stefxStretchQueueBudget;
+		}
+#endif
+	}
+#endif
 }
 
 /*
@@ -327,27 +379,50 @@ void RE_RotatePic2 ( float x, float y, float w, float h,
 	cmd->a = a;
 }
 
+void RE_LAGoggles( void )
+{
+	tr.refdef.rdflags |= (RDF_doLAGoggles|RDF_doFullbright);
+
+	fog_t		*fog = &tr.world->fogs[tr.world->numfogs];
+
+	fog->parms.color[0] = 0.75f;
+	fog->parms.color[1] = 0.42f + random() * 0.025f;
+	fog->parms.color[2] = 0.07f;
+	fog->parms.color[3] = 1.0f;
+	fog->parms.depthForOpaque = 10000;
+	fog->colorInt = ColorBytes4(fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], fog->parms.color[3]);
+	fog->tcScale = 2.0f / ( fog->parms.depthForOpaque * (1.0f + cos( tr.refdef.floatTime) * 0.1f));
+}
+
 void RE_RenderWorldEffects(void)
 {
-	drawBufferCommand_t	*cmd;
+	setModeCommand_t	*cmd;
 
-	cmd = (drawBufferCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
+	cmd = (setModeCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
 		return;
 	}
 	cmd->commandId = RC_WORLD_EFFECTS;
 }
 
-void RE_RenderAutoMap(void)
+/*   
+=============
+RE_Scissor
+=============
+*/
+void RE_Scissor ( float x, float y, float w, float h) 
 {
-	drawBufferCommand_t	*cmd;
+	scissorCommand_t	*cmd;
 
-	cmd = (drawBufferCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
-	if ( !cmd )
-	{
+	cmd = (scissorCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
+	if ( !cmd ) {
 		return;
 	}
-	cmd->commandId = RC_AUTO_MAP;
+	cmd->commandId = RC_SCISSOR;
+	cmd->x = x;
+	cmd->y = y;
+	cmd->w = w;
+	cmd->h = h;
 }
 
 /*
@@ -360,12 +435,37 @@ for each RE_EndFrame
 */
 void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	drawBufferCommand_t	*cmd;
+#ifdef _XBOX
+	static int s_xboxBeginFrameCount = 0;
+	static int s_xboxBeginFrameLogBudget = 0;
+	const qboolean xboxTraceBeginFrame = (s_xboxBeginFrameLogBudget > 0);
+	if (xboxTraceBeginFrame)
+	{
+		XBLF("JA: RE_BeginFrame #%d enter stereo=%d registered=%d frameCount=%d backEndData=%p cmdUsed=%d",
+			s_xboxBeginFrameCount, (int)stereoFrame, tr.registered, tr.frameCount,
+			(void*)backEndData, backEndData ? backEndData->commands.used : -1);
+	}
+#endif
 
 	if ( !tr.registered ) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame)
+		{
+			XBLog_Write("JA: RE_BeginFrame: not registered return");
+			s_xboxBeginFrameCount++;
+			--s_xboxBeginFrameLogBudget;
+		}
+#endif
 		return;
 	}
+#ifdef _XBOX
+	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: clear finish flag");
+#endif
 	glState.finishCalled = qfalse;
 
+#ifdef _XBOX
+	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: bump frame counters");
+#endif
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
@@ -377,24 +477,24 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	{
 		if ( glConfig.stencilBits < 4 )
 		{
-			Com_Printf ("Warning: not enough stencil bits to measure overdraw: %d\n", glConfig.stencilBits );
+			VID_Printf( PRINT_ALL, "Warning: not enough stencil bits to measure overdraw: %d\n", glConfig.stencilBits );
 			Cvar_Set( "r_measureOverdraw", "0" );
 			r_measureOverdraw->modified = qfalse;
 		}
 		else if ( r_shadows->integer == 2 )
 		{
-			Com_Printf ("Warning: stencil shadows and overdraw measurement are mutually exclusive\n" );
+			VID_Printf( PRINT_ALL, "Warning: stencil shadows and overdraw measurement are mutually exclusive\n" );
 			Cvar_Set( "r_measureOverdraw", "0" );
 			r_measureOverdraw->modified = qfalse;
 		}
 		else
 		{
 			R_SyncRenderThread();
-			qglEnable( GL_STENCIL_TEST );
-			qglStencilMask( ~0U );
-			qglClearStencil( 0U );
-			qglStencilFunc( GL_ALWAYS, 0U, ~0U );
-			qglStencilOp( GL_KEEP, GL_INCR, GL_INCR );
+			glEnable( GL_STENCIL_TEST );
+			glStencilMask( ~0U );
+			glClearStencil( 0U );
+			glStencilFunc( GL_ALWAYS, 0U, ~0U );
+			glStencilOp( GL_KEEP, GL_INCR, GL_INCR );
 		}
 		r_measureOverdraw->modified = qfalse;
 	}
@@ -403,9 +503,9 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		// this is only reached if it was on and is now off
 		if ( r_measureOverdraw->modified ) {
 			R_SyncRenderThread();
-			qglDisable( GL_STENCIL_TEST );
+			glDisable( GL_STENCIL_TEST );
+			r_measureOverdraw->modified = qfalse;
 		}
-		r_measureOverdraw->modified = qfalse;
 	}
 #endif
 
@@ -413,40 +513,87 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	// texturemode stuff
 	//
 	if ( r_textureMode->modified || r_ext_texture_filter_anisotropic->modified) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: GL_TextureMode...");
+#endif
 		R_SyncRenderThread();
 		GL_TextureMode( r_textureMode->string );
 		r_textureMode->modified = qfalse;
 		r_ext_texture_filter_anisotropic->modified = qfalse;
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: GL_TextureMode done");
+#endif
 	}
 
 	//
 	// gamma stuff
 	//
 	if ( r_gamma->modified ) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: R_SetColorMappings...");
+#endif
 		r_gamma->modified = qfalse;
 
 		R_SyncRenderThread();
 		R_SetColorMappings();
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: R_SetColorMappings done");
+#endif
 	}
 
     // check for errors
     if ( !r_ignoreGLErrors->integer ) {
         int	err;
 
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: glGetError...");
+#endif
 		R_SyncRenderThread();
-        if ( ( err = qglGetError() ) != GL_NO_ERROR ) {
+        if ( ( err = glGetError() ) != GL_NO_ERROR ) {
             Com_Error( ERR_FATAL, "RE_BeginFrame() - glGetError() failed (0x%x)!\n", err );
         }
+#ifdef _XBOX
+		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: glGetError done");
+#endif
     }
 
 	//
 	// draw buffer stuff
 	//
+#ifdef _XBOX
+	if (xboxTraceBeginFrame)
+	{
+		XBLF("JA: RE_BeginFrame: R_GetCommandBuffer draw buffer bytes=%d used=%d",
+			(int)sizeof(*cmd), backEndData ? backEndData->commands.used : -1);
+	}
+#endif
 	cmd = (drawBufferCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		if (xboxTraceBeginFrame)
+		{
+			XBLog_Write("JA: RE_BeginFrame: R_GetCommandBuffer returned null");
+			s_xboxBeginFrameCount++;
+			--s_xboxBeginFrameLogBudget;
+		}
+#endif
 		return;
 	}
+#ifdef _XBOX
+	if (xboxTraceBeginFrame)
+	{
+		XBLF("JA: RE_BeginFrame: command buffer ok cmd=%p used=%d",
+			(void*)cmd, backEndData ? backEndData->commands.used : -1);
+	}
+#endif
 	cmd->commandId = RC_DRAW_BUFFER;
+
+#ifdef _XBOX
+	if ( glConfig.stereoEnabled ) {
+		VID_Printf( PRINT_ALL, "JA: RE_BeginFrame forcing stereo off on Xbox\n" );
+		glConfig.stereoEnabled = qfalse;
+	}
+#endif
 
 	if ( glConfig.stereoEnabled ) {
 		if ( stereoFrame == STEREO_LEFT ) {
@@ -457,6 +604,17 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
 		}
 	} else {
+#ifdef _XBOX
+		cmd->buffer = (int)GL_BACK;
+		if (xboxTraceBeginFrame)
+		{
+			XBLF("JA: RE_BeginFrame #%d done buffer=%d frameCount=%d used=%d",
+				s_xboxBeginFrameCount, cmd->buffer, tr.frameCount,
+				backEndData ? backEndData->commands.used : -1);
+			--s_xboxBeginFrameLogBudget;
+		}
+		s_xboxBeginFrameCount++;
+#else
 		if ( stereoFrame != STEREO_CENTER ) {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is disabled, but stereoFrame was %i", stereoFrame );
 		}
@@ -466,6 +624,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		{
 			cmd->buffer = (int)GL_BACK;
 		}
+#endif
 	}
 }
 
@@ -480,101 +639,110 @@ Returns the number of msec spent in the back end
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
 #ifdef _XBOX
-	static int jampREEndFrameCount = 0;
-	qboolean jampRETrace = (jampREEndFrameCount < 2);
-	qboolean jampREProfile = qfalse;
-	int jampFrameStart = 0;
-	int jampBeginStart;
-	int jampIssueStart;
-	int jampEndStart;
-	int jampBeginMsec = 0;
-	int jampIssueMsec = 0;
-	int jampEndMsec = 0;
-	if (jampREProfile)
+	static int s_xboxEndFrameCount = 0;
+	static int s_xboxActiveEndFrameCount = 0;
+	const int stefxLateEndFrame = 0;
+	const int xboxTraceEndFrameTight = stefxLateEndFrame || (cls.state == CA_ACTIVE && s_xboxActiveEndFrameCount >= 32 && s_xboxActiveEndFrameCount <= 96);
+	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
+		? (s_xboxActiveEndFrameCount < 16 || ((s_xboxActiveEndFrameCount & 255) == 0))
+		: (s_xboxEndFrameCount < 32);
+	if (xboxTraceEndFrame)
 	{
-		jampFrameStart = Sys_Milliseconds();
+		XBLF("JA: RE_EndFrame #%d active=%d enter registered=%d",
+			(cls.state == CA_ACTIVE) ? s_xboxActiveEndFrameCount : s_xboxEndFrameCount,
+			(int)(cls.state == CA_ACTIVE), tr.registered);
 	}
-	XBLog_Phase("RE_EndFrame enter");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d enter registered=%d\n", jampREEndFrameCount, tr.registered ? 1 : 0);
 #endif
 
 	if ( !tr.registered ) {
-		XBLog_Phase("RE_EndFrame not registered");
-#ifdef _XBOX
-		if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d not registered\n", jampREEndFrameCount);
-#endif
 		return;
 	}
 	cmd = (swapBuffersCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
-#ifdef _XBOX
-		XBLog_Phase("RE_EndFrame no command buffer");
-		if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d no command buffer\n", jampREEndFrameCount);
-		jampREEndFrameCount++;
-#endif
 		return;
 	}
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
-	if (jampREProfile)
-	{
-		jampBeginStart = Sys_Milliseconds();
-	}
-	XBLog_Phase("RE_EndFrame before qglBeginFrame");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d before qglBeginFrame\n", jampREEndFrameCount);
-	if (!qglBeginFrame())
-	{
-		XBLog_Phase("RE_EndFrame qglBeginFrame failed");
-		if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d qglBeginFrame failed\n", jampREEndFrameCount);
-		jampREEndFrameCount++;
-		return;
-	}
-	XBLog_Phase("RE_EndFrame after qglBeginFrame");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d after qglBeginFrame\n", jampREEndFrameCount);
-	if (jampREProfile)
-	{
-		jampBeginMsec = Sys_Milliseconds() - jampBeginStart;
-	}
+	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame tight #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glBeginFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glBeginFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame...");
+	if (!glBeginFrame()) return;
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glBeginFrame");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after glBeginFrame cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glBeginFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame done");
 #endif
 
-#ifdef _XBOX
-	if (jampREProfile)
-	{
-		jampIssueStart = Sys_Milliseconds();
-	}
-	XBLog_Phase("RE_EndFrame before R_IssueRenderCommands");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d before R_IssueRenderCommands\n", jampREEndFrameCount);
+	#ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_IssueRenderCommands");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d before R_IssueRenderCommands cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
+	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame before R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands...");
 #endif
 	R_IssueRenderCommands( qtrue );
 #ifdef _XBOX
-	XBLog_Phase("RE_EndFrame after R_IssueRenderCommands");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d after R_IssueRenderCommands\n", jampREEndFrameCount);
-	if (jampREProfile)
-	{
-		jampIssueMsec = Sys_Milliseconds() - jampIssueStart;
-	}
+	Sleep(0);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_IssueRenderCommands");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after R_IssueRenderCommands cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
+	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame after R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands done");
 #endif
 
 #ifdef _XBOX
-	if (jampREProfile)
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before RE_ProcessDissolve");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before RE_ProcessDissolve");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve...");
+	if ( Sys_IsDirectMapBoot() )
 	{
-		jampEndStart = Sys_Milliseconds();
+		if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: skipping dissolve for direct-map boot");
 	}
-	XBLog_Phase("RE_EndFrame before qglEndFrame");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d before qglEndFrame\n", jampREEndFrameCount);
-	qglEndFrame();
-	XBLog_Phase("RE_EndFrame after qglEndFrame");
-	if (jampRETrace) Com_PrintfAlways("JAMP: RE_EndFrame #%d after qglEndFrame\n", jampREEndFrameCount);
-	if (jampREProfile)
+#if defined(STEFX_ELITE_FORCE_SP)
+	else if ( cls.state == CA_DISCONNECTED )
 	{
-		jampEndMsec = Sys_Milliseconds() - jampEndStart;
+		static int s_stefxFrontendDissolveSkipBudget = 16;
+		if (s_stefxFrontendDissolveSkipBudget > 0)
+		{
+			XBLF("STEFX: RE_EndFrame skipping dissolve for disconnected frontend catcher=0x%x cmdUsed=%d",
+				cls.keyCatchers, backEndData ? backEndData->commands.used : -1);
+			--s_stefxFrontendDissolveSkipBudget;
+		}
 	}
+#endif
+	else
+	{
+		RE_ProcessDissolve(); // render the disolve now
+	}
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after RE_ProcessDissolve");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after RE_ProcessDissolve");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve done");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d before glEndFrame", s_xboxActiveEndFrameCount);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glEndFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame...");
+	glEndFrame();
+	Sleep(0);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glEndFrame");
+	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after glEndFrame", s_xboxActiveEndFrameCount);
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glEndFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame done");
 #endif
 
 	// use the other buffers next frame, because another CPU
 	// may still be rendering into the current ones
+	#ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_ToggleSmpFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before R_ToggleSmpFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame...");
+	#endif
 	R_ToggleSmpFrame();
+#ifdef _XBOX
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_ToggleSmpFrame");
+	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after R_ToggleSmpFrame");
+	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame done");
+#endif
 
 	if ( frontEndMsec ) {
 		*frontEndMsec = tr.frontEndMsec;
@@ -584,37 +752,25 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		*backEndMsec = backEnd.pc.msec;
 	}
 	backEnd.pc.msec = 0;
+	
+	for(int i=0;i<MAX_LIGHT_STYLES;i++)
+	{
+		styleUpdated[i] = false;
+	}
 #ifdef _XBOX
-	if (jampREProfile)
+	if (xboxTraceEndFrame)
 	{
-		Com_Printf("JAMP: re endframe profile frame=%d begin=%d issue=%d present=%d total=%d frontend=%d backend=%d\n",
-			jampREEndFrameCount,
-			jampBeginMsec,
-			jampIssueMsec,
-			jampEndMsec,
-			Sys_Milliseconds() - jampFrameStart,
-			frontEndMsec ? *frontEndMsec : tr.frontEndMsec,
-			backEndMsec ? *backEndMsec : backEnd.pc.msec);
+		XBLF("JA: RE_EndFrame #%d active=%d done",
+			(cls.state == CA_ACTIVE) ? s_xboxActiveEndFrameCount : s_xboxEndFrameCount,
+			(int)(cls.state == CA_ACTIVE));
 	}
+	if (cls.state == CA_ACTIVE)
 	{
-		static int s_stefxRenderHeartbeatTime = 0;
-		const int stefxNow = Sys_Milliseconds();
-		if ( stefxNow < s_stefxRenderHeartbeatTime ||
-			stefxNow - s_stefxRenderHeartbeatTime >= 3000 )
-		{
-			char stefxMsg[160];
-			_snprintf( stefxMsg, sizeof( stefxMsg ),
-				"STEFX_HM: render frame heartbeat frame=%d time=%d registered=%d",
-				jampREEndFrameCount,
-				stefxNow,
-				tr.registered ? 1 : 0 );
-			stefxMsg[sizeof(stefxMsg) - 1] = 0;
-			XBLog_Write( stefxMsg );
-			s_stefxRenderHeartbeatTime = stefxNow;
-		}
+		s_xboxActiveEndFrameCount++;
 	}
-	jampREEndFrameCount++;
-	XBLog_Phase("RE_EndFrame exit");
+	else
+	{
+		s_xboxEndFrameCount++;
+	}
 #endif
 }
-

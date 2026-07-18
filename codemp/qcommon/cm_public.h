@@ -1,6 +1,7 @@
 #include "../game/q_shared.h"
 #include "qfiles.h"
 
+qboolean CM_DeleteCachedMap(qboolean bGuaranteedOkToDelete);
 #ifdef _XBOX
 void		CM_LoadMap( const char *name, qboolean clientload, int *checksum);
 #else

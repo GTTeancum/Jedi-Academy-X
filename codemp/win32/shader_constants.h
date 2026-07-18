@@ -37,6 +37,11 @@
 #define CV_VIEWINV_2	21
 #define CV_VIEWINV_3	22
 
+#define CV_VIEW_0	23
+#define CV_VIEW_1	24
+#define CV_VIEW_2	25
+#define CV_VIEW_3	26
+
 #define CV_LIGHT_COLOR 50
 #define CV_ONE_OVER_LIGHT_RANGE 51
 
@@ -45,9 +50,15 @@
 
 #define CV_CAMERA_DIRECTION 54
 
+#define CV_EXTRUSION_LENGTH 55
+#define CV_SHADOW_FACTORS	56
+#define CV_SHADOW_PLANE		57
+
 #define CV_VIEWPORT_OFFSETS 95
 
 #define CP_AMBIENT_COLOR	0
 #define CP_DIFFUSE_COLOR	1
+#define CP_EXTRACT_CUTOFF	2
+#define CP_EXTRACT_SCALE	3
 
 #endif

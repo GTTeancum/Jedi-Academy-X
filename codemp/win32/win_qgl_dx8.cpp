@@ -41,15 +41,6 @@
  * the win32 layer. */
 #include "xbox_texture_man.h"
 StaticTextureAllocator gTextures;
-SwappingTextureAllocator gSkinTextures;
-
-void BeginSkinTextures( void )
-{
-}
-
-void EndSkinTextures( void )
-{
-}
 
 #ifdef _XBOX
 extern "C" void* JkaStaticTextureAlloc(unsigned long size, GLuint texNum)

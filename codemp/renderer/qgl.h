@@ -20,26 +20,15 @@
 #include <windows.h>
 #include <gl/gl.h>
 
-#elif defined(MACOS_X)
-
-#include "macosx_glimp.h"
+#elif defined( __APPLE__ ) && defined( __MACH__ )
+  
+#include <MesaGL/gl.h>
 
 #elif defined( __linux__ )
 
 #include <GL/gl.h>
 #include <GL/glx.h>
-// bk001129 - from cvs1.17 (mkv)
-#if defined(__FX__)
 #include <GL/fxmesa.h>
-#endif
-
-#elif defined( __FreeBSD__ ) // rb010123
-
-#include <GL/gl.h>
-#include <GL/glx.h>
-#if defined(__FX__)
-#include <GL/fxmesa.h>
-#endif
 
 #else
 
@@ -71,10 +60,6 @@
 
 #define GL_TEXTURE_RECTANGLE_EXT						0x84F5
 
-// TTimo: FIXME
-// linux needs those prototypes
-// GL_VERSION_1_2 is defined after #include <gl.h>
-#if !defined(GL_VERSION_1_2) || defined(__linux__)
 typedef void (APIENTRY * PFNGLMULTITEXCOORD1DARBPROC) (GLenum target, GLdouble s);
 typedef void (APIENTRY * PFNGLMULTITEXCOORD1DVARBPROC) (GLenum target, const GLdouble *v);
 typedef void (APIENTRY * PFNGLMULTITEXCOORD1FARBPROC) (GLenum target, GLfloat s);
@@ -109,7 +94,6 @@ typedef void (APIENTRY * PFNGLMULTITEXCOORD4SARBPROC) (GLenum target, GLshort s,
 typedef void (APIENTRY * PFNGLMULTITEXCOORD4SVARBPROC) (GLenum target, const GLshort *v);
 typedef void (APIENTRY * PFNGLACTIVETEXTUREARBPROC) (GLenum target);
 typedef void (APIENTRY * PFNGLCLIENTACTIVETEXTUREARBPROC) (GLenum target);
-#endif
 
 
 // Steps to adding a new extension:
@@ -344,20 +328,16 @@ extern	void ( APIENTRY * qglUnlockArraysEXT) (void);
 extern	void ( APIENTRY * qglPointParameterfEXT)( GLenum, GLfloat);
 extern	void ( APIENTRY * qglPointParameterfvEXT)( GLenum, GLfloat *);
 
-//3d textures -rww
-extern	void ( APIENTRY * qglTexImage3DEXT) (GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
-extern	void ( APIENTRY * qglTexSubImage3DEXT) (GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *);
+// Added 10/23/02 by Aurelio Reis.
+extern	void ( APIENTRY * qglPointParameteriNV)( GLenum, GLint);
+extern	void ( APIENTRY * qglPointParameterivNV)( GLenum, const GLint *);
 
 //===========================================================================
 
 // non-windows systems will just redefine qgl* to gl*
-#if !defined( _WIN32 ) && !defined(MACOS_X) && !defined( __linux__ ) && !defined( __FreeBSD__ ) // rb010123
+#if !defined( _WIN32 ) && !defined( __linux__ )
 
 #include "qgl_linked.h"
-
-#elif defined(MACOS_X)
-// This includes #ifdefs for optional logging and GL error checking after every GL call as well as #defines to prevent incorrect usage of the non-'qgl' versions of the GL API.
-#include "macosx_qgl.h"
 
 #else
 
@@ -507,7 +487,7 @@ extern  void ( APIENTRY * qglIndexubv )(const GLubyte *c);
 extern  void ( APIENTRY * qglInitNames )(void);
 extern  void ( APIENTRY * qglInterleavedArrays )(GLenum format, GLsizei stride, const GLvoid *pointer);
 extern  GLboolean ( APIENTRY * qglIsEnabled )(GLenum cap);
-extern  GLboolean ( APIENTRY * qglIsList )(GLuint ilist);
+extern  GLboolean ( APIENTRY * qglIsList )(GLuint l);
 extern  GLboolean ( APIENTRY * qglIsTexture )(GLuint texture);
 extern  void ( APIENTRY * qglLightModelf )(GLenum pname, GLfloat param);
 extern  void ( APIENTRY * qglLightModelfv )(GLenum pname, const GLfloat *params);
@@ -729,18 +709,15 @@ extern BOOL ( WINAPI * qwglSwapIntervalEXT)( int interval );
 
 #endif	// _WIN32
 
-#if ( (defined __linux__ )  || (defined __FreeBSD__ ) ) // rb010123
+#if defined( __linux__ )
 
 //FX Mesa Functions
-// bk001129 - from cvs1.17 (mkv)
-#if defined (__FX__)
 extern fxMesaContext (*qfxMesaCreateContext)(GLuint win, GrScreenResolution_t, GrScreenRefresh_t, const GLint attribList[]);
 extern fxMesaContext (*qfxMesaCreateBestContext)(GLuint win, GLint width, GLint height, const GLint attribList[]);
 extern void (*qfxMesaDestroyContext)(fxMesaContext ctx);
 extern void (*qfxMesaMakeCurrent)(fxMesaContext ctx);
 extern fxMesaContext (*qfxMesaGetCurrentContext)(void);
 extern void (*qfxMesaSwapBuffers)(void);
-#endif
 
 //GLX Functions
 extern XVisualInfo * (*qglXChooseVisual)( Display *dpy, int screen, int *attribList );
@@ -750,7 +727,7 @@ extern Bool (*qglXMakeCurrent)( Display *dpy, GLXDrawable drawable, GLXContext c
 extern void (*qglXCopyContext)( Display *dpy, GLXContext src, GLXContext dst, GLuint mask );
 extern void (*qglXSwapBuffers)( Display *dpy, GLXDrawable drawable );
 
-#endif // __linux__ || __FreeBSD__ // rb010123
+#endif // __linux__
 
 #endif	// _WIN32 && __linux__
 

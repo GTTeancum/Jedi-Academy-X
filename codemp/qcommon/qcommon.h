@@ -815,6 +815,25 @@ void  Z_TagFree	( memtag_t eTag );
 void  Z_Free	( void *ptr );
 int	  Z_Size	( void *pvAddress);
 
+typedef struct zmemstats_s {
+	int zoneSize;
+	int usedBytes;
+	int overheadBytes;
+	int peakBytes;
+	int freeBytes;
+	int freeBlocks;
+	int largestFreeBlock;
+	int modelMd3Bytes;
+	int modelGlmBytes;
+	int modelGlaBytes;
+	int bspBytes;
+	int soundRawBytes;
+	int filesysBytes;
+} zmemstats_t;
+
+void Z_GetMemoryStats(zmemstats_t *stats);
+qboolean Z_WouldAllocFit(int iSize, memtag_t eTag, int iAlign, int *realSize, int *alignPad, int *largestFreeBlock);
+
 void Z_PushNewDeleteTag( memtag_t eTag );
 void Z_PopNewDeleteTag( void );
 

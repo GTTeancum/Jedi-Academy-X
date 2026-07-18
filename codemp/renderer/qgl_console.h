@@ -1182,6 +1182,4 @@ void glPointParameterfvEXT(GLenum pname, GLfloat *params);
 }
 #endif
 
-#include "qgl_linked.h"
-
 #endif /* __QGL_H__ */

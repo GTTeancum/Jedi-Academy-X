@@ -7,20 +7,103 @@
 #include "../server/exe_headers.h"
 #include "tr_local.h"
 
+#include "tr_lightmanager.h"
+
 #include "../win32/glw_win_dx8.h"
 #include "../win32/win_lighteffects.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
-#include "../cgame/cg_local.h"
-#include "modelmem.h"
-
-extern int			r_numdlights;
-extern int			r_firstSceneDlight;
 
 VVLightManager VVLightMan;
+
+#ifdef _XBOX
+static int s_xboxVVEntityLightLogCount = 0;
+static int s_xboxVVDiffuseLogCount = 0;
+static int s_xboxVVDiffuseEntityLogCount = 0;
+static int s_xboxVVAddDlightLogCount = 0;
+static int s_xboxVVWorldDlightLogCount = 0;
+
+static qboolean VV_XboxTraceJunkSkySurface( const msurface_t *surf )
+{
+	const char *mapShaderName = "";
+	const char *resolvedName = "";
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	if ( tr.world &&
+		tr.world->shaders &&
+		surf->xboxDebugShaderNum >= 0 &&
+		surf->xboxDebugShaderNum < tr.world->numShaders )
+	{
+		mapShaderName = tr.world->shaders[surf->xboxDebugShaderNum].shader;
+	}
+	if ( surf->shader && surf->shader->name )
+	{
+		resolvedName = surf->shader->name;
+	}
+
+	return ( strstr( mapShaderName, "textures/common/junk_sky" ) ||
+			 strstr( resolvedName, "textures/common/junk_sky" ) ) ? qtrue : qfalse;
+}
+
+static int VV_XboxCountJunkSkyMarks( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
+{
+	int i;
+	int count = 0;
+	msurface_t **mark;
+
+	if ( firstCode )
+	{
+		*firstCode = -1;
+	}
+	if ( firstShaderNum )
+	{
+		*firstShaderNum = -1;
+	}
+	if ( !leaf || !tr.world || !tr.world->marksurfaces )
+	{
+		return 0;
+	}
+	if ( leaf->firstMarkSurfNum < 0 ||
+		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+	{
+		return 0;
+	}
+
+	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+	for ( i = 0; i < leaf->nummarksurfaces; ++i )
+	{
+		msurface_t *surf = mark[i];
+		if ( VV_XboxTraceJunkSkySurface( surf ) )
+		{
+			if ( count == 0 )
+			{
+				if ( firstCode )
+				{
+					*firstCode = surf->xboxDebugCode;
+				}
+				if ( firstShaderNum )
+				{
+					*firstShaderNum = surf->xboxDebugShaderNum;
+				}
+			}
+			++count;
+		}
+	}
+
+	return count;
+}
+#endif
 
 
 VVLightManager::VVLightManager()
 {
+
 }
 
 
@@ -30,21 +113,33 @@ void VVLightManager::RE_AddLightToScene( const vec3_t org, float intensity, floa
 	if ( !tr.registered ) {
 		return;
 	}
-	if ( r_numdlights >= MAX_DLIGHTS ) {
+	if ( num_dlights >= MAX_DLIGHTS ) {
 		return;
 	}
 	if ( intensity <= 0 ) {
 		return;
 	}
 	
-	dl = &backEndData->dlights[r_numdlights++];
+	dl = &dlights[num_dlights++];
 
 	VectorCopy (org, dl->origin);
 	dl->type = LT_POINT;
-	dl->radius = intensity;// * 2.0f;
+	dl->radius = intensity;// * 5.0f;
 	dl->color[0] = r;
 	dl->color[1] = g;
 	dl->color[2] = b;
+
+#ifdef _XBOX
+	if ( s_xboxVVAddDlightLogCount < 64 ) {
+		XBLF("JA: VV_ADD_DLIGHT #%d count=%d origin=%g,%g,%g radius=%g color=%g,%g,%g",
+			s_xboxVVAddDlightLogCount,
+			num_dlights,
+			org[0], org[1], org[2],
+			intensity,
+			r, g, b);
+		s_xboxVVAddDlightLogCount++;
+	}
+#endif
 }
 
 void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
@@ -55,11 +150,11 @@ void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
 		return;
 	}
 
-	if( r_numdlights >= MAX_DLIGHTS ) {
+	if( num_dlights >= MAX_DLIGHTS ) {
 		return;
 	}
 
-	dl = &backEndData->dlights[r_numdlights++];
+	dl = &dlights[num_dlights++];
 
 	VectorCopy(light->origin, dl->origin);
 	VectorCopy(light->direction, dl->direction);
@@ -67,6 +162,20 @@ void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
 	dl->attenuation = light->attenuation;
 	dl->type = light->type;
 	dl->radius = light->radius;
+
+#ifdef _XBOX
+	if ( s_xboxVVAddDlightLogCount < 64 ) {
+		XBLF("JA: VV_ADD_DLIGHT_STRUCT #%d count=%d type=%d origin=%g,%g,%g radius=%g color=%g,%g,%g attenuation=%g",
+			s_xboxVVAddDlightLogCount,
+			num_dlights,
+			(int)light->type,
+			light->origin[0], light->origin[1], light->origin[2],
+			light->radius,
+			light->color[0], light->color[1], light->color[2],
+			light->attenuation);
+		s_xboxVVAddDlightLogCount++;
+	}
+#endif
 }
 
 
@@ -91,15 +200,17 @@ void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
 
 
 
-void VVLightManager::R_TransformDlights( int count, VVdlight_t *dl, orientationr_t *ori) {
+void VVLightManager::R_TransformDlights( orientationr_t *orient) {
 	int		i;
 	vec3_t	temp;
+	VVdlight_t *dl;
 
-	for ( i = 0; i < count; i++ ) {
-		VectorSubtract( dl->origin, ori->origin, temp );
-		dl->transformed[0] = DotProduct( temp, ori->axis[0] );
-		dl->transformed[1] = DotProduct( temp, ori->axis[1] );
-		dl->transformed[2] = DotProduct( temp, ori->axis[2] );
+	for ( i = 0 ; i < num_dlights ; i++ ) {
+		dl = &dlights[i];
+		VectorSubtract( dl->origin, orient->origin, temp );
+		dl->transformed[0] = DotProduct( temp, orient->axis[0] );
+		dl->transformed[1] = DotProduct( temp, orient->axis[1] );
+		dl->transformed[2] = DotProduct( temp, orient->axis[2] );
 	}
 }
 
@@ -121,12 +232,12 @@ void VVLightManager::R_DlightBmodel( bmodel_t *bmodel, qboolean NoLight ) {
 	mask = 0;
 
 	// transform all the lights
-	R_TransformDlights( tr.refdef.num_dlights, tr.refdef.dlights, &tr.ori );
+	R_TransformDlights( &tr.or );
 
 	if (!NoLight)
 	{
-		for ( i = 0; i < tr.refdef.num_dlights; i++ ) { 
-			dl = &tr.refdef.dlights[i];
+		for ( i=0 ; i<num_dlights ; i++ ) { 
+			dl = &dlights[i];
 
 			// see if the point is close enough to the bounds to matter
 			for ( j = 0 ; j < 3 ; j++ ) {
@@ -169,13 +280,14 @@ int VVLightManager::R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	int			i;
 	VVdlight_t	*dl;
 
-	for ( i = 0; i < tr.refdef.num_dlights; i++ ) {
+	for ( i = 0 ; i < num_dlights ; i++ ) {
 
-		if ( ! ( dlightBits & ( 1 << i ) ) ) {
+		/*if ( ! ( dlightBits & ( 1 << i ) ) ) {
 			continue;
-		}
+		}*/
+		dlightBits |= (1 << i);
 
-		dl = &tr.refdef.dlights[i];
+		dl = &dlights[i];
 		d = DotProduct( dl->origin, face->plane.normal ) - face->plane.dist;
 		// Directional lights are always considered (MATT - change that?)
 		if ( d < -dl->radius || d > dl->radius ) {
@@ -217,11 +329,11 @@ int VVLightManager::R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 	int			i;
 	VVdlight_t	*dl;
 
-	for ( i = 0; i < tr.refdef.num_dlights ; i++ ) {
+	for ( i = 0 ; i < num_dlights ; i++ ) {
 		if ( ! ( dlightBits & ( 1 << i ) ) ) {
 			continue;
 		}
-		dl = &tr.refdef.dlights[i];
+		dl = &dlights[i];
 		// Directional lights are always considered (MATT - change that?)
 		if (( dl->origin[0] - dl->radius > grid->meshBounds[1][0]
 			|| dl->origin[0] + dl->radius < grid->meshBounds[0][0]
@@ -331,17 +443,20 @@ by the Calc_* functions
 void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	int				i;
 	VVdlight_t		*dl;
-	float			power;
 	vec3_t			dir;
 	float			d;
 	vec3_t			lightDir;
+	vec3_t			shadowLightDir;
 	vec3_t			lightOrigin;
+	float			power;
 
 	// lighting calculations 
 	if ( ent->lightingCalculated ) {
 		return;
 	}
 	ent->lightingCalculated = qtrue;
+
+	ent->dlightBits = 0;
 
 	//
 	// trace a sample point down to find ambient light
@@ -371,27 +486,17 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 		ent->lightDir[2] = 1.0f;
 	}
 
-	// give everything a minimum light add
-	ent->ambientLight[0] += tr.identityLight * 32;
-	ent->ambientLight[1] += tr.identityLight * 32;
-	ent->ambientLight[2] += tr.identityLight * 32;
-
-	if (ent->e.renderfx & RF_MINLIGHT)
-	{ //the minlight flag is now for items rotating on their holo thing
-		if (ent->e.shaderRGBA[0] == 255 &&
-			ent->e.shaderRGBA[1] == 255 &&
-			ent->e.shaderRGBA[2] == 0)
-		{
-			ent->ambientLight[0] += tr.identityLight * 255;
-			ent->ambientLight[1] += tr.identityLight * 255;
-			ent->ambientLight[2] += tr.identityLight * 0;
-		}
-		else
-		{
-			ent->ambientLight[0] += tr.identityLight * 16;
-			ent->ambientLight[1] += tr.identityLight * 96;
-			ent->ambientLight[2] += tr.identityLight * 150;
-		}
+	// bonus items and view weapons have a fixed minimum add
+	if (  ent->e.renderfx & RF_MORELIGHT  ) {
+		ent->ambientLight[0] += tr.identityLight * 96;
+		ent->ambientLight[1] += tr.identityLight * 96;
+		ent->ambientLight[2] += tr.identityLight * 96;
+	}
+	else {
+		// give everything a minimum light add
+		ent->ambientLight[0] += tr.identityLight * 32;
+		ent->ambientLight[1] += tr.identityLight * 32;
+		ent->ambientLight[2] += tr.identityLight * 32;
 	}
 
 	//
@@ -399,11 +504,18 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 	//
 	d = VectorLength( ent->directedLight );
 	VectorScale( ent->lightDir, d, lightDir );
+	VectorScale( ent->lightDir, d, shadowLightDir );
 
-	for ( i = 0; i < refdef->num_dlights; i++ ) {
-		dl = &refdef->dlights[i];
+	for ( i = 0 ; i < num_dlights ; i++ ) {
+		dl = &dlights[i];
 		VectorSubtract( dl->origin, lightOrigin, dir );
 		d = VectorNormalize( dir );
+
+		if( d <= dl->radius )
+		{
+			ent->dlightBits |= (1 << i);
+			ent->needDlights = qtrue;
+		}
 
 		power = DLIGHT_AT_RADIUS * ( dl->radius * dl->radius );
 		if ( d < DLIGHT_MINIMUM_RADIUS ) {
@@ -411,8 +523,7 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 		}
 		d = power / ( d * d );
 
-		VectorMA( ent->directedLight, d, dl->color, ent->directedLight );
-		VectorMA( lightDir, d, dir, lightDir );
+		VectorMA( shadowLightDir, d, dir, shadowLightDir );
 	}
 
 	// clamp
@@ -433,12 +544,37 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 	
 	// transform the direction to local space
 	VectorNormalize( lightDir );
+	VectorNormalize( shadowLightDir );
+
+	ent->shadowDir[0] = DotProduct( shadowLightDir, ent->e.axis[0] );
+	ent->shadowDir[1] = DotProduct( shadowLightDir, ent->e.axis[1] );
+	ent->shadowDir[2] = DotProduct( shadowLightDir, ent->e.axis[2] );
 
 	ent->lightDir[0] = DotProduct( lightDir, ent->e.axis[0] );
 	ent->lightDir[1] = DotProduct( lightDir, ent->e.axis[1] );
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
 
-	VectorNormalize( ent->lightDir );
+#ifdef _XBOX
+	if ( s_xboxVVEntityLightLogCount < 96 && ent->e.hModel > 0 ) {
+		XBLF("STEFX_ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g lightingOrigin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g shadowDir=%g,%g,%g",
+			s_xboxVVEntityLightLogCount,
+			ent,
+			ent->e.hModel,
+			ent->e.reType,
+			ent->e.renderfx,
+			(refdef->rdflags & RDF_NOWORLDMODEL) ? 1 : 0,
+			(tr.world && tr.world->lightGridData) ? 1 : 0,
+			num_dlights,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			lightOrigin[0], lightOrigin[1], lightOrigin[2],
+			ent->ambientLight[0], ent->ambientLight[1], ent->ambientLight[2],
+			ent->directedLight[0], ent->directedLight[1], ent->directedLight[2],
+			ent->ambientLightInt,
+			ent->lightDir[0], ent->lightDir[1], ent->lightDir[2],
+			ent->shadowDir[0], ent->shadowDir[1], ent->shadowDir[2]);
+		s_xboxVVEntityLightLogCount++;
+	}
+#endif
 }
 
 inline void Short2Float(float *f, const short *s)
@@ -459,17 +595,55 @@ int VVLightManager::BoxOnPlaneSide (const short emins[3], const short emaxs[3], 
 	vec3_t maxs;
 	ShortToVec3(emins, mins);
 	ShortToVec3(emaxs, maxs);
-	return ::BoxOnPlaneSide(mins, maxs, &tr.viewParms.frustum[0]);
+	return ::BoxOnPlaneSide(mins, maxs, p);
 }
 
 
 void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits ) {
+#ifdef _XBOX
+	static int s_xboxRecursiveWorldLogBudget = 128;
+#endif
 
 	do {
 		int			newDlights[2];
+#ifdef _XBOX
+		int xboxNodeIndex = -1;
+		int xboxLeafIndex = -1;
+		if (tr.world && tr.world->nodes && node >= tr.world->nodes && node < tr.world->nodes + tr.world->numnodes)
+		{
+			xboxNodeIndex = (int)(node - tr.world->nodes);
+		}
+		if (tr.world && tr.world->leafs && (mleaf_s *)node >= tr.world->leafs && (mleaf_s *)node < tr.world->leafs + tr.world->numleafs)
+		{
+			xboxLeafIndex = (int)((mleaf_s *)node - tr.world->leafs);
+		}
+		if (s_xboxRecursiveWorldLogBudget > 0 && node == tr.world->nodes)
+		{
+			XBLF("JA: VV_R_RecursiveWorldNode root enter visframe=%d visCount=%d planeBits=0x%x dlight=0x%x mins=(%d,%d,%d) maxs=(%d,%d,%d)",
+				node->visframe,
+				tr.visCount,
+				planeBits,
+				dlightBits,
+				node->mins[0], node->mins[1], node->mins[2],
+				node->maxs[0], node->maxs[1], node->maxs[2]);
+			--s_xboxRecursiveWorldLogBudget;
+		}
+#endif
 
 		// if the node wasn't marked as potentially visible, exit
 		if (node->visframe != tr.visCount) {
+#ifdef _XBOX
+			if (s_xboxRecursiveWorldLogBudget > 0)
+			{
+				XBLF("JA: VV_R_RecursiveWorldNode return not-visible node=%d leaf=%d contents=%d visframe=%d visCount=%d",
+					xboxNodeIndex,
+					xboxLeafIndex,
+					node->contents,
+					node->visframe,
+					tr.visCount);
+				--s_xboxRecursiveWorldLogBudget;
+			}
+#endif
 			return;
 		}
 
@@ -482,6 +656,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 1 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[0]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane0 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -492,6 +677,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 2 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[1]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane1 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -502,6 +698,17 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 4 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[2]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane2 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
@@ -512,13 +719,23 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			if ( planeBits & 8 ) {
 				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[3]);
 				if (r == 2) {
+#ifdef _XBOX
+					if (s_xboxRecursiveWorldLogBudget > 0)
+					{
+						XBLF("JA: VV_R_RecursiveWorldNode cull plane3 node=%d leaf=%d contents=%d planeBits=0x%x",
+							xboxNodeIndex,
+							xboxLeafIndex,
+							node->contents,
+							planeBits);
+						--s_xboxRecursiveWorldLogBudget;
+					}
+#endif
 					return;						// culled
 				}
 				if ( r == 1 ) {
 					planeBits &= ~8;			// all descendants will also be in front
 				}
 			}
-
 		}
 
 		if ( node->contents != -1 ) {
@@ -534,12 +751,12 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 		if ( dlightBits ) {
 			int	i;
 
-			for ( i = 0; i < tr.refdef.num_dlights; i++ ) {
+			for ( i = 0 ; i < num_dlights ; i++ ) {
 				VVdlight_t	*dl;
 				float		dist;
 
 				if ( dlightBits & ( 1 << i ) ) {
-					dl = &tr.refdef.dlights[i];
+					dl = &dlights[i];
 					dist = DotProduct( dl->origin, 
 						tr.world->planes[node->planeNum].normal ) - 
 						tr.world->planes[node->planeNum].dist;
@@ -593,13 +810,77 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 
 		// add the individual surfaces
 		leaf = (mleaf_s*)node;
+#ifdef _XBOX
+		if (s_xboxRecursiveWorldLogBudget > 0)
+		{
+			int xboxLeafIndex = -1;
+			int junkMarkCount = 0;
+			int junkFirstCode = -1;
+			int junkFirstShaderNum = -1;
+			if (tr.world && tr.world->leafs && leaf >= tr.world->leafs && leaf < tr.world->leafs + tr.world->numleafs)
+			{
+				xboxLeafIndex = (int)(leaf - tr.world->leafs);
+			}
+			junkMarkCount = VV_XboxCountJunkSkyMarks( leaf, &junkFirstCode, &junkFirstShaderNum );
+			XBLF("JA: VV_R_RecursiveWorldNode leaf=%d cluster=%d area=%d marks=%d firstMark=%d drawBefore=%d bounds=(%d,%d,%d)-(%d,%d,%d)",
+				xboxLeafIndex,
+				leaf->cluster,
+				leaf->area,
+				leaf->nummarksurfaces,
+				leaf->firstMarkSurfNum,
+				tr.refdef.numDrawSurfs,
+				node->mins[0], node->mins[1], node->mins[2],
+				node->maxs[0], node->maxs[1], node->maxs[2]);
+			--s_xboxRecursiveWorldLogBudget;
+			if (junkMarkCount > 0)
+			{
+				XBLF("STEFX_JUNK_VISIT leaf=%d cluster=%d area=%d junkMarks=%d firstCode=%d shaderNum=%d drawBefore=%d visframe=%d visCount=%d bounds=(%d,%d,%d)-(%d,%d,%d) viewOrg=%g,%g,%g",
+					xboxLeafIndex,
+					leaf->cluster,
+					leaf->area,
+					junkMarkCount,
+					junkFirstCode,
+					junkFirstShaderNum,
+					tr.refdef.numDrawSurfs,
+					leaf->visframe,
+					tr.visCount,
+					node->mins[0], node->mins[1], node->mins[2],
+					node->maxs[0], node->maxs[1], node->maxs[2],
+					tr.refdef.vieworg[0],
+					tr.refdef.vieworg[1],
+					tr.refdef.vieworg[2]);
+			}
+		}
+#endif
 		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
 		c = leaf->nummarksurfaces;
 		while (c--) {
 			// the surface may have already been added if it
 			// spans multiple leafs
 			surf = *mark;
-
+#ifdef _XBOX
+			if (VV_XboxTraceJunkSkySurface( surf ))
+			{
+				XBLF("STEFX_JUNK_MARK surfaceCode=%d shaderNum=%d shader='%s' data=%d fog=%d dlight=0x%x drawBefore=%d viewCount=%d trView=%d boundsMin=%g,%g,%g boundsMax=%g,%g,%g",
+					surf ? surf->xboxDebugCode : -1,
+					surf ? surf->xboxDebugShaderNum : -1,
+					(surf && surf->shader) ? surf->shader->name : "<null>",
+					(surf && surf->data) ? (int)*surf->data : -1,
+					surf ? surf->fogIndex : -1,
+					dlightBits,
+					tr.refdef.numDrawSurfs,
+					surf ? surf->viewCount : -1,
+					tr.viewCount,
+					surf ? surf->xboxDebugMins[0] : 0.0f,
+					surf ? surf->xboxDebugMins[1] : 0.0f,
+					surf ? surf->xboxDebugMins[2] : 0.0f,
+					surf ? surf->xboxDebugMaxs[0] : 0.0f,
+					surf ? surf->xboxDebugMaxs[1] : 0.0f,
+					surf ? surf->xboxDebugMaxs[2] : 0.0f);
+			}
+			// MATT! - this is a temp hack until bspthing starts parsing flares
+			if(surf->data)
+#endif
 			R_AddWorldSurface( surf, dlightBits );
 			mark++;
 		}
@@ -607,36 +888,140 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 
 }
 
-
-void VVLightManager::RB_CalcDiffuseColor( DWORD *colors )
+void VVLightManager::RB_CalcDiffuseColorWorld()
 {
 	trRefEntity_t	*ent;
+	VVdlight_t		*dl;
+
+	if(!num_dlights)
+		return;
 
 	ent = backEnd.currentEntity;
 
-	// Make sure to turn lighting on....
-	qglEnable(GL_LIGHTING);
+#ifdef _XBOX
+	if ( s_xboxVVWorldDlightLogCount < 32 ) {
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("JA: VV_WORLD_DLIGHT #%d shader='%s' bits=0x%x dlights=%d verts=%d indexes=%d",
+			s_xboxVVWorldDlightLogCount,
+			shaderName,
+			tess.dlightBits,
+			num_dlights,
+			tess.numVertexes,
+			tess.numIndexes);
+		s_xboxVVWorldDlightLogCount++;
+	}
+#endif
 
-	qglLightfv(0, GL_AMBIENT, ent->ambientLight);
-	qglLightfv(0, GL_DIFFUSE, ent->directedLight);
-
-	if(VectorLengthSquared(ent->lightDir) <= 0.0001f)
+	for(int i = 0, l = 0; i < num_dlights; i++) 
 	{
-		ent->lightDir[0] = 0.0f;
-		ent->lightDir[1] = 1.0f;
-		ent->lightDir[2] = 0.0f;
+		if ( ( tess.dlightBits & ( 1 << i ) ) ) 
+		{
+			glEnable(GL_LIGHTING);
+			dl = &dlights[i];
+
+			vec3_t newColor;
+			newColor[0] = dl->color[0] * 255.0f;
+			newColor[1] = dl->color[1] * 255.0f;
+			newColor[2] = dl->color[2] * 255.0f;
+
+			glLightfv(l, GL_DIFFUSE, newColor);
+
+/*			vec3_t ambient;
+			ambient[0] = ambient[1] = ambient[2] = 128;
+
+			glLightfv(l, GL_AMBIENT, ambient);//ent->ambientLight);*/
+			
+			if(dl->type == LT_POINT) {
+				glLightfv(l, GL_SPOT_CUTOFF, &dl->radius);
+				glLightfv(l, GL_POSITION, dl->origin);
+			} else if(dl->type == LT_DIRECTIONAL) {
+				glLightfv(l, GL_SPOT_DIRECTION, dl->direction);
+			}
+
+			l++;
+		}
 	}
 
-	qglLightfv(0, GL_SPOT_DIRECTION, ent->lightDir);
+	float color[4];
+	color[0] = 255;
+	color[1] = 255;
+	color[2] = 255;
+	color[3] = 255;
+	glMaterialfv( GL_FRONT, GL_AMBIENT, color );
+}
 
-	/*if(VectorLengthSquared(ent->dlightDir) > 0.0f && ModelMem.inUI == false)
-	{
-		qglLightfv(1, GL_AMBIENT, ent->ambientLight);
-		qglLightfv(1, GL_DIFFUSE, ent->dynamicLight);
-		qglLightfv(1, GL_SPOT_DIRECTION, ent->dlightDir);
-	}*/
 
-	memset(colors, 0xffffffff, sizeof(DWORD) * tess.numVertexes);
+void VVLightManager::RB_CalcDiffuseColor( DWORD *colors )
+{
+	int				i, j;
+	float			*normal;
+	float			incoming;
+	trRefEntity_t	*ent;
+	vec3_t			ambientLight;
+	vec3_t			directedLight;
+	vec3_t			lightDir;
+	int				numVertexes;
+
+	ent = backEnd.currentEntity;
+	VectorCopy( ent->ambientLight, ambientLight );
+	VectorCopy( ent->directedLight, directedLight );
+	VectorCopy( ent->lightDir, lightDir );
+
+	normal = tess.normal[0];
+	numVertexes = tess.numVertexes;
+
+	for ( i = 0 ; i < numVertexes ; i++, normal += 4 ) {
+		incoming = DotProduct( normal, lightDir );
+		if ( incoming <= 0 ) {
+			colors[i] = D3DCOLOR_RGBA(
+				((byte *)&ent->ambientLightInt)[0],
+				((byte *)&ent->ambientLightInt)[1],
+				((byte *)&ent->ambientLightInt)[2],
+				255);
+			continue;
+		}
+
+		j = myftol( ambientLight[0] + incoming * directedLight[0] );
+		if ( j > 255 ) {
+			j = 255;
+		}
+		int r = j;
+
+		j = myftol( ambientLight[1] + incoming * directedLight[1] );
+		if ( j > 255 ) {
+			j = 255;
+		}
+		int g = j;
+
+		j = myftol( ambientLight[2] + incoming * directedLight[2] );
+		if ( j > 255 ) {
+			j = 255;
+		}
+		int b = j;
+
+		colors[i] = D3DCOLOR_RGBA( r, g, b, 255 );
+	}
+
+#ifdef _XBOX
+	const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+	if ( s_xboxVVDiffuseLogCount < 128 && numVertexes > 0 &&
+		shaderName && ( strstr( shaderName, "models/players/" ) || strstr( shaderName, "textures/borg/" ) ) ) {
+		float firstIncoming = DotProduct( tess.normal[0], lightDir );
+		XBLF("STEFX_DIFFUSE_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",
+			s_xboxVVDiffuseLogCount,
+			shaderName,
+			numVertexes,
+			ent,
+			ent ? ent->e.hModel : 0,
+			ambientLight[0], ambientLight[1], ambientLight[2],
+			directedLight[0], directedLight[1], directedLight[2],
+			lightDir[0], lightDir[1], lightDir[2],
+			tess.normal[0][0], tess.normal[0][1], tess.normal[0][2],
+			firstIncoming,
+			colors[0]);
+		s_xboxVVDiffuseLogCount++;
+	}
+#endif
 }
 
 
@@ -645,47 +1030,80 @@ void VVLightManager::RB_CalcDiffuseEntityColor( DWORD *colors )
 	if ( !backEnd.currentEntity )
 	{//error, use the normal lighting
 		RB_CalcDiffuseColor(colors);
+		return;
 	}
 
+	int				i;
+	float			*normal;
+	float			incoming;
+	int				numVertexes;
+	float			r, g, b;
 	trRefEntity_t	*ent;
+	vec3_t			ambientLight;
+	vec3_t			directedLight;
+	vec3_t			lightDir;
 
 	ent = backEnd.currentEntity;
+	VectorCopy( ent->ambientLight, ambientLight );
+	VectorCopy( ent->directedLight, directedLight );
+	VectorCopy( ent->lightDir, lightDir );
 
-	// Make sure to turn lighting on....
-	qglEnable(GL_LIGHTING);
+	r = ent->e.shaderRGBA[0] / 255.0f;
+	g = ent->e.shaderRGBA[1] / 255.0f;
+	b = ent->e.shaderRGBA[2] / 255.0f;
 
-	// Modulate ambient by entity color:
-	vec3_t ambient;
-	ambient[0] = ent->ambientLight[0] * (ent->e.shaderRGBA[0]/255.0);
-	ambient[1] = ent->ambientLight[1] * (ent->e.shaderRGBA[1]/255.0);
-	ambient[2] = ent->ambientLight[2] * (ent->e.shaderRGBA[2]/255.0);
-	qglLightfv(0, GL_AMBIENT, ambient);
-	qglLightfv(0, GL_DIFFUSE, ent->directedLight);
+	normal = tess.normal[0];
+	numVertexes = tess.numVertexes;
 
-	VectorNormalize(ent->lightDir);
+	for ( i = 0 ; i < numVertexes ; i++, normal += 4 ) {
+		incoming = DotProduct( normal, lightDir );
+		float outR = ambientLight[0];
+		float outG = ambientLight[1];
+		float outB = ambientLight[2];
 
-	if(VectorLengthSquared(ent->lightDir) <= 0.0001f)
-	{
-		ent->lightDir[0] = 0.0f;
-		ent->lightDir[1] = 1.0f;
-		ent->lightDir[2] = 0.0f;
+		if ( incoming > 0 ) {
+			outR += incoming * directedLight[0];
+			outG += incoming * directedLight[1];
+			outB += incoming * directedLight[2];
+		}
+
+		if ( outR > 255 ) {
+			outR = 255;
+		}
+		if ( outG > 255 ) {
+			outG = 255;
+		}
+		if ( outB > 255 ) {
+			outB = 255;
+		}
+
+		colors[i] = D3DCOLOR_RGBA(
+			myftol( outR * r ),
+			myftol( outG * g ),
+			myftol( outB * b ),
+			ent->e.shaderRGBA[3] );
 	}
 
-	qglLightfv(0, GL_SPOT_DIRECTION, ent->lightDir);
-
-	/*if(VectorLengthSquared(ent->dlightDir) > 0.0f && ModelMem.inUI == false)
-	{
-		qglLightfv(1, GL_AMBIENT, ent->ambientLight);
-		qglLightfv(1, GL_DIFFUSE, ent->dynamicLight);
-		qglLightfv(1, GL_SPOT_DIRECTION, ent->dlightDir);
-	}*/
-
-	DWORD color = D3DCOLOR_RGBA(backEnd.currentEntity->e.shaderRGBA[0],
-								backEnd.currentEntity->e.shaderRGBA[1],
-								backEnd.currentEntity->e.shaderRGBA[2],
-								backEnd.currentEntity->e.shaderRGBA[3]);
-
-	memset(colors, color, sizeof(DWORD) * tess.numVertexes);
+#ifdef _XBOX
+	if ( s_xboxVVDiffuseEntityLogCount < 64 && numVertexes > 0 ) {
+		float firstIncoming = DotProduct( tess.normal[0], lightDir );
+		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
+		XBLF("STEFX_DIFFUSE_ENTITY_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d rgba=%d,%d,%d,%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",
+			s_xboxVVDiffuseEntityLogCount,
+			shaderName,
+			numVertexes,
+			ent,
+			ent ? ent->e.hModel : 0,
+			ent->e.shaderRGBA[0], ent->e.shaderRGBA[1], ent->e.shaderRGBA[2], ent->e.shaderRGBA[3],
+			ambientLight[0], ambientLight[1], ambientLight[2],
+			directedLight[0], directedLight[1], directedLight[2],
+			lightDir[0], lightDir[1], lightDir[2],
+			tess.normal[0][0], tess.normal[0][1], tess.normal[0][2],
+			firstIncoming,
+			colors[0]);
+		s_xboxVVDiffuseEntityLogCount++;
+	}
+#endif
 }
 
 
@@ -799,12 +1217,13 @@ void R_GetLightParmsForLevel()
 				Cvar_SetValue("r_sundir_y", _levelLightParms[i].sundir[1]);
 				Cvar_SetValue("r_sundir_z", _levelLightParms[i].sundir[2]);
 			}
-
+			
 			if(_levelLightParms[i].hdrEnable)
-				Cvar_Set("r_hdreffect", "1");
+                Cvar_Set("r_hdreffect", "1");
 			else
 				Cvar_Set("r_hdreffect", "0");
 			Cvar_SetValue("r_hdrbloom", _levelLightParms[i].hdrBloom);
+			Cvar_SetValue("r_hdrcutoff", _levelLightParms[i].hdrCutoff);
 		}
 	}
 }
@@ -868,6 +1287,12 @@ void R_LoadLevelLightParms()
 		if(!token[0])
 			break;
 		_levelLightParms[level].hdrBloom = atof(token);
+
+		// HDR cutoff
+		token = COM_ParseExt( &lightText, qtrue );
+		if(!token[0])
+			break;
+		_levelLightParms[level].hdrCutoff = atof(token);
 
 		level++;
 		if(level >= MAX_LIGHT_TABLE)

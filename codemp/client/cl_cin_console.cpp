@@ -33,7 +33,7 @@ e_status CIN_RunCinematic(int handle)
 	return FMV_EOF;
 }
 
-int CIN_PlayCinematic(const char *arg0, int xpos, int ypos, int width, int height, int bits)
+int CIN_PlayCinematic(const char *arg0, int xpos, int ypos, int width, int height, int bits, const char *psAudioFile)
 {
 	return 0;
 }
@@ -76,4 +76,9 @@ void CIN_Init(void)
 void CL_PlayCinematic_f(void)
 {
 	return;
+}
+
+qboolean CL_IsRunningInGameCinematic(void)
+{
+	return qfalse;
 }

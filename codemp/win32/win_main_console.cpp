@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include "../game/g_public.h"
 #include "../xbox/XBLive.h"
-#include "xb_log.h"
+#include "xb_log_mp_compat.h"
 
 #include "../qcommon/files.h"
 #include "win_file.h"
@@ -421,85 +421,85 @@ void SP_DrawTexture(void* pixels, float width, float height, float vShift)
 	
 	// Create a texture from the buffered file
 	GLuint texid;
-	qglGenTextures(1, &texid);
-	qglBindTexture(GL_TEXTURE_2D, texid);
-	qglTexImage2D(GL_TEXTURE_2D, 0, GL_DDS1_EXT, width, height, 0, GL_DDS1_EXT, GL_UNSIGNED_BYTE, pixels);
+	glGenTextures(1, &texid);
+	glBindTexture(GL_TEXTURE_2D, texid);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DDS1_EXT, width, height, 0, GL_DDS1_EXT, GL_UNSIGNED_BYTE, pixels);
 
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
-	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
 
 	// Reset every GL state we've got.  Who knows what state
 	// the renderer could be in when this function gets called.
-	qglColor3f(1.f, 1.f, 1.f);
+	glColor3f(1.f, 1.f, 1.f);
 #ifdef _XBOX
 	if(glw_state->isWidescreen)
-		qglViewport(0, 0, 720, 480);
+		glViewport(0, 0, 720, 480);
 	else
 #endif
-	qglViewport(0, 0, 640, 480);
+	glViewport(0, 0, 640, 480);
 
-	GLboolean alpha = qglIsEnabled(GL_ALPHA_TEST);
-	qglDisable(GL_ALPHA_TEST);
+	GLboolean alpha = glIsEnabled(GL_ALPHA_TEST);
+	glDisable(GL_ALPHA_TEST);
 
-	GLboolean blend = qglIsEnabled(GL_BLEND);
-	qglDisable(GL_BLEND);
+	GLboolean blend = glIsEnabled(GL_BLEND);
+	glDisable(GL_BLEND);
 
-	GLboolean cull = qglIsEnabled(GL_CULL_FACE);
-	qglDisable(GL_CULL_FACE);
+	GLboolean cull = glIsEnabled(GL_CULL_FACE);
+	glDisable(GL_CULL_FACE);
 
-	GLboolean depth = qglIsEnabled(GL_DEPTH_TEST);
-	qglDisable(GL_DEPTH_TEST);
+	GLboolean depth = glIsEnabled(GL_DEPTH_TEST);
+	glDisable(GL_DEPTH_TEST);
 
-	GLboolean fog = qglIsEnabled(GL_FOG);
-	qglDisable(GL_FOG);
+	GLboolean fog = glIsEnabled(GL_FOG);
+	glDisable(GL_FOG);
 
-	GLboolean lighting = qglIsEnabled(GL_LIGHTING);
-	qglDisable(GL_LIGHTING);
+	GLboolean lighting = glIsEnabled(GL_LIGHTING);
+	glDisable(GL_LIGHTING);
 
-	GLboolean offset = qglIsEnabled(GL_POLYGON_OFFSET_FILL);
-	qglDisable(GL_POLYGON_OFFSET_FILL);
+	GLboolean offset = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+	glDisable(GL_POLYGON_OFFSET_FILL);
 
-	GLboolean scissor = qglIsEnabled(GL_SCISSOR_TEST);
-	qglDisable(GL_SCISSOR_TEST);
+	GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+	glDisable(GL_SCISSOR_TEST);
 
-	GLboolean stencil = qglIsEnabled(GL_STENCIL_TEST);
-	qglDisable(GL_STENCIL_TEST);
+	GLboolean stencil = glIsEnabled(GL_STENCIL_TEST);
+	glDisable(GL_STENCIL_TEST);
 
-	GLboolean texture = qglIsEnabled(GL_TEXTURE_2D);
-	qglEnable(GL_TEXTURE_2D);
+	GLboolean texture = glIsEnabled(GL_TEXTURE_2D);
+	glEnable(GL_TEXTURE_2D);
 
-	qglMatrixMode(GL_MODELVIEW);
-	qglLoadIdentity();
-	qglMatrixMode(GL_PROJECTION);
-	qglLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
 #ifdef _XBOX
 	if(glw_state->isWidescreen)
-        qglOrtho(0, 720, 0, 480, 0, 1);
+        glOrtho(0, 720, 0, 480, 0, 1);
 	else
 #endif
-	qglOrtho(0, 640, 0, 480, 0, 1);
+	glOrtho(0, 640, 0, 480, 0, 1);
 	
-	qglMatrixMode(GL_TEXTURE0);
-	qglLoadIdentity();
-	qglMatrixMode(GL_TEXTURE1);
-	qglLoadIdentity();
+	glMatrixMode(GL_TEXTURE0);
+	glLoadIdentity();
+	glMatrixMode(GL_TEXTURE1);
+	glLoadIdentity();
 
-	qglActiveTextureARB(GL_TEXTURE0_ARB);
-	qglClientActiveTextureARB(GL_TEXTURE0_ARB);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glClientActiveTextureARB(GL_TEXTURE0_ARB);
 
 	memset(&tess, 0, sizeof(tess));
 
 	// Draw the error message
-	qglBeginFrame();
+	glBeginFrame();
 
 /*	if (!SP_LicenseDone)
 	{
 		// clear the screen if we haven't done the
 		// license yet...
-		qglClearColor(0, 0, 0, 1);
-		qglClear(GL_COLOR_BUFFER_BIT);
+		glClearColor(0, 0, 0, 1);
+		glClear(GL_COLOR_BUFFER_BIT);
 	}
 */
 	float x1, x2, y1, y2;
@@ -524,53 +524,53 @@ void SP_DrawTexture(void* pixels, float width, float height, float vShift)
 	y1 += vShift;
 	y2 += vShift;
 
-	qglBeginEXT (GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0);
-		qglTexCoord2f( 0,  0 );
-		qglVertex2f(x1, y1);
-		qglTexCoord2f( 1 ,  0 );
-		qglVertex2f(x2, y1);
-		qglTexCoord2f( 0, 1 );
-		qglVertex2f(x1, y2);
-		qglTexCoord2f( 1, 1 );
-		qglVertex2f(x2, y2);
-	qglEnd();
+	glBeginEXT (GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0);
+		glTexCoord2f( 0,  0 );
+		glVertex2f(x1, y1);
+		glTexCoord2f( 1 ,  0 );
+		glVertex2f(x2, y1);
+		glTexCoord2f( 0, 1 );
+		glVertex2f(x1, y2);
+		glTexCoord2f( 1, 1 );
+		glVertex2f(x2, y2);
+	glEnd();
 	
-	qglEndFrame();
-	qglFlush();
+	glEndFrame();
+	glFlush();
 
 	// Restore (most) of the render states we reset
-	if (alpha) qglEnable(GL_ALPHA_TEST);
-	else qglDisable(GL_ALPHA_TEST);
+	if (alpha) glEnable(GL_ALPHA_TEST);
+	else glDisable(GL_ALPHA_TEST);
 
-	if (blend) qglEnable(GL_BLEND);
-	else qglDisable(GL_BLEND);
+	if (blend) glEnable(GL_BLEND);
+	else glDisable(GL_BLEND);
 
-	if (cull) qglEnable(GL_CULL_FACE);
-	else qglDisable(GL_CULL_FACE);
+	if (cull) glEnable(GL_CULL_FACE);
+	else glDisable(GL_CULL_FACE);
 
-	if (depth) qglEnable(GL_DEPTH_TEST);
-	else qglDisable(GL_DEPTH_TEST);
+	if (depth) glEnable(GL_DEPTH_TEST);
+	else glDisable(GL_DEPTH_TEST);
 
-	if (fog) qglEnable(GL_FOG);
-	else qglDisable(GL_FOG);
+	if (fog) glEnable(GL_FOG);
+	else glDisable(GL_FOG);
 
-	if (lighting) qglEnable(GL_LIGHTING);
-	else qglDisable(GL_LIGHTING);
+	if (lighting) glEnable(GL_LIGHTING);
+	else glDisable(GL_LIGHTING);
 
-	if (offset) qglEnable(GL_POLYGON_OFFSET_FILL);
-	else qglDisable(GL_POLYGON_OFFSET_FILL);
+	if (offset) glEnable(GL_POLYGON_OFFSET_FILL);
+	else glDisable(GL_POLYGON_OFFSET_FILL);
 
-	if (scissor) qglEnable(GL_SCISSOR_TEST);
-	else qglDisable(GL_SCISSOR_TEST);
+	if (scissor) glEnable(GL_SCISSOR_TEST);
+	else glDisable(GL_SCISSOR_TEST);
 
-	if (stencil) qglEnable(GL_STENCIL_TEST);
-	else qglDisable(GL_STENCIL_TEST);
+	if (stencil) glEnable(GL_STENCIL_TEST);
+	else glDisable(GL_STENCIL_TEST);
 
-	if (texture) qglEnable(GL_TEXTURE_2D);
-	else qglDisable(GL_TEXTURE_2D);
+	if (texture) glEnable(GL_TEXTURE_2D);
+	else glDisable(GL_TEXTURE_2D);
 
 	// Kill the texture
-	qglDeleteTextures(1, &texid);
+	glDeleteTextures(1, &texid);
 }
 
 
@@ -678,7 +678,7 @@ Draws the single player loading screen - used when skipping the logo movies
 void SP_DrawSPLoadScreen( void )
 {
 	// Load the texture:
-	void *image = SP_LoadFileWithLanguage("d:\\base\\media\\LoadSP");
+	void *image = SP_LoadFileWithLanguage("d:\\BaseEF\\media\\LoadSP");
 
 	if( image )
 	{
@@ -702,18 +702,18 @@ void ERR_SetDiscFailReason(int reason)
 void ERR_DiscFail(bool poll)
 {
 	// Load the texture:
-	const char *screenName = "d:\\base\\media\\DiscErr";
+	const char *screenName = "d:\\BaseEF\\media\\DiscErr";
 	if (s_discFailReason == 1)
 	{
-		screenName = "d:\\base\\media\\LoadMP";
+		screenName = "d:\\BaseEF\\media\\LoadMP";
 	}
 	else if (s_discFailReason == 2)
 	{
-		screenName = "d:\\base\\media\\LoadSP";
+		screenName = "d:\\BaseEF\\media\\LoadSP";
 	}
 	else if (s_discFailReason == 3)
 	{
-		screenName = "d:\\base\\media\\LicenseScreen";
+		screenName = "d:\\BaseEF\\media\\LicenseScreen";
 	}
 
 	void *image = SP_LoadFileWithLanguage(screenName);
@@ -1434,17 +1434,13 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 	char	**retList;
 
 	// S00per hack
-	if (strstr(directory, "d:\\base\\"))
-		directory += 8;
-#if defined(STEFX_ELITE_FORCE_MP)
-	else if (!_strnicmp(directory, "d:\\baseef\\", 10) ||
+	if (!_strnicmp(directory, "d:\\baseef\\", 10) ||
 		!_strnicmp(directory, "e:\\baseef\\", 10) ||
 		!_strnicmp(directory, "t:\\baseef\\", 10))
 	{
 		Com_Printf( "STEFX_HM: Sys_ListFiles normalized BaseEF path '%s'\n", directory );
 		directory += 10;
 	}
-#endif
 
 	if (!extension)
 	{

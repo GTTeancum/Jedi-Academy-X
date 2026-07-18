@@ -593,9 +593,9 @@ Ghoul2 Insert End
 
 #ifdef _XBOX
 	// disable vsync during load for speed
-	Com_Printf("JAMP: SV_SpawnServer before qglDisable VSYNC\n");
-	qglDisable(GL_VSYNC);
-	Com_Printf("JAMP: SV_SpawnServer after qglDisable VSYNC\n");
+	Com_Printf("JAMP: SV_SpawnServer before glDisable VSYNC\n");
+	glDisable(GL_VSYNC);
+	Com_Printf("JAMP: SV_SpawnServer after glDisable VSYNC\n");
 #endif
 
 	// if not running a dedicated server CL_MapLoading will connect the client to the server
@@ -634,12 +634,16 @@ Ghoul2 Insert End
 	Com_Printf("JAMP: SV_SpawnServer after ActivateClient\n");
 #endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf("STEFX_HM: SV_SpawnServer using SP renderer map-load lifecycle; inherited MP skin/shader reinit skipped\n");
+#else
 	Com_Printf("JAMP: SV_SpawnServer before R_InitSkins\n");
 	R_InitSkins();
 	Com_Printf("JAMP: SV_SpawnServer after R_InitSkins\n");
 	Com_Printf("JAMP: SV_SpawnServer before R_InitShaders\n");
-	R_InitShaders(qtrue);
+	R_InitShaders();
 	Com_Printf("JAMP: SV_SpawnServer after R_InitShaders\n");
+#endif
 
 	// This was in SV_DedicatedSpawn, but it gets in the way of my memory maps:
 	if( com_dedicated->integer )
@@ -757,7 +761,9 @@ Ghoul2 Insert End
 	}
 
 	//rww - RAGDOLL_BEGIN
+#if !defined(STEFX_ELITE_FORCE_MP)
 	G2API_SetTime(svs.time,0);
+#endif
 	//rww - RAGDOLL_END
 
 	// make sure we are not paused
@@ -825,14 +831,18 @@ Ghoul2 Insert End
 	// run a few frames to allow everything to settle
 	for ( i = 0 ;i < 3 ; i++ ) {
 		//rww - RAGDOLL_BEGIN
+#if !defined(STEFX_ELITE_FORCE_MP)
 		G2API_SetTime(svs.time,0);
+#endif
 		//rww - RAGDOLL_END
 		VM_Call( gvm, GAME_RUN_FRAME, svs.time );
 		SV_BotFrame( svs.time );
 		svs.time += 100;
 	}
 	//rww - RAGDOLL_BEGIN
+#if !defined(STEFX_ELITE_FORCE_MP)
 	G2API_SetTime(svs.time,0);
+#endif
 	//rww - RAGDOLL_END
 
 	// create a baseline for more efficient communications
@@ -891,7 +901,9 @@ Ghoul2 Insert End
 	SV_BotFrame( svs.time );
 	svs.time += 100;
 	//rww - RAGDOLL_BEGIN
+#if !defined(STEFX_ELITE_FORCE_MP)
 	G2API_SetTime(svs.time,0);
+#endif
 	//rww - RAGDOLL_END
 
 	if ( sv_pure->integer ) {

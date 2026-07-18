@@ -1,3 +1,18 @@
+/*
+ * xb_log.h  —  Jedi Academy Xbox debug logging
+ *
+ * Usage:
+ *   XBL("Win_Init: device ready\n");
+ *   XBLF("renderer: %d textures loaded\n", count);
+ *
+ * Output goes to:
+ *   - OutputDebugStringA  (visible in CXBX-Reloaded / xemu GDB)
+ *   - \Device\Harddisk0\Partition1\ef_sp_log.txt  (E:\ root on retail hardware)
+ *
+ * Call XBLog_Init() once at the top of main() before any XBL usage.
+ * Call XBLog_Shutdown() on exit.
+ */
+
 #ifndef XB_LOG_H
 #define XB_LOG_H
 
@@ -5,32 +20,28 @@
 extern "C" {
 #endif
 
-// Initialize the log system. Call once at startup before Com_Printf is used.
-// Creates D:\ef_mp_log.txt when writable, otherwise E:\ef_mp_log.txt.
-void XBLog_PreCRTProbe(void);
-void XBLog_PostCRTProbe(void);
-void XBLog_MainProbe(void);
-void XBLog_StartupProbe(const char *msg);
+void XBLog_PreCRTProbe(void);  /* called from ASM before _mainCRTStartup */
+void XBLog_PostCRTProbe(void); /* called from ASM after  _mainCRTStartup returns */
 void XBLog_Init(void);
-
-// Shutdown: flush and close the log file.
 void XBLog_Shutdown(void);
-
-// Write a line to both OutputDebugString and the log file.
-// Automatically appends \n if not present.
-void XBLog_Write(const char *msg);
+void XBLog_Print(const char *msg);
 void XBLog_Printf(const char *fmt, ...);
-void XBLog_Writef(const char *fmt, ...);
+void XBLog_WriteRingMarker(const char *msg);
+const char *XBLog_GetPath(void);
 
+/* Convenience macros — VC71 C89 mode doesn't support __VA_ARGS__,
+   so XBLF is a direct function alias rather than a variadic macro. */
 #define XBL(msg)  XBLog_Write(msg)
 #define XBLF      XBLog_Printf
 
-// Overwrite D:\ef_mp_phase.txt when writable, otherwise E:\ef_mp_phase.txt.
-// This keeps a crash breadcrumb without growing the main log every frame.
-void XBLog_Phase(const char *msg);
+/* ── Backward-compat shims for existing call sites ─────────────────────
+   XBLog_Write/XBLog_Writef auto-append \n so old callers don't need to
+   change.  New code should use XBL("msg\n") / XBLF("fmt\n", ...).     */
+void XBLog_Write(const char *msg);
+void XBLog_Writef(const char *fmt, ...);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif // XB_LOG_H
+#endif /* XB_LOG_H */

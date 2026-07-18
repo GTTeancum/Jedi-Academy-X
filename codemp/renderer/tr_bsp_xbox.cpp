@@ -7,7 +7,7 @@
 #include "tr_local.h"
 
 #include "../qcommon/cm_local.h"
-#if defined(STEFX_ELITE_FORCE_MP)
+#ifdef STEFX_ELITE_FORCE_SP
 #include "../qcommon/ef_bsp_xbox_shared.h"
 #endif
 
@@ -25,28 +25,15 @@ void RE_LoadWorldMap( const char *name );
 
 */
 
-static world_t		s_worldData;
+world_t		s_worldData;
 byte		*fileBase;
 int			c_subdivisions;
 int			c_gridVerts;
 
 static int	flareNum = 0;
 
-static cplane_t *externalPlaneData = NULL;
-int externalPlaneCount = 0;
-
 void R_RMGInit(void);
 //===============================================================================
-
-#if defined(STEFX_ELITE_FORCE_MP)
-void R_LoadLevelLightParms(void)
-{
-}
-
-void R_GetLightParmsForLevel(void)
-{
-}
-#endif
 
 // We use a special hack to prevent slight differences in channels
 // from exploding into big differences, as it causes lighting problems
@@ -251,8 +238,6 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 	}
 	buf = (byte *)data + sizeof(int);
 
-	tr.numLightmaps = 0;
-
 	// we are about to upload textures
 	R_SyncRenderThread();
 
@@ -260,7 +245,7 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 	int size = *(int*)data;
 	tr.numLightmaps = len / size;
 
-	byte* image = (byte*)Z_Malloc(size, TAG_BSP, qfalse, 32);
+	byte* image = (byte*)Z_Malloc(size, TAG_TEMP_WORKSPACE, qfalse, 32);
 
 	char sMapName[MAX_QPATH];
 	COM_StripExtension(psMapName,sMapName);	// will already by MAX_QPATH legal, so no length check
@@ -271,6 +256,50 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 
 		char lmapName[MAX_QPATH + 32];
 		Com_sprintf(lmapName, MAX_QPATH + 32, "*%s/lightmap%d",sMapName,i);
+#ifdef _XBOX
+		{
+			static int s_xboxLightmapStatsLogCount = 0;
+			const byte *dds = buf_p;
+			if (s_xboxLightmapStatsLogCount < 16 &&
+				size >= 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2 &&
+				dds[0] == 'D' && dds[1] == 'D' && dds[2] == 'S' && dds[3] == ' ')
+			{
+				const unsigned short *src = (const unsigned short *)(dds + 128);
+				const unsigned int rgbBits = *(const unsigned int *)(dds + 88);
+				const unsigned int rMask = *(const unsigned int *)(dds + 92);
+				const unsigned int gMask = *(const unsigned int *)(dds + 96);
+				const unsigned int bMask = *(const unsigned int *)(dds + 100);
+				int minLum = 255;
+				int maxLum = 0;
+				int sumLum = 0;
+				int p;
+				for (p = 0; p < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++p)
+				{
+					const unsigned short c = src[p];
+					const int r = ((c >> 11) & 31) * 255 / 31;
+					const int g = ((c >> 5) & 63) * 255 / 63;
+					const int b = (c & 31) * 255 / 31;
+					const int lum = (r * 30 + g * 59 + b * 11) / 100;
+					if (lum < minLum)
+						minLum = lum;
+					if (lum > maxLum)
+						maxLum = lum;
+					sumLum += lum;
+				}
+				XBLF("JA: XBOX_LIGHTMAP_STATS name='%s' size=%d bits=%u masks=%08x,%08x,%08x min=%d max=%d avg=%d",
+					lmapName,
+					size,
+					rgbBits,
+					rMask,
+					gMask,
+					bMask,
+					minLum,
+					maxLum,
+					sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
+				++s_xboxLightmapStatsLogCount;
+			}
+		}
+#endif
 		tr.lightmaps[i] = R_CreateImage( lmapName, image, 
 			LIGHTMAP_SIZE, LIGHTMAP_SIZE,
 			GL_DDS_RGB16_EXT,
@@ -280,7 +309,16 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 	Z_Free(image);
 }
 
-#if defined(STEFX_ELITE_FORCE_MP)
+#ifdef STEFX_ELITE_FORCE_SP
+/*
+===============
+R_LoadRawLightmaps
+
+Elite Force/Q3 BSPs store 128x128 RGB lightmaps directly in the BSP.  The
+original Xbox sidecar path stores DDS RGB565 lightmaps, so EF needs this raw
+BSP upload path.
+===============
+*/
 void R_LoadRawLightmaps( void *data, int len, const char *psMapName ) {
 	byte		*buf;
 	int			i, j;
@@ -288,68 +326,98 @@ void R_LoadRawLightmaps( void *data, int len, const char *psMapName ) {
 	byte		*image;
 	char		sMapName[MAX_QPATH];
 
-	if ( !len ) {
+	if (!len) {
 		return;
 	}
-	if ( len % ( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3 ) ) {
-		Com_Error( ERR_DROP, "R_LoadRawLightmaps: funny lump size %d for %s", len, psMapName );
+	if (len % (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3)) {
+		Com_Error(ERR_DROP, "R_LoadRawLightmaps: funny lump size %d for %s", len, psMapName);
 	}
 
 	buf = (byte *)data;
-	count = len / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3 );
+	count = len / (LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
 	tr.numLightmaps = count;
 
 	R_SyncRenderThread();
 
-	image = (byte *)Z_Malloc( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
-	COM_StripExtension( psMapName, sMapName );
+	image = (byte *)Z_Malloc(LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32);
+	COM_StripExtension(psMapName, sMapName);
 
-	XBLF( "STEFX_HM: R_LoadRawLightmaps map='%s' count=%d len=%d", psMapName, count, len );
+	XBLF("EF: R_LoadRawLightmaps map='%s' count=%d len=%d", psMapName, count, len);
 
-	for ( i = 0 ; i < count ; i++ ) {
+	for (i = 0; i < count; ++i) {
 		byte *buf_p = buf + i * LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3;
 		int minLum = 255;
 		int maxLum = 0;
 		int sumLum = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		float lightmapBoost = Cvar_VariableValue("r_stefxLightmapBoost");
+		if (lightmapBoost < 1.0f)
+		{
+			lightmapBoost = 1.0f;
+		}
+		if (lightmapBoost > 4.0f)
+		{
+			lightmapBoost = 4.0f;
+		}
+#endif
 
-		for ( j = 0 ; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE ; j++ ) {
-			byte rgb[3];
+		for (j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++j) {
+			byte src[4];
 			byte *dst;
 			int lum;
-
-			rgb[0] = buf_p[j * 3 + 0];
-			rgb[1] = buf_p[j * 3 + 1];
-			rgb[2] = buf_p[j * 3 + 2];
-			R_ColorShiftLightingBytes( rgb );
-
+			src[0] = buf_p[j * 3 + 0];
+			src[1] = buf_p[j * 3 + 1];
+			src[2] = buf_p[j * 3 + 2];
+			src[3] = 255;
 			dst = &image[j * 4];
-			dst[0] = rgb[0];
-			dst[1] = rgb[1];
-			dst[2] = rgb[2];
-			dst[3] = 255;
+			R_ColorShiftLightingBytes(src, dst);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (lightmapBoost > 1.0f)
+			{
+				int r = (int)(dst[0] * lightmapBoost + 0.5f);
+				int g = (int)(dst[1] * lightmapBoost + 0.5f);
+				int b = (int)(dst[2] * lightmapBoost + 0.5f);
+				dst[0] = (byte)(r > 255 ? 255 : r);
+				dst[1] = (byte)(g > 255 ? 255 : g);
+				dst[2] = (byte)(b > 255 ? 255 : b);
+			}
+#endif
 
-			lum = ( dst[0] * 30 + dst[1] * 59 + dst[2] * 11 ) / 100;
-			if ( lum < minLum ) {
+			lum = (dst[0] * 30 + dst[1] * 59 + dst[2] * 11) / 100;
+			if (lum < minLum)
 				minLum = lum;
-			}
-			if ( lum > maxLum ) {
+			if (lum > maxLum)
 				maxLum = lum;
-			}
 			sumLum += lum;
 		}
 
-		if ( i < 16 ) {
-			XBLF( "STEFX_HM: RAW_LIGHTMAP_STATS index=%d min=%d max=%d avg=%d",
-				i, minLum, maxLum, sumLum / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE ) );
+		if (i < 16) {
+			XBLF("EF: RAW_LIGHTMAP_STATS index=%d min=%d max=%d avg=%d boost=%g",
+				i, minLum, maxLum, sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE),
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				lightmapBoost
+#else
+				1.0f
+#endif
+				);
 		}
 
-		tr.lightmaps[i] = R_CreateImage( va( "*%s/lightmap%d", sMapName, i ), image,
-			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
+		tr.lightmaps[i] = R_CreateImage(va("*%s/lightmap%d", sMapName, i), image,
+			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP);
 	}
 
-	Z_Free( image );
+	Z_Free(image);
 }
 
+/*
+===============
+R_LoadXboxOptimizedLightmaps
+
+Xbox patch BSPs keep EF geometry untouched but strip the raw RGB lightmap lump.
+The matching maps/xbox/<map>.lmpdds sidecar stores one RGB565 DDS record per
+lightmap and is streamed record-by-record to keep peak map-load memory down.
+===============
+*/
 qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 	fileHandle_t	h;
 	int				len;
@@ -372,26 +440,26 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 	COM_StripExtension( baseName, baseName );
 	Com_sprintf( sidecarName, sizeof( sidecarName ), "maps/xbox/%s.lmpdds", baseName );
 
-	XBLF( "STEFX_HM: optimized lightmaps try sidecar='%s' map='%s'", sidecarName, psMapName );
+	XBLF("STEFX: optimized lightmaps try sidecar='%s' map='%s'", sidecarName, psMapName);
 	len = FS_FOpenFileRead( sidecarName, &h, qfalse );
 	if ( h == 0 || len <= 0 ) {
-		XBLF( "STEFX_HM: optimized lightmaps no sidecar='%s' len=%d handle=%d", sidecarName, len, h );
+		XBLF("STEFX: optimized lightmaps no sidecar='%s' len=%d handle=%d", sidecarName, len, h);
 		return qfalse;
 	}
 
 	if ( len < (int)sizeof( int ) ) {
 		FS_FCloseFile( h );
-		XBLF( "STEFX_HM: optimized lightmaps rejected '%s' len=%d header too small",
-			sidecarName, len );
+		XBLF("STEFX: optimized lightmaps rejected '%s' len=%d header too small",
+			sidecarName, len);
 		return qfalse;
 	}
 
 	FS_Read( &size, sizeof( int ), h );
 	if ( size < 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2 ||
-		 ( ( len - (int)sizeof( int ) ) % size ) != 0 ) {
+		 (( len - (int)sizeof( int ) ) % size) != 0 ) {
 		FS_FCloseFile( h );
-		XBLF( "STEFX_HM: optimized lightmaps rejected '%s' len=%d record=%d",
-			sidecarName, len, size );
+		XBLF("STEFX: optimized lightmaps rejected '%s' len=%d record=%d",
+			sidecarName, len, size);
 		return qfalse;
 	}
 
@@ -403,8 +471,8 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 	image = (byte *)Z_Malloc( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
 	COM_StripExtension( psMapName, sMapName );
 
-	XBLF( "STEFX_HM: optimized lightmaps load '%s' map='%s' count=%d record=%d bytes=%d",
-		sidecarName, psMapName, count, size, len );
+	XBLF("STEFX: optimized lightmaps load '%s' map='%s' count=%d record=%d bytes=%d",
+		sidecarName, psMapName, count, size, len);
 
 	for ( i = 0; i < count; ++i ) {
 		int read;
@@ -419,18 +487,28 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 			Z_Free( record );
 			Z_Free( image );
 			FS_FCloseFile( h );
-			XBLF( "STEFX_HM: optimized lightmaps short read '%s' index=%d read=%d expected=%d",
-				sidecarName, i, read, size );
+			XBLF("STEFX: optimized lightmaps short read '%s' index=%d read=%d expected=%d",
+				sidecarName, i, read, size);
 			return qfalse;
 		}
 
-		src565 = (const unsigned short *)( record + 128 );
+		if ( i < 8 ) {
+			const byte *dds = record;
+			XBLF("STEFX: optimized lightmap record index=%d magic=%c%c%c%c wh=%dx%d rgbBits=%u",
+				i,
+				dds[0], dds[1], dds[2], dds[3],
+				*(const unsigned int *)(dds + 16),
+				*(const unsigned int *)(dds + 12),
+				*(const unsigned int *)(dds + 88));
+		}
+
+		src565 = (const unsigned short *)(record + 128);
 		for ( j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++j ) {
 			const unsigned short c = src565[j];
 			byte *dst = &image[j * 4];
-			int r = ( ( c >> 11 ) & 31 ) * 255 / 31;
-			int g = ( ( c >> 5 ) & 63 ) * 255 / 63;
-			int b = ( c & 31 ) * 255 / 31;
+			int r = ((c >> 11) & 31) * 255 / 31;
+			int g = ((c >> 5) & 63) * 255 / 63;
+			int b = (c & 31) * 255 / 31;
 			int lum;
 
 			dst[0] = (byte)r;
@@ -438,22 +516,20 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 			dst[2] = (byte)b;
 			dst[3] = 255;
 
-			lum = ( r * 30 + g * 59 + b * 11 ) / 100;
-			if ( lum < minLum ) {
+			lum = (r * 30 + g * 59 + b * 11) / 100;
+			if (lum < minLum)
 				minLum = lum;
-			}
-			if ( lum > maxLum ) {
+			if (lum > maxLum)
 				maxLum = lum;
-			}
 			sumLum += lum;
 		}
 
 		if ( i < 16 ) {
-			XBLF( "STEFX_HM: optimized lightmap RGBA upload index=%d min=%d max=%d avg=%d",
-				i, minLum, maxLum, sumLum / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE ) );
+			XBLF("STEFX: optimized lightmap RGBA upload index=%d min=%d max=%d avg=%d",
+				i, minLum, maxLum, sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
 		}
 
-		tr.lightmaps[i] = R_CreateImage( va( "*%s/lightmap%d", sMapName, i ), image,
+		tr.lightmaps[i] = R_CreateImage( va("*%s/lightmap%d", sMapName, i), image,
 			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
 	}
 
@@ -462,6 +538,7 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 	FS_FCloseFile( h );
 	return qtrue;
 }
+
 #endif
 
 
@@ -478,42 +555,28 @@ void RE_SetWorldVisData( SPARC<byte> *vis ) {
 }
 
 
-void RE_SetPlaneData(cplane_t *planes, int count)
-{
-	externalPlaneData = planes;
-	externalPlaneCount = count;
-}
-
-
 /*
 =================
 R_LoadVisibility
 =================
 */
-static	void R_LoadVisibility( void *data, int len ) {
-	int		length;
-	char    *buf;
+static	void R_LoadVisibility( void ) {
+	int		len;
 
-	length = ( s_worldData.numClusters + 63 ) & ~63;
-	s_worldData.novis = ( unsigned char *) Hunk_Alloc( length, h_low );
-	memset( s_worldData.novis, 0xff, length );
+	len = ( s_worldData.numClusters + 63 ) & ~63;
+	s_worldData.novis = ( unsigned char *) Hunk_Alloc( len, qfalse );
+	memset( s_worldData.novis, 0xff, len );
 
-	if ( !len ) {
-		s_worldData.vis = NULL;
-		return;
-	}
-	buf = (char*)data;
-
-	s_worldData.numClusters = ((int *)buf)[0];
-	s_worldData.clusterBytes = ((int *)buf)[1];
+	s_worldData.numClusters = cmg.numClusters;
+	s_worldData.clusterBytes = cmg.clusterBytes;
 
 	// CM_Load should have given us the vis data to share, so
 	// we don't need to allocate another copy
-	if ( tr.externalVisData ) {
+	//if ( tr.externalVisData ) {
 		s_worldData.vis = tr.externalVisData;
-	} else {
+	/*} else {
 		assert(0);
-	}
+	}*/
 }
 
 //===============================================================================
@@ -536,9 +599,282 @@ qhandle_t R_GetShaderByNum(int shaderNum, world_t &worldData)
 ShaderForShaderNum
 ===============
 */
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBSkyResolveMagic;
+extern "C" volatile unsigned int g_SPXBSkyResolveCount;
+extern "C" volatile unsigned int g_SPXBSkyResolveShaderNum;
+extern "C" volatile unsigned int g_SPXBSkyResolveMapHash;
+extern "C" volatile unsigned int g_SPXBSkyResolveResolvedHash;
+extern "C" volatile unsigned int g_SPXBSkyResolveSurfaceFlags;
+extern "C" volatile unsigned int g_SPXBSkyResolveDefault;
+extern "C" volatile unsigned int g_SPXBSkyResolveExplicit;
+extern "C" volatile unsigned int g_SPXBSkyResolveHasSky;
+extern "C" volatile unsigned int g_SPXBSkyResolvePasses;
+extern "C" volatile unsigned int g_SPXBSkyResolveSortX1000;
+extern "C" volatile unsigned int g_SPXBSkyResolveLightmap0;
+
+static unsigned int R_EFTraceNameHash( const char *name )
+{
+	unsigned int hash = 2166136261u;
+
+	if ( !name )
+	{
+		return 0;
+	}
+
+	while ( *name )
+	{
+		char c = *name++;
+		if ( c >= 'A' && c <= 'Z' )
+		{
+			c = (char)( c - 'A' + 'a' );
+		}
+		if ( c == '\\' )
+		{
+			c = '/';
+		}
+		hash ^= (unsigned char)c;
+		hash *= 16777619u;
+	}
+
+	return hash;
+}
+
+static qboolean R_EFShouldTraceSkyResolve( const dshader_t *mapShader, const shader_t *shader )
+{
+	if ( mapShader )
+	{
+		if ( mapShader->surfaceFlags & SURF_SKY )
+		{
+			return qtrue;
+		}
+		if ( !Q_stricmp( mapShader->shader, "textures/common/sky_light" ) ||
+			!Q_stricmp( mapShader->shader, "textures/common/junk_sky" ) )
+		{
+			return qtrue;
+		}
+	}
+
+	return shader && shader->sky;
+}
+
+static void R_EFUpdateSkyResolveTelemetry( int shaderNum, const dshader_t *mapShader,
+	const short *lightmapNum, const shader_t *shader )
+{
+	if ( !R_EFShouldTraceSkyResolve( mapShader, shader ) )
+	{
+		return;
+	}
+
+	g_SPXBSkyResolveMagic = 0x534B5952; /* 'SKYR' */
+	g_SPXBSkyResolveCount++;
+	g_SPXBSkyResolveShaderNum = (unsigned int)shaderNum;
+	g_SPXBSkyResolveMapHash = R_EFTraceNameHash( mapShader ? mapShader->shader : NULL );
+	g_SPXBSkyResolveResolvedHash = R_EFTraceNameHash( shader ? shader->name : NULL );
+	g_SPXBSkyResolveSurfaceFlags = mapShader ? (unsigned int)mapShader->surfaceFlags : 0;
+	g_SPXBSkyResolveDefault = shader ? (unsigned int)shader->defaultShader : 0xFFFFFFFFu;
+	g_SPXBSkyResolveExplicit = shader ? (unsigned int)shader->explicitlyDefined : 0xFFFFFFFFu;
+	g_SPXBSkyResolveHasSky = ( shader && shader->sky ) ? 1u : 0u;
+	g_SPXBSkyResolvePasses = shader ? (unsigned int)shader->numUnfoggedPasses : 0xFFFFFFFFu;
+	g_SPXBSkyResolveSortX1000 = shader ? (unsigned int)( shader->sort * 1000.0f ) : 0xFFFFFFFFu;
+	g_SPXBSkyResolveLightmap0 = lightmapNum ? (unsigned int)(int)lightmapNum[0] : 0xFFFFFFFFu;
+}
+
+static const char *R_EFLogImageName( const image_t *image )
+{
+	if ( !image )
+	{
+		return "<null>";
+	}
+#ifndef FINAL_BUILD
+	if ( !image->imgName[0] )
+	{
+		return "<unnamed>";
+	}
+	return image->imgName;
+#else
+	return "<image>";
+#endif
+}
+
+static void R_EFLogShaderStage( const char *context, const shader_t *shader, int stageNum, const shaderStage_t *stage )
+{
+	if ( !shader || !stage )
+	{
+		return;
+	}
+
+	XBLF("STEFX_SHADER_STAGE ctx='%s' shader='%s' stage=%d active=%d state=0x%x rgbGen=%d alphaGen=%d lightStyle=%d tc0=%d lm0=%d vtxlm0=%d img0='%s' tex0=%d tc1=%d lm1=%d vtxlm1=%d img1='%s' tex1=%d",
+		context ? context : "<null>",
+		shader->name,
+		stageNum,
+		stage->active ? 1 : 0,
+		stage->stateBits,
+		stage->rgbGen,
+		stage->alphaGen,
+		stage->lightmapStyle,
+		stage->bundle[0].tcGen,
+		stage->bundle[0].isLightmap ? 1 : 0,
+		stage->bundle[0].vertexLightmap ? 1 : 0,
+		R_EFLogImageName( stage->bundle[0].image ),
+		stage->bundle[0].image ? stage->bundle[0].image->texnum : -1,
+		stage->bundle[1].tcGen,
+		stage->bundle[1].isLightmap ? 1 : 0,
+		stage->bundle[1].vertexLightmap ? 1 : 0,
+		R_EFLogImageName( stage->bundle[1].image ),
+		stage->bundle[1].image ? stage->bundle[1].image->texnum : -1);
+}
+
+static void R_EFLogShaderResolve( const char *context, int shaderNum, const dshader_t *mapShader,
+	const short *lightmapNum, const byte *lightmapStyles, const shader_t *shader )
+{
+	int i;
+
+	XBLF("STEFX_SHADER_RESOLVE ctx='%s' map='%s' shaderNum=%d mapName='%s' mapSurf=0x%x mapCont=0x%x resolved='%s' explicit=%d default=%d passes=%d sort=%g sky=%d cull=%d multitexEnv=%d lm=%d,%d,%d,%d styles=%u,%u,%u,%u",
+		context ? context : "<null>",
+		s_worldData.name,
+		shaderNum,
+		mapShader ? mapShader->shader : "<bad>",
+		mapShader ? mapShader->surfaceFlags : 0,
+		mapShader ? mapShader->contentFlags : 0,
+		shader ? shader->name : "<null>",
+		shader ? shader->explicitlyDefined : -1,
+		shader ? shader->defaultShader : -1,
+		shader ? shader->numUnfoggedPasses : -1,
+		shader ? (double)shader->sort : -1.0,
+		(shader && shader->sky) ? 1 : 0,
+		shader ? shader->cullType : -1,
+		shader ? shader->multitextureEnv : -1,
+		lightmapNum ? lightmapNum[0] : -999,
+		lightmapNum ? lightmapNum[1] : -999,
+		lightmapNum ? lightmapNum[2] : -999,
+		lightmapNum ? lightmapNum[3] : -999,
+		lightmapStyles ? (unsigned int)lightmapStyles[0] : 999,
+		lightmapStyles ? (unsigned int)lightmapStyles[1] : 999,
+		lightmapStyles ? (unsigned int)lightmapStyles[2] : 999,
+		lightmapStyles ? (unsigned int)lightmapStyles[3] : 999);
+
+	if ( shader )
+	{
+		for ( i = 0; i < shader->numUnfoggedPasses && i < MAX_SHADER_STAGES; ++i )
+		{
+			R_EFLogShaderStage( context, shader, i, &shader->stages[i] );
+		}
+	}
+}
+
+static void R_EFBoundsForVerts( const mapVert_t *verts, int firstVert, int numVerts, vec3_t mins, vec3_t maxs )
+{
+	int i;
+	int j;
+
+	ClearBounds( mins, maxs );
+	if ( !verts || numVerts <= 0 )
+	{
+		return;
+	}
+
+	verts += firstVert;
+	for ( i = 0; i < numVerts; ++i )
+	{
+		vec3_t point;
+		for ( j = 0; j < 3; ++j )
+		{
+			point[j] = (float)verts[i].xyz[j];
+		}
+		AddPointToBounds( point, mins, maxs );
+	}
+}
+
+static void R_EFSetSurfaceDebug( msurface_t *surf, int code, int shaderNum, const mapVert_t *verts, int firstVert, int numVerts )
+{
+	if ( !surf )
+	{
+		return;
+	}
+
+	surf->xboxDebugCode = code;
+	surf->xboxDebugShaderNum = shaderNum;
+	R_EFBoundsForVerts( verts, firstVert, numVerts, surf->xboxDebugMins, surf->xboxDebugMaxs );
+}
+
+static void R_EFSetSurfaceDebugPoint( msurface_t *surf, int code, int shaderNum, const short point[3] )
+{
+	int i;
+
+	if ( !surf )
+	{
+		return;
+	}
+
+	surf->xboxDebugCode = code;
+	surf->xboxDebugShaderNum = shaderNum;
+	for ( i = 0; i < 3; ++i )
+	{
+		surf->xboxDebugMins[i] = point ? (float)point[i] : 0.0f;
+		surf->xboxDebugMaxs[i] = point ? (float)point[i] : 0.0f;
+	}
+}
+
+static void R_EFLogSurfaceShader( const char *type, int code, int shaderNum, int fogNum,
+	const unsigned int vertsPacked, const unsigned int indexesPacked,
+	const short *lightmapNum, const byte *lightmapStyles, const mapVert_t *verts,
+	const shader_t *shader )
+{
+	vec3_t mins;
+	vec3_t maxs;
+	int firstVert = vertsPacked >> 12;
+	int numVerts = vertsPacked & 0xFFF;
+	int firstIndex = indexesPacked >> 12;
+	int numIndexes = indexesPacked & 0xFFF;
+	const dshader_t *mapShader = NULL;
+
+	if ( shaderNum >= 0 && shaderNum < s_worldData.numShaders )
+	{
+		mapShader = &s_worldData.shaders[shaderNum];
+	}
+
+	R_EFBoundsForVerts( verts, firstVert, numVerts, mins, maxs );
+
+	XBLF("STEFX_SURFACE type='%s' map='%s' code=%d shaderNum=%d mapName='%s' resolved='%s' mapSurf=0x%x mapCont=0x%x fog=%d verts=%d firstVert=%d indexes=%d firstIndex=%d lm=%d,%d,%d,%d styles=%u,%u,%u,%u boundsMin=%g,%g,%g boundsMax=%g,%g,%g default=%d explicit=%d passes=%d sort=%g",
+		type ? type : "<null>",
+		s_worldData.name,
+		code,
+		shaderNum,
+		mapShader ? mapShader->shader : "<bad>",
+		shader ? shader->name : "<null>",
+		mapShader ? mapShader->surfaceFlags : 0,
+		mapShader ? mapShader->contentFlags : 0,
+		fogNum,
+		numVerts,
+		firstVert,
+		numIndexes,
+		firstIndex,
+		lightmapNum ? lightmapNum[0] : -999,
+		lightmapNum ? lightmapNum[1] : -999,
+		lightmapNum ? lightmapNum[2] : -999,
+		lightmapNum ? lightmapNum[3] : -999,
+		lightmapStyles ? (unsigned int)lightmapStyles[0] : 999,
+		lightmapStyles ? (unsigned int)lightmapStyles[1] : 999,
+		lightmapStyles ? (unsigned int)lightmapStyles[2] : 999,
+		lightmapStyles ? (unsigned int)lightmapStyles[3] : 999,
+		(double)mins[0],
+		(double)mins[1],
+		(double)mins[2],
+		(double)maxs[0],
+		(double)maxs[1],
+		(double)maxs[2],
+		shader ? shader->defaultShader : -1,
+		shader ? shader->explicitlyDefined : -1,
+		shader ? shader->numUnfoggedPasses : -1,
+		shader ? (double)shader->sort : -1.0);
+}
+#endif
+
 static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, const byte *lightmapStyles ) {
 	shader_t	*shader;
 	dshader_t	*dsh;
+	int			originalShaderNum = shaderNum;
 
 	shaderNum = shaderNum;
 	if ( shaderNum < 0 || shaderNum >= s_worldData.numShaders ) {
@@ -548,13 +884,126 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 
 	shader = R_FindShader( dsh->shader, lightmapNum, lightmapStyles, qtrue );
 
+#ifdef _XBOX
+	R_EFUpdateSkyResolveTelemetry( originalShaderNum, dsh, lightmapNum, shader );
+	R_EFLogShaderResolve( "ShaderForShaderNum", originalShaderNum, dsh, lightmapNum, lightmapStyles, shader );
+	{
+		static int s_xboxShaderLogBudget = 0;
+		qboolean stefxIntroShader = (dsh->shader && (
+			!Q_stricmp( dsh->shader, "textures/common/70yearjourney" ) ||
+			!Q_stricmp( dsh->shader, "textures/common/enemyspace" ) ||
+			!Q_stricmp( dsh->shader, "textures/common/sevenspace" ) ||
+			!Q_stricmp( dsh->shader, "textures/common/tuvokhazard" ) ));
+		if ( stefxIntroShader )
+		{
+			XBLF("STEFX: INTRO_SHADER shaderNum=%d name='%s' mapSurf=0x%x mapCont=0x%x shader='%s' default=%d passes=%d sort=%g lm0=%d",
+				originalShaderNum,
+				dsh->shader,
+				dsh->surfaceFlags,
+				dsh->contentFlags,
+				shader ? shader->name : "<null>",
+				shader ? (int)shader->defaultShader : -1,
+				shader ? shader->numUnfoggedPasses : -1,
+				shader ? (double)shader->sort : -1.0,
+				lightmapNum ? lightmapNum[0] : -999);
+		}
+		if (s_xboxShaderLogBudget > 0 &&
+			((dsh->surfaceFlags & SURF_SKY) || shader->sky || shader->sort == SS_PORTAL))
+		{
+			XBLF("JA: ShaderForShaderNum #%d name='%s' mapSurf=0x%x mapCont=0x%x shaderSky=%d sort=%g default=%d lm0=%d",
+				originalShaderNum,
+				dsh->shader,
+				dsh->surfaceFlags,
+				dsh->contentFlags,
+				(int)(shader->sky != NULL),
+				(double)shader->sort,
+				(int)shader->defaultShader,
+				lightmapNum ? lightmapNum[0] : -999);
+			--s_xboxShaderLogBudget;
+		}
+	}
+#endif
+
 	// if the shader had errors, just use default shader
 	if ( shader->defaultShader ) {
+#ifdef _XBOX
+		R_EFLogShaderResolve( "ShaderForShaderNum.defaultFallback", originalShaderNum, dsh, lightmapNum, lightmapStyles, tr.defaultShader );
+#endif
 		return tr.defaultShader;
 	}
 
 	return shader;
 }
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static surfaceType_t s_stefxSkipSurfaceData = SF_SKIP;
+
+static qboolean R_EFShouldSkipBorgBlackBackingSurface( const dshader_t *mapShader )
+{
+	if ( !mapShader || Q_stricmpn( s_worldData.name, "maps/borg", 9 ) )
+	{
+		return qfalse;
+	}
+
+	if ( Q_stricmp( mapShader->shader, "textures/common/black" ) )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static qboolean R_EFShouldSkipRawDrawSurface( int shaderNum )
+{
+	const dshader_t *mapShader;
+
+	if ( shaderNum < 0 || shaderNum >= s_worldData.numShaders )
+	{
+		return qfalse;
+	}
+
+	mapShader = &s_worldData.shaders[shaderNum];
+	if ( mapShader->surfaceFlags & SURF_NODRAW )
+	{
+		return qtrue;
+	}
+
+	if ( !Q_stricmp( mapShader->shader, "noshader" ) )
+	{
+		return qtrue;
+	}
+
+	if ( R_EFShouldSkipBorgBlackBackingSurface( mapShader ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static void R_EFSkipRawDrawSurface( msurface_t *surf, int shaderNum, const char *type )
+{
+	static int s_skipLogBudget = 64;
+	const dshader_t *mapShader = ( shaderNum >= 0 && shaderNum < s_worldData.numShaders ) ? &s_worldData.shaders[shaderNum] : NULL;
+
+	if ( surf )
+	{
+		surf->shader = tr.defaultShader;
+		surf->data = &s_stefxSkipSurfaceData;
+	}
+
+	if ( s_skipLogBudget > 0 )
+	{
+		XBLF("STEFX_WORLD_SKIP raw draw surface type='%s' shaderNum=%d mapName='%s' surf=0x%x contents=0x%x",
+			type ? type : "<null>",
+			shaderNum,
+			mapShader ? mapShader->shader : "<bad>",
+			mapShader ? mapShader->surfaceFlags : 0,
+			mapShader ? mapShader->contentFlags : 0);
+		--s_skipLogBudget;
+	}
+}
+#endif
 
 bool NeedVertexColors(shader_t *shader)
 {
@@ -602,10 +1051,13 @@ int SurfaceFaceSize(int numVerts, int numLightMaps, bool needVertexColors,
 		4 /*sizeof srfPoints*/ + 
 		(numVerts * sizeof(unsigned short) *
 			(VERTEX_LM + numLightMaps * 2 + 
+#ifdef COMPRESS_VERTEX_COLORS
 			(int)needVertexColors * 4));	
+#else
+			(int)needVertexColors * 8));	
+#endif
 
-	// Add in tangent size	-- NO! It's in VERTEX_LM
-//	sfaceSize += sizeof(vec3_t) * numVerts;
+	// Add in tangent size - no, tangent size is included in VERTEX_LM!
 
 	//Indices stored in 8 bits now.
 	sfaceSize += numIndexes;
@@ -658,7 +1110,7 @@ void BuildDrawVertTangents( drawVert_t *verts, int *indexes, int numIndexes, int
 		vec1[0] = verts[indexes[i+1]].xyz[1] - verts[indexes[i]].xyz[1];
 
 		vec2[0] = verts[indexes[i+2]].xyz[1] - verts[indexes[i]].xyz[1];
-
+	
 		CrossProduct(vec1, vec2, cp);
 
 		if(cp[0] == 0.0f)
@@ -713,18 +1165,18 @@ void BuildMapVertTangents( mapVert_t *verts, vec3_t *tangents, short *indexes, i
 	for(i = 0; i < numIndexes; i += 3)
 	{
 		vec3_t vec1, vec2, du, dv, cp;
-
+		
 		vec1[0] = verts[indexes[i+1]].xyz[0] - verts[indexes[i]].xyz[0];
 		vec1[1] = (verts[indexes[i+1]].st[0] * POINTS_ST_SCALE) - 
-			(verts[indexes[i]].st[0] * POINTS_ST_SCALE);
+				   (verts[indexes[i]].st[0] * POINTS_ST_SCALE);
 		vec1[2] = (verts[indexes[i+1]].st[1] * POINTS_ST_SCALE) - 
-			(verts[indexes[i]].st[1] * POINTS_ST_SCALE);
+				   (verts[indexes[i]].st[1] * POINTS_ST_SCALE);
 
 		vec2[0] = verts[indexes[i+2]].xyz[0] - verts[indexes[i]].xyz[0];
 		vec2[1] = (verts[indexes[i+2]].st[0] * POINTS_ST_SCALE) - 
-			(verts[indexes[i]].st[0] * POINTS_ST_SCALE);
+				   (verts[indexes[i]].st[0] * POINTS_ST_SCALE);
 		vec2[2] = (verts[indexes[i+2]].st[1]* POINTS_ST_SCALE) - 
-			(verts[indexes[i]].st[1] * POINTS_ST_SCALE);
+				   (verts[indexes[i]].st[1] * POINTS_ST_SCALE);
 
 		CrossProduct(vec1, vec2, cp);
 
@@ -799,11 +1251,51 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 	// get fog volume
 	surf->fogIndex = ds->fogNum + 1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+	if ( R_EFShouldSkipRawDrawSurface( ds->shaderNum ) )
+	{
+		R_EFSkipRawDrawSurface( surf, ds->shaderNum, "face" );
+		return;
+	}
+#endif
+
 	// get shader value
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
+#ifdef _XBOX
+#if !( defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) )
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+#endif
+	R_EFLogSurfaceShader( "face", ds->code, ds->shaderNum, surf->fogIndex,
+		ds->verts, ds->indexes, lightmapNum, ds->lightmapStyles, verts, surf->shader );
+#endif
+
+#ifdef _XBOX
+	{
+		static int s_xboxFaceShaderLogBudget = 0;
+		const dshader_t *mapShader = &s_worldData.shaders[ds->shaderNum];
+		if (s_xboxFaceShaderLogBudget > 0 &&
+			((mapShader->surfaceFlags & SURF_SKY) || surf->shader->sky || surf->shader->sort == SS_PORTAL))
+		{
+			XBLF("JA: ParseFace special shaderNum=%d name='%s' mapSurf=0x%x mapCont=0x%x shader='%s' sky=%d sort=%g fog=%d verts=%d indexes=%d lm0=%d",
+				ds->shaderNum,
+				mapShader->shader,
+				mapShader->surfaceFlags,
+				mapShader->contentFlags,
+				surf->shader ? surf->shader->name : "<null>",
+				(int)(surf->shader && surf->shader->sky != NULL),
+				surf->shader ? (double)surf->shader->sort : -1.0,
+				surf->fogIndex,
+				ds->verts & 0xFFF,
+				ds->indexes & 0xFFF,
+				lightmapNum[0]);
+			--s_xboxFaceShaderLogBudget;
+		}
+	}
+#endif
 
 	bool needVertexColors = NeedVertexColors(surf->shader); 
 	int numLightMaps = NumLightMaps(surf->shader);
@@ -811,7 +1303,7 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 
 	numPoints = ds->verts & 0xFFF;
 	if (numPoints > MAX_FACE_POINTS) {
-		Com_Printf (S_COLOR_YELLOW  "WARNING: MAX_FACE_POINTS exceeded: %i\n", numPoints);
+		VID_Printf( PRINT_DEVELOPER, "MAX_FACE_POINTS exceeded: %i\n", numPoints);
 	}
 
 	numIndexes = ds->indexes & 0xFFF;
@@ -821,7 +1313,7 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 			numLightMaps, needVertexColors, numIndexes);
 	ofsIndexes = sfaceSize - numIndexes;
 
-	cv = (srfSurfaceFace_t *) pFaceDataBuffer;//ri.Hunk_Alloc( sfaceSize );
+	cv = (srfSurfaceFace_t *) pFaceDataBuffer;//Hunk_Alloc( sfaceSize );
 	pFaceDataBuffer += sfaceSize;	// :-)
 
 	cv->surfaceType = SF_FACE;
@@ -843,6 +1335,7 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 
 	int nextSurfPoint = NEXT_SURFPOINT(cv->flags);
 	verts += ds->verts >> 12;
+
 	indexes += ds->indexes >> 12;
 
 	BuildMapVertTangents(verts, tangents, indexes, numIndexes, numPoints);
@@ -851,6 +1344,7 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 		for ( j = 0 ; j < 3 ; j++ ) {
 			*(cv->srfPoints + i * nextSurfPoint + j) = verts[i].xyz[j];
 		}
+		
 		for ( j = 0; j < 3 ; j++ ) {
 			assert(tangents[i][j] >= -1 && tangents[i][j] <= 1);
 			*(cv->srfPoints + i * nextSurfPoint + 3 + j) = (short)(tangents[i][j] * 32767.0f);
@@ -868,14 +1362,22 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 		if(needVertexColors) {
 			for(k=0;k<MAXLIGHTMAPS;k++)
 			{
+#ifdef COMPRESS_VERTEX_COLORS
 				R_ColorShiftLightingBytes16(
 					verts[i].color[k],
 					(byte*)(cv->srfPoints + i * nextSurfPoint + 
 					VERTEX_COLOR(cv->flags) + k));
+#else
+				R_ColorShiftLightingBytes(
+					verts[i].color[k],
+					(byte*)(cv->srfPoints + i * nextSurfPoint + 
+					VERTEX_COLOR(cv->flags) + 2*k));
+#endif
 			}
 		}
 	}
 
+//	indexes += ds->indexes >> 12;
 	unsigned char *indexStorage = ((unsigned char*)cv) + cv->ofsIndices;
 	for ( i = 0 ; i < numIndexes ; i++ ) {
 		indexStorage[i] = indexes[ i ];
@@ -920,11 +1422,27 @@ static void ParseMesh ( dpatch_t *ds, mapVert_t *verts, msurface_t *surf,
 	// get fog volume
 	surf->fogIndex = ds->fogNum + 1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+	if ( R_EFShouldSkipRawDrawSurface( ds->shaderNum ) )
+	{
+		R_EFSkipRawDrawSurface( surf, ds->shaderNum, "patch" );
+		return;
+	}
+#endif
+
 	// get shader value
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
+#ifdef _XBOX
+#if !( defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) )
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+#endif
+	R_EFLogSurfaceShader( "patch", ds->code, ds->shaderNum, surf->fogIndex,
+		ds->verts, 0, lightmapNum, ds->lightmapStyles, verts, surf->shader );
+#endif
 
 	// we may have a nodraw surface, because they might still need to
 	// be around for movement clipping
@@ -958,8 +1476,13 @@ static void ParseMesh ( dpatch_t *ds, mapVert_t *verts, msurface_t *surf,
 		}
 		for(k=0;k<MAXLIGHTMAPS;k++)
 		{
+#ifdef COMPRESS_VERTEX_COLORS
 			R_ColorShiftLightingBytes16(verts[i].color[k], 
 				points[i].dvcolor[k]);
+#else
+			R_ColorShiftLightingBytes(verts[i].color[k],
+				points[i].dvcolor[k]);
+#endif
 		}
 	}
 
@@ -993,17 +1516,33 @@ static void ParseTriSurf( dtrisurf_t *ds, mapVert_t *verts, msurface_t *surf, sh
 	// get fog volume
 	surf->fogIndex = ds->fogNum + 1;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+	if ( R_EFShouldSkipRawDrawSurface( ds->shaderNum ) )
+	{
+		R_EFSkipRawDrawSurface( surf, ds->shaderNum, "trisurf" );
+		return;
+	}
+#endif
+
 	// get shader
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapsVertex, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
+#ifdef _XBOX
+#if !( defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) )
+	R_EFSetSurfaceDebug( surf, ds->code, ds->shaderNum, verts, ds->verts >> 12, ds->verts & 0xFFF );
+#endif
+	R_EFLogSurfaceShader( "trisurf", ds->code, ds->shaderNum, surf->fogIndex,
+		ds->verts, ds->indexes, lightmapsVertex, ds->lightmapStyles, verts, surf->shader );
+#endif
 
 	numVerts = ds->verts & 0xFFF;
 	numIndexes = ds->indexes & 0xFFF;
 
 	tri = (srfTriangles_t *) Hunk_Alloc( sizeof( *tri ) + numVerts * sizeof( tri->verts[0] ) 
-		+ numIndexes * sizeof( tri->indexes[0] ), h_low );
+		+ numIndexes * sizeof( tri->indexes[0] ), qtrue );
 	tri->surfaceType = SF_TRIANGLES;
 	tri->numVerts = numVerts;
 	tri->numIndexes = numIndexes;
@@ -1017,8 +1556,8 @@ static void ParseTriSurf( dtrisurf_t *ds, mapVert_t *verts, msurface_t *surf, sh
 	ClearBounds( tri->bounds[0], tri->bounds[1] );
 	for ( i = 0 ; i < numVerts ; i++ ) {
 		for ( j = 0 ; j < 3 ; j++ ) {
-			tri->verts[i].xyz[j] = (float)verts[i].xyz[j];
-			tri->verts[i].normal[j] = (float)verts[i].normal[j] / 32767.f;
+			tri->verts[i].xyz[j] = verts[i].xyz[j];
+			tri->verts[i].normal[j] = verts[i].normal[j];
 		}
 		AddPointToBounds( tri->verts[i].xyz, tri->bounds[0], tri->bounds[1] );
 		for ( j = 0 ; j < 2 ; j++ ) {
@@ -1037,8 +1576,13 @@ static void ParseTriSurf( dtrisurf_t *ds, mapVert_t *verts, msurface_t *surf, sh
 		}
 		for(k=0;k<MAXLIGHTMAPS;k++)
 		{
+#ifdef COMPRESS_VERTEX_COLORS
 			R_ColorShiftLightingBytes16(verts[i].color[k], 
 				tri->verts[i].dvcolor[k]);
+#else
+			R_ColorShiftLightingBytes(verts[i].color[k],
+				tri->verts[i].dvcolor[k]);
+#endif
 		}
 	}
 
@@ -1070,8 +1614,25 @@ static void ParseFlare( dflare_t *df, msurface_t *surf )
 
 	// get shader
 	surf->shader = ShaderForShaderNum( df->shaderNum, lightmapsVertex, stylesDefault );
+#ifdef _XBOX
+	R_EFSetSurfaceDebugPoint( surf, df->code, df->shaderNum, df->origin );
+	XBLF("STEFX_SURFACE type='flare' map='%s' code=%d shaderNum=%d mapName='%s' resolved='%s' fog=%d origin=%d,%d,%d normal=%d,%d,%d color=%u,%u,%u default=%d explicit=%d passes=%d sort=%g",
+		s_worldData.name,
+		df->code,
+		df->shaderNum,
+		(df->shaderNum >= 0 && df->shaderNum < s_worldData.numShaders) ? s_worldData.shaders[df->shaderNum].shader : "<bad>",
+		surf->shader ? surf->shader->name : "<null>",
+		surf->fogIndex,
+		df->origin[0], df->origin[1], df->origin[2],
+		df->normal[0], df->normal[1], df->normal[2],
+		(unsigned int)df->color[0], (unsigned int)df->color[1], (unsigned int)df->color[2],
+		surf->shader ? surf->shader->defaultShader : -1,
+		surf->shader ? surf->shader->explicitlyDefined : -1,
+		surf->shader ? surf->shader->numUnfoggedPasses : -1,
+		surf->shader ? (double)surf->shader->sort : -1.0);
+#endif
 
-	flare = (srfFlare_t *) Hunk_Alloc( sizeof( *flare ), h_low );
+	flare = (srfFlare_t *) Hunk_Alloc( sizeof( *flare ), qtrue );
 	flare->surfaceType = SF_FLARE;
 
 	for ( i = 0 ; i < 3 ; i++ ) {
@@ -1111,9 +1672,20 @@ R_LoadSurfaces
 ===============
 */
 void R_LoadSurfaces( int count ) {
+#ifdef _XBOX
+	int i;
+#endif
 	s_worldData.surfaces = (struct msurface_s *) 
-		Hunk_Alloc ( count * sizeof(msurface_s), h_low );
+		Hunk_Alloc ( count * sizeof(msurface_s), qtrue );
 	s_worldData.numsurfaces = count;
+#ifdef _XBOX
+	for ( i = 0; i < count; ++i )
+	{
+		s_worldData.surfaces[i].xboxDebugCode = -1;
+		s_worldData.surfaces[i].xboxDebugShaderNum = -1;
+		ClearBounds( s_worldData.surfaces[i].xboxDebugMins, s_worldData.surfaces[i].xboxDebugMaxs );
+	}
+#endif
 }
 
 
@@ -1133,8 +1705,12 @@ void R_LoadPatches( void *verts, int vertlen,
 	if (surfacelen == 0) {
 		return;
 	}
-
+	
 	count = surfacelen / sizeof(*in);
+#ifdef _XBOX
+	XBLF("JA: R_LoadPatches begin patches=%d surfaceLen=%d vertLen=%d",
+		count, surfacelen, vertlen);
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
@@ -1162,7 +1738,7 @@ void R_LoadPatches( void *verts, int vertlen,
 	Z_Free(ctrl);
 	Z_Free(points);
 
-//	Com_Printf( "...loaded %i meshes\n", count );
+	VID_Printf( PRINT_ALL, "...loaded %i meshes\n", count );
 }
 
 
@@ -1186,6 +1762,10 @@ void R_LoadTriSurfs( void *indexdata, int indexlen,
 	}
 	
 	count = surfacelen / sizeof(*in);
+#ifdef _XBOX
+	XBLF("JA: R_LoadTriSurfs begin trisurfs=%d surfaceLen=%d indexLen=%d vertLen=%d",
+		count, surfacelen, indexlen, vertlen);
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
@@ -1201,7 +1781,7 @@ void R_LoadTriSurfs( void *indexdata, int indexlen,
 		ParseTriSurf( in, dv, out, indexes );
 	}
 
-//	Com_Printf( "...loaded %i trisurfs\n", count );
+	VID_Printf( PRINT_ALL, "...loaded %i trisurfs\n", count );
 }
 
 
@@ -1219,12 +1799,28 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	short		*indexes;
 	int			count;
 	int			i;
+#ifdef _XBOX
+	int			maxFaceVerts = 0;
+	int			maxFaceIndexes = 0;
+	int			maxFaceFirstVert = 0;
+	int			maxFaceFirstIndex = 0;
+	int			maxLocalIndex = 0;
+	int			faceVertsOverByte = 0;
+	int			faceIndexesOverShort = 0;
+	int			localIndexOverByte = 0;
+	int			localIndexOutOfRange = 0;
+	int			faceDataOverShort = 0;
+#endif
 
 	if (surfacelen == 0) {
 		return;
 	}
 	
 	count = surfacelen / sizeof(*in);
+#ifdef _XBOX
+	XBLF("JA: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
+		count, surfacelen, indexlen, vertlen);
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
@@ -1244,11 +1840,83 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	for ( i = 0 ; i < count ; i++) 
 	{ 
 		in = (dface_t *)surfaces + i;
+#ifdef _XBOX
+		{
+			int numVerts = in->verts & 0xFFF;
+			int firstVert = in->verts >> 12;
+			int numIdx = in->indexes & 0xFFF;
+			int firstIdx = in->indexes >> 12;
+			int maxIdxThisFace = 0;
+			int idx;
+
+			if (numVerts > maxFaceVerts)
+			{
+				maxFaceVerts = numVerts;
+			}
+			if (numIdx > maxFaceIndexes)
+			{
+				maxFaceIndexes = numIdx;
+			}
+			if (firstVert > maxFaceFirstVert)
+			{
+				maxFaceFirstVert = firstVert;
+			}
+			if (firstIdx > maxFaceFirstIndex)
+			{
+				maxFaceFirstIndex = firstIdx;
+			}
+			if (numVerts > 255)
+			{
+				faceVertsOverByte++;
+			}
+			if (numIdx > 65535)
+			{
+				faceIndexesOverShort++;
+			}
+
+			for (idx = 0; idx < numIdx; ++idx)
+			{
+				int localIdx = indexes[firstIdx + idx];
+				if (localIdx > maxIdxThisFace)
+				{
+					maxIdxThisFace = localIdx;
+				}
+				if (localIdx > maxLocalIndex)
+				{
+					maxLocalIndex = localIdx;
+				}
+				if (localIdx > 255)
+				{
+					localIndexOverByte++;
+				}
+				if (localIdx < 0 || localIdx >= numVerts)
+				{
+					localIndexOutOfRange++;
+				}
+			}
+		}
+#endif
 
 		short lightmapNum[MAXLIGHTMAPS];
 		for(int j=0; j<4; j++) {
 			lightmapNum[j] = (int)in->lightmapNum[j] - 4;
 		}
+#ifdef _XBOX
+		if ((i % 128) == 0 || i + 1 == count) {
+			const char *shaderName = "<bad>";
+			if (in->shaderNum >= 0 && in->shaderNum < s_worldData.numShaders) {
+				shaderName = s_worldData.shaders[in->shaderNum].shader;
+			}
+			XBLF("JA: R_LoadFaces prepass face=%d/%d shaderNum=%d shader='%s' verts=%d indexes=%d lm0=%d",
+				i + 1,
+				count,
+				in->shaderNum,
+				shaderName,
+				in->verts & 0xFFF,
+				in->indexes & 0xFFF,
+				lightmapNum[0]);
+		}
+#endif
 		shader_t *shader = ShaderForShaderNum( in->shaderNum, lightmapNum, in->lightmapStyles );
 		bool needVertexColors = NeedVertexColors(shader); 
 		int numLightMaps = NumLightMaps(shader);
@@ -1258,19 +1926,40 @@ void R_LoadFaces( void *indexdata, int indexlen,
 			in->indexes & 0xFFF);
 		
 		iFaceDataSizeRequired += sfaceSize;
+#ifdef _XBOX
+		if (sfaceSize > 65535)
+		{
+			faceDataOverShort++;
+		}
+#endif
 		assert(sfaceSize < 100 * 1024);
 		if (--nToGo <= 0)
 		{
 			nToGo = nTimes;
 		}
 	}
+#ifdef _XBOX
+	XBLF("JA: R_LoadFaces summary faces=%d maxVerts=%d maxIndexes=%d maxFirstVert=%d maxFirstIndex=%d maxLocalIndex=%d vertsOverByte=%d localIndexOverByte=%d localIndexOutOfRange=%d faceDataBytes=%d faceDataOverShort=%d",
+		count,
+		maxFaceVerts,
+		maxFaceIndexes,
+		maxFaceFirstVert,
+		maxFaceFirstIndex,
+		maxLocalIndex,
+		faceVertsOverByte,
+		localIndexOverByte,
+		localIndexOutOfRange,
+		iFaceDataSizeRequired,
+		faceDataOverShort);
+	XBLF("JA: R_LoadFaces alloc faceDataBytes=%d", iFaceDataSizeRequired);
+#endif
 	in -= count;	// back it up, ready for loop-proper
 
 	// since this ptr is to hunk data, I can pass it in and have it advanced without worrying about losing
 	//	the original alloc ptr...
 	//
 	byte *orgFaceData;
-	byte *pFaceDataBuffer	= (byte *)Hunk_Alloc( iFaceDataSizeRequired, h_low );
+	byte *pFaceDataBuffer	= (byte *)Hunk_Alloc( iFaceDataSizeRequired, qtrue );
 	orgFaceData = pFaceDataBuffer;
 
 	// now do regular loop...
@@ -1279,13 +1968,21 @@ void R_LoadFaces( void *indexdata, int indexlen,
 		in = (dface_t *)surfaces + i;
 		out = s_worldData.surfaces + in->code;
 		ParseFace( in, dv, out, indexes, pFaceDataBuffer );
+#ifdef _XBOX
+		if (((i + 1) % 128) == 0 || i + 1 == count) {
+			XBLF("JA: R_LoadFaces parsed %d/%d faceDataUsed=%d",
+				i + 1,
+				count,
+				(int)(pFaceDataBuffer - orgFaceData));
+		}
+#endif
 		if (--nToGo <= 0)
 		{
 			nToGo = nTimes;
 		}
 	}
 
-//	Com_Printf( "...loaded %d faces\n", count );
+	VID_Printf( PRINT_ALL, "...loaded %d faces\n", count );
 }
 
 
@@ -1304,7 +2001,7 @@ static	void R_LoadSubmodels( void *data, int len ) {
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
 	count = len / sizeof(*in);
 
-	s_worldData.bmodels = out = (bmodel_t *) Hunk_Alloc( count * sizeof(*out), h_low );
+	s_worldData.bmodels = out = (bmodel_t *) Hunk_Alloc( count * sizeof(*out), qtrue );
 
 	for ( i=0 ; i<count ; i++, in++, out++ ) {
 		model_t *model;
@@ -1357,6 +2054,21 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 	mnode_t 	*outNode;
 	mleaf_s 	*outLeaf;
 	int			numNodes, numLeafs;
+#ifdef _XBOX
+	int			minNodeBounds[3] = { 32767, 32767, 32767 };
+	int			maxNodeBounds[3] = { -32768, -32768, -32768 };
+	int			minLeafBounds[3] = { 32767, 32767, 32767 };
+	int			maxLeafBounds[3] = { -32768, -32768, -32768 };
+	int			maxLeafArea = 0;
+	int			negativeLeafAreas = 0;
+	int			maxLeafCluster = -1;
+	int			maxFirstMarkSurf = 0;
+	int			maxLeafMarkCount = 0;
+	int			maxLeafMarkEnd = 0;
+	int			leafMarkEndOverflow = 0;
+	int			leafMarkCountSignedOverflow = 0;
+	int			nodeChildShortRisk = 0;
+#endif
 
 	in = (dnode_t *)(nodes);
 	if (nodelen % sizeof(dnode_t) ||
@@ -1366,8 +2078,8 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 	numNodes = nodelen / sizeof(dnode_t);
 	numLeafs = leaflen / sizeof(dleaf_t);
 
-	outNode = (struct mnode_s *) Hunk_Alloc ( (numNodes) * sizeof(*outNode), h_low );	
-	outLeaf = (struct mleaf_s *) Hunk_Alloc ( (numLeafs) * sizeof(*outLeaf), h_low );	
+	outNode = (struct mnode_s *) Hunk_Alloc ( (numNodes) * sizeof(*outNode), qtrue );	
+	outLeaf = (struct mleaf_s *) Hunk_Alloc ( (numLeafs) * sizeof(*outLeaf), qtrue );	
 
 	s_worldData.nodes = outNode;
 	s_worldData.leafs = outLeaf;
@@ -1381,6 +2093,16 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 		{
 			outNode->mins[j] = in->mins[j];
 			outNode->maxs[j] = in->maxs[j];
+#ifdef _XBOX
+			if (in->mins[j] < minNodeBounds[j])
+			{
+				minNodeBounds[j] = in->mins[j];
+			}
+			if (in->maxs[j] > maxNodeBounds[j])
+			{
+				maxNodeBounds[j] = in->maxs[j];
+			}
+#endif
 		}
 	
 		outNode->planeNum = in->planeNum;
@@ -1389,6 +2111,12 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 		for (j=0 ; j<2 ; j++)
 		{
 			p = in->children[j];
+#ifdef _XBOX
+			if (p == 32767 || p == -32768)
+			{
+				nodeChildShortRisk++;
+			}
+#endif
 			if (p >= 0) {
 				if(p < numNodes) {
 					outNode->children[j] = s_worldData.nodes + p;
@@ -1415,10 +2143,34 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 		{
 			outLeaf->mins[j] = inLeaf->mins[j];
 			outLeaf->maxs[j] = inLeaf->maxs[j];
+#ifdef _XBOX
+			if (inLeaf->mins[j] < minLeafBounds[j])
+			{
+				minLeafBounds[j] = inLeaf->mins[j];
+			}
+			if (inLeaf->maxs[j] > maxLeafBounds[j])
+			{
+				maxLeafBounds[j] = inLeaf->maxs[j];
+			}
+#endif
 		}
 
 		outLeaf->cluster = inLeaf->cluster;
 		outLeaf->area = inLeaf->area;
+#ifdef _XBOX
+		if (inLeaf->cluster > maxLeafCluster)
+		{
+			maxLeafCluster = inLeaf->cluster;
+		}
+		if (inLeaf->area > maxLeafArea)
+		{
+			maxLeafArea = inLeaf->area;
+		}
+		if (inLeaf->area < 0)
+		{
+			negativeLeafAreas++;
+		}
+#endif
 
 		if ( outLeaf->cluster >= s_worldData.numClusters ) {
 			s_worldData.numClusters = outLeaf->cluster + 1;
@@ -1426,7 +2178,51 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 
 		outLeaf->firstMarkSurfNum = inLeaf->firstLeafSurface;
 		outLeaf->nummarksurfaces = inLeaf->numLeafSurfaces;
+#ifdef _XBOX
+		{
+			int markEnd = (int)inLeaf->firstLeafSurface + (int)inLeaf->numLeafSurfaces;
+			if (inLeaf->firstLeafSurface > maxFirstMarkSurf)
+			{
+				maxFirstMarkSurf = inLeaf->firstLeafSurface;
+			}
+			if (inLeaf->numLeafSurfaces > maxLeafMarkCount)
+			{
+				maxLeafMarkCount = inLeaf->numLeafSurfaces;
+			}
+			if (markEnd > maxLeafMarkEnd)
+			{
+				maxLeafMarkEnd = markEnd;
+			}
+			if (markEnd > 65535)
+			{
+				leafMarkEndOverflow++;
+			}
+			if (inLeaf->numLeafSurfaces > 32767)
+			{
+				leafMarkCountSignedOverflow++;
+			}
+		}
+#endif
 	}	
+#ifdef _XBOX
+	XBLF("JA: R_LoadNodesAndLeafs summary nodes=%d leafs=%d clusters=%d maxCluster=%d maxArea=%d negativeAreaLeafs=%d nodeBounds=(%d,%d,%d)-(%d,%d,%d) leafBounds=(%d,%d,%d)-(%d,%d,%d) maxFirstMark=%d maxMarkCount=%d maxMarkEnd=%d markEndOverU16=%d markCountOverS16=%d childShortRisk=%d",
+		numNodes,
+		numLeafs,
+		s_worldData.numClusters,
+		maxLeafCluster,
+		maxLeafArea,
+		negativeLeafAreas,
+		minNodeBounds[0], minNodeBounds[1], minNodeBounds[2],
+		maxNodeBounds[0], maxNodeBounds[1], maxNodeBounds[2],
+		minLeafBounds[0], minLeafBounds[1], minLeafBounds[2],
+		maxLeafBounds[0], maxLeafBounds[1], maxLeafBounds[2],
+		maxFirstMarkSurf,
+		maxLeafMarkCount,
+		maxLeafMarkEnd,
+		leafMarkEndOverflow,
+		leafMarkCountSignedOverflow,
+		nodeChildShortRisk);
+#endif
 
 	// chain decendants
 	R_SetParent (s_worldData.nodes, NULL);
@@ -1439,32 +2235,9 @@ static void R_LoadNodesAndLeafs (void *nodes, int nodelen, void *leafs, int leaf
 R_LoadShaders
 =================
 */
-void R_LoadShaders( void *data, int len) {	
-	dshader_t	*in, *out;
-	int			i, count;
-
-	in = (dshader_t *)(data);
-	if (len % sizeof(*in)) {
-		Com_Error (ERR_DROP, "CMod_LoadShaders: funny lump size");
-	}
-	count = len / sizeof(*in);
-
-	if (count < 1) {
-		Com_Error (ERR_DROP, "Map with no shaders");
-	}
-	out = (dshader_t *)Hunk_Alloc( count*sizeof(*out), h_low);
-
-	s_worldData.shaders = out;
-	s_worldData.numShaders = count;
-
-	Com_Memcpy( out, in, count*sizeof(*out) );
-
-	for ( i = 0; i < count; i++, in++, out++ ) 
-	{
-//		Q_strncpyz(out->shader, in->shader, MAX_QPATH);
-		out->contentFlags = in->contentFlags;
-		out->surfaceFlags = in->surfaceFlags;
-	}
+void R_LoadShaders( void ) {	
+	/*s_worldData.shaders = cm.shaders;
+	s_worldData.numShaders = cm.numShaders;*/
 }
 
 /*
@@ -1482,7 +2255,7 @@ static	void R_LoadMarksurfaces (void *data, int len)
 	if (len % sizeof(*in))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
 	count = len / sizeof(*in);
-	out = (struct msurface_s **) Hunk_Alloc ( count*sizeof(*out), h_low );	
+	out = (struct msurface_s **) Hunk_Alloc ( count*sizeof(*out), qtrue );	
 
 	s_worldData.marksurfaces = out;
 	s_worldData.nummarksurfaces = count;
@@ -1506,52 +2279,10 @@ static	void R_LoadMarksurfaces (void *data, int len)
 R_LoadPlanes
 =================
 */
-static void R_LoadPlanes( void *data, int len ) {
-	int			i, j;
-	cplane_t	*out;
-	dplane_t 	*in;
-	int			count;
-	int			bits;
-
-	//If plane data has been set by the local server, use it.
-	if(externalPlaneData) {
-		s_worldData.planes = externalPlaneData;
-		s_worldData.numplanes = externalPlaneCount;
-
-		externalPlaneData = NULL;
-		externalPlaneCount = 0;
-		return;
-	}
-		
-
-	in = (dplane_t *)(data);
-	if (len % sizeof(*in))
-		Com_Error (ERR_DROP, "LoadMap: funny lump size");
-	count = len / sizeof(*in);
-
-	if (count < 1)
-		Com_Error (ERR_DROP, "Map with no planes");
-
-//	out = (struct cplane_s *) Hunk_Alloc( count * 2 * sizeof( *out ), h_low);
-	out = (struct cplane_s *) Hunk_Alloc( count * sizeof( *out ), h_low);
-
-	s_worldData.planes = out;
-	s_worldData.numplanes = count;
-
-	for ( i=0 ; i<count ; i++, in++, out++)
-	{
-		bits = 0;
-		for (j=0 ; j<3 ; j++)
-		{
-			out->normal[j] = in->normal[j];
-			if (out->normal[j] < 0)
-				bits |= 1<<j;
-		}
-
-		out->dist = in->dist;
-		out->type = PlaneTypeForNormal( out->normal );
-		out->signbits = bits;
-	}
+static	void R_LoadPlanes( void ) {
+	//New method - share with server.
+	s_worldData.planes = cmg.planes;
+	s_worldData.numplanes = cmg.numPlanes;
 }
 
 /*
@@ -1585,7 +2316,7 @@ static void R_LoadFogs( void *fogdata, int foglen,
 	// create fog structres for them
 	// NOTE: we allocate memory for an extra one so that the LA goggles can turn on their own fog
 	s_worldData.numfogs = count + 1;
-	s_worldData.fogs = (fog_t *)Hunk_Alloc (( s_worldData.numfogs + 1)*sizeof(*out), h_low );
+	s_worldData.fogs = (fog_t *)Hunk_Alloc (( s_worldData.numfogs + 1)*sizeof(*out), qtrue );
 	s_worldData.globalFog = -1;
 	out = s_worldData.fogs + 1;
 
@@ -1655,25 +2386,12 @@ static void R_LoadFogs( void *fogdata, int foglen,
 		// get information from the shader for fog parameters
 		shader = R_FindShader( fogs->shader, lightmaps, stylesDefault, qtrue );
 		
-		if (!shader->fogParms)
-		{//bad shader!!
-			assert(shader->fogParms);
-			out->parms.color[0] = 1.0f;
-			out->parms.color[1] = 0.0f;
-			out->parms.color[2] = 0.0f;
-			out->parms.color[3] = 0.0f;
-			out->parms.depthForOpaque = 250.0f;
-		}
-		else
-		{
-			out->parms = *shader->fogParms;
-		}
-
-		out->colorInt = ColorBytes4 ( out->parms.color[0] * tr.identityLight, 
-									  out->parms.color[1] * tr.identityLight, 
-									  out->parms.color[2] * tr.identityLight, 1.0 );
+		out->parms = *shader->fogParms;
+		out->colorInt = ColorBytes4 ( shader->fogParms->color[0] * tr.identityLight, 
+			shader->fogParms->color[1] * tr.identityLight, 
+			shader->fogParms->color[2] * tr.identityLight, 1.0 );
 		
-		d = out->parms.depthForOpaque < 1 ? 1 : out->parms.depthForOpaque;
+		d = shader->fogParms->depthForOpaque < 1 ? 1 : shader->fogParms->depthForOpaque;
 		out->tcScale = 1.0 / ( d * 8 );
 		
 		// set the gradient vector
@@ -1734,7 +2452,7 @@ void R_LoadLightGrid( void *data, int len ) {
 		w->lightGridBounds[i] = (maxs[i] - w->lightGridOrigin[i])/w->lightGridSize[i] + 1;
 	}
 
-	w->lightGridData = (mgrid_t *)Hunk_Alloc( len, h_low );
+	w->lightGridData = (mgrid_t *)Hunk_Alloc( len, qfalse );
 	memcpy( w->lightGridData, data, len );
 }
 
@@ -1753,12 +2471,12 @@ void R_LoadLightGridArray( void *data, int len ) {
 
 	if ( len != w->numGridArrayElements * sizeof(*w->lightGridArray) ) {
 		if (len>0)//don't warn if not even lit
-			Com_Printf( "WARNING: light grid array mismatch\n" );
+			VID_Printf( PRINT_WARNING, "WARNING: light grid array mismatch\n" );
 		w->lightGridData = NULL;
 		return;
 	}
 
-	w->lightGridArray = (unsigned short *)Hunk_Alloc( len, h_low );
+	w->lightGridArray = (unsigned short *)Hunk_Alloc( len, qfalse );
 	memcpy( w->lightGridArray, data, len );
 }
 
@@ -1772,6 +2490,7 @@ void R_LoadEntities( void *data, int len ) {
 	char keyname[MAX_TOKEN_CHARS];
 	char value[MAX_TOKEN_CHARS];
 	world_t	*w;
+	float ambient = 1;
 
 	w = &s_worldData;
 	w->lightGridSize[0] = 64;
@@ -1779,14 +2498,9 @@ void R_LoadEntities( void *data, int len ) {
 	w->lightGridSize[2] = 128;
 
 	VectorSet(tr.sunAmbient, 1, 1, 1);
-	tr.distanceCull = 6000;//DEFAULT_DISTANCE_CULL;
+	tr.distanceCull = 12000;//DEFAULT_DISTANCE_CULL;
 
 	p = (char *)(data);
-
-	// store for reference by the cgame
-	w->entityString = (char *)Hunk_Alloc( len + 1, h_low );
-	strcpy( w->entityString, p );
-	w->entityParsePoint = w->entityString;
 
 	token = COM_ParseExt( &p, qtrue );
 	if (!*token || *token != '{') {
@@ -1815,168 +2529,124 @@ void R_LoadEntities( void *data, int len ) {
 			sscanf(value, "%f", &tr.distanceCull );
 			continue;
 		}
-
+		//check for linear fog -rww
+		if (!Q_stricmp(keyname, "linFogStart")) {
+			sscanf(value, "%f", &tr.rangedFog );
+			tr.rangedFog = -tr.rangedFog;
+			continue;
+		}
 		// check for a different grid size
 		if (!Q_stricmp(keyname, "gridsize")) {
 			sscanf(value, "%f %f %f", &w->lightGridSize[0], &w->lightGridSize[1], &w->lightGridSize[2] );
 			continue;
 		}
-
-		// find the optional world ambient for arioche
+	// find the optional world ambient for arioche
 		if (!Q_stricmp(keyname, "_color")) {
 			sscanf(value, "%f %f %f", &tr.sunAmbient[0], &tr.sunAmbient[1], &tr.sunAmbient[2] );
 			continue;
 		}
+		if (!Q_stricmp(keyname, "ambient")) {
+			sscanf(value, "%f", &ambient);
+			continue;
+		}
+	}
+	//both default to 1 so no harm if not present.
+	VectorScale( tr.sunAmbient, ambient, tr.sunAmbient);
+}
+
+#ifdef STEFX_ELITE_FORCE_SP
+void R_EFBeginRawWorldMapLoad(const char *name)
+{
+	tr.worldMapLoaded = qfalse;
+	tr.world = NULL;
+	memset(&s_worldData, 0, sizeof(s_worldData));
+
+	if (name && name[0])
+	{
+		Q_strncpyz(s_worldData.name, name, sizeof(s_worldData.name));
+		Q_strncpyz(s_worldData.baseName, COM_SkipPath(s_worldData.name), sizeof(s_worldData.baseName));
+		COM_StripExtension(s_worldData.baseName, s_worldData.baseName);
 	}
 }
 
-/*
-=================
-R_GetEntityToken
-=================
-*/
-qboolean R_GetEntityToken( char *buffer, int size ) {
-	const char	*s;
-
-	if (size == -1)
-	{ //force reset
-		s_worldData.entityParsePoint = s_worldData.entityString;
-		return qtrue;
-	}
-
-	s = COM_Parse( (const char **) &s_worldData.entityParsePoint );
-	Q_strncpyz( buffer, s, size );
-	if ( !s_worldData.entityParsePoint || !s[0] ) {
-		return qfalse;
-	} else {
-		return qtrue;
-	}
-}
-
-
-#if defined(STEFX_ELITE_FORCE_MP)
-static qboolean R_EFLoadRawWorldDataFromBSP( const char *name, const efbspFile_t *efbsp )
+qboolean R_EFLoadRawWorldDataFromBSP(const char *name, const efbspFile_t *efbsp)
 {
 	int shaderCount;
-	void *shaders;
 	void *brushes;
 	void *brushsides;
-	void *verts;
-	void *indexes;
-	void *patches;
-	void *trisurfs;
-	void *faces;
-	void *flares;
 	void *nodes;
 	void *leafs;
 	void *models;
-	void *visibility;
 	void *lightgrid;
 	void *lightarray;
-	int shadersLen, brushesLen, brushsidesLen, vertsLen, indexesLen, patchesLen;
-	int trisurfsLen, facesLen, flaresLen, nodesLen, leafsLen, modelsLen;
-	int visibilityLen, lightgridLen, lightarrayLen;
+	int brushesLen, brushsidesLen, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen;
 
-	if ( !name || !name[0] || !efbsp || !efbsp->data )
+	if (!name || !name[0] || !efbsp || !efbsp->data)
 	{
 		return qfalse;
 	}
 
-	EFBSP_Validate( efbsp, name );
-	shaderCount = EFBSP_ShaderCount( efbsp );
+	EFBSP_Validate(efbsp, name);
+	shaderCount = EFBSP_ShaderCount(efbsp);
 
-	XBLF( "STEFX_HM: R_EFLoadRawWorldData begin map='%s' bytes=%d shaders=%d surfaces=%d",
-		name, efbsp->len, shaderCount, EFBSP_SurfaceCount( efbsp ) );
-
-	shaders = EFBSP_ConvertShaders( efbsp, &shadersLen );
-	R_LoadShaders( shaders, shadersLen );
-	EFBSP_FreeTemp( shaders );
-
-	if ( R_LoadXboxOptimizedLightmaps( name ) )
+	if (!s_worldData.name[0])
 	{
-		XBLog_Write( "STEFX_HM: R_EFLoadRawWorldData optimized lightmaps loaded" );
-	}
-	else if ( EFBSP_LumpLen( efbsp, EF_LUMP_LIGHTMAPS ) > 0 )
-	{
-		R_LoadRawLightmaps( EFBSP_LumpData( efbsp, EF_LUMP_LIGHTMAPS ),
-			EFBSP_LumpLen( efbsp, EF_LUMP_LIGHTMAPS ), name );
-	}
-	else
-	{
-		Com_Error( ERR_DROP, "R_EFLoadRawWorldData: %s has no raw lightmaps and no optimized sidecar", name );
+		Q_strncpyz(s_worldData.name, name, sizeof(s_worldData.name));
+		Q_strncpyz(s_worldData.baseName, COM_SkipPath(s_worldData.name), sizeof(s_worldData.baseName));
+		COM_StripExtension(s_worldData.baseName, s_worldData.baseName);
 	}
 
-	R_LoadPlanes( EFBSP_LumpData( efbsp, EF_LUMP_PLANES ), EFBSP_LumpLen( efbsp, EF_LUMP_PLANES ) );
+	XBLF("EF: R_EFLoadRawWorldData map='%s' bytes=%d shaders=%d surfaces=%d renderSurfaces=%d expectedLightgrid=%d",
+		name,
+		efbsp->len,
+		shaderCount,
+		EFBSP_SurfaceCount(efbsp),
+		s_worldData.numsurfaces,
+		EFBSP_ExpectedLightGridElements(efbsp));
 
-	brushes = EFBSP_ConvertBrushes( efbsp, shaderCount, &brushesLen );
-	brushsides = EFBSP_ConvertBrushSides( efbsp, shaderCount, &brushsidesLen );
-	R_LoadFogs( EFBSP_LumpData( efbsp, EF_LUMP_FOGS ), EFBSP_LumpLen( efbsp, EF_LUMP_FOGS ),
-		brushes, brushesLen, brushsides, brushsidesLen );
-	EFBSP_FreeTemp( brushsides );
-	EFBSP_FreeTemp( brushes );
+	R_LoadPlanes();
 
-	R_LoadSurfaces( EFBSP_SurfaceCount( efbsp ) );
+	brushes = EFBSP_ConvertBrushes(efbsp, shaderCount, &brushesLen);
+	brushsides = EFBSP_ConvertBrushSides(efbsp, shaderCount, &brushsidesLen);
+	R_LoadFogs(EFBSP_LumpData(efbsp, EF_LUMP_FOGS), EFBSP_LumpLen(efbsp, EF_LUMP_FOGS),
+		brushes, brushesLen, brushsides, brushsidesLen);
+	EFBSP_FreeTemp(brushsides);
+	EFBSP_FreeTemp(brushes);
 
-	verts = EFBSP_ConvertVerts( efbsp, &vertsLen );
-	patches = EFBSP_ConvertPatches( efbsp, shaderCount, &patchesLen );
-	R_LoadPatches( verts, vertsLen, patches, patchesLen );
-	EFBSP_FreeTemp( patches );
+	R_LoadMarksurfaces(EFBSP_LumpData(efbsp, EF_LUMP_LEAFSURFACES), EFBSP_LumpLen(efbsp, EF_LUMP_LEAFSURFACES));
 
-	indexes = EFBSP_ConvertIndexes( efbsp, &indexesLen );
-	trisurfs = EFBSP_ConvertTriSurfs( efbsp, shaderCount, &trisurfsLen );
-	R_LoadTriSurfs( indexes, indexesLen, verts, vertsLen, trisurfs, trisurfsLen );
-	EFBSP_FreeTemp( trisurfs );
+	nodes = EFBSP_ConvertNodes(efbsp, &nodesLen);
+	leafs = EFBSP_ConvertLeafs(efbsp, &leafsLen);
+	R_LoadNodesAndLeafs(nodes, nodesLen, leafs, leafsLen);
+	EFBSP_FreeTemp(leafs);
+	EFBSP_FreeTemp(nodes);
 
-	faces = EFBSP_ConvertFaces( efbsp, shaderCount, &facesLen );
-	R_LoadFaces( indexes, indexesLen, verts, vertsLen, faces, facesLen );
-	EFBSP_FreeTemp( faces );
-	EFBSP_FreeTemp( indexes );
-	EFBSP_FreeTemp( verts );
+	models = EFBSP_ConvertModels(efbsp, &modelsLen);
+	R_LoadSubmodels(models, modelsLen);
+	EFBSP_FreeTemp(models);
 
-	flares = EFBSP_ConvertFlares( efbsp, shaderCount, &flaresLen );
-	R_LoadFlares( flares, flaresLen );
-	EFBSP_FreeTemp( flares );
-	XBLF( "STEFX_HM: R_EFLoadRawWorldData surfaces patches=%d trisurfs=%d faces=%d flares=%d",
-		patchesLen, trisurfsLen, facesLen, flaresLen );
+	R_LoadVisibility();
+	R_LoadEntities(EFBSP_LumpData(efbsp, EF_LUMP_ENTITIES), EFBSP_LumpLen(efbsp, EF_LUMP_ENTITIES));
 
-	R_LoadMarksurfaces( EFBSP_LumpData( efbsp, EF_LUMP_LEAFSURFACES ),
-		EFBSP_LumpLen( efbsp, EF_LUMP_LEAFSURFACES ) );
+	lightgrid = EFBSP_ConvertLightGrid(efbsp, &lightgridLen);
+	R_LoadLightGrid(lightgrid, lightgridLen);
+	EFBSP_FreeTemp(lightgrid);
 
-	nodes = EFBSP_ConvertNodes( efbsp, &nodesLen );
-	leafs = EFBSP_ConvertLeafs( efbsp, &leafsLen );
-	R_LoadNodesAndLeafs( nodes, nodesLen, leafs, leafsLen );
-	EFBSP_FreeTemp( leafs );
-	EFBSP_FreeTemp( nodes );
-
-	models = EFBSP_ConvertModels( efbsp, &modelsLen );
-	R_LoadSubmodels( models, modelsLen );
-	EFBSP_FreeTemp( models );
-
-	visibility = EFBSP_ConvertVisibility( efbsp, &visibilityLen );
-	R_LoadVisibility( visibility, visibilityLen );
-	EFBSP_FreeTemp( visibility );
-
-	R_LoadEntities( EFBSP_LumpData( efbsp, EF_LUMP_ENTITIES ), EFBSP_LumpLen( efbsp, EF_LUMP_ENTITIES ) );
-
-	lightgrid = EFBSP_ConvertLightGrid( efbsp, &lightgridLen );
-	R_LoadLightGrid( lightgrid, lightgridLen );
-	EFBSP_FreeTemp( lightgrid );
-
-	lightarray = EFBSP_ConvertLightArray( efbsp, &lightarrayLen );
-	R_LoadLightGridArray( lightarray, lightarrayLen );
-	EFBSP_FreeTemp( lightarray );
+	lightarray = EFBSP_ConvertLightArray(efbsp, &lightarrayLen);
+	R_LoadLightGridArray(lightarray, lightarrayLen);
+	EFBSP_FreeTemp(lightarray);
 
 	tr.world = &s_worldData;
 	tr.worldMapLoaded = qtrue;
-	XBLF( "STEFX_HM: R_EFLoadRawWorldData complete map='%s' nodes=%d leafs=%d marks=%d surfaces=%d models=%d lightgridLen=%d lightarrayLen=%d",
+	XBLF("EF: R_EFLoadRawWorldData complete map='%s' nodes=%d leafs=%d marks=%d surfaces=%d models=%d lightgridLen=%d lightarrayLen=%d",
 		s_worldData.name,
 		s_worldData.numnodes,
 		s_worldData.numleafs,
 		s_worldData.nummarksurfaces,
 		s_worldData.numsurfaces,
-		modelsLen / (int)sizeof( dmodel_t ),
+		cmg.numSubModels,
 		lightgridLen,
-		lightarrayLen );
+		lightarrayLen);
 
 	R_LoadLevelLightParms();
 	R_GetLightParmsForLevel();
@@ -1996,24 +2666,44 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	char		stripName[MAX_QPATH];
 	Lump outputLumps[3];
 
-	if ( tr.worldMapLoaded ) {
-//		Com_Error( ERR_DROP, "ERROR: attempted to redundantly load world map\n" );
-		return;
-	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	XBLF("EF: RE_LoadWorldMap request '%s' worldLoaded=%d current='%s' world=%08x",
+		name ? name : "(null)",
+		tr.worldMapLoaded,
+		(tr.world && tr.world->name[0]) ? tr.world->name : "(none)",
+		(unsigned int)tr.world);
+#endif
 
-	skyboxportal = 0;
+	// This is no longer correct. The new code supports sub-models, apparently BSPs in
+	// several chunks. If any map tries to use them, the following COM_Error will go
+	// off. We haven't hit it yet, but if (when) we do, check out tr_bsp.cpp for changes.
+	if ( tr.worldMapLoaded ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		const char *currentName = (tr.world && tr.world->name[0]) ? tr.world->name : "";
+		if (name && currentName[0] && !Q_stricmp(currentName, name)) {
+			XBLF("EF: RE_LoadWorldMap duplicate same-map request '%s'; keeping existing world", name);
+			return;
+		}
+		XBLF("EF: RE_LoadWorldMap duplicate mismatch requested='%s' current='%s'",
+			name ? name : "(null)",
+			currentName[0] ? currentName : "(none)");
+#endif
+		Com_Error( ERR_DROP, "ERROR: attempted to redundantly load world map\n" );
+	}
 
 	// set default sun direction to be used if it isn't
 	// overridden by a shader
+	skyboxportal = 0;
+
 	tr.sunDirection[0] = 0.45f;
 	tr.sunDirection[1] = 0.3f;
 	tr.sunDirection[2] = 0.9f;
 
+	VectorNormalize( tr.sunDirection );
+
 	Cvar_SetValue( "r_sundir_x", tr.sunDirection[0] );
 	Cvar_SetValue( "r_sundir_y", tr.sunDirection[1] );
 	Cvar_SetValue( "r_sundir_z", tr.sunDirection[2] );
-
-	VectorNormalize( tr.sunDirection );
 
 	tr.worldMapLoaded = qtrue;
 
@@ -2021,7 +2711,15 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	// try will not look at the partially loaded version
 	tr.world = NULL;
 
+	//Preserve data which was already set in cm_load
+	msurface_t *surfacePtr = s_worldData.surfaces;
+	int numSurfaces = s_worldData.numsurfaces;
 	memset( &s_worldData, 0, sizeof( s_worldData ) );
+	s_worldData.surfaces = surfacePtr;
+	s_worldData.numsurfaces = numSurfaces;
+	//s_worldData.shaders = cm.shaders;
+	s_worldData.numShaders = cmg.numShaders;
+
 	Q_strncpyz( s_worldData.name, name, sizeof( s_worldData.name ) );
 
 	Q_strncpyz( s_worldData.baseName, COM_SkipPath( s_worldData.name ), sizeof( s_worldData.name ) );
@@ -2031,34 +2729,22 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	
 	c_gridVerts = 0;
 
-#if defined(STEFX_ELITE_FORCE_MP)
+#ifdef STEFX_ELITE_FORCE_SP
 	{
 		efbspFile_t efbsp;
-		memset( &efbsp, 0, sizeof( efbsp ) );
-		XBLF( "STEFX_HM: RE_LoadWorldMap raw probe begin name='%s'", name );
-		if ( EFBSP_LoadFile( name, &efbsp ) )
+		if (EFBSP_LoadFile(name, &efbsp))
 		{
-			qboolean loaded = R_EFLoadRawWorldDataFromBSP( name, &efbsp );
-			EFBSP_FreeFile( &efbsp );
-			if ( !loaded )
-			{
-				Com_Error( ERR_DROP, "RE_LoadWorldMap: failed EF raw load for %s", name );
-			}
+			R_EFLoadRawWorldDataFromBSP(name, &efbsp);
+			EFBSP_FreeFile(&efbsp);
 			return;
 		}
-		XBLF( "STEFX_HM: RE_LoadWorldMap raw probe missing name='%s'; using sidecar fallback", name );
+
+		XBLF("EF: RE_LoadWorldMap raw BSP '%s' not found; emergency sidecar fallback only", name);
 	}
 #endif
 
 	// load into heap
-	outputLumps[0].load(stripName, "shaders");
-	R_LoadShaders(outputLumps[0].data, outputLumps[0].len);
-
-	outputLumps[0].load(stripName, "lightmaps");
-	R_LoadLightmaps(outputLumps[0].data, outputLumps[0].len, name);
-
-	outputLumps[0].load(stripName, "planes");
-	R_LoadPlanes(outputLumps[0].data, outputLumps[0].len);
+	R_LoadPlanes ();
 
 	outputLumps[0].load(stripName, "fogs");
 	outputLumps[1].load(stripName, "brushes");
@@ -2068,42 +2754,6 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 		outputLumps[2].data, outputLumps[2].len );
 	outputLumps[2].clear();
 	outputLumps[1].clear();
-
-	Lump misc;
-	misc.load(stripName, "misc");
-		
-	int num_surfs = *(int*)misc.data;
-	misc.clear();
-
-	R_LoadSurfaces(num_surfs);
-		
-	Lump verts;
-	verts.load(stripName, "verts");
-
-	Lump patches;
-	patches.load(stripName, "patches");
-	R_LoadPatches(verts.data, verts.len, patches.data, patches.len);
-	patches.clear();
-
-	Lump indexes;
-	indexes.load(stripName, "indexes");
-
-	Lump trisurfs;
-	trisurfs.load(stripName, "trisurfs");
-	R_LoadTriSurfs(indexes.data, indexes.len, verts.data, verts.len, trisurfs.data, trisurfs.len);
-	trisurfs.clear();
-	
-	Lump faces;
-	faces.load(stripName, "faces");
-	R_LoadFaces(indexes.data, indexes.len, verts.data, verts.len, faces.data, faces.len);
-	faces.clear();
-	indexes.clear();
-	verts.clear();
-
-	Lump flares;
-	flares.load(stripName, "flares");
-	R_LoadFlares(flares.data, flares.len);
-	flares.clear();
 
 	outputLumps[0].load(stripName, "leafsurfaces");
 	R_LoadMarksurfaces (outputLumps[0].data, outputLumps[0].len);
@@ -2117,20 +2767,21 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	outputLumps[0].load(stripName, "models");
 	R_LoadSubmodels (outputLumps[0].data, outputLumps[0].len);
 
-	outputLumps[0].load(stripName, "visibility");
-	R_LoadVisibility(outputLumps[0].data, outputLumps[0].len);
+	R_LoadVisibility();
 
 	outputLumps[0].load(stripName, "entities");
 	R_LoadEntities( outputLumps[0].data, outputLumps[0].len );
-
 	outputLumps[0].load(stripName, "lightgrid");
 	R_LoadLightGrid( outputLumps[0].data, outputLumps[0].len );
-
 	outputLumps[0].load(stripName, "lightarray");
 	R_LoadLightGridArray( outputLumps[0].data, outputLumps[0].len );
 
 	// only set tr.world now that we know the entire level has loaded properly
 	tr.world = &s_worldData;
+
+	// Load the light parms for this level
+	R_LoadLevelLightParms();
+	R_GetLightParmsForLevel();
 }
 
 
@@ -2139,6 +2790,8 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 extern qboolean gbUsingCachedMapDataRightNow;
 void RE_LoadWorldMap( const char *name )
 {
+	memset(entityVisList, -1, sizeof(entityVisList));
+
 	gbUsingCachedMapDataRightNow = qtrue;	// !!!!!!!!!!!!
 
 		RE_LoadWorldMap_Actual( name, s_worldData, 0 );

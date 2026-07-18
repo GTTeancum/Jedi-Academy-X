@@ -1,41 +1,27 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // tr_init.c -- functions that are not called every frame
 
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
+
+
 #include "tr_local.h"
-
-#ifndef DEDICATED
-#if !defined __TR_WORLDEFFECTS_H
-	#include "tr_WorldEffects.h"
-#endif
-#endif //!DEDICATED
-
+#include "tr_stl.h"
+#include "tr_jpeg_interface.h"
 #include "tr_font.h"
-
-#if !defined (MINIHEAP_H_INC)
-	#include "../qcommon/MiniHeap.h"
-
-#include "../ghoul2/G2_local.h"
+#include "tr_WorldEffects.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
 #endif
 
-
-//#ifdef __USEA3D
-//// Defined in snd_a3dg_refcommon.c
-//void RE_A3D_RenderGeometry (void *pVoidA3D, void *pVoidGeom, void *pVoidMat, void *pVoidGeomStatus);
-//#endif
-
-#define G2_VERT_SPACE_SERVER_SIZE 256
-CMiniHeap *G2VertSpaceServer = NULL;
-CMiniHeap CMiniHeap_singleton(G2_VERT_SPACE_SERVER_SIZE * 1024);
-
-#ifndef DEDICATED
 glconfig_t	glConfig;
 glstate_t	glState;
+
 static void GfxInfo_f( void );
 
-#endif 
-
+void R_TerrainInit(void);
+void R_TerrainShutdown(void);
 
 cvar_t	*r_verbose;
 cvar_t	*r_ignore;
@@ -51,15 +37,13 @@ cvar_t	*r_skipBackEnd;
 cvar_t	*r_ignorehwgamma;
 cvar_t	*r_measureOverdraw;
 
-cvar_t	*r_inGameVideo;
 cvar_t	*r_fastsky;
 cvar_t	*r_drawSun;
 cvar_t	*r_dynamiclight;
-// rjr - removed for hacking cvar_t	*r_dlightBacks;
+cvar_t	*r_dlightBacks;
 
 cvar_t	*r_lodbias;
 cvar_t	*r_lodscale;
-cvar_t	*r_autolodscalevalue;
 
 cvar_t	*r_norefresh;
 cvar_t	*r_drawentities;
@@ -70,15 +54,8 @@ cvar_t	*r_fullbright;
 cvar_t	*r_novis;
 cvar_t	*r_nocull;
 cvar_t	*r_facePlaneCull;
-cvar_t	*r_cullRoofFaces; //attempted smart method of culling out upwards facing surfaces on roofs for automap shots -rww
-cvar_t	*r_roofCullCeilDist; //ceiling distance cull tolerance -rww
-cvar_t	*r_roofCullFloorDist; //floor distance cull tolerance -rww
 cvar_t	*r_showcluster;
 cvar_t	*r_nocurves;
-
-cvar_t	*r_autoMap; //automap renderside toggle for debugging -rww
-cvar_t	*r_autoMapBackAlpha; //alpha of automap bg -rww
-cvar_t	*r_autoMapDisable; //don't calc it (since it's slow in debug) -rww
 
 cvar_t	*r_dlightStyle;
 cvar_t	*r_surfaceSprites;
@@ -111,6 +88,10 @@ cvar_t	*r_DynamicGlowSoft;
 cvar_t	*r_DynamicGlowWidth;
 cvar_t	*r_DynamicGlowHeight;
 
+// Point sprite support.
+cvar_t	*r_ext_point_parameters;
+cvar_t	*r_ext_nv_point_sprite;
+
 cvar_t	*r_ignoreGLErrors;
 cvar_t	*r_logFile;
 
@@ -124,7 +105,6 @@ cvar_t	*r_texturebitslm;
 
 cvar_t	*r_lightmap;
 cvar_t	*r_vertexLight;
-cvar_t	*r_uiFullScreen;
 cvar_t	*r_shadows;
 cvar_t	*r_shadowRange;
 cvar_t	*r_flares;
@@ -134,12 +114,12 @@ cvar_t	*r_singleShader;
 cvar_t	*r_colorMipLevels;
 cvar_t	*r_picmip;
 cvar_t	*r_showtris;
+cvar_t	*r_showtriscolor;
 cvar_t	*r_showsky;
 cvar_t	*r_shownormals;
 cvar_t	*r_finish;
 cvar_t	*r_clear;
 cvar_t	*r_swapInterval;
-cvar_t	*r_markcount;
 cvar_t	*r_textureMode;
 cvar_t	*r_offsetFactor;
 cvar_t	*r_offsetUnits;
@@ -155,7 +135,7 @@ cvar_t	*r_portalOnly;
 cvar_t	*r_subdivisions;
 cvar_t	*r_lodCurveError;
 
-cvar_t	*r_fullscreen = 0;
+cvar_t	*r_fullscreen;
 
 cvar_t	*r_customwidth;
 cvar_t	*r_customheight;
@@ -171,11 +151,7 @@ cvar_t	*r_ambientScale;
 cvar_t	*r_directedScale;
 cvar_t	*r_debugLight;
 cvar_t	*r_debugSort;
-
-cvar_t	*r_maxpolys;
-int		max_polys;
-cvar_t	*r_maxpolyverts;
-int		max_polyverts;
+cvar_t	*r_debugStyle;
 
 cvar_t	*r_modelpoolmegs;
 
@@ -185,24 +161,21 @@ cvar_t  *r_sundir_x;
 cvar_t  *r_sundir_y;
 cvar_t  *r_sundir_z;
 cvar_t  *r_hdrbloom;
+cvar_t	*r_hdrcutoff;
 #endif
-
 
 /*
 Ghoul2 Insert Start
 */
-#ifdef _DEBUG
-cvar_t	*r_noPrecacheGLA;
-#endif
 
-cvar_t	*r_noServerGhoul2;
-cvar_t	*r_Ghoul2AnimSmooth=0;
-cvar_t	*r_Ghoul2UnSqashAfterSmooth=0;
-//cvar_t	*r_Ghoul2UnSqash;
-//cvar_t	*r_Ghoul2TimeBase=0; from single player
-//cvar_t	*r_Ghoul2NoLerp;
-//cvar_t	*r_Ghoul2NoBlend;
-//cvar_t	*r_Ghoul2BlendMultiplier=0;
+cvar_t	*r_noGhoul2;
+cvar_t	*r_Ghoul2AnimSmooth;
+cvar_t	*r_Ghoul2UnSqash;
+cvar_t	*r_Ghoul2TimeBase=0;
+cvar_t	*r_Ghoul2NoLerp;
+cvar_t	*r_Ghoul2NoBlend;
+cvar_t	*r_Ghoul2BlendMultiplier=0;
+cvar_t	*r_Ghoul2UnSqashAfterSmooth;
 
 cvar_t	*broadsword=0;
 cvar_t	*broadsword_kickbones=0;
@@ -222,39 +195,38 @@ cvar_t	*broadsword_dircap=0;
 Ghoul2 Insert End
 */
 
-#ifndef DEDICATED
-#if !(defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP))
-void ( APIENTRY * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
-void ( APIENTRY * qglActiveTextureARB )( GLenum texture );
-void ( APIENTRY * qglClientActiveTextureARB )( GLenum texture );
 
-void ( APIENTRY * qglLockArraysEXT)( GLint, GLint);
-void ( APIENTRY * qglUnlockArraysEXT) ( void );
+/* Plan-B: function-pointer storage for these qgl_* extensions (renamed
+ * to gl* by mass sed) is no longer needed — they're now real functions
+ * declared in qgl_console.h and implemented in fakeglx_jka_compat.cpp.
+ * Original storage was:
+ *   void (APIENTRY *qglMultiTexCoord2fARB)(...);
+ *   void (APIENTRY *qglActiveTextureARB)(...);
+ *   void (APIENTRY *qglClientActiveTextureARB)(...);
+ *   void (APIENTRY *qglLockArraysEXT)(...);
+ *   void (APIENTRY *qglUnlockArraysEXT)(...);
+ *   void (APIENTRY *qglPointParameterfEXT)(...);
+ *   void (APIENTRY *qglPointParameterfvEXT)(...); */
 
-void ( APIENTRY * qglPointParameterfEXT)( GLenum, GLfloat);
-void ( APIENTRY * qglPointParameterfvEXT)( GLenum, GLfloat *);
-#endif
-
-//3d textures -rww
-void ( APIENTRY * qglTexImage3DEXT) (GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
-void ( APIENTRY * qglTexSubImage3DEXT) (GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLenum, const GLvoid *);
-
+// Added 10/23/02 by Aurelio Reis.
+void ( APIENTRY * glPointParameteriNV)( GLenum, GLint);
+void ( APIENTRY * glPointParameterivNV)( GLenum, const GLint *);
 
 #ifndef _XBOX	// GLOWXXX
 // Declare Register Combiners function pointers.
-PFNGLCOMBINERPARAMETERFVNV				qglCombinerParameterfvNV = NULL;
-PFNGLCOMBINERPARAMETERIVNV				qglCombinerParameterivNV = NULL;
-PFNGLCOMBINERPARAMETERFNV				qglCombinerParameterfNV = NULL;
-PFNGLCOMBINERPARAMETERINV				qglCombinerParameteriNV = NULL;
-PFNGLCOMBINERINPUTNV					qglCombinerInputNV = NULL;
-PFNGLCOMBINEROUTPUTNV					qglCombinerOutputNV = NULL;
-PFNGLFINALCOMBINERINPUTNV				qglFinalCombinerInputNV = NULL;
-PFNGLGETCOMBINERINPUTPARAMETERFVNV		qglGetCombinerInputParameterfvNV = NULL;
-PFNGLGETCOMBINERINPUTPARAMETERIVNV		qglGetCombinerInputParameterivNV = NULL;
-PFNGLGETCOMBINEROUTPUTPARAMETERFVNV		qglGetCombinerOutputParameterfvNV = NULL;
-PFNGLGETCOMBINEROUTPUTPARAMETERIVNV		qglGetCombinerOutputParameterivNV = NULL;
-PFNGLGETFINALCOMBINERINPUTPARAMETERFVNV	qglGetFinalCombinerInputParameterfvNV = NULL;
-PFNGLGETFINALCOMBINERINPUTPARAMETERIVNV	qglGetFinalCombinerInputParameterivNV = NULL;
+PFNGLCOMBINERPARAMETERFVNV				glCombinerParameterfvNV = NULL;
+PFNGLCOMBINERPARAMETERIVNV				glCombinerParameterivNV = NULL;
+PFNGLCOMBINERPARAMETERFNV				glCombinerParameterfNV = NULL;
+PFNGLCOMBINERPARAMETERINV				glCombinerParameteriNV = NULL;
+PFNGLCOMBINERINPUTNV					glCombinerInputNV = NULL;
+PFNGLCOMBINEROUTPUTNV					glCombinerOutputNV = NULL;
+PFNGLFINALCOMBINERINPUTNV				glFinalCombinerInputNV = NULL;
+PFNGLGETCOMBINERINPUTPARAMETERFVNV		glGetCombinerInputParameterfvNV = NULL;
+PFNGLGETCOMBINERINPUTPARAMETERIVNV		glGetCombinerInputParameterivNV = NULL;
+PFNGLGETCOMBINEROUTPUTPARAMETERFVNV		glGetCombinerOutputParameterfvNV = NULL;
+PFNGLGETCOMBINEROUTPUTPARAMETERIVNV		glGetCombinerOutputParameterivNV = NULL;
+PFNGLGETFINALCOMBINERINPUTPARAMETERFVNV	glGetFinalCombinerInputParameterfvNV = NULL;
+PFNGLGETFINALCOMBINERINPUTPARAMETERIVNV	glGetFinalCombinerInputParameterivNV = NULL;
 
 // Declare Pixel Format function pointers.
 PFNWGLGETPIXELFORMATATTRIBIVARBPROC		qwglGetPixelFormatAttribivARB = NULL;
@@ -274,64 +246,87 @@ PFNWGLRELEASETEXIMAGEARBPROC			qwglReleaseTexImageARB = NULL;
 PFNWGLSETPBUFFERATTRIBARBPROC			qwglSetPbufferAttribARB = NULL;
 
 // Declare Vertex and Fragment Program function pointers.
-PFNGLPROGRAMSTRINGARBPROC qglProgramStringARB = NULL;
-PFNGLBINDPROGRAMARBPROC qglBindProgramARB = NULL;
-PFNGLDELETEPROGRAMSARBPROC qglDeleteProgramsARB = NULL;
-PFNGLGENPROGRAMSARBPROC qglGenProgramsARB = NULL;
-PFNGLPROGRAMENVPARAMETER4DARBPROC qglProgramEnvParameter4dARB = NULL;
-PFNGLPROGRAMENVPARAMETER4DVARBPROC qglProgramEnvParameter4dvARB = NULL;
-PFNGLPROGRAMENVPARAMETER4FARBPROC qglProgramEnvParameter4fARB = NULL;
-PFNGLPROGRAMENVPARAMETER4FVARBPROC qglProgramEnvParameter4fvARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4DARBPROC qglProgramLocalParameter4dARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4DVARBPROC qglProgramLocalParameter4dvARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4FARBPROC qglProgramLocalParameter4fARB = NULL;
-PFNGLPROGRAMLOCALPARAMETER4FVARBPROC qglProgramLocalParameter4fvARB = NULL;
-PFNGLGETPROGRAMENVPARAMETERDVARBPROC qglGetProgramEnvParameterdvARB = NULL;
-PFNGLGETPROGRAMENVPARAMETERFVARBPROC qglGetProgramEnvParameterfvARB = NULL;
-PFNGLGETPROGRAMLOCALPARAMETERDVARBPROC qglGetProgramLocalParameterdvARB = NULL;
-PFNGLGETPROGRAMLOCALPARAMETERFVARBPROC qglGetProgramLocalParameterfvARB = NULL;
-PFNGLGETPROGRAMIVARBPROC qglGetProgramivARB = NULL;
-PFNGLGETPROGRAMSTRINGARBPROC qglGetProgramStringARB = NULL;
-PFNGLISPROGRAMARBPROC qglIsProgramARB = NULL;
+PFNGLPROGRAMSTRINGARBPROC glProgramStringARB = NULL;
+PFNGLBINDPROGRAMARBPROC glBindProgramARB = NULL;
+PFNGLDELETEPROGRAMSARBPROC glDeleteProgramsARB = NULL;
+PFNGLGENPROGRAMSARBPROC glGenProgramsARB = NULL;
+PFNGLPROGRAMENVPARAMETER4DARBPROC glProgramEnvParameter4dARB = NULL;
+PFNGLPROGRAMENVPARAMETER4DVARBPROC glProgramEnvParameter4dvARB = NULL;
+PFNGLPROGRAMENVPARAMETER4FARBPROC glProgramEnvParameter4fARB = NULL;
+PFNGLPROGRAMENVPARAMETER4FVARBPROC glProgramEnvParameter4fvARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4DARBPROC glProgramLocalParameter4dARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4DVARBPROC glProgramLocalParameter4dvARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4FARBPROC glProgramLocalParameter4fARB = NULL;
+PFNGLPROGRAMLOCALPARAMETER4FVARBPROC glProgramLocalParameter4fvARB = NULL;
+PFNGLGETPROGRAMENVPARAMETERDVARBPROC glGetProgramEnvParameterdvARB = NULL;
+PFNGLGETPROGRAMENVPARAMETERFVARBPROC glGetProgramEnvParameterfvARB = NULL;
+PFNGLGETPROGRAMLOCALPARAMETERDVARBPROC glGetProgramLocalParameterdvARB = NULL;
+PFNGLGETPROGRAMLOCALPARAMETERFVARBPROC glGetProgramLocalParameterfvARB = NULL;
+PFNGLGETPROGRAMIVARBPROC glGetProgramivARB = NULL;
+PFNGLGETPROGRAMSTRINGARBPROC glGetProgramStringARB = NULL;
+PFNGLISPROGRAMARBPROC glIsProgramARB = NULL;
 #endif
-
 
 void RE_SetLightStyle(int style, int color);
 
-void RE_GetBModelVerts( int bmodelIndex, vec3_t *verts, vec3_t normal );
-
-#endif // !DEDICATED
-
-static void AssertCvarRange( cvar_t *cv, float minVal, float maxVal, qboolean shouldBeIntegral )
+static void AssertCvarRange( cvar_t *cv, float minVal, float maxVal, qboolean shouldBeIntegral,  qboolean shouldBeMult2)
 {
+#ifdef _XBOX
+	extern void XBLog_Write(const char*);
+	XBLog_Write("ACR: enter\n");
+	if (cv && cv->name) { XBLog_Write("ACR: cv->name="); XBLog_Write(cv->name); XBLog_Write("\n"); }
+	else { XBLog_Write("ACR: cv or cv->name is NULL!\n"); return; }
+#endif
 	if ( shouldBeIntegral )
 	{
 		if ( ( int ) cv->value != cv->integer )
 		{
-			Com_Printf (S_COLOR_YELLOW  "WARNING: cvar '%s' must be integral (%f)\n", cv->name, cv->value );
+#ifdef _XBOX
+			XBLog_Write("ACR: integral mismatch, calling VID_Printf\n");
+#endif
+			VID_Printf( PRINT_WARNING, "WARNING: cvar '%s' must be integral (%f)\n", cv->name, cv->value );
+#ifdef _XBOX
+			XBLog_Write("ACR: VID_Printf done, calling va()\n");
+			const char *s = va( "%d", cv->integer );
+			XBLog_Write("ACR: va done, calling Cvar_Set\n");
+			Cvar_Set( cv->name, s );
+			XBLog_Write("ACR: Cvar_Set done\n");
+#else
 			Cvar_Set( cv->name, va( "%d", cv->integer ) );
+#endif
 		}
 	}
 
 	if ( cv->value < minVal )
 	{
-		Com_Printf (S_COLOR_YELLOW  "WARNING: cvar '%s' out of range (%f < %f)\n", cv->name, cv->value, minVal );
+		VID_Printf( PRINT_WARNING, "WARNING: cvar '%s' out of range (%f < %f)\n", cv->name, cv->value, minVal );
 		Cvar_Set( cv->name, va( "%f", minVal ) );
 	}
 	else if ( cv->value > maxVal )
 	{
-		Com_Printf (S_COLOR_YELLOW  "WARNING: cvar '%s' out of range (%f > %f)\n", cv->name, cv->value, maxVal );
+		VID_Printf( PRINT_WARNING, "WARNING: cvar '%s' out of range (%f > %f)\n", cv->name, cv->value, maxVal );
 		Cvar_Set( cv->name, va( "%f", maxVal ) );
 	}
-}
 
-#ifndef DEDICATED
+	if (shouldBeMult2)
+	{
+		if ( (cv->integer&(cv->integer-1)) )
+		{
+			int newvalue;
+			for (newvalue = 1 ; newvalue < cv->integer ; newvalue<<=1)
+				;
+			VID_Printf( PRINT_WARNING, "WARNING: cvar '%s' must be multiple of 2(%f)\n", cv->name, cv->value );
+			Cvar_Set( cv->name, va( "%d", newvalue ) );
+		}
+	}
+}
 
 void R_Splash()
 {
 #ifndef _XBOX
 	image_t *pImage;
-/*	const char* s = Cvar_VariableString("se_language");
+/*
+	const char* s = Cvar_VariableString("se_language");
 	if (stricmp(s,"english"))
 	{
 		pImage = R_FindImageFile( "menu/splash_eur", qfalse, qfalse, qfalse, GL_CLAMP);
@@ -342,6 +337,7 @@ void R_Splash()
 	}
 */
 	pImage = R_FindImageFile( "menu/splash", qfalse, qfalse, qfalse, GL_CLAMP);
+
 	extern void	RB_SetGL2D (void);
 	RB_SetGL2D();	
 	if (pImage )
@@ -350,46 +346,24 @@ void R_Splash()
 	}
 	GL_State(GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO);
 
-#ifdef _XBOX
-	int width;
-	if(glw_state->isWidescreen)
-		width = 720;
-	else
-		width = 640;
-#else
 	const int width = 640;
-#endif
 	const int height = 480;
-#ifdef _XBOX
-	float x1, x2;
-	if(glw_state->isWidescreen)
-	{
-		x1 = 360 - width / 2;
-		x2 = 360 + width / 2;
-	}
-	else
-	{
-		x1 = 320 - width / 2;
-		x2 = 320 + width / 2;
-	}
-#else
 	const float x1 = 320 - width / 2;
 	const float x2 = 320 + width / 2;
-#endif
 	const float y1 = 240 - height / 2;
 	const float y2 = 240 + height / 2;
 
 
-	qglBegin (GL_TRIANGLE_STRIP);
-		qglTexCoord2f( 0,  0 );
-		qglVertex2f(x1, y1);
-		qglTexCoord2f( 1 ,  0 );
-		qglVertex2f(x2, y1);
-		qglTexCoord2f( 0, 1 );
-		qglVertex2f(x1, y2);
-		qglTexCoord2f( 1, 1 );
-		qglVertex2f(x2, y2);
-	qglEnd();
+	glBegin (GL_TRIANGLE_STRIP);
+		glTexCoord2f( 0,  0 );
+		glVertex2f(x1, y1);
+		glTexCoord2f( 1 ,  0 );
+		glVertex2f(x2, y1);
+		glTexCoord2f( 0, 1 );
+		glVertex2f(x1, y2);
+		glTexCoord2f( 1, 1 );
+		glVertex2f(x2, y2);
+	glEnd();
 
 	GLimp_EndFrame();
 #endif
@@ -417,9 +391,10 @@ static void InitOpenGL( void )
 	//
 
 	if ( glConfig.vidWidth == 0 )
-	{
+	{		
 		GLimp_Init();
 		// print info the first time only
+		// set default state
 		GL_SetDefaultState();
 		R_Splash();	//get something on screen asap
 		GfxInfo_f();
@@ -429,8 +404,6 @@ static void InitOpenGL( void )
 		// set default state
 		GL_SetDefaultState();
 	}
-	// init command buffers and SMP
-	R_InitCommandBuffers();
 }
 
 /*
@@ -442,7 +415,7 @@ void GL_CheckErrors( void ) {
     int		err;
     char	s[64];
 
-    err = qglGetError();
+    err = glGetError();
     if ( err == GL_NO_ERROR ) {
         return;
     }
@@ -475,8 +448,6 @@ void GL_CheckErrors( void ) {
 
     Com_Error( ERR_FATAL, "GL_CheckErrors: %s", s );
 }
-
-#endif //!DEDICATED
 
 #ifndef _XBOX
 
@@ -538,12 +509,12 @@ static void R_ModeList_f( void )
 {
 	int i;
 
-	Com_Printf ("\n" );
+	VID_Printf( PRINT_ALL, "\n" );
 	for ( i = 0; i < s_numVidModes; i++ )
 	{
-		Com_Printf ("%s\n", r_vidModes[i].description );
+		VID_Printf( PRINT_ALL, "%s\n", r_vidModes[i].description );
 	}
-	Com_Printf ("\n" );
+	VID_Printf( PRINT_ALL, "\n" );
 }
 
 #endif	// _XBOX
@@ -555,70 +526,67 @@ static void R_ModeList_f( void )
  
 ============================================================================== 
 */ 
-#ifndef DEDICATED
+
 /* 
 ================== 
 R_TakeScreenshot
 ================== 
 */  
+// "filename" param is something like "screenshots/shot0000.tga"
+//	note that if the last extension is ".jpg", then it'll save a JPG, else TGA
+//
 void R_TakeScreenshot( int x, int y, int width, int height, char *fileName ) {
 #ifndef _XBOX
 	byte		*buffer;
 	int			i, c, temp;
 
-	buffer = (unsigned char *)Hunk_AllocateTempMemory(glConfig.vidWidth*glConfig.vidHeight*3+18);
+	qboolean bSaveAsJPG = !strnicmp(&fileName[strlen(fileName)-4],".jpg",4);
 
-	Com_Memset (buffer, 0, 18);
-	buffer[2] = 2;		// uncompressed type
-	buffer[12] = width & 255;
-	buffer[13] = width >> 8;
-	buffer[14] = height & 255;
-	buffer[15] = height >> 8;
-	buffer[16] = 24;	// pixel size
+	if (bSaveAsJPG)
+	{
+		// JPG saver expects to be fed RGBA data, though it presumably ignores 'A'...
+		//
+		buffer = (unsigned char *) Z_Malloc(glConfig.vidWidth*glConfig.vidHeight*4, TAG_TEMP_WORKSPACE, qfalse);
+		glReadPixels( x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer ); 
 
-	qglReadPixels( x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer+18 ); 
+		// gamma correct
+		if ( tr.overbrightBits>0 && glConfig.deviceSupportsGamma ) {
+			R_GammaCorrect( buffer, glConfig.vidWidth * glConfig.vidHeight * 4 );
+		}
 
-	// swap rgb to bgr
-	c = 18 + width * height * 3;
-	for (i=18 ; i<c ; i+=3) {
-		temp = buffer[i];
-		buffer[i] = buffer[i+2];
-		buffer[i+2] = temp;
+		SaveJPG(fileName, 95, width, height, buffer);
 	}
+	else
+	{
+		// TGA...
+		//
+		buffer = (unsigned char *) Z_Malloc(glConfig.vidWidth*glConfig.vidHeight*3 + 18, TAG_TEMP_WORKSPACE, qfalse);
+		memset (buffer, 0, 18);
+		buffer[2] = 2;		// uncompressed type
+		buffer[12] = width & 255;
+		buffer[13] = width >> 8;
+		buffer[14] = height & 255;
+		buffer[15] = height >> 8;
+		buffer[16] = 24;	// pixel size
 
-	// gamma correct
-	if ( ( tr.overbrightBits > 0 ) && glConfig.deviceSupportsGamma ) {
-		R_GammaCorrect( buffer + 18, glConfig.vidWidth * glConfig.vidHeight * 3 );
+		glReadPixels( x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer+18 ); 
+
+		// swap rgb to bgr
+		c = 18 + width * height * 3;
+		for (i=18 ; i<c ; i+=3) {
+			temp = buffer[i];
+			buffer[i] = buffer[i+2];
+			buffer[i+2] = temp;
+		}
+
+		// gamma correct
+		if ( tr.overbrightBits>0 && glConfig.deviceSupportsGamma ) {
+			R_GammaCorrect( buffer + 18, glConfig.vidWidth * glConfig.vidHeight * 3 );
+		}
+		FS_WriteFile( fileName, buffer, c );
 	}
-
-	FS_WriteFile( fileName, buffer, c );
-
-	Hunk_FreeTempMemory( buffer );
-#endif
-}
-
-/* 
-================== 
-R_TakeScreenshot
-================== 
-*/  
-void R_TakeScreenshotJPEG( int x, int y, int width, int height, char *fileName ) {
-#ifndef _XBOX
-	byte		*buffer;
-
-	buffer = (unsigned char *)Hunk_AllocateTempMemory(glConfig.vidWidth*glConfig.vidHeight*4);
-
-	qglReadPixels( x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer ); 
-
-	// gamma correct
-	if ( ( tr.overbrightBits > 0 ) && glConfig.deviceSupportsGamma ) {
-		R_GammaCorrect( buffer, glConfig.vidWidth * glConfig.vidHeight * 4 );
-	}
-
-	FS_WriteFile( fileName, buffer, 1 );		// create path
-	SaveJPG( fileName, 95, glConfig.vidWidth, glConfig.vidHeight, buffer);
-
-	Hunk_FreeTempMemory( buffer );
+	
+	Z_Free( buffer );
 #endif
 }
 
@@ -656,7 +624,7 @@ the menu system, sampled down from full screen distorted images
 ====================
 */
 #define LEVELSHOTSIZE 256
-static void R_LevelShot( void ) {
+void R_LevelShot( void ) {
 #ifndef _XBOX
 	char		checkname[MAX_OSPATH];
 	byte		*buffer;
@@ -667,12 +635,12 @@ static void R_LevelShot( void ) {
 	float		xScale, yScale;
 	int			xx, yy;
 
-	sprintf( checkname, "levelshots/%s.tga", tr.world->baseName );
+	sprintf( checkname, "levelshots/%s.tga", tr.worldDir + strlen("maps/") );
 
-	source = (unsigned char *)Hunk_AllocateTempMemory( glConfig.vidWidth * glConfig.vidHeight * 3 );
+	source = (byte*) Z_Malloc( glConfig.vidWidth * glConfig.vidHeight * 3, TAG_TEMP_WORKSPACE, qfalse );
 
-	buffer = (unsigned char *)Hunk_AllocateTempMemory( LEVELSHOTSIZE * LEVELSHOTSIZE*3 + 18);
-	Com_Memset (buffer, 0, 18);
+	buffer = (byte*) Z_Malloc( LEVELSHOTSIZE * LEVELSHOTSIZE*3 + 18, TAG_TEMP_WORKSPACE, qfalse );
+	memset (buffer, 0, 18);
 	buffer[2] = 2;		// uncompressed type
 	buffer[12] = LEVELSHOTSIZE & 255;
 	buffer[13] = LEVELSHOTSIZE >> 8;
@@ -680,7 +648,7 @@ static void R_LevelShot( void ) {
 	buffer[15] = LEVELSHOTSIZE >> 8;
 	buffer[16] = 24;	// pixel size
 
-	qglReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, source ); 
+	glReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGB, GL_UNSIGNED_BYTE, source ); 
 
 	// resample from source
 	xScale = glConfig.vidWidth / (4.0*LEVELSHOTSIZE);
@@ -704,22 +672,22 @@ static void R_LevelShot( void ) {
 	}
 
 	// gamma correct
-	if ( ( tr.overbrightBits > 0 ) && glConfig.deviceSupportsGamma ) {
+	if ( glConfig.deviceSupportsGamma ) {
 		R_GammaCorrect( buffer + 18, LEVELSHOTSIZE * LEVELSHOTSIZE * 3 );
 	}
 
 	FS_WriteFile( checkname, buffer, LEVELSHOTSIZE * LEVELSHOTSIZE*3 + 18 );
 
-	Hunk_FreeTempMemory( buffer );
-	Hunk_FreeTempMemory( source );
+	Z_Free( buffer );
+	Z_Free( source );
 
-	Com_Printf ("Wrote %s\n", checkname );
+	VID_Printf( PRINT_ALL, "Wrote %s\n", checkname );
 #endif
 }
 
 /* 
 ================== 
-R_ScreenShotTGA_f
+R_ScreenShot_f
 
 screenshot
 screenshot [silent]
@@ -729,66 +697,10 @@ screenshot [filename]
 Doesn't print the pacifier message if there is a second arg
 ================== 
 */  
-void R_ScreenShotTGA_f (void) {
-#ifndef _XBOX
-	char		checkname[MAX_OSPATH];
-	static	int	lastNumber = -1;
-	qboolean	silent;
-
-	if ( !strcmp( Cmd_Argv(1), "levelshot" ) ) {
-		R_LevelShot();
-		return;
-	}
-
-	if ( !strcmp( Cmd_Argv(1), "silent" ) ) {
-		silent = qtrue;
-	} else {
-		silent = qfalse;
-	}
-
-	if ( Cmd_Argc() == 2 && !silent ) {
-		// explicit filename
-		Com_sprintf( checkname, MAX_OSPATH, "screenshots/%s.tga", Cmd_Argv( 1 ) );
-	} else {
-		// scan for a free filename
-
-		// if we have saved a previous screenshot, don't scan
-		// again, because recording demo avis can involve
-		// thousands of shots
-		if ( lastNumber == -1 ) {
-			lastNumber = 0;
-		}
-		// scan for a free number
-		for ( ; lastNumber <= 9999 ; lastNumber++ ) {
-			R_ScreenshotFilename( lastNumber, checkname, ".tga" );
-
-			if (!FS_FileExists( checkname ))
-			{
-				break; // file doesn't exist
-			}
-		}
-
-		if ( lastNumber >= 9999 ) {
-			Com_Printf ( "ScreenShot: Couldn't create a file\n"); 
-			return;
- 		}
-
-		lastNumber++;
-	}
-
-
-	R_TakeScreenshot( 0, 0, glConfig.vidWidth, glConfig.vidHeight, checkname );
-
-	if ( !silent ) {
-		Com_Printf ( "Wrote %s\n", checkname);
-	}
-#endif
-} 
-
-//jpeg  vession
 void R_ScreenShot_f (void) {
 #ifndef _XBOX
 	char		checkname[MAX_OSPATH];
+	int			len;
 	static	int	lastNumber = -1;
 	qboolean	silent;
 
@@ -812,20 +724,21 @@ void R_ScreenShot_f (void) {
 		// again, because recording demo avis can involve
 		// thousands of shots
 		if ( lastNumber == -1 ) {
-			lastNumber = 0;
-		}
-		// scan for a free number
-		for ( ; lastNumber <= 9999 ; lastNumber++ ) {
-			R_ScreenshotFilename( lastNumber, checkname, ".jpg" );
+			// scan for a free number
+			for ( lastNumber = 0 ; lastNumber <= 9999 ; lastNumber++ ) {
+				R_ScreenshotFilename( lastNumber, checkname, ".jpg" );
 
-			if (!FS_FileExists( checkname ))
-			{
-				break; // file doesn't exist
+				len = FS_ReadFile( checkname, NULL );
+				if ( len <= 0 ) {
+					break;	// file doesn't exist
+				}
 			}
+		} else {
+			R_ScreenshotFilename( lastNumber, checkname, ".jpg" );
 		}
 
 		if ( lastNumber == 10000 ) {
-			Com_Printf ( "ScreenShot: Couldn't create a file\n"); 
+			VID_Printf (PRINT_ALL, "ScreenShot: Couldn't create a file\n"); 
 			return;
  		}
 
@@ -833,13 +746,86 @@ void R_ScreenShot_f (void) {
 	}
 
 
-	R_TakeScreenshotJPEG( 0, 0, glConfig.vidWidth, glConfig.vidHeight, checkname );
+	R_TakeScreenshot( 0, 0, glConfig.vidWidth, glConfig.vidHeight, checkname );
 
 	if ( !silent ) {
-		Com_Printf ( "Wrote %s\n", checkname);
+		VID_Printf (PRINT_ALL, "Wrote %s\n", checkname);
 	}
 #endif
 } 
+
+
+
+/* 
+================== 
+R_ScreenShotTGA_f
+
+screenshot
+screenshot [silent]
+screenshot [levelshot]
+screenshot [filename]
+
+Doesn't print the pacifier message if there is a second arg
+================== 
+*/  
+void R_ScreenShotTGA_f (void) {
+#ifndef _XBOX
+	char		checkname[MAX_OSPATH];
+	int			len;
+	static	int	lastNumber = -1;
+	qboolean	silent;
+
+	if ( !strcmp( Cmd_Argv(1), "levelshot" ) ) {
+		R_LevelShot();
+		return;
+	}
+	if ( !strcmp( Cmd_Argv(1), "silent" ) ) {
+		silent = qtrue;
+	} else {
+		silent = qfalse;
+	}
+
+	if ( Cmd_Argc() == 2 && !silent ) {
+		// explicit filename
+		Com_sprintf( checkname, MAX_OSPATH, "screenshots/%s.tga", Cmd_Argv( 1 ) );
+	} else {
+		// scan for a free filename
+
+		// if we have saved a previous screenshot, don't scan
+		// again, because recording demo avis can involve
+		// thousands of shots
+		if ( lastNumber == -1 ) {
+			// scan for a free number
+			for ( lastNumber = 0 ; lastNumber <= 9999 ; lastNumber++ ) {
+				R_ScreenshotFilename( lastNumber, checkname, ".tga" );
+
+				len = FS_ReadFile( checkname, NULL );
+				if ( len <= 0 ) {
+					break;	// file doesn't exist
+				}
+			}
+		} else {
+			R_ScreenshotFilename( lastNumber, checkname, ".tga" );
+		}
+
+		if ( lastNumber == 10000 ) {
+			VID_Printf (PRINT_ALL, "ScreenShot: Couldn't create a file\n"); 
+			return;
+ 		}
+
+		lastNumber++;
+	}
+
+
+	R_TakeScreenshot( 0, 0, glConfig.vidWidth, glConfig.vidHeight, checkname );
+
+	if ( !silent ) {
+		VID_Printf (PRINT_ALL, "Wrote %s\n", checkname);
+	}
+#endif
+} 
+
+
 
 //============================================================================
 
@@ -848,46 +834,48 @@ void R_ScreenShot_f (void) {
 */
 void GL_SetDefaultState( void )
 {
-	qglClearDepth( 1.0f );
+	glClearDepth( 1.0f );
 
-	qglCullFace(GL_FRONT);
+	glCullFace(GL_FRONT);
 
-	qglColor4f (1,1,1,1);
+	glColor4f (1,1,1,1);
 
 	// initialize downstream texture unit if we're running
 	// in a multitexture environment
-	if ( qglActiveTextureARB ) {
+	if ( glActiveTextureARB ) {
 		GL_SelectTexture( 1 );
 		GL_TextureMode( r_textureMode->string );
 		GL_TexEnv( GL_MODULATE );
-		qglDisable( GL_TEXTURE_2D );
+		glDisable( GL_TEXTURE_2D );
 		GL_SelectTexture( 0 );
 	}
 
-	qglEnable(GL_TEXTURE_2D);
+	glEnable(GL_TEXTURE_2D);
 	GL_TextureMode( r_textureMode->string );
 	GL_TexEnv( GL_MODULATE );
 
-	qglShadeModel( GL_SMOOTH );
-	qglDepthFunc( GL_LEQUAL );
+	glShadeModel( GL_SMOOTH );
+	glDepthFunc( GL_LEQUAL );
 
 	// the vertex array is always enabled, but the color and texture
 	// arrays are enabled and disabled around the compiled vertex array call
-	qglEnableClientState (GL_VERTEX_ARRAY);
+	glEnableClientState (GL_VERTEX_ARRAY);
 
 	//
 	// make sure our GL state vector is set correctly
 	//
 	glState.glStateBits = GLS_DEPTHTEST_DISABLE | GLS_DEPTHMASK_TRUE;
 
-	qglPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	qglDepthMask( GL_TRUE );
-	qglDisable( GL_DEPTH_TEST );
-	qglEnable( GL_SCISSOR_TEST );
-	qglDisable( GL_CULL_FACE );
-	qglDisable( GL_BLEND );
+	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
+	glDepthMask( GL_TRUE );
+	glDisable( GL_DEPTH_TEST );
+	glEnable( GL_SCISSOR_TEST );
+	glDisable( GL_CULL_FACE );
+	glDisable( GL_BLEND );
+	glDisable( GL_ALPHA_TEST );
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
 #ifdef _XBOX
-	qglDisable( GL_LIGHTING );
+	glDisable( GL_LIGHTING );
 #endif
 }
 
@@ -918,84 +906,197 @@ void GfxInfo_f( void )
 		"GL_EXT_texture_compression_s3tc",
 	};
 
-	Com_Printf ("\nGL_VENDOR: %s\n", glConfig.vendor_string );
-	Com_Printf ("GL_RENDERER: %s\n", glConfig.renderer_string );
-	Com_Printf ("GL_VERSION: %s\n", glConfig.version_string );
-	Com_Printf ("GL_EXTENSIONS: %s\n", glConfig.extensions_string );
-	Com_Printf ("GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
-	Com_Printf ("GL_MAX_ACTIVE_TEXTURES_ARB: %d\n", glConfig.maxActiveTextures );
-	Com_Printf ("\nPIXELFORMAT: color(%d-bits) Z(%d-bit) stencil(%d-bits)\n", glConfig.colorBits, glConfig.depthBits, glConfig.stencilBits );
-	Com_Printf ("MODE: %d, %d x %d %s hz:", r_mode->integer, glConfig.vidWidth, glConfig.vidHeight, fsstrings[r_fullscreen->integer == 1] );
+	VID_Printf( PRINT_ALL, "\nGL_VENDOR: %s\n", glConfig.vendor_string );
+	VID_Printf( PRINT_ALL, "GL_RENDERER: %s\n", glConfig.renderer_string );
+	VID_Printf( PRINT_ALL, "GL_VERSION: %s\n", glConfig.version_string );
+	VID_Printf( PRINT_ALL, "GL_EXTENSIONS: %s\n", glConfig.extensions_string );
+	VID_Printf( PRINT_ALL, "GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
+	VID_Printf( PRINT_ALL, "GL_MAX_ACTIVE_TEXTURES_ARB: %d\n", glConfig.maxActiveTextures );
+	VID_Printf( PRINT_ALL, "\nPIXELFORMAT: color(%d-bits) Z(%d-bit) stencil(%d-bits)\n", glConfig.colorBits, glConfig.depthBits, glConfig.stencilBits );
+	VID_Printf( PRINT_ALL, "MODE: %d, %d x %d %s hz:", r_mode->integer, glConfig.vidWidth, glConfig.vidHeight, fsstrings[r_fullscreen->integer == 1] );
 	if ( glConfig.displayFrequency )
 	{
-		Com_Printf ("%d\n", glConfig.displayFrequency );
+		VID_Printf( PRINT_ALL, "%d\n", glConfig.displayFrequency );
 	}
 	else
 	{
-		Com_Printf ("N/A\n" );
+		VID_Printf( PRINT_ALL, "N/A\n" );
 	}
 	if ( glConfig.deviceSupportsGamma )
 	{
-		Com_Printf ("GAMMA: hardware w/ %d overbright bits\n", tr.overbrightBits );
+		VID_Printf( PRINT_ALL, "GAMMA: hardware w/ %d overbright bits\n", tr.overbrightBits );
 	}
 	else
 	{
-		Com_Printf ("GAMMA: software w/ %d overbright bits\n", tr.overbrightBits );
+		VID_Printf( PRINT_ALL, "GAMMA: software w/ %d overbright bits\n", tr.overbrightBits );
 	}
-	Com_Printf ("CPU: %s @ %s MHz\n", sys_cpustring->string, Cvar_VariableString("sys_cpuspeed") );
+	VID_Printf( PRINT_ALL, "CPU: %s\n", sys_cpustring->string );
 
 	// rendering primitives
 	{
 		int		primitives;
 
 		// default is to use triangles if compiled vertex arrays are present
-		Com_Printf ("rendering primitives: " );
+		VID_Printf( PRINT_ALL, "rendering primitives: " );
 		primitives = r_primitives->integer;
 		if ( primitives == 0 ) {
-			if ( qglLockArraysEXT ) {
+			if ( glLockArraysEXT ) {
 				primitives = 2;
 			} else {
 				primitives = 1;
 			}
 		}
 		if ( primitives == -1 ) {
-			Com_Printf ("none\n" );
+			VID_Printf( PRINT_ALL, "none\n" );
 		} else if ( primitives == 2 ) {
-			Com_Printf ("single glDrawElements\n" );
+			VID_Printf( PRINT_ALL, "single glDrawElements\n" );
 		} else if ( primitives == 1 ) {
-			Com_Printf ("multiple glArrayElement\n" );
+			VID_Printf( PRINT_ALL, "multiple glArrayElement\n" );
 		} else if ( primitives == 3 ) {
-			Com_Printf ("multiple glColor4ubv + glTexCoord2fv + glVertex3fv\n" );
+			VID_Printf( PRINT_ALL, "multiple glColor4ubv + glTexCoord2fv + glVertex3fv\n" );
 		}
 	}
 
-	Com_Printf ("texturemode: %s\n", r_textureMode->string );
-	Com_Printf ("picmip: %d\n", r_picmip->integer );
-	Com_Printf ("texture bits: %d\n", r_texturebits->integer );
-	Com_Printf ("lightmap texture bits: %d\n", r_texturebitslm->integer );
-	Com_Printf ("multitexture: %s\n", enablestrings[qglActiveTextureARB != 0] );
-	Com_Printf ("compiled vertex arrays: %s\n", enablestrings[qglLockArraysEXT != 0 ] );
-	Com_Printf ("texenv add: %s\n", enablestrings[glConfig.textureEnvAddAvailable != 0] );
-	Com_Printf ("compressed textures: %s\n", enablestrings[glConfig.textureCompression != TC_NONE] );
-	Com_Printf ("compressed lightmaps: %s\n", enablestrings[(r_ext_compressed_lightmaps->integer != 0 && glConfig.textureCompression != TC_NONE)] );
-	Com_Printf ("texture compression method: %s\n", tc_table[glConfig.textureCompression] );
+	VID_Printf( PRINT_ALL, "texturemode: %s\n", r_textureMode->string );
+	VID_Printf( PRINT_ALL, "picmip: %d\n", r_picmip->integer );
+	VID_Printf( PRINT_ALL, "texture bits: %d\n", r_texturebits->integer );
+	VID_Printf( PRINT_ALL, "lightmap texture bits: %d\n", r_texturebitslm->integer );
+	VID_Printf( PRINT_ALL, "multitexture: %s\n", enablestrings[glActiveTextureARB != 0] );
+	VID_Printf( PRINT_ALL, "compiled vertex arrays: %s\n", enablestrings[glLockArraysEXT != 0 ] );
+	VID_Printf( PRINT_ALL, "texenv add: %s\n", enablestrings[glConfig.textureEnvAddAvailable != 0] );
+	VID_Printf( PRINT_ALL, "compressed textures: %s\n", enablestrings[glConfig.textureCompression != TC_NONE] );
+	VID_Printf( PRINT_ALL, "compressed lightmaps: %s\n", enablestrings[(r_ext_compressed_lightmaps->integer != 0 && glConfig.textureCompression != TC_NONE)] );
+	VID_Printf( PRINT_ALL, "texture compression method: %s\n", tc_table[glConfig.textureCompression] );
 	Com_Printf ("anisotropic filtering: %s  ", enablestrings[(r_ext_texture_filter_anisotropic->integer != 0) && glConfig.maxTextureFilterAnisotropy] );
 		Com_Printf ("(%f of %f)\n", r_ext_texture_filter_anisotropic->value, glConfig.maxTextureFilterAnisotropy );
 	Com_Printf ("Dynamic Glow: %s\n", enablestrings[r_DynamicGlow->integer] );
 
 	if ( r_finish->integer ) {
-		Com_Printf ("Forcing glFinish\n" );
+		VID_Printf( PRINT_ALL, "Forcing glFinish\n" );
 	}
 	if ( r_displayRefresh ->integer ) {
-		Com_Printf ("Display refresh set to %d\n", r_displayRefresh->integer );
+		VID_Printf( PRINT_ALL, "Display refresh set to %d\n", r_displayRefresh->integer );
 	}
 	if (tr.world)
 	{
-		Com_Printf ("Light Grid size set to (%.2f %.2f %.2f)\n", tr.world->lightGridSize[0], tr.world->lightGridSize[1], tr.world->lightGridSize[2] );
+		VID_Printf( PRINT_ALL, "Light Grid size set to (%.2f %.2f %.2f)\n", tr.world->lightGridSize[0], tr.world->lightGridSize[1], tr.world->lightGridSize[2] );
 	}
 }
 
-#endif // !DEDICATED
+
+/************************************************************************************************
+ * R_FogDistance_f                                                                              *
+ *    Console command to change the global fog opacity distance.  If you specify nothing on the *
+ *    command line, it will display the current fog opacity distance.  Specifying a float       *
+ *    representing the world units away the fog should be completely opaque will change the     *
+ *    value.                                                                                    *
+ *                                                                                              *
+ * Input                                                                                        *
+ *    none                                                                                      *
+ *                                                                                              *
+ * Output / Return                                                                              *
+ *    none                                                                                      *
+ *                                                                                              *
+ ************************************************************************************************/
+void R_FogDistance_f(void)
+{
+	float	distance;
+
+	if (!tr.world)
+	{
+		VID_Printf(PRINT_ALL, "R_FogDistance_f: World is not initialized\n");
+		return;
+	}
+
+	if (tr.world->globalFog == -1)
+	{
+		VID_Printf(PRINT_ALL, "R_FogDistance_f: World does not have a global fog\n");
+		return;
+	}
+
+	if (Cmd_Argc() <= 1)
+	{
+//		should not ever be 0.0
+//		if (tr.world->fogs[tr.world->globalFog].tcScale == 0.0)
+//		{
+//			distance = 0.0;
+//		}
+//		else
+		{
+			distance = 1.0 / (8.0 * tr.world->fogs[tr.world->globalFog].tcScale);
+		}
+
+		VID_Printf(PRINT_ALL, "R_FogDistance_f: Current Distance: %.0f\n", distance);
+		return;
+	}
+
+	if (Cmd_Argc() != 2)
+	{
+		VID_Printf(PRINT_ALL, "R_FogDistance_f: Invalid number of arguments to set distance\n");
+		return;
+	}
+
+	distance = atof(Cmd_Argv(1));
+	if (distance < 1.0) 
+	{
+		distance = 1.0;
+	}
+	tr.world->fogs[tr.world->globalFog].parms.depthForOpaque = distance;
+	tr.world->fogs[tr.world->globalFog].tcScale = 1.0 / ( distance * 8 );
+}
+
+/************************************************************************************************
+ * R_FogColor_f                                                                                 *
+ *    Console command to change the global fog color.  Specifying nothing on the command will   *
+ *    display the current global fog color.  Specifying a float R G B values between 0.0 and    *
+ *    1.0 will change the fog color.                                                            *
+ *                                                                                              *
+ * Input                                                                                        *
+ *    none                                                                                      *
+ *                                                                                              *
+ * Output / Return                                                                              *
+ *    none                                                                                      *
+ *                                                                                              *
+ ************************************************************************************************/
+void R_FogColor_f(void)
+{
+	if (!tr.world)
+	{
+		VID_Printf(PRINT_ALL, "R_FogColor_f: World is not initialized\n");
+		return;
+	}
+
+	if (tr.world->globalFog == -1)
+	{
+		VID_Printf(PRINT_ALL, "R_FogColor_f: World does not have a global fog\n");
+		return;
+	}
+
+	if (Cmd_Argc() <= 1)
+	{
+		unsigned	i = tr.world->fogs[tr.world->globalFog].colorInt;
+
+		VID_Printf(PRINT_ALL, "R_FogColor_f: Current Color: %0f %0f %0f\n",
+			( (byte *)&i )[0] / 255.0,
+			( (byte *)&i )[1] / 255.0,
+			( (byte *)&i )[2] / 255.0);
+		return;
+	}
+
+	if (Cmd_Argc() != 4)
+	{
+		VID_Printf(PRINT_ALL, "R_FogColor_f: Invalid number of arguments to set color\n");
+		return;
+	}
+
+	tr.world->fogs[tr.world->globalFog].parms.color[0] = atof(Cmd_Argv(1));
+	tr.world->fogs[tr.world->globalFog].parms.color[1] = atof(Cmd_Argv(2));
+	tr.world->fogs[tr.world->globalFog].parms.color[2] = atof(Cmd_Argv(3));
+	tr.world->fogs[tr.world->globalFog].colorInt = ColorBytes4 ( atof(Cmd_Argv(1)) * tr.identityLight, 
+			                          atof(Cmd_Argv(2)) * tr.identityLight, 
+			                          atof(Cmd_Argv(3)) * tr.identityLight, 1.0 );
+}
+
 /*
 ===============
 R_Register
@@ -1013,17 +1114,12 @@ void R_Register( void )
 	r_ext_gamma_control = Cvar_Get( "r_ext_gamma_control", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_ext_multitexture = Cvar_Get( "r_ext_multitexture", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_ext_compiled_vertex_array = Cvar_Get( "r_ext_compiled_vertex_array", "1", CVAR_ARCHIVE | CVAR_LATCH);
-#ifdef __linux__ // broken on linux
-	r_ext_texture_env_add = Cvar_Get( "r_ext_texture_env_add", "0", CVAR_ARCHIVE | CVAR_LATCH);
-#else
 	r_ext_texture_env_add = Cvar_Get( "r_ext_texture_env_add", "1", CVAR_ARCHIVE | CVAR_LATCH);
-#endif
 	r_ext_texture_filter_anisotropic = Cvar_Get( "r_ext_texture_filter_anisotropic", "16", CVAR_ARCHIVE );
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+ 
+#ifdef _XBOX
 	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "0", CVAR_ARCHIVE );
 	Cvar_Set( "r_DynamicGlow", "0" );
-	Com_Printf( "STEFX_HM: MP renderer using SP Xbox dynamic glow policy off\n" );
 #else
 	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "1", CVAR_ARCHIVE );
 #endif
@@ -1034,18 +1130,25 @@ void R_Register( void )
 	r_DynamicGlowWidth = Cvar_Get( "r_DynamicGlowWidth", "320", CVAR_CHEAT | CVAR_LATCH );
 	r_DynamicGlowHeight = Cvar_Get( "r_DynamicGlowHeight", "240", CVAR_CHEAT | CVAR_LATCH );
 
+	// Register point sprite stuff here.
+	r_ext_point_parameters = Cvar_Get( "r_ext_point_parameters", "1", CVAR_ARCHIVE );
+	r_ext_nv_point_sprite = Cvar_Get( "r_ext_nv_point_sprite", "1", CVAR_ARCHIVE );
+
 	r_picmip = Cvar_Get ("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#ifdef _XBOX
+#ifdef STEFX_ELITE_FORCE_SP
 	Cvar_Set( "r_picmip", "1" );
-	Com_Printf( "STEFX_HM: MP renderer using SP Xbox r_picmip=1 policy\n" );
+#else
+	Cvar_Set( "r_picmip", "0" );
+#endif
 #endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
-	AssertCvarRange( r_picmip, 0, 16, qtrue );
+	AssertCvarRange( r_picmip, 0, 16, qtrue, qfalse );
 	r_detailTextures = Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_texturebits = Cvar_Get( "r_texturebits", "0", CVAR_ARCHIVE | CVAR_LATCH );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	Cvar_Set( "r_texturebits", "0" );
-	Com_Printf( "STEFX_HM: MP renderer using SP Xbox r_texturebits=0 component upload policy\n" );
+	XBLF( "STEFX: R_Register keeping r_texturebits=0 so fakegl receives 3/4 component internal formats" );
 #endif
 	r_texturebitslm = Cvar_Get( "r_texturebitslm", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_colorbits = Cvar_Get( "r_colorbits", "0", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1057,7 +1160,7 @@ void R_Register( void )
 #endif
 	r_depthbits = Cvar_Get( "r_depthbits", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_overBrightBits = Cvar_Get ("r_overBrightBits", "0", CVAR_ARCHIVE | CVAR_LATCH );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	Cvar_Get( "r_stefxLightmapBoost", "2.5", CVAR_ARCHIVE );
 #endif
 	r_ignorehwgamma = Cvar_Get( "r_ignorehwgamma", "0", CVAR_ARCHIVE | CVAR_LATCH);
@@ -1067,22 +1170,32 @@ void R_Register( void )
 	r_customheight = Cvar_Get( "r_customheight", "1024", CVAR_ARCHIVE | CVAR_LATCH );
 	r_simpleMipMaps = Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_vertexLight = Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
-	r_uiFullScreen = Cvar_Get( "r_uifullscreen", "0", 0);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#ifdef _XBOX
 	r_subdivisions = Cvar_Get ("r_subdivisions", "64", CVAR_ARCHIVE | CVAR_LATCH);
 	Cvar_Set( "r_subdivisions", "64" );
-	Com_Printf( "STEFX_HM: MP renderer using SP Xbox r_subdivisions=64 policy\n" );
+	if ( r_vertexLight->integer != 0 )
+	{
+		XBLF( "JA: R_Register forcing r_vertexLight %d -> 0 for Xbox lighting baseline", r_vertexLight->integer );
+		Cvar_Set( "r_vertexLight", "0" );
+	}
 #else
 	r_subdivisions = Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
 #endif
-
+	r_intensity = Cvar_Get ("r_intensity", "1", CVAR_LATCH|CVAR_ARCHIVE );
+	
 	//
 	// temporary latched variables that can only change over a restart
 	//
 	r_displayRefresh = Cvar_Get( "r_displayRefresh", "0", CVAR_LATCH );
-	AssertCvarRange( r_displayRefresh, 0, 200, qtrue );
+	AssertCvarRange( r_displayRefresh, 0, 200, qtrue, qfalse );
 	r_fullbright = Cvar_Get ("r_fullbright", "0", CVAR_CHEAT );
-	r_intensity = Cvar_Get ("r_intensity", "1", CVAR_LATCH );
+#ifdef _XBOX
+	if ( r_fullbright->integer != 0 )
+	{
+		XBLF( "JA: R_Register forcing r_fullbright %d -> 0 for Xbox lighting baseline", r_fullbright->integer );
+		Cvar_Set( "r_fullbright", "0" );
+	}
+#endif
 	r_singleShader = Cvar_Get ("r_singleShader", "0", CVAR_CHEAT | CVAR_LATCH );
 
 	//
@@ -1090,25 +1203,23 @@ void R_Register( void )
 	//
 	r_lodCurveError = Cvar_Get( "r_lodCurveError", "250", CVAR_ARCHIVE );
 	r_lodbias = Cvar_Get( "r_lodbias", "0", CVAR_ARCHIVE );
-	r_autolodscalevalue = Cvar_Get( "r_autolodscalevalue", "0", CVAR_ROM );
-
 	r_flares = Cvar_Get ("r_flares", "1", CVAR_ARCHIVE );
+	r_lodscale = Cvar_Get( "r_lodscale", "10", CVAR_ARCHIVE );
+
 #ifdef _XBOX
-	r_znear = Cvar_Get( "r_znear", "2", CVAR_CHEAT );
+	r_znear = Cvar_Get( "r_znear", "2", CVAR_CHEAT );	//lose a lot of precision in the distance
 #else
-	r_znear = Cvar_Get( "r_znear", "4", CVAR_CHEAT );
+	r_znear = Cvar_Get( "r_znear", "4", CVAR_CHEAT );	//if set any lower, you lose a lot of precision in the distance
 #endif
-	AssertCvarRange( r_znear, 0.001f, 200, qtrue );
+	AssertCvarRange( r_znear, 0.001f, 200, qfalse, qfalse );
 	r_ignoreGLErrors = Cvar_Get( "r_ignoreGLErrors", "1", CVAR_ARCHIVE );
 	r_fastsky = Cvar_Get( "r_fastsky", "0", CVAR_ARCHIVE );
-	r_inGameVideo = Cvar_Get( "r_inGameVideo", "1", CVAR_ARCHIVE );
 	r_drawSun = Cvar_Get( "r_drawSun", "0", CVAR_ARCHIVE );
 	r_dynamiclight = Cvar_Get( "r_dynamiclight", "1", CVAR_ARCHIVE );
-// rjr - removed for hacking r_dlightBacks = Cvar_Get( "r_dlightBacks", "1", CVAR_CHEAT );
+	r_dlightBacks = Cvar_Get( "r_dlightBacks", "0", CVAR_ARCHIVE );
 	r_finish = Cvar_Get ("r_finish", "0", CVAR_ARCHIVE);
 	r_textureMode = Cvar_Get( "r_textureMode", "GL_LINEAR_MIPMAP_NEAREST", CVAR_ARCHIVE );
 	r_swapInterval = Cvar_Get( "r_swapInterval", "0", CVAR_ARCHIVE );
-	r_markcount = Cvar_Get( "r_markcount", "100", CVAR_ARCHIVE );
 #ifdef __MACOS__
 	r_gamma = Cvar_Get( "r_gamma", "1.2", CVAR_ARCHIVE );
 #else
@@ -1118,29 +1229,7 @@ void R_Register( void )
 #ifdef _XBOX
 	s_brightness_volume = Cvar_Get( "s_brightness_volume", "1", CVAR_ARCHIVE );
 #endif
-
 	r_facePlaneCull = Cvar_Get ("r_facePlaneCull", "1", CVAR_ARCHIVE );
-
-	r_cullRoofFaces = Cvar_Get ("r_cullRoofFaces", "0", CVAR_CHEAT ); //attempted smart method of culling out upwards facing surfaces on roofs for automap shots -rww
-	r_roofCullCeilDist = Cvar_Get ("r_roofCullCeilDist", "256", CVAR_CHEAT ); //attempted smart method of culling out upwards facing surfaces on roofs for automap shots -rww
-	r_roofCullFloorDist = Cvar_Get ("r_roofCeilFloorDist", "128", CVAR_CHEAT ); //attempted smart method of culling out upwards facing surfaces on roofs for automap shots -rww
-
-	r_primitives = Cvar_Get( "r_primitives", "0", CVAR_ARCHIVE );
-
-	r_ambientScale = Cvar_Get( "r_ambientScale", "0.6", CVAR_CHEAT );
-	r_directedScale = Cvar_Get( "r_directedScale", "1", CVAR_CHEAT );
-
-	r_autoMap = Cvar_Get( "r_autoMap", "0", CVAR_ARCHIVE ); //automap renderside toggle for debugging -rww
-	r_autoMapBackAlpha = Cvar_Get( "r_autoMapBackAlpha", "0", 0 ); //alpha of automap bg -rww
-	r_autoMapDisable = Cvar_Get( "r_autoMapDisable", "1", 0 );
-
-	//
-	// temporary variables that can change at any time
-	//
-	r_showImages = Cvar_Get( "r_showImages", "0", CVAR_CHEAT );
-
-	r_debugLight = Cvar_Get( "r_debuglight", "0", CVAR_TEMP );
-	r_debugSort = Cvar_Get( "r_debugSort", "0", CVAR_CHEAT );
 
 	r_dlightStyle = Cvar_Get ("r_dlightStyle", "1", CVAR_TEMP);
 	r_surfaceSprites = Cvar_Get ("r_surfaceSprites", "1", CVAR_TEMP);
@@ -1154,19 +1243,43 @@ void R_Register( void )
 	r_windPointX = Cvar_Get ("r_windPointX", "0", 0);
 	r_windPointY = Cvar_Get ("r_windPointY", "0", 0);
 
+	r_primitives = Cvar_Get( "r_primitives", "0", CVAR_ARCHIVE );
+
+	r_ambientScale = Cvar_Get( "r_ambientScale", "0.5", CVAR_CHEAT );
+	r_directedScale = Cvar_Get( "r_directedScale", "1", CVAR_CHEAT );
+
+	//
+	// temporary variables that can change at any time
+	//
+	r_showImages = Cvar_Get( "r_showImages", "0", CVAR_CHEAT );
+
+	r_debugLight = Cvar_Get( "r_debuglight", "0", CVAR_TEMP );
+	r_debugStyle = Cvar_Get( "r_debugStyle", "-1", CVAR_CHEAT );
+	r_debugSort = Cvar_Get( "r_debugSort", "0", CVAR_CHEAT );
+
 	r_nocurves = Cvar_Get ("r_nocurves", "0", CVAR_CHEAT );
 	r_drawworld = Cvar_Get ("r_drawworld", "1", CVAR_CHEAT );
 	r_drawfog = Cvar_Get ("r_drawfog", "2", CVAR_CHEAT );
 	r_lightmap = Cvar_Get ("r_lightmap", "0", CVAR_CHEAT );
+#ifdef _XBOX
+	if ( r_lightmap->integer != 0 )
+	{
+		XBLF( "JA: R_Register forcing r_lightmap %d -> 0 for Xbox lighting baseline", r_lightmap->integer );
+		Cvar_Set( "r_lightmap", "0" );
+	}
+	XBLF( "JA: R_Register Xbox lighting baseline r_vertexLight=%d r_fullbright=%d r_lightmap=%d",
+		r_vertexLight ? r_vertexLight->integer : -1,
+		r_fullbright ? r_fullbright->integer : -1,
+		r_lightmap ? r_lightmap->integer : -1 );
+#endif
 	r_portalOnly = Cvar_Get ("r_portalOnly", "0", CVAR_CHEAT );
 
 	r_skipBackEnd = Cvar_Get ("r_skipBackEnd", "0", CVAR_CHEAT);
 
 	r_measureOverdraw = Cvar_Get( "r_measureOverdraw", "0", CVAR_CHEAT );
-	r_lodscale = Cvar_Get( "r_lodscale", "5", 0 );
 	r_norefresh = Cvar_Get ("r_norefresh", "0", CVAR_CHEAT);
 	r_drawentities = Cvar_Get ("r_drawentities", "1", CVAR_CHEAT );
-	r_ignore = Cvar_Get( "r_ignore", "1", CVAR_CHEAT );
+	r_ignore = Cvar_Get( "r_ignore", "1", CVAR_TEMP );
 	r_nocull = Cvar_Get ("r_nocull", "0", CVAR_CHEAT);
 	r_novis = Cvar_Get ("r_novis", "0", CVAR_CHEAT);
 	r_showcluster = Cvar_Get ("r_showcluster", "0", CVAR_CHEAT);
@@ -1176,6 +1289,7 @@ void R_Register( void )
 	r_debugSurface = Cvar_Get ("r_debugSurface", "0", CVAR_CHEAT);
 	r_nobind = Cvar_Get ("r_nobind", "0", CVAR_CHEAT);
 	r_showtris = Cvar_Get ("r_showtris", "0", CVAR_CHEAT);
+	r_showtriscolor = Cvar_Get ("r_showtriscolor", "0", CVAR_ARCHIVE);
 	r_showsky = Cvar_Get ("r_showsky", "0", CVAR_CHEAT);
 	r_shownormals = Cvar_Get ("r_shownormals", "0", CVAR_CHEAT);
 	r_clear = Cvar_Get ("r_clear", "0", CVAR_CHEAT);
@@ -1184,7 +1298,7 @@ void R_Register( void )
 	r_lockpvs = Cvar_Get ("r_lockpvs", "0", CVAR_CHEAT);
 	r_noportals = Cvar_Get ("r_noportals", "0", CVAR_CHEAT);
 	r_shadows = Cvar_Get( "cg_shadows", "1", 0 );
-	r_shadowRange = Cvar_Get( "r_shadowRange", "1000", 0 );
+	r_shadowRange = Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE );
 
 #ifdef _XBOX
 	r_hdreffect = Cvar_Get( "r_hdreffect", "0", 0 );
@@ -1192,23 +1306,21 @@ void R_Register( void )
 	r_sundir_y = Cvar_Get( "r_sundir_y", "0.3", 0 );
 	r_sundir_z = Cvar_Get( "r_sundir_z", "0.9", 0 );
 	r_hdrbloom = Cvar_Get( "r_hdrbloom", "1.0", 0 );
+	r_hdrcutoff = Cvar_Get( "r_hdrcutoff", "0.5", 0 );
 #endif
-
-	r_maxpolys = Cvar_Get( "r_maxpolys", va("%d", MAX_POLYS), 0);
-	r_maxpolyverts = Cvar_Get( "r_maxpolyverts", va("%d", MAX_POLYVERTS), 0);
 /*
 Ghoul2 Insert Start
 */
-#ifdef _DEBUG
-	r_noPrecacheGLA = Cvar_Get( "r_noPrecacheGLA", "0", CVAR_CHEAT);
-#endif
+	r_noGhoul2 = Cvar_Get( "r_noghoul2", "0", CVAR_CHEAT);
+	r_Ghoul2AnimSmooth = Cvar_Get( "r_ghoul2animsmooth", "0.25", 0);
+	r_Ghoul2UnSqash = Cvar_Get( "r_ghoul2unsquash", "1", 0);
+	r_Ghoul2TimeBase = Cvar_Get( "r_ghoul2timebase", "2", 0);
+	r_Ghoul2NoLerp = Cvar_Get( "r_ghoul2nolerp", "0", 0);
+	r_Ghoul2NoBlend = Cvar_Get( "r_ghoul2noblend", "0", 0);
+	r_Ghoul2BlendMultiplier = Cvar_Get( "r_ghoul2blendmultiplier", "1", 0);
+	r_Ghoul2UnSqashAfterSmooth = Cvar_Get( "r_ghoul2unsquashaftersmooth", "1", 0);
 
-	r_noServerGhoul2 = Cvar_Get( "r_noserverghoul2", "0", CVAR_CHEAT);
-
-	r_Ghoul2AnimSmooth = Cvar_Get( "r_ghoul2animsmooth", "0.3", 0 );
-	r_Ghoul2UnSqashAfterSmooth = Cvar_Get( "r_ghoul2unsqashaftersmooth", "1", 0 );
-
-	broadsword = Cvar_Get( "broadsword", "0", 0);
+	broadsword = Cvar_Get( "broadsword", "1", 0);
 	broadsword_kickbones = Cvar_Get( "broadsword_kickbones", "1", 0);
 	broadsword_kickorigin = Cvar_Get( "broadsword_kickorigin", "1", 0);
 	broadsword_dontstopanim = Cvar_Get( "broadsword_dontstopanim", "0", 0);
@@ -1220,6 +1332,7 @@ Ghoul2 Insert Start
 	broadsword_effcorr = Cvar_Get( "broadsword_effcorr", "1", 0);
 	broadsword_ragtobase = Cvar_Get( "broadsword_ragtobase", "2", 0);
 	broadsword_dircap = Cvar_Get( "broadsword_dircap", "64", 0);
+
 /*
 Ghoul2 Insert End
 */
@@ -1232,69 +1345,85 @@ extern qboolean Sys_LowPhysicalMemory();
 
 	// make sure all the commands added here are also
 	// removed in R_Shutdown
-#ifndef DEDICATED
 	Cmd_AddCommand( "imagelist", R_ImageList_f );
 	Cmd_AddCommand( "shaderlist", R_ShaderList_f );
 	Cmd_AddCommand( "skinlist", R_SkinList_f );
-	Cmd_AddCommand( "screenshot", R_ScreenShot_f );
-	Cmd_AddCommand( "screenshot_tga", R_ScreenShotTGA_f );
-	Cmd_AddCommand( "gfxinfo", GfxInfo_f );
-	Cmd_AddCommand( "r_we", R_WorldEffect_f);
-	Cmd_AddCommand( "imagecacheinfo", RE_RegisterImages_Info_f);
-#endif
 	Cmd_AddCommand( "modellist", R_Modellist_f );
 #ifndef _XBOX
 	Cmd_AddCommand( "modelist", R_ModeList_f );
 #endif
+	Cmd_AddCommand( "screenshot", R_ScreenShot_f );
+	Cmd_AddCommand( "screenshot_tga", R_ScreenShotTGA_f );
+	Cmd_AddCommand( "gfxinfo", GfxInfo_f );
+	Cmd_AddCommand( "r_fogDistance", R_FogDistance_f);
+	Cmd_AddCommand( "r_fogColor", R_FogColor_f);
 	Cmd_AddCommand( "modelcacheinfo", RE_RegisterModels_Info_f);
-
+	Cmd_AddCommand( "imagecacheinfo", RE_RegisterImages_Info_f);
+extern void R_WorldEffect_f(void);	//TR_WORLDEFFECTS.CPP
+	Cmd_AddCommand( "r_we", R_WorldEffect_f );
+extern void R_ReloadFonts_f(void);
+	Cmd_AddCommand( "r_reloadfonts", R_ReloadFonts_f );
+	// make sure all the commands added above are also
+	// removed in R_Shutdown
 }
 
+// need to do this hackery so ghoul2 doesn't crash the game because of ITS hackery...
+//
+void R_ClearStuffToStopGhoul2CrashingThings(void)
+{
+	memset( &tr, 0, sizeof( tr ) );
+}
 
 /*
 ===============
 R_Init
 ===============
 */
-extern void R_InitWorldEffects(void); //tr_WorldEffects.cpp
-void R_Init( void ) {	
+extern void R_InitWorldEffects();
+void R_Init( void ) {
+	int	err;
 	int i;
-	byte *ptr;
 
-//	Com_Printf ("----- R_Init -----\n" );
+	XBL("R_Init: entered\n");
 #ifdef _XBOX
-	/*
-	Hunk_Clear();
+	extern qboolean vidRestartReloadMap;
+	if (!vidRestartReloadMap)
+	{
+		Hunk_Clear();
 		
-	extern void CM_Free(void);
-	CM_Free();
-	*/
+		extern void CM_Free(void);
+		CM_Free();
+		
+		void CM_CleanLeafCache(void);
+		CM_CleanLeafCache();
+	}
+#endif
 
+	ShaderEntryPtrs_Clear();
+
+#ifdef _XBOX
 	//Save visibility info as it has already been set.
 	SPARC<byte> *vis = tr.externalVisData;
 #endif
 
 	// clear all our internal state
-	Com_Memset( &tr, 0, sizeof( tr ) );
-	Com_Memset( &backEnd, 0, sizeof( backEnd ) );
-#ifndef DEDICATED
-	Com_Memset( &tess, 0, sizeof( tess ) );
-#endif
+	memset( &tr, 0, sizeof( tr ) );
+	memset( &backEnd, 0, sizeof( backEnd ) );
+	memset( &tess, 0, sizeof( tess ) );
 
 #ifdef _XBOX
 	//Restore visibility info.
 	tr.externalVisData = vis;
 #endif
 
-//	Swap_Init();
+	Swap_Init();
 
-#ifndef DEDICATED
 #ifndef FINAL_BUILD
 	if ( (int)tess.xyz & 15 ) {
 		Com_Printf( "WARNING: tess.xyz not 16 byte aligned (%x)\n",(int)tess.xyz & 15 );
 	}
 #endif
-#endif
+
 	//
 	// init function tables
 	//
@@ -1303,7 +1432,7 @@ void R_Init( void ) {
 		tr.sinTable[i]		= sin( DEG2RAD( i * 360.0f / ( ( float ) ( FUNCTABLE_SIZE - 1 ) ) ) );
 		tr.squareTable[i]	= ( i < FUNCTABLE_SIZE/2 ) ? 1.0f : -1.0f;
 		tr.sawToothTable[i] = (float)i / FUNCTABLE_SIZE;
-		tr.inverseSawToothTable[i] = 1.0f - tr.sawToothTable[i];
+		tr.inverseSawToothTable[i] = 1.0 - tr.sawToothTable[i];
 
 		if ( i < FUNCTABLE_SIZE / 2 )
 		{
@@ -1321,70 +1450,43 @@ void R_Init( void ) {
 			tr.triangleTable[i] = -tr.triangleTable[i-FUNCTABLE_SIZE/2];
 		}
 	}
-#ifndef DEDICATED
-	R_InitFogTable();
 
+	R_InitFogTable();
 	R_NoiseInit();
-#endif
 	R_Register();
 
-	max_polys = r_maxpolys->integer;
-	if (max_polys < MAX_POLYS)
-		max_polys = MAX_POLYS;
+	backEndData = (backEndData_t *) Hunk_Alloc( sizeof( backEndData_t ), qtrue );
+	R_ToggleSmpFrame();	//r_smp
 
-	max_polyverts = r_maxpolyverts->integer;
-	if (max_polyverts < MAX_POLYVERTS)
-		max_polyverts = MAX_POLYVERTS;
-
-	ptr = (unsigned char *)Hunk_Alloc( sizeof( *backEndData ) + sizeof(srfPoly_t) * max_polys + sizeof(polyVert_t) * max_polyverts, h_low);
-	backEndData = (backEndData_t *) ptr;
-	backEndData->polys = (srfPoly_t *) ((char *) ptr + sizeof( *backEndData ));
-	backEndData->polyVerts = (polyVert_t *) ((char *) ptr + sizeof( *backEndData ) + sizeof(srfPoly_t) * max_polys);
-#ifndef DEDICATED
-	R_ToggleSmpFrame();
-
-	for(i = 0; i < MAX_LIGHT_STYLES; i++)
+	const color4ub_t	color = {0xff, 0xff, 0xff, 0xff};
+	for(i=0;i<MAX_LIGHT_STYLES;i++)
 	{
-		RE_SetLightStyle(i, -1);
+		RE_SetLightStyle(i, *(int*)color);
 	}
+
+	XBL("R_Init: InitOpenGL...\n");
 	InitOpenGL();
+	XBL("R_Init: InitOpenGL done\n");
 
-	Com_Printf( "STEFX_HM: renderer init R_InitImages begin\n" );
+	XBL("R_Init: R_InitImages...\n");
 	R_InitImages();
-	Com_Printf( "STEFX_HM: renderer init R_InitImages done\n" );
-	Com_Printf( "STEFX_HM: renderer init R_InitShaders begin\n" );
-	R_InitShaders(qfalse);
-	Com_Printf( "STEFX_HM: renderer init R_InitShaders done\n" );
-	Com_Printf( "STEFX_HM: renderer init R_InitSkins begin\n" );
+	XBL("R_Init: R_InitShaders...\n");
+	R_InitShaders();
+	XBL("R_Init: R_InitSkins...\n");
 	R_InitSkins();
-	Com_Printf( "STEFX_HM: renderer init R_InitSkins done\n" );
-
-/*
-	R_TerrainInit(); //rwwRMG - added
-*/
-
-	Com_Printf( "STEFX_HM: renderer init R_InitFonts begin\n" );
-	R_InitFonts();
-	Com_Printf( "STEFX_HM: renderer init R_InitFonts done\n" );
+#ifndef _XBOX
+	R_TerrainInit();
 #endif
-	Com_Printf( "STEFX_HM: renderer init R_ModelInit begin\n" );
+	XBL("R_Init: R_ModelInit...\n");
 	R_ModelInit();
-	Com_Printf( "STEFX_HM: renderer init R_ModelInit done\n" );
-	G2VertSpaceServer = &CMiniHeap_singleton;
-#ifndef DEDICATED
-	Com_Printf( "STEFX_HM: renderer init R_InitDecals begin\n" );
-	R_InitDecals ( );
-	Com_Printf( "STEFX_HM: renderer init R_InitDecals done\n" );
+//	R_InitWorldEffects();
+	XBL("R_Init: R_InitFonts...\n");
+	R_InitFonts();
+	XBL("R_Init: done\n");
 
-	Com_Printf( "STEFX_HM: renderer init R_InitWorldEffects begin\n" );
-	R_InitWorldEffects();
-	Com_Printf( "STEFX_HM: renderer init R_InitWorldEffects done\n" );
-
-	int	err = qglGetError();
+	err = glGetError();
 	if ( err != GL_NO_ERROR )
-		Com_Printf ( "glGetError() = 0x%x\n", err);
-#endif
-//	Com_Printf ("----- finished R_Init -----\n" );
+		VID_Printf (PRINT_ALL, "glGetError() = 0x%x\n", err);
 }
 
 /*
@@ -1392,71 +1494,73 @@ void R_Init( void ) {
 RE_Shutdown
 ===============
 */
+extern void R_ShutdownWorldEffects(void);
 void RE_Shutdown( qboolean destroyWindow ) {	
-
-//	Com_Printf ("RE_Shutdown( %i )\n", destroyWindow );
+	//VID_Printf( PRINT_ALL, "RE_Shutdown( %i )\n", destroyWindow );
 
 	Cmd_RemoveCommand ("imagelist");
 	Cmd_RemoveCommand ("shaderlist");
 	Cmd_RemoveCommand ("skinlist");
-	Cmd_RemoveCommand ("screenshot");
-	Cmd_RemoveCommand ("screenshot_tga");
-	Cmd_RemoveCommand ("gfxinfo");
-	Cmd_RemoveCommand ("r_we");
-	Cmd_RemoveCommand ("imagecacheinfo");
 	Cmd_RemoveCommand ("modellist");
-	Cmd_RemoveCommand ("modelist");
+	Cmd_RemoveCommand ("modelist" );
+	Cmd_RemoveCommand ("screenshot");
+	Cmd_RemoveCommand ("screenshot_tga");	
+	Cmd_RemoveCommand ("gfxinfo");
+	Cmd_RemoveCommand ("r_fogDistance");
+	Cmd_RemoveCommand ("r_fogColor");
 	Cmd_RemoveCommand ("modelcacheinfo");
-#ifndef DEDICATED
+	Cmd_RemoveCommand ("imagecacheinfo");
+	Cmd_RemoveCommand ("r_we");
+	Cmd_RemoveCommand ("r_reloadfonts");
 
-#ifndef _XBOX	// GLOWXXX
-	if ( r_DynamicGlow && r_DynamicGlow->integer )
-	{
-		// Release the Glow Vertex Shader.
-		if ( tr.glowVShader )
-		{
-			qglDeleteProgramsARB( 1, &tr.glowVShader );
-		}
-
-		// Release Pixel Shader.
-		if ( tr.glowPShader )
-		{
-			if ( qglCombinerParameteriNV  )
-			{
-				// Release the Glow Regcom call list.
-				qglDeleteLists( tr.glowPShader, 1 );
-			}
-			else if ( qglGenProgramsARB )
-			{
-				// Release the Glow Fragment Shader.
-				qglDeleteProgramsARB( 1, &tr.glowPShader );
-			}
-		}
-
-		// Release the scene glow texture.
-		qglDeleteTextures( 1, &tr.screenGlow );
-
-		// Release the scene texture.
-		qglDeleteTextures( 1, &tr.sceneImage );
-
-		// Release the blur texture.
-		qglDeleteTextures( 1, &tr.blurImage );
-	}
+	R_ShutdownWorldEffects();
+#ifndef _XBOX
+	R_TerrainShutdown();
 #endif
-
-/*
-	R_TerrainShutdown(); //rwwRMG - added
-*/
-
 	R_ShutdownFonts();
+
 	if ( tr.registered ) {
+#ifndef _XBOX	// GLOWXXX
+		if ( r_DynamicGlow && r_DynamicGlow->integer )
+		{
+			// Release the Glow Vertex Shader.
+			if ( tr.glowVShader )
+			{
+				glDeleteProgramsARB( 1, &tr.glowVShader );
+			}
+
+			// Release Pixel Shader.
+			if ( tr.glowPShader )
+			{
+				if ( glCombinerParameteriNV  )
+				{
+					// Release the Glow Regcom call list.
+					glDeleteLists( tr.glowPShader, 1 );
+				}
+				else if ( glGenProgramsARB )
+				{
+					// Release the Glow Fragment Shader.
+					glDeleteProgramsARB( 1, &tr.glowPShader );
+				}
+			}
+
+			// Release the scene glow texture.
+			glDeleteTextures( 1, &tr.screenGlow );
+
+			// Release the scene texture.
+			glDeleteTextures( 1, &tr.sceneImage );
+
+			// Release the blur texture.
+			glDeleteTextures( 1, &tr.blurImage );
+		}
+#endif
 		R_SyncRenderThread();
 		R_ShutdownCommandBuffers();
 //#ifndef _XBOX
 		if (destroyWindow)
 //#endif
 		{
-			R_DeleteTextures();		// only do this for vid_restart now, not during things like map load
+			R_DeleteTextures();	// only do this for vid_restart now, not during things like map load
 		}
 	}
 
@@ -1464,12 +1568,8 @@ void RE_Shutdown( qboolean destroyWindow ) {
 	if ( destroyWindow ) {
 		GLimp_Shutdown();
 	}
-#endif //!DEDICATED
-
 	tr.registered = qfalse;
 }
-
-#ifndef DEDICATED
 
 /*
 =============
@@ -1478,14 +1578,16 @@ RE_EndRegistration
 Touch all images to make sure they are resident
 =============
 */
-void RE_EndRegistration( void ) {
+extern qboolean Sys_LowPhysicalMemory();
+void	RE_EndRegistration( void ) {
 	R_SyncRenderThread();
 	if (!Sys_LowPhysicalMemory()) {
 #ifndef _XBOX
-		RB_ShowImages();
+//		RB_ShowImages();
 #endif
 	}
 }
+
 
 void RE_GetLightStyle(int style, color4ub_t color)
 {
@@ -1509,23 +1611,25 @@ void RE_SetLightStyle(int style, int color)
 	if (*(int*)styleColors[style] != color)
 	{
 		*(int *)styleColors[style] = color;
+		styleUpdated[style] = true;
 	}
 }
 
-#endif //!DEDICATED
+
 /*
 @@@@@@@@@@@@@@@@@@@@@
 GetRefAPI
 
 @@@@@@@@@@@@@@@@@@@@@
 */
+extern void R_WorldEffectCommand(const char *command);
 refexport_t *GetRefAPI ( int apiVersion ) {
 	static refexport_t	re;
 
-	Com_Memset( &re, 0, sizeof( re ) );
+	memset( &re, 0, sizeof( re ) );
 
 	if ( apiVersion != REF_API_VERSION ) {
-		Com_Printf ( "Mismatched REF_API_VERSION: expected %i, got %i\n", 
+		VID_Printf(PRINT_ALL, "Mismatched REF_API_VERSION: expected %i, got %i\n", 
 			REF_API_VERSION, apiVersion );
 		return NULL;
 	}
@@ -1533,36 +1637,35 @@ refexport_t *GetRefAPI ( int apiVersion ) {
 	// the RE_ functions are Renderer Entry points
 
 	re.Shutdown = RE_Shutdown;
-#ifndef DEDICATED
+
 	re.BeginRegistration = RE_BeginRegistration;
 	re.RegisterModel = RE_RegisterModel;
 	re.RegisterSkin = RE_RegisterSkin;
+	re.GetAnimationCFG = RE_GetAnimationCFG;
 	re.RegisterShader = RE_RegisterShader;
 	re.RegisterShaderNoMip = RE_RegisterShaderNoMip;
-	re.ShaderNameFromIndex = RE_ShaderNameFromIndex;
 	re.LoadWorld = RE_LoadWorldMap;
 	re.SetWorldVisData = RE_SetWorldVisData;
 	re.EndRegistration = RE_EndRegistration;
 
+	re.RegisterMedia_LevelLoadBegin = RE_RegisterMedia_LevelLoadBegin;
+	re.RegisterMedia_LevelLoadEnd   = RE_RegisterMedia_LevelLoadEnd;
+
 	re.BeginFrame = RE_BeginFrame;
 	re.EndFrame = RE_EndFrame;
+
+	re.ProcessDissolve = RE_ProcessDissolve;
+	re.InitDissolve = RE_InitDissolve;
 
 	re.MarkFragments = R_MarkFragments;
 	re.LerpTag = R_LerpTag;
 	re.ModelBounds = R_ModelBounds;
 
-	re.DrawRotatePic = RE_RotatePic;
-	re.DrawRotatePic2 = RE_RotatePic2;
-
 	re.ClearScene = RE_ClearScene;
-	re.ClearDecals = RE_ClearDecals;
 	re.AddRefEntityToScene = RE_AddRefEntityToScene;
-	re.AddMiniRefEntityToScene = RE_AddMiniRefEntityToScene;
+	re.GetLighting = RE_GetLighting;
 	re.AddPolyToScene = RE_AddPolyToScene;
-	re.AddDecalToScene = RE_AddDecalToScene;
-	re.LightForPoint = R_LightForPoint;
 	re.AddLightToScene = RE_AddLightToScene;
-	re.AddAdditiveLightToScene = RE_AddAdditiveLightToScene;
 	re.RenderScene = RE_RenderScene;
 
 	re.SetColor = RE_SetColor;
@@ -1570,24 +1673,33 @@ refexport_t *GetRefAPI ( int apiVersion ) {
 	re.DrawStretchRaw = RE_StretchRaw;
 	re.UploadCinematic = RE_UploadCinematic;
 
+	re.DrawRotatePic = RE_RotatePic;
+	re.DrawRotatePic2 = RE_RotatePic2;
+	re.LAGoggles = RE_LAGoggles;
+	re.Scissor = RE_Scissor;
+
+	re.GetScreenShot = RE_GetScreenShot;
+#ifndef _XBOX
+	re.TempRawImage_ReadFromFile = RE_TempRawImage_ReadFromFile;
+#endif
+	re.TempRawImage_CleanUp = RE_TempRawImage_CleanUp;
+
+	re.GetLightStyle = RE_GetLightStyle;
+	re.SetLightStyle = RE_SetLightStyle;
+	re.WorldEffectCommand = R_WorldEffectCommand;
+
+	re.GetBModelVerts = RE_GetBModelVerts;
+
 	re.RegisterFont = RE_RegisterFont;
+#ifndef _XBOX
 	re.Font_StrLenPixels = RE_Font_StrLenPixels;
-	re.Font_StrLenChars = RE_Font_StrLenChars;
-	re.Font_HeightPixels = RE_Font_HeightPixels;
+	re.Font_HeightPixels = RE_Font_HeightPixels;	
 	re.Font_DrawString = RE_Font_DrawString;
+#endif
+	re.Font_StrLenChars = RE_Font_StrLenChars;
 	re.Language_IsAsian = Language_IsAsian;
 	re.Language_UsesSpaces = Language_UsesSpaces;
 	re.AnyLanguage_ReadCharFromString = AnyLanguage_ReadCharFromString;
 
-	re.RemapShader = R_RemapShader;
-	re.GetEntityToken = R_GetEntityToken;
-	re.inPVS = R_inPVS;
-
-	re.GetLightStyle = RE_GetLightStyle;
-	re.SetLightStyle = RE_SetLightStyle;
-
-	re.GetBModelVerts = RE_GetBModelVerts;
-#endif //!DEDICATED
 	return &re;
 }
-

@@ -185,74 +185,15 @@ REQUIRED_CGAME_PARSER_DEAD_MARKERS = {
 REQUIRED_CGAME_FLAG_TAG_SKIP_MARKER = "STEFX_HM: cgame skipped inherited flag-carrier tag probe for EF Holomatch players"
 
 REQUIRED_SHARED_CGAME_HUD_HEADER = "../../code/cgame/cg_ef_hud_shared.h"
-REQUIRED_RENDERER_SP_WHOLESALE_FUNCTIONS = (
-    "RB_SetGL2D",
-    "RB_StretchPic",
-    "RB_RotatePic",
-    "RB_RotatePic2",
-)
-REQUIRED_RENDERER_SP_WHOLESALE_MARKERS = (
-    "STEFX: RB_XboxForce2DOverlayState where=",
-    "STEFX_FRONTEND_2D_BACKEND shader=",
-    "STEFX: RB_StretchPic shader=",
-    "backEnd.refdef.time = Sys_Milliseconds();",
-    "glOrtho (0, 640, 480, 0, 0, 1);",
-)
 REQUIRED_RENDERER_SOLID_FILL_MARKERS = {
     "code/win32/openjkdf2/fakeglx.cpp": [
-        "g_stefxFakeglOverlayDrawContext",
+        "stefxOverlayActive",
         "D3DRS_FILLMODE, D3DFILL_SOLID",
         "D3DRS_BACKFILLMODE, D3DFILL_SOLID",
         "STEFX_OVERLAY_DEVICE_STATE",
     ],
 }
-REQUIRED_RENDERER_MDR_FRAME_CLAMP_MARKERS = {
-    "codemp/renderer/tr_animation.cpp": [
-        "static void R_STEFX_ClampAnimEntityFrames",
-        "static qboolean R_STEFX_IsHolomatchPlayerMDRModel",
-        'strstr( model->name, "models/players2/" )',
-        "STEFX_HM: renderer clamped EF MDR frame model=",
-        "ent->e.frame = frameCount - 1;",
-        "ent->e.oldframe = frameCount - 1;",
-        "R_STEFX_ClampAnimEntityFrames( ent, tr.currentModel );",
-    ],
-}
-REQUIRED_RENDERER_SHADER_MANIFEST_MARKERS = {
-    "codemp/renderer/tr_shader.cpp": [
-        "static qboolean R_STEFXLoadShaderManifest",
-        "_console_shader_list_",
-        "STEFX_HM: renderer loaded shader manifest",
-    ],
-}
-REQUIRED_RENDERER_IMAGE_UPLOAD_MARKERS = {
-    "codemp/renderer/tr_image_xbox.cpp": [
-        "JkaFakeglSetDDSUploadPicmip(picmip ? r_picmip->integer : 0);",
-        "STEFX_HM: renderer using SP-style GL_RGBA screen texture; legacy MP GL_LIN_RGBA8 path disabled",
-        'tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_RGBA',
-        "JA: Upload32 image='%s'",
-        "JA: Upload32 done image='%s'",
-    ],
-    "codemp/renderer/tr_model.cpp": [
-        "STEFX_HM: renderer skipped inherited zero-size registration StretchPic prime",
-        "RE_StretchPic(0, 0, 0, 0, 0, 0, 1, 1, 0);",
-    ],
-}
-REQUIRED_RENDERER_SP_TEXTURE_POLICY_MARKERS = {
-    "codemp/renderer/tr_image_xbox.cpp": [
-        "STEFX_HM: MP renderer using SP Xbox Upload32 caps",
-        "STEFX_HM: MP renderer preserving SP high-fidelity UI font",
-        "STEFX_HM: MP renderer SP Borg alpha upload",
-        "R_XboxIsBorgAlphaCutoutTexture",
-        "R_XboxIsHighFidelityUIFont",
-        'strstr(debugName, "models/players2/")',
-    ],
-    "codemp/renderer/tr_init.cpp": [
-        "STEFX_HM: MP renderer using SP Xbox dynamic glow policy off",
-        "STEFX_HM: MP renderer using SP Xbox r_picmip=1 policy",
-        "STEFX_HM: MP renderer using SP Xbox r_texturebits=0 component upload policy",
-        "STEFX_HM: MP renderer using SP Xbox r_subdivisions=64 policy",
-        'Cvar_Get( "r_stefxLightmapBoost", "2.5", CVAR_ARCHIVE );',
-    ],
+REQUIRED_RENDERER_DDS_UPLOAD_MARKERS = {
     "code/win32/openjkdf2/glteximage_dds.cpp": [
         "STEFX_HM: BGRA32 DDS direct Xbox upload",
         "internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/",
@@ -551,6 +492,72 @@ def fail(message: str) -> None:
     raise SystemExit(message)
 
 
+def verify_baseef_source_routing(repo_root: Path) -> dict[str, object]:
+    files_header = (repo_root / "codemp" / "qcommon" / "files.h").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    startup = (repo_root / "codemp" / "win32" / "win_main_console.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    boundary = (repo_root / "codemp" / "win32" / "win_sp_renderer_boundary.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+
+    required = {
+        "codemp/qcommon/files.h": (
+            '#if defined(STEFX_ELITE_FORCE_MP)',
+            '#define\tBASEGAME\t\t\t"BaseEF"',
+        ),
+        "codemp/win32/win_main_console.cpp": (
+            "+set fs_game BaseEF",
+        ),
+        "codemp/win32/win_sp_renderer_boundary.cpp": (
+            'return va("D:\\\\BaseEF\\\\%s", filename + 5);',
+        ),
+    }
+    texts = {
+        "codemp/qcommon/files.h": files_header,
+        "codemp/win32/win_main_console.cpp": startup,
+        "codemp/win32/win_sp_renderer_boundary.cpp": boundary,
+    }
+    missing = [
+        f"{rel}: {marker}"
+        for rel, markers in required.items()
+        for marker in markers
+        if marker not in texts[rel]
+    ]
+    if missing:
+        fail("Holomatch runtime must route through BaseEF: " + ", ".join(missing))
+
+    return {
+        "baseGame": "BaseEF",
+        "startupFsGame": "BaseEF",
+        "spRelativeReadsRemappedToBaseEF": True,
+    }
+
+
+def verify_sp_renderer_wholesale(repo_root: Path) -> dict[str, object]:
+    sp_dir = repo_root / "code" / "renderer"
+    mp_dir = repo_root / "codemp" / "renderer"
+    sp_files = sorted(path.relative_to(sp_dir) for path in sp_dir.rglob("*") if path.is_file())
+    missing = [rel.as_posix() for rel in sp_files if not (mp_dir / rel).is_file()]
+    mismatched = [
+        rel.as_posix()
+        for rel in sp_files
+        if (mp_dir / rel).is_file() and (sp_dir / rel).read_bytes() != (mp_dir / rel).read_bytes()
+    ]
+    if missing or mismatched:
+        fail(
+            "Holomatch renderer must be a byte-for-byte SP copy; "
+            f"missing={missing[:16]} mismatched={mismatched[:16]}"
+        )
+
+    return {
+        "rendererWholesaleFiles": len(sp_files),
+        "rendererWholesaleByteExact": True,
+    }
+
+
 def normalize_source_block(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -735,6 +742,9 @@ def verify_legacy_source_guards(repo_root: Path) -> dict[str, object]:
 
 
 def verify_solution(repo_root: Path) -> dict[str, object]:
+    baseef_routing = verify_baseef_source_routing(repo_root)
+    renderer_wholesale = verify_sp_renderer_wholesale(repo_root)
+
     sln = repo_root / "codemp" / "JKA_mp.sln"
     sln_text = sln.read_text(encoding="utf-8", errors="ignore").replace("\\", "/").lower()
     if "ui/ui.vcproj" in sln_text:
@@ -963,26 +973,6 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
     ) not in cgame_hud_text:
         fail("Holomatch EF interface HUD must use V-corrected direct DDS UVs 0,1,1,0")
 
-    renderer_backend_text = (repo_root / "codemp" / "renderer" / "tr_backend.cpp").read_text(
-        encoding="utf-8", errors="ignore"
-    )
-    sp_renderer_backend_text = (repo_root / "code" / "renderer" / "tr_backend.cpp").read_text(
-        encoding="utf-8", errors="ignore"
-    )
-    mismatched_renderer_functions = []
-    for function_name in REQUIRED_RENDERER_SP_WHOLESALE_FUNCTIONS:
-        mp_function = extract_cpp_function(renderer_backend_text, function_name)
-        sp_function = extract_cpp_function(sp_renderer_backend_text, function_name)
-        if mp_function != sp_function:
-            mismatched_renderer_functions.append(function_name)
-    if mismatched_renderer_functions:
-        fail(
-            "Holomatch renderer 2D backend must copy SP function bodies exactly: "
-            + ", ".join(mismatched_renderer_functions)
-        )
-    for marker in REQUIRED_RENDERER_SP_WHOLESALE_MARKERS:
-        if marker not in renderer_backend_text:
-            fail(f"Holomatch renderer SP-wholesale marker missing from MP backend: {marker}")
     missing_solid_fill_markers = []
     for rel, markers in REQUIRED_RENDERER_SOLID_FILL_MARKERS.items():
         text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
@@ -994,51 +984,16 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             "Holomatch renderer must force Xbox solid fill mode through the shared fakeGL overlay path: "
             + ", ".join(missing_solid_fill_markers)
         )
-    missing_mdr_frame_clamp_markers = []
-    for rel, markers in REQUIRED_RENDERER_MDR_FRAME_CLAMP_MARKERS.items():
+    missing_dds_upload_markers = []
+    for rel, markers in REQUIRED_RENDERER_DDS_UPLOAD_MARKERS.items():
         text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
         for marker in markers:
             if marker not in text:
-                missing_mdr_frame_clamp_markers.append(f"{rel}: {marker}")
-    if missing_mdr_frame_clamp_markers:
+                missing_dds_upload_markers.append(f"{rel}: {marker}")
+    if missing_dds_upload_markers:
         fail(
-            "Holomatch renderer must clamp EF MDR animation frames before culling/drawing bodies: "
-            + ", ".join(missing_mdr_frame_clamp_markers)
-        )
-    missing_shader_manifest_markers = []
-    for rel, markers in REQUIRED_RENDERER_SHADER_MANIFEST_MARKERS.items():
-        text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
-        for marker in markers:
-            if marker not in text:
-                missing_shader_manifest_markers.append(f"{rel}: {marker}")
-    if missing_shader_manifest_markers:
-        fail(
-            "Holomatch renderer must load shader scripts from the packaged console manifest instead of loose list fallback: "
-            + ", ".join(missing_shader_manifest_markers)
-        )
-    missing_image_upload_markers = []
-    for rel, markers in REQUIRED_RENDERER_IMAGE_UPLOAD_MARKERS.items():
-        text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
-        for marker in markers:
-            if marker not in text:
-                missing_image_upload_markers.append(f"{rel}: {marker}")
-        if re.search(r"R_CreateImage\s*\([^;]*GL_LIN_RGBA8", text, re.S):
-            missing_image_upload_markers.append(f"{rel}: legacy GL_LIN_RGBA8 screen upload path")
-    if missing_image_upload_markers:
-        fail(
-            "Holomatch renderer image upload path must stay aligned with SP/fakegl texture handling: "
-            + ", ".join(missing_image_upload_markers)
-        )
-    missing_sp_texture_policy_markers = []
-    for rel, markers in REQUIRED_RENDERER_SP_TEXTURE_POLICY_MARKERS.items():
-        text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
-        for marker in markers:
-            if marker not in text:
-                missing_sp_texture_policy_markers.append(f"{rel}: {marker}")
-    if missing_sp_texture_policy_markers:
-        fail(
-            "Holomatch renderer must keep the MP texture path aligned with SP Xbox upload policy: "
-            + ", ".join(missing_sp_texture_policy_markers)
+            "Holomatch renderer support must keep the DDS-only Xbox upload path active: "
+            + ", ".join(missing_dds_upload_markers)
         )
     missing_capture_markers = []
     for rel, markers in REQUIRED_RENDERER_CAPTURE_MARKERS.items():
@@ -1214,6 +1169,8 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         )
 
     return {
+        **baseef_routing,
+        **renderer_wholesale,
         "solutionHasOnlyXUi": True,
         "uiMandateUniformSpCodeUi": True,
         "mpUiLocalHeaderRetired": True,
@@ -1232,13 +1189,8 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "cgameScoreboardParserBypass": True,
         "cgameParserEntryPointsDead": True,
         "sharedEfCgameHudLayout": REQUIRED_SHARED_CGAME_HUD_HEADER,
-        "rendererSpStyle2DProjection": True,
-        "rendererSp2DWholesaleFunctions": list(REQUIRED_RENDERER_SP_WHOLESALE_FUNCTIONS),
         "rendererSolidFillReset": True,
-        "rendererMdrFrameClamp": True,
-        "rendererPackagedShaderManifest": True,
-        "rendererSpScreenUploadPath": True,
-        "rendererSpTexturePolicy": True,
+        "rendererDdsOnlyUpload": True,
         "holomatchDefaultPlayerModel": "munro/default",
         "inputSpEarlyDeviceInit": True,
         "inputJoyDeadzoneDefault": "0.18",
@@ -1254,6 +1206,8 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
         return {"checked": False}
     if not pk3.is_file():
         fail(f"Holomatch UI package check failed; missing PK3: {pk3}")
+    if pk3.name.lower() != "xbox1.pk3" or pk3.parent.name != "BaseEF":
+        fail(f"Holomatch runtime package must be BaseEF/xbox1.pk3, not {pk3}")
 
     with zipfile.ZipFile(pk3, "r") as zf:
         actual_names = zf.namelist()
@@ -1523,6 +1477,8 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
 def verify_stage(stage_baseef: Path | None, allow_original_images: bool) -> dict[str, object]:
     if stage_baseef is None:
         return {"checked": False}
+    if stage_baseef.name != "BaseEF":
+        fail(f"Holomatch runtime stage directory must be named BaseEF, not {stage_baseef}")
     ui_dir = stage_baseef / "ui"
     if not ui_dir.is_dir():
         return {"checked": True, "stageUiScripts": 0}
@@ -1560,6 +1516,8 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
 
     data = xbe.read_bytes()
     lower = data.lower()
+    if b"d:\\base\\" in lower or re.search(rb"\+set fs_game base(?:\x00|\s)", lower):
+        fail("efmp.xbe contains an active legacy base filesystem route; Holomatch must use BaseEF")
     hits = sorted(value for value in FORBIDDEN_XBE_STRINGS if value.lower().encode("ascii") in lower)
     if hits:
         fail("efmp.xbe contains legacy UI/menu marker(s): " + ", ".join(hits))
@@ -1575,6 +1533,8 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         )
 
     required = {
+        b"+set fs_game BaseEF",
+        b"D:\\BaseEF\\",
         b"STEFX_HM: UI mandate active; uniform SP code/ui owns Holomatch UI",
         b"STEFX_HM: direct Holomatch startup bypasses menus; loading hm_borg1 from command line",
         b"STEFX_HM: UI mandate enforced; MP legacy menus stay dead and SP code/ui owns all Holomatch UI behavior",
@@ -1591,15 +1551,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_FRONTEND_2D_BACKEND shader=",
         b"STEFX: RB_StretchPic shader=",
         b"STEFX_OVERLAY_DEVICE_STATE",
-        b"STEFX_HM: renderer clamped EF MDR frame model=",
-        b"STEFX_HM: renderer loaded shader manifest",
-        b"STEFX_HM: renderer using SP-style GL_RGBA screen texture; legacy MP GL_LIN_RGBA8 path disabled",
-        b"STEFX_HM: MP renderer using SP Xbox Upload32 caps",
-        b"STEFX_HM: MP renderer using SP Xbox dynamic glow policy off",
-        b"STEFX_HM: MP renderer using SP Xbox r_texturebits=0 component upload policy",
-        b"STEFX_HM: MP renderer using SP Xbox r_subdivisions=64 policy",
         b"STEFX_HM: BGRA32 DDS direct Xbox upload",
-        b"STEFX_HM: renderer skipped inherited zero-size registration StretchPic prime",
         b"STEFX_HM: renderer screenshot render-target XGWrite enabled for MP visual proof",
         b"STEFX_HM: SV pure loaded PK3s checksums=",
         b"STEFX_HM: client default userinfo model is EF Holomatch model='munro/default'",
@@ -1655,7 +1607,13 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
     if missing:
         fail("efmp.xbe is missing SP/EF UI proof marker(s): " + ", ".join(missing))
 
-    return {"checked": True, "xbe": str(xbe), "legacyStringCount": 0}
+    return {
+        "checked": True,
+        "xbe": str(xbe),
+        "baseGame": "BaseEF",
+        "legacyBaseRouteCount": 0,
+        "legacyStringCount": 0,
+    }
 
 
 def main(argv: list[str]) -> int:

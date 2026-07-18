@@ -92,10 +92,10 @@ static void GLW_InitExtensions( void )
 	}
 
 	// GL_EXT_texture_filter_anisotropic
-	glConfig.maxTextureFilterAnisotropy = 0;
+	glConfig.textureFilterAnisotropicAvailable = qfalse;
 	if ( strstr( glConfig.extensions_string, "EXT_texture_filter_anisotropic" ) )
 	{
-		glConfig.maxTextureFilterAnisotropy = 1;
+		glConfig.textureFilterAnisotropicAvailable = qtrue;
 	}
 
 	// GL_EXT_clamp_to_edge
@@ -224,7 +224,7 @@ void GLimp_Init( void )
 void GLimp_Shutdown( void )
 {
 	// FIXME: Brian, we need better fallbacks from partially initialized failures
-	Com_Printf( "Shutting down OpenGL subsystem\n" );
+	VID_Printf( PRINT_ALL, "Shutting down OpenGL subsystem\n" );
 
 	// Set the gamma back to normal
 //	GLimp_SetGamma(1.f);

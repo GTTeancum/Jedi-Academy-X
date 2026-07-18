@@ -1381,7 +1381,6 @@ void CEmitter::Draw(void)
 	 	VectorScale( mRefEnt.axis[1], mRefEnt.radius, mRefEnt.axis[1] );
 	 	VectorScale( mRefEnt.axis[2], mRefEnt.radius, mRefEnt.axis[2] );
 
-		theFxHelper.AddFxToScene((miniRefEntity_t*)0);// I hate having to do this, but this needs to get added as a regular refEntity
 		theFxHelper.AddFxToScene(&mRefEnt);
 	}
 
@@ -2335,12 +2334,16 @@ bool FX_WorldToScreen(vec3_t worldCoord, float *x, float *y)
 #ifdef _XBOX
 	if(ClientManager::splitScreenMode == qtrue) {
 		VectorSubtract (worldCoord, cg->refdef.vieworg, local);
-		AngleVectors (cg->refdef.viewangles, vfwd, vright, vup);
+		VectorCopy( cg->refdef.viewaxis[0], vfwd );
+		VectorScale( cg->refdef.viewaxis[1], -1.0f, vright );
+		VectorCopy( cg->refdef.viewaxis[2], vup );
 	}
 	else {
 #endif
 	VectorSubtract (worldCoord, theFxHelper.refdef->vieworg, local);
-	AngleVectors (theFxHelper.refdef->viewangles, vfwd, vright, vup);
+	VectorCopy( theFxHelper.refdef->viewaxis[0], vfwd );
+	VectorScale( theFxHelper.refdef->viewaxis[1], -1.0f, vright );
+	VectorCopy( theFxHelper.refdef->viewaxis[2], vup );
 #ifdef _XBOX
 	}
 #endif

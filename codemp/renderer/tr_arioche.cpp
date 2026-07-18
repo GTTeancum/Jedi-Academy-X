@@ -1,5 +1,4 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+#include "../server/exe_headers.h"
 
 #include "tr_local.h"
 #include "tr_worldeffects.h"
@@ -8,6 +7,40 @@
 
 // Remap sky to contents of the cvar ar_sky
 // Grab sunlight properties from the indirected sky
+
+//void R_RemapShader(const char *shaderName, const char *newShaderName, const char *timeOffset);
+void R_ColorShiftLightingBytes( byte in[4], byte out[4] );
+
+void NormalToLatLong( const vec3_t normal, byte bytes[2] )
+{
+	// check for singularities
+	if (!normal[0] && !normal[1])
+	{
+		if ( normal[2] > 0.0f )
+		{
+			bytes[0] = 0;
+			bytes[1] = 0;		// lat = 0, long = 0
+		}
+		else
+		{
+			bytes[0] = 128;
+			bytes[1] = 0;		// lat = 0, long = 128
+		}
+	}
+	else
+	{
+		int	a, b;
+
+		a = (int)(RAD2DEG( (vec_t)atan2( normal[1], normal[0] ) ) * (255.0f / 360.0f ));
+		a &= 0xff;
+
+		b = (int)(RAD2DEG( (vec_t)acos( normal[2] ) ) * ( 255.0f / 360.0f ));
+		b &= 0xff;
+
+		bytes[0] = b;	// longitude
+		bytes[1] = a;	// lattitude
+	}
+}
 
 void R_RMGInit(void)
 {
@@ -26,7 +59,7 @@ void R_RMGInit(void)
 	sky = R_FindShader( newSky, lightmapsNone, stylesDefault, qfalse );
 
 	// Remap sky
-	R_RemapShader("textures/tools/_sky", newSky, NULL);
+//	R_RemapShader("textures/tools/_sky", newSky, NULL);
 
 	// Fill in the lightgrid with sunlight
 	if(tr.world->lightGridData)
@@ -49,14 +82,14 @@ void R_RMGInit(void)
 		NormalToLatLong(tr.sunDirection, grid->latLong);
 #else // _XBOX
 		grid = tr.world->lightGridData;
-		grid->ambientLight[0][0] = (byte)Com_Clampi(0, 255, tr.sunAmbient[0] * 255.0f);
-		grid->ambientLight[0][1] = (byte)Com_Clampi(0, 255, tr.sunAmbient[1] * 255.0f);
-		grid->ambientLight[0][2] = (byte)Com_Clampi(0, 255, tr.sunAmbient[2] * 255.0f);
+		grid->ambientLight[0][0] = (byte)Com_Clamp(0, 255, tr.sunAmbient[0] * 255.0f);
+		grid->ambientLight[0][1] = (byte)Com_Clamp(0, 255, tr.sunAmbient[1] * 255.0f);
+		grid->ambientLight[0][2] = (byte)Com_Clamp(0, 255, tr.sunAmbient[2] * 255.0f);
 		R_ColorShiftLightingBytes(grid->ambientLight[0], grid->ambientLight[0]);
 
-		grid->directLight[0][0] = (byte)Com_Clampi(0, 255, tr.sunLight[0]);
-		grid->directLight[0][1] = (byte)Com_Clampi(0, 255, tr.sunLight[1]);
-		grid->directLight[0][2] = (byte)Com_Clampi(0, 255, tr.sunLight[2]);
+		grid->directLight[0][0] = (byte)Com_Clamp(0, 255, tr.sunLight[0]);
+		grid->directLight[0][1] = (byte)Com_Clamp(0, 255, tr.sunLight[1]);
+		grid->directLight[0][2] = (byte)Com_Clamp(0, 255, tr.sunLight[2]);
 		R_ColorShiftLightingBytes(grid->directLight[0], grid->directLight[0]);
 
 		NormalToLatLong(tr.sunDirection, grid->latLong);
@@ -83,7 +116,6 @@ void R_RMGInit(void)
 			{
 				gfog->tcScale = 1.0f / ( gfog->parms.depthForOpaque * 8.0f );
 				tr.distanceCull = gfog->parms.depthForOpaque;
-				tr.distanceCullSquared = tr.distanceCull * tr.distanceCull;
 				Cvar_Set("RMG_distancecull", va("%f", tr.distanceCull));
 			}
 			else

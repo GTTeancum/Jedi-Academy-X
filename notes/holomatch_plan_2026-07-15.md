@@ -13,6 +13,9 @@
 ## Current Match-Run Target
 - Direct-boot MP Release into a small FFA on `hm_borg1`.
 - MP Holomatch builds as `codemp\x_exe\Release\efmp.xbe`; the SP/co-op `default.xbe` artifact remains separate and must not be overwritten by Holomatch builds.
+- Runtime data is rooted at `BaseEF`, never `base`. The build validator requires `+set fs_game BaseEF`, rejects compiled `D:\base\` routes, and requires the DDS-only package at `BaseEF\xbox1.pk3`.
+- Runtime signoff order is renderer, controls, sound, then UI/HUD. Do not modify UI/HUD while renderer signoff is pending.
+- CXBX-R visual proof must use `C:\Games\Emulators\CXBX-CodexCapture\Start-CodexCaptureSession.ps1` and `Request-CodexScreenshot.ps1` per that folder's `AGENTS.md`; never use desktop/window screenshots. Never stage, launch over, or close an existing CXBX-R instance.
 - Startup command:
   - `+set fs_game BaseEF +set model munro/default +set sv_maxclients 4 +set g_gametype 0 +set fraglimit 10 +set timelimit 0 +set g_ghostRespawn 5 +set g_holoIntro 0 +set bot_enable 1 +set bot_minplayers 0`
   - `map hm_borg1` is queued from the main loop after early startup instead of being appended directly to `Com_Init`, so map-load failures are separated from engine boot failures in the log.
@@ -21,6 +24,8 @@
 
 ## Implemented First Slice
 - MP `BASEGAME` and filesystem OS paths now route to `BaseEF` when `STEFX_ELITE_FORCE_MP` is defined.
+- All 57 files under `codemp\renderer` that have SP counterparts are byte-for-byte copies of `code\renderer`; `scripts\check_mp_holomatch_ui.py` enforces this wholesale renderer invariant.
+- The exact SP renderer's map-load lifecycle is preserved in Holomatch: inherited MP calls that reinitialized skins and shaders after texture cleanup are skipped. The prior runtime reached `hm_borg1` but stalled on that second MP-only `R_InitShaders` call.
 - MP Holomatch build output is separated as `efmp.xbe` so it cannot overwrite the SP/co-op `default.xbe` artifact.
 - MP XBE metadata now names the artifact `Star Trek: Elite Force Holomatch` while preserving the current test ID/LAN key.
 - MP build isolation was re-audited in `scripts\build_xbox.ps1` and `codemp\x_exe\x_exe.vcproj`: the MP link output is `codemp\x_exe\Release\efmp.exe`, post-processing derives `codemp\x_exe\Release\efmp.xbe`, and only the SP/co-op path writes root `build\release\default.xbe`.

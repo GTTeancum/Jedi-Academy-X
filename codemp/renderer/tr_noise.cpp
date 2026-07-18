@@ -1,7 +1,11 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // tr_noise.c
+
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
+
+
 #include "tr_local.h"
 
 #define NOISE_SIZE 256
@@ -26,7 +30,7 @@ float GetNoiseTime( int t )
 {
 	int index = VAL( t );
 
-	return (1 + s_noise_table[index]);
+	return (1+s_noise_table[index]);
 }
 
 void R_NoiseInit( void )
@@ -40,6 +44,7 @@ void R_NoiseInit( void )
 		s_noise_table[i] = ( float ) ( ( ( rand() / ( float ) RAND_MAX ) * 2.0 - 1.0 ) );
 		s_noise_perm[i] = ( unsigned char ) ( rand() / ( float ) RAND_MAX * 255 );
 	}
+	srand( com_frameTime );
 }
 
 float R_NoiseGet4f( float x, float y, float z, float t )

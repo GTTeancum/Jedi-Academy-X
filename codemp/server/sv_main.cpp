@@ -912,7 +912,9 @@ void SV_Frame( int msec ) {
 	}
 
 	//rww - RAGDOLL_BEGIN
+#if !defined(STEFX_ELITE_FORCE_MP)
 	G2API_SetTime(svs.time,0);
+#endif
 	//rww - RAGDOLL_END
 
 	if ( com_speeds->integer ) {

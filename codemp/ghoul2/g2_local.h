@@ -2,6 +2,9 @@
 
 #include "ghoul2_shared.h"
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define RE_RegisterServerModel RE_RegisterModel
+#endif
 
 //rww - RAGDOLL_BEGIN
 class CRagDollUpdateParams;

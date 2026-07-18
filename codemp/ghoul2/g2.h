@@ -35,6 +35,9 @@
 #define		MODEL_SHIFT	(BOLT_SHIFT + BOLT_WIDTH)
 #define		ENTITY_SHIFT (MODEL_SHIFT + MODEL_WIDTH)
 
+#if defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+#define G2API_HaveWeGhoul2Models(modelInfo) qfalse
+#endif
 
 #endif // G2_H_INC
 

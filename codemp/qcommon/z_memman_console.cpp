@@ -304,10 +304,13 @@ void Com_InitZoneMemory(void)
 				status.dwAvailPhys);
 #endif
 
-	// Allocate texture pools:
+#if 0
+	// Allocate the two texture pools:
 	gStaticTextures.Initialize( STATIC_TEXTURE_POOL_SIZE );
-#if !defined(STEFX_ELITE_FORCE_MP)
 	gSkinTextures.Initialize( MODEL_TEXTURE_POOL_SIZE );
+#endif
+#ifdef _XBOX
+	OutputDebugStringA("JA: MP baseline texture pools deferred to renderer init (Cxbx-safe)\n");
 #endif
 
 	GlobalMemoryStatus(&status);
@@ -588,6 +591,135 @@ static ZoneFreeBlock* Z_FindLastFree(int iSize, int iHeaderSize,
 	return NULL;
 }
 
+static int Z_LargestFreeBlock_NoLock(void)
+{
+	int largest = 0;
+
+	for (ZoneFreeBlock* block = s_FreeStart.m_Next; block && block != &s_FreeEnd; block = block->m_Next)
+	{
+		if ((int)block->m_Size > largest)
+		{
+			largest = block->m_Size;
+		}
+	}
+
+	return largest;
+}
+
+void Z_GetMemoryStats(zmemstats_t *stats)
+{
+	if (!stats)
+	{
+		return;
+	}
+
+	if (!s_Initialized)
+	{
+		Com_InitZoneMemory();
+	}
+
+#ifndef _GAMECUBE
+	WaitForSingleObject(s_Mutex, INFINITE);
+#endif
+
+	memset(stats, 0, sizeof(*stats));
+	stats->zoneSize = s_Stats.m_SizeAlloc + s_Stats.m_OverheadAlloc + s_Stats.m_SizeFree;
+	stats->usedBytes = s_Stats.m_SizeAlloc;
+	stats->overheadBytes = s_Stats.m_OverheadAlloc;
+	stats->peakBytes = s_Stats.m_PeakAlloc;
+	stats->freeBytes = s_Stats.m_SizeFree;
+	stats->freeBlocks = s_Stats.m_CountFree;
+	stats->largestFreeBlock = Z_LargestFreeBlock_NoLock();
+	stats->modelMd3Bytes = s_Stats.m_SizesPerTag[TAG_MODEL_MD3];
+	stats->modelGlmBytes = s_Stats.m_SizesPerTag[TAG_MODEL_GLM];
+	stats->modelGlaBytes = s_Stats.m_SizesPerTag[TAG_MODEL_GLA];
+	stats->bspBytes = s_Stats.m_SizesPerTag[TAG_BSP];
+	stats->soundRawBytes = s_Stats.m_SizesPerTag[TAG_SND_RAWDATA];
+	stats->filesysBytes = s_Stats.m_SizesPerTag[TAG_FILESYS];
+
+#ifndef _GAMECUBE
+	ReleaseMutex(s_Mutex);
+#endif
+}
+
+qboolean Z_WouldAllocFit(int iSize, memtag_t eTag, int iAlign, int *realSize, int *alignPad, int *largestFreeBlock)
+{
+	int header_size = sizeof(ZoneHeader);
+	int footer_size = 0;
+	int calcRealSize;
+	int calcAlignPad = 0;
+	ZoneFreeBlock* fblock;
+
+	if (iSize <= 0)
+	{
+		if (realSize)
+		{
+			*realSize = iSize;
+		}
+		if (alignPad)
+		{
+			*alignPad = 0;
+		}
+		if (largestFreeBlock)
+		{
+			*largestFreeBlock = 0;
+		}
+		return qfalse;
+	}
+
+	if (!s_Initialized)
+	{
+		Com_InitZoneMemory();
+	}
+
+	if (eTag == TAG_NEWDEL)
+	{
+		eTag = s_newDeleteTagStack[s_newDeleteTagStackTop];
+	}
+
+	if (Z_IsTagLinked(eTag))
+	{
+		header_size += sizeof(ZoneLinkHeader);
+	}
+#ifdef _DEBUG
+	header_size += sizeof(ZoneDebugHeader);
+	footer_size += sizeof(ZoneDebugFooter);
+#endif
+	calcRealSize = iSize + header_size + footer_size;
+
+#ifndef _GAMECUBE
+	WaitForSingleObject(s_Mutex, INFINITE);
+#endif
+
+	if (Z_IsTagTemp(eTag))
+	{
+		fblock = Z_FindLastFree(calcRealSize, header_size, footer_size, iAlign, calcAlignPad);
+	}
+	else
+	{
+		fblock = Z_FindFirstFree(calcRealSize, header_size, footer_size, iAlign, calcAlignPad);
+	}
+
+	if (realSize)
+	{
+		*realSize = calcRealSize + calcAlignPad;
+	}
+	if (alignPad)
+	{
+		*alignPad = calcAlignPad;
+	}
+	if (largestFreeBlock)
+	{
+		*largestFreeBlock = Z_LargestFreeBlock_NoLock();
+	}
+
+#ifndef _GAMECUBE
+	ReleaseMutex(s_Mutex);
+#endif
+
+	return fblock ? qtrue : qfalse;
+}
+
 static bool Z_ValidateFree(void)
 {
 #if ZONE_DEBUG
@@ -844,10 +976,10 @@ void Z_MallocFail(const char* pMessage, int iSize, memtag_t eTag)
 	// Clear the screen blue to indicate out of memory
 	for (;;)
 	{
-		qglBeginFrame();
-		qglClearColor(0, 0, 1, 1);
-		qglClear(GL_COLOR_BUFFER_BIT);
-		qglEndFrame();
+		glBeginFrame();
+		glClearColor(0, 0, 1, 1);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glEndFrame();
 	}
 }
 
@@ -1965,6 +2097,13 @@ void *Hunk_Alloc(int size, ha_pref preference)
 	}
 	return Z_Malloc(size, hunk_tag, qtrue);
 }
+
+#if defined(STEFX_ELITE_FORCE_MP)
+void *Hunk_Alloc(int size, qboolean bZeroIt)
+{
+	return Z_Malloc(size, hunk_tag, bZeroIt);
+}
+#endif
 
 /*
 =================

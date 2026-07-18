@@ -19,6 +19,8 @@
 #define SPLIT_VARIANCE_SIZE		20
 #define SPLIT_VARIANCE_STEP		(VARIANCE_MAX / SPLIT_VARIANCE_SIZE)
 
+#define VectorAverage(a,b,c)			(((c)[0]=((a)[0]+(b)[0])*0.5f),((c)[1]=((a)[1]+(b)[1])*0.5f),((c)[2]=((a)[2]+(b)[2])*0.5f))
+
 class CTerVert
 {
 public:

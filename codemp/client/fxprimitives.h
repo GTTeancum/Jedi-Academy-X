@@ -127,7 +127,7 @@ protected:
 	int			mImpactFxID;		// if we have an impact event, we may have to call an effect
 	int			mDeathFxID;			// if we have a death event, we may have to call an effect
 
-	miniRefEntity_t		mRefEnt;
+	refEntity_t		mRefEnt;
 
 	int			mSoundRadius;
 	int			mSoundVolume;
@@ -141,7 +141,7 @@ public:
 	virtual bool Update()	{ return true;		}
 	virtual	void Draw(void) {}
 
-	inline	miniRefEntity_t	&GetRefEnt(void) { return mRefEnt; } 
+	inline	refEntity_t	&GetRefEnt(void) { return mRefEnt; } 
 
 	inline void		SetNext(CEffect *Next) { mNext = Next; }
 	inline CEffect	*GetNext(void) { return mNext; }

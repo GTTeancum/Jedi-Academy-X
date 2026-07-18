@@ -1,9 +1,15 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // tr_light.c
 
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
+
 #include "tr_local.h"
+
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #define	DLIGHT_AT_RADIUS		16
 // at the edge of a dlight's influence, this amount of light will be added
@@ -21,15 +27,15 @@ Used by both the front end (for DlightBmodel) and
 the back end (before doing the lighting calculation)
 ===============
 */
-void R_TransformDlights( int count, dlight_t *dl, orientationr_t *ori) {
+void R_TransformDlights( int count, dlight_t *dl, orientationr_t *or) {
 	int		i;
 	vec3_t	temp;
 
 	for ( i = 0 ; i < count ; i++, dl++ ) {
-		VectorSubtract( dl->origin, ori->origin, temp );
-		dl->transformed[0] = DotProduct( temp, ori->axis[0] );
-		dl->transformed[1] = DotProduct( temp, ori->axis[1] );
-		dl->transformed[2] = DotProduct( temp, ori->axis[2] );
+		VectorSubtract( dl->origin, or->origin, temp );
+		dl->transformed[0] = DotProduct( temp, or->axis[0] );
+		dl->transformed[1] = DotProduct( temp, or->axis[1] );
+		dl->transformed[2] = DotProduct( temp, or->axis[2] );
 	}
 }
 
@@ -40,15 +46,15 @@ R_DlightBmodel
 Determine which dynamic lights may effect this bmodel
 =============
 */
-void R_DlightBmodel( bmodel_t *bmodel, bool NoLight )
-{ //rwwRMG - modified args
+#ifndef VV_LIGHTING
+void R_DlightBmodel( bmodel_t *bmodel, qboolean NoLight ) {
 	int			i, j;
 	dlight_t	*dl;
 	int			mask;
 	msurface_t	*surf;
 
 	// transform all the lights
-	R_TransformDlights( tr.refdef.num_dlights, tr.refdef.dlights, &tr.ori );
+	R_TransformDlights( tr.refdef.num_dlights, tr.refdef.dlights, &tr.or );
 
 	mask = 0;
 	if (!NoLight)
@@ -74,12 +80,14 @@ void R_DlightBmodel( bmodel_t *bmodel, bool NoLight )
 		}
 	}
 
-	tr.currentEntity->needDlights = (qboolean)(mask != 0);
+	tr.currentEntity->needDlights = (mask != 0);
 	tr.currentEntity->dlightBits = mask;
+
 
 	// set the dlight bits in all the surfaces
 	for ( i = 0 ; i < bmodel->numSurfaces ; i++ ) {
 		surf = bmodel->firstSurface + i;
+
 		if ( *surf->data == SF_FACE ) {
 			((srfSurfaceFace_t *)surf->data)->dlightBits = mask;
 		} else if ( *surf->data == SF_GRID ) {
@@ -89,6 +97,7 @@ void R_DlightBmodel( bmodel_t *bmodel, bool NoLight )
 		}
 	}
 }
+#endif // VV_LIGHTING
 
 
 /*
@@ -103,7 +112,10 @@ extern	cvar_t	*r_ambientScale;
 extern	cvar_t	*r_directedScale;
 extern	cvar_t	*r_debugLight;
 
-//rwwRMG - VectorScaleVector is now a #define
+#ifdef _XBOX
+static int s_xboxLightGridLogCount = 0;
+static int s_xboxEntityLightLogCount = 0;
+#endif
 
 /*
 =================
@@ -111,7 +123,11 @@ R_SetupEntityLightingGrid
 
 =================
 */
+#ifdef VV_LIGHTING
+void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
+#else
 static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
+#endif
 	vec3_t			lightOrigin;
 	int				pos[3];
 	int				i, j;
@@ -127,8 +143,8 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	zeroArray[0] = zeroArray[1] = zeroArray[2] = 0;
 #endif
 
-
-	if (r_fullbright->integer)
+	
+	if (r_fullbright->integer || (tr.refdef.rdflags & RDF_doLAGoggles) )
 	{
 		ent->ambientLight[0] = ent->ambientLight[1] = ent->ambientLight[2] = 255.0;
 		ent->directedLight[0] = ent->directedLight[1] = ent->directedLight[2] = 255.0;
@@ -144,6 +160,11 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	} else {
 		VectorCopy( ent->e.origin, lightOrigin );
 	}
+#define ACCURATE_LIGHTGRID_SAMPLING 1
+#if ACCURATE_LIGHTGRID_SAMPLING
+	vec3_t	startLightOrigin;
+	VectorCopy( lightOrigin, startLightOrigin );
+#endif
 
 	VectorSubtract( lightOrigin, tr.world->lightGridOrigin, lightOrigin );
 	for ( i = 0 ; i < 3 ; i++ ) {
@@ -167,8 +188,15 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	gridStep[0] = 1;
 	gridStep[1] = tr.world->lightGridBounds[0];
 	gridStep[2] = tr.world->lightGridBounds[0] * tr.world->lightGridBounds[1];
-	startGridPos = tr.world->lightGridArray + (pos[0] * gridStep[0] + pos[1] * gridStep[1] + pos[2] * gridStep[2]);
-
+	startGridPos = tr.world->lightGridArray	+ pos[0] * gridStep[0] 
+					+ pos[1] * gridStep[1] 	+ pos[2] * gridStep[2];
+#if ACCURATE_LIGHTGRID_SAMPLING
+	vec3_t	startGridOrg;
+	VectorCopy( tr.world->lightGridOrigin, startGridOrg );
+	startGridOrg[0] += pos[0] * tr.world->lightGridSize[0];
+	startGridOrg[1] += pos[1] * tr.world->lightGridSize[1];
+	startGridOrg[2] += pos[2] * tr.world->lightGridSize[2];
+#endif
 	totalFactor = 0;
 	for ( i = 0 ; i < 8 ; i++ ) {
 		float			factor;
@@ -176,6 +204,10 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 		unsigned short	*gridPos;
 		int				lat, lng;
 		vec3_t			normal;
+#if ACCURATE_LIGHTGRID_SAMPLING
+		vec3_t			gridOrg;
+		VectorCopy( startGridOrg, gridOrg );
+#endif
 
 		factor = 1.0;
 		gridPos = startGridPos;
@@ -183,6 +215,9 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 			if ( i & (1<<j) ) {
 				factor *= frac[j];
 				gridPos += gridStep[j];
+#if ACCURATE_LIGHTGRID_SAMPLING
+				gridOrg[j] += tr.world->lightGridSize[j];
+#endif
 			} else {
 				factor *= (1.0 - frac[j]);
 			}
@@ -197,8 +232,8 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 #ifdef _XBOX
 		const byte *memory = (const byte *)tr.world->lightGridData + data->data;
 
-		style = data->flags & (1 << 4) ? memory[0] : LS_LSNONE;
-		if ( style == LS_LSNONE ) 
+		style = data->flags & (1 << 4) ? memory[0] : LS_NONE;
+		if ( style == LS_NONE ) 
 		{
 			continue;	// ignore samples in walls
 		}
@@ -213,10 +248,10 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 				style = *memory;
 				memory++;
 			} else {
-				style = LS_LSNONE;
+				style = LS_NONE;
 			}
 
-			if (style != LS_LSNONE)
+			if (style != LS_NONE)
 			{
 				if(data->flags & (1 << j)) {
 					array = memory;
@@ -246,16 +281,23 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 
 #else // _XBOX
 
-		if ( data->styles[0] == LS_LSNONE ) 
+		if ( data->styles[0] == LS_NONE ) 
 		{
 			continue;	// ignore samples in walls
 		}
+
+#if 0
+		if ( !SV_inPVS( startLightOrigin, gridOrg ) )
+		{
+			continue;
+		}
+#endif
 
 		totalFactor += factor;
 
 		for(j=0;j<MAXLIGHTMAPS;j++)
 		{
-			if (data->styles[j] != LS_LSNONE)
+			if (data->styles[j] != LS_NONE)
 			{
 				const byte	style= data->styles[j];
 
@@ -272,6 +314,7 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 				break;
 			}
 		}
+
 #endif // _XBOX
 
 		lat = data->latLong[1];
@@ -283,11 +326,51 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 		// decode Y as sin( lat ) * sin( long )
 		// decode Z as cos( long )
 
-		normal[0] = tr.sinTable[(lat + (FUNCTABLE_SIZE / 4)) & FUNCTABLE_MASK] * tr.sinTable[lng];
+		normal[0] = tr.sinTable[(lat+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK] * tr.sinTable[lng];
 		normal[1] = tr.sinTable[lat] * tr.sinTable[lng];
-		normal[2] = tr.sinTable[(lng + (FUNCTABLE_SIZE / 4)) & FUNCTABLE_MASK];
+		normal[2] = tr.sinTable[(lng+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK];
 
 		VectorMA( direction, factor, normal, direction );
+
+#if ACCURATE_LIGHTGRID_SAMPLING
+#ifndef _XBOX
+		if ( r_debugLight->integer && ent->e.hModel == -1 )
+		{
+			//draw 	
+			refEntity_t refEnt;
+			refEnt.hModel = 0;
+			refEnt.ghoul2 = NULL;
+			refEnt.renderfx = 0;
+			VectorCopy( gridOrg, refEnt.origin );
+			vectoangles( normal, refEnt.angles );
+			AnglesToAxis( refEnt.angles, refEnt.axis );
+			refEnt.reType = RT_MODEL;
+			RE_AddRefEntityToScene( &refEnt );
+
+			refEnt.renderfx = RF_DEPTHHACK;
+			refEnt.reType = RT_SPRITE;
+			refEnt.customShader = RE_RegisterShader( "gfx/misc/debugAmbient" );
+			refEnt.shaderRGBA[0] = data->ambientLight[0][0];
+			refEnt.shaderRGBA[1] = data->ambientLight[0][1];
+			refEnt.shaderRGBA[2] = data->ambientLight[0][2];
+			refEnt.shaderRGBA[3] = 255;
+			refEnt.radius = factor*50+2.0f; // maybe always give it a minimum size?
+			refEnt.rotation = 0;			// don't let the sprite wobble around
+			RE_AddRefEntityToScene( &refEnt );
+
+			refEnt.reType = RT_LINE;
+			refEnt.customShader = RE_RegisterShader( "gfx/misc/debugArrow" );
+			refEnt.shaderRGBA[0] = data->directLight[0][0];
+			refEnt.shaderRGBA[1] = data->directLight[0][1];
+			refEnt.shaderRGBA[2] = data->directLight[0][2];
+			refEnt.shaderRGBA[3] = 255;
+			VectorCopy( refEnt.origin, refEnt.oldorigin );
+			VectorMA( gridOrg, (factor*-255) - 2.0f, normal, refEnt.origin ); // maybe always give it a minimum length
+			refEnt.radius = 1.5f;
+			RE_AddRefEntityToScene( &refEnt );
+		}
+#endif // _XBOX
+#endif
 	}
 
 	if ( totalFactor > 0 && totalFactor < 0.99 ) 
@@ -301,6 +384,27 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	VectorScale( ent->directedLight, r_directedScale->value, ent->directedLight );
 
 	VectorNormalize2( direction, ent->lightDir );
+
+#ifdef _XBOX
+	if ( s_xboxLightGridLogCount < 64 && ent->e.hModel > 0 ) {
+		XBLF("STEFX_LIGHTGRID #%d ent=%p hModel=%d reType=%d renderfx=0x%x origin=%g,%g,%g lightOrigin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
+			s_xboxLightGridLogCount,
+			ent,
+			ent->e.hModel,
+			ent->e.reType,
+			ent->e.renderfx,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			startLightOrigin[0], startLightOrigin[1], startLightOrigin[2],
+			pos[0], pos[1], pos[2],
+			frac[0], frac[1], frac[2],
+			totalFactor,
+			ent->ambientLight[0], ent->ambientLight[1], ent->ambientLight[2],
+			ent->directedLight[0], ent->directedLight[1], ent->directedLight[2],
+			ent->lightDir[0], ent->lightDir[1], ent->lightDir[2],
+			tr.world->lightGridBounds[0], tr.world->lightGridBounds[1], tr.world->lightGridBounds[2]);
+		s_xboxLightGridLogCount++;
+	}
+#endif
 }
 
 
@@ -312,25 +416,33 @@ LogLight
 static void LogLight( trRefEntity_t *ent ) {
 	int	max1, max2;
 
+	/*
 	if ( !(ent->e.renderfx & RF_FIRST_PERSON ) ) {
 		return;
 	}
+	*/
 
+	max1 = VectorLength( ent->ambientLight );
+	/*
 	max1 = ent->ambientLight[0];
 	if ( ent->ambientLight[1] > max1 ) {
 		max1 = ent->ambientLight[1];
 	} else if ( ent->ambientLight[2] > max1 ) {
 		max1 = ent->ambientLight[2];
 	}
+	*/
 
+	max2 = VectorLength( ent->directedLight );
+	/*
 	max2 = ent->directedLight[0];
 	if ( ent->directedLight[1] > max2 ) {
 		max2 = ent->directedLight[1];
 	} else if ( ent->directedLight[2] > max2 ) {
 		max2 = ent->directedLight[2];
 	}
+	*/
 
-	Com_Printf ("amb:%i  dir:%i\n", max1, max2 );
+	VID_Printf( PRINT_ALL, "amb:%i  dir:%i  direction: (%4.2f, %4.2f, %4.2f)\n", max1, max2, ent->lightDir[0], ent->lightDir[1], ent->lightDir[2] );
 }
 
 /*
@@ -342,6 +454,7 @@ by the Calc_* functions
 =================
 */
 void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
+#ifndef VV_LIGHTING
 	int				i;
 	dlight_t		*dl;
 	float			power;
@@ -381,29 +494,16 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	}
 
 	// bonus items and view weapons have a fixed minimum add
-	if ( 1 /* ent->e.renderfx & RF_MINLIGHT */ ) {
+	if (  ent->e.renderfx & RF_MORELIGHT  ) {
+		ent->ambientLight[0] += tr.identityLight * 96;
+		ent->ambientLight[1] += tr.identityLight * 96;
+		ent->ambientLight[2] += tr.identityLight * 96;
+	}
+	else {
 		// give everything a minimum light add
 		ent->ambientLight[0] += tr.identityLight * 32;
 		ent->ambientLight[1] += tr.identityLight * 32;
 		ent->ambientLight[2] += tr.identityLight * 32;
-	}
-
-	if (ent->e.renderfx & RF_MINLIGHT)
-	{ //the minlight flag is now for items rotating on their holo thing
-		if (ent->e.shaderRGBA[0] == 255 &&
-			ent->e.shaderRGBA[1] == 255 &&
-			ent->e.shaderRGBA[2] == 0)
-		{
-			ent->ambientLight[0] += tr.identityLight * 255;
-			ent->ambientLight[1] += tr.identityLight * 255;
-			ent->ambientLight[2] += tr.identityLight * 0;
-		}
-		else
-		{
-			ent->ambientLight[0] += tr.identityLight * 16;
-			ent->ambientLight[1] += tr.identityLight * 96;
-			ent->ambientLight[2] += tr.identityLight * 150;
-		}
 	}
 
 	//
@@ -449,6 +549,53 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	ent->lightDir[0] = DotProduct( lightDir, ent->e.axis[0] );
 	ent->lightDir[1] = DotProduct( lightDir, ent->e.axis[1] );
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
+
+#ifdef _XBOX
+	if ( s_xboxEntityLightLogCount < 64 ) {
+		XBLF("JA: ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g",
+			s_xboxEntityLightLogCount,
+			ent,
+			ent->e.hModel,
+			ent->e.reType,
+			ent->e.renderfx,
+			(refdef->rdflags & RDF_NOWORLDMODEL) ? 1 : 0,
+			(tr.world && tr.world->lightGridData) ? 1 : 0,
+			refdef->num_dlights,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
+			ent->ambientLight[0], ent->ambientLight[1], ent->ambientLight[2],
+			ent->directedLight[0], ent->directedLight[1], ent->directedLight[2],
+			ent->ambientLightInt,
+			ent->lightDir[0], ent->lightDir[1], ent->lightDir[2]);
+		s_xboxEntityLightLogCount++;
+	}
+#endif
+
+#endif // VV_LIGHTING
+}
+
+//pass in origin
+qboolean RE_GetLighting( const vec3_t origin, vec3_t ambientLight, vec3_t directedLight, vec3_t lightDir) {
+	trRefEntity_t tr_ent;
+
+	if ( !tr.world || !tr.world->lightGridData) {
+		ambientLight[0] = ambientLight[1] = ambientLight[2] = 255.0;
+		directedLight[0] = directedLight[1] = directedLight[2] = 255.0;
+		VectorCopy( tr.sunDirection, lightDir );
+		return qfalse;
+	}
+	memset (&tr_ent, 0, sizeof(tr_ent) );
+
+	if ( ambientLight[0] == 666 )
+	{//HAX0R
+		tr_ent.e.hModel = -1;
+	}
+
+	VectorCopy (origin, tr_ent.e.origin);
+	R_SetupEntityLightingGrid( &tr_ent );
+	VectorCopy ( tr_ent.ambientLight,	ambientLight);
+	VectorCopy ( tr_ent.directedLight,	directedLight);
+	VectorCopy ( tr_ent.lightDir,		lightDir);
+	return qtrue;
 }
 
 /*
@@ -464,7 +611,7 @@ int R_LightForPoint( vec3_t point, vec3_t ambientLight, vec3_t directedLight, ve
 	if ( tr.world->lightGridData == NULL )
 	  return qfalse;
 
-	Com_Memset(&ent, 0, sizeof(ent));
+	memset(&ent, 0, sizeof(ent));
 	VectorCopy( point, ent.e.origin );
 	R_SetupEntityLightingGrid( &ent );
 	VectorCopy(ent.ambientLight, ambientLight);

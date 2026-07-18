@@ -16,7 +16,7 @@
 #include "snd_local_console.h"
 #include "../xbox/XBLive.h"
 #include "../xbox/XBoxCommon.h"
-#include "../win32/xb_log.h"
+#include "../win32/xb_log_mp_compat.h"
 #else
 #include "snd_local.h"
 #endif
@@ -262,7 +262,9 @@ extern void Sys_IORequestQueueClear(void);
 extern void AS_FreePartial(void);
 extern void Cvar_Defrag(void);
 extern void R_ModelFree(void);
+#if !defined(STEFX_ELITE_FORCE_MP)
 extern void Ghoul2InfoArray_Free(void);
+#endif
 extern void CM_Free(void);
 extern void G_ClPtrClear(void);
 extern void NPC_NPCPtrsClear(void);
@@ -296,7 +298,9 @@ void CL_ClearLastLevel(void)
 	Z_TagFree(TAG_BG_ALLOC);
 	CM_Free();
 	R_DestroyWireframeMap();
+#if !defined(STEFX_ELITE_FORCE_MP)
 	Ghoul2InfoArray_Free();
+#endif
 	CM_FreeShaderText();
 	R_ModelFree();
 	Sys_IORequestQueueClear();
@@ -2237,6 +2241,24 @@ DLL glue
 ================
 */
 #define	MAXPRINTMSG	4096
+void VID_Printf (int print_level, const char *fmt, ...)
+{
+	va_list		argptr;
+	char		msg[MAXPRINTMSG];
+	
+	va_start (argptr,fmt);
+	vsprintf (msg,fmt,argptr);
+	va_end (argptr);
+
+	if ( print_level == PRINT_ALL ) {
+		Com_Printf ("%s", msg);
+	} else if ( print_level == PRINT_WARNING ) {
+		Com_Printf (S_COLOR_YELLOW "%s", msg);		// yellow
+	} else if ( print_level == PRINT_DEVELOPER ) {
+		Com_DPrintf (S_COLOR_RED"%s", msg);
+	}
+}
+
 void QDECL CL_RefPrintf( int print_level, const char *fmt, ...) {
 	va_list		argptr;
 	char		msg[MAXPRINTMSG];

@@ -49,7 +49,20 @@ Dlls will call this directly
 */
 int QDECL VM_DllSyscall( int arg, ... )
 {
-	return currentVM->systemCall( &arg );
+	if ( arg == 24 )
+	{
+		Com_Printf( "STEFX_HM: VM_DllSyscall CG_CM_LOADMAP begin vm=%08x systemCall=%08x arg1=%08x arg2=%d\n",
+			(unsigned int)currentVM,
+			currentVM ? (unsigned int)currentVM->systemCall : 0,
+			(unsigned int)(&arg)[1],
+			(&arg)[2] );
+	}
+	int result = currentVM->systemCall( &arg );
+	if ( arg == 24 )
+	{
+		Com_Printf( "STEFX_HM: VM_DllSyscall CG_CM_LOADMAP done result=%d\n", result );
+	}
+	return result;
 }
 
 /*

@@ -1,26 +1,17 @@
 #ifndef TR_LOCAL_H
 #define TR_LOCAL_H
 
-#ifdef DEDICATED
-typedef const char * LPCSTR;
-typedef unsigned short USHORT;
-typedef unsigned int GLuint;
-#endif
 
+#include "../game/q_shared.h"
 #include "../qcommon/qfiles.h"
 #include "tr_public.h"
+#include "mdx_format.h"
 #if defined(_XBOX)
 #include "qgl_console.h"
 #include "glext_console.h"
 #else
-#ifndef DEDICATED
 #include "qgl.h"
-#endif 
-#endif
-#include "../ghoul2/ghoul2_shared.h" //rwwRMG - added
-
-#if defined(STEFX_ELITE_FORCE_SP) || defined(STEFX_ELITE_FORCE_MP)
-#define STEFX_ELITE_FORCE_RENDERER 1
+#include "glext.h"
 #endif
 
 #ifdef _XBOX
@@ -32,65 +23,31 @@ typedef unsigned int glIndex_t;
 #endif
 
 // fast float to int conversion
-#if id386 && !( (defined __linux__ || defined __FreeBSD__ ) && (defined __i386__ ) ) // rb010123
-inline long myftol( float f );
+#if id386 && !(defined __linux__ && defined __i386__)
+long myftol( float f );
 #else
 #define	myftol(x) ((int)(x))
 #endif
 
-//for 3d textures -rww
-#define GL_TEXTURE_3D                     0x806F
 
 // 14 bits
 // see QSORT_SHADERNUM_SHIFT
 #ifdef _XBOX
-#define	MAX_SHADERS				2048
+#define	MAX_SHADERS				4096
 #else
-#define	MAX_SHADERS				16384
+#define	MAX_SHADERS				8192
 #endif
 // can't be increased without changing bit packing for drawsurfs
 
-#define MAX_SHADER_STATES 2048
-#define MAX_STATES_PER_SHADER 32
-#define MAX_STATE_NAME 32
-
-typedef enum
-{
-	DLIGHT_VERTICAL	= 0,
-	DLIGHT_PROJECTED
-} eDLightTypes;
 
 typedef struct dlight_s {
-	eDLightTypes	mType;
+	vec3_t	origin;
+	vec3_t	color;				// range from 0.0 to 1.0, should be color normalized
+	float	radius;
 
-	vec3_t			origin;
-	vec3_t			mProjOrigin;		// projected light's origin
-
-	vec3_t			color;				// range from 0.0 to 1.0, should be color normalized
-
-	float			radius;
-	float			mProjRadius;		// desired radius of light 
-
-	int				additive;			// texture detail is lost tho when the lightmap is dark
-
-	vec3_t			transformed;		// origin in local coordinate system
-	vec3_t			mProjTransformed;	// projected light's origin in local coordinate system
-
-	vec3_t			mDirection;
-	vec3_t			mBasis2;
-	vec3_t			mBasis3;
-
-	vec3_t			mTransDirection;
-	vec3_t			mTransBasis2;
-	vec3_t			mTransBasis3;
+	vec3_t	transformed;		// origin in local coordinate system
 } dlight_t;
 
-// a trMiniRefEntity_t has all the information passed in by
-// the client game, other info will come from it's parent main ref entity
-typedef struct 
-{
-	miniRefEntity_t	e;
-} trMiniRefEntity_t;
 
 // a trRefEntity_t has all the information passed in by
 // the client game, as well as some locally derived info
@@ -105,13 +62,56 @@ typedef struct {
 	vec3_t		ambientLight;	// color normalized to 0-255
 	int			ambientLightInt;	// 32 bit rgba packed
 	vec3_t		directedLight;
-#ifdef _XBOX
-	vec3_t		dlightDir;
-	vec3_t		dynamicLight;
-#endif
 	int			dlightBits;
+#ifdef _XBOX
+	vec3_t		shadowDir;
+	int			visible;
+#endif
 } trRefEntity_t;
 
+#ifdef _XBOX
+extern char entityVisList[MAX_GENTITIES + 1000 + 256];//MAX_MISC_ENTS + MAX_FLARES];
+void RB_RunVisTest(int number, vec3_t bounds[2]);
+#endif
+
+// trRefdef_t holds everything that comes in refdef_t,
+// as well as the locally generated scene information
+typedef struct {
+	int			x, y, width, height;
+	float		fov_x, fov_y;
+	vec3_t		vieworg;
+	vec3_t		viewaxis[3];		// transformation matrix
+
+	int			time;				// time in milliseconds for shader effects and other time dependent rendering issues
+	int			frametime;
+	int			rdflags;			// RDF_NOWORLDMODEL, etc
+
+	// 1 bits will prevent the associated area from rendering at all
+	byte		areamask[MAX_MAP_AREA_BYTES];
+	qboolean	areamaskModified;	// qtrue if areamask changed since last scene
+
+	float		floatTime;			// tr.refdef.time / 1000.0
+	
+	// text messages for deform text shaders
+//	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
+
+	int			num_entities;
+	trRefEntity_t	*entities;
+
+#ifndef VV_LIGHTING
+	int			num_dlights;
+	struct dlight_s	*dlights;
+#endif
+
+	int			numPolys;
+	struct srfPoly_s	*polys;
+
+	int			numDrawSurfs;
+	struct drawSurf_s	*drawSurfs;
+
+	int			fogIndex;	//what fog brush the vieworg is in
+
+} trRefdef_t;
 
 typedef struct {
 	vec3_t		origin;			// in world coordinates
@@ -159,9 +159,9 @@ typedef enum {
 	SS_MIDDLE,
 	SS_MID_OUTSIDE,
 	SS_OUTSIDE,			// outside body parts (i.e. ribs)
-
+	
 	SS_FOG,
-
+	
 	SS_UNDERWATER,		// for items that should be drawn in front of the water plane
 
 	SS_BLEND0,			// regular transparency and filters
@@ -189,7 +189,7 @@ typedef enum {
 	GF_INVERSE_SAWTOOTH, 
 
 	GF_NOISE,
-	GF_RAND
+	GF_RAND,
 
 } genFunc_t;
 
@@ -233,6 +233,7 @@ typedef enum {
 	CGEN_BAD,
 	CGEN_IDENTITY_LIGHTING,	// tr.identityLight
 	CGEN_IDENTITY,			// always (1,1,1,1)
+	CGEN_SKIP,
 	CGEN_ENTITY,			// grabbed from entity's modulate field
 	CGEN_ONE_MINUS_ENTITY,	// grabbed from 1 - entity.modulate
 	CGEN_EXACT_VERTEX,		// tess.vertexColors
@@ -321,19 +322,17 @@ typedef struct {
 	float			translate[2];		// t' = s * m[0][1] + t * m[0][1] + trans[1]
 
 	// used for TMOD_SCALE
-	//(moved to translate)
 //	float			scale[2];			// s *= scale[0]
 	                                    // t *= scale[1]
 
 	// used for TMOD_SCROLL
-	//(moved to translate)
 //	float			scroll[2];			// s' = s + scroll[0] * time
 										// t' = t + scroll[1] * time
 
+	// used for TMOD_ROTATE
 	// + = clockwise
 	// - = counterclockwise
-	////(moved to translate[0])
-//	float			rotateSpeed;
+	//float			rotateSpeed;
 
 } texModInfo_t;
 
@@ -343,6 +342,7 @@ typedef struct {
 #define SURFSPRITE_ORIENTED		2
 #define SURFSPRITE_EFFECT		3
 #define SURFSPRITE_WEATHERFX	4
+#define SURFSPRITE_FLATTENED	5
 
 #define SURFSPRITE_FACING_NORMAL	0
 #define SURFSPRITE_FACING_UP		1
@@ -374,9 +374,9 @@ typedef struct {
 	byte			isLightmap;
 	byte			oneShotAnimMap;
 	byte			vertexLightmap;
-//	byte			isVideoMap;
+	byte			isVideoMap;
 
-//	int				videoMapHandle;
+	char			videoMapHandle;
 } textureBundle_t;
 
 
@@ -386,7 +386,7 @@ typedef struct {
 	byte			active;
 	byte			isDetail;
 	byte			isEnvironment;
-//	byte			isSpecular;
+	byte			isSpecular;
 	byte			isBumpMap;
 
 	byte			index;						// index of stage
@@ -398,7 +398,7 @@ typedef struct {
 	byte			mGLFogColorOverride;
 
 	// Whether this object emits a glow or not.
-//	byte			glow;
+	byte			glow;
 
 	textureBundle_t	bundle[NUM_TEXTURE_BUNDLES];
 
@@ -429,12 +429,12 @@ typedef enum {
 typedef enum {
 	FP_NONE,		// surface is translucent and will just be adjusted properly
 	FP_EQUAL,		// surface is opaque but possibly alpha tested
-	FP_LE,			// surface is trnaslucent, but still needs a fog pass (fog surface)
-	FP_GLFOG
+	FP_LE			// surface is trnaslucent, but still needs a fog pass (fog surface)
 } fogPass_t;
 
 typedef struct {
 	float		cloudHeight;
+//	image_t		*outerbox[6], *innerbox[6];
 	image_t		*outerbox[6];
 } skyParms_t;
 
@@ -442,6 +442,7 @@ typedef struct {
 	vec3_t	color;
 	float	depthForOpaque;
 } fogParms_t;
+
 
 typedef struct shader_s {
 	char		name[MAX_QPATH];		// game path, including extension
@@ -486,48 +487,29 @@ typedef struct shader_s {
 
 	fogPass_t	fogPass;				// draw a blended pass, possibly with depth test equals
 
-//	vec3_t		bumpVector;				// The given light vector for bump-mapping
-
 	deformStage_t	*deforms[MAX_SHADER_DEFORMS];
 	short		numDeforms;
 
 	short		numUnfoggedPasses;
 	shaderStage_t	*stages;		
 
-//  float clampTime;                                  // time this shader is clamped to
-  float timeOffset;                                 // current time offset for this shader
+	float			timeOffset;                                 // current time offset for this shader
 
-#ifndef _XBOX	// GLOWXXX
+//#ifndef _XBOX	// GLOWXXX
 	// True if this shader has a stage with glow in it (just an optimization).
 	bool hasGlow;
-#endif
+//#endif
 
-/*
-  int numStates;                                    // if non-zero this is a state shader
-  struct shader_s *currentShader;                   // current state if this is a state shader
-  struct shader_s *parentShader;                    // current state if this is a state shader
-  int currentState;                                 // current state index for cycle purposes
-  long expireTime;                                  // time in milliseconds this expires
-
-  int shaderStates[MAX_STATES_PER_SHADER];          // index to valid shader states
-*/
-
-	struct shader_s *remappedShader;                  // current shader this one is remapped too
+	struct shader_s		*remappedShader;                  // current shader this one is remapped too
 	struct	shader_s	*next;
 } shader_t;
 
-typedef struct shaderState_s {
-  char shaderName[MAX_QPATH];     // name of shader this state belongs to
-  char name[MAX_STATE_NAME];      // name of this state
-  char stateShader[MAX_QPATH];    // shader this name invokes
-  int cycleTime;                  // time this cycle lasts, <= 0 is forever
-  shader_t *shader;
-} shaderState_t;
 
 /*
 Ghoul2 Insert Start
 */
  // bogus little registration system for hit and location based damage files in hunk memory
+/*
 typedef struct
 {
 	byte	*loc;
@@ -539,49 +521,10 @@ typedef struct
 #define MAX_HITMAT_ENTRIES 1000
 
 extern hitMatReg_t		hitMatReg[MAX_HITMAT_ENTRIES];
-
+*/
 /*
 Ghoul2 Insert End
 */
-
-
-// trRefdef_t holds everything that comes in refdef_t,
-// as well as the locally generated scene information
-typedef struct {
-	int			x, y, width, height;
-	float		fov_x, fov_y;
-	vec3_t		vieworg;
-	vec3_t		viewaxis[3];		// transformation matrix
-
-	int			time;				// time in milliseconds for shader effects and other time dependent rendering issues
-	int			frametime;
-	int			rdflags;			// RDF_NOWORLDMODEL, etc
-
-	// 1 bits will prevent the associated area from rendering at all
-	byte		areamask[MAX_MAP_AREA_BYTES];
-	qboolean	areamaskModified;	// qtrue if areamask changed since last scene
-
-	float		floatTime;			// tr.refdef.time / 1000.0
-
-	// text messages for deform text shaders
-	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
-
-	int			num_entities;
-	trRefEntity_t	*entities;
-	trMiniRefEntity_t	*miniEntities;
-
-	int			num_dlights;
-	struct dlight_s	*dlights;
-
-	int			numPolys;
-	struct srfPoly_s	*polys;
-
-	int			numDrawSurfs;
-	struct drawSurf_s	*drawSurfs;
-
-
-} trRefdef_t;
-
 
 //=================================================================================
 
@@ -612,7 +555,7 @@ typedef struct {
 } fog_t;
 
 typedef struct {
-	orientationr_t	ori;				// Can't use "or" as it is a reserved word with gcc DREWS 2/2/2002
+	orientationr_t	or;
 	orientationr_t	world;
 	vec3_t		pvsOrigin;			// may be different than or.origin for portals
 	qboolean	isPortal;			// true if this view is through a portal
@@ -623,7 +566,7 @@ typedef struct {
 	int			viewportX, viewportY, viewportWidth, viewportHeight;
 	float		fovX, fovY;
 	float		projectionMatrix[16];
-	cplane_t	frustum[4];
+	cplane_t	frustum[5];
 	vec3_t		visBounds[2];
 	float		zFar;
 } viewParms_t;
@@ -639,15 +582,15 @@ SURFACES
 
 // any changes in surfaceType must be mirrored in rb_surfaceTable[]
 typedef enum {
-	SF_BAD,
+	SF_BAD, 
 	SF_SKIP,				// ignore
 	SF_FACE,
 	SF_GRID,
 	SF_TRIANGLES,
 	SF_POLY,
-	SF_TERRAIN, //rwwRMG - added
+	SF_TERRAIN,
 	SF_MD3,
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 	SF_MDR,
 #endif
 /*
@@ -711,33 +654,6 @@ typedef struct srfFlare_s {
 
 #endif
 
-#ifdef _XBOX
-// Added tangent size in here
-#define	VERTEXSIZE			(9+(MAXLIGHTMAPS*3))
-#define VERTEX_LM			8  
-#define	VERTEX_COLOR(flags)		(VERTEX_LM + (((flags) & 0x7F) * 2))
-#else
-#define	VERTEXSIZE			(6+(MAXLIGHTMAPS*3))
-#define VERTEX_LM			5
-#define	VERTEX_COLOR		(5+(MAXLIGHTMAPS*2))
-#endif
-
-#define	VERTEX_FINAL_COLOR	(5+(MAXLIGHTMAPS*3))
-
-#ifdef _XBOX
-#define NEXT_SURFPOINT(flags) (VERTEX_LM + (((flags) & 0x7F) * 2) + ((((flags) & 0x80) >> 7) * 4));
-#define POINTS_ST_SCALE 128.0f
-#define POINTS_LIGHT_SCALE 65536.0f
-#define GLM_COMP_SIZE 64.0f
-#define GLM_COMP_UV_SIZE 16384.0f
-#endif // _XBOX
-
-typedef struct srfTerrain_s
-{
-	surfaceType_t			surfaceType;
-	class CTRLandScape		*landscape;
-} srfTerrain_t;
-
 typedef struct srfGridMesh_s {
 	surfaceType_t	surfaceType;
 
@@ -754,8 +670,6 @@ typedef struct srfGridMesh_s {
 	// groups of curves that LOD as a unit
 	vec3_t			lodOrigin;
 	float			lodRadius;
-	int				lodFixed;
-	int				lodStitched;
 
 	// vertexes
 	int				width, height;
@@ -764,7 +678,37 @@ typedef struct srfGridMesh_s {
 	drawVert_t		verts[1];		// variable sized
 } srfGridMesh_t;
 
+
+
 #ifdef _XBOX
+// Added tangent size in here
+#define	VERTEXSIZE			(9+(MAXLIGHTMAPS*3))
+#define VERTEX_LM			8  
+#define	VERTEX_COLOR(flags)		(VERTEX_LM + (((flags) & 0x7F) * 2))
+#else
+#define	VERTEXSIZE			(6+(MAXLIGHTMAPS*3))
+#define VERTEX_LM			5
+#define	VERTEX_COLOR		(5+(MAXLIGHTMAPS*2))
+#endif
+
+
+#define	VERTEX_FINAL_COLOR	(5+(MAXLIGHTMAPS*3))
+
+
+
+#ifdef _XBOX
+
+#ifdef COMPRESS_VERTEX_COLORS
+#define NEXT_SURFPOINT(flags) (VERTEX_LM + (((flags) & 0x7F) * 2) + ((((flags) & 0x80) >> 7) * 4));
+#else
+#define NEXT_SURFPOINT(flags) (VERTEX_LM + (((flags) & 0x7F) * 2) + ((((flags) & 0x80) >> 7) * 8));
+#endif
+
+#define POINTS_ST_SCALE 128.0f
+#define POINTS_LIGHT_SCALE 65536.0f
+#define GLM_COMP_SIZE 64.0f
+#define GLM_COMP_UV_SIZE 16384.0f
+
 #pragma pack (push, 1)
 typedef struct {
 	surfaceType_t	surfaceType;
@@ -779,7 +723,6 @@ typedef struct {
 	unsigned short	ofsIndices;
 	unsigned char   flags; //highest bit - true if face uses vertex colors,
 							//low 7 bits - number of light maps
-//	vec3_t			*tangents;
 	unsigned short	*srfPoints;			// variable sized
 										// there is a variable length list of indices here also
 } srfSurfaceFace_t;
@@ -801,7 +744,6 @@ typedef struct {
 	float		points[1][VERTEXSIZE];	// variable sized
 										// there is a variable length list of indices here also
 } srfSurfaceFace_t;
-
 #endif // _XBOX
 
 
@@ -823,25 +765,10 @@ typedef struct {
 
 	int				numVerts;
 	drawVert_t		*verts;
-//	vec3_t			*tangents;
 } srfTriangles_t;
 
 
 extern	void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])(void *);
-
-/*
-==============================================================================
-
-TERRAIN DATA
-
-==============================================================================
-*/
-
-void RE_InitRendererTerrain( const char *info );
-void RB_SurfaceTerrain( surfaceInfo_t *surface );
-void R_TerrainInit (void);
-void R_TerrainShutdown(void);
-
 
 /*
 ==============================================================================
@@ -866,6 +793,12 @@ typedef struct msurface_s {
 	int					fogIndex;
 
 	surfaceType_t		*data;			// any of srf*_t
+#ifdef _XBOX
+	int					xboxDebugCode;
+	int					xboxDebugShaderNum;
+	vec3_t				xboxDebugMins;
+	vec3_t				xboxDebugMaxs;
+#endif
 } msurface_t;
 
 
@@ -873,6 +806,7 @@ typedef struct msurface_s {
 #define	CONTENTS_NODE		-1
 
 #ifdef _XBOX
+#define	CONTENTS_NODE		-1
 #pragma pack (push, 1)
 typedef struct mnode_s {
 	// common with leaf and node
@@ -958,24 +892,24 @@ typedef struct {
 
 #else // _XBOX
 
-typedef struct 
-{
+typedef struct {
 	byte		ambientLight[MAXLIGHTMAPS][3];
 	byte		directLight[MAXLIGHTMAPS][3];
 	byte		styles[MAXLIGHTMAPS];
 	byte		latLong[2];
-//	byte		pad[2];								// to align to a cache line
 } mgrid_t;
 
 #endif // _XBOX
 
-
 #ifdef _XBOX
 template <class T>
 class SPARC;
+#endif
 typedef struct {
+#ifdef _XBOX
 	char		name[MAX_QPATH];		// ie: maps/tim_dm2.bsp
 	char		baseName[MAX_QPATH];	// ie: tim_dm2
+#endif
 
 	int			numShaders;
 	dshader_t	*shaders;
@@ -988,9 +922,10 @@ typedef struct {
 	int			numnodes;		// includes leafs
 	int			numDecisionNodes;
 	mnode_t		*nodes;
-
+#ifdef _XBOX
 	int			numleafs;
 	mleaf_s		*leafs;
+#endif
 
 	int			numsurfaces;
 	msurface_t	*surfaces;
@@ -1015,87 +950,25 @@ typedef struct {
 	int			numClusters;
 	int			clusterBytes;
 
+#ifdef _XBOX
 	SPARC<byte>	*vis;
-
-	byte		*novis;			// clusterBytes of 0xff
-
-	qboolean	portalPresent;
-
-	char		*entityString;
-	char		*entityParsePoint;
-} world_t;
-
-#else // _XBOX
-
-typedef struct {
-	char		name[MAX_QPATH];		// ie: maps/tim_dm2.bsp
-	char		baseName[MAX_QPATH];	// ie: tim_dm2
-
-	int			dataSize;
-
-	int			numShaders;
-	dshader_t	*shaders;
-
-	bmodel_t	*bmodels;
-
-	int			numplanes;
-	cplane_t	*planes;
-
-	int			numnodes;		// includes leafs
-	int			numDecisionNodes;
-	mnode_t		*nodes;
-
-	int			numsurfaces;
-	msurface_t	*surfaces;
-
-	int			nummarksurfaces;
-	msurface_t	**marksurfaces;
-
-	int			numfogs;
-	fog_t		*fogs;
-	int			globalFog;
-
-
-	vec3_t		lightGridOrigin;
-	vec3_t		lightGridSize;
-	vec3_t		lightGridInverseSize;
-	int			lightGridBounds[3];
-
-	int			lightGridOffsets[8];
-
-	vec3_t		lightGridStep;
-
-	mgrid_t			*lightGridData;
-	word		*lightGridArray;
-	int			numGridArrayElements;
-
-
-	int			numClusters;
-	int			clusterBytes;
+#else
 	const byte	*vis;			// may be passed in by CM_LoadMap to save space
+#endif
 
 	byte		*novis;			// clusterBytes of 0xff
-
-	char		*entityString;
-	char		*entityParsePoint;
+#ifdef _XBOX
+	qboolean	portalPresent;
+#endif
 } world_t;
-
-#endif // _XBOX
 
 //======================================================================
-/*
-Ghoul2 Insert Start
-*/
-#define MDXABONEDEF
-#include "mdx_format.h"
-/*
-Ghoul2 Insert End
-*/
+
 typedef enum {
 	MOD_BAD,
 	MOD_BRUSH,
 	MOD_MESH,
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 	MOD_MDR,
 	MOD_STEFX_MDR_PLACEHOLDER,
 #endif
@@ -1107,17 +980,18 @@ Ghoul2 Insert Start
 /*
 Ghoul2 Insert End
 */
+
 } modtype_t;
 
 typedef struct model_s {
 	char		name[MAX_QPATH];
 	modtype_t	type;
-	int			index;				// model = tr.models[model->index]
-
+	int			index;				// model = tr.models[model->mod_index]
+	
 	int			dataSize;			// just for listing purposes
 	bmodel_t	*bmodel;			// only if type == MOD_BRUSH
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 	md4Header_t	*md4;				// only if type == MOD_MDR
 #endif
 /*
@@ -1128,78 +1002,25 @@ Ghoul2 Insert Start
 /*
 Ghoul2 Insert End
 */
-	int			 numLods;
-	qboolean	bspInstance;
+	unsigned char	numLods;
+	bool			bspInstance;			// model is a bsp instance
 } model_t;
 
 
 #define	MAX_MOD_KNOWN	1024
 
 void		R_ModelInit (void);
-void		R_InitDecals	(void);
-
 model_t		*R_GetModelByHandle( qhandle_t hModel );
-int			R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFrame, 
+void		R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFrame, 
 					 float frac, const char *tagName );
 void		R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs );
 
 void		R_Modellist_f (void);
 
 //====================================================
-
-
-// An offscreen buffer used for secondary rendering and render-to-texture support (RTT). - AReis
-#ifndef _XBOX	// GLOWXXX
-#ifndef DEDICATED
-class CPBUFFER
-{
-private:
-	// Pixel Buffer Rendering and Device Contexts.
-	HGLRC m_hRC;
-	HDC m_hDC;
-
-	// The render and device contexts for the previous render target.
-	HGLRC m_hOldRC;
-	HDC m_hOldDC;
-
-	// Buffer handle.
-	HPBUFFERARB m_hBuffer;
-
-	// Buffer Dimensions.
-	int m_iWidth, m_iHeight;
-
-	// Color, depth, and stencil bits for this buffer.
-	int m_iColorBits, m_iDepthBits, m_iStencilBits;
-
-public:
-	// Texture used for displaying the pbuffer.
-	GLuint m_uiPBufferTexture;
-
-	// Constructor.
-	CPBUFFER() {}
-
-	// Destructor.
-	~CPBUFFER() {}
-
-	// Allocate and create a new PBuffer.
-	bool Create( int iWidth, int iHeight, int iColorBits, int iDepthBits, int iStencilBits );
-
-	// Destroy and deallocate a PBuffer.
-	void Destroy();
-
-	// Make this PBuffer the current render device.
-	bool Begin();
-
-	// Restore the previous render device.
-	bool End();
-};
-#endif  // DEDICATED
-#endif	// _XBOX
-
-
 #define	MAX_DRAWIMAGES			2048
 #define	MAX_LIGHTMAPS			256
-#define	MAX_SKINS				1024
+#define	MAX_SKINS				512	//1024
 
 
 #ifdef _XBOX
@@ -1216,11 +1037,23 @@ compared quickly during the qsorting process
 
 the bits are allocated as follows:
 
-18-31 : sorted shader index
+22 - 31	: sorted shader index
+12 - 21	: entity index
+3 - 7	: fog index
+2		: used to be clipped flag
+0 - 1	: dlightmap index
+#define	QSORT_SHADERNUM_SHIFT	22
+#define	QSORT_ENTITYNUM_SHIFT	12
+#define	QSORT_FOGNUM_SHIFT		3
+
+	TTimo - 1.32
+31	:  used for alpha fading models (drawn last)
+18-30 : sorted shader index
 7-17  : entity index
 2-6   : fog index
 0-1   : dlightmap index
 */
+
 #define	QSORT_SHADERNUM_SHIFT	18
 #define	QSORT_ENTITYNUM_SHIFT	7
 #define	QSORT_FOGNUM_SHIFT		2
@@ -1277,7 +1110,7 @@ typedef struct {
 typedef struct {
 	trRefdef_t	refdef;
 	viewParms_t	viewParms;
-	orientationr_t	ori;		// Can't use or as it is a c++ reserved word DREWS 2/2/2002
+	orientationr_t	ori;
 	backEndCounters_t	pc;
 	qboolean	isHyperspace;
 	trRefEntity_t	*currentEntity;
@@ -1289,6 +1122,12 @@ typedef struct {
 	trRefEntity_t	entity2D;	// currentEntity will point at this when doing 2D rendering
 } backEndState_t;
 
+typedef struct srfTerrain_s
+{
+	surfaceType_t			surfaceType;
+	class CTRLandScape		*landscape;
+} srfTerrain_t;
+
 /*
 ** trGlobals_t 
 **
@@ -1297,7 +1136,6 @@ typedef struct {
 ** but may read fields that aren't dynamically modified
 ** by the frontend.
 */
-
 #ifdef _XBOX
 #define NUM_SCRATCH_IMAGES 1
 #else
@@ -1306,6 +1144,9 @@ typedef struct {
 
 #define SCREEN_IMAGE_MAX_WIDTH	512
 #define SCREEN_IMAGE_MAX_HEIGHT	256
+
+#define SAVE_GAME_IMAGE_W		256
+#define SAVE_GAME_IMAGE_H		128
 
 typedef struct {
 	qboolean				registered;		// cleared at shutdown, set at beginRegistration
@@ -1320,6 +1161,7 @@ typedef struct {
 
 	qboolean				worldMapLoaded;
 	world_t					*world;
+	char					worldDir[MAX_QPATH];		// ie: maps/tim_dm2
 
 #ifdef _XBOX
 	SPARC<byte>				*externalVisData;	// from RE_SetWorldVisData, shared with CM_Load
@@ -1327,16 +1169,19 @@ typedef struct {
 	const byte				*externalVisData;	// from RE_SetWorldVisData, shared with CM_Load
 #endif
 
-	image_t					*defaultImage;
-//	image_t					*scratchImage[NUM_SCRATCH_IMAGES];
+	image_t					*defaultImage;	
+	image_t					*scratchImage[NUM_SCRATCH_IMAGES];
 	image_t					*fogImage;
 	image_t					*dlightImage;	// inverse-quare highlight for projective adding
-	image_t					*flareImage;
 	image_t					*whiteImage;			// full of 0xff
-//	image_t					*identityLightImage;	// full of tr.identityLightByte
+	image_t					*identityLightImage;	// full of tr.identityLightByte
 
 	image_t					*screenImage; //reserve us a gl texnum to use with RF_DISTORTION
 
+#ifdef _XBOX
+	image_t					*saveGameImage;
+#endif //_XBOX
+	
 #ifndef _XBOX	// GLOWXXX
 	// Handle to the Glow Effect Vertex Shader. - AReis
 	GLuint					glowVShader;
@@ -1367,7 +1212,7 @@ typedef struct {
 	trRefEntity_t			*currentEntity;
 	trRefEntity_t			worldEntity;		// point currentEntity at this when rendering world
 	int						currentEntityNum;
-	int						shiftedEntityNum;	// currentEntityNum << QSORT_ENTITYNUM_SHIFT
+	unsigned				shiftedEntityNum;	// currentEntityNum << QSORT_ENTITYNUM_SHIFT (possible with high bit set for RF_ALPHA_FADE)
 	model_t					*currentModel;
 
 	viewParms_t				viewParms;
@@ -1376,7 +1221,7 @@ typedef struct {
 	int						identityLightByte;	// identityLight * 255
 	int						overbrightBits;		// r_overbrightBits->integer, but set to 0 if no hw gamma
 
-	orientationr_t			ori;					// for current entity
+	orientationr_t			or;					// for current entity
 
 	trRefdef_t				refdef;
 
@@ -1384,8 +1229,8 @@ typedef struct {
 
 	vec3_t					sunLight;			// from the sky shader for this level
 	vec3_t					sunDirection;
-	int						sunSurfaceLight;	// from the sky shader for this level
 	vec3_t					sunAmbient;			// from the sky shader	(only used for John's terrain system)
+
 
 	frontEndCounters_t		pc;
 	int						frontEndMsec;		// not in pc due to clearing issue
@@ -1397,10 +1242,8 @@ typedef struct {
 	model_t					*models[MAX_MOD_KNOWN];
 	int						numModels;
 
-/*
 	world_t					bspModels[MAX_SUB_BSP];
 	int						numBSPModels;
-*/
 
 	// shader indexes from other modules will be looked up in tr.shaders[]
 	// shader indexes from drawsurfs will be looked up in sortedShaders[]
@@ -1408,11 +1251,13 @@ typedef struct {
 	int						numShaders;
 	shader_t				*shaders[MAX_SHADERS];
 	shader_t				*sortedShaders[MAX_SHADERS];
+	int						iNumDeniedShaders;	// used for error-messages only
 
 	int						numSkins;
 	skin_t					*skins[MAX_SKINS];
 
 	float					sinTable[FUNCTABLE_SIZE];
+
 	float					squareTable[FUNCTABLE_SIZE];
 	float					triangleTable[FUNCTABLE_SIZE];
 	float					sawToothTable[FUNCTABLE_SIZE];
@@ -1420,11 +1265,10 @@ typedef struct {
 	float					fogTable[FOG_TABLE_SIZE];
 
 	float					rangedFog;
-	float					distanceCull, distanceCullSquared; //rwwRMG - added
 
-	srfTerrain_t			landScape; //rwwRMG - added
+	float					distanceCull;
+	srfTerrain_t			landScape;
 } trGlobals_t;
-
 
 int		 R_Images_StartIteration(void);
 image_t *R_Images_GetNextIteration(void);
@@ -1462,18 +1306,16 @@ extern cvar_t	*r_measureOverdraw;		// enables stencil buffer overdraw measuremen
 
 extern cvar_t	*r_lodbias;				// push/pull LOD transitions
 extern cvar_t	*r_lodscale;
-extern cvar_t	*r_autolodscalevalue;
 
 extern cvar_t	*r_primitives;			// "0" = based on compiled vertex array existance
 										// "1" = glDrawElemet tristrips
 										// "2" = glDrawElements triangles
 										// "-1" = no drawing
 
-extern cvar_t	*r_inGameVideo;				// controls whether in game video should be draw
 extern cvar_t	*r_fastsky;				// controls whether sky should be cleared or drawn
 extern cvar_t	*r_drawSun;				// controls drawing of sun quad
 extern cvar_t	*r_dynamiclight;		// dynamic lights enabled/disabled
-// rjr - removed for hacking extern cvar_t	*r_dlightBacks;			// dlight non-facing surfaces for continuity
+extern cvar_t	*r_dlightBacks;			// dlight non-facing surfaces for continuity
 
 extern	cvar_t	*r_norefresh;			// bypasses the ref rendering
 extern	cvar_t	*r_drawentities;		// disable/enable entity rendering
@@ -1481,18 +1323,12 @@ extern	cvar_t	*r_drawworld;			// disable/enable world rendering
 extern	cvar_t	*r_drawfog;				// disable/enable fog rendering
 extern	cvar_t	*r_speeds;				// various levels of information display
 extern  cvar_t	*r_detailTextures;		// enables/disables detail texturing stages
+
 extern	cvar_t	*r_novis;				// disable/enable usage of PVS
 extern	cvar_t	*r_nocull;
 extern	cvar_t	*r_facePlaneCull;		// enables culling of planar surfaces with back side test
-extern	cvar_t	*r_cullRoofFaces; //attempted smart method of culling out upwards facing surfaces on roofs for automap shots -rww
-extern	cvar_t	*r_roofCullCeilDist; //ceiling distance cull tolerance -rww
-extern	cvar_t	*r_roofCullFloorDist; //floor distance cull tolerance -rww
 extern	cvar_t	*r_nocurves;
 extern	cvar_t	*r_showcluster;
-
-extern	cvar_t	*r_autoMap; //automap renderside toggle for debugging -rww
-extern	cvar_t	*r_autoMapBackAlpha; //alpha of automap bg -rww
-extern	cvar_t	*r_autoMapDisable;
 
 extern cvar_t	*r_dlightStyle;
 extern cvar_t	*r_surfaceSprites;
@@ -1509,9 +1345,6 @@ extern cvar_t	*r_windPointY;
 extern cvar_t	*r_mode;				// video mode
 extern cvar_t	*r_fullscreen;
 extern cvar_t	*r_gamma;
-#ifdef _XBOX
-extern cvar_t   *s_brightness_volume;
-#endif
 extern cvar_t	*r_displayRefresh;		// optional display refresh option
 extern cvar_t	*r_ignorehwgamma;		// overrides hardware gamma capabilities
 
@@ -1540,7 +1373,6 @@ extern	cvar_t	*r_colorMipLevels;				// development aid to see texture mip usage
 extern	cvar_t	*r_picmip;						// controls picmip values
 extern	cvar_t	*r_finish;
 extern	cvar_t	*r_swapInterval;
-extern	cvar_t	*r_markcount;
 extern	cvar_t	*r_textureMode;
 extern	cvar_t	*r_offsetFactor;
 extern	cvar_t	*r_offsetUnits;
@@ -1548,10 +1380,10 @@ extern	cvar_t	*r_offsetUnits;
 extern	cvar_t	*r_fullbright;					// avoid lightmap pass
 extern	cvar_t	*r_lightmap;					// render lightmaps only
 extern	cvar_t	*r_vertexLight;					// vertex lighting mode for better performance
-extern	cvar_t	*r_uiFullScreen;				// ui is running fullscreen
 
 extern	cvar_t	*r_logFile;						// number of frames to emit GL logs
 extern	cvar_t	*r_showtris;					// enables wireframe rendering of the world
+extern	cvar_t	*r_showtriscolor;				// changes wireframe color
 extern	cvar_t	*r_showsky;						// forces sky in front of all surfaces
 extern	cvar_t	*r_shownormals;					// draws wireframe normals
 extern	cvar_t	*r_clear;						// force screen clear every frame
@@ -1578,6 +1410,7 @@ extern	cvar_t	*r_simpleMipMaps;
 
 extern	cvar_t	*r_showImages;
 extern	cvar_t	*r_debugSort;
+extern	cvar_t	*r_debugStyle;
 
 #ifdef _XBOX
 extern	cvar_t	*r_hdreffect;
@@ -1585,20 +1418,22 @@ extern  cvar_t  *r_sundir_x;
 extern  cvar_t  *r_sundir_y;
 extern  cvar_t  *r_sundir_z;
 extern  cvar_t  *r_hdrbloom;
+extern	cvar_t	*r_hdrcutoff;
 #endif
 
 /*
 Ghoul2 Insert Start
 */
-#ifdef _DEBUG
-extern	cvar_t	*r_noPrecacheGLA;
-#endif
-
-extern	cvar_t	*r_noServerGhoul2;
+extern	cvar_t	*r_noGhoul2;
 /*
 Ghoul2 Insert End
 */
 //====================================================================
+
+// Point sprite stuff.
+extern cvar_t	*r_ext_point_parameters;
+extern cvar_t	*r_ext_nv_point_sprite;
+
 
 float R_NoiseGet4f( float x, float y, float z, float t );
 void  R_NoiseInit( void );
@@ -1618,7 +1453,7 @@ void R_AddPolygonSurfaces( void );
 void R_DecomposeSort( unsigned sort, int *entityNum, shader_t **shader, 
 					 int *fogNum, int *dlightMap );
 
-void R_AddDrawSurf( surfaceType_t *surface, shader_t *shader, int fogIndex, int dlightMap );
+void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fogIndex, int dlightMap );
 
 
 #define	CULL_IN		0		// completely unclipped
@@ -1627,17 +1462,26 @@ void R_AddDrawSurf( surfaceType_t *surface, shader_t *shader, int fogIndex, int 
 void R_LocalNormalToWorld (const vec3_t local, vec3_t world);
 void R_LocalPointToWorld (const vec3_t local, vec3_t world);
 void R_WorldNormalToEntity (const vec3_t localVec, vec3_t world); 
-int R_CullLocalBox ( const vec3_t bounds[2]);
-int R_CullPointAndRadius( const vec3_t origin, float radius );
-int R_CullLocalPointAndRadius( const vec3_t origin, float radius );
+//void R_WorldPointToEntity (const vec3_t localVec, vec3_t world);
+int R_CullLocalBox (const vec3_t bounds[2]);
+int R_CullPointAndRadius( const vec3_t pt, float radius );
+int R_CullLocalPointAndRadius( const vec3_t pt, float radius );
 
-void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, orientationr_t *ori );
+void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, orientationr_t *or );
+
+#ifdef VV_LIGHTING
+void R_SetupEntityLightingGrid( trRefEntity_t *ent );
+void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse );
+#endif
 
 /*
 ** GL wrapper/helper functions
 */
 void	GL_Bind( image_t *image );
-void	GL_Bind3D( image_t *image );
+#ifdef _XBOX
+void	GL_InvalidateCurrentTexture( void );
+void	GL_InvalidateTextureUnit( int unit );
+#endif
 void	GL_SetDefaultState (void);
 void	GL_SelectTexture( int unit );
 void	GL_TextureMode( const char *string );
@@ -1678,74 +1522,55 @@ void	GL_Cull( int cullType );
 #define GLS_ATEST_LT_80							0x20000000
 #define GLS_ATEST_GE_80							0x40000000
 #define GLS_ATEST_GE_C0							0x80000000
-#define		GLS_ATEST_BITS						0xF0000000
+#define	GLS_ATEST_BITS							0xF0000000
 
 #define GLS_DEFAULT			GLS_DEPTHMASK_TRUE
 #define GLS_ALPHA			(GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)
 
-void	RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int client, qboolean dirty);
+void	RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty );
 void	RE_UploadCinematic (int cols, int rows, const byte *data, int client, qboolean dirty);
+void	RE_GetScreenShot(byte *data, int w, int h);
+#ifndef _XBOX
+byte*	RE_TempRawImage_ReadFromFile(const char *psLocalFilename, int *piWidth, int *piHeight, byte *pbReSampleBuffer, qboolean qbVertFlip);
+#endif
+void	RE_TempRawImage_CleanUp();
 
-void		RE_BeginFrame( stereoFrame_t stereoFrame );
 void		RE_BeginRegistration( glconfig_t *glconfig );
-void		R_ColorShiftLightingBytes( byte in[4], byte out[4] ); //rwwRMG - added
 void		RE_LoadWorldMap( const char *mapname );
-
 #ifdef _XBOX
 void		RE_SetWorldVisData( SPARC<byte> *vis );
 #else
 void		RE_SetWorldVisData( const byte *vis );
 #endif
-void		RE_SetPlaneData(cplane_t *planes, int count);
-
-qhandle_t	RE_RegisterServerModel( const char *name );
 qhandle_t	RE_RegisterModel( const char *name );
 qhandle_t	RE_RegisterSkin( const char *name );
+int			RE_GetAnimationCFG(const char *psCFGFilename, char *psDest, int iDestSize);
 void		RE_Shutdown( qboolean destroyWindow );
 
-void		RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForceReload);
+void		RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForceReload, qboolean bAllowScreenDissolve);
 void		RE_RegisterMedia_LevelLoadEnd(void);
 int			RE_RegisterMedia_GetLevel(void);
 //
 //void		RE_RegisterModels_LevelLoadBegin(const char *psMapName);
-qboolean	RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel = qfalse);
-#ifdef _XBOX
-void*		RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag, int modindex, bool useModelMem);
-#else
+qboolean	RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel = qfalse );
 void*		RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag);
-#endif
-void		RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const char *psShaderName, int *piShaderIndexPoke);
+void		RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const char *psShaderName, const int *piShaderIndexPoke);
 void		RE_RegisterModels_Info_f(void);
-//
 //void		RE_RegisterImages_LevelLoadBegin(const char *psMapName);
 qboolean	RE_RegisterImages_LevelLoadEnd(void);
 void		RE_RegisterImages_Info_f(void);
 
 
-qboolean	R_GetEntityToken( char *buffer, int size );
-
 model_t		*R_AllocModel( void );
 
 void    	R_Init( void );
-
-#ifndef DEDICATED
-#ifdef _XBOX
-void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format );
-#else
-void R_LoadImage( const char *name, byte **pic, int *width, int *height, GLenum *format );
-#endif
-#endif // DEDICATED
-
 image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode );
 
-#ifndef DEDICATED
 #ifdef _XBOX
 image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, GLenum format, qboolean mipmap, qboolean allowPicmip, int wrapClampMode);
 #else
-image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, GLenum format, qboolean mipmap
-					, qboolean allowPicmip, qboolean allowTC, int wrapClampMode, bool bRectangle = false );
-#endif // _XBOX
-#endif // DEDICATED
+image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, GLenum format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int wrapClampMode,int fileSize=0);
+#endif
 
 qboolean	R_GetModeInfo( int *width, int *height, int mode );
 
@@ -1755,6 +1580,7 @@ void		R_GammaCorrect( byte *buffer, int bufSize );
 void	R_ImageList_f( void );
 void	R_SkinList_f( void );
 void	R_ScreenShot_f( void );
+void	R_ScreenShotTGA_f( void );
 
 void	R_InitFogTable( void );
 float	R_FogFactor( float s, float t );
@@ -1774,25 +1600,13 @@ extern	const short	lightmapsVertex[MAXLIGHTMAPS];
 extern	const short	lightmapsFullBright[MAXLIGHTMAPS];
 extern	const byte	stylesDefault[MAXLIGHTMAPS];
 
-void R_GetLightParmsForLevel();
-void R_LoadLevelLightParms();
-
-qhandle_t RE_RegisterShaderLightMap( const char *name, const short *lightmapIndex, const byte *styles ) ;
 qhandle_t		 RE_RegisterShader( const char *name );
 qhandle_t		 RE_RegisterShaderNoMip( const char *name );
-const char		*RE_ShaderNameFromIndex(int index);
-qhandle_t RE_RegisterShaderFromImage(const char *name, short *lightmapIndex, byte *styles, image_t *image, qboolean mipRawImage);
 
 shader_t	*R_FindShader( const char *name, const short *lightmapIndex, const byte *styles, qboolean mipRawImage );
 shader_t	*R_GetShaderByHandle( qhandle_t hShader );
-shader_t	*R_GetShaderByState( int index, long *cycleTime );
-shader_t *R_FindShaderByName( const char *name );
-void		R_InitShaders(qboolean server);
+void		R_InitShaders( void );
 void		R_ShaderList_f( void );
-void    R_RemapShader(const char *oldShader, const char *newShader, const char *timeOffset);
-//rwwRMG: Added:
-qhandle_t	R_GetShaderByNum(int index, world_t &worldData);
-qhandle_t	R_CreateBlendedShader(qhandle_t a, qhandle_t b, qhandle_t c, bool surfaceSprites );
 
 
 /*
@@ -1813,6 +1627,21 @@ void		GLimp_LogComment( char *comment );
 void		GLimp_SetGamma( unsigned char red[256], 
 						    unsigned char green[256],
 							unsigned char blue[256] );
+#endif
+
+
+#ifdef _XBOX
+typedef struct 
+{
+	char		levelName[_MAX_PATH];
+	vec3_t		sundir;
+	bool		hdrEnable;
+	float		hdrBloom;
+	float		hdrCutoff;
+} levelLightParm_t;
+
+void R_GetLightParmsForLevel();
+void R_LoadLevelLightParms();
 #endif
 
 
@@ -1847,13 +1676,20 @@ struct shaderCommands_s
 #endif
 	vec2_t		texCoords[SHADER_MAX_VERTEXES][NUM_TEX_COORDS];
 	color4ub_t	vertexColors[SHADER_MAX_VERTEXES];
-	byte		vertexAlphas[SHADER_MAX_VERTEXES][4]; //rwwRMG - added support
+	byte		vertexAlphas[SHADER_MAX_VERTEXES][4];
 	int			vertexDlightBits[SHADER_MAX_VERTEXES];
+
+#ifdef _XBOX
+	DWORD	*pXyz;
+	DWORD	*pNormal;
+	DWORD	*pColor;
+	DWORD	*pTex1;
+	DWORD	*pTex2;
+#endif
 
 	stageVars_t	svars;
 
 	shader_t	*shader;
-  float   shaderTime;
 	int			fogNum;
 
 	int			dlightBits;	// or together of all vertexDlightBits
@@ -1877,11 +1713,13 @@ struct shaderCommands_s
 	//rww - doing a fade, don't compute shader color/alpha overrides
 	bool		fading;
 };
-#ifndef DEDICATED
+
 typedef __declspec(align(16)) shaderCommands_s	shaderCommands_t;
+
 extern	shaderCommands_t	tess;
-#endif
+
 extern	color4ub_t	styleColors[MAX_LIGHT_STYLES];
+extern	bool		styleUpdated[MAX_LIGHT_STYLES];
 
 void RB_BeginSurface(shader_t *shader, int fogNum );
 void RB_EndSurface(void);
@@ -1896,7 +1734,6 @@ void RB_AddQuadStampExt( vec3_t origin, vec3_t left, vec3_t up, byte *color, flo
 
 void RB_ShowImages( void );
 
-
 /*
 ============================================================
 
@@ -1907,7 +1744,6 @@ WORLD MAP
 
 void R_AddBrushModelSurfaces( trRefEntity_t *e );
 void R_AddWorldSurfaces( void );
-qboolean R_inPVS( const vec3_t p1, const vec3_t p2, byte *mask );
 
 
 /*
@@ -1920,7 +1756,7 @@ FLARES
 
 void R_ClearFlares( void );
 
-void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal );
+void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal, float lightScale );
 void RB_AddDlightFlares( void );
 void RB_RenderFlares (void);
 
@@ -1932,10 +1768,9 @@ LIGHTS
 ============================================================
 */
 
-void R_DlightBmodel( bmodel_t *bmodel, bool NoLight );
+void R_DlightBmodel( bmodel_t *bmodel, qboolean NoLight );
 void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent );
-void R_TransformDlights( int count, dlight_t *dl, orientationr_t *ori );
-int R_LightForPoint( vec3_t point, vec3_t ambientLight, vec3_t directedLight, vec3_t lightDir );
+void R_TransformDlights( int count, dlight_t *dl, orientationr_t *or );
 
 
 /*
@@ -1957,13 +1792,13 @@ SKIES
 
 ============================================================
 */
-#ifndef DEDICATED
+
 void R_BuildCloudData( shaderCommands_t *shader );
 void R_InitSkyTexCoords( float cloudLayerHeight );
 void R_DrawSkyBox( shaderCommands_t *shader );
 void RB_DrawSun( void );
 void RB_ClipSkyPolygons( shaderCommands_t *shader );
-#endif
+
 /*
 ============================================================
 
@@ -1971,9 +1806,6 @@ CURVE TESSELATION
 
 ============================================================
 */
-
-#define PATCH_STITCHING
-
 #ifdef _XBOX
 srfGridMesh_t *R_SubdividePatchToGrid( int width, int height,
 								drawVert_t* points,
@@ -1981,11 +1813,7 @@ srfGridMesh_t *R_SubdividePatchToGrid( int width, int height,
 #else
 srfGridMesh_t *R_SubdividePatchToGrid( int width, int height,
 								drawVert_t points[MAX_PATCH_SIZE*MAX_PATCH_SIZE] );
-#endif // _XBOX
-
-srfGridMesh_t *R_GridInsertColumn( srfGridMesh_t *grid, int column, int row, vec3_t point, float loderror );
-srfGridMesh_t *R_GridInsertRow( srfGridMesh_t *grid, int row, int column, vec3_t point, float loderror );
-void R_FreeSurfaceGridMesh( srfGridMesh_t *grid );
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -1994,6 +1822,8 @@ float ProjectRadius( float r, vec3_t location );
 /*
 Ghoul2 Insert End
 */
+
+
 /*
 ============================================================
 
@@ -2004,7 +1834,6 @@ MARKERS, POLYGON PROJECTION ON WORLD POLYGONS
 
 int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projection,
 				   int maxPoints, vec3_t pointBuffer, int maxFragments, markFragment_t *fragmentBuffer );
-
 
 /*
 ============================================================
@@ -2017,14 +1846,15 @@ SCENE GENERATION
 void R_ToggleSmpFrame( void );
 
 void RE_ClearScene( void );
-void RE_ClearDecals ( void );
 void RE_AddRefEntityToScene( const refEntity_t *ent );
-void RE_AddMiniRefEntityToScene( const miniRefEntity_t *ent );
-void RE_AddPolyToScene( qhandle_t hShader , int numVerts, const polyVert_t *verts, int num );
-void RE_AddDecalToScene ( qhandle_t shader, const vec3_t origin, const vec3_t dir, float orientation, float r, float g, float b, float a, qboolean alphaFade, float radius, qboolean temporary );
+void RE_AddPolyToScene( qhandle_t hShader , int numVerts, const polyVert_t *verts );
 void RE_AddLightToScene( const vec3_t org, float intensity, float r, float g, float b );
-void RE_AddAdditiveLightToScene( const vec3_t org, float intensity, float r, float g, float b );
 void RE_RenderScene( const refdef_t *fd );
+
+qboolean RE_GetLighting( const vec3_t origin, vec3_t ambientLight, vec3_t directedLight, vec3_t lightDir );
+
+// Only returns a four sided face and normal of the best face to break ( this is for glass right now )
+void RE_GetBModelVerts( int bmodelIndex, vec3_t *verts, vec3_t normal );
 
 /*
 =============================================================
@@ -2036,13 +1866,15 @@ ANIMATED MODELS
 
 void R_MakeAnimModel( model_t *model );
 void R_AddAnimSurfaces( trRefEntity_t *ent );
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 void RB_SurfaceAnim( md4Surface_t *surface );
 #endif
 /*
 Ghoul2 Insert Start
 */
 #pragma warning (disable: 4512)	//default assignment operator could not be gened
+class CBoneCache;
+
 class CRenderableSurface
 {
 public:
@@ -2051,7 +1883,7 @@ public:
 #else
 	const int		ident;			// ident of this surface - required so the materials renderer knows what sort of surface this refers to 
 #endif
-	CBoneCache 		*boneCache;
+ 	CBoneCache 		*boneCache;		// pointer to transformed bone list for this surf
 	mdxmSurface_t	*surfaceData;	// pointer to surface data loaded into file - only used by client renderer DO NOT USE IN GAME SIDE - if there is a vid restart this will be out of wack on the game
 #ifdef _G2_GORE
 	float			*alternateTex;		// alternate texture coordinates.
@@ -2087,16 +1919,16 @@ CRenderableSurface():
 #endif
 	{}
 
-#ifdef _G2_GORE
 	void Init()
 	{
-		ident = SF_MDX;
 		boneCache=0;
 		surfaceData=0;
+#ifdef _G2_GORE
+		ident = SF_MDX;
 		alternateTex=0;
 		goreChain=0;
-	}
 #endif
+	}
 };
 
 void R_AddGhoulSurfaces( trRefEntity_t *ent );
@@ -2104,6 +1936,9 @@ void RB_SurfaceGhoul( CRenderableSurface *surface );
 /*
 Ghoul2 Insert End
 */
+
+
+
 /*
 =============================================================
 =============================================================
@@ -2114,14 +1949,16 @@ void	R_TransformClipToWindow( const vec4_t clip, const viewParms_t *view, vec4_t
 
 void	RB_DeformTessGeometry( void );
 
+void	RB_CalcScaleTexCoords( const float scale[2], float *dstTexCoords );
+void	RB_CalcScrollTexCoords( const float scroll[2], float *dstTexCoords );
+void	RB_CalcStretchTexCoords( const waveForm_t *wf, float *texCoords );
+void	RB_CalcTransformTexCoords( const texModInfo_t *tmi, float *dstTexCoords );
+void	RB_CalcRotateTexCoords( float rotSpeed, float *dstTexCoords );
+
 void	RB_CalcEnvironmentTexCoords( float *dstTexCoords );
 void	RB_CalcFogTexCoords( float *dstTexCoords );
-void	RB_CalcScrollTexCoords( const float scroll[2], float *dstTexCoords );
-void	RB_CalcRotateTexCoords( float rotSpeed, float *dstTexCoords );
-void	RB_CalcScaleTexCoords( const float scale[2], float *dstTexCoords );
 void	RB_CalcTurbulentTexCoords( const waveForm_t *wf, float *dstTexCoords );
-void	RB_CalcTransformTexCoords( const texModInfo_t *tmi, float *dstTexCoords );
-void	RB_CalcStretchTexCoords( const waveForm_t *wf, float *texCoords );
+
 #ifdef _XBOX
 void	RB_CalcWaveColor( const waveForm_t *wf, DWORD *dstColors );
 void	RB_CalcColorFromEntity( DWORD *dstColors );
@@ -2133,27 +1970,23 @@ void	RB_CalcAlphaFromOneMinusEntity( DWORD *dstColors );
 void	RB_CalcModulateColorsByFog( DWORD *dstColors );
 void	RB_CalcModulateAlphasByFog( DWORD *dstColors );
 void	RB_CalcModulateRGBAsByFog( DWORD *dstColors );
-void	RB_CalcDisintegrateColors( DWORD *colors );
-void    RB_CalcDiffuseColor( DWORD *colors );
-void	RB_CalcDiffuseEntityColor( DWORD *colors );
 #else
+void	RB_CalcWaveColor( const waveForm_t *wf, unsigned char *dstColors );
+void	RB_CalcColorFromEntity( unsigned char *dstColors );
+void	RB_CalcColorFromOneMinusEntity( unsigned char *dstColors );
+void	RB_CalcWaveAlpha( const waveForm_t *wf, unsigned char *dstColors );
+void	RB_CalcSpecularAlpha( unsigned char *alphas );
+void	RB_CalcAlphaFromEntity( unsigned char *dstColors );
+void	RB_CalcAlphaFromOneMinusEntity( unsigned char *dstColors );
 void	RB_CalcModulateColorsByFog( unsigned char *dstColors );
 void	RB_CalcModulateAlphasByFog( unsigned char *dstColors );
 void	RB_CalcModulateRGBAsByFog( unsigned char *dstColors );
-void	RB_CalcWaveAlpha( const waveForm_t *wf, unsigned char *dstColors );
-void	RB_CalcWaveColor( const waveForm_t *wf, unsigned char *dstColors );
-void	RB_CalcAlphaFromEntity( unsigned char *dstColors );
-void	RB_CalcAlphaFromOneMinusEntity( unsigned char *dstColors );
-void	RB_CalcColorFromEntity( unsigned char *dstColors );
-void	RB_CalcColorFromOneMinusEntity( unsigned char *dstColors );
-void	RB_CalcSpecularAlpha( unsigned char *alphas );
-void	RB_CalcDisintegrateColors( unsigned char *colors );
+#endif
+
 void	RB_CalcDiffuseColor( unsigned char *colors );
 void	RB_CalcDiffuseEntityColor( unsigned char *colors );
-#endif // _XBOX
-
+void	RB_CalcDisintegrateColors( unsigned char *colors, colorGen_t rgbGen );
 void	RB_CalcDisintegrateVertDeform( void );
-
 /*
 =============================================================
 
@@ -2174,7 +2007,7 @@ RENDERER BACK END COMMAND QUEUE
 */
 
 #ifdef _XBOX
-#define	MAX_RENDER_COMMANDS	0x18000
+#define	MAX_RENDER_COMMANDS	0x40000
 #else
 #define	MAX_RENDER_COMMANDS	0x40000
 #endif
@@ -2230,56 +2063,69 @@ typedef struct {
 	float	a;
 } rotatePicCommand_t;
 
+typedef struct
+{
+	int			commandId;
+} setModeCommand_t;
+
+typedef struct 
+{
+	int		commandId;
+	float	x, y;
+	float	w, h;
+} scissorCommand_t;
+
 typedef struct {
 	int		commandId;
 	trRefdef_t	refdef;
 	viewParms_t	viewParms;
 	drawSurf_t *drawSurfs;
 	int		numDrawSurfs;
-#ifdef _XBOX
-	int		clientNum;
-#endif
 } drawSurfsCommand_t;
 
 typedef enum {
 	RC_END_OF_LIST,
 	RC_SET_COLOR,
 	RC_STRETCH_PIC,
+	RC_SCISSOR,
 	RC_ROTATE_PIC,
 	RC_ROTATE_PIC2,
 	RC_DRAW_SURFS,
 	RC_DRAW_BUFFER,
 	RC_SWAP_BUFFERS,
 	RC_WORLD_EFFECTS,
-	RC_AUTO_MAP
 } renderCommand_t;
 
 
 // these are sort of arbitrary limits.
 // the limits apply to the sum of all scenes in a frame --
 // the main view, all the 3D icons, etc
-#define	MAX_POLYS		600
-#define	MAX_POLYVERTS	3000
+#ifdef _XBOX
+#ifdef STEFX_ELITE_FORCE_SP
+#define	MAX_POLYS		2048
+#else
+#define	MAX_POLYS		512
+#endif
+#else
+#define	MAX_POLYS		2048
+#endif
+#define	MAX_POLYVERTS	( MAX_POLYS * 4 )
 
 // all of the information needed by the back end must be
-// contained in a backEndData_t.  This entire structure is
-// duplicated so the front and back end can run in parallel
-// on an SMP machine
+// contained in a backEndData_t.  left over from SMP duplications, 
+// could optimize to point directly at frontend data instead of copying?
 typedef struct {
 	drawSurf_t	drawSurfs[MAX_DRAWSURFS];
+#ifndef VV_LIGHTING
 	dlight_t	dlights[MAX_DLIGHTS];
+#endif
 	trRefEntity_t	entities[MAX_ENTITIES];
-	trMiniRefEntity_t	miniEntities[MAX_MINI_ENTITIES];
-	srfPoly_t	*polys;//[MAX_POLYS];
-	polyVert_t	*polyVerts;//[MAX_POLYVERTS];
+	srfPoly_t	polys[MAX_POLYS];
+	polyVert_t	polyVerts[MAX_POLYVERTS];
 	renderCommandList_t	commands;
 } backEndData_t;
 
-extern	int		max_polys;
-extern	int		max_polyverts;
-
 extern	backEndData_t	*backEndData;
-
 
 void *R_GetCommandBuffer( int bytes );
 void RB_ExecuteRenderCommands( const void *data );
@@ -2298,45 +2144,41 @@ void RE_RotatePic ( float x, float y, float w, float h,
 					  float s1, float t1, float s2, float t2,float a, qhandle_t hShader );
 void RE_RotatePic2 ( float x, float y, float w, float h, 
 					  float s1, float t1, float s2, float t2,float a, qhandle_t hShader );
+void RE_RenderWorldEffects(void);
+void RE_LAGoggles( void );
+void RE_Scissor ( float x, float y, float w, float h);
 void RE_BeginFrame( stereoFrame_t stereoFrame );
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec );
-void SaveJPG(char * filename, int quality, int image_width, int image_height, unsigned char *image_buffer);
+qboolean	RE_ProcessDissolve(void);
+qboolean	RE_InitDissolve(qboolean bForceCircularExtroWipe);
+
+
+long generateHashValue( const char *fname );
+#ifdef _XBOX
+void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format );
+#else
+int R_LoadImage( const char *name, byte **pic, int *width, int *height, GLenum *format );
+#endif
+void		RE_InsertModelIntoHash(const char *name, model_t *mod);
+qboolean R_FogParmsMatch( int fog1, int fog2 );
 
 int R_SurfaceImageCount(const image_t*);
-
 /*
 Ghoul2 Insert Start
 */
+
 // tr_ghoul2.cpp
 void		Create_Matrix(const float *angle, mdxaBone_t *matrix);
-void		Multiply_3x4Matrix(mdxaBone_t *out, mdxaBone_t *in2, mdxaBone_t *in);
+void		Multiply_3x4Matrix(mdxaBone_t *out,const mdxaBone_t *in2,const mdxaBone_t *in);
 extern qboolean R_LoadMDXM (model_t *mod, void *buffer, const char *name, qboolean &bAlreadyCached );
 extern qboolean R_LoadMDXA (model_t *mod, void *buffer, const char *name, qboolean &bAlreadyCached );
 bool LoadTGAPalletteImage ( const char *name, byte **pic, int *width, int *height);
-void		RE_InsertModelIntoHash(const char *name, model_t *mod);
 /*
 Ghoul2 Insert End
 */
 
-#define	MAX_VERTS_ON_DECAL_POLY	10
-//#define	MAX_DECAL_POLYS			500
-#define	MAX_DECAL_POLYS			100
-
-typedef struct decalPoly_s 
-{
-	int					time;
-	int					fadetime;
-	qhandle_t			shader;
-	float				color[4];
-	poly_t				poly;
-	polyVert_t			verts[MAX_VERTS_ON_DECAL_POLY];
-
-} decalPoly_t;
-
-#ifndef DEDICATED
 // tr_surfacesprites
 void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input);
-#endif
 
 #ifdef _XBOX
 struct DDS_PIXELFORMAT

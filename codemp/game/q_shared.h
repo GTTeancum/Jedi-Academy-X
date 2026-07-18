@@ -512,6 +512,9 @@ typedef enum {
 } ha_pref;
 
 void *Hunk_Alloc( int size, ha_pref preference );
+#if defined(__cplusplus) && defined(STEFX_ELITE_FORCE_MP)
+void *Hunk_Alloc( int size, qboolean bZeroIt );
+#endif
 
 void Com_Memset (void* dest, const int val, const size_t count);
 void Com_Memcpy (void* dest, const void* src, const size_t count);
@@ -1181,6 +1184,12 @@ inline vec_t DotProduct( const vec3_t v1, const vec3_t v2 ) {
 #endif
 }
 
+#if defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+inline vec_t DotProduct( const short v1[3], const vec3_t v2 ) {
+	return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2];
+}
+#endif
+
 inline void VectorSubtract( const vec3_t veca, const vec3_t vecb, vec3_t o ) {
 #ifdef _XBOX
 	__asm {
@@ -1286,6 +1295,45 @@ __asm {
 
 #endif
 
+#if defined(__cplusplus) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+#undef VectorMA
+inline void VectorMA( const vec3_t veca, float scale, const vec3_t vecb, vec3_t vecc) {
+	vecc[0] = veca[0] + scale*vecb[0];
+	vecc[1] = veca[1] + scale*vecb[1];
+	vecc[2] = veca[2] + scale*vecb[2];
+}
+
+#if defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+inline void VectorSubtract( const short veca[3], const vec3_t vecb, vec3_t o ) {
+	o[0] = veca[0]-vecb[0];
+	o[1] = veca[1]-vecb[1];
+	o[2] = veca[2]-vecb[2];
+}
+
+inline void VectorSubtract( const vec3_t veca, const short vecb[3], vec3_t o ) {
+	o[0] = veca[0]-vecb[0];
+	o[1] = veca[1]-vecb[1];
+	o[2] = veca[2]-vecb[2];
+}
+
+inline void VectorSubtract( const short veca[3], const short vecb[3], vec3_t o ) {
+	o[0] = veca[0]-vecb[0];
+	o[1] = veca[1]-vecb[1];
+	o[2] = veca[2]-vecb[2];
+}
+#endif
+
+#ifdef _XBOX
+inline void VectorMA( const vec3_t veca, float scale, const short vecb[3], vec3_t vecc) {
+	// The only time this overload gets used is with normals, so
+	// (I think) it's safe to do this....
+	vecc[0] = veca[0] + scale * ((float)vecb[0] / 32767.0f);
+	vecc[1] = veca[1] + scale * ((float)vecb[1] / 32767.0f);
+	vecc[2] = veca[2] + scale * ((float)vecb[2] / 32767.0f);
+}
+#endif
+#endif
+
 #ifdef __LCC__
 #ifdef VectorCopy
 #undef VectorCopy
@@ -1348,6 +1396,30 @@ float RadiusFromBounds( const vec3_t mins, const vec3_t maxs );
 void ClearBounds( vec3_t mins, vec3_t maxs );
 vec_t DistanceHorizontal( const vec3_t p1, const vec3_t p2 );
 vec_t DistanceHorizontalSquared( const vec3_t p1, const vec3_t p2 );
+#if defined(_XBOX) && defined(__cplusplus) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+inline void AddPointToBounds( const short v[3], vec3_t mins, vec3_t maxs ) {
+	if ( v[0] < mins[0] ) {
+		mins[0] = v[0];
+	}
+	if ( v[0] > maxs[0]) {
+		maxs[0] = v[0];
+	}
+
+	if ( v[1] < mins[1] ) {
+		mins[1] = v[1];
+	}
+	if ( v[1] > maxs[1]) {
+		maxs[1] = v[1];
+	}
+
+	if ( v[2] < mins[2] ) {
+		mins[2] = v[2];
+	}
+	if ( v[2] > maxs[2]) {
+		maxs[2] = v[2];
+	}
+}
+#endif
 void AddPointToBounds( const vec3_t v, vec3_t mins, vec3_t maxs );
 
 #ifndef __LCC__
@@ -1478,6 +1550,26 @@ void CrossProduct( const vec3_t v1, const vec3_t v2, vec3_t cross );
 
 vec_t VectorNormalize (vec3_t v);		// returns vector length
 vec_t VectorNormalize2( const vec3_t v, vec3_t out );
+#if defined(_XBOX) && defined(__cplusplus) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+inline vec_t VectorNormalize2( const vec3_t v, short out[3]) {
+	float	length, ilength;
+
+	length = v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
+	length = sqrt (length);
+
+	if (length)
+	{
+		ilength = 1/length;
+		out[0] = (short)(v[0]*ilength * 32767.0f);
+		out[1] = (short)(v[1]*ilength * 32767.0f);
+		out[2] = (short)(v[2]*ilength * 32767.0f);
+	} else {
+		VectorClear( out );
+	}
+
+	return length;
+}
+#endif
 void Vector4Scale( const vec4_t in, vec_t scale, vec4_t out );
 void VectorRotate( vec3_t in, vec3_t matrix[3], vec3_t out );
 int Q_log2(int val);
@@ -1488,6 +1580,13 @@ float Q_asin(float c);
 int		Q_rand( int *seed );
 float	Q_random( int *seed );
 float	Q_crandom( int *seed );
+
+#if defined(__cplusplus) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+//  Returns a float min <= x < max (exclusive; will get max - 0.00001; but never max
+inline float Q_flrand(float min, float max) {
+	return ((rand() * (max - min)) / 32768.0F) + min;
+}
+#endif
 
 #define random()	((rand () & 0x7fff) / ((float)0x7fff))
 #define crandom()	(2.0 * (random() - 0.5))
@@ -1513,6 +1612,21 @@ float AngleNormalize180 ( float angle );
 float AngleDelta ( float angle1, float angle2 );
 
 qboolean PlaneFromPoints( vec4_t plane, const vec3_t a, const vec3_t b, const vec3_t c );
+#if defined(_XBOX) && defined(__cplusplus) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_ELITE_FORCE_MP)
+inline qboolean PlaneFromPoints( vec4_t plane, const short a[3], const short b[3], const short c[3] ) {
+	vec3_t	d1, d2;
+
+	VectorSubtract( b, a, d1 );
+	VectorSubtract( c, a, d2 );
+	CrossProduct( d2, d1, plane );
+	if ( VectorNormalize( plane ) == 0 ) {
+		return qfalse;
+	}
+
+	plane[3] = DotProduct( a, plane );
+	return qtrue;
+}
+#endif
 void ProjectPointOnPlane( vec3_t dst, const vec3_t p, const vec3_t normal );
 void RotatePointAroundVector( vec3_t dst, const vec3_t dir, const vec3_t point, float degrees );
 void RotateAroundDirection( vec3_t axis[3], float yaw );
@@ -1650,6 +1764,7 @@ float	LittleFloat (const float *l);
 
 void	Swap_Init (void);
 */
+void	Swap_Init (void);
 char	* QDECL va(const char *format, ...);
 
 //=============================================
@@ -1928,7 +2043,7 @@ typedef int soundChannel_t;
 #define MAX_ICONS			64		// max registered icons you can have per map 
 #define MAX_FX				64		// max effects strings, I'm hoping that 64 will be plenty
 
-//#define MAX_SUB_BSP			32 //rwwRMG - added
+#define MAX_SUB_BSP			32
 
 /*
 Ghoul2 Insert Start
@@ -2986,6 +3101,7 @@ Ghoul2 Insert Start
 typedef struct {
 	float		matrix[3][4];
 } mdxaBone_t;
+#define MDXABONEDEF
 
 // For ghoul2 axis use
 
@@ -3072,7 +3188,7 @@ const char *GetStringForID( stringID_table_t *table, int id );
 typedef enum
 {
 	eForceReload_NOTHING,
-//	eForceReload_BSP,	// not used in MP codebase
+	eForceReload_BSP,
 	eForceReload_MODELS,
 	eForceReload_ALL
 

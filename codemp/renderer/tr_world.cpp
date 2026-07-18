@@ -1,20 +1,40 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
 
 #include "tr_local.h"
 
+#ifdef VV_LIGHTING
+#include "tr_lightmanager.h"
+#endif
+
 #ifdef _XBOX
 #include "../qcommon/sparc.h"
+#include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBSplitSlotActive;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldRetryDelta;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldFallback;
+extern "C" volatile unsigned int g_SPXBSplitSlot0MarkedLeaves;
+extern "C" volatile unsigned int g_SPXBSplitSlot1MarkedLeaves;
+extern "C" volatile unsigned int g_SPXBSplitSlot0PvsRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot1PvsRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot0AreaRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot1AreaRejected;
+extern "C" volatile unsigned int g_SPXBSplitSlot0RootVis;
+extern "C" volatile unsigned int g_SPXBSplitSlot1RootVis;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAttempts;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAttempts;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldCulled;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldCulled;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAlready;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAlready;
+extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAdded;
+extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAdded;
+#endif
+
 static bool lookingForWorstLeaf = false;
-#endif
-
-#ifndef _XBOX
-inline void Q_CastShort2Float(float *f, const short *s)
-{
-	*f = ((float)*s);
-}
-#endif
-
 
 #ifdef _XBOX
 static bool GetCoordsForLeaf(int leafNum, vec3_t coords)
@@ -40,8 +60,310 @@ static bool GetCoordsForLeaf(int leafNum, vec3_t coords)
 
 	return false;
 }
-#endif
 
+static const char *R_XboxMapShaderNameForSurface( const msurface_t *surf )
+{
+	if ( !surf || !tr.world || surf->xboxDebugShaderNum < 0 || surf->xboxDebugShaderNum >= tr.world->numShaders )
+	{
+		return "<bad>";
+	}
+
+	return tr.world->shaders[surf->xboxDebugShaderNum].shader;
+}
+
+static void R_XboxLogWorldSurfaceSubmit( const char *result, const msurface_t *surf, int dlightBits, qboolean noViewCount )
+{
+	const shader_t *shader;
+	const char *shaderName;
+	const char *mapShaderName;
+	const char *mapName;
+	int type;
+
+	if ( !surf )
+	{
+		return;
+	}
+
+	shader = surf->shader;
+	shaderName = shader ? shader->name : "<null>";
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	mapName = tr.world ? tr.world->name : "<noworld>";
+	type = surf->data ? (int)*surf->data : -1;
+
+	XBLF("STEFX_SURFACE_SUBMIT result='%s' map='%s' frame=%d view=%d ent=%d code=%d shaderNum=%d mapName='%s' resolved='%s' type=%d fog=%d dlight=0x%x noView=%d draw=%d sky=%d sort=%g default=%d explicit=%d passes=%d boundsMin=%g,%g,%g boundsMax=%g,%g,%g viewOrg=%g,%g,%g",
+		result ? result : "<null>",
+		mapName,
+		tr.frameCount,
+		tr.viewCount,
+		tr.currentEntityNum,
+		surf->xboxDebugCode,
+		surf->xboxDebugShaderNum,
+		mapShaderName,
+		shaderName,
+		type,
+		surf->fogIndex,
+		dlightBits,
+		(int)noViewCount,
+		tr.refdef.numDrawSurfs,
+		(int)(shader && shader->sky != NULL),
+		shader ? (double)shader->sort : -1.0,
+		shader ? shader->defaultShader : -1,
+		shader ? shader->explicitlyDefined : -1,
+		shader ? shader->numUnfoggedPasses : -1,
+		(double)surf->xboxDebugMins[0],
+		(double)surf->xboxDebugMins[1],
+		(double)surf->xboxDebugMins[2],
+		(double)surf->xboxDebugMaxs[0],
+		(double)surf->xboxDebugMaxs[1],
+		(double)surf->xboxDebugMaxs[2],
+		(double)tr.refdef.vieworg[0],
+		(double)tr.refdef.vieworg[1],
+		(double)tr.refdef.vieworg[2]);
+}
+
+static qboolean R_XboxTraceJunkSkySurface( const msurface_t *surf )
+{
+	const char *mapShaderName;
+	const char *resolvedName;
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
+	return ( strstr( mapShaderName, "textures/common/junk_sky" ) ||
+			 strstr( resolvedName, "textures/common/junk_sky" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxTraceBorgSuspectSurface( const msurface_t *surf )
+{
+	const char *mapShaderName;
+	const char *resolvedName;
+
+	if ( !surf )
+	{
+		return qfalse;
+	}
+
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	resolvedName = (surf->shader && surf->shader->name) ? surf->shader->name : "";
+	return ( !Q_stricmp( mapShaderName, "textures/common/black" ) ||
+			 !Q_stricmp( resolvedName, "textures/common/black" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/static2" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/static2" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/static2_nonsolid" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/static2_nonsolid" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgfield" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgfield" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgfield_nonsolid" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgfield_nonsolid" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgfield_opaque" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgfield_opaque" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/energy1" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/energy1" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/energy1_solid" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/energy1_solid" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/energy1_green" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/energy1_green" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/bars" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/bars" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/borgladder" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/borgladder" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/bigborg" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/bigborg" ) ||
+			 !Q_stricmp( mapShaderName, "textures/borg/oddlight1" ) ||
+			 !Q_stricmp( resolvedName, "textures/borg/oddlight1" ) ) ? qtrue : qfalse;
+}
+
+static qboolean R_XboxTraceScavengerSuspectSurface( const msurface_t *surf )
+{
+	const char *mapShaderName;
+	const char *resolvedName;
+	const shader_t *shader;
+
+	if ( !surf || !tr.world || Q_stricmpn( tr.world->name, "maps/scav", 9 ) )
+	{
+		return qfalse;
+	}
+
+	mapShaderName = R_XboxMapShaderNameForSurface( surf );
+	shader = surf->shader;
+	resolvedName = ( shader && shader->name ) ? shader->name : "";
+
+	if ( !Q_stricmp( mapShaderName, "textures/common/sky_light" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/sky_light" ) ||
+		 !Q_stricmp( mapShaderName, "textures/common/junk_sky" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/junk_sky" ) ||
+		 !Q_stricmp( mapShaderName, "textures/scavenger/m_wallgrid" ) ||
+		 !Q_stricmp( resolvedName, "textures/scavenger/m_wallgrid" ) ||
+		 !Q_stricmp( mapShaderName, "textures/scavenger/k_control_portal" ) ||
+		 !Q_stricmp( resolvedName, "textures/scavenger/k_control_portal" ) ||
+		 !Q_stricmp( mapShaderName, "textures/engineering/glass_nolightmap" ) ||
+		 !Q_stricmp( resolvedName, "textures/engineering/glass_nolightmap" ) ||
+		 !Q_stricmp( mapShaderName, "textures/engineering/glass_nolightmap_nonsolid" ) ||
+		 !Q_stricmp( resolvedName, "textures/engineering/glass_nolightmap_nonsolid" ) ||
+		 !Q_stricmp( mapShaderName, "textures/common/portal" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/portal" ) ||
+		 !Q_stricmp( mapShaderName, "textures/common/black" ) ||
+		 !Q_stricmp( resolvedName, "textures/common/black" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode, int *firstShaderNum )
+{
+	int i;
+	msurface_t **mark;
+
+	if ( firstCode )
+	{
+		*firstCode = -1;
+	}
+	if ( firstShaderNum )
+	{
+		*firstShaderNum = -1;
+	}
+	if ( !leaf || !tr.world || !tr.world->marksurfaces )
+	{
+		return qfalse;
+	}
+
+	if ( leaf->firstMarkSurfNum < 0 ||
+		leaf->firstMarkSurfNum + leaf->nummarksurfaces > tr.world->nummarksurfaces )
+	{
+		return qfalse;
+	}
+
+	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+	for ( i = 0; i < leaf->nummarksurfaces; ++i )
+	{
+		msurface_t *surf = mark[i];
+		if ( R_XboxTraceJunkSkySurface( surf ) )
+		{
+			if ( firstCode )
+			{
+				*firstCode = surf->xboxDebugCode;
+			}
+			if ( firstShaderNum )
+			{
+				*firstShaderNum = surf->xboxDebugShaderNum;
+			}
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static void R_XboxLogJunkSkyLeafVisibility( const char *phase, const byte *vis )
+{
+	static int s_junkLeafSummaryBudget = 24;
+	static int s_junkLeafDetailBudget = 96;
+	int i;
+	int junkLeafs = 0;
+	int visibleJunkLeafs = 0;
+	int pvsRejected = 0;
+	int areaRejected = 0;
+	int clusterRejected = 0;
+
+	if ( !tr.world || !tr.world->leafs || !tr.world->marksurfaces )
+	{
+		return;
+	}
+
+	for ( i = 0; i < tr.world->numleafs; ++i )
+	{
+		mleaf_s *leaf = &tr.world->leafs[i];
+		int firstCode = -1;
+		int firstShaderNum = -1;
+		int pvsVisible = 1;
+		int areaMasked = 0;
+		qboolean hasJunk = R_XboxLeafHasJunkSkySurface( leaf, &firstCode, &firstShaderNum );
+
+		if ( !hasJunk )
+		{
+			continue;
+		}
+
+		++junkLeafs;
+
+		if ( leaf->cluster < 0 || leaf->cluster >= tr.world->numClusters )
+		{
+			pvsVisible = 0;
+			++clusterRejected;
+		}
+		else if ( vis )
+		{
+			pvsVisible = (vis[leaf->cluster >> 3] & (1 << (leaf->cluster & 7))) ? 1 : 0;
+			if ( !pvsVisible )
+			{
+				++pvsRejected;
+			}
+		}
+
+		if ( leaf->area >= 0 &&
+			(tr.refdef.areamask[leaf->area >> 3] & (1 << (leaf->area & 7))) )
+		{
+			areaMasked = 1;
+			++areaRejected;
+		}
+
+		if ( leaf->visframe == tr.visCount )
+		{
+			++visibleJunkLeafs;
+		}
+
+		if ( s_junkLeafDetailBudget > 0 )
+		{
+			XBLF("STEFX_JUNK_LEAF phase='%s' leaf=%d cluster=%d area=%d marks=%d firstMark=%d visframe=%d visCount=%d pvs=%d areaMasked=%d firstCode=%d shaderNum=%d viewOrg=%g,%g,%g",
+				phase ? phase : "<null>",
+				i,
+				leaf->cluster,
+				leaf->area,
+				leaf->nummarksurfaces,
+				leaf->firstMarkSurfNum,
+				leaf->visframe,
+				tr.visCount,
+				pvsVisible,
+				areaMasked,
+				firstCode,
+				firstShaderNum,
+				tr.refdef.vieworg[0],
+				tr.refdef.vieworg[1],
+				tr.refdef.vieworg[2]);
+			--s_junkLeafDetailBudget;
+		}
+	}
+
+	if ( s_junkLeafSummaryBudget > 0 && junkLeafs > 0 )
+	{
+		XBLF("STEFX_JUNK_LEAF_SUMMARY phase='%s' map='%s' cluster=%d visCount=%d junkLeafs=%d visible=%d pvsRejected=%d areaRejected=%d clusterRejected=%d rootVis=%d viewOrg=%g,%g,%g",
+			phase ? phase : "<null>",
+			tr.world->name,
+			tr.viewCluster,
+			tr.visCount,
+			junkLeafs,
+			visibleJunkLeafs,
+			pvsRejected,
+			areaRejected,
+			clusterRejected,
+			(tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+			tr.refdef.vieworg[0],
+			tr.refdef.vieworg[1],
+			tr.refdef.vieworg[2]);
+		--s_junkLeafSummaryBudget;
+	}
+}
+#endif
 
 /*
 =================
@@ -135,7 +457,7 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 	srfSurfaceFace_t *sface;
 	float			d;
 
-	if ( r_nocull->integer ) {
+	if ( r_nocull->integer==1 ) {
 		return qfalse;
 	}
 
@@ -155,104 +477,24 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	/*
+	 * The packed Xbox BSP path stores face data differently from the PC
+	 * renderer.  This CPU-side face-plane cull is only an optimization, but
+	 * bad packed plane data can drop otherwise visible world polygons while
+	 * moving, showing up as HOM/grey gaps.  Let the BSP/PVS traversal and D3D
+	 * cull state decide visibility for faces instead.
+	 */
+	return qfalse;
+#endif
+
 	// face culling
 	if ( !r_facePlaneCull->integer ) {
 		return qfalse;
 	}
 
 	sface = ( srfSurfaceFace_t * ) surface;
-
-	if (r_cullRoofFaces->integer)
-	{ //Very slow, but this is only intended for taking shots for automap images.
-		if (sface->plane.normal[2] > 0.0f &&
-			sface->numPoints > 0)
-		{ //it's facing up I guess
-			static int i;
-			static trace_t tr;
-			static vec3_t basePoint;
-			static vec3_t endPoint;
-			static vec3_t nNormal;
-			static vec3_t v;
-
-			//The fact that this point is in the middle of the array has no relation to the
-			//orientation in the surface outline.
-#ifdef _XBOX
-			Q_CastShort2Float(&basePoint[0], (short*)(sface->srfPoints + (sface->numPoints / 2) + 0));
-			Q_CastShort2Float(&basePoint[1], (short*)(sface->srfPoints + (sface->numPoints / 2) + 1));
-			Q_CastShort2Float(&basePoint[2], (short*)(sface->srfPoints + (sface->numPoints / 2) + 2));
-#else
-			basePoint[0] = sface->points[sface->numPoints/2][0];
-			basePoint[1] = sface->points[sface->numPoints/2][1];
-			basePoint[2] = sface->points[sface->numPoints/2][2];
-#endif
-			basePoint[2] += 2.0f;
-
-			//the endpoint will be 8192 units from the chosen point
-			//in the direction of the surface normal
-
-			//just go straight up I guess, for now (slight hack)
-			VectorSet(nNormal, 0.0f, 0.0f, 1.0f);
-			VectorMA(basePoint, 8192.0f, nNormal, endPoint);
-
-			CM_BoxTrace(&tr, basePoint, endPoint, NULL, NULL, 0, (CONTENTS_SOLID|CONTENTS_TERRAIN), qfalse);
-
-			if (!tr.startsolid &&
-				!tr.allsolid &&
-				(tr.fraction == 1.0f || (tr.surfaceFlags & SURF_NOIMPACT)))
-			{ //either hit nothing or sky, so this surface is near the top of the level I guess. Or the floor of a really tall room, but if that's the case we're just screwed.
-				VectorSubtract(basePoint, tr.endpos, v);
-				if (tr.fraction == 1.0f || VectorLength(v) < r_roofCullCeilDist->value)
-				{ //ignore it if it's not close to the top, unless it just hit nothing
-					//Let's try to dig back into the brush based on the negative direction of the plane,
-					//and if we pop out on the other side we'll see if it's ground or not.
-					i = 4;
-					VectorCopy(sface->plane.normal, nNormal);
-					VectorInverse(nNormal);
-
-					while (i < 4096)
-					{
-						VectorMA(basePoint, i, nNormal, endPoint);
-						CM_BoxTrace(&tr, endPoint, endPoint, NULL, NULL, 0, (CONTENTS_SOLID|CONTENTS_TERRAIN), qfalse);
-						if (!tr.startsolid &&
-							!tr.allsolid &&
-							tr.fraction == 1.0f)
-						{ //in the clear
-							break;
-						}
-						i++;
-					}
-					if (i < 4096)
-					{ //Make sure we got into clearance
-						VectorCopy(endPoint, basePoint);
-						basePoint[2] -= 2.0f;
-
-						//just go straight down I guess, for now (slight hack)
-						VectorSet(nNormal, 0.0f, 0.0f, -1.0f);
-						VectorMA(basePoint, 4096.0f, nNormal, endPoint);
-
-						//trace a second time from the clear point in the inverse normal direction of the surface.
-						//If we hit something within a set amount of units, we will assume it's a bridge type object
-						//and leave it to be drawn. Otherwise we will assume it is a roof or other obstruction and
-						//cull it out.
-						CM_BoxTrace(&tr, basePoint, endPoint, NULL, NULL, 0, (CONTENTS_SOLID|CONTENTS_TERRAIN), qfalse);
-
-						if (!tr.startsolid &&
-							!tr.allsolid &&
-							(tr.fraction != 1.0f && !(tr.surfaceFlags & SURF_NOIMPACT)))
-						{ //if we hit nothing or a noimpact going down then this is probably "ground".
-							VectorSubtract(basePoint, tr.endpos, endPoint);
-							if (VectorLength(endPoint) > r_roofCullCeilDist->value)
-							{ //128 (by default) is our maximum tolerance, above that will be removed
-								return qtrue;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	d = DotProduct (tr.ori.viewOrigin, sface->plane.normal);
+	d = DotProduct (tr.or.viewOrigin, sface->plane.normal);
 
 	// don't cull exactly on the plane, because there are levels of rounding
 	// through the BSP, ICD, and hardware that may cause pixel gaps if an
@@ -271,6 +513,7 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 }
 
 
+#ifndef VV_LIGHTING
 static int R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	float		d;
 	int			i;
@@ -295,7 +538,9 @@ static int R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	face->dlightBits = dlightBits;
 	return dlightBits;
 }
+#endif // VV_LIGHTING
 
+#ifndef VV_LIGHTING
 static int R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 	int			i;
 	dlight_t	*dl;
@@ -323,8 +568,10 @@ static int R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 	grid->dlightBits = dlightBits;
 	return dlightBits;
 }
+#endif // VV_LIGHTING
 
 
+#ifndef VV_LIGHTING
 static int R_DlightTrisurf( srfTriangles_t *surf, int dlightBits ) {
 	// FIXME: more dlight culling to trisurfs...
 	surf->dlightBits = dlightBits;
@@ -357,6 +604,7 @@ static int R_DlightTrisurf( srfTriangles_t *surf, int dlightBits ) {
 	return dlightBits;
 #endif
 }
+#endif // VV_LIGHTING
 
 /*
 ====================
@@ -367,6 +615,7 @@ that is touched by one or more dlights, so try to throw out
 more dlights if possible.
 ====================
 */
+#ifndef VV_LIGHTING
 static int R_DlightSurface( msurface_t *surf, int dlightBits ) {
 	if ( *surf->data == SF_FACE ) {
 		dlightBits = R_DlightFace( (srfSurfaceFace_t *)surf->data, dlightBits );
@@ -384,25 +633,99 @@ static int R_DlightSurface( msurface_t *surf, int dlightBits ) {
 
 	return dlightBits;
 }
+#endif // VV_LIGHTING
 
 
-
-#ifdef _ALT_AUTOMAP_METHOD
-static bool tr_drawingAutoMap = false;
-#endif
-static float g_playerHeight = 0.0f;
 
 /*
 ======================
 R_AddWorldSurface
 ======================
 */
-static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse )
-{
+#ifdef VV_LIGHTING
+void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount ) {
+#else
+static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse ) {
+#endif
+#ifdef _XBOX
+	static int s_xboxWorldAddLogBudget = 16;
+	static int s_xboxWorldCullLogBudget = 8;
+	static int s_xboxWorldTraceAddBudget = 0;
+	static int s_xboxWorldTraceCullBudget = 0;
+	static int s_xboxJunkSkyWorldBudget = 32;
+	static int s_xboxJunkSkyDrawBoundaryBudget = 32;
+	static int s_xboxBorgSuspectWorldBudget = 96;
+	static int s_xboxScavengerSuspectWorldBudget = 192;
+	const qboolean traceJunkSky = R_XboxTraceJunkSkySurface( surf );
+	const qboolean traceBorgSuspect = R_XboxTraceBorgSuspectSurface( surf );
+	const qboolean traceScavengerSuspect = R_XboxTraceScavengerSuspectSurface( surf );
+
+	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "enter", surf, dlightBits, noViewCount );
+		--s_xboxJunkSkyWorldBudget;
+	}
+	if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "borg-suspect-enter", surf, dlightBits, noViewCount );
+		--s_xboxBorgSuspectWorldBudget;
+	}
+	if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "scav-suspect-enter", surf, dlightBits, noViewCount );
+		--s_xboxScavengerSuspectWorldBudget;
+	}
+#endif
+	/*
+	if ( surf->viewCount == tr.viewCount ) {
+		return;		// already in this view
+	}
+	*/
+
+	//rww - changed this to be like sof2mp's so RMG will look right.
+	//Will this affect anything that is non-rmg?
+
 	if (!noViewCount)
 	{
+#ifdef _XBOX
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0WorldAttempts++;
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1WorldAttempts++;
+		}
+#endif
 		if ( surf->viewCount == tr.viewCount ) 
 		{
+#ifdef _XBOX
+			if (g_SPXBSplitSlotActive == 1)
+			{
+				g_SPXBSplitSlot0WorldAlready++;
+			}
+			else if (g_SPXBSplitSlotActive == 2)
+			{
+				g_SPXBSplitSlot1WorldAlready++;
+			}
+#endif
+#ifdef _XBOX
+			if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+			{
+				R_XboxLogWorldSurfaceSubmit( "already", surf, dlightBits, noViewCount );
+				--s_xboxJunkSkyWorldBudget;
+			}
+			if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
+			{
+				R_XboxLogWorldSurfaceSubmit( "borg-suspect-already", surf, dlightBits, noViewCount );
+				--s_xboxBorgSuspectWorldBudget;
+			}
+			if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+			{
+				R_XboxLogWorldSurfaceSubmit( "scav-suspect-already", surf, dlightBits, noViewCount );
+				--s_xboxScavengerSuspectWorldBudget;
+			}
+#endif
 			// already in this view, but lets make sure all the dlight bits are set
 			if ( *surf->data == SF_FACE ) 
 			{
@@ -416,130 +739,146 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 			{
 				((srfTriangles_t *)surf->data)->dlightBits |= dlightBits;
 			}
-			return;
+			return;		
 		}
 		surf->viewCount = tr.viewCount;
 		// FIXME: bmodel fog?
 	}
 
-	/*
-	if (r_shadows->integer == 2)
-	{
-		dlightBits = R_DlightSurface( surf, dlightBits );
-		//dlightBits = ( dlightBits != 0 );
-		R_AddDrawSurf( surf->data, tr.shadowShader, surf->fogIndex, dlightBits );
-	}
-	*/
-	//world shadows?
+//	surf->viewCount = tr.viewCount;
+	// FIXME: bmodel fog?
 
 	// try to cull before dlighting or adding
-#ifdef _ALT_AUTOMAP_METHOD
-	if (!tr_drawingAutoMap && R_CullSurface( surf->data, surf->shader ) )
-#else
-	if (R_CullSurface(surf->data, surf->shader))
+	if ( R_CullSurface( surf->data, surf->shader ) ) {
+#ifdef _XBOX
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0WorldCulled++;
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1WorldCulled++;
+		}
 #endif
-	{
+#ifdef _XBOX
+		if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+		{
+			R_XboxLogWorldSurfaceSubmit( "culled-junk-sky", surf, dlightBits, noViewCount );
+			--s_xboxJunkSkyWorldBudget;
+		}
+		if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
+		{
+			R_XboxLogWorldSurfaceSubmit( "borg-suspect-culled", surf, dlightBits, noViewCount );
+			--s_xboxBorgSuspectWorldBudget;
+		}
+		if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+		{
+			R_XboxLogWorldSurfaceSubmit( "scav-suspect-culled", surf, dlightBits, noViewCount );
+			--s_xboxScavengerSuspectWorldBudget;
+		}
+		if (s_xboxWorldTraceCullBudget > 0)
+		{
+			R_XboxLogWorldSurfaceSubmit( "culled", surf, dlightBits, noViewCount );
+			--s_xboxWorldTraceCullBudget;
+		}
+		if (s_xboxWorldCullLogBudget > 0)
+		{
+			XBLF("JA: R_AddWorldSurface culled shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x",
+				surf->shader ? surf->shader->name : "<null>",
+				(int)(surf->shader && surf->shader->sky != NULL),
+				surf->shader ? (double)surf->shader->sort : -1.0,
+				surf->data ? (int)*surf->data : -1,
+				surf->fogIndex,
+				dlightBits);
+			--s_xboxWorldCullLogBudget;
+		}
+#endif
 		return;
 	}
 
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "add-junk-sky", surf, dlightBits, noViewCount );
+		--s_xboxJunkSkyWorldBudget;
+	}
+	if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "borg-suspect-add", surf, dlightBits, noViewCount );
+		--s_xboxBorgSuspectWorldBudget;
+	}
+	if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
+	{
+		R_XboxLogWorldSurfaceSubmit( "scav-suspect-add", surf, dlightBits, noViewCount );
+		--s_xboxScavengerSuspectWorldBudget;
+	}
+	if (s_xboxWorldTraceAddBudget > 0)
+	{
+		R_XboxLogWorldSurfaceSubmit( "add", surf, dlightBits, noViewCount );
+		--s_xboxWorldTraceAddBudget;
+	}
+	if (s_xboxWorldAddLogBudget > 0)
+	{
+		XBLF("JA: R_AddWorldSurface add shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d drawBefore=%d",
+			surf->shader ? surf->shader->name : "<null>",
+			(int)(surf->shader && surf->shader->sky != NULL),
+			surf->shader ? (double)surf->shader->sort : -1.0,
+			surf->data ? (int)*surf->data : -1,
+			surf->fogIndex,
+			dlightBits,
+			(int)noViewCount,
+			surf->viewCount,
+			tr.refdef.numDrawSurfs);
+		--s_xboxWorldAddLogBudget;
+	}
+#endif
+
+#ifdef _XBOX
+	if (g_SPXBSplitSlotActive == 1)
+	{
+		g_SPXBSplitSlot0WorldAdded++;
+	}
+	else if (g_SPXBSplitSlotActive == 2)
+	{
+		g_SPXBSplitSlot1WorldAdded++;
+	}
+#endif
 	// check for dlighting
 	if ( dlightBits ) {
+#ifdef VV_LIGHTING
+		dlightBits = VVLightMan.R_DlightSurface( surf, dlightBits );
+#else
 		dlightBits = R_DlightSurface( surf, dlightBits );
+#endif
 		dlightBits = ( dlightBits != 0 );
 	}
 
-#ifdef _ALT_AUTOMAP_METHOD
-	if (tr_drawingAutoMap)
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyDrawBoundaryBudget > 0 )
 	{
-	//	if (g_playerHeight != g_lastHeight ||
-	//		!g_lastHeightValid)
-		if (*surf->data == SF_FACE)
-		{ //only do this if we need to
-			bool completelyTransparent = true;
-			int i = 0;
-			srfSurfaceFace_t *face = (srfSurfaceFace_t *)surf->data;
-			byte *indices = (byte *)(face + face->ofsIndices);
-			float *point;
-			vec3_t color;
-			float alpha;
-			float e;
-			bool polyStarted = false;
-
-			while (i < face->numIndices)
-			{
-				point = &face->points[indices[i]][0];
-
-				//base the color on the elevation... for now, just check the first point height
-				if (point[2] < g_playerHeight)
-				{
-					e = point[2]-g_playerHeight;
-				}
-				else
-				{
-					e = g_playerHeight-point[2];
-				}
-				if (e < 0.0f)
-				{
-					e = -e;
-				}
-
-				//set alpha and color based on relative height of point
-				alpha = e/256.0f;
-				e /= 512.0f;
-
-				//cap color
-				if (e > 1.0f)
-				{
-					e = 1.0f;
-				}
-				else if (e < 0.0f)
-				{
-					e = 0.0f;
-				}
-				VectorSet(color, e, 1.0f-e, 0.0f);
-
-				//cap alpha
-				if (alpha > 1.0f)
-				{
-					alpha = 1.0f;
-				}
-				else if (alpha < 0.0f)
-				{
-					alpha = 0.0f;
-				}
-
-				if (alpha != 1.0f)
-				{ //this point is not entirely alpha'd out, so still draw the surface
-					completelyTransparent = false;
-				}
-
-				if (!completelyTransparent)
-				{
-					if (!polyStarted)
-					{
-						qglBegin(GL_POLYGON);
-						polyStarted = true;
-					}
-
-					qglColor4f(color[0], color[1], color[2], 1.0f-alpha);
-					qglVertex3f(point[i], point[i], point[2]);
-				}
-
-				i++;
-			}
-
-			if (polyStarted)
-			{
-				qglEnd();
-			}
-		}
+		XBLF("STEFX_SURFACE_SUBMIT result='before-drawsurf' map='%s' code=%d shader='%s' drawBefore=%d fog=%d dlight=0x%x",
+			tr.world ? tr.world->name : "<noworld>",
+			surf->xboxDebugCode,
+			surf->shader ? surf->shader->name : "<null>",
+			tr.refdef.numDrawSurfs,
+			surf->fogIndex,
+			dlightBits);
+		--s_xboxJunkSkyDrawBoundaryBudget;
 	}
-	else
 #endif
+	R_AddDrawSurf( surf->data, surf->shader, surf->fogIndex, dlightBits );
+#ifdef _XBOX
+	if ( traceJunkSky && s_xboxJunkSkyDrawBoundaryBudget > 0 )
 	{
-		R_AddDrawSurf( surf->data, surf->shader, surf->fogIndex, dlightBits );
+		XBLF("STEFX_SURFACE_SUBMIT result='after-drawsurf' map='%s' code=%d shader='%s' drawAfter=%d",
+			tr.world ? tr.world->name : "<noworld>",
+			surf->xboxDebugCode,
+			surf->shader ? surf->shader->name : "<null>",
+			tr.refdef.numDrawSurfs);
+		--s_xboxJunkSkyDrawBoundaryBudget;
 	}
-}
+#endif
+} 
 
 /*
 =============================================================
@@ -559,34 +898,134 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 	int			clip;
 	model_t		*pModel;
 	int			i;
+#ifdef _XBOX
+	static int s_xboxBmodelLogBudget = 0;
+	static int s_xboxBmodelFocusLogBudget = 96;
+	qboolean xboxLogBmodel = (s_xboxBmodelLogBudget > 0 && cls.state == CA_ACTIVE);
+	qboolean xboxFocusBmodel;
+	int xboxBmodelDrawSurfsBefore;
+#endif
 
 	pModel = R_GetModelByHandle( ent->e.hModel );
 
 	bmodel = pModel->bmodel;
+#ifdef _XBOX
+	xboxFocusBmodel = (s_xboxBmodelFocusLogBudget > 0 && cls.state == CA_ACTIVE &&
+		(ent->e.hModel == 1 ||
+		 (ent->e.hModel >= 2 && ent->e.hModel <= 5) ||
+		 ent->e.hModel == 156 ||
+		 (ent->e.hModel >= 129 && ent->e.hModel <= 156) ||
+		 (ent->e.hModel >= 170 && ent->e.hModel <= 176) ||
+		 ent->e.hModel == 175 ||
+		 ent->e.hModel == 196 ||
+		 ent->e.hModel == 200 ||
+		 ent->e.hModel == 205 ||
+		 ent->e.hModel == 206));
+	xboxBmodelDrawSurfsBefore = tr.refdef.numDrawSurfs;
+	if (xboxLogBmodel)
+	{
+		XBLF("JA: R_BMODEL ent=%d hModel=%d model='%s' bsp=%d surfaces=%d mins=%g,%g,%g maxs=%g,%g,%g origin=%g,%g,%g",
+			ent->e.number,
+			ent->e.hModel,
+			pModel ? pModel->name : "<null>",
+			pModel ? (int)pModel->bspInstance : -1,
+			bmodel ? bmodel->numSurfaces : -1,
+			bmodel ? bmodel->bounds[0][0] : 0.0f,
+			bmodel ? bmodel->bounds[0][1] : 0.0f,
+			bmodel ? bmodel->bounds[0][2] : 0.0f,
+			bmodel ? bmodel->bounds[1][0] : 0.0f,
+			bmodel ? bmodel->bounds[1][1] : 0.0f,
+			bmodel ? bmodel->bounds[1][2] : 0.0f,
+			ent->e.origin[0], ent->e.origin[1], ent->e.origin[2]);
+		s_xboxBmodelLogBudget--;
+	}
+#endif
 
 	clip = R_CullLocalBox( bmodel->bounds );
 	if ( clip == CULL_OUT ) {
+#ifdef _XBOX
+		if ( ent->e.renderfx & RF_XBOX_NOCULL_BMODEL )
+		{
+			static int s_xboxBmodelNoCullLogBudget = 32;
+			if ( s_xboxBmodelNoCullLogBudget > 0 )
+			{
+				XBLF("JA: R_BMODEL_FORCE_NOCULL ent=%d hModel=%d model='%s' renderfx=0x%x",
+					ent->e.number,
+					ent->e.hModel,
+					pModel ? pModel->name : "<null>",
+					ent->e.renderfx);
+				--s_xboxBmodelNoCullLogBudget;
+			}
+		}
+		else
+		{
+		if (xboxLogBmodel)
+		{
+			XBLF("JA: R_BMODEL_CULL_OUT ent=%d hModel=%d model='%s'",
+				ent->e.number,
+				ent->e.hModel,
+				pModel ? pModel->name : "<null>");
+		}
+		if (xboxFocusBmodel)
+		{
+			XBLF("JA: R_BMODEL_FOCUS_CULL_OUT ent=%d hModel=%d model='%s'",
+				ent->e.number,
+				ent->e.hModel,
+				pModel ? pModel->name : "<null>");
+			s_xboxBmodelFocusLogBudget--;
+		}
 		return;
+		}
+#else
+		return;
+#endif
 	}
 	
-	if(pModel->bspInstance)
-	{ //rwwRMG - added
-		R_SetupEntityLighting(&tr.refdef, ent);
-	}
+#ifdef VV_LIGHTING
+	VVLightMan.R_SetupEntityLighting(&tr.refdef, ent);
+#else
+	R_SetupEntityLighting(&tr.refdef, ent);
+#endif
 
-	//rww - Take this into account later?
-//	if (!com_RMG || !com_RMG->integer)
-//	{	// don't dlight bmodels on rmg, as multiple copies of the same instance will light up
-		R_DlightBmodel( bmodel, false );
-//	}
-//	else
-//	{
-//		R_DlightBmodel( bmodel, true );
-//	}
+#ifdef VV_LIGHTING
+	VVLightMan.R_DlightBmodel( bmodel, qfalse );
+#else
+	R_DlightBmodel( bmodel, qfalse );
+#endif
 
 	for ( i = 0 ; i < bmodel->numSurfaces ; i++ ) {
+#ifdef _XBOX
+		if (xboxFocusBmodel && i < 8)
+		{
+			msurface_t *surf = bmodel->firstSurface + i;
+			shader_t *shader = surf ? surf->shader : NULL;
+			XBLF("JA: R_BMODEL_FOCUS_SURF ent=%d hModel=%d model='%s' surf=%d shader='%s' lm0=%d passes=%d type=%d fog=%d",
+				ent->e.number,
+				ent->e.hModel,
+				pModel ? pModel->name : "<null>",
+				i,
+				shader ? shader->name : "<null>",
+				shader ? shader->lightmapIndex[0] : -999,
+				shader ? shader->numUnfoggedPasses : -1,
+				(surf && surf->data) ? (int)*surf->data : -1,
+				surf ? surf->fogIndex : -1);
+		}
+#endif
 		R_AddWorldSurface( bmodel->firstSurface + i, tr.currentEntity->dlightBits, qtrue );
 	}
+#ifdef _XBOX
+	if (xboxFocusBmodel)
+	{
+		XBLF("JA: R_BMODEL_FOCUS_ADD ent=%d hModel=%d model='%s' surfaces=%d drawSurfsAdded=%d totalDrawSurfs=%d",
+			ent->e.number,
+			ent->e.hModel,
+			pModel ? pModel->name : "<null>",
+			bmodel ? bmodel->numSurfaces : -1,
+			tr.refdef.numDrawSurfs - xboxBmodelDrawSurfsBefore,
+			tr.refdef.numDrawSurfs);
+		s_xboxBmodelFocusLogBudget--;
+	}
+#endif
 }
 
 float GetQuadArea( vec3_t v1, vec3_t v2, vec3_t v3, vec3_t v4 )
@@ -730,782 +1169,27 @@ void RE_GetBModelVerts( int bmodelIndex, vec3_t *verts, vec3_t normal )
 =============================================================
 */
 
-/*
-=============================================================
-WIREFRAME AUTOMAP GENERATION SYSTEM - BEGIN
-=============================================================
-*/
-#ifndef _ALT_AUTOMAP_METHOD
-typedef struct wireframeSurfPoint_s
-{
-	vec3_t					xyz;
-	float					alpha;
-	vec3_t					color;
-} wireframeSurfPoint_t;
-
-typedef struct wireframeMapSurf_s
-{
-	bool					completelyTransparent;
-
-	int						numPoints;
-	wireframeSurfPoint_t	*points;
-
-	wireframeMapSurf_s		*next;
-} wireframeMapSurf_t;
-
-typedef struct wireframeMap_s
-{
-    wireframeMapSurf_t		*surfs;
-} wireframeMap_t;
-
-static wireframeMap_t g_autoMapFrame;
-static wireframeMapSurf_t **g_autoMapNextFree = NULL;
-static bool g_autoMapValid = false; //set to true of g_autoMapFrame is valid.
-
-//get the next available wireframe automap surface. -rww
-static inline wireframeMapSurf_t *R_GetNewWireframeMapSurf(void)
-{
-	wireframeMapSurf_t **next = &g_autoMapFrame.surfs;
-
-	if (g_autoMapNextFree)
-	{ //save us the time of going through the entire linked list from root
-		next = g_autoMapNextFree;
-	}
-
-	while (*next)
-	{ //iterate through until we find the next unused one
-		next = &(*next)->next;
-	}
-
-	//allocate memory for it and pass it back
-	(*next) = (wireframeMapSurf_t *)Z_Malloc(sizeof(wireframeMapSurf_t), TAG_ALL, qtrue);
-	g_autoMapNextFree = &(*next)->next;
-	return (*next);
-}
-
-//evaluate a surface, see if it is valid for being part of the
-//wireframe map render. -rww
-#ifdef _XBOX
-static inline void R_EvaluateWireframeSurf(msurface_t *surf)
-{
-	if (*surf->data == SF_FACE)
-	{
-		srfSurfaceFace_t *face = (srfSurfaceFace_t *)surf->data;
-		int numPoints = face->numPoints;
-		unsigned char *indices = (unsigned char *)(((char *)face) + face->ofsIndices );
-
-		if (numPoints > 0)
-		{ //we can add it
-			int i = 0;
-			wireframeMapSurf_t *nextSurf = R_GetNewWireframeMapSurf();
-
-			//now go through the indices and add a point for each
-			nextSurf->points = (wireframeSurfPoint_t *)Z_Malloc(sizeof(wireframeSurfPoint_t)*face->numIndices, TAG_ALL, qtrue);
-			nextSurf->numPoints = face->numIndices;
-			while (i < face->numIndices)
-			{
-				vec3_t point;
-				Q_CastShort2Float(&point[0], (short*)face->srfPoints + indices[i] + 0);
-				Q_CastShort2Float(&point[1], (short*)face->srfPoints + indices[i] + 1);
-				Q_CastShort2Float(&point[2], (short*)face->srfPoints + indices[i] + 2);
-				VectorCopy(point, nextSurf->points[i].xyz);
-
-				i++;
-			}
-		}
-	}
-	else if (*surf->data == SF_TRIANGLES)
-	{
-		//srfTriangles_t *surfTri = (srfTriangles_t *)surf->data;
-		return; //not handled
-	}
-	else if (*surf->data == SF_GRID)
-	{
-		//srfGridMesh_t *gridMesh = (srfGridMesh_t *)surf->data;
-		return; //not handled
-	}
-	else
-	{ //...unknown type?
-		return;
-	}
-}
-
-#else // _XBOX
-
-static inline void R_EvaluateWireframeSurf(msurface_t *surf)
-{
-	if (*surf->data == SF_FACE)
-	{
-		srfSurfaceFace_t *face = (srfSurfaceFace_t *)surf->data;
-		float *points = &face->points[0][0];
-		int numPoints = face->numIndices;
-		int *indices = (int *)((byte *)face + face->ofsIndices);
-		//byte *indices = (byte *)(face + face->ofsIndices);
-
-		if (points && numPoints > 0)
-		{ //we can add it
-			int i = 0;
-			wireframeMapSurf_t *nextSurf = R_GetNewWireframeMapSurf();
-
-#if 0 //doing in realtime now
-			float e;
-
-			//base the color on the elevation... for now, just check the first point height
-			if (points[2] < 0.0f)
-			{
-				e = -points[2];
-			}
-			else
-			{
-				e = points[2];
-			}
-			e /= 2048.0f;
-			if (e > 1.0f)
-			{
-				e = 1.0f;
-			}
-			else if (e < 0.0f)
-			{
-				e = 0.0f;
-			}
-			VectorSet(color, e, 1.0f-e, 0.0f);
-#endif
-
-			//now go through the indices and add a point for each
-			nextSurf->points = (wireframeSurfPoint_t *)Z_Malloc(sizeof(wireframeSurfPoint_t)*face->numIndices, TAG_ALL, qtrue);
-			nextSurf->numPoints = face->numIndices;
-			while (i < face->numIndices)
-			{
-				points = &face->points[indices[i]][0];
-				VectorCopy(points, nextSurf->points[i].xyz);
-
-				i++;
-			}
-		}
-	}
-	else if (*surf->data == SF_TRIANGLES)
-	{
-		//srfTriangles_t *surfTri = (srfTriangles_t *)surf->data;
-		return; //not handled
-	}
-	else if (*surf->data == SF_GRID)
-	{
-		//srfGridMesh_t *gridMesh = (srfGridMesh_t *)surf->data;
-		return; //not handled
-	}
-	else
-	{ //...unknown type?
-		return;
-	}
-}
-
-#endif // _XBOX
-
-//see if any surfaces on the node are facing opposite directions
-//using plane normals. -rww
-static inline bool R_NodeHasOppositeFaces(mnode_t *node)
-{
-	int c, d;
-	msurface_t *surf, *surf2, **mark, **mark2;
-	srfSurfaceFace_t *face, *face2;
-	vec3_t normalDif;
-
-#ifdef _XBOX
-	mleaf_s *leaf;
-	leaf = (mleaf_s*)node;
-	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-	c = leaf->nummarksurfaces;
-#else
-	mark = node->firstmarksurface;
-	c = node->nummarksurfaces;
-#endif
-
-	while (c--)
-	{
-		surf = *mark;
-
-		if (*surf->data != SF_FACE)
-		{ //if this node is not entirely comprised of faces, I guess we shouldn't check it?
-			return false;
-		}
-
-		face = (srfSurfaceFace_t *)surf->data;
-
-		//go through other surfs and compare against this surf
-#ifdef _XBOX
-		leaf = (mleaf_s*)node;
-		d = leaf->nummarksurfaces;
-		mark2 = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-#else
-		d = node->nummarksurfaces;
-		mark2 = node->firstmarksurface;
-#endif
-		while (d--)
-		{
-			surf2 = *mark2;
-
-			if (*surf2->data != SF_FACE)
-			{
-				return false;
-			}
-			face2 = (srfSurfaceFace_t *)surf2->data;
-			//see if this normal has a drastic angular change
-			VectorSubtract(face->plane.normal, face2->plane.normal, normalDif);
-			if (VectorLength(normalDif) >= 1.8f)
-			{
-				return true;
-			}
-
-			mark2++;
-		}
-		mark++;
-	}
-
-	return false;
-}
-
-//recursively called for each node to go through the surfaces on that
-//node and generate the wireframe map. -rww
-static inline void R_RecursiveWireframeSurf(mnode_t *node)
-{
-	int c;
-	msurface_t *surf, **mark;
-
-	if (!node)
-	{
-		return;
-	}
-
-	while (1)
-	{
-		if (!node ||
-			node->visframe != tr.visCount)
-		{ //not valid, stop this chain of recursion
-			return;
-		}
-
-		if ( node->contents != -1 )
-		{
-			break;
-		}
-
-		R_RecursiveWireframeSurf(node->children[0]);
-
-		node = node->children[1];
-	}
-
-	// add the individual surfaces
-#ifdef _XBOX
-	mleaf_s *leaf;
-	leaf = (mleaf_s*)node;
-	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-	c = leaf->nummarksurfaces;
-#else
-	mark = node->firstmarksurface;
-	c = node->nummarksurfaces;
-#endif
-	while (c--)
-	{
-		// the surface may have already been added if it
-		// spans multiple leafs
-		surf = *mark;
-		R_EvaluateWireframeSurf(surf);
-		mark++;
-	}
-}
-
-//generates a wireframe model of the map for the automap view -rww
-static void R_GenerateWireframeMap(mnode_t *baseNode)
-{
-	int i;
-
-	//initialize data to all 0
-	memset(&g_autoMapFrame, 0, sizeof(g_autoMapFrame));
-
-	//take the hit for this frame, mark all of these things as visible
-	//so we know which are valid for automap generation, but only the
-	//ones that are facing outside the world! (well, ideally.)
-	for (i = 0; i < tr.world->numnodes; i++)
-	{
-		if (tr.world->nodes[i].contents != CONTENTS_SOLID)
-		{
-#if 0 //doesn't work, I take it surfs on nodes are not related to surfs on brushes
-			if (!R_NodeHasOppositeFaces(&tr.world->nodes[i]))
-#endif
-			{
-				tr.world->nodes[i].visframe = tr.visCount;
-			}
-		}
-	}
-
-	//now start the recursive evaluation
-	R_RecursiveWireframeSurf(baseNode);
-}
-
-//clear out the wireframe map data -rww
-void R_DestroyWireframeMap(void)
-{
-	wireframeMapSurf_t *next;
-	wireframeMapSurf_t *last;
-
-	if (!g_autoMapValid)
-	{ //not valid to begin with
-		return;
-	}
-
-	next = g_autoMapFrame.surfs;
-	while (next)
-	{
-		//free memory allocated for points on this surface
-		Z_Free(next->points);
-
-		//get the next surface
-		last = next;
-		next = next->next;
-
-		//free memory for this surface
-		Z_Free(last);
-	}
-
-	//invalidate everything
-	memset(&g_autoMapFrame, 0, sizeof(g_autoMapFrame));
-	g_autoMapValid = false;
-	g_autoMapNextFree = NULL;
-}
-
-//save 3d automap data to file -rww
-qboolean R_WriteWireframeMapToFile(void)
-{
-	fileHandle_t f;
-	int requiredSize = 0;
-	wireframeMapSurf_t *surf = g_autoMapFrame.surfs;
-	byte *out, *rOut;
-
-	//let's go through and see how much space we're going to need to stuff all this
-	//data into
-    while (surf)
-	{
-		//memory for each point
-		requiredSize += sizeof(wireframeSurfPoint_t)*surf->numPoints;
-
-		//memory for numPoints
-		requiredSize += sizeof(int);
-
-		surf = surf->next;
-	}
-
-	if (requiredSize <= 0)
-	{ //nothing to do..?
-		return qfalse;
-	}
-	
-
-	f = FS_FOpenFileWrite("blahblah.bla");
-	if (!f)
-	{ //can't create?
-		return qfalse;
-	}
-
-	//allocate the memory we will need
-    out = (byte *)Z_Malloc(requiredSize, TAG_ALL, qtrue);
-	rOut = out;
-
-	//now go through and put the data into the memory
-	surf = g_autoMapFrame.surfs;
-    while (surf)
-	{
-		memcpy(out, surf, (sizeof(wireframeSurfPoint_t)*surf->numPoints) + sizeof(int));
-
-		//memory for each point
-		out += sizeof(wireframeSurfPoint_t)*surf->numPoints;
-
-		//memory for numPoints
-		out += sizeof(int);
-
-		surf = surf->next;
-	}
-
-	//now write the buffer, and close
-	FS_Write(rOut, requiredSize, f);
-	Z_Free(rOut);
-	FS_FCloseFile(f);
-
-	return qtrue;
-}
-
-//load 3d automap data from file -rww
-qboolean R_GetWireframeMapFromFile(void)
-{
-	wireframeMapSurf_t *surfs, *rSurfs;
-	wireframeMapSurf_t *newSurf;
-	fileHandle_t f;
-	int i = 0;
-	int len;
-	int stepBytes;
-
-	len = FS_FOpenFileRead("blahblah.bla", &f, qfalse);
-	if (!f || len <= 0)
-	{ //it doesn't exist
-		return qfalse;
-	}
-
-	surfs = (wireframeMapSurf_t *)Z_Malloc(len, TAG_ALL, qtrue);
-	rSurfs = surfs;
-	FS_Read(surfs, len, f);
-
-	while (i < len)
-	{
-		newSurf = R_GetNewWireframeMapSurf();
-		newSurf->points = (wireframeSurfPoint_t *)Z_Malloc(sizeof(wireframeSurfPoint_t)*surfs->numPoints, TAG_ALL, qtrue);
-
-		//copy the surf data into the new surf
-		//note - the surfs->points pointer is NOT pointing to valid memory, a pointer to that
-		//pointer is actually what we want to use as the location of the point offsets.
-		memcpy(newSurf->points, &surfs->points, sizeof(wireframeSurfPoint_t)*surfs->numPoints);
-		newSurf->numPoints = surfs->numPoints;
-
-		//the size of the point data, plus an int (the number of points)
-		stepBytes = (sizeof(wireframeSurfPoint_t)*surfs->numPoints) + sizeof(int);
-		i += stepBytes;
-
-		//increment the pointer to the start of the next surface
-		surfs = (wireframeMapSurf_t *)((byte *)surfs+stepBytes);
-	}
-
-	//it should end up being equal, if not something was wrong with this file.
-	assert(i == len);
-
-	FS_FCloseFile(f);
-	Z_Free(rSurfs);
-	return qtrue;
-}
-
-//create everything, after destroying any existing data -rww
-qboolean R_InitializeWireframeAutomap(void)
-{
-	if (r_autoMapDisable && r_autoMapDisable->integer)
-	{
-		return qfalse;
-	}
-
-	if (tr.world &&
-		tr.world->nodes)
-	{
-		R_DestroyWireframeMap();
-#if 0 //file load-save
-		if (!R_GetWireframeMapFromFile())
-		{ //first try loading the data from a file. If there is none, generate it.
-			R_GenerateWireframeMap(tr.world->nodes);
-
-			//now write it to file, since we have generated it successfully.
-			R_WriteWireframeMapToFile();
-		}
-#else //always generate
-		R_GenerateWireframeMap(tr.world->nodes);
-#endif
-		g_autoMapValid = true;
-	}
-
-	return (qboolean)g_autoMapValid;
-}
-#endif //0
-/*
-=============================================================
-WIREFRAME AUTOMAP GENERATION SYSTEM - END
-=============================================================
-*/
-
-void R_AutomapElevationAdjustment(float newHeight)
-{
-	g_playerHeight = newHeight;
-}
-
-#ifdef _ALT_AUTOMAP_METHOD
-//adjust the player height for gradient elevation colors -rww
-qboolean R_InitializeWireframeAutomap(void)
-{ //yoink
-	return qtrue;
-}
-#endif
-
-//draw the automap with the given transformation matrix -rww
-#define QUADINFINITY			16777216 
-static float g_lastHeight = 0.0f;
-static bool g_lastHeightValid = false;
-static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits );
-const void *R_DrawWireframeAutomap(const void *data)
-{
-	const drawBufferCommand_t *cmd = (const drawBufferCommand_t *)data;
-	float e = 0.0f;
-	float alpha;
-	wireframeMapSurf_t *s = g_autoMapFrame.surfs;
-#ifndef _ALT_AUTOMAP_METHOD
-	int i;
-#endif
-
-	if (!r_autoMap || !r_autoMap->integer)
-	{
-		return (const void *)(cmd + 1);
-	}
-
-#ifndef _ALT_AUTOMAP_METHOD
-	if (!g_autoMapValid)
-	{ //data is not valid, don't draw
-		return (const void *)(cmd + 1);
-	}
-#endif
-
-#if 0 //instead of this method, just do the automap as a new "scene"
-	//projection matrix mode
-	qglMatrixMode(GL_PROJECTION);
-
-	//store the current matrix
-	qglPushMatrix();
-	//translate to our proper pos/angles from identity
-	qglLoadIdentity();
-	qglTranslatef(pos[0], pos[1], pos[2]);
-	//presumeably this is correct for compensating for quake's
-	//crazy angle system.
-	qglRotatef(angles[1], 0.0f, 0.0f, 1.0f);
-	qglRotatef(-angles[0], 0.0f, 1.0f, 0.0f);
-	qglRotatef(angles[2], 1.0f, 0.0f, 0.0f);
-#endif
-
-	//disable 2d texturing
-	qglDisable( GL_TEXTURE_2D );
-
-	//now draw the backdrop
-#if 0 //this does no good sadly, because of the issue of having to clear with a second scene
-	//in order for global fog clearing to work.
-	if (r_autoMapBackAlpha && r_autoMapBackAlpha->value)
-	{ //specify the automap background alpha
-		alpha = r_autoMapBackAlpha->value;
-
-		//cap it reasonably
-		if (alpha < 0.0f)
-		{
-			alpha = 0.0f;
-		}
-		else if (alpha > 1.0f)
-		{
-			alpha = 1.0f;
-		}
-		GL_State(GLS_SRCBLEND_SRC_ALPHA|GLS_DSTBLEND_SRC_ALPHA);
-	}
-	else
-#endif
-	{
-		alpha = 1.0f;
-		GL_State(0);
-	}
-	//black
-	qglColor4f(0.0f, 0.0f, 0.0f, alpha);
-
-	//draw a black backdrop
-	qglPushMatrix();
-	qglLoadIdentity(); //get the ident matrix
-
-	qglBegin( GL_QUADS );
-	qglVertex3f( -QUADINFINITY, QUADINFINITY, -(backEnd.viewParms.zFar-1) );
-	qglVertex3f( QUADINFINITY, QUADINFINITY, -(backEnd.viewParms.zFar-1) );
-	qglVertex3f( QUADINFINITY, -QUADINFINITY, -(backEnd.viewParms.zFar-1) );
-	qglVertex3f( -QUADINFINITY, -QUADINFINITY, -(backEnd.viewParms.zFar-1) );
-	qglEnd ();
-
-	//pop back the viewmatrix
-	qglPopMatrix();
-
-
-	//set the mode to line draw
-	if (r_autoMap->integer == 2)
-	{ //line mode
-		GL_State(GLS_POLYMODE_LINE|GLS_SRCBLEND_SRC_ALPHA|GLS_DSTBLEND_SRC_COLOR|GLS_DEPTHMASK_TRUE);
-	}
-	else
-	{ //fill mode
-		//GL_State(GLS_SRCBLEND_SRC_ALPHA|GLS_DSTBLEND_SRC_COLOR|GLS_DEPTHMASK_TRUE);
-		GL_State(GLS_DEPTHMASK_TRUE);
-	}
-
-	//set culling
-	GL_Cull(CT_TWO_SIDED);
-
-#ifndef _ALT_AUTOMAP_METHOD
-	//Draw the triangles
-	while (s)
-	{
-		//first, loop through and set the alpha on every point for this surf.
-		//if the alpha ends up being completely transparent for every point, we don't even
-		//need to draw it
-		if (g_playerHeight != g_lastHeight ||
-			!g_lastHeightValid)
-		{ //only do this if we need to
-			i = 0;
-			s->completelyTransparent = true;
-			while (i < s->numPoints)
-			{
-				//base the color on the elevation... for now, just check the first point height
-				if (s->points[i].xyz[2] < g_playerHeight)
-				{
-					e = s->points[i].xyz[2]-g_playerHeight;
-				}
-				else
-				{
-					e = g_playerHeight-s->points[i].xyz[2];
-				}
-				if (e < 0.0f)
-				{
-					e = -e;
-				}
-
-				if (r_autoMap->integer != 2)
-				{ //fill mode
-					if (s->points[i].xyz[2] > (g_playerHeight+64.0f))
-					{
-						s->points[i].alpha = 1.0f;
-					}
-					else
-					{
-						s->points[i].alpha = e/256.0f;
-					}
-				}
-				else
-				{
-					//set alpha and color based on relative height of point
-					s->points[i].alpha = e/256.0f;
-				}
-				e /= 512.0f;
-
-				//cap color
-				if (e > 1.0f)
-				{
-					e = 1.0f;
-				}
-				else if (e < 0.0f)
-				{
-					e = 0.0f;
-				}
-				VectorSet(s->points[i].color, e, 1.0f-e, 0.0f);
-
-				//cap alpha
-				if (s->points[i].alpha > 1.0f)
-				{
-					s->points[i].alpha = 1.0f;
-				}
-				else if (s->points[i].alpha < 0.0f)
-				{
-					s->points[i].alpha = 0.0f;
-				}
-
-				if (s->points[i].alpha != 1.0f)
-				{ //this point is not entirely alpha'd out, so still draw the surface
-					s->completelyTransparent = false;
-				}
-
-				i++;
-			}
-		}
-
-		if (s->completelyTransparent)
-		{
-			s = s->next;
-			continue;
-		}
-
-		i = 0;
-		qglBegin(GL_TRIANGLES);
-		while (i < s->numPoints)
-		{
-			if (r_autoMap->integer == 2 || s->numPoints < 3)
-			{ //line mode or not enough verts on surface
-				qglColor4f(s->points[i].color[0], s->points[i].color[1], s->points[i].color[2], s->points[i].alpha);
-			}
-			else
-			{ //fill mode
-				vec3_t planeNormal;
-				float fAlpha = s->points[i].alpha;
-				planeNormal[0] = s->points[0].xyz[1]*(s->points[1].xyz[2]-s->points[2].xyz[2]) + s->points[1].xyz[1]*(s->points[2].xyz[2]-s->points[0].xyz[2]) + s->points[2].xyz[1]*(s->points[0].xyz[2]-s->points[1].xyz[2]);
-				planeNormal[1] = s->points[0].xyz[2]*(s->points[1].xyz[0]-s->points[2].xyz[0]) + s->points[1].xyz[2]*(s->points[2].xyz[0]-s->points[0].xyz[0]) + s->points[2].xyz[2]*(s->points[0].xyz[0]-s->points[1].xyz[0]);
-				planeNormal[2] = s->points[0].xyz[0]*(s->points[1].xyz[1]-s->points[2].xyz[1]) + s->points[1].xyz[0]*(s->points[2].xyz[1]-s->points[0].xyz[1]) + s->points[2].xyz[0]*(s->points[0].xyz[1]-s->points[1].xyz[1]);
-
-				if (planeNormal[0] < 0.0f) planeNormal[0] = -planeNormal[0];
-				if (planeNormal[1] < 0.0f) planeNormal[1] = -planeNormal[1];
-				if (planeNormal[2] < 0.0f) planeNormal[2] = -planeNormal[2];
-
-				/*
-				if (s->points[i].xyz[2] > g_playerHeight+64.0f &&
-					planeNormal[2] > 0.7f)
-				{ //surface above player facing up/down directly
-					fAlpha = 1.0f-planeNormal[2];
-				}
-				*/
-
-				//qglColor4f(planeNormal[0], planeNormal[1], planeNormal[2], fAlpha);
-				qglColor4f(s->points[i].color[0], s->points[i].color[1], 1.0f-planeNormal[2], fAlpha);
-			}
-			qglVertex3f(s->points[i].xyz[0], s->points[i].xyz[1], s->points[i].xyz[2]);
-			i++;
-		}
-		qglEnd();
-		s = s->next;
-	}
-#else
-	tr_drawingAutoMap = true;
-	R_RecursiveWorldNode( tr.world->nodes, 15, 0 );
-	tr_drawingAutoMap = false;
-#endif
-
-	g_lastHeight = g_playerHeight;
-	g_lastHeightValid = true;
-
-#if 0 //instead of this method, just do the automap as a new "scene"
-	//pop back the view matrix
-	qglPopMatrix();
-#endif
-
-	//reenable 2d texturing
-	qglEnable( GL_TEXTURE_2D );
-
-	//white color/full alpha
-	qglColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-
-	return (const void *)(cmd + 1);
-}
-
 
 /*
 ================
 R_RecursiveWorldNode
 ================
 */
+#ifndef VV_LIGHTING
 static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits ) {
 
-	do
-	{
+	do {
 		int			newDlights[2];
 
-#ifdef _ALT_AUTOMAP_METHOD
-		if (tr_drawingAutoMap)
-		{
-			node->visframe = tr.visCount;
-		}
-#endif
-
 		// if the node wasn't marked as potentially visible, exit
-		if (node->visframe != tr.visCount)
-		{
+		if (node->visframe != tr.visCount) {
 			return;
 		}
 
 		// if the bounding volume is outside the frustum, nothing
 		// inside can be visible OPTIMIZE: don't do this all the way to leafs?
 
-#ifdef _ALT_AUTOMAP_METHOD
-		if ( r_nocull->integer!=1 && !tr_drawingAutoMap )
-#else
-		if (r_nocull->integer!=1)
-#endif
-		{
+		if ( r_nocull->integer!=1 ) {
 			int		r;
 
 			if ( planeBits & 1 ) {
@@ -1548,14 +1232,21 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 				}
 			}
 
+			if ( planeBits & 16 ) {
+				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[4]);
+				if (r == 2) {
+					return;						// culled
+				}
+				if ( r == 1 ) {
+					planeBits &= ~16;			// all descendants will also be in front
+				}
+			}
+
 		}
 
 		if ( node->contents != -1 ) {
 			break;
 		}
-
-		// node is just a decision point, so go down both sides
-		// since we don't care about sort orders, just go positive to negative
 
 		// determine which dlights are needed
 		if ( r_nocull->integer!=2 ) 
@@ -1572,8 +1263,7 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 
 					if ( dlightBits & ( 1 << i ) ) {
 						dl = &tr.refdef.dlights[i];
-						dist = DotProduct( dl->origin, tr.world->planes[node->planeNum].normal ) - 
-							tr.world->planes[node->planeNum].dist;
+						dist = DotProduct( dl->origin, node->plane->normal ) - node->plane->dist;
 						
 						if ( dist > -dl->radius ) {
 							newDlights[0] |= ( 1 << i );
@@ -1590,7 +1280,6 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 			newDlights[0] = dlightBits;
 			newDlights[1] = dlightBits;
 		}
-
 		// recurse down the children, front side first
 		R_RecursiveWorldNode (node->children[0], planeBits, newDlights[0] );
 
@@ -1603,7 +1292,6 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 		// leaf node, so add mark surfaces
 		int			c;
 		msurface_t	*surf, **mark;
-		mleaf_s *leaf;
 
 		tr.pc.c_leafs++;
 
@@ -1629,9 +1317,8 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 		}
 
 		// add the individual surfaces
-		leaf = (mleaf_s*)node;
-		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
-		c = leaf->nummarksurfaces;
+		mark = node->firstmarksurface;
+		c = node->nummarksurfaces;
 		while (c--) {
 			// the surface may have already been added if it
 			// spans multiple leafs
@@ -1642,6 +1329,7 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 	}
 
 }
+#endif // VV_LIGHTING
 
 
 /*
@@ -1649,7 +1337,7 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 R_PointInLeaf
 ===============
 */
-static mnode_t *R_PointInLeaf( const vec3_t p ) {
+static mnode_t *R_PointInLeaf( vec3_t p ) {
 	mnode_t		*node;
 	float		d;
 	cplane_t	*plane;
@@ -1702,28 +1390,36 @@ static const byte *R_ClusterPVS (int cluster) {
 R_inPVS
 =================
 */
-qboolean R_inPVS( const vec3_t p1, const vec3_t p2, byte *mask ) {
-	int		leafnum;
-	int		cluster;
-	int		area1, area2;
+#ifdef _XBOX
+qboolean R_inPVS( vec3_t p1, vec3_t p2 ) {
+	mleaf_s *leaf;
+	byte	*vis;
 
-	leafnum = CM_PointLeafnum (p1);
-	cluster = CM_LeafCluster (leafnum);
-	area1 = CM_LeafArea (leafnum);
+	leaf = (mleaf_s*)R_PointInLeaf( p1 );
+	vis = (byte*)CM_ClusterPVS( leaf->cluster );
+	leaf = (mleaf_s*)R_PointInLeaf( p2 );
 
-	//agh, the damn snapshot mask doesn't work for this
-	mask = (byte *) CM_ClusterPVS (cluster);
-
-	leafnum = CM_PointLeafnum (p2);
-	cluster = CM_LeafCluster (leafnum);
-	area2 = CM_LeafArea (leafnum);
-	if ( mask && (!(mask[cluster>>3] & (1<<(cluster&7)) ) ) )
+	if ( !vis || (!(vis[leaf->cluster>>3] & (1<<(leaf->cluster&7)))) ) {
 		return qfalse;
-	//this doesn't freakin work
-//	if (!CM_AreasConnected (area1, area2))
-//		return qfalse;		// a door blocks sight
+	}
 	return qtrue;
 }
+#else // _XBOX
+
+qboolean R_inPVS( vec3_t p1, vec3_t p2 ) {
+	mnode_t *leaf;
+	byte	*vis;
+
+	leaf = R_PointInLeaf( p1 );
+	vis = CM_ClusterPVS( leaf->cluster );
+	leaf = R_PointInLeaf( p2 );
+
+	if ( !(vis[leaf->cluster>>3] & (1<<(leaf->cluster&7))) ) {
+		return qfalse;
+	}
+	return qtrue;
+}
+#endif // _XBOX
 
 /*
 ===============
@@ -1740,6 +1436,15 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
    	mnode_s	*parent;
 	int		i;
 	int		cluster;
+#ifdef _XBOX
+	int		pvsRejected = 0;
+	int		areaRejected = 0;
+	int		markedLeaves = 0;
+	int		negativeCluster = 0;
+	int		leafIndex = -1;
+	static int s_xboxMarkLeavesLogBudget = 48;
+	static int s_xboxMarkLeavesSameLogBudget = 16;
+#endif
 
 	// lockpvs lets designers walk around to determine the
 	// extent of the current pvs
@@ -1754,6 +1459,25 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 		leaf = leafOverride;
 	}
 	cluster = leaf->cluster;
+#ifdef _XBOX
+	if (tr.world && tr.world->leafs && leaf >= tr.world->leafs && leaf < tr.world->leafs + tr.world->numleafs) {
+		leafIndex = (int)(leaf - tr.world->leafs);
+	}
+	if (s_xboxMarkLeavesLogBudget > 0) {
+		XBLF("JA: R_MarkLeaves enter leaf=%d cluster=%d area=%d marks=%d firstMark=%d prevCluster=%d visCount=%d areaModified=%d pvsOrigin=(%g,%g,%g)",
+			leafIndex,
+			cluster,
+			leaf ? leaf->area : -99,
+			leaf ? leaf->nummarksurfaces : -1,
+			leaf ? leaf->firstMarkSurfNum : -1,
+			tr.viewCluster,
+			tr.visCount,
+			tr.refdef.areamaskModified,
+			tr.viewParms.pvsOrigin[0],
+			tr.viewParms.pvsOrigin[1],
+			tr.viewParms.pvsOrigin[2]);
+	}
+#endif
 
 	assert(leaf->contents != -1);
 
@@ -1761,6 +1485,33 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	// hasn't changed, we don't need to mark everything again
 
 	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
+#ifdef _XBOX
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0MarkedLeaves = 0xffffffffu;
+			g_SPXBSplitSlot0PvsRejected = 0;
+			g_SPXBSplitSlot0AreaRejected = 0;
+			g_SPXBSplitSlot0RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1MarkedLeaves = 0xffffffffu;
+			g_SPXBSplitSlot1PvsRejected = 0;
+			g_SPXBSplitSlot1AreaRejected = 0;
+			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		if (s_xboxMarkLeavesSameLogBudget > 0)
+		{
+			XBLF("JA: R_MarkLeaves same cluster=%d visCount=%d areaModified=%d rootVis=%d leafVis=%d",
+				cluster,
+				tr.visCount,
+				tr.refdef.areamaskModified,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				leaf ? leaf->visframe : -1);
+			--s_xboxMarkLeavesSameLogBudget;
+		}
+		R_XboxLogJunkSkyLeafVisibility( "same-cluster", NULL );
+#endif
 		return;
 	}
 
@@ -1773,6 +1524,38 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				tr.world->nodes[i].visframe = tr.visCount;
 			}
 		}
+#ifdef _XBOX
+		for (i=0 ; i<tr.world->numleafs ; i++) {
+			if (tr.world->leafs[i].contents != CONTENTS_SOLID) {
+				tr.world->leafs[i].visframe = tr.visCount;
+			}
+		}
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0MarkedLeaves = (unsigned int)tr.world->numleafs;
+			g_SPXBSplitSlot0PvsRejected = 0;
+			g_SPXBSplitSlot0AreaRejected = 0;
+			g_SPXBSplitSlot0RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1MarkedLeaves = (unsigned int)tr.world->numleafs;
+			g_SPXBSplitSlot1PvsRejected = 0;
+			g_SPXBSplitSlot1AreaRejected = 0;
+			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		if (s_xboxMarkLeavesLogBudget > 0) {
+			XBLF("JA: R_MarkLeaves all-visible cluster=%d visCount=%d nodes=%d leafs=%d rootVis=%d leafVis=%d",
+				tr.viewCluster,
+				tr.visCount,
+				tr.world ? tr.world->numnodes : -1,
+				tr.world ? tr.world->numleafs : -1,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				leaf ? leaf->visframe : -1);
+			--s_xboxMarkLeavesLogBudget;
+		}
+		R_XboxLogJunkSkyLeafVisibility( "all-visible", NULL );
+#endif
 		return;
 	}
 
@@ -1781,20 +1564,33 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	for (i=0,leaf=tr.world->leafs ; i<tr.world->numleafs ; i++, leaf++) {
 		cluster = leaf->cluster;
 		if ( cluster < 0 || cluster >= tr.world->numClusters ) {
+#ifdef _XBOX
+			negativeCluster++;
+#endif
 			continue;
 		}
 
 		// check general pvs
 		if ( !(vis[cluster>>3] & (1<<(cluster&7))) ) {
+#ifdef _XBOX
+			pvsRejected++;
+#endif
 			continue;
 		}
 
 		// check for door connection
 		if (!lookingForWorstLeaf &&
+			   leaf->area >= 0 &&
 			   (tr.refdef.areamask[leaf->area>>3] & (1<<(leaf->area&7)) ) ) {
+#ifdef _XBOX
+			areaRejected++;
+#endif
 			continue;		// not visible
 		}
 
+#ifdef _XBOX
+		markedLeaves++;
+#endif
 		parent = (mnode_t*)leaf;
 		assert(leaf->contents != -1);
 		do {
@@ -1804,6 +1600,58 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			parent = parent->parent;
 		} while (parent);
 	}
+#ifdef _XBOX
+	{
+		static int s_stefxPvsSummaryBudget = 16;
+		if (s_stefxPvsSummaryBudget > 0)
+		{
+			XBLF("STEFX: PVS cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d rootVis=%d pvsOrigin=(%g,%g,%g)",
+				tr.viewCluster,
+				tr.visCount,
+				tr.world ? tr.world->numleafs : -1,
+				markedLeaves,
+				pvsRejected,
+				areaRejected,
+				negativeCluster,
+				tr.refdef.areamaskModified,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				tr.viewParms.pvsOrigin[0],
+				tr.viewParms.pvsOrigin[1],
+				tr.viewParms.pvsOrigin[2]);
+			--s_stefxPvsSummaryBudget;
+		}
+		if (s_xboxMarkLeavesLogBudget > 0)
+		{
+			XBLF("JA: R_MarkLeaves cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d rootVis=%d leafVis=%d",
+				tr.viewCluster,
+				tr.visCount,
+				tr.world ? tr.world->numleafs : -1,
+				markedLeaves,
+				pvsRejected,
+				areaRejected,
+				negativeCluster,
+				tr.refdef.areamaskModified,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				leafOverride ? leafOverride->visframe : -1);
+			--s_xboxMarkLeavesLogBudget;
+		}
+		if (g_SPXBSplitSlotActive == 1)
+		{
+			g_SPXBSplitSlot0MarkedLeaves = (unsigned int)markedLeaves;
+			g_SPXBSplitSlot0PvsRejected = (unsigned int)pvsRejected;
+			g_SPXBSplitSlot0AreaRejected = (unsigned int)areaRejected;
+			g_SPXBSplitSlot0RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		else if (g_SPXBSplitSlotActive == 2)
+		{
+			g_SPXBSplitSlot1MarkedLeaves = (unsigned int)markedLeaves;
+			g_SPXBSplitSlot1PvsRejected = (unsigned int)pvsRejected;
+			g_SPXBSplitSlot1AreaRejected = (unsigned int)areaRejected;
+			g_SPXBSplitSlot1RootVis = (unsigned int)((tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
+		}
+		R_XboxLogJunkSkyLeafVisibility( "marked", vis );
+	}
+#endif
 }
 #else // _XBOX
 
@@ -1835,7 +1683,7 @@ static void R_MarkLeaves (void) {
 	if ( r_showcluster->modified || r_showcluster->integer ) {
 		r_showcluster->modified = qfalse;
 		if ( r_showcluster->integer ) {
-			Com_Printf ("cluster:%i  area:%i\n", cluster, leaf->area );
+			VID_Printf( PRINT_ALL, "cluster:%i  area:%i\n", cluster, leaf->area );
 		}
 	}
 
@@ -1878,7 +1726,8 @@ static void R_MarkLeaves (void) {
 		} while (parent);
 	}
 }
-#endif // _XBOX
+#endif
+
 
 /*
 =============
@@ -1887,11 +1736,26 @@ R_AddWorldSurfaces
 */
 #ifdef _XBOX
 void R_AddWorldSurfaces (void) {
+#ifdef _XBOX
+	static int s_xboxAddWorldLogBudget = 48;
+#endif
 	if ( !r_drawworld->integer ) {
+#ifdef _XBOX
+		if (s_xboxAddWorldLogBudget > 0) {
+			XBLF("JA: R_AddWorldSurfaces skip r_drawworld=0 draw=%d", tr.refdef.numDrawSurfs);
+			--s_xboxAddWorldLogBudget;
+		}
+#endif
 		return;
 	}
 
 	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
+#ifdef _XBOX
+		if (s_xboxAddWorldLogBudget > 0) {
+			XBLF("JA: R_AddWorldSurfaces skip RDF_NOWORLDMODEL rd=0x%x draw=%d", tr.refdef.rdflags, tr.refdef.numDrawSurfs);
+			--s_xboxAddWorldLogBudget;
+		}
+#endif
 		return;
 	}
 
@@ -1902,11 +1766,116 @@ void R_AddWorldSurfaces (void) {
 	ClearBounds( tr.viewParms.visBounds[0], tr.viewParms.visBounds[1] );
 
 	// perform frustum culling and add all the potentially visible surfaces
-	if ( tr.refdef.num_dlights > MAX_DLIGHTS ) {
-		tr.refdef.num_dlights = MAX_DLIGHTS ;
+	if ( VVLightMan.num_dlights > MAX_DLIGHTS ) {
+		VVLightMan.num_dlights = MAX_DLIGHTS ;
 	}
 
-	R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << tr.refdef.num_dlights ) - 1 );
+	const int xboxLeafsBefore = tr.pc.c_leafs;
+	const int xboxDrawBefore = tr.refdef.numDrawSurfs;
+	int xboxWorldDelta;
+
+#ifdef _XBOX
+	if (s_xboxAddWorldLogBudget > 0)
+	{
+		XBLF("JA: R_AddWorldSurfaces before recursive draw=%d visCount=%d viewCluster=%d rootVis=%d dlights=%d rdflags=0x%x nodes=%d leafs=%d marks=%d",
+			tr.refdef.numDrawSurfs,
+			tr.visCount,
+			tr.viewCluster,
+			(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+			VVLightMan.num_dlights,
+			tr.refdef.rdflags,
+			tr.world ? tr.world->numnodes : -1,
+			tr.world ? tr.world->numleafs : -1,
+			tr.world ? tr.world->nummarksurfaces : -1);
+	}
+#endif
+	if (g_SPXBSplitSlotActive == 2)
+	{
+		g_SPXBSplitSlot1WorldRetryDelta = 0;
+		g_SPXBSplitSlot1WorldFallback = 0;
+		g_SPXBSplitSlot1WorldAttempts = 0;
+		g_SPXBSplitSlot1WorldCulled = 0;
+		g_SPXBSplitSlot1WorldAlready = 0;
+		g_SPXBSplitSlot1WorldAdded = 0;
+	}
+	else if (g_SPXBSplitSlotActive == 1)
+	{
+		g_SPXBSplitSlot0WorldAttempts = 0;
+		g_SPXBSplitSlot0WorldCulled = 0;
+		g_SPXBSplitSlot0WorldAlready = 0;
+		g_SPXBSplitSlot0WorldAdded = 0;
+	}
+
+	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
+	xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
+
+	if (g_SPXBSplitSlotActive == 2 && xboxWorldDelta == 0 && tr.world && tr.world->nodes)
+	{
+		const int retryBefore = tr.refdef.numDrawSurfs;
+		g_SPXBSplitSlot1WorldFallback = 1;
+		++tr.viewCount;
+		VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
+		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
+		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
+	}
+
+	if (g_SPXBSplitSlotActive == 2 && xboxWorldDelta == 0 && tr.world && tr.world->nodes)
+	{
+		const int retryBefore = tr.refdef.numDrawSurfs;
+
+		g_SPXBSplitSlot1WorldFallback = 2;
+		++tr.viewCount;
+		/* Keep this retry bounded by the PVS. The earlier all-visible probe proved
+		   the render path, but it is too expensive for a release soak. */
+		VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 0, ( 1 << VVLightMan.num_dlights ) - 1 );
+		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
+		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
+	}
+#ifdef _XBOX
+	if (g_SPXBSplitSlotActive == 1)
+	{
+		g_SPXBSplitSlot0WorldDelta = (unsigned int)xboxWorldDelta;
+	}
+	else if (g_SPXBSplitSlotActive == 2)
+	{
+		g_SPXBSplitSlot1WorldDelta = (unsigned int)xboxWorldDelta;
+	}
+	{
+		static int s_stefxWorldVisBudget = 24;
+		if (s_stefxWorldVisBudget > 0)
+		{
+			XBLF("STEFX: worldvis cluster=%d leafDelta=%d drawDelta=%d totalDraw=%d visCount=%d rootVis=%d r_novis=%d r_nocull=%d bounds=(%g,%g,%g)-(%g,%g,%g)",
+				tr.viewCluster,
+				tr.pc.c_leafs - xboxLeafsBefore,
+				xboxWorldDelta,
+				tr.refdef.numDrawSurfs,
+				tr.visCount,
+				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
+				r_novis ? r_novis->integer : -1,
+				r_nocull ? r_nocull->integer : -1,
+				tr.viewParms.visBounds[0][0],
+				tr.viewParms.visBounds[0][1],
+				tr.viewParms.visBounds[0][2],
+				tr.viewParms.visBounds[1][0],
+				tr.viewParms.visBounds[1][1],
+				tr.viewParms.visBounds[1][2]);
+			--s_stefxWorldVisBudget;
+		}
+	}
+	if (s_xboxAddWorldLogBudget > 0)
+	{
+		XBLF("JA: R_AddWorldSurfaces after recursive leafs=%d drawSurfs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
+			tr.pc.c_leafs,
+			tr.refdef.numDrawSurfs,
+			tr.viewParms.visBounds[0][0],
+			tr.viewParms.visBounds[0][1],
+			tr.viewParms.visBounds[0][2],
+			tr.viewParms.visBounds[1][0],
+			tr.viewParms.visBounds[1][1],
+			tr.viewParms.visBounds[1][2]);
+		--s_xboxAddWorldLogBudget;
+	}
+#endif
 }
 
 #else // _XBOX
@@ -1934,6 +1903,7 @@ void R_AddWorldSurfaces (void) {
 		tr.refdef.num_dlights = 32 ;
 	}
 
-	R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << tr.refdef.num_dlights ) - 1 );
+	R_RecursiveWorldNode( tr.world->nodes, 31, ( 1 << tr.refdef.num_dlights ) - 1 );
 }
+
 #endif // _XBOX

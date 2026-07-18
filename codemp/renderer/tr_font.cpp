@@ -8,6 +8,10 @@
 
 #include "../qcommon/stringed_ingame.h"
 
+#ifdef _XBOX
+#include "../win32/glw_win_dx8.h"
+#endif
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // This file is shared in the single and multiplayer codebases, so be CAREFUL WHAT YOU ADD/CHANGE!!!!!
@@ -263,7 +267,17 @@ float RoundTenth( float fValue )
 
 int							g_iCurrentFontIndex;	// entry 0 is reserved index for missing/invalid, else ++ with each new font registered
 vector<CFontInfo *>			g_vFontArray;
+#ifdef _XBOX
+// On Xbox, std::map allocates a sentinel node in its default ctor (before zone memory is ready).
+// Use a fixed-capacity ratl map instead - its ctor is trivial (no heap allocation).
+#if !defined(RATL_MAP_VS_INC)
+	#include "../ratl/map_vs.h"
+#endif
+#define FONT_INDEX_MAP_CAPACITY	32	// more than enough registered fonts per level
+typedef ratl::map_vs<sstring_t, int, FONT_INDEX_MAP_CAPACITY> FontIndexMap_t;
+#else
 typedef map<sstring_t, int>	FontIndexMap_t;
+#endif // _XBOX
 							FontIndexMap_t g_mapFontIndexes;
 int g_iNonScaledCharRange;	// this is used with auto-scaling of asian fonts, anything below this number is preserved in scale, anything above is scaled down by 0.75f
 
@@ -568,7 +582,10 @@ static int Chinese_InitFields(int &iGlyphTPs, LPCSTR &psLang)
 
 #define TIS_GLYPHS_START	160
 #define TIS_SARA_AM			0xD3		// special case letter, both a new letter and a trailing accent for the prev one
+#ifndef _XBOX	// Thai is dead code on Xbox (GetLanguageEnum() always returns eWestern), and
+				// the map<> member would allocate during _cinit before zone memory is ready.
 ThaiCodes_t g_ThaiCodes;	// the one and only instance of this object
+#endif // !_XBOX
 
 extern qboolean Language_IsThai( void );
 
@@ -589,28 +606,29 @@ static int Thai_IsAccentChar( unsigned int uiCode )
 
 // returns a valid Thai code (or 0), based on taking 1,2 or 3 bytes from the supplied byte stream
 //	Fills in <iThaiBytes> with 1,2 or 3
+#ifndef _XBOX	// Thai is unreachable on Xbox; guard to avoid linking against the absent g_ThaiCodes symbol
 static int Thai_ValidTISCode( const byte *psString, int &iThaiBytes )
-{	
+{
 	// try a 1-byte code first...
 	//
 	if (psString[0] >= 160)	// so western letters drop through and use normal font
 	{
 		// this code is heavily little-endian, so someone else will need to port for Mac etc... (not my problem ;-)
-		//		
+		//
 		union CodeToTry_t
 		{
             char sChars[4];
 			unsigned int uiCode;
 		};
-		
+
 		CodeToTry_t CodeToTry;
 		CodeToTry.uiCode = 0;	// important that we clear all 4 bytes in sChars here
 
 		// thai codes can be up to 3 bytes long, so see how high we can get...
 		//
-  int i;
-		for(i =0; i<3; i++)
-		{			
+		int i;
+		for (i=0; i<3; i++)
+		{
 			CodeToTry.sChars[i] = psString[i];
 
             int iIndex = g_ThaiCodes.GetValidIndex( CodeToTry.uiCode );
@@ -629,6 +647,7 @@ static int Thai_ValidTISCode( const byte *psString, int &iThaiBytes )
 
 	return 0;
 }
+#endif // !_XBOX
 
 // special case, thai can only break on certain letters, and since the rules are complicated then
 //	we tell the translators to put an underscore ('_') between each word even though in Thai they're
@@ -643,6 +662,7 @@ static inline bool Thai_IsTrailingPunctuation( unsigned int uiCode )
 //
 // (invalid codes will return 0)
 //
+#ifndef _XBOX	// Thai is unreachable on Xbox; guard to avoid linking against the absent g_ThaiCodes symbol
 static int Thai_CollapseTISCode( unsigned int uiCode )
 {
 	if (uiCode >= TIS_GLYPHS_START)	// so western letters drop through as invalid
@@ -651,11 +671,12 @@ static int Thai_CollapseTISCode( unsigned int uiCode )
 		if (iCollapsedIndex != -1)
 		{
 			return iCollapsedIndex;
-		}        
+		}
 	}
 
 	return 0;
 }
+#endif // !_XBOX
 
 static int Thai_InitFields(int &iGlyphTPs, LPCSTR &psLang)
 {
@@ -1025,6 +1046,7 @@ void CFontInfo::UpdateAsianIfNeeded( bool bForceReEval /* = false */ )
 					case eTaiwanese:	m_iAsianGlyphsAcross = Taiwanese_InitFields(iGlyphTPs, psLang);	break;
 					case eJapanese:		m_iAsianGlyphsAcross = Japanese_InitFields(iGlyphTPs, psLang);	break;
 					case eChinese:		m_iAsianGlyphsAcross = Chinese_InitFields(iGlyphTPs, psLang);	break;
+#ifndef _XBOX	// Thai is unreachable on Xbox (GetLanguageEnum() always returns eWestern)
 					case eThai:
 					{
 						m_iAsianGlyphsAcross = Thai_InitFields(iGlyphTPs, psLang);
@@ -1046,6 +1068,7 @@ void CFontInfo::UpdateAsianIfNeeded( bool bForceReEval /* = false */ )
 						}
 					}
 					break;
+#endif // !_XBOX
 				}
 
 				// textures need loading...
@@ -1193,6 +1216,7 @@ const glyphInfo_t *CFontInfo::GetLetter(const unsigned int uiLetter, int *piShad
 					}
 					break;
 
+#ifndef _XBOX	// Thai is unreachable on Xbox (GetLanguageEnum() always returns eWestern)
 					case eThai:
 					{
 						int iGlyphXpos = (1024 / m_iAsianGlyphsAcross) * ( iColumn );
@@ -1206,11 +1230,11 @@ const glyphInfo_t *CFontInfo::GetLetter(const unsigned int uiLetter, int *piShad
 							iGlyphWidth= 20;	//
 						}
 						m_AsianGlyph.s  = (float)(iGlyphXpos) / 1024.0f;
-						m_AsianGlyph.t  = (float)(((1024 / iAsianGlyphsDown    ) * ( iRow       ))  ) / 1024.0f;						
+						m_AsianGlyph.t  = (float)(((1024 / iAsianGlyphsDown    ) * ( iRow       ))  ) / 1024.0f;
 						// technically this .s2 line should be modified to blit only the correct width, but since
 						//	all Thai glyphs are up against the left edge of their cells and have blank to the cell
 						//	boundary then it's better to keep these calculations simpler...
-						
+
 						m_AsianGlyph.s2 = (float)(iGlyphXpos+iGlyphWidth) / 1024.0f;
 						m_AsianGlyph.t2 = (float)(((1024 / iAsianGlyphsDown    ) * ( iRow+1     ))-1) / 1024.0f;
 
@@ -1220,6 +1244,7 @@ const glyphInfo_t *CFontInfo::GetLetter(const unsigned int uiLetter, int *piShad
 						m_AsianGlyph.horizAdvance = iGlyphWidth + 1;
 					}
 					break;
+#endif // !_XBOX
 				}
 				*piShader = m_hAsianShaders[ iTexturePageIndex ];
 			}
@@ -1271,7 +1296,9 @@ const int CFontInfo::GetCollapsedAsianCode(ulong uiLetter) const
 			case eTaiwanese:	iCollapsedAsianCode = Taiwanese_CollapseBig5Code( uiLetter );		break;
 			case eJapanese:		iCollapsedAsianCode = Japanese_CollapseShiftJISCode( uiLetter );	break;
 			case eChinese:		iCollapsedAsianCode = Chinese_CollapseGBCode( uiLetter );			break;
+#ifndef _XBOX	// Thai_CollapseTISCode guarded on Xbox since it references the absent g_ThaiCodes
 			case eThai:			iCollapsedAsianCode = Thai_CollapseTISCode( uiLetter );				break;
+#endif // !_XBOX
 			default:			assert(0);	/* unhandled asian language */							break;
 		}
 	}
@@ -1563,6 +1590,11 @@ void RE_Font_DrawString(int ox, int oy, const char *psText, const float *rgba, c
 
 				hShader = RE_RegisterShaderNoMip( xbGlyphShaders[uiLetter - XB_GLYPH_A] );
 
+#ifdef _XBOX
+				extern int Menus_AnyFullScreenVisible();
+				if(glw_state->isWidescreen && cls.state == CA_ACTIVE && !(Menus_AnyFullScreenVisible()))
+					x += 40;
+#endif
 				RE_StretchPic ( x, // float x
 								y,	// float y
 								24.0f,	// float w
@@ -1574,6 +1606,10 @@ void RE_Font_DrawString(int ox, int oy, const char *psText, const float *rgba, c
 								//lastcolour.c, 
 								hShader							// qhandle_t hShader
 								);
+#ifdef _XBOX
+				if(glw_state->isWidescreen && cls.state == CA_ACTIVE && !(Menus_AnyFullScreenVisible()))
+					x -= 40;
+#endif
 
 				x += 24;
 			}
@@ -1627,6 +1663,22 @@ void RE_Font_DrawString(int ox, int oy, const char *psText, const float *rgba, c
 					y+=3;	// I'm sick and tired of going round in circles trying to do this legally, so bollocks to it
 				}
 
+#ifdef _XBOX
+				extern int Menus_AnyFullScreenVisible();
+				if(glw_state->isWidescreen && cls.state == CA_ACTIVE && !(Menus_AnyFullScreenVisible()))
+					RE_StretchPic ( x + Round(pLetter->horizOffset * fScale) + 40, // float x
+								(uiLetter > g_iNonScaledCharRange) ? y - iAsianYAdjust : y,	// float y
+								curfont->mbRoundCalcs ? Round(pLetter->width * fThisScale) : pLetter->width * fThisScale,	// float w
+								curfont->mbRoundCalcs ? Round(pLetter->height * fThisScale) : pLetter->height * fThisScale, // float h
+								pLetter->s,						// float s1
+								pLetter->t,						// float t1
+								pLetter->s2,					// float s2
+								pLetter->t2,					// float t2
+								//lastcolour.c, 
+								hShader							// qhandle_t hShader
+								);
+				else
+#endif
 				RE_StretchPic ( x + Round(pLetter->horizOffset * fScale), // float x
 								(uiLetter > g_iNonScaledCharRange) ? y - iAsianYAdjust : y,	// float y
 								curfont->mbRoundCalcs ? Round(pLetter->width * fThisScale) : pLetter->width * fThisScale,	// float w
@@ -1647,15 +1699,32 @@ void RE_Font_DrawString(int ox, int oy, const char *psText, const float *rgba, c
 	//let it remember the old color //RE_SetColor(NULL);;
 }
 
-int RE_RegisterFont(const char *psName) 
+int RE_RegisterFont(const char *psName)
 {
 	FontIndexMap_t::iterator it = g_mapFontIndexes.find(psName);
 	if (it != g_mapFontIndexes.end() )
 	{
+#ifdef _XBOX
+		int iFontIndex = *it;				// ratl map_vs: operator* returns the value
+#else
 		int iFontIndex = (*it).second;
+#endif
 		return iFontIndex;
 	}
 
+	// Hack. Rather than fix our bazillion menu files, we allow
+	// dummy fonts that don't register, just use up an index.
+	if( Q_stricmp(psName, "NOFONT") == 0 )
+	{
+		g_iCurrentFontIndex++;
+#ifdef _XBOX
+		g_mapFontIndexes.insert(psName, 0);			// ratl map_vs: no operator[]
+#else
+		g_mapFontIndexes[psName] = 0;
+#endif
+		return 0;
+	}
+	else
 	// not registered, so...
 	//
 	{
@@ -1663,13 +1732,21 @@ int RE_RegisterFont(const char *psName)
 		if (pFont->GetPointSize() > 0)
 		{
 			int iFontIndex = g_iCurrentFontIndex - 1;
+#ifdef _XBOX
+			g_mapFontIndexes.insert(psName, iFontIndex);	// ratl map_vs: no operator[]
+#else
 			g_mapFontIndexes[psName] = iFontIndex;
+#endif
 			pFont->m_iThisFont = iFontIndex;
 			return iFontIndex;
 		}
 		else
 		{
+#ifdef _XBOX
+			g_mapFontIndexes.insert(psName, 0);			// ratl map_vs: no operator[]
+#else
 			g_mapFontIndexes[psName] = 0;	// missing/invalid
+#endif
 		}
 	}
 
@@ -1692,7 +1769,9 @@ void R_ShutdownFonts(void)
 	g_vFontArray.clear();
 	g_iCurrentFontIndex = 1;	// entry 0 is reserved for "missing/invalid"
 
+#ifndef _XBOX
 	g_ThaiCodes.Clear();
+#endif
 }
 
 // this is only really for debugging while tinkering with fonts, but harmless to leave in...
@@ -1703,17 +1782,26 @@ void R_ReloadFonts_f(void)
 	//
 	vector <sstring_t> vstrFonts;
 
- int iFontToFind;
+	int iFontToFind;
+	FontIndexMap_t::iterator it;
 	for (iFontToFind = 1; iFontToFind < g_iCurrentFontIndex; iFontToFind++)
-	{		
-  FontIndexMap_t::iterator it;
+	{
 		for (it = g_mapFontIndexes.begin(); it != g_mapFontIndexes.end(); ++it)
 		{
+#ifdef _XBOX
+			// ratl map_vs: operator* returns value; use .key() for key
+			if (iFontToFind == *it)
+			{
+				vstrFonts.push_back( it.key() );
+				break;
+			}
+#else
 			if (iFontToFind == (*it).second)
 			{
 				vstrFonts.push_back( (*it).first );
 				break;
 			}
+#endif
 		}
 		if ( it == g_mapFontIndexes.end() )
 		{

@@ -397,7 +397,6 @@ void CMod_LoadPlanes (void *data, int len)
 		out->signbits = bits;
 	}
 
-	RE_SetPlaneData(cmg.planes, cmg.numPlanes);
 }
 
 /*
@@ -672,20 +671,33 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	char			stripName[MAX_QPATH];
 	Lump			outputLump;
 
+	Com_Printf( "STEFX_HM: CM_LoadMap_Actual begin ptr=%08x clientload=%d\n",
+		(unsigned int)name, clientload );
 	if ( !name || !name[0] ) {
 		Com_Error( ERR_DROP, "CM_LoadMap: NULL name" );
 	}
 	Q_strncpyz( loadName, name, sizeof( loadName ) );
 	name = loadName;
+	Com_Printf( "STEFX_HM: CM_LoadMap_Actual copied name='%s'\n", name );
 
 #ifndef BSPC
+	Com_Printf( "STEFX_HM: CM_LoadMap_Actual before cvars\n" );
 	cm_noAreas = Cvar_Get ("cm_noAreas", "0", CVAR_CHEAT);
 	cm_noCurves = Cvar_Get ("cm_noCurves", "0", CVAR_CHEAT);
 	cm_playerCurveClip = Cvar_Get ("cm_playerCurveClip", "1", CVAR_ARCHIVE|CVAR_CHEAT );
+	Com_Printf( "STEFX_HM: CM_LoadMap_Actual after cvars\n" );
 #endif
 	Com_DPrintf( "CM_LoadMap( %s, %i )\n", name, clientload );
 
 #if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: CM_LoadMap state name='%s' clientload=%d cmg='%s' raw='%s' ready=%d submodels=%d cmodels=%08x\n",
+		name,
+		clientload,
+		cmg.name[0] ? cmg.name : "(none)",
+		s_efRawLoadedMapName[0] ? s_efRawLoadedMapName : "(none)",
+		s_efRawLoadedMapReady,
+		cmg.numSubModels,
+		(unsigned int)cmg.cmodels );
 	XBLF( "STEFX_HM: CM_LoadMap enter name='%s' clientload=%d cmg='%s' raw='%s' ready=%d submodels=%d cmodels=%08x",
 		name,
 		clientload,
@@ -702,6 +714,8 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			Q_strncpyz( cmg.name, name, sizeof( cmg.name ) );
 		}
 		*checksum = reuseChecksum;
+		Com_Printf( "STEFX_HM: CM_LoadMap reuse name='%s' checksum=0x%08x\n",
+			name, reuseChecksum );
 		XBLF( "STEFX_HM: CM_LoadMap reuse raw BSP name='%s' checksum=0x%08x", name, reuseChecksum );
 		return;
 	}
@@ -712,7 +726,9 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	}
 #endif
 
+	Com_Printf( "STEFX_HM: CM_LoadMap reuse missed; before CM_ClearMap\n" );
 	CM_ClearMap();
+	Com_Printf( "STEFX_HM: CM_LoadMap after CM_ClearMap\n" );
 	CM_ClearLevelPatches();
 
 	// free old stuff

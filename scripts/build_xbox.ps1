@@ -5,7 +5,9 @@ param(
 
     [switch]$Clean,
 
-    [switch]$SkipAssets
+    [switch]$SkipAssets,
+
+    [switch]$SkipStage
 )
 
 $ErrorActionPreference = "Stop"
@@ -598,14 +600,65 @@ function Apply-ProjectSourceOverrides {
 
     if ($ProjectPath -eq "codemp\x_exe\x_exe.vcproj") {
         $hasAsmStub = $false
+		$jpegSources = @(
+			"codemp\jpeg-6\jcapimin.cpp",
+			"codemp\jpeg-6\jccoefct.cpp",
+			"codemp\jpeg-6\jccolor.cpp",
+			"codemp\jpeg-6\jcdctmgr.cpp",
+			"codemp\jpeg-6\jchuff.cpp",
+			"codemp\jpeg-6\jcinit.cpp",
+			"codemp\jpeg-6\jcmainct.cpp",
+			"codemp\jpeg-6\jcmarker.cpp",
+			"codemp\jpeg-6\jcmaster.cpp",
+			"codemp\jpeg-6\jcomapi.cpp",
+			"codemp\jpeg-6\jcparam.cpp",
+			"codemp\jpeg-6\jcphuff.cpp",
+			"codemp\jpeg-6\jcprepct.cpp",
+			"codemp\jpeg-6\jcsample.cpp",
+			"codemp\jpeg-6\jctrans.cpp",
+			"codemp\jpeg-6\jdapimin.cpp",
+			"codemp\jpeg-6\jdapistd.cpp",
+			"codemp\jpeg-6\jdatadst.cpp",
+			"codemp\jpeg-6\jdatasrc.cpp",
+			"codemp\jpeg-6\jdcoefct.cpp",
+			"codemp\jpeg-6\jdcolor.cpp",
+			"codemp\jpeg-6\jddctmgr.cpp",
+			"codemp\jpeg-6\jdhuff.cpp",
+			"codemp\jpeg-6\jdinput.cpp",
+			"codemp\jpeg-6\jdmainct.cpp",
+			"codemp\jpeg-6\jdmarker.cpp",
+			"codemp\jpeg-6\jdmaster.cpp",
+			"codemp\jpeg-6\jdpostct.cpp",
+			"codemp\jpeg-6\jdsample.cpp",
+			"codemp\jpeg-6\jdtrans.cpp",
+			"codemp\jpeg-6\jerror.cpp",
+			"codemp\jpeg-6\jfdctflt.cpp",
+			"codemp\jpeg-6\jidctflt.cpp",
+			"codemp\jpeg-6\jmemmgr.cpp",
+			"codemp\jpeg-6\jmemnobs.cpp",
+			"codemp\jpeg-6\jutils.cpp"
+		)
+		$jpegTool = [pscustomobject]@{
+			Name                    = "VCCLCompilerTool"
+			PreprocessorDefinitions = "TAG_TEMP_JPG=TAG_TEMP_WORKSPACE;NO_GETENV"
+		}
         foreach ($source in $Sources) {
-            if ($source.RelativePath -ieq "..\renderer\tr_backend.cpp") {
+            if ($source.RelativePath.StartsWith("..\renderer\", [StringComparison]::OrdinalIgnoreCase) -and
+                $source.Extension -in @(".c", ".cpp", ".cxx", ".cc")) {
                 $source.Tool = [pscustomobject]@{
                     Name                    = "VCCLCompilerTool"
                     PreprocessorDefinitions = "STEFX_ELITE_FORCE_SP"
                 }
             }
         }
+		foreach ($jpegSource in $jpegSources) {
+			$Sources.Add([pscustomobject]@{
+				RelativePath = $jpegSource
+				FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue $jpegSource
+				Extension    = ".cpp"
+				Tool         = $jpegTool
+			})
+		}
         foreach ($source in $Sources) {
             if ($source.RelativePath -ieq "xbox_asm_stubs.asm") {
                 $hasAsmStub = $true
@@ -1484,7 +1537,25 @@ function Copy-EFDataOverlay {
         }
     }
 
-    if (Test-Path -LiteralPath $sourceMenu -PathType Container) {
+    if ($SkipUiScripts) {
+        $removedMenuAssets = 0
+        if ((Test-Path -LiteralPath $sourceMenu -PathType Container) -and
+            (Test-Path -LiteralPath $destMenu -PathType Container)) {
+            $sourceMenuFull = (Resolve-Path -LiteralPath $sourceMenu).Path
+            Get-ChildItem -LiteralPath $sourceMenu -Recurse -File | Where-Object {
+                $_.Extension -iin @(".tga", ".jpg", ".jpeg", ".png") -and $_.Name -ine "vssver.scc"
+            } | ForEach-Object {
+                $relative = $_.FullName.Substring($sourceMenuFull.Length).TrimStart('\', '/')
+                $destination = Join-Path $destMenu $relative
+                if (Test-Path -LiteralPath $destination -PathType Leaf) {
+                    Remove-Item -LiteralPath $destination -Force
+                    $removedMenuAssets++
+                }
+            }
+        }
+
+        Write-Host "Skipped repository base menu overlay for Holomatch MP; removed stale assets: $removedMenuAssets"
+    } elseif (Test-Path -LiteralPath $sourceMenu -PathType Container) {
         $sourceMenuFull = (Resolve-Path -LiteralPath $sourceMenu).Path
         $copiedMenuAssets = 0
         Get-ChildItem -LiteralPath $sourceMenu -Recurse -File | Where-Object {
@@ -1878,7 +1949,11 @@ switch ($Target) {
         Invoke-BuildGraph -Projects $mpProjects
         if (-not $SkipAssets) {
             Update-EFHolomatchAssetLists
-            Copy-EFHolomatchCxbxStage
+            if (-not $SkipStage) {
+                Copy-EFHolomatchCxbxStage
+            } else {
+                Write-Host "Skipping CXBX-R Holomatch staging."
+            }
         } else {
             Write-Host "Skipping EF MP asset packaging/copy phase."
         }
@@ -1893,7 +1968,11 @@ switch ($Target) {
         Invoke-BuildGraph -Projects $mpProjects
         if (-not $SkipAssets) {
             Update-EFHolomatchAssetLists
-            Copy-EFHolomatchCxbxStage
+            if (-not $SkipStage) {
+                Copy-EFHolomatchCxbxStage
+            } else {
+                Write-Host "Skipping CXBX-R Holomatch staging."
+            }
         } else {
             Write-Host "Skipping EF MP asset packaging/copy phase."
         }

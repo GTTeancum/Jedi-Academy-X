@@ -46,7 +46,7 @@ extern "C" {
 /*************************************************************/
 
 /* Header file version number, required by OpenGL ABI for Linux */
-#define GL_GLEXT_VERSION 7
+#define GL_GLEXT_VERSION 6
 
 #ifndef GL_VERSION_1_2
 #define GL_CONSTANT_COLOR                 0x8001
@@ -224,51 +224,6 @@ extern "C" {
 #define GL_TEXTURE_COMPRESSED_ARB         0x86A1
 #define GL_NUM_COMPRESSED_TEXTURE_FORMATS_ARB 0x86A2
 #define GL_COMPRESSED_TEXTURE_FORMATS_ARB 0x86A3
-#endif
-
-#ifndef GL_ARB_vertex_blend
-#define GL_MAX_VERTEX_UNITS_ARB           0x86A4
-#define GL_ACTIVE_VERTEX_UNITS_ARB        0x86A5
-#define GL_WEIGHT_SUM_UNITY_ARB           0x86A6
-#define GL_VERTEX_BLEND_ARB               0x86A7
-#define GL_CURRENT_WEIGHT_ARB             0x86A8
-#define GL_WEIGHT_ARRAY_TYPE_ARB          0x86A9
-#define GL_WEIGHT_ARRAY_STRIDE_ARB        0x86AA
-#define GL_WEIGHT_ARRAY_SIZE_ARB          0x86AB
-#define GL_WEIGHT_ARRAY_POINTER_ARB       0x86AC
-#define GL_WEIGHT_ARRAY_ARB               0x86AD
-#define GL_MODELVIEW0_ARB                 0x1700
-#define GL_MODELVIEW1_ARB                 0x850A
-#define GL_MODELVIEW2_ARB                 0x8722
-#define GL_MODELVIEW3_ARB                 0x8723
-#define GL_MODELVIEW4_ARB                 0x8724
-#define GL_MODELVIEW5_ARB                 0x8725
-#define GL_MODELVIEW6_ARB                 0x8726
-#define GL_MODELVIEW7_ARB                 0x8727
-#define GL_MODELVIEW8_ARB                 0x8728
-#define GL_MODELVIEW9_ARB                 0x8729
-#define GL_MODELVIEW10_ARB                0x872A
-#define GL_MODELVIEW11_ARB                0x872B
-#define GL_MODELVIEW12_ARB                0x872C
-#define GL_MODELVIEW13_ARB                0x872D
-#define GL_MODELVIEW14_ARB                0x872E
-#define GL_MODELVIEW15_ARB                0x872F
-#define GL_MODELVIEW16_ARB                0x8730
-#define GL_MODELVIEW17_ARB                0x8731
-#define GL_MODELVIEW18_ARB                0x8732
-#define GL_MODELVIEW19_ARB                0x8733
-#define GL_MODELVIEW20_ARB                0x8734
-#define GL_MODELVIEW21_ARB                0x8735
-#define GL_MODELVIEW22_ARB                0x8736
-#define GL_MODELVIEW23_ARB                0x8737
-#define GL_MODELVIEW24_ARB                0x8738
-#define GL_MODELVIEW25_ARB                0x8739
-#define GL_MODELVIEW26_ARB                0x873A
-#define GL_MODELVIEW27_ARB                0x873B
-#define GL_MODELVIEW28_ARB                0x873C
-#define GL_MODELVIEW29_ARB                0x873D
-#define GL_MODELVIEW30_ARB                0x873E
-#define GL_MODELVIEW31_ARB                0x873F
 #endif
 
 #ifndef GL_EXT_abgr
@@ -715,18 +670,6 @@ extern "C" {
 #ifndef GL_SGIX_tag_sample_buffer
 #endif
 
-#ifndef GL_FfdMaskSGIX
-#define GL_TEXTURE_DEFORMATION_BIT_SGIX   0x00000001
-#define GL_GEOMETRY_DEFORMATION_BIT_SGIX  0x00000002
-#endif
-
-#ifndef GL_SGIX_polynomial_ffd
-#define GL_GEOMETRY_DEFORMATION_SGIX      0x8194
-#define GL_TEXTURE_DEFORMATION_SGIX       0x8195
-#define GL_DEFORMATIONS_MASK_SGIX         0x8196
-#define GL_MAX_DEFORMATION_ORDER_SGIX     0x8197
-#endif
-
 #ifndef GL_SGIX_reference_plane
 #define GL_REFERENCE_PLANE_SGIX           0x817D
 #define GL_REFERENCE_PLANE_EQUATION_SGIX  0x817E
@@ -981,24 +924,6 @@ extern "C" {
 #ifndef GL_EXT_bgra
 #define GL_BGR_EXT                        0x80E0
 #define GL_BGRA_EXT                       0x80E1
-#endif
-
-#ifndef GL_SGIX_async
-#define GL_ASYNC_MARKER_SGIX              0x8329
-#endif
-
-#ifndef GL_SGIX_async_pixel
-#define GL_ASYNC_TEX_IMAGE_SGIX           0x835C
-#define GL_ASYNC_DRAW_PIXELS_SGIX         0x835D
-#define GL_ASYNC_READ_PIXELS_SGIX         0x835E
-#define GL_MAX_ASYNC_TEX_IMAGE_SGIX       0x835F
-#define GL_MAX_ASYNC_DRAW_PIXELS_SGIX     0x8360
-#define GL_MAX_ASYNC_READ_PIXELS_SGIX     0x8361
-#endif
-
-#ifndef GL_SGIX_async_histogram
-#define GL_ASYNC_HISTOGRAM_SGIX           0x832C
-#define GL_MAX_ASYNC_HISTOGRAM_SGIX       0x832D
 #endif
 
 #ifndef GL_INTEL_texture_scissor
@@ -1494,6 +1419,11 @@ extern "C" {
 #define GL_TEXTURE_COLOR_WRITEMASK_SGIS   0x81EF
 #endif
 
+/* NV_point_sprite */
+#define GL_POINT_SPRITE_NV                0x8861
+#define GL_COORD_REPLACE_NV               0x8862
+#define GL_POINT_SPRITE_R_MODE_NV         0x8863
+#define GL_NV_point_sprite                1
 
 /*************************************************************/
 
@@ -2107,20 +2037,6 @@ extern void APIENTRY glTagSampleBufferSGIX (void);
 typedef void (APIENTRY * PFNGLTAGSAMPLEBUFFERSGIXPROC) (void);
 #endif
 
-#ifndef GL_SGIX_polynomial_ffd
-#define GL_SGIX_polynomial_ffd 1
-#ifdef GL_GLEXT_PROTOTYPES
-extern void APIENTRY glDeformationMap3dSGIX (GLenum, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, const GLdouble *);
-extern void APIENTRY glDeformationMap3fSGIX (GLenum, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, const GLfloat *);
-extern void APIENTRY glDeformSGIX (GLbitfield);
-extern void APIENTRY glLoadIdentityDeformationMapSGIX (GLbitfield);
-#endif /* GL_GLEXT_PROTOTYPES */
-typedef void (APIENTRY * PFNGLDEFORMATIONMAP3DSGIXPROC) (GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, GLdouble w1, GLdouble w2, GLint wstride, GLint worder, const GLdouble *points);
-typedef void (APIENTRY * PFNGLDEFORMATIONMAP3FSGIXPROC) (GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, GLfloat w1, GLfloat w2, GLint wstride, GLint worder, const GLfloat *points);
-typedef void (APIENTRY * PFNGLDEFORMSGIXPROC) (GLbitfield mask);
-typedef void (APIENTRY * PFNGLLOADIDENTITYDEFORMATIONMAPSGIXPROC) (GLbitfield mask);
-#endif
-
 #ifndef GL_SGIX_reference_plane
 #define GL_SGIX_reference_plane 1
 #ifdef GL_GLEXT_PROTOTYPES
@@ -2387,32 +2303,6 @@ typedef void (APIENTRY * PFNGLTEXTUREMATERIALEXTPROC) (GLenum face, GLenum mode)
 
 #ifndef GL_EXT_bgra
 #define GL_EXT_bgra 1
-#endif
-
-#ifndef GL_SGIX_async
-#define GL_SGIX_async 1
-#ifdef GL_GLEXT_PROTOTYPES
-extern void APIENTRY glAsyncMarkerSGIX (GLuint);
-extern GLint APIENTRY glFinishAsyncSGIX (GLuint *);
-extern GLint APIENTRY glPollAsyncSGIX (GLuint *);
-extern GLuint APIENTRY glGenAsyncMarkersSGIX (GLsizei);
-extern void APIENTRY glDeleteAsyncMarkersSGIX (GLuint, GLsizei);
-extern GLboolean APIENTRY glIsAsyncMarkerSGIX (GLuint);
-#endif /* GL_GLEXT_PROTOTYPES */
-typedef void (APIENTRY * PFNGLASYNCMARKERSGIXPROC) (GLuint marker);
-typedef GLint (APIENTRY * PFNGLFINISHASYNCSGIXPROC) (GLuint *markerp);
-typedef GLint (APIENTRY * PFNGLPOLLASYNCSGIXPROC) (GLuint *markerp);
-typedef GLuint (APIENTRY * PFNGLGENASYNCMARKERSSGIXPROC) (GLsizei range);
-typedef void (APIENTRY * PFNGLDELETEASYNCMARKERSSGIXPROC) (GLuint marker, GLsizei range);
-typedef GLboolean (APIENTRY * PFNGLISASYNCMARKERSGIXPROC) (GLuint marker);
-#endif
-
-#ifndef GL_SGIX_async_pixel
-#define GL_SGIX_async_pixel 1
-#endif
-
-#ifndef GL_SGIX_async_histogram
-#define GL_SGIX_async_histogram 1
 #endif
 
 #ifndef GL_INTEL_parallel_arrays
@@ -3021,17 +2911,10 @@ extern void APIENTRY glTextureColorMaskSGIS (GLboolean, GLboolean, GLboolean, GL
 typedef void (APIENTRY * PFNGLTEXTURECOLORMASKSGISPROC) (GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
 #endif
 
-#ifndef GL_SGIX_igloo_interface
-#define GL_SGIX_igloo_interface 1
-#ifdef GL_GLEXT_PROTOTYPES
-extern void APIENTRY glIglooInterfaceSGIX (GLenum, const GLvoid *);
-#endif /* GL_GLEXT_PROTOTYPES */
-typedef void (APIENTRY * PFNGLIGLOOINTERFACESGIXPROC) (GLenum pname, const GLvoid *params);
-#endif
-
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
+

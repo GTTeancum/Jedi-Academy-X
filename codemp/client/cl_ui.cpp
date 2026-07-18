@@ -22,7 +22,10 @@ Ghoul2 Insert End
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
 #include "../renderer/modelmem.h"
+#include "../renderer/tr_local.h"
 #endif
+
+extern void R_RemapShader( const char *shaderName, const char *newShaderName, const char *timeOffset );
 
 extern	botlib_export_t	*botlib_export;
 void SP_Register(const char *Package);
@@ -379,7 +382,8 @@ int CL_UISystemCalls( int *args ) {
 	case UI_R_SHADERNAMEFROMINDEX:
 		{
 			char *gameMem = (char *)VMA(1);
-			const char *retMem = re.ShaderNameFromIndex(args[2]);
+			shader_t *shader = R_GetShaderByHandle( args[2] );
+			const char *retMem = shader ? shader->name : NULL;
 			if (retMem)
 			{
 				strcpy(gameMem, retMem);
@@ -400,7 +404,7 @@ int CL_UISystemCalls( int *args ) {
 		return 0;
 
 	case UI_R_ADDPOLYTOSCENE:
-		re.AddPolyToScene( args[1], args[2], (const polyVert_t *)VMA(3), 1 );
+		re.AddPolyToScene( args[1], args[2], (const polyVert_t *)VMA(3) );
 		return 0;
 
 	case UI_R_ADDLIGHTTOSCENE:
@@ -551,7 +555,7 @@ int CL_UISystemCalls( int *args ) {
 		return Com_RealTime( (struct qtime_s *)VMA(1) );
 
 	case UI_R_REMAP_SHADER:
-		re.RemapShader( (const char *)VMA(1), (const char *)VMA(2), (const char *)VMA(3) );
+		R_RemapShader( (const char *)VMA(1), (const char *)VMA(2), (const char *)VMA(3) );
 		return 0;
 
 #ifdef USE_CD_KEY
@@ -580,6 +584,7 @@ int CL_UISystemCalls( int *args ) {
 /*
 Ghoul2 Insert Start
 */
+#if !defined(STEFX_ELITE_FORCE_MP)
 /*
 Ghoul2 Insert Start
 */
@@ -777,6 +782,7 @@ Ghoul2 Insert End
 /*
 Ghoul2 Insert End
 */
+#endif
 	default:
 		Com_Error( ERR_DROP, "Bad UI system trap: %i", args[0] );
 

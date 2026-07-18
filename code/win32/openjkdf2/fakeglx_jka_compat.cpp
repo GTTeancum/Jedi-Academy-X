@@ -32,7 +32,8 @@
 #ifdef _XBOX
 extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
     UINT vertexCount, UINT primitiveCount, const void *indices,
-    const void *vertices, UINT stride);
+    const void *vertices, UINT stride, int stefxOverlayActive,
+    int stefxOverlayHud, int stefxOverlayBeam);
 #endif
 
 /* Plan-B audit gotchas B/D/F/H attempted to wire D3D-state-routing impls
@@ -109,8 +110,6 @@ static int g_stefxDrawContextStage = -1;
 static int g_stefxDrawContextExpectedStages = 0;
 static unsigned int g_stefxDrawContextStateBits = 0;
 
-extern "C" void JkaFakeglSetEliteForceOverlayDeviceContext(int active, int hud, int beam);
-
 extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam)
 {
     static int s_overlayContextBudget = 48;
@@ -118,8 +117,6 @@ extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, in
     g_stefxOverlayDrawContext = active ? 1 : 0;
     g_stefxOverlayDrawHud = hud ? 1 : 0;
     g_stefxOverlayDrawBeam = beam ? 1 : 0;
-    JkaFakeglSetEliteForceOverlayDeviceContext(active, hud, beam);
-
     if (s_overlayContextBudget > 0) {
         XBLF("STEFX_OVERLAY_CONTEXT active=%d hud=%d beam=%d",
             g_stefxOverlayDrawContext,
@@ -474,7 +471,8 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     }
 
     bool drawOk = JkaFakeglDrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, fvf, vertexCount, primitiveCount,
-        s_fastIndices, verts, stride) != 0;
+        s_fastIndices, verts, stride, g_stefxOverlayDrawContext,
+        g_stefxOverlayDrawHud, g_stefxOverlayDrawBeam) != 0;
     if (g_stefxOverlayDrawContext) {
         static int s_overlayFastResultBudget = 24;
         if (s_overlayFastResultBudget > 0) {

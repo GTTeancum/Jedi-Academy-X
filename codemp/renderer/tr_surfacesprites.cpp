@@ -1,13 +1,13 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+// tr_surfacesprites.c
 
-// tr_shade.c
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
 
-#include "tr_local.h"
 
 #include "tr_QuickSprite.h"
-#include "tr_WorldEffects.h"
-
+#include "tr_worldeffects.h"
+#include <float.h> //for isnan
 
 /////===== Part of the VERTIGON system =====/////
 // The surfacesprites are a simple system.  When a polygon with this shader stage on it is drawn,
@@ -101,6 +101,7 @@ static void R_SurfaceSpriteFrameUpdate(void)
 		curWindSpeed = r_windSpeed->value;
 		nextGustTime = 0;
 		gustLeft = 0;
+		curWindGrassDir[0]=curWindGrassDir[1]=curWindGrassDir[2]=0.0f;
 	}
 
 	// Reset the last entity drawn, since this is a new frame.
@@ -165,7 +166,7 @@ static void R_SurfaceSpriteFrameUpdate(void)
 
 	// Update the wind.
 	// If it is raining, get the windspeed from the rain system rather than the cvar
-	if (R_IsRaining() || R_IsPuffing())
+	if (R_IsRaining() /*|| R_IsSnowing()*/ || R_IsPuffing() )
 	{
 		curWeatherAmount = 1.0;
 	}
@@ -174,10 +175,10 @@ static void R_SurfaceSpriteFrameUpdate(void)
 		curWeatherAmount = r_surfaceWeather->value;
 	}
 
-	if (R_GetWindSpeed(targetspeed))
+	if (R_GetWindSpeed(targetspeed, NULL))
 	{	// We successfully got a speed from the rain system.
 		// Set the windgust to 5, since that looks pretty good.
-		targetspeed *= 0.3f;
+		targetspeed *= 0.02f;
 		if (targetspeed >= 1.0)
 		{
 			curWindGust = 300/targetspeed;
@@ -203,21 +204,21 @@ static void R_SurfaceSpriteFrameUpdate(void)
 			gustLeft -= (float)(backEnd.refdef.time - lastSSUpdateTime)*WIND_GUST_DECAY;
 			if (gustLeft <= 0)
 			{
-				nextGustTime = backEnd.refdef.time + (curWindGust*1000)*flrand(1.0f,4.0f);
+				nextGustTime = backEnd.refdef.time + (curWindGust*1000)*Q_flrand(1.0f,4.0f);
 			}
 		}
 		else if (backEnd.refdef.time >= nextGustTime)
 		{	// See if there is another right now
 			// Gust next time, mano
-			gustLeft = flrand(0.75f,1.5f);
+			gustLeft = Q_flrand(0.75f,1.5f);
 		}
 	}
 
 	// See if there is a weather system that will tell us a windspeed.
-	if (R_GetWindVector(retwindvec))
+	if (R_GetWindVector(retwindvec, NULL))
 	{
 		retwindvec[2]=0;
-		VectorScale(retwindvec, -1.0f, retwindvec);
+		//VectorScale(retwindvec, -1.0f, retwindvec);
 		vectoangles(retwindvec, ang);
 	}
 	else
@@ -256,7 +257,11 @@ static void R_SurfaceSpriteFrameUpdate(void)
 	ratio = pow(dampfactor, dtime);
 
 	// Apply this ratio to the windspeed...
-	curWindSpeed = targetspeed - (ratio * (targetspeed-curWindSpeed));
+	if (fabsf(targetspeed-curWindSpeed) > ratio)
+	{
+		curWindSpeed = targetspeed - (ratio * (targetspeed-curWindSpeed));
+	}
+
 
 	// Use the curWindSpeed to calculate the final target wind vector (with speed)
 	VectorScale(targetWindBlowVect, curWindSpeed, targetWindBlowVect);
@@ -269,7 +274,11 @@ static void R_SurfaceSpriteFrameUpdate(void)
 
 	lastSSUpdateTime = backEnd.refdef.time;
 
-	curWindPointForce = r_windPointForce->value - (ratio * (r_windPointForce->value - curWindPointForce));
+	if (fabsf(r_windPointForce->value - curWindPointForce) > ratio)
+	{// Make sure not to get infinitly small number here
+		curWindPointForce = r_windPointForce->value - (ratio * (r_windPointForce->value - curWindPointForce));
+	}
+	assert(!_isnan(curWindPointForce));
 	if (curWindPointForce < 0.01)
 	{
 		curWindPointActive = qfalse;
@@ -312,7 +321,7 @@ qboolean SSUsingFog=qfalse;
 // Vertical surface sprites
 
 static void RB_VerticalSurfaceSprite(vec3_t loc, float width, float height, byte light, 
-										byte alpha, float wind, float windidle, vec2_t fog, int hangdown, vec2_t skew)
+										byte alpha, float wind, float windidle, vec2_t fog, int hangdown, vec2_t skew, bool flattened)
 {
 	vec3_t loc2, right;
 	float angle;
@@ -369,7 +378,16 @@ static void RB_VerticalSurfaceSprite(vec3_t loc, float width, float height, byte
 		loc2[2] += sin(angle*2.5)*windsway;
 	}
 
-	VectorScale(ssrightvectors[rightvectorcount], width*0.5, right);
+	if ( flattened )
+	{
+		right[0] = sin( DEG2RAD( loc[0] ) ) * width; 
+		right[1] = cos( DEG2RAD( loc[0] ) ) * height;
+		right[2] = 0.0f;
+	}
+	else
+	{
+		VectorScale(ssrightvectors[rightvectorcount], width*0.5, right);
+	}
 
 	color[0]=light;
 	color[1]=light;
@@ -410,7 +428,7 @@ static void RB_VerticalSurfaceSprite(vec3_t loc, float width, float height, byte
 
 static void RB_VerticalSurfaceSpriteWindPoint(vec3_t loc, float width, float height, byte light, 
 												byte alpha, float wind, float windidle, vec2_t fog, 
-												int hangdown, vec2_t skew, vec2_t winddiff, float windforce)
+												int hangdown, vec2_t skew, vec2_t winddiff, float windforce, bool flattened)
 {
 	vec3_t loc2, right;
 	float angle;
@@ -455,7 +473,17 @@ static void RB_VerticalSurfaceSpriteWindPoint(vec3_t loc, float width, float hei
 	loc2[1] += height*winddiff[1]*windforce;
 	loc2[2] -= height*windforce*(0.75 + 0.15*sin((tr.refdef.time + 500*windforce)*0.01));
 
-	VectorScale(ssrightvectors[rightvectorcount], width*0.5, right);
+	if ( flattened )
+	{
+		right[0] = sin( DEG2RAD( loc[0] ) ) * width; 
+		right[1] = cos( DEG2RAD( loc[0] ) ) * height;
+		right[2] = 0.0f;
+	}
+	else
+	{
+		VectorScale(ssrightvectors[rightvectorcount], width*0.5, right);
+	}
+	
 
 	color[0]=light;
 	color[1]=light;
@@ -762,13 +790,13 @@ static void RB_DrawVerticalSurfaceSprites( shaderStage_t *stage, shaderCommands_
 						{
 							RB_VerticalSurfaceSpriteWindPoint(curpoint, width, height, (byte)light, (byte)(alpha*255.0), 
 										stage->ss->wind, stage->ss->windIdle, fogv, stage->ss->facing, skew,
-										winddiffv, windforce);
+										winddiffv, windforce, SURFSPRITE_FLATTENED == stage->ss->surfaceSpriteType);
 						}
 						else
 						{
 							RB_VerticalSurfaceSpriteWindPoint(curpoint, width, height, (byte)light, (byte)(alpha*255.0), 
 										stage->ss->wind, stage->ss->windIdle, NULL, stage->ss->facing, skew, 
-										winddiffv, windforce);
+										winddiffv, windforce, SURFSPRITE_FLATTENED == stage->ss->surfaceSpriteType);
 						}
 					}
 					else
@@ -776,12 +804,12 @@ static void RB_DrawVerticalSurfaceSprites( shaderStage_t *stage, shaderCommands_
 						if (SSUsingFog)
 						{
 							RB_VerticalSurfaceSprite(curpoint, width, height, (byte)light, (byte)(alpha*255.0), 
-										stage->ss->wind, stage->ss->windIdle, fogv, stage->ss->facing, skew);
+										stage->ss->wind, stage->ss->windIdle, fogv, stage->ss->facing, skew, SURFSPRITE_FLATTENED == stage->ss->surfaceSpriteType);
 						}
 						else
 						{
 							RB_VerticalSurfaceSprite(curpoint, width, height, (byte)light, (byte)(alpha*255.0), 
-										stage->ss->wind, stage->ss->windIdle, NULL, stage->ss->facing, skew);
+										stage->ss->wind, stage->ss->windIdle, NULL, stage->ss->facing, skew, SURFSPRITE_FLATTENED == stage->ss->surfaceSpriteType);
 						}
 					}
 
@@ -1399,7 +1427,7 @@ void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input)
 	//
 	// Check fog
 	//
-	if ( tess.fogNum && tess.shader->fogPass && r_drawfog->value)
+	if ( tess.fogNum && tess.shader->fogPass && r_drawfog->value) 
 	{
 		SSUsingFog = qtrue;
 		SQuickSprite.StartGroup(&stage->bundle[0], glbits, tess.fogNum);
@@ -1426,24 +1454,25 @@ void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input)
 	{	
 		if (backEnd.currentEntity == &tr.worldEntity)
 		{	// Drawing the world, so our job is dead-easy, in the viewparms
-			VectorCopy(backEnd.viewParms.ori.origin, ssViewOrigin);
-			VectorCopy(backEnd.viewParms.ori.axis[1], ssViewRight);
-			VectorCopy(backEnd.viewParms.ori.axis[2], ssViewUp);
+			VectorCopy(backEnd.viewParms.or.origin, ssViewOrigin);
+			VectorCopy(backEnd.viewParms.or.axis[1], ssViewRight);
+			VectorCopy(backEnd.viewParms.or.axis[2], ssViewUp);
 		}
 		else
 		{	// Drawing an entity, so we need to transform the viewparms to the model's coordinate system
-//			R_WorldPointToEntity (backEnd.viewParms.ori.origin, ssViewOrigin);
-			R_WorldNormalToEntity (backEnd.viewParms.ori.axis[1], ssViewRight); 
-			R_WorldNormalToEntity (backEnd.viewParms.ori.axis[2], ssViewUp);
+//			R_WorldPointToEntity (backEnd.viewParms.or.origin, ssViewOrigin);
+			R_WorldNormalToEntity (backEnd.viewParms.or.axis[1], ssViewRight); 
+			R_WorldNormalToEntity (backEnd.viewParms.or.axis[2], ssViewUp);
 			VectorCopy(backEnd.ori.viewOrigin, ssViewOrigin);
-//			R_WorldToLocal(backEnd.viewParms.ori.axis[1], ssViewRight);
-//			R_WorldToLocal(backEnd.viewParms.ori.axis[2], ssViewUp);
+//			R_WorldToLocal(backEnd.viewParms.or.axis[1], ssViewRight);
+//			R_WorldToLocal(backEnd.viewParms.or.axis[2], ssViewUp);
 		}
 		ssLastEntityDrawn = backEnd.currentEntity;
 	}
 
 	switch(stage->ss->surfaceSpriteType)
 	{
+	case SURFSPRITE_FLATTENED:
 	case SURFSPRITE_VERTICAL:
 		RB_DrawVerticalSurfaceSprites(stage, input);
 		break;

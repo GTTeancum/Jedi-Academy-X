@@ -10,7 +10,7 @@
 #define SETTINGS_DIRNAME	"Settings"
 #define SETTINGS_FILENAME	"settings.dat"
 #define SETTINGS_IMAGE		"saveimage.xbx"
-#define SETTINGS_IMAGE_SRC	"d:\\base\\media\\settings.xbx"
+#define SETTINGS_IMAGE_SRC	"d:\\BaseEF\\media\\settings.xbx"
 
 // The one copy of Settings:
 XBSettings Settings;

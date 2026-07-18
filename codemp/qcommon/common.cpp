@@ -15,7 +15,7 @@
 #include "../xbox/XBLive.h"
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
-#include "../win32/xb_log.h"
+#include "../win32/xb_log_mp_compat.h"
 #endif
 
 #ifndef _XBOX

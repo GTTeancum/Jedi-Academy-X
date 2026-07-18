@@ -1,11 +1,10 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+#include "../server/exe_headers.h"
 
 // this include must remain at the top of every CPP file
 #include "tr_local.h"
 
 #if !defined(GENERICPARSER2_H_INC)
-	#include "../qcommon/GenericParser2.h"
+	#include "../game/genericparser2.h"
 #endif
 
 // To do:
@@ -17,10 +16,14 @@
 #include "../qcommon/cm_landscape.h"
 #include "tr_landscape.h"
 
+#define VectorSet5(v,x,y,z,a,b)	((v)[0]=(x), (v)[1]=(y), (v)[2]=(z), (v)[3]=(a), (v)[4]=(b))
+#define VectorScaleVectorAdd(c,a,b,o)	((o)[0]=(c)[0]+((a)[0]*(b)[0]),(o)[1]=(c)[1]+((a)[1]*(b)[1]),(o)[2]=(c)[2]+((a)[2]*(b)[2]))
+
 cvar_t		*r_drawTerrain;
-cvar_t		*r_showFrameVariance;
 cvar_t		*r_terrainTessellate;
 cvar_t		*r_terrainWaterOffset;
+
+cvar_t		*r_count;
 
 static int		TerrainFog = 0;
 static float	TerrainDistanceCull;
@@ -42,7 +45,7 @@ void CTRPatch::RenderCorner(ivec5_t corner)
 		*(ulong *)tess.vertexColors[tess.numVertexes] = *(ulong *)vert->tint;
 		*(ulong *)tess.vertexAlphas[tess.numVertexes] = corner[2];
 
-		tess.texCoords[tess.numVertexes][0][0] = vert->tex[0]; //rwwRMG - reverse coords array from sof2
+		tess.texCoords[tess.numVertexes][0][0] = vert->tex[0];
 		tess.texCoords[tess.numVertexes][0][1] = vert->tex[1];
 
 		tess.indexes[tess.numIndexes++] = tess.numVertexes;
@@ -107,7 +110,7 @@ void CTRPatch::RecurseRender(int depth, ivec5_t left, ivec5_t right, ivec5_t ape
 //		assert(left[0] != right[0] || left[1] != right[1]);
 //		assert(left[0] != apex[0] || left[1] != apex[1]);
 
-	  	RenderCorner(left);
+		RenderCorner(left);
 		RenderCorner(right);
 		RenderCorner(apex);
 	}
@@ -120,12 +123,33 @@ void CTRPatch::RecurseRender(int depth, ivec5_t left, ivec5_t right, ivec5_t ape
 
 void CTRPatch::Render(int Part)
 {
-	ivec5_t		TL, TR, BL, BR;
+	ivec5_t		lTL, lTR, lBL, lBR;
+	int patchTerxels = owner->GetTerxels();
 
-	VectorSet5(TL, 0, 0, TEXTURE_ALPHA_TL, -1, 0);
-	VectorSet5(TR, owner->GetTerxels(), 0, TEXTURE_ALPHA_TR, -1, 0);
-	VectorSet5(BL, 0, owner->GetTerxels(), TEXTURE_ALPHA_BL, -1, 0);
-	VectorSet5(BR, owner->GetTerxels(), owner->GetTerxels(), TEXTURE_ALPHA_BR, -1, 0);
+//	VectorSet5(TL, 0, 0, TEXTURE_ALPHA_TL, -1, 0);
+	lTL[0] = 0;
+	lTL[1] = 0;
+	lTL[2] = TEXTURE_ALPHA_TL;
+	lTL[3] = -1;
+	lTL[4] = 0;
+//	VectorSet5(TR, owner->GetTerxels(), 0, TEXTURE_ALPHA_TR, -1, 0);
+	lTR[0] = patchTerxels;
+	lTR[1] = 0;
+	lTR[2] = TEXTURE_ALPHA_TR;
+	lTR[3] = -1;
+	lTR[4] = 0;
+//	VectorSet5(BL, 0, owner->GetTerxels(), TEXTURE_ALPHA_BL, -1, 0);
+	lBL[0] = 0;
+	lBL[1] = patchTerxels;
+	lBL[2] = TEXTURE_ALPHA_BL;
+	lBL[3] = -1;
+	lBL[4] = 0;
+//	VectorSet5(BR, owner->GetTerxels(), owner->GetTerxels(), TEXTURE_ALPHA_BR, -1, 0);
+	lBR[0] = patchTerxels;
+	lBR[1] = patchTerxels;
+	lBR[2] = TEXTURE_ALPHA_BR;
+	lBR[3] = -1;
+	lBR[4] = 0;
 
 	if ((Part & PI_TOP) && mTLShader)
 	{
@@ -135,7 +159,7 @@ void CTRPatch::Render(int Part)
 
 		if (d <= 0.0)*/
 		{
-			RecurseRender(r_terrainTessellate->integer, BL, TR, TL);
+			RecurseRender(r_terrainTessellate->integer, lBL, lTR, lTL);
 		}
 	}
 	
@@ -147,7 +171,7 @@ void CTRPatch::Render(int Part)
 
 		if (d >= 0.0)*/
 		{
-			RecurseRender(r_terrainTessellate->integer, TR, BL, BR);
+			RecurseRender(r_terrainTessellate->integer, lTR, lBL, lBR);
 		}
 	}
 }
@@ -171,7 +195,7 @@ int CTRPatch::RenderWaterVert(int x, int y)
 
 	*(ulong *)tess.vertexColors[tess.numVertexes] = 0xffffffff;
 
-	tess.texCoords[tess.numVertexes][0][0] = vert->tex[0]; //rwwRMG - reverse coords from sof2mp
+	tess.texCoords[tess.numVertexes][0][0] = vert->tex[0];
 	tess.texCoords[tess.numVertexes][0][1] = vert->tex[1];
 
 	vert->tessIndex = tess.numVertexes;
@@ -208,7 +232,7 @@ const bool CTRPatch::HasWater(void) const
 	return(common->GetMins()[2] < owner->GetWaterHeight()); 
 }
 
-extern bool CM_CullWorldBox (const cplane_t *frustum, const vec3pair_t bounds); //rwwRMG - added (cm_trace.cpp)
+bool CM_CullWorldBox (const cplane_t *frustum, const vec3pair_t bounds);
 
 void CTRPatch::SetVisibility(bool visCheck)
 {
@@ -221,7 +245,7 @@ void CTRPatch::SetVisibility(bool visCheck)
 		else
 		{
 			// Set the visibility of the patch
-			misVisible = !CM_CullWorldBox(backEnd.viewParms.frustum, GetBounds());
+			misVisible = CM_CullWorldBox(backEnd.viewParms.frustum, GetBounds());
 		}
 	}
 	else
@@ -349,11 +373,11 @@ void CTRLandScape::CalculateRegion(void)
 	maxs[0] = backEnd.refdef.vieworg[0] + tr.distanceCull + (size[0] * 2.0f) - offset[0];
 	maxs[1] = backEnd.refdef.vieworg[1] + tr.distanceCull + (size[1] * 2.0f) - offset[1];
 
-	mPatchMinx = Com_Clampi(0, GetBlockWidth(), floorf(mins[0] / size[0]));
-	mPatchMaxx = Com_Clampi(0, GetBlockWidth(), ceilf(maxs[0] / size[0]));
+	mPatchMinx = Com_Clamp(0, GetBlockWidth(), floorf(mins[0] / size[0]));
+	mPatchMaxx = Com_Clamp(0, GetBlockWidth(), ceilf(maxs[0] / size[0]));
 
-	mPatchMiny = Com_Clampi(0, GetBlockHeight(), floorf(mins[1] / size[1]));
-	mPatchMaxy = Com_Clampi(0, GetBlockHeight(), ceilf(maxs[1] / size[1]));
+	mPatchMiny = Com_Clamp(0, GetBlockHeight(), floorf(mins[1] / size[1]));
+	mPatchMaxy = Com_Clamp(0, GetBlockHeight(), ceilf(maxs[1] / size[1]));
 }
 
 void CTRLandScape::CalculateRealCoords(void)
@@ -406,6 +430,8 @@ void CTRLandScape::CalculateNormals(void)
 	}
 }
 
+int R_LightForPoint( vec3_t point, vec3_t ambientLight, vec3_t directedLight, vec3_t lightDir );
+
 void CTRLandScape::CalculateLighting(void)
 {
 	int		x, y, offset = 0;
@@ -444,21 +470,17 @@ void CTRLandScape::CalculateLighting(void)
 			}
 
 			// Both normalised, so -1.0 < dp < 1.0
-			dp = Com_Clampi(0.0f, 1.0f, DotProduct(direction, total));
+			dp = Com_Clamp(0.0f, 1.0f, DotProduct(direction, total));
 			dp = powf(dp, 3);
 			VectorScale(ambient, (1.0 - dp) * 0.5, ambient);
 			VectorMA(ambient, dp, directed, tint);
 
-			mRenderMap[offset].tint[0] = (byte)Com_Clampi(0.0f, 255.0f, tint[0] ) >> tr.overbrightBits;
-			mRenderMap[offset].tint[1] = (byte)Com_Clampi(0.0f, 255.0f, tint[1] ) >> tr.overbrightBits;
-			mRenderMap[offset].tint[2] = (byte)Com_Clampi(0.0f, 255.0f, tint[2] ) >> tr.overbrightBits;
+			// rjr - in R_SetupEntityLighting, ambient light is automatically increased by 32, so do it here to match
+			// rjr - decided to disable both the lighting boost automatically in there as well as here.
+			mRenderMap[offset].tint[0] = (byte)Com_Clamp(0.0f, 255.0f, tint[0] ) >> tr.overbrightBits;
+			mRenderMap[offset].tint[1] = (byte)Com_Clamp(0.0f, 255.0f, tint[1] ) >> tr.overbrightBits;
+			mRenderMap[offset].tint[2] = (byte)Com_Clamp(0.0f, 255.0f, tint[2] ) >> tr.overbrightBits;
 			mRenderMap[offset].tint[3] = 0xff;
-
-			/*
-			mRenderMap[offset].tint[0] += tr.identityLight * 32;
-			mRenderMap[offset].tint[1] += tr.identityLight * 32;
-			mRenderMap[offset].tint[2] += tr.identityLight * 32;
-			*/
 		}
 		mRenderMap[offset + 1].tint[0] = mRenderMap[offset].tint[0];
 		mRenderMap[offset + 1].tint[1] = mRenderMap[offset].tint[1];
@@ -550,7 +572,7 @@ void CTRLandScape::LoadTerrainDef(const char *td)
 
 				// Shader for this height
 				shaderName = items->FindPairValue("shader", "");
-				if(strlen(shaderName))
+				if(shaderName[0])
 				{
 					shader = RE_RegisterShader(shaderName);
 					if(shader)
@@ -576,6 +598,8 @@ void CTRLandScape::LoadTerrainDef(const char *td)
 	Com_ParseTextFileDestroy(parse);
 #endif // PRE_RELEASE_DEMO
 }
+
+qhandle_t R_CreateBlendedShader(qhandle_t a, qhandle_t b, qhandle_t c, bool surfaceSprites );
 
 qhandle_t CTRLandScape::GetBlendedShader(qhandle_t a, qhandle_t b, qhandle_t c, bool surfaceSprites)
 {
@@ -666,7 +690,8 @@ void CTRLandScape::CalculateShaders(void)
 
 	// On the second pass determine flat ground and replace the shader
 	// at that point with the flat ground shader
-	if ( mFlatShader )
+	byte*	flattenMap = common->GetFlattenMap ( );
+	if ( mFlatShader && flattenMap )
 	{
 		for ( y = 1; y < height; y ++ )
 		{
@@ -675,7 +700,6 @@ void CTRLandScape::CalculateShaders(void)
 				int		offset;
 				int		xx;
 				int		yy;
-				byte*	flattenMap = common->GetFlattenMap ( );
 				bool	flat	   = false;
 
 				offset  = (x) * common->GetTerxels ( );
@@ -697,43 +721,6 @@ void CTRLandScape::CalculateShaders(void)
 
 					offset += GetRealWidth();
 				}
-
-/*
-				// Calculate the height map offset
-				offset  = x * common->GetTerxels ( );
-				offset += (y * common->GetTerxels ( ) * GetRealWidth());
-
-				// Calculate the offsets around this particular shader location
-				offsets[INDEX_TL] = offset - 1 - GetRealWidth();
-				offsets[INDEX_TR] = offsets[INDEX_TL] + 1;
-				offsets[INDEX_BL] = offsets[INDEX_TL] + GetRealWidth();
-				offsets[INDEX_BR] = offsets[INDEX_BL] + 1;
-
-				// If not equal to the top left one then skip
-				if ( mRenderMap[offset].height != mRenderMap[offsets[INDEX_TL]].height )
-				{
-					continue;
-				}
-
-				// If not equal to the top right one then skip
-				if ( mRenderMap[offset].height != mRenderMap[offsets[INDEX_TR]].height )
-				{
-					continue;
-				}
-
-				// If not equal to the bottom left one then skip
-				if ( mRenderMap[offset].height != mRenderMap[offsets[INDEX_BL]].height )
-				{
-					continue;
-				}
-
-				// If not equal to the bottom right one then skip
-				if ( mRenderMap[offset].height != mRenderMap[offsets[INDEX_BR]].height )
-				{
-					continue;
-				}
-	*/
-
 				// This shader is now a flat shader
 				if ( flat )
 				{
@@ -758,6 +745,12 @@ void CTRLandScape::CalculateShaders(void)
 		{
 			bool surfaceSprites = true;
 
+			/*
+			handles[INDEX_TL] = shaders[ (x + y) * width ];
+			handles[INDEX_TR] = shaders[ ((x + 1) + y) * width ];
+			handles[INDEX_BL] = shaders[ (x + (y + 1)) * width ];
+			handles[INDEX_BR] = shaders[ ((x + 1) + (y + 1)) * width ];
+			*/
 			handles[INDEX_TL] = shaders[ x + y * width ];
 			handles[INDEX_TR] = shaders[ x + 1 + y * width ];
 			handles[INDEX_BL] = shaders[ x + (y + 1) * width ];
@@ -870,7 +863,9 @@ CTRLandScape::~CTRLandScape(void)
 	}
 }
 
-extern CCMLandScape *CM_RegisterTerrain(const char *config, bool server);	//cm_load.cpp
+CCMLandScape *CM_RegisterTerrain(const char *config, bool server);
+
+qhandle_t R_GetShaderByNum(int shaderNum, world_t &worldData);
 
 CTRLandScape::CTRLandScape(const char *configstring)
 {
@@ -896,7 +891,7 @@ CTRLandScape::CTRLandScape(const char *configstring)
 	mMaxNode = (Q_log2(common->GetTerxels()) << 1) - 1;
 
 	// Allocate space for the renderer specific data
-	mRenderMap = (CTerVert *)Z_Malloc(sizeof(CTerVert) * common->GetRealArea(), TAG_R_TERRAIN);
+	mRenderMap = (CTerVert *)Z_Malloc(sizeof(CTerVert) * common->GetRealArea(), TAG_R_TERRAIN, qfalse);
 
 	// Copy byte heightmap to rendermap to speed up calcs
 	CopyHeightMap();
@@ -915,10 +910,10 @@ CTRLandScape::CTRLandScape(const char *configstring)
 
 	Com_Printf ("R_Terrain: Creating renderer patches.....\n");
 	// Initialise all terrain patches
-	mTRPatches = (CTRPatch *)Z_Malloc(sizeof(CTRPatch) * common->GetBlockCount(), TAG_R_TERRAIN); 
+	mTRPatches = (CTRPatch *)Z_Malloc(sizeof(CTRPatch) * common->GetBlockCount(), TAG_R_TERRAIN, qfalse); 
 
 	mSortedCount = 2 * common->GetBlockCount();
-	mSortedPatches = (TPatchInfo *)Z_Malloc(sizeof(TPatchInfo) * mSortedCount, TAG_R_TERRAIN);
+	mSortedPatches = (TPatchInfo *)Z_Malloc(sizeof(TPatchInfo) * mSortedCount, TAG_R_TERRAIN, qfalse);
 
 	CM_TerrainPatchIterate(common, InitRendererPatches, this);
 
@@ -926,7 +921,8 @@ CTRLandScape::CTRLandScape(const char *configstring)
 	CalculateShaders();
 
 	// Get the contents shader
-	shaderNum = atol(Info_ValueForKey(configstring, "shader"));;
+	shaderNum = atol(Info_ValueForKey(configstring, "shader"));
+
 	mShader = R_GetShaderByHandle(R_GetShaderByNum(shaderNum, *tr.world));
 
 	mPatchSize = VectorLength(common->GetPatchSize());
@@ -941,12 +937,6 @@ CTRLandScape::CTRLandScape(const char *configstring)
 
 void RB_SurfaceTerrain( surfaceInfo_t *surf )
 {
-	/*
-	if(backEnd.refdef.rdflags & RDF_PROJECTION2D)
-	{
-		return;
-	}
-	*/
 	srfTerrain_t *ls = (srfTerrain_t *)surf;
 	CTRLandScape *landscape = ls->landscape;
 
@@ -1025,25 +1015,26 @@ void RE_InitRendererTerrain( const char *info )
 
 void R_TerrainInit(void)
 {
-	tr.landScape.surfaceType = SF_TERRAIN;
-	tr.landScape.landscape = NULL;
+	int		i;
 
+	for(i = 0; i < MAX_TERRAINS; i++)
+	{
+		tr.landScape.surfaceType = SF_TERRAIN;
+		tr.landScape.landscape = NULL;
+	}
 	r_terrainTessellate = Cvar_Get("r_terrainTessellate", "3", CVAR_CHEAT);
 	r_drawTerrain = Cvar_Get("r_drawTerrain", "1", CVAR_CHEAT);
-	r_showFrameVariance = Cvar_Get("r_showFrameVariance", "0", 0);
 	r_terrainWaterOffset = Cvar_Get("r_terrainWaterOffset", "0", 0);
-
-	tr.distanceCull = 6000;
-	tr.distanceCullSquared = tr.distanceCull * tr.distanceCull;
+	r_count = Cvar_Get("r_count", "2", 0);
 }
 
-extern void CM_ShutdownTerrain( thandle_t terrainId );	//cm_load.cpp
+void CM_ShutdownTerrain( thandle_t terrainId);
 
 void R_TerrainShutdown(void)
 {
 	CTRLandScape	*ls;
 
-//	Com_Printf("R_Terrain: Shutting down RENDERER terrain.....\n");
+	//Com_Printf("R_Terrain: Shutting down RENDERER terrain.....\n");
 	ls = tr.landScape.landscape;
 	if(ls)
 	{

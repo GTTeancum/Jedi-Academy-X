@@ -11,7 +11,7 @@
 #define	SHADER_MAX_INDEXES	(6*SHADER_MAX_VERTEXES)
 
 
-// the maximum size of game relative pathnames
+// the maximum size of game reletive pathnames
 #define	MAX_QPATH		64
 
 /*
@@ -36,7 +36,6 @@ typedef struct {
 	int		litLength;			// ( dataLength - litLength ) should be byteswapped on load
 	int		bssLength;			// zero filled memory appended to datalength
 } vmHeader_t;
-
 
 /*
 ========================================================================
@@ -301,33 +300,34 @@ typedef struct {
 */
 
 
-// little-endian "RBSP"
-#define BSP_IDENT				(('P'<<24)+('S'<<16)+('B'<<8)+'R')
+#define BSP_IDENT	(('P'<<24)+('S'<<16)+('B'<<8)+'R')
+		// little-endian "IBSP"
 
-#define BSP_VERSION				1
+#define BSP_VERSION			1
 
 
 // there shouldn't be any problem with increasing these values at the
 // expense of more memory allocation in the utilities
-#define	MAX_MAP_MODELS			0x400
-#define	MAX_MAP_BRUSHES			0x8000
-#define	MAX_MAP_ENTITIES		0x800
-#define	MAX_MAP_ENTSTRING		0x40000
-#define	MAX_MAP_SHADERS			0x400
+#define	MAX_MAP_MODELS		0x400
+#define	MAX_MAP_BRUSHES		0x8000
+#define	MAX_MAP_ENTITIES	0x800
+#define	MAX_MAP_ENTSTRING	0x40000
+#define	MAX_MAP_SHADERS		0x400
 
-#define	MAX_MAP_AREAS			0x100	// MAX_MAP_AREA_BYTES in q_shared must match!
-#define	MAX_MAP_FOGS			0x100
-#define	MAX_MAP_PLANES			0x20000
-#define	MAX_MAP_NODES			0x20000
-#define	MAX_MAP_BRUSHSIDES		0x20000
-#define	MAX_MAP_LEAFS			0x20000
-#define	MAX_MAP_LEAFFACES		0x20000
-#define	MAX_MAP_LEAFBRUSHES		0x40000
-#define	MAX_MAP_PORTALS			0x20000
-#define	MAX_MAP_LIGHTING		0x800000
-#define	MAX_MAP_LIGHTGRID		65535
+#define	MAX_MAP_AREAS		0x100	// MAX_MAP_AREA_BYTES in q_shared must match!
+#define	MAX_MAP_FOGS		0x100
+#define	MAX_MAP_PLANES		0x20000
+#define	MAX_MAP_NODES		0x20000
+#define	MAX_MAP_BRUSHSIDES	0x20000
+#define	MAX_MAP_LEAFS		0x20000
+#define	MAX_MAP_LEAFFACES	0x20000
+#define	MAX_MAP_LEAFBRUSHES 0x40000
+#define	MAX_MAP_PORTALS		0x20000
+#define	MAX_MAP_LIGHTING	0x800000
+#define	MAX_MAP_LIGHTGRID	65535
 #define	MAX_MAP_LIGHTGRID_ARRAY	0x100000
-#define	MAX_MAP_VISIBILITY		0x600000
+
+#define	MAX_MAP_VISIBILITY	0x400000
 
 #define	MAX_MAP_DRAW_SURFS	0x20000
 #define	MAX_MAP_DRAW_VERTS	0x80000
@@ -414,7 +414,7 @@ typedef struct {
 #define	MAXLIGHTMAPS	4
 #define LS_NORMAL		0x00
 #define LS_UNUSED		0xfe
-#define	LS_LSNONE		0xff
+#define	LS_NONE			0xff
 #define MAX_LIGHT_STYLES		64
 
 typedef struct {
@@ -428,10 +428,10 @@ typedef struct {
 #define DRAWVERT_LIGHTMAP_SCALE 32768.0f
 // Change texture coordinates for TriSurfs to be even more fine grain.
 // See below for note about keeping MIN_ST and MAX_ST up to date with
-// ST_SCALE. These are in 4.12. OK, how about 5.11? Ick, 7.9
+// ST_SCALE. These are in 4.12. Okay, how about 5.11? Gah. 9.7!
 //#define DRAWVERT_ST_SCALE 4096.0f
 //#define DRAWVERT_ST_SCALE 2048.0f
-#define DRAWVERT_ST_SCALE 512.0f
+#define DRAWVERT_ST_SCALE 128.0f
 
 // We use a slightly different format for the fixed point texture
 // coords in Grid/Mesh drawverts: 10.6 rather than 12.4
@@ -441,15 +441,25 @@ typedef struct {
 // the other two!) (And don't forget that we're using a bit for sign.)
 #define GRID_DRAWVERT_ST_SCALE 64.0f
 
+// This master switch controls whether we use compressed (4-bit per channel)
+// vertex colors in draw and surface verts. It saves memory, but I'm switching
+// it off, because we end up with that nasty green/purple streaking effect.
+// If we ever figure out how to do it better... (1555? 565?)
+//#define COMPRESS_VERTEX_COLORS
+
 typedef struct {
-	vec3_t		xyz;
+	short		xyz[3];
 	short		dvst[2];
 	short		dvlightmap[MAXLIGHTMAPS][2];
-	vec3_t		normal;
+	short		normal[3];
 #ifdef _XBOX
 	vec3_t		tangent;
 #endif
-	byte		dvcolor[MAXLIGHTMAPS][2];
+#ifdef COMPRESS_VERTEX_COLORS
+	byte		dvcolor[MAXLIGHTMAPS][1];
+#else
+	byte		dvcolor[MAXLIGHTMAPS][4];
+#endif
 } drawVert_t;
 
 typedef struct {
@@ -549,7 +559,7 @@ typedef struct {
 	int			firstBrush, numBrushes;
 } dmodel_t;
 
-typedef struct {
+typedef struct dshader_s {
 	char		shader[MAX_QPATH];
 	int			surfaceFlags;
 	int			contentFlags;
@@ -605,7 +615,7 @@ typedef struct {
 #define	MAXLIGHTMAPS	4
 #define LS_NORMAL		0x00
 #define LS_UNUSED		0xfe
-#define	LS_LSNONE		0xff //rww - changed name because it unhappily conflicts with a lightsaber state name and changing this is just easier
+#define	LS_NONE			0xff
 #define MAX_LIGHT_STYLES		64
 
 typedef struct {
@@ -663,7 +673,23 @@ typedef struct {
 	int			patchHeight;
 } dsurface_t;
 
-#endif // _XBOX
+#endif _XBOX
+
+typedef enum //# hunkAllocType_e
+{
+	HA_MISC,	
+	HA_MAP,
+	HA_SHADERS,
+	HA_LIGHTING,
+	HA_FOG,
+	HA_PATCHES,
+	HA_VIS,
+	HA_SUBMODELS,
+	HA_MODELS,
+	MAX_HA_TYPES
+} hunkAllocType_t;
+
+
 
 /////////////////////////////////////////////////////////////
 //
@@ -702,10 +728,11 @@ typedef struct dfontdat_s
 	short			mAscender;
 	short			mDescender;
 
-	short			mKoreanHack;
+	short			mKoreanHack;			// unused field, written out by John's fontgen program but we have to leave it there for disk structs <sigh>
 } dfontdat_t;
 
 /////////////////// fonts end ////////////////////////////////////
+
 
 
 #endif

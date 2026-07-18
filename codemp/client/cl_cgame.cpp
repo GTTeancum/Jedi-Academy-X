@@ -27,7 +27,7 @@
 #include "../renderer/tr_worldeffects.h"
 
 #ifdef _XBOX
-#include "../win32/xb_log.h"
+#include "../win32/xb_log_mp_compat.h"
 #endif
 
 #ifndef _XBOX
@@ -76,6 +76,30 @@ void FX_FeedTrail(effectTrailArgStruct_t *a);
 
 int CM_LoadSubBSP(const char *name, qboolean clientload);
 void RE_InitRendererTerrain( const char *info );
+extern qboolean R_inPVS( vec3_t p1, vec3_t p2 );
+extern void R_RemapShader( const char *shaderName, const char *newShaderName, const char *timeOffset );
+
+static qboolean CL_STEFXGetEntityToken( char *buffer, int size )
+{
+	static const char *parsePoint = NULL;
+	const char *token;
+
+	if ( size == -1 )
+	{
+		parsePoint = CM_EntityString();
+		return qtrue;
+	}
+	if ( !parsePoint )
+	{
+		parsePoint = CM_EntityString();
+	}
+	token = COM_Parse( &parsePoint );
+	if ( buffer && size > 0 )
+	{
+		Q_strncpyz( buffer, token, size );
+	}
+	return parsePoint && token[0] ? qtrue : qfalse;
+}
 
 
 /*
@@ -592,7 +616,10 @@ Just adds default parameters that cgame doesn't need to know about
 void CL_CM_LoadMap( const char *mapname ) {
 	int		checksum;
 
+	Com_Printf( "STEFX_HM: CL_CM_LoadMap begin ptr=%08x name='%s'\n",
+		(unsigned int)mapname, mapname ? mapname : "(null)" );
 	CM_LoadMap( mapname, qtrue, &checksum );
+	Com_Printf( "STEFX_HM: CL_CM_LoadMap done checksum=0x%08x\n", checksum );
 }
 
 /*
@@ -789,7 +816,11 @@ int CL_CgameSystemCalls( int *args ) {
 		else
 */
 		{
-			CL_CM_LoadMap( (const char *)VMA(1) );
+			const char *mapname = (const char *)VMA(1);
+			Com_Printf( "STEFX_HM: CG_CM_LOADMAP dispatch ptr=%08x subBSP=%d\n",
+				(unsigned int)mapname, args[2] );
+			CL_CM_LoadMap( mapname );
+			Com_Printf( "STEFX_HM: CG_CM_LOADMAP return\n" );
 		}
 		return 0;
 	case CG_CM_NUMINLINEMODELS:
@@ -903,27 +934,31 @@ int CL_CgameSystemCalls( int *args ) {
 		re.ClearScene();
 		return 0;
 	case CG_R_CLEARDECALS:
-		re.ClearDecals();
 		return 0;
 	case CG_R_ADDREFENTITYTOSCENE:
 		re.AddRefEntityToScene( (const refEntity_t *)VMA(1) );
 		return 0;
 	case CG_R_ADDPOLYTOSCENE:
-		re.AddPolyToScene( args[1], args[2], (const polyVert_t *)VMA(3), 1 );
+		re.AddPolyToScene( args[1], args[2], (const polyVert_t *)VMA(3) );
 		return 0;
 	case CG_R_ADDPOLYSTOSCENE:
-		re.AddPolyToScene( args[1], args[2], (const polyVert_t *)VMA(3), args[4] );
+		{
+			const polyVert_t *verts = (const polyVert_t *)VMA(3);
+			for ( int i = 0; i < args[4]; ++i )
+			{
+				re.AddPolyToScene( args[1], args[2], verts + i * args[2] );
+			}
+		}
 		return 0;
 	case CG_R_ADDDECALTOSCENE:
-		re.AddDecalToScene( (qhandle_t)args[1], (const float*)VMA(2), (const float*)VMA(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), (qboolean)args[9], VMF(10), (qboolean)args[11] );
 		return 0;
 	case CG_R_LIGHTFORPOINT:
-		return re.LightForPoint( (float *)VMA(1), (float *)VMA(2), (float *)VMA(3), (float *)VMA(4) );
+		return re.GetLighting( (const float *)VMA(1), (float *)VMA(2), (float *)VMA(3), (float *)VMA(4) );
 	case CG_R_ADDLIGHTTOSCENE:
 		re.AddLightToScene( (const float *)VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
 		return 0;
 	case CG_R_ADDADDITIVELIGHTTOSCENE:
-		re.AddAdditiveLightToScene( (const float *)VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
+		re.AddLightToScene( (const float *)VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
 		return 0;
 	case CG_R_RENDERSCENE:
 		re.RenderScene( (const refdef_t *)VMA(1) );
@@ -938,7 +973,8 @@ int CL_CgameSystemCalls( int *args ) {
 		re.ModelBounds( args[1], (float *)VMA(2), (float *)VMA(3) );
 		return 0;
 	case CG_R_LERPTAG:
-		return re.LerpTag( (orientation_t *)VMA(1), args[2], args[3], args[4], VMF(5), (const char *)VMA(6) );
+		re.LerpTag( (orientation_t *)VMA(1), args[2], args[3], args[4], VMF(5), (const char *)VMA(6) );
+		return 0;
 	case CG_R_DRAWROTATEPIC:
 		re.DrawRotatePic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), VMF(9), args[10] );
 		return 0;
@@ -1048,7 +1084,7 @@ int CL_CgameSystemCalls( int *args ) {
 	  return 0;
 
 	case CG_R_REMAP_SHADER:
-		re.RemapShader( (const char *)VMA(1), (const char *)VMA(2), (const char *)VMA(3) );
+		R_RemapShader( (const char *)VMA(1), (const char *)VMA(2), (const char *)VMA(3) );
 		return 0;
 
 	case CG_R_GET_LIGHT_STYLE:
@@ -1099,9 +1135,9 @@ int CL_CgameSystemCalls( int *args ) {
 		return getCameraInfo(args[1], VMA(2), VMA(3));
 */
 	case CG_GET_ENTITY_TOKEN:
-		return re.GetEntityToken( (char *)VMA(1), args[2] );
+		return CL_STEFXGetEntityToken( (char *)VMA(1), args[2] );
 	case CG_R_INPVS:
-		return re.inPVS( (const float *)VMA(1), (const float *)VMA(2), (byte *)VMA(3) );
+		return R_inPVS( (float *)VMA(1), (float *)VMA(2) );
 
 #ifndef DEBUG_DISABLEFXCALLS
 	case CG_FX_ADDLINE:
@@ -1136,6 +1172,9 @@ int CL_CgameSystemCalls( int *args ) {
 
 	case CG_FX_PLAY_BOLTED_EFFECT_ID:
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		return 0;
+#else
 		//( int id, vec3_t org, void *pGhoul2, const int boltNum, const int entNum, const int modelNum, int iLooptime, qboolean isRelative );
 		CGhoul2Info_v &g2 = *((CGhoul2Info_v *)args[3]);
 		int boltInfo=0;
@@ -1145,6 +1184,7 @@ int CL_CgameSystemCalls( int *args ) {
 			return 1;
 		}
 		return 0;
+#endif
 		}
 	case CG_FX_ADD_SCHEDULED_EFFECTS:
 		FX_AddScheduledEffects((qboolean)args[1]);
@@ -1300,6 +1340,7 @@ int CL_CgameSystemCalls( int *args ) {
 /*
 Ghoul2 Insert Start
 */
+#if !defined(STEFX_ELITE_FORCE_MP)
 
 	case CG_G2_GETMODELNAME:
 		G2API_GetModelName(*(CGhoul2Info_v*)args[1], args[2], 
@@ -1649,6 +1690,7 @@ Ghoul2 Insert End
 
 		return 0;
 
+#endif
 	case CG_SP_GETSTRINGTEXTSTRING:
 //	case CG_SP_GETSTRINGTEXT:
 		const char* text;
@@ -1867,6 +1909,7 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #endif
 
 	//rww - RAGDOLL_BEGIN
+#if !defined(STEFX_ELITE_FORCE_MP)
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() == 0) {
 #endif
@@ -1878,6 +1921,7 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	//rww - RAGDOLL_END
 #ifdef _XBOX
 	}
+#endif
 #endif
 
 #if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
@@ -2043,7 +2087,7 @@ void CL_FirstSnapshot( void ) {
 
 #ifdef _XBOX
 	// turn vsync back on - tearing is ugly
-	qglEnable(GL_VSYNC);
+	glEnable(GL_VSYNC);
 
 	// Start (or update) advertising on MM
 	if ( com_sv_running->integer )

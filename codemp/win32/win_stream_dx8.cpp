@@ -386,7 +386,7 @@ void Sys_StreamInitialize( void )
 {
 	// open the sound file
 	soundfile	= CreateFile(
-		"d:\\base\\soundbank\\sound.bnk",
+		"d:\\BaseEF\\soundbank\\sound.bnk",
 		GENERIC_READ,
 		FILE_SHARE_READ,
 		NULL,
@@ -398,7 +398,7 @@ void Sys_StreamInitialize( void )
 	HANDLE	table	= INVALID_HANDLE_VALUE;
 
 	table	= CreateFile(
-		"d:\\base\\soundbank\\sound.tbl",
+		"d:\\BaseEF\\soundbank\\sound.tbl",
 		GENERIC_READ,
 		FILE_SHARE_READ,
 		NULL,

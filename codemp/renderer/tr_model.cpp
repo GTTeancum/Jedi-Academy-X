@@ -1,73 +1,65 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // tr_models.c -- model loading and caching
 
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
 #include "tr_local.h"
-#if defined(_XBOX) && (defined(STEFX_ELITE_FORCE_RENDERER) || defined(STEFX_ELITE_FORCE_MP))
+#include "MatComp.h"
+#include "../qcommon/sstring.h"
+#ifdef _XBOX
 #include "../win32/xb_log.h"
 #endif
-#if defined(STEFX_ELITE_FORCE_RENDERER)
-#include "MatComp.h"
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceStage;
+extern "C" volatile unsigned int g_SPXBWeaponModelTracePathHash;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceDiskLen;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceDiskSuccess;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceIdent;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceVersion;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceSize;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceLoaded;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceHandle;
+extern "C" volatile unsigned int g_SPXBWeaponModelTraceFailCode;
 #endif
-
-
-#include "../qcommon/disablewarnings.h"
-
-
-#pragma warning (push, 3)	//go back down to 3 for the stl include
-#include "../qcommon/sstring.h"	// #include <string>
-#include <vector>
-#include <map>
-#pragma warning (pop)
-
-using namespace std;
-
-#ifdef _XBOX
-#include "../cgame/cg_local.h"
-#include "modelmem.h"
-ModelMemoryManager ModelMem;
-
-#include "../zlib/zlib.h"
-#endif
-
 
 #define	LL(x) x=LittleLong(x)
+#ifndef MD4_IDENT
+#define MD4_IDENT			(('5'<<24)+('M'<<16)+('D'<<8)+'R')
+#endif
+
+void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ); //should only be called for sub-bsp instances
 
 static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *name, qboolean &bAlreadyCached );
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *name, qboolean &bAlreadyCached );
 #endif
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-static qboolean STEFX_IsWeaponDiskModelName(const char *name)
-{
-	return (name && (strstr(name, "models/weapons2/") || strstr(name, "models\\weapons2\\")));
-}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean FS_STEFX_IsHeapFileBuffer(const void *buffer);
+extern qboolean FS_STEFX_FreeHeapFileBuffer(void *buffer);
 #endif
+
 /*
 Ghoul2 Insert Start
 */
 
-//typedef	struct modelHash_s
-//{
-//	char		name[MAX_QPATH];
-//	qhandle_t	handle;
-//	struct		modelHash_s	*next;
-//
-//}modelHash_t;
-//
-//#define FILE_HASH_SIZE		2048
-//static	modelHash_t 		*mhHashTable[FILE_HASH_SIZE];
+typedef	struct modelHash_s
+{
+	char		name[MAX_QPATH];
+	qhandle_t	handle;
+	struct		modelHash_s	*next;
 
+}modelHash_t;
 
-typedef map<unsigned long, qhandle_t> HashTable;
-typedef HashTable::iterator HashTableIterator;
-HashTable	*mhHashTable = NULL;
+#define FILE_HASH_SIZE		1024
+static	modelHash_t 		*mhHashTable[FILE_HASH_SIZE];
+
 
 /*
 Ghoul2 Insert End
 */
+
 
 
 // This stuff looks a bit messy, but it's kept here as black box, and nothing appears in any .H files for other 
@@ -79,35 +71,56 @@ struct CachedEndianedModelBinary_s
 {
 	void	*pModelDiskImage;
 	int		iAllocSize;		// may be useful for mem-query, but I don't actually need it
-	ShaderRegisterData_t ShaderRegisterData;	
-	int		iLastLevelUsedOn;
-	int		iPAKFileCheckSum;	// else -1 if not from PAK
 #ifdef _XBOX
-	int		ID;
+	qboolean bHeapAllocated;
 #endif
+	ShaderRegisterData_t ShaderRegisterData;
 
+	int		iLastLevelUsedOn;
 
 	CachedEndianedModelBinary_s()
 	{
-		pModelDiskImage		= 0;
-		iAllocSize			= 0;
-		ShaderRegisterData.clear();
-		iLastLevelUsedOn	= -1;
-		iPAKFileCheckSum	= -1;
+		pModelDiskImage = 0;
+		iLastLevelUsedOn    = -1;
+		iAllocSize = 0;
 #ifdef _XBOX
-		ID					= -1;
+		bHeapAllocated = qfalse;
 #endif
+		ShaderRegisterData.clear();
 	}
 };
 typedef struct CachedEndianedModelBinary_s CachedEndianedModelBinary_t;
 typedef map <sstring_t,CachedEndianedModelBinary_t>	CachedModels_t;
-CachedModels_t *CachedModels = NULL;	// the important cache item.
+													CachedModels_t *CachedModels = NULL;	// the important cache item.
 
-void RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const char *psShaderName, int *piShaderIndexPoke)
+#ifdef _XBOX
+static void RE_RegisterModels_FreeDiskImage(CachedEndianedModelBinary_t &cachedModel)
+{
+	if (!cachedModel.pModelDiskImage)
+	{
+		return;
+	}
+
+	if (cachedModel.bHeapAllocated)
+	{
+		if (!FS_STEFX_FreeHeapFileBuffer(cachedModel.pModelDiskImage))
+		{
+			HeapFree(GetProcessHeap(), 0, cachedModel.pModelDiskImage);
+		}
+	}
+	else
+	{
+		Z_Free(cachedModel.pModelDiskImage);
+	}
+
+	cachedModel.pModelDiskImage = NULL;
+	cachedModel.bHeapAllocated = qfalse;
+}
+#endif
+
+void RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const char *psShaderName, const int *piShaderIndexPoke)
 {
 	char sModelName[MAX_QPATH];
-	
-	assert(CachedModels);
 
 	Q_strncpyz(sModelName,psModelFileName,sizeof(sModelName));
 	Q_strlwr  (sModelName);
@@ -120,8 +133,8 @@ void RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const cha
 	}
 	else
 	{
-		int iNameOffset =		  psShaderName		- (char *)ModelBin.pModelDiskImage;
-		int iPokeOffset = (char*) piShaderIndexPoke	- (char *)ModelBin.pModelDiskImage;
+		const int iNameOffset =		  psShaderName		- (char *)ModelBin.pModelDiskImage;
+		const int iPokeOffset = (char*) piShaderIndexPoke	- (char *)ModelBin.pModelDiskImage;
 
 		ModelBin.ShaderRegisterData.push_back( StringOffsetAndShaderIndexDest_t( iNameOffset,iPokeOffset) );
 	}
@@ -151,18 +164,33 @@ static const byte FakeGLAFile[] =
 0x00, 0x80, 0x00, 0x80, 0x00, 0x80
 };
 
-void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_IsWeaponDiskModelName(const char *name)
+{
+	return (name && (strstr(name, "models/weapons2/") || strstr(name, "models\\weapons2\\")));
+}
+
+static unsigned int STEFX_ModelTraceHash(const char *name)
+{
+	unsigned int hash = 5381;
+	const unsigned char *p = (const unsigned char *)name;
+
+	while (p && *p)
+	{
+		hash = ((hash << 5) + hash) ^ *p++;
+	}
+
+	return hash;
+}
+#endif
 
 // returns qtrue if loaded, and sets the supplied qbool to true if it was from cache (instead of disk)
 //   (which we need to know to avoid LittleLong()ing everything again (well, the Mac needs to know anyway)...
 //
-// don't use ri.xxx functions in case running on dedicated...
-//
 qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvBuffer, qboolean *pqbAlreadyCached)
 {
 	char sModelName[MAX_QPATH];
-	
-	assert(CachedModels);
+	int len;
 
 	Q_strncpyz(sModelName,psModelFileName,sizeof(sModelName));
 	Q_strlwr  (sModelName);
@@ -191,23 +219,54 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 		{
 			*ppvBuffer = NULL;
 		}
-		const int len = FS_ReadFile( sModelName, ppvBuffer );
-		*pqbAlreadyCached = qfalse;
-		qboolean bSuccess = !!(*ppvBuffer)?qtrue:qfalse;
-
-		if (bSuccess)
-		{				
-			Com_DPrintf( "RE_RegisterModels_GetDiskFile(): Disk-loading \"%s\"\n",psModelFileName);
-		}
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-		if (STEFX_IsWeaponDiskModelName(psModelFileName))
+		len = FS_ReadFile( psModelFileName, ppvBuffer );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( len <= 0 && strcmp( sModelName, psModelFileName ) )
 		{
-			XBLF("STEFX_HM: model disk fetch '%s' cacheKey='%s' len=%d success=%d buffer=%p",
+			if ( ppvBuffer )
+			{
+				*ppvBuffer = NULL;
+			}
+			int lowerLen = FS_ReadFile( sModelName, ppvBuffer );
+			if ( strstr( psModelFileName, "models/players/" ) ||
+				strstr( psModelFileName, "models\\players\\" ) ||
+				STEFX_IsWeaponDiskModelName( psModelFileName ) )
+			{
+				XBLF( "STEFX: model disk lower retry original='%s' lower='%s' len=%d success=%d buffer=%p",
+					psModelFileName,
+					sModelName,
+					lowerLen,
+					(ppvBuffer && *ppvBuffer) ? 1 : 0,
+					ppvBuffer ? *ppvBuffer : NULL );
+			}
+			if ( lowerLen > 0 || (ppvBuffer && *ppvBuffer) )
+			{
+				len = lowerLen;
+			}
+		}
+#endif
+		*pqbAlreadyCached = qfalse;
+
+		const bool bSuccess = !!(*ppvBuffer);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( strstr( psModelFileName, "models/players/" ) ||
+			strstr( psModelFileName, "models\\players\\" ) ||
+			STEFX_IsWeaponDiskModelName( psModelFileName ) )
+		{
+			XBLF( "STEFX: model disk fetch '%s' cacheKey='%s' len=%d success=%d buffer=%p",
 				psModelFileName,
 				sModelName,
 				len,
 				bSuccess ? 1 : 0,
-				ppvBuffer ? *ppvBuffer : NULL);
+				*ppvBuffer );
+		}
+		if ( STEFX_IsWeaponDiskModelName( psModelFileName ) )
+		{
+			g_SPXBWeaponModelTraceStage = 1;
+			g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( psModelFileName );
+			g_SPXBWeaponModelTraceDiskLen = (unsigned int)len;
+			g_SPXBWeaponModelTraceDiskSuccess = bSuccess ? 1 : 0;
+			g_SPXBWeaponModelTraceFailCode = bSuccess ? 0 : 1;
 		}
 #endif
 
@@ -217,12 +276,17 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 	{
 		*ppvBuffer = ModelBin.pModelDiskImage;
 		*pqbAlreadyCached = qtrue;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (STEFX_IsWeaponDiskModelName(psModelFileName))
 		{
-			XBLF("STEFX_HM: model disk cache hit '%s' size=%d buffer=%p",
+			g_SPXBWeaponModelTraceStage = 2;
+			g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( psModelFileName );
+			g_SPXBWeaponModelTraceDiskSuccess = 1;
+			g_SPXBWeaponModelTraceFailCode = 0;
+			XBLF("STEFX: model disk cache hit '%s' size=%d heap=%d buffer=%p",
 				psModelFileName,
 				ModelBin.iAllocSize,
+				ModelBin.bHeapAllocated ? 1 : 0,
 				ModelBin.pModelDiskImage);
 		}
 #endif
@@ -233,22 +297,9 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 
 // if return == true, no further action needed by the caller...
 //
-// don't use ri.xxx functions in case running on dedicated
-//
-extern cvar_t *sv_pure;
-#ifdef _XBOX
-void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag, int modindex, bool useModelMem)
-#else
 void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag)
-#endif
 {
 	char sModelName[MAX_QPATH];
-
-	assert(CachedModels);
-
-#ifdef _XBOX
-	static int modelCount = 0;
-#endif
 
 	Q_strncpyz(sModelName,psModelFileName,sizeof(sModelName));
 	Q_strlwr  (sModelName);
@@ -263,101 +314,8 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 		//	then don't thrown it away on return - cuts down on mem overhead
 		//
 		// ... groan, but not if doing a limb hierarchy creation (some VV stuff?), in which case it's NULL
-		//				
-#ifndef _XBOX	// Can't re-tag allocated memory!
-		if ( pvDiskBufferIfJustLoaded )
-		{
-			Z_MorphMallocTag( pvDiskBufferIfJustLoaded, eTag );
-		}
-		else 
-#endif
-		{
-#ifdef _XBOX
-//			if(strstr(sModelName, "players") && eTag == TAG_MODEL_GLM && ModelMem.IsNPCMode() == false) {
-#if defined(STEFX_ELITE_FORCE_MP)
-			if(useModelMem) {
-				static qboolean loggedHolomatchModelMemBypass = qfalse;
-
-				if (!loggedHolomatchModelMemBypass) {
-					Com_PrintfAlways("STEFX_HM: renderer bypassed inherited player model memory allocator for Holomatch model='%s'\n", sModelName);
-					loggedHolomatchModelMemBypass = qtrue;
-				}
-				useModelMem = false;
-			}
-#endif
-			if(useModelMem) {
-				pvDiskBufferIfJustLoaded = ModelMem.GetModelMemory(iSize, modindex, sModelName);
-				ModelBin.ID = modindex;
-			}
-			else 
-#endif
-			pvDiskBufferIfJustLoaded =  Z_Malloc(iSize,eTag, qfalse );
-		}
-
-		ModelBin.pModelDiskImage	= pvDiskBufferIfJustLoaded;
-		ModelBin.iAllocSize			= iSize;
-
-		int iCheckSum;		
-		if (FS_FileIsInPAK(sModelName, &iCheckSum) == 1)
-		{
-			ModelBin.iPAKFileCheckSum = iCheckSum;	// else ModelBin's constructor will leave it as -1
-		}
-
-		*pqbAlreadyFound = qfalse;
-	}
-	else
-	{
-#ifndef DEDICATED
-		// if we already had this model entry, then re-register all the shaders it wanted...
-		//
-		int iEntries = ModelBin.ShaderRegisterData.size();
-		for (int i=0; i<iEntries; i++)
-		{
-			int iShaderNameOffset	= ModelBin.ShaderRegisterData[i].first;
-			int iShaderPokeOffset	= ModelBin.ShaderRegisterData[i].second;
-
-			char *psShaderName		=		  &((char*)ModelBin.pModelDiskImage)[iShaderNameOffset];
-			int  *piShaderPokePtr	= (int *) &((char*)ModelBin.pModelDiskImage)[iShaderPokeOffset];
-
-			shader_t *sh = R_FindShader( psShaderName, lightmapsNone, stylesDefault, qtrue );
-	            
-			if ( sh->defaultShader ) 
-			{
-				*piShaderPokePtr = 0;
-			} else {
-				*piShaderPokePtr = sh->index;
-			}
-		}
-#endif //!DEDICATED
-		*pqbAlreadyFound = qtrue;	// tell caller not to re-Endian or re-Shader this binary		
-	}
-
-	ModelBin.iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
-
-	return ModelBin.pModelDiskImage;
-}
-
-// Unfortunately the dedicated server also hates shader loading. So we need an alternate of this func.
-//
-void *RE_RegisterServerModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag, int modindex)
-{
-	char sModelName[MAX_QPATH];
-
-	assert(CachedModels);
-
-	Q_strncpyz(sModelName,psModelFileName,sizeof(sModelName));
-	Q_strlwr  (sModelName);
-
-	CachedEndianedModelBinary_t &ModelBin = (*CachedModels)[sModelName];
-
-	if (ModelBin.pModelDiskImage == NULL)
-	{
-		// new, instead of doing a Z_Malloc and assigning that we just morph the disk buffer alloc
-		//	then don't thrown it away on return - cuts down on mem overhead
-		//
-		// ... groan, but not if doing a limb hierarchy creation (some VV stuff?), in which case it's NULL
-		//				
-#ifndef _XBOX	// Can't re-tag allocated memory!
+		//			
+#ifndef _XBOX
 		if ( pvDiskBufferIfJustLoaded )
 		{
 			Z_MorphMallocTag( pvDiskBufferIfJustLoaded, eTag );
@@ -365,50 +323,86 @@ void *RE_RegisterServerModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, 
 		else
 #endif
 		{
-#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
-			if(strstr(sModelName, "players") && eTag == TAG_MODEL_GLM && ModelMem.IsNPCMode() == false) {
-				static qboolean loggedHolomatchServerModelMemBypass = qfalse;
-
-				if (!loggedHolomatchServerModelMemBypass) {
-					Com_PrintfAlways("STEFX_HM: renderer bypassed inherited server model memory allocator for Holomatch model='%s'\n", sModelName);
-					loggedHolomatchServerModelMemBypass = qtrue;
+#ifdef _XBOX
+			if (eTag == TAG_MODEL_MD3 || eTag == TAG_MODEL_GLM || eTag == TAG_MODEL_GLA)
+			{
+				int nameLen = strlen(sModelName);
+#if defined(STEFX_ELITE_FORCE_SP)
+				if (pvDiskBufferIfJustLoaded &&
+					nameLen >= 4 &&
+					!stricmp(&sModelName[nameLen - 4], ".mdr"))
+				{
+					ModelBin.bHeapAllocated = FS_STEFX_IsHeapFileBuffer(pvDiskBufferIfJustLoaded);
+#ifdef _XBOX
+					if (strstr(sModelName, "models/players/"))
+					{
+						XBLF("STEFX: RE_RegisterModels_Malloc adopted MDR disk buffer model='%s' size=%d tag=%d heap=%d",
+							sModelName, iSize, eTag, ModelBin.bHeapAllocated ? 1 : 0);
+					}
+#endif
 				}
-				pvDiskBufferIfJustLoaded = Z_Malloc(iSize,eTag, qfalse );
+				else
+#endif
+				{
+					pvDiskBufferIfJustLoaded = HeapAlloc(GetProcessHeap(), 0, iSize);
+					if (!pvDiskBufferIfJustLoaded)
+					{
+#if defined(STEFX_ELITE_FORCE_SP)
+						XBLF("STEFX: RE_RegisterModels_Malloc heap failed model='%s' size=%d tag=%d; falling back to zone",
+							sModelName, iSize, eTag);
+						ModelBin.bHeapAllocated = qfalse;
+						pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
+						if (!pvDiskBufferIfJustLoaded)
+						{
+							XBLF("STEFX: RE_RegisterModels_Malloc zone fallback failed model='%s' size=%d tag=%d; returning bad model",
+								sModelName, iSize, eTag);
+							ModelBin.pModelDiskImage = NULL;
+							ModelBin.iAllocSize = 0;
+							ModelBin.bHeapAllocated = qfalse;
+							*pqbAlreadyFound = qfalse;
+							return NULL;
+						}
+#else
+						pvDiskBufferIfJustLoaded = Z_Malloc(iSize, eTag, qfalse);
+						ModelBin.bHeapAllocated = qfalse;
+#endif
+					}
+					else
+					{
+						ModelBin.bHeapAllocated = qtrue;
+					}
+				}
 			}
 			else
 #endif
-			if(strstr(sModelName, "players") && eTag == TAG_MODEL_GLM && ModelMem.IsNPCMode() == false) {
-				pvDiskBufferIfJustLoaded = ModelMem.GetModelMemory(iSize, modindex, sModelName);
-				ModelBin.ID = modindex;
-			}
-			else
+			{
 			pvDiskBufferIfJustLoaded =  Z_Malloc(iSize,eTag, qfalse );
+			}
 		}
 
-		ModelBin.pModelDiskImage	= pvDiskBufferIfJustLoaded;
-		ModelBin.iAllocSize			= iSize;
-
-		int iCheckSum;		
-		if (FS_FileIsInPAK(sModelName, &iCheckSum) == 1)
-		{
-			ModelBin.iPAKFileCheckSum = iCheckSum;	// else ModelBin's constructor will leave it as -1
-		}
-
-		*pqbAlreadyFound = qfalse;
+		ModelBin.pModelDiskImage= pvDiskBufferIfJustLoaded;
+		ModelBin.iAllocSize		= iSize;
+		*pqbAlreadyFound		= qfalse;
 	}
 	else
 	{
+#ifdef _XBOX
+		if (eTag == TAG_MODEL_GLA && strstr(sModelName, "_humanoid"))
+		{
+			Com_PrintfAlways("JA: RE_RegisterModels_Malloc cache hit '%s' size=%d tag=%d\n",
+				sModelName, ModelBin.iAllocSize, eTag);
+		}
+#endif
 		// if we already had this model entry, then re-register all the shaders it wanted...
 		//
-		/*
-		int iEntries = ModelBin.ShaderRegisterData.size();
+		const int iEntries = ModelBin.ShaderRegisterData.size();
 		for (int i=0; i<iEntries; i++)
 		{
 			int iShaderNameOffset	= ModelBin.ShaderRegisterData[i].first;
 			int iShaderPokeOffset	= ModelBin.ShaderRegisterData[i].second;
 
-			char *psShaderName		=		  &((char*)ModelBin.pModelDiskImage)[iShaderNameOffset];
-			int  *piShaderPokePtr	= (int *) &((char*)ModelBin.pModelDiskImage)[iShaderPokeOffset];
+			const char *const psShaderName	 =		   &((char*)ModelBin.pModelDiskImage)[iShaderNameOffset];
+				  int  *const piShaderPokePtr= (int *) &((char*)ModelBin.pModelDiskImage)[iShaderPokeOffset];
 
 			shader_t *sh = R_FindShader( psShaderName, lightmapsNone, stylesDefault, qtrue );
 	            
@@ -419,8 +413,6 @@ void *RE_RegisterServerModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, 
 				*piShaderPokePtr = sh->index;
 			}
 		}
-		*/
-		//No. Bad.
 		*pqbAlreadyFound = qtrue;	// tell caller not to re-Endian or re-Shader this binary		
 	}
 
@@ -428,6 +420,7 @@ void *RE_RegisterServerModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, 
 
 	return ModelBin.pModelDiskImage;
 }
+
 
 // dump any models not being used by this level if we're running low on memory...
 //
@@ -437,18 +430,69 @@ static int GetModelDataAllocSize(void)
 			Z_MemSize( TAG_MODEL_GLM) +
 			Z_MemSize( TAG_MODEL_GLA);
 }
+
+static int GetCachedModelDataAllocSize(int *heapBytes, int *zoneBytes, int *modelCount)
+{
+	int totalBytes = 0;
+
+	if (heapBytes)
+	{
+		*heapBytes = 0;
+	}
+	if (zoneBytes)
+	{
+		*zoneBytes = 0;
+	}
+	if (modelCount)
+	{
+		*modelCount = 0;
+	}
+	if (!CachedModels)
+	{
+		return 0;
+	}
+
+	for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end(); ++itModel)
+	{
+		CachedEndianedModelBinary_t &cachedModel = (*itModel).second;
+		if (!cachedModel.pModelDiskImage || cachedModel.iAllocSize <= 0)
+		{
+			continue;
+		}
+
+		totalBytes += cachedModel.iAllocSize;
+		if (modelCount)
+		{
+			++(*modelCount);
+		}
+#ifdef _XBOX
+		if (cachedModel.bHeapAllocated)
+		{
+			if (heapBytes)
+			{
+				*heapBytes += cachedModel.iAllocSize;
+			}
+		}
+		else
+#endif
+		{
+			if (zoneBytes)
+			{
+				*zoneBytes += cachedModel.iAllocSize;
+			}
+		}
+	}
+
+	return totalBytes;
+}
 extern cvar_t *r_modelpoolmegs;
 //
-// return qtrue if at least one cached model was freed (which tells z_malloc()-fail recoveryt code to try again)
+// return qtrue if at least one cached model was freed (which tells z_malloc()-fail recovery code to try again)
 //
 extern qboolean gbInsideRegisterModel;
 qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel /* = qfalse */)
 {	
 	qboolean bAtLeastoneModelFreed = qfalse;
-
-	assert(CachedModels);
-
-	Com_DPrintf (S_COLOR_RED "RE_RegisterModels_LevelLoadEnd():\n");
 
 	if (gbInsideRegisterModel)
 	{
@@ -456,139 +500,86 @@ qboolean RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLev
 	}
 	else
 	{
-		int iLoadedModelBytes	=	GetModelDataAllocSize();
+		int iHeapModelBytes = 0;
+		int iZoneCachedModelBytes = 0;
+		int iCachedModelCount = 0;
+		int iLoadedModelBytes	=	GetCachedModelDataAllocSize(&iHeapModelBytes, &iZoneCachedModelBytes, &iCachedModelCount);
 		const int iMaxModelBytes=	r_modelpoolmegs->integer * 1024 * 1024;
 
 		qboolean bEraseOccured = qfalse;
+		int iFreedModelBytes = 0;
+		int iFreedModelCount = 0;
+#ifdef _XBOX
+		const int iZoneTaggedModelBytes = GetModelDataAllocSize();
+#endif
 		for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end() && ( bDeleteEverythingNotUsedThisLevel || iLoadedModelBytes > iMaxModelBytes ); bEraseOccured?itModel:++itModel)
 		{			
 			bEraseOccured = qfalse;
 
 			CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
+			const int iCachedAllocSize = CachedModel.iAllocSize;
 
 			qboolean bDeleteThis = qfalse;
 
 			if (bDeleteEverythingNotUsedThisLevel)
 			{
-				bDeleteThis = (CachedModel.iLastLevelUsedOn != RE_RegisterMedia_GetLevel()) ? qtrue : qfalse;
+				bDeleteThis = (CachedModel.iLastLevelUsedOn != RE_RegisterMedia_GetLevel());
 			}
 			else
 			{
-				bDeleteThis = (CachedModel.iLastLevelUsedOn < RE_RegisterMedia_GetLevel()) ? qtrue : qfalse;
+				bDeleteThis = (CachedModel.iLastLevelUsedOn < RE_RegisterMedia_GetLevel());
 			}
 
 			// if it wasn't used on this level, dump it...
 			//
 			if (bDeleteThis)
 			{
-				Com_Error( ERR_DROP, "Trying to delete from CachedModels in LevelLoadEnd" );
-#if 0
-				LPCSTR psModelName = (*itModel).first.c_str();
-				Com_DPrintf (S_COLOR_RED "Dumping \"%s\"", psModelName);
-
 	#ifdef _DEBUG
-				Com_DPrintf (S_COLOR_RED ", used on lvl %d\n",CachedModel.iLastLevelUsedOn);
+//				LPCSTR psModelName = (*itModel).first.c_str();
+//				VID_Printf( PRINT_DEVELOPER, "Dumping \"%s\"", psModelName);
+//				VID_Printf( PRINT_DEVELOPER, ", used on lvl %d\n",CachedModel.iLastLevelUsedOn);
 	#endif				
 
 				if (CachedModel.pModelDiskImage) {
 #ifdef _XBOX
-					if(CachedModel.ID != -1) {
-                        ModelMem.FreeModelMemory(CachedModel.ID);
-					}
-					else
+					RE_RegisterModels_FreeDiskImage(CachedModel);
+#else
+					Z_Free(CachedModel.pModelDiskImage);	
 #endif
-					Z_Free(CachedModel.pModelDiskImage);
-
 					//CachedModel.pModelDiskImage = NULL;	// REM for reference, erase() call below negates the need for it.
 					bAtLeastoneModelFreed = qtrue;
+					iFreedModelBytes += iCachedAllocSize;
+					++iFreedModelCount;
 				}
-#ifndef __linux__
+
 				itModel = CachedModels->erase(itModel);
 				bEraseOccured = qtrue;
-#else
-				// Both MS and Dinkumware got the map::erase wrong
-				// The STL has the return type as a void
-				CachedModels_t::iterator itTemp;
-				itTemp = itModel;
-				itModel++;
-				CachedModels->erase(itTemp);
-				
-#endif
 
-				iLoadedModelBytes = GetModelDataAllocSize();
-#endif
+				iLoadedModelBytes = GetCachedModelDataAllocSize(&iHeapModelBytes, &iZoneCachedModelBytes, &iCachedModelCount);
 			}
 		}
+#ifdef _XBOX
+		if (iFreedModelCount > 0 || iLoadedModelBytes > iMaxModelBytes)
+		{
+			XBLF("STEFX: model cache level-end level=%d cached=%d heap=%d zoneCache=%d zoneTagged=%d cap=%d freed=%d freedBytes=%d force=%d overBudget=%d",
+				RE_RegisterMedia_GetLevel(),
+				iLoadedModelBytes,
+				iHeapModelBytes,
+				iZoneCachedModelBytes,
+				iZoneTaggedModelBytes,
+				iMaxModelBytes,
+				iFreedModelCount,
+				iFreedModelBytes,
+				bDeleteEverythingNotUsedThisLevel ? 1 : 0,
+				iLoadedModelBytes > iMaxModelBytes ? 1 : 0);
+		}
+#endif
 	}
 
-	Com_DPrintf (S_COLOR_RED "RE_RegisterModels_LevelLoadEnd(): Ok\n");	
+	//VID_Printf( PRINT_DEVELOPER, "RE_RegisterModels_LevelLoadEnd(): Ok\n");	
 
 	return bAtLeastoneModelFreed;	
 }
-
-
-
-// scan through all loaded models and see if their PAK checksums are still valid with the current pure PAK lists,
-//	dump any that aren't (so people can't cheat by using models with huge spikes that show through walls etc)
-//
-// (avoid using ri.xxxx stuff here in case running on dedicated)
-//
-#if 0
-static void RE_RegisterModels_DumpNonPure(void)
-{
-	Com_DPrintf( "RE_RegisterModels_DumpNonPure():\n");
-
-	if(!CachedModels) {
-		return;
-	}
-	qboolean bEraseOccured = qfalse;
-	for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end(); bEraseOccured?itModel:++itModel)
-	{			
-		bEraseOccured = qfalse;
-
-		LPCSTR						psModelName	 = (*itModel).first.c_str();
-		CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
-
-		int iCheckSum = -1;
-		int iInPak = FS_FileIsInPAK(psModelName, &iCheckSum);
-
-		if (iInPak == -1 || iCheckSum != CachedModel.iPAKFileCheckSum)
-		{
-			if (stricmp(sDEFAULT_GLA_NAME ".gla" , psModelName))	// don't dump "*default.gla", that's program internal anyway
-			{
-				// either this is not from a PAK, or it's from a non-pure one, so ditch it...
-				//					
-				Com_DPrintf( "Dumping none pure model \"%s\"", psModelName);
-
-				if (CachedModel.pModelDiskImage) {
-#ifdef _XBOX
-					if(CachedModel.ID != -1) {
-                        ModelMem.FreeModelMemory(CachedModel.ID);
-					}
-					else
-#endif
-					Z_Free(CachedModel.pModelDiskImage);	
-					//CachedModel.pModelDiskImage = NULL;	// REM for reference, erase() call below negates the need for it.
-				}
-#ifndef __linux__
-				itModel = CachedModels->erase(itModel);
-				bEraseOccured = qtrue;
-#else
-				// Both MS and Dinkumware got the map::erase wrong
-				// The STL has the return type as a void
-				CachedModels_t::iterator itTemp;
-				itTemp = itModel;
-				itModel++;
-				CachedModels->erase(itTemp);
-
-#endif
-			}
-		}
-	}
-
-	Com_DPrintf( "RE_RegisterModels_DumpNonPure(): Ok\n");	
-}
-#endif
 
 void RE_RegisterModels_Info_f( void )
 {	
@@ -605,99 +596,83 @@ void RE_RegisterModels_Info_f( void )
 	{	
 		CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
 
-		Com_Printf ("%d/%d: \"%s\" (%d bytes)",iModel,iModels,(*itModel).first.c_str(),CachedModel.iAllocSize );
+		VID_Printf( PRINT_ALL, "%d/%d: \"%s\" (%d bytes)",iModel,iModels,(*itModel).first.c_str(),CachedModel.iAllocSize );
 
 		#ifdef _DEBUG
-		Com_Printf (", lvl %d\n",CachedModel.iLastLevelUsedOn);
+		VID_Printf( PRINT_ALL, ", lvl %d\n",CachedModel.iLastLevelUsedOn);
 		#endif
 
 		iTotalBytes += CachedModel.iAllocSize;
 	}
-	Com_Printf ("%d bytes total (%.2fMB)\n",iTotalBytes, (float)iTotalBytes / 1024.0f / 1024.0f);
+	VID_Printf( PRINT_ALL, "%d bytes total (%.2fMB)\n",iTotalBytes, (float)iTotalBytes / 1024.0f / 1024.0f);
 }
 
 
-// (don't use ri.xxx functions since the renderer may not be running here)...
-//
 static void RE_RegisterModels_DeleteAll(void)
 {
-	if(!CachedModels) {
-		return;	//argh!
-	}
-
-#ifndef __linux__
 	for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end(); )
 	{
 		CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
 
-		if (CachedModel.pModelDiskImage)
-		{
-			if(CachedModel.ID != -1)
-			{	// This already removes the entry from CachedModels!
-				if( ModelMem.ClearModelMemory(CachedModel.ID) )
-					itModel = CachedModels->begin();
-				else
-					itModel = CachedModels->erase(itModel);
-			}
-			else
-			{
-				Z_Free(CachedModel.pModelDiskImage);
-				itModel = CachedModels->erase(itModel);
-			}
-		}
-		else
-		{
-			itModel = CachedModels->erase(itModel);
-		}
-	}
-#else
-	CachedModels->erase(CachedModels->begin(),CachedModels->end());
-#endif
-
+		if (CachedModel.pModelDiskImage) {
 #ifdef _XBOX
-	// Just in case, clear all model memory slots that might have been missed above...
-	ModelMem.ClearAll();
+			RE_RegisterModels_FreeDiskImage(CachedModel);
+#else
+			Z_Free(CachedModel.pModelDiskImage);					
 #endif
+		}
+
+		itModel = CachedModels->erase(itModel);			
+	}
+
+	extern void RE_AnimationCFGs_DeleteAll(void);
+	RE_AnimationCFGs_DeleteAll();
 }
 
 
-// do not use ri.xxx functions in here, the renderer may not be running (ie. if on a dedicated server)...
-//
 static int giRegisterMedia_CurrentLevel=0;
-void RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForceReload)
+static qboolean gbAllowScreenDissolve = qtrue;
+#ifdef _XBOX
+extern bool g_xboxDirectMapBootQueued;
+extern bool Sys_IsDirectMapBoot(void);
+#endif
+//
+// param "bAllowScreenDissolve" is just a convenient way of getting hold of a bool which can be checked by the code that
+//	issues the InitDissolve command later in RE_RegisterMedia_LevelLoadEnd()
+//
+void RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForceReload, qboolean bAllowScreenDissolve)
 {
+	gbAllowScreenDissolve = bAllowScreenDissolve;
+
+	tr.numBSPModels = 0;
+
 	// for development purposes we may want to ditch certain media just before loading a map...
 	//
-	bool bDeleteModels	= eForceReload == eForceReload_MODELS || eForceReload == eForceReload_ALL;
-//	bool bDeleteBSP		= eForceReload == eForceReload_BSP    || eForceReload == eForceReload_ALL;
-
-	if (bDeleteModels)
+	switch (eForceReload)
 	{
-		RE_RegisterModels_DeleteAll();
-	}
-	else
-	{
-		/*
-		if (sv_pure->integer)
-		{
-			RE_RegisterModels_DumpNonPure();
-		}
-		*/
-	}
+		case eForceReload_BSP:
 
-/*
-	tr.numBSPModels = 0;
-*/
+			CM_DeleteCachedMap(qtrue);
+			R_Images_DeleteLightMaps();
+			break;
 
-#ifndef DEDICATED
-// not used in MP codebase...
-//
-//	if (bDeleteBSP)
-//	{
-//		CM_DeleteCachedMap();
-//		R_Images_DeleteLightMaps();	// always do this now, makes no real load time difference, and lets designers work ok
-//	}
-#endif
+		case eForceReload_MODELS:
+
+			RE_RegisterModels_DeleteAll();
+			break;
+
+		case eForceReload_ALL:
+
+			// BSP...
+			//
+			CM_DeleteCachedMap(qtrue);
+			R_Images_DeleteLightMaps();
+			//
+			// models...
+			//
+			RE_RegisterModels_DeleteAll();
+			break;
+	}
 
 	// at some stage I'll probably want to put some special logic here, like not incrementing the level number
 	//	when going into a map like "brig" or something, so returning to the previous level doesn't require an 
@@ -719,33 +694,48 @@ int RE_RegisterMedia_GetLevel(void)
 	return giRegisterMedia_CurrentLevel;
 }
 
-// this is now only called by the client, so should be ok to dump media...
-//
-extern qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel /* 99% qfalse */);
-extern void S_RestartMusic(void);
+extern qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel);
+
 void RE_RegisterMedia_LevelLoadEnd(void)
 {
 	RE_RegisterModels_LevelLoadEnd(qfalse);
-#ifndef DEDICATED
 	RE_RegisterImages_LevelLoadEnd();
 	SND_RegisterAudio_LevelLoadEnd(qfalse);
-//	RE_InitDissolve();
-	S_RestartMusic();
+
+#ifdef _XBOX
+	if (Sys_IsDirectMapBoot())
+	{
+		gbAllowScreenDissolve = qfalse;
+	}
 #endif
+	if (gbAllowScreenDissolve)
+	{
+		RE_InitDissolve(qfalse);
+	}
+
+	S_RestartMusic();
+	
+	extern qboolean gbAlreadyDoingLoad;
+					gbAlreadyDoingLoad = qfalse;
 }
+
 
 
 
 /*
 ** R_GetModelByHandle
 */
-model_t	*R_GetModelByHandle( qhandle_t index )
-{
-	// invalid gets the defualt model
-	if( index < 1 || index >= MAX_MOD_KNOWN || !tr.models[index] )
-		return tr.models[0];
+model_t	*R_GetModelByHandle( qhandle_t index ) {
+	model_t		*mod;
 
-	return tr.models[index];
+	// out of range gets the defualt model
+	if ( index < 1 || index >= tr.numModels ) {
+		return tr.models[0];
+	}
+
+	mod = tr.models[index];
+
+	return mod;
 }
 
 //===============================================================================
@@ -760,18 +750,9 @@ model_t *R_AllocModel( void ) {
 		return NULL;
 	}
 
-	mod = (struct model_s *)Hunk_Alloc( sizeof( *tr.models[0] ), h_low );
-
-	int index = 0;
-	for( index = 0; index < MAX_MOD_KNOWN; ++index )
-		if( !tr.models[index] )
-			break;
-
-	if( index == MAX_MOD_KNOWN )
-		return NULL;
-
-	mod->index = index;
-	tr.models[index] = mod;
+	mod = (model_t*) Hunk_Alloc( sizeof( *tr.models[tr.numModels] ), qtrue );
+	mod->index= tr.numModels;
+	tr.models[tr.numModels] = mod;
 	tr.numModels++;
 
 	return mod;
@@ -794,7 +775,7 @@ static long generateHashValue( const char *fname, const int size ) {
 	hash = 0;
 	i = 0;
 	while (fname[i] != '\0') {
-		letter = tolower((unsigned char)fname[i]);
+		letter = tolower(fname[i]);
 		if (letter =='.') break;				// don't include extension
 		if (letter =='\\') letter = '/';		// damn path names
 		hash+=(long)(letter)*(i+119);
@@ -806,584 +787,311 @@ static long generateHashValue( const char *fname, const int size ) {
 
 void RE_InsertModelIntoHash(const char *name, model_t *mod)
 {
-	//int			hash;
-	//modelHash_t	*mh;
-
-	//hash = generateHashValue(name, FILE_HASH_SIZE);
-
-	//// insert this file into the hash table so we can look it up faster later
-	//mh = (modelHash_t*)Hunk_Alloc( sizeof( modelHash_t ), h_low );
-
-	//mh->next = mhHashTable[hash];
-	//mh->handle = mod->index;
-	//strcpy(mh->name, name);
-	//mhHashTable[hash] = mh;
-	unsigned long crc = crc32(0, (const byte*)name, strlen(name));
-	(*mhHashTable)[crc] = mod->index;
-}
-
-#ifdef _XBOX
-void RE_RemoveModelFromHash(const char *name)
-{
-	/*int hash;
+	int			hash;
 	modelHash_t	*mh;
 
 	hash = generateHashValue(name, FILE_HASH_SIZE);
 
-	mh = mhHashTable[hash];
+	// insert this file into the hash table so we can look it up faster later
+	mh = (modelHash_t*)Hunk_Alloc( sizeof( modelHash_t ), qtrue );
 
-	if(Q_stricmp(mh->name, name) == 0) {
-		Z_Free( mh );
-		mhHashTable[hash] = NULL;
-	}*/
+	mh->next = mhHashTable[hash];
+	mh->handle = mod->index;
+	strcpy(mh->name, name);
+	mhHashTable[hash] = mh;
+}
 
-	unsigned long crc = crc32(0, (const byte*)name, strlen(name));
-	mhHashTable->erase(crc);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static void STEFX_InsertModelHandleAliasIntoHash(const char *name, qhandle_t handle)
+{
+	int			hash;
+	modelHash_t	*mh;
 
-	// Yank this model out of the CachedModels list also
-	if(!CachedModels) {
+	if (!name || handle <= 0)
+	{
 		return;
 	}
-	qboolean bEraseOccured = qfalse;
-	for (CachedModels_t::iterator itModel = CachedModels->begin(); itModel != CachedModels->end(); bEraseOccured?itModel:++itModel)
-	{			
-		bEraseOccured = qfalse;
 
-		LPCSTR						psModelName	 = (*itModel).first.c_str();
-		CachedEndianedModelBinary_t &CachedModel = (*itModel).second;
-
-		if (stricmp(name, psModelName) == 0)
-		{
-			if (CachedModel.pModelDiskImage) {
-				if(CachedModel.ID != -1) {
-					int ID = CachedModel.ID;
-					
-                    itModel = CachedModels->erase(itModel);
-
-					if(tr.models[ID])
-                        Z_Free(tr.models[ID]);
-					tr.models[ID] = NULL;
-					tr.numModels--;
-
-					bEraseOccured = qtrue;
-					break;
-				}	
-			}
-		}
-	}
+	hash = generateHashValue(name, FILE_HASH_SIZE);
+	mh = (modelHash_t*)Hunk_Alloc( sizeof( modelHash_t ), qtrue );
+	mh->next = mhHashTable[hash];
+	mh->handle = handle;
+	strcpy(mh->name, name);
+	mhHashTable[hash] = mh;
 }
 #endif
-/*
-Ghoul2 Insert End
-*/
 
-//rww - Please forgive me for all of the below. Feel free to destroy it and replace it with something better.
-//You obviously can't touch anything relating to shaders or ri. functions here in case a dedicated
-//server is running, which is the entire point of having these seperate functions. If anything major
-//is changed in the non-server-only versions of these functions it would be wise to incorporate it
-//here as well.
-
-/*
-=================
-ServerLoadMDXA - load a Ghoul 2 animation file
-=================
-*/
-qboolean ServerLoadMDXA( model_t *mod, void *buffer, const char *mod_name, qboolean &bAlreadyCached ) {
-
-	mdxaHeader_t		*pinmodel, *mdxa;
-	int					version;
-	int					size;
-
-#ifndef _M_IX86
-	int					j, k, i;
-	int					frameSize;
-	mdxaFrame_t			*cframe;
-	mdxaSkel_t			*boneInfo;
-#endif
-
- 	pinmodel = (mdxaHeader_t *)buffer;
-	//
-	// read some fields from the binary, but only LittleLong() them when we know this wasn't an already-cached model...
-	//	
-	version = (pinmodel->version);
-	size	= (pinmodel->ofsEnd);
-
-	if (!bAlreadyCached)
-	{
-		version = LittleLong(version);
-		size	= LittleLong(size);
-	}
-	
-	if (version != MDXA_VERSION) {
-		return qfalse;
-	}
-
-	mod->type		= MOD_MDXA;
-	mod->dataSize  += size;
-
-	qboolean bAlreadyFound = qfalse;
-	mdxa = mod->mdxa = (mdxaHeader_t*) //Hunk_Alloc( size );
-										RE_RegisterServerModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_GLA, mod->index);
-
-	assert(bAlreadyCached == bAlreadyFound);	// I should probably eliminate 'bAlreadyFound', but wtf?
-
-	if (!bAlreadyFound)
-	{
-		// horrible new hackery, if !bAlreadyFound then we've just done a tag-morph, so we need to set the 
-		//	bool reference passed into this function to true, to tell the caller NOT to do an FS_Freefile since
-		//	we've hijacked that memory block...
-		//
-		// Aaaargh. Kill me now...
-		//
-#ifdef _XBOX	// Can't re-tag allocated memory!
-		memcpy( mdxa, buffer, size );	// and don't do this now, since it's the same thing
-#else
-		bAlreadyCached = qtrue;
-		assert( mdxa == buffer );
-#endif
-
-		LL(mdxa->ident);
-		LL(mdxa->version);
-		LL(mdxa->numFrames);
-		LL(mdxa->numBones);
-		LL(mdxa->ofsFrames);
-		LL(mdxa->ofsEnd);
-	}
-
- 	if ( mdxa->numFrames < 1 ) {
-		return qfalse;
-	}
-
-	if (bAlreadyFound)
-	{
-		return qtrue;	// All done, stop here, do not LittleLong() etc. Do not pass go...
-	}
-
-#ifndef _M_IX86
-
-	//
-	// optimisation, we don't bother doing this for standard intel case since our data's already in that format...
-	//
-
-	// swap all the skeletal info
-	boneInfo = (mdxaSkel_t *)( (byte *)mdxa + mdxa->ofsSkel);
-	for ( i = 0 ; i < mdxa->numBones ; i++) 
-	{
-		LL(boneInfo->numChildren);
-		LL(boneInfo->parent);
-		for (k=0; k<boneInfo->numChildren; k++)
-		{
-			LL(boneInfo->children[k]);
-		}
-
-		// get next bone
-		boneInfo += (int)( &((mdxaSkel_t *)0)->children[ boneInfo->numChildren ] );
-	}
-
-
-	// swap all the frames
-	frameSize = (int)( &((mdxaFrame_t *)0)->bones[ mdxa->numBones ] );
-	for ( i = 0 ; i < mdxa->numFrames ; i++) 
-	{
-		cframe = (mdxaFrame_t *) ( (byte *)mdxa + mdxa->ofsFrames + i * frameSize );
-   		cframe->radius = LittleFloat( cframe->radius );
-		for ( j = 0 ; j < 3 ; j++ ) 
-		{
-			cframe->bounds[0][j] = LittleFloat( cframe->bounds[0][j] );
-			cframe->bounds[1][j] = LittleFloat( cframe->bounds[1][j] );
-    		cframe->localOrigin[j] = LittleFloat( cframe->localOrigin[j] );
-		}
-		for ( j = 0 ; j < mdxa->numBones * sizeof( mdxaBone_t ) / 2 ; j++ ) 
-		{
-			((short *)cframe->bones)[j] = LittleShort( ((short *)cframe->bones)[j] );
-		}
-	}
-#endif
-	return qtrue;
+#ifdef STEFX_ELITE_FORCE_SP
+static qboolean STEFX_IsMdrModelName(const char *name)
+{
+	const char *ext = name ? strrchr(name, '.') : NULL;
+	return (ext && !Q_stricmp(ext, ".mdr"));
 }
 
-/*
-=================
-ServerLoadMDXM - load a Ghoul 2 Mesh file
-=================
-*/
-qboolean ServerLoadMDXM( model_t *mod, void *buffer, const char *mod_name, qboolean &bAlreadyCached ) {
-	int					i,l, j;
-	mdxmHeader_t		*pinmodel, *mdxm;
-	mdxmLOD_t			*lod;
-	mdxmSurface_t		*surf;
-	int					version;
-	int					size;
-	shader_t			*sh;
-	mdxmSurfHierarchy_t	*surfInfo;
-
-#ifndef _M_IX86
-	int					k;
-	int					frameSize;
-	mdxmTag_t			*tag;
-	mdxmTriangle_t		*tri;
-	mdxmVertex_t		*v;
- 	mdxmFrame_t			*cframe;
-	int					*boneRef;
-#endif
-    
-	pinmodel= (mdxmHeader_t *)buffer;
-	//
-	// read some fields from the binary, but only LittleLong() them when we know this wasn't an already-cached model...
-	//	
-	version = (pinmodel->version);
-	size	= (pinmodel->ofsEnd);
-
-	if (!bAlreadyCached)
-	{
-		version = LittleLong(version);
-		size	= LittleLong(size);
-	}
-
-	if (version != MDXM_VERSION) {
-		return qfalse;
-	}
-
-	mod->type	   = MOD_MDXM;
-	mod->dataSize += size;	
-	
-	qboolean bAlreadyFound = qfalse;
-	mdxm = mod->mdxm = (mdxmHeader_t*) //Hunk_Alloc( size );
-										RE_RegisterServerModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_GLM, mod->index);
-
-	assert(bAlreadyCached == bAlreadyFound);	// I should probably eliminate 'bAlreadyFound', but wtf?
-
-	if (!bAlreadyFound)
-	{
-		// horrible new hackery, if !bAlreadyFound then we've just done a tag-morph, so we need to set the 
-		//	bool reference passed into this function to true, to tell the caller NOT to do an FS_Freefile since
-		//	we've hijacked that memory block...
-		//
-		// Aaaargh. Kill me now...
-		//
-#ifdef _XBOX	// Can't re-tag allocated memory!
-		memcpy( mdxm, buffer, size );	// and don't do this now, since it's the same thing
-#else
-		bAlreadyCached = qtrue;
-		assert( mdxm == buffer );
+#if defined(_XBOX)
+static qhandle_t RE_RegisterModel_Actual( const char *name );
 #endif
 
-		LL(mdxm->ident);
-		LL(mdxm->version);
-		LL(mdxm->numLODs);
-		LL(mdxm->ofsLODs);
-		LL(mdxm->numSurfaces);
-		LL(mdxm->ofsSurfHierarchy);
-		LL(mdxm->ofsEnd);
-	}
-		
-	// first up, go load in the animation file we need that has the skeletal animation info for this model
-	mdxm->animIndex = RE_RegisterServerModel(va ("%s.gla",mdxm->animName));
-	if (!mdxm->animIndex) 
-	{
-		return qfalse;
-	}
-
-	mod->numLods = mdxm->numLODs -1 ;	//copy this up to the model for ease of use - it wil get inced after this.
-
-	if (bAlreadyFound)
-	{
-		return qtrue;	// All done. Stop, go no further, do not LittleLong(), do not pass Go...
-	}
-
-	surfInfo = (mdxmSurfHierarchy_t *)( (byte *)mdxm + mdxm->ofsSurfHierarchy);
- 	for ( i = 0 ; i < mdxm->numSurfaces ; i++) 
-	{
-		LL(surfInfo->numChildren);
-		LL(surfInfo->parentIndex);
-
-		// do all the children indexs
-		for (j=0; j<surfInfo->numChildren; j++)
-		{
-			LL(surfInfo->childIndexes[j]);
-		}
-
-		// We will not be using shaders on the server.
-		sh = 0;
-		// insert it in the surface list
-		
-		surfInfo->shaderIndex = 0;
-
-		RE_RegisterModels_StoreShaderRequest(mod_name, &surfInfo->shader[0], &surfInfo->shaderIndex);
-
-		// find the next surface
-		surfInfo = (mdxmSurfHierarchy_t *)( (byte *)surfInfo + (int)( &((mdxmSurfHierarchy_t *)0)->childIndexes[ surfInfo->numChildren ] ));
-  	}
-	
-	// swap all the LOD's	(we need to do the middle part of this even for intel, because of shader reg and err-check)
-	lod = (mdxmLOD_t *) ( (byte *)mdxm + mdxm->ofsLODs );
-	for ( l = 0 ; l < mdxm->numLODs ; l++)
-	{
-		int	triCount = 0;
-
-		LL(lod->ofsEnd);
-		// swap all the surfaces
-		surf = (mdxmSurface_t *) ( (byte *)lod + sizeof (mdxmLOD_t) + (mdxm->numSurfaces * sizeof(mdxmLODSurfOffset_t)) );
-		for ( i = 0 ; i < mdxm->numSurfaces ; i++) 
-		{
-			LL(surf->numTriangles);
-			LL(surf->ofsTriangles);
-			LL(surf->numVerts);
-			LL(surf->ofsVerts);
-			LL(surf->ofsEnd);
-			LL(surf->ofsHeader);
-			LL(surf->numBoneReferences);
-			LL(surf->ofsBoneReferences);
-//			LL(surf->maxVertBoneWeights);
-
-			triCount += surf->numTriangles;
-										
-			if ( surf->numVerts > SHADER_MAX_VERTEXES ) {
-				return qfalse;
-			}
-			if ( surf->numTriangles*3 > SHADER_MAX_INDEXES ) {
-				return qfalse;
-			}
-		
-			// change to surface identifier
-			surf->ident = SF_MDX;
-
-			// register the shaders
-#ifndef _M_IX86
-//
-// optimisation, we don't bother doing this for standard intel case since our data's already in that format...
-//
-			// FIXME - is this correct? 
-			// do all the bone reference data
-			boneRef = (int *) ( (byte *)surf + surf->ofsBoneReferences );
-			for ( j = 0 ; j < surf->numBoneReferences ; j++ ) 
-			{
-					LL(boneRef[j]);
-			}
-
-			
-			// swap all the triangles
-			tri = (mdxmTriangle_t *) ( (byte *)surf + surf->ofsTriangles );
-			for ( j = 0 ; j < surf->numTriangles ; j++, tri++ ) 
-			{
-				LL(tri->indexes[0]);
-				LL(tri->indexes[1]);
-				LL(tri->indexes[2]);
-			}
-
-			// swap all the vertexes
-			v = (mdxmVertex_t *) ( (byte *)surf + surf->ofsVerts );
-			for ( j = 0 ; j < surf->numVerts ; j++ ) 
-			{
-				v->normal[0] = LittleFloat( v->normal[0] );
-				v->normal[1] = LittleFloat( v->normal[1] );
-				v->normal[2] = LittleFloat( v->normal[2] );
-
-				v->texCoords[0] = LittleFloat( v->texCoords[0] );
-				v->texCoords[1] = LittleFloat( v->texCoords[1] );
-
-				v->numWeights = LittleLong( v->numWeights );
-  			    v->offset[0] = LittleFloat( v->offset[0] );
-				v->offset[1] = LittleFloat( v->offset[1] );
-				v->offset[2] = LittleFloat( v->offset[2] );
-
-				for ( k = 0 ; k < /*v->numWeights*/surf->maxVertBoneWeights ; k++ ) 
-				{
-					v->weights[k].boneIndex = LittleLong( v->weights[k].boneIndex );
-					v->weights[k].boneWeight = LittleFloat( v->weights[k].boneWeight );
-				}
-				v = (mdxmVertex_t *)&v->weights[/*v->numWeights*/surf->maxVertBoneWeights];
-			}
-#endif
-
-			// find the next surface
-			surf = (mdxmSurface_t *)( (byte *)surf + surf->ofsEnd );
-		}
-
-		// find the next LOD
-		lod = (mdxmLOD_t *)( (byte *)lod + lod->ofsEnd );
-	}
-
-	return qtrue;
+static qboolean STEFX_IsGhoul2ModelName(const char *name)
+{
+	const char *ext = name ? strrchr(name, '.') : NULL;
+	return (ext && (!Q_stricmp(ext, ".glm") || !Q_stricmp(ext, ".gla")));
 }
 
-/*
-====================
-RE_RegisterServerModel
+#if defined(_XBOX)
+static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size);
+static void STEFX_LogMdrMemoryStats(const char *phase, const char *name, int fileLen, int requestSize, int realSize, int alignPad, int fit);
 
-Same as RE_RegisterModel, except used by the server to handle ghoul2 instance models.
-====================
-*/
-qhandle_t RE_RegisterServerModel( const char *name ) {
-	model_t		*mod;
-	unsigned	*buf;
-	int			lod;
-	int			ident;
-	qboolean	loaded;
-//	qhandle_t	hModel;
-	int			numLoaded;
-/*
-Ghoul2 Insert Start
-*/
-	/*int			hash;
-	modelHash_t	*mh;*/
-/*
-Ghoul2 Insert End
-*/
+static qboolean STEFX_IsBorgPlayerModelName(const char *name)
+{
+	return (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")));
+}
 
-	if (!r_noServerGhoul2)
-	{ //keep it from choking when it gets to these checks in the g2 code. Registering all r_ cvars for the server would be a Bad Thing though.
-		r_noServerGhoul2 = Cvar_Get( "r_noserverghoul2", "0", 0);
-	}
+static qboolean STEFX_IsPlayerModelName(const char *name)
+{
+	return (name && (strstr(name, "models/players/") || strstr(name, "models\\players\\")));
+}
 
-	if ( !name || !name[0] ) {
-		return 0;
-	}
-
-	if ( strlen( name ) >= MAX_QPATH ) {
-		return 0;
-	}
-
-	//hash = generateHashValue(name, FILE_HASH_SIZE);
-
-	////
-	//// see if the model is already loaded
-	////
-	//for (mh=mhHashTable[hash]; mh; mh=mh->next) {
-	//	if (Q_stricmp(mh->name, name) == 0) {
-	//		return mh->handle;
-	//	}
-	//}
-	unsigned long crc = crc32(0, (const byte*)name, strlen(name));
-	HashTableIterator iter = mhHashTable->find(crc);
-	if (iter != mhHashTable->end()) 
+static const char *STEFX_ModelPartToken(const char *name)
+{
+	if (!name)
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-		if (STEFX_IsWeaponDiskModelName(name))
-		{
-			qhandle_t cachedHandle = (*iter).second;
-			XBLF("STEFX_HM: RE_RegisterModel weapon cache hit '%s' handle=%d type=%d",
-				name,
-				cachedHandle,
-				(cachedHandle > 0 && tr.models[cachedHandle]) ? tr.models[cachedHandle]->type : -1);
-		}
+		return NULL;
+	}
+	if (strstr(name, "/lower.") || strstr(name, "\\lower."))
+	{
+		return "lower.";
+	}
+	if (strstr(name, "/upper.") || strstr(name, "\\upper."))
+	{
+		return "upper.";
+	}
+	if (strstr(name, "/head.") || strstr(name, "\\head."))
+	{
+		return "head.";
+	}
+	return NULL;
+}
+
+static const char *STEFX_DefaultPlayerMdrFallbackName(const char *name)
+{
+	const char *part = STEFX_ModelPartToken(name);
+	if (!STEFX_IsPlayerModelName(name) || !STEFX_IsMdrModelName(name) || !part)
+	{
+		return NULL;
+	}
+
+	if (!Q_stricmp(part, "lower."))
+	{
+		return "models/players/hazard/lower.mdr";
+	}
+	if (!Q_stricmp(part, "upper."))
+	{
+		return "models/players/hazard/upper.mdr";
+	}
+
+	return NULL;
+}
+
+static qboolean STEFX_IsDefaultPlayerMdrFallbackName(const char *name)
+{
+	const char *fallback;
+
+	fallback = STEFX_DefaultPlayerMdrFallbackName(name);
+	return (qboolean)(fallback && !Q_stricmp(name, fallback));
+}
 #endif
-		return (*iter).second;
+
+static qboolean STEFX_RegisterGhoul2Disabled(model_t *mod, const char *name)
+{
+	if (!STEFX_IsGhoul2ModelName(name))
+	{
+		return qfalse;
 	}
 
-	if ( ( mod = R_AllocModel() ) == NULL ) {
-		return 0;
-	}
-
-	// only set the name after the model has been successfully loaded
-	Q_strncpyz( mod->name, name, sizeof( mod->name ) );
-
-#ifndef DEDICATED
-	// make sure the render thread is stopped
-	R_SyncRenderThread();
-#endif
-
-	int iLODStart = 0;
-	if (strstr (name, ".md3")) {
-		iLODStart = MD3_MAX_LODS-1;	// this loads the md3s in reverse so they can be biased
-	}
-	mod->numLods = 0;
-
-	//
-	// load the files
-	//
-	numLoaded = 0;
-
-	for ( lod = iLODStart; lod >= 0 ; lod-- ) {
-		char filename[1024];
-
-		strcpy( filename, name );
-
-		if ( lod != 0 ) {
-			char namebuf[80];
-
-			if ( strrchr( filename, '.' ) ) {
-				*strrchr( filename, '.' ) = 0;
-			}
-			sprintf( namebuf, "_%d.md3", lod );
-			strcat( filename, namebuf );
-		}
-
-		qboolean bAlreadyCached = qfalse;		
-		if (!RE_RegisterModels_GetDiskFile(filename, (void **)&buf, &bAlreadyCached))
-		{
-			continue;
-		}
-		
-		//loadmodel = mod;	// this seems to be fairly pointless
-
-		// important that from now on we pass 'filename' instead of 'name' to all model load functions,
-		//	because 'filename' accounts for any LOD mangling etc so guarantees unique lookups for yet more
-		//	internal caching...
-		//		
-		ident = *(unsigned *)buf;
-		if (!bAlreadyCached)
-		{
-			ident = LittleLong(ident);
-		}
-
-		switch (ident)
-		{ //if you're trying to register anything else as a model type on the server, you are out of luck
-
-			case MDXA_IDENT:
-				loaded = ServerLoadMDXA( mod, buf, filename, bAlreadyCached );
-				break;
-			case MDXM_IDENT:
-				loaded = ServerLoadMDXM( mod, buf, filename, bAlreadyCached );
-				break;
-			default:
-				goto fail;
-		}
-		
-		if (!bAlreadyCached){	// important to check!!
-			FS_FreeFile (buf);
-		}
-
-		if ( !loaded ) {
-			if ( lod == 0 ) {
-				goto fail;
-			} else {
-				break;
-			}
-		} else {
-			mod->numLods++;
-			numLoaded++;
-		}
-	}
-
-	if ( numLoaded ) {
-		// duplicate into higher lod spots that weren't
-		// loaded, in case the user changes r_lodbias on the fly
-		for ( lod-- ; lod >= 0 ; lod-- ) {
-			mod->numLods++;
-			mod->md3[lod] = mod->md3[lod+1];
-		}
-
-/*
-Ghoul2 Insert Start
-*/
-
-	RE_InsertModelIntoHash(name, mod);
-	return mod->index;
-/*
-Ghoul2 Insert End
-*/
-	}
-
-fail:
-	// we still keep the model_t around, so if the model name is asked for
-	// again, we won't bother scanning the filesystem
 	mod->type = MOD_BAD;
 	RE_InsertModelIntoHash(name, mod);
-	return 0;
+#ifdef _XBOX
+	XBLF("STEFX: Ghoul2 model disabled '%s'", name ? name : "(null)");
+#endif
+	return qtrue;
 }
 
-extern void FS_CancelLargeRead( void );
+static qhandle_t STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char *name)
+{
+	fileHandle_t f = 0;
+	unsigned int ident = 0;
+	int len;
+	int read;
+
+	if (!STEFX_IsMdrModelName(name))
+	{
+		return 0;
+	}
+
+	len = FS_FOpenFileByMode(name, &f, FS_READ);
+	if (len < 4 || !f)
+	{
+#ifdef _XBOX
+		XBLF("EF: RE_RegisterModel MDR probe missing '%s' len=%d handle=%d", name ? name : "(null)", len, f);
+#endif
+		if (f)
+		{
+			FS_FCloseFile(f);
+		}
+		return 0;
+	}
+
+#if defined(_XBOX)
+	if (STEFX_IsPlayerModelName(name) && !STEFX_IsBorgPlayerModelName(name))
+	{
+		const char *fallbackName = STEFX_DefaultPlayerMdrFallbackName(name);
+		int requestSize = len + 1;
+		int realSize = 0;
+		int alignPad = 0;
+		int largestFreeBlock = 0;
+		qboolean wouldFit = Z_WouldAllocFit(requestSize, TAG_MODEL_MD3, 32, &realSize, &alignPad, &largestFreeBlock);
+
+		STEFX_LogMdrMemoryStats("preflight", name, len, requestSize, realSize, alignPad, wouldFit ? 1 : 0);
+
+		if (!wouldFit && fallbackName && !STEFX_IsDefaultPlayerMdrFallbackName(name))
+		{
+			FS_FCloseFile(f);
+			mod->type = MOD_BAD;
+			RE_InsertModelIntoHash(name, mod);
+			XBLF("STEFX: RE_RegisterModel MDR player part cannot fit '%s' len=%d request=%d real=%d largest=%d shortfall=%d fallbackSuppressed='%s'; inserted MOD_BAD",
+				name,
+				len,
+				requestSize,
+				realSize,
+				largestFreeBlock,
+				(realSize > largestFreeBlock) ? (realSize - largestFreeBlock) : 0,
+				fallbackName);
+			return mod->index;
+		}
+
+		if (!wouldFit)
+		{
+			FS_FCloseFile(f);
+			mod->type = MOD_BAD;
+			RE_InsertModelIntoHash(name, mod);
+			XBLF("STEFX: RE_RegisterModel MDR default player model cannot fit '%s' len=%d request=%d real=%d largest=%d shortfall=%d; inserted MOD_BAD",
+				name,
+				len,
+				requestSize,
+				realSize,
+				largestFreeBlock,
+				(realSize > largestFreeBlock) ? (realSize - largestFreeBlock) : 0);
+			return mod->index;
+		}
+	}
+
+	if (!STEFX_ShouldUseMdrMemoryPlaceholder(name, len))
+	{
+#ifdef _XBOX
+		if (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")))
+		{
+			XBLF("STEFX: RE_RegisterModel Borg MDR placeholder bypass '%s' len=%d", name, len);
+		}
+#endif
+		FS_FCloseFile(f);
+		return 0;
+	}
+#else
+	FS_FCloseFile(f);
+	return 0;
+#endif
+
+	read = FS_Read(&ident, 4, f);
+	FS_FCloseFile(f);
+	ident = LittleLong(ident);
+
+	if (read != 4 || ident != MD4_IDENT)
+	{
+#ifdef _XBOX
+		XBLF("EF: RE_RegisterModel MDR probe rejected '%s' read=%d ident=0x%08x", name, read, ident);
+#endif
+		return 0;
+	}
+
+	mod->type = MOD_STEFX_MDR_PLACEHOLDER;
+	mod->dataSize += len;
+	mod->numLods = 1;
+	RE_InsertModelIntoHash(name, mod);
+#ifdef _XBOX
+	XBLF("EF: RE_RegisterModel accepted MDR placeholder '%s' handle=%d len=%d", name, mod->index, len);
+#endif
+	return mod->index;
+}
+
+#if defined(_XBOX)
+static qboolean STEFX_ShouldUseMdrMemoryPlaceholder(const char *name, int size)
+{
+	const int overCapLimit = 1536 * 1024;
+
+	if (size <= (1536 * 1024))
+	{
+		return qfalse;
+	}
+
+	if (STEFX_IsBorgPlayerModelName(name))
+	{
+		return qfalse;
+	}
+
+	if (STEFX_IsPlayerModelName(name))
+	{
+#ifdef _XBOX
+		XBLF("STEFX: R_LoadMDR allowing exact player model '%s' size=%d cap=%d",
+			name ? name : "(null)", size, overCapLimit);
+#endif
+		return qfalse;
+	}
+
+#ifdef _XBOX
+	XBLF("STEFX: R_LoadMDR budget placeholder model '%s' size=%d over cap=%d",
+		name ? name : "(null)", size, overCapLimit);
+#endif
+	return qtrue;
+}
+
+static void STEFX_LogMdrMemoryStats(const char *phase, const char *name, int fileLen, int requestSize, int realSize, int alignPad, int fit)
+{
+	zmemstats_t stats;
+	int shortfall;
+
+	Z_GetMemoryStats(&stats);
+	shortfall = (realSize > stats.largestFreeBlock) ? (realSize - stats.largestFreeBlock) : 0;
+
+	XBLF("STEFX: MDR memory %s model='%s' fileLen=%d request=%d real=%d alignPad=%d fit=%d shortfall=%d zoneSize=%d used=%d overhead=%d free=%d largest=%d freeBlocks=%d peak=%d md3=%d glm=%d gla=%d bsp=%d sndRaw=%d filesys=%d",
+		phase ? phase : "(null)",
+		name ? name : "(null)",
+		fileLen,
+		requestSize,
+		realSize,
+		alignPad,
+		fit,
+		shortfall,
+		stats.zoneSize,
+		stats.usedBytes,
+		stats.overheadBytes,
+		stats.freeBytes,
+		stats.largestFreeBlock,
+		stats.freeBlocks,
+		stats.peakBytes,
+		stats.modelMd3Bytes,
+		stats.modelGlmBytes,
+		stats.modelGlaBytes,
+		stats.bspBytes,
+		stats.soundRawBytes,
+		stats.filesysBytes);
+}
+#endif
+#endif
+/*
+Ghoul2 Insert End
+*/
+
 
 /*
 ====================
@@ -1397,7 +1105,8 @@ optimization to prevent disk rescanning if they are
 asked for again.
 ====================
 */
-static qhandle_t RE_RegisterModel_Actual( const char *name ) {
+static qhandle_t RE_RegisterModel_Actual( const char *name ) 
+{
 	model_t		*mod;
 	unsigned	*buf;
 	int			lod;
@@ -1408,19 +1117,22 @@ static qhandle_t RE_RegisterModel_Actual( const char *name ) {
 /*
 Ghoul2 Insert Start
 */
-	/*int			hash;
-	modelHash_t	*mh;*/
+	int			hash;
+	modelHash_t	*mh;
 /*
 Ghoul2 Insert End
 */
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean stefxWeaponModelTrace = STEFX_IsWeaponDiskModelName(name);
+#endif
 
 	if ( !name || !name[0] ) {
-		Com_Printf ("RE_RegisterModel: NULL name\n" );
+		VID_Printf( PRINT_WARNING, "RE_RegisterModel: NULL name\n" );
 		return 0;
 	}
 
 	if ( strlen( name ) >= MAX_QPATH ) {
-		Com_DPrintf (S_COLOR_RED "Model name exceeds MAX_QPATH\n" );
+		VID_Printf( PRINT_DEVELOPER, "Model name exceeds MAX_QPATH\n" );
 		return 0;
 	}
 
@@ -1428,45 +1140,75 @@ Ghoul2 Insert End
 Ghoul2 Insert Start
 */
 //	if (!tr.registered) {
-//		Com_Printf (S_COLOR_YELLOW  "RE_RegisterModel (%s) called before ready!\n",name );
+//		VID_Printf( PRINT_WARNING, "RE_RegisterModel (%s) called before ready!\n",name );
 //		return 0;
 //	}
 	//
 	// search the currently loaded models
 	//
-	//hash = generateHashValue(name, FILE_HASH_SIZE);
+
+	hash = generateHashValue(name, FILE_HASH_SIZE);
 
 	//
 	// see if the model is already loaded
 	//
-	/*for (mh=mhHashTable[hash]; mh; mh=mh->next) {
+	for (mh=mhHashTable[hash]; mh; mh=mh->next) {
 		if (Q_stricmp(mh->name, name) == 0) {
+			if (tr.models[mh->handle]->type == MOD_BAD)
+			{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (stefxWeaponModelTrace)
+				{
+					XBLF("STEFX: RE_RegisterModel weapon MOD_BAD cache hit '%s' handle=%d", name, mh->handle);
+				}
+				if (STEFX_IsBorgPlayerModelName(name))
+				{
+					XBLF("STEFX: RE_RegisterModel Borg MOD_BAD cache hit exact required '%s' handle=%d", name, mh->handle);
+				}
+#endif
+				return 0;
+			}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (stefxWeaponModelTrace)
+			{
+				XBLF("STEFX: RE_RegisterModel weapon cache hit '%s' handle=%d type=%d", name, mh->handle, tr.models[mh->handle]->type);
+			}
+			if (STEFX_IsBorgPlayerModelName(name))
+			{
+				XBLF("STEFX: RE_RegisterModel Borg cache hit '%s' handle=%d type=%d", name, mh->handle, tr.models[mh->handle]->type);
+			}
+#endif
 			return mh->handle;
 		}
-	}*/
-	unsigned long crc = crc32(0, (const byte*)name, strlen(name));
-	HashTableIterator iter = mhHashTable->find(crc);
-	if (iter != mhHashTable->end()) 
-		return (*iter).second;
+	}
 
-//	for ( hModel = 1 ; hModel < tr.numModels; hModel++ ) {
-//		mod = tr.models[hModel];
-//		if ( !strcmp( mod->name, name ) ) {
-//			if( mod->type == MOD_BAD ) {
-//				return 0;
-//			}
-//			return hModel;
-//		}
-//	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxWeaponModelTrace)
+	{
+		g_SPXBWeaponModelTraceStage = 10;
+		g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( name );
+		g_SPXBWeaponModelTraceHandle = 0;
+		g_SPXBWeaponModelTraceLoaded = 0;
+		g_SPXBWeaponModelTraceFailCode = 0;
+		XBLF("STEFX: RE_RegisterModel weapon load required '%s'", name);
+	}
+	if (STEFX_IsBorgPlayerModelName(name))
+	{
+		XBLF("STEFX: RE_RegisterModel Borg exact load required '%s'", name);
+	}
+#endif
 
 /*
+Ghoul2 Insert End
+*/
+
 	if (name[0] == '#')
 	{
 		char		temp[MAX_QPATH];
 
 		tr.numBSPModels++;
 #ifndef DEDICATED
-		RE_LoadWorldMap_Actual(va("maps/%s.bsp", name + 1), tr.bspModels[tr.numBSPModels - 1], tr.numBSPModels);
+		RE_LoadWorldMap_Actual(va("maps/%s.bsp", name + 1), tr.bspModels[tr.numBSPModels - 1], tr.numBSPModels);	//this calls R_LoadSubmodels which will put them into the Hash
 #endif
 		Com_sprintf(temp, MAX_QPATH, "*%d-0", tr.numBSPModels);
 		hash = generateHashValue(temp, FILE_HASH_SIZE);
@@ -1480,48 +1222,42 @@ Ghoul2 Insert Start
 		
 		return 0;
 	}
-*/
-
-	if (name[0] == '*')
-	{	// don't create a bad model for a bsp model
-		if (Q_stricmp(name, "*default.gla"))
-		{
-			return 0;
-		}
-	}
-
-/*
-Ghoul2 Insert End
-*/
 
 	// allocate a new model_t
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	if (STEFX_IsWeaponDiskModelName(name))
-	{
-		XBLF("STEFX_HM: RE_RegisterModel weapon load required '%s'", name);
-	}
-#endif
-
 	if ( ( mod = R_AllocModel() ) == NULL ) {
-		Com_Printf (S_COLOR_YELLOW  "RE_RegisterModel: R_AllocModel() failed for '%s'\n", name);
+		VID_Printf( PRINT_WARNING, "RE_RegisterModel: R_AllocModel() failed for '%s'\n", name);
 		return 0;
 	}
 
 	// only set the name after the model has been successfully loaded
 	Q_strncpyz( mod->name, name, sizeof( mod->name ) );
 
-#ifndef DEDICATED
-	// make sure the render thread is stopped
-	R_SyncRenderThread();
+#ifdef STEFX_ELITE_FORCE_SP
+	if (STEFX_RegisterGhoul2Disabled(mod, name))
+	{
+		return 0;
+	}
+
+#if defined(_XBOX)
+	qhandle_t stefxMdrPreflightHandle = STEFX_RegisterMdrPlaceholderIfPresent(mod, name);
+	if (stefxMdrPreflightHandle)
+	{
+		return stefxMdrPreflightHandle;
+	}
 #endif
+
+#endif
+
+	// make sure the render thread is stopped
+	//R_SyncRenderThread();
 
 	int iLODStart = 0;
 	if (strstr (name, ".md3")) {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		iLODStart = 0;
 #else
-		iLODStart = MD3_MAX_LODS-1;	// this loads the md3s in reverse so they can be biased
+		iLODStart = MD3_MAX_LODS-1;	//this loads the md3s in reverse so they can be biased
 #endif
 	}
 	mod->numLods = 0;
@@ -1546,22 +1282,13 @@ Ghoul2 Insert End
 			strcat( filename, namebuf );
 		}
 
-		// Warn the filesystem that a big GLM is about to be read:
-		extern void FS_LargeRead( void );
-		if( strstr(filename, "players") && strstr(filename, "glm") )
-			FS_LargeRead();
-		else
-			FS_CancelLargeRead();		// Because of recursive calls GLM->GLA
-
 		qboolean bAlreadyCached = qfalse;		
 		if (!RE_RegisterModels_GetDiskFile(filename, (void **)&buf, &bAlreadyCached))
 		{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-			if (STEFX_IsWeaponDiskModelName(filename))
+			if (numLoaded)	//we loaded one already, but a higher LOD is missing!
 			{
-				XBLF("STEFX_HM: RE_RegisterModel weapon disk miss '%s' lod=%d", filename, lod);
+				Com_Error (ERR_DROP, "R_LoadMD3: %s has LOD %d but is missing LOD %d ('%s')!", mod->name, lod+1, lod, filename);
 			}
-#endif
 			continue;
 		}
 		
@@ -1583,29 +1310,46 @@ Ghoul2 Insert End
 			//	or copy what I've done with the cache scheme (-ste).
 			//
 			case MDXA_IDENT:
+
 				loaded = R_LoadMDXA( mod, buf, filename, bAlreadyCached );
 				break;
 		
 			case MDXM_IDENT:
+				
 				loaded = R_LoadMDXM( mod, buf, filename, bAlreadyCached );
 				break;
 
 			case MD3_IDENT:
+
 				loaded = R_LoadMD3( mod, lod, buf, filename, bAlreadyCached );
 				break;
 
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 			case MD4_IDENT:
+#if defined(_XBOX)
+				if ( strstr( filename, "models/players/borg" ) || strstr( filename, "models\\players\\borg" ) )
+				{
+					XBLF( "STEFX: RE_RegisterModel loading Borg MDR '%s' cached=%d", filename, bAlreadyCached ? 1 : 0 );
+				}
+#endif
 				loaded = R_LoadMDR( mod, buf, filename, bAlreadyCached );
 				break;
 #endif
 
 			default:
-				Com_Printf (S_COLOR_YELLOW"RE_RegisterModel: unknown fileid for %s\n", filename);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-				if (STEFX_IsWeaponDiskModelName(filename))
+
+				VID_Printf (PRINT_WARNING,"RE_RegisterModel: unknown fileid for %s\n", filename);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (STEFX_IsPlayerModelName(filename))
 				{
-					XBLF("STEFX_HM: RE_RegisterModel weapon unknown ident '%s' ident=0x%08x", filename, ident);
+					XBLF("STEFX: RE_RegisterModel player unknown ident '%s' ident=0x%08x", filename, ident);
+				}
+				if (stefxWeaponModelTrace)
+				{
+					g_SPXBWeaponModelTraceStage = 14;
+					g_SPXBWeaponModelTraceIdent = ident;
+					g_SPXBWeaponModelTraceFailCode = 2;
+					XBLF("STEFX: RE_RegisterModel weapon unknown ident '%s' ident=0x%08x", filename, ident);
 				}
 #endif
 				goto fail;
@@ -1617,10 +1361,14 @@ Ghoul2 Insert End
 
 		if ( !loaded ) {
 			if ( lod == 0 ) {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-				if (STEFX_IsWeaponDiskModelName(filename))
+				VID_Printf (PRINT_WARNING,"RE_RegisterModel: cannot load %s\n", filename);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				if (stefxWeaponModelTrace)
 				{
-					XBLF("STEFX_HM: RE_RegisterModel weapon load failed '%s' lod=%d", filename, lod);
+					g_SPXBWeaponModelTraceStage = 15;
+					g_SPXBWeaponModelTraceLoaded = 0;
+					g_SPXBWeaponModelTraceFailCode = 3;
+					XBLF("STEFX: RE_RegisterModel weapon load failed '%s' lod=%d", filename, lod);
 				}
 #endif
 				goto fail;
@@ -1639,9 +1387,6 @@ Ghoul2 Insert End
 		}
 	}
 
-	// Stop using the GLA space for GLM reads
-	FS_CancelLargeRead();
-
 	if ( numLoaded ) {
 		// duplicate into higher lod spots that weren't
 		// loaded, in case the user changes r_lodbias on the fly
@@ -1649,56 +1394,74 @@ Ghoul2 Insert End
 			mod->numLods++;
 			mod->md3[lod] = mod->md3[lod+1];
 		}
-
 /*
 Ghoul2 Insert Start
 */
 
-#ifdef _DEBUG
-	if (r_noPrecacheGLA && r_noPrecacheGLA->integer && ident == MDXA_IDENT)
-	{ //I expect this will cause leaks, but I don't care because it's a debugging utility.
-		return mod->index;
-	}
-#endif
-
 	RE_InsertModelIntoHash(name, mod);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	if (STEFX_IsWeaponDiskModelName(name))
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxWeaponModelTrace)
 	{
-		XBLF("STEFX_HM: RE_RegisterModel weapon loaded '%s' handle=%d lods=%d numLoaded=%d",
-			name,
-			mod->index,
-			mod->numLods,
-			numLoaded);
+		g_SPXBWeaponModelTraceStage = 20;
+		g_SPXBWeaponModelTraceHandle = (unsigned int)mod->index;
+		g_SPXBWeaponModelTraceLoaded = (unsigned int)numLoaded;
+		g_SPXBWeaponModelTraceFailCode = 0;
+		XBLF("STEFX: RE_RegisterModel weapon loaded '%s' handle=%d lods=%d", name, mod->index, mod->numLods);
 	}
 #endif
 	return mod->index;
 /*
 Ghoul2 Insert End
 */
+	
 	}
-#ifdef _DEBUG
-	else {
-		Com_Printf (S_COLOR_YELLOW"RE_RegisterModel: couldn't load %s\n", name);
-	}
-#endif
+
 
 fail:
 	// we still keep the model_t around, so if the model name is asked for
 	// again, we won't bother scanning the filesystem
 	mod->type = MOD_BAD;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	if (STEFX_IsWeaponDiskModelName(name))
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxWeaponModelTrace)
 	{
-		XBLF("STEFX_HM: RE_RegisterModel weapon fail insert MOD_BAD '%s' index=%d numLoaded=%d",
-			name,
-			mod->index,
-			numLoaded);
+		g_SPXBWeaponModelTraceStage = 30;
+		g_SPXBWeaponModelTraceHandle = (unsigned int)mod->index;
+		g_SPXBWeaponModelTraceLoaded = (unsigned int)numLoaded;
+		if (g_SPXBWeaponModelTraceFailCode == 0)
+		{
+			g_SPXBWeaponModelTraceFailCode = 4;
+		}
+		XBLF("STEFX: RE_RegisterModel weapon fail insert MOD_BAD '%s' index=%d numLoaded=%d", name, mod->index, numLoaded);
+	}
+	if (STEFX_IsPlayerModelName(name))
+	{
+		const char *fallbackName = STEFX_DefaultPlayerMdrFallbackName(name);
+		if (fallbackName && !STEFX_IsDefaultPlayerMdrFallbackName(name))
+		{
+			qhandle_t fallback = RE_RegisterModel_Actual(fallbackName);
+			if (fallback)
+			{
+				STEFX_InsertModelHandleAliasIntoHash(name, fallback);
+				XBLF("STEFX: RE_RegisterModel MDR hazard fallback '%s' index=%d -> '%s' handle=%d numLoaded=%d",
+					name, mod->index, fallbackName, fallback, numLoaded);
+				return fallback;
+			}
+			XBLF("STEFX: RE_RegisterModel MDR hazard fallback failed '%s' index=%d fallback='%s' numLoaded=%d",
+				name, mod->index, fallbackName, numLoaded);
+		}
+		else if (fallbackName)
+		{
+			XBLF("STEFX: RE_RegisterModel MDR hazard fallback base failed '%s' index=%d numLoaded=%d",
+				name, mod->index, numLoaded);
+		}
+		XBLF("STEFX: RE_RegisterModel player fail insert MOD_BAD '%s' index=%d numLoaded=%d", name, mod->index, numLoaded);
 	}
 #endif
 	RE_InsertModelIntoHash(name, mod);
 	return 0;
 }
+
+
 
 
 // wrapper function needed to avoid problems with mid-function returns so I can safely use this bool to tell the
@@ -1707,17 +1470,29 @@ fail:
 qboolean gbInsideRegisterModel = qfalse;
 qhandle_t RE_RegisterModel( const char *name )
 {
-	const qboolean bWhatitwas = gbInsideRegisterModel;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean stefxBorgModelTrace = (name && (strstr(name, "models/players/borg") || strstr(name, "models\\players\\borg")));
+	if (stefxBorgModelTrace)
+	{
+		XBLF("STEFX: RE_RegisterModel Borg entry '%s'", name);
+	}
+#endif
 	gbInsideRegisterModel = qtrue;	// !!!!!!!!!!!!!!
 
 		qhandle_t q = RE_RegisterModel_Actual( name );
 
-	gbInsideRegisterModel = bWhatitwas;
-
-	return q;
+if (!name || strlen(name) < 4 || stricmp(&name[strlen(name)-4],".gla")){
+	gbInsideRegisterModel = qfalse;		// GLA files recursively call this, so don't turn off half way. A reference count would be nice, but if any ERR_DROP ever occurs within the load then the refcount will be knackered from then on
 }
 
-
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxBorgModelTrace)
+	{
+		XBLF("STEFX: RE_RegisterModel Borg exit '%s' -> %d", name, q);
+	}
+#endif
+	return q;
+}
 
 
 /*
@@ -1725,7 +1500,7 @@ qhandle_t RE_RegisterModel( const char *name )
 R_LoadMDR
 =================
 */
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qboolean &bAlreadyCached ) {
 	int					i, j;
 	md4Header_t			*pinmodel;
@@ -1746,46 +1521,71 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 
 	if (version != MD4_VERSION)
 	{
-		Com_Printf (S_COLOR_YELLOW "R_LoadMDR: %s has wrong version (%i should be %i)\n",
-			mod_name, version, MD4_VERSION);
+		VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has wrong version (%i should be %i)\n",
+			mod_name, version, MD4_VERSION );
 #if defined(_XBOX)
-		XBLF("STEFX_HM: R_LoadMDR wrong version '%s' version=%d expected=%d", mod_name, version, MD4_VERSION);
+		XBLF("STEFX: R_LoadMDR wrong version '%s' version=%d expected=%d", mod_name, version, MD4_VERSION);
 #endif
 		return qfalse;
 	}
 
 	if (size <= 0)
 	{
-		Com_Printf (S_COLOR_YELLOW "R_LoadMDR: %s has invalid size %i\n", mod_name, size);
+		VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has invalid size %i\n", mod_name, size );
 #if defined(_XBOX)
-		XBLF("STEFX_HM: R_LoadMDR invalid size '%s' size=%d", mod_name, size);
+		XBLF("STEFX: R_LoadMDR invalid size '%s' size=%d", mod_name, size);
 #endif
 		return qfalse;
 	}
+
+#if defined(_XBOX)
+	if (STEFX_IsPlayerModelName(mod_name))
+	{
+		STEFX_LogMdrMemoryStats("load-start", mod_name, size, size, size, 0, 1);
+	}
+
+	if (STEFX_ShouldUseMdrMemoryPlaceholder(mod_name, size))
+	{
+		mod->type = MOD_STEFX_MDR_PLACEHOLDER;
+		mod->dataSize += size;
+		mod->numLods = 0;
+		mod->md4 = NULL;
+		XBLF("STEFX: R_LoadMDR overbudget placeholder '%s' size=%d cap=%d",
+			mod_name, size, 1536 * 1024);
+		return qtrue;
+	}
+#endif
 
 	mod->type = MOD_MDR;
 	mod->dataSize += size;
 
 	qboolean bAlreadyFound = qfalse;
-#ifdef _XBOX
-	mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3, 0, false);
-#else
 	mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
-#endif
 	if (!mod->md4)
 	{
 #if defined(_XBOX)
-		XBLF("STEFX_HM: R_LoadMDR allocation failed '%s' size=%d", mod_name, size);
+		XBLF("STEFX: R_LoadMDR allocation failed '%s' size=%d", mod_name, size);
 #endif
 		return qfalse;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (!bAlreadyFound && mod->md4 == buffer)
+	{
+		bAlreadyCached = qtrue;
+		XBLF("STEFX: R_LoadMDR using adopted disk buffer '%s' size=%d", mod_name, size);
+	}
+#else
 	assert(bAlreadyCached == bAlreadyFound);
+#endif
 
 	if (!bAlreadyFound)
 	{
 #ifdef _XBOX
-		memcpy(mod->md4, buffer, size);
+		if (mod->md4 != buffer)
+		{
+			memcpy(mod->md4, buffer, size);
+		}
 #else
 		bAlreadyCached = qtrue;
 		assert(mod->md4 == buffer);
@@ -1804,15 +1604,15 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 
 		if (mod->md4->numFrames < 1 || mod->md4->numBones < 1 || mod->md4->numLODs < 1)
 		{
-			Com_Printf (S_COLOR_YELLOW "R_LoadMDR: %s has invalid counts frames=%i bones=%i lods=%i\n",
-				mod_name, mod->md4->numFrames, mod->md4->numBones, mod->md4->numLODs);
+			VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has invalid counts frames=%i bones=%i lods=%i\n",
+				mod_name, mod->md4->numFrames, mod->md4->numBones, mod->md4->numLODs );
 			return qfalse;
 		}
 
 		if (mod->md4->numBones > MD4_MAX_BONES)
 		{
-			Com_Printf (S_COLOR_YELLOW "R_LoadMDR: %s has too many bones (%i > %i)\n",
-				mod_name, mod->md4->numBones, MD4_MAX_BONES);
+			VID_Printf( PRINT_WARNING, "R_LoadMDR: %s has too many bones (%i > %i)\n",
+				mod_name, mod->md4->numBones, MD4_MAX_BONES );
 			return qfalse;
 		}
 
@@ -1822,10 +1622,10 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 			LL(tag->boneIndex);
 			if (tag->boneIndex < 0 || tag->boneIndex >= mod->md4->numBones)
 			{
-				Com_Printf (S_COLOR_YELLOW "R_LoadMDR: %s tag %s has invalid bone index %i of %i\n",
-					mod_name, tag->name, tag->boneIndex, mod->md4->numBones);
+				VID_Printf( PRINT_WARNING, "R_LoadMDR: %s tag %s has invalid bone index %i of %i\n",
+					mod_name, tag->name, tag->boneIndex, mod->md4->numBones );
 #ifdef _XBOX
-				XBLF("STEFX_HM: R_LoadMDR invalid tag model='%s' tag='%s' bone=%d bones=%d",
+				XBLF("STEFX: R_LoadMDR invalid tag model='%s' tag='%s' bone=%d bones=%d",
 					mod_name, tag->name, tag->boneIndex, mod->md4->numBones);
 #endif
 			}
@@ -1854,13 +1654,13 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 
 				if (surf->numVerts > SHADER_MAX_VERTEXES)
 				{
-					Com_Error (ERR_DROP, "R_LoadMDR: %s has more than %i verts on a surface (%i)",
-						mod_name, SHADER_MAX_VERTEXES, surf->numVerts);
+					Com_Error( ERR_DROP, "R_LoadMDR: %s has more than %i verts on a surface (%i)",
+						mod_name, SHADER_MAX_VERTEXES, surf->numVerts );
 				}
 				if (surf->numTriangles * 3 > SHADER_MAX_INDEXES)
 				{
-					Com_Error (ERR_DROP, "R_LoadMDR: %s has more than %i triangles on a surface (%i)",
-						mod_name, SHADER_MAX_INDEXES / 3, surf->numTriangles);
+					Com_Error( ERR_DROP, "R_LoadMDR: %s has more than %i triangles on a surface (%i)",
+						mod_name, SHADER_MAX_INDEXES / 3, surf->numTriangles );
 				}
 
 				surf->ident = SF_MDR;
@@ -1886,12 +1686,17 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 
 	mod->numLods = (mod->md4->numLODs > 0) ? (unsigned char)(mod->md4->numLODs - 1) : 0;
 #ifdef _XBOX
-	XBLF("STEFX_HM: R_LoadMDR loaded '%s' frames=%d bones=%d lods=%d size=%d",
+	XBLF("STEFX: R_LoadMDR loaded '%s' frames=%d bones=%d lods=%d size=%d",
 		mod_name, mod->md4->numFrames, mod->md4->numBones, mod->md4->numLODs, size);
+	if (STEFX_IsPlayerModelName(mod_name))
+	{
+		STEFX_LogMdrMemoryStats("load-done", mod_name, size, size, size, 0, 1);
+	}
 #endif
 	return qtrue;
 }
 #endif
+
 
 /*
 =================
@@ -1902,6 +1707,7 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	int					i, j;
 	md3Header_t			*pinmodel;
 	md3Surface_t		*surf;
+	md3Shader_t			*shader;
 	int					version;
 	int					size;
 
@@ -1926,10 +1732,15 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		version = LittleLong(version);
 		size	= LittleLong(size);
 	}
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (STEFX_IsWeaponDiskModelName(mod_name))
 	{
-		XBLF("STEFX_HM: R_LoadMD3 weapon begin '%s' lod=%d cached=%d version=%d size=%d",
+		g_SPXBWeaponModelTraceStage = 11;
+		g_SPXBWeaponModelTracePathHash = STEFX_ModelTraceHash( mod_name );
+		g_SPXBWeaponModelTraceVersion = (unsigned int)version;
+		g_SPXBWeaponModelTraceSize = (unsigned int)size;
+		g_SPXBWeaponModelTraceFailCode = 0;
+		XBLF("STEFX: R_LoadMD3 weapon begin '%s' lod=%d cached=%d version=%d size=%d",
 			mod_name,
 			lod,
 			bAlreadyCached ? 1 : 0,
@@ -1939,12 +1750,15 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 #endif
 	
 	if (version != MD3_VERSION) {
-		Com_Printf (S_COLOR_YELLOW  "R_LoadMD3: %s has wrong version (%i should be %i)\n",
+		VID_Printf( PRINT_WARNING, "R_LoadMD3: %s has wrong version (%i should be %i)\n",
 				 mod_name, version, MD3_VERSION);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (STEFX_IsWeaponDiskModelName(mod_name))
 		{
-			XBLF("STEFX_HM: R_LoadMD3 weapon wrong version '%s' version=%d expected=%d",
+			g_SPXBWeaponModelTraceStage = 12;
+			g_SPXBWeaponModelTraceVersion = (unsigned int)version;
+			g_SPXBWeaponModelTraceFailCode = 5;
+			XBLF("STEFX: R_LoadMD3 weapon wrong version '%s' version=%d expected=%d",
 				mod_name,
 				version,
 				MD3_VERSION);
@@ -1957,25 +1771,22 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	mod->dataSize += size;
 
 	qboolean bAlreadyFound = qfalse;
-#ifdef _XBOX
-	mod->md3[lod] = (md3Header_t *) //Hunk_Alloc( size );
-										RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3, 0, false);
-#else
-	mod->md3[lod] = (md3Header_t *) //Hunk_Alloc( size );
-										RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
-#endif
+	mod->md3[lod] = (md3Header_t *) RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
 	if (!mod->md3[lod])
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (STEFX_IsWeaponDiskModelName(mod_name))
 		{
-			XBLF("STEFX_HM: R_LoadMD3 allocation failed '%s' lod=%d size=%d", mod_name, lod, size);
+			g_SPXBWeaponModelTraceStage = 13;
+			g_SPXBWeaponModelTraceSize = (unsigned int)size;
+			g_SPXBWeaponModelTraceFailCode = 6;
 		}
+		XBLF("STEFX: R_LoadMD3 allocation failed '%s' lod=%d size=%d", mod_name, lod, size);
 #endif
 		return qfalse;
 	}
 
-	assert(bAlreadyCached == bAlreadyFound);	// I should probably eliminate 'bAlreadyFound', but wtf?
+	assert(bAlreadyCached == bAlreadyFound);
 
 	if (!bAlreadyFound)
 	{	
@@ -1985,8 +1796,8 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		//
 		// Aaaargh. Kill me now...
 		//
-#ifdef _XBOX	// Can't re-tag allocated memory!
-		memcpy( mod->md3[lod], buffer, size );	// and don't do this now, since it's the same thing		
+#ifdef _XBOX
+		memcpy( mod->md3[lod], buffer, size );
 #else
 		bAlreadyCached = qtrue;
 		assert( mod->md3[lod] == buffer );
@@ -2004,11 +1815,13 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	}
 
 	if ( mod->md3[lod]->numFrames < 1 ) {
-		Com_Printf (S_COLOR_YELLOW  "R_LoadMD3: %s has no frames\n", mod_name );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		VID_Printf( PRINT_WARNING, "R_LoadMD3: %s has no frames\n", mod_name );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (STEFX_IsWeaponDiskModelName(mod_name))
 		{
-			XBLF("STEFX_HM: R_LoadMD3 weapon no frames '%s'", mod_name);
+			g_SPXBWeaponModelTraceStage = 16;
+			g_SPXBWeaponModelTraceFailCode = 7;
+			XBLF("STEFX: R_LoadMD3 weapon no frames '%s'", mod_name);
 		}
 #endif
 		return qfalse;
@@ -2016,10 +1829,13 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 
 	if (bAlreadyFound)
 	{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (STEFX_IsWeaponDiskModelName(mod_name))
 		{
-			XBLF("STEFX_HM: R_LoadMD3 weapon cache reused '%s' lod=%d", mod_name, lod);
+			g_SPXBWeaponModelTraceStage = 17;
+			g_SPXBWeaponModelTraceLoaded = 1;
+			g_SPXBWeaponModelTraceFailCode = 0;
+			XBLF("STEFX: R_LoadMD3 weapon cache reused '%s' lod=%d", mod_name, lod);
 		}
 #endif
 		return qtrue;	// All done. Stop, go no further, do not pass Go...
@@ -2088,9 +1904,8 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		if ( j > 2 && surf->name[j-2] == '_' ) {
 			surf->name[j-2] = 0;
 		}
-#ifndef DEDICATED
+
         // register the shaders
-		md3Shader_t		*shader;
         shader = (md3Shader_t *) ( (byte *)surf + surf->ofsShaders );
         for ( j = 0 ; j < surf->numShaders ; j++, shader++ ) {
             shader_t	*sh;
@@ -2103,7 +1918,7 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 			}
 			RE_RegisterModels_StoreShaderRequest(mod_name, &shader->name[0], &shader->shaderIndex);
         }
-#endif
+
 
 #ifndef _M_IX86
 //
@@ -2140,17 +1955,12 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		// find the next surface
 		surf = (md3Surface_t *)( (byte *)surf + surf->ofsEnd );
 	}
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (STEFX_IsWeaponDiskModelName(mod_name))
 	{
-		XBLF("STEFX_HM: R_LoadMD3 weapon loaded '%s' lod=%d frames=%d tags=%d surfaces=%d size=%d",
-			mod_name,
-			lod,
-			mod->md3[lod]->numFrames,
-			mod->md3[lod]->numTags,
-			mod->md3[lod]->numSurfaces,
-			size);
+		g_SPXBWeaponModelTraceStage = 18;
+		g_SPXBWeaponModelTraceLoaded = 1;
+		g_SPXBWeaponModelTraceFailCode = 0;
 	}
 #endif
     
@@ -2159,108 +1969,76 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 
 
 //=============================================================================
-#ifndef DEDICATED
+
+void ShaderTableCleanup();
+void CM_LoadShaderText(bool forceReload);
+void CM_SetupShaderProperties(void);
+
+void R_HunkClearCrap(void)
+{
+	ShaderTableCleanup();
+	tr.numModels = 0;
+	memset(tr.models, 0, sizeof(tr.models));
+	tr.numShaders = 0;
+	tr.numSkins = 0;
+}
+
 /*
 ** RE_BeginRegistration
 */
 void RE_BeginRegistration( glconfig_t *glconfigOut ) {
+#ifndef _XBOX
+	ShaderTableCleanup();
+#endif
+	Hunk_ClearToMark();
 
 	R_Init();
-
 	*glconfigOut = glConfig;
 
-	R_SyncRenderThread();
-
 	tr.viewCluster = -1;		// force markleafs to regenerate
-
-	// rww - 9-13-01 [1-26-01-sof2]
-	//R_ClearFlares();
-
 	RE_ClearScene();
-
 	tr.registered = qtrue;
 
-	// NOTE: this sucks, for some reason the first stretch pic is never drawn
-	// without this we'd see a white flash on a level load because the very
-	// first time the level shot would not be drawn
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	Com_Printf("STEFX_HM: renderer skipped inherited zero-size registration StretchPic prime\n");
-#else
-	RE_StretchPic(0, 0, 0, 0, 0, 0, 1, 1, 0);
-#endif
+	R_SyncRenderThread();
 }
 
 //=============================================================================
-
-#endif // !DEDICATED
-void R_SVModelInit()
-{
-	R_ModelInit();
-}
 
 /*
 ===============
 R_ModelInit
 ===============
 */
-void R_ModelInit( void )
+void R_ModelInit( void ) 
 {
-	model_t		*mod;
-
-	if(!CachedModels)
+#ifdef _XBOX
+	// Sorry Raven, but static maps == fragmentation
+	if (!CachedModels)
 	{
 		CachedModels = new CachedModels_t;
 	}
+#else
+	static CachedModels_t singleton;	// sorry vv, your dynamic allocation was a (false) memory leak
+	CachedModels = &singleton;
+#endif
+
+	model_t		*mod;
 
 	// leave a space for NULL model
 	tr.numModels = 0;
-	// Need to clear this now, because they're not in consecutive slots:
-	memset( tr.models, 0, sizeof(tr.models) );
-
-//	memset(mhHashTable, 0, sizeof(mhHashTable));
-	if(mhHashTable)
-	{
-        mhHashTable->clear();
-		delete mhHashTable;
-	}
-
-	mhHashTable = new HashTable;
 
 	mod = R_AllocModel();
 	mod->type = MOD_BAD;
+/*
+Ghoul2 Insert Start
+*/
+
+	memset(mhHashTable, 0, sizeof(mhHashTable));
+/*
+Ghoul2 Insert End
+*/
+
 }
-
-extern void KillTheShaderHashTable(void);
-void R_HunkClearCrap(void)
-{ //get your dirty sticky assets off me, you damn dirty hunk!
-	KillTheShaderHashTable();
-	tr.numModels = 0;
-	memset(tr.models, 0, sizeof(tr.models));
-//	memset(mhHashTable, 0, sizeof(mhHashTable));
-	if(mhHashTable)
-	{
-        mhHashTable->clear();
-	}
-	tr.numShaders = 0;
-	tr.numSkins = 0;
-}
-
-void R_ModelFree(void)
-{
-	if(CachedModels) {
-		RE_RegisterModels_DeleteAll();
-		delete CachedModels;
-		CachedModels = NULL;
-	}
-
-	if(mhHashTable)
-	{
-		mhHashTable->clear();
-		delete mhHashTable;
-		mhHashTable = NULL;
-	}
-}
-
 
 
 /*
@@ -2275,35 +2053,70 @@ void R_Modellist_f( void ) {
 	int		lods;
 
 	total = 0;
-	for ( i = 1 ; i < MAX_MOD_KNOWN; i++ ) {
-		if( !tr.models[i] )
-			continue;
+	for ( i = 1 ; i < tr.numModels; i++ ) {
 		mod = tr.models[i];
-		lods = 1;
-		for ( j = 1 ; j < MD3_MAX_LODS ; j++ ) {
-			if ( mod->md3[j] && mod->md3[j] != mod->md3[j-1] ) {
-				lods++;
-			}
+		switch (mod->type)
+		{
+			default:
+				assert(0);
+				VID_Printf( PRINT_ALL, "UNKNOWN  :      %s\n", mod->name );
+				break;
+
+			case MOD_BAD:
+				VID_Printf( PRINT_ALL, "MOD_BAD  :      %s\n", mod->name );
+				break;
+
+			case MOD_BRUSH:
+				VID_Printf( PRINT_ALL, "%8i : (%i) %s\n", mod->dataSize, mod->numLods, mod->name );
+				break;
+
+#ifdef STEFX_ELITE_FORCE_SP
+			case MOD_MDR:
+				VID_Printf( PRINT_ALL, "%8i : (%i MDR) %s\n", mod->dataSize, mod->numLods, mod->name );
+				break;
+
+			case MOD_STEFX_MDR_PLACEHOLDER:
+				VID_Printf( PRINT_ALL, "%8i : (MDR placeholder) %s\n", mod->dataSize, mod->name );
+				break;
+#endif
+
+			case MOD_MDXA:
+
+				VID_Printf( PRINT_ALL, "%8i : (%i) %s\n", mod->dataSize, mod->numLods, mod->name );								
+				break;
+		
+			case MOD_MDXM:
+				
+				VID_Printf( PRINT_ALL, "%8i : (%i) %s\n", mod->dataSize, mod->numLods, mod->name );								
+				break;
+
+			case MOD_MESH:
+
+				lods = 1;
+				for ( j = 1 ; j < MD3_MAX_LODS ; j++ ) {
+					if ( mod->md3[j] && mod->md3[j] != mod->md3[j-1] ) {
+						lods++;
+					}
+				}				
+				VID_Printf( PRINT_ALL, "%8i : (%i) %s\n",mod->dataSize, lods, mod->name );
+				break;		
 		}
-		Com_Printf ("%8i : (%i) %s\n",mod->dataSize, lods, mod->name );
 		total += mod->dataSize;
 	}
-	Com_Printf ("%8i : Total models\n", total );
+	VID_Printf( PRINT_ALL, "%8i : Total models\n", total );
 
-#if	0		// not working right with new hunk
+/*	this doesn't work with the new hunks
 	if ( tr.world ) {
-		Com_Printf ("\n%8i : %s\n", tr.world->dataSize, tr.world->name );
-	}
-#endif
+		VID_Printf( PRINT_ALL, "%8i : %s\n", tr.world->dataSize, tr.world->name );
+	} */
 }
-
 
 //=============================================================================
 
 
 /*
 ================
-R_GetTag
+R_GetTag for MD3s
 ================
 */
 static md3Tag_t *R_GetTag( md3Header_t *mod, int frame, const char *tagName ) {
@@ -2325,7 +2138,7 @@ static md3Tag_t *R_GetTag( md3Header_t *mod, int frame, const char *tagName ) {
 	return NULL;
 }
 
-#ifdef STEFX_ELITE_FORCE_RENDERER
+#ifdef STEFX_ELITE_FORCE_SP
 static md4Tag_t *R_STEFX_GetMDRTag( md4Header_t *mod, const char *tagName ) {
 	md4Tag_t		*tag;
 	int				i;
@@ -2393,7 +2206,7 @@ static qboolean R_STEFX_LerpMDRTag( orientation_t *tag, model_t *model, int star
 #if defined(_XBOX)
 		static int s_missingTagLogBudget = 0;
 		if ( s_missingTagLogBudget < 24 ) {
-			XBLF( "STEFX_HM: R_LerpTag MDR missing tag='%s' model='%s' tags=%d",
+			XBLF( "STEFX: R_LerpTag MDR missing tag='%s' model='%s' tags=%d",
 				tagName ? tagName : "(null)",
 				model->name,
 				model->md4->numTags );
@@ -2408,7 +2221,7 @@ static qboolean R_STEFX_LerpMDRTag( orientation_t *tag, model_t *model, int star
 #if defined(_XBOX)
 		static int s_badTagLogBudget = 0;
 		if ( s_badTagLogBudget < 24 ) {
-			XBLF( "STEFX_HM: R_LerpTag MDR bad bone tag='%s' model='%s' bone=%d bones=%d frames=%d/%d count=%d",
+			XBLF( "STEFX: R_LerpTag MDR bad bone tag='%s' model='%s' bone=%d bones=%d frames=%d/%d count=%d",
 				tagName ? tagName : "(null)",
 				model->name,
 				mdrTag->boneIndex,
@@ -2444,7 +2257,7 @@ static qboolean R_STEFX_LerpMDRTag( orientation_t *tag, model_t *model, int star
 	{
 		static int s_tagLogBudget = 0;
 		if ( s_tagLogBudget < 64 ) {
-			XBLF( "STEFX_HM: R_LerpTag MDR ok tag='%s' model='%s' bone=%d frames=%d/%d frac=%g origin=(%g,%g,%g)",
+			XBLF( "STEFX: R_LerpTag MDR ok tag='%s' model='%s' bone=%d frames=%d/%d frac=%g origin=(%g,%g,%g) axis0=(%g,%g,%g)",
 				tagName ? tagName : "(null)",
 				model->name,
 				mdrTag->boneIndex,
@@ -2453,7 +2266,10 @@ static qboolean R_STEFX_LerpMDRTag( orientation_t *tag, model_t *model, int star
 				frac,
 				tag->origin[0],
 				tag->origin[1],
-				tag->origin[2] );
+				tag->origin[2],
+				tag->axis[0][0],
+				tag->axis[0][1],
+				tag->axis[0][2] );
 			s_tagLogBudget++;
 		}
 	}
@@ -2468,54 +2284,56 @@ static qboolean R_STEFX_LerpMDRTag( orientation_t *tag, model_t *model, int star
 R_LerpTag
 ================
 */
-int R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFrame, 
+void	R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFrame, 
 					 float frac, const char *tagName ) {
-	md3Tag_t	*start, *end;
+	md3Tag_t	*start, *finish;
 	int		i;
 	float		frontLerp, backLerp;
 	model_t		*model;
 
 	model = R_GetModelByHandle( handle );
-	if ( model->md3[0] ) {
+	if ( model->md3[0] ) 
+	{
 		start = R_GetTag( model->md3[0], startFrame, tagName );
-		end = R_GetTag( model->md3[0], endFrame, tagName );
+		finish = R_GetTag( model->md3[0], endFrame, tagName );
 	}
-#ifdef STEFX_ELITE_FORCE_RENDERER
-	else if ( model->md4 ) {
+#ifdef STEFX_ELITE_FORCE_SP
+	else if ( model->md4 )
+	{
 		if ( R_STEFX_LerpMDRTag( tag, model, startFrame, endFrame, frac, tagName ) ) {
-			return qtrue;
+			return;
 		}
 
 		AxisClear( tag->axis );
 		VectorClear( tag->origin );
-		return qfalse;
+		return;
 	}
 #endif
-	else {
+	else
+	{
 		AxisClear( tag->axis );
 		VectorClear( tag->origin );
-		return qfalse;
+		return;
 	}
 
-	if ( !start || !end ) {
+	if ( !start || !finish ) {
 		AxisClear( tag->axis );
 		VectorClear( tag->origin );
-		return qfalse;
+		return;
 	}
 
 	frontLerp = frac;
-	backLerp = 1.0f - frac;
+	backLerp = 1.0 - frac;
 
 	for ( i = 0 ; i < 3 ; i++ ) {
-		tag->origin[i] = start->origin[i] * backLerp +  end->origin[i] * frontLerp;
-		tag->axis[0][i] = start->axis[0][i] * backLerp +  end->axis[0][i] * frontLerp;
-		tag->axis[1][i] = start->axis[1][i] * backLerp +  end->axis[1][i] * frontLerp;
-		tag->axis[2][i] = start->axis[2][i] * backLerp +  end->axis[2][i] * frontLerp;
+		tag->origin[i] = start->origin[i] * backLerp +  finish->origin[i] * frontLerp;
+		tag->axis[0][i] = start->axis[0][i] * backLerp +  finish->axis[0][i] * frontLerp;
+		tag->axis[1][i] = start->axis[1][i] * backLerp +  finish->axis[1][i] * frontLerp;
+		tag->axis[2][i] = start->axis[2][i] * backLerp +  finish->axis[2][i] * frontLerp;
 	}
 	VectorNormalize( tag->axis[0] );
 	VectorNormalize( tag->axis[1] );
 	VectorNormalize( tag->axis[2] );
-	return qtrue;
 }
 
 
@@ -2526,8 +2344,6 @@ R_ModelBounds
 */
 void R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs ) {
 	model_t		*model;
-	md3Header_t	*header;
-	md3Frame_t	*frame;
 
 	model = R_GetModelByHandle( handle );
 
@@ -2537,18 +2353,33 @@ void R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs ) {
 		return;
 	}
 
-	if ( !model->md3[0] ) {
+	if ( model->md3[0] ) {
+		md3Header_t	*header;
+		md3Frame_t	*frame;
+		header = model->md3[0];
+
+		frame = (md3Frame_t *)( (byte *)header + header->ofsFrames );
+
+		VectorCopy( frame->bounds[0], mins );
+		VectorCopy( frame->bounds[1], maxs );
+	}
+	else
+	{
 		VectorClear( mins );
 		VectorClear( maxs );
 		return;
 	}
-
-	header = model->md3[0];
-
-	frame = (md3Frame_t *)( (byte *)header + header->ofsFrames );
-
-	VectorCopy( frame->bounds[0], mins );
-	VectorCopy( frame->bounds[1], maxs );
 }
 
 
+#ifdef _XBOX
+void R_ModelFree(void)
+{
+	if (CachedModels)
+	{
+		RE_RegisterModels_DeleteAll();
+		delete CachedModels;
+		CachedModels = NULL;
+	}
+}
+#endif

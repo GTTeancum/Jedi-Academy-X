@@ -1,36 +1,21 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // tr_image.c
+
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
+
+
 #include "tr_local.h"
-#ifndef DEDICATED
-#include "glext.h"
+#include "tr_jpeg_interface.h"
+#ifdef _XBOX
+#include "../qcommon/sstring.h"
+#include "../zlib/zlib.h"
+#include "../win32/xb_log.h"
 #endif
-
-#pragma warning (push, 3)	//go back down to 3 for the stl include
-#include <map>
-#pragma warning (pop)
-using namespace std;
-
-
-/*
- * Include file for users of JPEG library.
- * You will need to have included system headers that define at least
- * the typedefs FILE and size_t before you can include jpeglib.h.
- * (stdio.h is sufficient on ANSI-conforming systems.)
- * You may also wish to include "jerror.h".
- */
-
-
-#define JPEG_INTERNALS
-#include "../jpeg-6/jpeglib.h"
 #include "../png/png.h"
-
-#ifndef DEDICATED
-
-static void LoadTGA( const char *name, byte **pic, int *width, int *height );
-static void LoadJPG( const char *name, byte **pic, int *width, int *height );
-
+#include "../qcommon/sstring.h"
+#include "../win32/xbox_texture_man.h"
 
 static byte			 s_intensitytable[256];
 static unsigned char s_gammatable[256];
@@ -38,7 +23,7 @@ static unsigned char s_gammatable[256];
 int		gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
 int		gl_filter_max = GL_LINEAR;
 
-//#define FILE_HASH_SIZE		1024	// actually the shader code still needs this (from another module, great),
+#define FILE_HASH_SIZE		1024	// actually, the shader code needs this (from another module, great).
 //static	image_t*		hashTable[FILE_HASH_SIZE];
 
 /*
@@ -66,10 +51,32 @@ textureMode_t modes[] = {
 	{"GL_LINEAR_MIPMAP_LINEAR", GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR}
 };
 
+/*
+================
+return a hash value for the filename
+================
+*/
+long generateHashValue( const char *fname ) {
+	int		i;
+	long	hash;
+	char	letter;
+
+	hash = 0;
+	i = 0;
+	while (fname[i] != '\0') {
+		letter = tolower(fname[i]);
+		if (letter =='.') break;				// don't include extension
+		if (letter =='\\') letter = '/';		// damn path names
+		hash+=(long)(letter)*(i+119);
+		i++;
+	}
+	hash &= (FILE_HASH_SIZE-1);
+	return hash;
+}
 
 // makeup a nice clean, consistant name to query for and file under, for map<> usage...
 //
-static char *GenerateImageMappingName( const char *name )
+char *GenerateImageMappingName( const char *name )
 {
 	static char sName[MAX_QPATH];
 	int		i=0;
@@ -77,7 +84,7 @@ static char *GenerateImageMappingName( const char *name )
 	
 	while (name[i] != '\0' && i<MAX_QPATH-1) 
 	{
-		letter = tolower((unsigned char)name[i]);
+		letter = tolower(name[i]);
 		if (letter =='.') break;				// don't include extension
 		if (letter =='\\') letter = '/';		// damn path names
 		sName[i++] = letter;
@@ -86,10 +93,6 @@ static char *GenerateImageMappingName( const char *name )
 	
 	return &sName[0];
 }
-
-
-
-
 
 /*
 ===============
@@ -107,9 +110,9 @@ void GL_TextureMode( const char *string ) {
 	}
 
 	if ( i == 6 ) {
-		Com_Printf ( "bad filter name\n");
+		VID_Printf (PRINT_ALL, "bad filter name\n");
 		for ( i=0 ; i< 6 ; i++ ) {
-			Com_Printf ("%s\n",modes[i].name);
+			VID_Printf( PRINT_ALL, "%s\n",modes[i].name);
 			}
 		return;
 	}
@@ -122,20 +125,26 @@ void GL_TextureMode( const char *string ) {
 	{
 		Cvar_Set( "r_ext_texture_filter_anisotropic", va("%f",glConfig.maxTextureFilterAnisotropy) );
 	}
+
 	// change all the existing mipmap texture objects
+//	int iNumImages = 
 	   				 R_Images_StartIteration();
 	while ( (glt   = R_Images_GetNextIteration()) != NULL)
 	{
+#ifdef _XBOX
+		if ( glt->mipcount ) {
+#else
 		if ( glt->mipmap ) {
+#endif
 			GL_Bind (glt);
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
 
 			if(glConfig.maxTextureFilterAnisotropy>0) {
 				if(r_ext_texture_filter_anisotropic->integer>1) {
-					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, r_ext_texture_filter_anisotropic->value);
+					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, r_ext_texture_filter_anisotropic->value);
 				} else {
-					qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
+					glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
 				}
 			}
 		}
@@ -192,39 +201,26 @@ static float R_BytesPerTex (int format)
 		//"DXT5 " 
 		return 1;
 		break;
+	case GL_DDS1_EXT:
+		//"DDS1 "
+		return 0.5f;
+		break;
+	case GL_DDS5_EXT:
+		//"DDS5 "
+		return 1;
+		break;
+	case GL_DDS_RGB16_EXT:
+		//"DDS16"
+		return 2;
+		break;
+	case GL_DDS_RGBA32_EXT:
+		//"DDS32"
+		return 4;
+		break;
 	default:
 		//"???? " 
 		return 4;
 	}
-}
-
-/*
-===============
-R_SumOfUsedImages
-===============
-*/
-float R_SumOfUsedImages( qboolean bUseFormat ) 
-{	
-	int	total = 0;
-	image_t *pImage;
-
-					  R_Images_StartIteration();
-	while ( (pImage = R_Images_GetNextIteration()) != NULL)
-	{
-		if ( pImage->frameUsed == tr.frameCount- 1 ) {//it has already been advanced for the next frame, so...
-			if (bUseFormat)
-			{
-				float  bytePerTex = R_BytesPerTex (pImage->internalFormat);
-				total += bytePerTex * (pImage->width * pImage->height);
-			}
-			else
-			{
-				total += pImage->width * pImage->height;
-			}
-		}
-	}
-
-	return total;
 }
 
 /*
@@ -235,80 +231,93 @@ R_ImageList_f
 void R_ImageList_f( void ) {
 	int		i=0;
 	image_t	*image;
-	int		texels=0;
+	int		texels = 0;
+//	int		totalFileSizeK = 0;
 	float	texBytes = 0.0f;
 	const char *yesno[] = {"no ", "yes"};
+	int curTexels;
+	unsigned curBytes;
 
-	Com_Printf ( "\n      -w-- -h-- -mm- -if-- wrap --name-------\n");
+	VID_Printf (PRINT_ALL, "\n      -w-- -h-- -mm- -if-- --size-- surfs --name-------\n");
 
 	int iNumImages = R_Images_StartIteration();
 	while ( (image = R_Images_GetNextIteration()) != NULL)
 	{
-		texels   += image->width*image->height;
-		texBytes += image->width*image->height * R_BytesPerTex (image->internalFormat);
-		Com_Printf (  "%4i: %4i %4i  %s ",
-			i, image->width, image->height, yesno[image->mipmap] );
+		curTexels = image->width * image->height;
+		texels   += curTexels;
+
+		curBytes = curTexels * R_BytesPerTex(image->internalFormat);
+		if( image->mipcount )
+			curBytes *= 1.3;
+		curBytes = (curBytes + 127) &  ~127;
+		texBytes += curBytes;
+//		totalFileSizeK += (image->imgfileSize+1023)/1024;
+		VID_Printf (PRINT_ALL,  "%4i: %4i %4i  %s ",
+			i, image->width, image->height, yesno[image->mipcount?1:0] );
 		switch ( image->internalFormat ) {
 		case 1:
-			Com_Printf ("I    " );
+			VID_Printf( PRINT_ALL, "I    " );
 			break;
 		case 2:
-			Com_Printf ("IA   " );
+			VID_Printf( PRINT_ALL, "IA   " );
 			break;
 		case 3:
-			Com_Printf ("RGB  " );
+			VID_Printf( PRINT_ALL, "RGB  " );
 			break;
 		case 4:
-			Com_Printf ("RGBA " );
+			VID_Printf( PRINT_ALL, "RGBA " );
 			break;
 		case GL_RGBA8:
-			Com_Printf ("RGBA8" );
+			VID_Printf( PRINT_ALL, "RGBA8" );
 			break;
 		case GL_RGB8:
-			Com_Printf ("RGB8" );
+			VID_Printf( PRINT_ALL, "RGB8 " );
 			break;
 		case GL_RGB4_S3TC:
-			Com_Printf ("S3TC " );
+			VID_Printf( PRINT_ALL, "S3TC " );
 			break;
 		case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
-			Com_Printf ("DXT1 " );
+			VID_Printf( PRINT_ALL, "DXT1 " );
 			break;
 		case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-			Com_Printf ("DXT5 " );
+			VID_Printf( PRINT_ALL, "DXT5 " );
 			break;
 		case GL_RGBA4:
-			Com_Printf ("RGBA4" );
+			VID_Printf( PRINT_ALL, "RGBA4" );
 			break;
 		case GL_RGB5:
-			Com_Printf ("RGB5 " );
+			VID_Printf( PRINT_ALL, "RGB5 " );
+			break;
+		case GL_DDS1_EXT:
+			VID_Printf( PRINT_ALL, "DDS1 " );
+			break;
+		case GL_DDS5_EXT:
+			VID_Printf( PRINT_ALL, "DDS5 " );
+			break;
+		case GL_DDS_RGB16_EXT:
+			VID_Printf( PRINT_ALL, "DDS16" );
+			break;
+		case GL_DDS_RGBA32_EXT:
+			VID_Printf( PRINT_ALL, "DDS32" );
 			break;
 		default:
-			Com_Printf ("???? " );
+			VID_Printf( PRINT_ALL, "???? " );
 		}
 
-		switch ( image->wrapClampMode ) {
-		case GL_REPEAT:
-			Com_Printf ("rept " );
-			break;
-		case GL_CLAMP:
-			Com_Printf ("clmp " );
-			break;
-		case GL_CLAMP_TO_EDGE:
-			Com_Printf ("clpE " );
-			break;
-		default:
-			Com_Printf ("%4i ", image->wrapClampMode );
-			break;
-		}
-		
-		Com_Printf ("%s\n", image->imgName );
+#ifndef FINAL_BUILD
+		VID_Printf( PRINT_ALL, " %8u %4i %s\n", curBytes, R_SurfaceImageCount(image),
+				image->imgName );
+#else
+		VID_Printf( PRINT_ALL, " %8u %u\n", curBytes, image->imgCode );
+#endif
 		i++;
 	}
-	Com_Printf ( " ---------\n");
-	Com_Printf ( "      -w-- -h-- -mm- -if- wrap --name-------\n");
-	Com_Printf ( " %i total texels (not including mipmaps)\n", texels );
-	Com_Printf ( " %.2fMB total texture mem (not including mipmaps)\n", texBytes/1048576.0f );
-	Com_Printf ( " %i total images\n\n", iNumImages );
+//	VID_Printf (PRINT_ALL, " ---------\n");
+	VID_Printf (PRINT_ALL, "      -w-- -h-- -mm- -if- --name-------\n");
+	VID_Printf (PRINT_ALL, " %i total texels (not including mipmaps)\n", texels );
+//	VID_Printf (PRINT_ALL, " %iMB total filesize\n", (totalFileSizeK+1023)/1024 );
+	VID_Printf (PRINT_ALL, " %.2fMB total texture mem (not including mipmaps)\n", texBytes/1048576.0f );
+	VID_Printf (PRINT_ALL, " %i total images\n\n", iNumImages );
 }
 
 //=======================================================================
@@ -322,7 +331,7 @@ Scale up the pixel values in a texture to increase the
 lighting range
 ================
 */
-void R_LightScaleTexture (unsigned *in, int inwidth, int inheight, qboolean only_gamma )
+static void R_LightScaleTexture (unsigned *in, int inwidth, int inheight, qboolean only_gamma )
 {
 	if ( only_gamma )
 	{
@@ -377,7 +386,7 @@ void R_LightScaleTexture (unsigned *in, int inwidth, int inheight, qboolean only
 ================
 R_MipMap2
 
-Operates in place, quartering the size of the texture
+Uses temp mem, but then copies back to input, quartering the size of the texture
 Proper linear filter
 ================
 */
@@ -391,7 +400,7 @@ static void R_MipMap2( unsigned *in, int inWidth, int inHeight ) {
 
 	outWidth = inWidth >> 1;
 	outHeight = inHeight >> 1;
-	temp = (unsigned int *)Hunk_AllocateTempMemory( outWidth * outHeight * 4 );
+	temp = (unsigned int *) Z_Malloc( outWidth * outHeight * 4, TAG_TEMP_WORKSPACE, qfalse );
 
 	inWidthMask = inWidth - 1;
 	inHeightMask = inHeight - 1;
@@ -425,8 +434,8 @@ static void R_MipMap2( unsigned *in, int inWidth, int inHeight ) {
 		}
 	}
 
-	Com_Memcpy( in, temp, outWidth * outHeight * 4 );
-	Hunk_FreeTempMemory( temp );
+	memcpy( in, temp, outWidth * outHeight * 4 );
+	Z_Free( temp );
 }
 
 /*
@@ -441,12 +450,12 @@ static void R_MipMap (byte *in, int width, int height) {
 	byte	*out;
 	int		row;
 
-	if ( !r_simpleMipMaps->integer ) {
-		R_MipMap2( (unsigned *)in, width, height );
+	if ( width == 1 && height == 1 ) {
 		return;
 	}
 
-	if ( width == 1 && height == 1 ) {
+	if ( !r_simpleMipMaps->integer ) {
+		R_MipMap2( (unsigned *)in, width, height );
 		return;
 	}
 
@@ -521,90 +530,93 @@ byte	mipBlendColors[16][4] = {
 };
 
 
-
-
-
-class CStringComparator
-{
-public:
-	bool operator()(const char *s1, const char *s2) const { return(strcmp(s1, s2) < 0); } 
-};
-
-typedef map <LPCSTR, image_t *, CStringComparator>	AllocatedImages_t;
-													AllocatedImages_t AllocatedImages;
-													AllocatedImages_t::iterator itAllocatedImages;
-int giTextureBindNum = 1024;	// will be set to this anyway at runtime, but wtf?
-
-
-// return = number of images in the list, for those interested
-//
-int R_Images_StartIteration(void)
-{
-	itAllocatedImages = AllocatedImages.begin();
-	return AllocatedImages.size();
-}
-
-image_t *R_Images_GetNextIteration(void)
-{
-	if (itAllocatedImages == AllocatedImages.end())
-		return NULL;
-
-	image_t *pImage = (*itAllocatedImages).second;
-	++itAllocatedImages;
-	return pImage;
-}
-
-// clean up anything to do with an image_t struct, but caller will have to clear the internal to an image_t struct ready for either struct free() or overwrite...
-//
-// (avoid using ri.xxxx stuff here in case running on dedicated)
-//
-static void R_Images_DeleteImageContents( image_t *pImage )
-{
-	assert(pImage);	// should never be called with NULL
-	if (pImage)
-	{
-		if (qglDeleteTextures) {	//won't have one if we switched to dedicated.
-			qglDeleteTextures( 1, &pImage->texnum );
-		}
-		Z_Free(pImage);
-	}
-}
-
-
-
-
-
 /*
 ===============
 Upload32
 
 ===============
 */
-extern qboolean charSet;
-static void Upload32( unsigned *data, 
-						 GLenum format,
-						 qboolean mipmap, 
-						 qboolean picmip, 
-						 qboolean isLightmap,
-						 qboolean allowTC,
-						 int *pformat, 
-						 USHORT *pUploadWidth, USHORT *pUploadHeight, bool bRectangle = false )
+#ifdef _XBOX
+extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
+extern "C" void JkaFakeglSetTextureDebugName(const char *name);
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_XboxIsHighFidelityUIFont( const char *name )
 {
-	GLuint uiTarget = GL_TEXTURE_2D;
-	if ( bRectangle )
+	if ( !name )
 	{
-		uiTarget = GL_TEXTURE_RECTANGLE_EXT;
+		return qfalse;
 	}
 
+	return ( !Q_stricmp( name, "gfx/2d/charsgrid_med" ) ||
+			 !Q_stricmp( name, "gfx/2d/charsgrid_med.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_medium" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_medium.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_tiny" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_tiny.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_big" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_big.tga" ) );
+}
+
+static qboolean R_XboxIsBorgAlphaCutoutTexture( const char *name )
+{
+	char canonicalName[MAX_QPATH];
+	int i;
+
+	if ( !name )
+	{
+		return qfalse;
+	}
+
+	Q_strncpyz( canonicalName, GenerateImageMappingName( name ), sizeof( canonicalName ) );
+	for ( i = 0; canonicalName[i]; ++i )
+	{
+		if ( canonicalName[i] == '\\' )
+		{
+			canonicalName[i] = '/';
+		}
+	}
+
+	return ( !Q_stricmp( canonicalName, "textures/borg/bars" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/borgladder" ) );
+}
+
+#endif
+
+static void Upload32( const char *debugName, unsigned *data, 
+						  int img_width, int img_height, 
+						  GLenum format,
+						  int mipcount, 
+						  qboolean picmip, 
+						  qboolean isLightmap, 
+						  int *pformat )
+{
+#ifdef _XBOX
+	JkaFakeglSetTextureDebugName(debugName ? debugName : "<null>");
+	XBLF("JA: Upload32 image='%s' size=%dx%d format=0x%08x mipcount=%d picmip=%d lightmap=%d\n",
+		debugName ? debugName : "<null>",
+		img_width,
+		img_height,
+		format,
+		mipcount,
+		picmip,
+		isLightmap);
+#endif
 	if (format == GL_RGBA)
 	{
 		int			samples;
 		int			i, c;
 		byte		*scan;
-		float		rMax = 0, gMax = 0, bMax = 0;
-		int			width = *pUploadWidth;
-		int			height = *pUploadHeight; 
-
+		int			width = img_width;
+		int			height = img_height; 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		qboolean	stefxBorgAlphaProbe =
+			R_XboxIsBorgAlphaCutoutTexture( debugName );
+#endif
+		
 		//
 		// perform optional picmip operation
 		//
@@ -621,7 +633,7 @@ static void Upload32( unsigned *data,
 				}
 			}
 		}
-
+		
 		//
 		// clamp to the current upper OpenGL limit
 		// scale both axis down equally so we don't have to
@@ -633,6 +645,77 @@ static void Upload32( unsigned *data,
 			height >>= 1;
 		}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			const qboolean highFidelityUIFont = R_XboxIsHighFidelityUIFont( debugName );
+			int maxUploadSize = 128;
+			int oldWidth = width;
+			int oldHeight = height;
+			static qboolean s_loggedStefxUploadCaps = qfalse;
+
+			if ( highFidelityUIFont )
+			{
+				maxUploadSize = 256;
+			}
+			else
+			if (!isLightmap &&
+				debugName &&
+				(strstr(debugName, "models/players/") || strstr(debugName, "models\\players\\")))
+			{
+				maxUploadSize = 64;
+			}
+
+			if (!s_loggedStefxUploadCaps)
+			{
+				XBLF("STEFX: Upload32 Xbox caps nonlightmap=%d player=%d lightmap=%d",
+					128,
+					64,
+					128);
+				s_loggedStefxUploadCaps = qtrue;
+			}
+
+			if ( highFidelityUIFont )
+			{
+				static int s_fontUploadLogs = 0;
+				if ( s_fontUploadLogs < 8 )
+				{
+					XBLF("STEFX: Upload32 high-fidelity UI font image='%s' source=%dx%d max=%d",
+						debugName ? debugName : "<null>",
+						width,
+						height,
+						maxUploadSize);
+					++s_fontUploadLogs;
+				}
+			}
+
+			while ( width > maxUploadSize || height > maxUploadSize )
+			{
+				R_MipMap( (byte *)data, width, height );
+				width >>= 1;
+				height >>= 1;
+				if ( width < 1 )
+				{
+					width = 1;
+				}
+				if ( height < 1 )
+				{
+					height = 1;
+				}
+			}
+
+			if ( oldWidth != width || oldHeight != height )
+			{
+				XBLF("STEFX: Upload32 capped image='%s' %dx%d -> %dx%d lightmap=%d",
+					debugName ? debugName : "<null>",
+					oldWidth,
+					oldHeight,
+					width,
+					height,
+					isLightmap);
+			}
+		}
+#endif
+		
 		//
 		// scan the texture for each channel's max values
 		// and verify if the alpha channel is being used or not
@@ -640,44 +723,47 @@ static void Upload32( unsigned *data,
 		c = width*height;
 		scan = ((byte *)data);
 		samples = 3;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		int alphaMin = 255;
+		int alphaMax = 0;
+		int alphaLt128 = 0;
+		int alphaGe128 = 0;
+#endif
 		for ( i = 0; i < c; i++ )
 		{
-			if ( scan[i*4+0] > rMax )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( stefxBorgAlphaProbe )
 			{
-				rMax = scan[i*4+0];
+				int alpha = scan[i*4 + 3];
+				if ( alpha < alphaMin )
+				{
+					alphaMin = alpha;
+				}
+				if ( alpha > alphaMax )
+				{
+					alphaMax = alpha;
+				}
+				if ( alpha < 128 )
+				{
+					++alphaLt128;
+				}
+				else
+				{
+					++alphaGe128;
+				}
 			}
-			if ( scan[i*4+1] > gMax )
-			{
-				gMax = scan[i*4+1];
-			}
-			if ( scan[i*4+2] > bMax )
-			{
-				bMax = scan[i*4+2];
-			}
+#endif
 			if ( scan[i*4 + 3] != 255 ) 
 			{
 				samples = 4;
 				break;
 			}
 		}
-
+		
 		// select proper internal format
 		if ( samples == 3 )
 		{
-			if ( glConfig.textureCompression == TC_S3TC && allowTC )
-			{
-				*pformat = GL_RGB4_S3TC;
-			}
-			else if ( glConfig.textureCompression == TC_S3TC_DXT && allowTC )
-			{	// Compress purely color - no alpha
-				if ( r_texturebits->integer == 16 ) {
-					*pformat = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;	//this format cuts to 16 bit
-				}
-				else {//if we aren't using 16 bit then, use 32 bit compression
-					*pformat = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-				}
-			}
-			else if ( isLightmap && r_texturebitslm->integer > 0 )
+			if ( isLightmap && r_texturebitslm->integer > 0 )
 			{
 				// Allow different bit depth when we are a lightmap
 				if ( r_texturebitslm->integer == 16 )
@@ -704,11 +790,15 @@ static void Upload32( unsigned *data,
 		}
 		else if ( samples == 4 )
 		{
-			if ( glConfig.textureCompression == TC_S3TC_DXT && allowTC)
-			{	// Compress both alpha and color
-				*pformat = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( R_XboxIsHighFidelityUIFont( debugName ) ||
+				R_XboxIsBorgAlphaCutoutTexture( debugName ) )
+			{
+				*pformat = GL_RGBA8;
 			}
-			else if ( r_texturebits->integer == 16 )
+			else
+#endif
+			if ( r_texturebits->integer == 16 )
 			{
 				*pformat = GL_RGBA4;
 			}
@@ -722,313 +812,215 @@ static void Upload32( unsigned *data,
 			}
 		}
 
-		*pUploadWidth = width;
-		*pUploadHeight = height;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxBorgAlphaProbe )
+		{
+			XBLF("STEFX_BORG_ALPHA_UPLOAD image='%s' source=%dx%d upload=%dx%d samples=%d internal=0x%x alphaMin=%d alphaMax=%d alphaLt128=%d alphaGe128=%d texbits=%d picmip=%d lightmap=%d",
+				debugName ? debugName : "<null>",
+				img_width,
+				img_height,
+				width,
+				height,
+				samples,
+				*pformat,
+				alphaMin,
+				alphaMax,
+				alphaLt128,
+				alphaGe128,
+				r_texturebits ? r_texturebits->integer : -1,
+				picmip,
+				isLightmap);
+		}
+#endif
 
 		// copy or resample data as appropriate for first MIP level
-		if (!mipmap)
+		if (!mipcount)
 		{
-			qglTexImage2D( uiTarget, 0, *pformat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
-			goto done;
+			glTexImage2D (GL_TEXTURE_2D, 0, *pformat, width, height, 0, 
+				GL_RGBA, GL_UNSIGNED_BYTE, data);
 		}
-
-		R_LightScaleTexture (data, width, height, (qboolean)!mipmap );
-
-		qglTexImage2D( uiTarget, 0, *pformat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
-
-		if (mipmap)
+		else
 		{
-			int		miplevel;
-
-			miplevel = 0;
-			while (width > 1 || height > 1)
+			if (mipcount)
 			{
-				R_MipMap( (byte *)data, width, height );
-				width >>= 1;
-				height >>= 1;
-				if (width < 1)
-					width = 1;
-				if (height < 1)
-					height = 1;
-				miplevel++;
-
-				if ( r_colorMipLevels->integer ) 
+				int	miplevel = 0;
+				int total = 1;
+				int n = width;
+				if (height > n) n = height;
+				while (n > 1)
 				{
-					R_BlendOverTexture( (byte *)data, width * height, mipBlendColors[miplevel] );
+					n >>= 1;
+					++total;
 				}
-
-				qglTexImage2D( uiTarget, miplevel, *pformat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
+				
+				glTexImage2DEXT (GL_TEXTURE_2D, 0, total, *pformat, width, height, 
+					0, GL_RGBA, GL_UNSIGNED_BYTE, data );
 			}
 		}
 	}
 	else
 	{
-	}
+		*pformat = format;
 
-done:
-
-	if (mipmap)
-	{
-		qglTexParameterf(uiTarget, GL_TEXTURE_MIN_FILTER, gl_filter_min);
-		qglTexParameterf(uiTarget, GL_TEXTURE_MAG_FILTER, gl_filter_max);
-		if(r_ext_texture_filter_anisotropic->integer>1 && glConfig.maxTextureFilterAnisotropy>0)
-		{			
-			qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, r_ext_texture_filter_anisotropic->value );
-		}
-	}
-	else
-	{
-		qglTexParameterf(uiTarget, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf(uiTarget, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	}
-
-	GL_CheckErrors();
-}
-
-#if 0
-//3d tex version -rww
-static void Upload32_3D( unsigned *data, 
-						 int img_depth,
-						 qboolean mipmap, 
-						 qboolean picmip, 
-						 qboolean isLightmap,
-						 qboolean allowTC,
-						 int *pformat, 
-						 USHORT *pUploadWidth, USHORT *pUploadHeight )
-{
-	int			samples;
-	int			i, c;
-	byte		*scan;
-	float		rMax = 0, gMax = 0, bMax = 0;
-	int			width = *pUploadWidth;
-	int			height = *pUploadHeight; 
-	int			depth = img_depth;
-
-	//
-	// perform optional picmip operation
-	//
-	if ( picmip ) {
-		for(i = 0; i < r_picmip->integer; i++) {
-			R_MipMap( (byte *)data, width, height );
-			width >>= 1;
-			height >>= 1;
-			if (width < 1) {
-				width = 1;
-			}
-			if (height < 1) {
-				height = 1;
-			}
-		}
-	}
-
-	//
-	// clamp to the current upper OpenGL limit
-	// scale both axis down equally so we don't have to
-	// deal with a half mip resampling
-	//
-	while ( width > glConfig.maxTextureSize	|| height > glConfig.maxTextureSize ) {
-		R_MipMap( (byte *)data, width, height );
-		width >>= 1;
-		height >>= 1;
-	}
-
-	//
-	// scan the texture for each channel's max values
-	// and verify if the alpha channel is being used or not
-	//
-	c = width*height;
-	scan = ((byte *)data);
-	samples = 3;
-	for ( i = 0; i < c; i++ )
-	{
-		if ( scan[i*4+0] > rMax )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( R_XboxIsBorgAlphaCutoutTexture( debugName ) )
 		{
-			rMax = scan[i*4+0];
+			XBLF("STEFX: DDS_TRACE upload32 image='%s' source=%dx%d fmt=0x%08x mips=%d picmip=%d lightmap=%d",
+				debugName ? debugName : "<null>",
+				img_width,
+				img_height,
+				(unsigned int)format,
+				mipcount,
+				picmip,
+				isLightmap);
 		}
-		if ( scan[i*4+1] > gMax )
+		else if ( debugName && strstr( debugName, "env/junk_" ) )
 		{
-			gMax = scan[i*4+1];
+			XBLF("STEFX: DDS_TRACE upload32 image='%s' source=%dx%d fmt=0x%08x mips=%d picmip=%d lightmap=%d",
+				debugName,
+				img_width,
+				img_height,
+				(unsigned int)format,
+				mipcount,
+				picmip,
+				isLightmap);
 		}
-		if ( scan[i*4+2] > bMax )
-		{
-			bMax = scan[i*4+2];
-		}
-		if ( scan[i*4 + 3] != 255 ) 
-		{
-			samples = 4;
-			break;
-		}
-	}
-
-	// select proper internal format
-	if ( samples == 3 )
-	{
-		if ( glConfig.textureCompression == TC_S3TC && allowTC )
-		{
-			*pformat = GL_RGB4_S3TC;
-		}
-		else if ( glConfig.textureCompression == TC_S3TC_DXT && allowTC )
-		{	// Compress purely color - no alpha
-			if ( r_texturebits->integer == 16 ) {
-				*pformat = GL_COMPRESSED_RGB_S3TC_DXT1_EXT;	//this format cuts to 16 bit
-			}
-			else {//if we aren't using 16 bit then, use 32 bit compression
-				*pformat = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-			}
-		}
-		else if ( isLightmap && r_texturebitslm->integer > 0 )
-		{
-			// Allow different bit depth when we are a lightmap
-			if ( r_texturebitslm->integer == 16 )
-			{
-				*pformat = GL_RGB5;
-			}
-			else if ( r_texturebitslm->integer == 32 )
-			{
-				*pformat = GL_RGB8;
-			}
-		}
-		else if ( r_texturebits->integer == 16 )
-		{
-			*pformat = GL_RGB5;
-		}
-		else if ( r_texturebits->integer == 32 )
-		{
-			*pformat = GL_RGB8;
-		}
-		else
-		{
-			*pformat = 3;
-		}
-	}
-	else if ( samples == 4 )
-	{
-		if ( glConfig.textureCompression == TC_S3TC_DXT && allowTC)
-		{	// Compress both alpha and color
-			*pformat = GL_COMPRESSED_RGBA_S3TC_DXT5_EXT;
-		}
-		else if ( r_texturebits->integer == 16 )
-		{
-			*pformat = GL_RGBA4;
-		}
-		else if ( r_texturebits->integer == 32 )
-		{
-			*pformat = GL_RGBA8;
-		}
-		else
-		{
-			*pformat = 4;
-		}
-	}
-
-	*pUploadWidth = width;
-	*pUploadHeight = height;
-
-	// copy or resample data as appropriate for first MIP level
-	if (!mipmap)
-	{
-		qglTexImage3DEXT (GL_TEXTURE_3D, 0, *pformat, width, height, depth, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-		goto done;
-	}
-
-	R_LightScaleTexture (data, width, height, (qboolean)!mipmap );
-
-	qglTexImage3DEXT (GL_TEXTURE_3D, 0, *pformat, width, height, depth, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
-
-	if (mipmap)
-	{
-		int		miplevel;
-
-		miplevel = 0;
-		while (width > 1 || height > 1)
-		{
-			R_MipMap( (byte *)data, width, height );
-			width >>= 1;
-			height >>= 1;
-			if (width < 1)
-				width = 1;
-			if (height < 1)
-				height = 1;
-			miplevel++;
-
-			if ( r_colorMipLevels->integer ) 
-			{
-				R_BlendOverTexture( (byte *)data, width * height, mipBlendColors[miplevel] );
-			}
-
-			qglTexImage2D (GL_TEXTURE_2D, miplevel, *pformat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
-		}
-	}
-done:
-
-	if (mipmap)
-	{
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
-		if(r_ext_texture_filter_anisotropic->integer>1 && glConfig.maxTextureFilterAnisotropy>0) {
-			qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 2.0f);
-		}
-	}
-	else
-	{
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	}
-
-	GL_CheckErrors();
-}
 #endif
+#ifdef _XBOX
+		JkaFakeglSetDDSUploadPicmip(picmip ? r_picmip->integer : 0);
+#endif
+		glTexImage2DEXT (GL_TEXTURE_2D, 0, mipcount,
+			format, img_width, img_height, 0, format, 
+			GL_UNSIGNED_BYTE, data);
+#ifdef _XBOX
+		JkaFakeglSetDDSUploadPicmip(0);
+#endif
+	}
+
+	if (mipcount)
+	{
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
+		if(glConfig.textureFilterAnisotropicAvailable)
+		{
+			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 2.0f);
+		}
+	}
+	else
+	{
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+	}
+
+	GL_CheckErrors();
+#ifdef _XBOX
+	XBLF("JA: Upload32 done image='%s' pformat=0x%08x\n",
+		debugName ? debugName : "<null>",
+		pformat ? *pformat : 0);
+	JkaFakeglSetTextureDebugName("<none>");
+#endif
+}
+
+
+typedef tmap (int, image_t *)	AllocatedImages_t;
+								AllocatedImages_t* AllocatedImages = NULL;
+								AllocatedImages_t::iterator itAllocatedImages;
+#ifdef _XBOX
+typedef tmap (sstring_t, image_t *)	AllocatedImageNames_t;
+								AllocatedImageNames_t* AllocatedImageNames = NULL;
+#endif
+
+int giTextureBindNum = 1024;	// will be set to this anyway at runtime, but wtf?
+
+
+// return = number of images in the list, for those interested
+//
+int R_Images_StartIteration(void)
+{
+	if(!AllocatedImages)
+		return 0;
+
+	itAllocatedImages = AllocatedImages->begin();
+	return AllocatedImages->size();
+}
+
+image_t *R_Images_GetNextIteration(void)
+{
+	if(!AllocatedImages)
+		return NULL;
+
+	if (itAllocatedImages == AllocatedImages->end())
+		return NULL;
+
+	image_t *pImage = (*itAllocatedImages).second;
+	++itAllocatedImages;
+	return pImage;
+}
+
+
+// clean up anything to do with an image_t struct, but caller will have to clear the internal to an image_t struct ready for either struct free() or overwrite...
+//
+static void R_Images_DeleteImageContents( image_t *pImage )
+{
+	assert(pImage);	// should never be called with NULL
+	if (pImage)
+	{
+#ifdef _XBOX
+		if (AllocatedImageNames)
+		{
+			char canonicalName[MAX_QPATH];
+			Q_strncpyz(canonicalName, GenerateImageMappingName(pImage->imgName), sizeof(canonicalName));
+			AllocatedImageNames->erase(sstring_t(canonicalName));
+		}
+#endif
+		glDeleteTextures( 1, &pImage->texnum );
+		Z_Free(pImage);
+	}
+}
 
 static void GL_ResetBinds(void)
 {
 	memset( glState.currenttextures, 0, sizeof( glState.currenttextures ) );
-	if ( qglBindTexture ) 
+	if ( glBindTexture ) 
 	{
-		if ( qglActiveTextureARB ) 
+		if ( glActiveTextureARB ) 
 		{
 			GL_SelectTexture( 1 );
-			qglBindTexture( GL_TEXTURE_2D, 0 );
+			glBindTexture( GL_TEXTURE_2D, 0 );
 			GL_SelectTexture( 0 );
-			qglBindTexture( GL_TEXTURE_2D, 0 );
+			glBindTexture( GL_TEXTURE_2D, 0 );
 		} 
 		else 
 		{
-			qglBindTexture( GL_TEXTURE_2D, 0 );
+			glBindTexture( GL_TEXTURE_2D, 0 );
 		}
 	}
 }
 
-
 // special function used in conjunction with "devmapbsp"...
-//
-// (avoid using ri.xxxx stuff here in case running on dedicated)
 //
 void R_Images_DeleteLightMaps(void)
 {
+	assert( 0 && "This function will wreak havoc on texture pool!" );
 	qboolean bEraseOccured = qfalse;
-	for (AllocatedImages_t::iterator itImage = AllocatedImages.begin(); itImage != AllocatedImages.end(); bEraseOccured?itImage:++itImage)
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); bEraseOccured?itImage:++itImage)
 	{			
 		bEraseOccured = qfalse;
 
 		image_t *pImage = (*itImage).second;
 		
-		if (pImage->imgName[0] == '*' && strstr(pImage->imgName,"lightmap"))	// loose check, but should be ok
+		if (pImage->isLightmap)
 		{
 			R_Images_DeleteImageContents(pImage);
-#ifndef __linux__
-			itImage = AllocatedImages.erase(itImage);
+
+			AllocatedImages->erase(itImage++);
 			bEraseOccured = qtrue;
-#else
-			// MS & Dinkimware got the map::erase return wrong (it's null)
-			AllocatedImages_t::iterator itTemp = itImage;
-			itImage++;
-			AllocatedImages.erase(itTemp);
-#endif
 		}
 	}
 
 	GL_ResetBinds();
 }
+
 
 // special function currently only called by Dissolve code...
 //
@@ -1036,17 +1028,29 @@ void R_Images_DeleteImage(image_t *pImage)
 {		
 	// Even though we supply the image handle, we need to get the corresponding iterator entry...
 	//
-	AllocatedImages_t::iterator itImage = AllocatedImages.find(pImage->imgName);
-	if (itImage != AllocatedImages.end())
+	AllocatedImages_t::iterator itImage = AllocatedImages->find(pImage->imgCode);
+	if (itImage != AllocatedImages->end())
 	{		
 		R_Images_DeleteImageContents(pImage);
-		AllocatedImages.erase(itImage);
+		AllocatedImages->erase(itImage);
 	}
 	else
 	{
+#ifdef _XBOX
+		for (itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+		{
+			if ((*itImage).second == pImage)
+			{
+				R_Images_DeleteImageContents(pImage);
+				AllocatedImages->erase(itImage);
+				return;
+			}
+		}
+#endif
 		assert(0);
 	}
 }
+
 
 // called only at app startup, vid_restart, app-exit
 //
@@ -1060,30 +1064,49 @@ void R_Images_Clear(void)
 		R_Images_DeleteImageContents(pImage);
 	}
 
-	AllocatedImages.clear();
+	if( AllocatedImages )
+	{
+		AllocatedImages->clear();
+		delete AllocatedImages;
+		AllocatedImages = NULL;
+	}
+#ifdef _XBOX
+	if( AllocatedImageNames )
+	{
+		AllocatedImageNames->clear();
+		delete AllocatedImageNames;
+		AllocatedImageNames = NULL;
+	}
+#endif
 
 	giTextureBindNum = 1024;
+
+	// Is this safe? Sure seems to be. And necessary, to avoid putting more than 4096
+	// image swap files on the Z drive.
+	glw_state->textureBindNum = 1;
+
+	gTextures.Reset();
+#ifdef _XBOX
+	FakeGL_ResetRegisteredTextureBudget();
+#endif
+/*
+	extern unsigned long texturePoint;
+	texturePoint = 0;
+
+	// Avert disaster. I can't conceive of how the second one could be true,
+	// but I'm so friggin paranoid right now.
+	extern byte *smallBinkTexture;
+	smallBinkTexture = NULL;
+
+	extern bool bNextTextureIsSmallBink;
+	bNextTextureIsSmallBink = false;
+*/
 }
 
 
 void RE_RegisterImages_Info_f( void )
 {
-	image_t *pImage	= NULL;
-	int iImage		= 0;
-	int iTexels		= 0;
 
-	int iNumImages	= R_Images_StartIteration();
-	while ( (pImage	= R_Images_GetNextIteration()) != NULL)
-	{
-		Com_Printf ("%d: (%4dx%4dy) \"%s\"",iImage, pImage->width, pImage->height, pImage->imgName);
-		Com_DPrintf (S_COLOR_RED ", levused %d",pImage->iLastLevelUsedOn);
-		Com_Printf ("\n");
-
-		iTexels += pImage->width * pImage->height;
-		iImage++;
-	}
-	Com_Printf ("%d Images. %d (%.2fMB) texels total, (not including mipmaps)\n",iNumImages, iTexels, (float)iTexels / 1024.0f / 1024.0f);
-	Com_DPrintf (S_COLOR_RED "RE_RegisterMedia_GetLevel(): %d",RE_RegisterMedia_GetLevel());
 }
 
 
@@ -1096,57 +1119,66 @@ void RE_RegisterImages_Info_f( void )
 //
 qboolean RE_RegisterImages_LevelLoadEnd(void)
 {
-	Com_DPrintf (S_COLOR_RED "RE_RegisterImages_LevelLoadEnd():\n");
+	if (!AllocatedImages)
+	{
+		GL_ResetBinds();
+		return qfalse;
+	}
 
-//	int iNumImages = AllocatedImages.size();	// more for curiosity, really.
+#ifdef _XBOX
+	int staleCount = 0;
+	int totalCount = 0;
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	{
+		image_t *pImage = (*itImage).second;
+		++totalCount;
+		if (pImage && !pImage->isSystem && pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel())
+		{
+			++staleCount;
+		}
+	}
+	if (staleCount)
+	{
+		static int s_xboxStaleImageLogCount = 0;
+		if (s_xboxStaleImageLogCount < 16)
+		{
+			XBLF("STEFX: Xbox image level-end kept stale images stale=%d total=%d level=%d",
+				staleCount, totalCount, RE_RegisterMedia_GetLevel());
+			++s_xboxStaleImageLogCount;
+		}
+	}
 
+	GL_ResetBinds();
+	return staleCount ? qtrue : qfalse;
+#else
 	qboolean bEraseOccured = qfalse;
-	for (AllocatedImages_t::iterator itImage = AllocatedImages.begin(); itImage != AllocatedImages.end(); bEraseOccured?itImage:++itImage)
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); bEraseOccured?itImage:++itImage)
 	{			
 		bEraseOccured = qfalse;
 
 		image_t *pImage = (*itImage).second;
 
-		// don't un-register system shaders (*fog, *dlight, *white, *default), but DO de-register lightmaps ("*<mapname>/lightmap%d")
-		if (pImage->imgName[0] != '*' || strchr(pImage->imgName,'/'))
+		// don't un-register system shaders (*fog, *dlight, *white, *default), but DO de-register lightmaps ("$<mapname>/lightmap%d")
+		if (!pImage->isSystem)
 		{
 			// image used on this level?
 			//
 			if ( pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel() )
-			{
-				// nope, so dump it...
-				//
-				Com_DPrintf (S_COLOR_RED "Dumping image \"%s\"\n",pImage->imgName);
-
+			{	// nope, so dump it...
+				assert( 0 && "This will wreak havoc on texture pool!" );
+				//VID_Printf( PRINT_DEVELOPER, "Dumping image \"%s\"\n",pImage->imgName);
 				R_Images_DeleteImageContents(pImage);
-#ifndef __linux__
-				itImage = AllocatedImages.erase(itImage);
+				itImage = AllocatedImages->erase(itImage);
 				bEraseOccured = qtrue;
-#else
-				AllocatedImages_t::iterator itTemp = itImage;
-				itImage++;
-				AllocatedImages.erase(itTemp);	
-#endif
 			}
 		}
 	}
 
-
-	// this check can be deleted AFAIC, it seems to be just a quake thing...
-	//
-//	iNumImages = R_Images_StartIteration();
-//	if (iNumImages > MAX_DRAWIMAGES)
-//	{
-//		Com_Printf (S_COLOR_YELLOW  "Level uses %d images, old limit was MAX_DRAWIMAGES (%d)\n", iNumImages, MAX_DRAWIMAGES);
-//	}
-
-	Com_DPrintf (S_COLOR_RED "RE_RegisterImages_LevelLoadEnd(): Ok\n");	
-
 	GL_ResetBinds();
 
 	return bEraseOccured;
+#endif
 }
-
 
 
 // returns image_t struct if we already have this, else NULL. No disk-open performed 
@@ -1154,44 +1186,104 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 //
 // This is called by both R_FindImageFile and anything that creates default images...
 //
-static image_t *R_FindImageFile_NoLoad(const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode )
+static image_t *R_FindImageFile_NoLoad(const char *name, int mipcount, qboolean allowPicmip, int glWrapClampMode )
 {	
 	if (!name) {
 		return NULL;
 	}
 
-	char *pName = GenerateImageMappingName(name);
+	char canonicalName[MAX_QPATH];
+	Q_strncpyz(canonicalName, GenerateImageMappingName(name), sizeof(canonicalName));
+#ifdef _XBOX
+	qboolean probeImage = ( !Q_stricmp( canonicalName, "*white" ) || !Q_stricmp( canonicalName, "white" ) );
+	if ( probeImage ) {
+		XBLF("R_FindImageFile_NoLoad: name='%s' mapped='%s'\n", name, canonicalName);
+	}
+#endif
 
 	//
 	// see if the image is already loaded
 	//
-	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages.find(pName);
-	if (itAllocatedImage != AllocatedImages.end())
+	int code = crc32(0, (const Bytef *)canonicalName, strlen(canonicalName));
+	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages->find(code);
+#ifdef _XBOX
+	if ( probeImage ) {
+		XBLF("R_FindImageFile_NoLoad: code=0x%08x found=%d\n", code, itAllocatedImage != AllocatedImages->end());
+	}
+#endif
+	if (itAllocatedImage != AllocatedImages->end())
 	{	
 		image_t *pImage = (*itAllocatedImage).second;
 
 		// the white image can be used with any set of parms, but other mismatches are errors...
 		//
-		if ( strcmp( pName, "*white" ) ) {
-			if ( pImage->mipmap != !!mipmap ) {
-				Com_Printf (S_COLOR_YELLOW  "WARNING: reused image %s with mixed mipmap parm\n", pName );
+		if ( strcmp( canonicalName, "*white" ) ) {
+			if ( !!pImage->mipcount != !!mipcount ) {
+				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", canonicalName );
 			}
-			if ( pImage->allowPicmip != !!allowPicmip ) {
-				Com_Printf (S_COLOR_YELLOW  "WARNING: reused image %s with mixed allowPicmip parm\n", pName );
-			}
-			if ( pImage->wrapClampMode != glWrapClampMode ) {
-				Com_Printf (S_COLOR_YELLOW  "WARNING: reused image %s with mixed glWrapClampMode parm\n", pName );
-			}
+//			if ( pImage->allowPicmip != !!allowPicmip ) {
+//				VID_Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", canonicalName );
+//			}
 		}
-			  
-		pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
 
+		pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+			  
 		return pImage;
 	}
+
+#ifdef _XBOX
+	if (AllocatedImageNames)
+	{
+		AllocatedImageNames_t::iterator itNamedImage = AllocatedImageNames->find(sstring_t(canonicalName));
+		if (itNamedImage != AllocatedImageNames->end())
+		{
+			image_t *pImage = (*itNamedImage).second;
+			if (pImage)
+			{
+				pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+				return pImage;
+			}
+		}
+	}
+
+	// Retail de-dupes images by canonical name.  If the primary lookup misses
+	// because an older entry was keyed differently, reclaim the existing entry
+	// and normalize its key instead of allocating another image_t.
+	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	{
+		image_t *pImage = (*itImage).second;
+		if (!pImage)
+		{
+			continue;
+		}
+
+		char existingName[MAX_QPATH];
+		Q_strncpyz(existingName, GenerateImageMappingName(pImage->imgName), sizeof(existingName));
+		if (!Q_stricmp(existingName, canonicalName))
+		{
+			if (itImage->first != code)
+			{
+				AllocatedImages->erase(itImage);
+				pImage->imgCode = code;
+				(*AllocatedImages)[code] = pImage;
+			}
+			pImage->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+			if (AllocatedImageNames)
+			{
+				(*AllocatedImageNames)[sstring_t(canonicalName)] = pImage;
+			}
+			XBLF("JA: image cache recovered duplicate name='%s' tex=%d\n", canonicalName, pImage->texnum);
+			return pImage;
+		}
+	}
+#endif
 
 	return NULL;
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean STEFX_ShouldTraceIntroImage( const char *name );
+#endif
 
 
 /*
@@ -1202,7 +1294,8 @@ This is the only way any image_t are created
 ================
 */
 image_t *R_CreateImage( const char *name, const byte *pic, int width, int height, 
-					   GLenum format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode, bool bRectangle )
+					   GLenum format, int mipcount, qboolean allowPicmip, 
+					   int glWrapClampMode )
 {
 	image_t		*image;
 	qboolean	isLightmap = qfalse;
@@ -1215,12 +1308,9 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		glWrapClampMode = GL_CLAMP_TO_EDGE;
 	}
 
-	if (name[0] == '*')
+	if (name[0] == '$' || strstr(name, "/lightmap") || strstr(name, "\\lightmap"))
 	{
-		char *psLightMapNameSearchPos = strrchr(name,'/');
-		if (  psLightMapNameSearchPos && !strncmp( psLightMapNameSearchPos+1, "lightmap", 8 ) ) {
-			isLightmap = qtrue;
-		}
+		isLightmap = qtrue;
 	}
 
 	if ( (width&(width-1)) || (height&(height-1)) )
@@ -1228,80 +1318,102 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		Com_Error( ERR_FATAL, "R_CreateImage: %s dimensions (%i x %i) not power of 2!\n",name,width,height);
 	}
 
-	image = R_FindImageFile_NoLoad(name, mipmap, allowPicmip, allowTC, glWrapClampMode );
+	image = R_FindImageFile_NoLoad(name, mipcount, allowPicmip, glWrapClampMode );
 	if (image) {
 		return image;
 	}
 
 	image = (image_t*) Z_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
-//	memset(image,0,sizeof(*image));	// qtrue above does this 
-	
-	image->texnum = 1024 + giTextureBindNum++;	// ++ is of course staggeringly important...
 
-	// record which map it was used on...
-	//
+	glGenTextures(1, (GLuint*)&image->texnum);
+
 	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
 
-	image->mipmap = !!mipmap;
-	image->allowPicmip = !!allowPicmip;
+	image->mipcount = mipcount;
+//	image->allowPicmip = allowPicmip;
 
+	image->imgCode = crc32(0, (const Bytef *)name, strlen(name));
+#ifndef FINAL_BUILD
 	Q_strncpyz(image->imgName, name, sizeof(image->imgName));
+#endif
 
 	image->width = width;
 	image->height = height;
-	image->wrapClampMode = glWrapClampMode;
 
-	if ( qglActiveTextureARB ) {
-		GL_SelectTexture( 0 );
-	}
+	image->isSystem = (name[0] == '*');
+	image->isLightmap = isLightmap;
 
-	GLuint uiTarget = GL_TEXTURE_2D;
-	if ( bRectangle ) 
+	GL_SelectTexture( 0 );
+
+	GL_Bind(image);
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_ShouldTraceIntroImage(name) ||
+		!Q_stricmp(name, "gfx/2d/chars_big") ||
+		!Q_stricmp(name, "gfx/2d/chars_medium") ||
+		!Q_stricmp(name, "gfx/2d/chars_tiny") ||
+		!Q_stricmp(name, "gfx/2d/charsgrid_med"))
 	{
-		qglDisable( uiTarget ); 
-		uiTarget = GL_TEXTURE_RECTANGLE_EXT;
-		qglEnable( uiTarget );
-		glWrapClampMode = GL_CLAMP_TO_EDGE;	// default mode supported by rectangle.
-		qglBindTexture( uiTarget, image->texnum );
+		XBLF("STEFX: INTRO_IMAGE create begin name='%s' wh=%dx%d fmt=0x%04x mips=%d picmip=%d tex=%u",
+			name,
+			image->width,
+			image->height,
+			format,
+			image->mipcount,
+			allowPicmip,
+			image->texnum);
 	}
-	else
-	{
-		GL_Bind(image);
-	}
+#endif
 
-	Upload32( (unsigned *)pic,	format,
-								(qboolean)image->mipmap,
-								allowPicmip,
-								isLightmap,
-								allowTC,
-								&image->internalFormat,
-								&image->width,
-								&image->height, bRectangle );
+	Upload32( name, (unsigned *)pic,	image->width, image->height, 
+								format,
+								image->mipcount,
+								allowPicmip, 
+								isLightmap, 
+								&image->internalFormat );
 
-	qglTexParameterf( uiTarget, GL_TEXTURE_WRAP_S, glWrapClampMode );
-	qglTexParameterf( uiTarget, GL_TEXTURE_WRAP_T, glWrapClampMode );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
+	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
 
-	qglBindTexture( uiTarget, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
+	glBindTexture( GL_TEXTURE_2D, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
 	glState.currenttextures[glState.currenttmu] = 0;	//mark it not bound
 
-	LPCSTR psNewName = GenerateImageMappingName(name);
-	Q_strncpyz(image->imgName, psNewName, sizeof(image->imgName));
-	AllocatedImages[ image->imgName ] = image;
-
-	if ( bRectangle )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_ShouldTraceIntroImage(name) ||
+		!Q_stricmp(name, "gfx/2d/chars_big") ||
+		!Q_stricmp(name, "gfx/2d/chars_medium") ||
+		!Q_stricmp(name, "gfx/2d/chars_tiny") ||
+		!Q_stricmp(name, "gfx/2d/charsgrid_med"))
 	{
-		qglDisable( uiTarget );
-		qglEnable( GL_TEXTURE_2D );
+		XBLF("STEFX: INTRO_IMAGE create done name='%s' wh=%dx%d internal=0x%04x tex=%u",
+			name,
+			image->width,
+			image->height,
+			image->internalFormat,
+			image->texnum);
 	}
+#endif
+
+	const char* psNewName = GenerateImageMappingName(name);
+	image->imgCode = crc32(0, (const Bytef *)psNewName, strlen(psNewName));
+
+	(*AllocatedImages)[ image->imgCode ] = image;
+#ifdef _XBOX
+	if (!AllocatedImageNames)
+	{
+		AllocatedImageNames = new AllocatedImageNames_t;
+	}
+	(*AllocatedImageNames)[sstring_t(psNewName)] = image;
+#endif
 
 	return image;
 }
 
-//rwwRMG - added
+
 void R_CreateAutomapImage( const char *name, const byte *pic, int width, int height, 
 					   qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode ) 
 {
-	R_CreateImage(name, pic, width, height, GL_RGBA, mipmap, allowPicmip, allowTC, glWrapClampMode);
+	R_CreateImage(name, pic, width, height, GL_RGBA, mipmap, allowPicmip, glWrapClampMode);
 }
 
 /*
@@ -1311,10 +1423,11 @@ TARGA LOADING
 
 =========================================================
 */
+
 /*
 Ghoul2 Insert Start
 */
-
+/*
 bool LoadTGAPalletteImage ( const char *name, byte **pic, int *width, int *height)
 {
 	int		columns, rows, numPixels;
@@ -1374,7 +1487,7 @@ bool LoadTGAPalletteImage ( const char *name, byte **pic, int *width, int *heigh
 	if (height)
 		*height = rows;
 
-	*pic = (unsigned char *) Z_Malloc (numPixels, TAG_TEMP_WORKSPACE, qfalse );
+	*pic = (unsigned char *) Z_Malloc (numPixels, TAG_TEMP_TGA, qfalse);
 	if (targa_header.id_length != 0)
 	{
 		buf_p += targa_header.id_length;  // skip TARGA image comment
@@ -1385,8 +1498,11 @@ bool LoadTGAPalletteImage ( const char *name, byte **pic, int *width, int *heigh
 
 	return true;
 }
+*/
 
-#endif	// #ifndef DEDICATED
+/*
+Ghoul2 Insert End
+*/
 
 // My TGA loader...
 //
@@ -1418,7 +1534,7 @@ typedef struct
 //  returns false if found but had a format error, else true for either OK or not-found (there's a reason for this)
 //
 
-void LoadTGA ( const char *name, byte **pic, int *width, int *height)
+int LoadTGA ( const char *name, byte **pic, int *width, int *height)
 {
 	char sErrorString[1024];
 	bool bFormatErrors = false;
@@ -1428,9 +1544,14 @@ void LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	byte *pRGBA = NULL;	
 	byte *pOut	= NULL;
 	byte *pIn	= NULL;
+	byte *pPalette = NULL;
+	TGAHeader_t parsedHeader;
+	TGAHeader_t *pHeader = &parsedHeader;
+	bool bPalettedTga = false;
 
 
 	*pic = NULL;
+	memset(&parsedHeader, 0, sizeof(parsedHeader));
 
 #define TGA_FORMAT_ERROR(blah) {sprintf(sErrorString,blah); bFormatErrors = true; goto TGADone;}
 //#define TGA_FORMAT_ERROR(blah) Com_Error( ERR_DROP, blah );
@@ -1439,39 +1560,80 @@ void LoadTGA ( const char *name, byte **pic, int *width, int *height)
 	// load the file
 	//
 	byte *pTempLoadedBuffer = 0;
-	FS_ReadFile ( ( char * ) name, (void **)&pTempLoadedBuffer);
+	const int filelen = FS_ReadFile ( ( char * ) name, (void **)&pTempLoadedBuffer);
 	if (!pTempLoadedBuffer) {
-		return;
+		return 0;
 	}
 
-	TGAHeader_t *pHeader = (TGAHeader_t *) pTempLoadedBuffer;
-
-	if (pHeader->byColourmapType!=0)
-	{	
-		TGA_FORMAT_ERROR("LoadTGA: colourmaps not supported\n" );		
-	}
-
-	if (pHeader->byImageType != 2 && pHeader->byImageType != 3 && pHeader->byImageType != 10)
+	if (filelen < (int)sizeof(TGAHeader_t))
 	{
-		TGA_FORMAT_ERROR("LoadTGA: Only type 2 (RGB), 3 (gray), and 10 (RLE-RGB) images supported\n");		
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		XBLF("STEFX: LoadTGA too-short name='%s' len=%d header=%d", name ? name : "<null>", filelen, (int)sizeof(TGAHeader_t));
+#endif
+		sprintf(sErrorString, "LoadTGA: file too short for TGA header (File: \"%s\", len=%d)", name ? name : "<null>", filelen);
+		bFormatErrors = true;
+		goto TGADone;
+	}
+
+	parsedHeader.byIDFieldLength = pTempLoadedBuffer[0];
+	parsedHeader.byColourmapType = pTempLoadedBuffer[1];
+	parsedHeader.byImageType = pTempLoadedBuffer[2];
+	parsedHeader.w1stColourMapEntry = (word)(pTempLoadedBuffer[3] | (pTempLoadedBuffer[4] << 8));
+	parsedHeader.wColourMapLength = (word)(pTempLoadedBuffer[5] | (pTempLoadedBuffer[6] << 8));
+	parsedHeader.byColourMapEntrySize = pTempLoadedBuffer[7];
+	parsedHeader.wImageXOrigin = (word)(pTempLoadedBuffer[8] | (pTempLoadedBuffer[9] << 8));
+	parsedHeader.wImageYOrigin = (word)(pTempLoadedBuffer[10] | (pTempLoadedBuffer[11] << 8));
+	parsedHeader.wImageWidth = (word)(pTempLoadedBuffer[12] | (pTempLoadedBuffer[13] << 8));
+	parsedHeader.wImageHeight = (word)(pTempLoadedBuffer[14] | (pTempLoadedBuffer[15] << 8));
+	parsedHeader.byImagePlanes = pTempLoadedBuffer[16];
+	parsedHeader.byScanLineOrder = pTempLoadedBuffer[17];
+	bPalettedTga = (pHeader->byImageType == 1);
+
+	if (bPalettedTga)
+	{
+		if (pHeader->byColourmapType != 1)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: colour mapped images must include a colourmap\n");
+		}
+		if (pHeader->byImagePlanes != 8)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: colour mapped images must be 8 bit\n");
+		}
+		if (pHeader->wColourMapLength == 0 || pHeader->wColourMapLength > 256)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: ColourMapLength must be 1..256 for colour mapped images\n");
+		}
+		if (pHeader->byColourMapEntrySize != 24 && pHeader->byColourMapEntrySize != 32)
+		{
+			TGA_FORMAT_ERROR("LoadTGA: ColourMapEntrySize must be 24 or 32 for colour mapped images\n");
+		}
+	}
+	else if (pHeader->byColourmapType!=0)
+	{
+		TGA_FORMAT_ERROR("LoadTGA: colourmaps not supported\n" );
+	}
+
+	if (pHeader->byImageType != 1 && pHeader->byImageType != 2 && pHeader->byImageType != 3 && pHeader->byImageType != 10)
+	{
+		TGA_FORMAT_ERROR("LoadTGA: Only type 1 (mapped), 2 (RGB), 3 (gray), and 10 (RLE-RGB) images supported\n");
 	}
 		
-	if (pHeader->w1stColourMapEntry != 0)
+	if (!bPalettedTga && pHeader->w1stColourMapEntry != 0)
 	{
 		TGA_FORMAT_ERROR("LoadTGA: colourmaps not supported\n" );		
 	}
 
-	if (pHeader->wColourMapLength !=0 && pHeader->wColourMapLength != 256)
+	if (!bPalettedTga && pHeader->wColourMapLength !=0 && pHeader->wColourMapLength != 256)
 	{
 		TGA_FORMAT_ERROR("LoadTGA: ColourMapLength must be either 0 or 256\n" );
 	}
 
-	if (pHeader->byColourMapEntrySize != 0 && pHeader->byColourMapEntrySize != 24)
+	if (!bPalettedTga && pHeader->byColourMapEntrySize != 0 && pHeader->byColourMapEntrySize != 24)
 	{
 		TGA_FORMAT_ERROR("LoadTGA: ColourMapEntrySize must be either 0 or 24\n" );
 	}
 
-	if ( ( pHeader->byImagePlanes != 24 && pHeader->byImagePlanes != 32) && (pHeader->byImagePlanes != 8 && pHeader->byImageType != 3))
+	if ( !bPalettedTga && ( pHeader->byImagePlanes != 24 && pHeader->byImagePlanes != 32) && (pHeader->byImagePlanes != 8 && pHeader->byImageType != 3))
 	{
 		TGA_FORMAT_ERROR("LoadTGA: Only type 2 (RGB), 3 (gray), and 10 (RGB) TGA images supported\n");
 	}
@@ -1574,7 +1736,38 @@ void LoadTGA ( const char *name, byte **pic, int *width, int *height)
 
 	byte red,green,blue,alpha;
 
-	if ( pHeader->byImageType == 2 || pHeader->byImageType == 3 )	// RGB or greyscale
+	if ( pHeader->byImageType == 1 )	// colour mapped
+	{
+		pPalette = pIn;
+		pIn += pHeader->wColourMapLength * (pHeader->byColourMapEntrySize / 8);
+
+		for (int y=iYStart, iYCount=0; iYCount<pHeader->wImageHeight; y+=iYStep, iYCount++)
+		{
+			pOut = pRGBA + y * pHeader->wImageWidth * 4;
+			for (int x=iXStart, iXCount=0; iXCount<pHeader->wImageWidth; x+=iXStep, iXCount++)
+			{
+				int index = (int)(*pIn++) - (int)pHeader->w1stColourMapEntry;
+				if (index < 0 || index >= pHeader->wColourMapLength)
+				{
+					red = green = blue = 0;
+					alpha = 255;
+				}
+				else
+				{
+					byte *entry = pPalette + index * (pHeader->byColourMapEntrySize / 8);
+					blue = entry[0];
+					green = entry[1];
+					red = entry[2];
+					alpha = (pHeader->byColourMapEntrySize == 32) ? entry[3] : 255;
+				}
+				*pOut++ = red;
+				*pOut++ = green;
+				*pOut++ = blue;
+				*pOut++ = alpha;
+			}
+		}
+	}
+	else if ( pHeader->byImageType == 2 || pHeader->byImageType == 3 )	// RGB or greyscale
 	{
 		for (int y=iYStart, iYCount=0; iYCount<pHeader->wImageHeight; y+=iYStep, iYCount++)
 		{
@@ -1740,482 +1933,143 @@ TGADone:
 	{
 		Com_Error( ERR_DROP, "%s( File: \"%s\" )\n",sErrorString,name);
 	}
+	return filelen;
 }
 
-#ifndef DEDICATED
-static void LoadJPG( const char *filename, unsigned char **pic, int *width, int *height ) {
-  /* This struct contains the JPEG decompression parameters and pointers to
-   * working space (which is allocated as needed by the JPEG library).
-   */
-  struct jpeg_decompress_struct cinfo;
-  /* We use our private extension JPEG error handler.
-   * Note that this struct must live as long as the main JPEG parameter
-   * struct, to avoid dangling-pointer problems.
-   */
-  /* This struct represents a JPEG error handler.  It is declared separately
-   * because applications often want to supply a specialized error handler
-   * (see the second half of this file for an example).  But here we just
-   * take the easy way out and use the standard error handler, which will
-   * print a message on stderr and call exit() if compression fails.
-   * Note that this struct must live as long as the main JPEG parameter
-   * struct, to avoid dangling-pointer problems.
-   */
-  struct jpeg_error_mgr jerr;
-  /* More stuff */
-  JSAMPARRAY buffer;		/* Output row buffer */
-  int row_stride;		/* physical row width in output buffer */
-  unsigned char *out;
-  byte	*fbuffer;
-  byte  *bbuf;
+/*
+=========================================================
 
-  /* In this example we want to open the input file before doing anything else,
-   * so that the setjmp() error recovery below can assume the file is open.
-   * VERY IMPORTANT: use "b" option to fopen() if you are on a machine that
-   * requires it in order to read binary files.
-   */
+DDS LOADING
 
-  fileHandle_t		h;
-  const int len = FS_FOpenFileRead(filename, &h, qfalse);
-  if (!h)
-  {
-	  return;
-  }
+=========================================================
+*/
 
-  fbuffer = (byte *)Z_Malloc(len + 4096, TAG_TEMP_WORKSPACE);
-  FS_Read(fbuffer, len, h);
-  FS_FCloseFile(h);
-
-  /* Step 1: allocate and initialize JPEG decompression object */
-
-  /* We have to set up the error handler first, in case the initialization
-   * step fails.  (Unlikely, but it could happen if you are out of memory.)
-   * This routine fills in the contents of struct jerr, and returns jerr's
-   * address which we place into the link field in cinfo.
-   */
-  cinfo.err = jpeg_std_error(&jerr);
-
-  /* Now we can initialize the JPEG decompression object. */
-  jpeg_create_decompress(&cinfo);
-
-  /* Step 2: specify data source (eg, a file) */
-
-  jpeg_stdio_src(&cinfo, fbuffer);
-
-  /* Step 3: read file parameters with jpeg_read_header() */
-
-  (void) jpeg_read_header(&cinfo, TRUE);
-  /* We can ignore the return value from jpeg_read_header since
-   *   (a) suspension is not possible with the stdio data source, and
-   *   (b) we passed TRUE to reject a tables-only JPEG file as an error.
-   * See libjpeg.doc for more info.
-   */
-
-  /* Step 4: set parameters for decompression */
-
-  /* In this example, we don't need to change any of the defaults set by
-   * jpeg_read_header(), so we do nothing here.
-   */
-
-  /* Step 5: Start decompressor */
-
-  (void) jpeg_start_decompress(&cinfo);
-  /* We can ignore the return value since suspension is not possible
-   * with the stdio data source.
-   */
-
-  /* We may need to do some setup of our own at this point before reading
-   * the data.  After jpeg_start_decompress() we have the correct scaled
-   * output image dimensions available, as well as the output colormap
-   * if we asked for color quantization.
-   * In this example, we need to make an output work buffer of the right size.
-   */ 
-  /* JSAMPLEs per row in output buffer */
-  row_stride = cinfo.output_width * cinfo.output_components;
-
-  // rww - 9-13-01 [1-26-01-sof2]
-  if (cinfo.output_components != 4 && cinfo.output_components != 1) {
-	  Com_Printf("JPG %s is unsupported color depth (%d)\n",filename,cinfo.output_components);
-  }
-
-  out = (unsigned char *)Z_Malloc(cinfo.output_width*cinfo.output_height*4, TAG_TEMP_WORKSPACE, qfalse );
-
-  *pic = out;
-  *width = cinfo.output_width;
-  *height = cinfo.output_height;
-
-  /* Step 6: while (scan lines remain to be read) */
-  /*           jpeg_read_scanlines(...); */
-
-  /* Here we use the library's state variable cinfo.output_scanline as the
-   * loop counter, so that we don't have to keep track ourselves.
-   */
-  while (cinfo.output_scanline < cinfo.output_height) {
-    /* jpeg_read_scanlines expects an array of pointers to scanlines.
-     * Here the array is only one element long, but you could ask for
-     * more than one scanline at a time if that's more convenient.
-     */
-	bbuf = ((out+(row_stride*cinfo.output_scanline)));
-	buffer = &bbuf;
-    (void) jpeg_read_scanlines(&cinfo, buffer, 1);
-  }
-
-	if (cinfo.output_components == 1)
+void LoadDDS ( const char *name, byte **pic, int *width, int *height, int *mipcount, GLenum *format )
+{
+	fileHandle_t h;
+	int len = FS_FOpenFileRead( name, &h, qfalse );
+	if ( h == 0 )
 	{
-		byte *pbDest = (*pic + (cinfo.output_width * cinfo.output_height * 4))-1;
-		byte *pbSrc  = (*pic + (cinfo.output_width * cinfo.output_height    ))-1;
-		int  iPixels = cinfo.output_width * cinfo.output_height;
-		
-		for (int i=0; i<iPixels; i++)
-		{
-			byte b = *pbSrc--;
-			*pbDest-- = 255;
-			*pbDest-- = b;
-			*pbDest-- = b;
-			*pbDest-- = b;
-		}
+		return;
 	}
-	else	  
-	// clear all the alphas to 255
+	
+	*pic = (byte*)Z_Malloc( len, TAG_TEMP_WORKSPACE, qfalse , 32);
+	FS_Read( *pic, len, h );
+	FS_FCloseFile( h );
+
+	DWORD dds = MAKEFOURCC('D', 'D', 'S', ' ');
+	if (*(DWORD*)(*pic) != dds)
 	{
-		int		i, j;
-		byte	*buf;
-
-		buf = *pic;
-
-		j = cinfo.output_width * cinfo.output_height * 4;
-		for ( i = 3 ; i < j ; i+=4 ) 
-		{
-			buf[i] = 255;
-		}
+		FS_FreeFile (*pic);
+		*pic = NULL;
+		return;
+	}
+	
+	DDS_HEADER *desc = (DDS_HEADER *)(*pic + sizeof(DWORD));
+	DWORD dxt1 = MAKEFOURCC('D', 'X', 'T', '1');
+	DWORD dxt5 = MAKEFOURCC('D', 'X', 'T', '5');
+	
+	if (desc->ddspf.dwFourCC == dxt1)
+	{
+		*format = GL_DDS1_EXT;
+	}
+	else if (desc->ddspf.dwFourCC == dxt5)
+	{
+		*format = GL_DDS5_EXT;
+	}
+	else if (desc->ddspf.dwRGBBitCount == 16)
+	{
+		*format = GL_DDS_RGB16_EXT;
+	}
+	else if (desc->ddspf.dwRGBBitCount == 32)
+	{
+		*format = GL_DDS_RGBA32_EXT;
+	}
+	else
+	{
+		FS_FreeFile (*pic);
+		*pic = NULL;
+		return;
 	}
 
-  /* Step 7: Finish decompression */
-
-  (void) jpeg_finish_decompress(&cinfo);
-  /* We can ignore the return value since suspension is not possible
-   * with the stdio data source.
-   */
-
-  /* Step 8: Release JPEG decompression object */
-
-  /* This is an important step since it will release a good deal of memory. */
-  jpeg_destroy_decompress(&cinfo);
-
-  /* After finish_decompress, we can close the input file.
-   * Here we postpone it until after no more JPEG errors are possible,
-   * so as to simplify the setjmp error logic above.  (Actually, I don't
-   * think that jpeg_destroy can do an error exit, but why assume anything...)
-   */
-	Z_Free(fbuffer);
-  /* At this point you may want to check to see whether any corrupt-data
-   * warnings occurred (test whether jerr.pub.num_warnings is nonzero).
-   */
-
-  /* And we're done! */
+	*width = desc->dwWidth;
+	*height = desc->dwHeight;
+	*mipcount = desc->dwMipMapCount;
 }
 
-
-/* Expanded data destination object for stdio output */
-
-typedef struct {
-  struct jpeg_destination_mgr pub; /* public fields */
-
-  byte* outfile;		/* target stream */
-  int	size;
-} my_destination_mgr;
-
-typedef my_destination_mgr * my_dest_ptr;
-
-
-/*
- * Initialize destination --- called by jpeg_start_compress
- * before any data is actually written.
- */
-
-void init_destination (j_compress_ptr cinfo)
-{
-  my_dest_ptr dest = (my_dest_ptr) cinfo->dest;
-
-  dest->pub.next_output_byte = dest->outfile;
-  dest->pub.free_in_buffer = dest->size;
-}
-
-
-/*
- * Empty the output buffer --- called whenever buffer fills up.
- *
- * In typical applications, this should write the entire output buffer
- * (ignoring the current state of next_output_byte & free_in_buffer),
- * reset the pointer & count to the start of the buffer, and return TRUE
- * indicating that the buffer has been dumped.
- *
- * In applications that need to be able to suspend compression due to output
- * overrun, a FALSE return indicates that the buffer cannot be emptied now.
- * In this situation, the compressor will return to its caller (possibly with
- * an indication that it has not accepted all the supplied scanlines).  The
- * application should resume compression after it has made more room in the
- * output buffer.  Note that there are substantial restrictions on the use of
- * suspension --- see the documentation.
- *
- * When suspending, the compressor will back up to a convenient restart point
- * (typically the start of the current MCU). next_output_byte & free_in_buffer
- * indicate where the restart point will be if the current call returns FALSE.
- * Data beyond this point will be regenerated after resumption, so do not
- * write it out when emptying the buffer externally.
- */
-
-boolean empty_output_buffer (j_compress_ptr cinfo)
-{
-  return TRUE;
-}
-
-
-/*
- * Compression initialization.
- * Before calling this, all parameters and a data destination must be set up.
- *
- * We require a write_all_tables parameter as a failsafe check when writing
- * multiple datastreams from the same compression object.  Since prior runs
- * will have left all the tables marked sent_table=TRUE, a subsequent run
- * would emit an abbreviated stream (no tables) by default.  This may be what
- * is wanted, but for safety's sake it should not be the default behavior:
- * programmers should have to make a deliberate choice to emit abbreviated
- * images.  Therefore the documentation and examples should encourage people
- * to pass write_all_tables=TRUE; then it will take active thought to do the
- * wrong thing.
- */
-
-GLOBAL void
-jpeg_start_compress (j_compress_ptr cinfo, boolean write_all_tables)
-{
-  if (cinfo->global_state != CSTATE_START)
-    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
-
-  if (write_all_tables)
-    jpeg_suppress_tables(cinfo, FALSE);	/* mark all tables to be written */
-
-  /* (Re)initialize error mgr and destination modules */
-  (*cinfo->err->reset_error_mgr) ((j_common_ptr) cinfo);
-  (*cinfo->dest->init_destination) (cinfo);
-  /* Perform master selection of active modules */
-  jinit_compress_master(cinfo);
-  /* Set up for the first pass */
-  (*cinfo->master->prepare_for_pass) (cinfo);
-  /* Ready for application to drive first pass through jpeg_write_scanlines
-   * or jpeg_write_raw_data.
-   */
-  cinfo->next_scanline = 0;
-  cinfo->global_state = (cinfo->raw_data_in ? CSTATE_RAW_OK : CSTATE_SCANNING);
-}
-
-
-/*
- * Write some scanlines of data to the JPEG compressor.
- *
- * The return value will be the number of lines actually written.
- * This should be less than the supplied num_lines only in case that
- * the data destination module has requested suspension of the compressor,
- * or if more than image_height scanlines are passed in.
- *
- * Note: we warn about excess calls to jpeg_write_scanlines() since
- * this likely signals an application programmer error.  However,
- * excess scanlines passed in the last valid call are *silently* ignored,
- * so that the application need not adjust num_lines for end-of-image
- * when using a multiple-scanline buffer.
- */
-
-GLOBAL JDIMENSION
-jpeg_write_scanlines (j_compress_ptr cinfo, JSAMPARRAY scanlines,
-		      JDIMENSION num_lines)
-{
-  JDIMENSION row_ctr, rows_left;
-
-  if (cinfo->global_state != CSTATE_SCANNING)
-    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
-  if (cinfo->next_scanline >= cinfo->image_height)
-    WARNMS(cinfo, JWRN_TOO_MUCH_DATA);
-
-  /* Call progress monitor hook if present */
-  if (cinfo->progress != NULL) {
-    cinfo->progress->pass_counter = (long) cinfo->next_scanline;
-    cinfo->progress->pass_limit = (long) cinfo->image_height;
-    (*cinfo->progress->progress_monitor) ((j_common_ptr) cinfo);
-  }
-
-  /* Give master control module another chance if this is first call to
-   * jpeg_write_scanlines.  This lets output of the frame/scan headers be
-   * delayed so that application can write COM, etc, markers between
-   * jpeg_start_compress and jpeg_write_scanlines.
-   */
-  if (cinfo->master->call_pass_startup)
-    (*cinfo->master->pass_startup) (cinfo);
-
-  /* Ignore any extra scanlines at bottom of image. */
-  rows_left = cinfo->image_height - cinfo->next_scanline;
-  if (num_lines > rows_left)
-    num_lines = rows_left;
-
-  row_ctr = 0;
-  (*cinfo->main->process_data) (cinfo, scanlines, &row_ctr, num_lines);
-  cinfo->next_scanline += row_ctr;
-  return row_ctr;
-}
-
-/*
- * Terminate destination --- called by jpeg_finish_compress
- * after all data has been written.  Usually needs to flush buffer.
- *
- * NB: *not* called by jpeg_abort or jpeg_destroy; surrounding
- * application must deal with any cleanup that should happen even
- * for error exit.
- */
-
-static int hackSize;
-
-void term_destination (j_compress_ptr cinfo)
-{
-  my_dest_ptr dest = (my_dest_ptr) cinfo->dest;
-  size_t datacount = dest->size - dest->pub.free_in_buffer;
-  hackSize = datacount;
-}
-
-
-/*
- * Prepare for output to a stdio stream.
- * The caller must have already opened the stream, and is responsible
- * for closing it after finishing compression.
- */
-
-void jpegDest (j_compress_ptr cinfo, byte* outfile, int size)
-{
-  my_dest_ptr dest;
-
-  /* The destination object is made permanent so that multiple JPEG images
-   * can be written to the same file without re-executing jpeg_stdio_dest.
-   * This makes it dangerous to use this manager and a different destination
-   * manager serially with the same JPEG object, because their private object
-   * sizes may be different.  Caveat programmer.
-   */
-  if (cinfo->dest == NULL) {	/* first time for this JPEG object? */
-    cinfo->dest = (struct jpeg_destination_mgr *)
-      (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_PERMANENT,
-				  sizeof(my_destination_mgr));
-  }
-
-  dest = (my_dest_ptr) cinfo->dest;
-  dest->pub.init_destination = init_destination;
-  dest->pub.empty_output_buffer = empty_output_buffer;
-  dest->pub.term_destination = term_destination;
-  dest->outfile = outfile;
-  dest->size = size;
-}
-
-void SaveJPG(char * filename, int quality, int image_width, int image_height, unsigned char *image_buffer) {
-  /* This struct contains the JPEG compression parameters and pointers to
-   * working space (which is allocated as needed by the JPEG library).
-   * It is possible to have several such structures, representing multiple
-   * compression/decompression processes, in existence at once.  We refer
-   * to any one struct (and its associated working data) as a "JPEG object".
-   */
-  struct jpeg_compress_struct cinfo;
-  /* This struct represents a JPEG error handler.  It is declared separately
-   * because applications often want to supply a specialized error handler
-   * (see the second half of this file for an example).  But here we just
-   * take the easy way out and use the standard error handler, which will
-   * print a message on stderr and call exit() if compression fails.
-   * Note that this struct must live as long as the main JPEG parameter
-   * struct, to avoid dangling-pointer problems.
-   */
-  struct jpeg_error_mgr jerr;
-  /* More stuff */
-  JSAMPROW row_pointer[1];	/* pointer to JSAMPLE row[s] */
-  int row_stride;		/* physical row width in image buffer */
-  unsigned char *out;
-
-  /* Step 1: allocate and initialize JPEG compression object */
-
-  /* We have to set up the error handler first, in case the initialization
-   * step fails.  (Unlikely, but it could happen if you are out of memory.)
-   * This routine fills in the contents of struct jerr, and returns jerr's
-   * address which we place into the link field in cinfo.
-   */
-  cinfo.err = jpeg_std_error(&jerr);
-  /* Now we can initialize the JPEG compression object. */
-  jpeg_create_compress(&cinfo);
-
-  /* Step 2: specify data destination (eg, a file) */
-  /* Note: steps 2 and 3 can be done in either order. */
-
-  /* Here we use the library-supplied code to send compressed data to a
-   * stdio stream.  You can also write your own code to do something else.
-   * VERY IMPORTANT: use "b" option to fopen() if you are on a machine that
-   * requires it in order to write binary files.
-   */
-  out = (unsigned char *)Hunk_AllocateTempMemory(image_width*image_height*4);
-  jpegDest(&cinfo, out, image_width*image_height*4);
-
-  /* Step 3: set parameters for compression */
-
-  /* First we supply a description of the input image.
-   * Four fields of the cinfo struct must be filled in:
-   */
-  cinfo.image_width = image_width; 	/* image width and height, in pixels */
-  cinfo.image_height = image_height;
-  cinfo.input_components = 4;		/* # of color components per pixel */
-  cinfo.in_color_space = JCS_RGB; 	/* colorspace of input image */
-  /* Now use the library's routine to set default compression parameters.
-   * (You must set at least cinfo.in_color_space before calling this,
-   * since the defaults depend on the source color space.)
-   */
-  jpeg_set_defaults(&cinfo);
-  /* Now you can set any non-default parameters you wish to.
-   * Here we just illustrate the use of quality (quantization table) scaling:
-   */
-  jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
-
-  /* Step 4: Start compressor */
-
-  /* TRUE ensures that we will write a complete interchange-JPEG file.
-   * Pass TRUE unless you are very sure of what you're doing.
-   */
-  jpeg_start_compress(&cinfo, TRUE);
-
-  /* Step 5: while (scan lines remain to be written) */
-  /*           jpeg_write_scanlines(...); */
-
-  /* Here we use the library's state variable cinfo.next_scanline as the
-   * loop counter, so that we don't have to keep track ourselves.
-   * To keep things simple, we pass one scanline per call; you can pass
-   * more if you wish, though.
-   */
-  row_stride = image_width * 4;	/* JSAMPLEs per row in image_buffer */
-
-  while (cinfo.next_scanline < cinfo.image_height) {
-    /* jpeg_write_scanlines expects an array of pointers to scanlines.
-     * Here the array is only one element long, but you could pass
-     * more than one scanline at a time if that's more convenient.
-     */
-    row_pointer[0] = & image_buffer[((cinfo.image_height-1)*row_stride)-cinfo.next_scanline * row_stride];
-    (void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
-  }
-
-  /* Step 6: Finish compression */
-
-  jpeg_finish_compress(&cinfo);
-  /* After finish_compress, we can close the output file. */
-  FS_WriteFile( filename, out, hackSize );
-
-  Hunk_FreeTempMemory(out);
-
-  /* Step 7: release JPEG compression object */
-
-  /* This is an important step since it will release a good deal of memory. */
-  jpeg_destroy_compress(&cinfo);
-
-  /* And we're done! */
-}
 
 //===================================================================
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static int STEFX_NextPowerOfTwo( int value )
+{
+	int out = 1;
+
+	while ( out < value )
+	{
+		out <<= 1;
+	}
+
+	return out;
+}
+
+static void STEFX_NormalizeImageToPowerOfTwo( const char *name, byte **pic, int *width, int *height )
+{
+	byte *src;
+	byte *dst;
+	int oldWidth;
+	int oldHeight;
+	int newWidth;
+	int newHeight;
+	int x;
+	int y;
+
+	if ( !pic || !*pic || !width || !height )
+	{
+		return;
+	}
+
+	oldWidth = *width;
+	oldHeight = *height;
+	newWidth = STEFX_NextPowerOfTwo( oldWidth );
+	newHeight = STEFX_NextPowerOfTwo( oldHeight );
+
+	if ( newWidth == oldWidth && newHeight == oldHeight )
+	{
+		return;
+	}
+
+	src = *pic;
+	dst = (byte *)Z_Malloc( newWidth * newHeight * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
+
+	for ( y = 0; y < newHeight; ++y )
+	{
+		int srcY = ( y * oldHeight ) / newHeight;
+		for ( x = 0; x < newWidth; ++x )
+		{
+			int srcX = ( x * oldWidth ) / newWidth;
+			const byte *srcPixel = src + ( ( srcY * oldWidth + srcX ) * 4 );
+			byte *dstPixel = dst + ( ( y * newWidth + x ) * 4 );
+			dstPixel[0] = srcPixel[0];
+			dstPixel[1] = srcPixel[1];
+			dstPixel[2] = srcPixel[2];
+			dstPixel[3] = srcPixel[3];
+		}
+	}
+
+	Z_Free( src );
+	*pic = dst;
+	*width = newWidth;
+	*height = newHeight;
+
+	XBLF("STEFX: R_LoadImage normalized NPOT '%s' %dx%d -> %dx%d",
+		name ? name : "<null>",
+		oldWidth,
+		oldHeight,
+		newWidth,
+		newHeight);
+}
+#endif
 
 /*
 =================
@@ -2225,37 +2079,173 @@ Loads any of the supported image types into a cannonical
 32 bit format.
 =================
 */
-void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, GLenum *format ) {
-	int		bytedepth;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean FS_PK3PatchFileExists( const char *filename );
+
+static qboolean STEFX_ShouldTraceIntroImage( const char *name )
+{
+	return name && (
+		strstr( name, "textures/common/70yearjourney" ) ||
+		strstr( name, "textures/common/enemyspace" ) ||
+		strstr( name, "textures/common/sevenspace" ) ||
+		strstr( name, "textures/common/tuvokhazard" ) ||
+		strstr( name, "env/junk_" ) );
+}
+#endif
+
+void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format ) {
 	char	name[MAX_QPATH];
+	int		i;
+	int		j;
+	byte	*buf;
+	byte	swap;
 
 	*pic = NULL;
 	*width = 0;
 	*height = 0;
+	*mipcount = 1;
 	*format = GL_RGBA;
-	COM_StripExtension(shortname,name);
+
+	//handle external LMs
+	if (shortname[0] == '$') {
+		Q_strncpyz( name, shortname+1, sizeof( name ) );
+	} else {
+		Q_strncpyz( name, shortname, sizeof( name ) );
+	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	// Elite Force retail assets are overwhelmingly JPG/TGA.  A missing loose DDS
+	// CreateFile is expensive under CXBX, so automatic DDS substitution is gated
+	// by the loaded patch PK3 index.  Explicit .dds requests still use the normal
+	// filesystem path and therefore preserve loose-file priority.
+	const char *inputExt = strrchr(name, '.');
+	qboolean explicitDDS = (inputExt && !Q_stricmp(inputExt, ".dds"));
+	if (explicitDDS)
+	{
+		COM_StripExtension(name, name);
+		COM_DefaultExtension(name, sizeof(name), ".dds");
+		LoadDDS( name, pic, width, height, mipcount, format );
+		if( *pic )
+		{
+			return;
+		}
+	}
+	else
+	{
+		char ddsName[MAX_QPATH];
+		Q_strncpyz(ddsName, name, sizeof(ddsName));
+		COM_StripExtension(ddsName, ddsName);
+		COM_DefaultExtension(ddsName, sizeof(ddsName), ".dds");
+		if (FS_PK3PatchFileExists(ddsName))
+		{
+			if (STEFX_ShouldTraceIntroImage(ddsName))
+			{
+				XBLF("STEFX: INTRO_IMAGE DDS candidate request='%s' dds='%s'", shortname, ddsName);
+			}
+			LoadDDS(ddsName, pic, width, height, mipcount, format);
+			if (*pic)
+			{
+				static int s_xboxDDSPatchLoadLogCount = 0;
+				if (s_xboxDDSPatchLoadLogCount < 1024 || (s_xboxDDSPatchLoadLogCount % 128) == 0)
+				{
+					XBLF("STEFX: R_LoadImage DDS patch '%s' %dx%d mips=%d fmt=0x%04x",
+						ddsName, *width, *height, *mipcount, *format);
+				}
+				if (STEFX_ShouldTraceIntroImage(ddsName))
+				{
+					XBLF("STEFX: INTRO_IMAGE DDS loaded request='%s' dds='%s' wh=%dx%d mips=%d fmt=0x%04x",
+						shortname, ddsName, *width, *height, *mipcount, *format);
+				}
+				++s_xboxDDSPatchLoadLogCount;
+				return;
+			}
+			XBLF("STEFX: R_LoadImage DDS patch listed but failed '%s'", ddsName);
+		}
+	}
+
+	COM_StripExtension(name, name);
+	COM_DefaultExtension(name, sizeof(name), ".jpg");
+	int jpgLen = LoadJPG( name, pic, width, height );
+	if (STEFX_ShouldTraceIntroImage(name))
+	{
+		XBLF("STEFX: INTRO_IMAGE JPG attempt request='%s' name='%s' len=%d pic=%p wh=%dx%d",
+			shortname, name, jpgLen, (void *)*pic, *width, *height);
+	}
+	if (strstr(name, "textures/borg/") || strstr(name, "textures/detail/"))
+	{
+		static int s_xboxJpgProbeLogCount = 0;
+		if (s_xboxJpgProbeLogCount < 384 || (s_xboxJpgProbeLogCount % 128) == 0)
+		{
+			XBLF("STEFX: R_LoadImage JPG attempt '%s' len=%d pic=%p wh=%d ht=%d",
+				name, jpgLen, (void *)*pic, *width, *height);
+		}
+		++s_xboxJpgProbeLogCount;
+	}
+#else
+	// Try DDS first - saves a ton of failed archive checks on startup:
+	COM_StripExtension(name, name);
+	COM_DefaultExtension(name, sizeof(name), ".dds");
+	LoadDDS( name, pic, width, height, mipcount, format );
+	if( *pic )
+		return;
+
+	// Elite Force retail assets are mostly JPG/TGA, while inherited Xbox
+	// builds preferred DDS.  Keep DDS first, then fall back to the PC formats.
+	COM_StripExtension(name, name);
 	COM_DefaultExtension(name, sizeof(name), ".jpg");
 	LoadJPG( name, pic, width, height );
-	if (*pic) {
+#endif
+	if ( *pic )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_NormalizeImageToPowerOfTwo( name, pic, width, height );
+#endif
+#ifdef _XBOX
+		static int s_xboxJpgLoadLogCount = 0;
+		if (s_xboxJpgLoadLogCount < 256 || (s_xboxJpgLoadLogCount % 64) == 0) {
+			XBLF("STEFX: R_LoadImage JPG '%s' %dx%d", name, *width, *height);
+		}
+		++s_xboxJpgLoadLogCount;
+#endif
 		return;
 	}
 
-	COM_StripExtension(shortname,name);
-	COM_DefaultExtension(name, sizeof(name), ".png");	
-	LoadPNG32( name, pic, width, height, &bytedepth ); 			// try png first
-	if (*pic){
-		return;
-	}
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_SP)
+	// OK. Now look for TGA:
+	*format = GL_RGBA;
+	*mipcount = 1;
 
-	COM_StripExtension(shortname,name);
+	COM_StripExtension(name,name);
 	COM_DefaultExtension(name, sizeof(name), ".tga");
-	LoadTGA( name, pic, width, height );            // try tga first
-	if (*pic){
+	LoadTGA( name, pic, width, height );
+
+	if (*pic)
+	{
+		j = (*width) * (*height) * 4;
+		buf = *pic;
+		for (i = 0 ; i < j ; i+=4 ) {
+			swap = buf[i];
+			buf[i] = buf[i+2];
+			buf[i+2] = swap;
+		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_NormalizeImageToPowerOfTwo( name, pic, width, height );
+		static int s_xboxTgaLoadLogCount = 0;
+		if (s_xboxTgaLoadLogCount < 96 || (s_xboxTgaLoadLogCount % 64) == 0) {
+			XBLF("STEFX: R_LoadImage TGA '%s' %dx%d", name, *width, *height);
+		}
+		++s_xboxTgaLoadLogCount;
+#endif
 		return;
 	}
+#endif
+
+	// Return whether or not it worked
+	return;
 }
 
 
+#ifndef _XBOX	// Only used for terrain
 void R_LoadDataImage( const char *name, byte **pic, int *width, int *height)
 {
 	int		len;
@@ -2280,14 +2270,7 @@ void R_LoadDataImage( const char *name, byte **pic, int *width, int *height)
 
 	COM_DefaultExtension( work, sizeof( work ), ".png" );
 	LoadPNG8( work, pic, width, height );
-
-	if (!pic || !*pic)
-	{ //png load failed, try jpeg
-		strcpy(work, name);
-		COM_DefaultExtension( work, sizeof( work ), ".jpg" );
-		LoadJPG( work, pic, width, height );
-	}
-
+	
 	if (!pic || !*pic)
 	{ //both png and jpeg failed, try targa
 		strcpy(work, name);
@@ -2304,8 +2287,7 @@ void R_LoadDataImage( const char *name, byte **pic, int *width, int *height)
 	Com_Printf("Couldn't read %s -- dataimage load failed\n", name);
 //	MD_PopTag();
 }
-
-#endif // !DEDICATED
+#endif
 
 void R_InvertImage(byte *data, int width, int height, int depth)
 {
@@ -2317,7 +2299,7 @@ void R_InvertImage(byte *data, int width, int height, int depth)
 	stride = width * depth;
 
 	oldData = data + ((height - 1) * stride);
-	newData = (byte *)Z_Malloc(height * stride, TAG_TEMP_IMAGE, qfalse );
+	newData = (byte *)Z_Malloc(height * stride, TAG_TEMP_WORKSPACE, qfalse );
 	saveData = newData;
 
 	for(y = 0; y < height; y++)
@@ -2370,13 +2352,12 @@ void R_Resample(byte *source, int swidth, int sheight, byte *dest, int dwidth, i
 	byte			*raster;
 	float			center, weight, scale, width, height;
 	contrib_list_t	*contributors;
+	const memtag_t	usedTag = TAG_TEMP_WORKSPACE;
 
-//	MD_PushTag(TAG_RESAMPLE);
-
-	byte *work = (byte *)Z_Malloc(dwidth * sheight * components, TAG_RESAMPLE);
+	byte *work = (byte *)Z_Malloc(dwidth * sheight * components, usedTag, qfalse);
 
 	// Pre calculate filter contributions for rows
-	contributors = (contrib_list_t *)Z_Malloc(sizeof(contrib_list_t) * dwidth, TAG_RESAMPLE);
+	contributors = (contrib_list_t *)Z_Malloc(sizeof(contrib_list_t) * dwidth, usedTag, qfalse);
 
 	float xscale = (float)dwidth / (float)swidth;
 
@@ -2395,7 +2376,7 @@ void R_Resample(byte *source, int swidth, int sheight, byte *dest, int dwidth, i
 	for(i = 0; i < dwidth; i++)
 	{
 		contributors[i].n = 0;
-		contributors[i].p = (contrib_t *)Z_Malloc(num * sizeof(contrib_t), TAG_RESAMPLE);
+		contributors[i].p = (contrib_t *)Z_Malloc(num * sizeof(contrib_t), usedTag, qfalse);
 
 		center = (float)i / xscale;
 		left = (int)ceilf(center - width);
@@ -2447,7 +2428,7 @@ void R_Resample(byte *source, int swidth, int sheight, byte *dest, int dwidth, i
 	Z_Free(contributors);
 
 	// Columns
-	contributors = (contrib_list_t *)Z_Malloc(sizeof(contrib_list_t) * dheight, TAG_RESAMPLE);
+	contributors = (contrib_list_t *)Z_Malloc(sizeof(contrib_list_t) * dheight, usedTag, qfalse);
 
 	float yscale = (float)dheight / (float)sheight;
 	if(yscale < 1.0f)
@@ -2465,7 +2446,7 @@ void R_Resample(byte *source, int swidth, int sheight, byte *dest, int dwidth, i
 	for(i = 0; i < dheight; i++)
 	{
 		contributors[i].n = 0;
-		contributors[i].p = (contrib_t *)Z_Malloc(num * sizeof(contrib_t), TAG_RESAMPLE);
+		contributors[i].p = (contrib_t *)Z_Malloc(num * sizeof(contrib_t), usedTag, qfalse);
 
 		center = (float)i / yscale;
 		left = (int)ceilf(center - height);
@@ -2519,8 +2500,6 @@ void R_Resample(byte *source, int swidth, int sheight, byte *dest, int dwidth, i
 //	MD_PopTag();
 }
 
-#ifndef DEDICATED
-
 /*
 ===============
 R_FindImageFile
@@ -2532,13 +2511,11 @@ Returns NULL if it fails, not a default image.
 image_t	*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode ) {
 	image_t	*image;
 	int		width, height;
+	int		mipcount;
 	byte	*pic;
 	GLenum	format;
-
-	if (!name 
-		|| com_dedicated->integer	// stop ghoul2 horribleness as regards image loading from server
-		) 
-	{
+   
+	if (!name) {
 		return NULL;
 	}
 
@@ -2549,7 +2526,7 @@ image_t	*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 		glWrapClampMode = GL_CLAMP_TO_EDGE;
 	}
 
-	image = R_FindImageFile_NoLoad(name, mipmap, allowPicmip, allowTC, glWrapClampMode );
+	image = R_FindImageFile_NoLoad(name, mipmap, allowPicmip, glWrapClampMode );
 	if (image) {
 		return image;
 	}
@@ -2557,34 +2534,49 @@ image_t	*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 	//
 	// load the pic from disk
 	//
-	R_LoadImage( name, &pic, &width, &height, &format );
-	if ( pic == NULL ) {                                    // if we dont get a successful load
-		return NULL;                                        // bail
+	R_LoadImage( name, &pic, &width, &height, &mipcount, &format );
+	if ( !pic ) {
+        return NULL;            
 	}
 
-
-	// refuse to find any files not power of 2 dims...
-	//
-	if ( (width&(width-1)) || (height&(height-1)) )
-	{
-		Com_Printf ("Refusing to load non-power-2-dims(%d,%d) pic \"%s\"...\n", width,height,name );
-		return NULL;
-	}
-
-	image = R_CreateImage( ( char * ) name, pic, width, height, format, mipmap, allowPicmip, allowTC, glWrapClampMode );
+	image = R_CreateImage( ( char * ) name, pic, width, height, format, mipcount, allowPicmip, glWrapClampMode );
 	Z_Free( pic );
 	return image;
 }
-
 
 /*
 ================
 R_CreateDlightImage
 ================
 */
-#define	DLIGHT_SIZE	16
+#define	DLIGHT_SIZE	64
 static void R_CreateDlightImage( void ) 
 {
+#ifdef _XBOX
+	int		x,y;
+	byte	data[DLIGHT_SIZE][DLIGHT_SIZE][4];
+	int		b;
+
+	for (x=0 ; x<DLIGHT_SIZE ; x++) {
+		for (y=0 ; y<DLIGHT_SIZE ; y++) {
+			float	d;
+
+			d = ( DLIGHT_SIZE/2 - 0.5f - x ) * ( DLIGHT_SIZE/2 - 0.5f - x ) +
+				( DLIGHT_SIZE/2 - 0.5f - y ) * ( DLIGHT_SIZE/2 - 0.5f - y );
+			b = 4000 / d;
+			if (b > 255) {
+				b = 255;
+			} else if ( b < 75 ) {
+				b = 0;
+			}
+			data[y][x][0] =
+				data[y][x][1] =
+				data[y][x][2] = b;
+			data[y][x][3] = 255;
+		}
+	}
+	tr.dlightImage = R_CreateImage("*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
+#else
 	int		width, height;
 	byte	*pic;
 	GLenum	format;
@@ -2622,8 +2614,8 @@ static void R_CreateDlightImage( void )
 		}
 		tr.dlightImage = R_CreateImage("*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, GL_RGBA, qfalse, qfalse, qfalse, GL_CLAMP );
 	}
+#endif
 }
-
 
 /*
 =================
@@ -2657,19 +2649,22 @@ float	R_FogFactor( float s, float t ) {
 	float	d;
 
 	s -= 1.0/512;
-	if ( s < 0 ) {
+	if ( s <= 0 ) {
 		return 0;
 	}
 	if ( t < 1.0/32 ) {
 		return 0;
 	}
 	if ( t < 31.0/32 ) {
-		s *= (t - 1.0f/32.0f) / (30.0f/32.0f);
+		s *= (t - 1.0/32) / (30.0/32);
 	}
 
 	// we need to leave a lot of clamp range
 	s *= 8;
 
+	if ( s < 0 ) {
+		s = 0;
+	}
 	if ( s > 1.0 ) {
 		s = 1.0;
 	}
@@ -2686,6 +2681,47 @@ R_CreateFogImage
 */
 #define	FOG_S	256
 #define	FOG_T	32
+#ifdef _XBOX
+static byte R_FogTextureAlphaForTexel( int x, int y ) {
+	int index;
+	int value;
+	int root;
+	int bit;
+
+	if ( x <= 0 || y <= 0 ) {
+		return 0;
+	}
+
+	if ( y < FOG_T - 1 ) {
+		index = ( x * 8 * ( ( y * 2 ) - 1 ) * ( FOG_TABLE_SIZE - 1 ) ) / ( FOG_S * 60 );
+	} else {
+		index = ( x * 8 * ( FOG_TABLE_SIZE - 1 ) ) / FOG_S;
+	}
+
+	if ( index < 0 ) {
+		index = 0;
+	} else if ( index > FOG_TABLE_SIZE - 1 ) {
+		index = FOG_TABLE_SIZE - 1;
+	}
+
+	value = index * 255;
+	root = 0;
+	for ( bit = 1 << 14; bit > 0; bit >>= 2 ) {
+		if ( value >= root + bit ) {
+			value -= root + bit;
+			root = ( root >> 1 ) + bit;
+		} else {
+			root >>= 1;
+		}
+	}
+
+	if ( root > 255 ) {
+		root = 255;
+	}
+	return (byte)root;
+}
+#endif
+
 static void R_CreateFogImage( void ) {
 	int		x,y;
 	byte	*data;
@@ -2693,14 +2729,20 @@ static void R_CreateFogImage( void ) {
 	float	d;
 	float	borderColor[4];
 
-	data = (unsigned char *)Hunk_AllocateTempMemory( FOG_S * FOG_T * 4 );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: alloc...\n");
+#endif
+	data = (byte*) Z_Malloc( FOG_S * FOG_T * 4, TAG_TEMP_WORKSPACE, qfalse );
 
 	g = 2.0;
 
+#ifdef _XBOX
+	XBL("R_CreateFogImage: fill...\n");
+#endif
 	// S is distance, T is depth
 	for (x=0 ; x<FOG_S ; x++) {
 		for (y=0 ; y<FOG_T ; y++) {
-			d = R_FogFactor( ( x + 0.5f ) / FOG_S, ( y + 0.5f ) / FOG_T );
+			d = R_FogFactor( ( x + 0.5 ) / FOG_S, ( y + 0.5 ) / FOG_T );
 
 			data[(y*FOG_S+x)*4+0] = 
 			data[(y*FOG_S+x)*4+1] = 
@@ -2711,15 +2753,31 @@ static void R_CreateFogImage( void ) {
 	// standard openGL clamping doesn't really do what we want -- it includes
 	// the border color at the edges.  OpenGL 1.2 has clamp-to-edge, which does
 	// what we want.
-	tr.fogImage = R_CreateImage("*fog", (byte *)data, FOG_S, FOG_T, GL_RGBA, qfalse, qfalse, qfalse, GL_CLAMP );
-	Hunk_FreeTempMemory( data );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: R_CreateImage...\n");
+#endif
+	tr.fogImage = R_CreateImage("*fog", (byte *)data, FOG_S, FOG_T, GL_RGBA, qfalse, qfalse, GL_CLAMP);
+#ifdef _XBOX
+	XBLF("R_CreateFogImage: R_CreateImage done image=%p\n", (void*)tr.fogImage);
+	XBL("R_CreateFogImage: Z_Free...\n");
+#endif
+	Z_Free( data );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: Z_Free done\n");
+#endif
 
 	borderColor[0] = 1.0;
 	borderColor[1] = 1.0;
 	borderColor[2] = 1.0;
 	borderColor[3] = 1;
 
-	qglTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: glTexParameterfv BORDER_COLOR...\n");
+#endif
+	glTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
+#ifdef _XBOX
+	XBL("R_CreateFogImage: complete\n");
+#endif
 }
 
 /*
@@ -2733,7 +2791,7 @@ static void R_CreateDefaultImage( void ) {
 	byte	data[DEFAULT_SIZE][DEFAULT_SIZE][4];
 
 	// the default image will be a box, to allow you to see the mapping coordinates
-	Com_Memset( data, 32, sizeof( data ) );
+	memset( data, 32, sizeof( data ) );
 	for ( x = 0 ; x < DEFAULT_SIZE ; x++ ) {
 		data[0][x][0] =
 		data[0][x][1] =
@@ -2755,7 +2813,7 @@ static void R_CreateDefaultImage( void ) {
 		data[x][DEFAULT_SIZE-1][2] =
 		data[x][DEFAULT_SIZE-1][3] = 255;
 	}
-	tr.defaultImage = R_CreateImage("*default", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, GL_RGBA, qtrue, qfalse, qfalse, GL_REPEAT );
+	tr.defaultImage = R_CreateImage("*default", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, GL_RGBA, qtrue, qfalse, GL_REPEAT);
 }
 
 /*
@@ -2763,79 +2821,51 @@ static void R_CreateDefaultImage( void ) {
 R_CreateBuiltinImages
 ==================
 */
-void R_CreateBuiltinImages( void ) {
-	int		x,y;
-	byte	data[DEFAULT_SIZE][DEFAULT_SIZE][4];
+bool R_UpdateSaveGameImage(const char *filename);
 
+void R_CreateBuiltinImages( void ) {
+	int		x;
+	byte	*data = (byte *) Z_Malloc( SCREEN_IMAGE_MAX_WIDTH * SCREEN_IMAGE_MAX_HEIGHT * 4, TAG_TEMP_WORKSPACE, qfalse, 4 );
+
+	XBL("R_CreateBuiltinImages: *default...\n");
 	R_CreateDefaultImage();
 
 	// we use a solid white image instead of disabling texturing
-	Com_Memset( data, 255, sizeof( data ) );
-	tr.whiteImage = R_CreateImage("*white", (byte *)data, 8, 8, GL_RGBA, qfalse, qfalse, qfalse, GL_REPEAT);
+	memset( data, 255, Z_Size( data ) );
 
-	tr.screenImage = R_CreateImage("*screen", (byte *)data, 8, 8, GL_RGBA, qfalse, qfalse, qfalse, GL_REPEAT );
+	XBL("R_CreateBuiltinImages: *white...\n");
+	tr.whiteImage = R_CreateImage("*white", data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
 
-	// Create the scene glow image. - AReis
-	tr.screenGlow = 1024 + giTextureBindNum++;
-	qglDisable( GL_TEXTURE_2D );
-	qglEnable( GL_TEXTURE_RECTANGLE_EXT );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.screenGlow );
-	qglTexImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, GL_RGBA16, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGB, GL_FLOAT, 0 );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_S, GL_CLAMP );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_T, GL_CLAMP );
+	// Make these the right size the first time!
+	XBL("R_CreateBuiltinImages: *screen...\n");
+	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_RGBA, 1, qfalse, GL_REPEAT );
+	XBL("R_CreateBuiltinImages: *savegame placeholder...\n");
+	tr.saveGameImage = R_CreateImage("*savegame", data, SAVE_GAME_IMAGE_W, SAVE_GAME_IMAGE_H, GL_DDS1_EXT, 1, qfalse, GL_REPEAT );
 
-	// Create the scene image. - AReis
-	tr.sceneImage = 1024 + giTextureBindNum++;
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.sceneImage );
-	qglTexImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, GL_RGBA16, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGB, GL_FLOAT, 0 );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_S, GL_CLAMP );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_T, GL_CLAMP );
+	XBL("R_CreateBuiltinImages: *identityLight...\n");
+	tr.identityLightImage = R_CreateImage("*identityLight", data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
 
-	// Create the minimized scene blur image.
-	if ( r_DynamicGlowWidth->integer > glConfig.vidWidth  )
-	{
-		r_DynamicGlowWidth->integer = glConfig.vidWidth;
-	}
-	if ( r_DynamicGlowHeight->integer > glConfig.vidHeight  )
-	{
-		r_DynamicGlowHeight->integer = glConfig.vidHeight;
-	}
-	tr.blurImage = 1024 + giTextureBindNum++;
-	qglBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );
-	qglTexImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, GL_RGBA16, r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer, 0, GL_RGB, GL_FLOAT, 0 );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_S, GL_CLAMP );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_EXT, GL_TEXTURE_WRAP_T, GL_CLAMP );
-	qglDisable( GL_TEXTURE_RECTANGLE_EXT );
-	qglEnable( GL_TEXTURE_2D );
+	// load the last saveimage
+	XBL("R_CreateBuiltinImages: R_UpdateSaveGameImage...\n");
+	R_UpdateSaveGameImage("z:\\screenshot.xbx");
+	XBL("R_CreateBuiltinImages: R_UpdateSaveGameImage done\n");
 
 
-	// with overbright bits active, we need an image which is some fraction of full color,
-	// for default lightmaps, etc
-	for (x=0 ; x<DEFAULT_SIZE ; x++) {
-		for (y=0 ; y<DEFAULT_SIZE ; y++) {
-			data[y][x][0] = 
-			data[y][x][1] = 
-			data[y][x][2] = tr.identityLightByte;
-			data[y][x][3] = 255;			
-		}
-	}
-
-	tr.identityLightImage = R_CreateImage("*identityLight", (byte *)data, 8, 8, GL_RGBA, qfalse, qfalse, qfalse, GL_REPEAT);
-
+	// scratchimage is usually used for cinematic drawing
 	for(x=0;x<NUM_SCRATCH_IMAGES;x++) {
 		// scratchimage is usually used for cinematic drawing
-		tr.scratchImage[x] = R_CreateImage(va("*scratch%d",x), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, GL_RGBA, qfalse, qtrue, qfalse, GL_CLAMP);
+		// XBOX - Only used for planet movies, which are all 128x128
+		XBLF("R_CreateBuiltinImages: *scratch%d...\n", x);
+		tr.scratchImage[x] = R_CreateImage(va("*scratch%d",x), data, 128, 128, GL_RGBA, qfalse, qfalse, GL_CLAMP);
 	}
 
-	R_CreateDlightImage();
+	Z_Free( data );
 
+	XBL("R_CreateBuiltinImages: R_CreateDlightImage...\n");
+	R_CreateDlightImage();
+	XBL("R_CreateBuiltinImages: R_CreateFogImage...\n");
 	R_CreateFogImage();
+	XBL("R_CreateBuiltinImages: done\n");
 }
 
 
@@ -2857,7 +2887,7 @@ void R_SetColorMappings( void ) {
 	}
 
 	// never overbright in windowed mode
-	if ( !glConfig.isFullscreen ) 
+	if ( !glConfig.isFullscreen )
 	{
 		tr.overbrightBits = 0;
 	}
@@ -2865,17 +2895,34 @@ void R_SetColorMappings( void ) {
 	if ( tr.overbrightBits > 1 ) {
 		tr.overbrightBits = 1;
 	}
-
 	if ( tr.overbrightBits < 0 ) {
 		tr.overbrightBits = 0;
 	}
 
-	tr.identityLight = 1.0f / ( 1 << tr.overbrightBits );
+	tr.identityLight = 1.0 / ( 1 << tr.overbrightBits );
 	tr.identityLightByte = 255 * tr.identityLight;
+
+#ifdef _XBOX
+	{
+		static int s_xboxColorMappingLogCount = 0;
+		if (s_xboxColorMappingLogCount < 4)
+		{
+			XBLF("JA: R_SetColorMappings gammaSupport=%d fullscreen=%d overbright=%d identityLight=%g identityByte=%d r_gamma=%g r_intensity=%g",
+				glConfig.deviceSupportsGamma ? 1 : 0,
+				glConfig.isFullscreen ? 1 : 0,
+				tr.overbrightBits,
+				tr.identityLight,
+				tr.identityLightByte,
+				r_gamma ? r_gamma->value : -1.0f,
+				r_intensity ? r_intensity->value : -1.0f);
+			++s_xboxColorMappingLogCount;
+		}
+	}
+#endif
 
 
 	if ( r_intensity->value < 1.0f ) {
-		Cvar_Set( "r_intensity", "1" );
+		Cvar_Set( "r_intensity", "1.0" );
 	}
 
 	if ( r_gamma->value < 0.5f ) {
@@ -2911,11 +2958,6 @@ void R_SetColorMappings( void ) {
 		}
 		s_intensitytable[i] = j;
 	}
-
-	if ( glConfig.deviceSupportsGamma )
-	{
-		GLimp_SetGamma( s_gammatable, s_gammatable, s_gammatable );
-	}
 }
 
 /*
@@ -2924,12 +2966,39 @@ R_InitImages
 ===============
 */
 void	R_InitImages( void ) {
+#ifdef _XBOX
+	XBL("R_InitImages: entered\n");
+#endif
 	//memset(hashTable, 0, sizeof(hashTable));	// DO NOT DO THIS NOW (because of image cacheing)	-ste.
+	if (!AllocatedImages)
+	{
+#ifdef _XBOX
+		XBL("R_InitImages: new AllocatedImages_t...\n");
+#endif
+		AllocatedImages = new AllocatedImages_t;
+#ifdef _XBOX
+		if (!AllocatedImageNames)
+		{
+			AllocatedImageNames = new AllocatedImageNames_t;
+		}
+		XBLF("R_InitImages: AllocatedImages=%p\n", (void*)AllocatedImages);
+#endif
+	}
+
+#ifdef _XBOX
+	XBL("R_InitImages: R_SetColorMappings...\n");
+#endif
 	// build brightness translation tables
 	R_SetColorMappings();
 
+#ifdef _XBOX
+	XBL("R_InitImages: R_CreateBuiltinImages (first D3D textures)...\n");
+#endif
 	// create default texture and white texture
 	R_CreateBuiltinImages();
+#ifdef _XBOX
+	XBL("R_InitImages: COMPLETE\n");
+#endif
 }
 
 /*
@@ -2952,227 +3021,6 @@ SKINS
 
 ============================================================================
 */
-
-static char *CommaParse( char **data_p );
-//can't be dec'd here since we need it for non-dedicated builds now as well.
-
-/*
-===============
-RE_RegisterSkin
-
-===============
-*/
-
-#endif // !DEDICATED
-bool gServerSkinHack = false;
-
-
-shader_t *R_FindServerShader( const char *name, const short *lightmapIndex, const byte *styles, qboolean mipRawImage );
-char *CommaParse( char **data_p );
-/*
-===============
-RE_SplitSkins
-input = skinname, possibly being a macro for three skins
-return= true if three part skins found
-output= qualified names to three skins if return is true, undefined if false
-===============
-*/
-bool RE_SplitSkins(const char *INname, char *skinhead, char *skintorso, char *skinlower)
-{	//INname= "models/players/jedi_tf/|head01_skin1|torso01|lower01";
-	if (strchr(INname, '|'))
-	{
-		char name[MAX_QPATH];
-		strcpy(name, INname);
-		char *p = strchr(name, '|');
-		*p=0;
-		p++;
-		//fill in the base path
-		strcpy (skinhead, name);
-		strcpy (skintorso, name);
-		strcpy (skinlower, name);
-
-		//now get the the individual files
-		
-		//advance to second
-		char *p2 = strchr(p, '|'); 
-		assert(p2);
-		*p2=0;
-		p2++;
-		strcat (skinhead, p);
-		strcat (skinhead, ".skin");
-
-
-		//advance to third
-		p = strchr(p2, '|');
-		assert(p);
-		*p=0;
-		p++;
-		strcat (skintorso,p2);
-		strcat (skintorso, ".skin");
-
-		strcat (skinlower,p);
-		strcat (skinlower, ".skin");
-		
-		return true;
-	}
-	return false;
-}
-
-// given a name, go get the skin we want and return
-qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin) 
-{
-	skin_t		*skin;
-	skinSurface_t	*surf;
-	char		*text, *text_p;
-	char		*token;
-	char		surfName[MAX_QPATH];
-
-	// load and parse the skin file
-    FS_ReadFile( name, (void **)&text );
-	if ( !text ) {
-#ifndef FINAL_BUILD
-		Com_Printf( "WARNING: RE_RegisterSkin( '%s' ) failed to load!\n", name );
-#endif
-		return 0;
-	}
-
-	assert (tr.skins[hSkin]);	//should already be setup, but might be an 3part append
-
-	skin = tr.skins[hSkin];
-
-	text_p = text;
-	while ( text_p && *text_p ) {
-		// get surface name
-		token = CommaParse( &text_p );
-		Q_strncpyz( surfName, token, sizeof( surfName ) );
-
-		if ( !token[0] ) {
-			break;
-		}
-		// lowercase the surface name so skin compares are faster
-		Q_strlwr( surfName );
-
-		if ( *text_p == ',' ) {
-			text_p++;
-		}
-
-		if ( !strncmp( token, "tag_", 4 ) ) {	//these aren't in there, but just in case you load an id style one...
-			continue;
-		}
-		
-		// parse the shader name
-		token = CommaParse( &text_p );
-
-		if ( !strcmp( &surfName[strlen(surfName)-4], "_off") )
-		{
-			if ( !strcmp( token ,"*off" ) )
-			{
-				continue;	//don't need these double offs
-			}
-			surfName[strlen(surfName)-4] = 0;	//remove the "_off"
-		}
-		if (sizeof( skin->surfaces) / sizeof( skin->surfaces[0] ) <= skin->numSurfaces)
-		{
-			assert( sizeof( skin->surfaces) / sizeof( skin->surfaces[0] ) > skin->numSurfaces );
-			Com_Printf( "WARNING: RE_RegisterSkin( '%s' ) more than %d surfaces!\n", name, sizeof( skin->surfaces) / sizeof( skin->surfaces[0] ) );
-			break;
-		}
-		surf = skin->surfaces[ skin->numSurfaces ] = (skinSurface_t *) Hunk_Alloc( sizeof( *skin->surfaces[0] ), h_low );
-		Q_strncpyz( surf->name, surfName, sizeof( surf->name ) );
-
-		if (gServerSkinHack)
-		{
-			surf->shader = R_FindServerShader( token, lightmapsNone, stylesDefault, qtrue );
-		}
-		else
-		{
-			surf->shader = R_FindShader( token, lightmapsNone, stylesDefault, qtrue );
-		}
-		skin->numSurfaces++;
-	}
-
-	FS_FreeFile( text );
-
-
-	// never let a skin have 0 shaders
-	if ( skin->numSurfaces == 0 ) {
-		return 0;		// use default skin
-	}
-
-	return hSkin;
-}
-
-qhandle_t RE_RegisterSkin( const char *name ) {
-	qhandle_t	hSkin;
-	skin_t		*skin;
-
-	if ( !name || !name[0] ) {
-		Com_Printf( "Empty name passed to RE_RegisterSkin\n" );
-		return 0;
-	}
-
-	if ( strlen( name ) >= MAX_QPATH ) {
-		Com_Printf( "Skin name exceeds MAX_QPATH\n" );
-		return 0;
-	}
-
-	// see if the skin is already loaded
-	for ( hSkin = 1; hSkin < tr.numSkins ; hSkin++ ) {
-		skin = tr.skins[hSkin];
-		if ( !Q_stricmp( skin->name, name ) ) {
-			if( skin->numSurfaces == 0 ) {
-				return 0;		// default skin
-			}
-			return hSkin;
-		}
-	}
-
-	// allocate a new skin
-	if ( tr.numSkins == MAX_SKINS ) {
-		Com_Printf( "WARNING: RE_RegisterSkin( '%s' ) MAX_SKINS hit\n", name );
-		return 0;
-	}
-	tr.numSkins++;
-	skin = (struct skin_s *)Hunk_Alloc( sizeof( skin_t ), h_low );
-	tr.skins[hSkin] = skin;
-	Q_strncpyz( skin->name, name, sizeof( skin->name ) );
-	skin->numSurfaces = 0;
-
-	// make sure the render thread is stopped
-	R_SyncRenderThread();
-
-	// If not a .skin file, load as a single shader
-	if ( strcmp( name + strlen( name ) - 5, ".skin" ) ) {
-/*		skin->numSurfaces = 1;
-		skin->surfaces[0] = (skinSurface_t *)Hunk_Alloc( sizeof(skin->surfaces[0]), h_low );
-		skin->surfaces[0]->shader = R_FindShader( name, lightmapsNone, stylesDefault, qtrue );
-		return hSkin;
-*/
-	}
-
-	char skinhead[MAX_QPATH]={0};
-	char skintorso[MAX_QPATH]={0};
-	char skinlower[MAX_QPATH]={0};
-	if ( RE_SplitSkins(name, (char*)&skinhead, (char*)&skintorso, (char*)&skinlower ) )
-	{//three part
-		hSkin = RE_RegisterIndividualSkin(skinhead, hSkin);
-		if (hSkin)
-		{
-			hSkin = RE_RegisterIndividualSkin(skintorso, hSkin);
-			if (hSkin)
-			{
-				hSkin = RE_RegisterIndividualSkin(skinlower, hSkin);
-			}
-		}
-	}
-	else
-	{//single skin
-		hSkin = RE_RegisterIndividualSkin(name, hSkin);
-	}
-	return(hSkin);
-}
-
-
 
 /*
 ==================
@@ -3281,32 +3129,459 @@ static char *CommaParse( char **data_p ) {
 	return com_token;
 }
 
-/*
-===============
-RE_RegisterServerSkin
+typedef map<sstring_t,char * /*, CStringComparator*/ >	AnimationCFGs_t;
+													AnimationCFGs_t AnimationCFGs;
 
-Mangled version of the above function to load .skin files on the server.
-===============
-*/
-extern qboolean Com_TheHunkMarkHasBeenMade(void);
-extern qboolean ShaderHashTableExists(void);
-qhandle_t RE_RegisterServerSkin( const char *name ) {
-	qhandle_t r;
+// I added this function for development purposes (and it's VM-safe) so we don't have problems
+//	with our use of cached models but uncached animation.cfg files (so frame sequences are out of sync
+//	if someone rebuild the model while you're ingame and you change levels)...
+//
+// Usage:  call with psDest == NULL for a size enquire (for malloc), 
+//				then with NZ ptr for it to copy to your supplied buffer...
+//
+int RE_GetAnimationCFG(const char *psCFGFilename, char *psDest, int iDestSize)
+{
+	char *psText = NULL;
 
-	if (com_cl_running &&
-		com_cl_running->integer &&
-		Com_TheHunkMarkHasBeenMade() &&
-		ShaderHashTableExists())
-	{ //If the client is running then we can go straight into the normal registerskin func
-		return RE_RegisterSkin(name);
+	AnimationCFGs_t::iterator it = AnimationCFGs.find(psCFGFilename);
+	if (it != AnimationCFGs.end())
+	{
+		psText = (*it).second;
+	}
+	else
+	{
+		// not found, so load it...
+		//
+		fileHandle_t f;
+		int iLen = FS_FOpenFileRead( psCFGFilename, &f, FS_READ );
+		if (iLen <= 0)
+		{
+			return 0;
+		}
+
+		psText = (char *) Z_Malloc( iLen+1, TAG_ANIMATION_CFG, qfalse );
+
+		FS_Read( psText, iLen, f );
+		psText[iLen] = '\0';
+		FS_FCloseFile( f );
+
+		AnimationCFGs[psCFGFilename] = psText;
 	}
 
-	gServerSkinHack = true;
-	r = RE_RegisterSkin(name);
-	gServerSkinHack = false;
+	if (psText)	// sanity, but should always be NZ
+	{
+		if (psDest)
+		{
+			Q_strncpyz(psDest,psText,iDestSize);
+		}
 
-	return r;
+		return strlen(psText);
+	}
+
+	return 0;
 }
+
+// only called from devmapbsp, devmapall, or ...
+//
+void RE_AnimationCFGs_DeleteAll(void)
+{
+	for (AnimationCFGs_t::iterator it = AnimationCFGs.begin(); it != AnimationCFGs.end(); ++it)
+	{
+		char *psText = (*it).second;
+		Z_Free(psText);
+	}
+
+	AnimationCFGs.clear();
+}
+
+/*
+===============
+RE_SplitSkins
+input = skinname, possibly being a macro for three skins
+return= true if three part skins found
+output= qualified names to three skins if return is true, undefined if false
+===============
+*/
+bool RE_SplitSkins(const char *INname, char *skinhead, char *skintorso, char *skinlower)
+{	//INname= "models/players/jedi_tf/|head01_skin1|torso01|lower01";
+	if (strchr(INname, '|'))
+	{
+		char name[MAX_QPATH];
+		strcpy(name, INname);
+		char *p = strchr(name, '|');
+		*p=0;
+		p++;
+		//fill in the base path
+		strcpy (skinhead, name);
+		strcpy (skintorso, name);
+		strcpy (skinlower, name);
+
+		//now get the the individual files
+		
+		//advance to second
+		char *p2 = strchr(p, '|'); 
+		assert(p2);
+		*p2=0;
+		p2++;
+		strcat (skinhead, p);
+		strcat (skinhead, ".skin");
+
+
+		//advance to third
+		p = strchr(p2, '|');
+		assert(p);
+		if (!p)
+		{
+			return false;
+		}
+		*p=0;
+		p++;
+		strcat (skintorso,p2);
+		strcat (skintorso, ".skin");
+
+		strcat (skinlower,p);
+		strcat (skinlower, ".skin");
+		
+		return true;
+	}
+	return false;
+}
+
+
+qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin);
+
+#ifdef STEFX_ELITE_FORCE_SP
+#define STEFX_HEAD_SKIN_EXTENSION_FRAMES 8
+
+static qboolean RE_STEFX_IsHeadSkinBase( const char *name )
+{
+	const char *fileName;
+	const char *slash;
+	const char *backslash;
+	const char *ext;
+	const char *dash;
+
+	if ( !name || !name[0] )
+	{
+		return qfalse;
+	}
+
+	slash = strrchr( name, '/' );
+	backslash = strrchr( name, '\\' );
+	if ( backslash && ( !slash || backslash > slash ) )
+	{
+		slash = backslash;
+	}
+	fileName = slash ? slash + 1 : name;
+
+	if ( Q_stricmpn( fileName, "head_", 5 ) )
+	{
+		return qfalse;
+	}
+
+	ext = strrchr( fileName, '.' );
+	if ( !ext || Q_stricmp( ext, ".skin" ) )
+	{
+		return qfalse;
+	}
+
+	dash = strrchr( fileName, '-' );
+	if ( dash && dash < ext && dash[1] >= '0' && dash[1] <= '9' )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static void RE_STEFX_BuildHeadSkinFrameName( const char *baseName, int frame, char *outName, int outSize )
+{
+	char withoutExtension[MAX_QPATH];
+
+	Q_strncpyz( withoutExtension, baseName, sizeof( withoutExtension ) );
+	COM_StripExtension( withoutExtension, withoutExtension );
+	Com_sprintf( outName, outSize, "%s-%d.skin", withoutExtension, frame );
+}
+
+static qboolean RE_STEFX_SkinFileExists( const char *name )
+{
+	void *buffer = NULL;
+	const int len = FS_ReadFile( name, &buffer );
+
+	if ( buffer )
+	{
+		FS_FreeFile( buffer );
+	}
+
+	return len > 0 ? qtrue : qfalse;
+}
+
+static qboolean RE_STEFX_SkinHasHeadExtensions( qhandle_t baseSkin, const char *baseName )
+{
+	int frame;
+
+	if ( !RE_STEFX_IsHeadSkinBase( baseName ) )
+	{
+		return qfalse;
+	}
+
+	for ( frame = 1; frame <= STEFX_HEAD_SKIN_EXTENSION_FRAMES; ++frame )
+	{
+		char frameName[MAX_QPATH];
+		const qhandle_t frameSkin = baseSkin + frame;
+
+		if ( frameSkin <= 0 || frameSkin >= tr.numSkins || !tr.skins[frameSkin] || tr.skins[frameSkin]->numSurfaces == 0 )
+		{
+			return qfalse;
+		}
+
+		RE_STEFX_BuildHeadSkinFrameName( baseName, frame, frameName, sizeof( frameName ) );
+		if ( Q_stricmp( tr.skins[frameSkin]->name, frameName ) )
+		{
+			return qfalse;
+		}
+	}
+
+	return qtrue;
+}
+
+static qboolean RE_STEFX_RegisterHeadSkinExtensions( qhandle_t baseSkin, const char *baseName )
+{
+	int frame;
+
+	if ( !RE_STEFX_IsHeadSkinBase( baseName ) )
+	{
+		return qfalse;
+	}
+
+	if ( tr.numSkins + STEFX_HEAD_SKIN_EXTENSION_FRAMES > MAX_SKINS )
+	{
+		VID_Printf( PRINT_WARNING, "WARNING: EF head skin extensions for '%s' would exceed MAX_SKINS\n", baseName );
+		return qfalse;
+	}
+
+	for ( frame = 1; frame <= STEFX_HEAD_SKIN_EXTENSION_FRAMES; ++frame )
+	{
+		char frameName[MAX_QPATH];
+		RE_STEFX_BuildHeadSkinFrameName( baseName, frame, frameName, sizeof( frameName ) );
+		if ( !RE_STEFX_SkinFileExists( frameName ) )
+		{
+#if defined(_XBOX)
+			static int s_stefxMissingHeadSkinLogBudget = 32;
+			if ( s_stefxMissingHeadSkinLogBudget > 0 )
+			{
+				XBLF( "STEFX: EF head skin extensions missing frame base='%s' frame='%s'", baseName, frameName );
+				--s_stefxMissingHeadSkinLogBudget;
+			}
+#endif
+			return qfalse;
+		}
+	}
+
+	for ( frame = 1; frame <= STEFX_HEAD_SKIN_EXTENSION_FRAMES; ++frame )
+	{
+		char frameName[MAX_QPATH];
+		qhandle_t frameSkin;
+
+		RE_STEFX_BuildHeadSkinFrameName( baseName, frame, frameName, sizeof( frameName ) );
+		frameSkin = RE_RegisterSkin( frameName );
+		if ( frameSkin != baseSkin + frame )
+		{
+			VID_Printf( PRINT_WARNING, "WARNING: EF head skin extension '%s' registered as %d, expected %d\n",
+				frameName, frameSkin, baseSkin + frame );
+			return qfalse;
+		}
+	}
+
+#if defined(_XBOX)
+	{
+		static int s_stefxHeadSkinExtensionLogBudget = 64;
+		if ( s_stefxHeadSkinExtensionLogBudget > 0 )
+		{
+			XBLF( "STEFX: EF head skin extensions registered base='%s' skin=%d frames=%d",
+				baseName, baseSkin, STEFX_HEAD_SKIN_EXTENSION_FRAMES );
+			--s_stefxHeadSkinExtensionLogBudget;
+		}
+	}
+#endif
+
+	return qtrue;
+}
+#endif
+
+/*
+===============
+RE_RegisterSkin
+
+===============
+*/
+qhandle_t RE_RegisterSkin( const char *name) {
+	qhandle_t	hSkin;
+	skin_t		*skin;
+
+//	if (!cls.cgameStarted && !cls.uiStarted)		
+//	{
+		//rww - added uiStarted exception because we want ghoul2 models in the menus.
+		// gwg well we need our skins to set surfaces on and off, so we gotta get em
+		//return 1;	// cope with Ghoul2's calling-the-renderer-before-its-even-started hackery, must be any NZ amount here to trigger configstring setting
+//	}
+
+	if (!tr.numSkins)
+	{
+		R_InitSkins(); //make sure we have numSkins set to at least one.
+	}
+
+	if ( !name || !name[0] ) {
+		Com_Printf( "Empty name passed to RE_RegisterSkin\n" );
+		return 0;
+	}
+
+	if ( strlen( name ) >= MAX_QPATH ) {
+		Com_Printf( "Skin name exceeds MAX_QPATH\n" );
+		return 0;
+	}
+
+	// see if the skin is already loaded
+	for ( hSkin = 1; hSkin < tr.numSkins ; hSkin++ ) {
+		skin = tr.skins[hSkin];
+		if ( !Q_stricmp( skin->name, name ) ) {
+			if( skin->numSurfaces == 0 ) {
+				return 0;		// default skin
+			}
+#ifdef STEFX_ELITE_FORCE_SP
+			if ( RE_STEFX_IsHeadSkinBase( name ) && RE_STEFX_SkinHasHeadExtensions( hSkin, name ) )
+			{
+				return -hSkin;
+			}
+#endif
+			return(hSkin);
+		}
+	}
+
+	if ( tr.numSkins == MAX_SKINS )	{
+		VID_Printf( PRINT_WARNING, "WARNING: RE_RegisterSkin( '%s' ) MAX_SKINS hit\n", name );
+		return 0;
+	}
+	// allocate a new skin
+	tr.numSkins++;
+	skin = (skin_t*) Hunk_Alloc( sizeof( skin_t ), qtrue );
+	tr.skins[hSkin] = skin;
+	Q_strncpyz( skin->name, name, sizeof( skin->name ) );	//always make one so it won't search for it again
+
+	// If not a .skin file, load as a single shader	- then return
+	if ( strcmp( name + strlen( name ) - 5, ".skin" ) ) {
+/*		skin->numSurfaces = 1;
+		skin->surfaces[0] = (skinSurface_t *) Hunk_Alloc( sizeof(skin->surfaces[0]), qtrue );
+		skin->surfaces[0]->shader = R_FindShader( name, lightmapsNone, stylesDefault, qtrue );
+		return hSkin;
+*/
+	}
+
+	char skinhead[MAX_QPATH]={0};
+	char skintorso[MAX_QPATH]={0};
+	char skinlower[MAX_QPATH]={0};
+	if ( RE_SplitSkins(name, (char*)&skinhead, (char*)&skintorso, (char*)&skinlower ) )
+	{//three part
+		hSkin = RE_RegisterIndividualSkin(skinhead, hSkin);
+		if (hSkin)
+		{
+			hSkin = RE_RegisterIndividualSkin(skintorso, hSkin);
+			if (hSkin)
+			{
+				hSkin = RE_RegisterIndividualSkin(skinlower, hSkin);
+			}
+		}
+	}
+	else
+	{//single skin
+		hSkin = RE_RegisterIndividualSkin(name, hSkin);
+	}
+#ifdef STEFX_ELITE_FORCE_SP
+	if ( RE_STEFX_IsHeadSkinBase( name ) )
+	{
+		if ( RE_STEFX_SkinHasHeadExtensions( hSkin, name ) || RE_STEFX_RegisterHeadSkinExtensions( hSkin, name ) )
+		{
+			return -hSkin;
+		}
+	}
+#endif
+	return(hSkin);
+}
+
+// given a name, go get the skin we want and return
+qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin) 
+{
+	skin_t		*skin;
+	skinSurface_t	*surf;
+	char		*text, *text_p;
+	char		*token;
+	char		surfName[MAX_QPATH];
+
+	// load and parse the skin file
+    FS_ReadFile( name, (void **)&text );
+	if ( !text ) {
+		VID_Printf( PRINT_ERROR, "WARNING: RE_RegisterSkin( '%s' ) failed to load!\n", name );
+		return 0;
+	}
+
+	assert (tr.skins[hSkin]);	//should already be setup, but might be an 3part append
+
+	skin = tr.skins[hSkin];
+
+	text_p = text;
+	while ( text_p && *text_p ) {
+		// get surface name
+		token = CommaParse( &text_p );
+		Q_strncpyz( surfName, token, sizeof( surfName ) );
+
+		if ( !token[0] ) {
+			break;
+		}
+		// lowercase the surface name so skin compares are faster
+		Q_strlwr( surfName );
+
+		if ( *text_p == ',' ) {
+			text_p++;
+		}
+
+		if ( !strncmp( token, "tag_", 4 ) ) {	//these aren't in there, but just in case you load an id style one...
+			continue;
+		}
+		
+		// parse the shader name
+		token = CommaParse( &text_p );
+
+		if ( !strcmp( &surfName[strlen(surfName)-4], "_off") )
+		{
+			if ( !strcmp( token ,"*off" ) )
+			{
+				continue;	//don't need these double offs
+			}
+			surfName[strlen(surfName)-4] = 0;	//remove the "_off"
+		}
+		if (sizeof( skin->surfaces) / sizeof( skin->surfaces[0] ) <= skin->numSurfaces)
+		{
+			assert( sizeof( skin->surfaces) / sizeof( skin->surfaces[0] ) > skin->numSurfaces );
+			VID_Printf( PRINT_ERROR, "WARNING: RE_RegisterSkin( '%s' ) more than %d surfaces!\n", name, sizeof( skin->surfaces) / sizeof( skin->surfaces[0] ) );
+			break;
+		}
+		surf = skin->surfaces[ skin->numSurfaces ] = (skinSurface_t *) Hunk_Alloc( sizeof( *skin->surfaces[0] ), qtrue );
+		Q_strncpyz( surf->name, surfName, sizeof( surf->name ) );
+		surf->shader = R_FindShader( token, lightmapsNone, stylesDefault, qtrue );
+		skin->numSurfaces++;
+	}
+
+	FS_FreeFile( text );
+
+
+	// never let a skin have 0 shaders
+	if ( skin->numSurfaces == 0 ) {
+		return 0;		// use default skin
+	}
+
+	return hSkin;
+}
+
 
 /*
 ===============
@@ -3319,10 +3594,10 @@ void	R_InitSkins( void ) {
 	tr.numSkins = 1;
 
 	// make the default skin have all default shaders
-	skin = tr.skins[0] = (struct skin_s *)/*ri.*/Hunk_Alloc( sizeof( skin_t ), h_low );
+	skin = tr.skins[0] = (skin_t*) Hunk_Alloc( sizeof( skin_t ), qtrue );
 	Q_strncpyz( skin->name, "<default skin>", sizeof( skin->name )  );
 	skin->numSurfaces = 1;
-	skin->surfaces[0] = (skinSurface_t *)/*ri.*/Hunk_Alloc( sizeof( skinSurface_t ), h_low );
+	skin->surfaces[0] = (skinSurface_t *) Hunk_Alloc( sizeof( *skin->surfaces[0] ), qtrue );
 	skin->surfaces[0]->shader = tr.defaultShader;
 }
 
@@ -3338,28 +3613,45 @@ skin_t	*R_GetSkinByHandle( qhandle_t hSkin ) {
 	return tr.skins[ hSkin ];
 }
 
-#ifndef DEDICATED
 /*
 ===============
 R_SkinList_f
 ===============
 */
-void	R_SkinList_f( void ) {
+void	R_SkinList_f (void) {
 	int			i, j;
 	skin_t		*skin;
 
-	Com_Printf ( "------------------\n");
+	VID_Printf (PRINT_ALL, "------------------\n");
 
 	for ( i = 0 ; i < tr.numSkins ; i++ ) {
 		skin = tr.skins[i];
-
-		Com_Printf ("%3i:%s\n", i, skin->name );
+		VID_Printf( PRINT_ALL, "%3i:%s\n", i, skin->name );
 		for ( j = 0 ; j < skin->numSurfaces ; j++ ) {
-			Com_Printf ("       %s = %s\n", 
+			VID_Printf( PRINT_ALL, "       %s = %s\n", 
 				skin->surfaces[j]->name, skin->surfaces[j]->shader->name );
 		}
 	}
-	Com_Printf ( "------------------\n");
+	VID_Printf (PRINT_ALL, "------------------\n");
 }
 
-#endif // !DEDICATED
+#ifdef _XBOX
+
+extern BOOL LoadCompressedScreenshot(const char* filename);
+
+/*
+===============
+R_UpdateSaveGameImage
+filename	- .xbx format file with a screenshot
+===============
+*/
+bool R_UpdateSaveGameImage(const char* filename)
+{
+	// bind the savegame image
+	GL_Bind(tr.saveGameImage);
+
+	// replace the texture with the one from the file
+	return LoadCompressedScreenshot(filename);
+}
+
+#endif // _XBOX

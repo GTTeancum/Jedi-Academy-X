@@ -96,6 +96,15 @@ void SFxHelper::CameraShake( vec3_t origin, float intensity, int radius, int tim
 //------------------------------------------------------
 qboolean SFxHelper::GetOriginAxisFromBolt(CGhoul2Info_v *pGhoul2, int mEntNum, int modelNum, int boltNum, vec3_t /*out*/origin, vec3_t /*out*/axis[3])
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	(void)pGhoul2;
+	(void)mEntNum;
+	(void)modelNum;
+	(void)boltNum;
+	VectorClear(origin);
+	AxisClear(axis);
+	return qfalse;
+#else
 	qboolean doesBoltExist;
 	mdxaBone_t 		boltMatrix;
 	TCGGetBoltData	*data = (TCGGetBoltData*)cl->mSharedMemory;
@@ -127,4 +136,5 @@ qboolean SFxHelper::GetOriginAxisFromBolt(CGhoul2Info_v *pGhoul2, int mEntNum, i
 		axis[2][2] = boltMatrix.matrix[2][2];
 	}
 	return doesBoltExist;
+#endif
 }

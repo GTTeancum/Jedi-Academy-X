@@ -684,7 +684,7 @@ Ghoul2 Insert Start
 				}
 			}
 		}
-#else
+#elif !defined(STEFX_ELITE_FORCE_MP)
 		//rww - since this is multiplayer and we don't have the luxury of violating networking rules in horrible ways,
 		//this must be done somewhat differently.
 		if ((clip->traceFlags & G2TRFLAG_DOGHOULTRACE) && trace.entityNum == touch->s.number && touch->ghoul2 && ((clip->traceFlags & G2TRFLAG_HITCORPSES) || !(touch->s.eFlags & EF_DEAD)))

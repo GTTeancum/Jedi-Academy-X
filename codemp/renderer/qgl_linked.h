@@ -334,16 +334,3 @@
 #define qglVertexPointer glVertexPointer
 #define qglViewport glViewport
 
-#define qglBeginFrame glBeginFrame
-#define qglEndFrame glEndFrame
-#define qglBeginEXT glBeginEXT
-#define qglEndFrameEXT glEndFrame
-#define qglActiveTextureARB glActiveTextureARB
-#define qglClientActiveTextureARB glClientActiveTextureARB
-#define qglMultiTexCoord2fARB glMultiTexCoord2fARB
-#define qglLockArraysEXT glLockArraysEXT
-#define qglUnlockArraysEXT glUnlockArraysEXT
-#define qglPointParameterfEXT glPointParameterfEXT
-#define qglPointParameterfvEXT glPointParameterfvEXT
-#define qglCopyBackBufferToTexEXT glCopyBackBufferToTexEXT
-#define qglTexImage2DEXT glTexImage2DEXT

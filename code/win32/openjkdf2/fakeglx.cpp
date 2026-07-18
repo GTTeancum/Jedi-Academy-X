@@ -113,9 +113,6 @@ static const DWORD FAKEGL_REGISTERED_TEXTURE_MIN_FREE = 512 * 1024;
 static bool g_stefxSkipSwapBlockUntilIdle = false;
 static int g_stefxFakeglSwapFrame = 0;
 static char g_stefxFakeglTextureDebugName[128] = "<none>";
-static int g_stefxFakeglOverlayDrawContext = 0;
-static int g_stefxFakeglOverlayDrawHud = 0;
-static int g_stefxFakeglOverlayDrawBeam = 0;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
@@ -143,13 +140,6 @@ extern "C" void JkaFakeglSetTextureDebugName(const char *name)
 			g_stefxFakeglTextureDebugName[i] = ' ';
 		}
 	}
-}
-
-extern "C" void JkaFakeglSetEliteForceOverlayDeviceContext(int active, int hud, int beam)
-{
-	g_stefxFakeglOverlayDrawContext = active ? 1 : 0;
-	g_stefxFakeglOverlayDrawHud = hud ? 1 : 0;
-	g_stefxFakeglOverlayDrawBeam = beam ? 1 : 0;
 }
 
 extern "C" const char *JkaFakeglGetTextureDebugName(void)
@@ -3996,7 +3986,8 @@ public:
 
 	bool DrawIndexedPrimitiveUPXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
 		UINT vertexCount, UINT primitiveCount, const void *indices,
-		const void *vertices, UINT stride)
+		const void *vertices, UINT stride, int stefxOverlayActive,
+		int stefxOverlayHud, int stefxOverlayBeam)
 	{
 		const bool stefxLateIndexed = false;
 
@@ -4025,7 +4016,7 @@ public:
 			SetGLRenderState();
 		}
 
-		if (g_stefxFakeglOverlayDrawContext)
+		if (stefxOverlayActive)
 		{
 			static int s_stefxOverlayDeviceStateBudget = 32;
 			const GLuint texture0 = m_textureState.GetStageTexture(0);
@@ -4038,9 +4029,9 @@ public:
 			m_pD3DDev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
 			m_pD3DDev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
 			m_pD3DDev->SetRenderState(D3DRS_SRCBLEND,
-				g_stefxFakeglOverlayDrawBeam ? D3DBLEND_ONE : D3DBLEND_SRCALPHA);
+				stefxOverlayBeam ? D3DBLEND_ONE : D3DBLEND_SRCALPHA);
 			m_pD3DDev->SetRenderState(D3DRS_DESTBLEND,
-				g_stefxFakeglOverlayDrawBeam ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
+				stefxOverlayBeam ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
 			m_pD3DDev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
 			m_pD3DDev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 			m_pD3DDev->SetRenderState(D3DRS_BACKFILLMODE, D3DFILL_SOLID);
@@ -4048,8 +4039,8 @@ public:
 			if (s_stefxOverlayDeviceStateBudget > 0)
 			{
 				XBLF("STEFX_OVERLAY_DEVICE_STATE hud=%d beam=%d blend=%d src=0x%08x dst=0x%08x depth=%d depthMask=%d alphaTest=%d textureDirty=%d stage0Dirty=%d stage0Enabled=%d stage0Tex=%u stage0Env=0x%08x entry=%p mip=%p format=0x%08x internal=0x%08x",
-					g_stefxFakeglOverlayDrawHud,
-					g_stefxFakeglOverlayDrawBeam,
+					stefxOverlayHud,
+					stefxOverlayBeam,
 					m_glBlend ? 1 : 0,
 					(unsigned int)m_glBlendFuncSFactor,
 					(unsigned int)m_glBlendFuncDFactor,
@@ -7596,14 +7587,16 @@ extern "C" int JkaFakeglIsTexture(GLuint texture)
 #ifdef _XBOX
 extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
 	UINT vertexCount, UINT primitiveCount, const void *indices,
-	const void *vertices, UINT stride)
+	const void *vertices, UINT stride, int stefxOverlayActive,
+	int stefxOverlayHud, int stefxOverlayBeam)
 {
 	if (!gFakeGL)
 	{
 		return 0;
 	}
 	return gFakeGL->DrawIndexedPrimitiveUPXbox(dptPrimitiveType, typeDesc,
-		vertexCount, primitiveCount, indices, vertices, stride) ? 1 : 0;
+		vertexCount, primitiveCount, indices, vertices, stride,
+		stefxOverlayActive, stefxOverlayHud, stefxOverlayBeam) ? 1 : 0;
 }
 
 extern "C" void JkaFakeglSetEliteForceScriptPanelDrawContext(int active)

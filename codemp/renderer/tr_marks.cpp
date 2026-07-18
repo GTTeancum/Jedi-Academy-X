@@ -1,7 +1,10 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // tr_marks.c -- polygon projection on the world polygons
+
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
+
 
 #include "tr_local.h"
 //#include "assert.h"
@@ -63,7 +66,7 @@ static void R_ChopPolyBehindPlane( int numInPoints, vec3_t inPoints[MAX_VERTS_ON
 	}
 	if ( !counts[1] ) {
 		*numOutPoints = numInPoints;
-		Com_Memcpy( outPoints, inPoints, numInPoints * sizeof(vec3_t) );
+		memcpy( outPoints, inPoints, numInPoints * sizeof(vec3_t) );
 		return;
 	}
 
@@ -149,6 +152,7 @@ void R_BoxSurfaces_r(mnode_t *node, vec3_t mins, vec3_t maxs, surfaceType_t **li
 		if (*listlength >= listsize) break;
 		//
 		surf = *mark;
+
 		// check if the surface has NOIMPACT or NOMARKS set
 		if ( ( surf->shader->surfaceFlags & ( SURF_NOIMPACT | SURF_NOMARKS ) )
 			|| ( surf->shader->contentFlags & CONTENTS_FOG ) ) {
@@ -165,7 +169,11 @@ void R_BoxSurfaces_r(mnode_t *node, vec3_t mins, vec3_t maxs, surfaceType_t **li
 				surf->viewCount = tr.viewCount;
 			}
 		}
-		else if (*(surfaceType_t *) (surf->data) != SF_GRID) surf->viewCount = tr.viewCount;
+		else if (*(surfaceType_t *) (surf->data) != SF_GRID
+			&& *(surfaceType_t *) (surf->data) != SF_TRIANGLES )
+		{
+			surf->viewCount = tr.viewCount;
+		}
 		// check the viewCount because the surface may have
 		// already been added if it spans multiple leafs
 		if (surf->viewCount != tr.viewCount) {
@@ -230,7 +238,7 @@ void R_AddMarkFragments(int numClipPoints, vec3_t clipPoints[2][MAX_VERTS_ON_POL
 	mf = fragmentBuffer + (*returnedFragments);
 	mf->firstPoint = (*returnedPoints);
 	mf->numPoints = numClipPoints;
-	Com_Memcpy( pointBuffer + (*returnedPoints) * 3, clipPoints[pingPong], numClipPoints * sizeof(vec3_t) );
+	memcpy( pointBuffer + (*returnedPoints) * 3, clipPoints[pingPong], numClipPoints * sizeof(vec3_t) );
 
 	(*returnedPoints) += numClipPoints;
 	(*returnedFragments)++;
@@ -253,15 +261,9 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 	vec3_t			normals[MAX_VERTS_ON_POLY+2];
 	float			dists[MAX_VERTS_ON_POLY+2];
 	vec3_t			clipPoints[2][MAX_VERTS_ON_POLY];
-	int				numClipPoints;
-	float			*v;
-	srfSurfaceFace_t *surf;
-	srfGridMesh_t	*cv;
-	drawVert_t		*dv;
 	vec3_t			normal;
 	vec3_t			projectionDir;
 	vec3_t			v1, v2;
-	int				*indexes;
 
 	//increment view count for double check prevention
 	tr.viewCount++;
@@ -310,8 +312,7 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 	for ( i = 0 ; i < numsurfaces ; i++ ) {
 
 		if (*surfaces[i] == SF_GRID) {
-
-			cv = (srfGridMesh_t *) surfaces[i];
+			const srfGridMesh_t	* const cv = (srfGridMesh_t *) surfaces[i];
 			for ( m = 0 ; m < cv->height - 1 ; m++ ) {
 				for ( n = 0 ; n < cv->width - 1 ; n++ ) {
 					// We triangulate the grid and chop all triangles within
@@ -335,9 +336,9 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 					// so all triangles will still fit together.
 					// The 2 unit offset should avoid pretty much all LOD problems.
 
-					numClipPoints = 3;
+					const int numClipPoints = 3;
 
-					dv = cv->verts + m * cv->width + n;
+					const drawVert_t * const dv = cv->verts + m * cv->width + n;
 
 					VectorCopy(dv[0].xyz, clipPoints[0][0]);
 					VectorMA(clipPoints[0][0], MARKER_OFFSET, dv[0].normal, clipPoints[0][0]);
@@ -390,8 +391,7 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 			}
 		}
 		else if (*surfaces[i] == SF_FACE) {
-
-			surf = ( srfSurfaceFace_t * ) surfaces[i];
+			const srfSurfaceFace_t * const surf = ( srfSurfaceFace_t * ) surfaces[i];
 			// check the normal of this face
 			if (DotProduct(surf->plane.normal, projectionDir) > -0.5) {
 				continue;
@@ -408,7 +408,7 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 			const unsigned char * const indexes = (unsigned char *)( (byte *)surf + surf->ofsIndices );
 			int nextSurfPoint = NEXT_SURFPOINT(surf->flags);
 #else
-			indexes = (int *)( (byte *)surf + surf->ofsIndices );
+			const int * const indexes = (int *)( (byte *)surf + surf->ofsIndices );
 #endif
 			for ( k = 0 ; k < surf->numIndices ; k += 3 ) {
 				for ( j = 0 ; j < 3 ; j++ ) {
@@ -420,7 +420,7 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 					Q_CastShort2Float(&fVec[2], (short*)v + 2);
 					VectorMA( fVec, MARKER_OFFSET, surf->plane.normal, clipPoints[0][j] );
 #else
-					v = surf->points[0] + VERTEXSIZE * indexes[k+j];;
+					const float	* const v = surf->points[0] + VERTEXSIZE * indexes[k+j];
 					VectorMA( v, MARKER_OFFSET, surf->plane.normal, clipPoints[0][j] );
 #endif
 				}
@@ -435,6 +435,57 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 				}
 			}
 			continue;
+		}
+		else if (*surfaces[i] == SF_TRIANGLES) 
+		{
+			const srfTriangles_t * const surf = ( srfTriangles_t * ) surfaces[i];
+
+			for ( k = 0 ; k < surf->numIndexes ; k += 3 ) 
+			{
+				int i1=surf->indexes[k];
+				int i2=surf->indexes[k+1];
+				int i3=surf->indexes[k+2];
+				VectorSubtract(surf->verts[i1].xyz,surf->verts[i2].xyz, v1);
+				VectorSubtract(surf->verts[i3].xyz,surf->verts[i2].xyz, v2);
+				CrossProduct(v1, v2, normal);
+				VectorNormalizeFast(normal);
+				// check the normal of this triangle
+				if (DotProduct(normal, projectionDir) < -0.1) 
+				{
+#ifdef _XBOX
+					// This is really ugly, and really inefficient. Of course, the inefficiency
+					// pales in comparison to the misery that ensues once you realze that
+					// MARKER_OFFSET is #define'd to be 0.
+					float fVec[3];
+					Q_CastShort2Float(&fVec[0], &surf->verts[i1].xyz[0]);
+					Q_CastShort2Float(&fVec[1], &surf->verts[i1].xyz[1]);
+					Q_CastShort2Float(&fVec[2], &surf->verts[i1].xyz[2]);
+					VectorMA(fVec, MARKER_OFFSET, normal, clipPoints[0][0]);
+					Q_CastShort2Float(&fVec[0], &surf->verts[i2].xyz[0]);
+					Q_CastShort2Float(&fVec[1], &surf->verts[i2].xyz[1]);
+					Q_CastShort2Float(&fVec[2], &surf->verts[i2].xyz[2]);
+					VectorMA(fVec, MARKER_OFFSET, normal, clipPoints[0][1]);
+					Q_CastShort2Float(&fVec[0], &surf->verts[i3].xyz[0]);
+					Q_CastShort2Float(&fVec[1], &surf->verts[i3].xyz[1]);
+					Q_CastShort2Float(&fVec[2], &surf->verts[i3].xyz[2]);
+					VectorMA(fVec, MARKER_OFFSET, normal, clipPoints[0][2]);
+#else
+					VectorMA(surf->verts[i1].xyz, MARKER_OFFSET, normal, clipPoints[0][0]);
+					VectorMA(surf->verts[i2].xyz, MARKER_OFFSET, normal, clipPoints[0][1]);
+					VectorMA(surf->verts[i3].xyz, MARKER_OFFSET, normal, clipPoints[0][2]);
+#endif
+					// add the fragments of this triangle
+					R_AddMarkFragments( 3 , clipPoints,
+						numPlanes, normals, dists,
+						maxPoints, pointBuffer,
+						maxFragments, fragmentBuffer,
+						&returnedPoints, &returnedFragments, mins, maxs);
+					if ( returnedFragments == maxFragments ) 
+					{
+						return returnedFragments;	// not enough space for more fragments
+					}
+				}
+			}
 		}
 		else {
 			// ignore all other world surfaces

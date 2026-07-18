@@ -43,6 +43,12 @@
 	TAGDEF(UI_ALLOC),					// UI DLL calls to UI_Alloc
 	TAGDEF(CG_UI_ALLOC),				// Cgame DLL calls to UI_Alloc
 	TAGDEF(BG_ALLOC),
+	TAGDEF(G_ALLOC),					// SP game allocations
+	TAGDEF(GP2),						// generic parser 2
+	TAGDEF(ANIMATION_CFG),				// SP animation config data
+	TAGDEF(SAVEGAME),					// SP savegame chunks
+	TAGDEF(LIPSYNC),					// SP lipsync data
+	TAGDEF(FILELIST),					// SP filecode/file list data
 	TAGDEF(BINK),
 	TAGDEF(XBL_FRIENDS),				// friends list
 	TAGDEF(STRINGED),

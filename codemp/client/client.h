@@ -407,6 +407,7 @@ void CL_Init (void);
 void CL_FlushMemory(void);
 void CL_ShutdownAll(void);
 void CL_AddReliableCommand( const char *cmd );
+void VID_Printf (int print_level, const char *fmt, ...);
 
 void CL_StartHunkUsers( void );
 
@@ -524,10 +525,11 @@ void	SCR_DrawNamedPic( float x, float y, float width, float height, const char *
 //
 
 void CL_PlayCinematic_f( void );
+qboolean CL_IsRunningInGameCinematic(void);
 void SCR_DrawCinematic (void);
 void SCR_RunCinematic (void);
 void SCR_StopCinematic (void);
-int CIN_PlayCinematic( const char *arg0, int xpos, int ypos, int width, int height, int bits);
+int CIN_PlayCinematic( const char *arg0, int xpos, int ypos, int width, int height, int bits, const char *psAudioFile = NULL);
 e_status CIN_StopCinematic(int handle);
 e_status CIN_RunCinematic (int handle);
 void CIN_DrawCinematic (int handle);

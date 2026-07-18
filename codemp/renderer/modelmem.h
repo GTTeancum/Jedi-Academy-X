@@ -74,10 +74,10 @@ private:
 			Com_PrintfAlways("Model manager out of memory trying to allocate %d bytes for %s\n", size, name);
 			for (;;)
 			{
-				qglBeginFrame();
-				qglClearColor(0, 1, 0, 1);
-				qglClear(GL_COLOR_BUFFER_BIT);
-				qglEndFrame();
+				glBeginFrame();
+				glClearColor(0, 1, 0, 1);
+				glClear(GL_COLOR_BUFFER_BIT);
+				glEndFrame();
 			}
 		}
 		modelSlot[index].allocatedSize = size;

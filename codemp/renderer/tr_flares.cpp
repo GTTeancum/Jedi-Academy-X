@@ -1,6 +1,4 @@
 // tr_flares.c
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
 
 #include "tr_local.h"
 
@@ -52,7 +50,7 @@ typedef struct flare_s {
 
 	qboolean	visible;			// state of last test
 	float		drawIntensity;		// may be non 0 even if !visible due to fading
-
+	float		lightScale;
 	int			windowX, windowY;
 	float		eyeZ;
 
@@ -72,7 +70,7 @@ R_ClearFlares
 void R_ClearFlares( void ) {
 	int		i;
 
-	Com_Memset( r_flareStructs, 0, sizeof( r_flareStructs ) );
+	memset( r_flareStructs, 0, sizeof( r_flareStructs ) );
 	r_activeFlares = NULL;
 	r_inactiveFlares = NULL;
 
@@ -90,7 +88,7 @@ RB_AddFlare
 This is called at surface tesselation time
 ==================
 */
-void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal ) {
+void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal, float lightScale) {
 	int				i;
 	flare_t			*f, *oldest;
 	vec3_t			local;
@@ -101,7 +99,7 @@ void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t 
 
 	// if the point is off the screen, don't bother adding it
 	// calculate screen coordinates and depth
-	R_TransformModelToClip( point, backEnd.ori.modelMatrix, 
+	R_TransformModelToClip( point, backEnd.or.modelMatrix, 
 		backEnd.viewParms.projectionMatrix, eye, clip );
 
 	// check to see if the point is completely off screen
@@ -151,13 +149,14 @@ void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t 
 
 	f->addedFrame = backEnd.viewParms.frameCount;
 	f->fogNum = fogNum;
+	f->lightScale = lightScale;
 
 	VectorCopy( color, f->color );
 
 	// fade the intensity of the flare down as the
 	// light surface turns away from the viewer
 	if ( normal ) {
-		VectorSubtract( backEnd.viewParms.ori.origin, point, local );
+		VectorSubtract( backEnd.viewParms.or.origin, point, local );
 		VectorNormalizeFast( local );
 		d = DotProduct( local, normal );
 		VectorScale( f->color, d, f->color ); 
@@ -204,7 +203,7 @@ void RB_AddDlightFlares( void ) {
 			j = 0;
 		}
 
-		RB_AddFlare( (void *)l, j, l->origin, l->color, NULL );
+		RB_AddFlare( (void *)l, j, l->origin, l->color, NULL, 1.0f );
 	}
 }
 
@@ -234,12 +233,12 @@ void RB_TestFlare( flare_t *f ) {
 	glState.finishCalled = qfalse;
 
 	// read back the z buffer contents
-	qglReadPixels( f->windowX, f->windowY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
+	glReadPixels( f->windowX, f->windowY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
 
 	screenZ = backEnd.viewParms.projectionMatrix[14] / 
 		( ( 2*depth - 1 ) * backEnd.viewParms.projectionMatrix[11] - backEnd.viewParms.projectionMatrix[10] );
 
-	visible = (qboolean)(( -f->eyeZ - -screenZ ) < 24);
+	visible = ( -f->eyeZ - -screenZ ) < 24;
 
 	if ( visible ) {
 		if ( !f->visible ) {
@@ -252,7 +251,7 @@ void RB_TestFlare( flare_t *f ) {
 			f->visible = qfalse;
 			f->fadeTime = backEnd.refdef.time - 1;
 		}
-		fade = 1.0f - ( ( backEnd.refdef.time - f->fadeTime ) / 1000.0f ) * r_flareFade->value;
+		fade = 1.0 - ( ( backEnd.refdef.time - f->fadeTime ) / 1000.0f ) * r_flareFade->value;
 	}
 
 	if ( fade < 0 ) {
@@ -283,12 +282,7 @@ void RB_RenderFlare( flare_t *f ) {
 	iColor[1] = color[1] * 255;
 	iColor[2] = color[2] * 255;
 
-#ifdef _XBOX
-	if(glw_state->isWidescreen)
-		size = backEnd.viewParms.viewportWidth * ( r_flareSize->value/720.0f + 8 / -f->eyeZ );
-	else
-#endif
-	size = backEnd.viewParms.viewportWidth * ( r_flareSize->value/640.0f + 8 / -f->eyeZ );
+	size = f->lightScale * backEnd.viewParms.viewportWidth * ( r_flareSize->value/640.0 + 8 / -f->eyeZ );
 
 	RB_BeginSurface( tr.flareShader, f->fogNum );
 
@@ -406,15 +400,15 @@ void RB_RenderFlares (void) {
 	}
 
 	if ( backEnd.viewParms.isPortal ) {
-		qglDisable (GL_CLIP_PLANE0);
+		glDisable (GL_CLIP_PLANE0);
 	}
 
-	qglPushMatrix();
-    qglLoadIdentity();
-	qglMatrixMode( GL_PROJECTION );
-	qglPushMatrix();
-    qglLoadIdentity();
-	qglOrtho( backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
+	glPushMatrix();
+    glLoadIdentity();
+	glMatrixMode( GL_PROJECTION );
+	glPushMatrix();
+    glLoadIdentity();
+	glOrtho( backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
 			  backEnd.viewParms.viewportY, backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight,
 			  -99999, 99999 );
 
@@ -426,8 +420,8 @@ void RB_RenderFlares (void) {
 		}
 	}
 
-	qglPopMatrix();
-	qglMatrixMode( GL_MODELVIEW );
-	qglPopMatrix();
+	glPopMatrix();
+	glMatrixMode( GL_MODELVIEW );
+	glPopMatrix();
 }
 

@@ -1725,6 +1725,9 @@ static void EFFe_StartMap(const char *mapName)
 		s_newgameDifficulty,
 		s_newgameGenderMale,
 		ui.Key_GetCatcher());
+	XBLF("STEFX_INPUT_GATE_CLEAR begin source='ef-newgame-start' splash=%d controllerOut=%d",
+		(int)ui.Cvar_VariableValue("inSplashMenu"),
+		(int)ui.Cvar_VariableValue("ControllerOutNum"));
 #endif
 	EFFe_SetNewGameDifficulty(s_newgameDifficulty);
 	EFFe_SetNewGameGender(s_newgameGenderMale ? qtrue : qfalse);
@@ -1732,6 +1735,13 @@ static void EFFe_StartMap(const char *mapName)
 	ui.Cvar_Set("stefx_splitScreenPlayers", "1");
 	ui.Cvar_Set("stefx_splitScreenMode", "sp");
 	ui.Cvar_Set("stefx_splitScreenP2Entity", "-1");
+	ui.Cvar_Set("inSplashMenu", "0");
+	ui.Cvar_Set("ControllerOutNum", "-1");
+#ifdef _XBOX
+	XBLF("STEFX_INPUT_GATE_CLEAR done source='ef-newgame-start' splash=%d controllerOut=%d",
+		(int)ui.Cvar_VariableValue("inSplashMenu"),
+		(int)ui.Cvar_VariableValue("ControllerOutNum"));
+#endif
 	s_active = qfalse;
 	UI_ForceMenuOff();
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);

@@ -1188,6 +1188,29 @@ void FS_CancelLargeRead( void )
 extern void *BonePoolTempAlloc( unsigned long size );
 extern void BonePoolTempFree( void *p );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean FS_STEFX_TraceShaderRead( const char *qpath )
+{
+	const char *extension;
+
+	if ( !qpath )
+	{
+		return qfalse;
+	}
+	if ( !Q_stricmp( qpath, "scripts/_console_shader_list_" ) )
+	{
+		return qtrue;
+	}
+	if ( Q_stricmpn( qpath, "scripts/", 8 ) && Q_stricmpn( qpath, "shaders/", 8 ) )
+	{
+		return qfalse;
+	}
+
+	extension = strrchr( qpath, '.' );
+	return extension && !Q_stricmp( extension, ".shader" );
+}
+#endif
+
 /*
 ============
 FS_ReadFile
@@ -1204,11 +1227,32 @@ int FS_ReadFile( const char *qpath, void **buffer )
 		Com_Error( ERR_FATAL, "FS_ReadFile with empty name\n" );
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	const qboolean traceShaderRead = FS_STEFX_TraceShaderRead( qpath );
+	if ( traceShaderRead )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ReadFile begin path='%s' buffer=%d\n", qpath, buffer ? 1 : 0 );
+	}
+#endif
+
 	// stop sounds from repeating
 	S_ClearSoundBuffer();
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderRead )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ReadFile sound clear done path='%s'\n", qpath );
+	}
+#endif
+
 	fileHandle_t h;
 	int len = FS_FOpenFileRead( qpath, &h, qfalse );
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderRead )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ReadFile open done path='%s' len=%d handle=%d\n", qpath, len, h );
+	}
+#endif
 	if ( h == 0 )
 	{
 		if ( buffer ) *buffer = NULL;
@@ -1230,15 +1274,38 @@ int FS_ReadFile( const char *qpath, void **buffer )
 	if( !sbLargeRead || !buf )
 		buf = (byte*)Z_Malloc( len+1, TAG_TEMP_WORKSPACE, qfalse, 32);
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderRead )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ReadFile allocation done path='%s' bytes=%d ptr=%08X\n",
+			qpath, len + 1, (unsigned int)buf );
+	}
+#endif
+
 	buf[len]='\0';
 
 //	Z_Label(buf, qpath);
 
-	FS_Read(buf, len, h);
+	const int read = FS_Read(buf, len, h);
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderRead )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ReadFile read done path='%s' requested=%d read=%d\n",
+			qpath, len, read );
+	}
+#endif
 
 	// guarantee that it will have a trailing 0 for string operations
 	buf[len] = 0;
 	FS_FCloseFile( h );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderRead )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ReadFile close done path='%s'\n", qpath );
+	}
+#endif
 
 	*buffer = buf;
 	return len;
@@ -1503,6 +1570,16 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 		return NULL;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	const qboolean traceShaderList =
+		( !Q_stricmp( path, "scripts" ) || !Q_stricmp( path, "shaders" ) ) &&
+		extension && !Q_stricmp( extension, ".shader" );
+	if ( traceShaderList )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ListFiles begin path='%s' extension='%s'\n", path, extension );
+	}
+#endif
+
 	// We don't do any fancy searchpath magic here, it's all in the meta-file
 	// that Sys_ListFiles will return
 	netpath = FS_BuildOSPath( path );
@@ -1510,6 +1587,13 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 	sysFiles = Sys_ListFiles( netpath, extension, NULL, &numSysFiles, qfalse );
 #else
 	sysFiles = Sys_ListFiles( netpath, extension, &numSysFiles, qfalse );
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderList )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ListFiles system list done path='%s' os='%s' count=%d ptr=%08X\n",
+			path, netpath, numSysFiles, (unsigned int)sysFiles );
+	}
 #endif
 	for ( i = 0 ; i < numSysFiles ; i++ ) {
 		// unique the match
@@ -1522,6 +1606,12 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 	*numfiles = nfiles;
 
 	if ( !nfiles ) {
+		#if defined(STEFX_ELITE_FORCE_MP)
+		if ( traceShaderList )
+		{
+			Com_Printf( "STEFX_HM: shader FS_ListFiles done path='%s' count=0\n", path );
+		}
+		#endif
 		return NULL;
 	}
 
@@ -1530,6 +1620,13 @@ char **FS_ListFiles( const char *path, const char *extension, int *numfiles )
 		listCopy[i] = list[i];
 	}
 	listCopy[i] = NULL;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( traceShaderList )
+	{
+		Com_Printf( "STEFX_HM: shader FS_ListFiles done path='%s' count=%d\n", path, nfiles );
+	}
+#endif
 
 	return listCopy;
 }
