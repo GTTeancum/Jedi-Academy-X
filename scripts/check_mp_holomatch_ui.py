@@ -2074,6 +2074,8 @@ def verify_soundbank(baseef: Path) -> dict[str, object]:
     bank_bytes = bank_path.stat().st_size
     by_offset = sorted(records, key=lambda record: record[1])
     expected_offset = 0
+    xbadpcm_records = 0
+    pcm_records = 0
     with bank_path.open("rb") as bank:
         for code, offset, size, flags in by_offset:
             if offset != expected_offset or size < 12 or offset + size > bank_bytes:
@@ -2087,6 +2089,39 @@ def verify_soundbank(baseef: Path) -> dict[str, object]:
             header = bank.read(12)
             if header[:4] != b"RIFF" or header[8:12] != b"WAVE":
                 fail(f"Holomatch sound.bnk record 0x{code:08x} is not a WAV stream")
+
+            cursor = 12
+            wave_format: tuple[int, int, int] | None = None
+            while cursor + 8 <= size:
+                bank.seek(offset + cursor)
+                chunk_header = bank.read(8)
+                chunk_size = struct.unpack_from("<I", chunk_header, 4)[0]
+                padded_size = chunk_size + (chunk_size & 1)
+                if cursor + 8 + padded_size > size:
+                    fail(f"Holomatch sound.bnk record 0x{code:08x} contains an invalid WAV chunk")
+                if chunk_header[:4] == b"fmt ":
+                    if chunk_size < 16:
+                        fail(f"Holomatch sound.bnk record 0x{code:08x} has a truncated WAV format")
+                    format_data = bank.read(16)
+                    format_tag, channels, _rate, _byte_rate, _block_align, bits = struct.unpack(
+                        "<HHIIHH", format_data
+                    )
+                    wave_format = (format_tag, channels, bits)
+                    break
+                cursor += 8 + padded_size
+
+            if wave_format is None:
+                fail(f"Holomatch sound.bnk record 0x{code:08x} has no WAV format chunk")
+            format_tag, channels, bits = wave_format
+            if format_tag == 0x0069 and channels in {1, 2} and bits == 4:
+                xbadpcm_records += 1
+            elif format_tag == 0x0001 and channels in {1, 2} and bits in {8, 16}:
+                pcm_records += 1
+            else:
+                fail(
+                    "Holomatch sound.bnk record uses a format unsupported by the wholesale SP loader "
+                    f"crc=0x{code:08x} tag=0x{format_tag:04x} channels={channels} bits={bits}"
+                )
             expected_offset += size
     if expected_offset != bank_bytes:
         fail(f"Holomatch sound.tbl covers {expected_offset} bytes but sound.bnk is {bank_bytes} bytes")
@@ -2100,6 +2135,10 @@ def verify_soundbank(baseef: Path) -> dict[str, object]:
         fail("Holomatch soundbank manifest uses an unexpected runtime path")
     if manifest.get("records") != len(records) or manifest.get("bytes") != bank_bytes:
         fail("Holomatch soundbank manifest sizes do not match the runtime files")
+    if manifest.get("encodedRecords") != xbadpcm_records:
+        fail("Holomatch soundbank manifest Xbox ADPCM count does not match sound.bnk")
+    if manifest.get("preservedPcmRecords") != pcm_records:
+        fail("Holomatch soundbank manifest PCM count does not match sound.bnk")
 
     table_rows = set(records)
     manifest_rows: set[tuple[int, int, int, int]] = set()
@@ -2132,10 +2171,11 @@ def verify_soundbank(baseef: Path) -> dict[str, object]:
         "bankBytes": bank_bytes,
         "tableBytes": len(table_data),
         "records": len(records),
-        "encodedRecords": manifest.get("encodedRecords", 0),
-        "preservedPcmRecords": manifest.get("preservedPcmRecords", 0),
+        "encodedRecords": xbadpcm_records,
+        "preservedPcmRecords": pcm_records,
         "runtimeCrcRoot": "d:\\BaseEF\\",
         "allRecordsWave": True,
+        "allFormatsSupportedBySp": True,
         "rangesContiguous": True,
         "crcKeysSortedUnique": True,
     }
