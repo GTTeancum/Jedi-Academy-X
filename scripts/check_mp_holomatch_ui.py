@@ -704,6 +704,12 @@ def verify_baseef_source_routing(repo_root: Path) -> dict[str, object]:
 def verify_sp_renderer_wholesale(repo_root: Path) -> dict[str, object]:
     sp_dir = repo_root / "code" / "renderer"
     mp_dir = repo_root / "codemp" / "renderer"
+    common_text = (repo_root / "codemp" / "qcommon" / "common.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    boundary_text = (repo_root / "codemp" / "win32" / "win_sp_renderer_boundary.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
     sp_files = sorted(path.relative_to(sp_dir) for path in sp_dir.rglob("*") if path.is_file())
     missing = [rel.as_posix() for rel in sp_files if not (mp_dir / rel).is_file()]
     mismatched = [
@@ -716,10 +722,15 @@ def verify_sp_renderer_wholesale(repo_root: Path) -> dict[str, object]:
             "Holomatch renderer must be a byte-for-byte SP copy; "
             f"missing={missing[:16]} mismatched={mismatched[:16]}"
         )
+    if 'ScanAndLoadShaderFiles( "scripts", false );' in common_text:
+        fail("Holomatch still compiles the inherited JA early shader preload route")
+    if "void ScanAndLoadShaderFiles(const char *path, bool doHash)" in boundary_text:
+        fail("Holomatch still carries the no-op JA shader preload boundary")
 
     return {
         "rendererWholesaleFiles": len(sp_files),
         "rendererWholesaleByteExact": True,
+        "rendererLegacyEarlyShaderPreloadDead": True,
     }
 
 

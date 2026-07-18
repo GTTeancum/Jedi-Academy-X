@@ -1580,12 +1580,9 @@ void Com_Init( char *commandLine ) {
 			XBLog_Write("JAMP: S_BeginRegistration done");
 		}
 
-		// Similarly, get the shadertext loaded nice and early.
-		// Flag the call to not bother making the hash tables
+		// The SP renderer owns shader discovery during R_InitShaders.
+#if !defined(STEFX_ELITE_FORCE_MP)
 		extern void ScanAndLoadShaderFiles( const char *path, bool doHash );
-#if defined(STEFX_ELITE_FORCE_MP)
-		ScanAndLoadShaderFiles( "scripts", false );
-#else
 		ScanAndLoadShaderFiles( "shaders", false );
 #endif
 

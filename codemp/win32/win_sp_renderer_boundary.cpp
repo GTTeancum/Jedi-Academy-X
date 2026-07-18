@@ -129,12 +129,6 @@ qboolean FS_STEFX_FreeHeapFileBuffer(void *buffer)
 	return qfalse;
 }
 
-void ScanAndLoadShaderFiles(const char *path, bool doHash)
-{
-	(void)path;
-	(void)doHash;
-}
-
 void G2Time_ResetTimers(void)
 {
 	G2Time_PreciseFrame = 0;
