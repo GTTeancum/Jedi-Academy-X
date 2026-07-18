@@ -10160,38 +10160,12 @@ static float CG_STEFXRatio( int value, int maxValue )
 
 #include "../../code/cgame/cg_ef_hud_shared.h"
 
-static qboolean stefxHolomatchHudStartupDone = qfalse;
-
-static void CG_STEFXCompleteHolomatchHudStartup( void )
+static void CG_STEFXHolomatchInterfaceSound( void )
 {
-	stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].max;
-	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].type = STEFX_HUD_NUMBER;
-
-	stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_ARMOR_BOX1].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].max;
-	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].type = STEFX_HUD_NUMBER;
-
-	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_BEGINCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].max;
-	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_BEGINCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].max;
-	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
-	stefxHolomatchHud[STEFX_HUD_AMMO_COUNT].type = STEFX_HUD_NUMBER;
-
-	stefxHolomatchHud[STEFX_HUD_GROW].type = STEFX_HUD_OFF;
-	stefxHolomatchHudStartupDone = qtrue;
+	if ( cgs.media.interfaceSnd1 )
+	{
+		trap_S_StartLocalSound( cgs.media.interfaceSnd1, CHAN_LOCAL_SOUND );
+	}
 }
 
 static void CG_STEFXResetHolomatchHudStartup( void )
@@ -10218,7 +10192,11 @@ static void CG_STEFXResetHolomatchHudStartup( void )
 	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = 72;
 	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = 607;
 	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = 607;
-	stefxHolomatchHudStartupDone = qfalse;
+	if ( cg )
+	{
+		cg->interfaceStartupTime = 0;
+		cg->interfaceStartupDone = 0;
+	}
 
 	CG_PrintfAlways( "STEFX_HM: EF SP interface HUD startup armed health=%g armor=%g ammo=%g\n",
 		stefxHolomatchHud[STEFX_HUD_HEALTH_START].timer,
@@ -10228,36 +10206,84 @@ static void CG_STEFXResetHolomatchHudStartup( void )
 
 static void CG_STEFXHolomatchInterfaceStartup( void )
 {
-	if ( stefxHolomatchHudStartupDone || !cg )
+	if ( !cg || cg->interfaceStartupDone )
 	{
 		return;
 	}
 
-	if ( stefxHolomatchHud[STEFX_HUD_HEALTH_START].timer <= (float)cg->time &&
+	if ( stefxHolomatchHud[STEFX_HUD_HEALTH_START].timer < (float)cg->time &&
 		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].type == STEFX_HUD_OFF )
 	{
+		CG_STEFXHolomatchInterfaceSound();
 		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].type = STEFX_HUD_GRAPHIC;
 		stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].type = STEFX_HUD_GRAPHIC;
 		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].type = STEFX_HUD_GRAPHIC;
 	}
 
-	if ( stefxHolomatchHud[STEFX_HUD_ARMOR_START].timer <= (float)cg->time &&
+	if ( stefxHolomatchHud[STEFX_HUD_ARMOR_START].timer < (float)cg->time &&
 		stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].type == STEFX_HUD_OFF )
 	{
+		CG_STEFXHolomatchInterfaceSound();
 		stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].type = STEFX_HUD_GRAPHIC;
 		stefxHolomatchHud[STEFX_HUD_ARMOR_BOX1].type = STEFX_HUD_GRAPHIC;
 		stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].type = STEFX_HUD_GRAPHIC;
 	}
 
-	if ( stefxHolomatchHud[STEFX_HUD_AMMO_START].timer <= (float)cg->time )
+	if ( stefxHolomatchHud[STEFX_HUD_AMMO_START].timer < (float)cg->time )
 	{
-		CG_STEFXCompleteHolomatchHudStartup();
-		CG_PrintfAlways( "STEFX_HM: EF SP interface HUD startup complete healthEndX=%d armorEndX=%d ammoUpperEndX=%d ammoLowerEndX=%d\n",
-			stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x,
-			stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x,
-			stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x,
-			stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x );
+		if ( stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_BEGINCAP].type == STEFX_HUD_OFF )
+		{
+			CG_STEFXHolomatchInterfaceSound();
+			stefxHolomatchHud[STEFX_HUD_GROW].type = STEFX_HUD_VAR;
+			stefxHolomatchHud[STEFX_HUD_GROW].timer = (float)cg->time;
+		}
+
+		stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].type = STEFX_HUD_GRAPHIC;
 	}
+
+	if ( stefxHolomatchHud[STEFX_HUD_GROW].type == STEFX_HUD_VAR )
+	{
+		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x += 2;
+		stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x += 2;
+		stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x -= 1;
+		stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x -= 1;
+
+		if ( stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x >= stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].max )
+		{
+			stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].max;
+			stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].max;
+			stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].max;
+			stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].max;
+			stefxHolomatchHud[STEFX_HUD_GROW].type = STEFX_HUD_OFF;
+
+			stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
+			stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
+			stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].type = STEFX_HUD_NUMBER;
+
+			stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
+			stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
+			stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].type = STEFX_HUD_NUMBER;
+
+			stefxHolomatchHud[STEFX_HUD_AMMO_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
+			stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
+			stefxHolomatchHud[STEFX_HUD_AMMO_COUNT].type = STEFX_HUD_NUMBER;
+
+			CG_STEFXHolomatchInterfaceSound();
+			cg->interfaceStartupDone = 1;
+			CG_PrintfAlways( "STEFX_HM: EF SP interface HUD startup complete healthEndX=%d armorEndX=%d ammoUpperEndX=%d ammoLowerEndX=%d\n",
+				stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x,
+				stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x,
+				stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x,
+				stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x );
+		}
+
+		stefxHolomatchHud[STEFX_HUD_GROW].timer = (float)( cg->time + 10 );
+	}
+
+	cg->interfaceStartupTime = cg->time;
 }
 
 void CG_STEFXRegisterHolomatchHudGraphics( void )
@@ -10502,7 +10528,7 @@ static void CG_STEFXDrawHolomatchHealth( const playerState_t *ps )
 	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].x = 72 + xLength;
 	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].width = 73 - xLength;
 	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].width = xLength;
-	if ( stefxHolomatchHudStartupDone )
+	if ( cg && cg->interfaceStartupDone )
 	{
 		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].max;
 	}
@@ -10554,7 +10580,7 @@ static void CG_STEFXDrawHolomatchArmor( const playerState_t *ps )
 	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].x = 72 + xLength;
 	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].width = 73 - xLength;
 	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].width = xLength;
-	if ( stefxHolomatchHudStartupDone )
+	if ( cg && cg->interfaceStartupDone )
 	{
 		stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].max;
 	}
@@ -10630,7 +10656,7 @@ static void CG_STEFXDrawHolomatchAmmo( const playerState_t *ps )
 	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].x = 578 + xLength;
 	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].width = 33 - xLength;
 	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDERFULL].width = xLength;
-	if ( stefxHolomatchHudStartupDone )
+	if ( cg && cg->interfaceStartupDone )
 	{
 		stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].max;
 		stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].max;
@@ -10665,7 +10691,7 @@ static void CG_STEFXDrawHolomatchSPInterfaceHUD( void )
 
 	CG_STEFXLoadPropFonts();
 
-	if ( !stefxHolomatchHudStartupDone )
+	if ( !cg->interfaceStartupDone )
 	{
 		CG_STEFXHolomatchInterfaceStartup();
 	}

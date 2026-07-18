@@ -280,6 +280,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 	md3Surface_t	*surface = 0;
 	md3Shader_t		*md3Shader = 0;
 	shader_t		*shader = 0;
+	shader_t		*main_shader = 0;
 	int				cull;
 	int				lod;
 	int				fogNum;
@@ -341,11 +342,13 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 	//
 	// draw all surfaces
 	//
+	main_shader = R_GetShaderByHandle( ent->e.customShader );
+
 	surface = (md3Surface_t *)( (byte *)header + header->ofsSurfaces );
 	for ( i = 0 ; i < header->numSurfaces ; i++ ) {
 
 		if ( ent->e.customShader ) {
-			shader = R_GetShaderByHandle( ent->e.customShader );
+			shader = main_shader;
 		} else if ( ent->e.customSkin > 0 && ent->e.customSkin < tr.numSkins ) {
 			skin_t *skin;
 			int		j;
@@ -378,6 +381,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 
 		// we will add shadows even if the main object isn't visible in the view
 
+#ifndef _XBOX // No MD3 shadows on Xbox
 		// stencil shadows can't do personal models unless I polyhedron clip
 		if ( !personalModel
 			&& r_shadows->integer == 2 
@@ -394,6 +398,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 			&& shader->sort == SS_OPAQUE ) {
 			R_AddDrawSurf( (surfaceType_t *)surface, tr.projectionShadowShader, 0, qfalse );
 		}
+#endif
 
 		// don't add third_person objects if not viewing through a portal
 		if ( !personalModel ) {

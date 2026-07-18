@@ -1733,7 +1733,7 @@ const void *RB_StretchPic ( const void *data ) {
 RB_DrawRotatePic
 =============
 */
-const void *RB_RotatePic ( const void *data )
+const void *RB_RotatePic ( const void *data ) 
 {
 	const rotatePicCommand_t	*cmd;
 	image_t *image;
@@ -1754,7 +1754,7 @@ const void *RB_RotatePic ( const void *data )
 
 		glTranslatef(cmd->x+cmd->w,cmd->y,0);
 		glRotatef(cmd->a, 0.0, 0.0, 1.0);
-
+		
 		GL_Bind( image );
 		const float t1 = cmd->t1;
 		const float t2 = cmd->t2;
@@ -1772,7 +1772,7 @@ const void *RB_RotatePic ( const void *data )
 		glTexCoord2f( cmd->s1, t2 );
 		glVertex2f( -cmd->w, cmd->h );
 		glEnd();
-
+		
 		glPopMatrix();
 	}
 
@@ -1784,7 +1784,7 @@ const void *RB_RotatePic ( const void *data )
 RB_DrawRotatePic2
 =============
 */
-const void *RB_RotatePic2 ( const void *data )
+const void *RB_RotatePic2 ( const void *data ) 
 {
 	const rotatePicCommand_t	*cmd;
 	image_t *image;
@@ -1798,9 +1798,9 @@ const void *RB_RotatePic2 ( const void *data )
 	{
 		image = &shader->stages[0].bundle[0].image[0];
 
-		if ( image )
+		if ( image ) 
 		{
-			if ( !backEnd.projection2D )
+			if ( !backEnd.projection2D ) 
 			{
 				RB_SetGL2D();
 			}
@@ -1814,7 +1814,7 @@ const void *RB_RotatePic2 ( const void *data )
 			// rotation point is going to be around the center of the passed in coordinates
 			glTranslatef( cmd->x, cmd->y, 0 );
 			glRotatef( cmd->a, 0.0, 0.0, 1.0 );
-
+			
 			GL_Bind( image );
 			const float t1 = cmd->t1;
 			const float t2 = cmd->t2;
@@ -1835,7 +1835,7 @@ const void *RB_RotatePic2 ( const void *data )
 				glTexCoord2f( cmd->s1, t2 );
 				glVertex2f( -cmd->w * 0.5f, cmd->h * 0.5f );
 			glEnd();
-
+			
 			glPopMatrix();
 
 			// Hmmm, this is not too cool

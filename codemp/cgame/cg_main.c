@@ -1843,6 +1843,11 @@ static void CG_RegisterSounds( void ) {
 	cgs.media.selectSound = trap_S_RegisterSound( "sound/weapons/change.wav" );
 
 #if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.interfaceSnd1 = trap_S_RegisterSound( "sound/interface/button4.wav" );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF interface HUD sound\n" );
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP)
 	cgs.media.teleInSound = trap_S_RegisterSound( "sound/world/transin.wav" );
 	cgs.media.teleOutSound = trap_S_RegisterSound( "sound/world/transout.wav" );
 #else
@@ -4347,6 +4352,11 @@ Ghoul2 Insert End
 	
 
 	cg->loadLCARSStage		= 0;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	cg->interfaceStartupTime = 0;
+	cg->interfaceStartupDone = 0;
+#endif
 
 	cg->itemSelect = -1;
 	cg->forceSelect = -1;

@@ -973,6 +973,11 @@ typedef struct {
 	float		headStartYaw;
 	int			headStartTime;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	int			interfaceStartupTime;
+	int			interfaceStartupDone;
+#endif
+
 	// view movement
 	float		v_dmg_time;
 	float		v_dmg_pitch;
@@ -1268,6 +1273,9 @@ typedef struct {
 
 	// sounds
 	sfxHandle_t	selectSound;
+#if defined(STEFX_ELITE_FORCE_MP)
+	sfxHandle_t interfaceSnd1;
+#endif
 	sfxHandle_t	footsteps[FOOTSTEP_TOTAL][4];
 
 	sfxHandle_t	winnerSound;
