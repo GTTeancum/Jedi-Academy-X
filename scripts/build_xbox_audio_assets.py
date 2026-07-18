@@ -8,6 +8,7 @@ import json
 import shutil
 import subprocess
 import os
+import struct
 from pathlib import Path
 
 
@@ -53,6 +54,33 @@ def needs_update(source: Path, output: Path) -> bool:
     return output.stat().st_mtime < source.stat().st_mtime
 
 
+def read_wave_format_tag(path: Path) -> int | None:
+    try:
+        with path.open("rb") as wave:
+            header = wave.read(12)
+            if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+                return None
+
+            remaining = path.stat().st_size - 12
+            while remaining >= 8:
+                chunk_header = wave.read(8)
+                if len(chunk_header) != 8:
+                    return None
+                chunk_size = struct.unpack_from("<I", chunk_header, 4)[0]
+                padded_size = chunk_size + (chunk_size & 1)
+                remaining -= 8
+                if padded_size > remaining:
+                    return None
+                if chunk_header[:4] == b"fmt " and chunk_size >= 16:
+                    format_data = wave.read(16)
+                    return struct.unpack_from("<H", format_data)[0]
+                wave.seek(padded_size, 1)
+                remaining -= padded_size
+    except OSError:
+        return None
+    return None
+
+
 def run_checked(args: list[str], label: str) -> str:
     result = subprocess.run(
         args,
@@ -78,13 +106,15 @@ def convert_one(
     rel = source.relative_to(base_dir).as_posix().lower()
     output = source.with_suffix(".wav")
     if not force and output.exists():
-        return {
-            "path": rel,
-            "output": output.relative_to(base_dir).as_posix().lower(),
-            "status": "current",
-            "sourceBytes": source.stat().st_size,
-            "bytes": output.stat().st_size,
-        }
+        output_tag = read_wave_format_tag(output)
+        if output_tag != 0x0069 or not needs_update(source, output):
+            return {
+                "path": rel,
+                "output": output.relative_to(base_dir).as_posix().lower(),
+                "status": "preserved" if output_tag != 0x0069 else "current",
+                "sourceBytes": source.stat().st_size,
+                "bytes": output.stat().st_size,
+            }
 
     temp_pcm = temp_dir / (source.stem + ".pcm.wav")
     temp_adpcm = temp_dir / (source.stem + ".xadpcm.wav")
@@ -109,6 +139,8 @@ def convert_one(
         [str(encoder), str(temp_pcm), str(temp_adpcm), "/C", "/Ob"],
         f"xbadpcmencode {source}",
     )
+    if read_wave_format_tag(temp_adpcm) != 0x0069:
+        raise RuntimeError(f"xbadpcmencode did not produce Xbox ADPCM WAV: {source}")
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(temp_adpcm, output)
 
@@ -135,6 +167,7 @@ def build_audio_assets(
     records: list[dict[str, object]] = []
     converted = 0
     current = 0
+    preserved = 0
     source_bytes = 0
     output_bytes = 0
 
@@ -161,6 +194,8 @@ def build_audio_assets(
             output_bytes += int(record["bytes"])
             if record["status"] == "converted":
                 converted += 1
+            elif record["status"] == "preserved":
+                preserved += 1
             else:
                 current += 1
     finally:
@@ -174,6 +209,7 @@ def build_audio_assets(
         "records": len(records),
         "converted": converted,
         "current": current,
+        "preserved": preserved,
         "sourceBytes": source_bytes,
         "bytes": output_bytes,
         "ffmpeg": str(ffmpeg),
