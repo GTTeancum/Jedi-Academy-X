@@ -389,7 +389,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\game\g_items.c"
+				RelativePath="..\game\ef_game\g_items_xbox.cpp"
 				>
 								<FileConfiguration
 					Name="Release|Win32"

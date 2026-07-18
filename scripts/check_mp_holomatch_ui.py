@@ -375,6 +375,10 @@ OFFICIAL_EF_ACTIVE_SHA256 = {
     "g_active.c": "b23c6a54d0ed84b8424a394db9cfb7f4db524deff85648eb36bc8016c9a6485a",
 }
 
+OFFICIAL_EF_ITEMS_SHA256 = {
+    "g_items.c": "694376d9d1e00e0e0eeedd15c76acdee9f57ab3b7a2af18646bf1b170ed41b8a",
+}
+
 OFFICIAL_EF_PLAYER_CLASSES = {
     "PC_NOCLASS": 0,
     "PC_INFILTRATOR": 1,
@@ -401,6 +405,7 @@ REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES = {
     "../game/ef_game/g_weapon_xbox.cpp",
     "../game/ef_game/g_missile_xbox.cpp",
     "../game/ef_game/g_active_xbox.cpp",
+    "../game/ef_game/g_items_xbox.cpp",
 }
 
 FORBIDDEN_JA_AI_PROJECT_SOURCES = {
@@ -412,6 +417,7 @@ FORBIDDEN_JA_AI_PROJECT_SOURCES = {
     "../game/g_weapon.c",
     "../game/g_missile.c",
     "../game/g_active.c",
+    "../game/g_items.c",
 }
 
 REQUIRED_HOLOMATCH_INPUT_MARKERS = {
@@ -470,6 +476,17 @@ REQUIRED_HOLOMATCH_COMBAT_MARKERS = {
         '#include "g_active.c"',
         "STEFX_HM_OfficialDamage",
         "STEFX_HM: official EF client activity active with Xbox usercmd boundary",
+    ],
+    "codemp/game/ef_game/g_items.c": [
+        "void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace)",
+        "void FinishSpawningItem( gentity_t *ent )",
+        "void G_RunItem( gentity_t *ent )",
+    ],
+    "codemp/game/ef_game/g_items_xbox.cpp": [
+        '#include "g_items.c"',
+        "STEFX_HM_CanItemBeGrabbed",
+        "STEFX_HM: official EF item lifecycle active",
+        "STEFX_HM: retired JA carrier item hook invoked name=",
     ],
     "codemp/game/ef_game/g_combat.c": [
         "void AddScore( gentity_t *ent, int score )",
@@ -1309,6 +1326,21 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_official_active_hashes)
         )
 
+    bad_official_items_hashes: list[str] = []
+    for filename, expected_hash in sorted(OFFICIAL_EF_ITEMS_SHA256.items()):
+        path = official_game_dir / filename
+        if not path.is_file():
+            bad_official_items_hashes.append(f"{filename}: missing")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            bad_official_items_hashes.append(f"{filename}: {actual_hash}")
+    if bad_official_items_hashes:
+        fail(
+            "official EF 1.2 item lifecycle source must remain byte-for-byte unchanged: "
+            + ", ".join(bad_official_items_hashes)
+        )
+
     ef_ai_compat = (repo_root / "codemp" / "game" / "ef_ai_compat.h").read_text(
         encoding="utf-8", errors="ignore"
     )
@@ -1817,6 +1849,8 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "officialEfMissileByteExact": True,
         "officialEfActiveFiles": len(OFFICIAL_EF_ACTIVE_SHA256),
         "officialEfActiveByteExact": True,
+        "officialEfItemsFiles": len(OFFICIAL_EF_ITEMS_SHA256),
+        "officialEfItemsByteExact": True,
         "officialEfPlayerClasses": len(OFFICIAL_EF_PLAYER_CLASSES),
         "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
         "officialEfBotActionFlags": len(OFFICIAL_EF_BOT_ACTION_FLAGS),
@@ -2495,6 +2529,8 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: official EF weapon dispatcher active",
         b"STEFX_HM: official EF missile simulation active",
         b"STEFX_HM: official EF client activity active with Xbox usercmd boundary",
+        b"STEFX_HM: official EF item lifecycle active",
+        b"STEFX_HM: retired JA carrier item hook invoked name=",
         b"STEFX_HM: retired JA carrier combat hook invoked name=",
         b"STEFX_HM: cgame skipped EF moving missile dlight on Xbox renderer weapon=",
         b"STEFX_HM: cgame rendered EF alternate missile safe sprite weapon=",

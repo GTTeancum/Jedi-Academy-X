@@ -132,8 +132,6 @@ void ClientThink( int clientNum, usercmd_t *ucmd )
 enum
 {
 	STEFX_ACTIVE_BOUNDARY_AMMO_STATION = 1 << 0,
-	STEFX_ACTIVE_BOUNDARY_DECOY = 1 << 1,
-	STEFX_ACTIVE_BOUNDARY_DETPACK = 1 << 2,
 	STEFX_ACTIVE_BOUNDARY_BORG_TRANSPORT = 1 << 3,
 	STEFX_ACTIVE_BOUNDARY_CHEAP_WEAPON = 1 << 4,
 	STEFX_ACTIVE_BOUNDARY_OBJECT_IMPACT = 1 << 5,
@@ -164,24 +162,6 @@ void ammo_station_finish_spawning( gentity_t *ent )
 	STEFX_HM_LogActiveBoundary( STEFX_ACTIVE_BOUNDARY_AMMO_STATION,
 		"ammo_station_finish_spawning" );
 	G_FreeEntity( ent );
-}
-
-qboolean FinishSpawningDecoy( gentity_t *ent, int itemIndex )
-{
-	(void)itemIndex;
-	STEFX_HM_LogActiveBoundary( STEFX_ACTIVE_BOUNDARY_DECOY,
-		"FinishSpawningDecoy" );
-	G_FreeEntity( ent );
-	return qfalse;
-}
-
-qboolean FinishSpawningDetpack( gentity_t *ent, int itemIndex )
-{
-	(void)itemIndex;
-	STEFX_HM_LogActiveBoundary( STEFX_ACTIVE_BOUNDARY_DETPACK,
-		"FinishSpawningDetpack" );
-	G_FreeEntity( ent );
-	return qfalse;
 }
 
 qboolean BG_BorgTransporting( playerState_t *ps )
