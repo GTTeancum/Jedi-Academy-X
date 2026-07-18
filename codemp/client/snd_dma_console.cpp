@@ -11,29 +11,28 @@
 
 #include "snd_local_console.h"
 #include "snd_music.h"
-#include "../zlib/zlib.h"
-#include "../win32/xb_log.h"
-
-#ifndef JAMP_CXBX_SMOKE_SKIP_SOUND
-#define JAMP_CXBX_SMOKE_SKIP_SOUND 0
-#endif
 
 // #include "../../toolbox/zlib/zlib.h"
 
 #include "../client/client.h"
-
-// Doesn't do anything on Xbox
-qboolean s_shutUp = qfalse;
+#include "../qcommon/fixedmap.h"
 
 #ifdef _XBOX
 #include <Xtl.h>
-#include "../cgame/cg_local.h"
-#include "../client/cl_data.h"
 #endif
 
 #ifdef _GAMECUBE
 typedef const char* LPCSTR;
 #endif
+
+// Maps CRCs to offsets
+struct LipFileInfo
+{
+	unsigned long crc;
+	unsigned long offset;
+};
+static VVFixedMap< unsigned int, unsigned int >* s_lipSyncMap = NULL;
+static char *s_lipSyncData = NULL;
 
 static void S_Play_f(void);
 #ifndef _JK2MP
@@ -51,15 +50,26 @@ static int SND_FreeSFXMem(sfx_t *sfx);
 /*static void S_FreeAllSFXMem(void);
 static void S_UnCacheDynamicMusic( void );
 */
-extern unsigned long crc32(unsigned long crc, const unsigned char *buf, unsigned long len);
+//extern unsigned long crc32(unsigned long crc, const unsigned char *buf, unsigned long len);
+#include "../zlib/zlib.h"
 
 extern int Sys_GetFileCodeSize(int code);
+extern unsigned int Sys_GetSoundFileCode(const char* name);
+extern int RE_RegisterMedia_GetLevel(void);
 
 extern void Sys_StreamInit(void);
 extern void Sys_StreamShutdown(void);
 
 qboolean SND_RegisterAudio_Clean(void);
 void S_KillEntityChannel(int entnum, int chan);
+
+#ifdef _XBOX
+extern "C"
+{
+char* C_MP3_GetUnpackedSize(void *pvData, int iDataLen, int *piUnpackedSize, int bStereoDesired);
+char* C_MP3_GetHeaderData(void *pvData, int iDataLen, int *piRate, int *piWidth, int *piChannels, int bStereoDesired);
+}
+#endif
 
 //////////////////////////
 //
@@ -150,8 +160,7 @@ static char			sInfoOnly_CurrentDynamicMusicSet[64];	// any old reasonable size, 
 #define		SOUND_ATTENUATE		0.0008f
 #define		VOICE_ATTENUATE		0.004f
 
-// Match the EF/SP Xbox attenuation baseline so Holomatch 3D audio uses the
-// same falloff profile as the cooperative executable.
+// This number has dramatic affects on volume.
 #define		SOUND_REF_DIST_BASE	1500.f
 
 #define		SOUND_UPDATE_TIME	100
@@ -164,6 +173,16 @@ qboolean			s_soundMuted;
 int					s_loopEnabled;
 int					s_updateTime;
 
+#ifdef _XBOX
+static qboolean s_xboxSilentAudio = qfalse;
+static qboolean s_xboxLipDataLoaded = qfalse;
+static int s_xboxSilentVoiceStartsLogged = 0;
+static int s_xboxSilentVoiceUpdatesLogged = 0;
+static void S_XboxUpdateSilentVoiceVolumes(void);
+static int S_XboxFallbackVoiceVolume(const channel_t *ch, int now);
+extern HANDLE Sys_FileStreamMutex;
+#endif
+
 struct listener_t
 {
 	ALuint handle;
@@ -172,7 +191,7 @@ struct listener_t
 	int entnum;
 };
 
-#define SND_MAX_LISTENERS 2
+#define SND_MAX_LISTENERS 1
 static listener_t s_listeners[SND_MAX_LISTENERS];
 static int s_numListeners;
 
@@ -187,85 +206,15 @@ static int			s_numChannels;			// Number of AL Sources == Num of Channels
 #endif
 
 #define MAX_CHANNELS (MAX_CHANNELS_2D + MAX_CHANNELS_3D)
-static channel_t	s_channels[MAX_CHANNELS];
+static channel_t*   s_channels;
 
-#define	MAX_SFX 3072	// 2048
+#define	MAX_SFX 3072	//2048
 #define INVALID_CODE 0
-static sfx_t	s_sfxBlock[MAX_SFX];
-static int		s_sfxCodes[MAX_SFX];
+static sfx_t* s_sfxBlock;
+static int* s_sfxCodes;
 
 static bool s_registered = false;
 static int s_defaultSound = 0;
-
-static qboolean S_STEFXValidSfxHandle(sfxHandle_t sfxHandle, const char *caller)
-{
-	static int invalidBudget = 16;
-
-	if (sfxHandle < 0 || sfxHandle >= MAX_SFX)
-	{
-		if (invalidBudget > 0)
-		{
-			XBLog_Writef("STEFX_HM: sound dropped invalid handle caller='%s' handle=%d max=%d",
-				caller ? caller : "",
-				sfxHandle,
-				MAX_SFX);
-			invalidBudget--;
-		}
-		return qfalse;
-	}
-
-	if (s_sfxCodes[sfxHandle] == INVALID_CODE)
-	{
-		return qfalse;
-	}
-
-	return qtrue;
-}
-
-static qboolean S_STEFXValidEntityNum(int entityNum, const char *caller)
-{
-	static int invalidBudget = 16;
-
-	if (entityNum < 0 || entityNum >= MAX_GENTITIES)
-	{
-		if (invalidBudget > 0)
-		{
-			XBLog_Writef("STEFX_HM: sound dropped invalid entity caller='%s' entity=%d max=%d",
-				caller ? caller : "",
-				entityNum,
-				MAX_GENTITIES);
-			invalidBudget--;
-		}
-		return qfalse;
-	}
-
-	return qtrue;
-}
-
-static int S_STEFXClampListenerCount(int numListeners, const char *caller)
-{
-	int clamped = numListeners;
-
-	if (clamped < 1)
-	{
-		clamped = 1;
-	}
-	else if (clamped > SND_MAX_LISTENERS)
-	{
-		clamped = SND_MAX_LISTENERS;
-	}
-
-	if (clamped != numListeners)
-	{
-		XBLog_Writef("STEFX_HM: sound clamped listener count caller='%s' requested=%d active=%d max=%d",
-			caller ? caller : "",
-			numListeners,
-			clamped,
-			SND_MAX_LISTENERS);
-	}
-
-	return clamped;
-}
 
 typedef struct 
 { 
@@ -280,9 +229,9 @@ typedef struct
 
 #define	MAX_LOOP_SOUNDS 32
 static int numLoopSounds;
-static loopSound_t	loopSounds[MAX_LOOP_SOUNDS];
+static loopSound_t* loopSounds;
 
-int	s_entityWavVol[MAX_GENTITIES];
+int* s_entityWavVol = NULL;
 
 cvar_t		*s_effects_volume;
 cvar_t		*s_music_volume;
@@ -312,7 +261,84 @@ void S_SoundInfo_f(void) {
 	Com_Printf("----------------------\n" );
 }
 
+void TrashSounds_f( void )
+{
+	SND_FreeOldestSound( NULL );
+}
 
+static void S_LoadLipSyncTables(void)
+{
+	extern DWORD g_dwLanguage;
+	const char *langSuffix;
+	void *buffer;
+
+	switch( g_dwLanguage )
+	{
+#ifndef XBOX_DEMO	// Demo has no foreign audio
+		case XC_LANGUAGE_FRENCH:
+			langSuffix = "_f";
+			break;
+		case XC_LANGUAGE_GERMAN:
+			langSuffix = "_d";
+			break;
+#endif
+		case XC_LANGUAGE_ENGLISH:
+		default:
+			langSuffix = "_e";
+			break;
+	}
+
+	int len = FS_ReadFile(va("lipdata%s.idx", langSuffix), &buffer);
+	if( len == -1 )
+	{
+#ifdef _XBOX
+		s_xboxLipDataLoaded = qfalse;
+		Com_Printf("STEFX: Xbox lip-sync index lipdata%s.idx missing; continuing without lip-sync metadata.\n",
+			langSuffix);
+		return;
+#else
+		Com_Error(ERR_DROP, "ERROR: No lip sync index file\n");
+#endif
+	}
+	int numLipFiles = len / sizeof(LipFileInfo);
+	LipFileInfo *lbuf = (LipFileInfo *)buffer;
+
+	Z_PushNewDeleteTag( TAG_LIPSYNC );
+	s_lipSyncMap = new VVFixedMap< unsigned int, unsigned int >(numLipFiles);
+	Z_PopNewDeleteTag();
+
+	for( int i = 0; i < numLipFiles; ++i )
+		s_lipSyncMap->Insert(lbuf[i].offset, lbuf[i].crc);
+	FS_FreeFile(buffer);
+
+	len = FS_ReadFile(va("lipdata%s.dat", langSuffix), &buffer);
+	if( len == -1 )
+	{
+#ifdef _XBOX
+		delete s_lipSyncMap;
+		s_lipSyncMap = NULL;
+		s_xboxLipDataLoaded = qfalse;
+		Com_Printf("STEFX: Xbox lip-sync data lipdata%s.dat missing; continuing without lip-sync metadata.\n",
+			langSuffix);
+		return;
+#else
+		Com_Error(ERR_DROP, "ERROR: No lip sync data file\n");
+#endif
+	}
+
+	Z_PushNewDeleteTag( TAG_LIPSYNC );
+	s_lipSyncData = new char[len];
+	Z_PopNewDeleteTag();
+
+	memcpy(s_lipSyncData, buffer, len);
+	FS_FreeFile(buffer);
+
+#ifdef _XBOX
+	s_xboxLipDataLoaded = qtrue;
+	Com_Printf("JA: Xbox lip-sync tables loaded suffix=%s files=%d bytes=%d\n",
+		langSuffix, numLipFiles, len);
+#endif
+}
 
 /*
 ================
@@ -326,14 +352,12 @@ void S_Init( void ) {
 
 	Com_Printf("\n------- sound initialization -------\n");
 
-	XBLog_Write("JAMP: S_Init before AS_Init");
 	AS_Init();
-	XBLog_Write("JAMP: S_Init after AS_Init");
 
-	XBLog_Write("JAMP: S_Init before cvars");
 	s_effects_volume = Cvar_Get ("s_effects_volume", "1.0", CVAR_ARCHIVE);
 	s_voice_volume= Cvar_Get ("s_voice_volume", "1.0", CVAR_ARCHIVE);
 	s_music_volume = Cvar_Get ("s_music_volume", "0.25", CVAR_ARCHIVE);
+
 	s_separation = Cvar_Get ("s_separation", "0.5", CVAR_ARCHIVE);
 	s_allowDynamicMusic = Cvar_Get ("s_allowDynamicMusic", "1", CVAR_ARCHIVE);
 
@@ -343,31 +367,25 @@ void S_Init( void ) {
 
 	s_CPUType = Cvar_Get("sys_cpuid","",0);
 	s_soundpoolmegs = Cvar_Get("s_soundpoolmegs", "6", CVAR_ARCHIVE);
-	XBLog_Write("STEFX_HM: sound using EF/SP hardened Xbox path; handle/entity guards active");
-	XBLog_Writef("STEFX_HM: sound using SP Xbox attenuation reference distance=%.1f",
-		SOUND_REF_DIST_BASE);
 
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
 
+#ifdef _XBOX
+	cv = Cvar_Get("s_xbox_smokeSilentAudio", "0", CVAR_TEMP);
+	s_xboxSilentAudio = (cv && cv->integer) ? qtrue : qfalse;
+	s_soundMuted = s_xboxSilentAudio ? qtrue : qfalse;
+	Com_Printf("JA: Xbox audio mode=%s; lip-sync metadata remains enabled.\n",
+		s_xboxSilentAudio ? "silent" : "directsound");
+#endif
+
 	cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
-	XBLog_Write("JAMP: S_Init after cvars");
 	if ( !cv->integer ) {
 		s_soundStarted = 0;	// needed in case you set s_initsound to 0 midgame then snd_restart (div0 err otherwise later)
 		Com_Printf ("not initializing.\n");
 		Com_Printf("------------------------------------\n");
-		XBLog_Write("JAMP: S_Init disabled");
 		return;
 	}
 
-#if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
-	s_soundStarted = 0;
-	Com_Printf("not initializing (Cxbx smoke bypass).\n");
-	Com_Printf("------------------------------------\n");
-	XBLog_Write("JAMP: S_Init Cxbx smoke bypass - skipping DirectSoundCreate");
-	return;
-#endif
-
-	XBLog_Write("JAMP: S_Init before commands");
 	Cmd_AddCommand("play", S_Play_f);
 #ifndef _JK2MP
 	Cmd_AddCommand("playex", S_PlayEx_f);
@@ -376,68 +394,86 @@ void S_Init( void ) {
 	Cmd_AddCommand("soundlist", S_SoundList_f);
 	Cmd_AddCommand("soundinfo", S_SoundInfo_f);
 	Cmd_AddCommand("soundstop", S_StopAllSounds);
-	XBLog_Write("JAMP: S_Init after commands");
+	Cmd_AddCommand("trashsounds", TrashSounds_f);
 
+	s_entityWavVol = new int[MAX_GENTITIES];
+	
 	// clear out the lip synching override array
 	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
 
-	XBLog_Write("JAMP: S_Init before alcOpenDevice");
+#ifdef _XBOX
+	Com_Printf("JA: Xbox audio alcOpenDevice begin silent=%d\n", (int)s_xboxSilentAudio);
+#else
+	Com_Printf("JA: audio alcOpenDevice begin\n");
+#endif
 	ALCDevice = alcOpenDevice((ALubyte*)"DirectSound3D");
 	if (!ALCDevice)
 	{
-		XBLog_Write("JAMP: S_Init alcOpenDevice failed");
+		Com_Printf("JA: Xbox audio alcOpenDevice failed\n");
 		return;
 	}
-	XBLog_Write("JAMP: S_Init after alcOpenDevice");
+	Com_Printf("JA: Xbox audio alcOpenDevice ok device=%p\n", ALCDevice);
 
 	//Create context(s)
-	XBLog_Write("JAMP: S_Init before alcCreateContext");
+	Com_Printf("JA: Xbox audio alcCreateContext begin\n");
 	ALCContext = alcCreateContext(ALCDevice, NULL);
 	if (!ALCContext)
 	{
-		XBLog_Write("JAMP: S_Init alcCreateContext failed");
+		Com_Printf("JA: Xbox audio alcCreateContext failed\n");
 		return;
 	}
-	XBLog_Write("JAMP: S_Init after alcCreateContext");
+	Com_Printf("JA: Xbox audio alcCreateContext ok context=%p\n", ALCContext);
 
 	//Set active context
-	XBLog_Write("JAMP: S_Init before alcMakeContextCurrent");
+	Com_Printf("JA: Xbox audio alcMakeContextCurrent begin\n");
 	alcMakeContextCurrent(ALCContext);		
 	if (alcGetError(ALCDevice) != ALC_NO_ERROR)
 	{
-		XBLog_Write("JAMP: S_Init alcMakeContextCurrent failed");
+		Com_Printf("JA: Xbox audio alcMakeContextCurrent failed\n");
 		return;
 	}
-	XBLog_Write("JAMP: S_Init after alcMakeContextCurrent");
+	Com_Printf("JA: Xbox audio alcMakeContextCurrent ok\n");
 
+	s_channels = new channel_t[MAX_CHANNELS];
+	
+	s_sfxBlock = new sfx_t[MAX_SFX];
+	s_sfxCodes = new int[MAX_SFX];
 	memset(s_sfxCodes, INVALID_CODE, sizeof(int) * MAX_SFX);
 
-	XBLog_Write("JAMP: S_Init before S_StopAllSounds");
+	loopSounds = new loopSound_t[MAX_LOOP_SOUNDS];
+
 	S_StopAllSounds();
-	XBLog_Write("JAMP: S_Init after S_StopAllSounds");
 
 	s_soundStarted = 1;
 	s_soundMuted = 1;
 	s_loopEnabled = 0;
 	s_updateTime = 0;
 
-	XBLog_Write("JAMP: S_Init before S_SoundInfo_f");
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		s_numChannels = 0;
+		Com_Printf("JA: Xbox silent audio metadata allocated: sfx=%d channels=%d entities=%d\n",
+			MAX_SFX, MAX_CHANNELS, MAX_GENTITIES);
+		Com_Printf("------------------------------------\n");
+		S_InitLoad();
+		S_LoadLipSyncTables();
+		return;
+	}
+#endif
+
 	S_SoundInfo_f();
-	XBLog_Write("JAMP: S_Init after S_SoundInfo_f");
 
 	memset(s_channels, 0, sizeof(channel_t) * MAX_CHANNELS);
 	s_numChannels = 0;
 	
 	// create music channel
-	XBLog_Write("JAMP: S_Init before alGenStream");
 	alGenStream();
-	XBLog_Write("JAMP: S_Init after alGenStream");
 
 	Com_Printf("------------------------------------\n");
 
-	XBLog_Write("JAMP: S_Init before S_InitLoad");
 	S_InitLoad();
-	XBLog_Write("JAMP: S_Init after S_InitLoad");
+	S_LoadLipSyncTables();
 }
 
 // only called from snd_restart. QA request...
@@ -473,6 +509,9 @@ void S_Shutdown( void )
 	ALCdevice	*ALCDevice;
 	int			i;
 
+	delete [] s_entityWavVol;
+	s_entityWavVol = NULL;
+
 	if ( !s_soundStarted ) {
 		return;
 	}
@@ -495,6 +534,11 @@ void S_Shutdown( void )
 	}
 	s_numListeners = 0;
 	
+	delete [] s_channels;
+	delete [] s_sfxBlock;
+	delete [] s_sfxCodes;
+	delete [] loopSounds;
+
 	// Get active context
 	ALCContext = alcGetCurrentContext();
 	// Get device for active context
@@ -547,18 +591,126 @@ void S_SetVolume(float volume)
 S_FixMusicFileExtension
 ==================
 */
+#ifdef _XBOX
+static qboolean S_XboxMusicCandidateExists(const char *name)
+{
+	fileHandle_t handle = 0;
+	int len = FS_FOpenFileRead(name, &handle, qtrue);
+	if (handle)
+	{
+		FS_FCloseFile(handle);
+		return len > 0 ? qtrue : qfalse;
+	}
+
+	return qfalse;
+}
+
+static qboolean S_XboxMusicNameHasExtension(const char *name)
+{
+	const char *slash = strrchr(name, '/');
+	const char *backslash = strrchr(name, '\\');
+	const char *dot = strrchr(name, '.');
+	const char *lastSep = slash > backslash ? slash : backslash;
+	return (dot && (!lastSep || dot > lastSep)) ? qtrue : qfalse;
+}
+
+static qboolean S_XboxMusicNameIsMP3(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	return (dot && !Q_stricmp(dot, ".mp3")) ? qtrue : qfalse;
+}
+
+static qboolean S_XboxMusicNameIsWAV(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+	return (dot && !Q_stricmp(dot, ".wav")) ? qtrue : qfalse;
+}
+
+static void S_XboxMusicSetExtension(char *out, int outSize, const char *name, const char *ext)
+{
+	Q_strncpyz(out, name, outSize);
+	if (S_XboxMusicNameHasExtension(out))
+	{
+		char stripped[MAX_QPATH];
+		COM_StripExtension(out, stripped);
+		Q_strncpyz(out, stripped, outSize);
+	}
+	Q_strcat(out, outSize, ".");
+	Q_strcat(out, outSize, ext);
+}
+#endif
+
 char* S_FixMusicFileName(const char* name)
 {
 	static char xname[MAX_QPATH];
 
 #if defined(_XBOX)
-	const char* ext = "wxb";
+	if (!name || !name[0])
+	{
+		xname[0] = 0;
+		return xname;
+	}
+
+	Q_strncpyz(xname, name, sizeof(xname));
+	for (int i = 0; xname[i]; ++i)
+	{
+		if (xname[i] == '\\')
+		{
+			xname[i] = '/';
+		}
+	}
+
+	char wavName[MAX_QPATH];
+	S_XboxMusicSetExtension(wavName, sizeof(wavName), xname, "wav");
+	if ((S_XboxMusicNameIsMP3(xname) || !S_XboxMusicNameHasExtension(xname) || S_XboxMusicNameIsWAV(xname)) &&
+		S_XboxMusicCandidateExists(wavName))
+	{
+		Q_strncpyz(xname, wavName, sizeof(xname));
+		static int s_xboxMusicWAVLogCount = 0;
+		if (s_xboxMusicWAVLogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox music resolved WAV '%s'\n", xname);
+			s_xboxMusicWAVLogCount++;
+		}
+		return xname;
+	}
+
+	if (S_XboxMusicNameHasExtension(xname) && S_XboxMusicCandidateExists(xname))
+	{
+		static int s_xboxMusicExactLogCount = 0;
+		if (s_xboxMusicExactLogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox music resolved exact '%s'\n", xname);
+			s_xboxMusicExactLogCount++;
+		}
+		return xname;
+	}
+
+	char mp3Name[MAX_QPATH];
+	S_XboxMusicSetExtension(mp3Name, sizeof(mp3Name), xname, "mp3");
+	if (S_XboxMusicCandidateExists(mp3Name))
+	{
+		Q_strncpyz(xname, mp3Name, sizeof(xname));
+		static int s_xboxMusicMP3LogCount = 0;
+		if (s_xboxMusicMP3LogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox music resolved MP3 '%s'\n", xname);
+			s_xboxMusicMP3LogCount++;
+		}
+		return xname;
+	}
+
+	char wxbName[MAX_QPATH];
+	S_XboxMusicSetExtension(wxbName, sizeof(wxbName), xname, "wxb");
+	Q_strncpyz(xname, wxbName, sizeof(xname));
+	return xname;
 #elif defined(_WINDOWS)
 	const char* ext = "wav";
 #elif defined(_GAMECUBE)
 	const char* ext = "adp";
 #endif
 
+#if !defined(_XBOX)
 	Q_strncpyz(xname, name, sizeof(xname));
 	if (xname[strlen(xname) - 4] != '.')
 	{
@@ -572,6 +724,7 @@ char* S_FixMusicFileName(const char* name)
 		xname[len-2] = ext[1];
 		xname[len-1] = ext[2];
 	}
+#endif
 
 #ifdef _GAMECUBE
 	if (!strncmp("music/", xname, 6) ||
@@ -658,8 +811,7 @@ void S_CreateSources( void ) {
 	s_numChannels = 0;
 
 	// Create as many AL Sources (up to Max) as possible
-	int activeListeners = S_STEFXClampListenerCount(s_numListeners, "S_CreateSources");
-	int limit = MAX_CHANNELS_2D + MAX_CHANNELS_3D / activeListeners;
+	int limit = MAX_CHANNELS_2D + MAX_CHANNELS_3D / s_numListeners;
 	for (i = 0; i < limit; i++)
 	{
 		if (i < MAX_CHANNELS_2D)
@@ -696,16 +848,31 @@ S_BeginRegistration
 
 =====================
 */
-void S_BeginRegistration( int num_listeners )
+void S_BeginRegistration( void )
 {
 	if (!s_soundStarted) return;
 
-	int i;
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		s_soundMuted = qtrue;
+		if (!s_registered)
+		{
+			s_defaultSound = S_RegisterSound("sound/null.wav");
+			s_registered = true;
+		}
+		Com_Printf("JA: Xbox silent S_BeginRegistration complete lipData=%d\n", s_xboxLipDataLoaded);
+		return;
+	}
+#endif
 
+	int i;
+	int num_listeners = 1;
+
+	// Turn sound back on.
 	s_soundMuted = qfalse;
 
 	// Create listeners
-	num_listeners = S_STEFXClampListenerCount(num_listeners, "S_BeginRegistration");
 	assert(num_listeners <= SND_MAX_LISTENERS);
 	if (num_listeners < s_numListeners)
 	{
@@ -745,10 +912,18 @@ void S_BeginRegistration( int num_listeners )
 		S_LoadSound(s_defaultSound);
 		s_registered = true;
 	}
-	XBLog_Writef("STEFX_HM: sound registration active listeners=%d channels=%d default=%d",
-		s_numListeners,
-		s_numChannels,
-		s_defaultSound);
+
+#ifdef _XBOX
+	{
+		static int s_xboxRealBeginRegistrationLogCount = 0;
+		if (!s_xboxSilentAudio && s_xboxRealBeginRegistrationLogCount < 8)
+		{
+			Com_Printf("JA: Xbox real S_BeginRegistration listeners=%d channels=%d default=%d registered=%d\n",
+				s_numListeners, s_numChannels, s_defaultSound, s_registered);
+			s_xboxRealBeginRegistrationLogCount++;
+		}
+	}
+#endif
 }
 
 /*
@@ -786,6 +961,44 @@ sfxHandle_t S_AllocSfx(int hash)
 	return -1;
 }
 
+extern void	COM_StripExtension( const char *in, char *out );
+extern char *FS_BuildOSPathUnMapped( const char *qpath );
+
+// Convert pathname to filecode
+int Lip_GetFileCode(const char* name)
+{
+	// Get system level path
+	char* osname = FS_BuildOSPathUnMapped(name);
+
+	// Generate hash for file name
+	strlwr(osname);
+	unsigned int code = crc32(0, (const unsigned char *)osname, strlen(osname));
+
+	return code;
+}
+
+static void	S_LoadLips(sfx_t* thesfx, const char* name)
+{
+	// Sanity checks
+	if( !s_lipSyncData || !s_lipSyncMap )
+		return;
+
+	// get the lipfile name -> turn it into a crc
+	char lipfile[MAX_QPATH];
+	COM_StripExtension(name,lipfile);
+	strcat(lipfile,".lip");
+	unsigned int code = Lip_GetFileCode( lipfile );
+
+	// Lookup in the fixed map
+	unsigned int *pOffset = s_lipSyncMap->Find(code);
+	if( !pOffset )
+		return;
+
+	// OK. Set the pointer to the right data
+	thesfx->pLipSyncData = s_lipSyncData + *pOffset;
+}
+
+
 
 /*
 ==================
@@ -806,6 +1019,13 @@ sfxHandle_t	S_RegisterSound(const char *name)
 
 	if ( strlen( name ) >= MAX_QPATH || !name[0] ) {		
 		Com_Printf( S_COLOR_RED"Sound name exceeds MAX_QPATH - %s\n", name );
+		return s_defaultSound;
+	}
+
+	/* Temporary fix for levels that try to precache music and play them as sfx */
+	if (strstr(name, "MUSIC"))
+	{
+		Com_Printf( "WARNING: Trying to play music file %s through S_StartSound!\n", name );
 		return s_defaultSound;
 	}
 
@@ -836,12 +1056,45 @@ sfxHandle_t	S_RegisterSound(const char *name)
 
 	if ( sfx->iFileCode == -1 ) sfx->iFlags |= SFX_FLAG_DEFAULT;
 
-	if (strstr(name, "chars") ||
-		strstr(name, "chr_d") ||
-		strstr(name, "chr_f"))
+	sfx->pLipSyncData = NULL;
+
+	char fixedName[MAX_QPATH];
+	Q_strncpyz( fixedName, name, sizeof(fixedName) );
+	Q_strlwr( fixedName );
+
+	char *psVoice = strstr(fixedName, "chars");
+	if( !psVoice )
 	{
+		psVoice = strstr(fixedName, "sound/voice/");
+	}
+	if( psVoice )
+	{
+		// Need to replace "chars" with "chr_f" or "chr_d" if we're in a foreign
+		// language, or the crc won't match the one generated by lipthing2:
+#ifndef XBOX_DEMO
+		extern DWORD g_dwLanguage;
+		if( g_dwLanguage == XC_LANGUAGE_FRENCH )
+			strncpy( psVoice, "chr_f", 5 );
+		else if( g_dwLanguage == XC_LANGUAGE_GERMAN )
+			strncpy( psVoice, "chr_d", 5 );
+#endif
+
 		sfx->iFlags |= SFX_FLAG_VOICE;
 		sfx->iFlags |= SFX_FLAG_DEMAND;
+
+		// load up the lip sync data
+		S_LoadLips(sfx, fixedName);
+#ifdef _XBOX
+		{
+			static int s_xboxVoiceRegistersLogged = 0;
+			if (s_xboxVoiceRegistersLogged < 96)
+			{
+				Com_Printf("STEFX: S_RegisterSound voice handle=%d flags=0x%x fileCode=0x%x lip=%d name='%s'\n",
+					handle, sfx->iFlags, sfx->iFileCode, sfx->pLipSyncData ? 1 : 0, fixedName);
+				s_xboxVoiceRegistersLogged++;
+			}
+		}
+#endif
 	}
 
 	if ( sfx->iFlags & SFX_FLAG_DEFAULT )
@@ -849,6 +1102,10 @@ sfxHandle_t	S_RegisterSound(const char *name)
 		sfx->iFlags |= SFX_FLAG_RESIDENT;
 		return s_defaultSound;
 	}
+
+	//can be uncommented for debugging if soundname is used
+	//also uncomment sSoundName from sfx_t
+	//sfx->sSoundName = CopyString(name);
 
 	return handle;
 }
@@ -976,17 +1233,53 @@ channel_t *S_PickChannel(int entnum, int entchannel, bool is2D, sfx_t* sfx)
 	if (ch_firstToDie->thesfx && ch_firstToDie->thesfx->iFlags & SFX_FLAG_LOADING)
 	{
 		// If the sound is loading, just give up...
+#ifdef _XBOX
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx && (sfx->iFlags & SFX_FLAG_VOICE)) ||
+			(ch_firstToDie->thesfx && (ch_firstToDie->thesfx->iFlags & SFX_FLAG_VOICE)))
+		{
+			static int s_xboxVoiceLoadingDropLogs = 0;
+			if (s_xboxVoiceLoadingDropLogs < 64)
+			{
+				Com_Printf("STEFX_VOICE_TRACE: pick drop loading voice ent=%d chan=%d oldEnt=%d oldChan=%d oldCode=0x%x newCode=0x%x\n",
+					entnum, entchannel, ch_firstToDie->entnum, ch_firstToDie->entchannel,
+					ch_firstToDie->thesfx ? ch_firstToDie->thesfx->iFileCode : 0,
+					sfx ? sfx->iFileCode : 0);
+				s_xboxVoiceLoadingDropLogs++;
+			}
+		}
+#endif
 		return NULL;
 	}
 	
 	if (ch_firstToDie->bPlaying)
 	{
 #ifdef _XBOX
-		// We have an insane amount of channels on the Xbox
-		// and stopping one is a blocking operation.  Let's
-		// just assume that no one will care if a sound is
-		// dropped when over 100 are already playing...
-		return NULL;
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx && (sfx->iFlags & SFX_FLAG_VOICE)))
+		{
+			static int s_xboxVoiceChannelReclaims = 0;
+			if (s_xboxVoiceChannelReclaims < 64)
+			{
+				Com_Printf("STEFX: S_PickChannel reclaim voice ent=%d chan=%d oldEnt=%d oldChan=%d oldCode=0x%x newCode=0x%x\n",
+					entnum, entchannel, ch_firstToDie->entnum, ch_firstToDie->entchannel,
+					ch_firstToDie->thesfx ? ch_firstToDie->thesfx->iFileCode : 0,
+					sfx ? sfx->iFileCode : 0);
+				s_xboxVoiceChannelReclaims++;
+			}
+			alSourceStop(ch_firstToDie->alSource);
+			ch_firstToDie->bPlaying = false;
+		}
+		else
+		{
+			// We have an insane amount of channels on the Xbox
+			// and stopping one is a blocking operation.  Let's
+			// just assume that no one will care if a sound is
+			// dropped when over 100 are already playing...
+			return NULL;
+		}
 #else
 		// Stop sound
 		alSourceStop(ch_firstToDie->alSource);
@@ -995,10 +1288,50 @@ channel_t *S_PickChannel(int entnum, int entchannel, bool is2D, sfx_t* sfx)
 	}
 
 	// Reset channel variables
+#ifdef _XBOX
+	if (ch_firstToDie->thesfx &&
+		(ch_firstToDie->entchannel == CHAN_VOICE || ch_firstToDie->entchannel == CHAN_VOICE_ATTEN ||
+		 ch_firstToDie->entchannel == CHAN_VOICE_GLOBAL || ch_firstToDie->entchannel == CHAN_ANNOUNCER ||
+		 (ch_firstToDie->thesfx->iFlags & SFX_FLAG_VOICE)))
+	{
+		static int s_xboxVoiceResetLogs = 0;
+		if (s_xboxVoiceResetLogs < 64)
+		{
+			Com_Printf("STEFX_VOICE_TRACE: pick reset voice oldEnt=%d oldChan=%d oldCode=0x%x oldPlaying=%d oldLoading=%d newEnt=%d newChan=%d newCode=0x%x\n",
+				ch_firstToDie->entnum, ch_firstToDie->entchannel, ch_firstToDie->thesfx->iFileCode,
+				ch_firstToDie->bPlaying ? 1 : 0,
+				(ch_firstToDie->thesfx->iFlags & SFX_FLAG_LOADING) ? 1 : 0,
+				entnum, entchannel, sfx ? sfx->iFileCode : 0);
+			s_xboxVoiceResetLogs++;
+		}
+	}
+#endif
 	alSourcei(ch_firstToDie->alSource, AL_BUFFER, 0);
 	ch_firstToDie->thesfx = NULL;
 	ch_firstToDie->bLooping = false;
-	
+
+	/*
+	This code can be used to increase the volume of 2D voices, but it
+	makes things sound a little weird because Raven is playing 3D sounds
+	where there should be 2D sounds. If we can get all sounds that should
+	be 3D, to be 3D this will help
+	extern void SetHeadroom( int source, float value);
+	if(is2D)
+	{
+		if(	entchannel == CHAN_VOICE		|| // i don't think 
+			entchannel == CHAN_ANNOUNCER	||
+			entchannel == CHAN_VOICE_ATTEN	||
+			entchannel == CHAN_VOICE_GLOBAL )
+		{
+			SetHeadroom(ch_firstToDie->alSource, 0.0f); // no more attenuation
+		}
+		else
+		{
+			SetHeadroom(ch_firstToDie->alSource, 6.0f); // dsound default for 2d sounds
+		}
+	}
+	*/
+
     return ch_firstToDie;
 }
 
@@ -1020,8 +1353,8 @@ static void SetChannelOrigin(channel_t *ch, const vec3_t origin, int entityNum)
 	{
 		vec3_t pos;
 
-		extern void CG_EntityPosition( int i, vec3_t ret );
-		CG_EntityPosition(entityNum, pos);
+		extern void G_EntityPosition( int i, vec3_t ret );
+		G_EntityPosition(entityNum, pos);
 		
 		ch->origin[0] = pos[0];
 		ch->origin[1] = pos[1];
@@ -1047,14 +1380,22 @@ void S_StartAmbientSound( const vec3_t origin, int entityNum, unsigned char volu
 	if( volume == 0)
 		return;
 
-	if ( !s_soundStarted || s_soundMuted ) {
+	if ( !s_soundStarted ) {
 		return;
 	}
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_StartAmbientSound") ) {
+
+	if ( s_soundMuted ) {
+#ifdef _XBOX
+		return;
+#else
+		return;
+#endif
+	}
+	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return;
 	}
-	if ( !origin && !S_STEFXValidEntityNum(entityNum, "S_StartAmbientSound") ) {
-		return;
+	if ( !origin && ( entityNum < 0 || entityNum > MAX_GENTITIES ) ) {
+		Com_Error( ERR_DROP, "S_StartAmbientSound: bad entitynum %i", entityNum );
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
@@ -1124,7 +1465,7 @@ void S_MuteSound(int entityNum, int entchannel)
 	{
 		return;
 	}
-	
+
 	ch->master_vol = 0;
 	ch->entnum = 0;
 	ch->entchannel = 0;
@@ -1145,26 +1486,285 @@ if pos is NULL, the sound will be dynamically sourced from the entity
 Entchannel 0 will never override a playing sound
 ====================
 */
-extern unsigned int Sys_GetSoundFileCodeFlags(unsigned int code);
+#include "../game/g_local.h"
 extern int Sys_GetSoundFileCodeSize(unsigned int code);
-void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_t sfxHandle ) 
+extern unsigned int Sys_GetSoundFileCodeFlags(unsigned int code);
+extern const char *Sys_GetSoundFileCodeName(unsigned int code);
+
+#ifdef _XBOX
+static qboolean S_XboxDN3ProofMapActive(void)
+{
+	const char *mapname = NULL;
+
+	if (level.mapname[0] && !Q_stricmp(level.mapname, "dn3"))
+	{
+		return qtrue;
+	}
+
+	mapname = Cvar_VariableString("mapname");
+	if (mapname && mapname[0] && !Q_stricmp(mapname, "dn3"))
+	{
+		return qtrue;
+	}
+
+	mapname = Cvar_VariableString("cl_mapname");
+	if (mapname && mapname[0] && !Q_stricmp(mapname, "dn3"))
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static void S_XboxDN3ProofLogSoundStart(int entityNum, soundChannel_t entchannel, sfxHandle_t sfxHandle, const sfx_t *sfx)
+{
+	if (!sfx)
+	{
+		return;
+	}
+
+	const char *name = (sfx->iFileCode == -1) ? NULL : Sys_GetSoundFileCodeName(sfx->iFileCode);
+	if (!name)
+	{
+		name = "<unknown>";
+	}
+
+	const char *category = "sfx";
+	int *budget = NULL;
+	static int voiceBudget = 48;
+	static int weaponBudget = 48;
+	static int foleyBudget = 48;
+	static int ambientBudget = 32;
+	static int otherBudget = 32;
+
+	if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+		entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+		(sfx->iFlags & SFX_FLAG_VOICE))
+	{
+		category = "vo";
+		budget = &voiceBudget;
+	}
+	else if (entchannel == CHAN_WEAPON || strstr(name, "weapons/") || strstr(name, "weapon/"))
+	{
+		category = "weapon";
+		budget = &weaponBudget;
+	}
+	else if (entchannel == CHAN_AMBIENT || strstr(name, "ambient") || strstr(name, "world/"))
+	{
+		category = "ambient";
+		budget = &ambientBudget;
+	}
+	else if (entchannel == CHAN_BODY || entchannel == CHAN_ITEM ||
+		entchannel == CHAN_LOCAL_SOUND || strstr(name, "foot") || strstr(name, "step") ||
+		strstr(name, "pain") || strstr(name, "fall"))
+	{
+		category = "foley";
+		budget = &foleyBudget;
+	}
+	else
+	{
+		budget = &otherBudget;
+	}
+
+	if (*budget <= 0)
+	{
+		return;
+	}
+
+	Com_Printf("STEFX_DN3_PROOF: audio start category=%s name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x resident=%d levelMap='%s' map='%s' cl_map='%s'\n",
+		category,
+		name,
+		entityNum,
+		entchannel,
+		sfxHandle,
+		sfx->iFileCode,
+		sfx->iFlags,
+		(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+		level.mapname,
+		Cvar_VariableString("mapname"),
+		Cvar_VariableString("cl_mapname"));
+	--(*budget);
+}
+#endif
+
+void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel, sfxHandle_t sfxHandle ) 
 {
 	channel_t	*ch;
 	/*const*/ sfx_t *sfx;
 
-	if ( !s_soundStarted || s_soundMuted ) {
+	if ( !s_soundStarted ) {
 		return;
 	}
 
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_StartSound") ) {
+	if ( s_soundMuted ) {
+#ifdef _XBOX
+		if (!s_xboxSilentAudio)
+			return;
+#else
+		return;
+#endif
+	}
+
+	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return;
 	}
 
-	if ( !origin && !S_STEFXValidEntityNum(entityNum, "S_StartSound") ) {
-		return;
+	if ( !origin && ( entityNum < 0 || entityNum > MAX_GENTITIES ) ) {
+		Com_Error( ERR_DROP, "S_StartSound: bad entitynum %i", entityNum );
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
+#ifdef _XBOX
+	S_XboxDN3ProofLogSoundStart(entityNum, entchannel, sfxHandle, sfx);
+#endif
+
+#ifdef _XBOX
+	if (!s_xboxSilentAudio)
+	{
+		static int s_xboxRealSoundStartsLogged = 0;
+		if (s_xboxRealSoundStartsLogged < 48 &&
+			(entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			 entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			 (sfx->iFlags & SFX_FLAG_VOICE)))
+		{
+			Com_Printf("JA: Xbox real sound start request ent=%d chan=%d handle=%d flags=0x%x fileCode=0x%x state=0x%x\n",
+				entityNum, entchannel, sfxHandle, sfx->iFlags, sfx->iFileCode, sfx->Buffer);
+			s_xboxRealSoundStartsLogged++;
+		}
+	}
+#endif
+
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		if (entchannel == CHAN_AUTO && (sfx->iFlags & SFX_FLAG_VOICE))
+			entchannel = CHAN_VOICE;
+
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN || entchannel == CHAN_VOICE_GLOBAL)
+		{
+			channel_t *silent = NULL;
+			channel_t *freeSilent = NULL;
+			for (int i = 0; i < MAX_CHANNELS; ++i)
+			{
+				channel_t *candidate = &s_channels[i];
+				if (candidate->thesfx && candidate->entnum == entityNum &&
+					(candidate->entchannel == CHAN_VOICE ||
+					 candidate->entchannel == CHAN_VOICE_ATTEN ||
+					 candidate->entchannel == CHAN_VOICE_GLOBAL))
+				{
+					silent = candidate;
+					break;
+				}
+				if (!freeSilent && !candidate->thesfx)
+					freeSilent = candidate;
+			}
+			if (!silent)
+				silent = freeSilent ? freeSilent : &s_channels[0];
+
+			memset(silent, 0, sizeof(*silent));
+			silent->entnum = entityNum;
+			silent->entchannel = entchannel;
+			silent->thesfx = sfx;
+			silent->bPlaying = true;
+			silent->iLastPlayTime = Sys_Milliseconds();
+			if (entityNum >= 0 && entityNum < MAX_GENTITIES)
+				s_entityWavVol[entityNum] = -1;
+
+			if (s_xboxSilentVoiceStartsLogged < 32)
+			{
+				int lipLength = sfx->pLipSyncData ? *(int*)sfx->pLipSyncData : 0;
+				Com_Printf("JA: Xbox silent voice start ent=%d chan=%d handle=%d lip=%d samples=%d durationMs=%d\n",
+					entityNum, entchannel, sfxHandle, sfx->pLipSyncData ? 1 : 0, lipLength, sfx->iSoundDurationMs);
+				s_xboxSilentVoiceStartsLogged++;
+			}
+		}
+		return;
+	}
+#endif
+
+	if(Sys_GetSoundFileCodeSize(sfx->iFileCode) == -1) {
+		return;
+	}
+
+	int flags = Sys_GetSoundFileCodeFlags(sfx->iFileCode);
+#ifdef _XBOX
+	{
+		const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		const char *category = "sfx";
+		int *budget = NULL;
+		static int voiceBudget = 48;
+		static int weaponBudget = 48;
+		static int foleyBudget = 48;
+		static int ambientBudget = 32;
+		static int otherBudget = 32;
+
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx->iFlags & SFX_FLAG_VOICE))
+		{
+			category = "vo";
+			budget = &voiceBudget;
+		}
+		else if (entchannel == CHAN_WEAPON ||
+			(soundName && (strstr(soundName, "weapons/") || strstr(soundName, "weapon/") ||
+				strstr(soundName, "weapons\\") || strstr(soundName, "weapon\\"))))
+		{
+			category = "weapon";
+			budget = &weaponBudget;
+		}
+		else if (entchannel == CHAN_AMBIENT ||
+			(soundName && (strstr(soundName, "ambient") || strstr(soundName, "world/") || strstr(soundName, "world\\"))))
+		{
+			category = "ambient";
+			budget = &ambientBudget;
+		}
+		else if (entchannel == CHAN_BODY || entchannel == CHAN_ITEM ||
+			entchannel == CHAN_LOCAL_SOUND ||
+			(soundName && (strstr(soundName, "foot") || strstr(soundName, "step") ||
+				strstr(soundName, "pain") || strstr(soundName, "fall"))))
+		{
+			category = "foley";
+			budget = &foleyBudget;
+		}
+		else
+		{
+			budget = &otherBudget;
+		}
+
+		if (*budget > 0)
+		{
+			Com_Printf("STEFX_DN3_PROOF: audio start category=%s name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x resident=%d levelMap='%s' map='%s' cl_map='%s'\n",
+				category,
+				soundName ? soundName : "<unknown>",
+				entityNum,
+				entchannel,
+				sfxHandle,
+				sfx->iFileCode,
+				sfx->iFlags,
+				(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+				level.mapname,
+				Cvar_VariableString("mapname"),
+				Cvar_VariableString("cl_mapname"));
+			--(*budget);
+		}
+	}
+
+	if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+		entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+		(sfx->iFlags & SFX_FLAG_VOICE))
+	{
+		const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		Com_Printf("STEFX_DN3_PROOF: audio start category=vo name='%s' ent=%d chan=%d handle=%d fileCode=0x%x flags=0x%x bankSize=%d resident=%d\n",
+			soundName ? soundName : "<unknown>",
+			entityNum,
+			entchannel,
+			sfxHandle,
+			sfx->iFileCode,
+			sfx->iFlags,
+			Sys_GetSoundFileCodeSize(sfx->iFileCode),
+			(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0);
+	}
+#endif
 
 	if (sfx->iFlags & SFX_FLAG_UNLOADED){
 		S_StartLoadSound(sfx);
@@ -1173,7 +1773,7 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 
 	// pick a channel to play on
 	bool is2D = false;
-	for (int i = 0; i < ClientManager::NumClients(); ++i)
+	for (int i = 0; i < s_numListeners; ++i)
 	{
 		if ((entityNum == s_listeners[i].entnum && !origin) ||
 			(origin &&
@@ -1188,17 +1788,10 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 
 	if(entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER)
 		is2D	= true;
-	
-	if(Sys_GetSoundFileCodeSize(sfx->iFileCode) == -1)
-		return;
 
-	unsigned int flags = Sys_GetSoundFileCodeFlags(sfx->iFileCode);
-
-	// might as well add more hacks ;)
-	if(flags & (1 << SFF_WEAPONS_ATST))
-	{
-		entchannel = CHAN_BODY;
-	}
+	// super hack so we can hear the explosionson t2_wedge
+	if( !stricmp(level.mapname, "t2_wedge") && (flags & (1 <<SFF_TIEEXPLODE)))
+		is2D	= true;
 
 	if (entchannel == CHAN_VOICE)
 	{
@@ -1214,15 +1807,14 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	{
 		// Check if we are playing a 'charging' sound, if so, stop it now ..
 		ch = s_channels + 1;
-  int i;
-		for (i = 1; i < s_numChannels; i++, ch++)
+		for (int i = 1; i < s_numChannels; i++, ch++)
 		{
 			unsigned int weaponSoundFlags;
 
 			if(ch->thesfx)
-				weaponSoundFlags	= Sys_GetSoundFileCodeFlags(ch->thesfx->iFileCode);
+				weaponSoundFlags = Sys_GetSoundFileCodeFlags(ch->thesfx->iFileCode);
 
-			if ((ch->entnum == entityNum) && (ch->entchannel == CHAN_WEAPON) && (ch->thesfx) && (weaponSoundFlags & (1 << SFF_ALTCHARGE)))
+			if ((ch->entnum == entityNum) && (ch->entchannel == CHAN_WEAPON) && (ch->thesfx) && (weaponSoundFlags & (1 <<SFF_ALTCHARGE)))
 			{
 				// Stop this sound
 				alSourceStop(ch->alSource);
@@ -1236,8 +1828,7 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	else
 	{
 		ch = s_channels + 1;
-			int i;
-		for (i = 1; i < s_numChannels; i++, ch++)
+		for (int i = 1; i < s_numChannels; i++, ch++)
 		{
 			unsigned int fallSoundFlags;
 
@@ -1256,9 +1847,20 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 			}
 		}
 	}
-
+	
 	ch = S_PickChannel( entityNum, entchannel, is2D, sfx );
 	if (!ch) {
+#ifdef _XBOX
+		if (entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN ||
+			entchannel == CHAN_VOICE_GLOBAL || entchannel == CHAN_ANNOUNCER ||
+			(sfx->iFlags & SFX_FLAG_VOICE))
+		{
+			Com_Printf("STEFX: S_StartSound no channel ent=%d chan=%d handle=%d code=0x%x flags=0x%x resident=%d loading=%d\n",
+				entityNum, entchannel, sfxHandle, sfx->iFileCode, sfx->iFlags,
+				(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+				(sfx->iFlags & SFX_FLAG_LOADING) ? 1 : 0);
+		}
+#endif
 		return;
 	}
 
@@ -1277,6 +1879,9 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	ch->entnum = entityNum;
 	ch->entchannel = entchannel;
 	ch->thesfx = sfx;
+	ch->bPlaying = false;
+	ch->bLooping = false;
+	ch->iLastPlayTime = 0;
 
 	if (entchannel < CHAN_AMBIENT && IsListenerEnt(ch->entnum))
 	{
@@ -1284,10 +1889,19 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	}
 	if ( entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN || entchannel == CHAN_VOICE_GLOBAL ) 
 	{
-		if ( S_STEFXValidEntityNum(ch->entnum, "S_StartSound voice") )
+		s_entityWavVol[ ch->entnum ] = -1;	//we've started the sound but it's silent for now
+#ifdef _XBOX
+		static int s_xboxVoiceAssignLogs = 0;
+		if (s_xboxVoiceAssignLogs < 128)
 		{
-			s_entityWavVol[ ch->entnum ] = -1;	//we've started the sound but it's silent for now
+			const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			Com_Printf("STEFX_VOICE_TRACE: assigned ent=%d chan=%d source=%u code=0x%x flags=0x%x resident=%d buffer=%u name='%s'\n",
+				ch->entnum, ch->entchannel, ch->alSource, sfx->iFileCode, sfx->iFlags,
+				(sfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0, sfx->Buffer,
+				soundName ? soundName : "<unknown>");
+			s_xboxVoiceAssignLogs++;
 		}
+#endif
 	}
 }
 
@@ -1297,30 +1911,12 @@ S_StartLocalSound
 ==================
 */
 void S_StartLocalSound( sfxHandle_t sfxHandle, int channelNum ) {
-	int listenerIndex;
-
 	if ( !s_soundStarted || s_soundMuted ) {
 		return;
 	}
 
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_StartLocalSound") ) {
-		return;
-	}
-
-	listenerIndex = ClientManager::ActiveClientNum();
-	if ( listenerIndex < 0 || listenerIndex >= s_numListeners )
-	{
-		XBLog_Writef("STEFX_HM: sound local listener clamped active=%d listeners=%d channel=%d handle=%d",
-			listenerIndex,
-			s_numListeners,
-			channelNum,
-			sfxHandle);
-		listenerIndex = 0;
-	}
-
 	// Play a 2D sound -- doesn't matter which listener we use
-//	S_StartSound (NULL, 0, channelNum, sfxHandle );
-	S_StartSound (NULL, s_listeners[listenerIndex].entnum, channelNum, sfxHandle );
+	S_StartSound (NULL, 0, (soundChannel_t)channelNum, sfxHandle );
 }
 
 
@@ -1333,10 +1929,6 @@ void S_StartLocalLoopingSound( sfxHandle_t sfxHandle) {
 	vec3_t nullVec = {0,0,0};
 
 	if ( !s_soundStarted || s_soundMuted ) {
-		return;
-	}
-
-	if ( VM_Call( uivm, UI_IS_FULLSCREEN ) && cls.state == CA_ACTIVE) {
 		return;
 	}
 
@@ -1355,10 +1947,12 @@ void S_KillEntityChannel(int entnum, int chan)
 		return;
 	}
 
-	if ( entnum < s_numListeners && chan == CHAN_VOICE ) {
-		// don't kill player death sounds
-		return;
-	}
+	// This code is only used by the UI stopVoice command now, this check
+	// screws that usage up.
+//	if ( entnum < s_numListeners && chan == CHAN_VOICE ) {
+//		// don't kill player death sounds
+//		return;
+//	}
 
 	ch = s_channels;
 	for (i = 0; i < s_numChannels; i++, ch++)
@@ -1367,10 +1961,28 @@ void S_KillEntityChannel(int entnum, int chan)
 			ch->entnum == entnum &&
 			ch->entchannel == chan)
 		{
+#ifdef _XBOX
+			if (ch->thesfx &&
+				(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+				 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+				 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+			{
+				static int s_xboxVoiceKillLogs = 0;
+				if (s_xboxVoiceKillLogs < 64)
+				{
+					Com_Printf("STEFX_VOICE_TRACE: kill entity channel ent=%d chan=%d code=0x%x playing=%d loading=%d\n",
+						entnum, chan, ch->thesfx->iFileCode, ch->bPlaying ? 1 : 0,
+						(ch->thesfx->iFlags & SFX_FLAG_LOADING) ? 1 : 0);
+					s_xboxVoiceKillLogs++;
+				}
+			}
+#endif
 			alSourceStop(ch->alSource);
 			ch->bPlaying = false;
 	
 			alSourcei(ch->alSource, AL_BUFFER, 0);
+			if(ch->thesfx)
+				ch->thesfx->pLipSyncData = NULL;
 			ch->thesfx = NULL;
 			ch->bLooping = false;
 		}
@@ -1421,7 +2033,7 @@ float S_GetSampleLengthInMilliSeconds( sfxHandle_t sfxHandle)
 		return 512;
 	}
 
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_GetSampleLengthInMilliSeconds") ) {
+	if ( s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return 0.0f;
 	}
 
@@ -1446,7 +2058,7 @@ void S_LoadSound( sfxHandle_t sfxHandle )
 		return;
 	}
 
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_LoadSound") ) {
+	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return;
 	}
 
@@ -1502,6 +2114,10 @@ void S_StopSounds(void)
 			ch->bPlaying = false;
 		}
 	
+		// free lip sync data
+		if(ch->thesfx)
+			ch->thesfx->pLipSyncData = NULL;
+
 		alSourcei(ch->alSource, AL_BUFFER, 0);
 		ch->thesfx = NULL;
 		ch->bLooping = false;
@@ -1525,6 +2141,14 @@ void S_StopAllSounds(void) {
 	}
 	// stop the background music
 	S_StopBackgroundTrack();
+
+	S_StopSounds();
+}
+
+void S_StopAllSoundsExceptMusic(void) {
+	if ( !s_soundStarted ) {
+		return;
+	}
 
 	S_StopSounds();
 }
@@ -1568,12 +2192,8 @@ S_AddLoopingSound
 Called during entity generation for a frame
 ==================
 */
-void S_AddLoopingSound( int entityNum, const vec3_t origin, const vec3_t velocity, sfxHandle_t sfxHandle, int chan ) {
+void S_AddLoopingSound( int entityNum, const vec3_t origin, const vec3_t velocity, sfxHandle_t sfxHandle, soundChannel_t chan ) {
 	/*const*/ sfx_t *sfx;
-
-	if ( VM_Call( uivm, UI_IS_FULLSCREEN ) && cls.state == CA_ACTIVE) {
-		return;
-	}
 
   	if ( !s_soundStarted || s_soundMuted || !s_loopEnabled ) {
 		return;
@@ -1582,7 +2202,7 @@ void S_AddLoopingSound( int entityNum, const vec3_t origin, const vec3_t velocit
 		return;
 	}
 
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_AddLoopingSound") ) {
+	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return;
 	}
 
@@ -1620,14 +2240,10 @@ void S_AddAmbientLoopingSound( const vec3_t origin, unsigned char volume, sfxHan
 		return;
 	}
 
-	if ( VM_Call( uivm, UI_IS_FULLSCREEN ) && cls.state == CA_ACTIVE) {
-		return;
-	}
-
 	if (volume == 0)
 		return;
 
-	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_AddAmbientLoopingSound") ) {
+	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
 		return;
 	}
 
@@ -1642,7 +2258,7 @@ void S_AddAmbientLoopingSound( const vec3_t origin, unsigned char volume, sfxHan
 	loopSounds[numLoopSounds].origin[2] = origin[2];
 	
 	loopSounds[numLoopSounds].sfx = sfx;	
-	loopSounds[numLoopSounds].volume = volume;
+	loopSounds[numLoopSounds].volume = volume / 2;
 	loopSounds[numLoopSounds].entnum = -1;
 	numLoopSounds++;
 }
@@ -1666,8 +2282,8 @@ void S_UpdateEntityPosition( int entityNum, const vec3_t origin )
 	channel_t *ch;
 	int i;
 
-	if ( !S_STEFXValidEntityNum(entityNum, "S_UpdateEntityPosition") ) {
-		return;
+	if ( entityNum < 0 || entityNum > MAX_GENTITIES ) {
+		Com_Error( ERR_DROP, "S_UpdateEntityPosition: bad entitynum %i", entityNum );
 	}
 
 	if (entityNum == 0)
@@ -1709,11 +2325,6 @@ void S_Respatialize( int entityNum, const vec3_t head, vec3_t axis[3], qboolean 
 
 	int index = 0;
 
-#ifdef _XBOX	
-	if ( ClientManager::splitScreenMode == qtrue ) {
-		index = entityNum;
-	}
-#endif
 
 	if ( index >= s_numListeners ) {
 		return;
@@ -1758,6 +2369,13 @@ void S_Update( void ) {
 	s_updateTime = now;
 	
 	if ( s_soundMuted ) {
+#ifdef _XBOX
+		if (s_xboxSilentAudio)
+		{
+			S_XboxUpdateSilentVoiceVolumes();
+			return;
+		}
+#endif
 		alUpdate();
 		return;
 	}
@@ -1866,8 +2484,49 @@ static void UpdatePlayState(channel_t *ch)
 		// Single shot sound
 		ALint state;
 		alGetSourcei(ch->alSource, AL_SOURCE_STATE, &state);
+		if (ch->thesfx &&
+			(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+			 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+			 (ch->thesfx->iFlags & SFX_FLAG_VOICE)) &&
+			ch->thesfx->iSoundDurationMs > 0)
+		{
+			const int age = Sys_Milliseconds() - (int)ch->iLastPlayTime;
+			if (age >= ch->thesfx->iSoundDurationMs + 150)
+			{
+				static int s_xboxVoiceDurationStopsLogged = 0;
+				if (s_xboxVoiceDurationStopsLogged < 64)
+				{
+					Com_Printf("STEFX: Xbox voice duration stop ent=%d chan=%d code=0x%x age=%d duration=%d alState=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, age, ch->thesfx->iSoundDurationMs, state);
+					s_xboxVoiceDurationStopsLogged++;
+				}
+				alSourceStop(ch->alSource);
+				alSourcei(ch->alSource, AL_BUFFER, 0);
+				if (ch->entnum >= 0 && ch->entnum < MAX_GENTITIES)
+				{
+					s_entityWavVol[ch->entnum] = 0;
+				}
+				ch->thesfx = NULL;
+				ch->bPlaying = false;
+				return;
+			}
+		}
 		if (state == AL_STOPPED)
 		{
+			if (ch->thesfx &&
+				(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+				 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+				 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+			{
+				static int s_xboxVoiceAlStopsLogged = 0;
+				if (s_xboxVoiceAlStopsLogged < 64)
+				{
+					Com_Printf("STEFX: Xbox voice AL stopped ent=%d chan=%d code=0x%x age=%d duration=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode,
+						Sys_Milliseconds() - (int)ch->iLastPlayTime, ch->thesfx->iSoundDurationMs);
+					s_xboxVoiceAlStopsLogged++;
+				}
+			}
 			alSourcei(ch->alSource, AL_BUFFER, 0);
 			ch->thesfx = NULL;
 			ch->bPlaying = false;
@@ -1879,50 +2538,53 @@ static void UpdateAttenuation(channel_t *ch)
 {
 	if (!ch->b2D)
 	{
-		/*
-		if ( ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN || ch->entchannel == CHAN_VOICE_GLOBAL )
+		switch (ch->entchannel)
 		{
+		case CHAN_VOICE:
+			alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 2000.0f); // bring up 3d voice volumes
+			break;
+		case CHAN_VOICE_ATTEN:
+			alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 300.0f);
+			break;
+		case CHAN_LESS_ATTEN:
+		case CHAN_ANNOUNCER:
+		case CHAN_LOCAL_SOUND:
+		case CHAN_BODY:
+		case CHAN_VOICE_GLOBAL:
+		case CHAN_LOCAL:
 			alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 1500.0f);
+			break;
+		default:
+			alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 300.0f);
+			break;
 		}
-		else
-		{
-			alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 400.0f);
-		}
-		*/
-#ifdef _XBOX
-	//	if (ClientManager::splitScreenMode == qfalse)
-	//	{
-#endif
-			switch (ch->entchannel)
-			{
-			case CHAN_VOICE_ATTEN:
-				alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 300.0f);
-				break;
-			case CHAN_VOICE:
-			case CHAN_LESS_ATTEN:
-			case CHAN_ANNOUNCER:
-			case CHAN_LOCAL_SOUND:
-			case CHAN_BODY:
-			case CHAN_VOICE_GLOBAL:
-			case CHAN_LOCAL:
-				alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 1500.0f);
-				break;
-			default:
-				alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 300.0f);
-				break;
-			}
-#ifdef _XBOX
-	//	}
-	//	else
-	//	{
-	//		alSourcef(ch->alSource, AL_REFERENCE_DISTANCE, 1500.0f);
-	//	}
-#endif
 	}
 }
 
 static void PlaySingleShot(channel_t *ch)
 {
+	const qboolean isVoice = (ch && ch->thesfx &&
+		(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+		 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+		 (ch->thesfx->iFlags & SFX_FLAG_VOICE))) ? qtrue : qfalse;
+
+#ifdef _XBOX
+	if (isVoice)
+	{
+		static int s_xboxVoicePrePlayLogs = 0;
+		if (s_xboxVoicePrePlayLogs < 128)
+		{
+			const char *soundName = Sys_GetSoundFileCodeName(ch->thesfx->iFileCode);
+			Com_Printf("STEFX_VOICE_TRACE: pre play ent=%d chan=%d source=%u code=0x%x flags=0x%x resident=%d buffer=%u duration=%d name='%s'\n",
+				ch->entnum, ch->entchannel, ch->alSource, ch->thesfx->iFileCode,
+				ch->thesfx->iFlags, (ch->thesfx->iFlags & SFX_FLAG_RESIDENT) ? 1 : 0,
+				ch->thesfx->Buffer, ch->thesfx->iSoundDurationMs,
+				soundName ? soundName : "<unknown>");
+			s_xboxVoicePrePlayLogs++;
+		}
+	}
+#endif
+
 	alSourcei(ch->alSource, AL_LOOPING, AL_FALSE);
 	
 	UpdateAttenuation(ch);
@@ -1934,12 +2596,111 @@ static void PlaySingleShot(channel_t *ch)
 	// Clear error state, and check for successful Play call
 	alGetError();
 	alSourcePlay(ch->alSource);
-	if (alGetError() == AL_NO_ERROR)
+	ALenum playError = alGetError();
+	if (playError == AL_NO_ERROR)
 	{
 		ch->bPlaying = true;
 		ch->iLastPlayTime = Sys_Milliseconds();
+#ifdef _XBOX
+		if (isVoice)
+		{
+			static int s_xboxVoicePlayStartLogs = 0;
+			if (s_xboxVoicePlayStartLogs < 64)
+			{
+				const char *soundName = Sys_GetSoundFileCodeName(ch->thesfx->iFileCode);
+				Com_Printf("STEFX: Xbox voice play start ent=%d chan=%d source=%u code=0x%x duration=%d buffer=%d name='%s'\n",
+					ch->entnum, ch->entchannel, ch->alSource, ch->thesfx->iFileCode,
+					ch->thesfx->iSoundDurationMs, ch->thesfx->Buffer,
+					soundName ? soundName : "<unknown>");
+				s_xboxVoicePlayStartLogs++;
+			}
+		}
+#endif
+	}
+#ifdef _XBOX
+	else if (isVoice)
+	{
+		static int s_xboxVoicePlayFailLogs = 0;
+		if (s_xboxVoicePlayFailLogs < 64)
+		{
+			Com_Printf("STEFX: Xbox voice play failed ent=%d chan=%d code=0x%x error=0x%x buffer=%d\n",
+				ch->entnum, ch->entchannel, ch->thesfx->iFileCode, playError, ch->thesfx->Buffer);
+			s_xboxVoicePlayFailLogs++;
+		}
+		if (ch->entnum >= 0 && ch->entnum < MAX_GENTITIES)
+		{
+			s_entityWavVol[ch->entnum] = 0;
+		}
+		ch->thesfx = NULL;
+		ch->bPlaying = false;
+	}
+#endif
+}
+
+#ifdef _XBOX
+void S_XboxOnSoundLoaded(sfx_t *sfx)
+{
+	if (!sfx || !(sfx->iFlags & SFX_FLAG_RESIDENT))
+	{
+		return;
+	}
+
+	for (int i = 0; i < s_numChannels; ++i)
+	{
+		channel_t *ch = &s_channels[i];
+		if (ch->thesfx != sfx || ch->bPlaying || ch->bLooping)
+		{
+			continue;
+		}
+
+		if (sfx->Buffer == 0)
+		{
+			continue;
+		}
+
+		if (ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+			ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+			(sfx->iFlags & SFX_FLAG_VOICE))
+		{
+			static int s_xboxLoadedWakeLogged = 0;
+			if (s_xboxLoadedWakeLogged < 64)
+			{
+				Com_Printf("STEFX: S_XboxOnSoundLoaded wake ent=%d chan=%d code=0x%x flags=0x%x buffer=%d\n",
+					ch->entnum, ch->entchannel, sfx->iFileCode, sfx->iFlags, sfx->Buffer);
+				s_xboxLoadedWakeLogged++;
+			}
+		}
+
+		PlaySingleShot(ch);
+	}
+
+	if (sfx->iFlags & SFX_FLAG_VOICE)
+	{
+		qboolean found = qfalse;
+		for (int i = 0; i < s_numChannels; ++i)
+		{
+			channel_t *ch = &s_channels[i];
+			if (ch->thesfx == sfx)
+			{
+				found = qtrue;
+				break;
+			}
+		}
+		if (!found)
+		{
+			static int s_xboxLoadedNoWaiterLogged = 0;
+			if (s_xboxLoadedNoWaiterLogged < 64)
+			{
+				const char *soundName = Sys_GetSoundFileCodeName(sfx->iFileCode);
+				Com_Printf("STEFX_VOICE_TRACE: loaded voice has no channel code=0x%x flags=0x%x buffer=%u name='%s'\n",
+					sfx->iFileCode, sfx->iFlags, sfx->Buffer,
+					soundName ? soundName : "<unknown>");
+				s_xboxLoadedNoWaiterLogged++;
+			}
+		}
 	}
 }
+#endif
 
 void UpdateLoopingSounds()
 {
@@ -1953,7 +2714,8 @@ void UpdateLoopingSounds()
 			float num = 1;
 			for (int k = j+1; k < numLoopSounds; ++k)
 			{
-				if (loopSounds[k].sfx == loop->sfx)
+				if (loopSounds[k].sfx == loop->sfx &&
+					loopSounds[k].entnum == loop->entnum)
 				{
 					loop->origin[0] += loopSounds[k].origin[0];
 					loop->origin[1] += loopSounds[k].origin[1];
@@ -2046,6 +2808,153 @@ static void SyncChannelLoops(void)
 	}
 }
 
+void _UpdateLipSyncData( channel_t*	ch)
+{
+	int		samples;
+	int		currentTime;
+	int		timePlayed;
+	int		length;
+	char*	data;
+
+	if (ch->thesfx->pLipSyncData == NULL)
+	{
+		//Com_Printf("Missing lip-sync info: %s\n", ch->thesfx->sSoundName);
+		return;
+	}
+
+	// Get current time
+	currentTime = Sys_Milliseconds();
+
+	// Calculate how much time has passed since the sample was started
+	timePlayed = currentTime - ch->iLastPlayTime;
+
+	// There is a new computed lip-sync value every 1000 samples - so find out how many samples
+	// have been played and lookup the value in the lip-sync table
+	samples = (timePlayed * 22050) / 1000;
+
+	// Get the number of total samples in this sound
+	length	= *(int*)ch->thesfx->pLipSyncData;
+
+	// Get a ptr to the lipsync data
+	data	= (char*)((int*)ch->thesfx->pLipSyncData + 1);
+
+	if ((ch->thesfx->pLipSyncData) && (samples < length))
+	{
+		int p = samples / 500 ;
+		short t;
+
+		if(p%2 == 0 )
+		{
+			t = data[p/2];
+			t = t >> 4;
+			if(t == 0)
+				t = -1;
+
+			s_entityWavVol[ ch->entnum ] = t;		// want left 4 bits
+		}
+		else
+		{
+			t = data[p/2] & 0x0f;
+			if(t == 0)
+				t = -1;
+			s_entityWavVol[ ch->entnum ] = t;	// want right 4 bits
+		}
+		//Com_Printf("%s,  total samples = %d, current sample = %d, lip index = %d, lip type = %d \n", ch->thesfx->sSoundName, length, samples, p/2, s_entityWavVol[ ch->entnum ] );
+	}
+
+}
+
+#ifdef _XBOX
+static int S_XboxFallbackVoiceVolume(const channel_t *ch, int now)
+{
+	static const int pattern[] = { 1, 2, 4, 3, 2, 1, 3, 4 };
+	int elapsed;
+	int frame;
+
+	if ( !ch )
+	{
+		return -1;
+	}
+
+	elapsed = now - (int)ch->iLastPlayTime;
+	if ( elapsed < 0 )
+	{
+		elapsed = 0;
+	}
+
+	frame = ( elapsed / 90 ) % ( sizeof( pattern ) / sizeof( pattern[0] ) );
+	return pattern[frame];
+}
+
+static void S_XboxUpdateSilentVoiceVolumes(void)
+{
+	if (!s_entityWavVol || !s_channels)
+		return;
+
+	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
+
+	int now = Sys_Milliseconds();
+	for (int i = 0; i < MAX_CHANNELS; ++i)
+	{
+		channel_t *ch = &s_channels[i];
+		if (!ch->thesfx || !ch->bPlaying)
+			continue;
+
+		if (ch->entchannel != CHAN_VOICE &&
+			ch->entchannel != CHAN_VOICE_ATTEN &&
+			ch->entchannel != CHAN_VOICE_GLOBAL &&
+			ch->entchannel != CHAN_ANNOUNCER &&
+			!(ch->thesfx->iFlags & SFX_FLAG_VOICE))
+			continue;
+
+		if (ch->entnum < 0 || ch->entnum >= MAX_GENTITIES)
+			continue;
+
+		if (ch->thesfx->pLipSyncData)
+		{
+			int length = *(int*)ch->thesfx->pLipSyncData;
+			int samples = ((now - (int)ch->iLastPlayTime) * 22050) / 1000;
+			if (samples >= length)
+			{
+				s_entityWavVol[ch->entnum] = 0;
+				ch->bPlaying = false;
+				ch->thesfx = NULL;
+				continue;
+			}
+			_UpdateLipSyncData(ch);
+		}
+		else
+		{
+			int elapsed = now - (int)ch->iLastPlayTime;
+			int duration = ch->thesfx->iSoundDurationMs > 0 ? ch->thesfx->iSoundDurationMs : 1200;
+			if (elapsed > duration + 150)
+			{
+				static int s_xboxSilentVoiceStopsLogged = 0;
+				if (s_xboxSilentVoiceStopsLogged < 64)
+				{
+					Com_Printf("STEFX: Xbox silent voice duration stop ent=%d chan=%d code=0x%x elapsed=%d duration=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, elapsed, duration);
+					s_xboxSilentVoiceStopsLogged++;
+				}
+				s_entityWavVol[ch->entnum] = 0;
+				ch->bPlaying = false;
+				ch->thesfx = NULL;
+				continue;
+			}
+			s_entityWavVol[ch->entnum] = S_XboxFallbackVoiceVolume(ch, now);
+		}
+
+		if (s_xboxSilentVoiceUpdatesLogged < 48)
+		{
+			Com_Printf("JA: Xbox silent voice update ent=%d chan=%d vol=%d age=%d lip=%d\n",
+				ch->entnum, ch->entchannel, s_entityWavVol[ch->entnum],
+				now - (int)ch->iLastPlayTime, ch->thesfx->pLipSyncData ? 1 : 0);
+			s_xboxSilentVoiceUpdatesLogged++;
+		}
+	}
+}
+#endif
+
 void S_Update_(void)
 {
 	channel_t		*ch;
@@ -2066,22 +2975,101 @@ void S_Update_(void)
 
 		if ( ch->thesfx->iFlags & SFX_FLAG_UNLOADED )
 		{
-			// if the sound is not going to be loaded, force the 
-			// playing flag high, stop the source, and hope that 
-			// the update code cleans it up...
-			ch->bPlaying = true;
+			// Keep one-shot sounds pending until their async load completes.
+			// Marking them playing here causes UpdatePlayState to discard the
+			// channel before PlaySingleShot ever attaches the loaded buffer.
+#ifdef _XBOX
+			if (!ch->bLooping)
+			{
+				static int s_xboxPendingUnloadLogged = 0;
+				if (s_xboxPendingUnloadLogged < 64 &&
+					(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+					 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+					 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+				{
+					Com_Printf("STEFX: S_Update pending unloaded ent=%d chan=%d code=0x%x flags=0x%x\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iFlags);
+					s_xboxPendingUnloadLogged++;
+				}
+			}
+#endif
+			if (!ch->bLooping)
+			{
+				ch->bPlaying = false;
+			}
 			alSourceStop(ch->alSource);
 			continue;
 		}
 		
 		if ( ch->entchannel == CHAN_VOICE || 
 			ch->entchannel == CHAN_VOICE_ATTEN || 
-			ch->entchannel == CHAN_VOICE_GLOBAL )
+			ch->entchannel == CHAN_VOICE_GLOBAL ||
+			ch->entchannel == CHAN_ANNOUNCER ||
+			(ch->thesfx->iFlags & SFX_FLAG_VOICE) )
 		{
-			s_entityWavVol[ch->entnum] = ch->bPlaying ? 4 : -1;
-		}
+			if ( ch->entnum >= 0 && ch->entnum < MAX_GENTITIES )
+			{
+				if(ch->bPlaying)
+				{
+					if ( ch->thesfx->pLipSyncData )
+					{
+						_UpdateLipSyncData(ch);
+#ifdef _XBOX
+						{
+							static int s_stefxLipTraceBudget = 8;
+							if (s_stefxLipTraceBudget > 0)
+							{
+								Com_Printf("STEFX_LIPTRACE: source=lipdata ent=%d chan=%d vol=%d code=0x%x flags=0x%x age=%d duration=%d playing=%d\n",
+									ch->entnum,
+									ch->entchannel,
+									s_entityWavVol[ch->entnum],
+									ch->thesfx->iFileCode,
+									ch->thesfx->iFlags,
+									Sys_Milliseconds() - (int)ch->iLastPlayTime,
+									ch->thesfx->iSoundDurationMs,
+									ch->bPlaying ? 1 : 0);
+								--s_stefxLipTraceBudget;
+							}
+						}
+#endif
+					}
+#ifdef _XBOX
+					else
+					{
+						s_entityWavVol[ch->entnum] = S_XboxFallbackVoiceVolume(ch, Sys_Milliseconds());
+						{
+							static int s_stefxFallbackLipTraceBudget = 8;
+							if (s_stefxFallbackLipTraceBudget > 0)
+							{
+								Com_Printf("STEFX_LIPTRACE: source=fallback ent=%d chan=%d vol=%d code=0x%x flags=0x%x age=%d duration=%d playing=%d\n",
+									ch->entnum,
+									ch->entchannel,
+									s_entityWavVol[ch->entnum],
+									ch->thesfx->iFileCode,
+									ch->thesfx->iFlags,
+									Sys_Milliseconds() - (int)ch->iLastPlayTime,
+									ch->thesfx->iSoundDurationMs,
+									ch->bPlaying ? 1 : 0);
+								--s_stefxFallbackLipTraceBudget;
+							}
+						}
+						if (s_xboxSilentVoiceUpdatesLogged < 8)
+						{
+							Com_Printf("STEFX: Xbox voice fallback lip ent=%d chan=%d vol=%d sound='%s'\n",
+								ch->entnum, ch->entchannel, s_entityWavVol[ch->entnum],
+								ch->thesfx ? va("code=0x%08x", ch->thesfx->iFileCode) : "<null>");
+							s_xboxSilentVoiceUpdatesLogged++;
+						}
+					}
+#endif
+				}
+				else
+				{
+					s_entityWavVol[ch->entnum] = -1;
+				}
+			}
 
-		if ( !(ch->thesfx->iFlags & SFX_FLAG_RESIDENT) ) continue;
+		}
 
 		UpdatePosition(ch);
 		UpdateGain(ch);
@@ -2092,6 +3080,39 @@ void S_Update_(void)
 		}
 		else
 		{
+#ifdef _XBOX
+			if ( !(ch->thesfx->iFlags & SFX_FLAG_RESIDENT) )
+			{
+				static int s_xboxPendingNonResidentLogged = 0;
+				if (s_xboxPendingNonResidentLogged < 64 &&
+					(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+					 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+					 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+				{
+					Com_Printf("STEFX: S_Update waiting nonresident ent=%d chan=%d code=0x%x flags=0x%x buffer=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iFlags, ch->thesfx->Buffer);
+					s_xboxPendingNonResidentLogged++;
+				}
+				continue;
+			}
+#else
+			if ( !(ch->thesfx->iFlags & SFX_FLAG_RESIDENT) ) continue;
+#endif
+#ifdef _XBOX
+			if (ch->thesfx &&
+				(ch->entchannel == CHAN_VOICE || ch->entchannel == CHAN_VOICE_ATTEN ||
+				 ch->entchannel == CHAN_VOICE_GLOBAL || ch->entchannel == CHAN_ANNOUNCER ||
+				 (ch->thesfx->iFlags & SFX_FLAG_VOICE)))
+			{
+				static int s_xboxPendingPlayLogged = 0;
+				if (s_xboxPendingPlayLogged < 64)
+				{
+					Com_Printf("STEFX: S_Update pending play ent=%d chan=%d code=0x%x flags=0x%x buffer=%d\n",
+						ch->entnum, ch->entchannel, ch->thesfx->iFileCode, ch->thesfx->iFlags, ch->thesfx->Buffer);
+					s_xboxPendingPlayLogged++;
+				}
+			}
+#endif
 			PlaySingleShot(ch);
 		}
 	}
@@ -2157,7 +3178,7 @@ static void S_PlayEx_f( void ) {
 
 	entchannel = atoi(Cmd_Argv(5));
 
-	S_StartSound(origin, 0, entchannel, h);
+	S_StartSound(origin, 0, (soundChannel_t)entchannel, h);
 }
 #endif
 
@@ -2204,6 +3225,12 @@ qboolean S_MusicFileExists( const char *psFilename )
 		return qfalse;
 	
 	FS_FCloseFile(fhTemp);
+	static int s_xboxMusicExistsLogCount = 0;
+	if (s_xboxMusicExistsLogCount < 96)
+	{
+		Com_Printf("STEFX: S_MusicFileExists '%s' -> '%s'\n", psFilename ? psFilename : "<null>", pLoadName);
+		s_xboxMusicExistsLogCount++;
+	}
 	return qtrue;
 }
 
@@ -2234,6 +3261,21 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	Q_strncpyz( sMusic_BackgroundLoop, loop, sizeof( sMusic_BackgroundLoop ));	
 
 	char* name = S_FixMusicFileName(intro);
+	Com_Printf("STEFX_DN3_PROOF: music request intro='%s' fixed='%s' loop='%s' dynamic=%d\n",
+		intro ? intro : "<null>",
+		name ? name : "<null>",
+		loop ? loop : "<null>",
+		qbDynamic ? 1 : 0);
+#ifdef _XBOX
+	Com_Printf("STEFX_DN3_PROOF: music request intro='%s' fixed='%s' loop='%s' dynamic=%d levelMap='%s' map='%s' cl_map='%s'\n",
+		intro ? intro : "<null>",
+		name ? name : "<null>",
+		loop ? loop : "<null>",
+		qbDynamic ? 1 : 0,
+		level.mapname,
+		Cvar_VariableString("mapname"),
+		Cvar_VariableString("cl_mapname"));
+#endif
 
 	if ( !intro[0] ) {
 		S_StopBackgroundTrack_Actual( pMusicInfo );
@@ -2252,44 +3294,116 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 	//
 	fileHandle_t handle;
 	int len = FS_FOpenFileRead( name, &handle, qtrue );
+	Com_Printf("STEFX: Xbox music file open '%s' len=%d handle=%d\n",
+		name ? name : "<null>", len, handle);
 	if ( !handle ) {
-#ifndef FINAL_BUILD
 		Com_Printf( S_COLOR_YELLOW "WARNING: couldn't open music file %s\n", name );
-#endif
 		S_StopBackgroundTrack_Actual( pMusicInfo );
 		return qfalse;
 	}
 	
+#if defined(_XBOX)
+	if (S_XboxMusicNameIsMP3(name))
+	{
+		FS_FCloseFile(handle);
+
+		void *mp3Data = NULL;
+		int mp3Len = FS_ReadFile(name, &mp3Data);
+		if (mp3Len <= 0 || !mp3Data)
+		{
+			Com_Printf(S_COLOR_YELLOW "WARNING: couldn't read MP3 music file %s\n", name);
+			S_StopBackgroundTrack_Actual(pMusicInfo);
+			return qfalse;
+		}
+
+		int unpackedBytes = 0;
+		int rate = 0;
+		int widthBytes = 0;
+		int channels = 0;
+		WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
+		char *headerError = C_MP3_GetHeaderData(mp3Data, mp3Len, &rate, &widthBytes, &channels, qtrue);
+		char *sizeError = C_MP3_GetUnpackedSize(mp3Data, mp3Len, &unpackedBytes, qtrue);
+		ReleaseMutex(Sys_FileStreamMutex);
+		FS_FreeFile(mp3Data);
+
+		if (headerError || sizeError || unpackedBytes <= 0 || rate <= 0 || widthBytes <= 0 || channels <= 0)
+		{
+			Com_Printf(S_COLOR_YELLOW "WARNING: Invalid MP3 music %s header='%s' size='%s'\n",
+				name, headerError ? headerError : "<ok>", sizeError ? sizeError : "<ok>");
+			S_StopBackgroundTrack_Actual(pMusicInfo);
+			return qfalse;
+		}
+
+		pMusicInfo->s_backgroundSize = unpackedBytes;
+		pMusicInfo->s_backgroundBPS = rate * widthBytes * channels;
+		pMusicInfo->iFileCode = Sys_GetSoundFileCode(name);
+
+		static int s_xboxMusicLoadLogCount = 0;
+		if (s_xboxMusicLoadLogCount < 64)
+		{
+			Com_Printf("STEFX: Xbox MP3 music loaded '%s' compressed=%d pcm=%d rate=%d width=%d channels=%d code=0x%x\n",
+				name, mp3Len, unpackedBytes, rate, widthBytes, channels, pMusicInfo->iFileCode);
+			s_xboxMusicLoadLogCount++;
+		}
+	}
+	else
+#endif
 #if defined(_XBOX) || defined(_WINDOWS)
+	{
 	// read enough of the file to get the header...
-	byte buffer[128];
+	byte buffer[4096];
+	memset(buffer, 0, sizeof(buffer));
 	FS_Read(buffer, sizeof(buffer), handle);
 	FS_FCloseFile( handle );
 
 	wavinfo_t info = GetWavInfo(buffer);
 	if ( info.size == 0 ) {
-#ifndef FINAL_BUILD
-		Com_Printf(S_COLOR_YELLOW "WARNING: Invalid format in %s\n", name);
-#endif
+		Com_Printf(S_COLOR_YELLOW "WARNING: Invalid format in music file %s\n", name);
 		S_StopBackgroundTrack_Actual( pMusicInfo );
 		return qfalse;
 	}
 	
 	pMusicInfo->s_backgroundSize = info.size;
-	pMusicInfo->s_backgroundBPS = info.rate * info.width / 8;
-	if (info.format == AL_FORMAT_STEREO4)
+	if (info.waveFormatTag == WAVE_FORMAT_XBOX_ADPCM)
+	{
+		pMusicInfo->s_backgroundBPS = info.byteRate > 0 ? info.byteRate : ((info.rate * info.channels) / 2);
+	}
+	else
+	{
+		pMusicInfo->s_backgroundBPS = info.rate * info.width / 8;
+	}
+	if (info.waveFormatTag != WAVE_FORMAT_XBOX_ADPCM && info.format == AL_FORMAT_STEREO4)
 	{
 		pMusicInfo->s_backgroundBPS <<= 1;
+	}
+	pMusicInfo->iFileCode = Sys_GetFileCode(name);
+	Com_Printf("STEFX: Xbox WAV music loaded '%s' data=%d bps=%d rate=%d width=%d format=0x%x tag=0x%x byteRate=%d code=0x%x\n",
+		name,
+		info.size,
+		pMusicInfo->s_backgroundBPS,
+		info.rate,
+		info.width,
+		info.format,
+		info.waveFormatTag,
+		info.byteRate,
+		pMusicInfo->iFileCode);
 	}
 #elif defined(_GAMECUBE)
 	FS_FCloseFile( handle );
 	pMusicInfo->s_backgroundSize = len;
 	pMusicInfo->s_backgroundBPS = 48000 * 4 / 8 * 2;
+	pMusicInfo->iFileCode = Sys_GetFileCode(name);
 #endif
 	
 	Q_strncpyz(pMusicInfo->sLoadedDataName, intro, sizeof(pMusicInfo->sLoadedDataName));
-	pMusicInfo->iFileCode = Sys_GetFileCode(name);
 	pMusicInfo->bLoaded = true;
+	Com_Printf("STEFX: Xbox music loaded state name='%s' loadedName='%s' code=0x%x loop=%d size=%d bps=%d\n",
+		name ? name : "<null>",
+		pMusicInfo->sLoadedDataName,
+		pMusicInfo->iFileCode,
+		pMusicInfo->bLooping ? 1 : 0,
+		pMusicInfo->s_backgroundSize,
+		pMusicInfo->s_backgroundBPS);
 	
 	return qtrue;
 }
@@ -2514,6 +3628,9 @@ void S_StartBackgroundTrack( const char *intro, const char *loop, qboolean bCall
 
 	if (!s_soundStarted)
 	{	//we have no sound, so don't even bother trying
+		Com_Printf("STEFX: S_StartBackgroundTrack skipped: sound not started intro='%s' loop='%s'\n",
+			intro ? intro : "<null>",
+			loop ? loop : "<null>");
 		return;
 	}
 
@@ -2530,7 +3647,19 @@ void S_StartBackgroundTrack( const char *intro, const char *loop, qboolean bCall
 	char sName[MAX_QPATH];
 	Q_strncpyz(sName,intro,sizeof(sName));
 
+#ifdef _XBOX
+	COM_DefaultExtension( sName, sizeof( sName ), ".wav" );
+#else
 	COM_DefaultExtension( sName, sizeof( sName ), ".wxb" );
+#endif
+
+	Com_Printf("STEFX: S_StartBackgroundTrack intro='%s' loop='%s' default='%s' cgameStart=%d allowDynamic=%d dynAvail=%d\n",
+		intro,
+		loop,
+		sName,
+		bCalledByCGameStart ? 1 : 0,
+		s_allowDynamicMusic ? s_allowDynamicMusic->integer : -1,
+		Music_DynamicDataAvailable(intro) ? 1 : 0);
 
 	// if dynamic music not allowed, then just stream the explore music instead of playing dynamic...
 	//
@@ -2644,6 +3773,7 @@ void S_StopBackgroundTrack( void )
 static qboolean S_UpdateBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean bFirstOrOnlyMusicTrack, float fDefaultVolume) 
 {
 	float fMasterVol = fDefaultVolume; // s_musicVolume->value;
+	static int s_xboxMusicUpdateLogCount = 0;
 
 	if (bMusic_IsDynamic)
 	{
@@ -2680,6 +3810,25 @@ static qboolean S_UpdateBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolea
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	if (s_xboxMusicUpdateLogCount < 48)
+	{
+		ALint state = 0;
+		alGetStreami(AL_SOURCE_STATE, &state);
+		Com_Printf("STEFX: Xbox music update loadedName='%s' code=0x%x looping=%d state=%d vol=%g defaultVol=%g seek=%d play=%g total=%g\n",
+			pMusicInfo->sLoadedDataName,
+			pMusicInfo->iFileCode,
+			pMusicInfo->bLooping ? 1 : 0,
+			state,
+			pMusicInfo->fSmoothedOutVolume,
+			fDefaultVolume,
+			pMusicInfo->iFileSeekTo,
+			pMusicInfo->PlayTime(),
+			pMusicInfo->TotalTime());
+		s_xboxMusicUpdateLogCount++;
+	}
+#endif
+
 	// start playing if necessary
 	if ( pMusicInfo->bLooping )
 	{
@@ -2711,7 +3860,11 @@ static qboolean S_UpdateBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolea
 			char sTestName[MAX_QPATH*2];// *2 so COM_DefaultExtension doesn't do an ERR_DROP if there was no space
 			//	for an extension, since this is a "soft" test				
 			Q_strncpyz( sTestName, sMusic_BackgroundLoop, sizeof(sTestName));
+#ifdef _XBOX
+			COM_DefaultExtension(sTestName, sizeof(sTestName), ".wav");
+#else
 			COM_DefaultExtension(sTestName, sizeof(sTestName), ".mp3");
+#endif
 			
 			if (S_MusicFileExists( sTestName ))
 			{
@@ -2929,26 +4082,43 @@ static void S_UpdateBackgroundTrack( void )
 	}
 }
 
-
+// Called from MusicFree in snd_music to prevent pending state changes from
+// crashing after the level finishes loading, but before new music level data
+// has been read. Not sure if this fixes the bug, but it seems good.
+void S_AvertMusicDisaster(void)
+{
+	eMusic_StateRequest = eMusic_StateActual;
+}
 
 
 int SND_GetMemoryUsed(void)
 {
-	ALint used;
+	ALint used = 0;
 	alGeti(AL_MEMORY_USED, &used);
 	return used;
 }
 
+static int SND_GetSoundPoolLimitBytes(void)
+{
+	int megs = s_soundpoolmegs ? s_soundpoolmegs->integer : 6;
+
+	if (megs <= 0)
+	{
+		megs = 6;
+	}
+
+	return megs * 1024 * 1024;
+}
+
 void SND_update(sfx_t *sfx) 
 {
-	while ( SND_GetMemoryUsed() > (2 * 1024 * 1024))	// s_soundpoolmegs
+	while ( SND_GetMemoryUsed() > SND_GetSoundPoolLimitBytes())
 	{
 		int iBytesFreed = SND_FreeOldestSound(sfx);
 		if (iBytesFreed == 0)
 			break;	// sanity
 	}
 }
-
 
 // free any allocated sfx mem...
 //
@@ -2957,6 +4127,7 @@ void SND_update(sfx_t *sfx)
 static int SND_FreeSFXMem(sfx_t *sfx)
 {
 	int iOrgMem = SND_GetMemoryUsed();
+	int iZoneFreed = 0;
 
 	alGetError();
 	if (sfx->Buffer)
@@ -2965,10 +4136,17 @@ static int SND_FreeSFXMem(sfx_t *sfx)
 		sfx->Buffer = 0;
 	}
 
+	if (sfx->pSoundData)
+	{
+		Com_DPrintf("JA: SND_FreeSFXMem freeing raw sound copy bytes=%d\n", sfx->iSoundLength);
+		iZoneFreed += Z_Free(sfx->pSoundData);
+		sfx->pSoundData = NULL;
+	}
+
 	sfx->iFlags &= ~(SFX_FLAG_RESIDENT | SFX_FLAG_LOADING);
 	sfx->iFlags |= SFX_FLAG_UNLOADED;
 
-	return iOrgMem - SND_GetMemoryUsed();
+	return iZoneFreed + iOrgMem - SND_GetMemoryUsed();
 }
 
 void S_DisplayFreeMemory() 
@@ -2978,8 +4156,21 @@ void S_DisplayFreeMemory()
 void SND_TouchSFX(sfx_t *sfx)
 {
 	sfx->iLastTimeUsed		= Com_Milliseconds()+1;
+	sfx->iLastLevelUsedOn	= (short)RE_RegisterMedia_GetLevel();
 }
 
+static qboolean SND_SFXInUseByChannel(sfx_t *sfx)
+{
+	for (int iChannel = 0; iChannel < s_numChannels; iChannel++)
+	{
+		if (s_channels[iChannel].thesfx == sfx)
+		{
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
 
 // currently this is only called during snd_shutdown or snd_restart
 //
@@ -3005,6 +4196,9 @@ int SND_FreeOldestSound(sfx_t *pButNotThisOne /* = NULL */)
 
 	// start on 1 so we never dump the default sound...
 	//
+
+	Com_Printf(" Trashing sounds.\n");
+	
 	for (int i = 0; i < MAX_SFX; ++i)
 	{
 		if (s_sfxCodes[i] == INVALID_CODE || i == s_defaultSound) continue;
@@ -3032,7 +4226,7 @@ int SND_FreeOldestSound(sfx_t *pButNotThisOne /* = NULL */)
 				if (iChannel == s_numChannels)
 				{
 					// this sfx_t struct wasn't used by any channels, so we can lose it...
-					//		
+					//			
 					iBytesFreed += SND_FreeSFXMem( &s_sfxBlock[i] );
 				}
 			}
@@ -3112,7 +4306,91 @@ qboolean SND_RegisterAudio_Clean(void)
 
 qboolean SND_RegisterAudio_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel /* 99% qfalse */)
 {
-        return qfalse;
+	if ( !s_soundStarted ) {
+		return qfalse;
+	}
+
+#ifdef _XBOX
+	if (s_xboxSilentAudio)
+	{
+		return qfalse;
+	}
+#endif
+
+	qboolean bAtLeastOneSoundDropped = qfalse;
+	int iLoadedAudioBytes = SND_GetMemoryUsed();
+	const int iMaxAudioBytes = SND_GetSoundPoolLimitBytes();
+	const int iCurrentLevel = RE_RegisterMedia_GetLevel();
+	int iFreedSounds = 0;
+	int iFreedBytes = 0;
+	int iSkippedChannels = 0;
+
+	Com_DPrintf( "SND_RegisterAudio_LevelLoadEnd():\n");
+
+	extern void S_DrainRawSoundData(void);
+	S_DrainRawSoundData();
+
+	for (int i = 0; i < MAX_SFX && (iLoadedAudioBytes > iMaxAudioBytes || bDeleteEverythingNotUsedThisLevel); ++i)
+	{
+		if (s_sfxCodes[i] == INVALID_CODE || i == s_defaultSound) continue;
+
+		sfx_t *sfx = &s_sfxBlock[i];
+
+		if ((sfx->iFlags & (SFX_FLAG_DEFAULT | SFX_FLAG_LOADING)) ||
+			!(sfx->iFlags & SFX_FLAG_RESIDENT))
+		{
+			continue;
+		}
+
+		qboolean bDeleteThis = bDeleteEverythingNotUsedThisLevel ?
+			(sfx->iLastLevelUsedOn != iCurrentLevel) :
+			(sfx->iLastLevelUsedOn < iCurrentLevel);
+
+		if (!bDeleteThis)
+		{
+			continue;
+		}
+
+		if (SND_SFXInUseByChannel(sfx))
+		{
+			iSkippedChannels++;
+			continue;
+		}
+
+		const int iBytesFreed = SND_FreeSFXMem(sfx);
+		if (iBytesFreed > 0)
+		{
+			iFreedBytes += iBytesFreed;
+			iFreedSounds++;
+			bAtLeastOneSoundDropped = qtrue;
+		}
+
+		if (sfx->iFlags & SFX_FLAG_DEMAND)
+		{
+			s_sfxCodes[i] = INVALID_CODE;
+		}
+
+		iLoadedAudioBytes = SND_GetMemoryUsed();
+	}
+
+#ifdef _XBOX
+	if (iFreedSounds || iLoadedAudioBytes > iMaxAudioBytes || iSkippedChannels)
+	{
+		Com_Printf("STEFX: audio cache level-end level=%d loaded=%d cap=%d freed=%d freedBytes=%d skippedChannels=%d force=%d overBudget=%d\n",
+			iCurrentLevel,
+			iLoadedAudioBytes,
+			iMaxAudioBytes,
+			iFreedSounds,
+			iFreedBytes,
+			iSkippedChannels,
+			bDeleteEverythingNotUsedThisLevel ? 1 : 0,
+			(iLoadedAudioBytes > iMaxAudioBytes) ? 1 : 0);
+	}
+#endif
+
+	Com_DPrintf( "SND_RegisterAudio_LevelLoadEnd(): Ok\n");
+
+	return bAtLeastOneSoundDropped;
 }
 
 qboolean S_FileExists( const char *psFilename )
@@ -3131,3 +4409,63 @@ qboolean S_FileExists( const char *psFilename )
 	return qtrue;
 }
 
+void S_Precache( const char *name )
+{
+	S_LoadSound( S_RegisterSound( name ) );
+}
+
+const char	*basicSounds[] = 
+{
+	"death1.wav",
+	"death2.wav",
+	"death3.wav",
+	"jump1.wav",
+	"pain25.wav",
+	"pain50.wav",
+	"pain75.wav",
+	"pain100.wav",
+	"gurp1.wav",
+	"gurp2.wav",
+	"drown.wav",
+	"gasp.wav",
+	"land1.wav",
+	"falling1.wav"
+};
+
+const int numBasicSounds = sizeof(basicSounds) / sizeof(basicSounds[0]);
+
+void S_LoadCommonSounds( void )
+{
+	int i;
+
+	S_Precache( "sound/weapons/saber/saberon.wav" );
+	S_Precache( "sound/weapons/saber/saberonquick.wav" );
+	S_Precache( "sound/weapons/saber/saberoff.wav" );
+	S_Precache( "sound/weapons/saber/saberoffquick.wav" );
+	S_Precache( "sound/weapons/saber/saberspinoff.wav" );
+
+	for ( i = 1; i < 4; i++ )
+		S_Precache( va("sound/weapons/saber/saberhit%d.wav", i) );
+	for ( i = 1; i < 4; i++ )
+		S_Precache( va("sound/weapons/saber/saberhitwall%d.wav", i) );
+	for ( i = 1; i < 10; i++ )
+		S_Precache( va("sound/weapons/saber/saberhup%d.wav", i) );
+
+	S_Precache( "sound/weapons/saber/saber_catch.wav" );
+
+	for ( i = 1; i < 4; i++ )
+		S_Precache( va("sound/weapons/saber/saberbounce%d.wav", i) );
+	for ( i = 1; i < 10; i++ )
+		S_Precache( va("sound/weapons/saber/saberblock%d.wav", i) );
+
+	// Which player sounds do we need?
+	char *jaden;
+	extern cvar_t *g_sex;
+	if( g_sex->string[0] == 'f' || g_sex->string[0] == 'F' )
+		jaden = "jaden_fmle";
+	else
+		jaden = "jaden_male";
+
+	for( i = 0; i < numBasicSounds; ++i )
+		S_Precache( va("sounds/chars/%s/misc/%s", jaden, basicSounds[i]) );
+}

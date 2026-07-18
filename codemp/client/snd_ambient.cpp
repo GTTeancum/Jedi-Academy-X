@@ -1,7 +1,8 @@
 // Ambient Sound System (ASS!)
 
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
 
 #pragma warning ( disable : 4710 )	//not inlined
 #include "client.h"
@@ -83,7 +84,9 @@ CSetGroup::CSetGroup(void)
 CSetGroup::~CSetGroup(void)
 {
 	delete m_ambientSets;
+	m_ambientSets = 0;
 	delete m_setMap;
+	m_setMap = 0;
 }
 
 /*
@@ -94,7 +97,7 @@ Free
 
 void CSetGroup::Free( void )
 {
-	vector < ambientSet_t * >::iterator	ai;
+	vector<ambientSet_t *>::iterator	ai;
 
 	for ( ai = m_ambientSets->begin(); ai != m_ambientSets->end(); ai++ )
 	{
@@ -152,7 +155,7 @@ GetSet
 
 ambientSet_t *CSetGroup::GetSet( const char *name )
 {
-	map < sstring_t, ambientSet_t *>::iterator	mi;
+	map<sstring_t, ambientSet_t *>::iterator	mi;
 
 	if ( name == NULL )
 		return NULL;
@@ -333,7 +336,8 @@ static void AS_GetSubWaves( ambientSet_t &set )
 			if ( ( set.subWaves[set.numSubWaves++] = S_RegisterSound( waveName ) ) <= 0 )
 			{
 				#ifndef FINAL_BUILD
-				Com_Printf(S_COLOR_YELLOW"WARNING: Unable to load ambient sound \"%s\"\n", waveName);
+				//Com_Printf(S_COLOR_RED"ERROR: Unable to load ambient sound \"%s\"\n", waveName);
+				Com_Error(ERR_DROP, "ERROR: Unable to load ambient sound \"%s\"\n", waveName);
 				#endif
 			}
 		}
@@ -372,7 +376,8 @@ static void AS_GetLoopedWave( ambientSet_t &set )
 	if ( ( set.loopedWave = S_RegisterSound( waveName ) ) <= 0 )
 	{
 		#ifndef FINAL_BUILD
-		Com_Printf(S_COLOR_YELLOW"WARNING: Unable to load ambient sound \"%s\"\n", waveName);
+		//Com_Printf(S_COLOR_RED"ERROR: Unable to load ambient sound \"%s\"\n", waveName);
+		Com_Error(ERR_DROP, "ERROR: Unable to load looped ambient sound \"%s\"\n", waveName);
 		#endif
 	}
 
@@ -602,7 +607,7 @@ Parses an individual set group out of a set file buffer
 -------------------------
 */
 
-static sboolean AS_ParseSet( int setID, CSetGroup *sg )
+static qboolean AS_ParseSet( int setID, CSetGroup *sg )
 {
 	ambientSet_t	*set;
 	const char		*name;
@@ -712,7 +717,7 @@ Opens and parses a sound set file
 -------------------------
 */
 
-static sboolean AS_ParseFile( const char *filename, CSetGroup *sg )
+static qboolean AS_ParseFile( const char *filename, CSetGroup *sg )
 {
 	//Open the file and read the information from it
 	parseSize = FS_ReadFile( filename, (void **) &parseBuffer );
@@ -749,13 +754,22 @@ Loads the ambient sound sets and prepares to play them when needed
 -------------------------
 */
 
+static namePrecache_m *TheNamePrecache()
+{
+	// we use these singletons so we can find memory leaks
+	// if you let things like this leak, you never can tell
+	// what is really leaking and what is merely not ever freed
+	static namePrecache_m singleton;
+	return &singleton;
+}
+
 void AS_Init( void )
 {
 	if (!aSets)
 	{
 		numSets = 0;
 
-		pMap = new namePrecache_m;
+		pMap = TheNamePrecache();
 
 		//Setup the structure
 		aSets = new CSetGroup();
@@ -771,9 +785,15 @@ AS_AddPrecacheEntry
 
 void AS_AddPrecacheEntry( const char *name )
 {
+	if (!pMap)	//s_initsound 0 probably
+	{
+		return;
+	}
 	if (!stricmp(name,"#clear"))
 	{
 		pMap->clear();
+		currentSet	= -1;
+		oldSet		= -1;
 	}
 	else
 	{
@@ -791,6 +811,20 @@ Called on the client side to load and precache all the ambient sound sets
 
 void AS_ParseSets( void )
 {
+#ifdef _XBOX
+	static qboolean s_xboxAmbientDisabledLogged = qfalse;
+	if (!s_xboxAmbientDisabledLogged)
+	{
+		Com_Printf("JA: Xbox ambient audio disabled for current smoke path.\n");
+		s_xboxAmbientDisabledLogged = qtrue;
+	}
+	return;
+#endif
+
+	cvar_t	*cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
+	if ( !cv->integer ) {
+		return;
+	}
 	AS_Init();
 
 	//Parse all the sets
@@ -799,7 +833,7 @@ void AS_ParseSets( void )
 		Com_Error ( ERR_FATAL, S_COLOR_RED"ERROR: Couldn't load ambient sound sets from %s", AMBIENT_SET_FILENAME );
 	}
 
-//	Com_Printf( "AS_ParseFile: Loaded %d of %d ambient set(s)\n", pMap.size(), numSets );
+	//Com_Printf( "AS_ParseFile: Loaded %d of %d ambient set(s)\n", pMap.size(), numSets );
 
 	int iErrorsOccured = 0;
 	for (namePrecache_m::iterator it = pMap->begin(); it != pMap->end(); ++it)
@@ -863,8 +897,8 @@ void AS_FreePartial(void)
 
 		numSets	= 0;
 
-		delete pMap;
-		pMap = new namePrecache_m;
+		pMap = TheNamePrecache();
+		pMap->clear();
 	}
 }
 
@@ -1072,7 +1106,15 @@ Does maintenance and plays the ambient sets (two if crossfading)
 
 void S_UpdateAmbientSet ( const char *name, vec3_t origin ) 
 {
+#ifdef _XBOX
+	return;
+#endif
+
 	ambientSet_t	*current, *old;
+	if (aSets == NULL)
+	{
+		return;
+	}
 	ambientSet_t	*set = aSets->GetSet( name );
 	
 	if ( set == NULL )

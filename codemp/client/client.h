@@ -9,6 +9,13 @@
 #include "../ui/ui_public.h"
 #include "keys.h"
 #include "snd_public.h"
+#ifdef _XBOX
+void S_BeginRegistration( int numListeners );
+void S_MuteSound( int entityNum, int entchannel );
+void S_StopLoopingSound( int entityNum );
+int S_AddLocalSet( const char *name, vec3_t listenerOrigin, vec3_t origin, int entID, int time );
+extern qboolean s_shutUp;
+#endif
 #include "../cgame/cg_public.h"
 #include "../game/bg_public.h"
 

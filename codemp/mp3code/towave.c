@@ -194,13 +194,13 @@ char PCM_Buffer[PCM_BUFBYTES];	// better off being declared, so we don't do mall
       int (*decode_init) (MPEG_HEAD * h, int framebytes_arg,
 			  int reduction_code, int transform_code,
 			  int convert_code, int freq_limit);
-      void (*decode_info) (DEC_INFO * info);      
-	  IN_OUT(*decode) (unsigned char *bs, short *pcm, unsigned char *pNextByteAfterData);
+      void (*decode_info) (DEC_INFO * info);
+      IN_OUT(*decode) (unsigned char *bs, short *pcm, unsigned char *pNextByteAfterData);
    }
    AUDIO;
    
 #if 0
-   // stuff this...
+   // fuck this...
    static AUDIO audio_table[2][2] =
    {
       {
@@ -255,9 +255,10 @@ char *C_MP3_IsValid(void *pvData, int iDataLen, int bStereoDesired)
 	int iBitRate;
 	int iFrameBytes;
 
-//#ifdef _DEBUG
+#ifdef _DEBUG
 //	int iIgnoreThisForNowIJustNeedItToBreakpointOnToReadAValue = sizeof(MP3STREAM);
-//#endif
+//	iBitRate = iIgnoreThisForNowIJustNeedItToBreakpointOnToReadAValue;	// get rid of unused-variable warning
+#endif
 
 	memset(pMP3Stream,0,sizeof(*pMP3Stream));
 
@@ -272,9 +273,10 @@ char *C_MP3_IsValid(void *pvData, int iDataLen, int bStereoDesired)
 	// although the decoder can convert stereo to mono (apparently), we want to know about stereo files
 	//	because they're a waste of source space... (all FX are mono, and moved via panning)
 	//
-	if (head.mode != 3 && !bStereoDesired)	//3 seems to mean mono
-	{
-		if (iDataLen > 98000) {	// we'll allow it for small files even if stereo
+	if (head.mode != 3 && !bStereoDesired && iDataLen > 98000)	//3 seems to mean mono
+	{// we'll allow it for small files even if stereo
+		if ( iDataLen != 1050024 ) //fixme, make cinematic_1 play as music instead
+		{	
 			return "MP3ERR: Sound file is stereo!";
 		}
 	}		
@@ -306,11 +308,11 @@ char *C_MP3_IsValid(void *pvData, int iDataLen, int bStereoDesired)
 		{
 			return "MP3ERR: Source file is not sampled @ 44100!";
 		}
-
 		if (bStereoDesired && decinfo.channels != 2)
 		{
 			return "MP3ERR: Source file is not stereo!";	// sod it, I'm going to count this as an error now
 		}		
+
 	}
 	else
 	{
@@ -403,7 +405,7 @@ char *C_MP3_GetUnpackedSize(void *pvData, int iSourceBytesRemaining, int *piUnpa
 
 	if (iFrameBytes)
 	{
-		//pPCM_Buffer = malloc(PCM_BUFBYTES);
+		//pPCM_Buffer = Z_Malloc(PCM_BUFBYTES);
 
 		//if (pPCM_Buffer)
 		{
@@ -426,7 +428,7 @@ char *C_MP3_GetUnpackedSize(void *pvData, int iSourceBytesRemaining, int *piUnpa
 																							//+ iDestWriteIndex		// keep decoding over the same spot since we're only counting bytes in this function
 																							),
 											(unsigned char *)pvData + iReadLimit
-											);
+											);	
 
 					bFastEstimateOnly = 0;	///////////////////////////////
 					
@@ -461,7 +463,7 @@ char *C_MP3_GetUnpackedSize(void *pvData, int iSourceBytesRemaining, int *piUnpa
 
 //	if (pPCM_Buffer)
 //	{
-//		free(pPCM_Buffer);
+//		Z_Free(pPCM_Buffer);
 //		pPCM_Buffer = NULL;	// I know, I know...
 //	}
 
@@ -526,9 +528,9 @@ char *C_MP3_UnpackRawPCM( void *pvData, int iSourceBytesRemaining, int *piUnpack
 					if ( iSourceBytesRemaining == 0 || iSourceBytesRemaining < iFrameBytes)
 						break;	// end of file
 
-					x = audio.decode((unsigned char *)pvData + iSourceReadIndex, (short *) ((char *)pbUnpackBuffer + iDestWriteIndex),									 
+					x = audio.decode((unsigned char *)pvData + iSourceReadIndex, (short *) ((char *)pbUnpackBuffer + iDestWriteIndex),
 									 (unsigned char *)pvData + iReadLimit
-									);	
+									);
 					
 					iSourceReadIndex		+= x.in_bytes;
 					iSourceBytesRemaining	-= x.in_bytes;
@@ -566,10 +568,6 @@ char *C_MP3_UnpackRawPCM( void *pvData, int iSourceBytesRemaining, int *piUnpack
 //
 // char * return is NULL for ok, else error string
 //
-// NEW CODE NOTE: Now that this function is being called for raw data that's going to be runtime-stored in a link-list
-//	chunk format for SOF2 instead of just one alloc then you must re-init pMP3Stream->pbSourceData after you've called
-//	this, or it'll be pointing at the deallocated original raw data, not the first chunk of the link list
-//
 char *C_MP3Stream_DecodeInit( LP_MP3STREAM pSFX_MP3Stream, void *pvSourceData, int iSourceBytesRemaining,
 							  int iGameAudioSampleRate, int iGameAudioSampleBits, int bStereoDesired )
 {
@@ -581,8 +579,8 @@ char *C_MP3Stream_DecodeInit( LP_MP3STREAM pSFX_MP3Stream, void *pvSourceData, i
 	pMP3Stream = pSFX_MP3Stream;
 
 	memset(pMP3Stream,0,sizeof(*pMP3Stream));
-
-	pMP3Stream->pbSourceData			= (byte *) pvSourceData;	// this MUST be re-initialised to link-mem outside here for SOF2, since raw data is now link-listed
+	
+	pMP3Stream->pbSourceData			= (byte *) pvSourceData;
 	pMP3Stream->iSourceBytesRemaining	= iSourceBytesRemaining;
 	pMP3Stream->iSourceFrameBytes		= head_info3( (byte *) pvSourceData, iSourceBytesRemaining/2, &head, &iBitRate, (unsigned int*)&pMP3Stream->iSourceReadIndex );	
 
@@ -669,7 +667,7 @@ char *C_MP3Stream_DecodeInit( LP_MP3STREAM pSFX_MP3Stream, void *pvSourceData, i
 
 // return value is decoded bytes for this packet, which is effectively a BOOL, NZ for not finished decoding yet...
 //
-unsigned int C_MP3Stream_Decode( LP_MP3STREAM pSFX_MP3Stream )
+unsigned int C_MP3Stream_Decode( LP_MP3STREAM pSFX_MP3Stream, int bFastForwarding )
 {
 	unsigned int uiDecoded = 0;	// default to "finished"
 	IN_OUT	 x;
@@ -678,15 +676,23 @@ unsigned int C_MP3Stream_Decode( LP_MP3STREAM pSFX_MP3Stream )
 
 	do
 	{
-		if ( pSFX_MP3Stream->iSourceBytesRemaining == 0)// || pSFX_MP3Stream->iSourceBytesRemaining < pSFX_MP3Stream->iSourceFrameBytes)
+		if ( pSFX_MP3Stream->iSourceBytesRemaining == 0 )//|| pSFX_MP3Stream->iSourceBytesRemaining < pSFX_MP3Stream->iSourceFrameBytes)
 		{
 			uiDecoded = 0;	// finished
 			break;
 		}
 
+
+		
+		bFastEstimateOnly = bFastForwarding;	///////////////////////////////
+
 		x = audio.decode(pSFX_MP3Stream->pbSourceData + pSFX_MP3Stream->iSourceReadIndex, (short *) (pSFX_MP3Stream->bDecodeBuffer),
 						 pSFX_MP3Stream->pbSourceData + pSFX_MP3Stream->iRewind_SourceReadIndex + pSFX_MP3Stream->iRewind_SourceBytesRemaining
 						);
+
+		bFastEstimateOnly = 0;	///////////////////////////////
+
+
 
 #ifdef _DEBUG
 		pSFX_MP3Stream->iSourceFrameCounter++;

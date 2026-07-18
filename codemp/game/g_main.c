@@ -1073,6 +1073,7 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 
 	trap_Cvar_Register( &mapname, "mapname", "", CVAR_SERVERINFO | CVAR_ROM );
 	trap_Cvar_Register( &ckSum, "sv_mapChecksum", "", CVAR_ROM );
+	Q_strncpyz( level.mapname, mapname.string, sizeof( level.mapname ) );
 
 #if defined(STEFX_ELITE_FORCE_MP)
 	G_Printf( "STEFX_HM: G_InitGame map='%s' gametype=%d maxclients=%d restart=%d checksum=%d\n",

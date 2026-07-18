@@ -16,6 +16,10 @@
 #include "openal/al.h"
 #include "openal/alc.h"
 
+#ifndef WAVE_FORMAT_XBOX_ADPCM
+#define WAVE_FORMAT_XBOX_ADPCM 0x0069
+#endif
+
 typedef int streamHandle_t;
 
 //from SND_AMBIENT
@@ -40,6 +44,11 @@ typedef struct {
 	int			size;
 	int			width;
 	int			rate;
+	int			samples;
+	int			channels;
+	int			dataofs;
+	int			waveFormatTag;
+	int			byteRate;
 } wavinfo_t;
 
 extern wavinfo_t GetWavInfo(byte *data);
@@ -55,11 +64,18 @@ extern wavinfo_t GetWavInfo(byte *data);
 typedef struct sfx_s {
 	int				iFlags;
 	int 			iSoundLength;			// length in bytes
+	int				iSoundDurationMs;		// decoded playback duration, used when AL stop state is unreliable
 	int				iLastTimeUsed;			// last time sound was played in ms
+	short			iLastLevelUsedOn;		// used for cacheing purposes
 	unsigned int				iFileCode;				// CRC of the file name
 	streamHandle_t	iStreamHandle;			// handle to the sound file when reading
 	void*			pSoundData;				// buffer to hold sound as we are loading it
+	char*			pLipSyncData;			// buffer to hold lip sync information on characters
+											// store the total number of samples in the first 4 bytes
+											// followed by the actual lipsync data in the remaining bytes
 	ALuint			Buffer;
+
+	//char*			sSoundName;				// added for debugging
 } sfx_t;
 
 typedef struct
@@ -91,7 +107,7 @@ extern cvar_t	*s_show;
 extern cvar_t	*s_testsound;
 extern cvar_t	*s_separation;
 
-extern int		s_entityWavVol[MAX_GENTITIES];
+extern int*	s_entityWavVol;
 
 int Sys_GetFileCode( const char* sSoundName );
 int S_GetFileCode( const char* sSoundName );
@@ -120,6 +136,7 @@ void	 SND_TouchSFX(sfx_t *sfx);
 
 void S_DisplayFreeMemory(void);
 void S_memoryLoad(sfx_t *sfx);
+void S_PreProcessLipSync(sfx_t *sfx);
 
 bool Sys_StreamIsReading(streamHandle_t handle);
 int  Sys_StreamOpen(int code, streamHandle_t *handle);

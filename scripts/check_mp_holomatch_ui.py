@@ -43,6 +43,43 @@ REQUIRED_SP_CONTROL_BRIDGES = {
     "../win32/win_input_xbox.cpp",
 }
 
+REQUIRED_SP_SOUND_FILES = {
+    "client/snd_ambient.cpp",
+    "client/snd_ambient.h",
+    "client/snd_dma.cpp",
+    "client/snd_dma_console.cpp",
+    "client/snd_local.h",
+    "client/snd_local_console.h",
+    "client/snd_mem.cpp",
+    "client/snd_mem_console.cpp",
+    "client/snd_mix.cpp",
+    "client/snd_music.cpp",
+    "client/snd_music.h",
+    "client/snd_public.h",
+    "win32/snd_fx_img.h",
+    "win32/win_qal_xbox.cpp",
+    "win32/win_snd.cpp",
+    "win32/win_stream_dx8.cpp",
+    "xbox_re/re_sound.cpp",
+}
+
+REQUIRED_SP_SOUND_PROJECT_SOURCES = {
+    "../client/snd_ambient.cpp",
+    "../client/snd_dma_console_sp_bridge.cpp",
+    "../client/snd_mem_console.cpp",
+    "../client/snd_music_sp_bridge.cpp",
+    "../client/sp_sound_compat.cpp",
+    "../win32/win_qal_xbox_sp_bridge.cpp",
+    "../win32/win_stream_dx8.cpp",
+    "../xbox_re/re_sound.cpp",
+}
+
+FORBIDDEN_DIRECT_SP_SOUND_PROJECT_SOURCES = {
+    "../client/snd_dma_console.cpp",
+    "../client/snd_music.cpp",
+    "../win32/win_qal_xbox.cpp",
+}
+
 REQUIRED_X_UI_SOURCES = {
     "../ui/ui_stefx_spbridge.cpp",
     "../../code/ui/ui_atoms.cpp",
@@ -284,28 +321,6 @@ REQUIRED_HOLOMATCH_INPUT_MARKERS = {
         "joy_deadzone = Cvar_Get( \"joy_deadzone\", \"0.18\", CVAR_ARCHIVE );",
         "STEFX: IN_Init gamepad mask=",
         "STEFX: first gamepad state port=",
-    ],
-}
-
-REQUIRED_HOLOMATCH_SOUND_MARKERS = {
-    "codemp/client/snd_dma_console.cpp": [
-        "static qboolean S_STEFXValidSfxHandle",
-        "sfxHandle >= MAX_SFX",
-        "static qboolean S_STEFXValidEntityNum",
-        "entityNum >= MAX_GENTITIES",
-        "#define\t\tSOUND_REF_DIST_BASE\t1500.f",
-        "static int S_STEFXClampListenerCount",
-        "STEFX_HM: sound using EF/SP hardened Xbox path; handle/entity guards active",
-        "STEFX_HM: sound using SP Xbox attenuation reference distance=",
-        "STEFX_HM: sound clamped listener count caller=",
-        "STEFX_HM: sound registration active listeners=",
-        "STEFX_HM: sound local listener clamped active=",
-    ],
-    "codemp/win32/win_qal_xbox.cpp": [
-        "s_pState->m_ImageDesc = NULL;",
-        "STEFX_HM: QAL effects image sound/dsstdfx.bin missing; continuing dry audio",
-        "STEFX_HM: QAL downloaded Xbox effects image bytes=",
-        "return (ALCdevice*)s_pState->m_SoundObject;",
     ],
 }
 
@@ -647,6 +662,100 @@ def verify_sp_controls_wholesale(repo_root: Path) -> dict[str, object]:
     }
 
 
+def verify_sp_sound_wholesale(repo_root: Path) -> dict[str, object]:
+    missing: list[str] = []
+    mismatched: list[str] = []
+    for rel in sorted(REQUIRED_SP_SOUND_FILES):
+        sp_path = repo_root / "code" / rel
+        mp_path = repo_root / "codemp" / rel
+        if not sp_path.is_file() or not mp_path.is_file():
+            missing.append(rel)
+        elif sp_path.read_bytes() != mp_path.read_bytes():
+            mismatched.append(rel)
+
+    sp_mp3_dir = repo_root / "code" / "mp3code"
+    mp_mp3_dir = repo_root / "codemp" / "mp3code"
+    sp_mp3_files = sorted(path.relative_to(sp_mp3_dir) for path in sp_mp3_dir.rglob("*") if path.is_file())
+    missing_mp3 = [rel.as_posix() for rel in sp_mp3_files if not (mp_mp3_dir / rel).is_file()]
+    mismatched_mp3 = [
+        rel.as_posix()
+        for rel in sp_mp3_files
+        if (mp_mp3_dir / rel).is_file()
+        and (sp_mp3_dir / rel).read_bytes() != (mp_mp3_dir / rel).read_bytes()
+    ]
+    if missing or mismatched or missing_mp3 or mismatched_mp3:
+        fail(
+            "Holomatch sound must be byte-for-byte SP copies; "
+            f"missing={missing} mismatched={mismatched} "
+            f"missingMp3={missing_mp3} mismatchedMp3={mismatched_mp3}"
+        )
+
+    exe_sources = set(active_project_sources(repo_root / "codemp" / "x_exe" / "x_exe.vcproj"))
+    missing_sources = sorted(REQUIRED_SP_SOUND_PROJECT_SOURCES - exe_sources)
+    forbidden_sources = sorted(FORBIDDEN_DIRECT_SP_SOUND_PROJECT_SOURCES & exe_sources)
+    if missing_sources or forbidden_sources:
+        fail(
+            "Holomatch executable sound source routing is incomplete; "
+            f"missing={missing_sources} directUnbridged={forbidden_sources}"
+        )
+
+    bridge_markers = {
+        "codemp/client/snd_dma_console_sp_bridge.cpp": {
+            "#define Z_Free STEFX_SoundZFree",
+            '#include "snd_dma_console.cpp"',
+            "const int bytes = Z_Size( ptr );",
+        },
+        "codemp/client/snd_music_sp_bridge.cpp": {
+            '#include "../qcommon/genericparser2.h"',
+            '#include "snd_music.cpp"',
+        },
+        "codemp/client/sp_sound_compat.cpp": {
+            'Com_sprintf( out, sizeof( ospath[0] ), "d:\\\\BaseEF\\\\%s", qpath );',
+            'g_sex = Cvar_Get( "sex", "f", CVAR_USERINFO | CVAR_ARCHIVE );',
+            "S_BeginRegistration();",
+        },
+        "codemp/win32/win_qal_xbox_sp_bridge.cpp": {
+            "STEFX_CaptureEffectsImageDesc(imageDesc)",
+            '#include "win_qal_xbox.cpp"',
+            "s_pState->m_Stream.m_Queue.clear();",
+        },
+        "codemp/game/g_local.h": {
+            "char\t\tmapname[MAX_QPATH];\t\t// SP sound state expects the current server map",
+        },
+        "codemp/game/g_main.c": {
+            "Q_strncpyz( level.mapname, mapname.string, sizeof( level.mapname ) );",
+        },
+    }
+    missing_markers = [
+        f"{rel}: {marker}"
+        for rel, markers in bridge_markers.items()
+        for marker in sorted(markers)
+        if marker not in (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
+    ]
+    if missing_markers:
+        fail("Holomatch SP sound boundary is incomplete: " + ", ".join(missing_markers))
+
+    build_script = (repo_root / "scripts" / "build_xbox.ps1").read_text(
+        encoding="utf-8", errors="ignore"
+    ).replace("/", "\\").lower()
+    missing_decoder_sources = []
+    for rel in sp_mp3_files:
+        decoder_path = "codemp\\mp3code\\" + rel.as_posix().replace("/", "\\")
+        if rel.suffix.lower() == ".c" and decoder_path.lower() not in build_script:
+            missing_decoder_sources.append(rel.as_posix())
+    if missing_decoder_sources:
+        fail("Holomatch MP build is missing SP MP3 decoder source(s): " + ", ".join(missing_decoder_sources))
+
+    return {
+        "soundWholesaleFiles": len(REQUIRED_SP_SOUND_FILES),
+        "soundWholesaleByteExact": True,
+        "soundMp3WholesaleFiles": len(sp_mp3_files),
+        "soundMp3WholesaleByteExact": True,
+        "soundBoundarySources": sorted(REQUIRED_SP_SOUND_PROJECT_SOURCES),
+        "soundBaseGame": "BaseEF",
+    }
+
+
 def normalize_source_block(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -834,6 +943,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
     baseef_routing = verify_baseef_source_routing(repo_root)
     renderer_wholesale = verify_sp_renderer_wholesale(repo_root)
     controls_wholesale = verify_sp_controls_wholesale(repo_root)
+    sound_wholesale = verify_sp_sound_wholesale(repo_root)
 
     sln = repo_root / "codemp" / "JKA_mp.sln"
     sln_text = sln.read_text(encoding="utf-8", errors="ignore").replace("\\", "/").lower()
@@ -1149,25 +1259,6 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
     if "Direct3D_SetPushBufferSize(1024*1024, 128*1024)" in main_console_text:
         fail("Holomatch MP main must leave pushbuffer sizing to fakegl, matching the SP path")
 
-    missing_sound_markers = []
-    for rel, markers in REQUIRED_HOLOMATCH_SOUND_MARKERS.items():
-        text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
-        for marker in markers:
-            if marker not in text:
-                missing_sound_markers.append(f"{rel}: {marker}")
-    if missing_sound_markers:
-        fail(
-            "Holomatch Xbox sound must keep the EF/SP hardened handle/entity guard path: "
-            + ", ".join(missing_sound_markers)
-        )
-    sound_text = (repo_root / "codemp" / "client" / "snd_dma_console.cpp").read_text(
-        encoding="utf-8", errors="ignore"
-    )
-    if re.search(r"sfxHandle\s*>\s*MAX_SFX", sound_text):
-        fail("Holomatch MP sound still permits one-past-end MAX_SFX handles")
-    if re.search(r"entityNum\s*>\s*MAX_GENTITIES", sound_text):
-        fail("Holomatch MP sound still permits one-past-end MAX_GENTITIES entity numbers")
-
     missing_combat_markers = []
     for rel, markers in REQUIRED_HOLOMATCH_COMBAT_MARKERS.items():
         text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
@@ -1262,6 +1353,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         **baseef_routing,
         **renderer_wholesale,
         **controls_wholesale,
+        **sound_wholesale,
         "solutionHasOnlyXUi": True,
         "uiMandateUniformSpCodeUi": True,
         "mpUiLocalHeaderRetired": True,
@@ -1285,8 +1377,6 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "holomatchDefaultPlayerModel": "munro/default",
         "inputSpEarlyDeviceInit": True,
         "inputJoyDeadzoneDefault": "0.18",
-        "soundEfSpHardenedGuards": True,
-        "soundSpAttenuationPolicy": True,
         "combatPhaserDamageProof": True,
         **dead_code,
     }
@@ -1674,15 +1764,11 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: MP using SP-style fakegl pushbuffer path; main skipped legacy Direct3D_SetPushBufferSize",
         b"STEFX: IN_Init gamepad mask=",
         b"STEFX: first gamepad state port=",
-        b"STEFX_HM: sound using EF/SP hardened Xbox path; handle/entity guards active",
-        b"STEFX_HM: sound using SP Xbox attenuation reference distance=",
-        b"STEFX_HM: sound clamped listener count caller=",
-        b"STEFX_HM: QAL effects image sound/dsstdfx.bin missing; continuing dry audio",
-        b"STEFX_HM: QAL downloaded Xbox effects image bytes=",
-        b"STEFX_HM: sound registration active listeners=",
-        b"STEFX_HM: sound dropped invalid handle",
-        b"STEFX_HM: sound dropped invalid entity",
-        b"STEFX_HM: sound local listener clamped active=",
+        b"JA: Xbox real S_BeginRegistration listeners=",
+        b"STEFX: QAL effects image sound/dsstdfx.bin missing; continuing dry audio",
+        b"STEFX: QAL downloaded effects image bytes=",
+        b"STEFX: QAL MP3 stream open name=",
+        b"EF: Sys_StreamInitialize soundbank records=",
         b"STEFX_HM: server EF Phaser applied damage attacker=",
         b"STEFX_HM: cgame skipped EF moving missile dlight on Xbox renderer weapon=",
         b"STEFX_HM: cgame rendered EF alternate missile safe sprite weapon=",

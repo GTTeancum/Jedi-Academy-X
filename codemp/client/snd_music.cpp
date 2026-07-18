@@ -3,32 +3,24 @@
 //  Stuff to parse in special x-fade music format and handle blending etc
 
 //Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+#include "../server/exe_headers.h"
 
 
-#include "../game/q_shared.h"
 #include "../qcommon/sstring.h"
-
-#pragma warning ( disable : 4663 )	//spcialize class
-#pragma warning( push, 3 )
 #include <algorithm>
-#pragma warning (pop)
 
 #ifdef _XBOX
 #include "snd_local_console.h"
 #include <xtl.h>
 #else
 #include "snd_local.h"
-//#include "snd_mp3.h"
+#include "cl_mp3.h"
 #endif
 
 //
 #include "snd_music.h"
-#include "snd_ambient.h"
 
-#include "../qcommon/GenericParser2.h"
-
-extern sboolean S_FileExists( const char *psFilename );
+extern qboolean S_FileExists( const char *psFilename );
 
 #ifdef _XBOX
 extern void Z_SetNewDeleteTemporary(bool bTemp);
@@ -99,7 +91,21 @@ sstring_t	gsLevelNameForBossLoad;	// eg "kejim_base', special case for enabling 
 
 void Music_Free(void)
 {
-	delete MusicData;
+#ifdef _XBOX
+	// Prevents pending state changes from crashing the game after
+	// level loads, but before new music data has been parsed.
+	extern void S_AvertMusicDisaster(void);
+	S_AvertMusicDisaster();
+#endif
+
+	if (MusicData)
+	{
+#ifdef _XBOX
+		delete MusicData;
+#else
+		MusicData->clear();
+#endif
+	}
 	MusicData = NULL;
 }
 
@@ -107,15 +113,7 @@ void Music_Free(void)
 //
 static void Music_Parse_Error(LPCSTR psError)
 {
-#ifdef FINAL_BUILD
-	extern cvar_t *s_debugdynamic;
-	if (s_debugdynamic && s_debugdynamic->integer)
-	{
-#endif
-		Com_Printf(S_COLOR_RED "Error parsing music data ( in \"%s\" ):\n%s\n",sFILENAME_DMS,psError);
-#ifdef FINAL_BUILD
-	}	
-#endif
+	Com_Printf(S_COLOR_RED "Error parsing music data ( in \"%s\" ):\n%s\n",sFILENAME_DMS,psError);
 	MusicData->clear();
 }
 
@@ -123,15 +121,11 @@ static void Music_Parse_Error(LPCSTR psError)
 //
 static void Music_Parse_Warning(LPCSTR psError)
 {
-#ifdef FINAL_BUILD
 	extern cvar_t *s_debugdynamic;
 	if (s_debugdynamic && s_debugdynamic->integer)
 	{
-#endif
 		Com_Printf(S_COLOR_YELLOW "%s", psError);
-#ifdef FINAL_BUILD
 	}	
-#endif
 }
 
 // the 2nd param here is pretty kludgy (sigh), and only used for testing for the "boss" type.
@@ -155,7 +149,7 @@ static LPCSTR Music_BuildFileName(LPCSTR psFileNameBase, MusicState_e eMusicStat
 }
 
 // this MUST return NULL for non-base states unless doing debug-query
-const char *Music_BaseStateToString( MusicState_e eMusicState, sboolean bDebugPrintQuery /* = qfalse */ )
+const char *Music_BaseStateToString( MusicState_e eMusicState, qboolean bDebugPrintQuery /* = qfalse */ )
 {
 	switch (eMusicState)
 	{
@@ -181,9 +175,9 @@ const char *Music_BaseStateToString( MusicState_e eMusicState, sboolean bDebugPr
 	return NULL;
 }
 
-static sboolean Music_ParseMusic(CGenericParser2 &Parser, MusicData_t *MusicData, CGPGroup *pgMusicFiles, LPCSTR psMusicName, LPCSTR psMusicNameKey, MusicState_e eMusicState)
+static qboolean Music_ParseMusic(CGenericParser2 &Parser, MusicData_t *MusicData, CGPGroup *pgMusicFiles, LPCSTR psMusicName, LPCSTR psMusicNameKey, MusicState_e eMusicState)
 {
-	sboolean bReturn = qfalse;
+	qboolean bReturn = qfalse;
 
 #ifdef _XBOX
 	Z_SetNewDeleteTemporary(true);
@@ -198,8 +192,8 @@ static sboolean Music_ParseMusic(CGenericParser2 &Parser, MusicData_t *MusicData
 	{
 		// read subgroups...  
 		//
-		sboolean bEntryFound = qfalse;
-		sboolean bExitFound  = qfalse;
+		qboolean bEntryFound = qfalse;
+		qboolean bExitFound  = qfalse;
 		//
 		// (read entry points first, so I can check exit points aren't too close in time)
 		//
@@ -262,7 +256,7 @@ static sboolean Music_ParseMusic(CGenericParser2 &Parser, MusicData_t *MusicData
 
 						// new check, don't keep this this exit point if it's within 1.5 seconds either way of an entry point...
 						//
-						sboolean bTooCloseToEntryPoint = qfalse;
+						qboolean bTooCloseToEntryPoint = qfalse;
 						for (MusicEntryTimes_t::iterator itEntryTimes = MusicFile.MusicEntryTimes.begin(); itEntryTimes != MusicFile.MusicEntryTimes.end(); ++itEntryTimes)
 						{
 							float fThisEntryTime = (*itEntryTimes).second;
@@ -392,7 +386,7 @@ static char *StripTrailingWhiteSpaceOnEveryLine(char *pText)
 
 		// trim trailing...
 		//
-		sboolean bTrimmed = qfalse;
+		qboolean bTrimmed = qfalse;
 		do
 		{
 			bTrimmed = qfalse;
@@ -413,7 +407,9 @@ static char *StripTrailingWhiteSpaceOnEveryLine(char *pText)
 		strNewText += "\n";
 	}
 
-	char  *pNewText = (char *) Z_Malloc( strlen(strNewText.c_str())+1, TAG_TEMP_WORKSPACE, qfalse);
+	char  *pNewText = (char *) Z_Malloc( strlen(strNewText.c_str())+1,
+								TAG_TEMP_WORKSPACE,
+								qfalse);
 	strcpy(pNewText, strNewText.c_str());
 #ifdef _XBOX
 	Z_SetNewDeleteTemporary(false);
@@ -432,16 +428,22 @@ void Music_SetLevelName(const char *psLevelName)
 	gsLevelNameFromServer = psLevelName;	
 }
 
-static sboolean Music_ParseLeveldata(const char *psLevelName)
+static qboolean Music_ParseLeveldata(const char *psLevelName)
 {
-	sboolean bReturn = qfalse;
+	qboolean bReturn = qfalse;
 
 	if (MusicData == NULL)
 	{
+#ifdef _XBOX
 		MusicData = new MusicData_t;
+#else
+		// sorry vv, false leaks make it hard to find true leaks
+		static MusicData_t singleton;
+		MusicData = &singleton;
+#endif
 	}
 	
-		// already got this data?
+	// already got this data?
 	//
 	if (MusicData->size() && !Q_stricmp(psLevelName,gsLevelNameForCompare.c_str()))
 	{
@@ -792,7 +794,7 @@ static MusicFile_t *Music_GetBaseMusicFile( MusicState_e eMusicState )
 
 // where label is (eg) "kejim_base"...
 //
-sboolean Music_DynamicDataAvailable(const char *psDynamicMusicLabel)
+qboolean Music_DynamicDataAvailable(const char *psDynamicMusicLabel)
 {		
 	char sLevelName[MAX_QPATH];
 	Q_strncpyz(sLevelName,COM_SkipPath( const_cast<char*>( (psDynamicMusicLabel&&psDynamicMusicLabel[0])?psDynamicMusicLabel:gsLevelNameFromServer.c_str() ) ),sizeof(sLevelName));
@@ -873,7 +875,7 @@ LPCSTR Music_GetFileNameForState( MusicState_e eMusicState)
 
 
 
-sboolean Music_StateIsTransition( MusicState_e eMusicState )
+qboolean Music_StateIsTransition( MusicState_e eMusicState )
 {
 	return (eMusicState >= eBGRNDTRACK_FIRSTTRANSITION &&
 			eMusicState <= eBGRNDTRACK_LASTTRANSITION
@@ -881,7 +883,7 @@ sboolean Music_StateIsTransition( MusicState_e eMusicState )
 }
 
 
-sboolean Music_StateCanBeInterrupted( MusicState_e eMusicState, MusicState_e eProposedMusicState )
+qboolean Music_StateCanBeInterrupted( MusicState_e eMusicState, MusicState_e eProposedMusicState )
 {
 	// death music can interrupt anything...
 	//
@@ -942,7 +944,7 @@ sboolean Music_StateCanBeInterrupted( MusicState_e eMusicState, MusicState_e ePr
 // enum of transition track to switch to
 // float time of entry point of new track *after* transition
 //
-sboolean Music_AllowedToTransition( float			fPlayingTimeElapsed,
+qboolean Music_AllowedToTransition( float			fPlayingTimeElapsed,
 									MusicState_e	eMusicState,
 									//
 									MusicState_e	*peTransition /* = NULL */,

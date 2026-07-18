@@ -1,11 +1,12 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // snd_mem.c: sound caching
 
+
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
 #include "snd_local.h"
-#include "snd_mp3.h"
-#include "snd_ambient.h"
+#include "cl_mp3.h"
 
 // Open AL
 void S_PreProcessLipSync(sfx_t *sfx);
@@ -289,8 +290,8 @@ char *Filename_WithoutExt(const char *psFilename)
 int iFilesFound;
 int iFilesUpdated;
 int iErrors;
-sboolean qbForceRescan;
-sboolean qbForceStereo;
+qboolean qbForceRescan;
+qboolean qbForceStereo;
 string strErrors;
 
 void R_CheckMP3s( const char *psDir )
@@ -333,7 +334,7 @@ void R_CheckMP3s( const char *psDir )
 
 			// do NOT check 'qbForceRescan' here as an opt, because we need to actually fill in 'pTAG' if there is one...
 			//
-			sboolean qbTagNeedsUpdating = (/* qbForceRescan || */ !MP3_ReadSpecialTagInfo(pbData, iSize, &pTAG))?qtrue:qfalse;
+			qboolean qbTagNeedsUpdating = (/* qbForceRescan || */ !MP3_ReadSpecialTagInfo(pbData, iSize, &pTAG))?qtrue:qfalse;
 
 			if (pTAG == NULL || qbTagNeedsUpdating || qbForceRescan)
 			{
@@ -396,13 +397,13 @@ void R_CheckMP3s( const char *psDir )
 								#endif
 								//
 								pSFX->iLastTimeUsed = INT_MIN;		// force this to be oldest sound file, therefore disposable...
-								pSFX->bInMemory = qtrue;
+								pSFX->bInMemory = true;
 								SND_FreeOldestSound();		// ... and do the disposal
 
 								// now set our temp SFX struct back to default name so nothing else accidentally uses it...
 								//
 								strcpy(pSFX->sSoundName, sReservedSFXEntrynameForMP3);
-								pSFX->bDefaultSound = qfalse;								
+								pSFX->bDefaultSound = false;								
 							}
 
 //							OutputDebugString(va("File: \"%s\"   MaxVol %f\n",sFilename,pSFX->fVolRange));
@@ -558,7 +559,7 @@ void S_MP3_CalcVols_f( void )
 // returns qfalse if failed to load, else fills in *pData
 //
 extern	cvar_t	*com_buildScript;
-static sboolean S_LoadSound_FileLoadAndNameAdjuster(char *psFilename, byte **pData, int *piSize, int iNameStrlen)
+static qboolean S_LoadSound_FileLoadAndNameAdjuster(char *psFilename, byte **pData, int *piSize, int iNameStrlen)
 {
 	char *psVoice = strstr(psFilename,"chars");
 	if (psVoice)
@@ -689,9 +690,9 @@ static sboolean S_LoadSound_FileLoadAndNameAdjuster(char *psFilename, byte **pDa
 //	they'd have noticed, but we therefore need to stop other levels using those. "sound/ambience" I can check for,
 //	but doors etc could be anything. Sigh...)
 //
-static sboolean S_LoadSound_DirIsAllowedToKeepMP3s(const char *psFilename)
+static qboolean S_LoadSound_DirIsAllowedToKeepMP3s(const char *psFilename)
 {
-	static const char *psAllowedDirs[] = 
+	const char *psAllowedDirs[] = 
 	{
 		"sound/chars/",
 //		"sound/chr_d/"	// no need for this now, or any other language, since we'll always compare against english
@@ -718,7 +719,7 @@ of a forced fallback of a player specific sound	(or of a wav/mp3 substitution no
 ==============
 */
 qboolean gbInsideLoadSound = qfalse;
-static sboolean S_LoadSound_Actual( sfx_t *sfx )
+static qboolean S_LoadSound_Actual( sfx_t *sfx )
 {
 	byte	*data;
 	short	*samples;
@@ -761,7 +762,6 @@ static sboolean S_LoadSound_Actual( sfx_t *sfx )
 	}
 
 	SND_TouchSFX(sfx);
-
 //=========
 	if (strnicmp(psExt,".mp3",4)==0)
 	{
@@ -781,8 +781,8 @@ static sboolean S_LoadSound_Actual( sfx_t *sfx )
 				if (s_UseOpenAL)
 				{
 					// Create space for lipsync data (4 lip sync values per streaming AL buffer)
-					if ((strstr(sfx->sSoundName, "chars")) || (strstr(sfx->sSoundName, "CHARS")))
-						sfx->lipSyncData = (char *)Z_Malloc(16, TAG_SND_RAWDATA, qfalse);
+					if (strstr(sfx->sSoundName, "chars") )
+						sfx->lipSyncData = (char *)Z_Malloc(16, TAG_SND_RAWDATA, false);
 					else
 						sfx->lipSyncData = NULL;
 				}
@@ -791,7 +791,7 @@ static sboolean S_LoadSound_Actual( sfx_t *sfx )
 			{
 				// small file, not worth keeping as MP3 since it would increase in size (with MP3 header etc)...
 				//
-				Com_DPrintf("S_LoadSound: Unpacking MP3 file(%i) \"%s\" to wav(%i).\n",size,sLoadName,iRawPCMDataSize);
+				Com_DPrintf("S_LoadSound: Unpacking MP3 file \"%s\" to wav.\n",sLoadName);
 				//
 				// unpack and convert into WAV...
 				//
@@ -822,9 +822,9 @@ static sboolean S_LoadSound_Actual( sfx_t *sfx )
 						// Open AL
 						if (s_UseOpenAL)
 						{
-							if ((strstr(sfx->sSoundName, "chars")) || (strstr(sfx->sSoundName, "CHARS")))
+							if (strstr(sfx->sSoundName, "chars"))
 							{
-								sfx->lipSyncData = (char *)Z_Malloc((sfx->iSoundLengthInSamples / 1000) + 1, TAG_SND_RAWDATA, qfalse);
+								sfx->lipSyncData = (char *)Z_Malloc((sfx->iSoundLengthInSamples / 1000) + 1, TAG_SND_RAWDATA, false);
 								S_PreProcessLipSync(sfx);
 							}
 							else
@@ -894,7 +894,7 @@ static sboolean S_LoadSound_Actual( sfx_t *sfx )
 		{
 			if ((strstr(sfx->sSoundName, "chars")) || (strstr(sfx->sSoundName, "CHARS")))
 			{
-				sfx->lipSyncData = (char *)Z_Malloc((sfx->iSoundLengthInSamples / 1000) + 1, TAG_SND_RAWDATA, qfalse);
+				sfx->lipSyncData = (char *)Z_Malloc((sfx->iSoundLengthInSamples / 1000) + 1, TAG_SND_RAWDATA, false);
 				S_PreProcessLipSync(sfx);
 			}
 			else
@@ -931,11 +931,11 @@ static sboolean S_LoadSound_Actual( sfx_t *sfx )
 // wrapper function for above so I can guarantee that we don't attempt any audio-dumping during this call because
 //	of a z_malloc() fail recovery...
 //
-sboolean S_LoadSound( sfx_t *sfx )
+qboolean S_LoadSound( sfx_t *sfx )
 {
 	gbInsideLoadSound = qtrue;	// !!!!!!!!!!!!!
 		
-		sboolean bReturn = S_LoadSound_Actual( sfx );
+		qboolean bReturn = S_LoadSound_Actual( sfx );
 
 	gbInsideLoadSound = qfalse;	// !!!!!!!!!!!!!
 

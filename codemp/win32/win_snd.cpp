@@ -1,5 +1,8 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
+
 
 #include <float.h>
 
@@ -11,6 +14,7 @@ HRESULT (WINAPI *pDirectSoundCreate)(GUID FAR *lpGUID, LPDIRECTSOUND FAR *lplpDS
 
 #define SECONDARY_BUFFER_SIZE	0x10000
 
+
 extern int s_UseOpenAL;
 
 static qboolean	dsound_init;
@@ -21,6 +25,7 @@ static LPDIRECTSOUND pDS;
 static LPDIRECTSOUNDBUFFER pDSBuf, pDSPBuf;
 static HINSTANCE hInstDS;
 
+static int  SNDDMA_InitDS ();
 
 static const char *DSoundError( int error ) {
 	switch ( error ) {
@@ -119,7 +124,7 @@ qboolean SNDDMA_Init(void) {
 }
 
 
-int SNDDMA_InitDS ()
+static int SNDDMA_InitDS ()
 {
 	HRESULT			hresult;
 	qboolean		pauseTried;
@@ -210,14 +215,29 @@ int SNDDMA_InitDS ()
 	dsbuf.lpwfxFormat = &format;
 	
 	Com_DPrintf( "...creating secondary buffer: " );
-	if (DS_OK != pDS->CreateSoundBuffer(&dsbuf, &pDSBuf, NULL)) {
-		Com_Printf( " - using ancient version of DirectX -- this will slow FPS\n" );
-		dsbuf.dwFlags = DSBCAPS_CTRLFREQUENCY;
-		hresult = pDS->CreateSoundBuffer(&dsbuf, &pDSBuf, NULL);
-		if (hresult != DS_OK) {			
-			Com_Printf( "failed to create secondary buffer - %s\n", DSoundError( hresult ) );
-			SNDDMA_Shutdown ();
-			return qfalse;
+	hresult = pDS->CreateSoundBuffer(&dsbuf, &pDSBuf, NULL);
+	if (hresult != DS_OK) 
+	{
+		if ( hresult == DSERR_CONTROLUNAVAIL )
+		{
+			Com_Printf( " - Ancient version of DirectX - this will slow FPS\n" );
+			dsbuf.dwFlags &= ~idDSBCAPS_GETCURRENTPOSITION2;	// lose this DX8 cursor-position feature, and try again
+			hresult = pDS->CreateSoundBuffer(&dsbuf, &pDSBuf, NULL);
+		}
+
+		if (hresult != DS_OK)
+		{
+			// we can't even specify sounds should be in hardware?...  
+			//
+			//  ( this seems to happen on integrated sound devices (eg SoundMax), regardless of DX version )
+			//
+			dsbuf.dwFlags = DSBCAPS_CTRLFREQUENCY;	// note that DX docs say that this can still use hardware if it wants to, since neither DSBCAPS_LOCHARDWARE nor DSBCAPS_LOCSOFTWARE were specified
+			hresult = pDS->CreateSoundBuffer(&dsbuf, &pDSBuf, NULL);
+			if (hresult != DS_OK) {			
+				Com_Printf( "failed to create secondary buffer - %s\n", DSoundError( hresult ) );
+				SNDDMA_Shutdown ();
+				return qfalse;
+			}
 		}
 	}
 	Com_Printf( "locked hardware.  ok\n" );
@@ -377,6 +397,18 @@ void SNDDMA_Activate( qboolean bAppActive )
 		Com_Printf ("sound SetCooperativeLevel failed\n");
 		SNDDMA_Shutdown ();
 	}
+}
+
+
+
+// I know this is a bit horrible, but I need to pass our LPDIRECTSOUND ptr to Bink for video playback,
+//	and I don't want other modules to have to know about LPDIRECTSOUND handles, hence the int casting
+//
+// (I'd prefer to use DWORD, but not all modules understand those)
+//
+unsigned int SNDDMA_GetDSHandle(void)
+{
+	return (unsigned int) pDS;
 }
 
 

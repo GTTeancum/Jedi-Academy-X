@@ -1,10 +1,11 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
-
 // snd_mix.c -- portable code to mix sounds for snd_dma.c
 
 // leave this as first line for PCH reasons...
 //
+#include "../server/exe_headers.h"
+
+
+
 #include "snd_local.h"
 
 portable_samplepair_t paintbuffer[PAINTBUFFER_SIZE];
@@ -349,8 +350,8 @@ void S_PaintChannels( int endtime ) {
 	int		sampleOffset;
 	int	normal_vol,voice_vol;
 
-	snd_vol = normal_vol = s_volume->value*256;
-	voice_vol  = (int)(s_volumeVoice->value*256);
+	snd_vol = normal_vol = s_volume->value*256.0f;
+	voice_vol  = (s_volumeVoice->value*256.0f);
 
 //Com_Printf ("%i to %i\n", s_paintedtime, endtime);
 	while ( s_paintedtime < endtime ) {

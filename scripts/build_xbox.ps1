@@ -713,6 +713,37 @@ function Apply-ProjectSourceOverrides {
             })
         }
 
+        foreach ($mp3Source in @(
+            "codemp\mp3code\cdct.c",
+            "codemp\mp3code\csbt.c",
+            "codemp\mp3code\csbtl3.c",
+            "codemp\mp3code\csbtb.c",
+            "codemp\mp3code\cup.c",
+            "codemp\mp3code\cupl1.c",
+            "codemp\mp3code\cupini.c",
+            "codemp\mp3code\cupl3.c",
+            "codemp\mp3code\cwin.c",
+            "codemp\mp3code\cwinb.c",
+            "codemp\mp3code\cwinm.c",
+            "codemp\mp3code\hwin.c",
+            "codemp\mp3code\l3dq.c",
+            "codemp\mp3code\l3init.c",
+            "codemp\mp3code\mdct.c",
+            "codemp\mp3code\mhead.c",
+            "codemp\mp3code\msis.c",
+            "codemp\mp3code\towave.c",
+            "codemp\mp3code\uph.c",
+            "codemp\mp3code\upsf.c",
+            "codemp\mp3code\wavep.c"
+        )) {
+            $Sources.Add([pscustomobject]@{
+                RelativePath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $mp3Source)).Substring($repoRoot.Length + 1)
+                FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue $mp3Source
+                Extension    = ".c"
+                Tool         = $null
+            })
+        }
+
         return $Sources
     }
 

@@ -442,7 +442,7 @@ int unpack_huff_quad(int vwxy[][4], int n, int nbits, int ntable)
    for (i = 0; i < n; i++)
    {
       if (nbits < 4)
-		break;
+	 break;
       nbits -= 4;
       mac_bitget_check(8);
       tmp = mac_bitget(4) ^ 15;	/* one's complement of bitstream */

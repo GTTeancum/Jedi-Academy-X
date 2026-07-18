@@ -540,7 +540,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\win32\win_qal_xbox.cpp"
+				RelativePath="..\win32\win_qal_xbox_sp_bridge.cpp"
 				>
 			</File>
 			<File
@@ -636,7 +636,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\client\snd_dma_console.cpp"
+				RelativePath="..\client\snd_dma_console_sp_bridge.cpp"
 				>
 			</File>
 			<File
@@ -648,7 +648,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\client\snd_music.cpp"
+				RelativePath="..\client\snd_music_sp_bridge.cpp"
 				>
 			</File>
 			<File
@@ -657,6 +657,14 @@
 			</File>
 			<File
 				RelativePath="..\client\snd_public.h"
+				>
+			</File>
+			<File
+				RelativePath="..\client\sp_sound_compat.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\xbox_re\re_sound.cpp"
 				>
 			</File>
 			<Filter

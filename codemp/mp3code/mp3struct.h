@@ -127,6 +127,7 @@ typedef struct
 
 } MP3STREAM, *LP_MP3STREAM;
 
+#define MP3STUFF_KNOWN
 
 extern LP_MP3STREAM pMP3Stream;
 extern int bFastEstimateOnly;

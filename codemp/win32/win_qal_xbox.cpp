@@ -16,23 +16,28 @@
 
 
 #include "win_local.h"
-#include "xb_log.h"
 
 #include "../client/openal/al.h"
 #include "../client/openal/alc.h"
+#include "../mp3code/mp3struct.h"
 
+#include <objbase.h>
+#include <d3d8.h>
+#include <xgmath.h>
 #include <dsound.h>
 //#include <dsstdfx.h>
 #include "snd_fx_img.h"
+#include "xb_log.h"
 
 #include <cmath>
 #include <deque>
 #include <map>
 
-#define QAL_STREAM_WAIT_TIME (500)
-#define QAL_MAX_STREAM_PACKETS (2)
+#define QAL_STREAM_WAIT_TIME (10)
+#define QAL_MAX_STREAM_PACKETS (4)
 
-// About 1 second of audio at 44100, stereo, ADPCM
+// About 1 second of audio at 44100, stereo, ADPCM. MP3 fallback decodes to
+// PCM, so the stream worker must wake much more often than the packet duration.
 #define QAL_STREAM_PACKET_SIZE (44136)
 
 // Un-comment to enable 5-channel 3-d sound mixing
@@ -40,6 +45,18 @@
 
 extern HANDLE Sys_FileStreamMutex;
 extern const char* Sys_GetFileCodeName(int code);
+extern const char* Sys_GetSoundFileCodeName(unsigned int code);
+extern int FS_ReadFile(const char *qpath, void **buffer);
+extern void FS_FreeFile(void *buffer);
+
+extern "C"
+{
+char* C_MP3_GetHeaderData(void *pvData, int iDataLen, int *piRate, int *piWidth, int *piChannels, int bStereoDesired);
+char* C_MP3Stream_DecodeInit(LP_MP3STREAM pSFX_MP3Stream, void *pvSourceData, int iSourceBytesRemaining,
+	int iGameAudioSampleRate, int iGameAudioSampleBits, int bStereoDesired);
+unsigned int C_MP3Stream_Decode(LP_MP3STREAM pSFX_MP3Stream, int bFastForwarding);
+char* C_MP3Stream_Rewind(LP_MP3STREAM pSFX_MP3Stream);
+}
 
 /***********************************************
 *
@@ -49,9 +66,8 @@ extern const char* Sys_GetFileCodeName(int code);
 
 struct QALState
 {
-	IDirectSound8*		m_SoundObject;
-	LPDSEFFECTIMAGEDESC	m_ImageDesc;
-
+	IDirectSound8* m_SoundObject;
+	
 	ALuint m_MemoryUsed;
 	ALenum m_Error;
 	FLOAT m_Gain;
@@ -88,7 +104,12 @@ struct QALState
 	{
 		void* m_Data;
 		DWORD m_DataOffset;
-		XBOXADPCMWAVEFORMAT m_WAVFormat;
+		char m_DebugName[128];
+		union
+		{
+			WAVEFORMATEX pcm;
+			XBOXADPCMWAVEFORMAT adpcm;
+		} m_WAVFormat;
 		
 		DWORD m_Freq;
 		DWORD m_Size;
@@ -103,6 +124,12 @@ struct QALState
 	{
 		IDirectSoundStream* m_pVoice;
 		XFileMediaObject* m_pFile;
+		byte* m_MP3Data;
+		int m_MP3DataSize;
+		MP3STREAM m_MP3Stream;
+		int m_MP3DecodedBytes;
+		int m_MP3CopyOffset;
+		bool m_UseMP3;
 
 		unsigned int m_StartTime;
 
@@ -145,17 +172,6 @@ struct QALState
 
 static QALState* s_pState = NULL;
 
-/***********************************************
-*
-* HACK - Voice initialization needs this
-*
-************************************************/
-
-LPDSEFFECTIMAGEDESC getEffectsImageDesc(void)
-{
-	return s_pState->m_ImageDesc;
-}
-
 
 /***********************************************
 *
@@ -165,64 +181,49 @@ LPDSEFFECTIMAGEDESC getEffectsImageDesc(void)
 
 ALCdevice* alcOpenDevice(ALCubyte *deviceName)
 {
-	XBLog_Write("JAMP: alcOpenDevice enter");
 	if (s_pState) return NULL;
-	XBLog_Write("JAMP: alcOpenDevice before state new");
 	s_pState = new QALState;
-	XBLog_Write("JAMP: alcOpenDevice after state new");
 
 	s_pState->m_Gain = 1.f;
 	s_pState->m_Error = AL_NO_ERROR;
 	s_pState->m_MemoryUsed = 0;
-	s_pState->m_ImageDesc = NULL;
 	s_pState->m_NextBuffer = 1;
 	s_pState->m_NextListener = 1;
 	s_pState->m_NextSource = 1;
 	s_pState->m_Stream.m_Valid = false;
 	
 	// init the sound hardware
-	XBLog_Write("JAMP: alcOpenDevice before DirectSoundCreate");
 	if (DirectSoundCreate(NULL, &s_pState->m_SoundObject, NULL) != DS_OK)
 	{
-		XBLog_Write("JAMP: alcOpenDevice DirectSoundCreate failed");
 		delete s_pState;
 		return NULL;
 	}
-	XBLog_Write("JAMP: alcOpenDevice after DirectSoundCreate");
 
-	XBLog_Write("JAMP: alcOpenDevice before DirectSoundUseFullHRTF");
 	DirectSoundUseFullHRTF();
-	XBLog_Write("JAMP: alcOpenDevice after DirectSoundUseFullHRTF");
 
 	// download effects image to hardware
 	void* image;
-	XBLog_Write("JAMP: alcOpenDevice before FS_ReadFile dsstdfx");
 	int len = FS_ReadFile("sound/dsstdfx.bin", &image);
-	XBLog_Write("JAMP: alcOpenDevice after FS_ReadFile dsstdfx");
 	if (len > 0)
 	{
+		LPDSEFFECTIMAGEDESC desc;
 		DSEFFECTIMAGELOC effect;
 		effect.dwI3DL2ReverbIndex = GraphI3DL2_I3DL2Reverb;
 		effect.dwCrosstalkIndex = GraphXTalk_XTalk;
-		XBLog_Write("JAMP: alcOpenDevice before DownloadEffectsImage");
-		s_pState->m_SoundObject->DownloadEffectsImage(image, len, &effect, &s_pState->m_ImageDesc);
-		XBLog_Write("JAMP: alcOpenDevice after DownloadEffectsImage");
+		s_pState->m_SoundObject->DownloadEffectsImage(image, len, &effect, &desc);
 
 		Z_Free(image);
 
 		// setup default reverb
 		DSI3DL2LISTENER reverb = { DSI3DL2_ENVIRONMENT_PRESET_NOREVERB };
-		XBLog_Write("JAMP: alcOpenDevice before SetI3DL2Listener");
 		s_pState->m_SoundObject->SetI3DL2Listener(&reverb, DS3D_DEFERRED);
-		XBLog_Write("JAMP: alcOpenDevice after SetI3DL2Listener");
-		XBLog_Writef("STEFX_HM: QAL downloaded Xbox effects image bytes=%d", len);
+		XBLog_Writef("STEFX: QAL downloaded effects image bytes=%d", len);
 	}
 	else
 	{
-		XBLog_Write("STEFX_HM: QAL effects image sound/dsstdfx.bin missing; continuing dry audio");
+		XBLog_Write("STEFX: QAL effects image sound/dsstdfx.bin missing; continuing dry audio");
 	}
 
-	XBLog_Write("JAMP: alcOpenDevice exit");
 	return (ALCdevice*)s_pState->m_SoundObject;
 }
 
@@ -371,6 +372,8 @@ ALvoid alListenerfv( ALuint listener, ALenum param, ALfloat* values )
 
 static void _wavSetFormat(XBOXADPCMWAVEFORMAT* wav, ALenum format, ALsizei freq)
 {
+	ZeroMemory(wav, sizeof(*wav));
+
 	switch (format)
 	{
 	case AL_FORMAT_MONO4:
@@ -403,6 +406,65 @@ static void _wavSetFormat(XBOXADPCMWAVEFORMAT* wav, ALenum format, ALsizei freq)
 		assert(0);
 		break;
 	}
+}
+
+static bool _wavSetPCMFormat(WAVEFORMATEX* wav, ALenum format, ALsizei freq)
+{
+	ZeroMemory(wav, sizeof(*wav));
+	wav->wFormatTag = WAVE_FORMAT_PCM;
+	wav->nSamplesPerSec = freq;
+	wav->cbSize = 0;
+
+	switch (format)
+	{
+	case AL_FORMAT_MONO8:
+		wav->nChannels = 1;
+		wav->wBitsPerSample = 8;
+		break;
+	case AL_FORMAT_STEREO8:
+		wav->nChannels = 2;
+		wav->wBitsPerSample = 8;
+		break;
+	case AL_FORMAT_MONO16:
+		wav->nChannels = 1;
+		wav->wBitsPerSample = 16;
+		break;
+	case AL_FORMAT_STEREO16:
+		wav->nChannels = 2;
+		wav->wBitsPerSample = 16;
+		break;
+	default:
+		return false;
+	}
+
+	wav->nBlockAlign = (wav->nChannels * wav->wBitsPerSample) / 8;
+	wav->nAvgBytesPerSec = wav->nSamplesPerSec * wav->nBlockAlign;
+	return true;
+}
+
+static DWORD _wavFindDataOffset(ALvoid* data)
+{
+	byte *bytes = (byte *)data;
+
+	if (strncmp((char *)&bytes[0], "RIFF", 4) ||
+		strncmp((char *)&bytes[8], "WAVE", 4))
+	{
+		return 0;
+	}
+
+	DWORD pos = 12;
+	while (pos > 0 && pos < 4096)
+	{
+		DWORD chunkSize = *(DWORD *)&bytes[pos + 4];
+		if (!strncmp((char *)&bytes[pos], "data", 4))
+		{
+			return pos + 8;
+		}
+
+		pos += 8 + ((chunkSize + 1) & ~1);
+	}
+
+	return 0;
 }
 
 static int _genSource(bool is3d)
@@ -470,7 +532,7 @@ static void _attachBuffer(ALuint source, ALuint buffer)
 	for (QALState::SourceInfo::voice_t::iterator v = sinfo->m_Voices.begin(); 
 	v != sinfo->m_Voices.end(); ++v)
 	{
-		v->second->SetFormat((WAVEFORMATEX*)&binfo->m_WAVFormat);
+		v->second->SetFormat((WAVEFORMATEX*)&binfo->m_WAVFormat.pcm);
 
 #ifdef _FIVE_CHANNEL
 		DSMIXBINVOLUMEPAIR dsmbvp[6] = {
@@ -487,6 +549,17 @@ static void _attachBuffer(ALuint source, ALuint buffer)
 	}
 	
 	sinfo->m_Buffer = buffer;
+
+	static int s_qalAttachLogCount = 0;
+	if (s_qalAttachLogCount < 128)
+	{
+		WAVEFORMATEX *fmt = (WAVEFORMATEX *)&binfo->m_WAVFormat.pcm;
+		XBLog_Writef("STEFX: QAL attach source=%u buffer=%u name='%s' tag=0x%x channels=%u bits=%u rate=%u offset=%u size=%u",
+			source, buffer, binfo->m_DebugName[0] ? binfo->m_DebugName : "<unknown>",
+			fmt->wFormatTag, fmt->nChannels, fmt->wBitsPerSample,
+			fmt->nSamplesPerSec, binfo->m_DataOffset, binfo->m_Size);
+		s_qalAttachLogCount++;
+	}
 }
 
 static void _dettachBuffer(ALuint source)
@@ -507,6 +580,17 @@ static void _dettachBuffer(ALuint source)
 }
 
 static float rollOffPoint	= 0;
+
+void SetHeadroom( int source, float value)
+{
+	QALState::SourceInfo* info = s_pState->m_Sources[source];
+	for (QALState::SourceInfo::voice_t::iterator v = info->m_Voices.begin(); 
+		v != info->m_Voices.end(); ++v)
+	{
+		DWORD	dB	= 100 * value;
+		v->second->SetHeadroom(dB);
+	}
+}
 
 static void _sourceSetRefDist(QALState::SourceInfo* info, FLOAT value)
 {
@@ -587,7 +671,14 @@ ALvoid alSourcei( ALuint source, ALenum param, ALint value )
 		break;
 
 	case AL_BUFFER:
-		if (value) _attachBuffer(source, value);
+		if (value)
+		{
+			_attachBuffer(source, value);
+		}
+		else
+		{
+			_dettachBuffer(source);
+		}
 		break;
 
 	default:
@@ -665,6 +756,31 @@ ALvoid alSourcePlay( ALuint source )
 
 	if (!info->m_Buffer)
 	{
+		static int s_qalPlayNoBufferLogCount = 0;
+		if (s_qalPlayNoBufferLogCount < 64)
+		{
+			XBLog_Writef("STEFX: QAL play skipped source=%u reason=no-buffer voices=%d",
+				source, (int)info->m_Voices.size());
+			s_qalPlayNoBufferLogCount++;
+		}
+		return;
+	}
+
+	if (info->m_Voices.empty())
+	{
+		static int s_qalPlayNoVoicesLogCount = 0;
+		if (s_qalPlayNoVoicesLogCount < 64)
+		{
+			const char *name = "<unknown>";
+			QALState::buffer_t::iterator b = s_pState->m_Buffers.find(info->m_Buffer);
+			if (b != s_pState->m_Buffers.end() && b->second && b->second->m_DebugName[0])
+			{
+				name = b->second->m_DebugName;
+			}
+			XBLog_Writef("STEFX: QAL play skipped source=%u buffer=%u name='%s' reason=no-voices",
+				source, info->m_Buffer, name);
+			s_qalPlayNoVoicesLogCount++;
+		}
 		return;
 	}
 
@@ -674,6 +790,20 @@ ALvoid alSourcePlay( ALuint source )
 	{
 		v->second->SetCurrentPosition(0);
 		v->second->Play(0, 0, info->m_Loop ? DSBPLAY_LOOPING : 0);
+	}
+
+	static int s_qalPlayLogCount = 0;
+	if (s_qalPlayLogCount < 128)
+	{
+		const char *name = "<unknown>";
+		QALState::buffer_t::iterator b = s_pState->m_Buffers.find(info->m_Buffer);
+		if (b != s_pState->m_Buffers.end() && b->second && b->second->m_DebugName[0])
+		{
+			name = b->second->m_DebugName;
+		}
+		XBLog_Writef("STEFX: QAL play source=%u buffer=%u name='%s' loop=%d voices=%d",
+			source, info->m_Buffer, name, info->m_Loop ? 1 : 0, (int)info->m_Voices.size());
+		s_qalPlayLogCount++;
 	}
 }
 
@@ -714,6 +844,10 @@ ALvoid alGenBuffers( ALsizei n, ALuint* buffers )
 		QALState::BufferInfo* info = new QALState::BufferInfo;
 
 		info->m_Valid = false;
+		info->m_Data = NULL;
+		info->m_DataOffset = 0;
+		info->m_DebugName[0] = '\0';
+		info->m_Size = 0;
 
 		s_pState->m_Buffers[s_pState->m_NextBuffer] = info;
 		buffers[n] = s_pState->m_NextBuffer++;
@@ -770,18 +904,70 @@ ALvoid alBufferData( ALuint buffer, ALenum format, ALvoid* data, ALsizei size, A
 		info->m_Valid = false;
 	}
 
-	info->m_Data = data;
+	if (!data || size <= 0)
+	{
+		s_pState->m_Error = AL_INVALID_VALUE;
+		return;
+	}
 
-	// assume we have a wave file...
-	WAVEFORMATEX* wav = (WAVEFORMATEX*)((char*)data + 20);
-	info->m_DataOffset = 20 + sizeof(WAVEFORMATEX) + wav->cbSize + 8;
+	info->m_Data = data;
+	info->m_DataOffset = _wavFindDataOffset(data);
+	if (!info->m_DataOffset && (format == AL_FORMAT_MONO4 || format == AL_FORMAT_STEREO4))
+	{
+		info->m_Data = NULL;
+		s_pState->m_Error = AL_INVALID_VALUE;
+		return;
+	}
 
 	info->m_Size = size;
-	s_pState->m_MemoryUsed += info->m_Size;
 
-	_wavSetFormat(&info->m_WAVFormat, format, freq);
+	if (format == AL_FORMAT_MONO4 || format == AL_FORMAT_STEREO4)
+	{
+		_wavSetFormat(&info->m_WAVFormat.adpcm, format, freq);
+	}
+	else if (!_wavSetPCMFormat(&info->m_WAVFormat.pcm, format, freq))
+	{
+		info->m_Data = NULL;
+		info->m_Size = 0;
+		s_pState->m_Error = AL_INVALID_VALUE;
+		return;
+	}
 	
+	s_pState->m_MemoryUsed += info->m_Size;
 	info->m_Valid = true;
+
+	static int s_qalBufferLogCount = 0;
+	if (s_qalBufferLogCount < 128)
+	{
+		WAVEFORMATEX *fmt = (WAVEFORMATEX *)&info->m_WAVFormat.pcm;
+		XBLog_Writef("STEFX: QAL buffer data buffer=%u alfmt=0x%x tag=0x%x channels=%u bits=%u rate=%u offset=%u size=%u",
+			buffer, format, fmt->wFormatTag, fmt->nChannels, fmt->wBitsPerSample,
+			fmt->nSamplesPerSec, info->m_DataOffset, info->m_Size);
+		s_qalBufferLogCount++;
+	}
+}
+
+void QAL_XboxSetBufferDebugName(ALuint buffer, const char *name)
+{
+	if (!s_pState)
+	{
+		return;
+	}
+
+	QALState::buffer_t::iterator b = s_pState->m_Buffers.find(buffer);
+	if (b == s_pState->m_Buffers.end() || !b->second)
+	{
+		return;
+	}
+
+	if (!name)
+	{
+		b->second->m_DebugName[0] = '\0';
+		return;
+	}
+
+	strncpy(b->second->m_DebugName, name, sizeof(b->second->m_DebugName) - 1);
+	b->second->m_DebugName[sizeof(b->second->m_DebugName) - 1] = '\0';
 }
 
 
@@ -791,8 +977,158 @@ ALvoid alBufferData( ALuint buffer, ALenum format, ALvoid* data, ALsizei size, A
 *
 ************************************************/
 
+static bool _streamNameIsMP3(const char *name)
+{
+	const char *dot = name ? strrchr(name, '.') : NULL;
+	return (dot && !_stricmp(dot, ".mp3"));
+}
+
+static void _streamMP3Lock(void)
+{
+	WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
+}
+
+static void _streamMP3Unlock(void)
+{
+	ReleaseMutex(Sys_FileStreamMutex);
+}
+
+static void _streamFreeMP3(void)
+{
+	if (s_pState->m_Stream.m_MP3Data)
+	{
+		FS_FreeFile(s_pState->m_Stream.m_MP3Data);
+	}
+
+	s_pState->m_Stream.m_MP3Data = NULL;
+	s_pState->m_Stream.m_MP3DataSize = 0;
+	s_pState->m_Stream.m_MP3DecodedBytes = 0;
+	s_pState->m_Stream.m_MP3CopyOffset = 0;
+	ZeroMemory(&s_pState->m_Stream.m_MP3Stream, sizeof(s_pState->m_Stream.m_MP3Stream));
+}
+
+static void _streamMP3ResetCounters(void)
+{
+	s_pState->m_Stream.m_MP3DecodedBytes = 0;
+	s_pState->m_Stream.m_MP3CopyOffset = 0;
+	s_pState->m_Stream.m_MP3Stream.iBytesDecodedTotal = 0;
+	s_pState->m_Stream.m_MP3Stream.iBytesDecodedThisPacket = 0;
+}
+
+static bool _streamMP3Rewind(void)
+{
+	_streamMP3Lock();
+	char *error = C_MP3Stream_Rewind(&s_pState->m_Stream.m_MP3Stream);
+	_streamMP3Unlock();
+	if (error)
+	{
+		static int s_streamMP3RewindErrors = 0;
+		if (s_streamMP3RewindErrors < 16)
+		{
+			XBLog_Writef("STEFX: QAL MP3 stream rewind failed err='%s'", error);
+			s_streamMP3RewindErrors++;
+		}
+		return false;
+	}
+
+	_streamMP3ResetCounters();
+	return true;
+}
+
+static void _streamMP3Seek(DWORD offset)
+{
+	if (!offset)
+	{
+		return;
+	}
+
+	_streamMP3Rewind();
+
+	while (s_pState->m_Stream.m_MP3Stream.iBytesDecodedTotal < (int)offset)
+	{
+		_streamMP3Lock();
+		unsigned int decoded = C_MP3Stream_Decode(&s_pState->m_Stream.m_MP3Stream, true);
+		_streamMP3Unlock();
+		if (!decoded)
+		{
+			_streamMP3Rewind();
+			return;
+		}
+
+		int frameStart = s_pState->m_Stream.m_MP3Stream.iBytesDecodedTotal - decoded;
+		if ((int)offset < s_pState->m_Stream.m_MP3Stream.iBytesDecodedTotal)
+		{
+			s_pState->m_Stream.m_MP3DecodedBytes = decoded;
+			s_pState->m_Stream.m_MP3CopyOffset = (int)offset - frameStart;
+			return;
+		}
+	}
+
+	s_pState->m_Stream.m_MP3DecodedBytes = 0;
+	s_pState->m_Stream.m_MP3CopyOffset = 0;
+}
+
+static int _streamFromMP3(void)
+{
+	BYTE *packet = (BYTE *)s_pState->m_Stream.m_pPacketBuffer +
+		(QAL_STREAM_PACKET_SIZE * s_pState->m_Stream.m_CurrentPacket);
+	int total = 0;
+
+	while (total < QAL_STREAM_PACKET_SIZE)
+	{
+		if (s_pState->m_Stream.m_MP3CopyOffset >= s_pState->m_Stream.m_MP3DecodedBytes)
+		{
+			_streamMP3Lock();
+			unsigned int decoded = C_MP3Stream_Decode(&s_pState->m_Stream.m_MP3Stream, false);
+			_streamMP3Unlock();
+			s_pState->m_Stream.m_MP3DecodedBytes = decoded;
+			s_pState->m_Stream.m_MP3CopyOffset = 0;
+
+			if (!decoded)
+			{
+				if (s_pState->m_Stream.m_Looping && _streamMP3Rewind())
+				{
+					static int s_streamMP3LoopLogCount = 0;
+					if (s_streamMP3LoopLogCount < 32)
+					{
+						XBLog_Write("STEFX: QAL MP3 stream loop rewind");
+						s_streamMP3LoopLogCount++;
+					}
+					continue;
+				}
+
+				static int s_streamMP3EndLogCount = 0;
+				if (s_streamMP3EndLogCount < 32)
+				{
+					XBLog_Writef("STEFX: QAL MP3 stream decode ended total=%d",
+						s_pState->m_Stream.m_MP3Stream.iBytesDecodedTotal);
+					s_streamMP3EndLogCount++;
+				}
+				s_pState->m_Stream.m_Playing = false;
+				break;
+			}
+		}
+
+		int available = s_pState->m_Stream.m_MP3DecodedBytes - s_pState->m_Stream.m_MP3CopyOffset;
+		int wanted = QAL_STREAM_PACKET_SIZE - total;
+		int copyBytes = available < wanted ? available : wanted;
+		memcpy(packet + total,
+			s_pState->m_Stream.m_MP3Stream.bDecodeBuffer + s_pState->m_Stream.m_MP3CopyOffset,
+			copyBytes);
+		total += copyBytes;
+		s_pState->m_Stream.m_MP3CopyOffset += copyBytes;
+	}
+
+	return total;
+}
+
 static int _streamFromFile(void)
 {
+	if (s_pState->m_Stream.m_UseMP3)
+	{
+		return _streamFromMP3();
+	}
+
 	DWORD total = 0;
 	DWORD used = 0;
 	
@@ -811,6 +1147,12 @@ static int _streamFromFile(void)
 	{
 		if (DS_OK != s_pState->m_Stream.m_pFile->Process(NULL, &xmp))
 		{
+			static int s_streamFileProcessErrors = 0;
+			if (s_streamFileProcessErrors < 32)
+			{
+				XBLog_Write("STEFX: QAL wave stream Process failed");
+				s_streamFileProcessErrors++;
+			}
 			ReleaseMutex(Sys_FileStreamMutex);
 			return -1;
 		}
@@ -830,6 +1172,12 @@ static int _streamFromFile(void)
 				if (DS_OK != s_pState->m_Stream.m_pFile->Seek(
 					0, FILE_BEGIN, NULL))
 				{
+					static int s_streamFileLoopErrors = 0;
+					if (s_streamFileLoopErrors < 32)
+					{
+						XBLog_Write("STEFX: QAL wave stream loop seek failed");
+						s_streamFileLoopErrors++;
+					}
 					ReleaseMutex(Sys_FileStreamMutex);
 					return -1;
 				}
@@ -837,6 +1185,12 @@ static int _streamFromFile(void)
 			else
 			{
 				// reached end, finish up
+				static int s_streamFileEndLogCount = 0;
+				if (s_streamFileEndLogCount < 32)
+				{
+					XBLog_Writef("STEFX: QAL wave stream ended used=%u total=%u", used, total);
+					s_streamFileEndLogCount++;
+				}
 				s_pState->m_Stream.m_Playing = false;
 				ReleaseMutex(Sys_FileStreamMutex);
 				return used;
@@ -873,8 +1227,9 @@ static void _streamToVoice(int size)
 
 static void _streamFill(void)
 {
-	// do we have any free packets?
-	if (XMEDIAPACKET_STATUS_PENDING !=
+	int packetsFilled = 0;
+	while (packetsFilled < QAL_MAX_STREAM_PACKETS &&
+		XMEDIAPACKET_STATUS_PENDING !=
 		s_pState->m_Stream.m_PacketStatus[s_pState->m_Stream.m_CurrentPacket])
 	{
 		// get some data
@@ -886,12 +1241,28 @@ static void _streamFill(void)
 			// next packet...
 			++s_pState->m_Stream.m_CurrentPacket;
 			s_pState->m_Stream.m_CurrentPacket %= QAL_MAX_STREAM_PACKETS;
+			packetsFilled++;
 		}
 
 		if (!s_pState->m_Stream.m_Playing)
 		{
 			// Non-looping stream finished playback
 			s_pState->m_Stream.m_pVoice->Discontinuity();
+			break;
+		}
+
+		if (size <= 0)
+		{
+			static int s_streamNoDataLogCount = 0;
+			if (s_streamNoDataLogCount < 32)
+			{
+				XBLog_Writef("STEFX: QAL stream fill produced no data size=%d open=%d playing=%d",
+					size,
+					s_pState->m_Stream.m_Open ? 1 : 0,
+					s_pState->m_Stream.m_Playing ? 1 : 0);
+				s_streamNoDataLogCount++;
+			}
+			break;
 		}
 	}
 }
@@ -902,13 +1273,112 @@ static void _streamOpen(DWORD file, DWORD offset, bool loop)
 	{
 		// if a stream is current playing, interrupt it
 		s_pState->m_Stream.m_pVoice->Flush();
-		s_pState->m_Stream.m_pFile->Release();
+		if (s_pState->m_Stream.m_pFile)
+		{
+			s_pState->m_Stream.m_pFile->Release();
+			s_pState->m_Stream.m_pFile = NULL;
+		}
+		_streamFreeMP3();
 		s_pState->m_Stream.m_Playing = false;
 		s_pState->m_Stream.m_Open = false;
 	}
 
-	const char* name = Sys_GetFileCodeName(file);
-	
+	// Get the original name, not re-mapped:
+	const char* name = Sys_GetSoundFileCodeName(file);
+	if (!name)
+	{
+		name = Sys_GetFileCodeName(file);
+	}
+	if (!name)
+	{
+		XBLog_Writef("STEFX: QAL stream open failed: unknown code=0x%08x", file);
+		return;
+	}
+
+#ifdef XBOX_DEMO
+	// Skip over "D:"
+	name += 2;
+
+	// Get the base path, then add the important part of the filename:
+	extern char demoBasePath[64];
+	char mappedName[128];
+
+	strcpy( mappedName, demoBasePath );
+	strcat( mappedName, name );
+	name = mappedName;
+#endif
+
+	if (_streamNameIsMP3(name))
+	{
+		void *mp3Data = NULL;
+		int mp3Len = FS_ReadFile(name, &mp3Data);
+		if (mp3Len <= 0 || !mp3Data)
+		{
+			XBLog_Writef("STEFX: QAL MP3 stream read failed name='%s' len=%d", name, mp3Len);
+			return;
+		}
+
+		int rate = 0;
+		int widthBytes = 0;
+		int channels = 0;
+		_streamMP3Lock();
+		char *headerError = C_MP3_GetHeaderData(mp3Data, mp3Len, &rate, &widthBytes, &channels, true);
+		_streamMP3Unlock();
+		if (headerError || rate <= 0 || widthBytes <= 0 || channels <= 0)
+		{
+			XBLog_Writef("STEFX: QAL MP3 stream header failed name='%s' err='%s'",
+				name, headerError ? headerError : "<none>");
+			FS_FreeFile(mp3Data);
+			return;
+		}
+
+		_streamMP3Lock();
+		char *decodeError = C_MP3Stream_DecodeInit(&s_pState->m_Stream.m_MP3Stream,
+			mp3Data, mp3Len, rate, widthBytes * 8, channels > 1);
+		_streamMP3Unlock();
+		if (decodeError)
+		{
+			XBLog_Writef("STEFX: QAL MP3 stream init failed name='%s' err='%s'", name, decodeError);
+			FS_FreeFile(mp3Data);
+			return;
+		}
+
+		ALenum alFormat = 0;
+		if (channels == 1 && widthBytes == 1) alFormat = AL_FORMAT_MONO8;
+		else if (channels == 1 && widthBytes == 2) alFormat = AL_FORMAT_MONO16;
+		else if (channels == 2 && widthBytes == 1) alFormat = AL_FORMAT_STEREO8;
+		else if (channels == 2 && widthBytes == 2) alFormat = AL_FORMAT_STEREO16;
+		else
+		{
+			XBLog_Writef("STEFX: QAL MP3 stream unsupported PCM name='%s' channels=%d width=%d",
+				name, channels, widthBytes);
+			FS_FreeFile(mp3Data);
+			return;
+		}
+
+		WAVEFORMATEX pcm;
+		if (!_wavSetPCMFormat(&pcm, alFormat, rate))
+		{
+			FS_FreeFile(mp3Data);
+			return;
+		}
+
+		s_pState->m_Stream.m_pVoice->SetFormat(&pcm);
+		s_pState->m_Stream.m_MP3Data = (byte *)mp3Data;
+		s_pState->m_Stream.m_MP3DataSize = mp3Len;
+		s_pState->m_Stream.m_UseMP3 = true;
+		s_pState->m_Stream.m_StartTime = 0;
+		s_pState->m_Stream.m_Looping = loop;
+		s_pState->m_Stream.m_Playing = true;
+		s_pState->m_Stream.m_Open = true;
+		_streamMP3ResetCounters();
+		_streamMP3Seek(offset);
+
+		XBLog_Writef("STEFX: QAL MP3 stream open name='%s' bytes=%d rate=%d width=%d channels=%d offset=%u loop=%d",
+			name, mp3Len, rate, widthBytes, channels, offset, loop ? 1 : 0);
+		return;
+	}
+
 	WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
 
 	// open the file for streaming
@@ -936,8 +1406,15 @@ static void _streamOpen(DWORD file, DWORD offset, bool loop)
 		
 		s_pState->m_Stream.m_StartTime = 0;
 		s_pState->m_Stream.m_Looping = loop;
+		s_pState->m_Stream.m_UseMP3 = false;
 		s_pState->m_Stream.m_Playing = true;
 		s_pState->m_Stream.m_Open = true;
+		XBLog_Writef("STEFX: QAL wave stream open name='%s' code=0x%08x offset=%u loop=%d",
+			name, file, offset, loop ? 1 : 0);
+	}
+	else
+	{
+		XBLog_Writef("STEFX: QAL wave stream open failed name='%s' code=0x%08x", name, file);
 	}
 
 	ReleaseMutex(Sys_FileStreamMutex);
@@ -949,7 +1426,13 @@ static void _streamClose(void)
 	{
 		// stop the stream
 		s_pState->m_Stream.m_pVoice->Flush();
-		s_pState->m_Stream.m_pFile->Release();
+		if (s_pState->m_Stream.m_pFile)
+		{
+			s_pState->m_Stream.m_pFile->Release();
+			s_pState->m_Stream.m_pFile = NULL;
+		}
+		_streamFreeMP3();
+		s_pState->m_Stream.m_UseMP3 = false;
 		s_pState->m_Stream.m_Playing = false;
 		s_pState->m_Stream.m_Open = false;
 	}
@@ -1022,15 +1505,6 @@ static void _postStreamRequest(const QALState::StreamInfo::Request& req)
 	Sleep(0);
 }
 
-void Sys_StreamRequestQueueClear(void)
-{
-	WaitForSingleObject(s_pState->m_Stream.m_Mutex, INFINITE);
-//	delete s_pState->m_Stream.m_Queue;
-//	s_pState->m_Stream.m_Queue = new QALState::StreamInfo::queue_t;
-	s_pState->m_Stream.m_Queue.clear();
-	ReleaseMutex(s_pState->m_Stream.m_Mutex);
-}
-
 ALvoid alGenStream( ALvoid )
 {
 	assert(!s_pState->m_Stream.m_Valid);
@@ -1060,6 +1534,13 @@ ALvoid alGenStream( ALvoid )
 	// setup some defaults
 	s_pState->m_Stream.m_Gain = 1.f;
 	s_pState->m_Stream.m_GainDirty = true;
+	s_pState->m_Stream.m_pFile = NULL;
+	s_pState->m_Stream.m_MP3Data = NULL;
+	s_pState->m_Stream.m_MP3DataSize = 0;
+	s_pState->m_Stream.m_MP3DecodedBytes = 0;
+	s_pState->m_Stream.m_MP3CopyOffset = 0;
+	s_pState->m_Stream.m_UseMP3 = false;
+	ZeroMemory(&s_pState->m_Stream.m_MP3Stream, sizeof(s_pState->m_Stream.m_MP3Stream));
 
 	s_pState->m_Stream.m_CurrentPacket = 0;
 	for (int p = 0; p < QAL_MAX_STREAM_PACKETS; ++p)
@@ -1196,7 +1677,7 @@ static void _updateVoiceGain(IDirectSoundBuffer* voice, FLOAT gain)
 	// compute aggregate gain
 	FLOAT g = s_pState->m_Gain * gain;
 	
-	if (g <= 0.f)
+	if (g <= 0.0f)
 	{
 		// mute the sound
 		voice->SetVolume(DSBVOLUME_MIN);
@@ -1265,7 +1746,7 @@ static void _updateStream(void)
 	{
 		// compute aggregate gain
 		FLOAT g = s_pState->m_Gain * s_pState->m_Stream.m_Gain;
-		if (g <= 0.f)
+		if (g <= 0.0f)
 		{
 			// mute the sound
 			s_pState->m_Stream.m_pVoice->SetVolume(DSBVOLUME_MIN);

@@ -111,7 +111,7 @@ extern void AS_ParseSets( void );
 extern void AS_AddPrecacheEntry( const char *name );
 
 extern void S_UpdateAmbientSet ( const char *name, vec3_t origin );
-extern int S_AddLocalSet( const char *name, vec3_t listener_origin, vec3_t origin, int entID, int time );
+extern int S_AddLocalSet( const char *name, vec3_t origin, int time );
 
 extern sfxHandle_t	AS_GetBModelSound( const char *name, int stage );
 
