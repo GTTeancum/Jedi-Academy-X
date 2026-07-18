@@ -730,7 +730,7 @@ qboolean G_CallSpawn( gentity_t *ent ) {
 					ent->classname,
 					item->giType,
 					item->giTag,
-					item->world_model[0] ? item->world_model[0] : "",
+					item->world_model ? item->world_model : "",
 					ent->s.origin[0],
 					ent->s.origin[1],
 					ent->s.origin[2] );

@@ -379,6 +379,10 @@ OFFICIAL_EF_ITEMS_SHA256 = {
     "g_items.c": "694376d9d1e00e0e0eeedd15c76acdee9f57ab3b7a2af18646bf1b170ed41b8a",
 }
 
+OFFICIAL_EF_SHARED_SHA256 = {
+    "bg_misc.c": "af1159688f0789fdaa0b3a9e2b340e1202262917bca4f489468304fce8399db4",
+}
+
 OFFICIAL_EF_PLAYER_CLASSES = {
     "PC_NOCLASS": 0,
     "PC_INFILTRATOR": 1,
@@ -418,6 +422,14 @@ FORBIDDEN_JA_AI_PROJECT_SOURCES = {
     "../game/g_missile.c",
     "../game/g_active.c",
     "../game/g_items.c",
+}
+
+REQUIRED_OFFICIAL_EF_SHARED_PROJECT_SOURCES = {
+    "../game/ef_shared/bg_misc_xbox.cpp",
+}
+
+FORBIDDEN_JA_SHARED_PROJECT_SOURCES = {
+    "../game/bg_misc.c",
 }
 
 REQUIRED_HOLOMATCH_INPUT_MARKERS = {
@@ -484,9 +496,25 @@ REQUIRED_HOLOMATCH_COMBAT_MARKERS = {
     ],
     "codemp/game/ef_game/g_items_xbox.cpp": [
         '#include "g_items.c"',
-        "STEFX_HM_CanItemBeGrabbed",
+        "STEFX_HM_OfficialSpawnItem",
         "STEFX_HM: official EF item lifecycle active",
         "STEFX_HM: retired JA carrier item hook invoked name=",
+    ],
+    "codemp/game/ef_shared/bg_misc.c": [
+        "gitem_t\tbg_itemlist[]",
+        "qboolean\tBG_CanItemBeGrabbed( const entityState_t *ent, const playerState_t *ps )",
+        "void BG_PlayerStateToEntityState( playerState_t *ps, entityState_t *s, qboolean snap )",
+    ],
+    "codemp/game/ef_shared/bg_misc_xbox.cpp": [
+        '#include "bg_misc.c"',
+        "STEFX_HM_OfficialCanItemBeGrabbed",
+        "STEFX_HM: official EF shared item table and pickup rules active",
+    ],
+    "codemp/game/bg_public.h": [
+        "#if defined(STEFX_ELITE_FORCE_MP)",
+        "char\t\t*world_model;",
+        "char\t\t*pickup_name;",
+        "BG_CanItemBeGrabbed( const entityState_t *ent, const playerState_t *ps )",
     ],
     "codemp/game/ef_game/g_combat.c": [
         "void AddScore( gentity_t *ent, int score )",
@@ -1234,6 +1262,31 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(compiled_ja_ai_sources)
         )
 
+    cgame_project = repo_root / "codemp" / "x_jk2cgame" / "x_jk2cgame.vcproj"
+    cgame_project_paths = project_paths(cgame_project)
+    for project_name, paths in (
+        ("game", game_project_paths),
+        ("cgame", cgame_project_paths),
+    ):
+        missing_shared = sorted(
+            norm_path(path) for path in REQUIRED_OFFICIAL_EF_SHARED_PROJECT_SOURCES
+            if norm_path(path) not in paths
+        )
+        if missing_shared:
+            fail(
+                f"Holomatch {project_name} project is missing official EF shared source(s): "
+                + ", ".join(missing_shared)
+            )
+        compiled_ja_shared = sorted(
+            norm_path(path) for path in FORBIDDEN_JA_SHARED_PROJECT_SOURCES
+            if norm_path(path) in paths
+        )
+        if compiled_ja_shared:
+            fail(
+                f"Holomatch {project_name} project still compiles inherited JA shared source(s): "
+                + ", ".join(compiled_ja_shared)
+            )
+
     official_ai_dir = repo_root / "codemp" / "game" / "ef_ai"
     bad_official_ai_hashes: list[str] = []
     for filename, expected_hash in sorted(OFFICIAL_EF_AI_SHA256.items()):
@@ -1341,8 +1394,28 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_official_items_hashes)
         )
 
-    ef_ai_compat = (repo_root / "codemp" / "game" / "ef_ai_compat.h").read_text(
-        encoding="utf-8", errors="ignore"
+    official_shared_dir = repo_root / "codemp" / "game" / "ef_shared"
+    bad_official_shared_hashes: list[str] = []
+    for filename, expected_hash in sorted(OFFICIAL_EF_SHARED_SHA256.items()):
+        path = official_shared_dir / filename
+        if not path.is_file():
+            bad_official_shared_hashes.append(f"{filename}: missing")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            bad_official_shared_hashes.append(f"{filename}: {actual_hash}")
+    if bad_official_shared_hashes:
+        fail(
+            "official EF 1.2 shared source must remain byte-for-byte unchanged: "
+            + ", ".join(bad_official_shared_hashes)
+        )
+
+    ef_ai_compat = "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in (
+            repo_root / "codemp" / "game" / "ef_shared_compat.h",
+            repo_root / "codemp" / "game" / "ef_ai_compat.h",
+        )
     )
     bad_player_classes = sorted(
         f"{name}={value}"
@@ -1851,6 +1924,9 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "officialEfActiveByteExact": True,
         "officialEfItemsFiles": len(OFFICIAL_EF_ITEMS_SHA256),
         "officialEfItemsByteExact": True,
+        "officialEfSharedFiles": len(OFFICIAL_EF_SHARED_SHA256),
+        "officialEfSharedByteExact": True,
+        "officialEfSharedItemAbi": True,
         "officialEfPlayerClasses": len(OFFICIAL_EF_PLAYER_CLASSES),
         "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
         "officialEfBotActionFlags": len(OFFICIAL_EF_BOT_ACTION_FLAGS),
@@ -2531,6 +2607,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: official EF client activity active with Xbox usercmd boundary",
         b"STEFX_HM: official EF item lifecycle active",
         b"STEFX_HM: retired JA carrier item hook invoked name=",
+        b"STEFX_HM: official EF shared item table and pickup rules active",
         b"STEFX_HM: retired JA carrier combat hook invoked name=",
         b"STEFX_HM: cgame skipped EF moving missile dlight on Xbox renderer weapon=",
         b"STEFX_HM: cgame rendered EF alternate missile safe sprite weapon=",

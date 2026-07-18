@@ -13,44 +13,11 @@ static vmCvar_t stefx_hm_disabled_item_mod;
 #define g_pModActionHero stefx_hm_disabled_item_mod
 #define g_pModAssimilation stefx_hm_disabled_item_mod
 
-static qboolean STEFX_HM_CanItemBeGrabbed( const entityState_t *ent, const playerState_t *ps )
-{
-	return game::BG_CanItemBeGrabbed( g_gametype.integer, ent, ps );
-}
-
-static gitem_t *STEFX_HM_FindItemWithClassname( const char *classname )
-{
-	int i;
-
-	for ( i = 1; i < game::bg_numItems; ++i )
-	{
-		if ( game::bg_itemlist[i].classname &&
-			!Q_stricmp( game::bg_itemlist[i].classname, classname ) )
-		{
-			return &game::bg_itemlist[i];
-		}
-	}
-
-	return NULL;
-}
-
-static gitem_t *STEFX_HM_FindItemForAmmo( int ammo )
-{
-	return game::BG_FindItemForAmmo( (ammo_t)ammo );
-}
-
-#define BG_CanItemBeGrabbed STEFX_HM_CanItemBeGrabbed
-#define BG_FindItemWithClassname STEFX_HM_FindItemWithClassname
-#define BG_FindItemForAmmo STEFX_HM_FindItemForAmmo
-
 #define G_SpawnItem STEFX_HM_OfficialSpawnItem
 
 #include "g_items.c"
 
 #undef G_SpawnItem
-#undef BG_FindItemForAmmo
-#undef BG_FindItemWithClassname
-#undef BG_CanItemBeGrabbed
 
 void G_SpawnItem( gentity_t *ent, gitem_t *item )
 {

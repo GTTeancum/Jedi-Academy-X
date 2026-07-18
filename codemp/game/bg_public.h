@@ -1114,6 +1114,23 @@ typedef enum {
 //---------------------------------------------------------
 
 // gitem_t->type
+#if defined(STEFX_ELITE_FORCE_MP)
+enum {
+	IT_BAD,
+	IT_WEAPON,
+	IT_AMMO,
+	IT_ARMOR,
+	IT_HEALTH,
+	IT_POWERUP,
+	IT_HOLDABLE,
+	IT_TEAM
+};
+typedef int itemType_t;
+
+// Retained only so inherited carrier sources compile while their owners are
+// replaced. Holomatch's official EF item table never emits this JA type.
+#define IT_PERSISTANT_POWERUP IT_POWERUP
+#else
 typedef enum {
 	IT_BAD,
 	IT_WEAPON,				// EFX: rotate + upscale + minlight
@@ -1128,9 +1145,25 @@ typedef enum {
 	IT_TEAM
 };
 typedef int itemType_t;
+#endif
 
 #define MAX_ITEM_MODELS 4
 
+#if defined(STEFX_ELITE_FORCE_MP)
+typedef struct gitem_s {
+	char		*classname;
+	char		*pickup_sound;
+	char		*world_model;
+	char		*view_model;
+	char		*icon;
+	char		*pickup_name;
+	int			quantity;
+	itemType_t	giType;
+	int			giTag;
+	char		*precaches;
+	char		*sounds;
+} gitem_t;
+#else
 typedef struct gitem_s {
 	char		*classname;	// spawning name
 	char		*pickup_sound;
@@ -1148,6 +1181,7 @@ typedef struct gitem_s {
 	char		*sounds;		// string of all sounds this item will use
 	char		*description;
 } gitem_t;
+#endif
 
 // included in both the game dll and the client
 #include "../namespace_begin.h"
@@ -1157,14 +1191,24 @@ extern	int		bg_numItems;
 
 float vectoyaw( const vec3_t vec );
 
-gitem_t	*BG_FindItem( const char *classname );
+gitem_t *BG_FindItemWithClassname( const char *name );
+char *BG_FindClassnameForHoldable( holdable_t pw );
+gitem_t	*BG_FindItem( const char *name );
 gitem_t	*BG_FindItemForWeapon( weapon_t weapon );
+#if defined(STEFX_ELITE_FORCE_MP)
+gitem_t	*BG_FindItemForAmmo( weapon_t weapon );
+#else
 gitem_t	*BG_FindItemForAmmo( ammo_t ammo );
+#endif
 gitem_t	*BG_FindItemForPowerup( powerup_t pw );
 gitem_t	*BG_FindItemForHoldable( holdable_t pw );
 #define	ITEM_INDEX(x) ((x)-bg_itemlist)
 
+#if defined(STEFX_ELITE_FORCE_MP)
+qboolean	BG_CanItemBeGrabbed( const entityState_t *ent, const playerState_t *ps );
+#else
 qboolean	BG_CanItemBeGrabbed( int gametype, const entityState_t *ent, const playerState_t *ps );
+#endif
 
 #include "../namespace_end.h"
 

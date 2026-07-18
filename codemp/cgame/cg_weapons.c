@@ -232,6 +232,9 @@ void CG_RegisterItemVisuals( int itemNum ) {
 	memset( itemInfo, 0, sizeof( *itemInfo ) );
 	itemInfo->registered = qtrue;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	itemInfo->models[0] = trap_R_RegisterModel( item->world_model );
+#else
 	if (item->giType == IT_TEAM &&
 		(item->giTag == PW_REDFLAG || item->giTag == PW_BLUEFLAG) &&
 		cgs.gametype == GT_CTY)
@@ -247,6 +250,7 @@ void CG_RegisterItemVisuals( int itemNum ) {
 	{
 		itemInfo->models[0] = trap_R_RegisterModel( item->world_model[0] );
 	}
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -292,12 +296,14 @@ Ghoul2 Insert End
 	//
 	// powerups have an accompanying ring or sphere
 	//
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if ( item->giType == IT_POWERUP || item->giType == IT_HEALTH || 
 		item->giType == IT_ARMOR || item->giType == IT_HOLDABLE ) {
 		if ( item->world_model[1] ) {
 			itemInfo->models[1] = trap_R_RegisterModel( item->world_model[1] );
 		}
 	}
+#endif
 }
 
 
@@ -1251,7 +1257,6 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 			hand.backlerp = 0;
 		}
 	}
-
 #if defined(STEFX_ELITE_FORCE_MP)
 	if ( CG_STEFXIsHolomatchWeapon( ps->weapon ) )
 	{
@@ -3057,6 +3062,7 @@ void CG_InitG2Weapons(void)
 	CG_PrintfAlways( "STEFX_HM: skipping inherited cgame weapon model instances\n" );
 	return;
 #endif
+#if !defined(STEFX_ELITE_FORCE_MP)
 	for ( item = bg_itemlist + 1 ; item->classname ; item++ ) 
 	{
 		if ( item->giType == IT_WEAPON )
@@ -3089,6 +3095,7 @@ void CG_InitG2Weapons(void)
 			
 		}
 	}
+#endif
 }
 
 // clean out any g2 models we instanciated for copying purposes

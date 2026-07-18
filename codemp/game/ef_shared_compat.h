@@ -1,0 +1,48 @@
+#ifndef EF_SHARED_COMPAT_H
+#define EF_SHARED_COMPAT_H
+
+// Official EF shared sources stay untouched. These aliases are the temporary
+// ABI boundary to the remaining Xbox JA carrier until each owner is replaced.
+
+#define GT_TOURNAMENT GT_DUEL
+
+#define PERS_CLASS PERS_CAPTURES
+#define PC_NOCLASS 0
+#define PC_INFILTRATOR 1
+#define PC_SNIPER 2
+#define PC_HEAVY 3
+#define PC_DEMO 4
+#define PC_MEDIC 5
+#define PC_TECH 6
+#define PC_BORG 7
+#define PC_VIP 8
+#define PC_ACTIONHERO 9
+
+#define PW_GHOST PW_CLOAKED
+#define PW_INVIS PW_CLOAKED
+#define PW_HASTE PW_SPEED
+#define PW_REGEN PW_FORCE_BOON
+#define PW_FLIGHT PW_FORCE_ENLIGHTENED_LIGHT
+#define PW_SEEKER PW_SPEEDBURST
+
+#define WP_PHASER WP_BRYAR_PISTOL
+#define WP_COMPRESSION_RIFLE WP_BLASTER
+#define WP_IMOD WP_DEMP2
+#define WP_SCAVENGER_RIFLE WP_BOWCASTER
+#define WP_STASIS WP_FLECHETTE
+#define WP_GRENADE_LAUNCHER WP_THERMAL
+#define WP_TETRION_DISRUPTOR WP_DISRUPTOR
+#define WP_QUANTUM_BURST WP_REPEATER
+#define WP_DREADNOUGHT WP_ROCKET_LAUNCHER
+#define WP_VOYAGER_HYPO WP_STUN_BATON
+#define WP_BORG_ASSIMILATOR (WP_NUM_WEAPONS + 20)
+#define WP_BORG_WEAPON (WP_NUM_WEAPONS + 21)
+
+#define HI_MEDKIT HI_MEDPAC
+#define HI_DETPACK HI_NUM_HOLDABLE
+#define HI_TRANSPORTER (HI_NUM_HOLDABLE + 1)
+#define HI_DECOY (HI_NUM_HOLDABLE + 2)
+
+#define STAT_USEABLE_PLACED 9
+
+#endif

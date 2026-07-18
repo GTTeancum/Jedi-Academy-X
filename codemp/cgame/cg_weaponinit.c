@@ -180,7 +180,7 @@ void CG_RegisterWeapon( int weaponNum) {
 	CG_RegisterItemVisuals( item - bg_itemlist );
 
 	// load cmodel before model so filecache works
-	weaponInfo->weaponModel = trap_R_RegisterModel( item->world_model[0] );
+	weaponInfo->weaponModel = trap_R_RegisterModel( item->world_model );
 	// load in-view model also
 	weaponInfo->viewModel = trap_R_RegisterModel(item->view_model);
 
@@ -195,10 +195,10 @@ void CG_RegisterWeapon( int weaponNum) {
 
 	ammo = NULL;
 	if ( weaponData[weaponNum].ammoIndex != AMMO_NONE ) {
-		ammo = BG_FindItemForAmmo( (ammo_t)weaponData[weaponNum].ammoIndex );
+		ammo = BG_FindItemForAmmo( weaponNum );
 	}
-	if ( ammo && ammo->classname && ammo->world_model[0] ) {
-		weaponInfo->ammoModel = trap_R_RegisterModel( ammo->world_model[0] );
+	if ( ammo && ammo->classname && ammo->world_model ) {
+		weaponInfo->ammoModel = trap_R_RegisterModel( ammo->world_model );
 	}
 
 //	strcpy( path, item->view_model );

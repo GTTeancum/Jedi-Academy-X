@@ -155,7 +155,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\game\bg_misc.c"
+				RelativePath="..\game\ef_shared\bg_misc_xbox.cpp"
 				>
 								<FileConfiguration
 					Name="Release|Win32"
