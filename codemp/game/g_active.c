@@ -858,6 +858,128 @@ void G_VehicleAttachDroidUnit( gentity_t *vehEnt )
 }
 
 //called gameside only from pmove code (convenience)
+#if defined(STEFX_ELITE_FORCE_MP)
+static void STEFX_ClearInvulnerabilityForAction( gentity_t *ent, const char *action )
+{
+	static qboolean loggedHolomatchActionClear = qfalse;
+
+	if ( !ent || !ent->client )
+	{
+		return;
+	}
+
+	if ( (ent->client->ps.eFlags & EF_INVULNERABLE) &&
+		!loggedHolomatchActionClear )
+	{
+		G_Printf( "STEFX_HM: action cleared EF ghost respawn protection client=%d action='%s'\n",
+			ent->s.number,
+			action ? action : "" );
+		loggedHolomatchActionClear = qtrue;
+	}
+
+	ent->client->ps.eFlags &= ~EF_INVULNERABLE;
+	ent->client->invulnerableTimer = 0;
+}
+
+static void STEFX_ScrubHolomatchClientFrameState( gentity_t *ent )
+{
+	static qboolean loggedHolomatchClientStateScrub = qfalse;
+	gclient_t *client;
+	qboolean hadInheritedState;
+	int staleWeapon;
+
+	if ( !ent || !ent->client )
+	{
+		return;
+	}
+
+	client = ent->client;
+	staleWeapon = client->ps.weapon;
+	hadInheritedState =
+		( client->ps.m_iVehicleNum ||
+		client->jetPackOn ||
+		client->ps.saberInFlight ||
+		client->ps.saberEntityNum ||
+		client->ps.saberMove ||
+		client->ps.saberLockTime ||
+		client->ps.saberLockFrame ||
+		client->ps.forceGripChangeMovetype ||
+		client->ps.fd.forcePowersKnown ||
+		client->ps.fd.forcePowersActive ||
+		client->ps.fd.forcePower ||
+		client->ps.activeForcePass ||
+		client->ps.emplacedIndex ||
+		client->ps.genericEnemyIndex != -1 ||
+		client->ps.heldByClient ||
+		client->ps.ragAttach ||
+		client->ps.brokenLimbs ||
+		client->ps.isJediMaster ||
+		client->ps.holocronBits ||
+		client->ps.stats[STAT_HOLDABLE_ITEMS] ||
+		client->ps.stats[STAT_HOLDABLE_ITEM] ||
+		client->pushEffectTime ||
+		client->ps.powerups[PW_CLOAKED] ||
+		( client->ps.eFlags & ( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE ) ) ||
+		staleWeapon == WP_SABER ||
+		staleWeapon == WP_STUN_BATON ||
+		staleWeapon == WP_MELEE );
+
+	memset( &client->ps.fd, 0, sizeof( client->ps.fd ) );
+	client->ps.fd.forcePowerSelected = -1;
+	client->ps.fd.forceGripEntityNum = ENTITYNUM_NONE;
+	client->ps.fd.forceDrainEntNum = ENTITYNUM_NONE;
+	client->ps.saberInFlight = qfalse;
+	client->ps.saberEntityNum = 0;
+	client->ps.saberEntityState = 0;
+	client->ps.saberMove = 0;
+	client->ps.saberBlocked = 0;
+	client->ps.saberLockTime = 0;
+	client->ps.saberLockFrame = 0;
+	client->ps.forceGripChangeMovetype = 0;
+	client->ps.saberHolstered = 0;
+	client->ps.duelInProgress = qfalse;
+	client->ps.duelIndex = ENTITYNUM_NONE;
+	client->ps.activeForcePass = 0;
+	client->ps.emplacedIndex = 0;
+	client->ps.genericEnemyIndex = -1;
+	client->ps.heldByClient = 0;
+	client->ps.ragAttach = 0;
+	client->ps.brokenLimbs = 0;
+	client->ps.isJediMaster = qfalse;
+	client->ps.holocronBits = 0;
+	client->ps.stats[STAT_HOLDABLE_ITEMS] = 0;
+	client->ps.stats[STAT_HOLDABLE_ITEM] = 0;
+	client->ps.m_iVehicleNum = 0;
+	client->ps.powerups[PW_CLOAKED] = 0;
+	client->ps.jetpackFuel = 100;
+	client->ps.cloakFuel = 100;
+	client->ps.eFlags &= ~( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE );
+	client->jetPackOn = qfalse;
+	client->pushEffectTime = 0;
+	client->bodyGrabIndex = ENTITYNUM_NONE;
+	ent->s.m_iVehicleNum = 0;
+	ent->s.eFlags &= ~( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE );
+	ent->s.modelGhoul2 = 0;
+
+	if ( staleWeapon == WP_SABER ||
+		staleWeapon == WP_STUN_BATON ||
+		staleWeapon == WP_MELEE )
+	{
+		client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+		client->ps.weapon = WP_BRYAR_PISTOL;
+		client->ps.weaponstate = WEAPON_READY;
+	}
+
+	if ( hadInheritedState && !loggedHolomatchClientStateScrub )
+	{
+		G_Printf( "STEFX_HM: scrubbed inherited client frame state in Holomatch client=%d oldWeapon=%d\n",
+			ent->s.number,
+			staleWeapon );
+		loggedHolomatchClientStateScrub = qtrue;
+	}
+}
+#endif
+
 void G_CheapWeaponFire(int entNum, int ev)
 {
 	gentity_t *ent = &g_entities[entNum];
@@ -886,14 +1008,22 @@ void G_CheapWeaponFire(int entNum, int ev)
 
 			FireWeapon( ent, qfalse );
 			ent->client->dangerTime = level.time;
+#if defined(STEFX_ELITE_FORCE_MP)
+			STEFX_ClearInvulnerabilityForAction( ent, "fire" );
+#else
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+#endif
 			break;
 		case EV_ALT_FIRE:
 			FireWeapon( ent, qtrue );
 			ent->client->dangerTime = level.time;
+#if defined(STEFX_ELITE_FORCE_MP)
+			STEFX_ClearInvulnerabilityForAction( ent, "alt_fire" );
+#else
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+#endif
 			break;
 	}
 }
@@ -916,6 +1046,9 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 	gclient_t *client;
 	int		damage;
 	vec3_t	dir;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchFallSound = qfalse;
+#endif
 //	vec3_t	origin, angles;
 //	qboolean	fired;
 //	gitem_t *item;
@@ -990,23 +1123,59 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 
 				if (ent->health < 1)
 				{
+#if defined(STEFX_ELITE_FORCE_MP)
+					if ( !loggedHolomatchFallSound )
+					{
+						G_Printf( "STEFX_HM: server using EF fatal-fall media\n" );
+						loggedHolomatchFallSound = qtrue;
+					}
+					G_Sound(ent, CHAN_AUTO, G_SoundIndex( "sound/player/footsteps/metalland.wav" ));
+#else
 					G_Sound(ent, CHAN_AUTO, G_SoundIndex( "sound/player/fallsplat.wav" ));
+#endif
 				}
 			}
 			break;
 		case EV_FIRE_WEAPON:
 			FireWeapon( ent, qfalse );
 			ent->client->dangerTime = level.time;
+#if defined(STEFX_ELITE_FORCE_MP)
+			STEFX_ClearInvulnerabilityForAction( ent, "fire" );
+#else
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+#endif
 			break;
 
 		case EV_ALT_FIRE:
 			FireWeapon( ent, qtrue );
 			ent->client->dangerTime = level.time;
+#if defined(STEFX_ELITE_FORCE_MP)
+			STEFX_ClearInvulnerabilityForAction( ent, "alt_fire" );
+#else
 			ent->client->ps.eFlags &= ~EF_INVULNERABLE;
 			ent->client->invulnerableTimer = 0;
+#endif
 			break;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+		case EV_FIRE_EMPTY_PHASER:
+			{
+				static qboolean loggedEmptyPhaser = qfalse;
+
+				FireWeapon( ent, qfalse );
+				ent->client->dangerTime = level.time;
+				STEFX_ClearInvulnerabilityForAction( ent, "empty_phaser" );
+				if ( !loggedEmptyPhaser )
+				{
+					G_Printf( "STEFX_HM: server handled EF empty Phaser fire event client=%d ammo_phaser=%d\n",
+						ent->s.number,
+						ent->client->ps.ammo[AMMO_FORCE] );
+					loggedEmptyPhaser = qtrue;
+				}
+			}
+			break;
+#endif
 
 		case EV_SABER_ATTACK:
 			ent->client->dangerTime = level.time;
@@ -1205,11 +1374,25 @@ void G_UpdateClientBroadcasts ( gentity_t *self )
 	// Clear all the broadcast bits for this client
 	memset ( self->r.broadcastClients, 0, sizeof ( self->r.broadcastClients ) );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchBroadcastSkip = qfalse;
+
+		if ( !loggedHolomatchBroadcastSkip )
+		{
+			G_Printf( "STEFX_HM: skipping inherited Force/Jedi visibility broadcasts in Holomatch\n" );
+			loggedHolomatchBroadcastSkip = qtrue;
+		}
+		return;
+	}
+#else
+
 	// The jedi master is broadcast to everyone in range
 	G_UpdateJediMasterBroadcasts ( self );
 
 	// Anyone with force sight on should see this client
 	G_UpdateForceSightBroadcasts ( self );
+#endif
 }
 
 void G_AddPushVecToUcmd( gentity_t *self, usercmd_t *ucmd )
@@ -1900,6 +2083,10 @@ void ClientThink_real( gentity_t *ent ) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	STEFX_ScrubHolomatchClientFrameState( ent );
+#endif
+
 	// This code was moved here from clientThink to fix a problem with g_synchronousClients 
 	// being set to 1 when in vehicles. 
 	if ( ent->s.number < MAX_CLIENTS && ent->client->ps.m_iVehicleNum )
@@ -1924,6 +2111,17 @@ void ClientThink_real( gentity_t *ent ) {
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchSaberStanceSkip = qfalse;
+
+		if ( !loggedHolomatchSaberStanceSkip )
+		{
+			G_Printf( "STEFX_HM: skipping inherited saber stance selection in Holomatch client=%d\n", ent->s.number );
+			loggedHolomatchSaberStanceSkip = qtrue;
+		}
+	}
+#else
 	if (!(client->ps.pm_flags & PMF_FOLLOW))
 	{
 		if (g_gametype.integer == GT_SIEGE &&
@@ -1995,6 +2193,7 @@ void ClientThink_real( gentity_t *ent ) {
 			}
 		}
 	}
+#endif
 
 	// mark the time, so the connection sprite can be removed
 	ucmd = &ent->client->pers.cmd;
@@ -3113,6 +3312,19 @@ void ClientThink_real( gentity_t *ent ) {
 			ent->client->lastGenCmdTime = level.time + 300; //default 100ms debounce between issuing the same command.
 		}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		{
+			static qboolean loggedHolomatchGenericCmdSkip = qfalse;
+
+			if ( !loggedHolomatchGenericCmdSkip )
+			{
+				G_Printf( "STEFX_HM: skipping inherited generic command in Holomatch cmd=%d\n",
+					pm.cmd.generic_cmd );
+				loggedHolomatchGenericCmdSkip = qtrue;
+			}
+		}
+#else
+		{
 		switch(pm.cmd.generic_cmd)
 		{
 		case 0:
@@ -3314,6 +3526,8 @@ void ClientThink_real( gentity_t *ent ) {
 		default:
 			break;
 		}
+		}
+#endif
 	}
 
 	// save results of pmove

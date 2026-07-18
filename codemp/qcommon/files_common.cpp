@@ -259,7 +259,11 @@ fileHandle_t FS_HandleForFile(void) {
 	int		i;
 
 	for ( i = 1 ; i < MAX_FILE_HANDLES ; i++ ) {
+#ifdef _XBOX
+		if ( !fsh[i].used ) {
+#else
 		if ( fsh[i].handleFiles.file.o == NULL ) {
+#endif
 			return i;
 		}
 	}
@@ -303,9 +307,9 @@ char *FS_BuildOSPath( const char *qpath )
 	if (qpath[0] == '\\' || qpath[0] == '/')
 		qpath++;
 
-	// FIXME VVFIXME Holy crap this is wrong.
-//	Com_sprintf( temp, sizeof(temp), "/%s/%s", fs_gamedirvar->string, qpath );
-	Com_sprintf( temp, sizeof(temp), "/%s/%s", "base", qpath );
+	Com_sprintf( temp, sizeof(temp), "/%s/%s",
+		(fs_gamedir && fs_gamedir[0]) ? fs_gamedir : BASEGAME,
+		qpath );
 
 	FS_ReplaceSeparators( temp );	
 	Com_sprintf( ospath[toggle], sizeof( ospath[0] ), "%s%s", 

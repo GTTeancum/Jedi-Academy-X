@@ -191,6 +191,110 @@ typedef struct {
 /*
 ==============================================================================
 
+MD4 file format
+
+==============================================================================
+*/
+
+#define MD4_IDENT			(('5'<<24)+('M'<<16)+('D'<<8)+'R')
+#define MD4_VERSION			2
+#define	MD4_MAX_BONES		128
+
+typedef struct {
+	int			boneIndex;
+	float		boneWeight;
+	vec3_t		offset;
+} md4Weight_t;
+
+typedef struct {
+	vec3_t		normal;
+	vec2_t		texCoords;
+	int			numWeights;
+	md4Weight_t	weights[1];
+} md4Vertex_t;
+
+typedef struct {
+	int			indexes[3];
+} md4Triangle_t;
+
+typedef struct {
+	int			ident;
+
+	char		name[MAX_QPATH];
+	char		shader[MAX_QPATH];
+	int			shaderIndex;
+
+	int			ofsHeader;
+
+	int			numVerts;
+	int			ofsVerts;
+
+	int			numTriangles;
+	int			ofsTriangles;
+
+	int			numBoneReferences;
+	int			ofsBoneReferences;
+
+	int			ofsEnd;
+} md4Surface_t;
+
+typedef struct {
+	float		matrix[3][4];
+} md4Bone_t;
+
+typedef struct {
+	vec3_t		bounds[2];
+	vec3_t		localOrigin;
+	float		radius;
+	char		name[16];
+	md4Bone_t	bones[1];
+} md4Frame_t;
+
+typedef struct {
+	unsigned char Comp[24];
+} md4CompBone_t;
+
+typedef struct {
+	vec3_t		bounds[2];
+	vec3_t		localOrigin;
+	float		radius;
+	md4CompBone_t	bones[1];
+} md4CompFrame_t;
+
+typedef struct {
+	int			numSurfaces;
+	int			ofsSurfaces;
+	int			ofsEnd;
+} md4LOD_t;
+
+typedef struct {
+	int			boneIndex;
+	char		name[32];
+} md4Tag_t;
+
+typedef struct {
+	int			ident;
+	int			version;
+
+	char		name[MAX_QPATH];
+
+	int			numFrames;
+	int			numBones;
+	int			ofsFrames;
+
+	int			numLODs;
+	int			ofsLODs;
+
+	int			numTags;
+	int			ofsTags;
+
+	int			ofsEnd;
+} md4Header_t;
+
+
+/*
+==============================================================================
+
   .BSP file format
 
 ==============================================================================

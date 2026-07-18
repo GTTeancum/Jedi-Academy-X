@@ -3,7 +3,7 @@
 // moved it from the original header file for PCH reasons...
 //
 
-#if defined(_XBOX) && !defined(_JK2EXE) && !defined(_UI)	// Linker only wants one copy
+#if defined(_XBOX) && !defined(_JK2EXE) && !defined(_UI) && !defined(STEFX_ANIMTABLE_DEFINE)	// Linker only wants one copy
 extern stringID_table_t animTable[MAX_ANIMATIONS+1];
 #else
 stringID_table_t animTable [MAX_ANIMATIONS+1] =

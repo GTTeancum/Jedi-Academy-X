@@ -13,7 +13,6 @@
 #include "match.h"
 #include "xboxcommon.h"
 #include "..\server\server.h"
-#include "../ui/ui_local.h"
 #include "../qcommon/cm_local.h"
 #include "../client/client.h" 
 

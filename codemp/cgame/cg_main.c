@@ -506,6 +506,17 @@ static void CG_DebugBoxLines(vec3_t mins, vec3_t maxs, int duration)
 //handle ragdoll callbacks, for events and debugging -rww
 static int CG_RagCallback(int callType)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchRagCallbackSkip = qfalse;
+
+	if ( !loggedHolomatchRagCallbackSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited ragdoll callback in Holomatch type=%d\n", callType );
+		loggedHolomatchRagCallbackSkip = qtrue;
+	}
+	return 0;
+#endif
+
 	switch(callType)
 	{
 	case RAG_CALLBACK_DEBUGBOX:
@@ -1030,7 +1041,11 @@ static cvarTable_t cvarTable[] = { // bk001129
 	{ &cg_timescaleFadeSpeed, "cg_timescaleFadeSpeed", "0", 0},
 	{ &cg_timescale, "timescale", "1", 0},
 	{ &cg_scorePlum, "cg_scorePlums", "1", CVAR_USERINFO | CVAR_ARCHIVE},
-	{ &cg_hudFiles, "cg_hudFiles", "ui/jahud.txt", CVAR_USERINFO | CVAR_ARCHIVE},
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ &cg_hudFiles, "cg_hudFiles", "", CVAR_USERINFO | CVAR_ARCHIVE},
+#else
+	{ &cg_hudFiles, "cg_hudFiles", "ui/hud.txt", CVAR_USERINFO | CVAR_ARCHIVE},
+#endif
 	{ &cg_smoothClients, "cg_smoothClients", "1", CVAR_USERINFO | CVAR_ARCHIVE},
 	{ &cg_cameraMode, "com_cameraMode", "0", CVAR_CHEAT},
 
@@ -1532,6 +1547,21 @@ static void CG_RegisterSaberShaders( void )
 static void CG_RegisterEffectShaders( void )
 {
 	static qboolean registered = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( registered )
+	{
+		return;
+	}
+
+	cgs.media.hackerIconShader = 0;
+	cgs.media.forceCoronaShader = 0;
+	cgs.media.yellowDroppedSaberShader = 0;
+	cgs.media.rivetMarkShader = trap_R_RegisterShader( "gfx/damage/rivetmark" );
+
+	registered = qtrue;
+	CG_PrintfAlways( "STEFX_HM: cgame skipped inherited saber/power shader preload\n" );
+	return;
+#else
 	int zeroCount = 0;
 	int shaderCount = 0;
 
@@ -1615,6 +1645,7 @@ static void CG_RegisterEffectShaders( void )
 		cgs.media.yellowDroppedSaberShader, cgs.media.rivetMarkShader,
 		shaderCount, zeroCount );
 #endif
+#endif
 }
 
 static void CG_RegisterSounds( void ) {
@@ -1622,11 +1653,33 @@ static void CG_RegisterSounds( void ) {
 	char	items[MAX_ITEMS+1];
 	char	name[MAX_QPATH];
 	const char	*soundName;
+#if defined(STEFX_ELITE_FORCE_MP)
+	sfxHandle_t stepSound;
+	sfxHandle_t clankSound;
+	sfxHandle_t splashSound;
+#endif
 
 	CG_AS_Register();
 
 //	CG_LoadingString( "sounds" );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( cgs.timelimit || cg_buildScript.integer ) {
+		cgs.media.oneMinuteSound = trap_S_RegisterSound( "sound/voice/computer/misc/1_minute.wav" );
+		cgs.media.fiveMinuteSound = trap_S_RegisterSound( "sound/voice/computer/misc/5_minute.wav" );
+	}
+	if ( cgs.fraglimit || cg_buildScript.integer ) {
+		cgs.media.oneFragSound = trap_S_RegisterSound( "sound/voice/computer/misc/1_frag.wav" );
+		cgs.media.twoFragSound = trap_S_RegisterSound( "sound/voice/computer/misc/2_frags.wav" );
+		cgs.media.threeFragSound = trap_S_RegisterSound( "sound/voice/computer/misc/3_frags.wav" );
+	}
+	cgs.media.count3Sound = trap_S_RegisterSound( "sound/voice/computer/misc/three.wav" );
+	cgs.media.count2Sound = trap_S_RegisterSound( "sound/voice/computer/misc/two.wav" );
+	cgs.media.count1Sound = trap_S_RegisterSound( "sound/voice/computer/misc/one.wav" );
+	cgs.media.countFightSound = trap_S_RegisterSound( "sound/voice/computer/misc/fight.wav" );
+	cgs.media.countPrepareSound = trap_S_RegisterSound( "sound/voice/computer/misc/prepare.wav" );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF announcer media\n" );
+#else
 	trap_S_RegisterSound( "sound/weapons/melee/punch1.mp3" );
 	trap_S_RegisterSound( "sound/weapons/melee/punch2.mp3" );
 	trap_S_RegisterSound( "sound/weapons/melee/punch3.mp3" );
@@ -1650,9 +1703,16 @@ static void CG_RegisterSounds( void ) {
 	cgs.media.count2Sound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM036" );
 	cgs.media.count1Sound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM037" );
 	cgs.media.countFightSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM038" );
+#endif
 
 	CG_RegisterEffectShaders();
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.noAmmoSound = trap_S_RegisterSound( "sound/weapons/noammo.wav" );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF no-ammo media\n" );
+#endif
+
+#if !defined(STEFX_ELITE_FORCE_MP)
 	for (i=1 ; i<9 ; i++)
 	{
 		trap_S_RegisterSound(va("sound/weapons/saber/saberhup%i.wav", i));
@@ -1730,6 +1790,7 @@ static void CG_RegisterSounds( void ) {
 	trap_S_RegisterSound("sound/weapons/force/absorb.mp3"); //PDSOUND_ABSORB
 	trap_S_RegisterSound("sound/weapons/force/jump.mp3"); //PDSOUND_FORCEJUMP
 	trap_S_RegisterSound("sound/weapons/force/grip.mp3"); //PDSOUND_FORCEGRIP
+#endif
 
 	if ( cgs.gametype >= GT_TEAM || cg_buildScript.integer ) {
 
@@ -1757,10 +1818,19 @@ static void CG_RegisterSounds( void ) {
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.drainSound = 0;
+#else
 	cgs.media.drainSound = trap_S_RegisterSound("sound/weapons/force/drained.mp3");
+#endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.happyMusic = trap_S_RegisterSound("music/win.wav");
+	cgs.media.dramaticFailure = trap_S_RegisterSound("music/loss.wav");
+#else
 	cgs.media.happyMusic = trap_S_RegisterSound("music/goodsmall.mp3");
 	cgs.media.dramaticFailure = trap_S_RegisterSound("music/badsmall.mp3");
+#endif
 
 	//PRECACHE ALL MUSIC HERE (don't need to precache normally because it's streamed off the disk)
 	if (cg_buildScript.integer)
@@ -1772,17 +1842,40 @@ static void CG_RegisterSounds( void ) {
 
 	cgs.media.selectSound = trap_S_RegisterSound( "sound/weapons/change.wav" );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.teleInSound = trap_S_RegisterSound( "sound/world/transin.wav" );
+	cgs.media.teleOutSound = trap_S_RegisterSound( "sound/world/transout.wav" );
+#else
 	cgs.media.teleInSound = trap_S_RegisterSound( "sound/player/telein.wav" );
 	cgs.media.teleOutSound = trap_S_RegisterSound( "sound/player/teleout.wav" );
+#endif
 	cgs.media.respawnSound = trap_S_RegisterSound( "sound/items/respawn1.wav" );
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	trap_S_RegisterSound( "sound/movers/objects/objectHit.wav" );
+#endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.talkSound = trap_S_RegisterSound( "sound/interface/communicator.wav" );
+#else
 	cgs.media.talkSound = trap_S_RegisterSound( "sound/player/talk.wav" );
+#endif
 	cgs.media.landSound = trap_S_RegisterSound( "sound/player/land1.wav");
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.fallSound = trap_S_RegisterSound( "sound/player/footsteps/metalland.wav");
+#else
 	cgs.media.fallSound = trap_S_RegisterSound( "sound/player/fallsplat.wav");
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF teleporter/chat media\n" );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF landing/fall media\n" );
+#endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.crackleSound = trap_S_RegisterSound( "sound/ambience/spark5.wav" );
+#else
 	cgs.media.crackleSound = trap_S_RegisterSound( "sound/effects/energy_crackle.wav" );
+#endif
 #ifdef JK2AWARDS
 	cgs.media.impressiveSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM025" );
 	cgs.media.excellentSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM053" );
@@ -1797,33 +1890,57 @@ static void CG_RegisterSounds( void ) {
 	cgs.media.lostLeadSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM052");
 	*/
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.rollSound					= cgs.media.landSound;
+	cgs.media.noforceSound				= 0;
+#else
 	cgs.media.rollSound					= trap_S_RegisterSound( "sound/player/roll1.wav");
-
 	cgs.media.noforceSound				= trap_S_RegisterSound( "sound/weapons/force/noforce" );
+#endif
 
 	cgs.media.watrInSound				= trap_S_RegisterSound( "sound/player/watr_in.wav");
 	cgs.media.watrOutSound				= trap_S_RegisterSound( "sound/player/watr_out.wav");
 	cgs.media.watrUnSound				= trap_S_RegisterSound( "sound/player/watr_un.wav");
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.explosionModel			= trap_R_RegisterModel ( "models/weaphits/explosion.md3" );
+#else
 	cgs.media.explosionModel			= trap_R_RegisterModel ( "models/map_objects/mp/sphere.md3" );
+#endif
 	cgs.media.surfaceExplosionShader	= trap_R_RegisterShader( "surfaceExplosion" );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.disruptorShader			= trap_R_RegisterShader( "powerups/disrupt");
+#else
 	cgs.media.disruptorShader			= trap_R_RegisterShader( "gfx/effects/burn");
+#endif
 
 	if (cg_buildScript.integer)
 	{
 		trap_R_RegisterShader( "gfx/effects/turretflashdie" );
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.solidWhite = trap_R_RegisterShader( "white" );
+#else
 	cgs.media.solidWhite = trap_R_RegisterShader( "gfx/effects/solidWhite_cull" );
+#endif
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	trap_R_RegisterShader("gfx/misc/mp_light_enlight_disable");
 	trap_R_RegisterShader("gfx/misc/mp_dark_enlight_disable");
+#endif
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	trap_R_RegisterModel ( "models/map_objects/mp/sphere.md3" );
 	trap_R_RegisterModel("models/items/remote.md3");
+#endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.holocronPickup = 0;
+#else
 	cgs.media.holocronPickup = trap_S_RegisterSound( "sound/player/holocron.wav" );
+#endif
 
 	// Zoom
 	cgs.media.zoomStart = trap_S_RegisterSound( "sound/interface/zoomstart.wav" );
@@ -1831,6 +1948,41 @@ static void CG_RegisterSounds( void ) {
 	cgs.media.zoomEnd	= trap_S_RegisterSound( "sound/interface/zoomend.wav" );
 
 	for (i=0 ; i<4 ; i++) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_sprintf (name, sizeof(name), "sound/player/footsteps/step%i.wav", i+1);
+		stepSound = trap_S_RegisterSound (name);
+		cgs.media.footsteps[FOOTSTEP_STONEWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_STONERUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_SNOWWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_SNOWRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_SANDWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_SANDRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_GRASSWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_GRASSRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_DIRTWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_DIRTRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_MUDWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_MUDRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_GRAVELWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_GRAVELRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_RUGWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_RUGRUN][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_WOODWALK][i] = stepSound;
+		cgs.media.footsteps[FOOTSTEP_WOODRUN][i] = stepSound;
+
+		Com_sprintf (name, sizeof(name), "sound/player/footsteps/clank%i.wav", i+1);
+		clankSound = trap_S_RegisterSound (name);
+		cgs.media.footsteps[FOOTSTEP_METALWALK][i] = clankSound;
+		cgs.media.footsteps[FOOTSTEP_METALRUN][i] = clankSound;
+		cgs.media.footsteps[FOOTSTEP_PIPEWALK][i] = clankSound;
+		cgs.media.footsteps[FOOTSTEP_PIPERUN][i] = clankSound;
+
+		Com_sprintf (name, sizeof(name), "sound/player/footsteps/splash%i.wav", i+1);
+		splashSound = trap_S_RegisterSound (name);
+		cgs.media.footsteps[FOOTSTEP_SPLASH][i] = splashSound;
+		cgs.media.footsteps[FOOTSTEP_WADE][i] = splashSound;
+		cgs.media.footsteps[FOOTSTEP_SWIM][i] = splashSound;
+#else
 		Com_sprintf (name, sizeof(name), "sound/player/footsteps/stone_step%i.wav", i+1);
 		cgs.media.footsteps[FOOTSTEP_STONEWALK][i] = trap_S_RegisterSound (name);
 		Com_sprintf (name, sizeof(name), "sound/player/footsteps/stone_run%i.wav", i+1);
@@ -1894,7 +2046,11 @@ static void CG_RegisterSounds( void ) {
 		cgs.media.footsteps[FOOTSTEP_WOODWALK][i] = trap_S_RegisterSound (name);
 		Com_sprintf (name, sizeof(name), "sound/player/footsteps/wood_run%i.wav", i+1);
 		cgs.media.footsteps[FOOTSTEP_WOODRUN][i] = trap_S_RegisterSound (name);
+#endif
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF footstep media\n" );
+#endif
 
 	// only register the items that the server says we need
 	strcpy( items, CG_ConfigString( CS_ITEMS ) );
@@ -1953,6 +2109,11 @@ static void CG_RegisterSounds( void ) {
 		cgs.gameIcons[i] = trap_R_RegisterShaderNoMip ( iconName );
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cg_siegeWinTeam = 0;
+	cg_beatingSiegeTime = 0;
+	CG_PrintfAlways( "STEFX_HM: cgame skipped inherited mode config parse in Holomatch\n" );
+#else
 	soundName = CG_ConfigString(CS_SIEGE_STATE);
 
 	if (soundName[0])
@@ -1976,15 +2137,24 @@ static void CG_RegisterSounds( void ) {
 			CG_SetSiegeTimerCvar ( cg_beatingSiegeTime );
 		}
 	}
+#endif
 
 	cg->loadLCARSStage = 2;
 
 	// FIXME: only needed with item
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.deploySeeker = 0;
+	cgs.media.medkitSound = trap_S_RegisterSound ("sound/items/use_medkit.wav");
+	cgs.media.winnerSound = trap_S_RegisterSound( "sound/voice/computer/misc/youwin.wav" );
+	cgs.media.loserSound = 0;
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF utility media\n" );
+#else
 	cgs.media.deploySeeker = trap_S_RegisterSound ("sound/chars/seeker/misc/hiss");
 	cgs.media.medkitSound = trap_S_RegisterSound ("sound/items/use_bacta.wav");
 	
 	cgs.media.winnerSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM006" );
 	cgs.media.loserSound = trap_S_RegisterSound( "sound/chars/protocol/misc/40MOM010" );
+#endif
 }
 
 
@@ -2040,6 +2210,14 @@ static void CG_RegisterEffects( void )
 extern char *forceHolocronModels[];
 int CG_HandleAppendedSkin(char *modelName);
 void CG_CacheG2AnimInfo(char *modelName);
+
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXGraphicsModelConfigIsInherited( const char *modelName )
+{
+	return modelName && ( strstr( modelName, ".glm" ) || modelName[0] == '$' || modelName[0] == '@' );
+}
+#endif
+
 /*
 =================
 CG_RegisterGraphics
@@ -2126,13 +2304,28 @@ static void CG_RegisterGraphics( void ) {
 //		cgs.media.chunkyNumberShaders[i]	= trap_R_RegisterShaderNoMip( sb_c_nums[i] );
 	}
 
+	cgs.media.deferShader = trap_R_RegisterShaderNoMip( "gfx/2d/defer" );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_STEFXRegisterHolomatchHudGraphics();
+	cgs.media.balloonShader = trap_R_RegisterShader( "sprites/chat" );
+	cgs.media.vchatShader = cgs.media.balloonShader;
+	cgs.media.radarShader = 0;
+	cgs.media.siegeItemShader = 0;
+	cgs.media.mAutomapPlayerIcon = 0;
+	cgs.media.mAutomapRocketIcon = 0;
+	cgs.media.wireframeAutomapFrame_left = 0;
+	cgs.media.wireframeAutomapFrame_right = 0;
+	cgs.media.wireframeAutomapFrame_top = 0;
+	cgs.media.wireframeAutomapFrame_bottom = 0;
+	cgs.media.connectionShader = trap_R_RegisterShader( "disconnected" );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF chat/net HUD media\n" );
+#else
 	trap_R_RegisterShaderNoMip ( "gfx/mp/pduel_icon_lone" );
 	trap_R_RegisterShaderNoMip ( "gfx/mp/pduel_icon_double" );
 
 	cgs.media.balloonShader = trap_R_RegisterShader( "gfx/mp/chat_icon" );
 	cgs.media.vchatShader = trap_R_RegisterShader( "gfx/mp/vchat_icon" );
-
-	cgs.media.deferShader = trap_R_RegisterShaderNoMip( "gfx/2d/defer.tga" );
 
 	cgs.media.radarShader			= trap_R_RegisterShaderNoMip ( "gfx/menus/radar/radar.png" );
 	cgs.media.siegeItemShader		= trap_R_RegisterShaderNoMip ( "gfx/menus/radar/goalitem" );
@@ -2146,6 +2339,7 @@ static void CG_RegisterGraphics( void ) {
 
 //	cgs.media.lagometerShader = trap_R_RegisterShaderNoMip("gfx/2d/lag" );
 	cgs.media.connectionShader = trap_R_RegisterShaderNoMip( "gfx/2d/net" );
+#endif
 
 #ifdef _XBOX
 }
@@ -2156,6 +2350,10 @@ static void CG_RegisterGraphics( void ) {
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() != 1) {
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.boltShader = 0;
+	CG_PrintfAlways( "STEFX_HM: cgame skipped inherited graphics effect preload\n" );
+#else
 	CG_RegisterEffects();
 
 	cgs.media.boltShader = trap_R_RegisterShader( "gfx/misc/blueLine" );
@@ -2203,6 +2401,7 @@ static void CG_RegisterGraphics( void ) {
 	cgs.effects.forceDrained	= trap_FX_RegisterEffect( "effects/mp/drainhit.efx");
 
 	cgs.effects.mDisruptorDeathSmoke = trap_FX_RegisterEffect("disruptor/death_smoke");
+#endif
 
 	for ( i = 0 ; i < NUM_CROSSHAIRS ; i++ ) {
 		cgs.media.crosshairShader[i] = trap_R_RegisterShaderNoMip( va("gfx/2d/crosshair%c", 'a'+i) );
@@ -2218,6 +2417,15 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.itemRespawningPlaceholder = trap_R_RegisterShader("powerups/placeholder");
 	cgs.media.itemRespawningRezOut = trap_R_RegisterShader("powerups/rezout");
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.playerShieldDamage = trap_R_RegisterShader("gfx/misc/shieldblob");
+	cgs.media.protectShader = 0;
+	cgs.media.forceSightBubble = 0;
+	cgs.media.forceShell = 0;
+	cgs.media.sightShell = 0;
+	cgs.media.itemHoloModel = 0;
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF item respawn/shield media\n" );
+#else
 	cgs.media.playerShieldDamage = trap_R_RegisterShader("gfx/misc/personalshield");
 	cgs.media.protectShader = trap_R_RegisterShader("gfx/misc/forceprotect");
 	cgs.media.forceSightBubble = trap_R_RegisterShader("gfx/misc/sightbubble");
@@ -2225,6 +2433,7 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.sightShell = trap_R_RegisterShader("powerups/sightshell");
 
 	cgs.media.itemHoloModel = trap_R_RegisterModel("models/map_objects/mp/holo.md3");
+#endif
 
 	if (cgs.gametype == GT_HOLOCRON || cg_buildScript.integer)
 	{
@@ -2293,6 +2502,16 @@ static void CG_RegisterGraphics( void ) {
 		cgs.media.powerDuelAllyShader = trap_R_RegisterShader("gfx/mp/pduel_icon_double");//trap_R_RegisterShader("gfx/mp/pduel_gameicon_ally");
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.heartShader = 0;
+	cgs.media.ysaliredShader = 0;
+	cgs.media.ysaliblueShader = 0;
+	cgs.media.ysalimariShader = 0;
+	cgs.media.boonShader = 0;
+	cgs.media.endarkenmentShader = 0;
+	cgs.media.enlightenmentShader = 0;
+	cgs.media.invulnerabilityShader = 0;
+#else
 	cgs.media.heartShader			= trap_R_RegisterShaderNoMip( "ui/assets/statusbar/selectedhealth.tga" );
 
 	cgs.media.ysaliredShader		= trap_R_RegisterShader( "powerups/ysaliredshell");
@@ -2302,6 +2521,7 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.endarkenmentShader	= trap_R_RegisterShader( "powerups/endarkenmentshell");
 	cgs.media.enlightenmentShader	= trap_R_RegisterShader( "powerups/enlightenmentshell");
 	cgs.media.invulnerabilityShader = trap_R_RegisterShader( "powerups/invulnerabilityshell");
+#endif
 
 #ifdef JK2AWARDS
 	cgs.media.medalImpressive		= trap_R_RegisterShaderNoMip( "medal_impressive" );
@@ -2326,6 +2546,16 @@ static void CG_RegisterGraphics( void ) {
 	//FIXME: jfm:? bother to conditionally load these if an ent has this material type?
 	for ( i = 0; i < NUM_CHUNK_MODELS; i++ )
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		cgs.media.chunkModels[CHUNK_METAL2][i]	= trap_R_RegisterModel( va( "models/chunks/generic/chunks_%i.md3", i+1 ) );
+		cgs.media.chunkModels[CHUNK_METAL1][i]	= cgs.media.chunkModels[CHUNK_METAL2][i];
+		cgs.media.chunkModels[CHUNK_ROCK1][i]	= cgs.media.chunkModels[CHUNK_METAL2][i];
+		cgs.media.chunkModels[CHUNK_ROCK2][i]	= cgs.media.chunkModels[CHUNK_METAL2][i];
+		cgs.media.chunkModels[CHUNK_ROCK3][i]	= cgs.media.chunkModels[CHUNK_METAL2][i];
+		cgs.media.chunkModels[CHUNK_CRATE1][i]	= cgs.media.chunkModels[CHUNK_METAL2][i];
+		cgs.media.chunkModels[CHUNK_CRATE2][i]	= trap_R_RegisterModel( va( "models/chunks/glass/glchunks_%i.md3", i+1 ) );
+		cgs.media.chunkModels[CHUNK_WHITE_METAL][i]	= cgs.media.chunkModels[CHUNK_METAL2][i];
+#else
 		cgs.media.chunkModels[CHUNK_METAL2][i]	= trap_R_RegisterModel( va( "models/chunks/metal/metal1_%i.md3", i+1 ) ); //_ /switched\ _
 		cgs.media.chunkModels[CHUNK_METAL1][i]	= trap_R_RegisterModel( va( "models/chunks/metal/metal2_%i.md3", i+1 ) ); //  \switched/
 		cgs.media.chunkModels[CHUNK_ROCK1][i]	= trap_R_RegisterModel( va( "models/chunks/rock/rock1_%i.md3", i+1 ) );
@@ -2334,8 +2564,22 @@ static void CG_RegisterGraphics( void ) {
 		cgs.media.chunkModels[CHUNK_CRATE1][i]	= trap_R_RegisterModel( va( "models/chunks/crate/crate1_%i.md3", i+1 ) );
 		cgs.media.chunkModels[CHUNK_CRATE2][i]	= trap_R_RegisterModel( va( "models/chunks/crate/crate2_%i.md3", i+1 ) );
 		cgs.media.chunkModels[CHUNK_WHITE_METAL][i]	= trap_R_RegisterModel( va( "models/chunks/metal/wmetal1_%i.md3", i+1 ) );
+#endif
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.chunkSound			= trap_S_RegisterSound("sound/weapons/explosions/metalexplode.wav");
+	cgs.media.grateSound			= cgs.media.chunkSound;
+	cgs.media.rockBreakSound		= cgs.media.chunkSound;
+	cgs.media.rockBounceSound[0]	= cgs.media.chunkSound;
+	cgs.media.rockBounceSound[1]	= cgs.media.chunkSound;
+	cgs.media.metalBounceSound[0]	= cgs.media.chunkSound;
+	cgs.media.metalBounceSound[1]	= cgs.media.chunkSound;
+	cgs.media.glassChunkSound		= trap_S_RegisterSound("sound/weapons/explosions/glassbreak1.wav");
+	cgs.media.crateBreakSound[0]	= cgs.media.chunkSound;
+	cgs.media.crateBreakSound[1]	= cgs.media.chunkSound;
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF chunk media\n" );
+#else
 	cgs.media.chunkSound			= trap_S_RegisterSound("sound/weapons/explosions/glasslcar");
 	cgs.media.grateSound			= trap_S_RegisterSound( "sound/effects/grate_destroy" );
 	cgs.media.rockBreakSound		= trap_S_RegisterSound("sound/effects/wall_smash");
@@ -2346,6 +2590,7 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.glassChunkSound		= trap_S_RegisterSound("sound/weapons/explosions/glassbreak1");
 	cgs.media.crateBreakSound[0]	= trap_S_RegisterSound("sound/weapons/explosions/crateBust1" );
 	cgs.media.crateBreakSound[1]	= trap_S_RegisterSound("sound/weapons/explosions/crateBust2" );
+#endif
 
 /*
 Ghoul2 Insert Start
@@ -2375,6 +2620,22 @@ Ghoul2 Insert End
 
 	// doing one shader just makes it look like a shell.  By using two shaders with different bulge offsets and different texture scales, it has a much more chaotic look
 	cgs.media.electricBodyShader			= trap_R_RegisterShader( "gfx/misc/electric" );
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.electricBody2Shader			= cgs.media.electricBodyShader;
+	cgs.media.fsrMarkShader					= 0;
+	cgs.media.fslMarkShader					= 0;
+	cgs.media.fshrMarkShader				= 0;
+	cgs.media.fshlMarkShader				= 0;
+	cgs.media.refractionShader				= 0;
+	cgs.media.cloakedShader					= 0;
+
+	cgs.media.shadowMarkShader	= trap_R_RegisterShader( "markShadow" );
+	cgs.media.wakeMarkShader	= trap_R_RegisterShader( "wake" );
+	cgs.media.viewPainShader					= trap_R_RegisterShader( "gfx/misc/borgeyeflare" );
+	cgs.media.viewPainShader_Shields			= trap_R_RegisterShader( "gfx/misc/painshieldblob" );
+	cgs.media.viewPainShader_ShieldsAndHealth	= trap_R_RegisterShader( "gfx/misc/painblob" );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF overlay/mark media\n" );
+#else
 	cgs.media.electricBody2Shader			= trap_R_RegisterShader( "gfx/misc/fullbodyelectric2" );
 
 	cgs.media.fsrMarkShader					= trap_R_RegisterShader( "footstep_r" );
@@ -2393,6 +2654,7 @@ Ghoul2 Insert End
 	cgs.media.viewPainShader					= trap_R_RegisterShader( "gfx/misc/borgeyeflare" );
 	cgs.media.viewPainShader_Shields			= trap_R_RegisterShader( "gfx/mp/dmgshader_shields" );
 	cgs.media.viewPainShader_ShieldsAndHealth	= trap_R_RegisterShader( "gfx/mp/dmgshader_shieldsandhealth" );
+#endif
 
 	// register the inline models
 	breakPoint = cgs.numInlineModels = trap_CM_NumInlineModels();
@@ -2428,6 +2690,20 @@ Ghoul2 Insert End
 		}
 
 		strcpy(modelName, cModelName);
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXGraphicsModelConfigIsInherited( modelName ) )
+		{
+			static qboolean loggedHolomatchStartupModelConfigSkip = qfalse;
+
+			cgs.gameModels[i] = 0;
+			if ( !loggedHolomatchStartupModelConfigSkip )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame skipped inherited startup model config in Holomatch index=%d model='%s'\n", i, modelName );
+				loggedHolomatchStartupModelConfigSkip = qtrue;
+			}
+			continue;
+		}
+#endif
 		if (strstr(modelName, ".glm") || modelName[0] == '$')
 		{ //Check to see if it has a custom skin attached.
 			CG_HandleAppendedSkin(modelName);
@@ -2529,7 +2805,11 @@ Ghoul2 Insert Start
 
 //	CG_LoadingString("weapons");
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways( "STEFX_HM: cgame skipped inherited weapon model cache in Holomatch\n" );
+#else
 	CG_InitG2Weapons();
+#endif
 
 /*
 Ghoul2 Insert End
@@ -2538,6 +2818,24 @@ Ghoul2 Insert End
 
 
 	// new stuff
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.patrolShader = 0;
+	cgs.media.assaultShader = 0;
+	cgs.media.campShader = 0;
+	cgs.media.followShader = 0;
+	cgs.media.defendShader = 0;
+	cgs.media.teamLeaderShader = 0;
+	cgs.media.retrieveShader = 0;
+	cgs.media.escortShader = 0;
+	cgs.media.sizeCursor = 0;
+	cgs.media.selectCursor = 0;
+	cgs.media.flagShaders[0] = 0;
+	cgs.media.flagShaders[1] = 0;
+	cgs.media.flagShaders[2] = 0;
+	cgs.media.halfShieldModel = 0;
+	cgs.media.halfShieldShader = 0;
+	CG_PrintfAlways("STEFX_HM: cgame skipped inherited team-order/statusbar media in Holomatch\n");
+#else
 	cgs.media.patrolShader = trap_R_RegisterShaderNoMip("ui/assets/statusbar/patrol.tga");
 	cgs.media.assaultShader = trap_R_RegisterShaderNoMip("ui/assets/statusbar/assault.tga");
 	cgs.media.campShader = trap_R_RegisterShaderNoMip("ui/assets/statusbar/camp.tga");
@@ -2557,6 +2855,7 @@ Ghoul2 Insert End
 	cgs.media.halfShieldShader	= trap_R_RegisterShader( "halfShieldShell" );
 
 	trap_FX_RegisterEffect("force/force_touch");
+#endif
 
 	CG_ClearParticles ();
 /*
@@ -2596,6 +2895,20 @@ int CG_GetTeamNonScoreCount(team_t team);
 
 void CG_SiegeCountCvars( void )
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchClassCountSkip = qfalse;
+
+	if ( !loggedHolomatchClassCountSkip )
+	{
+		CG_PrintfAlways("STEFX_HM: cgame skipped inherited class-count media in Holomatch\n");
+		loggedHolomatchClassCountSkip = qtrue;
+	}
+
+	trap_Cvar_Set( "ui_tm1_cnt", "0" );
+	trap_Cvar_Set( "ui_tm2_cnt", "0" );
+	trap_Cvar_Set( "ui_tm3_cnt", "0" );
+	return;
+#else
 	int classGfx[6];
 
 	trap_Cvar_Set( "ui_tm1_cnt",va("%d",CG_GetTeamNonScoreCount(TEAM_RED )));
@@ -2623,6 +2936,7 @@ void CG_SiegeCountCvars( void )
 	trap_Cvar_Set( "ui_tm2_c3_cnt",va("%d",CG_GetClassCount(TEAM_BLUE,classGfx[3])));
 	trap_Cvar_Set( "ui_tm2_c4_cnt",va("%d",CG_GetClassCount(TEAM_BLUE,classGfx[4])));
 	trap_Cvar_Set( "ui_tm2_c5_cnt",va("%d",CG_GetClassCount(TEAM_BLUE,classGfx[5])));
+#endif
 
 }
 
@@ -2906,12 +3220,14 @@ qboolean CG_Asset_Parse(int handle) {
 }
 
 void CG_ParseMenu(const char *menuFile) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: cgame ignored deprecated MP HUD menu parser request\n");
+	return;
+#else
 	pc_token_t token;
 	int handle;
 
 	handle = trap_PC_LoadSource(menuFile);
-	if (!handle)
-		handle = trap_PC_LoadSource("ui/testhud.menu");
 	if (!handle)
 		return;
 
@@ -2949,11 +3265,17 @@ void CG_ParseMenu(const char *menuFile) {
 		}
 	}
 	trap_PC_FreeSource(handle);
+#endif
 }
 
 
 qboolean CG_Load_Menu(const char **p) 
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	(void)p;
+	CG_PrintfAlways("STEFX_HM: cgame ignored deprecated MP loadmenu block; shared SP UI owns menus\n");
+	return qfalse;
+#else
 
 	char *token;
 
@@ -2978,6 +3300,7 @@ qboolean CG_Load_Menu(const char **p)
 		CG_ParseMenu(token); 
 	}
 	return qfalse;
+#endif
 }
 
 
@@ -3012,6 +3335,9 @@ void CG_SetScoreSelection(void *p) {
 	menuDef_t *menu = (menuDef_t*)p;
 	playerState_t *ps = &cg->snap->ps;
 	int i, red, blue;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedParserFeederBypass = qfalse;
+#endif
 	red = blue = 0;
 	for (i = 0; i < cg->numScores; i++) {
 		if (cg->scores[i].team == TEAM_RED) {
@@ -3029,6 +3355,14 @@ void CG_SetScoreSelection(void *p) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!loggedParserFeederBypass)
+	{
+		CG_PrintfAlways("STEFX_HM: cgame score selection stayed data-only; parser menu feeders ignored\n");
+		loggedParserFeederBypass = qtrue;
+	}
+	return;
+#else
 	if ( cgs.gametype >= GT_TEAM ) {
 		int feeder = FEEDER_REDTEAM_LIST;
 		i = red;
@@ -3040,6 +3374,7 @@ void CG_SetScoreSelection(void *p) {
 	} else {
 		Menu_SetFeederSelection(menu, FEEDER_SCOREBOARD, cg->selectedScore, NULL);
 	}
+#endif
 }
 
 // FIXME: might need to cache this info
@@ -3231,6 +3566,10 @@ CG_LoadMenus();
 */
 void CG_LoadMenus(const char *menuFile) 
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: cgame ignored deprecated MP HUD menu load request\n");
+	return;
+#else
 	const char	*token;
 	const char	*p;
 	int	len;
@@ -3243,10 +3582,11 @@ void CG_LoadMenus(const char *menuFile)
 	{
 		trap_Print( va( S_COLOR_RED "menu file not found: %s, using default\n", menuFile ) );
 
-		len = trap_FS_FOpenFile( "ui/jahud.txt", &f, FS_READ );
+		len = trap_FS_FOpenFile( "ui/hud.txt", &f, FS_READ );
 		if (!f) 
 		{
 			trap_Print( va( S_COLOR_RED "default menu file not found: ui/hud.txt, unable to continue!\n", menuFile ) );
+			return;
 		}
 	}
 
@@ -3290,6 +3630,7 @@ void CG_LoadMenus(const char *menuFile)
 	}
 
 	//Com_Printf("UI menu load time = %d milli seconds\n", cgi_Milliseconds() - start);
+#endif
 }
 
 /*
@@ -3300,7 +3641,9 @@ CG_LoadHudMenu();
 */
 void CG_LoadHudMenu() 
 {
+#if !defined(STEFX_ELITE_FORCE_MP)
 	const char *hudSet;
+#endif
 
 	cgDC.registerShaderNoMip = &trap_R_RegisterShaderNoMip;
 	cgDC.setColor = &trap_R_SetColor;
@@ -3364,17 +3707,28 @@ void CG_LoadHudMenu()
 
 	Menu_Reset();
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: cgame HUD menu system disabled for EF MP; using EF SP interface HUD\n");
+	CG_PrintfAlways("STEFX_HM: cgame parser entry points are dead; shared SP UI owns menus\n");
+	return;
+#else
+
 	hudSet = cg_hudFiles.string;
 	if (hudSet[0] == '\0') 
 	{
-		hudSet = "ui/jahud.txt";
+		hudSet = "ui/hud.txt";
 	}
 
 	CG_LoadMenus(hudSet);
 
+#endif
 }
 
 void CG_AssetCache() {
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: cgame skipped inherited menu asset cache for shared SP UI path\n");
+	return;
+#endif
 	//if (Assets.textFont == NULL) {
 	//  trap_R_RegisterFont("fonts/arial.ttf", 72, &Assets.textFont);
 	//}
@@ -3846,6 +4200,24 @@ void WP_SaberLoadParms( void );
 void BG_VehicleLoadParms( void );
 #include "../namespace_end.h"
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXInitIsHolomatchWeaponIcon( int weapon )
+{
+	switch ( weapon )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+#endif
+
 /*
 =================
 CG_Init
@@ -3879,9 +4251,13 @@ void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum )
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() != 1)
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: skipping inherited vehicle parms in cgame\n");
+#else
 	//Load external vehicle data
 	BG_VehicleLoadParms();
 	CG_PrintfAlways("JAMP: CG_Init after BG_VehicleLoadParms\n");
+#endif
 
 	// clear everything
 /*
@@ -3902,9 +4278,13 @@ Ghoul2 Insert Start
 	CG_InitItems();
 	CG_PrintfAlways("JAMP: CG_Init after CG_InitItems\n");
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: skipping inherited jetpack model cache in cgame\n");
+#else
 	//create the global jetpack instance
 	CG_InitJetpackGhoul2();
 	CG_PrintfAlways("JAMP: CG_Init after CG_InitJetpackGhoul2\n");
+#endif
 
 	CG_PmoveClientPointerUpdate();
 	CG_PrintfAlways("JAMP: CG_Init after CG_PmoveClientPointerUpdate\n");
@@ -3913,9 +4293,13 @@ Ghoul2 Insert Start
 Ghoul2 Insert End
 */
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: skipping inherited saber parms in cgame\n");
+#else
 	//Load sabers.cfg data
 	WP_SaberLoadParms();
 	CG_PrintfAlways("JAMP: CG_Init after WP_SaberLoadParms\n");
+#endif
 
 	// this is kinda dumb as well, but I need to pre-load some fonts in order to have the text available
 	//	to say I'm loading the assets.... which includes loading the fonts. So I'll set these up as reasonable
@@ -3924,9 +4308,16 @@ Ghoul2 Insert End
 	//	and even if/when they get overwritten they'll be legalised by the menu asset parser :-)
 //	CG_LoadFonts();
 //	cgDC.Assets.qhSmallFont  = trap_R_RegisterFont("ocr_a");
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgDC.Assets.qhSmallFont = 0;
+	cgDC.Assets.qhMediumFont = 0;
+	cgDC.Assets.qhBigFont = 0;
+	CG_PrintfAlways("STEFX_HM: cgame skipped legacy renderer font registration; EF prop-font atlas owns Holomatch text\n");
+#else
 	cgDC.Assets.qhSmallFont  = trap_R_RegisterFont("ergoec");	// Xbox - use ergoec here too!
 	cgDC.Assets.qhMediumFont = trap_R_RegisterFont("ergoec");
 	cgDC.Assets.qhBigFont = cgDC.Assets.qhMediumFont;
+#endif
 	CG_PrintfAlways("JAMP: CG_Init after font registration\n");
 
 	memset( &cgs, 0, sizeof( cgs ) );
@@ -3964,8 +4355,14 @@ Ghoul2 Insert End
 //	cgs.media.charsetShader		= trap_R_RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
 	cgs.media.whiteShader		= trap_R_RegisterShader( "white" );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: using BaseEF loading art handles\n");
+	cgs.media.loadTick			= trap_R_RegisterShaderNoMip( "menu/loading/smpiece1" );
+	cgs.media.levelLoad			= trap_R_RegisterShaderNoMip( "menu/loading/trimupper" );
+#else
 	cgs.media.loadTick			= trap_R_RegisterShaderNoMip( "gfx/menus/newFront/GlowLoad" );
 	cgs.media.levelLoad			= trap_R_RegisterShaderNoMip( "gfx/menus/newFront/SaberLoad" );
+#endif
 	CG_PrintfAlways("JAMP: CG_Init after early shaders\n");
 
 	// Force HUD set up
@@ -3979,12 +4376,25 @@ Ghoul2 Insert End
 	i = WP_NONE+1;
 	while (i <= LAST_USEABLE_WEAPON)
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXInitIsHolomatchWeaponIcon( i ) )
+		{
+			cgs.media.weaponIcons[i] = 0;
+			cgs.media.weaponIcons_NA[i] = 0;
+			i++;
+			continue;
+		}
+#endif
 		item = BG_FindItemForWeapon(i);
 
 		if (item && item->icon && item->icon[0])
 		{
 			cgs.media.weaponIcons[i] = trap_R_RegisterShaderNoMip(item->icon);
+#if defined(STEFX_ELITE_FORCE_MP)
+			cgs.media.weaponIcons_NA[i] = cgs.media.weaponIcons[i];
+#else
 			cgs.media.weaponIcons_NA[i] = trap_R_RegisterShaderNoMip(va("%s_na", item->icon));
+#endif
 		}
 		else
 		{ //make sure it is zero'd (default shader)
@@ -3993,6 +4403,9 @@ Ghoul2 Insert End
 		}
 		i++;
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: cgame registered EF Holomatch weapon icons\n");
+#endif
 	CG_PrintfAlways("JAMP: CG_Init after weapon icons\n");
 	trap_Cvar_VariableStringBuffer("com_buildscript", buf, sizeof(buf));
 	if (atoi(buf))
@@ -4008,6 +4421,14 @@ Ghoul2 Insert End
 //	cgs.media.inventoryIconBackground	= trap_R_RegisterShaderNoMip( "gfx/hud/background_i");
 
 	//rww - precache holdable item icons here
+#if defined(STEFX_ELITE_FORCE_MP)
+	while (i < HI_NUM_HOLDABLE)
+	{
+		cgs.media.invenIcons[i] = 0;
+		i++;
+	}
+	CG_PrintfAlways("STEFX_HM: cgame skipped inherited inventory icon preload in Holomatch\n");
+#else
 	while (i < bg_numItems)
 	{
 		if (bg_itemlist[i].giType == IT_HOLDABLE)
@@ -4024,11 +4445,22 @@ Ghoul2 Insert End
 
 		i++;
 	}
+#endif
 	CG_PrintfAlways("JAMP: CG_Init after inventory icons\n");
 
 	//rww - precache force power icons here
 	i = 0;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	while (i < NUM_FORCE_POWERS)
+	{
+		cgs.media.forcePowerIcons[i] = 0;
+
+		i++;
+	}
+	cgs.media.rageRecShader = 0;
+	CG_PrintfAlways("STEFX_HM: cgame skipped inherited Force icon preload in Holomatch\n");
+#else
 	while (i < NUM_FORCE_POWERS)
 	{
 		cgs.media.forcePowerIcons[i] = trap_R_RegisterShaderNoMip(HolocronIcons[i]);
@@ -4036,14 +4468,23 @@ Ghoul2 Insert End
 		i++;
 	}
 	cgs.media.rageRecShader = trap_R_RegisterShaderNoMip("gfx/mp/f_icon_ragerec");
+#endif
 	CG_PrintfAlways("JAMP: CG_Init after force icons\n");
 
 
 	//body decal shaders -rww
+#if defined(STEFX_ELITE_FORCE_MP)
+	cgs.media.bdecal_bodyburn1 = trap_R_RegisterShader("gfx/damage/plasma_mrk");
+	cgs.media.bdecal_saberglow = 0;
+	cgs.media.bdecal_burn1 = trap_R_RegisterShader("gfx/damage/burnmark1");
+	cgs.media.mSaberDamageGlow = 0;
+	CG_PrintfAlways("STEFX_HM: cgame registered EF damage mark media\n");
+#else
 	cgs.media.bdecal_bodyburn1 = trap_R_RegisterShader("gfx/damage/bodyburnmark1");
 	cgs.media.bdecal_saberglow = trap_R_RegisterShader("gfx/damage/saberglowmark");
 	cgs.media.bdecal_burn1 = trap_R_RegisterShader("gfx/damage/bodybigburnmark1");
 	cgs.media.mSaberDamageGlow = trap_R_RegisterShader("gfx/effects/saberDamageGlow");
+#endif
 
 	CG_RegisterCvars();
 	CG_PrintfAlways("JAMP: CG_Init after CG_RegisterCvars\n");
@@ -4106,8 +4547,14 @@ Ghoul2 Insert End
 	cg->loading = qtrue;		// force players to load instead of defer
 
 	//make sure saber data is loaded before this! (so we can precache the appropriate hilts)
-	CG_InitSiegeMode();
-	CG_PrintfAlways("JAMP: CG_Init after CG_InitSiegeMode\n");
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: cgame skipped inherited mode init in Holomatch\n");
+#else
+	{
+		CG_InitSiegeMode();
+		CG_PrintfAlways("JAMP: CG_Init after CG_InitSiegeMode\n");
+	}
+#endif
 
 #if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
 	CG_PrintfAlways("JAMP: CG_Init CG_RegisterSounds skipped for Cxbx smoke testing\n");
@@ -4217,6 +4664,48 @@ void CG_DestroyAllGhoul2(void)
 	int j;
 
 //	Com_Printf("... CGameside GHOUL2 Cleanup\n");
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways( "STEFX_HM: skipping inherited cgame model cleanup in Holomatch\n" );
+	while (i < MAX_CLIENTS)
+	{
+		cgs.clientinfo[i].ghoul2Model = NULL;
+
+		j = 0;
+		while (j < MAX_SABERS)
+		{
+			cgs.clientinfo[i].ghoul2Weapons[j] = NULL;
+			j++;
+		}
+		i++;
+	}
+
+	i = 0;
+	if (cg_entities)
+	{
+		while (i < MAX_GENTITIES)
+		{
+			cg_entities[i].ghoul2 = NULL;
+			cg_entities[i].ghoul2weapon = NULL;
+			cg_entities[i].grip_arm = NULL;
+			cg_entities[i].frame_hold = NULL;
+			i++;
+		}
+	}
+
+	i = 0;
+	while (i < MAX_ITEMS)
+	{
+		j = 0;
+		while (j < MAX_ITEM_MODELS)
+		{
+			cg_items[i].g2Models[j] = NULL;
+			j++;
+		}
+		i++;
+	}
+	return;
+#endif
+
 	while (i < MAX_GENTITIES)
 	{ //free all dynamically allocated npc client info structs and ghoul2 instances
 		CG_KillCEntityG2(i);	
@@ -4271,7 +4760,11 @@ void CG_Shutdown( void )
 	//reset weather
 	trap_R_WorldEffectCommand("die");
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways( "STEFX_HM: skipping inherited shared UI model cleanup in Holomatch\n" );
+#else
 	UI_CleanupGhoul2();
+#endif
 	//If there was any ghoul2 stuff in our side of the shared ui code, then remove it now.
 
 	// some mods may need to do cleanup work here,
@@ -4286,6 +4779,20 @@ void CG_Shutdown( void )
 #include "bg_saga.h"
 #endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXIgnoreInheritedSelector( const char *selectorName )
+{
+	static qboolean logged = qfalse;
+
+	if ( !logged )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame ignored inherited selector command '%s' in Holomatch\n", selectorName );
+		logged = qtrue;
+	}
+	return qtrue;
+}
+#endif
+
 /*
 ===============
 CG_NextForcePower_f
@@ -4295,6 +4802,13 @@ void CG_NextForcePower_f( void )
 {
 	int current;
 	usercmd_t cmd;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIgnoreInheritedSelector( "forcenext" ) )
+	{
+		return;
+	}
+#endif
 
 	if ( !cg->snap )
 	{
@@ -4359,6 +4873,13 @@ void CG_PrevForcePower_f( void )
 	int current;
 	usercmd_t cmd;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIgnoreInheritedSelector( "forceprev" ) )
+	{
+		return;
+	}
+#endif
+
 	if ( !cg->snap )
 	{
 		return;
@@ -4414,6 +4935,13 @@ void CG_PrevForcePower_f( void )
 
 void CG_NextInventory_f(void)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIgnoreInheritedSelector( "invnext" ) )
+	{
+		return;
+	}
+#endif
+
 	if ( !cg->snap )
 	{
 		return;
@@ -4447,6 +4975,13 @@ void CG_NextInventory_f(void)
 
 void CG_PrevInventory_f(void)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIgnoreInheritedSelector( "invprev" ) )
+	{
+		return;
+	}
+#endif
+
 	if ( !cg->snap )
 	{
 		return;

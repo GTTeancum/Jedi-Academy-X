@@ -758,6 +758,7 @@ Throws specified debris from within a given bounding box in the world
 #define DEBRIS_SPECIALCASE_WOOD			-3
 #define DEBRIS_SPECIALCASE_GLASS		-4
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 #define NUM_DEBRIS_MODELS_GLASS				8
 #define NUM_DEBRIS_MODELS_WOOD				8
 #define NUM_DEBRIS_MODELS_CHUNKS			3
@@ -902,6 +903,7 @@ void CG_CreateDebris(int entnum, vec3_t org, vec3_t mins, vec3_t maxs, int debri
 		shardsthrow += 10;
 	}
 }
+#endif
 
 //==========================================================
 //SP-style chunks
@@ -1264,6 +1266,15 @@ void CG_ScorePlum( int client, vec3_t org, int score ) {
 	vec3_t			angles;
 	static vec3_t lastPos;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchScorePlumSkip = qfalse;
+
+	if ( !loggedHolomatchScorePlumSkip ) {
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited JA score plum local entity in Holomatch\n" );
+		loggedHolomatchScorePlumSkip = qtrue;
+	}
+	return;
+#endif
 	// only visualize for the client that scored
 	if (client != cg->predictedPlayerState.clientNum || cg_scorePlum.integer == 0) {
 		return;

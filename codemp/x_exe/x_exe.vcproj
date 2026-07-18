@@ -39,11 +39,11 @@
 			/>
 			<Tool
 				Name="VCNMakeTool"
-				BuildCommandLine="$(SolutionDir)..\build_xbox.bat mp"
-				ReBuildCommandLine="$(SolutionDir)..\build_xbox.bat mp clean &amp;&amp; $(SolutionDir)..\build_xbox.bat mp"
-				CleanCommandLine="$(SolutionDir)..\build_xbox.bat mp clean"
-				Output="$(OutDir)\jamp.exe"
-				PreprocessorDefinitions="_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				BuildCommandLine="powershell -ExecutionPolicy Bypass -File &quot;$(SolutionDir)..\scripts\build_xbox.ps1&quot; -Target mp"
+				ReBuildCommandLine="powershell -ExecutionPolicy Bypass -File &quot;$(SolutionDir)..\scripts\build_xbox.ps1&quot; -Target mp -Clean &amp;&amp; powershell -ExecutionPolicy Bypass -File &quot;$(SolutionDir)..\scripts\build_xbox.ps1&quot; -Target mp"
+				CleanCommandLine="powershell -ExecutionPolicy Bypass -File &quot;$(SolutionDir)..\scripts\build_xbox.ps1&quot; -Target mp -Clean"
+				Output="$(OutDir)\efmp.exe"
+				PreprocessorDefinitions="_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				IncludeSearchPath="C:\XDK\xbox\include;C:\XDK\include"
 			/>
 			<Tool

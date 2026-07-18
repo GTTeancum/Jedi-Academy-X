@@ -18,9 +18,20 @@
 #include "../xbox/XBLive.h"
 #include "../xbox/XBoxCommon.h"
 #include "../xbox/XBVoice.h"
+#include "../win32/xb_log.h"
 #endif
 
 //static char hiddenCvarVal[128];
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+static qboolean CL_STEFXHolomatchParseTraceActive( void )
+{
+	const char *mapname = Cvar_VariableString( "mapname" );
+	return (qboolean)( Cvar_VariableIntegerValue( "sv_running" ) &&
+		mapname &&
+		!Q_stricmp( mapname, "hm_borg1" ) );
+}
+#endif
 
 char *svc_strings[256] = {
 	"svc_bad",
@@ -209,11 +220,23 @@ for any reason, no changes to the state will be made at all.
 */
 void CL_ParseSnapshot( msg_t *msg ) {
 	int			len;
-	clSnapshot_t	*old;
+	clSnapshot_t	*old = NULL;
 	clSnapshot_t	newSnap;
 	int			deltaNum;
 	int			oldMessageNum;
 	int			i, packetNum;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int	stefxHmSnapshotTraceBudget = 96;
+	qboolean	stefxHmSnapshotTrace = qfalse;
+
+	if ( CL_STEFXHolomatchParseTraceActive() && stefxHmSnapshotTraceBudget > 0 ) {
+		stefxHmSnapshotTrace = qtrue;
+		stefxHmSnapshotTraceBudget--;
+		XBLog_Writef( "STEFX_HM: CL_ParseSnapshot enter budget=%d read=%d size=%d oldMsg=%d parseEntities=%d",
+			stefxHmSnapshotTraceBudget, msg ? msg->readcount : -1, msg ? msg->cursize : -1,
+			cl ? cl->snap.messageNum : -1, cl ? cl->parseEntitiesNum : -1 );
+	}
+#endif
 
 	// get the reliable sequence acknowledge number
 	// NOTE: now sent with all server to client messages
@@ -238,6 +261,13 @@ void CL_ParseSnapshot( msg_t *msg ) {
 		newSnap.deltaNum = newSnap.messageNum - deltaNum;
 	}
 	newSnap.snapFlags = MSG_ReadByte( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmSnapshotTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseSnapshot header msg=%d delta=%d serverTime=%d flags=0x%x validOld=%d read=%d",
+			newSnap.messageNum, newSnap.deltaNum, newSnap.serverTime, newSnap.snapFlags,
+			old ? old->valid : -1, msg->readcount );
+	}
+#endif
 
 	// If the frame is delta compressed from data that we
 	// no longer have available, we must suck up the rest of
@@ -268,6 +298,12 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	// read areamask
 	len = MSG_ReadByte( msg );
 	MSG_ReadData( msg, &newSnap.areamask, len);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmSnapshotTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseSnapshot after areamask len=%d read=%d valid=%d",
+			len, msg->readcount, newSnap.valid );
+	}
+#endif
 
 	// read playerinfo
 	SHOWNET( msg, "playerstate" );
@@ -284,14 +320,33 @@ void CL_ParseSnapshot( msg_t *msg ) {
 			MSG_ReadDeltaPlayerstate( msg, NULL, &newSnap.vps, qtrue );			
 		}
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmSnapshotTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseSnapshot after playerstate client=%d health=%d weapon=%d vehicle=%d read=%d",
+			newSnap.ps.clientNum, newSnap.ps.stats[STAT_HEALTH], newSnap.ps.weapon,
+			newSnap.ps.m_iVehicleNum, msg->readcount );
+	}
+#endif
 
 	// read packet entities
 	SHOWNET( msg, "packet entities" );
 	CL_ParsePacketEntities( msg, old, &newSnap );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmSnapshotTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseSnapshot after packet entities num=%d parseBase=%d read=%d valid=%d",
+			newSnap.numEntities, newSnap.parseEntitiesNum, msg->readcount, newSnap.valid );
+	}
+#endif
 
 	// if not valid, dump the entire thing now that it has
 	// been properly read
 	if ( !newSnap.valid ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxHmSnapshotTrace ) {
+			XBLog_Writef( "STEFX_HM: CL_ParseSnapshot invalid exit msg=%d delta=%d read=%d",
+				newSnap.messageNum, newSnap.deltaNum, msg->readcount );
+		}
+#endif
 		return;
 	}
 
@@ -328,6 +383,13 @@ void CL_ParseSnapshot( msg_t *msg ) {
 	}
 
 	cl->newSnapshots = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmSnapshotTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseSnapshot exit msg=%d serverTime=%d ping=%d entities=%d newSnapshots=%d read=%d",
+			cl->snap.messageNum, cl->snap.serverTime, cl->snap.ping,
+			cl->snap.numEntities, cl->newSnapshots, msg->readcount );
+	}
+#endif
 }
 
 
@@ -862,6 +924,19 @@ CL_ParseServerMessage
 */
 void CL_ParseServerMessage( msg_t *msg ) {
 	int			cmd;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int	stefxHmServerMessageTraceBudget = 128;
+	qboolean	stefxHmServerMessageTrace = qfalse;
+	int			stefxHmServerMessageCmdCount = 0;
+
+	if ( CL_STEFXHolomatchParseTraceActive() && stefxHmServerMessageTraceBudget > 0 ) {
+		stefxHmServerMessageTrace = qtrue;
+		stefxHmServerMessageTraceBudget--;
+		XBLog_Writef( "STEFX_HM: CL_ParseServerMessage enter budget=%d size=%d read=%d state=%d",
+			stefxHmServerMessageTraceBudget, msg ? msg->cursize : -1,
+			msg ? msg->readcount : -1, cls.state );
+	}
+#endif
 
 	if ( cl_shownet->integer == 1 ) {
 		Com_Printf ("%i ",msg->cursize);
@@ -873,6 +948,12 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 	// get the reliable sequence acknowledge number
 	clc->reliableAcknowledge = MSG_ReadLong( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmServerMessageTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseServerMessage reliableAck=%d read=%d reliableSeq=%d",
+			clc->reliableAcknowledge, msg->readcount, clc->reliableSequence );
+	}
+#endif
 	// 
 	if ( clc->reliableAcknowledge < clc->reliableSequence - MAX_RELIABLE_COMMANDS ) {
 		clc->reliableAcknowledge = clc->reliableSequence;
@@ -888,6 +969,15 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		}
 
 		cmd = MSG_ReadByte( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		stefxHmServerMessageCmdCount++;
+		if ( stefxHmServerMessageTrace &&
+			( stefxHmServerMessageCmdCount <= 24 || !(stefxHmServerMessageCmdCount & 31) ) ) {
+			const char *cmdName = (cmd >= 0 && cmd < 256 && svc_strings[cmd]) ? svc_strings[cmd] : "bad";
+			XBLog_Writef( "STEFX_HM: CL_ParseServerMessage cmd=%d name='%s' count=%d read=%d size=%d",
+				cmd, cmdName, stefxHmServerMessageCmdCount, msg->readcount, msg->cursize );
+		}
+#endif
 
 		if ( cmd == svc_EOF) {
 			SHOWNET( msg, "END OF MESSAGE" );
@@ -910,13 +1000,38 @@ void CL_ParseServerMessage( msg_t *msg ) {
 		case svc_nop:
 			break;
 		case svc_serverCommand:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxHmServerMessageTrace ) {
+				XBLog_Writef( "STEFX_HM: CL_ParseServerMessage before serverCommand read=%d",
+					msg->readcount );
+			}
+#endif
 			CL_ParseCommandString( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxHmServerMessageTrace ) {
+				XBLog_Writef( "STEFX_HM: CL_ParseServerMessage after serverCommand seq=%d read=%d",
+					clc->serverCommandSequence, msg->readcount );
+			}
+#endif
 			break;
 		case svc_gamestate:
 			CL_ParseGamestate( msg );
 			break;
 		case svc_snapshot:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxHmServerMessageTrace ) {
+				XBLog_Writef( "STEFX_HM: CL_ParseServerMessage before snapshot read=%d",
+					msg->readcount );
+			}
+#endif
 			CL_ParseSnapshot( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxHmServerMessageTrace ) {
+				XBLog_Writef( "STEFX_HM: CL_ParseServerMessage after snapshot read=%d snapMsg=%d snapTime=%d",
+					msg->readcount, cl ? cl->snap.messageNum : -1,
+					cl ? cl->snap.serverTime : -1 );
+			}
+#endif
 			break;
 		case svc_setgame:
 			CL_ParseSetGame( msg );
@@ -936,6 +1051,16 @@ void CL_ParseServerMessage( msg_t *msg ) {
 				// We now get the index that we should use to store this from the server
 				// That ensures that our playerlist and clientinfo stay in sync!
 				int index = MSG_ReadLong(msg);
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( CL_STEFXHolomatchParseTraceActive() )
+				{
+					XBPlayerInfo ignoredPeer;
+					MSG_ReadData(msg, &ignoredPeer, sizeof(ignoredPeer));
+					XBLog_Writef( "STEFX_HM: skipped Xbox online svc_newpeer index=%d read=%d",
+						index, msg->readcount );
+					break;
+				}
+#endif
 
 				// Sanity check - server shouldn't have us overwriting an active player
 				// Unless, we're the server, in which case it will be active. Doh.
@@ -970,6 +1095,14 @@ void CL_ParseServerMessage( msg_t *msg ) {
 				// Remove a client from our xbOnlineInfo. Our ordering is the same
 				// as the server, so we just get an index.
 				int index = MSG_ReadLong(msg);
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( CL_STEFXHolomatchParseTraceActive() )
+				{
+					XBLog_Writef( "STEFX_HM: skipped Xbox online svc_removepeer index=%d read=%d",
+						index, msg->readcount );
+					break;
+				}
+#endif
 
 				// Sanity check
 				assert( xbOnlineInfo.xbPlayerList[index].isActive &&
@@ -983,6 +1116,16 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			}
 		case svc_xbInfo:
 			{ //jsw//get XNADDR list from server
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( CL_STEFXHolomatchParseTraceActive() )
+				{
+					XBOnlineInfo ignoredInfo;
+					MSG_ReadData(msg, &ignoredInfo, sizeof(ignoredInfo));
+					XBLog_Writef( "STEFX_HM: skipped Xbox online svc_xbInfo bytes=%d read=%d",
+						(int)sizeof(ignoredInfo), msg->readcount );
+					break;
+				}
+#endif
 				MSG_ReadData(msg, &xbOnlineInfo, sizeof(XBOnlineInfo));
 
 				// Immediately convert everyone's XNADDR to an IN_ADDR
@@ -1050,6 +1193,14 @@ void CL_ParseServerMessage( msg_t *msg ) {
 			{
 				short pos[3];
 				MSG_ReadData( msg, pos, sizeof(pos) );
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( CL_STEFXHolomatchParseTraceActive() )
+				{
+					XBLog_Writef( "STEFX_HM: skipped Xbox voice position cmd=%d read=%d",
+						cmd, msg->readcount );
+					break;
+				}
+#endif
 
 				g_Voice.SetClientPosition( cmd - svc_plyrPos0, pos );
 				break;
@@ -1057,6 +1208,12 @@ void CL_ParseServerMessage( msg_t *msg ) {
 #endif
 		}
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmServerMessageTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_ParseServerMessage exit cmds=%d read=%d size=%d state=%d",
+			stefxHmServerMessageCmdCount, msg->readcount, msg->cursize, cls.state );
+	}
+#endif
 }
 
 

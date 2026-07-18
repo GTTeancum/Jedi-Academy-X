@@ -133,6 +133,9 @@ int Export_BotLibSetup(void)
 
 	EA_Setup();
 
+	errnum = AAS_Setup();
+	if (errnum != BLERR_NOERROR) return errnum;
+
 	/*
 	errnum = BotSetupWeaponAI();	//be_ai_weap.c
 	if (errnum != BLERR_NOERROR)return errnum;
@@ -167,6 +170,7 @@ int Export_BotLibShutdown(void)
 	PC_RemoveAllGlobalDefines();
 
 	EA_Shutdown();
+	AAS_Shutdown();
 
 	//dump all allocated memory
 //	DumpMemory();
@@ -218,7 +222,7 @@ int Export_BotLibVarGet(char *var_name, char *value, int size)
 int Export_BotLibStartFrame(float time)
 {
 	if (!BotLibSetup("BotStartFrame")) return BLERR_LIBRARYNOTSETUP;
-	return 0;
+	return AAS_StartFrame(time);
 } //end of the function Export_BotLibStartFrame
 //===========================================================================
 //
@@ -237,6 +241,12 @@ int Export_BotLibLoadMap(const char *mapname)
 	//
 	botimport.Print(PRT_MESSAGE, "------------ Map Loading ------------\n");
 	//startup AAS for the current map, model and sound index
+	errnum = AAS_LoadMap(mapname);
+	if (errnum != BLERR_NOERROR)
+	{
+		botimport.Print(PRT_ERROR, "AAS_LoadMap failed for %s err=%d\n", mapname ? mapname : "<null>", errnum);
+		return errnum;
+	}
 	//initialize the items in the level
 	//
 	botimport.Print(PRT_MESSAGE, "-------------------------------------\n");
@@ -244,7 +254,7 @@ int Export_BotLibLoadMap(const char *mapname)
 	botimport.Print(PRT_MESSAGE, "map loaded in %d msec\n", Sys_MilliSeconds() - starttime);
 #endif
 	//
-	return BLERR_NOERROR;
+	return errnum;
 } //end of the function Export_BotLibLoadMap
 //===========================================================================
 //

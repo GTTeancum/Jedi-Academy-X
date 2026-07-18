@@ -130,6 +130,66 @@ void SiegeItemRemoveOwner(gentity_t *ent, gentity_t *carrier);
 void multi_trigger( gentity_t *ent, gentity_t *activator ) 
 {
 	qboolean haltTrigger = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchMultiTrigger = qfalse;
+
+		ent->activator = activator;
+		if ( ent->nextthink )
+		{
+			return;
+		}
+
+		if ( activator && activator->client && ((ent->spawnflags&4)||(ent->spawnflags&2)||(ent->spawnflags&1)) )
+		{
+			switch( activator->client->sess.sessionTeam )
+			{
+			case TEAM_RED:
+				if ( !(ent->spawnflags&1) )
+				{
+					return;
+				}
+				break;
+			case TEAM_BLUE:
+				if ( !(ent->spawnflags&2) )
+				{
+					return;
+				}
+				break;
+			default:
+				if ( ent->spawnflags&4 )
+				{
+					return;
+				}
+				break;
+			}
+		}
+
+		if ( !loggedHolomatchMultiTrigger )
+		{
+			G_Printf( "STEFX_HM: server used EF trigger activation path classname='%s' target='%s' wait=%.2f\n",
+				ent->classname ? ent->classname : "",
+				ent->target ? ent->target : "",
+				ent->wait );
+			loggedHolomatchMultiTrigger = qtrue;
+		}
+
+		G_UseTargets (ent, ent->activator);
+
+		if ( ent->wait > 0 )
+		{
+			ent->think = multi_wait;
+			ent->nextthink = level.time + ( ent->wait + ent->random * crandom() ) * 1000;
+		}
+		else
+		{
+			ent->touch = 0;
+			ent->nextthink = level.time + FRAMETIME;
+			ent->think = G_FreeEntity;
+		}
+		return;
+	}
+#else
 
 	if ( ent->think == multi_trigger_run )
 	{//already triggered, just waiting to run
@@ -341,6 +401,7 @@ void multi_trigger( gentity_t *ent, gentity_t *activator )
 	{
 		multi_trigger_run (ent);
 	}
+#endif
 }
 
 void Use_Multi( gentity_t *ent, gentity_t *other, gentity_t *activator ) 
@@ -356,6 +417,11 @@ void Touch_Multi( gentity_t *self, gentity_t *other, trace_t *trace )
 	{
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	multi_trigger( self, other );
+	return;
+#else
 
 	if ( self->flags & FL_INACTIVE )
 	{//set by target_deactivate
@@ -547,6 +613,7 @@ void Touch_Multi( gentity_t *self, gentity_t *other, trace_t *trace )
 	}
 
 	multi_trigger( self, other );
+#endif
 }
 
 void trigger_cleared_fire (gentity_t *self)
@@ -610,6 +677,34 @@ idealclass	-	Can only be used by this class/these classes. You can specify use b
 void SP_trigger_multiple( gentity_t *ent ) 
 {
 	char	*s;
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		G_SpawnFloat( "wait", "0.5", &ent->wait );
+		G_SpawnFloat( "random", "0", &ent->random );
+
+		if ( ent->random >= ent->wait && ent->wait >= 0 )
+		{
+			ent->random = ent->wait - FRAMETIME;
+			G_Printf( "trigger_multiple has random >= wait\n" );
+		}
+
+		ent->touch = Touch_Multi;
+		ent->use = Use_Multi;
+
+		InitTrigger( ent );
+		trap_LinkEntity (ent);
+
+		G_Printf( "STEFX_HM: trigger_multiple using EF timing wait=%.2f random=%.2f target='%s' origin='%.1f %.1f %.1f'\n",
+			ent->wait,
+			ent->random,
+			ent->target ? ent->target : "",
+			ent->s.origin[0],
+			ent->s.origin[1],
+			ent->s.origin[2] );
+		return;
+	}
+#else
+
 	if ( G_SpawnString( "noise", "", &s ) ) 
 	{
 		if (s && s[0])
@@ -656,6 +751,7 @@ void SP_trigger_multiple( gentity_t *ent )
 
 	InitTrigger( ent );
 	trap_LinkEntity (ent);
+#endif
 }
 
 
@@ -1302,6 +1398,48 @@ void hurt_use( gentity_t *self, gentity_t *other, gentity_t *activator ) {
 void hurt_touch( gentity_t *self, gentity_t *other, trace_t *trace ) {
 	int		dflags;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchHurtTouch = qfalse;
+
+		if ( !other->takedamage ) {
+			return;
+		}
+
+		if ( self->timestamp > level.time ) {
+			return;
+		}
+
+		if ( self->spawnflags & 16 ) {
+			self->timestamp = level.time + 1000;
+		} else {
+			self->timestamp = level.time + FRAMETIME;
+		}
+
+		if ( !(self->spawnflags & 4) ) {
+			G_Sound( other, CHAN_AUTO, self->noise_index );
+		}
+
+		if (self->spawnflags & 8)
+			dflags = DAMAGE_NO_PROTECTION;
+		else
+			dflags = 0;
+
+		if ( !loggedHolomatchHurtTouch )
+		{
+			G_Printf( "STEFX_HM: trigger_hurt used EF damage path damage=%d spawnflags=%d dflags=%d sound=%d\n",
+				self->damage,
+				self->spawnflags,
+				dflags,
+				self->noise_index );
+			loggedHolomatchHurtTouch = qtrue;
+		}
+
+		G_Damage (other, self, self, NULL, NULL, self->damage, dflags, MOD_TRIGGER_HURT);
+		return;
+	}
+#else
+
 	if (g_gametype.integer == GT_SIEGE && self->team && self->team[0])
 	{
 		int team = atoi(self->team);
@@ -1408,10 +1546,52 @@ void hurt_touch( gentity_t *self, gentity_t *other, trace_t *trace ) {
 			G_Damage (other, self, self, NULL, NULL, dmg, dflags|DAMAGE_NO_PROTECTION, MOD_TRIGGER_HURT);
 		}
 	}
+#endif
 }
 
 void SP_trigger_hurt( gentity_t *self ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	char *stefxDamageValue;
+	char *stefxDmgValue;
+	qboolean stefxUsedDamageKey;
+	qboolean stefxUsedDmgKey;
+
+	stefxUsedDamageKey = G_SpawnString( "damage", "", &stefxDamageValue );
+	stefxUsedDmgKey = G_SpawnString( "dmg", "", &stefxDmgValue );
+#endif
+
 	InitTrigger (self);
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		self->noise_index = G_SoundIndex( "sound/world/electro.wav" );
+		self->touch = hurt_touch;
+
+		if ( !self->damage ) {
+			self->damage = 5;
+		}
+
+		G_Printf( "STEFX_HM: trigger_hurt spawn damage=%d key='%s' value='%s' spawnflags=%d origin='%.1f %.1f %.1f'\n",
+			self->damage,
+			stefxUsedDamageKey ? "damage" : ( stefxUsedDmgKey ? "dmg" : "default" ),
+			stefxUsedDamageKey ? stefxDamageValue : ( stefxUsedDmgKey ? stefxDmgValue : "5" ),
+			self->spawnflags,
+			self->s.origin[0],
+			self->s.origin[1],
+			self->s.origin[2] );
+
+		self->r.contents = CONTENTS_TRIGGER;
+
+		if ( self->spawnflags & 2 ) {
+			self->use = hurt_use;
+		}
+
+		if ( ! (self->spawnflags & 1) ) {
+			trap_LinkEntity (self);
+		}
+		return;
+	}
+#else
 
 	gTrigFallSound = G_SoundIndex("*falling1.wav");
 
@@ -1421,6 +1601,17 @@ void SP_trigger_hurt( gentity_t *self ) {
 	if ( !self->damage ) {
 		self->damage = 5;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: trigger_hurt spawn damage=%d key='%s' value='%s' spawnflags=%d origin='%.1f %.1f %.1f'\n",
+		self->damage,
+		stefxUsedDamageKey ? "damage" : ( stefxUsedDmgKey ? "dmg" : "default" ),
+		stefxUsedDamageKey ? stefxDamageValue : ( stefxUsedDmgKey ? stefxDmgValue : "5" ),
+		self->spawnflags,
+		self->s.origin[0],
+		self->s.origin[1],
+		self->s.origin[2] );
+#endif
 
 	self->r.contents = CONTENTS_TRIGGER;
 
@@ -1436,6 +1627,7 @@ void SP_trigger_hurt( gentity_t *self ) {
 	{
 		trap_UnlinkEntity(self);
 	}
+#endif
 }
 
 #define	INITIAL_SUFFOCATION_DELAY	500 //.5 seconds

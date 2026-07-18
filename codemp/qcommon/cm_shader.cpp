@@ -78,9 +78,15 @@ void CM_LoadShaderFiles( void )
 		int		numShaders;
 		int		i;
 		int		sum = 0;
+		const char *shaderDir;
 
 		// scan for shader files
-		shaderFiles1 = FS_ListFiles( "shaders", ".shader", &numShaders1 );
+#if defined(STEFX_ELITE_FORCE_MP)
+		shaderDir = "scripts";
+#else
+		shaderDir = "shaders";
+#endif
+		shaderFiles1 = FS_ListFiles( shaderDir, ".shader", &numShaders1 );
 
 		if ( !shaderFiles1 || !numShaders1 )
 		{
@@ -99,7 +105,7 @@ void CM_LoadShaderFiles( void )
 		{
 			char filename[MAX_QPATH];
 
-			Com_sprintf( filename, sizeof( filename ), "shaders/%s", shaderFiles1[i] );
+			Com_sprintf( filename, sizeof( filename ), "%s/%s", shaderDir, shaderFiles1[i] );
 			Com_DPrintf( "...loading '%s'\n", filename );
 			FS_ReadFile( filename, (void **)&buffers[i] );
 			if ( !buffers[i] ) 

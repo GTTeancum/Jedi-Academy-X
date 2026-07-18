@@ -85,7 +85,7 @@ def index_assets(base_dir: Path) -> tuple[dict[str, list[tuple[str, int]]], set[
                     continue
                 rel = normalized(entry.filename)
                 add_asset(assets, rel, pk3.name, entry.file_size)
-                if pk3.name.lower() == "xbox0.pk3":
+                if pk3.name.lower() in {"xbox0.pk3", "xbox1.pk3"}:
                     patch_pk3_assets.add(rel)
 
     return assets, patch_pk3_assets

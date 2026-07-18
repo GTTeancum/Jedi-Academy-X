@@ -99,20 +99,42 @@ extern menuDef_t *menuScoreboard;
 void Menu_Reset();			// FIXME: add to right include file
 
 static void CG_scrollScoresDown_f( void) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean logged = qfalse;
+
+	if ( !logged )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame ignored parser scoreboard scroll; EF score overlay owns scores\n" );
+		logged = qtrue;
+	}
+	return;
+#else
 	if (menuScoreboard && cg->scoreBoardShowing) {
 		Menu_ScrollFeeder(menuScoreboard, FEEDER_SCOREBOARD, qtrue);
 		Menu_ScrollFeeder(menuScoreboard, FEEDER_REDTEAM_LIST, qtrue);
 		Menu_ScrollFeeder(menuScoreboard, FEEDER_BLUETEAM_LIST, qtrue);
 	}
+#endif
 }
 
 
 static void CG_scrollScoresUp_f( void) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean logged = qfalse;
+
+	if ( !logged )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame ignored parser scoreboard scroll; EF score overlay owns scores\n" );
+		logged = qtrue;
+	}
+	return;
+#else
 	if (menuScoreboard && cg->scoreBoardShowing) {
 		Menu_ScrollFeeder(menuScoreboard, FEEDER_SCOREBOARD, qfalse);
 		Menu_ScrollFeeder(menuScoreboard, FEEDER_REDTEAM_LIST, qfalse);
 		Menu_ScrollFeeder(menuScoreboard, FEEDER_BLUETEAM_LIST, qfalse);
 	}
+#endif
 }
 
 
@@ -287,6 +309,58 @@ typedef struct {
 	void	(*function)(void);
 } consoleCommand_t;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXConsoleCommandIsInherited( const char *cmd )
+{
+	if ( !cmd || !cmd[0] )
+	{
+		return qfalse;
+	}
+
+	if ( !Q_stricmp( cmd, "invnext" ) ||
+		!Q_stricmp( cmd, "invprev" ) ||
+		!Q_stricmp( cmd, "forcenext" ) ||
+		!Q_stricmp( cmd, "forceprev" ) ||
+		!Q_stricmp( cmd, "forcechanged" ) ||
+		!Q_stricmp( cmd, "sv_invnext" ) ||
+		!Q_stricmp( cmd, "sv_invprev" ) ||
+		!Q_stricmp( cmd, "sv_forcenext" ) ||
+		!Q_stricmp( cmd, "sv_forceprev" ) ||
+		!Q_stricmp( cmd, "sv_saberswitch" ) ||
+		!Q_stricmp( cmd, "engage_duel" ) ||
+		!Q_stricmp( cmd, "force_heal" ) ||
+		!Q_stricmp( cmd, "force_speed" ) ||
+		!Q_stricmp( cmd, "force_throw" ) ||
+		!Q_stricmp( cmd, "force_pull" ) ||
+		!Q_stricmp( cmd, "force_distract" ) ||
+		!Q_stricmp( cmd, "force_rage" ) ||
+		!Q_stricmp( cmd, "force_protect" ) ||
+		!Q_stricmp( cmd, "force_absorb" ) ||
+		!Q_stricmp( cmd, "force_healother" ) ||
+		!Q_stricmp( cmd, "force_forcepowerother" ) ||
+		!Q_stricmp( cmd, "force_seeing" ) ||
+		!Q_stricmp( cmd, "use_seeker" ) ||
+		!Q_stricmp( cmd, "use_field" ) ||
+		!Q_stricmp( cmd, "use_bacta" ) ||
+		!Q_stricmp( cmd, "use_electrobinoculars" ) ||
+		!Q_stricmp( cmd, "use_sentry" ) ||
+		!Q_stricmp( cmd, "saberAttackCycle" ) ||
+		!Q_stricmp( cmd, "briefing" ) ||
+		!Q_stricmp( cmd, "siegeCvarUpdate" ) ||
+		!Q_stricmp( cmd, "siegeCompleteCvarUpdate" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXConsoleCommandsAreHolomatch( void )
+{
+	return qtrue;
+}
+#endif
+
 static consoleCommand_t	commands[] = {
 	{ "testgun", CG_TestGun_f },
 	{ "testmodel", CG_TestModel_f },
@@ -313,6 +387,10 @@ static consoleCommand_t	commands[] = {
 	{ "startOrbit", CG_StartOrbit_f },
 	//{ "camera", CG_Camera_f },
 	{ "loaddeferred", CG_LoadDeferredPlayers },
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ "+zoom", CG_ZoomDown_f },
+	{ "-zoom", CG_ZoomUp_f },
+#endif
 	{ "invnext", CG_NextInventory_f },
 	{ "invprev", CG_PrevInventory_f },
 	{ "forcenext", CG_NextForcePower_f },
@@ -337,6 +415,20 @@ qboolean CG_ConsoleCommand( void ) {
 
 	cmd = CG_Argv(0);
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXConsoleCommandsAreHolomatch() && CG_STEFXConsoleCommandIsInherited( cmd ) )
+	{
+		static qboolean logged = qfalse;
+
+		if ( !logged )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored inherited console command '%s' in Holomatch\n", cmd );
+			logged = qtrue;
+		}
+		return qtrue;
+	}
+#endif
+
 	for ( i = 0 ; i < sizeof( commands ) / sizeof( commands[0] ) ; i++ ) {
 		if ( !Q_stricmp( cmd, commands[i].cmd ) ) {
 			commands[i].function();
@@ -360,6 +452,12 @@ void CG_InitConsoleCommands( void ) {
 	int		i;
 
 	for ( i = 0 ; i < sizeof( commands ) / sizeof( commands[0] ) ; i++ ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXConsoleCommandsAreHolomatch() && CG_STEFXConsoleCommandIsInherited( commands[i].cmd ) )
+		{
+			continue;
+		}
+#endif
 		trap_AddCommand( commands[i].cmd );
 	}
 
@@ -367,32 +465,48 @@ void CG_InitConsoleCommands( void ) {
 	// the game server will interpret these commands, which will be automatically
 	// forwarded to the server after they are not recognized locally
 	//
-	trap_AddCommand ("forcechanged");
-	trap_AddCommand ("sv_invnext");
-	trap_AddCommand ("sv_invprev");
-	trap_AddCommand ("sv_forcenext");
-	trap_AddCommand ("sv_forceprev");
-	trap_AddCommand ("sv_saberswitch");
-	trap_AddCommand ("engage_duel");
-	trap_AddCommand ("force_heal");
-	trap_AddCommand ("force_speed");
-	trap_AddCommand ("force_throw");
-	trap_AddCommand ("force_pull");
-	trap_AddCommand ("force_distract");
-	trap_AddCommand ("force_rage");
-	trap_AddCommand ("force_protect");
-	trap_AddCommand ("force_absorb");
-	trap_AddCommand ("force_healother");
-	trap_AddCommand ("force_forcepowerother");
-	trap_AddCommand ("force_seeing");
-	trap_AddCommand ("use_seeker");
-	trap_AddCommand ("use_field");
-	trap_AddCommand ("use_bacta");
-	trap_AddCommand ("use_electrobinoculars");
-	trap_AddCommand ("zoom");
-	trap_AddCommand ("use_sentry");
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXConsoleCommandsAreHolomatch() )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited power/saber/holdable command registration in Holomatch\n" );
+	}
+	else
+#endif
+	{
+		trap_AddCommand ("forcechanged");
+		trap_AddCommand ("sv_invnext");
+		trap_AddCommand ("sv_invprev");
+		trap_AddCommand ("sv_forcenext");
+		trap_AddCommand ("sv_forceprev");
+		trap_AddCommand ("sv_saberswitch");
+		trap_AddCommand ("engage_duel");
+		trap_AddCommand ("force_heal");
+		trap_AddCommand ("force_speed");
+		trap_AddCommand ("force_throw");
+		trap_AddCommand ("force_pull");
+		trap_AddCommand ("force_distract");
+		trap_AddCommand ("force_rage");
+		trap_AddCommand ("force_protect");
+		trap_AddCommand ("force_absorb");
+		trap_AddCommand ("force_healother");
+		trap_AddCommand ("force_forcepowerother");
+		trap_AddCommand ("force_seeing");
+		trap_AddCommand ("use_seeker");
+		trap_AddCommand ("use_field");
+		trap_AddCommand ("use_bacta");
+		trap_AddCommand ("use_electrobinoculars");
+		trap_AddCommand ("zoom");
+		trap_AddCommand ("use_sentry");
+	}
 	trap_AddCommand ("bot_order");
+#if !defined(STEFX_ELITE_FORCE_MP)
 	trap_AddCommand ("saberAttackCycle");
+#else
+	if ( !CG_STEFXConsoleCommandsAreHolomatch() )
+	{
+		trap_AddCommand ("saberAttackCycle");
+	}
+#endif
 	trap_AddCommand ("kill");
 	trap_AddCommand ("say");
 	trap_AddCommand ("say_team");

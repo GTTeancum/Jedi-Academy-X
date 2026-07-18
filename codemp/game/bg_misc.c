@@ -1764,11 +1764,273 @@ Only in One Flag CTF games
 		""					// description
 	},
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	//
+	// Elite Force Holomatch compatibility aliases.
+	// These keep EF map pickups on the normal MP item path while the full
+	// Holomatch weapon/player-state port is still being brought across.
+	//
+
+	{
+		"weapon_phaser",
+		"sound/weapons/w_pkup.wav",
+        { "models/weapons2/phaser/phaser_w.md3",
+		0, 0, 0 },
+/* view */		"models/weapons2/phaser/phaser.md3",
+/* icon */		"icons/w_icon_phaser",
+		50,
+		IT_WEAPON,
+		WP_BRYAR_PISTOL,
+/* precache */ "",
+/* sounds */ "",
+		"Phaser"
+	},
+
+	{
+		"weapon_compressionrifle",
+		"sound/weapons/w_pkup.wav",
+        { "models/weapons2/prifle/prifle_w.md3",
+		0, 0, 0 },
+/* view */		"models/weapons2/prifle/prifle.md3",
+/* icon */		"icons/w_icon_rifle",
+		32,
+		IT_WEAPON,
+		WP_BLASTER,
+/* precache */ "",
+/* sounds */ "",
+		"Phaser Compression Rifle"
+	},
+
+	{
+		"weapon_imod",
+		"sound/weapons/w_pkup.wav",
+        { "models/weapons2/imod/imod2_w.md3",
+		0, 0, 0 },
+/* view */		"models/weapons2/imod/imod2.md3",
+/* icon */		"icons/w_icon_imod",
+		15,
+		IT_WEAPON,
+		WP_DEMP2,
+/* precache */ "",
+/* sounds */ "",
+		"I-MOD"
+	},
+
+	{
+		"weapon_scavenger",
+		"sound/weapons/w_pkup.wav",
+        { "models/weapons2/scavenger/scavenger_w.md3",
+		0, 0, 0 },
+/* view */		"models/weapons2/scavenger/scavenger.md3",
+/* icon */		"icons/w_icon_scav",
+		30,
+		IT_WEAPON,
+		WP_BOWCASTER,
+/* precache */ "",
+/* sounds */ "",
+		"Scavenger Weapon"
+	},
+
+	{
+		"weapon_tetriondisruptor",
+		"sound/weapons/w_pkup.wav",
+        { "models/weapons2/tpd/tpd_w.md3",
+		0, 0, 0 },
+/* view */		"models/weapons2/tpd/tpd.md3",
+/* icon */		"icons/w_icon_tetrion",
+		40,
+		IT_WEAPON,
+		WP_DISRUPTOR,
+/* precache */ "",
+/* sounds */ "",
+		"Tetryon Pulse Disruptor"
+	},
+
+	{
+		"weapon_dreadnought",
+		"sound/weapons/w_pkup.wav",
+        { "models/weapons2/arc_welder/arc_w.md3",
+		0, 0, 0 },
+/* view */		"models/weapons2/arc_welder/arc.md3",
+/* icon */		"icons/w_icon_dreadnought",
+		40,
+		IT_WEAPON,
+		WP_ROCKET_LAUNCHER,
+/* precache */ "",
+/* sounds */ "",
+		"Arc Welder"
+	},
+
+	{
+		"ammo_compressionrifle",
+		"sound/player/pickupenergy.wav",
+        { "models/powerups/trek/prifle_ammo.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_phaser_sm",
+		32,
+		IT_AMMO,
+		AMMO_BLASTER,
+/* precache */ "",
+/* sounds */ "",
+		"Phaser Compression Rifle Ammo"
+	},
+
+	{
+		"ammo_imod",
+		"sound/player/pickupenergy.wav",
+        { "models/powerups/trek/imod_ammo.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_imod",
+		15,
+		IT_AMMO,
+		AMMO_POWERCELL,
+/* precache */ "",
+/* sounds */ "",
+		"I-MOD Ammo"
+	},
+
+	{
+		"ammo_scavenger",
+		"sound/player/pickupenergy.wav",
+        { "models/powerups/trek/scavenger_ammo.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_scav",
+		30,
+		IT_AMMO,
+		AMMO_POWERCELL,
+/* precache */ "",
+/* sounds */ "",
+		"Scavenger Weapon Ammo"
+	},
+
+	{
+		"ammo_tetriondisruptor",
+		"sound/player/pickupenergy.wav",
+        { "models/powerups/trek/tetrion_ammo.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_tetrion_sm",
+		40,
+		IT_AMMO,
+		AMMO_POWERCELL,
+/* precache */ "",
+/* sounds */ "",
+		"Tetryon Pulse Disruptor Ammo"
+	},
+
+	{
+		"ammo_dreadnought",
+		"sound/player/pickupenergy.wav",
+        { "models/powerups/trek/arc_ammo.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_a_arc_sm",
+		40,
+		IT_AMMO,
+		AMMO_ROCKETS,
+/* precache */ "",
+/* sounds */ "",
+		"Arc Welder Ammo"
+	},
+
+	{
+		"item_armor_combat",
+		"sound/player/pickupenergy.wav",
+        { "models/powerups/trek/armor.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_armor_sm",
+		50,
+		IT_ARMOR,
+		0,
+/* precache */ "",
+/* sounds */ "",
+		"Personal Deflector Screen"
+	},
+
+	{
+		"item_hypo",
+		"sound/player/suithealth.wav",
+        { "models/powerups/trek/hypo_double.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_health2_sm",
+		25,
+		IT_HEALTH,
+		0,
+/* precache */ "",
+/* sounds */ "",
+		"Emergency Hypospray"
+	},
+
+	{
+		"item_hypo_small",
+		"sound/player/pickuphealth.wav",
+        { "models/powerups/trek/hypo_single.md3",
+		0, 0, 0 },
+/* view */		NULL,
+/* icon */		"icons/dm_health_sm",
+		5,
+		IT_HEALTH,
+		0,
+/* precache */ "",
+/* sounds */ "",
+		"Booster Hypospray"
+	},
+#endif
+
 	// end of list marker
 	{NULL}
 };
 
 int		bg_numItems = sizeof(bg_itemlist) / sizeof(bg_itemlist[0]) - 1;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean BG_STEFXIsHolomatchPreferredItem( const gitem_t *item ) {
+	static const char *preferredClassnames[] = {
+		"weapon_phaser",
+		"weapon_compressionrifle",
+		"weapon_imod",
+		"weapon_scavenger",
+		"weapon_tetriondisruptor",
+		"weapon_dreadnought",
+		"ammo_compressionrifle",
+		"ammo_imod",
+		"ammo_scavenger",
+		"ammo_tetriondisruptor",
+		"ammo_dreadnought",
+		NULL
+	};
+	int i;
+
+	if ( !item || !item->classname ) {
+		return qfalse;
+	}
+
+	for ( i = 0; preferredClassnames[i]; i++ ) {
+		if ( !Q_stricmp( item->classname, preferredClassnames[i] ) ) {
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static gitem_t *BG_STEFXFindHolomatchItemByTag( itemType_t type, int tag ) {
+	gitem_t *it;
+
+	for ( it = bg_itemlist + 1 ; it->classname ; it++ ) {
+		if ( it->giType == type && it->giTag == tag && BG_STEFXIsHolomatchPreferredItem( it ) ) {
+			return it;
+		}
+	}
+
+	return NULL;
+}
+#endif
 
 float vectoyaw( const vec3_t vec ) {
 	float	yaw;
@@ -1922,6 +2184,13 @@ BG_FindItemForWeapon
 gitem_t	*BG_FindItemForWeapon( weapon_t weapon ) {
 	gitem_t	*it;
 	
+#if defined(STEFX_ELITE_FORCE_MP)
+	it = BG_STEFXFindHolomatchItemByTag( IT_WEAPON, weapon );
+	if ( it ) {
+		return it;
+	}
+#endif
+
 	for ( it = bg_itemlist + 1 ; it->classname ; it++) {
 		if ( it->giType == IT_WEAPON && it->giTag == weapon ) {
 			return it;
@@ -1941,6 +2210,13 @@ BG_FindItemForAmmo
 gitem_t	*BG_FindItemForAmmo( ammo_t ammo ) {
 	gitem_t	*it;
 	
+#if defined(STEFX_ELITE_FORCE_MP)
+	it = BG_STEFXFindHolomatchItemByTag( IT_AMMO, ammo );
+	if ( it ) {
+		return it;
+	}
+#endif
+
 	for ( it = bg_itemlist + 1 ; it->classname ; it++) {
 		if ( it->giType == IT_AMMO && it->giTag == ammo ) {
 			return it;
@@ -2266,6 +2542,14 @@ qboolean BG_CanItemBeGrabbed( int gametype, const entityState_t *ent, const play
 		return qtrue;
 
 	case IT_ARMOR:
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( item->classname && !Q_stricmp( item->classname, "item_armor_combat" ) ) {
+			if ( ps->stats[STAT_ARMOR] >= ps->stats[STAT_MAX_HEALTH] * 2 ) {
+				return qfalse;
+			}
+			return qtrue;
+		}
+#endif
 		if ( ps->stats[STAT_ARMOR] >= ps->stats[STAT_MAX_HEALTH]/* * item->giTag*/ ) {
 			return qfalse;
 		}
@@ -2502,6 +2786,9 @@ char *eventnames[] = {
 	"EV_CHANGE_WEAPON",
 	"EV_FIRE_WEAPON",
 	"EV_ALT_FIRE",
+#if defined(STEFX_ELITE_FORCE_MP)
+	"EV_FIRE_EMPTY_PHASER",
+#endif
 	"EV_SABER_ATTACK",
 	"EV_SABER_HIT",
 	"EV_SABER_BLOCK",
@@ -2896,6 +3183,61 @@ This is done after each set of usercmd_t on the server,
 and after local prediction on the client
 ========================
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+static void BG_STEFXClearInheritedSnapshotState( playerState_t *ps, entityState_t *s )
+{
+	static qboolean loggedHolomatchSnapshotScrub = qfalse;
+	qboolean hadInheritedState;
+
+	hadInheritedState =
+		( s->saberInFlight ||
+		s->saberEntityNum ||
+		s->saberMove ||
+		s->forcePowersActive ||
+		s->forceFrame ||
+		s->emplacedOwner ||
+		s->genericenemyindex != -1 ||
+		s->activeForcePass ||
+		s->saberHolstered ||
+		s->isJediMaster ||
+		s->time2 ||
+		s->fireflag ||
+		s->m_iVehicleNum ||
+		( s->eFlags & ( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE ) ) );
+
+	s->trickedentindex = 0;
+	s->trickedentindex2 = 0;
+	s->trickedentindex3 = 0;
+	s->trickedentindex4 = 0;
+	s->forceFrame = 0;
+	s->emplacedOwner = 0;
+	s->genericenemyindex = -1;
+	s->activeForcePass = 0;
+	s->eFlags &= ~( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE );
+	s->modelGhoul2 = 0;
+	s->saberInFlight = qfalse;
+	s->saberEntityNum = 0;
+	s->saberMove = 0;
+	s->forcePowersActive = 0;
+	s->bolt1 = 0;
+	s->saberHolstered = 0;
+	s->isJediMaster = qfalse;
+	s->time2 = 0;
+	s->fireflag = 0;
+	s->heldByClient = 0;
+	s->ragAttach = 0;
+	s->brokenLimbs = 0;
+	s->m_iVehicleNum = 0;
+
+	if ( hadInheritedState && !loggedHolomatchSnapshotScrub )
+	{
+		Com_Printf( "STEFX_HM: shared snapshot scrubbed inherited Force/saber/vehicle state client=%d\n",
+			ps ? ps->clientNum : -1 );
+		loggedHolomatchSnapshotScrub = qtrue;
+	}
+}
+#endif
+
 void BG_PlayerStateToEntityState( playerState_t *ps, entityState_t *s, qboolean snap ) {
 	int		i;
 
@@ -2949,6 +3291,10 @@ void BG_PlayerStateToEntityState( playerState_t *ps, entityState_t *s, qboolean 
 										// so corpses can also reference the proper config
 	s->eFlags = ps->eFlags;
 	s->eFlags2 = ps->eFlags2;
+#if defined(STEFX_ELITE_FORCE_MP)
+	s->eFlags &= ~EF_G2ANIMATING;
+	s->modelGhoul2 = 0;
+#endif
 
 	s->saberInFlight = ps->saberInFlight;
 	s->saberEntityNum = ps->saberEntityNum;
@@ -3036,6 +3382,9 @@ void BG_PlayerStateToEntityState( playerState_t *ps, entityState_t *s, qboolean 
 	s->customRGBA[3] = ps->customRGBA[3];
 
 	s->m_iVehicleNum = ps->m_iVehicleNum;
+#if defined(STEFX_ELITE_FORCE_MP)
+	BG_STEFXClearInheritedSnapshotState( ps, s );
+#endif
 }
 
 /*
@@ -3103,6 +3452,10 @@ void BG_PlayerStateToEntityStateExtraPolate( playerState_t *ps, entityState_t *s
 										// so corpses can also reference the proper config
 	s->eFlags = ps->eFlags;
 	s->eFlags2 = ps->eFlags2;
+#if defined(STEFX_ELITE_FORCE_MP)
+	s->eFlags &= ~EF_G2ANIMATING;
+	s->modelGhoul2 = 0;
+#endif
 
 	s->saberInFlight = ps->saberInFlight;
 	s->saberEntityNum = ps->saberEntityNum;
@@ -3188,6 +3541,9 @@ void BG_PlayerStateToEntityStateExtraPolate( playerState_t *ps, entityState_t *s
 	s->customRGBA[3] = ps->customRGBA[3];
 
 	s->m_iVehicleNum = ps->m_iVehicleNum;
+#if defined(STEFX_ELITE_FORCE_MP)
+	BG_STEFXClearInheritedSnapshotState( ps, s );
+#endif
 }
 
 /*

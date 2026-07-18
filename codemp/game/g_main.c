@@ -101,6 +101,10 @@ vmCvar_t	g_svfps;
 
 vmCvar_t	g_forceRegenTime;
 vmCvar_t	g_spawnInvulnerability;
+#if defined(STEFX_ELITE_FORCE_MP)
+vmCvar_t	g_ghostRespawn;
+vmCvar_t	g_holoIntro;
+#endif
 vmCvar_t	g_forcePowerDisable;
 vmCvar_t	g_weaponDisable;
 vmCvar_t	g_duelWeaponDisable;
@@ -109,6 +113,9 @@ vmCvar_t	g_fraglimitVoteCorrection;
 vmCvar_t	g_fraglimit;
 vmCvar_t	g_duel_fraglimit;
 vmCvar_t	g_timelimit;
+#if defined(STEFX_ELITE_FORCE_MP)
+vmCvar_t	g_timelimitWinningTeam;
+#endif
 vmCvar_t	g_capturelimit;
 vmCvar_t	d_saberInterpolate;
 vmCvar_t	g_friendlyFire;
@@ -291,7 +298,11 @@ static cvarTable_t		gameCvarTable[] = {
 
 	{ &d_perPlayerGhoul2, "d_perPlayerGhoul2", "0", CVAR_CHEAT, 0, qtrue },
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ &d_projectileGhoul2Collision, "d_projectileGhoul2Collision", "0", CVAR_CHEAT, 0, qfalse  },
+#else
 	{ &d_projectileGhoul2Collision, "d_projectileGhoul2Collision", "1", CVAR_CHEAT, 0, qtrue  },
+#endif
 
 	{ &g_g2TraceLod, "g_g2TraceLod", "3", 0, 0, qtrue  },
 
@@ -314,6 +325,10 @@ static cvarTable_t		gameCvarTable[] = {
 	{ &g_forceRegenTime, "g_forceRegenTime", "200", CVAR_SERVERINFO | CVAR_ARCHIVE, 0, qtrue  },
 
 	{ &g_spawnInvulnerability, "g_spawnInvulnerability", "3000", CVAR_ARCHIVE, 0, qtrue  },
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ &g_ghostRespawn, "g_ghostRespawn", "5", CVAR_ARCHIVE, 0, qfalse  },
+	{ &g_holoIntro, "g_holoIntro", "1", CVAR_ARCHIVE, 0, qfalse  },
+#endif
 
 	{ &g_forcePowerDisable, "g_forcePowerDisable", "0", CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_LATCH, 0, qtrue  },
 	{ &g_weaponDisable, "g_weaponDisable", "0", CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_LATCH, 0, qtrue  },
@@ -326,6 +341,9 @@ static cvarTable_t		gameCvarTable[] = {
 	{ &g_fraglimit, "fraglimit", "20", CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_NORESTART, 0, qtrue },
 	{ &g_duel_fraglimit, "duel_fraglimit", "10", CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_NORESTART, 0, qtrue },
 	{ &g_timelimit, "timelimit", "0", CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_NORESTART, 0, qtrue },
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ &g_timelimitWinningTeam, "timelimitWinningTeam", "", CVAR_NORESTART, 0, qtrue },
+#endif
 	{ &g_capturelimit, "capturelimit", "8", CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_NORESTART, 0, qtrue },
 
 	{ &g_synchronousClients, "g_synchronousClients", "0", CVAR_SYSTEMINFO, 0, qfalse  },
@@ -359,12 +377,20 @@ static cvarTable_t		gameCvarTable[] = {
 
 	{ &g_speed, "g_speed", "250", 0, 0, qtrue  },
 	{ &g_gravity, "g_gravity", "800", 0, 0, qtrue  },
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ &g_knockback, "g_knockback", "500", 0, 0, qtrue  },
+#else
 	{ &g_knockback, "g_knockback", "1000", 0, 0, qtrue  },
+#endif
 	{ &g_quadfactor, "g_quadfactor", "3", 0, 0, qtrue  },
 	{ &g_weaponRespawn, "g_weaponrespawn", "5", 0, 0, qtrue  },
 	{ &g_weaponTeamRespawn, "g_weaponTeamRespawn", "5", 0, 0, qtrue },
 	{ &g_adaptRespawn, "g_adaptrespawn", "1", 0, 0, qtrue  },		// Make weapons respawn faster with a lot of players.
+#if defined(STEFX_ELITE_FORCE_MP)
+	{ &g_forcerespawn, "g_forcerespawn", "0", 0, 0, qtrue },
+#else
 	{ &g_forcerespawn, "g_forcerespawn", "60", 0, 0, qtrue },		// One minute force respawn.  Give a player enough time to reallocate force.
+#endif
 	{ &g_siegeRespawn, "g_siegeRespawn", "20", CVAR_SERVERINFO | CVAR_ARCHIVE, 0, qtrue }, //siege respawn wave time
 	{ &g_inactivity, "g_inactivity", "0", 0, 0, qtrue },
 	{ &g_debugMove, "g_debugMove", "0", 0, 0, qfalse },
@@ -812,6 +838,12 @@ void G_RegisterCvars( void ) {
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	trap_Cvar_Set( "d_projectileGhoul2Collision", "0" );
+	trap_Cvar_Update( &d_projectileGhoul2Collision );
+	G_Printf( "STEFX_HM: inherited projectile model traces disabled for Holomatch\n" );
+#endif
+
 	if (remapped) {
 		G_RemapTeamShaders();
 	}
@@ -885,6 +917,9 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	int					i;
 	vmCvar_t	mapname;
 	vmCvar_t	ckSum;
+#if defined(STEFX_ELITE_FORCE_MP)
+	int					botSetupOk;
+#endif
 
 	if( !g_entities )
 		g_entities = new gentity_t[MAX_GENTITIES];
@@ -907,7 +942,11 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	g_RMG.integer = 0;
 
 	//Clean up any client-server ghoul2 instance attachments that may still exist exe-side
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: skipping inherited entity model attachment cleanup in Holomatch\n" );
+#else
 	trap_G2API_CleanEntAttachments();
+#endif
 
 	BG_InitAnimsets(); //clear it out
 
@@ -916,7 +955,11 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	trap_SV_RegisterSharedMemory(gSharedBuffer);
 
 	//Load external vehicle data
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: skipping inherited vehicle parms in game\n" );
+#else
 	BG_VehicleLoadParms();
+#endif
 
 	G_Printf ("------- Game Initialization -------\n");
 	G_Printf ("gamename: %s\n", GAMEVERSION);
@@ -965,7 +1008,9 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	}
 #endif
 
-//	G_LogWeaponInit();
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_LogWeaponInit();
+#endif
 
 	G_InitWorldSession();
 
@@ -992,8 +1037,12 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	trap_LocateGameData( level.gentities, level.num_entities, sizeof( gentity_t ), 
 		&level.clients[0].ps, sizeof( level.clients[0] ) );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: skipping inherited saber parms in game\n" );
+#else
 	//Load sabers.cfg data
 	WP_SaberLoadParms();
+#endif
 
 	NPC_InitGame();
 	
@@ -1016,15 +1065,45 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	ClearRegisteredItems();
 
 	//make sure saber data is loaded before this! (so we can precache the appropriate hilts)
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: game skipped inherited team/objective init in Holomatch\n" );
+#else
 	InitSiegeMode();
+#endif
 
 	trap_Cvar_Register( &mapname, "mapname", "", CVAR_SERVERINFO | CVAR_ROM );
 	trap_Cvar_Register( &ckSum, "sv_mapChecksum", "", CVAR_ROM );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: G_InitGame map='%s' gametype=%d maxclients=%d restart=%d checksum=%d\n",
+		mapname.string,
+		g_gametype.integer,
+		g_maxclients.integer,
+		restart,
+		ckSum.integer );
+	G_Printf( "STEFX_HM: server defaults g_speed=%d g_gravity=%d g_knockback=%d g_weaponrespawn=%d g_adaptrespawn=%d g_ghostRespawn=%d g_holoIntro=%d legacyRespawn=%d\n",
+		g_speed.integer,
+		g_gravity.integer,
+		g_knockback.integer,
+		g_weaponRespawn.integer,
+		g_adaptRespawn.integer,
+		g_ghostRespawn.integer,
+		g_holoIntro.integer,
+		g_forcerespawn.integer );
+#endif
+
 	navCalculatePaths	= ( trap_Nav_Load( mapname.string, ckSum.integer ) == qfalse );
 
 	// parse the key/value pairs and spawn gentities
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: G_SpawnEntitiesFromString begin map='%s'\n", mapname.string );
+#endif
 	G_SpawnEntitiesFromString(qfalse);
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: G_SpawnEntitiesFromString done map='%s' num_entities=%d\n",
+		mapname.string,
+		level.num_entities );
+#endif
 
 	// general initialization
 	G_FindTeams();
@@ -1061,9 +1140,30 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	}
 
 	if ( trap_Cvar_VariableIntegerValue( "bot_enable" ) ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: bot init sequence begin map='%s' restart=%d\n", mapname.string, restart );
+		botSetupOk = BotAISetup( restart );
+		G_Printf( "STEFX_HM: bot init BotAISetup result=%d\n", botSetupOk );
+		if ( botSetupOk )
+		{
+			G_Printf( "STEFX_HM: bot init BotAILoadMap begin\n" );
+			BotAILoadMap( restart );
+			G_Printf( "STEFX_HM: bot init BotAILoadMap done\n" );
+			G_Printf( "STEFX_HM: bot init G_InitBots begin\n" );
+			G_InitBots( restart );
+			G_Printf( "STEFX_HM: bot init G_InitBots done\n" );
+		}
+		else
+		{
+			G_Printf( "STEFX_HM: bot library unavailable; loading Holomatch bot metadata only\n" );
+			G_InitBotMetadataOnly( restart );
+			G_Printf( "STEFX_HM: bot metadata-only init done\n" );
+		}
+#else
 		BotAISetup( restart );
 		BotAILoadMap( restart );
 		G_InitBots( restart );
+#endif
 	}
 
 	G_RemapTeamShaders();
@@ -1121,6 +1221,7 @@ G_ShutdownGame
 */
 void G_ShutdownGame( int restart ) {
 	int i = 0;
+	int j;
 	gentity_t *ent;
 
 //	G_Printf ("==== ShutdownGame ====\n");
@@ -1130,6 +1231,28 @@ void G_ShutdownGame( int restart ) {
 	BG_ClearAnimsets(); //free all dynamic allocations made through the engine
 
 //	Com_Printf("... Gameside GHOUL2 Cleanup\n");
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: skipping inherited server model cleanup in Holomatch\n" );
+	while (i < MAX_GENTITIES)
+	{
+		ent = &g_entities[i];
+
+		ent->ghoul2 = NULL;
+		ent->s.modelGhoul2 = 0;
+		if (ent->client)
+		{
+			j = 0;
+			while (j < MAX_SABERS)
+			{
+				ent->client->weaponGhoul2[j] = NULL;
+				j++;
+			}
+		}
+		i++;
+	}
+	g2SaberInstance = NULL;
+	precachedKyle = NULL;
+#else
 	while (i < MAX_GENTITIES)
 	{ //clean up all the ghoul2 instances
 		ent = &g_entities[i];
@@ -1164,6 +1287,7 @@ void G_ShutdownGame( int restart ) {
 		trap_G2API_CleanGhoul2Models(&precachedKyle);
 		precachedKyle = NULL;
 	}
+#endif
 
 //	Com_Printf ("... ICARUS_Shutdown\n");
 	trap_ICARUS_Shutdown ();	//Shut ICARUS down
@@ -1173,7 +1297,9 @@ void G_ShutdownGame( int restart ) {
 	TAG_Init();	//Clear the reference tags
 */
 
-//	G_LogWeaponOutput();
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_LogWeaponOutput();
+#endif
 
 	if ( level.logFile ) {
 		G_LogPrintf("ShutdownGame:\n" );
@@ -2567,12 +2693,178 @@ and the time everyone is moved to the intermission spot, so you
 can see the last frag.
 =================
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean stefxHMExitRuleRankRecalc;
+
+static void STEFX_HolomatchRecalculateRanksForExit( void )
+{
+	stefxHMExitRuleRankRecalc = qtrue;
+	CalculateRanks();
+	stefxHMExitRuleRankRecalc = qfalse;
+}
+
+static qboolean STEFX_HolomatchCheckExitRules( void )
+{
+	int i;
+	gclient_t *cl;
+	static qboolean loggedHolomatchExitRules = qfalse;
+
+	if ( stefxHMExitRuleRankRecalc )
+	{
+		return qtrue;
+	}
+
+	if ( !loggedHolomatchExitRules )
+	{
+		G_Printf( "STEFX_HM: server using EF exit rules gametype=%d fraglimit=%d timelimit=%d\n",
+			g_gametype.integer,
+			g_fraglimit.integer,
+			g_timelimit.integer );
+		loggedHolomatchExitRules = qtrue;
+	}
+
+	if ( level.intermissiontime )
+	{
+		CheckIntermissionExit();
+		return qtrue;
+	}
+
+	if ( level.intermissionQueued )
+	{
+		if ( level.time - level.intermissionQueued >= INTERMISSION_DELAY_TIME )
+		{
+			level.intermissionQueued = 0;
+			BeginIntermission();
+		}
+		return qtrue;
+	}
+
+	if ( g_doWarmup.integer && level.warmupTime != 0 )
+	{
+		if ( level.warmupTime < 0 || level.time - level.startTime <= level.warmupTime )
+		{
+			return qtrue;
+		}
+	}
+
+	if ( level.numPlayingClients < 2 )
+	{
+		return qtrue;
+	}
+
+	if ( g_timelimit.integer && !level.warmupTime )
+	{
+		if ( level.time - level.startTime >= g_timelimit.integer * 60000 )
+		{
+			if ( g_gametype.integer != GT_CTF && ScoreIsTied() )
+			{
+				return qtrue;
+			}
+
+			if ( g_timelimitWinningTeam.string[0] == 'r' || g_timelimitWinningTeam.string[0] == 'R' )
+			{
+				if ( g_capturelimit.integer > level.teamScores[TEAM_BLUE] )
+				{
+					level.teamScores[TEAM_RED] = g_capturelimit.integer;
+				}
+				else
+				{
+					level.teamScores[TEAM_RED] = level.teamScores[TEAM_BLUE] + 1;
+				}
+				STEFX_HolomatchRecalculateRanksForExit();
+			}
+			else if ( g_timelimitWinningTeam.string[0] == 'b' || g_timelimitWinningTeam.string[0] == 'B' )
+			{
+				if ( g_capturelimit.integer > level.teamScores[TEAM_RED] )
+				{
+					level.teamScores[TEAM_BLUE] = g_capturelimit.integer;
+				}
+				else
+				{
+					level.teamScores[TEAM_BLUE] = level.teamScores[TEAM_RED] + 1;
+				}
+				STEFX_HolomatchRecalculateRanksForExit();
+			}
+
+			trap_SendServerCommand( -1, "print \"Timelimit hit.\n\"" );
+			LogExit( "Timelimit hit." );
+			return qtrue;
+		}
+	}
+
+	if ( g_gametype.integer != GT_CTF && g_fraglimit.integer )
+	{
+		if ( level.teamScores[TEAM_RED] >= g_fraglimit.integer )
+		{
+			trap_SendServerCommand( -1, "print \"Red hit the point limit.\n\"" );
+			LogExit( "Fraglimit hit." );
+			return qtrue;
+		}
+
+		if ( level.teamScores[TEAM_BLUE] >= g_fraglimit.integer )
+		{
+			trap_SendServerCommand( -1, "print \"Blue hit the point limit.\n\"" );
+			LogExit( "Fraglimit hit." );
+			return qtrue;
+		}
+
+		for ( i = 0 ; i < g_maxclients.integer ; i++ )
+		{
+			cl = level.clients + i;
+			if ( cl->pers.connected != CON_CONNECTED )
+			{
+				continue;
+			}
+			if ( cl->sess.sessionTeam != TEAM_FREE )
+			{
+				continue;
+			}
+
+			if ( cl->ps.persistant[PERS_SCORE] >= g_fraglimit.integer )
+			{
+				LogExit( "Fraglimit hit." );
+				trap_SendServerCommand( -1, va("print \"%s" S_COLOR_WHITE " hit the point limit.\n\"",
+					cl->pers.netname ) );
+				return qtrue;
+			}
+		}
+	}
+
+	if ( g_gametype.integer == GT_CTF && g_capturelimit.integer )
+	{
+		if ( level.teamScores[TEAM_RED] >= g_capturelimit.integer )
+		{
+			trap_SendServerCommand( -1, "print \"Red hit the capturelimit.\n\"" );
+			LogExit( "Capturelimit hit." );
+			return qtrue;
+		}
+
+		if ( level.teamScores[TEAM_BLUE] >= g_capturelimit.integer )
+		{
+			trap_SendServerCommand( -1, "print \"Blue hit the capturelimit.\n\"" );
+			LogExit( "Capturelimit hit." );
+			return qtrue;
+		}
+	}
+
+	return qtrue;
+}
+#endif
+
 qboolean g_endPDuel = qfalse;
 void CheckExitRules( void ) {
  	int			i;
 	gclient_t	*cl;
 	char *sKillLimit;
 	qboolean printLimit = qtrue;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( STEFX_HolomatchCheckExitRules() )
+	{
+		return;
+	}
+#endif
+
 	// if at the intermission, wait for all non-bots to
 	// signal ready, then go to next level
 	if ( level.intermissiontime ) {
@@ -3646,6 +3938,273 @@ qboolean G_PointInBounds( vec3_t point, vec3_t mins, vec3_t maxs );
 
 int g_siegeRespawnCheck = 0;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static void STEFX_HolomatchMatchHeartbeat( void )
+{
+	static int s_nextHeartbeatWallTime = 0;
+	static int s_lastHeartbeatWallTime = 0;
+	int now;
+	int i;
+	int activeClients;
+	int botClients;
+	int aliveClients;
+	int totalScore;
+	int topClient;
+	int topScore;
+	int loggedClients;
+
+	if ( g_gametype.integer != GT_FFA )
+	{
+		return;
+	}
+
+	now = trap_Milliseconds();
+
+	if ( s_lastHeartbeatWallTime && now + 1000 < s_lastHeartbeatWallTime )
+	{
+		s_nextHeartbeatWallTime = 0;
+		s_lastHeartbeatWallTime = 0;
+	}
+
+	if ( now < s_nextHeartbeatWallTime )
+	{
+		return;
+	}
+
+	s_lastHeartbeatWallTime = now;
+
+	activeClients = 0;
+	botClients = 0;
+	aliveClients = 0;
+	totalScore = 0;
+	topClient = -1;
+	topScore = -999999;
+
+	for ( i = 0; i < level.maxclients; i++ )
+	{
+		gentity_t *ent;
+		gclient_t *client;
+		int score;
+
+		ent = &g_entities[i];
+		client = &level.clients[i];
+
+		if ( !ent->inuse || !ent->client || client->pers.connected != CON_CONNECTED )
+		{
+			continue;
+		}
+		if ( client->sess.sessionTeam == TEAM_SPECTATOR )
+		{
+			continue;
+		}
+
+		score = client->ps.persistant[PERS_SCORE];
+		activeClients++;
+		totalScore += score;
+
+		if ( ent->r.svFlags & SVF_BOT )
+		{
+			botClients++;
+		}
+		if ( client->ps.stats[STAT_HEALTH] > 0 )
+		{
+			aliveClients++;
+		}
+		if ( score > topScore )
+		{
+			topScore = score;
+			topClient = i;
+		}
+	}
+
+	s_nextHeartbeatWallTime = now + ( activeClients > 0 ? 3000 : 1000 );
+
+	G_Printf( "STEFX_HM: match heartbeat time=%d wall=%d connected=%d playing=%d active=%d bots=%d alive=%d topClient=%d topScore=%d totalScore=%d\n",
+		level.time,
+		now,
+		level.numConnectedClients,
+		level.numPlayingClients,
+		activeClients,
+		botClients,
+		aliveClients,
+		topClient,
+		topScore,
+		totalScore );
+
+	loggedClients = 0;
+	for ( i = 0; i < level.maxclients && loggedClients < 6; i++ )
+	{
+		gentity_t *ent;
+		gclient_t *client;
+
+		ent = &g_entities[i];
+		client = &level.clients[i];
+
+		if ( !ent->inuse || !ent->client || client->pers.connected != CON_CONNECTED )
+		{
+			continue;
+		}
+		if ( client->sess.sessionTeam == TEAM_SPECTATOR )
+		{
+			continue;
+		}
+
+		G_Printf( "STEFX_HM: match client state client=%d bot=%d team=%d health=%d armor=%d score=%d weapon=%d ammo_phaser=%d origin='%.1f %.1f %.1f' velocity='%.1f %.1f %.1f' name='%s'\n",
+			i,
+			(ent->r.svFlags & SVF_BOT) ? 1 : 0,
+			client->sess.sessionTeam,
+			client->ps.stats[STAT_HEALTH],
+			client->ps.stats[STAT_ARMOR],
+			client->ps.persistant[PERS_SCORE],
+			client->ps.weapon,
+			client->ps.ammo[AMMO_FORCE],
+			client->ps.origin[0],
+			client->ps.origin[1],
+			client->ps.origin[2],
+			client->ps.velocity[0],
+			client->ps.velocity[1],
+			client->ps.velocity[2],
+			client->pers.netname );
+		loggedClients++;
+	}
+}
+
+static qboolean STEFX_HolomatchProofClientReady( gentity_t *ent )
+{
+	if ( !ent || !ent->inuse || !ent->client )
+	{
+		return qfalse;
+	}
+	if ( ent->client->pers.connected != CON_CONNECTED )
+	{
+		return qfalse;
+	}
+	if ( ent->client->sess.sessionTeam == TEAM_SPECTATOR )
+	{
+		return qfalse;
+	}
+	if ( ent->client->ps.stats[STAT_HEALTH] <= 0 )
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static qboolean STEFX_HolomatchSmokeProofEnabled( void )
+{
+	static qboolean s_checked = qfalse;
+	static qboolean s_enabled = qfalse;
+	fileHandle_t f;
+	int len;
+
+	if ( s_checked )
+	{
+		return s_enabled;
+	}
+
+	s_checked = qtrue;
+	f = 0;
+	len = trap_FS_FOpenFile( "ef_mp_smoke_proof.txt", &f, FS_READ );
+	if ( len >= 0 && f )
+	{
+		trap_FS_FCloseFile( f );
+		s_enabled = qtrue;
+		G_Printf( "STEFX_HM: direct Holomatch vertical slice proof enabled by runtime smoke flag\n" );
+	}
+
+	return s_enabled;
+}
+
+static void STEFX_HolomatchVerticalSliceProof( void )
+{
+	static qboolean s_damageApplied = qfalse;
+	static qboolean s_respawnCompleted = qfalse;
+	gentity_t *attacker;
+	gentity_t *victim;
+	int i;
+
+	if ( s_respawnCompleted )
+	{
+		return;
+	}
+	if ( g_gametype.integer != GT_FFA || Q_stricmp( mapname.string, "hm_borg1" ) )
+	{
+		return;
+	}
+	if ( !STEFX_HolomatchSmokeProofEnabled() )
+	{
+		return;
+	}
+	if ( level.time < 2500 )
+	{
+		return;
+	}
+
+	attacker = NULL;
+	victim = NULL;
+	for ( i = 0; i < level.maxclients; i++ )
+	{
+		gentity_t *ent = &g_entities[i];
+
+		if ( !STEFX_HolomatchProofClientReady( ent ) )
+		{
+			continue;
+		}
+		if ( ( ent->r.svFlags & SVF_BOT ) && !victim )
+		{
+			victim = ent;
+		}
+		else if ( !( ent->r.svFlags & SVF_BOT ) && !attacker )
+		{
+			attacker = ent;
+		}
+	}
+
+	if ( !attacker || !victim )
+	{
+		return;
+	}
+
+	if ( !s_damageApplied )
+	{
+		vec3_t dir;
+
+		VectorSubtract( victim->r.currentOrigin, attacker->r.currentOrigin, dir );
+		if ( VectorNormalize( dir ) <= 0.0f )
+		{
+			VectorSet( dir, 1.0f, 0.0f, 0.0f );
+		}
+
+		victim->client->invulnerableTimer = 0;
+		victim->client->ps.eFlags &= ~EF_INVULNERABLE;
+		victim->takedamage = qtrue;
+
+		G_Printf( "STEFX_HM: direct Holomatch vertical slice proof applying real server damage attacker=%d victim=%d victimHealth=%d victimArmor=%d time=%d\n",
+			attacker->s.number,
+			victim->s.number,
+			victim->client->ps.stats[STAT_HEALTH],
+			victim->client->ps.stats[STAT_ARMOR],
+			level.time );
+
+		G_Damage( victim, attacker, attacker, dir, victim->r.currentOrigin, 1000,
+			DAMAGE_NO_ARMOR | DAMAGE_NO_KNOCKBACK | DAMAGE_NO_PROTECTION,
+			MOD_BRYAR_PISTOL );
+
+		s_damageApplied = qtrue;
+	}
+
+	if ( victim->inuse && victim->client && victim->client->ps.stats[STAT_HEALTH] <= 0 )
+	{
+		victim->client->respawnTime = level.time - 1;
+		G_Printf( "STEFX_HM: direct Holomatch vertical slice proof forcing normal respawn victim=%d time=%d\n",
+			victim->s.number,
+			level.time );
+		respawn( victim );
+		s_respawnCompleted = qtrue;
+	}
+}
+#endif
+
 void G_RunFrame( int levelTime ) {
 	int			i;
 	gentity_t	*ent;
@@ -3860,7 +4419,11 @@ void G_RunFrame( int levelTime ) {
 			continue;
 		}
 
-		if ( ent->s.eType == ET_MISSILE ) {
+		if ( ent->s.eType == ET_MISSILE
+#if defined(STEFX_ELITE_FORCE_MP)
+			|| ent->s.eType == ET_ALT_MISSILE
+#endif
+			) {
 			G_RunMissile( ent );
 			continue;
 		}
@@ -4037,9 +4600,21 @@ void G_RunFrame( int levelTime ) {
 
 			if((!level.intermissiontime)&&!(ent->client->ps.pm_flags&PMF_FOLLOW) && ent->client->sess.sessionTeam != TEAM_SPECTATOR)
 			{
+#if defined(STEFX_ELITE_FORCE_MP)
+				{
+					static qboolean loggedHolomatchFrameForceSkip = qfalse;
+
+					if ( !loggedHolomatchFrameForceSkip )
+					{
+						G_Printf( "STEFX_HM: skipping inherited per-frame Force/saber update in Holomatch\n" );
+						loggedHolomatchFrameForceSkip = qtrue;
+					}
+				}
+#else
 				WP_ForcePowersUpdate(ent, &ent->client->pers.cmd );
 				WP_SaberPositionUpdate(ent, &ent->client->pers.cmd);
 				WP_SaberStartMissileBlockCheck(ent, &ent->client->pers.cmd);
+#endif
 			}
 
 			if (g_allowNPC.integer)
@@ -4064,9 +4639,11 @@ void G_RunFrame( int levelTime ) {
 				}
 			}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 			WP_ForcePowersUpdate(ent, &ent->client->pers.cmd );
 			WP_SaberPositionUpdate(ent, &ent->client->pers.cmd);
 			WP_SaberStartMissileBlockCheck(ent, &ent->client->pers.cmd);
+#endif
 		}
 
 #ifdef _XBOX
@@ -4145,6 +4722,11 @@ void G_RunFrame( int levelTime ) {
 	// see if it is time to end the level
 	CheckExitRules();
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	STEFX_HolomatchVerticalSliceProof();
+	STEFX_HolomatchMatchHeartbeat();
+#endif
+
 	// update to team status?
 	CheckTeamStatus();
 
@@ -4174,7 +4756,9 @@ void G_RunFrame( int levelTime ) {
 	trap_PrecisionTimer_Start(&timer_Queues);
 #endif
 	//At the end of the frame, send out the ghoul2 kill queue, if there is one
+#if !defined(STEFX_ELITE_FORCE_MP)
 	G_SendG2KillQueue();
+#endif
 
 	if (gQueueScoreMessage)
 	{

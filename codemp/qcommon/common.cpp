@@ -1025,6 +1025,17 @@ sysEvent_t	Com_GetEvent( void ) {
 	return Com_GetRealEvent();
 }
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+static qboolean Com_STEFXHolomatchEventTraceActive( void )
+{
+	const char *mapname = Cvar_VariableString( "mapname" );
+	return (qboolean)( com_sv_running &&
+		com_sv_running->integer &&
+		mapname &&
+		!Q_stricmp( mapname, "hm_borg1" ) );
+}
+#endif
+
 /*
 =================
 Com_RunAndTimeServerPacket
@@ -1062,6 +1073,23 @@ int Com_EventLoop( void ) {
 	netadr_t	evFrom;
 	static byte	bufData[MAX_MSGLEN];
 	msg_t		buf;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int	stefxHmEventLoopTraceBudget = 96;
+	static int	stefxHmEventLoopIdCounter = 0;
+	qboolean	stefxHmEventTrace = qfalse;
+	int			stefxHmEventLoopId = 0;
+	int			stefxHmEventCount = 0;
+	int			stefxHmClientLoopPackets = 0;
+	int			stefxHmServerLoopPackets = 0;
+
+	if ( Com_STEFXHolomatchEventTraceActive() && stefxHmEventLoopTraceBudget > 0 ) {
+		stefxHmEventTrace = qtrue;
+		stefxHmEventLoopTraceBudget--;
+		stefxHmEventLoopId = ++stefxHmEventLoopIdCounter;
+		XBLF( "STEFX_HM: Com_EventLoop enter id=%d budget=%d state=%d frameTime=%d frameMsec=%d",
+			stefxHmEventLoopId, stefxHmEventLoopTraceBudget, cls.state, com_frameTime, com_frameMsec );
+	}
+#endif
 
 	MSG_Init( &buf, bufData, sizeof( bufData ) );
 
@@ -1072,19 +1100,67 @@ int Com_EventLoop( void ) {
 		if ( ev.evType == SE_NONE ) {
 			// manually send packet events for the loopback channel
 			while ( NET_GetLoopPacket( NS_CLIENT, &evFrom, &buf ) ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				stefxHmClientLoopPackets++;
+				if ( stefxHmEventTrace &&
+					( stefxHmClientLoopPackets <= 8 || !(stefxHmClientLoopPackets & 31) ) ) {
+					XBLF( "STEFX_HM: Com_EventLoop id=%d client loop packet=%d size=%d read=%d state=%d",
+						stefxHmEventLoopId, stefxHmClientLoopPackets, buf.cursize, buf.readcount, cls.state );
+				}
+#endif
 				CL_PacketEvent( evFrom, &buf );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				if ( Com_STEFXHolomatchEventTraceActive() && stefxHmClientLoopPackets >= 96 ) {
+					XBLF( "STEFX_HM: Com_EventLoop client loop guard id=%d packets=%d state=%d",
+						stefxHmEventLoopId, stefxHmClientLoopPackets, cls.state );
+					break;
+				}
+#endif
 			}
 
 			while ( NET_GetLoopPacket( NS_SERVER, &evFrom, &buf ) ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				stefxHmServerLoopPackets++;
+				if ( stefxHmEventTrace &&
+					( stefxHmServerLoopPackets <= 8 || !(stefxHmServerLoopPackets & 31) ) ) {
+					XBLF( "STEFX_HM: Com_EventLoop id=%d server loop packet=%d size=%d read=%d sv=%d",
+						stefxHmEventLoopId, stefxHmServerLoopPackets, buf.cursize, buf.readcount,
+						com_sv_running ? com_sv_running->integer : 0 );
+				}
+#endif
 				// if the server just shut down, flush the events
 				if ( com_sv_running->integer ) {
 					Com_RunAndTimeServerPacket( &evFrom, &buf );
 				}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				if ( Com_STEFXHolomatchEventTraceActive() && stefxHmServerLoopPackets >= 96 ) {
+					XBLF( "STEFX_HM: Com_EventLoop server loop guard id=%d packets=%d sv=%d",
+						stefxHmEventLoopId, stefxHmServerLoopPackets,
+						com_sv_running ? com_sv_running->integer : 0 );
+					break;
+				}
+#endif
 			}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxHmEventTrace ) {
+				XBLF( "STEFX_HM: Com_EventLoop return id=%d evTime=%d events=%d clientPackets=%d serverPackets=%d state=%d",
+					stefxHmEventLoopId, ev.evTime, stefxHmEventCount,
+					stefxHmClientLoopPackets, stefxHmServerLoopPackets, cls.state );
+			}
+#endif
 			return ev.evTime;
 		}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		stefxHmEventCount++;
+		if ( stefxHmEventTrace &&
+			( stefxHmEventCount <= 12 || !(stefxHmEventCount & 31) ) ) {
+			XBLF( "STEFX_HM: Com_EventLoop id=%d event=%d type=%d value=%d value2=%d ptrLen=%d time=%d",
+				stefxHmEventLoopId, stefxHmEventCount, ev.evType, ev.evValue,
+				ev.evValue2, ev.evPtrLength, ev.evTime );
+		}
+#endif
 
 		switch ( ev.evType ) {
 		default:
@@ -1171,6 +1247,13 @@ int Com_EventLoop( void ) {
 		if ( ev.evPtr ) {
 			Z_Free( ev.evPtr );
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( Com_STEFXHolomatchEventTraceActive() && stefxHmEventCount >= 128 ) {
+			XBLF( "STEFX_HM: Com_EventLoop event guard id=%d events=%d state=%d",
+				stefxHmEventLoopId, stefxHmEventCount, cls.state );
+			return ev.evTime;
+		}
+#endif
 	}
 
 	return 0;	// never reached
@@ -1498,7 +1581,11 @@ void Com_Init( char *commandLine ) {
 		// Similarly, get the shadertext loaded nice and early.
 		// Flag the call to not bother making the hash tables
 		extern void ScanAndLoadShaderFiles( const char *path, bool doHash );
+#if defined(STEFX_ELITE_FORCE_MP)
+		ScanAndLoadShaderFiles( "scripts", false );
+#else
 		ScanAndLoadShaderFiles( "shaders", false );
+#endif
 
 		// override anything from the config files with command line args
 		Com_StartupVariable( NULL );
@@ -1608,9 +1695,13 @@ void Com_Init( char *commandLine ) {
 #ifdef _XBOX
 		//Load this earlier so it doesn't create a fragment in the middle of
 		//the zone.
+#if defined(STEFX_ELITE_FORCE_MP)
+		XBLog_Write("STEFX_HM: skipping deprecated MP UI global defines preload");
+#else
 		XBLog_Write("JAMP: PC_LoadGlobalDefines...");
 		extern int PC_LoadGlobalDefines(const char*);
-		PC_LoadGlobalDefines("ui/jamp/menudef.h");
+		PC_LoadGlobalDefines("ui/menudef.h");
+#endif
 #endif
 
 		com_dedicated->modified = qfalse;
@@ -1846,7 +1937,30 @@ try
 	timeBeforeEvents =0;
 	timeBeforeClient = 0;
 	timeAfter = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	{
+		static int stefxHmComFrameTraceBudget = 24;
+		const char *stefxTraceMap = Cvar_VariableString( "mapname" );
+		qboolean stefxHmComFrameTrace = (qboolean)(
+			stefxHmComFrameTraceBudget > 0 &&
+			com_sv_running &&
+			com_sv_running->integer &&
+			stefxTraceMap &&
+			!Q_stricmp( stefxTraceMap, "hm_borg1" ) );
+		if ( stefxHmComFrameTrace )
+		{
+			stefxHmComFrameTraceBudget--;
+		}
+		jampTraceFrame = (jampComFrameTrace < 2 || stefxHmComFrameTrace);
+		if ( stefxHmComFrameTrace )
+		{
+			XBLF( "STEFX_HM: Com_Frame hm_borg1 trace frame=%d budget=%d msec=%d",
+				jampComFrameTrace, stefxHmComFrameTraceBudget, com_frameMsec );
+		}
+	}
+#else
 	jampTraceFrame = (jampComFrameTrace < 2);
+#endif
 	if (jampTraceFrame)
 	{
 		XBLog_Write("JAMP: Com_Frame enter");
@@ -1898,6 +2012,9 @@ try
 	} else {
 		minMsec = 1;
 	}
+#ifdef _XBOX
+	int xboxFirstEventSpinCount = 0;
+#endif
 	do {
 		XBLog_Phase("Com_Frame before first Com_EventLoop");
 		if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before first Com_EventLoop");
@@ -1917,6 +2034,21 @@ try
 			lastTime = com_frameTime;		// possible on first frame
 		}
 		msec = com_frameTime - lastTime;
+#ifdef _XBOX
+		if ( msec < minMsec && ++xboxFirstEventSpinCount > 1024 )
+		{
+			static int s_xboxFirstEventSpinLogBudget = 4;
+			com_frameTime = lastTime + minMsec;
+			msec = minMsec;
+			if ( s_xboxFirstEventSpinLogBudget > 0 )
+			{
+				XBLF("STEFX_HM: first event timer stalled; forced msec=%d min=%d last=%d frameTime=%d spins=%d",
+					msec, minMsec, lastTime, com_frameTime, xboxFirstEventSpinCount);
+				--s_xboxFirstEventSpinLogBudget;
+			}
+			break;
+		}
+#endif
 	} while ( msec < minMsec );
 	XBLog_Phase("Com_Frame before first Cbuf_Execute");
 	if (jampTraceFrame) XBLog_Write("JAMP: Com_Frame before first Cbuf_Execute");

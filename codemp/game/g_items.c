@@ -2045,7 +2045,9 @@ int Pickup_Powerup( gentity_t *ent, gentity_t *other ) {
 		other->client->ps.powerups[ent->item->giTag] = 
 			level.time - ( level.time % 1000 );
 
-//		G_LogWeaponPowerup(other->s.number, ent->item->giTag);
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_LogWeaponPowerup(other->s.number, ent->item->giTag);
+#endif
 	}
 
 	if ( ent->count ) {
@@ -2120,7 +2122,9 @@ int Pickup_Holdable( gentity_t *ent, gentity_t *other ) {
 
 	other->client->ps.stats[STAT_HOLDABLE_ITEMS] |= (1 << ent->item->giTag);
 
-//	G_LogWeaponItem(other->s.number, ent->item->giTag);
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_LogWeaponItem(other->s.number, ent->item->giTag);
+#endif
 
 	return adjustRespawnTime(RESPAWN_HOLDABLE, ent->item->giType, ent->item->giTag);
 }
@@ -2130,6 +2134,20 @@ int Pickup_Holdable( gentity_t *ent, gentity_t *other ) {
 
 void Add_Ammo (gentity_t *ent, int weapon, int count)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedInvalidHolomatchAmmo = qfalse;
+
+	if ( weapon < 0 || weapon >= AMMO_MAX )
+	{
+		if ( !loggedInvalidHolomatchAmmo )
+		{
+			G_Printf( "STEFX_HM: ignored invalid ammo grant index=%d count=%d\n", weapon, count );
+			loggedInvalidHolomatchAmmo = qtrue;
+		}
+		return;
+	}
+#endif
+
 	if ( ent->client->ps.ammo[weapon] < ammoData[weapon].max )
 	{
 		ent->client->ps.ammo[weapon] += count;
@@ -2192,6 +2210,13 @@ int Pickup_Ammo (gentity_t *ent, gentity_t *other)
 
 int Pickup_Weapon (gentity_t *ent, gentity_t *other) {
 	int		quantity;
+	int		ammoIndex;
+#if defined(STEFX_ELITE_FORCE_MP)
+	int		ammoBefore;
+	static qboolean loggedHolomatchWeaponPickup[WP_NUM_WEAPONS];
+#endif
+
+	ammoIndex = weaponData[ent->item->giTag].ammoIndex;
 
 	if ( ent->count < 0 ) {
 		quantity = 0; // None for you, sir!
@@ -2209,8 +2234,8 @@ int Pickup_Weapon (gentity_t *ent, gentity_t *other) {
 			// New method:  If the player has less than half the minimum, give them the minimum, else add 1/2 the min.
 
 			// drop the quantity if the already have over the minimum
-			if ( other->client->ps.ammo[ ent->item->giTag ] < quantity*0.5 ) {
-				quantity = quantity - other->client->ps.ammo[ ent->item->giTag ];
+			if ( other->client->ps.ammo[ ammoIndex ] < quantity*0.5 ) {
+				quantity = quantity - other->client->ps.ammo[ ammoIndex ];
 			} else {
 				quantity = quantity*0.5;		// only add half the value.
 			}
@@ -2230,10 +2255,31 @@ int Pickup_Weapon (gentity_t *ent, gentity_t *other) {
 	// add the weapon
 	other->client->ps.stats[STAT_WEAPONS] |= ( 1 << ent->item->giTag );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	ammoBefore = other->client->ps.ammo[ammoIndex];
+#endif
 	//Add_Ammo( other, ent->item->giTag, quantity );
-	Add_Ammo( other, weaponData[ent->item->giTag].ammoIndex, quantity );
+	Add_Ammo( other, ammoIndex, quantity );
 
-//	G_LogWeaponPickup(other->s.number, ent->item->giTag);
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( ent->item->giTag > WP_NONE && ent->item->giTag < WP_NUM_WEAPONS &&
+		!loggedHolomatchWeaponPickup[ent->item->giTag] )
+	{
+		G_Printf( "STEFX_HM: weapon pickup client=%d classname='%s' weapon=%d ammoIndex=%d quantity=%d ammoBefore=%d ammoAfter=%d\n",
+			other->s.number,
+			ent->item && ent->item->classname ? ent->item->classname : "",
+			ent->item->giTag,
+			ammoIndex,
+			quantity,
+			ammoBefore,
+			other->client->ps.ammo[ammoIndex] );
+		loggedHolomatchWeaponPickup[ent->item->giTag] = qtrue;
+	}
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_LogWeaponPickup(other->s.number, ent->item->giTag);
+#endif
 	
 	// team deathmatch has slow weapon respawns
 	if ( g_gametype.integer == GT_TEAM ) 
@@ -2282,11 +2328,45 @@ int Pickup_Health (gentity_t *ent, gentity_t *other) {
 
 int Pickup_Armor( gentity_t *ent, gentity_t *other ) 
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	int armorBefore;
+	static qboolean loggedHolomatchArmorPickup = qfalse;
+
+	armorBefore = other->client->ps.stats[STAT_ARMOR];
+#endif
+
 	other->client->ps.stats[STAT_ARMOR] += ent->item->quantity;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( ent->item && ent->item->classname &&
+		!Q_stricmp( ent->item->classname, "item_armor_combat" ) )
+	{
+		if ( other->client->ps.stats[STAT_ARMOR] > other->client->ps.stats[STAT_MAX_HEALTH] * 2 )
+		{
+			other->client->ps.stats[STAT_ARMOR] = other->client->ps.stats[STAT_MAX_HEALTH] * 2;
+		}
+	}
+	else
+#endif
 	if ( other->client->ps.stats[STAT_ARMOR] > other->client->ps.stats[STAT_MAX_HEALTH] * ent->item->giTag ) 
 	{
 		other->client->ps.stats[STAT_ARMOR] = other->client->ps.stats[STAT_MAX_HEALTH] * ent->item->giTag;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( ent->item && ent->item->classname &&
+		!Q_stricmp( ent->item->classname, "item_armor_combat" ) &&
+		!loggedHolomatchArmorPickup )
+	{
+		G_Printf( "STEFX_HM: armor pickup client=%d classname='%s' quantity=%d tag=%d armorBefore=%d armorAfter=%d\n",
+			other->s.number,
+			ent->item->classname,
+			ent->item->quantity,
+			ent->item->giTag,
+			armorBefore,
+			other->client->ps.stats[STAT_ARMOR] );
+		loggedHolomatchArmorPickup = qtrue;
+	}
+#endif
 
 	return adjustRespawnTime(RESPAWN_ARMOR, ent->item->giType, ent->item->giTag);
 }
@@ -2374,7 +2454,11 @@ Touch_Item
 */
 void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace) {
 	int			respawn;
+	int			pickupEventParm;
 	qboolean	predict;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchPickupEventParm = qfalse;
+#endif
 
 	if (ent->genericValue10 > level.time &&
 		other &&
@@ -2405,6 +2489,24 @@ void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace) {
 		return;
 	if (other->health < 1)
 		return;		// dead people can't pickup
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( other->client->ps.eFlags & EF_INVULNERABLE )
+	{
+		static qboolean loggedHolomatchGhostPickupClear = qfalse;
+
+		other->client->ps.eFlags &= ~EF_INVULNERABLE;
+		other->client->invulnerableTimer = 0;
+
+		if ( !loggedHolomatchGhostPickupClear )
+		{
+			G_Printf( "STEFX_HM: item pickup cleared EF ghost respawn protection client=%d classname='%s'\n",
+				other->s.number,
+				ent->classname ? ent->classname : "" );
+			loggedHolomatchGhostPickupClear = qtrue;
+		}
+	}
+#endif
 
 	if (ent->item->giType == IT_POWERUP &&
 		(ent->item->giTag == PW_FORCE_ENLIGHTENED_LIGHT || ent->item->giTag == PW_FORCE_ENLIGHTENED_DARK))
@@ -2558,18 +2660,31 @@ void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace) {
 		return;
 	}
 
+	pickupEventParm = ent->s.number;
+#if defined(STEFX_ELITE_FORCE_MP)
+	pickupEventParm = ent->s.modelindex;
+
+	if ( !loggedHolomatchPickupEventParm )
+	{
+		G_Printf( "STEFX_HM: server used EF direct item pickup event item=%d classname='%s'\n",
+			pickupEventParm,
+			ent->classname ? ent->classname : "" );
+		loggedHolomatchPickupEventParm = qtrue;
+	}
+#endif
+
 	// play the normal pickup sound
 	if (predict) {
 		if (other->client)
 		{
-			BG_AddPredictableEventToPlayerstate( EV_ITEM_PICKUP, ent->s.number, &other->client->ps);
+			BG_AddPredictableEventToPlayerstate( EV_ITEM_PICKUP, pickupEventParm, &other->client->ps);
 		}
 		else
 		{
-			G_AddPredictableEvent( other, EV_ITEM_PICKUP, ent->s.number );
+			G_AddPredictableEvent( other, EV_ITEM_PICKUP, pickupEventParm );
 		}
 	} else {
-		G_AddEvent( other, EV_ITEM_PICKUP, ent->s.number );
+		G_AddEvent( other, EV_ITEM_PICKUP, pickupEventParm );
 	}
 
 	// powerup pickups are global broadcasts
@@ -3012,15 +3127,21 @@ void ClearRegisteredItems( void ) {
 	memset( itemRegistered, 0, sizeof( itemRegistered ) );
 
 	// players always start with the base weapon
+#if defined(STEFX_ELITE_FORCE_MP)
+	RegisterItem( BG_FindItemForWeapon( WP_BRYAR_PISTOL ) );
+#else
 	RegisterItem( BG_FindItemForWeapon( WP_BRYAR_PISTOL ) );
 	RegisterItem( BG_FindItemForWeapon( WP_STUN_BATON ) );
 	RegisterItem( BG_FindItemForWeapon( WP_MELEE ) );
 	RegisterItem( BG_FindItemForWeapon( WP_SABER ) );
+#endif
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (g_gametype.integer == GT_SIEGE)
 	{ //kind of cheesy, maybe check if siege class with disp's is gonna be on this map too
 		G_PrecacheDispensers();
 	}
+#endif
 }
 
 /*

@@ -351,6 +351,17 @@ static D3DCMPFUNC GLToDXCompare(GLenum func){
 	return result;
 }
 
+static D3DFILLMODE GLToDXFillMode(GLenum mode){
+	D3DFILLMODE result = D3DFILL_SOLID;
+	switch ( mode ) {
+	case GL_POINT: result = D3DFILL_POINT; break;
+	case GL_LINE: result = D3DFILL_WIREFRAME; break;
+	case GL_FILL: result = D3DFILL_SOLID; break;
+	default: break;
+	}
+	return result;
+}
+
 /*
    OpenGL                      MinFilter           MipFilter       Comments
    GL_NEAREST                  D3DTFN_POINT        D3DTFP_NONE
@@ -2716,6 +2727,8 @@ private:
 			m_pD3DDev->SetRenderState( D3DRS_SHADEMODE,
 				m_glShadeModel == GL_SMOOTH ? D3DSHADE_GOURAUD : D3DSHADE_FLAT );
 		}
+		m_pD3DDev->SetRenderState( D3DRS_FILLMODE, GLToDXFillMode( m_glPolygonModeFront ) );
+		m_pD3DDev->SetRenderState( D3DRS_BACKFILLMODE, GLToDXFillMode( m_glPolygonModeBack ) );
 
 		{
 			m_textureState.SetTextureStageState(m_pD3DDev, &m_textures);

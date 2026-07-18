@@ -7,6 +7,13 @@
 #include "tr_local.h"
 
 #include "../qcommon/cm_local.h"
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../qcommon/ef_bsp_xbox_shared.h"
+#endif
+
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 /*
 
@@ -30,6 +37,16 @@ int externalPlaneCount = 0;
 
 void R_RMGInit(void);
 //===============================================================================
+
+#if defined(STEFX_ELITE_FORCE_MP)
+void R_LoadLevelLightParms(void)
+{
+}
+
+void R_GetLightParmsForLevel(void)
+{
+}
+#endif
 
 // We use a special hack to prevent slight differences in channels
 // from exploding into big differences, as it causes lighting problems
@@ -262,6 +279,190 @@ void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 
 	Z_Free(image);
 }
+
+#if defined(STEFX_ELITE_FORCE_MP)
+void R_LoadRawLightmaps( void *data, int len, const char *psMapName ) {
+	byte		*buf;
+	int			i, j;
+	int			count;
+	byte		*image;
+	char		sMapName[MAX_QPATH];
+
+	if ( !len ) {
+		return;
+	}
+	if ( len % ( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3 ) ) {
+		Com_Error( ERR_DROP, "R_LoadRawLightmaps: funny lump size %d for %s", len, psMapName );
+	}
+
+	buf = (byte *)data;
+	count = len / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3 );
+	tr.numLightmaps = count;
+
+	R_SyncRenderThread();
+
+	image = (byte *)Z_Malloc( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
+	COM_StripExtension( psMapName, sMapName );
+
+	XBLF( "STEFX_HM: R_LoadRawLightmaps map='%s' count=%d len=%d", psMapName, count, len );
+
+	for ( i = 0 ; i < count ; i++ ) {
+		byte *buf_p = buf + i * LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3;
+		int minLum = 255;
+		int maxLum = 0;
+		int sumLum = 0;
+
+		for ( j = 0 ; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE ; j++ ) {
+			byte rgb[3];
+			byte *dst;
+			int lum;
+
+			rgb[0] = buf_p[j * 3 + 0];
+			rgb[1] = buf_p[j * 3 + 1];
+			rgb[2] = buf_p[j * 3 + 2];
+			R_ColorShiftLightingBytes( rgb );
+
+			dst = &image[j * 4];
+			dst[0] = rgb[0];
+			dst[1] = rgb[1];
+			dst[2] = rgb[2];
+			dst[3] = 255;
+
+			lum = ( dst[0] * 30 + dst[1] * 59 + dst[2] * 11 ) / 100;
+			if ( lum < minLum ) {
+				minLum = lum;
+			}
+			if ( lum > maxLum ) {
+				maxLum = lum;
+			}
+			sumLum += lum;
+		}
+
+		if ( i < 16 ) {
+			XBLF( "STEFX_HM: RAW_LIGHTMAP_STATS index=%d min=%d max=%d avg=%d",
+				i, minLum, maxLum, sumLum / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE ) );
+		}
+
+		tr.lightmaps[i] = R_CreateImage( va( "*%s/lightmap%d", sMapName, i ), image,
+			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
+	}
+
+	Z_Free( image );
+}
+
+qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
+	fileHandle_t	h;
+	int				len;
+	int				size;
+	int				count;
+	int				i;
+	byte			*record;
+	byte			*image;
+	char			mapNameCopy[MAX_QPATH];
+	char			baseName[MAX_QPATH];
+	char			sidecarName[MAX_QPATH];
+	char			sMapName[MAX_QPATH];
+
+	if ( !psMapName || !psMapName[0] ) {
+		return qfalse;
+	}
+
+	Q_strncpyz( mapNameCopy, psMapName, sizeof( mapNameCopy ) );
+	Q_strncpyz( baseName, COM_SkipPath( mapNameCopy ), sizeof( baseName ) );
+	COM_StripExtension( baseName, baseName );
+	Com_sprintf( sidecarName, sizeof( sidecarName ), "maps/xbox/%s.lmpdds", baseName );
+
+	XBLF( "STEFX_HM: optimized lightmaps try sidecar='%s' map='%s'", sidecarName, psMapName );
+	len = FS_FOpenFileRead( sidecarName, &h, qfalse );
+	if ( h == 0 || len <= 0 ) {
+		XBLF( "STEFX_HM: optimized lightmaps no sidecar='%s' len=%d handle=%d", sidecarName, len, h );
+		return qfalse;
+	}
+
+	if ( len < (int)sizeof( int ) ) {
+		FS_FCloseFile( h );
+		XBLF( "STEFX_HM: optimized lightmaps rejected '%s' len=%d header too small",
+			sidecarName, len );
+		return qfalse;
+	}
+
+	FS_Read( &size, sizeof( int ), h );
+	if ( size < 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2 ||
+		 ( ( len - (int)sizeof( int ) ) % size ) != 0 ) {
+		FS_FCloseFile( h );
+		XBLF( "STEFX_HM: optimized lightmaps rejected '%s' len=%d record=%d",
+			sidecarName, len, size );
+		return qfalse;
+	}
+
+	count = ( len - (int)sizeof( int ) ) / size;
+	tr.numLightmaps = count;
+	R_SyncRenderThread();
+
+	record = (byte *)Z_Malloc( size, TAG_TEMP_WORKSPACE, qfalse, 32 );
+	image = (byte *)Z_Malloc( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
+	COM_StripExtension( psMapName, sMapName );
+
+	XBLF( "STEFX_HM: optimized lightmaps load '%s' map='%s' count=%d record=%d bytes=%d",
+		sidecarName, psMapName, count, size, len );
+
+	for ( i = 0; i < count; ++i ) {
+		int read;
+		int j;
+		const unsigned short *src565;
+		int minLum = 255;
+		int maxLum = 0;
+		int sumLum = 0;
+
+		read = FS_Read( record, size, h );
+		if ( read != size ) {
+			Z_Free( record );
+			Z_Free( image );
+			FS_FCloseFile( h );
+			XBLF( "STEFX_HM: optimized lightmaps short read '%s' index=%d read=%d expected=%d",
+				sidecarName, i, read, size );
+			return qfalse;
+		}
+
+		src565 = (const unsigned short *)( record + 128 );
+		for ( j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++j ) {
+			const unsigned short c = src565[j];
+			byte *dst = &image[j * 4];
+			int r = ( ( c >> 11 ) & 31 ) * 255 / 31;
+			int g = ( ( c >> 5 ) & 63 ) * 255 / 63;
+			int b = ( c & 31 ) * 255 / 31;
+			int lum;
+
+			dst[0] = (byte)r;
+			dst[1] = (byte)g;
+			dst[2] = (byte)b;
+			dst[3] = 255;
+
+			lum = ( r * 30 + g * 59 + b * 11 ) / 100;
+			if ( lum < minLum ) {
+				minLum = lum;
+			}
+			if ( lum > maxLum ) {
+				maxLum = lum;
+			}
+			sumLum += lum;
+		}
+
+		if ( i < 16 ) {
+			XBLF( "STEFX_HM: optimized lightmap RGBA upload index=%d min=%d max=%d avg=%d",
+				i, minLum, maxLum, sumLum / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE ) );
+		}
+
+		tr.lightmaps[i] = R_CreateImage( va( "*%s/lightmap%d", sMapName, i ), image,
+			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
+	}
+
+	Z_Free( record );
+	Z_Free( image );
+	FS_FCloseFile( h );
+	return qtrue;
+}
+#endif
 
 
 /*
@@ -1653,6 +1854,137 @@ qboolean R_GetEntityToken( char *buffer, int size ) {
 }
 
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean R_EFLoadRawWorldDataFromBSP( const char *name, const efbspFile_t *efbsp )
+{
+	int shaderCount;
+	void *shaders;
+	void *brushes;
+	void *brushsides;
+	void *verts;
+	void *indexes;
+	void *patches;
+	void *trisurfs;
+	void *faces;
+	void *flares;
+	void *nodes;
+	void *leafs;
+	void *models;
+	void *visibility;
+	void *lightgrid;
+	void *lightarray;
+	int shadersLen, brushesLen, brushsidesLen, vertsLen, indexesLen, patchesLen;
+	int trisurfsLen, facesLen, flaresLen, nodesLen, leafsLen, modelsLen;
+	int visibilityLen, lightgridLen, lightarrayLen;
+
+	if ( !name || !name[0] || !efbsp || !efbsp->data )
+	{
+		return qfalse;
+	}
+
+	EFBSP_Validate( efbsp, name );
+	shaderCount = EFBSP_ShaderCount( efbsp );
+
+	XBLF( "STEFX_HM: R_EFLoadRawWorldData begin map='%s' bytes=%d shaders=%d surfaces=%d",
+		name, efbsp->len, shaderCount, EFBSP_SurfaceCount( efbsp ) );
+
+	shaders = EFBSP_ConvertShaders( efbsp, &shadersLen );
+	R_LoadShaders( shaders, shadersLen );
+	EFBSP_FreeTemp( shaders );
+
+	if ( R_LoadXboxOptimizedLightmaps( name ) )
+	{
+		XBLog_Write( "STEFX_HM: R_EFLoadRawWorldData optimized lightmaps loaded" );
+	}
+	else if ( EFBSP_LumpLen( efbsp, EF_LUMP_LIGHTMAPS ) > 0 )
+	{
+		R_LoadRawLightmaps( EFBSP_LumpData( efbsp, EF_LUMP_LIGHTMAPS ),
+			EFBSP_LumpLen( efbsp, EF_LUMP_LIGHTMAPS ), name );
+	}
+	else
+	{
+		Com_Error( ERR_DROP, "R_EFLoadRawWorldData: %s has no raw lightmaps and no optimized sidecar", name );
+	}
+
+	R_LoadPlanes( EFBSP_LumpData( efbsp, EF_LUMP_PLANES ), EFBSP_LumpLen( efbsp, EF_LUMP_PLANES ) );
+
+	brushes = EFBSP_ConvertBrushes( efbsp, shaderCount, &brushesLen );
+	brushsides = EFBSP_ConvertBrushSides( efbsp, shaderCount, &brushsidesLen );
+	R_LoadFogs( EFBSP_LumpData( efbsp, EF_LUMP_FOGS ), EFBSP_LumpLen( efbsp, EF_LUMP_FOGS ),
+		brushes, brushesLen, brushsides, brushsidesLen );
+	EFBSP_FreeTemp( brushsides );
+	EFBSP_FreeTemp( brushes );
+
+	R_LoadSurfaces( EFBSP_SurfaceCount( efbsp ) );
+
+	verts = EFBSP_ConvertVerts( efbsp, &vertsLen );
+	patches = EFBSP_ConvertPatches( efbsp, shaderCount, &patchesLen );
+	R_LoadPatches( verts, vertsLen, patches, patchesLen );
+	EFBSP_FreeTemp( patches );
+
+	indexes = EFBSP_ConvertIndexes( efbsp, &indexesLen );
+	trisurfs = EFBSP_ConvertTriSurfs( efbsp, shaderCount, &trisurfsLen );
+	R_LoadTriSurfs( indexes, indexesLen, verts, vertsLen, trisurfs, trisurfsLen );
+	EFBSP_FreeTemp( trisurfs );
+
+	faces = EFBSP_ConvertFaces( efbsp, shaderCount, &facesLen );
+	R_LoadFaces( indexes, indexesLen, verts, vertsLen, faces, facesLen );
+	EFBSP_FreeTemp( faces );
+	EFBSP_FreeTemp( indexes );
+	EFBSP_FreeTemp( verts );
+
+	flares = EFBSP_ConvertFlares( efbsp, shaderCount, &flaresLen );
+	R_LoadFlares( flares, flaresLen );
+	EFBSP_FreeTemp( flares );
+	XBLF( "STEFX_HM: R_EFLoadRawWorldData surfaces patches=%d trisurfs=%d faces=%d flares=%d",
+		patchesLen, trisurfsLen, facesLen, flaresLen );
+
+	R_LoadMarksurfaces( EFBSP_LumpData( efbsp, EF_LUMP_LEAFSURFACES ),
+		EFBSP_LumpLen( efbsp, EF_LUMP_LEAFSURFACES ) );
+
+	nodes = EFBSP_ConvertNodes( efbsp, &nodesLen );
+	leafs = EFBSP_ConvertLeafs( efbsp, &leafsLen );
+	R_LoadNodesAndLeafs( nodes, nodesLen, leafs, leafsLen );
+	EFBSP_FreeTemp( leafs );
+	EFBSP_FreeTemp( nodes );
+
+	models = EFBSP_ConvertModels( efbsp, &modelsLen );
+	R_LoadSubmodels( models, modelsLen );
+	EFBSP_FreeTemp( models );
+
+	visibility = EFBSP_ConvertVisibility( efbsp, &visibilityLen );
+	R_LoadVisibility( visibility, visibilityLen );
+	EFBSP_FreeTemp( visibility );
+
+	R_LoadEntities( EFBSP_LumpData( efbsp, EF_LUMP_ENTITIES ), EFBSP_LumpLen( efbsp, EF_LUMP_ENTITIES ) );
+
+	lightgrid = EFBSP_ConvertLightGrid( efbsp, &lightgridLen );
+	R_LoadLightGrid( lightgrid, lightgridLen );
+	EFBSP_FreeTemp( lightgrid );
+
+	lightarray = EFBSP_ConvertLightArray( efbsp, &lightarrayLen );
+	R_LoadLightGridArray( lightarray, lightarrayLen );
+	EFBSP_FreeTemp( lightarray );
+
+	tr.world = &s_worldData;
+	tr.worldMapLoaded = qtrue;
+	XBLF( "STEFX_HM: R_EFLoadRawWorldData complete map='%s' nodes=%d leafs=%d marks=%d surfaces=%d models=%d lightgridLen=%d lightarrayLen=%d",
+		s_worldData.name,
+		s_worldData.numnodes,
+		s_worldData.numleafs,
+		s_worldData.nummarksurfaces,
+		s_worldData.numsurfaces,
+		modelsLen / (int)sizeof( dmodel_t ),
+		lightgridLen,
+		lightarrayLen );
+
+	R_LoadLevelLightParms();
+	R_GetLightParmsForLevel();
+	return qtrue;
+}
+#endif
+
+
 /*
 =================
 RE_LoadWorldMap
@@ -1698,6 +2030,25 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	COM_StripExtension(name, stripName);
 	
 	c_gridVerts = 0;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		efbspFile_t efbsp;
+		memset( &efbsp, 0, sizeof( efbsp ) );
+		XBLF( "STEFX_HM: RE_LoadWorldMap raw probe begin name='%s'", name );
+		if ( EFBSP_LoadFile( name, &efbsp ) )
+		{
+			qboolean loaded = R_EFLoadRawWorldDataFromBSP( name, &efbsp );
+			EFBSP_FreeFile( &efbsp );
+			if ( !loaded )
+			{
+				Com_Error( ERR_DROP, "RE_LoadWorldMap: failed EF raw load for %s", name );
+			}
+			return;
+		}
+		XBLF( "STEFX_HM: RE_LoadWorldMap raw probe missing name='%s'; using sidecar fallback", name );
+	}
+#endif
 
 	// load into heap
 	outputLumps[0].load(stripName, "shaders");

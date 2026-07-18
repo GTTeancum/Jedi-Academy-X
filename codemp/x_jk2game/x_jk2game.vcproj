@@ -46,7 +46,7 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="false"
 				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include"
-				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;QAGAME;_JK2;_XBOX;_LIB;_GAME;GAME_HARD_LINKED;_JK2MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;QAGAME;_JK2;_XBOX;_LIB;_GAME;GAME_HARD_LINKED;_JK2MP;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="true"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="false"
@@ -394,6 +394,19 @@
 							</File>
 			<File
 				RelativePath="..\game\g_items.c"
+				>
+								<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+						CompileAs="2"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\game\g_log.c"
 				>
 								<FileConfiguration
 					Name="Release|Win32"
@@ -1314,10 +1327,6 @@
 			</File>
 			<File
 				RelativePath="..\game\match.h"
-				>
-			</File>
-			<File
-				RelativePath="..\..\ui\menudef.h"
 				>
 			</File>
 			<File

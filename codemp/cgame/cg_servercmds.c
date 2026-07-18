@@ -5,7 +5,7 @@
 // be a valid snapshot this frame
 
 #include "cg_local.h"
-#include "../../ui/menudef.h"
+#include "../ui/ui_shared.h"
 #if !defined(CL_LIGHT_H_INC)
 	#include "cg_lights.h"
 #endif
@@ -16,6 +16,26 @@
 #include "../client/cl_data.h"
 #endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXIsHolomatchRuntime( void )
+{
+	return qtrue;
+}
+
+static qboolean CG_STEFXConfigModelIsInherited( const char *modelName )
+{
+	return modelName && ( strstr( modelName, ".glm" ) || modelName[0] == '$' || modelName[0] == '@' );
+}
+
+static qboolean CG_STEFXConfigStringIsInheritedModeState( int num )
+{
+	return ( num >= CS_SIEGE_STATE && num < CS_SIEGE_STATE+1 ) ||
+		( num >= CS_SIEGE_WINTEAM && num < CS_SIEGE_WINTEAM+1 ) ||
+		( num >= CS_SIEGE_OBJECTIVES && num < CS_SIEGE_OBJECTIVES+1 ) ||
+		( num >= CS_SIEGE_TIMEOVERRIDE && num < CS_SIEGE_TIMEOVERRIDE+1 );
+}
+#endif
+
 /*
 =================
 CG_ParseScores
@@ -24,8 +44,59 @@ CG_ParseScores
 */
 static void CG_ParseScores( void ) {
 	int		i, powerups, readScores;
+#if defined(STEFX_ELITE_FORCE_MP)
+	int		eliminated;
+	static qboolean stefxHMLoggedEFScoreParse = qfalse;
+#endif
 
 	cg->numScores = atoi( CG_Argv( 1 ) );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchRuntime() ) {
+		readScores = cg->numScores;
+
+		if ( readScores > MAX_CLIENTS ) {
+			readScores = MAX_CLIENTS;
+		}
+
+		cg->numScores = readScores;
+
+		cg->teamScores[0] = atoi( CG_Argv( 2 ) );
+		cg->teamScores[1] = atoi( CG_Argv( 3 ) );
+
+		memset( cg->scores, 0, sizeof( cg->scores ) );
+		for ( i = 0 ; i < readScores ; i++ ) {
+			cg->scores[i].client = atoi( CG_Argv( i * 11 + 4 ) );
+			cg->scores[i].score = atoi( CG_Argv( i * 11 + 5 ) );
+			cg->scores[i].ping = atoi( CG_Argv( i * 11 + 6 ) );
+			cg->scores[i].time = atoi( CG_Argv( i * 11 + 7 ) );
+			cg->scores[i].scoreFlags = atoi( CG_Argv( i * 11 + 8 ) );
+			powerups = atoi( CG_Argv( i * 11 + 9 ) );
+			cg->scores[i].worstEnemy = atoi( CG_Argv( i * 11 + 10 ) );
+			cg->scores[i].worstEnemyKills = atoi( CG_Argv( i * 11 + 11 ) );
+			cg->scores[i].faveWeapon = atoi( CG_Argv( i * 11 + 12 ) );
+			cg->scores[i].killedCnt = atoi( CG_Argv( i * 11 + 13 ) );
+			eliminated = atoi( CG_Argv( i * 11 + 14 ) );
+
+			if ( cg->scores[i].client < 0 || cg->scores[i].client >= MAX_CLIENTS ) {
+				cg->scores[i].client = 0;
+			}
+			cgs.clientinfo[ cg->scores[i].client ].score = cg->scores[i].score;
+			cgs.clientinfo[ cg->scores[i].client ].powerups = powerups;
+			cgs.clientinfo[ cg->scores[i].client ].eliminated = eliminated;
+
+			cg->scores[i].powerUps = powerups;
+			cg->scores[i].team = cgs.clientinfo[cg->scores[i].client].team;
+		}
+		CG_SetScoreSelection(NULL);
+
+		if ( !stefxHMLoggedEFScoreParse ) {
+			stefxHMLoggedEFScoreParse = qtrue;
+			CG_PrintfAlways( "STEFX_HM: cgame parsed EF score command scores=%d\n", cg->numScores );
+		}
+		return;
+	}
+#endif
 
 	readScores = cg->numScores;
 
@@ -208,6 +279,20 @@ static void CG_ParseWarmup( void ) {
 	warmup = atoi( info );
 	cg->warmupCount = -1;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( warmup > 0 && cg->warmup <= 0 )
+	{
+		static qboolean loggedHolomatchPrepareSound = qfalse;
+
+		trap_S_StartLocalSound( cgs.media.countPrepareSound, CHAN_ANNOUNCER );
+		if ( !loggedHolomatchPrepareSound )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame used EF warmup prepare sound\n" );
+			loggedHolomatchPrepareSound = qtrue;
+		}
+	}
+#endif
+
 	cg->warmup = warmup;
 }
 
@@ -386,10 +471,30 @@ static void CG_RegisterCustomSounds(clientInfo_t *ci, int setType, const char *p
 		break;
 	case 5:
 		iTableEntries = MAX_CUSTOM_SIEGE_SOUNDS;
+		break;
 	default:
 		assert(0);
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchRuntime() )
+	{
+		static qboolean loggedHolomatchCustomSoundSkip = qfalse;
+
+		for ( i = 0 ; i < iTableEntries ; i++ )
+		{
+			SetCustomSoundForType( ci, setType, i, 0 );
+		}
+
+		if ( !loggedHolomatchCustomSoundSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited NPC custom soundset in Holomatch set=%d dir='%s'\n", setType, psDir ? psDir : "" );
+			loggedHolomatchCustomSoundSkip = qtrue;
+		}
+		return;
+	}
+#endif
 
 	for ( i = 0 ; i<iTableEntries; i++ ) 
 	{
@@ -445,6 +550,20 @@ void CG_PrecacheNPCSounds(const char *str)
 	int j = 0;
 	int k = 0;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchRuntime() )
+	{
+		static qboolean loggedHolomatchNPCPrecacheSkip = qfalse;
+
+		if ( !loggedHolomatchNPCPrecacheSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited NPC sound precache in Holomatch '%s'\n", str ? str : "" );
+			loggedHolomatchNPCPrecacheSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
 	k = 2;
 
 	while (str[k])
@@ -495,6 +614,25 @@ void CG_HandleNPCSounds(centity_t *cent)
 	{
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchRuntime() )
+	{
+		static qboolean loggedHolomatchNPCConfigSkip = qfalse;
+
+		memset(&cent->npcClient->sounds, 0, sizeof(cent->npcClient->sounds));
+		memset(&cent->npcClient->combatSounds, 0, sizeof(cent->npcClient->combatSounds));
+		memset(&cent->npcClient->extraSounds, 0, sizeof(cent->npcClient->extraSounds));
+		memset(&cent->npcClient->jediSounds, 0, sizeof(cent->npcClient->jediSounds));
+
+		if ( !loggedHolomatchNPCConfigSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored inherited NPC sound config in Holomatch ent=%d\n", cent->currentState.number );
+			loggedHolomatchNPCConfigSkip = qtrue;
+		}
+		return;
+	}
+#endif
 
 	//standard
 	if (cent->currentState.csSounds_Std)
@@ -813,19 +951,35 @@ static void CG_ConfigStringModified( void ) {
 	} else if ( num >= CS_MODELS && num < CS_MODELS+MAX_MODELS ) {
 		char modelName[MAX_QPATH];
 		strcpy(modelName, str);
-		if (strstr(modelName, ".glm") || modelName[0] == '$')
-		{ //Check to see if it has a custom skin attached.
-			CG_HandleAppendedSkin(modelName);
-			CG_CacheG2AnimInfo(modelName);
-		}
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXIsHolomatchRuntime() && CG_STEFXConfigModelIsInherited( modelName ) )
+		{
+			static qboolean loggedHolomatchModelConfigSkip = qfalse;
 
-		if (modelName[0] != '$' && modelName[0] != '@')
-		{ //don't register vehicle names and saber names as models.
-			cgs.gameModels[ num-CS_MODELS ] = trap_R_RegisterModel( modelName );
+			cgs.gameModels[ num-CS_MODELS ] = 0;
+			if ( !loggedHolomatchModelConfigSkip )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame ignored inherited model configstring in Holomatch index=%d model='%s'\n", num-CS_MODELS, modelName );
+				loggedHolomatchModelConfigSkip = qtrue;
+			}
 		}
 		else
+#endif
 		{
-            cgs.gameModels[ num-CS_MODELS ] = 0;
+			if (strstr(modelName, ".glm") || modelName[0] == '$')
+			{ //Check to see if it has a custom skin attached.
+				CG_HandleAppendedSkin(modelName);
+				CG_CacheG2AnimInfo(modelName);
+			}
+
+			if (modelName[0] != '$' && modelName[0] != '@')
+			{ //don't register vehicle names and saber names as models.
+				cgs.gameModels[ num-CS_MODELS ] = trap_R_RegisterModel( modelName );
+			}
+			else
+			{
+				cgs.gameModels[ num-CS_MODELS ] = 0;
+			}
 		}
 // GHOUL2 Insert start
 		/*
@@ -853,6 +1007,20 @@ static void CG_ConfigStringModified( void ) {
 			cgs.gameEffects[ num-CS_EFFECTS] = trap_FX_RegisterEffect( str );
 		}
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	else if ( CG_STEFXIsHolomatchRuntime() && CG_STEFXConfigStringIsInheritedModeState( num ) )
+	{
+		static qboolean loggedHolomatchModeConfigSkip = qfalse;
+
+		cg_siegeWinTeam = 0;
+		cg_beatingSiegeTime = 0;
+		if ( !loggedHolomatchModeConfigSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored inherited mode configstring in Holomatch index=%d\n", num );
+			loggedHolomatchModeConfigSkip = qtrue;
+		}
+	}
+#endif
 	else if ( num >= CS_SIEGE_STATE && num < CS_SIEGE_STATE+1 )
 	{
 		if (str[0])
@@ -903,6 +1071,9 @@ void CG_KillCEntityG2(int entNum)
 	int j;
 	clientInfo_t *ci = NULL;
 	centity_t *cent = &cg_entities[entNum];
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchModelClear = qfalse;
+#endif
 
 	if (entNum < MAX_CLIENTS)
 	{
@@ -912,6 +1083,38 @@ void CG_KillCEntityG2(int entNum)
 	{
 		ci = cent->npcClient;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!loggedHolomatchModelClear)
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame clearing inherited model pointers without cleanup calls\n" );
+		loggedHolomatchModelClear = qtrue;
+	}
+	if (ci)
+	{
+		ci->ghoul2Model = NULL;
+
+		j = 0;
+		while (j < MAX_SABERS)
+		{
+			ci->ghoul2Weapons[j] = NULL;
+			j++;
+		}
+	}
+
+	cent->ghoul2 = NULL;
+	cent->ghoul2weapon = NULL;
+	cent->grip_arm = NULL;
+	cent->frame_hold = NULL;
+	if (cent->npcClient)
+	{
+		CG_DestroyNPCClient(&cent->npcClient);
+	}
+	cent->isRagging = qfalse;
+	cent->ikStatus = qfalse;
+	cent->localAnimIndex = 0;
+	return;
+#endif
 
 	if (ci)
 	{
@@ -1067,10 +1270,24 @@ static void CG_MapRestart( void ) {
 	// we really should clear more parts of cg here and stop sounds
 
 	// play the "fight" sound if this is a restart without warmup
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( cg->warmup == 0 )
+	{
+		static qboolean loggedHolomatchFightSound = qfalse;
+
+		trap_S_StartLocalSound( cgs.media.countFightSound, CHAN_ANNOUNCER );
+		if ( !loggedHolomatchFightSound )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame used EF no-warmup fight sound\n" );
+			loggedHolomatchFightSound = qtrue;
+		}
+	}
+#else
 	if ( cg->warmup == 0 && cgs.gametype != GT_SIEGE && cgs.gametype != GT_POWERDUEL/* && cgs.gametype == GT_DUEL */) {
 		trap_S_StartLocalSound( cgs.media.countFightSound, CHAN_ANNOUNCER );
 		CG_CenterPrint( CG_GetStringEdString("MP_SVGAME", "BEGIN_DUEL"), 120, GIANTCHAR_WIDTH*2 );
 	}
+#endif
 	/*
 	if (cg_singlePlayerActive.integer) {
 		trap_Cvar_Set("ui_matchStartTime", va("%i", cg->time));
@@ -1317,6 +1534,24 @@ static void CG_ServerCommand( void ) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchRuntime() &&
+		( !strcmp( cmd, "sxd" ) ||
+		  !strcmp( cmd, "sb" ) ||
+		  !strcmp( cmd, "scl" ) ||
+		  !strcmp( cmd, "nfr" ) ) )
+	{
+		static qboolean loggedHolomatchModeServerCommandSkip = qfalse;
+
+		if ( !loggedHolomatchModeServerCommandSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored inherited mode/power server command '%s' in Holomatch\n", cmd );
+			loggedHolomatchModeServerCommandSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
 #if 0
 	// never seems to get used -Ste
 	if ( !strcmp( cmd, "spd" ) ) 
@@ -1411,6 +1646,16 @@ static void CG_ServerCommand( void ) {
 	{ //Kill a ghoul2 instance in this slot.
 	  //If it has been occupied since this message was sent somehow, the worst that can (should) happen
 	  //is the instance will have to reinit with its current info.
+#if defined(STEFX_ELITE_FORCE_MP)
+		static qboolean loggedHolomatchModelCleanupSkip = qfalse;
+
+		if ( !loggedHolomatchModelCleanupSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored inherited model cleanup command in Holomatch\n" );
+			loggedHolomatchModelCleanupSkip = qtrue;
+		}
+		return;
+#else
 		int indexNum = 0;
 		int argNum = trap_Argc();
 		int i = 1;
@@ -1441,6 +1686,7 @@ static void CG_ServerCommand( void ) {
 		}
 		
 		return;
+#endif
 	}
 
 	if (!strcmp(cmd, "kls"))
@@ -1492,6 +1738,16 @@ static void CG_ServerCommand( void ) {
 
 	if (!strcmp(cmd, "rcg") || IRCG)
 	{ //rcg - Restore Client Ghoul (make sure limbs are reattached and ragdoll state is reset - this must be done reliably)
+#if defined(STEFX_ELITE_FORCE_MP)
+		static qboolean loggedHolomatchRcgSkip = qfalse;
+
+		if (!loggedHolomatchRcgSkip)
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored inherited corpse restore command in Holomatch\n" );
+			loggedHolomatchRcgSkip = qtrue;
+		}
+		return;
+#else
 		int indexNum = 0;
 		int argNum = trap_Argc();
 		centity_t *clent;
@@ -1570,6 +1826,7 @@ static void CG_ServerCommand( void ) {
 		clent->ghoul2weapon = NULL; //force a weapon reinit
 
 		return;
+#endif
 	}
 
 	if ( !strcmp( cmd, "cp" ) ) {

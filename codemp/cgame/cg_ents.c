@@ -19,6 +19,127 @@ Ghoul2 Insert end
 extern qboolean CG_InFighter( void );
 static void CG_Missile( centity_t *cent );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXNormalHolomatch( void )
+{
+	return qtrue;
+}
+
+static qboolean CG_STEFXEntIsHolomatchWeapon( int weaponNum )
+{
+	switch ( weaponNum )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static qboolean CG_STEFXHandleHolomatchMissile( centity_t *cent )
+{
+	static qboolean loggedHolomatchMissile[WP_NUM_WEAPONS];
+	static qboolean loggedHolomatchMissileDlightSkip[WP_NUM_WEAPONS];
+	static qboolean loggedHolomatchMissileSprite[WP_NUM_WEAPONS];
+	entityState_t *s1;
+	weaponInfo_t *weapon;
+	refEntity_t ent;
+	qboolean altFire;
+	sfxHandle_t loopSound;
+	float intensity;
+	float *color;
+	vec3_t fallbackColor = {0.6f, 0.6f, 1.0f};
+
+	if ( !cent )
+	{
+		return qfalse;
+	}
+
+	s1 = &cent->currentState;
+	if ( !CG_STEFXEntIsHolomatchWeapon( s1->weapon ) )
+	{
+		return qfalse;
+	}
+
+	if ( !cg_weapons[s1->weapon].registered )
+	{
+		CG_RegisterWeapon( s1->weapon );
+	}
+
+	weapon = &cg_weapons[s1->weapon];
+	altFire = (s1->eFlags & EF_ALT_FIRING) ? qtrue : qfalse;
+	intensity = altFire ? weapon->altMissileDlight : weapon->missileDlight;
+	color = altFire ? weapon->altMissileDlightColor : weapon->missileDlightColor;
+	if ( !intensity )
+	{
+		intensity = weapon->flashDlight ? weapon->flashDlight : 72.0f;
+		color = weapon->flashDlightColor;
+	}
+	if ( !color[0] && !color[1] && !color[2] )
+	{
+		color = fallbackColor;
+	}
+
+	if ( intensity )
+	{
+#ifdef _XBOX
+		if ( !loggedHolomatchMissileDlightSkip[s1->weapon] )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped EF moving missile dlight on Xbox renderer weapon=%d alt=%d\n",
+				s1->weapon,
+				altFire ? 1 : 0 );
+			loggedHolomatchMissileDlightSkip[s1->weapon] = qtrue;
+		}
+#else
+		trap_R_AddLightToScene( cent->lerpOrigin, intensity, color[0], color[1], color[2] );
+#endif
+	}
+
+	loopSound = altFire ? weapon->altMissileSound : weapon->missileSound;
+	if ( loopSound )
+	{
+		vec3_t velocity;
+
+		BG_EvaluateTrajectoryDelta( &s1->pos, cg->time, velocity );
+		trap_S_AddLoopingSound( s1->number, cent->lerpOrigin, velocity, loopSound );
+	}
+
+	memset( &ent, 0, sizeof( ent ) );
+	ent.reType = RT_SPRITE;
+	ent.radius = altFire ? 12.0f : 8.0f;
+	ent.customShader = cgs.media.whiteShader;
+	VectorCopy( cent->lerpOrigin, ent.origin );
+	VectorCopy( cent->lerpOrigin, ent.oldorigin );
+	ent.shaderRGBA[0] = (byte)( color[0] * 255.0f );
+	ent.shaderRGBA[1] = (byte)( color[1] * 255.0f );
+	ent.shaderRGBA[2] = (byte)( color[2] * 255.0f );
+	ent.shaderRGBA[3] = altFire ? 230 : 210;
+	trap_R_AddRefEntityToScene( &ent );
+
+	if ( altFire && !loggedHolomatchMissileSprite[s1->weapon] )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame rendered EF alternate missile safe sprite weapon=%d ent=%d radius=%.1f\n",
+			s1->weapon,
+			s1->number,
+			ent.radius );
+		loggedHolomatchMissileSprite[s1->weapon] = qtrue;
+	}
+
+	if ( !loggedHolomatchMissile[s1->weapon] )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame rendered EF missile feedback without inherited projectile model weapon=%d\n", s1->weapon );
+		loggedHolomatchMissile[s1->weapon] = qtrue;
+	}
+
+	return qtrue;
+}
+#endif
+
 
 //Returns true if the given ghoul2 data is using a model which belongs to
 //an already active client.  cgs.clientinfo must be up to date when this
@@ -900,6 +1021,40 @@ static void CG_General( centity_t *cent ) {
 	mdxaBone_t			matrix;
 	qboolean			doNotSetModel = qfalse;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( cent->ghoul2 ||
+		cent->ghoul2weapon ||
+		cent->currentState.modelGhoul2 ||
+		( cent->currentState.eFlags & EF_G2ANIMATING ) )
+	{
+		static qboolean stefxLogged = qfalse;
+
+		if ( !stefxLogged )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame generic renderer scrubbed inherited model state\n" );
+			stefxLogged = qtrue;
+		}
+		cent->ghoul2 = NULL;
+		cent->ghoul2weapon = NULL;
+		cent->currentState.modelGhoul2 = 0;
+		cent->currentState.eFlags &= ~EF_G2ANIMATING;
+	}
+
+	if ( CG_STEFXNormalHolomatch() && cent->currentState.boltToPlayer )
+	{
+		static qboolean stefxLoggedBoltSkip = qfalse;
+
+		if ( !stefxLoggedBoltSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited bolted entity render in Holomatch ent=%d\n",
+				cent->currentState.number );
+			stefxLoggedBoltSkip = qtrue;
+		}
+		cent->currentState.boltToPlayer = 0;
+		return;
+	}
+#endif
+
 	if (cent->currentState.modelGhoul2 == 127)
 	{ //not ready to be drawn or initialized..
 		return;
@@ -1495,6 +1650,21 @@ Ghoul2 Insert End
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXNormalHolomatch() && s1->eType == ET_HOLOCRON )
+	{
+		static qboolean stefxLoggedHolocronModelSkip = qfalse;
+
+		if ( !stefxLoggedHolocronModelSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited holocron model render in Holomatch ent=%d\n",
+				cent->currentState.number );
+			stefxLoggedHolocronModelSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
 	if (s1->eType == ET_HOLOCRON && s1->modelindex < -100)
 	{ //special render, it's a holocron
 		//Using actual models now:
@@ -1546,6 +1716,25 @@ Ghoul2 Insert End
 		ent.customShader = trap_R_RegisterShader( "models/map_objects/imp_mine/turret_chair_dmg.tga" );
 		//trap_R_AddRefEntityToScene( &ent );
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXNormalHolomatch() &&
+		s1->eType == ET_BODY &&
+		( ( cent->currentState.eFlags & EF_DISINTEGRATION ) || cent->bodyFadeTime > cg->time ) )
+	{
+		static qboolean stefxLoggedBodyEffectSkip = qfalse;
+
+		if ( !stefxLoggedBodyEffectSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited body fade/disintegration render in Holomatch ent=%d\n",
+				cent->currentState.number );
+			stefxLoggedBodyEffectSkip = qtrue;
+		}
+		cent->currentState.eFlags &= ~EF_DISINTEGRATION;
+		cent->bodyFadeTime = 0;
+		cent->dustTrailTime = 0;
+	}
+#endif
 
 	if ((cent->currentState.eFlags & EF_DISINTEGRATION) && cent->currentState.eType == ET_BODY)
 	{
@@ -1698,6 +1887,34 @@ Ghoul2 Insert End
 
 	// add to refresh list
 	trap_R_AddRefEntityToScene (&ent);
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXNormalHolomatch() && cent->bolt3 == 999 )
+	{
+		static qboolean stefxLoggedSaberFxSkip = qfalse;
+
+		if ( !stefxLoggedSaberFxSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited flying saber visual in Holomatch ent=%d\n",
+				cent->currentState.number );
+			stefxLoggedSaberFxSkip = qtrue;
+		}
+		cent->bolt3 = 0;
+	}
+
+	if ( CG_STEFXNormalHolomatch() && cent->currentState.trickedentindex3 )
+	{
+		static qboolean stefxLoggedHolocronFxSkip = qfalse;
+
+		if ( !stefxLoggedHolocronFxSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited holocron visual in Holomatch ent=%d\n",
+				cent->currentState.number );
+			stefxLoggedHolocronFxSkip = qtrue;
+		}
+		cent->currentState.trickedentindex3 = 0;
+	}
+#endif
 
 	if (cent->bolt3 == 999)
 	{ //this is an in-flight saber being rendered manually
@@ -1866,32 +2083,48 @@ Ghoul2 Insert End
 
 	if ( cent->currentState.time == -1 && cent->currentState.weapon == WP_TRIP_MINE && (cent->currentState.eFlags & EF_FIRING) )
 	{ //if force sight is active, render the laser multiple times up to the force sight level to increase visibility
-		if (cent->currentState.bolt2 == 1)
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXNormalHolomatch() )
 		{
-			VectorMA( ent.origin, 6.6f, ent.axis[0], beamOrg );// forward
-			beamID = cgs.effects.tripmineGlowFX;
-			trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
+			static qboolean stefxLoggedTripmineFxSkip = qfalse;
+
+			if ( !stefxLoggedTripmineFxSkip )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame skipped inherited tripmine/Force-sight visual in Holomatch ent=%d\n",
+					cent->currentState.number );
+				stefxLoggedTripmineFxSkip = qtrue;
+			}
 		}
 		else
+#endif
 		{
-			int i = 0;
-
-			VectorMA( ent.origin, 6.6f, ent.axis[0], beamOrg );// forward
-			beamID = cgs.effects.tripmineLaserFX;
-
-			if (cg->snap->ps.fd.forcePowersActive & (1 << FP_SEE))
+			if (cent->currentState.bolt2 == 1)
 			{
-				i = cg->snap->ps.fd.forcePowerLevel[FP_SEE];
-
-				while (i > 0)
-				{
-					trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
-					trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
-					i--;
-				}
+				VectorMA( ent.origin, 6.6f, ent.axis[0], beamOrg );// forward
+				beamID = cgs.effects.tripmineGlowFX;
+				trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
 			}
+			else
+			{
+				int i = 0;
 
-			trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
+				VectorMA( ent.origin, 6.6f, ent.axis[0], beamOrg );// forward
+				beamID = cgs.effects.tripmineLaserFX;
+
+				if (cg->snap->ps.fd.forcePowersActive & (1 << FP_SEE))
+				{
+					i = cg->snap->ps.fd.forcePowerLevel[FP_SEE];
+
+					while (i > 0)
+					{
+						trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
+						trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
+						i--;
+					}
+				}
+
+				trap_FX_PlayEffectID( beamID, beamOrg, cent->currentState.pos.trDelta, -1, -1 );
+			}
 		}
 	}
 /*
@@ -1971,11 +2204,29 @@ static void CG_Item( centity_t *cent ) {
 	int				msec;
 	float			scale;
 	weaponInfo_t	*wi;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchItemProjectionSkip = qfalse;
+	static qboolean loggedHolomatchSimpleItemMediaSkip = qfalse;
+	static qboolean loggedHolomatchItemModelMediaSkip = qfalse;
+	static qboolean loggedHolomatchBadItemIndex = qfalse;
+	static int loggedHolomatchPlaceholderSkips = 0;
+#endif
 
 	es = &cent->currentState;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( es->modelindex < 0 || es->modelindex >= bg_numItems ) {
+		if ( !loggedHolomatchBadItemIndex ) {
+			CG_PrintfAlways( "STEFX_HM: cgame skipped EF item entity with bad index=%d ent=%d\n",
+				es->modelindex, es->number );
+			loggedHolomatchBadItemIndex = qtrue;
+		}
+		return;
+	}
+#else
 	if ( es->modelindex >= bg_numItems ) {
 		CG_Error( "Bad item index %i on entity", es->modelindex );
 	}
+#endif
 
 /*
 Ghoul2 Insert Start
@@ -1993,6 +2244,31 @@ Ghoul2 Insert Start
 
 	item = &bg_itemlist[ es->modelindex ];
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( es->eFlags & EF_ITEMPLACEHOLDER )
+	{
+		if ( loggedHolomatchPlaceholderSkips < 8 )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped EF item placeholder shell item=%d classname='%s' origin='%.1f %.1f %.1f'\n",
+				es->modelindex,
+				item->classname ? item->classname : "",
+				cent->lerpOrigin[0],
+				cent->lerpOrigin[1],
+				cent->lerpOrigin[2] );
+			++loggedHolomatchPlaceholderSkips;
+		}
+		return;
+	}
+
+	if ((item->giType == IT_WEAPON || item->giType == IT_POWERUP) &&
+		!(cent->currentState.eFlags & EF_DROPPEDWEAPON) &&
+		!cg_simpleItems.integer &&
+		!loggedHolomatchItemProjectionSkip)
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited item projection media\n" );
+		loggedHolomatchItemProjectionSkip = qtrue;
+	}
+#else
 	if ((item->giType == IT_WEAPON || item->giType == IT_POWERUP) &&
 		!(cent->currentState.eFlags & EF_DROPPEDWEAPON) &&
 		!cg_simpleItems.integer)
@@ -2030,6 +2306,7 @@ Ghoul2 Insert Start
 			trap_FX_PlayEffectID(cgs.effects.itemCone, ent.origin, uNorm, -1, -1);
 		}
 	}
+#endif
 
 	// if set to invisible, skip
 	if ( ( es->eFlags & EF_NODRAW ) ) 
@@ -2041,6 +2318,20 @@ Ghoul2 Insert End
 */
 
 	if ( cg_simpleItems.integer && item->giType != IT_TEAM ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !cg_items[es->modelindex].icon )
+		{
+			if ( !loggedHolomatchSimpleItemMediaSkip )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame skipped inherited simple item sprite with no EF media item=%d classname='%s'\n",
+					es->modelindex,
+					item->classname ? item->classname : "" );
+				loggedHolomatchSimpleItemMediaSkip = qtrue;
+			}
+			return;
+		}
+#endif
+
 		memset( &ent, 0, sizeof( ent ) );
 		ent.reType = RT_SPRITE;
 		VectorCopy( cent->lerpOrigin, ent.origin );
@@ -2233,6 +2524,20 @@ Ghoul2 Insert Start
 /*
 Ghoul2 Insert End
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !ent.hModel && !ent.ghoul2 )
+	{
+		if ( !loggedHolomatchItemModelMediaSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited item render with no EF media item=%d classname='%s'\n",
+				es->modelindex,
+				item->classname ? item->classname : "" );
+			loggedHolomatchItemModelMediaSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
 	VectorCopy( cent->lerpOrigin, ent.origin);
 	VectorCopy( cent->lerpOrigin, ent.oldorigin);
 
@@ -2517,7 +2822,7 @@ static void CG_Missile( centity_t *cent ) {
 //	int	col;
 
 	s1 = &cent->currentState;
-	if ( s1->weapon > WP_NUM_WEAPONS && s1->weapon != G2_MODEL_PART ) {
+	if ( s1->weapon >= WP_NUM_WEAPONS && s1->weapon != G2_MODEL_PART ) {
 		s1->weapon = 0;
 	}
 
@@ -2534,6 +2839,27 @@ static void CG_Missile( centity_t *cent ) {
 	{
 		CG_AddRadarEnt(cent);
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXHandleHolomatchMissile( cent ) )
+	{
+		return;
+	}
+
+	if ( s1->weapon == WP_SABER || s1->weapon == G2_MODEL_PART )
+	{
+		static qboolean loggedHolomatchProjectileSkip = qfalse;
+
+		if ( !loggedHolomatchProjectileSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited saber/model-part projectile in Holomatch weapon=%d\n",
+				s1->weapon );
+			loggedHolomatchProjectileSkip = qtrue;
+		}
+		cent->ghoul2 = NULL;
+		return;
+	}
+#endif
 
 	if (s1->weapon == WP_SABER)
 	{
@@ -3430,6 +3756,9 @@ static void CG_AddCEntity( centity_t *cent ) {
 	if(ClientManager::splitScreenMode == qtrue) {
 		if(cent->updatedThisFrame) {
 			if(cent->currentState.eType != ET_PLAYER && cent->currentState.eType != ET_MISSILE &&
+#if defined(STEFX_ELITE_FORCE_MP)
+				cent->currentState.eType != ET_ALT_MISSILE &&
+#endif
 				cent->currentState.weapon != WP_TRIP_MINE)
 				return;
 		}
@@ -3470,6 +3799,9 @@ Ghoul2 Insert End
 	case ET_INVISIBLE:
 	case ET_PUSH_TRIGGER:
 	case ET_TELEPORT_TRIGGER:
+#if defined(STEFX_ELITE_FORCE_MP)
+	case ET_USEABLE:
+#endif
 	case ET_TERRAIN:
 		break;
 	case ET_GENERAL:
@@ -3484,7 +3816,38 @@ Ghoul2 Insert End
 	case ET_MISSILE:
 		CG_Missile( cent );
 		break;
+#if defined(STEFX_ELITE_FORCE_MP)
+	case ET_ALT_MISSILE:
+		if ( CG_STEFXEntIsHolomatchWeapon( cent->currentState.weapon ) )
+		{
+			static qboolean loggedHolomatchExplicitAltMissileType = qfalse;
+			if ( !loggedHolomatchExplicitAltMissileType )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame rendered explicit EF alternate missile entity weapon=%d ent=%d\n",
+					cent->currentState.weapon,
+					cent->currentState.number );
+				loggedHolomatchExplicitAltMissileType = qtrue;
+			}
+			CG_Missile( cent );
+		}
+		break;
+#endif
 	case ET_SPECIAL:
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXEntIsHolomatchWeapon( cent->currentState.weapon ) )
+		{
+			static qboolean loggedHolomatchAltMissileType = qfalse;
+			if ( !loggedHolomatchAltMissileType )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame treated EF alternate missile entity as projectile weapon=%d ent=%d\n",
+					cent->currentState.weapon,
+					cent->currentState.number );
+				loggedHolomatchAltMissileType = qtrue;
+			}
+			CG_Missile( cent );
+			break;
+		}
+#endif
 		CG_Special( cent );
 		break;
 	case ET_HOLOCRON:

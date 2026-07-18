@@ -23,6 +23,76 @@ void WP_SaberRemoveG2Model( gentity_t *saberent );
 
 forcedata_t Client_Force[MAX_CLIENTS];
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_HOLOMATCH_DEFAULT_USERINFO_MODEL "munro/default"
+
+static qboolean STEFX_HolomatchDirectSliceActive( void )
+{
+	char mapName[MAX_QPATH];
+
+	if ( g_gametype.integer != GT_FFA )
+	{
+		return qfalse;
+	}
+	if ( !trap_Cvar_VariableIntegerValue( "stefx_hm_directSlice" ) )
+	{
+		return qfalse;
+	}
+	trap_Cvar_VariableStringBuffer( "mapname", mapName, sizeof( mapName ) );
+	if ( mapName[0] && Q_stricmp( mapName, "hm_borg1" ) )
+	{
+		return qfalse;
+	}
+#ifdef _XBOX
+	if ( ClientManager::splitScreenMode == qtrue )
+	{
+		/* Direct-slice placement is cvar-gated and temporary; leave split-screen code paths intact. */
+	}
+#endif
+	return qtrue;
+}
+
+static void STEFX_HolomatchApplyDirectCombatSpawn( gentity_t *ent, vec3_t spawn_origin, vec3_t spawn_angles )
+{
+	static const vec3_t directOrigins[] =
+	{
+		{ 128.0f, -192.0f, 41.0f },
+		{ 496.0f,   96.0f, 41.0f },
+		{ -320.0f, 408.0f, 41.0f }
+	};
+	static const vec3_t directAngles[] =
+	{
+		{ 0.0f,  90.0f, 0.0f },
+		{ 0.0f, 135.0f, 0.0f },
+		{ 0.0f, 270.0f, 0.0f }
+	};
+	int index;
+
+	if ( !ent || !ent->client || ent->client->sess.sessionTeam == TEAM_SPECTATOR )
+	{
+		return;
+	}
+	if ( !STEFX_HolomatchDirectSliceActive() )
+	{
+		return;
+	}
+
+	index = ent - g_entities;
+	if ( index < 0 || index > 2 )
+	{
+		return;
+	}
+
+	VectorCopy( directOrigins[index], spawn_origin );
+	VectorCopy( directAngles[index], spawn_angles );
+	G_Printf( "STEFX_HM: direct Holomatch combat spawn override client=%d bot=%d origin='%.1f %.1f %.1f' angles='%.1f %.1f %.1f'\n",
+		index,
+		( ent->r.svFlags & SVF_BOT ) ? 1 : 0,
+		spawn_origin[0], spawn_origin[1], spawn_origin[2],
+		spawn_angles[0], spawn_angles[1], spawn_angles[2] );
+}
+#endif
+
 /*QUAKED info_player_duel (1 0 1) (-16 -16 -24) (16 16 32) initial
 potential spawning position for duelists in duel.
 Targets will be fired when someone spawns in on them.
@@ -490,6 +560,20 @@ qboolean SpotWouldTelefrag( gentity_t *spot ) {
 	VectorAdd( spot->s.origin, playerMaxs, maxs );
 	num = trap_EntitiesInBox( mins, maxs, touch, MAX_GENTITIES );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	for (i=0 ; i<num ; i++) {
+		hit = &g_entities[touch[i]];
+		if ( hit->client && hit->client->ps.stats[STAT_HEALTH] > 0 ) {
+			return qtrue;
+		}
+		if (hit->s.eType == ET_USEABLE && hit->s.modelindex == HI_SHIELD) {
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+#endif
+
 	for (i=0 ; i<num ; i++) {
 		hit = &g_entities[touch[i]];
 		//if ( hit->client && hit->client->ps.stats[STAT_HEALTH] > 0 ) {
@@ -756,6 +840,45 @@ Chooses a player start, deathmatch start, etc
 ============
 */
 gentity_t *SelectSpawnPoint ( vec3_t avoidPoint, vec3_t origin, vec3_t angles ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchSpawnSelection = qfalse;
+	gentity_t	*spot;
+	gentity_t	*nearestSpot;
+
+	nearestSpot = SelectNearestDeathmatchSpawnPoint( avoidPoint );
+
+	spot = SelectRandomDeathmatchSpawnPoint ( );
+	if ( spot == nearestSpot ) {
+		spot = SelectRandomDeathmatchSpawnPoint ( );
+		if ( spot == nearestSpot ) {
+			spot = SelectRandomDeathmatchSpawnPoint ( );
+		}
+	}
+
+	if (!spot) {
+		G_Error( "Couldn't find a spawn point" );
+	}
+
+	VectorCopy (spot->s.origin, origin);
+	origin[2] += 9;
+	VectorCopy (spot->s.angles, angles);
+
+	if ( !loggedHolomatchSpawnSelection )
+	{
+		G_Printf( "STEFX_HM: server used EF spawn selection classname='%s' origin='%.1f %.1f %.1f' avoid='%.1f %.1f %.1f'\n",
+			spot->classname ? spot->classname : "",
+			origin[0],
+			origin[1],
+			origin[2],
+			avoidPoint[0],
+			avoidPoint[1],
+			avoidPoint[2] );
+		loggedHolomatchSpawnSelection = qtrue;
+	}
+
+	return spot;
+#endif
+
 	return SelectRandomFurthestSpawnPoint( avoidPoint, origin, angles );
 
 	/*
@@ -1039,8 +1162,22 @@ void SetClientViewAngle( gentity_t *ent, vec3_t angle ) {
 void MaintainBodyQueue(gentity_t *ent)
 { //do whatever should be done taking ragdoll and dismemberment states into account.
 	qboolean doRCG = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedBodySkip = qfalse;
+#endif
 
 	assert(ent && ent->client);
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !loggedBodySkip )
+	{
+		G_Printf( "STEFX_HM: skipping inherited corpse/body queue in Holomatch path\n" );
+		loggedBodySkip = qtrue;
+	}
+	ent->client->noCorpse = qfalse;
+	ent->client->ps.fallingToDeath = qfalse;
+	ent->ghoul2 = NULL;
+	return;
+#endif
 	if (ent->client->tempSpectate > level.time ||
 		(ent->client->ps.eFlags2 & EF2_SHIP_DEATH))
 	{
@@ -1090,6 +1227,24 @@ void respawn( gentity_t *ent ) {
 	}
 
 	trap_UnlinkEntity (ent);
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		gentity_t *tent;
+
+		ClientSpawn(ent);
+		G_Printf("STEFX_HM: respawn used EF direct path client=%d health=%d armor=%d weapon=%d score=%d\n",
+			ent->s.number,
+			ent->client->ps.stats[STAT_HEALTH],
+			ent->client->ps.stats[STAT_ARMOR],
+			ent->client->ps.weapon,
+			ent->client->ps.persistant[PERS_SCORE]);
+
+		tent = G_TempEntity( ent->client->ps.origin, EV_PLAYER_TELEPORT_IN );
+		tent->s.clientNum = ent->s.clientNum;
+	}
+	return;
+#endif
 
 	if (g_gametype.integer == GT_SIEGE)
 	{
@@ -1428,6 +1583,28 @@ void SetupGameGhoul2Model(gentity_t *ent, char *modelname, char *skinName)
 #endif
 	char		GLAName[MAX_QPATH];
 	vec3_t	tempVec = {0,0,0};
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	int i;
+
+	if ( ent )
+	{
+		ent->ghoul2 = NULL;
+		ent->s.modelGhoul2 = 0;
+		if ( ent->client )
+		{
+			for ( i = 0; i < MAX_SABERS; i++ )
+			{
+				ent->client->weaponGhoul2[i] = NULL;
+			}
+		}
+	}
+	G_Printf( "STEFX_HM: skipping inherited server player-model setup ent=%d model='%s' skin='%s'\n",
+		ent ? ent->s.number : -1,
+		modelname ? modelname : "",
+		skinName ? skinName : "" );
+	return;
+#endif
 
 	// First things first.  If this is a ghoul2 model, then let's make sure we demolish this first.
 	if (ent->ghoul2 && trap_G2_HaveWeGhoul2Models(ent->ghoul2))
@@ -1804,6 +1981,12 @@ void ClientUserinfoChanged( int clientNum ) {
 	char	*value;
 	int		maxHealth;
 	qboolean	modelChanged = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchDefaultModel[MAX_CLIENTS];
+	static qboolean loggedHolomatchClientConfig[MAX_CLIENTS];
+	qboolean	holomatchModelDefaulted = qfalse;
+	int		holomatchConfigTeam;
+#endif
 
 	ent = g_entities + clientNum;
 	client = ent->client;
@@ -1862,6 +2045,15 @@ void ClientUserinfoChanged( int clientNum ) {
 	// set model
 	Q_strncpyz( model, Info_ValueForKey (userinfo, "model"), sizeof( model ) );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !model[0] )
+	{
+		Q_strncpyz( model, STEFX_HOLOMATCH_DEFAULT_USERINFO_MODEL, sizeof( model ) );
+		Info_SetValueForKey( userinfo, "model", model );
+		trap_SetUserinfo( clientNum, userinfo );
+		holomatchModelDefaulted = qtrue;
+	}
+#else
 	if (d_perPlayerGhoul2.integer)
 	{
 		if (Q_stricmp(model, client->modelname))
@@ -1870,6 +2062,17 @@ void ClientUserinfoChanged( int clientNum ) {
 			modelChanged = qtrue;
 		}
 	}
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( holomatchModelDefaulted && !loggedHolomatchDefaultModel[clientNum] )
+	{
+		G_Printf( "STEFX_HM: server defaulted Holomatch userinfo model client=%d model='%s'\n",
+			clientNum,
+			model );
+		loggedHolomatchDefaultModel[clientNum] = qtrue;
+	}
+#endif
 
 	//Get the skin RGB based on his userinfo
 	value = Info_ValueForKey (userinfo, "char_color_red");
@@ -1927,6 +2130,10 @@ void ClientUserinfoChanged( int clientNum ) {
 		team = client->sess.sessionTeam;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	strcpy(className, "none");
+	client->siegeClass = -1;
+#else
 	//Set the siege class
 	if (g_gametype.integer == GT_SIEGE)
 	{
@@ -2007,85 +2214,104 @@ void ClientUserinfoChanged( int clientNum ) {
 	{
 		strcpy(className, "none");
 	}
+#endif
 
-	// Xbox experiment, let's allow people to change sabers immediately:
-	qboolean changedSaber = qfalse;
-	char *saber;
-	if( g_gametype.integer == GT_DUEL || g_gametype.integer == GT_POWERDUEL )
+#if defined(STEFX_ELITE_FORCE_MP)
 	{
-		for( int l = 0; l < MAX_SABERS; ++l )
-		{
-			switch (l)
-			{
-			case 0:
-				saber = &client->sess.saberType[0];
-				break;
-			case 1:
-				saber = &client->sess.saber2Type[0];
-				break;
-			default:
-				saber = NULL;
-				break;
-			}
+		static qboolean loggedHolomatchUserinfoSaberSkip = qfalse;
 
-			value = Info_ValueForKey (userinfo, va("saber%i", l+1));
-			if (saber &&
-				value &&
-				(Q_stricmp(value, saber) || !saber[0] || !client->saber[0].model[0]))
-			{ //doesn't match up (or our session saber is BS), we want to try setting it
-				if (G_SetSaber(ent, l, value, qfalse))
+		if ( !loggedHolomatchUserinfoSaberSkip )
+		{
+			G_Printf( "STEFX_HM: skipping inherited userinfo saber sync in Holomatch client=%d\n", clientNum );
+			loggedHolomatchUserinfoSaberSkip = qtrue;
+		}
+	}
+#else
+	{
+		// Xbox experiment, let's allow people to change sabers immediately:
+		qboolean changedSaber = qfalse;
+		char *saber;
+		if( g_gametype.integer == GT_DUEL || g_gametype.integer == GT_POWERDUEL )
+		{
+			for( int l = 0; l < MAX_SABERS; ++l )
+			{
+				switch (l)
 				{
-					changedSaber = qtrue;
+				case 0:
+					saber = &client->sess.saberType[0];
+					break;
+				case 1:
+					saber = &client->sess.saber2Type[0];
+					break;
+				default:
+					saber = NULL;
+					break;
 				}
-				else if (!saber[0] || !client->saber[0].model[0])
-				{ //Well, we still want to say they changed then (it means this is siege and we have some overrides)
-					changedSaber = qtrue;
+
+				value = Info_ValueForKey (userinfo, va("saber%i", l+1));
+				if (saber &&
+					value &&
+					(Q_stricmp(value, saber) || !saber[0] || !client->saber[0].model[0]))
+				{ //doesn't match up (or our session saber is BS), we want to try setting it
+					if (G_SetSaber(ent, l, value, qfalse))
+					{
+						changedSaber = qtrue;
+					}
+					else if (!saber[0] || !client->saber[0].model[0])
+					{ //Well, we still want to say they changed then (it means this is siege and we have some overrides)
+						changedSaber = qtrue;
+					}
+				}
+			}
+		}
+
+		if (changedSaber)
+		{ //make sure our new info is sent out to all the other clients, and give us a valid stance
+//			ClientUserinfoChanged( ent->s.number );
+
+			//make sure the saber models are updated
+			G_SaberModelSetup(ent);
+
+			if (ent->client->saber[0].model[0] &&
+				ent->client->saber[1].model[0])
+			{ //dual
+				ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = SS_DUAL;
+			}
+			else if (ent->client->saber[0].twoHanded)
+			{ //staff
+				ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = SS_STAFF;
+			}
+			else
+			{
+				if (ent->client->sess.saberLevel < SS_FAST)
+				{
+					ent->client->sess.saberLevel = SS_FAST;
+				}
+				else if (ent->client->sess.saberLevel > SS_STRONG)
+				{
+					ent->client->sess.saberLevel = SS_STRONG;
+				}
+				ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel;
+
+				if (g_gametype.integer != GT_SIEGE &&
+					ent->client->ps.fd.saberAnimLevel > ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE])
+				{
+					ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel = ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE];
 				}
 			}
 		}
 	}
-
-	if (changedSaber)
-	{ //make sure our new info is sent out to all the other clients, and give us a valid stance
-//		ClientUserinfoChanged( ent->s.number );
-
-		//make sure the saber models are updated
-		G_SaberModelSetup(ent);
-
-		if (ent->client->saber[0].model[0] &&
-			ent->client->saber[1].model[0])
-		{ //dual
-			ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = SS_DUAL;
-		}
-		else if (ent->client->saber[0].twoHanded)
-		{ //staff
-			ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = SS_STAFF;
-		}
-		else
-		{
-			if (ent->client->sess.saberLevel < SS_FAST)
-			{
-				ent->client->sess.saberLevel = SS_FAST;
-			}
-			else if (ent->client->sess.saberLevel > SS_STRONG)
-			{
-				ent->client->sess.saberLevel = SS_STRONG;
-			}
-			ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel;
-
-			if (g_gametype.integer != GT_SIEGE &&
-				ent->client->ps.fd.saberAnimLevel > ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE])
-			{
-				ent->client->ps.fd.saberAnimLevelBase = ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel = ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE];
-			}
-		}
-	}
+#endif
 
 	//Set the saber name
 	strcpy(saberName, client->sess.saberType);
 	strcpy(saber2Name, client->sess.saber2Type);
 
 	// set max health
+#if defined(STEFX_ELITE_FORCE_MP)
+	maxHealth = 100;
+	health = 100;
+#else
 	if (g_gametype.integer == GT_SIEGE && client->siegeClass != -1)
 	{
 		siegeClass_t *scl = &bgSiegeClasses[client->siegeClass];
@@ -2103,6 +2329,7 @@ void ClientUserinfoChanged( int clientNum ) {
 		maxHealth = 100;
 		health = 100; //atoi( Info_ValueForKey( userinfo, "handicap" ) );
 	}
+#endif
 	client->pers.maxHealth = health;
 	if ( client->pers.maxHealth < 1 || client->pers.maxHealth > maxHealth ) {
 		client->pers.maxHealth = 100;
@@ -2164,6 +2391,28 @@ void ClientUserinfoChanged( int clientNum ) {
 
 	// send over a subset of the userinfo keys so other clients can
 	// print scoreboards, display models, and play custom sounds
+#if defined(STEFX_ELITE_FORCE_MP)
+	holomatchConfigTeam = (ent->r.svFlags & SVF_BOT) ? team : client->sess.sessionTeam;
+	if ( ent->r.svFlags & SVF_BOT ) {
+		s = va("n\\%s\\t\\%i\\model\\%s\\g_redteam\\%s\\g_blueteam\\%s\\c1\\%s\\c2\\%s\\hc\\%i\\w\\%i\\l\\%i\\skill\\%s\\tt\\%d\\tl\\%d",
+			client->pers.netname, holomatchConfigTeam, model, redTeam, blueTeam, c1, c2,
+			client->pers.maxHealth, client->sess.wins, client->sess.losses,
+			Info_ValueForKey( userinfo, "skill" ), teamTask, teamLeader );
+	} else {
+		s = va("n\\%s\\t\\%i\\model\\%s\\g_redteam\\%s\\g_blueteam\\%s\\c1\\%s\\c2\\%s\\hc\\%i\\w\\%i\\l\\%i\\tt\\%d\\tl\\%d",
+			client->pers.netname, holomatchConfigTeam, model, redTeam, blueTeam, c1, c2,
+			client->pers.maxHealth, client->sess.wins, client->sess.losses, teamTask, teamLeader );
+	}
+	if ( !loggedHolomatchClientConfig[clientNum] )
+	{
+		G_Printf( "STEFX_HM: server sent EF clientinfo config client=%d model='%s' bot=%d team=%d\n",
+			clientNum,
+			model,
+			(ent->r.svFlags & SVF_BOT) ? 1 : 0,
+			holomatchConfigTeam );
+		loggedHolomatchClientConfig[clientNum] = qtrue;
+	}
+#else
 	if ( ent->r.svFlags & SVF_BOT ) {
 		s = va("n\\%s\\t\\%i\\model\\%s\\c1\\%s\\c2\\%s\\hc\\%i\\w\\%i\\l\\%i\\skill\\%s\\tt\\%d\\tl\\%d\\siegeclass\\%s\\st\\%s\\st2\\%s\\dt\\%i\\sdt\\%i",
 			client->pers.netname, team, model,  c1, c2, 
@@ -2183,6 +2432,7 @@ void ClientUserinfoChanged( int clientNum ) {
 				client->pers.maxHealth, client->sess.wins, client->sess.losses, teamTask, teamLeader, saberName, saber2Name, client->sess.duelTeam);
 		}
 	}
+#endif
 
 	trap_SetConfigstring( CS_PLAYERS+clientNum, s );
 
@@ -2191,6 +2441,7 @@ void ClientUserinfoChanged( int clientNum ) {
 		XBL_PL_UpdatePlayerName(clientNum, client->pers.netname);
 	}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (modelChanged) //only going to be true for allowable server-side custom skeleton cases
 	{ //update the server g2 instance if appropriate
 		char *modelname = Info_ValueForKey (userinfo, "model");
@@ -2204,6 +2455,7 @@ void ClientUserinfoChanged( int clientNum ) {
 		client->torsoAnimExecute = client->legsAnimExecute = -1;
 		client->torsoLastFlip = client->legsLastFlip = qfalse;
 	}
+#endif
 
 	if (g_logClientInfo.integer)
 	{
@@ -2289,6 +2541,29 @@ char *ClientConnect( int clientNum, qboolean firstTime, qboolean isBot ) {
 		G_InitSessionData( client, userinfo, isBot );
 	}
 	G_ReadSessionData( client );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( g_gametype.integer == GT_FFA &&
+		client->sess.sessionTeam == TEAM_SPECTATOR &&
+		Q_stricmpn( Info_ValueForKey( userinfo, "team" ), "s", 1 ) )
+	{
+		if ( g_maxGameClients.integer <= 0 ||
+			level.numNonSpectatorClients < g_maxGameClients.integer )
+		{
+			client->sess.sessionTeam = TEAM_FREE;
+			client->sess.spectatorState = SPECTATOR_FREE;
+			G_Printf( "STEFX_HM: ClientConnect forced Holomatch active FFA session client=%d bot=%d\n",
+				clientNum,
+				isBot ? 1 : 0 );
+		}
+	}
+	G_Printf( "STEFX_HM: ClientConnect Holomatch session client=%d bot=%d team=%d firstTime=%d newSession=%d\n",
+		clientNum,
+		isBot ? 1 : 0,
+		client->sess.sessionTeam,
+		firstTime ? 1 : 0,
+		level.newSession ? 1 : 0 );
+#endif
 
 	if (g_gametype.integer == GT_SIEGE &&
 		(firstTime || level.newSession))
@@ -2476,8 +2751,14 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 	//first-time force power initialization
 	WP_InitForcePowers( ent );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	client->ps.saberEntityNum = 0;
+	client->saberStoredIndex = 0;
+	G_Printf( "STEFX_HM: skipping inherited saber entity init client=%d\n", clientNum );
+#else
 	//init saber ent
 	WP_SaberInitBladeData( ent );
+#endif
 
 	// First time model setup for that player.
 	trap_GetUserinfo( clientNum, userinfo, sizeof(userinfo) );
@@ -2501,6 +2782,12 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 			SetTeamQuick(ent, TEAM_SPECTATOR, qfalse);
 		}
         
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( ent->r.svFlags & SVF_BOT )
+		{
+			G_Printf( "STEFX_HM: skipping inherited bot saber setup client=%d\n", clientNum );
+		}
+#else
 		if ((ent->r.svFlags & SVF_BOT) &&
 			g_gametype.integer != GT_SIEGE)
 		{
@@ -2551,6 +2838,7 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 				G_SetSaber(ent, 0, saber2Val, qfalse);
 			}
 		}
+#endif
 
 		// locate ent at a spawn point
 		ClientSpawn( ent );
@@ -2571,7 +2859,18 @@ void ClientBegin( int clientNum, qboolean allowTeamReset ) {
 	// count current clients and rank for scoreboard
 	CalculateRanks();
 
-//	G_ClearClientLog(clientNum);
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: ClientBegin active state client=%d bot=%d sessionTeam=%d persTeam=%d weapon=%d health=%d armor=%d invulnMs=%d\n",
+		clientNum,
+		(ent->r.svFlags & SVF_BOT) ? 1 : 0,
+		client->sess.sessionTeam,
+		client->ps.persistant[PERS_TEAM],
+		client->ps.weapon,
+		client->ps.stats[STAT_HEALTH],
+		client->ps.stats[STAT_ARMOR],
+		client->invulnerableTimer > level.time ? client->invulnerableTimer - level.time : 0 );
+	G_ClearClientLog(clientNum);
+#endif
 }
 
 static qboolean AllForceDisabled(int force)
@@ -2600,6 +2899,20 @@ void G_BreakArm(gentity_t *ent, int arm)
 	int anim = -1;
 
 	assert(ent && ent->client);
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchBreakArmSkip = qfalse;
+
+		ent->client->ps.brokenLimbs = 0;
+		if ( !loggedHolomatchBreakArmSkip )
+		{
+			G_Printf( "STEFX_HM: skipping inherited limb break path in Holomatch client=%d arm=%d\n", ent->s.number, arm );
+			loggedHolomatchBreakArmSkip = qtrue;
+		}
+		return;
+	}
+#endif
 
 	if (ent->s.NPC_class == CLASS_VEHICLE || ent->localAnimIndex > 1)
 	{ //no broken limbs for vehicles and non-humanoids
@@ -2669,6 +2982,20 @@ void G_UpdateClientAnims(gentity_t *self, float animSpeedScale)
 	static int aFlags;
 	static float animSpeed, lAnimSpeedScale;
 	qboolean setTorso = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedAnimSkip = qfalse;
+
+	if ( !loggedAnimSkip )
+	{
+		G_Printf( "STEFX_HM: skipping inherited server player animation path in Holomatch\n" );
+		loggedAnimSkip = qtrue;
+	}
+	if ( self )
+	{
+		self->ghoul2 = NULL;
+	}
+	return;
+#endif
 
 	torsoAnim = (self->client->ps.torsoAnim);
 	legsAnim = (self->client->ps.legsAnim);
@@ -2940,8 +3267,10 @@ void ClientSpawn(gentity_t *ent) {
 	int					l = 0;
 	void				*g2WeaponPtrs[MAX_SABERS];
 	char				*value;
+#if !defined(STEFX_ELITE_FORCE_MP)
 	char				*saber;
 	qboolean			changedSaber = qfalse;
+#endif
 	qboolean			inSiegeWithClass = qfalse;
 
 	index = ent - g_entities;
@@ -2964,6 +3293,9 @@ void ClientSpawn(gentity_t *ent) {
 	}
 #endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: skipping inherited spawn saber sync client=%d\n", index );
+#else
 	while (l < MAX_SABERS)
 	{
 		switch (l)
@@ -2995,7 +3327,9 @@ void ClientSpawn(gentity_t *ent) {
 		}
 		l++;
 	}
+#endif
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (changedSaber)
 	{ //make sure our new info is sent out to all the other clients, and give us a valid stance
 		ClientUserinfoChanged( ent->s.number );
@@ -3057,35 +3391,50 @@ void ClientSpawn(gentity_t *ent) {
 			}
 		}
 	}
+#endif
 	l = 0;
 
-	if (client->ps.fd.forceDoInit)
-	{ //force a reread of force powers
-		WP_InitForcePowers( ent );
-		client->ps.fd.forceDoInit = 0;
-	}
-
-	if (ent->client->ps.fd.saberAnimLevel != SS_STAFF &&
-		ent->client->ps.fd.saberAnimLevel != SS_DUAL &&
-		ent->client->ps.fd.saberAnimLevel == ent->client->ps.fd.saberDrawAnimLevel &&
-		ent->client->ps.fd.saberAnimLevel == ent->client->sess.saberLevel)
+#if defined(STEFX_ELITE_FORCE_MP)
 	{
-		if (ent->client->sess.saberLevel < SS_FAST)
-		{
-			ent->client->sess.saberLevel = SS_FAST;
-		}
-		else if (ent->client->sess.saberLevel > SS_STRONG)
-		{
-			ent->client->sess.saberLevel = SS_STRONG;
-		}
-		ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel;
+		static qboolean loggedHolomatchSpawnAnimSkip = qfalse;
 
-		if (g_gametype.integer != GT_SIEGE &&
-			ent->client->ps.fd.saberAnimLevel > ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE])
+		if ( !loggedHolomatchSpawnAnimSkip )
 		{
-			ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel = ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE];
+			G_Printf( "STEFX_HM: ClientSpawn skipped inherited Force/saber animation setup in Holomatch client=%d\n", index );
+			loggedHolomatchSpawnAnimSkip = qtrue;
 		}
 	}
+#else
+	{
+		if (client->ps.fd.forceDoInit)
+		{ //force a reread of force powers
+			WP_InitForcePowers( ent );
+			client->ps.fd.forceDoInit = 0;
+		}
+
+		if (ent->client->ps.fd.saberAnimLevel != SS_STAFF &&
+			ent->client->ps.fd.saberAnimLevel != SS_DUAL &&
+			ent->client->ps.fd.saberAnimLevel == ent->client->ps.fd.saberDrawAnimLevel &&
+			ent->client->ps.fd.saberAnimLevel == ent->client->sess.saberLevel)
+		{
+			if (ent->client->sess.saberLevel < SS_FAST)
+			{
+				ent->client->sess.saberLevel = SS_FAST;
+			}
+			else if (ent->client->sess.saberLevel > SS_STRONG)
+			{
+				ent->client->sess.saberLevel = SS_STRONG;
+			}
+			ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel;
+
+			if (g_gametype.integer != GT_SIEGE &&
+				ent->client->ps.fd.saberAnimLevel > ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE])
+			{
+				ent->client->ps.fd.saberAnimLevel = ent->client->ps.fd.saberDrawAnimLevel = ent->client->sess.saberLevel = ent->client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE];
+			}
+		}
+	}
+#endif
 
 	// find a spawn point
 	// do it before setting health back up, so farthest
@@ -3244,6 +3593,32 @@ void ClientSpawn(gentity_t *ent) {
 	client->saberStoredIndex = saveSaberNum;
 
 	client->ps.fd = savedForce;
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchForceStateClear = qfalse;
+
+		memset( &client->ps.fd, 0, sizeof( client->ps.fd ) );
+		client->ps.fd.forcePowerSelected = -1;
+		client->ps.fd.forceGripEntityNum = ENTITYNUM_NONE;
+		client->ps.fd.forceDrainEntNum = ENTITYNUM_NONE;
+		client->ps.saberEntityNum = 0;
+		client->saberStoredIndex = 0;
+		client->ps.saberInFlight = qfalse;
+		client->ps.saberEntityState = 0;
+		ent->ghoul2 = NULL;
+		ent->s.modelGhoul2 = 0;
+		for ( i = 0; i < MAX_SABERS; i++ )
+		{
+			client->weaponGhoul2[i] = NULL;
+		}
+
+		if ( !loggedHolomatchForceStateClear )
+		{
+			G_Printf( "STEFX_HM: ClientSpawn cleared inherited Force/saber state in Holomatch client=%d\n", index );
+			loggedHolomatchForceStateClear = qtrue;
+		}
+	}
+#endif
 
 	client->ps.duelIndex = ENTITYNUM_NONE;
 
@@ -3324,141 +3699,178 @@ void ClientSpawn(gentity_t *ent) {
 		wDisable = g_weaponDisable.integer;
 	}
 
-
-
-	if ( g_gametype.integer != GT_HOLOCRON 
-		&& g_gametype.integer != GT_JEDIMASTER 
-		&& !HasSetSaberOnly()
-		&& !AllForceDisabled( g_forcePowerDisable.integer )
-		&& g_trueJedi.integer )
+#if defined(STEFX_ELITE_FORCE_MP)
 	{
-		if ( g_gametype.integer >= GT_TEAM && (client->sess.sessionTeam == TEAM_BLUE || client->sess.sessionTeam == TEAM_RED) )
-		{//In Team games, force one side to be merc and other to be jedi
-			if ( level.numPlayingClients > 0 )
-			{//already someone in the game
-				int		i, forceTeam = TEAM_SPECTATOR;
-				for ( i = 0 ; i < level.maxclients ; i++ ) 
-				{
-					if ( level.clients[i].pers.connected == CON_DISCONNECTED ) {
-						continue;
-					}
-					if ( level.clients[i].sess.sessionTeam == TEAM_BLUE || level.clients[i].sess.sessionTeam == TEAM_RED ) 
-					{//in-game
-						if ( WP_HasForcePowers( &level.clients[i].ps ) )
-						{//this side is using force
-							forceTeam = level.clients[i].sess.sessionTeam;
-						}
-						else
-						{//other team is using force
-							if ( level.clients[i].sess.sessionTeam == TEAM_BLUE )
-							{
-								forceTeam = TEAM_RED;
-							}
-							else
-							{
-								forceTeam = TEAM_BLUE;
-							}
-						}
-						break;
-					}
-				}
-				if ( WP_HasForcePowers( &client->ps ) && client->sess.sessionTeam != forceTeam )
-				{//using force but not on right team, switch him over
-					const char *teamName = TeamName( forceTeam );
-					//client->sess.sessionTeam = forceTeam;
-					SetTeam( ent, (char *)teamName );
-					return;
-				}
-			}
-		}
+		static qboolean loggedHolomatchLoadoutSkip = qfalse;
 
-		if ( WP_HasForcePowers( &client->ps ) )
+		if ( !loggedHolomatchLoadoutSkip )
 		{
-			client->ps.trueNonJedi = qfalse;
-			client->ps.trueJedi = qtrue;
-			//make sure they only use the saber
-			client->ps.weapon = WP_SABER;
-			client->ps.stats[STAT_WEAPONS] = (1 << WP_SABER);
-		}
-		else
-		{//no force powers set
-			client->ps.trueNonJedi = qtrue;
-			client->ps.trueJedi = qfalse;
-			if (!wDisable || !(wDisable & (1 << WP_BRYAR_PISTOL)))
-			{
-				client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
-			}
-			if (!wDisable || !(wDisable & (1 << WP_BLASTER)))
-			{
-				client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BLASTER );
-			}
-			if (!wDisable || !(wDisable & (1 << WP_BOWCASTER)))
-			{
-				client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BOWCASTER );
-			}
-			client->ps.stats[STAT_WEAPONS] &= ~(1 << WP_SABER);
-			client->ps.stats[STAT_WEAPONS] |= (1 << WP_MELEE);
-			client->ps.ammo[AMMO_POWERCELL] = ammoData[AMMO_POWERCELL].max;
-			client->ps.weapon = WP_BRYAR_PISTOL;
+			G_Printf( "STEFX_HM: ClientSpawn skipped inherited Force/saber loadout branch in Holomatch client=%d\n", index );
+			loggedHolomatchLoadoutSkip = qtrue;
 		}
 	}
-	else
-	{//jediVmerc is incompatible with this gametype, turn it off!
-		trap_Cvar_Set( "g_jediVmerc", "0" );
-		if (g_gametype.integer == GT_HOLOCRON)
+#else
+	{
+		if ( g_gametype.integer != GT_HOLOCRON
+			&& g_gametype.integer != GT_JEDIMASTER
+			&& !HasSetSaberOnly()
+			&& !AllForceDisabled( g_forcePowerDisable.integer )
+			&& g_trueJedi.integer )
 		{
-			//always get free saber level 1 in holocron
-			client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_SABER );	//these are precached in g_items, ClearRegisteredItems()
+			if ( g_gametype.integer >= GT_TEAM && (client->sess.sessionTeam == TEAM_BLUE || client->sess.sessionTeam == TEAM_RED) )
+			{//In Team games, force one side to be merc and other to be jedi
+				if ( level.numPlayingClients > 0 )
+				{//already someone in the game
+					int		i, forceTeam = TEAM_SPECTATOR;
+					for ( i = 0 ; i < level.maxclients ; i++ )
+					{
+						if ( level.clients[i].pers.connected == CON_DISCONNECTED ) {
+							continue;
+						}
+						if ( level.clients[i].sess.sessionTeam == TEAM_BLUE || level.clients[i].sess.sessionTeam == TEAM_RED )
+						{//in-game
+							if ( WP_HasForcePowers( &level.clients[i].ps ) )
+							{//this side is using force
+								forceTeam = level.clients[i].sess.sessionTeam;
+							}
+							else
+							{//other team is using force
+								if ( level.clients[i].sess.sessionTeam == TEAM_BLUE )
+								{
+									forceTeam = TEAM_RED;
+								}
+								else
+								{
+									forceTeam = TEAM_BLUE;
+								}
+							}
+							break;
+						}
+					}
+					if ( WP_HasForcePowers( &client->ps ) && client->sess.sessionTeam != forceTeam )
+					{//using force but not on right team, switch him over
+						const char *teamName = TeamName( forceTeam );
+						//client->sess.sessionTeam = forceTeam;
+						SetTeam( ent, (char *)teamName );
+						return;
+					}
+				}
+			}
+
+			if ( WP_HasForcePowers( &client->ps ) )
+			{
+				client->ps.trueNonJedi = qfalse;
+				client->ps.trueJedi = qtrue;
+				//make sure they only use the saber
+				client->ps.weapon = WP_SABER;
+				client->ps.stats[STAT_WEAPONS] = (1 << WP_SABER);
+			}
+			else
+			{//no force powers set
+				client->ps.trueNonJedi = qtrue;
+				client->ps.trueJedi = qfalse;
+				if (!wDisable || !(wDisable & (1 << WP_BRYAR_PISTOL)))
+				{
+					client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+				}
+				if (!wDisable || !(wDisable & (1 << WP_BLASTER)))
+				{
+					client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BLASTER );
+				}
+				if (!wDisable || !(wDisable & (1 << WP_BOWCASTER)))
+				{
+					client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BOWCASTER );
+				}
+				client->ps.stats[STAT_WEAPONS] &= ~(1 << WP_SABER);
+				client->ps.stats[STAT_WEAPONS] |= (1 << WP_MELEE);
+				client->ps.ammo[AMMO_POWERCELL] = ammoData[AMMO_POWERCELL].max;
+				client->ps.weapon = WP_BRYAR_PISTOL;
+			}
 		}
 		else
-		{
-			if (client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE])
+		{//jediVmerc is incompatible with this gametype, turn it off!
+			trap_Cvar_Set( "g_jediVmerc", "0" );
+			if (g_gametype.integer == GT_HOLOCRON)
 			{
+				//always get free saber level 1 in holocron
 				client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_SABER );	//these are precached in g_items, ClearRegisteredItems()
 			}
 			else
-			{ //if you don't have saber attack rank then you don't get a saber
+			{
+				if (client->ps.fd.forcePowerLevel[FP_SABER_OFFENSE])
+				{
+					client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_SABER );	//these are precached in g_items, ClearRegisteredItems()
+				}
+				else
+				{ //if you don't have saber attack rank then you don't get a saber
+					client->ps.stats[STAT_WEAPONS] |= (1 << WP_MELEE);
+				}
+			}
+
+			if (g_gametype.integer != GT_SIEGE)
+			{
+				if (!wDisable || !(wDisable & (1 << WP_BRYAR_PISTOL)))
+				{
+					client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+				}
+				else if (g_gametype.integer == GT_JEDIMASTER)
+				{
+					client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+				}
+			}
+
+			if (g_gametype.integer == GT_JEDIMASTER)
+			{
+				client->ps.stats[STAT_WEAPONS] &= ~(1 << WP_SABER);
 				client->ps.stats[STAT_WEAPONS] |= (1 << WP_MELEE);
 			}
-		}
 
-		if (g_gametype.integer != GT_SIEGE)
-		{
-			if (!wDisable || !(wDisable & (1 << WP_BRYAR_PISTOL)))
+			if (client->ps.stats[STAT_WEAPONS] & (1 << WP_SABER))
 			{
-				client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+				client->ps.weapon = WP_SABER;
 			}
-			else if (g_gametype.integer == GT_JEDIMASTER)
+			else if (client->ps.stats[STAT_WEAPONS] & (1 << WP_BRYAR_PISTOL))
 			{
-				client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+				client->ps.weapon = WP_BRYAR_PISTOL;
 			}
-		}
-
-		if (g_gametype.integer == GT_JEDIMASTER)
-		{
-			client->ps.stats[STAT_WEAPONS] &= ~(1 << WP_SABER);
-			client->ps.stats[STAT_WEAPONS] |= (1 << WP_MELEE);
-		}
-
-		if (client->ps.stats[STAT_WEAPONS] & (1 << WP_SABER))
-		{
-			client->ps.weapon = WP_SABER;
-		}
-		else if (client->ps.stats[STAT_WEAPONS] & (1 << WP_BRYAR_PISTOL))
-		{
-			client->ps.weapon = WP_BRYAR_PISTOL;
-		}
-		else
-		{
-			client->ps.weapon = WP_MELEE;
+			else
+			{
+				client->ps.weapon = WP_MELEE;
+			}
 		}
 	}
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( client->sess.sessionTeam != TEAM_SPECTATOR )
+	{
+		client->ps.trueNonJedi = qtrue;
+		client->ps.trueJedi = qfalse;
+		client->ps.stats[STAT_WEAPONS] = (1 << WP_BRYAR_PISTOL);
+		client->ps.weapon = WP_BRYAR_PISTOL;
+		client->ps.viewheight = DEFAULT_VIEWHEIGHT;
+		client->ps.ammo[AMMO_FORCE] = ammoData[AMMO_FORCE].max;
+		client->ps.ammo[AMMO_BLASTER] = 0;
+		G_Printf( "STEFX_HM: ClientSpawn Holomatch loadout client=%d weapon=%d ammo_phaser=%d ammo_blaster=%d standheight=%d crouchheight=%d viewheight=%d\n",
+			index,
+			client->ps.weapon,
+			client->ps.ammo[AMMO_FORCE],
+			client->ps.ammo[AMMO_BLASTER],
+			client->ps.standheight,
+			client->ps.crouchheight,
+			client->ps.viewheight );
+	}
+#endif
 
 	/*
 	client->ps.stats[STAT_HOLDABLE_ITEMS] |= ( 1 << HI_BINOCULARS );
 	client->ps.stats[STAT_HOLDABLE_ITEM] = BG_GetItemIndexByTag(HI_BINOCULARS, IT_HOLDABLE);
 	*/
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	client->ps.stats[STAT_HOLDABLE_ITEMS] = 0;
+	client->ps.stats[STAT_HOLDABLE_ITEM] = 0;
+#else
 	if (g_gametype.integer == GT_SIEGE && client->siegeClass != -1 &&
 		client->sess.sessionTeam != TEAM_SPECTATOR)
 	{ //well then, we will use a custom weaponset for our class
@@ -3556,6 +3968,7 @@ void ClientSpawn(gentity_t *ent) {
 			i++;
 		}
 	}
+#endif
 
 	if ( client->sess.sessionTeam == TEAM_SPECTATOR )
 	{
@@ -3567,7 +3980,17 @@ void ClientSpawn(gentity_t *ent) {
 // nmckenzie: DESERT_SIEGE... or well, siege generally.  This was over-writing the max value, which was NOT good for siege.
 	if ( inSiegeWithClass == qfalse )
 	{
-		client->ps.ammo[AMMO_BLASTER] = 100; //ammoData[AMMO_BLASTER].max; //100 seems fair.
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( client->sess.sessionTeam != TEAM_SPECTATOR )
+		{
+			client->ps.ammo[AMMO_FORCE] = ammoData[AMMO_FORCE].max;
+			client->ps.ammo[AMMO_BLASTER] = 0;
+		}
+		else
+#endif
+		{
+			client->ps.ammo[AMMO_BLASTER] = 100; //ammoData[AMMO_BLASTER].max; //100 seems fair.
+		}
 	}
 //	client->ps.ammo[AMMO_POWERCELL] = ammoData[AMMO_POWERCELL].max;
 //	client->ps.ammo[AMMO_FORCE] = ammoData[AMMO_FORCE].max;
@@ -3604,7 +4027,21 @@ void ClientSpawn(gentity_t *ent) {
 	}
 
 	//Do per-spawn force power initialization
-	WP_SpawnInitForcePowers( ent );
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchForceSpawnSkip = qfalse;
+
+		if ( !loggedHolomatchForceSpawnSkip )
+		{
+			G_Printf( "STEFX_HM: skipping inherited per-spawn Force setup in Holomatch client=%d\n", index );
+			loggedHolomatchForceSpawnSkip = qtrue;
+		}
+	}
+#else
+	{
+		WP_SpawnInitForcePowers( ent );
+	}
+#endif
 
 	// health will count down towards max_health
 	if (g_gametype.integer == GT_SIEGE &&
@@ -3662,6 +4099,10 @@ void ClientSpawn(gentity_t *ent) {
 		client->ps.stats[STAT_ARMOR] = client->ps.stats[STAT_MAX_HEALTH] * 0.25;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	STEFX_HolomatchApplyDirectCombatSpawn( ent, spawn_origin, spawn_angles );
+#endif
+
 	G_SetOrigin( ent, spawn_origin );
 	VectorCopy( spawn_origin, client->ps.origin );
 
@@ -3677,32 +4118,89 @@ void ClientSpawn(gentity_t *ent) {
 		G_KillBox( ent );
 		trap_LinkEntity (ent);
 
-		// force the base weapon up
-		//client->ps.weapon = WP_BRYAR_PISTOL;
-		//client->ps.weaponstate = FIRST_WEAPON;
-		if (client->ps.weapon <= WP_NONE)
+#if defined(STEFX_ELITE_FORCE_MP)
 		{
+			static qboolean loggedHolomatchReadyWeapon = qfalse;
+			static qboolean loggedHolomatchIdleAnim = qfalse;
+
 			client->ps.weapon = WP_BRYAR_PISTOL;
-		}
+			client->ps.weaponstate = WEAPON_READY;
+			client->ps.weaponTime = 0;
+			client->ps.torsoTimer = client->ps.legsTimer = 0;
+			client->ps.torsoAnim = WeaponReadyAnim[client->ps.weapon];
+			client->ps.legsAnim = BOTH_STAND1;
 
-		client->ps.torsoTimer = client->ps.legsTimer = 0;
+			if ( !loggedHolomatchReadyWeapon )
+			{
+				G_Printf( "STEFX_HM: ClientSpawn Holomatch readied base weapon client=%d weapon=%d ammo_phaser=%d\n",
+					index,
+					client->ps.weapon,
+					client->ps.ammo[AMMO_FORCE] );
+				loggedHolomatchReadyWeapon = qtrue;
+			}
+			if ( !loggedHolomatchIdleAnim )
+			{
+				G_Printf( "STEFX_HM: ClientSpawn seeded EF idle animations client=%d torso=%d legs=%d\n",
+					index,
+					client->ps.torsoAnim,
+					client->ps.legsAnim );
+				loggedHolomatchIdleAnim = qtrue;
+			}
+		}
+#else
+		{
+			// force the base weapon up
+			//client->ps.weapon = WP_BRYAR_PISTOL;
+			//client->ps.weaponstate = FIRST_WEAPON;
+			if (client->ps.weapon <= WP_NONE)
+			{
+				client->ps.weapon = WP_BRYAR_PISTOL;
+			}
 
-		if (client->ps.weapon == WP_SABER)
-		{
-			G_SetAnim(ent, NULL, SETANIM_BOTH, BOTH_STAND1TO2, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD|SETANIM_FLAG_HOLDLESS, 0);
+			client->ps.torsoTimer = client->ps.legsTimer = 0;
+
+			if (client->ps.weapon == WP_SABER)
+			{
+				G_SetAnim(ent, NULL, SETANIM_BOTH, BOTH_STAND1TO2, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD|SETANIM_FLAG_HOLDLESS, 0);
+			}
+			else
+			{
+				G_SetAnim(ent, NULL, SETANIM_TORSO, TORSO_RAISEWEAP1, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD|SETANIM_FLAG_HOLDLESS, 0);
+				client->ps.legsAnim = WeaponReadyAnim[client->ps.weapon];
+			}
+			client->ps.weaponstate = WEAPON_RAISING;
+			client->ps.weaponTime = client->ps.torsoTimer;
 		}
-		else
-		{
-			G_SetAnim(ent, NULL, SETANIM_TORSO, TORSO_RAISEWEAP1, SETANIM_FLAG_OVERRIDE|SETANIM_FLAG_HOLD|SETANIM_FLAG_HOLDLESS, 0);
-			client->ps.legsAnim = WeaponReadyAnim[client->ps.weapon];
-		}
-		client->ps.weaponstate = WEAPON_RAISING;
-		client->ps.weaponTime = client->ps.torsoTimer;
+#endif
 	}
 
 	// don't allow full run speed for a bit
 	client->ps.pm_flags |= PMF_TIME_KNOCKBACK;
 	client->ps.pm_time = 100;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( g_ghostRespawn.integer )
+	{
+		static qboolean loggedHolomatchGhostRespawn = qfalse;
+
+		ent->client->ps.eFlags |= EF_INVULNERABLE;
+		ent->client->invulnerableTimer = level.time + (g_ghostRespawn.integer * 1000);
+
+		if ( !loggedHolomatchGhostRespawn )
+		{
+			G_Printf( "STEFX_HM: ClientSpawn using EF ghost respawn protection client=%d seconds=%d\n",
+				index,
+				g_ghostRespawn.integer );
+			loggedHolomatchGhostRespawn = qtrue;
+		}
+	}
+#else
+	if (g_spawnInvulnerability.integer)
+	{
+		ent->client->ps.eFlags |= EF_INVULNERABLE;
+		ent->client->invulnerableTimer = level.time + g_spawnInvulnerability.integer;
+	}
+#endif
 
 	client->respawnTime = level.time;
 	client->inactivityTime = level.time + g_inactivity.integer * 1000;
@@ -3769,12 +4267,6 @@ void ClientSpawn(gentity_t *ent) {
 		BG_PlayerStateToEntityState( &client->ps, &ent->s, qtrue );
 		VectorCopy( ent->client->ps.origin, ent->r.currentOrigin );
 		trap_LinkEntity( ent );
-	}
-
-	if (g_spawnInvulnerability.integer)
-	{
-		ent->client->ps.eFlags |= EF_INVULNERABLE;
-		ent->client->invulnerableTimer = level.time + g_spawnInvulnerability.integer;
 	}
 
 	// run the presend to set anything else
@@ -3931,5 +4423,7 @@ void ClientDisconnect( int clientNum ) {
 		BotAIShutdownClient( clientNum, qfalse );
 	}
 
-//	G_ClearClientLog(clientNum);
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_ClearClientLog(clientNum);
+#endif
 }

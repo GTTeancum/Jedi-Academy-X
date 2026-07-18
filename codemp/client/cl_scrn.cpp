@@ -175,7 +175,23 @@ This will be called twice if rendering in stereo mode
 */
 
 void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int stefxActiveFieldTraceCount = 0;
+	qboolean stefxActiveFieldTrace = (qboolean)( cls.state == CA_ACTIVE && stefxActiveFieldTraceCount < 4 );
+	if ( stefxActiveFieldTrace )
+	{
+		Com_PrintfAlways( "STEFX_HM: SCR_DrawScreenField active enter trace=%d state=%d stereo=%d\n",
+			stefxActiveFieldTraceCount, cls.state, stereoFrame );
+	}
+#endif
 	re.BeginFrame( stereoFrame );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFieldTrace )
+	{
+		Com_PrintfAlways( "STEFX_HM: SCR_DrawScreenField active after BeginFrame trace=%d\n",
+			stefxActiveFieldTraceCount );
+	}
+#endif
 
 #ifdef _XBOX
 //	if(ClientManager::splitScreenMode == qtrue) 
@@ -241,7 +257,21 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			CL_CGameRendering( stereoFrame );
 			break;
 		case CA_ACTIVE:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxActiveFieldTrace )
+			{
+				Com_PrintfAlways( "STEFX_HM: SCR_DrawScreenField active before CL_CGameRendering trace=%d\n",
+					stefxActiveFieldTraceCount );
+			}
+#endif
 			CL_CGameRendering( stereoFrame );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxActiveFieldTrace )
+			{
+				Com_PrintfAlways( "STEFX_HM: SCR_DrawScreenField active after CL_CGameRendering trace=%d\n",
+					stefxActiveFieldTraceCount );
+			}
+#endif
 //			SCR_DrawDemoRecording();
 			break;
 		}
@@ -267,6 +297,14 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 		SCR_DrawDebugGraph ();
 	}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFieldTrace )
+	{
+		Com_PrintfAlways( "STEFX_HM: SCR_DrawScreenField active exit trace=%d\n",
+			stefxActiveFieldTraceCount );
+		stefxActiveFieldTraceCount++;
+	}
+#endif
 }
 
 /*
@@ -287,6 +325,9 @@ void SCR_UpdateScreen( void ) {
 #ifdef _XBOX
 	static int jampScrLogCount = 0;
 	static int jampScrCallCount = 0;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static int stefxPreActiveSkipCount = 0;
+#endif
 #endif
 
 	if ( !scr_initialized ) {
@@ -313,6 +354,19 @@ void SCR_UpdateScreen( void ) {
 		jampScrLogCount++;
 	}
 	jampScrCallCount++;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( cls.state >= CA_CONNECTING && cls.state < CA_ACTIVE )
+	{
+		if ( stefxPreActiveSkipCount < 8 )
+		{
+			Com_PrintfAlways("STEFX_HM: SCR_UpdateScreen skipped pre-active draw call=%d state=%d clients=%d active=%d\n",
+				jampScrCallCount - 1, cls.state, ClientManager::NumClients(), ClientManager::ActiveClientNum());
+		}
+		stefxPreActiveSkipCount++;
+		recursive = 0;
+		return;
+	}
+#endif
 	if (ClientManager::splitScreenMode == qtrue) 
 	{
 //		cls.state = ClientManager::ActiveClient().state;

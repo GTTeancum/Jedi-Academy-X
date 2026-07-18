@@ -15,7 +15,7 @@
 //		--how many times each powerup or item is picked up
 
 
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 int G_WeaponLogPickups[MAX_CLIENTS][WP_NUM_WEAPONS];
 int G_WeaponLogFired[MAX_CLIENTS][WP_NUM_WEAPONS];
 int G_WeaponLogDamage[MAX_CLIENTS][MOD_MAX];
@@ -62,6 +62,9 @@ int weaponFromMOD[MOD_MAX] =
 	WP_TRIP_MINE,			//MOD_TRIP_MINE_SPLASH,
 	WP_TRIP_MINE,			//MOD_TIMED_MINE_SPLASH,
 	WP_DET_PACK,			//MOD_DET_PACK_SPLASH,
+	WP_NONE,				//MOD_VEHICLE,
+	WP_CONCUSSION,			//MOD_CONC,
+	WP_CONCUSSION,			//MOD_CONC_ALT,
 	WP_NONE,				//MOD_FORCE_DARK,
 	WP_NONE,				//MOD_SENTRY,
 	WP_NONE,				//MOD_WATER,
@@ -73,13 +76,15 @@ int weaponFromMOD[MOD_MAX] =
 	WP_NONE,				//MOD_SUICIDE,
 	WP_NONE,				//MOD_TARGET_LASER,
 	WP_NONE,				//MOD_TRIGGER_HURT,
+	WP_NONE,				//MOD_TEAM_CHANGE,
 };
 
 char *weaponNameFromIndex[WP_NUM_WEAPONS] = 
 {
 	"No Weapon",
 	"Stun Baton",				
-	"Saber",	
+	"Melee",
+	"Saber",
 	"Bryar Pistol",				
 	"Blaster",		
 	"Disruptor",				
@@ -91,13 +96,15 @@ char *weaponNameFromIndex[WP_NUM_WEAPONS] =
 	"Thermal",
 	"Tripmine",
 	"Detpack",
+	"Concussion",
+	"Bryar Old",
 	"Emplaced gun",
 	"Turret"
 };
 
 extern char	*modNames[];
 
-#endif //LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 
 /*
 =================
@@ -105,7 +112,7 @@ G_LogWeaponInit
 =================
 */
 void G_LogWeaponInit(void) {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	memset(G_WeaponLogPickups, 0, sizeof(G_WeaponLogPickups));
 	memset(G_WeaponLogFired, 0, sizeof(G_WeaponLogFired));
 	memset(G_WeaponLogDamage, 0, sizeof(G_WeaponLogDamage));
@@ -114,24 +121,32 @@ void G_LogWeaponInit(void) {
 	memset(G_WeaponLogFrags, 0, sizeof(G_WeaponLogFrags));
 	memset(G_WeaponLogTime, 0, sizeof(G_WeaponLogTime));
 	memset(G_WeaponLogLastTime, 0, sizeof(G_WeaponLogLastTime));
+	memset(G_WeaponLogClientTouch, 0, sizeof(G_WeaponLogClientTouch));
 	memset(G_WeaponLogPowerups, 0, sizeof(G_WeaponLogPowerups));
 	memset(G_WeaponLogItems, 0, sizeof(G_WeaponLogItems));
-#endif //LOGGING_WEAPONS
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: server initialized EF weapon stat tracking\n" );
+#endif
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponPickup(int client, int weaponid)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (client < 0 || client >= MAX_CLIENTS || weaponid < 0 || weaponid >= WP_NUM_WEAPONS)
+		return;
 	G_WeaponLogPickups[client][weaponid]++;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponFire(int client, int weaponid)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int dur;
 
+	if (client < 0 || client >= MAX_CLIENTS || weaponid < 0 || weaponid >= WP_NUM_WEAPONS)
+		return;
 	G_WeaponLogFired[client][weaponid]++;
 	dur = level.time - G_WeaponLogLastTime[client];
 	if (dur > 5000)		// 5 second max.
@@ -140,67 +155,67 @@ void QDECL G_LogWeaponFire(int client, int weaponid)
 		G_WeaponLogTime[client][weaponid] += dur;
 	G_WeaponLogLastTime[client] = level.time;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponDamage(int client, int mod, int amount)
 {
-#ifdef LOGGING_WEAPONS
-	if (client>=MAX_CLIENTS)
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (client < 0 || client >= MAX_CLIENTS || mod < 0 || mod >= MOD_MAX)
 		return;
 	G_WeaponLogDamage[client][mod] += amount;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponKill(int client, int mod)
 {
-#ifdef LOGGING_WEAPONS
-	if (client>=MAX_CLIENTS)
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (client < 0 || client >= MAX_CLIENTS || mod < 0 || mod >= MOD_MAX)
 		return;
 	G_WeaponLogKills[client][mod]++;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponFrag(int attacker, int deadguy)
 {
-#ifdef LOGGING_WEAPONS
-	if ( (attacker>=MAX_CLIENTS) || (deadguy>=MAX_CLIENTS) )
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (attacker < 0 || attacker >= MAX_CLIENTS || deadguy < 0 || deadguy >= MAX_CLIENTS)
 		return;
 	G_WeaponLogFrags[attacker][deadguy]++;
 	G_WeaponLogClientTouch[attacker] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponDeath(int client, int weaponid)
 {
-#ifdef LOGGING_WEAPONS
-	if (client>=MAX_CLIENTS)
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (client < 0 || client >= MAX_CLIENTS || weaponid < 0 || weaponid >= WP_NUM_WEAPONS)
 		return;
 	G_WeaponLogDeaths[client][weaponid]++;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponPowerup(int client, int powerupid)
 {
-#ifdef LOGGING_WEAPONS
-	if (client>=MAX_CLIENTS)
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (client < 0 || client >= MAX_CLIENTS || powerupid < 0 || powerupid >= HI_NUM_HOLDABLE)
 		return;
 	G_WeaponLogPowerups[client][powerupid]++;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 void QDECL G_LogWeaponItem(int client, int itemid)
 {
-#ifdef LOGGING_WEAPONS
-	if (client>=MAX_CLIENTS)
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
+	if (client < 0 || client >= MAX_CLIENTS || itemid < 0 || itemid >= PW_NUM_POWERUPS)
 		return;
 	G_WeaponLogItems[client][itemid]++;
 	G_WeaponLogClientTouch[client] = qtrue;
-#endif //_LOGGING_WEAPONS
+#endif // LOGGING_WEAPONS || STEFX_ELITE_FORCE_MP
 }
 
 
@@ -1590,7 +1605,7 @@ void CalculateAwards(gentity_t *ent, char *msg)
 
 int GetMaxDeathsForClient(int nClient)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int i = 0, nMostDeaths = 0;
 
 	if ((nClient < 0) || (nClient >= MAX_CLIENTS))
@@ -1612,7 +1627,7 @@ int GetMaxDeathsForClient(int nClient)
 
 int GetMaxKillsForClient(int nClient)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int i = 0, nMostKills = 0;
 
 	if ((nClient < 0) || (nClient >= MAX_CLIENTS))
@@ -1634,7 +1649,7 @@ int GetMaxKillsForClient(int nClient)
 
 int GetFavoriteTargetForClient(int nClient)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int i = 0, nMostKills = 0, nFavoriteTarget = -1;
 
 	if ((nClient < 0) || (nClient >= MAX_CLIENTS))
@@ -1651,13 +1666,17 @@ int GetFavoriteTargetForClient(int nClient)
 	}
 	return nFavoriteTarget;
 #else
+#if defined(STEFX_ELITE_FORCE_MP)
+	return -1;
+#else
 	return 0;
+#endif
 #endif
 }
 
 int GetWorstEnemyForClient(int nClient)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int i = 0, nMostDeaths = 0, nWorstEnemy = -1;
 
 	if ((nClient < 0) || (nClient >= MAX_CLIENTS))
@@ -1679,16 +1698,24 @@ int GetWorstEnemyForClient(int nClient)
 	}
 	return nWorstEnemy;
 #else
+#if defined(STEFX_ELITE_FORCE_MP)
+	return -1;
+#else
 	return 0;
+#endif
 #endif
 }
 
 int GetFavoriteWeaponForClient(int nClient)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int i = 0, nMostKills = 0, fav=0, weapon=WP_STUN_BATON;
 	int	killsWithWeapon[WP_NUM_WEAPONS];
 
+	if ((nClient < 0) || (nClient >= MAX_CLIENTS))
+	{
+		return 0;
+	}
 
 	// First thing we need to do is cycle through all the MOD types and convert
 	// number of kills to a single weapon.
@@ -1726,8 +1753,13 @@ int GetFavoriteWeaponForClient(int nClient)
 // kef -- if a client leaves the game, clear out all counters he may have set
 void QDECL G_ClearClientLog(int client)
 {
-#ifdef LOGGING_WEAPONS
+#if defined(LOGGING_WEAPONS) || defined(STEFX_ELITE_FORCE_MP)
 	int i = 0;
+
+	if (client < 0 || client >= MAX_CLIENTS)
+	{
+		return;
+	}
 
 	for (i = 0; i < WP_NUM_WEAPONS; i++)
 	{

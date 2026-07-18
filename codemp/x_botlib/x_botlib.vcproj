@@ -46,7 +46,7 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="false"
 				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;../game"
-				PreprocessorDefinitions="NDEBUG;WIN32;_LIB;BOTLIB;_JK2;_XBOX;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				PreprocessorDefinitions="NDEBUG;WIN32;_LIB;BOTLIB;_JK2;_XBOX;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="true"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="false"
@@ -94,6 +94,150 @@
 			Name="Source Files"
 			>
 			<File
+				RelativePath="..\botlib\be_aas_bspq3.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_cluster.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_debug.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_entity.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_file.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_main.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_move.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_optimize.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_reach.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_route.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_routealt.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
+				RelativePath="..\botlib\be_aas_sample.cpp"
+				>
+				<FileConfiguration
+					Name="Release|Win32"
+					>
+					<Tool
+						Name="VCCLCompilerTool"
+						UsePrecompiledHeader="0"
+					/>
+				</FileConfiguration>
+							</File>
+			<File
 				RelativePath="..\botlib\be_ea.cpp"
 				>
 								<FileConfiguration
@@ -101,7 +245,7 @@
 					>
 					<Tool
 						Name="VCCLCompilerTool"
-						PreprocessorDefinitions="_GAME;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+						PreprocessorDefinitions="_GAME;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 						UsePrecompiledHeader="0"
 					/>
 				</FileConfiguration>

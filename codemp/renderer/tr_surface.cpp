@@ -12,12 +12,26 @@
 #endif
 
 #ifdef _XBOX
+#ifndef STEFX_SURFACE_PHASE_LOG_LIMIT
+#define STEFX_SURFACE_PHASE_LOG_LIMIT 0
+#endif
+
 static void JAMP_SurfacePhasef(const char *fmt, int a, int b, int c, int d)
 {
 	char msg[160];
+#if defined(STEFX_ELITE_FORCE_MP)
+	static int stefxSurfaceLogCount = 0;
+#endif
 	_snprintf(msg, sizeof(msg), fmt, a, b, c, d);
 	msg[sizeof(msg) - 1] = 0;
 	XBLog_Phase(msg);
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxSurfaceLogCount < STEFX_SURFACE_PHASE_LOG_LIMIT )
+	{
+		XBLog_Write(msg);
+		stefxSurfaceLogCount++;
+	}
+#endif
 }
 
 static void JAMP_SurfaceLogf(const char *fmt, int a, int b, int c, int d)
@@ -31,6 +45,79 @@ static void JAMP_SurfaceLogf(const char *fmt, int a, int b, int c, int d)
 extern int g_jampTraceSurfaceCall;
 extern int g_jampTraceSurfaceIndex;
 extern int g_jampTraceSurfaceFrame;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean JAMP_FaceBatchHasRoom(int verts, int indexes)
+{
+	int maxVerts = (tess.shader == tr.shadowShader) ? SHADER_MAX_VERTEXES / 2 : SHADER_MAX_VERTEXES;
+
+	return (tess.numVertexes + verts < maxVerts &&
+		tess.numIndexes + indexes < SHADER_MAX_INDEXES) ? qtrue : qfalse;
+}
+
+static qboolean JAMP_EnsureFaceBatchRoom(const srfSurfaceFace_t *surf)
+{
+	shader_t *savedShader;
+	int savedFog;
+	int maxVerts;
+	static int s_faceOverflowLogBudget = 24;
+
+	if (!surf || !tess.shader)
+	{
+		return qfalse;
+	}
+
+	maxVerts = (tess.shader == tr.shadowShader) ? SHADER_MAX_VERTEXES / 2 : SHADER_MAX_VERTEXES;
+	if (surf->numPoints <= 0 || surf->numIndices <= 0 ||
+		surf->numPoints >= maxVerts || surf->numIndices >= SHADER_MAX_INDEXES)
+	{
+		if (s_faceOverflowLogBudget > 0)
+		{
+			XBLF("STEFX_HM: skipping oversized face shader='%s' pts=%d idx=%d maxVerts=%d maxIdx=%d tv=%d ti=%d",
+				tess.shader->name, surf->numPoints, surf->numIndices,
+				maxVerts, SHADER_MAX_INDEXES, tess.numVertexes, tess.numIndexes);
+			--s_faceOverflowLogBudget;
+		}
+		XBLog_Phase("RB_SurfaceFace oversized skip");
+		return qfalse;
+	}
+
+	if (JAMP_FaceBatchHasRoom(surf->numPoints, surf->numIndices))
+	{
+		return qtrue;
+	}
+
+	savedShader = tess.shader;
+	savedFog = tess.fogNum;
+	if (s_faceOverflowLogBudget > 0)
+	{
+		XBLF("STEFX_HM: forcing face batch flush shader='%s' pts=%d idx=%d tv=%d ti=%d maxVerts=%d maxIdx=%d",
+			savedShader->name, surf->numPoints, surf->numIndices,
+			tess.numVertexes, tess.numIndexes, maxVerts, SHADER_MAX_INDEXES);
+		--s_faceOverflowLogBudget;
+	}
+	XBLog_Phase("RB_SurfaceFace force flush before EndSurface");
+	RB_EndSurface();
+	XBLog_Phase("RB_SurfaceFace force flush before BeginSurface");
+	RB_BeginSurface(savedShader, savedFog);
+
+	if (!JAMP_FaceBatchHasRoom(surf->numPoints, surf->numIndices))
+	{
+		if (s_faceOverflowLogBudget > 0)
+		{
+			XBLF("STEFX_HM: face batch still full after flush shader='%s' pts=%d idx=%d tv=%d ti=%d",
+				savedShader->name, surf->numPoints, surf->numIndices,
+				tess.numVertexes, tess.numIndexes);
+			--s_faceOverflowLogBudget;
+		}
+		XBLog_Phase("RB_SurfaceFace no room after flush");
+		return qfalse;
+	}
+
+	XBLog_Phase("RB_SurfaceFace force flush ready");
+	return qtrue;
+}
+#endif
 #endif
 
 /*
@@ -1545,7 +1632,14 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 			g_jampTraceSurfaceFrame, g_jampTraceSurfaceIndex, tess.numVertexes, tess.numIndexes);
 	}
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if (!JAMP_EnsureFaceBatchRoom(surf))
+	{
+		return;
+	}
+#else
 	RB_CHECKOVERFLOW( surf->numPoints, surf->numIndices );
+#endif
 #ifdef _XBOX
 	if (jampTraceFace)
 	{
@@ -2145,6 +2239,14 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 	}
 
 #ifdef _XBOX
+	static int s_xboxSkipFlareTraceCount = 0;
+	if ( s_xboxSkipFlareTraceCount < 64 ) {
+		JAMP_SurfaceLogf("STEFX_HM: RB_SurfaceFlare Xbox skip number=%d r_flares=%d visible=%d trace=%d",
+			(int)surf->number, r_flares->integer, (int)surf->visible, s_xboxSkipFlareTraceCount);
+		s_xboxSkipFlareTraceCount++;
+	}
+	return;
+
 	vec3_t     sorigin, snormal;
 
 	Q_CastShort2Float(&sorigin[0], (short*)&surf->origin[0]);
@@ -2233,6 +2335,9 @@ void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])( void *) = {
 	//(void(*)(void*))RB_SurfaceTerrain,		// SF_TERRAIN, //rwwRMG - added
 	(void(*)(void*))NULL,						// SF_TERRAIN, //rwwRMG - added
 	(void(*)(void*))RB_SurfaceMesh,			// SF_MD3,
+#ifdef STEFX_ELITE_FORCE_RENDERER
+	(void(*)(void*))RB_SurfaceAnim,			// SF_MDR,
+#endif
 /*
 Ghoul2 Insert Start
 */

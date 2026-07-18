@@ -12,8 +12,62 @@
 #include "../png/png.h"
 #include "../qcommon/sstring.h"
 #include "../win32/xbox_texture_man.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 #include "../cgame/cg_local.h"
 #include "modelmem.h"
+
+#ifdef _XBOX
+extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
+extern "C" void JkaFakeglSetTextureDebugName(const char *name);
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+char *GenerateImageMappingName( const char *name );
+
+static qboolean R_XboxIsHighFidelityUIFont( const char *name )
+{
+	if ( !name )
+	{
+		return qfalse;
+	}
+
+	return ( !Q_stricmp( name, "gfx/2d/charsgrid_med" ) ||
+			 !Q_stricmp( name, "gfx/2d/charsgrid_med.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_medium" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_medium.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_tiny" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_tiny.tga" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_big" ) ||
+			 !Q_stricmp( name, "gfx/2d/chars_big.tga" ) );
+}
+
+static qboolean R_XboxIsBorgAlphaCutoutTexture( const char *name )
+{
+	char canonicalName[MAX_QPATH];
+	int i;
+
+	if ( !name )
+	{
+		return qfalse;
+	}
+
+	Q_strncpyz( canonicalName, GenerateImageMappingName( name ), sizeof( canonicalName ) );
+	for ( i = 0; canonicalName[i]; ++i )
+	{
+		if ( canonicalName[i] == '\\' )
+		{
+			canonicalName[i] = '/';
+		}
+	}
+
+	return ( !Q_stricmp( canonicalName, "textures/borg/bars" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/bars2" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/basic1" ) ||
+			 !Q_stricmp( canonicalName, "textures/borg/borgladder" ) );
+}
+#endif
 
 static byte			 s_intensitytable[256];
 static unsigned char s_gammatable[256];
@@ -528,7 +582,7 @@ Upload32
 
 ===============
 */
-static void Upload32( unsigned *data, 
+static void Upload32( const char *debugName, unsigned *data,
 						  int img_width, int img_height, 
 						  GLenum format,
 						  int mipcount, 
@@ -536,6 +590,17 @@ static void Upload32( unsigned *data,
 						  qboolean isLightmap, 
 						  int *pformat )
 {
+#ifdef _XBOX
+	JkaFakeglSetTextureDebugName(debugName ? debugName : "<null>");
+	XBLF("JA: Upload32 image='%s' size=%dx%d format=0x%08x mipcount=%d picmip=%d lightmap=%d\n",
+		debugName ? debugName : "<null>",
+		img_width,
+		img_height,
+		format,
+		mipcount,
+		picmip,
+		isLightmap);
+#endif
 	if (format == GL_RGBA)
 	{
 		int			samples;
@@ -543,6 +608,10 @@ static void Upload32( unsigned *data,
 		byte		*scan;
 		int			width = img_width;
 		int			height = img_height; 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		qboolean	stefxBorgAlphaProbe =
+			R_XboxIsBorgAlphaCutoutTexture( debugName );
+#endif
 		
 		//
 		// perform optional picmip operation
@@ -571,6 +640,80 @@ static void Upload32( unsigned *data,
 			width >>= 1;
 			height >>= 1;
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		{
+			const qboolean highFidelityUIFont = R_XboxIsHighFidelityUIFont( debugName );
+			int maxUploadSize = 128;
+			int oldWidth = width;
+			int oldHeight = height;
+			static qboolean s_loggedStefxUploadCaps = qfalse;
+
+			if ( highFidelityUIFont )
+			{
+				maxUploadSize = 256;
+			}
+			else if ( !isLightmap &&
+				debugName &&
+				(strstr(debugName, "models/players/") ||
+				 strstr(debugName, "models\\players\\") ||
+				 strstr(debugName, "models/players2/") ||
+				 strstr(debugName, "models\\players2\\")) )
+			{
+				maxUploadSize = 64;
+			}
+
+			if ( !s_loggedStefxUploadCaps )
+			{
+				XBLF("STEFX_HM: MP renderer using SP Xbox Upload32 caps nonlightmap=%d player=%d lightmap=%d uiFont=%d",
+					128,
+					64,
+					128,
+					256);
+				s_loggedStefxUploadCaps = qtrue;
+			}
+
+			if ( highFidelityUIFont )
+			{
+				static int s_fontUploadLogs = 0;
+				if ( s_fontUploadLogs < 8 )
+				{
+					XBLF("STEFX_HM: MP renderer preserving SP high-fidelity UI font image='%s' source=%dx%d max=%d",
+						debugName ? debugName : "<null>",
+						width,
+						height,
+						maxUploadSize);
+					++s_fontUploadLogs;
+				}
+			}
+
+			while ( width > maxUploadSize || height > maxUploadSize )
+			{
+				R_MipMap( (byte *)data, width, height );
+				width >>= 1;
+				height >>= 1;
+				if ( width < 1 )
+				{
+					width = 1;
+				}
+				if ( height < 1 )
+				{
+					height = 1;
+				}
+			}
+
+			if ( oldWidth != width || oldHeight != height )
+			{
+				XBLF("STEFX_HM: MP renderer SP Upload32 capped image='%s' %dx%d -> %dx%d lightmap=%d",
+					debugName ? debugName : "<null>",
+					oldWidth,
+					oldHeight,
+					width,
+					height,
+					isLightmap);
+			}
+		}
+#endif
 		
 		//
 		// scan the texture for each channel's max values
@@ -579,8 +722,36 @@ static void Upload32( unsigned *data,
 		c = width*height;
 		scan = ((byte *)data);
 		samples = 3;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		int alphaMin = 255;
+		int alphaMax = 0;
+		int alphaLt128 = 0;
+		int alphaGe128 = 0;
+#endif
 		for ( i = 0; i < c; i++ )
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( stefxBorgAlphaProbe )
+			{
+				int alpha = scan[i*4 + 3];
+				if ( alpha < alphaMin )
+				{
+					alphaMin = alpha;
+				}
+				if ( alpha > alphaMax )
+				{
+					alphaMax = alpha;
+				}
+				if ( alpha < 128 )
+				{
+					++alphaLt128;
+				}
+				else
+				{
+					++alphaGe128;
+				}
+			}
+#endif
 			if ( scan[i*4 + 3] != 255 ) 
 			{
 				samples = 4;
@@ -618,6 +789,14 @@ static void Upload32( unsigned *data,
 		}
 		else if ( samples == 4 )
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( R_XboxIsHighFidelityUIFont( debugName ) ||
+				R_XboxIsBorgAlphaCutoutTexture( debugName ) )
+			{
+				*pformat = GL_RGBA8;
+			}
+			else
+#endif
 			if ( r_texturebits->integer == 16 )
 			{
 				*pformat = GL_RGBA4;
@@ -631,6 +810,27 @@ static void Upload32( unsigned *data,
 				*pformat = 4;
 			}
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxBorgAlphaProbe )
+		{
+			XBLF("STEFX_HM: MP renderer SP Borg alpha upload image='%s' source=%dx%d upload=%dx%d samples=%d internal=0x%x alphaMin=%d alphaMax=%d alphaLt128=%d alphaGe128=%d texbits=%d picmip=%d lightmap=%d",
+				debugName ? debugName : "<null>",
+				img_width,
+				img_height,
+				width,
+				height,
+				samples,
+				*pformat,
+				alphaMin,
+				alphaMax,
+				alphaLt128,
+				alphaGe128,
+				r_texturebits ? r_texturebits->integer : -1,
+				picmip,
+				isLightmap);
+		}
+#endif
 		
 		// copy or resample data as appropriate for first MIP level
 		if (!mipcount)
@@ -661,9 +861,39 @@ static void Upload32( unsigned *data,
 	{
 		*pformat = format;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( R_XboxIsBorgAlphaCutoutTexture( debugName ) )
+		{
+			XBLF("STEFX_HM: MP renderer SP DDS_TRACE upload32 image='%s' source=%dx%d fmt=0x%08x mips=%d picmip=%d lightmap=%d",
+				debugName ? debugName : "<null>",
+				img_width,
+				img_height,
+				(unsigned int)format,
+				mipcount,
+				picmip,
+				isLightmap);
+		}
+		else if ( debugName && strstr( debugName, "env/junk_" ) )
+		{
+			XBLF("STEFX_HM: MP renderer SP DDS_TRACE upload32 image='%s' source=%dx%d fmt=0x%08x mips=%d picmip=%d lightmap=%d",
+				debugName,
+				img_width,
+				img_height,
+				(unsigned int)format,
+				mipcount,
+				picmip,
+				isLightmap);
+		}
+#endif
+#ifdef _XBOX
+		JkaFakeglSetDDSUploadPicmip(picmip ? r_picmip->integer : 0);
+#endif
 		qglTexImage2DEXT (GL_TEXTURE_2D, 0, mipcount,
 			format, img_width, img_height, 0, format, 
 			GL_UNSIGNED_BYTE, data);
+#ifdef _XBOX
+		JkaFakeglSetDDSUploadPicmip(0);
+#endif
 	}
 
 	if (mipcount)
@@ -682,6 +912,12 @@ static void Upload32( unsigned *data,
 	}
 
 	GL_CheckErrors();
+#ifdef _XBOX
+	XBLF("JA: Upload32 done image='%s' pformat=0x%08x\n",
+		debugName ? debugName : "<null>",
+		pformat ? *pformat : 0);
+	JkaFakeglSetTextureDebugName("<none>");
+#endif
 }
 
 
@@ -815,7 +1051,9 @@ void R_Images_Clear(void)
 	glw_state->textureBindNum = 1;
 
 	gStaticTextures.Reset();
+#if !defined(STEFX_ELITE_FORCE_MP)
 	gSkinTextures.Reset();
+#endif
 }
 
 
@@ -969,7 +1207,10 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 
 	GL_Bind(image);
 
-	Upload32( (unsigned *)pic,	image->width, image->height, 
+#ifdef _XBOX
+	JkaFakeglSetTextureDebugName(name);
+#endif
+	Upload32( name, (unsigned *)pic,	image->width, image->height,
 								format,
 								image->mipcount,
 								allowPicmip, 
@@ -1515,6 +1756,9 @@ Loads any of the supported image types into a cannonical
 */
 void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, int *mipcount, GLenum *format ) {
 	char	name[MAX_QPATH];
+#ifdef _XBOX
+	static int s_stefxLoadImageLogBudget = 192;
+#endif
 
 	*pic = NULL;
 	*width = 0;
@@ -1530,9 +1774,32 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 	// Try DDS first - saves a ton of failed GOB checks on startup:
 	COM_StripExtension(name, name);
 	COM_DefaultExtension(name, sizeof(name), ".dds");
+#ifdef _XBOX
+	if (s_stefxLoadImageLogBudget > 0)
+	{
+		XBLF("STEFX_HM: renderer R_LoadImage DDS begin request='%s' candidate='%s'", shortname ? shortname : "<null>", name);
+	}
+#endif
 	LoadDDS( name, pic, width, height, mipcount, format );
 	if( *pic )
+	{
+#ifdef _XBOX
+		if (s_stefxLoadImageLogBudget > 0)
+		{
+			XBLF("STEFX_HM: renderer R_LoadImage DDS loaded request='%s' size=%dx%d mips=%d format=0x%08x",
+				shortname ? shortname : "<null>", *width, *height, *mipcount, (unsigned int)*format);
+			--s_stefxLoadImageLogBudget;
+		}
+#endif
 		return;
+	}
+#ifdef _XBOX
+	if (s_stefxLoadImageLogBudget > 0)
+	{
+		XBLF("STEFX_HM: renderer R_LoadImage DDS missing request='%s' candidate='%s'", shortname ? shortname : "<null>", name);
+		--s_stefxLoadImageLogBudget;
+	}
+#endif
 /*
 	// OK. Now look for TGA:
 	*format = GL_RGBA;
@@ -1830,6 +2097,9 @@ image_t	*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 	int		mipcount;
 	byte	*pic;
 	GLenum	format;
+#ifdef _XBOX
+	static int s_stefxFindImageLogBudget = 192;
+#endif
    
 	if (!name) {
 		return NULL;
@@ -1844,18 +2114,54 @@ image_t	*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 
 	image = R_FindImageFile_NoLoad(name, mipmap, allowPicmip, glWrapClampMode );
 	if (image) {
+#ifdef _XBOX
+		if (s_stefxFindImageLogBudget > 0)
+		{
+			XBLF("STEFX_HM: renderer R_FindImageFile cache hit name='%s' tex=%d", name, image->texnum);
+			--s_stefxFindImageLogBudget;
+		}
+#endif
 		return image;
 	}
 
 	//
 	// load the pic from disk
 	//
+#ifdef _XBOX
+	if (s_stefxFindImageLogBudget > 0)
+	{
+		XBLF("STEFX_HM: renderer R_FindImageFile load begin name='%s' mip=%d picmip=%d clamp=0x%08x",
+			name, mipmap ? 1 : 0, allowPicmip ? 1 : 0, (unsigned int)glWrapClampMode);
+	}
+#endif
 	R_LoadImage( name, &pic, &width, &height, &mipcount, &format );
 	if ( !pic ) {
+#ifdef _XBOX
+		if (s_stefxFindImageLogBudget > 0)
+		{
+			XBLF("STEFX_HM: renderer R_FindImageFile load missing name='%s'", name);
+			--s_stefxFindImageLogBudget;
+		}
+#endif
         return NULL;            
 	}
+#ifdef _XBOX
+	if (s_stefxFindImageLogBudget > 0)
+	{
+		XBLF("STEFX_HM: renderer R_FindImageFile create begin name='%s' size=%dx%d mips=%d format=0x%08x",
+			name, width, height, mipcount, (unsigned int)format);
+	}
+#endif
 
 	image = R_CreateImage( ( char * ) name, pic, width, height, format, mipcount, allowPicmip, glWrapClampMode );
+#ifdef _XBOX
+	if (s_stefxFindImageLogBudget > 0)
+	{
+		XBLF("STEFX_HM: renderer R_FindImageFile create done name='%s' image=%p tex=%d",
+			name, (void *)image, image ? image->texnum : 0);
+		--s_stefxFindImageLogBudget;
+	}
+#endif
 	Z_Free( pic );
 	return image;
 }
@@ -2049,22 +2355,40 @@ void R_CreateBuiltinImages( void )
 {
 	byte	*data = (byte *) Z_Malloc( SCREEN_IMAGE_MAX_WIDTH * SCREEN_IMAGE_MAX_HEIGHT * 4, TAG_TEMP_WORKSPACE, qfalse, 4 );
 
+#ifdef _XBOX
+	XBL("R_CreateBuiltinImages: *default...\n");
+#endif
 	R_CreateDefaultImage();
 
 	// we use a solid white image instead of disabling texturing
 	memset( data, 255, Z_Size( data ) );
 
+#ifdef _XBOX
+	XBL("R_CreateBuiltinImages: *white...\n");
+#endif
 	tr.whiteImage = R_CreateImage("*white", (byte *)data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
 
-	// Make this the right size the first time, and keep it linear because
-	// the Xbox backbuffer capture path copies directly into this surface.
-	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_LIN_RGBA8, 1, qfalse, GL_REPEAT );
+	// Match the SP Xbox path: fakegl owns the swizzle/layout conversion.
+#ifdef _XBOX
+	XBL("R_CreateBuiltinImages: *screen...\n");
+	XBL("STEFX_HM: renderer using SP-style GL_RGBA screen texture; legacy MP GL_LIN_RGBA8 path disabled\n");
+#endif
+	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_RGBA, 1, qfalse, GL_REPEAT );
 
+#ifdef _XBOX
+	XBL("R_CreateBuiltinImages: Z_Free screen data...\n");
+#endif
 	Z_Free( data );
 
 	//R_CreateDlightImage();
 
+#ifdef _XBOX
+	XBL("R_CreateBuiltinImages: R_CreateFogImage...\n");
+#endif
 	R_CreateFogImage();
+#ifdef _XBOX
+	XBL("R_CreateBuiltinImages: done\n");
+#endif
 }
 
 
@@ -2456,8 +2780,10 @@ qhandle_t RE_RegisterSkin( const char *name) {
 
 	// Redirect all texture allocations to the swapping pool
 	bool playerSkin = strstr(name, "models/players");
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if( playerSkin )
 		BeginSkinTextures();
+#endif
 
 	char skinhead[MAX_QPATH]={0};
 	char skintorso[MAX_QPATH]={0};
@@ -2479,7 +2805,9 @@ qhandle_t RE_RegisterSkin( const char *name) {
 		hSkin = RE_RegisterIndividualSkin(name, hSkin);
 	}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	EndSkinTextures();
+#endif
 
 	return(hSkin);
 }

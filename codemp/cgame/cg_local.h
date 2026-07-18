@@ -79,7 +79,11 @@
 #define	WAVE_AMPLITUDE	1
 #define	WAVE_FREQUENCY	0.4
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define	DEFAULT_MODEL			"munro"
+#else
 #define	DEFAULT_MODEL			"kyle"
+#endif
 
 #define DEFAULT_FORCEPOWERS		"5-1-000000000000000000"
 //"rank-side-heal.lev.speed.push.pull.tele.grip.lightning.rage.protect.absorb.teamheal.teamforce.drain.see"
@@ -231,6 +235,9 @@ typedef struct {
 	qboolean		teamLeader;		// true when this is a team leader
 
 	int				powerups;		// so can display quad/flag status
+#if defined(STEFX_ELITE_FORCE_MP)
+	qboolean		eliminated;
+#endif
 
 	int				medkitUsageTime;
 
@@ -272,8 +279,13 @@ typedef struct {
 	qhandle_t		torsoModel;
 	qhandle_t		torsoSkin;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	qhandle_t		headModel;
+	qhandle_t		headSkin;
+#else
 	//qhandle_t		headModel;
 	//qhandle_t		headSkin;
+#endif
 
 	void			*ghoul2Model;
 	
@@ -646,6 +658,12 @@ typedef struct {
 	int				ping;
 	int				time;
 	int				scoreFlags;
+#if defined(STEFX_ELITE_FORCE_MP)
+	int				worstEnemy;
+	int				worstEnemyKills;
+	int				faveWeapon;
+	int				killedCnt;
+#endif
 	int				powerUps;
 	int				accuracy;
 	int				impressiveCount;
@@ -1333,6 +1351,7 @@ typedef struct {
 	sfxHandle_t	count2Sound;
 	sfxHandle_t	count1Sound;
 	sfxHandle_t	countFightSound;
+	sfxHandle_t	countPrepareSound;
 
 	// new stuff
 	qhandle_t patrolShader;
@@ -1921,6 +1940,9 @@ extern  char systemChat[256];
 void CG_CenterPrint( const char *str, int y, int charWidth );
 void CG_DrawHead( float x, float y, float w, float h, int clientNum, vec3_t headAngles );
 void CG_DrawActive( stereoFrame_t stereoView );
+#if defined(STEFX_ELITE_FORCE_MP)
+void CG_STEFXRegisterHolomatchHudGraphics( void );
+#endif
 void CG_DrawFlagModel( float x, float y, float w, float h, int team, qboolean force2D );
 void CG_DrawTeamBackground( int x, int y, int w, int h, float alpha, int team );
 void CG_OwnerDraw(float x, float y, float w, float h, float text_x, float text_y, int ownerDraw, int ownerDrawFlags, int align, float special, float scale, vec4_t color, qhandle_t shader, int textStyle,int font);
@@ -2042,6 +2064,9 @@ void CG_DrawWeaponSelect( void );
 void CG_DrawIconBackground(void);
 
 void CG_OutOfAmmoChange( int oldWeapon );	// should this be in pmove?
+#if defined(STEFX_ELITE_FORCE_MP)
+void CG_STEFXOutOfAmmoChange( int oldWeapon, qboolean altFire );
+#endif
 
 //
 // cg_marks.c

@@ -10,6 +10,13 @@
 #include "../win32/win_lighteffects.h"
 #endif
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#ifndef VV_LIGHTING
+#include "../win32/glw_win_dx8.h"
+#endif
+#endif
+
 #include "tr_QuickSprite.h"
 
 /*
@@ -48,6 +55,14 @@ static const GLvoid *jampTexCoordDirectPointer[NUM_TEXTURE_BUNDLES];
 static GLsizei jampTexCoordDirectStride[NUM_TEXTURE_BUNDLES];
 static qboolean jampColorDirect;
 static DWORD jampColorDirectValue;
+
+static void JAMP_ShadePhasef(const char *fmt, int a, int b, int c, int d)
+{
+	char msg[128];
+	_snprintf(msg, sizeof(msg), fmt, a, b, c, d);
+	msg[sizeof(msg) - 1] = 0;
+	XBLog_Phase(msg);
+}
 
 #define JAMP_XBOX_DIRECT_TEXCOORD_SHORTCUTS 1
 #define JAMP_XBOX_DIRECT_COLOR_SHORTCUTS 0
@@ -183,6 +198,283 @@ static ID_INLINE void JAMP_TexCoordPointer( int bundleIndex, const GLvoid *fallb
 		qglTexCoordPointer( 2, GL_FLOAT, 0, fallback );
 	}
 }
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam);
+
+static qboolean JAMP_XboxIsEliteForceHudShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	return strstr( name, "gfx/interface/" ) ||
+		strstr( name, "crosshair" );
+}
+
+static qboolean JAMP_XboxIsEliteForceBeamShader( const shader_t *shader )
+{
+	const char *name = shader ? shader->name : "";
+
+	if ( !name )
+	{
+		name = "";
+	}
+
+	return !Q_stricmp( name, "gfx/effects/whitelaser" ) ||
+		!Q_stricmp( name, "gfx/misc/spark" );
+}
+
+static void JAMP_XboxForceEliteForceSolidFillMode( const char *where )
+{
+	static int s_stefxOverlaySolidFillLogBudget = 4;
+	static int s_stefxOverlaySolidFillSkipBudget = 2;
+
+	if ( !glw_state || !glw_state->device )
+	{
+		if ( s_stefxOverlaySolidFillSkipBudget > 0 )
+		{
+			XBLF( "STEFX_HM: renderer EF overlay solid fill skipped where=%s shader='%s' glw=%p device=%p frame=%d",
+				where ? where : "<null>",
+				tess.shader ? tess.shader->name : "<null>",
+				glw_state,
+				glw_state ? glw_state->device : NULL,
+				tr.frameCount );
+			--s_stefxOverlaySolidFillSkipBudget;
+		}
+		return;
+	}
+
+	glw_state->device->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
+	glw_state->device->SetRenderState( D3DRS_BACKFILLMODE, D3DFILL_SOLID );
+
+	if ( s_stefxOverlaySolidFillLogBudget > 0 )
+	{
+		XBLF( "STEFX_HM: renderer EF overlay solid fill mode where=%s shader='%s' projection2D=%d frame=%d",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			backEnd.projection2D,
+			tr.frameCount );
+		--s_stefxOverlaySolidFillLogBudget;
+	}
+}
+
+static int JAMP_XboxAdjustEliteForceOverlayState( const shaderStage_t *stage, int stateBits, qboolean hud, qboolean beam, const char *where )
+{
+	static int s_stefxOverlayStateBudget = 8;
+	const int oldStateBits = stateBits;
+
+	if ( !hud && !beam )
+	{
+		return stateBits;
+	}
+
+	stateBits |= GLS_DEPTHTEST_DISABLE;
+	stateBits &= ~( GLS_DEPTHFUNC_EQUAL | GLS_DEPTHMASK_TRUE | GLS_ATEST_BITS );
+
+	if ( ( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) == 0 )
+	{
+		if ( beam )
+		{
+			stateBits |= GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
+		}
+		else
+		{
+			stateBits |= GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+		}
+	}
+
+	if ( s_stefxOverlayStateBudget > 0 )
+	{
+		XBLF( "STEFX_HM: renderer EF overlay state where=%s shader='%s' stageActive=%d hud=%d beam=%d old=0x%x new=0x%x projection2D=%d verts=%d indexes=%d",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			stage ? stage->active : -1,
+			hud ? 1 : 0,
+			beam ? 1 : 0,
+			oldStateBits,
+			stateBits,
+			backEnd.projection2D,
+			tess.numVertexes,
+			tess.numIndexes );
+		--s_stefxOverlayStateBudget;
+	}
+
+	return stateBits;
+}
+
+static void JAMP_XboxForceEliteForceOverlayD3DState( qboolean additive, const char *where )
+{
+	static int s_stefxForceOverlayLogBudget = 8;
+	static int s_stefxForceOverlaySkipBudget = 2;
+
+	if ( !glw_state || !glw_state->device )
+	{
+		if ( s_stefxForceOverlaySkipBudget > 0 )
+		{
+			XBLF( "STEFX_HM: renderer EF overlay D3D skipped where=%s shader='%s' glw=%p device=%p projection2D=%d frame=%d",
+				where ? where : "<null>",
+				tess.shader ? tess.shader->name : "<null>",
+				glw_state,
+				glw_state ? glw_state->device : NULL,
+				backEnd.projection2D,
+				tr.frameCount );
+			--s_stefxForceOverlaySkipBudget;
+		}
+		return;
+	}
+
+	glw_state->device->SetRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
+	glw_state->device->SetRenderState( D3DRS_ZWRITEENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
+	glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
+	glw_state->device->SetRenderState( D3DRS_SRCBLEND, additive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_DESTBLEND, additive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA );
+	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
+	JAMP_XboxForceEliteForceSolidFillMode( where );
+
+	if ( s_stefxForceOverlayLogBudget > 0 )
+	{
+		XBLF( "STEFX_HM: renderer EF overlay D3D state where=%s shader='%s' additive=%d projection2D=%d frame=%d",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			additive ? 1 : 0,
+			backEnd.projection2D,
+			tr.frameCount );
+		--s_stefxForceOverlayLogBudget;
+	}
+}
+
+static void JAMP_XboxPrepareEliteForceOverlayStage( qboolean additive, const char *where )
+{
+	static int s_stefxPrepareOverlayBudget = 8;
+
+	GL_SelectTexture( 1 );
+	qglDisable( GL_TEXTURE_2D );
+	qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	GL_SelectTexture( 0 );
+	qglEnable( GL_TEXTURE_2D );
+	qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
+	GL_TexEnv( GL_MODULATE );
+
+	if ( additive )
+	{
+		qglBlendFunc( GL_ONE, GL_ONE );
+	}
+	else
+	{
+		qglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+	}
+	qglEnable( GL_BLEND );
+	qglDisable( GL_ALPHA_TEST );
+	qglDisable( GL_DEPTH_TEST );
+	qglDepthMask( GL_FALSE );
+
+	if ( s_stefxPrepareOverlayBudget > 0 )
+	{
+		XBLF( "STEFX_HM: renderer EF overlay prepare where=%s shader='%s' additive=%d projection2D=%d verts=%d indexes=%d",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			additive ? 1 : 0,
+			backEnd.projection2D,
+			tess.numVertexes,
+			tess.numIndexes );
+		--s_stefxPrepareOverlayBudget;
+	}
+}
+
+static void JAMP_XboxBeginEliteForceOverlayDraw( const shaderStage_t *stage, qboolean hud, qboolean beam, const char *where )
+{
+	static int s_stefxOverlayDrawBudget = 8;
+	const image_t *image = stage ? stage->bundle[0].image : NULL;
+
+	if ( !hud && !beam )
+	{
+		return;
+	}
+
+	JAMP_XboxForceEliteForceOverlayD3DState( beam, where );
+
+	if ( s_stefxOverlayDrawBudget > 0 )
+	{
+		XBLF( "STEFX_HM: renderer EF overlay draw where=%s shader='%s' img='%s' hud=%d beam=%d projection2D=%d verts=%d indexes=%d state=0x%x",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			image ? image->imgName : "<null>",
+			hud ? 1 : 0,
+			beam ? 1 : 0,
+			backEnd.projection2D,
+			tess.numVertexes,
+			tess.numIndexes,
+			stage ? stage->stateBits : 0 );
+		--s_stefxOverlayDrawBudget;
+	}
+
+	JkaFakeglSetEliteForceOverlayDrawContext( 1, hud, beam );
+}
+
+static void JAMP_XboxEndEliteForceOverlayDraw( qboolean active )
+{
+	if ( active )
+	{
+		JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
+	}
+}
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP) && defined(VV_LIGHTING)
+static void JAMP_ResetXboxSingleTextureStageState( const char *where )
+{
+	static int s_stefxStageResetLogs = 4;
+
+	GL_SelectTexture( 1 );
+	qglDisable( GL_TEXTURE_2D );
+	qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
+	if ( glw_state && glw_state->device )
+	{
+		glw_state->device->SetTexture( 1, NULL );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+		glw_state->device->SetTextureStageState( 1, D3DTSS_TEXCOORDINDEX, 1 );
+	}
+
+	GL_SelectTexture( 0 );
+	qglEnable( GL_TEXTURE_2D );
+	qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
+	GL_TexEnv( GL_MODULATE );
+	if ( glw_state && glw_state->device )
+	{
+		glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_MODULATE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TEXTURE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG2, D3DTA_DIFFUSE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_MODULATE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );
+		glw_state->device->SetTextureStageState( 0, D3DTSS_TEXCOORDINDEX, 0 );
+	}
+
+	if ( s_stefxStageResetLogs > 0 )
+	{
+		XBLF( "STEFX_HM: renderer reset Xbox texture stages where=%s shader='%s' verts=%d indexes=%d",
+			where ? where : "<null>",
+			tess.shader ? tess.shader->name : "<null>",
+			tess.numVertexes,
+			tess.numIndexes );
+		--s_stefxStageResetLogs;
+	}
+}
+#else
+static ID_INLINE void JAMP_ResetXboxSingleTextureStageState( const char *where )
+{
+	(void)where;
+}
+#endif
 
 static ID_INLINE void JAMP_ResetColorDirect(void)
 {
@@ -429,6 +721,128 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 	qglEnd();
 }
 
+#ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_MP)
+extern "C" void JkaFakeglSetEliteForceDrawContext(const char *shader, int stage, int expectedStages, unsigned int stateBits);
+#endif
+
+static unsigned int JAMP_XboxCurrentDrawStateBits( void )
+{
+	if ( !tess.xstages || tess.currentPass < 0 )
+	{
+		return 0;
+	}
+	if ( tess.shader && tess.currentPass >= tess.shader->numUnfoggedPasses )
+	{
+		return 0;
+	}
+	return (unsigned int)tess.xstages[tess.currentPass].stateBits;
+}
+
+static qboolean JAMP_XboxShouldSetDrawContext( void )
+{
+#if defined(STEFX_ELITE_FORCE_MP)
+	const char *name;
+
+	if ( !tess.shader || !tess.shader->name )
+	{
+		return qfalse;
+	}
+
+	if ( backEnd.projection2D )
+	{
+		return JAMP_XboxIsEliteForceHudShader( tess.shader );
+	}
+
+	name = tess.shader->name;
+	return strstr( name, "textures/borg/" ) ||
+		strstr( name, "models/players/" ) ||
+		strstr( name, "gfx/effects/" );
+#else
+	return qfalse;
+#endif
+}
+
+static void RB_XboxRenderYield( void )
+{
+}
+
+static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
+{
+	static int s_traceBudget = 8;
+	static int s_chunkTraceBudget = 8;
+	qboolean trace;
+	int indexBase;
+	const int maxChunkIndexes = 384 * 3;
+
+	if ( numIndexes <= 0 || !indexes )
+	{
+		return;
+	}
+
+	trace = JAMP_XboxShouldSetDrawContext();
+	if ( trace && s_traceBudget > 0 )
+	{
+		XBLF( "STEFX_HM: renderer Xbox chunked draw shader='%s' indexes=%d verts=%d pass=%d projection2D=%d",
+			tess.shader ? tess.shader->name : "<null>",
+			numIndexes,
+			tess.numVertexes,
+			tess.currentPass,
+			backEnd.projection2D );
+		--s_traceBudget;
+	}
+
+	for ( indexBase = 0; indexBase < numIndexes; )
+	{
+		int chunkIndexes = numIndexes - indexBase;
+		if ( chunkIndexes > maxChunkIndexes )
+		{
+			chunkIndexes = maxChunkIndexes;
+		}
+		chunkIndexes -= chunkIndexes % 3;
+		if ( chunkIndexes <= 0 )
+		{
+			break;
+		}
+
+		if ( s_chunkTraceBudget > 0 && chunkIndexes != numIndexes )
+		{
+			XBLF( "STEFX_HM: renderer Xbox draw chunk shader='%s' base=%d count=%d total=%d verts=%d pass=%d",
+				tess.shader ? tess.shader->name : "<null>",
+				indexBase,
+				chunkIndexes,
+				numIndexes,
+				tess.numVertexes,
+				tess.currentPass );
+			--s_chunkTraceBudget;
+		}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( trace )
+		{
+			JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>",
+				tess.currentPass,
+				tess.shader ? tess.shader->numUnfoggedPasses : 0,
+				JAMP_XboxCurrentDrawStateBits() );
+		}
+#endif
+		qglDrawElements( GL_TRIANGLES,
+			chunkIndexes,
+			GL_INDEX_TYPE,
+			indexes + indexBase );
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( trace )
+		{
+			JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
+		}
+#endif
+
+		RB_XboxRenderYield();
+		indexBase += chunkIndexes;
+	}
+}
+#endif
+
 
 
 /*
@@ -456,10 +870,14 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 
 
 	if ( primitives == 2 ) {
+#ifdef _XBOX
+		RB_XboxDrawElementsChunked( numIndexes, indexes );
+#else
 		qglDrawElements( GL_TRIANGLES, 
 						numIndexes,
 						GL_INDEX_TYPE,
 						indexes );
+#endif
 		return;
 	}
 
@@ -471,10 +889,12 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 //			qglDisableClientState( GL_COLOR_ARRAY );
 //			qglColor4ubv( tess.constantColor );
 //		}
-		qglDrawElements( GL_TRIANGLES, 
-						numIndexes,
-						GL_INDEX_TYPE,
-						indexes );
+		if ( tess.shader && tess.shader->name && strstr( tess.shader->name, "terrain" ) ) {
+			glIndexedTriToStrip( numIndexes, indexes );
+		}
+		else {
+			RB_XboxDrawElementsChunked( numIndexes, indexes );
+		}
 #if 1	// VVFIXME : Temporary solution to try and increase framerate
 //		qglIndexedTriToStrip( numIndexes, indexes );
 #endif
@@ -680,10 +1100,27 @@ t1 = most downstream according to spec
 */
 static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	shaderStage_t	*pStage;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	qboolean stefxBeamShader;
+	qboolean stefxHudShader;
+	int stateBits;
+#endif
 
 	pStage = &tess.xstages[stage];
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	stefxBeamShader = JAMP_XboxIsEliteForceBeamShader( tess.shader );
+	stefxHudShader = backEnd.projection2D && JAMP_XboxIsEliteForceHudShader( tess.shader );
+	stateBits = JAMP_XboxAdjustEliteForceOverlayState( pStage, pStage->stateBits, stefxHudShader, stefxBeamShader, "DrawMultitextured" );
+	GL_State( stateBits );
+	if ( stefxBeamShader || stefxHudShader )
+	{
+		JAMP_XboxForceEliteForceOverlayD3DState( stefxBeamShader, "DrawMultitextured" );
+		JAMP_XboxPrepareEliteForceOverlayStage( stefxBeamShader, "DrawMultitextured" );
+	}
+#else
 	GL_State( pStage->stateBits );
+#endif
 
 	// this is an ugly hack to work around a GeForce driver
 	// bug with multitexture and clip planes
@@ -723,7 +1160,13 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 
 	R_BindAnimatedImage( &pStage->bundle[1] );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	JAMP_XboxBeginEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "DrawMultitextured" );
+#endif
 	R_DrawElements( input->numIndexes, input->indexes );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	JAMP_XboxEndEliteForceOverlayDraw( stefxBeamShader || stefxHudShader );
+#endif
 
 	//
 	// disable texturing on TEXTURE1, then select TEXTURE0
@@ -732,9 +1175,10 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	qglDisable( GL_TEXTURE_2D );
 #ifdef _XBOX
 	qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
-#endif
-
+	JAMP_ResetXboxSingleTextureStageState( "DrawMultitextured" );
+#else
 	GL_SelectTexture( 0 );
+#endif
 }
 
 
@@ -2275,6 +2719,11 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	bool	FogColorChange = false;
 	fog_t	*fog = NULL;
 
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_IterateStagesGeneric enter v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->shader->numUnfoggedPasses, tess.fogNum);
+#endif
+
 	if (tess.fogNum && tess.shader->fogPass && (tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs) 
 		&& r_drawfog->value == 2) 
 	{	// only gl fog global fog and the "special fog"
@@ -2330,6 +2779,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		shaderStage_t *pStage = &tess.xstages[stage];
 		int forceRGBGen = 0;
 		int stateBits = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		qboolean stefxBeamShader = qfalse;
+		qboolean stefxHudShader = qfalse;
+#endif
 
 		if ( !pStage->active )
 		{
@@ -2347,6 +2800,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 #ifdef _XBOX
 		tess.currentPass = stage;
+		JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d begin v=%d i=%d active=%d",
+			stage, input->numVertexes, input->numIndexes, pStage->active ? 1 : 0);
 #endif
 
 		if ( stage && r_lightmap->integer && !( pStage->bundle[0].isLightmap || pStage->bundle[1].isLightmap || pStage->bundle[0].vertexLightmap ) )
@@ -2355,6 +2810,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		}
 
 		stateBits = pStage->stateBits;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		stefxBeamShader = JAMP_XboxIsEliteForceBeamShader( tess.shader );
+		stefxHudShader = backEnd.projection2D && JAMP_XboxIsEliteForceHudShader( tess.shader );
+#endif
 
 		if ( backEnd.currentEntity )
 		{
@@ -2371,6 +2830,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				forceRGBGen = CGEN_ENTITY;
 			}
 		}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		stateBits = JAMP_XboxAdjustEliteForceOverlayState( pStage, stateBits, stefxHudShader, stefxBeamShader, "RB_IterateStagesGeneric" );
+#endif
 
 		if (pStage->ss && pStage->ss->surfaceSpriteType)
 		{
@@ -2467,6 +2930,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			qglDisable( GL_TEXTURE_2D );
 			qglDisableClientState( GL_TEXTURE_COORD_ARRAY );
 			GL_SelectTexture( 0 );
+#ifdef _XBOX
+			JAMP_ResetXboxSingleTextureStageState( "RenderBump" );
+#endif
 			qglDisableClientState( GL_NORMAL_ARRAY );
 			continue;
 		}
@@ -2477,7 +2943,15 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		if ( pStage->bundle[1].image != 0 )
 		{
+#ifdef _XBOX
+			JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d before multitex v=%d i=%d state=%d",
+				stage, input->numVertexes, input->numIndexes, stateBits);
+#endif
 			DrawMultitextured( input, stage );
+#ifdef _XBOX
+			JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d after multitex v=%d i=%d state=%d",
+				stage, input->numVertexes, input->numIndexes, stateBits);
+#endif
 		}
 		else
 		{
@@ -2501,6 +2975,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			//
 			// set state
 			//
+#ifdef _XBOX
+			JAMP_ResetXboxSingleTextureStageState( "single-stage" );
+#endif
 			if ( (tess.shader == tr.distortionShader) || 
 				 (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_DISTORTION)) )
 			{ //special distortion effect -rww
@@ -2544,12 +3021,33 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			else
 			{
 				GL_State( stateBits );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				if ( stefxBeamShader || stefxHudShader )
+				{
+					JAMP_XboxForceEliteForceOverlayD3DState( stefxBeamShader, "RB_IterateStagesGeneric" );
+					JAMP_XboxPrepareEliteForceOverlayStage( stefxBeamShader, "RB_IterateStagesGeneric" );
+				}
+#endif
 			}
 
 			//
 			// draw
 			//
+#ifdef _XBOX
+			JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d before draw v=%d i=%d state=%d",
+				stage, input->numVertexes, input->numIndexes, stateBits);
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			JAMP_XboxBeginEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "RB_IterateStagesGeneric" );
+#endif
 			R_DrawElements( input->numIndexes, input->indexes );	
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			JAMP_XboxEndEliteForceOverlayDraw( stefxBeamShader || stefxHudShader );
+#endif
+#ifdef _XBOX
+			JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d after draw v=%d i=%d state=%d",
+				stage, input->numVertexes, input->numIndexes, stateBits);
+#endif
 
 			if (lStencilled)
 			{ //re-enable the color buffer, disable stencil test
@@ -2558,6 +3056,11 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				qglColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 			}
 		}
+
+#ifdef _XBOX
+		JAMP_ShadePhasef("RB_IterateStagesGeneric stage=%d end v=%d i=%d state=%d",
+			stage, input->numVertexes, input->numIndexes, stateBits);
+#endif
 
 #ifdef VV_LIGHTING
 		// Lighting may have been turned on above
@@ -2569,6 +3072,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	{
 		qglFogfv(GL_FOG_COLOR, fog->parms.color);
 	}
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_IterateStagesGeneric exit v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->shader->numUnfoggedPasses, tess.fogNum);
+#endif
 }
 
 
@@ -2582,7 +3089,15 @@ void RB_StageIteratorGeneric( void )
 
 	input = &tess;
 
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_StageIteratorGeneric enter v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 	RB_DeformTessGeometry();
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_StageIteratorGeneric after deform v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 
 	//
 	// log this call
@@ -2653,7 +3168,15 @@ void RB_StageIteratorGeneric( void )
 	//
 	// call shader function
 	//
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_StageIteratorGeneric before iterate v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 	RB_IterateStagesGeneric( input );
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_StageIteratorGeneric after iterate v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 
 	// 
 	// now do any dynamic lighting needed
@@ -2729,6 +3252,10 @@ void RB_StageIteratorGeneric( void )
 	{
 		qglDisable(GL_FOG);
 	}
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_StageIteratorGeneric exit v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 }
 
 
@@ -2740,7 +3267,15 @@ void RB_EndSurface( void ) {
 
 	input = &tess;
 
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_EndSurface enter v=%d i=%d passes=%d fog=%d",
+		input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 	if (input->numIndexes == 0) {
+#ifdef _XBOX
+		JAMP_ShadePhasef("RB_EndSurface empty v=%d i=%d passes=%d fog=%d",
+			input->numVertexes, input->numIndexes, input->numPasses, tess.fogNum);
+#endif
 		return;
 	}
 
@@ -2829,7 +3364,15 @@ void RB_EndSurface( void ) {
 	//
 	// call off to shader specific tess end function
 	//
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_EndSurface before iterator v=%d i=%d passes=%d fog=%d",
+		tess.numVertexes, tess.numIndexes, tess.numPasses, tess.fogNum);
+#endif
 	tess.currentStageIteratorFunc();
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_EndSurface after iterator v=%d i=%d passes=%d fog=%d",
+		tess.numVertexes, tess.numIndexes, tess.numPasses, tess.fogNum);
+#endif
 
 #ifdef _XBOX
 	tess.currentPass = 0;
@@ -2846,6 +3389,10 @@ void RB_EndSurface( void ) {
 	}
 	// clear shader so we can tell we don't have any unclosed surfaces
 	tess.numIndexes = 0;
+#ifdef _XBOX
+	JAMP_ShadePhasef("RB_EndSurface exit v=%d i=%d passes=%d fog=%d",
+		tess.numVertexes, tess.numIndexes, tess.numPasses, tess.fogNum);
+#endif
 
 	GLimp_LogComment( "----------\n" );
 }

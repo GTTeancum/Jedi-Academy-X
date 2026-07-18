@@ -596,6 +596,23 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 			frontEndMsec ? *frontEndMsec : tr.frontEndMsec,
 			backEndMsec ? *backEndMsec : backEnd.pc.msec);
 	}
+	{
+		static int s_stefxRenderHeartbeatTime = 0;
+		const int stefxNow = Sys_Milliseconds();
+		if ( stefxNow < s_stefxRenderHeartbeatTime ||
+			stefxNow - s_stefxRenderHeartbeatTime >= 3000 )
+		{
+			char stefxMsg[160];
+			_snprintf( stefxMsg, sizeof( stefxMsg ),
+				"STEFX_HM: render frame heartbeat frame=%d time=%d registered=%d",
+				jampREEndFrameCount,
+				stefxNow,
+				tr.registered ? 1 : 0 );
+			stefxMsg[sizeof(stefxMsg) - 1] = 0;
+			XBLog_Write( stefxMsg );
+			s_stefxRenderHeartbeatTime = stefxNow;
+		}
+	}
 	jampREEndFrameCount++;
 	XBLog_Phase("RE_EndFrame exit");
 #endif

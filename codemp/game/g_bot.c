@@ -107,10 +107,14 @@ static void G_LoadArenasFromFile( char *filename ) {
 	int				len;
 	fileHandle_t	f;
 	char			buf[MAX_ARENAS_TEXT];
+	int				oldCount;
 
 	len = trap_FS_FOpenFile( filename, &f, FS_READ );
 	if ( !f ) {
 		trap_Printf( va( S_COLOR_RED "file not found: %s\n", filename ) );
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: arena metadata missing file='%s'\n", filename );
+#endif
 		return;
 	}
 	if ( len >= MAX_ARENAS_TEXT ) {
@@ -123,7 +127,14 @@ static void G_LoadArenasFromFile( char *filename ) {
 	buf[len] = 0;
 	trap_FS_FCloseFile( f );
 
+	oldCount = g_numArenas;
 	g_numArenas += G_ParseInfos( buf, MAX_ARENAS - g_numArenas, &g_arenaInfos[g_numArenas] );
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: loaded arena metadata file='%s' count=%d total=%d\n",
+		filename,
+		g_numArenas - oldCount,
+		g_numArenas );
+#endif
 }
 
 int G_GetMapTypeBits(char *type)
@@ -149,9 +160,11 @@ int G_GetMapTypeBits(char *type)
 			typeBits |= (1 << GT_DUEL);
 			typeBits |= (1 << GT_POWERDUEL);
 		}
+#if !defined(STEFX_ELITE_FORCE_MP)
 		if( strstr( type, "siege" ) ) {
 			typeBits |= (1 << GT_SIEGE);
 		}
+#endif
 		if( strstr( type, "ctf" ) ) {
 			typeBits |= (1 << GT_CTF);
 		}
@@ -299,6 +312,10 @@ static void G_LoadArenas( void ) {
 
 	g_numArenas = 0;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_LoadArenasFromFile( "scripts/arenas.txt" );
+#endif
+
 	// get all arenas from .arena files
 	numdirs = trap_FS_GetFileList("scripts", ".arena", dirlist, 1024 );
 	dirptr  = dirlist;
@@ -385,6 +402,7 @@ void G_AddRandomBot( int team ) {
 			if ( !(g_entities[cl->ps.clientNum].r.svFlags & SVF_BOT) ) {
 				continue;
 			}
+#if !defined(STEFX_ELITE_FORCE_MP)
 			if (g_gametype.integer == GT_SIEGE)
 			{
 				if ( team >= 0 && cl->sess.siegeDesiredTeam != team ) {
@@ -392,6 +410,7 @@ void G_AddRandomBot( int team ) {
 				}
 			}
 			else
+#endif
 			{
 				if ( team >= 0 && cl->sess.sessionTeam != team ) {
 					continue;
@@ -417,6 +436,7 @@ void G_AddRandomBot( int team ) {
 			if ( !(g_entities[cl->ps.clientNum].r.svFlags & SVF_BOT) ) {
 				continue;
 			}
+#if !defined(STEFX_ELITE_FORCE_MP)
 			if (g_gametype.integer == GT_SIEGE)
 			{
 				if ( team >= 0 && cl->sess.siegeDesiredTeam != team ) {
@@ -424,6 +444,7 @@ void G_AddRandomBot( int team ) {
 				}
 			}
 			else
+#endif
 			{
 				if ( team >= 0 && cl->sess.sessionTeam != team ) {
 					continue;
@@ -468,6 +489,7 @@ int G_RemoveRandomBot( int team ) {
 		if ( !(g_entities[i /*cl->ps.clientNum*/].r.svFlags & SVF_BOT) ) {
 			continue;
 		}
+#if !defined(STEFX_ELITE_FORCE_MP)
 		if (g_gametype.integer == GT_SIEGE)
 		{
 			if ( team >= 0 && cl->sess.siegeDesiredTeam != team ) {
@@ -475,6 +497,7 @@ int G_RemoveRandomBot( int team ) {
 			}
 		}
 		else
+#endif
 		{
 			if ( team >= 0 && cl->sess.sessionTeam != team ) {
 				continue;
@@ -532,6 +555,7 @@ int G_CountBotPlayers( int team ) {
 		if ( !(g_entities[cl->ps.clientNum].r.svFlags & SVF_BOT) ) {
 			continue;
 		}
+#if !defined(STEFX_ELITE_FORCE_MP)
 		if (g_gametype.integer == GT_SIEGE)
 		{
 			if ( team >= 0 && cl->sess.siegeDesiredTeam != team ) {
@@ -539,6 +563,7 @@ int G_CountBotPlayers( int team ) {
 			}
 		}
 		else
+#endif
 		{
 			if ( team >= 0 && cl->sess.sessionTeam != team ) {
 				continue;
@@ -569,10 +594,12 @@ void G_CheckMinimumPlayers( void ) {
 	int minplayers;
 	int humanplayers, botplayers;
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (g_gametype.integer == GT_SIEGE)
 	{
 		return;
 	}
+#endif
 
 	if (level.intermissiontime) return;
 	//only check once each 10 seconds
@@ -736,11 +763,20 @@ static void AddBotToSpawnQueue( int clientNum, int delay ) {
 		if( !botSpawnQueue[n].spawnTime ) {
 			botSpawnQueue[n].spawnTime = level.time + delay;
 			botSpawnQueue[n].clientNum = clientNum;
+#if defined(STEFX_ELITE_FORCE_MP)
+			G_Printf( "STEFX_HM: queued bot client=%d delay=%d spawnTime=%d\n",
+				clientNum,
+				delay,
+				botSpawnQueue[n].spawnTime );
+#endif
 			return;
 		}
 	}
 
 	G_Printf( S_COLOR_YELLOW "Unable to delay spawn\n" );
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: bot spawn queue full client=%d delay=%d; beginning immediately\n", clientNum, delay );
+#endif
 	ClientBegin( clientNum, qfalse );
 }
 
@@ -804,12 +840,16 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	char			*model;
 //	char			*headmodel;
 	char			userinfo[MAX_INFO_STRING];
+	char			personalityPath[MAX_TOKEN_CHARS];
 	int				preTeam = 0;
 
 	// get the botinfo from bots.txt
 	botinfo = G_GetBotInfoByName( name );
 	if ( !botinfo ) {
 		G_Printf( S_COLOR_RED "Error: Bot '%s' not defined\n", name );
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: addbot rejected missing botinfo name='%s'\n", name ? name : "" );
+#endif
 		return;
 	}
 
@@ -842,7 +882,11 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	key = "model";
 	model = Info_ValueForKey( botinfo, key );
 	if ( !*model ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		model = "munro/default";
+#else
 		model = "kyle/default";
+#endif
 	}
 	Info_SetValueForKey( userinfo, key, model );
 
@@ -891,9 +935,27 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	Info_SetValueForKey( userinfo, key, s );
 
 	s = Info_ValueForKey(botinfo, "personality");
+	personalityPath[0] = 0;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!*s)
+	{
+		s = Info_ValueForKey(botinfo, "aifile");
+		if (*s)
+		{
+			Com_sprintf( personalityPath, sizeof( personalityPath ), "botfiles/%s", s );
+			s = personalityPath;
+			G_Printf( "STEFX_HM: addbot using EF aifile personality name='%s' file='%s'\n", name, s );
+		}
+	}
+#endif
 	if (!*s )
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		Info_SetValueForKey( userinfo, "personality", "botfiles/bots/munro_c.c" );
+		G_Printf( "STEFX_HM: addbot missing personality/aifile name='%s'; using botfiles/bots/munro_c.c\n", name );
+#else
 		Info_SetValueForKey( userinfo, "personality", "botfiles/default.jkb" );
+#endif
 	}
 	else
 	{
@@ -906,8 +968,22 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 //		G_Printf( S_COLOR_RED "Unable to add bot.  All player slots are in use.\n" );
 //		G_Printf( S_COLOR_RED "Start server with more 'open' slots.\n" );
 		trap_SendServerCommand( -1, va("print \"%s\n\"", G_GetStringEdString("MP_SVGAME", "UNABLE_TO_ADD_BOT")));
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: addbot rejected no client slots name='%s' model='%s'\n", name, model );
+#endif
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: addbot accepted name='%s' botname='%s' model='%s' skill=%.2f team='%s' delay=%d client=%d\n",
+		name,
+		botname,
+		model,
+		skill,
+		team ? team : "",
+		delay,
+		clientNum );
+#endif
 
 	// initialize the bot settings
 	if( !team || !*team ) {
@@ -950,16 +1026,21 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 		}
 	}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (g_gametype.integer == GT_SIEGE)
 	{
 		bot->client->sess.siegeDesiredTeam = bot->client->sess.sessionTeam;
 		bot->client->sess.sessionTeam = TEAM_SPECTATOR;
 	}
+#endif
 
 	preTeam = bot->client->sess.sessionTeam;
 
 	// have it connect to the game as a normal client
 	if ( ClientConnect( clientNum, qtrue, qtrue ) ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: addbot ClientConnect rejected name='%s' client=%d\n", name, clientNum );
+#endif
 		return;
 	}
 
@@ -978,6 +1059,7 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 		}
 		else
 		{
+#if !defined(STEFX_ELITE_FORCE_MP)
 			if (g_gametype.integer == GT_SIEGE)
 			{
 				if (bot->client->sess.sessionTeam == TEAM_BLUE)
@@ -990,6 +1072,7 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 				}
 			}
 			else
+#endif
 			{
 				team = "Blue";
 			}
@@ -1029,10 +1112,16 @@ static void G_AddBot( const char *name, float skill, const char *team, int delay
 	else
 	{
 		if( delay == 0 ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+			G_Printf( "STEFX_HM: addbot beginning immediately name='%s' client=%d\n", name, clientNum );
+#endif
 			ClientBegin( clientNum, qfalse );
 			return;
 		}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: addbot scheduling begin name='%s' client=%d delay=%d\n", name, clientNum, delay );
+#endif
 		AddBotToSpawnQueue( clientNum, delay );
 	}
 }
@@ -1053,6 +1142,9 @@ void Svcmd_AddBot_f( void ) {
 
 	// are bots enabled?
 	if ( !trap_Cvar_VariableIntegerValue( "bot_enable" ) ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: addbot command ignored because bot_enable is 0\n" );
+#endif
 		return;
 	}
 
@@ -1086,6 +1178,15 @@ void Svcmd_AddBot_f( void ) {
 
 	// alternative name
 	trap_Argv( 5, altname, sizeof( altname ) );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: addbot command name='%s' skill=%.2f team='%s' delay=%d alt='%s'\n",
+		name,
+		skill,
+		team,
+		delay,
+		altname );
+#endif
 
 	G_AddBot( name, skill, team, delay, altname );
 
@@ -1200,10 +1301,14 @@ static void G_LoadBotsFromFile( char *filename ) {
 	int				len;
 	fileHandle_t	f;
 	char			buf[MAX_BOTS_TEXT];
+	int				oldCount;
 
 	len = trap_FS_FOpenFile( filename, &f, FS_READ );
 	if ( !f ) {
 		trap_Printf( va( S_COLOR_RED "file not found: %s\n", filename ) );
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: bot metadata missing file='%s'\n", filename );
+#endif
 		return;
 	}
 	if ( len >= MAX_BOTS_TEXT ) {
@@ -1216,7 +1321,14 @@ static void G_LoadBotsFromFile( char *filename ) {
 	buf[len] = 0;
 	trap_FS_FCloseFile( f );
 
+	oldCount = g_numBots;
 	g_numBots += G_ParseInfos( buf, MAX_BOTS - g_numBots, &g_botInfos[g_numBots] );
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: loaded bot metadata file='%s' count=%d total=%d\n",
+		filename,
+		g_numBots - oldCount,
+		g_numBots );
+#endif
 }
 
 /*
@@ -1244,8 +1356,12 @@ static void G_LoadBots( void ) {
 		G_LoadBotsFromFile(botsFile.string);
 	}
 	else {
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_LoadBotsFromFile("scripts/bots.txt");
+#else
 		//G_LoadBotsFromFile("scripts/bots.txt");
 		G_LoadBotsFromFile("botfiles/bots.txt");
+#endif
 	}
 
 	// get all bots from .bot files
@@ -1299,12 +1415,35 @@ char *G_GetBotInfoByName( const char *name ) {
 void LoadPath_ThisLevel(void);
 //end rww
 
+#if defined(STEFX_ELITE_FORCE_MP)
+void G_InitBotMetadataOnly( qboolean restart ) {
+	G_Printf( "STEFX_HM: G_InitBotMetadataOnly begin restart=%d bot_enable=%d\n",
+		restart,
+		trap_Cvar_VariableIntegerValue( "bot_enable" ) );
+
+	G_LoadBots();
+	G_LoadArenas();
+
+	trap_Cvar_Register( &bot_minplayers, "bot_minplayers", "0", CVAR_SERVERINFO );
+
+	G_Printf( "STEFX_HM: G_InitBotMetadataOnly done bots=%d arenas=%d bot_minplayers=%d\n",
+		g_numBots,
+		g_numArenas,
+		bot_minplayers.integer );
+}
+#endif
+
 /*
 ===============
 G_InitBots
 ===============
 */
 void G_InitBots( qboolean restart ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: G_InitBots begin restart=%d bot_enable=%d\n",
+		restart,
+		trap_Cvar_VariableIntegerValue( "bot_enable" ) );
+#endif
 	G_LoadBots();
 	G_LoadArenas();
 
@@ -1313,4 +1452,10 @@ void G_InitBots( qboolean restart ) {
 	//rww - new bot route stuff
 	LoadPath_ThisLevel();
 	//end rww
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: G_InitBots done bots=%d arenas=%d bot_minplayers=%d\n",
+		g_numBots,
+		g_numArenas,
+		bot_minplayers.integer );
+#endif
 }

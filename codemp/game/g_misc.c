@@ -177,10 +177,28 @@ TELEPORTERS
 void TeleportPlayer( gentity_t *player, vec3_t origin, vec3_t angles ) {
 	gentity_t	*tent;
 	qboolean	isNPC = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchTeleport = qfalse;
+#endif
 	if (player->s.eType == ET_NPC)
 	{
 		isNPC = qtrue;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !loggedHolomatchTeleport )
+	{
+		G_Printf( "STEFX_HM: server TeleportPlayer client=%d from='%.1f %.1f %.1f' to='%.1f %.1f %.1f'\n",
+			player->s.number,
+			player->client->ps.origin[0],
+			player->client->ps.origin[1],
+			player->client->ps.origin[2],
+			origin[0],
+			origin[1],
+			origin[2] );
+		loggedHolomatchTeleport = qtrue;
+	}
+#endif
 
 	// use temp events at source and destination to prevent the effect
 	// from getting dropped by a second player event
@@ -196,7 +214,35 @@ void TeleportPlayer( gentity_t *player, vec3_t origin, vec3_t angles ) {
 	trap_UnlinkEntity (player);
 
 	VectorCopy ( origin, player->client->ps.origin );
-	player->client->ps.origin[2] += 1;
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchTeleportNudge = qfalse;
+		vec3_t newOrg;
+		trace_t tr;
+
+		VectorCopy ( origin, newOrg );
+		newOrg[2] += 1;
+		trap_Trace( &tr, player->client->ps.origin, player->r.mins, player->r.maxs, newOrg, player->s.number, player->clipmask );
+		if ( !tr.allsolid && !tr.startsolid && tr.fraction == 1.0f )
+		{
+			player->client->ps.origin[2] += 1;
+		}
+
+		if ( !loggedHolomatchTeleportNudge )
+		{
+			G_Printf( "STEFX_HM: server used EF teleporter destination clearance trace client=%d fraction=%.2f startsolid=%d allsolid=%d\n",
+				player->s.number,
+				tr.fraction,
+				tr.startsolid,
+				tr.allsolid );
+			loggedHolomatchTeleportNudge = qtrue;
+		}
+	}
+#else
+	{
+		player->client->ps.origin[2] += 1;
+	}
+#endif
 
 	// spit the player out
 	AngleVectors( angles, player->client->ps.velocity, NULL, NULL );

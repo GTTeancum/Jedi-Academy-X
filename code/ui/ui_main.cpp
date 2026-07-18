@@ -1,3 +1,72 @@
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../../codemp/game/q_shared.h"
+#include "../../codemp/qcommon/xb_settings.h"
+
+int uiClientNum = 0;
+int uiclientInputClosed = 0;
+qboolean uiControllerMenu = qfalse;
+int unpluggedcontrol2 = -1;
+vmCvar_t ControllerOutNum;
+int gScrollDelta = 0;
+
+char SaberParms[0x4000];
+
+#include "../../codemp/ui/ui_stefx_spcompat.h"
+
+uiInfo_t uiInfo;
+qboolean inHandler = qfalse;
+volatile unsigned int g_SPXBUIPauseOpenCount = 0;
+volatile unsigned int g_SPXBUIPauseDrawCount = 0;
+volatile unsigned int g_SPXBUIPauseActive = 0;
+
+static qboolean s_loggedMpSpUiMain = qfalse;
+
+static void UI_STEFXLogMpMainOnce(void)
+{
+	if (s_loggedMpSpUiMain)
+	{
+		return;
+	}
+
+	s_loggedMpSpUiMain = qtrue;
+	ui.Printf("STEFX_HM: SP UI main framework active in efmp.xbe; text/UI state owned by shared code/ui\n");
+}
+
+void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, int iMaxPixelWidth, int style, int iFontIndex)
+{
+	int iStyleOR = 0;
+
+	if (!text || !text[0])
+	{
+		return;
+	}
+
+	UI_STEFXLogMpMainOnce();
+
+	if (iFontIndex == 0)
+	{
+		iFontIndex = uiInfo.uiDC.Assets.qhMediumFont;
+	}
+
+	switch (style)
+	{
+	case ITEM_TEXTSTYLE_PULSE:
+	case ITEM_TEXTSTYLE_SHADOWED:
+	case ITEM_TEXTSTYLE_OUTLINED:
+	case ITEM_TEXTSTYLE_OUTLINESHADOWED:
+	case ITEM_TEXTSTYLE_SHADOWEDMORE:
+		iStyleOR = STYLE_DROPSHADOW;
+		break;
+	default:
+		break;
+	}
+
+	ui.R_Font_DrawString((int)x, (int)y, text, color, iStyleOR | iFontIndex, iMaxPixelWidth ? iMaxPixelWidth : -1, scale);
+}
+
+#undef ui
+#include "../../codemp/namespace_end.h"
+#else
 // Copyright (C) 1999-2000 Id Software, Inc.
 //
 /*
@@ -8581,4 +8650,5 @@ void UI_xboxPopupResponse( void )
 	sPopup = XB_POPUP_NONE;
 }
 
+#endif
 

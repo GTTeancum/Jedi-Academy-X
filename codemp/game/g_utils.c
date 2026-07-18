@@ -741,7 +741,11 @@ static void G_SpewEntList(void)
 			{
 				numNPC++;
 			}
-			else if (ent->s.eType == ET_MISSILE)
+			else if (ent->s.eType == ET_MISSILE
+#if defined(STEFX_ELITE_FORCE_MP)
+				|| ent->s.eType == ET_ALT_MISSILE
+#endif
+				)
 			{
 				numProjectile++;
 			}
@@ -942,6 +946,17 @@ int gG2KillNum = 0;
 
 void G_SendG2KillQueue(void)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchModelCleanupQueueDrop = qfalse;
+
+	if ( gG2KillNum && !loggedHolomatchModelCleanupQueueDrop )
+	{
+		int cleanupCount = gG2KillNum;
+		G_Printf( "STEFX_HM: server dropped inherited model cleanup queue count=%d\n", cleanupCount );
+		loggedHolomatchModelCleanupQueueDrop = qtrue;
+	}
+	gG2KillNum = 0;
+#else
 	char g2KillString[1024];
 	int i = 0;
 	
@@ -967,10 +982,21 @@ void G_SendG2KillQueue(void)
 		assert(0);
 		gG2KillNum = 0;
 	}
+#endif
 }
 
 void G_KillG2Queue(int entNum)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchModelCleanupRequestDrop = qfalse;
+
+	if ( !loggedHolomatchModelCleanupRequestDrop )
+	{
+		G_Printf( "STEFX_HM: server ignored inherited model cleanup request ent=%d\n", entNum );
+		loggedHolomatchModelCleanupRequestDrop = qtrue;
+	}
+	return;
+#else
 	if (gG2KillNum >= MAX_G2_KILL_QUEUE)
 	{ //This would be considered a Bad Thing.
 #ifdef _DEBUG
@@ -983,6 +1009,7 @@ void G_KillG2Queue(int entNum)
 
 	gG2KillIndex[gG2KillNum] = entNum;
 	gG2KillNum++;
+#endif
 }
 
 /*
@@ -994,6 +1021,11 @@ Marks the entity as free
 */
 void G_FreeEntity( gentity_t *ed ) {
 	//gentity_t *te;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchModelFlagClear = qfalse;
+	static qboolean loggedHolomatchEntityModelClear = qfalse;
+	static qboolean loggedHolomatchWeaponModelClear = qfalse;
+#endif
 
 	if (ed->isSaberEntity)
 	{
@@ -1017,6 +1049,14 @@ void G_FreeEntity( gentity_t *ed ) {
 	//now-removed entity
 	if (ed->s.modelGhoul2)
 	{ //force all clients to accept an event to destroy this instance, right now
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !loggedHolomatchModelFlagClear )
+		{
+			G_Printf( "STEFX_HM: server cleared stale inherited model cleanup flag ent=%d\n", ed->s.number );
+			loggedHolomatchModelFlagClear = qtrue;
+		}
+		ed->s.modelGhoul2 = 0;
+#else
 		/*
 		te = G_TempEntity( vec3_origin, EV_DESTROY_GHOUL2_INSTANCE );
 		te->r.svFlags |= SVF_BROADCAST;
@@ -1024,12 +1064,22 @@ void G_FreeEntity( gentity_t *ed ) {
 		*/
 		//Or not. Events can be dropped, so that would be a bad thing.
 		G_KillG2Queue(ed->s.number);
+#endif
 	}
 
 	//And, free the server instance too, if there is one.
 	if (ed->ghoul2)
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !loggedHolomatchEntityModelClear )
+		{
+			G_Printf( "STEFX_HM: server cleared stale inherited entity model pointer ent=%d\n", ed->s.number );
+			loggedHolomatchEntityModelClear = qtrue;
+		}
+		ed->ghoul2 = NULL;
+#else
 		trap_G2API_CleanGhoul2Models(&(ed->ghoul2));
+#endif
 	}
 
 	if (ed->s.eType == ET_NPC && ed->m_pVehicle)
@@ -1058,10 +1108,22 @@ void G_FreeEntity( gentity_t *ed ) {
 
 		while (i < MAX_SABERS)
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			if (ed->client->weaponGhoul2[i])
+			{
+				if ( !loggedHolomatchWeaponModelClear )
+				{
+					G_Printf( "STEFX_HM: server cleared stale inherited weapon model pointer ent=%d slot=%d\n", ed->s.number, i );
+					loggedHolomatchWeaponModelClear = qtrue;
+				}
+				ed->client->weaponGhoul2[i] = NULL;
+			}
+#else
 			if (ed->client->weaponGhoul2[i] && trap_G2_HaveWeGhoul2Models(ed->client->weaponGhoul2[i]))
 			{
 				trap_G2API_CleanGhoul2Models(&ed->client->weaponGhoul2[i]);
 			}
+#endif
 			i++;
 		}
 

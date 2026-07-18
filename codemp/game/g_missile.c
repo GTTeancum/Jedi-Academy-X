@@ -321,8 +321,47 @@ gentity_t *CreateMissile( vec3_t org, vec3_t dir, float vel, int life,
 	return missile;
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean STEFX_HolomatchMissileWeapon( int weapon )
+{
+	switch ( weapon )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static qboolean STEFX_HolomatchMissileMarkPath( gentity_t *ent )
+{
+	return ( ent && STEFX_HolomatchMissileWeapon( ent->s.weapon ) );
+}
+#endif
+
 void G_MissileBounceEffect( gentity_t *ent, vec3_t org, vec3_t dir )
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchDeflectSkip = qfalse;
+
+	if ( ent && STEFX_HolomatchMissileWeapon( ent->s.weapon ) )
+	{
+		if ( !loggedHolomatchDeflectSkip )
+		{
+			G_Printf( "STEFX_HM: server skipped inherited missile deflect effect weapon=%d\n", ent->s.weapon );
+			loggedHolomatchDeflectSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
 	//FIXME: have an EV_BOUNCE_MISSILE event that checks the s.weapon and does the appropriate effect
 	switch( ent->s.weapon )
 	{
@@ -656,6 +695,23 @@ void G_MissileImpact( gentity_t *ent, trace_t *trace ) {
 			if (ent->s.weapon == WP_BOWCASTER || ent->s.weapon == WP_FLECHETTE ||
 				ent->s.weapon == WP_ROCKET_LAUNCHER)
 			{
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( STEFX_HolomatchMissileWeapon( ent->s.weapon ) )
+				{
+					static qboolean loggedHolomatchNormalDamage = qfalse;
+
+					G_Damage (other, ent, &g_entities[ent->r.ownerNum], velocity,
+						/*ent->s.origin*/ent->r.currentOrigin, ent->damage,
+						ent->dflags, ent->methodOfDeath);
+					if ( !loggedHolomatchNormalDamage )
+					{
+						G_Printf( "STEFX_HM: server Holomatch missile impact used EF normal damage weapon=%d\n", ent->s.weapon );
+						loggedHolomatchNormalDamage = qtrue;
+					}
+					didDmg = qtrue;
+				}
+				else
+#endif
 				if (ent->s.weapon == WP_FLECHETTE && (ent->s.eFlags & EF_ALT_FIRING))
 				{
 					ent->think(ent);
@@ -794,6 +850,22 @@ void G_RunMissile( gentity_t *ent ) {
 	trace_t		tr;
 	int			passent;
 	qboolean	isKnockedSaber = qfalse;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( ent->s.weapon == WP_SABER || ent->s.weapon == G2_MODEL_PART )
+	{
+		static qboolean loggedHolomatchProjectileSkip = qfalse;
+
+		if ( !loggedHolomatchProjectileSkip )
+		{
+			G_Printf( "STEFX_HM: server removed inherited saber/model-part projectile weapon=%d\n",
+				ent->s.weapon );
+			loggedHolomatchProjectileSkip = qtrue;
+		}
+		G_FreeEntity( ent );
+		return;
+	}
+#endif
 
 	if (ent->neverFree && ent->s.weapon == WP_SABER && (ent->flags & FL_BOUNCE_HALF))
 	{
@@ -960,10 +1032,29 @@ void G_RunMissile( gentity_t *ent ) {
 
 		if (tr.entityNum == ent->s.otherEntityNum)
 		{ //if the impact event other and the trace ent match then it's ok to do the g2 mark
-			ent->s.trickedentindex = 1;
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( STEFX_HolomatchMissileMarkPath( ent ) )
+			{
+				static qboolean loggedHolomatchMissileMarkSkip = qfalse;
+
+				if ( !loggedHolomatchMissileMarkSkip )
+				{
+					G_Printf( "STEFX_HM: server skipped inherited missile player mark flag in Holomatch weapon=%d\n", ent->s.weapon );
+					loggedHolomatchMissileMarkSkip = qtrue;
+				}
+			}
+			else
+#endif
+			{
+				ent->s.trickedentindex = 1;
+			}
 		}
 
-		if ( ent->s.eType != ET_MISSILE && ent->s.weapon != G2_MODEL_PART )
+		if ( ent->s.eType != ET_MISSILE
+#if defined(STEFX_ELITE_FORCE_MP)
+			&& ent->s.eType != ET_ALT_MISSILE
+#endif
+			&& ent->s.weapon != G2_MODEL_PART )
 		{
 			return;		// exploded
 		}

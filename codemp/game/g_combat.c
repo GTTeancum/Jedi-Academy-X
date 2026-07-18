@@ -435,6 +435,10 @@ Adds score to both the client and his team
 extern qboolean g_dontPenalizeTeam; //g_cmds.c
 void AddScore( gentity_t *ent, vec3_t origin, int score )
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	int oldScore;
+#endif
+
 	/*
 	if (g_gametype.integer == GT_SIEGE)
 	{ //no scoring in this gametype at all.
@@ -452,7 +456,18 @@ void AddScore( gentity_t *ent, vec3_t origin, int score )
 	// show score plum
 	//ScorePlum(ent, origin, score);
 	//
+#if defined(STEFX_ELITE_FORCE_MP)
+	oldScore = ent->client->ps.persistant[PERS_SCORE];
+#endif
 	ent->client->ps.persistant[PERS_SCORE] += score;
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: score update client=%d delta=%d old=%d new=%d name='%s'\n",
+		ent->s.number,
+		score,
+		oldScore,
+		ent->client->ps.persistant[PERS_SCORE],
+		ent->client->pers.netname );
+#endif
 	if ( g_gametype.integer == GT_TEAM && !g_dontPenalizeTeam )
 		level.teamScores[ ent->client->ps.persistant[PERS_TEAM] ] += score;
 	CalculateRanks();
@@ -793,7 +808,8 @@ char	*modNames[MOD_MAX] = {
 	"MOD_FALLING",
 	"MOD_SUICIDE",
 	"MOD_TARGET_LASER",
-	"MOD_TRIGGER_HURT"
+	"MOD_TRIGGER_HURT",
+	"MOD_TEAM_CHANGE"
 };
 
 
@@ -2078,6 +2094,9 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 	char		*killerName, *obit;
 	qboolean	wasJediMaster = qfalse;
 	int			sPMType = 0;
+#if defined(STEFX_ELITE_FORCE_MP)
+	qboolean	holomatchDeathPath = qtrue;
+#endif
 
 	if ( self->client->ps.pm_type == PM_DEAD ) {
 		return;
@@ -2210,8 +2229,30 @@ void player_die( gentity_t *self, gentity_t *inflictor, gentity_t *attacker, int
 
 	self->client->ps.emplacedIndex = 0;
 
-	G_BreakArm(self, 0); //unbreak anything we have broken
-	self->client->ps.saberEntityNum = self->client->saberStoredIndex; //in case we died while our saber was knocked away.
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( holomatchDeathPath )
+	{
+		static qboolean loggedHolomatchDeathStateClear = qfalse;
+
+		self->client->ps.brokenLimbs = 0;
+		self->client->ps.saberEntityNum = 0;
+		self->client->saberStoredIndex = 0;
+		self->client->ps.saberInFlight = qfalse;
+		self->client->ps.saberEntityState = 0;
+		self->client->ps.fd.forceDeactivateAll = 0;
+
+		if ( !loggedHolomatchDeathStateClear )
+		{
+			G_Printf( "STEFX_HM: player death cleared inherited saber/Force state in Holomatch\n" );
+			loggedHolomatchDeathStateClear = qtrue;
+		}
+	}
+	else
+#endif
+	{
+		G_BreakArm(self, 0); //unbreak anything we have broken
+		self->client->ps.saberEntityNum = self->client->saberStoredIndex; //in case we died while our saber was knocked away.
+	}
 
 	self->client->bodyGrabIndex = ENTITYNUM_NONE;
 	self->client->bodyGrabTime = 0;
@@ -2334,19 +2375,24 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 
 	//Cheap method until/if I decide to put fancier stuff in (e.g. sabers falling out of hand and slowly
 	//holstering on death like sp)
-	if (self->client->ps.weapon == WP_SABER &&
-		!self->client->ps.saberHolstered &&
-		self->client->ps.saberEntityNum)
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !holomatchDeathPath )
+#endif
 	{
-		if (!self->client->ps.saberInFlight &&
-			self->client->saber[0].soundOff)
+		if (self->client->ps.weapon == WP_SABER &&
+			!self->client->ps.saberHolstered &&
+			self->client->ps.saberEntityNum)
 		{
-			G_Sound(self, CHAN_AUTO, self->client->saber[0].soundOff);
-		}
-		if (self->client->saber[1].soundOff &&
-			self->client->saber[1].model[0])
-		{
-			G_Sound(self, CHAN_AUTO, self->client->saber[1].soundOff);
+			if (!self->client->ps.saberInFlight &&
+				self->client->saber[0].soundOff)
+			{
+				G_Sound(self, CHAN_AUTO, self->client->saber[0].soundOff);
+			}
+			if (self->client->saber[1].soundOff &&
+				self->client->saber[1].model[0])
+			{
+				G_Sound(self, CHAN_AUTO, self->client->saber[1].soundOff);
+			}
 		}
 	}
 
@@ -2369,14 +2415,20 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 	}
 	*/
 
-	//Make sure the jetpack is turned off.
-	Jetpack_Off(self);
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !holomatchDeathPath )
+#endif
+	{
+		//Make sure the jetpack is turned off.
+		Jetpack_Off(self);
+	}
 
 	self->client->ps.heldByClient = 0;
 	self->client->beingThrown = 0;
 	self->client->doingThrow = 0;
 
-	if (inflictor && inflictor->activator && !inflictor->client && !attacker->client &&
+	if (inflictor && inflictor->activator && !inflictor->client &&
+		attacker && !attacker->client &&
 		inflictor->activator->client && inflictor->activator->inuse &&
 		inflictor->s.weapon == WP_TURRET)
 	{
@@ -2391,13 +2443,20 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 	//if he was charging or anything else, kill the sound
 	G_MuteSound(self->s.number, CHAN_WEAPON);
 
-	BlowDetpacks(self); //blow detpacks if they're planted
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !holomatchDeathPath )
+#endif
+	{
+		BlowDetpacks(self); //blow detpacks if they're planted
 
-	self->client->ps.fd.forceDeactivateAll = 1;
+		self->client->ps.fd.forceDeactivateAll = 1;
+	}
 
-	if ((self == attacker || !attacker->client) &&
+	if ((self == attacker || !attacker || !attacker->client) &&
 		(meansOfDeath == MOD_CRUSH || meansOfDeath == MOD_FALLING || meansOfDeath == MOD_TRIGGER_HURT || meansOfDeath == MOD_UNKNOWN) &&
-		self->client->ps.otherKillerTime > level.time)
+		self->client->ps.otherKillerTime > level.time &&
+		self->client->ps.otherKiller >= 0 &&
+		self->client->ps.otherKiller < ENTITYNUM_WORLD)
 	{
 		attacker = &g_entities[self->client->ps.otherKiller];
 	}
@@ -2454,12 +2513,17 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 		}
 	}
 
-//	G_LogWeaponKill(killer, meansOfDeath);
-//	G_LogWeaponDeath(self->s.number, self->s.weapon);
-//	if (attacker && attacker->client && attacker->inuse)
-//	{
-//		G_LogWeaponFrag(killer, self->s.number);
-//	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( holomatchDeathPath )
+	{
+		G_LogWeaponKill(killer, meansOfDeath);
+		G_LogWeaponDeath(self->s.number, self->s.weapon);
+		if (attacker && attacker->client && attacker->inuse)
+		{
+			G_LogWeaponFrag(killer, self->s.number);
+		}
+	}
+#endif
 
 	// broadcast the death event to everyone
 	if (self->s.eType != ET_NPC && !g_noPDuelCheck)
@@ -2660,6 +2724,20 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 	{
 		Cmd_Score_f( self );		// show scores
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( holomatchDeathPath )
+	{
+		G_Printf( "STEFX_HM: player death scored victim=%d killer=%d mod=%d damage=%d victimScore=%d killerScore=%d victimName='%s' killerName='%s'\n",
+			self->s.number,
+			killer,
+			meansOfDeath,
+			damage,
+			self->client->ps.persistant[PERS_SCORE],
+			(attacker && attacker->client) ? attacker->client->ps.persistant[PERS_SCORE] : 0,
+			self->client->pers.netname,
+			killerName );
+	}
+#endif
 
 	// send updated scores to any clients that are following this one,
 	// or they would get stale scoreboards
@@ -2725,8 +2803,45 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 	{
 		// normal death
 		
-		static int i;
+#if defined(STEFX_ELITE_FORCE_MP)
+		static int holomatchDeathNum;
+		static qboolean loggedHolomatchDeathCycle = qfalse;
+		int deathEventIndex;
 
+		deathEventIndex = holomatchDeathNum;
+		switch ( holomatchDeathNum )
+		{
+		case 0:
+			anim = BOTH_DEATH1;
+			break;
+		case 1:
+			anim = BOTH_DEATH2;
+			break;
+		case 2:
+		default:
+			anim = BOTH_DEATH3;
+			break;
+		}
+
+		self->client->ps.legsAnim = anim;
+		self->client->ps.torsoAnim = anim;
+		self->client->ps.legsFlip = !self->client->ps.legsFlip;
+		self->client->ps.torsoFlip = !self->client->ps.torsoFlip;
+
+		if ( self->health <= GIB_HEALTH )
+		{
+			self->health = GIB_HEALTH + 1;
+		}
+		if ( !loggedHolomatchDeathCycle )
+		{
+			G_Printf( "STEFX_HM: server using EF death animation cycle in Holomatch\n" );
+			loggedHolomatchDeathCycle = qtrue;
+		}
+#else
+		static int i;
+		int deathEventIndex;
+
+		deathEventIndex = i;
 		anim = G_PickDeathAnim(self, self->pos1, damage, meansOfDeath, HL_NONE);
 
 		if (anim >= 1)
@@ -2761,6 +2876,7 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 			self->think = G_FreeEntity;
 			self->nextthink = level.time;
 		}
+#endif
 
 		//self->client->ps.legsAnim = anim;
 		//self->client->ps.torsoAnim = anim;
@@ -2772,11 +2888,11 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 		//G_AddEvent( self, EV_DEATH1 + i, killer );
 		if (wasJediMaster)
 		{
-			G_AddEvent( self, EV_DEATH1 + i, 1 );
+			G_AddEvent( self, EV_DEATH1 + deathEventIndex, 1 );
 		}
 		else
 		{
-			G_AddEvent( self, EV_DEATH1 + i, 0 );
+			G_AddEvent( self, EV_DEATH1 + deathEventIndex, 0 );
 		}
 
 		if (self != attacker)
@@ -2794,7 +2910,11 @@ extern void RunEmplacedWeapon( gentity_t *ent, usercmd_t **ucmd );
 		self->takedamage = qtrue;
 
 		// globally cycle through the different death animations
+#if defined(STEFX_ELITE_FORCE_MP)
+		holomatchDeathNum = ( holomatchDeathNum + 1 ) % 3;
+#else
 		i = ( i + 1 ) % 3;
+#endif
 	}
 
 	if ( self->NPC )
@@ -4094,6 +4214,21 @@ void G_CheckForDismemberment(gentity_t *ent, gentity_t *enemy, vec3_t point, int
 	int hitLoc = -1, hitLocUse = -1;
 	vec3_t boltPoint;
 	int dismember = g_dismember.integer;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedDismemberSkip = qfalse;
+
+	if ( !loggedDismemberSkip )
+	{
+		G_Printf( "STEFX_HM: skipping inherited dismemberment path in Holomatch\n" );
+		loggedDismemberSkip = qtrue;
+	}
+	if ( ent )
+	{
+		ent->ghoul2 = NULL;
+		ent->s.modelGhoul2 = 0;
+	}
+	return;
+#endif
 
 	if (ent->localAnimIndex > 1)
 	{
@@ -4359,6 +4494,119 @@ int gPainMOD = 0;
 int gPainHitLoc = -1;
 vec3_t gPainPoint;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean STEFX_HolomatchDamagePath( void )
+{
+	return qtrue;
+}
+
+static void STEFX_ScrubHolomatchDamageClientState( gentity_t *ent, const char *role )
+{
+	static qboolean loggedHolomatchDamageStateScrub = qfalse;
+	gclient_t *client;
+	int staleWeapon;
+	qboolean hadInheritedState;
+
+	if ( !ent || !ent->client || !STEFX_HolomatchDamagePath() )
+	{
+		return;
+	}
+
+	client = ent->client;
+	staleWeapon = client->ps.weapon;
+	hadInheritedState =
+		( client->ps.m_iVehicleNum ||
+		client->jetPackOn ||
+		client->ps.saberInFlight ||
+		client->ps.saberEntityNum ||
+		client->ps.saberMove ||
+		client->ps.saberLockTime ||
+		client->ps.saberLockFrame ||
+		client->ps.forceGripChangeMovetype ||
+		client->ps.fd.forcePowersKnown ||
+		client->ps.fd.forcePowersActive ||
+		client->ps.fd.forcePower ||
+		client->ps.activeForcePass ||
+		client->ps.emplacedIndex ||
+		client->ps.genericEnemyIndex != -1 ||
+		client->ps.heldByClient ||
+		client->ps.ragAttach ||
+		client->ps.brokenLimbs ||
+		client->ps.isJediMaster ||
+		client->ps.holocronBits ||
+		client->ps.duelInProgress ||
+		client->ps.duelIndex != ENTITYNUM_NONE ||
+		client->ps.trueJedi ||
+		client->ps.trueNonJedi ||
+		client->ps.stats[STAT_HOLDABLE_ITEMS] ||
+		client->ps.stats[STAT_HOLDABLE_ITEM] ||
+		client->pushEffectTime ||
+		client->ps.powerups[PW_CLOAKED] ||
+		( client->ps.eFlags & ( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE ) ) ||
+		staleWeapon == WP_SABER ||
+		staleWeapon == WP_STUN_BATON ||
+		staleWeapon == WP_MELEE );
+
+	memset( &client->ps.fd, 0, sizeof( client->ps.fd ) );
+	client->ps.fd.forcePowerSelected = -1;
+	client->ps.fd.forceGripEntityNum = ENTITYNUM_NONE;
+	client->ps.fd.forceDrainEntNum = ENTITYNUM_NONE;
+	client->ps.saberInFlight = qfalse;
+	client->ps.saberEntityNum = 0;
+	client->ps.saberEntityState = 0;
+	client->ps.saberMove = 0;
+	client->ps.saberBlocked = 0;
+	client->ps.saberLockTime = 0;
+	client->ps.saberLockFrame = 0;
+	client->ps.forceGripChangeMovetype = 0;
+	client->ps.saberHolstered = 0;
+	client->ps.duelInProgress = qfalse;
+	client->ps.duelIndex = ENTITYNUM_NONE;
+	client->ps.activeForcePass = 0;
+	client->ps.emplacedIndex = 0;
+	client->ps.genericEnemyIndex = -1;
+	client->ps.heldByClient = 0;
+	client->ps.ragAttach = 0;
+	client->ps.brokenLimbs = 0;
+	client->ps.isJediMaster = qfalse;
+	client->ps.holocronBits = 0;
+	client->ps.trueJedi = qfalse;
+	client->ps.trueNonJedi = qfalse;
+	client->ps.stats[STAT_HOLDABLE_ITEMS] = 0;
+	client->ps.stats[STAT_HOLDABLE_ITEM] = 0;
+	client->ps.m_iVehicleNum = 0;
+	client->ps.powerups[PW_CLOAKED] = 0;
+	client->ps.jetpackFuel = 100;
+	client->ps.cloakFuel = 100;
+	client->ps.eFlags &= ~( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE );
+	client->jetPackOn = qfalse;
+	client->pushEffectTime = 0;
+	client->bodyGrabIndex = ENTITYNUM_NONE;
+	ent->s.m_iVehicleNum = 0;
+	ent->s.eFlags &= ~( EF_G2ANIMATING | EF_JETPACK_ACTIVE | EF_JETPACK | EF_JETPACK_FLAMING | EF_BODYPUSH | EF_SEEKERDRONE );
+	ent->s.modelGhoul2 = 0;
+
+	if ( staleWeapon == WP_SABER ||
+		staleWeapon == WP_STUN_BATON ||
+		staleWeapon == WP_MELEE )
+	{
+		client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+		client->ps.weapon = WP_BRYAR_PISTOL;
+		client->ps.weaponstate = WEAPON_READY;
+		ent->s.weapon = WP_BRYAR_PISTOL;
+	}
+
+	if ( hadInheritedState && !loggedHolomatchDamageStateScrub )
+	{
+		G_Printf( "STEFX_HM: combat scrubbed inherited damage state role='%s' client=%d oldWeapon=%d\n",
+			role ? role : "",
+			ent->s.number,
+			staleWeapon );
+		loggedHolomatchDamageStateScrub = qtrue;
+	}
+}
+#endif
+
 void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 			   vec3_t dir, vec3_t point, int damage, int dflags, int mod ) {
 	gclient_t	*client;
@@ -4378,7 +4626,21 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	STEFX_ScrubHolomatchDamageClientState( targ, "target" );
+	STEFX_ScrubHolomatchDamageClientState( attacker, "attacker" );
+	if ( inflictor != attacker )
+	{
+		STEFX_ScrubHolomatchDamageClientState( inflictor, "inflictor" );
+	}
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!STEFX_HolomatchDamagePath() &&
+		mod == MOD_DEMP2 && targ && targ->inuse && targ->client)
+#else
 	if (mod == MOD_DEMP2 && targ && targ->inuse && targ->client)
+#endif
 	{
 		if ( targ->client->ps.electrifyTime < level.time )
 		{//electrocution effect
@@ -4566,6 +4828,31 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 			return;
 		}
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (targ && targ->client && (targ->client->ps.eFlags & EF_INVULNERABLE) &&
+		STEFX_HolomatchDamagePath())
+	{
+		if (targ->client->invulnerableTimer <= level.time)
+		{
+			targ->client->ps.eFlags &= ~EF_INVULNERABLE;
+		}
+		else if (mod != MOD_TELEFRAG)
+		{
+			static qboolean loggedHolomatchGhostDamageBlock = qfalse;
+
+			if ( !loggedHolomatchGhostDamageBlock )
+			{
+				G_Printf( "STEFX_HM: EF ghost respawn protection blocked damage target=%d mod=%d dflags=%d\n",
+					targ->s.number,
+					mod,
+					dflags );
+				loggedHolomatchGhostDamageBlock = qtrue;
+			}
+			return;
+		}
+	}
+#endif
 
 	if ( !dir ) {
 		dflags |= DAMAGE_NO_KNOCKBACK;
@@ -4772,6 +5059,9 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		}
 
 		if (targ && targ->client && (targ->client->ps.eFlags & EF_INVULNERABLE) &&
+#if defined(STEFX_ELITE_FORCE_MP)
+			!STEFX_HolomatchDamagePath() &&
+#endif
 			attacker && attacker->client && targ != attacker)
 		{
 			if (targ->client->invulnerableTimer <= level.time)
@@ -4836,6 +5126,9 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	// add to the attacker's hit counter (if the target isn't a general entity like a prox mine)
 	if ( attacker->client && targ != attacker && targ->health > 0
 			&& targ->s.eType != ET_MISSILE
+#if defined(STEFX_ELITE_FORCE_MP)
+			&& targ->s.eType != ET_ALT_MISSILE
+#endif
 			&& targ->s.eType != ET_GENERAL
 			&& client) {
 		if ( OnSameTeam( targ, attacker ) ) {
@@ -5063,6 +5356,20 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( STEFX_HolomatchDamagePath() &&
+		( mod == MOD_DEMP2 || mod == MOD_DEMP2_ALT ) )
+	{
+		static qboolean loggedHolomatchIMODDamage = qfalse;
+
+		if ( !loggedHolomatchIMODDamage )
+		{
+			G_Printf( "STEFX_HM: combat skipped inherited shock damage modifier for Holomatch mod=%d\n", mod );
+			loggedHolomatchIMODDamage = qtrue;
+		}
+	}
+	else
+#endif
 	if ( mod == MOD_DEMP2 || mod == MOD_DEMP2_ALT )
 	{//FIXME: screw with non-animal vehicles, too?
 		if ( client )
@@ -5276,8 +5583,14 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 	// do the damage
 	if (take) 
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if (!STEFX_HolomatchDamagePath() &&
+			targ->client && targ->s.number < MAX_CLIENTS &&
+			(mod == MOD_DEMP2 || mod == MOD_DEMP2_ALT))
+#else
 		if (targ->client && targ->s.number < MAX_CLIENTS &&
 			(mod == MOD_DEMP2 || mod == MOD_DEMP2_ALT))
+#endif
 		{ //uh.. shock them or something. what the hell, I don't know.
             if (targ->client->ps.weaponTime <= 0)
 			{ //yeah, we were supposed to be beta a week ago, I don't feel like
@@ -5450,7 +5763,12 @@ void G_Damage( gentity_t *targ, gentity_t *inflictor, gentity_t *attacker,
 			}
 		}
 
-//		G_LogWeaponDamage(attacker->s.number, mod, take);
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( STEFX_HolomatchDamagePath() && attacker && attacker->client )
+		{
+			G_LogWeaponDamage(attacker->s.number, mod, take);
+		}
+#endif
 	}
 
 }
@@ -5612,28 +5930,45 @@ qboolean G_RadiusDamage ( vec3_t origin, gentity_t *attacker, float damage, floa
 			if (ent && ent->client && roastPeople && missile &&
 				!VectorCompare(ent->r.currentOrigin, missile->r.currentOrigin))
 			{ //the thing calling this function can create burn marks on people, so create an event to do so
-				gentity_t *evEnt = G_TempEntity(ent->r.currentOrigin, EV_GHOUL2_MARK);
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( STEFX_HolomatchDamagePath() )
+				{
+					static qboolean loggedHolomatchExplosionMarkSkip = qfalse;
 
-				evEnt->s.otherEntityNum = ent->s.number; //the entity the mark should be placed on
-				evEnt->s.weapon = WP_ROCKET_LAUNCHER; //always say it's rocket so we make the right mark
-
-				//Try to place the decal by going from the missile location to the location of the person that was hit
-				VectorCopy(missile->r.currentOrigin, evEnt->s.origin);
-				VectorCopy(ent->r.currentOrigin, evEnt->s.origin2);
-
-				//it's hacky, but we want to move it up so it's more likely to hit
-				//the torso.
-				if (missile->r.currentOrigin[2] < ent->r.currentOrigin[2])
-				{ //move it up less so the decal is placed lower on the model then
-					evEnt->s.origin2[2] += 8;
+					if ( !loggedHolomatchExplosionMarkSkip )
+					{
+						G_Printf( "STEFX_HM: combat skipped inherited explosion player mark in Holomatch weapon=%d mod=%d\n",
+							missile->s.weapon,
+							mod );
+						loggedHolomatchExplosionMarkSkip = qtrue;
+					}
 				}
 				else
+#endif
 				{
-					evEnt->s.origin2[2] += 24;
-				}
+					gentity_t *evEnt = G_TempEntity(ent->r.currentOrigin, EV_GHOUL2_MARK);
 
-				//Special col check
-				evEnt->s.eventParm = 1;
+					evEnt->s.otherEntityNum = ent->s.number; //the entity the mark should be placed on
+					evEnt->s.weapon = WP_ROCKET_LAUNCHER; //always say it's rocket so we make the right mark
+
+					//Try to place the decal by going from the missile location to the location of the person that was hit
+					VectorCopy(missile->r.currentOrigin, evEnt->s.origin);
+					VectorCopy(ent->r.currentOrigin, evEnt->s.origin2);
+
+					//it's hacky, but we want to move it up so it's more likely to hit
+					//the torso.
+					if (missile->r.currentOrigin[2] < ent->r.currentOrigin[2])
+					{ //move it up less so the decal is placed lower on the model then
+						evEnt->s.origin2[2] += 8;
+					}
+					else
+					{
+						evEnt->s.origin2[2] += 24;
+					}
+
+					//Special col check
+					evEnt->s.eventParm = 1;
+				}
 			}
 		}
 	}

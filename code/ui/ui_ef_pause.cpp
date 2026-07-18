@@ -1,4 +1,7 @@
 // leave this at the top of all UI_xxxx files for PCH reasons.
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../../codemp/ui/ui_stefx_spcompat.h"
+#else
 #include "../server/exe_headers.h"
 
 #include "ui_local.h"
@@ -7,6 +10,7 @@
 extern "C" volatile unsigned int g_SPXBUIPauseOpenCount;
 extern "C" volatile unsigned int g_SPXBUIPauseDrawCount;
 extern "C" volatile unsigned int g_SPXBUIPauseActive;
+#endif
 #endif
 
 #define EF_MNT_MAX 1073
@@ -163,14 +167,14 @@ static efPauseButton_t s_buttons[EF_PAUSE_BUTTON_COUNT] = {
 };
 
 static efPauseSystem_t s_systems[] = {
-	{ EF_MBT_POWERCONV,     EF_MNT_POWERCONVERTER_DESC1, "POWER CONVERTER",              "POWER CONVERTER : used to convert alien energy into a source of power for Federation weapons.", 148, 228, UI_RIGHT | UI_TINYFONT, "menu/suit/power_conv.tga",       201, 263, 32, 32, 0, "menu/suit/power_conv_break.tga", 150, 232, 64, 32, 0 },
-	{ EF_MBT_COMMBADGE,     EF_MNT_COMMBADGE_DESC1,      "COMM BADGE",                   "COMM BADGE : for use in communicating between team members and Voyager.",                       252, 185, UI_TINYFONT,            "menu/suit/combadge.tga",         219, 220, 16, 16, 0, "menu/suit/combadge_break.tga",   226, 192, 32, 32, 0 },
-	{ EF_MBT_LOGISTICS,     EF_MNT_LOGISTICS_DESC1,      "DIRECTION/LOGISTICS",          "DIRECTION/LOGISTICS : supplies data to tactical display, giving heading, location, and location of team members.", 312, 320, UI_TINYFONT, "menu/suit/direct_log_circ.tga", 338, 278, 32, 16, 0, "menu/suit/direc_log_break.tga",  312, 285, 32, 32, 0 },
-	{ EF_MBT_ENERGY_PACK,   EF_MNT_ENERGY_PACK_DESC1,    "ENERGY PACK",                  "ENERGY PACK : stores power for Federation weapons.",                                             466, 242, UI_TINYFONT,            "menu/suit/energy_pack.tga",      387, 266, 32, 16, 0, "menu/suit/ener_pack_break.tga",  402, 248, 64, 32, 0 },
-	{ EF_MBT_WAVEGENERATOR, EF_MNT_WAVEGENERATOR_DESC1,  "MULTI-PHASIC WAVE GENERATORS", "MULTI_PHASIC WAVE GENERATOR : used to disrupt lock ons of unfriendly transporter beams.",         254, 158, UI_TINYFONT,            "menu/suit/multi_wavegen.tga",    183, 206, 64, 16, 0, "menu/suit/multi_ph_break.tga",   188, 162, 64, 64, 0 },
-	{ EF_MBT_SCANNERS,      EF_MNT_SCANNERS_DESC1,       "PASSIVE/ACTIVE SCANNERS",      "ACTIVE/PASSIVE SCANNERS : gives information of the surrounding environment.",                     127, 320, UI_RIGHT | UI_TINYFONT, "menu/suit/pass_acscan.tga",      155, 278, 32, 32, 0, "menu/suit/direc_log_break.tga",  127, 285, 32, 32, 0 },
-	{ EF_MBT_POUCHES,       EF_MNT_POUCHES_DESC1,        "EQUIPMENT POUCH",              "EQUIPMENT POUCHES : for holding various supplies.",                                              490, 295, UI_TINYFONT,            "menu/suit/pouches.tga",          419, 295, 16, 32, 0, "menu/suit/ener_pack_break.tga",  428, 300, 64, 32, 0 },
-	{ EF_MBT_BUFFER,        EF_MNT_BUFFER_DESC1,         "TRANSPORTER BUFFER",           "TRANSPORTER BUFFER : stores equipment in a molecularized state which can be rematerialized instantly when needed.", 472, 281, UI_TINYFONT, "menu/suit/trans_buff.tga", 402, 264, 16, 16, 0, "menu/suit/trans_buff_break.tga", 421, 268, 64, 32, 0 }
+	{ EF_MBT_POWERCONV,     EF_MNT_POWERCONVERTER_DESC1, "POWER CONVERTER",              "POWER CONVERTER : used to convert alien energy into a source of power for Federation weapons.", 148, 228, UI_RIGHT | UI_TINYFONT, "menu/suit/power_conv",       201, 263, 32, 32, 0, "menu/suit/power_conv_break", 150, 232, 64, 32, 0 },
+	{ EF_MBT_COMMBADGE,     EF_MNT_COMMBADGE_DESC1,      "COMM BADGE",                   "COMM BADGE : for use in communicating between team members and Voyager.",                       252, 185, UI_TINYFONT,            "menu/suit/combadge",         219, 220, 16, 16, 0, "menu/suit/combadge_break",   226, 192, 32, 32, 0 },
+	{ EF_MBT_LOGISTICS,     EF_MNT_LOGISTICS_DESC1,      "DIRECTION/LOGISTICS",          "DIRECTION/LOGISTICS : supplies data to tactical display, giving heading, location, and location of team members.", 312, 320, UI_TINYFONT, "menu/suit/direct_log_circ", 338, 278, 32, 16, 0, "menu/suit/direc_log_break",  312, 285, 32, 32, 0 },
+	{ EF_MBT_ENERGY_PACK,   EF_MNT_ENERGY_PACK_DESC1,    "ENERGY PACK",                  "ENERGY PACK : stores power for Federation weapons.",                                             466, 242, UI_TINYFONT,            "menu/suit/energy_pack",      387, 266, 32, 16, 0, "menu/suit/ener_pack_break",  402, 248, 64, 32, 0 },
+	{ EF_MBT_WAVEGENERATOR, EF_MNT_WAVEGENERATOR_DESC1,  "MULTI-PHASIC WAVE GENERATORS", "MULTI_PHASIC WAVE GENERATOR : used to disrupt lock ons of unfriendly transporter beams.",         254, 158, UI_TINYFONT,            "menu/suit/multi_wavegen",    183, 206, 64, 16, 0, "menu/suit/multi_ph_break",   188, 162, 64, 64, 0 },
+	{ EF_MBT_SCANNERS,      EF_MNT_SCANNERS_DESC1,       "PASSIVE/ACTIVE SCANNERS",      "ACTIVE/PASSIVE SCANNERS : gives information of the surrounding environment.",                     127, 320, UI_RIGHT | UI_TINYFONT, "menu/suit/pass_acscan",      155, 278, 32, 32, 0, "menu/suit/direc_log_break",  127, 285, 32, 32, 0 },
+	{ EF_MBT_POUCHES,       EF_MNT_POUCHES_DESC1,        "EQUIPMENT POUCH",              "EQUIPMENT POUCHES : for holding various supplies.",                                              490, 295, UI_TINYFONT,            "menu/suit/pouches",          419, 295, 16, 32, 0, "menu/suit/ener_pack_break",  428, 300, 64, 32, 0 },
+	{ EF_MBT_BUFFER,        EF_MNT_BUFFER_DESC1,         "TRANSPORTER BUFFER",           "TRANSPORTER BUFFER : stores equipment in a molecularized state which can be rematerialized instantly when needed.", 472, 281, UI_TINYFONT, "menu/suit/trans_buff", 402, 264, 16, 16, 0, "menu/suit/trans_buff_break", 421, 268, 64, 32, 0 }
 };
 
 static void EFPause_LanguageFilename(const char *baseName, const char *baseExtension, char *finalName)
@@ -499,9 +503,9 @@ static void EFPause_LoadPropFonts(void)
 	}
 
 	EFPause_ClearFontMaps();
-	s_fonts.shader[EF_FONT_TINY] = ui.R_RegisterShaderNoMip("gfx/2d/chars_tiny.tga");
-	s_fonts.shader[EF_FONT_MEDIUM] = ui.R_RegisterShaderNoMip("gfx/2d/chars_medium.tga");
-	s_fonts.shader[EF_FONT_BIG] = ui.R_RegisterShaderNoMip("gfx/2d/chars_big.tga");
+	s_fonts.shader[EF_FONT_TINY] = ui.R_RegisterShaderNoMip("gfx/2d/chars_tiny");
+	s_fonts.shader[EF_FONT_MEDIUM] = ui.R_RegisterShaderNoMip("gfx/2d/chars_medium");
+	s_fonts.shader[EF_FONT_BIG] = ui.R_RegisterShaderNoMip("gfx/2d/chars_big");
 
 	len = ui.FS_FOpenFile("ext_data/fonts.dat", &file, FS_READ);
 	if (!file) {
@@ -734,13 +738,13 @@ static void EFPause_Cache(void)
 		uis.whiteShader = ui.R_RegisterShader("white");
 	}
 	s_assets.whiteShader = uis.whiteShader;
-	s_assets.buttonRight = ui.R_RegisterShaderNoMip("menu/new/bar1.tga");
-	s_assets.buttonLeftEnd = ui.R_RegisterShaderNoMip("menu/common/barbuttonleft.tga");
+	s_assets.buttonRight = ui.R_RegisterShaderNoMip("menu/new/bar1");
+	s_assets.buttonLeftEnd = ui.R_RegisterShaderNoMip("menu/common/barbuttonleft");
 	s_assets.square = s_assets.whiteShader;
-	s_assets.cornerUpper = ui.R_RegisterShaderNoMip("menu/common/corner_ll_47_7.tga");
-	s_assets.cornerUpper2 = ui.R_RegisterShaderNoMip("menu/common/corner_ul_47_7.tga");
-	s_assets.cornerLower = ui.R_RegisterShaderNoMip("menu/common/corner_ll_47_18.tga");
-	s_assets.suit = ui.R_RegisterShaderNoMip("menu/suit/breakout_suit.tga");
+	s_assets.cornerUpper = ui.R_RegisterShaderNoMip("menu/common/corner_ll_47_7");
+	s_assets.cornerUpper2 = ui.R_RegisterShaderNoMip("menu/common/corner_ul_47_7");
+	s_assets.cornerLower = ui.R_RegisterShaderNoMip("menu/common/corner_ll_47_18");
+	s_assets.suit = ui.R_RegisterShaderNoMip("menu/suit/breakout_suit");
 
 	for (i = 0; i < (int)(sizeof(s_systems) / sizeof(s_systems[0])); i++) {
 		s_systems[i].picShader = ui.R_RegisterShaderNoMip(s_systems[i].picName);
@@ -1179,3 +1183,8 @@ void UI_EFPauseMenu_KeyEvent(int key, qboolean down)
 		break;
 	}
 }
+
+#if defined(STEFX_ELITE_FORCE_MP)
+#undef ui
+#include "../../codemp/namespace_end.h"
+#endif

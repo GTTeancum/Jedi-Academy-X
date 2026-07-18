@@ -180,6 +180,26 @@ void WP_InitForcePowers( gentity_t *ent )
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchForceInitSkip = qfalse;
+
+		memset( &ent->client->ps.fd, 0, sizeof( ent->client->ps.fd ) );
+		ent->client->ps.fd.forcePowerSelected = -1;
+		ent->client->ps.fd.forceGripEntityNum = ENTITYNUM_NONE;
+		ent->client->ps.fd.forceDrainEntNum = ENTITYNUM_NONE;
+		ent->client->sess.setForce = qtrue;
+
+		if ( !loggedHolomatchForceInitSkip )
+		{
+			G_Printf( "STEFX_HM: server skipped inherited force initialization in Holomatch client=%d\n", ent->s.number );
+			loggedHolomatchForceInitSkip = qtrue;
+		}
+
+		return;
+	}
+#endif
+
 	ent->client->ps.fd.saberAnimLevel = ent->client->sess.saberLevel;
 
 	if (ent->client->ps.fd.saberAnimLevel < FORCE_LEVEL_1 ||

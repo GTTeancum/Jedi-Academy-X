@@ -36,6 +36,8 @@ EF_LUMP_SHADERS = 1
 EF_LUMP_LIGHTMAPS = 14
 EF_HEADER_LUMPS = 17
 EF_SHADER_ENTRY_SIZE = 72
+AAS_IDENT = b"EAAS"
+AAS_HEADER_SIZE = 12 + 14 * 8
 MAX_QPATH = 64
 LIGHTMAP_SIZE = 128
 LIGHTMAP_RGB_BYTES = LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3
@@ -66,10 +68,12 @@ PLAYER_TEXTURE_SEEDS = (
     "models/players/munro",
     "models/players/tuvok",
     "models/players/tuvok_h",
+    "models/players2",
 )
 HUD_TEXTURE_SEEDS = (
     "gfx/2d",
     "gfx/hud",
+    "gfx/interface",
 )
 HIGH_FIDELITY_TEXTURES = (
     # Borg wall panels use thin pipe/detail silhouettes against black backing.
@@ -152,10 +156,111 @@ XBOX_PATCH_SHADER_PATH = "scripts/xbox_borg_fix.shader"
 
 REFERENCE_RE = re.compile(r"\b(qer_editorimage|map|clampmap|animmap|skyparms)\s+(.+)", re.IGNORECASE)
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+XBOX_EFFECTS_IMAGE_REL = "sound/dsstdfx.bin"
+XBOX_EFFECTS_IMAGE_CANDIDATES = (
+    Path(r"C:\XDK\source\dsound\dsp\dsstdfx.bin"),
+    Path(r"C:\XDK\Samples\Xbox\Sound\BackgroundMusic\Media\dsstdfx.bin"),
+)
 
 
 def normalized_rel(path: str) -> str:
     return path.replace("\\", "/").strip().lower()
+
+
+def _rol32(value: int, bits: int) -> int:
+    value &= 0xFFFFFFFF
+    return ((value << bits) | (value >> (32 - bits))) & 0xFFFFFFFF
+
+
+def md4_digest(data: bytes) -> bytes:
+    mask = 0xFFFFFFFF
+    a = 0x67452301
+    b = 0xEFCDAB89
+    c = 0x98BADCFE
+    d = 0x10325476
+    bit_length = (len(data) * 8) & 0xFFFFFFFFFFFFFFFF
+    padded = data + b"\x80"
+    padded += b"\x00" * ((56 - len(padded) % 64) % 64)
+    padded += struct.pack("<Q", bit_length)
+
+    def f(x: int, y: int, z: int) -> int:
+        return ((x & y) | (~x & z)) & mask
+
+    def g(x: int, y: int, z: int) -> int:
+        return ((x & y) | (x & z) | (y & z)) & mask
+
+    def h(x: int, y: int, z: int) -> int:
+        return (x ^ y ^ z) & mask
+
+    for offset in range(0, len(padded), 64):
+        x = list(struct.unpack_from("<16I", padded, offset))
+        aa, bb, cc, dd = a, b, c, d
+
+        shifts = (3, 7, 11, 19)
+        order = range(16)
+        for i, k in enumerate(order):
+            s = shifts[i & 3]
+            if i & 3 == 0:
+                a = _rol32((a + f(b, c, d) + x[k]) & mask, s)
+            elif i & 3 == 1:
+                d = _rol32((d + f(a, b, c) + x[k]) & mask, s)
+            elif i & 3 == 2:
+                c = _rol32((c + f(d, a, b) + x[k]) & mask, s)
+            else:
+                b = _rol32((b + f(c, d, a) + x[k]) & mask, s)
+
+        shifts = (3, 5, 9, 13)
+        order = (0, 4, 8, 12, 1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15)
+        for i, k in enumerate(order):
+            s = shifts[i & 3]
+            if i & 3 == 0:
+                a = _rol32((a + g(b, c, d) + x[k] + 0x5A827999) & mask, s)
+            elif i & 3 == 1:
+                d = _rol32((d + g(a, b, c) + x[k] + 0x5A827999) & mask, s)
+            elif i & 3 == 2:
+                c = _rol32((c + g(d, a, b) + x[k] + 0x5A827999) & mask, s)
+            else:
+                b = _rol32((b + g(c, d, a) + x[k] + 0x5A827999) & mask, s)
+
+        shifts = (3, 9, 11, 15)
+        order = (0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15)
+        for i, k in enumerate(order):
+            s = shifts[i & 3]
+            if i & 3 == 0:
+                a = _rol32((a + h(b, c, d) + x[k] + 0x6ED9EBA1) & mask, s)
+            elif i & 3 == 1:
+                d = _rol32((d + h(a, b, c) + x[k] + 0x6ED9EBA1) & mask, s)
+            elif i & 3 == 2:
+                c = _rol32((c + h(d, a, b) + x[k] + 0x6ED9EBA1) & mask, s)
+            else:
+                b = _rol32((b + h(c, d, a) + x[k] + 0x6ED9EBA1) & mask, s)
+
+        a = (a + aa) & mask
+        b = (b + bb) & mask
+        c = (c + cc) & mask
+        d = (d + dd) & mask
+
+    return struct.pack("<4I", a, b, c, d)
+
+
+def com_block_checksum(data: bytes) -> int:
+    digest = struct.unpack("<4I", md4_digest(data))
+    return (digest[0] ^ digest[1] ^ digest[2] ^ digest[3]) & 0xFFFFFFFF
+
+
+def patch_aas_checksum(data: bytes, checksum: int) -> bytes:
+    if len(data) < AAS_HEADER_SIZE:
+        raise ValueError("AAS file is too small to patch")
+    ident, version = struct.unpack_from("<4sI", data, 0)
+    if ident != AAS_IDENT or version not in (4, 5):
+        raise ValueError(f"not an Elite Force AAS file ident={ident!r} version={version}")
+    output = bytearray(data)
+    checksum_bytes = bytearray(struct.pack("<I", checksum & 0xFFFFFFFF))
+    if version == 5:
+        for index in range(len(checksum_bytes)):
+            checksum_bytes[index] ^= (index * 119) & 0xFF
+    output[8:12] = checksum_bytes
+    return bytes(output)
 
 
 def strip_line_comment(line: str) -> str:
@@ -284,6 +389,14 @@ def should_use_rgb565_texture(candidate: str) -> bool:
     return candidate in RGB565_TEXTURES
 
 
+def should_force_bgra32_texture(candidate: str) -> bool:
+    candidate = normalized_rel(candidate)
+    path = Path(*candidate.split("/"))
+    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+        candidate = normalized_rel(path.with_suffix("").as_posix())
+    return candidate.startswith("gfx/")
+
+
 def directory_texture_candidates(base_dir: Path, rel_dirs: tuple[str, ...]) -> set[str]:
     candidates: set[str] = set()
     for rel_dir in rel_dirs:
@@ -313,6 +426,7 @@ def resolve_texture_source(base_dir: Path, candidate: str, allow_all: bool = Fal
         allowed = (
             candidate.startswith("textures/")
             or candidate.startswith("models/players/")
+            or candidate.startswith("models/players2/")
             or candidate.startswith("gfx/")
             or candidate.startswith("env/")
         )
@@ -342,7 +456,7 @@ def texture_size_for_path(out_rel: str, args: argparse.Namespace) -> int:
         return max(args.max_texture_size, 256)
     if Path(out_rel).with_suffix("").as_posix() in HIGH_FIDELITY_TEXTURES:
         return max(args.max_texture_size, 256)
-    if out_rel.startswith("models/players/"):
+    if out_rel.startswith("models/players/") or out_rel.startswith("models/players2/"):
         return args.max_player_texture_size
     if out_rel.startswith("gfx/"):
         return args.max_hud_texture_size
@@ -733,6 +847,7 @@ def build_dds(
     max_size: int,
     force_bgra32: bool = False,
     force_rgb565: bool = False,
+    alpha_format: str = "bgra32",
 ) -> tuple[bytes, dict[str, object]] | None:
     with Image.open(source) as opened:
         has_alpha = image_has_alpha(opened)
@@ -749,6 +864,10 @@ def build_dds(
             )
             fmt = "rgb565"
         elif force_bgra32:
+            payload = encode_bgra32(image)
+            header = dds_bgra32_header(image.width, image.height, image.width * 4)
+            fmt = "bgra32"
+        elif has_alpha and alpha_format == "bgra32":
             payload = encode_bgra32(image)
             header = dds_bgra32_header(image.width, image.height, image.width * 4)
             fmt = "bgra32"
@@ -904,13 +1023,80 @@ def ui_script_files(base_dir: Path) -> list[Path]:
     ui_dir = base_dir / "ui"
     if not ui_dir.is_dir():
         return []
-    return sorted(
-        path
-        for path in ui_dir.rglob("*")
-        if path.is_file()
-        and path.suffix.lower() in {".txt", ".menu"}
-        and path.name.lower() != "vssver.scc"
+
+    deprecated_mp_menu_scripts = {"jahud.txt", "jampmenus.txt", "jampingame.txt", "testhud.menu"}
+    scripts: list[Path] = []
+    for path in ui_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in {".txt", ".menu"}:
+            continue
+        if path.name.lower() == "vssver.scc":
+            continue
+
+        rel = normalized_rel(path.relative_to(ui_dir).as_posix()).lower()
+        if rel in deprecated_mp_menu_scripts or rel.startswith("jamp/"):
+            continue
+
+        scripts.append(path)
+
+    return sorted(scripts)
+
+
+def holomatch_support_files(base_dir: Path, map_name: str) -> list[Path]:
+    direct_files = [
+        f"maps/{map_name}.aas",
+        "scripts/bots.txt",
+        "scripts/arenas.txt",
+        "botfiles/bots/chars.h",
+        "botfiles/bots/seven_c.c",
+        "botfiles/bots/seven_i.c",
+        "botfiles/bots/seven_t.c",
+        "botfiles/bots/seven_w.c",
+        "botfiles/bots/reaver_c.c",
+        "botfiles/bots/reaver_i.c",
+        "botfiles/bots/reaver_t.c",
+        "botfiles/bots/reaver_w.c",
+    ]
+    model_dirs = (
+        "botfiles/bots",
+        "models/players/munro",
+        "models/players/seven",
+        "models/players/reaver",
+        "models/players2",
+        "models/powerups/trek",
+        "models/weapons2",
     )
+
+    seen: set[str] = set()
+    files: list[Path] = []
+
+    def add_path(path: Path) -> None:
+        if not path.is_file():
+            return
+        rel = normalized_rel(path.relative_to(base_dir).as_posix())
+        if rel in seen:
+            return
+        seen.add(rel)
+        files.append(path)
+
+    for rel in direct_files:
+        add_path(base_dir / Path(*rel.split("/")))
+
+    for rel_dir in model_dirs:
+        root = base_dir / Path(*rel_dir.split("/"))
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.name.lower() == "vssver.scc":
+                continue
+            if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+                continue
+            add_path(path)
+
+    return sorted(files, key=lambda path: normalized_rel(path.relative_to(base_dir).as_posix()))
 
 
 def shader_script_files(base_dir: Path) -> list[Path]:
@@ -918,11 +1104,29 @@ def shader_script_files(base_dir: Path) -> list[Path]:
     if not scripts_dir.is_dir():
         return []
 
-    files = sorted(path for path in scripts_dir.glob("*.shader") if path.is_file())
-    manifest = scripts_dir / "_console_shader_list_"
-    if manifest.is_file():
-        files.append(manifest)
-    return files
+    return sorted(path for path in scripts_dir.glob("*.shader") if path.is_file())
+
+
+def console_shader_list_bytes(shader_scripts: list[str]) -> bytes:
+    names = sorted({rel.rsplit("/", 1)[-1] for rel in shader_scripts})
+    return (("\r\n".join(names) + "\r\n") if names else "").encode("ascii")
+
+
+def console_file_list_bytes(names: list[str]) -> bytes:
+    unique = sorted({name for name in names if name})
+    return (("\r\n".join(unique) + "\r\n") if unique else "").encode("ascii")
+
+
+def resolve_xbox_effects_image(explicit_path: Path | None) -> Path:
+    candidates = [explicit_path] if explicit_path else list(XBOX_EFFECTS_IMAGE_CANDIDATES)
+    for candidate in candidates:
+        if candidate and candidate.is_file():
+            return candidate.resolve()
+
+    checked = ", ".join(str(path) for path in candidates if path)
+    raise FileNotFoundError(
+        f"missing Xbox effects image for {XBOX_EFFECTS_IMAGE_REL}; checked: {checked}"
+    )
 
 
 def build_patch(args: argparse.Namespace) -> dict[str, object]:
@@ -960,20 +1164,86 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     preserved_original_sources: list[dict[str, str]] = []
     preserved_original_written: set[str] = set()
     bsp_optimizations: list[dict[str, object]] = []
+    bsp_outputs: list[tuple[str, str, bytes, str, bytes]] = []
+    bsp_checksums: dict[str, int] = {}
+    patched_aas_checksums: dict[str, int] = {}
     ui_scripts: list[str] = []
+    support_files: list[str] = []
+    effects_image_info: dict[str, object] | None = None
     shader_scripts: list[str] = []
+    shader_script_set: set[str] = set()
+
+    if args.include_bsp and args.bsp_mode != "none":
+        raise ValueError("--include-bsp cannot be combined with --bsp-mode")
+
+    if args.bsp_mode != "none":
+        for bsp_path in selected_bsp_paths(base_dir, args.bsp_maps, args.map):
+            optimized_bsp, optimized_lightmaps, report = optimized_bsp_and_lightmaps(
+                bsp_path, args.lightmap_boost
+            )
+            map_name = bsp_path.stem.lower()
+            bsp_out_rel = f"maps/xbox/{map_name}.bsp"
+            lightmap_out_rel = f"maps/xbox/{map_name}.lmpdds"
+            checksum = com_block_checksum(optimized_bsp)
+            report["bspPath"] = bsp_out_rel
+            report["lightmapPath"] = lightmap_out_rel
+            report["xboxBspChecksum"] = checksum
+            bsp_optimizations.append(report)
+            bsp_outputs.append((bsp_out_rel, map_name, optimized_bsp, lightmap_out_rel, optimized_lightmaps))
+            bsp_checksums[map_name] = checksum
+
     with zipfile.ZipFile(out_path, "w") as zip_out:
-        zip_write_bytes(zip_out, XBOX_PATCH_SHADER_PATH, XBOX_PATCH_SHADER_TEXT.encode("ascii"))
+        patch_shader_rel = normalized_rel(XBOX_PATCH_SHADER_PATH)
+        zip_write_bytes(zip_out, patch_shader_rel, XBOX_PATCH_SHADER_TEXT.encode("ascii"))
+        shader_scripts.append(patch_shader_rel)
+        shader_script_set.add(patch_shader_rel)
 
         for shader_path in shader_script_files(base_dir):
             shader_rel = normalized_rel(shader_path.relative_to(base_dir).as_posix())
+            if shader_rel in shader_script_set:
+                continue
             zip_write_bytes(zip_out, shader_rel, shader_path.read_bytes())
             shader_scripts.append(shader_rel)
+            shader_script_set.add(shader_rel)
 
-        for ui_path in ui_script_files(base_dir):
-            ui_rel = normalized_rel(ui_path.relative_to(base_dir).as_posix())
-            zip_write_bytes(zip_out, ui_rel, ui_path.read_bytes())
-            ui_scripts.append(ui_rel)
+        shader_list_path = "scripts/_console_shader_list_"
+        zip_write_bytes(zip_out, shader_list_path, console_shader_list_bytes(shader_scripts))
+
+        if not args.no_ui_scripts:
+            for ui_path in ui_script_files(base_dir):
+                ui_rel = normalized_rel(ui_path.relative_to(base_dir).as_posix())
+                zip_write_bytes(zip_out, ui_rel, ui_path.read_bytes())
+                ui_scripts.append(ui_rel)
+
+        if args.holomatch_support_assets:
+            for support_path in holomatch_support_files(base_dir, args.map):
+                support_rel = normalized_rel(support_path.relative_to(base_dir).as_posix())
+                support_data = support_path.read_bytes()
+                aas_rel = f"maps/{args.map.lower()}.aas"
+                if support_rel == aas_rel and args.map.lower() in bsp_checksums:
+                    checksum = bsp_checksums[args.map.lower()]
+                    support_data = patch_aas_checksum(support_data, checksum)
+                    patched_aas_checksums[support_rel] = checksum
+                zip_write_bytes(zip_out, support_rel, support_data)
+                support_files.append(support_rel)
+            holomatch_lists = {
+                "scripts/_console_bot_list_": ["bots.txt"],
+                "scripts/_console_arena_list_": ["arenas.txt"],
+            }
+            for list_rel, names in holomatch_lists.items():
+                zip_write_bytes(zip_out, list_rel, console_file_list_bytes(names))
+                support_files.append(list_rel)
+
+            effects_image_path = resolve_xbox_effects_image(args.effects_image)
+            effects_image_data = effects_image_path.read_bytes()
+            zip_write_bytes(zip_out, XBOX_EFFECTS_IMAGE_REL, effects_image_data)
+            support_files.append(XBOX_EFFECTS_IMAGE_REL)
+            effects_image_info = {
+                "path": XBOX_EFFECTS_IMAGE_REL,
+                "source": str(effects_image_path),
+                "bytes": len(effects_image_data),
+                "sha1": hashlib.sha1(effects_image_data).hexdigest(),
+            }
 
         bsp_rel: str | None = None
         if args.include_bsp:
@@ -981,23 +1251,12 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             zip_write_bytes(zip_out, bsp_rel, map_path.read_bytes())
 
         if args.bsp_mode != "none":
-            if args.include_bsp:
-                raise ValueError("--include-bsp cannot be combined with --bsp-mode")
-            for bsp_path in selected_bsp_paths(base_dir, args.bsp_maps, args.map):
-                optimized_bsp, optimized_lightmaps, report = optimized_bsp_and_lightmaps(
-                    bsp_path, args.lightmap_boost
-                )
-                map_name = bsp_path.stem.lower()
-                bsp_out_rel = f"maps/xbox/{map_name}.bsp"
-                lightmap_out_rel = f"maps/xbox/{map_name}.lmpdds"
+            for bsp_out_rel, _map_name, optimized_bsp, lightmap_out_rel, optimized_lightmaps in bsp_outputs:
                 zip_write_bytes(zip_out, bsp_out_rel, optimized_bsp)
                 zip_write_bytes(zip_out, lightmap_out_rel, optimized_lightmaps)
-                report["bspPath"] = bsp_out_rel
-                report["lightmapPath"] = lightmap_out_rel
-                bsp_optimizations.append(report)
 
         for out_rel, source in sorted(resolved.items()):
-            if should_preserve_original_texture(out_rel):
+            if not args.dds_only and should_preserve_original_texture(out_rel):
                 source_rel = normalized_rel(source.relative_to(base_dir).as_posix())
                 if source_rel not in preserved_original_written:
                     zip_write_bytes(zip_out, source_rel, source.read_bytes())
@@ -1015,8 +1274,9 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             built = build_dds(
                 source,
                 max_size,
-                force_bgra32=is_fullscreen_texture(out_rel),
+                force_bgra32=is_fullscreen_texture(out_rel) or should_force_bgra32_texture(out_rel),
                 force_rgb565=should_use_rgb565_texture(out_rel),
+                alpha_format=args.alpha_texture_format,
             )
             if built is None:
                 skipped_alpha.append(out_rel)
@@ -1038,6 +1298,8 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             "maxHudTextureSize": args.max_hud_texture_size,
             "maxLoadscreenTextureSize": args.max_loadscreen_texture_size,
             "textureMode": args.texture_mode,
+            "ddsOnly": args.dds_only,
+            "alphaTextureFormat": args.alpha_texture_format,
             "textureCount": len(textures),
             "textures": textures,
             "skippedTextureCandidates": skipped,
@@ -1047,8 +1309,14 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             "patchShaders": [XBOX_PATCH_SHADER_PATH],
             "shaderScriptCount": len(shader_scripts),
             "shaderScripts": shader_scripts,
+            "shaderListPath": shader_list_path,
+            "shaderListCount": len(shader_scripts),
             "uiScriptCount": len(ui_scripts),
             "uiScripts": ui_scripts,
+            "supportFileCount": len(support_files),
+            "supportFiles": support_files,
+            "effectsImage": effects_image_info,
+            "patchedAasChecksums": patched_aas_checksums,
             "bspMode": args.bsp_mode,
             "bspMaps": args.bsp_maps,
             "bspOptimizationCount": len(bsp_optimizations),
@@ -1075,12 +1343,15 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
         "bspIncluded": args.include_bsp,
         "shaderNames": len(shader_names),
         "textureMode": args.texture_mode,
+        "ddsOnly": args.dds_only,
+        "alphaTextureFormat": args.alpha_texture_format,
         "textures": len(textures),
         "skipped": len(skipped),
         "skippedAlpha": len(skipped_alpha),
         "preservedOriginal": len(preserved_original),
         "preservedOriginalSources": len(preserved_original_written),
         "uiScripts": len(ui_scripts),
+        "supportFiles": len(support_files),
         "bspMode": args.bsp_mode,
         "bspMaps": args.bsp_maps,
         "bspOptimizations": len(bsp_optimizations),
@@ -1106,6 +1377,24 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--include-bsp",
         action="store_true",
         help="Pack maps/xbox/<map>.bsp so the runtime BSP override becomes active.",
+    )
+    parser.add_argument(
+        "--no-ui-scripts",
+        action="store_true",
+        help="Do not pack UI .menu/.txt scripts into this patch PK3.",
+    )
+    parser.add_argument(
+        "--holomatch-support-assets",
+        action="store_true",
+        help="Pack non-texture map/bot/model support files needed by the direct Holomatch smoke target.",
+    )
+    parser.add_argument(
+        "--effects-image",
+        type=Path,
+        help=(
+            "Xbox DirectSound effects image to pack as sound/dsstdfx.bin. "
+            "Defaults to the standard local XDK dsstdfx.bin."
+        ),
     )
     parser.add_argument(
         "--bsp-mode",
@@ -1136,6 +1425,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "DDS texture substitution mode. Disabled by default because the "
             "current mode only converts opaque textures to DXT1; alpha textures stay loose."
         ),
+    )
+    parser.add_argument(
+        "--dds-only",
+        action="store_true",
+        help="Convert all selected source textures to DDS instead of preserving original JPG/TGA overrides.",
+    )
+    parser.add_argument(
+        "--alpha-texture-format",
+        choices=("dxt5", "bgra32"),
+        default="bgra32",
+        help="DDS format to use for selected source textures with alpha.",
     )
     return parser.parse_args(argv)
 

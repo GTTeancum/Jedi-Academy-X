@@ -176,6 +176,334 @@ void CG_Text_Paint(float x, float y, float scale, vec4_t color, const char *text
 							);
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_CG_PROP_FONT_CHARS 256
+#define STEFX_CG_PROP_FONT_BUFFER 20000
+#define STEFX_CG_PROP_FONT_TINY 0
+#define STEFX_CG_PROP_FONT_MEDIUM 1
+#define STEFX_CG_PROP_FONT_BIG 2
+#define STEFX_CG_PROP_FONT_COUNT 3
+#define STEFX_CG_PROP_HEIGHT 16
+#define STEFX_CG_PROP_BIG_HEIGHT 24
+#define STEFX_CG_PROP_TINY_HEIGHT 10
+#define STEFX_CG_PROP_GAP_WIDTH 2
+#define STEFX_CG_PROP_GAP_TINY_WIDTH 1
+#define STEFX_CG_PROP_GAP_BIG_WIDTH 3
+#define STEFX_CG_PROP_SPACE_WIDTH 4
+#define STEFX_CG_PROP_SPACE_TINY_WIDTH 3
+#define STEFX_CG_PROP_SPACE_BIG_WIDTH 6
+#define STEFX_CG_PROP_TINYFONT 0x40000000
+
+typedef struct
+{
+	qboolean loaded;
+	qhandle_t shader[STEFX_CG_PROP_FONT_COUNT];
+	int propMap[STEFX_CG_PROP_FONT_COUNT][STEFX_CG_PROP_FONT_CHARS][3];
+} stefxCgPropFonts_t;
+
+static stefxCgPropFonts_t stefxCgPropFonts;
+static qboolean stefxCgPropFontsAttempted = qfalse;
+
+static void CG_STEFXClearPropFonts( void )
+{
+	int f;
+	int ch;
+
+	for ( f = 0; f < STEFX_CG_PROP_FONT_COUNT; ++f )
+	{
+		for ( ch = 0; ch < STEFX_CG_PROP_FONT_CHARS; ++ch )
+		{
+			stefxCgPropFonts.propMap[f][ch][0] = 0;
+			stefxCgPropFonts.propMap[f][ch][1] = 0;
+			stefxCgPropFonts.propMap[f][ch][2] = -1;
+		}
+	}
+}
+
+static qboolean CG_STEFXParsePropFontMap( const char **cursor, int fontIndex, const char *debugName )
+{
+	char *token;
+	int ch;
+	int component;
+
+	token = COM_ParseExt( cursor, qtrue );
+	if ( !token[0] || Q_stricmp( token, "{" ) )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF prop font parse failed map='%s' expected_open token='%s'\n",
+			debugName, token ? token : "<null>" );
+		return qfalse;
+	}
+
+	for ( ch = 0; ch < STEFX_CG_PROP_FONT_CHARS; ++ch )
+	{
+		token = COM_ParseExt( cursor, qtrue );
+		if ( !token[0] || Q_stricmp( token, "{" ) )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame EF prop font parse failed map='%s' char=%d expected_char_open token='%s'\n",
+				debugName, ch, token ? token : "<null>" );
+			return qfalse;
+		}
+
+		for ( component = 0; component < 3; ++component )
+		{
+			token = COM_ParseExt( cursor, qtrue );
+			if ( !token[0] )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame EF prop font parse failed map='%s' char=%d component=%d empty\n",
+					debugName, ch, component );
+				return qfalse;
+			}
+			stefxCgPropFonts.propMap[fontIndex][ch][component] = atoi( token );
+		}
+
+		token = COM_ParseExt( cursor, qtrue );
+		if ( !token[0] || Q_stricmp( token, "}" ) )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame EF prop font parse failed map='%s' char=%d expected_char_close token='%s'\n",
+				debugName, ch, token ? token : "<null>" );
+			return qfalse;
+		}
+	}
+
+	token = COM_ParseExt( cursor, qtrue );
+	if ( !token[0] || Q_stricmp( token, "}" ) )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF prop font parse failed map='%s' expected_close token='%s'\n",
+			debugName, token ? token : "<null>" );
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static int CG_STEFXPropFontForStyle( int style )
+{
+	if ( style & STEFX_CG_PROP_TINYFONT )
+	{
+		return STEFX_CG_PROP_FONT_TINY;
+	}
+	if ( style & UI_BIGFONT )
+	{
+		return STEFX_CG_PROP_FONT_BIG;
+	}
+	return STEFX_CG_PROP_FONT_MEDIUM;
+}
+
+static int CG_STEFXPropFontHeight( int fontIndex )
+{
+	if ( fontIndex == STEFX_CG_PROP_FONT_TINY )
+	{
+		return STEFX_CG_PROP_TINY_HEIGHT;
+	}
+	if ( fontIndex == STEFX_CG_PROP_FONT_BIG )
+	{
+		return STEFX_CG_PROP_BIG_HEIGHT;
+	}
+	return STEFX_CG_PROP_HEIGHT;
+}
+
+static int CG_STEFXPropFontGap( int fontIndex )
+{
+	if ( fontIndex == STEFX_CG_PROP_FONT_TINY )
+	{
+		return STEFX_CG_PROP_GAP_TINY_WIDTH;
+	}
+	if ( fontIndex == STEFX_CG_PROP_FONT_BIG )
+	{
+		return STEFX_CG_PROP_GAP_BIG_WIDTH;
+	}
+	return STEFX_CG_PROP_GAP_WIDTH;
+}
+
+static int CG_STEFXPropFontSpaceWidth( int fontIndex )
+{
+	if ( fontIndex == STEFX_CG_PROP_FONT_TINY )
+	{
+		return STEFX_CG_PROP_SPACE_TINY_WIDTH;
+	}
+	if ( fontIndex == STEFX_CG_PROP_FONT_BIG )
+	{
+		return STEFX_CG_PROP_SPACE_BIG_WIDTH;
+	}
+	return STEFX_CG_PROP_SPACE_WIDTH;
+}
+
+static void CG_STEFXLoadPropFonts( void )
+{
+	char buffer[STEFX_CG_PROP_FONT_BUFFER];
+	fileHandle_t file;
+	int len;
+	const char *cursor;
+	qboolean ok;
+
+	if ( stefxCgPropFontsAttempted )
+	{
+		return;
+	}
+	stefxCgPropFontsAttempted = qtrue;
+	CG_STEFXClearPropFonts();
+
+	stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_TINY] = trap_R_RegisterShaderNoMip( "gfx/2d/chars_tiny" );
+	stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_MEDIUM] = trap_R_RegisterShaderNoMip( "gfx/2d/chars_medium" );
+	stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_BIG] = trap_R_RegisterShaderNoMip( "gfx/2d/chars_big" );
+
+	len = trap_FS_FOpenFile( "ext_data/fonts.dat", &file, FS_READ );
+	if ( !file )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF prop font file missing len=%d tiny=%d med=%d big=%d\n",
+			len,
+			stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_TINY],
+			stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_MEDIUM],
+			stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_BIG] );
+		return;
+	}
+
+	if ( len <= 0 || len >= (int)sizeof( buffer ) )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF prop font file bad len=%d max=%d\n",
+			len, (int)sizeof( buffer ) );
+		trap_FS_FCloseFile( file );
+		return;
+	}
+
+	memset( buffer, 0, sizeof( buffer ) );
+	trap_FS_Read( buffer, len, file );
+	trap_FS_FCloseFile( file );
+
+	cursor = buffer;
+	ok = CG_STEFXParsePropFontMap( &cursor, STEFX_CG_PROP_FONT_TINY, "tiny" );
+	if ( ok )
+	{
+		ok = CG_STEFXParsePropFontMap( &cursor, STEFX_CG_PROP_FONT_MEDIUM, "medium" );
+	}
+	if ( ok )
+	{
+		ok = CG_STEFXParsePropFontMap( &cursor, STEFX_CG_PROP_FONT_BIG, "big" );
+	}
+
+	stefxCgPropFonts.loaded = ok;
+	CG_PrintfAlways( "STEFX_HM: cgame EF prop fonts loaded=%d len=%d tiny=%d med=%d big=%d sampleA=%d/%d/%d\n",
+		stefxCgPropFonts.loaded ? 1 : 0,
+		len,
+		stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_TINY],
+		stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_MEDIUM],
+		stefxCgPropFonts.shader[STEFX_CG_PROP_FONT_BIG],
+		stefxCgPropFonts.propMap[STEFX_CG_PROP_FONT_MEDIUM]['A'][0],
+		stefxCgPropFonts.propMap[STEFX_CG_PROP_FONT_MEDIUM]['A'][1],
+		stefxCgPropFonts.propMap[STEFX_CG_PROP_FONT_MEDIUM]['A'][2] );
+}
+
+static float CG_STEFXPropStringWidth( const char *text, int style, float scale )
+{
+	int fontIndex;
+	int gap;
+	int spaceWidth;
+	float width;
+	const unsigned char *s;
+
+	if ( !text || !text[0] || scale <= 0.0f )
+	{
+		return 0.0f;
+	}
+
+	CG_STEFXLoadPropFonts();
+	if ( !stefxCgPropFonts.loaded )
+	{
+		return 0.0f;
+	}
+
+	fontIndex = CG_STEFXPropFontForStyle( style );
+	gap = CG_STEFXPropFontGap( fontIndex );
+	spaceWidth = CG_STEFXPropFontSpaceWidth( fontIndex );
+	width = 0.0f;
+
+	s = (const unsigned char *)text;
+	while ( *s )
+	{
+		int ch = *s++;
+		int charWidth = ( ch == ' ' ) ? spaceWidth : stefxCgPropFonts.propMap[fontIndex][ch][2];
+		if ( charWidth != -1 )
+		{
+			width += (float)( charWidth + gap ) * scale;
+		}
+	}
+
+	if ( width > 0.0f )
+	{
+		width -= (float)gap * scale;
+	}
+	return width;
+}
+
+static void CG_STEFXDrawPropString( float x, float y, const char *text, int style, const float *color, float scale )
+{
+	static int stefxLoggedPropTextBudget = 8;
+	const unsigned char *s;
+	int fontIndex;
+	int gap;
+	int spaceWidth;
+	int height;
+
+	if ( !text || !text[0] || scale <= 0.0f )
+	{
+		return;
+	}
+
+	CG_STEFXLoadPropFonts();
+	fontIndex = CG_STEFXPropFontForStyle( style );
+	if ( !stefxCgPropFonts.loaded || !stefxCgPropFonts.shader[fontIndex] )
+	{
+		return;
+	}
+
+	if ( style & UI_CENTER )
+	{
+		x -= CG_STEFXPropStringWidth( text, style, scale ) * 0.5f;
+	}
+	else if ( style & UI_RIGHT )
+	{
+		x -= CG_STEFXPropStringWidth( text, style, scale );
+	}
+
+	gap = CG_STEFXPropFontGap( fontIndex );
+	spaceWidth = CG_STEFXPropFontSpaceWidth( fontIndex );
+	height = CG_STEFXPropFontHeight( fontIndex );
+
+	if ( stefxLoggedPropTextBudget > 0 )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF prop text draw text='%.48s' style=0x%x font=%d shader=%d width=%d\n",
+			text,
+			style,
+			fontIndex,
+			stefxCgPropFonts.shader[fontIndex],
+			(int)( CG_STEFXPropStringWidth( text, style, scale ) + 0.5f ) );
+		--stefxLoggedPropTextBudget;
+	}
+
+	trap_R_SetColor( color );
+	s = (const unsigned char *)text;
+	while ( *s )
+	{
+		int ch = *s++;
+		int charWidth = ( ch == ' ' ) ? spaceWidth : stefxCgPropFonts.propMap[fontIndex][ch][2];
+		if ( charWidth != -1 )
+		{
+			if ( ch != ' ' )
+			{
+				float s0 = (float)stefxCgPropFonts.propMap[fontIndex][ch][0] / 256.0f;
+				float t0 = (float)stefxCgPropFonts.propMap[fontIndex][ch][1] / 256.0f;
+				float s1 = (float)( stefxCgPropFonts.propMap[fontIndex][ch][0] + charWidth ) / 256.0f;
+				float t1 = (float)( stefxCgPropFonts.propMap[fontIndex][ch][1] + height ) / 256.0f;
+				trap_R_DrawStretchPic( x, y, (float)charWidth * scale, (float)height * scale,
+					s0, t0, s1, t1, stefxCgPropFonts.shader[fontIndex] );
+			}
+			x += (float)( charWidth + gap ) * scale;
+		}
+	}
+	trap_R_SetColor( NULL );
+}
+#endif
+
 /*
 qboolean CG_WorldCoordToScreenCoord(vec3_t worldCoord, int *x, int *y)
 
@@ -3471,6 +3799,18 @@ qboolean CG_DrawVehicleHud( const centity_t *cent )
 	playerState_t	*ps;
 	centity_t		*veh;
 	float			shieldPerc,alpha;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean stefxLoggedVehicleHudBypass = qfalse;
+
+	if ( !stefxLoggedVehicleHudBypass )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited parser vehicle HUD; EF Holomatch HUD owns status\n" );
+		stefxLoggedVehicleHudBypass = qtrue;
+	}
+	(void)cent;
+	return qtrue;
+#endif
 	
 	menuHUD = Menus_FindByName("swoopvehiclehud");
 	if (!menuHUD)
@@ -3583,6 +3923,16 @@ static void CG_DrawStats( void )
 	centity_t		*cent;
 	playerState_t	*ps;
 	qboolean		drawHUD = qtrue;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean stefxLoggedStatsHudBypass = qfalse;
+
+	if ( !stefxLoggedStatsHudBypass )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited parser stats HUD; EF Holomatch HUD owns status\n" );
+		stefxLoggedStatsHudBypass = qtrue;
+	}
+	return;
+#endif
 /*	playerState_t	*ps;
 	vec3_t			angles;
 //	vec3_t		origin;
@@ -3652,7 +4002,11 @@ static void CG_DrawPickupItem( void ) {
 #endif
 
 	value = cg->itemPickup;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( value && cg_items[ value ].icon > 0 )
+#else
 	if ( value && cg_items[ value ].icon != -1 ) 
+#endif
 	{
 		fadeColor = CG_FadeColor( cg->itemPickupTime, 3000 );
 		if ( fadeColor ) 
@@ -6092,6 +6446,16 @@ int cg_saberFlashTime = 0;
 vec3_t cg_saberFlashPos = {0, 0, 0};
 void CG_SaberClashFlare( void ) 
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchClashFlareSkip = qfalse;
+
+	if ( !loggedHolomatchClashFlareSkip )
+	{
+		loggedHolomatchClashFlareSkip = qtrue;
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited clash flare in Holomatch\n" );
+	}
+	return;
+#else
 	int				t, maxTime = 150;
 	vec3_t dif;
 	vec3_t color;
@@ -6149,6 +6513,7 @@ void CG_SaberClashFlare( void )
 	CG_DrawPic( x - ( v * 300 ), y - ( v * 300 ),
 				v * 600, v * 600,
 				trap_R_RegisterShader( "gfx/effects/saberFlare" ));
+#endif
 }
 
 void CG_BracketEntity( centity_t *cent, float radius )
@@ -6457,6 +6822,19 @@ static void CG_DrawRocketLocking( int lockEntNum, int lockTime )
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() == 1)
 		yOff = 220;
+#endif
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchRocketHudSkip = qfalse;
+
+		if ( !loggedHolomatchRocketHudSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited rocket lock HUD in Holomatch\n" );
+			loggedHolomatchRocketHudSkip = qtrue;
+		}
+	}
+	return;
 #endif
 
 	if (!cg->snap->ps.rocketLockTime)
@@ -7441,8 +7819,23 @@ static void CG_DrawTeamVote(void) {
 #endif
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXDrawHolomatchScores( void );
+#endif
+
 static qboolean CG_DrawScoreboard() {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean stefxLoggedScoreboardRoute = qfalse;
+
+	if ( !stefxLoggedScoreboardRoute )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame scoreboard uses EF Holomatch overlay; parser scoreboard bypassed\n" );
+		stefxLoggedScoreboardRoute = qtrue;
+	}
+	return CG_STEFXDrawHolomatchScores();
+#else
 	return CG_DrawOldScoreboard();
+#endif
 #if 0
 	static qboolean firstTime = qtrue;
 	float fade, *fadeColor;
@@ -9742,6 +10135,758 @@ static void CG_Draw2DScreenTints( void )
 
 #endif // _XBOX
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static int CG_STEFXClampInt( int value, int minValue, int maxValue )
+{
+	if ( value < minValue )
+	{
+		return minValue;
+	}
+	if ( value > maxValue )
+	{
+		return maxValue;
+	}
+	return value;
+}
+
+static float CG_STEFXRatio( int value, int maxValue )
+{
+	if ( maxValue <= 0 )
+	{
+		return 0.0f;
+	}
+	return (float)CG_STEFXClampInt( value, 0, maxValue ) / (float)maxValue;
+}
+
+#include "../../code/cgame/cg_ef_hud_shared.h"
+
+static qboolean stefxHolomatchHudStartupDone = qfalse;
+
+static void CG_STEFXCompleteHolomatchHudStartup( void )
+{
+	stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].max;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].type = STEFX_HUD_NUMBER;
+
+	stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_BOX1].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].max;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].type = STEFX_HUD_NUMBER;
+
+	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].max;
+	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].max;
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDERFULL].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].type = STEFX_HUD_GRAPHIC;
+	stefxHolomatchHud[STEFX_HUD_AMMO_COUNT].type = STEFX_HUD_NUMBER;
+
+	stefxHolomatchHud[STEFX_HUD_GROW].type = STEFX_HUD_OFF;
+	stefxHolomatchHudStartupDone = qtrue;
+}
+
+static void CG_STEFXResetHolomatchHudStartup( void )
+{
+	int i;
+	int baseTime;
+
+	baseTime = cg ? cg->time : 0;
+	for ( i = 0; i < STEFX_HUD_MAX; ++i )
+	{
+		if ( stefxHolomatchHud[i].type == STEFX_HUD_GRAPHIC ||
+			stefxHolomatchHud[i].type == STEFX_HUD_NUMBER )
+		{
+			stefxHolomatchHud[i].type = STEFX_HUD_OFF;
+		}
+		stefxHolomatchHud[i].timer = 0.0f;
+	}
+
+	stefxHolomatchHud[STEFX_HUD_GROW].type = STEFX_HUD_OFF;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_START].timer = (float)baseTime;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_START].timer = (float)( baseTime + 100 );
+	stefxHolomatchHud[STEFX_HUD_AMMO_START].timer = (float)( baseTime + 200 );
+	stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x = 72;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = 72;
+	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = 607;
+	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = 607;
+	stefxHolomatchHudStartupDone = qfalse;
+
+	CG_PrintfAlways( "STEFX_HM: EF SP interface HUD startup armed health=%g armor=%g ammo=%g\n",
+		stefxHolomatchHud[STEFX_HUD_HEALTH_START].timer,
+		stefxHolomatchHud[STEFX_HUD_ARMOR_START].timer,
+		stefxHolomatchHud[STEFX_HUD_AMMO_START].timer );
+}
+
+static void CG_STEFXHolomatchInterfaceStartup( void )
+{
+	if ( stefxHolomatchHudStartupDone || !cg )
+	{
+		return;
+	}
+
+	if ( stefxHolomatchHud[STEFX_HUD_HEALTH_START].timer <= (float)cg->time &&
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].type == STEFX_HUD_OFF )
+	{
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].type = STEFX_HUD_GRAPHIC;
+	}
+
+	if ( stefxHolomatchHud[STEFX_HUD_ARMOR_START].timer <= (float)cg->time &&
+		stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].type == STEFX_HUD_OFF )
+	{
+		stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_ARMOR_BOX1].type = STEFX_HUD_GRAPHIC;
+		stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].type = STEFX_HUD_GRAPHIC;
+	}
+
+	if ( stefxHolomatchHud[STEFX_HUD_AMMO_START].timer <= (float)cg->time )
+	{
+		CG_STEFXCompleteHolomatchHudStartup();
+		CG_PrintfAlways( "STEFX_HM: EF SP interface HUD startup complete healthEndX=%d armorEndX=%d ammoUpperEndX=%d ammoLowerEndX=%d\n",
+			stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x,
+			stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x,
+			stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x,
+			stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x );
+	}
+}
+
+void CG_STEFXRegisterHolomatchHudGraphics( void )
+{
+	int i;
+	int registered;
+	int missing;
+
+	registered = 0;
+	missing = 0;
+	for ( i = 0; i < STEFX_HUD_MAX; ++i )
+	{
+		if ( stefxHolomatchHud[i].fileName )
+		{
+			stefxHolomatchHud[i].graphic = trap_R_RegisterShaderNoMip( stefxHolomatchHud[i].fileName );
+			++registered;
+			if ( !stefxHolomatchHud[i].graphic )
+			{
+				++missing;
+			}
+		}
+	}
+
+	CG_STEFXResetHolomatchHudStartup();
+	CG_PrintfAlways( "STEFX_HM: registered %d EF SP interface HUD shaders missing=%d\n", registered, missing );
+}
+
+static int CG_STEFXHudLength( int value, int maxValue, int lengthMax )
+{
+	int length;
+
+	if ( maxValue <= 0 || lengthMax <= 0 )
+	{
+		return 0;
+	}
+
+	length = (int)( (float)lengthMax * CG_STEFXRatio( value, maxValue ) + 0.5f );
+	return CG_STEFXClampInt( length, 0, lengthMax );
+}
+
+static void CG_STEFXDrawInterfacePic( const stefxHolomatchHudGraphic_t *hud )
+{
+	static qboolean stefxLoggedHudUvPath = qfalse;
+
+	if ( !hud )
+	{
+		return;
+	}
+
+	if ( !stefxLoggedHudUvPath )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF SP interface HUD using DDS native UV draw path; V corrected for direct DDS\n" );
+		CG_PrintfAlways( "STEFX_HM: cgame EF SP interface HUD V-corrected direct DDS draw path\n" );
+		stefxLoggedHudUvPath = qtrue;
+	}
+
+	trap_R_DrawStretchPic( hud->x,
+		hud->y,
+		hud->width,
+		hud->height,
+		0.0f,
+		1.0f,
+		1.0f,
+		0.0f,
+		hud->graphic );
+}
+
+static void CG_STEFXDrawInterfaceGraphics( int minValue, int maxValue )
+{
+	int i;
+	int colorIndex;
+	vec4_t drawColor;
+	static int stefxHudGraphicLogBudget = 80;
+
+	for ( i = minValue; i < maxValue; ++i )
+	{
+		if ( stefxHolomatchHud[i].type == STEFX_HUD_OFF ||
+			stefxHolomatchHud[i].type == STEFX_HUD_VAR )
+		{
+			continue;
+		}
+
+		colorIndex = stefxHolomatchHud[i].color;
+		if ( colorIndex < CT_WHITE || colorIndex >= CT_MAX )
+		{
+			colorIndex = CT_WHITE;
+		}
+
+		drawColor[0] = colorTable[colorIndex][0];
+		drawColor[1] = colorTable[colorIndex][1];
+		drawColor[2] = colorTable[colorIndex][2];
+		drawColor[3] = colorTable[colorIndex][3];
+
+		if ( stefxHolomatchHud[i].style & UI_PULSE )
+		{
+			drawColor[3] = 0.5f + 0.5f * (float)sin( (double)cg->time / (double)PULSE_DIVISOR );
+		}
+
+		if ( stefxHolomatchHud[i].type == STEFX_HUD_GRAPHIC )
+		{
+			if ( stefxHolomatchHud[i].graphic && stefxHolomatchHud[i].width > 0 && stefxHolomatchHud[i].height > 0 )
+			{
+				if ( stefxHudGraphicLogBudget > 0 )
+				{
+					CG_PrintfAlways( "STEFX_HM: cgame EF SP interface graphic file='%s' rect=(%d,%d %dx%d) color=%d\n",
+						stefxHolomatchHud[i].fileName ? stefxHolomatchHud[i].fileName : "<null>",
+						stefxHolomatchHud[i].x,
+						stefxHolomatchHud[i].y,
+						stefxHolomatchHud[i].width,
+						stefxHolomatchHud[i].height,
+						colorIndex );
+					--stefxHudGraphicLogBudget;
+				}
+				trap_R_SetColor( drawColor );
+				CG_STEFXDrawInterfacePic( &stefxHolomatchHud[i] );
+			}
+		}
+		else if ( stefxHolomatchHud[i].type == STEFX_HUD_NUMBER )
+		{
+			trap_R_SetColor( drawColor );
+			CG_DrawNumField( stefxHolomatchHud[i].x,
+				stefxHolomatchHud[i].y,
+				3,
+				stefxHolomatchHud[i].max,
+				stefxHolomatchHud[i].width,
+				stefxHolomatchHud[i].height,
+				stefxHolomatchHud[i].style,
+				qfalse );
+		}
+	}
+
+	trap_R_SetColor( NULL );
+}
+
+static int CG_STEFXHolomatchAmmoForWeapon( const playerState_t *ps, int weapon )
+{
+	int ammoIndex;
+
+	if ( !ps || weapon <= WP_NONE || weapon >= WP_NUM_WEAPONS )
+	{
+		return 0;
+	}
+
+	ammoIndex = weaponData[weapon].ammoIndex;
+	if ( ammoIndex < 0 || ammoIndex >= AMMO_MAX )
+	{
+		return 0;
+	}
+	return ps->ammo[ammoIndex];
+}
+
+static int CG_STEFXHolomatchAmmoIndexForWeapon( int weapon )
+{
+	if ( weapon <= WP_NONE || weapon >= WP_NUM_WEAPONS )
+	{
+		return AMMO_NONE;
+	}
+
+	if ( weaponData[weapon].ammoIndex < 0 || weaponData[weapon].ammoIndex >= AMMO_MAX )
+	{
+		return AMMO_NONE;
+	}
+
+	return weaponData[weapon].ammoIndex;
+}
+
+static int CG_STEFXHolomatchAmmoMaxForWeapon( int weapon )
+{
+	int ammoIndex;
+	int maxAmmo;
+
+	ammoIndex = CG_STEFXHolomatchAmmoIndexForWeapon( weapon );
+	maxAmmo = ammoData[ammoIndex].max;
+	if ( maxAmmo <= 0 )
+	{
+		maxAmmo = 50;
+	}
+
+	return maxAmmo;
+}
+
+static void CG_STEFXDrawHolomatchHealth( const playerState_t *ps )
+{
+	static int stefxOldHealth = -1;
+	static int stefxOldHealthTime = 0;
+	int health;
+	int maxHealth;
+	int flashHealth;
+	int xLength;
+
+	health = CG_STEFXClampInt( ps->stats[STAT_HEALTH], 0, 999 );
+	maxHealth = ps->stats[STAT_MAX_HEALTH];
+	if ( maxHealth <= 0 )
+	{
+		maxHealth = 100;
+	}
+
+	if ( stefxOldHealth < health )
+	{
+		stefxOldHealthTime = cg->time + 100;
+	}
+	stefxOldHealth = health;
+	flashHealth = maxHealth / 4;
+
+	stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].max = health;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].style &= ~UI_PULSE;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].style &= ~UI_PULSE;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].style &= ~UI_PULSE;
+
+	if ( health < flashHealth )
+	{
+		stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].color = CT_RED;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].color = CT_RED;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].color = CT_DKRED;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].color = CT_DKRED;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].color = CT_DKRED;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].color = CT_DKRED;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].style |= UI_PULSE;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].style |= UI_PULSE;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].style |= UI_PULSE;
+	}
+	else if ( stefxOldHealthTime < cg->time )
+	{
+		stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].color = CT_LTBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].color = CT_LTBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].color = CT_DKBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].color = CT_DKBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].color = CT_DKBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].color = CT_DKBROWN1;
+	}
+	else
+	{
+		stefxHolomatchHud[STEFX_HUD_HEALTH_COUNT].color = CT_YELLOW;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].color = CT_LTBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].color = CT_DKBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BEGINCAP].color = CT_DKBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_BOX1].color = CT_DKBROWN1;
+		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].color = CT_DKBROWN1;
+	}
+
+	xLength = CG_STEFXHudLength( health, maxHealth, 73 );
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].x = 72 + xLength;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDEREMPTY].width = 73 - xLength;
+	stefxHolomatchHud[STEFX_HUD_HEALTH_SLIDERFULL].width = xLength;
+	if ( stefxHolomatchHudStartupDone )
+	{
+		stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_HEALTH_ENDCAP].max;
+	}
+
+	CG_STEFXDrawInterfaceGraphics( STEFX_HUD_HEALTH_START + 1, STEFX_HUD_HEALTH_END );
+}
+
+static void CG_STEFXDrawHolomatchArmor( const playerState_t *ps )
+{
+	static int stefxOldArmor = -1;
+	static int stefxOldArmorTime = 0;
+	int armor;
+	int maxHealth;
+	int xLength;
+
+	armor = CG_STEFXClampInt( ps->stats[STAT_ARMOR], 0, 999 );
+	maxHealth = ps->stats[STAT_MAX_HEALTH];
+	if ( maxHealth <= 0 )
+	{
+		maxHealth = 100;
+	}
+
+	if ( stefxOldArmor < armor )
+	{
+		stefxOldArmorTime = cg->time + 100;
+	}
+	stefxOldArmor = armor;
+
+	stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].max = armor;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].style &= ~UI_PULSE;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].style &= ~UI_PULSE;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].style &= ~UI_PULSE;
+
+	if ( stefxOldArmorTime < cg->time )
+	{
+		stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].color = CT_LTPURPLE1;
+	}
+	else
+	{
+		stefxHolomatchHud[STEFX_HUD_ARMOR_COUNT].color = CT_YELLOW;
+	}
+	stefxHolomatchHud[STEFX_HUD_ARMOR_BEGINCAP].color = CT_DKPURPLE1;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_BOX1].color = CT_DKPURPLE1;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].color = CT_DKPURPLE1;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].color = CT_LTPURPLE1;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].color = CT_DKPURPLE1;
+
+	xLength = CG_STEFXHudLength( armor, maxHealth, 73 );
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].x = 72 + xLength;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDEREMPTY].width = 73 - xLength;
+	stefxHolomatchHud[STEFX_HUD_ARMOR_SLIDERFULL].width = xLength;
+	if ( stefxHolomatchHudStartupDone )
+	{
+		stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_ARMOR_ENDCAP].max;
+	}
+
+	CG_STEFXDrawInterfaceGraphics( STEFX_HUD_ARMOR_START + 1, STEFX_HUD_ARMOR_END );
+}
+
+static void CG_STEFXDrawHolomatchAmmo( const playerState_t *ps )
+{
+	static int stefxOldAmmo = -1;
+	static int stefxOldAmmoTime = 0;
+	int ammo;
+	int ammoMax;
+	int ammoIndex;
+	int brightColor;
+	int darkColor;
+	int numberColor;
+	int xLength;
+	int weapon;
+
+	weapon = ps->weapon;
+	ammoIndex = CG_STEFXHolomatchAmmoIndexForWeapon( weapon );
+	ammo = CG_STEFXClampInt( CG_STEFXHolomatchAmmoForWeapon( ps, weapon ), 0, 999 );
+	ammoMax = CG_STEFXHolomatchAmmoMaxForWeapon( weapon );
+	if ( ammoMax < ammo )
+	{
+		ammoMax = ammo;
+	}
+
+	if ( ammoIndex == AMMO_BLASTER )
+	{
+		brightColor = CT_LTBLUE2;
+		darkColor = CT_DKBLUE2;
+	}
+	else if ( ammoIndex == AMMO_POWERCELL )
+	{
+		brightColor = CT_LTPURPLE2;
+		darkColor = CT_DKPURPLE2;
+	}
+	else
+	{
+		brightColor = CT_LTGOLD1;
+		darkColor = CT_DKGOLD1;
+	}
+
+	if ( stefxOldAmmo < ammo )
+	{
+		stefxOldAmmoTime = cg->time + 200;
+	}
+	stefxOldAmmo = ammo;
+
+	if ( ps->weaponstate == WEAPON_FIRING && ps->weaponTime > 100 )
+	{
+		numberColor = CT_LTGREY;
+	}
+	else if ( ammo <= 0 )
+	{
+		numberColor = CT_RED;
+	}
+	else if ( stefxOldAmmoTime > cg->time )
+	{
+		numberColor = CT_YELLOW;
+	}
+	else
+	{
+		numberColor = brightColor;
+	}
+
+	stefxHolomatchHud[STEFX_HUD_AMMO_COUNT].max = ammo;
+	stefxHolomatchHud[STEFX_HUD_AMMO_COUNT].style &= ~UI_PULSE;
+	xLength = CG_STEFXHudLength( ammo, ammoMax, 33 );
+
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].x = 578 + xLength;
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].width = 33 - xLength;
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDERFULL].width = xLength;
+	if ( stefxHolomatchHudStartupDone )
+	{
+		stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].max;
+		stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].x = stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].max;
+	}
+
+	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_BEGINCAP].color = darkColor;
+	stefxHolomatchHud[STEFX_HUD_AMMO_UPPER_ENDCAP].color = darkColor;
+	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_BEGINCAP].color = darkColor;
+	stefxHolomatchHud[STEFX_HUD_AMMO_LOWER_ENDCAP].color = darkColor;
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDERFULL].color = brightColor;
+	stefxHolomatchHud[STEFX_HUD_AMMO_SLIDEREMPTY].color = darkColor;
+	stefxHolomatchHud[STEFX_HUD_AMMO_COUNT].color = numberColor;
+
+	CG_STEFXDrawInterfaceGraphics( STEFX_HUD_AMMO_START + 1, STEFX_HUD_AMMO_END );
+}
+
+static void CG_STEFXDrawHolomatchSPInterfaceHUD( void )
+{
+	static qboolean stefxLoggedHudDraw = qfalse;
+	playerState_t *ps;
+	int score;
+	int weapon;
+
+	if ( !cg || !cg->snap )
+	{
+		return;
+	}
+
+	ps = &cg->predictedPlayerState;
+	weapon = ps->weapon;
+	score = cg->snap->ps.persistant[PERS_SCORE];
+
+	CG_STEFXLoadPropFonts();
+
+	if ( !stefxHolomatchHudStartupDone )
+	{
+		CG_STEFXHolomatchInterfaceStartup();
+	}
+
+	CG_STEFXDrawHolomatchHealth( ps );
+	CG_STEFXDrawHolomatchArmor( ps );
+	CG_STEFXDrawHolomatchAmmo( ps );
+
+	if ( !stefxLoggedHudDraw )
+	{
+		CG_PrintfAlways( "STEFX_HM: EF SP interface HUD draw active health=%d armor=%d weapon=%d score=%d\n",
+			ps->stats[STAT_HEALTH], ps->stats[STAT_ARMOR], weapon, score );
+		CG_PrintfAlways( "STEFX_HM: cgame skipped ad hoc MP weapon/score HUD text; EF interface and score overlay own status\n" );
+		stefxLoggedHudDraw = qtrue;
+	}
+}
+
+static void CG_STEFXRequestHolomatchScores( qboolean force )
+{
+	static qboolean stefxLoggedScoreRequest = qfalse;
+
+	if ( !cg || !cg->snap )
+	{
+		return;
+	}
+
+	if ( force || cg->numScores <= 0 || cg->scoresRequestTime + 2000 < cg->time )
+	{
+		cg->scoresRequestTime = cg->time;
+		trap_SendClientCommand( "score" );
+
+		if ( !stefxLoggedScoreRequest )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame requested Holomatch score snapshot\n" );
+			stefxLoggedScoreRequest = qtrue;
+		}
+	}
+}
+
+static qboolean CG_STEFXDrawHolomatchScores( void )
+{
+	static qboolean stefxLoggedScoreDraw = qfalse;
+	int i;
+	int rows;
+	int x;
+	int y;
+	int w;
+	int h;
+	int lineY;
+	int clientNum;
+	score_t *score;
+	clientInfo_t *ci;
+	vec4_t background = { 0.0f, 0.0f, 0.0f, 0.70f };
+	vec4_t rowHighlight = { 0.95f, 0.72f, 0.20f, 0.20f };
+	vec4_t lineColor = { 0.95f, 0.72f, 0.20f, 0.55f };
+
+	if ( !cg || !cg->snap )
+	{
+		return qfalse;
+	}
+
+	CG_STEFXRequestHolomatchScores( qfalse );
+	if ( cg->numScores <= 0 )
+	{
+		CG_STEFXDrawPropString( 320.0f, 180.0f, "LOADING SCORES",
+			UI_CENTER|UI_BIGFONT, colorTable[CT_LTGOLD1], 0.78f );
+		return qtrue;
+	}
+
+	rows = cg->numScores;
+	if ( rows > 10 )
+	{
+		rows = 10;
+	}
+
+	x = 126;
+	y = 74;
+	w = 388;
+	h = 56 + rows * 22;
+
+	CG_FillRect( x, y, w, h, background );
+	CG_FillRect( x, y, w, 2, lineColor );
+	CG_FillRect( x, y + h - 2, w, 2, lineColor );
+
+	CG_STEFXDrawPropString( (float)( x + 16 ), (float)( y + 16 ), "HOLOMATCH",
+		UI_BIGFONT, colorTable[CT_LTGOLD1], 0.72f );
+	CG_STEFXDrawPropString( (float)( x + 236 ), (float)( y + 20 ), "SCORE",
+		STEFX_CG_PROP_TINYFONT, colorTable[CT_LTGOLD1], 1.0f );
+	CG_STEFXDrawPropString( (float)( x + 315 ), (float)( y + 20 ), "TIME",
+		STEFX_CG_PROP_TINYFONT, colorTable[CT_LTGOLD1], 1.0f );
+
+	lineY = y + 47;
+	for ( i = 0; i < rows; ++i )
+	{
+		score = &cg->scores[i];
+		clientNum = score->client;
+		if ( clientNum < 0 || clientNum >= MAX_CLIENTS )
+		{
+			continue;
+		}
+
+		ci = &cgs.clientinfo[clientNum];
+		if ( score->client == cg->snap->ps.clientNum )
+		{
+			CG_FillRect( x + 8, lineY - 14, w - 16, 19, rowHighlight );
+		}
+
+		CG_STEFXDrawPropString( (float)( x + 18 ), (float)lineY,
+			ci->name[0] ? ci->name : va( "CLIENT %d", clientNum ),
+			STEFX_CG_PROP_TINYFONT, colorTable[CT_WHITE], 1.0f );
+		CG_STEFXDrawPropString( (float)( x + 248 ), (float)lineY,
+			va( "%d", score->score ),
+			STEFX_CG_PROP_TINYFONT, colorTable[CT_WHITE], 1.0f );
+		CG_STEFXDrawPropString( (float)( x + 321 ), (float)lineY,
+			va( "%d", score->time ),
+			STEFX_CG_PROP_TINYFONT, colorTable[CT_WHITE], 1.0f );
+		lineY += 22;
+	}
+
+	if ( !stefxLoggedScoreDraw )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame drawing EF Holomatch score overlay scores=%d\n", cg->numScores );
+		stefxLoggedScoreDraw = qtrue;
+	}
+
+	return qtrue;
+}
+
+static void CG_STEFXResetInheritedScreenTints( void )
+{
+	static qboolean loggedTintReset = qfalse;
+
+#ifdef _XBOX
+	ClientManager::ActiveClient().cgRageTime = 0;
+	ClientManager::ActiveClient().cgRageFadeTime = 0;
+	ClientManager::ActiveClient().cgRageFadeVal = 0;
+	ClientManager::ActiveClient().cgRageRecTime = 0;
+	ClientManager::ActiveClient().cgRageRecFadeTime = 0;
+	ClientManager::ActiveClient().cgRageRecFadeVal = 0;
+	ClientManager::ActiveClient().cgAbsorbTime = 0;
+	ClientManager::ActiveClient().cgAbsorbFadeTime = 0;
+	ClientManager::ActiveClient().cgAbsorbFadeVal = 0;
+	ClientManager::ActiveClient().cgProtectTime = 0;
+	ClientManager::ActiveClient().cgProtectFadeTime = 0;
+	ClientManager::ActiveClient().cgProtectFadeVal = 0;
+	ClientManager::ActiveClient().cgYsalTime = 0;
+	ClientManager::ActiveClient().cgYsalFadeTime = 0;
+	ClientManager::ActiveClient().cgYsalFadeVal = 0;
+#else
+	cgRageTime = 0;
+	cgRageFadeTime = 0;
+	cgRageFadeVal = 0;
+	cgRageRecTime = 0;
+	cgRageRecFadeTime = 0;
+	cgRageRecFadeVal = 0;
+	cgAbsorbTime = 0;
+	cgAbsorbFadeTime = 0;
+	cgAbsorbFadeVal = 0;
+	cgProtectTime = 0;
+	cgProtectFadeTime = 0;
+	cgProtectFadeVal = 0;
+	cgYsalTime = 0;
+	cgYsalFadeTime = 0;
+	cgYsalFadeVal = 0;
+#endif
+
+	if ( !loggedTintReset )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame reset inherited screen-tint state; old power overlays disabled\n" );
+		loggedTintReset = qtrue;
+	}
+}
+
+static void CG_STEFXDrawHolomatch2D( void )
+{
+	qboolean scoreOverlayDrawn;
+	static qboolean stefxLoggedHolomatch2DRoute = qfalse;
+
+	CG_STEFXResetInheritedScreenTints();
+	if ( !stefxLoggedHolomatch2DRoute )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame Holomatch 2D using SP interface-only path; legacy cgame parser HUD bypassed\n" );
+		stefxLoggedHolomatch2DRoute = qtrue;
+	}
+
+	CG_DrawZoomMask();
+	scoreOverlayDrawn = qfalse;
+
+	if ( cg->snap->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR )
+	{
+		CG_STEFXDrawPropString( 320.0f, 420.0f, "SPECTATOR",
+			UI_CENTER|UI_BIGFONT, colorTable[CT_WHITE], 0.62f );
+		CG_DrawCrosshair( NULL, 0 );
+		CG_DrawCrosshairNames();
+	}
+	else if ( cg->showScores || cg->predictedPlayerState.pm_type == PM_DEAD ||
+		cg->predictedPlayerState.pm_type == PM_INTERMISSION )
+	{
+		scoreOverlayDrawn = CG_STEFXDrawHolomatchScores();
+	}
+	else if ( cg->snap->ps.stats[STAT_HEALTH] > 0 )
+	{
+		CG_STEFXRequestHolomatchScores( qfalse );
+		CG_DrawCrosshair( NULL, 0 );
+		CG_DrawCrosshairNames();
+		CG_STEFXDrawHolomatchSPInterfaceHUD();
+	}
+
+	CG_DrawCenterString();
+	if ( !scoreOverlayDrawn )
+	{
+		cg->scoreBoardShowing = qfalse;
+	}
+	else
+	{
+		cg->scoreBoardShowing = qtrue;
+	}
+	CG_ChatBox_DrawStrings();
+}
+#endif
+
 static void CG_Draw2D( void ) {
 	float			inTime = cg->invenSelectTime+WEAPON_SELECT_TIME;
 	float			wpTime = cg->weaponSelectTime+WEAPON_SELECT_TIME;
@@ -9805,7 +10950,17 @@ static void CG_Draw2D( void ) {
 
 #ifdef _XBOX
 	if ( trap_Key_GetCatcher() & KEYCATCH_UI ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		static qboolean stefxLoggedDeadUiCatcherClear = qfalse;
+		trap_Key_SetCatcher( trap_Key_GetCatcher() & ~KEYCATCH_UI );
+		if ( !stefxLoggedDeadUiCatcherClear )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame cleared dead UI keycatcher before Holomatch HUD draw\n" );
+			stefxLoggedDeadUiCatcherClear = qtrue;
+		}
+#else
 		return;
+#endif
 	}
 #endif
 
@@ -9814,6 +10969,11 @@ static void CG_Draw2D( void ) {
 		CG_ChatBox_DrawStrings();
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_STEFXDrawHolomatch2D();
+	return;
+#endif
 
 	CG_Draw2DScreenTints();
 
@@ -9828,11 +10988,14 @@ static void CG_Draw2D( void ) {
 		CG_DrawHolocronIcons();
 	}
 */
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (cg->snap->ps.fd.forcePowersActive || cg->snap->ps.fd.forceRageRecoveryTime > cg->time)
 	{
 		CG_DrawActivePowers();
 	}
+#endif
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (cg->snap->ps.jetpackFuel < 100)
 	{ //draw it as long as it isn't full
         CG_DrawJetpackFuel();        
@@ -9841,6 +11004,7 @@ static void CG_Draw2D( void ) {
 	{ //draw it as long as it isn't full
 		CG_DrawCloakFuel();
 	}
+#endif
 	if (cg->predictedPlayerState.emplacedIndex > 0)
 	{
 		centity_t *eweb = &cg_entities[cg->predictedPlayerState.emplacedIndex];
@@ -9902,22 +11066,28 @@ static void CG_Draw2D( void ) {
 				bestTime = cg->weaponSelectTime;
 			}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 			if (cg->forceSelectTime > bestTime)
 			{
 				drawSelect = 3;
 			}
+#endif
 
 			switch(drawSelect)
 			{
+#if !defined(STEFX_ELITE_FORCE_MP)
 			case 1:
 				CG_DrawInvenSelect();
 				break;
+#endif
 			case 2:
 				CG_DrawWeaponSelect();
 				break;
+#if !defined(STEFX_ELITE_FORCE_MP)
 			case 3:
 				CG_DrawForceSelect();
 				break;
+#endif
 			default:
 				break;
 			}
@@ -10226,6 +11396,16 @@ Perform all drawing needed to completely fill the screen
 void CG_DrawActive( stereoFrame_t stereoView ) {
 	float		separation;
 	vec3_t		baseOrg;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int stefxDrawActiveTraceBudget = 4;
+	qboolean stefxDrawActiveTrace = (qboolean)( stefxDrawActiveTraceBudget > 0 );
+	if ( stefxDrawActiveTrace )
+	{
+		stefxDrawActiveTraceBudget--;
+		CG_Printf( "STEFX_HM: CG_DrawActive enter stereo=%d snap=%p refdef=%dx%d\n",
+			stereoView, cg->snap, cg->refdef.width, cg->refdef.height );
+	}
+#endif
 
 	// optionally draw the info screen instead
 	if ( !cg->snap ) {
@@ -10260,8 +11440,24 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 #ifdef _XBOX
 	// MATT! - hack here, this was messing up split-screen
 	if(ClientManager::splitScreenMode == false)
+	{
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxDrawActiveTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActive before TileClear\n" );
+	}
 #endif
 	CG_TileClear();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxDrawActiveTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActive after TileClear\n" );
+	}
+#endif
+#ifdef _XBOX
+	}
+#endif
 
 	// offset vieworg appropriately if we're doing stereo separation
 	VectorCopy( cg->refdef.vieworg, baseOrg );
@@ -10272,7 +11468,20 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	cg->refdef.rdflags |= RDF_DRAWSKYBOX;
 
 	// draw 3D view
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxDrawActiveTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActive before RenderScene org='%.1f %.1f %.1f'\n",
+			cg->refdef.vieworg[0], cg->refdef.vieworg[1], cg->refdef.vieworg[2] );
+	}
+#endif
 	trap_R_RenderScene( &cg->refdef );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxDrawActiveTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActive after RenderScene\n" );
+	}
+#endif
 
 	// restore original viewpoint if running stereo
 	if ( separation != 0 ) {
@@ -10280,7 +11489,19 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	}
 
 	// draw status bar and other floating elements
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxDrawActiveTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActive before Draw2D\n" );
+	}
+#endif
  	CG_Draw2D();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxDrawActiveTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActive after Draw2D\n" );
+	}
+#endif
 }
 
 

@@ -89,6 +89,9 @@ BG_field_t fields[] = {
 	{"health", FOFS(health), F_INT},
 	{"light", 0, F_IGNORE},
 	{"dmg", FOFS(damage), F_INT},
+#if defined(STEFX_ELITE_FORCE_MP)
+	{"damage", FOFS(damage), F_INT},
+#endif
 	{"angles", FOFS(s.angles), F_VECTOR},
 	{"angle", FOFS(s.angles), F_ANGLEHACK},
 	{"targetShaderName", FOFS(targetShaderName), F_LSTRING},
@@ -672,6 +675,42 @@ Finds the spawn function for the entity and calls it,
 returning qfalse if not found
 ===============
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean G_STEFXHolomatchPickup( const char *classname )
+{
+	static const char *const deferredPickups[] = {
+		"weapon_phaser",
+		"weapon_compressionrifle",
+		"weapon_dreadnought",
+		"weapon_imod",
+		"weapon_scavenger",
+		"weapon_tetriondisruptor",
+		"ammo_compressionrifle",
+		"ammo_dreadnought",
+		"ammo_imod",
+		"ammo_scavenger",
+		"ammo_tetriondisruptor",
+		"item_armor_combat",
+		"item_hypo",
+		"item_hypo_small",
+		NULL
+	};
+	int i;
+
+	if ( !classname || !classname[0] ) {
+		return qfalse;
+	}
+
+	for ( i = 0; deferredPickups[i]; ++i ) {
+		if ( !Q_stricmp( deferredPickups[i], classname ) ) {
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+#endif
+
 qboolean G_CallSpawn( gentity_t *ent ) {
 	spawn_t	*s;
 	gitem_t	*item;
@@ -685,9 +724,32 @@ qboolean G_CallSpawn( gentity_t *ent ) {
 	for ( item=bg_itemlist+1 ; item->classname ; item++ ) {
 		if ( !strcmp(item->classname, ent->classname) ) {
 			G_SpawnItem( ent, item );
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( G_STEFXHolomatchPickup( ent->classname ) ) {
+				G_Printf( "STEFX_HM: spawned EF pickup classname='%s' type=%d tag=%d model='%s' origin='%.1f %.1f %.1f'\n",
+					ent->classname,
+					item->giType,
+					item->giTag,
+					item->world_model[0] ? item->world_model[0] : "",
+					ent->s.origin[0],
+					ent->s.origin[1],
+					ent->s.origin[2] );
+			}
+#endif
 			return qtrue;
 		}
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( G_STEFXHolomatchPickup( ent->classname ) ) {
+		G_Printf( "STEFX_HM: missing EF pickup alias classname='%s' origin='%.1f %.1f %.1f'\n",
+			ent->classname,
+			ent->s.origin[0],
+			ent->s.origin[1],
+			ent->s.origin[2] );
+		return qfalse;
+	}
+#endif
 
 	// check normal spawn functions
 	for ( s=spawns ; s->name ; s++ ) {
@@ -1264,6 +1326,80 @@ void SP_worldspawn( void )
 		G_Error( "SP_worldspawn: The first entity isn't 'worldspawn'" );
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		char *music;
+		char *message;
+		char *gravity;
+		char *fraglimitText;
+		char *capturelimitText;
+		char *timelimitText;
+		char *timelimitWinningTeam;
+
+		trap_SetConfigstring( CS_GAME_VERSION, GAME_VERSION );
+		trap_SetConfigstring( CS_LEVEL_START_TIME, va("%i", level.startTime ) );
+
+		G_SpawnString( "music", "", &music );
+		trap_SetConfigstring( CS_MUSIC, music );
+
+		G_SpawnString( "message", "", &message );
+		trap_SetConfigstring( CS_MESSAGE, message );
+
+		trap_SetConfigstring( CS_MOTD, g_motd.string );
+
+		G_SpawnString( "gravity", "800", &gravity );
+		trap_Cvar_Set( "g_gravity", gravity );
+
+		G_SpawnString( "fraglimit", "0", &fraglimitText );
+		if ( fraglimitText && atoi(fraglimitText) != 0 )
+		{
+			trap_Cvar_Set( "fraglimit", fraglimitText );
+		}
+
+		G_SpawnString( "capturelimit", "0", &capturelimitText );
+		if ( capturelimitText && atoi(capturelimitText) != 0 )
+		{
+			trap_Cvar_Set( "capturelimit", capturelimitText );
+		}
+
+		G_SpawnString( "timelimit", "0", &timelimitText );
+		if ( timelimitText && atoi(timelimitText) != 0 )
+		{
+			trap_Cvar_Set( "timelimit", timelimitText );
+		}
+
+		G_SpawnString( "timelimitWinningTeam", "", &timelimitWinningTeam );
+		if ( timelimitWinningTeam )
+		{
+			trap_Cvar_Set( "timelimitWinningTeam", timelimitWinningTeam );
+		}
+
+		g_entities[ENTITYNUM_WORLD].s.number = ENTITYNUM_WORLD;
+		g_entities[ENTITYNUM_WORLD].classname = "worldspawn";
+
+		trap_SetConfigstring( CS_WARMUP, "" );
+		if ( g_restarted.integer )
+		{
+			level.warmupTime = 0;
+		}
+		else if ( g_doWarmup.integer && (g_gametype.integer != GT_SINGLE_PLAYER) )
+		{
+			level.warmupTime = -1;
+			trap_SetConfigstring( CS_WARMUP, va("%i", level.warmupTime) );
+			G_LogPrintf( "Warmup:\n" );
+		}
+
+		precachedKyle = NULL;
+		g2SaberInstance = NULL;
+
+		G_Printf( "STEFX_HM: worldspawn used EF Holomatch config music='%s' message='%s' gravity='%s'\n",
+			music ? music : "",
+			message ? message : "",
+			gravity ? gravity : "" );
+		return;
+	}
+#endif
+
 	for ( i = 0 ; i < level.numSpawnVars ; i++ ) 
 	{
 		if ( Q_stricmp( "spawnscript", level.spawnVars[i][0] ) == 0 )
@@ -1388,6 +1524,10 @@ qboolean SP_bsp_worldspawn ( void )
 
 void G_PrecacheSoundsets( void )
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: server skipped inherited soundset precache in Holomatch\n" );
+	return;
+#else
 	gentity_t	*ent = NULL;
 	int i;
 	int countedSets = 0;
@@ -1407,6 +1547,7 @@ void G_PrecacheSoundsets( void )
 			countedSets++;
 		}
 	}
+#endif
 }
 
 /*

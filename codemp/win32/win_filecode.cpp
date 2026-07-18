@@ -15,7 +15,9 @@
 #include "../win32/win_local.h"
 #include "../qcommon/qcommon.h"
 #include "../qcommon/fixedmap.h"
+#if !defined(STEFX_ELITE_FORCE_MP)
 #include "../zlib/zlib.h"
+#endif
 #include "../qcommon/files.h"
 #include "xb_log.h"
 
@@ -42,6 +44,35 @@ static VVFixedMap< FileInfo, unsigned int >* s_Files = NULL;
 static byte* buffer;
 
 HANDLE s_Mutex = INVALID_HANDLE_VALUE;
+
+static void Sys_LogFileCodeCacheUnavailable( const char *caller )
+{
+	static bool logged = false;
+	char msg[160];
+
+	if ( logged )
+	{
+		return;
+	}
+
+	Com_sprintf( msg, sizeof( msg ), "STEFX_HM: filecode cache unavailable at %s; loose-file callers may continue", caller ? caller : "(unknown)" );
+	XBLog_Write( msg );
+	logged = true;
+}
+
+static bool Sys_FileCodeCacheAvailable( void )
+{
+	return s_Files && s_Mutex != INVALID_HANDLE_VALUE && s_Mutex != NULL;
+}
+
+static void Sys_CloseFileCodeMutex( void )
+{
+	if ( s_Mutex != INVALID_HANDLE_VALUE && s_Mutex != NULL )
+	{
+		CloseHandle(s_Mutex);
+	}
+	s_Mutex = INVALID_HANDLE_VALUE;
+}
 
 int _buildFileList(const char* path, bool insert, bool buildList)
 {
@@ -312,6 +343,12 @@ void Sys_ShutdownFileCodes(void)
 {
 	FileInfo*	info = NULL;
 
+	if ( !s_Files )
+	{
+		Sys_CloseFileCodeMutex();
+		return;
+	}
+
 	info = s_Files->Pop();
 	while(info)
 	{
@@ -323,11 +360,17 @@ void Sys_ShutdownFileCodes(void)
 	delete s_Files;
 	s_Files = NULL;
 
-	CloseHandle(s_Mutex);
+	Sys_CloseFileCodeMutex();
 }
 
 int Sys_GetFileCode(const char* name)
 {
+	if ( !Sys_FileCodeCacheAvailable() )
+	{
+		Sys_LogFileCodeCacheUnavailable( "Sys_GetFileCode" );
+		return -1;
+	}
+
 	WaitForSingleObject(s_Mutex, INFINITE);
 
 	// Get system level path
@@ -350,6 +393,12 @@ int Sys_GetFileCode(const char* name)
 
 const char* Sys_GetFileCodeName(int code)
 {
+	if ( !Sys_FileCodeCacheAvailable() )
+	{
+		Sys_LogFileCodeCacheUnavailable( "Sys_GetFileCodeName" );
+		return NULL;
+	}
+
 	WaitForSingleObject(s_Mutex, INFINITE);
 
 	FileInfo *entry = s_Files->Find(code);
@@ -365,6 +414,12 @@ const char* Sys_GetFileCodeName(int code)
 
 int Sys_GetFileCodeSize(int code)
 {
+	if ( !Sys_FileCodeCacheAvailable() )
+	{
+		Sys_LogFileCodeCacheUnavailable( "Sys_GetFileCodeSize" );
+		return -1;
+	}
+
 	WaitForSingleObject(s_Mutex, INFINITE);
 
 	FileInfo *entry = s_Files->Find(code);

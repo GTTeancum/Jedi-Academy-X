@@ -301,6 +301,11 @@ void	Svcmd_EntityList_f (void) {
 		case ET_MISSILE:
 			G_Printf("ET_MISSILE          ");
 			break;
+#if defined(STEFX_ELITE_FORCE_MP)
+		case ET_ALT_MISSILE:
+			G_Printf("ET_ALT_MISSILE      ");
+			break;
+#endif
 		case ET_MOVER:
 			G_Printf("ET_MOVER            ");
 			break;
@@ -322,6 +327,11 @@ void	Svcmd_EntityList_f (void) {
 		case ET_INVISIBLE:
 			G_Printf("ET_INVISIBLE        ");
 			break;
+#if defined(STEFX_ELITE_FORCE_MP)
+		case ET_USEABLE:
+			G_Printf("ET_USEABLE          ");
+			break;
+#endif
 		case ET_NPC:
 			G_Printf("ET_NPC              ");
 			break;

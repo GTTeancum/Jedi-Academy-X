@@ -812,6 +812,10 @@ void CL_InitUI( void ) {
 	int		v;
 	vmInterpret_t		interpret;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_InitUI enter state=%d pure=%d connectedUI=%d\n", cls.state, cl_connectedToPureServer, cl_connectedUI);
+#endif
+
 	// load the dll or bytecode
 	if ( cl_connectedToPureServer != 0 ) {
 #if 0
@@ -824,13 +828,25 @@ void CL_InitUI( void ) {
 	else {
 		interpret = (vmInterpret_t)(int)Cvar_VariableValue( "vm_ui" );
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_InitUI VM_Create begin interpret=%d\n", interpret);
+#endif
 	uivm = VM_Create( "ui", CL_UISystemCalls, interpret );
 	if ( !uivm ) {
 		Com_Error( ERR_FATAL, "VM_Create on UI failed" );
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_InitUI VM_Create done vm=%p\n", uivm);
+#endif
 
 	// sanity check
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_InitUI UI_GETAPIVERSION begin\n");
+#endif
 	v = VM_Call( uivm, UI_GETAPIVERSION );
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_InitUI UI_GETAPIVERSION done version=%d expected=%d\n", v, UI_API_VERSION);
+#endif
 	if (v != UI_API_VERSION) {
 		Com_Error( ERR_DROP, "User Interface is version %d, expected %d", v, UI_API_VERSION );
 		cls.uiStarted = qfalse;
@@ -850,12 +866,21 @@ void CL_InitUI( void ) {
 		// forced into the UI model memory slot
 //		ModelMem.EnterUI();
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_InitUI UI_INIT begin inGame=%d\n", (cls.state >= CA_AUTHORIZING && cls.state <= CA_ACTIVE));
+#endif
 		VM_Call( uivm, UI_INIT, (cls.state >= CA_AUTHORIZING && cls.state <= CA_ACTIVE) );
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_InitUI UI_INIT done\n");
+#endif
 
 #ifdef _XBOX
 //		ModelMem.ExitUI();
 #endif
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_InitUI exit uiStarted=%d\n", cls.uiStarted);
+#endif
 }
 
 qboolean UI_usesUniqueCDKey() {

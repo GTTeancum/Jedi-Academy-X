@@ -103,6 +103,10 @@ void CG_SetInitialSnapshot( snapshot_t *snap ) {
 
 	cg->snap = snap; 
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	cg_entities[snap->ps.clientNum].ghoul2 = NULL;
+	cg_entities[snap->ps.clientNum].ghoul2weapon = NULL;
+#else
 	if ((cg_entities[snap->ps.clientNum].ghoul2 == NULL) && trap_G2_HaveWeGhoul2Models(cgs.clientinfo[snap->ps.clientNum].ghoul2Model))
 	{
 		trap_G2API_DuplicateGhoul2Instance(cgs.clientinfo[snap->ps.clientNum].ghoul2Model, &cg_entities[snap->ps.clientNum].ghoul2);
@@ -113,6 +117,7 @@ void CG_SetInitialSnapshot( snapshot_t *snap ) {
 			cg_entities[snap->ps.clientNum].noFace = qtrue;
 		}
 	}
+#endif
 	BG_PlayerStateToEntityState( &snap->ps, &cg_entities[ snap->ps.clientNum ].currentState, qfalse );
 
 	// sort out solid entities

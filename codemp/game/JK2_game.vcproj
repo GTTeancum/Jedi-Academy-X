@@ -685,7 +685,7 @@
 				RelativePath=".\match.h">
 			</File>
 			<File
-				RelativePath="..\..\ui\menudef.h">
+				RelativePath="..\ui\ui_shared.h">
 			</File>
 			<File
 				RelativePath=".\npc_headers.h">

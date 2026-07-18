@@ -2029,6 +2029,9 @@ int LoadPathData(const char *filename)
 	if (!f)
 	{
 		G_Printf(S_COLOR_YELLOW "Bot route data not found for %s\n", filename);
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: inherited bot route data missing map='%s'; using fallback bot navigation\n", filename );
+#endif
 		return 2;
 	}
 
@@ -3344,6 +3347,375 @@ void BeginAutoPathRoutine(void)
 #endif
 extern vmCvar_t bot_normgpath;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean STEFX_HolomatchFallbackItem( const gentity_t *ent )
+{
+	if ( !ent || !ent->item )
+	{
+		return qfalse;
+	}
+
+	switch ( ent->item->giType )
+	{
+	case IT_WEAPON:
+	case IT_AMMO:
+	case IT_ARMOR:
+	case IT_HEALTH:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static qboolean STEFX_HolomatchFallbackPointExists( vec3_t origin )
+{
+	int i;
+
+	for ( i = 0; i < gWPNum; i++ )
+	{
+		if ( gWPArray[i] && gWPArray[i]->inuse && DistanceSquared( gWPArray[i]->origin, origin ) < Square( 48 ) )
+		{
+			return qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static qboolean STEFX_HolomatchAddFallbackPoint( vec3_t origin, int flags, float weight, int entityNum )
+{
+	int index;
+
+	if ( STEFX_HolomatchFallbackPointExists( origin ) )
+	{
+		return qfalse;
+	}
+
+	index = gWPNum;
+	CreateNewWP( origin, flags );
+
+	if ( gWPNum <= index || !gWPArray[index] )
+	{
+		return qfalse;
+	}
+
+	gWPArray[index]->weight = weight;
+	gWPArray[index]->associated_entity = entityNum;
+	return qtrue;
+}
+
+static int STEFX_HolomatchAddConnectorPath( vec3_t start, vec3_t end, int *remaining )
+{
+	vec3_t delta;
+	vec3_t point;
+	float dist;
+	float fraction;
+	int steps;
+	int step;
+	int added;
+
+	if ( !remaining || *remaining <= 0 )
+	{
+		return 0;
+	}
+
+	VectorSubtract( end, start, delta );
+	dist = VectorLength( delta );
+
+	if ( dist <= MAX_NEIGHBOR_LINK_DISTANCE || dist > 384.0f )
+	{
+		return 0;
+	}
+
+	steps = (int)( dist / 96.0f ) + 1;
+	added = 0;
+
+	for ( step = 1; step < steps && *remaining > 0; step++ )
+	{
+		fraction = (float)step / (float)steps;
+		VectorMA( start, fraction, delta, point );
+
+		if ( STEFX_HolomatchAddFallbackPoint( point, 0, 0, ENTITYNUM_NONE ) )
+		{
+			added++;
+			( *remaining )--;
+		}
+	}
+
+	return added;
+}
+
+static int STEFX_HolomatchAddFallbackConnectors( void )
+{
+	int baseCount;
+	int i;
+	int j;
+	int remaining;
+	int added;
+	float zDelta;
+	vec3_t mins;
+	vec3_t maxs;
+
+	baseCount = gWPNum;
+	remaining = 128;
+	added = 0;
+
+	VectorSet( mins, -15, -15, -15 );
+	VectorSet( maxs, 15, 15, 15 );
+
+	for ( i = 0; i < baseCount && remaining > 0; i++ )
+	{
+		if ( !gWPArray[i] || !gWPArray[i]->inuse )
+		{
+			continue;
+		}
+
+		for ( j = i + 1; j < baseCount && remaining > 0; j++ )
+		{
+			if ( !gWPArray[j] || !gWPArray[j]->inuse )
+			{
+				continue;
+			}
+
+			zDelta = gWPArray[i]->origin[2] - gWPArray[j]->origin[2];
+			if ( zDelta < 0 )
+			{
+				zDelta = -zDelta;
+			}
+
+			if ( zDelta > 64.0f )
+			{
+				continue;
+			}
+
+			if ( OrgVisibleBox( gWPArray[i]->origin, mins, maxs, gWPArray[j]->origin, ENTITYNUM_NONE ) )
+			{
+				added += STEFX_HolomatchAddConnectorPath( gWPArray[i]->origin, gWPArray[j]->origin, &remaining );
+			}
+		}
+	}
+
+	return added;
+}
+
+static void STEFX_HolomatchUpdateFallbackDistances( void )
+{
+	int i;
+	vec3_t delta;
+
+	for ( i = 0; i < gWPNum - 1; i++ )
+	{
+		if ( gWPArray[i] && gWPArray[i]->inuse && gWPArray[i + 1] && gWPArray[i + 1]->inuse )
+		{
+			VectorSubtract( gWPArray[i]->origin, gWPArray[i + 1]->origin, delta );
+			gWPArray[i]->disttonext = VectorLength( delta );
+		}
+		else if ( gWPArray[i] )
+		{
+			gWPArray[i]->disttonext = 0;
+		}
+	}
+}
+
+static void STEFX_HolomatchClearFallbackLinks( void )
+{
+	int i;
+	int n;
+
+	for ( i = 0; i < gWPNum; i++ )
+	{
+		if ( !gWPArray[i] )
+		{
+			continue;
+		}
+
+		for ( n = 0; n < MAX_NEIGHBOR_SIZE; n++ )
+		{
+			gWPArray[i]->neighbors[n].num = 0;
+			gWPArray[i]->neighbors[n].forceJumpTo = 0;
+		}
+		gWPArray[i]->neighbornum = 0;
+	}
+}
+
+static qboolean STEFX_HolomatchAddFallbackNeighbor( int from, int to )
+{
+	int n;
+
+	if ( from < 0 || from >= gWPNum || to < 0 || to >= gWPNum )
+	{
+		return qfalse;
+	}
+
+	if ( !gWPArray[from] || !gWPArray[from]->inuse || !gWPArray[to] || !gWPArray[to]->inuse )
+	{
+		return qfalse;
+	}
+
+	if ( gWPArray[from]->neighbornum >= MAX_NEIGHBOR_SIZE )
+	{
+		return qfalse;
+	}
+
+	for ( n = 0; n < gWPArray[from]->neighbornum; n++ )
+	{
+		if ( gWPArray[from]->neighbors[n].num == to )
+		{
+			return qfalse;
+		}
+	}
+
+	gWPArray[from]->neighbors[gWPArray[from]->neighbornum].num = to;
+	gWPArray[from]->neighbors[gWPArray[from]->neighbornum].forceJumpTo = 0;
+	gWPArray[from]->neighbornum++;
+	return qtrue;
+}
+
+static int STEFX_HolomatchLinkFallbackWaypoints( void )
+{
+	int i;
+	int c;
+	int links;
+	float linkDist;
+	vec3_t delta;
+	vec3_t mins;
+	vec3_t maxs;
+
+	links = 0;
+	VectorSet( mins, -15, -15, -15 );
+	VectorSet( maxs, 15, 15, 15 );
+	STEFX_HolomatchClearFallbackLinks();
+
+	for ( i = 0; i < gWPNum; i++ )
+	{
+		if ( !gWPArray[i] || !gWPArray[i]->inuse )
+		{
+			continue;
+		}
+
+		for ( c = 0; c < gWPNum; c++ )
+		{
+			if ( !gWPArray[c] || !gWPArray[c]->inuse || i == c || !NotWithinRange( i, c ) )
+			{
+				continue;
+			}
+
+			if ( (int)gWPArray[i]->origin[2] != (int)gWPArray[c]->origin[2] )
+			{
+				continue;
+			}
+
+			VectorSubtract( gWPArray[i]->origin, gWPArray[c]->origin, delta );
+			linkDist = VectorLength( delta );
+
+			if ( linkDist < MAX_NEIGHBOR_LINK_DISTANCE &&
+				OrgVisibleBox( gWPArray[i]->origin, mins, maxs, gWPArray[c]->origin, ENTITYNUM_NONE ) &&
+				STEFX_HolomatchAddFallbackNeighbor( i, c ) )
+			{
+				links++;
+			}
+
+			if ( gWPArray[i]->neighbornum >= MAX_NEIGHBOR_SIZE )
+			{
+				break;
+			}
+		}
+	}
+
+	return links;
+}
+
+static void STEFX_HolomatchBuildFallbackPath( const char *mapname )
+{
+	gentity_t *ent;
+	int i;
+	int starts;
+	int items;
+	int connectors;
+	int links;
+	vec3_t origin;
+
+	G_Printf( "STEFX_HM: fallback bot waypoints build begin map='%s' entities=%d existing=%d\n",
+		mapname, level.num_entities, gWPNum );
+
+	if ( gWPNum )
+	{
+		G_Printf( "STEFX_HM: fallback bot waypoints skipped map='%s' existing=%d\n", mapname, gWPNum );
+		return;
+	}
+
+	starts = 0;
+	items = 0;
+
+	for ( i = 0; i < level.num_entities; i++ )
+	{
+		ent = &g_entities[i];
+
+		if ( !ent || !ent->inuse || !ent->classname || !ent->classname[0] )
+		{
+			continue;
+		}
+
+		if ( !Q_stricmp( ent->classname, "info_player_deathmatch" ) ||
+			!Q_stricmp( ent->classname, "info_player_start" ) )
+		{
+			VectorCopy( ent->r.currentOrigin, origin );
+			if ( STEFX_HolomatchAddFallbackPoint( origin, 0, 0, ENTITYNUM_NONE ) )
+			{
+				starts++;
+			}
+			continue;
+		}
+
+		if ( STEFX_HolomatchFallbackItem( ent ) && !( ent->s.eFlags & EF_NODRAW ) )
+		{
+			VectorCopy( ent->r.currentOrigin, origin );
+			if ( STEFX_HolomatchAddFallbackPoint( origin, WPFLAG_GOALPOINT, 10.0f, ent->s.number ) )
+			{
+				items++;
+			}
+		}
+	}
+
+	G_Printf( "STEFX_HM: fallback bot waypoint scan done map='%s' total=%d starts=%d items=%d\n",
+		mapname, gWPNum, starts, items );
+
+	if ( !gWPNum )
+	{
+		G_Printf( "STEFX_HM: fallback bot waypoints empty map='%s'\n", mapname );
+		return;
+	}
+
+	G_Printf( "STEFX_HM: fallback bot waypoint connectors begin map='%s' total=%d\n", mapname, gWPNum );
+	connectors = STEFX_HolomatchAddFallbackConnectors();
+	G_Printf( "STEFX_HM: fallback bot waypoint connectors done map='%s' total=%d connectors=%d\n",
+		mapname, gWPNum, connectors );
+	G_Printf( "STEFX_HM: fallback bot waypoint inherited CalculatePaths skipped map='%s' total=%d\n",
+		mapname, gWPNum );
+	G_Printf( "STEFX_HM: fallback bot waypoint local links begin map='%s' total=%d\n", mapname, gWPNum );
+	links = STEFX_HolomatchLinkFallbackWaypoints();
+	G_Printf( "STEFX_HM: fallback bot waypoint local links done map='%s' total=%d links=%d\n",
+		mapname, gWPNum, links );
+	STEFX_HolomatchUpdateFallbackDistances();
+	G_Printf( "STEFX_HM: fallback bot waypoint distance update done map='%s' total=%d\n", mapname, gWPNum );
+	G_Printf( "STEFX_HM: fallback bot waypoint trap path calculation skipped map='%s'; local Holomatch links active\n",
+		mapname );
+
+	links = 0;
+	for ( i = 0; i < gWPNum; i++ )
+	{
+		if ( gWPArray[i] && gWPArray[i]->inuse )
+		{
+			links += gWPArray[i]->neighbornum;
+		}
+	}
+
+	gLevelFlags |= LEVELFLAG_NOPOINTPREDICTION;
+	G_Printf( "STEFX_HM: fallback bot waypoints map='%s' total=%d starts=%d items=%d connectors=%d links=%d\n",
+		mapname, gWPNum, starts, items, connectors, links );
+}
+#endif
+
 void LoadPath_ThisLevel(void)
 {
 	vmCvar_t	mapname;
@@ -3377,6 +3749,10 @@ void LoadPath_ThisLevel(void)
 	{
 		if (LoadPathData(mapname.string) == 2)
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			G_Printf( "STEFX_HM: fallback bot waypoint build requested map='%s'\n", mapname.string );
+			STEFX_HolomatchBuildFallbackPath( mapname.string );
+#endif
 			//enter "edit" mode if cheats enabled?
 		}
 	}

@@ -706,7 +706,7 @@ void Sys_Reboot( const char *reason, const void *pData )
 
 	if (!Q_stricmp(reason, "multiplayer"))
 	{
-		path = "d:\\jamp.xbe";
+		path = "d:\\efmp.xbe";
 		SP_DrawMPLoadScreen();
 
 		// Set a magic number if saving is disabled
@@ -718,7 +718,7 @@ void Sys_Reboot( const char *reason, const void *pData )
 	}
 	else if (!Q_stricmp(reason, "invite"))
 	{
-		path = "d:\\jamp.xbe";
+		path = "d:\\efmp.xbe";
 		SP_DrawMPLoadScreen();
 
 		// Set a magic number if saving is disabled

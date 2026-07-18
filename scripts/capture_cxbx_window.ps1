@@ -1,388 +1,288 @@
 param(
-    [string]$Repo = "C:\Programming\GitHub\Star-Trek-Elite-Force-X",
-    [string]$Cxbx = "C:\Programming\GitHub\Jedi-Academy-X\CXBXR",
-    [string]$Game = "C:\Programming\GitHub\Star-Trek-Elite-Force-X\build\release",
-    [string]$LoaderName = "cxbxr-ldr-project2.exe",
-    [string]$Level = "borg1",
-    [int]$WaitServerTime = 54000,
-    [string]$WaitLogPattern = "",
-    [int]$FastTimeMsec = 200,
-    [switch]$NoBorg1SliceWarp,
-    [switch]$NoSmokeInput,
-    [switch]$SplitScreenCoop,
-    [switch]$TestP2Pad,
-    [int]$TestP2PadMode = 1,
-    [switch]$RenderProbe,
-    [string]$ActiveCommand = "",
-    [int]$ActiveCommandServerTime = 2500,
-    [int]$WatchdogSeconds = 180,
-    [int]$Count = 3,
-    [int]$IntervalSeconds = 2,
-    [string]$OutputPrefix = "",
-    [switch]$AllowExternalRuntimeRoots
+    [string]$Game = "C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X",
+    [string]$Cxbx = "C:\Games\Emulators\CXBX",
+    [string]$Output = "scripts\output\holomatch_window_capture.png",
+    [int]$WatchdogSeconds = 120,
+    [ValidateSet("PrintWindow", "Screen")]
+    [string]$CaptureMode = "PrintWindow",
+    [switch]$Visible,
+    [switch]$BringToFront
 )
 
 $ErrorActionPreference = "Stop"
 
-Add-Type -AssemblyName System.Drawing
+function Resolve-FullPath([string]$Path) {
+    return [System.IO.Path]::GetFullPath($Path)
+}
 
+function Get-CxbxProcesses([string]$Root) {
+    $fullRoot = Resolve-FullPath $Root
+    @(Get-Process cxbx* -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $_.Path -and (Resolve-FullPath $_.Path).StartsWith($fullRoot, [System.StringComparison]::OrdinalIgnoreCase)
+        } catch {
+            $false
+        }
+    })
+}
+
+function Get-ImageSignal([string]$Path) {
+    Add-Type -AssemblyName System.Drawing
+    $bitmap = [System.Drawing.Bitmap]::FromFile($Path)
+    try {
+        $colors = New-Object 'System.Collections.Generic.HashSet[string]'
+        $maxBrightness = 0
+        for ($yi = 0; $yi -le 16; $yi++) {
+            $y = [Math]::Min($bitmap.Height - 1, [int][Math]::Round(($bitmap.Height - 1) * $yi / 16))
+            for ($xi = 0; $xi -le 16; $xi++) {
+                $x = [Math]::Min($bitmap.Width - 1, [int][Math]::Round(($bitmap.Width - 1) * $xi / 16))
+                $c = $bitmap.GetPixel($x, $y)
+                [void]$colors.Add(('{0:X2}{1:X2}{2:X2}{3:X2}' -f $c.A, $c.R, $c.G, $c.B))
+                $brightness = [Math]::Max($c.R, [Math]::Max($c.G, $c.B))
+                if ($brightness -gt $maxBrightness) {
+                    $maxBrightness = $brightness
+                }
+            }
+        }
+        [PSCustomObject]@{
+            Width = $bitmap.Width
+            Height = $bitmap.Height
+            UniqueSampledColors = $colors.Count
+            MaxBrightness = $maxBrightness
+        }
+    } finally {
+        $bitmap.Dispose()
+    }
+}
+
+$repoRoot = Resolve-FullPath (Join-Path $PSScriptRoot "..")
+if (![System.IO.Path]::IsPathRooted($Output)) {
+    $Output = Join-Path $repoRoot $Output
+}
+$Output = Resolve-FullPath $Output
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Output) | Out-Null
+
+$gameRoot = Resolve-FullPath $Game
+$cxbxRoot = Resolve-FullPath $Cxbx
+$xbe = Join-Path $gameRoot "efmp.xbe"
+$loader = Join-Path $cxbxRoot "cxbxr-ldr.exe"
+$logPath = Join-Path $gameRoot "ef_mp_log.txt"
+$phasePath = Join-Path $gameRoot "ef_mp_phase.txt"
+$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$stdoutPath = Join-Path (Split-Path -Parent $Output) "capture_cxbx_window_$stamp.stdout.txt"
+$stderrPath = Join-Path (Split-Path -Parent $Output) "capture_cxbx_window_$stamp.stderr.txt"
+
+if (!(Test-Path -LiteralPath $xbe -PathType Leaf)) {
+    throw "Missing XBE: $xbe"
+}
+if (!(Test-Path -LiteralPath $loader -PathType Leaf)) {
+    throw "Missing CXBX-R loader: $loader"
+}
+
+$existing = Get-CxbxProcesses $cxbxRoot
+if ($existing.Count -gt 0) {
+    $details = ($existing | ForEach-Object { "$($_.Id):$($_.ProcessName)" }) -join ", "
+    throw "CXBX-R is already running in $cxbxRoot; refusing to close it. Processes: $details"
+}
+
+Remove-Item -LiteralPath $logPath, $phasePath, $Output -Force -ErrorAction SilentlyContinue
+
+Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Text;
-
-public static class CxbxWindowCaptureNative {
+public static class CxbxWindowCapture {
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
-    [DllImport("user32.dll")]
-    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+    public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_SHOWWINDOW = 0x0040;
 
-    [DllImport("user32.dll")]
-    public static extern bool IsWindowVisible(IntPtr hWnd);
+    public static IntPtr[] GetTopLevelWindowsForPids(int[] pids) {
+        HashSet<int> wanted = new HashSet<int>(pids);
+        List<IntPtr> windows = new List<IntPtr>();
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam) {
+            uint pid;
+            GetWindowThreadProcessId(hWnd, out pid);
+            if (wanted.Contains((int)pid)) {
+                windows.Add(hWnd);
+            }
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
 
-    [DllImport("user32.dll")]
-    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    public static string GetTitle(IntPtr hWnd) {
+        int length = GetWindowTextLength(hWnd);
+        System.Text.StringBuilder builder = new System.Text.StringBuilder(Math.Max(1, length + 1));
+        GetWindowText(hWnd, builder, builder.Capacity);
+        return builder.ToString();
+    }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int count);
-
-    [DllImport("user32.dll")]
-    public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-
-    [DllImport("user32.dll")]
-    public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
-
-    [DllImport("user32.dll")]
-    public static extern IntPtr GetWindowDC(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
-
-    [DllImport("gdi32.dll")]
-    public static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int width, int height, IntPtr hdcSrc, int xSrc, int ySrc, int rop);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct RECT {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
+    public static int GetProcessId(IntPtr hWnd) {
+        uint pid;
+        GetWindowThreadProcessId(hWnd, out pid);
+        return (int)pid;
     }
 }
 "@
 
-function Get-RuntimeRoots {
-    $roots = @($Game)
-    if ($AllowExternalRuntimeRoots) {
-        $emuPartition = Join-Path $Cxbx "EmuDisk\Partition1"
-        foreach ($candidate in @($emuPartition, $Cxbx)) {
-            if ($roots -notcontains $candidate) {
-                $roots += $candidate
+$windowStyle = if ($Visible) { "Normal" } else { "Hidden" }
+$args = "/load `"$xbe`""
+$process = Start-Process `
+    -FilePath $loader `
+    -ArgumentList $args `
+    -WorkingDirectory $cxbxRoot `
+    -PassThru `
+    -WindowStyle $windowStyle `
+    -RedirectStandardOutput $stdoutPath `
+    -RedirectStandardError $stderrPath
+
+$patterns = @(
+    "STEFX_HM: direct Holomatch startup bypasses menus",
+    "STEFX_HM: EF SP interface HUD draw active",
+    "STEFX_HM: score update client="
+)
+$seen = @{}
+foreach ($pattern in $patterns) {
+    $seen[$pattern] = $false
+}
+
+try {
+    $deadline = (Get-Date).AddSeconds($WatchdogSeconds)
+    do {
+        Start-Sleep -Milliseconds 500
+        if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+            $text = Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue
+            foreach ($pattern in $patterns) {
+                if ($text -like "*$pattern*") {
+                    $seen[$pattern] = $true
+                }
+            }
+            if ((@($seen.Values | Where-Object { -not $_ })).Count -eq 0) {
+                break
             }
         }
-    }
-    return $roots
-}
-
-function Remove-RuntimeFile([string]$Name) {
-    foreach ($root in (Get-RuntimeRoots)) {
-        Remove-Item -LiteralPath (Join-Path $root $Name) -Force -ErrorAction SilentlyContinue
-    }
-}
-
-function Write-RuntimeFile([string]$Name, [string]$Text) {
-    foreach ($root in (Get-RuntimeRoots)) {
-        try {
-            New-Item -ItemType Directory -Force -Path $root -ErrorAction Stop | Out-Null
-            Set-Content -LiteralPath (Join-Path $root $Name) -Value $Text -Encoding ASCII -ErrorAction Stop
-        } catch {
-            Write-Verbose ("Could not write runtime file '{0}' under '{1}': {2}" -f $Name, $root, $_.Exception.Message)
+        if ((Get-CxbxProcesses $cxbxRoot).Count -eq 0) {
+            throw "CXBX-R exited before capture markers were reached"
         }
-    }
-}
+    } while ((Get-Date) -lt $deadline)
 
-function Get-LogText {
-    $paths = @((Join-Path $Game "ef_sp_log.txt"))
-    if ($AllowExternalRuntimeRoots) {
-        $paths += @(
-            (Join-Path $Cxbx "EmuDisk\Partition1\ef_sp_log.txt"),
-            (Join-Path $Cxbx "ef_sp_log.txt")
-        )
-    }
-    foreach ($path in $paths) {
-        if (Test-Path $path) {
-            return Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue
-        }
-    }
-    return ""
-}
-
-function Get-LastServerTime([string]$LogText) {
-    $matches = [regex]::Matches($LogText, "serverTime=(\d+)")
-    if ($matches.Count -eq 0) {
-        return 0
-    }
-    return [int]$matches[$matches.Count - 1].Groups[1].Value
-}
-
-function Find-CxbxWindow([int[]]$ProcessIds) {
-    $script:found = [IntPtr]::Zero
-    $script:foundArea = 0
-    [CxbxWindowCaptureNative+EnumWindowsProc]$callback = {
-        param([IntPtr]$hWnd, [IntPtr]$lParam)
-        if (![CxbxWindowCaptureNative]::IsWindowVisible($hWnd)) {
-            return $true
-        }
-        [uint32]$windowProcessId = 0
-        [void][CxbxWindowCaptureNative]::GetWindowThreadProcessId($hWnd, [ref]$windowProcessId)
-        if ($ProcessIds -notcontains [int]$windowProcessId) {
-            return $true
-        }
-        $title = New-Object System.Text.StringBuilder 256
-        [void][CxbxWindowCaptureNative]::GetWindowTextW($hWnd, $title, $title.Capacity)
-        if ($title.ToString() -notmatch "Cxbx|Reloaded|project2|Star Trek|Elite Force") {
-            return $true
-        }
-        $rect = New-Object CxbxWindowCaptureNative+RECT
-        if (![CxbxWindowCaptureNative]::GetWindowRect($hWnd, [ref]$rect)) {
-            return $true
-        }
-        $width = [Math]::Max(0, $rect.Right - $rect.Left)
-        $height = [Math]::Max(0, $rect.Bottom - $rect.Top)
-        $area = $width * $height
-        if ($area -gt $script:foundArea) {
-            $script:foundArea = $area
-            $script:found = $hWnd
-        }
-        return $true
-    }
-    [void][CxbxWindowCaptureNative]::EnumWindows($callback, [IntPtr]::Zero)
-    $result = $script:found
-    $script:found = [IntPtr]::Zero
-    $script:foundArea = 0
-    return $result
-}
-
-function Test-BitmapSignal([System.Drawing.Bitmap]$Bitmap) {
-    $nonBlack = 0
-    # Ignore the title/menu band; PrintWindow can capture chrome while the D3D client is black.
-    $topSkip = 0
-    if ($Bitmap.Height -gt 120) {
-        $topSkip = [Math]::Min($Bitmap.Height - 1, 48)
-    }
-    $sampleHeight = [Math]::Max(1, $Bitmap.Height - $topSkip)
-    for ($y = 0; $y -lt 12; $y++) {
-        $py = [Math]::Min($Bitmap.Height - 1, $topSkip + [int](($sampleHeight - 1) * $y / 11))
-        for ($x = 0; $x -lt 16; $x++) {
-            $px = [Math]::Min($Bitmap.Width - 1, [int](($Bitmap.Width - 1) * $x / 15))
-            $c = $Bitmap.GetPixel($px, $py)
-            if (($c.R + $c.G + $c.B) -gt 16) {
-                $nonBlack++
-            }
-        }
-    }
-    return $nonBlack
-}
-
-function Capture-Window([IntPtr]$Hwnd, [string]$Path) {
-    $rect = New-Object CxbxWindowCaptureNative+RECT
-    if (![CxbxWindowCaptureNative]::GetWindowRect($Hwnd, [ref]$rect)) {
-        throw "GetWindowRect failed"
-    }
-    $width = $rect.Right - $rect.Left
-    $height = $rect.Bottom - $rect.Top
-    if ($width -le 0 -or $height -le 0) {
-        throw "CXBX window has invalid size ${width}x${height}"
+    $missing = @($seen.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object { $_.Key })
+    if ($missing.Count -gt 0) {
+        throw "Timed out waiting for capture marker(s): $($missing -join ', ')"
     }
 
-    $bmp = New-Object System.Drawing.Bitmap $width, $height
-    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-    $hdc = $gfx.GetHdc()
-    $printed = [CxbxWindowCaptureNative]::PrintWindow($Hwnd, $hdc, 2)
-    $gfx.ReleaseHdc($hdc)
-    $gfx.Dispose()
-
-    $signal = Test-BitmapSignal $bmp
-    if (!$printed -or $signal -lt 4) {
-        $bmp.Dispose()
-        $bmp = New-Object System.Drawing.Bitmap $width, $height
-        $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-        $dst = $gfx.GetHdc()
-        $src = [CxbxWindowCaptureNative]::GetWindowDC($Hwnd)
-        if ($src -eq [IntPtr]::Zero) {
-            $gfx.ReleaseHdc($dst)
-            $gfx.Dispose()
-            $bmp.Dispose()
-            throw "GetWindowDC failed"
-        }
-        [void][CxbxWindowCaptureNative]::BitBlt($dst, 0, 0, $width, $height, $src, 0, 0, 0x00CC0020)
-        [void][CxbxWindowCaptureNative]::ReleaseDC($Hwnd, $src)
-        $gfx.ReleaseHdc($dst)
-        $gfx.Dispose()
-        $signal = Test-BitmapSignal $bmp
-        $method = "BitBlt"
-    } else {
-        $method = "PrintWindow"
+    $ownedProcesses = @(Get-CxbxProcesses $cxbxRoot)
+    $ownedIds = [int[]]($ownedProcesses | Select-Object -ExpandProperty Id)
+    $windowHandles = @()
+    if ($ownedIds.Count -gt 0) {
+        $windowHandles = @([CxbxWindowCapture]::GetTopLevelWindowsForPids($ownedIds))
+    }
+    $windowHandle = $windowHandles |
+        Where-Object { [CxbxWindowCapture]::IsWindowVisible($_) -and [CxbxWindowCapture]::GetTitle($_) } |
+        Select-Object -First 1
+    if (!$windowHandle) {
+        $windowHandle = $windowHandles | Select-Object -First 1
+    }
+    if (!$windowHandle) {
+        $processDetails = ($ownedProcesses | ForEach-Object { "$($_.Id):$($_.ProcessName):main=0x$('{0:x}' -f $_.MainWindowHandle)" }) -join ", "
+        throw "No CXBX-R top-level window handle found. Processes: $processDetails"
     }
 
-    if ($signal -lt 4) {
-        $bmp.Dispose()
-        $bmp = New-Object System.Drawing.Bitmap $width, $height
-        $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-        $gfx.CopyFromScreen($rect.Left, $rect.Top, 0, 0, (New-Object System.Drawing.Size $width, $height))
-        $gfx.Dispose()
-        $signal = Test-BitmapSignal $bmp
-        $method = "CopyFromScreen"
-    }
-
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
-    $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-    return "path=$Path method=$method signal=$signal size=${width}x${height}"
-}
-
-$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$outDir = Join-Path $Repo "scripts\output"
-if (!$OutputPrefix) {
-    $OutputPrefix = Join-Path $outDir ("borg1_cxbx_window_current_$stamp")
-}
-
-$beforeIds = @(Get-Process cxbx* -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
-
-foreach ($name in @(
-    "ef_sp_log.txt",
-    "ef_sp_level.txt",
-    "ef_sp_commands.txt",
-    "ef_sp_postmap_commands.txt",
-    "ef_sp_smoke_harness.txt",
-    "ef_sp_active_commands.txt",
-    "ef_sp_active_command_time.txt",
-    "ef_sp_screenshot_request.txt",
-    "ef_sp_cxbx_present_throttle.txt",
-    "ef_sp_renderprobe.txt"
-)) {
-    Remove-RuntimeFile $name
-}
-
-Write-RuntimeFile "ef_sp_level.txt" ($Level + "`n")
-Write-RuntimeFile "ef_sp_smoke_harness.txt" "1`n"
-if ($RenderProbe) {
-    Write-RuntimeFile "ef_sp_renderprobe.txt" "1`n"
-}
-$useBorg1SliceWarp = (!$NoBorg1SliceWarp -and $Level -ieq "borg1")
-$splitCommand = ""
-if ($SplitScreenCoop) {
-    $splitCommand = "set stefx_splitScreen 1;set stefx_splitScreenPlayers 2;set stefx_splitScreenMode coop;set stefx_splitScreenP2Entity -1;"
-    if ($TestP2Pad) {
-        $splitCommand += "set stefx_splitScreenTestP2Pad $TestP2PadMode;"
-    }
-}
-if ($NoSmokeInput) {
-    $smokeCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 0;set stefx_smoke_aim 0;set stefx_smoke_wake_ai 0;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 0"
-    Write-RuntimeFile "ef_sp_commands.txt" ($smokeCommand + "`n")
-    Write-RuntimeFile "ef_sp_postmap_commands.txt" ($smokeCommand + "`n")
-} elseif ($useBorg1SliceWarp) {
-    $sliceCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_borg1_slice_warp 1;+attack"
-    Write-RuntimeFile "ef_sp_commands.txt" ($sliceCommand + "`n")
-    Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $sliceCommand + "`n")
-} else {
-    $smokeCommand = $splitCommand + "set s_xbox_smokeSilentAudio 1;set stefx_smoke_input 1;set stefx_smoke_aim 1;set stefx_smoke_wake_ai 1;set stefx_smoke_unlock_player 1;set stefx_smoke_ready_weapon 1;set stefx_smoke_stage_enemy 1;set stefx_smoke_input_forward 127;set stefx_smoke_input_side 0;set stefx_smoke_input_yaw 0;set stefx_smoke_input_start 6000;set stefx_smoke_input_attack_start 6500;set stefx_smoke_input_attack_end 22000;set stefx_smoke_input_end 36000"
-    Write-RuntimeFile "ef_sp_commands.txt" ($smokeCommand + "`n")
-    Write-RuntimeFile "ef_sp_postmap_commands.txt" ("set stefx_smoke_fasttime 1;set stefx_smoke_fasttime_msec $FastTimeMsec;set timescale 40;" + $smokeCommand + "`n")
-}
-if ($ActiveCommand) {
-    Write-RuntimeFile "ef_sp_active_commands.txt" ($ActiveCommand.TrimEnd(";") + "`n")
-    Write-RuntimeFile "ef_sp_active_command_time.txt" ([string]$ActiveCommandServerTime + "`n")
-}
-
-$loader = Join-Path $Cxbx $LoaderName
-$xbe = Join-Path $Game "default.xbe"
-$stdoutPath = "$OutputPrefix.stdout.txt"
-$stderrPath = "$OutputPrefix.stderr.txt"
-Remove-Item $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-
-$proc = Start-Process -FilePath $loader -ArgumentList "/load `"$xbe`"" -WorkingDirectory $Cxbx -PassThru -WindowStyle Normal -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-
-$newIds = @($proc.Id)
-$hwnd = [IntPtr]::Zero
-for ($attempt = 0; $attempt -lt 80 -and $hwnd -eq [IntPtr]::Zero; $attempt++) {
-    $after = @(Get-Process cxbx* -ErrorAction SilentlyContinue)
-    $candidateIds = @($after | Where-Object { $beforeIds -notcontains $_.Id } | Select-Object -ExpandProperty Id)
-    if ($candidateIds.Count -gt 0) {
-        $newIds = $candidateIds
-    }
-    $hwnd = Find-CxbxWindow $newIds
-    if ($hwnd -eq [IntPtr]::Zero) {
-        if ($proc.HasExited) {
-            break
-        }
+    if ($BringToFront) {
+        [CxbxWindowCapture]::ShowWindow($windowHandle, 5) | Out-Null
+        [CxbxWindowCapture]::SetForegroundWindow($windowHandle) | Out-Null
         Start-Sleep -Milliseconds 250
     }
-}
 
-$deadline = (Get-Date).AddSeconds($WatchdogSeconds)
-$ready = $false
-try {
-    while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 100
-        $log = Get-LogText
-        $serverTime = Get-LastServerTime $log
-        if ($WaitLogPattern -and $log -match $WaitLogPattern) {
-            $ready = $true
-            break
+    $rect = New-Object CxbxWindowCapture+RECT
+    [CxbxWindowCapture]::GetWindowRect($windowHandle, [ref]$rect) | Out-Null
+    $width = [Math]::Max(1, $rect.Right - $rect.Left)
+    $height = [Math]::Max(1, $rect.Bottom - $rect.Top)
+    if ($CaptureMode -eq "Screen" -and !$BringToFront) {
+        [CxbxWindowCapture]::ShowWindow($windowHandle, 5) | Out-Null
+        [CxbxWindowCapture]::SetWindowPos(
+            $windowHandle,
+            [CxbxWindowCapture]::HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            [CxbxWindowCapture]::SWP_NOMOVE -bor [CxbxWindowCapture]::SWP_NOSIZE -bor [CxbxWindowCapture]::SWP_SHOWWINDOW
+        ) | Out-Null
+        [CxbxWindowCapture]::SetForegroundWindow($windowHandle) | Out-Null
+        Start-Sleep -Milliseconds 1000
+    }
+
+    $bitmap = New-Object System.Drawing.Bitmap $width, $height, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        if ($CaptureMode -eq "Screen") {
+            $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, [System.Drawing.Size]::new($width, $height))
+            $printOk = $true
+        } else {
+            $hdc = $graphics.GetHdc()
+            try {
+                $printOk = [CxbxWindowCapture]::PrintWindow($windowHandle, $hdc, 2)
+            } finally {
+                $graphics.ReleaseHdc($hdc)
+            }
         }
-        if (!$WaitLogPattern -and $serverTime -ge $WaitServerTime) {
-            $ready = $true
-            break
-        }
-        if ($proc.HasExited) {
-            break
+        $bitmap.Save($Output, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+        if ($CaptureMode -eq "Screen") {
+            [CxbxWindowCapture]::SetWindowPos(
+                $windowHandle,
+                [CxbxWindowCapture]::HWND_NOTOPMOST,
+                0,
+                0,
+                0,
+                0,
+                [CxbxWindowCapture]::SWP_NOMOVE -bor [CxbxWindowCapture]::SWP_NOSIZE
+            ) | Out-Null
         }
     }
 
-    if ($hwnd -eq [IntPtr]::Zero) {
-        throw "No CXBX window found for process ids: $($newIds -join ',')"
+    $signal = Get-ImageSignal $Output
+    [PSCustomObject]@{
+        Output = $Output
+        Width = $signal.Width
+        Height = $signal.Height
+        CaptureMode = $CaptureMode
+        PrintWindowOk = $printOk
+        UniqueSampledColors = $signal.UniqueSampledColors
+        MaxBrightness = $signal.MaxBrightness
+        WindowTitle = [CxbxWindowCapture]::GetTitle($windowHandle)
+        WindowPid = [CxbxWindowCapture]::GetProcessId($windowHandle)
+        WindowHandle = ("0x{0:x}" -f $windowHandle.ToInt64())
+        Log = $logPath
+        Stdout = $stdoutPath
+        Stderr = $stderrPath
+        SeenDirectBoot = $seen[$patterns[0]]
+        SeenHud = $seen[$patterns[1]]
+        SeenScore = $seen[$patterns[2]]
     }
 
-    $results = @(
-        "ready=$ready",
-        "serverTime=$(Get-LastServerTime (Get-LogText))",
-        "waitLogPattern=$WaitLogPattern",
-        "fastTimeMsec=$FastTimeMsec",
-        "borg1SliceWarp=$useBorg1SliceWarp",
-        "splitScreenCoop=$SplitScreenCoop",
-        "noSmokeInput=$NoSmokeInput",
-        "processIds=$($newIds -join ',')"
-    )
-    for ($i = 0; $i -lt $Count; $i++) {
-        if ($i -gt 0) {
-            Start-Sleep -Seconds $IntervalSeconds
-        }
-        $path = "{0}_{1:00}.png" -f $OutputPrefix, ($i + 1)
-        $results += Capture-Window $hwnd $path
+    if (!$printOk -or $signal.UniqueSampledColors -le 1 -or $signal.MaxBrightness -eq 0) {
+        exit 88
     }
-    $summaryPath = "$OutputPrefix.summary.txt"
-    $results | Set-Content -LiteralPath $summaryPath -Encoding ASCII
-    $results
 } finally {
-    $after = @(Get-Process cxbx* -ErrorAction SilentlyContinue)
-    foreach ($p in $after) {
-        if ($beforeIds -notcontains $p.Id) {
-            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-        }
-    }
-    foreach ($name in @(
-        "ef_sp_commands.txt",
-        "ef_sp_postmap_commands.txt",
-        "ef_sp_smoke_harness.txt",
-        "ef_sp_active_commands.txt",
-        "ef_sp_active_command_time.txt",
-        "ef_sp_screenshot_request.txt",
-        "ef_sp_cxbx_present_throttle.txt",
-        "ef_sp_renderprobe.txt"
-    )) {
-        Remove-RuntimeFile $name
-    }
+    Get-CxbxProcesses $cxbxRoot | Stop-Process -Force -ErrorAction SilentlyContinue
 }
-
-

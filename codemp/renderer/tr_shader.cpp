@@ -3541,9 +3541,21 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	return FinishShader();
 #else
 	image = R_FindImageFile( fileName, mipRawImage, mipRawImage, qtrue, mipRawImage ? GL_REPEAT : GL_CLAMP );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( !Q_stricmp( strippedName, "white" ) )
+	{
+		Com_Printf( "STEFX_HM: renderer R_FindShader white image lookup done image=%p\n", (void *)image );
+	}
+#endif
 	if ( !image ) {
 		Com_DPrintf (S_COLOR_RED "Couldn't find image for shader %s\n", name );
 		shader.defaultShader = true;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( !Q_stricmp( strippedName, "white" ) )
+		{
+			Com_Printf( "STEFX_HM: renderer R_FindShader white missing image; FinishShader begin\n" );
+		}
+#endif
 		return FinishShader();
 	}
 #endif //!DEDICATED
@@ -3601,7 +3613,21 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 		stages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
 	}
 
-	return FinishShader();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( !Q_stricmp( strippedName, "white" ) )
+	{
+		Com_Printf( "STEFX_HM: renderer R_FindShader white FinishShader begin\n" );
+	}
+#endif
+	sh = FinishShader();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( !Q_stricmp( strippedName, "white" ) )
+	{
+		Com_Printf( "STEFX_HM: renderer R_FindShader white FinishShader done shader=%p index=%d default=%d\n",
+			(void *)sh, sh ? sh->index : 0, sh ? sh->defaultShader : 1 );
+	}
+#endif
+	return sh;
 }
 
 void ScanAndLoadShaderFiles( const char *path, bool doHash );
@@ -3941,6 +3967,79 @@ in ascending order on consecutive calls.
 */
 #define	MAX_SHADER_FILES	4096
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+static qboolean R_STEFXLoadShaderManifest( const char *shaderDir, char **manifestFiles, int maxFiles, char **manifestTextOut, int *numShaderOut )
+{
+	char manifestName[MAX_QPATH];
+	char *manifestText = NULL;
+	char *cursor;
+	int manifestLen;
+	int count = 0;
+
+	*manifestTextOut = NULL;
+	*numShaderOut = 0;
+
+	Com_sprintf( manifestName, sizeof( manifestName ), "%s/_console_shader_list_", shaderDir );
+	manifestLen = FS_ReadFile( manifestName, (void **)&manifestText );
+	if ( manifestLen <= 0 || !manifestText )
+	{
+		if ( manifestText )
+		{
+			FS_FreeFile( manifestText );
+		}
+		Com_Printf( "STEFX_HM: renderer shader manifest missing '%s'; falling back to loose list\n", manifestName );
+		return qfalse;
+	}
+
+	cursor = manifestText;
+	while ( *cursor && count < maxFiles )
+	{
+		char *start;
+		char *end;
+
+		while ( *cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n' )
+		{
+			*cursor++ = '\0';
+		}
+
+		start = cursor;
+		while ( *cursor && *cursor != '\r' && *cursor != '\n' )
+		{
+			++cursor;
+		}
+		if ( *cursor )
+		{
+			*cursor++ = '\0';
+		}
+
+		end = start + strlen( start );
+		while ( end > start && ( end[-1] == ' ' || end[-1] == '\t' ) )
+		{
+			*--end = '\0';
+		}
+
+		if ( !start[0] || start[0] == '#' )
+		{
+			continue;
+		}
+
+		manifestFiles[count++] = start;
+	}
+
+	if ( count <= 0 )
+	{
+		Com_Printf( "STEFX_HM: renderer shader manifest empty '%s'; falling back to loose list\n", manifestName );
+		FS_FreeFile( manifestText );
+		return qfalse;
+	}
+
+	*manifestTextOut = manifestText;
+	*numShaderOut = count;
+	Com_Printf( "STEFX_HM: renderer loaded shader manifest '%s' entries=%d\n", manifestName, count );
+	return qtrue;
+}
+#endif
+
 void ScanAndLoadShaderFiles( const char *path, bool doHash )
 {
 	char *p;
@@ -3955,13 +4054,41 @@ void ScanAndLoadShaderFiles( const char *path, bool doHash )
 		char **shaderFiles;
 		char *buffers[MAX_SHADER_FILES];
 		int bufferSizes[MAX_SHADER_FILES];	// Optimization
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		char *manifestFiles[MAX_SHADER_FILES];
+		char *manifestText = NULL;
+		qboolean manifestActive = qfalse;
+#endif
 
 		long sum = 0;
 		// scan for shader files
-		shaderFiles = /*ri.*/FS_ListFiles( path, ".shader", &numShaders );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( !Q_stricmp( path, "scripts" ) )
+		{
+			manifestActive = R_STEFXLoadShaderManifest( path, manifestFiles, MAX_SHADER_FILES, &manifestText, &numShaders );
+			if ( manifestActive )
+			{
+				shaderFiles = manifestFiles;
+			}
+			else
+			{
+				shaderFiles = /*ri.*/FS_ListFiles( path, ".shader", &numShaders );
+			}
+		}
+		else
+#endif
+		{
+			shaderFiles = /*ri.*/FS_ListFiles( path, ".shader", &numShaders );
+		}
 
 		if ( !shaderFiles || !numShaders )
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			if ( manifestActive && manifestText )
+			{
+				FS_FreeFile( manifestText );
+			}
+#endif
 			Com_Error(ERR_FATAL, "ERROR: no shader files found\n");
 			return;
 		}
@@ -3985,7 +4112,16 @@ void ScanAndLoadShaderFiles( const char *path, bool doHash )
 		}
 
 		// free up memory
-		/*ri.*/FS_FreeFileList( shaderFiles );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( manifestActive )
+		{
+			FS_FreeFile( manifestText );
+		}
+		else
+#endif
+		{
+			/*ri.*/FS_FreeFileList( shaderFiles );
+		}
 
 		// build single large buffer
 //		s_shaderText = (char *)/*ri.*/Hunk_Alloc( sum + numShaders*2, h_low );
@@ -4319,9 +4455,15 @@ static void CreateInternalShaders( void ) {
 }
 
 static void CreateExternalShaders( void ) {
+	Com_Printf( "STEFX_HM: renderer CreateExternalShaders begin\n" );
+	Com_Printf( "STEFX_HM: renderer CreateExternalShaders projectionShadow begin\n" );
 	tr.projectionShadowShader = R_FindShader( "projectionShadow", lightmapsNone, stylesDefault, qtrue );
+	Com_Printf( "STEFX_HM: renderer CreateExternalShaders projectionShadow done shader=%p\n", (void *)tr.projectionShadowShader );
 	tr.projectionShadowShader->sort = SS_STENCIL_SHADOW;
+	Com_Printf( "STEFX_HM: renderer CreateExternalShaders sun begin\n" );
 	tr.sunShader = R_FindShader( "sun", lightmapsNone, stylesDefault, qtrue );
+	Com_Printf( "STEFX_HM: renderer CreateExternalShaders sun done shader=%p\n", (void *)tr.sunShader );
+	Com_Printf( "STEFX_HM: renderer CreateExternalShaders done\n" );
 }
 
 #endif // !DEDICATED
@@ -4334,6 +4476,7 @@ void R_InitShaders(qboolean server)
 {
 	//Com_Printf ("Initializing Shaders\n" );
 
+	Com_Printf( "STEFX_HM: renderer R_InitShaders begin server=%d\n", server ? 1 : 0 );
 	Com_Memset(hashTable, 0, sizeof(hashTable));
 
 	deferLoad = qfalse;
@@ -4341,11 +4484,22 @@ void R_InitShaders(qboolean server)
 #ifndef DEDICATED
 	if (!server)
 	{
+		Com_Printf( "STEFX_HM: renderer R_InitShaders CreateInternalShaders begin\n" );
 		CreateInternalShaders();
+		Com_Printf( "STEFX_HM: renderer R_InitShaders CreateInternalShaders done shaders=%d\n", tr.numShaders );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: renderer R_InitShaders ScanAndLoadShaderFiles scripts begin\n" );
+		ScanAndLoadShaderFiles("scripts", true);
+		Com_Printf( "STEFX_HM: renderer R_InitShaders ScanAndLoadShaderFiles scripts done\n" );
+#else
 		ScanAndLoadShaderFiles("shaders", true);
+#endif
 
+		Com_Printf( "STEFX_HM: renderer R_InitShaders CreateExternalShaders begin\n" );
 		CreateExternalShaders();
+		Com_Printf( "STEFX_HM: renderer R_InitShaders CreateExternalShaders done shaders=%d\n", tr.numShaders );
 	}
 #endif
+	Com_Printf( "STEFX_HM: renderer R_InitShaders done server=%d\n", server ? 1 : 0 );
 }

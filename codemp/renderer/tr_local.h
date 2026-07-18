@@ -19,6 +19,10 @@ typedef unsigned int GLuint;
 #endif
 #include "../ghoul2/ghoul2_shared.h" //rwwRMG - added
 
+#if defined(STEFX_ELITE_FORCE_SP) || defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_ELITE_FORCE_RENDERER 1
+#endif
+
 #ifdef _XBOX
 #define GL_INDEX_TYPE		GL_UNSIGNED_SHORT
 typedef unsigned short glIndex_t;
@@ -643,6 +647,9 @@ typedef enum {
 	SF_POLY,
 	SF_TERRAIN, //rwwRMG - added
 	SF_MD3,
+#ifdef STEFX_ELITE_FORCE_RENDERER
+	SF_MDR,
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -1088,6 +1095,10 @@ typedef enum {
 	MOD_BAD,
 	MOD_BRUSH,
 	MOD_MESH,
+#ifdef STEFX_ELITE_FORCE_RENDERER
+	MOD_MDR,
+	MOD_STEFX_MDR_PLACEHOLDER,
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -1106,6 +1117,9 @@ typedef struct model_s {
 	int			dataSize;			// just for listing purposes
 	bmodel_t	*bmodel;			// only if type == MOD_BRUSH
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
+#ifdef STEFX_ELITE_FORCE_RENDERER
+	md4Header_t	*md4;				// only if type == MOD_MDR
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -1760,6 +1774,9 @@ extern	const short	lightmapsVertex[MAXLIGHTMAPS];
 extern	const short	lightmapsFullBright[MAXLIGHTMAPS];
 extern	const byte	stylesDefault[MAXLIGHTMAPS];
 
+void R_GetLightParmsForLevel();
+void R_LoadLevelLightParms();
+
 qhandle_t RE_RegisterShaderLightMap( const char *name, const short *lightmapIndex, const byte *styles ) ;
 qhandle_t		 RE_RegisterShader( const char *name );
 qhandle_t		 RE_RegisterShaderNoMip( const char *name );
@@ -2019,6 +2036,9 @@ ANIMATED MODELS
 
 void R_MakeAnimModel( model_t *model );
 void R_AddAnimSurfaces( trRefEntity_t *ent );
+#ifdef STEFX_ELITE_FORCE_RENDERER
+void RB_SurfaceAnim( md4Surface_t *surface );
+#endif
 /*
 Ghoul2 Insert Start
 */

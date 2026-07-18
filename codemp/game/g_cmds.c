@@ -3,8 +3,6 @@
 #include "g_local.h"
 #include "bg_saga.h"
 
-#include "../../ui/menudef.h"			// for the voice chats
-
 //rww - for getting bot commands...
 int AcceptBotCommand(char *cmd, gentity_t *pl);
 //end rww
@@ -29,11 +27,66 @@ void DeathmatchScoreboardMessage( gentity_t *ent ) {
 	int			i, j;
 	gclient_t	*cl;
 	int			numSorted, scoreFlags, accuracy, perfect;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean stefxHMLoggedEFScoreSend = qfalse;
+#endif
 
 	// send the latest information on all clients
 	string[0] = 0;
 	stringlength = 0;
 	scoreFlags = 0;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		numSorted = level.numConnectedClients;
+		if ( numSorted > MAX_CLIENTS ) {
+			numSorted = MAX_CLIENTS;
+		}
+
+		for ( i = 0 ; i < numSorted ; i++ ) {
+			int ping;
+			int clientNum;
+			int eliminated;
+
+			clientNum = level.sortedClients[i];
+			cl = &level.clients[clientNum];
+
+			if ( cl->pers.connected == CON_CONNECTING ) {
+				ping = -1;
+			} else {
+				ping = cl->ps.ping < 999 ? cl->ps.ping : 999;
+			}
+
+			eliminated = ( g_entities[cl->ps.clientNum].r.svFlags & SVF_ELIMINATED ) != 0;
+
+			Com_sprintf( entry, sizeof( entry ),
+				" %i %i %i %i %i %i %i %i %i %i %i", clientNum,
+				cl->ps.persistant[PERS_SCORE], ping, ( level.time - cl->pers.enterTime ) / 60000,
+				scoreFlags, g_entities[clientNum].s.powerups,
+				GetWorstEnemyForClient( clientNum ),
+				GetMaxDeathsForClient( clientNum ),
+				GetFavoriteWeaponForClient( clientNum ),
+				cl->ps.persistant[PERS_KILLED],
+				eliminated );
+			j = strlen( entry );
+			if ( stringlength + j > 1024 ) {
+				break;
+			}
+			strcpy( string + stringlength, entry );
+			stringlength += j;
+		}
+
+		trap_SendServerCommand( ent - g_entities, va( "scores %i %i %i%s", i,
+			level.teamScores[TEAM_RED], level.teamScores[TEAM_BLUE],
+			string ) );
+
+		if ( !stefxHMLoggedEFScoreSend ) {
+			stefxHMLoggedEFScoreSend = qtrue;
+			G_Printf( "STEFX_HM: server sent EF score command clients=%d total=%d\n", i, level.numConnectedClients );
+		}
+		return;
+	}
+#endif
 
 	numSorted = level.numConnectedClients;
 	

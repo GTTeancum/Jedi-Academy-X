@@ -170,10 +170,12 @@ void BotReportStatus(bot_state_t *bs)
 	{
 		trap_EA_SayTeam(bs->client, teamplayStateDescriptions[bs->teamplayState]);
 	}
+#if !defined(STEFX_ELITE_FORCE_MP)
 	else if (g_gametype.integer == GT_SIEGE)
 	{
 		trap_EA_SayTeam(bs->client, siegeStateDescriptions[bs->siegeState]);
 	}
+#endif
 	else if (g_gametype.integer == GT_CTF || g_gametype.integer == GT_CTY)
 	{
 		trap_EA_SayTeam(bs->client, ctfStateDescriptions[bs->ctfState]);
@@ -202,7 +204,10 @@ void BotOrder(gentity_t *ent, int clientnum, int ordernum)
 		return;
 	}
 
-	if (g_gametype.integer != GT_CTF && g_gametype.integer != GT_CTY && g_gametype.integer != GT_SIEGE &&
+	if (g_gametype.integer != GT_CTF && g_gametype.integer != GT_CTY &&
+#if !defined(STEFX_ELITE_FORCE_MP)
+		g_gametype.integer != GT_SIEGE &&
+#endif
 		g_gametype.integer != GT_TEAM)
 	{
 		return;
@@ -213,11 +218,13 @@ void BotOrder(gentity_t *ent, int clientnum, int ordernum)
 		stateMin = CTFSTATE_NONE;
 		stateMax = CTFSTATE_MAXCTFSTATES;
 	}
+#if !defined(STEFX_ELITE_FORCE_MP)
 	else if (g_gametype.integer == GT_SIEGE)
 	{
 		stateMin = SIEGESTATE_NONE;
 		stateMax = SIEGESTATE_MAXSIEGESTATES;
 	}
+#endif
 	else if (g_gametype.integer == GT_TEAM)
 	{
 		stateMin = TEAMPLAYSTATE_NONE;
@@ -629,6 +636,129 @@ void BotInputToUserCommand(bot_input_t *bi, usercmd_t *ucmd, int delta_angles[3]
 	//Com_Printf("ucmd->serverTime = %d\n", ucmd->serverTime);
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean Bot_STEFXHolomatchDirectSliceActive( void )
+{
+	char mapName[MAX_QPATH];
+
+	if ( g_gametype.integer != GT_FFA )
+	{
+		return qfalse;
+	}
+	if ( !trap_Cvar_VariableIntegerValue( "stefx_hm_directSlice" ) )
+	{
+		return qfalse;
+	}
+	trap_Cvar_VariableStringBuffer( "mapname", mapName, sizeof( mapName ) );
+	if ( Q_stricmp( mapName, "hm_borg1" ) )
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static void Bot_STEFXHolomatchDirectSliceCommand( bot_state_t *bs, usercmd_t *ucmd, int time )
+{
+	static qboolean loggedDirectBotCommand = qfalse;
+	gentity_t *botEnt;
+	gentity_t *target;
+	vec3_t eye;
+	vec3_t targetEye;
+	vec3_t aimDir;
+	vec3_t aimAngles;
+	float dist2D;
+	int j;
+	short temp;
+
+	if ( !bs || !ucmd || bs->client <= 0 )
+	{
+		return;
+	}
+	if ( !Bot_STEFXHolomatchDirectSliceActive() )
+	{
+		return;
+	}
+
+	botEnt = &g_entities[bs->client];
+	target = &g_entities[0];
+	if ( !botEnt->inuse || !botEnt->client || botEnt->health <= 0 ||
+		!target->inuse || !target->client || target->health <= 0 )
+	{
+		return;
+	}
+	if ( botEnt->client->sess.sessionTeam == TEAM_SPECTATOR ||
+		target->client->sess.sessionTeam == TEAM_SPECTATOR )
+	{
+		return;
+	}
+
+	botEnt->client->ps.pm_flags &= ~PMF_RESPAWNED;
+	bs->cur_ps.pm_flags &= ~PMF_RESPAWNED;
+	botEnt->client->ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+	botEnt->client->ps.weapon = WP_BRYAR_PISTOL;
+	bs->cur_ps.stats[STAT_WEAPONS] |= ( 1 << WP_BRYAR_PISTOL );
+	bs->cur_ps.weapon = WP_BRYAR_PISTOL;
+	if ( botEnt->client->ps.ammo[AMMO_FORCE] < 10 )
+	{
+		botEnt->client->ps.ammo[AMMO_FORCE] = ammoData[AMMO_FORCE].max;
+	}
+	bs->cur_ps.ammo[AMMO_FORCE] = botEnt->client->ps.ammo[AMMO_FORCE];
+
+	VectorCopy( botEnt->client->ps.origin, eye );
+	eye[2] += DEFAULT_VIEWHEIGHT;
+	VectorCopy( target->client->ps.origin, targetEye );
+	targetEye[2] += DEFAULT_VIEWHEIGHT;
+	VectorSubtract( targetEye, eye, aimDir );
+	if ( VectorLength( aimDir ) < 1.0f )
+	{
+		return;
+	}
+	dist2D = aimDir[0] * aimDir[0] + aimDir[1] * aimDir[1];
+
+	vectoangles( aimDir, aimAngles );
+	ucmd->weapon = WP_BRYAR_PISTOL;
+	for ( j = 0; j < 3; j++ )
+	{
+		temp = ANGLE2SHORT( aimAngles[j] ) - botEnt->client->ps.delta_angles[j];
+		ucmd->angles[j] = temp;
+	}
+
+	ucmd->buttons &= ~( BUTTON_ATTACK | BUTTON_ALT_ATTACK | BUTTON_FORCEPOWER );
+	if ( ( ( time / 1200 ) % 4 ) == 3 )
+	{
+		ucmd->buttons |= BUTTON_ALT_ATTACK;
+	}
+	else
+	{
+		ucmd->buttons |= BUTTON_ATTACK;
+	}
+	if ( !ucmd->forwardmove && !ucmd->rightmove && dist2D > ( 160.0f * 160.0f ) )
+	{
+		ucmd->forwardmove = 96;
+		ucmd->rightmove = ( ( ( time / 700 ) + bs->client ) & 1 ) ? 32 : -32;
+	}
+	else if ( dist2D <= ( 160.0f * 160.0f ) )
+	{
+		ucmd->forwardmove = 0;
+		ucmd->rightmove = ( ( ( time / 500 ) + bs->client ) & 1 ) ? 64 : -64;
+	}
+	ucmd->upmove = 0;
+
+	if ( !loggedDirectBotCommand )
+	{
+		G_Printf( "STEFX_HM: direct Holomatch combat bot command client=%d target=0 weapon=%d attack='%s' move=%d,%d,%d dist2D=%.1f\n",
+			bs->client,
+			ucmd->weapon,
+			( ucmd->buttons & BUTTON_ALT_ATTACK ) ? "alt" : "primary",
+			ucmd->forwardmove,
+			ucmd->rightmove,
+			ucmd->upmove,
+			dist2D );
+		loggedDirectBotCommand = qtrue;
+	}
+}
+#endif
+
 /*
 ==============
 BotUpdateInput
@@ -652,6 +782,9 @@ void BotUpdateInput(bot_state_t *bs, int time, int elapsed_time) {
 	}
 	//convert the bot input to a usercmd
 	BotInputToUserCommand(&bi, &bs->lastucmd, bs->cur_ps.delta_angles, time, bs->noUseTime);
+#if defined(STEFX_ELITE_FORCE_MP)
+	Bot_STEFXHolomatchDirectSliceCommand( bs, &bs->lastucmd, time );
+#endif
 	//subtract the delta angles
 	for (j = 0; j < 3; j++) {
 		bs->viewangles[j] = AngleMod(bs->viewangles[j] - SHORT2ANGLE(bs->cur_ps.delta_angles[j]));
@@ -827,7 +960,32 @@ int BotAISetupClient(int client, struct bot_settings_s *settings, qboolean resta
 
 	bs->client = client; //need to know the client number before doing personality stuff
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: bot setup client begin client=%d personality='%s' skill=%.2f team='%s'\n",
+		client,
+		settings ? settings->personalityfile : "",
+		settings ? settings->skill : 0.0f,
+		settings ? settings->team : "" );
+#endif
+
 	//initialize weapon weight defaults..
+#if defined(STEFX_ELITE_FORCE_MP)
+	bs->botWeaponWeights[WP_NONE] = 0;
+	bs->botWeaponWeights[WP_STUN_BATON] = 0;
+	bs->botWeaponWeights[WP_SABER] = 0;
+	bs->botWeaponWeights[WP_BRYAR_PISTOL] = 30;
+	bs->botWeaponWeights[WP_BLASTER] = 100;
+	bs->botWeaponWeights[WP_DISRUPTOR] = 100;
+	bs->botWeaponWeights[WP_BOWCASTER] = 100;
+	bs->botWeaponWeights[WP_REPEATER] = 0;
+	bs->botWeaponWeights[WP_DEMP2] = 100;
+	bs->botWeaponWeights[WP_FLECHETTE] = 0;
+	bs->botWeaponWeights[WP_ROCKET_LAUNCHER] = 100;
+	bs->botWeaponWeights[WP_THERMAL] = 0;
+	bs->botWeaponWeights[WP_TRIP_MINE] = 0;
+	bs->botWeaponWeights[WP_DET_PACK] = 0;
+	bs->botWeaponWeights[WP_MELEE] = 0;
+#else
 	bs->botWeaponWeights[WP_NONE] = 0;
 	bs->botWeaponWeights[WP_STUN_BATON] = 1;
 	bs->botWeaponWeights[WP_SABER] = 10;
@@ -843,13 +1001,32 @@ int BotAISetupClient(int client, struct bot_settings_s *settings, qboolean resta
 	bs->botWeaponWeights[WP_TRIP_MINE] = 0;
 	bs->botWeaponWeights[WP_DET_PACK] = 0;
 	bs->botWeaponWeights[WP_MELEE] = 1;
+#endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: bot setup personality begin client=%d file='%s'\n",
+		client,
+		bs->settings.personalityfile );
+#endif
 	BotUtilizePersonality(bs);
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: bot setup personality returned client=%d\n", client );
+	G_Printf( "STEFX_HM: bot setup personality done client=%d phaser=%.0f compression=%.0f imod=%.0f scavenger=%.0f tetrion=%.0f dreadnought=%.0f\n",
+		client,
+		bs->botWeaponWeights[WP_BRYAR_PISTOL],
+		bs->botWeaponWeights[WP_BLASTER],
+		bs->botWeaponWeights[WP_DEMP2],
+		bs->botWeaponWeights[WP_BOWCASTER],
+		bs->botWeaponWeights[WP_DISRUPTOR],
+		bs->botWeaponWeights[WP_ROCKET_LAUNCHER] );
+#endif
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (g_gametype.integer == GT_DUEL || g_gametype.integer == GT_POWERDUEL)
 	{
 		bs->botWeaponWeights[WP_SABER] = 13;
 	}
+#endif
 
 	bs->inuse = qtrue;
 	bs->entitynum = client;
@@ -940,6 +1117,15 @@ BotAILoadMap
 */
 int BotAILoadMap( int restart ) {
 	int			i;
+#if defined(STEFX_ELITE_FORCE_MP)
+	vmCvar_t	mapname;
+	vmCvar_t	ckSum;
+	fileHandle_t aasFile;
+	int			aasLength;
+	char		aasPath[MAX_QPATH];
+	qboolean	aasAvailable;
+	int			botLibMapLoadResult;
+#endif
 
 	for (i = 0; i < MAX_CLIENTS; i++) {
 		if (botstates[i] && botstates[i]->inuse) {
@@ -947,6 +1133,45 @@ int BotAILoadMap( int restart ) {
 			botstates[i]->setupcount = 4;
 		}
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	trap_Cvar_Register( &mapname, "mapname", "", CVAR_SERVERINFO | CVAR_ROM );
+	trap_Cvar_Register( &ckSum, "sv_mapChecksum", "", CVAR_ROM );
+	Com_sprintf( aasPath, sizeof(aasPath), "maps/%s.aas", mapname.string );
+	aasLength = trap_FS_FOpenFile( aasPath, &aasFile, FS_READ );
+	aasAvailable = qfalse;
+	botLibMapLoadResult = BLERR_NOERROR;
+	if ( aasFile )
+	{
+		trap_FS_FCloseFile( aasFile );
+		aasAvailable = (aasLength > 0) ? qtrue : qfalse;
+		G_Printf( "STEFX_HM: official EF AAS package probe map='%s' file='%s' bytes=%d checksum='%s'; generated waypoint route remains available for Xbox BSP\n",
+			mapname.string, aasPath, aasLength, ckSum.string );
+	}
+	else
+	{
+		G_Printf( "STEFX_HM: official EF AAS package probe missing map='%s' file='%s' checksum='%s'; generated waypoint route remains active\n",
+			mapname.string, aasPath, ckSum.string );
+	}
+	if ( !restart && aasAvailable )
+	{
+		trap_BotLibVarSet( "sv_mapChecksum", ckSum.string );
+		G_Printf( "STEFX_HM: official EF AAS botlib checksum var set value='%s'\n", ckSum.string );
+		G_Printf( "STEFX_HM: official EF AAS botlib load begin map='%s'\n", mapname.string );
+		botLibMapLoadResult = trap_BotLibLoadMap( mapname.string );
+		G_Printf( "STEFX_HM: official EF AAS botlib load result=%d map='%s'\n",
+			botLibMapLoadResult, mapname.string );
+		if ( botLibMapLoadResult != BLERR_NOERROR )
+		{
+			G_Printf( "STEFX_HM: official EF AAS botlib load failed; generated waypoint route remains active map='%s'\n",
+				mapname.string );
+		}
+	}
+	else if ( restart )
+	{
+		G_Printf( "STEFX_HM: official EF AAS botlib load skipped on restart map='%s'\n", mapname.string );
+	}
+#endif
 
 	return qtrue;
 }
@@ -2115,10 +2340,19 @@ int ScanForEnemies(bot_state_t *bs)
 	int i;
 	float hasEnemyDist = 0;
 	qboolean noAttackNonJM = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	qboolean holomatchWideScan;
+	qboolean enemyVisible;
+	qboolean enemySensed;
+	static qboolean loggedHolomatchWideScan = qfalse;
+#endif
 
 	closest = 999999;
 	i = 0;
 	bestindex = -1;
+#if defined(STEFX_ELITE_FORCE_MP)
+	holomatchWideScan = (qboolean)(g_gametype.integer == GT_FFA);
+#endif
 
 	if (bs->currentEnemy)
 	{ //only switch to a new enemy if he's significantly closer
@@ -2159,7 +2393,25 @@ int ScanForEnemies(bot_state_t *bs)
 				distcheck = 1;
 			}
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+			enemyVisible = (qboolean)OrgVisible(bs->eye, g_entities[i].client->ps.origin, -1);
+			enemySensed = (qboolean)((InFieldOfVision(bs->viewangles, 90, a) && !BotMindTricked(bs->client, i)) || BotCanHear(bs, &g_entities[i], distcheck));
+			if (!enemySensed && holomatchWideScan && enemyVisible && distcheck < 1600.0f)
+			{
+				enemySensed = qtrue;
+				if (!loggedHolomatchWideScan)
+				{
+					G_Printf("STEFX_HM: bot widened EF Holomatch visible-enemy scan client=%d target=%d dist=%.1f\n",
+						bs->client,
+						i,
+						distcheck);
+					loggedHolomatchWideScan = qtrue;
+				}
+			}
+			if (distcheck < closest && enemySensed && enemyVisible)
+#else
 			if (distcheck < closest && ((InFieldOfVision(bs->viewangles, 90, a) && !BotMindTricked(bs->client, i)) || BotCanHear(bs, &g_entities[i], distcheck)) && OrgVisible(bs->eye, g_entities[i].client->ps.origin, -1))
+#endif
 			{
 				if (BotMindTricked(bs->client, i))
 				{
@@ -2276,6 +2528,9 @@ int BotGetWeaponRange(bot_state_t *bs)
 int BotIsAChickenWuss(bot_state_t *bs)
 {
 	int bWRange;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchPhaserCourage = qfalse;
+#endif
 
 	if (gLevelFlags & LEVELFLAG_IMUSTNTRUNAWAY)
 	{ //The level says we mustn't run away!
@@ -2342,6 +2597,17 @@ jmPass:
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (bs->cur_ps.weapon == WP_BRYAR_PISTOL)
+	{
+		if (!loggedHolomatchPhaserCourage)
+		{
+			G_Printf("STEFX_HM: bot treats EF Phaser bridge as normal combat weapon client=%d\n", bs->client);
+			loggedHolomatchPhaserCourage = qtrue;
+		}
+	}
+	else
+#endif
 	if (bs->cur_ps.weapon == WP_BRYAR_PISTOL)
 	{ //the bryar is a weak weapon, so just try to find a new one if it's what you're having to use
 		return 1;
@@ -3241,6 +3507,10 @@ int SiegeTakesPriority(bot_state_t *bs)
 	vec3_t dif;
 	trace_t tr;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	return 0;
+#endif
+
 	if (g_gametype.integer != GT_SIEGE)
 	{
 		return 0;
@@ -3677,6 +3947,7 @@ void GetIdealDestination(bot_state_t *bs)
 		}
 		return;
 	}
+#if !defined(STEFX_ELITE_FORCE_MP)
 	else if (!badthing && SiegeTakesPriority(bs))
 	{
 		if (bs->siegeState)
@@ -3685,6 +3956,7 @@ void GetIdealDestination(bot_state_t *bs)
 		}
 		return;
 	}
+#endif
 	else if (!badthing && JMTakesPriority(bs))
 	{
 		bs->runningToEscapeThreat = 1;
@@ -4231,10 +4503,12 @@ void CommanderBotAI(bot_state_t *bs)
 	{
 		CommanderBotCTFAI(bs);
 	}
+#if !defined(STEFX_ELITE_FORCE_MP)
 	else if (g_gametype.integer == GT_SIEGE)
 	{
 		CommanderBotSiegeAI(bs);
 	}
+#endif
 	else if (g_gametype.integer == GT_TEAM)
 	{
 		CommanderBotTeamplayAI(bs);
@@ -4546,9 +4820,20 @@ void SaberCombatHandling(bot_state_t *bs)
 float BotWeaponCanLead(bot_state_t *bs)
 {
 	int weap = bs->cur_ps.weapon;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchPhaserNoLead = qfalse;
+#endif
 
 	if (weap == WP_BRYAR_PISTOL)
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if (!loggedHolomatchPhaserNoLead)
+		{
+			G_Printf("STEFX_HM: bot disabled inherited aim leading for EF Phaser bridge client=%d\n", bs->client);
+			loggedHolomatchPhaserNoLead = qtrue;
+		}
+		return 0;
+#endif
 		return 0.5;
 	}
 	if (weap == WP_BLASTER)
@@ -4863,6 +5148,9 @@ int CombatBotAI(bot_state_t *bs, float thinktime)
 	vec3_t eorg, a;
 	int secFire;
 	float fovcheck;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchPhaserAttackCone = qfalse;
+#endif
 
 	if (!bs->currentEnemy)
 	{
@@ -4911,6 +5199,23 @@ int CombatBotAI(bot_state_t *bs, float thinktime)
 		{
 			fovcheck = 60;
 		}
+#if defined(STEFX_ELITE_FORCE_MP)
+		if (bs->cur_ps.weapon == WP_BRYAR_PISTOL && g_gametype.integer == GT_FFA && bs->frame_Enemy_Vis)
+		{
+			VectorCopy(a, bs->goalAngles);
+			VectorCopy(a, bs->viewangles);
+			trap_EA_View(bs->client, bs->viewangles);
+			fovcheck = 20;
+			if (!loggedHolomatchPhaserAttackCone)
+			{
+				G_Printf("STEFX_HM: bot using EF Holomatch Phaser direct aim client=%d target=%d dist=%.1f\n",
+					bs->client,
+					bs->currentEnemy ? bs->currentEnemy->s.number : -1,
+					bs->frame_Enemy_Len);
+				loggedHolomatchPhaserAttackCone = qtrue;
+			}
+		}
+#endif
 
 		if (bs->cur_ps.weaponstate == WEAPON_CHARGING ||
 			bs->cur_ps.weaponstate == WEAPON_CHARGING_ALT)
@@ -5045,9 +5350,56 @@ int BotFallbackNavigation(bot_state_t *bs)
 	return 0;
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean Bot_STEFXHolomatchWeaponCanSelectEmpty( int weapon )
+{
+	return ( weapon == WP_BRYAR_PISTOL );
+}
+
+static qboolean Bot_STEFXHolomatchEmptySelectable( bot_state_t *bs, int weapon )
+{
+	if ( !bs || !Bot_STEFXHolomatchWeaponCanSelectEmpty( weapon ) )
+	{
+		return qfalse;
+	}
+
+	if ( !( bs->cur_ps.stats[STAT_WEAPONS] & ( 1 << weapon ) ) )
+	{
+		return qfalse;
+	}
+
+	if ( bs->cur_ps.ammo[weaponData[weapon].ammoIndex] >= weaponData[weapon].energyPerShot ||
+		bs->cur_ps.ammo[weaponData[weapon].ammoIndex] >= weaponData[weapon].altEnergyPerShot )
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static void Bot_STEFXLogHolomatchEmptySelectable( bot_state_t *bs, int weapon )
+{
+	static qboolean logged = qfalse;
+
+	if ( logged )
+	{
+		return;
+	}
+
+	G_Printf("STEFX_HM: bot kept empty EF Phaser selectable weapon=%d client=%d\n",
+		weapon,
+		bs ? bs->client : -1);
+	logged = qtrue;
+}
+#endif
+
 int BotTryAnotherWeapon(bot_state_t *bs)
 { //out of ammo, resort to the first weapon we come across that has ammo
 	int i;
+	int fallbackWeapon;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchFallback = qfalse;
+#endif
 
 	i = 1;
 
@@ -5066,12 +5418,25 @@ int BotTryAnotherWeapon(bot_state_t *bs)
 		i++;
 	}
 
-	if (bs->cur_ps.weapon != 1 && bs->virtualWeapon != 1)
+#if defined(STEFX_ELITE_FORCE_MP)
+	fallbackWeapon = WP_BRYAR_PISTOL;
+#else
+	fallbackWeapon = WP_STUN_BATON;
+#endif
+
+	if (bs->cur_ps.weapon != fallbackWeapon && bs->virtualWeapon != fallbackWeapon)
 	{ //should always have this.. shouldn't we?
-		bs->virtualWeapon = 1;
-		BotSelectWeapon(bs->client, 1);
-		//bs->cur_ps.weapon = 1;
-		//level.clients[bs->client].ps.weapon = 1;
+		bs->virtualWeapon = fallbackWeapon;
+		BotSelectWeapon(bs->client, fallbackWeapon);
+		//bs->cur_ps.weapon = fallbackWeapon;
+		//level.clients[bs->client].ps.weapon = fallbackWeapon;
+#if defined(STEFX_ELITE_FORCE_MP)
+		if (!loggedHolomatchFallback)
+		{
+			G_Printf("STEFX_HM: bot fallback weapon uses EF phaser bridge weapon=%d client=%d\n", fallbackWeapon, bs->client);
+			loggedHolomatchFallback = qtrue;
+		}
+#endif
 		return 1;
 	}
 
@@ -5091,7 +5456,14 @@ qboolean BotWeaponSelectable(bot_state_t *bs, int weapon)
 	{
 		return qtrue;
 	}
-	
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (Bot_STEFXHolomatchEmptySelectable(bs, weapon))
+	{
+		Bot_STEFXLogHolomatchEmptySelectable(bs, weapon);
+		return qtrue;
+	}
+#endif
+
 	return qfalse;
 }
 
@@ -5106,10 +5478,20 @@ int BotSelectIdealWeapon(bot_state_t *bs)
 
 	while (i < WP_NUM_WEAPONS)
 	{
-		if (bs->cur_ps.ammo[weaponData[i].ammoIndex] >= weaponData[i].energyPerShot &&
+		if ((bs->cur_ps.ammo[weaponData[i].ammoIndex] >= weaponData[i].energyPerShot
+#if defined(STEFX_ELITE_FORCE_MP)
+			|| Bot_STEFXHolomatchEmptySelectable(bs, i)
+#endif
+			) &&
 			bs->botWeaponWeights[i] > bestweight &&
 			(bs->cur_ps.stats[STAT_WEAPONS] & (1 << i)))
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			if (bs->cur_ps.ammo[weaponData[i].ammoIndex] < weaponData[i].energyPerShot)
+			{
+				Bot_STEFXLogHolomatchEmptySelectable(bs, i);
+			}
+#endif
 			if (i == WP_THERMAL)
 			{ //special case..
 				if (bs->currentEnemy && bs->frame_Enemy_Len < 700)
@@ -5128,6 +5510,7 @@ int BotSelectIdealWeapon(bot_state_t *bs)
 		i++;
 	}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if ( bs->currentEnemy && bs->frame_Enemy_Len < 300 &&
 		(bestweapon == WP_BRYAR_PISTOL || bestweapon == WP_BLASTER || bestweapon == WP_BOWCASTER) &&
 		(bs->cur_ps.stats[STAT_WEAPONS] & (1 << WP_SABER)) )
@@ -5135,6 +5518,7 @@ int BotSelectIdealWeapon(bot_state_t *bs)
 		bestweapon = WP_SABER;
 		bestweight = 1;
 	}
+#endif
 
 	if ( bs->currentEnemy && bs->frame_Enemy_Len > 300 &&
 		bs->currentEnemy->client && bs->currentEnemy->client->ps.weapon != WP_SABER &&
@@ -5198,10 +5582,20 @@ int BotSelectChoiceWeapon(bot_state_t *bs, int weapon, int doselection)
 
 	while (i < WP_NUM_WEAPONS)
 	{
-		if (bs->cur_ps.ammo[weaponData[i].ammoIndex] > weaponData[i].energyPerShot &&
+		if ((bs->cur_ps.ammo[weaponData[i].ammoIndex] > weaponData[i].energyPerShot
+#if defined(STEFX_ELITE_FORCE_MP)
+			|| Bot_STEFXHolomatchEmptySelectable(bs, i)
+#endif
+			) &&
 			i == weapon &&
 			(bs->cur_ps.stats[STAT_WEAPONS] & (1 << i)))
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			if (bs->cur_ps.ammo[weaponData[i].ammoIndex] <= weaponData[i].energyPerShot)
+			{
+				Bot_STEFXLogHolomatchEmptySelectable(bs, i);
+			}
+#endif
 			hasit = 1;
 			break;
 		}
@@ -5229,12 +5623,20 @@ int BotSelectChoiceWeapon(bot_state_t *bs, int weapon, int doselection)
 //override our standard weapon choice with a melee weapon
 int BotSelectMelee(bot_state_t *bs)
 {
-	if (bs->cur_ps.weapon != 1 && bs->virtualWeapon != 1)
+	int meleeWeapon;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	meleeWeapon = WP_BRYAR_PISTOL;
+#else
+	meleeWeapon = WP_STUN_BATON;
+#endif
+
+	if (bs->cur_ps.weapon != meleeWeapon && bs->virtualWeapon != meleeWeapon)
 	{
-		bs->virtualWeapon = 1;
-		BotSelectWeapon(bs->client, 1);
-		//bs->cur_ps.weapon = 1;
-		//level.clients[bs->client].ps.weapon = 1;
+		bs->virtualWeapon = meleeWeapon;
+		BotSelectWeapon(bs->client, meleeWeapon);
+		//bs->cur_ps.weapon = meleeWeapon;
+		//level.clients[bs->client].ps.weapon = meleeWeapon;
 		return 1;
 	}
 
@@ -5933,6 +6335,14 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 	int mineSelect = 0;
 	int detSelect = 0;
 	vec3_t preFrameGAngles;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchEmptyPhaserCombat = qfalse;
+	static qboolean loggedHolomatchForceAISkip = qfalse;
+	static qboolean loggedHolomatchSaberAISkip = qfalse;
+	static qboolean loggedHolomatchInheritedWeaponScrub = qfalse;
+	qboolean holomatchSkipInheritedForceAI = qtrue;
+	qboolean holomatchSkipInheritedSaberAI = qtrue;
+#endif
 
 	if (gDeactivated)
 	{
@@ -5953,6 +6363,31 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 		bs->wpDirection = 0;
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (holomatchSkipInheritedSaberAI &&
+		(bs->cur_ps.weapon == WP_SABER || bs->cur_ps.weapon == WP_STUN_BATON || bs->cur_ps.weapon == WP_MELEE))
+	{
+		int staleWeapon = bs->cur_ps.weapon;
+
+		bs->cur_ps.stats[STAT_WEAPONS] |= (1 << WP_BRYAR_PISTOL);
+		bs->cur_ps.weapon = WP_BRYAR_PISTOL;
+		bs->virtualWeapon = WP_BRYAR_PISTOL;
+		if (g_entities[bs->client].client)
+		{
+			level.clients[bs->client].ps.stats[STAT_WEAPONS] |= (1 << WP_BRYAR_PISTOL);
+			level.clients[bs->client].ps.weapon = WP_BRYAR_PISTOL;
+		}
+		BotSelectWeapon(bs->client, WP_BRYAR_PISTOL);
+		if (!loggedHolomatchInheritedWeaponScrub)
+		{
+			G_Printf("STEFX_HM: bot corrected inherited melee/saber weapon to EF Phaser bridge client=%d oldWeapon=%d\n",
+				bs->client,
+				staleWeapon);
+			loggedHolomatchInheritedWeaponScrub = qtrue;
+		}
+	}
+#endif
 
 
 #ifndef FINAL_BUILD
@@ -6164,6 +6599,10 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 
 	fjHalt = 0;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!holomatchSkipInheritedForceAI)
+	{
+#endif
 #ifndef FORCEJUMP_INSTANTMETHOD
 	if (bs->forceJumpChargeTime > level.time)
 	{
@@ -6310,6 +6749,14 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 			forceHostile = 0;
 		}
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	}
+	else if (!loggedHolomatchForceAISkip)
+	{
+		G_Printf("STEFX_HM: bot skipped inherited Force-power decision path in Holomatch client=%d\n", bs->client);
+		loggedHolomatchForceAISkip = qtrue;
+	}
+#endif
 
 	doingFallback = 0;
 
@@ -6323,7 +6770,11 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 		}
 	}
 
-	if (bs->cur_ps.ammo[weaponData[bs->cur_ps.weapon].ammoIndex] < weaponData[bs->cur_ps.weapon].energyPerShot)
+	if (bs->cur_ps.ammo[weaponData[bs->cur_ps.weapon].ammoIndex] < weaponData[bs->cur_ps.weapon].energyPerShot
+#if defined(STEFX_ELITE_FORCE_MP)
+		&& !Bot_STEFXHolomatchEmptySelectable(bs, bs->cur_ps.weapon)
+#endif
+		)
 	{
 		if (BotTryAnotherWeapon(bs))
 		{
@@ -6332,6 +6783,19 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 	}
 	else
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if (Bot_STEFXHolomatchEmptySelectable(bs, bs->cur_ps.weapon))
+		{
+			Bot_STEFXLogHolomatchEmptySelectable(bs, bs->cur_ps.weapon);
+			if (!loggedHolomatchEmptyPhaserCombat)
+			{
+				G_Printf("STEFX_HM: bot kept EF Phaser bridge through empty recharge combat path client=%d ammo_phaser=%d\n",
+					bs->client,
+					bs->cur_ps.ammo[weaponData[bs->cur_ps.weapon].ammoIndex]);
+				loggedHolomatchEmptyPhaserCombat = qtrue;
+			}
+		}
+#endif
 		if (bs->currentEnemy && bs->lastVisibleEnemyIndex == bs->currentEnemy->s.number &&
 			bs->frame_Enemy_Vis && bs->forceWeaponSelect /*&& bs->plantContinue < level.time*/)
 		{
@@ -6446,7 +6910,11 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!holomatchSkipInheritedSaberAI && bot_honorableduelacceptance.integer)
+#else
 	if (bot_honorableduelacceptance.integer)
+#endif
 	{
 		if (bs->currentEnemy && bs->currentEnemy->client &&
 			bs->cur_ps.weapon == WP_SABER &&
@@ -6946,6 +7414,10 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (!holomatchSkipInheritedSaberAI)
+	{
+#endif
 	if (bs->cur_ps.saberInFlight)
 	{
 		bs->saberThrowTime = level.time + Q_irand(4000, 10000);
@@ -7041,6 +7513,14 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 			}
 		}
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	}
+	else if (!loggedHolomatchSaberAISkip)
+	{
+		G_Printf("STEFX_HM: bot skipped inherited saber/duel combat path in Holomatch client=%d\n", bs->client);
+		loggedHolomatchSaberAISkip = qtrue;
+	}
+#endif
 
 	if (doingFallback && bs->currentEnemy) //just stand and fire if we have no idea where we are
 	{
@@ -7361,7 +7841,11 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 				useTheForce = 0;
 			}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+			if (!holomatchSkipInheritedForceAI && !useTheForce && friendInLOF->client)
+#else
 			if (!useTheForce && friendInLOF->client)
+#endif
 			{ //we have a friend here and are not currently using force powers, see if we can help them out
 				if (friendInLOF->health <= 50 && level.clients[bs->client].ps.fd.forcePower > forcePowerNeeded[level.clients[bs->client].ps.fd.forcePowerLevel[FP_TEAM_HEAL]][FP_TEAM_HEAL])
 				{
@@ -7382,7 +7866,11 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 	{ //still check for anyone to help..
 		friendInLOF = CheckForFriendInLOF(bs);
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		if (!holomatchSkipInheritedForceAI && !useTheForce && friendInLOF)
+#else
 		if (!useTheForce && friendInLOF)
+#endif
 		{
 			if (friendInLOF->health <= 50 && level.clients[bs->client].ps.fd.forcePower > forcePowerNeeded[level.clients[bs->client].ps.fd.forcePowerLevel[FP_TEAM_HEAL]][FP_TEAM_HEAL])
 			{
@@ -7451,6 +7939,13 @@ void StandardBotAI(bot_state_t *bs, float thinktime)
 	{
 		useTheForce = qfalse;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (holomatchSkipInheritedForceAI && useTheForce)
+	{
+		useTheForce = qfalse;
+	}
+#endif
 
 	if (useTheForce)
 	{
@@ -7567,6 +8062,10 @@ BotAISetup
 ==============
 */
 int BotAISetup( int restart ) {
+	int botlibSetupResult;
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: BotAISetup begin restart=%d\n", restart );
+#endif
 	//rww - new bot cvars..
 	trap_Cvar_Register(&bot_forcepowers, "bot_forcepowers", "1", CVAR_CHEAT);
 	trap_Cvar_Register(&bot_forgimmick, "bot_forgimmick", "0", CVAR_CHEAT);
@@ -7600,17 +8099,30 @@ int BotAISetup( int restart ) {
 
 	//if the game is restarted for a tournament
 	if (restart) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: BotAISetup restart reused existing bot library\n" );
+#endif
 		return qtrue;
 	}
 
 	//initialize the bot states
 	memset( botstates, 0, sizeof(botstates) );
 
-	if (!trap_BotLibSetup())
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: BotAISetup trap_BotLibSetup begin\n" );
+#endif
+	botlibSetupResult = trap_BotLibSetup();
+	if (botlibSetupResult != BLERR_NOERROR)
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		G_Printf( "STEFX_HM: BotAISetup trap_BotLibSetup failed result=%d\n", botlibSetupResult );
+#endif
 		return qfalse; //wts?!
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	G_Printf( "STEFX_HM: BotAISetup trap_BotLibSetup done result=%d\n", botlibSetupResult );
+#endif
 	return qtrue;
 }
 

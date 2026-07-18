@@ -100,6 +100,22 @@ weaponData_t weaponData[WP_NUM_WEAPONS] =
 	},
 	{	// WP_BRYAR_PISTOL,
 //		"Bryar Pistol",			//	char	classname[32];		// Spawning name
+#if defined(STEFX_ELITE_FORCE_MP)
+		AMMO_FORCE,				//	int		ammoIndex;			// Phaser bucket
+		5,						//	int		ammoLow;			// Count when ammo is low
+		1,						//	int		energyPerShot;		// Amount of energy used per shot
+		100,					//	int		fireTime;			// Amount of time between firings
+		8192,					//	int		range;				// Range of weapon
+		1,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
+		100,					//	int		altFireTime;		// Amount of time between alt-firings
+		8192,					//	int		altRange;			// Range of alt-fire
+		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
+		0,						//	int		altChargeSubTime;	// above for secondary
+		0,						//	int		chargeSub;			// amount to subtract during charge on each interval
+		0,						//int		altChargeSub;		// above for secondary
+		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
+		0						//	int		altMaxCharge;		// above for secondary
+#else
 		AMMO_BLASTER,			//	int		ammoIndex;			// Index to proper ammo slot
 		0,//15,						//	int		ammoLow;			// Count when ammo is low
 		0,//2,						//	int		energyPerShot;		// Amount of energy used per shot
@@ -114,16 +130,31 @@ weaponData_t weaponData[WP_NUM_WEAPONS] =
 		0,//1,						//int		altChargeSub;		// above for secondary
 		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
 		0,//1500					//	int		altMaxCharge;		// above for secondary
+#endif
 	},
 	{	// WP_BLASTER
 //		"E11 Blaster Rifle",	//	char	classname[32];		// Spawning name
 		AMMO_BLASTER,			//	int		ammoIndex;			// Index to proper ammo slot
+#if defined(STEFX_ELITE_FORCE_MP)
+		8,						//	int		ammoLow;			// Count when ammo is low
+#else
 		5,						//	int		ammoLow;			// Count when ammo is low
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		1,						//	int		energyPerShot;		// Amount of energy used per shot
+		250,					//	int		fireTime;			// Amount of time between firings
+#else
 		2,						//	int		energyPerShot;		// Amount of energy used per shot
 		350,					//	int		fireTime;			// Amount of time between firings
+#endif
 		8192,					//	int		range;				// Range of weapon
+#if defined(STEFX_ELITE_FORCE_MP)
+		8,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
+		1200,					//	int		altFireTime;		// Amount of time between alt-firings
+#else
 		3,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
 		150,					//	int		altFireTime;		// Amount of time between alt-firings
+#endif
 		8192,					//	int		altRange;			// Range of alt-fire
 		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
 		0,						//	int		altChargeSubTime;	// above for secondary
@@ -135,36 +166,77 @@ weaponData_t weaponData[WP_NUM_WEAPONS] =
 	{	// WP_DISRUPTOR
 //		"Tenloss Disruptor Rifle",//	char	classname[32];		// Spawning name
 		AMMO_POWERCELL,			//	int		ammoIndex;			// Index to proper ammo slot
+#if defined(STEFX_ELITE_FORCE_MP)
+		2,						//	int		ammoLow;			// Count when ammo is low
+#else
 		5,						//	int		ammoLow;			// Count when ammo is low
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		1,						//	int		energyPerShot;		// Amount of energy used per shot
+		100,					//	int		fireTime;			// Amount of time between firings
+#else
 		5,						//	int		energyPerShot;		// Amount of energy used per shot
 		600,					//	int		fireTime;			// Amount of time between firings
+#endif
 		8192,					//	int		range;				// Range of weapon
+#if defined(STEFX_ELITE_FORCE_MP)
+		2,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
+		200,					//	int		altFireTime;		// Amount of time between alt-firings
+#else
 		6,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
 		1300,					//	int		altFireTime;		// Amount of time between alt-firings
+#endif
 		8192,					//	int		altRange;			// Range of alt-fire
+#if defined(STEFX_ELITE_FORCE_MP)
+		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
+		0,						//	int		altChargeSubTime;	// above for secondary
+		0,						//	int		chargeSub;			// amount to subtract during charge on each interval
+		0,						//int		altChargeSub;		// above for secondary
+		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
+		0						//	int		altMaxCharge;		// above for secondary
+#else
 		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
 		200,					//	int		altChargeSubTime;	// above for secondary
 		0,						//	int		chargeSub;			// amount to subtract during charge on each interval
 		3,						//int		altChargeSub;		// above for secondary
 		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
 		1700					//	int		altMaxCharge;		// above for secondary
+#endif
 	},
 	{	// WP_BOWCASTER
 //		"Wookiee Bowcaster",		//	char	classname[32];		// Spawning name
 		AMMO_POWERCELL,			//	int		ammoIndex;			// Index to proper ammo slot
 		5,						//	int		ammoLow;			// Count when ammo is low
+#if defined(STEFX_ELITE_FORCE_MP)
+		1,						//	int		energyPerShot;		// Amount of energy used per shot
+		100,					//	int		fireTime;			// Amount of time between firings
+#else
 		5,						//	int		energyPerShot;		// Amount of energy used per shot
 		1000,					//	int		fireTime;			// Amount of time between firings
+#endif
 		8192,					//	int		range;				// Range of weapon
 		5,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
+#if defined(STEFX_ELITE_FORCE_MP)
+		700,					//	int		altFireTime;		// Amount of time between alt-firings
+#else
 		750,					//	int		altFireTime;		// Amount of time between alt-firings
+#endif
 		8192,					//	int		altRange;			// Range of alt-fire
+#if defined(STEFX_ELITE_FORCE_MP)
+		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
+		0,						//	int		altChargeSubTime;	// above for secondary
+		0,						//	int		chargeSub;			// amount to subtract during charge on each interval
+		0,						//int		altChargeSub;		// above for secondary
+		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
+		0						//	int		altMaxCharge;		// above for secondary
+#else
 		400,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
 		0,					//	int		altChargeSubTime;	// above for secondary
 		5,						//	int		chargeSub;			// amount to subtract during charge on each interval
 		0,						//int		altChargeSub;		// above for secondary
 		1700,						//	int		maxCharge;			// stop subtracting once charged for this many ms
 		0					//	int		altMaxCharge;		// above for secondary
+#endif
 	},
 	{	// WP_REPEATER
 //		"Imperial Heavy Repeater",//	char	classname[32];		// Spawning name
@@ -186,19 +258,42 @@ weaponData_t weaponData[WP_NUM_WEAPONS] =
 	{	// WP_DEMP2
 //		"DEMP2",				//	char	classname[32];		// Spawning name
 		AMMO_POWERCELL,			//	int		ammoIndex;			// Index to proper ammo slot
+#if defined(STEFX_ELITE_FORCE_MP)
+		3,						//	int		ammoLow;			// Count when ammo is low
+#else
 		5,						//	int		ammoLow;			// Count when ammo is low
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		1,						//	int		energyPerShot;		// Amount of energy used per shot
+		350,					//	int		fireTime;			// Amount of time between firings
+#else
 		8,						//	int		energyPerShot;		// Amount of energy used per shot
 		500,					//	int		fireTime;			// Amount of time between firings
+#endif
 		8192,					//	int		range;				// Range of weapon
+#if defined(STEFX_ELITE_FORCE_MP)
+		3,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
+		700,					//	int		altFireTime;		// Amount of time between alt-firings
+#else
 		6,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
 		900,						//	int		altFireTime;		// Amount of time between alt-firings
+#endif
 		8192,					//	int		altRange;			// Range of alt-fire
+#if defined(STEFX_ELITE_FORCE_MP)
+		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
+		0,						//	int		altChargeSubTime;	// above for secondary
+		0,						//	int		chargeSub;			// amount to subtract during charge on each interval
+		0,						//	int		altChargeSub;		// above for secondary
+		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
+		0						//	int		altMaxCharge;		// above for secondary
+#else
 		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
 		250,					//	int		altChargeSubTime;	// above for secondary
 		0,						//	int		chargeSub;			// amount to subtract during charge on each interval
 		3,						//	int		altChargeSub;		// above for secondary
 		0,						//	int		maxCharge;			// stop subtracting once charged for this many ms
 		2100					//	int		altMaxCharge;		// above for secondary
+#endif
 	},
 	{	// WP_FLECHETTE
 //		"Golan Arms Flechette",	//	char	classname[32];		// Spawning name
@@ -222,10 +317,19 @@ weaponData_t weaponData[WP_NUM_WEAPONS] =
 		AMMO_ROCKETS,			//	int		ammoIndex;			// Index to proper ammo slot
 		5,						//	int		ammoLow;			// Count when ammo is low
 		1,						//	int		energyPerShot;		// Amount of energy used per shot
+#if defined(STEFX_ELITE_FORCE_MP)
+		100,					//	int		fireTime;			// Amount of time between firings
+#else
 		900,					//	int		fireTime;			// Amount of time between firings
+#endif
 		8192,					//	int		range;				// Range of weapon
+#if defined(STEFX_ELITE_FORCE_MP)
+		5,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
+		500,					//	int		altFireTime;		// Amount of time between alt-firings
+#else
 		2,						//	int		altEnergyPerShot;	// Amount of energy used for alt-fire
 		1200,					//	int		altFireTime;		// Amount of time between alt-firings
+#endif
 		8192,					//	int		altRange;			// Range of alt-fire
 		0,						//	int		chargeSubTime;		// ms interval for subtracting ammo during charge
 		0,						//	int		altChargeSubTime;	// above for secondary
@@ -363,15 +467,27 @@ ammoData_t ammoData[AMMO_MAX] =
 	},
 	{	// AMMO_FORCE
 //		"",				//	char	icon[32];	// Name of ammo icon file
+#if defined(STEFX_ELITE_FORCE_MP)
+		50				//	int		max;		// Max amount player can hold of ammo
+#else
 		100				//	int		max;		// Max amount player can hold of ammo
+#endif
 	},
 	{	// AMMO_BLASTER
 //		"",				//	char	icon[32];	// Name of ammo icon file
+#if defined(STEFX_ELITE_FORCE_MP)
+		128				//	int		max;		// Max amount player can hold of ammo
+#else
 		300				//	int		max;		// Max amount player can hold of ammo
+#endif
 	},
 	{	// AMMO_POWERCELL
 //		"",				//	char	icon[32];	// Name of ammo icon file
+#if defined(STEFX_ELITE_FORCE_MP)
+		120				//	int		max;		// Max amount player can hold of ammo
+#else
 		300				//	int		max;		// Max amount player can hold of ammo
+#endif
 	},
 	{	// AMMO_METAL_BOLTS
 //		"",				//	char	icon[32];	// Name of ammo icon file
@@ -379,7 +495,11 @@ ammoData_t ammoData[AMMO_MAX] =
 	},
 	{	// AMMO_ROCKETS
 //		"",				//	char	icon[32];	// Name of ammo icon file
+#if defined(STEFX_ELITE_FORCE_MP)
+		120				//	int		max;		// Max amount player can hold of ammo
+#else
 		25				//	int		max;		// Max amount player can hold of ammo
+#endif
 	},
 	{	// AMMO_EMPLACED
 //		"",				//	char	icon[32];	// Name of ammo icon file

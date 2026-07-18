@@ -507,8 +507,105 @@ function Apply-ProjectSourceOverrides {
         return $filtered
     }
 
+    if ($ProjectPath -eq "codemp\x_jk2game\x_jk2game.vcproj") {
+        $hasStefxAnimTable = $false
+        foreach ($source in $Sources) {
+            if ($source.RelativePath -ieq "..\game\stefx_animtable.c") {
+                $hasStefxAnimTable = $true
+                break
+            }
+        }
+        if (-not $hasStefxAnimTable) {
+            $Sources.Add([pscustomobject]@{
+                RelativePath = "..\game\stefx_animtable.c"
+                FullPath     = Resolve-ProjectPath -BaseDir (Join-Path $repoRoot "codemp\x_jk2game") -PathValue "..\game\stefx_animtable.c"
+                Extension    = ".c"
+                Tool         = [pscustomobject]@{
+                    Name                 = "VCCLCompilerTool"
+                    UsePrecompiledHeader = "0"
+                    CompileAs            = "2"
+                }
+            })
+        }
+        return $Sources
+    }
+
+    if ($ProjectPath -eq "codemp\x_jk2cgame\x_jk2cgame.vcproj") {
+        $legacyJaCgameUiSources = @(
+            "..\cgame\cg_newDraw.c",
+            "..\cgame\cg_stefx_menu_stub.c"
+        )
+        $requiredEfCgameUiSource = "..\cgame\cg_stefx_ui_shim.c"
+        $hasEfCgameUiSource = $false
+
+        foreach ($source in $Sources) {
+            $relative = $source.RelativePath.Replace('/', '\')
+            if ($legacyJaCgameUiSources -icontains $relative) {
+                throw "Holomatch x_jk2cgame cannot compile inherited MP cgame menu source: $relative"
+            }
+            if ($relative -ieq $requiredEfCgameUiSource) {
+                $hasEfCgameUiSource = $true
+            }
+        }
+
+        if (-not $hasEfCgameUiSource) {
+            throw "Holomatch x_jk2cgame is missing required EF cgame UI shim: $requiredEfCgameUiSource"
+        }
+
+        return $Sources
+    }
+
+    if ($ProjectPath -eq "codemp\x_ui\x_ui.vcproj") {
+        $legacyJaUiSources = @(
+            "..\ui\ui_atoms.c",
+            "..\ui\ui_force.c",
+            "..\ui\ui_gameinfo.c",
+            "..\ui\ui_main.c",
+            "..\ui\ui_players.c",
+            "..\ui\ui_saber.c",
+            "..\ui\ui_shared.c",
+            "..\ui\ui_syscalls.c",
+            "..\ui\ui_util.c",
+            "..\ui\ui_stefx_stub.c"
+        )
+        $requiredEfUiSources = @(
+            "..\ui\ui_stefx_spbridge.cpp",
+            "..\..\code\ui\ui_ef_frontend.cpp",
+            "..\..\code\ui\ui_ef_lifecycle.cpp",
+            "..\..\code\ui\ui_ef_pause.cpp",
+            "..\..\code\ui\ui_ef_qmenu.cpp"
+        )
+        $seenEfUiSources = @{}
+
+        foreach ($source in $Sources) {
+            $relative = $source.RelativePath.Replace('/', '\')
+            if ($legacyJaUiSources -icontains $relative) {
+                throw "Holomatch x_ui cannot compile inherited MP UI source: $relative"
+            }
+            if ($requiredEfUiSources -icontains $relative) {
+                $seenEfUiSources[$relative.ToLowerInvariant()] = $true
+            }
+        }
+
+        foreach ($requiredSource in $requiredEfUiSources) {
+            if (-not $seenEfUiSources.ContainsKey($requiredSource.ToLowerInvariant())) {
+                throw "Holomatch x_ui is missing required EF/SP UI source: $requiredSource"
+            }
+        }
+
+        return $Sources
+    }
+
     if ($ProjectPath -eq "codemp\x_exe\x_exe.vcproj") {
         $hasAsmStub = $false
+        foreach ($source in $Sources) {
+            if ($source.RelativePath -ieq "..\renderer\tr_backend.cpp") {
+                $source.Tool = [pscustomobject]@{
+                    Name                    = "VCCLCompilerTool"
+                    PreprocessorDefinitions = "STEFX_ELITE_FORCE_SP"
+                }
+            }
+        }
         foreach ($source in $Sources) {
             if ($source.RelativePath -ieq "xbox_asm_stubs.asm") {
                 $hasAsmStub = $true
@@ -523,6 +620,46 @@ function Apply-ProjectSourceOverrides {
                 Tool         = $null
             })
         }
+
+        $Sources.Add([pscustomobject]@{
+            RelativePath = "..\win32\openjkdf2\fakeglx.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx.cpp"
+            Extension    = ".cpp"
+            Tool         = [pscustomobject]@{
+                Name                      = "VCCLCompilerTool"
+                PrependIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
+                AdditionalOptions         = "/FI`"openjkdf2/platform_xbox.h`""
+            }
+        })
+
+        $Sources.Add([pscustomobject]@{
+            RelativePath = "..\win32\openjkdf2\fakeglx_jka_compat.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx_jka_compat.cpp"
+            Extension    = ".cpp"
+            Tool         = $null
+        })
+
+        $Sources.Add([pscustomobject]@{
+            RelativePath = "..\win32\openjkdf2\glteximage_dds.cpp"
+            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\glteximage_dds.cpp"
+            Extension    = ".cpp"
+            Tool         = $null
+        })
+
+        foreach ($pk3Source in @(
+            "codemp\qcommon\unzip.cpp",
+            "codemp\zlib32\inflate.cpp",
+            "codemp\zlib32\deflate.cpp",
+            "codemp\zlib32\zipcommon.cpp"
+        )) {
+            $Sources.Add([pscustomobject]@{
+                RelativePath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $pk3Source)).Substring($repoRoot.Length + 1)
+                FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue $pk3Source
+                Extension    = ".cpp"
+                Tool         = $null
+            })
+        }
+
         return $Sources
     }
 
@@ -728,8 +865,8 @@ function Build-Project {
 
     if (-not $compilerTool -and $ProjectPath -eq "codemp\x_exe\x_exe.vcproj") {
         $compilerTool = [pscustomobject]@{
-            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
-            PreprocessorDefinitions = "_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
+            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include"
+            PreprocessorDefinitions = "_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
             AdditionalOptions = "/Oy-"
             Optimization = "2"
             InlineFunctionExpansion = "2"
@@ -746,7 +883,7 @@ function Build-Project {
         $linkTool = [pscustomobject]@{
             AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO"
             AdditionalDependencies = "xapilib.lib;libc.lib;d3d8.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
-            OutputFile = ".\Release\jamp.exe"
+            OutputFile = ".\Release\efmp.exe"
             AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
@@ -972,7 +1109,8 @@ function Invoke-BuildGraph {
 function Update-ConsoleFileList {
     param(
         [string]$Directory,
-        [string]$Extension
+        [string]$Extension,
+        [string[]]$AdditionalFiles = @()
     )
 
     if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
@@ -984,9 +1122,20 @@ function Update-ConsoleFileList {
         return
     }
 
-    $files = Get-ChildItem -LiteralPath $Directory -File -Filter "*.$normalizedExtension" |
+    $files = @(Get-ChildItem -LiteralPath $Directory -File -Filter "*.$normalizedExtension" |
         Sort-Object Name |
-        ForEach-Object { $_.Name }
+        ForEach-Object { $_.Name })
+
+    foreach ($additionalFile in $AdditionalFiles) {
+        if ([string]::IsNullOrWhiteSpace($additionalFile)) {
+            continue
+        }
+        $additionalName = [System.IO.Path]::GetFileName($additionalFile)
+        if (-not $files.Contains($additionalName)) {
+            $files += $additionalName
+        }
+    }
+    $files = @($files | Sort-Object -Unique)
 
     if (-not $files -or $files.Count -eq 0) {
         return
@@ -1251,7 +1400,8 @@ function Update-EFModelGob {
 
 function Copy-EFDataOverlay {
     param(
-        [string]$BaseEfDir
+        [string]$BaseEfDir,
+        [switch]$SkipUiScripts
     )
 
     $sourceExtData = Join-Path $repoRoot "SP-Mod-Source-Code-master\BaseEF\ext_data"
@@ -1277,13 +1427,49 @@ function Copy-EFDataOverlay {
         }
     }
 
-    if (-not (Test-Path -LiteralPath $sourceUi -PathType Container)) {
+    if ($SkipUiScripts) {
+        $removedUiScripts = 0
+        if (Test-Path -LiteralPath $destUi -PathType Container) {
+            Get-ChildItem -LiteralPath $destUi -Recurse -File | Where-Object {
+                $_.Extension -ieq ".txt" -or $_.Extension -ieq ".menu"
+            } | ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Force
+                $removedUiScripts++
+            }
+
+            $staleJampDir = Join-Path $destUi "jamp"
+            if (Test-Path -LiteralPath $staleJampDir) {
+                Remove-Item -LiteralPath $staleJampDir -Recurse -Force
+            }
+        }
+
+        Write-Host "Skipped EF UI script overlay for Holomatch MP; removed staged UI scripts: $removedUiScripts"
+    } elseif (-not (Test-Path -LiteralPath $sourceUi -PathType Container)) {
         Write-Warning "Missing EF UI script source: $sourceUi"
     } else {
         $sourceUiFull = (Resolve-Path -LiteralPath $sourceUi).Path
         $copiedUiScripts = 0
+        $removedDeprecatedMpUiScripts = 0
+        foreach ($stalePath in @(
+            (Join-Path $destUi "jahud.txt"),
+            (Join-Path $destUi "jampmenus.txt"),
+            (Join-Path $destUi "jampingame.txt"),
+            (Join-Path $destUi "testhud.menu"),
+            (Join-Path $destUi "jamp")
+        )) {
+            if (Test-Path -LiteralPath $stalePath) {
+                Remove-Item -LiteralPath $stalePath -Recurse -Force
+                $removedDeprecatedMpUiScripts++
+            }
+        }
+
         Get-ChildItem -LiteralPath $sourceUi -Recurse -File | Where-Object {
-            ($_.Extension -ieq ".txt" -or $_.Extension -ieq ".menu") -and $_.Name -ine "vssver.scc"
+            $relative = $_.FullName.Substring($sourceUiFull.Length).TrimStart('\', '/')
+            $relativeNormalized = $relative.Replace('\', '/').ToLowerInvariant()
+            ($_.Extension -ieq ".txt" -or $_.Extension -ieq ".menu") -and
+                $_.Name -ine "vssver.scc" -and
+                $relativeNormalized -notin @("jahud.txt", "jampmenus.txt", "jampingame.txt", "testhud.menu") -and
+                -not $relativeNormalized.StartsWith("jamp/")
         } | ForEach-Object {
             $relative = $_.FullName.Substring($sourceUiFull.Length).TrimStart('\', '/')
             $destination = Join-Path $destUi $relative
@@ -1293,6 +1479,9 @@ function Copy-EFDataOverlay {
         }
 
         Write-Host "Updated EF UI script overlay: $copiedUiScripts files"
+        if ($removedDeprecatedMpUiScripts -gt 0) {
+            Write-Host "Removed deprecated MP UI overlay paths: $removedDeprecatedMpUiScripts"
+        }
     }
 
     if (Test-Path -LiteralPath $sourceMenu -PathType Container) {
@@ -1367,7 +1556,16 @@ function Remove-EFLegacyGobArtifacts {
 
 function Update-EFXboxPatchPk3 {
     param(
-        [string]$BaseEfDir
+        [string]$BaseEfDir,
+        [string]$OutputName = "xbox0.pk3",
+        [string]$Map = "borg1",
+        [ValidateSet("map", "campaign", "all")]
+        [string]$BspMaps = "campaign",
+        [switch]$DdsOnly,
+        [ValidateSet("dxt5", "bgra32")]
+        [string]$AlphaTextureFormat = "bgra32",
+        [switch]$SkipUiScripts,
+        [switch]$HolomatchSupportAssets
     )
 
     $patchScript = Join-Path $repoRoot "scripts\build_xbox_patch_pk3.py"
@@ -1376,21 +1574,69 @@ function Update-EFXboxPatchPk3 {
         return
     }
 
-    $outputPk3 = Join-Path $BaseEfDir "xbox0.pk3"
-    Invoke-External -Exe $pythonExe -Arguments @(
+    $outputPk3 = Join-Path $BaseEfDir $OutputName
+    $patchArgs = @(
         $patchScript,
         "--base-dir", $BaseEfDir,
         "--output", $outputPk3,
-        "--map", "borg1",
+        "--map", $Map,
         "--texture-mode", "all",
         "--bsp-mode", "optimized-lightmaps",
-        "--bsp-maps", "campaign",
+        "--bsp-maps", $BspMaps,
         "--lightmap-boost", "2.5",
         "--max-texture-size", "128",
         "--max-player-texture-size", "64",
         "--max-hud-texture-size", "128",
-        "--max-loadscreen-texture-size", "512"
-    ) -WorkingDirectory $repoRoot
+        "--max-loadscreen-texture-size", "512",
+        "--alpha-texture-format", $AlphaTextureFormat
+    )
+
+    if ($DdsOnly) {
+        $patchArgs += "--dds-only"
+    }
+    if ($SkipUiScripts) {
+        $patchArgs += "--no-ui-scripts"
+    }
+    if ($HolomatchSupportAssets) {
+        $patchArgs += "--holomatch-support-assets"
+    }
+
+    Invoke-External -Exe $pythonExe -Arguments $patchArgs -WorkingDirectory $repoRoot
+}
+
+function Assert-EFHolomatchUiMandate {
+    param(
+        [string]$Pk3Path,
+        [string]$StageBaseEfPath,
+        [string]$XbePath,
+        [switch]$AllowStageOriginalImages
+    )
+
+    $checkScript = Join-Path $repoRoot "scripts\check_mp_holomatch_ui.py"
+    if (-not (Test-Path -LiteralPath $checkScript -PathType Leaf)) {
+        throw "Missing Holomatch UI mandate checker: $checkScript"
+    }
+
+    $checkArgs = @(
+        $checkScript,
+        "--repo-root",
+        $repoRoot
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Pk3Path)) {
+        $checkArgs += @("--pk3", $Pk3Path)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($StageBaseEfPath)) {
+        $checkArgs += @("--stage-baseef", $StageBaseEfPath)
+    }
+    if ($AllowStageOriginalImages) {
+        $checkArgs += "--allow-stage-original-images"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($XbePath)) {
+        $checkArgs += @("--xbe", $XbePath)
+    }
+
+    Invoke-External -Exe $pythonExe -Arguments $checkArgs -WorkingDirectory $repoRoot
 }
 
 function Update-EFXboxSoundBank {
@@ -1452,6 +1698,159 @@ function Update-EFConsoleAssetLists {
     }
 }
 
+function Update-EFHolomatchAssetLists {
+    $baseEfDir = Join-Path $repoReleaseDir "BaseEF"
+    $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+    Copy-EFDataOverlay -BaseEfDir $baseEfDir -SkipUiScripts
+    Copy-EFConfigOverlay -BaseEfDir $baseEfDir
+    Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map "hm_borg1" -BspMaps "map" -DdsOnly -AlphaTextureFormat "bgra32" -SkipUiScripts -HolomatchSupportAssets
+    Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("xbox_borg_fix.shader")
+    Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -XbePath $sourceXbe
+}
+
+function Remove-EFHolomatchLooseOverrides {
+    param(
+        [string]$StageBaseEf
+    )
+
+    if (-not (Test-Path -LiteralPath $StageBaseEf -PathType Container)) {
+        return
+    }
+
+    $removed = 0
+    $scriptsDir = Join-Path $StageBaseEf "scripts"
+    if (Test-Path -LiteralPath $scriptsDir -PathType Container) {
+        $shaderFiles = Get-ChildItem -LiteralPath $scriptsDir -File -Filter "*.shader" -ErrorAction SilentlyContinue
+        foreach ($shaderFile in $shaderFiles) {
+            Remove-Item -LiteralPath $shaderFile.FullName -Force
+            $removed++
+        }
+
+        $shaderList = Join-Path $scriptsDir "_console_shader_list_"
+        if (Test-Path -LiteralPath $shaderList -PathType Leaf) {
+            Remove-Item -LiteralPath $shaderList -Force
+            $removed++
+        }
+    }
+
+    $mapsDir = Join-Path $StageBaseEf "maps"
+    if (Test-Path -LiteralPath $mapsDir -PathType Container) {
+        foreach ($mapFileName in @("hm_borg1.bsp", "hm_borg1.aas")) {
+            $mapFile = Join-Path $mapsDir $mapFileName
+            if (Test-Path -LiteralPath $mapFile -PathType Leaf) {
+                Remove-Item -LiteralPath $mapFile -Force
+                $removed++
+            }
+        }
+    }
+
+    if ($removed -gt 0) {
+        Write-Host "Removed $removed stale Holomatch loose override file(s) from CXBX-R stage."
+    }
+}
+
+function Remove-EFHolomatchLooseTextureFallbacks {
+    param(
+        [string]$StageBaseEf,
+        [string]$Pk3Path
+    )
+
+    if (-not (Test-Path -LiteralPath $StageBaseEf -PathType Container)) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $Pk3Path -PathType Leaf)) {
+        throw "Cannot remove Holomatch texture fallbacks; missing package: $Pk3Path"
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $stageRoot = (Resolve-Path -LiteralPath $StageBaseEf).Path
+    $stageRootWithSlash = $stageRoot.TrimEnd('\') + '\'
+    $pk3Resolved = (Resolve-Path -LiteralPath $Pk3Path).Path
+    $imageExts = @(".tga", ".jpg", ".jpeg", ".png")
+    $fallbacks = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($pk3Resolved)
+    try {
+        foreach ($entry in $zip.Entries) {
+            $entryName = $entry.FullName.Replace('\', '/')
+            if (-not $entryName.EndsWith(".dds", [StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+
+            $withoutExt = $entryName.Substring(0, $entryName.Length - 4)
+            foreach ($ext in $imageExts) {
+                [void]$fallbacks.Add($withoutExt + $ext)
+            }
+        }
+    } finally {
+        $zip.Dispose()
+    }
+
+    $removed = 0
+    $remaining = @()
+    foreach ($relative in $fallbacks) {
+        $nativeRelative = $relative.Replace('/', '\')
+        $target = Join-Path $stageRoot $nativeRelative
+        if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+            continue
+        }
+
+        $targetFull = [System.IO.Path]::GetFullPath($target)
+        if (-not $targetFull.StartsWith($stageRootWithSlash, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to remove Holomatch texture fallback outside stage: $targetFull"
+        }
+
+        Remove-Item -LiteralPath $targetFull -Force
+        $removed++
+
+        if (Test-Path -LiteralPath $targetFull -PathType Leaf) {
+            $remaining += $relative
+        }
+    }
+
+    if ($remaining.Count -gt 0) {
+        throw "Staged BaseEF still contains loose original texture fallback(s): $($remaining[0..([Math]::Min($remaining.Count, 16) - 1)] -join ', ')"
+    }
+
+    if ($removed -gt 0) {
+        Write-Host "Removed $removed loose original texture fallback(s) covered by xbox1.pk3 DDS entries."
+    } else {
+        Write-Host "No loose original texture fallbacks found for xbox1.pk3 DDS entries."
+    }
+}
+
+function Copy-EFHolomatchCxbxStage {
+    $stageRoot = "C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X"
+    if (-not (Test-Path -LiteralPath $stageRoot -PathType Container)) {
+        Write-Host "Skipping CXBX-R Holomatch staging; folder not found: $stageRoot"
+        return
+    }
+
+    $stageBaseEf = Join-Path $stageRoot "BaseEF"
+    New-Item -ItemType Directory -Path $stageBaseEf -Force | Out-Null
+
+    $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+    $sourcePk3 = Join-Path $repoReleaseDir "BaseEF\xbox1.pk3"
+
+    if (-not (Test-Path -LiteralPath $sourceXbe -PathType Leaf)) {
+        throw "Cannot stage EF Holomatch MP XBE; missing: $sourceXbe"
+    }
+    if (-not (Test-Path -LiteralPath $sourcePk3 -PathType Leaf)) {
+        throw "Cannot stage EF Holomatch MP package; missing: $sourcePk3"
+    }
+
+    Remove-EFHolomatchLooseOverrides -StageBaseEf $stageBaseEf
+    Copy-Item -LiteralPath $sourceXbe -Destination (Join-Path $stageRoot "efmp.xbe") -Force
+    $stagedPk3 = Join-Path $stageBaseEf "xbox1.pk3"
+    Copy-Item -LiteralPath $sourcePk3 -Destination $stagedPk3 -Force
+    Remove-EFHolomatchLooseTextureFallbacks -StageBaseEf $stageBaseEf -Pk3Path $stagedPk3
+    Assert-EFHolomatchUiMandate -Pk3Path $stagedPk3 -StageBaseEfPath $stageBaseEf -XbePath (Join-Path $stageRoot "efmp.xbe")
+    Write-Host "Staged EF Holomatch MP for CXBX-R: efmp.xbe and BaseEF\xbox1.pk3"
+    Write-Host "SP/co-op default.xbe was not touched."
+}
+
 $spProjects = @(
     "code\x_game\x_game.vcproj",
     "code\x_exe\x_exe.vcproj"
@@ -1475,7 +1874,15 @@ switch ($Target) {
             Write-Host "Skipping EF asset packaging/copy phase."
         }
     }
-    "mp"  { Invoke-BuildGraph -Projects $mpProjects }
+    "mp"  {
+        Invoke-BuildGraph -Projects $mpProjects
+        if (-not $SkipAssets) {
+            Update-EFHolomatchAssetLists
+            Copy-EFHolomatchCxbxStage
+        } else {
+            Write-Host "Skipping EF MP asset packaging/copy phase."
+        }
+    }
     "all" {
         Invoke-BuildGraph -Projects $spProjects
         if (-not $SkipAssets) {
@@ -1484,6 +1891,12 @@ switch ($Target) {
             Write-Host "Skipping EF asset packaging/copy phase."
         }
         Invoke-BuildGraph -Projects $mpProjects
+        if (-not $SkipAssets) {
+            Update-EFHolomatchAssetLists
+            Copy-EFHolomatchCxbxStage
+        } else {
+            Write-Host "Skipping EF MP asset packaging/copy phase."
+        }
     }
 }
 

@@ -6,7 +6,87 @@
 #include "../cgame/tr_types.h"
 #include "keycodes.h"
 
-#include "../../ui/menudef.h"
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../../code/ui/menudef.h"
+/*
+ * STEFX_HM: cgame dead menu ABI uses shared SP code/ui menudef constants;
+ * runtime parser/menu behavior is disabled by cg_stefx_ui_shim.c.
+ */
+#ifndef CT_LTBLUE1
+#define CT_LTBLUE1	0.367	0.261	0.722
+#endif
+#ifndef CT_DKBLUE1
+#define CT_DKBLUE1	0.199	0.0		0.398
+#endif
+#ifndef CT_LTCYAN
+#define CT_LTCYAN	0		0.5		0.5
+#endif
+#ifndef CT_DKCYAN
+#define CT_DKCYAN	0		0.25	0.25
+#endif
+#ifndef CG_PLAYER_ARMOR_VALUE
+#define CG_PLAYER_ARMOR_VALUE 2
+#endif
+#ifndef CG_PLAYER_HEALTH
+#define CG_PLAYER_HEALTH 4
+#endif
+#ifndef CG_PLAYER_AMMO_VALUE
+#define CG_PLAYER_AMMO_VALUE 6
+#endif
+#ifndef CG_PLAYER_SCORE
+#define CG_PLAYER_SCORE 20
+#endif
+#ifndef CG_BLUE_SCORE
+#define CG_BLUE_SCORE 27
+#endif
+#ifndef CG_RED_SCORE
+#define CG_RED_SCORE 28
+#endif
+#ifndef CG_RED_NAME
+#define CG_RED_NAME 29
+#endif
+#ifndef CG_BLUE_NAME
+#define CG_BLUE_NAME 30
+#endif
+#ifndef CG_GAME_TYPE
+#define CG_GAME_TYPE 39
+#endif
+#ifndef CG_SELECTEDPLAYER_ARMOR
+#define CG_SELECTEDPLAYER_ARMOR 40
+#endif
+#ifndef CG_SELECTEDPLAYER_HEALTH
+#define CG_SELECTEDPLAYER_HEALTH 41
+#endif
+#ifndef CG_GAME_STATUS
+#define CG_GAME_STATUS 49
+#endif
+#ifndef CG_KILLER
+#define CG_KILLER 50
+#endif
+#ifndef CG_PLAYER_FORCE_VALUE
+#define CG_PLAYER_FORCE_VALUE 70
+#endif
+#ifndef CG_SHOW_ANYTEAMGAME
+#define CG_SHOW_ANYTEAMGAME 0x00000004
+#endif
+#ifndef CG_SHOW_CTF
+#define CG_SHOW_CTF 0x00000020
+#endif
+#ifndef CG_SHOW_HEALTHCRITICAL
+#define CG_SHOW_HEALTHCRITICAL 0x00000080
+#endif
+#ifndef CG_SHOW_IF_PLAYER_HAS_FLAG
+#define CG_SHOW_IF_PLAYER_HAS_FLAG 0x00000800
+#endif
+#ifndef CG_SHOW_HEALTHOK
+#define CG_SHOW_HEALTHOK 0x00004000
+#endif
+#ifndef CG_SHOW_ANYNONTEAMGAME
+#define CG_SHOW_ANYNONTEAMGAME 0x00080000
+#endif
+#else
+#error Holomatch MP does not compile the inherited MP menu system; use shared SP code/ui.
+#endif
 
 #define MAX_MENUNAME				32
 #define MAX_ITEMTEXT				64

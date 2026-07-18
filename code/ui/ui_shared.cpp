@@ -1,3 +1,235 @@
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../../codemp/ui/ui_stefx_spcompat.h"
+
+displayContextDef_t *DC = NULL;
+
+static qboolean s_loggedMpSharedUi = qfalse;
+static qboolean s_loggedMpSharedReject = qfalse;
+
+static void UI_STEFXLogMpSharedOnce(void)
+{
+	if (s_loggedMpSharedUi)
+	{
+		return;
+	}
+
+	s_loggedMpSharedUi = qtrue;
+	ui.Printf("STEFX_HM: SP UI shared framework compiled in efmp.xbe; parser compatibility is reject-only\n");
+}
+
+static void UI_STEFXSharedReject(const char *operation, const char *name)
+{
+	UI_STEFXLogMpSharedOnce();
+	if (!s_loggedMpSharedReject)
+	{
+		s_loggedMpSharedReject = qtrue;
+		ui.Printf("STEFX_HM: SP UI shared framework rejected script menu route op='%s' name='%s'; EF code UI owns menus\n",
+			operation ? operation : "",
+			name ? name : "");
+	}
+}
+
+const char *String_Alloc(const char *p)
+{
+	UI_STEFXLogMpSharedOnce();
+	return p ? p : "";
+}
+
+void String_Init(void)
+{
+	UI_STEFXLogMpSharedOnce();
+}
+
+void String_Report(void)
+{
+	UI_STEFXLogMpSharedOnce();
+}
+
+void Init_Display(displayContextDef_t *dc)
+{
+	DC = dc;
+	UI_STEFXLogMpSharedOnce();
+}
+
+void Display_CacheAll(void)
+{
+	UI_STEFXLogMpSharedOnce();
+}
+
+void Menu_Init(menuDef_t *menu)
+{
+	(void)menu;
+}
+
+void Item_Init(itemDef_s *item)
+{
+	(void)item;
+}
+
+void Menu_PostParse(menuDef_t *menu)
+{
+	(void)menu;
+}
+
+void Menu_New(int handle)
+{
+	(void)handle;
+	UI_STEFXSharedReject("new", "");
+}
+
+int Menu_Count(void)
+{
+	return 0;
+}
+
+void Menu_Reset(void)
+{
+	UI_STEFXLogMpSharedOnce();
+}
+
+void Menu_PaintAll(void)
+{
+}
+
+void Menu_Paint(menuDef_t *menu, qboolean forcePaint)
+{
+	(void)menu;
+	(void)forcePaint;
+}
+
+menuDef_t *Menu_GetFocused(void)
+{
+	return NULL;
+}
+
+itemDef_s *Menu_GetFocusedItem(menuDef_t *menu)
+{
+	(void)menu;
+	return NULL;
+}
+
+menuDef_t *Menus_ActivateByName(const char *name)
+{
+	if (name && UI_EFQmenu_RouteMenuName(name))
+	{
+		return NULL;
+	}
+
+	UI_STEFXSharedReject("activate", name);
+	return NULL;
+}
+
+void Menus_OpenByName(const char *name)
+{
+	if (name && UI_EFQmenu_RouteMenuName(name))
+	{
+		return;
+	}
+
+	UI_STEFXSharedReject("open", name);
+}
+
+void Menus_ShowByName(const char *name)
+{
+	if (name && UI_EFQmenu_RouteMenuName(name))
+	{
+		return;
+	}
+
+	UI_STEFXSharedReject("show", name);
+}
+
+void Menus_CloseByName(const char *name)
+{
+	UI_STEFXSharedReject("close", name);
+}
+
+void Menus_CloseAll(void)
+{
+	UI_EFMainMenu_Deactivate();
+	UI_EFPauseMenu_Deactivate();
+	UI_EFQmenu_ClearState("spui-shared-closeall");
+}
+
+menuDef_t *Menus_FindByName(const char *name)
+{
+	(void)name;
+	return NULL;
+}
+
+qboolean Menus_AnyFullScreenVisible(void)
+{
+	return (UI_EFMainMenu_IsActive() || UI_EFPauseMenu_IsActive() || UI_EFQmenu_IsActive()) ? qtrue : qfalse;
+}
+
+void Item_RunScript(itemDef_s *item, const char *script)
+{
+	(void)item;
+	UI_STEFXSharedReject("script", script);
+}
+
+qboolean Float_Parse(char **p, float *f)
+{
+	const char *token;
+
+	if (!p || !*p || !f)
+	{
+		return qfalse;
+	}
+
+	token = COM_ParseExt((const char **)p, qfalse);
+	if (!token || !token[0])
+	{
+		return qfalse;
+	}
+
+	*f = (float)atof(token);
+	return qtrue;
+}
+
+qboolean Int_Parse(char **p, int *i)
+{
+	const char *token;
+
+	if (!p || !*p || !i)
+	{
+		return qfalse;
+	}
+
+	token = COM_ParseExt((const char **)p, qfalse);
+	if (!token || !token[0])
+	{
+		return qfalse;
+	}
+
+	*i = atoi(token);
+	return qtrue;
+}
+
+qboolean String_Parse(char **p, const char **out)
+{
+	const char *token;
+
+	if (!p || !*p || !out)
+	{
+		return qfalse;
+	}
+
+	token = COM_ParseExt((const char **)p, qfalse);
+	if (!token || !token[0])
+	{
+		return qfalse;
+	}
+
+	*out = String_Alloc(token);
+	return qtrue;
+}
+
+#undef ui
+#include "../../codemp/namespace_end.h"
+
+#else
+
 // 
 // string allocation/managment
 
@@ -12501,3 +12733,5 @@ bool TestDemoTimer()
 
 
 #endif // _XBOX
+
+#endif // STEFX_ELITE_FORCE_MP

@@ -46,7 +46,7 @@
 				FavorSizeOrSpeed="1"
 				OmitFramePointers="false"
 				AdditionalIncludeDirectories="C:\XDK\xbox\include;C:\XDK\include;..,./../game"
-				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
+				PreprocessorDefinitions="NDEBUG;WIN32;MISSIONPACK;_JK2;CGAME;_XBOX;_LIB;_CGAME;CGAME_HARD_LINKED;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE"
 				StringPooling="true"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="false"
@@ -380,7 +380,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\cgame\cg_newDraw.c"
+				RelativePath="..\cgame\cg_stefx_ui_shim.c"
 				>
 								<FileConfiguration
 					Name="Release|Win32"
@@ -731,19 +731,6 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\ui\ui_shared.c"
-				>
-								<FileConfiguration
-					Name="Release|Win32"
-					>
-					<Tool
-						Name="VCCLCompilerTool"
-						UsePrecompiledHeader="0"
-						CompileAs="2"
-					/>
-				</FileConfiguration>
-							</File>
-			<File
 				RelativePath="..\game\WalkerNPC.c"
 				>
 								<FileConfiguration
@@ -814,10 +801,6 @@
 			</File>
 			<File
 				RelativePath="..\ui\keycodes.h"
-				>
-			</File>
-			<File
-				RelativePath="..\..\ui\menudef.h"
 				>
 			</File>
 			<File

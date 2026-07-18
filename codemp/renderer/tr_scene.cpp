@@ -719,6 +719,10 @@ void RE_RenderScene( const refdef_t *fd ) {
 	viewParms_t		parms;
 	int				startTime;
 	static	int		lastTime = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int stefxRenderSceneTraceBudget = 4;
+	qboolean stefxRenderSceneTrace = (qboolean)( stefxRenderSceneTraceBudget > 0 );
+#endif
 
 	if ( !tr.registered ) {
 		return;
@@ -728,6 +732,19 @@ void RE_RenderScene( const refdef_t *fd ) {
 	if ( r_norefresh->integer ) {
 		return;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxRenderSceneTrace )
+	{
+		stefxRenderSceneTraceBudget--;
+		Com_PrintfAlways( "STEFX_HM: RE_RenderScene enter refdef=%dx%d flags=0x%x world=%p entities=%d polys=%d\n",
+			fd->width,
+			fd->height,
+			fd->rdflags,
+			tr.world,
+			r_numentities - r_firstSceneEntity,
+			r_numpolys - r_firstScenePoly );
+	}
+#endif
 
 	startTime = Sys_Milliseconds()*com_timescale->value;
 
@@ -860,7 +877,25 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 	VectorCopy( fd->vieworg, parms.pvsOrigin );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxRenderSceneTrace )
+	{
+		Com_PrintfAlways( "STEFX_HM: RE_RenderScene before R_RenderView viewport=%d,%d %dx%d\n",
+			parms.viewportX,
+			parms.viewportY,
+			parms.viewportWidth,
+			parms.viewportHeight );
+	}
+#endif
 	R_RenderView( &parms );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxRenderSceneTrace )
+	{
+		Com_PrintfAlways( "STEFX_HM: RE_RenderScene after R_RenderView drawSurfs=%d scene=%d\n",
+			tr.refdef.numDrawSurfs,
+			tr.sceneCount );
+	}
+#endif
 
 	// the next scene rendered in this frame will tack on after this one
 	r_firstSceneDrawSurf = tr.refdef.numDrawSurfs;
@@ -884,6 +919,12 @@ void RE_RenderScene( const refdef_t *fd ) {
 	{
 		RE_RenderAutoMap();
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxRenderSceneTrace )
+	{
+		Com_PrintfAlways( "STEFX_HM: RE_RenderScene exit\n" );
+	}
+#endif
 }
 
 #if 0 //rwwFIXMEFIXME: Disable this before release!!!!!! I am just trying to find a crash bug.

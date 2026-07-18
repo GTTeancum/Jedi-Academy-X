@@ -14,8 +14,8 @@ Use this file as the first build reference in a fresh Codex session. The goal is
 
 - The build system, project layout, and many output names are still inherited from Jedi Academy.
 - The useful baseline is the single-player engine path under `code\`.
-- Multiplayer under `codemp\` exists because it came with the baseline, but it is not the primary Elite Force port path.
-- The SP build produces `default.exe`, `default.xbe`, and `default.map` under root `build\release`.
+- Multiplayer Holomatch runs through the `codemp\` path and builds as `efmp.xbe`.
+- The SP/co-op build produces `default.exe`, `default.xbe`, and `default.map` under root `build\release`.
 - Do not rename title metadata casually; first keep the baseline build reproducible.
 
 ## Quick Build Commands
@@ -26,13 +26,13 @@ Run from `C:\Programming\GitHub\Star-Trek-Elite-Force-X` in PowerShell:
 powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp
 ```
 
-Optional MP build, mostly for inherited-engine comparison:
+Holomatch MP build:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target mp
 ```
 
-Build both inherited targets:
+Build both targets:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target all
@@ -48,6 +48,7 @@ Recommended log capture:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp *> scripts\output\build_sp_latest.log
+powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target mp *> scripts\output\build_mp_latest.log
 ```
 
 ## Primary Output
@@ -58,13 +59,13 @@ Single-player engine output:
 - XBE: `build\release\default.xbe`
 - MAP: `build\release\default.map`
 
-These names are inherited. For the first Elite Force integration phase, build success means `build\release\default.xbe` is produced.
+These names are inherited. SP/co-op build success means `build\release\default.xbe` is produced.
 
-Inherited multiplayer output, if needed:
+Holomatch multiplayer output:
 
-- EXE: `codemp\x_exe\Release\jamp.exe`
-- XBE: `codemp\x_exe\Release\jamp.xbe`
-- MAP: `codemp\x_exe\Release\jamp.map`
+- EXE: `codemp\x_exe\Release\efmp.exe`
+- XBE: `codemp\x_exe\Release\efmp.xbe`
+- MAP: `codemp\x_exe\Release\efmp.map`
 
 ## Required Local Toolchain
 
@@ -161,6 +162,14 @@ Copy-Item build\release\default.xbe 'C:\Games\Emulators\CXBX\Jedi Academy rebuil
 
 That folder name is inherited from the baseline. It can be renamed later once the Elite Force content/runtime path is established.
 
+For Holomatch MP testing, keep the separate MP artifact name:
+
+```powershell
+Copy-Item codemp\x_exe\Release\efmp.xbe 'C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe' -Force
+```
+
+Do not copy the Holomatch MP build over `default.xbe`; that file is reserved for the SP/co-op path.
+
 ## Runtime Logs
 
 Retail/emulated Xbox log paths:
@@ -181,8 +190,8 @@ The SP log name is Elite Force-specific. Keep this path stable during boot and m
 
 ## Baseline Caveats
 
-- Focus on the SP path. It is the strongest baseline and the intended carrier for Elite Force SP code.
-- The inherited MP path builds but has had menu/control/runtime instability; avoid using it as the first port target.
+- For SP/co-op work, focus on the `code\` path. It is the strongest baseline and the intended carrier for Elite Force SP code.
+- For Holomatch work, use the `codemp\` path and keep its output isolated as `efmp.xbe`.
 - The working tree may contain generated logs, ISO stages, object files, emulator outputs, and old experiments. Do not commit generated debris unless explicitly asked.
 - Prefer `scripts\build_xbox.ps1` over opening old Visual Studio solutions for routine builds.
 - Keep JA-specific gameplay/content changes separate from reusable engine/runtime changes.

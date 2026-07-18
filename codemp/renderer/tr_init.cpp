@@ -223,6 +223,7 @@ Ghoul2 Insert End
 */
 
 #ifndef DEDICATED
+#if !(defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP))
 void ( APIENTRY * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
 void ( APIENTRY * qglActiveTextureARB )( GLenum texture );
 void ( APIENTRY * qglClientActiveTextureARB )( GLenum texture );
@@ -232,6 +233,7 @@ void ( APIENTRY * qglUnlockArraysEXT) ( void );
 
 void ( APIENTRY * qglPointParameterfEXT)( GLenum, GLfloat);
 void ( APIENTRY * qglPointParameterfvEXT)( GLenum, GLfloat *);
+#endif
 
 //3d textures -rww
 void ( APIENTRY * qglTexImage3DEXT) (GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLenum, GLenum, const GLvoid *);
@@ -1018,7 +1020,13 @@ void R_Register( void )
 #endif
 	r_ext_texture_filter_anisotropic = Cvar_Get( "r_ext_texture_filter_anisotropic", "16", CVAR_ARCHIVE );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "0", CVAR_ARCHIVE );
+	Cvar_Set( "r_DynamicGlow", "0" );
+	Com_Printf( "STEFX_HM: MP renderer using SP Xbox dynamic glow policy off\n" );
+#else
 	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "1", CVAR_ARCHIVE );
+#endif
 	r_DynamicGlowPasses = Cvar_Get( "r_DynamicGlowPasses", "5", CVAR_CHEAT );
 	r_DynamicGlowDelta  = Cvar_Get( "r_DynamicGlowDelta", "0.8f", CVAR_CHEAT );
 	r_DynamicGlowIntensity = Cvar_Get( "r_DynamicGlowIntensity", "1.13f", CVAR_CHEAT );
@@ -1027,10 +1035,18 @@ void R_Register( void )
 	r_DynamicGlowHeight = Cvar_Get( "r_DynamicGlowHeight", "240", CVAR_CHEAT | CVAR_LATCH );
 
 	r_picmip = Cvar_Get ("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	Cvar_Set( "r_picmip", "1" );
+	Com_Printf( "STEFX_HM: MP renderer using SP Xbox r_picmip=1 policy\n" );
+#endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
 	AssertCvarRange( r_picmip, 0, 16, qtrue );
 	r_detailTextures = Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_texturebits = Cvar_Get( "r_texturebits", "0", CVAR_ARCHIVE | CVAR_LATCH );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	Cvar_Set( "r_texturebits", "0" );
+	Com_Printf( "STEFX_HM: MP renderer using SP Xbox r_texturebits=0 component upload policy\n" );
+#endif
 	r_texturebitslm = Cvar_Get( "r_texturebitslm", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_colorbits = Cvar_Get( "r_colorbits", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_stereo = Cvar_Get( "r_stereo", "0", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1041,6 +1057,9 @@ void R_Register( void )
 #endif
 	r_depthbits = Cvar_Get( "r_depthbits", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_overBrightBits = Cvar_Get ("r_overBrightBits", "0", CVAR_ARCHIVE | CVAR_LATCH );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	Cvar_Get( "r_stefxLightmapBoost", "2.5", CVAR_ARCHIVE );
+#endif
 	r_ignorehwgamma = Cvar_Get( "r_ignorehwgamma", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_mode = Cvar_Get( "r_mode", "4", CVAR_ARCHIVE | CVAR_LATCH );
 	r_fullscreen = Cvar_Get( "r_fullscreen", "1", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1049,7 +1068,13 @@ void R_Register( void )
 	r_simpleMipMaps = Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_vertexLight = Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_uiFullScreen = Cvar_Get( "r_uifullscreen", "0", 0);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	r_subdivisions = Cvar_Get ("r_subdivisions", "64", CVAR_ARCHIVE | CVAR_LATCH);
+	Cvar_Set( "r_subdivisions", "64" );
+	Com_Printf( "STEFX_HM: MP renderer using SP Xbox r_subdivisions=64 policy\n" );
+#else
 	r_subdivisions = Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
+#endif
 
 	//
 	// temporary latched variables that can only change over a restart
@@ -1324,22 +1349,36 @@ void R_Init( void ) {
 	}
 	InitOpenGL();
 
+	Com_Printf( "STEFX_HM: renderer init R_InitImages begin\n" );
 	R_InitImages();
+	Com_Printf( "STEFX_HM: renderer init R_InitImages done\n" );
+	Com_Printf( "STEFX_HM: renderer init R_InitShaders begin\n" );
 	R_InitShaders(qfalse);
+	Com_Printf( "STEFX_HM: renderer init R_InitShaders done\n" );
+	Com_Printf( "STEFX_HM: renderer init R_InitSkins begin\n" );
 	R_InitSkins();
+	Com_Printf( "STEFX_HM: renderer init R_InitSkins done\n" );
 
 /*
 	R_TerrainInit(); //rwwRMG - added
 */
 
+	Com_Printf( "STEFX_HM: renderer init R_InitFonts begin\n" );
 	R_InitFonts();
+	Com_Printf( "STEFX_HM: renderer init R_InitFonts done\n" );
 #endif
+	Com_Printf( "STEFX_HM: renderer init R_ModelInit begin\n" );
 	R_ModelInit();
+	Com_Printf( "STEFX_HM: renderer init R_ModelInit done\n" );
 	G2VertSpaceServer = &CMiniHeap_singleton;
 #ifndef DEDICATED
+	Com_Printf( "STEFX_HM: renderer init R_InitDecals begin\n" );
 	R_InitDecals ( );
+	Com_Printf( "STEFX_HM: renderer init R_InitDecals done\n" );
 
+	Com_Printf( "STEFX_HM: renderer init R_InitWorldEffects begin\n" );
 	R_InitWorldEffects();
+	Com_Printf( "STEFX_HM: renderer init R_InitWorldEffects done\n" );
 
 	int	err = qglGetError();
 	if ( err != GL_NO_ERROR )

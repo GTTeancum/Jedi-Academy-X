@@ -174,6 +174,7 @@ ALCdevice* alcOpenDevice(ALCubyte *deviceName)
 	s_pState->m_Gain = 1.f;
 	s_pState->m_Error = AL_NO_ERROR;
 	s_pState->m_MemoryUsed = 0;
+	s_pState->m_ImageDesc = NULL;
 	s_pState->m_NextBuffer = 1;
 	s_pState->m_NextListener = 1;
 	s_pState->m_NextSource = 1;
@@ -198,27 +199,28 @@ ALCdevice* alcOpenDevice(ALCubyte *deviceName)
 	XBLog_Write("JAMP: alcOpenDevice before FS_ReadFile dsstdfx");
 	int len = FS_ReadFile("sound/dsstdfx.bin", &image);
 	XBLog_Write("JAMP: alcOpenDevice after FS_ReadFile dsstdfx");
-	if (len <= 0)
+	if (len > 0)
 	{
-		XBLog_Write("JAMP: alcOpenDevice missing dsstdfx");
-		delete s_pState;
-		return NULL;
+		DSEFFECTIMAGELOC effect;
+		effect.dwI3DL2ReverbIndex = GraphI3DL2_I3DL2Reverb;
+		effect.dwCrosstalkIndex = GraphXTalk_XTalk;
+		XBLog_Write("JAMP: alcOpenDevice before DownloadEffectsImage");
+		s_pState->m_SoundObject->DownloadEffectsImage(image, len, &effect, &s_pState->m_ImageDesc);
+		XBLog_Write("JAMP: alcOpenDevice after DownloadEffectsImage");
+
+		Z_Free(image);
+
+		// setup default reverb
+		DSI3DL2LISTENER reverb = { DSI3DL2_ENVIRONMENT_PRESET_NOREVERB };
+		XBLog_Write("JAMP: alcOpenDevice before SetI3DL2Listener");
+		s_pState->m_SoundObject->SetI3DL2Listener(&reverb, DS3D_DEFERRED);
+		XBLog_Write("JAMP: alcOpenDevice after SetI3DL2Listener");
+		XBLog_Writef("STEFX_HM: QAL downloaded Xbox effects image bytes=%d", len);
 	}
-	
-	DSEFFECTIMAGELOC effect;
-	effect.dwI3DL2ReverbIndex = GraphI3DL2_I3DL2Reverb;
-	effect.dwCrosstalkIndex = GraphXTalk_XTalk;
-	XBLog_Write("JAMP: alcOpenDevice before DownloadEffectsImage");
-	s_pState->m_SoundObject->DownloadEffectsImage(image, len, &effect, &s_pState->m_ImageDesc);
-	XBLog_Write("JAMP: alcOpenDevice after DownloadEffectsImage");
-
-	Z_Free(image);
-
-	// setup default reverb
-	DSI3DL2LISTENER reverb = { DSI3DL2_ENVIRONMENT_PRESET_NOREVERB };
-	XBLog_Write("JAMP: alcOpenDevice before SetI3DL2Listener");
-	s_pState->m_SoundObject->SetI3DL2Listener(&reverb, DS3D_DEFERRED);
-	XBLog_Write("JAMP: alcOpenDevice after SetI3DL2Listener");
+	else
+	{
+		XBLog_Write("STEFX_HM: QAL effects image sound/dsstdfx.bin missing; continuing dry audio");
+	}
 
 	XBLog_Write("JAMP: alcOpenDevice exit");
 	return (ALCdevice*)s_pState->m_SoundObject;

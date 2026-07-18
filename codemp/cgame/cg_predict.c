@@ -352,7 +352,11 @@ static void CG_ClipMoveToEntities ( const vec3_t start, const vec3_t mins, const
 				trace = oldTrace;
 				*tr = trace;
 			}
-			else if (hit->currentState.eType == ET_MISSILE &&
+			else if ((hit->currentState.eType == ET_MISSILE
+#if defined(STEFX_ELITE_FORCE_MP)
+				|| hit->currentState.eType == ET_ALT_MISSILE
+#endif
+				) &&
 				hit->currentState.owner == ignored->currentState.number)
 			{ //hack, don't hit own missiles
 				trace = oldTrace;
@@ -553,6 +557,84 @@ static void CG_InterpolateVehiclePlayerState( qboolean grabAngles ) {
 CG_TouchItem
 ===================
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXIsHolomatchWeaponPickup( const gitem_t *item )
+{
+	if ( !item || item->giType != IT_WEAPON )
+	{
+		return qfalse;
+	}
+
+	switch ( item->giTag )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXPredictHolomatchWeaponPickup( const gitem_t *item )
+{
+	static qboolean loggedHolomatchPredict[WP_NUM_WEAPONS];
+	int ammoIndex;
+	int ammoBefore;
+	int quantity;
+
+	if ( !CG_STEFXIsHolomatchWeaponPickup( item ) )
+	{
+		return qfalse;
+	}
+
+	ammoIndex = weaponData[item->giTag].ammoIndex;
+	ammoBefore = cg->predictedPlayerState.ammo[ammoIndex];
+	quantity = item->quantity;
+
+	if ( cgs.gametype != GT_TEAM )
+	{
+		if ( cg->predictedPlayerState.ammo[ammoIndex] < quantity * 0.5 )
+		{
+			quantity = quantity - cg->predictedPlayerState.ammo[ammoIndex];
+		}
+		else
+		{
+			quantity = quantity * 0.5;
+		}
+	}
+
+	cg->predictedPlayerState.stats[STAT_WEAPONS] |= 1 << item->giTag;
+	if ( cg->predictedPlayerState.ammo[ammoIndex] < ammoData[ammoIndex].max )
+	{
+		cg->predictedPlayerState.ammo[ammoIndex] += quantity;
+		if ( cg->predictedPlayerState.ammo[ammoIndex] > ammoData[ammoIndex].max )
+		{
+			cg->predictedPlayerState.ammo[ammoIndex] = ammoData[ammoIndex].max;
+		}
+	}
+
+	if ( !loggedHolomatchPredict[item->giTag] )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame predicted EF weapon pickup classname='%s' weapon=%d ammoIndex=%d quantity=%d ammoBefore=%d ammoAfter=%d\n",
+			item->classname ? item->classname : "",
+			item->giTag,
+			ammoIndex,
+			quantity,
+			ammoBefore,
+			cg->predictedPlayerState.ammo[ammoIndex] );
+		loggedHolomatchPredict[item->giTag] = qtrue;
+	}
+
+	return qtrue;
+}
+#endif
+
 static void CG_TouchItem( centity_t *cent ) {
 	gitem_t		*item;
 
@@ -664,9 +746,17 @@ static void CG_TouchItem( centity_t *cent ) {
 
 	// if its a weapon, give them some predicted ammo so the autoswitch will work
 	if ( item->giType == IT_WEAPON ) {
+		int ammoIndex = weaponData[item->giTag].ammoIndex;
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXPredictHolomatchWeaponPickup( item ) )
+		{
+			return;
+		}
+#endif
+
 		cg->predictedPlayerState.stats[ STAT_WEAPONS ] |= 1 << item->giTag;
-		if ( !cg->predictedPlayerState.ammo[ item->giTag ] ) {
-			cg->predictedPlayerState.ammo[ item->giTag ] = 1;
+		if ( !cg->predictedPlayerState.ammo[ ammoIndex ] ) {
+			cg->predictedPlayerState.ammo[ ammoIndex ] = 1;
 		}
 	}
 }
@@ -1034,6 +1124,22 @@ void CG_PredictPlayerState( void ) {
 
 	pEnt = &cg_entities[cg->predictedPlayerState.clientNum];
 	//rww - bgghoul2
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchPredictionModelSkip = qfalse;
+
+		cg_pmove.ghoul2 = NULL;
+		cg_pmove.g2Bolts_LFoot = -1;
+		cg_pmove.g2Bolts_RFoot = -1;
+		pEnt->ghoul2 = NULL;
+		pEnt->ghoul2weapon = NULL;
+		if (!loggedHolomatchPredictionModelSkip)
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame prediction skipped inherited player model collision setup\n" );
+			loggedHolomatchPredictionModelSkip = qtrue;
+		}
+	}
+#else
 	if (cg_pmove.ghoul2 != pEnt->ghoul2) //only update it if the g2 instance has changed
 	{
 		if (cg->snap &&
@@ -1050,6 +1156,7 @@ void CG_PredictPlayerState( void ) {
 			cg_pmove.ghoul2 = NULL;
 		}
 	}
+#endif
 
 	ci = &cgs.clientinfo[cg->predictedPlayerState.clientNum];
 

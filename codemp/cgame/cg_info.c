@@ -130,15 +130,33 @@ void CG_DrawInformation( void ) {
 	sysInfo = CG_ConfigString( CS_SYSTEMINFO );
 
 	s = Info_ValueForKey( info, "mapname" );
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchLoadingMedia = qfalse;
+
+		levelshot = trap_R_RegisterShaderNoMip( va( "levelshots/%s", s ) );
+		if ( !levelshot )
+		{
+			levelshot = trap_R_RegisterShaderNoMip( "levelshots/unknownmap" );
+		}
+		if ( !loggedHolomatchLoadingMedia )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame using EF loading levelshot media map='%s'\n", s );
+			loggedHolomatchLoadingMedia = qtrue;
+		}
+	}
+#else
 	levelshot = trap_R_RegisterShaderNoMip( va( "levelshots/%s", s ) );
 	if ( !levelshot ) {
 		levelshot = trap_R_RegisterShaderNoMip( "menu/art/unknownmap_mp" );
 	}
+#endif
 	trap_R_SetColor( NULL );
 
 	// Levelshot in bottom-right frame
 	CG_DrawPic( 371, 279, 189, 141, levelshot );
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	switch( cgs.gametype )
 	{
 		case GT_FFA:
@@ -156,6 +174,7 @@ void CG_DrawInformation( void ) {
 		default:
 			levelshot = trap_R_RegisterShaderNoMip( "levelshots/mp_ffa" );		break;
 	}
+#endif
 
 	CG_DrawPic( 75, 279, 189, 141, levelshot );
 

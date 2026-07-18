@@ -20,13 +20,19 @@
 
 #include "win_local.h"
 #include "win_input.h"
+#include "xb_log.h"
 
 #include "../cgame/cg_local.h"
 #include "../client/cl_data.h"
 
 #define IN_MAX_CONTROLLERS 4
 
+/* Shared with main(): main initializes Xbox devices before D3D/fakegl, matching
+ * the SP/OpenJKDF2 ordering.  IN_Init uses this flag to avoid a second call. */
+bool g_XInitDevicesAlreadyCalled = false;
+
 void IN_UIEmptyQueue();
+void IN_CheckForNoControllers();
 
 struct inputstate_t
 {
@@ -40,6 +46,7 @@ struct inputstate_t
 };
 
 inputstate_t in_state;
+static cvar_t *joy_deadzone = NULL;
 
 /*
 =========================================================================
@@ -54,6 +61,11 @@ extern bool noControllersConnected;
 // Process all the insertions and removals, updating handles and such
 void IN_ProcessChanges(DWORD dwInsert, DWORD dwRemove)
 {
+	if (dwInsert || dwRemove)
+	{
+		XBLF("STEFX_HM: input device changes insert=0x%08x remove=0x%08x", dwInsert, dwRemove);
+	}
+
 	for(int port = 0; port < IN_MAX_CONTROLLERS; ++port)
 	{
 		// Close removals.
@@ -73,10 +85,12 @@ void IN_ProcessChanges(DWORD dwInsert, DWORD dwRemove)
 		{
 
 			in_state.controllers[port].handle = XInputOpen( XDEVICE_TYPE_GAMEPAD, port, XDEVICE_NO_SLOT, NULL );
+			XBLF("STEFX_HM: input controller %d open handle=%p", port, in_state.controllers[port].handle);
 			IN_PadPlugged(port);
 		}
 	}
-	
+
+	IN_CheckForNoControllers();
 
 	return;
 }
@@ -89,10 +103,8 @@ If there are no controllers plugged in, the UI
 is notified so it can display an appropriate
 message.
 *********/
-/*
 void IN_CheckForNoControllers()
 {
-	
 	if(!noControllersConnected)
 	{
 		extern bool wasPlugged[4];
@@ -103,11 +115,11 @@ void IN_CheckForNoControllers()
 		{
 			// Tell the UI that there are no controllers connected
 		//	VM_Call( uivm, UI_CONTROLLER_UNPLUGGED, true, -1);
+			XBLog_Write("STEFX_HM: input SP no-controller tracking active");
 			noControllersConnected = true;
 		}
 	}
 }
-*/
 /*
 =========================================================================
 
@@ -176,26 +188,31 @@ void IN_Init( void )
 {
 //	in_state = new inputstate_t;
 
-	// Initialize support for 4 gamepads
+	// Initialize support for 4 gamepads and memory units, matching the SP path.
 	XDEVICE_PREALLOC_TYPE xdpt[] = {
 		{XDEVICE_TYPE_GAMEPAD, 4},
-		{XDEVICE_TYPE_MEMORY_UNIT, 1},
-		{XDEVICE_TYPE_VOICE_MICROPHONE, 4},
-		{XDEVICE_TYPE_VOICE_HEADPHONE, 4}
+		{XDEVICE_TYPE_MEMORY_UNIT, 8}
 	};
 	Cvar_Get("ControllersConnectedCount", "0", 0);
     // Initialize the peripherals. We can only ever
 	// call XInitDevices once, no matter what.
-	static bool bInputInitialized = false;
-	if (!bInputInitialized)
-    	XInitDevices( sizeof(xdpt) / sizeof(XDEVICE_PREALLOC_TYPE), xdpt );
-	bInputInitialized = true;
+	if (!g_XInitDevicesAlreadyCalled)
+	{
+		XBLog_Write("STEFX_HM: input fallback XInitDevices from IN_Init; main early init was not marked");
+		XInitDevices( sizeof(xdpt) / sizeof(XDEVICE_PREALLOC_TYPE), xdpt );
+		g_XInitDevicesAlreadyCalled = true;
+	}
 
     // Zero all of our data, including handles
 	memset(in_state.controllers, 0, sizeof(in_state.controllers));
 
 	// Find out the status of all gamepad ports, then open them
-	IN_ProcessChanges( XGetDevices( XDEVICE_TYPE_GAMEPAD ), 0 );
+	DWORD deviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
+	joy_deadzone = Cvar_Get( "joy_deadzone", "0.18", CVAR_ARCHIVE );
+	XBLF("STEFX_HM: input using SP early XInitDevices path; gamepad mask=0x%08x deadzone=%.3f",
+		deviceMask,
+		joy_deadzone ? joy_deadzone->value : 0.18f);
+	IN_ProcessChanges( deviceMask, 0 );
 
 	IN_RumbleInit();
 }
@@ -204,9 +221,18 @@ static inline float _joyAxisConvert(SHORT x)
 {
 	// Change scale
 	float y = x / 32767.0;
+	float deadzone = joy_deadzone ? joy_deadzone->value : 0.18f;
 
-	// Cheesy deadzone
-	if(fabs(y) < 0.25f)
+	if (deadzone < 0.0f)
+	{
+		deadzone = 0.0f;
+	}
+	else if (deadzone > 0.95f)
+	{
+		deadzone = 0.95f;
+	}
+
+	if(fabs(y) < deadzone)
 	{
 		y = 0.0f;
 	}
@@ -223,12 +249,15 @@ static inline float _joyAxisConvert(SHORT x)
 
 void IN_UpdateGamepad(int port)
 {
+	static bool loggedFirstState[IN_MAX_CONTROLLERS] = { false, false, false, false };
+	static int stateReadFailureLogBudget[IN_MAX_CONTROLLERS] = { 8, 8, 8, 8 };
+
 	// Lookup table to convert the digital buttons to fakeAscii_t, in mask order
 	const fakeAscii_t digitalXlat[IN_NUM_DIGITAL_BUTTONS] = {
 		A_JOY5, // DPAD_UP
 		A_JOY7, // DPAD_DOWN
 		A_JOY8, // DPAD_LEFT
-		A_JOY6, // DPAD_LEFT
+		A_JOY6, // DPAD_RIGHT
 		A_JOY4, // Start
 		A_JOY1, // Back
 		A_JOY2, // Left stick
@@ -249,7 +278,32 @@ void IN_UpdateGamepad(int port)
 
 	// Get new state
 	XINPUT_STATE newState;
-	XInputGetState( in_state.controllers[port].handle, &newState );
+	memset( &newState, 0, sizeof( newState ) );
+	DWORD stateResult = XInputGetState( in_state.controllers[port].handle, &newState );
+	if ( stateResult != ERROR_SUCCESS && stateReadFailureLogBudget[port] > 0 )
+	{
+		XBLF("STEFX_HM: input state read failed port=%d result=0x%08x; clearing stale pad state",
+			port,
+			stateResult);
+		--stateReadFailureLogBudget[port];
+	}
+	if (!loggedFirstState[port])
+	{
+		XBLF("STEFX_HM: first gamepad state port=%d buttons=0x%04x A=%u B=%u X=%u Y=%u LT=%u RT=%u LX=%d LY=%d RX=%d RY=%d",
+			port,
+			newState.Gamepad.wButtons,
+			newState.Gamepad.bAnalogButtons[0],
+			newState.Gamepad.bAnalogButtons[1],
+			newState.Gamepad.bAnalogButtons[2],
+			newState.Gamepad.bAnalogButtons[3],
+			newState.Gamepad.bAnalogButtons[6],
+			newState.Gamepad.bAnalogButtons[7],
+			newState.Gamepad.sThumbLX,
+			newState.Gamepad.sThumbLY,
+			newState.Gamepad.sThumbRX,
+			newState.Gamepad.sThumbRY);
+		loggedFirstState[port] = true;
+	}
 
 	// Get old state
 	XINPUT_STATE &oldState(in_state.controllers[port].state);
@@ -332,6 +386,12 @@ void IN_Frame (void)
 			Com_Printf("\tController %d initialized\n", controller); 
 
 			startsetMainController(controller);
+			if (Cvar_VariableIntegerValue("stefx_hm_directSlice"))
+			{
+				Cvar_SetValue( "inSplashMenu", 0 );
+				Cvar_SetValue( "ControllerOutNum", -1 );
+				XBLog_Write("STEFX_HM: direct-map input gate cleared splash/controller lock");
+			}
 			first = qfalse;
 		}
 

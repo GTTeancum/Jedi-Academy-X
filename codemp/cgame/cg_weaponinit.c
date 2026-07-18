@@ -3,6 +3,130 @@
 #include "cg_local.h"
 #include "fx_local.h"
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXIsHolomatchWeaponSlot( int weaponNum )
+{
+	switch ( weaponNum )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static qboolean CG_STEFXRegisterHolomatchWeaponMedia( int weaponNum, weaponInfo_t *weaponInfo )
+{
+	const char *hmClass = NULL;
+	char flashPath[MAX_QPATH];
+
+	switch ( weaponNum )
+	{
+	case WP_BRYAR_PISTOL:
+		hmClass = "phaser";
+		MAKERGB( weaponInfo->flashDlightColor, 0, 0, 0 );
+		MAKERGB( weaponInfo->missileDlightColor, 1.0f, 0.5f, 0.1f );
+		MAKERGB( weaponInfo->altMissileDlightColor, 1.0f, 0.35f, 0.1f );
+		weaponInfo->flashSound[0] = trap_S_RegisterSound( "sound/weapons/phaser/phaserstart.wav" );
+		weaponInfo->firingSound = trap_S_RegisterSound( "sound/weapons/phaser/phaserfiring.wav" );
+		weaponInfo->altFlashSound[0] = trap_S_RegisterSound( "sound/weapons/phaser/altphaserstart.wav" );
+		weaponInfo->altFiringSound = trap_S_RegisterSound( "sound/weapons/phaser/altphaserfiring.wav" );
+		weaponInfo->missileDlight = 80;
+		weaponInfo->altMissileDlight = 96;
+		break;
+
+	case WP_BLASTER:
+		hmClass = "compressionrifle";
+		MAKERGB( weaponInfo->flashDlightColor, 0.16f, 0.16f, 1.0f );
+		MAKERGB( weaponInfo->missileDlightColor, 0.16f, 0.16f, 1.0f );
+		MAKERGB( weaponInfo->altMissileDlightColor, 0.16f, 0.16f, 1.0f );
+		weaponInfo->flashSound[0] = trap_S_RegisterSound( "sound/weapons/prifle/fire.wav" );
+		weaponInfo->altFlashSound[0] = trap_S_RegisterSound( "sound/weapons/prifle/alt_fire_new.wav" );
+		weaponInfo->missileHitSound = trap_S_RegisterSound( "sound/weapons/prifle/impact.wav" );
+		weaponInfo->altMissileHitSound = weaponInfo->missileHitSound;
+		weaponInfo->missileDlight = 96;
+		weaponInfo->altMissileDlight = 128;
+		break;
+
+	case WP_DEMP2:
+		hmClass = "imod";
+		MAKERGB( weaponInfo->flashDlightColor, 0.6f, 0.6f, 1.0f );
+		MAKERGB( weaponInfo->missileDlightColor, 0.6f, 0.6f, 1.0f );
+		MAKERGB( weaponInfo->altMissileDlightColor, 0.6f, 0.6f, 1.0f );
+		weaponInfo->flashSound[0] = trap_S_RegisterSound( "sound/weapons/imod/fire.wav" );
+		weaponInfo->altFlashSound[0] = trap_S_RegisterSound( "sound/weapons/imod/alt_fire.wav" );
+		weaponInfo->missileDlight = 96;
+		weaponInfo->altMissileDlight = 128;
+		break;
+
+	case WP_BOWCASTER:
+		hmClass = "scavenger";
+		MAKERGB( weaponInfo->flashDlightColor, 1.0f, 0.6f, 0.6f );
+		weaponInfo->flashSound[0] = trap_S_RegisterSound( "sound/weapons/scavenger/fire.wav" );
+		weaponInfo->altFlashSound[0] = trap_S_RegisterSound( "sound/weapons/scavenger/alt_fire.wav" );
+		weaponInfo->missileHitSound = trap_S_RegisterSound( "sound/weapons/scavenger/hit_wall.wav" );
+		weaponInfo->altMissileHitSound = trap_S_RegisterSound( "sound/weapons/scavenger/alt_explode.wav" );
+		break;
+
+	case WP_DISRUPTOR:
+		hmClass = "tetriondisruptor";
+		MAKERGB( weaponInfo->flashDlightColor, 0.6f, 0.6f, 1.0f );
+		MAKERGB( weaponInfo->missileDlightColor, 0.6f, 0.6f, 1.0f );
+		MAKERGB( weaponInfo->altMissileDlightColor, 0.6f, 0.6f, 1.0f );
+		weaponInfo->flashSound[0] = trap_S_RegisterSound( "sound/weapons/tetrion/fire.wav" );
+		weaponInfo->altFlashSound[0] = trap_S_RegisterSound( "sound/weapons/tetrion/alt_fire.wav" );
+		weaponInfo->missileHitSound = trap_S_RegisterSound( "sound/weapons/tetrion/ricochet1.wav" );
+		weaponInfo->altMissileHitSound = trap_S_RegisterSound( "sound/weapons/tetrion/alt_hit_wall.wav" );
+		weaponInfo->missileDlight = 96;
+		weaponInfo->altMissileDlight = 128;
+		break;
+
+	case WP_ROCKET_LAUNCHER:
+		hmClass = "dreadnought";
+		MAKERGB( weaponInfo->flashDlightColor, 0.6f, 0.6f, 1.0f );
+		MAKERGB( weaponInfo->missileDlightColor, 0.6f, 0.6f, 1.0f );
+		MAKERGB( weaponInfo->altMissileDlightColor, 0.6f, 0.6f, 1.0f );
+		weaponInfo->flashSound[0] = trap_S_RegisterSound( "sound/weapons/dreadnought/dn_start.wav" );
+		weaponInfo->firingSound = trap_S_RegisterSound( "sound/weapons/dreadnought/dn_firing.wav" );
+		weaponInfo->altFlashSound[0] = trap_S_RegisterSound( "sound/weapons/dreadnought/dn_altfire.wav" );
+		weaponInfo->altMissileSound = trap_S_RegisterSound( "sound/weapons/dreadnought/dn_altmissile.wav" );
+		weaponInfo->altMissileHitSound = trap_S_RegisterSound( "sound/weapons/dreadnought/dn_althit.wav" );
+		weaponInfo->missileDlight = 200;
+		weaponInfo->altMissileDlight = 200;
+		break;
+
+	default:
+		return qfalse;
+	}
+
+	if ( weaponInfo->item && weaponInfo->item->view_model && weaponInfo->item->view_model[0] )
+	{
+		Q_strncpyz( flashPath, weaponInfo->item->view_model, sizeof( flashPath ) );
+		COM_StripExtension( flashPath, flashPath );
+		Q_strcat( flashPath, sizeof( flashPath ), "_flash.md3" );
+		weaponInfo->flashModel = trap_R_RegisterModel( flashPath );
+	}
+
+	weaponInfo->selectSound = trap_S_RegisterSound( "sound/weapons/change.wav" );
+	CG_PrintfAlways( "STEFX_HM: CG_RegisterWeapon EF media weapon=%d class='%s' item='%s' view='%s' worldModel=%d viewModel=%d handsModel=%d flashModel=%d barrelModel=%d\n",
+		weaponNum,
+		hmClass,
+		weaponInfo->item ? weaponInfo->item->classname : "",
+		weaponInfo->item ? weaponInfo->item->view_model : "",
+		weaponInfo->weaponModel,
+		weaponInfo->viewModel,
+		weaponInfo->handsModel,
+		weaponInfo->flashModel,
+		weaponInfo->barrelModel );
+	return qtrue;
+}
+#endif
+
 
 /*
 =================
@@ -28,18 +152,31 @@ void CG_RegisterWeapon( int weaponNum) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !CG_STEFXIsHolomatchWeaponSlot( weaponNum ) )
+	{
+		static qboolean loggedHolomatchWeaponSkip = qfalse;
+
+		memset( weaponInfo, 0, sizeof( *weaponInfo ) );
+		weaponInfo->registered = qtrue;
+		if ( !loggedHolomatchWeaponSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited weapon registration in Holomatch weapon=%d\n",
+				weaponNum );
+			loggedHolomatchWeaponSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
 	memset( weaponInfo, 0, sizeof( *weaponInfo ) );
 	weaponInfo->registered = qtrue;
 
-	for ( item = bg_itemlist + 1 ; item->classname ; item++ ) {
-		if ( item->giType == IT_WEAPON && item->giTag == weaponNum ) {
-			weaponInfo->item = item;
-			break;
-		}
-	}
-	if ( !item->classname ) {
+	item = BG_FindItemForWeapon( weaponNum );
+	if ( !item || !item->classname ) {
 		CG_Error( "Couldn't find weapon %i", weaponNum );
 	}
+	weaponInfo->item = item;
 	CG_RegisterItemVisuals( item - bg_itemlist );
 
 	// load cmodel before model so filecache works
@@ -56,12 +193,11 @@ void CG_RegisterWeapon( int weaponNum) {
 	weaponInfo->weaponIcon = trap_R_RegisterShader( item->icon );
 	weaponInfo->ammoIcon = trap_R_RegisterShader( item->icon );
 
-	for ( ammo = bg_itemlist + 1 ; ammo->classname ; ammo++ ) {
-		if ( ammo->giType == IT_AMMO && ammo->giTag == weaponNum ) {
-			break;
-		}
+	ammo = NULL;
+	if ( weaponData[weaponNum].ammoIndex != AMMO_NONE ) {
+		ammo = BG_FindItemForAmmo( (ammo_t)weaponData[weaponNum].ammoIndex );
 	}
-	if ( ammo->classname && ammo->world_model[0] ) {
+	if ( ammo && ammo->classname && ammo->world_model[0] ) {
 		weaponInfo->ammoModel = trap_R_RegisterModel( ammo->world_model[0] );
 	}
 
@@ -102,6 +238,13 @@ void CG_RegisterWeapon( int weaponNum) {
 	{
 		weaponInfo->handsModel = 0;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXRegisterHolomatchWeaponMedia( weaponNum, weaponInfo ) )
+	{
+		return;
+	}
+#endif
 
 //	if ( !weaponInfo->handsModel ) {
 //		weaponInfo->handsModel = trap_R_RegisterModel( "models/weapons2/shotgun/shotgun_hand.md3" );

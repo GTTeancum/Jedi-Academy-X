@@ -8,16 +8,23 @@ param(
     [string]$Port = "4460",
     [string[]]$DumpMem = @(),
     [string]$WatchCr2 = "",
-    [string[]]$XemuArg = @()
+    [string[]]$XemuArg = @(),
+    [switch]$AllowDeprecatedXemu
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+
+if (-not $AllowDeprecatedXemu) {
+    throw "MP Holomatch runtime testing is CXBX-R-only for this vertical slice. Use the staged efmp.xbe under C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X and validate with scripts\check_mp_holomatch_log.ps1. Re-run this deprecated XEMU helper only with -AllowDeprecatedXemu for final-stage comparison work."
+}
+
 $defaultIso = Join-Path $repoRoot "build\xemu\JediAcademyX_MP_direct.iso"
-$stageXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\default.xbe"
-$builtXbe = Join-Path $repoRoot "codemp\x_exe\Release\jamp.xbe"
+$stageXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\efmp.xbe"
+$stageDefaultXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\default.xbe"
+$builtXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
 
 if ([string]::IsNullOrWhiteSpace($Iso)) {
@@ -33,6 +40,9 @@ if ($Repack) {
     }
 
     New-Item -ItemType Directory -Force -Path (Split-Path $stageXbe) | Out-Null
+    if (Test-Path $stageDefaultXbe) {
+        throw "MP smoke stage already contains default.xbe; refusing to overwrite or remove the SP/co-op launch name. Stage a launcher manually or remove the stale file after confirming it is not the SP/co-op artifact."
+    }
     Copy-Item -LiteralPath $builtXbe -Destination $stageXbe -Force
 
     $stamp = Get-Date -Format yyyyMMdd_HHmmss

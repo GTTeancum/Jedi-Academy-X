@@ -23,8 +23,13 @@
 
 #define	DEFAULT_GRAVITY		800
 #define	GIB_HEALTH			-40
+#if defined(STEFX_ELITE_FORCE_MP)
+#define ARMOR_PROTECTION		1.0
+#define ARMOR_REDUCTION_FACTOR	0.50
+#else
 #define ARMOR_PROTECTION		0.50 // Shields only stop 50% of armor-piercing dmg
 #define ARMOR_REDUCTION_FACTOR	0.50 // Certain damage doesn't take off armor as efficiently
+#endif
 
 #define	JUMP_VELOCITY		225//270
 
@@ -39,13 +44,20 @@
 #define	VOTE_TIME			30000	// 30 seconds before vote times out
 
 #define DEFAULT_MINS_2		-24
+#if defined(STEFX_ELITE_FORCE_MP)
+#define DEFAULT_MAXS_2		32
+#define CROUCH_MAXS_2		16
+#define	MINS_Z				-24
+#define	DEFAULT_VIEWHEIGHT	26
+#define CROUCH_VIEWHEIGHT	12
+#else
 #define DEFAULT_MAXS_2		40
 #define CROUCH_MAXS_2		16
 #define	STANDARD_VIEWHEIGHT_OFFSET -4
-
 #define	MINS_Z				-24
 #define	DEFAULT_VIEWHEIGHT	(DEFAULT_MAXS_2+STANDARD_VIEWHEIGHT_OFFSET)//26
 #define CROUCH_VIEWHEIGHT	(CROUCH_MAXS_2+STANDARD_VIEWHEIGHT_OFFSET)//12
+#endif
 #define	DEAD_VIEWHEIGHT		-16
 
 #define MAX_CLIENT_SCORE_SEND 20
@@ -776,6 +788,9 @@ typedef enum {
 	EV_CHANGE_WEAPON,
 	EV_FIRE_WEAPON,
 	EV_ALT_FIRE,
+#if defined(STEFX_ELITE_FORCE_MP)
+	EV_FIRE_EMPTY_PHASER,
+#endif
 	EV_SABER_ATTACK,
 	EV_SABER_HIT,
 	EV_SABER_BLOCK,
@@ -1138,6 +1153,7 @@ float vectoyaw( const vec3_t vec );
 
 gitem_t	*BG_FindItem( const char *classname );
 gitem_t	*BG_FindItemForWeapon( weapon_t weapon );
+gitem_t	*BG_FindItemForAmmo( ammo_t ammo );
 gitem_t	*BG_FindItemForPowerup( powerup_t pw );
 gitem_t	*BG_FindItemForHoldable( holdable_t pw );
 #define	ITEM_INDEX(x) ((x)-bg_itemlist)
@@ -1183,6 +1199,19 @@ typedef enum {
 	ET_PLAYER,
 	ET_ITEM,
 	ET_MISSILE,
+#if defined(STEFX_ELITE_FORCE_MP)
+	ET_ALT_MISSILE,
+	ET_MOVER,
+	ET_BEAM,
+	ET_PORTAL,
+	ET_SPEAKER,
+	ET_PUSH_TRIGGER,
+	ET_TELEPORT_TRIGGER,
+	ET_INVISIBLE,
+	ET_USEABLE,
+	ET_SPECIAL,				// inherited force fields, kept after EF core types
+	ET_HOLOCRON,			// inherited holocron icon displays, kept after EF core types
+#else
 	ET_SPECIAL,				// rww - force fields
 	ET_HOLOCRON,			// rww - holocron icon displays
 	ET_MOVER,
@@ -1192,6 +1221,7 @@ typedef enum {
 	ET_PUSH_TRIGGER,
 	ET_TELEPORT_TRIGGER,
 	ET_INVISIBLE,
+#endif
 	ET_NPC,					// ghoul2 player-like entity
 	ET_TEAM,
 	ET_BODY,

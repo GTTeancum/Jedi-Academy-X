@@ -36,6 +36,8 @@ qboolean gPMDoSlowFall = qfalse;
 
 qboolean pm_cancelOutZoom = qfalse;
 
+static qboolean PM_STEFXHolomatchWeapon( int weapon );
+
 // movement parameters
 float	pm_stopspeed = 100.0f;
 float	pm_duckScale = 0.50f;
@@ -3687,7 +3689,7 @@ static void PM_CrashLand( void ) {
 	if (pm->ps->weapon != WP_SABER && pm->ps->weapon != WP_MELEE && !PM_IsRocketTrooper())
 	{ //saber handles its own anims
 		//This will push us back into our weaponready stance from the land anim.
-		if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1)
+		if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1)
 		{
 			PM_StartTorsoAnim( TORSO_WEAPONREADY4 );
 		}
@@ -5121,7 +5123,7 @@ static void PM_Footsteps( void ) {
 					PM_ContinueLegsAnim( BOTH_CROUCH1IDLE );
 				}
 			} else {
-				if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1)
+				if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1)
 				{
 					///????  continue legs anim on a torso anim...??!!!
 					//yeah.. the anim has a valid pose for the legs, it uses it (you can't move while using disruptor)
@@ -5660,6 +5662,99 @@ void PM_FinishWeaponChange( void ) {
 	pm->ps->weaponTime += 250;
 }
 
+static qboolean PM_STEFXHolomatchWeapon( int weapon )
+{
+#if defined(STEFX_ELITE_FORCE_MP)
+	switch ( weapon )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		break;
+	}
+#endif
+	return qfalse;
+}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_HM_PHASER_AMMO_MAX		50
+#define STEFX_HM_PHASER_RECHARGE_TIME	100
+
+static void PM_STEFXHolomatchRechargePhaser( void )
+{
+	if ( pm->ps->clientNum >= MAX_CLIENTS )
+	{
+		return;
+	}
+
+	if ( pm->ps->ammo[AMMO_FORCE] < 0 || pm->ps->ammo[AMMO_FORCE] >= STEFX_HM_PHASER_AMMO_MAX )
+	{
+		return;
+	}
+
+	if ( pm->ps->weaponChargeSubtractTime <= 0 )
+	{
+		pm->ps->weaponChargeSubtractTime = pm->cmd.serverTime + STEFX_HM_PHASER_RECHARGE_TIME;
+		return;
+	}
+
+	if ( pm->ps->weaponChargeSubtractTime <= pm->cmd.serverTime )
+	{
+		pm->ps->ammo[AMMO_FORCE]++;
+		pm->ps->weaponChargeSubtractTime = pm->cmd.serverTime + STEFX_HM_PHASER_RECHARGE_TIME;
+	}
+}
+
+static qboolean PM_STEFXHolomatchPhaserEmpty( void )
+{
+	static qboolean loggedEmptyPhaser = qfalse;
+
+	if ( pm->ps->weapon != WP_BRYAR_PISTOL ||
+		!PM_STEFXHolomatchWeapon( pm->ps->weapon ) ||
+		pm->ps->clientNum >= MAX_CLIENTS ||
+		pm->ps->ammo[AMMO_FORCE] > 0 )
+	{
+		return qfalse;
+	}
+
+	if ( !( pm->cmd.buttons & ( BUTTON_ATTACK | BUTTON_ALT_ATTACK ) ) )
+	{
+		return qtrue;
+	}
+
+	pm->ps->ammo[AMMO_FORCE] = 0;
+	pm->ps->weaponstate = WEAPON_FIRING;
+	pm->ps->eFlags |= EF_FIRING;
+	if ( pm->cmd.buttons & BUTTON_ALT_ATTACK )
+	{
+		pm->ps->eFlags |= EF_ALT_FIRING;
+	}
+	else
+	{
+		pm->ps->eFlags &= ~EF_ALT_FIRING;
+	}
+
+	PM_AddEvent( EV_FIRE_EMPTY_PHASER );
+	pm->ps->weaponTime += weaponData[pm->ps->weapon].fireTime;
+	pm->ps->weaponChargeSubtractTime = pm->cmd.serverTime + STEFX_HM_PHASER_RECHARGE_TIME;
+
+	if ( !loggedEmptyPhaser )
+	{
+		Com_Printf( "STEFX_HM: shared movement emitted EF empty Phaser fire event weapon=%d ammo_phaser=%d\n",
+			pm->ps->weapon,
+			pm->ps->ammo[AMMO_FORCE] );
+		loggedEmptyPhaser = qtrue;
+	}
+
+	return qtrue;
+}
+#endif
+
 void PM_RocketLock( float lockDist, qboolean vehicleLock )
 {
 	// Not really a charge weapon, but we still want to delay fire until the button comes up so that we can
@@ -5668,6 +5763,20 @@ void PM_RocketLock( float lockDist, qboolean vehicleLock )
 	trace_t		tr;
 	
 	vec3_t muzzleOffPoint, muzzlePoint, forward, right, up;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchRocketLockSkip = qfalse;
+
+	pm->ps->rocketLockIndex = ENTITYNUM_NONE;
+	pm->ps->rocketLockTime = 0;
+	pm->ps->rocketTargetTime = 0;
+	if ( !loggedHolomatchRocketLockSkip )
+	{
+		Com_Printf( "STEFX_HM: shared movement skipped inherited rocket lock path for Holomatch\n" );
+		loggedHolomatchRocketLockSkip = qtrue;
+	}
+	return;
+#endif
 
 	if ( vehicleLock )
 	{
@@ -5788,6 +5897,13 @@ static qboolean PM_DoChargedWeapons( qboolean vehicleRocketLock, bgEntity_t *veh
 	}
 	else
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( PM_STEFXHolomatchWeapon( pm->ps->weapon ) )
+		{
+			return qfalse;
+		}
+#endif
+
 		// If you want your weapon to be a charging weapon, just set this bit up
 		switch( pm->ps->weapon )
 		{
@@ -6499,7 +6615,7 @@ static void PM_Weapon( void )
 		}
 	}
 
-	if (pm->ps->weapon != WP_DISRUPTOR //not using disruptor
+	if ((pm->ps->weapon != WP_DISRUPTOR || PM_STEFXHolomatchWeapon(pm->ps->weapon)) //not using disruptor
 		&& pm->ps->weapon != WP_ROCKET_LAUNCHER//not using rocket launcher
 		&& pm->ps->weapon != WP_THERMAL//not using thermals
 		&& !pm->ps->m_iVehicleNum )//not a vehicle or in a vehicle
@@ -6530,7 +6646,7 @@ static void PM_Weapon( void )
 	{ //reset into weapon stance
 		if (pm->ps->weapon != WP_SABER && pm->ps->weapon != WP_MELEE && !PM_IsRocketTrooper())
 		{ //saber handles its own anims
-			if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1)
+			if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1)
 			{
 				//PM_StartTorsoAnim( TORSO_WEAPONREADY4 );
 				PM_StartTorsoAnim( TORSO_RAISEWEAP1);
@@ -6820,6 +6936,10 @@ static void PM_Weapon( void )
 			return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	PM_STEFXHolomatchRechargePhaser();
+#endif
+
 	// check for dead player
 	if ( pm->ps->stats[STAT_HEALTH] <= 0 ) {
 		pm->ps->weapon = WP_NONE;
@@ -6950,6 +7070,12 @@ static void PM_Weapon( void )
 				pm->ps->ammo[weaponData[pm->ps->weapon].ammoIndex] < weaponData[pm->ps->weapon].altEnergyPerShot) 
 			{ //the weapon is out of ammo essentially because it cannot fire primary or secondary, so do the switch
 			  //regardless of if the player is attacking or not
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( PM_STEFXHolomatchPhaserEmpty() )
+				{
+					return;
+				}
+#endif
 				PM_AddEventWithParm( EV_NOAMMO, WP_NUM_WEAPONS+pm->ps->weapon );
 
 				if (pm->ps->weaponTime < 500)
@@ -6986,6 +7112,7 @@ static void PM_Weapon( void )
 	}
 
 	if (pm->ps->weapon == WP_DISRUPTOR &&
+		!PM_STEFXHolomatchWeapon(pm->ps->weapon) &&
 		pm->ps->zoomMode == 1)
 	{
 		if (pm_cancelOutZoom)
@@ -7026,7 +7153,7 @@ static void PM_Weapon( void )
 			}
 			else
 			{
-				if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1)
+				if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1)
 				{
 					PM_StartTorsoAnim( TORSO_WEAPONREADY4 );
 				}
@@ -7095,7 +7222,7 @@ static void PM_Weapon( void )
 
 	if (((pm->ps->torsoAnim) == TORSO_WEAPONREADY4 ||
 		(pm->ps->torsoAnim) == BOTH_ATTACK4) &&
-		(pm->ps->weapon != WP_DISRUPTOR || pm->ps->zoomMode != 1))
+		(pm->ps->weapon != WP_DISRUPTOR || PM_STEFXHolomatchWeapon(pm->ps->weapon) || pm->ps->zoomMode != 1))
 	{
 		if (pm->ps->weapon == WP_EMPLACED_GUN)
 		{
@@ -7109,7 +7236,7 @@ static void PM_Weapon( void )
 	else if (((pm->ps->torsoAnim) != TORSO_WEAPONREADY4 &&
 		(pm->ps->torsoAnim) != BOTH_ATTACK4) &&
 		PM_CanSetWeaponAnims() &&
-		(pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1))
+		(pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1))
 	{
 		PM_StartTorsoAnim( TORSO_WEAPONREADY4 );
 	}
@@ -7206,6 +7333,7 @@ static void PM_Weapon( void )
 	}
 
 	if (pm->ps->weapon == WP_DISRUPTOR &&
+		!PM_STEFXHolomatchWeapon(pm->ps->weapon) &&
 		(pm->cmd.buttons & BUTTON_ALT_ATTACK) &&
 		!pm->ps->zoomLocked)
 	{
@@ -7213,13 +7341,14 @@ static void PM_Weapon( void )
 	}
 
 	if (pm->ps->weapon == WP_DISRUPTOR &&
+		!PM_STEFXHolomatchWeapon(pm->ps->weapon) &&
 		(pm->cmd.buttons & BUTTON_ALT_ATTACK) &&
 		pm->ps->zoomMode == 2)
 	{ //can't use disruptor secondary while zoomed binoculars
 		return;
 	}
 
-	if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1)
+	if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1)
 	{
 		PM_StartTorsoAnim( BOTH_ATTACK4 );
 	}
@@ -7396,6 +7525,14 @@ static void PM_Weapon( void )
 			// Switch weapons
 			if (pm->ps->weapon != WP_DET_PACK || !pm->ps->hasDetPackPlanted)
 			{
+#if defined(STEFX_ELITE_FORCE_MP)
+				if ( PM_STEFXHolomatchWeapon( pm->ps->weapon ) &&
+					( pm->cmd.buttons & BUTTON_ALT_ATTACK ) )
+				{
+					PM_AddEventWithParm( EV_NOAMMO, ( WP_NUM_WEAPONS * 2 ) + pm->ps->weapon );
+				}
+				else
+#endif
 				PM_AddEventWithParm( EV_NOAMMO, WP_NUM_WEAPONS+pm->ps->weapon );
 				if (pm->ps->weaponTime < 500)
 				{
@@ -7413,7 +7550,7 @@ static void PM_Weapon( void )
 			PM_AddEvent( EV_FIRE_WEAPON );
 			addTime = weaponData[pm->ps->weapon].fireTime;
 		}
-		else if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode != 1)
+		else if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode != 1)
 		{
 			PM_AddEvent( EV_FIRE_WEAPON );
 			addTime = weaponData[pm->ps->weapon].fireTime;
@@ -7432,6 +7569,15 @@ static void PM_Weapon( void )
 		if (pm->ps->weapon != WP_MELEE ||
 			!pm->ps->m_iVehicleNum)
 		{ //do not fire melee events at all when on vehicle
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( pm->ps->weapon == WP_BRYAR_PISTOL &&
+				PM_STEFXHolomatchWeapon( pm->ps->weapon ) &&
+				pm->ps->ammo[AMMO_FORCE] <= 0 )
+			{
+				PM_AddEvent( EV_FIRE_EMPTY_PHASER );
+			}
+			else
+#endif
 			PM_AddEvent( EV_FIRE_WEAPON );
 		}
 		addTime = weaponData[pm->ps->weapon].fireTime;
@@ -7440,6 +7586,20 @@ static void PM_Weapon( void )
 			addTime *= 2;
 		}
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( pm->ps->weapon == WP_BRYAR_PISTOL && PM_STEFXHolomatchWeapon( pm->ps->weapon ) )
+	{
+		if ( pm->cmd.buttons & BUTTON_ALT_ATTACK )
+		{
+			pm->ps->weaponChargeSubtractTime = pm->cmd.serverTime + STEFX_HM_PHASER_RECHARGE_TIME;
+		}
+		else
+		{
+			pm->ps->weaponChargeSubtractTime = pm->cmd.serverTime + (2 * STEFX_HM_PHASER_RECHARGE_TIME);
+		}
+	}
+#endif
 
 	/*
 	if ( pm->ps->powerups[PW_HASTE] ) {
@@ -7830,7 +7990,7 @@ void PM_AdjustAttackStates( pmove_t *pm )
 	}
 
 	// disruptor alt-fire should toggle the zoom mode, but only bother doing this for the player?
-	if ( pm->ps->weapon == WP_DISRUPTOR && pm->ps->weaponstate == WEAPON_READY )
+	if ( pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->weaponstate == WEAPON_READY )
 	{
 		if ( !(pm->ps->eFlags & EF_ALT_FIRING) && (pm->cmd.buttons & BUTTON_ALT_ATTACK) /*&&
 			pm->cmd.upmove <= 0 && !pm->cmd.forwardmove && !pm->cmd.rightmove*/)
@@ -7956,7 +8116,7 @@ void PM_AdjustAttackStates( pmove_t *pm )
 	}
 
 	// disruptor should convert a main fire to an alt-fire if the gun is currently zoomed
-	if ( pm->ps->weapon == WP_DISRUPTOR)
+	if ( pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon))
 	{
 		if ( pm->cmd.buttons & BUTTON_ATTACK && pm->ps->zoomMode == 1 && pm->ps->zoomLocked)
 		{
@@ -8156,6 +8316,7 @@ void BG_AdjustClientSpeed(playerState_t *ps, usercmd_t *cmd, int svTime)
 	}
 
 	if (pm->ps->weapon == WP_DISRUPTOR &&
+		!PM_STEFXHolomatchWeapon(pm->ps->weapon) &&
 		pm->ps->zoomMode == 1 && pm->ps->zoomLockTime < pm->cmd.serverTime)
 	{
 		ps->speed *= 0.5f;
@@ -10089,7 +10250,7 @@ void PmoveSingle (pmove_t *pmove) {
 	}
 
 	/*
-	if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->weaponstate == WEAPON_CHARGING_ALT)
+	if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->weaponstate == WEAPON_CHARGING_ALT)
 	{ //not allowed to move while charging the disruptor
 		pm->cmd.forwardmove = 0;
 		pm->cmd.rightmove = 0;
@@ -10100,7 +10261,7 @@ void PmoveSingle (pmove_t *pmove) {
 	}
 	*/
 
-	if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->weaponstate == WEAPON_CHARGING_ALT)
+	if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->weaponstate == WEAPON_CHARGING_ALT)
 	{ //not allowed to move while charging the disruptor
 		if (pm->cmd.forwardmove ||
 			pm->cmd.rightmove ||
@@ -10112,7 +10273,7 @@ void PmoveSingle (pmove_t *pmove) {
 			pm->cmd.upmove = 0;
 		}
 	}
-	else if (pm->ps->weapon == WP_DISRUPTOR && pm->ps->zoomMode == 1)
+	else if (pm->ps->weapon == WP_DISRUPTOR && !PM_STEFXHolomatchWeapon(pm->ps->weapon) && pm->ps->zoomMode == 1)
 	{ //can't jump
 		if (pm->cmd.upmove > 0)
 		{
@@ -10161,6 +10322,7 @@ void PmoveSingle (pmove_t *pmove) {
 
 	pm_cancelOutZoom = qfalse;
 	if (pm->ps->weapon == WP_DISRUPTOR &&
+		!PM_STEFXHolomatchWeapon(pm->ps->weapon) &&
 		pm->ps->zoomMode == 1)
 	{
 		if ((pm->cmd.buttons & BUTTON_ALT_ATTACK) &&

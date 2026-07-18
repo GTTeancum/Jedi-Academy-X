@@ -150,10 +150,9 @@ static char			sInfoOnly_CurrentDynamicMusicSet[64];	// any old reasonable size, 
 #define		SOUND_ATTENUATE		0.0008f
 #define		VOICE_ATTENUATE		0.004f
 
-// This number has dramatic affects on volume.  QA has
-// determined that 100 is too quiet in some spots and
-// 200 is too loud in others.  Modify with care...
-#define		SOUND_REF_DIST_BASE	150.f
+// Match the EF/SP Xbox attenuation baseline so Holomatch 3D audio uses the
+// same falloff profile as the cooperative executable.
+#define		SOUND_REF_DIST_BASE	1500.f
 
 #define		SOUND_UPDATE_TIME	100
 
@@ -197,6 +196,76 @@ static int		s_sfxCodes[MAX_SFX];
 
 static bool s_registered = false;
 static int s_defaultSound = 0;
+
+static qboolean S_STEFXValidSfxHandle(sfxHandle_t sfxHandle, const char *caller)
+{
+	static int invalidBudget = 16;
+
+	if (sfxHandle < 0 || sfxHandle >= MAX_SFX)
+	{
+		if (invalidBudget > 0)
+		{
+			XBLog_Writef("STEFX_HM: sound dropped invalid handle caller='%s' handle=%d max=%d",
+				caller ? caller : "",
+				sfxHandle,
+				MAX_SFX);
+			invalidBudget--;
+		}
+		return qfalse;
+	}
+
+	if (s_sfxCodes[sfxHandle] == INVALID_CODE)
+	{
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static qboolean S_STEFXValidEntityNum(int entityNum, const char *caller)
+{
+	static int invalidBudget = 16;
+
+	if (entityNum < 0 || entityNum >= MAX_GENTITIES)
+	{
+		if (invalidBudget > 0)
+		{
+			XBLog_Writef("STEFX_HM: sound dropped invalid entity caller='%s' entity=%d max=%d",
+				caller ? caller : "",
+				entityNum,
+				MAX_GENTITIES);
+			invalidBudget--;
+		}
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+static int S_STEFXClampListenerCount(int numListeners, const char *caller)
+{
+	int clamped = numListeners;
+
+	if (clamped < 1)
+	{
+		clamped = 1;
+	}
+	else if (clamped > SND_MAX_LISTENERS)
+	{
+		clamped = SND_MAX_LISTENERS;
+	}
+
+	if (clamped != numListeners)
+	{
+		XBLog_Writef("STEFX_HM: sound clamped listener count caller='%s' requested=%d active=%d max=%d",
+			caller ? caller : "",
+			numListeners,
+			clamped,
+			SND_MAX_LISTENERS);
+	}
+
+	return clamped;
+}
 
 typedef struct 
 { 
@@ -274,6 +343,9 @@ void S_Init( void ) {
 
 	s_CPUType = Cvar_Get("sys_cpuid","",0);
 	s_soundpoolmegs = Cvar_Get("s_soundpoolmegs", "6", CVAR_ARCHIVE);
+	XBLog_Write("STEFX_HM: sound using EF/SP hardened Xbox path; handle/entity guards active");
+	XBLog_Writef("STEFX_HM: sound using SP Xbox attenuation reference distance=%.1f",
+		SOUND_REF_DIST_BASE);
 
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
 
@@ -586,7 +658,8 @@ void S_CreateSources( void ) {
 	s_numChannels = 0;
 
 	// Create as many AL Sources (up to Max) as possible
-	int limit = MAX_CHANNELS_2D + MAX_CHANNELS_3D / s_numListeners;
+	int activeListeners = S_STEFXClampListenerCount(s_numListeners, "S_CreateSources");
+	int limit = MAX_CHANNELS_2D + MAX_CHANNELS_3D / activeListeners;
 	for (i = 0; i < limit; i++)
 	{
 		if (i < MAX_CHANNELS_2D)
@@ -632,6 +705,7 @@ void S_BeginRegistration( int num_listeners )
 	s_soundMuted = qfalse;
 
 	// Create listeners
+	num_listeners = S_STEFXClampListenerCount(num_listeners, "S_BeginRegistration");
 	assert(num_listeners <= SND_MAX_LISTENERS);
 	if (num_listeners < s_numListeners)
 	{
@@ -671,6 +745,10 @@ void S_BeginRegistration( int num_listeners )
 		S_LoadSound(s_defaultSound);
 		s_registered = true;
 	}
+	XBLog_Writef("STEFX_HM: sound registration active listeners=%d channels=%d default=%d",
+		s_numListeners,
+		s_numChannels,
+		s_defaultSound);
 }
 
 /*
@@ -972,11 +1050,11 @@ void S_StartAmbientSound( const vec3_t origin, int entityNum, unsigned char volu
 	if ( !s_soundStarted || s_soundMuted ) {
 		return;
 	}
-	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_StartAmbientSound") ) {
 		return;
 	}
-	if ( !origin && ( entityNum < 0 || entityNum > MAX_GENTITIES ) ) {
-		Com_Error( ERR_DROP, "S_StartAmbientSound: bad entitynum %i", entityNum );
+	if ( !origin && !S_STEFXValidEntityNum(entityNum, "S_StartAmbientSound") ) {
+		return;
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
@@ -1078,12 +1156,12 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 		return;
 	}
 
-	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_StartSound") ) {
 		return;
 	}
 
-	if ( !origin && ( entityNum < 0 || entityNum > MAX_GENTITIES ) ) {
-		Com_Error( ERR_DROP, "S_StartSound: bad entitynum %i", entityNum );
+	if ( !origin && !S_STEFXValidEntityNum(entityNum, "S_StartSound") ) {
+		return;
 	}
 
 	sfx = &s_sfxBlock[sfxHandle];
@@ -1206,7 +1284,10 @@ void S_StartSound(const vec3_t origin, int entityNum, int entchannel, sfxHandle_
 	}
 	if ( entchannel == CHAN_VOICE || entchannel == CHAN_VOICE_ATTEN || entchannel == CHAN_VOICE_GLOBAL ) 
 	{
-		s_entityWavVol[ ch->entnum ] = -1;	//we've started the sound but it's silent for now
+		if ( S_STEFXValidEntityNum(ch->entnum, "S_StartSound voice") )
+		{
+			s_entityWavVol[ ch->entnum ] = -1;	//we've started the sound but it's silent for now
+		}
 	}
 }
 
@@ -1216,13 +1297,30 @@ S_StartLocalSound
 ==================
 */
 void S_StartLocalSound( sfxHandle_t sfxHandle, int channelNum ) {
+	int listenerIndex;
+
 	if ( !s_soundStarted || s_soundMuted ) {
 		return;
 	}
 
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_StartLocalSound") ) {
+		return;
+	}
+
+	listenerIndex = ClientManager::ActiveClientNum();
+	if ( listenerIndex < 0 || listenerIndex >= s_numListeners )
+	{
+		XBLog_Writef("STEFX_HM: sound local listener clamped active=%d listeners=%d channel=%d handle=%d",
+			listenerIndex,
+			s_numListeners,
+			channelNum,
+			sfxHandle);
+		listenerIndex = 0;
+	}
+
 	// Play a 2D sound -- doesn't matter which listener we use
 //	S_StartSound (NULL, 0, channelNum, sfxHandle );
-	S_StartSound (NULL, s_listeners[ClientManager::ActiveClientNum()].entnum, channelNum, sfxHandle );
+	S_StartSound (NULL, s_listeners[listenerIndex].entnum, channelNum, sfxHandle );
 }
 
 
@@ -1323,7 +1421,7 @@ float S_GetSampleLengthInMilliSeconds( sfxHandle_t sfxHandle)
 		return 512;
 	}
 
-	if ( s_sfxCodes[sfxHandle] == INVALID_CODE ) {
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_GetSampleLengthInMilliSeconds") ) {
 		return 0.0f;
 	}
 
@@ -1348,7 +1446,7 @@ void S_LoadSound( sfxHandle_t sfxHandle )
 		return;
 	}
 
-	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_LoadSound") ) {
 		return;
 	}
 
@@ -1484,7 +1582,7 @@ void S_AddLoopingSound( int entityNum, const vec3_t origin, const vec3_t velocit
 		return;
 	}
 
-	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_AddLoopingSound") ) {
 		return;
 	}
 
@@ -1529,7 +1627,7 @@ void S_AddAmbientLoopingSound( const vec3_t origin, unsigned char volume, sfxHan
 	if (volume == 0)
 		return;
 
-	if ( sfxHandle < 0 || sfxHandle > MAX_SFX || s_sfxCodes[sfxHandle] == INVALID_CODE ) {
+	if ( !S_STEFXValidSfxHandle(sfxHandle, "S_AddAmbientLoopingSound") ) {
 		return;
 	}
 
@@ -1568,8 +1666,8 @@ void S_UpdateEntityPosition( int entityNum, const vec3_t origin )
 	channel_t *ch;
 	int i;
 
-	if ( entityNum < 0 || entityNum > MAX_GENTITIES ) {
-		Com_Error( ERR_DROP, "S_UpdateEntityPosition: bad entitynum %i", entityNum );
+	if ( !S_STEFXValidEntityNum(entityNum, "S_UpdateEntityPosition") ) {
+		return;
 	}
 
 	if (entityNum == 0)

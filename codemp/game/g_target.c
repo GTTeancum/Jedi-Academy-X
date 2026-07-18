@@ -242,6 +242,36 @@ Multiple identical looping sounds will just increase volume without any speed co
 "random"	wait variance, default is 0
 */
 void Use_Target_Speaker (gentity_t *ent, gentity_t *other, gentity_t *activator) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchSpeakerUse = qfalse;
+
+		if (ent->spawnflags & 3) {	// looping sound toggles
+			if (ent->s.loopSound)
+				ent->s.loopSound = 0;	// turn it off
+			else
+				ent->s.loopSound = ent->noise_index;	// start it
+		}else {	// normal sound
+			if ( ent->spawnflags & 8 ) {
+				G_AddEvent( activator, EV_GENERAL_SOUND, ent->noise_index );
+			} else if (ent->spawnflags & 4) {
+				G_AddEvent( ent, EV_GLOBAL_SOUND, ent->noise_index );
+			} else {
+				G_AddEvent( ent, EV_GENERAL_SOUND, ent->noise_index );
+			}
+		}
+
+		if ( !loggedHolomatchSpeakerUse )
+		{
+			G_Printf( "STEFX_HM: server used EF target_speaker use spawnflags=%d sound=%d\n",
+				ent->spawnflags,
+				ent->noise_index );
+			loggedHolomatchSpeakerUse = qtrue;
+		}
+		return;
+	}
+#else
+
 	G_ActivateBehavior(ent,BSET_USE);
 
 	if (ent->spawnflags & 3) {	// looping sound toggles
@@ -266,6 +296,7 @@ void Use_Target_Speaker (gentity_t *ent, gentity_t *other, gentity_t *activator)
 			G_AddEvent( ent, EV_GENERAL_SOUND, ent->noise_index );
 		}
 	}
+#endif
 }
 
 void SP_target_speaker( gentity_t *ent ) {
@@ -274,6 +305,58 @@ void SP_target_speaker( gentity_t *ent ) {
 
 	G_SpawnFloat( "wait", "0", &ent->wait );
 	G_SpawnFloat( "random", "0", &ent->random );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		if ( !G_SpawnString( "noise", "NOSOUND", &s ) )
+		{
+			G_Printf( "STEFX_HM: target_speaker missing noise at %.1f %.1f %.1f; freeing entity\n",
+				ent->s.origin[0],
+				ent->s.origin[1],
+				ent->s.origin[2] );
+			G_FreeEntity(ent);
+			return;
+		}
+
+		if ( s[0] == '*' )
+		{
+			ent->spawnflags |= 8;
+		}
+
+		Q_strncpyz( buffer, s, sizeof(buffer) );
+		COM_DefaultExtension( buffer, sizeof(buffer), ".wav");
+		ent->noise_index = G_SoundIndex(buffer);
+
+		ent->s.eType = ET_SPEAKER;
+		ent->s.eventParm = ent->noise_index;
+		ent->s.frame = ent->wait * 10;
+		ent->s.clientNum = ent->random * 10;
+
+		if ( ent->spawnflags & 1 )
+		{
+			ent->s.loopSound = ent->noise_index;
+		}
+
+		ent->use = Use_Target_Speaker;
+
+		if (ent->spawnflags & 4)
+		{
+			ent->r.svFlags |= SVF_BROADCAST;
+		}
+
+		VectorCopy( ent->s.origin, ent->s.pos.trBase );
+		trap_LinkEntity( ent );
+
+		G_Printf( "STEFX_HM: target_speaker registered EF sound noise='%s' index=%d spawnflags=%d origin='%.1f %.1f %.1f'\n",
+			buffer,
+			ent->noise_index,
+			ent->spawnflags,
+			ent->s.origin[0],
+			ent->s.origin[1],
+			ent->s.origin[2] );
+		return;
+	}
+#else
 
 	if ( G_SpawnString ( "soundSet", "", &s ) )
 	{	// this is a sound set
@@ -322,6 +405,7 @@ void SP_target_speaker( gentity_t *ent ) {
 	// must link the entity so we get areas and clusters so
 	// the server can determine who to send updates to
 	trap_LinkEntity( ent );
+#endif
 }
 
 

@@ -1,5 +1,6 @@
 #include "../cgame/cg_local.h"
 #include "cl_data.h"
+#include "../win32/xb_log.h"
 
 
 //tvector(ClientData*)			ClientManager::clientData;
@@ -78,7 +79,11 @@ ClientData::ClientData()
 	strcpy(forcePowers, "7-1-032330000000001333");
 	//strcpy(forcePowersCustom, "7-1-032330000000001333");
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	strcpy(model,"munro/default");
+#else
 	strcpy(model,"kyle/default");
+#endif
 	strcpy(char_color_red,"255");
 	strcpy(char_color_green,"255");
 	strcpy(char_color_blue,"255");
@@ -290,24 +295,62 @@ void ClientManager::ClientFeedDeferedScript(void )
 
 void ClientManager::ClientActiveRelocate( bool bOutside )
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		char traceMsg[128];
+		_snprintf( traceMsg, sizeof( traceMsg ),
+			"STEFX_HM: ClientActiveRelocate enter outside=%d currentOutside=%d curClient=%d",
+			bOutside ? 1 : 0,
+			bClOutside ? 1 : 0,
+			curClient );
+		traceMsg[sizeof(traceMsg) - 1] = 0;
+		XBLog_Write( traceMsg );
+	}
+#endif
 	if( bOutside == bClOutside )
+	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		XBLog_Write( "STEFX_HM: ClientActiveRelocate skipped unchanged heap" );
+#endif
 		return;
+	}
 
 	Z_PushNewDeleteTag( bOutside ? TAG_CLIENT_MANAGER_SPECIAL : TAG_CLIENT_MANAGER );
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate before alloc" );
+#endif
 	clientActive_t *newCl = new clientActive_t;
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate after alloc" );
+#endif
 	Z_PopNewDeleteTag();
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate before copy" );
+#endif
 	memcpy( newCl, clientData[0]->m_cl, sizeof(clientActive_t) );
 	memset( clientData[0]->m_cl, 0, sizeof(clientActive_t) );
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate after copy" );
+#endif
 
 	Z_PushNewDeleteTag( !bOutside ? TAG_CLIENT_MANAGER_SPECIAL : TAG_CLIENT_MANAGER );
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate before delete old" );
+#endif
 	delete clientData[0]->m_cl;
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate after delete old" );
+#endif
 	Z_PopNewDeleteTag();
 
 	clientData[0]->m_cl = newCl;
 	bClOutside = bOutside;
 	if( curClient == 0 )
 		cl = newCl;
+#if defined(STEFX_ELITE_FORCE_MP)
+	XBLog_Write( "STEFX_HM: ClientActiveRelocate exit" );
+#endif
 }
 
 // Hacky function for server code that can't seem to include cl_data properly:

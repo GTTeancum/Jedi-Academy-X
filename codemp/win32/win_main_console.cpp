@@ -28,8 +28,60 @@
 
 #endif
 
+#ifndef STEFX_HOLOMATCH_DIRECT_BOOT
+#if defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_HOLOMATCH_DIRECT_BOOT 1
+#else
+#define STEFX_HOLOMATCH_DIRECT_BOOT 0
+#endif
+#endif
+
 #ifndef JAMP_CXBX_SMOKE_STARTUP_COMMAND
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set fs_game BaseEF +set model munro/default +set sv_maxclients 4 +set g_gametype 0 +set fraglimit 0 +set timelimit 0 +set g_ghostRespawn 0 +set g_spawnInvulnerability 0 +set g_forcerespawn 1 +set g_holoIntro 0 +set stefx_hm_directSlice 1 +set bot_enable 1 +set bot_minplayers 3 +set r_uiFullScreen 0 +map hm_borg1"
+#else
 #define JAMP_CXBX_SMOKE_STARTUP_COMMAND ""
+#endif
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_MAP_COMMAND
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+#define STEFX_HOLOMATCH_DIRECT_MAP_COMMAND "map hm_borg1\n"
+#else
+#define STEFX_HOLOMATCH_DIRECT_MAP_COMMAND ""
+#endif
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_RENDER_CVAR_COMMAND
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+#define STEFX_HOLOMATCH_DIRECT_RENDER_CVAR_COMMAND "set developer 0\nset r_showtris 0\nset r_shownormals 0\nset r_debugSurface 0\nset r_lightmap 0\nset r_singleShader 0\nset r_nobind 0\n"
+#else
+#define STEFX_HOLOMATCH_DIRECT_RENDER_CVAR_COMMAND ""
+#endif
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_MAP_FRAME
+#define STEFX_HOLOMATCH_DIRECT_MAP_FRAME 4
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_BOT_COMMAND
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+#define STEFX_HOLOMATCH_DIRECT_BOT_COMMAND "addbot 1_of_12 4 free 0\naddbot 2_of_3 4 free 500\n"
+#else
+#define STEFX_HOLOMATCH_DIRECT_BOT_COMMAND ""
+#endif
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_BOT_FRAME
+#define STEFX_HOLOMATCH_DIRECT_BOT_FRAME 1
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_BOT_STABLE_FRAMES
+#define STEFX_HOLOMATCH_DIRECT_BOT_STABLE_FRAMES 1
+#endif
+
+#ifndef STEFX_HOLOMATCH_DIRECT_CLIENT_STABLE_FRAMES
+#define STEFX_HOLOMATCH_DIRECT_CLIENT_STABLE_FRAMES 1
 #endif
 
 #ifndef JAMP_XEMU_DIRECT_MATCH
@@ -252,7 +304,11 @@ void Sys_Print(const char *msg)
 #ifdef _GAMECUBE
 	printf(msg);
 #else
+#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
+	(void)msg;
+#else
 	OutputDebugString(msg);
+#endif
 #endif
 }
 
@@ -837,10 +893,26 @@ int main(int argc, char* argv[])
 	// I'm going to kill someone. This should not be necessary. No, really.
 	XBLog_MainProbe();
 	OutputDebugStringA("JAMP: main() entered\n");
-	OutputDebugStringA("JAMP: Direct3D_SetPushBufferSize...\n");
-	XBLog_StartupProbe("before Direct3D_SetPushBufferSize");
-	Direct3D_SetPushBufferSize(1024*1024, 128*1024);
-	XBLog_StartupProbe("after Direct3D_SetPushBufferSize");
+
+	{
+		XDEVICE_PREALLOC_TYPE xdpt[2];
+		xdpt[0].DeviceType      = XDEVICE_TYPE_GAMEPAD;
+		xdpt[0].dwPreallocCount = 4;
+		xdpt[1].DeviceType      = XDEVICE_TYPE_MEMORY_UNIT;
+		xdpt[1].dwPreallocCount = 8;
+
+		XBLog_StartupProbe("before SP-style XInitDevices");
+		XBLog_Write("STEFX_HM: input Plan-B calling XInitDevices before D3D init");
+		XInitDevices(2, xdpt);
+		XBLog_Write("STEFX_HM: input Plan-B XInitDevices completed before D3D init");
+		XBLog_StartupProbe("after SP-style XInitDevices");
+	}
+	{
+		extern bool g_XInitDevicesAlreadyCalled;
+		g_XInitDevicesAlreadyCalled = true;
+	}
+
+	XBLog_Write("STEFX_HM: MP using SP-style fakegl pushbuffer path; main skipped legacy Direct3D_SetPushBufferSize");
 
 	// get the initial time base
 	OutputDebugStringA("JAMP: Sys_Milliseconds...\n");
@@ -859,7 +931,10 @@ int main(int argc, char* argv[])
 	XBLog_Write("JAMP: XBLog_Init done - log file open");
 
 	XBLog_Write("JAMP: Com_Init starting...");
-	XBLog_Write("JAMP: startup command " JAMP_CXBX_SMOKE_STARTUP_COMMAND);
+	XBLog_Write("STEFX_HM: startup command " JAMP_CXBX_SMOKE_STARTUP_COMMAND);
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+	XBLog_Write("STEFX_HM: direct Holomatch startup bypasses menus; loading hm_borg1 from command line");
+#endif
 	static char jampStartupCommand[] = JAMP_CXBX_SMOKE_STARTUP_COMMAND;
 	Com_Init( jampStartupCommand );
 	XBLog_Write("JAMP: Com_Init done");
@@ -897,6 +972,23 @@ int main(int argc, char* argv[])
 		PrintMem();
 		*/
 		qboolean jampLoopTrace = (jampFrameHeartbeat < 2);
+#if defined(STEFX_ELITE_FORCE_MP)
+		{
+			static int stefxHmMainLoopTraceBudget = 16;
+			const char *stefxTraceMap = Cvar_VariableString( "mapname" );
+			qboolean stefxHmMainLoopTrace = (qboolean)(
+				stefxHmMainLoopTraceBudget > 0 &&
+				com_sv_running &&
+				com_sv_running->integer &&
+				stefxTraceMap &&
+				!Q_stricmp( stefxTraceMap, "hm_borg1" ) );
+			if ( stefxHmMainLoopTrace )
+			{
+				stefxHmMainLoopTraceBudget--;
+				jampLoopTrace = qtrue;
+			}
+		}
+#endif
 		XBLog_Phase("main loop before IN_Frame");
 		if (jampLoopTrace)
 		{
@@ -954,6 +1046,136 @@ int main(int argc, char* argv[])
 			XBLog_Write(traceMsg);
 		}
 		jampFrameHeartbeat++;
+
+#ifdef _XBOX
+		{
+			static int stefxMainLoopHeartbeatTime = 0;
+			const int stefxNow = Sys_Milliseconds();
+			if ( stefxNow < stefxMainLoopHeartbeatTime ||
+				stefxNow - stefxMainLoopHeartbeatTime >= 3000 )
+			{
+				char traceMsg[192];
+				const char *heartbeatMap = Cvar_VariableString( "mapname" );
+				_snprintf( traceMsg, sizeof( traceMsg ),
+					"STEFX_HM: main loop heartbeat frame=%i time=%d state=%i sv=%i map='%s'",
+					jampFrameHeartbeat,
+					stefxNow,
+					cls.state,
+					com_sv_running ? com_sv_running->integer : 0,
+					heartbeatMap ? heartbeatMap : "" );
+				traceMsg[sizeof(traceMsg) - 1] = 0;
+				XBLog_Write( traceMsg );
+				stefxMainLoopHeartbeatTime = stefxNow;
+			}
+		}
+#endif
+
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+		static qboolean stefxHolomatchDirectMapQueued = qfalse;
+		static qboolean stefxHolomatchDirectBotsQueued = qfalse;
+		static qboolean stefxHolomatchDirectBotsWaitLogged = qfalse;
+		static qboolean stefxHolomatchDirectBotsMapLogged = qfalse;
+		static qboolean stefxHolomatchDirectClientActiveLogged = qfalse;
+		static qboolean stefxHolomatchDirectClientWaitLogged = qfalse;
+		static int stefxHolomatchDirectMapFrames = 0;
+		static int stefxHolomatchDirectClientFrames = 0;
+		const char *directMap = Cvar_VariableString( "mapname" );
+		qboolean directMapRunning = (qboolean)( com_sv_running &&
+			com_sv_running->integer &&
+			directMap &&
+			!Q_stricmp( directMap, "hm_borg1" ) );
+
+		if ( !stefxHolomatchDirectMapQueued &&
+			!directMapRunning &&
+			jampFrameHeartbeat >= STEFX_HOLOMATCH_DIRECT_MAP_FRAME )
+		{
+			char traceMsg[160];
+			_snprintf( traceMsg, sizeof( traceMsg ),
+				"STEFX_HM: queueing direct Holomatch map frame=%i sv=%i map='%s'",
+				jampFrameHeartbeat,
+				com_sv_running ? com_sv_running->integer : 0,
+				directMap ? directMap : "" );
+			traceMsg[sizeof(traceMsg) - 1] = 0;
+			XBLog_Write( traceMsg );
+			XBLog_Write( "STEFX_HM: direct Holomatch render debug cvars forced off before map" );
+			Cbuf_AddText( STEFX_HOLOMATCH_DIRECT_RENDER_CVAR_COMMAND );
+			Cbuf_AddText( STEFX_HOLOMATCH_DIRECT_MAP_COMMAND );
+			stefxHolomatchDirectMapQueued = qtrue;
+		}
+
+		if ( !stefxHolomatchDirectBotsQueued )
+		{
+			if ( directMapRunning )
+			{
+				stefxHolomatchDirectMapFrames++;
+				if ( cls.state == CA_ACTIVE )
+				{
+					stefxHolomatchDirectClientFrames++;
+					if ( !stefxHolomatchDirectClientActiveLogged )
+					{
+						char traceMsg[160];
+						_snprintf( traceMsg, sizeof( traceMsg ),
+							"STEFX_HM: direct Holomatch local client is active frame=%i state=%i mapFrames=%i",
+							jampFrameHeartbeat, cls.state, stefxHolomatchDirectMapFrames );
+						traceMsg[sizeof(traceMsg) - 1] = 0;
+						XBLog_Write( traceMsg );
+						stefxHolomatchDirectClientActiveLogged = qtrue;
+					}
+				}
+				else
+				{
+					stefxHolomatchDirectClientFrames = 0;
+					if ( !stefxHolomatchDirectClientWaitLogged &&
+						jampFrameHeartbeat >= STEFX_HOLOMATCH_DIRECT_BOT_FRAME )
+					{
+						char traceMsg[160];
+						_snprintf( traceMsg, sizeof( traceMsg ),
+							"STEFX_HM: waiting for direct Holomatch local client before bots frame=%i state=%i mapFrames=%i",
+							jampFrameHeartbeat, cls.state, stefxHolomatchDirectMapFrames );
+						traceMsg[sizeof(traceMsg) - 1] = 0;
+						XBLog_Write( traceMsg );
+						stefxHolomatchDirectClientWaitLogged = qtrue;
+					}
+				}
+
+				if ( !stefxHolomatchDirectBotsMapLogged )
+				{
+					char traceMsg[128];
+					_snprintf( traceMsg, sizeof( traceMsg ),
+						"STEFX_HM: direct Holomatch map is running map='%s' frame=%i",
+						directMap, jampFrameHeartbeat );
+					traceMsg[sizeof(traceMsg) - 1] = 0;
+					XBLog_Write( traceMsg );
+					stefxHolomatchDirectBotsMapLogged = qtrue;
+				}
+
+				if ( jampFrameHeartbeat >= STEFX_HOLOMATCH_DIRECT_BOT_FRAME &&
+					stefxHolomatchDirectMapFrames >= STEFX_HOLOMATCH_DIRECT_BOT_STABLE_FRAMES )
+				{
+					char traceMsg[160];
+					_snprintf( traceMsg, sizeof( traceMsg ),
+						"STEFX_HM: queueing direct Holomatch bots frame=%i state=%i mapFrames=%i clientFrames=%i",
+						jampFrameHeartbeat, cls.state, stefxHolomatchDirectMapFrames, stefxHolomatchDirectClientFrames );
+					traceMsg[sizeof(traceMsg) - 1] = 0;
+					XBLog_Write( traceMsg );
+					Cbuf_AddText( STEFX_HOLOMATCH_DIRECT_BOT_COMMAND );
+					stefxHolomatchDirectBotsQueued = qtrue;
+				}
+			}
+			else if ( !stefxHolomatchDirectBotsWaitLogged &&
+				jampFrameHeartbeat >= STEFX_HOLOMATCH_DIRECT_BOT_FRAME )
+			{
+				char traceMsg[128];
+				_snprintf( traceMsg, sizeof( traceMsg ),
+					"STEFX_HM: waiting for direct Holomatch map before bots sv=%i map='%s'",
+					com_sv_running ? com_sv_running->integer : 0,
+					directMap ? directMap : "" );
+				traceMsg[sizeof(traceMsg) - 1] = 0;
+				XBLog_Write( traceMsg );
+				stefxHolomatchDirectBotsWaitLogged = qtrue;
+			}
+		}
+#endif
 
 #if JAMP_XEMU_DIRECT_MATCH
 		static qboolean jampDirectMatchQueued = qfalse;
@@ -1075,6 +1297,120 @@ void Sys_FreeFileList(char **filelist)
 	}
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean Sys_STEFXMatchesListRequest( const WIN32_FIND_DATA *data, const char *extension, qboolean wantsubs )
+{
+	qboolean isDir;
+	const char *dot;
+
+	if ( !data || !data->cFileName[0] || !Q_stricmp( data->cFileName, "." ) || !Q_stricmp( data->cFileName, ".." ) )
+	{
+		return qfalse;
+	}
+
+	isDir = (data->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? qtrue : qfalse;
+	if ( wantsubs || !Q_stricmp( extension, "dir" ) )
+	{
+		return isDir;
+	}
+	if ( isDir )
+	{
+		return qfalse;
+	}
+	if ( !extension || !extension[0] )
+	{
+		return qtrue;
+	}
+
+	dot = strrchr( data->cFileName, '.' );
+	return (dot && !Q_stricmp( dot + 1, extension )) ? qtrue : qfalse;
+}
+
+static char **Sys_STEFXListLooseFiles( const char *directory, const char *extension, int *numfiles, qboolean wantsubs )
+{
+	WIN32_FIND_DATA data;
+	HANDLE h;
+	char *osDir;
+	char search[MAX_OSPATH];
+	int nfiles;
+	int stringBytes;
+	char **retList;
+	char *stringPool;
+
+	if ( numfiles )
+	{
+		*numfiles = 0;
+	}
+	if ( !directory || !directory[0] )
+	{
+		return NULL;
+	}
+
+	if ( strchr( directory, ':' ) || directory[0] == '\\' || directory[0] == '/' )
+	{
+		osDir = (char *)directory;
+	}
+	else
+	{
+		osDir = FS_BuildOSPath( directory );
+	}
+
+	Com_sprintf( search, sizeof( search ), "%s\\*.*", osDir );
+	nfiles = 0;
+	stringBytes = 0;
+	h = FindFirstFile( search, &data );
+	while ( h != INVALID_HANDLE_VALUE )
+	{
+		if ( Sys_STEFXMatchesListRequest( &data, extension, wantsubs ) )
+		{
+			nfiles++;
+			stringBytes += strlen( data.cFileName ) + 1;
+		}
+		if ( !FindNextFile( h, &data ) )
+		{
+			FindClose( h );
+			h = INVALID_HANDLE_VALUE;
+		}
+	}
+
+	if ( nfiles <= 0 )
+	{
+		return NULL;
+	}
+
+	retList = (char **)Z_Malloc( (nfiles + 1) * sizeof( *retList ), TAG_LISTFILES, qfalse );
+	stringPool = (char *)Z_Malloc( stringBytes, TAG_LISTFILES, qfalse );
+
+	nfiles = 0;
+	h = FindFirstFile( search, &data );
+	while ( h != INVALID_HANDLE_VALUE )
+	{
+		if ( Sys_STEFXMatchesListRequest( &data, extension, wantsubs ) )
+		{
+			retList[nfiles++] = stringPool;
+			strcpy( stringPool, data.cFileName );
+			stringPool += strlen( data.cFileName ) + 1;
+		}
+		if ( !FindNextFile( h, &data ) )
+		{
+			FindClose( h );
+			h = INVALID_HANDLE_VALUE;
+		}
+	}
+	retList[nfiles] = NULL;
+	if ( numfiles )
+	{
+		*numfiles = nfiles;
+	}
+
+	Com_Printf( "STEFX_HM: loose Sys_ListFiles path='%s' ext='%s' count=%d\n",
+		directory,
+		extension ? extension : "",
+		nfiles );
+	return retList;
+}
+#endif
+
 #ifdef _JK2MP
 char** Sys_ListFiles(const char *directory, const char *extension, char *filter, int *numfiles, qboolean wantsubs)
 #else
@@ -1100,6 +1436,15 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 	// S00per hack
 	if (strstr(directory, "d:\\base\\"))
 		directory += 8;
+#if defined(STEFX_ELITE_FORCE_MP)
+	else if (!_strnicmp(directory, "d:\\baseef\\", 10) ||
+		!_strnicmp(directory, "e:\\baseef\\", 10) ||
+		!_strnicmp(directory, "t:\\baseef\\", 10))
+	{
+		Com_Printf( "STEFX_HM: Sys_ListFiles normalized BaseEF path '%s'\n", directory );
+		directory += 10;
+	}
+#endif
 
 	if (!extension)
 	{
@@ -1123,6 +1468,23 @@ char** Sys_ListFiles(const char *directory, const char *extension, int *numfiles
 		if(listFile) {
 			FS_FreeFile(listFile);
 		}
+#if defined(STEFX_ELITE_FORCE_MP)
+		retList = Sys_STEFXListLooseFiles( directory, extension, numfiles, wantsubs );
+		if ( retList )
+		{
+			return retList;
+		}
+		if ( !Q_stricmp( directory, "strings" ) &&
+			( !Q_stricmp( extension, "dir" ) || !Q_stricmp( extension, "str" ) ) )
+		{
+			Com_Printf( "STEFX_HM: Sys_ListFiles strings probe empty ext='%s'\n", extension );
+			if ( numfiles )
+			{
+				*numfiles = 0;
+			}
+			return NULL;
+		}
+#endif
 #ifndef FINAL_BUILD
 		Com_Printf( "WARNING: List file %s not found\n", listFilename );
 #endif

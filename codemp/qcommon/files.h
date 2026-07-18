@@ -7,6 +7,10 @@
 
 #ifdef _XBOX
 #include "../goblib/goblib.h"
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../zlib32/zip.h"
+#include "unzip.h"
+#endif
 
 typedef int wfhandle_t;
 #else
@@ -14,7 +18,11 @@ typedef int wfhandle_t;
 #include "unzip.h"
 #endif
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define	BASEGAME			"BaseEF"
+#else
 #define	BASEGAME			"base"
+#endif
 #define	DEMOGAME			"demo"
 
 // every time a new demo pk3 file is built, this checksum must be updated.
@@ -43,7 +51,7 @@ typedef struct {
 	char			pakFilename[MAX_OSPATH];	// c:\quake3\base\pak0.pk3
 	char			pakBasename[MAX_OSPATH];	// pak0
 	char			pakGamename[MAX_OSPATH];	// base
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_MP)
 	unzFile			handle;						// handle to zip file
 #endif
 	int				checksum;					// regular checksum
@@ -70,7 +78,7 @@ typedef struct searchpath_s {
 
 typedef union qfile_gus {
 	FILE*		o;
-#ifndef _XBOX
+#if !defined(_XBOX) || defined(STEFX_ELITE_FORCE_MP)
 	unzFile		z;
 #endif
 } qfile_gut;

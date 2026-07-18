@@ -12,6 +12,166 @@ extern vec4_t	bluehudtint;
 extern vec4_t	redhudtint;
 extern float	*hudTintColor;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXIsHolomatchWeapon( int weaponNum )
+{
+	switch ( weaponNum )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static qboolean CG_STEFXIsHolomatchBeamWeapon( int weaponNum )
+{
+	return ( weaponNum == WP_BRYAR_PISTOL || weaponNum == WP_ROCKET_LAUNCHER );
+}
+
+static qboolean CG_STEFXHolomatchWeaponCanSelectEmpty( int weaponNum )
+{
+	return ( weaponNum == WP_BRYAR_PISTOL );
+}
+
+static void CG_STEFXLogHolomatchEmptySelectable( int weaponNum )
+{
+	static qboolean logged = qfalse;
+
+	if ( logged )
+	{
+		return;
+	}
+
+	CG_PrintfAlways( "STEFX_HM: cgame kept empty EF Phaser selectable weapon=%d\n", weaponNum );
+	logged = qtrue;
+}
+
+static qboolean CG_STEFXHolomatchBeamActive( const entityState_t *ent )
+{
+	if ( !CG_STEFXIsHolomatchBeamWeapon( ent->weapon ) )
+	{
+		return qfalse;
+	}
+	if ( !( ent->eFlags & EF_FIRING ) )
+	{
+		return qfalse;
+	}
+	if ( ent->weapon == WP_ROCKET_LAUNCHER && ( ent->eFlags & EF_ALT_FIRING ) )
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+
+static void CG_LightningBolt( centity_t *cent, vec3_t origin );
+
+static void CG_STEFXAddHolomatchMuzzleFlashModel( const weaponInfo_t *weapon, refEntity_t *tagFlash, vec3_t flashOrigin, vec3_t flashDir, int renderfx )
+{
+	refEntity_t hmFlash;
+	vec3_t flashAngles;
+
+	if ( !weapon || !weapon->flashModel )
+	{
+		return;
+	}
+
+	memset( &hmFlash, 0, sizeof( hmFlash ) );
+#ifdef _XBOX
+	if(ClientManager::ActiveClientNum() == 0)
+		hmFlash.skipForPlayer2 = true;
+#endif
+	hmFlash.hModel = weapon->flashModel;
+	hmFlash.renderfx = renderfx;
+	VectorCopy( flashOrigin, hmFlash.origin );
+	VectorCopy( flashOrigin, hmFlash.oldorigin );
+
+	if ( tagFlash )
+	{
+		AxisCopy( tagFlash->axis, hmFlash.axis );
+	}
+	else
+	{
+		vectoangles( flashDir, flashAngles );
+		AnglesToAxis( flashAngles, hmFlash.axis );
+	}
+
+	trap_R_AddRefEntityToScene( &hmFlash );
+}
+
+static int CG_STEFXHolomatchCommandWeapon( int commandWeapon )
+{
+	switch ( commandWeapon )
+	{
+	case 1:
+		return WP_BRYAR_PISTOL;
+	case 2:
+		return WP_BLASTER;
+	case 3:
+		return WP_DEMP2;
+	case 4:
+		return WP_BOWCASTER;
+	case 7:
+		return WP_DISRUPTOR;
+	case 9:
+		return WP_ROCKET_LAUNCHER;
+	default:
+		return WP_NONE;
+	}
+}
+
+static void CG_STEFXLogHolomatchWeaponCommand( int commandWeapon, int mappedWeapon )
+{
+	static qboolean logged = qfalse;
+
+	if ( logged )
+	{
+		return;
+	}
+
+	CG_PrintfAlways( "STEFX_HM: cgame EF weapon command mapping request=%d weapon=%d\n",
+		commandWeapon,
+		mappedWeapon );
+	logged = qtrue;
+}
+
+static qboolean CG_STEFXIsHolomatchItemVisual( const gitem_t *item )
+{
+	const char *classname;
+
+	if ( !item || !item->classname )
+	{
+		return qfalse;
+	}
+
+	classname = item->classname;
+	if ( !Q_stricmp( classname, "weapon_phaser" ) ||
+		!Q_stricmp( classname, "weapon_compressionrifle" ) ||
+		!Q_stricmp( classname, "weapon_imod" ) ||
+		!Q_stricmp( classname, "weapon_scavenger" ) ||
+		!Q_stricmp( classname, "weapon_tetriondisruptor" ) ||
+		!Q_stricmp( classname, "weapon_dreadnought" ) ||
+		!Q_stricmp( classname, "ammo_compressionrifle" ) ||
+		!Q_stricmp( classname, "ammo_imod" ) ||
+		!Q_stricmp( classname, "ammo_scavenger" ) ||
+		!Q_stricmp( classname, "ammo_tetriondisruptor" ) ||
+		!Q_stricmp( classname, "ammo_dreadnought" ) ||
+		!Q_stricmp( classname, "item_armor_combat" ) ||
+		!Q_stricmp( classname, "item_hypo" ) ||
+		!Q_stricmp( classname, "item_hypo_small" ) )
+	{
+		return qtrue;
+	}
+
+	return qfalse;
+}
+#endif
+
 /*
 Ghoul2 Insert Start
 */
@@ -51,7 +211,25 @@ void CG_RegisterItemVisuals( int itemNum ) {
 
 	item = &bg_itemlist[ itemNum ];
 
-	memset( itemInfo, 0, sizeof( &itemInfo ) );
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !CG_STEFXIsHolomatchItemVisual( item ) )
+	{
+		static qboolean loggedHolomatchItemSkip = qfalse;
+
+		memset( itemInfo, 0, sizeof( *itemInfo ) );
+		itemInfo->registered = qtrue;
+		if ( !loggedHolomatchItemSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited item visual registration in Holomatch item=%d classname='%s'\n",
+				itemNum,
+				item->classname ? item->classname : "" );
+			loggedHolomatchItemSkip = qtrue;
+		}
+		return;
+	}
+#endif
+
+	memset( itemInfo, 0, sizeof( *itemInfo ) );
 	itemInfo->registered = qtrue;
 
 	if (item->giType == IT_TEAM &&
@@ -72,6 +250,7 @@ void CG_RegisterItemVisuals( int itemNum ) {
 /*
 Ghoul2 Insert Start
 */
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (!Q_stricmp(&item->world_model[0][strlen(item->world_model[0]) - 4], ".glm"))
 	{
 		handle = trap_G2API_InitGhoul2Model(&itemInfo->g2Models[0], item->world_model[0], 0 , 0, 0, 0, 0);
@@ -84,6 +263,9 @@ Ghoul2 Insert Start
 			itemInfo->radius[0] = 60;
 		}
 	}
+#else
+	handle = 0;
+#endif
 /*
 Ghoul2 Insert End
 */
@@ -282,10 +464,75 @@ angle)
 ===============
 */
 static void CG_LightningBolt( centity_t *cent, vec3_t origin ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	trace_t  trace;
+	vec3_t   forward;
+	vec3_t   endPoint;
+	int      weaponNum;
+	static qboolean loggedHolomatchBeam[WP_NUM_WEAPONS];
+#endif
 //	trace_t  trace;
 	refEntity_t  beam;
 //	vec3_t   forward;
 //	vec3_t   muzzlePoint, endPoint;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	weaponNum = cent->currentState.weapon;
+	if ( CG_STEFXIsHolomatchBeamWeapon( weaponNum ) )
+	{
+		if ( !CG_STEFXHolomatchBeamActive( &cent->currentState ) )
+		{
+			return;
+		}
+
+		AngleVectors( cent->lerpAngles, forward, NULL, NULL );
+		VectorMA( origin, 8192, forward, endPoint );
+		CG_Trace( &trace, origin, vec3_origin, vec3_origin, endPoint, cent->currentState.number, MASK_SHOT );
+
+		memset( &beam, 0, sizeof( beam ) );
+
+#ifdef _XBOX
+		if ( ClientManager::ActiveClientNum() == 0 )
+		{
+			beam.skipForPlayer2 = true;
+		}
+#endif
+
+		beam.reType = RT_LINE;
+		beam.customShader = cgs.media.whiteShader;
+		beam.radius = ( weaponNum == WP_ROCKET_LAUNCHER ) ? 6.0f : 3.0f;
+		beam.shaderTexCoord[0] = 1.0f;
+		beam.shaderTexCoord[1] = 1.0f;
+		VectorCopy( origin, beam.origin );
+		VectorCopy( trace.endpos, beam.oldorigin );
+
+		if ( weaponNum == WP_ROCKET_LAUNCHER )
+		{
+			beam.shaderRGBA[0] = 180;
+			beam.shaderRGBA[1] = 220;
+			beam.shaderRGBA[2] = 255;
+			beam.shaderRGBA[3] = 235;
+			trap_R_AddLightToScene( trace.endpos, 180, 0.70f, 0.86f, 1.00f );
+		}
+		else
+		{
+			beam.shaderRGBA[0] = 120;
+			beam.shaderRGBA[1] = 190;
+			beam.shaderRGBA[2] = 255;
+			beam.shaderRGBA[3] = 220;
+			trap_R_AddLightToScene( trace.endpos, 120, 0.47f, 0.74f, 1.00f );
+		}
+
+		trap_R_AddRefEntityToScene( &beam );
+
+		if ( !loggedHolomatchBeam[weaponNum] )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame drew EF beam fallback weapon=%d\n", weaponNum );
+			loggedHolomatchBeam[weaponNum] = qtrue;
+		}
+		return;
+	}
+#endif
 
 	//Must be a durational weapon that continuously generates an effect.
 	if ( cent->currentState.weapon == WP_DEMP2 && cent->currentState.eFlags & EF_ALT_FIRING ) 
@@ -424,6 +671,10 @@ void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent
 	weaponInfo_t	*weapon;
 	centity_t	*nonPredictedCent;
 	refEntity_t	flash;
+#if defined(STEFX_ELITE_FORCE_MP)
+	vec3_t		hmFlashForward;
+	static qboolean loggedEFNativeViewWeapon[WP_NUM_WEAPONS];
+#endif
 
 	weaponNum = cent->currentState.weapon;
 
@@ -493,6 +744,20 @@ Ghoul2 Insert Start
 			cg->snap->ps.clientNum))
 		{
 			CG_AddWeaponWithPowerups( &gun, cent->currentState.powerups ); //don't draw the weapon if the player is invisible
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( ps && !thirdPerson && CG_STEFXIsHolomatchWeapon( weaponNum ) &&
+				!loggedEFNativeViewWeapon[weaponNum] )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame added EF first-person weapon through hand tag path weapon=%d viewModel=%d handsModel=%d origin='%.1f %.1f %.1f'\n",
+					weaponNum,
+					weapon->viewModel,
+					weapon->handsModel,
+					gun.origin[0],
+					gun.origin[1],
+					gun.origin[2] );
+				loggedEFNativeViewWeapon[weaponNum] = qtrue;
+			}
+#endif
 			/*
 			if ( weaponNum == WP_STUN_BATON )
 			{
@@ -590,9 +855,27 @@ Ghoul2 Insert End
 	if(ClientManager::ActiveClientNum() == 0)
 		flash.skipForPlayer2 = true;
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( thirdPerson && CG_STEFXIsHolomatchWeapon( weaponNum ) )
+	{
+		VectorCopy( cent->lerpOrigin, flash.origin );
+		flash.origin[2] += DEFAULT_VIEWHEIGHT;
+		AngleVectors( cent->lerpAngles, hmFlashForward, NULL, NULL );
+		VectorMA( flash.origin, 14, hmFlashForward, flash.origin );
+		VectorCopy( flash.origin, cg->lastFPFlashPoint );
+	}
+	else
+#endif
 	CG_PositionEntityOnTag( &flash, &gun, gun.hModel, "tag_flash");
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	VectorCopy(flash.origin, cg->lastFPFlashPoint);
+#else
+	if ( !thirdPerson || !CG_STEFXIsHolomatchWeapon( weaponNum ) )
+	{
+		VectorCopy(flash.origin, cg->lastFPFlashPoint);
+	}
+#endif
 
 	// Do special charge bits
 	//-----------------------
@@ -617,6 +900,17 @@ Ghoul2 Insert End
 		{
 			mdxaBone_t 		boltMatrix;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( CG_STEFXIsHolomatchWeapon( weaponNum ) )
+			{
+				AngleVectors( cent->lerpAngles, flashdir, NULL, NULL );
+				VectorCopy( cent->lerpOrigin, flashorigin );
+				flashorigin[2] += DEFAULT_VIEWHEIGHT;
+				VectorMA( flashorigin, 14, flashdir, flashorigin );
+			}
+			else
+			{
+#endif
 			if (!trap_G2API_HasGhoul2ModelOnIndex(&(cent->ghoul2), 1))
 			{ //it's quite possible that we may have have no weapon model and be in a valid state, so return here if this is the case
 				return;
@@ -630,6 +924,9 @@ Ghoul2 Insert End
 			
 			BG_GiveMeVectorFromMatrix(&boltMatrix, ORIGIN, flashorigin);
 			BG_GiveMeVectorFromMatrix(&boltMatrix, POSITIVE_X, flashdir);
+#if defined(STEFX_ELITE_FORCE_MP)
+			}
+#endif
 		}
 
 		if ( cent->currentState.weapon == WP_BRYAR_PISTOL ||
@@ -702,7 +999,12 @@ Ghoul2 Insert End
 	}
 
 	// add the flash
-	if ( ( weaponNum == WP_DEMP2)
+	if (
+#if defined(STEFX_ELITE_FORCE_MP)
+		( CG_STEFXHolomatchBeamActive( &nonPredictedCent->currentState ) || weaponNum == WP_DEMP2 )
+#else
+		( weaponNum == WP_DEMP2 )
+#endif
 		&& ( nonPredictedCent->currentState.eFlags & EF_FIRING ) ) 
 	{
 		// continuous flash
@@ -736,6 +1038,17 @@ Ghoul2 Insert End
 		{
 			mdxaBone_t 		boltMatrix;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( CG_STEFXIsHolomatchWeapon( weaponNum ) )
+			{
+				AngleVectors( cent->lerpAngles, flashdir, NULL, NULL );
+				VectorCopy( cent->lerpOrigin, flashorigin );
+				flashorigin[2] += DEFAULT_VIEWHEIGHT;
+				VectorMA( flashorigin, 14, flashdir, flashorigin );
+			}
+			else
+			{
+#endif
 			if (!trap_G2API_HasGhoul2ModelOnIndex(&(cent->ghoul2), 1))
 			{ //it's quite possible that we may have have no weapon model and be in a valid state, so return here if this is the case
 				return;
@@ -749,7 +1062,33 @@ Ghoul2 Insert End
 			
 			BG_GiveMeVectorFromMatrix(&boltMatrix, ORIGIN, flashorigin);
 			BG_GiveMeVectorFromMatrix(&boltMatrix, POSITIVE_X, flashdir);
+#if defined(STEFX_ELITE_FORCE_MP)
+			}
+#endif
 		}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXIsHolomatchWeapon( weaponNum ) )
+		{
+			qboolean hmDrawFlashModel;
+
+			hmDrawFlashModel = qfalse;
+			if ( ( CG_STEFXHolomatchBeamActive( &nonPredictedCent->currentState ) || weaponNum == WP_DEMP2 ) &&
+				( nonPredictedCent->currentState.eFlags & EF_FIRING ) )
+			{
+				hmDrawFlashModel = qtrue;
+			}
+			else if ( cg->time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME + 10 )
+			{
+				hmDrawFlashModel = qtrue;
+			}
+
+			if ( hmDrawFlashModel )
+			{
+				CG_STEFXAddHolomatchMuzzleFlashModel( weapon, thirdPerson ? NULL : &flash, flashorigin, flashdir, thirdPerson ? 0 : gun.renderfx );
+			}
+		}
+#endif
 
 		if ( cg->time - cent->muzzleFlashTime <= MUZZLE_FLASH_TIME + 10 )
 		{	// Handle muzzle flashes
@@ -808,6 +1147,9 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 	vec3_t		angles;
 	weaponInfo_t	*weapon;
 	float	cgFov = cg_fov.value;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedEFHandFrame[WP_NUM_WEAPONS];
+#endif
 
 	if (cgFov < 1)
 	{
@@ -909,6 +1251,21 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 			hand.backlerp = 0;
 		}
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchWeapon( ps->weapon ) )
+	{
+		if ( !loggedEFHandFrame[ps->weapon] )
+		{
+			loggedEFHandFrame[ps->weapon] = qtrue;
+			CG_PrintfAlways( "STEFX_HM: CG_AddViewWeapon using static EF hand frame weapon=%d\n", ps->weapon );
+		}
+
+		hand.frame = 0;
+		hand.oldframe = 0;
+		hand.backlerp = 0;
+	}
+#endif
 
 	hand.hModel = weapon->handsModel;
 	hand.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON;// | RF_MINLIGHT;
@@ -1068,6 +1425,14 @@ qboolean CG_WeaponCheck(int weap)
 	if (cg->snap->ps.ammo[weaponData[weap].ammoIndex] < weaponData[weap].energyPerShot &&
 		cg->snap->ps.ammo[weaponData[weap].ammoIndex] < weaponData[weap].altEnergyPerShot)
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXHolomatchWeaponCanSelectEmpty( weap ) &&
+			( cg->snap->ps.stats[STAT_WEAPONS] & ( 1 << weap ) ) )
+		{
+			CG_STEFXLogHolomatchEmptySelectable( weap );
+			return qtrue;
+		}
+#endif
 		return qfalse;
 	}
 
@@ -1091,6 +1456,14 @@ static qboolean CG_WeaponSelectable( int i ) {
 	if (cg->predictedPlayerState.ammo[weaponData[i].ammoIndex] < weaponData[i].energyPerShot &&
 		cg->predictedPlayerState.ammo[weaponData[i].ammoIndex] < weaponData[i].altEnergyPerShot)
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXHolomatchWeaponCanSelectEmpty( i ) &&
+			( cg->predictedPlayerState.stats[STAT_WEAPONS] & ( 1 << i ) ) )
+		{
+			CG_STEFXLogHolomatchEmptySelectable( i );
+			return qtrue;
+		}
+#endif
 		return qfalse;
 	}
 
@@ -1623,6 +1996,18 @@ void CG_Weapon_f( void ) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		int commandWeapon = num;
+
+		num = CG_STEFXHolomatchCommandWeapon( commandWeapon );
+		if ( num == WP_NONE )
+		{
+			return;
+		}
+		CG_STEFXLogHolomatchWeaponCommand( commandWeapon, num );
+	}
+#else
 	if (num == 1 && cg->snap->ps.weapon == WP_SABER)
 	{
 		if (cg->snap->ps.weaponTime < 1)
@@ -1649,6 +2034,7 @@ void CG_Weapon_f( void ) {
 			num = WP_MELEE;
 		}
 	}
+#endif
 
 	if (num > LAST_USEABLE_WEAPON+1)
 	{ //other weapons are off limits due to not actually being weapon weapons
@@ -1746,6 +2132,13 @@ void CG_WeaponClean_f( void ) {
 		return;
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (num == WP_STUN_BATON)
+	{
+		num = WP_BRYAR_PISTOL;
+		CG_STEFXLogHolomatchWeaponCommand( WP_STUN_BATON, num );
+	}
+#else
 	if (num == 1 && cg->snap->ps.weapon == WP_SABER)
 	{
 		if (cg->snap->ps.weaponTime < 1)
@@ -1765,6 +2158,7 @@ void CG_WeaponClean_f( void ) {
 			num = WP_MELEE;
 		}
 	}
+#endif
 
 	if (num > LAST_USEABLE_WEAPON+1)
 	{ //other weapons are off limits due to not actually being weapon weapons
@@ -1881,6 +2275,79 @@ void CG_OutOfAmmoChange( int oldWeapon )
 
 	trap_S_MuteSound(cg->snap->ps.clientNum, CHAN_WEAPON);
 }
+
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXHolomatchWeaponAltSelectable( int weapon )
+{
+	int ammoIndex;
+
+	if ( !CG_STEFXIsHolomatchWeapon( weapon ) )
+	{
+		return qfalse;
+	}
+	if ( !( cg->predictedPlayerState.stats[STAT_WEAPONS] & ( 1 << weapon ) ) )
+	{
+		return qfalse;
+	}
+
+	ammoIndex = weaponData[weapon].ammoIndex;
+	if ( ammoIndex < 0 || ammoIndex >= AMMO_MAX )
+	{
+		return qfalse;
+	}
+
+	return ( cg->predictedPlayerState.ammo[ammoIndex] >= weaponData[weapon].altEnergyPerShot );
+}
+
+void CG_STEFXOutOfAmmoChange( int oldWeapon, qboolean altFire )
+{
+	static qboolean loggedHolomatchNoAmmoSwitch = qfalse;
+	int i;
+	qboolean switched = qfalse;
+
+	cg->weaponSelectTime = cg->time;
+
+	for ( i = LAST_USEABLE_WEAPON; i > 0; i-- )
+	{
+		if ( i == oldWeapon )
+		{
+			continue;
+		}
+		if ( !CG_STEFXIsHolomatchWeapon( i ) )
+		{
+			continue;
+		}
+
+		if ( altFire )
+		{
+			if ( !CG_STEFXHolomatchWeaponAltSelectable( i ) )
+			{
+				continue;
+			}
+		}
+		else if ( !CG_WeaponSelectable( i ) )
+		{
+			continue;
+		}
+
+		cg->weaponSelect = i;
+		switched = qtrue;
+		break;
+	}
+
+	trap_S_MuteSound( cg->snap->ps.clientNum, CHAN_WEAPON );
+
+	if ( !loggedHolomatchNoAmmoSwitch )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame used EF no-ammo weapon fallback old=%d alt=%d selected=%d switched=%d\n",
+			oldWeapon,
+			altFire ? 1 : 0,
+			cg->weaponSelect,
+			switched ? 1 : 0 );
+		loggedHolomatchNoAmmoSwitch = qtrue;
+	}
+}
+#endif
 
 
 
@@ -2059,6 +2526,13 @@ void CG_FireWeapon( centity_t *cent, qboolean altFire ) {
 		*/
 	}
 	// lightning gun only does this this on initial press
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXIsHolomatchBeamWeapon( ent->weapon ) ) {
+		if ( cent->pe.lightningFiring ) {
+			return;
+		}
+	} else
+#endif
 	if ( ent->weapon == WP_DEMP2 ) {
 		if ( cent->pe.lightningFiring ) {
 			return;
@@ -2114,6 +2588,17 @@ void CG_FireWeapon( centity_t *cent, qboolean altFire ) {
 
 qboolean CG_VehicleWeaponImpact( centity_t *cent )
 {//see if this is a missile entity that's owned by a vehicle and should do a special, overridden impact effect
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchVehicleImpactSkip = qfalse;
+
+	if ( !loggedHolomatchVehicleImpactSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited vehicle impact effect path\n" );
+		loggedHolomatchVehicleImpactSkip = qtrue;
+	}
+
+	return qfalse;
+#endif
 	if ((cent->currentState.eFlags&EF_JETPACK_ACTIVE)//hack so we know we're a vehicle Weapon shot
 		&& cent->currentState.otherEntityNum2
 		&& g_vehWeaponInfo[cent->currentState.otherEntityNum2].iImpactFX)
@@ -2138,6 +2623,43 @@ void CG_MissileHitWall(int weapon, int clientNum, vec3_t origin, vec3_t dir, imp
 {
 	int parm;
 	vec3_t up={0,0,1};
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( weapon > WP_NONE && weapon < WP_NUM_WEAPONS && CG_STEFXIsHolomatchWeapon( weapon ) )
+	{
+		static qboolean loggedHolomatchWallBegin = qfalse;
+		static qboolean loggedHolomatchWallEnd = qfalse;
+		static qboolean loggedHolomatchWallDlightSkip = qfalse;
+		weaponInfo_t *weap = &cg_weapons[weapon];
+		sfxHandle_t hitSound = altFire ? weap->altMissileHitSound : weap->missileHitSound;
+
+		if ( !loggedHolomatchWallBegin )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame EF missile wall feedback begin weapon=%d alt=%d sound=%d dlight=%g\n",
+				weapon, altFire ? 1 : 0, hitSound,
+				altFire ? weap->altMissileDlight : weap->missileDlight );
+			loggedHolomatchWallBegin = qtrue;
+		}
+
+		if ( hitSound )
+		{
+			trap_S_StartSound( origin, ENTITYNUM_WORLD, CHAN_AUTO, hitSound );
+		}
+		if ( ( weap->missileDlight || weap->altMissileDlight ) && !loggedHolomatchWallDlightSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped EF missile wall dlight on Xbox renderer weapon=%d alt=%d\n",
+				weapon, altFire ? 1 : 0 );
+			loggedHolomatchWallDlightSkip = qtrue;
+		}
+		if ( !loggedHolomatchWallEnd )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame EF missile wall feedback end weapon=%d alt=%d\n",
+				weapon, altFire ? 1 : 0 );
+			loggedHolomatchWallEnd = qtrue;
+		}
+		return;
+	}
+#endif
 
 	switch( weapon )
 	{
@@ -2246,6 +2768,43 @@ void CG_MissileHitPlayer(int weapon, vec3_t origin, vec3_t dir, int entityNum, q
 {
 	qboolean	humanoid = qtrue;
 	vec3_t up={0,0,1};
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( weapon > WP_NONE && weapon < WP_NUM_WEAPONS && CG_STEFXIsHolomatchWeapon( weapon ) )
+	{
+		static qboolean loggedHolomatchPlayerBegin = qfalse;
+		static qboolean loggedHolomatchPlayerEnd = qfalse;
+		static qboolean loggedHolomatchPlayerDlightSkip = qfalse;
+		weaponInfo_t *weap = &cg_weapons[weapon];
+		sfxHandle_t hitSound = altFire ? weap->altMissileHitSound : weap->missileHitSound;
+
+		if ( !loggedHolomatchPlayerBegin )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame EF missile player feedback begin weapon=%d alt=%d target=%d sound=%d dlight=%g\n",
+				weapon, altFire ? 1 : 0, entityNum, hitSound,
+				altFire ? weap->altMissileDlight : weap->missileDlight );
+			loggedHolomatchPlayerBegin = qtrue;
+		}
+
+		if ( hitSound )
+		{
+			trap_S_StartSound( origin, entityNum, CHAN_AUTO, hitSound );
+		}
+		if ( ( weap->missileDlight || weap->altMissileDlight ) && !loggedHolomatchPlayerDlightSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped EF missile player dlight on Xbox renderer weapon=%d alt=%d target=%d\n",
+				weapon, altFire ? 1 : 0, entityNum );
+			loggedHolomatchPlayerDlightSkip = qtrue;
+		}
+		if ( !loggedHolomatchPlayerEnd )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame EF missile player feedback end weapon=%d alt=%d target=%d\n",
+				weapon, altFire ? 1 : 0, entityNum );
+			loggedHolomatchPlayerEnd = qtrue;
+		}
+		return;
+	}
+#endif
 
 	/*
 	// NOTENOTE Non-portable code from single player
@@ -2494,6 +3053,10 @@ void CG_InitG2Weapons(void)
 	int i = 0;
 	gitem_t		*item;
 	memset(g2WeaponInstances, 0, sizeof(g2WeaponInstances));
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways( "STEFX_HM: skipping inherited cgame weapon model instances\n" );
+	return;
+#endif
 	for ( item = bg_itemlist + 1 ; item->classname ; item++ ) 
 	{
 		if ( item->giType == IT_WEAPON )
@@ -2532,6 +3095,10 @@ void CG_InitG2Weapons(void)
 void CG_ShutDownG2Weapons(void)
 {
 	int i;
+#if defined(STEFX_ELITE_FORCE_MP)
+	memset(g2WeaponInstances, 0, sizeof(g2WeaponInstances));
+	return;
+#endif
 	for (i=0; i<MAX_WEAPONS; i++)
 	{
 		trap_G2API_CleanGhoul2Models(&g2WeaponInstances[i]);
@@ -2541,6 +3108,14 @@ void CG_ShutDownG2Weapons(void)
 void *CG_G2WeaponInstance(centity_t *cent, int weapon)
 {
 	clientInfo_t *ci = NULL;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( cent )
+	{
+		cent->ghoul2weapon = NULL;
+	}
+	return NULL;
+#endif
 
 	if (weapon != WP_SABER)
 	{
@@ -2581,6 +3156,14 @@ void *CG_G2WeaponInstance(centity_t *cent, int weapon)
 // what ghoul2 model do we want to copy ?
 void CG_CopyG2WeaponInstance(centity_t *cent, int weaponNum, void *toGhoul2)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( cent )
+	{
+		cent->ghoul2weapon = NULL;
+	}
+	return;
+#endif
+
 	//rww - the -1 is because there is no "weapon" for WP_NONE
 	assert(weaponNum < MAX_WEAPONS);
 	if (CG_G2WeaponInstance(cent, weaponNum/*-1*/))
@@ -2661,6 +3244,30 @@ void CG_CopyG2WeaponInstance(centity_t *cent, int weaponNum, void *toGhoul2)
 
 void CG_CheckPlayerG2Weapons(playerState_t *ps, centity_t *cent) 
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean stefxLogged = qfalse;
+
+	if ( cent )
+	{
+		cent->ghoul2weapon = NULL;
+		if ( ps )
+		{
+			cent->weapon = ps->weapon;
+		}
+	}
+	if ( ps && ps->clientNum >= 0 && ps->clientNum < MAX_CLIENTS )
+	{
+		cg_entities[ps->clientNum].ghoul2weapon = NULL;
+		cg_entities[ps->clientNum].weapon = ps->weapon;
+	}
+	if ( !stefxLogged )
+	{
+		CG_PrintfAlways( "STEFX_HM: skipping inherited player weapon attachments\n" );
+		stefxLogged = qtrue;
+	}
+	return;
+#endif
+
 	if (!ps)
 	{
 		assert(0);

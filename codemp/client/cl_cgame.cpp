@@ -1880,6 +1880,15 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	}
 #endif
 
+#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
+	if ( cl->serverTime <= 0 )
+	{
+		Com_Printf( "STEFX_HM: CL_CGameRendering skipped zero-time frame stereo=%d state=%d\n", stereo, cls.state );
+		XBLog_Phase("CL_CGameRendering skipped zero-time frame");
+		return;
+	}
+#endif
+
 #ifdef _XBOX	// No demos on Xbox
 	XBLog_Phase("CL_CGameRendering before CG_DRAW_ACTIVE_FRAME");
 	VM_Call( cgvm, CG_DRAW_ACTIVE_FRAME, cl->serverTime, stereo, 0 );
@@ -1895,9 +1904,13 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 			jampClCgameFrame, jampClCgameEnd - jampClCgameStart, stereo, cl->serverTime, cls.state);
 	}
 #endif
+#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
+	XBLog_Phase("CL_CGameRendering exit without VM_Debug");
+#else
 	XBLog_Phase("CL_CGameRendering before VM_Debug");
 	VM_Debug( 0 );
 	XBLog_Phase("CL_CGameRendering exit");
+#endif
 }
 
 
@@ -2003,6 +2016,11 @@ void CL_FirstSnapshot( void ) {
 //	else
 #endif
 	cls.state = CA_ACTIVE;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	Cvar_Set( "r_uiFullScreen", "0" );
+	Com_Printf( "STEFX_HM: CL_FirstSnapshot active gameplay; cleared fullscreen UI render state\n" );
+#endif
 
 	// set the timedelta so we are exactly on this first frame
 	cl->serverTimeDelta = cl->snap.serverTime - cls.realtime;

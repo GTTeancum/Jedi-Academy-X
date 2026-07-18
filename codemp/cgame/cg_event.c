@@ -7,9 +7,6 @@
 #include "../ui/ui_shared.h"
 #include "../ui/ui_public.h"
 
-// for the voice chats
-#include "../../ui/menudef.h"
-
 #include "../ghoul2/G2.h"
 
 #ifdef _XBOX
@@ -28,6 +25,672 @@ extern int cg_siegeDeathTime;
 extern int cg_siegeDeathDelay;
 extern int cg_vehicleAmmoWarning;
 extern int cg_vehicleAmmoWarningTime;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+static void CG_STEFXSkipHolomatchSurfaceMarkEvent( const entityState_t *es, int event );
+static void CG_STEFXSkipHolomatchMissileCustomEffect( const entityState_t *es, int event );
+
+static void CG_STEFXHolomatchDisruptorFeedback( const centity_t *cent, qboolean altFire, qboolean impact )
+{
+	weaponInfo_t *weap;
+	sfxHandle_t sound;
+	float intensity;
+	float *color;
+	vec3_t origin;
+
+	if ( !cent || WP_DISRUPTOR <= WP_NONE || WP_DISRUPTOR >= WP_NUM_WEAPONS )
+	{
+		return;
+	}
+
+	weap = &cg_weapons[WP_DISRUPTOR];
+	if ( !weap->registered )
+	{
+		CG_RegisterWeapon( WP_DISRUPTOR );
+	}
+
+	if ( !impact && (cent->currentState.origin2[0] || cent->currentState.origin2[1] || cent->currentState.origin2[2]) )
+	{
+		VectorCopy( cent->currentState.origin2, origin );
+	}
+	else
+	{
+		VectorCopy( cent->lerpOrigin, origin );
+	}
+
+	sound = 0;
+	if ( impact )
+	{
+		sound = altFire ? weap->altMissileHitSound : weap->missileHitSound;
+		if ( !sound )
+		{
+			sound = altFire ? weap->missileHitSound : weap->altMissileHitSound;
+		}
+	}
+	else
+	{
+		sound = altFire ? weap->altFlashSound[0] : weap->flashSound[0];
+		if ( !sound )
+		{
+			sound = altFire ? weap->flashSound[0] : weap->altFlashSound[0];
+		}
+	}
+
+	if ( sound )
+	{
+		trap_S_StartSound( origin, ENTITYNUM_WORLD, impact ? CHAN_AUTO : CHAN_WEAPON, sound );
+	}
+
+	intensity = altFire ? weap->altMissileDlight : weap->missileDlight;
+	color = altFire ? weap->altMissileDlightColor : weap->missileDlightColor;
+	if ( !intensity )
+	{
+		intensity = weap->flashDlight ? weap->flashDlight : 96.0f;
+		color = weap->flashDlightColor;
+	}
+
+	if ( intensity )
+	{
+		trap_R_AddLightToScene( origin, intensity, color[0], color[1], color[2] );
+	}
+}
+
+static qboolean CG_STEFXHandleHolomatchDisruptorEvent( centity_t *cent, const entityState_t *es, int event )
+{
+	static qboolean loggedDisruptorBridge = qfalse;
+	qboolean altFire;
+	qboolean impact;
+	sfxHandle_t zoomSound;
+
+	if ( !cent || !es )
+	{
+		return qfalse;
+	}
+
+	altFire = qfalse;
+	impact = qfalse;
+
+	switch ( event )
+	{
+	case EV_DISRUPTOR_MAIN_SHOT:
+		break;
+	case EV_DISRUPTOR_SNIPER_SHOT:
+		altFire = qtrue;
+		break;
+	case EV_DISRUPTOR_SNIPER_MISS:
+		altFire = es->weapon ? qfalse : qtrue;
+		impact = qtrue;
+		break;
+	case EV_DISRUPTOR_HIT:
+		altFire = (cent->currentState.eFlags & EF_ALT_FIRING) ? qtrue : qfalse;
+		impact = qtrue;
+		break;
+	case EV_DISRUPTOR_ZOOMSOUND:
+		if ( cg->snap && es->number == cg->snap->ps.clientNum )
+		{
+			zoomSound = cg->snap->ps.zoomMode ? cgs.media.zoomStart : cgs.media.zoomEnd;
+			if ( zoomSound )
+			{
+				trap_S_StartLocalSound( zoomSound, CHAN_AUTO );
+			}
+		}
+		break;
+	default:
+		return qfalse;
+	}
+
+	if ( event != EV_DISRUPTOR_ZOOMSOUND )
+	{
+		CG_STEFXHolomatchDisruptorFeedback( cent, altFire, impact );
+	}
+
+	if ( !loggedDisruptorBridge )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame handled EF Tetryon disruptor event without inherited effect\n" );
+		loggedDisruptorBridge = qtrue;
+	}
+
+	return qtrue;
+}
+
+static qboolean CG_STEFXHandleHolomatchPlayEffect( const entityState_t *es, vec3_t origin )
+{
+	static qboolean loggedDemp2Alt = qfalse;
+
+	if ( !es || es->eventParm != EFFECT_EXPLOSION_DEMP2ALT )
+	{
+		return qfalse;
+	}
+
+	if ( WP_DEMP2 > WP_NONE && WP_DEMP2 < WP_NUM_WEAPONS )
+	{
+		weaponInfo_t *weap = &cg_weapons[WP_DEMP2];
+		sfxHandle_t hitSound = weap->altMissileHitSound ? weap->altMissileHitSound : weap->missileHitSound;
+		float intensity = weap->altMissileDlight ? weap->altMissileDlight : weap->missileDlight;
+		float *color = weap->altMissileDlight ? weap->altMissileDlightColor : weap->missileDlightColor;
+
+		if ( hitSound )
+		{
+			trap_S_StartSound( origin, ENTITYNUM_WORLD, CHAN_AUTO, hitSound );
+		}
+		if ( intensity )
+		{
+			trap_R_AddLightToScene( origin, intensity, color[0], color[1], color[2] );
+		}
+	}
+
+	if ( !loggedDemp2Alt )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame handled EF I-MOD alt detonation without inherited effect\n" );
+		loggedDemp2Alt = qtrue;
+	}
+
+	return qtrue;
+}
+
+static qboolean CG_STEFXIsHolomatchImpactWeapon( int weapon )
+{
+	switch ( weapon )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static int CG_STEFXHolomatchImpactFeedbackWeapon( int weapon, int event, int entNum )
+{
+	static qboolean loggedFallback = qfalse;
+
+	if ( CG_STEFXIsHolomatchImpactWeapon( weapon ) )
+	{
+		return weapon;
+	}
+
+	if ( !loggedFallback )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame defaulted Holomatch missile impact feedback weapon rawWeapon=%d event=%d ent=%d fallback=%d\n",
+			weapon,
+			event,
+			entNum,
+			WP_BRYAR_PISTOL );
+		loggedFallback = qtrue;
+	}
+
+	return WP_BRYAR_PISTOL;
+}
+
+static qboolean CG_STEFXHandleHolomatchMissileImpactEvent( centity_t *cent, const entityState_t *es, int event, vec3_t position )
+{
+	static qboolean loggedImpactBegin = qfalse;
+	static qboolean loggedImpactEnd = qfalse;
+	vec3_t dir;
+	int weapon;
+	int target;
+	qboolean altFire;
+	impactSound_t soundType;
+
+	if ( !cent || !es )
+	{
+		return qfalse;
+	}
+
+	if ( event != EV_MISSILE_HIT && event != EV_MISSILE_MISS && event != EV_MISSILE_MISS_METAL )
+	{
+		return qfalse;
+	}
+
+	ByteToDir( es->eventParm, dir );
+	weapon = CG_STEFXHolomatchImpactFeedbackWeapon( es->weapon, event, es->number );
+	altFire = ( es->eFlags & EF_ALT_FIRING ) ? qtrue : qfalse;
+	target = es->otherEntityNum;
+	if ( target < 0 || target >= MAX_GENTITIES )
+	{
+		target = ENTITYNUM_WORLD;
+	}
+
+	if ( !loggedImpactBegin )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF missile impact feedback begin event=%d rawWeapon=%d weapon=%d alt=%d ent=%d target=%d emplacedOwner=%d mark=%d\n",
+			event,
+			es->weapon,
+			weapon,
+			altFire ? 1 : 0,
+			es->number,
+			target,
+			es->emplacedOwner,
+			es->trickedentindex );
+		loggedImpactBegin = qtrue;
+	}
+
+	if ( es->emplacedOwner )
+	{
+		CG_STEFXSkipHolomatchMissileCustomEffect( es, event );
+	}
+
+	if ( event == EV_MISSILE_HIT )
+	{
+		CG_MissileHitPlayer( weapon, position, dir, target, altFire );
+	}
+	else
+	{
+		soundType = ( event == EV_MISSILE_MISS_METAL ) ? IMPACTSOUND_METAL : IMPACTSOUND_DEFAULT;
+		CG_MissileHitWall( weapon, 0, position, dir, soundType, altFire, altFire ? es->generic1 : 0 );
+	}
+
+	if ( es->trickedentindex )
+	{
+		CG_STEFXSkipHolomatchSurfaceMarkEvent( es, event );
+	}
+
+	if ( !loggedImpactEnd )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame EF missile impact feedback end event=%d weapon=%d alt=%d\n",
+			event,
+			weapon,
+			altFire ? 1 : 0 );
+		loggedImpactEnd = qtrue;
+	}
+
+	return qtrue;
+}
+
+static qboolean CG_STEFXHolomatchSoundEventValid( int soundIndex, int event, int entNum )
+{
+	static qboolean loggedHolomatchBadSoundEvent = qfalse;
+
+	if ( soundIndex > 0 && soundIndex < MAX_SOUNDS )
+	{
+		return qtrue;
+	}
+
+	if ( !loggedHolomatchBadSoundEvent )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped Holomatch sound event with bad sound=%d event=%d ent=%d\n",
+			soundIndex,
+			event,
+			entNum );
+		loggedHolomatchBadSoundEvent = qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXHolomatchEffectIndexValid( int effectIndex, int event, int entNum )
+{
+	static qboolean loggedHolomatchBadEffectEvent = qfalse;
+
+	if ( effectIndex > 0 && effectIndex < MAX_FX )
+	{
+		return qtrue;
+	}
+
+	if ( !loggedHolomatchBadEffectEvent )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped Holomatch effect event with bad effect=%d event=%d ent=%d\n",
+			effectIndex,
+			event,
+			entNum );
+		loggedHolomatchBadEffectEvent = qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXHolomatchClientIndexValid( int clientNum, int event, int entNum )
+{
+	static qboolean loggedHolomatchBadClientEvent = qfalse;
+
+	if ( clientNum >= 0 && clientNum < MAX_CLIENTS )
+	{
+		return qtrue;
+	}
+
+	if ( !loggedHolomatchBadClientEvent )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped Holomatch client event with bad client=%d event=%d ent=%d\n",
+			clientNum,
+			event,
+			entNum );
+		loggedHolomatchBadClientEvent = qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXHolomatchEntityIndexValid( int entityNum, int event, int entNum )
+{
+	static qboolean loggedHolomatchBadEntityEvent = qfalse;
+
+	if ( entityNum >= 0 && entityNum < MAX_GENTITIES )
+	{
+		return qtrue;
+	}
+
+	if ( !loggedHolomatchBadEntityEvent )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped Holomatch entity event with bad entity=%d event=%d ent=%d\n",
+			entityNum,
+			event,
+			entNum );
+		loggedHolomatchBadEntityEvent = qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXHolomatchAmbientSetValid( int soundSetIndex, int event, int entNum )
+{
+	static qboolean loggedHolomatchBadAmbientEvent = qfalse;
+
+	if ( soundSetIndex >= 0 && soundSetIndex < MAX_AMBIENT_SETS )
+	{
+		return qtrue;
+	}
+
+	if ( !loggedHolomatchBadAmbientEvent )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped Holomatch sound-set event with bad set=%d event=%d ent=%d\n",
+			soundSetIndex,
+			event,
+			entNum );
+		loggedHolomatchBadAmbientEvent = qtrue;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXSkipHolomatchSaberEvent( int event )
+{
+	static qboolean loggedSaberEventSkip = qfalse;
+
+	switch ( event )
+	{
+	case EV_SABER_ATTACK:
+	case EV_SABER_HIT:
+	case EV_SABER_BLOCK:
+	case EV_SABER_CLASHFLARE:
+	case EV_SABER_UNHOLSTER:
+	case EV_BECOME_JEDIMASTER:
+	case EV_SET_FREE_SABER:
+		if ( !loggedSaberEventSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited saber-family event event=%d in Holomatch\n", event );
+			loggedSaberEventSkip = qtrue;
+		}
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXSkipHolomatchPredefinedSound( int event )
+{
+	static qboolean loggedPredefinedSoundSkip = qfalse;
+
+	if ( event != EV_PREDEFSOUND )
+	{
+		return qfalse;
+	}
+
+	if ( !loggedPredefinedSoundSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited predefined Force sound in Holomatch\n" );
+		loggedPredefinedSoundSkip = qtrue;
+	}
+	return qtrue;
+}
+
+static qboolean CG_STEFXSkipHolomatchNPCVoiceEvent( int event )
+{
+	static qboolean loggedNPCVoiceSkip = qfalse;
+
+	switch ( event )
+	{
+	case EV_ANGER1:
+	case EV_ANGER2:
+	case EV_ANGER3:
+	case EV_VICTORY1:
+	case EV_VICTORY2:
+	case EV_VICTORY3:
+	case EV_CONFUSE1:
+	case EV_CONFUSE2:
+	case EV_CONFUSE3:
+	case EV_PUSHED1:
+	case EV_PUSHED2:
+	case EV_PUSHED3:
+	case EV_CHOKE1:
+	case EV_CHOKE2:
+	case EV_CHOKE3:
+	case EV_FFWARN:
+	case EV_FFTURN:
+	case EV_CHASE1:
+	case EV_CHASE2:
+	case EV_CHASE3:
+	case EV_COVER1:
+	case EV_COVER2:
+	case EV_COVER3:
+	case EV_COVER4:
+	case EV_COVER5:
+	case EV_DETECTED1:
+	case EV_DETECTED2:
+	case EV_DETECTED3:
+	case EV_DETECTED4:
+	case EV_DETECTED5:
+	case EV_GIVEUP1:
+	case EV_GIVEUP2:
+	case EV_GIVEUP3:
+	case EV_GIVEUP4:
+	case EV_LOOK1:
+	case EV_LOOK2:
+	case EV_LOST1:
+	case EV_OUTFLANK1:
+	case EV_OUTFLANK2:
+	case EV_ESCAPING1:
+	case EV_ESCAPING2:
+	case EV_ESCAPING3:
+	case EV_SIGHT1:
+	case EV_SIGHT2:
+	case EV_SIGHT3:
+	case EV_SOUND1:
+	case EV_SOUND2:
+	case EV_SOUND3:
+	case EV_SUSPICIOUS1:
+	case EV_SUSPICIOUS2:
+	case EV_SUSPICIOUS3:
+	case EV_SUSPICIOUS4:
+	case EV_SUSPICIOUS5:
+	case EV_COMBAT1:
+	case EV_COMBAT2:
+	case EV_COMBAT3:
+	case EV_JDETECTED1:
+	case EV_JDETECTED2:
+	case EV_JDETECTED3:
+	case EV_TAUNT1:
+	case EV_TAUNT2:
+	case EV_TAUNT3:
+	case EV_JCHASE1:
+	case EV_JCHASE2:
+	case EV_JCHASE3:
+	case EV_JLOST1:
+	case EV_JLOST2:
+	case EV_JLOST3:
+	case EV_DEFLECT1:
+	case EV_DEFLECT2:
+	case EV_DEFLECT3:
+	case EV_GLOAT1:
+	case EV_GLOAT2:
+	case EV_GLOAT3:
+	case EV_PUSHFAIL:
+		if ( !loggedNPCVoiceSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited NPC voice event in Holomatch event=%d\n", event );
+			loggedNPCVoiceSkip = qtrue;
+		}
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXSkipHolomatchInheritedModeEvent( int event )
+{
+	static qboolean loggedModeEventSkip = qfalse;
+
+	if ( event != EV_SIEGESPEC )
+	{
+		return qfalse;
+	}
+
+	if ( !loggedModeEventSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited mode event in Holomatch event=%d\n", event );
+		loggedModeEventSkip = qtrue;
+	}
+	return qtrue;
+}
+
+static qboolean CG_STEFXSkipHolomatchModelOrDuelEvent( int event )
+{
+	static qboolean loggedModelOrDuelEventSkip = qfalse;
+
+	switch ( event )
+	{
+	case EV_GHOUL2_MARK:
+	case EV_GLOBAL_DUEL:
+	case EV_PRIVATE_DUEL:
+		if ( !loggedModelOrDuelEventSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited model/duel event in Holomatch event=%d\n", event );
+			loggedModelOrDuelEventSkip = qtrue;
+		}
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXSkipHolomatchHoldableEvent( int event )
+{
+	static qboolean loggedHoldableEventSkip = qfalse;
+
+	if ( event < EV_USE_ITEM0 || event > EV_USE_ITEM15 )
+	{
+		return qfalse;
+	}
+
+	if ( !loggedHoldableEventSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited holdable item event in Holomatch event=%d\n", event );
+		loggedHoldableEventSkip = qtrue;
+	}
+	return qtrue;
+}
+
+static void CG_STEFXSkipHolomatchSurfaceMarkEvent( const entityState_t *es, int event )
+{
+	static qboolean loggedSurfaceMarkSkip = qfalse;
+
+	if ( !loggedSurfaceMarkSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited surface-mark event after missile impact event=%d ent=%d flag=%d\n",
+			event,
+			es ? es->number : -1,
+			es ? es->trickedentindex : 0 );
+		loggedSurfaceMarkSkip = qtrue;
+	}
+}
+
+static void CG_STEFXSkipHolomatchMissileCustomEffect( const entityState_t *es, int event )
+{
+	static qboolean loggedMissileCustomEffectSkip = qfalse;
+
+	if ( !loggedMissileCustomEffectSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited missile custom effect event=%d ent=%d effect=%d\n",
+			event,
+			es ? es->number : -1,
+			es ? es->emplacedOwner : 0 );
+		loggedMissileCustomEffectSkip = qtrue;
+	}
+}
+
+static sfxHandle_t CG_STEFXHolomatchTauntSound( int clientNum )
+{
+	int start;
+	int i;
+
+	start = Q_irand( 1, 5 );
+	for ( i = 0 ; i < 5 ; i++ )
+	{
+		sfxHandle_t sound;
+		int tauntNum;
+
+		tauntNum = ((start + i - 1) % 5) + 1;
+		sound = CG_CustomSound( clientNum, va( "*taunt%d.wav", tauntNum ) );
+		if ( sound )
+		{
+			return sound;
+		}
+	}
+
+	return 0;
+}
+
+static void CG_STEFXSkipHolomatchTeleportEffect( void )
+{
+	static qboolean loggedTeleportEffectSkip = qfalse;
+
+	if ( !loggedTeleportEffectSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame skipped inherited teleport spawn effect in Holomatch\n" );
+		loggedTeleportEffectSkip = qtrue;
+	}
+}
+
+static void CG_STEFXIgnoreHolomatchModelCleanupEvent( const entityState_t *es )
+{
+	static qboolean loggedModelCleanupEventSkip = qfalse;
+	int entNum;
+	centity_t *target;
+
+	if ( !loggedModelCleanupEventSkip )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame ignored inherited model cleanup event in Holomatch\n" );
+		loggedModelCleanupEventSkip = qtrue;
+	}
+
+	if ( !es )
+	{
+		return;
+	}
+
+	entNum = es->eventParm;
+	if ( entNum < 0 || entNum >= MAX_GENTITIES )
+	{
+		return;
+	}
+
+	target = &cg_entities[entNum];
+	target->ghoul2 = NULL;
+	target->ghoul2weapon = NULL;
+	target->weapon = 0;
+}
+#endif
 
 //I know, not siege, but...
 typedef enum
@@ -98,6 +761,145 @@ const char	*CG_PlaceString( int rank ) {
 
 qboolean CG_ThereIsAMaster(void);
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static const char *CG_STEFXHolomatchObituaryMethod( int mod )
+{
+	switch ( mod )
+	{
+	case MOD_WATER:
+		return "drowning";
+	case MOD_SLIME:
+		return "corrosion";
+	case MOD_LAVA:
+		return "boiling";
+	case MOD_CRUSH:
+		return "compression";
+	case MOD_TELEFRAG:
+		return "transporter accident";
+	case MOD_FALLING:
+		return "impact";
+	case MOD_SUICIDE:
+		return "suicide";
+	case MOD_TARGET_LASER:
+		return "laser burns";
+	case MOD_TRIGGER_HURT:
+		return "misadventure";
+	case MOD_BRYAR_PISTOL:
+	case MOD_BRYAR_PISTOL_ALT:
+		return "phaser burns";
+	case MOD_BLASTER:
+		return "energy scars";
+	case MOD_DEMP2:
+	case MOD_DEMP2_ALT:
+		return "infinite modulation";
+	case MOD_BOWCASTER:
+		return "gunned down";
+	case MOD_DISRUPTOR:
+		return "perforated";
+	case MOD_DISRUPTOR_SPLASH:
+	case MOD_DISRUPTOR_SNIPER:
+		return "disrupted";
+	case MOD_ROCKET:
+		return "welded";
+	case MOD_ROCKET_SPLASH:
+		return "degaussed";
+	default:
+		break;
+	}
+
+	return "unknown";
+}
+
+static qboolean CG_STEFXHolomatchObituary( entityState_t *ent )
+{
+	static qboolean loggedHolomatchObituary = qfalse;
+	static qboolean loggedHolomatchBadObituary = qfalse;
+	int mod;
+	int target;
+	int attacker;
+	const char *targetInfo;
+	const char *attackerInfo;
+	const char *method;
+	char targetName[32];
+	char attackerName[32];
+	char *s;
+	int centerY;
+
+	target = ent->otherEntityNum;
+	attacker = ent->otherEntityNum2;
+	mod = ent->eventParm;
+
+	if ( target < 0 || target >= MAX_CLIENTS )
+	{
+		if ( !loggedHolomatchBadObituary )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored EF obituary with invalid target=%d attacker=%d mod=%d\n",
+				target, attacker, mod );
+			loggedHolomatchBadObituary = qtrue;
+		}
+		return qtrue;
+	}
+
+	targetInfo = CG_ConfigString( CS_PLAYERS + target );
+	if ( !targetInfo )
+	{
+		return qtrue;
+	}
+
+	Q_strncpyz( targetName, Info_ValueForKey( targetInfo, "n" ), sizeof(targetName) );
+	method = CG_STEFXHolomatchObituaryMethod( mod );
+
+	if ( attacker < 0 || attacker >= MAX_CLIENTS )
+	{
+		attacker = ENTITYNUM_WORLD;
+		attackerInfo = NULL;
+	}
+	else
+	{
+		attackerInfo = CG_ConfigString( CS_PLAYERS + attacker );
+	}
+
+	if ( !loggedHolomatchObituary )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame using EF obituary text bridge\n" );
+		loggedHolomatchObituary = qtrue;
+	}
+
+	if ( attacker == target || attacker == ENTITYNUM_WORLD || !attackerInfo )
+	{
+		CG_PrintfAlways( S_COLOR_CYAN "Casualty: " S_COLOR_WHITE "%10s   " S_COLOR_CYAN "Method: " S_COLOR_WHITE "%s\n",
+			targetName, method );
+		return qtrue;
+	}
+
+	Q_strncpyz( attackerName, Info_ValueForKey( attackerInfo, "n" ), sizeof(attackerName) );
+	if ( cg->snap && target == cg->snap->ps.clientNum )
+	{
+		Q_strncpyz( cg->killerName, attackerName, sizeof( cg->killerName ) );
+	}
+
+	if ( cg->snap && attacker == cg->snap->ps.clientNum )
+	{
+		s = va( "You eliminated %s", targetName );
+#ifdef _XBOX
+		if ( ClientManager::splitScreenMode == qtrue )
+		{
+			centerY = (SCREEN_HEIGHT / 2) / 4;
+		}
+		else
+#endif
+		{
+			centerY = SCREEN_HEIGHT / 4;
+		}
+		CG_CenterPrint( s, centerY, BIGCHAR_WIDTH );
+	}
+
+	CG_PrintfAlways( S_COLOR_CYAN "Eliminated: " S_COLOR_WHITE "%10s   " S_COLOR_CYAN "Credit: " S_COLOR_WHITE "%10s   " S_COLOR_CYAN "Method: " S_COLOR_WHITE "%s\n",
+		targetName, attackerName, method );
+	return qtrue;
+}
+#endif
+
 /*
 =============
 CG_Obituary
@@ -118,6 +920,13 @@ static void CG_Obituary( entityState_t *ent ) {
 	target = ent->otherEntityNum;
 	attacker = ent->otherEntityNum2;
 	mod = ent->eventParm;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXHolomatchObituary( ent ) )
+	{
+		return;
+	}
+#endif
 
 	if ( target < 0 || target >= MAX_CLIENTS ) {
 		CG_Error( "CG_Obituary: target out of range" );
@@ -589,6 +1398,26 @@ CG_ItemPickup
 A new item was picked up this frame
 ================
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+static qboolean CG_STEFXHolomatchAutoswitchSafeWeapon( int weapon )
+{
+	switch ( weapon )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+#endif
+
 static void CG_ItemPickup( int itemNum ) {
 #ifdef _XBOX
 	short autoswitch = ClientManager::ActiveClient().cg_autoswitch;
@@ -599,6 +1428,55 @@ static void CG_ItemPickup( int itemNum ) {
 	cg->itemPickupTime = cg->time;
 	cg->itemPickupBlendTime = cg->time;
 	// see if it should be the grabbed weapon
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean loggedHolomatchPickupPath = qfalse;
+
+		if ( cg->snap && bg_itemlist[itemNum].giType == IT_WEAPON )
+		{
+			int nCurWpn = cg->predictedPlayerState.weapon;
+			int nNewWpn = bg_itemlist[itemNum].giTag;
+			qboolean selectWeapon = qfalse;
+
+			switch ( autoswitch )
+			{
+			case 1:
+				selectWeapon = ( nNewWpn > nCurWpn && CG_STEFXHolomatchAutoswitchSafeWeapon( nNewWpn ) );
+				break;
+			case 2:
+				selectWeapon = ( nNewWpn > nCurWpn );
+				break;
+			case 3:
+				selectWeapon = qtrue;
+				break;
+			case 0:
+			default:
+				break;
+			}
+
+			if ( selectWeapon )
+			{
+				cg->weaponSelectTime = cg->time;
+				cg->weaponSelect = nNewWpn;
+			}
+
+			if ( !loggedHolomatchPickupPath )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame used EF pickup autoswitch path item=%d weapon=%d current=%d autoswitch=%d selected=%d\n",
+					itemNum, nNewWpn, nCurWpn, autoswitch, selectWeapon ? 1 : 0 );
+				loggedHolomatchPickupPath = qtrue;
+			}
+		}
+		else if ( !loggedHolomatchPickupPath )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame used EF pickup display path item=%d type=%d\n",
+				itemNum, bg_itemlist[itemNum].giType );
+			loggedHolomatchPickupPath = qtrue;
+		}
+
+		return;
+	}
+#endif
 	if ( cg->snap && bg_itemlist[itemNum].giType == IT_WEAPON ) {
 
 		// 0 == no switching
@@ -928,7 +1806,11 @@ void DoFall(centity_t *cent, entityState_t *es, int clientNum)
 		}
 		else
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			trap_S_StartSound (NULL, es->number, CHAN_AUTO, cgs.media.landSound );
+#else
 			trap_S_StartSound (NULL, es->number, CHAN_AUTO, trap_S_RegisterSound( "sound/movers/objects/objectHit.wav" ) );
+#endif
 		}
 	}
 	else if (BG_InKnockDownOnly(es->legsAnim))
@@ -939,7 +1821,11 @@ void DoFall(centity_t *cent, entityState_t *es, int clientNum)
 		}
 		else
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			trap_S_StartSound (NULL, es->number, CHAN_AUTO, cgs.media.landSound );
+#else
 			trap_S_StartSound (NULL, es->number, CHAN_AUTO, trap_S_RegisterSound( "sound/movers/objects/objectHit.wav" ) );
+#endif
 		}
 	}
 	else if (delta > 50)
@@ -1319,6 +2205,9 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 	int				eID = 0;
 	int				isnd = 0;
 	centity_t		*cl_ent;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean loggedHolomatchUnknownEvent = qfalse;
+#endif
 
 	es = &cent->currentState;
 	event = es->event & ~EV_EVENT_BITS;
@@ -1347,6 +2236,41 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
 		clientNum = 0;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( CG_STEFXHandleHolomatchDisruptorEvent( cent, es, event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXSkipHolomatchSaberEvent( event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXSkipHolomatchPredefinedSound( event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXSkipHolomatchModelOrDuelEvent( event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXSkipHolomatchHoldableEvent( event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXSkipHolomatchNPCVoiceEvent( event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXSkipHolomatchInheritedModeEvent( event ) )
+	{
+		return;
+	}
+	if ( CG_STEFXHandleHolomatchMissileImpactEvent( cent, es, event, position ) )
+	{
+		return;
+	}
+#endif
 
 	if (es->eType == ET_NPC)
 	{
@@ -1632,6 +2556,23 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_TAUNT:
 		DEBUGNAME("EV_TAUNT");
+#if defined(STEFX_ELITE_FORCE_MP)
+		{
+			static qboolean loggedHolomatchTaunt = qfalse;
+			sfxHandle_t soundIndex = CG_STEFXHolomatchTauntSound( es->number );
+
+			if ( soundIndex )
+			{
+				if ( !loggedHolomatchTaunt )
+				{
+					CG_PrintfAlways( "STEFX_HM: cgame used EF taunt sound event client=%d\n", es->number );
+					loggedHolomatchTaunt = qtrue;
+				}
+				trap_S_StartSound( NULL, es->number, CHAN_VOICE, soundIndex );
+			}
+		}
+		break;
+#else
 		{
 			int soundIndex = 0;
 			if ( cgs.gametype != GT_DUEL
@@ -1706,6 +2647,7 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 			}
 		}
 		break;
+#endif
 
 		//Begin NPC sounds
 	case EV_ANGER1:	//Say when acquire an enemy when didn't have one before
@@ -1903,79 +2845,105 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 		{
 			gitem_t	*item;
 			int		index;
+#if !defined(STEFX_ELITE_FORCE_MP)
 			qboolean	newindex = qfalse;
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+			static qboolean loggedHolomatchDirectPickupEvent = qfalse;
+#endif
 
-			index = cg_entities[es->eventParm].currentState.modelindex;		// player predicted
+#if defined(STEFX_ELITE_FORCE_MP)
+			index = es->eventParm;
+
+			if ( !loggedHolomatchDirectPickupEvent )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame used EF direct pickup event item=%d\n", index );
+				loggedHolomatchDirectPickupEvent = qtrue;
+			}
+#else
+			{
+				index = cg_entities[es->eventParm].currentState.modelindex;		// player predicted
 
 /*
-			if (index < 1 && cg_entities[es->eventParm].currentState.isJediMaster)
-			{ //a holocron most likely
-				index = cg_entities[es->eventParm].currentState.trickedentindex4;
-				trap_S_StartSound (NULL, es->number, CHAN_AUTO,	cgs.media.holocronPickup );
+				if (index < 1 && cg_entities[es->eventParm].currentState.isJediMaster)
+				{ //a holocron most likely
+					index = cg_entities[es->eventParm].currentState.trickedentindex4;
+					trap_S_StartSound (NULL, es->number, CHAN_AUTO,	cgs.media.holocronPickup );
 								
-				if (es->number == cg->snap->ps.clientNum && showPowersName[index])
-				{
-					const char *strText = CG_GetStringEdString("MP_INGAME", "PICKUPLINE");
+					if (es->number == cg->snap->ps.clientNum && showPowersName[index])
+					{
+						const char *strText = CG_GetStringEdString("MP_INGAME", "PICKUPLINE");
 
-					//Com_Printf("%s %s\n", strText, showPowersName[index]);
+						//Com_Printf("%s %s\n", strText, showPowersName[index]);
 #ifdef _XBOX
-					int wh = SCREEN_HEIGHT;
-					if(ClientManager::splitScreenMode == qtrue)
-						wh = SCREEN_HEIGHT / 2;
+						int wh = SCREEN_HEIGHT;
+						if(ClientManager::splitScreenMode == qtrue)
+							wh = SCREEN_HEIGHT / 2;
 
-					CG_CenterPrint( va("%s %s\n", strText, CG_GetStringEdString("SP_INGAME",showPowersName[index])), wh * 0.30, BIGCHAR_WIDTH );
+						CG_CenterPrint( va("%s %s\n", strText, CG_GetStringEdString("SP_INGAME",showPowersName[index])), wh * 0.30, BIGCHAR_WIDTH );
 #else
-					CG_CenterPrint( va("%s %s\n", strText, CG_GetStringEdString("SP_INGAME",showPowersName[index])), SCREEN_HEIGHT * 0.30, BIGCHAR_WIDTH );
+						CG_CenterPrint( va("%s %s\n", strText, CG_GetStringEdString("SP_INGAME",showPowersName[index])), SCREEN_HEIGHT * 0.30, BIGCHAR_WIDTH );
 #endif
-				}
-
-				//Show the player their force selection bar in case picking the holocron up changed the current selection
-				if (index != FP_SABER_OFFENSE && index != FP_SABER_DEFENSE && index != FP_SABERTHROW &&
-					index != FP_LEVITATION &&
-					es->number == cg->snap->ps.clientNum &&
-					(index == cg->snap->ps.fd.forcePowerSelected || !(cg->snap->ps.fd.forcePowersActive & (1 << cg->snap->ps.fd.forcePowerSelected))))
-				{
-					if (cg->forceSelect != index)
-					{
-						cg->forceSelect = index;
-						newindex = qtrue;
 					}
-				}
 
-				if (es->number == cg->snap->ps.clientNum && newindex)
-				{
-					if (cg->forceSelectTime < cg->time)
+					//Show the player their force selection bar in case picking the holocron up changed the current selection
+					if (index != FP_SABER_OFFENSE && index != FP_SABER_DEFENSE && index != FP_SABERTHROW &&
+						index != FP_LEVITATION &&
+						es->number == cg->snap->ps.clientNum &&
+						(index == cg->snap->ps.fd.forcePowerSelected || !(cg->snap->ps.fd.forcePowersActive & (1 << cg->snap->ps.fd.forcePowerSelected))))
 					{
-						cg->forceSelectTime = cg->time;
+						if (cg->forceSelect != index)
+						{
+							cg->forceSelect = index;
+							newindex = qtrue;
+						}
 					}
-				}
 
-				break;
-			}
+					if (es->number == cg->snap->ps.clientNum && newindex)
+					{
+						if (cg->forceSelectTime < cg->time)
+						{
+							cg->forceSelectTime = cg->time;
+						}
+					}
+
+					break;
+				}
 */
 
-			if (cg_entities[es->eventParm].weapon >= cg->time)
-			{ //rww - an unfortunately necessary hack to prevent double item pickups
-				break;
-			}
+				if (cg_entities[es->eventParm].weapon >= cg->time)
+				{ //rww - an unfortunately necessary hack to prevent double item pickups
+					break;
+				}
 
-			//Hopefully even if this entity is somehow removed and replaced with, say, another
-			//item, this time will have expired by the time that item needs to be picked up.
-			//Of course, it's quite possible this will fail miserably, so if you've got a better
-			//solution then please do use it.
-			cg_entities[es->eventParm].weapon = cg->time+500;
+				//Hopefully even if this entity is somehow removed and replaced with, say, another
+				//item, this time will have expired by the time that item needs to be picked up.
+				//Of course, it's quite possible this will fail miserably, so if you've got a better
+				//solution then please do use it.
+				cg_entities[es->eventParm].weapon = cg->time+500;
+			}
+#endif
 
 			if ( index < 1 || index >= bg_numItems ) {
 				break;
 			}
 			item = &bg_itemlist[ index ];
 
-			if ( /*item->giType != IT_POWERUP && */item->giType != IT_TEAM) {
-				if (item->pickup_sound && item->pickup_sound[0])
-				{
-					trap_S_StartSound (NULL, es->number, CHAN_AUTO,	trap_S_RegisterSound( item->pickup_sound ) );
+#if defined(STEFX_ELITE_FORCE_MP)
+			if (item->pickup_sound && (item->giType != IT_TEAM))
+			{
+				trap_S_StartSound (NULL, es->number, CHAN_AUTO,	trap_S_RegisterSound( item->pickup_sound ) );
+			}
+#else
+			{
+				if ( /*item->giType != IT_POWERUP && */item->giType != IT_TEAM) {
+					if (item->pickup_sound && item->pickup_sound[0])
+					{
+						trap_S_StartSound (NULL, es->number, CHAN_AUTO,	trap_S_RegisterSound( item->pickup_sound ) );
+					}
 				}
 			}
+#endif
 
 			// show icon and name on status bar
 			if ( es->number == cg->snap->ps.clientNum ) {
@@ -2024,6 +2992,19 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 //		trap_S_StartSound (NULL, es->number, CHAN_AUTO, cgs.media.noAmmoSound );
 		if ( es->number == cg->snap->ps.clientNum )
 		{
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( es->eventParm >= WP_NUM_WEAPONS )
+			{
+				int noAmmoWeapon = es->eventParm % WP_NUM_WEAPONS;
+				qboolean noAmmoAltFire = ( es->eventParm >= ( WP_NUM_WEAPONS * 2 ) ) ? qtrue : qfalse;
+
+				if ( noAmmoWeapon > WP_NONE && noAmmoWeapon < WP_NUM_WEAPONS )
+				{
+					CG_STEFXOutOfAmmoChange( noAmmoWeapon, noAmmoAltFire );
+					break;
+				}
+			}
+#endif
 			if ( CG_InFighter() || CG_InATST() || cg->snap->ps.weapon == WP_NONE )
 			{//just letting us know our vehicle is out of ammo
 				//FIXME: flash something on HUD or give some message so we know we have no ammo
@@ -2180,6 +3161,27 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 		}
 
 		break;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	case EV_FIRE_EMPTY_PHASER:
+		DEBUGNAME("EV_FIRE_EMPTY_PHASER");
+		{
+			static qboolean loggedEmptyPhaser = qfalse;
+
+			if ( cgs.media.noAmmoSound )
+			{
+				trap_S_StartSound( NULL, es->number, CHAN_WEAPON, cgs.media.noAmmoSound );
+			}
+			cent->pe.lightningFiring = qtrue;
+			CG_FireWeapon( cent, qfalse );
+			if ( !loggedEmptyPhaser )
+			{
+				CG_PrintfAlways( "STEFX_HM: cgame handled EF empty Phaser fire event\n" );
+				loggedEmptyPhaser = qtrue;
+			}
+		}
+		break;
+#endif
 
 	case EV_SABER_ATTACK:
 		DEBUGNAME("EV_SABER_ATTACK");
@@ -2776,7 +3778,11 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 			{
 				break;
 			}
+#if defined(STEFX_ELITE_FORCE_MP)
+			CG_STEFXSkipHolomatchTeleportEffect();
+#else
 			trap_FX_PlayEffectID(cgs.effects.mSpawn, pos, ang, -1, -1);
+#endif
 		}
 		break;
 
@@ -2803,7 +3809,11 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 			{
 				break;
 			}
+#if defined(STEFX_ELITE_FORCE_MP)
+			CG_STEFXSkipHolomatchTeleportEffect();
+#else
 			trap_FX_PlayEffectID(cgs.effects.mSpawn, pos, ang, -1, -1);
+#endif
 		}
 		break;
 
@@ -2864,6 +3874,10 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_DESTROY_GHOUL2_INSTANCE:
 		DEBUGNAME("EV_DESTROY_GHOUL2_INSTANCE");
+#if defined(STEFX_ELITE_FORCE_MP)
+		CG_STEFXIgnoreHolomatchModelCleanupEvent( es );
+		break;
+#else
 		if (cg_entities[es->eventParm].ghoul2 && trap_G2_HaveWeGhoul2Models(cg_entities[es->eventParm].ghoul2))
 		{
 			if (es->eventParm < MAX_CLIENTS)
@@ -2876,15 +3890,21 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 			trap_G2API_CleanGhoul2Models(&(cg_entities[es->eventParm].ghoul2));
 		}
 		break;
+#endif
 
 	case EV_DESTROY_WEAPON_MODEL:
 		DEBUGNAME("EV_DESTROY_WEAPON_MODEL");
+#if defined(STEFX_ELITE_FORCE_MP)
+		CG_STEFXIgnoreHolomatchModelCleanupEvent( es );
+		break;
+#else
 		if (cg_entities[es->eventParm].ghoul2 && trap_G2_HaveWeGhoul2Models(cg_entities[es->eventParm].ghoul2) &&
 			trap_G2API_HasGhoul2ModelOnIndex(&(cg_entities[es->eventParm].ghoul2), 1))
 		{
 			trap_G2API_RemoveGhoul2Model(&(cg_entities[es->eventParm].ghoul2), 1);
 		}
 		break;
+#endif
 
 	case EV_GIVE_NEW_RANK:
 		DEBUGNAME("EV_GIVE_NEW_RANK");
@@ -2947,10 +3967,17 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 	case EV_MISSILE_HIT:
 		DEBUGNAME("EV_MISSILE_HIT");
 		ByteToDir( es->eventParm, dir );
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( es->emplacedOwner )
+		{
+			CG_STEFXSkipHolomatchMissileCustomEffect( es, event );
+		}
+#else
 		if ( es->emplacedOwner )
 		{//hack: this is an index to a custom effect to use
 			trap_FX_PlayEffectID(cgs.gameEffects[es->emplacedOwner], position, dir, -1, -1);
 		}
+#endif
 		else if ( CG_VehicleWeaponImpact( cent ) )
 		{//a vehicle missile that uses an overridden impact effect...
 		}
@@ -2963,20 +3990,34 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 			CG_MissileHitPlayer( es->weapon, position, dir, es->otherEntityNum, qfalse);
 		}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( es->trickedentindex )
+		{
+			CG_STEFXSkipHolomatchSurfaceMarkEvent( es, event );
+		}
+#else
 		if (cg_ghoul2Marks.integer &&
 			es->trickedentindex)
 		{ //flag to place a ghoul2 mark
 			CG_G2MarkEvent(es);
 		}
+#endif
 		break;
 
 	case EV_MISSILE_MISS:
 		DEBUGNAME("EV_MISSILE_MISS");
 		ByteToDir( es->eventParm, dir );
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( es->emplacedOwner )
+		{
+			CG_STEFXSkipHolomatchMissileCustomEffect( es, event );
+		}
+#else
 		if ( es->emplacedOwner )
 		{//hack: this is an index to a custom effect to use
 			trap_FX_PlayEffectID(cgs.gameEffects[es->emplacedOwner], position, dir, -1, -1);
 		}
+#endif
 		else if ( CG_VehicleWeaponImpact( cent ) )
 		{//a vehicle missile that used an overridden impact effect...
 		}
@@ -2989,20 +4030,34 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 			CG_MissileHitWall(es->weapon, 0, position, dir, IMPACTSOUND_DEFAULT, qfalse, 0);
 		}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( es->trickedentindex )
+		{
+			CG_STEFXSkipHolomatchSurfaceMarkEvent( es, event );
+		}
+#else
 		if (cg_ghoul2Marks.integer &&
 			es->trickedentindex)
 		{ //flag to place a ghoul2 mark
 			CG_G2MarkEvent(es);
 		}
+#endif
 		break;
 
 	case EV_MISSILE_MISS_METAL:
 		DEBUGNAME("EV_MISSILE_MISS_METAL");
 		ByteToDir( es->eventParm, dir );
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( es->emplacedOwner )
+		{
+			CG_STEFXSkipHolomatchMissileCustomEffect( es, event );
+		}
+#else
 		if ( es->emplacedOwner )
 		{//hack: this is an index to a custom effect to use
 			trap_FX_PlayEffectID(cgs.gameEffects[es->emplacedOwner], position, dir, -1, -1);
 		}
+#endif
 		else if ( CG_VehicleWeaponImpact( cent ) )
 		{//a vehicle missile that used an overridden impact effect...
 		}
@@ -3018,6 +4073,12 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_PLAY_EFFECT:
 		DEBUGNAME("EV_PLAY_EFFECT");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( CG_STEFXHandleHolomatchPlayEffect( es, es->origin ) )
+		{
+			break;
+		}
+#endif
 		switch(es->eventParm)
 		{ //it isn't a hack, it's ingenuity!
 		case EFFECT_SMOKE:
@@ -3118,6 +4179,13 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 				fxDir[1] = 1;
 			}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( !CG_STEFXHolomatchEffectIndexValid( es->eventParm, event, es->number ) )
+			{
+				break;
+			}
+#endif
+
 			if ( cgs.gameEffects[ es->eventParm ] )
 			{
 				efxIndex = cgs.gameEffects[es->eventParm];
@@ -3156,6 +4224,13 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 		{
 			sfxHandle_t sfx;
 			const char *soundSet;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+			if ( !CG_STEFXHolomatchAmbientSetValid( es->soundSetIndex, event, es->number ) )
+			{
+				break;
+			}
+#endif
 			
 			soundSet = CG_ConfigString( CS_AMBIENT_SET + es->soundSetIndex );
 
@@ -3178,6 +4253,12 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_MUTE_SOUND:
 		DEBUGNAME("EV_MUTE_SOUND");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchEntityIndexValid( es->trickedentindex2, event, es->number ) )
+		{
+			break;
+		}
+#endif
 		if (cg_entities[es->trickedentindex2].currentState.eFlags & EF_SOUNDTRACKER)
 		{
 			cg_entities[es->trickedentindex2].currentState.eFlags -= EF_SOUNDTRACKER;
@@ -3188,10 +4269,23 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_VOICECMD_SOUND:
 		DEBUGNAME("EV_VOICECMD_SOUND");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchClientIndexValid( es->groundEntityNum, event, es->number ) )
+		{
+			break;
+		}
+#else
 		if (es->groundEntityNum >= MAX_CLIENTS)
 		{ //don't ever use this unless it is being used on a real client
 			break;
 		}
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchSoundEventValid( es->eventParm, event, es->number ) )
+		{
+			break;
+		}
+#endif
 		{
 			sfxHandle_t sfx = cgs.gameSounds[ es->eventParm ];
 			clientInfo_t *ci = &cgs.clientinfo[es->groundEntityNum];
@@ -3234,6 +4328,12 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_GENERAL_SOUND:
 		DEBUGNAME("EV_GENERAL_SOUND");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchSoundEventValid( es->eventParm, event, es->number ) )
+		{
+			break;
+		}
+#endif
 		if (es->saberEntityNum == TRACK_CHANNEL_2 || es->saberEntityNum == TRACK_CHANNEL_3 ||
 			es->saberEntityNum == TRACK_CHANNEL_5)
 		{ //channels 2 and 3 are for speed and rage, 5 for sight
@@ -3255,6 +4355,12 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_GLOBAL_SOUND:	// play from the player's head so it never diminishes
 		DEBUGNAME("EV_GLOBAL_SOUND");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchSoundEventValid( es->eventParm, event, es->number ) )
+		{
+			break;
+		}
+#endif
 		if ( cgs.gameSounds[ es->eventParm ] ) {
 			trap_S_StartSound (NULL, cg->snap->ps.clientNum, CHAN_MENU1, cgs.gameSounds[ es->eventParm ] );
 		} else {
@@ -3339,6 +4445,12 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_ENTITY_SOUND:
 		DEBUGNAME("EV_ENTITY_SOUND");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchSoundEventValid( es->eventParm, event, es->number ) )
+		{
+			break;
+		}
+#endif
 		//somewhat of a hack - weapon is the caller entity's index, trickedentindex is the proper sound channel
 		if ( cgs.gameSounds[ es->eventParm ] ) {
 			trap_S_StartSound (NULL, es->clientNum, es->trickedentindex, cgs.gameSounds[ es->eventParm ] );
@@ -3436,6 +4548,12 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	case EV_STARTLOOPINGSOUND:
 		DEBUGNAME("EV_STARTLOOPINGSOUND");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !CG_STEFXHolomatchSoundEventValid( es->eventParm, event, es->number ) )
+		{
+			break;
+		}
+#endif
 		if ( cgs.gameSounds[ es->eventParm ] )
 		{
 			isnd = cgs.gameSounds[es->eventParm];
@@ -3496,8 +4614,22 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 
 	default:
 		DEBUGNAME("UNKNOWN");
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( !loggedHolomatchUnknownEvent )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame ignored unknown Holomatch event event=%d ent=%d parm=%d eType=%d weapon=%d\n",
+				event,
+				es->number,
+				es->eventParm,
+				es->eType,
+				es->weapon );
+			loggedHolomatchUnknownEvent = qtrue;
+		}
+		break;
+#else
 		CG_Error( "Unknown event: %i", event );
 		break;
+#endif
 	}
 
 }

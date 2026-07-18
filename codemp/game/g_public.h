@@ -17,6 +17,9 @@
 #define	SVF_NOCLIENT			0x00000001	// don't send entity to clients, even if it has effects
 #define SVF_BOT					0x00000008	// set if the entity is a bot
 #define SVF_PLAYER_USABLE		0x00000010	// player can use this with the use button
+#if defined(STEFX_ELITE_FORCE_MP)
+#define	SVF_ELIMINATED			0x00000010	// EF Holomatch eliminated-player scoreboard state
+#endif
 #define	SVF_BROADCAST			0x00000020	// send to all connected clients
 #define	SVF_PORTAL				0x00000040	// merge a second pvs at origin2 into snapshots
 #define	SVF_USE_CURRENT_ORIGIN	0x00000080	// entity->r.currentOrigin instead of entity->s.origin

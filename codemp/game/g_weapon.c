@@ -4347,6 +4347,613 @@ FireWeapon
 int BG_EmplacedView(vec3_t baseAngles, vec3_t angles, float *newYaw, float constraint);
 #include "../namespace_end.h"
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_HM_DMG_VAR				( 0.8f + ( random() * 0.4f ) )
+#define STEFX_HM_MAXRANGE_PHASER		2048
+#define STEFX_HM_PHASER_DAMAGE			20
+#define STEFX_HM_PHASER_MIN_DAMAGE		8
+#define STEFX_HM_PHASER_POINT_BLANK		96
+#define STEFX_HM_COMPRESSION_SPREAD		100
+#define STEFX_HM_MAXRANGE_COMPRESSION	8192
+#define STEFX_HM_COMPRESSION_DAMAGE		16
+#define STEFX_HM_COMPRESSION_ALT_DAMAGE	85
+#define STEFX_HM_COMPRESSION_SPLASH		64
+#define STEFX_HM_COMPRESSION_SPLASH_DMG	16
+#define STEFX_HM_COMPRESSION_ALT_SPLASH	32
+#define STEFX_HM_COMPRESSION_ALT_SPLASH_DMG 10
+#define STEFX_HM_MAXRANGE_IMOD			4096
+#define STEFX_HM_IMOD_DAMAGE			20
+#define STEFX_HM_IMOD_ALT_DAMAGE		48
+#define STEFX_HM_MAX_IMOD_HITS			4
+#define STEFX_HM_SCAV_DAMAGE			8
+#define STEFX_HM_SCAV_VELOCITY			1500
+#define STEFX_HM_SCAV_SIZE				3
+#define STEFX_HM_SCAV_SPREAD			0.5f
+#define STEFX_HM_SCAV_ALT_DAMAGE		60
+#define STEFX_HM_SCAV_ALT_SPLASH		100
+#define STEFX_HM_SCAV_ALT_SPLASH_DMG	60
+#define STEFX_HM_SCAV_ALT_VELOCITY		1000
+#define STEFX_HM_SCAV_ALT_UP_VELOCITY	100
+#define STEFX_HM_SCAV_ALT_SIZE			6
+#define STEFX_HM_MAXRANGE_TETRION		4096
+#define STEFX_HM_TETRION_DAMAGE			4
+#define STEFX_HM_TETRION_ALT_DAMAGE		17
+#define STEFX_HM_TETRION_ALT_VELOCITY	1500
+#define STEFX_HM_TETRION_ALT_SIZE		6
+#define STEFX_HM_TETRION_SPREAD			275
+#define STEFX_HM_TETRION_SHOTS			3
+#define STEFX_HM_MAXRANGE_DREADNOUGHT	2048
+#define STEFX_HM_DREADNOUGHT_DAMAGE		8
+#define STEFX_HM_DREADNOUGHT_WIDTH		9
+#define STEFX_HM_DREADNOUGHT_ALT_DAMAGE	35
+#define STEFX_HM_DREADNOUGHT_ALT_VELOCITY 1000
+#define STEFX_HM_DREADNOUGHT_ALT_SIZE	3
+
+static qboolean STEFX_HolomatchFireWeaponSlot( int weapon )
+{
+	switch ( weapon )
+	{
+	case WP_BRYAR_PISTOL:
+	case WP_BLASTER:
+	case WP_DEMP2:
+	case WP_BOWCASTER:
+	case WP_DISRUPTOR:
+	case WP_ROCKET_LAUNCHER:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static void STEFX_HolomatchFireWeaponLog( const char *stage, gentity_t *ent, qboolean altFire )
+{
+	static qboolean loggedBegin[WP_NUM_WEAPONS];
+	static qboolean loggedEnd[WP_NUM_WEAPONS];
+	qboolean *logged;
+	int weapon;
+
+	if ( !ent || !ent->client )
+	{
+		return;
+	}
+
+	weapon = ent->s.weapon;
+	if ( weapon <= WP_NONE || weapon >= WP_NUM_WEAPONS || !STEFX_HolomatchFireWeaponSlot( weapon ) )
+	{
+		return;
+	}
+
+	logged = ( stage && stage[0] == 'e' ) ? loggedEnd : loggedBegin;
+	if ( logged[weapon] )
+	{
+		return;
+	}
+
+	logged[weapon] = qtrue;
+	G_Printf( "STEFX_HM: FireWeapon %s client=%d weapon=%d alt=%d ammo_phaser=%d ammo_blaster=%d ammo_powercell=%d ammo_rockets=%d\n",
+		stage ? stage : "",
+		ent->s.number,
+		weapon,
+		altFire ? 1 : 0,
+		ent->client->ps.ammo[AMMO_FORCE],
+		ent->client->ps.ammo[AMMO_BLASTER],
+		ent->client->ps.ammo[AMMO_POWERCELL],
+		ent->client->ps.ammo[AMMO_ROCKETS] );
+}
+
+static void STEFX_HolomatchLogEFServerFire( const char *name, gentity_t *ent, qboolean altFire )
+{
+	static qboolean logged[WP_NUM_WEAPONS][2];
+	int weapon;
+	int altIndex;
+
+	if ( !ent || !ent->client )
+	{
+		return;
+	}
+
+	weapon = ent->s.weapon;
+	if ( weapon <= WP_NONE || weapon >= WP_NUM_WEAPONS || !STEFX_HolomatchFireWeaponSlot( weapon ) )
+	{
+		return;
+	}
+
+	altIndex = altFire ? 1 : 0;
+	if ( logged[weapon][altIndex] )
+	{
+		return;
+	}
+
+	logged[weapon][altIndex] = qtrue;
+	G_Printf( "STEFX_HM: server EF fire bridge weapon=%d class='%s' alt=%d\n",
+		weapon,
+		name ? name : "",
+		altIndex );
+}
+
+static void STEFX_HolomatchMarkAltMissile( gentity_t *missile, const char *name )
+{
+	static qboolean loggedAltMissile[WP_NUM_WEAPONS];
+	int weapon;
+
+	if ( !missile )
+	{
+		return;
+	}
+
+	missile->s.eType = ET_ALT_MISSILE;
+	weapon = missile->s.weapon;
+	if ( weapon > WP_NONE && weapon < WP_NUM_WEAPONS && !loggedAltMissile[weapon] )
+	{
+		G_Printf( "STEFX_HM: server emitted explicit EF alternate missile entity weapon=%d class='%s'\n",
+			weapon,
+			name ? name : "" );
+		loggedAltMissile[weapon] = qtrue;
+	}
+}
+
+static void STEFX_HolomatchAccuracyHit( gentity_t *ent, gentity_t *traceEnt )
+{
+	if ( ent && ent->client && traceEnt && LogAccuracyHit( traceEnt, ent ) )
+	{
+		ent->client->accuracy_hits++;
+	}
+}
+
+static void STEFX_HolomatchImpactEvent( const trace_t *tr, int weapon, qboolean altFire )
+{
+	static qboolean loggedHolomatchImpactEvent = qfalse;
+	gentity_t *traceEnt;
+	gentity_t *tent;
+	vec3_t impactOrigin;
+	vec3_t impactNormal;
+	int event;
+
+	if ( !tr || weapon <= WP_NONE || weapon >= WP_NUM_WEAPONS )
+	{
+		return;
+	}
+	if ( tr->fraction >= 1.0f || ( tr->surfaceFlags & SURF_NOIMPACT ) )
+	{
+		return;
+	}
+
+	traceEnt = &g_entities[tr->entityNum];
+	if ( traceEnt->takedamage && traceEnt->client )
+	{
+		event = EV_MISSILE_HIT;
+	}
+	else if ( tr->surfaceFlags & SURF_METALSTEPS )
+	{
+		event = EV_MISSILE_MISS_METAL;
+	}
+	else
+	{
+		event = EV_MISSILE_MISS;
+	}
+
+	VectorCopy( tr->endpos, impactOrigin );
+	VectorCopy( tr->plane.normal, impactNormal );
+
+	tent = G_TempEntity( impactOrigin, event );
+	tent->s.weapon = weapon;
+	tent->s.eventParm = DirToByte( impactNormal );
+	if ( altFire )
+	{
+		tent->s.eFlags |= EF_ALT_FIRING;
+	}
+	if ( event == EV_MISSILE_HIT )
+	{
+		tent->s.otherEntityNum = traceEnt->s.number;
+	}
+
+	if ( !loggedHolomatchImpactEvent )
+	{
+		G_Printf( "STEFX_HM: server emitted EF trace impact event weapon=%d alt=%d event=%d\n",
+			weapon,
+			altFire ? 1 : 0,
+			event );
+		loggedHolomatchImpactEvent = qtrue;
+	}
+}
+
+static void STEFX_HolomatchFirePhaser( gentity_t *ent, qboolean altFire )
+{
+	trace_t tr;
+	vec3_t end;
+	gentity_t *traceEnt;
+	float pointBlankFrac;
+	float damage;
+	int appliedDamage;
+	int targetHealthBefore;
+	int targetArmorBefore;
+	int i;
+	static int loggedPhaserDamageCount = 0;
+
+	STEFX_HolomatchLogEFServerFire( "phaser", ent, altFire );
+
+	VectorMA( muzzle, STEFX_HM_MAXRANGE_PHASER, forward, end );
+	for ( i = 0; i < 3; i++ )
+	{
+		end[i] += crandom() * 6.0f;
+	}
+
+	trap_Trace( &tr, muzzle, NULL, NULL, end, ent->s.number, MASK_SHOT );
+	traceEnt = &g_entities[tr.entityNum];
+	STEFX_HolomatchImpactEvent( &tr, ent->s.weapon, altFire );
+
+	if ( traceEnt->takedamage )
+	{
+		damage = STEFX_HM_PHASER_DAMAGE * s_quadFactor;
+		pointBlankFrac = (float)STEFX_HM_PHASER_POINT_BLANK / (float)STEFX_HM_MAXRANGE_PHASER;
+		if ( tr.fraction <= pointBlankFrac )
+		{
+			damage += damage * ( 1.0f - ( tr.fraction / pointBlankFrac ) );
+		}
+		else
+		{
+			damage -= tr.fraction * 5.0f;
+		}
+
+		if ( !ent->client->ps.ammo[AMMO_FORCE] )
+		{
+			damage *= 0.35f;
+		}
+
+		if ( damage > 0.0f && damage < STEFX_HM_PHASER_MIN_DAMAGE )
+		{
+			damage = STEFX_HM_PHASER_MIN_DAMAGE;
+		}
+
+		if ( damage > 0 )
+		{
+			appliedDamage = (int)damage;
+			targetHealthBefore = traceEnt->health;
+			targetArmorBefore = traceEnt->client ? traceEnt->client->ps.stats[STAT_ARMOR] : 0;
+
+			G_Damage( traceEnt, ent, ent, forward, tr.endpos, appliedDamage, DAMAGE_NO_KNOCKBACK, altFire ? MOD_BRYAR_PISTOL_ALT : MOD_BRYAR_PISTOL );
+
+			if ( loggedPhaserDamageCount < 16 )
+			{
+				G_Printf( "STEFX_HM: server EF Phaser applied damage attacker=%d target=%d targetClient=%d damage=%d healthBefore=%d healthAfter=%d armorBefore=%d armorAfter=%d fraction=%.3f targetFlags=%d\n",
+					ent->s.number,
+					traceEnt->s.number,
+					traceEnt->client ? traceEnt->s.clientNum : -1,
+					appliedDamage,
+					targetHealthBefore,
+					traceEnt->health,
+					targetArmorBefore,
+					traceEnt->client ? traceEnt->client->ps.stats[STAT_ARMOR] : 0,
+					tr.fraction,
+					traceEnt->client ? traceEnt->client->ps.eFlags : 0 );
+				loggedPhaserDamageCount++;
+			}
+
+			STEFX_HolomatchAccuracyHit( ent, traceEnt );
+		}
+	}
+}
+
+static void STEFX_HolomatchFireCompression( gentity_t *ent, qboolean altFire )
+{
+	trace_t tr;
+	vec3_t end;
+	float r;
+	float u;
+	int damage;
+	int splashDamage;
+	int splashRadius;
+	int mod;
+	gentity_t *traceEnt;
+
+	STEFX_HolomatchLogEFServerFire( "compression", ent, altFire );
+
+	damage = (int)( ( altFire ? STEFX_HM_COMPRESSION_ALT_DAMAGE : STEFX_HM_COMPRESSION_DAMAGE ) * STEFX_HM_DMG_VAR * s_quadFactor );
+	splashDamage = altFire ? STEFX_HM_COMPRESSION_ALT_SPLASH_DMG : STEFX_HM_COMPRESSION_SPLASH_DMG;
+	splashRadius = altFire ? STEFX_HM_COMPRESSION_ALT_SPLASH : STEFX_HM_COMPRESSION_SPLASH;
+	mod = MOD_BLASTER;
+
+	VectorMA( muzzle, STEFX_HM_MAXRANGE_COMPRESSION, forward, end );
+	if ( !altFire || ent->client->ps.velocity[0] || ent->client->ps.velocity[1] || ent->client->ps.velocity[2] )
+	{
+		r = crandom() * STEFX_HM_COMPRESSION_SPREAD;
+		u = crandom() * STEFX_HM_COMPRESSION_SPREAD;
+		VectorMA( end, r, vright, end );
+		VectorMA( end, u, up, end );
+	}
+
+	trap_Trace( &tr, muzzle, NULL, NULL, end, ent->s.number, MASK_SHOT );
+	traceEnt = &g_entities[tr.entityNum];
+	STEFX_HolomatchImpactEvent( &tr, ent->s.weapon, altFire );
+
+	if ( !( tr.surfaceFlags & SURF_NOIMPACT ) && splashDamage && splashRadius )
+	{
+		G_RadiusDamage( tr.endpos, ent, splashDamage * s_quadFactor, splashRadius, NULL, NULL, mod );
+	}
+
+	if ( traceEnt->takedamage )
+	{
+		G_Damage( traceEnt, ent, ent, forward, tr.endpos, damage, 0, mod );
+		STEFX_HolomatchAccuracyHit( ent, traceEnt );
+	}
+	else if ( ent->client )
+	{
+		ent->client->accurateCount = 0;
+	}
+}
+
+static void STEFX_HolomatchIMODHit( qboolean altFire, gentity_t *traceEnt, gentity_t *ent, vec3_t dir, vec3_t endpos )
+{
+	int damage;
+
+	if ( !traceEnt || !traceEnt->takedamage )
+	{
+		return;
+	}
+
+	damage = (int)( ( altFire ? STEFX_HM_IMOD_ALT_DAMAGE : STEFX_HM_IMOD_DAMAGE ) * STEFX_HM_DMG_VAR * s_quadFactor );
+	G_Damage( traceEnt, ent, ent, dir, endpos, damage, DAMAGE_NO_ARMOR, altFire ? MOD_DEMP2_ALT : MOD_DEMP2 );
+	STEFX_HolomatchAccuracyHit( ent, traceEnt );
+}
+
+static void STEFX_HolomatchFireIMOD( gentity_t *ent, qboolean altFire )
+{
+	trace_t tr;
+	vec3_t end;
+	vec3_t damageDir;
+	gentity_t *traceEnt;
+	gentity_t *unlinkedEntities[STEFX_HM_MAX_IMOD_HITS];
+	int unlinked;
+	int i;
+
+	STEFX_HolomatchLogEFServerFire( "imod", ent, altFire );
+
+	VectorMA( muzzle, STEFX_HM_MAXRANGE_IMOD, forward, end );
+	unlinked = 0;
+	VectorCopy( forward, damageDir );
+	if ( damageDir[2] < 0.30f )
+	{
+		damageDir[2] = 0.30f;
+	}
+	VectorNormalize( damageDir );
+
+	do
+	{
+		trap_Trace( &tr, muzzle, NULL, NULL, end, ent->s.number, MASK_SHOT );
+		traceEnt = &g_entities[tr.entityNum];
+		STEFX_HolomatchIMODHit( altFire, traceEnt, ent, damageDir, tr.endpos );
+		STEFX_HolomatchImpactEvent( &tr, ent->s.weapon, altFire );
+
+		if ( tr.contents & CONTENTS_SOLID )
+		{
+			break;
+		}
+
+		if ( !traceEnt || traceEnt == &g_entities[ENTITYNUM_WORLD] || !traceEnt->inuse )
+		{
+			break;
+		}
+
+		trap_UnlinkEntity( traceEnt );
+		unlinkedEntities[unlinked] = traceEnt;
+		unlinked++;
+	} while ( unlinked < STEFX_HM_MAX_IMOD_HITS );
+
+	for ( i = 0; i < unlinked; i++ )
+	{
+		trap_LinkEntity( unlinkedEntities[i] );
+	}
+}
+
+static void STEFX_HolomatchFireScavenger( gentity_t *ent, qboolean altFire )
+{
+	gentity_t *missile;
+	vec3_t dir;
+	vec3_t angles;
+	vec3_t start;
+
+	STEFX_HolomatchLogEFServerFire( "scavenger", ent, altFire );
+
+	VectorCopy( muzzle, start );
+	VectorCopy( forward, dir );
+
+	if ( !altFire )
+	{
+		vectoangles( dir, angles );
+		angles[PITCH] += crandom() * STEFX_HM_SCAV_SPREAD;
+		angles[YAW] += crandom() * STEFX_HM_SCAV_SPREAD;
+		AngleVectors( angles, dir, NULL, NULL );
+
+		missile = CreateMissile( start, dir, STEFX_HM_SCAV_VELOCITY, 10000, ent, qfalse );
+		missile->classname = "scav_proj";
+		missile->s.weapon = WP_BOWCASTER;
+		VectorSet( missile->r.maxs, STEFX_HM_SCAV_SIZE, STEFX_HM_SCAV_SIZE, STEFX_HM_SCAV_SIZE );
+		VectorScale( missile->r.maxs, -1, missile->r.mins );
+		missile->damage = (int)( STEFX_HM_SCAV_DAMAGE * STEFX_HM_DMG_VAR * s_quadFactor );
+		missile->methodOfDeath = MOD_BOWCASTER;
+		missile->clipmask = MASK_SHOT;
+		missile->bounceCount = 0;
+		return;
+	}
+
+	missile = CreateMissile( start, dir, STEFX_HM_SCAV_ALT_VELOCITY + ( random() * 100.0f ), 9000, ent, qtrue );
+	missile->classname = "scav_grenade";
+	missile->s.weapon = WP_BOWCASTER;
+	STEFX_HolomatchMarkAltMissile( missile, "scavenger" );
+	missile->s.pos.trType = TR_GRAVITY;
+	missile->s.pos.trDelta[2] += STEFX_HM_SCAV_ALT_UP_VELOCITY;
+	VectorMA( missile->s.pos.trDelta, 0.5f, ent->s.pos.trDelta, missile->s.pos.trDelta );
+	SnapVector( missile->s.pos.trDelta );
+	VectorSet( missile->r.maxs, STEFX_HM_SCAV_ALT_SIZE, STEFX_HM_SCAV_ALT_SIZE, STEFX_HM_SCAV_ALT_SIZE );
+	VectorScale( missile->r.maxs, -1, missile->r.mins );
+	missile->damage = (int)( STEFX_HM_SCAV_ALT_DAMAGE * STEFX_HM_DMG_VAR * s_quadFactor );
+	missile->splashDamage = (int)( STEFX_HM_SCAV_ALT_SPLASH_DMG * s_quadFactor );
+	missile->splashRadius = STEFX_HM_SCAV_ALT_SPLASH;
+	missile->methodOfDeath = MOD_BOWCASTER;
+	missile->splashMethodOfDeath = MOD_BOWCASTER;
+	missile->clipmask = MASK_SHOT;
+	missile->bounceCount = 0;
+}
+
+static void STEFX_HolomatchFireTetryon( gentity_t *ent, qboolean altFire )
+{
+	trace_t tr;
+	vec3_t end;
+	vec3_t baseAngles;
+	vec3_t angles;
+	vec3_t dir;
+	gentity_t *traceEnt;
+	gentity_t *missile;
+	int i;
+	int damage;
+
+	STEFX_HolomatchLogEFServerFire( "tetryon", ent, altFire );
+
+	if ( altFire )
+	{
+		missile = CreateMissile( muzzle, forward, STEFX_HM_TETRION_ALT_VELOCITY, 10000, ent, qtrue );
+		missile->classname = "tetrion_alt_proj";
+		missile->s.weapon = WP_DISRUPTOR;
+		STEFX_HolomatchMarkAltMissile( missile, "tetryon" );
+		VectorSet( missile->r.maxs, STEFX_HM_TETRION_ALT_SIZE, STEFX_HM_TETRION_ALT_SIZE, STEFX_HM_TETRION_ALT_SIZE );
+		VectorScale( missile->r.maxs, -1, missile->r.mins );
+		missile->damage = (int)( STEFX_HM_TETRION_ALT_DAMAGE * STEFX_HM_DMG_VAR * s_quadFactor );
+		missile->methodOfDeath = MOD_DISRUPTOR_SPLASH;
+		missile->clipmask = MASK_SHOT;
+		missile->bounceCount = 0;
+		return;
+	}
+
+	damage = (int)( STEFX_HM_TETRION_DAMAGE * STEFX_HM_DMG_VAR * s_quadFactor );
+	vectoangles( forward, baseAngles );
+	for ( i = 0; i < STEFX_HM_TETRION_SHOTS; i++ )
+	{
+		VectorCopy( baseAngles, angles );
+		angles[PITCH] += crandom() * STEFX_HM_TETRION_SPREAD * 0.01f;
+		angles[YAW] += crandom() * STEFX_HM_TETRION_SPREAD * 0.01f;
+		AngleVectors( angles, dir, NULL, NULL );
+		VectorMA( muzzle, STEFX_HM_MAXRANGE_TETRION, dir, end );
+		trap_Trace( &tr, muzzle, NULL, NULL, end, ent->s.number, MASK_SHOT );
+		traceEnt = &g_entities[tr.entityNum];
+		STEFX_HolomatchImpactEvent( &tr, ent->s.weapon, altFire );
+		if ( traceEnt->takedamage )
+		{
+			G_Damage( traceEnt, ent, ent, dir, tr.endpos, damage, DAMAGE_NO_KNOCKBACK, MOD_DISRUPTOR );
+			STEFX_HolomatchAccuracyHit( ent, traceEnt );
+		}
+	}
+}
+
+static void STEFX_HolomatchDreadnoughtTrace( gentity_t *ent, float offset )
+{
+	trace_t tr;
+	vec3_t start;
+	vec3_t end;
+	gentity_t *traceEnt;
+	int damage;
+
+	VectorMA( muzzle, offset, vright, start );
+	VectorMA( start, STEFX_HM_MAXRANGE_DREADNOUGHT, forward, end );
+	trap_Trace( &tr, start, NULL, NULL, end, ent->s.number, MASK_SHOT );
+	traceEnt = &g_entities[tr.entityNum];
+	STEFX_HolomatchImpactEvent( &tr, ent->s.weapon, qfalse );
+	if ( traceEnt->takedamage )
+	{
+		damage = (int)( STEFX_HM_DREADNOUGHT_DAMAGE * s_quadFactor );
+		G_Damage( traceEnt, ent, ent, forward, tr.endpos, damage, 0, MOD_ROCKET );
+		STEFX_HolomatchAccuracyHit( ent, traceEnt );
+	}
+}
+
+static void STEFX_HolomatchFireDreadnought( gentity_t *ent, qboolean altFire )
+{
+	gentity_t *missile;
+
+	STEFX_HolomatchLogEFServerFire( "dreadnought", ent, altFire );
+
+	if ( !altFire )
+	{
+		STEFX_HolomatchDreadnoughtTrace( ent, STEFX_HM_DREADNOUGHT_WIDTH );
+		STEFX_HolomatchDreadnoughtTrace( ent, -STEFX_HM_DREADNOUGHT_WIDTH );
+		return;
+	}
+
+	missile = CreateMissile( muzzle, forward, STEFX_HM_DREADNOUGHT_ALT_VELOCITY, 10000, ent, qtrue );
+	missile->classname = "dreadnought_alt_proj";
+	missile->s.weapon = WP_ROCKET_LAUNCHER;
+	STEFX_HolomatchMarkAltMissile( missile, "dreadnought" );
+	VectorSet( missile->r.maxs, STEFX_HM_DREADNOUGHT_ALT_SIZE, STEFX_HM_DREADNOUGHT_ALT_SIZE, STEFX_HM_DREADNOUGHT_ALT_SIZE );
+	VectorScale( missile->r.maxs, -1, missile->r.mins );
+	missile->damage = (int)( STEFX_HM_DREADNOUGHT_ALT_DAMAGE * STEFX_HM_DMG_VAR * s_quadFactor );
+	missile->splashDamage = missile->damage;
+	missile->splashRadius = 80;
+	missile->methodOfDeath = MOD_ROCKET;
+	missile->splashMethodOfDeath = MOD_ROCKET_SPLASH;
+	missile->clipmask = MASK_SHOT;
+	missile->bounceCount = 0;
+}
+
+static qboolean STEFX_HolomatchFireEFWeapon( gentity_t *ent, qboolean altFire )
+{
+	if ( !ent || !ent->client || !STEFX_HolomatchFireWeaponSlot( ent->s.weapon ) )
+	{
+		return qfalse;
+	}
+
+	switch ( ent->s.weapon )
+	{
+	case WP_BRYAR_PISTOL:
+		STEFX_HolomatchFirePhaser( ent, altFire );
+		return qtrue;
+	case WP_BLASTER:
+		STEFX_HolomatchFireCompression( ent, altFire );
+		return qtrue;
+	case WP_DEMP2:
+		STEFX_HolomatchFireIMOD( ent, altFire );
+		return qtrue;
+	case WP_BOWCASTER:
+		STEFX_HolomatchFireScavenger( ent, altFire );
+		return qtrue;
+	case WP_DISRUPTOR:
+		STEFX_HolomatchFireTetryon( ent, altFire );
+		return qtrue;
+	case WP_ROCKET_LAUNCHER:
+		STEFX_HolomatchFireDreadnought( ent, altFire );
+		return qtrue;
+	default:
+		break;
+	}
+
+	return qfalse;
+}
+
+static void STEFX_HolomatchClearRocketLock( gentity_t *ent )
+{
+	static qboolean loggedClear = qfalse;
+
+	if ( !ent || !ent->client || !STEFX_HolomatchFireWeaponSlot( ent->s.weapon ) )
+	{
+		return;
+	}
+
+	if ( ent->client->ps.rocketLockIndex == ENTITYNUM_NONE &&
+		!ent->client->ps.rocketLockTime &&
+		!ent->client->ps.rocketTargetTime )
+	{
+		return;
+	}
+
+	ent->client->ps.rocketLockIndex = ENTITYNUM_NONE;
+	ent->client->ps.rocketLockTime = 0;
+	ent->client->ps.rocketTargetTime = 0;
+	if ( !loggedClear )
+	{
+		G_Printf( "STEFX_HM: server cleared inherited rocket lock state before Holomatch fire\n" );
+		loggedClear = qtrue;
+	}
+}
+#endif
+
 void FireWeapon( gentity_t *ent, qboolean altFire ) {
 	if (ent->client->ps.powerups[PW_QUAD] ) {
 		s_quadFactor = g_quadfactor.value;
@@ -4436,6 +5043,17 @@ void FireWeapon( gentity_t *ent, qboolean altFire ) {
 		}
 
 		CalcMuzzlePoint ( ent, forward, vright, up, muzzle );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+		STEFX_HolomatchClearRocketLock( ent );
+		STEFX_HolomatchFireWeaponLog( "begin", ent, altFire );
+		if ( STEFX_HolomatchFireEFWeapon( ent, altFire ) )
+		{
+			STEFX_HolomatchFireWeaponLog( "end", ent, altFire );
+			G_LogWeaponFire(ent->s.number, ent->s.weapon);
+			return;
+		}
+#endif
 
 		// fire the specific weapon
 		switch( ent->s.weapon ) {
@@ -4528,6 +5146,11 @@ void FireWeapon( gentity_t *ent, qboolean altFire ) {
 //			assert(!"unknown weapon fire");
 			break;
 		}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+		STEFX_HolomatchFireWeaponLog( "end", ent, altFire );
+		G_LogWeaponFire(ent->s.number, ent->s.weapon);
+#endif
 	}
 
 //	G_LogWeaponFire(ent->s.number, ent->s.weapon);

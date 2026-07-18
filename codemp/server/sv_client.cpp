@@ -238,10 +238,18 @@ void SV_DirectConnect( netadr_t from ) {
 	char		*denied;
 	int			count;
 	bool		reconnect = false;
+#if defined(STEFX_ELITE_FORCE_MP)
+	char		holomatchConnectName[MAX_QPATH];
+	char		holomatchConnectModel[MAX_QPATH];
+#endif
 
 	Com_DPrintf ("SVC_DirectConnect ()\n");
 
 	Q_strncpyz( userinfo, Cmd_Argv(1), sizeof(userinfo) );
+#if defined(STEFX_ELITE_FORCE_MP)
+	Q_strncpyz( holomatchConnectName, Info_ValueForKey( userinfo, "name" ), sizeof( holomatchConnectName ) );
+	Q_strncpyz( holomatchConnectModel, Info_ValueForKey( userinfo, "model" ), sizeof( holomatchConnectModel ) );
+#endif
 
 	version = atoi( Info_ValueForKey( userinfo, "protocol" ) );
 	if ( version != PROTOCOL_VERSION ) {
@@ -253,6 +261,18 @@ void SV_DirectConnect( netadr_t from ) {
 
 	challenge = atoi( Info_ValueForKey( userinfo, "challenge" ) );
 	qport = atoi( Info_ValueForKey( userinfo, "qport" ) );
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( NET_IsLocalAddress( from ) )
+	{
+		Com_Printf( "STEFX_HM: server received local Holomatch connect protocol=%d qport=%d challenge=%d name='%s' model='%s'\n",
+			version,
+			qport,
+			challenge,
+			holomatchConnectName,
+			holomatchConnectModel );
+	}
+#endif
 
 	// quick reject
 	for (i=0,cl=svs.clients ; i < sv_maxclients->integer ; i++,cl++) {
@@ -533,6 +553,13 @@ gotnewcl:
 	ent = SV_GentityNum( clientNum );
 	newcl->gentity = ent;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: server assigned Holomatch client slot=%d local=%d reconnect=%d\n",
+		clientNum,
+		NET_IsLocalAddress( from ) ? 1 : 0,
+		reconnect ? 1 : 0 );
+#endif
+
 	//Clear this to prevent bug where a player joins and takes a client
 	//slot which left while in a vehicle, making the new player invisible.
 	ent->s.owner = 0;
@@ -555,9 +582,20 @@ gotnewcl:
 
 		NET_OutOfBandPrint( NS_SERVER, from, "print\n%s\n", denied );
 		Com_DPrintf ("Game rejected a connection: %s.\n", denied);
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: GAME_CLIENT_CONNECT denied client=%d reason='%s'\n",
+			clientNum,
+			denied );
+#endif
 		Z_Free(pTemp);
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: GAME_CLIENT_CONNECT accepted client=%d local=%d\n",
+		clientNum,
+		NET_IsLocalAddress( from ) ? 1 : 0 );
+#endif
 
 	SV_UserinfoChanged( newcl );
 
@@ -574,6 +612,11 @@ gotnewcl:
 	Com_DPrintf( "Going from CS_FREE to CS_CONNECTED for %s\n", newcl->name );
 
 	newcl->state = CS_CONNECTED;
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: server sent Holomatch connect response client=%d state=%d\n",
+		clientNum,
+		newcl->state );
+#endif
 	newcl->nextSnapshotTime = svs.time;
 	newcl->lastPacketTime = svs.time;
 	newcl->lastConnectTime = svs.time;

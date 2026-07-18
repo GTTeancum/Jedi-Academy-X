@@ -29,6 +29,30 @@ extern qboolean CG_InFighter( void );
 
 extern stringID_table_t animTable [MAX_ANIMATIONS+1];
 
+#if defined(STEFX_ELITE_FORCE_MP)
+char	*cg_customSoundNames[MAX_CUSTOM_SOUNDS] = {
+	"*death1",
+	"*death2",
+	"*death3",
+	"*jump1",
+	"*pain25",
+	"*pain50",
+	"*pain75",
+	"*pain100",
+	"*falling1",
+	"*gasp",
+	"*drown",
+	"*fall1",
+	"*land1",
+	"*taunt",
+	"*taunt1",
+	"*taunt2",
+	"*taunt3",
+	"*taunt4",
+	"*taunt5",
+	NULL
+};
+#else
 char	*cg_customSoundNames[MAX_CUSTOM_SOUNDS] = {
 	"*death1",
 	"*death2",
@@ -47,6 +71,7 @@ char	*cg_customSoundNames[MAX_CUSTOM_SOUNDS] = {
 	"*taunt",
 	NULL
 };
+#endif
 
 //NPC sounds:
 //Used as a supplement to the basic set for enemies and hazard team
@@ -425,6 +450,361 @@ qboolean BG_IsValidCharacterModel(const char *modelName, const char *skinName);
 qboolean BG_ValidateSkinForTeam( const char *modelName, char *skinName, int team, float *colors );
 #include "../namespace_end.h"
 
+#if defined(STEFX_ELITE_FORCE_MP)
+#define STEFX_HOLOMATCH_DEFAULT_MODEL "munro"
+#define STEFX_HM_MAX_ANIM_ROWS 64
+#define STEFX_HM_ANIM_DEATH1 0
+#define STEFX_HM_ANIM_DEAD1 1
+#define STEFX_HM_ANIM_DEATH2 2
+#define STEFX_HM_ANIM_DEAD2 3
+#define STEFX_HM_ANIM_DEATH3 4
+#define STEFX_HM_ANIM_DEAD3 5
+#define STEFX_HM_ANIM_TORSO_ATTACK 7
+#define STEFX_HM_ANIM_TORSO_ATTACK2 8
+#define STEFX_HM_ANIM_TORSO_STAND 11
+#define STEFX_HM_ANIM_TORSO_STAND2 12
+#define STEFX_HM_ANIM_LEGS_WALKCR 13
+#define STEFX_HM_ANIM_LEGS_WALK 14
+#define STEFX_HM_ANIM_LEGS_RUN 15
+#define STEFX_HM_ANIM_LEGS_BACK 16
+#define STEFX_HM_ANIM_LEGS_JUMP 18
+#define STEFX_HM_ANIM_LEGS_LAND 19
+#define STEFX_HM_ANIM_LEGS_IDLE 22
+
+typedef struct {
+	qboolean	valid;
+	char		model[MAX_QPATH];
+	animation_t	anims[STEFX_HM_MAX_ANIM_ROWS];
+	int			legsSharedBaseFrame;
+	int			legsLocalBaseFrame;
+} stefxHmAnimSet_t;
+
+static stefxHmAnimSet_t s_stefxHmAnimSets[MAX_CLIENTS];
+
+static qboolean CG_STEFXFileExists( const char *path ) {
+	fileHandle_t f;
+	int len;
+
+	if ( !path || !path[0] ) {
+		return qfalse;
+	}
+
+	f = 0;
+	len = trap_FS_FOpenFile( path, &f, FS_READ );
+	if ( f ) {
+		trap_FS_FCloseFile( f );
+	}
+
+	return (len > 0) ? qtrue : qfalse;
+}
+
+static qboolean CG_STEFXTokenIsNumber( const char *token ) {
+	if ( !token || !token[0] ) {
+		return qfalse;
+	}
+
+	if ( token[0] == '-' || token[0] == '+' ) {
+		token++;
+	}
+
+	return ( token[0] >= '0' && token[0] <= '9' ) ? qtrue : qfalse;
+}
+
+static void CG_STEFXInitHolomatchAnimSet( stefxHmAnimSet_t *set ) {
+	int i;
+
+	set->legsSharedBaseFrame = 0;
+	set->legsLocalBaseFrame = 0;
+
+	for ( i = 0; i < STEFX_HM_MAX_ANIM_ROWS; i++ ) {
+		set->anims[i].firstFrame = 0;
+		set->anims[i].numFrames = 1;
+		set->anims[i].loopFrames = 0;
+		set->anims[i].frameLerp = 100;
+	}
+}
+
+static int CG_STEFXAnimRowEndFrame( const animation_t *anim ) {
+	int frames;
+
+	if ( !anim ) {
+		return 0;
+	}
+
+	frames = anim->numFrames;
+	if ( frames < 1 ) {
+		frames = 1;
+	}
+	return anim->firstFrame + frames;
+}
+
+static stefxHmAnimSet_t *CG_STEFXLoadHolomatchAnimSet( const char *model ) {
+	int i;
+	int slot;
+	int len;
+	int readLen;
+	int row;
+	fileHandle_t f;
+	char filename[MAX_QPATH];
+	char text[8192];
+	const char *text_p;
+	char *token;
+	stefxHmAnimSet_t *set;
+
+	if ( !model || !model[0] ) {
+		model = STEFX_HOLOMATCH_DEFAULT_MODEL;
+	}
+
+	for ( i = 0; i < MAX_CLIENTS; i++ ) {
+		if ( s_stefxHmAnimSets[i].valid && !Q_stricmp( s_stefxHmAnimSets[i].model, model ) ) {
+			return &s_stefxHmAnimSets[i];
+		}
+	}
+
+	slot = -1;
+	for ( i = 0; i < MAX_CLIENTS; i++ ) {
+		if ( !s_stefxHmAnimSets[i].valid ) {
+			slot = i;
+			break;
+		}
+	}
+	if ( slot < 0 ) {
+		slot = 0;
+	}
+
+	set = &s_stefxHmAnimSets[slot];
+	memset( set, 0, sizeof( *set ) );
+	Q_strncpyz( set->model, model, sizeof( set->model ) );
+	CG_STEFXInitHolomatchAnimSet( set );
+
+	f = 0;
+	Com_sprintf( filename, sizeof( filename ), "models/players2/%s/animation.cfg", model );
+	len = trap_FS_FOpenFile( filename, &f, FS_READ );
+	if ( len <= 0 || !f ) {
+		if ( f ) {
+			trap_FS_FCloseFile( f );
+		}
+		CG_PrintfAlways( "STEFX_HM: cgame missing EF player animation file '%s'\n", filename );
+		set->valid = qtrue;
+		return set;
+	}
+
+	readLen = len;
+	if ( readLen > (int)sizeof( text ) - 1 ) {
+		readLen = (int)sizeof( text ) - 1;
+	}
+	trap_FS_Read( text, readLen, f );
+	text[readLen] = 0;
+	trap_FS_FCloseFile( f );
+
+	text_p = text;
+	row = 0;
+	while ( row < STEFX_HM_MAX_ANIM_ROWS ) {
+		int firstFrame;
+		int numFrames;
+		int loopFrames;
+		int fps;
+
+		token = COM_Parse( &text_p );
+		if ( !token || !token[0] ) {
+			break;
+		}
+
+		if ( !Q_stricmp( token, "sex" ) ) {
+			COM_Parse( &text_p );
+			continue;
+		}
+
+		if ( !CG_STEFXTokenIsNumber( token ) ) {
+			continue;
+		}
+
+		firstFrame = atoi( token );
+		token = COM_Parse( &text_p );
+		if ( !token || !token[0] ) {
+			break;
+		}
+		numFrames = atoi( token );
+		token = COM_Parse( &text_p );
+		if ( !token || !token[0] ) {
+			break;
+		}
+		loopFrames = atoi( token );
+		token = COM_Parse( &text_p );
+		if ( !token || !token[0] ) {
+			break;
+		}
+		fps = atoi( token );
+		if ( fps <= 0 ) {
+			fps = 10;
+		}
+
+		set->anims[row].firstFrame = (unsigned short)firstFrame;
+		set->anims[row].numFrames = (unsigned short)((numFrames > 0) ? numFrames : 1);
+		set->anims[row].loopFrames = (signed char)loopFrames;
+		set->anims[row].frameLerp = (short)(1000 / fps);
+		if ( set->anims[row].frameLerp <= 0 ) {
+			set->anims[row].frameLerp = 100;
+		}
+		row++;
+	}
+
+	set->legsSharedBaseFrame = set->anims[STEFX_HM_ANIM_LEGS_WALKCR].firstFrame;
+	set->legsLocalBaseFrame = CG_STEFXAnimRowEndFrame( &set->anims[STEFX_HM_ANIM_DEAD3] );
+	if ( set->legsLocalBaseFrame < 0 ) {
+		set->legsLocalBaseFrame = 0;
+	}
+	if ( set->legsSharedBaseFrame < set->legsLocalBaseFrame ) {
+		set->legsSharedBaseFrame = set->legsLocalBaseFrame;
+	}
+
+	set->valid = qtrue;
+	CG_PrintfAlways( "STEFX_HM: cgame parsed EF player animations model='%s' rows=%d file='%s' deathEnd=%d legsSharedBase=%d legsLocalBase=%d\n",
+		model,
+		row,
+		filename,
+		set->legsLocalBaseFrame,
+		set->legsSharedBaseFrame,
+		set->legsLocalBaseFrame );
+	return set;
+}
+
+static qboolean CG_STEFXRegisterHolomatchClientModelname( clientInfo_t *ci, const char *modelName, const char *skinName, const char *teamName, int clientNum ) {
+	char model[MAX_QPATH];
+	char skin[MAX_QPATH];
+	char lowerModel[MAX_QPATH];
+	char upperModel[MAX_QPATH];
+	char headModel[MAX_QPATH];
+	char lowerSkin[MAX_QPATH];
+	char upperSkin[MAX_QPATH];
+	char headSkin[MAX_QPATH];
+	qhandle_t lowerHandle;
+	qhandle_t upperHandle;
+	qhandle_t headHandle;
+	qhandle_t lowerSkinHandle;
+	qhandle_t upperSkinHandle;
+	qhandle_t headSkinHandle;
+	qboolean modelComplete;
+	qboolean skinComplete;
+
+	if ( ci->ghoul2Model ) {
+		CG_PrintfAlways( "STEFX_HM: cgame discarded inherited player model pointer client=%d\n", clientNum );
+	}
+	ci->ghoul2Model = NULL;
+
+	Q_strncpyz( model, (modelName && modelName[0]) ? modelName : STEFX_HOLOMATCH_DEFAULT_MODEL, sizeof( model ) );
+	Q_strncpyz( skin, (skinName && skinName[0]) ? skinName : "default", sizeof( skin ) );
+
+	Com_sprintf( lowerModel, sizeof( lowerModel ), "models/players2/%s/lower.mdr", model );
+	Com_sprintf( upperModel, sizeof( upperModel ), "models/players2/%s/upper.mdr", model );
+	Com_sprintf( headModel, sizeof( headModel ), "models/players2/%s/head.md3", model );
+	modelComplete = CG_STEFXFileExists( lowerModel ) && CG_STEFXFileExists( upperModel ) && CG_STEFXFileExists( headModel );
+	if ( !modelComplete ) {
+		CG_PrintfAlways( "STEFX_HM: cgame EF player model '%s' incomplete lower='%s' upper='%s' head='%s'; using default '%s'\n",
+			model,
+			lowerModel,
+			upperModel,
+			headModel,
+			STEFX_HOLOMATCH_DEFAULT_MODEL );
+		Q_strncpyz( model, STEFX_HOLOMATCH_DEFAULT_MODEL, sizeof( model ) );
+		Q_strncpyz( skin, "default", sizeof( skin ) );
+		Com_sprintf( lowerModel, sizeof( lowerModel ), "models/players2/%s/lower.mdr", model );
+		Com_sprintf( upperModel, sizeof( upperModel ), "models/players2/%s/upper.mdr", model );
+		Com_sprintf( headModel, sizeof( headModel ), "models/players2/%s/head.md3", model );
+		modelComplete = CG_STEFXFileExists( lowerModel ) && CG_STEFXFileExists( upperModel ) && CG_STEFXFileExists( headModel );
+		if ( !modelComplete ) {
+			CG_PrintfAlways( "STEFX_HM: cgame fallback player model '%s' missing lower/upper/head pieces\n", model );
+			return qfalse;
+		}
+	}
+
+	Com_sprintf( lowerSkin, sizeof( lowerSkin ), "models/players2/%s/lower_%s.skin", model, skin );
+	Com_sprintf( upperSkin, sizeof( upperSkin ), "models/players2/%s/upper_%s.skin", model, skin );
+	Com_sprintf( headSkin, sizeof( headSkin ), "models/players2/%s/head_%s.skin", model, skin );
+	skinComplete = CG_STEFXFileExists( lowerSkin ) && CG_STEFXFileExists( upperSkin ) && CG_STEFXFileExists( headSkin );
+	if ( !skinComplete ) {
+		CG_PrintfAlways( "STEFX_HM: cgame EF player skin '%s' incomplete for model '%s' lower='%s' upper='%s' head='%s'; using default skin\n",
+			skin,
+			model,
+			lowerSkin,
+			upperSkin,
+			headSkin );
+		Q_strncpyz( skin, "default", sizeof( skin ) );
+		Com_sprintf( lowerSkin, sizeof( lowerSkin ), "models/players2/%s/lower_default.skin", model );
+		Com_sprintf( upperSkin, sizeof( upperSkin ), "models/players2/%s/upper_default.skin", model );
+		Com_sprintf( headSkin, sizeof( headSkin ), "models/players2/%s/head_default.skin", model );
+		skinComplete = CG_STEFXFileExists( lowerSkin ) && CG_STEFXFileExists( upperSkin ) && CG_STEFXFileExists( headSkin );
+		if ( !skinComplete ) {
+			CG_PrintfAlways( "STEFX_HM: cgame fallback player skin missing lower/upper/head defaults for model '%s'\n", model );
+			return qfalse;
+		}
+	}
+
+	lowerHandle = trap_R_RegisterModel( lowerModel );
+	upperHandle = trap_R_RegisterModel( upperModel );
+	headHandle = trap_R_RegisterModel( headModel );
+	if ( !lowerHandle || !upperHandle || !headHandle ) {
+		CG_PrintfAlways( "STEFX_HM: cgame failed to register EF player body client=%d model='%s' lower=%d '%s' upper=%d '%s' head=%d '%s'\n",
+			clientNum,
+			model,
+			lowerHandle,
+			lowerModel,
+			upperHandle,
+			upperModel,
+			headHandle,
+			headModel );
+		return qfalse;
+	}
+
+	lowerSkinHandle = trap_R_RegisterSkin( lowerSkin );
+	upperSkinHandle = trap_R_RegisterSkin( upperSkin );
+	headSkinHandle = trap_R_RegisterSkin( headSkin );
+	ci->legsModel = lowerHandle;
+	ci->torsoModel = upperHandle;
+	ci->headModel = headHandle;
+	ci->legsSkin = lowerSkinHandle;
+	ci->torsoSkin = upperSkinHandle;
+	ci->headSkin = headSkinHandle;
+	ci->bolt_rhand = ci->bolt_lhand = ci->bolt_head = ci->bolt_motion = ci->bolt_llumbar = -1;
+	ci->newAnims = qfalse;
+	ci->fixedlegs = qfalse;
+	ci->fixedtorso = qfalse;
+	ci->colorOverride[0] = ci->colorOverride[1] = ci->colorOverride[2] = 0.0f;
+	Q_strncpyz( ci->modelName, model, sizeof( ci->modelName ) );
+	Q_strncpyz( ci->skinName, skin, sizeof( ci->skinName ) );
+	Q_strncpyz( ci->teamName, teamName ? teamName : "", sizeof(ci->teamName) );
+	CG_STEFXLoadHolomatchAnimSet( model );
+
+	ci->modelIcon = trap_R_RegisterShaderNoMip( va( "models/players2/%s/icon_%s", model, skin ) );
+	if ( !ci->modelIcon && Q_stricmp( skin, "default" ) ) {
+		ci->modelIcon = trap_R_RegisterShaderNoMip( va( "models/players2/%s/icon_default", model ) );
+	}
+
+	if ( clientNum != -1 ) {
+		if ( cg_entities[clientNum].ghoul2 || cg_entities[clientNum].ghoul2weapon ) {
+			CG_PrintfAlways( "STEFX_HM: cgame discarded inherited entity model pointer client=%d\n", clientNum );
+		}
+		cg_entities[clientNum].ghoul2 = NULL;
+		cg_entities[clientNum].ghoul2weapon = NULL;
+	}
+
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF player body client=%d model='%s' skin='%s' lower='%s' upper='%s' head='%s'\n",
+		clientNum,
+		model,
+		skin,
+		lowerModel,
+		upperModel,
+		headModel );
+	CG_PrintfAlways( "STEFX_HM: cgame registered EF player skins client=%d lower='%s' upper='%s' head='%s'\n",
+		clientNum,
+		lowerSkin,
+		upperSkin,
+		headSkin );
+
+	return qtrue;
+}
+#endif
+
 static qboolean CG_RegisterClientModelname( clientInfo_t *ci, const char *modelName, const char *skinName, const char *teamName, int clientNum ) {
 	int handle;
 	char		afilename[MAX_QPATH];
@@ -436,6 +816,10 @@ static qboolean CG_RegisterClientModelname( clientInfo_t *ci, const char *modelN
 	char	surfOn[MAX_SURF_LIST_SIZE];
 	int		checkSkin;
 	char	*useSkinName;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	return CG_STEFXRegisterHolomatchClientModelname( ci, modelName, skinName, teamName, clientNum );
+#endif
 
 retryModel:
 	if (badModel)
@@ -799,6 +1183,160 @@ int CG_G2EvIndexForModel(void *g2, int animIndex)
 
 #define DEFAULT_FEMALE_SOUNDPATH "chars/mp_generic_female/misc"//"chars/tavion/misc"
 #define DEFAULT_MALE_SOUNDPATH "chars/mp_generic_male/misc"//"chars/kyle/misc"
+
+#if defined(STEFX_ELITE_FORCE_MP)
+static sfxHandle_t CG_STEFXRegisterSoundIfExists( const char *path ) {
+	char filename[MAX_QPATH];
+
+	if ( !path || !path[0] ) {
+		return 0;
+	}
+
+	Com_sprintf( filename, sizeof( filename ), "%s.wav", path );
+	if ( CG_STEFXFileExists( filename ) ) {
+		return trap_S_RegisterSound( path );
+	}
+
+	Com_sprintf( filename, sizeof( filename ), "%s.mp3", path );
+	if ( CG_STEFXFileExists( filename ) ) {
+		return trap_S_RegisterSound( path );
+	}
+
+	return 0;
+}
+
+static const char *CG_STEFXHolomatchFallbackSoundName( const char *soundName ) {
+	if ( !soundName || !soundName[0] ) {
+		return NULL;
+	}
+
+	if ( !Q_stricmp( soundName, "taunt" ) ) {
+		return "taunt1";
+	}
+
+	if ( !Q_stricmp( soundName, "land1" ) ) {
+		return NULL;
+	}
+
+	return soundName;
+}
+
+static void CG_STEFXReadHolomatchSoundInfo( clientInfo_t *ci, char *soundPath, int soundPathSize, qboolean *isFemale ) {
+	fileHandle_t f;
+	int len;
+	int readLen;
+	char filename[MAX_QPATH];
+	char text[4096];
+	const char *text_p;
+	char *token;
+
+	Q_strncpyz( soundPath, ci->modelName, soundPathSize );
+	*isFemale = (ci->gender == GENDER_FEMALE) ? qtrue : qfalse;
+
+	f = 0;
+	Com_sprintf( filename, sizeof( filename ), "models/players2/%s/animation.cfg", ci->modelName );
+	len = trap_FS_FOpenFile( filename, &f, FS_READ );
+	if ( len <= 0 || !f ) {
+		if ( f ) {
+			trap_FS_FCloseFile( f );
+		}
+		return;
+	}
+
+	readLen = len;
+	if ( readLen > (int)sizeof( text ) - 1 ) {
+		readLen = (int)sizeof( text ) - 1;
+	}
+	trap_FS_Read( text, readLen, f );
+	text[readLen] = 0;
+	trap_FS_FCloseFile( f );
+
+	text_p = text;
+	while ( 1 ) {
+		token = COM_Parse( &text_p );
+		if ( !token || !token[0] ) {
+			break;
+		}
+
+		if ( token[0] >= '0' && token[0] <= '9' ) {
+			break;
+		}
+
+		if ( !Q_stricmp( token, "sex" ) ) {
+			token = COM_Parse( &text_p );
+			if ( token && token[0] ) {
+				*isFemale = (token[0] == 'f' || token[0] == 'F') ? qtrue : qfalse;
+			}
+			continue;
+		}
+
+		if ( !Q_stricmp( token, "soundpath" ) ) {
+			token = COM_Parse( &text_p );
+			if ( token && token[0] ) {
+				Q_strncpyz( soundPath, token, soundPathSize );
+			}
+			continue;
+		}
+	}
+}
+
+static void CG_STEFXLoadHolomatchCISounds( clientInfo_t *ci ) {
+	qboolean	isFemale;
+	int			i;
+	const char	*s;
+	const char	*fallbackSoundName;
+	const char	*fallbackSet;
+	char		soundPath[MAX_QPATH];
+	char		soundName[MAX_QPATH];
+	char		registerPath[MAX_QPATH];
+
+	CG_STEFXReadHolomatchSoundInfo( ci, soundPath, sizeof( soundPath ), &isFemale );
+	ci->gender = isFemale ? GENDER_FEMALE : GENDER_MALE;
+	fallbackSet = isFemale ? "hm_female" : "hm_male";
+
+	trap_S_ShutUp(qtrue);
+
+	for ( i = 0 ; i < MAX_CUSTOM_SOUNDS ; i++ )
+	{
+		s = cg_customSoundNames[i];
+		if ( !s ) {
+			break;
+		}
+
+		Com_sprintf(soundName, sizeof(soundName), "%s", s+1);
+		COM_StripExtension(soundName, soundName);
+		ci->sounds[i] = 0;
+
+		if ( soundPath[0] )
+		{
+			Com_sprintf( registerPath, sizeof( registerPath ), "sound/voice/%s/misc/%s", soundPath, soundName );
+			ci->sounds[i] = CG_STEFXRegisterSoundIfExists( registerPath );
+		}
+
+		if ( !ci->sounds[i] )
+		{
+			fallbackSoundName = CG_STEFXHolomatchFallbackSoundName( soundName );
+			if ( fallbackSoundName && fallbackSoundName[0] )
+			{
+				Com_sprintf( registerPath, sizeof( registerPath ), "sound/player/%s/%s", fallbackSet, fallbackSoundName );
+				ci->sounds[i] = CG_STEFXRegisterSoundIfExists( registerPath );
+			}
+		}
+
+		if ( !ci->sounds[i] && !Q_stricmp( soundName, "land1" ) )
+		{
+			ci->sounds[i] = CG_STEFXRegisterSoundIfExists( "sound/player/land1" );
+		}
+	}
+
+	trap_S_ShutUp(qfalse);
+	CG_PrintfAlways( "STEFX_HM: cgame loaded EF client sounds model='%s' voice='%s' fallback='%s'\n",
+		ci->modelName,
+		soundPath,
+		fallbackSet );
+}
+#endif
+
 void CG_LoadCISounds(clientInfo_t *ci, qboolean modelloaded)
 {
 	fileHandle_t f;
@@ -809,6 +1347,11 @@ void CG_LoadCISounds(clientInfo_t *ci, qboolean modelloaded)
 	char		soundpath[MAX_QPATH];
 	char		soundName[1024];
 	const char	*s;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_STEFXLoadHolomatchCISounds( ci );
+	return;
+#endif
 
 	dir = ci->modelName;
 
@@ -1011,6 +1554,9 @@ void CG_LoadClientInfo( clientInfo_t *ci ) {
 	int			clientNum;
 	int			i;
 	char		teamname[MAX_QPATH];
+#if defined(STEFX_ELITE_FORCE_MP)
+	static qboolean stefxLoggedClientInfoPath = qfalse;
+#endif
 
 	clientNum = ci - cgs.clientinfo;
 
@@ -1055,6 +1601,14 @@ void CG_LoadClientInfo( clientInfo_t *ci ) {
 		strcat( teamname, "/" );
 	}
 	modelloaded = qtrue;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( !stefxLoggedClientInfoPath )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame using EF client-info body load path\n" );
+		stefxLoggedClientInfoPath = qtrue;
+	}
+#endif
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (cgs.gametype == GT_SIEGE &&
 		(ci->team == TEAM_SPECTATOR || ci->siegeIndex == -1))
 	{ //yeah.. kind of a hack I guess. Don't care until they are actually ingame with a valid class.
@@ -1064,6 +1618,7 @@ void CG_LoadClientInfo( clientInfo_t *ci ) {
 		}
 	}
 	else
+#endif
 	{
 		if ( !CG_RegisterClientModelname( ci, ci->modelName, ci->skinName, teamname, clientNum ) ) {
 			//CG_Error( "CG_RegisterClientModelname( %s, %s, %s, %s %s ) failed", ci->modelName, ci->skinName, ci->headModelName, ci->headSkinName, teamname );
@@ -1090,6 +1645,18 @@ void CG_LoadClientInfo( clientInfo_t *ci ) {
 		}
 	}
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	ci->ghoul2Model = NULL;
+	for ( i = 0 ; i < MAX_SABERS ; i++ )
+	{
+		ci->ghoul2Weapons[i] = NULL;
+	}
+	if (clientNum != -1)
+	{
+		cg_entities[clientNum].ghoul2 = NULL;
+		cg_entities[clientNum].ghoul2weapon = NULL;
+	}
+#else
 	if (clientNum != -1)
 	{
 		trap_G2API_ClearAttachedInstance(clientNum);
@@ -1116,8 +1683,19 @@ void CG_LoadClientInfo( clientInfo_t *ci ) {
 		cg_entities[clientNum].localAnimIndex = CG_G2SkelForModel(cg_entities[clientNum].ghoul2);
 		cg_entities[clientNum].eventAnimIndex = CG_G2EvIndexForModel(cg_entities[clientNum].ghoul2, cg_entities[clientNum].localAnimIndex);
 	}
+#endif
 
 	ci->newAnims = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	{
+		static qboolean stefxLoggedFlagProbeSkip = qfalse;
+		if ( !stefxLoggedFlagProbeSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited flag-carrier tag probe for EF Holomatch players\n" );
+			stefxLoggedFlagProbeSkip = qtrue;
+		}
+	}
+#else
 	if ( ci->torsoModel ) {
 		orientation_t tag;
 		// if the torso model has the "tag_flag"
@@ -1125,13 +1703,16 @@ void CG_LoadClientInfo( clientInfo_t *ci ) {
 			ci->newAnims = qtrue;
 		}
 	}
+#endif
 
 	// sounds
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (cgs.gametype == GT_SIEGE &&
 		(ci->team == TEAM_SPECTATOR || ci->siegeIndex == -1))
 	{ //don't need to load sounds
 	}
 	else
+#endif
 	{
 		CG_LoadCISounds(ci, modelloaded);
 	}
@@ -1214,14 +1795,23 @@ static void CG_CopyClientInfoModel( clientInfo_t *from, clientInfo_t *to )
 	to->legsSkin = from->legsSkin;
 	to->torsoModel = from->torsoModel;
 	to->torsoSkin = from->torsoSkin;
-	//to->headModel = from->headModel;
-	//to->headSkin = from->headSkin;
+#if defined(STEFX_ELITE_FORCE_MP)
+	to->headModel = from->headModel;
+	to->headSkin = from->headSkin;
+#endif
 	to->modelIcon = from->modelIcon;
 
 	to->newAnims = from->newAnims;
 
 	//to->ghoul2Model = from->ghoul2Model;
 	//rww - Trying to use the same ghoul2 pointer for two seperate clients == DISASTER
+#if defined(STEFX_ELITE_FORCE_MP)
+	to->ghoul2Model = NULL;
+	memset( to->ghoul2Weapons, 0, sizeof( to->ghoul2Weapons ) );
+	memset( to->saber, 0, sizeof( to->saber ) );
+	to->saberName[0] = 0;
+	to->saber2Name[0] = 0;
+#else
 	assert(to->ghoul2Model != from->ghoul2Model);
 
 	if (to->ghoul2Model && trap_G2_HaveWeGhoul2Models(to->ghoul2Model))
@@ -1232,6 +1822,7 @@ static void CG_CopyClientInfoModel( clientInfo_t *from, clientInfo_t *to )
 	{
 		trap_G2API_DuplicateGhoul2Instance(from->ghoul2Model, &to->ghoul2Model);
 	}
+#endif
 
 	//Don't do this, I guess. Just leave the saber info in the original, so it will be
 	//properly initialized.
@@ -1295,21 +1886,31 @@ static qboolean CG_ScanForExistingClientInfo( clientInfo_t *ci, int clientNum ) 
 		}
 		if ( !Q_stricmp( ci->modelName, match->modelName )
 			&& !Q_stricmp( ci->skinName, match->skinName )
+#if !defined(STEFX_ELITE_FORCE_MP)
 			&& !Q_stricmp( ci->saberName, match->saberName)
 			&& !Q_stricmp( ci->saber2Name, match->saber2Name)
+#endif
 //			&& !Q_stricmp( ci->headModelName, match->headModelName )
 //			&& !Q_stricmp( ci->headSkinName, match->headSkinName ) 
 			&& !Q_stricmp( ci->blueTeam, match->blueTeam ) 
 			&& !Q_stricmp( ci->redTeam, match->redTeam )
 			&& (cgs.gametype < GT_TEAM || ci->team == match->team) 
 			&& ci->siegeIndex == match->siegeIndex
+#if defined(STEFX_ELITE_FORCE_MP)
+			&& match->torsoModel)
+#else
 			&& match->ghoul2Model
 			&& match->bolt_head) //if the bolts haven't been initialized, this "match" is useless to us
+#endif
 		{
 			// this clientinfo is identical, so use it's handles
 
 			ci->deferred = qfalse;
 
+#if defined(STEFX_ELITE_FORCE_MP)
+			CG_CopyClientInfoModel( match, ci );
+			return qtrue;
+#else
 			//rww - Filthy hack. If this is actually the info already belonging to us, just reassign the pointer.
 			//Switching instances when not necessary produces small animation glitches.
 			//Actually, before, were we even freeing the instance attached to the old clientinfo before copying
@@ -1331,6 +1932,10 @@ static qboolean CG_ScanForExistingClientInfo( clientInfo_t *ci, int clientNum ) 
 					ci->legsSkin = match->legsSkin;
 					ci->torsoModel = match->torsoModel;
 					ci->torsoSkin = match->torsoSkin;
+#if defined(STEFX_ELITE_FORCE_MP)
+					ci->headModel = match->headModel;
+					ci->headSkin = match->headSkin;
+#endif
 					ci->modelIcon = match->modelIcon;
 
 					ci->newAnims = match->newAnims;
@@ -1375,6 +1980,7 @@ static qboolean CG_ScanForExistingClientInfo( clientInfo_t *ci, int clientNum ) 
 			}
 
 			return qtrue;
+#endif
 		}
 	}
 
@@ -1393,6 +1999,12 @@ client's info to use until we have some spare time.
 static void CG_SetDeferredClientInfo( clientInfo_t *ci ) {
 	int		i;
 	clientInfo_t	*match;
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_LoadClientInfo( ci );
+	ci->deferred = qfalse;
+	return;
+#endif
 
 	// if someone else is already the same models and skins we
 	// can just load the client info
@@ -1507,6 +2119,9 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	int i = 0;
 	int k = 0;
 	qboolean saberUpdate[MAX_SABERS];
+#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
+	static qboolean loggedHolomatchModelMemSkip = qfalse;
+#endif
 
 #ifdef _XBOX
 	if (ClientManager::ActiveClientNum() == 1)
@@ -1520,11 +2135,24 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	while (k < MAX_SABERS)
 	{
 		oldG2Weapons[k] = ci->ghoul2Weapons[k];
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( oldG2Weapons[k] )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame discarded inherited saber model pointer client=%d slot=%d\n", clientNum, k );
+		}
+		oldG2Weapons[k] = 0;
+#endif
 		k++;
 	}
 
 	configstring = CG_ConfigString( clientNum + CS_PLAYERS );
 	if ( !configstring[0] ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		cg_entities[clientNum].ghoul2 = NULL;
+		cg_entities[clientNum].ghoul2weapon = NULL;
+		memset( ci, 0, sizeof( *ci ) );
+		return;		// player just left
+#else
 		if (ci->ghoul2Model && trap_G2_HaveWeGhoul2Models(ci->ghoul2Model))
 		{ //clean this stuff up first
 			trap_G2API_CleanGhoul2Models(&ci->ghoul2Model);
@@ -1551,6 +2179,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 
 		memset( ci, 0, sizeof( *ci ) );
 		return;		// player just left
+#endif
 	}
 
 	// build into a temp buffer so the defer checks can use
@@ -1653,6 +2282,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 		}
 	}
 
+#if !defined(STEFX_ELITE_FORCE_MP)
 	if (cgs.gametype == GT_SIEGE)
 	{ //entries only sent in siege mode
 		//siege desired team
@@ -1703,6 +2333,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 			}
 		}
 	}
+#endif
 
 	saberUpdate[0] = qfalse;
 	saberUpdate[1] = qfalse;
@@ -1710,6 +2341,20 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	//saber being used
 	v = Info_ValueForKey( configstring, "st" );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (v && Q_stricmp(v, ci->saberName))
+	{
+		Q_strncpyz( newInfo.saberName, v, 64 );
+		saberUpdate[0] = qfalse;
+		CG_PrintfAlways( "STEFX_HM: cgame skipped saber setup client=%d saber='%s'\n", clientNum, newInfo.saberName );
+	}
+	else
+	{
+		Q_strncpyz( newInfo.saberName, ci->saberName, 64 );
+	}
+	memcpy(&newInfo.saber[0], &ci->saber[0], sizeof(newInfo.saber[0]));
+	newInfo.ghoul2Weapons[0] = 0;
+#else
 	if (v && Q_stricmp(v, ci->saberName))
 	{
 		Q_strncpyz( newInfo.saberName, v, 64 );
@@ -1722,9 +2367,24 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 		memcpy(&newInfo.saber[0], &ci->saber[0], sizeof(newInfo.saber[0]));
 		newInfo.ghoul2Weapons[0] = ci->ghoul2Weapons[0];
 	}
+#endif
 
 	v = Info_ValueForKey( configstring, "st2" );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (v && Q_stricmp(v, ci->saber2Name))
+	{
+		Q_strncpyz( newInfo.saber2Name, v, 64 );
+		saberUpdate[1] = qfalse;
+		CG_PrintfAlways( "STEFX_HM: cgame skipped saber2 setup client=%d saber='%s'\n", clientNum, newInfo.saber2Name );
+	}
+	else
+	{
+		Q_strncpyz( newInfo.saber2Name, ci->saber2Name, 64 );
+	}
+	memcpy(&newInfo.saber[1], &ci->saber[1], sizeof(newInfo.saber[1]));
+	newInfo.ghoul2Weapons[1] = 0;
+#else
 	if (v && Q_stricmp(v, ci->saber2Name))
 	{
 		Q_strncpyz( newInfo.saber2Name, v, 64 );
@@ -1737,6 +2397,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 		memcpy(&newInfo.saber[1], &ci->saber[1], sizeof(newInfo.saber[1]));
 		newInfo.ghoul2Weapons[1] = ci->ghoul2Weapons[1];
 	}
+#endif
 
 	if (saberUpdate[0] || saberUpdate[1])
 	{
@@ -1773,6 +2434,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	}
 
 	//Check for any sabers that didn't get set again, if they didn't, then reassign the pointers for the new ci
+#if !defined(STEFX_ELITE_FORCE_MP)
 	k = 0;
 	while (k < MAX_SABERS)
 	{
@@ -1782,6 +2444,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 		}
 		k++;
 	}
+#endif
 
 	//duel team
 	v = Info_ValueForKey( configstring, "dt" );
@@ -1799,6 +2462,9 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	v = Info_ValueForKey( configstring, "forcepowers" );
 	Q_strncpyz( newInfo.forcePowers, v, sizeof( newInfo.forcePowers ) );
 
+#if defined(STEFX_ELITE_FORCE_MP)
+	newInfo.colorOverride[0] = newInfo.colorOverride[1] = newInfo.colorOverride[2] = 0.0f;
+#else
 	if (cgs.gametype >= GT_TEAM	&& !cgs.jediVmerc && cgs.gametype != GT_SIEGE )
 	{ //We won't force colors for siege.
 		BG_ValidateSkinForTeam( newInfo.modelName, newInfo.skinName, newInfo.team, newInfo.colorOverride );
@@ -1807,8 +2473,21 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	{
 		newInfo.colorOverride[0] = newInfo.colorOverride[1] = newInfo.colorOverride[2] = 0.0f;
 	}
+#endif
 
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_MP)
+	if(strcmp(ci->modelName, newInfo.modelName) != 0 && strlen(ci->modelName))
+	{
+		if ( !loggedHolomatchModelMemSkip )
+		{
+			CG_PrintfAlways( "STEFX_HM: cgame skipped inherited player model memory free old='%s' new='%s'\n",
+				ci->modelName,
+				newInfo.modelName );
+			loggedHolomatchModelMemSkip = qtrue;
+		}
+	}
+#else
 	char afilename[MAX_QPATH];
 	char bfilename[MAX_QPATH];
 
@@ -1827,6 +2506,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 //		ModelMem.inNewClient = false;
 	}
 #endif
+#endif
 
 	// scan for an existing clientinfo that matches this modelname
 	// so we can avoid loading checks if possible
@@ -1836,7 +2516,11 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 		{ //rww - don't defer your own client info ever
 			CG_LoadClientInfo( &newInfo );
 		}
-		else if (  cg_deferPlayers.integer && cgs.gametype != GT_SIEGE && !cg_buildScript.integer && !cg->loading ) {
+		else if (  cg_deferPlayers.integer &&
+#if !defined(STEFX_ELITE_FORCE_MP)
+			cgs.gametype != GT_SIEGE &&
+#endif
+			!cg_buildScript.integer && !cg->loading ) {
 			// keep whatever they had if it won't violate team skins
 			CG_SetDeferredClientInfo( &newInfo );
 		} else {
@@ -1852,6 +2536,13 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 
 	// replace whatever was there with the new one
 	newInfo.infoValid = qtrue;
+#if defined(STEFX_ELITE_FORCE_MP)
+	if ( ci->ghoul2Model && ci->ghoul2Model != newInfo.ghoul2Model )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame discarded inherited player model pointer client=%d\n", clientNum );
+	}
+	ci->ghoul2Model = NULL;
+#else
 	if (ci->ghoul2Model &&
 		ci->ghoul2Model != newInfo.ghoul2Model &&
 		trap_G2_HaveWeGhoul2Models(ci->ghoul2Model))
@@ -1859,6 +2550,7 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 	  //Otherwise we will end up with extra instances all over the place, I think.
 		trap_G2API_CleanGhoul2Models(&ci->ghoul2Model);
 	}
+#endif
 	*ci = newInfo;
 
 	//force a weapon change anyway, for all clients being rendered to the current client
@@ -1867,6 +2559,15 @@ void CG_NewClientInfo( int clientNum, qboolean entitiesInitialized ) {
 		cg_entities[i].ghoul2weapon = NULL;
 		i++;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (clientNum != -1)
+	{
+		cg_entities[clientNum].ghoul2 = NULL;
+		cg_entities[clientNum].ghoul2weapon = NULL;
+	}
+	return;
+#endif
 
 	if (clientNum != -1)
 	{ //don't want it using an invalid pointer to share
@@ -7793,6 +8494,11 @@ void *cg_g2JetpackInstance = NULL;
 
 void CG_InitJetpackGhoul2(void)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: skipping inherited jetpack model init\n");
+	return;
+#endif
+
 	if (cg_g2JetpackInstance)
 	{
 		assert(!"Tried to init jetpack inst, already init'd");
@@ -8332,6 +9038,325 @@ void CG_CheckThirdPersonAlpha( centity_t *cent, refEntity_t *legs )
 	}
 }
 
+#if defined(STEFX_ELITE_FORCE_MP)
+static void CG_STEFXSelectHolomatchAnimRows( centity_t *cent, int *legsRow, int *torsoRow ) {
+	float speedSq;
+
+	if ( cent->currentState.eFlags & EF_DEAD ) {
+		switch ( cent->currentState.legsAnim ) {
+		case BOTH_DEATH2:
+			*legsRow = STEFX_HM_ANIM_DEATH2;
+			break;
+		case BOTH_DEATH3:
+			*legsRow = STEFX_HM_ANIM_DEATH3;
+			break;
+		case BOTH_DEAD1:
+			*legsRow = STEFX_HM_ANIM_DEAD1;
+			break;
+		case BOTH_DEAD2:
+			*legsRow = STEFX_HM_ANIM_DEAD2;
+			break;
+		case BOTH_DEAD3:
+			*legsRow = STEFX_HM_ANIM_DEAD3;
+			break;
+		case BOTH_DEATH1:
+		default:
+			*legsRow = STEFX_HM_ANIM_DEATH1;
+			break;
+		}
+		*torsoRow = *legsRow;
+		return;
+	}
+
+	if ( cent->currentState.eFlags & EF_ALT_FIRING ) {
+		*torsoRow = STEFX_HM_ANIM_TORSO_ATTACK2;
+	}
+	else if ( cent->currentState.eFlags & EF_FIRING ) {
+		*torsoRow = STEFX_HM_ANIM_TORSO_ATTACK;
+	}
+	else {
+		*torsoRow = STEFX_HM_ANIM_TORSO_STAND2;
+	}
+
+	speedSq = cent->currentState.pos.trDelta[0] * cent->currentState.pos.trDelta[0] +
+		cent->currentState.pos.trDelta[1] * cent->currentState.pos.trDelta[1];
+	if ( cent->currentState.groundEntityNum == ENTITYNUM_NONE ) {
+		*legsRow = STEFX_HM_ANIM_LEGS_JUMP;
+	}
+	else if ( speedSq > 90000.0f ) {
+		*legsRow = STEFX_HM_ANIM_LEGS_RUN;
+	}
+	else if ( speedSq > 400.0f ) {
+		*legsRow = STEFX_HM_ANIM_LEGS_WALK;
+	}
+	else {
+		*legsRow = STEFX_HM_ANIM_LEGS_IDLE;
+	}
+}
+
+static int CG_STEFXHolomatchLocalFirstFrame( stefxHmAnimSet_t *set, int row, qboolean lowerPart ) {
+	int firstFrame;
+
+	if ( !set || row < 0 || row >= STEFX_HM_MAX_ANIM_ROWS ) {
+		return 0;
+	}
+
+	firstFrame = set->anims[row].firstFrame;
+	if ( lowerPart && row >= STEFX_HM_ANIM_LEGS_WALKCR && firstFrame >= set->legsSharedBaseFrame ) {
+		firstFrame = set->legsLocalBaseFrame + ( firstFrame - set->legsSharedBaseFrame );
+		if ( firstFrame < 0 ) {
+			firstFrame = 0;
+		}
+	}
+	return firstFrame;
+}
+
+static void CG_STEFXGetHolomatchAnimFrame( stefxHmAnimSet_t *set, int row, qboolean lowerPart, int seed, int *oldFrame, int *frame, float *backlerp ) {
+	animation_t *anim;
+	int firstFrame;
+	int frameLerp;
+	int frameCount;
+	int cycleFrames;
+	int elapsed;
+	int frameIndex;
+	int oldIndex;
+
+	if ( !set || row < 0 || row >= STEFX_HM_MAX_ANIM_ROWS ) {
+		*oldFrame = *frame = 0;
+		*backlerp = 0.0f;
+		return;
+	}
+
+	anim = &set->anims[row];
+	firstFrame = CG_STEFXHolomatchLocalFirstFrame( set, row, lowerPart );
+	frameLerp = anim->frameLerp;
+	if ( frameLerp < 0 ) {
+		frameLerp = -frameLerp;
+	}
+	if ( frameLerp <= 0 ) {
+		frameLerp = 100;
+	}
+
+	frameCount = anim->numFrames;
+	if ( frameCount < 1 ) {
+		frameCount = 1;
+	}
+
+	cycleFrames = (anim->loopFrames > 0) ? anim->loopFrames : frameCount;
+	if ( cycleFrames < 1 ) {
+		cycleFrames = 1;
+	}
+	if ( cycleFrames > frameCount ) {
+		cycleFrames = frameCount;
+	}
+
+	elapsed = cg->time + seed;
+	if ( elapsed < 0 ) {
+		elapsed = 0;
+	}
+
+	frameIndex = (elapsed / frameLerp) % cycleFrames;
+	oldIndex = frameIndex - 1;
+	if ( oldIndex < 0 ) {
+		oldIndex = (anim->loopFrames > 0) ? (cycleFrames - 1) : 0;
+	}
+
+	*frame = firstFrame + frameIndex;
+	*oldFrame = firstFrame + oldIndex;
+	*backlerp = 1.0f - ((float)(elapsed % frameLerp) / (float)frameLerp);
+}
+
+static void CG_STEFXApplyHolomatchRGBA( refEntity_t *ent, centity_t *cent, clientInfo_t *ci ) {
+	int alpha;
+
+	if ( ci->colorOverride[0] != 0.0f || ci->colorOverride[1] != 0.0f || ci->colorOverride[2] != 0.0f ) {
+		ent->shaderRGBA[0] = (unsigned char)(ci->colorOverride[0] * 255.0f);
+		ent->shaderRGBA[1] = (unsigned char)(ci->colorOverride[1] * 255.0f);
+		ent->shaderRGBA[2] = (unsigned char)(ci->colorOverride[2] * 255.0f);
+		ent->renderfx |= RF_RGB_TINT;
+	}
+	else {
+		ent->shaderRGBA[0] = cent->currentState.customRGBA[0] ? cent->currentState.customRGBA[0] : 255;
+		ent->shaderRGBA[1] = cent->currentState.customRGBA[1] ? cent->currentState.customRGBA[1] : 255;
+		ent->shaderRGBA[2] = cent->currentState.customRGBA[2] ? cent->currentState.customRGBA[2] : 255;
+	}
+
+	alpha = cent->currentState.customRGBA[3] ? cent->currentState.customRGBA[3] : 255;
+	ent->shaderRGBA[3] = (unsigned char)alpha;
+	if ( alpha < 255 ) {
+		ent->renderfx |= RF_FORCE_ENT_ALPHA;
+	}
+}
+
+static qboolean CG_STEFXPositionHolomatchPartOnTag( refEntity_t *entity, const refEntity_t *parent,
+							qhandle_t parentModel, const char *tagName,
+							float fallbackX, float fallbackY, float fallbackZ,
+							int clientNum ) {
+	int				i;
+	int				tagSlot;
+	float			fallbackOffset[3];
+	orientation_t	lerped;
+	vec3_t			tempAxis[3];
+	static qboolean loggedMissingTag[MAX_CLIENTS][2];
+
+	if ( trap_R_LerpTag( &lerped, parentModel, parent->oldframe, parent->frame,
+		1.0f - parent->backlerp, tagName ) ) {
+		VectorCopy( parent->origin, entity->origin );
+		for ( i = 0 ; i < 3 ; i++ ) {
+			VectorMA( entity->origin, lerped.origin[i], parent->axis[i], entity->origin );
+		}
+
+		MatrixMultiply( entity->axis, lerped.axis, tempAxis );
+		MatrixMultiply( tempAxis, ((refEntity_t *)parent)->axis, entity->axis );
+		return qtrue;
+	}
+
+	fallbackOffset[0] = fallbackX;
+	fallbackOffset[1] = fallbackY;
+	fallbackOffset[2] = fallbackZ;
+
+	VectorCopy( parent->origin, entity->origin );
+	for ( i = 0 ; i < 3 ; i++ ) {
+		VectorMA( entity->origin, fallbackOffset[i], parent->axis[i], entity->origin );
+	}
+
+	MatrixMultiply( entity->axis, ((refEntity_t *)parent)->axis, tempAxis );
+	AxisCopy( tempAxis, entity->axis );
+
+	if ( clientNum >= 0 && clientNum < MAX_CLIENTS ) {
+		tagSlot = ( tagName && !strcmp( tagName, "tag_torso" ) ) ? 0 : 1;
+		if ( !loggedMissingTag[clientNum][tagSlot] ) {
+			CG_PrintfAlways( "STEFX_HM: cgame EF player attach tag missing client=%d tag='%s' parentModel=%d frames=%d/%d; using visible attach offset\n",
+				clientNum,
+				tagName ? tagName : "",
+				parentModel,
+				parent->oldframe,
+				parent->frame );
+			loggedMissingTag[clientNum][tagSlot] = qtrue;
+		}
+	}
+
+	return qfalse;
+}
+
+static qboolean CG_STEFXDrawHolomatchPlayerBody( centity_t *cent, clientInfo_t *ci ) {
+	refEntity_t legs;
+	refEntity_t torso;
+	refEntity_t head;
+	vec3_t angles;
+	int renderfx;
+	int clientNum;
+	int legsRow;
+	int torsoRow;
+	qboolean torsoAttached;
+	qboolean headAttached;
+	stefxHmAnimSet_t *animSet;
+	static qboolean loggedBodyDraw[MAX_CLIENTS];
+
+	if ( !ci || !ci->legsModel || !ci->torsoModel || !ci->headModel || !cg->snap ) {
+		return qfalse;
+	}
+
+	clientNum = cent->currentState.number;
+	if ( clientNum == cg->snap->ps.clientNum && !cg->renderingThirdPerson ) {
+		static qboolean loggedLocalFirstPersonSkip = qfalse;
+
+		if ( !loggedLocalFirstPersonSkip ) {
+			CG_PrintfAlways( "STEFX_HM: cgame skipped local first-person EF player body; view weapon owns visible self model\n" );
+			loggedLocalFirstPersonSkip = qtrue;
+		}
+		return qtrue;
+	}
+
+	renderfx = RF_LIGHTING_ORIGIN;
+
+	animSet = CG_STEFXLoadHolomatchAnimSet( ci->modelName );
+	CG_STEFXSelectHolomatchAnimRows( cent, &legsRow, &torsoRow );
+
+	memset( &legs, 0, sizeof( legs ) );
+	memset( &torso, 0, sizeof( torso ) );
+	memset( &head, 0, sizeof( head ) );
+
+	legs.hModel = ci->legsModel;
+	legs.customSkin = ci->legsSkin;
+	legs.renderfx = renderfx;
+	VectorCopy( cent->lerpOrigin, legs.origin );
+	VectorCopy( legs.origin, legs.oldorigin );
+	VectorCopy( legs.origin, legs.lightingOrigin );
+	VectorCopy( cent->lerpAngles, angles );
+	angles[PITCH] = 0;
+	angles[ROLL] = 0;
+	AnglesToAxis( angles, legs.axis );
+	CG_STEFXGetHolomatchAnimFrame( animSet, legsRow, qtrue, clientNum * 97, &legs.oldframe, &legs.frame, &legs.backlerp );
+	CG_STEFXApplyHolomatchRGBA( &legs, cent, ci );
+	trap_R_AddRefEntityToScene( &legs );
+
+	torso.hModel = ci->torsoModel;
+	torso.customSkin = ci->torsoSkin;
+	torso.renderfx = renderfx;
+	AxisClear( torso.axis );
+	CG_STEFXGetHolomatchAnimFrame( animSet, torsoRow, qfalse, clientNum * 131, &torso.oldframe, &torso.frame, &torso.backlerp );
+	VectorCopy( legs.origin, torso.lightingOrigin );
+	torsoAttached = CG_STEFXPositionHolomatchPartOnTag( &torso, &legs, legs.hModel, "tag_torso", 0.0f, 0.0f, 28.0f, clientNum );
+	VectorCopy( torso.origin, torso.oldorigin );
+	CG_STEFXApplyHolomatchRGBA( &torso, cent, ci );
+	trap_R_AddRefEntityToScene( &torso );
+
+	head.hModel = ci->headModel;
+	head.customSkin = ci->headSkin;
+	head.renderfx = renderfx;
+	AxisClear( head.axis );
+	head.oldframe = head.frame = 0;
+	head.backlerp = 0.0f;
+	VectorCopy( legs.origin, head.lightingOrigin );
+	headAttached = CG_STEFXPositionHolomatchPartOnTag( &head, &torso, torso.hModel, "tag_head", 0.0f, 0.0f, 18.0f, clientNum );
+	VectorCopy( head.origin, head.oldorigin );
+	CG_STEFXApplyHolomatchRGBA( &head, cent, ci );
+	trap_R_AddRefEntityToScene( &head );
+
+	if ( clientNum >= 0 && clientNum < MAX_CLIENTS && !loggedBodyDraw[clientNum] )
+	{
+		CG_PrintfAlways( "STEFX_HM: cgame drew EF player body client=%d model='%s' legsRow=%d torsoRow=%d legsFrame=%d torsoFrame=%d torsoTag=%d headTag=%d\n",
+			clientNum,
+			ci->modelName,
+			legsRow,
+			torsoRow,
+			legs.frame,
+			torso.frame,
+			torsoAttached,
+			headAttached );
+		loggedBodyDraw[clientNum] = qtrue;
+	}
+	return qtrue;
+}
+
+static void CG_STEFXLogHolomatchPlayerBodyUnavailable( centity_t *cent, clientInfo_t *ci ) {
+	int clientNum;
+	static qboolean loggedBodyUnavailable[MAX_CLIENTS];
+
+	clientNum = cent ? cent->currentState.clientNum : -1;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		clientNum = cent ? cent->currentState.number : -1;
+	}
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS || loggedBodyUnavailable[clientNum] ) {
+		return;
+	}
+
+	CG_PrintfAlways( "STEFX_HM: cgame EF player body unavailable client=%d ent=%d infoValid=%d deferred=%d model='%s' skin='%s' legs=%d torso=%d head=%d\n",
+		clientNum,
+		cent ? cent->currentState.number : -1,
+		ci ? ci->infoValid : 0,
+		ci ? ci->deferred : 0,
+		(ci && ci->modelName[0]) ? ci->modelName : "",
+		(ci && ci->skinName[0]) ? ci->skinName : "",
+		ci ? ci->legsModel : 0,
+		ci ? ci->torsoModel : 0,
+		ci ? ci->headModel : 0 );
+	loggedBodyUnavailable[clientNum] = qtrue;
+}
+#endif
+
 void CG_Player( centity_t *cent ) {
 	clientInfo_t	*ci;
 	refEntity_t		legs;
@@ -8549,6 +9574,16 @@ void CG_Player( centity_t *cent ) {
 	if ( !ci->infoValid ) {
 		return;
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	cent->ghoul2 = NULL;
+	cent->ghoul2weapon = NULL;
+	if ( CG_STEFXDrawHolomatchPlayerBody( cent, ci ) ) {
+		return;
+	}
+	CG_STEFXLogHolomatchPlayerBodyUnavailable( cent, ci );
+	return;
+#endif
 
 	// Add the player to the radar if on the same team and its a team game
 #ifdef _XBOX

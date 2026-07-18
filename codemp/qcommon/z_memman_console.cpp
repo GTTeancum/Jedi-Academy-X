@@ -304,9 +304,11 @@ void Com_InitZoneMemory(void)
 				status.dwAvailPhys);
 #endif
 
-	// Allocate the two texture pools:
+	// Allocate texture pools:
 	gStaticTextures.Initialize( STATIC_TEXTURE_POOL_SIZE );
+#if !defined(STEFX_ELITE_FORCE_MP)
 	gSkinTextures.Initialize( MODEL_TEXTURE_POOL_SIZE );
+#endif
 
 	GlobalMemoryStatus(&status);
 
@@ -1551,7 +1553,7 @@ int Z_GetMiscMemory(void)
 		s_Stats.m_SizesPerTag[TAG_SND_RAWDATA]);
 }
 
-#ifdef _GAMECUBE
+#if defined(_GAMECUBE) || (defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP))
 static int texMemSize = 0;
 #else
 extern int texMemSize;

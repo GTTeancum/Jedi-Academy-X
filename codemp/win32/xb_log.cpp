@@ -1,13 +1,15 @@
 // xb_log.cpp
-// Dual-output logging for Xbox: OutputDebugString (CXBX-R console) + E:\ja_mp_log.txt (hardware)
+// File logging for Xbox plus a memory mirror. EF MP avoids OutputDebugString
+// during runtime because CXBX-R can fault on the debug-string trap after D3D init.
 // Hook: Com_Printf in common.cpp calls XBLog_Write after its normal processing.
 
 #ifdef _XBOX
 #include <xtl.h>
 #else
 #include <windows.h>
-#include <stdio.h>
 #endif
+#include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include "xb_log.h"
@@ -25,6 +27,7 @@ extern "C" long __stdcall NtFlushBuffersFile(HANDLE, XBLogIoStatusBlock*);
 
 static HANDLE g_logFile = INVALID_HANDLE_VALUE;
 static HANDLE g_phaseFile = INVALID_HANDLE_VALUE;
+static const char *g_logOpenPath = NULL;
 
 extern "C" {
 __declspec(dllexport) volatile unsigned int g_XBLogMirrorPos = 0;
@@ -32,12 +35,23 @@ __declspec(dllexport) volatile char g_XBLogMirror[32768];
 __declspec(dllexport) volatile unsigned int g_XBLogWriteCount = 0;
 __declspec(dllexport) volatile char g_XBLogLastLine[512];
 __declspec(dllexport) volatile char g_XBLogLastPhase[256];
+__declspec(dllexport) volatile unsigned int g_SPXBFakeGLPrimitiveVerts = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFakeGLPrimitiveCalls = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFakeGLStateFlushes = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFramebufferData = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFramebufferPitch = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFramebufferWidth = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFramebufferHeight = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFramebufferFormat = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBFramebufferSize = 0;
 }
 
-// Keep logs on the writable title/data partition. D: is the mounted game disc
-// when running through xemu/UnleashX, so it is not a reliable log target.
-#define XB_LOG_PATH "E:\\ja_mp_log.txt"
-#define XB_PHASE_PATH "E:\\ja_mp_phase.txt"
+// Prefer the mounted title directory, which is writable on CXBX-R folder
+// launches and common softmod installs. Fall back to the title-data partition.
+#define XB_LOG_PATH_PRIMARY "D:\\ef_mp_log.txt"
+#define XB_LOG_PATH_FALLBACK "E:\\ef_mp_log.txt"
+#define XB_PHASE_PATH_PRIMARY "D:\\ef_mp_phase.txt"
+#define XB_PHASE_PATH_FALLBACK "E:\\ef_mp_phase.txt"
 
 // Max line length for the formatted output buffer
 #define XB_LOG_BUF 2048
@@ -78,9 +92,41 @@ static void XBLog_CopyVolatile(volatile char *dest, unsigned int destSize, const
     dest[i] = 0;
 }
 
+static HANDLE XBLog_OpenWritable(const char *primaryPath, const char *fallbackPath, DWORD creationDisposition, bool append, const char **openedPath)
+{
+    if (openedPath)
+    {
+        *openedPath = NULL;
+    }
+
+    HANDLE h = CreateFileA(primaryPath, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+        creationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE && openedPath)
+    {
+        *openedPath = primaryPath;
+    }
+
+    if (h == INVALID_HANDLE_VALUE && fallbackPath)
+    {
+        h = CreateFileA(fallbackPath, GENERIC_WRITE, FILE_SHARE_READ, NULL,
+            creationDisposition, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE && openedPath)
+        {
+            *openedPath = fallbackPath;
+        }
+    }
+
+    if (h != INVALID_HANDLE_VALUE && append)
+    {
+        SetFilePointer(h, 0, NULL, FILE_END);
+    }
+
+    return h;
+}
+
 static void XBLog_RawNtWrite(const char *text, unsigned long len, unsigned long disposition)
 {
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ja_mp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_mp_log.txt";
     HANDLE h = INVALID_HANDLE_VALUE;
     XBLogString name;
     XBLogObjectAttributes oa;
@@ -145,9 +191,14 @@ void XBLog_Init(void)
     {
         CloseHandle(g_logFile);
     }
-    g_logFile = CreateFileA(XB_LOG_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    XBLog_Write("=== Jedi Academy Xbox log started ===");
+    g_logFile = XBLog_OpenWritable(XB_LOG_PATH_PRIMARY, XB_LOG_PATH_FALLBACK, CREATE_ALWAYS, false, &g_logOpenPath);
+    XBLog_Write("=== Elite Force Holomatch Xbox log started ===");
+    XBLog_Printf("STEFX_HM: efmp.xbe runtime log sink path='%s' primary='%s' fallback='%s' build='%s %s'",
+        g_logOpenPath ? g_logOpenPath : "raw-nt-partition1",
+        XB_LOG_PATH_PRIMARY,
+        XB_LOG_PATH_FALLBACK,
+        __DATE__,
+        __TIME__);
 }
 
 void XBLog_Shutdown(void)
@@ -161,7 +212,7 @@ void XBLog_Shutdown(void)
 
     if (g_logFile != INVALID_HANDLE_VALUE)
     {
-        XBLog_Write("=== Jedi Academy Xbox log closed ===");
+        XBLog_Write("=== Elite Force Holomatch Xbox log closed ===");
         FlushFileBuffers(g_logFile);
         CloseHandle(g_logFile);
         g_logFile = INVALID_HANDLE_VALUE;
@@ -190,17 +241,14 @@ void XBLog_Write(const char *msg)
     XBLog_CopyVolatile(g_XBLogLastLine, sizeof(g_XBLogLastLine), msg);
     ++g_XBLogWriteCount;
 
-    // OutputDebugString goes to CXBX-R console
+#if !defined(STEFX_ELITE_FORCE_MP)
+    // OutputDebugString goes to CXBX-R console.
     OutputDebugStringA(buf);
+#endif
 
     if (g_logFile == INVALID_HANDLE_VALUE)
     {
-        g_logFile = CreateFileA(XB_LOG_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (g_logFile != INVALID_HANDLE_VALUE)
-        {
-            SetFilePointer(g_logFile, 0, NULL, FILE_END);
-        }
+        g_logFile = XBLog_OpenWritable(XB_LOG_PATH_PRIMARY, XB_LOG_PATH_FALLBACK, OPEN_ALWAYS, true, &g_logOpenPath);
     }
 
     if (g_logFile != INVALID_HANDLE_VALUE)
@@ -216,6 +264,42 @@ void XBLog_Write(const char *msg)
     }
 }
 
+void XBLog_Printf(const char *fmt, ...)
+{
+    char buf[XB_LOG_BUF];
+    va_list args;
+
+    if (!fmt || !*fmt)
+    {
+        return;
+    }
+
+    va_start(args, fmt);
+    _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = 0;
+
+    XBLog_Write(buf);
+}
+
+void XBLog_Writef(const char *fmt, ...)
+{
+    char buf[XB_LOG_BUF];
+    va_list args;
+
+    if (!fmt || !*fmt)
+    {
+        return;
+    }
+
+    va_start(args, fmt);
+    _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = 0;
+
+    XBLog_Write(buf);
+}
+
 void XBLog_Phase(const char *msg)
 {
     if (!msg || !*msg) return;
@@ -224,19 +308,18 @@ void XBLog_Phase(const char *msg)
 
     DWORD now = GetTickCount();
     bool urgent = (strstr(msg, "SEH") || strstr(msg, "exception") || strstr(msg, "invalid") ||
-        strstr(msg, "overflow") || strstr(msg, "failed") || strstr(msg, "fatal") ||
-        strstr(msg, "null"));
+        strstr(msg, "failed") || strstr(msg, "fatal") || strstr(msg, "null") ||
+        strstr(msg, "bad idx") || strstr(msg, "SHADER_MAX") || strstr(msg, "no room"));
 
     static DWORD s_lastPhaseWrite = 0;
-    if (!urgent && now - s_lastPhaseWrite < 250)
+    if (!urgent && now - s_lastPhaseWrite < 1000)
     {
         return;
     }
 
     if (g_phaseFile == INVALID_HANDLE_VALUE)
     {
-        g_phaseFile = CreateFileA(XB_PHASE_PATH, GENERIC_WRITE, FILE_SHARE_READ, NULL,
-            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        g_phaseFile = XBLog_OpenWritable(XB_PHASE_PATH_PRIMARY, XB_PHASE_PATH_FALLBACK, CREATE_ALWAYS, false, NULL);
     }
 
     if (g_phaseFile == INVALID_HANDLE_VALUE)
@@ -262,7 +345,7 @@ void XBLog_Phase(const char *msg)
     SetEndOfFile(g_phaseFile);
 
     static DWORD s_lastPhaseFlush = 0;
-    if (urgent || now - s_lastPhaseFlush >= 1000)
+    if (urgent)
     {
         FlushFileBuffers(g_phaseFile);
         s_lastPhaseFlush = now;

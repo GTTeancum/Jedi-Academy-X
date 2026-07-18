@@ -1,4 +1,7 @@
 // leave this at the top of all UI_xxxx files for PCH reasons.
+#if defined(STEFX_ELITE_FORCE_MP)
+#include "../../codemp/ui/ui_stefx_spcompat.h"
+#else
 #include "../server/exe_headers.h"
 
 #include "ui_local.h"
@@ -6,6 +9,7 @@
 #ifdef _XBOX
 #include <xtl.h>
 #include "../win32/xb_log.h"
+#endif
 #endif
 
 extern void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, int iMaxPixelWidth, int style, int iFontIndex);
@@ -952,7 +956,7 @@ qboolean UI_EFQmenu_RouteMenuName(const char *menuName)
 	if (!Q_stricmp(menuName, "main") || !Q_stricmp(menuName, "mainMenu") || !Q_stricmp(menuName, "splashMenu"))
 	{
 #ifdef _XBOX
-		XBLF("STEFX: EF route parser menu '%s' -> main menu", menuName);
+		XBLF("STEFX: EF route legacy script menu '%s' -> shared main menu", menuName);
 #endif
 		UI_EFMainMenu_Open();
 		return qtrue;
@@ -962,7 +966,7 @@ qboolean UI_EFQmenu_RouteMenuName(const char *menuName)
 	{
 		extern void S_StopAllSoundsExceptMusic( void );
 #ifdef _XBOX
-		XBLF("STEFX: EF route parser menu '%s' -> pause menu", menuName);
+		XBLF("STEFX: EF route legacy script menu '%s' -> shared pause menu", menuName);
 #endif
 		S_StopAllSoundsExceptMusic();
 		UI_EFPauseMenu_Open(menuName);
@@ -1026,7 +1030,7 @@ qboolean UI_EFQmenu_RouteMenuName(const char *menuName)
 
 qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 {
-	// Route EF-owned menu commands away from inherited JA parser screens.
+	// Route EF-owned menu commands through the shared SP qmenu layer.
 	if (!cmd || !cmd[0])
 	{
 		return qfalse;
@@ -1069,7 +1073,11 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 	}
 	if (!Q_stricmp(cmd, "ui_ef_holomatch"))
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		UI_EFMainMenu_StartHolomatchBaseline();
+#else
 		UI_EFMainMenu_StartSplitScreenBaseline();
+#endif
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_crew"))
@@ -1105,3 +1113,8 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 
 	return qfalse;
 }
+
+#if defined(STEFX_ELITE_FORCE_MP)
+#undef ui
+#include "../../codemp/namespace_end.h"
+#endif

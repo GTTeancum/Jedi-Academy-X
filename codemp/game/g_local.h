@@ -1393,6 +1393,9 @@ void UpdateTournamentInfo( void );
 // g_bot.c
 //
 void G_InitBots( qboolean restart );
+#if defined(STEFX_ELITE_FORCE_MP)
+void G_InitBotMetadataOnly( qboolean restart );
+#endif
 char *G_GetBotInfoByNumber( int num );
 char *G_GetBotInfoByName( const char *name );
 void G_CheckBotSpawn( void );
@@ -1444,6 +1447,24 @@ void QDECL G_LogWeaponOutput(void);
 void QDECL G_LogExit( const char *string );
 void QDECL G_ClearClientLog(int client);
 */
+#if defined(STEFX_ELITE_FORCE_MP)
+void QDECL G_LogWeaponPickup(int client, int weaponid);
+void QDECL G_LogWeaponFire(int client, int weaponid);
+void QDECL G_LogWeaponDamage(int client, int mod, int amount);
+void QDECL G_LogWeaponKill(int client, int mod);
+void QDECL G_LogWeaponDeath(int client, int weaponid);
+void QDECL G_LogWeaponFrag(int attacker, int deadguy);
+void QDECL G_LogWeaponPowerup(int client, int powerupid);
+void QDECL G_LogWeaponItem(int client, int itemid);
+void QDECL G_LogWeaponInit(void);
+void QDECL G_LogWeaponOutput(void);
+void QDECL G_ClearClientLog(int client);
+int GetMaxDeathsForClient(int nClient);
+int GetMaxKillsForClient(int nClient);
+int GetFavoriteTargetForClient(int nClient);
+int GetWorstEnemyForClient(int nClient);
+int GetFavoriteWeaponForClient(int nClient);
+#endif
 
 // g_siege.c
 void InitSiegeMode(void);
@@ -1571,6 +1592,10 @@ extern	vmCvar_t	g_svfps;
 
 extern	vmCvar_t	g_forceRegenTime;
 extern	vmCvar_t	g_spawnInvulnerability;
+#if defined(STEFX_ELITE_FORCE_MP)
+extern	vmCvar_t	g_ghostRespawn;
+extern	vmCvar_t	g_holoIntro;
+#endif
 extern	vmCvar_t	g_forcePowerDisable;
 extern	vmCvar_t	g_weaponDisable;
 
@@ -1581,6 +1606,9 @@ extern	vmCvar_t	g_duelWeaponDisable;
 extern	vmCvar_t	g_fraglimit;
 extern	vmCvar_t	g_duel_fraglimit;
 extern	vmCvar_t	g_timelimit;
+#if defined(STEFX_ELITE_FORCE_MP)
+extern	vmCvar_t	g_timelimitWinningTeam;
+#endif
 extern	vmCvar_t	g_capturelimit;
 extern	vmCvar_t	d_saberInterpolate;
 extern	vmCvar_t	g_friendlyFire;

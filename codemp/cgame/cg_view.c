@@ -3115,6 +3115,16 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	qboolean bUseFighterPitch = qfalse;
 	static centity_t *veh = NULL;
 	qboolean	isFighter = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int stefxActiveFrameTraceBudget = 4;
+	qboolean stefxActiveFrameTrace = (qboolean)( stefxActiveFrameTraceBudget > 0 );
+	if ( stefxActiveFrameTrace )
+	{
+		stefxActiveFrameTraceBudget--;
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame enter serverTime=%d stereo=%d snap=%p info='%s'\n",
+			serverTime, stereoView, cg->snap, cg->infoScreenText );
+	}
+#endif
 
 	if (cgQueueLoad)
 	{ //do this before you start messing around with adding ghoul2 refents and crap
@@ -3153,6 +3163,16 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 		CG_DrawInformation();
 		return;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame after info gate time=%d client=%d health=%d weapon=%d\n",
+			cg->time,
+			cg->snap ? cg->snap->ps.clientNum : -1,
+			cg->snap ? cg->snap->ps.stats[STAT_HEALTH] : -999,
+			cg->snap ? cg->snap->ps.weapon : -1 );
+	}
+#endif
 
 #ifdef _XBOX
 	if(ClientManager::ActiveClientNum() == 0) {
@@ -3260,7 +3280,22 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	cg->clientFrame++;
 
 	// update cg->predictedPlayerState
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame before PredictPlayerState\n" );
+	}
+#endif
 	CG_PredictPlayerState();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame after PredictPlayerState origin='%.1f %.1f %.1f'\n",
+			cg->predictedPlayerState.origin[0],
+			cg->predictedPlayerState.origin[1],
+			cg->predictedPlayerState.origin[2] );
+	}
+#endif
 
 	// decide on third person view
 #ifdef _XBOX
@@ -3308,7 +3343,23 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	}
 
 	// build cg->refdef
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame before CalcViewValues\n" );
+	}
+#endif
 	inwater = CG_CalcViewValues();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame after CalcViewValues refdef=%dx%d fov=%.1f/%.1f\n",
+			cg->refdef.width,
+			cg->refdef.height,
+			cg->refdef.fov_x,
+			cg->refdef.fov_y );
+	}
+#endif
 
 	if (cg_linearFogOverride)
 	{
@@ -3351,10 +3402,22 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 
 	// build the render lists
 	if ( !cg->hyperspace ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxActiveFrameTrace )
+		{
+			CG_Printf( "STEFX_HM: CG_DrawActiveFrame before AddPacketEntities\n" );
+		}
+#endif
 		CG_AddPacketEntities(qfalse);			// adter calcViewValues, so predicted player state is correct
 //#ifdef _XBOX
 //		if(ClientManager::ActiveClientNum() == 0)
 //#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxActiveFrameTrace )
+		{
+			CG_Printf( "STEFX_HM: CG_DrawActiveFrame after AddPacketEntities\n" );
+		}
+#endif
 		CG_AddMarks();
 		CG_AddParticles ();
 #ifdef _XBOX
@@ -3363,7 +3426,19 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 		CG_AddLocalEntities();
 		CG_DrawMiscEnts();
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame before AddViewWeapon\n" );
+	}
+#endif
 	CG_AddViewWeapon( &cg->predictedPlayerState );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame after AddViewWeapon\n" );
+	}
+#endif
 
 	if ( !cg->hyperspace) 
 	{
@@ -3415,7 +3490,19 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	}
 
 	// update audio positions
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame before Respatialize\n" );
+	}
+#endif
 	trap_S_Respatialize( cg->snap->ps.clientNum, cg->refdef.vieworg, cg->refdef.viewaxis, inwater );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame after Respatialize\n" );
+	}
+#endif
 
 	// make sure the lagometerSample and frame timing isn't done twice when in stereo
 	if ( stereoView != STEREO_RIGHT ) {
@@ -3443,9 +3530,27 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView, qboolean demo
 	}
 
 	// actually issue the rendering calls
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame before CG_DrawActive\n" );
+	}
+#endif
 	CG_DrawActive( stereoView );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame after CG_DrawActive\n" );
+	}
+#endif
 
 	CG_DrawAutoMap();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxActiveFrameTrace )
+	{
+		CG_Printf( "STEFX_HM: CG_DrawActiveFrame exit\n" );
+	}
+#endif
 
 	if ( cg_stats.integer ) {
 		CG_Printf( "cg->clientFrame:%i\n", cg->clientFrame );

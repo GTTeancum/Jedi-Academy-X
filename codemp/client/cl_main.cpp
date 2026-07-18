@@ -25,6 +25,16 @@
 #define XBLog_Phase(msg) ((void)0)
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+static qboolean CL_STEFXHolomatchPacketTraceActive( void )
+{
+	const char *mapname = Cvar_VariableString( "mapname" );
+	return (qboolean)( Cvar_VariableIntegerValue( "sv_running" ) &&
+		mapname &&
+		!Q_stricmp( mapname, "hm_borg1" ) );
+}
+#endif
+
 //rwwRMG - added:
 //#include "..\qcommon\cm_local.h"
 //#include "..\qcommon\cm_landscape.h"
@@ -373,7 +383,17 @@ memory on the hunk from cgame, ui, and renderer
 =====================
 */
 void CL_MapLoading( void ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: CL_MapLoading begin cl_running=%d state=%d server='%s'\n",
+		com_cl_running ? com_cl_running->integer : 0,
+		cls.state,
+		cls.servername );
+#endif
+
 	if ( !com_cl_running->integer ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_MapLoading skipped local player attach cl_running=0\n" );
+#endif
 		return;
 	}
 
@@ -386,6 +406,10 @@ void CL_MapLoading( void ) {
 	// if we are already connected to the local host, stay connected
 	if ( cls.state >= CA_CONNECTED && !Q_stricmp( cls.servername, "localhost" ) )
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_MapLoading preserved localhost client state=%d\n", cls.state );
+#endif
+
 		CM_START_LOOP();
 
 		cls.state = CA_CONNECTED;		// so the connect screen is drawn
@@ -394,10 +418,20 @@ void CL_MapLoading( void ) {
 		clc->lastPacketSentTime = -9999;
 		CM_END_LOOP();
 
+#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
+		Com_Printf( "STEFX_HM: CL_MapLoading skipped loading screen draw for preserved localhost client\n" );
+#else
 		SCR_UpdateScreen();
+#endif
 	}
 	else
 	{
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_MapLoading preparing localhost client previousState=%d previousServer='%s'\n",
+			cls.state,
+			cls.servername );
+#endif
+
 		// clear nextmap so the cinematic shutdown doesn't execute it
 		Cvar_Set( "nextmap", "" );
 		CL_Disconnect( qtrue, qfalse );	// Special flag to not delete textures - we need them to draw the connect screen!
@@ -407,7 +441,11 @@ void CL_MapLoading( void ) {
 
 		cls.state = CA_CHALLENGING;		// so the connect screen is drawn
 		cls.keyCatchers = 0;
+#if defined(STEFX_ELITE_FORCE_MP) && defined(_XBOX)
+		Com_Printf( "STEFX_HM: CL_MapLoading skipped loading screen draw for new localhost client\n" );
+#else
 		SCR_UpdateScreen();
+#endif
 		clc->connectTime = -RETRANSMIT_TIMEOUT;
 		NET_StringToAdr( cls.servername, &clc->serverAddress);
 
@@ -415,7 +453,17 @@ void CL_MapLoading( void ) {
 
 		// we don't need a challenge on the localhost
 
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_MapLoading queued localhost challenge state=%d addressType=%d\n",
+			cls.state,
+			clc->serverAddress.type );
+#endif
 		CL_CheckForResend();
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: CL_MapLoading after initial resend state=%d connectPackets=%d\n",
+			cls.state,
+			clc->connectPacketCount );
+#endif
 	}
 }
 
@@ -1220,6 +1268,15 @@ void CL_CheckForResend( void ) {
 			Info_SetValueForKey(info, "xbps", "1");
 
 		sprintf(data, "connect \"%s\"", info );
+#if defined(STEFX_ELITE_FORCE_MP)
+		if ( NET_IsLocalAddress( clc->serverAddress ) )
+		{
+			Com_Printf( "STEFX_HM: client sent local Holomatch connect packet attempt=%d qport=%d protocol=%d\n",
+				clc->connectPacketCount,
+				atoi( Info_ValueForKey( info, "qport" ) ),
+				PROTOCOL_VERSION );
+		}
+#endif
 		NET_OutOfBandData( NS_CLIENT, clc->serverAddress, (unsigned char *)data, strlen(data) );
 
 		// the most current userinfo has been sent, so watch for any
@@ -1485,10 +1542,29 @@ A packet has arrived from the main event loop
 */
 void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 	int		headerBytes;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	static int	stefxHmPacketTraceBudget = 160;
+	qboolean	stefxHmPacketTrace = qfalse;
+
+	if ( CL_STEFXHolomatchPacketTraceActive() && stefxHmPacketTraceBudget > 0 ) {
+		stefxHmPacketTrace = qtrue;
+		stefxHmPacketTraceBudget--;
+		XBLog_Writef( "STEFX_HM: CL_PacketEvent enter budget=%d fromType=%d fromPort=%d size=%d state=%d serverSeq=%d incoming=%d",
+			stefxHmPacketTraceBudget, from.type, from.port, msg ? msg->cursize : -1,
+			cls.state, clc ? clc->serverMessageSequence : -1,
+			clc ? clc->netchan.incomingSequence : -1 );
+	}
+#endif
 
 	clc->lastPacketTime = cls.realtime;
 
 	if ( msg->cursize >= 4 && *(int *)msg->data == -1 ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxHmPacketTrace ) {
+			XBLog_Writef( "STEFX_HM: CL_PacketEvent connectionless size=%d state=%d",
+				msg->cursize, cls.state );
+		}
+#endif
 		CL_ConnectionlessPacket( from, msg );
 		return;
 	}
@@ -1499,11 +1575,23 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 #endif
 
 	if ( cls.state < CA_CONNECTED ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxHmPacketTrace ) {
+			XBLog_Writef( "STEFX_HM: CL_PacketEvent rejected state=%d size=%d",
+				cls.state, msg->cursize );
+		}
+#endif
 		return;		// can't be a valid sequenced packet
 	}
 
 	if ( msg->cursize < 4 ) {
 		Com_Printf ("%s: Runt packet\n",NET_AdrToString( from ));
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxHmPacketTrace ) {
+			XBLog_Writef( "STEFX_HM: CL_PacketEvent runt size=%d state=%d",
+				msg->cursize, cls.state );
+		}
+#endif
 		return;
 	}
 
@@ -1514,12 +1602,37 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 		Com_DPrintf ("%s:sequenced packet without connection\n"
 			,NET_AdrToString( from ) );
 		// FIXME: send a client disconnect?
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxHmPacketTrace ) {
+			XBLog_Writef( "STEFX_HM: CL_PacketEvent rejected adr fromType=%d remoteType=%d size=%d",
+				from.type, clc->netchan.remoteAddress.type, msg->cursize );
+		}
+#endif
 		return;
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmPacketTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_PacketEvent before netchan size=%d read=%d incoming=%d outgoing=%d",
+			msg->cursize, msg->readcount, clc->netchan.incomingSequence,
+			clc->netchan.outgoingSequence );
+	}
+#endif
 	if (!CL_Netchan_Process( &clc->netchan, msg) ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		if ( stefxHmPacketTrace ) {
+			XBLog_Writef( "STEFX_HM: CL_PacketEvent netchan dropped size=%d read=%d incoming=%d",
+				msg->cursize, msg->readcount, clc->netchan.incomingSequence );
+		}
+#endif
 		return;		// out of order, duplicated, etc
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmPacketTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_PacketEvent after netchan size=%d read=%d incoming=%d",
+			msg->cursize, msg->readcount, clc->netchan.incomingSequence );
+	}
+#endif
 
 	// the header is different lengths for reliable and unreliable messages
 	headerBytes = msg->readcount;
@@ -1530,7 +1643,22 @@ void CL_PacketEvent( netadr_t from, msg_t *msg ) {
 	clc->serverMessageSequence = LittleLong( *(int *)msg->data );
 
 	clc->lastPacketTime = cls.realtime;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmPacketTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_PacketEvent before parse msgSeq=%d reliableAck=%d size=%d read=%d",
+			clc->serverMessageSequence, clc->reliableAcknowledge, msg->cursize, msg->readcount );
+	}
+#endif
 	CL_ParseServerMessage( msg );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if ( stefxHmPacketTrace ) {
+		XBLog_Writef( "STEFX_HM: CL_PacketEvent after parse msgSeq=%d read=%d size=%d state=%d newSnapshots=%d snapMsg=%d snapTime=%d",
+			clc->serverMessageSequence, msg->readcount, msg->cursize, cls.state,
+			cl ? cl->newSnapshots : -1,
+			cl ? cl->snap.messageNum : -1,
+			cl ? cl->snap.serverTime : -1 );
+	}
+#endif
 
 	//
 	// we don't know if it is ok to save a demo message until
@@ -1772,7 +1900,17 @@ void CL_Frame ( int msec ) {
 #ifdef _XBOX
 	char jampCLTraceMsg[96];
 	static unsigned int jampCLTraceFrameCount;
+#if defined(STEFX_ELITE_FORCE_MP)
+	static int stefxActiveCLTraceBudget = 12;
+	qboolean stefxActiveCLTrace = (qboolean)( cls.state == CA_ACTIVE && stefxActiveCLTraceBudget > 0 );
+	if ( stefxActiveCLTrace )
+	{
+		stefxActiveCLTraceBudget--;
+	}
+	jampCLTrace = (jampCLTraceFrameCount < 2 || stefxActiveCLTrace);
+#else
 	jampCLTrace = (jampCLTraceFrameCount < 2);
+#endif
 	XBLog_Phase("CL_Frame enter");
 	jampCLTraceFrameCount++;
 	if (jampCLTrace)
@@ -2068,15 +2206,21 @@ CL_InitRenderer
 */
 void CL_InitRenderer( void ) {
 	// this sets up the renderer and calls R_Init
+	Com_PrintfAlways("STEFX_HM: CL_InitRenderer BeginRegistration begin\n");
 	re.BeginRegistration( &cls.glconfig );
+	Com_PrintfAlways("STEFX_HM: CL_InitRenderer BeginRegistration done\n");
 
 	// load character sets
 //	cls.charSetShader = re.RegisterShaderNoMip("gfx/2d/charsgrid_med");
 
+	Com_PrintfAlways("STEFX_HM: CL_InitRenderer white shader registration begin\n");
 	cls.whiteShader = re.RegisterShader( "white" );
+	Com_PrintfAlways("STEFX_HM: CL_InitRenderer white shader registration done handle=%d\n", cls.whiteShader);
 //	cls.consoleShader = re.RegisterShader( "console" );
+	Com_PrintfAlways("STEFX_HM: CL_InitRenderer console metrics begin\n");
 	g_console_field_width = cls.glconfig.vidWidth / SMALLCHAR_WIDTH - 2;
 	kg.g_consoleField.widthInChars = g_console_field_width;
+	Com_PrintfAlways("STEFX_HM: CL_InitRenderer done consoleWidth=%d\n", g_console_field_width);
 }
 
 /*
@@ -2088,29 +2232,69 @@ This is the only place that any of these functions are called from
 ============================
 */
 void CL_StartHunkUsers( void ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers enter cl_running=%d renderer=%d sound=%d soundReg=%d ui=%d state=%d\n",
+		com_cl_running ? com_cl_running->integer : -1,
+		cls.rendererStarted,
+		cls.soundStarted,
+		cls.soundRegistered,
+		cls.uiStarted,
+		cls.state);
+#endif
 	if (!com_cl_running) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers exit no cl_running cvar\n");
+#endif
 		return;
 	}
 
 	if ( !com_cl_running->integer ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers exit cl_running=0\n");
+#endif
 		return;
 	}
 
 	if ( !cls.rendererStarted ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers renderer begin\n");
+#endif
 		cls.rendererStarted = qtrue;
 		CL_InitRenderer();
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers renderer done\n");
+#endif
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	else {
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers renderer already started\n");
+	}
+#endif
 
 	if ( !cls.soundStarted ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers sound init begin\n");
+#endif
 		cls.soundStarted = qtrue;
 #if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
 		Com_PrintfAlways("JAMP: CL_StartHunkUsers S_Init skipped for Cxbx smoke testing\n");
 #else
 		S_Init();
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers sound init done\n");
+#endif
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	else {
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers sound already started\n");
+	}
+#endif
 
 	if ( !cls.soundRegistered ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers sound registration begin\n");
+#endif
 		cls.soundRegistered = qtrue;
 #if defined(_XBOX) && JAMP_CXBX_SMOKE_SKIP_SOUND
 		Com_PrintfAlways("JAMP: CL_StartHunkUsers S_BeginRegistration skipped for Cxbx smoke testing\n");
@@ -2121,12 +2305,33 @@ void CL_StartHunkUsers( void ) {
 		S_BeginRegistration();
 #endif
 #endif
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers sound registration done\n");
+#endif
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	else {
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers sound already registered\n");
+	}
+#endif
 
 	if ( !cls.uiStarted ) {
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers UI begin\n");
+#endif
 		cls.uiStarted = qtrue;
 		CL_InitUI();
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers UI done uiStarted=%d\n", cls.uiStarted);
+#endif
 	}
+#if defined(STEFX_ELITE_FORCE_MP)
+	else {
+		Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers UI already started\n");
+	}
+
+	Com_PrintfAlways("STEFX_HM: CL_StartHunkUsers exit\n");
+#endif
 }
 
 /*
@@ -2317,7 +2522,12 @@ void CL_Init( void ) {
 	Cvar_Get ("name", "Padawan", CVAR_USERINFO | CVAR_ARCHIVE | CVAR_PROFILE );
 	Cvar_Get ("rate", "4000", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("snaps", "20", CVAR_USERINFO | CVAR_ARCHIVE );
+#if defined(STEFX_ELITE_FORCE_MP)
+	Cvar_Get ("model", "munro/default", CVAR_USERINFO | CVAR_ARCHIVE | CVAR_PROFILE );
+	Com_Printf( "STEFX_HM: client default userinfo model is EF Holomatch model='munro/default'\n" );
+#else
 	Cvar_Get ("model", "kyle/default", CVAR_USERINFO | CVAR_ARCHIVE | CVAR_PROFILE );
+#endif
 
 #ifdef _XBOX
 	// Temp CVar to store UI selected models

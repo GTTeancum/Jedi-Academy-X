@@ -34,7 +34,12 @@ enum {
 	ET_PLAYER,
 	ET_ITEM,
 	ET_MISSILE,
+#if defined(STEFX_ELITE_FORCE_MP)
+	ET_ALT_MISSILE,
 	ET_MOVER
+#else
+	ET_MOVER
+#endif
 };
 
 //===========================================================================

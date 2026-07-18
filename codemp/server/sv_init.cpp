@@ -464,11 +464,16 @@ extern int g_duelPrintTimer;
 
 void SV_ClearLastLevel(void)
 {
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf("STEFX_HM: SV_ClearLastLevel skipped inherited client/nav/vehicle cleanup\n");
+#else
 	CL_ClearLastLevel();
 	game::BG_ClearVehicleLoadInfo();
 	NAV_Free();
-	checkminimumplayers_time = 0;
 	G_ClearVehicles();
+#endif
+
+	checkminimumplayers_time = 0;
 
 	int i;
 	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
@@ -892,13 +897,19 @@ Ghoul2 Insert End
 	if ( sv_pure->integer ) {
 		// the server sends these to the clients so they will only
 		// load pk3s also loaded at the server
-		p = FS_LoadedPakChecksums();
-		Cvar_Set( "sv_paks", p );
-		if (strlen(p) == 0) {
+		const char *loadedPakChecksums = FS_LoadedPakChecksums();
+		const char *loadedPakNames;
+		Cvar_Set( "sv_paks", loadedPakChecksums );
+		if (strlen(loadedPakChecksums) == 0) {
 			Com_Printf( "WARNING: sv_pure set but no PK3 files loaded\n" );
 		}
-		p = FS_LoadedPakNames();
-		Cvar_Set( "sv_pakNames", p );
+		loadedPakNames = FS_LoadedPakNames();
+		Cvar_Set( "sv_pakNames", loadedPakNames );
+#if defined(STEFX_ELITE_FORCE_MP)
+		Com_Printf( "STEFX_HM: SV pure loaded PK3s checksums='%s' names='%s'\n",
+			loadedPakChecksums,
+			loadedPakNames );
+#endif
 
 		// if a dedicated pure server we need to touch the cgame because it could be in a
 		// seperate pk3 file and the client will need to load the latest cgame.qvm
@@ -929,6 +940,13 @@ Ghoul2 Insert End
 	// and any configstring changes should be reliably transmitted
 	// to all clients
 	sv.state = SS_GAME;
+#if defined(STEFX_ELITE_FORCE_MP)
+	Com_Printf( "STEFX_HM: SV_SpawnServer game ready map='%s' state=%d sv_running=%d maxclients=%d\n",
+		server,
+		sv.state,
+		com_sv_running ? com_sv_running->integer : 0,
+		sv_maxclients ? sv_maxclients->integer : 0 );
+#endif
 
 	// send a heartbeat now so the master will get up to date info
 	SV_Heartbeat_f();
