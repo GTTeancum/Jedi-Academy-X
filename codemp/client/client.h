@@ -116,6 +116,8 @@ typedef struct {
 									// frames may need to be packed into a single packet
 
 	outPacket_t	outPackets[PACKET_BACKUP];	// information about each packet we have sent out
+	int			spPacketTime[PACKET_BACKUP];
+	int			spPacketCmdNumber[PACKET_BACKUP];
 
 	// the client maintains its own idea of view angles, which are
 	// sent to the server each frame.  It is cleared to 0 upon entering each level.
@@ -380,15 +382,21 @@ extern	cvar_t	*cl_freelook;
 extern	cvar_t	*cl_mouseAccel;
 extern	cvar_t	*cl_showMouseRate;
 
+extern	cvar_t	*m_pitch;
 extern	cvar_t	*m_pitchVeh;
 extern	cvar_t	*m_yaw;
 extern	cvar_t	*m_forward;
 extern	cvar_t	*m_side;
 extern	cvar_t	*m_filter;
 
+#ifdef _XBOX
+extern	cvar_t	*cl_sensitivityY;
+#endif
+
 extern	cvar_t	*cl_timedemo;
 
 extern	cvar_t	*cl_activeAction;
+extern	cvar_t	*cl_thumbStickMode;
 
 #ifndef _XBOX
 extern	cvar_t	*cl_allowDownload;
@@ -466,6 +474,7 @@ void CL_VerifyCode( void );
 
 float CL_KeyState (kbutton_t *key);
 const char *Key_KeynumToString( int keynum/*, qboolean bTranslate */ ); //note: translate is only called for menu display not configs
+int Key_GetKey( const char *binding );
 
 //
 // cl_parse.c

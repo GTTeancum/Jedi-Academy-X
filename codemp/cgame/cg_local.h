@@ -1,5 +1,8 @@
 // Copyright (C) 1999-2000 Id Software, Inc.
 //
+#ifndef CG_LOCAL_H
+#define CG_LOCAL_H
+
 #include "../game/q_shared.h"
 #include "tr_types.h"
 #include "../game/bg_public.h"
@@ -2662,3 +2665,5 @@ bool CG_ModelAllowed(void *ghoul2);
 /*
 Ghoul2 Insert End
 */
+
+#endif // CG_LOCAL_H

@@ -2,7 +2,11 @@
 #ifndef __XB_SETTINGS_H
 #define __XB_SETTINGS_H
 
+#define NOD3D
+#define NODSOUND
 #include <xtl.h>
+#undef NODSOUND
+#undef NOD3D
 
 enum XBStartupState
 {
@@ -72,6 +76,10 @@ struct XBSettings
 
 	// Has the user turned off saving (by choosing "Continue Without Saving")?
 	bool IsDisabled( void );
+
+#ifdef XBOX_DEMO
+	void RestoreDefaults( void );
+#endif
 
 private:
 	bool Sign( XCALCSIG_SIGNATURE *pSig );

@@ -1,9 +1,9 @@
 // #include "../server/exe_headers.h"
 
 #include "../client/client.h"
-
 //JLF
-//#include "../client/client_ui.h"
+#include "../client/client_ui.h"
+
 
 #include "../qcommon/qcommon.h"
 #ifdef _JK2MP
@@ -14,11 +14,10 @@
 
 #include "win_local.h"
 #include "win_input.h"
+#include "xb_log.h"
 
-#include "../cgame/cg_local.h"
-#include "../client/cl_data.h"
-
-#include "../qcommon/xb_settings.h"
+cvar_t *inSplashMenu = NULL;
+cvar_t *controllerOut = NULL;
 
 static void HandleDebugJoystickPress(fakeAscii_t button);
 
@@ -33,18 +32,370 @@ static bool IN_ControllerMustBePlugged(int controller);
 #endif
 
 // Controller connection globals
-signed char uiControllerNotification = -1;
-extern int unpluggedcontrol2;
-
-
+static signed char uiControllerNotification = -1;
 bool noControllersConnected = false;
 bool wasPlugged[4];
 
 int mainControllerDelayedUnplug = 0;
 
-
 PadInfo _padInfo; // gamepad thumbstick buffer
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern qboolean UI_EFMainMenu_IsActive( void );
+
+static qboolean IN_STEFX_IsFrontendButton(fakeAscii_t button)
+{
+	switch (button)
+	{
+	case A_JOY5:
+	case A_JOY7:
+	case A_JOY8:
+	case A_JOY6:
+	case A_JOY15:
+	case A_JOY14:
+	case A_JOY16:
+	case A_JOY13:
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+
+static void IN_STEFX_QueueFrontendKey(fakeAscii_t key, qboolean down, const char *source)
+{
+	static int s_logBudget = 80;
+
+	if (s_logBudget > 0)
+	{
+		XBLF("STEFX_FRONTEND_INPUT source='%s' key=%d down=%d state=%d catcher=0x%x splash=%d",
+			source ? source : "",
+			(int)key,
+			down ? 1 : 0,
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers,
+			inSplashMenu ? inSplashMenu->integer : -1);
+		--s_logBudget;
+	}
+
+	Sys_QueEvent(0, SE_KEY, key, down, 0, NULL);
+}
+
+static void IN_STEFX_PulseFrontendKey(fakeAscii_t key, const char *source)
+{
+	IN_STEFX_QueueFrontendKey(key, qtrue, source);
+	IN_STEFX_QueueFrontendKey(key, qfalse, source);
+}
+
+static void IN_STEFX_UpdateFrontendThumbstick(void)
+{
+	static fakeAscii_t s_lastKey = (fakeAscii_t)0;
+	static int s_nextRepeatTime = 0;
+	const float threshold = 0.50f;
+	const int repeatMsec = 170;
+	const float x = _padInfo.joyInfo[0].x;
+	const float y = _padInfo.joyInfo[0].y;
+	const float absX = x < 0.0f ? -x : x;
+	const float absY = y < 0.0f ? -y : y;
+	fakeAscii_t key = (fakeAscii_t)0;
+	const int now = Sys_Milliseconds();
+
+	if (absX < threshold && absY < threshold)
+	{
+		s_lastKey = (fakeAscii_t)0;
+		s_nextRepeatTime = 0;
+		return;
+	}
+
+	if (absY >= absX)
+	{
+		key = y > 0.0f ? A_JOY5 : A_JOY7;
+	}
+	else
+	{
+		key = x > 0.0f ? A_JOY6 : A_JOY8;
+	}
+
+	if (key != s_lastKey || now >= s_nextRepeatTime)
+	{
+		IN_STEFX_PulseFrontendKey(key, "thumbstick");
+		s_lastKey = key;
+		s_nextRepeatTime = now + repeatMsec;
+	}
+}
+#endif
+
+/**********************************************************
+*
+* CHEAT FUNCTIONS
+*
+**********************************************************/
+
+bool Cheat_God( void )
+{
+	Cbuf_ExecuteText( EXEC_APPEND, "god\n" );
+	return true;
+}
+
+void Cheat_GiveAll( void )
+{
+	Cbuf_ExecuteText(EXEC_APPEND, "give all\n");
+}
+extern bool Cheat_ChangeSaber( void );	// In wp_saber.cpp
+
+#include "../game/anims.h"
+#include "../cgame/cg_local.h"
+static bool isDeathAnimation( int anim )
+{
+	switch( anim )
+	{
+	case BOTH_DEATH1:			//# First Death anim
+	case BOTH_DEATH2:			//# Second Death anim
+	case BOTH_DEATH3:			//# Third Death anim
+	case BOTH_DEATH4:			//# Fourth Death anim
+	case BOTH_DEATH5:			//# Fifth Death anim
+	case BOTH_DEATH6:			//# Sixth Death anim
+	case BOTH_DEATH7:			//# Seventh Death anim
+	case BOTH_DEATH8:			//# 
+	case BOTH_DEATH9:			//# 
+	case BOTH_DEATH10:			//# 
+	case BOTH_DEATH11:			//#
+	case BOTH_DEATH12:			//# 
+	case BOTH_DEATH13:			//# 
+	case BOTH_DEATH14:			//# 
+	case BOTH_DEATH14_UNGRIP:	//# Desann's end death (cin #35)
+	case BOTH_DEATH14_SITUP:	//# Tavion sitting up after having been thrown (cin #23)
+	case BOTH_DEATH15:			//# 
+	case BOTH_DEATH16:			//# 
+	case BOTH_DEATH17:			//# 
+	case BOTH_DEATH18:			//# 
+	case BOTH_DEATH19:			//# 
+	case BOTH_DEATH20:			//# 
+	case BOTH_DEATH21:			//# 
+	case BOTH_DEATH22:			//# 
+	case BOTH_DEATH23:			//# 
+	case BOTH_DEATH24:			//# 
+	case BOTH_DEATH25:			//# 
+	case BOTH_DEATHFORWARD1:	//# First Death in which they get thrown forward
+	case BOTH_DEATHFORWARD2:	//# Second Death in which they get thrown forward
+	case BOTH_DEATHFORWARD3:	//# Tavion's falling in cin# 23
+	case BOTH_DEATHBACKWARD1:	//# First Death in which they get thrown backward
+	case BOTH_DEATHBACKWARD2:	//# Second Death in which they get thrown backward
+	case BOTH_DEATH1IDLE:		//# Idle while close to death
+	case BOTH_LYINGDEATH1:		//# Death to play when killed lying down
+	case BOTH_STUMBLEDEATH1:	//# Stumble forward and fall face first death
+	case BOTH_FALLDEATH1:		//# Fall forward off a high cliff and splat death - start
+	case BOTH_FALLDEATH1INAIR:	//# Fall forward off a high cliff and splat death - loop
+	case BOTH_FALLDEATH1LAND:	//# Fall forward off a high cliff and splat death - hit bottom
+	case BOTH_DEAD1:			//# First Death finished pose
+	case BOTH_DEAD2:			//# Second Death finished pose
+	case BOTH_DEAD3:			//# Third Death finished pose
+	case BOTH_DEAD4:			//# Fourth Death finished pose
+	case BOTH_DEAD5:			//# Fifth Death finished pose
+	case BOTH_DEAD6:			//# Sixth Death finished pose
+	case BOTH_DEAD7:			//# Seventh Death finished pose
+	case BOTH_DEAD8:			//# 
+	case BOTH_DEAD9:			//# 
+	case BOTH_DEAD10:			//# 
+	case BOTH_DEAD11:			//#
+	case BOTH_DEAD12:			//# 
+	case BOTH_DEAD13:			//# 
+	case BOTH_DEAD14:			//# 
+	case BOTH_DEAD15:			//# 
+	case BOTH_DEAD16:			//# 
+	case BOTH_DEAD17:			//# 
+	case BOTH_DEAD18:			//# 
+	case BOTH_DEAD19:			//# 
+	case BOTH_DEAD20:			//# 
+	case BOTH_DEAD21:			//# 
+	case BOTH_DEAD22:			//# 
+	case BOTH_DEAD23:			//# 
+	case BOTH_DEAD24:			//# 
+	case BOTH_DEAD25:			//# 
+	case BOTH_DEADFORWARD1:		//# First thrown forward death finished pose
+	case BOTH_DEADFORWARD2:		//# Second thrown forward death finished pose
+	case BOTH_DEADBACKWARD1:	//# First thrown backward death finished pose
+	case BOTH_DEADBACKWARD2:	//# Second thrown backward death finished pose
+	case BOTH_LYINGDEAD1:		//# Killed lying down death finished pose
+	case BOTH_STUMBLEDEAD1:		//# Stumble forward death finished pose
+	case BOTH_FALLDEAD1LAND:	//# Fall forward and splat death finished pose
+	case BOTH_DEADFLOP1:		//# React to being shot from First Death finished pose
+	case BOTH_DEADFLOP2:		//# React to being shot from Second Death finished pose
+	case BOTH_DISMEMBER_HEAD1:	//#
+	case BOTH_DISMEMBER_TORSO1:	//#
+	case BOTH_DISMEMBER_LLEG:	//#
+	case BOTH_DISMEMBER_RLEG:	//#
+	case BOTH_DISMEMBER_RARM:	//#
+	case BOTH_DISMEMBER_LARM:	//#
+	case BOTH_DEATH_ROLL:		//# Death anim from a roll
+	case BOTH_DEATH_FLIP:		//# Death anim from a flip
+	case BOTH_DEATH_SPIN_90_R:	//# Death anim when facing 90 degrees right
+	case BOTH_DEATH_SPIN_90_L:	//# Death anim when facing 90 degrees left
+	case BOTH_DEATH_SPIN_180:	//# Death anim when facing backwards
+	case BOTH_DEATH_LYING_UP:	//# Death anim when lying on back
+	case BOTH_DEATH_LYING_DN:	//# Death anim when lying on front
+	case BOTH_DEATH_FALLING_DN:	//# Death anim when falling on face
+	case BOTH_DEATH_FALLING_UP:	//# Death anim when falling on back
+	case BOTH_DEATH_CROUCHED:	//# Death anim when crouched
+		return true;
+		break;
+	default:
+		return false;
+		break;
+	}
+}
+
+bool Cheat_WinLevel( void )
+{
+	// Do not do this while any UI is active. It's dangerous:
+	extern int Key_GetCatcher( void );
+	if( Key_GetCatcher() == KEYCATCH_UI )
+		return false;
+
+	// Also, don't do it during cutscenes:
+	extern bool in_camera;
+	if( in_camera || ( g_entities[0].client &&  isDeathAnimation(g_entities[0].client->ps.legsAnim)))
+		return false;
+
+
+	// All maps (except kor2) have a trigger item named end_level
+	Cbuf_ExecuteText( EXEC_APPEND, "use end_level\n" );
+
+	return true;
+}
+
+#ifndef XBOX_DEMO
+bool Cheat_LevelSelect( void )
+{
+	// Set cvar that enables the level select menu:
+	Cvar_SetValue( "ui_levelselect", 1 );
+
+	return true;
+}
+#endif
+
+extern bool Cheat_InfiniteForce( void ); // In wp_saber.cpp
+
+#if YELLOW_MODE
+extern bool enableYellowMode;
+char yellowModeLevel = 0;
+bool enableYellowStage2 = false;
+
+bool Cheat_Yellow_Stage2( void )
+{
+	if(!enableYellowStage2)
+		return false;
+
+	if(IN_GetMainController() != 0)
+		return false;
+
+	if( g_entities[0].client &&  isDeathAnimation(g_entities[0].client->ps.legsAnim))
+		enableYellowMode = true;
+	else
+		enableYellowMode = false;
+
+	return enableYellowMode;
+}
+
+bool Cheat_Yellow_Stage1( void )
+{
+	if(IN_GetMainController() != 1)
+		return false;
+
+	if(yellowModeLevel	== 0)		// step one, in a cutscene
+	{
+		extern bool in_camera;
+		if(in_camera)
+		{
+			yellowModeLevel++;
+			return true;
+		}
+	}
+	else if( yellowModeLevel == 1 ) // step two, during the splash screen
+	{
+		if(inSplashMenu->integer)
+		{
+			yellowModeLevel++;
+			return true;
+		}
+	}
+	else if( yellowModeLevel == 2 ) // step three, while force hud is active
+	{
+		if(cg.forceHUDActive)
+		{
+			yellowModeLevel++;
+			return true;
+		}
+	}
+
+	if(yellowModeLevel == 3)		// eveything is ok, now reset and move to stage 2
+	{
+		enableYellowStage2 = true;
+		yellowModeLevel = 4;
+		return true;
+	}
+
+	return false;
+}
+
+#endif // YELLOW_MODE
+
+bool Cheat_AllForce( void )
+{
+	// Do not do this while the force config UI is running. That causes SERIOUS problems:
+	extern bool UI_ForceConfigUIActive( void );
+	if( UI_ForceConfigUIActive() )
+		return false;
+
+	// Set all Light powers to level 3:
+	Cbuf_ExecuteText( EXEC_APPEND, "setForceHeal 3\nsetMindTrick 3\nsetForceProtect 3\nsetForceAbsorb 3\n" );
+	// Set all Dark powers to level 3:
+	Cbuf_ExecuteText( EXEC_APPEND, "setForceGrip 3\nsetForceLightning 3\nsetForceRage 3\nsetForceDrain 3\n" );
+
+	return true;
+}
+
+bool Cheat_KungFoo( void )
+{
+	Cbuf_ExecuteText( EXEC_APPEND, "iknowkungfu\n");
+	return qtrue;
+}
+
+//
+// CHEAT DATA
+//
+// Every cheat is a sequence of D-pad presses, performed while the right
+// thumbstick is being pressed. The cheat sequences are all length 6, and
+// each cheat is tied to a void (void) function. Mapping:
+// 5 - Up, 7 - Down, 8 - Left, 6 - Right
+typedef bool(*xcommandC_t)(void);
+struct cheat_t
+{
+	fakeAscii_t	buttons[6];
+	xcommandC_t	function;
+};
+
+cheat_t cheats[] = {
+	{ {A_JOY7, A_JOY5, A_JOY8, A_JOY6, A_JOY7, A_JOY5}, Cheat_God },
+	//{ {A_JOY6, A_JOY6, A_JOY8, A_JOY8, A_JOY7, A_JOY5}, Cheat_GiveAll },
+	{ {A_JOY7, A_JOY8, A_JOY5, A_JOY7, A_JOY6, A_JOY5}, Cheat_ChangeSaber },
+	{ {A_JOY5, A_JOY5, A_JOY7, A_JOY7, A_JOY8, A_JOY6}, Cheat_WinLevel },
+#ifndef XBOX_DEMO
+	{ {A_JOY6, A_JOY8, A_JOY6, A_JOY7, A_JOY6, A_JOY5}, Cheat_LevelSelect },
+#endif
+	{ {A_JOY5, A_JOY7, A_JOY5, A_JOY8, A_JOY5, A_JOY6}, Cheat_InfiniteForce },
+	{ {A_JOY8, A_JOY7, A_JOY6, A_JOY5, A_JOY7, A_JOY7}, Cheat_AllForce },
+//	{ {A_JOY8, A_JOY7, A_JOY6, A_JOY5, A_JOY7, A_JOY8}, Cheat_KungFoo },
+#if YELLOW_MODE
+	{ {A_JOY5, A_JOY7, A_JOY5, A_JOY8, A_JOY6, A_JOY5}, Cheat_Yellow_Stage1 },
+	{ {A_JOY5, A_JOY6, A_JOY8, A_JOY5, A_JOY7, A_JOY7}, Cheat_Yellow_Stage2 },
+#endif // YELLOW_MODE
+};
+
+const int numCheats = sizeof(cheats) / sizeof(cheats[0]);
+
+bool		enteringCheat = false;
+int			cheatLength = 0;
+fakeAscii_t	curCheat[6];
 
 
 //If the Xbox white or black button was held for less than this amount of
@@ -123,9 +474,11 @@ void IN_UIEmptyQueue()
 		return;
 	}
 
-	for (int i = 0; i < ClientManager::NumClients(); i++)
+// BTO - No CM, bypass that logic.
+//	for (int i = 0; i < ClientManager::NumClients(); i++)
+	for (int i = 0; i < 1; ++i)
 	{
-		ClientManager::ActivateClient(i);
+//		ClientManager::ActivateClient(i);
 		int found = 0;
 		int bCancel = 0;
 		for (int j = 0; j < uiQueueLen[i]; j++)
@@ -185,17 +538,138 @@ void IN_UIEmptyQueue()
 	// Reset the queue
 	uiQueueLen[0] = uiQueueLen[1] = 0;
 }
-extern int uiClientNum;
-extern int uiclientInputClosed;
-extern qboolean uiControllerMenu;
-extern vmCvar_t ControllerOutNum;
 
 // extern void G_DemoKeypress();
 // extern void CG_SkipCredits(void);
+char	lastControllerUsed = 0;
+
 void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 {
-	//int clientsClosedBitField;
-	int activeClient;
+#ifdef XBOX_DEMO
+	// Reset the demo timer so that we don't auto-reboot to CDX
+	extern void Demo_TimerKeypress( void );
+	Demo_TimerKeypress();
+#endif
+
+	lastControllerUsed	= controller;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	extern int Key_GetCatcher( void );
+	const bool liveUIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
+	const qboolean stefxMenuButton = (button == A_JOY4 || button == A_JOY1);
+	const qboolean stefxReservedP2GlobalMenuBind =
+		stefxMenuButton &&
+		Cvar_VariableIntegerValue("stefx_splitScreen") &&
+		CL_STEFX_SplitScreen_ShouldReservePadForP2(controller, IN_GetMainController()) &&
+		cls.state == CA_ACTIVE &&
+		(!inSplashMenu || !inSplashMenu->integer) &&
+		(!controllerOut || controllerOut->integer < 0) &&
+		UI_STEFX_ShouldDispatchGameplayMenuBind();
+	const qboolean stefxGameplayMenuBind =
+		stefxMenuButton &&
+		(controller == IN_GetMainController() || stefxReservedP2GlobalMenuBind) &&
+		cls.state == CA_ACTIVE &&
+		(!inSplashMenu || !inSplashMenu->integer) &&
+		(!controllerOut || controllerOut->integer < 0) &&
+		UI_STEFX_ShouldDispatchGameplayMenuBind();
+	const qboolean stefxFrontendActive =
+		liveUIRunning &&
+		controller == IN_GetMainController() &&
+		UI_EFMainMenu_IsActive();
+	{
+		static int s_stefxButtonLogBudget = 64;
+		const qboolean forceMenuButtonLog = stefxMenuButton;
+		if ( forceMenuButtonLog || (s_stefxButtonLogBudget > 0 && (pressed || cls.state == CA_ACTIVE)) )
+		{
+			XBLF("STEFX_INPUT_BUTTON port=%d main=%d button=%d pressed=%d uiCached=%d uiLive=%d state=%d splash=%d controllerOut=%d",
+				controller,
+				IN_GetMainController(),
+				(int)button,
+				pressed ? 1 : 0,
+				_UIRunning ? 1 : 0,
+				liveUIRunning ? 1 : 0,
+				(int)cls.state,
+				inSplashMenu ? inSplashMenu->integer : -1,
+				controllerOut ? controllerOut->integer : -999);
+			if (!forceMenuButtonLog)
+			{
+				--s_stefxButtonLogBudget;
+			}
+		}
+	}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (stefxMenuButton)
+	{
+		XBLF("STEFX_MENU_INPUT gate button=%d pressed=%d main=%d uiCached=%d uiLive=%d state=%d splash=%d controllerOut=%d gameplayBind=%d",
+			(int)button,
+			pressed ? 1 : 0,
+			IN_GetMainController(),
+			_UIRunning ? 1 : 0,
+			liveUIRunning ? 1 : 0,
+			(int)cls.state,
+			inSplashMenu ? inSplashMenu->integer : -1,
+			controllerOut ? controllerOut->integer : -999,
+			stefxGameplayMenuBind ? 1 : 0);
+	}
+
+	if (stefxGameplayMenuBind)
+	{
+		XBLF("STEFX_MENU_INPUT dispatch button=%d pressed=%d state=%d catcher=0x%x",
+			(int)button, pressed ? 1 : 0, (int)cls.state, Key_GetCatcher());
+		CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-menu" );
+		return;
+	}
+
+	if (stefxFrontendActive && IN_STEFX_IsFrontendButton(button))
+	{
+		IN_STEFX_QueueFrontendKey(button, pressed ? qtrue : qfalse, "button");
+		return;
+	}
+#endif
+
+	// Cheat system hooks. The right thumbstick button has to be held for a cheat:
+	if (button == A_JOY3)
+	{
+		if (pressed)
+		{
+			// Just pressed the right thumstick in. Reset cheat detector
+			enteringCheat = true;
+			cheatLength = 0;
+		}
+		else
+		{
+			enteringCheat = false;
+			if (cheatLength == 6)
+			{
+				for( int i = 0; i < numCheats; ++i)
+				{
+					if( memcmp( &cheats[i].buttons[0], &curCheat[0], sizeof(curCheat) ) == 0 )
+					{
+						if(cheats[i].function())
+							S_StartLocalSound( S_RegisterSound( "sound/vehicles/x-wing/s-foil" ), CHAN_AUTO );
+					}
+				}
+			}
+		}
+	}
+	else if (enteringCheat && pressed)
+	{
+		// Handle all other buttons while entering a cheat
+		if (cheatLength == 6 || (button != A_JOY5 && button != A_JOY6 && button != A_JOY7 && button != A_JOY8))
+		{
+			// If we press too many buttons, or anything but the D-pad, cancel entry:
+			enteringCheat = false;
+			cheatLength = 0;
+		}
+		else
+		{
+			// We pressed a d-pad button, we're entering a cheat, and there's still room
+			curCheat[cheatLength++] = button;
+		}
+	}
+
 	// Check for special cases for map hack
 #ifndef FINAL_BUILD
 	if (Cvar_VariableIntegerValue("cl_maphack"))
@@ -215,121 +689,92 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		else if (_UIRunning && button == A_JOY4 && pressed)
 		{
 			// Start button -> F3
-		//	IN_SetMainController(controller);
+			//IN_SetMainController(controller);
 			Sys_QueEvent( 0, SE_KEY, A_F3, pressed, 0, NULL );
 			return;
 		}
 	}
 #endif
 
+	if(inSplashMenu->integer)
+	{
+		// START always works, A only works if the popup isn't shown:
+		if(button == A_JOY4 || (button == A_JOY15 && controllerOut->integer < 0))
+		{
+			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
+		}
+		return;
+	}
 
-	// Don't allow any input to pass through if an important controller is
-	// disconnected
-	int controllerout	= ControllerOutNum.integer;
+	int controllerout	= controllerOut->integer;
 	if(controllerout != -1)
 	{
-		if( (controllerout == controller) && (button == A_JOY4) )
-			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
-		return;
-	}
-
-	if (_UIRunning && cls.state != CA_ACTIVE && pressed )
-	{
-	int clientnum = ClientManager::ActiveClientNum();
-	int client1controller;
-		if ( ClientManager::splitScreenMode == qtrue)
-	{
-		int clientnum = ClientManager::ActiveClientNum();
-		ClientManager::ActivateClient(0);
-		client1controller = ClientManager::ActiveClient().controller;
-		if ( controller != client1controller)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!liveUIRunning && cls.state == CA_ACTIVE && controller == IN_GetMainController())
 		{
-			ClientManager::ActivateClient(1);
-			ClientManager::SetActiveController(controller);
-		}
-
-				ClientManager::SetActiveController(controller);
-
-	ClientManager::ActivateClient(clientnum);
-	}
-	}
-
-//	clientsClosedBitField = Cvar_Get("clientInputClosed", "0" , 0)->integer;
-
-	activeClient = ClientManager::ActiveClientNum();
-	ClientManager::ActivateClient(0);
-
-	if ((uiclientInputClosed & 0x1) && controller == ClientManager::ActiveController()&& UIJoy2Key(button) !=A_ESCAPE)
-	{
-		ClientManager::ActivateClient(activeClient);
-		return;
-	}
-	else
-	{
-		if (ClientManager::splitScreenMode == qtrue)
-		{ 
-			ClientManager::ActivateClient(1);
-			if ((uiclientInputClosed & 0x02) && controller == ClientManager::ActiveController())
-			{
-				ClientManager::ActivateClient(activeClient);
-				return;
-			}
+			XBLF("STEFX_INPUT_STALE_CONTROLLEROUT controllerOut=%d button=%d pressed=%d",
+				controllerout, (int)button, pressed ? 1 : 0);
 		}
 		else
+#endif
 		{
-			if (controller != IN_GetMainController())
-			{
-				ClientManager::ActivateClient(activeClient);
-				return;
-			}
-		}
-	}
-	ClientManager::ActivateClient(activeClient);
-
-	if (!uiControllerMenu)
-	{
-		if (_UIRunning && cls.state == CA_ACTIVE )
-		{	if (ClientManager::ActiveClientNum()!= uiClientNum)
-			{
-				return;
-			}
-			if (ClientManager::ActiveController() != controller)
-			{
-				return;
-			}
+		if(controllerout == controller && (button == A_JOY4))// || button == A_JOY15))
+			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
+		return;
 		}
 	}
 
-//END JLF
-
-#ifdef _XBOX
-	if(ClientManager::splitScreenMode == qtrue)
+	if(IN_GetMainController() == controller )
 	{
-		// Always map start button to ESCAPE
-	//	if (!_UIRunning && controller != ClientManager::Controller(0) && controller != ClientManager::Controller(1))
-		if (!_UIRunning && controller != ClientManager::ActiveController())
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!liveUIRunning && stefxMenuButton && cls.state != CA_ACTIVE &&
+			cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic())
+		{
+			XBLF("STEFX_INPUT_MENU_IGNORED_LOADING button=%d pressed=%d state=%d",
+				(int)button, pressed ? 1 : 0, (int)cls.state);
 			return;
+		}
 
-		if (!_UIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
-			Sys_QueEvent( 0, SE_KEY, A_ESCAPE, pressed, 0, NULL );
+		if (!liveUIRunning && (button == A_JOY4 || button == A_JOY1) && cls.state == CA_ACTIVE)
+		{
+			XBLF("STEFX_INPUT_GAMEPLAY_BUTTON button=%d pressed=%d",
+				(int)button, pressed ? 1 : 0);
+		}
 
-		Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
-	}
-	else
-#endif // _XBOX
+		if (!liveUIRunning && stefxMenuButton && cls.state == CA_ACTIVE)
+		{
+			XBLF("STEFX_INPUT_GAMEPLAY_DISPATCH button=%d pressed=%d",
+				(int)button, pressed ? 1 : 0);
+			CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-gameplay" );
+			return;
+		}
+#endif
 
-
-	if(IN_GetMainController() == controller)
-	
-	{
 		// Always map start button to ESCAPE
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (!liveUIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
+		{
+			XBLF("STEFX_INPUT_START_ESCAPE_SUPPRESSED pressed=%d",
+				pressed ? 1 : 0);
+		}
+		else
+#endif
 		if (!_UIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
 			Sys_QueEvent( 0, SE_KEY, A_ESCAPE, pressed, 0, NULL );
 
 #ifdef DEBUG_CONTROLLER
 		if (controller != 3)
 #endif
+		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (!liveUIRunning && (button == A_JOY4 || button == A_JOY1) && cls.state == CA_ACTIVE)
+			{
+				XBLF("STEFX_INPUT_GAMEPLAY_QUEUE button=%d pressed=%d",
+					(int)button, pressed ? 1 : 0);
+			}
+#endif
 			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
+		}
 	}
 
 #ifdef DEBUG_CONTROLLER
@@ -339,6 +784,8 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		return;
 	}
 #endif
+//JLF
+	
 }
 
 qboolean g_noCheckAxis = qfalse;
@@ -350,11 +797,18 @@ Updates thumbstick events based on _padInfo and ui_thumbStickMode
 void IN_CommonUpdate()
 {
 	extern int Key_GetCatcher( void );
-	_UIRunning = Key_GetCatcher() == KEYCATCH_UI;
+	_UIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
 
 	// Even in the UI, only the main controller should be able to scroll:
 	if( _UIRunning && _padInfo.padId == IN_GetMainController() )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (UI_EFMainMenu_IsActive())
+		{
+			IN_STEFX_UpdateFrontendThumbstick();
+			return;
+		}
+#endif
 		Sys_QueEvent( 0,
 					  SE_MOUSE,
 					  (_padInfo.joyInfo[0].x + _padInfo.joyInfo[1].x) *  4.0f,
@@ -362,13 +816,31 @@ void IN_CommonUpdate()
 					  0,
 					  NULL );
 	}
-	// Splitscreen mode has to have other controllers work
-	else if(_padInfo.padId == IN_GetMainController() || ClientManager::splitScreenMode == qtrue)
+	else if(_padInfo.padId == IN_GetMainController())
 	{
 		// Find out how to configure the thumbsticks
 		//int thumbStickMode = Cvar_Get("ui_thumbStickMode", "0" , 0)->integer;
-		//int thumbStickMode = ClientManager::ActiveClient().cg_thumbsticks;
-		int thumbStickMode = Settings.thumbstickMode[ClientManager::ActiveClientNum()];
+		int thumbStickMode = cl_thumbStickMode->integer;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		{
+			static int s_stefxAxisLogBudget = 64;
+			if ( s_stefxAxisLogBudget > 0 &&
+				( _padInfo.joyInfo[0].x || _padInfo.joyInfo[0].y ||
+				  _padInfo.joyInfo[1].x || _padInfo.joyInfo[1].y ) )
+			{
+				Com_PrintfAlways("STEFX: controller axes port=%d main=%d mode=%d state=%d left=(%g,%g) right=(%g,%g)\n",
+					_padInfo.padId,
+					IN_GetMainController(),
+					thumbStickMode,
+					(int)cls.state,
+					_padInfo.joyInfo[0].x,
+					_padInfo.joyInfo[0].y,
+					_padInfo.joyInfo[1].x,
+					_padInfo.joyInfo[1].y);
+				--s_stefxAxisLogBudget;
+			}
+		}
+#endif
 
 		switch(thumbStickMode)
 		{
@@ -414,6 +886,7 @@ void IN_CommonUpdate()
 
 void startsetMainController(int controller)
 {
+
 	IN_SetMainController(controller);
 	if ( !wasPlugged[controller])
 	{
@@ -421,61 +894,58 @@ void startsetMainController(int controller)
 	}
 }
 
-
-
-extern void UI_SetActiveMenu( const char* menuname,const char *menuID );
 /*********
 IN_DisplayControllerUnplugged
 *********/
-void IN_DisplayControllerUnplugged(int controller)
+
+static void IN_DisplayControllerUnplugged(int controller)
 {
-	int activeclient = ClientManager::ActiveClientNum();
+	uiControllerNotification = controller;
+
+	bool noControllersConnected	=	!wasPlugged[0] &&
+									!wasPlugged[1] &&
+									!wasPlugged[2] &&
+									!wasPlugged[3];
 
 	if ( !( cls.keyCatchers & KEYCATCH_UI ) ) 
 	{
 		if ( cls.state == CA_ACTIVE ) 
 		{
-
-			Cvar_SetValue("ControllerOutNum", controller);
-			uiControllerNotification = controller;
-			VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_NOCONTROLLERINGAME);
-
-		}
-		else //picks up controller out while quiting
-		{
 			if (controller == IN_GetMainController())
 			{
-				mainControllerDelayedUnplug = 1 << controller;
+				Cvar_SetValue("ControllerOutNum", controller);
+				UI_SetActiveMenu( "ingame","noController" );
 			}
 		}
 	}
 	else // UI
-	{	
+	{
+		if(inSplashMenu->integer && noControllersConnected)
 		{
-			if (ClientManager::splitScreenMode)
-			{
-				Cvar_SetValue("ControllerOutNum", controller);
-				uiControllerNotification = controller;
-				VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_NOCONTROLLERINGAME);
-			}
-			else if (controller == IN_GetMainController())
-			{
-					Cvar_SetValue("ControllerOutNum", controller);
-					uiControllerNotification = controller;
-					VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_NOCONTROLLER);
-			}
-			
+			Cvar_SetValue("ControllerOutNum", 4);
+			UI_SetActiveMenu("ui_popup", "noController");
+		}
+		else if( controller == IN_GetMainController())
+		{
+			Cvar_SetValue("ControllerOutNum", controller);
+			UI_SetActiveMenu("ui_popup", "noController");
 		}
 	}
 // END JLF
+
 }
 
-void CheckForSecondPrompt( void )
+/*********
+IN_ClearControllerUnplugged
+*********/
+static void IN_ClearControllerUnplugged(void)
 {
-	if(unpluggedcontrol2 != -1 && ControllerOutNum.integer == -1)
-		IN_DisplayControllerUnplugged(unpluggedcontrol2);
-}
+	uiControllerNotification = -1;
 
+	//TODO Add a call to the UI that removes the controller disconnected
+	// message from the screen.
+//	VM_Call( uivm, UI_CONTROLLER_UNPLUGGED, false, 0);
+}
 
 qboolean CurrentStateIsInteractive()
 {
@@ -484,20 +954,15 @@ qboolean CurrentStateIsInteractive()
 			cls.state ==CA_CONNECTED||
 			cls.state ==CA_CHALLENGING||
 			cls.state ==CA_PRIMED||
-			cls.state ==CA_CINEMATIC  ||
-			cls.state ==CA_LOADING)
+			cls.state ==CA_CINEMATIC ||
+			!SG_GameAllowedToSaveHere(qtrue))
 		return qfalse;
 	 return qtrue;
 }
 
-
-/*********
-IN_ClearControllerUnplugged
-*********/
-static void IN_ClearControllerUnplugged(void)
-{
-	uiControllerNotification = -1;
-}
+// Magic flag used to avoid popping up the "no controllers" dialog if
+// none were present when we booted (but not from MP)
+bool hadAController = false;
 
 /*********
 IN_ControllerMustBePlugged
@@ -514,25 +979,25 @@ static bool IN_ControllerMustBePlugged(int controller)
 		return false;
 	}
 
-	if(	ClientManager::splitScreenMode == qtrue )
-	{
-		if( controller == IN_GetMainController() )
-			return true;
-			
-		if( cls.state == CA_ACTIVE && ClientManager::Controller(1) == controller ) 
-			return true;
-	}
-	else if( controller == IN_GetMainController() )
-	{
+	// If we're at the splash screen, have no controllers anymore, and there
+	// was a controller ever inserted into the machine:
+	extern bool Sys_QuickStart();
+	if( inSplashMenu->integer &&
+		!wasPlugged[0] && !wasPlugged[1] &&
+		!wasPlugged[2] && !wasPlugged[3] &&
+		hadAController )
 		return true;
-	}
 
-	return false;
+	// If we're at the splash screen, and anything else above is false
+	// (we have another controller, or there's never been a controller):
+	if( inSplashMenu->integer )
+		return false;
+
+	// OK. In all other cases, we need the main controller:
+	return (controller == IN_GetMainController());
 }
 
 
-
-extern void IN_CheckForNoControllers();
 /*********
 IN_PadUnplugged
 *********/
@@ -542,37 +1007,33 @@ void IN_PadUnplugged(int controller)
 	{
 		Com_Printf("\tController %d unplugged\n",controller); 
 	}
-
 //JLF moved
 	wasPlugged[controller] = false;
-	Cvar_SetValue("ControllersConnectedCount", wasPlugged[0] + wasPlugged[1] + wasPlugged[2] + wasPlugged[3]);
 
 	//IN_CheckForNoControllers();
 
-	if(IN_ControllerMustBePlugged(controller)/*&& SG_GameAllowedToSaveHere(qtrue)*/)
+	if(IN_ControllerMustBePlugged(controller)&& SG_GameAllowedToSaveHere(qtrue))
 	{
 		//If UI isn't busy, inform it about controller loss.
 		if(uiControllerNotification == -1 && Cvar_VariableIntegerValue("ControllerOutNum")<0)
 		{
-			mainControllerDelayedUnplug &= ~( 1<< controller);
 			IN_DisplayControllerUnplugged(controller);
-			
+			mainControllerDelayedUnplug &= ~( 1<< controller);
 		}
-		else
-		{
-			if(ClientManager::splitScreenMode == qtrue)
-				if (controller != uiControllerNotification)
-					unpluggedcontrol2 = controller;
-		}
+//		else
+//			mainControllerDelayedUnplug = 1 << controller;
+
 	}
 	else
 	{
-		if ((noControllersConnected && _UIRunning) || controller == IN_GetMainController() || ( cls.state != CA_DISCONNECTED && ClientManager::splitScreenMode))
+		if ( controller == IN_GetMainController())
 		{
 			//store somehow for checking again later
 			mainControllerDelayedUnplug = 1 << controller;
 		}
 	}
+//	wasPlugged[controller] = false;
+
 
 
 }
@@ -587,16 +1048,24 @@ void IN_PadPlugged(int controller)
 		Com_Printf("\tController %d plugged\n",controller); 
 	}
 
-	if(IN_ControllerMustBePlugged(controller)/*&& SG_GameAllowedToSaveHere(qtrue)*/)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		extern bool Sys_IsDirectMapBoot(void);
+		if ( Sys_IsDirectMapBoot() && !hadAController )
+		{
+			IN_SetMainController(controller);
+			Com_PrintfAlways("STEFX: direct-map main controller selected port=%d\n", controller);
+		}
+	}
+#endif
+
+	if(IN_ControllerMustBePlugged(controller)&& SG_GameAllowedToSaveHere(qtrue))
 	{
 		//If UI is dealing with this controller, tell it to stop.
-		if((uiControllerNotification == controller)|| (_UIRunning && cls.state != CA_ACTIVE ))
+		if(uiControllerNotification == controller || (_UIRunning && cls.state != CA_ACTIVE ))
 		{
 			IN_ClearControllerUnplugged();
 		}
-		if (unpluggedcontrol2 == controller)
-			unpluggedcontrol2 = -1;
-
 	}
 	else
 	{
@@ -609,7 +1078,7 @@ void IN_PadPlugged(int controller)
 
 	wasPlugged[controller] = true;
 	noControllersConnected = false;
-	Cvar_SetValue("ControllersConnectedCount", wasPlugged[0]+wasPlugged[1] + wasPlugged[2]+wasPlugged[3]);
+	hadAController = true;
 }
 
 /*********
@@ -625,9 +1094,6 @@ IN_SetMainController
 *********/
 void IN_SetMainController(int id)
 {
-	ClientManager::SetActiveController(id);
-	ClientManager::ActivateByControllerId(id);
-	ClientManager::SetMainClient(ClientManager::ActiveClientNum());
 	cls.mainGamepad = id;
 }
 
@@ -672,7 +1138,7 @@ static void HandleDebugJoystickPress(fakeAscii_t button)
 	case A_JOY7: // Left pad down
 		break;
 	case A_JOY11: // Upper left trigger
-		break;
+		break; 
 	case A_JOY9: // White button
 		break;
 	case A_JOY10: // Black button

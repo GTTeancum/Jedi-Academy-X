@@ -12,6 +12,21 @@ typedef struct cmd_function_s
 
 static	cmd_function_t	cmd_functions[CMD_MAX_NUM] = {0};		// possible commands to execute
 
+/*
+============
+Cmd_CommandCompletion
+============
+*/
+void Cmd_CommandCompletion( void(*callback)(const char *s) ) {
+	int i;
+
+	for ( i = 0 ; i < CMD_MAX_NUM ; i++ ) {
+		if ( cmd_functions[i].name[0] ) {
+			callback( cmd_functions[i].name );
+		}
+	}
+}
+
 
 /*
 ============

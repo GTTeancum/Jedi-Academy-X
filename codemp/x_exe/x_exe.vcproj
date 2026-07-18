@@ -136,15 +136,19 @@
 				>
 			</File>
 			<File
-				RelativePath="..\client\cl_input.cpp"
+				RelativePath="..\client\cl_input_sp_bridge.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\client\cl_input_hotswap.cpp"
+				RelativePath="..\client\cl_input_hotswap_sp_bridge.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\client\cl_keys.cpp"
+				RelativePath="..\client\cl_keys_sp_bridge.cpp"
+				>
+			</File>
+			<File
+				RelativePath="..\client\sp_controls_compat.cpp"
 				>
 			</File>
 			<File
@@ -464,7 +468,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\qcommon\xb_settings.cpp"
+				RelativePath="..\qcommon\xb_settings_sp_bridge.cpp"
 				>
 			</File>
 			<File
@@ -508,11 +512,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\win32\win_input_console.cpp"
+				RelativePath="..\win32\win_input_console_sp_bridge.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\win32\win_input_rumble.cpp"
+				RelativePath="..\win32\win_input_rumble_sp_bridge.cpp"
 				>
 			</File>
 			<File

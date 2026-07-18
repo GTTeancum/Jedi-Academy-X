@@ -83,10 +83,14 @@ cvar_t	*cl_forceavidemo;
 
 cvar_t	*cl_freelook;
 cvar_t	*cl_sensitivity;
+#ifdef _XBOX
+cvar_t	*cl_sensitivityY;
+#endif
 
 cvar_t	*cl_mouseAccel;
 cvar_t	*cl_showMouseRate;
 
+cvar_t	*m_pitch;
 cvar_t	*m_pitchVeh;
 cvar_t	*m_yaw;
 cvar_t	*m_forward;
@@ -99,6 +103,7 @@ cvar_t	*cl_mapname;
 #endif
 
 cvar_t	*cl_activeAction;
+cvar_t	*cl_thumbStickMode;
 
 cvar_t	*cl_motdString;
 
@@ -2563,7 +2568,7 @@ void CL_Init( void ) {
 #ifdef _XBOX
 	cl_sensitivity = Cvar_Get ("sensitivity", "2", CVAR_ARCHIVE);
 
-	Cvar_Get ("sensitivityY", "2", CVAR_ARCHIVE);
+	cl_sensitivityY = Cvar_Get ("sensitivityY", "2", CVAR_ARCHIVE);
 
 	CM_START_LOOP();
 
@@ -2582,6 +2587,7 @@ void CL_Init( void ) {
 	cl_allowAltEnter = Cvar_Get ("cl_allowAltEnter", "0", CVAR_ARCHIVE);
 
 	cl_autolodscale = Cvar_Get( "cl_autolodscale", "1", CVAR_ARCHIVE );
+	cl_thumbStickMode = Cvar_Get ("ui_thumbStickMode", "0", CVAR_ARCHIVE);
 
 	cl_conXOffset = Cvar_Get ("cl_conXOffset", "0", 0);
 #ifdef MACOS_X
@@ -2593,6 +2599,7 @@ void CL_Init( void ) {
 
 	cl_serverStatusResendTime = Cvar_Get ("cl_serverStatusResendTime", "750", 0);
 
+	m_pitch = Cvar_Get ("m_pitch", "0.022", CVAR_ARCHIVE);
 	m_pitchVeh = Cvar_Get ("m_pitchVeh", "-0.022", CVAR_ARCHIVE);
 
 	m_yaw = Cvar_Get ("m_yaw", "0.022", CVAR_ARCHIVE);

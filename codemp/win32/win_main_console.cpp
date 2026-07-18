@@ -38,7 +38,7 @@
 
 #ifndef JAMP_CXBX_SMOKE_STARTUP_COMMAND
 #if STEFX_HOLOMATCH_DIRECT_BOOT
-#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set fs_game BaseEF +set model munro/default +set sv_maxclients 4 +set g_gametype 0 +set fraglimit 0 +set timelimit 0 +set g_ghostRespawn 0 +set g_spawnInvulnerability 0 +set g_forcerespawn 1 +set g_holoIntro 0 +set stefx_hm_directSlice 1 +set bot_enable 1 +set bot_minplayers 3 +set r_uiFullScreen 0 +map hm_borg1"
+#define JAMP_CXBX_SMOKE_STARTUP_COMMAND "+set fs_game BaseEF +set inSplashMenu 0 +set ControllerOutNum -1 +set model munro/default +set sv_maxclients 4 +set g_gametype 0 +set fraglimit 0 +set timelimit 0 +set g_ghostRespawn 0 +set g_spawnInvulnerability 0 +set g_forcerespawn 1 +set g_holoIntro 0 +set stefx_hm_directSlice 1 +set bot_enable 1 +set bot_minplayers 3 +set r_uiFullScreen 0 +map hm_borg1"
 #else
 #define JAMP_CXBX_SMOKE_STARTUP_COMMAND ""
 #endif
@@ -95,6 +95,8 @@
 #ifndef JAMP_USE_MAINLOOP_SEH
 #define JAMP_USE_MAINLOOP_SEH 1
 #endif
+
+int gLaunchController = 0;
 
 extern int eventHead, eventTail;
 extern sysEvent_t eventQue[MAX_QUED_EVENTS];
@@ -741,6 +743,80 @@ XBE SWITCHING SUPPORT
 =====================
 */
 #define LAUNCH_MAGIC "J3D1"
+
+// Despite what you may think, this function actually just returns
+// a value telling you if you *should* quick-boot -- ie skip intro
+// cinematics and such. Only supposed to XGetLaunchInfo once per
+// boot, so we cache the results.
+//
+// This function always gets called at startup, so we also use it
+// to retrieve the launch info for a demo
+bool Sys_QuickStart( void )
+{
+	static bool retVal = false;
+	static bool initialized = false;
+
+	if( initialized )
+		return retVal;
+
+	initialized = true;
+
+#ifdef XBOX_DEMO
+	// Default to D:\, this gets replaced below if CDX started us
+	strcpy( demoBasePath, "D:" );
+
+	gLaunchController = 0;	// Irrelevant in demo
+	retVal = false;			// We never come from MP (eg), so always false
+	DWORD launchType;
+
+	DWORD result = XGetLaunchInfo( &launchType, (LAUNCH_DATA *) &demoLaunchData );
+	if( result == ERROR_SUCCESS && launchType == LDT_TITLE )
+	{
+		// We were launched by CDX:
+		demoLaunchDataValid = true;
+
+		// How we were launched affects timer behavior:
+		demoTimerAlways = (demoLaunchData.dwRunmode == XLDEMO_RUNMODE_KIOSKMODE);
+
+		// Need to re-map paths, as D:\\ doesn't work now:
+		Q_strncpyz( demoBasePath, demoLaunchData.szLaunchedXBE, sizeof(demoBasePath), qtrue );
+
+		// Find our executable name in the path, and truncate the string there:
+		char *pXBE = strstr( demoBasePath, "\\default.xbe" );
+		if( !pXBE )
+			Com_Error( ERR_FATAL, "Error re-mapping D drive\n" );
+		*pXBE = 0;
+
+		// Fix the video path:
+		extern char XBOX_VIDEO_PATH[64];
+		strcpy( XBOX_VIDEO_PATH, demoBasePath );
+#if defined(STEFX_ELITE_FORCE_SP)
+		strcat( XBOX_VIDEO_PATH, "\\BaseEF\\video\\" );
+#else
+		strcat( XBOX_VIDEO_PATH, "\\base\\video\\" );
+#endif
+	}
+
+	return retVal;
+#else
+	DWORD launchType;
+	LAUNCH_DATA ld;
+
+	if( (XGetLaunchInfo( &launchType, &ld ) != ERROR_SUCCESS) ||
+		(launchType != LDT_TITLE) ||
+		strcmp((const char *)&ld.Data[1], LAUNCH_MAGIC) )
+		return (retVal = false);
+	
+	gLaunchController = ld.Data[0];
+
+	// Magic number to disable settings/saving
+	if( ld.Data[5] == 0x42 )
+		Settings.Disable();
+
+	return (retVal = true);
+#endif
+}
+
 void Sys_Reboot( const char *reason )
 {
 	LAUNCH_DATA ld;

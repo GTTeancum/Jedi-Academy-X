@@ -3,14 +3,12 @@
 #include <xtl.h>
 #include "../game/q_shared.h"
 #include "qcommon.h"
-#include "../cgame/cg_local.h"
-#include "../client/cl_data.h"
 
 #define SETTINGS_VERSION	0x00082877
 #define SETTINGS_DIRNAME	"Settings"
 #define SETTINGS_FILENAME	"settings.dat"
 #define SETTINGS_IMAGE		"saveimage.xbx"
-#define SETTINGS_IMAGE_SRC	"d:\\BaseEF\\media\\settings.xbx"
+#define SETTINGS_IMAGE_SRC	"d:\\base\\media\\settings.xbx"
 
 // The one copy of Settings:
 XBSettings Settings;
@@ -64,14 +62,24 @@ XBSettings::XBSettings( void )
 	effectsVolume = 1.0f;
 	musicVolume = 0.25f;
 	voiceVolume = 1.0f;
+	brightness = 6.0f;
 
 	subtitles = 0;
+
+#ifdef XBOX_DEMO
+	// Demo has no foreign audio, so we turn subtitles on if Dash language is FR/GE
+	DWORD dwLang = XGetLanguage();
+	if( dwLang == XC_LANGUAGE_FRENCH || dwLang == XC_LANGUAGE_GERMAN )
+		subtitles = 1;
+#endif
 
 	voiceMode = 2;
 	voiceMask = 0;
 	appearOffline = 0;
 
-	brightness = 6.0f;
+#ifdef XBOX_DEMO
+	Disable();	// Ensure that we never try to load/save settings in the demo
+#endif
 }
 
 // Write the current stored settings to the HD:
@@ -90,7 +98,7 @@ bool XBSettings::Save( void )
 	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Open/create the settings directory:
-	if (XCreateSaveGame( "U:\\", (LPCWSTR)wideName, OPEN_ALWAYS, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
+	if (XCreateSaveGame( "U:\\", (wchar_t*)wideName, OPEN_ALWAYS, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
 	{
 		SettingsStatus = SETTINGS_FAILED;
 		return false;
@@ -160,7 +168,7 @@ bool XBSettings::Load( void )
 	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Open the settings directory:
-	if( XCreateSaveGame( "U:\\", (LPCWSTR)wideName, OPEN_EXISTING, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
+	if( XCreateSaveGame( "U:\\", (wchar_t*)wideName, OPEN_EXISTING, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
 	{
 		SettingsStatus = SETTINGS_MISSING;
 		return false;
@@ -244,7 +252,7 @@ void XBSettings::Delete( void )
 	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Delete the game:
-	XDeleteSaveGame( "U:\\", (LPCWSTR)wideName );
+	XDeleteSaveGame( "U:\\", (wchar_t*)wideName );
 }
 
 bool XBSettings::Corrupt( void )
@@ -260,42 +268,43 @@ bool XBSettings::Missing( void )
 // Copy all stored settings into cvars
 void XBSettings::SetAll( void )
 {
-	int clNum = ClientManager::ActiveClientNum();
+#if defined(STEFX_ELITE_FORCE_SP)
+	Com_Printf("STEFX: Xbox controls preserving default.cfg buttonMode=%d triggerMode=%d thumbstickMode=%d\n",
+		buttonMode[0], triggerMode[0], thumbstickMode[0]);
+#else
+	Cvar_SetValue( "m_pitch", invertAim[0] ? -0.022f : 0.022f );
+	Cvar_SetValue( "ui_thumbStickMode", thumbstickMode[0] );
 
-	ClientManager::ActiveClient().cg_pitch = invertAim[clNum] ? 0.022f : -0.022f;
+	Cvar_Set( "ui_buttonconfig", buttonConfigStrings[buttonMode[0]] );
+	Cbuf_ExecuteText( EXEC_APPEND, va("exec cfg/spbuttonConfig%d.cfg\n", buttonMode[0]) );
 
-	Cbuf_ExecuteText( EXEC_APPEND, va("exec cfg/uibuttonConfig%d.cfg\n", buttonMode[clNum]) );
-	Cbuf_ExecuteText( EXEC_APPEND, va("exec cfg/triggersConfig%d.cfg\n", triggerMode[clNum]) );
+	Cvar_Set( "ui_triggerconfig", triggerConfigStrings[triggerMode[0]] );
+	Cbuf_ExecuteText( EXEC_APPEND, va("exec cfg/triggersConfig%d.cfg\n", triggerMode[0]) );
+	Com_Printf("STEFX: Xbox controls queued buttonMode=%d triggerMode=%d thumbstickMode=%d\n",
+		buttonMode[0], triggerMode[0], thumbstickMode[0]);
 
-	// Do both of these, easier than checking:
 	Cvar_SetValue( "in_useRumble", rumble[0] );
-	Cvar_SetValue( "in_useRumble2", rumble[1] );
+	Cvar_SetValue( "cl_autolevel", autolevel[0] );
+	Cvar_SetValue( "cg_autoswitch", autoswitch[0] );
 
-	ClientManager::ActiveClient().cg_autolevel = autolevel[clNum];
-	ClientManager::ActiveClient().cg_autoswitch = autoswitch[clNum];
+	Cvar_SetValue( "sensitivity", sensitivityX[0] );
+	Cvar_SetValue( "sensitivityY", sensitivityY[0] );
 
-	ClientManager::ActiveClient().cg_sensitivity = sensitivityX[clNum];
-	ClientManager::ActiveClient().cg_sensitivityY = sensitivityY[clNum];
-
-	if( hotswapMP[0] >= 0 )
-		Cvar_SetValue( "hotswap0", hotswapMP[0] );
+	if( hotswapSP[0] >= 0 )
+		Cvar_SetValue( "hotswap0", hotswapSP[0] );
 	else
 		Cvar_Set( "hotswap0", "" );
 
-	if( hotswapMP[1] >= 0 )
-		Cvar_SetValue( "hotswap1", hotswapMP[1] );
+	if( hotswapSP[1] >= 0 )
+		Cvar_SetValue( "hotswap1", hotswapSP[1] );
 	else
 		Cvar_Set( "hotswap1", "" );
 
-	if( hotswapMP[2] >= 0 )
-		Cvar_SetValue( "hotswap2", hotswapMP[2] );
+	if( hotswapSP[2] >= 0 )
+		Cvar_SetValue( "hotswap2", hotswapSP[2] );
 	else
 		Cvar_Set( "hotswap2", "" );
-
-	if( hotswapMP[3] >= 0 )
-		Cvar_SetValue( "hotswap3", hotswapMP[3] );
-	else
-		Cvar_Set( "hotswap3", "" );
+#endif
 
 	Cvar_SetValue( "s_effects_volume", effectsVolume );
 	Cvar_SetValue( "s_music_volume", musicVolume );
@@ -304,10 +313,48 @@ void XBSettings::SetAll( void )
 	extern void GLimp_SetGamma(float);
 	GLimp_SetGamma(Cvar_VariableValue( "s_brightness_volume" ) / 5.0f);
 
-
-
-	// Online options stuff is grabbed when it's needed
+	Cvar_SetValue( "g_subtitles", subtitles );
 }
+
+#ifdef XBOX_DEMO
+void XBSettings::RestoreDefaults( void )
+{
+	version = SETTINGS_VERSION;
+
+	// Defaults:
+	invertAim[0]		= invertAim[1]		= false;
+
+	thumbstickMode[0]	= thumbstickMode[1]	= 0;
+	buttonMode[0]		= buttonMode[1]		= 0;
+	triggerMode[0]		= triggerMode[1]	= 0;
+
+	rumble[0]			= rumble[1]			= 1;
+	autolevel[0]		= autolevel[0]		= 0;
+	autoswitch[0]		= autoswitch[1]		= 1;
+	sensitivityX[0]		= sensitivityX[1]	= 2.0f;
+	sensitivityY[0]		= sensitivityY[1]	= 2.0f;
+
+	hotswapSP[0] = hotswapSP[1] = hotswapSP[2] = -1;
+	hotswapMP[0] = hotswapMP[1] = -1;
+	hotswapMP[2] = hotswapMP[3] = -1;
+
+	effectsVolume = 1.0f;
+	musicVolume = 0.25f;
+	voiceVolume = 1.0f;
+	brightness = 6.0f;
+
+	subtitles = 0;
+
+	// Demo has no foreign audio, so we turn subtitles on if Dash language is FR/GE
+	DWORD dwLang = XGetLanguage();
+	if( dwLang == XC_LANGUAGE_FRENCH || dwLang == XC_LANGUAGE_GERMAN )
+		subtitles = 1;
+
+	voiceMode = 2;
+	voiceMask = 0;
+	appearOffline = 0;
+}
+#endif
 
 // Utility - signs the current contents of this XBSettings into the supplied struct:
 bool XBSettings::Sign( XCALCSIG_SIGNATURE *pSig )

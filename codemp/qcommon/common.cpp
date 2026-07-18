@@ -74,6 +74,8 @@ cvar_t	*com_introPlayed;
 cvar_t	*cl_paused;
 cvar_t	*sv_paused;
 cvar_t	*com_cameraMode;
+extern cvar_t *inSplashMenu;
+extern cvar_t *controllerOut;
 #if defined(_WIN32) && defined(_DEBUG)
 cvar_t	*com_noErrorInterrupt;
 #endif
@@ -1679,6 +1681,10 @@ void Com_Init( char *commandLine ) {
 
 		s = va("%s %s %s", Q3_VERSION, CPUSTRING, __DATE__ );
 		com_version = Cvar_Get ("version", s, CVAR_ROM | CVAR_SERVERINFO );
+
+		// So any controller can skip the logo movies:
+		inSplashMenu = Cvar_Get( "inSplashMenu", "1", 0 );
+		controllerOut= Cvar_Get( "ControllerOutNum", "-1", 0);
 
 		XBLog_Write("JAMP: SE_Init...");
 		SE_Init();

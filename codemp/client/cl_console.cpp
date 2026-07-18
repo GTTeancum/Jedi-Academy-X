@@ -21,6 +21,26 @@ cvar_t		*con_notifytime;
 
 /*
 ================
+Con_ToggleConsole_f
+================
+*/
+void Con_ToggleConsole_f (void) {
+	// closing a full screen console restarts the demo loop
+	if ( cls.state == CA_DISCONNECTED && cls.keyCatchers == KEYCATCH_CONSOLE ) {
+//		CL_StartDemoLoop();
+		return;
+	}
+
+	Field_Clear( &kg.g_consoleField );
+	kg.g_consoleField.widthInChars = g_console_field_width;
+
+	Con_ClearNotify ();
+
+	cls.keyCatchers ^= KEYCATCH_CONSOLE;
+}
+
+/*
+================
 Con_Clear_f
 ================
 */

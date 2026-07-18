@@ -1,4 +1,4 @@
-#include "../ui/keycodes.h"
+#include "keycodes.h"
 
 typedef struct {
 	qboolean	down;
@@ -7,7 +7,7 @@ typedef struct {
 } qkey_t;
 
 #define	MAX_EDIT_LINE		256
-#define COMMAND_HISTORY		32
+#define	COMMAND_HISTORY		32
 
 typedef struct {
 	int		cursor;
@@ -45,20 +45,20 @@ typedef struct
 extern keyGlobals_t	kg;
 extern keyname_t	keynames[MAX_KEYS];
 
-
 void Field_Clear( field_t *edit );
 void Field_KeyDownEvent( field_t *edit, int key );
-void Field_CharEvent( field_t *edit, int ch );
+void Field_Draw( field_t *edit, int x, int y, int width, qboolean showCursor );
+void Field_BigDraw( field_t *edit, int x, int y, int width, qboolean showCursor );
 
 extern	field_t	chatField;
-extern	qboolean	chat_team;
-extern	int			chat_playerNum;
 
 void Key_WriteBindings( fileHandle_t f );
 void Key_SetBinding( int keynum, const char *binding );
 char *Key_GetBinding( int keynum );
+#ifdef _XBOX
+void Key_XboxAuditMenuBindings( void );
+#endif
 qboolean Key_IsDown( int keynum );
 qboolean Key_GetOverstrikeMode( void );
 void Key_SetOverstrikeMode( qboolean state );
 void Key_ClearStates( void );
-int Key_GetKey(const char *binding);

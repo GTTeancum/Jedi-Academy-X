@@ -18,7 +18,7 @@
 #include "xbSockAddr.h"
 #include "XHVVoiceManager.h"
 #include "XBoxCommon.h"
-#include "../win32/win_input.h"
+#include "../win32/win_input_sp_bridge.h"
 #include "../game/q_shared.h"
 
 // Which "channel" are we talking on - right now it's just team or everyone.

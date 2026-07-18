@@ -7,7 +7,7 @@
 #include "client.h"
 #include "cl_input_hotswap.h"
 
-#include "../win32/win_input.h"
+#include "../win32/win_input_sp_bridge.h"
 
 #include <vector>
 #define	MAX_CMD_BUFFER	4096

@@ -1,28 +1,32 @@
-//Anything above this #include will be ignored by the compiler
-#include "../qcommon/exe_headers.h"
+// leave this as first line for PCH reasons...
+//
+#include "../server/exe_headers.h"
+
 
 #include "client.h"
-#include "../qcommon/stringed_ingame.h"
+#include "client_ui.h"
 
 #ifdef _XBOX
-#include "../cgame/cg_local.h"
-#include "cl_data.h"
+#include "../win32/xb_log.h"
 #endif
+
 /*
 
 key up events are sent even if in console mode
 
 */
 
-field_t		chatField;
-qboolean	chat_team;
 
-int			chat_playerNum;
+field_t		chatField;
+
+qboolean	key_wastab;		// Hit tab once already? 
+char		keymatch_part[256];
+char		keymatch_last[256];
 
 keyGlobals_t	kg;										
 
 // do NOT blithely change any of the key names (3rd field) here, since they have to match the key binds
-//	in the CFG files, they're also prepended with "KEYNAME_" when looking up StringEd references
+//	in the CFG files, they're also prepended with "KEYNAME_" when looking up StripEd references
 //
 keyname_t keynames[MAX_KEYS] =							
 {														
@@ -356,23 +360,133 @@ keyname_t keynames[MAX_KEYS] =
 	{ 0x13e, 0x13e, "AUX30", A_AUX30, false								},
 	{ 0x13f, 0x13f, "AUX31", A_AUX31, false								}
 };
+static int Key_BindingIndexForKeynum( int keynum )
+{
+	int i;
+
+	if ( keynum < 0 || keynum >= MAX_KEYS )
+	{
+		return -1;
+	}
+
+	for ( i = 0 ; i < MAX_KEYS ; i++ )
+	{
+		if ( keynames[i].keynum == keynum )
+		{
+			return keynames[i].upper;
+		}
+	}
+
+	return keynum;
+}
+
+static qboolean Key_IsXboxMenuKeynum( int keynum )
+{
+	return ( keynum == A_JOY1 || keynum == A_JOY4 ) ? qtrue : qfalse;
+}
 
 
 
 /*
-=============================================================================
+===================
+Field_Draw
 
-EDIT FIELDS
-
-=============================================================================
+Handles horizontal scrolling and cursor blinking
+x, y, amd width are in pixels
+===================
 */
+void Field_VariableSizeDraw( field_t *edit, int x, int y, int width, int size, qboolean showCursor ) {
+	int		len;
+	int		drawLen;
+	int		prestep;
+	int		cursorChar;
+	char	str[MAX_STRING_CHARS];
+	int		i;
 
+	drawLen = edit->widthInChars;
+	len = strlen( edit->buffer ) + 1;
+
+	// guarantee that cursor will be visible
+	if ( len <= drawLen ) {
+		prestep = 0;
+	} else {
+		if ( edit->scroll + drawLen > len ) {
+			edit->scroll = len - drawLen;
+			if ( edit->scroll < 0 ) {
+				edit->scroll = 0;
+			}
+		}
+		prestep = edit->scroll;
+/*
+		if ( edit->cursor < len - drawLen ) {
+			prestep = edit->cursor;	// cursor at start
+		} else {
+			prestep = len - drawLen;
+		}
+*/
+	}
+
+	if ( prestep + drawLen > len ) {
+		drawLen = len - prestep;
+	}
+
+
+	// extract <drawLen> characters from the field at <prestep>
+	if ( drawLen >= MAX_STRING_CHARS ) {
+		Com_Error( ERR_DROP, "drawLen >= MAX_STRING_CHARS" );
+	}
+	memcpy( str, edit->buffer + prestep, drawLen );
+	str[ drawLen ] = 0;
+
+	// draw it
+	if ( size == SMALLCHAR_WIDTH ) {
+		for ( i = 0 ; i < drawLen-1 ; i++ ) {
+			SCR_DrawSmallChar( x + i * SMALLCHAR_WIDTH, y, str[i] );
+		}
+	} else {
+		// draw big string with drop shadow
+		SCR_DrawBigString( x, y, str, 1.0 );
+	}
+
+	// draw the cursor
+	if ( !showCursor ) {
+		return;
+	}
+
+	if ( (int)( cls.realtime >> 8 ) & 1 ) {
+		return;		// off blink
+	}
+
+	if ( kg.key_overstrikeMode ) {
+		cursorChar = 11;
+	} else {
+		cursorChar = 10;
+	}
+	if ( size == SMALLCHAR_WIDTH ) {
+		SCR_DrawSmallChar( x + ( edit->cursor - prestep ) * size, y, cursorChar );
+	} else {
+		str[0] = cursorChar;
+		str[1] = 0;
+		SCR_DrawBigString( x + ( edit->cursor - prestep ) * size, y, str, 1.0 );
+	}
+}
+
+void Field_Draw( field_t *edit, int x, int y, int width, qboolean showCursor ) 
+{
+	Field_VariableSizeDraw( edit, x, y, width, SMALLCHAR_WIDTH, showCursor );
+}
+
+void Field_BigDraw( field_t *edit, int x, int y, int width, qboolean showCursor ) 
+{
+	Field_VariableSizeDraw( edit, x, y, width, BIGCHAR_WIDTH, showCursor );
+}
 
 /*
 ================
 Field_Paste
 ================
 */
+void Field_CharEvent( field_t *edit, unsigned int ch );
 void Field_Paste( field_t *edit ) {
 	char	*cbd;
 	int		pasteLen, i;
@@ -406,11 +520,8 @@ void Field_KeyDownEvent( field_t *edit, int key ) {
 	int		len;
 
 	// shift-insert is paste
-#ifdef _XBOX
-	if ( ( ( key == A_INSERT ) || ( key == A_KP_0 ) ) && ClientManager::ActiveClient().keys[A_SHIFT].down ) {
-#else
-	if ( ( ( key == A_INSERT ) || ( key == A_KP_0 ) ) && kg.keys[A_SHIFT].down ) {
-#endif
+	if ( ( key == A_INSERT ) && kg.keys[A_SHIFT].down ) 
+	{
 		Field_Paste( edit );
 		return;
 	}
@@ -430,7 +541,6 @@ void Field_KeyDownEvent( field_t *edit, int key ) {
 		if ( edit->cursor < len ) {
 			edit->cursor++;
 		}
-
 		if ( edit->cursor >= edit->scroll + edit->widthInChars && edit->cursor <= len )
 		{
 			edit->scroll++;
@@ -450,32 +560,21 @@ void Field_KeyDownEvent( field_t *edit, int key ) {
 		return;
 	}
 
-#ifdef _XBOX
-	if ( key == A_HOME || ( keynames[key].lower == 'a' && ClientManager::ActiveClient().keys[A_CTRL].down ) ) 
-#else
 	if ( key == A_HOME || ( keynames[key].lower == 'a' && kg.keys[A_CTRL].down ) ) 
-#endif
 	{
 		edit->cursor = 0;
 		return;
 	}
 
-#ifdef _XBOX
-	if ( key == A_END || ( keynames[key].lower == 'e' && ClientManager::ActiveClient().keys[A_CTRL].down ) ) 
-#else
-	if ( key == A_END || ( keynames[key].lower == 'e' && kg.keys[A_CTRL].down ) )
-#endif
+	if ( key == A_END || ( keynames[key].lower == 'e' && kg.keys[A_CTRL].down ) ) 
 	{
 		edit->cursor = len;
 		return;
 	}
 
-	if ( key == A_INSERT ) {
-#ifdef _XBOX
-		ClientManager::ActiveClient().key_overstrikeMode = (qboolean)!ClientManager::ActiveClient().key_overstrikeMode;
-#else
-		kg.key_overstrikeMode = (qboolean)!kg.key_overstrikeMode;
-#endif
+	if ( key == A_INSERT ) 
+	{
+		kg.key_overstrikeMode = !kg.key_overstrikeMode;
 		return;
 	}
 }
@@ -485,7 +584,7 @@ void Field_KeyDownEvent( field_t *edit, int key ) {
 Field_CharEvent
 ==================
 */
-void Field_CharEvent( field_t *edit, int ch ) {
+void Field_CharEvent( field_t *edit, unsigned int ch ) {
 	int		len;
 
 	if ( ch == 'v' - 'a' + 1 ) {	// ctrl-v is paste
@@ -532,11 +631,7 @@ void Field_CharEvent( field_t *edit, int ch ) {
 		return;
 	}
 
-#ifdef _XBOX
-	if ( ClientManager::ActiveClient().key_overstrikeMode ) {
-#else
 	if ( kg.key_overstrikeMode ) {	
-#endif
 		if ( edit->cursor == MAX_EDIT_LINE - 1 )
 			return;
 		edit->buffer[edit->cursor] = ch;
@@ -551,8 +646,8 @@ void Field_CharEvent( field_t *edit, int ch ) {
 		edit->cursor++;
 	}
 
-
-	if ( edit->cursor >= edit->widthInChars ) {
+	if ( edit->cursor >= edit->widthInChars )
+	{
 		edit->scroll++;
 	}
 
@@ -579,88 +674,8 @@ CONSOLE LINE EDITING
 
 ==============================================================================
 */
-
-static const char *completionString;
-static char shortestMatch[MAX_TOKEN_CHARS];
-static int	matchCount;
-
-/*
-===============
-FindMatches
-
-===============
-*/
-static void FindMatches( const char *s ) {
-	int		i;
-
-	if ( Q_stricmpn( s, completionString, strlen( completionString ) ) ) {
-		return;
-	}
-	matchCount++;
-	if ( matchCount == 1 ) {
-		Q_strncpyz( shortestMatch, s, sizeof( shortestMatch ) );
-		return;
-	}
-
-	// cut shortestMatch to the amount common with s
-	for ( i = 0 ; s[i] ; i++ ) {
-		if ( tolower(shortestMatch[i]) != tolower(s[i]) ) {
-			shortestMatch[i] = 0;
-			break;
-		}
-	}
-	if (!s[i])
-	{
-		shortestMatch[i] = 0;
-	}
-}
-
-/*
-===============
-PrintMatches
-
-===============
-*/
-static void PrintMatches( const char *s ) {
-	if ( !Q_stricmpn( s, shortestMatch, strlen( shortestMatch ) ) ) {
-		Com_Printf( "    %s\n", s );
-	}
-}
-
-static void keyConcatArgs( void ) {
-	int		i;
-	char	*arg;
-
-	for ( i = 1 ; i < Cmd_Argc() ; i++ ) {
-		Q_strcat( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ), " " );
-		arg = Cmd_Argv( i );
-		while (*arg) {
-			if (*arg == ' ') {
-				Q_strcat( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ),  "\"");
-				break;
-			}
-			arg++;
-		}
-		Q_strcat( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ),  Cmd_Argv( i ) );
-		if (*arg == ' ') {
-			Q_strcat( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ),  "\"");
-		}
-	}
-}
-
-static void ConcatRemaining( const char *src, const char *start ) {
-	char *str;
-
-	str = strstr(src, start);
-	if (!str) {
-		keyConcatArgs();
-		return;
-	}
-
-	str += strlen(start);
-	Q_strcat( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ), str);
-}
-
+char *Cmd_CompleteCommandNext (char *partial, char *last);
+char *Cvar_CompleteVariableNext (char *partial, char *last);
 
 /*
 ===============
@@ -671,57 +686,72 @@ Tab expansion
 */
 void CompleteCommand( void ) 
 {
-#ifndef _XBOX
-	field_t		*edit;
-	field_t		temp;
+	char		*cmd;
+	field_t	*edit;
+	static qboolean checking_cmd;
 
 	edit = &kg.g_consoleField;
 
-	// only look at the first token for completion purposes
-	Cmd_TokenizeString( edit->buffer );
-
-	completionString = Cmd_Argv(0);
-	if ( completionString[0] == '\\' || completionString[0] == '/' ) {
-		completionString++;
-	}
-	matchCount = 0;
-	shortestMatch[0] = 0;
-
-	if ( strlen( completionString ) == 0 ) {
-		return;
-	}
-
-	Cmd_CommandCompletion( FindMatches );
-	Cvar_CommandCompletion( FindMatches );
-
-	if ( matchCount == 0 ) {
-		return;	// no matches
-	}
-
-	Com_Memcpy(&temp, edit, sizeof(field_t));
-
-	if ( matchCount == 1 ) {
-		Com_sprintf( edit->buffer, sizeof( edit->buffer ), "\\%s", shortestMatch );
-		if ( Cmd_Argc() == 1 ) {
-			Q_strcat( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ), " " );
-		} else {
-			ConcatRemaining( temp.buffer, completionString );
+	if (key_wastab)
+	{
+		if (checking_cmd)			
+		{
+			cmd = Cmd_CompleteCommandNext(keymatch_part, keymatch_last);
+			if(!cmd)
+			{
+				checking_cmd = qfalse;  //go to checking variables
+				cmd = Cvar_CompleteVariableNext(keymatch_part, NULL);
+				if(!cmd)
+				{
+					checking_cmd = qtrue;  //go back to checking cmd
+					cmd = Cmd_CompleteCommandNext(keymatch_part, NULL);
+				}	
+			}	
 		}
-		edit->cursor = strlen( edit->buffer );
-		return;
+		else
+		{
+			cmd = Cvar_CompleteVariableNext(keymatch_part, keymatch_last);
+			if(!cmd)
+			{
+				checking_cmd = qtrue;  //go back to checking cmd
+				cmd = Cmd_CompleteCommandNext(keymatch_part, NULL);
+				if(!cmd)
+				{
+					checking_cmd = qfalse;  //go to checking variables
+					cmd = Cvar_CompleteVariableNext(keymatch_part, NULL);
+				}	
+			}	
+		}
+		if (cmd)
+		{
+			strcpy(keymatch_last, cmd);
+			key_wastab= qtrue;
+			Com_sprintf( edit->buffer, sizeof( edit->buffer ), "%s ", cmd );
+			edit->cursor = strlen( edit->buffer );
+			return;
+		}
+	}
+	else
+	{
+		strcpy(keymatch_part, edit->buffer);
+		checking_cmd = qtrue;
+		cmd = Cmd_CompleteCommand(edit->buffer);
+		if (!cmd)
+		{	//means no cmds, so check cvars only
+			checking_cmd= qfalse;
+			cmd = Cvar_CompleteVariable (edit->buffer);
+		}
+		if (cmd)
+		{
+			Com_sprintf( edit->buffer, sizeof( edit->buffer ), "%s ", cmd );
+			edit->cursor = strlen( edit->buffer );
+			strcpy(keymatch_last, cmd);
+			key_wastab= qtrue;
+			return;
+		}
+
 	}
 
-	// multiple matches, complete to shortest
-	Com_sprintf( edit->buffer, sizeof( edit->buffer ), "\\%s", shortestMatch );
-	edit->cursor = strlen( edit->buffer );
-	ConcatRemaining( temp.buffer, completionString );
-
-	Com_Printf( "]%s\n", edit->buffer );
-
-	// run through again, printing matches
-	Cmd_CommandCompletion( PrintMatches );
-	Cvar_CommandCompletion( PrintMatches );
-#endif
 }
 
 
@@ -736,62 +766,20 @@ void Console_Key (int key) {
 	// ctrl-L clears screen
 	if ( keynames[ key ].lower == 'l' && kg.keys[A_CTRL].down ) {
 		Cbuf_AddText ("clear\n");
+		key_wastab = qfalse;	// For double tabbing on a cvar
 		return;
 	}
 
+/*	extern qboolean SwallowBadNumLockedKPKey( int iKey );
+	if (SwallowBadNumLockedKPKey(key)){
+		return;
+	}
+*/
 	// enter finishes the line
 	if ( key == A_ENTER || key == A_KP_ENTER ) {
-		// if not in the game explicitly prepent a slash if needed
-		if ( cls.state != CA_ACTIVE && kg.g_consoleField.buffer[0] != '\\' 
-			&& kg.g_consoleField.buffer[0] != '/' ) {
-			char	temp[MAX_STRING_CHARS];
-
-			Q_strncpyz( temp, kg.g_consoleField.buffer, sizeof( temp ) );
-			Com_sprintf( kg.g_consoleField.buffer, sizeof( kg.g_consoleField.buffer ), "\\%s", temp );
-			kg.g_consoleField.cursor++;
-		}
-		else
-		{	// Added this to automatically make explicit commands not need slashes.
-			CompleteCommand();
-		}
-
+		Cbuf_AddText( kg.g_consoleField.buffer );	// valid command
+		Cbuf_AddText ("\n");
 		Com_Printf ( "]%s\n", kg.g_consoleField.buffer );
-
-		// leading slash is an explicit command
-		if ( kg.g_consoleField.buffer[0] == '\\' || kg.g_consoleField.buffer[0] == '/' ) {
-			if (cgvm && cl->mSharedMemory)
-			{ //don't do this unless cgame is inited and shared memory is valid
-				const char *buf = (kg.g_consoleField.buffer+1);
-				TCGIncomingConsoleCommand *icc = (TCGIncomingConsoleCommand *)cl->mSharedMemory;
-
-				strcpy(icc->conCommand, buf);
-				
-				if (VM_Call(cgvm, CG_INCOMING_CONSOLE_COMMAND))
-				{ //rww - let mod authors filter client console messages so they can cut them off if they want.
-					Cbuf_AddText( kg.g_consoleField.buffer+1 );	// valid command
-					Cbuf_AddText ("\n");
-				}
-				else if (icc->conCommand[0])
-				{ //the vm call says to execute this command in place
-					Cbuf_AddText( icc->conCommand );
-					Cbuf_AddText ("\n");
-				}
-			}
-			else
-			{ //just exec it then
-				Cbuf_AddText( kg.g_consoleField.buffer+1 );	// valid command
-				Cbuf_AddText ("\n");
-			}
-		} else {
-			// other text will be chat messages
-			if ( !kg.g_consoleField.buffer[0] ) {
-				return;	// empty lines just scroll the console without adding to history
-			} else {
-				Cbuf_AddText ("cmd say ");
-				Cbuf_AddText( kg.g_consoleField.buffer );
-				Cbuf_AddText ("\n");
-			}
-		}
 
 		// copy line to history buffer
 		kg.historyEditLines[kg.nextHistoryLine % COMMAND_HISTORY] = kg.g_consoleField;
@@ -799,12 +787,11 @@ void Console_Key (int key) {
 		kg.historyLine = kg.nextHistoryLine;
 
 		Field_Clear( &kg.g_consoleField );
-
 		kg.g_consoleField.widthInChars = g_console_field_width;
-
 		if ( cls.state == CA_DISCONNECTED ) {
 			SCR_UpdateScreen ();	// force an update, because the command
 		}							// may take some time
+		key_wastab = qfalse;	// For double tabbing on a cvar
 		return;
 	}
 
@@ -814,6 +801,8 @@ void Console_Key (int key) {
 		CompleteCommand();
 		return;
 	}
+
+	key_wastab = qfalse;	// For double tabbing on a cvar
 
 	// command history (ctrl-p ctrl-n for unix style)
 
@@ -848,13 +837,15 @@ void Console_Key (int key) {
 	}
 
 	// ctrl-home = top of console
-	if ( key == A_HOME && kg.keys[A_CTRL].down ) {
+	if ( key == A_HOME && kg.keys[A_CTRL].down ) 
+	{
 		Con_Top();
 		return;
 	}
 
 	// ctrl-end = bottom of console
-	if ( key == A_END && kg.keys[A_CTRL].down ) {
+	if ( key == A_END && kg.keys[A_CTRL].down ) 
+	{
 		Con_Bottom();
 		return;
 	}
@@ -874,9 +865,7 @@ In game talk message
 ================
 */
 void Message_Key( int key ) {
-
 	char	buffer[MAX_STRING_CHARS];
-
 
 	if (key == A_ESCAPE) {
 		cls.keyCatchers &= ~KEYCATCH_MESSAGE;
@@ -887,17 +876,7 @@ void Message_Key( int key ) {
 	if ( key == A_ENTER || key == A_KP_ENTER )
 	{
 		if ( chatField.buffer[0] && cls.state == CA_ACTIVE ) {
-			if (chat_playerNum != -1 )
-
-				Com_sprintf( buffer, sizeof( buffer ), "tell %i \"%s\"\n", chat_playerNum, chatField.buffer );
-
-			else if (chat_team)
-
-				Com_sprintf( buffer, sizeof( buffer ), "say_team \"%s\"\n", chatField.buffer );
-			else
-				Com_sprintf( buffer, sizeof( buffer ), "say \"%s\"\n", chatField.buffer );
-
-
+			Com_sprintf( buffer, sizeof( buffer ), "say \"%s\"\n", chatField.buffer );
 
 			CL_AddReliableCommand( buffer );
 		}
@@ -913,20 +892,12 @@ void Message_Key( int key ) {
 
 
 qboolean Key_GetOverstrikeMode( void ) {
-#ifdef _XBOX
-	return ClientManager::ActiveClient().key_overstrikeMode;
-#else
 	return kg.key_overstrikeMode;
-#endif
 }
 
 
 void Key_SetOverstrikeMode( qboolean state ) {
-#ifdef _XBOX
-	ClientManager::ActiveClient().key_overstrikeMode = state;
-#else
 	kg.key_overstrikeMode = state;
-#endif
 }
 
 
@@ -936,17 +907,19 @@ Key_IsDown
 ===================
 */
 qboolean Key_IsDown( int keynum ) {
+	int bindingIndex;
+
 	if ( keynum == -1 ) {
 		return qfalse;
 	}
 
-#ifdef _XBOX
-	return ClientManager::ActiveClient().keys[ keynames[keynum].upper ].down;
-#else
-	return kg.keys[ keynames[keynum].upper ].down;
-#endif
-}
+	bindingIndex = Key_BindingIndexForKeynum( keynum );
+	if ( bindingIndex < 0 ) {
+		return qfalse;
+	}
 
+	return kg.keys[ bindingIndex ].down;
+}
 
 /*
 ===================
@@ -1143,47 +1116,45 @@ const char *Key_KeynumToString( int keynum )
 }
 
 
-
 /*
 ===================
 Key_SetBinding
 ===================
 */
 void Key_SetBinding( int keynum, const char *binding ) {
+	int bindingIndex;
+
 	if ( keynum == -1 ) {
 		return;
 	}
 
-	// free old bindings
+	bindingIndex = Key_BindingIndexForKeynum( keynum );
+	if ( bindingIndex < 0 ) {
+		return;
+	}
+
 #ifdef _XBOX
-	if ( ClientManager::ActiveClient().keys[ keynames[keynum].upper ].binding ) {
-		Z_Free( ClientManager::ActiveClient().keys[ keynames[keynum].upper ].binding );
-		ClientManager::ActiveClient().keys[ keynames[keynum].upper ].binding = NULL;
-	}
-
-	// allocate memory for new binding
-	if (binding)
-	{
-		ClientManager::ActiveClient().keys[ keynames[keynum].upper ].binding = CopyString( binding );
-	}
-#else
-	if ( kg.keys[ keynames[keynum].upper ].binding ) {
-		Z_Free( kg.keys[ keynames[keynum].upper ].binding );
-		kg.keys[ keynames[keynum].upper ].binding = NULL;
-	}
-
-	// allocate memory for new binding
-	if (binding)
-	{
-		kg.keys[ keynames[keynum].upper ].binding = CopyString( binding );
+	if ( Key_IsXboxMenuKeynum( keynum ) ) {
+		XBLF("STEFX_INPUT_BIND key=%d slot=%d value='%s'", keynum, bindingIndex, binding ? binding : "");
 	}
 #endif
+
+	// free old bindings
+	if ( kg.keys[ bindingIndex ].binding ) {
+		Z_Free( kg.keys[ bindingIndex ].binding );
+		kg.keys[ bindingIndex ].binding = NULL;
+	}
+			
+	// allocate memory for new binding
+	if (binding)
+	{
+		kg.keys[ bindingIndex ].binding = CopyString( binding );
+	}
 
 	// consider this like modifying an archived cvar, so the
 	// file write will be triggered at the next oportunity
 	cvar_modifiedFlags |= CVAR_ARCHIVE;
 }
-
 
 /*
 ===================
@@ -1191,39 +1162,39 @@ Key_GetBinding
 ===================
 */
 char *Key_GetBinding( int keynum ) {
+	int bindingIndex;
+
 	if ( keynum == -1 ) {
 		return "";
 	}
 
-#ifdef _XBOX
-	return ClientManager::ActiveClient().keys[ keynum ].binding;
-#else
-	return kg.keys[ keynum ].binding;
-#endif
+	assert (keynum < (sizeof(kg.keys)/sizeof(kg.keys[0])));
+	bindingIndex = Key_BindingIndexForKeynum( keynum );
+	if ( bindingIndex < 0 ) {
+		return "";
+	}
+	return kg.keys[ bindingIndex ].binding;
 }
 
-/* 
-===================
-Key_GetKey
-===================
-*/
 
-int Key_GetKey(const char *binding) {
-  int i;
-
-  if (binding) {
-  	for (i=0 ; i<256 ; i++) {
 #ifdef _XBOX
-		if (ClientManager::ActiveClient().keys[i].binding && Q_stricmp(binding, ClientManager::ActiveClient().keys[i].binding) == 0) {
-#else
-      if (kg.keys[i].binding && Q_stricmp(binding, kg.keys[i].binding) == 0) {
-#endif
-        return i;
-      }
-    }
-  }
-  return -1;
+void Key_XboxAuditMenuBindings( void ) {
+	int joy1 = Key_StringToKeynum( "JOY1" );
+	int joy4 = Key_StringToKeynum( "JOY4" );
+	int slot1 = Key_BindingIndexForKeynum( joy1 );
+	int slot4 = Key_BindingIndexForKeynum( joy4 );
+	const char *bind1 = ( slot1 >= 0 ) ? kg.keys[ slot1 ].binding : NULL;
+	const char *bind4 = ( slot4 >= 0 ) ? kg.keys[ slot4 ].binding : NULL;
+
+	XBLF( "STEFX_INPUT_AUDIT JOY1 key=%d slot=%d binding='%s' JOY4 key=%d slot=%d binding='%s'",
+		joy1,
+		slot1,
+		bind1 ? bind1 : "",
+		joy4,
+		slot4,
+		bind4 ? bind4 : "" );
 }
+#endif
 
 /*
 ===================
@@ -1261,17 +1232,12 @@ void Key_Unbindall_f (void)
 	
 	for (i = 0; i < MAX_KEYS ; i++)
 	{
-#ifdef _XBOX
-		if (ClientManager::ActiveClient().keys[i].binding)
-#else
 		if (kg.keys[i].binding)
-#endif
 		{
 			Key_SetBinding (i, "");
 		}
 	}
 }
-
 
 
 /*
@@ -1300,13 +1266,9 @@ void Key_Bind_f (void)
 
 	if (c == 2)
 	{
-#ifdef _XBOX
-		if (ClientManager::ActiveClient().keys[b].binding)
-			Com_Printf ("\"%s\" = \"%s\"\n", Cmd_Argv(1), ClientManager::ActiveClient().keys[b].binding );
-#else
-		if (kg.keys[b].binding)
-			Com_Printf ("\"%s\" = \"%s\"\n", Cmd_Argv(1), kg.keys[b].binding );
-#endif
+		const char *binding = Key_GetBinding( b );
+		if (binding && binding[0])
+			Com_Printf ("\"%s\" = \"%s\"\n", Cmd_Argv(1), binding );
 		else
 			Com_Printf ("\"%s\" is not bound\n", Cmd_Argv(1) );
 		return;
@@ -1332,22 +1294,17 @@ Writes lines containing "bind key value"
 ============
 */
 void Key_WriteBindings( fileHandle_t f ) {
+#ifndef _XBOX
 	int		i;
 
 	FS_Printf (f, "unbindall\n" );
 	for (i=0 ; i<MAX_KEYS ; i++) {
-#ifdef _XBOX
-		if (ClientManager::ActiveClient().keys[i].binding && kg.keys[i].binding[0] ) {
-			FS_Printf (f, "bind %s \"%s\"\n", Key_KeynumToString(i), ClientManager::ActiveClient().keys[i].binding);
-#else
 		if (kg.keys[i].binding && kg.keys[i].binding[0] ) {
 			FS_Printf (f, "bind %s \"%s\"\n", Key_KeynumToString(i), kg.keys[i].binding);
-#endif
 		}
 	}
+#endif
 }
-
-
 
 
 /*
@@ -1360,15 +1317,9 @@ void Key_Bindlist_f( void ) {
 	int		i;
 
 	for ( i = 0 ; i < MAX_KEYS ; i++ ) {
-#ifdef _XBOX
-		if ( ClientManager::ActiveClient().keys[i].binding && ClientManager::ActiveClient().keys[i].binding[0] ) {
-			Com_Printf( "Key : %s (%s) \"%s\"\n", Key_KeynumToAscii(i), Key_KeynumToString(i), ClientManager::ActiveClient().keys[i].binding );
-		}
-#else
 		if ( kg.keys[i].binding && kg.keys[i].binding[0] ) {
 			Com_Printf( "Key : %s (%s) \"%s\"\n", Key_KeynumToAscii(i), Key_KeynumToString(i), kg.keys[i].binding );
 		}
-#endif
 	}
 }
 
@@ -1386,50 +1337,38 @@ void CL_InitKeyCommands( void ) {
 	Cmd_AddCommand ("bindlist",Key_Bindlist_f);
 }
 
-/*
-===================
-CL_AddKeyUpCommands
-===================
-*/
-void CL_AddKeyUpCommands( int key, char *kb ) {
-	int i;
-	char button[1024], *buttonPtr;
-	char	cmd[1024];
-	qboolean keyevent;
 
-	if ( !kb ) {
-		return;
+void CL_ActionEvent(int key, qboolean down, ulong time)
+{
+	const char	*kb;
+	char		cmd[1024];
+	int		bindingIndex;
+
+	// send the bound action
+	bindingIndex = Key_BindingIndexForKeynum( key );
+	kb = ( bindingIndex >= 0 ) ? kg.keys[ bindingIndex ].binding : NULL;
+#ifdef _XBOX
+	if ( down && Key_IsXboxMenuKeynum( key ) ) {
+		XBLF("STEFX_INPUT_ACTION key=%d slot=%d binding='%s' state=%d catcher=0x%x", key, bindingIndex, kb ? kb : "", (int)cls.state, (unsigned int)cls.keyCatchers);
 	}
-	keyevent = qfalse;
-	buttonPtr = button;
-	for ( i = 0; ; i++ ) {
-		if ( kb[i] == ';' || !kb[i] ) {
-			*buttonPtr = '\0';
-			if ( button[0] == '+') {
-				// button commands add keynum and time as parms so that multiple
-				// sources can be discriminated and subframe corrected
-				Com_sprintf (cmd, sizeof(cmd), "-%s %i %i\n", button+1, key, time);
-				Cbuf_AddText (cmd);
-				keyevent = qtrue;
-			} else {
-				if (keyevent) {
-					// down-only command
-					Cbuf_AddText (button);
-					Cbuf_AddText ("\n");
-				}
-			}
-			buttonPtr = button;
-			while ( (kb[i] <= ' ' || kb[i] == ';') && kb[i] != 0 ) {
-				i++;
-			}
+#endif
+	if(kb)
+	{
+		if (kb[0] == '+') 
+		{	
+			// button commands add keynum and time as parms so that multiple
+			// sources can be discriminated and subframe corrected
+			Com_sprintf (cmd, sizeof(cmd), "%s %i %i\n", kb, key, time);
+			Cbuf_AddText (cmd);
 		}
-		*buttonPtr++ = kb[i];
-		if ( !kb[i] ) {
-			break;
+		else 
+		{
+			// down-only command
+			Cbuf_AddText (kb);
+			Cbuf_AddText ("\n");
 		}
 	}
 }
-
 /*
 ===================
 CL_KeyEvent
@@ -1440,126 +1379,91 @@ Called by the system for both key up and key down events
 void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	char	*kb;
 	char	cmd[1024];
+	int		bindingIndex;
+
+	bindingIndex = Key_BindingIndexForKeynum( key );
+	if ( bindingIndex < 0 ) {
+		return;
+	}
 
 	// update auto-repeat status and BUTTON_ANY status
-#ifdef _XBOX
-	ClientManager::ActiveClient().keys[ keynames[key].upper ].down = down;
-#else
-	kg.keys[ keynames[key].upper ].down = down;
-#endif
+	kg.keys[ bindingIndex ].down = down;
 	if (down)
 	{
-#ifdef _XBOX
-		ClientManager::ActiveClient().keys[ keynames[key].upper ].repeats++;
-#else
-		kg.keys[ keynames[key].upper ].repeats++;
-#endif
-
-#ifdef _XBOX
-		if ( ClientManager::ActiveClient().keys[ keynames[key].upper ].repeats == 1)
-#else
-		if ( kg.keys[ keynames[key].upper ].repeats == 1)
-#endif
+		kg.keys[ bindingIndex ].repeats++;
+		if ( kg.keys[ bindingIndex ].repeats == 1)
 		{
-#ifdef _XBOX
-			ClientManager::ActiveClient().anykeydown = qtrue;
-#else
-			kg.anykeydown = qtrue;
-#endif
+			kg.anykeydown = true;
 			kg.keyDownCount++;
 		}
 	}
 	else
 	{
-#ifdef _XBOX
-		ClientManager::ActiveClient().keys[ keynames[key].upper ].repeats = 0;
-#else
-		kg.keys[ keynames[key].upper ].repeats = 0;
-#endif
+		kg.keys[ bindingIndex ].repeats = 0;
 		kg.keyDownCount--;
 		if(kg.keyDownCount <= 0)
 		{
-#ifdef _XBOX
-			ClientManager::ActiveClient().anykeydown = qfalse;
-#else
-			kg.anykeydown = qfalse;
-#endif
+			kg.anykeydown = false;
 			kg.keyDownCount = 0;
 		}
 	}
 
 	// console key is hardcoded, so the user can never unbind it
-#ifndef _XBOX	// No console on Xbox
-	if (key == A_CONSOLE) {
-		if (!down) {
+	if (key == A_CONSOLE) 
+	{
+		if (!down) 
+		{
 			return;
+		}
 
-		}
 #ifdef FINAL_BUILD
-#ifdef _XBOX
-		if (!(cls.keyCatchers & KEYCATCH_CONSOLE) && !ClientManager::ActiveClient().keys[A_SHIFT].down )	//we're not in the console
-#else
 		if (!(cls.keyCatchers & KEYCATCH_CONSOLE) && !kg.keys[A_SHIFT].down )	//we're not in the console
-#endif
-		{//so we require the control kg.keys to get in
+		{//so we require the control keys to get in
 			return;
 		}
 #endif
+
 	    Con_ToggleConsole_f ();
 		return;
 	}
-#endif
 
-	// kg.keys can still be used for bound actions
-	if ( down && /*( key < 128 || key == A_MOUSE1 ) && */
-#ifdef _XBOX	// No demos on Xbox
-		( cls.state == CA_CINEMATIC ) &&
-#else
-		( clc->demoplaying || cls.state == CA_CINEMATIC ) &&
-#endif
-		!cls.keyCatchers) {
+	// most keys during demo playback will bring up the menu, but non-ascii
 
-		if (Cvar_VariableValue ("com_cameraMode") == 0) {
-			Cvar_Set ("nextdemo","");
-			key = A_ESCAPE;
-		}
+	// keys can still be used for bound actions
+	if ( down && ( cls.state == CA_CINEMATIC || CL_IsRunningInGameCinematic()) && !cls.keyCatchers ) 
+	{
+		SCR_StopCinematic(true);
+		return;
+//		Cvar_Set ("nextdemo","");
+//		key = K_ESCAPE;
 	}
 
-
 	// escape is always handled special
-	if ( key == A_ESCAPE && down ) {
-		if ( cls.keyCatchers & KEYCATCH_MESSAGE ) {
+	if ( key == A_ESCAPE && down ) 
+	{
+		if ( cls.keyCatchers & KEYCATCH_MESSAGE ) 
+		{
 			// clear message mode
 			Message_Key( key );
 			return;
 		}
 
-		// escape always gets out of CGAME stuff
-		if (cls.keyCatchers & KEYCATCH_CGAME) {
-			cls.keyCatchers &= ~KEYCATCH_CGAME;
-			VM_Call (cgvm, CG_EVENT_HANDLING, CGAME_EVENT_NONE);
-			return;
-		}
-
-		if ( !( cls.keyCatchers & KEYCATCH_UI ) ) {
-#ifdef _XBOX	// No demos on Xbox
-			if ( cls.state == CA_ACTIVE ) {
-#else
-			if ( cls.state == CA_ACTIVE && !clc->demoplaying ) {
-#endif
-				VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_INGAME );
+		if ( !( cls.keyCatchers & KEYCATCH_UI ) ) 
+		{
+			if ( cls.state == CA_ACTIVE ) 
+			{
+				UI_SetActiveMenu( "ingame",NULL );
 			}
 			// This just causes crashes and such if people hit BACK during loading:
-//			else
+//			else 
 //			{
 //				CL_Disconnect_f();
-//				S_StopAllSounds();
-//				VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_MAIN );
+//				UI_SetActiveMenu( "mainMenu",NULL );
 //			}
 			return;
 		}
 
-		VM_Call( uivm, UI_KEY_EVENT, key, down );
+		_UI_KeyEvent( key,down);
 		return;
 	}
 
@@ -1570,20 +1474,17 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	// an action started before a mode switch.
 	//
 	if (!down) {
-#ifdef _XBOX
-		kb = ClientManager::ActiveClient().keys[ keynames[key].upper ].binding;
-#else
-		kb = kg.keys[ keynames[key].upper ].binding;
-#endif
-
-		CL_AddKeyUpCommands( key, kb );
-
-		if ( cls.keyCatchers & KEYCATCH_UI && uivm ) {
-			VM_Call( uivm, UI_KEY_EVENT, key, down );
-		} else if ( cls.keyCatchers & KEYCATCH_CGAME && cgvm ) {
-			VM_Call( cgvm, CG_KEY_EVENT, key, down );
-		} 
-
+		kb = kg.keys[ bindingIndex ].binding;
+		if (kb && kb[0] == '+') {
+			// button commands add keynum and time as parms so that multiple
+			// sources can be discriminated and subframe corrected
+			Com_sprintf (cmd, sizeof(cmd), "-%s %i %i\n", kb+1, key, time);
+			Cbuf_AddText (cmd);
+		}
+		if ( cls.keyCatchers & KEYCATCH_UI ) 
+		{//need UP messages to clear out captures!
+			_UI_KeyEvent( key,down );
+		}
 		return;
 	}
 
@@ -1592,83 +1493,91 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 	if ( cls.keyCatchers & KEYCATCH_CONSOLE ) {
 		Console_Key( key );
 	} else if ( cls.keyCatchers & KEYCATCH_UI ) {
-		if ( uivm ) {
-			VM_Call( uivm, UI_KEY_EVENT, key, down );
-		} 
-	} else if ( cls.keyCatchers & KEYCATCH_CGAME ) {
-		if ( cgvm ) {
-			VM_Call( cgvm, CG_KEY_EVENT, key, down );
-		} 
+		_UI_KeyEvent( key,down );
 	} else if ( cls.keyCatchers & KEYCATCH_MESSAGE ) {
 		Message_Key( key );
 	} else if ( cls.state == CA_DISCONNECTED ) {
-		Console_Key( key );
-	} else {
-		// send the bound action
-#ifdef _XBOX
-		kb = ClientManager::ActiveClient().keys[ keynames[key].upper ].binding;
-#else
-		kb = kg.keys[ keynames[key].upper ].binding;
-#endif
-		if (kb)
-		{
-			if (kb[0] == '+') {	
-				int i;
-				char button[1024], *buttonPtr;
-				buttonPtr = button;
-				for ( i = 0; ; i++ ) {
-					if ( kb[i] == ';' || !kb[i] ) {
-						*buttonPtr = '\0';
-						if ( button[0] == '+') {
-							// button commands add keynum and time as parms so that multiple
-							// sources can be discriminated and subframe corrected
-							Com_sprintf (cmd, sizeof(cmd), "%s %i %i\n", button, key, time);
-							Cbuf_AddText (cmd);
-						} else {
-							// down-only command
-							Cbuf_AddText (button);
-							Cbuf_AddText ("\n");
-						}
-						buttonPtr = button;
-						while ( (kb[i] <= ' ' || kb[i] == ';') && kb[i] != 0 ) {
-							i++;
-						}
-					}
-					*buttonPtr++ = kb[i];
-					if ( !kb[i] ) {
-						break;
-					}
-				}
-			} else {
-				// down-only command
-				if (cgvm && cl->mSharedMemory)
-				{ //don't do this unless cgame is inited and shared memory is valid
-					TCGIncomingConsoleCommand *icc = (TCGIncomingConsoleCommand *)cl->mSharedMemory;
 
-					strcpy(icc->conCommand, kb);
-					
-					if (VM_Call(cgvm, CG_INCOMING_CONSOLE_COMMAND))
-					{ //rww - let mod authors filter client console messages so they can cut them off if they want.
-						Cbuf_AddText (kb);
-						Cbuf_AddText ("\n");
-					}
-					else if (icc->conCommand[0])
-					{ //the vm call says to execute this command in place
-						Cbuf_AddText( icc->conCommand );
-						Cbuf_AddText ("\n");
-					}
-				}
-				else
-				{ //otherwise just add it
-					Cbuf_AddText (kb);
-					Cbuf_AddText ("\n");
-				}
-			}
-		}
+		Console_Key( key );
+
+	} else {
+		CL_ActionEvent(key, true, time);
 	}
 }
 
+#ifdef _XBOX
+qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const char *source ) {
+	int bindingIndex;
+	const char *kb;
 
+	bindingIndex = Key_BindingIndexForKeynum( key );
+	kb = ( bindingIndex >= 0 ) ? kg.keys[ bindingIndex ].binding : NULL;
+
+	if ( Key_IsXboxMenuKeynum( key ) ) {
+		XBLF("STEFX_INPUT_DIRECT_DISPATCH source='%s' key=%d slot=%d down=%d binding='%s' state=%d catcher=0x%x",
+			source ? source : "",
+			key,
+			bindingIndex,
+			down ? 1 : 0,
+			kb ? kb : "",
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers);
+	}
+
+	if ( !kb || !kb[0] ) {
+		return qfalse;
+	}
+
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( !Q_stricmp( kb, "datapad" ) ) {
+		XBLF("STEFX_INPUT_DIRECT_DATAPAD_OVERLAY source='%s' key=%d slot=%d down=%d",
+			source ? source : "",
+			key,
+			bindingIndex,
+			down ? 1 : 0);
+		CL_STEFX_SetObjectivesOverlay( down ? qtrue : qfalse, "direct-datapad-bind" );
+
+		if ( Key_IsXboxMenuKeynum( key ) ) {
+			XBLF("STEFX_INPUT_DIRECT_DISPATCH_DONE source='%s' key=%d down=%d catcher=0x%x",
+				source ? source : "",
+				key,
+				down ? 1 : 0,
+				(unsigned int)cls.keyCatchers);
+		}
+
+		return qtrue;
+	}
+#endif
+
+	if ( kb[0] == '+' ) {
+		CL_KeyEvent( key, down, time );
+	} else if ( down ) {
+		XBLF("STEFX_INPUT_DIRECT_COMMAND source='%s' key=%d slot=%d command='%s'",
+			source ? source : "",
+			key,
+			bindingIndex,
+			kb);
+		Cbuf_AddText( kb );
+		Cbuf_AddText( "\n" );
+	} else {
+		XBLF("STEFX_INPUT_DIRECT_COMMAND_UP_IGNORED source='%s' key=%d slot=%d command='%s'",
+			source ? source : "",
+			key,
+			bindingIndex,
+			kb);
+	}
+
+	if ( Key_IsXboxMenuKeynum( key ) ) {
+		XBLF("STEFX_INPUT_DIRECT_DISPATCH_DONE source='%s' key=%d down=%d catcher=0x%x",
+			source ? source : "",
+			key,
+			down ? 1 : 0,
+			(unsigned int)cls.keyCatchers);
+	}
+
+	return qtrue;
+}
+#endif
 /*
 ===================
 CL_CharEvent
@@ -1689,7 +1598,7 @@ void CL_CharEvent( int key ) {
 	}
 	else if ( cls.keyCatchers & KEYCATCH_UI )
 	{
-		VM_Call( uivm, UI_KEY_EVENT, key | K_CHAR_FLAG, qtrue );
+		_UI_KeyEvent( key | K_CHAR_FLAG, qtrue );
 	}
 	else if ( cls.keyCatchers & KEYCATCH_MESSAGE ) 
 	{
@@ -1711,28 +1620,15 @@ void Key_ClearStates (void)
 {
 	int		i;
 
-#ifdef _XBOX
-	ClientManager::ActiveClient().anykeydown = qfalse;
-
-	for ( i=0 ; i < MAX_KEYS ; i++ ) {
-		if ( ClientManager::ActiveClient().keys[i].down ) {
-			CL_KeyEvent( i, qfalse, 0 );
-
-		}
-		ClientManager::ActiveClient().keys[i].down = (qboolean)0;
-		ClientManager::ActiveClient().keys[i].repeats = 0;
-	}
-#else
 	kg.anykeydown = qfalse;
+	kg.keyDownCount = 0;
 
 	for ( i=0 ; i < MAX_KEYS ; i++ ) {
 		if ( kg.keys[i].down ) {
 			CL_KeyEvent( i, qfalse, 0 );
-
 		}
-		kg.keys[i].down = (qboolean)0;
+		kg.keys[i].down = 0;
 		kg.keys[i].repeats = 0;
 	}
-#endif
 }
 

@@ -12,7 +12,7 @@
 #include "../client/keycodes.h"
 //#include "../client/client.h"
 #include "../client/fffx.h"
-#include "../win32/win_input.h"
+#include "../win32/win_input_sp_bridge.h"
 #ifdef _JK2MP
 #include "../namespace_end.h"
 #endif

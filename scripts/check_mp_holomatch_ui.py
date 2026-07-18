@@ -16,6 +16,33 @@ from xml.etree import ElementTree
 SOURCE_EXTS = {".c", ".cc", ".cpp", ".cxx", ".asm", ".vsh", ".psh"}
 ORIGINAL_IMAGE_EXTS = {".jpg", ".jpeg", ".tga", ".png"}
 
+REQUIRED_SP_CONTROL_FILES = {
+    "client/cl_input.cpp",
+    "client/cl_input_hotswap.cpp",
+    "client/cl_input_hotswap.h",
+    "client/cl_keys.cpp",
+    "client/client_ui.h",
+    "client/keycodes.h",
+    "client/keys.h",
+    "qcommon/xb_settings.cpp",
+    "qcommon/xb_settings.h",
+    "win32/win_input.h",
+    "win32/win_input_console.cpp",
+    "win32/win_input_rumble.cpp",
+    "win32/win_input_xbox.cpp",
+}
+
+REQUIRED_SP_CONTROL_BRIDGES = {
+    "../client/cl_input_hotswap_sp_bridge.cpp",
+    "../client/cl_input_sp_bridge.cpp",
+    "../client/cl_keys_sp_bridge.cpp",
+    "../client/sp_controls_compat.cpp",
+    "../qcommon/xb_settings_sp_bridge.cpp",
+    "../win32/win_input_console_sp_bridge.cpp",
+    "../win32/win_input_rumble_sp_bridge.cpp",
+    "../win32/win_input_xbox.cpp",
+}
+
 REQUIRED_X_UI_SOURCES = {
     "../ui/ui_stefx_spbridge.cpp",
     "../../code/ui/ui_atoms.cpp",
@@ -255,11 +282,8 @@ REQUIRED_HOLOMATCH_INPUT_MARKERS = {
     "codemp/win32/win_input_xbox.cpp": [
         "bool g_XInitDevicesAlreadyCalled = false;",
         "joy_deadzone = Cvar_Get( \"joy_deadzone\", \"0.18\", CVAR_ARCHIVE );",
-        "STEFX_HM: input using SP early XInitDevices path; gamepad mask=",
-        "STEFX_HM: first gamepad state port=",
-        "STEFX_HM: input SP no-controller tracking active",
-        "STEFX_HM: input state read failed port=",
-        "STEFX_HM: direct-map input gate cleared splash/controller lock",
+        "STEFX: IN_Init gamepad mask=",
+        "STEFX: first gamepad state port=",
     ],
 }
 
@@ -558,6 +582,71 @@ def verify_sp_renderer_wholesale(repo_root: Path) -> dict[str, object]:
     }
 
 
+def verify_sp_controls_wholesale(repo_root: Path) -> dict[str, object]:
+    missing: list[str] = []
+    mismatched: list[str] = []
+    for rel in sorted(REQUIRED_SP_CONTROL_FILES):
+        sp_path = repo_root / "code" / rel
+        mp_path = repo_root / "codemp" / rel
+        if not sp_path.is_file() or not mp_path.is_file():
+            missing.append(rel)
+        elif sp_path.read_bytes() != mp_path.read_bytes():
+            mismatched.append(rel)
+
+    if missing or mismatched:
+        fail(
+            "Holomatch controls must be byte-for-byte SP copies; "
+            f"missing={missing} mismatched={mismatched}"
+        )
+
+    exe_sources = set(active_project_sources(repo_root / "codemp" / "x_exe" / "x_exe.vcproj"))
+    missing_bridges = sorted(REQUIRED_SP_CONTROL_BRIDGES - exe_sources)
+    if missing_bridges:
+        fail("Holomatch executable is missing SP control bridge source(s): " + ", ".join(missing_bridges))
+
+    exact_functions = {
+        "Con_ToggleConsole_f": ("code/client/cl_console.cpp", "codemp/client/cl_console.cpp"),
+        "Sys_QuickStart": ("code/win32/win_main_console.cpp", "codemp/win32/win_main_console.cpp"),
+    }
+    mismatched_functions = [
+        name
+        for name, (sp_rel, mp_rel) in exact_functions.items()
+        if extract_cpp_function((repo_root / sp_rel).read_text(encoding="utf-8", errors="ignore"), name)
+        != extract_cpp_function((repo_root / mp_rel).read_text(encoding="utf-8", errors="ignore"), name)
+    ]
+    if mismatched_functions:
+        fail("Holomatch SP control function transplant drifted: " + ", ".join(mismatched_functions))
+
+    lifecycle_markers = {
+        "codemp/qcommon/common.cpp": {
+            'inSplashMenu = Cvar_Get( "inSplashMenu", "1", 0 );',
+            'controllerOut= Cvar_Get( "ControllerOutNum", "-1", 0);',
+        },
+        "codemp/win32/win_main_console.cpp": {
+            "+set inSplashMenu 0 +set ControllerOutNum -1",
+        },
+        "codemp/qcommon/xb_settings_sp_bridge.cpp": {
+            'CopyFileA( "D:\\\\BaseEF\\\\media\\\\settings.xbx", destination, failIfExists )',
+        },
+    }
+    missing_lifecycle = [
+        f"{rel}: {marker}"
+        for rel, markers in lifecycle_markers.items()
+        for marker in sorted(markers)
+        if marker not in (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
+    ]
+    if missing_lifecycle:
+        fail("Holomatch SP control lifecycle boundary is incomplete: " + ", ".join(missing_lifecycle))
+
+    return {
+        "controlsWholesaleFiles": len(REQUIRED_SP_CONTROL_FILES),
+        "controlsWholesaleByteExact": True,
+        "controlsBoundarySources": sorted(REQUIRED_SP_CONTROL_BRIDGES),
+        "controlsExactFunctionTransplants": sorted(exact_functions),
+        "controlsCvarLifecycleInitialized": True,
+    }
+
+
 def normalize_source_block(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -744,6 +833,7 @@ def verify_legacy_source_guards(repo_root: Path) -> dict[str, object]:
 def verify_solution(repo_root: Path) -> dict[str, object]:
     baseef_routing = verify_baseef_source_routing(repo_root)
     renderer_wholesale = verify_sp_renderer_wholesale(repo_root)
+    controls_wholesale = verify_sp_controls_wholesale(repo_root)
 
     sln = repo_root / "codemp" / "JKA_mp.sln"
     sln_text = sln.read_text(encoding="utf-8", errors="ignore").replace("\\", "/").lower()
@@ -1171,6 +1261,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
     return {
         **baseef_routing,
         **renderer_wholesale,
+        **controls_wholesale,
         "solutionHasOnlyXUi": True,
         "uiMandateUniformSpCodeUi": True,
         "mpUiLocalHeaderRetired": True,
@@ -1581,11 +1672,8 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: fallback bot waypoint trap path calculation skipped map=",
         b"STEFX_HM: input Plan-B XInitDevices completed before D3D init",
         b"STEFX_HM: MP using SP-style fakegl pushbuffer path; main skipped legacy Direct3D_SetPushBufferSize",
-        b"STEFX_HM: input using SP early XInitDevices path; gamepad mask=",
-        b"STEFX_HM: first gamepad state port=",
-        b"STEFX_HM: input SP no-controller tracking active",
-        b"STEFX_HM: input state read failed port=",
-        b"STEFX_HM: direct-map input gate cleared splash/controller lock",
+        b"STEFX: IN_Init gamepad mask=",
+        b"STEFX: first gamepad state port=",
         b"STEFX_HM: sound using EF/SP hardened Xbox path; handle/entity guards active",
         b"STEFX_HM: sound using SP Xbox attenuation reference distance=",
         b"STEFX_HM: sound clamped listener count caller=",
