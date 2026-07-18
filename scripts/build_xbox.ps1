@@ -1807,8 +1807,10 @@ function Update-EFHolomatchAssetLists {
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
     Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map "hm_borg1" -BspMaps "map" -DdsOnly -AlphaTextureFormat "bgra32" -SkipUiScripts -HolomatchSupportAssets
+    Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
+    Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("xbox_borg_fix.shader")
-    Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -XbePath $sourceXbe
+    Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -StageBaseEfPath $baseEfDir -AllowStageOriginalImages -XbePath $sourceXbe
 }
 
 function Remove-EFHolomatchLooseOverrides {
@@ -1935,6 +1937,7 @@ function Copy-EFHolomatchCxbxStage {
 
     $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
     $sourcePk3 = Join-Path $repoReleaseDir "BaseEF\xbox1.pk3"
+    $sourceSoundBankDir = Join-Path $repoReleaseDir "BaseEF\soundbank"
 
     if (-not (Test-Path -LiteralPath $sourceXbe -PathType Leaf)) {
         throw "Cannot stage EF Holomatch MP XBE; missing: $sourceXbe"
@@ -1942,14 +1945,25 @@ function Copy-EFHolomatchCxbxStage {
     if (-not (Test-Path -LiteralPath $sourcePk3 -PathType Leaf)) {
         throw "Cannot stage EF Holomatch MP package; missing: $sourcePk3"
     }
+    foreach ($soundBankFile in @("sound.bnk", "sound.tbl", "soundbank_manifest.json")) {
+        $sourceSoundBankFile = Join-Path $sourceSoundBankDir $soundBankFile
+        if (-not (Test-Path -LiteralPath $sourceSoundBankFile -PathType Leaf)) {
+            throw "Cannot stage EF Holomatch SP soundbank; missing: $sourceSoundBankFile"
+        }
+    }
 
     Remove-EFHolomatchLooseOverrides -StageBaseEf $stageBaseEf
     Copy-Item -LiteralPath $sourceXbe -Destination (Join-Path $stageRoot "efmp.xbe") -Force
     $stagedPk3 = Join-Path $stageBaseEf "xbox1.pk3"
     Copy-Item -LiteralPath $sourcePk3 -Destination $stagedPk3 -Force
+    $stagedSoundBankDir = Join-Path $stageBaseEf "soundbank"
+    New-Item -ItemType Directory -Path $stagedSoundBankDir -Force | Out-Null
+    foreach ($soundBankFile in @("sound.bnk", "sound.tbl", "soundbank_manifest.json")) {
+        Copy-Item -LiteralPath (Join-Path $sourceSoundBankDir $soundBankFile) -Destination (Join-Path $stagedSoundBankDir $soundBankFile) -Force
+    }
     Remove-EFHolomatchLooseTextureFallbacks -StageBaseEf $stageBaseEf -Pk3Path $stagedPk3
     Assert-EFHolomatchUiMandate -Pk3Path $stagedPk3 -StageBaseEfPath $stageBaseEf -XbePath (Join-Path $stageRoot "efmp.xbe")
-    Write-Host "Staged EF Holomatch MP for CXBX-R: efmp.xbe and BaseEF\xbox1.pk3"
+    Write-Host "Staged EF Holomatch MP for CXBX-R: efmp.xbe, BaseEF\xbox1.pk3, and the SP soundbank"
     Write-Host "SP/co-op default.xbe was not touched."
 }
 

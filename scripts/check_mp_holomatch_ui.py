@@ -9,6 +9,7 @@ import re
 import struct
 import sys
 import zipfile
+import zlib
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -1660,14 +1661,17 @@ def verify_stage(stage_baseef: Path | None, allow_original_images: bool) -> dict
         return {"checked": False}
     if stage_baseef.name != "BaseEF":
         fail(f"Holomatch runtime stage directory must be named BaseEF, not {stage_baseef}")
-    ui_dir = stage_baseef / "ui"
-    if not ui_dir.is_dir():
-        return {"checked": True, "stageUiScripts": 0}
 
-    scripts = sorted(
-        path
-        for path in ui_dir.rglob("*")
-        if path.is_file() and path.suffix.lower() in {".menu", ".txt"}
+    soundbank = verify_soundbank(stage_baseef)
+    ui_dir = stage_baseef / "ui"
+    scripts = (
+        sorted(
+            path
+            for path in ui_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".menu", ".txt"}
+        )
+        if ui_dir.is_dir()
+        else []
     )
     if scripts:
         rel = [norm_path(path.relative_to(stage_baseef).as_posix()) for path in scripts[:16]]
@@ -1686,6 +1690,113 @@ def verify_stage(stage_baseef: Path | None, allow_original_images: bool) -> dict
         "stageUiScripts": 0,
         "stageOriginalImages": len(original_images),
         "stageOriginalImagesAllowed": allow_original_images,
+        "soundbank": soundbank,
+    }
+
+
+def verify_soundbank(baseef: Path) -> dict[str, object]:
+    soundbank_dir = baseef / "soundbank"
+    bank_path = soundbank_dir / "sound.bnk"
+    table_path = soundbank_dir / "sound.tbl"
+    manifest_path = soundbank_dir / "soundbank_manifest.json"
+    missing = [
+        path.relative_to(baseef).as_posix()
+        for path in (bank_path, table_path, manifest_path)
+        if not path.is_file()
+    ]
+    if missing:
+        fail("Holomatch BaseEF is missing SP soundbank file(s): " + ", ".join(missing))
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        fail(f"Holomatch soundbank manifest is invalid: {exc}")
+
+    table_data = table_path.read_bytes()
+    record_size = 13
+    if not table_data or len(table_data) % record_size:
+        fail(f"Holomatch sound.tbl size must be a non-zero multiple of {record_size}, got {len(table_data)}")
+
+    records = [
+        struct.unpack_from("<IIIb", table_data, offset)
+        for offset in range(0, len(table_data), record_size)
+    ]
+    if len(records) > 131072:
+        fail(f"Holomatch sound.tbl exceeds the SP streamer's 131072-record limit: {len(records)}")
+
+    codes = [record[0] for record in records]
+    if codes != sorted(codes):
+        fail("Holomatch sound.tbl CRC records are not sorted for the SP fixed-map lookup")
+    if len(set(codes)) != len(codes):
+        fail("Holomatch sound.tbl contains duplicate runtime CRC keys")
+
+    bank_bytes = bank_path.stat().st_size
+    by_offset = sorted(records, key=lambda record: record[1])
+    expected_offset = 0
+    with bank_path.open("rb") as bank:
+        for code, offset, size, flags in by_offset:
+            if offset != expected_offset or size < 12 or offset + size > bank_bytes:
+                fail(
+                    "Holomatch sound.tbl contains an invalid bank range "
+                    f"crc=0x{code:08x} offset={offset} size={size} bankBytes={bank_bytes}"
+                )
+            if flags != 0:
+                fail(f"Holomatch sound.tbl contains unsupported flags={flags} for crc=0x{code:08x}")
+            bank.seek(offset)
+            header = bank.read(12)
+            if header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+                fail(f"Holomatch sound.bnk record 0x{code:08x} is not a WAV stream")
+            expected_offset += size
+    if expected_offset != bank_bytes:
+        fail(f"Holomatch sound.tbl covers {expected_offset} bytes but sound.bnk is {bank_bytes} bytes")
+
+    sounds = manifest.get("sounds")
+    if not isinstance(sounds, list) or len(sounds) != len(records):
+        fail("Holomatch soundbank manifest record count does not match sound.tbl")
+    if manifest.get("format") != "stefx-wav-bank-v2" or manifest.get("encoding") != "xbadpcm":
+        fail("Holomatch soundbank manifest must describe the SP Xbox ADPCM bank format")
+    if manifest.get("bank") != "soundbank/sound.bnk" or manifest.get("table") != "soundbank/sound.tbl":
+        fail("Holomatch soundbank manifest uses an unexpected runtime path")
+    if manifest.get("records") != len(records) or manifest.get("bytes") != bank_bytes:
+        fail("Holomatch soundbank manifest sizes do not match the runtime files")
+
+    table_rows = set(records)
+    manifest_rows: set[tuple[int, int, int, int]] = set()
+    for sound in sounds:
+        qpath = norm_path(str(sound.get("path", "")))
+        if not qpath.startswith("sound/") or not qpath.endswith(".wav"):
+            fail(f"Holomatch soundbank manifest contains an invalid sound path: {qpath!r}")
+        try:
+            manifest_code = int(str(sound.get("crc", "")), 16)
+            row = (
+                manifest_code,
+                int(sound["offset"]),
+                int(sound["size"]),
+                int(sound["flags"]),
+            )
+            runtime_path = ("d:\\BaseEF\\" + qpath.replace("/", "\\")).lower().encode("ascii")
+        except (KeyError, TypeError, ValueError, UnicodeEncodeError) as exc:
+            fail(f"Holomatch soundbank manifest contains an invalid record for {qpath!r}: {exc}")
+        runtime_code = zlib.crc32(runtime_path) & 0xFFFFFFFF
+        if manifest_code != runtime_code:
+            fail(
+                f"Holomatch soundbank CRC for {qpath} is 0x{manifest_code:08x}; "
+                f"the SP BaseEF runtime hashes it as 0x{runtime_code:08x}"
+            )
+        manifest_rows.add(row)
+    if manifest_rows != table_rows:
+        fail("Holomatch soundbank manifest records do not match sound.tbl")
+
+    return {
+        "bankBytes": bank_bytes,
+        "tableBytes": len(table_data),
+        "records": len(records),
+        "encodedRecords": manifest.get("encodedRecords", 0),
+        "preservedPcmRecords": manifest.get("preservedPcmRecords", 0),
+        "runtimeCrcRoot": "d:\\BaseEF\\",
+        "allRecordsWave": True,
+        "rangesContiguous": True,
+        "crcKeysSortedUnique": True,
     }
 
 
