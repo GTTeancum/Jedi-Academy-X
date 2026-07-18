@@ -14,9 +14,15 @@
 
 #define PERS_CLASS PERS_CAPTURES
 #define PC_NOCLASS 0
-#define PC_ACTIONHERO 1
-#define PC_BORG 2
-#define PC_MEDIC 3
+#define PC_INFILTRATOR 1
+#define PC_SNIPER 2
+#define PC_HEAVY 3
+#define PC_DEMO 4
+#define PC_MEDIC 5
+#define PC_TECH 6
+#define PC_BORG 7
+#define PC_VIP 8
+#define PC_ACTIONHERO 9
 
 #define PW_GHOST PW_CLOAKED
 #define PW_INVIS PW_CLOAKED

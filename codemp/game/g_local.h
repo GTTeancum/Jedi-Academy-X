@@ -397,6 +397,8 @@ typedef struct {
 	int			flagrecovery;
 	int			fragcarrier;
 	int			assists;
+	int			frags;
+	int			suicides;
 
 	float		lasthurtcarrier;
 	float		lastreturnedflag;
@@ -415,6 +417,7 @@ typedef struct {
 // MUST be dealt with in G_InitSessionData() / G_ReadSessionData() / G_WriteSessionData()
 typedef struct {
 	team_t		sessionTeam;
+	int			sessionClass;		// Official EF Holomatch player class.
 	int			spectatorTime;		// for determining next-in-line to play
 	spectatorState_t	spectatorState;
 	int			spectatorClient;	// for chasecam and follow mode
@@ -587,6 +590,8 @@ struct gclient_s {
 	int			damageBoxHandle_LLeg; //entity number of left leg damage box
 
 	int			accurateCount;		// for "impressive" reward sound
+	int			streakCount;		// Official EF consecutive-frag count.
+	int			mod;				// Official EF means of death retained across class changes.
 
 	int			accuracy_shots;		// total number of shots
 	int			accuracy_hits;		// total number of hits
@@ -855,6 +860,7 @@ typedef struct {
 	int			snd_medSupplied;		//being supplied by supply class
 
 	int			warmupModificationCount;	// for detecting if g_warmup is changed
+	qboolean	firstStrike;			// Official EF first-frag award state.
 
 	// voting state
 	char		voteString[MAX_STRING_CHARS];

@@ -350,7 +350,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\game\g_combat.c"
+				RelativePath="..\game\ef_game\g_combat_xbox.cpp"
 				>
 								<FileConfiguration
 					Name="Release|Win32"

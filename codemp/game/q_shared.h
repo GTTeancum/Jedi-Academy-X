@@ -2211,6 +2211,7 @@ typedef struct playerState_s {
 	int			slopeRecalcTime; //this is NOT sent across the net and is maintained seperately on game and cgame in pmove code.
 
 	int			useTime;
+	int			introTime;		// Official EF holodeck-intro immunity deadline.
 
 	int			groundEntityNum;// ENTITYNUM_NONE = in air
 
