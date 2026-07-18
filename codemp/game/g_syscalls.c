@@ -740,6 +740,110 @@ int trap_AAS_PredictClientMovement(void /* struct aas_clientmove_s */ *move, int
 	return syscall( BOTLIB_AAS_PREDICT_CLIENT_MOVEMENT, move, entnum, origin, presencetype, onground, velocity, cmdmove, cmdframes, maxframes, PASSFLOAT(frametime), stopevent, stopareanum, visualize );
 }
 
+void trap_EA_Say(int client, char *str) {
+	syscall( BOTLIB_EA_SAY, client, str );
+}
+
+void trap_EA_SayTeam(int client, char *str) {
+	syscall( BOTLIB_EA_SAY_TEAM, client, str );
+}
+
+void trap_EA_Command(int client, char *command) {
+	syscall( BOTLIB_EA_COMMAND, client, command );
+}
+
+void trap_EA_Action(int client, int action) {
+	syscall( BOTLIB_EA_ACTION, client, action );
+}
+
+void trap_EA_Gesture(int client) {
+	syscall( BOTLIB_EA_GESTURE, client );
+}
+
+void trap_EA_Talk(int client) {
+	syscall( BOTLIB_EA_TALK, client );
+}
+
+void trap_EA_Attack(int client) {
+	syscall( BOTLIB_EA_ATTACK, client );
+}
+
+void trap_EA_Alt_Attack(int client) {
+	syscall( BOTLIB_EA_ALT_ATTACK, client );
+}
+
+void trap_EA_ForcePower(int client) {
+	syscall( BOTLIB_EA_FORCEPOWER, client );
+}
+
+void trap_EA_Use(int client) {
+	syscall( BOTLIB_EA_USE, client );
+}
+
+void trap_EA_Respawn(int client) {
+	syscall( BOTLIB_EA_RESPAWN, client );
+}
+
+void trap_EA_Crouch(int client) {
+	syscall( BOTLIB_EA_CROUCH, client );
+}
+
+void trap_EA_MoveUp(int client) {
+	syscall( BOTLIB_EA_MOVE_UP, client );
+}
+
+void trap_EA_MoveDown(int client) {
+	syscall( BOTLIB_EA_MOVE_DOWN, client );
+}
+
+void trap_EA_MoveForward(int client) {
+	syscall( BOTLIB_EA_MOVE_FORWARD, client );
+}
+
+void trap_EA_MoveBack(int client) {
+	syscall( BOTLIB_EA_MOVE_BACK, client );
+}
+
+void trap_EA_MoveLeft(int client) {
+	syscall( BOTLIB_EA_MOVE_LEFT, client );
+}
+
+void trap_EA_MoveRight(int client) {
+	syscall( BOTLIB_EA_MOVE_RIGHT, client );
+}
+
+void trap_EA_SelectWeapon(int client, int weapon) {
+	syscall( BOTLIB_EA_SELECT_WEAPON, client, weapon );
+}
+
+void trap_EA_Jump(int client) {
+	syscall( BOTLIB_EA_JUMP, client );
+}
+
+void trap_EA_DelayedJump(int client) {
+	syscall( BOTLIB_EA_DELAYED_JUMP, client );
+}
+
+void trap_EA_Move(int client, vec3_t dir, float speed) {
+	syscall( BOTLIB_EA_MOVE, client, dir, PASSFLOAT(speed) );
+}
+
+void trap_EA_View(int client, vec3_t viewangles) {
+	syscall( BOTLIB_EA_VIEW, client, viewangles );
+}
+
+void trap_EA_EndRegular(int client, float thinktime) {
+	syscall( BOTLIB_EA_END_REGULAR, client, PASSFLOAT(thinktime) );
+}
+
+void trap_EA_GetInput(int client, float thinktime, void *input) {
+	syscall( BOTLIB_EA_GET_INPUT, client, PASSFLOAT(thinktime), input );
+}
+
+void trap_EA_ResetInput(int client) {
+	syscall( BOTLIB_EA_RESET_INPUT, client );
+}
+
 
 int trap_BotLoadCharacter(char *charfile, float skill) {
 	return syscall( BOTLIB_AI_LOAD_CHARACTER, charfile, PASSFLOAT(skill));
@@ -772,7 +876,6 @@ int trap_Characteristic_BInteger(int character, int index, int min, int max) {
 void trap_Characteristic_String(int character, int index, char *buf, int size) {
 	syscall( BOTLIB_AI_CHARACTERISTIC_STRING, character, index, buf, size );
 }
-/*
 int trap_BotAllocChatState(void) {
 	return syscall( BOTLIB_AI_ALLOC_CHAT_STATE );
 }
@@ -852,7 +955,6 @@ void trap_BotSetChatGender(int chatstate, int gender) {
 void trap_BotSetChatName(int chatstate, char *name, int client) {
 	syscall( BOTLIB_AI_SET_CHAT_NAME, chatstate, name, client );
 }
-*/
 
 void trap_BotResetGoalState(int goalstate) {
 	syscall( BOTLIB_AI_RESET_GOAL_STATE, goalstate );

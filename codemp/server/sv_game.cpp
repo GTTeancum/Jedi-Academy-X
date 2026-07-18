@@ -1143,7 +1143,6 @@ int SV_GameSystemCalls( int *args ) {
 		botlib_export->ai.Characteristic_String( args[1], args[2], (char *)VMA(3), args[4] );
 		return 0;
 
-/*
 	case BOTLIB_AI_ALLOC_CHAT_STATE:
 		return botlib_export->ai.BotAllocChatState();
 	case BOTLIB_AI_FREE_CHAT_STATE:
@@ -1195,7 +1194,6 @@ int SV_GameSystemCalls( int *args ) {
 	case BOTLIB_AI_SET_CHAT_NAME:
 		botlib_export->ai.BotSetChatName( args[1], (char *)VMA(2), args[3] );
 		return 0;
-*/
 	case BOTLIB_AI_RESET_GOAL_STATE:
 		botlib_export->ai.BotResetGoalState( args[1] );
 		return 0;

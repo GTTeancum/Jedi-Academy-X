@@ -34,7 +34,7 @@ bot_input_t *botinputs;
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Say(int client, char *str)
+void EA_Say(int client, char *str)
 {
 	botimport.BotClientCommand(client, va("say %s", str) );
 } //end of the function EA_Say
@@ -44,7 +44,7 @@ void trap_EA_Say(int client, char *str)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_SayTeam(int client, char *str)
+void EA_SayTeam(int client, char *str)
 {
 	botimport.BotClientCommand(client, va("say_team %s", str));
 } //end of the function EA_SayTeam
@@ -54,7 +54,7 @@ void trap_EA_SayTeam(int client, char *str)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Tell(int client, int clientto, char *str)
+void EA_Tell(int client, int clientto, char *str)
 {
 	botimport.BotClientCommand(client, va("tell %d, %s", clientto, str));
 } //end of the function EA_SayTeam
@@ -64,7 +64,7 @@ void trap_EA_Tell(int client, int clientto, char *str)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_UseItem(int client, char *it)
+void EA_UseItem(int client, char *it)
 {
 	botimport.BotClientCommand(client, va("use %s", it));
 } //end of the function EA_UseItem
@@ -74,7 +74,7 @@ void trap_EA_UseItem(int client, char *it)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_DropItem(int client, char *it)
+void EA_DropItem(int client, char *it)
 {
 	botimport.BotClientCommand(client, va("drop %s", it));
 } //end of the function EA_DropItem
@@ -84,7 +84,7 @@ void trap_EA_DropItem(int client, char *it)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_UseInv(int client, char *inv)
+void EA_UseInv(int client, char *inv)
 {
 	botimport.BotClientCommand(client, va("invuse %s", inv));
 } //end of the function EA_UseInv
@@ -94,7 +94,7 @@ void trap_EA_UseInv(int client, char *inv)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_DropInv(int client, char *inv)
+void EA_DropInv(int client, char *inv)
 {
 	botimport.BotClientCommand(client, va("invdrop %s", inv));
 } //end of the function EA_DropInv
@@ -104,7 +104,7 @@ void trap_EA_DropInv(int client, char *inv)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Gesture(int client)
+void EA_Gesture(int client)
 {
 	bot_input_t *bi;
 
@@ -118,7 +118,7 @@ void trap_EA_Gesture(int client)
 // Returns:					-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Command(int client, char *command)
+void EA_Command(int client, char *command)
 {
 	botimport.BotClientCommand(client, command);
 } //end of the function EA_Command
@@ -128,7 +128,7 @@ void trap_EA_Command(int client, char *command)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_SelectWeapon(int client, int weapon)
+void EA_SelectWeapon(int client, int weapon)
 {
 	bot_input_t *bi;
 
@@ -142,7 +142,7 @@ void trap_EA_SelectWeapon(int client, int weapon)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Attack(int client)
+void EA_Attack(int client)
 {
 	bot_input_t *bi;
 
@@ -156,7 +156,7 @@ void trap_EA_Attack(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Alt_Attack(int client)
+void EA_Alt_Attack(int client)
 {
 	bot_input_t *bi;
 
@@ -170,7 +170,7 @@ void trap_EA_Alt_Attack(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_ForcePower(int client)
+void EA_ForcePower(int client)
 {
 	bot_input_t *bi;
 
@@ -184,7 +184,7 @@ void trap_EA_ForcePower(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Talk(int client)
+void EA_Talk(int client)
 {
 	bot_input_t *bi;
 
@@ -198,7 +198,7 @@ void trap_EA_Talk(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Use(int client)
+void EA_Use(int client)
 {
 	bot_input_t *bi;
 
@@ -212,7 +212,7 @@ void trap_EA_Use(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Respawn(int client)
+void EA_Respawn(int client)
 {
 	bot_input_t *bi;
 
@@ -226,7 +226,7 @@ void trap_EA_Respawn(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Jump(int client)
+void EA_Jump(int client)
 {
 	bot_input_t *bi;
 
@@ -247,7 +247,7 @@ void trap_EA_Jump(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_DelayedJump(int client)
+void EA_DelayedJump(int client)
 {
 	bot_input_t *bi;
 
@@ -268,7 +268,7 @@ void trap_EA_DelayedJump(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Crouch(int client)
+void EA_Crouch(int client)
 {
 	bot_input_t *bi;
 
@@ -282,7 +282,7 @@ void trap_EA_Crouch(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Walk(int client)
+void EA_Walk(int client)
 {
 	bot_input_t *bi;
 
@@ -296,7 +296,7 @@ void trap_EA_Walk(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Action(int client, int action)
+void EA_Action(int client, int action)
 {
 	bot_input_t *bi;
 
@@ -310,7 +310,7 @@ void trap_EA_Action(int client, int action)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_MoveUp(int client)
+void EA_MoveUp(int client)
 {
 	bot_input_t *bi;
 
@@ -324,7 +324,7 @@ void trap_EA_MoveUp(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_MoveDown(int client)
+void EA_MoveDown(int client)
 {
 	bot_input_t *bi;
 
@@ -338,7 +338,7 @@ void trap_EA_MoveDown(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_MoveForward(int client)
+void EA_MoveForward(int client)
 {
 	bot_input_t *bi;
 
@@ -352,7 +352,7 @@ void trap_EA_MoveForward(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_MoveBack(int client)
+void EA_MoveBack(int client)
 {
 	bot_input_t *bi;
 
@@ -366,7 +366,7 @@ void trap_EA_MoveBack(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_MoveLeft(int client)
+void EA_MoveLeft(int client)
 {
 	bot_input_t *bi;
 
@@ -380,7 +380,7 @@ void trap_EA_MoveLeft(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_MoveRight(int client)
+void EA_MoveRight(int client)
 {
 	bot_input_t *bi;
 
@@ -394,7 +394,7 @@ void trap_EA_MoveRight(int client)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_Move(int client, vec3_t dir, float speed)
+void EA_Move(int client, vec3_t dir, float speed)
 {
 	bot_input_t *bi;
 
@@ -412,7 +412,7 @@ void trap_EA_Move(int client, vec3_t dir, float speed)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_View(int client, vec3_t viewangles)
+void EA_View(int client, vec3_t viewangles)
 {
 	bot_input_t *bi;
 
@@ -426,7 +426,7 @@ void trap_EA_View(int client, vec3_t viewangles)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_EndRegular(int client, float thinktime)
+void EA_EndRegular(int client, float thinktime)
 {
 /*
 	bot_input_t *bi;
@@ -453,7 +453,7 @@ void trap_EA_EndRegular(int client, float thinktime)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_GetInput(int client, float thinktime, void *input)
+void EA_GetInput(int client, float thinktime, bot_input_t *input)
 {
 	bot_input_t *bi;
 //	int jumped = qfalse;
@@ -480,7 +480,7 @@ void trap_EA_GetInput(int client, float thinktime, void *input)
 // Returns:				-
 // Changes Globals:		-
 //===========================================================================
-void trap_EA_ResetInput(int client)
+void EA_ResetInput(int client)
 {
 	bot_input_t *bi;
 	int jumped = qfalse;
