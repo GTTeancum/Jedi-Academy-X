@@ -301,9 +301,17 @@ REQUIRED_HOLOMATCH_BOT_SETUP_MARKERS = {
         "errnum = BotInitLibrary();",
         "int BotAIStartFrame(int time)",
     ],
-    "codemp/game/g_bot.c": [
-        'Info_SetValueForKey( userinfo, "characterfile", s );',
-        "STEFX_HM: addbot using official EF character name='%s' file='%s'",
+    "codemp/game/ef_game/g_bot.c": [
+        "void G_CheckMinimumPlayers( void )",
+        "void G_CheckBotSpawn( void )",
+        "qboolean G_BotConnect( int clientNum, qboolean restart )",
+        'Info_SetValueForKey( userinfo, "characterfile", Info_ValueForKey( botinfo, "aifile" ) );',
+        "void G_InitBots( qboolean restart )",
+    ],
+    "codemp/game/ef_game/g_bot_xbox.cpp": [
+        '#include "g_bot.c"',
+        "void G_RemoveQueuedBotBegin( int clientNum )",
+        "void G_InitBotMetadataOnly( qboolean restart )",
     ],
     "codemp/game/ef_ai_xbox_support.c": [
         "STEFX_HM: official EF bot AI allocation state initialized",
@@ -347,6 +355,10 @@ OFFICIAL_EF_AI_SHA256 = {
     "syn.h": "9b8e2cb96c979b3a2ded6d0f9a70d39d9af531f596baea5a4d042411771ac831",
 }
 
+OFFICIAL_EF_GAME_SHA256 = {
+    "g_bot.c": "aa096bbc319b6dfeb1bb07210b046319993a0b93beeae1e9af4e1915638c661c",
+}
+
 REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES = {
     "../game/ef_ai/ai_main.c",
     "../game/ef_ai/ai_chat.c",
@@ -355,12 +367,14 @@ REQUIRED_OFFICIAL_EF_AI_PROJECT_SOURCES = {
     "../game/ef_ai/ai_dmq3.c",
     "../game/ef_ai/ai_team.c",
     "../game/ef_ai_xbox_support.c",
+    "../game/ef_game/g_bot_xbox.cpp",
 }
 
 FORBIDDEN_JA_AI_PROJECT_SOURCES = {
     "../game/ai_main.c",
     "../game/ai_util.c",
     "../game/ai_wpnav.c",
+    "../game/g_bot.c",
 }
 
 REQUIRED_HOLOMATCH_INPUT_MARKERS = {
@@ -1150,6 +1164,22 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_official_ai_hashes)
         )
 
+    official_game_dir = repo_root / "codemp" / "game" / "ef_game"
+    bad_official_game_hashes: list[str] = []
+    for filename, expected_hash in sorted(OFFICIAL_EF_GAME_SHA256.items()):
+        path = official_game_dir / filename
+        if not path.is_file():
+            bad_official_game_hashes.append(f"{filename}: missing")
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            bad_official_game_hashes.append(f"{filename}: {actual_hash}")
+    if bad_official_game_hashes:
+        fail(
+            "official EF 1.2 bot lifecycle source must remain byte-for-byte unchanged: "
+            + ", ".join(bad_official_game_hashes)
+        )
+
     ef_ai_compat = (repo_root / "codemp" / "game" / "ef_ai_compat.h").read_text(
         encoding="utf-8", errors="ignore"
     )
@@ -1638,6 +1668,8 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "holomatchDefaultPlayerModel": "munro/default",
         "officialEfBotAiFiles": len(OFFICIAL_EF_AI_SHA256),
         "officialEfBotAiByteExact": True,
+        "officialEfBotLifecycleFiles": len(OFFICIAL_EF_GAME_SHA256),
+        "officialEfBotLifecycleByteExact": True,
         "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
         "officialEfBotActionFlags": len(OFFICIAL_EF_BOT_ACTION_FLAGS),
         "compiledJaBotAiSources": 0,
@@ -2301,7 +2333,7 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: official EF bot ammo view mirrored from carrier ammo buckets",
         b"STEFX_HM: official EF bot usercmd client=",
         b"STEFX_HM: JA waypoint loader retired; official EF AAS route active",
-        b"STEFX_HM: addbot using official EF character name=",
+        b"STEFX_HM: official EF bot metadata-only init begin restart=",
         b"STEFX_HM: input Plan-B XInitDevices completed before D3D init",
         b"STEFX_HM: MP using SP-style fakegl pushbuffer path; main skipped legacy Direct3D_SetPushBufferSize",
         b"STEFX: IN_Init gamepad mask=",

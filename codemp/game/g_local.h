@@ -181,6 +181,7 @@ struct gentity_s {
 	qboolean	noLumbar; //see note in cg_local.h
 
 	qboolean	inuse;
+	qboolean	botDelayBegin;		// Official EF bot lifecycle state.
 
 	int			lockCount; //used by NPCs
 

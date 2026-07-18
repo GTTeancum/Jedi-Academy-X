@@ -311,7 +311,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\game\g_bot.c"
+				RelativePath="..\game\ef_game\g_bot_xbox.cpp"
 				>
 								<FileConfiguration
 					Name="Release|Win32"
