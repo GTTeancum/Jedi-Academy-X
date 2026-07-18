@@ -1461,6 +1461,7 @@ netField_t	playerStateFields[] =
 { PSF(externalEvent), 10 },
 { PSF(damageYaw), 8 },
 { PSF(damageCount), 8 },
+{ PSF(damageShieldCount), 8 },
 { PSF(inAirAnim), 1 }, //just transmit it for the sake of knowing right when on the client to play a land anim, it's only 1 bit
 { PSF(eventParms[1]), 8 },
 { PSF(fd.forceSide), 2 }, //so we know if we should apply greyed out shaders to dark/light force enlightenment
@@ -1630,6 +1631,7 @@ netField_t	pilotPlayerStateFields[] =
 { PSF(fd.forcePowerSelected), 8 },
 { PSF(damageYaw), 8 },
 { PSF(damageCount), 8 },
+{ PSF(damageShieldCount), 8 },
 { PSF(inAirAnim), 1 }, //just transmit it for the sake of knowing right when on the client to play a land anim, it's only 1 bit
 { PSF(fd.forceSide), 2 }, //so we know if we should apply greyed out shaders to dark/light force enlightenment
 { PSF(saberAttackChainCount), 4 },

@@ -455,6 +455,7 @@ typedef struct {
 	int			tracemask;			// collide against these types of surfaces
 	int			debugLevel;			// if set, diagnostic output will be printed
 	qboolean	noFootsteps;		// if the game is setup for no footsteps by the server
+	qboolean	pModDisintegration;	// official EF disintegration movement toggle
 	qboolean	gauntletHit;		// true if a gauntlet attack would actually hit something
 
 	int			framecount;
@@ -992,6 +993,11 @@ typedef enum {
 	EV_GLOAT2,
 	EV_GLOAT3,
 	EV_PUSHFAIL,
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	EV_FALL_MEDIUM,
+	EV_FALL_FAR,
+#endif
 
 	EV_SIEGESPEC,
 	

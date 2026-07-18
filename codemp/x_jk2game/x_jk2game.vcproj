@@ -285,7 +285,7 @@
 				</FileConfiguration>
 							</File>
 			<File
-				RelativePath="..\game\g_active.c"
+				RelativePath="..\game\ef_game\g_active_xbox.cpp"
 				>
 								<FileConfiguration
 					Name="Release|Win32"

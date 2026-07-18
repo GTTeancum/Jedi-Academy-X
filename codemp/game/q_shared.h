@@ -2252,6 +2252,7 @@ typedef struct playerState_s {
 	int			damageYaw;
 	int			damagePitch;
 	int			damageCount;
+	int			damageShieldCount;
 	int			damageType;
 
 	int			painTime;		// used for both game and client side to process the pain twitch - NOT sent across the network
