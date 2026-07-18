@@ -161,6 +161,9 @@ XBOX_EFFECTS_IMAGE_CANDIDATES = (
     Path(r"C:\XDK\source\dsound\dsp\dsstdfx.bin"),
     Path(r"C:\XDK\Samples\Xbox\Sound\BackgroundMusic\Media\dsstdfx.bin"),
 )
+HOLOMATCH_BOTFILE_ALIASES = {
+    "botfiles/bots/long_i.c": "botfiles/bots/biessman_i.c",
+}
 
 
 def normalized_rel(path: str) -> str:
@@ -1058,8 +1061,8 @@ def holomatch_support_files(base_dir: Path, map_name: str) -> list[Path]:
         "botfiles/bots/reaver_t.c",
         "botfiles/bots/reaver_w.c",
     ]
-    model_dirs = (
-        "botfiles/bots",
+    support_dirs = (
+        "botfiles",
         "models/players/munro",
         "models/players/seven",
         "models/players/reaver",
@@ -1083,7 +1086,7 @@ def holomatch_support_files(base_dir: Path, map_name: str) -> list[Path]:
     for rel in direct_files:
         add_path(base_dir / Path(*rel.split("/")))
 
-    for rel_dir in model_dirs:
+    for rel_dir in support_dirs:
         root = base_dir / Path(*rel_dir.split("/"))
         if not root.is_dir():
             continue
@@ -1226,6 +1229,16 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                     patched_aas_checksums[support_rel] = checksum
                 zip_write_bytes(zip_out, support_rel, support_data)
                 support_files.append(support_rel)
+            for alias_rel, source_rel in sorted(HOLOMATCH_BOTFILE_ALIASES.items()):
+                if alias_rel in support_files:
+                    continue
+                source_path = base_dir / Path(*source_rel.split("/"))
+                if not source_path.is_file():
+                    raise FileNotFoundError(
+                        f"missing official EF botfile alias source: {source_path}"
+                    )
+                zip_write_bytes(zip_out, alias_rel, source_path.read_bytes())
+                support_files.append(alias_rel)
             holomatch_lists = {
                 "scripts/_console_bot_list_": ["bots.txt"],
                 "scripts/_console_arena_list_": ["arenas.txt"],

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import posixpath
 import re
 import struct
 import sys
@@ -308,6 +309,14 @@ REQUIRED_HOLOMATCH_BOT_SETUP_MARKERS = {
         "STEFX_HM: official EF bot AI allocation state initialized",
         "STEFX_HM: JA waypoint loader retired; official EF AAS route active",
     ],
+    "codemp/game/ef_ai_compat.h": [
+        "static int EF_AI_OfficialWeaponToCarrier(int weapon)",
+        "if (weapon >= 11 && weapon <= 19)",
+        "return alt ? base + WP_NUM_WEAPONS : base;",
+        "static int EF_AI_CarrierWeaponToOfficial(int weapon)",
+        "return alt ? base + 10 : base;",
+        "static void EF_AI_EA_SelectWeapon(int client, int weapon)",
+    ],
 }
 
 OFFICIAL_EF_AI_SHA256 = {
@@ -458,6 +467,58 @@ REQUIRED_HOLOMATCH_NAV_FILES = {
 REQUIRED_HOLOMATCH_AAS = "maps/hm_borg1.aas"
 AAS_IDENT = b"EAAS"
 REQUIRED_XBOX_EFFECTS_IMAGE = "sound/dsstdfx.bin"
+
+REQUIRED_EF_BOTLIB_ROOT_FILES = {
+    "botfiles/chars.h",
+    "botfiles/fw_items.c",
+    "botfiles/fw_weap.c",
+    "botfiles/inv.h",
+    "botfiles/items.c",
+    "botfiles/match.c",
+    "botfiles/match.h",
+    "botfiles/rnd.c",
+    "botfiles/syn.c",
+    "botfiles/syn.h",
+    "botfiles/teamplay.h",
+    "botfiles/weapons.c",
+}
+
+OFFICIAL_EF_WEAPON_CONFIG_IDS = {
+    "WEAPONINDEX_PHASER": 1,
+    "WEAPONINDEX_COMPRESSION": 2,
+    "WEAPONINDEX_IMOD": 3,
+    "WEAPONINDEX_SCAVENGER": 4,
+    "WEAPONINDEX_STASIS": 5,
+    "WEAPONINDEX_GRENADELAUNCHER": 6,
+    "WEAPONINDEX_TETRION": 7,
+    "WEAPONINDEX_QUANTUM": 8,
+    "WEAPONINDEX_DREADNOUGHT": 9,
+    "WEAPONINDEX_PHASER_ALT": 11,
+    "WEAPONINDEX_COMPRESSION_ALT": 12,
+    "WEAPONINDEX_IMOD_ALT": 13,
+    "WEAPONINDEX_SCAVENGER_ALT": 14,
+    "WEAPONINDEX_STASIS_ALT": 15,
+    "WEAPONINDEX_GRENADELAUNCHER_ALT": 16,
+    "WEAPONINDEX_TETRION_ALT": 17,
+    "WEAPONINDEX_QUANTUM_ALT": 18,
+    "WEAPONINDEX_DREADNOUGHT_ALT": 19,
+}
+
+OFFICIAL_EF_CARRIER_WEAPON_MAP = {
+    1: "WP_BRYAR_PISTOL",
+    2: "WP_BLASTER",
+    3: "WP_DEMP2",
+    4: "WP_BOWCASTER",
+    5: "WP_FLECHETTE",
+    6: "WP_THERMAL",
+    7: "WP_DISRUPTOR",
+    8: "WP_REPEATER",
+    9: "WP_ROCKET_LAUNCHER",
+}
+
+REQUIRED_HOLOMATCH_BOTFILE_ALIASES = {
+    "botfiles/bots/long_i.c": "botfiles/bots/biessman_i.c",
+}
 
 DIRECT_HOLOMATCH_BOTS = {
     "1_of_12": {
@@ -1038,6 +1099,23 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
             + ", ".join(bad_official_ai_hashes)
         )
 
+    ef_ai_compat = (repo_root / "codemp" / "game" / "ef_ai_compat.h").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    bad_weapon_boundary: list[str] = []
+    for official_id, carrier_id in OFFICIAL_EF_CARRIER_WEAPON_MAP.items():
+        forward = rf"case\s+{official_id}\s*:\s*base\s*=\s*{carrier_id}\s*;"
+        reverse = rf"case\s+{carrier_id}\s*:\s*base\s*=\s*{official_id}\s*;"
+        if not re.search(forward, ef_ai_compat):
+            bad_weapon_boundary.append(f"{official_id} -> {carrier_id}")
+        if not re.search(reverse, ef_ai_compat):
+            bad_weapon_boundary.append(f"{carrier_id} -> {official_id}")
+    if bad_weapon_boundary:
+        fail(
+            "official EF bot weapon IDs must map bidirectionally at the carrier boundary: "
+            + ", ".join(bad_weapon_boundary)
+        )
+
     forbidden_source_includes: list[str] = []
     for folder_rel in ("codemp/ui", "codemp/cgame", "codemp/game"):
         folder = repo_root / folder_rel
@@ -1452,6 +1530,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
         "holomatchDefaultPlayerModel": "munro/default",
         "officialEfBotAiFiles": len(OFFICIAL_EF_AI_SHA256),
         "officialEfBotAiByteExact": True,
+        "officialEfBotWeaponCarrierMappings": len(OFFICIAL_EF_CARRIER_WEAPON_MAP),
         "compiledJaBotAiSources": 0,
         "inputSpEarlyDeviceInit": True,
         "inputJoyDeadzoneDefault": "0.18",
@@ -1652,6 +1731,115 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
         else:
             bots_text = zf.read(name_lookup[bots_entry]).decode("ascii", errors="ignore").lower()
 
+        botfile_entries = {
+            name
+            for name in names
+            if name.startswith("botfiles/") and Path(name).suffix.lower() in {".c", ".h"}
+        }
+        missing_botlib_root = sorted(REQUIRED_EF_BOTLIB_ROOT_FILES - botfile_entries)
+        if missing_botlib_root:
+            fail(
+                "xbox1.pk3 is missing official EF botlib root file(s): "
+                + ", ".join(missing_botlib_root)
+            )
+
+        declared_bot_aifiles: set[str] = set()
+        for match in re.finditer(
+            r'^\s*aifile\s+(?:"([^"]+)"|([^\s}]+))', bots_text, re.MULTILINE
+        ):
+            bot_path = norm_path(match.group(1) or match.group(2))
+            if not bot_path.startswith("botfiles/"):
+                bot_path = "botfiles/" + bot_path
+            declared_bot_aifiles.add(bot_path)
+        if not declared_bot_aifiles:
+            fail("scripts/bots.txt does not declare any official EF bot AI files")
+
+        missing_declared_bots = sorted(declared_bot_aifiles - botfile_entries)
+        if missing_declared_bots:
+            fail(
+                "xbox1.pk3 is missing bot AI file(s) declared by scripts/bots.txt: "
+                + ", ".join(missing_declared_bots[:24])
+            )
+
+        missing_botfile_refs: set[str] = set()
+        botfile_reference_count = 0
+        botfiles_to_check = set(REQUIRED_EF_BOTLIB_ROOT_FILES | declared_bot_aifiles)
+        checked_botfiles: set[str] = set()
+        while botfiles_to_check:
+            botfile_rel = min(botfiles_to_check)
+            botfiles_to_check.remove(botfile_rel)
+            if botfile_rel in checked_botfiles:
+                continue
+            checked_botfiles.add(botfile_rel)
+            text = zf.read(name_lookup[botfile_rel]).decode("ascii", errors="ignore")
+            for include_ref in re.findall(r'^\s*#include\s+"([^"]+)"', text, re.MULTILINE):
+                include_ref = norm_path(include_ref)
+                candidates = {
+                    norm_path(posixpath.normpath(posixpath.join(posixpath.dirname(botfile_rel), include_ref))),
+                    norm_path(posixpath.normpath(posixpath.join("botfiles", include_ref))),
+                }
+                botfile_reference_count += 1
+                resolved = candidates.intersection(botfile_entries)
+                if not resolved:
+                    missing_botfile_refs.add(f"{botfile_rel} -> {include_ref}")
+                else:
+                    botfiles_to_check.add(min(resolved))
+
+            for asset_ref in re.findall(
+                r'CHARACTERISTIC_(?:WEAPONWEIGHTS|ITEMWEIGHTS|CHAT_FILE)\s+"([^"]+)"',
+                text,
+            ):
+                referenced = norm_path(posixpath.normpath(posixpath.join("botfiles", asset_ref)))
+                botfile_reference_count += 1
+                if referenced not in botfile_entries:
+                    missing_botfile_refs.add(f"{botfile_rel} -> {asset_ref}")
+                else:
+                    botfiles_to_check.add(referenced)
+
+        if missing_botfile_refs:
+            fail(
+                "xbox1.pk3 has unresolved official EF botfile reference(s): "
+                + ", ".join(sorted(missing_botfile_refs)[:24])
+            )
+
+        invalid_botfile_aliases: list[str] = []
+        for alias_rel, source_rel in sorted(REQUIRED_HOLOMATCH_BOTFILE_ALIASES.items()):
+            if alias_rel not in name_lookup:
+                invalid_botfile_aliases.append(f"{alias_rel}: missing")
+                continue
+            if source_rel not in name_lookup:
+                invalid_botfile_aliases.append(f"{source_rel}: missing source")
+                continue
+            if zf.read(name_lookup[alias_rel]) != zf.read(name_lookup[source_rel]):
+                invalid_botfile_aliases.append(f"{alias_rel}: differs from {source_rel}")
+        if invalid_botfile_aliases:
+            fail(
+                "xbox1.pk3 official EF botfile compatibility alias is invalid: "
+                + ", ".join(invalid_botfile_aliases)
+            )
+
+        weapon_config_text = zf.read(name_lookup["botfiles/weapons.c"]).decode(
+            "ascii", errors="ignore"
+        )
+        weapon_config_ids = {
+            name: int(value)
+            for name, value in re.findall(
+                r'^\s*#define\s+(WEAPONINDEX_[A-Z0-9_]+)\s+(\d+)\b',
+                weapon_config_text,
+                re.MULTILINE,
+            )
+        }
+        invalid_weapon_ids = {
+            name: weapon_config_ids.get(name)
+            for name, expected in OFFICIAL_EF_WEAPON_CONFIG_IDS.items()
+            if weapon_config_ids.get(name) != expected
+        }
+        if invalid_weapon_ids:
+            fail(
+                "xbox1.pk3 official EF weapons.c ID contract is invalid: "
+                + json.dumps(invalid_weapon_ids, sort_keys=True)
+            )
+
         for bot_name, spec in DIRECT_HOLOMATCH_BOTS.items():
             bot_pattern = (
                 r"name\s+" + re.escape(bot_name) + r"\b"
@@ -1727,6 +1915,12 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
         "patchedAasChecksums": manifest.get("patchedAasChecksums", {}),
         "effectsImage": manifest.get("effectsImage", {}),
         "directBotModels": sorted(DIRECT_HOLOMATCH_BOTS),
+        "officialBotfileCount": len(botfile_entries),
+        "officialBotAifileCount": len(declared_bot_aifiles),
+        "officialBotfileReachableCount": len(checked_botfiles),
+        "officialBotfileReferenceCount": botfile_reference_count,
+        "officialBotfileAliases": REQUIRED_HOLOMATCH_BOTFILE_ALIASES,
+        "officialWeaponConfigIds": weapon_config_ids,
         "directBotSkinTextureCount": len(direct_bot_skin_textures),
         "directWeaponModelCount": len(DIRECT_HOLOMATCH_WEAPON_MODEL_FILES),
         "directPickupModelCount": len(DIRECT_HOLOMATCH_PICKUP_MODEL_FILES),
