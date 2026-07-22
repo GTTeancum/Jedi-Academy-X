@@ -622,6 +622,11 @@ void SCR_UpdateScreen( void ) {
 	CL_StartHunkUsers();
 
 #ifdef _XBOX
+	#if defined(STEFX_SP_HOSTED_MP)
+	XBLF("STEFX_HM_SP: SCR_UpdateScreen after CL_StartHunkUsers state=%d renderer=%d sound=%d soundReg=%d cgame=%d",
+		(int)cls.state, cls.rendererStarted ? 1 : 0, cls.soundStarted ? 1 : 0,
+		cls.soundRegistered ? 1 : 0, cls.cgameStarted ? 1 : 0);
+	#endif
 	if (cls.state == CA_CINEMATIC && s_xboxUpdateScreenCinematicTraceCount < 24)
 	{
 		XBLF("STEFX_CIN_DRAW: update after hunk state=%d ui=%d cgame=%d catcher=0x%x",
@@ -666,10 +671,16 @@ void SCR_UpdateScreen( void ) {
 		if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen before draw center");
 		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before draw center");
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw center...");
+	#if defined(STEFX_SP_HOSTED_MP)
+		XBLF("STEFX_HM_SP: SCR_UpdateScreen before draw state=%d cgame=%d", (int)cls.state, cls.cgameStarted ? 1 : 0);
+	#endif
 #endif
 		SCR_DrawScreenField( STEREO_CENTER );
 	}
 #ifdef _XBOX
+	#if defined(STEFX_SP_HOSTED_MP)
+	XBLF("STEFX_HM_SP: SCR_UpdateScreen after draw state=%d", (int)cls.state);
+	#endif
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen after draw");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw done");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw done");
@@ -686,6 +697,9 @@ void SCR_UpdateScreen( void ) {
 		re.EndFrame( NULL, NULL );
 	}
 #ifdef _XBOX
+	#if defined(STEFX_SP_HOSTED_MP)
+	XBLF("STEFX_HM_SP: SCR_UpdateScreen after EndFrame state=%d", (int)cls.state);
+	#endif
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen after re.EndFrame");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT after re.EndFrame");
 	if (xboxTraceScreen)

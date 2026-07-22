@@ -77,6 +77,10 @@ void Ghoul2InfoArray_Free(void)
 
 const char *Sys_RemapPath(const char *filename)
 {
+	if (filename && !Q_stricmpn(filename, "BaseEF\\", 7))
+	{
+		return va("D:\\BaseEF\\%s", filename + 7);
+	}
 	if (filename && !Q_stricmpn(filename, "base\\", 5))
 	{
 		return va("D:\\BaseEF\\%s", filename + 5);

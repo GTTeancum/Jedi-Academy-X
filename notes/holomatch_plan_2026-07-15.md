@@ -1,5 +1,16 @@
 # Holomatch Plan - 2026-07-15
 
+## Current Direction - 2026-07-22
+- This plan contains older `codemp`-hosted milestones below. Those entries are historical unless a later current-state note explicitly revives them.
+- Active Holomatch development now starts from the working Elite Force SP engine in `code\` and builds with `scripts\build_xbox.ps1 -Target spmp`.
+- Active Holomatch output is `build\release\efmp.xbe`, staged as `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe`.
+- Runtime data is staged under `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\BaseEF`; the Holomatch package is `BaseEF\xbox1.pk3`.
+- `codemp\` must not be a build, link, include, or runtime dependency for the active SP-hosted Holomatch vertical slice.
+- The code-only verifier is authoritative for this rule: `scripts\check_mp_holomatch_ui.py --code-only ...` must report `codempDependency=false`.
+- Current direct boot is `hm_borg1` with bots. Menus remain future work; tests boot straight to the map.
+- `default.xbe` remains SP/co-op and must not be overwritten by Holomatch work.
+- Current qualification and remaining signoff live in `HOLOMATCH_QUALIFICATION.md` and `HOLOMATCH_TODO.md`.
+
 ## Source Truth
 - Official Elite Force Holomatch v1.2 source is mirrored locally at `third_party_private\elite-force-holomatch-source-1.2\stvoy\Code-DM`.
 - Public reference locations checked:

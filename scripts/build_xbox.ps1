@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("sp", "mp", "all")]
+    [ValidateSet("sp", "spmp", "mp", "all")]
     [string]$Target,
 
     [switch]$Clean,
@@ -20,6 +20,8 @@ $vc71Dir = Join-Path $xdkRoot "xbox\bin\vc71"
 $xdkBin = Join-Path $xdkRoot "xbox\bin"
 $mlExe = "C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\ml.exe"
 $pythonExe = "python"
+$script:StefxBuildTarget = $Target
+$script:StefxHolomatchDirectMap = "hm_borg1"
 
 $clExe = Join-Path $vc71Dir "CL.Exe"
 $libExe = Join-Path $vc71Dir "Lib.Exe"
@@ -265,8 +267,88 @@ function Apply-ProjectSourceOverrides {
     )
 
     if ($ProjectPath -eq "code\x_game\x_game.vcproj") {
-        $efRoot = Join-Path $repoRoot "SP-Mod-Source-Code-master"
-        $efGameDsp = Join-Path $efRoot "game\game.dsp"
+        if ($script:StefxBuildTarget -eq "spmp") {
+            $efRoot = Join-Path $repoRoot "code\holomatch\official"
+            $efGameProject = $null
+            $efGameDsp = Join-Path $efRoot "game\game.dsp"
+        }
+        else {
+            $efRoot = Join-Path $repoRoot "SP-Mod-Source-Code-master"
+            $efGameDsp = Join-Path $efRoot "game\game.dsp"
+        }
+        if ($script:StefxBuildTarget -eq "spmp" -and $efGameProject -and (Test-Path $efGameProject)) {
+            [xml]$efProjectXml = Get-Content -Path $efGameProject
+            $efProjectDir = Split-Path -Parent $efGameProject
+            $efMacros = @{
+                SolutionDir       = "$efProjectDir\"
+                ProjectDir        = "$efProjectDir\"
+                ProjectPath       = $efGameProject
+                ProjectName       = "x_jk2game"
+                ConfigurationName = "Release"
+                OutDir            = "$efProjectDir\Release\"
+                IntDir            = "$efProjectDir\Release\"
+            }
+            $efProjectSources = Get-ProjectSourceFiles -Xml $efProjectXml -ConfigurationName "Release|Win32" -ProjectDir $efProjectDir -Macros $efMacros
+            $efSources = New-Object System.Collections.Generic.List[object]
+            foreach ($projectSource in $efProjectSources) {
+                $efSources.Add($projectSource)
+            }
+            $efIncludeDirs = @(
+                $efRoot,
+                (Join-Path $efRoot "game"),
+                (Join-Path $efRoot "cgame"),
+                (Join-Path $efRoot "qcommon"),
+                (Join-Path $efRoot "client"),
+                (Join-Path $efRoot "ui")
+            ) -join ';'
+            $efSourceDefinitions = "STEFX_ELITE_FORCE_SP;STEFX_ELITE_FORCE_MP;STEFX_SP_HOSTED_MP;Com_Printf=STEFX_HM_Com_Printf;Com_Error=STEFX_HM_Com_Error;_GAME;_JK2MP;_X86_"
+
+            foreach ($source in $efSources) {
+                $source.Tool = [pscustomobject]@{
+                    Name                      = "VCCLCompilerTool"
+                    PrependIncludeDirectories = $efIncludeDirs
+                    PreprocessorDefinitions   = $efSourceDefinitions
+                    CompileAs                 = (Get-XmlAttr -Node $source.Tool -Name "CompileAs")
+                }
+                $source.RelativePath = [System.IO.Path]::GetFullPath($source.FullPath).Substring($repoRoot.Length + 1)
+            }
+
+            $efCompatPath = Join-Path $efRoot "game\stefx_xbox_compat.cpp"
+            if (Test-Path $efCompatPath) {
+                $efSources.Add([pscustomobject]@{
+                    RelativePath = [System.IO.Path]::GetFullPath($efCompatPath).Substring($repoRoot.Length + 1)
+                    FullPath     = $efCompatPath
+                    Extension    = ".cpp"
+                    Tool         = [pscustomobject]@{
+                        Name                      = "VCCLCompilerTool"
+                        PrependIncludeDirectories = $efIncludeDirs
+                        PreprocessorDefinitions   = $efSourceDefinitions
+                    }
+                })
+            }
+
+            $hmGamePath = Join-Path $repoRoot "code\game\stefx_holomatch_game.cpp"
+            if (Test-Path $hmGamePath) {
+                $efSources.Add([pscustomobject]@{
+                    RelativePath = [System.IO.Path]::GetFullPath($hmGamePath).Substring($repoRoot.Length + 1)
+                    FullPath     = $hmGamePath
+                    Extension    = ".cpp"
+                    Tool         = $null
+                })
+            }
+
+            $hmApiPath = Join-Path $repoRoot "code\holomatch\stefx_mp_game_api.cpp"
+            if (Test-Path $hmApiPath) {
+                $efSources.Add([pscustomobject]@{
+                    RelativePath = [System.IO.Path]::GetFullPath($hmApiPath).Substring($repoRoot.Length + 1)
+                    FullPath     = $hmApiPath
+                    Extension    = ".cpp"
+                    Tool         = $null
+                })
+            }
+
+            return $efSources
+        }
         if (Test-Path $efGameDsp) {
             $efSources = New-Object System.Collections.Generic.List[object]
             $efIncludeDirs = @(
@@ -280,6 +362,13 @@ function Apply-ProjectSourceOverrides {
                 (Join-Path $efRoot "ui")
             ) -join ';'
 
+            if ($script:StefxBuildTarget -eq "spmp") {
+                $efSourceDefinitions = "STEFX_ELITE_FORCE_SP;STEFX_ELITE_FORCE_MP;STEFX_SP_HOSTED_MP;Com_Printf=STEFX_HM_Com_Printf;Com_Error=STEFX_HM_Com_Error;_GAME;_JK2MP;_X86_"
+            }
+            else {
+                $efSourceDefinitions = "STEFX_ELITE_FORCE_SP;_X86_"
+            }
+
             $seen = @{}
             foreach ($line in (Get-Content -Path $efGameDsp)) {
                 if ($line -notmatch '^SOURCE=(.+)$') {
@@ -292,9 +381,13 @@ function Apply-ProjectSourceOverrides {
                     continue
                 }
                 $fileName = [System.IO.Path]::GetFileName($relativePath)
-                if ($fileName -ieq "bg_lib.cpp" -or
-                    $fileName -ieq "q_math.cpp" -or
-                    $fileName -ieq "q_shared.cpp") {
+                if ($fileName -ieq "bg_lib.c" -or
+                    $fileName -ieq "bg_lib.cpp" -or
+                    ($script:StefxBuildTarget -ne "spmp" -and
+                        ($fileName -ieq "q_math.c" -or
+                         $fileName -ieq "q_math.cpp" -or
+                         $fileName -ieq "q_shared.c" -or
+                         $fileName -ieq "q_shared.cpp"))) {
                     continue
                 }
 
@@ -316,7 +409,7 @@ function Apply-ProjectSourceOverrides {
                     Tool         = [pscustomobject]@{
                         Name                      = "VCCLCompilerTool"
                         PrependIncludeDirectories = $efIncludeDirs
-                        PreprocessorDefinitions   = "STEFX_ELITE_FORCE_SP;_X86_"
+                        PreprocessorDefinitions   = $efSourceDefinitions
                     }
                 })
             }
@@ -330,9 +423,105 @@ function Apply-ProjectSourceOverrides {
                     Tool         = [pscustomobject]@{
                         Name                      = "VCCLCompilerTool"
                         PrependIncludeDirectories = $efIncludeDirs
-                        PreprocessorDefinitions   = "STEFX_ELITE_FORCE_SP;_X86_"
+                        PreprocessorDefinitions   = $efSourceDefinitions
                     }
                 })
+            }
+
+            if ($script:StefxBuildTarget -eq "spmp") {
+                # Holomatch is the official EF game/cgame pair hosted by the
+                # SP engine.  The renderer, sound, input, filesystem and UI
+                # remain the code/ implementations; only the multiplayer VM
+                # layer uses the official EF sources kept under code/.
+                $hmCgameRoot = Join-Path $repoRoot "code\holomatch\official\cgame"
+                $hmCgameIncludeDirs = @(
+                    (Join-Path $repoRoot "code\holomatch\official"),
+                    (Join-Path $repoRoot "code\holomatch\official\game"),
+                    $hmCgameRoot
+                ) -join ';'
+                $hmCgameSyscalls = Join-Path $hmCgameRoot "cg_syscalls.c"
+                $hmCgameTrapNames = @(
+                    Get-Content -LiteralPath $hmCgameSyscalls |
+                    ForEach-Object { [regex]::Matches($_, '\btrap_[A-Za-z0-9_]+\s*\(') } |
+                    ForEach-Object { $_.Value.Substring(0, $_.Value.IndexOf('(')).Trim() } |
+                    Sort-Object -Unique
+                )
+                $hmCgameTrapDefinitions = @(
+                    $hmCgameTrapNames | ForEach-Object { "$_=STEFX_HM_CG_$_" }
+                ) -join ';'
+                $hmCgameDefinitions = "STEFX_ELITE_FORCE_SP;STEFX_ELITE_FORCE_MP;STEFX_SP_HOSTED_MP;vmMain=STEFX_HM_CG_vmMain;dllEntry=STEFX_HM_CG_dllEntry;PASSFLOAT=STEFX_HM_CG_PASSFLOAT;Com_Printf=STEFX_HM_CG_Com_Printf;Com_Error=STEFX_HM_CG_Com_Error;fxRandCircumferencePos=STEFX_HM_CG_fxRandCircumferencePos;_CGAME;_X86_;$hmCgameTrapDefinitions"
+                foreach ($hmCgameSource in (Get-ChildItem -LiteralPath $hmCgameRoot -File |
+                    Where-Object { $_.Extension -eq ".c" } |
+                    Sort-Object Name)) {
+                    $efSources.Add([pscustomobject]@{
+                        RelativePath = [System.IO.Path]::GetFullPath($hmCgameSource.FullName).Substring($repoRoot.Length + 1)
+                        FullPath     = $hmCgameSource.FullName
+                        Extension    = ".c"
+                        Tool         = [pscustomobject]@{
+                            Name                       = "VCCLCompilerTool"
+                            PrependIncludeDirectories = $hmCgameIncludeDirs
+                            PreprocessorDefinitions   = $hmCgameDefinitions
+                        }
+                    })
+                }
+
+                # The SP engine has no multiplayer AAS implementation. Keep the
+                # engine-side bot library inside code/ so Holomatch remains
+                # independent of the retired codemp tree.
+                $hmBotlibRoot = Join-Path $repoRoot "code\holomatch\botlib"
+                $hmBotlibIncludeDirs = @(
+                    $hmBotlibRoot,
+                    (Join-Path $repoRoot "code\holomatch\official\game")
+                ) -join ';'
+                $hmBotlibCompat = Join-Path $hmBotlibRoot "stefx_botlib_compat.h"
+                foreach ($hmBotlibSource in (Get-ChildItem -LiteralPath $hmBotlibRoot -File |
+                    Where-Object { $_.Extension -eq ".cpp" } |
+                    Sort-Object Name)) {
+                    $efSources.Add([pscustomobject]@{
+                        RelativePath = [System.IO.Path]::GetFullPath($hmBotlibSource.FullName).Substring($repoRoot.Length + 1)
+                        FullPath     = $hmBotlibSource.FullName
+                        Extension    = ".cpp"
+                        Tool         = [pscustomobject]@{
+                            Name                       = "VCCLCompilerTool"
+                            PrependIncludeDirectories = $hmBotlibIncludeDirs
+                            PreprocessorDefinitions   = "STEFX_ELITE_FORCE_MP;STEFX_SP_HOSTED_MP;BOTLIB;_X86_"
+                            AdditionalOptions         = "/FI`"$hmBotlibCompat`""
+                        }
+                    })
+                }
+            }
+
+            if ($script:StefxBuildTarget -eq "spmp") {
+                $hmGamePath = Join-Path $repoRoot "code\game\stefx_holomatch_game.cpp"
+                if (Test-Path $hmGamePath) {
+                    $efSources.Add([pscustomobject]@{
+                        RelativePath = [System.IO.Path]::GetFullPath($hmGamePath).Substring($repoRoot.Length + 1)
+                        FullPath     = $hmGamePath
+                        Extension    = ".cpp"
+                        Tool         = $null
+                    })
+                }
+
+                $hmApiPath = Join-Path $repoRoot "code\holomatch\stefx_mp_game_api.cpp"
+                if (Test-Path $hmApiPath) {
+                    $efSources.Add([pscustomobject]@{
+                        RelativePath = [System.IO.Path]::GetFullPath($hmApiPath).Substring($repoRoot.Length + 1)
+                        FullPath     = $hmApiPath
+                        Extension    = ".cpp"
+                        Tool         = $null
+                    })
+                }
+
+                $hmBotBridgePath = Join-Path $repoRoot "code\holomatch\stefx_holomatch_bot_bridge.cpp"
+                if (Test-Path $hmBotBridgePath) {
+                    $efSources.Add([pscustomobject]@{
+                        RelativePath = [System.IO.Path]::GetFullPath($hmBotBridgePath).Substring($repoRoot.Length + 1)
+                        FullPath     = $hmBotBridgePath
+                        Extension    = ".cpp"
+                        Tool         = $null
+                    })
+                }
+
             }
 
             return $efSources
@@ -505,6 +694,29 @@ function Apply-ProjectSourceOverrides {
             Extension    = ".cpp"
             Tool         = $null
         })
+
+        if ($script:StefxBuildTarget -eq "spmp") {
+            $hmHostPath = Join-Path $repoRoot "code\server\stefx_holomatch_host.cpp"
+            if (Test-Path $hmHostPath) {
+                $filtered.Add([pscustomobject]@{
+                    RelativePath = "..\server\stefx_holomatch_host.cpp"
+                    FullPath     = $hmHostPath
+                    Extension    = ".cpp"
+                    Tool         = $null
+                })
+            }
+
+            $hmEngineCompatPath = Join-Path $repoRoot "code\holomatch\stefx_sp_engine_mp_compat.cpp"
+            if (Test-Path $hmEngineCompatPath) {
+                $filtered.Add([pscustomobject]@{
+                    RelativePath = "..\holomatch\stefx_sp_engine_mp_compat.cpp"
+                    FullPath     = $hmEngineCompatPath
+                    Extension    = ".cpp"
+                    Tool         = $null
+                })
+            }
+
+        }
 
         return $filtered
     }
@@ -816,6 +1028,34 @@ function Get-ObjectPath {
     return Join-Path $IntDir $relative
 }
 
+function Prepare-SpHostedSupportLibrary {
+    $sourceLibrary = Join-Path $repoRoot "code\x_exe\Release\x_game.lib"
+    $supportLibrary = Join-Path $repoRoot "code\x_exe\Release\spmp\sp_hosted_support.lib"
+    $duplicateMember = Join-Path $repoRoot "code\x_exe\Release\game\SP-Mod-Source-Code-master\game\bg_misc.obj"
+
+    if (-not (Test-Path -LiteralPath $sourceLibrary -PathType Leaf)) {
+        throw "Cannot prepare SP-hosted support library; missing: $sourceLibrary"
+    }
+
+    Copy-Item -LiteralPath $sourceLibrary -Destination $supportLibrary -Force
+    $supportMembers = @(& $libExe /nologo /list $supportLibrary)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect SP-hosted support library: $supportLibrary"
+    }
+    $removeArguments = New-Object System.Collections.Generic.List[string]
+    foreach ($member in $supportMembers) {
+        if ($member -eq $duplicateMember -or $member -match '\\SP-Mod-Source-Code-master\\cgame\\') {
+            $removeArguments.Add("/REMOVE:$member")
+        }
+    }
+    if ($removeArguments.Count -gt 0) {
+        $removeArguments.Add($supportLibrary)
+        Invoke-External -Exe $libExe -Arguments $removeArguments -WorkingDirectory $repoRoot
+    }
+
+    return $supportLibrary
+}
+
 function Build-Project {
     param(
         [string]$ProjectPath
@@ -834,6 +1074,17 @@ function Build-Project {
 
     $outputDirRaw = $configuration.OutputDirectory
     $intDirRaw = $configuration.IntermediateDirectory
+
+    if ($script:StefxBuildTarget -eq "spmp") {
+        if ($ProjectPath -eq "code\x_game\x_game.vcproj") {
+            $outputDirRaw = ".\..\x_exe\Release\spmp"
+            $intDirRaw = ".\..\x_exe\Release\spmp\game"
+        }
+        elseif ($ProjectPath -eq "code\x_exe\x_exe.vcproj") {
+            $outputDirRaw = ".\Release\spmp"
+            $intDirRaw = ".\Release\spmp\exe"
+        }
+    }
 
     $macros = @{
         SolutionDir        = "$projectDir\"
@@ -978,6 +1229,30 @@ function Build-Project {
         }
     }
 
+    if ($script:StefxBuildTarget -eq "spmp" -and
+        ($ProjectPath -eq "code\x_game\x_game.vcproj" -or
+         $ProjectPath -eq "code\x_exe\x_exe.vcproj")) {
+        $compilerDefinitions = Get-XmlAttr -Node $compilerTool -Name "PreprocessorDefinitions"
+        if ([string]::IsNullOrWhiteSpace($compilerDefinitions)) {
+            $compilerDefinitions = "STEFX_SP_HOSTED_MP"
+        }
+        elseif ($compilerDefinitions -notmatch "(^|;)STEFX_SP_HOSTED_MP(;|$)") {
+            $compilerDefinitions = "$compilerDefinitions;STEFX_SP_HOSTED_MP"
+        }
+        $compilerTool.PreprocessorDefinitions = $compilerDefinitions
+    }
+
+    if ($script:StefxBuildTarget -eq "spmp" -and
+        $ProjectPath -eq "code\x_game\x_game.vcproj") {
+        $libTool.OutputFile = ".\..\x_exe\Release\spmp\x_game.lib"
+    }
+
+    if ($script:StefxBuildTarget -eq "spmp" -and
+        $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
+        $linkTool.OutputFile = "$repoReleaseDir\efmp.exe"
+            $linkTool.AdditionalLibraryDirectories = ".\Release\spmp;$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+    }
+
     $baseFlags = New-Object System.Collections.Generic.List[string]
     foreach ($flag in (Convert-CompilerFlags -Tool $compilerTool)) {
         $baseFlags.Add($flag)
@@ -992,6 +1267,14 @@ function Build-Project {
 
     $sources = Get-ProjectSourceFiles -Xml $xml -ConfigurationName $configurationName -ProjectDir $projectDir -Macros $macros
     $sources = Apply-ProjectSourceOverrides -ProjectPath $ProjectPath -Sources $sources
+    if ($script:StefxBuildTarget -eq "spmp") {
+        foreach ($source in $sources) {
+            $sourceFullPath = [System.IO.Path]::GetFullPath($source.FullPath)
+            if ($sourceFullPath.IndexOf("\codemp\", [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                throw "SP-hosted Holomatch build may not compile codemp sources: $sourceFullPath"
+            }
+        }
+    }
     $objectFiles = New-Object System.Collections.Generic.List[string]
 
     foreach ($source in $sources) {
@@ -1106,6 +1389,63 @@ function Build-Project {
 
         Invoke-External -Exe $clExe -Arguments $compileFlags -WorkingDirectory $projectDir
         $objectFiles.Add($objPath)
+    }
+
+    if ($script:StefxBuildTarget -eq "spmp" -and
+        $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
+        # Force the complete official EF cgame family into the executable so
+        # no similarly named SP archive member can satisfy part of the VM.
+        $hmOfficialCgameObjects = Join-Path $repoRoot "code\x_exe\Release\spmp\game\code\holomatch\official\cgame"
+        if (Test-Path $hmOfficialCgameObjects) {
+            foreach ($hmOfficialCgameObject in (Get-ChildItem -Path $hmOfficialCgameObjects -Filter *.obj | Sort-Object Name)) {
+                $objectFiles.Add($hmOfficialCgameObject.FullName)
+            }
+        }
+
+        $hmGameObject = Join-Path $repoRoot "code\x_exe\Release\spmp\game\code\game\stefx_holomatch_game.obj"
+        if (Test-Path $hmGameObject) {
+            $objectFiles.Add($hmGameObject)
+        }
+
+        $hmApiObject = Join-Path $repoRoot "code\x_exe\Release\spmp\game\code\holomatch\stefx_mp_game_api.obj"
+        if (Test-Path $hmApiObject) {
+            $objectFiles.Add($hmApiObject)
+        }
+
+        $hmBotBridgeObject = Join-Path $repoRoot "code\x_exe\Release\spmp\game\code\holomatch\stefx_holomatch_bot_bridge.obj"
+        if (Test-Path $hmBotBridgeObject) {
+            $objectFiles.Add($hmBotBridgeObject)
+        }
+
+        # The XDK linker does not reliably extract transitive dependencies from
+        # the mixed SP/EF static archive. Link the official EF game objects
+        # explicitly so the VM entry point and every game-side dependency are
+        # present in the SP-hosted MP image.
+        $hmOfficialGameObjects = Join-Path $repoRoot "code\x_exe\Release\spmp\game\code\holomatch\official\game"
+        if (Test-Path $hmOfficialGameObjects) {
+            foreach ($hmOfficialGameObject in (Get-ChildItem -Path $hmOfficialGameObjects -Filter *.obj | Sort-Object Name)) {
+                $objectFiles.Add($hmOfficialGameObject.FullName)
+            }
+        }
+
+        # Pull the complete engine-side bot library into efmp.xbe. Keeping these
+        # objects explicit avoids archive extraction differences in the XDK
+        # linker and guarantees that no codemp library can satisfy the symbols.
+        $hmBotlibObjects = Join-Path $repoRoot "code\x_exe\Release\spmp\game\code\holomatch\botlib"
+        if (Test-Path $hmBotlibObjects) {
+            foreach ($hmBotlibObject in (Get-ChildItem -Path $hmBotlibObjects -Filter *.obj | Sort-Object Name)) {
+                $objectFiles.Add($hmBotlibObject.FullName)
+            }
+        }
+    }
+
+    if ($script:StefxBuildTarget -eq "spmp") {
+        foreach ($objectFile in $objectFiles) {
+            $objectFullPath = [System.IO.Path]::GetFullPath($objectFile)
+            if ($objectFullPath.IndexOf("\codemp\", [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                throw "SP-hosted Holomatch build may not link codemp objects: $objectFullPath"
+            }
+        }
     }
 
     if ($configuration.ConfigurationType -eq "4") {
@@ -1661,7 +2001,7 @@ function Update-EFXboxPatchPk3 {
         [string]$BaseEfDir,
         [string]$OutputName = "xbox0.pk3",
         [string]$Map = "borg1",
-        [ValidateSet("map", "campaign", "all")]
+        [ValidateSet("map", "campaign", "multiplayer", "all")]
         [string]$BspMaps = "campaign",
         [switch]$DdsOnly,
         [ValidateSet("dxt5", "bgra32")]
@@ -1706,12 +2046,29 @@ function Update-EFXboxPatchPk3 {
     Invoke-External -Exe $pythonExe -Arguments $patchArgs -WorkingDirectory $repoRoot
 }
 
+function Expand-EFHolomatchPk3SourceOverlay {
+    param(
+        [string]$BaseEfDir
+    )
+
+    $extractScript = Join-Path $repoRoot "scripts\extract_mp_pk3_source_overlay.py"
+    if (-not (Test-Path -LiteralPath $extractScript -PathType Leaf)) {
+        throw "Missing official MP PK3 source overlay extractor: $extractScript"
+    }
+
+    Invoke-External -Exe $pythonExe -Arguments @(
+        $extractScript,
+        "--base-dir", $BaseEfDir
+    ) -WorkingDirectory $repoRoot
+}
+
 function Assert-EFHolomatchUiMandate {
     param(
         [string]$Pk3Path,
         [string]$StageBaseEfPath,
         [string]$XbePath,
-        [switch]$AllowStageOriginalImages
+        [switch]$AllowStageOriginalImages,
+        [switch]$CodeOnly
     )
 
     $checkScript = Join-Path $repoRoot "scripts\check_mp_holomatch_ui.py"
@@ -1734,9 +2091,16 @@ function Assert-EFHolomatchUiMandate {
     if ($AllowStageOriginalImages) {
         $checkArgs += "--allow-stage-original-images"
     }
+    if ($AllowStageOriginalImages -and $CodeOnly) {
+        $checkArgs += "--allow-stage-map-overrides"
+    }
     if (-not [string]::IsNullOrWhiteSpace($XbePath)) {
         $checkArgs += @("--xbe", $XbePath)
     }
+    if ($CodeOnly) {
+        $checkArgs += "--code-only"
+    }
+    $checkArgs += @("--direct-map", $script:StefxHolomatchDirectMap)
 
     Invoke-External -Exe $pythonExe -Arguments $checkArgs -WorkingDirectory $repoRoot
 }
@@ -1802,20 +2166,31 @@ function Update-EFConsoleAssetLists {
 
 function Update-EFHolomatchAssetLists {
     $baseEfDir = Join-Path $repoReleaseDir "BaseEF"
-    $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+    if ($script:StefxBuildTarget -eq "spmp") {
+        $sourceXbe = Join-Path $repoRoot "build\release\efmp.xbe"
+    }
+    else {
+        $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+    }
     Copy-EFDataOverlay -BaseEfDir $baseEfDir -SkipUiScripts
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
-    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map "hm_borg1" -BspMaps "map" -DdsOnly -AlphaTextureFormat "bgra32" -SkipUiScripts -HolomatchSupportAssets
+    Expand-EFHolomatchPk3SourceOverlay -BaseEfDir $baseEfDir
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map $script:StefxHolomatchDirectMap -BspMaps "multiplayer" -DdsOnly -AlphaTextureFormat "bgra32" -SkipUiScripts -HolomatchSupportAssets
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("xbox_borg_fix.shader")
-    Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -StageBaseEfPath $baseEfDir -AllowStageOriginalImages -XbePath $sourceXbe
+    if ($script:StefxBuildTarget -eq "spmp") {
+        Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -StageBaseEfPath $baseEfDir -AllowStageOriginalImages -XbePath $sourceXbe -CodeOnly
+    } else {
+        Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -StageBaseEfPath $baseEfDir -AllowStageOriginalImages -XbePath $sourceXbe
+    }
 }
 
 function Remove-EFHolomatchLooseOverrides {
     param(
-        [string]$StageBaseEf
+        [string]$StageBaseEf,
+        [string]$Pk3Path
     )
 
     if (-not (Test-Path -LiteralPath $StageBaseEf -PathType Container)) {
@@ -1838,9 +2213,32 @@ function Remove-EFHolomatchLooseOverrides {
         }
     }
 
+    if (-not (Test-Path -LiteralPath $Pk3Path -PathType Leaf)) {
+        throw "Cannot remove Holomatch map overrides; missing package: $Pk3Path"
+    }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
     $mapsDir = Join-Path $StageBaseEf "maps"
     if (Test-Path -LiteralPath $mapsDir -PathType Container) {
-        foreach ($mapFileName in @("hm_borg1.bsp", "hm_borg1.aas")) {
+        $looseMapFiles = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($Pk3Path)
+        try {
+            foreach ($entry in $zip.Entries) {
+                $entryName = $entry.FullName.Replace('\', '/')
+                if ($entryName -match '^maps/([^/]+)\.aas$') {
+                    [void]$looseMapFiles.Add("$($Matches[1]).aas")
+                }
+                elseif ($entryName -match '^maps/xbox/([^/]+)\.bsp$') {
+                    [void]$looseMapFiles.Add("$($Matches[1]).bsp")
+                }
+            }
+        }
+        finally {
+            $zip.Dispose()
+        }
+
+        foreach ($mapFileName in $looseMapFiles) {
             $mapFile = Join-Path $mapsDir $mapFileName
             if (Test-Path -LiteralPath $mapFile -PathType Leaf) {
                 Remove-Item -LiteralPath $mapFile -Force
@@ -1935,7 +2333,12 @@ function Copy-EFHolomatchCxbxStage {
     $stageBaseEf = Join-Path $stageRoot "BaseEF"
     New-Item -ItemType Directory -Path $stageBaseEf -Force | Out-Null
 
-    $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+    if ($script:StefxBuildTarget -eq "spmp") {
+        $sourceXbe = Join-Path $repoRoot "build\release\efmp.xbe"
+    }
+    else {
+        $sourceXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+    }
     $sourcePk3 = Join-Path $repoReleaseDir "BaseEF\xbox1.pk3"
     $sourceSoundBankDir = Join-Path $repoReleaseDir "BaseEF\soundbank"
 
@@ -1952,7 +2355,7 @@ function Copy-EFHolomatchCxbxStage {
         }
     }
 
-    Remove-EFHolomatchLooseOverrides -StageBaseEf $stageBaseEf
+    Remove-EFHolomatchLooseOverrides -StageBaseEf $stageBaseEf -Pk3Path $sourcePk3
     Copy-Item -LiteralPath $sourceXbe -Destination (Join-Path $stageRoot "efmp.xbe") -Force
     $stagedPk3 = Join-Path $stageBaseEf "xbox1.pk3"
     Copy-Item -LiteralPath $sourcePk3 -Destination $stagedPk3 -Force
@@ -1962,7 +2365,11 @@ function Copy-EFHolomatchCxbxStage {
         Copy-Item -LiteralPath (Join-Path $sourceSoundBankDir $soundBankFile) -Destination (Join-Path $stagedSoundBankDir $soundBankFile) -Force
     }
     Remove-EFHolomatchLooseTextureFallbacks -StageBaseEf $stageBaseEf -Pk3Path $stagedPk3
-    Assert-EFHolomatchUiMandate -Pk3Path $stagedPk3 -StageBaseEfPath $stageBaseEf -XbePath (Join-Path $stageRoot "efmp.xbe")
+    if ($script:StefxBuildTarget -eq "spmp") {
+        Assert-EFHolomatchUiMandate -Pk3Path $stagedPk3 -StageBaseEfPath $stageBaseEf -XbePath (Join-Path $stageRoot "efmp.xbe") -CodeOnly
+    } else {
+        Assert-EFHolomatchUiMandate -Pk3Path $stagedPk3 -StageBaseEfPath $stageBaseEf -XbePath (Join-Path $stageRoot "efmp.xbe")
+    }
     Write-Host "Staged EF Holomatch MP for CXBX-R: efmp.xbe, BaseEF\xbox1.pk3, and the SP soundbank"
     Write-Host "SP/co-op default.xbe was not touched."
 }
@@ -2001,6 +2408,19 @@ switch ($Target) {
             }
         } else {
             Write-Host "Skipping EF MP asset packaging/copy phase."
+        }
+    }
+    "spmp" {
+        Invoke-BuildGraph -Projects $spProjects
+        if (-not $SkipAssets) {
+            Update-EFHolomatchAssetLists
+            if (-not $SkipStage) {
+                Copy-EFHolomatchCxbxStage
+            } else {
+                Write-Host "Skipping CXBX-R Holomatch staging."
+            }
+        } else {
+            Write-Host "Skipping EF SP-hosted Holomatch asset packaging/copy phase."
         }
     }
     "all" {

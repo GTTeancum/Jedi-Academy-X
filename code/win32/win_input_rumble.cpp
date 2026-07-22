@@ -406,8 +406,12 @@ int IN_RunSpecialScript(int whichScript)
 
 int IN_Time()
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	return Sys_Milliseconds();
+#else
 	//mb return ClientManager::ActiveClient().cg.time;
 	return cg.time;
+#endif
 }
 
 int testTime;

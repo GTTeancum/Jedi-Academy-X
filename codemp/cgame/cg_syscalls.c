@@ -125,9 +125,7 @@ void	trap_UpdateScreen( void ) {
 }
 
 void	trap_CM_LoadMap( const char *mapname, qboolean SubBSP ) {
-	syscall( CG_PRINTALWAYS, "STEFX_HM: trap_CM_LoadMap wrapper begin\n" );
 	syscall( CG_CM_LOADMAP, mapname, SubBSP );
-	syscall( CG_PRINTALWAYS, "STEFX_HM: trap_CM_LoadMap wrapper done\n" );
 }
 
 int		trap_CM_NumInlineModels( void ) {

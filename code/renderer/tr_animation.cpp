@@ -571,7 +571,6 @@ void RB_SurfaceAnim( md4Surface_t *surface ) {
 					+ backlerp * ((float *)oldFrame->bones)[i];
 		}
 	}
-
 	//
 	// deform the vertexes by the lerped bones
 	//

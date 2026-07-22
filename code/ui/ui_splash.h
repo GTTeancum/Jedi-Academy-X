@@ -7,5 +7,7 @@ void*	SP_LoadFile(const char* name);
 void*	SP_LoadFileWithLanguage(const char *name);
 char*	SP_GetLanguageExt();
 void	SP_DrawTexture(void* pixels, float width, float height, float vShift);
+void	SP_DrawSPLoadScreen(void);
+void	SP_DrawMPLoadScreen(void);
 
 #endif

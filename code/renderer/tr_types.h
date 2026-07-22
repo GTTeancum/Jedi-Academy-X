@@ -56,6 +56,8 @@
 #define RF_STEFX_SPLIT_SLOT1  0x02000000 // first-person split-screen entity for bottom/P2 view only
 #define RF_STEFX_SPLIT_HIDE_SLOT0 0x04000000 // hide third-person self model from top/P1 view
 #define RF_STEFX_SPLIT_HIDE_SLOT1 0x08000000 // hide third-person self model from bottom/P2 view
+#define RF_STEFX_FORCE_ENT_ALPHA 0x10000000 // Elite Force entity alpha overrides shader alpha
+#define RF_STEFX_FULLBRIGHT      0x20000000 // Elite Force fixed full-bright model lighting
 #endif
 
 // refdef flags
@@ -101,6 +103,15 @@ typedef enum
 	RT_SABER_GLOW,
 	RT_PORTALSURFACE,		// doesn't draw anything, just info for portals
 	RT_CLOUDS,
+	RT_TEXTURED_LINE,
+	RT_ORIENTED_LINE,
+	RT_TAPERED_LINE,
+	RT_BEZIER,
+	RT_EF_ORIENTED_SPRITE,
+	RT_EF_ALPHA_VERT_POLY,
+	RT_EF_LIGHTNING,
+	RT_EF_CYLINDER,
+	RT_EF_ELECTRICITY,
 
 	RT_MAX_REF_ENTITY_TYPE
 } refEntityType_t;
@@ -146,6 +157,45 @@ typedef struct {
 		float		endTime;
 		float		saberLength;
 	};
+
+	union
+	{
+		struct
+		{
+			float rotation;
+			float radius;
+			byte vertRGBA[4][4];
+		} sprite;
+		struct
+		{
+			float width;
+			float width2;
+			float stscale;
+		} line;
+		struct
+		{
+			float width;
+			vec3_t control1;
+			vec3_t control2;
+		} bezier;
+		struct
+		{
+			float width;
+			float width2;
+			float stscale;
+			float height;
+			float bias;
+			qboolean wrap;
+		} cylinder;
+		struct
+		{
+			float width;
+			float deviation;
+			float stscale;
+			qboolean wrap;
+			qboolean taper;
+		} electricity;
+	} stefxData;
 
 /*
 Ghoul2 Insert Start

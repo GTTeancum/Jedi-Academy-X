@@ -1,6 +1,6 @@
 // leave this at the top of all UI_xxxx files for PCH reasons.
 #if defined(STEFX_ELITE_FORCE_MP)
-#include "../../codemp/ui/ui_stefx_spcompat.h"
+#include "ui_stefx_spcompat.h"
 #else
 #include "../server/exe_headers.h"
 
@@ -1116,5 +1116,5 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 
 #if defined(STEFX_ELITE_FORCE_MP)
 #undef ui
-#include "../../codemp/namespace_end.h"
+#include "../namespace_end.h"
 #endif

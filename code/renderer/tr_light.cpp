@@ -469,6 +469,18 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	}
 	ent->lightingCalculated = qtrue;
 
+	if ( ent->e.renderfx & RF_STEFX_FULLBRIGHT )
+	{
+		ent->ambientLight[0] = ent->ambientLight[1] = ent->ambientLight[2] = 0x7f;
+		((byte *)&ent->ambientLightInt)[0] = 0x7f;
+		((byte *)&ent->ambientLightInt)[1] = 0x7f;
+		((byte *)&ent->ambientLightInt)[2] = 0x7f;
+		((byte *)&ent->ambientLightInt)[3] = 0xff;
+		VectorClear( ent->directedLight );
+		VectorSet( ent->lightDir, 0.0f, 0.0f, 1.0f );
+		return;
+	}
+
 	//
 	// trace a sample point down to find ambient light
 	//

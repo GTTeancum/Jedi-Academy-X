@@ -1,5 +1,5 @@
 /*
- * xb_log.cpp  —  Jedi Academy Xbox debug logging
+ * xb_log.cpp  —  Elite Force Holomatch Xbox debug logging
  *
  * Strategy 1: NtCreateFile to raw HDD device paths.
  *   Works on retail hardware and CXBX-R. Bypasses drive-letter symlinks.
@@ -1784,11 +1784,11 @@ void XBLog_Init(void)
      * quietly fails there, but on emulator it gives us a fresh log beside
      * default.xbe for each boot like the Unreal Tournament Xbox port does.
      */
-    g_hMirrorLogFile = CreateFileA("D:\\ef_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
+    g_hMirrorLogFile = CreateFileA("D:\\ef_mp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
         NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
         SetFilePointer(g_hMirrorLogFile, 0, NULL, FILE_END);
-        g_mirrorLogPath = "D:\\ef_sp_log.txt";
+        g_mirrorLogPath = "D:\\ef_mp_log.txt";
     }
 
     /*
@@ -1799,9 +1799,9 @@ void XBLog_Init(void)
      */
     {
         static const char *ntPaths[] = {
-            "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt",   /* E:\ */
-            "\\Device\\Harddisk0\\Partition6\\ef_sp_log.txt",   /* F:\ */
-            "\\Device\\Harddisk0\\Partition7\\ef_sp_log.txt",   /* G:\ */
+            "\\Device\\Harddisk0\\Partition1\\ef_mp_log.txt",   /* E:\ */
+            "\\Device\\Harddisk0\\Partition6\\ef_mp_log.txt",   /* F:\ */
+            "\\Device\\Harddisk0\\Partition7\\ef_mp_log.txt",   /* G:\ */
             NULL
         };
         for (i = 0; ntPaths[i]; ++i) {
@@ -1824,7 +1824,7 @@ void XBLog_Init(void)
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
-                XBL("=== Star Trek: Elite Force Xbox SP log ===\n");
+                XBL("=== Star Trek: Elite Force Holomatch Xbox log started ===\n");
                 return;
             }
         }
@@ -1833,10 +1833,10 @@ void XBLog_Init(void)
     /* Strategy 2: CreateFileA with drive letters — append if exists, create if not */
     {
         static const char *caPaths[] = {
-            "D:\\ef_sp_log.txt",
-            "E:\\ef_sp_log.txt",
-            "T:\\ef_sp_log.txt",
-            "ef_sp_log.txt",
+            "D:\\ef_mp_log.txt",
+            "E:\\ef_mp_log.txt",
+            "T:\\ef_mp_log.txt",
+            "ef_mp_log.txt",
             NULL
         };
         for (i = 0; caPaths[i]; ++i) {
@@ -1847,7 +1847,7 @@ void XBLog_Init(void)
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
                 g_logIsNt = 0;
                 g_logPath = caPaths[i];
-                XBL("=== Star Trek: Elite Force Xbox SP log ===\n");
+                XBL("=== Star Trek: Elite Force Holomatch Xbox log started ===\n");
                 return;
             }
         }
@@ -1999,7 +1999,7 @@ const char *XBLog_GetPath(void)
 
 /*
  * XBLog_PreCRTProbe — called from ASM _WinMainCRTStartup BEFORE _mainCRTStartup.
- * Creates ef_sp_log.txt (overwrites any previous run) and writes the first line.
+ * Creates ef_mp_log.txt (overwrites any previous run) and writes the first line.
  * No C runtime, no heap, no globals — pure NT syscalls only.
  * XBLog_Init() later re-opens the same file in append mode and continues writing.
  * If only "precrt_ok" appears in the log, a static ctor is crashing before main().
@@ -2007,7 +2007,7 @@ const char *XBLog_GetPath(void)
 extern "C" void XBLog_PreCRTProbe(void)
 {
     g_SPXBBootPhase = 1;
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_mp_log.txt";
     static const char data[] = "precrt_ok\n";
     HANDLE    h;
     XBL_STR   name;
@@ -2041,7 +2041,7 @@ extern "C" void XBLog_PreCRTProbe(void)
 extern "C" void XBLog_PostCRTProbe(void)
 {
     g_SPXBBootPhase = 9;
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_mp_log.txt";
     static const char data[] = "post_crt\n";
     HANDLE    h;
     XBL_STR   name;

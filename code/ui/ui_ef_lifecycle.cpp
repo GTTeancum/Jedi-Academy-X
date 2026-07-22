@@ -1,6 +1,6 @@
 // Shared EF/SP UI lifecycle used by Holomatch MP on Xbox.
 #if defined(STEFX_ELITE_FORCE_MP)
-#include "../../codemp/ui/ui_stefx_spcompat.h"
+#include "ui_stefx_spcompat.h"
 #else
 #include "../server/exe_headers.h"
 
@@ -72,7 +72,7 @@ void UI_EFSP_Init(qboolean inGameLoad)
 		s_loggedInit = qtrue;
 		ui.Printf("STEFX_HM: UI mandate active; uniform SP code/ui owns Holomatch UI\n");
 		ui.Printf("STEFX_HM: UI mandate enforced; MP legacy menus stay dead and SP code/ui owns all Holomatch UI behavior\n");
-		ui.Printf("STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache; codemp/ui remains adapter-only\n");
+		ui.Printf("STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache\n");
 	}
 }
 
@@ -257,5 +257,5 @@ int UI_EFSP_VmMain(int command, int arg0, int arg1, int arg2, int arg3, int arg4
 
 #if defined(STEFX_ELITE_FORCE_MP)
 #undef ui
-#include "../../codemp/namespace_end.h"
+#include "../namespace_end.h"
 #endif

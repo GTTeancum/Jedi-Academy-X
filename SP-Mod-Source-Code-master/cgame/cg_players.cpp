@@ -4548,6 +4548,24 @@ void CG_ResetPlayerEntity( centity_t *cent ) {
 	}
 	//else????
 
+#ifdef _XBOX
+	{
+		static int stefxPlayerTrajectoryLogBudget = 8;
+		if ( stefxPlayerTrajectoryLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_ResetPlayerEntity trajectory ent=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d cgTime=%d",
+				cent->currentState.number,
+				(int)cent->currentState.pos.trType,
+				cent->currentState.pos.trTime,
+				cent->currentState.pos.trDuration,
+				(int)cent->currentState.apos.trType,
+				cent->currentState.apos.trTime,
+				cent->currentState.apos.trDuration,
+				cg.time);
+			--stefxPlayerTrajectoryLogBudget;
+		}
+	}
+#endif
 	EvaluateTrajectory( &cent->currentState.pos, cg.time, cent->lerpOrigin );
 	EvaluateTrajectory( &cent->currentState.apos, cg.time, cent->lerpAngles );
 

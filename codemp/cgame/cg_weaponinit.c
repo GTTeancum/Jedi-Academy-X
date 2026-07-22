@@ -195,6 +195,10 @@ void CG_RegisterWeapon( int weaponNum) {
 
 	ammo = NULL;
 	if ( weaponData[weaponNum].ammoIndex != AMMO_NONE ) {
+	#if defined(STEFX_ELITE_FORCE_MP)
+		/* EF has weapons without a matching world ammo pickup (notably phaser). */
+		if ( BG_GetItemIndexByTag( weaponNum, IT_AMMO ) )
+	#endif
 		ammo = BG_FindItemForAmmo( weaponNum );
 	}
 	if ( ammo && ammo->classname && ammo->world_model ) {

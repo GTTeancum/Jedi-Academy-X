@@ -24,6 +24,14 @@
 
 #include "xb_log.h"
 
+#if defined(STEFX_SP_HOSTED_MP)
+#define STEFX_XB_LOG_FILE "ef_mp_log.txt"
+#define STEFX_XB_LOG_TITLE "Star Trek: Elite Force Xbox Holomatch log"
+#else
+#define STEFX_XB_LOG_FILE "ef_sp_log.txt"
+#define STEFX_XB_LOG_TITLE "Star Trek: Elite Force Xbox SP log"
+#endif
+
 /* ── NT kernel types (minimal subset) ── */
 typedef struct { unsigned short Length; unsigned short MaximumLength; char *Buffer; } XBL_STR;
 typedef struct { HANDLE RootDirectory; XBL_STR *ObjectName; unsigned long Attributes; } XBL_OA;
@@ -44,8 +52,6 @@ extern "C" long __stdcall NtFlushBuffersFile(HANDLE, XBL_IOSB*);
 static HANDLE g_hLogFile     = INVALID_HANDLE_VALUE;
 static int    g_logIsNt      = 0;   /* 1 = NtCreateFile handle, 0 = CreateFileA */
 static const char *g_logPath = NULL;
-static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
-static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
 static int g_debugStringMirror = 0;
 static unsigned int g_fileLogBytes = 0;
@@ -329,17 +335,21 @@ __declspec(dllexport) volatile unsigned int g_SPXBSVProbeA = 0x11120003;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeB = 0x11120004;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeC = 0x11120005;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeD = 0x11120006;
-__declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[16] = {
+__declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS] = {
     0x11110040, 0x11110041, 0x11110042, 0x11110043,
     0x11110044, 0x11110045, 0x11110046, 0x11110047,
     0x11110048, 0x11110049, 0x1111004A, 0x1111004B,
     0x1111004C, 0x1111004D, 0x1111004E, 0x1111004F
 };
-__declspec(dllexport) volatile unsigned int g_SPXBEntityTypeCounts[16] = {
+__declspec(dllexport) volatile unsigned int g_SPXBEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS] = {
     0x11110050, 0x11110051, 0x11110052, 0x11110053,
     0x11110054, 0x11110055, 0x11110056, 0x11110057,
     0x11110058, 0x11110059, 0x1111005A, 0x1111005B,
-    0x1111005C, 0x1111005D, 0x1111005E, 0x1111005F
+    0x1111005C, 0x1111005D, 0x1111005E, 0x1111005F,
+    0x11110060, 0x11110061, 0x11110062, 0x11110063,
+    0x11110064, 0x11110065, 0x11110066, 0x11110067,
+    0x11110068, 0x11110069, 0x1111006A, 0x1111006B,
+    0x1111006C, 0x1111006D, 0x1111006E, 0x1111006F
 };
 __declspec(dllexport) volatile char g_SPXBLogMirror[32768];
 __declspec(dllexport) volatile char g_SPXBLogLastLine[512];
@@ -453,6 +463,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxClipBudget = 8;
     static int s_stefxTriggerBudget = 96;
     static int s_stefxCgBudget = 8;
+    static int s_stefxSpHostedBudget = 128;
     static int s_stefxCgInitBudget = 96;
     static int s_stefxModelBudget = 24;
     static int s_efModelBudget = 16;
@@ -494,7 +505,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxSurfaceTraceBudget = 256;
     static int s_stefxSurfaceSubmitTraceBudget = 256;
     static int s_stefxDrawStageTraceBudget = 96;
-    static int s_stefxDrawContextTraceBudget = 256;
+    static int s_stefxDrawContextTraceBudget = 48;
     static int s_stefxMaterialPathTraceBudget = 256;
     static int s_stefxLightingTraceBudget = 256;
     static int s_stefxTextureProofBudget = 256;
@@ -824,6 +835,10 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF S_STARTLOCALSOUND bridge", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: cg_vmMain enter command=", &s_stefxCgBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX: SP-hosted", &s_stefxSpHostedBudget);
+    if (budgeted >= 0) return budgeted;
+    budgeted = xbl_budgeted_prefix(msg, "STEFX_HM_SP:", &s_stefxSpHostedBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: IT_LoadItemParms", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
@@ -1415,7 +1430,14 @@ static void xbl_FlushHandle(HANDLE h, int isNt)
 static int xbl_IsCriticalLogLine(const char *msg)
 {
     if (!msg) return 0;
-    return strstr(msg, "FATAL") ||
+    return strstr(msg, "FRAME_HEARTBEAT") ||
+        strstr(msg, "STEFX_HM_SWEEP:") ||
+        strstr(msg, "STEFX_HM_GAME:") ||
+        strstr(msg, "STEFX_HM_BOTLIB: load map") ||
+        strstr(msg, "STEFX_HM_BOTLIB: error") ||
+        strstr(msg, "STEFX_HM_BOT: allocated") ||
+        strstr(msg, "STEFX_HM_BOT: reconnected") ||
+        strstr(msg, "FATAL") ||
         strstr(msg, "ERROR") ||
         strstr(msg, "ERR_FATAL") ||
         strstr(msg, "ERR_DROP") ||
@@ -1436,13 +1458,12 @@ static int xbl_IsCriticalLogLine(const char *msg)
 static int xbl_ShouldFlushWrite(const char *msg, DWORD len)
 {
     if (!msg) return 0;
+    if (strstr(msg, "FRAME_HEARTBEAT")) return 0;
     if (xbl_IsCriticalLogLine(msg)) {
         g_fileLogFlushBytes = 0;
         g_fileLogFlushWrites = 0;
         return 1;
     }
-    if (strstr(msg, "FRAME_HEARTBEAT")) return 0;
-
     g_fileLogFlushBytes += len;
     ++g_fileLogFlushWrites;
 
@@ -1459,7 +1480,7 @@ static int xbl_ShouldFlushWrite(const char *msg, DWORD len)
 static int xbl_ShouldWriteFileLine(const char **msg, DWORD *len)
 {
     static const char s_capMsg[] =
-        "STEFX: XBLog file cap reached; file logging now keeps memory mirror and critical lines only\n";
+        "STEFX: XBLog file cap reached; file logging now keeps heartbeat, sweep, and critical lines only\n";
 
     if (!msg || !*msg || !len) return 0;
     if (xbl_IsCriticalLogLine(*msg)) return 1;
@@ -1495,8 +1516,6 @@ void XBLog_Init(void)
     g_hLogFile = INVALID_HANDLE_VALUE;
     g_logIsNt  = 0;
     g_logPath  = NULL;
-    g_hMirrorLogFile = INVALID_HANDLE_VALUE;
-    g_mirrorLogPath = NULL;
     g_verboseLog = 0;
     g_fileLogBytes = 0;
     g_fileLogFlushBytes = 0;
@@ -1768,8 +1787,10 @@ void XBLog_Init(void)
     g_SPXBSVProbeC = 0;
     g_SPXBSVProbeD = 0;
     g_SPXBCinArgLast[0] = 0;
-    for (i = 0; i < 16; ++i) {
+    for (i = 0; i < SPXB_SURFACE_TYPE_BUCKETS; ++i) {
         g_SPXBSurfaceTypeCounts[i] = 0;
+    }
+    for (i = 0; i < SPXB_ENTITY_TYPE_BUCKETS; ++i) {
         g_SPXBEntityTypeCounts[i] = 0;
     }
     for (i = 0; i < (int)sizeof(g_SPXBLogMirror); ++i) {
@@ -1780,18 +1801,6 @@ void XBLog_Init(void)
     }
 
     /*
-     * CXBX-R maps D: to the title directory.  Retail D: is read-only, so this
-     * quietly fails there, but on emulator it gives us a fresh log beside
-     * default.xbe for each boot like the Unreal Tournament Xbox port does.
-     */
-    g_hMirrorLogFile = CreateFileA("D:\\ef_sp_log.txt", FILE_APPEND_DATA, FILE_SHARE_READ,
-        NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
-        SetFilePointer(g_hMirrorLogFile, 0, NULL, FILE_END);
-        g_mirrorLogPath = "D:\\ef_sp_log.txt";
-    }
-
-    /*
      * Strategy 1: NtCreateFile to raw device paths (retail hw + CXBX-R).
      * Use FILE_OPEN_IF (3) + FILE_APPEND_DATA so we append to the file that
      * XBLog_PreCRTProbe already created, preserving the "precrt_ok" line.
@@ -1799,9 +1808,9 @@ void XBLog_Init(void)
      */
     {
         static const char *ntPaths[] = {
-            "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt",   /* E:\ */
-            "\\Device\\Harddisk0\\Partition6\\ef_sp_log.txt",   /* F:\ */
-            "\\Device\\Harddisk0\\Partition7\\ef_sp_log.txt",   /* G:\ */
+            "\\Device\\Harddisk0\\Partition1\\" STEFX_XB_LOG_FILE,
+            "\\Device\\Harddisk0\\Partition6\\" STEFX_XB_LOG_FILE,
+            "\\Device\\Harddisk0\\Partition7\\" STEFX_XB_LOG_FILE,
             NULL
         };
         for (i = 0; ntPaths[i]; ++i) {
@@ -1824,7 +1833,7 @@ void XBLog_Init(void)
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
-                XBL("=== Star Trek: Elite Force Xbox SP log ===\n");
+                XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
                 return;
             }
         }
@@ -1833,10 +1842,10 @@ void XBLog_Init(void)
     /* Strategy 2: CreateFileA with drive letters — append if exists, create if not */
     {
         static const char *caPaths[] = {
-            "D:\\ef_sp_log.txt",
-            "E:\\ef_sp_log.txt",
-            "T:\\ef_sp_log.txt",
-            "ef_sp_log.txt",
+            "D:\\" STEFX_XB_LOG_FILE,
+            "E:\\" STEFX_XB_LOG_FILE,
+            "T:\\" STEFX_XB_LOG_FILE,
+            STEFX_XB_LOG_FILE,
             NULL
         };
         for (i = 0; caPaths[i]; ++i) {
@@ -1847,7 +1856,7 @@ void XBLog_Init(void)
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
                 g_logIsNt = 0;
                 g_logPath = caPaths[i];
-                XBL("=== Star Trek: Elite Force Xbox SP log ===\n");
+                XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
                 return;
             }
         }
@@ -1859,11 +1868,6 @@ void XBLog_Init(void)
 void XBLog_Shutdown(void)
 {
     XBL("=== log end ===\n");
-    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
-        xbl_FlushHandle(g_hMirrorLogFile, 0);
-        CloseHandle(g_hMirrorLogFile);
-        g_hMirrorLogFile = INVALID_HANDLE_VALUE;
-    }
     if (g_hLogFile != INVALID_HANDLE_VALUE) {
         xbl_FlushHandle(g_hLogFile, g_logIsNt);
         if (g_logIsNt) NtClose(g_hLogFile);
@@ -1871,7 +1875,6 @@ void XBLog_Shutdown(void)
         g_hLogFile = INVALID_HANDLE_VALUE;
     }
     g_logPath = NULL;
-    g_mirrorLogPath = NULL;
 }
 
 void XBLog_Print(const char *msg)
@@ -1888,11 +1891,6 @@ void XBLog_Print(const char *msg)
     }
     g_fileLogBytes += len;
     const int forceFlush = xbl_ShouldFlushWrite(msg, len);
-    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
-        DWORD written;
-        WriteFile(g_hMirrorLogFile, msg, len, &written, NULL);
-        if (forceFlush) xbl_FlushHandle(g_hMirrorLogFile, 0);
-    }
     if (g_hLogFile == INVALID_HANDLE_VALUE) return;
     if (g_logIsNt) {
         XBL_IOSB iosb;
@@ -1979,6 +1977,33 @@ void XBLog_Printf(const char *fmt, ...)
     XBLog_PrintFilteredRecords(buf);
 }
 
+/* Critical breadcrumbs bypass the verbose-record filter so early VM stalls
+   remain visible even when the normal diagnostic budget is exhausted. */
+void XBLog_WriteCritical(const char *msg)
+{
+    char buf[XBL_BUF_SIZE];
+    int len;
+    if (!msg) return;
+    _snprintf(buf, sizeof(buf) - 2, "%s", msg);
+    buf[sizeof(buf) - 2] = '\0';
+    len = (int)strlen(buf);
+    buf[len] = '\n';
+    buf[len + 1] = '\0';
+    XBLog_Print(buf);
+}
+
+void XBLog_WriteCriticalf(const char *fmt, ...)
+{
+    char buf[XBL_BUF_SIZE];
+    va_list args;
+    if (!fmt) return;
+    va_start(args, fmt);
+    _vsnprintf(buf, sizeof(buf) - 2, fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 2] = '\0';
+    XBLog_WriteCritical(buf);
+}
+
 void XBLog_WriteRingMarker(const char *msg)
 {
     char buf[XBL_BUF_SIZE];
@@ -1999,7 +2024,7 @@ const char *XBLog_GetPath(void)
 
 /*
  * XBLog_PreCRTProbe — called from ASM _WinMainCRTStartup BEFORE _mainCRTStartup.
- * Creates ef_sp_log.txt (overwrites any previous run) and writes the first line.
+ * Creates the target-specific log (overwrites any previous run) and writes the first line.
  * No C runtime, no heap, no globals — pure NT syscalls only.
  * XBLog_Init() later re-opens the same file in append mode and continues writing.
  * If only "precrt_ok" appears in the log, a static ctor is crashing before main().
@@ -2007,7 +2032,7 @@ const char *XBLog_GetPath(void)
 extern "C" void XBLog_PreCRTProbe(void)
 {
     g_SPXBBootPhase = 1;
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\" STEFX_XB_LOG_FILE;
     static const char data[] = "precrt_ok\n";
     HANDLE    h;
     XBL_STR   name;
@@ -2041,7 +2066,7 @@ extern "C" void XBLog_PreCRTProbe(void)
 extern "C" void XBLog_PostCRTProbe(void)
 {
     g_SPXBBootPhase = 9;
-    static const char path[] = "\\Device\\Harddisk0\\Partition1\\ef_sp_log.txt";
+    static const char path[] = "\\Device\\Harddisk0\\Partition1\\" STEFX_XB_LOG_FILE;
     static const char data[] = "post_crt\n";
     HANDLE    h;
     XBL_STR   name;

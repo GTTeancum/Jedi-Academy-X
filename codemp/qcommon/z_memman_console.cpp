@@ -91,9 +91,75 @@ static void XBLog_WriteHex(const char *prefix, unsigned int value)
 
 #ifdef _XBOX
 #include <Xtl.h>
+#include <stdlib.h>
 #include "../cgame/cg_local.h"
 #include "../renderer/modelmem.h"
 #include "../win32/xbox_texture_man.h"
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+/* CXBX-R can reject the special client heap after the renderer has claimed
+ * its model memory. Keep the fallback allocations identifiable so the
+ * existing split-screen relocation cleanup can release them correctly. */
+static void *s_mpClientManagerFallbacks[4] = { NULL, NULL, NULL, NULL };
+static void *s_mpClientManagerZoneFallbacks[4] = { NULL, NULL, NULL, NULL };
+
+static qboolean Z_RecordMpClientManagerFallback(void *pointer)
+{
+	int i;
+	for (i = 0; i < (int)(sizeof(s_mpClientManagerFallbacks) / sizeof(s_mpClientManagerFallbacks[0])); ++i)
+	{
+		if (!s_mpClientManagerFallbacks[i])
+		{
+			s_mpClientManagerFallbacks[i] = pointer;
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+static qboolean Z_FreeMpClientManagerFallback(void *pointer)
+{
+	int i;
+	for (i = 0; i < (int)(sizeof(s_mpClientManagerFallbacks) / sizeof(s_mpClientManagerFallbacks[0])); ++i)
+	{
+		if (s_mpClientManagerFallbacks[i] == pointer)
+		{
+			s_mpClientManagerFallbacks[i] = NULL;
+			free(pointer);
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+static qboolean Z_RecordMpClientManagerZoneFallback(void *pointer)
+{
+	int i;
+	for (i = 0; i < (int)(sizeof(s_mpClientManagerZoneFallbacks) / sizeof(s_mpClientManagerZoneFallbacks[0])); ++i)
+	{
+		if (!s_mpClientManagerZoneFallbacks[i])
+		{
+			s_mpClientManagerZoneFallbacks[i] = pointer;
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+static qboolean Z_UnrecordMpClientManagerZoneFallback(void *pointer)
+{
+	int i;
+	for (i = 0; i < (int)(sizeof(s_mpClientManagerZoneFallbacks) / sizeof(s_mpClientManagerZoneFallbacks[0])); ++i)
+	{
+		if (s_mpClientManagerZoneFallbacks[i] == pointer)
+		{
+			s_mpClientManagerZoneFallbacks[i] = NULL;
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
 #endif
 
 // Where do hunk allocations go?
@@ -985,6 +1051,7 @@ void Z_MallocFail(const char* pMessage, int iSize, memtag_t eTag)
 
 void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 {
+	qboolean mpZoneFallback = qfalse;
 //	assert(s_Initialized);
 	// Zone now initializes on first use. (During static constructors)
 	if (!s_Initialized)
@@ -1021,10 +1088,30 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	if (eTag == TAG_CLIENT_MANAGER_SPECIAL)
 	{
 		void *retVal = HeapAlloc(GetProcessHeap(), 0, iSize);
+	#if defined(STEFX_ELITE_FORCE_MP)
 		if (!retVal)
-			Z_MallocFail("ClientManagerSpecial Failed", iSize, eTag);
-		ReleaseMutex(s_Mutex);
-		return retVal;
+		{
+			retVal = malloc(iSize);
+			if (retVal && !Z_RecordMpClientManagerFallback(retVal))
+			{
+				free(retVal);
+				retVal = NULL;
+			}
+			if (retVal)
+				XBLog_Write("STEFX_HM: ClientManagerSpecial used CRT fallback");
+		}
+	#endif
+		if (!retVal)
+		{
+			mpZoneFallback = qtrue;
+			eTag = TAG_CLIENT_MANAGER;
+			XBLog_Write("STEFX_HM: ClientManagerSpecial using zone fallback");
+		}
+		else
+		{
+			ReleaseMutex(s_Mutex);
+			return retVal;
+		}
 	}
 
 	// Determine how much space we need with headers and footers
@@ -1184,6 +1271,13 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	{
 		memset(ablock, 0, iSize);
 	}
+
+#if defined(STEFX_ELITE_FORCE_MP)
+	if (mpZoneFallback && !Z_RecordMpClientManagerZoneFallback(ablock))
+	{
+		XBLog_Write("STEFX_HM: ClientManagerSpecial zone fallback tracking failed");
+	}
+#endif
 
 	assert(iAlign == 0 || (unsigned int)ablock % iAlign == 0);
 
@@ -1352,8 +1446,16 @@ static void Z_Coalasce(ZoneFreeBlock* pBlock)
 	assert(s_Initialized);
 
 	// HAQ!
-	if (s_newDeleteTagStack[s_newDeleteTagStackTop] == TAG_CLIENT_MANAGER_SPECIAL)
+	qboolean mpZoneFallback = qfalse;
+#if defined(STEFX_ELITE_FORCE_MP)
+	mpZoneFallback = Z_UnrecordMpClientManagerZoneFallback(pvAddress);
+#endif
+	if (!mpZoneFallback && s_newDeleteTagStack[s_newDeleteTagStackTop] == TAG_CLIENT_MANAGER_SPECIAL)
 	{
+	#if defined(STEFX_ELITE_FORCE_MP)
+		if (Z_FreeMpClientManagerFallback(pvAddress))
+			return;
+	#endif
 		if( !HeapFree( GetProcessHeap(), 0, pvAddress ) )
 			Z_MallocFail("CMSpecialFree Failed", 0, 0);
 		return;

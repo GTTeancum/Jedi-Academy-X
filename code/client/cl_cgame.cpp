@@ -72,7 +72,7 @@ CL_GetGameState
 ====================
 */
 void CL_GetGameState( gameState_t *gs ) {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
 	typedef struct stefxGameState_s {
 		int			stringOffsets[1024];
 		char		stringData[MAX_GAMESTATE_CHARS];
@@ -103,7 +103,7 @@ CL_GetGlconfig
 ====================
 */
 void CL_GetGlconfig( glconfig_t *glconfig ) {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
 	typedef struct stefxGlconfig_s {
 		char		renderer_string[MAX_STRING_CHARS];
 		char		vendor_string[MAX_STRING_CHARS];
@@ -118,7 +118,6 @@ void CL_GetGlconfig( glconfig_t *glconfig ) {
 		int			textureCompression;
 		qboolean	textureEnvAddAvailable;
 		qboolean	textureFilterAnisotropicAvailable;
-		qboolean	clampToEdgeAvailable;
 		int			vidWidth, vidHeight;
 		float		windowAspect;
 		int			displayFrequency;
@@ -145,7 +144,6 @@ void CL_GetGlconfig( glconfig_t *glconfig ) {
 	efGlconfig->textureCompression = cls.glconfig.textureCompression != TC_NONE ? 1 : 0;
 	efGlconfig->textureEnvAddAvailable = cls.glconfig.textureEnvAddAvailable;
 	efGlconfig->textureFilterAnisotropicAvailable = cls.glconfig.textureFilterAnisotropicAvailable;
-	efGlconfig->clampToEdgeAvailable = cls.glconfig.clampToEdgeAvailable;
 	efGlconfig->vidWidth = cls.glconfig.vidWidth > 0 ? cls.glconfig.vidWidth : 640;
 	efGlconfig->vidHeight = cls.glconfig.vidHeight > 0 ? cls.glconfig.vidHeight : 480;
 	efGlconfig->windowAspect = (float)efGlconfig->vidWidth / (float)efGlconfig->vidHeight;
@@ -321,13 +319,20 @@ Ghoul2 Insert End
 	return qtrue;
 }
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
 qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 	clSnapshot_t	*clSnap;
 	stefxSnapshot_t	*snapshot;
 	int				i, count;
+	int				stefxPlayerMask = 0;
+	int				stefxPlayerFlags[3] = { 0, 0, 0 };
+	vec3_t			stefxPlayerOrigins[3];
 	static int		s_stefxLayoutLogged = 0;
 	static int		s_stefxGetSnapshotLogBudget = 80;
+	static int		s_stefxLastPresenceSnapshot = -1;
+	static int		s_stefxLastPlayerMask = -1;
+
+	memset( stefxPlayerOrigins, 0, sizeof( stefxPlayerOrigins ) );
 
 	if ( snapshotNumber > cl.frame.messageNum ) {
 		Com_Error( ERR_DROP, "CL_STEFX_GetSnapshot: snapshotNumber > cl.frame.messageNum" );
@@ -351,13 +356,15 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 
 	if ( !s_stefxLayoutLogged )
 	{
-		XBLF("STEFX: engine EF snapshot adapter layout snapshot=%d ps=%d entity=%d numOfs=%d entitiesOfs=%d max=%d",
+		XBLog_WriteCriticalf("STEFX: engine EF snapshot adapter layout snapshot=%d ps=%d entity=%d numOfs=%d entitiesOfs=%d max=%d eventSlots=%d ammoSlots=%d",
 			(int)sizeof(stefxSnapshot_t),
 			(int)sizeof(stefxPlayerState_t),
-			(int)sizeof(entityState_t),
+			(int)sizeof(stefxEntityState_t),
 			(int)((byte *)&(((stefxSnapshot_t *)0)->numEntities)),
 			(int)((byte *)&(((stefxSnapshot_t *)0)->entities)),
-			STEFX_MAX_ENTITIES_IN_SNAPSHOT);
+			STEFX_MAX_ENTITIES_IN_SNAPSHOT,
+			MAX_PS_EVENTS,
+			MAX_AMMO);
 		s_stefxLayoutLogged = 1;
 	}
 
@@ -365,7 +372,6 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 	snapshot->ping = clSnap->ping;
 	snapshot->serverTime = clSnap->serverTime;
 	memcpy( snapshot->areamask, clSnap->areamask, sizeof( snapshot->areamask ) );
-	snapshot->cmdNum = clSnap->cmdNum;
 	STEFX_CopyJaPlayerStateToEf( &snapshot->ps, &clSnap->ps );
 
 	count = clSnap->numEntities;
@@ -378,7 +384,10 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 
 	if ( s_stefxGetSnapshotLogBudget > 0 )
 	{
-		XBLF("STEFX: engine EF CL_GetSnapshot num=%d clMsg=%d valid=%d clSnapEntities=%d copyCount=%d parseBase=%d parseNow=%d psWeapon=%d psHealth=%d",
+		const int stefxWpPhaser = 1;
+		const int stefxWpCompression = 2;
+		const int stefxWpVoyagerHypo = 10;
+		XBLF("STEFX: engine EF CL_GetSnapshot num=%d clMsg=%d valid=%d clSnapEntities=%d copyCount=%d parseBase=%d parseNow=%d psWeapon=%d psHealth=%d weaponsServer=0x%x weaponsEF=0x%x phaserServer=%d phaserEF=%d compressionServer=%d compressionEF=%d hypoServer=%d hypoEF=%d psRechargeServer=%d psRechargeEF=%d eventSeq=%d events=(%d,%d,%d,%d)",
 			snapshotNumber,
 			cl.frame.messageNum,
 			(int)clSnap->valid,
@@ -387,16 +396,94 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 			clSnap->parseEntitiesNum,
 			cl.parseEntitiesNum,
 			snapshot->ps.weapon,
-			snapshot->ps.stats[STAT_HEALTH]);
+			snapshot->ps.stats[STAT_HEALTH],
+			clSnap->ps.stats[STAT_WEAPONS],
+			snapshot->ps.stats[STAT_WEAPONS],
+			clSnap->ps.ammo[stefxWpPhaser],
+			snapshot->ps.ammo[stefxWpPhaser],
+			clSnap->ps.ammo[stefxWpCompression],
+			snapshot->ps.ammo[stefxWpCompression],
+			clSnap->ps.ammo[stefxWpVoyagerHypo],
+			snapshot->ps.ammo[stefxWpVoyagerHypo],
+			clSnap->ps.rechargeTime,
+			snapshot->ps.rechargeTime,
+			snapshot->ps.eventSequence,
+			snapshot->ps.events[0], snapshot->ps.events[1],
+			snapshot->ps.events[2], snapshot->ps.events[3]);
 		--s_stefxGetSnapshotLogBudget;
 	}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	{
+		const int stefxWpPhaser = 1;
+		const int stefxWpCompression = 2;
+		int ammoChecksum = 0;
+		int ammoIndex;
+		int currentAmmo = -1;
+		static int s_stefxLastSnapshotWeapon = -999;
+		static int s_stefxLastSnapshotWeapons = -1;
+		static int s_stefxLastSnapshotPhaserAmmo = -1;
+		static int s_stefxLastSnapshotCompressionAmmo = -1;
+		static int s_stefxLastSnapshotAmmoChecksum = -1;
+		static int s_stefxSnapshotAmmoBudget = 96;
+		for ( ammoIndex = 0; ammoIndex < STEFX_PS_MAX_AMMO; ++ammoIndex )
+		{
+			ammoChecksum = ( ammoChecksum * 33 ) ^ snapshot->ps.ammo[ammoIndex];
+		}
+		if ( snapshot->ps.weapon >= 0 && snapshot->ps.weapon < STEFX_PS_MAX_AMMO )
+		{
+			currentAmmo = snapshot->ps.ammo[snapshot->ps.weapon];
+		}
+		if ( s_stefxSnapshotAmmoBudget > 0 &&
+			( snapshot->ps.weapon != s_stefxLastSnapshotWeapon ||
+			  snapshot->ps.stats[STAT_WEAPONS] != s_stefxLastSnapshotWeapons ||
+			  snapshot->ps.ammo[stefxWpPhaser] != s_stefxLastSnapshotPhaserAmmo ||
+			  snapshot->ps.ammo[stefxWpCompression] != s_stefxLastSnapshotCompressionAmmo ||
+			  ammoChecksum != s_stefxLastSnapshotAmmoChecksum ) )
+		{
+			XBLog_WriteCriticalf("STEFX_HM_AMMO: snapshot-change num=%d time=%d psWeapon=%d weapons=0x%x currentAmmo=%d phaser=%d compression=%d imod=%d scav=%d stasis=%d grenade=%d tetrion=%d quantum=%d dread=%d hypo=%d checksum=0x%x health=%d weaponstate=%d",
+				snapshotNumber,
+				snapshot->serverTime,
+				snapshot->ps.weapon,
+				snapshot->ps.stats[STAT_WEAPONS],
+				currentAmmo,
+				snapshot->ps.ammo[stefxWpPhaser],
+				snapshot->ps.ammo[stefxWpCompression],
+				snapshot->ps.ammo[3],
+				snapshot->ps.ammo[4],
+				snapshot->ps.ammo[5],
+				snapshot->ps.ammo[6],
+				snapshot->ps.ammo[7],
+				snapshot->ps.ammo[8],
+				snapshot->ps.ammo[9],
+				snapshot->ps.ammo[10],
+				ammoChecksum,
+				snapshot->ps.stats[STAT_HEALTH],
+				snapshot->ps.weaponstate);
+			s_stefxLastSnapshotWeapon = snapshot->ps.weapon;
+			s_stefxLastSnapshotWeapons = snapshot->ps.stats[STAT_WEAPONS];
+			s_stefxLastSnapshotPhaserAmmo = snapshot->ps.ammo[stefxWpPhaser];
+			s_stefxLastSnapshotCompressionAmmo = snapshot->ps.ammo[stefxWpCompression];
+			s_stefxLastSnapshotAmmoChecksum = ammoChecksum;
+			--s_stefxSnapshotAmmoBudget;
+		}
+	}
+#endif
 
 	for ( i = 0 ; i < count ; i++ )
 	{
 		int entNum = ( clSnap->parseEntitiesNum + i ) & (MAX_PARSE_ENTITIES-1);
-		snapshot->entities[i] = cl.parseEntities[ entNum ];
+		const entityState_t *sourceState = &cl.parseEntities[ entNum ];
+		STEFX_CopyJaEntityStateToEf( &snapshot->entities[i], sourceState );
 		if ( snapshot->entities[i].eType == ET_PLAYER )
 		{
+			int playerNumber = snapshot->entities[i].number;
+			if ( playerNumber >= 0 && playerNumber < 3 )
+			{
+				stefxPlayerMask |= 1 << playerNumber;
+				stefxPlayerFlags[playerNumber] = snapshot->entities[i].eFlags;
+				VectorCopy( snapshot->entities[i].pos.trBase, stefxPlayerOrigins[playerNumber] );
+			}
 			static int s_stefxGetSnapshotActorBudget = 256;
 			if ( s_stefxGetSnapshotActorBudget > 0 )
 			{
@@ -419,7 +506,7 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 				--s_stefxGetSnapshotActorBudget;
 			}
 		}
-		if ( CL_STEFX_IsVisibleBrushMoverEntity( &snapshot->entities[i] ) )
+		if ( CL_STEFX_IsVisibleBrushMoverEntity( sourceState ) )
 		{
 			static int s_stefxGetSnapshotBModelBudget = 160;
 			if ( s_stefxGetSnapshotBModelBudget > 0 )
@@ -465,6 +552,26 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 		}
 	}
 
+	if ( snapshotNumber != s_stefxLastPresenceSnapshot )
+	{
+		if ( stefxPlayerMask != s_stefxLastPlayerMask || ( snapshotNumber % 120 ) == 0 )
+		{
+			XBLog_WriteCriticalf("STEFX_VIS: snapshot=%d serverTime=%d entities=%d playerMask=0x%x "
+				"local=(%g,%g,%g) bot1Flags=0x%x bot1=(%g,%g,%g) bot2Flags=0x%x bot2=(%g,%g,%g)",
+				snapshotNumber,
+				snapshot->serverTime,
+				snapshot->numEntities,
+				stefxPlayerMask,
+				stefxPlayerOrigins[0][0], stefxPlayerOrigins[0][1], stefxPlayerOrigins[0][2],
+				stefxPlayerFlags[1],
+				stefxPlayerOrigins[1][0], stefxPlayerOrigins[1][1], stefxPlayerOrigins[1][2],
+				stefxPlayerFlags[2],
+				stefxPlayerOrigins[2][0], stefxPlayerOrigins[2][1], stefxPlayerOrigins[2][2]);
+		}
+		s_stefxLastPresenceSnapshot = snapshotNumber;
+		s_stefxLastPlayerMask = stefxPlayerMask;
+	}
+
 	return qtrue;
 }
 #endif
@@ -495,6 +602,24 @@ qboolean CL_GetDefaultState(int index, entityState_t *state)
 extern float cl_mPitchOverride;
 extern float cl_mYawOverride;
 void CL_SetUserCmdValue( int userCmdValue, float sensitivityScale, float mPitchOverride, float mYawOverride ) {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	static int s_stefxLastUserCmdValue = -999;
+	static int s_stefxUserCmdValueBudget = 96;
+	if ( userCmdValue != s_stefxLastUserCmdValue && s_stefxUserCmdValueBudget > 0 )
+	{
+		XBLog_WriteCriticalf("STEFX_HM_AMMO: engine-set-usercmd weapon=%d prev=%d sens=%g pitch=%g yaw=%g",
+			userCmdValue,
+			s_stefxLastUserCmdValue,
+			sensitivityScale,
+			mPitchOverride,
+			mYawOverride);
+		s_stefxLastUserCmdValue = userCmdValue;
+		if ( s_stefxUserCmdValueBudget > 0 )
+		{
+			--s_stefxUserCmdValueBudget;
+		}
+	}
+#endif
 	cl.cgameUserCmdValue = userCmdValue;
 	cl.cgameSensitivity = sensitivityScale;
 	cl_mPitchOverride = mPitchOverride;
@@ -679,7 +804,13 @@ void CL_ShutdownCGame( void ) {
 	if ( !cgvm.entryPoint) {
 		return;
 	}
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	XBLF("STEFX_HM_SP: CL_ShutdownCGame before VM_Call state=%d", (int)cls.state);
+#endif
 	VM_Call( CG_SHUTDOWN );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	XBLF("STEFX_HM_SP: CL_ShutdownCGame after VM_Call state=%d", (int)cls.state);
+#endif
 #ifndef _XBOX	// Not using it
 	RM_ShutdownTerrain();
 #endif
@@ -715,7 +846,7 @@ extern bool Sys_IsDirectMapBoot(void);
 static void CL_STEFX_DrawDirectMapLoadScreen( const char *source )
 {
 	static int s_directMapLoadScreenBudget = 16;
-	extern void SP_DrawSPLoadScreen( void );
+	extern void SP_DrawMPLoadScreen( void );
 
 	if ( s_directMapLoadScreenBudget > 0 )
 	{
@@ -724,9 +855,9 @@ static void CL_STEFX_DrawDirectMapLoadScreen( const char *source )
 		--s_directMapLoadScreenBudget;
 	}
 
-	XBLog_Write("STEFX: direct-map loadscreen before SP_DrawSPLoadScreen");
-	SP_DrawSPLoadScreen();
-	XBLog_Write("STEFX: direct-map loadscreen after SP_DrawSPLoadScreen before EndFrame");
+	XBLog_Write("STEFX: direct-map loadscreen before SP_DrawMPLoadScreen");
+	SP_DrawMPLoadScreen();
+	XBLog_Write("STEFX: direct-map loadscreen after SP_DrawMPLoadScreen before EndFrame");
 	re.EndFrame( NULL, NULL );
 	XBLog_Write("STEFX: direct-map loadscreen EndFrame done");
 }
@@ -736,6 +867,72 @@ static void CL_STEFX_DrawDirectMapLoadScreen( const char *source )
 #define	VMF(x)	((float *)args)[x]
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(STEFX_SP_HOSTED_MP)
+enum stefxCgImport_t
+{
+	STEFX_CG_PRINT = 0,
+	STEFX_CG_ERROR = 1,
+	STEFX_CG_MILLISECONDS = 2,
+	STEFX_CG_CVAR_REGISTER = 3,
+	STEFX_CG_CVAR_UPDATE = 4,
+	STEFX_CG_CVAR_SET = 5,
+	STEFX_CG_CVAR_VARIABLESTRINGBUFFER = 6,
+	STEFX_CG_ARGC = 7,
+	STEFX_CG_ARGV = 8,
+	STEFX_CG_ARGS = 9,
+	STEFX_CG_FS_FOPENFILE = 10,
+	STEFX_CG_FS_READ = 11,
+	STEFX_CG_FS_WRITE = 12,
+	STEFX_CG_FS_FCLOSEFILE = 13,
+	STEFX_CG_SENDCONSOLECOMMAND = 14,
+	STEFX_CG_ADDCOMMAND = 15,
+	STEFX_CG_SENDCLIENTCOMMAND = 16,
+	STEFX_CG_UPDATESCREEN = 17,
+	STEFX_CG_CM_LOADMAP = 18,
+	STEFX_CG_CM_NUMINLINEMODELS = 19,
+	STEFX_CG_CM_INLINEMODEL = 20,
+	STEFX_CG_CM_LOADMODEL = 21,
+	STEFX_CG_CM_TEMPBOXMODEL = 22,
+	STEFX_CG_CM_POINTCONTENTS = 23,
+	STEFX_CG_CM_TRANSFORMEDPOINTCONTENTS = 24,
+	STEFX_CG_CM_BOXTRACE = 25,
+	STEFX_CG_CM_TRANSFORMEDBOXTRACE = 26,
+	STEFX_CG_CM_MARKFRAGMENTS = 27,
+	STEFX_CG_S_STARTSOUND = 28,
+	STEFX_CG_S_STARTLOCALSOUND = 29,
+	STEFX_CG_S_CLEARLOOPINGSOUNDS = 30,
+	STEFX_CG_S_ADDLOOPINGSOUND = 31,
+	STEFX_CG_S_UPDATEENTITYPOSITION = 32,
+	STEFX_CG_S_RESPATIALIZE = 33,
+	STEFX_CG_S_REGISTERSOUND = 34,
+	STEFX_CG_S_STARTBACKGROUNDTRACK = 35,
+	STEFX_CG_R_LOADWORLDMAP = 36,
+	STEFX_CG_R_REGISTERMODEL = 37,
+	STEFX_CG_R_REGISTERSKIN = 38,
+	STEFX_CG_R_REGISTERSHADER = 39,
+	STEFX_CG_R_CLEARSCENE = 40,
+	STEFX_CG_R_ADDREFENTITYTOSCENE = 41,
+	STEFX_CG_R_ADDPOLYTOSCENE = 42,
+	STEFX_CG_R_ADDLIGHTTOSCENE = 43,
+	STEFX_CG_R_RENDERSCENE = 44,
+	STEFX_CG_R_SETCOLOR = 45,
+	STEFX_CG_R_DRAWSTRETCHPIC = 46,
+	STEFX_CG_R_MODELBOUNDS = 47,
+	STEFX_CG_R_LERPTAG = 48,
+	STEFX_CG_GETGLCONFIG = 49,
+	STEFX_CG_GETGAMESTATE = 50,
+	STEFX_CG_GETCURRENTSNAPSHOTNUMBER = 51,
+	STEFX_CG_GETSNAPSHOT = 52,
+	STEFX_CG_GETSERVERCOMMAND = 53,
+	STEFX_CG_GETCURRENTCMDNUMBER = 54,
+	STEFX_CG_GETUSERCMD = 55,
+	STEFX_CG_SETUSERCMDVALUE = 56,
+	STEFX_CG_R_REGISTERSHADERNOMIP = 57,
+	STEFX_CG_MEMORY_REMAINING = 58,
+	STEFX_CG_R_REGISTERSHADER3D = 59,
+	STEFX_CG_CVAR_SET_NO_MODIFY = 60
+};
+#else
 enum stefxCgImport_t
 {
 	STEFX_CG_PRINT,
@@ -810,6 +1007,7 @@ enum stefxCgImport_t
 	STEFX_CG_AS_GETBMODELSOUND,
 	STEFX_CG_S_GETSAMPLELENGTH
 };
+#endif
 
 typedef struct stefxRefdef_s {
 	int			x, y, width, height;
@@ -820,6 +1018,267 @@ typedef struct stefxRefdef_s {
 	int			rdflags;
 	byte		areamask[MAX_MAP_AREA_BYTES];
 } stefxRefdef_t;
+
+enum stefxEfRefEntityType_t
+{
+	STEFX_EF_RT_MODEL = 0,
+	STEFX_EF_RT_SPRITE,
+	STEFX_EF_RT_ORIENTEDSPRITE,
+	STEFX_EF_RT_ALPHAVERTPOLY,
+	STEFX_EF_RT_BEAM,
+	STEFX_EF_RT_RAIL_CORE,
+	STEFX_EF_RT_RAIL_RINGS,
+	STEFX_EF_RT_LIGHTNING,
+	STEFX_EF_RT_PORTALSURFACE,
+	STEFX_EF_RT_LINE,
+	STEFX_EF_RT_ORIENTEDLINE,
+	STEFX_EF_RT_LINE2,
+	STEFX_EF_RT_BEZIER,
+	STEFX_EF_RT_CYLINDER,
+	STEFX_EF_RT_ELECTRICITY,
+	STEFX_EF_RT_MAX
+};
+
+typedef struct stefxEfRefEntity_s
+{
+	int			reType;
+	int			renderfx;
+	qhandle_t	hModel;
+	vec3_t		lightingOrigin;
+	float		shadowPlane;
+	vec3_t		axis[3];
+	qboolean	nonNormalizedAxes;
+	vec3_t		origin;
+	int			frame;
+	vec3_t		oldorigin;
+	int			oldframe;
+	float		backlerp;
+	int			skinNum;
+	qhandle_t	customSkin;
+	qhandle_t	customShader;
+	byte		shaderRGBA[4];
+	float		shaderTexCoord[2];
+	float		shaderTime;
+	union
+	{
+		struct
+		{
+			float rotation;
+			float radius;
+			byte vertRGBA[4][4];
+		} sprite;
+		struct
+		{
+			float width;
+			float width2;
+			float stscale;
+		} line;
+		struct
+		{
+			float width;
+			vec3_t control1;
+			vec3_t control2;
+		} bezier;
+		struct
+		{
+			float width;
+			float width2;
+			float stscale;
+			float height;
+			float bias;
+			qboolean wrap;
+		} cylinder;
+		struct
+		{
+			float width;
+			float deviation;
+			float stscale;
+			qboolean wrap;
+			qboolean taper;
+		} electricity;
+	} data;
+} stefxEfRefEntity_t;
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+static qhandle_t s_stefxTrackedLowerModel;
+static qhandle_t s_stefxTrackedUpperModel;
+static qhandle_t s_stefxTrackedHeadModel;
+static unsigned int s_stefxTrackedRefCount;
+#endif
+
+static int CL_STEFX_TranslateRenderFx( int efRenderFx )
+{
+	int renderFx = 0;
+
+	if ( efRenderFx & 0x0002 ) renderFx |= RF_THIRD_PERSON;
+	if ( efRenderFx & 0x0004 ) renderFx |= RF_FIRST_PERSON;
+	if ( efRenderFx & 0x0008 ) renderFx |= RF_DEPTHHACK;
+	if ( efRenderFx & 0x0010 ) renderFx |= RF_STEFX_FULLBRIGHT;
+	if ( efRenderFx & 0x0040 ) renderFx |= RF_NOSHADOW;
+	if ( efRenderFx & 0x0080 ) renderFx |= RF_LIGHTING_ORIGIN;
+	if ( efRenderFx & 0x0100 ) renderFx |= RF_SHADOW_PLANE;
+	if ( efRenderFx & 0x0200 ) renderFx |= RF_WRAP_FRAMES;
+	if ( efRenderFx & 0x0400 ) renderFx |= RF_CAP_FRAMES;
+	if ( efRenderFx & 0x0800 ) renderFx |= RF_STEFX_FORCE_ENT_ALPHA;
+
+	return renderFx;
+}
+
+static qboolean CL_STEFX_CopyRefEntity( refEntity_t *out, const stefxEfRefEntity_t *in )
+{
+	if ( !out || !in || in->reType < STEFX_EF_RT_MODEL || in->reType >= STEFX_EF_RT_MAX )
+	{
+		return qfalse;
+	}
+
+	memset( out, 0, sizeof( *out ) );
+	switch ( in->reType )
+	{
+	case STEFX_EF_RT_MODEL:
+		out->reType = RT_MODEL;
+		break;
+	case STEFX_EF_RT_SPRITE:
+		out->reType = RT_SPRITE;
+		break;
+	case STEFX_EF_RT_ORIENTEDSPRITE:
+		out->reType = RT_EF_ORIENTED_SPRITE;
+		break;
+	case STEFX_EF_RT_ALPHAVERTPOLY:
+		out->reType = RT_EF_ALPHA_VERT_POLY;
+		break;
+	case STEFX_EF_RT_BEAM:
+		out->reType = RT_BEAM;
+		break;
+	case STEFX_EF_RT_RAIL_CORE:
+	case STEFX_EF_RT_RAIL_RINGS:
+		out->reType = RT_LINE;
+		break;
+	case STEFX_EF_RT_LINE:
+		out->reType = RT_TEXTURED_LINE;
+		break;
+	case STEFX_EF_RT_ORIENTEDLINE:
+		out->reType = RT_ORIENTED_LINE;
+		break;
+	case STEFX_EF_RT_LINE2:
+		out->reType = RT_TAPERED_LINE;
+		break;
+	case STEFX_EF_RT_BEZIER:
+		out->reType = RT_BEZIER;
+		break;
+	case STEFX_EF_RT_LIGHTNING:
+		out->reType = RT_EF_LIGHTNING;
+		break;
+	case STEFX_EF_RT_ELECTRICITY:
+		out->reType = RT_EF_ELECTRICITY;
+		break;
+	case STEFX_EF_RT_PORTALSURFACE:
+		out->reType = RT_PORTALSURFACE;
+		break;
+	case STEFX_EF_RT_CYLINDER:
+		out->reType = RT_EF_CYLINDER;
+		break;
+	default:
+		return qfalse;
+	}
+
+	out->renderfx = CL_STEFX_TranslateRenderFx( in->renderfx );
+	out->hModel = in->hModel;
+	VectorCopy( in->lightingOrigin, out->lightingOrigin );
+	out->shadowPlane = in->shadowPlane;
+	AxisCopy( in->axis, out->axis );
+	out->nonNormalizedAxes = in->nonNormalizedAxes;
+	VectorCopy( in->origin, out->origin );
+	out->frame = in->frame;
+	VectorCopy( in->oldorigin, out->oldorigin );
+	out->oldframe = in->oldframe;
+	out->backlerp = in->backlerp;
+	out->skinNum = in->skinNum;
+	out->customSkin = in->customSkin;
+	out->customShader = in->customShader;
+	memcpy( out->shaderRGBA, in->shaderRGBA, sizeof( out->shaderRGBA ) );
+	memcpy( out->shaderTexCoord, in->shaderTexCoord, sizeof( out->shaderTexCoord ) );
+	out->shaderTime = in->shaderTime;
+	memcpy( &out->stefxData, &in->data, sizeof( out->stefxData ) );
+	VectorSet( out->modelScale, 1.0f, 1.0f, 1.0f );
+	out->ghoul2 = NULL;
+#ifdef _XBOX
+	out->number = 0;
+#endif
+
+	switch ( in->reType )
+	{
+	case STEFX_EF_RT_SPRITE:
+	case STEFX_EF_RT_ORIENTEDSPRITE:
+	case STEFX_EF_RT_ALPHAVERTPOLY:
+		out->radius = in->data.sprite.radius;
+		out->rotation = in->data.sprite.rotation;
+		break;
+	case STEFX_EF_RT_RAIL_CORE:
+	case STEFX_EF_RT_RAIL_RINGS:
+		out->radius = in->data.line.width > 0.0f ? in->data.line.width : 1.0f;
+		break;
+	case STEFX_EF_RT_LINE:
+	case STEFX_EF_RT_ORIENTEDLINE:
+		out->radius = in->data.line.width > 0.0f ? in->data.line.width : 1.0f;
+		out->rotation = in->data.line.stscale;
+		break;
+	case STEFX_EF_RT_LINE2:
+		out->radius = in->data.line.width > 0.0f ? in->data.line.width : 1.0f;
+		out->backlerp = in->data.line.width2;
+		out->rotation = in->data.line.stscale;
+		break;
+	case STEFX_EF_RT_BEZIER:
+		out->radius = in->data.bezier.width > 0.0f ? in->data.bezier.width : 1.0f;
+		VectorCopy( in->data.bezier.control1, out->axis[0] );
+		VectorCopy( in->data.bezier.control2, out->axis[1] );
+		break;
+	case STEFX_EF_RT_LIGHTNING:
+	case STEFX_EF_RT_ELECTRICITY:
+		out->radius = in->data.electricity.width > 0.0f ? in->data.electricity.width : 1.0f;
+		out->angles[0] = in->data.electricity.deviation;
+		if ( in->data.electricity.taper ) out->renderfx |= RF_TAPERED;
+		break;
+	case STEFX_EF_RT_CYLINDER:
+		out->radius = in->data.cylinder.width;
+		out->backlerp = in->data.cylinder.width2;
+		VectorMA( in->origin, in->data.cylinder.height, in->axis[0], out->oldorigin );
+		break;
+	default:
+		break;
+	}
+
+	return qtrue;
+}
+
+static soundChannel_t CL_STEFX_TranslateOfficialSoundChannel( int channel )
+{
+	enum
+	{
+		STEFX_OFFICIAL_CHAN_AUTO = 0,
+		STEFX_OFFICIAL_CHAN_LOCAL = 1,
+		STEFX_OFFICIAL_CHAN_WEAPON = 2,
+		STEFX_OFFICIAL_CHAN_VOICE = 3,
+		STEFX_OFFICIAL_CHAN_ITEM = 4,
+		STEFX_OFFICIAL_CHAN_BODY = 5,
+		STEFX_OFFICIAL_CHAN_LOCAL_SOUND = 6,
+		STEFX_OFFICIAL_CHAN_ANNOUNCER = 7,
+		STEFX_OFFICIAL_CHAN_MENU1 = 8
+	};
+
+	switch ( channel )
+	{
+	case STEFX_OFFICIAL_CHAN_AUTO: return CHAN_AUTO;
+	case STEFX_OFFICIAL_CHAN_LOCAL: return CHAN_LOCAL;
+	case STEFX_OFFICIAL_CHAN_WEAPON: return CHAN_WEAPON;
+	case STEFX_OFFICIAL_CHAN_VOICE: return CHAN_VOICE;
+	case STEFX_OFFICIAL_CHAN_ITEM: return CHAN_ITEM;
+	case STEFX_OFFICIAL_CHAN_BODY: return CHAN_BODY;
+	case STEFX_OFFICIAL_CHAN_LOCAL_SOUND: return CHAN_LOCAL_SOUND;
+	case STEFX_OFFICIAL_CHAN_ANNOUNCER: return CHAN_ANNOUNCER;
+	case STEFX_OFFICIAL_CHAN_MENU1: return CHAN_LOCAL_SOUND;
+	default: return CHAN_AUTO;
+	}
+}
 
 static void CL_STEFX_CopyRefdef( refdef_t *out, const stefxRefdef_t *in )
 {
@@ -870,6 +1329,9 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	switch ( args[0] )
 	{
 	case STEFX_CG_PRINT:
+#if defined(STEFX_SP_HOSTED_MP)
+		XBLog_WriteCritical( (const char *)VMA(1) );
+#endif
 		Com_Printf( "%s", VMA(1) );
 		return 0;
 	case STEFX_CG_ERROR:
@@ -886,6 +1348,11 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_CVAR_SET:
 		Cvar_Set( (const char *) VMA(1), (const char *) VMA(2) );
 		return 0;
+#if defined(STEFX_SP_HOSTED_MP)
+	case STEFX_CG_CVAR_VARIABLESTRINGBUFFER:
+		Cvar_VariableStringBuffer( (const char *) VMA(1), (char *) VMA(2), args[3] );
+		return 0;
+#endif
 	case STEFX_CG_ARGC:
 		return Cmd_Argc();
 	case STEFX_CG_ARGV:
@@ -895,15 +1362,28 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		Cmd_ArgsBuffer( (char *) VMA(1), args[2] );
 		return 0;
 	case STEFX_CG_FS_FOPENFILE:
-		return FS_FOpenFileByMode( (const char *) VMA(1), (int *) VMA(2), (fsMode_t) args[3] );
+		{
+			const char *path = (const char *) VMA(1);
+			fileHandle_t *file = (fileHandle_t *) VMA(2);
+			int length;
+			XBLF("STEFX_HM_SP: cgame fs open enter path='%s' mode=%d", path ? path : "", args[3]);
+			length = FS_FOpenFileByMode( path, file, (fsMode_t) args[3] );
+			XBLF("STEFX_HM_SP: cgame fs open exit path='%s' len=%d handle=%d",
+				path ? path : "", length, file ? *file : -1);
+			return length;
+		}
 	case STEFX_CG_FS_READ:
+		XBLF("STEFX_HM_SP: cgame fs read enter len=%d handle=%d", args[2], args[3]);
 		FS_Read( VMA(1), args[2], args[3] );
+		XBLF("STEFX_HM_SP: cgame fs read exit handle=%d", args[3]);
 		return 0;
 	case STEFX_CG_FS_WRITE:
 		FS_Write( VMA(1), args[2], args[3] );
 		return 0;
 	case STEFX_CG_FS_FCLOSEFILE:
+		XBLF("STEFX_HM_SP: cgame fs close enter handle=%d", args[1]);
 		FS_FCloseFile( args[1] );
+		XBLF("STEFX_HM_SP: cgame fs close exit handle=%d", args[1]);
 		return 0;
 	case STEFX_CG_SENDCONSOLECOMMAND:
 		Cbuf_AddText( (const char *) VMA(1) );
@@ -932,6 +1412,11 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		return CM_NumInlineModels();
 	case STEFX_CG_CM_INLINEMODEL:
 		return CL_SafeCgameInlineModel( "EF", args[1] );
+#if defined(STEFX_SP_HOSTED_MP)
+	case STEFX_CG_CM_LOADMODEL:
+		XBLF("STEFX: EF cgame requested unsupported CM_LoadModel '%s'; returning world", (const char *) VMA(1));
+		return 0;
+#endif
 	case STEFX_CG_CM_TEMPBOXMODEL:
 		return CM_TempBoxModel( (const float *) VMA(1), (const float *) VMA(2) );
 	case STEFX_CG_CM_POINTCONTENTS:
@@ -957,6 +1442,43 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 				args[4],
 				args[1]);
 		}
+#if defined(STEFX_SP_HOSTED_MP)
+		{
+			soundChannel_t stefxSpChannel = CL_STEFX_TranslateOfficialSoundChannel( args[3] );
+			if (stefxSpChannel == CHAN_BODY || stefxSpChannel == CHAN_ITEM || stefxSpChannel == CHAN_AUTO)
+			{
+				static int s_stefxHostedSoundBridgeBudget = 96;
+				if (s_stefxHostedSoundBridgeBudget > 0)
+				{
+					XBLog_WriteCriticalf("STEFX_HM_SOUND_BRIDGE: before ent=%d efChan=%d spChan=%d handle=%d origin=%08x started=%d state=%d",
+						args[2],
+						args[3],
+						stefxSpChannel,
+						args[4],
+						args[1],
+						cls.cgameStarted ? 1 : 0,
+						cls.state);
+				}
+				S_StartSound( (float *) VMA(1), args[2], stefxSpChannel, args[4] );
+				if (s_stefxHostedSoundBridgeBudget > 0)
+				{
+					XBLog_WriteCriticalf("STEFX_HM_SOUND_BRIDGE: after ent=%d efChan=%d spChan=%d handle=%d origin=%08x",
+						args[2],
+						args[3],
+						stefxSpChannel,
+						args[4],
+						args[1]);
+					--s_stefxHostedSoundBridgeBudget;
+				}
+				return 0;
+			}
+			S_StartSound( (float *) VMA(1), args[2], stefxSpChannel, args[4] );
+			return 0;
+		}
+#else
+		S_StartSound( (float *) VMA(1), args[2], (soundChannel_t)args[3], args[4] );
+		return 0;
+#endif
 #endif
 		S_StartSound( (float *) VMA(1), args[2], (soundChannel_t)args[3], args[4] );
 		return 0;
@@ -970,6 +1492,10 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 				args[2]);
 		}
 #endif
+#if defined(STEFX_SP_HOSTED_MP)
+		S_StartLocalSound( args[1], CL_STEFX_TranslateOfficialSoundChannel( args[2] ) );
+		return 0;
+#endif
 		S_StartLocalSound( args[1], args[2] );
 		return 0;
 	case STEFX_CG_S_CLEARLOOPINGSOUNDS:
@@ -980,6 +1506,10 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		{
 			return 0;
 		}
+#if defined(STEFX_SP_HOSTED_MP)
+		S_AddLoopingSound( args[1], (const float *) VMA(2), (const float *) VMA(3), args[4], CL_STEFX_TranslateOfficialSoundChannel( args[5] ) );
+		return 0;
+#endif
 		S_AddLoopingSound( args[1], (const float *) VMA(2), (const float *) VMA(3), args[4], (soundChannel_t)args[5] );
 		return 0;
 	case STEFX_CG_S_UPDATEENTITYPOSITION:
@@ -998,6 +1528,7 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 #endif
 		S_StartBackgroundTrack( (const char *) VMA(1), (const char *) VMA(2), qfalse );
 		return 0;
+#if !defined(STEFX_SP_HOSTED_MP)
 	case STEFX_CG_FF_STARTFX:
 		FFFX_START( (ffFX_e) args[1] );
 		return 0;
@@ -1010,6 +1541,7 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_FF_STOPALLFX:
 		FFFX_STOPALL;
 		return 0;
+#endif
 	case STEFX_CG_R_LOADWORLDMAP:
 		re.LoadWorld( (const char *) VMA(1) );
 		return 0;
@@ -1017,6 +1549,23 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		{
 			const char *modelName = (const char *) VMA(1);
 			qhandle_t modelHandle = re.RegisterModel( modelName );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+			if ( modelName && modelHandle )
+			{
+				if ( strstr( modelName, "/lower.mdr" ) )
+				{
+					s_stefxTrackedLowerModel = modelHandle;
+				}
+				else if ( strstr( modelName, "/upper.mdr" ) )
+				{
+					s_stefxTrackedUpperModel = modelHandle;
+				}
+				else if ( strstr( modelName, "/head.md3" ) )
+				{
+					s_stefxTrackedHeadModel = modelHandle;
+				}
+			}
+#endif
 			if (modelName && (strstr(modelName, ".mdr") || strstr(modelName, "models/players/")))
 			{
 				XBLF("STEFX: EF cgame R_RegisterModel '%s' -> %d", modelName, modelHandle);
@@ -1035,33 +1584,170 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 			const char *shaderName = (const char *) VMA(1);
 			return re.RegisterShaderNoMip( shaderName );
 		}
+#if defined(STEFX_SP_HOSTED_MP)
+	case STEFX_CG_R_REGISTERSHADER3D:
+		return re.RegisterShader( (const char *) VMA(1) );
+#endif
 	case STEFX_CG_R_CLEARSCENE:
 		re.ClearScene();
 		return 0;
 	case STEFX_CG_R_ADDREFENTITYTOSCENE:
 		{
-			const refEntity_t *refEnt = (const refEntity_t *) VMA(1);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if (refEnt && refEnt->reType == RT_MODEL && refEnt->hModel >= 2 && refEnt->hModel <= 8)
+			const stefxEfRefEntity_t *efRefEnt = (const stefxEfRefEntity_t *) VMA(1);
+			refEntity_t refEnt;
+			static int s_stefxAddRefBridgeBudget = 128;
+#if defined(STEFX_SP_HOSTED_MP)
+			static int s_stefxLineBridgeBudget = 96;
+			static int s_stefxOrientedSpriteBridgeBudget = 8;
+			static int s_stefxAlphaVertPolyBridgeBudget = 8;
+			static int s_stefxLightningBridgeBudget = 8;
+			static int s_stefxElectricityBridgeBudget = 8;
+			static int s_stefxCylinderBridgeBudget = 8;
+#endif
+			if ( !CL_STEFX_CopyRefEntity( &refEnt, efRefEnt ) )
 			{
-				static int s_stefxAddRefBridgeBudget = 96;
-				if (s_stefxAddRefBridgeBudget > 0)
+				XBLF("STEFX: EF AddRef rejected pointer=%08x type=%d", (unsigned int)efRefEnt, efRefEnt ? efRefEnt->reType : -1);
+				return 0;
+			}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (s_stefxAddRefBridgeBudget > 0)
+			{
+				XBLog_Writef("STEFX: EF AddRef marshal efType=%d spType=%d hModel=%d shader=%d renderfx=0x%x origin=(%g,%g,%g) radius=%g",
+					efRefEnt->reType,
+					refEnt.reType,
+					refEnt.hModel,
+					refEnt.customShader,
+					refEnt.renderfx,
+					refEnt.origin[0], refEnt.origin[1], refEnt.origin[2],
+					refEnt.radius);
+				--s_stefxAddRefBridgeBudget;
+			}
+#if defined(STEFX_SP_HOSTED_MP)
+			if ( s_stefxLineBridgeBudget > 0 &&
+				( efRefEnt->reType == STEFX_EF_RT_LINE ||
+				  efRefEnt->reType == STEFX_EF_RT_ORIENTEDLINE ||
+				  efRefEnt->reType == STEFX_EF_RT_LINE2 ) )
+			{
+				XBLog_WriteCriticalf("STEFX_RENDER_LINE bridge efType=%d spType=%d shader=%d rf=0x%x width=%g width2=%g st=%g rgba=(%u,%u,%u,%u) start=(%g,%g,%g) end=(%g,%g,%g)",
+					efRefEnt->reType,
+					refEnt.reType,
+					refEnt.customShader,
+					refEnt.renderfx,
+					efRefEnt->data.line.width,
+					efRefEnt->data.line.width2,
+					efRefEnt->data.line.stscale,
+					(unsigned int)refEnt.shaderRGBA[0],
+					(unsigned int)refEnt.shaderRGBA[1],
+					(unsigned int)refEnt.shaderRGBA[2],
+					(unsigned int)refEnt.shaderRGBA[3],
+					refEnt.origin[0], refEnt.origin[1], refEnt.origin[2],
+					refEnt.oldorigin[0], refEnt.oldorigin[1], refEnt.oldorigin[2]);
+				--s_stefxLineBridgeBudget;
+			}
+			switch ( efRefEnt->reType )
+			{
+			case STEFX_EF_RT_ORIENTEDSPRITE:
+				if ( s_stefxOrientedSpriteBridgeBudget > 0 )
 				{
-					XBLog_Writef("STEFX: EF AddRef bridge model ent=%d hModel=%d renderfx=0x%x origin=(%g,%g,%g) axis0=(%g,%g,%g)",
-						refEnt->number,
-						refEnt->hModel,
-						refEnt->renderfx,
-						refEnt->origin[0], refEnt->origin[1], refEnt->origin[2],
-						refEnt->axis[0][0], refEnt->axis[0][1], refEnt->axis[0][2]);
-					--s_stefxAddRefBridgeBudget;
+					XBLog_WriteCriticalf("STEFX_RENDER_EF orientedSprite spType=%d shader=%d rf=0x%x radius=%g rotation=%g axis1=(%g,%g,%g) axis2=(%g,%g,%g) rgba=(%u,%u,%u,%u)",
+						refEnt.reType, refEnt.customShader, refEnt.renderfx,
+						efRefEnt->data.sprite.radius, efRefEnt->data.sprite.rotation,
+						refEnt.axis[1][0], refEnt.axis[1][1], refEnt.axis[1][2],
+						refEnt.axis[2][0], refEnt.axis[2][1], refEnt.axis[2][2],
+						(unsigned int)refEnt.shaderRGBA[0], (unsigned int)refEnt.shaderRGBA[1],
+						(unsigned int)refEnt.shaderRGBA[2], (unsigned int)refEnt.shaderRGBA[3]);
+					--s_stefxOrientedSpriteBridgeBudget;
+				}
+				break;
+			case STEFX_EF_RT_ALPHAVERTPOLY:
+				if ( s_stefxAlphaVertPolyBridgeBudget > 0 )
+				{
+					XBLog_WriteCriticalf("STEFX_RENDER_EF alphaVertPoly spType=%d shader=%d rf=0x%x radius=%g cornerAlpha=(%u,%u,%u,%u)",
+						refEnt.reType, refEnt.customShader, refEnt.renderfx,
+						efRefEnt->data.sprite.radius,
+						(unsigned int)efRefEnt->data.sprite.vertRGBA[0][3],
+						(unsigned int)efRefEnt->data.sprite.vertRGBA[1][3],
+						(unsigned int)efRefEnt->data.sprite.vertRGBA[2][3],
+						(unsigned int)efRefEnt->data.sprite.vertRGBA[3][3]);
+					--s_stefxAlphaVertPolyBridgeBudget;
+				}
+				break;
+			case STEFX_EF_RT_LIGHTNING:
+				if ( s_stefxLightningBridgeBudget > 0 )
+				{
+					XBLog_WriteCriticalf("STEFX_RENDER_EF electricity efType=%d spType=%d shader=%d rf=0x%x width=%g deviation=%g st=%g wrap=%d taper=%d start=(%g,%g,%g) end=(%g,%g,%g)",
+						efRefEnt->reType, refEnt.reType, refEnt.customShader, refEnt.renderfx,
+						efRefEnt->data.electricity.width, efRefEnt->data.electricity.deviation,
+						efRefEnt->data.electricity.stscale, efRefEnt->data.electricity.wrap,
+						efRefEnt->data.electricity.taper,
+						refEnt.origin[0], refEnt.origin[1], refEnt.origin[2],
+						refEnt.oldorigin[0], refEnt.oldorigin[1], refEnt.oldorigin[2]);
+					--s_stefxLightningBridgeBudget;
+				}
+				break;
+			case STEFX_EF_RT_ELECTRICITY:
+				if ( s_stefxElectricityBridgeBudget > 0 )
+				{
+					XBLog_WriteCriticalf("STEFX_RENDER_EF electricity efType=%d spType=%d shader=%d rf=0x%x width=%g deviation=%g st=%g wrap=%d taper=%d start=(%g,%g,%g) end=(%g,%g,%g)",
+						efRefEnt->reType, refEnt.reType, refEnt.customShader, refEnt.renderfx,
+						efRefEnt->data.electricity.width, efRefEnt->data.electricity.deviation,
+						efRefEnt->data.electricity.stscale, efRefEnt->data.electricity.wrap,
+						efRefEnt->data.electricity.taper,
+						refEnt.origin[0], refEnt.origin[1], refEnt.origin[2],
+						refEnt.oldorigin[0], refEnt.oldorigin[1], refEnt.oldorigin[2]);
+					--s_stefxElectricityBridgeBudget;
+				}
+				break;
+			case STEFX_EF_RT_CYLINDER:
+				if ( s_stefxCylinderBridgeBudget > 0 )
+				{
+					XBLog_WriteCriticalf("STEFX_RENDER_EF cylinder spType=%d shader=%d rf=0x%x width=%g width2=%g height=%g st=%g bias=%g wrap=%d origin=(%g,%g,%g)",
+						refEnt.reType, refEnt.customShader, refEnt.renderfx,
+						efRefEnt->data.cylinder.width, efRefEnt->data.cylinder.width2,
+						efRefEnt->data.cylinder.height, efRefEnt->data.cylinder.stscale,
+						efRefEnt->data.cylinder.bias, efRefEnt->data.cylinder.wrap,
+						refEnt.origin[0], refEnt.origin[1], refEnt.origin[2]);
+					--s_stefxCylinderBridgeBudget;
+				}
+				break;
+			default:
+				break;
+			}
+			if ( refEnt.reType == RT_MODEL && refEnt.hModel != 0 &&
+				( refEnt.hModel == s_stefxTrackedLowerModel ||
+				  refEnt.hModel == s_stefxTrackedUpperModel ||
+				  refEnt.hModel == s_stefxTrackedHeadModel ) )
+			{
+				const char *part = refEnt.hModel == s_stefxTrackedLowerModel ? "lower" :
+					( refEnt.hModel == s_stefxTrackedUpperModel ? "upper" : "head" );
+				++s_stefxTrackedRefCount;
+				if ( s_stefxTrackedRefCount <= 12 || ( s_stefxTrackedRefCount % 1800 ) == 0 )
+				{
+					XBLog_WriteCriticalf("STEFX_MODEL_BRIDGE part=%s h=%d frame=%d old=%d back=%g rf=0x%x skin=%d shader=%d origin=(%g,%g,%g) axisLen=(%g,%g,%g) nonNorm=%d",
+						part,
+						refEnt.hModel,
+						refEnt.frame,
+						refEnt.oldframe,
+						refEnt.backlerp,
+						refEnt.renderfx,
+						refEnt.customSkin,
+						refEnt.customShader,
+						refEnt.origin[0], refEnt.origin[1], refEnt.origin[2],
+						VectorLength( refEnt.axis[0] ),
+						VectorLength( refEnt.axis[1] ),
+						VectorLength( refEnt.axis[2] ),
+						refEnt.nonNormalizedAxes );
 				}
 			}
 #endif
-			re.AddRefEntityToScene( refEnt );
+#endif
+			re.AddRefEntityToScene( &refEnt );
 		}
 		return 0;
+#if !defined(STEFX_SP_HOSTED_MP)
 	case STEFX_CG_R_GETLIGHTING:
 		return re.GetLighting( (const float * ) VMA(1), (float *) VMA(2), (float *) VMA(3), (float *) VMA(4) );
+#endif
 	case STEFX_CG_R_ADDPOLYTOSCENE:
 		re.AddPolyToScene( args[1], args[2], (const polyVert_t *) VMA(3) );
 		return 0;
@@ -1077,11 +1763,12 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 			const stefxRefdef_t *efRefdef = (const stefxRefdef_t *) VMA(1);
 			refdef_t jaRefdef;
 			static int s_stefxRenderSceneLogBudget = 32;
+			int renderSceneIndex = 32 - s_stefxRenderSceneLogBudget;
 			CL_STEFX_CopyRefdef( &jaRefdef, efRefdef );
 			if (s_stefxRenderSceneLogBudget > 0)
 			{
-				XBLF("STEFX: EF RenderScene marshal #%d ef=%08x time=%d rd=0x%x view=(%g,%g,%g) fov=(%g,%g) rect=%d,%d %dx%d",
-					32 - s_stefxRenderSceneLogBudget,
+				XBLog_WriteCriticalf("STEFX: EF RenderScene marshal #%d ef=%08x time=%d rd=0x%x view=(%g,%g,%g) fov=(%g,%g) rect=%d,%d %dx%d",
+					renderSceneIndex,
 					(unsigned int)efRefdef,
 					jaRefdef.time,
 					jaRefdef.rdflags,
@@ -1091,6 +1778,10 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 				--s_stefxRenderSceneLogBudget;
 			}
 			re.RenderScene( &jaRefdef );
+			if (renderSceneIndex >= 0 && renderSceneIndex < 32)
+			{
+				XBLog_WriteCriticalf("STEFX: EF RenderScene returned #%d", renderSceneIndex);
+			}
 		}
 		return 0;
 	case STEFX_CG_R_SETCOLOR:
@@ -1114,20 +1805,24 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 #endif
 		re.DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
 		return 0;
+#if !defined(STEFX_SP_HOSTED_MP)
 	case STEFX_CG_R_DRAWSCREENSHOT:
 		return 0;
+#endif
 	case STEFX_CG_R_MODELBOUNDS:
 		re.ModelBounds( args[1], (float *) VMA(2), (float *) VMA(3) );
 		return 0;
 	case STEFX_CG_R_LERPTAG:
 		re.LerpTag( (orientation_t *) VMA(1), args[2], args[3], args[4], VMF(5), (const char *) VMA(6) );
 		return 0;
+#if !defined(STEFX_SP_HOSTED_MP)
 	case STEFX_CG_R_DRAWROTATEPIC:
 		re.DrawRotatePic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), VMF(9), args[10] );
 		return 0;
 	case STEFX_CG_R_SCISSOR:
 		re.Scissor( VMF(1), VMF(2), VMF(3), VMF(4) );
 		return 0;
+#endif
 	case STEFX_CG_GETGLCONFIG:
 		CL_GetGlconfig( (glconfig_t *) VMA(1) );
 		return 0;
@@ -1164,25 +1859,50 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_GETCURRENTCMDNUMBER:
 		return CL_GetCurrentCmdNumber();
 	case STEFX_CG_GETUSERCMD:
+#if defined(STEFX_SP_HOSTED_MP)
+		{
+			usercmd_t spCommand;
+			stefxUsercmd_t *officialCommand = (stefxUsercmd_t *)VMA(2);
+			qboolean gotCommand;
+			static int s_stefxUsercmdBridgeLogBudget = 32;
+			memset(&spCommand, 0, sizeof(spCommand));
+			if (officialCommand)
+			{
+				memset(officialCommand, 0, sizeof(*officialCommand));
+			}
+			gotCommand = CL_GetUserCmd(args[1], &spCommand);
+			if (gotCommand && officialCommand)
+			{
+				STEFX_CopyJaUsercmdToEf(officialCommand, &spCommand);
+			}
+			if (s_stefxUsercmdBridgeLogBudget > 0)
+			{
+				XBLog_WriteCriticalf("STEFX: cgame usercmd bridge cmd=%d got=%d spSize=%d efSize=%d time=%d spButtons=0x%x efButtons=0x%x weapon=%d move=(%d,%d,%d)",
+					args[1],
+					gotCommand,
+					(int)sizeof(spCommand),
+					(int)sizeof(*officialCommand),
+					spCommand.serverTime,
+					spCommand.buttons,
+					officialCommand ? officialCommand->buttons : 0,
+					spCommand.weapon,
+					spCommand.forwardmove,
+					spCommand.rightmove,
+					spCommand.upmove);
+				--s_stefxUsercmdBridgeLogBudget;
+			}
+			return gotCommand;
+		}
+#else
 		return CL_GetUserCmd( args[1], (usercmd_s *) VMA(2) );
+#endif
 	case STEFX_CG_SETUSERCMDVALUE:
 		CL_SetUserCmdValue( args[1], VMF(2), 0.0f, 0.0f );
 		return 0;
 	case STEFX_CG_MEMORY_REMAINING:
 		return Hunk_MemoryRemaining();
+#if !defined(STEFX_SP_HOSTED_MP)
 	case STEFX_CG_S_UPDATEAMBIENTSET:
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		{
-			static int s_stefxAmbientSyscallBudget = 48;
-			if ( s_stefxAmbientSyscallBudget > 0 )
-			{
-				XBLF("STEFX: engine EF S_UpdateAmbientSet name='%s' started=%d",
-					(const char *) VMA(1),
-					cls.cgameStarted ? 1 : 0);
-				--s_stefxAmbientSyscallBudget;
-			}
-		}
-#endif
 		if (!cls.cgameStarted)
 		{
 			return 0;
@@ -1190,26 +1910,7 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		S_UpdateAmbientSet( (const char *) VMA(1), (float *) VMA(2) );
 		return 0;
 	case STEFX_CG_S_ADDLOCALSET:
-		{
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			static int s_stefxLocalSetSyscallBudget = 48;
-			if ( s_stefxLocalSetSyscallBudget > 0 )
-			{
-				XBLF("STEFX: engine EF S_AddLocalSet enter name='%s' ent=%d time=%d",
-					(const char *) VMA(1), args[4], args[5]);
-			}
-#endif
-			int localSetTime = S_AddLocalSet( (const char *) VMA(1), (float *) VMA(2), (float *) VMA(3), args[4], args[5] );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if ( s_stefxLocalSetSyscallBudget > 0 )
-			{
-				XBLF("STEFX: engine EF S_AddLocalSet done ent=%d result=%d",
-					args[4], localSetTime);
-				--s_stefxLocalSetSyscallBudget;
-			}
-#endif
-			return localSetTime;
-		}
+		return S_AddLocalSet( (const char *) VMA(1), (float *) VMA(2), (float *) VMA(3), args[4], args[5] );
 	case STEFX_CG_AS_PARSESETS:
 		AS_ParseSets();
 		return 0;
@@ -1220,6 +1921,14 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		return AS_GetBModelSound( (const char *) VMA(1), args[2] );
 	case STEFX_CG_S_GETSAMPLELENGTH:
 		return S_GetSampleLengthInMilliSeconds( args[1] );
+#else
+	case STEFX_CG_CVAR_SET_NO_MODIFY:
+		{
+			extern void Cvar_SetNoModify( const char *var_name, const char *value );
+			Cvar_SetNoModify( (const char *) VMA(1), (const char *) VMA(2) );
+		}
+		return 0;
+#endif
 	default:
 		Com_Error( ERR_DROP, "Bad EF cgame system trap: %i", args[0] );
 		return 0;
@@ -1876,7 +2585,11 @@ void CL_InitCGame( void ) {
 
 	// init for this gamestate
 	XBLog_Write("JA: VM_Call(CG_INIT)...");
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	VM_Call( CG_INIT, cl.frame.messageNum, clc.serverCommandSequence );
+#else
 	VM_Call( CG_INIT, clc.serverCommandSequence );
+#endif
 	XBLog_Write("JA: VM_Call(CG_INIT) done");
 
 	// we will send a usercmd this frame, which

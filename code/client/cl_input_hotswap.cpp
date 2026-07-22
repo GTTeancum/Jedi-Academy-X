@@ -16,8 +16,13 @@
 #define FORCESELECT		forcepowerSelect
 #define INVSELECTTIME	inventorySelectTime
 #define INVSELECT		inventorySelect
+#if defined(STEFX_SP_HOSTED_MP)
+#define REGISTERSOUND	S_RegisterSound
+#define STARTSOUND		S_StartLocalSound
+#else
 #define REGISTERSOUND	cgi_S_RegisterSound
 #define STARTSOUND		cgi_S_StartLocalSound
+#endif
 #define WEAPONBINDSTR	"weapon"
 
 #define BIND_TIME 2000 //number of milliseconds button is held before binding
@@ -117,6 +122,13 @@ const char *HotSwapManager::GetBindingUp(void)
 
 void HotSwapManager::Bind(void)
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	// EF has no SP force/item selection HUD.  Existing weapon bindings still
+	// execute, but rebinding remains dormant until the EF HUD exposes a
+	// selection state through the engine boundary.
+	noBind = true;
+	return;
+#else
 	if(WeaponSelectUp()) {
 		HotSwapBind(uniqueID, HOTSWAP_CAT_WEAPON, cg.weaponSelect);
 	} else if(ForceSelectUp()) {
@@ -129,27 +141,40 @@ void HotSwapManager::Bind(void)
 
 	noBind = true;
 	STARTSOUND(REGISTERSOUND("sound/interface/update"), 0);
+#endif
 }
 
 
 bool HotSwapManager::ForceSelectUp(void)
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	return false;
+#else
 	return cg.FORCESELECTTIME != 0 &&
 		(cg.FORCESELECTTIME + WEAPON_SELECT_TIME >= cg.time);
+#endif
 }
 
 
 bool HotSwapManager::WeaponSelectUp(void)
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	return false;
+#else
 	return cg.weaponSelectTime != 0 &&
 		(cg.weaponSelectTime + WEAPON_SELECT_TIME >= cg.time);
+#endif
 }
 
 
 bool HotSwapManager::ItemSelectUp(void)
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	return false;
+#else
 	return cg.INVSELECTTIME != 0 &&
 		(cg.INVSELECTTIME + WEAPON_SELECT_TIME >= cg.time);
+#endif
 }
 
 

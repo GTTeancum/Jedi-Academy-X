@@ -12,6 +12,7 @@
 #include <math.h>
 #include "sparc.h"
 #ifdef _XBOX
+#include <xtl.h>
 #include "../win32/xb_log.h"
 #endif
 
@@ -186,6 +187,42 @@ static void *EFBSP_AllocTemp(int size)
 	{
 		return NULL;
 	}
+#ifdef _XBOX
+	if (size >= (1024 * 1024))
+	{
+		enum { EFBSP_HEAP_MAGIC = 0x48544645 };
+		typedef struct
+		{
+			unsigned int magic;
+			void *base;
+		} efbspHeapTempHeader_t;
+		byte *base;
+		byte *aligned;
+		int allocSize = size + 64 + (int)sizeof(efbspHeapTempHeader_t);
+		int realSize = 0;
+		int alignPad = 0;
+		int largestFreeBlock = 0;
+
+		if (Z_WouldAllocFit(size, TAG_TEMP_WORKSPACE, 32, &realSize, &alignPad, &largestFreeBlock))
+		{
+			return Z_Malloc(size, TAG_TEMP_WORKSPACE, qfalse, 32);
+		}
+
+		base = (byte *)HeapAlloc(GetProcessHeap(), 0, allocSize);
+		if (!base)
+		{
+			Com_Error(ERR_FATAL, "EF BSP: heap temp allocation failed for %d bytes after zone miss real=%d alignPad=%d largest=%d",
+				size, realSize, alignPad, largestFreeBlock);
+			return NULL;
+		}
+		aligned = (byte *)(((unsigned int)(base + sizeof(efbspHeapTempHeader_t) + 31)) & ~31u);
+		((efbspHeapTempHeader_t *)aligned)[-1].magic = EFBSP_HEAP_MAGIC;
+		((efbspHeapTempHeader_t *)aligned)[-1].base = base;
+		XBLog_WriteCriticalf("STEFX_EFBSP_HEAP_TEMP alloc size=%d real=%d alignPad=%d largest=%d base=%p data=%p",
+			size, realSize, alignPad, largestFreeBlock, base, aligned);
+		return aligned;
+	}
+#endif
 	return Z_Malloc(size, TAG_TEMP_WORKSPACE, qfalse, 32);
 }
 
@@ -193,6 +230,21 @@ static void EFBSP_FreeTemp(void *data)
 {
 	if (data)
 	{
+#ifdef _XBOX
+		enum { EFBSP_HEAP_MAGIC = 0x48544645 };
+		typedef struct
+		{
+			unsigned int magic;
+			void *base;
+		} efbspHeapTempHeader_t;
+		efbspHeapTempHeader_t *header = ((efbspHeapTempHeader_t *)data) - 1;
+		if (header->magic == EFBSP_HEAP_MAGIC && header->base)
+		{
+			XBLog_WriteCriticalf("STEFX_EFBSP_HEAP_TEMP free base=%p data=%p", header->base, data);
+			HeapFree(GetProcessHeap(), 0, header->base);
+			return;
+		}
+#endif
 		Z_Free(data);
 	}
 }
@@ -552,9 +604,164 @@ static void EFBSP_FillSurfaceLight(const efbspSurface_t *in, byte styles[MAXLIGH
 	EFBSP_SetLightmapNums(in->lightmapNum, nums);
 }
 
+static void EFBSP_FillMapVert(const efbspDrawVert_t *in, mapVert_t *out)
+{
+	int j, k;
+
+	for (j = 0; j < MAXLIGHTMAPS; ++j)
+	{
+		if (j == 0)
+		{
+			out->lightmap[j][0] = in->lightmap[0] * POINTS_LIGHT_SCALE;
+			out->lightmap[j][1] = in->lightmap[1] * POINTS_LIGHT_SCALE;
+		}
+		else
+		{
+			out->lightmap[j][0] = 0.0f;
+			out->lightmap[j][1] = 0.0f;
+		}
+		for (k = 0; k < 4; ++k)
+		{
+			out->color[j][k] = in->color[k];
+		}
+	}
+
+	out->st[0] = in->st[0];
+	out->st[1] = in->st[1];
+	for (j = 0; j < 3; ++j)
+	{
+		float n = in->normal[j];
+		if (n < -1.0f) n = -1.0f;
+		if (n > 1.0f) n = 1.0f;
+		out->xyz[j] = EFBSP_FloatToShort(in->xyz[j], "vertex xyz");
+		out->normal[j] = (short)(n * 32767.0f);
+	}
+}
+
+static void EFBSP_FillSurfaceVerts(const efbspFile_t *bsp, const efbspSurface_t *surface, mapVert_t *out)
+{
+	efbspDrawVert_t *verts = (efbspDrawVert_t *)EFBSP_LumpData(bsp, EF_LUMP_DRAWVERTS);
+	int i;
+
+	for (i = 0; i < surface->numVerts; ++i)
+	{
+		EFBSP_FillMapVert(&verts[surface->firstVert + i], &out[i]);
+	}
+}
+
+static int EFBSP_CountSurfacesOfType(const efbspFile_t *bsp, int surfaceType)
+{
+	int surfaceCount = EFBSP_SurfaceCount(bsp);
+	efbspSurface_t *surfaces = (efbspSurface_t *)EFBSP_LumpData(bsp, EF_LUMP_SURFACES);
+	int i, count = 0;
+
+	for (i = 0; i < surfaceCount; ++i)
+	{
+		if (surfaces[i].surfaceType == surfaceType)
+		{
+			++count;
+		}
+	}
+
+	return count;
+}
+
+static void EFBSP_FillPatchSurface(const efbspSurface_t *in, int shaderCount, int code, dpatch_t *out)
+{
+	int j;
+
+	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "patch shaderNum");
+	EFBSP_ClampInt(in->fogNum, -128, 127, "patch fogNum");
+	out->code = code;
+	out->shaderNum = (byte)in->shaderNum;
+	out->fogNum = (signed char)in->fogNum;
+	out->verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "patch verts");
+	EFBSP_FillSurfaceLight(in, out->lightmapStyles, out->lightmapNum);
+	for (j = 0; j < 3; ++j)
+	{
+		out->lightmapVecs[0][j] = EFBSP_FloatToShort(in->lightmapVecs[0][j], "patch lod0");
+		out->lightmapVecs[1][j] = EFBSP_FloatToShort(in->lightmapVecs[1][j], "patch lod1");
+	}
+	out->patchWidth = (byte)EFBSP_ClampInt(in->patchWidth, 0, 255, "patch width");
+	out->patchHeight = (byte)EFBSP_ClampInt(in->patchHeight, 0, 255, "patch height");
+}
+
+static void EFBSP_FillTriSurfSurface(const efbspSurface_t *in, int shaderCount, int code, dtrisurf_t *out)
+{
+	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "trisurf shaderNum");
+	EFBSP_ClampInt(in->fogNum, -128, 127, "trisurf fogNum");
+	out->code = code;
+	out->shaderNum = (byte)in->shaderNum;
+	out->fogNum = (signed char)in->fogNum;
+	out->verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "trisurf verts");
+	out->indexes = EFBSP_PackFirstCount(in->firstIndex, in->numIndexes, "trisurf indexes");
+	EFBSP_SetSingleLightStyle(out->lightmapStyles);
+}
+
+static void EFBSP_FillFaceSurface(const efbspFile_t *bsp, const efbspSurface_t *in, int shaderCount, int code, dface_t *out)
+{
+	int vertCount = EFBSP_CheckedCount("drawverts", EFBSP_LumpLen(bsp, EF_LUMP_DRAWVERTS), sizeof(efbspDrawVert_t));
+	int indexCount = EFBSP_CheckedCount("drawindexes", EFBSP_LumpLen(bsp, EF_LUMP_DRAWINDEXES), sizeof(int));
+	int *indexes = (int *)EFBSP_LumpData(bsp, EF_LUMP_DRAWINDEXES);
+	int j;
+
+	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "face shaderNum");
+	EFBSP_ClampInt(in->fogNum, -128, 127, "face fogNum");
+	EFBSP_ClampInt(in->numVerts, 0, 255, "face numVerts");
+	if (in->firstVert < 0 || in->numVerts < 0 || in->firstVert + in->numVerts > vertCount)
+	{
+		Com_Error(ERR_DROP, "EF BSP: face %d verts outside drawvert lump", code);
+	}
+	if (in->firstIndex < 0 || in->numIndexes < 0 || in->firstIndex + in->numIndexes > indexCount)
+	{
+		Com_Error(ERR_DROP, "EF BSP: face %d indexes outside drawindex lump", code);
+	}
+	for (j = 0; j < in->numIndexes; ++j)
+	{
+		int localIndex = indexes[in->firstIndex + j];
+		EFBSP_ClampInt(localIndex, 0, in->numVerts - 1, "face local index");
+		EFBSP_ClampInt(localIndex, 0, 255, "face byte index");
+	}
+
+	out->code = code;
+	out->shaderNum = (byte)in->shaderNum;
+	out->fogNum = (signed char)in->fogNum;
+	out->verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "face verts");
+	out->indexes = EFBSP_PackFirstCount(in->firstIndex, in->numIndexes, "face indexes");
+	EFBSP_FillSurfaceLight(in, out->lightmapStyles, out->lightmapNum);
+	for (j = 0; j < 3; ++j)
+	{
+		float n = in->lightmapVecs[2][j];
+		if (n < -1.0f) n = -1.0f;
+		if (n > 1.0f) n = 1.0f;
+		out->lightmapVecs[j] = (short)(n * 32767.0f);
+	}
+}
+
+static void EFBSP_FillFlareSurface(const efbspSurface_t *in, int shaderCount, int code, dflare_t *out)
+{
+	int j;
+
+	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "flare shaderNum");
+	EFBSP_ClampInt(in->fogNum, -128, 127, "flare fogNum");
+	out->code = code;
+	out->shaderNum = (byte)in->shaderNum;
+	out->fogNum = (signed char)in->fogNum;
+	for (j = 0; j < 3; ++j)
+	{
+		float n = in->lightmapVecs[2][j];
+		if (n < -1.0f) n = -1.0f;
+		if (n > 1.0f) n = 1.0f;
+		out->origin[j] = EFBSP_FloatToShort(in->lightmapOrigin[j], "flare origin");
+		out->normal[j] = (short)(n * 32767.0f);
+		out->color[j] = (byte)EFBSP_ClampInt((int)in->lightmapVecs[0][j], 0, 255, "flare color");
+	}
+}
+
 static void *EFBSP_ConvertFaces(const efbspFile_t *bsp, int shaderCount, int *outLen)
 {
 	int surfaceCount = EFBSP_SurfaceCount(bsp);
+	int vertCount = EFBSP_CheckedCount("drawverts", EFBSP_LumpLen(bsp, EF_LUMP_DRAWVERTS), sizeof(efbspDrawVert_t));
 	int indexCount = EFBSP_CheckedCount("drawindexes", EFBSP_LumpLen(bsp, EF_LUMP_DRAWINDEXES), sizeof(int));
 	efbspSurface_t *surfaces = (efbspSurface_t *)EFBSP_LumpData(bsp, EF_LUMP_SURFACES);
 	int *indexes = (int *)EFBSP_LumpData(bsp, EF_LUMP_DRAWINDEXES);
@@ -573,6 +780,10 @@ static void *EFBSP_ConvertFaces(const efbspFile_t *bsp, int shaderCount, int *ou
 		EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "face shaderNum");
 		EFBSP_ClampInt(in->fogNum, -128, 127, "face fogNum");
 		EFBSP_ClampInt(in->numVerts, 0, 255, "face numVerts");
+		if (in->firstVert < 0 || in->numVerts < 0 || in->firstVert + in->numVerts > vertCount)
+		{
+			Com_Error(ERR_DROP, "EF BSP: face %d verts outside drawvert lump", i);
+		}
 		if (in->firstIndex < 0 || in->numIndexes < 0 || in->firstIndex + in->numIndexes > indexCount)
 		{
 			Com_Error(ERR_DROP, "EF BSP: face %d indexes outside drawindex lump", i);

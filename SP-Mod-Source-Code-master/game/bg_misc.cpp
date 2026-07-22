@@ -251,6 +251,21 @@ EvaluateTrajectory
 void EvaluateTrajectory( const trajectory_t *tr, int atTime, vec3_t result ) {
 	float		deltaTime;
 	float		phase;
+	#ifdef _XBOX
+	{
+		static int stefxTrajectoryTraceBudget = 128;
+		if ( stefxTrajectoryTraceBudget > 0 )
+		{
+			XBLog_WriteCriticalf( "STEFX_TRACE_SP_TRAJECTORY enter tr=%p type=%d time=%d duration=%d at=%d",
+				tr,
+				tr ? (int)tr->trType : -1,
+				tr ? tr->trTime : 0,
+				tr ? tr->trDuration : 0,
+				atTime );
+			--stefxTrajectoryTraceBudget;
+		}
+	}
+	#endif
 
 	switch( tr->trType ) {
 	case TR_STATIONARY:
@@ -282,6 +297,19 @@ void EvaluateTrajectory( const trajectory_t *tr, int atTime, vec3_t result ) {
 		result[2] -= 0.5F * DEFAULT_GRAVITY * deltaTime * deltaTime;		// FIXME: local gravity...
 		break;
 	default:
+		#ifdef _XBOX
+		XBLog_WriteCriticalf("STEFX_TRACE_SP_TRAJECTORY invalid trType=%d trTime=%d trDuration=%d atTime=%d base=%g,%g,%g delta=%g,%g,%g",
+			(int)tr->trType,
+			tr->trTime,
+			tr->trDuration,
+			atTime,
+			tr->trBase[0],
+			tr->trBase[1],
+			tr->trBase[2],
+			tr->trDelta[0],
+			tr->trDelta[1],
+			tr->trDelta[2]);
+		#endif
 		Com_Error( ERR_DROP, "EvaluateTrajectory: unknown trType: %i", tr->trTime );
 		break;
 	}

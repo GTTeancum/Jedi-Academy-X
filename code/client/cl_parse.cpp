@@ -509,9 +509,17 @@ void CL_ParseGamestate( msg_t *msg ) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
+#if defined(STEFX_SP_HOSTED_MP)
+		extern void SP_DrawMPLoadScreen( void );
+#else
 		extern void SP_DrawSPLoadScreen( void );
+#endif
 		Com_PrintfAlways("STEFX: CL_ParseGamestate early SP loadscreen begin\n");
+#if defined(STEFX_SP_HOSTED_MP)
+		SP_DrawMPLoadScreen();
+#else
 		SP_DrawSPLoadScreen();
+#endif
 		Com_PrintfAlways("STEFX: CL_ParseGamestate early SP loadscreen draw done\n");
 		re.EndFrame( NULL, NULL );
 		Com_PrintfAlways("STEFX: CL_ParseGamestate early SP loadscreen flush done\n");

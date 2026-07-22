@@ -1197,6 +1197,13 @@ static void FS_AddKnownPK3Files( const char *path, const char *dir )
 		++loaded;
 	}
 
+#if defined(STEFX_SP_HOSTED_MP)
+	if (FS_TryAddPK3(path, dir, "xbox1.pk3"))
+	{
+		++loaded;
+	}
+#endif
+
 	XBLog_Write(va("STEFX: FS PK3 explicit startup probe done loaded=%d", loaded));
 }
 #endif

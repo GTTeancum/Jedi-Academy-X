@@ -962,8 +962,16 @@ static const netField_t	playerStateFields[] =
 { PSF(eventSequence), 16 },
 { PSF(events[0]), 8 },
 { PSF(events[1]), 8 },
+#if defined(STEFX_SP_HOSTED_MP)
+{ PSF(events[2]), 8 },
+{ PSF(events[3]), 8 },
+#endif
 { PSF(eventParms[0]), -9 },
 { PSF(eventParms[1]), -9 },
+#if defined(STEFX_SP_HOSTED_MP)
+{ PSF(eventParms[2]), -9 },
+{ PSF(eventParms[3]), -9 },
+#endif
 { PSF(externalEvent), 8 },
 { PSF(externalEventParm), 8 },
 { PSF(externalEventTime), 32 },

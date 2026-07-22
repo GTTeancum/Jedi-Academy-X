@@ -1,5 +1,5 @@
 #if defined(STEFX_ELITE_FORCE_MP)
-#include "../../codemp/ui/ui_stefx_spcompat.h"
+#include "ui_stefx_spcompat.h"
 
 displayContextDef_t *DC = NULL;
 
@@ -226,7 +226,7 @@ qboolean String_Parse(char **p, const char **out)
 }
 
 #undef ui
-#include "../../codemp/namespace_end.h"
+#include "../namespace_end.h"
 
 #else
 

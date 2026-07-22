@@ -15,6 +15,8 @@
 #include "../win32/xb_log.h"
 #endif
 
+extern void UpdateLoadingAnimation(void);
+
 /*
 
 Loads and prepares a map file for scene rendering.
@@ -936,6 +938,61 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 }
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+void R_EFPrecacheRawSurfaceShadersFromBSP( const char *name, const efbspFile_t *efbsp )
+{
+	efbspSurface_t *surfaces;
+	int surfaceCount;
+	int i;
+	int registered = 0;
+	int skipped = 0;
+	zmemstats_t stats;
+
+	if ( !efbsp )
+	{
+		return;
+	}
+
+	surfaceCount = EFBSP_SurfaceCount( efbsp );
+	surfaces = (efbspSurface_t *)EFBSP_LumpData( efbsp, EF_LUMP_SURFACES );
+
+	Z_GetMemoryStats( &stats );
+	XBLF("STEFX_EFBSP_SHADER_PRECACHE begin map='%s' surfaces=%d memFree=%d memLargest=%d",
+		name ? name : "<null>", surfaceCount, stats.freeBytes, stats.largestFreeBlock);
+
+	for ( i = 0; i < surfaceCount; ++i )
+	{
+		const efbspSurface_t *surface = &surfaces[i];
+		short lightmapNum[MAXLIGHTMAPS];
+		byte lightmapStyles[MAXLIGHTMAPS];
+
+		if ( surface->shaderNum < 0 || surface->shaderNum >= s_worldData.numShaders )
+		{
+			++skipped;
+			continue;
+		}
+
+		lightmapNum[0] = (short)surface->lightmapNum;
+		lightmapNum[1] = (short)EF_LIGHTMAP_NONE;
+		lightmapNum[2] = (short)EF_LIGHTMAP_NONE;
+		lightmapNum[3] = (short)EF_LIGHTMAP_NONE;
+		EFBSP_SetSingleLightStyle( lightmapStyles );
+
+		ShaderForShaderNum( surface->shaderNum, lightmapNum, lightmapStyles );
+		++registered;
+
+		if ( (registered % 256) == 0 )
+		{
+			UpdateLoadingAnimation();
+		}
+	}
+
+	Z_GetMemoryStats( &stats );
+	XBLF("STEFX_EFBSP_SHADER_PRECACHE done map='%s' registered=%d skipped=%d memFree=%d memLargest=%d",
+		name ? name : "<null>", registered, skipped, stats.freeBytes, stats.largestFreeBlock);
+}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 static surfaceType_t s_stefxSkipSurfaceData = SF_SKIP;
 
 static qboolean R_EFShouldSkipBorgBlackBackingSurface( const dshader_t *mapShader )
@@ -1064,6 +1121,53 @@ int SurfaceFaceSize(int numVerts, int numLightMaps, bool needVertexColors,
 
 	return sfaceSize;
 }
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_EFValidatePackedFace( const dface_t *in, int faceIndex, int faceCount,
+		int indexCount, int vertCount, qboolean logCritical )
+{
+	int numVerts;
+	int firstVert;
+	int numIdx;
+	int firstIdx;
+
+	if ( !in )
+	{
+		return qfalse;
+	}
+
+	numVerts = in->verts & 0xFFF;
+	firstVert = in->verts >> 12;
+	numIdx = in->indexes & 0xFFF;
+	firstIdx = in->indexes >> 12;
+
+	if ( in->shaderNum >= s_worldData.numShaders ||
+		in->code < 0 || in->code >= s_worldData.numsurfaces ||
+		firstVert < 0 || numVerts < 0 || firstVert > vertCount || numVerts > vertCount - firstVert ||
+		firstIdx < 0 || numIdx < 0 || firstIdx > indexCount || numIdx > indexCount - firstIdx ||
+		numVerts > 255 || numIdx > 65535 )
+	{
+		if ( logCritical )
+		{
+			XBLog_WriteCriticalf("EF: R_LoadFaces invalid face=%d/%d code=%d surfaces=%d shader=%d firstVert=%d verts=%d vertCount=%d firstIdx=%d indexes=%d indexCount=%d",
+				faceIndex + 1,
+				faceCount,
+				in->code,
+				s_worldData.numsurfaces,
+				in->shaderNum,
+				firstVert,
+				numVerts,
+				vertCount,
+				firstIdx,
+				numIdx,
+				indexCount);
+		}
+		return qfalse;
+	}
+
+	return qtrue;
+}
+#endif
 
 
 void BuildDrawVertTangents( drawVert_t *verts, int *indexes, int numIndexes, int numVertexes ) 
@@ -1665,6 +1769,25 @@ void R_LoadFlares( void *surfaces, int surfacelen ) {
 	}
 }
 
+#ifdef STEFX_ELITE_FORCE_SP
+static void R_EFBuildSurfaceScratch(const efbspFile_t *efbsp, const efbspSurface_t *surface,
+	mapVert_t *surfaceVerts, short *surfaceIndexes)
+{
+	int *rawIndexes = (int *)EFBSP_LumpData(efbsp, EF_LUMP_DRAWINDEXES);
+	int i;
+
+	EFBSP_FillSurfaceVerts(efbsp, surface, surfaceVerts);
+	for (i = 0; i < surface->numIndexes; ++i)
+	{
+		surfaceIndexes[i] = (short)EFBSP_ClampInt(
+			rawIndexes[surface->firstIndex + i],
+			-32768,
+			32767,
+			"raw surface index");
+	}
+}
+#endif
+
 
 /*
 ===============
@@ -1810,6 +1933,9 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	int			localIndexOverByte = 0;
 	int			localIndexOutOfRange = 0;
 	int			faceDataOverShort = 0;
+	int			indexCount = 0;
+	int			vertCount = 0;
+	int			skippedFaces = 0;
 #endif
 
 	if (surfacelen == 0) {
@@ -1818,17 +1944,23 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	
 	count = surfacelen / sizeof(*in);
 #ifdef _XBOX
-	XBLF("JA: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
+	XBLog_WriteCriticalf("EF: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
 		count, surfacelen, indexlen, vertlen);
 #endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	vertCount = vertlen / sizeof(*dv);
+#endif
 
 	indexes = (short *)(indexdata);
 	if ( indexlen % sizeof(*indexes))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	indexCount = indexlen / sizeof(*indexes);
+#endif
 
 	// new bit, the face code on our biggest map requires over 15,000 mallocs, which was no problem on the hunk,
 	//	bit hits the zone pretty bad (even the tagFree takes about 9 seconds for that many memblocks), 
@@ -1841,6 +1973,21 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	{ 
 		in = (dface_t *)surfaces + i;
 #ifdef _XBOX
+		if ( !R_EFValidatePackedFace( in, i, count, indexCount, vertCount, qtrue ) )
+		{
+			short lightmapNum[MAXLIGHTMAPS];
+			int j;
+			for (j = 0; j < MAXLIGHTMAPS; ++j)
+			{
+				lightmapNum[j] = (int)in->lightmapNum[j] - 4;
+			}
+			if ( in->code >= 0 && in->code < s_worldData.numsurfaces )
+			{
+				R_EFSkipRawDrawSurface( s_worldData.surfaces + in->code, in->shaderNum, "face-invalid" );
+			}
+			++skippedFaces;
+			continue;
+		}
 		{
 			int numVerts = in->verts & 0xFFF;
 			int firstVert = in->verts >> 12;
@@ -1951,6 +2098,11 @@ void R_LoadFaces( void *indexdata, int indexlen,
 		localIndexOutOfRange,
 		iFaceDataSizeRequired,
 		faceDataOverShort);
+	if ( skippedFaces > 0 )
+	{
+		XBLog_WriteCriticalf("EF: R_LoadFaces skipped invalid faces=%d/%d faceDataBytes=%d",
+			skippedFaces, count, iFaceDataSizeRequired);
+	}
 	XBLF("JA: R_LoadFaces alloc faceDataBytes=%d", iFaceDataSizeRequired);
 #endif
 	in -= count;	// back it up, ready for loop-proper
@@ -1967,6 +2119,13 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	for ( i = 0 ; i < count ; i++ ) {
 		in = (dface_t *)surfaces + i;
 		out = s_worldData.surfaces + in->code;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !R_EFValidatePackedFace( in, i, count, indexCount, vertCount, qfalse ) )
+		{
+			R_EFSkipRawDrawSurface( out, in->shaderNum, "face-invalid-parse" );
+			continue;
+		}
+#endif
 		ParseFace( in, dv, out, indexes, pFaceDataBuffer );
 #ifdef _XBOX
 		if (((i + 1) % 128) == 0 || i + 1 == count) {
@@ -1984,6 +2143,182 @@ void R_LoadFaces( void *indexdata, int indexlen,
 
 	VID_Printf( PRINT_ALL, "...loaded %d faces\n", count );
 }
+
+#ifdef STEFX_ELITE_FORCE_SP
+void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, int shaderCount, int numSurfs)
+{
+	efbspSurface_t *surfaces;
+	int surfaceCount;
+	int i;
+	int maxVerts = 0;
+	int maxIndexes = 0;
+	int patchCount = 0;
+	int triCount = 0;
+	int faceCount = 0;
+	int flareCount = 0;
+	mapVert_t *surfaceVerts;
+	short *surfaceIndexes;
+	drawVert_t *points;
+	drawVert_t *ctrl;
+	float *errorTable;
+
+	if (!efbsp || !efbsp->data)
+	{
+		return;
+	}
+
+	surfaceCount = EFBSP_SurfaceCount(efbsp);
+	surfaces = (efbspSurface_t *)EFBSP_LumpData(efbsp, EF_LUMP_SURFACES);
+
+	for (i = 0; i < surfaceCount; ++i)
+	{
+		efbspSurface_t *surface = &surfaces[i];
+		if (surface->numVerts > maxVerts) maxVerts = surface->numVerts;
+		if (surface->numIndexes > maxIndexes) maxIndexes = surface->numIndexes;
+		if (surface->surfaceType == EF_MST_PATCH) ++patchCount;
+		else if (surface->surfaceType == EF_MST_TRIANGLE_SOUP) ++triCount;
+		else if (surface->surfaceType == EF_MST_PLANAR) ++faceCount;
+		else if (surface->surfaceType == EF_MST_FLARE) ++flareCount;
+	}
+
+	XBLog_WriteCriticalf("STEFX_EFBSP_RAW_RENDER begin map='%s' surfaces=%d patches=%d tris=%d faces=%d flares=%d maxVerts=%d maxIndexes=%d",
+		name ? name : "<null>", surfaceCount, patchCount, triCount, faceCount, flareCount, maxVerts, maxIndexes);
+
+	R_LoadSurfaces(numSurfs);
+
+	surfaceVerts = (mapVert_t *)Z_Malloc(maxVerts * sizeof(mapVert_t), TAG_TEMP_WORKSPACE, qfalse, 32);
+	surfaceIndexes = (short *)Z_Malloc(maxIndexes * sizeof(short), TAG_TEMP_WORKSPACE, qfalse, 32);
+
+	points = (drawVert_t*)Z_Malloc(MAX_PATCH_SIZE * MAX_PATCH_SIZE * sizeof(drawVert_t), TAG_TEMP_WORKSPACE, qfalse);
+	ctrl = (drawVert_t*)Z_Malloc(MAX_GRID_SIZE * MAX_GRID_SIZE * sizeof(drawVert_t), TAG_TEMP_WORKSPACE, qfalse);
+	errorTable = (float*)Z_Malloc(2 * MAX_GRID_SIZE * sizeof(float), TAG_TEMP_WORKSPACE, qfalse);
+
+	for (i = 0; i < surfaceCount; ++i)
+	{
+		efbspSurface_t *surface = &surfaces[i];
+		dpatch_t patch;
+		msurface_t *out;
+
+		if (surface->surfaceType != EF_MST_PATCH)
+		{
+			continue;
+		}
+
+		EFBSP_FillPatchSurface(surface, shaderCount, i, &patch);
+		patch.verts = EFBSP_PackFirstCount(0, surface->numVerts, "raw patch verts");
+		EFBSP_FillSurfaceVerts(efbsp, surface, surfaceVerts);
+		out = s_worldData.surfaces + patch.code;
+		ParseMesh(&patch, surfaceVerts, out, points, ctrl, errorTable);
+	}
+
+	Z_Free(errorTable);
+	Z_Free(ctrl);
+	Z_Free(points);
+	VID_Printf(PRINT_ALL, "...loaded %i raw EF meshes\n", patchCount);
+
+	for (i = 0; i < surfaceCount; ++i)
+	{
+		efbspSurface_t *surface = &surfaces[i];
+		dtrisurf_t tri;
+		msurface_t *out;
+
+		if (surface->surfaceType != EF_MST_TRIANGLE_SOUP)
+		{
+			continue;
+		}
+
+		EFBSP_FillTriSurfSurface(surface, shaderCount, i, &tri);
+		tri.verts = EFBSP_PackFirstCount(0, surface->numVerts, "raw trisurf verts");
+		tri.indexes = EFBSP_PackFirstCount(0, surface->numIndexes, "raw trisurf indexes");
+		R_EFBuildSurfaceScratch(efbsp, surface, surfaceVerts, surfaceIndexes);
+		out = s_worldData.surfaces + tri.code;
+		ParseTriSurf(&tri, surfaceVerts, out, surfaceIndexes);
+	}
+	VID_Printf(PRINT_ALL, "...loaded %i raw EF trisurfs\n", triCount);
+
+	{
+		int faceDataSizeRequired = 0;
+		byte *faceData;
+		byte *faceDataCursor;
+
+		for (i = 0; i < surfaceCount; ++i)
+		{
+			efbspSurface_t *surface = &surfaces[i];
+			dface_t face;
+			short lightmapNum[MAXLIGHTMAPS];
+			shader_t *shader;
+			qboolean needVertexColors;
+			int numLightMaps;
+			int j;
+
+			if (surface->surfaceType != EF_MST_PLANAR)
+			{
+				continue;
+			}
+
+			EFBSP_FillFaceSurface(efbsp, surface, shaderCount, i, &face);
+			face.verts = EFBSP_PackFirstCount(0, surface->numVerts, "raw face verts");
+			face.indexes = EFBSP_PackFirstCount(0, surface->numIndexes, "raw face indexes");
+			for (j = 0; j < MAXLIGHTMAPS; ++j)
+			{
+				lightmapNum[j] = (int)face.lightmapNum[j] - 4;
+			}
+			shader = ShaderForShaderNum(face.shaderNum, lightmapNum, face.lightmapStyles);
+			needVertexColors = NeedVertexColors(shader);
+			numLightMaps = NumLightMaps(shader);
+			faceDataSizeRequired += SurfaceFaceSize(surface->numVerts, numLightMaps, needVertexColors, surface->numIndexes);
+		}
+
+		faceData = (byte*)Hunk_Alloc(faceDataSizeRequired, qfalse);
+		faceDataCursor = faceData;
+
+		for (i = 0; i < surfaceCount; ++i)
+		{
+			efbspSurface_t *surface = &surfaces[i];
+			dface_t face;
+			msurface_t *out;
+
+			if (surface->surfaceType != EF_MST_PLANAR)
+			{
+				continue;
+			}
+
+			EFBSP_FillFaceSurface(efbsp, surface, shaderCount, i, &face);
+			face.verts = EFBSP_PackFirstCount(0, surface->numVerts, "raw face verts");
+			face.indexes = EFBSP_PackFirstCount(0, surface->numIndexes, "raw face indexes");
+			R_EFBuildSurfaceScratch(efbsp, surface, surfaceVerts, surfaceIndexes);
+			out = s_worldData.surfaces + face.code;
+			ParseFace(&face, surfaceVerts, out, surfaceIndexes, faceDataCursor);
+		}
+
+		XBLog_WriteCriticalf("STEFX_EFBSP_RAW_RENDER faces map='%s' faceData=%d", name ? name : "<null>", faceDataSizeRequired);
+	}
+	VID_Printf(PRINT_ALL, "...loaded %i raw EF faces\n", faceCount);
+
+	flareNum = 0;
+	for (i = 0; i < surfaceCount; ++i)
+	{
+		efbspSurface_t *surface = &surfaces[i];
+		dflare_t flare;
+		msurface_t *out;
+
+		if (surface->surfaceType != EF_MST_FLARE)
+		{
+			continue;
+		}
+
+		EFBSP_FillFlareSurface(surface, shaderCount, i, &flare);
+		out = s_worldData.surfaces + flare.code;
+		ParseFlare(&flare, out);
+	}
+	VID_Printf(PRINT_ALL, "...loaded %i raw EF flares\n", flareCount);
+
+	Z_Free(surfaceIndexes);
+	Z_Free(surfaceVerts);
+
+	XBLog_WriteCriticalf("STEFX_EFBSP_RAW_RENDER done map='%s'", name ? name : "<null>");
+}
+#endif
 
 
 /*

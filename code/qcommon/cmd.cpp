@@ -11,6 +11,7 @@ char		cmd_defer_text_buf[MAX_CMD_BUFFER];
 
 #ifdef _XBOX
 extern "C" void XBLog_Write(const char *msg);
+extern "C" void XBLog_WriteCriticalf(const char *fmt, ...);
 extern "C" volatile unsigned int g_SPXBCbufExecCount;
 extern "C" volatile unsigned int g_SPXBCmdExecCount;
 extern "C" volatile unsigned int g_SPXBCmdPhase;
@@ -64,6 +65,74 @@ static unsigned int Cmd_XboxFirst4(const char *src)
 	}
 	return v;
 }
+
+#if defined(STEFX_ELITE_FORCE_SP)
+static qboolean Cmd_XboxCommandNameMatches(const char *command)
+{
+	if (!command || !command[0])
+	{
+		return qfalse;
+	}
+
+	return (!Q_stricmp(command, "map") ||
+		!Q_stricmp(command, "devmap") ||
+		!Q_stricmp(command, "devmapbsp") ||
+		!Q_stricmp(command, "devmapmdl") ||
+		!Q_stricmp(command, "devmapsnd") ||
+		!Q_stricmp(command, "devmapall") ||
+		!Q_stricmp(command, "maptransition")) ? qtrue : qfalse;
+}
+
+static qboolean Cmd_XboxTextBeginsMapLoadCommand(const char *text)
+{
+	char command[32];
+	int commandLen = 0;
+
+	if (!text)
+	{
+		return qfalse;
+	}
+
+	while (*text && *text <= ' ')
+	{
+		++text;
+	}
+
+	while (text[commandLen] && text[commandLen] > ' ' && text[commandLen] != ';' &&
+		commandLen < (int)sizeof(command) - 1)
+	{
+		command[commandLen] = text[commandLen];
+		++commandLen;
+	}
+	command[commandLen] = '\0';
+
+	return Cmd_XboxCommandNameMatches(command);
+}
+
+static void Cmd_XboxClearMapTempWorkspace(const char *origin, const char *text)
+{
+	zmemstats_t beforeStats;
+	zmemstats_t afterStats;
+
+	Z_GetMemoryStats(&beforeStats);
+	XBLog_WriteCriticalf("STEFX_MAP_TEMP_CLEAR before origin='%s' command='%s' free=%d largest=%d temp=%d",
+		origin ? origin : "<null>",
+		text ? text : "<null>",
+		beforeStats.freeBytes,
+		beforeStats.largestFreeBlock,
+		Z_MemSize(TAG_TEMP_WORKSPACE));
+
+	Z_TagFree(TAG_TEMP_WORKSPACE);
+
+	Z_GetMemoryStats(&afterStats);
+	XBLog_WriteCriticalf("STEFX_MAP_TEMP_CLEAR after origin='%s' command='%s' free=%d largest=%d temp=%d",
+		origin ? origin : "<null>",
+		text ? text : "<null>",
+		afterStats.freeBytes,
+		afterStats.largestFreeBlock,
+		Z_MemSize(TAG_TEMP_WORKSPACE));
+}
+#endif
 #endif
 
 
@@ -169,6 +238,12 @@ void Cbuf_ExecuteText (int exec_when, const char *text)
 	switch (exec_when)
 	{
 	case EXEC_NOW:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (Cmd_XboxTextBeginsMapLoadCommand(text))
+		{
+			Cmd_XboxClearMapTempWorkspace("Cbuf_ExecuteText", text);
+		}
+#endif
 		Cmd_ExecuteString (text);
 		break;
 	case EXEC_INSERT:
@@ -691,6 +766,15 @@ A complete command line has been parsed, so try to execute it
 extern void Key_SetCatcher( int catcher );
 extern void  Menus_CloseAll(void);
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean Cmd_XboxIsMapLoadCommand(void)
+{
+	const char *command = Cmd_Argv(0);
+
+	return Cmd_XboxCommandNameMatches(command);
+}
+#endif
+
 void	Cmd_ExecuteString( const char *text ) {	
 #ifdef _XBOX
 	g_SPXBCmdExecCount++;
@@ -721,6 +805,13 @@ void	Cmd_ExecuteString( const char *text ) {
 	g_SPXBCmdPhase = 7;
 	g_SPXBCmdArgv0First4 = Cmd_XboxFirst4(Cmd_Argv( 0 ));
 	Cmd_XboxCopyLast(g_SPXBCmdLast, sizeof(g_SPXBCmdLast), cmd_argv[0]);
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (Cmd_XboxIsMapLoadCommand())
+	{
+		Cmd_XboxClearMapTempWorkspace("Cmd_ExecuteString", text);
+	}
 #endif
 
 #ifdef _XBOX

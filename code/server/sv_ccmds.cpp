@@ -178,10 +178,12 @@ void SV_Player_EndOfLevelSave(void)
 			Cvar_Set( va("playerammo%d", i), va("%i", pState->ammo[i]) );
 		}
 
+#if !defined(STEFX_SP_HOSTED_MP)
 		for (i=0;i< MAX_WEAPONS; i++)
 		{
 			Cvar_Set( va("borgadapt%d", i), va("%i", pState->borgAdaptHits[i]) );
 		}
+#endif
 	}
 }
 
@@ -329,7 +331,7 @@ static void SV_Status_f( void ) {
 
 	Com_Printf ("num score ping name            lastmsg address               qport rate\n");
 	Com_Printf ("--- ----- ---- --------------- ------- --------------------- ----- -----\n");
-	for (i=0,cl=svs.clients ; i < 1 ; i++,cl++)
+	for (i=0,cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++)
 	{
 		if (!cl->state)
 			continue;

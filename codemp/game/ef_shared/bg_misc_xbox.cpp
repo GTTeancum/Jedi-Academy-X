@@ -40,6 +40,7 @@ static char *STEFX_HM_Parse( char **data )
 #define COM_BeginParseSession STEFX_HM_BeginParseSession
 #define COM_ParseExt STEFX_HM_ParseExt
 #define COM_Parse STEFX_HM_Parse
+#undef Max_Ammo
 #define Max_Ammo STEFX_HM_OfficialMaxAmmo
 #define BG_CanItemBeGrabbed STEFX_HM_OfficialCanItemBeGrabbed
 

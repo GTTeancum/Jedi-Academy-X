@@ -9,6 +9,10 @@
 #include "../qcommon/cm_local.h"
 
 #include "server.h"
+
+#if defined(STEFX_SP_HOSTED_MP)
+extern void STEFX_HolomatchHostAfterGameInit(const char *mapname);
+#endif
 #include "..\client\vmachine.h"
 #include "..\client\client.h"
 #include "..\renderer\tr_local.h"
@@ -128,7 +132,7 @@ void SV_GameSendServerCommand( int clientNum, const char *fmt, ... ) {
 	if ( clientNum == -1 ) {
 		SV_SendServerCommand( NULL, "%s", msg );
 	} else {
-		if ( clientNum < 0 || clientNum >= 1 ) {
+		if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
 			return;
 		}
 		SV_SendServerCommand( svs.clients + clientNum, "%s", msg );	
@@ -144,7 +148,7 @@ Disconnects the client with a message
 ===============
 */
 void SV_GameDropClient( int clientNum, const char *reason ) {
-	if ( clientNum < 0 || clientNum >= 1 ) {
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
 		return;
 	}
 	SV_DropClient( svs.clients + clientNum, reason );	
@@ -510,6 +514,61 @@ qboolean SV_GetEntityToken( char *buffer, int bufferSize )
 	}
 }
 
+void SV_GetUsercmd( int clientNum, usercmd_t *cmd )
+{
+	if (!cmd)
+	{
+		return;
+	}
+	memset(cmd, 0, sizeof(*cmd));
+	if (!svs.clients || clientNum < 0 || clientNum >= MAX_CLIENTS)
+	{
+		return;
+	}
+	*cmd = svs.clients[clientNum].lastUsercmd;
+}
+
+int SV_BotAllocateClient( void )
+{
+	int i;
+	client_t *client;
+
+	if (!svs.clients)
+	{
+		return -1;
+	}
+	for (i = 1; i < MAX_CLIENTS; ++i)
+	{
+		client = &svs.clients[i];
+		if (client->state == CS_FREE)
+		{
+			memset(client, 0, sizeof(*client));
+			client->state = CS_CONNECTED;
+			#if defined(STEFX_SP_HOSTED_MP)
+			client->stefxHolomatchBot = qtrue;
+			#endif
+			client->lastPacketTime = sv.time;
+			client->lastConnectTime = sv.time;
+			client->snapshotMsec = 50;
+			return i;
+		}
+	}
+	return -1;
+}
+
+void SV_BotFreeClient( int clientNum )
+{
+	if (!svs.clients || clientNum <= 0 || clientNum >= MAX_CLIENTS)
+	{
+		return;
+	}
+	if (svs.clients[clientNum].state >= CS_CONNECTED)
+	{
+		SV_DropClient(&svs.clients[clientNum], "bot removed");
+	}
+	svs.clients[clientNum].state = CS_FREE;
+}
+
 //==============================================
 
 /*
@@ -849,6 +908,9 @@ Ghoul2 Insert End
 	XBLog_Write("JA: SV_InitGameProgs after Z_TagFree before ge->Init");
 #endif
 	ge->Init( sv_mapname->string, sv_spawntarget->string, sv_mapChecksum->integer, CM_EntityString(), sv.time, com_frameTime, Com_Milliseconds(), eSavedGameJustLoaded, qbLoadTransition );
+#if defined(STEFX_SP_HOSTED_MP)
+	STEFX_HolomatchHostAfterGameInit(sv_mapname->string);
+#endif
 #ifdef _XBOX
 	g_SPXBGamePhase = 17;
 	XBLF("JA: SV_InitGameProgs after ge->Init gentities=%p gentitySize=%d",
@@ -866,7 +928,7 @@ Ghoul2 Insert End
 
 	// clear all gentity pointers that might still be set from
 	// a previous level
-	for ( i = 0 ; i < 1 ; i++ ) {
+	for ( i = 0 ; i < MAX_CLIENTS ; i++ ) {
 		svs.clients[i].gentity = NULL;
 	}
 }

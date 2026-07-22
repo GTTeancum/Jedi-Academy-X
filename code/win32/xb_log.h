@@ -7,7 +7,7 @@
  *
  * Output goes to:
  *   - OutputDebugStringA  (visible in CXBX-Reloaded / xemu GDB)
- *   - \Device\Harddisk0\Partition1\ef_sp_log.txt  (E:\ root on retail hardware)
+ *   - target log on D: when writable, otherwise the E:\ root on retail hardware
  *
  * Call XBLog_Init() once at the top of main() before any XBL usage.
  * Call XBLog_Shutdown() on exit.
@@ -15,6 +15,9 @@
 
 #ifndef XB_LOG_H
 #define XB_LOG_H
+
+#define SPXB_SURFACE_TYPE_BUCKETS 16
+#define SPXB_ENTITY_TYPE_BUCKETS 32
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +29,8 @@ void XBLog_Init(void);
 void XBLog_Shutdown(void);
 void XBLog_Print(const char *msg);
 void XBLog_Printf(const char *fmt, ...);
+void XBLog_WriteCritical(const char *msg);
+void XBLog_WriteCriticalf(const char *fmt, ...);
 void XBLog_WriteRingMarker(const char *msg);
 const char *XBLog_GetPath(void);
 

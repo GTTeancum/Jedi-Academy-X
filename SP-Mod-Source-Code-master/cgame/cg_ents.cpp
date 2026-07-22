@@ -969,6 +969,39 @@ CG_CalcEntityLerpPositions
 */
 extern char	*vtos( const vec3_t v );
 void CG_CalcEntityLerpPositions( centity_t *cent ) {
+	#ifdef _XBOX
+	{
+		static int stefxEntityLerpLogBudget = 32;
+		static int stefxEntityLerpCriticalBudget = 32;
+		if ( stefxEntityLerpCriticalBudget > 0 )
+		{
+			XBLog_WriteCriticalf( "STEFX_TRACE_SP_LERP enter ent=%d type=%d posType=%d aposType=%d snap=%d time=%d",
+				cent->currentState.number,
+				(int)cent->currentState.eType,
+				(int)cent->currentState.pos.trType,
+				(int)cent->currentState.apos.trType,
+				cg.snap ? cg.snap->serverTime : -1,
+				cg.time );
+			--stefxEntityLerpCriticalBudget;
+		}
+		if ( stefxEntityLerpLogBudget > 0 )
+		{
+			XBLF("STEFX: CG_CalcEntityLerpPositions ent=%d eType=%d interpolate=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d snapTime=%d cgTime=%d",
+				cent->currentState.number,
+				(int)cent->currentState.eType,
+				cent->interpolate,
+				(int)cent->currentState.pos.trType,
+				cent->currentState.pos.trTime,
+				cent->currentState.pos.trDuration,
+				(int)cent->currentState.apos.trType,
+				cent->currentState.apos.trTime,
+				cent->currentState.apos.trDuration,
+				cg.snap ? cg.snap->serverTime : -1,
+				cg.time);
+			--stefxEntityLerpLogBudget;
+		}
+	}
+	#endif
 	if ( cent->currentState.number == cg.snap->ps.clientNum)
 	{
 		// if the player, take position from prediction
@@ -1027,6 +1060,7 @@ void CG_CalcEntityLerpPositions( centity_t *cent ) {
 
 	// just use the current frame and evaluate as best we can
 	trajectory_t *posData = &cent->currentState.pos;
+	#if !defined(_XBOX) || !defined(STEFX_SP_HOSTED_MP)
 	{
 		gentity_t *ent = &g_entities[cent->currentState.number];
 
@@ -1044,6 +1078,7 @@ void CG_CalcEntityLerpPositions( centity_t *cent ) {
 			}
 		}
 	}
+	#endif
 
 	if ( posData )
 	{

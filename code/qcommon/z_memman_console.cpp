@@ -1034,6 +1034,28 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	// Did we actually find some memory?
 	if (!fblock)
 	{
+#ifdef _XBOX
+		if (eTag == TAG_TEMP_WORKSPACE && iSize >= (1024 * 1024))
+		{
+			void *retaddr = NULL;
+#if defined(_MSC_VER) && !defined(_M_PPC)
+			retaddr = _ReturnAddress();
+#endif
+			char msg[224];
+			_snprintf(msg, sizeof(msg) - 1,
+				"EFALLOC: Z_Malloc temp fail size=%d tag=%d zero=%d align=%d free=%d largest=%d phase=%u caller=%p\n",
+				iSize,
+				(int)eTag,
+				(int)bZeroit,
+				iAlign,
+				s_Stats.m_SizeFree,
+				Z_LargestFreeBlock_NoLock(),
+				(unsigned int)g_SPXBBootPhase,
+				retaddr);
+			msg[sizeof(msg) - 1] = '\0';
+			XBLog_Print(msg);
+		}
+#endif
 #ifndef _GAMECUBE
 		ReleaseMutex(s_Mutex);
 #endif

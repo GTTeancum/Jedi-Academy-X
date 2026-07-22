@@ -1,5 +1,5 @@
 #if defined(STEFX_ELITE_FORCE_MP)
-#include "../../codemp/ui/ui_stefx_spcompat.h"
+#include "ui_stefx_spcompat.h"
 
 uiimport_t ui;
 uiStatic_t uis;
@@ -102,7 +102,7 @@ int UI_RegisterFont(const char *fontName)
 }
 
 #undef ui
-#include "../../codemp/namespace_end.h"
+#include "../namespace_end.h"
 #else
 /**********************************************************************
 	UI_ATOMS.C
@@ -173,12 +173,13 @@ extern void S_StopAllSoundsExceptMusic( void );
 void UI_SetActiveMenu( const char* menuname,const char *menuID ) 
 {
 #ifdef _XBOX
-	XBLF("STEFX_INPUT_UI_SetActiveMenu request menu='%s' menuID='%s' clsState=%d catcher=0x%x paused='%s'",
+	XBLF("STEFX_INPUT_UI_SetActiveMenu request menu='%s' menuID='%s' clsState=%d catcher=0x%x paused='%s' GameAllowedToSave=%p",
 		menuname ? menuname : "<null>",
 		menuID ? menuID : "",
 		cls.state,
 		ui.Key_GetCatcher(),
-		UI_Cvar_VariableString("cl_paused"));
+		UI_Cvar_VariableString("cl_paused"),
+		(void*)ui.SG_GameAllowedToSaveHere);
 #endif
 	// Sooper-hack. After we play the ja08 cutscene, the game renders for a couple frames.
 	// So the cinematic code turns off Present(), and we have to turn it back on here:
@@ -479,6 +480,12 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 		(void*)uiimport);
 #endif
 	ui = *uiimport;
+#ifdef _XBOX
+	XBLF("JA: UI_Init import copy GameAllowedToSave=%p StoreComment=%p GetComment=%p",
+		(void*)ui.SG_GameAllowedToSaveHere,
+		(void*)ui.SG_StoreSaveGameComment,
+		(void*)ui.SG_GetSaveGameComment);
+#endif
 
 	if ( apiVersion != UI_API_VERSION ) {
 		ui.Error( ERR_FATAL, "Bad UI_API_VERSION: expected %i, got %i\n", UI_API_VERSION, apiVersion );

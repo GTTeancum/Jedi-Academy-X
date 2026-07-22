@@ -60,7 +60,7 @@ void SV_DirectConnect( netadr_t from ) {
 	memset (newcl, 0, sizeof(client_t));
 
 	// if there is already a slot for this ip, reuse it
-	for (i=0,cl=svs.clients ; i < 1 ; i++,cl++)
+	for (i=0,cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++)
 	{
 		if ( cl->state == CS_FREE ) {
 			continue;
@@ -83,7 +83,7 @@ void SV_DirectConnect( netadr_t from ) {
 
 
 	newcl = NULL;
-	for ( i = 0; i < 1 ; i++ ) {
+	for ( i = 0; i < MAX_CLIENTS ; i++ ) {
 		cl = &svs.clients[i];
 		if (cl->state == CS_FREE) {
 			newcl = cl;
@@ -461,6 +461,20 @@ void SV_ClientThink (client_t *cl, usercmd_t *cmd) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
 		static int s_stefxSVThinkBudget = 64;
+		static int s_stefxLastLocalWeaponButtons = -1;
+		const int clientNum = (int)( cl - svs.clients );
+		const int weaponButtons = cmd ? ( cmd->buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK) ) : 0;
+		if ( clientNum == 0 && weaponButtons != s_stefxLastLocalWeaponButtons )
+		{
+			Com_PrintfAlways( "STEFX_WEAPON: server cmd edge client=%d cmdTime=%d buttons=0x%x fire=0x%x weapon=%d svTime=%d\n",
+				clientNum,
+				cmd ? cmd->serverTime : -1,
+				cmd ? cmd->buttons : 0,
+				weaponButtons,
+				cmd ? cmd->weapon : -1,
+				sv.time );
+			s_stefxLastLocalWeaponButtons = weaponButtons;
+		}
 		if ( s_stefxSVThinkBudget > 0 && ( (cmd && (cmd->forwardmove || cmd->rightmove || cmd->upmove || (cmd->buttons & ~BUTTON_WALKING))) || s_stefxSVThinkBudget > 56 ) )
 		{
 			Com_PrintfAlways( "STEFX: SV_ClientThink client=%d state=%d cmdTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d svTime=%d\n",

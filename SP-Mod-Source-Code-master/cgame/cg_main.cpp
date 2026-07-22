@@ -997,9 +997,22 @@ static void CG_RegisterGraphics( void ) {
 
 	for ( i=0; i < 11; i++ )
 	{
+		#ifdef _XBOX
+		XBLF("STEFX_TRACE_SP_NUMBERS before large i=%d name='%s'", i, sb_nums[i]);
+		#endif
 		cgs.media.numberShaders[i] = cgi_R_RegisterShaderNoMip( sb_nums[i] );
+		#ifdef _XBOX
+		XBLF("STEFX_TRACE_SP_NUMBERS after large i=%d handle=%d", i, cgs.media.numberShaders[i]);
+		XBLF("STEFX_TRACE_SP_NUMBERS before small i=%d name='%s'", i, sb_t_nums[i]);
+		#endif
 		cgs.media.smallnumberShaders[i] = cgi_R_RegisterShaderNoMip( sb_t_nums[i] );
+		#ifdef _XBOX
+		XBLF("STEFX_TRACE_SP_NUMBERS after small i=%d handle=%d", i, cgs.media.smallnumberShaders[i]);
+		#endif
 	}
+	#ifdef _XBOX
+	XBLog_Write("STEFX_TRACE_SP_NUMBERS complete");
+	#endif
 
 	cgs.media.sparkShader				= cgi_R_RegisterShader( "gfx/misc/spark" );
 	cgs.media.spark2Shader				= cgi_R_RegisterShader( "gfx/misc/spark2" );
@@ -1203,7 +1216,19 @@ static void CG_RegisterGraphics( void ) {
 #ifdef _XBOX
 	XBLF("STEFX: CG_RegisterGraphics entity precache limit=%d", ENTITYNUM_WORLD);
 #endif
-	for (i=0 ; i < ENTITYNUM_WORLD ; i++)
+	qboolean stefxSkipLegacyEntityPrecache = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (cgs.mapname[0] &&
+		(!Q_stricmpn(cgs.mapname, "hm_", 3) ||
+		 !Q_stricmpn(cgs.mapname, "maps/hm_", 8)))
+	{
+		/* The official Holomatch snapshot has its own client/entity ABI. */
+		XBLF("STEFX: CG_RegisterGraphics skipping legacy SP entity precache for Holomatch map %s",
+			cgs.mapname);
+		stefxSkipLegacyEntityPrecache = qtrue;
+	}
+#endif
+	for (i=0 ; i < ENTITYNUM_WORLD && !stefxSkipLegacyEntityPrecache ; i++)
 	{
 		if(g_entities[i].inuse || i == 0)
 		{

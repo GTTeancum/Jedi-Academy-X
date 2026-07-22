@@ -2,6 +2,9 @@
 //
 // bg_local.h -- local definitions for the bg (both games) files
 
+#ifndef __BG_LOCAL_H__
+#define __BG_LOCAL_H__
+
 #define	MIN_WALK_NORMAL	0.7f		// can't walk on very steep slopes
 
 #define	TIMER_LAND		130
@@ -35,6 +38,20 @@ typedef struct
 extern	pml_t		pml;
 
 // movement parameters
+#if defined(STEFX_ELITE_FORCE_MP)
+extern	float	pm_stopspeed;
+extern	float	pm_duckScale;
+extern	float	pm_swimScale;
+
+extern	float	pm_accelerate;
+extern	float	pm_airaccelerate;
+extern	float	pm_wateraccelerate;
+extern	float	pm_flyaccelerate;
+
+extern	float	pm_friction;
+extern	float	pm_waterfriction;
+extern	float	pm_flightfriction;
+#else
 extern	float	pm_stopspeed;
 extern	float	pm_duckScale;
 extern	float	pm_swimScale;
@@ -48,6 +65,7 @@ extern	float	pm_flyaccelerate;
 extern	float	pm_friction;
 extern	float	pm_waterfriction;
 extern	float	pm_flightfriction;
+#endif
 
 extern	int		c_pmove;
 
@@ -107,3 +125,5 @@ void PM_SetForceJumpZStart(float value);
 void BG_CycleInven(playerState_t *ps, int direction);
 
 #include "../namespace_end.h"
+
+#endif

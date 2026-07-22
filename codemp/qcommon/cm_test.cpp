@@ -44,10 +44,20 @@ int CM_PointLeafnum_r( const vec3_t p, int num, clipMap_t *local ) {
 }
 
 int CM_PointLeafnum( const vec3_t p ) {
+	static int invalidLeafLogCount = 0;
+	int leafnum;
+
 	if ( !cmg.numNodes ) {	// map not loaded
 		return 0;
 	}
-	return CM_PointLeafnum_r (p, 0, &cmg);
+	leafnum = CM_PointLeafnum_r (p, 0, &cmg);
+	if ( ( leafnum < 0 || leafnum >= cmg.numLeafs ) && invalidLeafLogCount < 8 ) {
+		Com_Printf( "STEFX_HM: invalid point leaf=%d point=(%.1f %.1f %.1f) nodes=%d leafs=%d planes=%d map='%s'\n",
+			leafnum, p[0], p[1], p[2], cmg.numNodes, cmg.numLeafs, cmg.numPlanes,
+			cmg.name[0] ? cmg.name : "(none)" );
+		invalidLeafLogCount++;
+	}
+	return leafnum;
 }
 
 

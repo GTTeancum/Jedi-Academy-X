@@ -377,6 +377,592 @@ static void RB_SurfaceLine( void )
 	DoLine( start, end, right, e->radius);
 }
 
+static void RB_EFLine( const vec3_t start, const vec3_t end, const vec3_t left,
+	vec3_t *corners, float startTex, float endTex, const refEntity_t *e )
+{
+	int ndx;
+	int numIndexes;
+	color4ub_t *vertexColors;
+
+	RB_CHECKOVERFLOW( 4, 6 );
+	ndx = tess.numVertexes;
+	numIndexes = tess.numIndexes;
+
+	tess.indexes[numIndexes] = ndx;
+	tess.indexes[numIndexes + 1] = ndx + 1;
+	tess.indexes[numIndexes + 2] = ndx + 3;
+	tess.indexes[numIndexes + 3] = ndx + 3;
+	tess.indexes[numIndexes + 4] = ndx + 1;
+	tess.indexes[numIndexes + 5] = ndx + 2;
+
+	if ( corners )
+	{
+		VectorCopy( corners[0], tess.xyz[ndx] );
+		VectorCopy( corners[1], tess.xyz[ndx + 1] );
+	}
+	else
+	{
+		VectorAdd( start, left, tess.xyz[ndx] );
+		VectorSubtract( start, left, tess.xyz[ndx + 1] );
+	}
+	VectorSubtract( end, left, tess.xyz[ndx + 2] );
+	VectorAdd( end, left, tess.xyz[ndx + 3] );
+
+	if ( corners )
+	{
+		VectorCopy( tess.xyz[ndx + 3], corners[0] );
+		VectorCopy( tess.xyz[ndx + 2], corners[1] );
+	}
+
+	tess.texCoords[ndx][0][0] = 0.0f;
+	tess.texCoords[ndx][0][1] = startTex;
+	tess.texCoords[ndx + 1][0][0] = 1.0f;
+	tess.texCoords[ndx + 1][0][1] = startTex;
+	tess.texCoords[ndx + 2][0][0] = 1.0f;
+	tess.texCoords[ndx + 2][0][1] = endTex;
+	tess.texCoords[ndx + 3][0][0] = 0.0f;
+	tess.texCoords[ndx + 3][0][1] = endTex;
+
+	vertexColors = tess.vertexColors;
+	for ( int component = 0; component < 4; ++component )
+	{
+		vertexColors[ndx][component] = vertexColors[ndx + 1][component] =
+			vertexColors[ndx + 2][component] = vertexColors[ndx + 3][component] =
+			e->shaderRGBA[component];
+	}
+
+	tess.numVertexes += 4;
+	tess.numIndexes += 6;
+}
+
+static void RB_EFLineUnitNormal( const vec3_t viewDirection, const vec3_t lineDirection,
+	vec3_t result )
+{
+	CrossProduct( viewDirection, lineDirection, result );
+	if ( VectorNormalize( result ) == 0.0f )
+	{
+		vec3_t normalizedLine;
+		vec3_t unused;
+
+		VectorCopy( lineDirection, normalizedLine );
+		if ( VectorNormalize( normalizedLine ) == 0.0f )
+		{
+			VectorSet( result, 0.0f, 1.0f, 0.0f );
+			return;
+		}
+
+		MakeNormalVectors( normalizedLine, result, unused );
+	}
+}
+
+static void RB_EFLineNormal( const vec3_t viewDirection, const vec3_t lineDirection,
+	float width, vec3_t result )
+{
+	RB_EFLineUnitNormal( viewDirection, lineDirection, result );
+	VectorScale( result, width * 0.5f, result );
+}
+
+static void RB_SurfaceTexturedLine( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t lineDirection;
+	vec3_t startToView;
+	vec3_t left;
+	shader_t *shader;
+
+	VectorSubtract( e->oldorigin, e->origin, lineDirection );
+	VectorSubtract( backEnd.viewParms.or.origin, e->origin, startToView );
+	RB_EFLineNormal( startToView, lineDirection, e->radius, left );
+	RB_EFLine( e->origin, e->oldorigin, left, NULL, 0.0f, e->rotation, e );
+
+	shader = R_GetShaderByHandle( e->customShader );
+	if ( shader )
+	{
+		shader->cullType = CT_TWO_SIDED;
+	}
+}
+
+static void RB_SurfaceOrientedLine( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t left;
+	shader_t *shader;
+
+	VectorCopy( e->axis[1], left );
+	VectorNormalize( left );
+	VectorScale( left, e->radius * 0.5f, left );
+	RB_EFLine( e->origin, e->oldorigin, left, NULL, 0.0f, 1.0f, e );
+
+	shader = R_GetShaderByHandle( e->customShader );
+	if ( shader )
+	{
+		shader->cullType = CT_TWO_SIDED;
+	}
+}
+
+static void RB_SurfaceTaperedLine( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t lineDirection;
+	vec3_t startToView;
+	vec3_t startLeft;
+	vec3_t endLeft;
+	color4ub_t *vertexColors;
+	int ndx;
+	int numIndexes;
+
+	RB_CHECKOVERFLOW( 6, 12 );
+	ndx = tess.numVertexes;
+	numIndexes = tess.numIndexes;
+
+	tess.indexes[numIndexes] = ndx;
+	tess.indexes[numIndexes + 1] = ndx + 1;
+	tess.indexes[numIndexes + 2] = ndx + 5;
+	tess.indexes[numIndexes + 3] = ndx + 5;
+	tess.indexes[numIndexes + 4] = ndx + 4;
+	tess.indexes[numIndexes + 5] = ndx + 1;
+	tess.indexes[numIndexes + 6] = ndx + 1;
+	tess.indexes[numIndexes + 7] = ndx + 4;
+	tess.indexes[numIndexes + 8] = ndx + 3;
+	tess.indexes[numIndexes + 9] = ndx + 3;
+	tess.indexes[numIndexes + 10] = ndx + 2;
+	tess.indexes[numIndexes + 11] = ndx + 1;
+
+	VectorSubtract( e->oldorigin, e->origin, lineDirection );
+	VectorSubtract( backEnd.viewParms.or.origin, e->origin, startToView );
+	RB_EFLineUnitNormal( startToView, lineDirection, startLeft );
+	VectorScale( startLeft, e->backlerp * 0.5f, endLeft );
+	VectorScale( startLeft, e->radius * 0.5f, startLeft );
+
+	VectorAdd( e->origin, startLeft, tess.xyz[ndx] );
+	VectorCopy( e->origin, tess.xyz[ndx + 1] );
+	VectorSubtract( e->origin, startLeft, tess.xyz[ndx + 2] );
+	VectorSubtract( e->oldorigin, endLeft, tess.xyz[ndx + 3] );
+	VectorCopy( e->oldorigin, tess.xyz[ndx + 4] );
+	VectorAdd( e->oldorigin, endLeft, tess.xyz[ndx + 5] );
+
+	tess.texCoords[ndx][0][0] = 0.0f;
+	tess.texCoords[ndx][0][1] = 0.0f;
+	tess.texCoords[ndx + 1][0][0] = 0.5f;
+	tess.texCoords[ndx + 1][0][1] = 0.0f;
+	tess.texCoords[ndx + 2][0][0] = 1.0f;
+	tess.texCoords[ndx + 2][0][1] = 0.0f;
+	tess.texCoords[ndx + 3][0][0] = 1.0f;
+	tess.texCoords[ndx + 3][0][1] = 1.0f;
+	tess.texCoords[ndx + 4][0][0] = 0.5f;
+	tess.texCoords[ndx + 4][0][1] = 1.0f;
+	tess.texCoords[ndx + 5][0][0] = 0.0f;
+	tess.texCoords[ndx + 5][0][1] = 1.0f;
+
+	vertexColors = tess.vertexColors;
+	for ( int component = 0; component < 4; ++component )
+	{
+		vertexColors[ndx][component] = vertexColors[ndx + 1][component] =
+			vertexColors[ndx + 2][component] = vertexColors[ndx + 3][component] =
+			vertexColors[ndx + 4][component] = vertexColors[ndx + 5][component] =
+			e->shaderRGBA[component];
+	}
+
+	tess.numVertexes += 6;
+	tess.numIndexes += 12;
+}
+
+#define STEFX_BEZIER_SEGMENTS 32
+#define STEFX_BEZIER_STEP (1.0 / STEFX_BEZIER_SEGMENTS)
+
+static void RB_SurfaceBezier( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	double t = 0.0;
+	vec3_t segmentStart;
+	vec3_t segmentEnd;
+	vec3_t previousEnd[2];
+
+	VectorCopy( e->origin, segmentStart );
+	VectorCopy( segmentStart, previousEnd[0] );
+	VectorCopy( segmentStart, previousEnd[1] );
+
+	while ( t <= 1.0 )
+	{
+		float startTex = (float)(t * 0.5);
+		float endTex;
+		double oneMinusT;
+		vec3_t lineDirection;
+		vec3_t startToView;
+		vec3_t left;
+
+		t += STEFX_BEZIER_STEP;
+		endTex = (float)(t * 0.5);
+		oneMinusT = 1.0 - t;
+
+		for ( int component = 0; component < 3; ++component )
+		{
+			segmentEnd[component] = (float)(
+				e->origin[component] * oneMinusT * oneMinusT * oneMinusT +
+				3.0 * e->axis[0][component] * t * oneMinusT * oneMinusT +
+				3.0 * e->axis[1][component] * t * t * oneMinusT +
+				e->oldorigin[component] * t * t * t );
+		}
+
+		VectorSubtract( segmentEnd, segmentStart, lineDirection );
+		VectorSubtract( backEnd.viewParms.or.origin, segmentStart, startToView );
+		RB_EFLineNormal( startToView, lineDirection, e->radius, left );
+		RB_EFLine( segmentStart, segmentEnd, left, previousEnd, startTex, endTex, e );
+		VectorCopy( segmentEnd, segmentStart );
+	}
+}
+
+static void RB_SurfaceEFOrientedSprite( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t left;
+	vec3_t up;
+	float radius = e->stefxData.sprite.radius;
+	float rotation = e->stefxData.sprite.rotation;
+
+	if ( rotation == 0.0f )
+	{
+		VectorScale( e->axis[1], radius, left );
+		VectorScale( e->axis[2], radius, up );
+	}
+	else
+	{
+		float angle = M_PI * rotation / 180.0f;
+		float sine = sin( angle );
+		float cosine = cos( angle );
+
+		VectorScale( e->axis[1], cosine * radius, left );
+		VectorMA( left, -sine * radius, e->axis[2], left );
+		VectorScale( e->axis[2], cosine * radius, up );
+		VectorMA( up, sine * radius, e->axis[1], up );
+	}
+
+	if ( backEnd.viewParms.isMirror )
+	{
+		VectorSubtract( vec3_origin, left, left );
+	}
+
+	RB_AddQuadStamp( e->origin, left, up, e->shaderRGBA );
+}
+
+static void RB_SurfaceEFAlphaVertPoly( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t left;
+	vec3_t up;
+	float radius = e->stefxData.sprite.radius;
+	float rotation = e->stefxData.sprite.rotation;
+	int firstVertex = tess.numVertexes;
+	int vertex;
+
+	if ( rotation == 0.0f )
+	{
+		VectorScale( backEnd.viewParms.or.axis[1], radius, left );
+		VectorScale( backEnd.viewParms.or.axis[2], radius, up );
+	}
+	else
+	{
+		float angle = M_PI * rotation / 180.0f;
+		float sine = sin( angle );
+		float cosine = cos( angle );
+
+		VectorScale( backEnd.viewParms.or.axis[1], cosine * radius, left );
+		VectorMA( left, -sine * radius, backEnd.viewParms.or.axis[2], left );
+		VectorScale( backEnd.viewParms.or.axis[2], cosine * radius, up );
+		VectorMA( up, sine * radius, backEnd.viewParms.or.axis[1], up );
+	}
+
+	if ( backEnd.viewParms.isMirror )
+	{
+		VectorSubtract( vec3_origin, left, left );
+	}
+
+	RB_AddQuadStamp( e->origin, left, up, e->shaderRGBA );
+	for ( vertex = 0; vertex < 4; ++vertex )
+	{
+		memcpy( tess.vertexColors[firstVertex + vertex],
+			e->stefxData.sprite.vertRGBA[vertex], sizeof( color4ub_t ) );
+	}
+}
+
+static void RB_EFLightningCore( const vec3_t start, const vec3_t end,
+	const vec3_t up, float length, float width, const refEntity_t *e )
+{
+	int firstVertex;
+	float textureLength = length / 256.0f;
+
+	RB_CHECKOVERFLOW( 4, 6 );
+	firstVertex = tess.numVertexes;
+
+	VectorMA( start, width, up, tess.xyz[tess.numVertexes] );
+	tess.texCoords[tess.numVertexes][0][0] = 0.0f;
+	tess.texCoords[tess.numVertexes][0][1] = 0.0f;
+	memcpy( tess.vertexColors[tess.numVertexes], e->shaderRGBA, sizeof( color4ub_t ) );
+	tess.vertexColors[tess.numVertexes][0] = (byte)( e->shaderRGBA[0] * 0.25f );
+	tess.vertexColors[tess.numVertexes][1] = (byte)( e->shaderRGBA[1] * 0.25f );
+	tess.vertexColors[tess.numVertexes][2] = (byte)( e->shaderRGBA[2] * 0.25f );
+	++tess.numVertexes;
+
+	VectorMA( start, -width, up, tess.xyz[tess.numVertexes] );
+	tess.texCoords[tess.numVertexes][0][0] = 0.0f;
+	tess.texCoords[tess.numVertexes][0][1] = 1.0f;
+	memcpy( tess.vertexColors[tess.numVertexes], e->shaderRGBA, sizeof( color4ub_t ) );
+	++tess.numVertexes;
+
+	VectorMA( end, width, up, tess.xyz[tess.numVertexes] );
+	tess.texCoords[tess.numVertexes][0][0] = textureLength;
+	tess.texCoords[tess.numVertexes][0][1] = 0.0f;
+	memcpy( tess.vertexColors[tess.numVertexes], e->shaderRGBA, sizeof( color4ub_t ) );
+	++tess.numVertexes;
+
+	VectorMA( end, -width, up, tess.xyz[tess.numVertexes] );
+	tess.texCoords[tess.numVertexes][0][0] = textureLength;
+	tess.texCoords[tess.numVertexes][0][1] = 1.0f;
+	memcpy( tess.vertexColors[tess.numVertexes], e->shaderRGBA, sizeof( color4ub_t ) );
+	++tess.numVertexes;
+
+	tess.indexes[tess.numIndexes++] = firstVertex;
+	tess.indexes[tess.numIndexes++] = firstVertex + 1;
+	tess.indexes[tess.numIndexes++] = firstVertex + 2;
+	tess.indexes[tess.numIndexes++] = firstVertex + 2;
+	tess.indexes[tess.numIndexes++] = firstVertex + 1;
+	tess.indexes[tess.numIndexes++] = firstVertex + 3;
+}
+
+static void RB_SurfaceEFLightning( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t start;
+	vec3_t end;
+	vec3_t direction;
+	vec3_t startToView;
+	vec3_t endToView;
+	vec3_t right;
+	float length;
+	int strip;
+
+	VectorCopy( e->origin, start );
+	VectorCopy( e->oldorigin, end );
+	VectorSubtract( end, start, direction );
+	length = VectorNormalize( direction );
+	VectorSubtract( start, backEnd.viewParms.or.origin, startToView );
+	VectorNormalize( startToView );
+	VectorSubtract( end, backEnd.viewParms.or.origin, endToView );
+	VectorNormalize( endToView );
+	CrossProduct( startToView, endToView, right );
+	if ( VectorNormalize( right ) == 0.0f )
+	{
+		vec3_t unused;
+		MakeNormalVectors( direction, right, unused );
+	}
+
+	for ( strip = 0; strip < 4; ++strip )
+	{
+		vec3_t rotated;
+		RB_EFLightningCore( start, end, right, length, 8.0f, e );
+		RotatePointAroundVector( rotated, direction, right, 45.0f );
+		VectorCopy( rotated, right );
+	}
+}
+
+#define STEFX_EF_CYLINDER_MAX_PLANES 64
+#define STEFX_EF_CYLINDER_LOD 4.0f
+
+static void RB_SurfaceEFCylinder( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t bottom;
+	vec3_t top;
+	vec3_t axis;
+	vec3_t bottomToTop;
+	vec3_t zeroBottom;
+	vec3_t zeroTop;
+	vec3_t bottomCorner;
+	vec3_t topCorner;
+	vec3_t bottomToView;
+	vec3_t topToView;
+	vec3_t projection;
+	vec3_t projectionToView;
+	float height = e->stefxData.cylinder.height;
+	float width = e->stefxData.cylinder.width;
+	float width2 = e->stefxData.cylinder.width2;
+	float maxRadius = width > width2 ? width : width2;
+	float distance;
+	float startDistance;
+	float endDistance;
+	float angleStep;
+	float textureStep = 0.0f;
+	int planes;
+	int index;
+	int vertex;
+	int numIndexes;
+
+	VectorCopy( e->axis[0], axis );
+	VectorCopy( e->origin, bottom );
+	VectorScale( axis, height, bottomToTop );
+	VectorAdd( bottom, bottomToTop, top );
+	VectorSubtract( backEnd.viewParms.or.origin, bottom, bottomToView );
+	VectorSubtract( backEnd.viewParms.or.origin, top, topToView );
+	distance = DotProduct( bottomToView, axis );
+	startDistance = VectorLength( bottomToView );
+	endDistance = VectorLength( topToView );
+
+	if ( distance < 0.0f || distance > height )
+	{
+		distance = startDistance < endDistance ? startDistance : endDistance;
+	}
+	else
+	{
+		VectorMA( bottom, distance, axis, projection );
+		VectorSubtract( backEnd.viewParms.or.origin, projection, projectionToView );
+		distance = VectorLength( projectionToView );
+		if ( startDistance < distance ) distance = startDistance;
+		if ( endDistance < distance ) distance = endDistance;
+	}
+	if ( distance < 1.0f ) distance = 1.0f;
+
+	planes = (int)( STEFX_EF_CYLINDER_LOD * maxRadius / distance * STEFX_EF_CYLINDER_MAX_PLANES );
+	if ( planes < 8 ) planes = 8;
+	else if ( planes > STEFX_EF_CYLINDER_MAX_PLANES ) planes = STEFX_EF_CYLINDER_MAX_PLANES;
+
+	RB_CHECKOVERFLOW( 4 * planes, 6 * planes );
+	PerpendicularVector( zeroBottom, axis );
+	VectorScale( zeroBottom, width2 * 0.5f, zeroTop );
+	VectorScale( zeroBottom, width * 0.5f, zeroBottom );
+	angleStep = 360.0f / planes;
+	if ( e->stefxData.cylinder.wrap )
+	{
+		textureStep = e->stefxData.cylinder.stscale / planes;
+	}
+
+	vertex = tess.numVertexes;
+	numIndexes = tess.numIndexes;
+	for ( index = 1; index <= planes; ++index )
+	{
+		int base = vertex;
+		tess.indexes[numIndexes++] = base;
+		tess.indexes[numIndexes++] = base + 2;
+		tess.indexes[numIndexes++] = base + 3;
+		tess.indexes[numIndexes++] = base;
+		tess.indexes[numIndexes++] = base + 3;
+		tess.indexes[numIndexes++] = base + 1;
+
+		if ( index == 1 )
+		{
+			VectorAdd( bottom, zeroBottom, tess.xyz[base] );
+			VectorAdd( top, zeroTop, tess.xyz[base + 1] );
+		}
+		else
+		{
+			VectorCopy( bottomCorner, tess.xyz[base] );
+			VectorCopy( topCorner, tess.xyz[base + 1] );
+		}
+
+		if ( index == planes )
+		{
+			VectorAdd( bottom, zeroBottom, bottomCorner );
+			VectorAdd( top, zeroTop, topCorner );
+		}
+		else
+		{
+			RotatePointAroundVector( bottomCorner, axis, zeroBottom, angleStep * index );
+			VectorAdd( bottom, bottomCorner, bottomCorner );
+			RotatePointAroundVector( topCorner, axis, zeroTop, angleStep * index );
+			VectorAdd( top, topCorner, topCorner );
+		}
+		VectorCopy( bottomCorner, tess.xyz[base + 2] );
+		VectorCopy( topCorner, tess.xyz[base + 3] );
+
+		if ( e->stefxData.cylinder.wrap )
+		{
+			tess.texCoords[base][0][0] = textureStep * ( index - 1 );
+			tess.texCoords[base + 1][0][0] = textureStep * ( index - 1 );
+			tess.texCoords[base + 2][0][0] = textureStep * index;
+			tess.texCoords[base + 3][0][0] = textureStep * index;
+		}
+		else
+		{
+			tess.texCoords[base][0][0] = 0.0f;
+			tess.texCoords[base + 1][0][0] = 0.0f;
+			tess.texCoords[base + 2][0][0] = e->stefxData.cylinder.stscale;
+			tess.texCoords[base + 3][0][0] = e->stefxData.cylinder.stscale;
+		}
+		tess.texCoords[base][0][1] = 0.0f;
+		tess.texCoords[base + 1][0][1] = 1.0f;
+		tess.texCoords[base + 2][0][1] = 0.0f;
+		tess.texCoords[base + 3][0][1] = 1.0f;
+
+		for ( int color = 0; color < 3; ++color )
+		{
+			tess.vertexColors[base][color] = tess.vertexColors[base + 1][color] =
+				tess.vertexColors[base + 2][color] = tess.vertexColors[base + 3][color] =
+				e->shaderRGBA[color];
+		}
+		tess.vertexColors[base][3] = tess.vertexColors[base + 1][3] =
+			tess.vertexColors[base + 2][3] = tess.vertexColors[base + 3][3] = 0xff;
+		vertex += 4;
+	}
+
+	tess.numVertexes = vertex;
+	tess.numIndexes = numIndexes;
+}
+
+#define STEFX_EF_ELECTRICITY_SEGMENTS 16
+#define STEFX_EF_ELECTRICITY_STEP (1.0f / STEFX_EF_ELECTRICITY_SEGMENTS)
+
+static void RB_SurfaceEFElectricity( void )
+{
+	refEntity_t *e = &backEnd.currentEntity->e;
+	vec3_t start;
+	vec3_t end;
+	vec3_t startToEnd;
+	vec3_t segmentStart;
+	vec3_t segmentEnd;
+	vec3_t lineDirection;
+	vec3_t startToView;
+	vec3_t previousEnd[2];
+	vec3_t left;
+	float length;
+	int segment;
+
+	VectorCopy( e->origin, start );
+	VectorCopy( e->oldorigin, end );
+	VectorSubtract( end, start, startToEnd );
+	length = VectorLength( startToEnd );
+	VectorCopy( start, segmentEnd );
+
+	for ( segment = 0; segment < STEFX_EF_ELECTRICITY_SEGMENTS; ++segment )
+	{
+		VectorCopy( segmentEnd, segmentStart );
+		if ( segment > STEFX_EF_ELECTRICITY_SEGMENTS - 2 )
+		{
+			VectorCopy( end, segmentEnd );
+		}
+		else
+		{
+			if ( segment > STEFX_EF_ELECTRICITY_SEGMENTS - 3 )
+			{
+				VectorAdd( segmentStart, end, segmentEnd );
+				VectorScale( segmentEnd, 0.5f, segmentEnd );
+			}
+			segmentEnd[0] += ( startToEnd[0] + crandom() * e->stefxData.electricity.deviation * length ) * STEFX_EF_ELECTRICITY_STEP;
+			segmentEnd[1] += ( startToEnd[1] + crandom() * e->stefxData.electricity.deviation * length ) * STEFX_EF_ELECTRICITY_STEP;
+			segmentEnd[2] += ( startToEnd[2] + crandom() * e->stefxData.electricity.deviation * length * 0.5f ) * STEFX_EF_ELECTRICITY_STEP;
+		}
+
+		VectorSubtract( segmentEnd, segmentStart, lineDirection );
+		VectorSubtract( backEnd.viewParms.or.origin, segmentStart, startToView );
+		RB_EFLineNormal( startToView, lineDirection, e->stefxData.electricity.width, left );
+		if ( segment == 0 )
+		{
+			VectorAdd( segmentStart, left, previousEnd[0] );
+			VectorSubtract( segmentStart, left, previousEnd[1] );
+		}
+		RB_EFLine( segmentStart, segmentEnd, left, previousEnd, 0.0f,
+			e->stefxData.electricity.stscale, e );
+	}
+}
+
 /*
 ==============
 RB_SurfaceCylinder
@@ -2373,6 +2959,33 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 		break;
 	case RT_LINE:
 		RB_SurfaceLine();
+		break;
+	case RT_TEXTURED_LINE:
+		RB_SurfaceTexturedLine();
+		break;
+	case RT_ORIENTED_LINE:
+		RB_SurfaceOrientedLine();
+		break;
+	case RT_TAPERED_LINE:
+		RB_SurfaceTaperedLine();
+		break;
+	case RT_BEZIER:
+		RB_SurfaceBezier();
+		break;
+	case RT_EF_ORIENTED_SPRITE:
+		RB_SurfaceEFOrientedSprite();
+		break;
+	case RT_EF_ALPHA_VERT_POLY:
+		RB_SurfaceEFAlphaVertPoly();
+		break;
+	case RT_EF_LIGHTNING:
+		RB_SurfaceEFLightning();
+		break;
+	case RT_EF_CYLINDER:
+		RB_SurfaceEFCylinder();
+		break;
+	case RT_EF_ELECTRICITY:
+		RB_SurfaceEFElectricity();
 		break;
 	case RT_ELECTRICITY:
 		RB_SurfaceElectricity();

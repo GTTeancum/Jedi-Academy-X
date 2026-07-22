@@ -130,6 +130,7 @@ static void IN_STEFX_UpdateFrontendThumbstick(void)
 *
 **********************************************************/
 
+#if !defined(STEFX_SP_HOSTED_MP)
 bool Cheat_God( void )
 {
 	Cbuf_ExecuteText( EXEC_APPEND, "god\n" );
@@ -396,6 +397,7 @@ const int numCheats = sizeof(cheats) / sizeof(cheats[0]);
 bool		enteringCheat = false;
 int			cheatLength = 0;
 fakeAscii_t	curCheat[6];
+#endif
 
 
 //If the Xbox white or black button was held for less than this amount of
@@ -629,6 +631,7 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	}
 #endif
 
+#if !defined(STEFX_SP_HOSTED_MP)
 	// Cheat system hooks. The right thumbstick button has to be held for a cheat:
 	if (button == A_JOY3)
 	{
@@ -669,6 +672,7 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 			curCheat[cheatLength++] = button;
 		}
 	}
+#endif
 
 	// Check for special cases for map hack
 #ifndef FINAL_BUILD
@@ -748,6 +752,7 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 			CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-gameplay" );
 			return;
 		}
+
 #endif
 
 		// Always map start button to ESCAPE

@@ -21,6 +21,14 @@
 extern "C" void *_ReturnAddress(void);
 #pragma intrinsic(_ReturnAddress)
 #endif
+
+#if defined(STEFX_SP_HOSTED_MP)
+#define STEFX_HOLOMATCH_DIRECT_BOOT 1
+#define STEFX_HOLOMATCH_DIRECT_MAP "hm_borg1"
+#else
+#define STEFX_HOLOMATCH_DIRECT_BOOT 0
+#endif
+
 extern "C" volatile unsigned int g_SPXBBootPhase;
 extern "C" volatile unsigned int g_SPXBMainLoopCount;
 extern "C" volatile unsigned int g_SPXBClsState;
@@ -134,6 +142,9 @@ static bool Sys_XboxFileExists(const char *path)
 
 static bool Sys_XboxNormalBootRequested(void)
 {
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+	return false;
+#else
 #if defined(STEFX_ELITE_FORCE_SP)
 	if (Sys_XboxFileExists("D:\\ef_sp_normal_boot.txt") ||
 		Sys_XboxFileExists("d:\\ef_sp_normal_boot.txt"))
@@ -143,10 +154,14 @@ static bool Sys_XboxNormalBootRequested(void)
 	}
 #endif
 	return false;
+#endif
 }
 
 static bool Sys_XboxDirectMapRequested(void)
 {
+	#if STEFX_HOLOMATCH_DIRECT_BOOT
+	return true;
+	#else
 	char startupMap[MAX_QPATH];
 	const char *startupMapPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -170,6 +185,7 @@ static bool Sys_XboxDirectMapRequested(void)
 	}
 
 	return false;
+	#endif
 }
 
 bool Sys_IsDirectMapBoot(void)
@@ -210,6 +226,26 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	int postMapCommandPathIndex;
 	startupMap[0] = '\0';
 
+#if STEFX_HOLOMATCH_DIRECT_BOOT
+	Q_strncpyz(startupMap, STEFX_HOLOMATCH_DIRECT_MAP, sizeof(startupMap));
+	startupMapSource = "STEFX_SP_HOSTED_MP built-in direct map";
+	XBLF("STEFX_HM_SP: direct boot bypasses menus and targets %s", STEFX_HOLOMATCH_DIRECT_MAP);
+	Cbuf_AddText("set fs_game BaseEF\n");
+	Cbuf_AddText("set model munro/default\n");
+	Cbuf_AddText("set sv_maxclients 6\n");
+	Cbuf_AddText("set g_gametype 4\n");
+	Cbuf_AddText("set fraglimit 0\n");
+	Cbuf_AddText("set capturelimit 8\n");
+	Cbuf_AddText("set timelimit 0\n");
+	Cbuf_AddText("set g_teamAutoJoin 1\n");
+	Cbuf_AddText("set g_teamForceBalance 1\n");
+	Cbuf_AddText("set g_holoIntro 0\n");
+	Cbuf_AddText("set g_ghostRespawn 0\n");
+	Cbuf_AddText("set bot_enable 1\n");
+	Cbuf_AddText("set bot_minplayers 3\n");
+	Cbuf_AddText("set g_spSkill 1\n");
+#endif
+
 	if (Sys_XboxNormalBootRequested())
 	{
 		g_SPXBDirectMapStatus = 5;
@@ -218,9 +254,11 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	}
 
 	g_SPXBDirectMapStatus = 10;
+	#if !STEFX_HOLOMATCH_DIRECT_BOOT
 	Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), &startupMapSource);
+	#endif
 
-#if defined(STEFX_ELITE_FORCE_SP)
+	#if defined(STEFX_ELITE_FORCE_SP) && !STEFX_HOLOMATCH_DIRECT_BOOT
 	if (!startupMap[0])
 	{
 		g_SPXBDirectMapStatus = 30;
@@ -264,10 +302,10 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 
 	g_SPXBDirectMapStatus = 50;
 	g_SPXBDirectMapHash = Sys_XboxDirectMapHashText(startupMap);
-	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame source=%s",
+	XBLF("JA: direct-map boot: queue map %s before first Com_Frame source=%s",
 		startupMap,
 		startupMapSource ? startupMapSource : "<unknown>");
-	Cbuf_AddText(va("devmap %s\n", startupMap));
+	Cbuf_AddText(va("map %s\n", startupMap));
 	for (postMapCommandPathIndex = 0; postMapCommandPaths[postMapCommandPathIndex]; ++postMapCommandPathIndex)
 	{
 		FILE *postMapCommandFile = fopen(postMapCommandPaths[postMapCommandPathIndex], "r");
@@ -301,6 +339,80 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	g_SPXBDirectMapStatus = 70;
 	return true;
 }
+
+#if defined(STEFX_SP_HOSTED_MP)
+static void Sys_XboxPollHolomatchRuntimeCommands(void)
+{
+	static DWORD nextPollTime = 0;
+	const char *commandPaths[] = {
+		"D:\\ef_mp_runtime_commands.txt",
+		"D:\\ef_mp_runtime_commands.0.txt",
+		"D:\\ef_mp_runtime_commands.1.txt",
+		"D:\\ef_mp_runtime_commands.2.txt",
+		"D:\\ef_mp_runtime_commands.3.txt",
+		"E:\\ef_mp_runtime_commands.txt",
+		"E:\\ef_mp_runtime_commands.0.txt",
+		"E:\\ef_mp_runtime_commands.1.txt",
+		"E:\\ef_mp_runtime_commands.2.txt",
+		"E:\\ef_mp_runtime_commands.3.txt",
+		NULL
+	};
+	char commands[8][1024];
+	DWORD now = GetTickCount();
+	int commandCount = 0;
+	int pathIndex;
+
+	if ((LONG)(now - nextPollTime) < 0)
+	{
+		return;
+	}
+	nextPollTime = now + 250;
+
+	for (pathIndex = 0; commandPaths[pathIndex]; ++pathIndex)
+	{
+		FILE *commandFile = fopen(commandPaths[pathIndex], "r");
+		if (!commandFile)
+		{
+			continue;
+		}
+
+		while (commandCount < (int)(sizeof(commands) / sizeof(commands[0])) &&
+			fgets(commands[commandCount], sizeof(commands[commandCount]), commandFile))
+		{
+			commands[commandCount][strcspn(commands[commandCount], "\r\n")] = '\0';
+			if (commands[commandCount][0])
+			{
+				++commandCount;
+			}
+		}
+		fclose(commandFile);
+
+		if (remove(commandPaths[pathIndex]) != 0)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_SWEEP: command inbox consume failed path='%s' errno=%d",
+				commandPaths[pathIndex], errno);
+			return;
+		}
+
+		XBLog_WriteCriticalf("STEFX_HM_SWEEP: command inbox consumed path='%s' commands=%d",
+			commandPaths[pathIndex], commandCount);
+		break;
+	}
+
+	for (pathIndex = 0; pathIndex < commandCount; ++pathIndex)
+	{
+		XBLog_WriteCriticalf("STEFX_HM_SWEEP: execute command '%s'", commands[pathIndex]);
+		Cbuf_AddText(commands[pathIndex]);
+		Cbuf_AddText("\n");
+	}
+	if (commandCount > 0)
+	{
+		XBLog_WriteCritical("STEFX_HM_SWEEP: command batch execute begin");
+		Cbuf_Execute();
+		XBLog_WriteCritical("STEFX_HM_SWEEP: command batch execute done");
+	}
+}
+#endif
 #endif
 
 void *NEWDECL operator new(size_t size)
@@ -422,6 +534,16 @@ void Sys_Error( const char *error, ... ) {
 #endif
 #ifdef _XBOX
         XBLF("JA: Sys_Error exit: %s", text);
+#if defined(STEFX_SP_HOSTED_MP)
+        XBLog_WriteCriticalf("STEFX_HM_EXIT: Sys_Error fatal='%s' mainLoop=%u comFrame=%u clsState=%u phase=%08x sub=%u",
+                text,
+                g_SPXBMainLoopCount,
+                g_SPXBComFrameCount,
+                g_SPXBClsState,
+                g_SPXBPhaseLast,
+                g_SPXBComSubphase);
+#endif
+        XBLog_Shutdown();
 #endif
 
 #if 0 // UN-PORT
@@ -949,9 +1071,13 @@ int main(int argc, char* argv[])
 	Com_Init( "" );
 	XBL("Com_Init done\n");
 
+#if defined(STEFX_SP_HOSTED_MP)
+	XBL("G_AllocGentities skipped; official Holomatch game owns entity storage\n");
+#else
 	extern void G_AllocGentities( void );
 	G_AllocGentities();
 	XBL("G_AllocGentities done\n");
+#endif
 
 #ifdef _XBOX
 	Sys_XboxQueueDirectMapBoot();
@@ -986,6 +1112,9 @@ int main(int argc, char* argv[])
 
 	// main game loop
 	int xboxMainLoopCount = 0;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	DWORD stefxHmNextLoopAliveLog = 0;
+#endif
 	while( 1 ) {
 		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
 		const bool xboxTraceMainLoopLate = (cls.state == CA_ACTIVE && cls.framecount >= 8 && cls.framecount <= 40);
@@ -1007,9 +1136,29 @@ int main(int argc, char* argv[])
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		Com_Frame();
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		Sys_XboxPollHolomatchRuntimeCommands();
+#endif
 #ifdef _XBOX
 		g_SPXBClsState = (unsigned int)cls.state;
 		g_SPXBPhaseLast = 0x4D434632; /* 'MCF2' */
+#endif
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		{
+			const DWORD stefxHmNow = GetTickCount();
+			if (cls.state == CA_ACTIVE && (LONG)(stefxHmNow - stefxHmNextLoopAliveLog) >= 0)
+			{
+				XBLog_WriteCriticalf("STEFX_HM_ALIVE: mainLoop=%d comFrame=%u clsFrame=%d state=%d phase=%08x sub=%u sv=%d",
+					xboxMainLoopCount,
+					g_SPXBComFrameCount,
+					cls.framecount,
+					(int)cls.state,
+					g_SPXBPhaseLast,
+					g_SPXBComSubphase,
+					com_sv_running ? com_sv_running->integer : -1);
+				stefxHmNextLoopAliveLog = stefxHmNow + 5000;
+			}
+		}
 #endif
 		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
@@ -1045,6 +1194,17 @@ int main(int argc, char* argv[])
 		xboxMainLoopCount++;
 	}
 
+#ifdef _XBOX
+#if defined(STEFX_SP_HOSTED_MP)
+	XBLog_WriteCriticalf("STEFX_HM_EXIT: main loop returned mainLoop=%d comFrame=%u clsState=%u phase=%08x sub=%u",
+		xboxMainLoopCount,
+		g_SPXBComFrameCount,
+		g_SPXBClsState,
+		g_SPXBPhaseLast,
+		g_SPXBComSubphase);
+#endif
+	XBLog_Shutdown();
+#endif
 	return 0;
 }
 
@@ -1059,6 +1219,15 @@ void Sys_Quit(void)
 {
 #ifdef _XBOX
 	XBL("JA: Sys_Quit called\n");
+#if defined(STEFX_SP_HOSTED_MP)
+	XBLog_WriteCriticalf("STEFX_HM_EXIT: Sys_Quit mainLoop=%u comFrame=%u clsState=%u phase=%08x sub=%u",
+		g_SPXBMainLoopCount,
+		g_SPXBComFrameCount,
+		g_SPXBClsState,
+		g_SPXBPhaseLast,
+		g_SPXBComSubphase);
+#endif
+	XBLog_Shutdown();
 #endif
 }
 
@@ -1650,6 +1819,12 @@ void *Sys_GetGameAPI (void *parms)
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	extern game_export_t *GetGameAPI( game_import_t *import );
 	game_import_t *jaImport = (game_import_t *)parms;
+	XBLF("STEFX: SP-hosted Sys_GetGameAPI entry import=%p", jaImport);
+	#if defined(STEFX_SP_HOSTED_MP)
+		extern game_export_t *STEFX_GetHolomatchGameAPI( game_import_t *import );
+		XBL("STEFX: SP-hosted Sys_GetGameAPI selecting official EF VM adapter");
+		return STEFX_GetHolomatchGameAPI(jaImport);
+	#endif
 	stefx_game_import_t efImport;
 	game_export_t *rawExport;
 
@@ -1723,8 +1898,21 @@ Used to hook up a development dll
 */
 // void * Sys_LoadCgame( void ) 
 #ifndef _JK2MP
+#if defined(STEFX_SP_HOSTED_MP)
+extern "C" void STEFX_HM_CG_dllEntry( int (QDECL *syscallptr)( int arg,... ) );
+extern "C" int STEFX_HM_CG_vmMain( int command, int arg0, int arg1, int arg2,
+	int arg3, int arg4, int arg5, int arg6 );
+#endif
 void * Sys_LoadCgame( int (**entryPoint)(int, ...), int (*systemcalls)(int, ...) )
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	XBLF("STEFX_HM_SP: Sys_LoadCgame official entryOut=%p syscall=%p vmMain=%p dllEntry=%p",
+		entryPoint, systemcalls, STEFX_HM_CG_vmMain, STEFX_HM_CG_dllEntry);
+	STEFX_HM_CG_dllEntry(systemcalls);
+	*entryPoint = (int (*)(int,...))STEFX_HM_CG_vmMain;
+	XBLF("STEFX_HM_SP: Sys_LoadCgame official entry assigned=%p", *entryPoint);
+	return 0;
+#else
 	extern void CG_PreInit();
 	extern void cg_dllEntry( int (*syscallptr)( int arg,... ) );
 	extern int cg_vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7 );
@@ -1742,6 +1930,7 @@ void * Sys_LoadCgame( int (**entryPoint)(int, ...), int (*systemcalls)(int, ...)
 #endif
 //	CG_PreInit();
 	return 0;
+#endif
 }
 #endif
 

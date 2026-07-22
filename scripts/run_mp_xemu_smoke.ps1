@@ -24,7 +24,7 @@ if (-not $AllowDeprecatedXemu) {
 $defaultIso = Join-Path $repoRoot "build\xemu\JediAcademyX_MP_direct.iso"
 $stageXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\efmp.xbe"
 $stageDefaultXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\default.xbe"
-$builtXbe = Join-Path $repoRoot "codemp\x_exe\Release\efmp.xbe"
+$builtXbe = Join-Path $repoRoot "build\release\efmp.xbe"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
 
 if ([string]::IsNullOrWhiteSpace($Iso)) {

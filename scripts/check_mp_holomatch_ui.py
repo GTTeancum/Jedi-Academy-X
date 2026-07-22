@@ -19,6 +19,42 @@ from xml.etree import ElementTree
 SOURCE_EXTS = {".c", ".cc", ".cpp", ".cxx", ".asm", ".vsh", ".psh"}
 ORIGINAL_IMAGE_EXTS = {".jpg", ".jpeg", ".tga", ".png"}
 
+OFFICIAL_MULTIPLAYER_MAPS = {
+    "ctf_and1",
+    "ctf_breach",
+    "ctf_dn1",
+    "ctf_for1",
+    "ctf_kln1",
+    "ctf_kln2",
+    "ctf_neptune",
+    "ctf_oldwest",
+    "ctf_reservoir",
+    "ctf_singularity",
+    "ctf_spyglass2",
+    "ctf_stasis",
+    "ctf_voy1",
+    "ctf_voy2",
+    "hm_altar",
+    "hm_blastradius",
+    "hm_borg1",
+    "hm_borg2",
+    "hm_borg3",
+    "hm_borgattack",
+    "hm_cam",
+    "hm_dn1",
+    "hm_dn2",
+    "hm_for1",
+    "hm_for2",
+    "hm_kln1",
+    "hm_noon",
+    "hm_raven",
+    "hm_scav1",
+    "hm_temple",
+    "hm_voy1",
+    "hm_voy2",
+    "hm_voy3",
+}
+
 REQUIRED_SP_CONTROL_FILES = {
     "client/cl_input.cpp",
     "client/cl_input_hotswap.cpp",
@@ -585,7 +621,7 @@ REQUIRED_LIFECYCLE_MARKERS = {
     "case UI_REFRESH:",
     "STEFX_HM: UI mandate active; uniform SP code/ui owns Holomatch UI",
     "STEFX_HM: UI mandate enforced; MP legacy menus stay dead and SP code/ui owns all Holomatch UI behavior",
-    "STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache; codemp/ui remains adapter-only",
+    "STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache",
     "STEFX_HM: SP EF UI cache skipped legacy renderer font; EF prop-font atlas owns Holomatch text",
 }
 
@@ -607,10 +643,6 @@ REQUIRED_INTERFACE_HUD_DDS = {
     "gfx/interface/ammolowercap2.dds",
 }
 
-REQUIRED_HOLOMATCH_NAV_FILES = {
-    "maps/hm_borg1.aas",
-}
-REQUIRED_HOLOMATCH_AAS = "maps/hm_borg1.aas"
 AAS_IDENT = b"EAAS"
 REQUIRED_XBOX_EFFECTS_IMAGE = "sound/dsstdfx.bin"
 
@@ -1940,7 +1972,7 @@ def verify_solution(repo_root: Path) -> dict[str, object]:
     }
 
 
-def verify_pk3(pk3: Path | None) -> dict[str, object]:
+def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, object]:
     if pk3 is None:
         return {"checked": False}
     if not pk3.is_file():
@@ -1966,7 +1998,8 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
         if missing_hud:
             fail("xbox1.pk3 is missing shared EF/SP interface HUD DDS assets: " + ", ".join(missing_hud))
 
-        missing_nav = sorted(REQUIRED_HOLOMATCH_NAV_FILES - set(names))
+        required_holomatch_aas = f"maps/{direct_map.lower()}.aas"
+        missing_nav = sorted({required_holomatch_aas} - set(names))
         if missing_nav:
             fail("xbox1.pk3 is missing official EF Holomatch navigation file(s): " + ", ".join(missing_nav))
 
@@ -2041,7 +2074,7 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
 
         required_support_lists = {
             "scripts/_console_bot_list_": ["bots.txt"],
-            "scripts/_console_arena_list_": ["arenas.txt"],
+            "scripts/_console_arena_list_": ["arenas.txt", "xpack.arena"],
         }
         missing_support_lists: list[str] = []
         for list_path, expected_entries in required_support_lists.items():
@@ -2088,26 +2121,87 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
                     f"manifest={effects_image.get('bytes')} package={len(effects_image_data)}"
                 )
             patched_aas = manifest.get("patchedAasChecksums") or {}
-            aas_checksum = patched_aas.get(REQUIRED_HOLOMATCH_AAS)
+
+            if manifest.get("bspMaps") == "multiplayer":
+                optimized_by_map = {
+                    item.get("map"): item
+                    for item in manifest.get("bspOptimizations", [])
+                    if isinstance(item, dict) and isinstance(item.get("map"), str)
+                }
+                optimized_maps = set(optimized_by_map)
+                if optimized_maps != OFFICIAL_MULTIPLAYER_MAPS:
+                    fail(
+                        "xbox1.pk3 optimized multiplayer map inventory is incomplete; "
+                        f"missing={sorted(OFFICIAL_MULTIPLAYER_MAPS - optimized_maps)} "
+                        f"extra={sorted(optimized_maps - OFFICIAL_MULTIPLAYER_MAPS)}"
+                    )
+
+                for map_name in sorted(OFFICIAL_MULTIPLAYER_MAPS):
+                    required_entries = {
+                        f"maps/xbox/{map_name}.bsp",
+                        f"maps/xbox/{map_name}.lmpdds",
+                        f"maps/{map_name}.aas",
+                    }
+                    missing_entries = sorted(required_entries - set(names))
+                    if missing_entries:
+                        fail(
+                            f"xbox1.pk3 is missing optimized {map_name} runtime entries: "
+                            + ", ".join(missing_entries)
+                        )
+
+                    map_aas_path = f"maps/{map_name}.aas"
+                    map_aas_checksum = patched_aas.get(map_aas_path)
+                    map_bsp_checksum = optimized_by_map[map_name].get("xboxBspChecksum")
+                    if not isinstance(map_aas_checksum, int) or map_aas_checksum <= 0:
+                        fail(f"xbox1.pk3 manifest does not report patched {map_name} AAS checksum")
+                    if map_aas_checksum != map_bsp_checksum:
+                        fail(
+                            f"xbox1.pk3 manifest AAS checksum does not match optimized {map_name} BSP checksum: "
+                            f"aas={map_aas_checksum} bsp={map_bsp_checksum}"
+                        )
+
+                    map_aas_data = zf.read(name_lookup[map_aas_path])
+                    if len(map_aas_data) < 12:
+                        fail(f"xbox1.pk3 {map_name} AAS file is too small for a header")
+                    aas_ident, aas_version, aas_header_checksum = struct.unpack_from(
+                        "<4sII", map_aas_data, 0
+                    )
+                    if aas_ident != AAS_IDENT or aas_version not in (4, 5):
+                        fail(
+                            f"xbox1.pk3 {map_name} AAS header is not an Elite Force AAS file: "
+                            f"ident={aas_ident!r} version={aas_version}"
+                        )
+                    if aas_version == 5:
+                        decoded_checksum_bytes = bytearray(map_aas_data[8:12])
+                        for index in range(len(decoded_checksum_bytes)):
+                            decoded_checksum_bytes[index] ^= (index * 119) & 0xFF
+                        aas_header_checksum = struct.unpack("<I", decoded_checksum_bytes)[0]
+                    if aas_header_checksum != map_aas_checksum:
+                        fail(
+                            f"xbox1.pk3 {map_name} AAS header checksum does not match manifest: "
+                            f"header={aas_header_checksum} manifest={map_aas_checksum}"
+                        )
+
+            aas_checksum = patched_aas.get(required_holomatch_aas)
             if not isinstance(aas_checksum, int) or aas_checksum <= 0:
-                fail("xbox1.pk3 manifest does not report patched hm_borg1 AAS checksum")
+                fail(f"xbox1.pk3 manifest does not report patched {direct_map} AAS checksum")
             bsp_checksums = [
                 item.get("xboxBspChecksum")
                 for item in manifest.get("bspOptimizations", [])
-                if item.get("map") == "hm_borg1"
+                if item.get("map") == direct_map.lower()
             ]
             if not bsp_checksums or bsp_checksums[0] != aas_checksum:
                 fail(
-                    "xbox1.pk3 manifest AAS checksum does not match optimized hm_borg1 BSP checksum: "
+                    f"xbox1.pk3 manifest AAS checksum does not match optimized {direct_map} BSP checksum: "
                     f"aas={aas_checksum} bsp={bsp_checksums[:1]}"
                 )
-            aas_data = zf.read(name_lookup[REQUIRED_HOLOMATCH_AAS])
+            aas_data = zf.read(name_lookup[required_holomatch_aas])
             if len(aas_data) < 12:
-                fail("xbox1.pk3 hm_borg1 AAS file is too small for a header")
+                fail(f"xbox1.pk3 {direct_map} AAS file is too small for a header")
             aas_ident, aas_version, aas_header_checksum = struct.unpack_from("<4sII", aas_data, 0)
             if aas_ident != AAS_IDENT or aas_version not in (4, 5):
                 fail(
-                    "xbox1.pk3 hm_borg1 AAS header is not an Elite Force AAS file: "
+                    f"xbox1.pk3 {direct_map} AAS header is not an Elite Force AAS file: "
                     f"ident={aas_ident!r} version={aas_version}"
                 )
             if aas_version == 5:
@@ -2117,7 +2211,7 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
                 aas_header_checksum = struct.unpack("<I", decoded_checksum_bytes)[0]
             if aas_header_checksum != aas_checksum:
                 fail(
-                    "xbox1.pk3 hm_borg1 AAS header checksum does not match manifest: "
+                    f"xbox1.pk3 {direct_map} AAS header checksum does not match manifest: "
                     f"header={aas_header_checksum} manifest={aas_checksum}"
                 )
         else:
@@ -2314,6 +2408,7 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
         "shaderScriptCount": len(shader_entries),
         "consoleSupportLists": sorted(required_support_lists),
         "patchedAasChecksums": manifest.get("patchedAasChecksums", {}),
+        "optimizedMultiplayerMapCount": len(OFFICIAL_MULTIPLAYER_MAPS),
         "effectsImage": manifest.get("effectsImage", {}),
         "directBotModels": sorted(DIRECT_HOLOMATCH_BOTS),
         "officialBotfileCount": len(botfile_entries),
@@ -2328,7 +2423,11 @@ def verify_pk3(pk3: Path | None) -> dict[str, object]:
     }
 
 
-def verify_stage(stage_baseef: Path | None, allow_original_images: bool) -> dict[str, object]:
+def verify_stage(
+    stage_baseef: Path | None,
+    allow_original_images: bool,
+    allow_map_overrides: bool,
+) -> dict[str, object]:
     if stage_baseef is None:
         return {"checked": False}
     if stage_baseef.name != "BaseEF":
@@ -2357,11 +2456,35 @@ def verify_stage(stage_baseef: Path | None, allow_original_images: bool) -> dict
     if original_images and not allow_original_images:
         rel = [norm_path(path.relative_to(stage_baseef).as_posix()) for path in original_images[:16]]
         fail("staged BaseEF must be DDS-only; found loose original image file(s): " + ", ".join(rel))
+
+    maps_dir = stage_baseef / "maps"
+    loose_mp_map_overrides = (
+        sorted(
+            path
+            for path in maps_dir.iterdir()
+            if path.is_file()
+            and path.suffix.lower() in {".aas", ".bsp"}
+            and path.stem.lower() in OFFICIAL_MULTIPLAYER_MAPS
+        )
+        if maps_dir.is_dir()
+        else []
+    )
+    if loose_mp_map_overrides and not allow_map_overrides:
+        rel = [
+            norm_path(path.relative_to(stage_baseef).as_posix())
+            for path in loose_mp_map_overrides[:16]
+        ]
+        fail(
+            "staged BaseEF contains loose official MP map override(s) that supersede xbox1.pk3: "
+            + ", ".join(rel)
+        )
     return {
         "checked": True,
         "stageUiScripts": 0,
         "stageOriginalImages": len(original_images),
         "stageOriginalImagesAllowed": allow_original_images,
+        "stageLooseMpMapOverrides": len(loose_mp_map_overrides),
+        "stageLooseMpMapOverridesAllowed": allow_map_overrides,
         "soundbank": soundbank,
     }
 
@@ -2630,6 +2753,128 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
     }
 
 
+def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict[str, object]:
+    """Validate the SP-hosted development target without consulting codemp."""
+    source_extensions = {
+        ".asm",
+        ".c",
+        ".cpp",
+        ".cxx",
+        ".def",
+        ".h",
+        ".hpp",
+        ".inl",
+        ".rc",
+        ".sln",
+        ".vcproj",
+    }
+    source_files = sorted(
+        path
+        for path in (repo_root / "code").rglob("*")
+        if path.is_file() and path.suffix.lower() in source_extensions
+    )
+    codemp_hits = []
+    for path in source_files:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if re.search(r"(?i)(?:\bcodemp\b|codemp[\\/])", text):
+            codemp_hits.append(norm_path(path.relative_to(repo_root).as_posix()))
+    if codemp_hits:
+        fail("SP-hosted Holomatch source under code/ still references codemp: " + ", ".join(codemp_hits[:16]))
+
+    required_sources = {
+        "code/win32/win_main_console.cpp": {
+            "STEFX_SP_HOSTED_MP",
+            "STEFX_HM_SP: direct boot bypasses menus and targets %s",
+            f'#define STEFX_HOLOMATCH_DIRECT_MAP "{direct_map}"',
+            'Cbuf_AddText("set fs_game BaseEF\\n");',
+            'Cbuf_AddText(va("map %s\\n", startupMap));',
+        },
+        "code/server/sv_game.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostAfterGameInit"},
+        "code/server/sv_main.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostRunFrame"},
+        "code/server/sv_snapshot.cpp": {
+            "SVF_NOTSINGLECLIENT",
+            "STEFX_HM_EVENT_ROUTE: reject viewer=",
+        },
+        "code/game/g_public.h": {"singleClient", "SVF_NOTSINGLECLIENT"},
+        "code/game/stefx_holomatch_game.cpp": {"STEFX_HM_SP: game boundary init", "STEFX_HM_SP: game boundary frame"},
+        "code/game/q_shared.h": {
+            "MAX_PS_EVENTS\t\t\t4",
+            "official Elite Force Holomatch prediction ring",
+        },
+        "code/qcommon/msg.cpp": {"PSF(events[2])", "PSF(events[3])", "PSF(eventParms[3])"},
+        "code/holomatch/stefx_mp_game_api.cpp": {
+            "STEFX_HM_STATE: preserve client=",
+            "Holomatch player state remains authoritative",
+            "read-only projection",
+        },
+        "code/ui/ui_ef_lifecycle.cpp": {
+            "STEFX_HM: UI mandate active; uniform SP code/ui owns Holomatch UI",
+            "STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache",
+        },
+    }
+    missing_sources = []
+    for rel, markers in required_sources.items():
+        path = repo_root / rel
+        if not path.is_file():
+            missing_sources.append(f"{rel}: missing")
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        missing = sorted(marker for marker in markers if marker not in text)
+        if missing:
+            missing_sources.append(f"{rel}: {', '.join(missing)}")
+    if missing_sources:
+        fail("SP-hosted Holomatch direct-map boundary is incomplete: " + "; ".join(missing_sources))
+
+    game_adapter = (repo_root / "code/holomatch/stefx_mp_game_api.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    if "STEFX_HolomatchCopySPPlayerStateToOfficial" in game_adapter:
+        fail(
+            "SP-hosted Holomatch adapter still copies the reduced SP player state back over "
+            "the authoritative EF state"
+        )
+
+    if xbe is None:
+        xbe_result = {"checked": False}
+    else:
+        if not xbe.is_file():
+            fail(f"SP-hosted Holomatch XBE check failed; missing XBE: {xbe}")
+        data = xbe.read_bytes()
+        required_xbe_markers = {
+            b"STEFX_HM_SP: direct boot bypasses menus and targets %s",
+            b"STEFX_HM_SP: SP host game init",
+            b"STEFX_HM_SP: game boundary init",
+            b"STEFX_HM_STATE: preserve client=",
+            b"STEFX_HM_EVENT_ROUTE: reject viewer=",
+            b"BaseEF",
+            direct_map.encode("ascii"),
+        }
+        missing_xbe = sorted(
+            marker.decode("ascii", errors="replace")
+            for marker in required_xbe_markers
+            if marker not in data
+        )
+        if missing_xbe:
+            fail("efmp.xbe is missing SP-hosted direct-map marker(s): " + ", ".join(missing_xbe))
+        xbe_result = {
+            "checked": True,
+            "xbe": str(xbe),
+            "baseGame": "BaseEF",
+            "directBootMap": direct_map,
+            "codempDependency": False,
+        }
+
+    return {
+        "architecture": "sp-hosted-code-only",
+        "codempDependency": False,
+        "codeSourceFilesChecked": len(source_files),
+        "directBoot": direct_map,
+        "rendererAudioInputOwner": "code/ SP engine",
+        "uiOwner": "code/ui SP framework",
+        "xbe": xbe_result,
+    }
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Check the Holomatch MP UI mandate")
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
@@ -2640,17 +2885,53 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Allow source image files in a non-runtime BaseEF workspace; never use for CXBX-R stage checks.",
     )
+    parser.add_argument(
+        "--allow-stage-map-overrides",
+        action="store_true",
+        help="Allow loose source BSP/AAS files in a non-runtime BaseEF workspace; never use for CXBX-R stage checks.",
+    )
     parser.add_argument("--xbe", type=Path)
+    parser.add_argument("--direct-map", default="hm_borg1")
+    parser.add_argument(
+        "--code-only",
+        action="store_true",
+        help="Validate the SP-hosted efmp.xbe path without reading or requiring codemp.",
+    )
     args = parser.parse_args(argv)
 
     repo_root = args.repo_root.resolve()
+    if args.code_only:
+        summary = {
+            "uiPolicy": "shared-sp-code-ui",
+            "projects": verify_code_only(
+                repo_root,
+                args.xbe.resolve() if args.xbe else None,
+                args.direct_map,
+            ),
+            "package": verify_pk3(
+                args.pk3.resolve() if args.pk3 else None,
+                args.direct_map,
+            ),
+            "stage": verify_stage(
+                args.stage_baseef.resolve() if args.stage_baseef else None,
+                args.allow_stage_original_images,
+                args.allow_stage_map_overrides,
+            ),
+        }
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+
     summary = {
         "uiPolicy": "mandated-shared-ef-sp-code-ui-owns-behavior",
         "projects": verify_solution(repo_root),
-        "package": verify_pk3(args.pk3.resolve() if args.pk3 else None),
+        "package": verify_pk3(
+            args.pk3.resolve() if args.pk3 else None,
+            args.direct_map,
+        ),
         "stage": verify_stage(
             args.stage_baseef.resolve() if args.stage_baseef else None,
             args.allow_stage_original_images,
+            args.allow_stage_map_overrides,
         ),
         "xbe": verify_xbe(args.xbe.resolve() if args.xbe else None),
     }

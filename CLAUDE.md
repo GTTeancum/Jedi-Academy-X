@@ -1,5 +1,16 @@
 # Jedi Academy Xbox Build - Project Notes
 
+## Current Holomatch Override - 2026-07-22
+- Active Holomatch development starts from the working Elite Force SP engine in `code\`.
+- Build Holomatch with `scripts\build_xbox.ps1 -Target spmp`.
+- The active Holomatch development artifact is `build\release\efmp.xbe`, staged as `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe`.
+- Runtime data is staged under `BaseEF`; the active Holomatch package is `BaseEF\xbox1.pk3`.
+- `codemp\` is historical/deprecated for this project phase and must not be a build, link, include, or runtime dependency for SP-hosted `efmp.xbe`.
+- `default.xbe` remains the SP/co-op executable and must not be overwritten by Holomatch work.
+- Current Holomatch tests boot straight to `hm_borg1` with bots; menus are future work.
+- The authoritative current status files are `HOLOMATCH_TODO.md` and `HOLOMATCH_QUALIFICATION.md`.
+- Use CXBX-R / `C:\Games\Emulators\CXBX-CodexCapture` for this phase, not XEMU.
+
 ## Development Workflow
 - **Programmer:** Claude (AI) — all code changes are made by Claude
 - **Compile & Test:** User compiles and runs when Claude asks
@@ -14,7 +25,7 @@
 
 ## Repository Structure
 - **SP (Single Player):** `code/` — `JediAcademy.sln`
-- **MP (Multiplayer):** `codemp/` — `JKA_mp.sln`
+- **Historical MP (deprecated):** `codemp/` — `JKA_mp.sln`
 - **XDK:** `C:\XDK\` (manually extracted from XDKSetup5849.exe via 7-Zip)
 
 ## Toolchain
@@ -89,7 +100,9 @@ Pre-link event assembles stubs automatically — Rebuild works without manual in
 
 ---
 
-## MP Build Status — COMPLETE ✅
+## Historical MP Build Status — Deprecated
+
+This section documents the old inherited MP tree only. It is not the active Holomatch build path, and `codemp\` must remain unnecessary for SP-hosted `efmp.xbe`.
 
 ### Projects in `codemp/JKA_mp.sln`
 | Project | Status |
@@ -160,8 +173,9 @@ Code complete — needs compile test. Changes:
 7. 📋 Port JA's .skin segment selection to JO SP — cosmetic customization of Kyle using alternate .skin files in the same model folder (same GLM, falls back to base skin if segments missing)
 
 ## Testing Notes
-- Retail Xbox is the only test target
-- Log file at `E:\ja_sp_log.txt` (SP) and `E:\ja_mp_log.txt` (MP) — XBLog flushes every write, last line = crash point
+- Use CXBX-R / `C:\Games\Emulators\CXBX-CodexCapture` for current Holomatch proof.
+- Retail Xbox remains the final target.
+- Current logs are `E:\ef_sp_log.txt` for SP and `D:\ef_mp_log.txt`, falling back to `E:\ef_mp_log.txt`, for SP-hosted Holomatch. XBLog flushes every write; last line = crash point.
 
 ## JO MP Source Reference
 - JO MP source is at `D:\Programming\GitHub\jedioutcast-master\CODE-mp\`
@@ -178,7 +192,7 @@ Retail `d3d8.lib` implements D3D methods as inline functions that directly manip
 All XDK tools are at `C:\XDK\xbox\bin\` — including `imagebld.exe`, `xsasm.exe`, `xbcp.exe`, etc.
 
 ### patchxbe.py Location
-`code/x_exe/patchxbe.py` — SP XBE post-processor. When wiring MP, copy to `codemp/x_exe/patchxbe.py`.
+`code/x_exe/patchxbe.py` — active SP and SP-hosted Holomatch XBE post-processor. Do not wire active Holomatch through `codemp/x_exe`.
 
 ### Symbol Naming in MASM
 `.model flat` does NOT prepend underscores to PUBLIC names. Write the exact linker symbol name:

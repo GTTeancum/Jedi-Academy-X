@@ -576,10 +576,22 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 	int			i;
 	client_t	*cl;
 	int			qport;
+	static int stefxPacketTraceCount = 0;
+	const qboolean stefxTracePacket = (qboolean)( stefxPacketTraceCount < 8 );
+
+	if ( stefxTracePacket ) {
+		Com_Printf( "ERROR: HMDIAG SV_PacketEvent enter size=%d read=%d clients=%d\n",
+			msg ? msg->cursize : -1, msg ? msg->readcount : -1,
+			sv_maxclients ? sv_maxclients->integer : -1 );
+	}
 
 	// check for connectionless packet (0xffffffff) first
 	if ( msg->cursize >= 4 && *(int *)msg->data == -1) {
+		if ( stefxTracePacket ) {
+			Com_Printf( "ERROR: HMDIAG SV_PacketEvent connectionless\n" );
+		}
 		SV_ConnectionlessPacket( from, msg );
+		stefxPacketTraceCount++;
 		return;
 	}
 
@@ -593,6 +605,10 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 	MSG_BeginReadingOOB( msg );
 	MSG_ReadLong( msg );				// sequence number
 	qport = MSG_ReadShort( msg ) & 0xffff;
+	if ( stefxTracePacket ) {
+		Com_Printf( "ERROR: HMDIAG SV_PacketEvent header qport=%d read=%d\n",
+			qport, msg->readcount );
+	}
 
 	// find which client the message is from
 	for (i=0, cl=svs.clients ; i < sv_maxclients->integer ; i++,cl++) {
@@ -621,20 +637,33 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 
 		// make sure it is a valid, in sequence packet
 		if (SV_Netchan_Process(cl, msg)) {
+			if ( stefxTracePacket ) {
+				Com_Printf( "ERROR: HMDIAG SV_PacketEvent matched client=%d state=%d read=%d\n",
+				i, cl->state, msg->readcount );
+			}
 			// zombie clients still need to do the Netchan_Process
 			// to make sure they don't need to retransmit the final
 			// reliable message, but they don't do any other processing
 			if (cl->state != CS_ZOMBIE) {
 				cl->lastPacketTime = svs.time;	// don't timeout
 				SV_ExecuteClientMessage( cl, msg );
+				if ( stefxTracePacket ) {
+					Com_Printf( "ERROR: HMDIAG SV_PacketEvent executed client=%d read=%d\n",
+						i, msg->readcount );
+				}
 			}
 		}
+		stefxPacketTraceCount++;
 		return;
 	}
 	
 	// if we received a sequenced packet from an address we don't reckognize,
 	// send an out of band disconnect packet to it
 	NET_OutOfBandPrint( NS_SERVER, from, "disconnect" );
+	if ( stefxTracePacket ) {
+		Com_Printf( "ERROR: HMDIAG SV_PacketEvent unknown client qport=%d\n", qport );
+		stefxPacketTraceCount++;
+	}
 }
 
 

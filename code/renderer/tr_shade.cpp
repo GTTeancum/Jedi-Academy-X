@@ -675,8 +675,8 @@ static qboolean RB_XboxForceTraceSurface( void )
 
 static void RB_XboxLogWorldDrawStage( const char *where, shaderCommands_t *input, const shaderStage_t *stage, int stageNum, int stateBits )
 {
-	static int s_stefxWorldDrawStageBudget = 4096;
-	static int s_stefxDrawContextCallBudget = 128;
+	static int s_stefxWorldDrawStageBudget = 512;
+	static int s_stefxDrawContextCallBudget = 24;
 	const image_t *img0;
 	const image_t *img1;
 	unsigned long color0;
@@ -1702,8 +1702,8 @@ static void RB_XboxRenderYield( void )
 static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
 {
 	static int traceBudget = 16;
-	static int chunkTraceBudget = 24;
-	static int s_stefxDrawSubmitContextCallBudget = 128;
+	static int chunkTraceBudget = 8;
+	static int s_stefxDrawSubmitContextCallBudget = 24;
 	qboolean trace;
 	int indexBase;
 	const int maxChunkIndexes = 384 * 3;
@@ -4511,6 +4511,16 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 				{
 					stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 					forceAlphaGen = AGEN_ENTITY;
+				}
+			}
+
+			if ( backEnd.currentEntity->e.renderfx & RF_STEFX_FORCE_ENT_ALPHA )
+			{
+				forceAlphaGen = AGEN_ENTITY;
+				if ( backEnd.currentEntity->e.shaderRGBA[3] < 255 && !( stateBits & GLS_ATEST_BITS ) )
+				{
+					stateBits &= ~( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS | GLS_ATEST_BITS );
+					stateBits |= GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_ATEST_GT_0;
 				}
 			}
 

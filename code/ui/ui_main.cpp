@@ -1,6 +1,6 @@
 #if defined(STEFX_ELITE_FORCE_MP)
-#include "../../codemp/game/q_shared.h"
-#include "../../codemp/qcommon/xb_settings.h"
+#include "../game/q_shared.h"
+#include "../qcommon/xb_settings.h"
 
 int uiClientNum = 0;
 int uiclientInputClosed = 0;
@@ -9,9 +9,9 @@ int unpluggedcontrol2 = -1;
 vmCvar_t ControllerOutNum;
 int gScrollDelta = 0;
 
-char SaberParms[0x4000];
+char SaberParms[0x8000];
 
-#include "../../codemp/ui/ui_stefx_spcompat.h"
+#include "ui_stefx_spcompat.h"
 
 uiInfo_t uiInfo;
 qboolean inHandler = qfalse;
@@ -65,7 +65,7 @@ void Text_Paint(float x, float y, float scale, vec4_t color, const char *text, i
 }
 
 #undef ui
-#include "../../codemp/namespace_end.h"
+#include "../namespace_end.h"
 #else
 // Copyright (C) 1999-2000 Id Software, Inc.
 //
@@ -1507,26 +1507,34 @@ static qboolean UI_RunMenuScript ( const char **args )
 		else if (Q_stricmp(name, "nextDataPadForcePower") == 0)
 		{
 			ui.Cmd_ExecuteText( EXEC_NOW, "dpforcenext\n");
+#if !defined(STEFX_SP_HOSTED_MP)
 			extern void CG_SetDataPadForceText( void );
 			CG_SetDataPadForceText();
+#endif
 		}
 		else if (Q_stricmp(name, "prevDataPadForcePower") == 0)
 		{
 			ui.Cmd_ExecuteText( EXEC_NOW, "dpforceprev\n");
+#if !defined(STEFX_SP_HOSTED_MP)
 			extern void CG_SetDataPadForceText( void );
 			CG_SetDataPadForceText();
+#endif
 		}
 		else if (Q_stricmp(name, "nextDataPadWeapon") == 0)
 		{
 			ui.Cmd_ExecuteText( EXEC_NOW, "dpweapnext\n");
+#if !defined(STEFX_SP_HOSTED_MP)
 			extern void CG_SetDataPadWeaponText( void );
 			CG_SetDataPadWeaponText();
+#endif
 		}
 		else if (Q_stricmp(name, "prevDataPadWeapon") == 0)
 		{
 			ui.Cmd_ExecuteText( EXEC_NOW, "dpweapprev\n");
+#if !defined(STEFX_SP_HOSTED_MP)
 			extern void CG_SetDataPadWeaponText( void );
 			CG_SetDataPadWeaponText();
+#endif
 		}
 		else if (Q_stricmp(name, "nextDataPadInventory") == 0)
 		{
@@ -1781,12 +1789,14 @@ static qboolean UI_RunMenuScript ( const char **args )
     	}
 		else if( Q_stricmp(name, "fixforsabercheat") == 0)
 		{
+#if !defined(STEFX_SP_HOSTED_MP)
 			if(strstr(Cvar_Get("g_saber2"," ", 0)->string, "single"))
 			{
 				extern bool Cheat_ChangeSaber( void );
 				Cheat_ChangeSaber();
 				Cheat_ChangeSaber();
 			}
+#endif
 		}
 		else if (Q_stricmp(name, "updatefightingstylechoices") == 0)
 		{

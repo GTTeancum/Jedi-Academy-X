@@ -5,6 +5,11 @@
 
 
 #include "server.h"
+
+#if defined(STEFX_SP_HOSTED_MP)
+extern void STEFX_HolomatchHostRunFrame(int levelTime);
+extern void STEFX_HolomatchHostAfterGameFrame(int levelTime);
+#endif
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBSvFrameCount;
@@ -37,7 +42,7 @@ cvar_t	*sv_serverid;
 cvar_t	*sv_testsave;			// Run the savegame enumeration every game frame
 cvar_t	*sv_compress_saved_games;	// compress the saved games on the way out (only affect saver, loader can read both)
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
 static int SV_STEFX_ActiveCommandServerTime(void)
 {
 	static qboolean initialized = qfalse;
@@ -217,7 +222,7 @@ void SV_SendServerCommand(client_t *cl, const char *fmt, ...) {
 	}
 
 	// send the data to all relevent clients
-	for (j = 0, client = svs.clients; j < 1 ; j++, client++) {
+	for (j = 0, client = svs.clients; j < MAX_CLIENTS ; j++, client++) {
 		if ( client->state < CS_PRIMED ) {
 			continue;
 		}
@@ -263,7 +268,7 @@ void SVC_Status( netadr_t from ) {
 	status[0] = 0;
 	statusLength = 0;
 
-	for (i=0 ; i < 1 ; i++) {
+	for (i=0 ; i < MAX_CLIENTS ; i++) {
 		cl = &svs.clients[i];
 		if ( cl->state >= CS_CONNECTED ) {
 			if ( cl->gentity && cl->gentity->client ) {
@@ -298,7 +303,7 @@ static void SVC_Info( netadr_t from ) {
 	char	infostring[MAX_INFO_STRING];
 
 	count = 0;
-	for ( i = 0 ; i < 1 ; i++ ) {
+	for ( i = 0 ; i < MAX_CLIENTS ; i++ ) {
 		if ( svs.clients[i].state >= CS_CONNECTED ) {
 			count++;
 		}
@@ -314,7 +319,7 @@ static void SVC_Info( netadr_t from ) {
 	//Info_SetValueForKey( infostring, "hostname", sv_hostname->string );
 	Info_SetValueForKey( infostring, "mapname", sv_mapname->string );
 	Info_SetValueForKey( infostring, "clients", va("%i", count) );
-	Info_SetValueForKey( infostring, "sv_maxclients", va("%i", 1) );
+	Info_SetValueForKey( infostring, "sv_maxclients", va("%i", MAX_CLIENTS) );
 
 	NET_OutOfBandPrint( NS_SERVER, from, "infoResponse\n%s", infostring );
 }
@@ -396,7 +401,7 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 	qport = MSG_ReadShort( msg ) & 0xffff;
 
 	// find which client the message is from
-	for (i=0, cl=svs.clients ; i < 1 ; i++,cl++) {
+	for (i=0, cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++) {
 		if (cl->state == CS_FREE) {
 			continue;
 		}
@@ -451,7 +456,7 @@ void SV_CalcPings (void) {
 	int			total, count;
 	int			delta;
 
-	for (i=0 ; i < 1 ; i++) {
+	for (i=0 ; i < MAX_CLIENTS ; i++) {
 		cl = &svs.clients[i];
 		if ( cl->state != CS_ACTIVE ) {
 			continue;
@@ -505,7 +510,7 @@ void SV_CheckTimeouts( void ) {
 	droppoint = sv.time - 1000 * sv_timeout->integer;
 	zombiepoint = sv.time - 1000 * sv_zombietime->integer;
 
-	for (i=0,cl=svs.clients ; i < 1 ; i++,cl++) {
+	for (i=0,cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++) {
 		// message times may be wrong across a changelevel
 		if (cl->lastPacketTime > sv.time) {
 			cl->lastPacketTime = sv.time;
@@ -514,6 +519,11 @@ void SV_CheckTimeouts( void ) {
 		if (cl->state == CS_ZOMBIE
 		&& cl->lastPacketTime < zombiepoint) {
 			cl->state = CS_FREE;	// can now be reused
+			continue;
+		}
+		if (cl->gentity && (cl->gentity->svFlags & SVF_BOT)) {
+			cl->lastPacketTime = sv.time;
+			cl->timeoutCount = 0;
 			continue;
 		}
 		if ( cl->state >= CS_CONNECTED && cl->lastPacketTime < droppoint) {
@@ -707,7 +717,13 @@ void SV_Frame( int msec,float fractionMsec ) {
 				sv.time, sv.timeResidual);
 		}
 #endif
+		#if defined(STEFX_SP_HOSTED_MP)
+		STEFX_HolomatchHostRunFrame(sv.time);
+		#endif
 		ge->RunFrame( sv.time );
+		#if defined(STEFX_SP_HOSTED_MP)
+		STEFX_HolomatchHostAfterGameFrame(sv.time);
+		#endif
 #ifdef _XBOX
 		if (xboxTraceSVFrame)
 		{
@@ -723,7 +739,7 @@ void SV_Frame( int msec,float fractionMsec ) {
 
 	SG_TestSave();	// returns immediately if not active, used for fake-save-every-cycle to test (mainly) Icarus disk code
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
 	{
 		static qboolean s_activeCommandsQueued = qfalse;
 		static int s_activeCommandAttempts = 0;

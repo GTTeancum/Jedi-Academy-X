@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
 import struct
@@ -108,6 +109,26 @@ FULLSCREEN_TEXTURE_SEEDS = (
     "textures/common/enemyspace",
     "textures/common/sevenspace",
     "textures/common/tuvokhazard",
+)
+HOLOMATCH_LOADSCREEN_OVERRIDES = (
+    # Loading-screen assets are already shipped by the SP Xbox package.
+    # Rebuilding them into xbox1.pk3 shadows the proven SP copies and has
+    # produced corrupted loading-wheel draws in Holomatch.
+    "menu/common/corner_lr_8_16.dds",
+)
+HOLOMATCH_SHARED_SP_DDS = (
+    # The SP interface HUD owns Holomatch HUD drawing, so xbox1.pk3 carries the
+    # same proven DDS assets from xbox0.pk3. This keeps Holomatch DDS-only even
+    # after loose original image fallbacks are removed from the staged tree.
+    "gfx/interface/ammobar.dds",
+    "gfx/interface/ammolowercap1.dds",
+    "gfx/interface/ammolowercap2.dds",
+    "gfx/interface/ammouppercap1.dds",
+    "gfx/interface/ammouppercap2.dds",
+    "gfx/interface/armorcap1.dds",
+    "gfx/interface/armorcap2.dds",
+    "gfx/interface/healthcap1.dds",
+    "gfx/interface/healthcap2.dds",
 )
 ORIGINAL_FORMAT_TEXTURES = (
     # These are script/cgame-owned intro assets. Until their Xbox-native
@@ -895,6 +916,82 @@ def build_dds(
         return header + payload, info
 
 
+def build_bgra32_dds_from_bytes(source_name: str, source_bytes: bytes, max_size: int) -> tuple[bytes, dict[str, object]]:
+    with Image.open(io.BytesIO(source_bytes)) as opened:
+        image = resize_for_xbox(opened, max_size)
+        payload = encode_bgra32(image)
+        header = dds_bgra32_header(image.width, image.height, image.width * 4)
+        info = {
+            "source": source_name,
+            "format": "bgra32",
+            "sourceWidth": opened.width,
+            "sourceHeight": opened.height,
+            "width": image.width,
+            "height": image.height,
+            "bytes": len(header) + len(payload),
+            "sha1": hashlib.sha1(header + payload).hexdigest(),
+        }
+        return header + payload, info
+
+
+def add_holomatch_loadscreen_overrides(
+    zip_out: zipfile.ZipFile,
+    base_dir: Path,
+    max_size: int,
+    textures: list[dict[str, object]],
+) -> None:
+    source_pk3 = base_dir / "xbox0.pk3"
+    if not source_pk3.is_file():
+        raise FileNotFoundError(f"missing xbox0.pk3 for Holomatch loadscreen overrides: {source_pk3}")
+
+    with zipfile.ZipFile(source_pk3, "r") as source_zip:
+        entries = {name.lower(): name for name in source_zip.namelist()}
+        for rel in HOLOMATCH_LOADSCREEN_OVERRIDES:
+            source_name = entries.get(rel.lower())
+            if not source_name:
+                raise FileNotFoundError(f"missing Holomatch loadscreen source in xbox0.pk3: {rel}")
+            data, info = build_bgra32_dds_from_bytes(
+                f"xbox0.pk3:{source_name}",
+                source_zip.read(source_name),
+                max_size,
+            )
+            zip_write_bytes(zip_out, rel, data)
+            info["path"] = rel
+            info["source"] = f"xbox0.pk3:{source_name}"
+            info["maxTextureSize"] = max_size
+            textures.append(info)
+
+
+def add_holomatch_shared_sp_dds(
+    zip_out: zipfile.ZipFile,
+    base_dir: Path,
+    max_size: int,
+    textures: list[dict[str, object]],
+    support_files: list[str],
+) -> None:
+    source_pk3 = base_dir / "xbox0.pk3"
+    if not source_pk3.is_file():
+        raise FileNotFoundError(f"missing xbox0.pk3 for Holomatch shared SP DDS assets: {source_pk3}")
+
+    with zipfile.ZipFile(source_pk3, "r") as source_zip:
+        entries = {name.lower(): name for name in source_zip.namelist()}
+        for rel in HOLOMATCH_SHARED_SP_DDS:
+            source_name = entries.get(rel.lower())
+            if not source_name:
+                raise FileNotFoundError(f"missing shared SP DDS asset in xbox0.pk3: {rel}")
+            data, info = build_bgra32_dds_from_bytes(
+                f"xbox0.pk3:{source_name}",
+                source_zip.read(source_name),
+                max_size,
+            )
+            zip_write_bytes(zip_out, rel, data)
+            info["path"] = rel
+            info["source"] = f"xbox0.pk3:{source_name}"
+            info["maxTextureSize"] = max_size
+            textures.append(info)
+            support_files.append(rel)
+
+
 def parse_bsp_lumps(data: bytes, bsp_path: Path) -> list[tuple[int, int]]:
     if len(data) < 8 + EF_HEADER_LUMPS * 8:
         raise ValueError(f"{bsp_path} is too small to be an EF BSP")
@@ -923,12 +1020,23 @@ def campaign_bsp_paths(base_dir: Path) -> list[Path]:
     return paths
 
 
+def multiplayer_bsp_paths(base_dir: Path) -> list[Path]:
+    maps_dir = base_dir / "maps"
+    return sorted(
+        path
+        for path in maps_dir.glob("*.bsp")
+        if path.name.lower().startswith(MULTIPLAYER_MAP_PREFIXES)
+    )
+
+
 def selected_bsp_paths(base_dir: Path, mode: str, map_name: str) -> list[Path]:
     maps_dir = base_dir / "maps"
     if mode == "none":
         return []
     if mode == "campaign":
         return campaign_bsp_paths(base_dir)
+    if mode == "multiplayer":
+        return multiplayer_bsp_paths(base_dir)
     if mode == "all":
         return sorted(maps_dir.glob("*.bsp"))
     if mode == "map":
@@ -1046,11 +1154,12 @@ def ui_script_files(base_dir: Path) -> list[Path]:
     return sorted(scripts)
 
 
-def holomatch_support_files(base_dir: Path, map_name: str) -> list[Path]:
+def holomatch_support_files(base_dir: Path, map_names: list[str]) -> list[Path]:
     direct_files = [
-        f"maps/{map_name}.aas",
+        *(f"maps/{map_name}.aas" for map_name in map_names),
         "scripts/bots.txt",
         "scripts/arenas.txt",
+        "scripts/xpack.arena",
         "botfiles/bots/chars.h",
         "botfiles/bots/seven_c.c",
         "botfiles/bots/seven_i.c",
@@ -1219,12 +1328,14 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 ui_scripts.append(ui_rel)
 
         if args.holomatch_support_assets:
-            for support_path in holomatch_support_files(base_dir, args.map):
+            support_map_names = sorted(bsp_checksums) if bsp_checksums else [args.map.lower()]
+            for support_path in holomatch_support_files(base_dir, support_map_names):
                 support_rel = normalized_rel(support_path.relative_to(base_dir).as_posix())
                 support_data = support_path.read_bytes()
-                aas_rel = f"maps/{args.map.lower()}.aas"
-                if support_rel == aas_rel and args.map.lower() in bsp_checksums:
-                    checksum = bsp_checksums[args.map.lower()]
+                support_suffix = Path(support_rel).suffix.lower()
+                support_map_name = Path(support_rel).stem.lower()
+                if support_suffix == ".aas" and support_map_name in bsp_checksums:
+                    checksum = bsp_checksums[support_map_name]
                     support_data = patch_aas_checksum(support_data, checksum)
                     patched_aas_checksums[support_rel] = checksum
                 zip_write_bytes(zip_out, support_rel, support_data)
@@ -1239,9 +1350,14 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                     )
                 zip_write_bytes(zip_out, alias_rel, source_path.read_bytes())
                 support_files.append(alias_rel)
+            arena_names = [
+                name
+                for name in ("arenas.txt", "xpack.arena")
+                if (base_dir / "scripts" / name).is_file()
+            ]
             holomatch_lists = {
                 "scripts/_console_bot_list_": ["bots.txt"],
-                "scripts/_console_arena_list_": ["arenas.txt"],
+                "scripts/_console_arena_list_": arena_names,
             }
             for list_rel, names in holomatch_lists.items():
                 zip_write_bytes(zip_out, list_rel, console_file_list_bytes(names))
@@ -1257,6 +1373,19 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 "bytes": len(effects_image_data),
                 "sha1": hashlib.sha1(effects_image_data).hexdigest(),
             }
+            add_holomatch_shared_sp_dds(
+                zip_out,
+                base_dir,
+                args.max_hud_texture_size,
+                textures,
+                support_files,
+            )
+            add_holomatch_loadscreen_overrides(
+                zip_out,
+                base_dir,
+                args.max_loadscreen_texture_size,
+                textures,
+            )
 
         bsp_rel: str | None = None
         if args.include_bsp:
@@ -1420,7 +1549,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--bsp-maps",
-        choices=("map", "campaign", "all"),
+        choices=("map", "campaign", "multiplayer", "all"),
         default="map",
         help="Which BSPs to optimize when --bsp-mode is active.",
     )

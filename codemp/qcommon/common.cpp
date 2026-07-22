@@ -1045,6 +1045,8 @@ Com_RunAndTimeServerPacket
 */
 void Com_RunAndTimeServerPacket( netadr_t *evFrom, msg_t *buf ) {
 	int		t1, t2, msec;
+	static int stefxServerPacketTraceCount = 0;
+	const qboolean stefxTracePacket = (qboolean)( stefxServerPacketTraceCount < 8 );
 
 	t1 = 0;
 
@@ -1052,7 +1054,16 @@ void Com_RunAndTimeServerPacket( netadr_t *evFrom, msg_t *buf ) {
 		t1 = Sys_Milliseconds ();
 	}
 
+	if ( stefxTracePacket ) {
+		Com_Printf( "ERROR: HMDIAG server packet begin size=%d read=%d\n",
+			buf ? buf->cursize : -1, buf ? buf->readcount : -1 );
+	}
 	SV_PacketEvent( *evFrom, buf );
+	if ( stefxTracePacket ) {
+		Com_Printf( "ERROR: HMDIAG server packet end size=%d read=%d\n",
+			buf ? buf->cursize : -1, buf ? buf->readcount : -1 );
+		stefxServerPacketTraceCount++;
+	}
 
 	if ( com_speeds->integer ) {
 		t2 = Sys_Milliseconds ();

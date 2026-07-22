@@ -366,6 +366,10 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 
 #ifdef _XBOX
 	XBLF("JA: Com_Error code=%d message=%s", code, com_errorMessage);
+#if defined(STEFX_SP_HOSTED_MP)
+	XBLog_WriteCriticalf("STEFX_HM_SP: Com_Error code=%d message='%s'",
+		code, com_errorMessage);
+#endif
 #endif
 
 	if ( code != ERR_DISCONNECT ) {

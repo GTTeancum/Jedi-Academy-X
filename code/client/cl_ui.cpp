@@ -27,6 +27,15 @@ extern qboolean SG_GameAllowedToSaveHere(qboolean inCamera);
 extern void SG_StoreSaveGameComment(const char *sComment);
 //extern byte *SCR_GetScreenshot(qboolean *qValid);
 
+#if defined(STEFX_SP_HOSTED_MP)
+static qboolean CL_HolomatchGameAllowedToSaveHere(qboolean inCamera)
+{
+	// Holomatch keeps the SP UI but has no SP game save export.  The UI uses
+	// qtrue only to determine whether its in-game menu may open.
+	return inCamera ? qtrue : qfalse;
+}
+#endif
+
 
 /*
 ====================
@@ -275,7 +284,11 @@ void CL_InitUI( void ) {
 	//uii.SG_GetSaveImage			= SG_GetSaveImage;
 	uii.SG_GetSaveGameComment	= SG_GetSaveGameComment;
 	uii.SG_StoreSaveGameComment = SG_StoreSaveGameComment;
+#if defined(STEFX_SP_HOSTED_MP)
+	uii.SG_GameAllowedToSaveHere= CL_HolomatchGameAllowedToSaveHere;
+#else
 	uii.SG_GameAllowedToSaveHere= SG_GameAllowedToSaveHere;
+#endif
 
 	//uii.SCR_GetScreenshot		= SCR_GetScreenshot;
 
@@ -323,12 +336,13 @@ void CL_InitUI( void ) {
 	uii.Milliseconds			= Sys_Milliseconds;
 
 #ifdef _XBOX
-	XBLF("JA: CL_InitUI: callbacks ready Printf=%p Error=%p RegisterShaderNoMip=%p DrawStretchPic=%p UpdateScreen=%p",
+	XBLF("JA: CL_InitUI: callbacks ready Printf=%p Error=%p RegisterShaderNoMip=%p DrawStretchPic=%p UpdateScreen=%p GameAllowedToSave=%p",
 		(void*)uii.Printf,
 		(void*)uii.Error,
 		(void*)uii.R_RegisterShaderNoMip,
 		(void*)uii.R_DrawStretchPic,
-		(void*)uii.UpdateScreen);
+		(void*)uii.UpdateScreen,
+		(void*)uii.SG_GameAllowedToSaveHere);
 	XBLF("JA: CL_InitUI: calling UI_Init inGameLoad=%d", (int)(cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));
 #endif
 	UI_Init(UI_API_VERSION, &uii, (cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));

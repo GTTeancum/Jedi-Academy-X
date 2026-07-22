@@ -1598,6 +1598,15 @@ void R_AddEntitySurfaces (void) {
 		case RT_LATHE:
 		case RT_CLOUDS:
 		case RT_LINE:
+		case RT_TEXTURED_LINE:
+		case RT_ORIENTED_LINE:
+		case RT_TAPERED_LINE:
+		case RT_BEZIER:
+		case RT_EF_ORIENTED_SPRITE:
+		case RT_EF_ALPHA_VERT_POLY:
+		case RT_EF_LIGHTNING:
+		case RT_EF_CYLINDER:
+		case RT_EF_ELECTRICITY:
 		case RT_ELECTRICITY:
 		case RT_SABER_GLOW:
 			// self blood sprites, talk balloons, etc should not be drawn in the primary

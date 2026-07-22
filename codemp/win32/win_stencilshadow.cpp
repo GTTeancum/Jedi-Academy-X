@@ -55,7 +55,7 @@ bool StencilShadow::Initialize()
         D3DVSD_END()
     };
 
-    if(!( CreateVertexShader(Sys_RemapPath("base\\media\\shadow.xvu"), dwVertexDecl, &m_dwVertexShaderShadow)))
+    if(!( CreateVertexShader(Sys_RemapPath("BaseEF\\media\\shadow.xvu"), dwVertexDecl, &m_dwVertexShaderShadow)))
 		return false;
 
 	return true;

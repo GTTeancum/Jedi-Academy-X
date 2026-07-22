@@ -299,6 +299,27 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 #ifdef _XBOX
 	backEndData->entities[r_numentities].visible = -1;
 #if defined(STEFX_ELITE_FORCE_SP)
+	if ( ent->reType == RT_LINE )
+	{
+		static int s_stefxLineSceneBudget = 96;
+		if ( s_stefxLineSceneBudget > 0 )
+		{
+			shader_t *lineShader = R_GetShaderByHandle( ent->customShader );
+			XBLog_WriteCriticalf("STEFX_RENDER_LINE scene slot=%d shader=%d name='%s' rf=0x%x width=%g rgba=(%u,%u,%u,%u) start=(%g,%g,%g) end=(%g,%g,%g)",
+				r_numentities,
+				ent->customShader,
+				lineShader ? lineShader->name : "<null>",
+				ent->renderfx,
+				ent->radius,
+				(unsigned int)ent->shaderRGBA[0],
+				(unsigned int)ent->shaderRGBA[1],
+				(unsigned int)ent->shaderRGBA[2],
+				(unsigned int)ent->shaderRGBA[3],
+				ent->origin[0], ent->origin[1], ent->origin[2],
+				ent->oldorigin[0], ent->oldorigin[1], ent->oldorigin[2]);
+			--s_stefxLineSceneBudget;
+		}
+	}
 	if ( ent->reType == RT_MODEL && R_STEFX_IsSplitHelmetModel( ent->hModel ) )
 	{
 		++g_SPXBHelmetRendererRefs;

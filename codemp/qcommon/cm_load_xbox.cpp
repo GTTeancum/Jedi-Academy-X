@@ -651,6 +651,13 @@ qboolean CM_DeleteCachedMap(qboolean bGuaranteedOkToDelete)
 void CM_Free(void) 
 {
 #if defined(STEFX_ELITE_FORCE_MP)
+	/* The local Holomatch server owns the shared collision map for the match. */
+	if ( com_sv_running && com_sv_running->integer ) {
+		Com_Printf( "STEFX_HM: CM_Free skipped while local server owns collision map\n" );
+		return;
+	}
+#endif
+#if defined(STEFX_ELITE_FORCE_MP)
 	CM_EFForgetRawMap( "CM_Free" );
 	cmg.name[0] = '\0';
 	cmg.cmodels = NULL;
@@ -1083,7 +1090,21 @@ int		CM_LeafCluster( int leafnum ) {
 }
 
 int		CM_LeafArea( int leafnum ) {
+	static int areaCallLogCount = 0;
+	static int invalidAreaLogCount = 0;
+	if ( areaCallLogCount < 8 ) {
+		XBLog_Writef( "ERROR: HMDIAG CM_LeafArea call leaf=%d leafs=%d nodes=%d planes=%d map='%s'",
+			leafnum, cmg.numLeafs, cmg.numNodes, cmg.numPlanes,
+			cmg.name[0] ? cmg.name : "(none)" );
+		areaCallLogCount++;
+	}
 	if ( leafnum < 0 || leafnum >= cmg.numLeafs ) {
+		if ( invalidAreaLogCount < 8 ) {
+			XBLog_Writef( "ERROR: HMDIAG CM_LeafArea invalid leaf=%d leafs=%d nodes=%d planes=%d map='%s'",
+				leafnum, cmg.numLeafs, cmg.numNodes, cmg.numPlanes,
+				cmg.name[0] ? cmg.name : "(none)" );
+			invalidAreaLogCount++;
+		}
 		Com_Error (ERR_DROP, "CM_LeafArea: bad number");
 	}
 	return cmg.leafs[leafnum].area;

@@ -4548,8 +4548,12 @@ Ghoul2 Insert End
 	// load the new map
 //	CG_LoadingString( "collision map" );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: reusing server-loaded collision map for Holomatch\n");
+#else
 	trap_CM_LoadMap( cgs.mapname, qfalse );
-	CG_PrintfAlways("JAMP: CG_Init after trap_CM_LoadMap\n");
+#endif
+	CG_PrintfAlways("JAMP: CG_Init collision map ready\n");
 
 	String_Init();
 	CG_PrintfAlways("JAMP: CG_Init after String_Init\n");
@@ -4646,7 +4650,11 @@ Ghoul2 Insert End
 	if(ClientManager::ActiveClientNum() != 1)
 #endif
 	//now get all the cgame only cents
+	#if defined(STEFX_ELITE_FORCE_MP)
+	CG_PrintfAlways("STEFX_HM: skipped inherited JA cgame-only entity parse for Holomatch\n");
+	#else
 	CG_SpawnCGameOnlyEnts();
+	#endif
 	CG_PrintfAlways("JAMP: CG_Init exit\n");
 }
 

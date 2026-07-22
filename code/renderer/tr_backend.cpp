@@ -23,8 +23,8 @@ extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
 extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
 extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
 extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
-extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[16];
-extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
+extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS];
+extern "C" volatile unsigned int g_SPXBEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS];
 static const bool kXboxClassifyDrawSurfs = false;
 #endif
 
@@ -54,6 +54,15 @@ static bool RB_XboxGeneratedEntityIsMergeSafe(int entityNum)
 	case RT_LATHE:
 	case RT_CLOUDS:
 	case RT_LINE:
+	case RT_TEXTURED_LINE:
+	case RT_ORIENTED_LINE:
+	case RT_TAPERED_LINE:
+	case RT_BEZIER:
+	case RT_EF_ORIENTED_SPRITE:
+	case RT_EF_ALPHA_VERT_POLY:
+	case RT_EF_LIGHTNING:
+	case RT_EF_CYLINDER:
+	case RT_EF_ELECTRICITY:
 	case RT_ELECTRICITY:
 	case RT_SABER_GLOW:
 		return true;
@@ -942,11 +951,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			{
 				const int surfType = (int)*drawSurf->surface;
 				const int entType = backEnd.currentEntity ? (int)backEnd.currentEntity->e.reType : RT_MAX_REF_ENTITY_TYPE;
-				if (surfType >= 0 && surfType < 16)
+				if (surfType >= 0 && surfType < SPXB_SURFACE_TYPE_BUCKETS)
 				{
 					g_SPXBSurfaceTypeCounts[surfType]++;
 				}
-				if (entType >= 0 && entType < 16)
+				if (entType >= 0 && entType < SPXB_ENTITY_TYPE_BUCKETS)
 				{
 					g_SPXBEntityTypeCounts[entType]++;
 				}
@@ -989,11 +998,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			{
 				entType = (int)backEnd.refdef.entities[entityNum].e.reType;
 			}
-			if (surfType >= 0 && surfType < 16)
+			if (surfType >= 0 && surfType < SPXB_SURFACE_TYPE_BUCKETS)
 			{
 				g_SPXBSurfaceTypeCounts[surfType]++;
 			}
-			if (entType >= 0 && entType < 16)
+			if (entType >= 0 && entType < SPXB_ENTITY_TYPE_BUCKETS)
 			{
 				g_SPXBEntityTypeCounts[entType]++;
 			}

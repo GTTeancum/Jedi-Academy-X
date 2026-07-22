@@ -1088,6 +1088,14 @@ static qboolean STEFX_SmokeHarnessEnabled( void )
 	static qboolean s_checked = qfalse;
 	static qboolean s_enabled = qfalse;
 	FILE *file;
+	const char *paths[] = {
+		"D:\\ef_sp_smoke_harness.txt",
+		"d:\\ef_sp_smoke_harness.txt",
+		"E:\\ef_sp_smoke_harness.txt",
+		"e:\\ef_sp_smoke_harness.txt",
+		NULL
+	};
+	int i;
 
 	if ( s_checked )
 	{
@@ -1095,12 +1103,16 @@ static qboolean STEFX_SmokeHarnessEnabled( void )
 	}
 	s_checked = qtrue;
 
-	file = fopen( "D:\\ef_sp_smoke_harness.txt", "r" );
-	if ( file )
+	for ( i = 0; paths[i]; ++i )
 	{
-		fclose( file );
-		s_enabled = qtrue;
-		XBL("STEFX: smoke harness marker enabled client input");
+		file = fopen( paths[i], "r" );
+		if ( file )
+		{
+			fclose( file );
+			s_enabled = qtrue;
+			XBLF("STEFX: smoke harness marker enabled client input path='%s'", paths[i]);
+			break;
+		}
 	}
 
 	return s_enabled;
@@ -1213,10 +1225,6 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 		return;
 	}
 
-	if ( !forwardMove && !sideMove )
-	{
-		forwardMove = 90;
-	}
 	if ( attackEnd > 0 && attackEnd < startTime )
 	{
 		attackStart = startTime + 1000;
@@ -1698,7 +1706,11 @@ void CL_MouseClamp(int *x, int *y)
 }
 #endif
 
+#if defined(STEFX_SP_HOSTED_MP)
+static int s_stefxHolomatchLastFireTime = 0;
+#else
 extern short cg_crossHairStatus;
+#endif
 
 void CL_MouseMove( usercmd_t *cmd )
 {
@@ -1722,8 +1734,15 @@ void CL_MouseMove( usercmd_t *cmd )
 	float rawMx = mx;
 	float rawMy = my;
 
-	// Slow it down when targeting an enemy:
-	if (cg_crossHairStatus == 1)
+	// Slow it down when targeting an enemy.  Holomatch owns its crosshair
+	// state inside the official cgame, so the engine must not read SP cgame
+	// storage here.
+#if defined(STEFX_SP_HOSTED_MP)
+	const short crossHairStatus = 0;
+#else
+	const short crossHairStatus = cg_crossHairStatus;
+#endif
+	if (crossHairStatus == 1)
 	{
 		mx *= m_hoverSensitivity;
 		my *= m_hoverSensitivity;
@@ -1742,14 +1761,19 @@ void CL_MouseMove( usercmd_t *cmd )
 
 	if (!mx && !my) {
 		// If there was a movement but no change in angles then start auto-leveling the camera
-		extern int g_lastFireTime;
 		float autolevelSpeed = 0.03f;
+#if defined(STEFX_SP_HOSTED_MP)
+		const int lastFireTime = s_stefxHolomatchLastFireTime;
+#else
+		extern int g_lastFireTime;
+		const int lastFireTime = g_lastFireTime;
+#endif
 
-		if (cg_crossHairStatus != 1 &&							// Not looking at an enemy
+		if (crossHairStatus != 1 &&							// Not looking at an enemy
 			cl.joystickAxis[AXIS_FORWARD] &&					// Moving forward/backward
 			cl.frame.ps.groundEntityNum != ENTITYNUM_NONE &&	// Not in the air
 			Cvar_VariableIntegerValue("cl_autolevel") &&		// Autolevel is turned on
-			g_lastFireTime < Sys_Milliseconds() - 1000)			// Haven't fired recently
+			lastFireTime < Sys_Milliseconds() - 1000)			// Haven't fired recently
 		{
 			float normAngle = -SHORT2ANGLE(cl.frame.ps.delta_angles[PITCH]);
 			// The adjustment to normAngle below is meant to add or remove some multiple
@@ -1935,6 +1959,24 @@ usercmd_t CL_CreateCmd( void ) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_ApplySmokeInput( &cmd );
+
+#if defined(STEFX_SP_HOSTED_MP)
+	{
+		static int s_stefxLastWeaponButtons = -1;
+		const int weaponButtons = cmd.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK);
+		if ( weaponButtons != s_stefxLastWeaponButtons )
+		{
+			Com_PrintfAlways( "STEFX_WEAPON: client cmd edge time=%d buttons=0x%x fire=0x%x weapon=%d\n",
+				cmd.serverTime, cmd.buttons, weaponButtons, cmd.weapon );
+			s_stefxLastWeaponButtons = weaponButtons;
+		}
+	}
+
+	if ( cmd.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK) )
+	{
+		s_stefxHolomatchLastFireTime = Sys_Milliseconds();
+	}
+#endif
 
 	{
 		static int s_cmdLogBudget = 80;

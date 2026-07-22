@@ -192,6 +192,69 @@ clipHandle_t SV_ClipHandleForEntity( const gentity_t *ent ) {
 	return CM_TempBoxModelContents( ent->mins, ent->maxs, ent->contents );
 }
 
+#if defined(STEFX_SP_HOSTED_MP)
+void SV_ClipToEntity( trace_t *trace, const vec3_t start, const vec3_t mins,
+	const vec3_t maxs, const vec3_t end, int entityNum, int contentmask )
+{
+	gentity_t *touch;
+	clipHandle_t clipHandle;
+	const float *origin;
+	const float *angles;
+
+	memset(trace, 0, sizeof(*trace));
+	trace->fraction = 1.0f;
+	VectorCopy(end, trace->endpos);
+	trace->entityNum = ENTITYNUM_NONE;
+
+	if (!ge || !ge->gentities || entityNum < 0 || entityNum >= ge->num_entities)
+	{
+		return;
+	}
+
+	touch = SV_GentityNum(entityNum);
+	if (!touch || !touch->inuse || !(contentmask & touch->contents))
+	{
+		return;
+	}
+
+	clipHandle = SV_ClipHandleForEntity(touch);
+	origin = touch->currentOrigin;
+	angles = touch->bmodel ? touch->currentAngles : vec3_origin;
+	CM_TransformedBoxTrace(trace, start, end, mins ? mins : vec3_origin,
+		maxs ? maxs : vec3_origin, clipHandle, contentmask, origin, angles);
+
+	if (trace->fraction < 1.0f || trace->startsolid || trace->allsolid)
+	{
+		trace->entityNum = touch->s.number;
+	}
+}
+
+void SV_BotModelBounds( int modelNum, const vec3_t angles, vec3_t outMins,
+	vec3_t outMaxs, vec3_t origin )
+{
+	clipHandle_t handle;
+	vec3_t mins;
+	vec3_t maxs;
+	float radius;
+	int i;
+
+	handle = CM_InlineModel(modelNum);
+	CM_ModelBounds(cmg, handle, mins, maxs);
+	if (angles && (angles[0] || angles[1] || angles[2]))
+	{
+		radius = RadiusFromBounds(mins, maxs);
+		for (i = 0; i < 3; ++i)
+		{
+			mins[i] = -radius;
+			maxs[i] = radius;
+		}
+	}
+	if (outMins) VectorCopy(mins, outMins);
+	if (outMaxs) VectorCopy(maxs, outMaxs);
+	if (origin) VectorClear(origin);
+}
+#endif
+
 
 
 /*

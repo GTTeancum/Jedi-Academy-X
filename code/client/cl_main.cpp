@@ -31,8 +31,8 @@ extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
 extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
 extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
 extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
-extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[16];
-extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
+extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS];
+extern "C" volatile unsigned int g_SPXBEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS];
 #endif
 
 #include "client.h"
@@ -55,7 +55,7 @@ extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
 extern void FS_STEFX_PrecacheFile(const char *qpath);
 extern void FS_STEFX_ClearPrecache(const char *reason);
 #endif
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
 static int CL_STEFX_ActiveCommandServerTime(void)
 {
 	static qboolean initialized = qfalse;
@@ -308,6 +308,14 @@ static void CL_XboxAutoSmokeTick( void )
 
 		if ( cls.state == CA_ACTIVE )
 		{
+#if defined(STEFX_SP_HOSTED_MP)
+			if ( !s_loggedPlayerControl )
+			{
+				s_loggedPlayerControl = qtrue;
+				s_done = qtrue;
+				XBLog_Write( "JA: Holomatch autosmoke reached CA_ACTIVE; no SP cinematic gate" );
+			}
+#else
 			extern bool in_camera;
 			if ( !in_camera && !s_loggedPlayerControl )
 			{
@@ -323,6 +331,7 @@ static void CL_XboxAutoSmokeTick( void )
 					XBLog_Write( "JA: SP autosmoke reached early CA_ACTIVE with in_camera=0; waiting for post-load cinematic" );
 				}
 			}
+#endif
 		}
 		return;
 	}
@@ -1326,7 +1335,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	}
 #endif
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
 	static qboolean s_stefxActiveCommandsQueued = qfalse;
 	static int s_stefxActiveCommandAttempts = 0;
 	static int s_stefxActiveCommandNextPollTime = 0;
@@ -1853,7 +1862,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 	}
 	if (cls.state == CA_ACTIVE)
 	{
-#if defined(STEFX_ELITE_FORCE_SP)
+#if defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
 		static qboolean s_stefxActiveCommandsQueuedLate = qfalse;
 		static int s_stefxActiveCommandAttemptsLate = 0;
 		static int s_stefxActiveCommandNextPollTimeLate = 0;
@@ -1891,14 +1900,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 		static unsigned int s_xboxLastSplitEntity = 0;
 		static unsigned int s_xboxLastSplitFinal = 0;
 		static unsigned int s_xboxLastSplitFlush = 0;
-		static unsigned int s_xboxLastSurfaceTypeCounts[16] = { 0 };
-		static unsigned int s_xboxLastEntityTypeCounts[16] = { 0 };
+		static unsigned int s_xboxLastSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS] = { 0 };
+		static unsigned int s_xboxLastEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS] = { 0 };
 		const int elapsed = cls.realtime - s_xboxLastCompletedHeartbeatTime;
 
 		if (elapsed >= 1000 || s_xboxLastCompletedHeartbeatTime == 0)
 		{
-			unsigned int surfaceTypeDelta[16];
-			unsigned int entityTypeDelta[16];
+			unsigned int surfaceTypeDelta[SPXB_SURFACE_TYPE_BUCKETS];
+			unsigned int entityTypeDelta[SPXB_ENTITY_TYPE_BUCKETS];
 			const int frameDelta = cls.framecount - s_xboxLastCompletedHeartbeatFrame;
 			const unsigned int drawLists = g_SPXBRenderDrawSurfLists - s_xboxLastDrawSurfLists;
 			const unsigned int surfaces = g_SPXBRenderSurfaces - s_xboxLastRenderSurfaces;
@@ -1912,18 +1921,25 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			const unsigned int splitEntity = g_SPXBRenderSplitEntity - s_xboxLastSplitEntity;
 			const unsigned int splitFinal = g_SPXBRenderSplitFinal - s_xboxLastSplitFinal;
 			const unsigned int splitFlush = g_SPXBRenderSplitFlush - s_xboxLastSplitFlush;
+			MEMORYSTATUS memoryStatus;
 			int fps10 = 0;
 			char msg[1024];
 			int msgLen;
 			int bucket;
 
+			memset(&memoryStatus, 0, sizeof(memoryStatus));
+			memoryStatus.dwLength = sizeof(memoryStatus);
+			GlobalMemoryStatus(&memoryStatus);
 			if (elapsed > 0)
 			{
 				fps10 = (frameDelta * 10000) / elapsed;
 			}
-			for (bucket = 0; bucket < 16; ++bucket)
+			for (bucket = 0; bucket < SPXB_SURFACE_TYPE_BUCKETS; ++bucket)
 			{
 				surfaceTypeDelta[bucket] = g_SPXBSurfaceTypeCounts[bucket] - s_xboxLastSurfaceTypeCounts[bucket];
+			}
+			for (bucket = 0; bucket < SPXB_ENTITY_TYPE_BUCKETS; ++bucket)
+			{
 				entityTypeDelta[bucket] = g_SPXBEntityTypeCounts[bucket] - s_xboxLastEntityTypeCounts[bucket];
 			}
 
@@ -1934,7 +1950,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			g_SPXBHeartbeatFps10 = fps10;
 
 			msgLen = _snprintf(msg, sizeof(msg),
-				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%d.%d r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u",
+				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%d.%d mem=%lu/%luKB r=%d cg=%d dl=%u surf=%u end=%u prim=%u verts=%u state=%u be=%u split=%u/%u/%u/%u final=%u flush=%u",
 				cls.framecount,
 				cls.realtime,
 				cl.serverTime,
@@ -1942,6 +1958,8 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				elapsed,
 				fps10 / 10,
 				fps10 % 10,
+				(unsigned long)(memoryStatus.dwAvailPhys / 1024),
+				(unsigned long)(memoryStatus.dwTotalPhys / 1024),
 				(int)cls.rendererStarted,
 				(int)cls.cgameStarted,
 				drawLists,
@@ -1961,14 +1979,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			{
 				msgLen = strlen(msg);
 			}
-			for (bucket = 0; bucket < 16 && msgLen > 0 && msgLen < (int)sizeof(msg) - 48; ++bucket)
+			for (bucket = 0; bucket < SPXB_SURFACE_TYPE_BUCKETS && msgLen > 0 && msgLen < (int)sizeof(msg) - 48; ++bucket)
 			{
 				if (surfaceTypeDelta[bucket])
 				{
 					msgLen += _snprintf(msg + msgLen, sizeof(msg) - msgLen, " sf%d=%u", bucket, surfaceTypeDelta[bucket]);
 				}
 			}
-			for (bucket = 0; bucket < 16 && msgLen > 0 && msgLen < (int)sizeof(msg) - 48; ++bucket)
+			for (bucket = 0; bucket < SPXB_ENTITY_TYPE_BUCKETS && msgLen > 0 && msgLen < (int)sizeof(msg) - 48; ++bucket)
 			{
 				if (entityTypeDelta[bucket])
 				{
@@ -1997,9 +2015,12 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			s_xboxLastSplitEntity = g_SPXBRenderSplitEntity;
 			s_xboxLastSplitFinal = g_SPXBRenderSplitFinal;
 			s_xboxLastSplitFlush = g_SPXBRenderSplitFlush;
-			for (bucket = 0; bucket < 16; ++bucket)
+			for (bucket = 0; bucket < SPXB_SURFACE_TYPE_BUCKETS; ++bucket)
 			{
 				s_xboxLastSurfaceTypeCounts[bucket] = g_SPXBSurfaceTypeCounts[bucket];
+			}
+			for (bucket = 0; bucket < SPXB_ENTITY_TYPE_BUCKETS; ++bucket)
+			{
 				s_xboxLastEntityTypeCounts[bucket] = g_SPXBEntityTypeCounts[bucket];
 			}
 		}
@@ -2376,7 +2397,10 @@ void CL_StartHunkUsers( void ) {
 		(!cls.cgameStarted && cls.state > CA_CONNECTED && (cls.state != CA_CINEMATIC && !CL_IsRunningInGameCinematic())));
 	if (xboxTraceStartHunk)
 	{
-		XBLog_Write("JA: CL_StartHunkUsers entered");
+		XBLF("JA: CL_StartHunkUsers entered state=%d cl_running=%d renderer=%d sound=%d soundReg=%d cgame=%d",
+			(int)cls.state, com_cl_running ? com_cl_running->integer : -1,
+			cls.rendererStarted ? 1 : 0, cls.soundStarted ? 1 : 0,
+			cls.soundRegistered ? 1 : 0, cls.cgameStarted ? 1 : 0);
 	}
 #endif
 	if ( !com_cl_running->integer ) {
@@ -2514,7 +2538,9 @@ void CL_StartHunkUsers( void ) {
 #ifdef _XBOX
 	if (xboxTraceStartHunk)
 	{
-		XBLog_Write("JA: CL_StartHunkUsers: COMPLETE");
+		XBLF("JA: CL_StartHunkUsers: COMPLETE state=%d renderer=%d sound=%d soundReg=%d cgame=%d",
+			(int)cls.state, cls.rendererStarted ? 1 : 0, cls.soundStarted ? 1 : 0,
+			cls.soundRegistered ? 1 : 0, cls.cgameStarted ? 1 : 0);
 	}
 #endif
 }
@@ -2899,6 +2925,9 @@ bool allowNormalAutosave = true;
 
 static void checkAutoSave()
 {
+#if defined(STEFX_SP_HOSTED_MP)
+	return;
+#else
 	static int timeToCheckpoint = 0;
 	static int delayCountdown = 3;		// delay a few frames before saving
 
@@ -2951,4 +2980,5 @@ static void checkAutoSave()
 		}
 
 	}
+#endif
 }

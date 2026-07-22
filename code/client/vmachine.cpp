@@ -28,11 +28,23 @@ int	VM_Call( int callnum, ... )
 		case CG_INIT:
 		{
 			const int arg0 = va_arg(ap, int);
+#if defined(STEFX_SP_HOSTED_MP)
+			const int arg1 = va_arg(ap, int);
+#endif
 			va_end(ap);
 #ifdef _XBOX
+#if defined(STEFX_SP_HOSTED_MP)
+			XBLF("STEFX_HM_SP: VM_Call CG_INIT entry=%08x message=%d command=%d",
+				(unsigned int)cgvm.entryPoint, arg0, arg1);
+#else
 			XBLF("STEFX: VM_Call CG_INIT entry=%08x arg0=%d", (unsigned int)cgvm.entryPoint, arg0);
 #endif
+#endif
+#if defined(STEFX_SP_HOSTED_MP)
+			result = cgvm.entryPoint(callnum, arg0, arg1, 0, 0, 0, 0, 0, 0);
+#else
 			result = cgvm.entryPoint(callnum, arg0, 0, 0, 0, 0, 0, 0, 0);
+#endif
 #ifdef _XBOX
 			XBLF("STEFX: VM_Call CG_INIT returned %d", result);
 #endif
@@ -62,9 +74,22 @@ int	VM_Call( int callnum, ... )
 		case CG_CAMERA_POS:
 		case CG_CAMERA_ANG:
 		{
+#if defined(STEFX_SP_HOSTED_MP)
+			static int s_stefxHostedCameraExportLogged = 0;
+			va_end(ap);
+			if (!s_stefxHostedCameraExportLogged)
+			{
+#ifdef _XBOX
+				XBLF("STEFX_HM_SP: SP-only cgame camera exports unavailable; using player-state viewpoint");
+#endif
+				s_stefxHostedCameraExportLogged = 1;
+			}
+			return 0;
+#else
 			const int arg0 = va_arg(ap, int);
 			va_end(ap);
 			return cgvm.entryPoint(callnum, arg0, 0, 0, 0, 0, 0, 0, 0);
+#endif
 		}
 		case CG_SHUTDOWN:
 		case CG_CONSOLE_COMMAND:

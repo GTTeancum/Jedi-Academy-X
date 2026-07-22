@@ -1452,7 +1452,11 @@ typedef struct {
 //
 // per-level limits
 //
+#if defined(STEFX_SP_HOSTED_MP)
+#define	MAX_CLIENTS			4		// SP-hosted Holomatch development target
+#else
 #define	MAX_CLIENTS			1 // 128		// absolute limit
+#endif
 #define MAX_TERRAINS		1 //32
 
 #define	GENTITYNUM_BITS		10		// don't need to send any more
@@ -1596,9 +1600,17 @@ typedef enum
 
 #define	MAX_POWERUPS			16
 #define	MAX_WEAPONS				32		
+#if defined(STEFX_SP_HOSTED_MP)
+#define MAX_AMMO				16
+#else
 #define MAX_AMMO				4
+#endif
 
+#if defined(STEFX_SP_HOSTED_MP)
+#define	MAX_PS_EVENTS			4		// official Elite Force Holomatch prediction ring
+#else
 #define	MAX_PS_EVENTS			2		// this must be a power of 2 unless you change some &'s to %'s -ste
+#endif
 
 #define MAX_WORLD_COORD		( 128*1024 )
 #define MIN_WORLD_COORD		( -128*1024 )

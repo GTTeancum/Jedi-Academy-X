@@ -48,31 +48,6 @@
 #define MAX_TEAM_SOUNDS (GTS_TEAMS_ARE_TIED + 1)
 #define RETURN_FLAG_SOUND GTS_RED_RETURN
 
-static int *EF_AI_MaxAmmoForCarrier(void)
-{
-	static int ammo[WP_NUM_WEAPONS + 22];
-	static qboolean initialized = qfalse;
-	if (!initialized)
-	{
-		ammo[WP_PHASER] = 50;
-		ammo[WP_COMPRESSION_RIFLE] = 128;
-		ammo[WP_IMOD] = 60;
-		ammo[WP_SCAVENGER_RIFLE] = 100;
-		ammo[WP_STASIS] = 50;
-		ammo[WP_GRENADE_LAUNCHER] = 30;
-		ammo[WP_TETRION_DISRUPTOR] = 120;
-		ammo[WP_QUANTUM_BURST] = 20;
-		ammo[WP_DREADNOUGHT] = 120;
-		ammo[WP_VOYAGER_HYPO] = 100;
-		ammo[WP_BORG_ASSIMILATOR] = 100;
-		ammo[WP_BORG_WEAPON] = 100;
-		initialized = qtrue;
-	}
-	return ammo;
-}
-
-#define Max_Ammo EF_AI_MaxAmmoForCarrier()
-
 static vmCvar_t ef_ai_disabled_cvar;
 #define g_pModDisintegration ef_ai_disabled_cvar
 #define g_pModSpecialties ef_ai_disabled_cvar

@@ -1123,6 +1123,14 @@ Key_SetBinding
 */
 void Key_SetBinding( int keynum, const char *binding ) {
 	int bindingIndex;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	const char *effectiveBinding = binding;
+
+	if ( effectiveBinding && !Q_stricmp( effectiveBinding, "datapad" ) ) {
+		effectiveBinding = "+info";
+		XBLF("STEFX_HM_INPUT: remap objectives binding key=%d to +info", keynum);
+	}
+#endif
 
 	if ( keynum == -1 ) {
 		return;
@@ -1146,6 +1154,9 @@ void Key_SetBinding( int keynum, const char *binding ) {
 	}
 			
 	// allocate memory for new binding
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	binding = effectiveBinding;
+#endif
 	if (binding)
 	{
 		kg.keys[ bindingIndex ].binding = CopyString( binding );
@@ -1529,6 +1540,20 @@ qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const c
 	}
 
 #if defined(STEFX_ELITE_FORCE_SP)
+#if defined(STEFX_SP_HOSTED_MP)
+	if ( !Q_stricmp( kb, "datapad" ) ) {
+		char cmd[64];
+
+		Com_sprintf(cmd, sizeof(cmd), "%cinfo %i %i\n", down ? '+' : '-', key, time);
+		XBLF("STEFX_HM_INPUT: direct objectives scoreboard source='%s' key=%d down=%d cmd='%s'",
+			source ? source : "",
+			key,
+			down ? 1 : 0,
+			cmd);
+		Cbuf_AddText(cmd);
+		return qtrue;
+	}
+#else
 	if ( !Q_stricmp( kb, "datapad" ) ) {
 		XBLF("STEFX_INPUT_DIRECT_DATAPAD_OVERLAY source='%s' key=%d slot=%d down=%d",
 			source ? source : "",
@@ -1547,6 +1572,7 @@ qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const c
 
 		return qtrue;
 	}
+#endif
 #endif
 
 	if ( kb[0] == '+' ) {

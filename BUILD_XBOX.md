@@ -14,7 +14,8 @@ Use this file as the first build reference in a fresh Codex session. The goal is
 
 - The build system, project layout, and many output names are still inherited from Jedi Academy.
 - The useful baseline is the single-player engine path under `code\`.
-- Multiplayer Holomatch runs through the `codemp\` path and builds as `efmp.xbe`.
+- Holomatch multiplayer for this project is SP-hosted and builds entirely through the `code\` path as the `spmp` target.
+- `codemp\` is retired for the active Holomatch vertical slice. It must not be a build, link, include, or runtime dependency for `efmp.xbe`.
 - The SP/co-op build produces `default.exe`, `default.xbe`, and `default.map` under root `build\release`.
 - Do not rename title metadata casually; first keep the baseline build reproducible.
 
@@ -29,13 +30,14 @@ powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp
 Holomatch MP build:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target mp
+powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target spmp
 ```
 
-Build both targets:
+Build SP and Holomatch separately when you need both artifacts:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target all
+powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp
+powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target spmp
 ```
 
 Optional clean rebuild:
@@ -48,7 +50,7 @@ Recommended log capture:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp *> scripts\output\build_sp_latest.log
-powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target mp *> scripts\output\build_mp_latest.log
+powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target spmp *> scripts\output\build_spmp_latest.log
 ```
 
 ## Primary Output
@@ -63,9 +65,16 @@ These names are inherited. SP/co-op build success means `build\release\default.x
 
 Holomatch multiplayer output:
 
-- EXE: `codemp\x_exe\Release\efmp.exe`
-- XBE: `codemp\x_exe\Release\efmp.xbe`
-- MAP: `codemp\x_exe\Release\efmp.map`
+- EXE: `build\release\efmp.exe`
+- XBE: `build\release\efmp.xbe`
+- MAP: `build\release\efmp.map`
+
+The staged CXBX-R development copy is:
+
+- XBE: `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe`
+- Runtime package: `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\BaseEF\xbox1.pk3`
+
+`efmp.xbe` direct-boots `hm_borg1` for the current vertical slice. Holomatch menus are not part of the boot path yet.
 
 ## Required Local Toolchain
 
@@ -112,13 +121,15 @@ That script:
 - runs `C:\XDK_5558\XDK\xbox\bin\imagebld.exe`
 - mutates the produced XBE to match retail-style process flags, stack commit, and D3D library metadata
 
-Inherited MP uses:
+The retired inherited MP tree still contains:
 
 ```text
 codemp\x_exe\patchxbe.py
 ```
 
-MP defaults to a clean `imagebld` XBE. For a CXBX-R-specific inherited MP artifact:
+That path is historical context only for this project phase. Do not use it for active Holomatch qualification. The active Holomatch build is the SP-hosted `spmp` target from `code\`.
+
+For a CXBX-R-specific inherited MP artifact, only when doing explicit archaeology:
 
 ```powershell
 $env:JAMP_PATCHXBE_MUTATE_HEADERS = '1'
@@ -128,7 +139,7 @@ Remove-Item Env:\JAMP_PATCHXBE_MUTATE_HEADERS
 
 That MP CXBX-R variant intentionally fails `xbecert` because it mutates XBE header/library metadata. This is mainly historical context for inherited MP testing.
 
-## Xemu Smoke Tests
+## Smoke Tests
 
 SP smoke harness:
 
@@ -152,6 +163,14 @@ Xemu ISO staging expects:
 
 The smoke scripts repack with `extract-xiso` and run `scripts\ja_xemu_smoke.py`. The helper script name is inherited.
 
+Holomatch smoke testing for this phase is CXBX-R only, not XEMU. Use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\smoke_cxbx_mp_all_maps.ps1 -MapNames hm_borg1 -HoldSeconds 90 -ScreenshotAtSeconds 45
+```
+
+Use `C:\Games\Emulators\CXBX-CodexCapture` for visual proof. The capture helper must own the emulator process; do not use desktop/window screenshots as qualification proof.
+
 ## CXBX-R Deployment Notes
 
 For manual CXBX-R testing, copy the SP XBE into the existing test folder:
@@ -165,7 +184,7 @@ That folder name is inherited from the baseline. It can be renamed later once th
 For Holomatch MP testing, keep the separate MP artifact name:
 
 ```powershell
-Copy-Item codemp\x_exe\Release\efmp.xbe 'C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe' -Force
+Copy-Item build\release\efmp.xbe 'C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe' -Force
 ```
 
 Do not copy the Holomatch MP build over `default.xbe`; that file is reserved for the SP/co-op path.
@@ -175,13 +194,13 @@ Do not copy the Holomatch MP build over `default.xbe`; that file is reserved for
 Retail/emulated Xbox log paths:
 
 - SP: `E:\ef_sp_log.txt`
-- MP: `E:\ja_mp_log.txt`
+- SP-hosted Holomatch MP: `D:\ef_mp_log.txt`, falling back to `E:\ef_mp_log.txt`
 
 In CXBX-R, these normally appear under:
 
 ```text
 C:\Games\Emulators\CXBX\EmuDisk\Partition1\ef_sp_log.txt
-C:\Games\Emulators\CXBX\EmuDisk\Partition1\ja_mp_log.txt
+C:\Games\Emulators\CXBX\EmuDisk\Partition1\ef_mp_log.txt
 ```
 
 The logging system flushes frequently. For crashes, the last line is usually the most important breadcrumb.
@@ -191,7 +210,8 @@ The SP log name is Elite Force-specific. Keep this path stable during boot and m
 ## Baseline Caveats
 
 - For SP/co-op work, focus on the `code\` path. It is the strongest baseline and the intended carrier for Elite Force SP code.
-- For Holomatch work, use the `codemp\` path and keep its output isolated as `efmp.xbe`.
+- For Holomatch work, use the `code\` path and the `spmp` build target. Keep its output isolated as `efmp.xbe`.
+- `codemp\` is deprecated for active Holomatch work. The code-only verifier must continue to report `codempDependency=false`.
 - The working tree may contain generated logs, ISO stages, object files, emulator outputs, and old experiments. Do not commit generated debris unless explicitly asked.
 - Prefer `scripts\build_xbox.ps1` over opening old Visual Studio solutions for routine builds.
 - Keep JA-specific gameplay/content changes separate from reusable engine/runtime changes.
@@ -208,3 +228,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp
 3. Confirm `build\release\default.xbe` exists.
 4. Inspect `SP-Mod-Source-Code-master` and plan how the Elite Force SP game code maps into the inherited `code\game`, `code\cgame`, and renderer/runtime boundaries.
 5. Keep the inherited JA engine booting while replacing/adapting game-side systems incrementally.
+
+For current Holomatch continuation, also read:
+
+- `HOLOMATCH_TODO.md`
+- `HOLOMATCH_QUALIFICATION.md`

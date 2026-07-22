@@ -637,6 +637,92 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 #endif
 }
 
+#if defined(STEFX_ELITE_FORCE_SP)
+static void CMod_LoadRawEFPatches(const efbspFile_t *efbsp, int shaderCount, int numsurfs)
+{
+	efbspSurface_t *surfaces = (efbspSurface_t *)EFBSP_LumpData(efbsp, EF_LUMP_SURFACES);
+	efbspDrawVert_t *verts = (efbspDrawVert_t *)EFBSP_LumpData(efbsp, EF_LUMP_DRAWVERTS);
+	int surfaceCount = EFBSP_SurfaceCount(efbsp);
+	int count = EFBSP_CountSurfacesOfType(efbsp, EF_MST_PATCH);
+	int i, j, c;
+	cPatch_t *patch;
+	vec3_t points[MAX_PATCH_VERTS];
+	int width, height;
+	int shaderNum;
+
+	XBLF("STEFX: CMod_LoadRawEFPatches begin patches=%d numsurfs=%d", count, numsurfs);
+
+	cmg.numSurfaces = numsurfs;
+	cmg.surfaces = (cPatch_t **) Z_Malloc(cmg.numSurfaces * sizeof(cmg.surfaces[0]), TAG_BSP, qtrue);
+
+	unsigned char* patchScratch = (unsigned char*)Z_Malloc(sizeof(*patch) * count, TAG_BSP, qtrue);
+
+	extern void CM_GridAlloc();
+	extern void CM_PatchCollideFromGridTempAlloc();
+	extern void CM_PreparePatchCollide(int num);
+	extern void CM_TempPatchPlanesAlloc();
+	CM_GridAlloc();
+	CM_PatchCollideFromGridTempAlloc();
+	CM_PreparePatchCollide(count);
+	CM_TempPatchPlanesAlloc();
+
+	facetLoad_t *facetbuf = (facetLoad_t*)Z_Malloc(
+		MAX_PATCH_PLANES*sizeof(facetLoad_t), TAG_TEMP_WORKSPACE, qfalse);
+
+	int *gridbuf = (int*)Z_Malloc(
+		CM_MAX_GRID_SIZE*CM_MAX_GRID_SIZE*2*sizeof(int), TAG_TEMP_WORKSPACE, qfalse);
+
+	for (i = 0; i < surfaceCount; ++i)
+	{
+		efbspSurface_t *in = &surfaces[i];
+		dpatch_t patchSurface;
+
+		if (in->surfaceType != EF_MST_PATCH)
+		{
+			continue;
+		}
+
+		EFBSP_FillPatchSurface(in, shaderCount, i, &patchSurface);
+		cmg.surfaces[patchSurface.code] = patch = (cPatch_t *)patchScratch;
+		patchScratch += sizeof(*patch);
+
+		width = patchSurface.patchWidth;
+		height = patchSurface.patchHeight;
+		c = width * height;
+		if (c > MAX_PATCH_VERTS)
+		{
+			Com_Error(ERR_DROP, "ParseMesh: MAX_PATCH_VERTS");
+		}
+
+		for (j = 0; j < c; ++j)
+		{
+			const efbspDrawVert_t *dv = &verts[in->firstVert + j];
+			points[j][0] = dv->xyz[0];
+			points[j][1] = dv->xyz[1];
+			points[j][2] = dv->xyz[2];
+		}
+
+		shaderNum = patchSurface.shaderNum;
+		patch->contents = cmg.shaders[shaderNum].contentFlags;
+		CM_OrOfAllContentsFlagsInMap |= patch->contents;
+		patch->surfaceFlags = cmg.shaders[shaderNum].surfaceFlags;
+		patch->pc = CM_GeneratePatchCollide(width, height, points, facetbuf, gridbuf);
+	}
+
+	extern void CM_GridDealloc();
+	extern void CM_PatchCollideFromGridTempDealloc();
+	extern void CM_TempPatchPlanesDealloc();
+	CM_PatchCollideFromGridTempDealloc();
+	CM_GridDealloc();
+	CM_TempPatchPlanesDealloc();
+
+	Z_Free(gridbuf);
+	Z_Free(facetbuf);
+
+	XBLog_Write("STEFX: CMod_LoadRawEFPatches done");
+}
+#endif
+
 //==================================================================
 
 #ifdef BSPC
@@ -728,6 +814,8 @@ extern void R_LoadRawLightmaps( void *data, int len, const char *psMapName );
 extern qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName );
 extern void R_EFBeginRawWorldMapLoad( const char *name );
 extern qboolean R_EFLoadRawWorldDataFromBSP( const char *name, const efbspFile_t *efbsp );
+extern void R_EFPrecacheRawSurfaceShadersFromBSP( const char *name, const efbspFile_t *efbsp );
+extern void R_EFLoadRawDrawSurfacesFromBSP( const char *name, const efbspFile_t *efbsp, int shaderCount, int numSurfs );
 #endif
 extern byte *fileBase;
 extern void UpdateLoadingAnimation();
@@ -823,12 +911,6 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			int shaderCount;
 			int num_surfs;
 			void *shaders;
-			void *verts;
-			void *indexes;
-			void *patches;
-			void *trisurfs;
-			void *faces;
-			void *flares;
 			void *leafs;
 			void *leafbrushes;
 			void *brushsides;
@@ -836,7 +918,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			void *models;
 			void *nodes;
 			void *visibility;
-			int shadersLen, vertsLen, indexesLen, patchesLen, trisurfsLen, facesLen, flaresLen;
+			int shadersLen;
 			int leafsLen, leafbrushesLen, brushsidesLen, brushesLen, modelsLen, nodesLen, visibilityLen;
 			qboolean rendererLightmapsLoaded;
 			int rendererLightmapMode;
@@ -894,6 +976,9 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			if (!clientload)
 			{
 				R_LoadShaders();
+				XBLog_Write("EF: CM_LoadMap raw shader precache begin");
+				R_EFPrecacheRawSurfaceShadersFromBSP(name, &efbsp);
+				XBLog_Write("EF: CM_LoadMap raw shader precache done");
 			}
 			XBLF("EF: CM_LoadMap raw shaders loaded clientload=%d", clientload);
 			UpdateLoadingAnimation();
@@ -910,54 +995,15 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			fileBase = NULL;
 			if (!clientload)
 			{
-				R_LoadSurfaces(num_surfs);
-			}
-			verts = EFBSP_ConvertVerts(&efbsp, &vertsLen);
-			patches = EFBSP_ConvertPatches(&efbsp, shaderCount, &patchesLen);
-			XBLF("EF: CM_LoadMap raw surfaces alloc vertsLen=%d patchesLen=%d", vertsLen, patchesLen);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			XBLog_Write("EF: CM_LoadMap raw CMod_LoadPatches begin");
-#endif
-			CMod_LoadPatches(verts, vertsLen, patches, patchesLen, num_surfs);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			XBLog_Write("EF: CM_LoadMap raw CMod_LoadPatches done; R_LoadPatches begin");
-#endif
-			if (!clientload)
-			{
-				R_LoadPatches(verts, vertsLen, patches, patchesLen);
+				R_EFLoadRawDrawSurfacesFromBSP(name, &efbsp, shaderCount, num_surfs);
 			}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			XBLog_Write(clientload ? "EF: CM_LoadMap raw client skipped R_LoadPatches" : "EF: CM_LoadMap raw R_LoadPatches done");
+			XBLog_Write("EF: CM_LoadMap raw CMod_LoadRawEFPatches begin");
 #endif
-			EFBSP_FreeTemp(patches);
-			UpdateLoadingAnimation();
-
-			if (!clientload)
-			{
-				indexes = EFBSP_ConvertIndexes(&efbsp, &indexesLen);
-				trisurfs = EFBSP_ConvertTriSurfs(&efbsp, shaderCount, &trisurfsLen);
-				XBLF("EF: CM_LoadMap raw trisurfs indexesLen=%d trisurfsLen=%d", indexesLen, trisurfsLen);
-				R_LoadTriSurfs(indexes, indexesLen, verts, vertsLen, trisurfs, trisurfsLen);
-				EFBSP_FreeTemp(trisurfs);
-
-				faces = EFBSP_ConvertFaces(&efbsp, shaderCount, &facesLen);
-				XBLF("EF: CM_LoadMap raw facesLen=%d", facesLen);
-				R_LoadFaces(indexes, indexesLen, verts, vertsLen, faces, facesLen);
-				EFBSP_FreeTemp(faces);
-				UpdateLoadingAnimation();
-
-				flares = EFBSP_ConvertFlares(&efbsp, shaderCount, &flaresLen);
-				R_LoadFlares(flares, flaresLen);
-				EFBSP_FreeTemp(flares);
-				EFBSP_FreeTemp(indexes);
-				XBLF("EF: CM_LoadMap raw render surfaces loaded flaresLen=%d", flaresLen);
-			}
-			else
-			{
-				XBLF("STEFX: CM_LoadMap client collision-only surfaces loaded vertsLen=%d patchesLen=%d",
-					vertsLen, patchesLen);
-			}
-			EFBSP_FreeTemp(verts);
+			CMod_LoadRawEFPatches(&efbsp, shaderCount, num_surfs);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			XBLog_Write("EF: CM_LoadMap raw CMod_LoadRawEFPatches done");
+#endif
 			UpdateLoadingAnimation();
 
 			leafs = EFBSP_ConvertLeafs(&efbsp, &leafsLen);
