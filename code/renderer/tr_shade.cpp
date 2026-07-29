@@ -2194,7 +2194,79 @@ t0 = most upstream according to spec
 t1 = most downstream according to spec
 ===================
 */
-static void DrawMultitextured( shaderCommands_t *input, int stage ) {
+#ifdef _XBOX
+static vec2_t s_xboxFusedDetailTexCoords[SHADER_MAX_VERTEXES];
+
+static shaderStage_t *RB_XboxGetFusedDetailStage( shaderCommands_t *input, int stage )
+{
+	const unsigned long blendMask = GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS;
+	const unsigned long detailBlend = GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_SRC_COLOR;
+	shaderStage_t *baseStage;
+	shaderStage_t *detailStage;
+	textureBundle_t *detailBundle;
+
+	if ( !input || !input->shader || backEnd.projection2D || input->fading ||
+		tess.fogNum || g_bRenderGlowingObjects ||
+		stage < 0 || stage + 1 >= input->shader->numUnfoggedPasses ||
+		( r_lightmap && r_lightmap->integer ) ||
+		( r_debugStyle && r_debugStyle->integer >= 0 ) )
+	{
+		return NULL;
+	}
+
+	baseStage = &tess.xstages[stage];
+	detailStage = &tess.xstages[stage + 1];
+	detailBundle = &detailStage->bundle[0];
+
+	if ( !baseStage->active || !baseStage->bundle[0].image || !baseStage->bundle[1].image ||
+		input->shader->multitextureEnv != GL_MODULATE ||
+		( baseStage->stateBits & blendMask ) ||
+		( baseStage->stateBits & ( GLS_ATEST_BITS | GLS_DEPTHTEST_DISABLE | GLS_POLYMODE_LINE ) ) ||
+		baseStage->glow )
+	{
+		return NULL;
+	}
+
+	if ( !detailStage->active || !detailStage->isDetail || detailStage->bundle[1].image ||
+		( detailStage->stateBits & blendMask ) != detailBlend ||
+		( detailStage->stateBits & ~( blendMask | GLS_DEPTHFUNC_EQUAL ) ) ||
+		detailStage->rgbGen != CGEN_IDENTITY ||
+		( detailStage->alphaGen != AGEN_IDENTITY && detailStage->alphaGen != AGEN_SKIP ) ||
+		detailStage->adjustColorsForFog != ACFF_NONE ||
+		detailStage->mGLFogColorOverride != GLFOGOVERRIDE_NONE ||
+		detailStage->glow || detailStage->isEnvironment ||
+		detailStage->isSpecular || detailStage->isBumpMap ||
+		( detailStage->ss && detailStage->ss->surfaceSpriteType ) )
+	{
+		return NULL;
+	}
+
+	if ( !detailBundle->image || detailBundle->isLightmap || detailBundle->vertexLightmap ||
+		detailBundle->isVideoMap || detailBundle->tcGen != TCGEN_TEXTURE ||
+		detailBundle->numTexMods != 1 || !detailBundle->texMods ||
+		detailBundle->texMods[0].type != TMOD_SCALE )
+	{
+		return NULL;
+	}
+
+	return detailStage;
+}
+
+static void RB_XboxBuildFusedDetailTexCoords( const shaderStage_t *detailStage )
+{
+	const float scaleS = detailStage->bundle[0].texMods[0].translate[0];
+	const float scaleT = detailStage->bundle[0].texMods[0].translate[1];
+
+	for ( int i = 0; i < tess.numVertexes; ++i )
+	{
+		s_xboxFusedDetailTexCoords[i][0] = tess.texCoords[i][0][0] * scaleS;
+		s_xboxFusedDetailTexCoords[i][1] = tess.texCoords[i][0][1] * scaleT;
+	}
+}
+#endif
+
+
+static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t *fusedDetailStage ) {
 	shaderStage_t	*pStage;
 #ifdef _XBOX
 	static int traceBudget = 0;
@@ -2415,6 +2487,32 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 #endif
 
 #ifdef _XBOX
+	if ( fusedDetailStage )
+	{
+		static int s_xboxDetailFusionLogBudget = 12;
+
+		GL_SelectTexture( 2 );
+		glEnable( GL_TEXTURE_2D );
+		glEnableClientState( GL_TEXTURE_COORD_ARRAY );
+		GL_TexEnv( GL_MODULATE2X_XBOX );
+		glTexCoordPointer( 2, GL_FLOAT, 0, s_xboxFusedDetailTexCoords );
+		R_BindAnimatedImage( &fusedDetailStage->bundle[0] );
+
+		if ( s_xboxDetailFusionLogBudget > 0 )
+		{
+			XBLF( "STEFX_DETAIL_FUSION shader='%s' baseStage=%d detailImage='%s' scale=%g,%g verts=%d indexes=%d",
+				tess.shader ? tess.shader->name : "<null>",
+				stage,
+				RB_XboxImageLogName( fusedDetailStage->bundle[0].image ),
+				fusedDetailStage->bundle[0].texMods[0].translate[0],
+				fusedDetailStage->bundle[0].texMods[0].translate[1],
+				input->numVertexes,
+				input->numIndexes );
+			--s_xboxDetailFusionLogBudget;
+		}
+	}
+#endif
+#ifdef _XBOX
 	if ( stefxBeamShader || stefxHudShader )
 	{
 		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured before draw" );
@@ -2424,7 +2522,8 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	RB_XboxBeginEliteForceScriptPanelFakeglState( pStage, "DrawMultitextured" );
 	if ( trace )
 	{
-		JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>", stage, 2, (unsigned int)stateBits );
+		JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>", stage,
+			fusedDetailStage ? 3 : 2, (unsigned int)stateBits );
 	}
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
@@ -2457,6 +2556,15 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	//
 	// disable texturing on TEXTURE1, then select TEXTURE0
 	//
+#ifdef _XBOX
+	if ( fusedDetailStage )
+	{
+		GL_SelectTexture( 2 );
+		glDisable( GL_TEXTURE_2D );
+		glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+		GL_SelectTexture( 1 );
+	}
+#endif
 	glDisable( GL_TEXTURE_2D );
 #ifdef _XBOX
 	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
@@ -4426,6 +4534,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	for ( stage = 0; stage < input->shader->numUnfoggedPasses; stage++ )
 	{
 		shaderStage_t *pStage = &tess.xstages[stage];
+		shaderStage_t *fusedDetailStage = NULL;
 		if ( !pStage->active )
 		{
 			assert(pStage->active);//wtf?
@@ -4836,18 +4945,29 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		if ( pStage->bundle[1].image != 0 )
 		{
 #ifdef _XBOX
+			fusedDetailStage = RB_XboxGetFusedDetailStage( input, stage );
+			if ( fusedDetailStage )
+			{
+				RB_XboxBuildFusedDetailTexCoords( fusedDetailStage );
+			}
+#endif
+#ifdef _XBOX
 			if ( forceTrace )
 			{
 				XBLF("JA: RB_IterateStagesGeneric before DrawMultitextured shader='%s' stage=%d\n",
 					tess.shader ? tess.shader->name : "<null>", stage);
 			}
 #endif
-			DrawMultitextured( input, stage );
+			DrawMultitextured( input, stage, fusedDetailStage );
 #ifdef _XBOX
 			if ( forceTrace )
 			{
 				XBLF("JA: RB_IterateStagesGeneric after DrawMultitextured shader='%s' stage=%d\n",
 					tess.shader ? tess.shader->name : "<null>", stage);
+			}
+			if ( fusedDetailStage )
+			{
+				++stage;
 			}
 #endif
 		}

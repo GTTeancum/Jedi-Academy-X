@@ -74,6 +74,9 @@ extern "C" unsigned long JkaStaticTextureCapacity(void);
 #ifndef GL_ADD
 #define GL_ADD									0x0104
 #endif
+#ifndef GL_MODULATE2X_XBOX
+#define GL_MODULATE2X_XBOX						0x8EF0
+#endif
 #ifndef GL_EXP
 #define GL_EXP									0x0800
 #endif
@@ -1595,6 +1598,7 @@ static D3DTEXTUREOP GLToDXTextEnvMode(GLint mode)
 		case GL_BLEND: result = D3DTOP_BLENDTEXTUREALPHA; break;
 		case GL_REPLACE: result = D3DTOP_SELECTARG1; break;
 		case GL_ADD: result = D3DTOP_ADD; break;
+		case GL_MODULATE2X_XBOX: result = D3DTOP_MODULATE2X; break;
 		default: break;
 	}
 	return result;
@@ -1907,6 +1911,11 @@ public:
 				DWORD alpha2 = D3DTA_DIFFUSE;
 				DWORD alphaOp;
 				alphaOp = GLToDXTextEnvMode(textEnvMode);
+				if (textEnvMode == GL_MODULATE2X_XBOX)
+				{
+					alpha2 = D3DTA_CURRENT;
+					alphaOp = D3DTOP_SELECTARG2;
+				}
 				if (i == 0 && m_mainBlend )
 				{
 					alphaOp = D3DTOP_MODULATE;	// Otherwise the console is never transparent
@@ -3850,13 +3859,23 @@ public:
 			HRESULT hr = m_pD3DDev->GetDeviceCaps(&deviceCaps);
 			if ( ! FAILED(hr)) 
 			{
-				// Clamp texture blend stages to 2. Some cards can do eight, but that's more
-				// than we need.
+				// Xbox detail-stage fusion uses a third fixed-function texture stage.
 				int maxStages = deviceCaps.MaxTextureBlendStages;
+				if ( maxStages > (int)deviceCaps.MaxSimultaneousTextures )
+				{
+					maxStages = deviceCaps.MaxSimultaneousTextures;
+				}
+#ifdef _XBOX
+				if ( maxStages > 4 )
+				{
+					maxStages = 4;
+				}
+#else
 				if ( maxStages > 2 )
 				{
 					maxStages = 2;
 				}
+#endif
 				m_textureState.SetMaxStages(maxStages);
 
 				m_hardwareTandL = (deviceCaps.DevCaps & D3DDEVCAPS_HWTRANSFORMANDLIGHT) != 0;
@@ -4199,7 +4218,7 @@ public:
 		else
 		{
 			const int stage = m_textureState.GetCurrentStage();
-			if (stage >= 0 && stage < 2)
+			if (stage >= 0 && stage < m_textureState.GetMaxStages())
 			{
 				static int s_stefxSameTextureRebindLogCount = 0;
 				SetRenderStateDirty();
@@ -4520,6 +4539,18 @@ public:
 #endif
 				SetRenderStateDirty();
 				m_textureState.SetTexture2D(value);
+#ifdef _XBOX
+				/*
+				 * Stage 2 is used only by the fused base/lightmap/detail path.
+				 * Its logical disable can otherwise remain deferred after the
+				 * last draw of a frame, leaving the NV2A stage active through
+				 * Present and wedging the following frame.
+				 */
+				if ( !value && m_textureState.GetCurrentStage() >= 2 && m_pD3DDev )
+				{
+					m_textureState.SetTextureStageState(m_pD3DDev, &m_textures);
+				}
+#endif
 			}
 			break;
 		case GL_LIGHTING:

@@ -169,6 +169,14 @@ struct JkaFastVertex2 {
     float s1, t1;
 };
 
+struct JkaFastVertex3 {
+    float x, y, z;
+    DWORD color;
+    float s0, t0;
+    float s1, t1;
+    float s2, t2;
+};
+
 static DWORD PackColorFromArray(GLuint i)
 {
     if ((g_clientArrays & (1u << 2)) && g_colorArray.pointer) {
@@ -260,6 +268,10 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     if ((g_texCoordArrayEnabled & 2u) && g_texCoordArray[1].pointer && g_texCoordArray[1].type == GL_FLOAT && g_texCoordArray[1].size >= 2) {
         texStages = 2;
     }
+    if (texStages == 2 && (g_texCoordArrayEnabled & 4u) && g_texCoordArray[2].pointer &&
+        g_texCoordArray[2].type == GL_FLOAT && g_texCoordArray[2].size >= 2) {
+        texStages = 3;
+    }
 
     if (g_stefxOverlayDrawContext) {
         static int s_overlayFastStageBudget = 24;
@@ -275,21 +287,11 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
         }
     }
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-    if (texStages >= 2) {
-        static int s_stefxTwoStageFallbackBudget = 32;
-        if (s_stefxTwoStageFallbackBudget > 0) {
-            XBLF("STEFX_HM: indexed UP skipped for two-stage draw count=%d maxIndex=%u",
-                (int)count, (unsigned int)maxIndex);
-            --s_stefxTwoStageFallbackBudget;
-        }
-        return false;
-    }
-#endif
 
     const DWORD fvf = D3DFVF_XYZ | D3DFVF_DIFFUSE | ((DWORD)texStages << D3DFVF_TEXCOUNT_SHIFT);
     const UINT primitiveCount = count / 3;
-    const UINT stride = (texStages == 2) ? sizeof(JkaFastVertex2) : ((texStages == 1) ? sizeof(JkaFastVertex1) : sizeof(JkaFastVertex0));
+    const UINT stride = (texStages == 3) ? sizeof(JkaFastVertex3) :
+        ((texStages == 2) ? sizeof(JkaFastVertex2) : ((texStages == 1) ? sizeof(JkaFastVertex1) : sizeof(JkaFastVertex0)));
     static char *s_fastVerts = NULL;
     static UINT s_fastVertsBytes = 0;
     const UINT requiredBytes = vertexCount * stride;
@@ -313,12 +315,21 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     const int xyzStride = ArrayStride(g_vertexArray);
     const int st0Stride = texStages >= 1 ? ArrayStride(g_texCoordArray[0]) : 0;
     const int st1Stride = texStages >= 2 ? ArrayStride(g_texCoordArray[1]) : 0;
+    const int st2Stride = texStages >= 3 ? ArrayStride(g_texCoordArray[2]) : 0;
 
     for (UINT i = 0; i < vertexCount; ++i) {
         const UINT sourceIndex = i;
         const GLfloat *xyz = (const GLfloat *)((const char *)g_vertexArray.pointer + sourceIndex * xyzStride);
         DWORD color = PackColorFromArray(sourceIndex);
-        if (texStages == 2) {
+        if (texStages == 3) {
+            JkaFastVertex3 *v = (JkaFastVertex3 *)(verts + i * stride);
+            const GLfloat *st0 = (const GLfloat *)((const char *)g_texCoordArray[0].pointer + sourceIndex * st0Stride);
+            const GLfloat *st1 = (const GLfloat *)((const char *)g_texCoordArray[1].pointer + sourceIndex * st1Stride);
+            const GLfloat *st2 = (const GLfloat *)((const char *)g_texCoordArray[2].pointer + sourceIndex * st2Stride);
+            v->x = xyz[0]; v->y = xyz[1]; v->z = xyz[2]; v->color = color;
+            v->s0 = st0[0]; v->t0 = st0[1]; v->s1 = st1[0]; v->t1 = st1[1];
+            v->s2 = st2[0]; v->t2 = st2[1];
+        } else if (texStages == 2) {
             JkaFastVertex2 *v = (JkaFastVertex2 *)(verts + i * stride);
             const GLfloat *st0 = (const GLfloat *)((const char *)g_texCoordArray[0].pointer + sourceIndex * st0Stride);
             const GLfloat *st1 = (const GLfloat *)((const char *)g_texCoordArray[1].pointer + sourceIndex * st1Stride);

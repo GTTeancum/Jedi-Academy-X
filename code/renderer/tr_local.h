@@ -1082,10 +1082,10 @@ typedef struct {
 
 // the renderer front end should never modify glstate_t
 typedef struct {
-	int			currenttextures[2];
+	int			currenttextures[4];
 	int			currenttmu;
 	qboolean	finishCalled;
-	int			texEnv[2];
+	int			texEnv[4];
 	int			faceCulling;
 	unsigned long	glStateBits;
 } glstate_t;
@@ -1525,6 +1525,10 @@ void	GL_Cull( int cullType );
 #define	GLS_ATEST_BITS							0xF0000000
 
 #define GLS_DEFAULT			GLS_DEPTHMASK_TRUE
+
+#ifdef _XBOX
+#define GL_MODULATE2X_XBOX	0x8EF0
+#endif
 #define GLS_ALPHA			(GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)
 
 void	RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty );

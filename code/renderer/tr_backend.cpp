@@ -211,7 +211,7 @@ else
 #ifdef _XBOX
 void GL_InvalidateCurrentTexture( void )
 {
-	if ( glState.currenttmu >= 0 && glState.currenttmu < 2 )
+	if ( glState.currenttmu >= 0 && glState.currenttmu < 4 )
 	{
 		glState.currenttextures[glState.currenttmu] = -1;
 	}
@@ -219,7 +219,7 @@ void GL_InvalidateCurrentTexture( void )
 
 void GL_InvalidateTextureUnit( int unit )
 {
-	if ( unit >= 0 && unit < 2 )
+	if ( unit >= 0 && unit < 4 )
 	{
 		glState.currenttextures[unit] = -1;
 	}
@@ -351,6 +351,9 @@ void GL_TexEnv( int env )
 #ifdef _XBOX
 	case GL_NONE:
 		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_NONE );
+		break;
+	case GL_MODULATE2X_XBOX:
+		glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE2X_XBOX );
 		break;
 #endif
 	default:
