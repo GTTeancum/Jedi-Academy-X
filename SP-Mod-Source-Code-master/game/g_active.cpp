@@ -2076,7 +2076,7 @@ void ClientThink_real( gentity_t *ent, usercmd_t *ucmd )
 #endif
 
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real enter ent=%d ptr=%08x class=%s client=%08x npc=%08x ucmd=%08x serverTime=%d",
+	if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real enter ent=%d ptr=%08x class=%s client=%08x npc=%08x ucmd=%08x serverTime=%d",
 		ent ? ent->s.number : -1,
 		(unsigned int)ent,
 		(ent && ent->classname) ? ent->classname : "<null>",
@@ -2226,11 +2226,11 @@ extern vmCvar_t cg_thirdPerson;
 	else
 	{
 #ifdef _XBOX
-		XBLF("STEFX: ClientThink_real ent=%d before G_NPCMunroMatchPlayerWeapon", ent->s.number);
+		if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d before G_NPCMunroMatchPlayerWeapon", ent->s.number);
 #endif
 		G_NPCMunroMatchPlayerWeapon( ent );
 #ifdef _XBOX
-		XBLF("STEFX: ClientThink_real ent=%d after G_NPCMunroMatchPlayerWeapon", ent->s.number);
+		if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d after G_NPCMunroMatchPlayerWeapon", ent->s.number);
 #endif
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -2263,12 +2263,12 @@ extern vmCvar_t cg_thirdPerson;
 
 	// mark the time, so the connection sprite can be removed
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d before lastCommand client=%08x", ent->s.number, (unsigned int)client);
+	if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d before lastCommand client=%08x", ent->s.number, (unsigned int)client);
 #endif
 	client->lastCmdTime = level.time;
 	client->pers.lastCommand = *ucmd;
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after lastCommand commandTime=%d psWeapon=%d health=%d maxHealth=%d",
+	if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d after lastCommand commandTime=%d psWeapon=%d health=%d maxHealth=%d",
 		ent->s.number, client->ps.commandTime, client->ps.weapon, client->ps.stats[STAT_HEALTH], client->ps.stats[STAT_MAX_HEALTH]);
 #endif
 
@@ -2293,14 +2293,14 @@ extern vmCvar_t cg_thirdPerson;
 	}
 
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d before inactivity msec=%d serverTime=%d commandTime=%d",
+	if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d before inactivity msec=%d serverTime=%d commandTime=%d",
 		ent->s.number, msec, ucmd->serverTime, client->ps.commandTime);
 #endif
 	// check for inactivity timer, but never drop the local client of a non-dedicated server
 	if ( !ClientInactivityTimer( client ) ) 
 		return;
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after inactivity", ent->s.number);
+	if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d after inactivity", ent->s.number);
 #endif
 
 	if ( client->noclip ) 
@@ -2478,7 +2478,7 @@ extern vmCvar_t cg_thirdPerson;
 	}
 
 #ifdef _XBOX
-	XBLF("STEFX: ClientThink_real ent=%d after speed speed=%d currentSpeed=%d desiredSpeed=%d cmd=(%d,%d,%d) buttons=0x%x",
+	if (stefxPostMoveProbe) XBLF("STEFX: ClientThink_real ent=%d after speed speed=%d currentSpeed=%d desiredSpeed=%d cmd=(%d,%d,%d) buttons=0x%x",
 		ent->s.number,
 		client->ps.speed,
 		ent->NPC ? ent->NPC->currentSpeed : -1,
