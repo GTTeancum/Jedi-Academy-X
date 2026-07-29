@@ -536,6 +536,70 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_jaComActiveBudget = 48;
 
     if (!msg) return 1;
+    if (!g_verboseLog) {
+        if (strstr(msg, "FRAME_HEARTBEAT") ||
+            strstr(msg, "SMOKE_BUTTON") ||
+            strstr(msg, "SOAK_COMMAND") ||
+            strstr(msg, "SOAKTRACE") ||
+            strstr(msg, "SOAKMEM") ||
+            strstr(msg, "SV_Map") ||
+            strstr(msg, "direct-map boot") ||
+            strstr(msg, "Server:") ||
+            strstr(msg, "SV_InitGameProgs") ||
+            strstr(msg, "InitGame") ||
+            strstr(msg, "G_AllocGentities") ||
+            strstr(msg, "G_SpawnEntitiesFromString") ||
+            strstr(msg, "CL_Init:") ||
+            strstr(msg, "CL_StartHunkUsers: ready fast path") ||
+            strstr(msg, "CL_InitUI") ||
+            strstr(msg, "CL_InitCGame") ||
+            strstr(msg, "SCR_Init") ||
+            strstr(msg, "UI_Init") ||
+            strstr(msg, "_UI_Init") ||
+            strstr(msg, "UI_SetActiveMenu") ||
+            strstr(msg, "BinkVideo::Start") ||
+            strstr(msg, "CG_Init") ||
+            strstr(msg, "CG_LoadHudMenu") ||
+            strstr(msg, "CG_LoadMenus") ||
+            strstr(msg, "CG_Load_Menu") ||
+            strstr(msg, "CG_ParseMenu") ||
+            strstr(msg, "cgi_UI_StartParseSession") ||
+            strstr(msg, "VM_DllSyscall CG_UI_STARTPARSE") ||
+            strstr(msg, "CG trap UI_STARTPARSE") ||
+            strstr(msg, "UI PC_StartParseSession") ||
+            strstr(msg, "UI PC_EndParseSession") ||
+            strstr(msg, "UI Menus_CloseAll") ||
+            strstr(msg, "UI_LoadMenus") ||
+            strstr(msg, "CG_GameStateReceived") ||
+            strstr(msg, "CG_RegisterGraphics") ||
+            strstr(msg, "CG_NewClientinfo") ||
+            strstr(msg, "VM_Call(CG_INIT)") ||
+            strstr(msg, "cls.state = CA_PRIMED") ||
+            strstr(msg, "cls.state = CA_ACTIVE - GAME IS RUNNING") ||
+            strstr(msg, "S_LoadSound guard") ||
+            strstr(msg, "S_CancelLoadSound") ||
+            strstr(msg, "SND_DetachSFXFromChannels") ||
+            strstr(msg, "SND_RegisterAudio_LevelLoadEnd") ||
+            strstr(msg, "RE_RegisterModels_LevelLoadEnd") ||
+            strstr(msg, "RE_RegisterImages_LevelLoadEnd") ||
+            strstr(msg, "Sys_Stream") ||
+            strstr(msg, "FATAL") ||
+            strstr(msg, "ERROR") ||
+            strstr(msg, "ERR_FATAL") ||
+            strstr(msg, "ERR_DROP") ||
+            strstr(msg, "ASSERT") ||
+            strstr(msg, "Received Exception") ||
+            strstr(msg, "EIP") ||
+            strstr(msg, "Out of memory") ||
+            strstr(msg, "Z_Malloc():") ||
+            strstr(msg, "allocation failed") ||
+            strstr(msg, "alloc failed") ||
+            strstr(msg, "overBudget") ||
+            strstr(msg, "crash")) {
+            return 0;
+        }
+        return 1;
+    }
 
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF main menu", &s_stefxFrontendBudget);
     if (budgeted >= 0) return budgeted;
@@ -1263,6 +1327,67 @@ static int xbl_ShouldDropVerbose(const char *msg)
 static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
+    if (!g_verboseLog) {
+        return strstr(fmt, "FRAME_HEARTBEAT") ||
+            strstr(fmt, "SMOKE_BUTTON") ||
+            strstr(fmt, "SOAK_COMMAND") ||
+            strstr(fmt, "SOAKTRACE") ||
+            strstr(fmt, "SOAKMEM") ||
+            strstr(fmt, "SV_Map") ||
+            strstr(fmt, "direct-map boot") ||
+            strstr(fmt, "Server:") ||
+            strstr(fmt, "SV_InitGameProgs") ||
+            strstr(fmt, "InitGame") ||
+            strstr(fmt, "G_AllocGentities") ||
+            strstr(fmt, "G_SpawnEntitiesFromString") ||
+            strstr(fmt, "CL_Init:") ||
+            strstr(fmt, "CL_StartHunkUsers: ready fast path") ||
+            strstr(fmt, "CL_InitUI") ||
+            strstr(fmt, "CL_InitCGame") ||
+            strstr(fmt, "SCR_Init") ||
+            strstr(fmt, "UI_Init") ||
+            strstr(fmt, "_UI_Init") ||
+            strstr(fmt, "UI_SetActiveMenu") ||
+            strstr(fmt, "BinkVideo::Start") ||
+            strstr(fmt, "CG_Init") ||
+            strstr(fmt, "CG_LoadHudMenu") ||
+            strstr(fmt, "CG_LoadMenus") ||
+            strstr(fmt, "CG_Load_Menu") ||
+            strstr(fmt, "CG_ParseMenu") ||
+            strstr(fmt, "cgi_UI_StartParseSession") ||
+            strstr(fmt, "VM_DllSyscall CG_UI_STARTPARSE") ||
+            strstr(fmt, "CG trap UI_STARTPARSE") ||
+            strstr(fmt, "UI PC_StartParseSession") ||
+            strstr(fmt, "UI PC_EndParseSession") ||
+            strstr(fmt, "UI Menus_CloseAll") ||
+            strstr(fmt, "UI_LoadMenus") ||
+            strstr(fmt, "CG_GameStateReceived") ||
+            strstr(fmt, "CG_RegisterGraphics") ||
+            strstr(fmt, "CG_NewClientinfo") ||
+            strstr(fmt, "VM_Call(CG_INIT)") ||
+            strstr(fmt, "cls.state = CA_PRIMED") ||
+            strstr(fmt, "cls.state = CA_ACTIVE - GAME IS RUNNING") ||
+            strstr(fmt, "S_LoadSound guard") ||
+            strstr(fmt, "S_CancelLoadSound") ||
+            strstr(fmt, "SND_DetachSFXFromChannels") ||
+            strstr(fmt, "SND_RegisterAudio_LevelLoadEnd") ||
+            strstr(fmt, "RE_RegisterModels_LevelLoadEnd") ||
+            strstr(fmt, "RE_RegisterImages_LevelLoadEnd") ||
+            strstr(fmt, "Sys_Stream") ||
+            strstr(fmt, "FATAL") ||
+            strstr(fmt, "ERROR") ||
+            strstr(fmt, "ERR_FATAL") ||
+            strstr(fmt, "ERR_DROP") ||
+            strstr(fmt, "ASSERT") ||
+            strstr(fmt, "Received Exception") ||
+            strstr(fmt, "EIP") ||
+            strstr(fmt, "Out of memory") ||
+            strstr(fmt, "Z_Malloc():") ||
+            strstr(fmt, "allocation failed") ||
+            strstr(fmt, "alloc failed") ||
+            strstr(fmt, "overBudget") ||
+            strstr(fmt, "crash");
+    }
 	if (strstr(fmt, "STEFX_DRAW_STAGE") ||
         strstr(fmt, "STEFX_DRAW_CONTEXT") ||
 		strstr(fmt, "STEFX_SHADER_") ||
@@ -1516,7 +1641,7 @@ void XBLog_Init(void)
     g_hLogFile = INVALID_HANDLE_VALUE;
     g_logIsNt  = 0;
     g_logPath  = NULL;
-    g_verboseLog = 0;
+    g_verboseLog = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 1 : 0;
     g_fileLogBytes = 0;
     g_fileLogFlushBytes = 0;
     g_fileLogFlushWrites = 0;

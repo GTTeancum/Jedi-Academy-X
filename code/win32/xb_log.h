@@ -45,6 +45,10 @@ const char *XBLog_GetPath(void);
 void XBLog_Write(const char *msg);
 void XBLog_Writef(const char *fmt, ...);
 
+#ifndef SP_XBOX_VERBOSE_RUNTIME_LOGS
+#define SP_XBOX_VERBOSE_RUNTIME_LOGS 0
+#endif
+
 #ifdef __cplusplus
 }
 #endif
