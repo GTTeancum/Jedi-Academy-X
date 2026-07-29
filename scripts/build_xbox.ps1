@@ -184,6 +184,15 @@ function Convert-CompilerFlags {
     if ($favor -eq "1") { $flags.Add("/Ot") }
     elseif ($favor -eq "2") { $flags.Add("/Os") }
 
+    $processor = Get-XmlAttr -Node $Tool -Name "OptimizeForProcessor"
+    if ($processor -eq "1") { $flags.Add("/G5") }
+    elseif ($processor -eq "2") { $flags.Add("/G6") }
+    elseif ($processor -eq "3") { $flags.Add("/G7") }
+
+    $enhancedInstructionSet = Get-XmlAttr -Node $Tool -Name "EnableEnhancedInstructionSet"
+    if ($enhancedInstructionSet -eq "1") { $flags.Add("/arch:SSE") }
+    elseif ($enhancedInstructionSet -eq "2") { $flags.Add("/arch:SSE2") }
+
     if ((Get-XmlAttr -Node $Tool -Name "RuntimeLibrary") -eq "0") { $flags.Add("/MT") }
 
     $omitFp = Get-XmlAttr -Node $Tool -Name "OmitFramePointers"
@@ -1147,6 +1156,8 @@ function Build-Project {
             InlineFunctionExpansion = "2"
             EnableIntrinsicFunctions = "true"
             FavorSizeOrSpeed = "1"
+            OptimizeForProcessor = "2"
+            EnableEnhancedInstructionSet = "1"
             OmitFramePointers = "true"
             StringPooling = "true"
             RuntimeLibrary = "0"
@@ -1191,6 +1202,8 @@ function Build-Project {
             AdditionalLibraryDirectories = "$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
+            OptimizeReferences = "2"
+            EnableCOMDATFolding = "2"
             ProgramDatabaseFile = "$repoReleaseDir\x_exe.pdb"
             SubSystem = "2"
             EntryPointSymbol = "WinMainCRTStartup"
@@ -1481,6 +1494,14 @@ function Build-Project {
         if ((Get-XmlAttr -Node $linkTool -Name "GenerateDebugInformation") -eq "true") {
             $linkArgs.Add("/DEBUG")
             $linkArgs.Add("/PDB:$pdbPath")
+        }
+
+        if ((Get-XmlAttr -Node $linkTool -Name "OptimizeReferences") -eq "2") {
+            $linkArgs.Add("/OPT:REF")
+        }
+
+        if ((Get-XmlAttr -Node $linkTool -Name "EnableCOMDATFolding") -eq "2") {
+            $linkArgs.Add("/OPT:ICF")
         }
 
         $mapPath = [System.IO.Path]::ChangeExtension($outputFile, ".map")
