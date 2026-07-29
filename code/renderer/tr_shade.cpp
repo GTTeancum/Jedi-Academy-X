@@ -1706,7 +1706,11 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 	static int s_stefxDrawSubmitContextCallBudget = 24;
 	qboolean trace;
 	int indexBase;
-	const int maxChunkIndexes = 384 * 3;
+	/*
+	 * tess already enforces SHADER_MAX_INDEXES. Subdividing that valid batch
+	 * makes the compatibility layer repack overlapping vertices repeatedly.
+	 */
+	const int maxChunkIndexes = SHADER_MAX_INDEXES;
 
 	if ( numIndexes <= 0 || !indexes )
 	{
