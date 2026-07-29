@@ -246,74 +246,12 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
             maxIndex = idx[i];
         }
     }
-    static GLushort *s_fastIndices = NULL;
-    static UINT s_fastIndicesCount = 0;
-    static GLushort *s_fastSourceIndices = NULL;
-    static UINT s_fastSourceCount = 0;
-    static UINT *s_fastRemap = NULL;
-    static UINT *s_fastRemapGeneration = NULL;
-    static UINT s_fastRemapCount = 0;
-    static UINT s_fastGeneration = 1;
-    if ((UINT)count > s_fastIndicesCount) {
-        GLushort *newIndices = (GLushort *)realloc(s_fastIndices, count * sizeof(GLushort));
-        if (!newIndices) {
-            return false;
-        }
-        s_fastIndices = newIndices;
-        s_fastIndicesCount = (UINT)count;
-    }
-    if ((UINT)count > s_fastSourceCount) {
-        GLushort *newSources = (GLushort *)realloc(s_fastSourceIndices, count * sizeof(GLushort));
-        if (!newSources) {
-            return false;
-        }
-        s_fastSourceIndices = newSources;
-        s_fastSourceCount = (UINT)count;
-    }
-    if (maxIndex + 1 > s_fastRemapCount) {
-        UINT oldCount = s_fastRemapCount;
-        UINT newCount = maxIndex + 1;
-        UINT *newRemap = (UINT *)realloc(s_fastRemap, newCount * sizeof(UINT));
-        if (!newRemap) {
-            return false;
-        }
-        s_fastRemap = newRemap;
-        UINT *newGeneration = (UINT *)realloc(s_fastRemapGeneration, newCount * sizeof(UINT));
-        if (!newGeneration) {
-            return false;
-        }
-        s_fastRemapGeneration = newGeneration;
-        s_fastRemapCount = newCount;
-        for (UINT i = oldCount; i < s_fastRemapCount; ++i) {
-            s_fastRemap[i] = 0;
-            s_fastRemapGeneration[i] = 0;
-        }
-    }
-
-    ++s_fastGeneration;
-    if (!s_fastGeneration) {
-        memset(s_fastRemapGeneration, 0, s_fastRemapCount * sizeof(UINT));
-        s_fastGeneration = 1;
-    }
-
-    UINT vertexCount = 0;
-    for (GLsizei i = 0; i < count; ++i) {
-        const UINT sourceIndex = idx[i];
-        UINT mappedIndex = 0;
-        if (s_fastRemapGeneration[sourceIndex] != s_fastGeneration) {
-            if (vertexCount >= 65535u) {
-                return false;
-            }
-            mappedIndex = vertexCount;
-            s_fastRemapGeneration[sourceIndex] = s_fastGeneration;
-            s_fastRemap[sourceIndex] = mappedIndex;
-            s_fastSourceIndices[vertexCount] = (GLushort)sourceIndex;
-            ++vertexCount;
-        } else {
-            mappedIndex = s_fastRemap[sourceIndex];
-        }
-        s_fastIndices[i] = (GLushort)mappedIndex;
-    }
+    /*
+     * Renderer tessellation arrays are contiguous and the submitted indices
+     * already address them directly. Preserve that indexing and pack the
+     * contiguous source range instead of rebuilding a remap table per draw.
+     */
+    const UINT vertexCount = maxIndex + 1;
 
     int texStages = 0;
     if ((g_texCoordArrayEnabled & 1u) && g_texCoordArray[0].pointer && g_texCoordArray[0].type == GL_FLOAT && g_texCoordArray[0].size >= 2) {
@@ -377,7 +315,7 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     const int st1Stride = texStages >= 2 ? ArrayStride(g_texCoordArray[1]) : 0;
 
     for (UINT i = 0; i < vertexCount; ++i) {
-        const UINT sourceIndex = s_fastSourceIndices[i];
+        const UINT sourceIndex = i;
         const GLfloat *xyz = (const GLfloat *)((const char *)g_vertexArray.pointer + sourceIndex * xyzStride);
         DWORD color = PackColorFromArray(sourceIndex);
         if (texStages == 2) {
@@ -471,7 +409,7 @@ static bool JkaTryDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const 
     }
 
     bool drawOk = JkaFakeglDrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, fvf, vertexCount, primitiveCount,
-        s_fastIndices, verts, stride, g_stefxOverlayDrawContext,
+        idx, verts, stride, g_stefxOverlayDrawContext,
         g_stefxOverlayDrawHud, g_stefxOverlayDrawBeam) != 0;
     if (g_stefxOverlayDrawContext) {
         static int s_overlayFastResultBudget = 24;
