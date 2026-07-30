@@ -328,6 +328,7 @@ __declspec(dllexport) volatile unsigned int g_SPXBCinLoopCount = 0x11110034;
 __declspec(dllexport) volatile unsigned int g_SPXBDirectMapStatus = 0x11110035;
 __declspec(dllexport) volatile unsigned int g_SPXBDirectMapHash = 0x11110036;
 __declspec(dllexport) volatile unsigned int g_SPXBDirectMapQueuedCount = 0x11110037;
+__declspec(dllexport) volatile unsigned int g_SPXBGameDetailTraceEnabled = 0;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeMagic = 0x53565052; /* 'SVPR' */
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbePhase = 0x11120001;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeSubphase = 0x11120002;
@@ -1904,6 +1905,7 @@ void XBLog_Init(void)
     g_SPXBDirectMapStatus = 0;
     g_SPXBDirectMapHash = 0;
     g_SPXBDirectMapQueuedCount = 0;
+    g_SPXBGameDetailTraceEnabled = 0;
     g_SPXBSVProbeMagic = 0x53565052; /* 'SVPR' */
     g_SPXBSVProbePhase = 0;
     g_SPXBSVProbeSubphase = 0;

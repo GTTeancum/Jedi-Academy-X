@@ -18,6 +18,7 @@
 #include "../win32/glw_win_dx8.h"
 #endif
 extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
+extern "C" volatile unsigned int g_SPXBGameDetailTraceEnabled;
 #if defined(STEFX_ELITE_FORCE_SP)
 extern "C" volatile unsigned int g_SPXBFallbackTraceMagic;
 extern "C" volatile unsigned int g_SPXBFallbackStageCount;
@@ -597,6 +598,11 @@ extern "C" void JkaFakeglSetEliteForceDrawContext(const char *shader, int stage,
 static qboolean RB_XboxShouldTraceSurface( void )
 {
 	const char *name;
+
+	if ( !g_SPXBGameDetailTraceEnabled )
+	{
+		return qfalse;
+	}
 
 	if ( cls.state != CA_ACTIVE || !tess.shader || !tess.shader->name )
 	{
