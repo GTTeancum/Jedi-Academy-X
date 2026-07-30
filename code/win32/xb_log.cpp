@@ -2220,6 +2220,7 @@ void XBLog_Write(const char *msg)
 {
     char buf[XBL_BUF_SIZE];
     if (!msg) return;
+    if (!g_verboseLog && !xbl_FormatMayBeCritical(msg)) return;
     _snprintf(buf, sizeof(buf) - 2, "%s", msg);
     buf[sizeof(buf) - 2] = '\0';
     int len = (int)strlen(buf);
