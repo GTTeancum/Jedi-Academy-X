@@ -131,6 +131,11 @@ enum
 	FAKEGL_BOUND_TEXTURE_CACHE_STAGES = 4
 };
 
+#ifdef _XBOX
+#define XBOX_FAKEGL_CACHE_RENDER_STATE 1
+#define XBOX_FAKEGL_CACHE_TRANSFORM 1
+#endif
+
 static IDirect3DBaseTexture8 *g_fakeglBoundTextureCache[FAKEGL_BOUND_TEXTURE_CACHE_STAGES];
 static bool g_fakeglBoundTextureCacheValid[FAKEGL_BOUND_TEXTURE_CACHE_STAGES];
 
@@ -3143,6 +3148,24 @@ class FakeGL
 {
 private:
 	IDirect3DDevice8* m_pD3DDev;
+#ifdef _XBOX
+	enum
+	{
+		kRenderStateCacheCount = 256
+	};
+	bool m_renderStateValid[kRenderStateCacheCount];
+	DWORD m_renderStateValue[kRenderStateCacheCount];
+	enum
+	{
+		kTransformCacheCount = 4,
+		kTransformCacheWorld = 0,
+		kTransformCacheView = 1,
+		kTransformCacheProjection = 2,
+		kTransformCacheTexture0 = 3
+	};
+	bool m_transformValid[kTransformCacheCount];
+	D3DMATRIX m_transformValue[kTransformCacheCount];
+#endif
     D3DSURFACE_DESC m_d3dsdBackBuffer;   // Surface desc of the backbuffer
 	LPDIRECT3D8 m_pD3D;
 	
@@ -3792,6 +3815,9 @@ public:
 		m_bD3DXReady = TRUE;
 
 		m_pD3DDev = 0;
+#ifdef _XBOX
+		InvalidateD3DStateCache();
+#endif
 		m_pD3D = 0;
 		m_pPrimary = 0;
 		m_fallbackTexture = 0;
@@ -3923,11 +3949,11 @@ public:
 		}
 
 		// One-time render state initialization
-		m_pD3DDev->SetRenderState( D3DRS_TEXTUREFACTOR, 0x00000000 );
-		m_pD3DDev->SetRenderState( D3DRS_DITHERENABLE, 0 ); //FALSE looks worse in 16 bit mode (D3DFMT_X1R5G5B5)
-		m_pD3DDev->SetRenderState( D3DRS_SPECULARENABLE, FALSE );
-		m_pD3DDev->SetRenderState( D3DRS_LIGHTING, FALSE);
-		m_pD3DDev->SetRenderState( D3DRS_FOGENABLE, FALSE);
+		SetRenderStateCached( D3DRS_TEXTUREFACTOR, 0x00000000 );
+		SetRenderStateCached( D3DRS_DITHERENABLE, 0 ); //FALSE looks worse in 16 bit mode (D3DFMT_X1R5G5B5)
+		SetRenderStateCached( D3DRS_SPECULARENABLE, FALSE );
+		SetRenderStateCached( D3DRS_LIGHTING, FALSE);
+		SetRenderStateCached( D3DRS_FOGENABLE, FALSE);
 	}
 	~FakeGL()
 	{
@@ -6621,6 +6647,79 @@ private:
 		}
 	}
 
+#ifdef _XBOX
+	void InvalidateD3DStateCache()
+	{
+		memset(m_renderStateValid, 0, sizeof(m_renderStateValid));
+		memset(m_renderStateValue, 0, sizeof(m_renderStateValue));
+		memset(m_transformValid, 0, sizeof(m_transformValid));
+		memset(m_transformValue, 0, sizeof(m_transformValue));
+	}
+
+	HRESULT SetRenderStateCached(D3DRENDERSTATETYPE state, DWORD value)
+	{
+		const DWORD stateIndex = (DWORD)state;
+
+#if XBOX_FAKEGL_CACHE_RENDER_STATE
+		if (stateIndex < kRenderStateCacheCount &&
+			m_renderStateValid[stateIndex] && m_renderStateValue[stateIndex] == value)
+		{
+			return S_OK;
+		}
+#endif
+
+		HRESULT hr = m_pD3DDev->SetRenderState(state, value);
+		if (SUCCEEDED(hr) && stateIndex < kRenderStateCacheCount)
+		{
+			m_renderStateValid[stateIndex] = true;
+			m_renderStateValue[stateIndex] = value;
+		}
+		return hr;
+	}
+
+	int TransformCacheSlot(D3DTRANSFORMSTATETYPE state) const
+	{
+		switch (state)
+		{
+		case D3DTS_WORLD: return kTransformCacheWorld;
+		case D3DTS_VIEW: return kTransformCacheView;
+		case D3DTS_PROJECTION: return kTransformCacheProjection;
+		case D3DTS_TEXTURE0: return kTransformCacheTexture0;
+		default: return -1;
+		}
+	}
+
+	HRESULT SetTransformCached(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix)
+	{
+		const int slot = TransformCacheSlot(state);
+#if XBOX_FAKEGL_CACHE_TRANSFORM
+		if (slot >= 0 && m_transformValid[slot] &&
+			memcmp(&m_transformValue[slot], matrix, sizeof(*matrix)) == 0)
+		{
+			return S_OK;
+		}
+#endif
+
+		HRESULT hr = m_pD3DDev->SetTransform(state, matrix);
+		if (SUCCEEDED(hr) && slot >= 0)
+		{
+			m_transformValid[slot] = true;
+			memcpy(&m_transformValue[slot], matrix, sizeof(*matrix));
+		}
+		return hr;
+	}
+#else
+	HRESULT SetRenderStateCached(D3DRENDERSTATETYPE state, DWORD value)
+	{
+		return m_pD3DDev->SetRenderState(state, value);
+	}
+
+	HRESULT SetTransformCached(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix)
+	{
+		return m_pD3DDev->SetTransform(state, matrix);
+	}
+#endif
+
 	HRESULT HandleWindowedModeChanges()
 	{
 		return S_OK;
@@ -6640,10 +6739,10 @@ private:
 			// Alpha test
 			const DWORD alphaFunc = m_glAlphaTest ? GLToDXCompare(m_glAlphaFunc) : D3DCMP_ALWAYS;
 			const DWORD alphaRef = (DWORD)(255 * m_glAlphaFuncRef);
-			m_pD3DDev->SetRenderState( D3DRS_ALPHATESTENABLE,
+			SetRenderStateCached( D3DRS_ALPHATESTENABLE,
 				m_glAlphaTest ? TRUE : FALSE );
-			m_pD3DDev->SetRenderState(D3DRS_ALPHAFUNC, alphaFunc);
-			m_pD3DDev->SetRenderState(D3DRS_ALPHAREF, alphaRef);
+			SetRenderStateCached(D3DRS_ALPHAFUNC, alphaFunc);
+			SetRenderStateCached(D3DRS_ALPHAREF, alphaRef);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 			if ( m_glAlphaTest )
 			{
@@ -6668,9 +6767,9 @@ private:
 			// Alpha blending
 			DWORD srcBlend = m_glBlend ? GLToDXSBlend(m_glBlendFuncSFactor) : D3DBLEND_ONE;
 			DWORD destBlend = m_glBlend ? GLToDXDBlend(m_glBlendFuncDFactor) : D3DBLEND_ZERO;
-			m_pD3DDev->SetRenderState( D3DRS_SRCBLEND,  srcBlend );
-			m_pD3DDev->SetRenderState( D3DRS_DESTBLEND, destBlend );
-			m_pD3DDev->SetRenderState( D3DRS_ALPHABLENDENABLE, m_glBlend ? TRUE : FALSE );
+			SetRenderStateCached( D3DRS_SRCBLEND,  srcBlend );
+			SetRenderStateCached( D3DRS_DESTBLEND, destBlend );
+			SetRenderStateCached( D3DRS_ALPHABLENDENABLE, m_glBlend ? TRUE : FALSE );
 		}
 		if ( m_glCullStateDirty ) 
 		{
@@ -6689,7 +6788,7 @@ private:
 					break;
 				}
 			}
-			hr = m_pD3DDev->SetRenderState(D3DRS_CULLMODE, cull);
+			hr = SetRenderStateCached(D3DRS_CULLMODE, cull);
 			if ( FAILED(hr) ){
 				InterpretError(hr);
 			}
@@ -6719,7 +6818,7 @@ private:
 		{
 			m_glShadeModelStateDirty = false;
 			// Shade model
-			m_pD3DDev->SetRenderState( D3DRS_SHADEMODE, 
+			SetRenderStateCached( D3DRS_SHADEMODE,
 				m_glShadeModel == GL_SMOOTH ? D3DSHADE_GOURAUD : D3DSHADE_FLAT );
 		}
 			
@@ -6730,20 +6829,20 @@ private:
 		if ( m_glDepthStateDirty ) 
 		{
 			m_glDepthStateDirty = false;
-			m_pD3DDev->SetRenderState( D3DRS_ZENABLE, m_glDepthTest ? D3DZB_TRUE : D3DZB_FALSE);
-			m_pD3DDev->SetRenderState( D3DRS_ZWRITEENABLE, m_glDepthMask ? TRUE : FALSE);
+			SetRenderStateCached( D3DRS_ZENABLE, m_glDepthTest ? D3DZB_TRUE : D3DZB_FALSE);
+			SetRenderStateCached( D3DRS_ZWRITEENABLE, m_glDepthMask ? TRUE : FALSE);
 			DWORD zfunc = GLToDXCompare(m_glDepthFunc);
-			m_pD3DDev->SetRenderState( D3DRS_ZFUNC, zfunc );
+			SetRenderStateCached( D3DRS_ZFUNC, zfunc );
 		}
 		if ( m_glFogStateDirty )
 		{
 			m_glFogStateDirty = false;
-			m_pD3DDev->SetRenderState( D3DRS_FOGENABLE, m_glFog ? TRUE : FALSE );
-			m_pD3DDev->SetRenderState( D3DRS_FOGTABLEMODE, GLToDXFogMode(m_glFogMode) );
-			m_pD3DDev->SetRenderState( D3DRS_FOGDENSITY, *(DWORD*)&m_glFogDensity );
-			m_pD3DDev->SetRenderState( D3DRS_FOGSTART, *(DWORD*)&m_glFogStart );
-			m_pD3DDev->SetRenderState( D3DRS_FOGEND, *(DWORD*)&m_glFogEnd );
-			m_pD3DDev->SetRenderState( D3DRS_FOGCOLOR, m_glFogColor );
+			SetRenderStateCached( D3DRS_FOGENABLE, m_glFog ? TRUE : FALSE );
+			SetRenderStateCached( D3DRS_FOGTABLEMODE, GLToDXFogMode(m_glFogMode) );
+			SetRenderStateCached( D3DRS_FOGDENSITY, *(DWORD*)&m_glFogDensity );
+			SetRenderStateCached( D3DRS_FOGSTART, *(DWORD*)&m_glFogStart );
+			SetRenderStateCached( D3DRS_FOGEND, *(DWORD*)&m_glFogEnd );
+			SetRenderStateCached( D3DRS_FOGCOLOR, m_glFogColor );
 #ifdef _XBOX
 			{
 				static int s_fogApplyLogCount = 0;
@@ -6764,17 +6863,17 @@ private:
 		if ( m_modelViewMatrixStateDirty ) 
 		{
 			m_modelViewMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_WORLD, m_modelViewMatrixStack->GetTop() );
+			SetTransformCached( D3DTS_WORLD, m_modelViewMatrixStack->GetTop() );
 		}
 		if ( m_viewMatrixStateDirty ) 
 		{
 			m_viewMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_VIEW, & m_d3dViewMatrix );
+			SetTransformCached( D3DTS_VIEW, & m_d3dViewMatrix );
 		}
 		if ( m_projectionMatrixStateDirty ) 
 		{
 			m_projectionMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_PROJECTION, m_projectionMatrixStack->GetTop() );
+			SetTransformCached( D3DTS_PROJECTION, m_projectionMatrixStack->GetTop() );
 		}
 		if ( m_glClipPlane0StateDirty )
 		{
@@ -6800,7 +6899,7 @@ private:
 		if ( m_textureMatrixStateDirty )
 		{
 			m_textureMatrixStateDirty = false;
-			m_pD3DDev->SetTransform( D3DTS_TEXTURE0, m_textureMatrixStack->GetTop() );
+			SetTransformCached( D3DTS_TEXTURE0, m_textureMatrixStack->GetTop() );
 		}
 		if ( m_bViewPortDirty )
 		{
