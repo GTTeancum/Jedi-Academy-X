@@ -126,6 +126,45 @@ extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
 
+enum
+{
+	FAKEGL_BOUND_TEXTURE_CACHE_STAGES = 4
+};
+
+static IDirect3DBaseTexture8 *g_fakeglBoundTextureCache[FAKEGL_BOUND_TEXTURE_CACHE_STAGES];
+static bool g_fakeglBoundTextureCacheValid[FAKEGL_BOUND_TEXTURE_CACHE_STAGES];
+
+extern "C" void JkaFakeglInvalidateBoundTextureCache(void)
+{
+	memset(g_fakeglBoundTextureCacheValid, 0, sizeof(g_fakeglBoundTextureCacheValid));
+	memset(g_fakeglBoundTextureCache, 0, sizeof(g_fakeglBoundTextureCache));
+}
+
+extern "C" HRESULT JkaFakeglSetTextureCached(
+	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture)
+{
+	HRESULT result;
+
+	if (!device)
+	{
+		return E_POINTER;
+	}
+	if (stage >= 0 && stage < FAKEGL_BOUND_TEXTURE_CACHE_STAGES &&
+		g_fakeglBoundTextureCacheValid[stage] &&
+		g_fakeglBoundTextureCache[stage] == texture)
+	{
+		return S_OK;
+	}
+
+	result = device->SetTexture(stage, texture);
+	if (SUCCEEDED(result) && stage >= 0 && stage < FAKEGL_BOUND_TEXTURE_CACHE_STAGES)
+	{
+		g_fakeglBoundTextureCacheValid[stage] = true;
+		g_fakeglBoundTextureCache[stage] = texture;
+	}
+	return result;
+}
+
 extern "C" void JkaFakeglSetTextureDebugName(const char *name)
 {
 	int i;
@@ -1122,8 +1161,8 @@ static void FakeGL_DrawRenderProbe(D3DDevice *device)
 	};
 
 	HRESULT hrClear = device->Clear(0, NULL, D3DCLEAR_TARGET, 0xff400040, 1.0f, 0);
-	device->SetTexture(0, NULL);
-	device->SetTexture(1, NULL);
+	JkaFakeglSetTextureCached(device, 0, NULL);
+	JkaFakeglSetTextureCached(device, 1, NULL);
 	device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
 	device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
 	device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
@@ -2068,7 +2107,7 @@ public:
 								(unsigned int)entry->m_internalFormat);
 						}
 #endif
-						HRESULT hrSetTexture = pD3DDev->SetTexture( i, pTexture);
+						HRESULT hrSetTexture = JkaFakeglSetTextureCached(pD3DDev, i, pTexture);
 #ifdef _XBOX
 						{
 							static int s_efStage0ApplyBudget = 8;
@@ -2154,7 +2193,7 @@ public:
 			}
 			else 
 			{
-				pD3DDev->SetTexture( i, NULL);
+				JkaFakeglSetTextureCached(pD3DDev, i, NULL);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, D3DTA_TEXTURE);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, D3DTOP_DISABLE);
@@ -3767,6 +3806,7 @@ public:
 		m_subImageScratchSize = 0;
 #ifdef _XBOX
 		m_stefxEliteForceScriptPanelDraw = false;
+		JkaFakeglInvalidateBoundTextureCache();
 #endif
 
 		m_glRenderStateDirty = true;

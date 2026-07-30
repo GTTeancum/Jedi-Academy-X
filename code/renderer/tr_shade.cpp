@@ -35,6 +35,8 @@ extern "C" volatile unsigned int g_SPXBFallbackLastY1000;
 extern "C" volatile unsigned int g_SPXBFallbackLastZ1000;
 #endif
 extern "C" void JkaFakeglSetEliteForceOverlayDrawContext(int active, int hud, int beam);
+extern "C" HRESULT JkaFakeglSetTextureCached(
+	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture);
 
 static const char *RB_XboxImageLogName( const image_t *image )
 {
@@ -1170,7 +1172,7 @@ static void RB_XboxPrepareEliteForcePlayerModelDraw( const shaderStage_t *stage 
 	glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 	if ( glw_state && glw_state->device )
 	{
-		glw_state->device->SetTexture( 1, NULL );
+		JkaFakeglSetTextureCached( glw_state->device, 1, NULL );
 		glw_state->device->SetTextureStageState( 1, D3DTSS_COLOROP, D3DTOP_DISABLE );
 		glw_state->device->SetTextureStageState( 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
 		glw_state->device->SetTextureStageState( 1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );

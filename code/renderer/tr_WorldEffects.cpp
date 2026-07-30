@@ -31,6 +31,8 @@ extern void			SetViewportAndScissor( void );
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/xb_log.h"
+extern "C" HRESULT JkaFakeglSetTextureCached(
+	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture);
 #endif
 
 #ifndef CONTENTS_OUTSIDE
@@ -1001,7 +1003,7 @@ static void pointBegin(GLint verts, float size)
 	// Update the texture and states
 	// NOTE: Point sprites ALWAYS go on texture stage 3
 	glwstate_t::texturexlat_t::iterator it = glw_state->textureXlat.find(glw_state->currentTexture[0]);
-	glw_state->device->SetTexture( 3, it->second.mipmap );
+	JkaFakeglSetTextureCached( glw_state->device, 3, it->second.mipmap );
 	glw_state->device->SetTextureStageState(3, D3DTSS_COLOROP,   glw_state->textureEnv[0]);
 	glw_state->device->SetTextureStageState(3, D3DTSS_COLORARG1, D3DTA_TEXTURE);
 	glw_state->device->SetTextureStageState(3, D3DTSS_COLORARG2, D3DTA_CURRENT);
@@ -1015,7 +1017,7 @@ static void pointBegin(GLint verts, float size)
 	glw_state->device->SetTextureStageState(3, D3DTSS_ADDRESSU,  it->second.wrapU);
 	glw_state->device->SetTextureStageState(3, D3DTSS_ADDRESSV,  it->second.wrapV);
 
-	glw_state->device->SetTexture( 0, NULL );
+	JkaFakeglSetTextureCached( glw_state->device, 0, NULL );
 	glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_DISABLE );
 
 	float attena = 1.0f, attenb = 0.0f, attenc = 0.01f;
@@ -1063,7 +1065,7 @@ static void pointEnd()
 {
 	glw_state->device->SetRenderState( D3DRS_POINTSPRITEENABLE, FALSE );
 	glw_state->device->SetRenderState( D3DRS_POINTSCALEENABLE, FALSE );
-	glw_state->device->SetTexture( 3, NULL );
+	JkaFakeglSetTextureCached( glw_state->device, 3, NULL );
 	glw_state->device->SetTextureStageState( 3, D3DTSS_COLOROP, D3DTOP_DISABLE );
 }
 #endif // _XBOX

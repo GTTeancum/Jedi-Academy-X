@@ -20,6 +20,8 @@
 
 #include "shader_constants.h"
 
+extern "C" HRESULT JkaFakeglSetTextureCached(
+	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture);
 
 
 StencilShadow StencilShadower;
@@ -337,8 +339,8 @@ void StencilShadow::RenderShadow()
     glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
     glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, 0 );
 
-	glw_state->device->SetTexture(0, NULL);
-	glw_state->device->SetTexture(1, NULL);
+	JkaFakeglSetTextureCached(glw_state->device, 0, NULL);
+	JkaFakeglSetTextureCached(glw_state->device, 1, NULL);
 
 	// Compute the matrix set
     XGMATRIX matComposite, matProjectionViewport, matWorld;

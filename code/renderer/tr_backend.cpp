@@ -25,6 +25,8 @@ extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
 extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
 extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS];
 extern "C" volatile unsigned int g_SPXBEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS];
+extern "C" HRESULT JkaFakeglSetTextureCached(
+	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture);
 static const bool kXboxClassifyDrawSurfs = false;
 #endif
 
@@ -1436,7 +1438,7 @@ void RB_RunVisTest(int number, vec3_t bounds[2])
         glw_state->device->SetTransform(D3DTS_PROJECTION, glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
 
 	GL_Bind(tr.whiteImage);
-	glw_state->device->SetTexture(0, NULL);
+	JkaFakeglSetTextureCached(glw_state->device, 0, NULL);
 
 	GL_State(GLS_DEFAULT);
 
