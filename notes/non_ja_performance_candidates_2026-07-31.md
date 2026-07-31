@@ -68,3 +68,29 @@ game entered actual gameplay, matching the accepted 18.0 FPS baseline.
 
 LTCG therefore provided no material gain. The build-mode changes were removed
 and the normal non-LTCG XBE was rebuilt.
+
+## XDK Instrumented-D3D Finding
+
+Date: 2026-07-31.
+
+An isolated XDK 5558 `d3d8i.lib` build sampled the driver over repeated
+120-frame windows on `borg1`. A captured complete window reported:
+
+- 66,837,660 pushbuffer bytes, or 556,981 bytes per frame.
+- 19,680 `SetStreamSource` calls, or 164 per frame.
+- 9,605 `SetTexture` calls, or about 80 per frame.
+- 16 pushbuffer segments across the 120 frames.
+- Zero pushbuffer, Present, object-lock, idle, vblank, fence, and CPU-spin
+  waits.
+
+The instrumented library reduced gameplay from the accepted 18 FPS baseline to
+about 16 FPS, so its framerate is diagnostic overhead and not a candidate
+result. The absence of driver waits rules out a hidden synchronization or
+presentation stall as the primary deficit. The unusually large command stream
+instead supports candidate 1: the current `DrawPrimitiveUP` and
+`DrawIndexedPrimitiveUP` submission path copies vertex/index payloads into the
+pushbuffer, work that CXBX-R HLE largely bypasses but XEMU/LLE must process.
+
+The next isolated candidate is therefore a persistent vertex/index streaming
+ring that removes `Draw*PrimitiveUP` without introducing a per-frame fence.
+The diagnostic source and build-mode changes were removed after capture.
