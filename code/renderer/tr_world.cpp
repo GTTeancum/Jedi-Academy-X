@@ -275,6 +275,10 @@ static void R_XboxLogJunkSkyLeafVisibility( const char *phase, const byte *vis )
 	int areaRejected = 0;
 	int clusterRejected = 0;
 
+#if !SP_XBOX_VERBOSE_RUNTIME_LOGS
+	return;
+#endif
+
 	if ( !tr.world || !tr.world->leafs || !tr.world->marksurfaces )
 	{
 		return;
@@ -656,9 +660,15 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 	static int s_xboxJunkSkyDrawBoundaryBudget = 32;
 	static int s_xboxBorgSuspectWorldBudget = 96;
 	static int s_xboxScavengerSuspectWorldBudget = 192;
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	const qboolean traceJunkSky = R_XboxTraceJunkSkySurface( surf );
 	const qboolean traceBorgSuspect = R_XboxTraceBorgSuspectSurface( surf );
 	const qboolean traceScavengerSuspect = R_XboxTraceScavengerSuspectSurface( surf );
+#else
+	const qboolean traceJunkSky = qfalse;
+	const qboolean traceBorgSuspect = qfalse;
+	const qboolean traceScavengerSuspect = qfalse;
+#endif
 
 	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
 	{
