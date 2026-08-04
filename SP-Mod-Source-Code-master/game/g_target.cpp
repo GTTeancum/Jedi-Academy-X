@@ -719,10 +719,7 @@ void scriptrunner_run (gentity_t *self)
 {
 #ifdef _XBOX
 	static int stefxScriptRunnerLogBudget = 128;
-	qboolean shouldLog = (qboolean)(stefxScriptRunnerLogBudget > 0 &&
-		self &&
-		((self->targetname && (!Q_stricmp(self->targetname, "intro3") || strstr(self->targetname, "intro"))) ||
-		 (self->behaviorSet[BSET_USE] && (strstr(self->behaviorSet[BSET_USE], "borg1") || strstr(self->behaviorSet[BSET_USE], "intro")))));
+	qboolean shouldLog = qfalse;
 
 	if (shouldLog)
 	{

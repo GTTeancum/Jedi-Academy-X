@@ -20,10 +20,6 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force);
 static char *lastMemPool = NULL;
 static int memPoolSize;
 
-#if defined(STEFX_SP_HOSTED_MP)
-static int s_stefxSessionCvarTraceCount;
-#endif
-
 static double Cvar_ParseFloat( const char *string ) {
 	double sign;
 	double value;
@@ -160,41 +156,12 @@ Cvar_FindVar
 */
 static cvar_t *Cvar_FindVar( const char *var_name ) {
 	cvar_t	*var;
-	#if defined(STEFX_SP_HOSTED_MP)
-	int walkCount = 0;
-	qboolean trace = (var_name && !Q_stricmpn(var_name, "session", 7)) ? qtrue : qfalse;
-	if (trace && s_stefxSessionCvarTraceCount < 32)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_FindVar enter name='%s' head=%p", var_name, cvar_vars);
-	}
-	#endif
 	
 	for (var=cvar_vars ; var ; var=var->next) {
-		#if defined(STEFX_SP_HOSTED_MP)
-		if (trace && ++walkCount > MAX_CVARS)
-		{
-			XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_FindVar cycle name='%s' walk=%d var=%p next=%p",
-				var_name, walkCount, var, var->next);
-			return NULL;
-		}
-		#endif
 		if (!Q_stricmp(var_name, var->name)) {
-			#if defined(STEFX_SP_HOSTED_MP)
-			if (trace && s_stefxSessionCvarTraceCount < 32)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_FindVar found name='%s' var=%p walk=%d",
-					var_name, var, walkCount);
-			}
-			#endif
 			return var;
 		}
 	}
-	#if defined(STEFX_SP_HOSTED_MP)
-	if (trace && s_stefxSessionCvarTraceCount < 32)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_FindVar miss name='%s' walk=%d", var_name, walkCount);
-	}
-	#endif
 
 	return NULL;
 }
@@ -225,23 +192,6 @@ int Cvar_VariableIntegerValue( const char *var_name ) {
 	var = Cvar_FindVar (var_name);
 	if (!var)
 		return 0;
-	return var->integer;
-}
-
-
-/*
-============
-Cvar_VariableLatchedIntegerValue
-============
-*/
-int Cvar_VariableLatchedIntegerValue( const char *var_name ) {
-	cvar_t	*var;
-
-	var = Cvar_FindVar( var_name );
-	if (!var)
-		return 0;
-	if (var->latchedString)
-		return Cvar_ParseInt( var->latchedString );
 	return var->integer;
 }
 
@@ -467,14 +417,6 @@ Cvar_Set2
 */
 cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force ) {
 	cvar_t	*var;
-	#if defined(STEFX_SP_HOSTED_MP)
-	qboolean traceSession = (var_name && !Q_stricmpn(var_name, "session", 7)) ? qtrue : qfalse;
-	if (traceSession && s_stefxSessionCvarTraceCount < 32)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_Set2 enter name='%s' value='%s' force=%d",
-			var_name, value ? value : "", force);
-	}
-	#endif
 
 	Com_DPrintf( "Cvar_Set2: %s %s\n", var_name, value );
 
@@ -491,30 +433,16 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force ) {
 #endif
 
 	var = Cvar_FindVar (var_name);
-	#if defined(STEFX_SP_HOSTED_MP)
-	if (traceSession && s_stefxSessionCvarTraceCount < 32)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_Set2 lookup name='%s' var=%p", var_name, var);
-	}
-	#endif
 	if (!var) {
 		if ( !value ) {
 			return NULL;
 		}
 		// create it
 		if ( !force ) {
-			var = Cvar_Get( var_name, value, CVAR_USER_CREATED );
+			return Cvar_Get( var_name, value, CVAR_USER_CREATED );
 		} else {
-			var = Cvar_Get (var_name, value, 0);
+			return Cvar_Get (var_name, value, 0);
 		}
-		#if defined(STEFX_SP_HOSTED_MP)
-		if (traceSession && s_stefxSessionCvarTraceCount < 32)
-		{
-			XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_Set2 create exit name='%s' var=%p", var_name, var);
-			++s_stefxSessionCvarTraceCount;
-		}
-		#endif
-		return var;
 	}
 
 	if (!value ) {
@@ -586,13 +514,6 @@ cvar_t *Cvar_Set2( const char *var_name, const char *value, qboolean force ) {
 	var->string = CopyString(value);
 	var->value = (float)Cvar_ParseFloat( var->string );
 	var->integer = Cvar_ParseInt( var->string );
-	#if defined(STEFX_SP_HOSTED_MP)
-	if (traceSession && s_stefxSessionCvarTraceCount < 32)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: Cvar_Set2 update exit name='%s' var=%p", var_name, var);
-		++s_stefxSessionCvarTraceCount;
-	}
-	#endif
 
 	return var;
 }

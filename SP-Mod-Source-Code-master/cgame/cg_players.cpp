@@ -22,6 +22,7 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci, const char *headModelName
 									const char *legsModelName, const char *legsSkinName );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern void CG_RegisterClientModels (int entityNum);
+qboolean STEFX_XboxSuppressPlayerPresentation( void );
 extern "C" volatile unsigned int g_SPXBSplitP2ModelEnter;
 extern "C" volatile unsigned int g_SPXBSplitP2ModelReturn;
 extern "C" volatile unsigned int g_SPXBSplitP2ModelInfoValid;
@@ -42,6 +43,70 @@ extern "C" volatile unsigned int g_SPXBHelmetCgameP1Slot0;
 extern "C" volatile unsigned int g_SPXBHelmetCgameP1Slot1;
 extern "C" volatile unsigned int g_SPXBHelmetCgameP2Slot0;
 extern "C" volatile unsigned int g_SPXBHelmetCgameP2Slot1;
+extern "C" volatile unsigned int g_SPXBBorgPluggedCount;
+extern "C" volatile unsigned int g_SPXBBorgPluggedEnt;
+extern "C" volatile unsigned int g_SPXBBorgPluggedSpawnflags;
+extern "C" volatile unsigned int g_SPXBBorgPluggedAnim;
+extern "C" volatile unsigned int g_SPXBBorgPluggedLegsModel;
+extern "C" volatile unsigned int g_SPXBBorgPluggedTorsoModel;
+extern "C" volatile unsigned int g_SPXBBorgPluggedHeadModel;
+extern "C" volatile unsigned int g_SPXBBorgPluggedLegsSkin;
+extern "C" volatile unsigned int g_SPXBBorgPluggedTorsoSkin;
+extern "C" volatile unsigned int g_SPXBBorgPluggedHeadSkin;
+extern "C" volatile unsigned int g_SPXBBorgPluggedLegsNameHash;
+extern "C" volatile unsigned int g_SPXBBorgPluggedTorsoNameHash;
+extern "C" volatile unsigned int g_SPXBBorgPluggedHeadNameHash;
+extern "C" volatile unsigned int g_SPXBBorgActiveCount;
+extern "C" volatile unsigned int g_SPXBBorgActiveEnt;
+extern "C" volatile unsigned int g_SPXBBorgActiveSpawnflags;
+extern "C" volatile unsigned int g_SPXBBorgActiveAnim;
+extern "C" volatile unsigned int g_SPXBBorgActiveLegsModel;
+extern "C" volatile unsigned int g_SPXBBorgActiveTorsoModel;
+extern "C" volatile unsigned int g_SPXBBorgActiveHeadModel;
+extern "C" volatile unsigned int g_SPXBBorgActiveLegsSkin;
+extern "C" volatile unsigned int g_SPXBBorgActiveTorsoSkin;
+extern "C" volatile unsigned int g_SPXBBorgActiveHeadSkin;
+extern "C" volatile unsigned int g_SPXBBorgActiveLegsNameHash;
+extern "C" volatile unsigned int g_SPXBBorgActiveTorsoNameHash;
+extern "C" volatile unsigned int g_SPXBBorgActiveHeadNameHash;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+
+#define STEFX_PLAYER_PHASE(stage, cent) \
+	( g_SPXBPhaseLast = 0xD0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
+		( (unsigned int)(cent)->currentState.number & 0xffffu ) )
+
+static unsigned int STEFX_BorgModelNameHash( const char *text )
+{
+	unsigned int hash = 2166136261u;
+	unsigned char c;
+
+	if ( !text )
+	{
+		return 0;
+	}
+	while ( ( c = (unsigned char)*text++ ) != 0 )
+	{
+		if ( c >= 'A' && c <= 'Z' )
+		{
+			c = (unsigned char)( c - 'A' + 'a' );
+		}
+		hash ^= c;
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+static qboolean STEFX_ClaimDeferredModelRegistration( void )
+{
+	static int s_registrationFrame = -1;
+
+	if ( s_registrationFrame == cg.clientFrame )
+	{
+		return qfalse;
+	}
+	s_registrationFrame = cg.clientFrame;
+	return qtrue;
+}
 #endif
 
 void CG_PlayerAnimSounds( animsounds_t *animSounds, int frame, int entNum );
@@ -1726,8 +1791,24 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 	float		swing, scale;
 	int			i;
 	qboolean	looking = qfalse, talking = qfalse;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean	stefxSplitPlayer = qfalse;
 
-	if ( cg.renderingThirdPerson && cent->gent && cent->gent->s.number == 0 )
+	if ( cg.snap &&
+		cg_stefxSplitScreen.integer &&
+		cg_stefxSplitScreenPlayers.integer >= 2 &&
+		( cent->currentState.number == cg.snap->ps.clientNum ||
+		  cent->currentState.number == cg_stefxSplitScreenP2Entity.integer ) )
+	{
+		stefxSplitPlayer = qtrue;
+	}
+#endif
+
+	if ( ( cg.renderingThirdPerson && cent->gent && cent->gent->s.number == 0 )
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		|| stefxSplitPlayer
+#endif
+		)
 	{
 		// If we are rendering third person, we should just force the player body to always fully face
 		//	whatever way they are looking, otherwise, you can end up with gun shots coming off of the
@@ -1740,6 +1821,24 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 		AnglesToAxis( viewAngles, torso );
 		AnglesToAxis( viewAngles, head );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxSplitPlayer )
+		{
+			static int s_stefxSplitPlayerAnglesLogBudget = 16;
+			if ( s_stefxSplitPlayerAnglesLogBudget > 0 )
+			{
+				XBLF( "STEFX_SPLIT_POSE: aligned ent=%d p1=%d p2=%d time=%d angles=(%g,%g,%g)",
+					cent->currentState.number,
+					cg.snap->ps.clientNum,
+					cg_stefxSplitScreenP2Entity.integer,
+					cg.time,
+					cent->lerpAngles[PITCH],
+					cent->lerpAngles[YAW],
+					cent->lerpAngles[ROLL] );
+				--s_stefxSplitPlayerAnglesLogBudget;
+			}
+		}
+#endif
 		return;
 	}
 
@@ -3353,13 +3452,20 @@ void CG_Player( centity_t *cent ) {
 	qboolean		stefxSplitP2Model = qfalse;
 	qboolean		stefxSuppressSplitFlash = qfalse;
 	qboolean		stefxSuppressSplitSelfWeapon = qfalse;
+	qboolean		stefxBorgPluggedActor = qfalse;
 	const char		*stefxSplitRole = "";
 #endif
 
 	calcedMp = qfalse;
 
 	//Get the player's light level for stealth calculations
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x01, cent );
+#endif
 	CG_GetPlayerLightLevel( cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x02, cent );
+#endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if ( cent && s_stefxPlayerLogBudget > 0 &&
@@ -3435,6 +3541,27 @@ void CG_Player( centity_t *cent ) {
 				cent->gent,
 				cent->gent ? cent->gent->client : NULL );
 		}
+	}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxSplitActive &&
+		STEFX_XboxSuppressPlayerPresentation() &&
+		( cent->currentState.number == cg.snap->ps.clientNum ||
+		  cent->currentState.number == cg_stefxSplitScreenP2Entity.integer ) )
+	{
+		if ( stefxSplitP2Model )
+		{
+			g_SPXBSplitP2ModelReturn = 11;
+		}
+		if ( stefxLogPlayer || stefxLogThirdPerson || stefxLogSplitModel )
+		{
+			XBLF( "STEFX_SPLIT_MODEL return reason=presentation role=%s ent=%d time=%d",
+				stefxSplitRole,
+				cent->currentState.number,
+				cg.time );
+		}
+		return;
 	}
 #endif
 
@@ -3520,9 +3647,11 @@ void CG_Player( centity_t *cent ) {
 	ci = &cent->gent->client->clientInfo;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x03, cent );
 	if ( stefxSplitActive &&
 		cent->currentState.number == cg_stefxSplitScreenP2Entity.integer &&
-		!ci->infoValid )
+		!ci->infoValid &&
+		STEFX_ClaimDeferredModelRegistration() )
 	{
 		if ( s_stefxSplitP2RegisterLogBudget > 0 )
 		{
@@ -3556,7 +3685,9 @@ void CG_Player( centity_t *cent ) {
 		}
 	}
 
-	if ( !ci->infoValid && cent->currentState.number != 0 )
+	if ( !ci->infoValid &&
+		cent->currentState.number != 0 &&
+		STEFX_ClaimDeferredModelRegistration() )
 	{
 		static int s_stefxDeferredModelLogBudget = 64;
 
@@ -3637,6 +3768,114 @@ void CG_Player( centity_t *cent ) {
 			cent->gent->client->race,
 			cent->gent->client->playerTeam );
 	}
+	if ( cent->gent->NPC_type &&
+		!Q_stricmpn( cent->gent->NPC_type, "borg", 4 ) )
+	{
+		static int s_stefxBorgVisualLogBudget = 48;
+		static int s_stefxBorgPluggedLogBucket = -1;
+		static int s_stefxBorgActiveLogBucket = -1;
+		const qboolean stefxBorgPlugged =
+			( cent->gent->client->ps.legsAnim & ~ANIM_TOGGLEBIT ) == BOTH_PLUGGEDIN1;
+		const int stefxBorgLogBucket = cg.time / 5000;
+		int *stefxBorgLastLogBucket = stefxBorgPlugged
+			? &s_stefxBorgPluggedLogBucket
+			: &s_stefxBorgActiveLogBucket;
+		stefxBorgPluggedActor = stefxBorgPlugged;
+
+		if ( stefxBorgPlugged )
+		{
+			++g_SPXBBorgPluggedCount;
+			g_SPXBBorgPluggedEnt = (unsigned int)cent->currentState.number;
+			g_SPXBBorgPluggedSpawnflags = (unsigned int)cent->gent->spawnflags;
+			g_SPXBBorgPluggedAnim =
+				((unsigned int)cent->gent->client->ps.legsAnim & 0xffffu) |
+				(((unsigned int)cent->gent->client->ps.torsoAnim & 0xffffu) << 16);
+			g_SPXBBorgPluggedLegsModel = (unsigned int)ci->legsModel;
+			g_SPXBBorgPluggedTorsoModel = (unsigned int)ci->torsoModel;
+			g_SPXBBorgPluggedHeadModel = (unsigned int)ci->headModel;
+			g_SPXBBorgPluggedLegsSkin = (unsigned int)ci->legsSkin;
+			g_SPXBBorgPluggedTorsoSkin = (unsigned int)ci->torsoSkin;
+			g_SPXBBorgPluggedHeadSkin = (unsigned int)ci->headSkin;
+			g_SPXBBorgPluggedLegsNameHash =
+				STEFX_BorgModelNameHash( cent->gent->client->renderInfo.legsModelName );
+			g_SPXBBorgPluggedTorsoNameHash =
+				STEFX_BorgModelNameHash( cent->gent->client->renderInfo.torsoModelName );
+			g_SPXBBorgPluggedHeadNameHash =
+				STEFX_BorgModelNameHash( cent->gent->client->renderInfo.headModelName );
+		}
+		else
+		{
+			++g_SPXBBorgActiveCount;
+			g_SPXBBorgActiveEnt = (unsigned int)cent->currentState.number;
+			g_SPXBBorgActiveSpawnflags = (unsigned int)cent->gent->spawnflags;
+			g_SPXBBorgActiveAnim =
+				((unsigned int)cent->gent->client->ps.legsAnim & 0xffffu) |
+				(((unsigned int)cent->gent->client->ps.torsoAnim & 0xffffu) << 16);
+			g_SPXBBorgActiveLegsModel = (unsigned int)ci->legsModel;
+			g_SPXBBorgActiveTorsoModel = (unsigned int)ci->torsoModel;
+			g_SPXBBorgActiveHeadModel = (unsigned int)ci->headModel;
+			g_SPXBBorgActiveLegsSkin = (unsigned int)ci->legsSkin;
+			g_SPXBBorgActiveTorsoSkin = (unsigned int)ci->torsoSkin;
+			g_SPXBBorgActiveHeadSkin = (unsigned int)ci->headSkin;
+			g_SPXBBorgActiveLegsNameHash =
+				STEFX_BorgModelNameHash( cent->gent->client->renderInfo.legsModelName );
+			g_SPXBBorgActiveTorsoNameHash =
+				STEFX_BorgModelNameHash( cent->gent->client->renderInfo.torsoModelName );
+			g_SPXBBorgActiveHeadNameHash =
+				STEFX_BorgModelNameHash( cent->gent->client->renderInfo.headModelName );
+		}
+
+		if ( s_stefxBorgVisualLogBudget > 0 )
+		{
+			XBLF( "STEFX_BORG_VIS ent=%d type='%s' spawnflags=0x%x eFlags=0x%x origin=(%g,%g,%g) anim=(%d,%d) frames=(%d,%d) timers=(%d,%d) models=(%d,%d,%d) skins=(%d,%d,%d)",
+				cent->currentState.number,
+				cent->gent->NPC_type ? cent->gent->NPC_type : "<null>",
+				cent->gent->spawnflags,
+				cent->currentState.eFlags,
+				cent->lerpOrigin[0],
+				cent->lerpOrigin[1],
+				cent->lerpOrigin[2],
+				cent->gent->client->ps.legsAnim,
+				cent->gent->client->ps.torsoAnim,
+				cent->pe.legs.frame,
+				cent->pe.torso.frame,
+				cent->gent->client->ps.legsAnimTimer,
+				cent->gent->client->ps.torsoAnimTimer,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin );
+			--s_stefxBorgVisualLogBudget;
+		}
+		if ( *stefxBorgLastLogBucket != stefxBorgLogBucket )
+		{
+			*stefxBorgLastLogBucket = stefxBorgLogBucket;
+			XBLog_Printf( "STEFX_BORG_STATE kind=%s ent=%d name='%s' type='%s' spawnflags=0x%x eFlags=0x%x powerups=0x%x origin=(%g,%g,%g) anim=(%d,%d) models=(%d,%d,%d) skins=(%d,%d,%d) renderNames=('%s','%s','%s')\n",
+				stefxBorgPlugged ? "plugged" : "active",
+				cent->currentState.number,
+				ci->name,
+				cent->gent->NPC_type ? cent->gent->NPC_type : "<null>",
+				cent->gent->spawnflags,
+				cent->currentState.eFlags,
+				cent->currentState.powerups,
+				cent->lerpOrigin[0],
+				cent->lerpOrigin[1],
+				cent->lerpOrigin[2],
+				cent->gent->client->ps.legsAnim,
+				cent->gent->client->ps.torsoAnim,
+				ci->legsModel,
+				ci->torsoModel,
+				ci->headModel,
+				ci->legsSkin,
+				ci->torsoSkin,
+				ci->headSkin,
+				cent->gent->client->renderInfo.legsModelName,
+				cent->gent->client->renderInfo.torsoModelName,
+				cent->gent->client->renderInfo.headModelName );
+		}
+	}
 	if ( stefxLogSplitModel )
 	{
 		if ( stefxSplitP2Model )
@@ -3672,6 +3911,7 @@ void CG_Player( centity_t *cent ) {
 	memset( &flash, 0, sizeof(flash) );
 	memset( &flashlight, 0, sizeof(flashlight) );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x04, cent );
 	legs.number = cent->currentState.number;
 	torso.number = cent->currentState.number;
 	head.number = cent->currentState.number;
@@ -3693,12 +3933,21 @@ void CG_Player( centity_t *cent ) {
 
 	//FIXME: pass in the axis/angles offset between the tag_torso and the tag_head?
 	// get the rotation information
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x05, cent );
+#endif
 	CG_PlayerAngles( cent, legs.axis, torso.axis, head.axis );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x06, cent );
+#endif
 	
 	// get the animation state (after rotation, to allow feet shuffle)
 	// NB: Also plays keyframed animSounds (Bob- hope you dont mind, I was here late and at about 5:30 Am i needed to do something to keep me awake and i figured you wouldn't mind- you might want to check it, though, to make sure I wasn't smoking crack and missed something important, it is pretty late and I'm getting pretty close to being up for 24 hours here, so i wouldn't doubt if I might have messed something up, but i tested it and it looked right.... noticed in old code base i was doing it wrong too, which explains why I was getting so many damn sounds all the time!  I had to lower the probabilities because it seemed like i was getting way too many sounds, and that was the problem!  Well, should be fixed now I think...)
 	CG_PlayerAnimation( cent, &legs.oldframe, &legs.frame, &legs.backlerp,
 		 &torso.oldframe, &torso.frame, &torso.backlerp );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x07, cent );
+#endif
 
 	cent->gent->client->renderInfo.legsFrame = cent->pe.legs.frame;
 	cent->gent->client->renderInfo.torsoFrame = cent->pe.torso.frame;
@@ -3707,10 +3956,16 @@ void CG_Player( centity_t *cent ) {
 	CG_PlayerPowerups( cent );
 
 	// add the shadow
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x08, cent );
+#endif
 	shadow = CG_PlayerShadow( cent, &shadowPlane );
 
 	// add a water splash if partially in and out of water
 	CG_PlayerSplash( cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x09, cent );
+#endif
 
 	// get the player model information
 	renderfx = 0;
@@ -3738,6 +3993,12 @@ void CG_Player( centity_t *cent ) {
 		renderfx |= RF_SHADOW_PLANE;
 	}
 	renderfx |= RF_LIGHTING_ORIGIN;			// use the same origin for all
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxBorgPluggedActor )
+	{
+		renderfx |= RF_MINLIGHT;
+	}
+#endif
 
 	//
 	// add the legs
@@ -3779,7 +4040,13 @@ void CG_Player( centity_t *cent ) {
 	legs.renderfx = renderfx;
 	VectorCopy (legs.origin, legs.oldorigin);	// don't positionally lerp at all
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x0a, cent );
+#endif
 	CG_AddRefEntityWithPowerups( &legs, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x0b, cent );
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if ( stefxSplitP2Model )
 	{
@@ -3860,6 +4127,9 @@ void CG_Player( centity_t *cent ) {
 
 		VectorCopy( cent->lerpOrigin, torso.lightingOrigin );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_PLAYER_PHASE( 0x0c, cent );
+#endif
 		CG_PositionRotatedEntityOnTag( &torso, &legs, legs.hModel, "tag_torso", &tag_torso );
 		VectorCopy( torso.origin, cent->gent->client->renderInfo.torsoPoint );
 		vectoangles( tag_torso.axis[0], cent->gent->client->renderInfo.torsoAngles );
@@ -3868,6 +4138,9 @@ void CG_Player( centity_t *cent ) {
 		torso.renderfx = renderfx;
 
 		CG_AddRefEntityWithPowerups( &torso, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_PLAYER_PHASE( 0x0d, cent );
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ( stefxLogPlayer )
 		{
@@ -3970,6 +4243,9 @@ void CG_Player( centity_t *cent ) {
 
 			VectorCopy( cent->lerpOrigin, head.lightingOrigin );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_PLAYER_PHASE( 0x0e, cent );
+#endif
 			CG_PositionRotatedEntityOnTag( &head, &torso, torso.hModel, "tag_head", &tag_head );
 			VectorCopy( head.origin, cent->gent->client->renderInfo.headPoint );
 			vectoangles( tag_head.axis[0], cent->gent->client->renderInfo.headAngles );
@@ -3978,6 +4254,9 @@ void CG_Player( centity_t *cent ) {
 			head.renderfx = renderfx;
 
 			CG_AddRefEntityWithPowerups( &head, cent->currentState.powerups&~(1<<PW_DISINT_6), cent->gent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_PLAYER_PHASE( 0x0f, cent );
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 			if ( stefxLogPlayer )
 			{
@@ -4111,6 +4390,9 @@ void CG_Player( centity_t *cent ) {
 		//
 		// add the gun
 		//
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_PLAYER_PHASE( 0x10, cent );
+#endif
 		CG_RegisterWeapon( cent->currentState.weapon );
 		weapon = &cg_weapons[cent->currentState.weapon];
 		wData = &weaponData[cent->currentState.weapon];
@@ -4125,6 +4407,9 @@ void CG_Player( centity_t *cent ) {
 			//Will have to call CG_PositionRotatedEntityOnTag
 			
 			CG_PositionEntityOnTag( &gun, &torso, torso.hModel, "tag_weapon");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_PLAYER_PHASE( 0x11, cent );
+#endif
 
 			gun.shadowPlane = shadowPlane;
 			gun.renderfx = renderfx;
@@ -4275,6 +4560,7 @@ void CG_Player( centity_t *cent ) {
 
 	boltOnInfo_t	*boltOnInfo;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x12, cent );
 	{
 		static int s_stefxBoltSectionLogBudget = 160;
 		static int s_stefxHelmetSlotLogBudget = 256;
@@ -4516,6 +4802,9 @@ void CG_Player( centity_t *cent ) {
 			}
 		}
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x13, cent );
+#endif
 	//FIXME: for debug, allow to draw a cone of the NPC's FOV...
 }
 
@@ -4548,24 +4837,6 @@ void CG_ResetPlayerEntity( centity_t *cent ) {
 	}
 	//else????
 
-#ifdef _XBOX
-	{
-		static int stefxPlayerTrajectoryLogBudget = 8;
-		if ( stefxPlayerTrajectoryLogBudget > 0 )
-		{
-			XBLF("STEFX: CG_ResetPlayerEntity trajectory ent=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d cgTime=%d",
-				cent->currentState.number,
-				(int)cent->currentState.pos.trType,
-				cent->currentState.pos.trTime,
-				cent->currentState.pos.trDuration,
-				(int)cent->currentState.apos.trType,
-				cent->currentState.apos.trTime,
-				cent->currentState.apos.trDuration,
-				cg.time);
-			--stefxPlayerTrajectoryLogBudget;
-		}
-	}
-#endif
 	EvaluateTrajectory( &cent->currentState.pos, cg.time, cent->lerpOrigin );
 	EvaluateTrajectory( &cent->currentState.apos, cg.time, cent->lerpAngles );
 

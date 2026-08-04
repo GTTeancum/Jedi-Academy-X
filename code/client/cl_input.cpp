@@ -1088,14 +1088,6 @@ static qboolean STEFX_SmokeHarnessEnabled( void )
 	static qboolean s_checked = qfalse;
 	static qboolean s_enabled = qfalse;
 	FILE *file;
-	const char *paths[] = {
-		"D:\\ef_sp_smoke_harness.txt",
-		"d:\\ef_sp_smoke_harness.txt",
-		"E:\\ef_sp_smoke_harness.txt",
-		"e:\\ef_sp_smoke_harness.txt",
-		NULL
-	};
-	int i;
 
 	if ( s_checked )
 	{
@@ -1103,16 +1095,12 @@ static qboolean STEFX_SmokeHarnessEnabled( void )
 	}
 	s_checked = qtrue;
 
-	for ( i = 0; paths[i]; ++i )
+	file = fopen( "D:\\ef_sp_smoke_harness.txt", "r" );
+	if ( file )
 	{
-		file = fopen( paths[i], "r" );
-		if ( file )
-		{
-			fclose( file );
-			s_enabled = qtrue;
-			XBLF("STEFX: smoke harness marker enabled client input path='%s'", paths[i]);
-			break;
-		}
+		fclose( file );
+		s_enabled = qtrue;
+		XBL("STEFX: smoke harness marker enabled client input");
 	}
 
 	return s_enabled;
@@ -1225,6 +1213,10 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 		return;
 	}
 
+	if ( !forwardMove && !sideMove )
+	{
+		forwardMove = 90;
+	}
 	if ( attackEnd > 0 && attackEnd < startTime )
 	{
 		attackStart = startTime + 1000;
@@ -1734,9 +1726,7 @@ void CL_MouseMove( usercmd_t *cmd )
 	float rawMx = mx;
 	float rawMy = my;
 
-	// Slow it down when targeting an enemy.  Holomatch owns its crosshair
-	// state inside the official cgame, so the engine must not read SP cgame
-	// storage here.
+	// Slow it down when targeting an enemy:
 #if defined(STEFX_SP_HOSTED_MP)
 	const short crossHairStatus = 0;
 #else
@@ -1960,24 +1950,6 @@ usercmd_t CL_CreateCmd( void ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_ApplySmokeInput( &cmd );
 
-#if defined(STEFX_SP_HOSTED_MP)
-	{
-		static int s_stefxLastWeaponButtons = -1;
-		const int weaponButtons = cmd.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK);
-		if ( weaponButtons != s_stefxLastWeaponButtons )
-		{
-			Com_PrintfAlways( "STEFX_WEAPON: client cmd edge time=%d buttons=0x%x fire=0x%x weapon=%d\n",
-				cmd.serverTime, cmd.buttons, weaponButtons, cmd.weapon );
-			s_stefxLastWeaponButtons = weaponButtons;
-		}
-	}
-
-	if ( cmd.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK) )
-	{
-		s_stefxHolomatchLastFireTime = Sys_Milliseconds();
-	}
-#endif
-
 	{
 		static int s_cmdLogBudget = 80;
 		int logButtons = cmd.buttons & ~BUTTON_WALKING;
@@ -2012,6 +1984,12 @@ usercmd_t CL_CreateCmd( void ) {
 				oldAngles[2]);
 			s_cmdLogBudget--;
 		}
+	}
+#endif
+#if defined(STEFX_SP_HOSTED_MP)
+	if (cmd.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK))
+	{
+		s_stefxHolomatchLastFireTime = Sys_Milliseconds();
 	}
 #endif
 

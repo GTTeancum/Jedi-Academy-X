@@ -90,11 +90,28 @@ extern "C" volatile unsigned int g_SPXBHelmetGameP1Ensure;
 extern "C" volatile unsigned int g_SPXBHelmetGameP2Ensure;
 extern "C" volatile unsigned int g_SPXBHelmetGameP1Slot;
 extern "C" volatile unsigned int g_SPXBHelmetGameP2Slot;
+extern "C" volatile unsigned int g_SPXBPerfGamePreMsec;
+extern "C" volatile unsigned int g_SPXBPerfGameEntitiesMsec;
+extern "C" volatile unsigned int g_SPXBPerfGamePostMsec;
+extern "C" volatile unsigned int g_SPXBPerfGameEntitiesVisited;
+extern "C" volatile unsigned int g_SPXBPerfGameMissiles;
+extern "C" volatile unsigned int g_SPXBPerfGameItems;
+extern "C" volatile unsigned int g_SPXBPerfGameMovers;
+extern "C" volatile unsigned int g_SPXBPerfGameClients;
+extern "C" volatile unsigned int g_SPXBPerfGameThinkDue;
+extern "C" volatile unsigned int g_SPXBPerfGameScripted;
+extern "C" volatile unsigned int g_SPXBPerfGameOther;
+extern "C" volatile unsigned int g_SPXBGameDetailTraceEnabled;
 
+#if defined(_DEBUG)
 #define STEFX_GAME_TRACE_STAGE(phase, subphase) \
-	do { g_SPXBPhaseLast = (phase); g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = (phase); g_SPXBSVProbeSubphase = (subphase); } while (0)
+	do { if (g_SPXBGameDetailTraceEnabled) { g_SPXBPhaseLast = (phase); g_SPXBComSubphase = (subphase); g_SPXBSVProbePhase = (phase); g_SPXBSVProbeSubphase = (subphase); } } while (0)
 #define STEFX_GAME_TRACE_DETAIL(a, b, c, d) \
-	do { g_SPXBComSpinCount = (a); g_SPXBComMsec = (b); g_SPXBComFrameTime = (c); g_SPXBComLastTime = (d); g_SPXBSVProbeA = (a); g_SPXBSVProbeB = (b); g_SPXBSVProbeC = (c); g_SPXBSVProbeD = (d); } while (0)
+	do { if (g_SPXBGameDetailTraceEnabled) { g_SPXBComSpinCount = (a); g_SPXBComMsec = (b); g_SPXBComFrameTime = (c); g_SPXBComLastTime = (d); g_SPXBSVProbeA = (a); g_SPXBSVProbeB = (b); g_SPXBSVProbeC = (c); g_SPXBSVProbeD = (d); } } while (0)
+#else
+#define STEFX_GAME_TRACE_STAGE(phase, subphase) do { } while (0)
+#define STEFX_GAME_TRACE_DETAIL(a, b, c, d) do { } while (0)
+#endif
 
 #define STEFX_SPLIT_P2_TARGETNAME "stefx_split_p2"
 
@@ -918,6 +935,52 @@ static void STEFX_SplitCoopPlacementFromP1( vec3_t origin, vec3_t angles )
 	}
 }
 
+void STEFX_SplitCoopFollowP1ScriptedMove( const char *context )
+{
+	static int s_followLogBudget = 24;
+	gentity_t *p2;
+	vec3_t origin;
+	vec3_t angles;
+
+	if ( !STEFX_SplitCoopActive() || !STEFX_SplitCoopP1Ready() )
+	{
+		return;
+	}
+
+	p2 = STEFX_SplitCoopFindP2();
+	if ( !p2 || !p2->client )
+	{
+		return;
+	}
+
+	STEFX_SplitCoopPlacementFromP1( origin, angles );
+	VectorClear( p2->client->ps.velocity );
+	p2->client->ps.pm_time = 0;
+	p2->client->ps.pm_flags &= ~( PMF_ALL_TIMES | PMF_RESPAWNED );
+	p2->client->renderInfo.lookTarget = ENTITYNUM_NONE;
+	G_SetOrigin( p2, origin );
+	SetClientViewAngle( p2, angles );
+	p2->s.eFlags ^= EF_TELEPORT_BIT;
+	gi.linkentity( p2 );
+
+	if ( s_followLogBudget > 0 )
+	{
+		XBLF( "STEFX_SPLIT_COOP scripted follow context='%s' p1=(%g,%g,%g) p2=%d origin=(%g,%g,%g) angles=(%g,%g,%g)",
+			context ? context : "<null>",
+			g_entities[0].currentOrigin[0],
+			g_entities[0].currentOrigin[1],
+			g_entities[0].currentOrigin[2],
+			p2->s.number,
+			origin[0],
+			origin[1],
+			origin[2],
+			angles[0],
+			angles[1],
+			angles[2] );
+		--s_followLogBudget;
+	}
+}
+
 static qboolean STEFX_SplitCoopP2Dead( const gentity_t *p2 )
 {
 	if ( !p2 || !p2->client )
@@ -1241,6 +1304,10 @@ static int STEFX_SplitCoopCycleWeapon( const gentity_t *p2, int currentWeapon, i
 static void STEFX_SplitCoopRunFrame( void )
 {
 	static qboolean s_loggedInactive = qfalse;
+	static qboolean s_presentationCatchupDone = qfalse;
+	static qboolean s_presentationAnchorValid = qfalse;
+	static vec3_t s_presentationP1Origin;
+	static vec3_t s_presentationP2Origin;
 	static int s_frameLogBudget = 80;
 	static int s_stateLogBudget = 64;
 	static int s_weaponLogBudget = 24;
@@ -1272,6 +1339,8 @@ static void STEFX_SplitCoopRunFrame( void )
 
 	if ( !STEFX_SplitCoopActive() )
 	{
+		s_presentationCatchupDone = qfalse;
+		s_presentationAnchorValid = qfalse;
 		if ( !s_loggedInactive )
 		{
 			gi.cvar_set( "stefx_splitScreenP2Entity", "-1" );
@@ -1305,6 +1374,10 @@ static void STEFX_SplitCoopRunFrame( void )
 		{
 			return;
 		}
+		VectorCopy( g_entities[0].currentOrigin, s_presentationP1Origin );
+		VectorCopy( p2->currentOrigin, s_presentationP2Origin );
+		s_presentationAnchorValid = qtrue;
+		s_presentationCatchupDone = qfalse;
 	}
 
 	if ( !STEFX_SplitCoopP2ReadyForControl( p2 ) )
@@ -1333,6 +1406,28 @@ static void STEFX_SplitCoopRunFrame( void )
 	}
 
 	STEFX_SplitCoopTakeControl( p2 );
+	if ( s_presentationAnchorValid && !s_presentationCatchupDone )
+	{
+		vec3_t p1Delta;
+		vec3_t p2Delta;
+		VectorSubtract( g_entities[0].currentOrigin, s_presentationP1Origin, p1Delta );
+		VectorSubtract( p2->currentOrigin, s_presentationP2Origin, p2Delta );
+		if ( VectorLengthSquared( p1Delta ) > ( 192.0f * 192.0f )
+			&& VectorLengthSquared( p2Delta ) < ( 48.0f * 48.0f ) )
+		{
+			XBLF( "STEFX_SPLIT_COOP presentation catchup p1DeltaSq=%g p2DeltaSq=%g p1=(%g,%g,%g) p2=(%g,%g,%g)",
+				VectorLengthSquared( p1Delta ),
+				VectorLengthSquared( p2Delta ),
+				g_entities[0].currentOrigin[0],
+				g_entities[0].currentOrigin[1],
+				g_entities[0].currentOrigin[2],
+				p2->currentOrigin[0],
+				p2->currentOrigin[1],
+				p2->currentOrigin[2] );
+			STEFX_SplitCoopFollowP1ScriptedMove( "presentation-catchup" );
+			s_presentationCatchupDone = qtrue;
+		}
+	}
 	if ( level.framenum <= 3 )
 	{
 		static int s_startupDeferLogBudget = 3;
@@ -2363,12 +2458,26 @@ void G_RunFrame( int levelTime ) {
 	int			msec;
 #ifdef _XBOX
 	qboolean	xbLogFrame;
+	int			xboxProfileStart;
+	int			xboxProfileEntitiesStart;
+	int			xboxProfilePostStart;
+	unsigned int xboxEntitiesVisited = 0;
+	unsigned int xboxMissiles = 0;
+	unsigned int xboxItems = 0;
+	unsigned int xboxMovers = 0;
+	unsigned int xboxClients = 0;
+	unsigned int xboxThinkDue = 0;
+	unsigned int xboxScripted = 0;
+	unsigned int xboxOther = 0;
 #endif
 
 	level.framenum++;
 	level.previousTime = level.time;
 	level.time = levelTime;
 	msec = level.time - level.previousTime;
+#ifdef _XBOX
+	xboxProfileStart = gi.Milliseconds();
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_GAME_TRACE_STAGE(0x4752464D, 1); /* GRFM */
 	STEFX_GAME_TRACE_DETAIL((unsigned int)level.framenum, (unsigned int)level.time, (unsigned int)msec, (unsigned int)globals.num_entities);
@@ -2422,12 +2531,19 @@ void G_RunFrame( int levelTime ) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_SplitCoopRunFrame();
 #endif
+#ifdef _XBOX
+	xboxProfileEntitiesStart = gi.Milliseconds();
+	g_SPXBPerfGamePreMsec = (unsigned int)(xboxProfileEntitiesStart - xboxProfileStart);
+#endif
 
 	//Run the frame for all entities
 	for ( i = 0, ent = &g_entities[0]; i < globals.num_entities ; i++, ent++)
 	{
 		if ( !ent->inuse )
 			continue;
+#ifdef _XBOX
+		xboxEntitiesVisited++;
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 20); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->s.eType, (unsigned int)ent->svFlags, (unsigned int)ent->nextthink);
@@ -2490,7 +2606,10 @@ void G_RunFrame( int levelTime ) {
 			XBLF("STEFX: G_RunFrame ent=%d before G_CheckTasksCompleted", i);
 		}
 #endif
-		G_CheckTasksCompleted(ent);
+		if ( ent->sequencer && ent->taskManager )
+		{
+			G_CheckTasksCompleted(ent);
+		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 24); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
@@ -2506,7 +2625,10 @@ void G_RunFrame( int levelTime ) {
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 25); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->s.pos.trType, (unsigned int)ent->s.apos.trType);
 #endif
-		G_Roff( ent );
+		if ( ent->next_roff_time && ent->next_roff_time <= level.time )
+		{
+			G_Roff( ent );
+		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 26); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->s.pos.trType, (unsigned int)ent->s.apos.trType);
@@ -2527,7 +2649,8 @@ void G_RunFrame( int levelTime ) {
 				{
 					ent->s.frame++;
 				}
-				else if ( !(ent->s.eFlags & EF_ANIM_ALLFAST) )
+				else if ( !(ent->s.eFlags & EF_ANIM_ALLFAST) &&
+					(ent->s.frame != ent->endFrame || (ent->svFlags & SVF_ANIMATING)) )
 				{
 					G_Animate( ent );
 				}
@@ -2551,6 +2674,9 @@ void G_RunFrame( int levelTime ) {
 		if ( ent->s.eType == ET_MISSILE ) 
 		{
 #ifdef _XBOX
+			xboxMissiles++;
+#endif
+#ifdef _XBOX
 			if (xbLogFrame)
 			{
 				XBLF("STEFX: G_RunFrame ent=%d before G_RunMissile", i);
@@ -2562,6 +2688,9 @@ void G_RunFrame( int levelTime ) {
 
 		if ( ent->s.eType == ET_ITEM ) 
 		{
+#ifdef _XBOX
+			xboxItems++;
+#endif
 #ifdef _XBOX
 			if (xbLogFrame)
 			{
@@ -2575,6 +2704,9 @@ void G_RunFrame( int levelTime ) {
 		if ( ent->s.eType == ET_MOVER ) 
 		{
 #ifdef _XBOX
+			xboxMovers++;
+#endif
+#ifdef _XBOX
 			if (xbLogFrame)
 			{
 				XBLF("STEFX: G_RunFrame ent=%d before G_RunMover", i);
@@ -2587,6 +2719,9 @@ void G_RunFrame( int levelTime ) {
 		//The player
 		if ( i == 0 ) 
 		{
+#ifdef _XBOX
+			xboxClients++;
+#endif
 #ifdef _XBOX
 			if (xbLogFrame)
 			{
@@ -2609,7 +2744,7 @@ void G_RunFrame( int levelTime ) {
 			}
 #endif
 
-			if( ent->taskManager && !stop_icarus )
+			if( ent->taskManager && ent->taskManager->HasTasks() && !stop_icarus )
 			{
 #ifdef _XBOX
 				if (xbLogFrame)
@@ -2639,7 +2774,31 @@ void G_RunFrame( int levelTime ) {
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 31); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
 #endif
-		G_RunThink( ent );	// be aware that ent may be free after returning from here, at least one func frees them
+		const qboolean thinkDue = (qboolean)(ent->nextthink > 0 && ent->nextthink <= level.time);
+		const qboolean scripted = (qboolean)(ent->NPC == NULL && ent->taskManager &&
+			ent->taskManager->HasTasks() && !stop_icarus);
+#ifdef _XBOX
+		if (ent->client)
+		{
+			xboxClients++;
+		}
+		if (thinkDue)
+		{
+			xboxThinkDue++;
+		}
+		if (scripted)
+		{
+			xboxScripted++;
+		}
+		if (!ent->client && !thinkDue && !scripted)
+		{
+			xboxOther++;
+		}
+#endif
+		if ( thinkDue || scripted )
+		{
+			G_RunThink( ent );	// be aware that ent may be free after returning from here, at least one func frees them
+		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 32); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->e_ThinkFunc, (unsigned int)ent->nextthink);
@@ -2655,7 +2814,10 @@ void G_RunFrame( int levelTime ) {
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 33); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)ent->client, (unsigned int)ent->NPC);
 #endif
-		UpdateTeamCounters( ent );	//	   to call anyway on a freed ent.
+		if ( ent->NPC && ent->client )
+		{
+			UpdateTeamCounters( ent );	//	   to call anyway on a freed ent.
+		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_GAME_TRACE_STAGE(0x4752464D, 34); /* GRFM */
 		STEFX_GAME_TRACE_DETAIL((unsigned int)i, (unsigned int)ent->inuse, (unsigned int)teamEnemyCount[0], (unsigned int)teamEnemyCount[1]);
@@ -2670,6 +2832,11 @@ void G_RunFrame( int levelTime ) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_SplitCoopMaintainEVHelmets( "post-entities" );
+#endif
+#ifdef _XBOX
+	xboxProfilePostStart = gi.Milliseconds();
+	g_SPXBPerfGameEntitiesMsec = (unsigned int)(xboxProfilePostStart - xboxProfileEntitiesStart);
+	g_SPXBPerfGameEntitiesVisited = xboxEntitiesVisited;
 #endif
 
 	// perform final fixups on the player
@@ -2721,6 +2888,14 @@ void G_RunFrame( int levelTime ) {
 	{
 		XBLog_Write("STEFX: G_RunFrame complete");
 	}
+	g_SPXBPerfGamePostMsec = (unsigned int)(gi.Milliseconds() - xboxProfilePostStart);
+	g_SPXBPerfGameMissiles = xboxMissiles;
+	g_SPXBPerfGameItems = xboxItems;
+	g_SPXBPerfGameMovers = xboxMovers;
+	g_SPXBPerfGameClients = xboxClients;
+	g_SPXBPerfGameThinkDue = xboxThinkDue;
+	g_SPXBPerfGameScripted = xboxScripted;
+	g_SPXBPerfGameOther = xboxOther;
 #endif
 }
 

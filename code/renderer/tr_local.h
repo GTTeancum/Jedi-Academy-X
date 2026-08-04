@@ -569,6 +569,10 @@ typedef struct {
 	cplane_t	frustum[5];
 	vec3_t		visBounds[2];
 	float		zFar;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean	stefxSplitView;
+	int			stefxSplitSlot;
+#endif
 } viewParms_t;
 
 
@@ -1311,6 +1315,9 @@ extern cvar_t	*r_primitives;			// "0" = based on compiled vertex array existance
 										// "1" = glDrawElemet tristrips
 										// "2" = glDrawElements triangles
 										// "-1" = no drawing
+#ifdef _XBOX
+extern cvar_t	*r_nativeDrawPath;		// 0 = stable UP, 1 = BeginPush, 2 = dynamic VB/IB ring
+#endif
 
 extern cvar_t	*r_fastsky;				// controls whether sky should be cleared or drawn
 extern cvar_t	*r_drawSun;				// controls drawing of sun quad
@@ -1441,6 +1448,11 @@ void  R_NoiseInit( void );
 void R_SwapBuffers( int );
 
 void R_RenderView( viewParms_t *parms );
+
+#ifdef _XBOX
+void R_STEFX_PerfBeginScene( void );
+void R_STEFX_PerfEndScene( int totalMsec );
+#endif
 
 void R_AddMD3Surfaces( trRefEntity_t *e );
 void R_AddNullModelSurfaces( trRefEntity_t *e );

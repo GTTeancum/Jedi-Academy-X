@@ -296,17 +296,25 @@ int AAS_LoadFiles(const char *mapname)
 	char aasfile[MAX_PATH];
 //	char bspfile[MAX_PATH];
 
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: files begin map='%s'\n",
+		mapname ? mapname : "<null>");
 	strcpy(aasworld.mapname, mapname);
 	//NOTE: first reset the entity links into the AAS areas and BSP leaves
 	// the AAS link heap and BSP link heap are reset after respectively the
 	// AAS file and BSP file are loaded
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: reset entity links begin\n");
 	AAS_ResetEntityLinks();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: reset entity links done\n");
 	// load bsp info
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: load BSP begin\n");
 	AAS_LoadBSPFile();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: load BSP done\n");
 
 	//load the aas file
 	Com_sprintf(aasfile, MAX_PATH, "maps/%s.aas", mapname);
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: load file begin '%s'\n", aasfile);
 	errnum = AAS_LoadAASFile(aasfile);
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: load file done result=%d\n", errnum);
 	if (errnum != BLERR_NOERROR)
 		return errnum;
 
@@ -335,7 +343,9 @@ int AAS_LoadMap(const char *mapname)
 	//NOTE: free the routing caches before loading a new map because
 	// to free the caches the old number of areas, number of clusters
 	// and number of areas in a clusters must be available
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: free routing caches begin\n");
 	AAS_FreeRoutingCaches();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: free routing caches done\n");
 	//load the map
 	errnum = AAS_LoadFiles(mapname);
 	if (errnum != BLERR_NOERROR)
@@ -344,15 +354,25 @@ int AAS_LoadMap(const char *mapname)
 		return errnum;
 	} //end if
 	//
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init settings begin\n");
 	AAS_InitSettings();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init settings done\n");
 	//initialize the AAS link heap for the new map
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init link heap begin\n");
 	AAS_InitAASLinkHeap();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init link heap done\n");
 	//initialize the AAS linked entities for the new map
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init linked entities begin\n");
 	AAS_InitAASLinkedEntities();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init linked entities done\n");
 	//initialize reachability for the new map
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init reachability begin\n");
 	AAS_InitReachability();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init reachability done\n");
 	//initialize the alternative routing
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init alternative routing begin\n");
 	AAS_InitAlternativeRouting();
+	botimport.Print(PRT_ERROR, "STEFX_HM_AAS: init alternative routing done\n");
 	//everything went ok
 	return 0;
 } //end of the function AAS_LoadMap

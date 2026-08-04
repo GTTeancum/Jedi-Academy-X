@@ -6,6 +6,7 @@
 #include "..\game\boltOns.h"
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 #endif
 
 extern qboolean CG_ApplyBoltOnToRefEnt (refEntity_t *newBoltOn, boltOn_t *boltOn, boltOnInfo_t *bOInfo, const vec3_t org, refEntity_t *targModel);
@@ -969,39 +970,6 @@ CG_CalcEntityLerpPositions
 */
 extern char	*vtos( const vec3_t v );
 void CG_CalcEntityLerpPositions( centity_t *cent ) {
-	#ifdef _XBOX
-	{
-		static int stefxEntityLerpLogBudget = 32;
-		static int stefxEntityLerpCriticalBudget = 32;
-		if ( stefxEntityLerpCriticalBudget > 0 )
-		{
-			XBLog_WriteCriticalf( "STEFX_TRACE_SP_LERP enter ent=%d type=%d posType=%d aposType=%d snap=%d time=%d",
-				cent->currentState.number,
-				(int)cent->currentState.eType,
-				(int)cent->currentState.pos.trType,
-				(int)cent->currentState.apos.trType,
-				cg.snap ? cg.snap->serverTime : -1,
-				cg.time );
-			--stefxEntityLerpCriticalBudget;
-		}
-		if ( stefxEntityLerpLogBudget > 0 )
-		{
-			XBLF("STEFX: CG_CalcEntityLerpPositions ent=%d eType=%d interpolate=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d snapTime=%d cgTime=%d",
-				cent->currentState.number,
-				(int)cent->currentState.eType,
-				cent->interpolate,
-				(int)cent->currentState.pos.trType,
-				cent->currentState.pos.trTime,
-				cent->currentState.pos.trDuration,
-				(int)cent->currentState.apos.trType,
-				cent->currentState.apos.trTime,
-				cent->currentState.apos.trDuration,
-				cg.snap ? cg.snap->serverTime : -1,
-				cg.time);
-			--stefxEntityLerpLogBudget;
-		}
-	}
-	#endif
 	if ( cent->currentState.number == cg.snap->ps.clientNum)
 	{
 		// if the player, take position from prediction
@@ -1060,7 +1028,6 @@ void CG_CalcEntityLerpPositions( centity_t *cent ) {
 
 	// just use the current frame and evaluate as best we can
 	trajectory_t *posData = &cent->currentState.pos;
-	#if !defined(_XBOX) || !defined(STEFX_SP_HOSTED_MP)
 	{
 		gentity_t *ent = &g_entities[cent->currentState.number];
 
@@ -1078,7 +1045,6 @@ void CG_CalcEntityLerpPositions( centity_t *cent ) {
 			}
 		}
 	}
-	#endif
 
 	if ( posData )
 	{
@@ -1343,6 +1309,38 @@ static void CG_AddCEntity( centity_t *cent )
 {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_stefxAddCentLogBudget = 80;
+	static int s_stefxBorgDispatchBucket[MAX_GENTITIES];
+
+	if ( cent && cent->gent && cent->gent->client &&
+		cent->gent->NPC_type &&
+		!Q_stricmpn( cent->gent->NPC_type, "borg", 4 ) )
+	{
+		const int entityNum = cent->currentState.number;
+		const int bucket = cg.time / 5000 + 1;
+
+		if ( entityNum >= 0 && entityNum < MAX_GENTITIES &&
+			s_stefxBorgDispatchBucket[entityNum] != bucket )
+		{
+			clientInfo_t *clientInfo = &cent->gent->client->clientInfo;
+			s_stefxBorgDispatchBucket[entityNum] = bucket;
+			XBLF( "STEFX_BORG_DISPATCH ent=%d type='%s' class='%s' eType=%d eFlags=0x%x spawnflags=0x%x anim=(%d,%d) models=(%d,%d,%d) skins=(%d,%d,%d)",
+				entityNum,
+				cent->gent->NPC_type,
+				cent->gent->classname ? cent->gent->classname : "<null>",
+				cent->currentState.eType,
+				cent->currentState.eFlags,
+				cent->gent->spawnflags,
+				cent->gent->client->ps.legsAnim,
+				cent->gent->client->ps.torsoAnim,
+				clientInfo->legsModel,
+				clientInfo->torsoModel,
+				clientInfo->headModel,
+				clientInfo->legsSkin,
+				clientInfo->torsoSkin,
+				clientInfo->headSkin );
+		}
+	}
+
 	if ( cent && s_stefxAddCentLogBudget > 0 && cg.time >= 2500 && cg.time <= 5000 &&
 		( cent->currentState.number == 78 || cent->currentState.number == 154 ) )
 	{
@@ -1760,7 +1758,19 @@ void CG_AddPacketEntities( void ) {
 		}
 #endif
 		cent = &cg_entities[ cg.snap->entities[ num ].number ];
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0xCE000000
+			| ((unsigned int)(num & 0xff) << 16)
+			| ((unsigned int)(cent->currentState.number & 0x3ff) << 6)
+			| ((unsigned int)cent->currentState.eType & 0x3f);
+#endif
 		CG_AddCEntity( cent );
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0xCF000000
+			| ((unsigned int)(num & 0xff) << 16)
+			| ((unsigned int)(cent->currentState.number & 0x3ff) << 6)
+			| ((unsigned int)cent->currentState.eType & 0x3f);
+#endif
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_SplitSupplementP2SceneEntities( stefxPrimarySnapshotEntities );

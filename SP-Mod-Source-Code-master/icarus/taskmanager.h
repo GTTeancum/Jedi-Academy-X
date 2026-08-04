@@ -119,6 +119,7 @@ public:
 	int Completed( int id );
 
 	int Update( void );
+	bool HasTasks( void ) const { return !m_tasks.empty(); }
 
 	CTaskGroup *AddTaskGroup( const char *name );
 	CTaskGroup *GetTaskGroup( const char *name );

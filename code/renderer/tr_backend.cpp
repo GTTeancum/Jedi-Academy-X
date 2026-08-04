@@ -23,10 +23,8 @@ extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
 extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
 extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
 extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
-extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS];
-extern "C" volatile unsigned int g_SPXBEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS];
-extern "C" HRESULT JkaFakeglSetTextureCached(
-	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture);
+extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[16];
+extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
 static const bool kXboxClassifyDrawSurfs = false;
 #endif
 
@@ -56,6 +54,7 @@ static bool RB_XboxGeneratedEntityIsMergeSafe(int entityNum)
 	case RT_LATHE:
 	case RT_CLOUDS:
 	case RT_LINE:
+#if defined(STEFX_SP_HOSTED_MP)
 	case RT_TEXTURED_LINE:
 	case RT_ORIENTED_LINE:
 	case RT_TAPERED_LINE:
@@ -65,6 +64,7 @@ static bool RB_XboxGeneratedEntityIsMergeSafe(int entityNum)
 	case RT_EF_LIGHTNING:
 	case RT_EF_CYLINDER:
 	case RT_EF_ELECTRICITY:
+#endif
 	case RT_ELECTRICITY:
 	case RT_SABER_GLOW:
 		return true;
@@ -113,8 +113,8 @@ static void RB_XboxForce2DOverlayState( const char *where )
 				glw_state ? glw_state->device : NULL,
 				tr.frameCount, backEnd.projection2D );
 			--s_stefx2DStateSkipBudget;
-		}
-		return;
+		}		
+		return;	
 	}
 
 	glw_state->device->SetRenderState( D3DRS_ZENABLE, D3DZB_FALSE );
@@ -191,7 +191,7 @@ void GL_Bind( image_t *image ) {
 		/* fakegl's Xbox end-frame reset disables GL_TEXTURE_2D before
 		 * Present.  The renderer usually assumes texturing stays enabled
 		 * and only binds the next image, so restore the active stage here. */
-		glEnable( GL_TEXTURE_2D );
+		glEnable( GL_TEXTURE_2D );    
 #endif
 		glState.currenttextures[glState.currenttmu] = texnum;
 		glBindTexture (GL_TEXTURE_2D, texnum);
@@ -236,7 +236,7 @@ void GL_SelectTexture( int unit )
 	if ( glState.currenttmu == unit )
 	{
 #ifndef _XBOX
-		return;
+		return;	
 #endif
 	}
 
@@ -281,7 +281,7 @@ void GL_SelectTexture( int unit )
 */
 void GL_Cull( int cullType ) {
 	if ( glState.faceCulling == cullType ) {
-		return;
+		return;	
 	}
 	glState.faceCulling = cullType;
 	if (backEnd.projection2D){	//don't care, we're in 2d when it's always disabled
@@ -291,7 +291,7 @@ void GL_Cull( int cullType ) {
 	if ( cullType == CT_TWO_SIDED ) 
 	{
 		glDisable( GL_CULL_FACE );
-	} 
+	}
 	else 
 	{
 		glEnable( GL_CULL_FACE );
@@ -301,23 +301,23 @@ void GL_Cull( int cullType ) {
 			if ( backEnd.viewParms.isMirror )
 			{
 				glCullFace( GL_FRONT );
-			}
+			}			
 			else
 			{
 				glCullFace( GL_BACK );
-			}
-		}
+			}			
+		}		
 		else
 		{
 			if ( backEnd.viewParms.isMirror )
 			{
 				glCullFace( GL_BACK );
-			}
+			}			
 			else
 			{
 				glCullFace( GL_FRONT );
-			}
-		}
+			}			
+		}		
 	}
 }
 
@@ -329,7 +329,7 @@ void GL_TexEnv( int env )
 	if ( env == glState.texEnv[glState.currenttmu] )
 	{
 #ifndef _XBOX
-		return;
+		return;	
 #endif
 	}
 
@@ -390,7 +390,7 @@ void GL_State( unsigned long stateBits )
 
 	if ( !diff )
 	{
-		return;
+		return;	
 	}
 
 	//
@@ -401,11 +401,11 @@ void GL_State( unsigned long stateBits )
 		if ( stateBits & GLS_DEPTHFUNC_EQUAL )
 		{
 			glDepthFunc( GL_EQUAL );
-		}
+		}		
 		else
 		{
 			glDepthFunc( GL_LEQUAL );
-		}
+		}		
 	}
 
 	//
@@ -450,7 +450,7 @@ void GL_State( unsigned long stateBits )
 				srcFactor = GL_ONE;		// to get warning to shut up
 				Com_Error( ERR_DROP, "GL_State: invalid src blend state bits\n" );
 				break;
-			}
+			}			
 
 			switch ( stateBits & GLS_DSTBLEND_BITS )
 			{
@@ -482,15 +482,15 @@ void GL_State( unsigned long stateBits )
 				dstFactor = GL_ONE;		// to get warning to shut up
 				Com_Error( ERR_DROP, "GL_State: invalid dst blend state bits\n" );
 				break;
-			}
+			}			
 
 			glEnable( GL_BLEND );
 			glBlendFunc( srcFactor, dstFactor );
-		}
+		}		
 		else
 		{
 			glDisable( GL_BLEND );
-		}
+		}		
 	}
 
 	//
@@ -501,11 +501,11 @@ void GL_State( unsigned long stateBits )
 		if ( stateBits & GLS_DEPTHMASK_TRUE )
 		{
 			glDepthMask( GL_TRUE );
-		}
+		}		
 		else
 		{
 			glDepthMask( GL_FALSE );
-		}
+		}		
 	}
 
 	//
@@ -516,11 +516,11 @@ void GL_State( unsigned long stateBits )
 		if ( stateBits & GLS_POLYMODE_LINE )
 		{
 			glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-		}
+		}		
 		else
 		{
 			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-		}
+		}		
 	}
 
 	//
@@ -531,11 +531,11 @@ void GL_State( unsigned long stateBits )
 		if ( stateBits & GLS_DEPTHTEST_DISABLE )
 		{
 			glDisable( GL_DEPTH_TEST );
-		}
+		}		
 		else
 		{
 			glEnable( GL_DEPTH_TEST );
-		}
+		}		
 	}
 
 	//
@@ -567,7 +567,7 @@ void GL_State( unsigned long stateBits )
 		default:
 			assert( 0 );
 			break;
-		}
+		}		
 	}
 
 	glState.glStateBits = stateBits;
@@ -681,9 +681,9 @@ void RB_BeginDrawingView (void) {
 					glClearColor ( 0.3f, 0.3f, 0.3f, 1.0 );
 				}
 			}			
-		}
+		}		
 	}
-	else
+	else 
 	{
 		if ( r_fastsky->integer && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && !g_bRenderGlowingObjects )
 		{
@@ -691,13 +691,13 @@ void RB_BeginDrawingView (void) {
 			{
 				const fog_t		*fog = &tr.world->fogs[tr.world->globalFog];
 				glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
-			}
+			}			
 			else
 			{
 				glClearColor( 0.3f, 0.3f, 0.3f, 1 );	// FIXME: get color of sky
-			}
+			}			
 			clearBits |= GL_COLOR_BUFFER_BIT;	// FIXME: only if sky shaders have been used
-		}
+		}		
 	}
 
 #ifndef _XBOX
@@ -709,7 +709,7 @@ void RB_BeginDrawingView (void) {
 
 			glClearColor(fog->parms.color[0],  fog->parms.color[1], fog->parms.color[2], 1.0f );
 			clearBits |= GL_COLOR_BUFFER_BIT;
-		}
+		}		
 	}
 #endif
 	// If this pass is to just render the glowing objects, don't clear the depth buffer since
@@ -746,7 +746,7 @@ void RB_BeginDrawingView (void) {
 				(int)g_bRenderGlowingObjects,
 				tr.sceneCount);
 			--s_xboxBeginViewLogBudget;
-		}
+		}		
 	}
 #endif
 
@@ -758,9 +758,9 @@ void RB_BeginDrawingView (void) {
 	if ( ( backEnd.refdef.rdflags & RDF_HYPERSPACE ) )
 	{
 		RB_Hyperspace();
-		return;
+		return;	
 	}
-	else
+	else 
 	{
 		backEnd.isHyperspace = qfalse;
 	}
@@ -947,7 +947,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			XBLF("JA: RB_RenderDrawSurfList #%d checkpoint surf=%d/%d type=%d ptr=%p sort=0x%08x",
 				s_xboxRenderDrawSurfListCount, i, numDrawSurfs,
 				(int)*drawSurf->surface, drawSurf->surface, drawSurf->sort);
-		}
+		}		
 #endif
 		if ( drawSurf->sort == oldSort )
 		{
@@ -956,20 +956,20 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			{
 				const int surfType = (int)*drawSurf->surface;
 				const int entType = backEnd.currentEntity ? (int)backEnd.currentEntity->e.reType : RT_MAX_REF_ENTITY_TYPE;
-				if (surfType >= 0 && surfType < SPXB_SURFACE_TYPE_BUCKETS)
+				if (surfType >= 0 && surfType < 16)
 				{
 					g_SPXBSurfaceTypeCounts[surfType]++;
 				}
-				if (entType >= 0 && entType < SPXB_ENTITY_TYPE_BUCKETS)
+				if (entType >= 0 && entType < 16)
 				{
 					g_SPXBEntityTypeCounts[entType]++;
 				}
-			}
+			}			
 			if (xboxTraceDrawList && xboxLoggedSurfs < 512)
 			{
 				XBLF("JA: RB_RenderDrawSurfList #%d surf=%d fast type=%d ptr=%p sort=0x%08x",
 					s_xboxRenderDrawSurfListCount, i, (int)*drawSurf->surface, drawSurf->surface, drawSurf->sort);
-			}
+			}			
 #endif
 			// fast path, same as previous sort
 			rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
@@ -979,10 +979,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				XBLF("JA: RB_RenderDrawSurfList #%d surf=%d fast done",
 					s_xboxRenderDrawSurfListCount, i);
 				xboxLoggedSurfs++;
-			}
+			}			
 #endif
 			continue;
-		}
+		}		
 		R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
 #ifdef _XBOX
 		bool xboxMergeGeneratedEntitySurf = false;
@@ -990,7 +990,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			entityNum != oldEntityNum && shader && !shader->entityMergable)
 		{
 			xboxMergeGeneratedEntitySurf = RB_XboxCanMergeGeneratedEntitySurf(drawSurf->surface, entityNum, oldEntityNum);
-		}
+		}		
 		if (kXboxClassifyDrawSurfs)
 		{
 			const int surfType = (int)*drawSurf->surface;
@@ -998,26 +998,26 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			if (entityNum == TR_WORLDENT)
 			{
 				entType = 15;
-			}
+			}			
 			else if (entityNum >= 0)
 			{
 				entType = (int)backEnd.refdef.entities[entityNum].e.reType;
-			}
-			if (surfType >= 0 && surfType < SPXB_SURFACE_TYPE_BUCKETS)
+			}			
+			if (surfType >= 0 && surfType < 16)
 			{
 				g_SPXBSurfaceTypeCounts[surfType]++;
-			}
-			if (entType >= 0 && entType < SPXB_ENTITY_TYPE_BUCKETS)
+			}			
+			if (entType >= 0 && entType < 16)
 			{
 				g_SPXBEntityTypeCounts[entType]++;
-			}
-		}
+			}			
+		}		
 		if (xboxTraceDrawList && xboxLoggedSurfs < 512)
 		{
 			XBLF("JA: RB_RenderDrawSurfList #%d surf=%d type=%d ptr=%p ent=%d shader='%s' fog=%d dlight=%d sort=0x%08x",
 				s_xboxRenderDrawSurfListCount, i, (int)*drawSurf->surface, drawSurf->surface,
 				entityNum, shader ? shader->name : "<null>", fogNum, dlighted, drawSurf->sort);
-		}
+		}		
 #endif
 
 #ifdef _XBOX
@@ -1033,7 +1033,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			fogNum = oldFogNum;
 			dlighted = oldDlighted;
 			continue;
-		}
+		}		
 #endif
 		oldSort = drawSurf->sort;
 
@@ -1088,8 +1088,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 				//continue without bothering to begin a draw surf
 				continue;
-			}
-		}
+			}			
+		}		
 
 		if (shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted 
 			|| ( entityNum != oldEntityNum && !shader->entityMergable
@@ -1152,12 +1152,12 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					RB_ShadowFinish();
 					didShadowPass = true;
 				}
-			}
+			}			
 			RB_BeginSurface( shader, fogNum );
 			oldShader = shader;
 			oldFogNum = fogNum;
 			oldDlighted = dlighted;
-		}
+		}		
 
 		//
 		// change the modelview matrix if needed
@@ -1198,7 +1198,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #else
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.ori );
 #endif
-			}
+			}			
 
 			glLoadMatrixf( backEnd.ori.modelMatrix );
 
@@ -1222,10 +1222,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				}
 
 				oldDepthRange = depthRange;
-			}
+			}			
 
 			oldEntityNum = entityNum;
-		}
+		}		
 
 		// add the triangles for this surface
 		rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
@@ -1235,7 +1235,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			XBLF("JA: RB_RenderDrawSurfList #%d surf=%d draw done",
 				s_xboxRenderDrawSurfListCount, i);
 			xboxLoggedSurfs++;
-		}
+		}		
 #endif
 	}
 
@@ -1295,7 +1295,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #else
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.ori );
 #endif
-			}
+			}			
 
 			glLoadMatrixf( backEnd.ori.modelMatrix );
 
@@ -1314,7 +1314,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				case 2:
 					glDepthRange (0, 0);
 					break;
-			}
+			}			
 
 			if ((backEnd.currentEntity->e.renderfx & RF_DISTORTION) &&
 				lastPostEnt != pRender->entNum)
@@ -1368,11 +1368,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 					lastPostEnt = pRender->entNum;
 				}
-			}
+			}			
 
 			rb_surfaceTable[ *pRender->drawSurf->surface ]( pRender->drawSurf->surface );
 			RB_EndSurface();
-		}
+		}		
 	}
 
 	// go back to the world modelview matrix
@@ -1438,7 +1438,7 @@ void RB_RunVisTest(int number, vec3_t bounds[2])
         glw_state->device->SetTransform(D3DTS_PROJECTION, glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop());
 
 	GL_Bind(tr.whiteImage);
-	JkaFakeglSetTextureCached(glw_state->device, 0, NULL);
+	glw_state->device->SetTexture(0, NULL);
 
 	GL_State(GLS_DEFAULT);
 
@@ -1533,7 +1533,7 @@ void	RB_SetGL2D (void) {
 	extern int Menus_AnyFullScreenVisible(void);
 	if(glw_state->isWidescreen && !(Menus_AnyFullScreenVisible()) && cls.state == CA_ACTIVE)
 		glOrtho (0, 720, 480, 0, 0, 1);
-	else
+	else 
         glOrtho (0, 640, 480, 0, 0, 1);
 #endif
 #else
@@ -1595,7 +1595,7 @@ const void *RB_StretchPic ( const void *data ) {
 	if ( shader != tess.shader ) {
 		if ( tess.numIndexes ) {
 			RB_EndSurface();	//this might change culling and other states
-		}
+		}		
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
 	}
@@ -1619,7 +1619,7 @@ const void *RB_StretchPic ( const void *data ) {
 				tess.numVertexes, tess.numIndexes, backEnd.projection2D,
 				cls.state, cls.keyCatchers );
 			--s_stefxFrontendStretchBackendBudget;
-		}
+		}		
 	}
 	if ( cls.state == CA_ACTIVE && RB_XboxTrace2DShader( shader ) )
 	{
@@ -1634,7 +1634,7 @@ const void *RB_StretchPic ( const void *data ) {
 				(unsigned int)backEnd.color2D[2], (unsigned int)backEnd.color2D[3],
 				tess.numVertexes, tess.numIndexes, backEnd.projection2D );
 			--s_stefxStretchBackendBudget;
-		}
+		}		
 	}
 	RB_XboxForce2DOverlayState( "RB_StretchPic" );
 #endif
@@ -1713,14 +1713,14 @@ const void *RB_RotatePic ( const void *data )
 	if ( image ) {
 		if ( !backEnd.projection2D ) {
 			RB_SetGL2D();
-		}
+		}		
 
 		glColor4ubv( backEnd.color2D );
 		glPushMatrix();
 
 		glTranslatef(cmd->x+cmd->w,cmd->y,0);
 		glRotatef(cmd->a, 0.0, 0.0, 1.0);
-		
+
 		GL_Bind( image );
 		const float t1 = cmd->t1;
 		const float t2 = cmd->t2;
@@ -1738,7 +1738,7 @@ const void *RB_RotatePic ( const void *data )
 		glTexCoord2f( cmd->s1, t2 );
 		glVertex2f( -cmd->w, cmd->h );
 		glEnd();
-		
+
 		glPopMatrix();
 	}
 
@@ -1769,7 +1769,7 @@ const void *RB_RotatePic2 ( const void *data )
 			if ( !backEnd.projection2D ) 
 			{
 				RB_SetGL2D();
-			}
+			}			
 
 			// Get our current blend mode, etc.
 			GL_State( shader->stages[0].stateBits );
@@ -1780,7 +1780,7 @@ const void *RB_RotatePic2 ( const void *data )
 			// rotation point is going to be around the center of the passed in coordinates
 			glTranslatef( cmd->x, cmd->y, 0 );
 			glRotatef( cmd->a, 0.0, 0.0, 1.0 );
-			
+
 			GL_Bind( image );
 			const float t1 = cmd->t1;
 			const float t2 = cmd->t2;
@@ -1801,14 +1801,14 @@ const void *RB_RotatePic2 ( const void *data )
 				glTexCoord2f( cmd->s1, t2 );
 				glVertex2f( -cmd->w * 0.5f, cmd->h * 0.5f );
 			glEnd();
-			
+
 			glPopMatrix();
 
 			// Hmmm, this is not too cool
 			GL_State( GLS_DEPTHTEST_DISABLE |
 				  GLS_SRCBLEND_SRC_ALPHA |
 				  GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
-		}
+		}		
 	}
 
 	return (const void *)(cmd + 1);
@@ -1844,10 +1844,10 @@ const void *RB_Scissor ( const void *data )
 	{
 		glScissor( cmd->x,(glConfig.vidHeight - cmd->y - cmd->h),cmd->w,cmd->h);
 	}
-	else
+	else 
 	{
 		glScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight);
-	}		
+	}
 
 	return (const void *)(cmd + 1);
 }
@@ -1872,7 +1872,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 		{
 			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface tessIndexes=%d",
 				s_xboxDrawSurfsCommandCount, tess.numIndexes);
-		}
+		}		
 #endif
 		RB_EndSurface();
 #ifdef _XBOX
@@ -1880,7 +1880,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 		{
 			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface done",
 				s_xboxDrawSurfsCommandCount);
-		}
+		}		
 #endif
 	}
 
@@ -1942,8 +1942,8 @@ const void	*RB_DrawSurfs( const void *data ) {
 		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.screenGlow ); 
 		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0,  backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight ); 
 		glDisable( GL_TEXTURE_RECTANGLE_EXT );
-		glEnable( GL_TEXTURE_2D );
-		
+		glEnable( GL_TEXTURE_2D );    
+
 		// Resize the viewport to the blur texture size.
 		const int oldViewWidth = backEnd.viewParms.viewportWidth;
 		const int oldViewHeight = backEnd.viewParms.viewportHeight;
@@ -1956,12 +1956,12 @@ const void	*RB_DrawSurfs( const void *data ) {
 
 		// Copy the finished glow scene back to texture.
 		glDisable( GL_TEXTURE_2D );
-		glEnable( GL_TEXTURE_RECTANGLE_EXT );
-		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );
-		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight ); 
+		glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );       
+		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 		glDisable( GL_TEXTURE_RECTANGLE_EXT );
-		glEnable( GL_TEXTURE_2D );
-		
+		glEnable( GL_TEXTURE_2D );    
+
 		// Set the viewport back to normal.
 		backEnd.viewParms.viewportWidth = oldViewWidth;
 		backEnd.viewParms.viewportHeight = oldViewHeight;
@@ -2020,7 +2020,7 @@ const void	*RB_DrawBuffer( const void *data ) {
 		int i = r_clear->integer;
 		if (i == 42) {
 			i = Q_irand(0,8);
-		}
+		}		
 		switch (i)
 		{
 		default:
@@ -2095,7 +2095,7 @@ void RB_ShowImages( void ) {
 		if ( r_showImages->integer == 2 ) {
 			w *= image->width / 512.0;
 			h *= image->height / 512.0;
-		}
+		}		
 
 		GL_Bind( image );
 #ifdef _XBOX
@@ -2166,7 +2166,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 		{
 			XBLF("STEFX_FRONTEND_2D_SWAP after RB_EndSurface tessIndexes=%d tessVerts=%d",
 				tess.numIndexes, tess.numVertexes);
-		}
+		}		
 #endif
 #endif
 	}
@@ -2191,7 +2191,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 
 		for ( i = 0; i < glConfig.vidWidth * glConfig.vidHeight; i++ ) {
 			sum += stencilReadback[i];
-		}
+		}		
 
 		backEnd.pc.c_overDraw += sum;
 		Z_Free( stencilReadback );
@@ -2282,7 +2282,7 @@ void RB_ExecuteRenderCommands( const void *data ) {
 		{
 			XBLF("JA: RB_ExecuteRenderCommands #%d before cmd=%d",
 				s_xboxRenderCommandTraceCount, commandId);
-		}
+		}		
 #endif
 		switch ( commandId ) {
 		case RC_SET_COLOR:
@@ -2324,17 +2324,17 @@ void RB_ExecuteRenderCommands( const void *data ) {
 				XBLF("JA: RB_ExecuteRenderCommands #%d end cmd=%d msec=%d",
 					s_xboxRenderCommandTraceCount, commandId, backEnd.pc.msec);
 				s_xboxRenderCommandTraceCount++;
-			}
+			}			
 #endif
 			return;
-		}
+		}		
 #ifdef _XBOX
 		if (xboxTraceCommand)
 		{
 			XBLF("JA: RB_ExecuteRenderCommands #%d after cmd=%d",
 				s_xboxRenderCommandTraceCount, commandId);
 			s_xboxRenderCommandTraceCount++;
-		}
+		}		
 #endif
 	}
 
@@ -2361,8 +2361,8 @@ void BeginPixelShader( GLuint uiType, GLuint uiID )
 			glCallList( uiID );
 
 			g_uiCurrentPixelShaderType = GL_REGISTER_COMBINERS_NV;
-		}
-		return;
+		}		
+		return;	
 
 		// Using Fragment Programs, so call the program.
 		case GL_FRAGMENT_PROGRAM_ARB:
@@ -2375,8 +2375,8 @@ void BeginPixelShader( GLuint uiType, GLuint uiID )
 			glBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, uiID );
 
 			g_uiCurrentPixelShaderType = GL_FRAGMENT_PROGRAM_ARB;
-		}
-		return;
+		}		
+		return;	
 	}
 }
 
@@ -2384,7 +2384,7 @@ void BeginPixelShader( GLuint uiType, GLuint uiID )
 void EndPixelShader()
 {
 	if ( g_uiCurrentPixelShaderType == 0x0 )
-		return;
+		return;	
 
 	glDisable( g_uiCurrentPixelShaderType );
 }
@@ -2447,30 +2447,30 @@ static inline void RB_BlurGlowTexture()
 
 	GLuint uiTex = tr.screenGlow;  
 
-	glActiveTextureARB( GL_TEXTURE3_ARB );  
+	glActiveTextureARB( GL_TEXTURE3_ARB );
 	glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
-	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
-	
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
+
 	glActiveTextureARB( GL_TEXTURE2_ARB ); 
-	glEnable( GL_TEXTURE_RECTANGLE_EXT );
-	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+	glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
 
 	glActiveTextureARB( GL_TEXTURE1_ARB );
-	glEnable( GL_TEXTURE_RECTANGLE_EXT );
-	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
+	glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
 
 	glActiveTextureARB(GL_TEXTURE0_ARB );
 	glDisable( GL_TEXTURE_2D );  
-	glEnable( GL_TEXTURE_RECTANGLE_EXT );
+	glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
 	glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
-	
+
 	/////////////////////////////////////////////////////////
 	// Draw the blur passes (each pass blurs it more, increasing the blur radius ).
 	/////////////////////////////////////////////////////////
-	
+
 	//int iTexWidth = backEnd.viewParms.viewportWidth, iTexHeight = backEnd.viewParms.viewportHeight;
 	int iTexWidth = glConfig.vidWidth, iTexHeight = glConfig.vidHeight; 
-	
+
 	for ( int iNumBlurPasses = 0; iNumBlurPasses < r_DynamicGlowPasses->integer; iNumBlurPasses++ )       
 	{
 		// Load the Texel Offsets into the Vertex Program.
@@ -2486,7 +2486,7 @@ static inline void RB_BlurGlowTexture()
 			{
 				iTexWidth = backEnd.viewParms.viewportWidth;
 				iTexHeight = backEnd.viewParms.viewportHeight;
-			}
+			}			
 
 			uiTex = tr.blurImage;
 			glActiveTextureARB( GL_TEXTURE3_ARB );  
@@ -2495,21 +2495,21 @@ static inline void RB_BlurGlowTexture()
 			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 			glActiveTextureARB( GL_TEXTURE2_ARB ); 
 			glDisable( GL_TEXTURE_2D );
-			glEnable( GL_TEXTURE_RECTANGLE_EXT );
-			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );			
+			glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 			glActiveTextureARB( GL_TEXTURE1_ARB );
 			glDisable( GL_TEXTURE_2D );
-			glEnable( GL_TEXTURE_RECTANGLE_EXT );
+			glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
 			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 			glActiveTextureARB(GL_TEXTURE0_ARB );
 			glDisable( GL_TEXTURE_2D );
-			glEnable( GL_TEXTURE_RECTANGLE_EXT );
-			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex ); 
+			glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 
 			// Copy the current image over.
-			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );     
+			glBindTexture( GL_TEXTURE_RECTANGLE_EXT, uiTex );
 			glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-		}
+		}		
 
 		// Draw the fullscreen quad.
 		glBegin( GL_QUADS ); 
@@ -2527,7 +2527,7 @@ static inline void RB_BlurGlowTexture()
 		glEnd();
 
 		glBindTexture( GL_TEXTURE_RECTANGLE_EXT, tr.blurImage );       
-		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );    
+		glCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_EXT, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
 
 		// Increase the texel offsets.
 		// NOTE: This is possibly the most important input to the effect. Even by using an exponential function I've been able to
@@ -2539,10 +2539,10 @@ static inline void RB_BlurGlowTexture()
 	}
 
 	// Disable multi-texturing.
-	glActiveTextureARB( GL_TEXTURE3_ARB );   
+	glActiveTextureARB( GL_TEXTURE3_ARB );
 	glDisable( GL_TEXTURE_RECTANGLE_EXT );
 
-	glActiveTextureARB( GL_TEXTURE2_ARB );
+	glActiveTextureARB( GL_TEXTURE2_ARB ); 
 	glDisable( GL_TEXTURE_RECTANGLE_EXT );
 
 	glActiveTextureARB( GL_TEXTURE1_ARB );
@@ -2554,7 +2554,7 @@ static inline void RB_BlurGlowTexture()
 
 	glDisable( GL_VERTEX_PROGRAM_ARB );
 	EndPixelShader();
-	
+
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
 	glMatrixMode(GL_MODELVIEW);
@@ -2581,8 +2581,8 @@ static inline void RB_DrawGlowOverlay()
 
 	GL_State(GLS_DEPTHTEST_DISABLE);
 
-	glDisable( GL_TEXTURE_2D );
-	glEnable( GL_TEXTURE_RECTANGLE_EXT );
+	glDisable( GL_TEXTURE_2D );  
+	glEnable( GL_TEXTURE_RECTANGLE_EXT ); 
 
 	// For debug purposes.
 	if ( r_DynamicGlow->integer != 2 )
@@ -2611,7 +2611,7 @@ static inline void RB_DrawGlowOverlay()
 	{
 		glBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_COLOR );
 	}
-	else
+	else 
 	{
 		glBlendFunc( GL_ONE, GL_ONE );
 	}

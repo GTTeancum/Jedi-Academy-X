@@ -5,6 +5,10 @@
 #include "cg_local.h"
 #include "cg_text.h"
 
+#if defined(STEFX_SP_HOSTED_MP)
+extern void STEFX_DrawHolomatchLoadingScreen(void);
+#endif
+
 #define MAX_LOADING_PLAYER_ICONS	16
 #define MAX_LOADING_ITEM_ICONS		26
 
@@ -125,6 +129,16 @@ void CG_DrawInformation( void ) {
 //	qhandle_t	detail;
 	char		buf[1024];
 	int			strlength,length;
+
+#if defined(STEFX_SP_HOSTED_MP)
+	/*
+	 * The shared engine owns Holomatch loading presentation.  Keep this
+	 * cgame callback as the update hook without redrawing the inherited
+	 * inset loading screen over the approved full-backdrop layout.
+	 */
+	STEFX_DrawHolomatchLoadingScreen();
+	return;
+#endif
 
 	info = CG_ConfigString( CS_SERVERINFO );
 	sysInfo = CG_ConfigString( CS_SYSTEMINFO );

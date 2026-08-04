@@ -12,6 +12,7 @@
 #include "../qcommon/sstring.h"
 #include "../zlib/zlib.h"
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 #endif
 #include "../png/png.h"
 #include "../qcommon/sstring.h"
@@ -537,8 +538,9 @@ Upload32
 ===============
 */
 #ifdef _XBOX
-extern "C" void JkaFakeglSetDDSUploadPicmip(int picmip);
-extern "C" void JkaFakeglSetTextureDebugName(const char *name);
+static void JkaFakeglSetDDSUploadPicmip(int) {}
+static void JkaFakeglSetTextureDebugName(const char *) {}
+static void FakeGL_ResetRegisteredTextureBudget(void) {}
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -1128,22 +1130,32 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 #ifdef _XBOX
 	int staleCount = 0;
 	int totalCount = 0;
-	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); ++itImage)
+	AllocatedImages_t::iterator itImage = AllocatedImages->begin();
+	while (itImage != AllocatedImages->end())
 	{
 		image_t *pImage = (*itImage).second;
 		++totalCount;
-		if (pImage && !pImage->isSystem && pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel())
+		// The registered texture allocator supports individual release and
+		// coalescing now, so mirror the canonical level ownership rule.
+		if (pImage && !pImage->isSystem &&
+			pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel())
 		{
 			++staleCount;
+			R_Images_DeleteImageContents(pImage);
+			itImage = AllocatedImages->erase(itImage);
+			continue;
 		}
+		++itImage;
 	}
 	if (staleCount)
 	{
 		static int s_xboxStaleImageLogCount = 0;
 		if (s_xboxStaleImageLogCount < 16)
 		{
-			XBLF("STEFX: Xbox image level-end kept stale images stale=%d total=%d level=%d",
-				staleCount, totalCount, RE_RegisterMedia_GetLevel());
+			XBLF("STEFX: Xbox image level-end released stale images stale=%d total=%d level=%d textureUsed=%u textureFree=%u largest=%u",
+				staleCount, totalCount, RE_RegisterMedia_GetLevel(),
+				(unsigned)gTextures.Size(), (unsigned)gTextures.Free(),
+				(unsigned)gTextures.LargestFree());
 			++s_xboxStaleImageLogCount;
 		}
 	}
@@ -1346,6 +1358,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	GL_SelectTexture( 0 );
 
 	GL_Bind(image);
+	g_SPXBPhaseLast = 0x52433130; /* 'RC10' */
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (STEFX_ShouldTraceIntroImage(name) ||
@@ -1371,12 +1384,15 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 								allowPicmip, 
 								isLightmap, 
 								&image->internalFormat );
+	g_SPXBPhaseLast = 0x52433131; /* 'RC11' */
 
 	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
 	glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
+	g_SPXBPhaseLast = 0x52433132; /* 'RC12' */
 
 	glBindTexture( GL_TEXTURE_2D, 0 );	//jfm: i don't know why this is here, but it breaks lightmaps when there's only 1
 	glState.currenttextures[glState.currenttmu] = 0;	//mark it not bound
+	g_SPXBPhaseLast = 0x52433133; /* 'RC13' */
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (STEFX_ShouldTraceIntroImage(name) ||
@@ -1394,17 +1410,24 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	}
 #endif
 
+	g_SPXBPhaseLast = 0x52433230; /* 'RC20' */
 	const char* psNewName = GenerateImageMappingName(name);
+	g_SPXBPhaseLast = 0x52433231; /* 'RC21' */
 	image->imgCode = crc32(0, (const Bytef *)psNewName, strlen(psNewName));
+	g_SPXBPhaseLast = 0x52433232; /* 'RC22' */
 
 	(*AllocatedImages)[ image->imgCode ] = image;
+	g_SPXBPhaseLast = 0x52433233; /* 'RC23' */
 #ifdef _XBOX
 	if (!AllocatedImageNames)
 	{
 		AllocatedImageNames = new AllocatedImageNames_t;
 	}
+	g_SPXBPhaseLast = 0x52433234; /* 'RC24' */
 	(*AllocatedImageNames)[sstring_t(psNewName)] = image;
+	g_SPXBPhaseLast = 0x52433235; /* 'RC25' */
 #endif
+	g_SPXBPhaseLast = 0x52433134; /* 'RC14' */
 
 	return image;
 }
@@ -2825,28 +2848,38 @@ bool R_UpdateSaveGameImage(const char *filename);
 
 void R_CreateBuiltinImages( void ) {
 	int		x;
+	g_SPXBPhaseLast = 0x42493030; /* 'BI00' */
 	byte	*data = (byte *) Z_Malloc( SCREEN_IMAGE_MAX_WIDTH * SCREEN_IMAGE_MAX_HEIGHT * 4, TAG_TEMP_WORKSPACE, qfalse, 4 );
 
 	XBL("R_CreateBuiltinImages: *default...\n");
+	g_SPXBPhaseLast = 0x42493031; /* 'BI01' */
 	R_CreateDefaultImage();
+	g_SPXBPhaseLast = 0x42493032; /* 'BI02' */
 
 	// we use a solid white image instead of disabling texturing
 	memset( data, 255, Z_Size( data ) );
 
 	XBL("R_CreateBuiltinImages: *white...\n");
+	g_SPXBPhaseLast = 0x42493033; /* 'BI03' */
 	tr.whiteImage = R_CreateImage("*white", data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
+	g_SPXBPhaseLast = 0x42493034; /* 'BI04' */
 
 	// Make these the right size the first time!
 	XBL("R_CreateBuiltinImages: *screen...\n");
+	g_SPXBPhaseLast = 0x42493035; /* 'BI05' */
 	tr.screenImage = R_CreateImage("*screen", data, SCREEN_IMAGE_MAX_WIDTH, SCREEN_IMAGE_MAX_HEIGHT, GL_RGBA, 1, qfalse, GL_REPEAT );
+	g_SPXBPhaseLast = 0x42493036; /* 'BI06' */
 	XBL("R_CreateBuiltinImages: *savegame placeholder...\n");
 	tr.saveGameImage = R_CreateImage("*savegame", data, SAVE_GAME_IMAGE_W, SAVE_GAME_IMAGE_H, GL_DDS1_EXT, 1, qfalse, GL_REPEAT );
 
 	XBL("R_CreateBuiltinImages: *identityLight...\n");
+	g_SPXBPhaseLast = 0x42493037; /* 'BI07' */
 	tr.identityLightImage = R_CreateImage("*identityLight", data, 8, 8, GL_RGBA, qfalse, qfalse, GL_REPEAT);
+	g_SPXBPhaseLast = 0x42493038; /* 'BI08' */
 
 	// load the last saveimage
 	XBL("R_CreateBuiltinImages: R_UpdateSaveGameImage...\n");
+	g_SPXBPhaseLast = 0x42493039; /* 'BI09' */
 	R_UpdateSaveGameImage("z:\\screenshot.xbx");
 	XBL("R_CreateBuiltinImages: R_UpdateSaveGameImage done\n");
 
@@ -2858,6 +2891,7 @@ void R_CreateBuiltinImages( void ) {
 		XBLF("R_CreateBuiltinImages: *scratch%d...\n", x);
 		tr.scratchImage[x] = R_CreateImage(va("*scratch%d",x), data, 128, 128, GL_RGBA, qfalse, qfalse, GL_CLAMP);
 	}
+	g_SPXBPhaseLast = 0x42493130; /* 'BI10' */
 
 	Z_Free( data );
 
@@ -2865,6 +2899,7 @@ void R_CreateBuiltinImages( void ) {
 	R_CreateDlightImage();
 	XBL("R_CreateBuiltinImages: R_CreateFogImage...\n");
 	R_CreateFogImage();
+	g_SPXBPhaseLast = 0x42493131; /* 'BI11' */
 	XBL("R_CreateBuiltinImages: done\n");
 }
 
@@ -2967,6 +3002,7 @@ R_InitImages
 */
 void	R_InitImages( void ) {
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x494D3030; /* 'IM00' */
 	XBL("R_InitImages: entered\n");
 #endif
 	//memset(hashTable, 0, sizeof(hashTable));	// DO NOT DO THIS NOW (because of image cacheing)	-ste.
@@ -2977,10 +3013,12 @@ void	R_InitImages( void ) {
 #endif
 		AllocatedImages = new AllocatedImages_t;
 #ifdef _XBOX
+		g_SPXBPhaseLast = 0x494D3031; /* 'IM01' */
 		if (!AllocatedImageNames)
 		{
 			AllocatedImageNames = new AllocatedImageNames_t;
 		}
+		g_SPXBPhaseLast = 0x494D3032; /* 'IM02' */
 		XBLF("R_InitImages: AllocatedImages=%p\n", (void*)AllocatedImages);
 #endif
 	}
@@ -2990,6 +3028,7 @@ void	R_InitImages( void ) {
 #endif
 	// build brightness translation tables
 	R_SetColorMappings();
+	g_SPXBPhaseLast = 0x494D3033; /* 'IM03' */
 
 #ifdef _XBOX
 	XBL("R_InitImages: R_CreateBuiltinImages (first D3D textures)...\n");
@@ -2997,6 +3036,7 @@ void	R_InitImages( void ) {
 	// create default texture and white texture
 	R_CreateBuiltinImages();
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x494D3034; /* 'IM04' */
 	XBL("R_InitImages: COMPLETE\n");
 #endif
 }
@@ -3516,9 +3556,25 @@ qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin)
 	char		*text, *text_p;
 	char		*token;
 	char		surfName[MAX_QPATH];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	const qboolean traceHardwareSkin =
+		!Q_stricmp( name, "models/players/borgThin2/head_default.skin" );
+	int traceHardwareSurface = 0;
+
+	if ( traceHardwareSkin )
+	{
+		XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: target skin begin name='%s' handle=%d", name, hSkin );
+	}
+#endif
 
 	// load and parse the skin file
     FS_ReadFile( name, (void **)&text );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( traceHardwareSkin )
+	{
+		XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: target skin read complete name='%s' text=%p", name, text );
+	}
+#endif
 	if ( !text ) {
 		VID_Printf( PRINT_ERROR, "WARNING: RE_RegisterSkin( '%s' ) failed to load!\n", name );
 		return 0;
@@ -3550,6 +3606,13 @@ qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin)
 		
 		// parse the shader name
 		token = CommaParse( &text_p );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( traceHardwareSkin )
+		{
+			XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: target skin surface=%d parsed surface='%s' shader='%s'",
+				traceHardwareSurface, surfName, token );
+		}
+#endif
 
 		if ( !strcmp( &surfName[strlen(surfName)-4], "_off") )
 		{
@@ -3569,9 +3632,24 @@ qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin)
 		Q_strncpyz( surf->name, surfName, sizeof( surf->name ) );
 		surf->shader = R_FindShader( token, lightmapsNone, stylesDefault, qtrue );
 		skin->numSurfaces++;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( traceHardwareSkin )
+		{
+			XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: target skin surface=%d shader complete handle=%d",
+				traceHardwareSurface, surf->shader ? surf->shader->index : 0 );
+			++traceHardwareSurface;
+		}
+#endif
 	}
 
 	FS_FreeFile( text );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( traceHardwareSkin )
+	{
+		XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: target skin complete name='%s' surfaces=%d",
+			name, skin->numSurfaces );
+	}
+#endif
 
 
 	// never let a skin have 0 shaders

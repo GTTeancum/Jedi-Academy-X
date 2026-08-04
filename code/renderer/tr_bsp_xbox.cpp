@@ -15,7 +15,9 @@
 #include "../win32/xb_log.h"
 #endif
 
+#if defined(STEFX_ELITE_FORCE_SP)
 extern void UpdateLoadingAnimation(void);
+#endif
 
 /*
 
@@ -937,7 +939,7 @@ static shader_t *ShaderForShaderNum( int shaderNum, const short *lightmapNum, co
 	return shader;
 }
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+#if defined(STEFX_ELITE_FORCE_SP)
 void R_EFPrecacheRawSurfaceShadersFromBSP( const char *name, const efbspFile_t *efbsp )
 {
 	efbspSurface_t *surfaces;
@@ -945,6 +947,8 @@ void R_EFPrecacheRawSurfaceShadersFromBSP( const char *name, const efbspFile_t *
 	int i;
 	int registered = 0;
 	int skipped = 0;
+	int seenBytes;
+	byte *seen;
 	zmemstats_t stats;
 
 	if ( !efbsp )
@@ -954,16 +958,23 @@ void R_EFPrecacheRawSurfaceShadersFromBSP( const char *name, const efbspFile_t *
 
 	surfaceCount = EFBSP_SurfaceCount( efbsp );
 	surfaces = (efbspSurface_t *)EFBSP_LumpData( efbsp, EF_LUMP_SURFACES );
+	seenBytes = s_worldData.numShaders * 256;
+	seen = (byte *)Z_Malloc( seenBytes, TAG_TEMP_WORKSPACE, qtrue );
 
 	Z_GetMemoryStats( &stats );
-	XBLF("STEFX_EFBSP_SHADER_PRECACHE begin map='%s' surfaces=%d memFree=%d memLargest=%d",
-		name ? name : "<null>", surfaceCount, stats.freeBytes, stats.largestFreeBlock);
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw shader precache entry map='%s' surfaces=%d shaders=%d free=%d largest=%d",
+		name ? name : "<null>", surfaceCount, s_worldData.numShaders,
+		stats.freeBytes, stats.largestFreeBlock);
 
 	for ( i = 0; i < surfaceCount; ++i )
 	{
 		const efbspSurface_t *surface = &surfaces[i];
+		const dshader_t *mapShader;
+		shader_t *resolved;
 		short lightmapNum[MAXLIGHTMAPS];
 		byte lightmapStyles[MAXLIGHTMAPS];
+		int lightmapSlot;
+		int seenIndex;
 
 		if ( surface->shaderNum < 0 || surface->shaderNum >= s_worldData.numShaders )
 		{
@@ -971,23 +982,45 @@ void R_EFPrecacheRawSurfaceShadersFromBSP( const char *name, const efbspFile_t *
 			continue;
 		}
 
+		lightmapSlot = surface->lightmapNum + 4;
+		if ( lightmapSlot < 0 || lightmapSlot >= 256 )
+		{
+			++skipped;
+			continue;
+		}
+		seenIndex = surface->shaderNum * 256 + lightmapSlot;
+		if ( seen[seenIndex] )
+		{
+			continue;
+		}
+		seen[seenIndex] = 1;
+
 		lightmapNum[0] = (short)surface->lightmapNum;
 		lightmapNum[1] = (short)EF_LIGHTMAP_NONE;
 		lightmapNum[2] = (short)EF_LIGHTMAP_NONE;
 		lightmapNum[3] = (short)EF_LIGHTMAP_NONE;
 		EFBSP_SetSingleLightStyle( lightmapStyles );
 
-		ShaderForShaderNum( surface->shaderNum, lightmapNum, lightmapStyles );
+		mapShader = &s_worldData.shaders[surface->shaderNum];
+		XBLog_WriteCriticalf("STEFX_HW_BOOT: raw shader precache item=%d surface=%d shader=%d lightmap=%d name='%s'",
+			registered + 1, i, surface->shaderNum, surface->lightmapNum,
+			mapShader->shader);
+		resolved = ShaderForShaderNum( surface->shaderNum, lightmapNum, lightmapStyles );
 		++registered;
+		XBLog_WriteCriticalf("STEFX_HW_BOOT: raw shader precache item=%d complete resolved='%s' default=%d",
+			registered,
+			resolved ? resolved->name : "<null>",
+			resolved ? resolved->defaultShader : -1);
 
-		if ( (registered % 256) == 0 )
+		if ( (registered % 16) == 0 )
 		{
 			UpdateLoadingAnimation();
 		}
 	}
 
+	Z_Free( seen );
 	Z_GetMemoryStats( &stats );
-	XBLF("STEFX_EFBSP_SHADER_PRECACHE done map='%s' registered=%d skipped=%d memFree=%d memLargest=%d",
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw shader precache done map='%s' unique=%d skipped=%d free=%d largest=%d",
 		name ? name : "<null>", registered, skipped, stats.freeBytes, stats.largestFreeBlock);
 }
 #endif
@@ -1121,53 +1154,6 @@ int SurfaceFaceSize(int numVerts, int numLightMaps, bool needVertexColors,
 
 	return sfaceSize;
 }
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-static qboolean R_EFValidatePackedFace( const dface_t *in, int faceIndex, int faceCount,
-		int indexCount, int vertCount, qboolean logCritical )
-{
-	int numVerts;
-	int firstVert;
-	int numIdx;
-	int firstIdx;
-
-	if ( !in )
-	{
-		return qfalse;
-	}
-
-	numVerts = in->verts & 0xFFF;
-	firstVert = in->verts >> 12;
-	numIdx = in->indexes & 0xFFF;
-	firstIdx = in->indexes >> 12;
-
-	if ( in->shaderNum >= s_worldData.numShaders ||
-		in->code < 0 || in->code >= s_worldData.numsurfaces ||
-		firstVert < 0 || numVerts < 0 || firstVert > vertCount || numVerts > vertCount - firstVert ||
-		firstIdx < 0 || numIdx < 0 || firstIdx > indexCount || numIdx > indexCount - firstIdx ||
-		numVerts > 255 || numIdx > 65535 )
-	{
-		if ( logCritical )
-		{
-			XBLog_WriteCriticalf("EF: R_LoadFaces invalid face=%d/%d code=%d surfaces=%d shader=%d firstVert=%d verts=%d vertCount=%d firstIdx=%d indexes=%d indexCount=%d",
-				faceIndex + 1,
-				faceCount,
-				in->code,
-				s_worldData.numsurfaces,
-				in->shaderNum,
-				firstVert,
-				numVerts,
-				vertCount,
-				firstIdx,
-				numIdx,
-				indexCount);
-		}
-		return qfalse;
-	}
-
-	return qtrue;
-}
-#endif
 
 
 void BuildDrawVertTangents( drawVert_t *verts, int *indexes, int numIndexes, int numVertexes ) 
@@ -1338,7 +1324,8 @@ void BuildMapVertTangents( mapVert_t *verts, vec3_t *tangents, short *indexes, i
 ParseFace
 ===============
 */
-static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *indexes, byte *&pFaceDataBuffer) 
+static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *indexes,
+		byte *&pFaceDataBuffer, shader_t *resolvedShader = NULL, const byte *pFaceDataEnd = NULL)
 {
 	int			i, j, k;
 	srfSurfaceFace_t	*cv;
@@ -1365,7 +1352,9 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 #endif
 
 	// get shader value
-	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles );
+	surf->shader = resolvedShader ?
+		resolvedShader :
+		ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles );
 	if ( r_singleShader->integer && !surf->shader->sky ) {
 		surf->shader = tr.defaultShader;
 	}
@@ -1416,6 +1405,23 @@ static void ParseFace( dface_t *ds, mapVert_t *verts, msurface_t *surf, short *i
 	sfaceSize = SurfaceFaceSize(numPoints,
 			numLightMaps, needVertexColors, numIndexes);
 	ofsIndexes = sfaceSize - numIndexes;
+
+	if (pFaceDataEnd)
+	{
+		int faceDataRemaining = (pFaceDataBuffer <= pFaceDataEnd) ?
+			(int)(pFaceDataEnd - pFaceDataBuffer) :
+			-1;
+		if (sfaceSize < 0 || faceDataRemaining < sfaceSize)
+		{
+#ifdef _XBOX
+			XBLog_WriteCriticalf("STEFX_HW_BOOT: raw face data bounds failure code=%d shader=%d verts=%d indexes=%d size=%d remaining=%d",
+				ds->code, ds->shaderNum, numPoints, numIndexes, sfaceSize, faceDataRemaining);
+#endif
+			Com_Error(ERR_DROP, "ParseFace: face %d needs %d bytes with %d remaining",
+				ds->code, sfaceSize, faceDataRemaining);
+			return;
+		}
+	}
 
 	cv = (srfSurfaceFace_t *) pFaceDataBuffer;//Hunk_Alloc( sfaceSize );
 	pFaceDataBuffer += sfaceSize;	// :-)
@@ -1769,7 +1775,7 @@ void R_LoadFlares( void *surfaces, int surfacelen ) {
 	}
 }
 
-#ifdef STEFX_ELITE_FORCE_SP
+#if defined(STEFX_ELITE_FORCE_SP)
 static void R_EFBuildSurfaceScratch(const efbspFile_t *efbsp, const efbspSurface_t *surface,
 	mapVert_t *surfaceVerts, short *surfaceIndexes)
 {
@@ -1933,9 +1939,6 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	int			localIndexOverByte = 0;
 	int			localIndexOutOfRange = 0;
 	int			faceDataOverShort = 0;
-	int			indexCount = 0;
-	int			vertCount = 0;
-	int			skippedFaces = 0;
 #endif
 
 	if (surfacelen == 0) {
@@ -1944,23 +1947,17 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	
 	count = surfacelen / sizeof(*in);
 #ifdef _XBOX
-	XBLog_WriteCriticalf("EF: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
+	XBLF("JA: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
 		count, surfacelen, indexlen, vertlen);
 #endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	vertCount = vertlen / sizeof(*dv);
-#endif
 
 	indexes = (short *)(indexdata);
 	if ( indexlen % sizeof(*indexes))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	indexCount = indexlen / sizeof(*indexes);
-#endif
 
 	// new bit, the face code on our biggest map requires over 15,000 mallocs, which was no problem on the hunk,
 	//	bit hits the zone pretty bad (even the tagFree takes about 9 seconds for that many memblocks), 
@@ -1973,21 +1970,6 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	{ 
 		in = (dface_t *)surfaces + i;
 #ifdef _XBOX
-		if ( !R_EFValidatePackedFace( in, i, count, indexCount, vertCount, qtrue ) )
-		{
-			short lightmapNum[MAXLIGHTMAPS];
-			int j;
-			for (j = 0; j < MAXLIGHTMAPS; ++j)
-			{
-				lightmapNum[j] = (int)in->lightmapNum[j] - 4;
-			}
-			if ( in->code >= 0 && in->code < s_worldData.numsurfaces )
-			{
-				R_EFSkipRawDrawSurface( s_worldData.surfaces + in->code, in->shaderNum, "face-invalid" );
-			}
-			++skippedFaces;
-			continue;
-		}
 		{
 			int numVerts = in->verts & 0xFFF;
 			int firstVert = in->verts >> 12;
@@ -2098,11 +2080,6 @@ void R_LoadFaces( void *indexdata, int indexlen,
 		localIndexOutOfRange,
 		iFaceDataSizeRequired,
 		faceDataOverShort);
-	if ( skippedFaces > 0 )
-	{
-		XBLog_WriteCriticalf("EF: R_LoadFaces skipped invalid faces=%d/%d faceDataBytes=%d",
-			skippedFaces, count, iFaceDataSizeRequired);
-	}
 	XBLF("JA: R_LoadFaces alloc faceDataBytes=%d", iFaceDataSizeRequired);
 #endif
 	in -= count;	// back it up, ready for loop-proper
@@ -2119,13 +2096,6 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	for ( i = 0 ; i < count ; i++ ) {
 		in = (dface_t *)surfaces + i;
 		out = s_worldData.surfaces + in->code;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( !R_EFValidatePackedFace( in, i, count, indexCount, vertCount, qfalse ) )
-		{
-			R_EFSkipRawDrawSurface( out, in->shaderNum, "face-invalid-parse" );
-			continue;
-		}
-#endif
 		ParseFace( in, dv, out, indexes, pFaceDataBuffer );
 #ifdef _XBOX
 		if (((i + 1) % 128) == 0 || i + 1 == count) {
@@ -2144,7 +2114,7 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	VID_Printf( PRINT_ALL, "...loaded %d faces\n", count );
 }
 
-#ifdef STEFX_ELITE_FORCE_SP
+#if defined(STEFX_ELITE_FORCE_SP)
 void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, int shaderCount, int numSurfs)
 {
 	efbspSurface_t *surfaces;
@@ -2161,12 +2131,15 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 	drawVert_t *points;
 	drawVert_t *ctrl;
 	float *errorTable;
+	zmemstats_t stats;
 
 	if (!efbsp || !efbsp->data)
 	{
 		return;
 	}
 
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer entry map='%s'",
+		name ? name : "<null>");
 	surfaceCount = EFBSP_SurfaceCount(efbsp);
 	surfaces = (efbspSurface_t *)EFBSP_LumpData(efbsp, EF_LUMP_SURFACES);
 
@@ -2185,13 +2158,21 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 		name ? name : "<null>", surfaceCount, patchCount, triCount, faceCount, flareCount, maxVerts, maxIndexes);
 
 	R_LoadSurfaces(numSurfs);
+	Z_GetMemoryStats(&stats);
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer surface table complete free=%d largest=%d",
+		stats.freeBytes, stats.largestFreeBlock);
 
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer allocating scratch verts=%d indexes=%d",
+		maxVerts, maxIndexes);
 	surfaceVerts = (mapVert_t *)Z_Malloc(maxVerts * sizeof(mapVert_t), TAG_TEMP_WORKSPACE, qfalse, 32);
 	surfaceIndexes = (short *)Z_Malloc(maxIndexes * sizeof(short), TAG_TEMP_WORKSPACE, qfalse, 32);
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw renderer surface scratch complete");
 
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw renderer allocating patch workspaces");
 	points = (drawVert_t*)Z_Malloc(MAX_PATCH_SIZE * MAX_PATCH_SIZE * sizeof(drawVert_t), TAG_TEMP_WORKSPACE, qfalse);
 	ctrl = (drawVert_t*)Z_Malloc(MAX_GRID_SIZE * MAX_GRID_SIZE * sizeof(drawVert_t), TAG_TEMP_WORKSPACE, qfalse);
 	errorTable = (float*)Z_Malloc(2 * MAX_GRID_SIZE * sizeof(float), TAG_TEMP_WORKSPACE, qfalse);
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw renderer patch workspaces complete");
 
 	for (i = 0; i < surfaceCount; ++i)
 	{
@@ -2209,11 +2190,16 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 		EFBSP_FillSurfaceVerts(efbsp, surface, surfaceVerts);
 		out = s_worldData.surfaces + patch.code;
 		ParseMesh(&patch, surfaceVerts, out, points, ctrl, errorTable);
+		if ((i & 1023) == 0)
+		{
+			XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer patch scan surface=%d/%d", i, surfaceCount);
+		}
 	}
 
 	Z_Free(errorTable);
 	Z_Free(ctrl);
 	Z_Free(points);
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer patches complete count=%d", patchCount);
 	VID_Printf(PRINT_ALL, "...loaded %i raw EF meshes\n", patchCount);
 
 	for (i = 0; i < surfaceCount; ++i)
@@ -2234,21 +2220,31 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 		out = s_worldData.surfaces + tri.code;
 		ParseTriSurf(&tri, surfaceVerts, out, surfaceIndexes);
 	}
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer trisurfs complete count=%d", triCount);
 	VID_Printf(PRINT_ALL, "...loaded %i raw EF trisurfs\n", triCount);
 
 	{
 		int faceDataSizeRequired = 0;
 		byte *faceData;
 		byte *faceDataCursor;
+		byte *faceDataEnd;
+		shader_t **faceShaderCache;
+		int faceMetricCount = shaderCount * 256;
+		int faceResolvedMetricCount = 0;
+		int faceSizingCount = 0;
+		int parsedFaceCount = 0;
 
+		faceShaderCache = (shader_t **)Z_Malloc(
+			faceMetricCount * sizeof(shader_t *), TAG_TEMP_WORKSPACE, qtrue);
+		XBLog_WriteCritical("STEFX_HW_BOOT: raw renderer face sizing begin");
 		for (i = 0; i < surfaceCount; ++i)
 		{
 			efbspSurface_t *surface = &surfaces[i];
 			dface_t face;
 			short lightmapNum[MAXLIGHTMAPS];
-			shader_t *shader;
-			qboolean needVertexColors;
-			int numLightMaps;
+			shader_t *resolvedShader;
+			int metricIndex;
+			int faceSize;
 			int j;
 
 			if (surface->surfaceType != EF_MST_PLANAR)
@@ -2263,20 +2259,50 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 			{
 				lightmapNum[j] = (int)face.lightmapNum[j] - 4;
 			}
-			shader = ShaderForShaderNum(face.shaderNum, lightmapNum, face.lightmapStyles);
-			needVertexColors = NeedVertexColors(shader);
-			numLightMaps = NumLightMaps(shader);
-			faceDataSizeRequired += SurfaceFaceSize(surface->numVerts, numLightMaps, needVertexColors, surface->numIndexes);
+			metricIndex = face.shaderNum * 256 + face.lightmapNum[0];
+			if (!faceShaderCache[metricIndex])
+			{
+				faceShaderCache[metricIndex] =
+					ShaderForShaderNum(face.shaderNum, lightmapNum, face.lightmapStyles);
+				++faceResolvedMetricCount;
+			}
+			// The raw adapter fixes all light styles, so this cached shader is
+			// the exact shader ParseFace will consume for the same surface.
+			resolvedShader = faceShaderCache[metricIndex];
+			faceSize = SurfaceFaceSize(
+				surface->numVerts,
+				NumLightMaps(resolvedShader),
+				NeedVertexColors(resolvedShader),
+				surface->numIndexes);
+			if (faceSize < 0 ||
+				faceDataSizeRequired > 0x7fffffff - faceSize)
+			{
+				Com_Error(ERR_DROP, "EF BSP: raw face data size overflow at surface %d", i);
+			}
+			faceDataSizeRequired += faceSize;
+			++faceSizingCount;
+			if ((faceSizingCount & 511) == 0)
+			{
+				XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer face sizing progress=%d/%d surface=%d bytes=%d",
+					faceSizingCount, faceCount, i, faceDataSizeRequired);
+				UpdateLoadingAnimation();
+			}
 		}
 
+		XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer allocating exact bounded face data bytes=%d shaderMetrics=%d",
+			faceDataSizeRequired, faceResolvedMetricCount);
 		faceData = (byte*)Hunk_Alloc(faceDataSizeRequired, qfalse);
 		faceDataCursor = faceData;
+		faceDataEnd = faceData + faceDataSizeRequired;
+		XBLog_WriteCritical("STEFX_HW_BOOT: raw renderer face data allocation complete");
 
 		for (i = 0; i < surfaceCount; ++i)
 		{
 			efbspSurface_t *surface = &surfaces[i];
 			dface_t face;
 			msurface_t *out;
+			shader_t *resolvedShader;
+			int metricIndex;
 
 			if (surface->surfaceType != EF_MST_PLANAR)
 			{
@@ -2288,10 +2314,28 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 			face.indexes = EFBSP_PackFirstCount(0, surface->numIndexes, "raw face indexes");
 			R_EFBuildSurfaceScratch(efbsp, surface, surfaceVerts, surfaceIndexes);
 			out = s_worldData.surfaces + face.code;
-			ParseFace(&face, surfaceVerts, out, surfaceIndexes, faceDataCursor);
+			metricIndex = face.shaderNum * 256 + face.lightmapNum[0];
+			resolvedShader = faceShaderCache[metricIndex];
+			if (!resolvedShader)
+			{
+				Com_Error(ERR_DROP, "EF BSP: missing cached shader for raw face %d", i);
+			}
+			ParseFace(&face, surfaceVerts, out, surfaceIndexes,
+				faceDataCursor, resolvedShader, faceDataEnd);
+			++parsedFaceCount;
+			if ((parsedFaceCount & 511) == 0)
+			{
+				XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer face build progress=%d/%d surface=%d",
+					parsedFaceCount, faceCount, i);
+				UpdateLoadingAnimation();
+			}
 		}
 
-		XBLog_WriteCriticalf("STEFX_EFBSP_RAW_RENDER faces map='%s' faceData=%d", name ? name : "<null>", faceDataSizeRequired);
+		XBLog_WriteCriticalf("STEFX_EFBSP_RAW_RENDER faces map='%s' faceDataUsed=%d faceDataReserved=%d",
+			name ? name : "<null>",
+			(int)(faceDataCursor - faceData),
+			faceDataSizeRequired);
+		Z_Free(faceShaderCache);
 	}
 	VID_Printf(PRINT_ALL, "...loaded %i raw EF faces\n", faceCount);
 
@@ -2311,6 +2355,7 @@ void R_EFLoadRawDrawSurfacesFromBSP(const char *name, const efbspFile_t *efbsp, 
 		out = s_worldData.surfaces + flare.code;
 		ParseFlare(&flare, out);
 	}
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw renderer flares complete count=%d", flareCount);
 	VID_Printf(PRINT_ALL, "...loaded %i raw EF flares\n", flareCount);
 
 	Z_Free(surfaceIndexes);
@@ -2720,13 +2765,28 @@ static void R_LoadFogs( void *fogdata, int foglen,
 		
 		// get information from the shader for fog parameters
 		shader = R_FindShader( fogs->shader, lightmaps, stylesDefault, qtrue );
+
+		if (!shader || !shader->fogParms)
+		{
+#ifdef _XBOX
+			XBLog_WriteCriticalf("STEFX_HW_BOOT: fog shader missing parms index=%d name='%s'",
+				i, fogs->shader);
+#endif
+			out->parms.color[0] = 1.0f;
+			out->parms.color[1] = 0.0f;
+			out->parms.color[2] = 0.0f;
+			out->parms.color[3] = 0.0f;
+			out->parms.depthForOpaque = 250.0f;
+		}
+		else
+		{
+			out->parms = *shader->fogParms;
+		}
+		out->colorInt = ColorBytes4 ( out->parms.color[0] * tr.identityLight,
+			out->parms.color[1] * tr.identityLight,
+			out->parms.color[2] * tr.identityLight, 1.0 );
 		
-		out->parms = *shader->fogParms;
-		out->colorInt = ColorBytes4 ( shader->fogParms->color[0] * tr.identityLight, 
-			shader->fogParms->color[1] * tr.identityLight, 
-			shader->fogParms->color[2] * tr.identityLight, 1.0 );
-		
-		d = shader->fogParms->depthForOpaque < 1 ? 1 : shader->fogParms->depthForOpaque;
+		d = out->parms.depthForOpaque < 1 ? 1 : out->parms.depthForOpaque;
 		out->tcScale = 1.0 / ( d * 8 );
 		
 		// set the gradient vector
@@ -2915,12 +2975,20 @@ qboolean R_EFLoadRawWorldDataFromBSP(const char *name, const efbspFile_t *efbsp)
 	void *lightgrid;
 	void *lightarray;
 	int brushesLen, brushsidesLen, nodesLen, leafsLen, modelsLen, lightgridLen, lightarrayLen;
+#ifdef _XBOX
+	zmemstats_t stats;
+#endif
 
 	if (!name || !name[0] || !efbsp || !efbsp->data)
 	{
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	Z_GetMemoryStats(&stats);
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer begin map='%s' free=%d largest=%d",
+		name, stats.freeBytes, stats.largestFreeBlock);
+#endif
 	EFBSP_Validate(efbsp, name);
 	shaderCount = EFBSP_ShaderCount(efbsp);
 
@@ -2939,37 +3007,89 @@ qboolean R_EFLoadRawWorldDataFromBSP(const char *name, const efbspFile_t *efbsp)
 		s_worldData.numsurfaces,
 		EFBSP_ExpectedLightGridElements(efbsp));
 
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer planes begin");
+#endif
 	R_LoadPlanes();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer planes complete");
+#endif
 
 	brushes = EFBSP_ConvertBrushes(efbsp, shaderCount, &brushesLen);
 	brushsides = EFBSP_ConvertBrushSides(efbsp, shaderCount, &brushsidesLen);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer fogs begin brushes=%d brushsides=%d",
+		brushesLen, brushsidesLen);
+#endif
 	R_LoadFogs(EFBSP_LumpData(efbsp, EF_LUMP_FOGS), EFBSP_LumpLen(efbsp, EF_LUMP_FOGS),
 		brushes, brushesLen, brushsides, brushsidesLen);
 	EFBSP_FreeTemp(brushsides);
 	EFBSP_FreeTemp(brushes);
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer fogs complete");
+#endif
 
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer marksurfaces begin");
+#endif
 	R_LoadMarksurfaces(EFBSP_LumpData(efbsp, EF_LUMP_LEAFSURFACES), EFBSP_LumpLen(efbsp, EF_LUMP_LEAFSURFACES));
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer marksurfaces complete");
+#endif
 
 	nodes = EFBSP_ConvertNodes(efbsp, &nodesLen);
 	leafs = EFBSP_ConvertLeafs(efbsp, &leafsLen);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer nodes begin nodes=%d leafs=%d",
+		nodesLen, leafsLen);
+#endif
 	R_LoadNodesAndLeafs(nodes, nodesLen, leafs, leafsLen);
 	EFBSP_FreeTemp(leafs);
 	EFBSP_FreeTemp(nodes);
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer nodes complete");
+#endif
 
 	models = EFBSP_ConvertModels(efbsp, &modelsLen);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer submodels begin bytes=%d", modelsLen);
+#endif
 	R_LoadSubmodels(models, modelsLen);
 	EFBSP_FreeTemp(models);
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer submodels complete");
+#endif
 
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer visibility/entities begin");
+#endif
 	R_LoadVisibility();
 	R_LoadEntities(EFBSP_LumpData(efbsp, EF_LUMP_ENTITIES), EFBSP_LumpLen(efbsp, EF_LUMP_ENTITIES));
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer visibility/entities complete");
+#endif
 
 	lightgrid = EFBSP_ConvertLightGrid(efbsp, &lightgridLen);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer lightgrid begin bytes=%d", lightgridLen);
+#endif
 	R_LoadLightGrid(lightgrid, lightgridLen);
 	EFBSP_FreeTemp(lightgrid);
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer lightgrid complete");
+#endif
 
 	lightarray = EFBSP_ConvertLightArray(efbsp, &lightarrayLen);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer lightarray begin bytes=%d", lightarrayLen);
+#endif
 	R_LoadLightGridArray(lightarray, lightarrayLen);
 	EFBSP_FreeTemp(lightarray);
+#ifdef _XBOX
+	Z_GetMemoryStats(&stats);
+	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw world finalizer lightarray complete free=%d largest=%d",
+		stats.freeBytes, stats.largestFreeBlock);
+#endif
 
 	tr.world = &s_worldData;
 	tr.worldMapLoaded = qtrue;
@@ -2985,6 +3105,9 @@ qboolean R_EFLoadRawWorldDataFromBSP(const char *name, const efbspFile_t *efbsp)
 
 	R_LoadLevelLightParms();
 	R_GetLightParmsForLevel();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer complete");
+#endif
 	return qtrue;
 }
 #endif

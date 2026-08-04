@@ -207,10 +207,19 @@ void IN_Init( void )
 		DWORD deviceMask = XGetDevices( XDEVICE_TYPE_GAMEPAD );
 		XBLF("STEFX: IN_Init gamepad mask=0x%08x\n", deviceMask);
 		IN_ProcessChanges( deviceMask, 0 );
+#ifdef _XBOX
+		XBLog_WriteCritical("STEFX_HW_BOOT: initial controller discovery complete");
+#endif
 
 		joy_deadzone = Cvar_Get( "joy_deadzone", "0.18", CVAR_ARCHIVE );
+#ifdef _XBOX
+		XBLog_WriteCritical("STEFX_HW_BOOT: input cvars ready");
+#endif
 
 		IN_RumbleInit();
+#ifdef _XBOX
+		XBLog_WriteCritical("STEFX_HW_BOOT: rumble init complete");
+#endif
 	}
 
 static inline float _joyAxisConvert(SHORT x)

@@ -30,7 +30,7 @@ extern void SG_StoreSaveGameComment(const char *sComment);
 #if defined(STEFX_SP_HOSTED_MP)
 static qboolean CL_HolomatchGameAllowedToSaveHere(qboolean inCamera)
 {
-	// Holomatch keeps the SP UI but has no SP game save export.  The UI uses
+	// Holomatch keeps the SP UI but has no SP game save export. The UI uses
 	// qtrue only to determine whether its in-game menu may open.
 	return inCamera ? qtrue : qfalse;
 }
@@ -336,13 +336,12 @@ void CL_InitUI( void ) {
 	uii.Milliseconds			= Sys_Milliseconds;
 
 #ifdef _XBOX
-	XBLF("JA: CL_InitUI: callbacks ready Printf=%p Error=%p RegisterShaderNoMip=%p DrawStretchPic=%p UpdateScreen=%p GameAllowedToSave=%p",
+	XBLF("JA: CL_InitUI: callbacks ready Printf=%p Error=%p RegisterShaderNoMip=%p DrawStretchPic=%p UpdateScreen=%p",
 		(void*)uii.Printf,
 		(void*)uii.Error,
 		(void*)uii.R_RegisterShaderNoMip,
 		(void*)uii.R_DrawStretchPic,
-		(void*)uii.UpdateScreen,
-		(void*)uii.SG_GameAllowedToSaveHere);
+		(void*)uii.UpdateScreen);
 	XBLF("JA: CL_InitUI: calling UI_Init inGameLoad=%d", (int)(cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));
 #endif
 	UI_Init(UI_API_VERSION, &uii, (cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));

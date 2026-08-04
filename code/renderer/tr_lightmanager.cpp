@@ -456,6 +456,7 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 	}
 	ent->lightingCalculated = qtrue;
 
+#if defined(STEFX_SP_HOSTED_MP)
 	if ( ent->e.renderfx & RF_STEFX_FULLBRIGHT )
 	{
 		ent->ambientLight[0] = ent->ambientLight[1] = ent->ambientLight[2] = 0x7f;
@@ -467,6 +468,7 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 		VectorSet( ent->lightDir, 0.0f, 0.0f, 1.0f );
 		return;
 	}
+#endif
 
 	ent->dlightBits = 0;
 
@@ -748,6 +750,7 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 					planeBits &= ~8;			// all descendants will also be in front
 				}
 			}
+
 		}
 
 		if ( node->contents != -1 ) {

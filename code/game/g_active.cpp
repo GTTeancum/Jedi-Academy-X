@@ -5181,9 +5181,7 @@ extern cvar_t	*g_skippingcin;
 		{
 			static int s_stefxRawPlayerCmdBudget = 64;
 			const int interestingButtons = ucmd ? (ucmd->buttons & ~(BUTTON_WALKING)) : 0;
-#if !defined(STEFX_SP_HOSTED_MP)
 			STEFX_QueueActiveCommandFromGame( ucmd );
-#endif
 			if ( ucmd && s_stefxRawPlayerCmdBudget > 0 &&
 				( ucmd->forwardmove || ucmd->rightmove || ucmd->upmove ||
 				  interestingButtons || s_stefxRawPlayerCmdBudget > 58 ) )

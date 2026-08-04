@@ -14,6 +14,9 @@ extern void STEFX_HolomatchHostAfterGameFrame(int levelTime);
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBSvFrameCount;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBPerfServerTicks;
+extern "C" volatile unsigned int g_SPXBPerfServerLastGameMsec;
+extern "C" volatile unsigned int g_SPXBPerfServerMaxGameMsec;
 #endif
 /*
 Ghoul2 Insert Start
@@ -42,7 +45,36 @@ cvar_t	*sv_serverid;
 cvar_t	*sv_testsave;			// Run the savegame enumeration every game frame
 cvar_t	*sv_compress_saved_games;	// compress the saved games on the way out (only affect saver, loader can read both)
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean SV_STEFX_SmokeHarnessEnabled(void)
+{
+	static qboolean initialized = qfalse;
+	static qboolean enabled = qfalse;
+
+	if (!initialized)
+	{
+		const char *paths[] = {
+			"D:\\ef_sp_smoke_harness.txt",
+			"E:\\ef_sp_smoke_harness.txt",
+			NULL
+		};
+		int pathIndex;
+		initialized = qtrue;
+		for (pathIndex = 0; paths[pathIndex]; ++pathIndex)
+		{
+			FILE *marker = fopen(paths[pathIndex], "r");
+			if (marker)
+			{
+				fclose(marker);
+				enabled = qtrue;
+				break;
+			}
+		}
+	}
+
+	return enabled;
+}
+
 static int SV_STEFX_ActiveCommandServerTime(void)
 {
 	static qboolean initialized = qfalse;
@@ -222,7 +254,7 @@ void SV_SendServerCommand(client_t *cl, const char *fmt, ...) {
 	}
 
 	// send the data to all relevent clients
-	for (j = 0, client = svs.clients; j < MAX_CLIENTS ; j++, client++) {
+	for (j = 0, client = svs.clients; j < STEFX_SERVER_CLIENT_SLOTS ; j++, client++) {
 		if ( client->state < CS_PRIMED ) {
 			continue;
 		}
@@ -268,7 +300,7 @@ void SVC_Status( netadr_t from ) {
 	status[0] = 0;
 	statusLength = 0;
 
-	for (i=0 ; i < MAX_CLIENTS ; i++) {
+	for (i=0 ; i < STEFX_SERVER_CLIENT_SLOTS ; i++) {
 		cl = &svs.clients[i];
 		if ( cl->state >= CS_CONNECTED ) {
 			if ( cl->gentity && cl->gentity->client ) {
@@ -303,7 +335,7 @@ static void SVC_Info( netadr_t from ) {
 	char	infostring[MAX_INFO_STRING];
 
 	count = 0;
-	for ( i = 0 ; i < MAX_CLIENTS ; i++ ) {
+	for ( i = 0 ; i < STEFX_SERVER_CLIENT_SLOTS ; i++ ) {
 		if ( svs.clients[i].state >= CS_CONNECTED ) {
 			count++;
 		}
@@ -319,7 +351,7 @@ static void SVC_Info( netadr_t from ) {
 	//Info_SetValueForKey( infostring, "hostname", sv_hostname->string );
 	Info_SetValueForKey( infostring, "mapname", sv_mapname->string );
 	Info_SetValueForKey( infostring, "clients", va("%i", count) );
-	Info_SetValueForKey( infostring, "sv_maxclients", va("%i", MAX_CLIENTS) );
+	Info_SetValueForKey( infostring, "sv_maxclients", va("%i", STEFX_SERVER_CLIENT_SLOTS) );
 
 	NET_OutOfBandPrint( NS_SERVER, from, "infoResponse\n%s", infostring );
 }
@@ -401,7 +433,7 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 	qport = MSG_ReadShort( msg ) & 0xffff;
 
 	// find which client the message is from
-	for (i=0, cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++) {
+	for (i=0, cl=svs.clients ; i < STEFX_SERVER_CLIENT_SLOTS ; i++,cl++) {
 		if (cl->state == CS_FREE) {
 			continue;
 		}
@@ -456,7 +488,7 @@ void SV_CalcPings (void) {
 	int			total, count;
 	int			delta;
 
-	for (i=0 ; i < MAX_CLIENTS ; i++) {
+	for (i=0 ; i < STEFX_SERVER_CLIENT_SLOTS ; i++) {
 		cl = &svs.clients[i];
 		if ( cl->state != CS_ACTIVE ) {
 			continue;
@@ -510,7 +542,7 @@ void SV_CheckTimeouts( void ) {
 	droppoint = sv.time - 1000 * sv_timeout->integer;
 	zombiepoint = sv.time - 1000 * sv_zombietime->integer;
 
-	for (i=0,cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++) {
+	for (i=0,cl=svs.clients ; i < STEFX_SERVER_CLIENT_SLOTS ; i++,cl++) {
 		// message times may be wrong across a changelevel
 		if (cl->lastPacketTime > sv.time) {
 			cl->lastPacketTime = sv.time;
@@ -519,11 +551,6 @@ void SV_CheckTimeouts( void ) {
 		if (cl->state == CS_ZOMBIE
 		&& cl->lastPacketTime < zombiepoint) {
 			cl->state = CS_FREE;	// can now be reused
-			continue;
-		}
-		if (cl->gentity && (cl->gentity->svFlags & SVF_BOT)) {
-			cl->lastPacketTime = sv.time;
-			cl->timeoutCount = 0;
 			continue;
 		}
 		if ( cl->state >= CS_CONNECTED && cl->lastPacketTime < droppoint) {
@@ -585,6 +612,11 @@ extern cvar_t	*cl_newClock;
 void SV_Frame( int msec,float fractionMsec ) {
 	int		frameMsec;
 	int		startTime=0;
+#ifdef _XBOX
+	unsigned int xboxGameTicks = 0;
+	unsigned int xboxLastGameMsec = 0;
+	unsigned int xboxMaxGameMsec = 0;
+#endif
 #ifdef _XBOX
 	g_SPXBSvFrameCount++;
 	g_SPXBPhaseLast = 0x53564631; /* 'SVF1' */
@@ -703,6 +735,9 @@ void SV_Frame( int msec,float fractionMsec ) {
 
 	// run the game simulation in chunks
 	while ( sv.timeResidual >= frameMsec ) {
+#ifdef _XBOX
+		const int xboxGameStart = Sys_Milliseconds();
+#endif
 		sv.timeResidual -= frameMsec;
 		sv.time += frameMsec;
 #if !defined(STEFX_ELITE_FORCE_SP)
@@ -717,13 +752,21 @@ void SV_Frame( int msec,float fractionMsec ) {
 				sv.time, sv.timeResidual);
 		}
 #endif
-		#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 		STEFX_HolomatchHostRunFrame(sv.time);
-		#endif
+#endif
 		ge->RunFrame( sv.time );
-		#if defined(STEFX_SP_HOSTED_MP)
+#ifdef _XBOX
+		xboxLastGameMsec = (unsigned int)(Sys_Milliseconds() - xboxGameStart);
+		if (xboxLastGameMsec > xboxMaxGameMsec)
+		{
+			xboxMaxGameMsec = xboxLastGameMsec;
+		}
+		xboxGameTicks++;
+#endif
+#if defined(STEFX_SP_HOSTED_MP)
 		STEFX_HolomatchHostAfterGameFrame(sv.time);
-		#endif
+#endif
 #ifdef _XBOX
 		if (xboxTraceSVFrame)
 		{
@@ -732,6 +775,11 @@ void SV_Frame( int msec,float fractionMsec ) {
 		}
 #endif
 	}
+#ifdef _XBOX
+	g_SPXBPerfServerTicks = xboxGameTicks;
+	g_SPXBPerfServerLastGameMsec = xboxLastGameMsec;
+	g_SPXBPerfServerMaxGameMsec = xboxMaxGameMsec;
+#endif
 
 	if ( com_speeds->integer ) {
 		time_game = Sys_Milliseconds () - startTime;
@@ -754,7 +802,8 @@ void SV_Frame( int msec,float fractionMsec ) {
 				sv.timeResidual,
 				svs.clients ? svs.clients[0].state : -1);
 		}
-		if (!s_activeCommandsQueued && sv.state == SS_GAME
+		if (SV_STEFX_SmokeHarnessEnabled()
+			&& !s_activeCommandsQueued && sv.state == SS_GAME
 			&& sv.time >= SV_STEFX_ActiveCommandServerTime()
 			&& sv.time >= s_activeCommandNextPollTime)
 		{

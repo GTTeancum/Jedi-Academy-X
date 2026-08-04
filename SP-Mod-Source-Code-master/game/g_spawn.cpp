@@ -1312,15 +1312,32 @@ void SP_worldspawn( void ) {
 		if ( inf )
 		{
 			// map specific message
+			// The Xbox build keeps game and cgame resident across map changes.
+			// Publish a stable copy instead of making cgame dereference a
+			// level-pool-backed localization pointer during the next load.
+#ifdef _XBOX
+			const char *localizedMessage =
+				(inf > II_NONE && inf < II_NUM_ITEMS) ? bg_infoItemList[inf].infoString : NULL;
+			gi.SetConfigstring( CS_MESSAGE, localizedMessage ? localizedMessage : "" );
+			gi.cvar_set( "ui_sp_levelname", localizedMessage ? localizedMessage : "" );
+			XBLF( "STEFX: worldspawn loading title enum='%s' index=%d text='%s'",
+				s,
+				inf,
+				localizedMessage ? localizedMessage : "" );
+#else
 			// Now we'll get the real infostring
 			s = va("%i",inf);
-			gi.SetConfigstring( CS_MESSAGE, s );				
+			gi.SetConfigstring( CS_MESSAGE, s );
+#endif
 		}
 	}
 	else
 	{
 		G_SpawnString( "message", "", &s );
 		gi.SetConfigstring( CS_MESSAGE, s );				// map specific message
+#ifdef _XBOX
+		gi.cvar_set( "ui_sp_levelname", s );
+#endif
 	}
 
 	G_SpawnString( "gravity", "800", &s );

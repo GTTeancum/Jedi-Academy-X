@@ -1,13 +1,9 @@
 // leave this at the top of all UI_xxxx files for PCH reasons.
-#if defined(STEFX_ELITE_FORCE_MP)
-#include "ui_stefx_spcompat.h"
-#else
 #include "../server/exe_headers.h"
 
 #include "ui_local.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
-#endif
 #endif
 
 #define EF_FRONTEND_BUTTON_COUNT 6
@@ -276,10 +272,10 @@ static vec4_t s_ps2ControllerGrip = EF_PS2_RGBA(30, 22, 38);
 static efFrontendButton_t s_buttons[EF_FRONTEND_BUTTON_COUNT] = {
 	{EF_PS2_X(491), EF_PS2_Y(253), EF_MBT_NEWGAME,     "NEW GAME",     "START A NEW GAME",         "ui_ef_newgame",   qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
 	{EF_PS2_X(491), EF_PS2_Y(356), EF_MBT_LOADGAME,    "LOAD GAME",    "LOAD A SAVED GAME",        "ui_ef_loadgame",  qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
-	{EF_PS2_X(491), EF_PS2_Y(459), 0,                  "HOLOMATCH",    "ENTER HOLOMATCH",          "ui_ef_holomatch",      qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
-	{EF_PS2_X(491), EF_PS2_Y(562), 0,                  "CONFIGURE",    "CONFIGURE OPTIONS",        "ui_ef_configure", qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
-	{EF_PS2_X(491), EF_PS2_Y(665), EF_MBT_VOYAGERCREW, "VOYAGER CREW", "VIEW CREW BIOGRAPHIES",    "ui_ef_crew",      qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
-	{EF_PS2_X(491), EF_PS2_Y(768), EF_MBT_CREDITS,     "CREDITS",      "VIEW ELITE FORCE CREDITS", "ui_ef_credits",   qtrue, CT_DKPURPLE1, CT_LTPURPLE1}
+	{EF_PS2_X(491), EF_PS2_Y(459), 0,                  "COOPERATIVE",  "START COOPERATIVE PLAY",   "ui_ef_coop",      qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
+	{EF_PS2_X(491), EF_PS2_Y(562), 0,                  "HOLOMATCH",    "ENTER HOLOMATCH",          "ui_ef_holomatch", qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
+	{EF_PS2_X(491), EF_PS2_Y(665), 0,                  "CONFIGURE",    "CONFIGURE OPTIONS",        "ui_ef_configure", qtrue, CT_DKPURPLE1, CT_LTPURPLE1},
+	{EF_PS2_X(491), EF_PS2_Y(768), EF_MBT_VOYAGERCREW, "VOYAGER CREW", "VIEW CREW BIOGRAPHIES",    "ui_ef_crew",      qtrue, CT_DKPURPLE1, CT_LTPURPLE1}
 };
 
 static void EFFe_Adjust(float *x, float *y, float *w, float *h)
@@ -434,9 +430,9 @@ static void EFFe_LoadFonts(void)
 	qboolean ok;
 
 	EFFe_ClearFontMaps();
-	s_fonts.shader[EF_FRONTEND_FONT_TINY] = ui.R_RegisterShaderNoMip("gfx/2d/chars_tiny");
-	s_fonts.shader[EF_FRONTEND_FONT_MEDIUM] = ui.R_RegisterShaderNoMip("gfx/2d/chars_medium");
-	s_fonts.shader[EF_FRONTEND_FONT_BIG] = ui.R_RegisterShaderNoMip("gfx/2d/chars_big");
+	s_fonts.shader[EF_FRONTEND_FONT_TINY] = ui.R_RegisterShaderNoMip("gfx/2d/chars_tiny.tga");
+	s_fonts.shader[EF_FRONTEND_FONT_MEDIUM] = ui.R_RegisterShaderNoMip("gfx/2d/chars_medium.tga");
+	s_fonts.shader[EF_FRONTEND_FONT_BIG] = ui.R_RegisterShaderNoMip("gfx/2d/chars_big.tga");
 
 	len = ui.FS_FOpenFile("ext_data/fonts.dat", &file, FS_READ);
 	if (!file) {
@@ -678,52 +674,52 @@ static void EFFe_Cache(void)
 	}
 
 	s_assets.whiteShader = ui.R_RegisterShader("white");
-	s_assets.buttonRight = ui.R_RegisterShaderNoMip("menu/new/bar1");
-	s_assets.buttonLeftEnd = ui.R_RegisterShaderNoMip("menu/common/barbuttonleft");
-	s_assets.fullButton = ui.R_RegisterShaderNoMip("menu/common/full_button2");
-	s_assets.circle = ui.R_RegisterShaderNoMip("menu/common/circle");
-	s_assets.quadrants = ui.R_RegisterShaderNoMip("menu/special/quadrants");
-	s_assets.ps2MainTopLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_main_lcars_top_left");
-	s_assets.ps2UtilityBottomLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_utility_bottom_left");
-	s_assets.ps2UtilityTopRightChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_utility_top_right");
-	s_assets.ps2ControllerTopRightChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_controller_top_right");
-	s_assets.ps2ControllerBottomLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_controller_bottom_left");
-	s_assets.ps2LoadTopRightChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_load_top_right");
-	s_assets.ps2LoadBottomLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_load_bottom_left");
-	s_assets.pauseCornerUpper = ui.R_RegisterShaderNoMip("menu/common/corner_ll_47_7");
-	s_assets.pauseCornerUpper2 = ui.R_RegisterShaderNoMip("menu/common/corner_ul_47_7");
-	s_assets.bracketCorner = ui.R_RegisterShaderNoMip("menu/common/corner_ul_16_18");
-	s_assets.cornerLove = ui.R_RegisterShaderNoMip("menu/common/corner_love");
-	s_assets.cornerLove2 = ui.R_RegisterShaderNoMip("menu/common/corner_love_2");
-	s_assets.lgTopLeft = ui.R_RegisterShaderNoMip("menu/common/lg_topleft");
-	s_assets.lgTopRight = ui.R_RegisterShaderNoMip("menu/common/lg_topright");
-	s_assets.lgLowLeft = ui.R_RegisterShaderNoMip("menu/common/lg_lowleft");
-	s_assets.lgLowRight = ui.R_RegisterShaderNoMip("menu/common/lg_lowright");
-	s_assets.panelCorner = ui.R_RegisterShaderNoMip("menu/lcarscontrols/round11");
-	s_assets.monBar = ui.R_RegisterShaderNoMip("menu/common/mon_bar");
-	s_assets.monBar2 = ui.R_RegisterShaderNoMip("menu/common/monbar_2");
-	s_assets.slider = ui.R_RegisterShaderNoMip("menu/common/slider");
-	s_assets.leftArrow = ui.R_RegisterShaderNoMip("menu/common/left_arrow");
-	s_assets.rightArrow = ui.R_RegisterShaderNoMip("menu/common/right_arrow");
-	s_assets.xboxA = ui.R_RegisterShaderNoMip("menu/common/xbox_a");
-	s_assets.xboxB = ui.R_RegisterShaderNoMip("menu/common/xbox_b");
-	s_assets.xboxX = ui.R_RegisterShaderNoMip("menu/common/xbox_x");
-	s_assets.xboxY = ui.R_RegisterShaderNoMip("menu/common/xbox_y");
-	s_assets.xboxWhite = ui.R_RegisterShaderNoMip("menu/common/xbox_white");
-	s_assets.xboxBlack = ui.R_RegisterShaderNoMip("menu/common/xbox_black");
-	s_assets.xboxLT = ui.R_RegisterShaderNoMip("menu/common/xbox_lt");
-	s_assets.xboxRT = ui.R_RegisterShaderNoMip("menu/common/xbox_rt");
-	s_assets.xboxBack = ui.R_RegisterShaderNoMip("menu/common/xbox_back");
-	s_assets.xboxStart = ui.R_RegisterShaderNoMip("menu/common/xbox_start");
-	s_assets.xboxLStick = ui.R_RegisterShaderNoMip("menu/common/xbox_lstick");
-	s_assets.xboxRStick = ui.R_RegisterShaderNoMip("menu/common/xbox_rstick");
-	s_assets.xboxDpad[0] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_up");
-	s_assets.xboxDpad[1] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_down");
-	s_assets.xboxDpad[2] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_left");
-	s_assets.xboxDpad[3] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_right");
-	s_assets.xboxController = ui.R_RegisterShaderNoMip("menu/common/xbox_controller_s");
-	s_assets.warpCore = ui.R_RegisterShaderNoMip("menu/common/warpcore2");
-	s_assets.cursor = ui.R_RegisterShaderNoMip("menu/common/cursor");
+	s_assets.buttonRight = ui.R_RegisterShaderNoMip("menu/new/bar1.tga");
+	s_assets.buttonLeftEnd = ui.R_RegisterShaderNoMip("menu/common/barbuttonleft.tga");
+	s_assets.fullButton = ui.R_RegisterShaderNoMip("menu/common/full_button2.tga");
+	s_assets.circle = ui.R_RegisterShaderNoMip("menu/common/circle.tga");
+	s_assets.quadrants = ui.R_RegisterShaderNoMip("menu/special/quadrants.jpg");
+	s_assets.ps2MainTopLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_main_lcars_top_left.tga");
+	s_assets.ps2UtilityBottomLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_utility_bottom_left.tga");
+	s_assets.ps2UtilityTopRightChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_utility_top_right.tga");
+	s_assets.ps2ControllerTopRightChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_controller_top_right.tga");
+	s_assets.ps2ControllerBottomLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_controller_bottom_left.tga");
+	s_assets.ps2LoadTopRightChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_load_top_right.tga");
+	s_assets.ps2LoadBottomLeftChrome = ui.R_RegisterShaderNoMip("menu/common/ps2_load_bottom_left.tga");
+	s_assets.pauseCornerUpper = ui.R_RegisterShaderNoMip("menu/common/corner_ll_47_7.tga");
+	s_assets.pauseCornerUpper2 = ui.R_RegisterShaderNoMip("menu/common/corner_ul_47_7.tga");
+	s_assets.bracketCorner = ui.R_RegisterShaderNoMip("menu/common/corner_ul_16_18.tga");
+	s_assets.cornerLove = ui.R_RegisterShaderNoMip("menu/common/corner_love.tga");
+	s_assets.cornerLove2 = ui.R_RegisterShaderNoMip("menu/common/corner_love_2.tga");
+	s_assets.lgTopLeft = ui.R_RegisterShaderNoMip("menu/common/lg_topleft.tga");
+	s_assets.lgTopRight = ui.R_RegisterShaderNoMip("menu/common/lg_topright.tga");
+	s_assets.lgLowLeft = ui.R_RegisterShaderNoMip("menu/common/lg_lowleft.tga");
+	s_assets.lgLowRight = ui.R_RegisterShaderNoMip("menu/common/lg_lowright.tga");
+	s_assets.panelCorner = ui.R_RegisterShaderNoMip("menu/lcarscontrols/round11.tga");
+	s_assets.monBar = ui.R_RegisterShaderNoMip("menu/common/mon_bar.tga");
+	s_assets.monBar2 = ui.R_RegisterShaderNoMip("menu/common/monbar_2.tga");
+	s_assets.slider = ui.R_RegisterShaderNoMip("menu/common/slider.tga");
+	s_assets.leftArrow = ui.R_RegisterShaderNoMip("menu/common/left_arrow.tga");
+	s_assets.rightArrow = ui.R_RegisterShaderNoMip("menu/common/right_arrow.tga");
+	s_assets.xboxA = ui.R_RegisterShaderNoMip("menu/common/xbox_a.tga");
+	s_assets.xboxB = ui.R_RegisterShaderNoMip("menu/common/xbox_b.tga");
+	s_assets.xboxX = ui.R_RegisterShaderNoMip("menu/common/xbox_x.tga");
+	s_assets.xboxY = ui.R_RegisterShaderNoMip("menu/common/xbox_y.tga");
+	s_assets.xboxWhite = ui.R_RegisterShaderNoMip("menu/common/xbox_white.tga");
+	s_assets.xboxBlack = ui.R_RegisterShaderNoMip("menu/common/xbox_black.tga");
+	s_assets.xboxLT = ui.R_RegisterShaderNoMip("menu/common/xbox_lt.tga");
+	s_assets.xboxRT = ui.R_RegisterShaderNoMip("menu/common/xbox_rt.tga");
+	s_assets.xboxBack = ui.R_RegisterShaderNoMip("menu/common/xbox_back.tga");
+	s_assets.xboxStart = ui.R_RegisterShaderNoMip("menu/common/xbox_start.tga");
+	s_assets.xboxLStick = ui.R_RegisterShaderNoMip("menu/common/xbox_lstick.tga");
+	s_assets.xboxRStick = ui.R_RegisterShaderNoMip("menu/common/xbox_rstick.tga");
+	s_assets.xboxDpad[0] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_up.tga");
+	s_assets.xboxDpad[1] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_down.tga");
+	s_assets.xboxDpad[2] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_left.tga");
+	s_assets.xboxDpad[3] = ui.R_RegisterShaderNoMip("menu/common/xbox_dpad_right.tga");
+	s_assets.xboxController = ui.R_RegisterShaderNoMip("menu/common/xbox_controller_s.tga");
+	s_assets.warpCore = ui.R_RegisterShaderNoMip("menu/common/warpcore2.jpg");
+	s_assets.cursor = ui.R_RegisterShaderNoMip("menu/common/cursor.tga");
 
 	EFFe_LoadButtonText();
 	EFFe_LoadFonts();
@@ -740,6 +736,16 @@ static void EFFe_Cache(void)
 void UI_EFMainMenu_Cache(void)
 {
 	EFFe_Cache();
+}
+
+void UI_EFMainMenu_InvalidateCache(void)
+{
+	memset(&s_assets, 0, sizeof(s_assets));
+	memset(&s_fonts, 0, sizeof(s_fonts));
+	s_loggedDraw = qfalse;
+#ifdef _XBOX
+	XBLog_Write("STEFX: EF main menu renderer cache invalidated");
+#endif
 }
 
 static float EFFe_TextWidthScaled(const char *text, int fontIndex, float scale)
@@ -1725,9 +1731,6 @@ static void EFFe_StartMap(const char *mapName)
 		s_newgameDifficulty,
 		s_newgameGenderMale,
 		ui.Key_GetCatcher());
-	XBLF("STEFX_INPUT_GATE_CLEAR begin source='ef-newgame-start' splash=%d controllerOut=%d",
-		(int)ui.Cvar_VariableValue("inSplashMenu"),
-		(int)ui.Cvar_VariableValue("ControllerOutNum"));
 #endif
 	EFFe_SetNewGameDifficulty(s_newgameDifficulty);
 	EFFe_SetNewGameGender(s_newgameGenderMale ? qtrue : qfalse);
@@ -1735,13 +1738,6 @@ static void EFFe_StartMap(const char *mapName)
 	ui.Cvar_Set("stefx_splitScreenPlayers", "1");
 	ui.Cvar_Set("stefx_splitScreenMode", "sp");
 	ui.Cvar_Set("stefx_splitScreenP2Entity", "-1");
-	ui.Cvar_Set("inSplashMenu", "0");
-	ui.Cvar_Set("ControllerOutNum", "-1");
-#ifdef _XBOX
-	XBLF("STEFX_INPUT_GATE_CLEAR done source='ef-newgame-start' splash=%d controllerOut=%d",
-		(int)ui.Cvar_VariableValue("inSplashMenu"),
-		(int)ui.Cvar_VariableValue("ControllerOutNum"));
-#endif
 	s_active = qfalse;
 	UI_ForceMenuOff();
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
@@ -2116,7 +2112,7 @@ static void EFFe_RunMenuSmoke(int realtime)
 	}
 
 	targetHolomatch = (qboolean)!Q_stricmp(target, "holomatch");
-	desiredCursor = targetHolomatch ? 2 : 0;
+	desiredCursor = targetHolomatch ? 3 : 0;
 	newGameCursor = !Q_stricmp(target, "tutorial") ? 6 : (!Q_stricmp(target, "engage") ? 7 : 0);
 	if (Q_stricmp(target, "tutorial") && Q_stricmp(target, "engage") && !targetHolomatch)
 	{
@@ -2276,12 +2272,22 @@ void UI_EFMainMenu_Open(void)
 
 void UI_EFMainMenu_OpenNewGame(void)
 {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	extern void Sys_Reboot(const char *reason, const void *pData);
+	Sys_Reboot("singleplayer", NULL);
+#else
 	EFFe_OpenScreen(EF_SCREEN_NEWGAME, 0, "ef-newgame-open");
+#endif
 }
 
 void UI_EFMainMenu_OpenLoadGame(void)
 {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	extern void Sys_Reboot(const char *reason, const void *pData);
+	Sys_Reboot("singleplayer", NULL);
+#else
 	EFFe_OpenScreen(EF_SCREEN_LOADGAME, 0, "ef-loadgame-open");
+#endif
 }
 
 void UI_EFMainMenu_OpenConfigure(void)
@@ -2306,6 +2312,10 @@ void UI_EFMainMenu_OpenController(void)
 
 void UI_EFMainMenu_StartSplitScreenBaseline(void)
 {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	extern void Sys_Reboot(const char *reason, const void *pData);
+	Sys_Reboot("singleplayer_coop", NULL);
+#else
 #ifdef _XBOX
 	char splitValue[16];
 	char playersValue[16];
@@ -2328,17 +2338,17 @@ void UI_EFMainMenu_StartSplitScreenBaseline(void)
 	UI_ForceMenuOff();
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
 	ui.Cmd_ExecuteText(EXEC_APPEND, "map " EF_SPLITSCREEN_BASELINE_MAP "\n");
+#endif
 }
 
-#if defined(STEFX_ELITE_FORCE_MP)
 void UI_EFMainMenu_StartHolomatchBaseline(void)
 {
+#if defined(_XBOX) && !defined(STEFX_SP_HOSTED_MP)
+	extern void Sys_Reboot(const char *reason, const void *pData);
+	Sys_Reboot("multiplayer", NULL);
+#else
 #ifdef _XBOX
 	XBLF("STEFX_HM: EF Holomatch menu start map='%s' catcher=0x%x", EF_HOLOMATCH_BASELINE_MAP, ui.Key_GetCatcher());
-	ui.Printf("STEFX_HM: EF Holomatch menu start map='%s' cursor=%d catcher=0x%x\n",
-		EF_HOLOMATCH_BASELINE_MAP,
-		s_cursor,
-		ui.Key_GetCatcher());
 #endif
 	ui.Cvar_Set("stefx_splitScreen", "0");
 	ui.Cvar_Set("stefx_splitScreenPlayers", "1");
@@ -2348,8 +2358,8 @@ void UI_EFMainMenu_StartHolomatchBaseline(void)
 	UI_ForceMenuOff();
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
 	ui.Cmd_ExecuteText(EXEC_APPEND, "map " EF_HOLOMATCH_BASELINE_MAP "\n");
-}
 #endif
+}
 
 void UI_EFMainMenu_OpenStub(const char *title, const char *line)
 {
@@ -2475,8 +2485,3 @@ void UI_EFMainMenu_KeyEvent(int key, qboolean down)
 		s_active ? 1 : 0);
 #endif
 }
-
-#if defined(STEFX_ELITE_FORCE_MP)
-#undef ui
-#include "../namespace_end.h"
-#endif

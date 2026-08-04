@@ -132,7 +132,7 @@ void SV_GameSendServerCommand( int clientNum, const char *fmt, ... ) {
 	if ( clientNum == -1 ) {
 		SV_SendServerCommand( NULL, "%s", msg );
 	} else {
-		if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		if ( clientNum < 0 || clientNum >= STEFX_SERVER_CLIENT_SLOTS ) {
 			return;
 		}
 		SV_SendServerCommand( svs.clients + clientNum, "%s", msg );	
@@ -148,7 +148,7 @@ Disconnects the client with a message
 ===============
 */
 void SV_GameDropClient( int clientNum, const char *reason ) {
-	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+	if ( clientNum < 0 || clientNum >= STEFX_SERVER_CLIENT_SLOTS ) {
 		return;
 	}
 	SV_DropClient( svs.clients + clientNum, reason );	
@@ -514,6 +514,7 @@ qboolean SV_GetEntityToken( char *buffer, int bufferSize )
 	}
 }
 
+#if defined(STEFX_SP_HOSTED_MP)
 void SV_GetUsercmd( int clientNum, usercmd_t *cmd )
 {
 	if (!cmd)
@@ -544,9 +545,7 @@ int SV_BotAllocateClient( void )
 		{
 			memset(client, 0, sizeof(*client));
 			client->state = CS_CONNECTED;
-			#if defined(STEFX_SP_HOSTED_MP)
 			client->stefxHolomatchBot = qtrue;
-			#endif
 			client->lastPacketTime = sv.time;
 			client->lastConnectTime = sv.time;
 			client->snapshotMsec = 50;
@@ -568,6 +567,7 @@ void SV_BotFreeClient( int clientNum )
 	}
 	svs.clients[clientNum].state = CS_FREE;
 }
+#endif
 
 //==============================================
 
@@ -928,7 +928,7 @@ Ghoul2 Insert End
 
 	// clear all gentity pointers that might still be set from
 	// a previous level
-	for ( i = 0 ; i < MAX_CLIENTS ; i++ ) {
+	for ( i = 0 ; i < STEFX_SERVER_CLIENT_SLOTS ; i++ ) {
 		svs.clients[i].gentity = NULL;
 	}
 }

@@ -123,9 +123,6 @@ const char *HotSwapManager::GetBindingUp(void)
 void HotSwapManager::Bind(void)
 {
 #if defined(STEFX_SP_HOSTED_MP)
-	// EF has no SP force/item selection HUD.  Existing weapon bindings still
-	// execute, but rebinding remains dormant until the EF HUD exposes a
-	// selection state through the engine boundary.
 	noBind = true;
 	return;
 #else

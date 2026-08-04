@@ -348,10 +348,12 @@ void 	Cvar_Set( const char *var_name, const char *value );
 
 void	Cvar_SetValue( const char *var_name, float value );
 // expands value to a string and calls Cvar_Set
+#if defined(STEFX_SP_HOSTED_MP)
+void	Cvar_SetNoModify( const char *var_name, const char *value );
+#endif
 
 float	Cvar_VariableValue( const char *var_name );
 int		Cvar_VariableIntegerValue( const char *var_name );
-int		Cvar_VariableLatchedIntegerValue( const char *var_name );
 // returns 0 if not defined or non numeric
 
 char	*Cvar_VariableString( const char *var_name );
@@ -653,7 +655,6 @@ void Com_InitZoneMemory(void);
 void Com_InitHunkMemory(void);
 void Com_ShutdownZoneMemory(void);
 void Com_ShutdownHunkMemory(void);
-
 void Com_TouchMemory( void );
 
 // commandLine should not include the executable name (argv[0])

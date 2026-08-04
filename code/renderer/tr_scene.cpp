@@ -299,27 +299,6 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 #ifdef _XBOX
 	backEndData->entities[r_numentities].visible = -1;
 #if defined(STEFX_ELITE_FORCE_SP)
-	if ( ent->reType == RT_LINE )
-	{
-		static int s_stefxLineSceneBudget = 96;
-		if ( s_stefxLineSceneBudget > 0 )
-		{
-			shader_t *lineShader = R_GetShaderByHandle( ent->customShader );
-			XBLog_WriteCriticalf("STEFX_RENDER_LINE scene slot=%d shader=%d name='%s' rf=0x%x width=%g rgba=(%u,%u,%u,%u) start=(%g,%g,%g) end=(%g,%g,%g)",
-				r_numentities,
-				ent->customShader,
-				lineShader ? lineShader->name : "<null>",
-				ent->renderfx,
-				ent->radius,
-				(unsigned int)ent->shaderRGBA[0],
-				(unsigned int)ent->shaderRGBA[1],
-				(unsigned int)ent->shaderRGBA[2],
-				(unsigned int)ent->shaderRGBA[3],
-				ent->origin[0], ent->origin[1], ent->origin[2],
-				ent->oldorigin[0], ent->oldorigin[1], ent->oldorigin[2]);
-			--s_stefxLineSceneBudget;
-		}
-	}
 	if ( ent->reType == RT_MODEL && R_STEFX_IsSplitHelmetModel( ent->hModel ) )
 	{
 		++g_SPXBHelmetRendererRefs;
@@ -468,6 +447,10 @@ static qboolean R_STEFX_ShouldRenderSplitScreen(const refdef_t *fd, int *players
 	{
 		return qfalse;
 	}
+	if (!s_stefxSplitP2RefdefValid)
+	{
+		return qfalse;
+	}
 	if (fd->rdflags & (RDF_SKYBOXPORTAL | RDF_NOWORLDMODEL))
 	{
 		return qfalse;
@@ -550,6 +533,8 @@ static void R_STEFX_SetSplitViewport(trRefdef_t *refdef, viewParms_t *parms, con
 	parms->viewportHeight = h;
 	parms->fovX = refdef->fov_x;
 	parms->fovY = refdef->fov_y;
+	parms->stefxSplitView = qtrue;
+	parms->stefxSplitSlot = slot;
 }
 
 static void R_STEFX_ApplyExternalSplitView(trRefdef_t *refdef, viewParms_t *parms, const refdef_t *externalRefdef, const vec3_t pvsOrigin)
@@ -620,6 +605,9 @@ void RE_RenderScene( const refdef_t *fd ) {
 	}
 
 	startTime = Sys_Milliseconds();
+#ifdef _XBOX
+	R_STEFX_PerfBeginScene();
+#endif
 
 	if (!tr.world && !( fd->rdflags & RDF_NOWORLDMODEL ) ) {
 #ifdef _XBOX
@@ -825,15 +813,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 				}
 				if (slot == 1 && hasP2Refdef)
 				{
-					/* Some EF maps report a valid-looking chase-camera cluster whose
-					   PVS marks no world leaves. Keep the P2 camera independent, but
-					   seed world visibility from P1 so the retry stays PVS-bounded. */
-					int areaByte;
-					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, sourceParms.pvsOrigin);
-					for (areaByte = 0; areaByte < MAX_MAP_AREA_BYTES; ++areaByte)
-					{
-						tr.refdef.areamask[areaByte] = sourceRefdef.areamask[areaByte];
-					}
+					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, p2PvsOrigin);
 					tr.refdef.areamaskModified = qtrue;
 				}
 				if (logSplitViewports)
@@ -902,7 +882,13 @@ void RE_RenderScene( const refdef_t *fd ) {
 	r_firstSceneDlight = r_numdlights;
 	r_firstScenePoly = r_numpolys;
 
-	tr.frontEndMsec += Sys_Milliseconds() - startTime;
+	{
+		const int renderSceneMsec = Sys_Milliseconds() - startTime;
+		tr.frontEndMsec += renderSceneMsec;
+#ifdef _XBOX
+		R_STEFX_PerfEndScene( renderSceneMsec );
+#endif
+	}
 #ifdef _XBOX
 	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene before RE_RenderWorldEffects");
 #endif

@@ -510,6 +510,10 @@ void CNavigator::Free( void )
 	{
 		delete (*ni);
 	}
+
+	// The Xbox build hard-links the game module, so this container survives
+	// map changes instead of disappearing with a game-DLL unload.
+	m_nodes.clear();
 }
 
 /*

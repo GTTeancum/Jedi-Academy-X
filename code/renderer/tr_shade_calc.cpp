@@ -641,7 +641,7 @@ void RB_CalcColorFromOneMinusEntity( DWORD *dstColors )
 {
 	int	i;
 	DWORD *pColors = dstColors;
-	unsigned char invModulate[3];
+	unsigned char invModulate[4];
 
 	if ( !backEnd.currentEntity )
 		return;
@@ -664,7 +664,7 @@ void RB_CalcColorFromOneMinusEntity( unsigned char *dstColors )
 {
 	int	i;
 	int *pColors = ( int * ) dstColors;
-	unsigned char invModulate[3];
+	unsigned char invModulate[4];
 	int c;
 
 	if ( !backEnd.currentEntity )

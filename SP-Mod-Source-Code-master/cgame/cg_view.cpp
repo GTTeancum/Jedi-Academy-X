@@ -11,6 +11,7 @@ extern qboolean player_locked;
 extern void CGCam_Disable( void );
 extern void RE_STEFX_SplitScreen_SetP2Refdef( const refdef_t *refdef, qboolean valid );
 extern void RE_STEFX_SplitScreen_SetP2PvsOrigin( const vec3_t origin );
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBSplitP2Ent;
 extern "C" volatile unsigned int g_SPXBSplitP2TraceFrac1000;
 extern "C" volatile unsigned int g_SPXBSplitP2ViewX;
@@ -38,6 +39,8 @@ extern "C" volatile unsigned int g_SPXBSplitLocalDiffY1000;
 extern "C" volatile unsigned int g_SPXBSplitLocalDiffZ1000;
 
 static float s_stefxLastP1ThirdPersonTraceFraction = -1.0f;
+
+qboolean STEFX_XboxSuppressPlayerPresentation( void );
 
 static qboolean CG_STEFX_SplitScreenActive( void )
 {
@@ -343,6 +346,10 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	}
 
 	p2 = &g_entities[p2EntNum];
+	if ( STEFX_XboxSuppressPlayerPresentation() )
+	{
+		return;
+	}
 	zoomActive = (qboolean)( cg_stefxSplitScreenP2Zoom.integer != 0 );
 	thirdPersonMode = (qboolean)( cg.renderingThirdPerson != 0 );
 	traceFraction = -1.0f;
@@ -380,7 +387,6 @@ static void CG_STEFX_UpdateSplitP2Refdef( void )
 	}
 	p2Refdef.time = cg.time;
 	memcpy( p2Refdef.areamask, cg.snap->areamask, sizeof( p2Refdef.areamask ) );
-	CM_SnapPVS( pvsOrigin, p2Refdef.areamask );
 	RE_STEFX_SplitScreen_SetP2Refdef( &p2Refdef, qtrue );
 	RE_STEFX_SplitScreen_SetP2PvsOrigin( pvsOrigin );
 	g_SPXBSplitP2RefdefValid = 1;
@@ -1458,10 +1464,24 @@ Generates and draws a game scene and status information at the given time.
 =================
 */
 extern void CG_BuildSolidList( void );
+#ifdef _XBOX
+extern int g_stefxCgRenderSceneMsec;
+extern int g_stefxCgDraw2DMsec;
+#endif
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 #ifdef _XBOX
+	static int s_xboxLastProfileTime = -100000;
+	const int xboxProfileStart = cgi_Milliseconds();
+	int xboxProfileSetup = 0;
+	int xboxProfilePredict = 0;
+	int xboxProfileView = 0;
+	int xboxProfileEntities = 0;
+	int xboxProfileTail = 0;
+	int xboxProfileDraw = 0;
+	int xboxProfileMark = xboxProfileStart;
 	const int xboxDrawLog = (serverTime >= 3400 && serverTime <= 4600);
+	const qboolean stefxHardwareFirstFrame = ( cg.clientFrame == 0 );
 	if (xboxDrawLog)
 	{
 		XBLF("JA: CL_EARLY EF CG_DrawActiveFrame enter serverTime=%d stereo=%d snap=%p next=%p info='%s'",
@@ -1474,7 +1494,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after set time");
 
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_BuildSolidList");
+	g_SPXBPhaseLast = 0x45465330; /* 'EFS0' */
 	CG_BuildSolidList();
+	g_SPXBPhaseLast = 0x45465331; /* 'EFS1' */
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_BuildSolidList");
 	// update cvars
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_UpdateCvars");
@@ -1503,8 +1525,21 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	// set up cg.snap and possibly cg.nextSnap
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_ProcessSnapshots");
+	g_SPXBPhaseLast = 0x45465030; /* 'EFP0' */
 	CG_ProcessSnapshots();
+	g_SPXBPhaseLast = 0x45465031; /* 'EFP1' */
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_ProcessSnapshots");
+#ifdef _XBOX
+	xboxProfileSetup = cgi_Milliseconds() - xboxProfileMark;
+	xboxProfileMark = cgi_Milliseconds();
+#endif
+#if defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxHardwareFirstFrame )
+	{
+		XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: first frame snapshots complete snap=%p ents=%d",
+			cg.snap, cg.snap ? cg.snap->numEntities : -1 );
+	}
+#endif
 
 	// if we haven't received any snapshots yet, all
 	// we can draw is the information screen
@@ -1534,8 +1569,20 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 
 	// update cg.predicted_player_state
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_PredictPlayerState");
+	g_SPXBPhaseLast = 0x45464430; /* 'EFD0' */
 	CG_PredictPlayerState();
+	g_SPXBPhaseLast = 0x45464431; /* 'EFD1' */
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_PredictPlayerState");
+#ifdef _XBOX
+	xboxProfilePredict = cgi_Milliseconds() - xboxProfileMark;
+	xboxProfileMark = cgi_Milliseconds();
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxHardwareFirstFrame )
+	{
+		XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: first frame prediction complete" );
+	}
+#endif
 #ifdef _XBOX
 	if ( in_camera && STEFX_XboxSmokeCameraUnlockActive( serverTime ) )
 	{
@@ -1577,11 +1624,6 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	{
 		static int s_splitThirdPersonLogBudget = 24;
 		cg.zoomed = qfalse;
-		if ( in_camera )
-		{
-			CGCam_Disable();
-		}
-		player_locked = qfalse;
 		if ( s_splitThirdPersonLogBudget > 0 )
 		{
 			XBLF( "STEFX_SPLIT_VIEW split camera mode active=%d players=%d p2=%d serverTime=%d camera=%d thirdCvar=%d renderingThird=%d",
@@ -1601,7 +1643,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	{
 		// The camera takes over the view
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CGCam_RenderScene");
+		g_SPXBPhaseLast = 0x45465630; /* 'EFV0' */
 		CGCam_RenderScene();		
+		g_SPXBPhaseLast = 0x45465631; /* 'EFV1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CGCam_RenderScene");
 	}
 	else
@@ -1612,9 +1656,21 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CGCam_UpdateFade");
 		// build cg.refdef
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_CalcViewValues");
+		g_SPXBPhaseLast = 0x45465630; /* 'EFV0' */
 		inwater = CG_CalcViewValues();
+		g_SPXBPhaseLast = 0x45465631; /* 'EFV1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_CalcViewValues");
 	}
+#ifdef _XBOX
+	xboxProfileView = cgi_Milliseconds() - xboxProfileMark;
+	xboxProfileMark = cgi_Milliseconds();
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxHardwareFirstFrame )
+	{
+		XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: first frame view complete" );
+	}
+#endif
 #if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
 	STEFX_XboxRepairRefdef("post-view");
 #endif
@@ -1634,8 +1690,22 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// build the render lists
 	if ( !cg.hyperspace ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_AddPacketEntities");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxHardwareFirstFrame )
+		{
+			XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: first frame packet entities begin" );
+		}
+#endif
+		g_SPXBPhaseLast = 0x45464530; /* 'EFE0' */
 		CG_AddPacketEntities();			// adter calcViewValues, so predicted player state is correct
+		g_SPXBPhaseLast = 0x45464531; /* 'EFE1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddPacketEntities");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxHardwareFirstFrame )
+		{
+			XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: first frame packet entities complete" );
+		}
+#endif
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_AddMarks");
 		CG_AddMarks();
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddMarks");
@@ -1643,6 +1713,10 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_AddLocalEntities();
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddLocalEntities");
 	}
+#ifdef _XBOX
+	xboxProfileEntities = cgi_Milliseconds() - xboxProfileMark;
+	xboxProfileMark = cgi_Milliseconds();
+#endif
 
 	// Don't draw the in-view weapon when in camera mode
 #ifdef _XBOX
@@ -1681,7 +1755,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 #endif
 	{
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_AddViewWeapon");
+		g_SPXBPhaseLast = 0x45465730; /* 'EFW0' */
 		CG_AddViewWeapon( &cg.predicted_player_state );
+		g_SPXBPhaseLast = 0x45465731; /* 'EFW1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddViewWeapon");
 	}
 
@@ -1735,9 +1811,15 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	//Add all effects
 	if (cg.frametime >= 0) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before FX_Add");
+		g_SPXBPhaseLast = 0x45465430; /* 'EFT0' */
 		FX_Add();
+		g_SPXBPhaseLast = 0x45465431; /* 'EFT1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after FX_Add");
 	}
+#ifdef _XBOX
+	xboxProfileTail = cgi_Milliseconds() - xboxProfileMark;
+	xboxProfileMark = cgi_Milliseconds();
+#endif
 
 	if ( cg_pano.integer ) {	// let's grab a panorama!
 		cg.levelShot = qtrue;  //hide the 2d
@@ -1745,15 +1827,51 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		cg.refdefViewAngles[YAW] = -360 * cg_pano.integer/cg_panoNumShots.integer;	//choose angle
 		AnglesToAxis( cg.refdefViewAngles, cg.refdef.viewaxis );
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_DrawActive pano");
+		g_SPXBPhaseLast = 0x45465230; /* 'EFR0' */
 		CG_DrawActive( stereoView );
+		g_SPXBPhaseLast = 0x45465231; /* 'EFR1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_DrawActive pano");
 		cg.levelShot = qfalse;
 	} 	else {
 		// actually issue the rendering calls
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_DrawActive");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxHardwareFirstFrame )
+		{
+			XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: first frame render begin" );
+		}
+#endif
+		g_SPXBPhaseLast = 0x45465230; /* 'EFR0' */
 		CG_DrawActive( stereoView );
+		g_SPXBPhaseLast = 0x45465231; /* 'EFR1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_DrawActive");
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( stefxHardwareFirstFrame )
+		{
+			XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: first frame render complete" );
+		}
+#endif
 	}
+#ifdef _XBOX
+	xboxProfileDraw = cgi_Milliseconds() - xboxProfileMark;
+	if (serverTime - s_xboxLastProfileTime >= 10000)
+	{
+		XBLog_WriteCriticalf(
+			"STEFX_HW_PROFILE: cgame total=%d setup=%d predict=%d view=%d entities=%d tail=%d draw=%d scene=%d hud=%d serverTime=%d frame=%d",
+			cgi_Milliseconds() - xboxProfileStart,
+			xboxProfileSetup,
+			xboxProfilePredict,
+			xboxProfileView,
+			xboxProfileEntities,
+			xboxProfileTail,
+			xboxProfileDraw,
+			g_stefxCgRenderSceneMsec,
+			g_stefxCgDraw2DMsec,
+			serverTime,
+			cg.clientFrame);
+		s_xboxLastProfileTime = serverTime;
+	}
+#endif
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame done");
 }
 

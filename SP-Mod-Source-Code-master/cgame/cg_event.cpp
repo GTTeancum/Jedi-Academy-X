@@ -1249,37 +1249,7 @@ void CG_CheckEvents( centity_t *cent ) {
 	}
 
 	// calculate the position at exactly the frame time
-	#ifdef _XBOX
-	{
-		static int stefxEventTrajectoryLogBudget = 32;
-		if ( stefxEventTrajectoryLogBudget > 0 )
-		{
-			XBLF("STEFX: CG_CheckEvents trajectory ent=%d eType=%d event=%d eventParm=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d snapTime=%d cgTime=%d",
-				cent->currentState.number,
-				(int)cent->currentState.eType,
-				cent->currentState.event,
-				cent->currentState.eventParm,
-				(int)cent->currentState.pos.trType,
-				cent->currentState.pos.trTime,
-				cent->currentState.pos.trDuration,
-				(int)cent->currentState.apos.trType,
-				cent->currentState.apos.trTime,
-				cent->currentState.apos.trDuration,
-				cg.snap ? cg.snap->serverTime : -1,
-				cg.time);
-			--stefxEventTrajectoryLogBudget;
-		}
-	}
-	#endif
-	if ( cent->currentState.pos.trType == TR_STATIONARY ||
-		cent->currentState.pos.trType == TR_INTERPOLATE )
-	{
-		VectorCopy( cent->currentState.pos.trBase, cent->lerpOrigin );
-	}
-	else
-	{
-		EvaluateTrajectory( &cent->currentState.pos, cg.snap->serverTime, cent->lerpOrigin );
-	}
+	EvaluateTrajectory( &cent->currentState.pos, cg.snap->serverTime, cent->lerpOrigin );
 	CG_SetEntitySoundPosition( cent );
 
 	CG_EntityEvent( cent, cent->lerpOrigin );

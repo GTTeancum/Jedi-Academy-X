@@ -13,6 +13,8 @@
 #include "tr_WorldEffects.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBShaderScanMagic;
 #endif
 
 glconfig_t	glConfig;
@@ -100,6 +102,9 @@ cvar_t	*r_depthbits;
 cvar_t	*r_colorbits;
 cvar_t	*r_stereo;
 cvar_t	*r_primitives;
+#ifdef _XBOX
+cvar_t	*r_nativeDrawPath;
+#endif
 cvar_t	*r_texturebits;
 cvar_t	*r_texturebitslm;
 
@@ -392,11 +397,23 @@ static void InitOpenGL( void )
 
 	if ( glConfig.vidWidth == 0 )
 	{		
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x494F3130; /* 'IO10' */
+#endif
 		GLimp_Init();
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x494F3131; /* 'IO11' */
+#endif
 		// print info the first time only
 		// set default state
 		GL_SetDefaultState();
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x494F3132; /* 'IO12' */
+#endif
 		R_Splash();	//get something on screen asap
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x494F3133; /* 'IO13' */
+#endif
 		GfxInfo_f();
 	}
 	else
@@ -1244,6 +1261,9 @@ void R_Register( void )
 	r_windPointY = Cvar_Get ("r_windPointY", "0", 0);
 
 	r_primitives = Cvar_Get( "r_primitives", "0", CVAR_ARCHIVE );
+#ifdef _XBOX
+	r_nativeDrawPath = Cvar_Get( "r_nativeDrawPath", "2", CVAR_ARCHIVE );
+#endif
 
 	r_ambientScale = Cvar_Get( "r_ambientScale", "0.5", CVAR_CHEAT );
 	r_directedScale = Cvar_Get( "r_directedScale", "1", CVAR_CHEAT );
@@ -1386,20 +1406,28 @@ void R_Init( void ) {
 
 	XBL("R_Init: entered\n");
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x52493030; /* 'RI00' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init entered");
 	extern qboolean vidRestartReloadMap;
 	if (!vidRestartReloadMap)
 	{
 		Hunk_Clear();
+		XBLog_WriteCritical("STEFX_HW_BOOT: R_Init hunk clear complete");
 		
 		extern void CM_Free(void);
 		CM_Free();
+		XBLog_WriteCritical("STEFX_HW_BOOT: R_Init collision free complete");
 		
 		void CM_CleanLeafCache(void);
 		CM_CleanLeafCache();
+		XBLog_WriteCritical("STEFX_HW_BOOT: R_Init leaf cache clean complete");
 	}
 #endif
 
 	ShaderEntryPtrs_Clear();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init shader pointers cleared");
+#endif
 
 #ifdef _XBOX
 	//Save visibility info as it has already been set.
@@ -1410,6 +1438,9 @@ void R_Init( void ) {
 	memset( &tr, 0, sizeof( tr ) );
 	memset( &backEnd, 0, sizeof( backEnd ) );
 	memset( &tess, 0, sizeof( tess ) );
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init renderer state cleared");
+#endif
 
 #ifdef _XBOX
 	//Restore visibility info.
@@ -1454,9 +1485,15 @@ void R_Init( void ) {
 	R_InitFogTable();
 	R_NoiseInit();
 	R_Register();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init tables and cvars ready");
+#endif
 
 	backEndData = (backEndData_t *) Hunk_Alloc( sizeof( backEndData_t ), qtrue );
 	R_ToggleSmpFrame();	//r_smp
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init backend allocation complete");
+#endif
 
 	const color4ub_t	color = {0xff, 0xff, 0xff, 0xff};
 	for(i=0;i<MAX_LIGHT_STYLES;i++)
@@ -1465,23 +1502,50 @@ void R_Init( void ) {
 	}
 
 	XBL("R_Init: InitOpenGL...\n");
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x52493130; /* 'RI10' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init entering InitOpenGL");
+#endif
 	InitOpenGL();
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x52493131; /* 'RI11' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init InitOpenGL complete");
+#endif
 	XBL("R_Init: InitOpenGL done\n");
 
 	XBL("R_Init: R_InitImages...\n");
 	R_InitImages();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init images complete");
+#endif
 	XBL("R_Init: R_InitShaders...\n");
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x52533030; /* 'RS00' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init entering shader initialization");
+#endif
 	R_InitShaders();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init shaders complete");
+#endif
 	XBL("R_Init: R_InitSkins...\n");
 	R_InitSkins();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init skins complete");
+#endif
 #ifndef _XBOX
 	R_TerrainInit();
 #endif
 	XBL("R_Init: R_ModelInit...\n");
 	R_ModelInit();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init models complete");
+#endif
 //	R_InitWorldEffects();
 	XBL("R_Init: R_InitFonts...\n");
 	R_InitFonts();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_Init fonts complete");
+#endif
 	XBL("R_Init: done\n");
 
 	err = glGetError();

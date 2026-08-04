@@ -128,6 +128,7 @@ qboolean UI_EFQmenu_RouteMenuName(const char *menuName);
 
 qboolean UI_EFMainMenu_IsActive(void);
 void UI_EFMainMenu_Cache(void);
+void UI_EFMainMenu_InvalidateCache(void);
 void UI_EFMainMenu_Open(void);
 void UI_EFMainMenu_OpenNewGame(void);
 void UI_EFMainMenu_OpenLoadGame(void);
@@ -144,6 +145,7 @@ void UI_EFMainMenu_KeyEvent(int key, qboolean down);
 
 qboolean UI_EFPauseMenu_IsActive(void);
 void UI_EFPauseMenu_Cache(void);
+void UI_EFPauseMenu_InvalidateCache(void);
 void UI_EFPauseMenu_Open(const char *menuID);
 void UI_EFPauseMenu_Deactivate(void);
 void UI_EFPauseMenu_Draw(int realtime);

@@ -4,9 +4,6 @@
 
 #include "cg_local.h"
 #include "fx_public.h"
-#ifdef _XBOX
-#include "../../code/win32/xb_log.h"
-#endif
 
 #define	MAX_LOCAL_ENTITIES	512
 localEntity_t	cg_localEntities[MAX_LOCAL_ENTITIES];
@@ -191,28 +188,6 @@ void CG_AddFragment( localEntity_t *le ) {
 		return;
 	}
 
-	#ifdef _XBOX
-	{
-		static int stefxLocalTrajectoryLogBudget = 24;
-		if ( stefxLocalTrajectoryLogBudget > 0 )
-		{
-			XBLF( "STEFX: SP CG_AddFragment trajectory le=%p leType=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d time=%d origin=(%g,%g,%g)",
-				le,
-				le->leType,
-				(int)le->pos.trType,
-				le->pos.trTime,
-				le->pos.trDuration,
-				(int)le->angles.trType,
-				le->angles.trTime,
-				le->angles.trDuration,
-				cg.time,
-				le->refEntity.origin[0],
-				le->refEntity.origin[1],
-				le->refEntity.origin[2] );
-			--stefxLocalTrajectoryLogBudget;
-		}
-	}
-	#endif
 	// calculate new position
 	EvaluateTrajectory( &le->pos, cg.time, newOrigin );
 
@@ -553,9 +528,6 @@ CG_AddLocalEntities
 void CG_AddLocalEntities( void ) 
 {
 	localEntity_t	*le, *next;
-	#ifdef _XBOX
-		static int stefxLocalEntityLogBudget = 32;
-	#endif
 
 	// walk the list backwards, so any new local entities generated
 	// (trails, marks, etc) will be present this frame
@@ -564,20 +536,6 @@ void CG_AddLocalEntities( void )
 		// grab next now, so if the local entity is freed we
 		// still have it
 		next = le->prev;
-	#ifdef _XBOX
-		if ( stefxLocalEntityLogBudget > 0 )
-		{
-			XBLF( "STEFX: SP CG_AddLocalEntities le=%p leType=%d start=%d end=%d posType=%d posTime=%d time=%d",
-				le,
-				le->leType,
-				le->startTime,
-				le->endTime,
-				(int)le->pos.trType,
-				le->pos.trTime,
-				cg.time );
-			--stefxLocalEntityLogBudget;
-		}
-	#endif
 
 		if ( cg.time >= le->endTime ) {
 			CG_FreeLocalEntity( le );
@@ -625,5 +583,7 @@ void CG_AddLocalEntities( void )
 		}
 	}
 }
+
+
 
 

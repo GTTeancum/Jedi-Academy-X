@@ -16,7 +16,15 @@
 /build/
 /code/goblib/Release/
 /code/x_exe/Release/
+/codemp/goblib/Release/
+/codemp/x_exe/Release/
 /scripts/output/
+/scripts/__pycache__/
+/artifacts/
+/*.iso
+/*.log
+/*.pid
+/*.name
 
 # Local-only licensed reference drops
 /third_party_private/

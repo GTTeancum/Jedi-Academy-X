@@ -7,7 +7,9 @@ param(
 
     [switch]$SkipAssets,
 
-    [switch]$SkipStage
+    [switch]$SkipStage,
+
+    [switch]$ReuseObjects
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,11 +17,18 @@ Set-StrictMode -Version 2.0
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $repoReleaseDir = Join-Path $repoRoot "build\release"
-$xdkRoot = "C:\XDK"
+$xdkRoot = "C:\XDK_5558\XDK"
 $vc71Dir = Join-Path $xdkRoot "xbox\bin\vc71"
 $xdkBin = Join-Path $xdkRoot "xbox\bin"
 $mlExe = "C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\ml.exe"
-$pythonExe = "python"
+$pythonCommand = Get-Command "python.exe" -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+$pythonExe = if ($null -ne $pythonCommand) {
+    $pythonCommand.Source
+}
+else {
+    Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+}
 $script:StefxBuildTarget = $Target
 $script:StefxHolomatchDirectMap = "hm_borg1"
 
@@ -28,66 +37,24 @@ $libExe = Join-Path $vc71Dir "Lib.Exe"
 $linkExe = Join-Path $vc71Dir "Link.Exe"
 $xsasmExe = Join-Path $xdkBin "xsasm.exe"
 
-$requiredTools = @($clExe, $libExe, $linkExe, $xsasmExe, $mlExe)
+$requiredTools = @($clExe, $libExe, $linkExe, $xsasmExe, $mlExe, $pythonExe)
 foreach ($tool in $requiredTools) {
     if (-not (Test-Path $tool)) {
         throw "Required tool not found: $tool"
     }
 }
 
-# OpenJKDF2-pattern toolchain: XDK 5558 PRIMARY, XDK 5849 FALLBACK.
-#
-# OpenJKDF2 (the FakeGL graft reference per RENDERER_GRAFT.md) successfully
-# builds against XDK 5558 with 5849 as a fallback for the few headers 5558
-# is missing (stdint.h, winsock2.h, etc.).  The 5558 SDK has the production
-# retail static D3D8 lib (xbox\public\xdk\lib\d3d8.lib, 1.8 MB) ??? the same
-# variant the shipped JKA Xbox uses (libv "D3D8" no suffix, qfe=4).  XDK
-# 5849's licensee distribution stripped this lib, leaving only debug and
-# instrumented variants ??? which we suspect causes the kernel to apply
-# restrictive shims that hang CreateDevice.
-#
-# Tool binaries (CL.Exe, Link.Exe) are vc71-era and version-agnostic ??? we
-# keep using C:\XDK\xbox\bin\vc71 since the same compiler shipped with
-# both XDKs.
-#
-# 5558 source (xbox source repo extract):
-#   xbox\public\xdk\inc       ??? primary headers (FAT 2757-line d3d8.h)
-#   xbox\public\sdk\inc       ??? additional 5558 headers
-#   xbox\public\xdk\lib       ??? primary libs (incl. retail d3d8.lib)
-#   xbox\public\sdk\lib\i386  ??? broader lib set (xgraphics, xnet, etc.)
-#
-# 5849 fallback (our installed XDK):
-#   C:\XDK\xbox\include       ??? for headers 5558 lacks (stdint, winsock2)
-#   C:\XDK\include
-#   C:\XDK\xbox\lib           ??? for any lib 5558 doesn't have
-#   C:\XDK\lib
-$xboxSrcXdkInc = "C:\Programming\GitHub\xbox\public\xdk\inc"
-$xboxSrcSdkInc = "C:\Programming\GitHub\xbox\public\sdk\inc"
-$xboxSrcXdkLib = "C:\Programming\GitHub\xbox\public\xdk\lib"
-$xboxSrcSdkLib = "C:\Programming\GitHub\xbox\public\sdk\lib\i386"
+# Use the clean XDK 5558 compiler, headers, libraries, shader assembler, and
+# image tools as one coherent SDK. The local C:\XDK tree is a modified 5849
+# installation and must not participate in native renderer builds.
 
 $vcIncludeDirs = @(
-    (Join-Path $repoRoot "code\win32"),  # contains 5558-d3d8 surgical override
-                                          # (d3d8.h, d3d8types.h, d3d8caps.h,
-                                          # d3d8perf.h shimmed to 5558 versions)
-    "C:\XDK\xbox\include",             # 5849 PRIMARY for everything except d3d8
-    "C:\XDK\include"
+    (Join-Path $repoRoot "code\win32"),
+    (Join-Path $xdkRoot "xbox\include")
 ) | Where-Object { Test-Path $_ }
-# Note: 5558-PRIMARY-everything was attempted but breaks STL (xstring) and OLE
-# headers in JKA-specific source files.  Surgical 5558-d3d8-only is enough:
-# we just need the fat d3d8.h with Xbox extensions inline, so the retail
-# d3d8.lib (also from 5558) sees the matching API surface.  All other headers
-# stay on 5849 ??? same as everything we've built against to date.
 
 $vcLibDirs = @(
-    "C:\XDK_5558\XDK\xbox\lib",        # Plan-B (OpenJKDF2 1:1): primary XDK 5558
-                                        # install path ??? d3d8.lib, d3dx8.lib, libc.lib
-                                        # all resolved from here (same as OpenJKDF2's
-                                        # build_xbox.bat: XDK_ROOT=C:\XDK_5558\XDK\xbox)
-    $xboxSrcXdkLib,                    # 5558 source-repo (extra Xbox-only libs)
-    $xboxSrcSdkLib,                    # 5558 SDK additions (xgraphics extras)
-    "C:\XDK\xbox\lib",                 # 5849 fallback (xonline, dmusic, etc.)
-    "C:\XDK\lib"
+    (Join-Path $xdkRoot "xbox\lib")
 ) | Where-Object { Test-Path $_ }
 
 $env:Path = "$vc71Dir;$xdkBin;$env:Path"
@@ -546,50 +513,8 @@ function Apply-ProjectSourceOverrides {
             $filtered.Add($source)
         }
 
-        # Plan-B (OpenJKDF2 1:1): d3dx8_compat.cpp removed ??? we now link
-        # real d3dx8.lib from XDK 5558.  Local shim no longer needed.
-
-        # Plan-B (OpenJKDF2 1:1): add OpenJKDF2's fakeglx.cpp (byte-identical
-        # copy at code\win32\openjkdf2\fakeglx.cpp).  Compiled with /FI
-        # platform_xbox.h force-include ??? that header is OpenJKDF2's compat
-        # shim providing stdint, snprintf, BOOL, etc. that fakeglx.cpp
-        # expects.  Replaces the prior xquake\gl_fakegl.cpp graft.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\fakeglx.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx.cpp"
-            Extension    = ".cpp"
-            Tool         = [pscustomobject]@{
-                Name                      = "VCCLCompilerTool"
-                PrependIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
-                AdditionalOptions         = "/FI`"openjkdf2/platform_xbox.h`""
-            }
-        })
-
-        # Plan-B compat layer: gl_* functions JKA calls that fakeglx.cpp
-        # doesn't export.  Real implementations where possible; deferred
-        # for paths beyond SP_DoLicense.  See file head comment.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\fakeglx_jka_compat.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx_jka_compat.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
-
-        # XDK 5558 headers are now first in the include path, so the old
-        # 5849-signature D3D shim is no longer needed and would collide with
-        # the official prototypes.
-
-        # Plan-B DDS bridge: JKA uses DXT1/3/5 compressed textures via
-        # GL_DDS*_EXT internalformats that fakeglx can't decode.  This
-        # file's JkaGlTexImage2D detects them, decodes to RGBA, and
-        # forwards to fakegl's real glTexImage2D.  qgl_console.h
-        # #define-redirects JKA call sites to JkaGlTexImage2D.
-        $filtered.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\glteximage_dds.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\glteximage_dds.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
+        # The active Xbox renderer owns D3D8 directly in win_qgl_dx8.cpp.
+        # OpenJKDF2 FakeGL remains reference-only and is not linked.
 
         # Elite Force uses loose files and PK3 archives.  The inherited Xbox
         # executable project only had the GOB console filesystem sources, so
@@ -895,31 +820,6 @@ function Apply-ProjectSourceOverrides {
             })
         }
 
-        $Sources.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\fakeglx.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx.cpp"
-            Extension    = ".cpp"
-            Tool         = [pscustomobject]@{
-                Name                      = "VCCLCompilerTool"
-                PrependIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;C:\XDK\xbox\include;C:\XDK\include"
-                AdditionalOptions         = "/FI`"openjkdf2/platform_xbox.h`""
-            }
-        })
-
-        $Sources.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\fakeglx_jka_compat.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\fakeglx_jka_compat.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
-
-        $Sources.Add([pscustomobject]@{
-            RelativePath = "..\win32\openjkdf2\glteximage_dds.cpp"
-            FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue "code\win32\openjkdf2\glteximage_dds.cpp"
-            Extension    = ".cpp"
-            Tool         = $null
-        })
-
         foreach ($pk3Source in @(
             "codemp\qcommon\unzip.cpp",
             "codemp\zlib32\inflate.cpp",
@@ -1129,13 +1029,7 @@ function Build-Project {
 
     if (-not $compilerTool -and $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $compilerTool = [pscustomobject]@{
-            # Plan-B (OpenJKDF2 1:1): match build_xbox.bat line 48 include order
-            #   $repoRoot\code\win32       ??? our local shims still take precedence
-            #   C:\XDK_5558\XDK\xbox\include ??? primary (matches OpenJKDF2 XDK_ROOT\include)
-            #   C:\XDK\xbox\include        ??? 5849 fallback for headers 5558 lacks
-            #   C:\XDK\include
-            #   C:\XDK\bink_stub
-            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include;C:\XDK\bink_stub"
+            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32"
             # Plan-B: dropped _USE_XGMATH so d3dx8math.h (and ID3DXMatrixStack)
             # are pulled in properly.  xgmath.h's #ifndef __XGMATH_H__ at the
             # top of d3dx8math.h causes that header to skip its body if
@@ -1167,7 +1061,7 @@ function Build-Project {
             DebugInformationFormat = "3"
         }
         $linkTool = [pscustomobject]@{
-            AdditionalOptions = "/FIXED:NO /IGNORE:4254"
+            AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO /IGNORE:4254"
             # Plan-B (OpenJKDF2 1:1 alignment): adopt OpenJKDF2's actual
             # build_xbox.bat link list verbatim where physically possible.
             # OpenJKDF2 links: d3d8.lib d3dx8.lib dsound.lib xboxkrnl.lib
@@ -1195,11 +1089,10 @@ function Build-Project {
             # so ALL their libs are 5558.  Matching exactly here.
             AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib"
             OutputFile = "$repoReleaseDir\default.exe"
-            # XDK 5558 lib path FIRST so xboxkrnl, xgraphics, xapilib,
-            # xonline, dsound, libc all resolve from 5558 (matching
-            # OpenJKDF2).  5849 paths kept as fallback for dmusic.lib
-            # and any other lib 5558 doesn't have.
-            AdditionalLibraryDirectories = "$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+            # All Xbox system libraries, including dmusic.lib, are present
+            # in the clean XDK 5558 tree.  Do not allow the locally modified
+            # 5849 tree to participate in native renderer links.
+            AdditionalLibraryDirectories = "$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             OptimizeReferences = "2"
@@ -1213,7 +1106,7 @@ function Build-Project {
 
     if (-not $compilerTool -and $ProjectPath -eq "codemp\x_exe\x_exe.vcproj") {
         $compilerTool = [pscustomobject]@{
-            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32;C:\XDK\xbox\include;C:\XDK\include"
+            AdditionalIncludeDirectories = "C:\XDK_5558\XDK\xbox\include;$repoRoot\code\win32"
             PreprocessorDefinitions = "_WIN32;NDEBUG;WIN32;_JK2;_JK2MP;_XBOX;VV_LIGHTING;STEFX_ELITE_FORCE_MP;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_DEPRECATE;_XBOX_VC71_MIGRATION"
             AdditionalOptions = "/Oy-"
             Optimization = "2"
@@ -1232,7 +1125,7 @@ function Build-Project {
             AdditionalOptions = "/FORCE:MULTIPLE /FIXED:NO"
             AdditionalDependencies = "xapilib.lib;libc.lib;d3d8.lib;d3dx8.lib;xgraphics.lib;dsound.lib;dmusic.lib;xboxkrnl.lib;goblib.lib;xvoice.lib;xonlines.lib;.\Release\goblib.lib;.\Release\x_jk2cgame.lib;.\Release\x_ui.lib;.\Release\x_botlib.lib;.\Release\x_jk2game.lib"
             OutputFile = ".\Release\efmp.exe"
-            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib"
+            AdditionalLibraryDirectories = ".\Release;C:\XDK_5558\XDK\xbox\lib"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             ProgramDatabaseFile = '.\Release\x_exe.pdb'
@@ -1263,16 +1156,22 @@ function Build-Project {
     if ($script:StefxBuildTarget -eq "spmp" -and
         $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $linkTool.OutputFile = "$repoReleaseDir\efmp.exe"
-            $linkTool.AdditionalLibraryDirectories = ".\Release\spmp;$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\XDK\xbox\lib;C:\XDK\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+            $linkTool.AdditionalLibraryDirectories = ".\Release\spmp;$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
     }
 
     $baseFlags = New-Object System.Collections.Generic.List[string]
     foreach ($flag in (Convert-CompilerFlags -Tool $compilerTool)) {
         $baseFlags.Add($flag)
     }
+    $baseFlags.Add('/I')
+    $baseFlags.Add((Join-Path $xdkRoot "xbox\include"))
     foreach ($includeDir in (Split-VcList (Expand-VcString -Value (Get-XmlAttr -Node $compilerTool -Name "AdditionalIncludeDirectories") -Macros $macros))) {
+        $resolvedIncludeDir = Resolve-ProjectPath -BaseDir $projectDir -PathValue $includeDir
+        if ($resolvedIncludeDir.StartsWith("C:\XDK\", [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
         $baseFlags.Add('/I')
-        $baseFlags.Add((Resolve-ProjectPath -BaseDir $projectDir -PathValue $includeDir))
+        $baseFlags.Add($resolvedIncludeDir)
     }
     foreach ($define in (Split-VcList (Expand-VcString -Value (Get-XmlAttr -Node $compilerTool -Name "PreprocessorDefinitions") -Macros $macros))) {
         $baseFlags.Add("/D$define")
@@ -1319,6 +1218,14 @@ function Build-Project {
 
         $objPath = Get-ObjectPath -IntDir $intDir -SourcePath $source.FullPath
         New-Item -ItemType Directory -Path (Split-Path -Parent $objPath) -Force | Out-Null
+        if ($ReuseObjects -and
+            (Test-Path -LiteralPath $objPath) -and
+            (Get-Item -LiteralPath $objPath).LastWriteTimeUtc -ge
+                (Get-Item -LiteralPath $source.FullPath).LastWriteTimeUtc) {
+            Write-Host "Reusing $objPath"
+            $objectFiles.Add($objPath)
+            continue
+        }
 
         $compileFlags = New-Object System.Collections.Generic.List[string]
         $prependIncludes = Get-XmlAttr -Node $source.Tool -Name "PrependIncludeDirectories"
@@ -1354,8 +1261,12 @@ function Build-Project {
         $sourceIncludes = Get-XmlAttr -Node $source.Tool -Name "AdditionalIncludeDirectories"
         if (-not [string]::IsNullOrWhiteSpace($sourceIncludes)) {
             foreach ($includeDir in (Split-VcList (Expand-VcString -Value $sourceIncludes -Macros $macros))) {
+                $resolvedIncludeDir = Resolve-ProjectPath -BaseDir $projectDir -PathValue $includeDir
+                if ($resolvedIncludeDir.StartsWith("C:\XDK\", [System.StringComparison]::OrdinalIgnoreCase)) {
+                    continue
+                }
                 $compileFlags.Add('/I')
-                $compileFlags.Add((Resolve-ProjectPath -BaseDir $projectDir -PathValue $includeDir))
+                $compileFlags.Add($resolvedIncludeDir)
             }
         }
 
@@ -1855,6 +1766,7 @@ function Copy-EFDataOverlay {
     $destUi = Join-Path $BaseEfDir "ui"
     $sourceMenu = Join-Path $repoRoot "base\menu"
     $destMenu = Join-Path $BaseEfDir "menu"
+    $privateBaseEf = Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF"
 
     if (-not (Test-Path -LiteralPath $sourceExtData -PathType Container)) {
         Write-Warning "Missing EF ext_data source: $sourceExtData"
@@ -1962,6 +1874,43 @@ function Copy-EFDataOverlay {
 
         Write-Host "Updated EF menu asset overlay: $copiedMenuAssets files"
     }
+
+    foreach ($relative in @(
+        "gfx\2d\chars_big.tga",
+        "gfx\2d\chars_medium.tga",
+        "gfx\2d\chars_tiny.tga",
+        "gfx\2d\charsgrid_med.tga",
+        "textures\borg\borgsky.jpg",
+        "textures\borg\bars.tga",
+        "textures\borg\bars2.tga",
+        "textures\borg\basic1.tga",
+        "textures\borg\bigborg.tga",
+        "textures\borg\forceborder.jpg",
+        "textures\borg\forceborder2.jpg",
+        "textures\borg\forceborder3.jpg",
+        "textures\borg\green1.jpg",
+        "textures\borg\green1_dos.jpg",
+        "textures\borg\oddlight1.tga",
+        "textures\borg\oddlight1dam.jpg",
+        "textures\borg\oddlight1mult.jpg",
+        "textures\borg\static.jpg",
+        "textures\borg\static2.jpg",
+        "textures\borg\static_yellow.jpg",
+        "textures\common\70yearjourney.jpg",
+        "textures\common\enemyspace.jpg",
+        "textures\common\sevenspace.jpg",
+        "textures\common\tuvokhazard.jpg"
+    )) {
+        $source = Join-Path $privateBaseEf $relative
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            continue
+        }
+
+        $destination = Join-Path $BaseEfDir $relative
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        Copy-Item -LiteralPath $source -Destination $destination -Force
+        Write-Host "Restored licensed EF texture source: $relative"
+    }
 }
 
 function Copy-EFConfigOverlay {
@@ -2038,6 +1987,15 @@ function Update-EFXboxPatchPk3 {
     }
 
     $outputPk3 = Join-Path $BaseEfDir $OutputName
+    $privateSeed = $null
+    if ($OutputName -ieq "xbox0.pk3" -and
+        -not (Test-Path -LiteralPath $outputPk3 -PathType Leaf)) {
+        $privateSeed = Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF\xbox0_dds_seed.pk3"
+        if (Test-Path -LiteralPath $privateSeed -PathType Leaf) {
+            Copy-Item -LiteralPath $privateSeed -Destination $outputPk3 -Force
+            Write-Host "Seeded EF Xbox DDS package from local licensed cache: $privateSeed"
+        }
+    }
     $patchArgs = @(
         $patchScript,
         "--base-dir", $BaseEfDir,
@@ -2054,6 +2012,14 @@ function Update-EFXboxPatchPk3 {
         "--alpha-texture-format", $AlphaTextureFormat
     )
 
+    if ($OutputName -ieq "xbox0.pk3") {
+        if ([string]::IsNullOrWhiteSpace($privateSeed)) {
+            $privateSeed = Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF\xbox0_dds_seed.pk3"
+        }
+        if (Test-Path -LiteralPath $privateSeed -PathType Leaf) {
+            $patchArgs += @("--dds-seed", $privateSeed)
+        }
+    }
     if ($DdsOnly) {
         $patchArgs += "--dds-only"
     }
@@ -2077,9 +2043,30 @@ function Expand-EFHolomatchPk3SourceOverlay {
         throw "Missing official MP PK3 source overlay extractor: $extractScript"
     }
 
+    $archiveSourceCandidates = @(
+        $BaseEfDir,
+        (Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF"),
+        "C:\Games\Emulators\stefx_iso_seed_complete\BaseEF"
+    )
+    $archiveSource = $null
+    foreach ($candidate in $archiveSourceCandidates) {
+        if ((Test-Path -LiteralPath (Join-Path $candidate "PAK0.PK3") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate "PAK1.PK3") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate "PAK2.PK3") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate "PAK3.PK3") -PathType Leaf)) {
+            $archiveSource = $candidate
+            break
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($archiveSource)) {
+        throw "Complete Elite Force retail PAK0-PK3 source not found for Holomatch packaging."
+    }
+
+    Write-Host "Reading Holomatch source assets from canonical retail archives: $archiveSource"
     Invoke-External -Exe $pythonExe -Arguments @(
         $extractScript,
-        "--base-dir", $BaseEfDir
+        "--base-dir", $BaseEfDir,
+        "--archive-dir", $archiveSource
     ) -WorkingDirectory $repoRoot
 }
 
@@ -2141,7 +2128,7 @@ function Update-EFXboxSoundBank {
         $soundBankScript,
         "--base-dir", $BaseEfDir,
         "--encoding", "xbadpcm",
-        "--encoder", "C:\XDK\xbox\bin\xbadpcmencode.exe"
+        "--encoder", (Join-Path $xdkBin "xbadpcmencode.exe")
     ) -WorkingDirectory $repoRoot
 }
 
@@ -2156,12 +2143,53 @@ function Update-EFXboxAudioAssets {
         return
     }
 
-    Invoke-External -Exe $pythonExe -Arguments @(
+    $audioArgs = @(
         $audioScript,
         "--base-dir", $BaseEfDir,
         "--all-sound",
-        "--encoder", "C:\XDK\xbox\bin\xbadpcmencode.exe"
-    ) -WorkingDirectory $repoRoot
+        "--encoder", (Join-Path $xdkBin "xbadpcmencode.exe")
+    )
+
+    $ffmpegExe = $null
+    $ffmpegCommand = Get-Command "ffmpeg.exe" -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -ne $ffmpegCommand) {
+        $ffmpegExe = $ffmpegCommand.Source
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ffmpegExe)) {
+        $audioManifest = Join-Path $BaseEfDir "soundbank\xbox_audio_assets_manifest.json"
+        if (Test-Path -LiteralPath $audioManifest -PathType Leaf) {
+            try {
+                $recordedFfmpeg = [string]((Get-Content -LiteralPath $audioManifest -Raw | ConvertFrom-Json).ffmpeg)
+                if (-not [string]::IsNullOrWhiteSpace($recordedFfmpeg) -and
+                    (Test-Path -LiteralPath $recordedFfmpeg -PathType Leaf)) {
+                    $ffmpegExe = $recordedFfmpeg
+                }
+            } catch {
+                Write-Warning "Could not read FFmpeg path from ${audioManifest}: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ffmpegExe)) {
+        $wingetPackages = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+        if (Test-Path -LiteralPath $wingetPackages -PathType Container) {
+            $ffmpegExe = Get-ChildItem -LiteralPath $wingetPackages -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like "Gyan.FFmpeg_*" } |
+                ForEach-Object {
+                    Get-ChildItem -LiteralPath $_.FullName -Filter "ffmpeg.exe" -File -Recurse -ErrorAction SilentlyContinue
+                } |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($ffmpegExe)) {
+        Write-Host "Using FFmpeg: $ffmpegExe"
+        $audioArgs += @("--ffmpeg", $ffmpegExe)
+    }
+
+    Invoke-External -Exe $pythonExe -Arguments $audioArgs -WorkingDirectory $repoRoot
 }
 
 function Update-EFConsoleAssetLists {
@@ -2169,7 +2197,7 @@ function Update-EFConsoleAssetLists {
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
-    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -DdsOnly -AlphaTextureFormat "bgra32"
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader"
@@ -2201,6 +2229,7 @@ function Update-EFHolomatchAssetLists {
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("xbox_borg_fix.shader")
+    Remove-EFHolomatchLooseOverrides -StageBaseEf $baseEfDir -Pk3Path (Join-Path $baseEfDir "xbox1.pk3")
     if ($script:StefxBuildTarget -eq "spmp") {
         Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -StageBaseEfPath $baseEfDir -AllowStageOriginalImages -XbePath $sourceXbe -CodeOnly
     } else {
@@ -2391,8 +2420,7 @@ function Copy-EFHolomatchCxbxStage {
     } else {
         Assert-EFHolomatchUiMandate -Pk3Path $stagedPk3 -StageBaseEfPath $stageBaseEf -XbePath (Join-Path $stageRoot "efmp.xbe")
     }
-    Write-Host "Staged EF Holomatch MP for CXBX-R: efmp.xbe, BaseEF\xbox1.pk3, and the SP soundbank"
-    Write-Host "SP/co-op default.xbe was not touched."
+    Write-Host "Staged shared-engine EF Holomatch build: efmp.xbe, BaseEF\xbox1.pk3, and the SP soundbank"
 }
 
 $spProjects = @(

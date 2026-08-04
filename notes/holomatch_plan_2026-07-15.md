@@ -9,7 +9,7 @@
 - The code-only verifier is authoritative for this rule: `scripts\check_mp_holomatch_ui.py --code-only ...` must report `codempDependency=false`.
 - Current direct boot is `hm_borg1` with bots. Menus remain future work; tests boot straight to the map.
 - `default.xbe` remains SP/co-op and must not be overwritten by Holomatch work.
-- Current qualification and remaining signoff live in `HOLOMATCH_QUALIFICATION.md` and `HOLOMATCH_TODO.md`.
+- Current qualification and remaining signoff live in `HOLOMATCH_QUALIFICATION.md` and `GAME_TODO.md`.
 
 ## Source Truth
 - Official Elite Force Holomatch v1.2 source is mirrored locally at `third_party_private\elite-force-holomatch-source-1.2\stvoy\Code-DM`.

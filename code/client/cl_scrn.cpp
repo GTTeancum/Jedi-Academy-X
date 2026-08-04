@@ -9,6 +9,16 @@
 #include "client_ui.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPerfScreenDrawMsec;
+extern "C" volatile unsigned int g_SPXBPerfEndFrameMsec;
+extern "C" volatile unsigned int g_SPXBPerfFrontendMsec;
+extern "C" volatile unsigned int g_SPXBPerfBackendMsec;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+
+// Temporary retail-hardware qualification overlay. Keep this in the shared
+// client screen path so SP, co-op, and Holomatch measure the same presented
+// frame cadence.
+#define STEFX_TEMP_HARDWARE_FPS_COUNTER 1
 #endif
 
 extern console_t con;
@@ -233,6 +243,70 @@ void SCR_DrawBigStringColor( int x, int y, const char *s, vec4_t color ) {
 	SCR_DrawBigStringExt( x, y, s, color, qtrue );
 }
 
+#if defined(_XBOX) && STEFX_TEMP_HARDWARE_FPS_COUNTER
+static void SCR_DrawHardwareFPS( void )
+{
+	static int sampleStart;
+	static int sampleFrames;
+	static unsigned int fpsTenths;
+	static char text[16] = "FPS --.-";
+	const int now = Sys_Milliseconds();
+	int elapsed;
+	int i;
+	vec4_t background = { 0.0f, 0.0f, 0.0f, 0.70f };
+	vec4_t shadow = { 0.0f, 0.0f, 0.0f, 1.0f };
+	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+	if (!sampleStart)
+	{
+		sampleStart = now;
+	}
+
+	++sampleFrames;
+	elapsed = now - sampleStart;
+	if (elapsed >= 1000)
+	{
+		fpsTenths = (unsigned int)(((unsigned __int64)sampleFrames * 10000) / elapsed);
+		Com_sprintf(text, sizeof(text), "FPS %u.%u", fpsTenths / 10, fpsTenths % 10);
+		sampleFrames = 0;
+		sampleStart = now;
+	}
+
+	if (fpsTenths)
+	{
+		if (fpsTenths < 200)
+		{
+			color[1] = 0.25f;
+			color[2] = 0.25f;
+		}
+		else if (fpsTenths < 300)
+		{
+			color[2] = 0.20f;
+		}
+		else
+		{
+			color[0] = 0.35f;
+			color[2] = 0.35f;
+		}
+	}
+
+	SCR_FillRect(4, 4, 8 + (int)strlen(text) * SMALLCHAR_WIDTH, SMALLCHAR_HEIGHT + 6, background);
+
+	re.SetColor(shadow);
+	for (i = 0; text[i]; ++i)
+	{
+		SCR_DrawSmallChar(9 + i * SMALLCHAR_WIDTH, 8, text[i]);
+	}
+
+	re.SetColor(color);
+	for (i = 0; text[i]; ++i)
+	{
+		SCR_DrawSmallChar(8 + i * SMALLCHAR_WIDTH, 7, text[i]);
+	}
+	re.SetColor(NULL);
+}
+#endif
+
 
 /*
 ** SCR_Strlen -- skips color escape codes
@@ -386,7 +460,13 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField before re.BeginFrame");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: re.BeginFrame...");
 	#endif
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53464230; /* 'SFB0' */
+#endif
 	re.BeginFrame( stereoFrame );
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53464231; /* 'SFB1' */
+#endif
 #ifdef _XBOX
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField after re.BeginFrame");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: re.BeginFrame done");
@@ -503,7 +583,9 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 				if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField before CL_CGameRendering");
 				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering...");
 				#endif
+				g_SPXBPhaseLast = 0x53464330; /* 'SFC0' */
 				CL_CGameRendering( stereoFrame );
+				g_SPXBPhaseLast = 0x53464331; /* 'SFC1' */
 				#ifdef _XBOX
 				if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_DrawScreenField after CL_CGameRendering");
 				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering done");
@@ -550,7 +632,13 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	}
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: _UI_Refresh...");
 	#endif
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53465530; /* 'SFU0' */
+#endif
 	_UI_Refresh( cls.realtime );
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53465531; /* 'SFU1' */
+#endif
 #ifdef _XBOX
 	if (xboxTraceScreen)
 	{
@@ -588,6 +676,9 @@ text to the screen.
 */
 void SCR_UpdateScreen( void ) {
 	static int	recursive;
+#ifdef _XBOX
+	int xboxScreenPhaseStart;
+#endif
 
 	if ( !scr_initialized ) {
 		return;				// not initialized yet
@@ -619,14 +710,15 @@ void SCR_UpdateScreen( void ) {
 #endif
 
 	// load the ref / ui / cgame if needed
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53524330; /* 'SRC0' */
+#endif
 	CL_StartHunkUsers();
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53524331; /* 'SRC1' */
+#endif
 
 #ifdef _XBOX
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLF("STEFX_HM_SP: SCR_UpdateScreen after CL_StartHunkUsers state=%d renderer=%d sound=%d soundReg=%d cgame=%d",
-		(int)cls.state, cls.rendererStarted ? 1 : 0, cls.soundStarted ? 1 : 0,
-		cls.soundRegistered ? 1 : 0, cls.cgameStarted ? 1 : 0);
-	#endif
 	if (cls.state == CA_CINEMATIC && s_xboxUpdateScreenCinematicTraceCount < 24)
 	{
 		XBLF("STEFX_CIN_DRAW: update after hunk state=%d ui=%d cgame=%d catcher=0x%x",
@@ -655,6 +747,9 @@ void SCR_UpdateScreen( void ) {
 #endif
 
 	// if running in stereo, we need to draw the frame twice
+#ifdef _XBOX
+	xboxScreenPhaseStart = Sys_Milliseconds();
+#endif
 	if ( cls.glconfig.stereoEnabled ) {
 #ifdef _XBOX
 		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw left");
@@ -671,16 +766,18 @@ void SCR_UpdateScreen( void ) {
 		if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen before draw center");
 		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before draw center");
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw center...");
-	#if defined(STEFX_SP_HOSTED_MP)
-		XBLF("STEFX_HM_SP: SCR_UpdateScreen before draw state=%d cgame=%d", (int)cls.state, cls.cgameStarted ? 1 : 0);
-	#endif
 #endif
+		g_SPXBPhaseLast = 0x53524332; /* 'SRC2' */
 		SCR_DrawScreenField( STEREO_CENTER );
+		g_SPXBPhaseLast = 0x53524333; /* 'SRC3' */
 	}
+#if defined(_XBOX) && STEFX_TEMP_HARDWARE_FPS_COUNTER
+	SCR_DrawHardwareFPS();
+#endif
 #ifdef _XBOX
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLF("STEFX_HM_SP: SCR_UpdateScreen after draw state=%d", (int)cls.state);
-	#endif
+	g_SPXBPerfScreenDrawMsec = (unsigned int)(Sys_Milliseconds() - xboxScreenPhaseStart);
+#endif
+#ifdef _XBOX
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen after draw");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT draw done");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw done");
@@ -691,15 +788,26 @@ void SCR_UpdateScreen( void ) {
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before re.EndFrame");
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: re.EndFrame...");
 #endif
+#ifdef _XBOX
+	xboxScreenPhaseStart = Sys_Milliseconds();
+#endif
+	#ifdef _XBOX
+	g_SPXBPhaseLast = 0x53524334; /* 'SRC4' */
+	re.EndFrame( &time_frontend, &time_backend );
+	g_SPXBPhaseLast = 0x53524335; /* 'SRC5' */
+	g_SPXBPerfFrontendMsec = (unsigned int)time_frontend;
+	g_SPXBPerfBackendMsec = (unsigned int)time_backend;
+	#else
 	if ( com_speeds->integer ) {
 		re.EndFrame( &time_frontend, &time_backend );
 	} else {
 		re.EndFrame( NULL, NULL );
 	}
-#ifdef _XBOX
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLF("STEFX_HM_SP: SCR_UpdateScreen after EndFrame state=%d", (int)cls.state);
 	#endif
+#ifdef _XBOX
+	g_SPXBPerfEndFrameMsec = (unsigned int)(Sys_Milliseconds() - xboxScreenPhaseStart);
+#endif
+#ifdef _XBOX
 	if (xboxTraceScreenLate) XBLog_Write("JA: CL_EARLY SCR_UpdateScreen after re.EndFrame");
 	if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT after re.EndFrame");
 	if (xboxTraceScreen)

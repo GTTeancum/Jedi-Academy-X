@@ -442,6 +442,8 @@ G_RunMover
 */
 void rebolt_turret( gentity_t *base );
 void G_RunMover( gentity_t *ent ) {
+	extern qboolean stop_icarus;
+
 	// if not a team captain, don't do anything, because
 	// the captain will handle everything
 	if ( ent->flags & FL_TEAMSLAVE ) {
@@ -458,8 +460,15 @@ void G_RunMover( gentity_t *ent ) {
 		rebolt_turret( ent );
 	}
 
-	// check think function
-	G_RunThink( ent );
+	// A mover only needs the think path when its timer is due or it has live
+	// script work. Empty task managers are common and Update() is otherwise a
+	// per-tick no-op.
+	if ( ( ent->nextthink > 0 && ent->nextthink <= level.time ) ||
+		( ent->NPC == NULL && ent->taskManager &&
+		  ent->taskManager->HasTasks() && !stop_icarus ) )
+	{
+		G_RunThink( ent );
+	}
 }
 
 /*

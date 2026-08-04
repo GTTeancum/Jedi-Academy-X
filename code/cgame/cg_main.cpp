@@ -1025,8 +1025,21 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	char		tfilename[512];
 	char		lfilename[512];
 
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientSkin begin head='%s/%s' torso='%s/%s' legs='%s/%s'",
+		headModelName ? headModelName : "<null>",
+		headSkinName ? headSkinName : "<null>",
+		torsoModelName ? torsoModelName : "<null>",
+		torsoSkinName ? torsoSkinName : "<null>",
+		legsModelName ? legsModelName : "<null>",
+		legsSkinName ? legsSkinName : "<null>");
+#endif
+
 	Com_sprintf( lfilename, sizeof( lfilename ), "models/players/%s/lower_%s.skin", legsModelName, legsSkinName );
 	ci->legsSkin = cgi_R_RegisterSkin( lfilename );
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientSkin legs file='%s' handle=%d", lfilename, ci->legsSkin);
+#endif
 
 	if ( !ci->legsSkin )
 	{
@@ -1038,9 +1051,15 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	{
 		Com_sprintf( tfilename, sizeof( tfilename ), "models/players/%s/upper_%s.skin", torsoModelName, torsoSkinName );
 		ci->torsoSkin = cgi_R_RegisterSkin( tfilename );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientSkin torso file='%s' handle=%d", tfilename, ci->torsoSkin);
+#endif
 
 		if ( !ci->torsoSkin )
 		{
+#ifdef _XBOX
+			XBLF("STEFX: CG_RegisterClientSkin failed torso file='%s'", tfilename);
+#endif
 			Com_Printf( "Failed to load skin file: %s : %s\n", torsoModelName, torsoSkinName );
 			return qfalse;
 		}
@@ -1050,6 +1069,9 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	{
 		Com_sprintf( hfilename, sizeof( hfilename ), "models/players/%s/head_%s.skin", headModelName, headSkinName );
 		ci->headSkin = cgi_R_RegisterSkin( hfilename );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientSkin head file='%s' rawHandle=%d", hfilename, ci->headSkin);
+#endif
 		if ( ci->headSkin < 0 )
 		{
 			ci->extensions = qtrue;
@@ -1066,11 +1088,18 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 
 		if ( !ci->headSkin )
 		{
+#ifdef _XBOX
+			XBLF("STEFX: CG_RegisterClientSkin failed head file='%s'", hfilename);
+#endif
 			Com_Printf( "Failed to load skin file: %s : %s\n", headModelName, headSkinName );
 			return qfalse;
 		}
 	}
 
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientSkin success legs=%d torso=%d head=%d extensions=%d",
+		ci->legsSkin, ci->torsoSkin, ci->headSkin, ci->extensions ? 1 : 0);
+#endif
 	return qtrue;
 }
 
@@ -1089,20 +1118,42 @@ Ghoul2 Insert Start
 */
 #if 1
 	char		filename[512];
+	qboolean	skinsRegistered;
 
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModelname begin head='%s/%s' torso='%s/%s' legs='%s/%s'",
+		headModelName ? headModelName : "<null>",
+		headSkinName ? headSkinName : "<null>",
+		torsoModelName ? torsoModelName : "<null>",
+		torsoSkinName ? torsoSkinName : "<null>",
+		legsModelName ? legsModelName : "<null>",
+		legsSkinName ? legsSkinName : "<null>");
+#endif
 
 	if ( !legsModelName || !legsModelName[0] )
 	{
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModelname no legs model; accepted");
+#endif
 		return qtrue;
 	}
 	Com_sprintf( filename, sizeof( filename ), "models/players/%s/lower.mdr", legsModelName );
 	ci->legsModel = cgi_R_RegisterModel( filename );
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModelname legs MDR file='%s' handle=%d", filename, ci->legsModel);
+#endif
 	if ( !ci->legsModel ) 
 	{//he's not skeletal, try the old way
 		Com_sprintf( filename, sizeof( filename ), "models/players/%s/lower.md3", legsModelName );
 		ci->legsModel = cgi_R_RegisterModel( filename );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModelname legs MD3 file='%s' handle=%d", filename, ci->legsModel);
+#endif
 		if ( !ci->legsModel )
 		{
+#ifdef _XBOX
+			XBLF("STEFX: CG_RegisterClientModelname failed legs model='%s'", legsModelName);
+#endif
 			Com_Printf( S_COLOR_RED"Failed to load model file %s\n", filename );
 			return qfalse;
 		}
@@ -1112,12 +1163,21 @@ Ghoul2 Insert Start
 	{//You are trying to set one
 		Com_sprintf( filename, sizeof( filename ), "models/players/%s/upper.mdr", torsoModelName );
 		ci->torsoModel = cgi_R_RegisterModel( filename );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModelname torso MDR file='%s' handle=%d", filename, ci->torsoModel);
+#endif
 		if ( !ci->torsoModel ) 
 		{//he's not skeletal, try the old way
 			Com_sprintf( filename, sizeof( filename ), "models/players/%s/upper.md3", torsoModelName );
 			ci->torsoModel = cgi_R_RegisterModel( filename );
+#ifdef _XBOX
+			XBLF("STEFX: CG_RegisterClientModelname torso MD3 file='%s' handle=%d", filename, ci->torsoModel);
+#endif
 			if ( !ci->torsoModel ) 
 			{
+#ifdef _XBOX
+				XBLF("STEFX: CG_RegisterClientModelname failed torso model='%s'", torsoModelName);
+#endif
 				Com_Printf( S_COLOR_RED"Failed to load model file %s\n", filename );
 				return qfalse;
 			}
@@ -1132,8 +1192,14 @@ Ghoul2 Insert Start
 	{//You are trying to set one
 		Com_sprintf( filename, sizeof( filename ), "models/players/%s/head.md3", headModelName );
 		ci->headModel = cgi_R_RegisterModel( filename );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModelname head MD3 file='%s' handle=%d", filename, ci->headModel);
+#endif
 		if ( !ci->headModel ) 
 		{
+#ifdef _XBOX
+			XBLF("STEFX: CG_RegisterClientModelname failed head model='%s'", headModelName);
+#endif
 			Com_Printf( S_COLOR_RED"Failed to load model file %s\n", filename );
 			return qfalse;
 		}
@@ -1145,7 +1211,11 @@ Ghoul2 Insert Start
 
 
 	// if any skins failed to load, return failure
-	if ( !CG_RegisterClientSkin( ci, headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName ) ) 
+	skinsRegistered = CG_RegisterClientSkin( ci, headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName );
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModelname skin result=%d", skinsRegistered ? 1 : 0);
+#endif
+	if ( !skinsRegistered )
 	{
 		//Com_Printf( "Failed to load skin file: %s : %s/%s : %s/%s : %s\n", headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName );
 		return qfalse;
@@ -1154,11 +1224,18 @@ Ghoul2 Insert Start
 	//FIXME: for now, uses the legs model dir for anim cfg, but should we set this in some sort of NPCs.cfg?
 	// load the animation file set
 	ci->animFileIndex = G_ParseAnimFileSet(legsModelName);
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModelname animation legs='%s' index=%d", legsModelName, ci->animFileIndex);
+#endif
 	if (ci->animFileIndex<0) 
 	{
 		Com_Printf( S_COLOR_RED"Failed to load animation file set models/players/%s\n", legsModelName );
 		return qfalse;
 	}
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModelname success legsModel=%d torsoModel=%d headModel=%d anim=%d",
+		ci->legsModel, ci->torsoModel, ci->headModel, ci->animFileIndex);
+#endif
 #endif
 /*
 Ghoul2 Insert End
@@ -1176,17 +1253,29 @@ void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 	char			headSkinName[512];
 	char			torsoSkinName[512];
 	char			legsSkinName[512];
+	qboolean		registered;
 
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientRenderInfo entry ci=%p ri=%p legsPtr=%p torsoPtr=%p headPtr=%p",
+		ci,
+		ri,
+		ri ? ri->legsModelName : NULL,
+		ri ? ri->torsoModelName : NULL,
+		ri ? ri->headModelName : NULL);
+#endif
 	if(!ri->legsModelName || !ri->legsModelName[0])
 	{//Must have at LEAST a legs model
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientRenderInfo no legs model; returning");
+#endif
 		return;
 	}
 
 #ifdef _XBOX
-	Com_Printf("JA: CG_RegisterClientRenderInfo ri legs='%s' torso='%s' head='%s'\n",
+	XBLF("STEFX: CG_RegisterClientRenderInfo raw legs='%s' torso='%s' head='%s'",
 		ri->legsModelName,
-		ri->torsoModelName,
-		ri->headModelName);
+		(ri->torsoModelName && ri->torsoModelName[0]) ? ri->torsoModelName : "<empty>",
+		(ri->headModelName && ri->headModelName[0]) ? ri->headModelName : "<empty>");
 #endif
 
 	Q_strncpyz( legsModelName, ri->legsModelName, sizeof( legsModelName ) );
@@ -1249,9 +1338,22 @@ void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 		headModelName[0] = 0;
 	}
 
-	if ( !CG_RegisterClientModelname( ci, headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName) ) 
+	registered = CG_RegisterClientModelname( ci, headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName);
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientRenderInfo requested result=%d head='%s/%s' torso='%s/%s' legs='%s/%s'",
+		registered ? 1 : 0,
+		headModelName, headSkinName,
+		torsoModelName, torsoSkinName,
+		legsModelName, legsSkinName);
+#endif
+	if ( !registered )
 	{
-		if ( !CG_RegisterClientModelname( ci, DEFAULT_HEADMODEL, "default", DEFAULT_TORSOMODEL, "default", DEFAULT_LEGSMODEL, "default" ) ) 
+		registered = CG_RegisterClientModelname( ci, DEFAULT_HEADMODEL, "default", DEFAULT_TORSOMODEL, "default", DEFAULT_LEGSMODEL, "default" );
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientRenderInfo default result=%d head='%s' torso='%s' legs='%s'",
+			registered ? 1 : 0, DEFAULT_HEADMODEL, DEFAULT_TORSOMODEL, DEFAULT_LEGSMODEL);
+#endif
+		if ( !registered )
 		{
 			CG_Error( "DEFAULT_MODELS failed to register");
 		}
@@ -1353,6 +1455,9 @@ void CG_RegisterClientModels (int entityNum)
 
 	if(entityNum < 0 || entityNum > ENTITYNUM_WORLD)
 	{
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModels rejected entity=%d", entityNum);
+#endif
 		return;
 	}
 
@@ -1360,17 +1465,39 @@ void CG_RegisterClientModels (int entityNum)
 
 	if(!ent->client)
 	{
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModels entity=%d has no client", entityNum);
+#endif
 		return;
 	}
 
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModels begin entity=%d ent=%p client=%p playerModel=%d infoValid=%d",
+		entityNum,
+		ent,
+		ent->client,
+		ent->playerModel,
+		ent->client->clientInfo.infoValid ? 1 : 0);
+#endif
 	ent->client->clientInfo.infoValid = qtrue;
 
 	if ( ent->playerModel != -1 && ent->ghoul2.size() )
 	{
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModels entity=%d already registered playerModel=%d", entityNum, ent->playerModel);
+#endif
 		return;
 	}
 
 	CG_RegisterClientRenderInfo(&ent->client->clientInfo, &ent->client->renderInfo);
+#ifdef _XBOX
+	XBLF("STEFX: CG_RegisterClientModels end entity=%d legs=%d torso=%d head=%d anim=%d",
+		entityNum,
+		ent->client->clientInfo.legsModel,
+		ent->client->clientInfo.torsoModel,
+		ent->client->clientInfo.headModel,
+		ent->client->clientInfo.animFileIndex);
+#endif
 
 	if(entityNum < MAX_CLIENTS)
 	{
@@ -1946,17 +2073,6 @@ Ghoul2 Insert End
 		gameEntityLimit,
 		globals.num_entities);
 #endif
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (cgs.mapname[0] && !Q_stricmpn(cgs.mapname, "hm_", 3))
-	{
-		/* The official Holomatch snapshot has its own client/entity ABI.
-		   The SP globals/in-use table can expose stale client slots here. */
-		Com_Printf("STEFX: CG_RegisterGraphics skipping legacy SP entity precache for Holomatch map %s\n",
-			cgs.mapname);
-	}
-	else
-#endif
-	{
 	for (i=0 ; i < gameEntityLimit ; i++)
 	{
 		if(PInUse(i) || i == 0)
@@ -1993,7 +2109,6 @@ Ghoul2 Insert End
 				}
 			}
 		}
-	}
 	}
 #ifdef _XBOX
 	XBLog_Write("JA: CG_RegisterGraphics after entity client/NPC precache");
@@ -2555,19 +2670,19 @@ void CG_Init( int serverCommandSequence ) {
 #ifdef _XBOX
 	XBLog_Write("STEFX: CG_Init EF loadscreen media begin");
 #endif
-	cgs.media.loading1		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece1.dds" );
-	cgs.media.loading2		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece2.dds" );
-	cgs.media.loading3		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece3.dds" );
-	cgs.media.loading4		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece4.dds" );
-	cgs.media.loading5		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece5.dds" );
-	cgs.media.loading6		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece6.dds" );
-	cgs.media.loading7		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece7.dds" );
-	cgs.media.loading8		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece8.dds" );
-	cgs.media.loading9		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece9.dds" );
-	cgs.media.loadingcircle	= cgi_R_RegisterShaderNoMip( "menu/loading/arrowpiece.dds" );
-	cgs.media.loadingquarter	= cgi_R_RegisterShaderNoMip( "menu/loading/quarter.dds" );
-	cgs.media.loadingcorner	= cgi_R_RegisterShaderNoMip( "menu/common/corner_lr_8_16.dds" );
-	cgs.media.loadingtrim	= cgi_R_RegisterShaderNoMip( "menu/loading/trimupper.dds" );
+	cgs.media.loading1		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece1.tga" );
+	cgs.media.loading2		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece2.tga" );
+	cgs.media.loading3		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece3.tga" );
+	cgs.media.loading4		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece4.tga" );
+	cgs.media.loading5		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece5.tga" );
+	cgs.media.loading6		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece6.tga" );
+	cgs.media.loading7		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece7.tga" );
+	cgs.media.loading8		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece8.tga" );
+	cgs.media.loading9		= cgi_R_RegisterShaderNoMip( "menu/loading/smpiece9.tga" );
+	cgs.media.loadingcircle	= cgi_R_RegisterShaderNoMip( "menu/loading/arrowpiece.tga" );
+	cgs.media.loadingquarter	= cgi_R_RegisterShaderNoMip( "menu/loading/quarter.tga" );
+	cgs.media.loadingcorner	= cgi_R_RegisterShaderNoMip( "menu/common/corner_lr_8_16.tga" );
+	cgs.media.loadingtrim	= cgi_R_RegisterShaderNoMip( "menu/loading/trimupper.tga" );
 	cg.loadLCARSStage		= 0;
 	cg.loadLCARScnt			= 0;
 #ifdef _XBOX

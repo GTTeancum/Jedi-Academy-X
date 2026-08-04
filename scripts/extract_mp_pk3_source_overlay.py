@@ -42,11 +42,17 @@ def should_extract(name: str) -> bool:
     return False
 
 
-def extract_overlay(base_dir: Path) -> dict[str, object]:
+def extract_overlay(base_dir: Path, archive_dir: Path) -> dict[str, object]:
     archives = sorted(
-        (path for path in base_dir.iterdir() if path.is_file() and PAK_NAME.match(path.name)),
+        (
+            path
+            for path in archive_dir.iterdir()
+            if path.is_file() and PAK_NAME.match(path.name)
+        ),
         key=archive_sort_key,
     )
+    if not archives:
+        raise FileNotFoundError(f"no retail PAK archives found in {archive_dir}")
     extracted: dict[str, str] = {}
     archive_counts: dict[str, int] = {}
 
@@ -68,6 +74,7 @@ def extract_overlay(base_dir: Path) -> dict[str, object]:
         archive_counts[archive.name] = count
 
     manifest = {
+        "archiveSource": str(archive_dir),
         "archives": [archive.name for archive in archives],
         "archiveCounts": archive_counts,
         "extractedFiles": len(extracted),
@@ -86,12 +93,16 @@ def extract_overlay(base_dir: Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-dir", required=True, type=Path)
+    parser.add_argument("--archive-dir", type=Path)
     args = parser.parse_args()
     base_dir = args.base_dir.resolve()
     if not base_dir.is_dir():
         raise SystemExit(f"BaseEF directory not found: {base_dir}")
+    archive_dir = (args.archive_dir or base_dir).resolve()
+    if not archive_dir.is_dir():
+        raise SystemExit(f"Retail PK3 archive directory not found: {archive_dir}")
 
-    manifest = extract_overlay(base_dir)
+    manifest = extract_overlay(base_dir, archive_dir)
     print(
         "Materialized official MP PK3 source overlay: "
         f"{manifest['extractedFiles']} files, "

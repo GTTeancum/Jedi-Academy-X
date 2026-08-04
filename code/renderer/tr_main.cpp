@@ -23,6 +23,87 @@ extern "C" volatile unsigned int g_SPXBHelmetRendererSurfaces;
 extern "C" volatile unsigned int g_SPXBHelmetRendererFiltered;
 extern "C" volatile unsigned int g_SPXBHelmetRendererLastFilter;
 extern "C" volatile unsigned int g_SPXBHelmetRendererLastSurfaceModel;
+extern "C" volatile unsigned int g_SPXBPerfRenderTotalMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderSetupMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderMarkLeavesMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderWorldMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderPolysMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderProjectionMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderEntitiesMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderSortMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderDebugMsec;
+extern "C" volatile unsigned int g_SPXBPerfRenderViews;
+extern "C" volatile unsigned int g_SPXBPerfRenderPortals;
+extern "C" volatile unsigned int g_SPXBPerfRenderDrawSurfs;
+extern "C" volatile unsigned int g_SPXBPerfRenderRefEntities;
+extern "C" volatile unsigned int g_SPXBPerfRenderLeafs;
+
+typedef struct stefxRendererPerf_s
+{
+	unsigned int setupMsec;
+	unsigned int markLeavesMsec;
+	unsigned int worldMsec;
+	unsigned int polysMsec;
+	unsigned int projectionMsec;
+	unsigned int entitiesMsec;
+	unsigned int sortMsec;
+	unsigned int debugMsec;
+	unsigned int views;
+	unsigned int portalViews;
+	unsigned int drawSurfs;
+	unsigned int entities;
+	unsigned int leafs;
+} stefxRendererPerf_t;
+
+static stefxRendererPerf_t s_stefxRendererPerf;
+
+void R_STEFX_PerfBeginScene( void )
+{
+	memset( &s_stefxRendererPerf, 0, sizeof( s_stefxRendererPerf ) );
+}
+
+void R_STEFX_PerfEndScene( int totalMsec )
+{
+	static int s_lastReportMsec = 0;
+	const int now = Sys_Milliseconds();
+
+	g_SPXBPerfRenderTotalMsec = (unsigned int)totalMsec;
+	g_SPXBPerfRenderSetupMsec = s_stefxRendererPerf.setupMsec;
+	g_SPXBPerfRenderMarkLeavesMsec = s_stefxRendererPerf.markLeavesMsec;
+	g_SPXBPerfRenderWorldMsec = s_stefxRendererPerf.worldMsec;
+	g_SPXBPerfRenderPolysMsec = s_stefxRendererPerf.polysMsec;
+	g_SPXBPerfRenderProjectionMsec = s_stefxRendererPerf.projectionMsec;
+	g_SPXBPerfRenderEntitiesMsec = s_stefxRendererPerf.entitiesMsec;
+	g_SPXBPerfRenderSortMsec = s_stefxRendererPerf.sortMsec;
+	g_SPXBPerfRenderDebugMsec = s_stefxRendererPerf.debugMsec;
+	g_SPXBPerfRenderViews = s_stefxRendererPerf.views;
+	g_SPXBPerfRenderPortals = s_stefxRendererPerf.portalViews;
+	g_SPXBPerfRenderDrawSurfs = s_stefxRendererPerf.drawSurfs;
+	g_SPXBPerfRenderRefEntities = s_stefxRendererPerf.entities;
+	g_SPXBPerfRenderLeafs = s_stefxRendererPerf.leafs;
+
+	if ( s_lastReportMsec == 0 || now - s_lastReportMsec >= 10000 )
+	{
+		XBLog_WriteCriticalf(
+			"STEFX_RENDER_PROFILE: total=%d setup=%u mark=%u world=%u polys=%u projection=%u "
+			"entities=%u sort=%u debug=%u views=%u portals=%u drawSurfs=%u refEntities=%u leafs=%u",
+			totalMsec,
+			s_stefxRendererPerf.setupMsec,
+			s_stefxRendererPerf.markLeavesMsec,
+			s_stefxRendererPerf.worldMsec,
+			s_stefxRendererPerf.polysMsec,
+			s_stefxRendererPerf.projectionMsec,
+			s_stefxRendererPerf.entitiesMsec,
+			s_stefxRendererPerf.sortMsec,
+			s_stefxRendererPerf.debugMsec,
+			s_stefxRendererPerf.views,
+			s_stefxRendererPerf.portalViews,
+			s_stefxRendererPerf.drawSurfs,
+			s_stefxRendererPerf.entities,
+			s_stefxRendererPerf.leafs );
+		s_lastReportMsec = now;
+	}
+}
 #endif
 
 void R_AddTerrainSurfaces(void);
@@ -1598,6 +1679,7 @@ void R_AddEntitySurfaces (void) {
 		case RT_LATHE:
 		case RT_CLOUDS:
 		case RT_LINE:
+#if defined(STEFX_SP_HOSTED_MP)
 		case RT_TEXTURED_LINE:
 		case RT_ORIENTED_LINE:
 		case RT_TAPERED_LINE:
@@ -1607,6 +1689,7 @@ void R_AddEntitySurfaces (void) {
 		case RT_EF_LIGHTNING:
 		case RT_EF_CYLINDER:
 		case RT_EF_ELECTRICITY:
+#endif
 		case RT_ELECTRICITY:
 		case RT_SABER_GLOW:
 			// self blood sprites, talk balloons, etc should not be drawn in the primary
@@ -1730,6 +1813,7 @@ extern void R_MarkLeaves(mleaf_s*);
 void R_GenerateDrawSurfs( bool isPortal ) {
 	static int s_xboxGenerateLogBudget = 48;
 	int xboxDrawBefore = tr.refdef.numDrawSurfs;
+	int xboxPhaseStart;
 	if (s_xboxGenerateLogBudget > 0) {
 		XBLF("JA: R_GenerateDrawSurfs enter portal=%d rd=0x%x draw=%d visCount=%d viewCluster=%d world=%p '%s'",
 			(int)isPortal,
@@ -1742,6 +1826,7 @@ void R_GenerateDrawSurfs( bool isPortal ) {
 	}
 
 	// determine which leaves are in the PVS / areamask
+	xboxPhaseStart = Sys_Milliseconds();
 	if ( !(tr.refdef.rdflags & RDF_NOWORLDMODEL) ) {
 		R_MarkLeaves (NULL);
 		if (s_xboxGenerateLogBudget > 0) {
@@ -1752,8 +1837,12 @@ void R_GenerateDrawSurfs( bool isPortal ) {
 				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
 		}
 	}
+	s_stefxRendererPerf.markLeavesMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
 
+	xboxPhaseStart = Sys_Milliseconds();
 	R_AddWorldSurfaces ();
+	s_stefxRendererPerf.worldMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
+	s_stefxRendererPerf.leafs += (unsigned int)tr.pc.c_leafs;
 	if (s_xboxGenerateLogBudget > 0) {
 		XBLF("JA: R_GenerateDrawSurfs after AddWorld delta=%d draw=%d leafs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
 			tr.refdef.numDrawSurfs - xboxDrawBefore,
@@ -1767,7 +1856,9 @@ void R_GenerateDrawSurfs( bool isPortal ) {
 			tr.viewParms.visBounds[1][2]);
 	}
 
+	xboxPhaseStart = Sys_Milliseconds();
 	R_AddPolygonSurfaces();
+	s_stefxRendererPerf.polysMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
 	if (s_xboxGenerateLogBudget > 0) {
 		XBLF("JA: R_GenerateDrawSurfs after AddPolys delta=%d draw=%d polys=%d",
 			tr.refdef.numDrawSurfs - xboxDrawBefore,
@@ -1782,9 +1873,14 @@ void R_GenerateDrawSurfs( bool isPortal ) {
 	// this needs to be done before entities are
 	// added, because they use the projection
 	// matrix for lod calculation
+	xboxPhaseStart = Sys_Milliseconds();
 	R_SetupProjection ();
+	s_stefxRendererPerf.projectionMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
 
+	xboxPhaseStart = Sys_Milliseconds();
 	R_AddEntitySurfaces ();
+	s_stefxRendererPerf.entitiesMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
+	s_stefxRendererPerf.entities += (unsigned int)tr.refdef.num_entities;
 	if (s_xboxGenerateLogBudget > 0) {
 		XBLF("JA: R_GenerateDrawSurfs exit delta=%d draw=%d ents=%d",
 			tr.refdef.numDrawSurfs - xboxDrawBefore,
@@ -1927,6 +2023,7 @@ void R_RenderView (viewParms_t *parms) {
 	int		firstDrawSurf;
 #ifdef _XBOX
 	static int s_xboxRenderViewLogBudget = 48;
+	int xboxPhaseStart;
 #endif
 
 #ifdef _XBOX
@@ -1975,6 +2072,15 @@ void R_RenderView (viewParms_t *parms) {
 
 	tr.viewCount++;
 
+#ifdef _XBOX
+	xboxPhaseStart = Sys_Milliseconds();
+	++s_stefxRendererPerf.views;
+	if ( parms->isPortal )
+	{
+		++s_stefxRendererPerf.portalViews;
+	}
+#endif
+
 	tr.viewParms = *parms;
 	tr.viewParms.frameSceneNum = tr.frameSceneNum;
 	tr.viewParms.frameCount = tr.frameCount;
@@ -2018,6 +2124,9 @@ void R_RenderView (viewParms_t *parms) {
 	{	// Trying to do this with no world is not good.
 		R_SetViewFogIndex ();
 	}
+#ifdef _XBOX
+	s_stefxRendererPerf.setupMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
+#endif
 
 #ifdef _XBOX
 	R_GenerateDrawSurfs(parms->isPortal);
@@ -2034,8 +2143,13 @@ void R_RenderView (viewParms_t *parms) {
 	}
 #endif
 
+#ifdef _XBOX
+	xboxPhaseStart = Sys_Milliseconds();
+#endif
 	R_SortDrawSurfs( tr.refdef.drawSurfs + firstDrawSurf, tr.refdef.numDrawSurfs - firstDrawSurf );
 #ifdef _XBOX
+	s_stefxRendererPerf.sortMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
+	s_stefxRendererPerf.drawSurfs += (unsigned int)(tr.refdef.numDrawSurfs - firstDrawSurf);
 	if (s_xboxRenderViewLogBudget > 0) {
 		XBLF("JA: R_RenderView exit sortedDelta=%d draw=%d",
 			tr.refdef.numDrawSurfs - firstDrawSurf,
@@ -2045,5 +2159,11 @@ void R_RenderView (viewParms_t *parms) {
 #endif
 
 	// draw main system development information (surface outlines, etc)
+#ifdef _XBOX
+	xboxPhaseStart = Sys_Milliseconds();
+#endif
 	R_DebugGraphics();
+#ifdef _XBOX
+	s_stefxRendererPerf.debugMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
+#endif
 }

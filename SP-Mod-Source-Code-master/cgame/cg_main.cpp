@@ -28,6 +28,16 @@ void CG_DrawMissionInformation( void );
 #define BORG_CHUNKS		3	
 #define STASIS_CHUNKS	4
 
+#ifdef _XBOX
+static qboolean s_stefxFirstActiveFramePending = qtrue;
+#if defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+#define STEFX_MODEL_PHASE(stage) \
+	( g_SPXBPhaseLast = 0xE0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
+		( g_SPXBPhaseLast & 0xffffu ) )
+#endif
+#endif
+
 
 /*
 ================
@@ -48,6 +58,7 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 	switch ( command ) {
 	case CG_INIT:
 #ifdef _XBOX
+		s_stefxFirstActiveFramePending = qtrue;
 		XBLF("STEFX: cg_vmMain before CG_Init seq=%d", arg0);
 #endif
 		CG_Init( arg0 );
@@ -62,6 +73,10 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 		return CG_ConsoleCommand();
 	case CG_DRAW_ACTIVE_FRAME:
 #ifdef _XBOX
+		if (s_stefxFirstActiveFramePending)
+		{
+			XBLog_WriteCriticalf("STEFX_HW_CHECKPOINT: first active frame begin serverTime=%d stereo=%d", arg0, arg1);
+		}
 		if (arg0 >= 3400 && arg0 <= 4600)
 		{
 			XBLF("JA: CL_EARLY EF cg_vmMain before CG_DrawActiveFrame serverTime=%d stereo=%d", arg0, arg1);
@@ -69,6 +84,11 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 #endif
 		CG_DrawActiveFrame( arg0, (stereoFrame_t) arg1 );
 #ifdef _XBOX
+		if (s_stefxFirstActiveFramePending)
+		{
+			XBLog_WriteCriticalf("STEFX_HW_CHECKPOINT: first active frame complete serverTime=%d stereo=%d", arg0, arg1);
+			s_stefxFirstActiveFramePending = qfalse;
+		}
 		if (arg0 >= 3400 && arg0 <= 4600)
 		{
 			XBLF("JA: CL_EARLY EF cg_vmMain after CG_DrawActiveFrame serverTime=%d stereo=%d", arg0, arg1);
@@ -614,8 +634,27 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	char		tfilename[MAX_QPATH];
 	char		lfilename[MAX_QPATH];
 
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client skin begin head='%s/%s' torso='%s/%s' legs='%s/%s'",
+		headModelName ? headModelName : "<null>",
+		headSkinName ? headSkinName : "<null>",
+		torsoModelName ? torsoModelName : "<null>",
+		torsoSkinName ? torsoSkinName : "<null>",
+		legsModelName ? legsModelName : "<null>",
+		legsSkinName ? legsSkinName : "<null>");
+#endif
+
 	Com_sprintf( lfilename, sizeof( lfilename ), "models/players/%s/lower_%s.skin", legsModelName, legsSkinName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x21 );
+#endif
 	ci->legsSkin = cgi_R_RegisterSkin( lfilename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x22 );
+#endif
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client skin legs '%s' -> %d", lfilename, ci->legsSkin);
+#endif
 
 	if ( !ci->legsSkin )
 	{
@@ -626,7 +665,16 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	if(torsoModelName && torsoSkinName && torsoModelName[0] && torsoSkinName[0])
 	{
 		Com_sprintf( tfilename, sizeof( tfilename ), "models/players/%s/upper_%s.skin", torsoModelName, torsoSkinName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x23 );
+#endif
 		ci->torsoSkin = cgi_R_RegisterSkin( tfilename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x24 );
+#endif
+#ifdef _XBOX
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client skin torso '%s' -> %d", tfilename, ci->torsoSkin);
+#endif
 
 		if ( !ci->torsoSkin )
 		{
@@ -638,7 +686,16 @@ qboolean	CG_RegisterClientSkin( clientInfo_t *ci,
 	if(headModelName && headSkinName && headModelName[0] && headSkinName[0])
 	{
 		Com_sprintf( hfilename, sizeof( hfilename ), "models/players/%s/head_%s.skin", headModelName, headSkinName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x25 );
+#endif
 		ci->headSkin = cgi_R_RegisterSkin( hfilename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x26 );
+#endif
+#ifdef _XBOX
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client skin head '%s' -> %d", hfilename, ci->headSkin);
+#endif
 		if (ci->headSkin <0) {	//have extensions
 			ci->extensions = qtrue;
 			ci->headSkin = -ci->headSkin;
@@ -668,17 +725,41 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 {
 	char		filename[MAX_QPATH];
 
-	Com_sprintf( filename, sizeof( filename ), "models/players/%s/lower.mdr", legsModelName );
-	ci->legsModel = cgi_R_RegisterModel( filename );
 #ifdef _XBOX
-	XBLF("STEFX: CG_RegisterClientModelname legs MDR '%s' -> %d", filename, ci->legsModel);
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model begin head='%s/%s' torso='%s/%s' legs='%s/%s'",
+		headModelName ? headModelName : "<null>",
+		headSkinName ? headSkinName : "<null>",
+		torsoModelName ? torsoModelName : "<null>",
+		torsoSkinName ? torsoSkinName : "<null>",
+		legsModelName ? legsModelName : "<null>",
+		legsSkinName ? legsSkinName : "<null>");
+#endif
+	Com_sprintf( filename, sizeof( filename ), "models/players/%s/lower.mdr", legsModelName );
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model before legs MDR '%s'", filename);
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x11 );
+#endif
+	ci->legsModel = cgi_R_RegisterModel( filename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x12 );
+#endif
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model legs MDR '%s' -> %d", filename, ci->legsModel);
 #endif
 	if ( !ci->legsModel ) 
 	{//he's not skeletal, try the old way
 		Com_sprintf( filename, sizeof( filename ), "models/players/%s/lower.md3", legsModelName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x13 );
+#endif
 		ci->legsModel = cgi_R_RegisterModel( filename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x14 );
+#endif
 #ifdef _XBOX
-		XBLF("STEFX: CG_RegisterClientModelname legs MD3 '%s' -> %d", filename, ci->legsModel);
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model legs MD3 '%s' -> %d", filename, ci->legsModel);
 #endif
 		if ( !ci->legsModel )
 		{
@@ -690,16 +771,28 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 	if(torsoModelName && torsoModelName[0])
 	{//You are trying to set one
 		Com_sprintf( filename, sizeof( filename ), "models/players/%s/upper.mdr", torsoModelName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x15 );
+#endif
 		ci->torsoModel = cgi_R_RegisterModel( filename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x16 );
+#endif
 #ifdef _XBOX
-		XBLF("STEFX: CG_RegisterClientModelname torso MDR '%s' -> %d", filename, ci->torsoModel);
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model torso MDR '%s' -> %d", filename, ci->torsoModel);
 #endif
 		if ( !ci->torsoModel ) 
 		{//he's not skeletal, try the old way
 			Com_sprintf( filename, sizeof( filename ), "models/players/%s/upper.md3", torsoModelName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_MODEL_PHASE( 0x17 );
+#endif
 			ci->torsoModel = cgi_R_RegisterModel( filename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			STEFX_MODEL_PHASE( 0x18 );
+#endif
 #ifdef _XBOX
-			XBLF("STEFX: CG_RegisterClientModelname torso MD3 '%s' -> %d", filename, ci->torsoModel);
+			XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model torso MD3 '%s' -> %d", filename, ci->torsoModel);
 #endif
 			if ( !ci->torsoModel ) 
 			{
@@ -716,9 +809,15 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 	if(headModelName && headModelName[0])
 	{//You are trying to set one
 		Com_sprintf( filename, sizeof( filename ), "models/players/%s/head.md3", headModelName );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x19 );
+#endif
 		ci->headModel = cgi_R_RegisterModel( filename );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_MODEL_PHASE( 0x1a );
+#endif
 #ifdef _XBOX
-		XBLF("STEFX: CG_RegisterClientModelname head MD3 '%s' -> %d", filename, ci->headModel);
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model head MD3 '%s' -> %d", filename, ci->headModel);
 #endif
 		if ( !ci->headModel ) 
 		{
@@ -737,7 +836,7 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 	{
 		//Com_Printf( "Failed to load skin file: %s : %s/%s : %s/%s : %s\n", headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName );
 #ifdef _XBOX
-		XBLF("STEFX: CG_RegisterClientModelname skin failed head='%s/%s' torso='%s/%s' legs='%s/%s'",
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model skin failed head='%s/%s' torso='%s/%s' legs='%s/%s'",
 			headModelName ? headModelName : "",
 			headSkinName ? headSkinName : "",
 			torsoModelName ? torsoModelName : "",
@@ -750,19 +849,25 @@ qboolean CG_RegisterClientModelname( clientInfo_t *ci,
 
 	//FIXME: for now, uses the legs model dir for anim cfg, but should we set this in some sort of NPCs.cfg?
 	// load the animation file set
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x31 );
+#endif
 	if ( !G_ParseAnimFileSet( legsModelName, &ci->animFileIndex, qtrue ) ) 
 	{
 		Com_Printf( S_COLOR_RED"Failed to load animation file set models/players/%s\n", legsModelName );
 #ifdef _XBOX
-		XBLF("STEFX: CG_RegisterClientModelname anim failed legs='%s' animIndex=%d",
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model anim failed legs='%s' animIndex=%d",
 			legsModelName ? legsModelName : "",
 			ci->animFileIndex);
 #endif
 		return qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x32 );
+#endif
 
 #ifdef _XBOX
-	XBLF("STEFX: CG_RegisterClientModelname success headModel=%d torsoModel=%d legsModel=%d headSkin=%d torsoSkin=%d legsSkin=%d animIndex=%d",
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: client model success headModel=%d torsoModel=%d legsModel=%d headSkin=%d torsoSkin=%d legsSkin=%d animIndex=%d",
 		ci->headModel,
 		ci->torsoModel,
 		ci->legsModel,
@@ -785,11 +890,28 @@ void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 	char			torsoSkinName[MAX_QPATH];
 	char			legsSkinName[MAX_QPATH];
 
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: render info entry ci=%p ri=%p legsPtr=%p torsoPtr=%p headPtr=%p",
+		ci,
+		ri,
+		ri ? ri->legsModelName : NULL,
+		ri ? ri->torsoModelName : NULL,
+		ri ? ri->headModelName : NULL);
+#endif
 	if(!ri->legsModelName || !ri->legsModelName[0])
 	{//Must have at LEAST a legs model
+#ifdef _XBOX
+		XBLog_Write("STEFX: CG_RegisterClientRenderInfo no legs model");
+#endif
 		return;
 	}
 
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: render info raw legs='%s' torso='%s' head='%s'",
+		ri->legsModelName,
+		(ri->torsoModelName && ri->torsoModelName[0]) ? ri->torsoModelName : "<empty>",
+		(ri->headModelName && ri->headModelName[0]) ? ri->headModelName : "<empty>");
+#endif
 	Q_strncpyz( legsModelName, ri->legsModelName, sizeof( legsModelName ) );
 	//Legs skin
 	slash = strchr( legsModelName, '/' );
@@ -853,7 +975,7 @@ void CG_RegisterClientRenderInfo(clientInfo_t *ci, renderInfo_t *ri)
 	if ( !CG_RegisterClientModelname( ci, headModelName, headSkinName, torsoModelName, torsoSkinName, legsModelName, legsSkinName) ) 
 	{
 #ifdef _XBOX
-		XBLF("STEFX: CG_RegisterClientRenderInfo fallback requested head='%s' torso='%s' legs='%s'",
+		XBLog_WriteCriticalf("STEFX_MODEL_BOOT: render info fallback requested head='%s' torso='%s' legs='%s'",
 			headModelName, torsoModelName, legsModelName);
 #endif
 #if defined(_XBOX) && defined(STEFX_XBOX_SURVIVAL_HACKS)
@@ -890,10 +1012,29 @@ void CG_RegisterClientModels (int entityNum)
 
 	if(!ent->client)
 	{
+#ifdef _XBOX
+		XBLF("STEFX: CG_RegisterClientModels entity=%d has no client", entityNum);
+#endif
 		return;
 	}
 
+#ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPhaseLast = 0xE0000000u | ( (unsigned int)entityNum & 0xffffu );
+#endif
+	XBLog_WriteCriticalf("STEFX_MODEL_BOOT: register client entity=%d ent=%p client=%p infoValid=%d",
+		entityNum,
+		ent,
+		ent->client,
+		ent->client->clientInfo.infoValid ? 1 : 0);
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x01 );
+#endif
 	CG_RegisterClientRenderInfo(&ent->client->clientInfo, &ent->client->renderInfo);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_MODEL_PHASE( 0x02 );
+#endif
 
 	ent->client->clientInfo.infoValid = qtrue;
 
@@ -990,29 +1131,24 @@ static void CG_RegisterGraphics( void ) {
 	cgi_R_LoadWorldMap( cgs.mapname );
 #ifdef _XBOX
 	XBLog_Write("STEFX: CG_RegisterGraphics after cgi_R_LoadWorldMap");
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics world map complete" );
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics media shader refresh begin" );
 #endif
 
 	cg.loadLCARSStage = 4;
 	CG_LoadingString( "game media shaders" );
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics media shader refresh complete" );
+#endif
 
 	for ( i=0; i < 11; i++ )
 	{
-		#ifdef _XBOX
-		XBLF("STEFX_TRACE_SP_NUMBERS before large i=%d name='%s'", i, sb_nums[i]);
-		#endif
 		cgs.media.numberShaders[i] = cgi_R_RegisterShaderNoMip( sb_nums[i] );
-		#ifdef _XBOX
-		XBLF("STEFX_TRACE_SP_NUMBERS after large i=%d handle=%d", i, cgs.media.numberShaders[i]);
-		XBLF("STEFX_TRACE_SP_NUMBERS before small i=%d name='%s'", i, sb_t_nums[i]);
-		#endif
 		cgs.media.smallnumberShaders[i] = cgi_R_RegisterShaderNoMip( sb_t_nums[i] );
-		#ifdef _XBOX
-		XBLF("STEFX_TRACE_SP_NUMBERS after small i=%d handle=%d", i, cgs.media.smallnumberShaders[i]);
-		#endif
 	}
-	#ifdef _XBOX
-	XBLog_Write("STEFX_TRACE_SP_NUMBERS complete");
-	#endif
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics number shaders complete" );
+#endif
 
 	cgs.media.sparkShader				= cgi_R_RegisterShader( "gfx/misc/spark" );
 	cgs.media.spark2Shader				= cgi_R_RegisterShader( "gfx/misc/spark2" );
@@ -1033,6 +1169,9 @@ static void CG_RegisterGraphics( void ) {
 	for ( i = 0; i < 4; i++ ) {
 		cgs.media.borgLightningShaders[i] = cgi_R_RegisterShader( va( "gfx/misc/blightning%i", i+1 ) );
 	}
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics primary effect shaders complete" );
+#endif
 	
 	cgs.media.solidWhiteShader			= cgi_R_RegisterShader( "white2" );
 	
@@ -1059,6 +1198,9 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.stasisBoltShader			= cgi_R_RegisterShader( "gfx/effects/electric_stasis" );
 	cgs.media.fountainShader			= cgi_R_RegisterShader( "garden/fountain" );
 	cgs.media.rippleShader				= cgi_R_RegisterShader( "garden/ripple" );
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics particle shaders complete" );
+#endif
 
 	//on players
 	cgs.media.psychicShader				= cgi_R_RegisterShader( "gfx/misc/psychic" );
@@ -1073,6 +1215,9 @@ static void CG_RegisterGraphics( void ) {
 	
 	cgs.media.trans1Shader			= cgi_R_RegisterShader( "gfx/misc/trans1" );
 	cgs.media.trans2Shader			= cgi_R_RegisterShader( "gfx/misc/trans2" );
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics player effect shaders complete" );
+#endif
 
 	//interface
 	for ( i = 0 ; i < NUM_CROSSHAIRS ; i++ ) {
@@ -1088,9 +1233,16 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.zoomArrowShader		= cgi_R_RegisterShaderNoMip( "gfx/2d/arrow" );
 	cgs.media.zoomInsertShader		= cgi_R_RegisterShaderNoMip( "gfx/misc/zoom_insert" );
 	cgs.media.zoomInsert2Shader		= cgi_R_RegisterShaderNoMip( "gfx/misc/zoom_insert2" );
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics media shaders complete" );
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics media model refresh begin" );
+#endif
 
 	cg.loadLCARSStage = 5;
 	CG_LoadingString( "game media models" );
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics media model refresh complete" );
+#endif
 	
 	// Chunk models
 	//FIXME: jfm:? bother to conditionally load these if an ent has this material type?
@@ -1117,6 +1269,9 @@ static void CG_RegisterGraphics( void ) {
 	for (i = 0; i < STASIS_CHUNKS; i++)
 		cgs.media.stasisChunkModels[0][i] = cgi_R_RegisterModel( va( "models/chunks/stasis/stasis_%i.md3", i+1 ) );
 	cgs.media.stasisChunkSound = cgi_S_RegisterSound("sound/weapons/explosions/mine1.wav");
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics chunk media complete" );
+#endif
 
 	//Models & Shaders
 	cgs.media.laserShader		= cgi_R_RegisterShader ( "textures/borg/rbeam" );
@@ -1127,6 +1282,10 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.vohrConeShader	= cgi_R_RegisterShader( /*"gfx/effects/vor_cone"*/"textures/borg/rbeam" );
 
 	cg.loadLCARSStage = 6;
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics common model effects complete" );
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics item visuals begin" );
+#endif
 
 	memset( cg_items, 0, sizeof( cg_items ) );
 	memset( cg_weapons, 0, sizeof( cg_weapons ) );
@@ -1144,6 +1303,9 @@ static void CG_RegisterGraphics( void ) {
 			}
 		}
 	}
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics item visuals complete" );
+#endif
 
 	// wall marks
 	cgs.media.compressionMarkShader			= cgi_R_RegisterShader( "gfx/damage/burnmark1" );
@@ -1156,6 +1318,10 @@ static void CG_RegisterGraphics( void ) {
 	cgs.media.shadowMarkShader	= cgi_R_RegisterShader( "markShadow" );
 	cgs.media.wakeMarkShader	= cgi_R_RegisterShader( "wake" );
 
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics mark shaders complete" );
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics inline models begin" );
+#endif
 	CG_LoadingString("map brushes");
 	// register the inline models
 	cgs.numInlineModels = cgi_CM_NumInlineModels();
@@ -1171,8 +1337,15 @@ static void CG_RegisterGraphics( void ) {
 			cgs.inlineModelMidpoints[i][j] = mins[j] + 0.5 * ( maxs[j] - mins[j] );
 		}
 	}
+#ifdef _XBOX
+	XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: graphics inline models complete count=%d",
+		cgs.numInlineModels );
+#endif
 
 	cg.loadLCARSStage = 7;
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics server models begin" );
+#endif
 	CG_LoadingString("map models");
 	// register all the server specified models
 	for (i=1 ; i<MAX_MODELS ; i++) {
@@ -1184,9 +1357,13 @@ static void CG_RegisterGraphics( void ) {
 		}
 		cgs.model_draw[i] = cgi_R_RegisterModel( modelName );
 	}
+#ifdef _XBOX
+	XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: graphics server models complete count=%d", i - 1 );
+#endif
 
 #ifdef _XBOX
 	XBLog_Write("STEFX: CG_RegisterGraphics before client config loop");
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics client configs begin" );
 #endif
 	for (i=0 ; i<MAX_CLIENTS ; i++) 
 	{
@@ -1211,24 +1388,14 @@ static void CG_RegisterGraphics( void ) {
 #ifdef _XBOX
 	XBLog_Write("STEFX: CG_RegisterGraphics after client config loop");
 	XBLog_Write("STEFX: CG_RegisterGraphics before entity precache loop");
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics client configs complete" );
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics entity precache begin" );
 	int stefxEntityPrecacheLogBudget = 96;
 #endif
 #ifdef _XBOX
 	XBLF("STEFX: CG_RegisterGraphics entity precache limit=%d", ENTITYNUM_WORLD);
 #endif
-	qboolean stefxSkipLegacyEntityPrecache = qfalse;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (cgs.mapname[0] &&
-		(!Q_stricmpn(cgs.mapname, "hm_", 3) ||
-		 !Q_stricmpn(cgs.mapname, "maps/hm_", 8)))
-	{
-		/* The official Holomatch snapshot has its own client/entity ABI. */
-		XBLF("STEFX: CG_RegisterGraphics skipping legacy SP entity precache for Holomatch map %s",
-			cgs.mapname);
-		stefxSkipLegacyEntityPrecache = qtrue;
-	}
-#endif
-	for (i=0 ; i < ENTITYNUM_WORLD && !stefxSkipLegacyEntityPrecache ; i++)
+	for (i=0 ; i < ENTITYNUM_WORLD ; i++)
 	{
 		if(g_entities[i].inuse || i == 0)
 		{
@@ -1371,6 +1538,7 @@ static void CG_RegisterGraphics( void ) {
 #ifdef _XBOX
 	XBLog_Write("STEFX: CG_RegisterGraphics after entity precache loop");
 	XBLog_Write("STEFX: CG_RegisterGraphics before default greeting precache");
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics entity precache complete" );
 #endif
 	//always precache these, I guess...
 	CG_PrecachePlayerGreetingSound( "crewman" );
@@ -1382,6 +1550,7 @@ static void CG_RegisterGraphics( void ) {
 	CG_PrecachePlayerGreetingSound( "generic4" );
 #ifdef _XBOX
 	XBLog_Write("STEFX: CG_RegisterGraphics after default greeting precache");
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics default greetings complete" );
 #endif
 
 	cg.loadLCARSStage = 8;
@@ -1429,6 +1598,8 @@ static void CG_RegisterGraphics( void ) {
 		stefxHudGraphicCount,
 		stefxHudGraphicMissing,
 		interface_graphics[IG_GROW].type);
+	XBLog_WriteCriticalf( "STEFX_HW_CHECKPOINT: graphics HUD media complete count=%d missing=%d",
+		stefxHudGraphicCount, stefxHudGraphicMissing );
 #endif
 
 	//register speaker table skins
@@ -1439,6 +1610,9 @@ static void CG_RegisterGraphics( void ) {
 			speakerTable[i].headSkin = CG_RegisterHeadSkin( speakerTable[i].headModelFile, speakerTable[i].skinName, &speakerTable[i].extensions );
 		}
 	}
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics speaker skins complete" );
+#endif
 
 	cg.loadLCARSStage = 9;
 
@@ -1472,6 +1646,9 @@ static void CG_RegisterGraphics( void ) {
 		cgi_R_RegisterShader( "gfx/misc/nav_arrow" );
 		cgi_R_RegisterShader( "gfx/misc/nav_node" );
 	}
+#ifdef _XBOX
+	XBLog_WriteCritical( "STEFX_HW_CHECKPOINT: graphics registration complete" );
+#endif
 }
 
 //===========================================================================

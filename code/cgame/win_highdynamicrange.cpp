@@ -143,7 +143,7 @@ void VVHighDynamicRange::DrawHotBlur()
     glw_state->device->SetTextureStageState( 0, D3DTSS_MIPFILTER, D3DTEXF_NONE );
     glw_state->device->SetRenderState( D3DRS_ZENABLE, FALSE ); 
     glw_state->device->SetRenderState( D3DRS_ALPHATESTENABLE, FALSE );
-    
+
     XGCOLOR Blend(1.0f, 1.0f, 1.0f, 1.0f);
     Blend*= r_hdrbloom->value;//m_fBloomScale; // adjust blend amount
     glw_state->device->SetRenderState( D3DRS_TEXTUREFACTOR, Blend );
@@ -153,9 +153,9 @@ void VVHighDynamicRange::DrawHotBlur()
     glw_state->device->SetRenderState( D3DRS_BLENDOP, D3DBLENDOP_ADD );    
     glw_state->device->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_ONE );
     glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_ONE );
-    
+
     // Render the screen-aligned quadrilateral
-    glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX1 );
+    glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX1 );   
     glw_state->device->DrawVerticesUP( D3DPT_QUADSTRIP, 4, v, sizeof(BACKGROUNDVERTEX) );
 
 	glw_state->device->SetRenderState( D3DRS_ZENABLE, TRUE );
@@ -201,12 +201,12 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         rectDst.right = (pRectSrc->right - pRectSrc->left) / nSuperSampleX;
         rectDst.bottom = (pRectSrc->bottom - pRectSrc->top) / nSuperSampleY;
         pRectDst = &rectDst;
-    }
+    } 
     assert( (pRectDst->right - pRectDst->left) ==
             (pRectSrc->right - pRectDst->left) / (INT)nSuperSampleX );
     assert( (pRectDst->bottom - pRectDst->top) ==
             (pRectSrc->bottom - pRectDst->top) / (INT)nSuperSampleY );
-    
+
     //Set render state for filtering
     glw_state->device->SetRenderState( D3DRS_LIGHTING, FALSE );
     glw_state->device->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
@@ -229,7 +229,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         glw_state->device->SetTexture( xx, pTextureSrc);  
         glw_state->device->SetTextureStageState( xx, D3DTSS_COLOROP, D3DTOP_DISABLE );
         glw_state->device->SetTextureStageState( xx, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
-        
+
         // Pass texture coords without transformation
         glw_state->device->SetTextureStageState( xx, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE );  
 
@@ -244,8 +244,8 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         glw_state->device->SetTextureStageState( xx, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE );
         glw_state->device->SetTextureStageState( xx, D3DTSS_COLORSIGN, 0 );
         glw_state->device->SetTextureStageState( xx, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE );
-    }
-    
+    } 
+
     // Use hot blur pixel shader
     if(bCrap)
         glw_state->device->SetPixelShader( m_dwExtractHotPixelShader );      
@@ -300,7 +300,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         u1 *= fWidthScale;
         v1 *= fHeightScale;
 	}
-    
+
     xx = 0; // current texture stage
     D3DCOLOR rColor[4];
     DWORD rPSInput[4];
@@ -332,7 +332,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         aQuad[2].tex[xx].v = v1 + fOffsetY;
         aQuad[3].tex[xx].u = u1 + fOffsetX;
         aQuad[3].tex[xx].v = v1 + fOffsetY;
-        
+
         xx++; // Go to next stage
         if( xx == 4 || iSample == nSample - 1 ) // max texture stages or last sample
         {
@@ -344,7 +344,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
                 rColor[xx] = 0;
                 rPSInput[xx] = PS_INPUTMAPPING_UNSIGNED_IDENTITY | PS_REGISTER_ZERO;
             }
-        
+
             // Set coefficients
             glw_state->device->SetRenderState( D3DRS_PSCONSTANT0_0, rColor[0] );
             glw_state->device->SetRenderState( D3DRS_PSCONSTANT1_0, rColor[1] );
@@ -391,7 +391,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
                                    PS_REGISTER_T3 | PS_CHANNEL_ALPHA |
                                        PS_INPUTMAPPING_SIGNED_IDENTITY ) );
 			}
-            
+
             // Draw the quad to filter the coefficients so far
             // One quad blends 4 textures
             glw_state->device->DrawPrimitiveUP( D3DPT_TRIANGLESTRIP, 2, aQuad, sizeof(Quad) ); 
@@ -409,7 +409,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         glw_state->device->SetTextureStageState( xx, D3DTSS_COLOROP, D3DTOP_DISABLE );
         glw_state->device->SetTextureStageState( xx, D3DTSS_ALPHAOP, D3DTOP_DISABLE );
         glw_state->device->SetTextureStageState( xx, D3DTSS_MIPMAPLODBIAS, 0 );
-    }
+    } 
 
     // Restore render target and zbuffer
     glw_state->device->SetRenderTarget( pRenderTarget, pZBuffer );
@@ -466,12 +466,12 @@ void VVHighDynamicRange::ExtractHot( LPDIRECT3DTEXTURE8 pTextureDst,
         rectDst.right = (pRectSrc->right - pRectSrc->left) / nSuperSampleX;
         rectDst.bottom = (pRectSrc->bottom - pRectSrc->top) / nSuperSampleY;
         pRectDst = &rectDst;
-    }
+    } 
     assert( (pRectDst->right - pRectDst->left) ==
             (pRectSrc->right - pRectDst->left) / (INT)nSuperSampleX );
     assert( (pRectDst->bottom - pRectDst->top) ==
             (pRectSrc->bottom - pRectDst->top) / (INT)nSuperSampleY );
-    
+
     //Set render state for filtering
     glw_state->device->SetRenderState( D3DRS_LIGHTING, FALSE );
     glw_state->device->SetRenderState( D3DRS_FILLMODE, D3DFILL_SOLID );
@@ -567,7 +567,7 @@ void VVHighDynamicRange::ExtractHot( LPDIRECT3DTEXTURE8 pTextureDst,
     // Set rendering to just the destination rect
     glw_state->device->SetScissors( 1, FALSE, (D3DRECT *)pRectDst );
 
-  
+
     // Draw a quad for each block of 4 filter coefficients
     float u0 = (float)pRectSrc->left;
     float v0 = (float)pRectSrc->top;
@@ -583,8 +583,8 @@ void VVHighDynamicRange::ExtractHot( LPDIRECT3DTEXTURE8 pTextureDst,
         v0 *= fHeightScale;
         u1 *= fWidthScale;
         v1 *= fHeightScale;
-    }
-    
+    } 
+
     aQuad[0].tex.u = u0;
     aQuad[0].tex.v = v0;
     aQuad[1].tex.u = u1;
@@ -631,7 +631,7 @@ void VVHighDynamicRange::HotBlur()
                         &RenderTargetTexture, pRenderTarget->Data,
                         descRenderTarget.Width * 4 );
     pRenderTarget->Release();
-    
+
     // Filters align to blurriest point in supersamples, on the pixel centers
     //   This takes advantage of the bilinear filtering in the texture map lookup.
     FilterSample YFilter[] =        // 1221 4-tap filter in Y
@@ -665,7 +665,7 @@ void VVHighDynamicRange::HotBlur()
     pTextureSrc = pTextureDst;  // destination is next blur texture
     pTextureDst = m_rpBlur[0];    // destination is blur texture
     FilterCopy(pTextureDst, pTextureSrc, 4, YFilter, 1, 2, false);
-        
+
     pTextureSrc = pTextureDst;  // source is previous blur texture
     pTextureDst = m_rpBlur[1];  // destination is next blur texture
     FilterCopy(pTextureDst, pTextureSrc, 4, XFilter, 2, 1, false);

@@ -58,6 +58,12 @@
 #include "../win32/xbox_texture_man.h"
 extern "C" void XBLog_Print(const char *msg);
 extern "C" volatile unsigned int g_SPXBBootPhase;
+#if defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+#define STEFX_ZONE_MODEL_PHASE(stage) \
+	( g_SPXBPhaseLast = 0xF0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
+		( g_SPXBPhaseLast & 0xffffu ) )
+#endif
 #if defined(_MSC_VER) && !defined(_M_PPC)
 extern "C" void *_ReturnAddress(void);
 #pragma intrinsic(_ReturnAddress)
@@ -933,6 +939,26 @@ static void Z_SetupAlignmentPad(void* pBlock, int iAlignPad, bool bLow)
 
 void Z_MallocFail(const char* pMessage, int iSize, memtag_t eTag)
 {
+	zmemstats_t stats;
+	char summary[256];
+
+	Z_GetMemoryStats(&stats);
+	_snprintf(summary, sizeof(summary) - 1,
+		"EFALLOC_FATAL: request=%d tag=%d zone=%d used=%d free=%d largest=%d blocks=%d peak=%d bsp=%d snd=%d fs=%d\n",
+		iSize,
+		(int)eTag,
+		stats.zoneSize,
+		stats.usedBytes,
+		stats.freeBytes,
+		stats.largestFreeBlock,
+		stats.freeBlocks,
+		stats.peakBytes,
+		stats.bspBytes,
+		stats.soundRawBytes,
+		stats.filesysBytes);
+	summary[sizeof(summary) - 1] = '\0';
+	XBLog_Print(summary);
+
 	// Report the error
 //	Com_Printf("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
 	Com_PrintfAlways("Z_Malloc(): %s : %d bytes and tag %d !!!!\n", pMessage, iSize, eTag);
@@ -983,7 +1009,19 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	}
 
 #ifndef _GAMECUBE
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (eTag == TAG_MODEL_MD3)
+	{
+		STEFX_ZONE_MODEL_PHASE( 0x60 );
+	}
+#endif
 	WaitForSingleObject(s_Mutex, INFINITE);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (eTag == TAG_MODEL_MD3)
+	{
+		STEFX_ZONE_MODEL_PHASE( 0x61 );
+	}
+#endif
 #endif
 	
 	// Make new/delete memory temporary if requested
@@ -1020,6 +1058,12 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	// from the end.  More permanent allocations are done at the
 	// begining of the pool.
 	ZoneFreeBlock* fblock;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (eTag == TAG_MODEL_MD3)
+	{
+		STEFX_ZONE_MODEL_PHASE( 0x62 );
+	}
+#endif
 	if (Z_IsTagTemp(eTag))
 	{
 		fblock = Z_FindLastFree(real_size, header_size, footer_size, 
@@ -1030,32 +1074,16 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 		fblock = Z_FindFirstFree(real_size, header_size, footer_size, 
 			iAlign, align_pad);
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (eTag == TAG_MODEL_MD3)
+	{
+		STEFX_ZONE_MODEL_PHASE( 0x63 );
+	}
+#endif
 
 	// Did we actually find some memory?
 	if (!fblock)
 	{
-#ifdef _XBOX
-		if (eTag == TAG_TEMP_WORKSPACE && iSize >= (1024 * 1024))
-		{
-			void *retaddr = NULL;
-#if defined(_MSC_VER) && !defined(_M_PPC)
-			retaddr = _ReturnAddress();
-#endif
-			char msg[224];
-			_snprintf(msg, sizeof(msg) - 1,
-				"EFALLOC: Z_Malloc temp fail size=%d tag=%d zero=%d align=%d free=%d largest=%d phase=%u caller=%p\n",
-				iSize,
-				(int)eTag,
-				(int)bZeroit,
-				iAlign,
-				s_Stats.m_SizeFree,
-				Z_LargestFreeBlock_NoLock(),
-				(unsigned int)g_SPXBBootPhase,
-				retaddr);
-			msg[sizeof(msg) - 1] = '\0';
-			XBLog_Print(msg);
-		}
-#endif
 #ifndef _GAMECUBE
 		ReleaseMutex(s_Mutex);
 #endif
@@ -1074,6 +1102,12 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	// Split the free block and get a pointer to the start
 	// allocated space.
 	void* ablock;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (eTag == TAG_MODEL_MD3)
+	{
+		STEFX_ZONE_MODEL_PHASE( 0x64 );
+	}
+#endif
 	if (Z_IsTagTemp(eTag))
 	{
 		ablock = Z_SplitFree(fblock, real_size, false);
@@ -1091,6 +1125,12 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 		Z_SetupAlignmentPad(ablock, align_pad, true);
 		ablock = (void*)((char*)ablock + align_pad);
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (eTag == TAG_MODEL_MD3)
+	{
+		STEFX_ZONE_MODEL_PHASE( 0x65 );
+	}
+#endif
 
 	if (!ablock)
 	{

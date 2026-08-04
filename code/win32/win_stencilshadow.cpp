@@ -20,10 +20,6 @@
 
 #include "shader_constants.h"
 
-extern "C" HRESULT JkaFakeglSetTextureCached(
-	IDirect3DDevice8 *device, int stage, IDirect3DBaseTexture8 *texture);
-
-
 StencilShadow StencilShadower;
 
 
@@ -114,7 +110,7 @@ void StencilShadow::BuildEdges()
 			}
 
 			/*i2 = m_edgeDefs[ i ][ j ].i2;
-			
+
 			m_shadowIndexes[m_nIndexes++] = i;
 			m_shadowIndexes[m_nIndexes++] = i + tess.numVertexes;
 			m_shadowIndexes[m_nIndexes++] = i2 + tess.numVertexes;
@@ -150,7 +146,7 @@ void StencilShadow::BuildEdges()
 	//be capped properly -rww
 	numTris = tess.numIndexes / 3;
 
-	for ( i = 0 ; i < numTris ; i++ )
+	for ( i = 0 ; i < numTris ; i++ ) 
 	{
 		if ( !m_facing[i] )
 		{
@@ -217,8 +213,8 @@ bool StencilShadow::BuildFromLight()
 	//This presets no chance of screwups and still looks better than a stupid
 	//shader blob.
 	VectorSet(lightDir, entLight[0]*0.3f, entLight[1]*0.3f, 1.0f);
-	
-	
+
+
 	// Set the vertex shader constants
 	D3DXVECTOR4 light = D3DXVECTOR4(lightDir[0], lightDir[1], lightDir[2], 1.0f);
 	glw_state->device->SetVertexShaderConstant( CV_LIGHT_DIRECTION, light, 1 );
@@ -231,7 +227,7 @@ bool StencilShadow::BuildFromLight()
 																			  backEnd.currentEntity->e.shadowPlane - 16.0f,
 																			  backEnd.currentEntity->e.shadowPlane - 16.0f,
 																			  1.0f), 1);
-	
+
 	// Create a second set of vertices to be projected
 	memcpy(&tess.xyz[tess.numVertexes], &tess.xyz[0], sizeof(vec4_t) * tess.numVertexes);
 
@@ -339,8 +335,8 @@ void StencilShadow::RenderShadow()
     glw_state->device->SetRenderState( D3DRS_ALPHABLENDENABLE, TRUE );
     glw_state->device->SetRenderState( D3DRS_COLORWRITEENABLE, 0 );
 
-	JkaFakeglSetTextureCached(glw_state->device, 0, NULL);
-	JkaFakeglSetTextureCached(glw_state->device, 1, NULL);
+	glw_state->device->SetTexture(0, NULL);
+	glw_state->device->SetTexture(1, NULL);
 
 	// Compute the matrix set
     XGMATRIX matComposite, matProjectionViewport, matWorld;
@@ -444,9 +440,9 @@ void StencilShadow::FinishShadows()
     glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
 
     // Set the hardware to draw black, alpha-blending pixels
-    glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1 );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_SELECTARG1 );
     glw_state->device->SetTextureStageState( 0, D3DTSS_COLORARG1, D3DTA_TFACTOR );
-    glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAOP,   D3DTOP_SELECTARG1 );
+    glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1 );
     glw_state->device->SetTextureStageState( 0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR );
     glw_state->device->SetRenderState( D3DRS_TEXTUREFACTOR, 0x50000000 );
 

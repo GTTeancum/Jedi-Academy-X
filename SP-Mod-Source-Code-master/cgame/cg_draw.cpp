@@ -8,6 +8,7 @@
 #include "..\game\speakers.h"
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern qboolean STEFX_XboxSuppressPlayerPresentation( void );
 extern qboolean player_locked;
 #endif
@@ -2873,11 +2874,17 @@ CG_DrawActive
 Perform all drawing needed to completely fill the screen
 =====================
 */
+#ifdef _XBOX
+int g_stefxCgRenderSceneMsec = 0;
+int g_stefxCgDraw2DMsec = 0;
+#endif
+
 void CG_DrawActive( stereoFrame_t stereoView ) {
 	float		separation;
 	vec3_t		baseOrg;
 #ifdef _XBOX
 	const int xboxDrawActiveLog = (cg.time >= 3400 && cg.time <= 5000);
+	int xboxProfileStart;
 	if (xboxDrawActiveLog)
 	{
 		XBLF("JA: CL_EARLY EF CG_DrawActive enter time=%d stereo=%d snap=%p vieworg=(%g,%g,%g) fov=(%g,%g) rd=0x%x",
@@ -2945,9 +2952,13 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	// draw 3D view
 #ifdef _XBOX
 	if (xboxDrawActiveLog) XBLog_Write("JA: CL_EARLY EF CG_DrawActive before cgi_R_RenderScene");
+	xboxProfileStart = cgi_Milliseconds();
 #endif
+	g_SPXBPhaseLast = 0x45475230; /* 'EGR0' */
 	cgi_R_RenderScene( &cg.refdef );
+	g_SPXBPhaseLast = 0x45475231; /* 'EGR1' */
 #ifdef _XBOX
+	g_stefxCgRenderSceneMsec = cgi_Milliseconds() - xboxProfileStart;
 	if (xboxDrawActiveLog) XBLog_Write("JA: CL_EARLY EF CG_DrawActive after cgi_R_RenderScene");
 #endif
 
@@ -2959,6 +2970,7 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	// draw status bar and other floating elements
 #ifdef _XBOX
 	if (xboxDrawActiveLog) XBLog_Write("JA: CL_EARLY EF CG_DrawActive before CG_Draw2D");
+	xboxProfileStart = cgi_Milliseconds();
 #endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if ( cg_stefxSplitScreen.integer && cg_stefxSplitScreenPlayers.integer >= 2 )
@@ -2987,8 +2999,11 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	}
 	else
 #endif
+	g_SPXBPhaseLast = 0x45473230; /* 'EG20' */
 	CG_Draw2D();
+	g_SPXBPhaseLast = 0x45473231; /* 'EG21' */
 #ifdef _XBOX
+	g_stefxCgDraw2DMsec = cgi_Milliseconds() - xboxProfileStart;
 	if (xboxDrawActiveLog) XBLog_Write("JA: CL_EARLY EF CG_DrawActive after CG_Draw2D");
 #endif
 

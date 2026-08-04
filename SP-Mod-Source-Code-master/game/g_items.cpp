@@ -664,6 +664,7 @@ void G_RunItem( gentity_t *ent ) {
 	trace_t		tr;
 	int			contents;
 	int			mask;
+	extern qboolean stop_icarus;
 
 	// if groundentity has been set to -1, it may have been pushed off an edge
 	if ( ent->s.groundEntityNum == -1 ) {
@@ -674,8 +675,12 @@ void G_RunItem( gentity_t *ent ) {
 	}
 
 	if ( ent->s.pos.trType == TR_STATIONARY ) {
-		// check think function
-		G_RunThink( ent );
+		if ( ( ent->nextthink > 0 && ent->nextthink <= level.time ) ||
+			( ent->NPC == NULL && ent->taskManager &&
+			  ent->taskManager->HasTasks() && !stop_icarus ) )
+		{
+			G_RunThink( ent );
+		}
 		return;
 	}
 

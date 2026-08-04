@@ -16,7 +16,14 @@ extern "C" volatile unsigned int g_SPXBComSpinCount;
 extern "C" volatile unsigned int g_SPXBComMsec;
 extern "C" volatile unsigned int g_SPXBComFrameTime;
 extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBBootPhase;
 extern "C" volatile unsigned int g_SPXBClsState;
+extern "C" volatile unsigned int g_SPXBPerfFrameMsec;
+extern "C" volatile unsigned int g_SPXBPerfServerMsec;
+extern "C" volatile unsigned int g_SPXBPerfClientMsec;
+extern "C" volatile unsigned int g_SPXBPerfGameMsec;
+extern "C" volatile unsigned int g_SPXBPerfFrontendMsec;
+extern "C" volatile unsigned int g_SPXBPerfBackendMsec;
 extern bool Sys_IsDirectMapBoot(void);
 #endif
 
@@ -1138,13 +1145,25 @@ extern void R_InitWorldEffects();
 void Com_Init( char *commandLine ) {
 	char	*s;
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x300;
+#endif
 	XBLog_Write("JA: Com_Init entered");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x301;
+#endif
 	Com_Printf( "%s %s %s\n", Q3_VERSION, CPUSTRING, __DATE__ );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x302;
+#endif
 
 	try {
 		// Grab the user's langauge preference from the dashboard right away!
 		XBLog_Write("JA: XGetLanguage...");
 		g_dwLanguage = XGetLanguage();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x303;
+#endif
 		if( g_dwLanguage != XC_LANGUAGE_FRENCH && g_dwLanguage != XC_LANGUAGE_GERMAN )
 			g_dwLanguage = XC_LANGUAGE_ENGLISH;
 		XBLog_Write("JA: XGetLanguage done");
@@ -1153,45 +1172,68 @@ void Com_Init( char *commandLine ) {
 		// cvar and command buffer management
 		XBLog_Write("JA: Com_ParseCommandLine...");
 		Com_ParseCommandLine( commandLine );
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x304;
+#endif
 
 		XBLog_Write("JA: Swap_Init...");
 		Swap_Init ();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x305;
+#endif
 		XBLog_Write("JA: Cbuf_Init...");
 		Cbuf_Init ();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x306;
+#endif
 
 		XBLog_Write("JA: Com_InitZoneMemory...");
 		Com_InitZoneMemory();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x307;
+#endif
 		XBLog_Write("JA: Com_InitZoneMemory done");
 
 #ifdef _XBOX
 		XBLog_Write("JA: WF_Init...");
 		WF_Init();
+		g_SPXBBootPhase = 0x308;
 		XBLog_Write("JA: WF_Init done");
 		XBLog_Write("JA: CL_InitRef...");
 		// set up ri
 		extern void CL_InitRef( void );
 		CL_InitRef();
+		g_SPXBBootPhase = 0x309;
 		XBLog_Write("JA: CL_InitRef done");
 		XBLog_Write("JA: R_Register...");
 		// register renderer cvars
 		extern void R_Register(void);
 		R_Register();
+		g_SPXBBootPhase = 0x30A;
 		XBLog_Write("JA: R_Register done");
 		XBLog_Write("JA: GLimp_Init...");
 		// start the gl render layer
 		extern void GLimp_Init(void);
 		GLimp_Init();
+		g_SPXBBootPhase = 0x30B;
 		XBLog_Write("JA: GLimp_Init done");
 		// put up the license screen
 		XBLog_Write("STEFX: SP_DoLicense (EF intro owns frontend movies)...");
 		SP_DoLicense();
+		g_SPXBBootPhase = 0x30C;
 		XBLog_Write("STEFX: SP_DoLicense done");
 #endif
 
 		XBLog_Write("JA: Cmd_Init...");
 		Cmd_Init ();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x30D;
+#endif
 		XBLog_Write("JA: Cvar_Init...");
 		Cvar_Init ();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x30E;
+#endif
 
 		// get the commandline cvars set
 		XBLog_Write("JA: Com_StartupVariable...");
@@ -1218,6 +1260,9 @@ void Com_Init( char *commandLine ) {
 
 		XBLog_Write("JA: FS_InitFilesystem...");
 		FS_InitFilesystem ();	//uses z_malloc
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x30F;
+#endif
 		XBLog_Write("JA: FS_InitFilesystem done");
 		XBLog_Write("JA: R_InitWorldEffects...");
 		R_InitWorldEffects();   // this doesn't do much but I want to be sure certain variables are intialized.
@@ -1247,6 +1292,9 @@ void Com_Init( char *commandLine ) {
 		// allocate the stack based hunk allocator
 		XBLog_Write("JA: Com_InitHunkMemory...");
 		Com_InitHunkMemory();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x310;
+#endif
 		XBLog_Write("JA: Com_InitHunkMemory done");
 
 		// if any archived cvars are modified after this, we will trigger a writing
@@ -1370,6 +1418,9 @@ void Com_Init( char *commandLine ) {
 #endif
 		com_fullyInitialized = qtrue;
 		Com_Printf ("--- Common Initialization Complete ---\n");
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x311;
+#endif
 
 //HACKERY FOR THE DEUTSCH		
 		//if ( (Cvar_VariableIntegerValue("ui_iscensored") == 1) 	//if this was on before, set it again so it gets its flags
@@ -1392,6 +1443,7 @@ void Com_Init( char *commandLine ) {
 	//here is too early though.  After the license screen would be better.
 	extern void SE_CheckForLanguageUpdates(void);
 	SE_CheckForLanguageUpdates();
+	g_SPXBBootPhase = 0x312;
 #endif
 
 }
@@ -1555,6 +1607,9 @@ void Com_Frame( void ) {
 	static unsigned int s_xboxComEntryLogCount = 0;
 	qboolean xboxTraceActiveComTail = qfalse;
 	int xboxTraceActiveComTailFrame = -1;
+	const int xboxPerfFrameStart = Sys_Milliseconds();
+	int xboxPerfServerStart = xboxPerfFrameStart;
+	int xboxPerfClientStart = xboxPerfFrameStart;
 	g_SPXBPhaseLast = 0x43464E30; /* 'CFN0' */
 	g_SPXBComSubphase = 0;
 	if (s_xboxComEntryLogCount < 16)
@@ -1685,10 +1740,12 @@ try
 	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame...");
 #ifdef _XBOX
 	g_SPXBComSubphase = 11;
+	xboxPerfServerStart = Sys_Milliseconds();
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before SV_Frame");
 #endif
 	SV_Frame (msec, fractionMsec);
 #ifdef _XBOX
+	g_SPXBPerfServerMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfServerStart);
 	g_SPXBComSubphase = 12;
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after SV_Frame");
 #endif
@@ -1757,6 +1814,7 @@ try
 		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame...");
 #ifdef _XBOX
 		g_SPXBComSubphase = 17;
+		xboxPerfClientStart = Sys_Milliseconds();
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before CL_Frame");
 #endif
 	#ifdef _XBOX
@@ -1771,6 +1829,11 @@ try
 	#endif
 		CL_Frame (msec, fractionMsec);
 #ifdef _XBOX
+		g_SPXBPerfClientMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfClientStart);
+		g_SPXBPerfFrameMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfFrameStart);
+		g_SPXBPerfGameMsec = (unsigned int)time_game;
+		g_SPXBPerfFrontendMsec = (unsigned int)time_frontend;
+		g_SPXBPerfBackendMsec = (unsigned int)time_backend;
 		g_SPXBComSubphase = 18;
 		{
 			static int s_xboxActiveComClientBoundaryBudget = 32;
@@ -1809,6 +1872,9 @@ try
 	//
 	// report timing information
 	//
+#ifdef _XBOX
+	g_SPXBComSubphase = 20;
+#endif
 	if ( com_speeds->integer ) {
 		int			all, sv, ev, cl;
 
@@ -1863,6 +1929,7 @@ try
 		timeInTrace = timeInPVSCheck = 0;
 	}
 #ifdef _XBOX
+	g_SPXBComSubphase = 21;
 	if (xboxTraceActiveComTail)
 	{
 		XBLF("JA: CL_EARLY COM_TAIL frame=%d after timing/report comFrame=%d realtime=%d",
@@ -1873,6 +1940,9 @@ try
 	//
 	// trace optimization tracking
 	//
+#ifdef _XBOX
+	g_SPXBComSubphase = 22;
+#endif
 	if ( com_showtrace->integer ) {
 		extern	int c_traces, c_brush_traces, c_patch_traces;
 		extern	int	c_pointcontents;
@@ -1892,6 +1962,7 @@ try
 	}
 
 #ifdef _XBOX
+	g_SPXBComSubphase = 23;
 	if (xboxTraceActiveComTail)
 	{
 		XBLF("JA: CL_EARLY COM_TAIL frame=%d before com_frameNumber++ comFrame=%d realtime=%d",
@@ -1900,6 +1971,7 @@ try
 #endif
 	com_frameNumber++;
 #ifdef _XBOX
+	g_SPXBComSubphase = 24;
 	if (xboxTraceActiveComTail)
 	{
 		XBLF("JA: CL_EARLY COM_TAIL frame=%d after com_frameNumber++ comFrame=%d realtime=%d",
@@ -1936,6 +2008,7 @@ try
 	{
 		static cvar_t *levelSelectCheat = NULL;
 	#ifdef _XBOX
+		g_SPXBComSubphase = 25;
 		if (xboxTraceActiveComTail)
 		{
 			XBLF("JA: CL_EARLY COM_TAIL frame=%d before levelSelectCheat cvar ptr=%p",
@@ -1946,6 +2019,7 @@ try
 			levelSelectCheat = Cvar_Get("levelSelectCheat", "-1", CVAR_SAVEGAME | CVAR_ARCHIVE);
 		}
 	#ifdef _XBOX
+		g_SPXBComSubphase = 26;
 		if (xboxTraceActiveComTail)
 		{
 			XBLF("JA: CL_EARLY COM_TAIL frame=%d after levelSelectCheat cvar ptr=%p",
@@ -1958,6 +2032,9 @@ try
 	// This is for the code that auto-reboots back to CDX after a timeout:
 	extern void Demo_TimerUpdate( void );
 	Demo_TimerUpdate();
+#endif
+#ifdef _XBOX
+	g_SPXBComSubphase = 27;
 #endif
 }
 

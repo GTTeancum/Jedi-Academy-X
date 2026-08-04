@@ -8,7 +8,7 @@
 - `codemp\` is historical/deprecated for this project phase and must not be a build, link, include, or runtime dependency for SP-hosted `efmp.xbe`.
 - `default.xbe` remains the SP/co-op executable and must not be overwritten by Holomatch work.
 - Current Holomatch tests boot straight to `hm_borg1` with bots; menus are future work.
-- The authoritative current status files are `HOLOMATCH_TODO.md` and `HOLOMATCH_QUALIFICATION.md`.
+- The authoritative current status files are `GAME_TODO.md` and `HOLOMATCH_QUALIFICATION.md`.
 - Use CXBX-R / `C:\Games\Emulators\CXBX-CodexCapture` for this phase, not XEMU.
 
 ## Development Workflow

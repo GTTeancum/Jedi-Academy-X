@@ -1,13 +1,78 @@
-Jedi-Academy
-============
+# Star Trek: Elite Force X
 
-Final source code for [Star Wars Jedi Knight: Jedi Academy](https://en.wikipedia.org/wiki/Star_Wars_Jedi_Knight:_Jedi_Academy)
+Star Trek: Elite Force X brings the Elite Force campaign, two-player
+cooperative play, and Holomatch to the original Xbox.
 
-> Activision and Raven are releasing this code for people to learn from and play with. 
-> This code is copyright Activision 2003. This source is released under GNU GPLv2.
+The project uses one shared Xbox engine/runtime source tree under `code/` while
+keeping the game personalities separate:
 
-The initial release can be found [on SourceForge](http://sourceforge.net/projects/jediacademy/files/), posted by [James Monroe](http://www.ravensoft.com/culture/our-people/9/james+monroe/staff-info/). Thanks to Raven Software for making this available to us.
+- `default.xbe` runs single-player and two-player co-op.
+- `efmp.xbe` runs Holomatch.
+- Both executables use the shared `BaseEF` runtime.
+- `codemp/` is historical and is not part of the active build.
 
-The code here should be consistent with the released version. The existing CVS meta files have been removed and Git files have been added.
+## Beta Candidate
 
-No further updates to this repository are planned unless updates are posted by Raven Software. Please fork the repository if you want to contribute changes.
+The current qualified package is:
+
+`build/beta/StarTrekEliteForceX-Beta-20260801`
+
+Launch `default.xbe`. The shared main menu can start campaign, cooperative
+play, or hand off to `efmp.xbe` for Holomatch.
+
+See `HOLOMATCH_QUALIFICATION.md` for current hashes, build checks, runtime
+proof, and user signoffs. See `GAME_TODO.md` for post-beta work.
+
+## Building
+
+Requirements:
+
+- Visual Studio 2005 compiler tools
+- Xbox Development Kit headers, libraries, and tools
+- Python 3
+- FFmpeg for audio conversion
+- `extract-xiso` for XISO creation
+- Legally obtained Elite Force runtime data
+
+Build SP/co-op:
+
+```powershell
+scripts\build_xbox.ps1 -Target sp
+```
+
+Build Holomatch from the shared engine:
+
+```powershell
+scripts\build_xbox.ps1 -Target spmp
+```
+
+Create a marker-free release XISO:
+
+```powershell
+scripts\run_sp_xemu_smoke.ps1 -CleanReleaseIso `
+  -Iso build\xemu\StarTrekEliteForceX_Beta.iso
+```
+
+Create the checksum/manifest beta folder:
+
+```powershell
+scripts\package_beta.ps1
+```
+
+## Qualification
+
+Current integration testing uses XEMU/LLE and XEMU-native screenshots. The
+release path covers campaign, co-op split-screen, FFA/CTF Holomatch with bots,
+and the `default.xbe`/`efmp.xbe` handoff in one continuous session.
+
+Run `scripts\cleanup_generated.ps1` before and after emulator work. Keep one
+current XEMU ISO and do not retain per-run staging trees.
+
+Frame-rate optimization remains post-beta. Functional stalls, crashes, data
+corruption, and visual/gameplay regressions remain release blockers.
+
+## License
+
+Source derived from the released Raven Software code remains subject to the
+GNU GPLv2 terms in `LICENSE.txt`. Runtime game data is not provided by the
+source repository.

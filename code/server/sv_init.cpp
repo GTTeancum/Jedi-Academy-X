@@ -49,6 +49,7 @@ static void SV_InitXboxCopyLast(volatile char *dest, unsigned int destSize, cons
 #endif
 
 #include "../client/snd_music.h"	// didn't want to put this in snd_local because of rebuild times etc.
+#include "../ui/ui_splash.h"
 #include "server.h"
 
 #if defined(STEFX_SP_HOSTED_MP)
@@ -151,7 +152,7 @@ SV_SetUserinfo
 ===============
 */
 void SV_SetUserinfo( int index, const char *val ) {
-	if ( index < 0 || index >= MAX_CLIENTS ) {
+	if ( index < 0 || index >= STEFX_SERVER_CLIENT_SLOTS ) {
 		Com_Error (ERR_DROP, "SV_SetUserinfo: bad index %i\n", index);
 	}
 
@@ -174,7 +175,7 @@ void SV_GetUserinfo( int index, char *buffer, int bufferSize ) {
 	if ( bufferSize < 1 ) {
 		Com_Error( ERR_DROP, "SV_GetUserinfo: bufferSize == %i", bufferSize );
 	}
-	if ( index < 0 || index >= MAX_CLIENTS ) {
+	if ( index < 0 || index >= STEFX_SERVER_CLIENT_SLOTS ) {
 		Com_Error (ERR_DROP, "SV_GetUserinfo: bad index %i\n", index);
 	}
 	Q_strncpyz( buffer, svs.clients[ index ].userinfo, bufferSize );
@@ -226,11 +227,25 @@ void SV_Startup( void ) {
 		Com_Error( ERR_FATAL, "SV_Startup: svs.initialized" );
 	}
 
-	svs.clients = (struct client_s *) Z_Malloc ( sizeof(client_t) * MAX_CLIENTS, TAG_CLIENTS, qtrue );
-	svs.numSnapshotEntities = MAX_CLIENTS * 4 * 64;
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_Startup allocating clients");
+#endif
+	svs.clients = (struct client_s *) Z_Malloc (
+		sizeof(client_t) * STEFX_SERVER_CLIENT_SLOTS, TAG_CLIENTS, qtrue );
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_Startup client allocation complete");
+#endif
+#if defined(STEFX_SP_HOSTED_MP)
+	svs.numSnapshotEntities = STEFX_SERVER_CLIENT_SLOTS * 4 * 64;
+#else
+	svs.numSnapshotEntities = 2 * 4 * 64;
+#endif
 	svs.initialized = qtrue;
 
 	Cvar_Set( "sv_running", "1" );
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_Startup complete");
+#endif
 }
 
 
@@ -310,6 +325,7 @@ void SV_ClearLastLevel(void)
 #endif
 #if !defined(STEFX_SP_HOSTED_MP)
 	BG_ClearVehicles();
+
 	cinematicSkipScript[0] = 0;
 #endif
 
@@ -346,6 +362,7 @@ void SV_ClearLastLevel(void)
 #if !defined(STEFX_SP_HOSTED_MP)
 	memset(&cg_saberOnSoundTime, 0, MAX_GENTITIES);
 	current_speeders = 0;
+
 	dontPillarPush = false;
 #endif
 }
@@ -366,54 +383,19 @@ static int s_efLoadingAnimationLogBudget = 16;
 void InitLoadingAnimation( void )
 {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	s_efLoadingAnimationActive = qtrue;
+	s_efLoadingAnimationActive = qfalse;
 	s_efLoadingAnimationDrawCount = 0;
 	s_efLoadingAnimationLogBudget = 16;
-	XBLog_Write("STEFX: EF loading animation armed during map load");
+	XBLog_Write("STEFX: EF loading animation disabled during map load");
 #endif
 }
 
 void UpdateLoadingAnimation( void )
 {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	extern clientStatic_t cls;
-	extern refexport_t re;
-	extern void SP_DrawSPLoadScreen(void);
-	extern void SP_DrawMPLoadScreen(void);
-
 	if ( !s_efLoadingAnimationActive )
 	{
 		return;
-	}
-
-	if ( !cls.rendererStarted || !re.BeginFrame || !re.EndFrame )
-	{
-		if (s_efLoadingAnimationLogBudget > 0)
-		{
-			XBLF("STEFX: EF loading animation skipped rendererStarted=%d begin=%p end=%p",
-				cls.rendererStarted ? 1 : 0,
-				re.BeginFrame,
-				re.EndFrame);
-			--s_efLoadingAnimationLogBudget;
-		}
-		return;
-	}
-
-	re.BeginFrame(STEREO_CENTER);
-#if defined(STEFX_SP_HOSTED_MP)
-	SP_DrawMPLoadScreen();
-#else
-	SP_DrawSPLoadScreen();
-#endif
-	re.EndFrame(NULL, NULL);
-	++s_efLoadingAnimationDrawCount;
-
-	if (s_efLoadingAnimationLogBudget > 0)
-	{
-		XBLF("STEFX: EF loading animation drew frame count=%d state=%d",
-			s_efLoadingAnimationDrawCount,
-			(int)cls.state);
-		--s_efLoadingAnimationLogBudget;
 	}
 #endif
 }
@@ -439,14 +421,27 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	int			i;
 	int			checksum;
 	char		server[64];
+#ifdef _XBOX
+	const qboolean hadInitializedServer = svs.initialized ? qtrue : qfalse;
+#endif
 
 	Q_strncpyz( server, iServer, sizeof(server), qtrue );
 #ifdef _XBOX
 	g_SPXBMapPhase = 10;
 	g_SPXBMapHash = SV_InitXboxHashText(server);
 	SV_InitXboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), server);
+#if defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
+	// Resolve the localized SP load title while the outgoing filesystem state
+	// is still fully available. Renderer/game teardown starts below.
+	Cvar_Set( "ui_mapname", server );
+	SP_PrecacheEFLoadingTitle();
+#endif
 #endif
 	XBLF("JA: SV_SpawnServer entered map='%s' reload=%d dissolve=%d", server, eForceReload, bAllowScreenDissolve);
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && !defined(STEFX_SP_HOSTED_MP)
+	Cvar_Set( "ui_sp_levelname", "" );
+#endif
 
 #ifdef XBOX_DEMO
 	// Pause the timer if "someone is playing"
@@ -495,9 +490,11 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	XBLog_Write("JA: SV_SpawnServer before Server print");
 	Com_Printf ("Server: %s\n",server);	
 	XBLog_Write("JA: SV_SpawnServer after Server print");
+#if !defined(_XBOX) || !defined(STEFX_ELITE_FORCE_SP) || defined(STEFX_SP_HOSTED_MP)
 	XBLog_Write("JA: SV_SpawnServer before ui_mapname set");
 	Cvar_Set( "ui_mapname", server );
 	XBLog_Write("JA: SV_SpawnServer after ui_mapname set");
+#endif
 
 #ifndef FINAL_BUILD
 //	extern unsigned long texturePointMax;
@@ -526,7 +523,14 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 	// don't let sound stutter and dump all stuff on the hunk
 	XBLog_Write("JA: SV_SpawnServer before CL_MapLoading");
+#ifdef _XBOX
+	g_SPXBMapPhase = 111;
+#endif
 	CL_MapLoading();
+#ifdef _XBOX
+	g_SPXBMapPhase = 112;
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer client map-loading handoff complete");
+#endif
 	XBLog_Write("JA: SV_SpawnServer after CL_MapLoading");
 
 	XBLog_Write("JA: SV_SpawnServer before CM_SameMap");
@@ -537,6 +541,9 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		XBLog_Write("JA: SV_SpawnServer after CM_ClearMap");
 	}
 	XBLog_Write("JA: SV_SpawnServer after CM_SameMap/clear");
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer collision map clear complete");
+#endif
 #ifndef _XBOX
 	else if (CM_HasTerrain())
 	{ //always clear when going between maps with terrain
@@ -554,33 +561,49 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #ifdef _XBOX
 	// Deletes all textures
 	R_DeleteTextures();
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer server texture delete complete");
 #endif
 	Hunk_Clear();
-
-	// Moved up from below to help reduce fragmentation
-	if (svs.snapshotEntities)
-	{
-		Z_Free(svs.snapshotEntities);
-		svs.snapshotEntities = NULL;
-	}
-
-	// wipe the entire per-level structure
-	// Also moved up, trying to do all freeing before new allocs
-	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
-		if ( sv.configstrings[i] ) {
-			Z_Free( sv.configstrings[i] );
-			sv.configstrings[i] = NULL;
-		}
-	}
-
 #ifdef _XBOX
-	SV_ClearLastLevel();
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer hunk clear complete");
 #endif
 
-	// Collect all the small allocations done by the cvar system
-	// This frees, then allocates. Make it the last thing before other
-	// allocations begin!
-	Cvar_Defrag();
+#ifdef _XBOX
+	if (hadInitializedServer)
+	{
+#endif
+		// Moved up from below to help reduce fragmentation
+		if (svs.snapshotEntities)
+		{
+			Z_Free(svs.snapshotEntities);
+			svs.snapshotEntities = NULL;
+		}
+
+		// wipe the entire per-level structure
+		// Also moved up, trying to do all freeing before new allocs
+		for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
+			if ( sv.configstrings[i] ) {
+				Z_Free( sv.configstrings[i] );
+				sv.configstrings[i] = NULL;
+			}
+		}
+
+#ifdef _XBOX
+		XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer prior allocations released");
+		SV_ClearLastLevel();
+		XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer prior level teardown complete");
+#endif
+
+		// Collect all the small allocations done by the cvar system.
+		Cvar_Defrag();
+#ifdef _XBOX
+		XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer cvar defrag complete");
+	}
+	else
+	{
+		XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer cold boot skipped prior-level cleanup");
+	}
+#endif
 
 /*
 		This is useful for debugging memory fragmentation.  Please don't
@@ -595,21 +618,31 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	XBLog_Write("STEFX: Ghoul2 info array reset skipped");
 #endif
 
+#if !defined(STEFX_ELITE_FORCE_SP)
 	extern void Z_DumpMemMap_f(void);
 	extern void Z_Details_f(void);
 	extern void Z_TagPointers(memtag_t);
 	Z_DumpMemMap_f();
 //	Z_TagPointers(TAG_ALL);
 	Z_Details_f();
+#else
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer retail memory diagnostics skipped");
+#endif
 #endif
 
 	InitLoadingAnimation();
 	UpdateLoadingAnimation();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer loading presentation initialized");
+#endif
 
 	// init client structures and svs.numSnapshotEntities
 	// This is moved down quite a bit, but should be safe. And keeps
 	// svs.clients right at the beginning of memory
 	if ( !Cvar_VariableIntegerValue("sv_running") ) {
+#ifdef _XBOX
+		XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer starting server state");
+#endif
 		SV_Startup();
 	}
 
@@ -619,9 +652,18 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 //	R_ModelInit();
 
 	// allocate the snapshot entities 
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer allocating snapshot entities");
+#endif
 	svs.snapshotEntities = (entityState_t *) Z_Malloc (sizeof(entityState_t)*svs.numSnapshotEntities, TAG_CLIENTS, qtrue );
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer snapshot allocation complete");
+#endif
 
 	Music_SetLevelName(server);
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer music level name set");
+#endif
 
 	// toggle the server bit so clients can detect that a
 	// server has changed
@@ -633,11 +675,17 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 
 
 	memset (&sv, 0, sizeof(sv));
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer level state cleared");
+#endif
 
 
 	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
 		sv.configstrings[i] = CopyString("");
 	}
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer configstrings allocated");
+#endif
 
 	sv.time = 1000;
 #if !defined(STEFX_ELITE_FORCE_SP)
@@ -647,8 +695,10 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #ifdef _XBOX
 	g_SPXBMapPhase = 13;
 	XBLog_Write("JA: CL_StartHunkUsers...");
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer restarting client subsystems");
 	UpdateLoadingAnimation();
 	CL_StartHunkUsers();
+	XBLog_WriteCritical("STEFX_HW_BOOT: SV_SpawnServer client subsystem restart complete");
 	UpdateLoadingAnimation();
 	g_SPXBMapPhase = 14;
 #if !defined(STEFX_ELITE_FORCE_SP)
@@ -729,20 +779,12 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		XBLF("JA: SV_SpawnServer settle RunFrame %d before time=%d", i, sv.time);
 		SV_InitXboxTrace( 0x53565350, 2111, (unsigned int)i ); /* SVSP */
 #endif
-		#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 		STEFX_HolomatchHostRunFrame(sv.time);
-		#endif
-		#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-		XBLog_WriteCriticalf("STEFX_HM_SP: settle official server RunFrame enter index=%d time=%d",
-			i, sv.time);
-		#endif
+#endif
 		ge->RunFrame( sv.time );
-		#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 		STEFX_HolomatchHostAfterGameFrame(sv.time);
-		#endif
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-		XBLog_WriteCriticalf("STEFX_HM_SP: settle official server RunFrame exit index=%d time=%d",
-			i, sv.time);
 #endif
 #ifdef _XBOX
 		SV_InitXboxTrace( 0x53565350, 2112, (unsigned int)i ); /* SVSP */
@@ -773,7 +815,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	XBLog_Write("JA: SV_SpawnServer after SV_CreateBaseline");
 #endif
 
-	for (i=0 ; i<MAX_CLIENTS ; i++) {
+	for (i=0 ; i<STEFX_SERVER_CLIENT_SLOTS ; i++) {
 		// clear all time counters, because we have reset sv.time
 		svs.clients[i].lastPacketTime = 0;
 		svs.clients[i].lastConnectTime = 0;
@@ -782,21 +824,19 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		// send the new gamestate to all connected clients
 		if (svs.clients[i].state >= CS_CONNECTED) {
 			char	*denied;
-			qboolean isBot = qfalse;
-			#if defined(STEFX_SP_HOSTED_MP)
-			isBot = svs.clients[i].stefxHolomatchBot;
-			#endif
+#if defined(STEFX_SP_HOSTED_MP)
+			qboolean isBot = svs.clients[i].stefxHolomatchBot;
+#endif
 
 			// connect the client again
 #ifdef _XBOX
-			XBLF("JA: SV_SpawnServer before ClientConnect client=%d state=%d bot=%d", i,
-				svs.clients[i].state, isBot);
+			XBLF("JA: SV_SpawnServer before ClientConnect client=%d state=%d", i, svs.clients[i].state);
 #endif
-			#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 			denied = ge->ClientConnect( i, qfalse, (SavedGameJustLoaded_e)isBot );
-			#else
+#else
 			denied = ge->ClientConnect( i, qfalse, eNO/*qfalse*/ );	// firstTime = qfalse, qbFromSavedGame
-			#endif
+#endif
 #ifdef _XBOX
 			XBLF("JA: SV_SpawnServer after ClientConnect client=%d denied=%s", i, denied ? denied : "(null)");
 #endif
@@ -805,7 +845,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 				// was connected before the level change
 				SV_DropClient( &svs.clients[i], denied );
 			} else {
-				#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 				if (isBot)
 				{
 					client_t *client = &svs.clients[i];
@@ -823,7 +863,7 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 						client->gentity ? client->gentity->svFlags : 0);
 				}
 				else
-				#endif
+#endif
 				{
 				svs.clients[i].state = CS_CONNECTED;
 				// when we get the next packet from a connected client,
@@ -838,13 +878,13 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	g_SPXBMapPhase = 24;
 	XBLog_Write("JA: SV_SpawnServer before post-client RunFrame");
 #endif
-	#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 	STEFX_HolomatchHostRunFrame(sv.time);
-	#endif
+#endif
 	ge->RunFrame( sv.time );
-	#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 	STEFX_HolomatchHostAfterGameFrame(sv.time);
-	#endif
+#endif
 #ifdef _XBOX
 	XBLog_Write("JA: SV_SpawnServer after post-client RunFrame");
 #endif
@@ -962,7 +1002,7 @@ void SV_FinalMessage( char *message ) {
 
 	// send it twice, ignoring rate
 	for ( j = 0 ; j < 2 ; j++ ) {
-		for (i=0, cl = svs.clients ; i < MAX_CLIENTS ; i++, cl++) {
+		for (i=0, cl = svs.clients ; i < STEFX_SERVER_CLIENT_SLOTS ; i++, cl++) {
 			if (cl->state >= CS_CONNECTED) {
 				// force a snapshot to be sent
 				cl->nextSnapshotTime = -1;

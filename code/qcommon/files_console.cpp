@@ -37,6 +37,12 @@ static char* zi_stackBase = NULL;
 //===========================================================================
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBShaderScanMagic;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+#define STEFX_FS_MODEL_PHASE(stage) \
+	( g_SPXBPhaseLast = 0xF0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
+		( g_SPXBPhaseLast & 0xffffu ) )
+
 static qboolean STEFX_ShouldTraceAssetOpen(const char *filename)
 {
 	return filename &&
@@ -98,6 +104,8 @@ static qboolean STEFX_IsCriticalWholeFileRead(const char *filename)
 
 	ext = strrchr(filename, '.');
 	return !Q_stricmp(filename, "default.cfg") ||
+		!Q_stricmp(filename, "ext_data/fonts.dat") ||
+		!Q_stricmp(filename, "ext_data\\fonts.dat") ||
 		STEFX_IsBoltOnsCfg(filename) ||
 		STEFX_IsMapBSP(filename) ||
 		(ext && !Q_stricmp(ext, ".dat") &&
@@ -127,7 +135,7 @@ static qboolean STEFX_ShouldTryStdioWholeFileRead(const char *filename)
 		(!Q_stricmp(ext, ".mdr") ||
 		 !Q_stricmp(ext, ".md3") ||
 		 !Q_stricmp(ext, ".tik") ||
-		 !Q_stricmp(ext, ".shader") ||
+		 !Q_stricmp(ext, ".aas") ||
 		 !Q_stricmp(ext, ".IBI") ||
 		 !Q_stricmp(ext, ".pre") ||
 		 !Q_stricmp(ext, ".rof"));
@@ -214,11 +222,13 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 
 	tag = STEFX_WholeFileTag(qpath);
 	allocSize = len + 1 + sizeof(stefxHeapFileHeader_t) + 31;
+	STEFX_FS_MODEL_PHASE( 0x5A );
 	base = (byte *)HeapAlloc(GetProcessHeap(), 0, allocSize);
+	STEFX_FS_MODEL_PHASE( 0x5B );
 	if (!base)
 	{
 		byte *zoneFallback = NULL;
-		XBLog_Write(va("STEFX: FS whole-file heap alloc failed file='%s' len=%d tag=%d bytes=%d",
+		XBLog_Write(va("STEFX: FS whole-file heap unavailable file='%s' len=%d tag=%d bytes=%d",
 			qpath ? qpath : "(null)", len, (int)tag, allocSize));
 		if (tag == TAG_MODEL_MD3 || tag == TAG_BSP)
 		{
@@ -303,14 +313,8 @@ static int STEFX_ReadPrecachedFile(const char *filename, void **buffer)
 		return s_stefxPrecacheFiles[index].len;
 	}
 
-	if (STEFX_ShouldTryStdioWholeFileRead(filename))
-	{
-		copy = STEFX_AllocHeapFileBuffer(s_stefxPrecacheFiles[index].len, filename);
-	}
-	else
-	{
-		copy = (byte *)Z_Malloc(s_stefxPrecacheFiles[index].len + 1, TAG_TEMP_WORKSPACE, qfalse, 32);
-	}
+	copy = (byte *)Z_Malloc(s_stefxPrecacheFiles[index].len + 1,
+		STEFX_WholeFileTag(filename), qfalse, 32);
 	if (!copy)
 	{
 		return -1;
@@ -478,7 +482,8 @@ static int STEFX_ReadLooseFileWithStdio(const char *filename, void **buffer)
 				return (int)len;
 			}
 
-			byte *buf = STEFX_AllocHeapFileBuffer((int)len, filename);
+			byte *buf = (byte *)Z_Malloc((int)len + 1,
+				STEFX_WholeFileTag(filename), qfalse, 32);
 			if (!buf)
 			{
 				fclose(fp);
@@ -489,7 +494,7 @@ static int STEFX_ReadLooseFileWithStdio(const char *filename, void **buffer)
 
 			if (bytesRead != (size_t)len)
 			{
-				FS_STEFX_FreeHeapFileBuffer(buf);
+				Z_Free(buf);
 				XBLog_Write(va("STEFX: FS stdio fallback short read file='%s' open='%s' os='%s' len=%ld read=%u",
 					filename,
 					caseOpenName,
@@ -868,9 +873,11 @@ static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
 				len = FS_filelength(f);
 				fsh[f].fileSize = len;
-				if (len <= 0 && STEFX_IsWholeFileImage(caseOpenName))
+				if (len <= 0 &&
+					(STEFX_IsWholeFileImage(caseOpenName) ||
+					 STEFX_IsCriticalWholeFileRead(caseOpenName)))
 				{
-					XBLog_Write(va("STEFX: FS loose image rejected zero length file='%s' open='%s' os='%s' len=%d caseRetry=%d",
+					XBLog_Write(va("STEFX: FS loose asset rejected zero length file='%s' open='%s' os='%s' len=%d caseRetry=%d",
 						filename, caseOpenName, osname, len, casePass));
 					FS_FCloseFile(f);
 					continue;
@@ -1899,26 +1906,73 @@ a null buffer will just return the file length without loading
 int FS_ReadFile( const char *qpath, void **buffer )
 {
 	FS_CheckInit();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	const qboolean traceMapBsp = STEFX_IsMapBSP(qpath);
+	const char *traceExt = qpath ? strrchr(qpath, '.') : NULL;
+	const qboolean traceShaderRead = traceExt && !Q_stricmp(traceExt, ".shader");
+	if (traceShaderRead)
+	{
+		g_SPXBShaderScanMagic = 0x46533030; /* 'FS00' */
+	}
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical(va("STEFX_HW_BOOT: FS_ReadFile map begin '%s'", qpath));
+	}
+#endif
 	
 	if ( !qpath || !qpath[0] ) {
 		Com_Error( ERR_FATAL, "FS_ReadFile with empty name\n" );
 	}
 
 	// stop sounds from repeating
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FS_MODEL_PHASE( 0x50 );
+#endif
 	S_ClearSoundBuffer();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FS_MODEL_PHASE( 0x51 );
+	if (traceShaderRead)
+	{
+		g_SPXBShaderScanMagic = 0x46533031; /* 'FS01' */
+	}
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical("STEFX_HW_BOOT: FS_ReadFile map sound buffer clear complete");
+	}
+#endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
+		STEFX_FS_MODEL_PHASE( 0x52 );
 		int cachedLen = STEFX_ReadPrecachedFile(qpath, buffer);
+		STEFX_FS_MODEL_PHASE( 0x53 );
 		if (cachedLen >= 0)
 		{
+			if (traceShaderRead)
+			{
+				g_SPXBShaderScanMagic = 0x46533032; /* 'FS02' */
+			}
 			return cachedLen;
 		}
 	}
 #endif
 
 	fileHandle_t h;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FS_MODEL_PHASE( 0x54 );
+#endif
 	int len = FS_FOpenFileRead( qpath, &h, qfalse );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FS_MODEL_PHASE( 0x55 );
+	if (traceShaderRead)
+	{
+		g_SPXBShaderScanMagic = 0x46533033; /* 'FS03' */
+	}
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical(va("STEFX_HW_BOOT: FS_ReadFile map open returned len=%d handle=%d", len, h));
+	}
+#endif
 	if ( h == 0 )
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -1942,26 +1996,58 @@ int FS_ReadFile( const char *qpath, void **buffer )
 	byte* buf;
 	int bytesRead;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (STEFX_ShouldTryStdioWholeFileRead(qpath))
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical(va("STEFX_HW_BOOT: FS_ReadFile map allocating %d bytes", len + 1));
+	}
+	STEFX_FS_MODEL_PHASE( 0x56 );
+	if (STEFX_WholeFileTag(qpath) == TAG_MODEL_MD3)
 	{
 		buf = STEFX_AllocHeapFileBuffer(len, qpath);
-		if (!buf)
-		{
-			FS_FCloseFile(h);
-			*buffer = NULL;
-			return -1;
-		}
 	}
 	else
-#endif
 	{
-		buf = (byte*)Z_Malloc( len+1, TAG_TEMP_WORKSPACE, qfalse, 32);
+		buf = (byte *)Z_Malloc(len + 1, STEFX_WholeFileTag(qpath), qfalse, 32);
 	}
+	STEFX_FS_MODEL_PHASE( 0x57 );
+#else
+	buf = (byte*)Z_Malloc( len+1, TAG_TEMP_WORKSPACE, qfalse, 32);
+#endif
+	if (!buf)
+	{
+		FS_FCloseFile(h);
+		*buffer = NULL;
+		return -1;
+	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (traceShaderRead)
+	{
+		g_SPXBShaderScanMagic = 0x46533034; /* 'FS04' */
+	}
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical(va("STEFX_HW_BOOT: FS_ReadFile map allocation complete buffer=%p", buf));
+	}
+#endif
 	buf[len]='\0';
 
 //	Z_Label(buf, qpath);
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FS_MODEL_PHASE( 0x58 );
+#endif
 	bytesRead = FS_Read(buf, len, h);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FS_MODEL_PHASE( 0x59 );
+	if (traceShaderRead)
+	{
+		g_SPXBShaderScanMagic = 0x46533035; /* 'FS05' */
+	}
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical(va("STEFX_HW_BOOT: FS_ReadFile map read complete expected=%d actual=%d", len, bytesRead));
+	}
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (STEFX_ShouldTraceAssetOpen(qpath))
 	{
@@ -2000,8 +2086,20 @@ int FS_ReadFile( const char *qpath, void **buffer )
 	// guarantee that it will have a trailing 0 for string operations
 	buf[len] = 0;
 	FS_FCloseFile( h );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (traceShaderRead)
+	{
+		g_SPXBShaderScanMagic = 0x46533036; /* 'FS06' */
+	}
+#endif
 
 	*buffer = buf;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (traceMapBsp)
+	{
+		XBLog_WriteCritical("STEFX_HW_BOOT: FS_ReadFile map complete");
+	}
+#endif
 	return len;
 }
 

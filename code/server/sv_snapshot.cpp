@@ -495,130 +495,6 @@ static qboolean SV_STEFX_IsPlayerEntity( const gentity_t *ent )
 	return ( ent && ent->s.eType == ET_PLAYER );
 }
 
-enum stefxRemoteSnapshotDecision_t
-{
-	STEFX_SNAP_REJECT_PERMANENT = 0,
-	STEFX_SNAP_REJECT_UNLINKED,
-	STEFX_SNAP_REJECT_NOCLIENT,
-	STEFX_SNAP_SKIP_DUPLICATE,
-	STEFX_SNAP_SENT_BYPASS,
-	STEFX_SNAP_SENT_BROADCAST,
-	STEFX_SNAP_REJECT_AREA,
-	STEFX_SNAP_REJECT_NOCLUSTERS,
-	STEFX_SNAP_REJECT_PVS_OVERFLOW,
-	STEFX_SNAP_REJECT_PVS,
-	STEFX_SNAP_SENT_PVS
-};
-
-static void SV_STEFX_LogRemoteSnapshotDecision( int decision, const char *phase,
-	int entNum, const gentity_t *ent, const svEntity_t *svEnt,
-	const vec3_t viewOrigin, int viewerClient, int clientarea, int clientcluster, qboolean portal )
-{
-	static int s_lastDecision[3] = { -1, -1, -1 };
-	static int s_lastLogTime[3] = { -1, -1, -1 };
-	static int s_lastClientArea[3] = { -999, -999, -999 };
-	static int s_lastClientCluster[3] = { -999, -999, -999 };
-	static int s_lastEntityArea[3] = { -999, -999, -999 };
-	static int s_lastEntityCluster[3] = { -999, -999, -999 };
-	static int s_lastLiveArea[3] = { -999, -999, -999 };
-	static int s_lastLiveCluster[3] = { -999, -999, -999 };
-	int now;
-	int entityArea;
-	int entityCluster;
-	int liveLeaf;
-	int liveArea;
-	int liveCluster;
-	int firstCluster;
-	int mapClusterCount;
-	int cachedPvsVisible;
-	int livePvsVisible;
-	int clusterIndex;
-	const byte *diagnosticPvs;
-	qboolean changed;
-	trace_t worldTrace;
-	vec3_t bodyCenter;
-	const playerState_t *ps;
-
-	if ( portal || viewerClient != 0 || entNum < 1 || entNum > 2 || !ent || !sv_mapname ||
-		Q_stricmp( sv_mapname->string, "hm_borg1" ) )
-	{
-		return;
-	}
-
-	now = sv.time;
-	entityArea = svEnt ? svEnt->areanum : -999;
-	firstCluster = (svEnt && svEnt->numClusters > 0) ? svEnt->clusternums[0] : -999;
-	entityCluster = firstCluster;
-	liveLeaf = CM_PointLeafnum( ent->currentOrigin );
-	liveArea = CM_LeafArea( liveLeaf );
-	liveCluster = CM_LeafCluster( liveLeaf );
-	mapClusterCount = CM_NumClusters();
-	diagnosticPvs = (clientcluster >= 0 && clientcluster < mapClusterCount) ?
-		CM_ClusterPVS( clientcluster ) : NULL;
-	cachedPvsVisible = 0;
-	if ( diagnosticPvs && svEnt )
-	{
-		for ( clusterIndex = 0; clusterIndex < svEnt->numClusters; ++clusterIndex )
-		{
-			const int cachedCluster = svEnt->clusternums[clusterIndex];
-			if ( cachedCluster >= 0 && cachedCluster < mapClusterCount &&
-				(diagnosticPvs[cachedCluster >> 3] & (1 << (cachedCluster & 7))) )
-			{
-				cachedPvsVisible = 1;
-				break;
-			}
-		}
-	}
-	livePvsVisible = (diagnosticPvs && liveCluster >= 0 && liveCluster < mapClusterCount &&
-		(diagnosticPvs[liveCluster >> 3] & (1 << (liveCluster & 7)))) ? 1 : 0;
-	changed = (s_lastDecision[entNum] != decision ||
-		s_lastClientArea[entNum] != clientarea ||
-		s_lastClientCluster[entNum] != clientcluster ||
-		s_lastEntityArea[entNum] != entityArea ||
-		s_lastEntityCluster[entNum] != entityCluster ||
-		s_lastLiveArea[entNum] != liveArea ||
-		s_lastLiveCluster[entNum] != liveCluster);
-	if ( !changed && s_lastLogTime[entNum] >= 0 && now >= s_lastLogTime[entNum] &&
-		now - s_lastLogTime[entNum] < 10000 )
-	{
-		return;
-	}
-
-	VectorCopy( ent->currentOrigin, bodyCenter );
-	bodyCenter[2] += 24.0f;
-	CM_BoxTrace( &worldTrace, viewOrigin, bodyCenter, NULL, NULL, 0, CONTENTS_SOLID );
-	ps = ent->client;
-	XBLog_WriteCriticalf("STEFX_SNAP decision=%s code=%d time=%d snap=%d viewer=%d ent=%d "
-		"linked=%d inuse=%d sv=0x%x clientArea=%d clientCluster=%d "
-		"cachedArea=%d/%d cachedClusters=%d first=%d last=%d cachedPvs=%d "
-		"liveLeaf=%d liveArea=%d liveCluster=%d livePvs=%d mapClusters=%d los=%g "
-		"view=(%g,%g,%g) current=(%g,%g,%g) ps=(%g,%g,%g)",
-		phase ? phase : "unknown", decision, now, sv.snapshotCounter, viewerClient, entNum,
-		(int)ent->linked, (int)ent->inuse, ent->svFlags,
-		clientarea, clientcluster,
-		svEnt ? svEnt->areanum : -999,
-		svEnt ? svEnt->areanum2 : -999,
-		svEnt ? svEnt->numClusters : -999,
-		firstCluster,
-		svEnt ? svEnt->lastCluster : -999,
-		cachedPvsVisible,
-		liveLeaf, liveArea, liveCluster, livePvsVisible, mapClusterCount, worldTrace.fraction,
-		viewOrigin[0], viewOrigin[1], viewOrigin[2],
-		ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2],
-		ps ? ps->origin[0] : 0.0f,
-		ps ? ps->origin[1] : 0.0f,
-		ps ? ps->origin[2] : 0.0f);
-
-	s_lastDecision[entNum] = decision;
-	s_lastLogTime[entNum] = now;
-	s_lastClientArea[entNum] = clientarea;
-	s_lastClientCluster[entNum] = clientcluster;
-	s_lastEntityArea[entNum] = entityArea;
-	s_lastEntityCluster[entNum] = entityCluster;
-	s_lastLiveArea[entNum] = liveArea;
-	s_lastLiveCluster[entNum] = liveCluster;
-}
-
 static void SV_STEFX_LogSnapshotPlayer( const char *phase, int entNum, const gentity_t *ent,
 										const svEntity_t *svEnt, int clientarea, int clientcluster,
 										const snapshotEntityNumbers_t *eNums )
@@ -705,7 +581,6 @@ static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int en
 													int *actorBudget, int *itemBudget,
 													int *missileBudget, int *eventBudget, int *modelBudget,
 													const char **reason ) {
-	static int corpseSkipLogBudget = 12;
 	float dx, dy, dz, distSq;
 
 	if ( !sv_mapname || Q_stricmp( sv_mapname->string, "borg1" ) ) {
@@ -716,32 +591,6 @@ static qboolean SV_STEFX_Borg1RawBspSnapshotBypass( const gentity_t *ent, int en
 	}
 
 	if ( ent->s.eType == ET_PLAYER ) {
-		if ( !ent->client || ent->contents == CONTENTS_CORPSE || (ent->s.eFlags & 0x00000001) ) {
-			if ( corpseSkipLogBudget > 0 ) {
-				XBLF("STEFX: borg1 snapshot bypass skip corpse/player-shell ent=%d client=%p contents=0x%x eFlags=0x%x sv=0x%x origin=(%g,%g,%g)",
-					entNum,
-					ent->client,
-					ent->contents,
-					ent->s.eFlags,
-					ent->svFlags,
-					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
-				--corpseSkipLogBudget;
-			}
-			return qfalse;
-		}
-		if ( ent->currentOrigin[2] < origin[2] - 160.0f ) {
-			if ( corpseSkipLogBudget > 0 ) {
-				XBLF("STEFX: borg1 snapshot bypass skip actor-below-view ent=%d client=%p sv=0x%x viewZ=%g actorZ=%g origin=(%g,%g,%g)",
-					entNum,
-					ent->client,
-					ent->svFlags,
-					origin[2],
-					ent->currentOrigin[2],
-					ent->currentOrigin[0], ent->currentOrigin[1], ent->currentOrigin[2]);
-				--corpseSkipLogBudget;
-			}
-			return qfalse;
-		}
 		if ( *actorBudget <= 0 ) {
 			return qfalse;
 		}
@@ -1185,8 +1034,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_STEFX_LogSnapshotActor( "reject-permanent", e, ent, NULL, clientarea, clientcluster, eNums );
 			}
-			SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_PERMANENT,
-				"reject-permanent", e, ent, NULL, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 			if (stefxLogSnapshotEvent)
 			{
 				XBLF("STEFX: SV_EVENT reject-permanent ent=%d eType=%d eFlags=0x%x",
@@ -1227,8 +1074,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_STEFX_LogSnapshotActor( "reject-unlinked", e, ent, NULL, clientarea, clientcluster, eNums );
 			}
-			SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_UNLINKED,
-				"reject-unlinked", e, ent, NULL, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 			if (stefxLogSnapshotEvent)
 			{
 				XBLF("STEFX: SV_EVENT reject-unlinked ent=%d eType=%d sv=0x%x current=(%g,%g,%g)",
@@ -1271,8 +1116,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_STEFX_LogSnapshotActor( "reject-noclient", e, ent, NULL, clientarea, clientcluster, eNums );
 			}
-			SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_NOCLIENT,
-				"reject-noclient", e, ent, NULL, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 			if (stefxLogSnapshotEvent)
 			{
 				XBLF("STEFX: SV_EVENT reject-noclient ent=%d eType=%d sv=0x%x",
@@ -1289,8 +1132,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		}
 
 #if defined(STEFX_SP_HOSTED_MP)
-		// The SP entity ABI normally has no per-client routing. Holomatch uses
-		// it so predicted events are not echoed back to their originating client.
 		if ( ( ( ent->svFlags & SVF_SINGLECLIENT ) &&
 			   ent->singleClient != frame->ps.clientNum ) ||
 			 ( ( ent->svFlags & SVF_NOTSINGLECLIENT ) &&
@@ -1391,8 +1232,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_STEFX_LogSnapshotActor( "skip-duplicate", e, ent, svEnt, clientarea, clientcluster, eNums );
 			}
-			SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_SKIP_DUPLICATE,
-				"skip-duplicate", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 			if (xboxFocusIndex >= 0 && !portal)
 			{
@@ -1443,8 +1282,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				{
 					SV_STEFX_LogSnapshotActor( "sent-borg1-bypass", e, ent, svEnt, clientarea, clientcluster, eNums );
 				}
-				SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_SENT_BYPASS,
-					"sent-borg1-bypass", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 				if ( s_stefxBorg1BypassLogBudget > 0 )
 				{
 					XBLF("STEFX: borg1 snapshot bypass send ent=%d reason=%s eType=%d model=%d model2=%d weapon=%d client=%p sv=0x%x origin=(%g,%g,%g) count=%d",
@@ -1483,8 +1320,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_STEFX_LogSnapshotActor( "sent-broadcast", e, ent, svEnt, clientarea, clientcluster, eNums );
 			}
-			SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_SENT_BROADCAST,
-				"sent-broadcast", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 			if (xboxYavinFocusEnt)
 			{
@@ -1575,8 +1410,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					{
 						SV_STEFX_LogSnapshotActor( "reject-area", e, ent, svEnt, clientarea, clientcluster, eNums );
 					}
-					SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_AREA,
-						"reject-area", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 					if (xboxYavinFocusEnt)
 					{
@@ -1632,8 +1465,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			{
 				SV_STEFX_LogSnapshotActor( "reject-noclusters", e, ent, svEnt, clientarea, clientcluster, eNums );
 			}
-			SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_NOCLUSTERS,
-				"reject-noclusters", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 			if (xboxYavinFocusEnt)
 			{
@@ -1696,8 +1527,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					{
 						SV_STEFX_LogSnapshotActor( "reject-pvs-overflow", e, ent, svEnt, clientarea, clientcluster, eNums );
 					}
-					SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_PVS_OVERFLOW,
-						"reject-pvs-overflow", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 					if (xboxYavinFocusEnt)
 					{
@@ -1736,8 +1565,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				{
 					SV_STEFX_LogSnapshotActor( "reject-pvs", e, ent, svEnt, clientarea, clientcluster, eNums );
 				}
-				SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_REJECT_PVS,
-					"reject-pvs", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 				if (xboxYavinFocusEnt)
 				{
@@ -1785,8 +1612,6 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		{
 			SV_STEFX_LogSnapshotActor( "sent-pvs", e, ent, svEnt, clientarea, clientcluster, eNums );
 		}
-		SV_STEFX_LogRemoteSnapshotDecision( STEFX_SNAP_SENT_PVS,
-			"sent-pvs", e, ent, svEnt, origin, frame->ps.clientNum, clientarea, clientcluster, portal );
 #endif
 		if (xboxYavinFocusEnt)
 		{
@@ -1894,9 +1719,6 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 #ifdef _XBOX
 	static int s_xboxBuildSnapshotLogBudget = 0;
 	const qboolean xboxTraceBuild = (s_xboxBuildSnapshotLogBudget > 0);
-#if defined(STEFX_ELITE_FORCE_SP)
-	static int s_stefxHolomatchPlayerStateLogBudget = 12;
-#endif
 	if (xboxTraceBuild)
 	{
 		Com_PrintfAlways("JA: SV_BuildClientSnapshot enter outgoing=%d state=%d gentity=%p\n",
@@ -1929,26 +1751,26 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	}
 
 	// grab the current playerState_t
-#if defined(STEFX_ELITE_FORCE_SP)
-	// The Holomatch game bridge has already converted the official EF state into
-	// the SP playerState_t owned by the mirror entity.
+#if defined(STEFX_SP_HOSTED_MP)
+	// The Holomatch game adapter exposes a synchronized SP-shaped mirror to
+	// the server.  It has already converted the official EF playerState ABI.
 	frame->ps = *clent->client;
-#ifdef _XBOX
-	if (s_stefxHolomatchPlayerStateLogBudget > 0)
-	{
-		Com_PrintfAlways("STEFX: snapshot mirror ps sourceHealth=%d sourceWeapon=%d frameHealth=%d frameWeapon=%d clientNum=%d\n",
-			clent->client->stats[STAT_HEALTH], clent->client->weapon,
-			frame->ps.stats[STAT_HEALTH], frame->ps.weapon, frame->ps.clientNum);
-		--s_stefxHolomatchPlayerStateLogBudget;
-	}
-#endif
+#elif defined(STEFX_ELITE_FORCE_SP)
+	STEFX_CopyEfPlayerStateToJa(&frame->ps, (const stefxPlayerState_t *)clent->client);
 #else
 	frame->ps = *clent->client;
 #endif
 #ifdef _XBOX
 	if (xboxTraceBuild)
 	{
-#if defined(STEFX_ELITE_FORCE_SP)
+#if defined(STEFX_SP_HOSTED_MP)
+		Com_PrintfAlways("JA: SV_BuildClientSnapshot after mirrored ps copy clientNum=%d origin=%g,%g,%g viewheight=%d legs=%d torso=%d\n",
+			frame->ps.clientNum,
+			frame->ps.origin[0], frame->ps.origin[1], frame->ps.origin[2],
+			frame->ps.viewheight,
+			frame->ps.legsAnim,
+			frame->ps.torsoAnim);
+#elif defined(STEFX_ELITE_FORCE_SP)
 		Com_PrintfAlways("JA: SV_BuildClientSnapshot after ps copy clientNum=%d origin=%g,%g,%g viewheight=%d\n",
 			frame->ps.clientNum,
 			frame->ps.origin[0], frame->ps.origin[1], frame->ps.origin[2],
@@ -1970,9 +1792,6 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		{
 			Com_Error( ERR_DROP, "SV_SvEntityForGentity: bad gEnt" );
 		}
-		// EF Holomatch regenerates the local entity from playerstate. Preserve the
-		// SP looping-sound behavior above for SP, but do not submit a second local
-		// player body to the official multiplayer cgame.
 		sv.svEntities[clientNum].snapshotCounter = sv.snapshotCounter;
 	}
 #endif
@@ -2402,7 +2221,7 @@ void SV_SendClientMessages( void ) {
 #endif
 
 	// send a message to each connected client
-	for (i=0, c = svs.clients ; i < MAX_CLIENTS ; i++, c++) {
+	for (i=0, c = svs.clients ; i < STEFX_SERVER_CLIENT_SLOTS ; i++, c++) {
 		if (!c->state) {
 #ifdef _XBOX
 			if (xboxTraceMessages) Com_PrintfAlways("JA: SV_SendClientMessages skip disconnected i=%d\n", i);

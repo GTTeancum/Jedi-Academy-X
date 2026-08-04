@@ -160,7 +160,11 @@ void SV_Player_EndOfLevelSave(void)
 		Cvar_Set( sCVARNAME_PLAYERSAVE, "");	// default to blank
 
 //		clientSnapshot_t*	pFrame = &cl->frames[cl->netchan.outgoingSequence & PACKET_MASK];
+#if defined(STEFX_SP_HOSTED_MP)
+		const playerState_t *pState = cl->gentity->client;
+#else
 		const stefxPlayerState_t *pState = (const stefxPlayerState_t *)cl->gentity->client;
+#endif
 		const char *s = va("%i %i %i %i %i %f %f %f",
 							pState->stats[STAT_HEALTH],
 							pState->stats[STAT_ARMOR],
@@ -331,7 +335,7 @@ static void SV_Status_f( void ) {
 
 	Com_Printf ("num score ping name            lastmsg address               qport rate\n");
 	Com_Printf ("--- ----- ---- --------------- ------- --------------------- ----- -----\n");
-	for (i=0,cl=svs.clients ; i < MAX_CLIENTS ; i++,cl++)
+	for (i=0,cl=svs.clients ; i < STEFX_SERVER_CLIENT_SLOTS ; i++,cl++)
 	{
 		if (!cl->state)
 			continue;

@@ -1659,7 +1659,11 @@ qboolean SG_WriteSavegame(const char *psPathlessBaseName, qboolean qbAutosave)
 	LPCSTR psMapName    = Info_ValueForKey( psServerInfo, "mapname" );
 	LPCSTR psUserMapName;
 	//strcpy(levelname, psMapName);
+#ifdef _XBOX
+	psUserMapName = psMapName;
+#else
 	psUserMapName = SE_GetString ("MENUS", psMapName);
+#endif
 
 //JLF
 #ifdef _XBOX

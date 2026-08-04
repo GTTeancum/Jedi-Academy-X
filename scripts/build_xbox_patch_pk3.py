@@ -103,7 +103,14 @@ RGB565_TEXTURES = (
     "env/junk_up",
     "env/junk_dn",
 )
-ALWAYS_TEXTURES = ()
+ALWAYS_TEXTURES = (
+    # These atlases are registered directly by the shared SP frontend/pause
+    # code, so shader-script discovery cannot find them. They require alpha
+    # fidelity and are therefore emitted through the gfx/ BGRA32 DDS path.
+    "gfx/2d/chars_big",
+    "gfx/2d/chars_medium",
+    "gfx/2d/chars_tiny",
+)
 FULLSCREEN_TEXTURE_SEEDS = (
     "textures/common/70yearjourney",
     "textures/common/enemyspace",
@@ -130,14 +137,18 @@ HOLOMATCH_SHARED_SP_DDS = (
     "gfx/interface/healthcap1.dds",
     "gfx/interface/healthcap2.dds",
 )
+SEEDED_SHARED_SP_DDS = HOLOMATCH_SHARED_SP_DDS + HOLOMATCH_LOADSCREEN_OVERRIDES
+SEEDED_UI_DDS_PREFIXES = (
+    "gfx/",
+    "icons/",
+    "menu/",
+    "sprites/",
+)
 ORIGINAL_FORMAT_TEXTURES = (
     # These are script/cgame-owned intro assets. Until their Xbox-native
     # conversion has visual proof, do not let xbox0.pk3 override the original
     # JPG/TGA path that Elite Force scripts already drive correctly.
-    "gfx/2d/chars_big",
     "gfx/2d/charsgrid_med",
-    "gfx/2d/chars_medium",
-    "gfx/2d/chars_tiny",
     # Dark/detail-heavy sky backing loses too much signal in the current DXT1
     # conversion, so keep the stock JPG until the Xbox-native path is proven.
     "textures/borg/borgsky",
@@ -384,7 +395,7 @@ def extract_texture_references(line: str) -> set[str]:
 def is_always_texture(candidate: str) -> bool:
     candidate = normalized_rel(candidate)
     path = Path(*candidate.split("/"))
-    if path.suffix.lower() in IMAGE_EXTS:
+    if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
         candidate = normalized_rel(path.with_suffix("").as_posix())
     return candidate in ALWAYS_TEXTURES
 
@@ -474,6 +485,11 @@ def resolve_texture_source(base_dir: Path, candidate: str, allow_all: bool = Fal
 
 def texture_size_for_path(out_rel: str, args: argparse.Namespace) -> int:
     out_rel = normalized_rel(out_rel)
+    if is_always_texture(out_rel):
+        # fonts.dat stores coordinates in the authored 256x256 atlases.
+        # Resizing these like ordinary HUD art makes every glyph sample the
+        # wrong rectangle even though the DDS itself loads successfully.
+        return max(args.max_hud_texture_size, 256)
     if out_rel.startswith("env/"):
         return args.max_loadscreen_texture_size
     if out_rel.startswith("levelshots/"):
@@ -484,7 +500,7 @@ def texture_size_for_path(out_rel: str, args: argparse.Namespace) -> int:
         return args.max_player_texture_size
     if out_rel.startswith("gfx/"):
         return args.max_hud_texture_size
-    if is_always_texture(out_rel) or is_fullscreen_texture(out_rel):
+    if is_fullscreen_texture(out_rel):
         return args.max_loadscreen_texture_size
     return args.max_texture_size
 
@@ -934,6 +950,35 @@ def build_bgra32_dds_from_bytes(source_name: str, source_bytes: bytes, max_size:
         return header + payload, info
 
 
+def build_seeded_ui_dds_from_bytes(
+    source_name: str,
+    source_bytes: bytes,
+    max_size: int,
+) -> tuple[bytes, dict[str, object]]:
+    with Image.open(io.BytesIO(source_bytes)) as opened:
+        has_alpha = image_has_alpha(opened)
+        image = resize_for_xbox(opened, max_size)
+        if has_alpha:
+            payload = encode_bgra32(image)
+            header = dds_bgra32_header(image.width, image.height, image.width * 4)
+            fmt = "bgra32"
+        else:
+            payload = encode_dxt1(image)
+            header = dds_dxt1_header(image.width, image.height, len(payload))
+            fmt = "dxt1"
+        info = {
+            "source": source_name,
+            "format": fmt,
+            "sourceWidth": opened.width,
+            "sourceHeight": opened.height,
+            "width": image.width,
+            "height": image.height,
+            "bytes": len(header) + len(payload),
+            "sha1": hashlib.sha1(header + payload).hexdigest(),
+        }
+        return header + payload, info
+
+
 def add_holomatch_loadscreen_overrides(
     zip_out: zipfile.ZipFile,
     base_dir: Path,
@@ -990,6 +1035,42 @@ def add_holomatch_shared_sp_dds(
             info["maxTextureSize"] = max_size
             textures.append(info)
             support_files.append(rel)
+
+
+def add_seeded_shared_sp_dds(
+    zip_out: zipfile.ZipFile,
+    seed_pk3: Path,
+    max_size: int,
+    textures: list[dict[str, object]],
+) -> None:
+    if not seed_pk3.is_file():
+        raise FileNotFoundError(f"missing shared SP DDS seed package: {seed_pk3}")
+
+    written_names = {normalized_rel(name) for name in zip_out.namelist()}
+    with zipfile.ZipFile(seed_pk3, "r") as source_zip:
+        entries = {name.lower(): name for name in source_zip.namelist()}
+        seeded_ui = sorted(
+            rel
+            for rel in entries
+            if rel.endswith(".dds") and rel.startswith(SEEDED_UI_DDS_PREFIXES)
+        )
+        for rel in sorted(set(SEEDED_SHARED_SP_DDS).union(seeded_ui)):
+            if normalized_rel(rel) in written_names:
+                continue
+            source_name = entries.get(rel.lower())
+            if not source_name:
+                raise FileNotFoundError(f"missing shared SP DDS asset in seed package: {rel}")
+            data, info = build_seeded_ui_dds_from_bytes(
+                f"{seed_pk3.name}:{source_name}",
+                source_zip.read(source_name),
+                max_size,
+            )
+            zip_write_bytes(zip_out, rel, data)
+            written_names.add(normalized_rel(rel))
+            info["path"] = rel
+            info["source"] = f"{seed_pk3.name}:{source_name}"
+            info["maxTextureSize"] = max_size
+            textures.append(info)
 
 
 def parse_bsp_lumps(data: bytes, bsp_path: Path) -> list[tuple[int, int]]:
@@ -1130,6 +1211,54 @@ def zip_write_bytes(zip_out: zipfile.ZipFile, rel: str, data: bytes) -> None:
     zip_out.writestr(info, data)
 
 
+def existing_dds_entries(out_path: Path) -> dict[str, bytes]:
+    carried: dict[str, bytes] = {}
+    if not out_path.is_file():
+        return carried
+
+    try:
+        with zipfile.ZipFile(out_path, "r") as existing:
+            for source_name in existing.namelist():
+                rel = normalized_rel(source_name)
+                if Path(rel).suffix.lower() != ".dds":
+                    continue
+                data = existing.read(source_name)
+                if len(data) >= 128 and data[:4] == b"DDS ":
+                    carried[rel] = data
+    except (OSError, zipfile.BadZipFile):
+        return {}
+
+    return carried
+
+
+def carried_dds_info(source_name: str, data: bytes) -> dict[str, object]:
+    height = struct.unpack_from("<I", data, 12)[0]
+    width = struct.unpack_from("<I", data, 16)[0]
+    fourcc_code = data[84:88]
+    bits_per_pixel = struct.unpack_from("<I", data, 88)[0]
+    if fourcc_code == b"DXT1":
+        fmt = "dxt1"
+    elif fourcc_code == b"DXT5":
+        fmt = "dxt5"
+    elif bits_per_pixel == 32:
+        fmt = "bgra32"
+    elif bits_per_pixel == 16:
+        fmt = "rgb565"
+    else:
+        fmt = "unknown"
+    return {
+        "source": source_name,
+        "format": fmt,
+        "sourceWidth": width,
+        "sourceHeight": height,
+        "width": width,
+        "height": height,
+        "bytes": len(data),
+        "sha1": hashlib.sha1(data).hexdigest(),
+        "carriedForward": True,
+    }
+
+
 def ui_script_files(base_dir: Path) -> list[Path]:
     ui_dir = base_dir / "ui"
     if not ui_dir.is_dir():
@@ -1246,6 +1375,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     map_path = base_dir / "maps" / f"{args.map}.bsp"
     out_path = args.output.resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    carried_dds = existing_dds_entries(out_path)
 
     shader_names = set(read_bsp_shader_names(map_path))
     resolved: dict[str, Path] = {}
@@ -1363,16 +1493,17 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 zip_write_bytes(zip_out, list_rel, console_file_list_bytes(names))
                 support_files.append(list_rel)
 
-            effects_image_path = resolve_xbox_effects_image(args.effects_image)
-            effects_image_data = effects_image_path.read_bytes()
-            zip_write_bytes(zip_out, XBOX_EFFECTS_IMAGE_REL, effects_image_data)
-            support_files.append(XBOX_EFFECTS_IMAGE_REL)
-            effects_image_info = {
-                "path": XBOX_EFFECTS_IMAGE_REL,
-                "source": str(effects_image_path),
-                "bytes": len(effects_image_data),
-                "sha1": hashlib.sha1(effects_image_data).hexdigest(),
-            }
+            if args.effects_image is not None:
+                effects_image_path = resolve_xbox_effects_image(args.effects_image)
+                effects_image_data = effects_image_path.read_bytes()
+                zip_write_bytes(zip_out, XBOX_EFFECTS_IMAGE_REL, effects_image_data)
+                support_files.append(XBOX_EFFECTS_IMAGE_REL)
+                effects_image_info = {
+                    "path": XBOX_EFFECTS_IMAGE_REL,
+                    "source": str(effects_image_path),
+                    "bytes": len(effects_image_data),
+                    "sha1": hashlib.sha1(effects_image_data).hexdigest(),
+                }
             add_holomatch_shared_sp_dds(
                 zip_out,
                 base_dir,
@@ -1397,12 +1528,17 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 zip_write_bytes(zip_out, bsp_out_rel, optimized_bsp)
                 zip_write_bytes(zip_out, lightmap_out_rel, optimized_lightmaps)
 
+        written_names = {normalized_rel(name) for name in zip_out.namelist()}
         for out_rel, source in sorted(resolved.items()):
+            out_rel = normalized_rel(out_rel)
+            if out_rel in written_names:
+                continue
             if not args.dds_only and should_preserve_original_texture(out_rel):
                 source_rel = normalized_rel(source.relative_to(base_dir).as_posix())
                 if source_rel not in preserved_original_written:
                     zip_write_bytes(zip_out, source_rel, source.read_bytes())
                     preserved_original_written.add(source_rel)
+                    written_names.add(source_rel)
                 preserved_original.append(out_rel)
                 preserved_original_sources.append(
                     {
@@ -1416,7 +1552,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             built = build_dds(
                 source,
                 max_size,
-                force_bgra32=is_fullscreen_texture(out_rel) or should_force_bgra32_texture(out_rel),
+                force_bgra32=should_force_bgra32_texture(out_rel),
                 force_rgb565=should_use_rgb565_texture(out_rel),
                 alpha_format=args.alpha_texture_format,
             )
@@ -1425,9 +1561,28 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 continue
             dds, info = built
             zip_write_bytes(zip_out, out_rel, dds)
+            written_names.add(out_rel)
             info["path"] = out_rel
             info["source"] = normalized_rel(source.relative_to(base_dir).as_posix())
             info["maxTextureSize"] = max_size
+            textures.append(info)
+
+        if args.dds_seed is not None:
+            add_seeded_shared_sp_dds(
+                zip_out,
+                args.dds_seed.resolve(),
+                args.max_hud_texture_size,
+                textures,
+            )
+
+        written_names = {normalized_rel(name) for name in zip_out.namelist()}
+        for out_rel, data in sorted(carried_dds.items()):
+            if out_rel in written_names:
+                continue
+            zip_write_bytes(zip_out, out_rel, data)
+            info = carried_dds_info(f"{out_path.name}:{out_rel}", data)
+            info["path"] = out_rel
+            info["maxTextureSize"] = texture_size_for_path(out_rel, args)
             textures.append(info)
 
         manifest = {
@@ -1510,6 +1665,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=Path("build/release/BaseEF/xbox0.pk3"),
         help="Patch PK3 output.",
     )
+    parser.add_argument(
+        "--dds-seed",
+        type=Path,
+        help="Optional licensed DDS seed used for direct-registration SP HUD atlases.",
+    )
     parser.add_argument("--map", default="borg1")
     parser.add_argument("--max-texture-size", type=int, default=128)
     parser.add_argument("--max-player-texture-size", type=int, default=64)
@@ -1534,8 +1694,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--effects-image",
         type=Path,
         help=(
-            "Xbox DirectSound effects image to pack as sound/dsstdfx.bin. "
-            "Defaults to the standard local XDK dsstdfx.bin."
+            "Optional Xbox DirectSound effects image to pack as sound/dsstdfx.bin. "
+            "Holomatch omits it by default to match the SP dry-audio setup."
         ),
     )
     parser.add_argument(

@@ -21,14 +21,6 @@
 extern "C" void *_ReturnAddress(void);
 #pragma intrinsic(_ReturnAddress)
 #endif
-
-#if defined(STEFX_SP_HOSTED_MP)
-#define STEFX_HOLOMATCH_DIRECT_BOOT 1
-#define STEFX_HOLOMATCH_DIRECT_MAP "hm_borg1"
-#else
-#define STEFX_HOLOMATCH_DIRECT_BOOT 0
-#endif
-
 extern "C" volatile unsigned int g_SPXBBootPhase;
 extern "C" volatile unsigned int g_SPXBMainLoopCount;
 extern "C" volatile unsigned int g_SPXBClsState;
@@ -60,6 +52,17 @@ extern byte		sys_packetReceived[MAX_MSGLEN];
 
 #ifdef _XBOX
 bool g_xboxDirectMapBootQueued = false;
+static bool s_xboxDirectMapMarkerConsumed = false;
+
+enum stefxLaunchIntent_t
+{
+	STEFX_LAUNCH_INTENT_NONE = 0,
+	STEFX_LAUNCH_INTENT_FRONTEND,
+	STEFX_LAUNCH_INTENT_COOP,
+	STEFX_LAUNCH_INTENT_HOLOMATCH
+};
+
+static int s_stefxLaunchIntent = STEFX_LAUNCH_INTENT_NONE;
 
 static unsigned int Sys_XboxDirectMapHashText(const char *text)
 {
@@ -142,9 +145,6 @@ static bool Sys_XboxFileExists(const char *path)
 
 static bool Sys_XboxNormalBootRequested(void)
 {
-#if STEFX_HOLOMATCH_DIRECT_BOOT
-	return false;
-#else
 #if defined(STEFX_ELITE_FORCE_SP)
 	if (Sys_XboxFileExists("D:\\ef_sp_normal_boot.txt") ||
 		Sys_XboxFileExists("d:\\ef_sp_normal_boot.txt"))
@@ -154,14 +154,10 @@ static bool Sys_XboxNormalBootRequested(void)
 	}
 #endif
 	return false;
-#endif
 }
 
 static bool Sys_XboxDirectMapRequested(void)
 {
-	#if STEFX_HOLOMATCH_DIRECT_BOOT
-	return true;
-	#else
 	char startupMap[MAX_QPATH];
 	const char *startupMapPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -174,6 +170,13 @@ static bool Sys_XboxDirectMapRequested(void)
 	};
 	startupMap[0] = '\0';
 
+#if defined(STEFX_SP_HOSTED_MP)
+	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_HOLOMATCH)
+	{
+		return true;
+	}
+#endif
+
 	if (Sys_XboxNormalBootRequested())
 	{
 		return false;
@@ -185,18 +188,36 @@ static bool Sys_XboxDirectMapRequested(void)
 	}
 
 	return false;
-	#endif
 }
 
 bool Sys_IsDirectMapBoot(void)
 {
-	return g_xboxDirectMapBootQueued || Sys_XboxDirectMapRequested();
+	return !s_xboxDirectMapMarkerConsumed &&
+		(g_xboxDirectMapBootQueued || Sys_XboxDirectMapRequested());
+}
+
+bool Sys_XboxFrontendLaunchIntent(void)
+{
+	return s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_FRONTEND;
+}
+
+void Sys_ClearDirectMapBoot(void)
+{
+	if (g_xboxDirectMapBootQueued || !s_xboxDirectMapMarkerConsumed)
+	{
+		XBL("STEFX: direct-map lifecycle cleared; subsequent disconnect may return to frontend\n");
+	}
+	g_xboxDirectMapBootQueued = false;
+	s_xboxDirectMapMarkerConsumed = true;
 }
 
 static bool Sys_XboxQueueDirectMapBoot(void)
 {
 	char startupMap[MAX_QPATH];
 	const char *startupMapSource = NULL;
+	bool builtInLaunchIntent = false;
+	bool useDevMap = true;
+	bool treatAsDirectMap = true;
 	const char *startupMapPaths[] = {
 #if defined(STEFX_ELITE_FORCE_SP)
 		"D:\\ef_sp_level.txt",
@@ -226,27 +247,42 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	int postMapCommandPathIndex;
 	startupMap[0] = '\0';
 
-#if STEFX_HOLOMATCH_DIRECT_BOOT
-	Q_strncpyz(startupMap, STEFX_HOLOMATCH_DIRECT_MAP, sizeof(startupMap));
-	startupMapSource = "STEFX_SP_HOSTED_MP built-in direct map";
-	XBLF("STEFX_HM_SP: direct boot bypasses menus and targets %s", STEFX_HOLOMATCH_DIRECT_MAP);
-	Cbuf_AddText("set fs_game BaseEF\n");
-	Cbuf_AddText("set model munro/default\n");
-	Cbuf_AddText("set sv_maxclients 6\n");
-	Cbuf_AddText("set g_gametype 4\n");
-	Cbuf_AddText("set fraglimit 0\n");
-	Cbuf_AddText("set capturelimit 8\n");
-	Cbuf_AddText("set timelimit 0\n");
-	Cbuf_AddText("set g_teamAutoJoin 1\n");
-	Cbuf_AddText("set g_teamForceBalance 1\n");
-	Cbuf_AddText("set g_holoIntro 0\n");
-	Cbuf_AddText("set g_ghostRespawn 0\n");
-	Cbuf_AddText("set bot_enable 1\n");
-	Cbuf_AddText("set bot_minplayers 3\n");
-	Cbuf_AddText("set g_spSkill 1\n");
+#if defined(STEFX_SP_HOSTED_MP)
+	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_HOLOMATCH)
+	{
+		Q_strncpyz(startupMap, "hm_borg1", sizeof(startupMap));
+		startupMapSource = "XBE Holomatch launch intent";
+		builtInLaunchIntent = true;
+		useDevMap = false;
+		Cbuf_AddText("set fs_game BaseEF\n");
+		Cbuf_AddText("set model munro/default\n");
+		Cbuf_AddText("set sv_maxclients 4\n");
+		Cbuf_AddText("set g_gametype 0\n");
+		Cbuf_AddText("set fraglimit 0\n");
+		Cbuf_AddText("set timelimit 0\n");
+		Cbuf_AddText("set bot_enable 1\n");
+		Cbuf_AddText("set bot_minplayers 3\n");
+		Cbuf_AddText("set g_spSkill 1\n");
+		XBL("STEFX: applying Holomatch XBE launch intent\n");
+	}
+#else
+	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_COOP)
+	{
+		Q_strncpyz(startupMap, "borg1", sizeof(startupMap));
+		startupMapSource = "XBE cooperative launch intent";
+		builtInLaunchIntent = true;
+		useDevMap = false;
+		treatAsDirectMap = false;
+		Cbuf_AddText("set stefx_splitScreen 1\n");
+		Cbuf_AddText("set stefx_splitScreenPlayers 2\n");
+		Cbuf_AddText("set stefx_splitScreenMode coop\n");
+		Cbuf_AddText("set stefx_splitScreenP2Entity -1\n");
+		Cbuf_AddText("set cg_virtualVoyager 0\n");
+		XBL("STEFX: applying cooperative XBE launch intent\n");
+	}
 #endif
 
-	if (Sys_XboxNormalBootRequested())
+	if (!startupMap[0] && Sys_XboxNormalBootRequested())
 	{
 		g_SPXBDirectMapStatus = 5;
 		XBL("JA: direct-map boot: disabled for normal EF story boot\n");
@@ -254,11 +290,12 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	}
 
 	g_SPXBDirectMapStatus = 10;
-	#if !STEFX_HOLOMATCH_DIRECT_BOOT
-	Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), &startupMapSource);
-	#endif
+	if (!startupMap[0])
+	{
+		Sys_XboxReadFirstLineFromPaths(startupMapPaths, startupMap, sizeof(startupMap), &startupMapSource);
+	}
 
-	#if defined(STEFX_ELITE_FORCE_SP) && !STEFX_HOLOMATCH_DIRECT_BOOT
+#if defined(STEFX_ELITE_FORCE_SP)
 	if (!startupMap[0])
 	{
 		g_SPXBDirectMapStatus = 30;
@@ -267,7 +304,9 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	}
 #endif
 
-	for (startupCommandPathIndex = 0; startupCommandPaths[startupCommandPathIndex]; ++startupCommandPathIndex)
+	for (startupCommandPathIndex = 0;
+		!builtInLaunchIntent && startupCommandPaths[startupCommandPathIndex];
+		++startupCommandPathIndex)
 	{
 		FILE *startupCommandFile = fopen(startupCommandPaths[startupCommandPathIndex], "r");
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -302,11 +341,14 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 
 	g_SPXBDirectMapStatus = 50;
 	g_SPXBDirectMapHash = Sys_XboxDirectMapHashText(startupMap);
-	XBLF("JA: direct-map boot: queue map %s before first Com_Frame source=%s",
+	XBLF("JA: startup map boot: queue %s %s before first Com_Frame source=%s",
+		useDevMap ? "devmap" : "map",
 		startupMap,
 		startupMapSource ? startupMapSource : "<unknown>");
-	Cbuf_AddText(va("map %s\n", startupMap));
-	for (postMapCommandPathIndex = 0; postMapCommandPaths[postMapCommandPathIndex]; ++postMapCommandPathIndex)
+	Cbuf_AddText(va("%s %s\n", useDevMap ? "devmap" : "map", startupMap));
+	for (postMapCommandPathIndex = 0;
+		!builtInLaunchIntent && postMapCommandPaths[postMapCommandPathIndex];
+		++postMapCommandPathIndex)
 	{
 		FILE *postMapCommandFile = fopen(postMapCommandPaths[postMapCommandPathIndex], "r");
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -331,88 +373,15 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 			fclose(postMapCommandFile);
 		}
 	}
-	g_xboxDirectMapBootQueued = true;
-	g_SPXBDirectMapQueuedCount++;
+	if (treatAsDirectMap)
+	{
+		g_xboxDirectMapBootQueued = true;
+		g_SPXBDirectMapQueuedCount++;
+	}
 	g_SPXBDirectMapStatus = 60;
-	XBL("JA: direct-map boot: executing queued startup/map commands now\n");
-	Cbuf_Execute();
-	g_SPXBDirectMapStatus = 70;
+	XBL("JA: direct-map boot: startup/map commands queued for post-init execution\n");
 	return true;
 }
-
-#if defined(STEFX_SP_HOSTED_MP)
-static void Sys_XboxPollHolomatchRuntimeCommands(void)
-{
-	static DWORD nextPollTime = 0;
-	const char *commandPaths[] = {
-		"D:\\ef_mp_runtime_commands.txt",
-		"D:\\ef_mp_runtime_commands.0.txt",
-		"D:\\ef_mp_runtime_commands.1.txt",
-		"D:\\ef_mp_runtime_commands.2.txt",
-		"D:\\ef_mp_runtime_commands.3.txt",
-		"E:\\ef_mp_runtime_commands.txt",
-		"E:\\ef_mp_runtime_commands.0.txt",
-		"E:\\ef_mp_runtime_commands.1.txt",
-		"E:\\ef_mp_runtime_commands.2.txt",
-		"E:\\ef_mp_runtime_commands.3.txt",
-		NULL
-	};
-	char commands[8][1024];
-	DWORD now = GetTickCount();
-	int commandCount = 0;
-	int pathIndex;
-
-	if ((LONG)(now - nextPollTime) < 0)
-	{
-		return;
-	}
-	nextPollTime = now + 250;
-
-	for (pathIndex = 0; commandPaths[pathIndex]; ++pathIndex)
-	{
-		FILE *commandFile = fopen(commandPaths[pathIndex], "r");
-		if (!commandFile)
-		{
-			continue;
-		}
-
-		while (commandCount < (int)(sizeof(commands) / sizeof(commands[0])) &&
-			fgets(commands[commandCount], sizeof(commands[commandCount]), commandFile))
-		{
-			commands[commandCount][strcspn(commands[commandCount], "\r\n")] = '\0';
-			if (commands[commandCount][0])
-			{
-				++commandCount;
-			}
-		}
-		fclose(commandFile);
-
-		if (remove(commandPaths[pathIndex]) != 0)
-		{
-			XBLog_WriteCriticalf("STEFX_HM_SWEEP: command inbox consume failed path='%s' errno=%d",
-				commandPaths[pathIndex], errno);
-			return;
-		}
-
-		XBLog_WriteCriticalf("STEFX_HM_SWEEP: command inbox consumed path='%s' commands=%d",
-			commandPaths[pathIndex], commandCount);
-		break;
-	}
-
-	for (pathIndex = 0; pathIndex < commandCount; ++pathIndex)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SWEEP: execute command '%s'", commands[pathIndex]);
-		Cbuf_AddText(commands[pathIndex]);
-		Cbuf_AddText("\n");
-	}
-	if (commandCount > 0)
-	{
-		XBLog_WriteCritical("STEFX_HM_SWEEP: command batch execute begin");
-		Cbuf_Execute();
-		XBLog_WriteCritical("STEFX_HM_SWEEP: command batch execute done");
-	}
-}
-#endif
 #endif
 
 void *NEWDECL operator new(size_t size)
@@ -534,16 +503,6 @@ void Sys_Error( const char *error, ... ) {
 #endif
 #ifdef _XBOX
         XBLF("JA: Sys_Error exit: %s", text);
-#if defined(STEFX_SP_HOSTED_MP)
-        XBLog_WriteCriticalf("STEFX_HM_EXIT: Sys_Error fatal='%s' mainLoop=%u comFrame=%u clsState=%u phase=%08x sub=%u",
-                text,
-                g_SPXBMainLoopCount,
-                g_SPXBComFrameCount,
-                g_SPXBClsState,
-                g_SPXBPhaseLast,
-                g_SPXBComSubphase);
-#endif
-        XBLog_Shutdown();
 #endif
 
 #if 0 // UN-PORT
@@ -782,10 +741,15 @@ bool Sys_QuickStart( void )
 
 	if( (XGetLaunchInfo( &launchType, &ld ) != ERROR_SUCCESS) ||
 		(launchType != LDT_TITLE) ||
-		strcmp((const char *)&ld.Data[1], LAUNCH_MAGIC) )
+		memcmp(&ld.Data[1], LAUNCH_MAGIC, 4) )
 		return (retVal = false);
 	
 	gLaunchController = ld.Data[0];
+	s_stefxLaunchIntent = ld.Data[6];
+	XBLF("STEFX: XBE launch handoff controller=%d intent=%d savingDisabled=%d",
+		gLaunchController,
+		s_stefxLaunchIntent,
+		ld.Data[5] == 0x42 ? 1 : 0);
 
 	// Magic number to disable settings/saving
 	if( ld.Data[5] == 0x42 )
@@ -824,33 +788,48 @@ void Sys_Reboot( const char *reason, const void *pData )
 	memset( &ld, 0, sizeof(ld) );
 	controller = IN_GetMainController();
 	ld.Data[0] = (byte) controller;
+	memcpy(&ld.Data[1], LAUNCH_MAGIC, 4);
 	Com_Printf("\tController %d Passed\n",controller); 
 
 	if (!Q_stricmp(reason, "multiplayer"))
 	{
 		path = "d:\\efmp.xbe";
+		ld.Data[6] = STEFX_LAUNCH_INTENT_HOLOMATCH;
 		SP_DrawMPLoadScreen();
 
 		// Set a magic number if saving is disabled
 		if( Settings.IsDisabled() )
-			ld.Data[1] = 0x42;
+			ld.Data[5] = 0x42;
 
 		// Flag that there is no invite in the launch data:
-		ld.Data[2] = 0;
+		ld.Data[7] = 0;
+	}
+	else if (!Q_stricmp(reason, "singleplayer") ||
+		!Q_stricmp(reason, "singleplayer_coop"))
+	{
+		path = "d:\\default.xbe";
+		ld.Data[6] = !Q_stricmp(reason, "singleplayer_coop")
+			? STEFX_LAUNCH_INTENT_COOP
+			: STEFX_LAUNCH_INTENT_FRONTEND;
+		SP_DrawMPLoadScreen();
+
+		if( Settings.IsDisabled() )
+			ld.Data[5] = 0x42;
 	}
 	else if (!Q_stricmp(reason, "invite"))
 	{
 		path = "d:\\efmp.xbe";
+		ld.Data[6] = STEFX_LAUNCH_INTENT_HOLOMATCH;
 		SP_DrawMPLoadScreen();
 
 		// Set a magic number if saving is disabled
 		if( Settings.IsDisabled() )
-			ld.Data[1] = 0x42;
+			ld.Data[5] = 0x42;
 
 		// Flag that we're including an invite with the launch data:
-		ld.Data[2] = 1;
+		ld.Data[7] = 1;
 
-		memcpy( &ld.Data[3], pData, sizeof(XONLINE_ACCEPTED_GAMEINVITE) );
+		memcpy( &ld.Data[8], pData, sizeof(XONLINE_ACCEPTED_GAMEINVITE) );
 	}
 	else
 	{
@@ -867,6 +846,11 @@ void Sys_Reboot( const char *reason, const void *pData )
 	// Keep the loading screen up while we reboot!
 	glw_state->device->PersistDisplay();
 
+	XBLF("STEFX: XBE handoff reason='%s' path='%s' intent=%d controller=%d",
+		reason,
+		path,
+		(int)ld.Data[6],
+		controller);
 	XLaunchNewImage(path, &ld);
 
 	// This function should not return!
@@ -1005,8 +989,17 @@ int main(int argc, char* argv[])
 #endif
 
 	XBLog_Init();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x210;
+#endif
 	XBLF("Log: %s\n", XBLog_GetPath() ? XBLog_GetPath() : "(none)");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x211;
+#endif
 	XBL("main() entered\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x212;
+#endif
 
 #ifdef _XBOX
 	/* Plan-B (OpenJKDF2 1:1): XInitDevices MUST come before Direct3D
@@ -1027,8 +1020,10 @@ int main(int argc, char* argv[])
 		xdpt[0].dwPreallocCount = 4;
 		xdpt[1].DeviceType      = XDEVICE_TYPE_MEMORY_UNIT;
 		xdpt[1].dwPreallocCount = 8;
+		g_SPXBBootPhase = 0x213;
 		XBL("Plan-B: calling XInitDevices BEFORE D3D init\n");
 		XInitDevices(2, xdpt);
+		g_SPXBBootPhase = 0x214;
 		XBL("Plan-B: XInitDevices done\n");
 	}
 	/* Mark in win_input_xbox.cpp's static flag so IN_Init doesn't
@@ -1037,38 +1032,48 @@ int main(int argc, char* argv[])
 		extern bool g_XInitDevicesAlreadyCalled;
 		g_XInitDevicesAlreadyCalled = true;
 	}
+	g_SPXBBootPhase = 0x215;
 #endif
 
-	/* Plan-B: Direct3D_SetPushBufferSize removed.
-	 *
-	 * Original justification (plan v1-v2 era) was to fix a CDevice::Init
-	 * KickOff/HwGet spin-loop hang when JKA's pre-Plan-B renderer created
-	 * its own D3D8 device.  Under Plan-B fakegl owns the device and
-	 * fakeglx.cpp:1098 calls m_pD3D->SetPushBufferSize(768K, 128K) ITSELF
-	 * inside InitD3DX (between Direct3DCreate8 and CreateDevice — the
-	 * correct ordering).
-	 *
-	 * Calling SetPushBufferSize HERE (before fakegl runs) sets it once,
-	 * then fakegl sets it AGAIN with different values inside InitD3DX.
-	 * Two competing push-buffer configs leaves the GPU in a state where
-	 * Present's push-buffer flush never completes — observed as the
-	 * SDT: glEndFrame hang on CXBX-R 2026-05-16 22:33.  OpenJKDF2 does
-	 * NOT call SetPushBufferSize from main (only fakegl does internally);
-	 * matching that pattern. */
-	XBL("Plan-B: SetPushBufferSize delegated to fakegl InitD3DX\n");
-
 	// get the initial time base
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x216;
+#endif
 	Sys_Milliseconds();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x217;
+#endif
 
 	// Fetch game settings early — path remapping required before renderer start.
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x218;
+#endif
 	Sys_QuickStart();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x219;
+#endif
 	XBL("Sys_QuickStart done\n");
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x21A;
+#endif
 	Win_Init();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x21B;
+#endif
 	XBL("Win_Init done\n");
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x21C;
+#endif
 	XBL("EF: before Com_Init\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x21E;
+#endif
 	Com_Init( "" );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x21D;
+#endif
 	XBL("Com_Init done\n");
 
 #if defined(STEFX_SP_HOSTED_MP)
@@ -1080,13 +1085,49 @@ int main(int argc, char* argv[])
 #endif
 
 #ifdef _XBOX
-	Sys_XboxQueueDirectMapBoot();
+	const bool xboxDirectMapWarmup = Sys_XboxDirectMapRequested();
+	if (xboxDirectMapWarmup)
+	{
+		// Suppress both the frontend and CL_Frame's legacy marker reader while
+		// the first frame initializes the Xbox UI imports. No map command has
+		// been placed in the command buffer yet.
+		g_xboxDirectMapBootQueued = true;
+		XBLog_WriteCritical("STEFX_HW_BOOT: direct-map intent held for UI warmup");
+	}
 #endif
 
-	// Run one frame to finish loading (calls CL_StartHunkUsers).
+	// Run one frame to finish loading the renderer, sound, and Xbox UI imports.
 	IN_Frame();
 	Com_Frame();
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x57463230; /* 'WF20' */
+#endif
 	XBL("First frame done\n");
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x57463231; /* 'WF21' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: first client frame complete");
+	g_SPXBPhaseLast = 0x57463232; /* 'WF22' */
+	g_SPXBComSubphase = 30;
+	const bool xboxStartupCommandsQueued = Sys_XboxQueueDirectMapBoot();
+	g_SPXBComSubphase = 31;
+	g_SPXBPhaseLast = 0x57463233; /* 'WF23' */
+	if (xboxDirectMapWarmup && !xboxStartupCommandsQueued)
+	{
+		g_xboxDirectMapBootQueued = false;
+	}
+	if (xboxStartupCommandsQueued)
+	{
+		g_SPXBComSubphase = 32;
+		XBLog_WriteCritical("STEFX_HW_BOOT: executing deferred startup commands");
+		g_SPXBComSubphase = 33;
+		Cbuf_Execute();
+		g_SPXBComSubphase = 34;
+		g_SPXBDirectMapStatus = 70;
+		XBLog_WriteCritical("STEFX_HW_BOOT: deferred startup commands complete");
+		g_SPXBComSubphase = 35;
+	}
+	g_SPXBPhaseLast = 0x57463234; /* 'WF24' */
+#endif
 
 	// Copy planet bink videos to Z: drive.
 	extern void Sys_BinkCopyInit(void);
@@ -1103,18 +1144,24 @@ int main(int argc, char* argv[])
 	else
 #endif
 	{
+	#ifdef _XBOX
+		g_SPXBPhaseLast = 0x42494e31; /* 'BIN1' */
+	#endif
 		XBL("Sys_BinkCopyInit begin\n");
 		Sys_BinkCopyInit();
 		XBL("Sys_BinkCopyInit done\n");
+	#ifdef _XBOX
+		g_SPXBPhaseLast = 0x42494e32; /* 'BIN2' */
+	#endif
 	}
 
 	XBL("Entering main game loop\n");
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4d4c5030; /* 'MLP0' */
+#endif
 
 	// main game loop
 	int xboxMainLoopCount = 0;
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-	DWORD stefxHmNextLoopAliveLog = 0;
-#endif
 	while( 1 ) {
 		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
 		const bool xboxTraceMainLoopLate = (cls.state == CA_ACTIVE && cls.framecount >= 8 && cls.framecount <= 40);
@@ -1136,29 +1183,9 @@ int main(int argc, char* argv[])
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		Com_Frame();
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-		Sys_XboxPollHolomatchRuntimeCommands();
-#endif
 #ifdef _XBOX
 		g_SPXBClsState = (unsigned int)cls.state;
 		g_SPXBPhaseLast = 0x4D434632; /* 'MCF2' */
-#endif
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-		{
-			const DWORD stefxHmNow = GetTickCount();
-			if (cls.state == CA_ACTIVE && (LONG)(stefxHmNow - stefxHmNextLoopAliveLog) >= 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_ALIVE: mainLoop=%d comFrame=%u clsFrame=%d state=%d phase=%08x sub=%u sv=%d",
-					xboxMainLoopCount,
-					g_SPXBComFrameCount,
-					cls.framecount,
-					(int)cls.state,
-					g_SPXBPhaseLast,
-					g_SPXBComSubphase,
-					com_sv_running ? com_sv_running->integer : -1);
-				stefxHmNextLoopAliveLog = stefxHmNow + 5000;
-			}
-		}
 #endif
 		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
@@ -1194,17 +1221,6 @@ int main(int argc, char* argv[])
 		xboxMainLoopCount++;
 	}
 
-#ifdef _XBOX
-#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_EXIT: main loop returned mainLoop=%d comFrame=%u clsState=%u phase=%08x sub=%u",
-		xboxMainLoopCount,
-		g_SPXBComFrameCount,
-		g_SPXBClsState,
-		g_SPXBPhaseLast,
-		g_SPXBComSubphase);
-#endif
-	XBLog_Shutdown();
-#endif
 	return 0;
 }
 
@@ -1219,15 +1235,6 @@ void Sys_Quit(void)
 {
 #ifdef _XBOX
 	XBL("JA: Sys_Quit called\n");
-#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_EXIT: Sys_Quit mainLoop=%u comFrame=%u clsState=%u phase=%08x sub=%u",
-		g_SPXBMainLoopCount,
-		g_SPXBComFrameCount,
-		g_SPXBClsState,
-		g_SPXBPhaseLast,
-		g_SPXBComSubphase);
-#endif
-	XBLog_Shutdown();
 #endif
 }
 
@@ -1678,11 +1685,7 @@ static void STEFX_ClientThink(int clientNum, usercmd_t *cmd)
 {
 #if defined(_XBOX)
 	static int s_stefxAdapterClientThinkBudget = 96;
-	qboolean interestingCmd =
-		(cmd && (cmd->forwardmove || cmd->rightmove || cmd->upmove || (cmd->buttons & ~BUTTON_WALKING))) ? qtrue : qfalse;
-	qboolean logThis =
-		((clientNum == 0 && s_stefxAdapterClientThinkBudget > 88) || interestingCmd) &&
-		s_stefxAdapterClientThinkBudget > 0;
+	qboolean logThis = qfalse;
 
 	if (logThis)
 	{
@@ -1819,12 +1822,11 @@ void *Sys_GetGameAPI (void *parms)
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	extern game_export_t *GetGameAPI( game_import_t *import );
 	game_import_t *jaImport = (game_import_t *)parms;
-	XBLF("STEFX: SP-hosted Sys_GetGameAPI entry import=%p", jaImport);
-	#if defined(STEFX_SP_HOSTED_MP)
-		extern game_export_t *STEFX_GetHolomatchGameAPI( game_import_t *import );
-		XBL("STEFX: SP-hosted Sys_GetGameAPI selecting official EF VM adapter");
-		return STEFX_GetHolomatchGameAPI(jaImport);
-	#endif
+#if defined(STEFX_SP_HOSTED_MP)
+	extern game_export_t *STEFX_GetHolomatchGameAPI( game_import_t *import );
+	XBL("STEFX: SP-hosted Sys_GetGameAPI selecting official EF Holomatch adapter");
+	return STEFX_GetHolomatchGameAPI(jaImport);
+#else
 	stefx_game_import_t efImport;
 	game_export_t *rawExport;
 
@@ -1882,6 +1884,7 @@ void *Sys_GetGameAPI (void *parms)
 	XBLF("STEFX: Sys_GetGameAPI returning JA adapter=%p api=%d efGentitySize=%d",
 		&s_stefxJaGame, s_stefxJaGame.apiversion, s_stefxJaGame.gentitySize);
 	return &s_stefxJaGame;
+#endif
 #else
 	extern game_export_t *GetGameAPI( game_import_t *import );
 	return GetGameAPI((game_import_t *)parms);

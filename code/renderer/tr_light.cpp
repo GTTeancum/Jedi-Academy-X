@@ -387,9 +387,10 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 
 #ifdef _XBOX
 	if ( s_xboxLightGridLogCount < 64 && ent->e.hModel > 0 ) {
-		XBLF("STEFX_LIGHTGRID #%d ent=%p hModel=%d reType=%d renderfx=0x%x origin=%g,%g,%g lightOrigin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
+		XBLF("STEFX_LIGHTGRID #%d ent=%p entNum=%d hModel=%d reType=%d renderfx=0x%x origin=%g,%g,%g lightOrigin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
 			s_xboxLightGridLogCount,
 			ent,
+			ent->e.number,
 			ent->e.hModel,
 			ent->e.reType,
 			ent->e.renderfx,
@@ -469,6 +470,7 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	}
 	ent->lightingCalculated = qtrue;
 
+#if defined(STEFX_SP_HOSTED_MP)
 	if ( ent->e.renderfx & RF_STEFX_FULLBRIGHT )
 	{
 		ent->ambientLight[0] = ent->ambientLight[1] = ent->ambientLight[2] = 0x7f;
@@ -480,6 +482,7 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 		VectorSet( ent->lightDir, 0.0f, 0.0f, 1.0f );
 		return;
 	}
+#endif
 
 	//
 	// trace a sample point down to find ambient light

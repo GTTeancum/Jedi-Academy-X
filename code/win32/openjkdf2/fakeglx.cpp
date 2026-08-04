@@ -126,15 +126,13 @@ extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
 
+#define XBOX_FAKEGL_CACHE_RENDER_STATE 1
+#define XBOX_FAKEGL_CACHE_TRANSFORM    1
+
 enum
 {
 	FAKEGL_BOUND_TEXTURE_CACHE_STAGES = 4
 };
-
-#ifdef _XBOX
-#define XBOX_FAKEGL_CACHE_RENDER_STATE 1
-#define XBOX_FAKEGL_CACHE_TRANSFORM 1
-#endif
 
 static IDirect3DBaseTexture8 *g_fakeglBoundTextureCache[FAKEGL_BOUND_TEXTURE_CACHE_STAGES];
 static bool g_fakeglBoundTextureCacheValid[FAKEGL_BOUND_TEXTURE_CACHE_STAGES];
@@ -151,19 +149,19 @@ extern "C" HRESULT JkaFakeglSetTextureCached(
 	HRESULT result;
 
 	if (!device)
-	{
+	{ 
 		return E_POINTER;
 	}
 	if (stage >= 0 && stage < FAKEGL_BOUND_TEXTURE_CACHE_STAGES &&
 		g_fakeglBoundTextureCacheValid[stage] &&
 		g_fakeglBoundTextureCache[stage] == texture)
-	{
+	{ 
 		return S_OK;
 	}
 
 	result = device->SetTexture(stage, texture);
 	if (SUCCEEDED(result) && stage >= 0 && stage < FAKEGL_BOUND_TEXTURE_CACHE_STAGES)
-	{
+	{ 
 		g_fakeglBoundTextureCacheValid[stage] = true;
 		g_fakeglBoundTextureCache[stage] = texture;
 	}
@@ -174,13 +172,13 @@ extern "C" void JkaFakeglSetTextureDebugName(const char *name)
 {
 	int i;
 	if (!name || !name[0])
-	{
+	{ 
 		name = "<none>";
 	}
 	strncpy(g_stefxFakeglTextureDebugName, name, sizeof(g_stefxFakeglTextureDebugName) - 1);
 	g_stefxFakeglTextureDebugName[sizeof(g_stefxFakeglTextureDebugName) - 1] = '\0';
 	for (i = 0; g_stefxFakeglTextureDebugName[i]; ++i)
-	{
+	{ 
 		if (g_stefxFakeglTextureDebugName[i] == '\n' ||
 			g_stefxFakeglTextureDebugName[i] == '\r')
 		{
@@ -202,7 +200,7 @@ static const char *FakeGL_CurrentTextureDebugName(void)
 static bool FakeGL_ShouldTraceDDSImage(const char *name)
 {
 	if (!name)
-	{
+	{ 
 		return false;
 	}
 	return strstr(name, "textures/borg/bars") ||
@@ -215,7 +213,7 @@ static bool FakeGL_ShouldTraceDDSImage(const char *name)
 extern "C" void FakeGL_ResetRegisteredTextureBudget(void)
 {
 	if (g_fakeglRegisteredTextureCount || g_fakeglRegisteredTextureBytes || g_fakeglRegisteredTextureDenied)
-	{
+	{ 
 		XBLF("JA: fakegl registered texture budget reset count=%u regKB=%u denied=%u",
 			(unsigned int)g_fakeglRegisteredTextureCount,
 			(unsigned int)(g_fakeglRegisteredTextureBytes / 1024),
@@ -245,7 +243,7 @@ static bool FakeGL_WriteAll(HANDLE file, const void *data, DWORD bytesToWrite)
 {
 	const BYTE *cursor = (const BYTE *)data;
 	while (bytesToWrite > 0)
-	{
+	{ 
 		DWORD written = 0;
 		if (!WriteFile(file, cursor, bytesToWrite, &written, NULL) || written == 0)
 		{
@@ -311,7 +309,7 @@ static bool FakeGL_NtWriteAll(HANDLE file, const void *data, DWORD bytesToWrite)
 {
 	const BYTE *cursor = (const BYTE *)data;
 	while (bytesToWrite > 0)
-	{
+	{ 
 		FGL_IOSB iosb;
 		DWORD chunk = bytesToWrite;
 		if (chunk > 0x10000)
@@ -341,7 +339,7 @@ static bool FakeGL_FileExistsOnAnyRuntimeDrive(const char *filename)
 	int i;
 
 	for (i = 0; i < (int)(sizeof(drives) / sizeof(drives[0])); ++i)
-	{
+	{ 
 		sprintf(path, "%c:\\%s", drives[i], filename);
 		if (FakeGL_FileExists(path))
 		{
@@ -351,33 +349,25 @@ static bool FakeGL_FileExistsOnAnyRuntimeDrive(const char *filename)
 	return false;
 }
 
-#if defined(STEFX_ELITE_FORCE_MP)
-#define STEFX_SCREENSHOT_PREFIX "ef_mp"
-#else
-#define STEFX_SCREENSHOT_PREFIX "ef_sp"
-#endif
-
-#define STEFX_SCREENSHOT_REQUEST_FILE STEFX_SCREENSHOT_PREFIX "_screenshot_request.txt"
-#define STEFX_SCREENSHOT_PREOPEN_FILE STEFX_SCREENSHOT_PREFIX "_screenshot_preopen.txt"
-#define STEFX_SCREENSHOT_BACKBUFFER_FILE STEFX_SCREENSHOT_PREFIX "_backbuffer.bmp"
-#define STEFX_SCREENSHOT_XGSHOT_FILE STEFX_SCREENSHOT_PREFIX "_xgshot.bmp"
-#define STEFX_RENDERPROBE_FILE STEFX_SCREENSHOT_PREFIX "_renderprobe.txt"
-#define STEFX_CXBX_PRESENT_THROTTLE_FILE STEFX_SCREENSHOT_PREFIX "_cxbx_present_throttle.txt"
+static DWORD s_fakeglScreenshotPollAfter = 0;
+static bool s_fakeglScreenshotRequestCached = false;
+static bool s_fakeglScreenshotPollingInitialized = false;
+static bool s_fakeglScreenshotPollingEnabled = false;
 
 static const char *FakeGL_FindScreenshotRequestPath(void)
 {
 	int i;
 	static const char *paths[] =
-	{
-		"D:\\" STEFX_SCREENSHOT_REQUEST_FILE,
-		"E:\\" STEFX_SCREENSHOT_REQUEST_FILE,
-		"T:\\" STEFX_SCREENSHOT_REQUEST_FILE,
-		STEFX_SCREENSHOT_REQUEST_FILE,
+	{ 
+		"D:\\ef_sp_screenshot_request.txt",
+		"E:\\ef_sp_screenshot_request.txt",
+		"T:\\ef_sp_screenshot_request.txt",
+		"ef_sp_screenshot_request.txt",
 		NULL
 	};
 
 	for (i = 0; paths[i]; ++i)
-	{
+	{ 
 		if (FakeGL_FileExists(paths[i]))
 		{
 			return paths[i];
@@ -390,36 +380,61 @@ static void FakeGL_DeleteScreenshotRequests(void)
 {
 	int i;
 	static const char *paths[] =
-	{
-		"D:\\" STEFX_SCREENSHOT_REQUEST_FILE,
-		"E:\\" STEFX_SCREENSHOT_REQUEST_FILE,
-		"T:\\" STEFX_SCREENSHOT_REQUEST_FILE,
-		STEFX_SCREENSHOT_REQUEST_FILE,
+	{ 
+		"D:\\ef_sp_screenshot_request.txt",
+		"E:\\ef_sp_screenshot_request.txt",
+		"T:\\ef_sp_screenshot_request.txt",
+		"ef_sp_screenshot_request.txt",
 		NULL
 	};
 
 	for (i = 0; paths[i]; ++i)
-	{
+	{ 
 		DeleteFileA(paths[i]);
 	}
+	s_fakeglScreenshotRequestCached = false;
+	s_fakeglScreenshotPollAfter = GetTickCount() + 1000;
 }
 
 static bool FakeGL_ScreenshotRequested(void)
 {
-	return FakeGL_FindScreenshotRequestPath() != NULL;
+	const DWORD now = GetTickCount();
+	if (!s_fakeglScreenshotPollingInitialized)
+	{
+		s_fakeglScreenshotRequestCached =
+			FakeGL_FindScreenshotRequestPath() != NULL;
+		s_fakeglScreenshotPollingEnabled =
+			s_fakeglScreenshotRequestCached ||
+			FakeGL_FileExistsOnAnyRuntimeDrive(
+				"ef_sp_screenshot_preopen.txt");
+		s_fakeglScreenshotPollingInitialized = true;
+		s_fakeglScreenshotPollAfter = now + 1000;
+	}
+	if (!s_fakeglScreenshotPollingEnabled)
+	{
+		return s_fakeglScreenshotRequestCached;
+	}
+	if (s_fakeglScreenshotPollAfter == 0 ||
+		(LONG)(now - s_fakeglScreenshotPollAfter) >= 0)
+	{
+		s_fakeglScreenshotRequestCached =
+			FakeGL_FindScreenshotRequestPath() != NULL;
+		s_fakeglScreenshotPollAfter = now + 1000;
+	}
+	return s_fakeglScreenshotRequestCached;
 }
 
 static void FakeGL_PixelToRgb(const BYTE *src, bool rgb565, BYTE *r, BYTE *g, BYTE *b)
 {
 	if (rgb565)
-	{
+	{ 
 		WORD pixel = *(const WORD *)src;
 		*r = (BYTE)((((pixel >> 11) & 31) * 255) / 31);
 		*g = (BYTE)((((pixel >> 5) & 63) * 255) / 63);
 		*b = (BYTE)(((pixel & 31) * 255) / 31);
 	}
 	else
-	{
+	{ 
 		*b = src[0];
 		*g = src[1];
 		*r = src[2];
@@ -429,7 +444,7 @@ static void FakeGL_PixelToRgb(const BYTE *src, bool rgb565, BYTE *r, BYTE *g, BY
 static DWORD FakeGL_SurfaceBytesPerPixel(D3DFORMAT format)
 {
 	if (format == D3DFMT_R5G6B5 || format == D3DFMT_LIN_R5G6B5)
-	{
+	{ 
 		return 2;
 	}
 	return 4;
@@ -443,16 +458,16 @@ static bool FakeGL_SurfaceHasVisibleSignal(const BYTE *pixels, D3DFORMAT format,
 	DWORD maxBrightness = 0;
 
 	if (outVisibleSamples)
-	{
+	{ 
 		*outVisibleSamples = 0;
 	}
 	if (outMaxBrightness)
-	{
+	{ 
 		*outMaxBrightness = 0;
 	}
 
 	__try
-	{
+	{ 
 		if (!pixels || width == 0 || height == 0 || pitch < width * bytesPerPixel)
 		{
 			return false;
@@ -482,16 +497,16 @@ static bool FakeGL_SurfaceHasVisibleSignal(const BYTE *pixels, D3DFORMAT format,
 		}
 	}
 	__except(EXCEPTION_EXECUTE_HANDLER)
-	{
+	{ 
 		return false;
 	}
 
 	if (outVisibleSamples)
-	{
+	{ 
 		*outVisibleSamples = visibleSamples;
 	}
 	if (outMaxBrightness)
-	{
+	{ 
 		*outMaxBrightness = maxBrightness;
 	}
 
@@ -509,7 +524,7 @@ static void FakeGL_LogSurfaceSample(const char *label, const BYTE *pixels, D3DFO
 	DWORD cornerPixel = 0;
 
 	__try
-	{
+	{ 
 		if (pixels && pitch >= width * bytesPerPixel && width > 0 && height > 0)
 		{
 			DWORD sy;
@@ -541,7 +556,7 @@ static void FakeGL_LogSurfaceSample(const char *label, const BYTE *pixels, D3DFO
 		}
 	}
 	__except(EXCEPTION_EXECUTE_HANDLER)
-	{
+	{ 
 		checksum = 0xffffffffu;
 	}
 
@@ -572,7 +587,7 @@ static void FakeGL_LogSurfaceImage(const char *label, const BYTE *pixels, D3DFOR
 	static const char hexDigits[] = "0123456789abcdef";
 
 	if (!pixels)
-	{
+	{ 
 		XBLF("STEFX: renderer screenshot log skipped label='%s' pixels=NULL", label);
 		return;
 	}
@@ -588,7 +603,7 @@ static void FakeGL_LogSurfaceImage(const char *label, const BYTE *pixels, D3DFOR
 		(unsigned int)bytesPerPixel);
 
 	for (DWORD y = 0; y < outHeight; ++y)
-	{
+	{ 
 		DWORD srcY = (y * height) / outHeight;
 		for (DWORD x = 0; x < outWidth; x += chunkPixels)
 		{
@@ -636,15 +651,15 @@ static bool FakeGL_TryXGWriteSurface(D3DSurface *surface)
 {
 	int i;
 	const char *paths[] = {
-		"D:\\" STEFX_SCREENSHOT_XGSHOT_FILE,
-		"E:\\" STEFX_SCREENSHOT_XGSHOT_FILE,
-		"T:\\" STEFX_SCREENSHOT_XGSHOT_FILE,
-		STEFX_SCREENSHOT_XGSHOT_FILE,
+		"D:\\ef_sp_xgshot.bmp",
+		"E:\\ef_sp_xgshot.bmp",
+		"T:\\ef_sp_xgshot.bmp",
+		"ef_sp_xgshot.bmp",
 		NULL
 	};
 
 	for (i = 0; paths[i]; ++i)
-	{
+	{ 
 		DeleteFileA(paths[i]);
 		HRESULT hr = XGWriteSurfaceToFile(surface, paths[i]);
 		DWORD attrs = GetFileAttributesA(paths[i]);
@@ -668,7 +683,7 @@ static bool FakeGL_TryXGWriteFrontBuffer(D3DDevice *device)
 	bool ok = false;
 
 	if (!device)
-	{
+	{ 
 		return false;
 	}
 
@@ -677,7 +692,7 @@ static bool FakeGL_TryXGWriteFrontBuffer(D3DDevice *device)
 		(unsigned long)hr,
 		frontBuffer);
 	if (FAILED(hr) || !frontBuffer)
-	{
+	{ 
 		return false;
 	}
 
@@ -687,64 +702,22 @@ static bool FakeGL_TryXGWriteFrontBuffer(D3DDevice *device)
 	return ok;
 }
 
-static bool FakeGL_TryXGWriteRenderTarget(D3DDevice *device, const char *label)
-{
-	D3DSurface *renderTarget = NULL;
-	HRESULT hr;
-	bool ok = false;
-	static int s_renderTargetLogBudget = 12;
-
-	if (!device)
-	{
-		return false;
-	}
-
-	hr = device->GetRenderTarget(&renderTarget);
-	if (s_renderTargetLogBudget > 0)
-	{
-		XBLF("STEFX: renderer screenshot render target GetRenderTarget label='%s' hr=0x%08lx surf=%p",
-			label ? label : "unknown",
-			(unsigned long)hr,
-			renderTarget);
-		--s_renderTargetLogBudget;
-	}
-	if (FAILED(hr) || !renderTarget)
-	{
-		return false;
-	}
-
-	device->BlockUntilIdle();
-	ok = FakeGL_TryXGWriteSurface(renderTarget);
-	if (ok)
-	{
-		XBLF("STEFX: renderer screenshot render target XGWrite succeeded label='%s'",
-			label ? label : "unknown");
-	}
-	renderTarget->Release();
-	return ok;
-}
-
 static HANDLE s_fakeglScreenshotFile = INVALID_HANDLE_VALUE;
 static bool s_fakeglScreenshotFileIsNt = false;
-static char s_fakeglScreenshotFilePath[128];
 
 static bool FakeGL_OpenScreenshotFile(const char *outputPath, const char *ntOutputPath, HANDLE *out, bool *isNt)
 {
 	*out = CreateFileA(outputPath, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (*out != INVALID_HANDLE_VALUE)
-	{
+	{ 
 		*isNt = false;
 		return true;
 	}
 
 	DWORD createError = GetLastError();
-	long status = -1;
-	if (ntOutputPath)
-	{
-		status = FakeGL_NtCreateOverwrite(ntOutputPath, out);
-	}
-	if (ntOutputPath && status >= 0 && *out != INVALID_HANDLE_VALUE)
-	{
+	long status = FakeGL_NtCreateOverwrite(ntOutputPath, out);
+	if (status >= 0 && *out != INVALID_HANDLE_VALUE)
+	{ 
 		*isNt = true;
 		return true;
 	}
@@ -752,102 +725,46 @@ static bool FakeGL_OpenScreenshotFile(const char *outputPath, const char *ntOutp
 	XBLF("STEFX: renderer screenshot open failed d='%s' err=%lu nt='%s' status=0x%08lx",
 		outputPath,
 		createError,
-		ntOutputPath ? ntOutputPath : "",
+		ntOutputPath,
 		status);
-		*out = INVALID_HANDLE_VALUE;
-	*isNt = false;
-	return false;
-}
-
-static void FakeGL_CopyPath(char *dest, DWORD destSize, const char *src)
-{
-	if (!dest || destSize == 0)
-	{
-		return;
-	}
-	if (!src)
-	{
-		src = "";
-	}
-	strncpy(dest, src, destSize - 1);
-	dest[destSize - 1] = '\0';
-}
-
-static bool FakeGL_OpenScreenshotFileOnRuntimeDrive(const char *filename, HANDLE *out, bool *isNt, char *openedPath, DWORD openedPathSize)
-{
-	char path[128];
-	char ntPath[160];
-	static const char drives[] = { 'D', 'E', 'T' };
-	int i;
-
-	for (i = 0; i < (int)(sizeof(drives) / sizeof(drives[0])); ++i)
-	{
-		sprintf(path, "%c:\\%s", drives[i], filename);
-		if (FakeGL_OpenScreenshotFile(path, NULL, out, isNt))
-		{
-			FakeGL_CopyPath(openedPath, openedPathSize, path);
-			return true;
-		}
-	}
-
-	if (FakeGL_OpenScreenshotFile(filename, NULL, out, isNt))
-	{
-		FakeGL_CopyPath(openedPath, openedPathSize, filename);
-		return true;
-	}
-
-	sprintf(ntPath, "\\Device\\Harddisk0\\Partition1\\%s", filename);
 	*out = INVALID_HANDLE_VALUE;
-	long status = FakeGL_NtCreateOverwrite(ntPath, out);
-	if (status >= 0 && *out != INVALID_HANDLE_VALUE)
-	{
-		*isNt = true;
-		FakeGL_CopyPath(openedPath, openedPathSize, ntPath);
-		XBLF("STEFX: renderer screenshot opened raw partition path='%s'", ntPath);
-		return true;
-	}
-
 	*isNt = false;
-	XBLF("STEFX: renderer screenshot open failed on runtime drives file='%s' nt='%s' status=0x%08lx",
-		filename,
-		ntPath,
-		status);
 	return false;
 }
 
 static void FakeGL_EnsureScreenshotFilePreopened(void)
 {
 	static bool s_preopenTried = false;
+	const char *preopenPath = "D:\\ef_sp_screenshot_preopen.txt";
+	const char *outputPath = "D:\\ef_sp_backbuffer.bmp";
+	const char *ntOutputPath = "\\Device\\Harddisk0\\Partition1\\ef_sp_backbuffer.bmp";
 
 	if (s_preopenTried || s_fakeglScreenshotFile != INVALID_HANDLE_VALUE)
-	{
-		return;
-	}
-
-	if (!FakeGL_FileExistsOnAnyRuntimeDrive(STEFX_SCREENSHOT_PREOPEN_FILE))
-	{
+	{ 
 		return;
 	}
 
 	s_preopenTried = true;
-	if (!FakeGL_OpenScreenshotFileOnRuntimeDrive(STEFX_SCREENSHOT_BACKBUFFER_FILE,
-		&s_fakeglScreenshotFile,
-		&s_fakeglScreenshotFileIsNt,
-		s_fakeglScreenshotFilePath,
-		sizeof(s_fakeglScreenshotFilePath)))
-	{
+	if (!FakeGL_FileExists(preopenPath))
+	{ 
+		return;
+	}
+
+	if (!FakeGL_OpenScreenshotFile(outputPath, ntOutputPath, &s_fakeglScreenshotFile, &s_fakeglScreenshotFileIsNt))
+	{ 
 		XBLF("STEFX: renderer screenshot preopen failed");
 	}
 	else
-	{
-		XBLF("STEFX: renderer screenshot preopened '%s' isNt=%d", s_fakeglScreenshotFilePath, s_fakeglScreenshotFileIsNt ? 1 : 0);
+	{ 
+		XBLF("STEFX: renderer screenshot preopened '%s' isNt=%d", outputPath, s_fakeglScreenshotFileIsNt ? 1 : 0);
 	}
 }
 
 static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface *backBuffer, DWORD width, DWORD height, DWORD pitch, const char *label)
 {
 	const char *requestPath = FakeGL_FindScreenshotRequestPath();
-	char outputPath[128];
+	const char *outputPath = "D:\\ef_sp_backbuffer.bmp";
+	const char *ntOutputPath = "\\Device\\Harddisk0\\Partition1\\ef_sp_backbuffer.bmp";
 	static int s_rejectLogBudget = 4;
 	static int s_blankRetryLogBudget = 4;
 	static int s_requestSeenLogBudget = 4;
@@ -855,12 +772,12 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	DWORD maxBrightness = 0;
 
 	if (!requestPath)
-	{
+	{ 
 		return;
 	}
 
 	if (s_requestSeenLogBudget > 0)
-	{
+	{ 
 		XBLF("STEFX: renderer screenshot request seen path='%s' label='%s' size=%ux%u pitch=%u",
 			requestPath,
 			label,
@@ -870,25 +787,8 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		--s_requestSeenLogBudget;
 	}
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-	{
-		static int s_renderTargetLogBudget = 4;
-		if (s_renderTargetLogBudget > 0)
-		{
-			XBLF("STEFX_HM: renderer screenshot render-target XGWrite enabled for MP visual proof label='%s'",
-				label ? label : "unknown");
-			--s_renderTargetLogBudget;
-		}
-	}
-#endif
-	if (FakeGL_TryXGWriteRenderTarget(device, label))
-	{
-		FakeGL_DeleteScreenshotRequests();
-		return;
-	}
-
 	if (!backBuffer || !backBuffer->Data || width == 0 || height == 0 || width > 4096 || height > 4096)
-	{
+	{ 
 		if (s_rejectLogBudget > 0)
 		{
 			XBLF("STEFX: renderer screenshot invalid label='%s' surf=%p data=%p size=%ux%u pitch=%u",
@@ -909,7 +809,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		backBuffer->Format == D3DFMT_LIN_R5G6B5;
 	const DWORD bytesPerPixel = rgb565 ? 2 : 4;
 	if (pitch < width * bytesPerPixel)
-	{
+	{ 
 		if (s_rejectLogBudget > 0)
 		{
 			XBLF("STEFX: renderer screenshot bad pitch label='%s' pitch=%u width=%u bpp=%u fmt=0x%08x",
@@ -925,7 +825,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	}
 
 	if (!FakeGL_SurfaceHasVisibleSignal((const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch, &visibleSamples, &maxBrightness))
-	{
+	{ 
 		const bool postPresent = !strcmp(label, "post-present");
 		const bool prePresent = !strcmp(label, "pre-present");
 		if (prePresent)
@@ -970,7 +870,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
 
 #ifdef _XBOX
-	{
+	{ 
 		static int s_skipResolveLogBudget = 4;
 		if (s_skipResolveLogBudget > 0)
 		{
@@ -983,7 +883,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 
 	BYTE *row = (BYTE *)malloc(rowStride);
 	if (!row)
-	{
+	{ 
 		XBLF("STEFX: renderer screenshot row alloc failed stride=%u", (unsigned int)rowStride);
 		FakeGL_LogSurfaceSample(label, (const BYTE *)backBuffer->Data, (D3DFORMAT)backBuffer->Format, width, height, pitch);
 		FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
@@ -992,14 +892,9 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 
 	HANDLE file = s_fakeglScreenshotFile;
 	bool fileIsNt = s_fakeglScreenshotFileIsNt;
-	FakeGL_CopyPath(outputPath, sizeof(outputPath), s_fakeglScreenshotFilePath);
 	if (file == INVALID_HANDLE_VALUE)
-	{
-		if (!FakeGL_OpenScreenshotFileOnRuntimeDrive(STEFX_SCREENSHOT_BACKBUFFER_FILE,
-			&file,
-			&fileIsNt,
-			outputPath,
-			sizeof(outputPath)))
+	{ 
+		if (!FakeGL_OpenScreenshotFile(outputPath, ntOutputPath, &file, &fileIsNt))
 		{
 			FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
 			free(row);
@@ -1008,7 +903,6 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	}
 	s_fakeglScreenshotFile = INVALID_HANDLE_VALUE;
 	s_fakeglScreenshotFileIsNt = false;
-	s_fakeglScreenshotFilePath[0] = '\0';
 
 	BYTE header[54];
 	memset(header, 0, sizeof(header));
@@ -1026,7 +920,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	bool ok = fileIsNt ? FakeGL_NtWriteAll(file, header, sizeof(header)) : FakeGL_WriteAll(file, header, sizeof(header));
 	int y;
 	for (y = (int)height - 1; ok && y >= 0; --y)
-	{
+	{ 
 		memset(row, 0, rowStride);
 		const BYTE *src = (const BYTE *)backBuffer->Data + (DWORD)y * pitch;
 		for (DWORD x = 0; x < width; ++x)
@@ -1041,7 +935,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 				row[x * 3 + 1] = g;
 				row[x * 3 + 2] = r;
 			}
-			else
+			else 
 			{
 				const BYTE *pixel = src + x * 4;
 				row[x * 3 + 0] = pixel[0];
@@ -1053,20 +947,20 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 	}
 
 	if (fileIsNt)
-	{
+	{ 
 		FGL_IOSB flushIosb;
 		NtFlushBuffersFile(file, &flushIosb);
 		NtClose(file);
 	}
 	else
-	{
+	{ 
 		FlushFileBuffers(file);
 		CloseHandle(file);
 	}
 	free(row);
 
 	if (ok)
-	{
+	{ 
 		XBLF("STEFX: renderer screenshot wrote '%s' size=%ux%u pitch=%u fmt=0x%08x",
 			outputPath,
 			(unsigned int)width,
@@ -1076,7 +970,7 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 		FakeGL_DeleteScreenshotRequests();
 	}
 	else
-	{
+	{ 
 		XBLF("STEFX: renderer screenshot write failed '%s'", outputPath);
 		FakeGL_LogBackbufferImage(backBuffer, width, height, pitch);
 		DeleteFileA(outputPath);
@@ -1086,70 +980,40 @@ static void FakeGL_TryWriteRequestedBackbufferBMP(D3DDevice *device, D3DSurface 
 
 static bool FakeGL_RenderProbeRequested(void)
 {
-	return FakeGL_FileExistsOnAnyRuntimeDrive(STEFX_RENDERPROBE_FILE);
+	static bool s_checked = false;
+	static bool s_requested = false;
+	if (!s_checked)
+	{
+		s_requested =
+			FakeGL_FileExistsOnAnyRuntimeDrive("ef_sp_renderprobe.txt");
+		s_checked = true;
+	}
+	return s_requested;
 }
 
-static int FakeGL_STEFXMatrixLoadMode(void)
+static bool FakeGL_CxbxPresentThrottleRequested(void)
 {
-	static int s_mode = -1;
-	if (s_mode >= 0)
+	static bool s_checked = false;
+	static bool s_requested = false;
+	if (!s_checked)
 	{
-		return s_mode;
+		s_requested =
+			FakeGL_FileExistsOnAnyRuntimeDrive("ef_sp_cxbx_present_throttle.txt");
+		s_checked = true;
 	}
-
-	if (FakeGL_FileExistsOnAnyRuntimeDrive("ef_mp_matrix_raw.txt"))
-	{
-		s_mode = 0;
-	}
-	else if (FakeGL_FileExistsOnAnyRuntimeDrive("ef_mp_matrix_proj.txt"))
-	{
-		s_mode = 1;
-	}
-	else if (FakeGL_FileExistsOnAnyRuntimeDrive("ef_mp_matrix_model.txt"))
-	{
-		s_mode = 2;
-	}
-	else if (FakeGL_FileExistsOnAnyRuntimeDrive("ef_mp_matrix_both.txt"))
-	{
-		s_mode = 3;
-	}
-	else
-	{
-		s_mode = 0;
-	}
-
-	XBLF("STEFX: fakegl matrix load mode=%d raw=0 proj=1 model=2 both=3", s_mode);
-	return s_mode;
-}
-
-static bool FakeGL_STEFXShouldTransposeMatrix(GLenum matrixMode)
-{
-	const int mode = FakeGL_STEFXMatrixLoadMode();
-	if (mode == 1)
-	{
-		return matrixMode == GL_PROJECTION;
-	}
-	if (mode == 2)
-	{
-		return matrixMode == GL_MODELVIEW;
-	}
-	if (mode == 3)
-	{
-		return true;
-	}
-	return false;
+	return s_requested;
 }
 
 static void FakeGL_DrawRenderProbe(D3DDevice *device)
 {
 	static int s_probeLogCount = 0;
 	if (!device || !FakeGL_RenderProbeRequested())
-	{
+	{ 
 		return;
 	}
 
 	struct probeVertex_t
-	{
+	{ 
 		float x;
 		float y;
 		float z;
@@ -1158,7 +1022,7 @@ static void FakeGL_DrawRenderProbe(D3DDevice *device)
 	};
 
 	const probeVertex_t verts[4] =
-	{
+	{ 
 		{  64.0f,  64.0f, 0.0f, 1.0f, 0xffff0000 },
 		{ 576.0f,  64.0f, 0.0f, 1.0f, 0xff00ff00 },
 		{  64.0f, 416.0f, 0.0f, 1.0f, 0xff0000ff },
@@ -1185,7 +1049,7 @@ static void FakeGL_DrawRenderProbe(D3DDevice *device)
 	device->BlockUntilIdle();
 
 	if (s_probeLogCount < 64)
-	{
+	{ 
 		XBLF("STEFX: fakegl render probe frame=%d clear=0x%08lx shader=0x%08lx draw=0x%08lx flushed=1 dev=%p",
 			s_probeLogCount,
 			(unsigned long)hrClear,
@@ -1201,7 +1065,7 @@ class TextureEntry
 {
 public:
 	TextureEntry()
-	{
+	{ 
 		m_id = 0;
 		m_mipMap = 0;
 		m_format = D3DFMT_UNKNOWN;
@@ -1217,11 +1081,11 @@ public:
 		m_maxAnisotropy = 4.0;									// We also can bump up the anisotropy level to make things look nicer
 	}
 	~TextureEntry()
-	{
+	{ 
 	}
 
 	void Release()
-	{
+	{ 
 #ifdef _XBOX
 		if (m_mipMap && m_ownsTextureHeader)
 		{
@@ -1260,7 +1124,7 @@ class TextureTable
 {
 public:
 	TextureTable()
-	{
+	{ 
 		m_count = 0;
 		m_size = 0;
 		m_textures = 0;
@@ -1269,7 +1133,7 @@ public:
 		BindTexture(0);
 	}
 	~TextureTable()
-	{
+	{ 
 		DWORD i;
 		for(i = 0; i < m_count; i++) 
 		{
@@ -1285,11 +1149,11 @@ public:
 	}
 
 	void BindTexture(GLuint id)
-	{
+	{ 
 		TextureEntry* oldEntry = m_currentTexture;
 		m_currentID = id;
 
-		if ( id < TASIZE )
+		if ( id < TASIZE ) 
 		{
 			m_currentTexture = m_textureArray + id;
 			if ( m_currentTexture->m_id )
@@ -1337,17 +1201,17 @@ public:
 	}
 
 	int GetCurrentID() 
-	{
+	{ 
 		return m_currentID;
 	}
 
 	TextureEntry* GetCurrentEntry() 
-	{
+	{ 
 		return m_currentTexture;
 	}
 
 	TextureEntry* GetEntry(GLuint id)
-	{
+	{ 
 		if ( m_currentID == id && m_currentTexture ) 
 		{
 			return m_currentTexture;
@@ -1362,7 +1226,7 @@ public:
 			// Really ought to be a hash table.
 			for(DWORD i = 0; i < m_count; i++)
 			{
-				if ( id == m_textures[i].m_id )
+				if ( id == m_textures[i].m_id ) 
 				{
 					return  &m_textures[i];
 				}
@@ -1372,8 +1236,8 @@ public:
 	}
 
 	IDirect3DTexture8*  GetMipMap()
-	{
-		if ( m_currentTexture )
+	{ 
+		if ( m_currentTexture ) 
 		{
 			return m_currentTexture->m_mipMap;
 		}
@@ -1381,7 +1245,7 @@ public:
 	}
 
 	IDirect3DTexture8*  GetMipMap(int id)
-	{
+	{ 
 		TextureEntry* entry = GetEntry(id);
 		if ( entry ) 
 		{
@@ -1391,7 +1255,7 @@ public:
 	}
 
 	D3DFORMAT GetSurfaceFormat()
-	{
+	{ 
 		if ( m_currentTexture ) 
 		{
 			return m_currentTexture->m_format;
@@ -1404,7 +1268,7 @@ public:
 		, bool ownsTextureHeader = false
 #endif
 		)
-	{
+	{ 
 		if ( !m_currentTexture )
 		{
 			BindTexture(0);
@@ -1419,7 +1283,7 @@ public:
 	}
 
 	void DeleteTexture(GLuint id)
-	{
+	{ 
 		TextureEntry* entry = GetEntry(id);
 		if (!entry)
 			return;
@@ -1436,7 +1300,7 @@ public:
 	}
 
 	bool IsTexture(GLuint id)
-	{
+	{ 
 		if (!id)
 			return false;
 		TextureEntry* entry = GetEntry(id);
@@ -1444,7 +1308,7 @@ public:
 	}
 
 	GLint GetInternalFormat() 
-	{
+	{ 
 		if ( m_currentTexture ) 
 		{
 			return m_currentTexture->m_internalFormat;
@@ -1467,12 +1331,12 @@ private:
 float Clamp(float x) 
 {
 	if ( x < 0 ) 
-	{
+	{ 
 		x = 0;
 		LocalDebugBreak();
 	}
 	else if ( x > 1 ) 
-	{
+	{ 
 		x = 1;
 		LocalDebugBreak();
 	}
@@ -1484,7 +1348,7 @@ static D3DBLEND GLToDXSBlend(GLenum glBlend)
 {
 	D3DBLEND result = D3DBLEND_ONE;
 	switch ( glBlend ) 
-	{
+	{ 
 		case GL_ZERO: result = D3DBLEND_ZERO; break;
 		case GL_ONE: result = D3DBLEND_ONE; break;
 		case GL_DST_COLOR: result = D3DBLEND_DESTCOLOR; break;
@@ -1502,8 +1366,8 @@ static D3DBLEND GLToDXSBlend(GLenum glBlend)
 static D3DBLEND GLToDXDBlend(GLenum glBlend)
 {
 	D3DBLEND result = D3DBLEND_ONE;
-	switch ( glBlend )
-	{
+	switch ( glBlend ) 
+	{ 
 		case GL_ZERO: result = D3DBLEND_ZERO; break;
 		case GL_ONE: result = D3DBLEND_ONE; break;
 		case GL_SRC_COLOR: result = D3DBLEND_SRCCOLOR; break;
@@ -1521,7 +1385,7 @@ static D3DCMPFUNC GLToDXCompare(GLenum func)
 {
 	D3DCMPFUNC result = D3DCMP_ALWAYS;
 	switch ( func ) 
-	{
+	{ 
 		case GL_NEVER: result = D3DCMP_NEVER; break;
 		case GL_LESS: result = D3DCMP_LESS; break;
 		case GL_EQUAL: result = D3DCMP_EQUAL; break;
@@ -1537,8 +1401,8 @@ static D3DCMPFUNC GLToDXCompare(GLenum func)
 
 static D3DFOGMODE GLToDXFogMode(GLint mode)
 {
-	switch ( mode )
-	{
+	switch ( mode ) 
+	{ 
 	case GL_LINEAR:
 		return D3DFOG_LINEAR;
 	case GL_EXP:
@@ -1565,7 +1429,7 @@ static D3DTEXTUREFILTERTYPE GLToDXMinFilter(GLint filter)
 {
 	D3DTEXTUREFILTERTYPE result = D3DTEXF_LINEAR;
 	switch ( filter ) 
-	{
+	{ 
 		case GL_NEAREST: result = D3DTEXF_POINT; break;
 		case GL_LINEAR: result = D3DTEXF_LINEAR; break;
 		case GL_NEAREST_MIPMAP_NEAREST: result = D3DTEXF_POINT; break;
@@ -1583,7 +1447,7 @@ static D3DTEXTUREFILTERTYPE GLToDXMipFilter(GLint filter)
 {
 	D3DTEXTUREFILTERTYPE result = D3DTEXF_LINEAR;
 	switch ( filter ) 
-	{
+	{ 
 		case GL_NEAREST: result = D3DTEXF_NONE; break;
 		case GL_LINEAR: result = D3DTEXF_NONE; break;
 		case GL_NEAREST_MIPMAP_NEAREST: result = D3DTEXF_POINT; break;
@@ -1600,8 +1464,8 @@ static D3DTEXTUREFILTERTYPE GLToDXMipFilter(GLint filter)
 static D3DTEXTUREFILTERTYPE GLToDXMagFilter(GLint filter)
 {
 	D3DTEXTUREFILTERTYPE result = D3DTEXF_POINT;
-	switch ( filter )
-	{
+	switch ( filter ) 
+	{ 
 		case GL_NEAREST: result = D3DTEXF_POINT; break;
 		case GL_LINEAR: result = D3DTEXF_LINEAR; break;
 	default:
@@ -1615,7 +1479,7 @@ static D3DTEXTUREADDRESS GLToDXTextureAddress(GLint wrap)
 {
 	D3DTEXTUREADDRESS result = D3DTADDRESS_CLAMP;
 	switch ( wrap )
-	{
+	{ 
 		case GL_REPEAT:
 			result = D3DTADDRESS_WRAP;
 			break;
@@ -1636,7 +1500,7 @@ static D3DTEXTUREOP GLToDXTextEnvMode(GLint mode)
 {
 	D3DTEXTUREOP result = D3DTOP_MODULATE;
 	switch ( mode ) 
-	{
+	{ 
 		case GL_MODULATE: result = D3DTOP_MODULATE; break;
 		case GL_DECAL: result = D3DTOP_SELECTARG1; break; // Fix this
 		case GL_BLEND: result = D3DTOP_BLENDTEXTUREALPHA; break;
@@ -1654,7 +1518,7 @@ class TextureStageState
 {
 public:
 	TextureStageState()
-	{
+	{ 
 		m_currentTexture = 0;
 		m_glTextEnvMode = GL_MODULATE;
 		m_glTexture2D = false;
@@ -1662,7 +1526,7 @@ public:
 	}
 
 	bool GetDirty()
-	{
+	{ 
 		return m_dirty;
 	}
 
@@ -1672,7 +1536,7 @@ public:
 	}
 
 	bool DirtyTexture(GLuint textureID)
-	{
+	{ 
 		if ( textureID == m_currentTexture ) 
 		{
 			m_dirty = true;
@@ -1683,7 +1547,7 @@ public:
 
 	GLuint GetCurrentTexture() { return m_currentTexture; }
 	bool SetCurrentTexture(GLuint texture)
-	{
+	{ 
 		if (m_currentTexture == texture)
 		{
 			return false;
@@ -1695,7 +1559,7 @@ public:
 
 	GLfloat GetTextEnvMode() { return m_glTextEnvMode; }
 	bool SetTextEnvMode(GLfloat mode)
-	{
+	{ 
 		if (m_glTextEnvMode == mode)
 		{
 			return false;
@@ -1707,7 +1571,7 @@ public:
 
 	bool GetTexture2D() { return m_glTexture2D; }
 	bool SetTexture2D(bool texture2D)
-	{
+	{ 
 		if (m_glTexture2D == texture2D)
 		{
 			return false;
@@ -1718,7 +1582,7 @@ public:
 	}
 
 private:
-	
+
 	GLuint m_currentTexture;
 	GLfloat m_glTextEnvMode;
 	bool m_glTexture2D;
@@ -1729,7 +1593,7 @@ class TextureState
 {
 public:
 	TextureState()
-	{
+	{ 
 		m_currentStage = 0;
 		memset(&m_stage, 0, sizeof(m_stage));
 		m_dirty = false;
@@ -1737,7 +1601,7 @@ public:
 	}
 
 	void SetMaxStages(int maxStages)
-	{
+	{ 
 		m_maxStages = maxStages;
 		for(int i = 0; i < m_maxStages;i++)
 		{
@@ -1748,7 +1612,7 @@ public:
 
 	// Keep track of changes to texture stage state
 	void SetCurrentStage(int index)
-	{
+	{ 
 		m_currentStage = index;
 	}
 
@@ -1762,7 +1626,7 @@ public:
 	bool GetDirty() { return m_dirty; }
 
 	void DirtyTexture(int textureID)
-	{
+	{ 
 		bool dirty = false;
 		for(int i = 0; i < m_maxStages;i++)
 		{
@@ -1775,7 +1639,7 @@ public:
 	}
 
 	void SetMainBlend(bool mainBlend)
-	{
+	{ 
 		if (m_mainBlend == mainBlend)
 		{
 			return;
@@ -1784,13 +1648,13 @@ public:
 		m_stage[0].SetDirty(true);
 		m_dirty = true;
 	}
-	
+
 	// These methods apply to the current stage
 
 	GLuint GetCurrentTexture() { return Get()->GetCurrentTexture(); }
 
 	void SetCurrentTexture(GLuint texture)
-	{
+	{ 
 		if (Get()->SetCurrentTexture(texture))
 		{
 			m_dirty = true;
@@ -1800,17 +1664,17 @@ public:
 	GLfloat GetTextEnvMode() { return Get()->GetTextEnvMode(); }
 
 	void SetTextEnvMode(GLfloat mode)
-	{
+	{ 
 		if (Get()->SetTextEnvMode(mode))
 		{
 			m_dirty = true;
 		}
 	}
-	
+
 	bool GetTexture2D() { return Get()->GetTexture2D(); }
 
 	void SetTexture2D(bool texture2D)
-	{
+	{ 
 		if (Get()->SetTexture2D(texture2D))
 		{
 			m_dirty = true;
@@ -1818,7 +1682,7 @@ public:
 	}
 
 	void ForceStageDirty(int index)
-	{
+	{ 
 		if (index >= 0 && index < m_maxStages)
 		{
 			m_stage[index].SetDirty(true);
@@ -1827,7 +1691,7 @@ public:
 	}
 
 	void SetTextureStageState(IDirect3DDevice8* pD3DDev, TextureTable* textures)
-	{
+	{ 
 #ifdef _XBOX
 		{
 			static int s_xboxTextureStateEntryStage1LogCount = 0;
@@ -1873,8 +1737,8 @@ public:
 			firstTime = false;
 			for(int i = 0; i < m_maxStages; i++ ) 
 			{
-				pD3DDev->SetTextureStageState(i, D3DTSS_TEXCOORDINDEX, i);
-				pD3DDev->SetTextureStageState(i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+				pD3DDev->SetTextureStageState( i, D3DTSS_TEXCOORDINDEX, i);
+				pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 			}
 		}
 
@@ -1923,11 +1787,6 @@ public:
 				DWORD color1 = D3DTA_TEXTURE;
 				int textEnvMode =  m_stage[i].GetTextEnvMode();
 				DWORD colorOp = GLToDXTextEnvMode(textEnvMode);
-				if ( i > 0 && textEnvMode == GL_BLEND )
-				{
-					colorOp = D3DTOP_MODULATE;
-					color1 |= D3DTA_COMPLEMENT;
-				}
 #ifdef _XBOX
 				if (i == 1)
 				{
@@ -1945,19 +1804,18 @@ public:
 				}
 #endif
 				HRESULT hrColorArg1 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, color1);
-				HRESULT hrColorArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT);
+				HRESULT hrColorArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, D3DTA_CURRENT);
 				HRESULT hrColorOp = pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, colorOp);
 				HRESULT hrTexCoordIndex = pD3DDev->SetTextureStageState( i, D3DTSS_TEXCOORDINDEX, i);
-				HRESULT hrTextureTransform = pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
+				HRESULT hrTextureTransform = pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0);
+				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0);
 				DWORD alpha1 = D3DTA_TEXTURE;
-				DWORD alpha2 = D3DTA_DIFFUSE;
+				DWORD alpha2 = D3DTA_CURRENT;
 				DWORD alphaOp;
 				alphaOp = GLToDXTextEnvMode(textEnvMode);
 				if (textEnvMode == GL_MODULATE2X_XBOX)
 				{
-					alpha2 = D3DTA_CURRENT;
 					alphaOp = D3DTOP_SELECTARG2;
 				}
 				if (i == 0 && m_mainBlend )
@@ -1966,7 +1824,7 @@ public:
 				}
 				HRESULT hrAlphaArg1 = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, alpha1);
 				HRESULT hrAlphaArg2 = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, alpha2);
-				HRESULT hrAlphaOp = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP,   alphaOp);
+				HRESULT hrAlphaOp = pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP, alphaOp);
 #ifdef _XBOX
 				{
 					static int s_xboxStageStateLogCount = 0;
@@ -1979,7 +1837,7 @@ public:
 							(unsigned int)textEnvMode,
 							(unsigned long)colorOp,
 							(unsigned long)color1,
-							(unsigned long)(i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT),
+							(unsigned long)D3DTA_CURRENT,
 							(unsigned long)alphaOp,
 							(unsigned long)alpha1,
 							(unsigned long)alpha2);
@@ -2010,7 +1868,7 @@ public:
 					static int s_xboxStage1TexTransformLogCount = 0;
 					if (s_xboxStage1TexTransformLogCount < 8)
 					{
-						XBLF("JA: fakegl stage1 texcoord state hr index=0x%08lx transform=0x%08lx flags=DISABLE",
+						XBLF("JA: fakegl stage1 texcoord state hr index=0x%08lx transform=0x%08lx flags=COUNT2",
 							(unsigned long)hrTexCoordIndex,
 							(unsigned long)hrTextureTransform);
 						++s_xboxStage1TexTransformLogCount;
@@ -2064,11 +1922,11 @@ public:
 					{
 						pD3DDev->SetTextureStageState( i, D3DTSS_MAXANISOTROPY, entry->m_maxAnisotropy);
 					}
-					pD3DDev->SetTextureStageState( i, D3DTSS_MINFILTER, dxMinFilter );
-					pD3DDev->SetTextureStageState( i, D3DTSS_MIPFILTER, dxMipFilter );
-					pD3DDev->SetTextureStageState( i, D3DTSS_MAGFILTER,  dxMagFilter);
-					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSU, dxAddressU );
-					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSV, dxAddressV );
+					pD3DDev->SetTextureStageState( i, D3DTSS_MINFILTER, dxMinFilter);
+					pD3DDev->SetTextureStageState( i, D3DTSS_MIPFILTER, dxMipFilter);
+					pD3DDev->SetTextureStageState( i, D3DTSS_MAGFILTER, dxMagFilter);
+					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSU, dxAddressU);
+					pD3DDev->SetTextureStageState( i, D3DTSS_ADDRESSV, dxAddressV);
 #ifdef _XBOX
 					if (i == 1)
 					{
@@ -2180,7 +2038,7 @@ public:
 						LocalDebugBreak();
 					}
 				}
-				else
+				else 
 				{
 #ifdef _XBOX
 					if (i == 1)
@@ -2200,18 +2058,18 @@ public:
 			{
 				JkaFakeglSetTextureCached(pD3DDev, i, NULL);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, i == 0 ? D3DTA_DIFFUSE : D3DTA_CURRENT);
+				pD3DDev->SetTextureStageState( i, D3DTSS_COLORARG2, D3DTA_CURRENT);
 				pD3DDev->SetTextureStageState( i, D3DTSS_COLOROP, D3DTOP_DISABLE);
 				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
 				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 				pD3DDev->SetTextureStageState( i, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0 );
+				pD3DDev->SetTextureStageState( i, D3DTSS_MAXMIPLEVEL, 0);
+				pD3DDev->SetTextureStageState( i, D3DTSS_MIPMAPLODBIAS, 0);
 #ifdef _XBOX
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORKEYOP, D3DTCOLORKEYOP_DISABLE );
-				pD3DDev->SetTextureStageState( i, D3DTSS_COLORSIGN, 0 );
-				pD3DDev->SetTextureStageState( i, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE );
+				pD3DDev->SetTextureStageState(i,D3DTSS_COLORKEYOP,D3DTCOLORKEYOP_DISABLE);
+				pD3DDev->SetTextureStageState(i,D3DTSS_COLORSIGN,0);
+				pD3DDev->SetTextureStageState(i,D3DTSS_ALPHAKILL,D3DTALPHAKILL_DISABLE);
 #endif
 #ifdef _XBOX
 				{
@@ -2231,7 +2089,7 @@ public:
 
 private:
 	TextureStageState* Get() 
-	{
+	{ 
 		return m_stage + m_currentStage;
 	}
 
@@ -2257,7 +2115,7 @@ class OGLPrimitiveVertexBuffer
 {
 public:
 	OGLPrimitiveVertexBuffer()
-	{
+	{ 
 		m_drawMode = -1;
 		m_size = 0;
 		m_count = 0;
@@ -2269,13 +2127,13 @@ public:
 		m_pD3DDev = 0;
 		m_color = 0xff000000; // Don't know if this is correct
 #ifdef _XBOX
-		m_useXboxPushbufferSubmit = false;
+		m_useXboxPushbufferSubmit = true;
 		m_lastSetVertexShader = 0xffffffff;
 #endif
 	}
 
 	~OGLPrimitiveVertexBuffer()
-	{
+	{ 
 #ifdef USE_PUSHBUFFER
 		RELEASENULL(m_pushBuffer);
 #endif
@@ -2283,7 +2141,7 @@ public:
 	}
 
 	HRESULT Initialize(IDirect3DDevice8* pD3DDev, IDirect3D8* pD3D, bool hardwareTandL, DWORD typeDesc)
-	{
+	{ 
 		m_pD3DDev = pD3DDev;
 		if (m_vertexTypeDesc != typeDesc) 
 		{
@@ -2315,17 +2173,17 @@ public:
 	}
 
 	DWORD GetVertexTypeDesc()
-	{
+	{ 
 		return m_vertexTypeDesc;
 	}
 
 	bool HasDevice() const
-	{
+	{ 
 		return m_pD3DDev != 0;
 	}
 
 	void EnsureDevice(IDirect3DDevice8* pD3DDev)
-	{
+	{ 
 		if (pD3DDev && m_pD3DDev != pD3DDev)
 		{
 #ifdef _XBOX
@@ -2342,36 +2200,36 @@ public:
 	}
 
 	LPVOID GetOGLPrimitiveVertexBuffer()
-	{
+	{ 
 		return m_OGLPrimitiveVertexBuffer;
 	}
 
 	DWORD GetVertexCount()
-	{
+	{ 
 		return m_vertexCount;
 	}
 
 	inline void SetColor(D3DCOLOR color)
-	{
+	{ 
 		m_color = color;
 	}
-	
+
 	inline void SetTextureCoord0(float u, float v)
-	{
+	{ 
 		DWORD* pCoords = (DWORD*) m_textureCoords;
 		pCoords[0] = *(DWORD*)& u;
 		pCoords[1] = *(DWORD*)& v;
 	}
 
 	inline void SetTextureCoord(int textStage, float u, float v)
-	{
+	{ 
 		DWORD* pCoords = (DWORD*) m_textureCoords + (textStage << 1);
 		pCoords[0] = *(DWORD*)& u;
 		pCoords[1] = *(DWORD*)& v;
 	}
 
 	inline void SetVertex(float x, float y, float z)
-	{
+	{ 
 		int newCount = m_count + m_vertexSize;
 		if (newCount > m_size) {
 			Ensure(m_vertexSize);
@@ -2419,7 +2277,7 @@ public:
 
 #ifdef _XBOX
 	bool ClipTriangleListAgainstPlane(const float plane[4], const D3DMATRIX *modelView)
-	{
+	{ 
 		if (!plane || !modelView || m_vertexTypeDesc == 0 || m_vertexSize <= 0)
 		{
 			return false;
@@ -2484,7 +2342,7 @@ public:
 	}
 
 	bool IsEntireDrawOutsidePlane(const float plane[4], const D3DMATRIX *modelView) const
-	{
+	{ 
 		if (!plane || !modelView || m_vertexTypeDesc == 0 || m_vertexSize <= 0 || m_vertexCount == 0)
 		{
 			return false;
@@ -2520,22 +2378,22 @@ public:
 #endif
 
 	inline IsMergableMode(GLenum mode)
-	{
+	{ 
 		return ( mode == m_drawMode ) && ( mode == GL_QUADS || mode == GL_TRIANGLES );
 	}
 
 	inline IsEmpty()
-	{
+	{ 
 		return m_vertexCount == 0;
 	}
 
 	inline void Begin(GLuint drawMode)
-	{
+	{ 
 		m_drawMode = drawMode;
 	}
 
 	inline void Append(GLuint drawMode)
-	{
+	{ 
 	}
 
 	inline void End(
@@ -2545,7 +2403,7 @@ public:
 		const D3DMATRIX *modelView = NULL
 #endif
 		)
-	{
+	{ 
 		if ( m_vertexCount == 0 ) // Startup
 			return;
 
@@ -2625,11 +2483,7 @@ public:
 
 #ifdef _XBOX
 			static int s_xboxDrawLogCount = 0;
-#if defined(STEFX_ELITE_FORCE_MP)
-			const bool logDraw = s_xboxDrawLogCount < 32;
-#else
 			const bool logDraw = false;
-#endif
 			{
 				static int s_xboxTwoStageVertexLogCount = 0;
 				const int textureStages = (m_vertexTypeDesc & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT;
@@ -2708,7 +2562,7 @@ public:
 #endif
 			}
 #ifdef _XBOX
-			else
+			else 
 			{
 				XBLog_Write("JA: fakegl DrawPrimitiveUP skipped because m_pD3DDev is NULL");
 			}
@@ -2728,7 +2582,7 @@ exit:
 private:
 #ifdef _XBOX
 	DWORD VertexCountForPrimitive(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount) const
-	{
+	{ 
 		switch (dptPrimitiveType)
 		{
 		case D3DPT_POINTLIST:
@@ -2736,6 +2590,7 @@ private:
 		case D3DPT_LINELIST:
 			return primCount * 2;
 		case D3DPT_LINESTRIP:
+			return primCount + 1;
 		case D3DPT_TRIANGLESTRIP:
 		case D3DPT_TRIANGLEFAN:
 			return primCount + 2;
@@ -2747,7 +2602,7 @@ private:
 	}
 
 	DWORD PrimitiveChunkLimit(D3DPRIMITIVETYPE dptPrimitiveType, DWORD maxVerts) const
-	{
+	{ 
 		if (maxVerts == 0)
 		{
 			return 0;
@@ -2767,7 +2622,7 @@ private:
 	}
 
 	bool PushbufferSubmitChunkXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD vertexCount, const void *vertices)
-	{
+	{ 
 		if (!m_pD3DDev || !vertices || m_vertexSize <= 0 || vertexCount == 0)
 		{
 			return false;
@@ -2800,7 +2655,7 @@ private:
 	}
 
 	bool TryPushbufferPrimitiveXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount, const void *vertices)
-	{
+	{ 
 		static int s_xboxPushSubmitLogCount = 0;
 		static int s_xboxPushFallbackLogCount = 0;
 
@@ -2906,7 +2761,7 @@ private:
 #endif
 
 	HRESULT DrawPrimitiveUPXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount, const void *vertices)
-	{
+	{ 
 #ifdef _XBOX
 		static int s_xboxChunkLogCount = 0;
 		static int s_xboxSubmitLogCount = 0;
@@ -2956,10 +2811,9 @@ private:
 						(int)dptPrimitiveType, (unsigned long)chunkPrims, chunkVerts,
 						m_vertexSize, (unsigned long)(chunkPrims * 3 * m_vertexSize));
 				}
-				hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType,
-					chunkPrims,
-					base + (primBase * 3 * m_vertexSize),
-					m_vertexSize);
+				hr = m_pD3DDev->DrawPrimitiveUP(
+					dptPrimitiveType, chunkPrims,
+					base + (primBase * 3 * m_vertexSize), m_vertexSize);
 				g_SPXBFakeGLPrimitiveCalls++;
 				g_SPXBFakeGLPrimitiveVerts += chunkPrims * 3;
 				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
@@ -3003,7 +2857,8 @@ private:
 					(unsigned long)vertexCount, vertices, m_vertexSize,
 					(unsigned long)(vertexCount * m_vertexSize));
 			}
-			HRESULT hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType, primCount, vertices, m_vertexSize);
+			HRESULT hr = m_pD3DDev->DrawPrimitiveUP(
+				dptPrimitiveType, primCount, vertices, m_vertexSize);
 			g_SPXBFakeGLPrimitiveCalls++;
 			switch (dptPrimitiveType)
 			{
@@ -3053,7 +2908,7 @@ private:
 	}
 
 	void ConvertQuadsToTriangles()
-	{
+	{ 
 		int quadCount = m_vertexCount / 4;
 		int addedVerticies = 2 * quadCount;
 		int addedDataSize = addedVerticies * m_vertexSize;
@@ -3082,7 +2937,7 @@ private:
 	}
 
 	void ConvertQuadStripToTriangleStrip()
-	{
+	{ 
 		int vertexPairCount = m_vertexCount / 2;
 
 		// Doesn't add any points, but does reorder the vertices.
@@ -3102,7 +2957,7 @@ private:
 	}
 
 	void Ensure(int size)
-	{
+	{ 
 		if (( m_count + size ) > m_size ) 
 		{
 			int newSize = m_size * 2;
@@ -3168,13 +3023,13 @@ private:
 #endif
     D3DSURFACE_DESC m_d3dsdBackBuffer;   // Surface desc of the backbuffer
 	LPDIRECT3D8 m_pD3D;
-	
+
 	IDirect3DTexture8* m_pPrimary;
 	IDirect3DTexture8* m_fallbackTexture;
 	bool m_hardwareTandL;
-	
+
     bool m_bD3DXReady;
-	
+
 	bool m_glRenderStateDirty;
 
 	bool m_glAlphaStateDirty;
@@ -3190,7 +3045,7 @@ private:
 	bool m_glCullStateDirty;
 	bool m_glCullFace;
 	GLenum m_glCullFaceMode;
-	
+
 	bool m_glDepthStateDirty;
 	bool m_glDepthTest;
 	GLenum m_glDepthFunc;
@@ -3264,13 +3119,13 @@ private:
 	bool m_hintGenerateMipMaps;
 
 	HRESULT ReleaseD3DX()
-	{
+	{ 
 		m_bD3DXReady = FALSE;
 		return S_OK;
 	}
-	
+
 	HRESULT InitD3DX()
-	{
+	{ 
 		HRESULT hr;
 
 #ifdef _XBOX
@@ -3381,9 +3236,9 @@ private:
 
 		return hr;
 	}
-	
+
 	void InterpretError(HRESULT hr)
-	{
+	{ 
 		char errStr[100];
 		D3DXGetErrorString(hr, errStr, sizeof(errStr) / sizeof(errStr[0]) );
 #ifdef _XBOX
@@ -3394,7 +3249,7 @@ private:
 	}
 
 	int BytesPerPixel(D3DFORMAT format)
-	{
+	{ 
 		switch ( format ) 
 		{
 			case D3DFMT_P8:
@@ -3424,8 +3279,8 @@ private:
 	}
 
 	DWORD DDSLevelRowBytes(D3DFORMAT format, DWORD width)
-	{
-		switch ( format )
+	{ 
+		switch ( format ) 
 		{
 			case D3DFMT_DXT1:
 				return ((width + 3) >> 2) * 8;
@@ -3438,8 +3293,8 @@ private:
 	}
 
 	DWORD DDSLevelRows(D3DFORMAT format, DWORD height)
-	{
-		switch ( format )
+	{ 
+		switch ( format ) 
 		{
 			case D3DFMT_DXT1:
 			case D3DFMT_DXT3:
@@ -3452,7 +3307,7 @@ private:
 
 #ifdef _XBOX
 	DWORD EstimateTextureBytes(D3DFORMAT format, DWORD width, DWORD height, int levels)
-	{
+	{ 
 		DWORD total = 0;
 		DWORD levelWidth = width;
 		DWORD levelHeight = height;
@@ -3470,7 +3325,7 @@ private:
 	}
 
 	int DDSAvailableLevels(D3DFORMAT format, DWORD width, DWORD height, DWORD bytes)
-	{
+	{ 
 		int levels = 0;
 		while (width > 0 && height > 0)
 		{
@@ -3490,7 +3345,7 @@ private:
 	}
 
 	void TrackTextureAlloc(const char *kind, DWORD bytes)
-	{
+	{ 
 		g_fakeglTextureCount++;
 		g_fakeglTextureBytes += bytes;
 		if (g_fakeglTextureCount <= 16 || (g_fakeglTextureCount & 63) == 0)
@@ -3504,7 +3359,7 @@ private:
 	void TrackTextureFailure(const char *where, DWORD width, DWORD height, DWORD levels,
 		GLint internalformat, GLenum format, D3DFORMAT destPixelFormat, HRESULT hr,
 		DWORD requestBytes)
-	{
+	{ 
 		g_fakeglTextureFailures++;
 		XBLog_Writef("STEFX_TEX_FAIL where=%s image='%s' tex=%d size=%ux%u levels=%u internal=0x%08x format=0x%08x dest=0x%08x hr=0x%08lx request=%u failures=%u",
 			where ? where : "(null)",
@@ -3522,7 +3377,7 @@ private:
 	}
 
 	void LogTextureMemoryPressure(const char *where, DWORD requestBytes, HRESULT hr)
-	{
+	{ 
 		static int s_memoryPressureLogs = 0;
 		if (s_memoryPressureLogs >= 96)
 		{
@@ -3550,7 +3405,7 @@ private:
 	}
 
 	bool RegisteredTextureBudgetAllows(DWORD bytes, const char *kind)
-	{
+	{ 
 		unsigned long poolFree = JkaStaticTextureFree();
 		if (!bytes ||
 			g_fakeglRegisteredTextureBytes + bytes > FAKEGL_REGISTERED_TEXTURE_SOFT_CAP ||
@@ -3575,7 +3430,7 @@ private:
 
 	HRESULT CreateXboxTexture(DWORD width, DWORD height, DWORD levels, DWORD usage,
 		D3DFORMAT format, IDirect3DTexture8** texture)
-	{
+	{ 
 		if (!texture)
 			return E_FAIL;
 		*texture = NULL;
@@ -3593,7 +3448,7 @@ private:
 #ifdef _XBOX
 	HRESULT CreateRegisteredXboxTexture(DWORD width, DWORD height, DWORD levels, DWORD usage,
 		D3DFORMAT format, IDirect3DTexture8** texture, DWORD* textureBytes, void** textureData = NULL)
-	{
+	{ 
 		if (!texture)
 			return E_FAIL;
 		*texture = NULL;
@@ -3663,70 +3518,10 @@ private:
 		}
 		return S_OK;
 	}
-
-	bool UploadRegisteredLinearTexture(D3DFORMAT destPixelFormat, GLsizei width, GLsizei height,
-		const char* compatablePixels, DWORD compatablePixelsPitch,
-		void* registeredTextureData, DWORD registeredTextureBytes)
-	{
-		if (!compatablePixels || !registeredTextureData || width <= 0 || height <= 0)
-		{
-			return false;
-		}
-
-		const int bytesPerPixel = BytesPerPixel(destPixelFormat);
-		if (bytesPerPixel <= 0)
-		{
-			XBLF("JA: fakegl registered linear upload rejected tex=%d size=%dx%d format=0x%08x bpp=%d\n",
-				m_textures.GetCurrentID(), width, height,
-				(unsigned int)destPixelFormat, bytesPerPixel);
-			return false;
-		}
-
-		const DWORD rowBytes = (DWORD)width * (DWORD)bytesPerPixel;
-		const DWORD requiredBytes = rowBytes * (DWORD)height;
-		if (compatablePixelsPitch < rowBytes || registeredTextureBytes < requiredBytes)
-		{
-			XBLF("JA: fakegl registered linear upload truncated tex=%d size=%dx%d format=0x%08x row=%u pitch=%u required=%u registered=%u\n",
-				m_textures.GetCurrentID(), width, height,
-				(unsigned int)destPixelFormat,
-				(unsigned int)rowBytes,
-				(unsigned int)compatablePixelsPitch,
-				(unsigned int)requiredBytes,
-				(unsigned int)registeredTextureBytes);
-			return false;
-		}
-
-		XGSwizzleRect(compatablePixels, compatablePixelsPitch, NULL,
-			registeredTextureData, (DWORD)width, (DWORD)height, NULL,
-			bytesPerPixel);
-
-		{
-			static int s_registeredLinearLogs = 0;
-			if (s_registeredLinearLogs < 96)
-			{
-				const unsigned char *srcBytes = (const unsigned char *)compatablePixels;
-				XBLF("EF: TEXUPLOAD_REGISTERED_LINEAR tex=%d image='%s' size=%ux%u format=0x%08x bpp=%d pitch=%u bytes=%u src0=%02x,%02x,%02x,%02x",
-					m_textures.GetCurrentID(),
-					FakeGL_CurrentTextureDebugName(),
-					(unsigned int)width,
-					(unsigned int)height,
-					(unsigned int)destPixelFormat,
-					bytesPerPixel,
-					(unsigned int)compatablePixelsPitch,
-					(unsigned int)requiredBytes,
-					srcBytes ? srcBytes[0] : 0,
-					srcBytes ? srcBytes[1] : 0,
-					srcBytes ? srcBytes[2] : 0,
-					srcBytes ? srcBytes[3] : 0);
-				++s_registeredLinearLogs;
-			}
-		}
-		return true;
-	}
 #endif
 
 	void UploadFallbackTexture(IDirect3DTexture8* texture)
-	{
+	{ 
 		WORD pixels[8 * 8];
 		for ( int y = 0; y < 8; ++y )
 		{
@@ -3738,7 +3533,7 @@ private:
 
 		D3DLOCKED_RECT rect;
 		HRESULT hr = texture->LockRect(0, &rect, NULL, 0);
-		if ( FAILED(hr) )
+		if ( FAILED(hr) ) 
 		{
 			InterpretError(hr);
 			return;
@@ -3749,7 +3544,7 @@ private:
 	}
 
 	bool EnsureFallbackTexture(void)
-	{
+	{ 
 		if (!m_pD3DDev)
 		{
 			return false;
@@ -3775,7 +3570,7 @@ private:
 	}
 
 	bool UseFallbackTexture(D3DFORMAT d3dFormat, GLint internalFormat)
-	{
+	{ 
 		if (!EnsureFallbackTexture())
 		{
 			return false;
@@ -3789,7 +3584,7 @@ private:
 
 public:
 	void DeleteTexture(GLuint id)
-	{
+	{ 
 		m_textures.DeleteTexture(id);
 		m_textureState.DirtyTexture(id);
 #ifdef _XBOX
@@ -3803,14 +3598,16 @@ public:
 	}
 
 	bool IsTexture(GLuint id)
-	{
+	{ 
 		return m_textures.IsTexture(id);
 	}
 
 	FakeGL(/*HWND hwndMain*/)
-	{
+	{ 
 		//m_hwndMain = hwndMain;
 
+#ifdef _XBOX
+#endif
 		m_windowHeight = 480; //FIXME
 		m_bD3DXReady = TRUE;
 
@@ -3846,12 +3643,12 @@ public:
 		m_glBlend = false;
 		m_glBlendFuncSFactor = GL_ONE; // Not sure this is the default
 		m_glBlendFuncDFactor = GL_ZERO; // Not sure this is the default
-	
+
 		m_glCullStateDirty = true;
 		m_glCullFace = false;
 
 		m_glCullFaceMode = GL_BACK;
-		
+
 		m_glDepthStateDirty = true;
 		m_glDepthTest = false;
 		m_glDepthMask = true;
@@ -3889,7 +3686,7 @@ public:
 		m_bViewPortDirty = true;
 		m_glViewPortX = 0;
 		m_glViewPortY = 0;
-							
+
 		m_glViewPortWidth = gWidth;//640;//Marty FIXME
 		m_glViewPortHeight = gHeight;//480;
 		m_glClearColor = D3DRGBA(0, 0, 0, 0);
@@ -3899,9 +3696,9 @@ public:
 		m_extensions = 0;
 
 		m_hintGenerateMipMaps = true;
-		
+
 		InitD3DX();
-		
+
 		D3DXCreateMatrixStack(0, &m_modelViewMatrixStack);
 		D3DXCreateMatrixStack(0, &m_projectionMatrixStack);
 		D3DXCreateMatrixStack(0, &m_textureMatrixStack);
@@ -3956,7 +3753,7 @@ public:
 		SetRenderStateCached( D3DRS_FOGENABLE, FALSE);
 	}
 	~FakeGL()
-	{
+	{ 
 		delete [] m_stickyAlloc;
 		delete [] m_subImageScratch;
 		RELEASENULL(m_fallbackTexture);
@@ -3967,7 +3764,7 @@ public:
 	}
 
 	void glAlphaFunc (GLenum func, GLclampf ref)
-	{
+	{ 
 		if ( m_glAlphaFunc != func || m_glAlphaFuncRef != ref )
 		{
 			m_glAlphaFunc = func;
@@ -3978,14 +3775,14 @@ public:
 		SetRenderStateDirty();
 		m_glAlphaStateDirty = true;
 	}
-	
+
 	void glBegin (GLenum mode)
-	{
+	{ 
 		if ( m_needBeginScene )
 		{
 			m_needBeginScene = false;
 			HRESULT hr = m_pD3DDev->BeginScene();
-			if ( FAILED(hr) )
+			if ( FAILED(hr) ) 
 			{
 				InterpretError(hr);
 			}
@@ -3999,7 +3796,7 @@ public:
 		beginCount++;
 		if ( m_glRenderStateDirty )
 			stateChangeCount++;
-		if ( m_glRenderStateDirty || ! m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) )
+		if ( m_glRenderStateDirty || ! m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) ) 
 			primitivesCount++;
 #endif
 		if ( m_glRenderStateDirty || ! m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) ) 
@@ -4057,7 +3854,7 @@ public:
 			}
 			m_OGLPrimitiveVertexBuffer.Begin(mode);
 		}
-		else
+		else 
 		{
 			m_OGLPrimitiveVertexBuffer.Append(mode);
 		}
@@ -4065,15 +3862,14 @@ public:
 
 #ifdef _XBOX
 	void SetEliteForceScriptPanelDrawContext(int active)
-	{
+	{ 
 		m_stefxEliteForceScriptPanelDraw = active != 0;
 	}
 
 	bool DrawIndexedPrimitiveUPXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
 		UINT vertexCount, UINT primitiveCount, const void *indices,
-		const void *vertices, UINT stride, int stefxOverlayActive,
-		int stefxOverlayHud, int stefxOverlayBeam)
-	{
+		const void *vertices, UINT stride)
+	{ 
 		const bool stefxLateIndexed = false;
 
 		if (!m_pD3DDev || !indices || !vertices || vertexCount == 0 || primitiveCount == 0 || stride == 0)
@@ -4100,51 +3896,6 @@ public:
 			g_SPXBFakeGLStateFlushes++;
 			SetGLRenderState();
 		}
-
-		if (stefxOverlayActive)
-		{
-			static int s_stefxOverlayDeviceStateBudget = 32;
-			const GLuint texture0 = m_textureState.GetStageTexture(0);
-			TextureEntry *textureEntry0 = m_textures.GetEntry(texture0);
-
-			/* This is the SP renderer's overlay state block, applied through the
-			 * fake-GL device that owns the actual Xbox draw submission. */
-			m_pD3DDev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
-			m_pD3DDev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-			m_pD3DDev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-			m_pD3DDev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-			m_pD3DDev->SetRenderState(D3DRS_SRCBLEND,
-				stefxOverlayBeam ? D3DBLEND_ONE : D3DBLEND_SRCALPHA);
-			m_pD3DDev->SetRenderState(D3DRS_DESTBLEND,
-				stefxOverlayBeam ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA);
-			m_pD3DDev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-			m_pD3DDev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
-			m_pD3DDev->SetRenderState(D3DRS_BACKFILLMODE, D3DFILL_SOLID);
-
-			if (s_stefxOverlayDeviceStateBudget > 0)
-			{
-				XBLF("STEFX_OVERLAY_DEVICE_STATE hud=%d beam=%d blend=%d src=0x%08x dst=0x%08x depth=%d depthMask=%d alphaTest=%d textureDirty=%d stage0Dirty=%d stage0Enabled=%d stage0Tex=%u stage0Env=0x%08x entry=%p mip=%p format=0x%08x internal=0x%08x",
-					stefxOverlayHud,
-					stefxOverlayBeam,
-					m_glBlend ? 1 : 0,
-					(unsigned int)m_glBlendFuncSFactor,
-					(unsigned int)m_glBlendFuncDFactor,
-					m_glDepthTest ? 1 : 0,
-					m_glDepthMask ? 1 : 0,
-					m_glAlphaTest ? 1 : 0,
-					m_textureState.GetDirty() ? 1 : 0,
-					m_textureState.GetStageDirty(0) ? 1 : 0,
-					m_textureState.GetStageTexture2D(0) ? 1 : 0,
-					(unsigned int)texture0,
-					(unsigned int)m_textureState.GetStageTextEnvMode(0),
-					textureEntry0,
-					textureEntry0 ? textureEntry0->m_mipMap : NULL,
-					textureEntry0 ? (unsigned int)textureEntry0->m_format : 0,
-					textureEntry0 ? (unsigned int)textureEntry0->m_internalFormat : 0);
-				--s_stefxOverlayDeviceStateBudget;
-			}
-		}
-
 		if (stefxLateIndexed)
 		{
 			XBLF("STEFX: LATE fakegl DrawIndexedPrimitiveUP pre frame=%d type=%d prims=%u verts=%u indices=%p vtx=%p stride=%u vtxBytes=%lu idxBytes=%lu fvf=0x%08lx",
@@ -4182,13 +3933,13 @@ public:
 			static int s_stefxPanelFakeglApplyBudget = 160;
 			const float fZOffset = -1.0f;
 			const float fZSlopeScale = -1.0f;
-			m_pD3DDev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-			m_pD3DDev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
-			m_pD3DDev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-			m_pD3DDev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
-			m_pD3DDev->SetRenderState(D3DRS_SOLIDOFFSETENABLE, TRUE);
-			m_pD3DDev->SetRenderState(D3DRS_POLYGONOFFSETZOFFSET, *((const DWORD*)&fZOffset));
-			m_pD3DDev->SetRenderState(D3DRS_POLYGONOFFSETZSLOPESCALE, *((const DWORD*)&fZSlopeScale));
+			SetRenderStateCached(D3DRS_CULLMODE, D3DCULL_NONE);
+			SetRenderStateCached(D3DRS_ZENABLE, D3DZB_FALSE);
+			SetRenderStateCached(D3DRS_ZWRITEENABLE, FALSE);
+			SetRenderStateCached(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+			SetRenderStateCached(D3DRS_SOLIDOFFSETENABLE, TRUE);
+			SetRenderStateCached(D3DRS_POLYGONOFFSETZOFFSET, *((const DWORD*)&fZOffset));
+			SetRenderStateCached(D3DRS_POLYGONOFFSETZSLOPESCALE, *((const DWORD*)&fZSlopeScale));
 			if (s_stefxPanelFakeglApplyBudget > 0)
 			{
 				XBLF("STEFX_SCRIPT_PANEL_FAKEGL_APPLY prims=%u verts=%u stride=%u fvf=0x%08lx zEnable=0 zWrite=0 zOffset=%g zSlope=%g",
@@ -4237,7 +3988,7 @@ public:
 		if (m_stefxEliteForceScriptPanelDraw)
 		{
 			static int s_stefxPanelFakeglResetBudget = 80;
-			m_pD3DDev->SetRenderState(D3DRS_SOLIDOFFSETENABLE, FALSE);
+			SetRenderStateCached(D3DRS_SOLIDOFFSETENABLE, FALSE);
 			if (s_stefxPanelFakeglResetBudget > 0)
 			{
 				XBLF("STEFX_SCRIPT_PANEL_FAKEGL_RESET prims=%u verts=%u",
@@ -4254,7 +4005,7 @@ public:
 #endif
 
 	void glBindTexture(GLenum target, GLuint texture)
-	{
+	{ 
 		if ( target != GL_TEXTURE_2D ) 
 		{
 			LocalDebugBreak();
@@ -4281,7 +4032,7 @@ public:
 			m_textures.BindTexture(texture);
 		}
 #ifdef _XBOX
-		else
+		else 
 		{
 			const int stage = m_textureState.GetCurrentStage();
 			if (stage >= 0 && stage < m_textureState.GetMaxStages())
@@ -4304,13 +4055,13 @@ public:
 	}
 
 	inline void glMTexCoord2fSGIS(GLenum target, GLfloat s, GLfloat t)
-	{
+	{ 
 		int textStage = target - TEXTURE0_SGIS;
 		m_OGLPrimitiveVertexBuffer.SetTextureCoord(textStage, s, t);
 	}
-	
+
 	inline void glSelectTextureSGIS(GLenum target)
-	{
+	{ 
 		int textStage = target - TEXTURE0_SGIS;
 		m_textureState.SetCurrentStage(textStage);
 		m_textures.BindTexture(m_textureState.GetCurrentTexture());
@@ -4332,7 +4083,7 @@ public:
 	}
 
 	void glBlendFunc (GLenum sfactor, GLenum dfactor)
-	{
+	{ 
 		if ( m_glBlendFuncSFactor != sfactor || m_glBlendFuncDFactor != dfactor ) 
 		{
 			m_glBlendFuncSFactor = sfactor;
@@ -4343,7 +4094,7 @@ public:
 	}
 
 	inline void glClear (GLbitfield mask)
-	{
+	{ 
 		internalEnd();
 		SetGLRenderState();
 		DWORD clearMask = 0;
@@ -4391,12 +4142,12 @@ public:
 	}
 
 	void glClearColor (GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha)
-	{
+	{ 
 		m_glClearColor = D3DRGBA(Clamp(red), Clamp(green), Clamp(blue), Clamp(alpha));
 	}
 
 	inline void glColor3f (GLfloat red, GLfloat green, GLfloat blue)
-	{
+	{ 
 		// Note: On x86 architectures this function will chew up a lot of time
 		// converting floating point to integer by calling _ftol
 		// unless the /QIfist flag is specified.
@@ -4404,17 +4155,17 @@ public:
 	}
 
 	inline void glColor3ubv (const GLubyte *v)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetColor(RGBA_MAKE(v[0], v[1], v[2], 0xff));
 	}
 
 	inline void glColor4ubv (const GLubyte *v)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetColor(RGBA_MAKE(v[0], v[1], v[2], v[3]));
 	}
 
 	inline void glColor4f (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha)
-	{
+	{ 
 		// Note: On x86 architectures this function will chew up a lot of time
 		// converting floating point to integer by calling _ftol
 		// unless the /QIfist flag is specified.
@@ -4422,7 +4173,7 @@ public:
 	}
 
 	inline void glColor4fv (const GLfloat *v)
-	{
+	{ 
 		// Note: On x86 architectures this function will chew up a lot of time
 		// converting floating point to integer by calling _ftol
 		// unless the /QIfist flag is specified.
@@ -4430,12 +4181,12 @@ public:
 	}
 
 	inline void glColor4ub (GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetColor(RGBA_MAKE(red, green, blue, alpha));
 	}
 
 	void glClipPlane0( const GLdouble *equation )
-	{
+	{ 
 		if ( equation )
 		{
 			m_glClipPlane0[0] = (float)equation[0];
@@ -4458,7 +4209,7 @@ public:
 	}
 
 	void glScissor(GLint x, GLint y, GLsizei width, GLsizei height)
-	{
+	{ 
 		if (x < 0) x = 0;
 		else if ((DWORD)x > gWidth) x = (GLint)gWidth;
 		if (y < 0) y = 0;
@@ -4494,7 +4245,7 @@ public:
 	}
 
 	void glCullFace (GLenum mode)
-	{
+	{ 
 		if ( m_glCullFaceMode != mode ) 
 		{
 			m_glCullFaceMode = mode;
@@ -4514,7 +4265,7 @@ public:
 	}
 
 	void glDepthMask (GLboolean flag)
-	{
+	{ 
 		if ( m_glDepthMask != (flag != 0) ) 
 		{
 			m_glDepthMask = flag != 0 ? true : false;
@@ -4524,7 +4275,7 @@ public:
 	}
 
 	void glDepthRange (GLclampd zNear, GLclampd zFar)
-	{
+	{ 
 		if ( m_glDepthRangeNear != zNear || m_glDepthRangeFar != zFar ) 
 		{
 			SetRenderStateDirty();
@@ -4535,22 +4286,22 @@ public:
 	}
 
 	void glDisable (GLenum cap)
-	{
+	{ 
 		glEnableDisableSet(cap, false);
 	}
 
 	void glDrawBuffer (GLenum /* mode */)
-	{
+	{ 
 		// Do nothing. (Can DirectX render to the front buffer at all?)
 	}
 
 	void glEnable (GLenum cap)
-	{
+	{ 
 		glEnableDisableSet(cap, true); 
 	}
 
 	void glEnableDisableSet(GLenum cap, bool value)
-	{
+	{ 
 		switch ( cap ) 
 		{
 		case GL_ALPHA_TEST:
@@ -4694,14 +4445,14 @@ public:
 	}
 
 	void glEnd (void)
-	{
+	{ 
 #ifdef _XBOX
 		internalEnd();
 #endif
 	}
 
 	void internalEnd()
-	{
+	{ 
 		if (m_OGLPrimitiveVertexBuffer.IsEmpty())
 		{
 			return;
@@ -4715,13 +4466,13 @@ public:
 	}
 
 	void glFinish (void)
-	{
+	{ 
 		// To Do: This is supposed to flush all pending commands
 		internalEnd();
 	}
 
 	void glFogf(GLenum pname, GLfloat param)
-	{
+	{ 
 		bool changed = false;
 		switch (pname)
 		{
@@ -4771,7 +4522,7 @@ public:
 	}
 
 	void glFogfv(GLenum pname, const GLfloat *params)
-	{
+	{ 
 		if (!params || pname != GL_FOG_COLOR)
 		{
 			return;
@@ -4804,7 +4555,7 @@ public:
 	}
 
 	void glFogi(GLenum pname, GLint param)
-	{
+	{ 
 		if (pname != GL_FOG_MODE)
 		{
 			return;
@@ -4827,9 +4578,9 @@ public:
 		}
 #endif
 	}
-	
+
 	void glFrustum (GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar)
-	{
+	{ 
 		SetRenderStateDirty();
 		D3DXMATRIX m;
 		// Note that D3D takes top, bottom arguments in opposite order
@@ -4839,7 +4590,7 @@ public:
 	}
 
 	void glGetFloatv (GLenum pname, GLfloat *params)
-	{
+	{ 
 		switch(pname)
 		{
 		case GL_MODELVIEW_MATRIX:
@@ -4852,7 +4603,7 @@ public:
 	}
 
 	const GLubyte * glGetString (GLenum name)
-	{
+	{ 
 		const char* result = "";
 		EnsureDriverInfo();
 		switch ( name )
@@ -4876,12 +4627,12 @@ public:
 	}
 
 	void glHint (GLenum /* target */, GLenum /* mode */)
-	{
+	{ 
 		LocalDebugBreak();
 	}
 
 	GLboolean glIsEnabled(GLenum cap)
-	{
+	{ 
 		switch(cap)
 		{
 		case GL_ALPHA_TEST:
@@ -4918,34 +4669,21 @@ public:
 	}
 
 	void glLoadIdentity (void)
-	{
+	{ 
 		SetRenderStateDirty();
 		m_currentMatrixStack->LoadIdentity();
 		*m_currentMatrixStateDirty = true;
 	}
 
 	void glLoadMatrixf (const GLfloat *m)
-	{
+	{ 
 		SetRenderStateDirty();
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
-		if (FakeGL_STEFXShouldTransposeMatrix(m_glMatrixMode))
-		{
-			D3DXMATRIX matrix;
-			D3DXMatrixTranspose(&matrix, (const D3DXMATRIX*)m);
-			m_currentMatrixStack->LoadMatrix(&matrix);
-		}
-		else
-		{
-			m_currentMatrixStack->LoadMatrix((D3DXMATRIX*) m);
-		}
-#else
 		m_currentMatrixStack->LoadMatrix((D3DXMATRIX*) m);
-#endif
 		*m_currentMatrixStateDirty = true;
 	}
 
 	void glMatrixMode (GLenum mode)
-	{
+	{ 
 		m_glMatrixMode = mode;
 		switch ( mode ) 
 		{
@@ -4968,7 +4706,7 @@ public:
 	}
 
 	void glOrtho (GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar)
-	{
+	{ 
 		SetRenderStateDirty();
 		D3DXMATRIX m;
 		D3DXMatrixOrthoOffCenterRH(&m, left, right, top, bottom, zNear, zFar);
@@ -4977,7 +4715,7 @@ public:
 	}
 
 	void glPolygonMode (GLenum face, GLenum mode)
-	{
+	{ 
 		SetRenderStateDirty();
 		switch ( face )
 		{
@@ -4998,25 +4736,25 @@ public:
 	}
 
 	void glPopMatrix (void)
-	{
+	{ 
 		SetRenderStateDirty();
 		m_currentMatrixStack->Pop();
 		*m_currentMatrixStateDirty = true;
 	}
 
 	void glPushMatrix (void)
-	{
+	{ 
 		m_currentMatrixStack->Push();
 		// Doesn't dirty matrix state
 	}
 
 	void glReadBuffer (GLenum /* mode */)
-	{
+	{ 
 		// Not that we allow reading from various buffers anyway.
 	}
 
 	void glReadPixels (GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels)
-	{
+	{ 
 		if ( format != GL_RGB || type != GL_UNSIGNED_BYTE) 
 		{
 			LocalDebugBreak();
@@ -5042,7 +4780,7 @@ public:
 	}
 
 	static WORD GetNumberOfBits( DWORD dwMask )
-	{
+	{ 
 		WORD wBits = 0;
 		while( dwMask )
 		{
@@ -5053,7 +4791,7 @@ public:
 	}
 
 	static WORD GetShift( DWORD dwMask )
-	{
+	{ 
 		for(WORD i = 0; i < 32; i++ ) {
 			if ( (1 << i) & dwMask ) {
 				return i;
@@ -5131,7 +4869,7 @@ public:
 #endif // Temporarily disable
 
 	inline void glRotatef (GLfloat angle, GLfloat x, GLfloat y, GLfloat z)
-	{
+	{ 
 		SetRenderStateDirty();
 		D3DXMATRIX m;
 		D3DXVECTOR3 v;
@@ -5145,7 +4883,7 @@ public:
 	}
 
 	inline void glScalef (GLfloat x, GLfloat y, GLfloat z)
-	{
+	{ 
 		SetRenderStateDirty();
 		D3DXMATRIX m;
 		D3DXMatrixScaling(&m, x, y, z);
@@ -5154,7 +4892,7 @@ public:
 	}
 
 	void glShadeModel (GLenum mode)
-	{
+	{ 
 		if ( m_glShadeModel != mode )
 		{
 			SetRenderStateDirty();
@@ -5164,12 +4902,12 @@ public:
 	}
 
 	inline void glTexCoord2f (GLfloat s, GLfloat t)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetTextureCoord0(s, t);
 	}
 
 	void glTexEnvf (GLenum /* target */, GLenum /* pname */, GLfloat param)
-	{
+	{ 
 		// Ignore target, which must be GL_TEXTURE_ENV
 		// Ignore pname, which must be GL_TEXTURE_ENV_MODE
 		if ( m_textureState.GetTextEnvMode() != param ) 
@@ -5195,7 +4933,7 @@ public:
 	}
 
 	static int MipMapSize(DWORD width, DWORD height)
-	{
+	{ 
 		DWORD n = width < height? width : height;
 		DWORD result = 1;
 		while (n > (DWORD) (1 << result) ) 
@@ -5209,7 +4947,7 @@ public:
 
 	void glTexImage2D (GLenum target, GLint level, GLint internalformat, GLsizei width,
 		GLsizei height, GLint /* border */, GLenum format, GLenum type, const GLvoid *pixels)
-	{
+	{ 
 		HRESULT hr;
 		if ( target != GL_TEXTURE_2D || type != GL_UNSIGNED_BYTE) 
 		{
@@ -5322,12 +5060,6 @@ public:
 			}
 		}
 
-#ifdef _XBOX
-		bool ownsTextureHeader = false;
-		DWORD registeredTextureBytes = 0;
-		void* registeredTextureData = NULL;
-#endif
-
 		if( ! pMipMap) 
 		{
 			int levels = 1;
@@ -5336,10 +5068,10 @@ public:
 				levels = MipMapSize(width, height);
 #endif
 
+			hr = CreateXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap);
 #ifdef _XBOX
-			{
-				hr = CreateXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap);
-			}
+			bool ownsTextureHeader = false;
+			DWORD registeredTextureBytes = 0;
 			if (FAILED(hr) || !pMipMap)
 			{
 				LogTextureMemoryPressure("CreateTexture2-rgba-failed",
@@ -5353,21 +5085,17 @@ public:
 					format,
 					destPixelFormat,
 					(unsigned long)hr);
-				hr = CreateRegisteredXboxTexture(width, height, levels, 0,
-					destPixelFormat, &pMipMap, &registeredTextureBytes,
-					&registeredTextureData);
-				if (SUCCEEDED(hr) && pMipMap && registeredTextureData)
+				hr = CreateRegisteredXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap, &registeredTextureBytes);
+				if (SUCCEEDED(hr) && pMipMap)
 				{
 					ownsTextureHeader = true;
 					XBLF("JA: fakegl registered retry succeeded tex=%d ptr=%p bytes=%u\n",
 						m_textures.GetCurrentID(), (void*)pMipMap, registeredTextureBytes);
 				}
 			}
-#else
-			hr = CreateXboxTexture(width, height, levels, 0, destPixelFormat, &pMipMap);
 #endif
 
-			if ( FAILED(hr) )
+			if ( FAILED(hr) ) 
 			{
 #ifdef _XBOX
 				TrackTextureFailure("rgba", (DWORD)width, (DWORD)height, (DWORD)levels,
@@ -5398,34 +5126,9 @@ public:
 #endif
 				);
 #ifdef _XBOX
-			if (!ownsTextureHeader)
-			{
-				TrackTextureAlloc("rgba", EstimateTextureBytes(destPixelFormat, width, height, levels));
-			}
+			TrackTextureAlloc("rgba", EstimateTextureBytes(destPixelFormat, width, height, levels));
 #endif
 		}
-
-#ifdef _XBOX
-		if (m_textures.GetMipMap() == pMipMap && level == 0)
-		{
-			TextureEntry* currentEntry = m_textures.GetCurrentEntry();
-			if (currentEntry && currentEntry->m_ownsTextureHeader && registeredTextureData)
-			{
-				if (UploadRegisteredLinearTexture(destPixelFormat, width, height,
-						compatablePixels, compatablePixelsPitch,
-						registeredTextureData, registeredTextureBytes))
-				{
-					m_textureState.DirtyTexture(m_textures.GetCurrentID());
-					TrackTextureAlloc("rgba-registered", registeredTextureBytes ?
-						registeredTextureBytes :
-						EstimateTextureBytes(destPixelFormat, width, height, 1));
-					return;
-				}
-				XBLF("JA: fakegl registered linear upload failed tex=%d image='%s'; falling back to LockRect path\n",
-					m_textures.GetCurrentID(), FakeGL_CurrentTextureDebugName());
-			}
-		}
-#endif
 
 		glTexSubImage2D_Imp(pMipMap, level, 0, 0, width, height, format, type, compatablePixels, compatablePixelsPitch);
 
@@ -5438,7 +5141,7 @@ public:
 
 	bool UploadDDSTexture(GLint internalformat, GLsizei width, GLsizei height,
 		GLint mipcount, const GLvoid *pixels, DWORD pixelBytes)
-	{
+	{ 
 		const char* debugName = FakeGL_CurrentTextureDebugName();
 		const bool traceDds = FakeGL_ShouldTraceDDSImage(debugName);
 
@@ -5581,7 +5284,7 @@ public:
 			{
 				ownsTextureHeader = true;
 			}
-			else
+			else 
 			{
 				XBLF("JA: fakegl DDS RGB16 registered texture failed tex=%d hr=0x%08lx; retry CreateTexture2\n",
 					m_textures.GetCurrentID(), (unsigned long)hr);
@@ -5615,7 +5318,7 @@ public:
 					m_textures.GetCurrentID(), (void*)pMipMap, registeredTextureBytes,
 					(unsigned long)createTextureHr);
 			}
-			else
+			else 
 			{
 				XBLF("JA: fakegl DDS registered retry failed tex=%d hr=0x%08lx createHr=0x%08lx\n",
 					m_textures.GetCurrentID(), (unsigned long)hr,
@@ -5839,7 +5542,7 @@ public:
 					dp += lockedRect.Pitch;
 				}
 			}
-			else
+			else 
 			{
 				XGSwizzleRect(src, rowBytes, NULL, lockedRect.pBits,
 					levelWidth, levelHeight, NULL, BytesPerPixel(destPixelFormat));
@@ -5875,7 +5578,7 @@ public:
 			{
 				delete (D3DTexture*)pMipMap;
 			}
-			else
+			else 
 #endif
 			{
 				pMipMap->Release();
@@ -5906,9 +5609,9 @@ public:
 		static int s_ddsUploadLogs = 0;
 		if (s_ddsUploadLogs < 96)
 		{
-			XBLF("JA: fakegl DDS upload tex=%d image='%s' size=%dx%d levels=%d internal=0x%08x dest=0x%08x bytes=%u\n",
-				m_textures.GetCurrentID(), debugName, width, height, levels,
-				internalformat, destPixelFormat, pixelBytes);
+			XBLF("JA: fakegl DDS upload tex=%d size=%dx%d levels=%d internal=0x%08x dest=0x%08x bytes=%u\n",
+				m_textures.GetCurrentID(), width, height, levels, internalformat,
+				destPixelFormat, pixelBytes);
 			++s_ddsUploadLogs;
 		}
 #endif
@@ -5916,14 +5619,14 @@ public:
 	}
 
 	void glTexParameterf (GLenum target, GLenum pname, GLfloat param)
-	{
+	{ 
 		switch(target)
 		{
 		case GL_TEXTURE_2D:
 			{
 				TextureEntry* current = m_textures.GetCurrentEntry();
 				bool changed = false;
-				
+
 				switch(pname)
 				{
 				case GL_TEXTURE_MIN_FILTER:
@@ -5981,7 +5684,7 @@ public:
 	void glTexSubImage2D (GLenum target, GLint level,
 		GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
 		GLenum format, GLenum type, const GLvoid *pixels)
-	{
+	{ 
 		if ( target != GL_TEXTURE_2D ) 
 		{
 			LocalDebugBreak();
@@ -6014,7 +5717,7 @@ public:
 	}
 
 	char* StickyAlloc(DWORD size)
-	{
+	{ 
 		if ( m_stickyAllocSize < size ) 
 		{
 			delete [] m_stickyAlloc;
@@ -6025,7 +5728,7 @@ public:
 	}
 
 	char* SubImageScratchAlloc(DWORD size)
-	{
+	{ 
 		if (m_subImageScratchSize < size)
 		{
 			delete [] m_subImageScratch;
@@ -6042,13 +5745,13 @@ public:
 	void glTexSubImage2D_Imp (IDirect3DTexture8* pMipMap, GLint level,
 		GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
 		GLenum /* format */, GLenum /* type */, const char* compatablePixels, int compatablePixelsPitch)
-	{
+	{ 
 		HRESULT hr = S_OK;
 		D3DLOCKED_RECT lockedRect;
 		D3DSURFACE_DESC desc;
 
 		hr = pMipMap->GetLevelDesc(level, &desc);
-		if ( FAILED(hr) )
+		if ( FAILED(hr) ) 
 		{
 			InterpretError(hr);
 			return;
@@ -6058,7 +5761,7 @@ public:
 		{
 			D3DLOCKED_RECT swizzleRect;
 			hr = pMipMap->LockRect(level, &swizzleRect, NULL, 0);
-			if ( FAILED(hr) )
+			if ( FAILED(hr) ) 
 			{
 #ifdef _XBOX
 				XBLF("JA: fakegl direct swizzle LockRect failed tex=%d level=%d size=%dx%d format=0x%08x\n",
@@ -6185,7 +5888,7 @@ public:
 	}
 
 	inline void glTranslatef (GLfloat x, GLfloat y, GLfloat z)
-	{
+	{ 
 		SetRenderStateDirty();
 		D3DXMATRIX m;
 		D3DXMatrixTranslation(&m, x, y, z);
@@ -6194,22 +5897,22 @@ public:
 	}
 
 	inline void glVertex2f (GLfloat x, GLfloat y)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetVertex(x, y, 0);
 	}
 
 	inline void glVertex3f (GLfloat x, GLfloat y, GLfloat z)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetVertex(x, y, z);
 	}
 
 	inline void glVertex3fv (const GLfloat *v)
-	{
+	{ 
 		m_OGLPrimitiveVertexBuffer.SetVertex(v[0], v[1], v[2]);
 	}
 
 	void glViewport (GLint x, GLint y, GLsizei width, GLsizei height)
-	{
+	{ 
 		if ( m_glViewPortX != x || m_glViewPortY != y ||
 			m_glViewPortWidth != width || m_glViewPortHeight != height ) 
 		{
@@ -6225,10 +5928,9 @@ public:
 
 #ifdef _XBOX
 	void UpdateFramebufferTelemetry(bool afterPresent)
-	{
+	{ 
 		static int s_framebufferProbeLogCount = 0;
-		static int s_framebufferPreSampleLogCount = 0;
-		static int s_framebufferPostSampleLogCount = 0;
+		static int s_framebufferSampleLogCount = 0;
 		if (!m_pD3DDev)
 		{
 			if (s_framebufferProbeLogCount < 16)
@@ -6241,13 +5943,11 @@ public:
 
 		D3DSurface *backBuffer = NULL;
 		const bool screenshotRequested = FakeGL_ScreenshotRequested();
-		int *sampleLogCount = afterPresent ? &s_framebufferPostSampleLogCount : &s_framebufferPreSampleLogCount;
-		const int sampleLogLimit = afterPresent ? 16 : 32;
-		if (!screenshotRequested && *sampleLogCount >= sampleLogLimit)
+		if (!screenshotRequested && s_framebufferSampleLogCount >= 32)
 		{
 			return;
 		}
-		const int backBufferIndex = afterPresent ? -1 : 0;
+		const int backBufferIndex = (screenshotRequested && afterPresent) ? -1 : 0;
 		if (screenshotRequested)
 		{
 			D3DDevice_BlockUntilIdle();
@@ -6290,7 +5990,7 @@ public:
 		FakeGL_EnsureScreenshotFilePreopened();
 		FakeGL_TryWriteRequestedBackbufferBMP(m_pD3DDev, backBuffer, width, height, pitch, afterPresent ? "post-present" : "pre-present");
 
-		if (*sampleLogCount < sampleLogLimit)
+		if (s_framebufferSampleLogCount < 32)
 		{
 			DWORD nonzero = 0;
 			DWORD checksum = 0;
@@ -6328,7 +6028,7 @@ public:
 			}
 
 			XBLF("STEFX: fakegl framebuffer sample #%d afterPresent=%d index=%d data=0x%08x pitch=%u size=%ux%u fmt=0x%08x nonzero=%u checksum=0x%08x first=0x%08x center=0x%08x corner=0x%08x\n",
-				*sampleLogCount,
+				s_framebufferSampleLogCount,
 				afterPresent ? 1 : 0,
 				backBufferIndex,
 				(unsigned int)backBuffer->Data,
@@ -6341,20 +6041,20 @@ public:
 				(unsigned int)firstPixel,
 				(unsigned int)centerPixel,
 				(unsigned int)cornerPixel);
-			++(*sampleLogCount);
+			++s_framebufferSampleLogCount;
 			++s_framebufferProbeLogCount;
 		}
 	}
 #endif
 
 	void SwapBuffers()
-	{
+	{ 
 #ifdef _XBOX
 		static int s_xboxSwapLogCount = 0;
 		g_stefxFakeglSwapFrame = s_xboxSwapLogCount;
 		const bool stefxLateSwap = false;
 		const bool stefxSwapProbe = s_xboxSwapLogCount < 16;
-		const bool logSwapTight = stefxLateSwap;
+		const bool logSwapTight = stefxLateSwap || (s_xboxSwapLogCount >= 32 && s_xboxSwapLogCount <= 96);
 		const bool logSwap = (logSwapTight || s_xboxSwapLogCount < 8 || ((s_xboxSwapLogCount & 255) == 0));
 		if (stefxSwapProbe)
 		{
@@ -6368,30 +6068,30 @@ public:
 		}
 		if (logSwap)
 		{
-			XBLF("STEFX: fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
+			XBLF("JA: fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
 				s_xboxSwapLogCount, (void*)m_pD3DDev, (int)m_needBeginScene);
 		}
 		if (logSwapTight)
 		{
-			XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
+			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
 				s_xboxSwapLogCount, (void*)m_pD3DDev, (int)m_needBeginScene);
 		}
 #endif
 	#ifdef _XBOX
-		if (logSwapTight) XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d before internalEnd", s_xboxSwapLogCount);
 	#endif
 		internalEnd();
 	#ifdef _XBOX
-		if (logSwapTight) XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d after internalEnd", s_xboxSwapLogCount);
 	#endif
 		if (!m_pD3DDev)
 		{
 #ifdef _XBOX
-			XBLog_Write("STEFX: fakegl SwapBuffers skipped because m_pD3DDev is NULL");
+			XBLog_Write("JA: fakegl SwapBuffers skipped because m_pD3DDev is NULL");
 			s_xboxSwapLogCount++;
 #endif
 			return;
@@ -6399,11 +6099,10 @@ public:
 #ifdef _XBOX
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before render probe", s_xboxSwapLogCount);
 		FakeGL_DrawRenderProbe(m_pD3DDev);
-		DrawTextureProbe();
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d after render probe", s_xboxSwapLogCount);
 #endif
 	#ifdef _XBOX
-		if (logSwapTight) XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d before EndScene", s_xboxSwapLogCount);
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before EndScene", s_xboxSwapLogCount);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before EndScene", s_xboxSwapLogCount);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d before EndScene", s_xboxSwapLogCount);
 	#endif
@@ -6413,11 +6112,11 @@ public:
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
 		if (logSwapTight)
 		{
-			XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
+			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
 		}
 		if (logSwap)
 		{
-			XBLF("STEFX: fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
+			XBLF("JA: fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
 		}
 #endif
 		m_needBeginScene = true;
@@ -6464,20 +6163,16 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 #ifdef _XBOX
 		if (logSwap)
 		{
-			XBLF("STEFX: fakegl SwapBuffers #%d Present...", s_xboxSwapLogCount);
+			XBLF("JA: fakegl SwapBuffers #%d Present...", s_xboxSwapLogCount);
 		}
-		if (logSwapTight) XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d before Present", s_xboxSwapLogCount);
+		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before Present", s_xboxSwapLogCount);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before Present", s_xboxSwapLogCount);
 		const bool screenshotRequestedNow = FakeGL_ScreenshotRequested();
-#if defined(STEFX_ELITE_FORCE_MP)
-		const bool cxbxPresentThrottle = false;
-#else
-		const bool cxbxPresentThrottle = FakeGL_FileExistsOnAnyRuntimeDrive(STEFX_CXBX_PRESENT_THROTTLE_FILE);
-#endif
+		const bool cxbxPresentThrottle = FakeGL_CxbxPresentThrottleRequested();
 		const bool skipPresentForCxbx = cxbxPresentThrottle &&
 			s_xboxSwapLogCount >= 96;
-		static int s_cxbxPresentThrottleLogBudget = 4;
-		if (s_xboxSwapLogCount < 64)
+		static int s_cxbxPresentThrottleLogBudget = 16;
+		if (s_xboxSwapLogCount < 2)
 		{
 			UpdateFramebufferTelemetry(false);
 		}
@@ -6503,17 +6198,17 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 #ifdef _XBOX
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
-		if (!skipPresentForCxbx && (screenshotRequestedNow || s_xboxSwapLogCount < 16))
+		if (screenshotRequestedNow && !skipPresentForCxbx)
 		{
 			UpdateFramebufferTelemetry(true);
 		}
 		if (logSwapTight)
 		{
-			XBLF("STEFX: CL_EARLY fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
+			XBLF("JA: CL_EARLY fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
 		}
 		if (logSwap)
 		{
-			XBLF("STEFX: fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
+			XBLF("JA: fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
 		}
 		s_xboxSwapLogCount++;
 #endif
@@ -6527,7 +6222,7 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 	}
 
 	void SetGammaRamp(const unsigned char* gammaTable)
-	{
+	{ 
 		D3DGAMMARAMP gammaRamp;
 		for(int i = 0; i < 256; i++ ) 
 		{
@@ -6541,105 +6236,19 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 	}
 
 	void Hint_GenerateMipMaps(int value)
-	{
+	{ 
 		m_hintGenerateMipMaps = value != 0;
 	}
 
 	void EvictTextures()
-	{
+	{ 
 		// MARTY - Not available on the XBox!
 		//m_pD3DDev->ResourceManagerDiscardBytes(0);
 	}
-#ifdef _XBOX
-	void DrawTextureProbe()
-	{
-		if (!m_pD3DDev || !FakeGL_RenderProbeRequested())
-		{
-			return;
-		}
-
-		static int s_probeLogCount = 0;
-		const GLuint probeIds[] = { 47, 49, 60, 61, 65, 82, 100 };
-		TextureEntry *entry = NULL;
-		GLuint texId = 0;
-		for (int i = 0; i < sizeof(probeIds) / sizeof(probeIds[0]); ++i)
-		{
-			TextureEntry *candidate = m_textures.GetEntry(probeIds[i]);
-			if (candidate && candidate->m_mipMap)
-			{
-				entry = candidate;
-				texId = probeIds[i];
-				break;
-			}
-		}
-		if (!entry)
-		{
-			if (s_probeLogCount < 16)
-			{
-				XBLF("STEFX: fakegl texture probe skipped; no candidate texture loaded");
-				++s_probeLogCount;
-			}
-			return;
-		}
-
-		struct probeVertex_t
-		{
-			float x;
-			float y;
-			float z;
-			float rhw;
-			DWORD color;
-			float s;
-			float t;
-		};
-
-		const probeVertex_t verts[4] =
-		{
-			{  32.0f,  32.0f, 0.0f, 1.0f, 0xffffffff, 0.0f, 0.0f },
-			{ 288.0f,  32.0f, 0.0f, 1.0f, 0xffffffff, 1.0f, 0.0f },
-			{  32.0f, 288.0f, 0.0f, 1.0f, 0xffffffff, 0.0f, 1.0f },
-			{ 288.0f, 288.0f, 0.0f, 1.0f, 0xffffffff, 1.0f, 1.0f },
-		};
-
-		m_pD3DDev->SetTexture(0, entry->m_mipMap);
-		m_pD3DDev->SetTexture(1, NULL);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
-		m_pD3DDev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-		m_pD3DDev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-		m_pD3DDev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-		m_pD3DDev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-		m_pD3DDev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-		m_pD3DDev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
-		m_pD3DDev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-		m_pD3DDev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-		HRESULT hrShader = m_pD3DDev->SetVertexShader(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
-		HRESULT hrDraw = m_pD3DDev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, verts, sizeof(verts[0]));
-		m_pD3DDev->KickPushBuffer();
-		m_pD3DDev->BlockUntilIdle();
-
-		if (s_probeLogCount < 64)
-		{
-			XBLF("STEFX: fakegl texture probe tex=%u ptr=%p fmt=0x%08x internal=0x%08x shader=0x%08lx draw=0x%08lx",
-				(unsigned int)texId,
-				(void*)entry->m_mipMap,
-				(unsigned int)entry->m_format,
-				(unsigned int)entry->m_internalFormat,
-				(unsigned long)hrShader,
-				(unsigned long)hrDraw);
-			++s_probeLogCount;
-		}
-	}
-#endif
 private:
 
 	void SetRenderStateDirty()
-	{
+	{ 
 		if ( ! m_glRenderStateDirty )
 		{
 			internalEnd();
@@ -6721,12 +6330,12 @@ private:
 #endif
 
 	HRESULT HandleWindowedModeChanges()
-	{
+	{ 
 		return S_OK;
 	}
 
 	void SetGLRenderState()
-	{
+	{ 
 		if ( ! m_glRenderStateDirty )
 		{
 			return;
@@ -6793,27 +6402,6 @@ private:
 				InterpretError(hr);
 			}
 		}
-#ifdef _XBOX
-		{
-			D3DFILLMODE frontFill = (m_glPolygonModeFront == GL_LINE) ? D3DFILL_WIREFRAME : D3DFILL_SOLID;
-			D3DFILLMODE backFill = (m_glPolygonModeBack == GL_LINE) ? D3DFILL_WIREFRAME : D3DFILL_SOLID;
-			m_pD3DDev->SetRenderState(D3DRS_FILLMODE, frontFill);
-			m_pD3DDev->SetRenderState(D3DRS_BACKFILLMODE, backFill);
-			if (frontFill != D3DFILL_SOLID || backFill != D3DFILL_SOLID)
-			{
-				static int s_fillModeLogCount = 0;
-				if (s_fillModeLogCount < 32)
-				{
-					XBLF("JA: fakegl polygon fill front=0x%04x back=0x%04x dxFront=0x%08x dxBack=0x%08x",
-						(unsigned int)m_glPolygonModeFront,
-						(unsigned int)m_glPolygonModeBack,
-						(unsigned int)frontFill,
-						(unsigned int)backFill);
-					++s_fillModeLogCount;
-				}
-			}
-		}
-#endif
 		if ( m_glShadeModelStateDirty )
 		{
 			m_glShadeModelStateDirty = false;
@@ -6821,7 +6409,7 @@ private:
 			SetRenderStateCached( D3DRS_SHADEMODE,
 				m_glShadeModel == GL_SMOOTH ? D3DSHADE_GOURAUD : D3DSHADE_FLAT );
 		}
-			
+
 		{
 			m_textureState.SetTextureStageState(m_pD3DDev, &m_textures);
 		}
@@ -6948,7 +6536,7 @@ private:
 	}
 
 	void EnsureDriverInfo() 
-	{
+	{ 
 		if ( ! m_vendor ) 
 		{
 			if ( m_pD3D )
@@ -6968,7 +6556,7 @@ private:
 					m_dddi.WHQLLevel
 					);
 			}
-			else
+			else 
 			{
 				m_vendor = "Xbox driver";
 				m_renderer = "Xbox NV2A";
@@ -6986,7 +6574,7 @@ private:
 	}
 
 	GLint CompatibleTextureComponents(GLint internalformat)
-	{
+	{ 
 		switch (internalformat)
 		{
 		case GL_RGB:
@@ -7004,7 +6592,7 @@ private:
 	}
 
 	D3DFORMAT GLToDXPixelFormat(GLint internalformat, GLenum format)
-	{
+	{ 
 		D3DFORMAT d3dFormat = D3DFMT_UNKNOWN;
 		if (internalformat == 0x9997) // GL_DDS_RGB16_EXT
 		{
@@ -7094,7 +6682,7 @@ private:
 				char* copy = StickyAlloc(width*height);
 				memcpy(copy,pixels,width * height);
 				*compatablePixels = copy;
-				if ( newPitch )
+				if ( newPitch ) 
 					*newPitch = width;
 			}
 			break;
@@ -7103,7 +6691,7 @@ private:
 				int textureElementSize = 2;
 				const unsigned char* glpixels = (const unsigned char*) pixels;
 				char* dxpixels = StickyAlloc(textureElementSize * width * height);
-				switch ( internalformat )
+				switch ( internalformat ) 
 				{
 				default:
 					LocalDebugBreak();
@@ -7165,7 +6753,7 @@ private:
 					break;
 				}
 				*compatablePixels = dxpixels;
-				if ( newPitch )
+				if ( newPitch ) 
 					*newPitch = 2 * width;
 			}
 			break;
@@ -7230,7 +6818,7 @@ private:
 					break;
 				}
 				*compatablePixels = dxpixels;
-				if ( newPitch )
+				if ( newPitch ) 
 					*newPitch = 2 * width;
 			}
 			break;
@@ -7393,7 +6981,7 @@ private:
 				int textureElementSize = 4;
 				const char* glpixels = (const char*) pixels;
 				char* dxpixels = StickyAlloc(textureElementSize * width * height);
-				switch ( internalformat )
+				switch ( internalformat ) 
 				{
 				default:
 					LocalDebugBreak();
@@ -7511,7 +7099,7 @@ void /*APIENTRY*/ glColor4fv (const GLfloat *v)
 extern "C" void JkaFakeglClipPlane0( const GLdouble *equation )
 {
 	if (gFakeGL)
-	{
+	{ 
 		gFakeGL->glClipPlane0(equation);
 	}
 }
@@ -7519,7 +7107,7 @@ extern "C" void JkaFakeglClipPlane0( const GLdouble *equation )
 extern "C" void JkaFakeglScissor(GLint x, GLint y, GLsizei width, GLsizei height)
 {
 	if (gFakeGL)
-	{
+	{ 
 		gFakeGL->glScissor(x, y, width, height);
 	}
 }
@@ -7573,7 +7161,7 @@ void /*APIENTRY*/ glFinish (void)
 extern "C" void JkaFakeglFogf(GLenum pname, GLfloat param)
 {
 	if (gFakeGL)
-	{
+	{ 
 		gFakeGL->glFogf(pname, param);
 	}
 }
@@ -7581,7 +7169,7 @@ extern "C" void JkaFakeglFogf(GLenum pname, GLfloat param)
 extern "C" void JkaFakeglFogfv(GLenum pname, const GLfloat *params)
 {
 	if (gFakeGL)
-	{
+	{ 
 		gFakeGL->glFogfv(pname, params);
 	}
 }
@@ -7589,7 +7177,7 @@ extern "C" void JkaFakeglFogfv(GLenum pname, const GLfloat *params)
 extern "C" void JkaFakeglFogi(GLenum pname, GLint param)
 {
 	if (gFakeGL)
-	{
+	{ 
 		gFakeGL->glFogi(pname, param);
 	}
 }
@@ -7733,7 +7321,7 @@ extern "C" int JkaFakeglUploadDDS(GLint internalformat, GLsizei width, GLsizei h
 	GLint mipcount, const GLvoid *pixels, DWORD pixelBytes)
 {
 	if (!gFakeGL)
-	{
+	{ 
 		return 0;
 	}
 	return gFakeGL->UploadDDSTexture(internalformat, width, height,
@@ -7757,22 +7345,20 @@ extern "C" int JkaFakeglIsTexture(GLuint texture)
 #ifdef _XBOX
 extern "C" int JkaFakeglDrawIndexedPrimitiveUP(D3DPRIMITIVETYPE dptPrimitiveType, DWORD typeDesc,
 	UINT vertexCount, UINT primitiveCount, const void *indices,
-	const void *vertices, UINT stride, int stefxOverlayActive,
-	int stefxOverlayHud, int stefxOverlayBeam)
+	const void *vertices, UINT stride)
 {
 	if (!gFakeGL)
-	{
+	{ 
 		return 0;
 	}
 	return gFakeGL->DrawIndexedPrimitiveUPXbox(dptPrimitiveType, typeDesc,
-		vertexCount, primitiveCount, indices, vertices, stride,
-		stefxOverlayActive, stefxOverlayHud, stefxOverlayBeam) ? 1 : 0;
+		vertexCount, primitiveCount, indices, vertices, stride) ? 1 : 0;
 }
 
 extern "C" void JkaFakeglSetEliteForceScriptPanelDrawContext(int active)
 {
 	if (!gFakeGL)
-	{
+	{ 
 		return;
 	}
 	gFakeGL->SetEliteForceScriptPanelDrawContext(active);
@@ -7797,7 +7383,7 @@ BOOL /*WINAPI*/ wglDeleteContext(/*HGLRC hglrc*/)
 {
 	FakeGL* pFakeGL = gFakeGL;//(FakeGL*) hglrc;
 	delete pFakeGL;
-	
+
     pFakeGL = NULL;
 	return true;
 }
@@ -7809,7 +7395,7 @@ HGLRC WINAPI wglGetCurrentContext(VOID)
 }
 
 HDC   WINAPI wglGetCurrentDC(VOID)
-{ 
+{
 	return gHDC;
 }
 */
@@ -7869,15 +7455,15 @@ PROC /*APIENTRY*/ wglGetProcAddress(LPCSTR s)
 	static LPCSTR kMTexCoord2fSGIS = "glMTexCoord2fSGIS"; // Multitexture
 	static LPCSTR kSelectTextureSGIS = "glSelectTextureSGIS";
 	if ( strncmp(s, kBindTextureEXT, sizeof(kBindTextureEXT)-1) == 0)
-	{
+	{ 
 		return (PROC) BindTextureExt;
 	}
 	else if ( strncmp(s, kMTexCoord2fSGIS, sizeof(kMTexCoord2fSGIS)-1) == 0)
-	{
+	{ 
 		return (PROC) MTexCoord2fSGIS;
 	}
 	else if ( strncmp(s, kSelectTextureSGIS, sizeof(kSelectTextureSGIS)-1) == 0)
-	{
+	{ 
 		return (PROC) SelectTextureSGIS;
 	}
 	// LocalDebugBreak();
@@ -7906,7 +7492,7 @@ void d3dEvictTextures()
 }
 
 int d3dIsResolutionHD()
-{	
+{
 	// Check if we have component cables
 	if((XGetAVPack() == XC_AV_PACK_HDTV) && (XGetVideoFlags() & XC_VIDEO_FLAGS_HDTV_720p))
 		return TRUE;

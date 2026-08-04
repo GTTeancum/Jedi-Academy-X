@@ -18,8 +18,8 @@
 #define	SVF_USE_CURRENT_ORIGIN	0x00000080	// entity->currentOrigin instead of entity->s.origin
 											// for link position (missiles and movers)
 #if defined(STEFX_SP_HOSTED_MP)
-#define SVF_SINGLECLIENT		0x00000100	// Elite Force: send only to singleClient
-#define SVF_NOTSINGLECLIENT		0x00000800	// Elite Force: send to everyone except singleClient
+#define SVF_SINGLECLIENT		0x00000100
+#define SVF_NOTSINGLECLIENT		0x00000800
 #endif
 #define SVF_TRIMODEL			0x00000100	// Use a three piece model make up like a player does
 #define	SVF_OBJECTIVE			0x00000200	// Draw it's name if crosshair comes across it
@@ -76,7 +76,7 @@ struct gentity_s {
 
 	int			svFlags;			// SVF_NOCLIENT, SVF_BROADCAST, etc
 #if defined(STEFX_SP_HOSTED_MP)
-	int			singleClient;		// official Holomatch per-client snapshot routing
+	int			singleClient;
 #endif
 
 	qboolean	bmodel;				// if false, assume an explicit mins / maxs bounding box

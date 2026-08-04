@@ -644,7 +644,7 @@ REQUIRED_INTERFACE_HUD_DDS = {
 }
 
 AAS_IDENT = b"EAAS"
-REQUIRED_XBOX_EFFECTS_IMAGE = "sound/dsstdfx.bin"
+FORBIDDEN_MP_EFFECTS_IMAGE = "sound/dsstdfx.bin"
 
 REQUIRED_EF_BOTLIB_ROOT_FILES = {
     "botfiles/chars.h",
@@ -1103,6 +1103,76 @@ def dds_format(data: bytes) -> str:
     if rgb_bits == 16:
         return "RGB565"
     return f"RGB{rgb_bits}"
+
+
+def dds_payload_error(data: bytes) -> str | None:
+    if len(data) < 128 or data[:4] != b"DDS ":
+        return "invalid header"
+
+    header_size = struct.unpack_from("<I", data, 4)[0]
+    pixel_format_size = struct.unpack_from("<I", data, 76)[0]
+    height = struct.unpack_from("<I", data, 12)[0]
+    width = struct.unpack_from("<I", data, 16)[0]
+    mip_count = struct.unpack_from("<I", data, 28)[0] or 1
+    fmt = dds_format(data)
+
+    if header_size != 124 or pixel_format_size != 32:
+        return f"invalid header sizes ({header_size}, {pixel_format_size})"
+    if width == 0 or height == 0:
+        return f"invalid dimensions {width}x{height}"
+    if mip_count > max(width, height).bit_length():
+        return f"invalid mip count {mip_count} for {width}x{height}"
+
+    if fmt == "DXT1":
+        block_bytes = 8
+        expected = 0
+        level_width = width
+        level_height = height
+        for _ in range(mip_count):
+            expected += (
+                max(1, (level_width + 3) // 4)
+                * max(1, (level_height + 3) // 4)
+                * block_bytes
+            )
+            level_width = max(1, level_width // 2)
+            level_height = max(1, level_height // 2)
+    elif fmt in {"BGRA32", "RGB565"}:
+        bytes_per_pixel = 4 if fmt == "BGRA32" else 2
+        expected = 0
+        level_width = width
+        level_height = height
+        for _ in range(mip_count):
+            expected += level_width * level_height * bytes_per_pixel
+            level_width = max(1, level_width // 2)
+            level_height = max(1, level_height // 2)
+    else:
+        return None
+
+    actual = len(data) - 128
+    if actual != expected:
+        return (
+            f"{fmt} {width}x{height} mips={mip_count} "
+            f"payload={actual} expected={expected}"
+        )
+
+    if fmt == "BGRA32":
+        masks = struct.unpack_from("<4I", data, 92)
+        expected_masks = (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
+        if masks != expected_masks:
+            return (
+                "BGRA32 channel masks="
+                + ",".join(f"0x{mask:08x}" for mask in masks)
+            )
+    elif fmt == "RGB565":
+        masks = struct.unpack_from("<4I", data, 92)
+        expected_masks = (0x0000F800, 0x000007E0, 0x0000001F, 0)
+        if masks != expected_masks:
+            return (
+                "RGB565 channel masks="
+                + ",".join(f"0x{mask:08x}" for mask in masks)
+            )
+
+    return None
 
 
 def normalize_texture_ref(value: str) -> str | None:
@@ -1984,6 +2054,14 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
         actual_names = zf.namelist()
         name_lookup = {norm_path(name): name for name in actual_names}
         names = [norm_path(name) for name in actual_names]
+        duplicate_names = sorted(
+            name for name in set(names) if names.count(name) > 1
+        )
+        if duplicate_names:
+            fail(
+                "xbox1.pk3 contains duplicate normalized entries: "
+                + ", ".join(duplicate_names[:16])
+            )
         legacy_entries = sorted(
             name
             for name in names
@@ -2003,14 +2081,11 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
         if missing_nav:
             fail("xbox1.pk3 is missing official EF Holomatch navigation file(s): " + ", ".join(missing_nav))
 
-        if REQUIRED_XBOX_EFFECTS_IMAGE not in name_lookup:
+        if FORBIDDEN_MP_EFFECTS_IMAGE in name_lookup:
             fail(
-                "xbox1.pk3 is missing Xbox DirectSound effects image: "
-                + REQUIRED_XBOX_EFFECTS_IMAGE
+                "xbox1.pk3 must not override the SP dry-audio setup with an MP-only "
+                "DirectSound effects image"
             )
-        effects_image_data = zf.read(name_lookup[REQUIRED_XBOX_EFFECTS_IMAGE])
-        if len(effects_image_data) <= 0:
-            fail("xbox1.pk3 contains an empty Xbox DirectSound effects image")
 
         original_image_entries = sorted(
             name for name in names if Path(name).suffix.lower() in ORIGINAL_IMAGE_EXTS
@@ -2028,14 +2103,19 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
         dds_formats: dict[str, int] = {}
         invalid_formats: list[str] = []
         forbidden_formats: list[str] = []
+        invalid_payloads: list[str] = []
         non_bgra32_gfx: list[str] = []
         for dds_entry in dds_entries:
-            fmt = dds_format(zf.read(name_lookup[dds_entry])[:128])
+            dds_data = zf.read(name_lookup[dds_entry])
+            fmt = dds_format(dds_data[:128])
             dds_formats[fmt] = dds_formats.get(fmt, 0) + 1
             if fmt == "invalid":
                 invalid_formats.append(dds_entry)
             elif fmt not in {"DXT1", "BGRA32", "RGB565"}:
                 forbidden_formats.append(f"{dds_entry}={fmt}")
+            payload_error = dds_payload_error(dds_data)
+            if payload_error:
+                invalid_payloads.append(f"{dds_entry}: {payload_error}")
             if dds_entry.startswith("gfx/") and fmt != "BGRA32":
                 non_bgra32_gfx.append(f"{dds_entry}={fmt}")
 
@@ -2045,6 +2125,11 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
             fail(
                 "xbox1.pk3 contains unsupported DDS format(s); OG Xbox Holomatch allows DXT1, RGB565, BGRA32 only: "
                 + ", ".join(forbidden_formats[:16])
+            )
+        if invalid_payloads:
+            fail(
+                "xbox1.pk3 contains DDS payload(s) incompatible with the native Xbox uploader: "
+                + ", ".join(invalid_payloads[:16])
             )
         if non_bgra32_gfx:
             fail("xbox1.pk3 gfx/ UI/HUD DDS entries must be BGRA32: " + ", ".join(non_bgra32_gfx[:16]))
@@ -2112,14 +2197,8 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
                 fail("xbox1.pk3 manifest reports preserved original texture fallback(s)")
             if manifest.get("skippedAlphaTextures"):
                 fail("xbox1.pk3 manifest reports skipped alpha texture(s)")
-            effects_image = manifest.get("effectsImage") or {}
-            if effects_image.get("path") != REQUIRED_XBOX_EFFECTS_IMAGE:
-                fail("xbox1.pk3 manifest does not report sound/dsstdfx.bin as the effects image")
-            if effects_image.get("bytes") != len(effects_image_data):
-                fail(
-                    "xbox1.pk3 manifest effects image byte count does not match package: "
-                    f"manifest={effects_image.get('bytes')} package={len(effects_image_data)}"
-                )
+            if manifest.get("effectsImage") is not None:
+                fail("xbox1.pk3 manifest reports an MP-only DirectSound effects image")
             patched_aas = manifest.get("patchedAasChecksums") or {}
 
             if manifest.get("bspMaps") == "multiplayer":
@@ -2784,10 +2863,20 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
     required_sources = {
         "code/win32/win_main_console.cpp": {
             "STEFX_SP_HOSTED_MP",
-            "STEFX_HM_SP: direct boot bypasses menus and targets %s",
-            f'#define STEFX_HOLOMATCH_DIRECT_MAP "{direct_map}"',
+            "STEFX: applying Holomatch XBE launch intent",
+            "XBE Holomatch launch intent",
+            f'Q_strncpyz(startupMap, "{direct_map}"',
             'Cbuf_AddText("set fs_game BaseEF\\n");',
-            'Cbuf_AddText(va("map %s\\n", startupMap));',
+            'Cbuf_AddText(va("%s %s\\n", useDevMap ? "devmap" : "map", startupMap));',
+            'path = "d:\\\\efmp.xbe";',
+            'path = "d:\\\\default.xbe";',
+            "STEFX_LAUNCH_INTENT_HOLOMATCH",
+            "STEFX_LAUNCH_INTENT_COOP",
+        },
+        "code/ui/ui_ef_frontend.cpp": {
+            'Sys_Reboot("multiplayer", NULL);',
+            'Sys_Reboot("singleplayer", NULL);',
+            'Sys_Reboot("singleplayer_coop", NULL);',
         },
         "code/server/sv_game.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostAfterGameInit"},
         "code/server/sv_main.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostRunFrame"},
@@ -2841,11 +2930,14 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             fail(f"SP-hosted Holomatch XBE check failed; missing XBE: {xbe}")
         data = xbe.read_bytes()
         required_xbe_markers = {
-            b"STEFX_HM_SP: direct boot bypasses menus and targets %s",
+            b"STEFX: applying Holomatch XBE launch intent",
+            b"XBE Holomatch launch intent",
             b"STEFX_HM_SP: SP host game init",
             b"STEFX_HM_SP: game boundary init",
             b"STEFX_HM_STATE: preserve client=",
             b"STEFX_HM_EVENT_ROUTE: reject viewer=",
+            b"d:\\default.xbe",
+            b"d:\\efmp.xbe",
             b"BaseEF",
             direct_map.encode("ascii"),
         }
@@ -2855,7 +2947,7 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             if marker not in data
         )
         if missing_xbe:
-            fail("efmp.xbe is missing SP-hosted direct-map marker(s): " + ", ".join(missing_xbe))
+            fail("efmp.xbe is missing SP-hosted XBE-handoff marker(s): " + ", ".join(missing_xbe))
         xbe_result = {
             "checked": True,
             "xbe": str(xbe),
@@ -2868,7 +2960,8 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
         "architecture": "sp-hosted-code-only",
         "codempDependency": False,
         "codeSourceFilesChecked": len(source_files),
-        "directBoot": direct_map,
+        "holomatchLaunchMap": direct_map,
+        "modeHandoff": "default.xbe <-> efmp.xbe",
         "rendererAudioInputOwner": "code/ SP engine",
         "uiOwner": "code/ui SP framework",
         "xbe": xbe_result,

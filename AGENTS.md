@@ -8,8 +8,8 @@
 - `codemp\` is historical/deprecated for this project phase and must not be a build, link, include, or runtime dependency for SP-hosted `efmp.xbe`.
 - `default.xbe` remains the SP/co-op executable and must not be overwritten by Holomatch work.
 - Current Holomatch tests boot straight to `hm_borg1` with bots; menus are future work.
-- The authoritative current status files are `HOLOMATCH_TODO.md` and `HOLOMATCH_QUALIFICATION.md`.
-- Use CXBX-R / `C:\Games\Emulators\CXBX-CodexCapture` for this phase, not XEMU.
+- The authoritative current status files are `GAME_TODO.md` and `HOLOMATCH_QUALIFICATION.md`.
+- Use XEMU/LLE for the current unified SP/co-op/Holomatch qualification. CXBX-R captures are historical or focused diagnostic evidence only.
 
 ## Development Workflow
 - **Programmer:** Codex (AI) — all code changes are made by Codex
@@ -175,9 +175,12 @@ Code complete — needs compile test. Changes:
 8. 📋 Add outside-file support — files placed outside GOBs using the same folder structure should be read by the filesystem and should supersede matching GOB-contained files
 
 ## Testing Notes
-- Use CXBX-R / `C:\Games\Emulators\CXBX-CodexCapture` for current Holomatch proof.
+- Use XEMU/LLE for current unified SP/co-op/Holomatch proof.
 - Retail Xbox remains the final target.
 - Current logs are `E:\ef_sp_log.txt` for SP and `D:\ef_mp_log.txt`, falling back to `E:\ef_mp_log.txt`, for SP-hosted Holomatch. XBLog flushes every write; last line = crash point.
+- Run `scripts\cleanup_generated.ps1` before and after emulator runs. `scripts\run_sp_xemu_smoke.ps1` does this automatically.
+- Keep one current XEMU ISO under `build\xemu`; per-run ISO copies and staging trees are temporary artifacts. Use `-KeepStage` only for a specific diagnostic that needs inspection afterward.
+- Smoke output retention is bounded. Preserve a proof explicitly in project notes or a committed artifact before allowing newer runs to rotate it out.
 
 ## JO MP Source Reference
 - JO MP source is at `D:\Programming\GitHub\jedioutcast-master\CODE-mp\`

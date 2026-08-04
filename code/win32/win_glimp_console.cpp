@@ -24,6 +24,7 @@
 #include "win_local.h"
 #ifdef _XBOX
 #include "xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 #endif
 
 #if defined(_WINDOWS) || defined(_XBOX)
@@ -61,8 +62,14 @@ glwstate_t *glw_state = NULL;
 */
 static qboolean GLW_CreateWindow( int width, int height, int colorbits, qboolean cdsFullscreen )
 {
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x47574330; /* 'GWC0' */
+#endif
 	XBL("GLW_CreateWindow: GLW_Init...\n");
 	GLW_Init(width, height, colorbits, cdsFullscreen);
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x47574331; /* 'GWC1' */
+#endif
 	XBL("GLW_CreateWindow: GLW_Init done\n");
 	XBL("GLW_CreateWindow: IN_Init...\n");
 	IN_Init();
@@ -130,8 +137,14 @@ static qboolean GLW_LoadOpenGL()
 	strlwr( strcpy( buffer, OPENGL_DRIVER_NAME ) );
 
 	XBLF("GLW_LoadOpenGL: QGL_Init('%s')...\n", buffer);
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x51474c30; /* 'QGL0' */
+#endif
 	if ( QGL_Init( buffer ) )
 	{
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x51474c31; /* 'QGL1' */
+#endif
 		XBL("GLW_LoadOpenGL: QGL_Init OK\n");
 		XBL("GLW_LoadOpenGL: GLW_CreateWindow...\n");
 		GLW_CreateWindow(640, 480, 24, 1);
@@ -148,16 +161,9 @@ static qboolean GLW_LoadOpenGL()
 /*
 ** GLimp_EndFrame
 */
-extern "C" void FakeSwapBuffers(void);
-
 void GLimp_EndFrame (void)
 {
-	/* Plan-B (OpenJKDF2 1:1): GLimp_EndFrame was a no-op originally
-	 * because pre-Plan-B the renderer did its own present via direct
-	 * D3D8 calls.  Under Plan-B, fakeglx owns the device — we MUST
-	 * call FakeSwapBuffers() here (which does EndScene + Present and
-	 * arms m_needBeginScene for the next frame). */
-	/* Present once from glEndFrame; RB_SwapBuffers is still mid-frame here. */
+	/* Present is owned by qglEndFrame at the renderer command boundary. */
 }
 
 static void GLW_StartOpenGL( void )
@@ -183,8 +189,14 @@ static void GLW_StartOpenGL( void )
 */
 void GLimp_Init( void )
 {
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x474c4930; /* 'GLI0' */
+#endif
 	XBL("GLimp_Init: GLW_StartOpenGL...\n");
 	GLW_StartOpenGL();
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x474c4931; /* 'GLI1' */
+#endif
 	XBL("GLimp_Init: GLW_StartOpenGL done\n");
 
 	// get our config strings

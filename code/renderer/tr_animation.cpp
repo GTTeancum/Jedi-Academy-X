@@ -130,8 +130,6 @@ static int R_ACullModel( md4Header_t *header, trRefEntity_t *ent ) {
 static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent, qboolean logCull )
 {
 	int cull;
-	vec3_t delta;
-	float distSq;
 
 	cull = R_ACullModel( header, ent );
 	if ( cull != CULL_OUT )
@@ -156,23 +154,6 @@ static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent, qboolean
 	}
 	if ( cull == CULL_OUT )
 	{
-		VectorSubtract( ent->e.origin, tr.refdef.vieworg, delta );
-		distSq = DotProduct( delta, delta );
-		if ( distSq < ( 1024.0f * 1024.0f ) )
-		{
-			if ( logCull )
-			{
-				XBLF( "STEFX: R_AddAnimSurfaces EF MDR cull near fail-open ent=%d h=%d model='%s' distSq=%g vieworg=(%g,%g,%g)",
-					ent->e.number,
-					ent->e.hModel,
-					tr.currentModel ? tr.currentModel->name : "(null)",
-					distSq,
-					tr.refdef.vieworg[0],
-					tr.refdef.vieworg[1],
-					tr.refdef.vieworg[2] );
-			}
-			return CULL_CLIP;
-		}
 		if ( logCull )
 		{
 			XBLF( "STEFX: R_AddAnimSurfaces EF MDR cull out ent=%d h=%d model='%s'",
@@ -274,7 +255,6 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	qboolean		stefxTrackAnimSurf = qfalse;
 	qboolean		stefxLogAnimSurf = qfalse;
 #endif
-
 	// don't add third_person objects if not in a portal
 	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal;
 
@@ -571,6 +551,7 @@ void RB_SurfaceAnim( md4Surface_t *surface ) {
 					+ backlerp * ((float *)oldFrame->bones)[i];
 		}
 	}
+
 	//
 	// deform the vertexes by the lerped bones
 	//

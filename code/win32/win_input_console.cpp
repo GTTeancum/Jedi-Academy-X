@@ -752,7 +752,6 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 			CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-gameplay" );
 			return;
 		}
-
 #endif
 
 		// Always map start button to ESCAPE
@@ -980,6 +979,13 @@ static bool IN_ControllerMustBePlugged(int controller)
 		cls.state == CA_CHALLENGING	||
 		cls.state == CA_PRIMED		||
 		cls.state == CA_CINEMATIC)
+	{
+		return false;
+	}
+
+	// GLimp initializes input before Com_Init creates the frontend cvars.
+	// Initial pad discovery only records presence; UI enforcement starts later.
+	if (!inSplashMenu)
 	{
 		return false;
 	}

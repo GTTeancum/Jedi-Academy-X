@@ -1926,6 +1926,11 @@ void NPC_InitAnimTable( void )
 */
 void NPC_InitAnimTable( void )
 {
+	// A normal game-DLL reload clears this cache between maps. The Xbox
+	// hard-linked game module must reproduce that lifetime explicitly.
+	memset( knownAnimFileSets, 0, sizeof( knownAnimFileSets ) );
+	numKnownAnimFileSets = 0;
+
 	for ( int i = 0; i < MAX_ANIM_FILES; i++ )
 	{
 		for ( int j = 0; j < MAX_ANIMATIONS; j++ )

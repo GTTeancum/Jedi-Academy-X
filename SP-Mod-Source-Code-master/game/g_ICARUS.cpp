@@ -67,8 +67,7 @@ int ICARUS_RunScript( gentity_t *ent, const char *name )
 	int len;
 #ifdef _XBOX
 	static int stefxIcarusRunLogBudget = 128;
-	qboolean shouldLog = (qboolean)(stefxIcarusRunLogBudget > 0 && name &&
-		(strstr(name, "borg1") || strstr(name, "intro") || strstr(name, "setupworld")));
+	qboolean shouldLog = qfalse;
 
 	if (shouldLog)
 	{

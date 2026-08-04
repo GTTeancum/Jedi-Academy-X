@@ -19,6 +19,12 @@
 
 #define	MAX_ENT_CLUSTERS	16
 
+#if defined(STEFX_SP_HOSTED_MP)
+#define STEFX_SERVER_CLIENT_SLOTS MAX_CLIENTS
+#else
+#define STEFX_SERVER_CLIENT_SLOTS 1
+#endif
+
 typedef struct svEntity_s {
 	struct worldSector_s *worldSector;
 	struct svEntity_s *nextEntityInWorldSector;
@@ -98,9 +104,9 @@ typedef enum {
 
 typedef struct client_s {
 	clientState_t	state;
-	#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP)
 	qboolean		stefxHolomatchBot;
-	#endif
+#endif
 	char			userinfo[MAX_INFO_STRING];		// name, etc
 
 	char			*reliableCommands[MAX_RELIABLE_COMMANDS];
@@ -209,10 +215,12 @@ void SV_DropClient( client_t *drop, const char *reason );
 
 void SV_ExecuteClientCommand( client_t *cl, const char *s );
 void SV_ClientThink (client_t *cl, usercmd_t *cmd);
+#if defined(STEFX_SP_HOSTED_MP)
 void SV_GetUsercmd (int clientNum, usercmd_t *cmd);
 qboolean SV_GetEntityToken (char *buffer, int bufferSize);
 int SV_BotAllocateClient (void);
 void SV_BotFreeClient (int clientNum);
+#endif
 
 
 //
@@ -257,10 +265,12 @@ void SV_LinkEntity( gentity_t *ent );
 
 
 clipHandle_t SV_ClipHandleForEntity( const gentity_t *ent );
+#if defined(STEFX_SP_HOSTED_MP)
 void SV_ClipToEntity( trace_t *trace, const vec3_t start, const vec3_t mins,
 	const vec3_t maxs, const vec3_t end, int entityNum, int contentmask );
 void SV_BotModelBounds( int modelNum, const vec3_t angles, vec3_t mins,
 	vec3_t maxs, vec3_t origin );
+#endif
 
 
 void SV_SectorList_f( void );

@@ -224,8 +224,28 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 
 	// multiple LODs exist, so compute projected bounding sphere
 	// and use that as a criteria for selecting LOD
-//	if ( tr.currentModel->md3[0] ) 
-	{	//normal md3
+	if ( tr.currentModel->type == MOD_MDR )
+	{
+		md4Header_t *header = tr.currentModel->md4;
+		md4Frame_t *frame;
+		int frameSize;
+
+		if ( header->ofsFrames < 0 )
+		{
+			frameSize = (int)( &((md4CompFrame_t *)0)->bones[ header->numBones ] );
+			frame = (md4Frame_t *)( (byte *)header - header->ofsFrames + ent->e.frame * frameSize );
+		}
+		else
+		{
+			frameSize = (int)( &((md4Frame_t *)0)->bones[ header->numBones ] );
+			frame = (md4Frame_t *)( (byte *)header + header->ofsFrames + ent->e.frame * frameSize );
+		}
+
+		// Compressed and uncompressed MDR frames share these leading fields.
+		radius = RadiusFromBounds( frame->bounds[0], frame->bounds[1] );
+	}
+	else
+	{
 		md3Frame_t *frame;
 		frame = ( md3Frame_t * ) ( ( ( unsigned char * ) tr.currentModel->md3[0] ) + tr.currentModel->md3[0]->ofsFrames );
 		frame += ent->e.frame;
@@ -262,7 +282,9 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 		if (s_stefxLodTraceBudget > 0 && tr.currentModel && tr.currentModel->name[0])
 		{
 			const char *modelName = tr.currentModel->name;
-			if (strstr(modelName, "models/players/") || ent->e.number == 0)
+			if (strstr(modelName, "models/players/") ||
+				strstr(modelName, "models/players2/") ||
+				ent->e.number == 0)
 			{
 				XBLog_Printf("STEFX_LOD: ent=%d model='%s' lod=%d numLods=%d flod=%g projectedRadius=%g radius=%g r_lodbias=%d r_lodscale=%g renderfx=0x%x origin=(%g,%g,%g)\n",
 					ent->e.number,

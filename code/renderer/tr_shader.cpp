@@ -4290,7 +4290,7 @@ static void ScanAndLoadShaderFiles( void )
 	};
 
 #ifdef _XBOX
-	g_SPXBShaderScanMagic = 0x53484452; /* 'SHDR' */
+	g_SPXBShaderScanMagic = 0x53433031; /* 'SC01' */
 	g_SPXBShaderScanScriptsFound = 0;
 	g_SPXBShaderScanShadersFound = 0;
 	g_SPXBShaderScanLoaded = 0;
@@ -4594,6 +4594,10 @@ CreateInternalShaders
 ====================
 */
 static void CreateInternalShaders( void ) {
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x43493030; /* 'CI00' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: CreateInternalShaders entered");
+#endif
 	tr.numShaders = 0;
 	tr.iNumDeniedShaders = 0;
 
@@ -4612,11 +4616,19 @@ static void CreateInternalShaders( void ) {
 	stages[0].active = true;
 	stages[0].stateBits = GLS_DEFAULT;
 	tr.defaultShader = FinishShader();
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x43493031; /* 'CI01' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: CreateInternalShaders default complete");
+#endif
 
 	// shadow shader is just a marker
 	Q_strncpyz( shader.name, "<stencil shadow>", sizeof( shader.name ) );
 	shader.sort = SS_BANNER; //SS_STENCIL_SHADOW;
 	tr.shadowShader = FinishShader();
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x43493032; /* 'CI02' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: CreateInternalShaders shadow complete");
+#endif
 
 	// distortion shader is just a marker
 	Q_strncpyz( shader.name, "internal_distortion", sizeof( shader.name ) );
@@ -4624,6 +4636,10 @@ static void CreateInternalShaders( void ) {
 	shader.defaultShader = false;
 	tr.distortionShader = FinishShader();
 	shader.defaultShader = true;
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x43493033; /* 'CI03' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: CreateInternalShaders distortion complete");
+#endif
 
 
 #ifndef _XBOX	// GLOWXXX
@@ -4723,10 +4739,16 @@ R_InitShaders
 void R_InitShaders( void ) {
 	//VID_Printf( PRINT_ALL, "Initializing Shaders\n" );
 #ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x52533031; /* 'RS01' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_InitShaders entered");
 	XBL("R_InitShaders: entered\n");
 #endif
 
 	memset(sh_hashTable, 0, sizeof(sh_hashTable));
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x52533032; /* 'RS02' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_InitShaders hash clear complete");
+#endif
 /*
 Ghoul2 Insert Start
 */
@@ -4740,14 +4762,24 @@ Ghoul2 Insert End
 	XBL("R_InitShaders: CreateInternalShaders...\n");
 #endif
 	CreateInternalShaders();
+#ifdef _XBOX
+	g_SPXBShaderScanMagic = 0x52533033; /* 'RS03' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_InitShaders internal complete");
+#endif
 
 #ifdef _XBOX
 	XBL("R_InitShaders: ScanAndLoadShaderFiles...\n");
+	g_SPXBShaderScanMagic = 0x53433030; /* 'SC00' */
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_InitShaders entering shader scan");
 #endif
 	ScanAndLoadShaderFiles();
+#ifdef _XBOX
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_InitShaders shader scan complete");
+#endif
 
 #ifdef _XBOX
 	XBL("R_InitShaders: CreateExternalShaders...\n");
+	XBLog_WriteCritical("STEFX_HW_BOOT: R_InitShaders entering external shaders");
 #endif
 	CreateExternalShaders();
 #ifdef _XBOX

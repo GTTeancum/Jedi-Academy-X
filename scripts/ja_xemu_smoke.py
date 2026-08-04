@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import ctypes
 import os
 import socket
 import subprocess
@@ -14,6 +15,40 @@ XEMU_BASE = os.path.join(XEMU_DIR, "xemu.exe")
 XEMU_JA = os.path.join(XEMU_DIR, "xemu_ja.exe")
 OUT_DIR = os.path.join("scripts", "output")
 XEMU_TOML = os.path.join(XEMU_DIR, "xemu.toml")
+MAP_PATH_OVERRIDE = ""
+
+
+def cap_windows_process_affinity(pid, core_count=6):
+    if os.name != "nt":
+        return None
+
+    available = max(1, os.cpu_count() or 1)
+    selected = min(max(1, core_count), available)
+    logical_ids = list(range(0, available, 2))[:selected]
+    if len(logical_ids) < selected:
+        logical_ids = list(range(selected))
+    affinity_mask = sum(1 << logical_id for logical_id in logical_ids)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [
+        ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.SetProcessAffinityMask.argtypes = [
+        ctypes.c_void_p, ctypes.c_size_t]
+    kernel32.SetProcessAffinityMask.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+
+    process_set_information = 0x0200
+    handle = kernel32.OpenProcess(process_set_information, False, pid)
+    if not handle:
+        raise OSError(ctypes.get_last_error(), "OpenProcess failed")
+    try:
+        if not kernel32.SetProcessAffinityMask(handle, affinity_mask):
+            raise OSError(
+                ctypes.get_last_error(), "SetProcessAffinityMask failed")
+    finally:
+        kernel32.CloseHandle(handle)
+    return affinity_mask
 
 SMOKE_KEYBOARD_MAP = """
 [input.keyboard_controller_scancode_map]
@@ -63,7 +98,10 @@ def parse_key_schedule(spec):
 
 
 def resolve_map_symbol(symbol):
-    map_paths = [
+    map_paths = []
+    if MAP_PATH_OVERRIDE:
+        map_paths.append(MAP_PATH_OVERRIDE)
+    map_paths += [
         os.path.join("build", "release", "default.map"),
         os.path.join("build", "release", "ja-release.map"),
         os.path.join("code", "x_exe", "Release", "default.map"),
@@ -87,6 +125,38 @@ def resolve_map_symbol(symbol):
     return None, None
 
 
+def resolve_map_symbol_in(symbol, path):
+    pattern = re.compile(r"\b%s\b\s+([0-9a-fA-F]{8})\b" % re.escape(symbol))
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    return int(match.group(1), 16)
+    except OSError:
+        pass
+    return None
+
+
+def resolve_literal_map_symbol_in(symbol, path):
+    """Resolve decorated C++ symbols whose leading '?' has no word boundary."""
+    pattern = re.compile(
+        r"(?:^|\s)%s\s+([0-9a-fA-F]{8})(?:\s|$)" % re.escape(symbol))
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                match = pattern.search(line)
+                if match:
+                    return int(match.group(1), 16)
+    except OSError:
+        pass
+    return None
+
+
 def resolve_symbol_offsets(base_symbol, symbols):
     base, _base_path = resolve_map_symbol(base_symbol)
     offsets = {}
@@ -94,6 +164,18 @@ def resolve_symbol_offsets(base_symbol, symbols):
         return offsets
     for name in symbols:
         addr, _path = resolve_map_symbol(name)
+        if addr is not None and addr >= base:
+            offsets[name] = (addr - base) // 4
+    return offsets
+
+
+def resolve_symbol_offsets_in(base_symbol, symbols, path):
+    base = resolve_map_symbol_in(base_symbol, path)
+    offsets = {}
+    if base is None:
+        return offsets
+    for name in symbols:
+        addr = resolve_map_symbol_in(name, path)
         if addr is not None and addr >= base:
             offsets[name] = (addr - base) // 4
     return offsets
@@ -143,6 +225,222 @@ def ensure_xemu_copy():
     if not os.path.exists(XEMU_JA):
         import shutil
         shutil.copy2(XEMU_BASE, XEMU_JA)
+
+
+_XEMU_SCREENSHOT_FLAG_RVA_CACHE = {}
+
+
+def pe_sections(data):
+    pe_offset = int.from_bytes(data[0x3c:0x40], "little")
+    section_count = int.from_bytes(data[pe_offset + 6:pe_offset + 8], "little")
+    optional_size = int.from_bytes(data[pe_offset + 20:pe_offset + 22], "little")
+    optional_offset = pe_offset + 24
+    magic = int.from_bytes(data[optional_offset:optional_offset + 2], "little")
+    if magic == 0x20b:
+        image_base = int.from_bytes(data[optional_offset + 24:optional_offset + 32], "little")
+    else:
+        image_base = int.from_bytes(data[optional_offset + 28:optional_offset + 32], "little")
+    section_offset = optional_offset + optional_size
+    sections = []
+    for index in range(section_count):
+        offset = section_offset + index * 40
+        name = data[offset:offset + 8].split(b"\0", 1)[0].decode("ascii", "replace")
+        virtual_size = int.from_bytes(data[offset + 8:offset + 12], "little")
+        virtual_address = int.from_bytes(data[offset + 12:offset + 16], "little")
+        raw_size = int.from_bytes(data[offset + 16:offset + 20], "little")
+        raw_offset = int.from_bytes(data[offset + 20:offset + 24], "little")
+        sections.append((name, virtual_address, raw_offset, max(virtual_size, raw_size)))
+    return image_base, sections
+
+
+def pe_file_offset_to_va(offset, image_base, sections):
+    for _name, virtual_address, raw_offset, size in sections:
+        if raw_offset and raw_offset <= offset < raw_offset + size:
+            return image_base + virtual_address + (offset - raw_offset)
+    return None
+
+
+def pe_va_to_file_offset(va, image_base, sections):
+    rva = va - image_base
+    for _name, virtual_address, raw_offset, size in sections:
+        if virtual_address <= rva < virtual_address + size:
+            return raw_offset + (rva - virtual_address)
+    return None
+
+
+def pe_find_rip_xrefs(data, image_base, sections, target_va):
+    text_section = None
+    for section in sections:
+        if section[0] == ".text":
+            text_section = section
+            break
+    if text_section is None:
+        return []
+
+    _name, text_va, text_raw, text_size = text_section
+    text = data[text_raw:text_raw + text_size]
+    hits = []
+    import struct
+    for index in range(0, len(text) - 4):
+        disp = struct.unpack_from("<i", text, index)[0]
+        va = image_base + text_va + index + 4 + disp
+        if va == target_va:
+            hits.append(image_base + text_va + index)
+    return hits
+
+
+def xemu_find_screenshot_flag_pointer_rva(xemu_exe):
+    cached = _XEMU_SCREENSHOT_FLAG_RVA_CACHE.get(xemu_exe)
+    if cached is not None:
+        return cached
+
+    with open(xemu_exe, "rb") as handle:
+        data = handle.read()
+    image_base, sections = pe_sections(data)
+
+    screenshot_offsets = []
+    start = 0
+    while True:
+        offset = data.find(b"Screenshot\0", start)
+        if offset < 0:
+            break
+        screenshot_offsets.append(offset)
+        start = offset + 1
+
+    f12_offsets = []
+    start = 0
+    while True:
+        offset = data.find(b"F12\0", start)
+        if offset < 0:
+            break
+        f12_offsets.append(offset)
+        start = offset + 1
+
+    screenshot_xrefs = []
+    for offset in screenshot_offsets:
+        va = pe_file_offset_to_va(offset, image_base, sections)
+        if va is not None:
+            screenshot_xrefs.extend(pe_find_rip_xrefs(data, image_base, sections, va))
+
+    f12_xrefs = []
+    for offset in f12_offsets:
+        va = pe_file_offset_to_va(offset, image_base, sections)
+        if va is not None:
+            f12_xrefs.extend(pe_find_rip_xrefs(data, image_base, sections, va))
+
+    anchors = []
+    for screenshot_xref in screenshot_xrefs:
+        for f12_xref in f12_xrefs:
+            if abs(screenshot_xref - f12_xref) < 64:
+                anchors.append(min(screenshot_xref, f12_xref) - 3)
+
+    text_section = None
+    for section in sections:
+        if section[0] == ".text":
+            text_section = section
+            break
+    if text_section is None:
+        return None
+
+    _name, _text_va, text_raw, text_size = text_section
+    text_end = text_raw + text_size
+    import struct
+    for anchor in anchors:
+        anchor_offset = pe_va_to_file_offset(anchor, image_base, sections)
+        if anchor_offset is None:
+            continue
+        search_start = max(text_raw, anchor_offset - 128)
+        search_end = min(text_end, anchor_offset + 0x1200)
+        for offset in range(search_start, search_end - 12):
+            if (data[offset:offset + 3] == b"\x48\x8b\x05" and
+                    data[offset + 7:offset + 10] == b"\xc6\x00\x01" and
+                    data[offset + 10] == 0xe9):
+                pattern_va = pe_file_offset_to_va(offset, image_base, sections)
+                disp = struct.unpack_from("<i", data, offset + 3)[0]
+                pointer_va = pattern_va + 7 + disp
+                pointer_rva = pointer_va - image_base
+                _XEMU_SCREENSHOT_FLAG_RVA_CACHE[xemu_exe] = pointer_rva
+                return pointer_rva
+    return None
+
+
+def xemu_process_module_base(process_handle):
+    import ctypes
+
+    psapi = ctypes.windll.psapi
+    modules = (ctypes.c_void_p * 1024)()
+    needed = ctypes.c_ulong()
+    if not psapi.EnumProcessModules(
+            process_handle, ctypes.byref(modules), ctypes.sizeof(modules),
+            ctypes.byref(needed)):
+        return None
+    return int(modules[0]) if modules[0] else None
+
+
+def xemu_trigger_native_screenshot(pid, xemu_exe, screenshot_dir, timeout=3.0):
+    if os.name != "nt":
+        return False, "xemu native screenshots require Windows", None
+
+    import ctypes
+
+    os.makedirs(screenshot_dir, exist_ok=True)
+    before = {
+        os.path.abspath(os.path.join(screenshot_dir, name))
+        for name in os.listdir(screenshot_dir)
+        if name.lower().endswith(".png")
+    }
+
+    pointer_rva = xemu_find_screenshot_flag_pointer_rva(xemu_exe)
+    if pointer_rva is None:
+        return False, "xemu native screenshot flag path not found", None
+
+    kernel32 = ctypes.windll.kernel32
+    access = 0x0400 | 0x0008 | 0x0010 | 0x0020
+    process = kernel32.OpenProcess(access, False, pid)
+    if not process:
+        return False, "xemu native screenshot OpenProcess failed pid=%d" % pid, None
+
+    flag_addr = None
+    try:
+        module_base = xemu_process_module_base(process)
+        if module_base is None:
+            return False, "xemu native screenshot module base not found", None
+
+        pointer_addr = module_base + pointer_rva
+        pointer_buf = (ctypes.c_ubyte * 8)()
+        transferred = ctypes.c_size_t()
+        if not kernel32.ReadProcessMemory(
+                process, ctypes.c_void_p(pointer_addr), pointer_buf, 8,
+                ctypes.byref(transferred)):
+            return False, "xemu native screenshot flag pointer unreadable", None
+
+        flag_addr = int.from_bytes(bytes(pointer_buf), "little")
+        one = (ctypes.c_ubyte * 1)(1)
+        if not kernel32.WriteProcessMemory(
+                process, ctypes.c_void_p(flag_addr), one, 1,
+                ctypes.byref(transferred)):
+            return False, "xemu native screenshot flag write failed", None
+    finally:
+        kernel32.CloseHandle(process)
+
+    end = time.time() + timeout
+    while time.time() < end:
+        current = []
+        for name in os.listdir(screenshot_dir):
+            if not name.lower().endswith(".png"):
+                continue
+            path = os.path.abspath(os.path.join(screenshot_dir, name))
+            if path not in before and os.path.exists(path):
+                current.append(path)
+        if current:
+            newest = max(current, key=os.path.getmtime)
+            return True, (
+                "xemu native screenshot flag_rva=0x%x flag=0x%x file=%s" %
+                (pointer_rva, flag_addr or 0, newest)
+            ), newest
+        time.sleep(0.1)
+
+    return False, "xemu native screenshot flag set but no PNG appeared", None
 
 
 def monitor_connect(port, timeout=12.0):
@@ -218,6 +516,7 @@ def probe_xblog_physical_addr(sock, boot_va, preferred_delta, log):
         0x281000,
         0x280000,
         0x264000,
+        0x244000,
     ):
         if delta and delta not in candidates:
             candidates.append(delta)
@@ -249,6 +548,40 @@ def probe_xblog_physical_addr(sock, boot_va, preferred_delta, log):
                 found_delta = boot_va - found_addr
                 log("xblog_probe scanned delta=0x%x addr=0x%08x" % (found_delta, found_addr))
                 return found_addr
+
+    # XEMU's physical placement can move by more than the narrow page probes
+    # above. Scan only the small title-data window for the paired telemetry
+    # sentinels instead of guessing another fixed delta.
+    broad_start = 0x00500000
+    broad_size = 0x00200000
+    broad_path = os.path.abspath(
+        os.path.join(OUT_DIR, "_xblog_probe_%d.bin" % os.getpid()))
+    try:
+        if monitor_pmemsave(sock, broad_start, broad_size, broad_path):
+            with open(broad_path, "rb") as broad_file:
+                broad_data = broad_file.read()
+            heartbeat = b"SFBH"
+            precrt = b"FEPS"
+            search_at = 0
+            while True:
+                heartbeat_at = broad_data.find(heartbeat, search_at)
+                if heartbeat_at < 0:
+                    break
+                if (heartbeat_at >= 16 and
+                        broad_data[heartbeat_at - 16:heartbeat_at - 12] == precrt):
+                    found_addr = broad_start + heartbeat_at - 12
+                    found_delta = boot_va - found_addr
+                    log("xblog_probe broad delta=0x%x addr=0x%08x" %
+                        (found_delta, found_addr))
+                    return found_addr
+                search_at = heartbeat_at + 4
+    except OSError as exc:
+        log("xblog_probe broad unavailable=%s" % exc)
+    finally:
+        try:
+            os.remove(broad_path)
+        except OSError:
+            pass
     return None
 
 
@@ -261,6 +594,55 @@ def monitor_read_u32(sock, addr, phys_delta=None):
     reply = monitor_cmd(sock, "%s/1wx 0x%08x" % (cmd, read_addr), 0.2)
     words = parse_monitor_words(reply, read_addr)
     return words[0] if words else None
+
+
+def monitor_texture_allocator(sock, physical_addr):
+    max_free_blocks = 4096
+    free_blocks_offset = 16
+    free_block_count_offset = free_blocks_offset + max_free_blocks * 8
+
+    header_reply = monitor_cmd(
+        sock, "xp/4wx 0x%08x" % physical_addr, 0.12)
+    header = parse_monitor_words(header_reply, physical_addr)
+    if len(header) < 4:
+        return None
+
+    base, used, capacity, high_water = header[:4]
+    count_addr = physical_addr + free_block_count_offset
+    count_reply = monitor_cmd(
+        sock, "xp/1wx 0x%08x" % count_addr, 0.12)
+    count_words = parse_monitor_words(count_reply, count_addr)
+    if not count_words:
+        return None
+    block_count = count_words[0]
+
+    total_free = 0
+    largest_free = 0
+    complete = True
+    if block_count > max_free_blocks:
+        complete = False
+    elif block_count:
+        blocks_addr = physical_addr + free_blocks_offset
+        blocks_reply = monitor_cmd(
+            sock, "xp/%dwx 0x%08x" % (block_count * 2, blocks_addr), 0.16)
+        blocks = parse_monitor_words(blocks_reply, blocks_addr)
+        if len(blocks) < block_count * 2:
+            complete = False
+        else:
+            sizes = blocks[1:block_count * 2:2]
+            total_free = sum(sizes)
+            largest_free = max(sizes)
+
+    return {
+        "base": base,
+        "used": used,
+        "capacity": capacity,
+        "high_water": high_water,
+        "block_count": block_count,
+        "total_free": total_free,
+        "largest_free": largest_free,
+        "complete": complete,
+    }
 
 
 def monitor_pmemsave(sock, phys_addr, byte_count, path):
@@ -535,7 +917,7 @@ def main():
     parser.add_argument("--interval", type=int, default=5)
     parser.add_argument("--first-shot-delay", type=float, default=0.0,
                         help="Seconds to wait before the first framebuffer capture.")
-    parser.add_argument("--hdd", default=r"C:\Games\Emulators\Xemu\HDD\jediacademy_hdd.qcow2")
+    parser.add_argument("--hdd", default=r"C:\Games\Emulators\Xemu\HDD\xbox_hdd.qcow2")
     parser.add_argument("--xemu-exe", default=XEMU_JA,
                         help="Xemu executable to launch. Defaults to the JA-isolated copy.")
     parser.add_argument("--config-path", default="",
@@ -547,6 +929,10 @@ def main():
                         help="Run without a display window. Implies --display none and skips screenshots.")
     parser.add_argument("--no-screenshots", action="store_true",
                         help="Skip interval screenshots without changing the display backend.")
+    parser.add_argument("--xemu-native-screenshots", action="store_true",
+                        help="Capture through XEMU's built-in F12 screenshot action.")
+    parser.add_argument("--xemu-screenshot-dir", default="",
+                        help="Directory watched for XEMU native screenshot PNGs.")
     parser.add_argument("--display", choices=["xemu", "sdl", "none", "egl-headless", "nographic"],
                         default="xemu",
                         help="Xemu/QEMU display backend. Use none or egl-headless for unattended runs.")
@@ -567,15 +953,35 @@ def main():
                         help="Poll registers and dump memory when CR2 matches this value")
     parser.add_argument("--poll-xblog", action="store_true",
                         help="Poll SP/MP XBLog counters through the monitor during the run.")
+    parser.add_argument("--poll-xblog-perf-only", action="store_true",
+                        help="Poll only the compact heartbeat/performance range.")
+    parser.add_argument("--poll-xblog-start-delay", type=float, default=0.0,
+                        help="Delay the first XBLog poll to avoid disturbing timed gameplay.")
     parser.add_argument("--poll-xblog-kind", choices=["auto", "sp", "mp"], default="auto",
                         help="Prefer SP or MP XBLog symbols when polling. Auto preserves the historical probe order.")
+    parser.add_argument("--map-file", default="",
+                        help="Prefer symbols from this linker map for telemetry and memory dumps.")
     parser.add_argument("--poll-xblog-addr", default="",
                         help="Address of g_*XBBootPhase. Empty means resolve _g_SPXBBootPhase from the current map.")
+    parser.add_argument("--poll-xblog-phys-addr", default="",
+                        help="Exact physical address of g_*XBBootPhase; bypasses automatic physical probing.")
     parser.add_argument("--poll-xblog-phys-delta", default="0x284000",
                         help="Auto-resolved XBLog VA minus physical monitor address. Use 0 to poll virtual x/ memory.")
     args = parser.parse_args()
 
+    global MAP_PATH_OVERRIDE
+    if args.map_file:
+        MAP_PATH_OVERRIDE = os.path.abspath(args.map_file)
+        if not os.path.isfile(MAP_PATH_OVERRIDE):
+            parser.error("Map file not found: %s" % MAP_PATH_OVERRIDE)
+
     os.makedirs(OUT_DIR, exist_ok=True)
+    args.iso = os.path.abspath(args.iso)
+    args.hdd = os.path.abspath(args.hdd)
+    if not os.path.isfile(args.iso):
+        parser.error("ISO not found: %s" % args.iso)
+    if not os.path.isfile(args.hdd):
+        parser.error("HDD image not found: %s" % args.hdd)
     xemu_exe = os.path.abspath(args.xemu_exe)
     if os.path.normcase(xemu_exe) == os.path.normcase(os.path.abspath(XEMU_JA)):
         ensure_xemu_copy()
@@ -585,6 +991,12 @@ def main():
     prefix = os.path.join(OUT_DIR, "%s_%s" % (args.name, stamp))
     raw_log = prefix + ".xemu.txt"
     report = prefix + ".report.txt"
+    if args.xemu_screenshot_dir:
+        xemu_screenshot_dir = os.path.abspath(args.xemu_screenshot_dir)
+    elif config_path:
+        xemu_screenshot_dir = os.path.join(os.path.dirname(config_path), "screenshots")
+    else:
+        xemu_screenshot_dir = os.path.abspath(prefix + "_xemu_screenshots")
     toml_backup = None
 
     if os.path.exists(config_path):
@@ -633,7 +1045,7 @@ def main():
 
     lines = []
     def log(msg):
-        print(msg)
+        print(msg, flush=True)
         lines.append(msg)
 
     xblog_auto_phys_pending = False
@@ -653,10 +1065,34 @@ def main():
     log("launch: %s" % " ".join(argv))
     logf = open(raw_log, "w", encoding="utf-8", errors="replace")
     xemu_cwd = os.path.dirname(xemu_exe) or XEMU_DIR
-    proc = subprocess.Popen(argv, cwd=xemu_cwd, stdout=logf, stderr=subprocess.STDOUT)
+    popen_options = {}
+    if os.name == "nt":
+        popen_options["creationflags"] = getattr(
+            subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0x00004000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 7  # SW_SHOWMINNOACTIVE
+        popen_options["startupinfo"] = startupinfo
+    proc = subprocess.Popen(
+        argv,
+        cwd=xemu_cwd,
+        stdout=logf,
+        stderr=subprocess.STDOUT,
+        **popen_options)
     log("pid=%d" % proc.pid)
+    try:
+        affinity_mask = cap_windows_process_affinity(proc.pid)
+        if affinity_mask is not None:
+            log("process_affinity_mask=0x%X" % affinity_mask)
+    except OSError as exc:
+        log("process_affinity_warning=%s" % exc)
     monitor_key_events = parse_key_schedule(args.monitor_keys)
     shot_paths = []
+    active_fps_samples = []
+    gameplay_fps_samples = []
+    personality_active_fps_samples = {}
+    personality_gameplay_fps_samples = {}
+    last_fps_heartbeat_count = None
     watch_cr2 = int(args.watch_cr2, 0) if args.watch_cr2 else None
     watch_done = False
     next_watch = 0.0
@@ -665,8 +1101,16 @@ def main():
     xblog_mp_pos_addr = None
     xblog_mp_write_addr = None
     xblog_va_for_probe = None
+    xblog_map = None
     if args.poll_xblog:
-        if args.poll_xblog_addr:
+        if args.poll_xblog_phys_addr:
+            xblog_addr = int(args.poll_xblog_phys_addr, 0)
+            xblog_va_for_probe, xblog_map = resolve_map_symbol("_g_SPXBBootPhase")
+            xblog_cmd = "xp"
+            xblog_mode = "sp"
+            log("xblog_symbol=_g_SPXBBootPhase va=0x%08x poll=xp addr=0x%08x map=%s forced=1" %
+                (xblog_va_for_probe or 0, xblog_addr, xblog_map))
+        elif args.poll_xblog_addr:
             xblog_addr = int(args.poll_xblog_addr, 0)
             xblog_cmd = "x"
             xblog_mode = "sp"
@@ -710,8 +1154,23 @@ def main():
                     log("xblog_symbol=_g_SPXBBootPhase unresolved fallback=x/0x%08x" % xblog_addr)
                 else:
                     log("xblog_symbol=_g_XBLogMirrorPos unresolved")
-    next_xblog_poll = 0.0
+    next_xblog_poll = max(0.0, args.poll_xblog_start_delay)
+    next_xblog_probe = 0.0
     last_xblog_write_count = None
+    texture_allocator_symbol = "?gTextures@@3VStaticTextureAllocator@@A"
+    texture_allocator_map = (
+        xblog_map if xblog_map else os.path.join(
+            "build", "release", "default.map"))
+    texture_allocator_va = resolve_literal_map_symbol_in(
+        texture_allocator_symbol, texture_allocator_map)
+    next_texture_allocator_poll = 0.0
+    if texture_allocator_va is not None:
+        log("texture_allocator_symbol=%s va=0x%08x map=%s" %
+            (texture_allocator_symbol, texture_allocator_va,
+             texture_allocator_map))
+    else:
+        log("texture_allocator_symbol=%s unresolved map=%s" %
+            (texture_allocator_symbol, texture_allocator_map))
     xblog_offsets = resolve_symbol_offsets("_g_SPXBBootPhase", [
         "_g_SPXBUIStateMagic",
         "_g_SPXBUIStarted",
@@ -721,6 +1180,12 @@ def main():
         "_g_SPXBUIRefreshCount",
         "_g_SPXBUIPauseOpenCount",
         "_g_SPXBUIPauseDrawCount",
+        "_g_SPXBUIFontMagic",
+        "_g_SPXBMiniSoakMagic",
+        "_g_SPXBMiniSoakStage",
+        "_g_SPXBMiniSoakTransitions",
+        "_g_SPXBMiniSoakActiveMsec",
+        "_g_SPXBMiniSoakFlags",
         "_g_SPXBMainLoopCount",
         "_g_SPXBComFrameCount",
         "_g_SPXBSvFrameCount",
@@ -743,10 +1208,89 @@ def main():
         "_g_SPXBMapHash",
         "_g_SPXBGamePhase",
         "_g_SPXBGameEntityCount",
+        "_g_SPXBPerfFrameMsec",
+        "_g_SPXBPerfServerMsec",
+        "_g_SPXBPerfClientMsec",
+        "_g_SPXBPerfGameMsec",
+        "_g_SPXBPerfFrontendMsec",
+        "_g_SPXBPerfBackendMsec",
+        "_g_SPXBPerfAudioMsec",
+        "_g_SPXBPerfServerTicks",
+        "_g_SPXBPerfServerLastGameMsec",
+        "_g_SPXBPerfServerMaxGameMsec",
+        "_g_SPXBPerfGamePreMsec",
+        "_g_SPXBPerfGameEntitiesMsec",
+        "_g_SPXBPerfGamePostMsec",
+        "_g_SPXBPerfGameEntitiesVisited",
+        "_g_SPXBPerfGameMissiles",
+        "_g_SPXBPerfGameItems",
+        "_g_SPXBPerfGameMovers",
+        "_g_SPXBPerfGameClients",
+        "_g_SPXBPerfGameThinkDue",
+        "_g_SPXBPerfGameScripted",
+        "_g_SPXBPerfGameOther",
+        "_g_SPXBPerfScreenDrawMsec",
+        "_g_SPXBPerfEndFrameMsec",
+        "_g_SPXBPerfRenderTotalMsec",
+        "_g_SPXBPerfRenderSetupMsec",
+        "_g_SPXBPerfRenderMarkLeavesMsec",
+        "_g_SPXBPerfRenderWorldMsec",
+        "_g_SPXBPerfRenderPolysMsec",
+        "_g_SPXBPerfRenderProjectionMsec",
+        "_g_SPXBPerfRenderEntitiesMsec",
+        "_g_SPXBPerfRenderSortMsec",
+        "_g_SPXBPerfRenderDebugMsec",
+        "_g_SPXBPerfRenderViews",
+        "_g_SPXBPerfRenderPortals",
+        "_g_SPXBPerfRenderDrawSurfs",
+        "_g_SPXBPerfRenderRefEntities",
+        "_g_SPXBPerfRenderLeafs",
+        "_g_SPXBCameraActive",
+        "_g_SPXBBorgPluggedCount",
+        "_g_SPXBBorgPluggedEnt",
+        "_g_SPXBBorgPluggedSpawnflags",
+        "_g_SPXBBorgPluggedAnim",
+        "_g_SPXBBorgPluggedLegsModel",
+        "_g_SPXBBorgPluggedTorsoModel",
+        "_g_SPXBBorgPluggedHeadModel",
+        "_g_SPXBBorgPluggedLegsSkin",
+        "_g_SPXBBorgPluggedTorsoSkin",
+        "_g_SPXBBorgPluggedHeadSkin",
+        "_g_SPXBBorgPluggedLegsNameHash",
+        "_g_SPXBBorgPluggedTorsoNameHash",
+        "_g_SPXBBorgPluggedHeadNameHash",
+        "_g_SPXBBorgActiveCount",
+        "_g_SPXBBorgActiveEnt",
+        "_g_SPXBBorgActiveSpawnflags",
+        "_g_SPXBBorgActiveAnim",
+        "_g_SPXBBorgActiveLegsModel",
+        "_g_SPXBBorgActiveTorsoModel",
+        "_g_SPXBBorgActiveHeadModel",
+        "_g_SPXBBorgActiveLegsSkin",
+        "_g_SPXBBorgActiveTorsoSkin",
+        "_g_SPXBBorgActiveHeadSkin",
+        "_g_SPXBBorgActiveLegsNameHash",
+        "_g_SPXBBorgActiveTorsoNameHash",
+        "_g_SPXBBorgActiveHeadNameHash",
         "_g_SPXBRenderBackendMsec",
         "_g_SPXBFakeGLPrimitiveCalls",
         "_g_SPXBFakeGLPrimitiveVerts",
         "_g_SPXBFakeGLStateFlushes",
+        "_g_SPXBNativeDrawMode",
+        "_g_SPXBNativeDrawCount",
+        "_g_SPXBNativeDrawSourceVertices",
+        "_g_SPXBNativeDrawMaxIndex",
+        "_g_SPXBNativeDrawStride",
+        "_g_SPXBNativeDrawIndicesPtr",
+        "_g_SPXBNativeDrawVerticesPtr",
+        "_g_SPXBNativeDrawPath",
+        "_g_SPXBNativeDrawShader",
+        "_g_SPXBNativeDrawVertexOffset",
+        "_g_SPXBNativeDrawIndexOffset",
+        "_g_SPXBNativeDrawVertexBytes",
+        "_g_SPXBNativeDrawIndexBytes",
+        "_g_SPXBNativeDrawLockFlags",
+        "_g_SPXBNativeDrawMinIndex",
         "_g_SPXBRenderSplitShader",
         "_g_SPXBRenderSplitFog",
         "_g_SPXBRenderSplitDlight",
@@ -953,7 +1497,60 @@ def main():
         "_g_SPXBSVProbeB",
         "_g_SPXBSVProbeC",
         "_g_SPXBSVProbeD",
+        "_g_SPXBLoadingTitleMagic",
+        "_g_SPXBLoadingTitleStatus",
+        "_g_SPXBLoadingTitleShader",
+        "_g_SPXBLoadingTitleDraws",
+        "_g_SPXBLoadingTitleLastChar",
+        "_g_SPXBLoadingTitleMapHash",
+        "_g_SPXBLoadingTitleTextHash",
     ])
+    xblog_symbol_names = list(xblog_offsets.keys())
+    xblog_font_symbols = [
+        "_g_SPXBUIFontLoadAttempts",
+        "_g_SPXBUIFontFileLen",
+        "_g_SPXBUIFontLoaded",
+        "_g_SPXBUIFontTinyShader",
+        "_g_SPXBUIFontMediumShader",
+        "_g_SPXBUIFontBigShader",
+        "_g_SPXBUIFontDrawCalls",
+        "_g_SPXBUIFontDrawRejectMask",
+        "_g_SPXBUIFontLastChar",
+        "_g_SPXBUIFontLastShader",
+        "_g_SPXBUIFontLastSX",
+        "_g_SPXBUIFontLastSY",
+        "_g_SPXBUIFontLastSW",
+    ]
+    xblog_font_base_va, xblog_font_map = resolve_map_symbol(xblog_font_symbols[0])
+    xblog_font_offsets = resolve_symbol_offsets(xblog_font_symbols[0], xblog_font_symbols)
+    xblog_title_symbols = [
+        "_g_SPXBLoadingTitleMagic",
+        "_g_SPXBLoadingTitleStatus",
+        "_g_SPXBLoadingTitleShader",
+        "_g_SPXBLoadingTitleDraws",
+        "_g_SPXBLoadingTitleLastChar",
+        "_g_SPXBLoadingTitleMapHash",
+        "_g_SPXBLoadingTitleTextHash",
+    ]
+    xblog_title_base_va, _xblog_title_map = resolve_map_symbol(
+        xblog_title_symbols[0])
+    xblog_title_offsets = resolve_symbol_offsets(
+        xblog_title_symbols[0], xblog_title_symbols)
+    xblog_current_personality = "efmp" if (
+        xblog_map and os.path.basename(xblog_map).lower() == "efmp.map") else "default"
+    next_personality_probe = 0.0
+    if xblog_font_base_va is not None:
+        log("xblog_font_symbol=%s va=0x%08x map=%s" %
+            (xblog_font_symbols[0], xblog_font_base_va, xblog_font_map))
+    mini_soak_probes = []
+    for personality, map_path in (
+            ("default", os.path.join("build", "release", "default.map")),
+            ("efmp", os.path.join("build", "release", "efmp.map"))):
+        mini_va = resolve_map_symbol_in("_g_SPXBMiniSoakMagic", map_path)
+        if mini_va is not None:
+            mini_soak_probes.append((personality, mini_va, map_path))
+            log("xblog_soak_probe personality=%s va=0x%08x map=%s" %
+                (personality, mini_va, map_path))
     capture_enabled = (not args.no_screenshots) and display_mode not in ("none", "egl-headless", "nographic")
 
     sock = None
@@ -970,6 +1567,12 @@ def main():
                         probed_delta = xblog_va_for_probe - xblog_addr
                         args.dump_phys = append_xblog_auto_dumps(args.dump_phys, probed_delta, log)
                         xblog_auto_phys_pending = False
+                else:
+                    # Normal frontend boot can map the title after the monitor
+                    # connection is ready. Retry from the main loop instead of
+                    # polling the preferred address forever.
+                    xblog_addr = None
+                    next_xblog_probe = max(1.0, float(args.interval))
         else:
             log("monitor=disabled")
         start = time.time()
@@ -995,9 +1598,96 @@ def main():
                     dump_monitor_state(sock, prefix, "watch_cr2", args.dump_mem, log)
                     watch_done = True
 
+            if (sock is not None and args.poll_xblog and
+                    xblog_va_for_probe is not None and xblog_addr is None and
+                    elapsed >= next_xblog_probe):
+                next_xblog_probe = elapsed + max(1.0, float(args.interval))
+                probed_addr = probe_xblog_physical_addr(
+                    sock, xblog_va_for_probe,
+                    int(args.poll_xblog_phys_delta, 0), log)
+                if probed_addr is not None:
+                    xblog_addr = probed_addr
+                    next_xblog_poll = max(elapsed, args.poll_xblog_start_delay)
+                    if xblog_auto_phys_pending:
+                        probed_delta = xblog_va_for_probe - xblog_addr
+                        args.dump_phys = append_xblog_auto_dumps(
+                            args.dump_phys, probed_delta, log)
+                        xblog_auto_phys_pending = False
+
             if sock is not None and xblog_addr is not None and elapsed >= next_xblog_poll:
-                next_xblog_poll = elapsed + max(0.5, float(args.interval))
+                next_xblog_poll = elapsed + 1.0
                 try:
+                    runtime_delta = int(args.poll_xblog_phys_delta, 0)
+                    if xblog_va_for_probe is not None and xblog_addr is not None:
+                        runtime_delta = xblog_va_for_probe - xblog_addr
+                    header_reply = monitor_cmd(
+                        sock, "xp/9wx 0x%08x" % xblog_addr, 0.3)
+                    header_words = parse_monitor_words(header_reply, xblog_addr)
+                    if ((len(header_words) < 4 or
+                         header_words[3] != 0x48424653) and
+                            elapsed >= next_personality_probe):
+                        next_personality_probe = elapsed + max(
+                            2.0, float(args.interval))
+                        default_map = os.path.join(
+                            "build", "release", "default.map")
+                        efmp_map = os.path.join(
+                            "build", "release", "efmp.map")
+                        personality_candidates = [
+                            ("default",
+                             resolve_map_symbol_in(
+                                 "_g_SPXBBootPhase", default_map),
+                             default_map),
+                            ("efmp",
+                             resolve_map_symbol_in(
+                                 "_g_SPXBBootPhase", efmp_map),
+                             efmp_map),
+                        ]
+                        if xblog_current_personality == "default":
+                            personality_candidates.reverse()
+                        for personality, boot_va, personality_map in personality_candidates:
+                            if boot_va is None:
+                                continue
+                            probed_addr = probe_xblog_physical_addr(
+                                sock, boot_va, runtime_delta, log)
+                            if probed_addr is None:
+                                continue
+                            xblog_addr = probed_addr
+                            xblog_va_for_probe = boot_va
+                            xblog_offsets = resolve_symbol_offsets_in(
+                                "_g_SPXBBootPhase", xblog_symbol_names,
+                                personality_map)
+                            xblog_font_base_va = resolve_map_symbol_in(
+                                xblog_font_symbols[0], personality_map)
+                            xblog_font_offsets = resolve_symbol_offsets_in(
+                                xblog_font_symbols[0], xblog_font_symbols,
+                                personality_map)
+                            xblog_title_base_va = resolve_map_symbol_in(
+                                xblog_title_symbols[0], personality_map)
+                            xblog_title_offsets = resolve_symbol_offsets_in(
+                                xblog_title_symbols[0], xblog_title_symbols,
+                                personality_map)
+                            texture_allocator_map = personality_map
+                            texture_allocator_va = resolve_literal_map_symbol_in(
+                                texture_allocator_symbol,
+                                texture_allocator_map)
+                            xblog_current_personality = personality
+                            last_fps_heartbeat_count = None
+                            runtime_delta = xblog_va_for_probe - xblog_addr
+                            log("xblog_personality_switch t=%.1f personality=%s "
+                                "va=0x%08x phys=0x%08x delta=0x%x map=%s" %
+                                (elapsed, personality, boot_va, xblog_addr,
+                                 runtime_delta, personality_map))
+                            break
+                    if not args.poll_xblog_perf_only:
+                        for personality, mini_va, _mini_map in mini_soak_probes:
+                            mini_addr = mini_va - runtime_delta
+                            mini_reply = monitor_cmd(
+                                sock, "xp/5wx 0x%08x" % mini_addr, 0.25)
+                            mini_words = parse_monitor_words(mini_reply, mini_addr)
+                            if len(mini_words) >= 5 and mini_words[0] == 0x4D534F4B:
+                                log("xblogsoak-live t=%.1f personality=%s stage=%u transitions=%u activeMsec=%u flags=0x%08x" %
+                                    (elapsed, personality, mini_words[1], mini_words[2],
+                                     mini_words[3], mini_words[4]))
                     if xblog_mode == "mp":
                         reply = monitor_cmd(sock, "%s/1wx 0x%08x" % (xblog_cmd, xblog_mp_pos_addr), 0.4)
                         words = parse_monitor_words(reply, xblog_mp_pos_addr)
@@ -1019,9 +1709,110 @@ def main():
                             log("xblog t=%.1f mp unreadable raw=%s" % (elapsed, debug_path))
                         continue
 
-                    poll_words = max(64, max(xblog_offsets.values() or [0]) + 8)
+                    if args.poll_xblog_perf_only:
+                        perf_poll_symbols = [
+                            "_g_SPXBClsState",
+                            "_g_SPXBPerfFrameMsec",
+                            "_g_SPXBPerfServerMsec",
+                            "_g_SPXBPerfClientMsec",
+                            "_g_SPXBPerfGameMsec",
+                            "_g_SPXBPerfFrontendMsec",
+                            "_g_SPXBPerfBackendMsec",
+                            "_g_SPXBPerfAudioMsec",
+                            "_g_SPXBCameraActive",
+                            "_g_SPXBPerfServerTicks",
+                            "_g_SPXBPerfServerLastGameMsec",
+                            "_g_SPXBPerfServerMaxGameMsec",
+                            "_g_SPXBPerfGamePreMsec",
+                            "_g_SPXBPerfGameEntitiesMsec",
+                            "_g_SPXBPerfGamePostMsec",
+                            "_g_SPXBPerfGameEntitiesVisited",
+                            "_g_SPXBPerfGameMissiles",
+                            "_g_SPXBPerfGameItems",
+                            "_g_SPXBPerfGameMovers",
+                            "_g_SPXBPerfGameClients",
+                            "_g_SPXBPerfGameThinkDue",
+                            "_g_SPXBPerfGameScripted",
+                            "_g_SPXBPerfGameOther",
+                            "_g_SPXBPerfScreenDrawMsec",
+                            "_g_SPXBPerfEndFrameMsec",
+                            "_g_SPXBPerfRenderTotalMsec",
+                            "_g_SPXBPerfRenderSetupMsec",
+                            "_g_SPXBPerfRenderMarkLeavesMsec",
+                            "_g_SPXBPerfRenderWorldMsec",
+                            "_g_SPXBPerfRenderPolysMsec",
+                            "_g_SPXBPerfRenderProjectionMsec",
+                            "_g_SPXBPerfRenderEntitiesMsec",
+                            "_g_SPXBPerfRenderSortMsec",
+                            "_g_SPXBPerfRenderDebugMsec",
+                            "_g_SPXBPerfRenderViews",
+                            "_g_SPXBPerfRenderPortals",
+                            "_g_SPXBPerfRenderDrawSurfs",
+                            "_g_SPXBPerfRenderRefEntities",
+                            "_g_SPXBPerfRenderLeafs",
+                        ]
+                        perf_poll_offsets = [
+                            xblog_offsets[name] for name in perf_poll_symbols
+                            if name in xblog_offsets
+                        ]
+                        poll_words = max(64, max(perf_poll_offsets or [0]) + 2)
+                    else:
+                        poll_words = max(64, max(xblog_offsets.values() or [0]) + 8)
                     reply = monitor_cmd(sock, "%s/%dwx 0x%08x" % (xblog_cmd, poll_words, xblog_addr), 0.4)
                     words = parse_monitor_words(reply, xblog_addr)
+                    font_words = []
+                    title_words = []
+                    if (not args.poll_xblog_perf_only and
+                            xblog_font_base_va is not None and
+                            xblog_va_for_probe is not None):
+                        runtime_delta = xblog_va_for_probe - xblog_addr
+                        xblog_font_addr = xblog_font_base_va - runtime_delta
+                        font_poll_words = max(16, max(xblog_font_offsets.values() or [0]) + 2)
+                        font_reply = monitor_cmd(
+                            sock,
+                            "xp/%dwx 0x%08x" % (font_poll_words, xblog_font_addr),
+                            0.4)
+                        font_words = parse_monitor_words(font_reply, xblog_font_addr)
+                    if (not args.poll_xblog_perf_only and
+                            xblog_title_base_va is not None and
+                            xblog_va_for_probe is not None):
+                        runtime_delta = xblog_va_for_probe - xblog_addr
+                        xblog_title_addr = xblog_title_base_va - runtime_delta
+                        title_poll_words = max(
+                            7, max(xblog_title_offsets.values() or [0]) + 1)
+                        title_reply = monitor_cmd(
+                            sock,
+                            "xp/%dwx 0x%08x" % (
+                                title_poll_words, xblog_title_addr),
+                            0.4)
+                        title_words = parse_monitor_words(
+                            title_reply, xblog_title_addr)
+                    if (texture_allocator_va is not None and
+                            xblog_va_for_probe is not None and
+                            elapsed >= next_texture_allocator_poll):
+                        next_texture_allocator_poll = elapsed + max(
+                            5.0, float(args.interval))
+                        runtime_delta = xblog_va_for_probe - xblog_addr
+                        texture_allocator_addr = (
+                            texture_allocator_va - runtime_delta)
+                        texture_allocator = monitor_texture_allocator(
+                            sock, texture_allocator_addr)
+                        if texture_allocator is None:
+                            log("xblogtex t=%.1f unavailable va=0x%08x phys=0x%08x" %
+                                (elapsed, texture_allocator_va,
+                                 texture_allocator_addr))
+                        else:
+                            log("xblogtex t=%.1f base=0x%08x used=%u capacity=%u "
+                                "high=%u blocks=%u totalFree=%u largestFree=%u "
+                                "complete=%u" %
+                                (elapsed, texture_allocator["base"],
+                                 texture_allocator["used"],
+                                 texture_allocator["capacity"],
+                                 texture_allocator["high_water"],
+                                 texture_allocator["block_count"],
+                                 texture_allocator["total_free"],
+                                 texture_allocator["largest_free"],
+                                 1 if texture_allocator["complete"] else 0))
                     if len(words) >= 9:
                         telemetry_words = words
                         boot_phase = words[0]
@@ -1042,10 +1833,45 @@ def main():
                             return telemetry_words[idx]
                         def signed32(value):
                             return value - 0x100000000 if value & 0x80000000 else value
+                        def font_word_for(symbol):
+                            idx = xblog_font_offsets.get(symbol)
+                            if idx is None or idx >= len(font_words):
+                                return 0
+                            return font_words[idx]
+                        def title_word_for(symbol):
+                            idx = xblog_title_offsets.get(symbol)
+                            if idx is None or idx >= len(title_words):
+                                return 0
+                            return title_words[idx]
                         render_backend = word_for("_g_SPXBRenderBackendMsec")
                         primitive_calls = word_for("_g_SPXBFakeGLPrimitiveCalls")
                         primitive_verts = word_for("_g_SPXBFakeGLPrimitiveVerts")
                         state_flushes = word_for("_g_SPXBFakeGLStateFlushes")
+                        native_draw_mode = word_for("_g_SPXBNativeDrawMode")
+                        native_draw_count = word_for("_g_SPXBNativeDrawCount")
+                        native_draw_source_vertices = word_for(
+                            "_g_SPXBNativeDrawSourceVertices")
+                        native_draw_max_index = word_for(
+                            "_g_SPXBNativeDrawMaxIndex")
+                        native_draw_stride = word_for("_g_SPXBNativeDrawStride")
+                        native_draw_indices = word_for(
+                            "_g_SPXBNativeDrawIndicesPtr")
+                        native_draw_vertices = word_for(
+                            "_g_SPXBNativeDrawVerticesPtr")
+                        native_draw_path = word_for("_g_SPXBNativeDrawPath")
+                        native_draw_shader = word_for("_g_SPXBNativeDrawShader")
+                        native_draw_vertex_offset = word_for(
+                            "_g_SPXBNativeDrawVertexOffset")
+                        native_draw_index_offset = word_for(
+                            "_g_SPXBNativeDrawIndexOffset")
+                        native_draw_vertex_bytes = word_for(
+                            "_g_SPXBNativeDrawVertexBytes")
+                        native_draw_index_bytes = word_for(
+                            "_g_SPXBNativeDrawIndexBytes")
+                        native_draw_lock_flags = word_for(
+                            "_g_SPXBNativeDrawLockFlags")
+                        native_draw_min_index = word_for(
+                            "_g_SPXBNativeDrawMinIndex")
                         main_loop_count = word_for("_g_SPXBMainLoopCount")
                         com_frame_count = word_for("_g_SPXBComFrameCount")
                         sv_frame_count = word_for("_g_SPXBSvFrameCount")
@@ -1068,6 +1894,70 @@ def main():
                         map_hash = word_for("_g_SPXBMapHash")
                         game_phase = word_for("_g_SPXBGamePhase")
                         game_entity_count = word_for("_g_SPXBGameEntityCount")
+                        perf_frame = word_for("_g_SPXBPerfFrameMsec")
+                        perf_server = word_for("_g_SPXBPerfServerMsec")
+                        perf_client = word_for("_g_SPXBPerfClientMsec")
+                        perf_game = word_for("_g_SPXBPerfGameMsec")
+                        perf_frontend = word_for("_g_SPXBPerfFrontendMsec")
+                        perf_backend = word_for("_g_SPXBPerfBackendMsec")
+                        perf_audio = word_for("_g_SPXBPerfAudioMsec")
+                        perf_server_ticks = word_for("_g_SPXBPerfServerTicks")
+                        perf_server_last_game = word_for("_g_SPXBPerfServerLastGameMsec")
+                        perf_server_max_game = word_for("_g_SPXBPerfServerMaxGameMsec")
+                        perf_game_pre = word_for("_g_SPXBPerfGamePreMsec")
+                        perf_game_entities = word_for("_g_SPXBPerfGameEntitiesMsec")
+                        perf_game_post = word_for("_g_SPXBPerfGamePostMsec")
+                        perf_game_entities_visited = word_for("_g_SPXBPerfGameEntitiesVisited")
+                        perf_game_missiles = word_for("_g_SPXBPerfGameMissiles")
+                        perf_game_items = word_for("_g_SPXBPerfGameItems")
+                        perf_game_movers = word_for("_g_SPXBPerfGameMovers")
+                        perf_game_clients = word_for("_g_SPXBPerfGameClients")
+                        perf_game_think_due = word_for("_g_SPXBPerfGameThinkDue")
+                        perf_game_scripted = word_for("_g_SPXBPerfGameScripted")
+                        perf_game_other = word_for("_g_SPXBPerfGameOther")
+                        perf_screen_draw = word_for("_g_SPXBPerfScreenDrawMsec")
+                        perf_end_frame = word_for("_g_SPXBPerfEndFrameMsec")
+                        perf_render_total = word_for("_g_SPXBPerfRenderTotalMsec")
+                        perf_render_setup = word_for("_g_SPXBPerfRenderSetupMsec")
+                        perf_render_mark = word_for("_g_SPXBPerfRenderMarkLeavesMsec")
+                        perf_render_world = word_for("_g_SPXBPerfRenderWorldMsec")
+                        perf_render_polys = word_for("_g_SPXBPerfRenderPolysMsec")
+                        perf_render_projection = word_for("_g_SPXBPerfRenderProjectionMsec")
+                        perf_render_entities = word_for("_g_SPXBPerfRenderEntitiesMsec")
+                        perf_render_sort = word_for("_g_SPXBPerfRenderSortMsec")
+                        perf_render_debug = word_for("_g_SPXBPerfRenderDebugMsec")
+                        perf_render_views = word_for("_g_SPXBPerfRenderViews")
+                        perf_render_portals = word_for("_g_SPXBPerfRenderPortals")
+                        perf_render_draw_surfs = word_for("_g_SPXBPerfRenderDrawSurfs")
+                        perf_render_ref_entities = word_for("_g_SPXBPerfRenderRefEntities")
+                        perf_render_leafs = word_for("_g_SPXBPerfRenderLeafs")
+                        camera_active = word_for("_g_SPXBCameraActive")
+                        borg_plugged_count = word_for("_g_SPXBBorgPluggedCount")
+                        borg_plugged_ent = word_for("_g_SPXBBorgPluggedEnt")
+                        borg_plugged_spawnflags = word_for("_g_SPXBBorgPluggedSpawnflags")
+                        borg_plugged_anim = word_for("_g_SPXBBorgPluggedAnim")
+                        borg_plugged_legs_model = word_for("_g_SPXBBorgPluggedLegsModel")
+                        borg_plugged_torso_model = word_for("_g_SPXBBorgPluggedTorsoModel")
+                        borg_plugged_head_model = word_for("_g_SPXBBorgPluggedHeadModel")
+                        borg_plugged_legs_skin = word_for("_g_SPXBBorgPluggedLegsSkin")
+                        borg_plugged_torso_skin = word_for("_g_SPXBBorgPluggedTorsoSkin")
+                        borg_plugged_head_skin = word_for("_g_SPXBBorgPluggedHeadSkin")
+                        borg_plugged_legs_hash = word_for("_g_SPXBBorgPluggedLegsNameHash")
+                        borg_plugged_torso_hash = word_for("_g_SPXBBorgPluggedTorsoNameHash")
+                        borg_plugged_head_hash = word_for("_g_SPXBBorgPluggedHeadNameHash")
+                        borg_active_count = word_for("_g_SPXBBorgActiveCount")
+                        borg_active_ent = word_for("_g_SPXBBorgActiveEnt")
+                        borg_active_spawnflags = word_for("_g_SPXBBorgActiveSpawnflags")
+                        borg_active_anim = word_for("_g_SPXBBorgActiveAnim")
+                        borg_active_legs_model = word_for("_g_SPXBBorgActiveLegsModel")
+                        borg_active_torso_model = word_for("_g_SPXBBorgActiveTorsoModel")
+                        borg_active_head_model = word_for("_g_SPXBBorgActiveHeadModel")
+                        borg_active_legs_skin = word_for("_g_SPXBBorgActiveLegsSkin")
+                        borg_active_torso_skin = word_for("_g_SPXBBorgActiveTorsoSkin")
+                        borg_active_head_skin = word_for("_g_SPXBBorgActiveHeadSkin")
+                        borg_active_legs_hash = word_for("_g_SPXBBorgActiveLegsNameHash")
+                        borg_active_torso_hash = word_for("_g_SPXBBorgActiveTorsoNameHash")
+                        borg_active_head_hash = word_for("_g_SPXBBorgActiveHeadNameHash")
                         split_shader = word_for("_g_SPXBRenderSplitShader")
                         split_fog = word_for("_g_SPXBRenderSplitFog")
                         split_dlight = word_for("_g_SPXBRenderSplitDlight")
@@ -1274,6 +2164,13 @@ def main():
                         sv_probe_b = word_for("_g_SPXBSVProbeB")
                         sv_probe_c = word_for("_g_SPXBSVProbeC")
                         sv_probe_d = word_for("_g_SPXBSVProbeD")
+                        loading_title_magic = title_word_for("_g_SPXBLoadingTitleMagic")
+                        loading_title_status = title_word_for("_g_SPXBLoadingTitleStatus")
+                        loading_title_shader = title_word_for("_g_SPXBLoadingTitleShader")
+                        loading_title_draws = title_word_for("_g_SPXBLoadingTitleDraws")
+                        loading_title_last_char = title_word_for("_g_SPXBLoadingTitleLastChar")
+                        loading_title_map_hash = title_word_for("_g_SPXBLoadingTitleMapHash")
+                        loading_title_text_hash = title_word_for("_g_SPXBLoadingTitleTextHash")
                         ui_magic = word_for("_g_SPXBUIStateMagic")
                         ui_started = word_for("_g_SPXBUIStarted")
                         ui_catcher = word_for("_g_SPXBUIKeyCatcher")
@@ -1282,7 +2179,48 @@ def main():
                         ui_refresh = word_for("_g_SPXBUIRefreshCount")
                         ui_pause_open = word_for("_g_SPXBUIPauseOpenCount")
                         ui_pause_draw = word_for("_g_SPXBUIPauseDrawCount")
-                        log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u sky=0x%08x/%u/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
+                        ui_font_magic = word_for("_g_SPXBUIFontMagic")
+                        ui_font_loads = font_word_for("_g_SPXBUIFontLoadAttempts")
+                        ui_font_len = font_word_for("_g_SPXBUIFontFileLen")
+                        ui_font_loaded = font_word_for("_g_SPXBUIFontLoaded")
+                        ui_font_tiny = font_word_for("_g_SPXBUIFontTinyShader")
+                        ui_font_medium = font_word_for("_g_SPXBUIFontMediumShader")
+                        ui_font_big = font_word_for("_g_SPXBUIFontBigShader")
+                        ui_font_draws = font_word_for("_g_SPXBUIFontDrawCalls")
+                        ui_font_reject = font_word_for("_g_SPXBUIFontDrawRejectMask")
+                        ui_font_char = font_word_for("_g_SPXBUIFontLastChar")
+                        ui_font_shader = font_word_for("_g_SPXBUIFontLastShader")
+                        ui_font_sx = font_word_for("_g_SPXBUIFontLastSX")
+                        ui_font_sy = font_word_for("_g_SPXBUIFontLastSY")
+                        ui_font_sw = font_word_for("_g_SPXBUIFontLastSW")
+                        mini_soak_magic = word_for("_g_SPXBMiniSoakMagic")
+                        mini_soak_stage = word_for("_g_SPXBMiniSoakStage")
+                        mini_soak_transitions = word_for("_g_SPXBMiniSoakTransitions")
+                        mini_soak_active_msec = word_for("_g_SPXBMiniSoakActiveMsec")
+                        mini_soak_flags = word_for("_g_SPXBMiniSoakFlags")
+                        if (heartbeat_count != last_fps_heartbeat_count and
+                                heartbeat_fps10 > 0):
+                            last_fps_heartbeat_count = heartbeat_count
+                            fps_sample = heartbeat_fps10 / 10.0
+                            if cls_state == 7:
+                                active_fps_samples.append(fps_sample)
+                                personality_active_fps_samples.setdefault(
+                                    xblog_current_personality, []).append(fps_sample)
+                                if camera_active == 0:
+                                    gameplay_fps_samples.append(fps_sample)
+                                    personality_gameplay_fps_samples.setdefault(
+                                        xblog_current_personality, []).append(fps_sample)
+                        detail_log = (log if xblog_current_personality == "default"
+                                      else lambda _message: None)
+                        if xblog_current_personality == "efmp":
+                            log("xblog t=%.1f personality=efmp boot=0x%08x "
+                                "mirror=%u writes=%u delta=%d hb=0x%08x "
+                                "count=%u frame=%u rt=%u st=%u fps=%.1f cls=%u" %
+                                (elapsed, boot_phase, mirror_pos, write_count,
+                                 delta, heartbeat_magic, heartbeat_count,
+                                 heartbeat_frame, heartbeat_rt, heartbeat_st,
+                                 heartbeat_fps10 / 10.0, cls_state))
+                        detail_log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u sky=0x%08x/%u/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
                              heartbeat_rt, heartbeat_st, heartbeat_fps10 / 10.0,
@@ -1346,9 +2284,74 @@ def main():
                              direct_status, direct_hash, direct_queued,
                              sv_probe_magic, sv_probe_phase, sv_probe_subphase,
                              sv_probe_a, sv_probe_b, sv_probe_c, sv_probe_d))
-                        log("xblogui t=%.1f magic=0x%08x started=%u catcher=0x%08x pause=%u qmenu=%u refresh=%u open=%u draw=%u" %
+                        detail_log("xblogui t=%.1f magic=0x%08x started=%u catcher=0x%08x pause=%u qmenu=%u refresh=%u open=%u draw=%u" %
                             (elapsed, ui_magic, ui_started, ui_catcher, ui_pause,
                              ui_qmenu, ui_refresh, ui_pause_open, ui_pause_draw))
+                        detail_log("xblogperf t=%.1f frame=%u server=%u client=%u game=%u frontend=%u backend=%u audio=%u camera=%u ticks=%u lastGame=%u maxGame=%u screen=%u/%u gamePhases=%u/%u/%u entities=%u categories=missile:%u item:%u mover:%u client:%u think:%u script:%u other:%u" %
+                            (elapsed, perf_frame, perf_server, perf_client,
+                             perf_game, perf_frontend, perf_backend, perf_audio,
+                             camera_active, perf_server_ticks,
+                             perf_server_last_game, perf_server_max_game,
+                             perf_screen_draw, perf_end_frame,
+                             perf_game_pre, perf_game_entities, perf_game_post,
+                             perf_game_entities_visited, perf_game_missiles,
+                             perf_game_items, perf_game_movers, perf_game_clients,
+                             perf_game_think_due, perf_game_scripted,
+                             perf_game_other))
+                        detail_log("xblogrender t=%.1f total=%u setup=%u mark=%u world=%u polys=%u projection=%u entities=%u sort=%u debug=%u views=%u portals=%u drawSurfs=%u refEntities=%u leafs=%u" %
+                            (elapsed, perf_render_total, perf_render_setup,
+                             perf_render_mark, perf_render_world,
+                             perf_render_polys, perf_render_projection,
+                             perf_render_entities, perf_render_sort,
+                             perf_render_debug, perf_render_views,
+                             perf_render_portals, perf_render_draw_surfs,
+                             perf_render_ref_entities, perf_render_leafs))
+                        detail_log("xblognative t=%.1f path=%u mode=%u count=%u sourceVerts=%u indexRange=%u..%u stride=%u shader=0x%08x vbOff=%u ibOff=%u vbBytes=%u ibBytes=%u locks=0x%08x indices=0x%08x vertices=0x%08x" %
+                            (elapsed, native_draw_path, native_draw_mode,
+                             native_draw_count, native_draw_source_vertices,
+                             native_draw_min_index, native_draw_max_index,
+                             native_draw_stride, native_draw_shader,
+                             native_draw_vertex_offset,
+                             native_draw_index_offset,
+                             native_draw_vertex_bytes,
+                             native_draw_index_bytes,
+                             native_draw_lock_flags,
+                             native_draw_indices, native_draw_vertices))
+                        detail_log("xblogborg t=%.1f plugged=count=%u ent=%u flags=0x%08x anim=%u/%u models=%u/%u/%u skins=%u/%u/%u names=%08x/%08x/%08x active=count=%u ent=%u flags=0x%08x anim=%u/%u models=%u/%u/%u skins=%u/%u/%u names=%08x/%08x/%08x" %
+                            (elapsed,
+                             borg_plugged_count, borg_plugged_ent,
+                             borg_plugged_spawnflags,
+                             borg_plugged_anim & 0xffff,
+                             (borg_plugged_anim >> 16) & 0xffff,
+                             borg_plugged_legs_model, borg_plugged_torso_model,
+                             borg_plugged_head_model, borg_plugged_legs_skin,
+                             borg_plugged_torso_skin, borg_plugged_head_skin,
+                             borg_plugged_legs_hash, borg_plugged_torso_hash,
+                             borg_plugged_head_hash,
+                             borg_active_count, borg_active_ent,
+                             borg_active_spawnflags,
+                             borg_active_anim & 0xffff,
+                             (borg_active_anim >> 16) & 0xffff,
+                             borg_active_legs_model, borg_active_torso_model,
+                             borg_active_head_model, borg_active_legs_skin,
+                             borg_active_torso_skin, borg_active_head_skin,
+                             borg_active_legs_hash, borg_active_torso_hash,
+                             borg_active_head_hash))
+                        detail_log("xblogfont t=%.1f magic=0x%08x loads=%u len=%u loaded=%u shaders=%u/%u/%u draws=%u reject=0x%08x last=%u/%u/%u/%u/%u" %
+                            (elapsed, ui_font_magic, ui_font_loads, ui_font_len,
+                             ui_font_loaded, ui_font_tiny, ui_font_medium,
+                             ui_font_big, ui_font_draws, ui_font_reject,
+                             ui_font_char, ui_font_shader, ui_font_sx,
+                             ui_font_sy, ui_font_sw))
+                        detail_log("xblogsoak t=%.1f magic=0x%08x stage=%u transitions=%u activeMsec=%u flags=0x%08x" %
+                            (elapsed, mini_soak_magic, mini_soak_stage,
+                             mini_soak_transitions, mini_soak_active_msec,
+                             mini_soak_flags))
+                        detail_log("xblogloadtitle t=%.1f magic=0x%08x status=0x%08x shader=%u draws=%u last=%u map=0x%08x text=0x%08x" %
+                            (elapsed, loading_title_magic, loading_title_status,
+                             loading_title_shader, loading_title_draws,
+                             loading_title_last_char, loading_title_map_hash,
+                             loading_title_text_hash))
                         if (helmet_game_p1_ensure or helmet_game_p2_ensure or
                                 helmet_cgame_p1_slot0 or helmet_cgame_p1_slot1 or
                                 helmet_cgame_p2_slot0 or helmet_cgame_p2_slot1 or
@@ -1356,7 +2359,7 @@ def main():
                                 helmet_renderer_refs or helmet_renderer_surfaces or
                                 helmet_renderer_filtered or helmet_bolton_load_len or
                                 helmet_bolton_count or helmet_add_attempts):
-                            log("xbloghelmet t=%.1f load=%u/%u/%u add=%u/%u/%u game=%u/%u/%u/%u cgame=%u/%u/%u/%u p1=%u/%u/%u/0x%08x p2=%u/%u/%u/0x%08x rend=%u/%u/%u/%u/0x%08x/%u/%u/%u" %
+                            detail_log("xbloghelmet t=%.1f load=%u/%u/%u add=%u/%u/%u game=%u/%u/%u/%u cgame=%u/%u/%u/%u p1=%u/%u/%u/0x%08x p2=%u/%u/%u/0x%08x rend=%u/%u/%u/%u/0x%08x/%u/%u/%u" %
                                 (elapsed,
                                  helmet_bolton_load_len, helmet_bolton_count,
                                  helmet_bolton_index, helmet_add_attempts,
@@ -1375,20 +2378,20 @@ def main():
                                  helmet_renderer_last_filter,
                                  helmet_renderer_last_surface_model))
                         if fb_count or fb_shader or fb_image:
-                            log("xblogfb t=%.1f magic=0x%08x count=%u shader=0x%08x image=0x%08x stage=%u passes=%u flags=0x%08x tex=%u lm=%u state=0x%08x idx=%u xyz=%d/%d/%d" %
+                            detail_log("xblogfb t=%.1f magic=0x%08x count=%u shader=0x%08x image=0x%08x stage=%u passes=%u flags=0x%08x tex=%u lm=%u state=0x%08x idx=%u xyz=%d/%d/%d" %
                                 (elapsed, fb_magic, fb_count, fb_shader, fb_image,
                                  fb_stage, fb_passes, fb_flags, fb_texnum,
                                  fb_lightmap, fb_state, fb_indexes,
                                  signed32(fb_x), signed32(fb_y), signed32(fb_z)))
                         if skyres_count or skyres_map_hash or skyres_resolved_hash:
-                            log("xblogskyres t=%.1f magic=0x%08x count=%u shaderNum=%u map=0x%08x resolved=0x%08x surf=0x%08x default=%u explicit=%u hasSky=%u passes=%u sort1000=%d lm0=%d" %
+                            detail_log("xblogskyres t=%.1f magic=0x%08x count=%u shaderNum=%u map=0x%08x resolved=0x%08x surf=0x%08x default=%u explicit=%u hasSky=%u passes=%u sort1000=%d lm0=%d" %
                                 (elapsed, skyres_magic, skyres_count, skyres_shader_num,
                                  skyres_map_hash, skyres_resolved_hash, skyres_surface_flags,
                                  skyres_default, skyres_explicit, skyres_has_sky,
                                  skyres_passes, signed32(skyres_sort_x1000),
                                  signed32(skyres_lightmap0)))
-                        if shader_scan_loaded or shader_lookup_count:
-                            log("xblogshader t=%.1f scan=0x%08x scripts=%u shaders=%u loaded=%u bytes=%u raw=%u entries=%u skyLight=%u junkSky=%u manifest=%u/%u/%u voyager=%u/%u/%u common=%u lookup=0x%08x count=%u hash=0x%08x indexed=%u linear=%u lookupEntries=%u" %
+                        if shader_scan_magic:
+                            detail_log("xblogshader t=%.1f scan=0x%08x scripts=%u shaders=%u loaded=%u bytes=%u raw=%u entries=%u skyLight=%u junkSky=%u manifest=%u/%u/%u voyager=%u/%u/%u common=%u lookup=0x%08x count=%u hash=0x%08x indexed=%u linear=%u lookupEntries=%u" %
                                 (elapsed, shader_scan_magic, shader_scan_scripts,
                                  shader_scan_shaders, shader_scan_loaded, shader_scan_bytes,
                                  shader_scan_raw_bytes, shader_scan_entries,
@@ -1427,7 +2430,21 @@ def main():
                     xblog_phys_delta = None
                     if xblog_va_for_probe is not None and xblog_addr is not None:
                         xblog_phys_delta = xblog_va_for_probe - xblog_addr
-                    ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
+                    if args.xemu_native_screenshots:
+                        guest_frozen = False
+                        if sock is not None:
+                            monitor_cmd(sock, "stop", 0.2)
+                            guest_frozen = True
+                        try:
+                            ok, detail, native_path = xemu_trigger_native_screenshot(
+                                proc.pid, xemu_exe, xemu_screenshot_dir)
+                        finally:
+                            if guest_frozen:
+                                monitor_cmd(sock, "cont", 0.2)
+                        if ok and native_path:
+                            png = native_path
+                    else:
+                        ok, detail = monitor_screendump(sock, png, xblog_phys_delta)
                     if ok:
                         shot_paths.append(png)
                     log("shot=%02d t=%.1f ok=%s bytes=%s detail=%s" %
@@ -1453,6 +2470,11 @@ def main():
             log("alive_at_end pid=%d" % proc.pid)
 
         if sock is not None:
+            # Freeze the guest before collecting final diagnostics. Large memory
+            # dumps can take several seconds, otherwise ring buffers and related
+            # counters continue changing underneath the capture.
+            monitor_cmd(sock, "stop", 0.2)
+            log("emulation_stopped_for_final_diagnostics")
             dump_monitor_state(sock, prefix, "final", args.dump_mem, log)
             dump_virtual_memory_binary(sock, prefix, args.dump_bin_mem, log)
             dump_physical_memory(sock, prefix, args.dump_phys, log)
@@ -1475,6 +2497,29 @@ def main():
     contact = prefix + "_contact.png"
     if write_contact_sheet(shot_paths, contact):
         log("contact=%s" % os.path.abspath(contact))
+
+    def log_fps_summary(label, samples):
+        if not samples:
+            log("fps_summary bucket=%s samples=0" % label)
+            return
+        ordered = sorted(samples)
+        p10_index = max(0, int((len(ordered) - 1) * 0.10))
+        below_30 = sum(1 for sample in samples if sample < 30.0)
+        log("fps_summary bucket=%s samples=%u avg=%.1f min=%.1f p10=%.1f max=%.1f below30=%u below30_pct=%.1f" %
+            (label, len(samples), sum(samples) / len(samples), ordered[0],
+             ordered[p10_index], ordered[-1], below_30,
+             (below_30 * 100.0) / len(samples)))
+
+    log_fps_summary("active", active_fps_samples)
+    log_fps_summary("gameplay", gameplay_fps_samples)
+    for personality in sorted(personality_active_fps_samples):
+        log_fps_summary(
+            "%s_active" % personality,
+            personality_active_fps_samples[personality])
+    for personality in sorted(personality_gameplay_fps_samples):
+        log_fps_summary(
+            "%s_gameplay" % personality,
+            personality_gameplay_fps_samples[personality])
 
     try:
         with open(raw_log, encoding="utf-8", errors="replace") as f:

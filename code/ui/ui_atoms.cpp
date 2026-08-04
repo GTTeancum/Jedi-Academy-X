@@ -1,109 +1,3 @@
-#if defined(STEFX_ELITE_FORCE_MP)
-#include "ui_stefx_spcompat.h"
-
-uiimport_t ui;
-uiStatic_t uis;
-
-static qboolean s_loggedMpSpUiAtoms = qfalse;
-
-static void UI_STEFXLogMpAtomsOnce(void)
-{
-	if (s_loggedMpSpUiAtoms)
-	{
-		return;
-	}
-
-	s_loggedMpSpUiAtoms = qtrue;
-	ui.Printf("STEFX_HM: SP UI atoms active in efmp.xbe; MP bridge owns only syscall plumbing\n");
-}
-
-char *UI_Cvar_VariableString(const char *var_name)
-{
-	static char buffer[MAX_STRING_CHARS];
-	UI_STEFXLogMpAtomsOnce();
-	ui.Cvar_VariableStringBuffer(var_name, buffer, sizeof(buffer));
-	return buffer;
-}
-
-void UI_DrawNamedPic(float x, float y, float width, float height, const char *picname)
-{
-	qhandle_t hShader;
-
-	UI_STEFXLogMpAtomsOnce();
-	hShader = ui.R_RegisterShaderNoMip(picname);
-	ui.R_DrawStretchPic(x, y, width, height, 0, 0, 1, 1, hShader);
-}
-
-void UI_DrawHandlePic(float x, float y, float w, float h, qhandle_t hShader)
-{
-	float s0;
-	float s1;
-	float t0;
-	float t1;
-
-	UI_STEFXLogMpAtomsOnce();
-
-	if (w < 0)
-	{
-		w = -w;
-		s0 = 1;
-		s1 = 0;
-	}
-	else
-	{
-		s0 = 0;
-		s1 = 1;
-	}
-
-	if (h < 0)
-	{
-		h = -h;
-		t0 = 1;
-		t1 = 0;
-	}
-	else
-	{
-		t0 = 0;
-		t1 = 1;
-	}
-
-	ui.R_DrawStretchPic(x, y, w, h, s0, t0, s1, t1, hShader);
-}
-
-void UI_FillRect(float x, float y, float width, float height, const float *color)
-{
-	UI_STEFXLogMpAtomsOnce();
-	ui.R_SetColor(color);
-	ui.R_DrawStretchPic(x, y, width, height, 0, 0, 0, 0, uis.whiteShader);
-	ui.R_SetColor(NULL);
-}
-
-void UI_SetColor(const float *rgba)
-{
-	ui.R_SetColor(rgba);
-}
-
-void UI_UpdateScreen(void)
-{
-}
-
-int UI_RegisterFont(const char *fontName)
-{
-	int iFontIndex;
-
-	UI_STEFXLogMpAtomsOnce();
-	iFontIndex = ui.R_RegisterFont(fontName);
-	if (!iFontIndex && Q_stricmp(fontName, "ergoec"))
-	{
-		iFontIndex = ui.R_RegisterFont("ergoec");
-	}
-
-	return iFontIndex;
-}
-
-#undef ui
-#include "../namespace_end.h"
-#else
 /**********************************************************************
 	UI_ATOMS.C
 
@@ -480,12 +374,6 @@ void UI_Init( int apiVersion, uiimport_t *uiimport, qboolean inGameLoad )
 		(void*)uiimport);
 #endif
 	ui = *uiimport;
-#ifdef _XBOX
-	XBLF("JA: UI_Init import copy GameAllowedToSave=%p StoreComment=%p GetComment=%p",
-		(void*)ui.SG_GameAllowedToSaveHere,
-		(void*)ui.SG_StoreSaveGameComment,
-		(void*)ui.SG_GetSaveGameComment);
-#endif
 
 	if ( apiVersion != UI_API_VERSION ) {
 		ui.Error( ERR_FATAL, "Bad UI_API_VERSION: expected %i, got %i\n", UI_API_VERSION, apiVersion );
@@ -754,4 +642,3 @@ int UI_RegisterFont(const char *fontName)
 	return iFontIndex;
 }
 
-#endif

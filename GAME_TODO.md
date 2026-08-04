@@ -4,96 +4,67 @@ Current qualification snapshot: `HOLOMATCH_QUALIFICATION.md`.
 
 ## Remaining Items
 
-- Retail performance needs one confirmation run with
-  `Beta-20260802-renderfix2`, staged in the existing one-folder hardware
-  directory at `build/hardware/StarTrekEliteForceX-Beta-20260801`. Phase
-  profiling found the shared front-end regression: dormant junk-sky, Borg,
-  and scavenger diagnostics scanned every BSP leaf and performed many shader
-  name comparisons for every submitted world surface even when verbose
-  runtime logging was disabled. Commit `78d0deb` disables those probes in
-  normal Release builds without changing visibility or rendering decisions.
-  On the identical XEMU `borg3` test, average SP performance rose from 22.4 to
-  47.1 FPS; `R_MarkLeaves` fell from 7-11 ms to 0 ms and world submission from
-  6-10 ms to 1-2 ms. The rebuilt shared renderer also passed `hm_borg1` in
-  `efmp.xbe` at 66.7 FPS average, 64.4 FPS minimum, with no sub-30 samples.
-  A separate `borg1` crawl/map run advanced normally after a screenshot-free
-  repeat and settled around 40-54 FPS; its transient model streaming occurs
-  in `CG_AddPacketEntities`, not the shared renderer. Proof reports are
-  `scripts/output/stefx-render-diag-gate-sp_borg3_20260802_022207.report.txt`,
-  `scripts/output/stefx-render-diag-gate-mp_hm_borg1_20260802_023636.report.txt`,
-  and `scripts/output/stefx-borg1-cgphase_borg1_20260802_025540.report.txt`.
-  Hardware must confirm that this removes the previously observed roughly
-  1 FPS behavior in both personalities.
-- Hardware beta boot retest is required after the `hwfix10` client-model
-  registration boundary is repaired. Retail
-  testing first exposed controller/UI startup-order faults; the repaired path
-  now reaches deferred `borg1` startup, completes the client map-loading
-  handoff, completes cold-server client and snapshot allocation, and creates
-  every initial configstring. Cold boot skips the inherited previous-level
-  destructor, cvar compaction, and diagnostic `memmap.txt` disk walk; genuine
-  later map transitions retain their cleanup. The client subsystem restart,
-  renderer initialization, core shader registration, vertical-slice precache,
-  and sound registration now all complete on retail hardware. The current
-  boundary was narrowed to the SP raw render-surface conversion inside
-  `CM_LoadMap("maps/borg1.bsp")`; PK3 access, the complete 7.3 MB BSP read,
-  BSP validation, lightmaps, and shaders all passed. The SP bulk converter
-  expanded all 70,154 draw vertices into a 4.77 MB temporary allocation.
-  `hwfix8` moved SP onto the same bounded-memory raw renderer and collision
-  loader as Holomatch, using per-surface scratch sized to the map's 99-vertex
-  maximum. That path passed all scratch allocation and patch construction on
-  retail with roughly 19.9 MB free, then stopped while registering shaders in
-  the face-sizing pass. `hwfix9` proved all 183 unique world shader/lightmap
-  pairs register successfully on retail hardware. Offline validation also
-  proved all 111,927 planar index references in `borg1` are in range. The stop
-  remained inside the 12,906-face sizing pass, which redundantly queried cached
-  shader metrics for every face and did not update the loading screen.
-  `hwfix10` cached those metrics once per shader/lightmap pair and added bounded
-  loading updates plus progress markers to both the face-sizing and face-build
-  passes. Retail then completed the entire raw renderer, collision, server, and
-  cgame world-load sequence. The resulting black screen was the error fallback
-  after the first client-model precache reported `DEFAULT_MODELS failed to
-  register`. Base game assets remain owned by `pak[x].pk3`; `xbox[x].pk3`
-  remains an Xbox override package and must not duplicate the base game. The
-  `hwfix11-modeltrace` preserved both patch PK3s byte-for-byte and added one
-  bounded trace across client render-info parsing, model and skin syscalls,
-  renderer cache/file/allocation/loading, skin registration, and
-  `animation.cfg` parsing. Its retail log stopped silently after planar face
-  10,752 of 12,906. `hwfix12-facebounds` resolved each canonical raw
-  shader/lightmap pair once, reused that shader during construction, and
-  bounds-checked every face write; retail then completed all 12,906 faces,
-  collision, server initialization, and cgame world loading. The resulting
-  black screen is the error fallback after `DEFAULT_MODELS failed to register`.
-  That run also proved the defensive face reservation used only 1,735,111 of
-  3,607,827 bytes. `hwfix13-modelcritical` retains shader reuse and bounds
-  checks, restores exact face sizing to return roughly 1.87 MB to model
-  registration, and makes the bounded model/skin/filesystem trace unfiltered
-  on retail. Base game assets remain in retail `pak[x].pk3`; the two
-  `xbox[x].pk3` patch files stay byte-for-byte unchanged during this code-only
-  iteration. The next retail run proved the model loader itself was healthy:
-  the `DEFAULT_MODELS` failure was caused by a missing base `pak0.pk3`. After
-  restoring that retail archive, the game reached `CA_ACTIVE` and continued
-  loading deferred character models, but appeared frozen on the loading screen.
-  `hwfix14-loadstall` removes the temporary per-model synchronous log flood,
-  stops treating the expected process-heap-to-zone allocation path as a
-  failure, and adds explicitly flushed checkpoints around the first active
-  gameplay frame and the last observed Borg head-skin parser boundary. Retail
-  then reached `CA_ACTIVE`, but the forced log ended at `first active frame
-  begin`, proving that the loading screen was waiting on the first
-  `CG_DrawActiveFrame` rather than a map-load failure. The first active frame
-  was attempting to register every visible deferred character model
-  synchronously. `hwfix15-firstframe-stream` limits deferred visible-character
-  registration to one character per rendered frame and adds forced checkpoints
-  after snapshots, prediction, view setup, packet-entity submission, and final
-  rendering. This should let the first frame present while remaining character
-  models stream over subsequent frames, and will identify the exact stage if
-  retail hardware still stops. With the direct-map marker removed, retail
-  hardware now reaches the normal main menu and the Holomatch menu handoff
-  successfully launches a live Holomatch map. Holomatch is functional but
-  remains in the low single-digit FPS range on the tested retail setup. A
-  separate direct-map SP attempt completed world-map registration but stopped
-  before `CA_ACTIVE`; `hwfix16-media-checkpoints` adds bounded, force-flushed
-  checkpoints around the intervening loading-screen refresh, shader, model,
-  item, inline-model, client, entity, HUD, and speaker-media phases.
+- 2026-08-04 native D3D8 checkpoint: the direct Xbox D3D8 backend in
+  `code/win32/win_qgl_dx8.cpp`, built end-to-end with the clean XDK 5558
+  toolchain and a 15 MiB texture pool, reached `borg1` gameplay from the
+  current XEMU ISO. The embedded XBE is byte-identical to
+  `build/release/default.xbe` except for extract-xiso's one-byte media patch;
+  the unpatched XBE SHA256 is
+  `1102582A5884BE63FD982750783D130B77F98B8EA8DA4E4E93836F9E16EA2F78`.
+  This is the first direct-D3D8 gameplay checkpoint. The interrupted harness
+  did not retain screenshots or FPS samples, so visual correctness, sustained
+  performance, allocator headroom, and SP/co-op/Holomatch regressions remain
+  unqualified.
+- Retail performance is the active blocker. Photographed hardware baselines
+  from `Beta-20260802-hardware-fps` are approximately 0.5-1.1 FPS during the
+  campaign title crawl, 2.3 FPS during loading, 3.0-3.7 FPS during scripted
+  map scenes, and 2.0 FPS in first-person gameplay. The prior XEMU results are
+  not a valid proxy for retail performance.
+- `Beta-20260802-retail-file-probe-fix` was rejected as the primary
+  performance fix after retail gameplay remained at approximately 2 FPS. Its
+  removal of recurring diagnostic filesystem probes remains as runtime
+  cleanup.
+- The next retail A/B candidate is
+  `Beta-20260802-retail-inline-push`, staged in the existing one-folder
+  hardware directory at
+  `build/hardware/StarTrekEliteForceX-Beta-20260801`. It replaces the shared
+  renderer's non-indexed `DrawPrimitiveUP` calls with the XDK 5558 canonical
+  `BeginPush`/`D3DPUSH_INLINE_ARRAY` path. Indexed submissions and packaged
+  assets are unchanged. First confirm that rendering remains complete, then
+  record FPS in campaign gameplay and Holomatch before accepting or rejecting
+  it.
+- The restored 682-asset Xbox UI package works on retail. The subsequent
+  tutorial freeze was not a menu or package failure: the log completed the raw
+  BSP read, render surfaces, collision, entities, and visibility, then stopped
+  inside renderer world finalization. The Xbox raw-BSP fog loader was
+  dereferencing a missing shader `fogParms` block; it now uses the canonical SP
+  fallback values for malformed/missing fog definitions.
+- The corrected shared-SP `default.xbe` reached active tutorial gameplay in
+  XEMU for a full 60-second proof with advancing server/client heartbeats, no
+  crash or stall, and 90.9 reported FPS for every active sample. Proof is in
+  `scripts/output/sp-tutorial-fogfix-proof_tutorial_20260802_143557.report.txt`
+  and
+  `scripts/output/sp-tutorial-fogfix-proof_tutorial_20260802_143557_contact.png`.
+  The hardware stage contains fresh SP and Holomatch XBEs with their required
+  one-byte media enable patches. `xbox0.pk3` and `xbox1.pk3` remain
+  byte-identical to the UI-confirmed package. Both XBEs temporarily draw the
+  same one-second presented-frame FPS counter in the upper-left corner.
+  The first campaign map now reaches gameplay on retail. Confirm the tutorial
+  still advances from its loading screen, then record FPS during loading, the
+  campaign crawl, scripted map scenes, SP gameplay, and Holomatch gameplay.
+- A separate 75-second `borg1` run with the same corrected XBE reached the
+  active server and continuously advanced the canonical campaign introduction.
+  Five native captures cover its changing backdrops; active FPS averaged 56.9,
+  bottomed at 45.9, and had no sub-30 sample. Proof is in
+  `scripts/output/sp-borg1-fogfix-proof_borg1_20260802_145143.report.txt` and
+  `scripts/output/sp-borg1-fogfix-proof_borg1_20260802_145143_contact.png`.
+- Earlier XEMU proof of the campaign crawl and restored UI package is in
+  `scripts/output/sp-borg1-uipack-loadfix_borg1_20260802_104227.report.txt` and
+  `scripts/output/sp-borg1-uipack-loadfix_borg1_20260802_104227_contact.png`.
+- Temporary FPS-overlay visual proof is in
+  `scripts/output/sp-hardware-fps-overlay-proof_tutorial_20260802_180338.report.txt`
+  and
+  `scripts/output/sp-hardware-fps-overlay-proof_tutorial_20260802_180338_contact.png`.
 - Post-beta: continue shared renderer, simulation, and presentation
   optimization toward stable 30 FPS in XEMU/LLE without reducing fidelity.
 - Post-beta: implement four-player split-screen after the current two-player

@@ -350,8 +350,7 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
 #ifdef _XBOX
         if ((fourcc == FOURCC_DXT1 || fourcc == FOURCC_DXT3 ||
              fourcc == FOURCC_DXT5) ||
-            internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/ ||
-            internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/) {
+            internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/) {
             int levels = (numlevels > 0) ? numlevels : ddsMipCount;
             if (levels <= 0) levels = 1;
             int picmip = s_jkaDdsUploadPicmip;
@@ -372,46 +371,19 @@ static void JkaGlTexImage2DWithLevels(GLenum target, GLint level, GLint numlevel
                     traceName, (unsigned int)internalformat, dW, dH,
                     levels, (unsigned int)payloadBytes, (unsigned int)fourcc);
             }
-            const bool useDirectXboxDDSUpload =
-#if defined(STEFX_ELITE_FORCE_MP)
-                (fourcc == FOURCC_DXT1) ||
-                (internalformat == 0x9997 /*GL_DDS_RGB16_EXT*/) ||
-                (internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/);
-#else
-                true;
-#endif
-            if (useDirectXboxDDSUpload && JkaFakeglUploadDDS(internalformat, dW, dH, levels, data, payloadBytes)) {
+            if (JkaFakeglUploadDDS(internalformat, dW, dH, levels, data, payloadBytes)) {
                 if (stefxTraceDDS) {
                     XBLog_Writef("STEFX: DDS_TRACE bridge direct-ok image='%s' internal=0x%08x size=%dx%d levels=%d",
                         traceName, (unsigned int)internalformat, dW, dH, levels);
                 }
-#ifdef _XBOX
-                if (internalformat == 0x9998 /*GL_DDS_RGBA32_EXT*/)
-                {
-                    static int s_bgra32DirectLogBudget = 16;
-                    if (s_bgra32DirectLogBudget > 0)
-                    {
-                        XBLog_Writef("STEFX_HM: BGRA32 DDS direct Xbox upload image='%s' size=%dx%d levels=%d bytes=%u",
-                            traceName ? traceName : "<null>",
-                            dW,
-                            dH,
-                            levels,
-                            (unsigned int)payloadBytes);
-                        --s_bgra32DirectLogBudget;
-                    }
-                }
-#endif
                 return;
             }
             if (stefxTraceDDS) {
-                XBLog_Writef("STEFX: DDS_TRACE bridge direct-%s image='%s' internal=0x%08x size=%dx%d levels=%d",
-                    useDirectXboxDDSUpload ? "failed" : "bypassed",
+                XBLog_Writef("STEFX: DDS_TRACE bridge direct-failed image='%s' internal=0x%08x size=%dx%d levels=%d",
                     traceName, (unsigned int)internalformat, dW, dH, levels);
             }
-            if (useDirectXboxDDSUpload) {
-                XBLog_Write("JkaGlTexImage2D: direct DDS upload failed; skipping RGBA decode on Xbox");
-                return;
-            }
+            XBLog_Write("JkaGlTexImage2D: direct DDS upload failed; skipping RGBA decode on Xbox");
+            return;
         }
 #endif
         if (fourcc == FOURCC_DXT1)

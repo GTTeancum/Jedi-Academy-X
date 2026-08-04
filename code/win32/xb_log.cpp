@@ -52,8 +52,11 @@ extern "C" long __stdcall NtFlushBuffersFile(HANDLE, XBL_IOSB*);
 static HANDLE g_hLogFile     = INVALID_HANDLE_VALUE;
 static int    g_logIsNt      = 0;   /* 1 = NtCreateFile handle, 0 = CreateFileA */
 static const char *g_logPath = NULL;
+static HANDLE g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+static const char *g_mirrorLogPath = NULL;
 static int g_verboseLog = 0;
 static int g_debugStringMirror = 0;
+static int g_memoryRingOnly = 0;
 static unsigned int g_fileLogBytes = 0;
 static unsigned int g_fileLogFlushBytes = 0;
 static unsigned int g_fileLogFlushWrites = 0;
@@ -119,6 +122,31 @@ __declspec(dllexport) volatile unsigned int g_SPXBRenderBackendMsec = 0x11110027
 __declspec(dllexport) volatile unsigned int g_SPXBFakeGLPrimitiveCalls = 0x11110028;
 __declspec(dllexport) volatile unsigned int g_SPXBFakeGLPrimitiveVerts = 0x11110029;
 __declspec(dllexport) volatile unsigned int g_SPXBFakeGLStateFlushes = 0x1111002A;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeUpCalls = 0x11110031;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeUpBytes = 0x11110032;
+__declspec(dllexport) volatile unsigned int g_SPXBNativePushCalls = 0x11110033;
+__declspec(dllexport) volatile unsigned int g_SPXBNativePushBytes = 0x11110034;
+__declspec(dllexport) volatile unsigned int g_SPXBNativePushReuse = 0x11110035;
+__declspec(dllexport) volatile unsigned int g_SPXBNativePushFallbacks = 0x11110036;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeRingCalls = 0x11110037;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeRingBytes = 0x11110038;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeRingWraps = 0x11110039;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeRingFallbacks = 0x1111003A;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawMode = 0x1111003B;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawCount = 0x1111003C;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawSourceVertices = 0x1111003D;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawMaxIndex = 0x1111003E;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawStride = 0x1111003F;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawIndicesPtr = 0x11110040;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawVerticesPtr = 0x11110041;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawPath = 0x11110042;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawShader = 0x11110043;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawVertexOffset = 0x11110044;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawIndexOffset = 0x11110045;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawVertexBytes = 0x11110046;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawIndexBytes = 0x11110047;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawLockFlags = 0x11110048;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeDrawMinIndex = 0x11110049;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitShader = 0x1111002B;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitFog = 0x1111002C;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitDlight = 0x1111002D;
@@ -329,6 +357,11 @@ __declspec(dllexport) volatile unsigned int g_SPXBDirectMapStatus = 0x11110035;
 __declspec(dllexport) volatile unsigned int g_SPXBDirectMapHash = 0x11110036;
 __declspec(dllexport) volatile unsigned int g_SPXBDirectMapQueuedCount = 0x11110037;
 __declspec(dllexport) volatile unsigned int g_SPXBGameDetailTraceEnabled = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBMiniSoakMagic = 0x4D534F4B; /* 'MSOK' */
+__declspec(dllexport) volatile unsigned int g_SPXBMiniSoakStage = 0x11130001;
+__declspec(dllexport) volatile unsigned int g_SPXBMiniSoakTransitions = 0x11130002;
+__declspec(dllexport) volatile unsigned int g_SPXBMiniSoakActiveMsec = 0x11130003;
+__declspec(dllexport) volatile unsigned int g_SPXBMiniSoakFlags = 0x11130004;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeMagic = 0x53565052; /* 'SVPR' */
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbePhase = 0x11120001;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeSubphase = 0x11120002;
@@ -336,21 +369,81 @@ __declspec(dllexport) volatile unsigned int g_SPXBSVProbeA = 0x11120003;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeB = 0x11120004;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeC = 0x11120005;
 __declspec(dllexport) volatile unsigned int g_SPXBSVProbeD = 0x11120006;
-__declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[SPXB_SURFACE_TYPE_BUCKETS] = {
+__declspec(dllexport) volatile unsigned int g_SPXBPerfFrameMsec = 0x11120010;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfServerMsec = 0x11120011;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfClientMsec = 0x11120012;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameMsec = 0x11120013;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfFrontendMsec = 0x11120014;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendMsec = 0x11120015;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfAudioMsec = 0x11120016;
+__declspec(dllexport) volatile unsigned int g_SPXBCameraActive = 0x11120017;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfServerTicks = 0x11120018;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfServerLastGameMsec = 0x11120019;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfServerMaxGameMsec = 0x1112001A;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGamePreMsec = 0x1112001B;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameEntitiesMsec = 0x1112001C;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGamePostMsec = 0x1112001D;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameEntitiesVisited = 0x1112001E;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameMissiles = 0x1112001F;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameItems = 0x11120020;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameMovers = 0x11120021;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameClients = 0x11120022;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameThinkDue = 0x11120023;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameScripted = 0x11120024;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfGameOther = 0x11120025;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfScreenDrawMsec = 0x11120026;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfEndFrameMsec = 0x11120027;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderTotalMsec = 0x11120030;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderSetupMsec = 0x11120031;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderMarkLeavesMsec = 0x11120032;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderWorldMsec = 0x11120033;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderPolysMsec = 0x11120034;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderProjectionMsec = 0x11120035;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderEntitiesMsec = 0x11120036;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderSortMsec = 0x11120037;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderDebugMsec = 0x11120038;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderViews = 0x11120039;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderPortals = 0x1112003A;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderDrawSurfs = 0x1112003B;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderRefEntities = 0x1112003C;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfRenderLeafs = 0x1112003D;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedCount = 0x11120100;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedEnt = 0x11120101;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedSpawnflags = 0x11120102;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedAnim = 0x11120103;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedLegsModel = 0x11120104;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedTorsoModel = 0x11120105;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedHeadModel = 0x11120106;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedLegsSkin = 0x11120107;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedTorsoSkin = 0x11120108;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedHeadSkin = 0x11120109;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedLegsNameHash = 0x1112010A;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedTorsoNameHash = 0x1112010B;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedHeadNameHash = 0x1112010C;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveCount = 0x11120110;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveEnt = 0x11120111;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveSpawnflags = 0x11120112;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveAnim = 0x11120113;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveLegsModel = 0x11120114;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveTorsoModel = 0x11120115;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveHeadModel = 0x11120116;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveLegsSkin = 0x11120117;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveTorsoSkin = 0x11120118;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveHeadSkin = 0x11120119;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveLegsNameHash = 0x1112011A;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveTorsoNameHash = 0x1112011B;
+__declspec(dllexport) volatile unsigned int g_SPXBBorgActiveHeadNameHash = 0x1112011C;
+__declspec(dllexport) volatile unsigned int g_SPXBSurfaceTypeCounts[16] = {
     0x11110040, 0x11110041, 0x11110042, 0x11110043,
     0x11110044, 0x11110045, 0x11110046, 0x11110047,
     0x11110048, 0x11110049, 0x1111004A, 0x1111004B,
     0x1111004C, 0x1111004D, 0x1111004E, 0x1111004F
 };
-__declspec(dllexport) volatile unsigned int g_SPXBEntityTypeCounts[SPXB_ENTITY_TYPE_BUCKETS] = {
+__declspec(dllexport) volatile unsigned int g_SPXBEntityTypeCounts[16] = {
     0x11110050, 0x11110051, 0x11110052, 0x11110053,
     0x11110054, 0x11110055, 0x11110056, 0x11110057,
     0x11110058, 0x11110059, 0x1111005A, 0x1111005B,
-    0x1111005C, 0x1111005D, 0x1111005E, 0x1111005F,
-    0x11110060, 0x11110061, 0x11110062, 0x11110063,
-    0x11110064, 0x11110065, 0x11110066, 0x11110067,
-    0x11110068, 0x11110069, 0x1111006A, 0x1111006B,
-    0x1111006C, 0x1111006D, 0x1111006E, 0x1111006F
+    0x1111005C, 0x1111005D, 0x1111005E, 0x1111005F
 };
 __declspec(dllexport) volatile char g_SPXBLogMirror[32768];
 __declspec(dllexport) volatile char g_SPXBLogLastLine[512];
@@ -464,7 +557,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxClipBudget = 8;
     static int s_stefxTriggerBudget = 96;
     static int s_stefxCgBudget = 8;
-    static int s_stefxSpHostedBudget = 128;
     static int s_stefxCgInitBudget = 96;
     static int s_stefxModelBudget = 24;
     static int s_efModelBudget = 16;
@@ -506,7 +598,7 @@ static int xbl_ShouldDropVerbose(const char *msg)
     static int s_stefxSurfaceTraceBudget = 256;
     static int s_stefxSurfaceSubmitTraceBudget = 256;
     static int s_stefxDrawStageTraceBudget = 96;
-    static int s_stefxDrawContextTraceBudget = 48;
+    static int s_stefxDrawContextTraceBudget = 256;
     static int s_stefxMaterialPathTraceBudget = 256;
     static int s_stefxLightingTraceBudget = 256;
     static int s_stefxTextureProofBudget = 256;
@@ -538,7 +630,11 @@ static int xbl_ShouldDropVerbose(const char *msg)
 
     if (!msg) return 1;
     if (!g_verboseLog) {
+        if (strstr(msg, "STEFX: CG_RegisterGraphics entity=")) {
+            return 1;
+        }
         if (strstr(msg, "FRAME_HEARTBEAT") ||
+            strstr(msg, "STEFX_HW_CHECKPOINT") ||
             strstr(msg, "SMOKE_BUTTON") ||
             strstr(msg, "SOAK_COMMAND") ||
             strstr(msg, "SOAKTRACE") ||
@@ -900,10 +996,6 @@ static int xbl_ShouldDropVerbose(const char *msg)
     budgeted = xbl_budgeted_prefix(msg, "STEFX: EF S_STARTLOCALSOUND bridge", &s_stefxAudioRuntimeBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: cg_vmMain enter command=", &s_stefxCgBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX: SP-hosted", &s_stefxSpHostedBudget);
-    if (budgeted >= 0) return budgeted;
-    budgeted = xbl_budgeted_prefix(msg, "STEFX_HM_SP:", &s_stefxSpHostedBudget);
     if (budgeted >= 0) return budgeted;
     budgeted = xbl_budgeted_prefix(msg, "STEFX: IT_LoadItemParms", &s_stefxCgInitBudget);
     if (budgeted >= 0) return budgeted;
@@ -1329,7 +1421,8 @@ static int xbl_FormatMayBeCritical(const char *fmt)
 {
     if (!fmt) return 0;
     if (!g_verboseLog) {
-        return strstr(fmt, "FRAME_HEARTBEAT") ||
+        return strstr(fmt, "STEFX_HW_CHECKPOINT") ||
+            strstr(fmt, "FRAME_HEARTBEAT") ||
             strstr(fmt, "SMOKE_BUTTON") ||
             strstr(fmt, "SOAK_COMMAND") ||
             strstr(fmt, "SOAKTRACE") ||
@@ -1556,13 +1649,7 @@ static void xbl_FlushHandle(HANDLE h, int isNt)
 static int xbl_IsCriticalLogLine(const char *msg)
 {
     if (!msg) return 0;
-    return strstr(msg, "FRAME_HEARTBEAT") ||
-        strstr(msg, "STEFX_HM_SWEEP:") ||
-        strstr(msg, "STEFX_HM_GAME:") ||
-        strstr(msg, "STEFX_HM_BOTLIB: load map") ||
-        strstr(msg, "STEFX_HM_BOTLIB: error") ||
-        strstr(msg, "STEFX_HM_BOT: allocated") ||
-        strstr(msg, "STEFX_HM_BOT: reconnected") ||
+    return strstr(msg, "STEFX_HW_CHECKPOINT") ||
         strstr(msg, "FATAL") ||
         strstr(msg, "ERROR") ||
         strstr(msg, "ERR_FATAL") ||
@@ -1584,12 +1671,22 @@ static int xbl_IsCriticalLogLine(const char *msg)
 static int xbl_ShouldFlushWrite(const char *msg, DWORD len)
 {
     if (!msg) return 0;
-    if (strstr(msg, "FRAME_HEARTBEAT")) return 0;
     if (xbl_IsCriticalLogLine(msg)) {
         g_fileLogFlushBytes = 0;
         g_fileLogFlushWrites = 0;
         return 1;
     }
+    /*
+     * Retail performance runs are commonly ended with a title reset.  Keep
+     * the sparse ten-second heartbeat durable so the final steady-state
+     * sample is not left only in the process cache.
+     */
+    if (strstr(msg, "FRAME_HEARTBEAT")) {
+        g_fileLogFlushBytes = 0;
+        g_fileLogFlushWrites = 0;
+        return 1;
+    }
+
     g_fileLogFlushBytes += len;
     ++g_fileLogFlushWrites;
 
@@ -1606,7 +1703,7 @@ static int xbl_ShouldFlushWrite(const char *msg, DWORD len)
 static int xbl_ShouldWriteFileLine(const char **msg, DWORD *len)
 {
     static const char s_capMsg[] =
-        "STEFX: XBLog file cap reached; file logging now keeps heartbeat, sweep, and critical lines only\n";
+        "STEFX: XBLog file cap reached; file logging now keeps memory mirror and critical lines only\n";
 
     if (!msg || !*msg || !len) return 0;
     if (xbl_IsCriticalLogLine(*msg)) return 1;
@@ -1637,11 +1734,19 @@ static int xbl_IsLogMarkerAt(const char *p)
 void XBLog_Init(void)
 {
     int  i;
+    int  memoryRingRequested;
     long status;
+    ULARGE_INTEGER dFreeBytes;
+    ULARGE_INTEGER dTotalBytes;
+    ULARGE_INTEGER dTotalFreeBytes;
 
+    g_SPXBBootPhase = 0x201;
     g_hLogFile = INVALID_HANDLE_VALUE;
     g_logIsNt  = 0;
+    g_memoryRingOnly = 0;
     g_logPath  = NULL;
+    g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+    g_mirrorLogPath = NULL;
     g_verboseLog = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 1 : 0;
     g_fileLogBytes = 0;
     g_fileLogFlushBytes = 0;
@@ -1696,6 +1801,31 @@ void XBLog_Init(void)
     g_SPXBFakeGLPrimitiveCalls = 0;
     g_SPXBFakeGLPrimitiveVerts = 0;
     g_SPXBFakeGLStateFlushes = 0;
+    g_SPXBNativeUpCalls = 0;
+    g_SPXBNativeUpBytes = 0;
+    g_SPXBNativePushCalls = 0;
+    g_SPXBNativePushBytes = 0;
+    g_SPXBNativePushReuse = 0;
+    g_SPXBNativePushFallbacks = 0;
+    g_SPXBNativeRingCalls = 0;
+    g_SPXBNativeRingBytes = 0;
+    g_SPXBNativeRingWraps = 0;
+    g_SPXBNativeRingFallbacks = 0;
+    g_SPXBNativeDrawMode = 0;
+    g_SPXBNativeDrawCount = 0;
+    g_SPXBNativeDrawSourceVertices = 0;
+    g_SPXBNativeDrawMaxIndex = 0;
+    g_SPXBNativeDrawStride = 0;
+    g_SPXBNativeDrawIndicesPtr = 0;
+    g_SPXBNativeDrawVerticesPtr = 0;
+    g_SPXBNativeDrawPath = 0;
+    g_SPXBNativeDrawShader = 0;
+    g_SPXBNativeDrawVertexOffset = 0;
+    g_SPXBNativeDrawIndexOffset = 0;
+    g_SPXBNativeDrawVertexBytes = 0;
+    g_SPXBNativeDrawIndexBytes = 0;
+    g_SPXBNativeDrawLockFlags = 0;
+    g_SPXBNativeDrawMinIndex = 0;
     g_SPXBRenderSplitShader = 0;
     g_SPXBRenderSplitFog = 0;
     g_SPXBRenderSplitDlight = 0;
@@ -1906,6 +2036,10 @@ void XBLog_Init(void)
     g_SPXBDirectMapHash = 0;
     g_SPXBDirectMapQueuedCount = 0;
     g_SPXBGameDetailTraceEnabled = 0;
+    g_SPXBMiniSoakStage = 0;
+    g_SPXBMiniSoakTransitions = 0;
+    g_SPXBMiniSoakActiveMsec = 0;
+    g_SPXBMiniSoakFlags = 0;
     g_SPXBSVProbeMagic = 0x53565052; /* 'SVPR' */
     g_SPXBSVProbePhase = 0;
     g_SPXBSVProbeSubphase = 0;
@@ -1913,11 +2047,73 @@ void XBLog_Init(void)
     g_SPXBSVProbeB = 0;
     g_SPXBSVProbeC = 0;
     g_SPXBSVProbeD = 0;
+    g_SPXBPerfFrameMsec = 0;
+    g_SPXBPerfServerMsec = 0;
+    g_SPXBPerfClientMsec = 0;
+    g_SPXBPerfGameMsec = 0;
+    g_SPXBPerfFrontendMsec = 0;
+    g_SPXBPerfBackendMsec = 0;
+    g_SPXBPerfAudioMsec = 0;
+    g_SPXBPerfServerTicks = 0;
+    g_SPXBPerfServerLastGameMsec = 0;
+    g_SPXBPerfServerMaxGameMsec = 0;
+    g_SPXBPerfGamePreMsec = 0;
+    g_SPXBPerfGameEntitiesMsec = 0;
+    g_SPXBPerfGamePostMsec = 0;
+    g_SPXBPerfGameEntitiesVisited = 0;
+    g_SPXBPerfGameMissiles = 0;
+    g_SPXBPerfGameItems = 0;
+    g_SPXBPerfGameMovers = 0;
+    g_SPXBPerfGameClients = 0;
+    g_SPXBPerfGameThinkDue = 0;
+    g_SPXBPerfGameScripted = 0;
+    g_SPXBPerfGameOther = 0;
+    g_SPXBPerfScreenDrawMsec = 0;
+    g_SPXBPerfEndFrameMsec = 0;
+    g_SPXBPerfRenderTotalMsec = 0;
+    g_SPXBPerfRenderSetupMsec = 0;
+    g_SPXBPerfRenderMarkLeavesMsec = 0;
+    g_SPXBPerfRenderWorldMsec = 0;
+    g_SPXBPerfRenderPolysMsec = 0;
+    g_SPXBPerfRenderProjectionMsec = 0;
+    g_SPXBPerfRenderEntitiesMsec = 0;
+    g_SPXBPerfRenderSortMsec = 0;
+    g_SPXBPerfRenderDebugMsec = 0;
+    g_SPXBPerfRenderViews = 0;
+    g_SPXBPerfRenderPortals = 0;
+    g_SPXBPerfRenderDrawSurfs = 0;
+    g_SPXBPerfRenderRefEntities = 0;
+    g_SPXBPerfRenderLeafs = 0;
+    g_SPXBCameraActive = 0;
+    g_SPXBBorgPluggedCount = 0;
+    g_SPXBBorgPluggedEnt = 0;
+    g_SPXBBorgPluggedSpawnflags = 0;
+    g_SPXBBorgPluggedAnim = 0;
+    g_SPXBBorgPluggedLegsModel = 0;
+    g_SPXBBorgPluggedTorsoModel = 0;
+    g_SPXBBorgPluggedHeadModel = 0;
+    g_SPXBBorgPluggedLegsSkin = 0;
+    g_SPXBBorgPluggedTorsoSkin = 0;
+    g_SPXBBorgPluggedHeadSkin = 0;
+    g_SPXBBorgPluggedLegsNameHash = 0;
+    g_SPXBBorgPluggedTorsoNameHash = 0;
+    g_SPXBBorgPluggedHeadNameHash = 0;
+    g_SPXBBorgActiveCount = 0;
+    g_SPXBBorgActiveEnt = 0;
+    g_SPXBBorgActiveSpawnflags = 0;
+    g_SPXBBorgActiveAnim = 0;
+    g_SPXBBorgActiveLegsModel = 0;
+    g_SPXBBorgActiveTorsoModel = 0;
+    g_SPXBBorgActiveHeadModel = 0;
+    g_SPXBBorgActiveLegsSkin = 0;
+    g_SPXBBorgActiveTorsoSkin = 0;
+    g_SPXBBorgActiveHeadSkin = 0;
+    g_SPXBBorgActiveLegsNameHash = 0;
+    g_SPXBBorgActiveTorsoNameHash = 0;
+    g_SPXBBorgActiveHeadNameHash = 0;
     g_SPXBCinArgLast[0] = 0;
-    for (i = 0; i < SPXB_SURFACE_TYPE_BUCKETS; ++i) {
+    for (i = 0; i < 16; ++i) {
         g_SPXBSurfaceTypeCounts[i] = 0;
-    }
-    for (i = 0; i < SPXB_ENTITY_TYPE_BUCKETS; ++i) {
         g_SPXBEntityTypeCounts[i] = 0;
     }
     for (i = 0; i < (int)sizeof(g_SPXBLogMirror); ++i) {
@@ -1925,6 +2121,50 @@ void XBLog_Init(void)
     }
     for (i = 0; i < (int)sizeof(g_SPXBLogLastLine); ++i) {
         g_SPXBLogLastLine[i] = 0;
+    }
+    g_SPXBBootPhase = 0x202;
+
+    /*
+     * The XEMU harness polls the exported memory ring directly.  Avoid
+     * synchronous title-volume/HDD logging in that mode: XEMU can block a
+     * FlushFileBuffers/NtFlushBuffersFile request while the DVD is servicing
+     * a map load, which stalls the game thread.  Retail and normal emulator
+     * launches still use the D: then E: file paths below.
+     */
+    g_SPXBBootPhase = 0x203;
+    memoryRingRequested = xbl_FileExists("D:\\stefx_xemu_memory_log.txt");
+    g_SPXBBootPhase = 0x204;
+    if (!memoryRingRequested) {
+        memoryRingRequested = xbl_FileExists("E:\\stefx_xemu_memory_log.txt");
+    }
+    g_SPXBBootPhase = 0x205;
+    if (memoryRingRequested) {
+        g_logPath = "memory-ring";
+        g_mirrorLogPath = NULL;
+        g_memoryRingOnly = 1;
+        XBLog_WriteRingMarker("STEFX: XEMU memory-ring logging active");
+        g_SPXBBootPhase = 0x206;
+        return;
+    }
+
+    /*
+     * CXBX-R and softmod launches expose the writable title directory as D:.
+     * XEMU and disc launches expose D: as read-only DVD media; use the HDD
+     * fallback there. Keep exactly one live handle so map transitions never
+     * wait on two independent synchronous flushes.
+     */
+    g_SPXBBootPhase = 0x207;
+    if (GetDiskFreeSpaceExA("D:\\", &dFreeBytes, &dTotalBytes, &dTotalFreeBytes) &&
+        dFreeBytes.QuadPart != 0) {
+        g_hLogFile = CreateFileA("D:\\" STEFX_XB_LOG_FILE, FILE_APPEND_DATA, FILE_SHARE_READ,
+            NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (g_hLogFile != INVALID_HANDLE_VALUE) {
+            SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
+            g_logIsNt = 0;
+            g_logPath = "D:\\" STEFX_XB_LOG_FILE;
+            XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
+            return;
+        }
     }
 
     /*
@@ -1934,10 +2174,11 @@ void XBLog_Init(void)
      * Falls back to FILE_OVERWRITE_IF if the file doesn't exist yet.
      */
     {
+        g_SPXBBootPhase = 0x208;
         static const char *ntPaths[] = {
-            "\\Device\\Harddisk0\\Partition1\\" STEFX_XB_LOG_FILE,
-            "\\Device\\Harddisk0\\Partition6\\" STEFX_XB_LOG_FILE,
-            "\\Device\\Harddisk0\\Partition7\\" STEFX_XB_LOG_FILE,
+            "\\Device\\Harddisk0\\Partition1\\" STEFX_XB_LOG_FILE,   /* E:\ */
+            "\\Device\\Harddisk0\\Partition6\\" STEFX_XB_LOG_FILE,   /* F:\ */
+            "\\Device\\Harddisk0\\Partition7\\" STEFX_XB_LOG_FILE,   /* G:\ */
             NULL
         };
         for (i = 0; ntPaths[i]; ++i) {
@@ -1968,8 +2209,8 @@ void XBLog_Init(void)
 
     /* Strategy 2: CreateFileA with drive letters — append if exists, create if not */
     {
+        g_SPXBBootPhase = 0x209;
         static const char *caPaths[] = {
-            "D:\\" STEFX_XB_LOG_FILE,
             "E:\\" STEFX_XB_LOG_FILE,
             "T:\\" STEFX_XB_LOG_FILE,
             STEFX_XB_LOG_FILE,
@@ -1995,6 +2236,11 @@ void XBLog_Init(void)
 void XBLog_Shutdown(void)
 {
     XBL("=== log end ===\n");
+    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        xbl_FlushHandle(g_hMirrorLogFile, 0);
+        CloseHandle(g_hMirrorLogFile);
+        g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+    }
     if (g_hLogFile != INVALID_HANDLE_VALUE) {
         xbl_FlushHandle(g_hLogFile, g_logIsNt);
         if (g_logIsNt) NtClose(g_hLogFile);
@@ -2002,6 +2248,7 @@ void XBLog_Shutdown(void)
         g_hLogFile = INVALID_HANDLE_VALUE;
     }
     g_logPath = NULL;
+    g_mirrorLogPath = NULL;
 }
 
 void XBLog_Print(const char *msg)
@@ -2013,11 +2260,19 @@ void XBLog_Print(const char *msg)
     }
     len = (DWORD)strlen(msg);
     xbl_MirrorWrite(msg, len);
+    if (g_memoryRingOnly) {
+        return;
+    }
     if (!xbl_ShouldWriteFileLine(&msg, &len)) {
         return;
     }
     g_fileLogBytes += len;
     const int forceFlush = xbl_ShouldFlushWrite(msg, len);
+    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        DWORD written;
+        WriteFile(g_hMirrorLogFile, msg, len, &written, NULL);
+        if (forceFlush) xbl_FlushHandle(g_hMirrorLogFile, 0);
+    }
     if (g_hLogFile == INVALID_HANDLE_VALUE) return;
     if (g_logIsNt) {
         XBL_IOSB iosb;
@@ -2101,11 +2356,13 @@ void XBLog_Printf(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 1] = '\0';
+    if (g_memoryRingOnly) {
+        XBLog_WriteRingMarker(buf);
+        return;
+    }
     XBLog_PrintFilteredRecords(buf);
 }
 
-/* Critical breadcrumbs bypass the verbose-record filter so early VM stalls
-   remain visible even when the normal diagnostic budget is exhausted. */
 void XBLog_WriteCritical(const char *msg)
 {
     char buf[XBL_BUF_SIZE];
@@ -2128,6 +2385,12 @@ void XBLog_WriteCriticalf(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 2, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 2] = '\0';
+    if (!g_verboseLog &&
+        strstr(buf, "STEFX_MODEL_BOOT:") &&
+        !xbl_IsCriticalLogLine(buf) &&
+        !strstr(buf, "cannot fit")) {
+        return;
+    }
     XBLog_WriteCritical(buf);
 }
 
@@ -2151,7 +2414,7 @@ const char *XBLog_GetPath(void)
 
 /*
  * XBLog_PreCRTProbe — called from ASM _WinMainCRTStartup BEFORE _mainCRTStartup.
- * Creates the target-specific log (overwrites any previous run) and writes the first line.
+ * Creates the target-specific log and writes the first line.
  * No C runtime, no heap, no globals — pure NT syscalls only.
  * XBLog_Init() later re-opens the same file in append mode and continues writing.
  * If only "precrt_ok" appears in the log, a static ctor is crashing before main().
@@ -2223,6 +2486,10 @@ void XBLog_Write(const char *msg)
     char buf[XBL_BUF_SIZE];
     if (!msg) return;
     if (!g_verboseLog && !xbl_FormatMayBeCritical(msg)) return;
+    if (g_memoryRingOnly) {
+        XBLog_WriteRingMarker(msg);
+        return;
+    }
     _snprintf(buf, sizeof(buf) - 2, "%s", msg);
     buf[sizeof(buf) - 2] = '\0';
     int len = (int)strlen(buf);
@@ -2240,6 +2507,10 @@ void XBLog_Writef(const char *fmt, ...)
     _vsnprintf(buf, sizeof(buf) - 2, fmt, args);
     va_end(args);
     buf[sizeof(buf) - 2] = '\0';
+    if (g_memoryRingOnly) {
+        XBLog_WriteRingMarker(buf);
+        return;
+    }
     /* Append \n so old callers that omit it still get line breaks. */
     int len = (int)strlen(buf);
     buf[len]     = '\n';

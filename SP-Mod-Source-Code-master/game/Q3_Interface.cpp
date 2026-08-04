@@ -39,6 +39,9 @@ extern cvar_t *g_sex;
 extern cvar_t *g_timescale;
 extern void G_SetEnemy( gentity_t *self, gentity_t *enemy );
 extern void FX_BorgTeleport( vec3_t org );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern void STEFX_SplitCoopFollowP1ScriptedMove( const char *context );
+#endif
 static void Q3_SetWeapon (int entID, const char *wp_name);
 extern void CG_ChangeWeapon( int num );
 extern int	TAG_GetOrigin2( const char *owner, const char *name, vec3_t origin );
@@ -1776,6 +1779,12 @@ void MoveOwner( gentity_t *self )
 			self->owner->NPC->sPCurSegPoint1 = self->owner->NPC->sPCurSegPoint2 = -1;
 		}
 		G_SetOrigin( self->owner, self->currentOrigin );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( self->owner->s.number == 0 )
+		{
+			STEFX_SplitCoopFollowP1ScriptedMove( "teleport-dest-delayed" );
+		}
+#endif
 		Q3_TaskIDComplete( self->owner, TID_MOVE_NAV );
 	}
 }
@@ -6974,6 +6983,12 @@ static void Q3_Set( int taskID, int entID, const char *type_name, const char *da
 	case SET_ORIGIN:
 		sscanf( data, "%f %f %f", &vector_data[0], &vector_data[1], &vector_data[2] );
 		G_SetOrigin( ent, vector_data );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( entID == 0 )
+		{
+			STEFX_SplitCoopFollowP1ScriptedMove( "set-origin" );
+		}
+#endif
 		if ( strncmp( "NPC_", ent->classname, 4 ) == 0 )
 		{//hack for moving spawners
 			VectorCopy( vector_data, ent->s.origin);
@@ -6987,16 +7002,38 @@ static void Q3_Set( int taskID, int entID, const char *type_name, const char *da
 			Q3_TaskIDSet( ent, TID_MOVE_NAV, taskID );
 			return;
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( entID == 0 )
+		{
+			STEFX_SplitCoopFollowP1ScriptedMove( "teleport-dest" );
+		}
+#endif
 		break;
 
 	case SET_COPY_ORIGIN:
 		Q3_SetCopyOrigin( entID, (char *) data );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( entID == 0 )
+		{
+			STEFX_SplitCoopFollowP1ScriptedMove( "copy-origin" );
+		}
+#endif
 		break;
 
 	case SET_ANGLES:
 		//Q3_SetAngles( entID, *(vec3_t *) data);
 		sscanf( data, "%f %f %f", &vector_data[0], &vector_data[1], &vector_data[2] );
 		Q3_SetAngles( entID, vector_data);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( entID == 0 )
+		{
+			gentity_t *p2 = Q3_GetSplitCoopP2Entity();
+			if ( p2 )
+			{
+				SetClientViewAngle( p2, vector_data );
+			}
+		}
+#endif
 		break;
 
 	case SET_XVELOCITY:

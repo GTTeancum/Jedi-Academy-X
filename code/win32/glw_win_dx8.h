@@ -21,7 +21,6 @@
 #undef NODSOUND
 #undef NOD3D
 #include <d3d8-xbox.h>
-#include <objbase.h>
 #include <d3dx8.h>
 #include <xgraphics.h>
 #else
@@ -40,6 +39,7 @@
 struct glwstate_t
 {
         // Interface to DX
+        IDirect3D8* d3d;
         IDirect3DDevice8* device;
 
         // Matrix stuff
@@ -79,6 +79,7 @@ struct glwstate_t
 
                 // I only need this for ONE texture, but it's easier than adding more hacks:
                 void *data;
+                DWORD dataSize;
         };
 
         typedef std::map<GLuint, TextureInfo> texturexlat_t;

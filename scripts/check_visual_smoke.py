@@ -14,7 +14,7 @@ def parse_args():
     parser.add_argument("--log", default="", help="Optional EF runtime log to scan for render fallback failures.")
     parser.add_argument("--max-black-pct", type=float, default=70.0)
     parser.add_argument("--min-mean", type=float, default=12.0)
-    parser.add_argument("--min-unique", type=int, default=500)
+    parser.add_argument("--min-unique", type=int, default=200)
     parser.add_argument("--client-top-skip", type=int, default=32, help="Rows to ignore for window chrome/title bars.")
     parser.add_argument("--grid-line-min-frac", type=float, default=0.45)
     parser.add_argument("--grid-line-min-count", type=int, default=3)

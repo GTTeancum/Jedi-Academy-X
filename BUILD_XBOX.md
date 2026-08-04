@@ -231,5 +231,5 @@ powershell -ExecutionPolicy Bypass -File scripts\build_xbox.ps1 -Target sp
 
 For current Holomatch continuation, also read:
 
-- `HOLOMATCH_TODO.md`
+- `GAME_TODO.md`
 - `HOLOMATCH_QUALIFICATION.md`

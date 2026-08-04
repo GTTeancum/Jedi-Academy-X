@@ -1996,28 +1996,6 @@ CG_CalcEntityLerpPositions
 extern char	*vtos( const vec3_t v );
 #if 1
 void CG_CalcEntityLerpPositions( centity_t *cent ) {
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-	{
-		static int stefxHostedMpLerpLogBudget = 64;
-		if ( stefxHostedMpLerpLogBudget > 0 && cent &&
-			( cent->currentState.number < 4 || cent->currentState.eType == ET_ITEM ) )
-		{
-			XBLF( "STEFX: hosted MP CG_CalcEntityLerpPositions ent=%d eType=%d interpolate=%d posType=%d posTime=%d posDuration=%d aposType=%d aposTime=%d aposDuration=%d snapTime=%d cgTime=%d",
-				cent->currentState.number,
-				cent->currentState.eType,
-				cent->interpolate,
-				(int)cent->currentState.pos.trType,
-				cent->currentState.pos.trTime,
-				cent->currentState.pos.trDuration,
-				(int)cent->currentState.apos.trType,
-				cent->currentState.apos.trTime,
-				cent->currentState.apos.trDuration,
-				cg.snap ? cg.snap->serverTime : -1,
-				cg.time );
-			--stefxHostedMpLerpLogBudget;
-		}
-	}
-#endif
 	if ( cent->gent && cent->gent->client && cent->gent->client->NPC_class == CLASS_VEHICLE && cent->nextState ) //cent->currentState.vehicleIndex != VEHICLE_NONE )
 	{
 		float		f = cg.frameInterpolation;
@@ -2131,16 +2109,6 @@ Ghoul2 Insert End
 
 	// just use the current frame and evaluate as best we can
 	trajectory_t *posData = &cent->currentState.pos;
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-	// The SP-hosted Holomatch snapshot is authoritative. The old SP entity
-	// overlay is not layout-compatible with the Holomatch VM's g_entities[].
-	// Keep the network trajectory instead of reading a mismatched overlay.
-	if ( cent->currentState.eType != ET_MOVER )
-	{
-		posData = &cent->currentState.pos;
-	}
-	else
-#endif
 	{
 		gentity_t *ent = &g_entities[cent->currentState.number];
 
