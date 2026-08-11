@@ -264,8 +264,19 @@ Retained follow-up:
    27.5 to 28.4 FPS (3.1%). The no-capture proof held 88.4-90.9 guest FPS and
    averaged 28.4 wall FPS, with one temporary XEMU delivery dip to 19.4 FPS.
    Five visual captures remain correct. The benchmark now records both guest
-   FPS and wall FPS so synchronous I/O cannot make a slow-emulation interval
-   look healthy merely because the Xbox game clock also slowed.
+    FPS and wall FPS so synchronous I/O cannot make a slow-emulation interval
+    look healthy merely because the Xbox game clock also slowed.
+5. Iteration 14 removes the remaining recurring hosted-Holomatch heartbeat,
+   liveness, centered-bot, and startup-frame records. It also removes the
+   late-frame probe that armed at 82 seconds of game time with a 1,024-record
+   synchronous budget. The 270-second wall-clock soak reached 101.9 seconds
+   of game time without a write burst, freeze, or progressive slowdown. It
+   averaged 85.8 guest FPS (83.5 minimum) and 27.5 delivered wall FPS (24.5
+   minimum), with only 2-7 log writes per sample. The visual proof averaged
+   87.7 guest FPS and 29.0 delivered wall FPS and retained correct geometry,
+   lightmaps, weapon, and HUD. This is retained as a stability correction;
+   the smaller irregular XEMU wall-delivery cadence remains unresolved and
+   requires comparison with the same checkpoint on retail hardware.
 
 Benchmark controls must be embedded by repacking the ISO whenever the XBE or
 control files change. `SmokeInputStart 0` does not disable input; it leaves the

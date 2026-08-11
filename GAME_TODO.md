@@ -182,6 +182,20 @@ Current qualification snapshot: `HOLOMATCH_QUALIFICATION.md`.
   `scripts/output/retail-ja-hotpath13-visual_hm_dn1_20260811_182244.report.txt`.
   The intermittent XEMU wall-delivery hitch remains open; it is no longer
   hidden behind game-clock-only FPS reporting.
+  Iteration 14 removes the remaining recurring hosted-Holomatch heartbeat,
+  liveness, centered-bot, and startup-frame success records. It also removes
+  a dormant late-frame diagnostic that armed at 82 seconds of game time and
+  could synchronously emit up to 1,024 detailed entity records. A 270-second
+  wall-clock soak reached 101.9 seconds of game time without that burst,
+  freeze, or progressive slowdown: guest FPS averaged 85.8 (83.5 minimum),
+  delivered wall FPS averaged 27.5 (24.5 minimum), and log traffic remained
+  2-7 writes per sample. The matching visual proof averaged 87.7 guest FPS
+  and 29.0 delivered wall FPS with correct geometry, lightmaps, weapon, and
+  HUD. Iteration 14 is retained as a stability fix. The brief irregular XEMU
+  delivery cadence remains open for hardware comparison. Evidence:
+  `scripts/output/retail-ja-hotpath14-lateframe-soak_hm_dn1_20260811_183524.report.txt`
+  and
+  `scripts/output/retail-ja-hotpath14-visual_hm_dn1_20260811_184108.report.txt`.
   The one-folder PK3-only hardware stage is
   `build/hardware/StarTrekEliteForceX-Beta-20260801` (0.569 GiB). The next
   SP and Holomatch hardware logs must show `path=1`, advancing heartbeats,

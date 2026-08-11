@@ -1784,36 +1784,6 @@ void G_RunThink (gentity_t *ent) {
 	ent->think (ent);
 }
 
-#if defined(STEFX_SP_HOSTED_MP)
-static int stefx_hmLateFrameProbeBudget = 0;
-
-static void STEFX_HM_LateFrameProbe( const char *phase, int entityNum, const gentity_t *ent )
-{
-	if ( stefx_hmLateFrameProbeBudget <= 0 || level.time < 82000 )
-	{
-		return;
-	}
-
-	XBLog_WriteCriticalf("STEFX_HM_LATE_FRAME phase=%s time=%d frame=%d ent=%d inuse=%d type=%d class='%s' target='%s' think=%p touch=%p linked=%d flags=0x%x origin=(%g,%g,%g)",
-		phase ? phase : "",
-		level.time,
-		level.framenum,
-		entityNum,
-		ent ? ent->inuse : 0,
-		ent ? ent->s.eType : -1,
-		(ent && ent->classname) ? ent->classname : "",
-		(ent && ent->targetname) ? ent->targetname : "",
-		ent ? ent->think : NULL,
-		ent ? ent->touch : NULL,
-		ent ? (int)ent->r.linked : 0,
-		ent ? ent->s.eFlags : 0,
-		ent ? ent->r.currentOrigin[0] : 0.0f,
-		ent ? ent->r.currentOrigin[1] : 0.0f,
-		ent ? ent->r.currentOrigin[2] : 0.0f);
-	--stefx_hmLateFrameProbeBudget;
-}
-#endif
-
 /*
 ================
 G_RunFrame
@@ -1841,14 +1811,6 @@ int start, end;
 	level.previousTime = level.time;
 	level.time = levelTime;
 	msec = level.time - level.previousTime;
-#if defined(STEFX_SP_HOSTED_MP)
-	if ( level.time < 2000 )
-	{
-		stefx_hmLateFrameProbeBudget = 1024;
-	}
-	STEFX_HM_LateFrameProbe( "frame-begin", -1, NULL );
-#endif
-
 	// get any cvar changes
 	G_UpdateCvars();
 
@@ -1861,10 +1823,6 @@ start = trap_Milliseconds();
 		if ( !ent->inuse ) {
 			continue;
 		}
-#if defined(STEFX_SP_HOSTED_MP)
-		STEFX_HM_LateFrameProbe( "entity-begin", i, ent );
-#endif
-
 		// clear events that are too old
 		if ( level.time - ent->eventTime > EVENT_VALID_MSEC ) {
 			if ( ent->s.event ) {
@@ -1906,40 +1864,25 @@ start = trap_Milliseconds();
 		}
 
 		if ( (ent->s.eType == ET_MISSILE) || (ent->s.eType == ET_ALT_MISSILE) ) {
-#if defined(STEFX_SP_HOSTED_MP)
-			STEFX_HM_LateFrameProbe( "run-missile", i, ent );
-#endif
 			G_RunMissile( ent );
 			continue;
 		}
 
 		if ( ent->s.eType == ET_ITEM || ent->physicsObject ) {
-#if defined(STEFX_SP_HOSTED_MP)
-			STEFX_HM_LateFrameProbe( "run-item", i, ent );
-#endif
 			G_RunItem( ent );
 			continue;
 		}
 
 		if ( ent->s.eType == ET_MOVER ) {
-#if defined(STEFX_SP_HOSTED_MP)
-			STEFX_HM_LateFrameProbe( "run-mover", i, ent );
-#endif
 			G_RunMover( ent );
 			continue;
 		}
 
 		if ( i < MAX_CLIENTS ) {
-#if defined(STEFX_SP_HOSTED_MP)
-			STEFX_HM_LateFrameProbe( "run-client", i, ent );
-#endif
 			G_RunClient( ent );
 			continue;
 		}
 
-#if defined(STEFX_SP_HOSTED_MP)
-		STEFX_HM_LateFrameProbe( "run-think", i, ent );
-#endif
 		G_RunThink( ent );
 	}
 end = trap_Milliseconds();
@@ -1949,45 +1892,27 @@ start = trap_Milliseconds();
 	ent = &g_entities[0];
 	for (i=0 ; i < level.maxclients ; i++, ent++ ) {
 		if ( ent->inuse ) {
-#if defined(STEFX_SP_HOSTED_MP)
-			STEFX_HM_LateFrameProbe( "client-end-frame", i, ent );
-#endif
 			ClientEndFrame( ent );
 		}
 	}
 end = trap_Milliseconds();
 
 	// see if it is time to do a tournement restart
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_HM_LateFrameProbe( "check-tournament", -1, NULL );
-#endif
 	CheckTournement();
 
 	// see if it is time to end the level
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_HM_LateFrameProbe( "check-exit", -1, NULL );
-#endif
 	CheckExitRules();
 
 	// update to team status?
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_HM_LateFrameProbe( "check-team-status", -1, NULL );
-#endif
 	CheckTeamStatus();
 
 	// update to health status
 	//CheckHealthInfoMessage();//done from inside CheckTeamStatus now
 
 	// cancel vote if timed out
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_HM_LateFrameProbe( "check-vote", -1, NULL );
-#endif
 	CheckVote();
 
 	// for tracking changes
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_HM_LateFrameProbe( "check-cvars", -1, NULL );
-#endif
 	CheckCvars();
 
 	if ( !levelExiting )
