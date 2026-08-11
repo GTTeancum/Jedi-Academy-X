@@ -266,8 +266,8 @@ static qboolean R_XboxLeafHasJunkSkySurface( const mleaf_s *leaf, int *firstCode
 
 static void R_XboxLogJunkSkyLeafVisibility( const char *phase, const byte *vis )
 {
-	static int s_junkLeafSummaryBudget = 24;
-	static int s_junkLeafDetailBudget = 96;
+	static int s_junkLeafSummaryBudget = 0;
+	static int s_junkLeafDetailBudget = 0;
 	int i;
 	int junkLeafs = 0;
 	int visibleJunkLeafs = 0;
@@ -652,14 +652,14 @@ void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount )
 static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse ) {
 #endif
 #ifdef _XBOX
-	static int s_xboxWorldAddLogBudget = 16;
-	static int s_xboxWorldCullLogBudget = 8;
+	static int s_xboxWorldAddLogBudget = 0;
+	static int s_xboxWorldCullLogBudget = 0;
 	static int s_xboxWorldTraceAddBudget = 0;
 	static int s_xboxWorldTraceCullBudget = 0;
-	static int s_xboxJunkSkyWorldBudget = 32;
-	static int s_xboxJunkSkyDrawBoundaryBudget = 32;
-	static int s_xboxBorgSuspectWorldBudget = 96;
-	static int s_xboxScavengerSuspectWorldBudget = 192;
+	static int s_xboxJunkSkyWorldBudget = 0;
+	static int s_xboxJunkSkyDrawBoundaryBudget = 0;
+	static int s_xboxBorgSuspectWorldBudget = 0;
+	static int s_xboxScavengerSuspectWorldBudget = 0;
 #if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	const qboolean traceJunkSky = R_XboxTraceJunkSkySurface( surf );
 	const qboolean traceBorgSuspect = R_XboxTraceBorgSuspectSurface( surf );
@@ -910,7 +910,7 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 	int			i;
 #ifdef _XBOX
 	static int s_xboxBmodelLogBudget = 0;
-	static int s_xboxBmodelFocusLogBudget = 96;
+	static int s_xboxBmodelFocusLogBudget = 0;
 	qboolean xboxLogBmodel = (s_xboxBmodelLogBudget > 0 && cls.state == CA_ACTIVE);
 	qboolean xboxFocusBmodel;
 	int xboxBmodelDrawSurfsBefore;
@@ -956,7 +956,7 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 #ifdef _XBOX
 		if ( ent->e.renderfx & RF_XBOX_NOCULL_BMODEL )
 		{
-			static int s_xboxBmodelNoCullLogBudget = 32;
+			static int s_xboxBmodelNoCullLogBudget = 0;
 			if ( s_xboxBmodelNoCullLogBudget > 0 )
 			{
 				XBLF("JA: R_BMODEL_FORCE_NOCULL ent=%d hModel=%d model='%s' renderfx=0x%x",
@@ -1452,8 +1452,8 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	int		markedLeaves = 0;
 	int		negativeCluster = 0;
 	int		leafIndex = -1;
-	static int s_xboxMarkLeavesLogBudget = 48;
-	static int s_xboxMarkLeavesSameLogBudget = 16;
+	static int s_xboxMarkLeavesLogBudget = 0;
+	static int s_xboxMarkLeavesSameLogBudget = 0;
 #endif
 
 	// lockpvs lets designers walk around to determine the
@@ -1612,7 +1612,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	}
 #ifdef _XBOX
 	{
-		static int s_stefxPvsSummaryBudget = 16;
+		static int s_stefxPvsSummaryBudget = 0;
 		if (s_stefxPvsSummaryBudget > 0)
 		{
 			XBLF("STEFX: PVS cluster=%d visCount=%d leaves=%d marked=%d pvsRejected=%d areaRejected=%d badCluster=%d areaModified=%d rootVis=%d pvsOrigin=(%g,%g,%g)",
@@ -1747,7 +1747,7 @@ R_AddWorldSurfaces
 #ifdef _XBOX
 void R_AddWorldSurfaces (void) {
 #ifdef _XBOX
-	static int s_xboxAddWorldLogBudget = 48;
+	static int s_xboxAddWorldLogBudget = 0;
 #endif
 	if ( !r_drawworld->integer ) {
 #ifdef _XBOX
@@ -1851,7 +1851,7 @@ void R_AddWorldSurfaces (void) {
 		g_SPXBSplitSlot1WorldDelta = (unsigned int)xboxWorldDelta;
 	}
 	{
-		static int s_stefxWorldVisBudget = 24;
+		static int s_stefxWorldVisBudget = 0;
 		if (s_stefxWorldVisBudget > 0)
 		{
 			XBLF("STEFX: worldvis cluster=%d leafDelta=%d drawDelta=%d totalDraw=%d visCount=%d rootVis=%d r_novis=%d r_nocull=%d bounds=(%g,%g,%g)-(%g,%g,%g)",

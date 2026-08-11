@@ -100,7 +100,7 @@ Used for cinematics; non-power-of-two sources are padded on upload and cropped b
 void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty )
 {
 #ifdef _XBOX
-	static unsigned int s_stretchRawLogBudget = 8;
+	static unsigned int s_stretchRawLogBudget = 0;
 #endif
 	int uploadCols;
 	int uploadRows;
@@ -242,7 +242,7 @@ void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *
 
 void RE_UploadCinematic (int cols, int rows, const byte *data, int client, qboolean dirty) {
 #ifdef _XBOX
-	static unsigned int s_uploadCinematicLogBudget = 8;
+	static unsigned int s_uploadCinematicLogBudget = 0;
 #endif
 	int uploadCols;
 	int uploadRows;

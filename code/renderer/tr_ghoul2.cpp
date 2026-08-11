@@ -1196,7 +1196,7 @@ static int R_GCullModel( trRefEntity_t *ent ) {
 	if (cls.state == CA_ACTIVE && ent &&
 		(xboxEntNum == 49 || xboxEntNum == 50 || xboxEntNum == 52 || xboxEntNum == 53))
 	{
-		static int s_xboxGhoulCullTraceCount = 0;
+		static int s_xboxGhoulCullTraceCount = 32;
 		xboxTraceCull = (s_xboxGhoulCullTraceCount < 32);
 		if (xboxTraceCull)
 		{
@@ -3781,7 +3781,7 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	xboxShaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "<null>";
 	if (tess.shader == tr.shadowShader)
 	{
-		static int s_xboxGhoulShadowSkipTraceCount = 0;
+		static int s_xboxGhoulShadowSkipTraceCount = 4;
 		if (s_xboxGhoulShadowSkipTraceCount < 4)
 		{
 			XBLF("JA: RB_SurfaceGhoul Xbox skip stencil shadow ent=%d",

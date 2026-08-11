@@ -438,7 +438,7 @@ static void DrawSkyBox( shader_t *shader )
 {
 	int		i;
 #ifdef _XBOX
-	static int s_xboxSkyBoxLogBudget = 32;
+	static int s_xboxSkyBoxLogBudget = 0;
 	/*
 	 * The stock renderer clips skybox sides down to only the screen-space
 	 * spans touched by sky polygons.  On Xbox the EF BSP/world path can leave
@@ -911,7 +911,7 @@ Other things could be stuck in here, like birds in the sky, etc
 */
 void RB_StageIteratorSky( void ) {
 #ifdef _XBOX
-	static int s_xboxSkyIterLogBudget = 16;
+	static int s_xboxSkyIterLogBudget = 0;
 	qboolean traceSky = STEFX_IsTracedSkyShader( tess.shader );
 #endif
 	if ( r_fastsky->integer ) {

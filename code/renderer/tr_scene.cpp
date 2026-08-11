@@ -30,21 +30,6 @@ extern "C" volatile unsigned int g_SPXBHelmetRendererLastEnt;
 #endif
 
 #ifdef _XBOX
-static bool R_XboxTracePolyShader( const shader_t *shader )
-{
-	const char *name = shader ? shader->name : "";
-
-	if ( !name )
-	{
-		name = "";
-	}
-
-	return strstr( name, "gfx/effects/" ) ||
-		strstr( name, "gfx/misc/" ) ||
-		strstr( name, "gfx/interface/" ) ||
-		strstr( name, "crosshair" );
-}
-
 #if defined(STEFX_ELITE_FORCE_SP)
 static bool R_STEFX_IsSplitHelmetModel( qhandle_t model )
 {
@@ -138,19 +123,6 @@ void R_AddPolygonSurfaces( void ) {
 
 	for ( i = 0, poly = tr.refdef.polys; i < tr.refdef.numPolys ; i++, poly++ ) {
 		sh = R_GetShaderByHandle( poly->hShader );
-#ifdef _XBOX
-		if ( cls.state == CA_ACTIVE && R_XboxTracePolyShader( sh ) )
-		{
-			static int s_stefxAddPolySurfBudget = 160;
-			if ( s_stefxAddPolySurfBudget > 0 )
-			{
-				XBLF( "STEFX: R_AddPolygonSurfaces shader='%s' handle=%d verts=%d fog=%d poly=%d/%d",
-					sh ? sh->name : "<null>", poly->hShader, poly->numVerts, poly->fogIndex,
-					i, tr.refdef.numPolys );
-				--s_stefxAddPolySurfBudget;
-			}
-		}
-#endif
 		R_AddDrawSurf( ( surfaceType_t * )poly, sh, poly->fogIndex, qfalse );
 	}
 }
@@ -245,29 +217,6 @@ void RE_AddPolyToScene( qhandle_t hShader , int numVerts, const polyVert_t *vert
 		}
 	}
 	poly->fogIndex = fogIndex;
-#ifdef _XBOX
-	{
-		shader_t *shader = R_GetShaderByHandle( hShader );
-		if ( cls.state == CA_ACTIVE && R_XboxTracePolyShader( shader ) )
-		{
-			static int s_stefxAddPolySceneBudget = 160;
-			if ( s_stefxAddPolySceneBudget > 0 )
-			{
-				const polyVert_t *v = poly->verts;
-				XBLF( "STEFX: RE_AddPolyToScene shader='%s' handle=%d verts=%d fog=%d storedPolys=%d storedVerts=%d v0=(%g,%g,%g) v1=(%g,%g,%g) color0=%u,%u,%u,%u",
-					shader ? shader->name : "<null>", hShader, numVerts, fogIndex,
-					r_numpolys, r_numpolyverts,
-					v[0].xyz[0], v[0].xyz[1], v[0].xyz[2],
-					numVerts > 1 ? v[1].xyz[0] : 0.0f,
-					numVerts > 1 ? v[1].xyz[1] : 0.0f,
-					numVerts > 1 ? v[1].xyz[2] : 0.0f,
-					(unsigned int)v[0].modulate[0], (unsigned int)v[0].modulate[1],
-					(unsigned int)v[0].modulate[2], (unsigned int)v[0].modulate[3] );
-				--s_stefxAddPolySceneBudget;
-			}
-		}
-	}
-#endif
 }
 
 
@@ -312,21 +261,6 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 		g_SPXBSplitP2RendererLastModel = (unsigned int)ent->hModel;
 		g_SPXBSplitP2RendererLastRenderfx = (unsigned int)ent->renderfx;
 		g_SPXBSplitP2RendererLastZ = (unsigned int)(int)ent->origin[2];
-	}
-	if (ent->reType == RT_MODEL && ent->hModel >= 2 && ent->hModel <= 8)
-	{
-		static int s_stefxSceneAddRefBudget = 96;
-		if (s_stefxSceneAddRefBudget > 0)
-		{
-			XBLog_Writef("STEFX: renderer AddRef accepted slot=%d ent=%d hModel=%d renderfx=0x%x origin=(%g,%g,%g) axis0=(%g,%g,%g)",
-				r_numentities,
-				ent->number,
-				ent->hModel,
-				ent->renderfx,
-				ent->origin[0], ent->origin[1], ent->origin[2],
-				ent->axis[0][0], ent->axis[0][1], ent->axis[0][2]);
-			--s_stefxSceneAddRefBudget;
-		}
 	}
 #endif
 #endif
@@ -580,39 +514,19 @@ void RE_RenderScene( const refdef_t *fd ) {
 	viewParms_t		parms;
 	int				startTime;
 	static int		lastTime = 0;
-#ifdef _XBOX
-	const int xboxRenderSceneLog = (fd && fd->time >= 3400 && fd->time <= 5000);
-	if (xboxRenderSceneLog)
-	{
-		XBLF("JA: CL_EARLY RE_RenderScene enter fd=%p time=%d rd=0x%x world=%p registered=%d",
-			(void*)fd, fd ? fd->time : -1, fd ? fd->rdflags : 0, (void*)tr.world, tr.registered);
-	}
-#endif
 
 	if ( !tr.registered ) {
-#ifdef _XBOX
-		if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene not registered return");
-#endif
 		return;
 	}
 	GLimp_LogComment( "====== RE_RenderScene =====\n" );
 
 	if ( r_norefresh->integer ) {
-#ifdef _XBOX
-		if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene norefresh return");
-#endif
 		return;
 	}
 
 	startTime = Sys_Milliseconds();
-#ifdef _XBOX
-	R_STEFX_PerfBeginScene();
-#endif
 
 	if (!tr.world && !( fd->rdflags & RDF_NOWORLDMODEL ) ) {
-#ifdef _XBOX
-		if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene NULL world Com_Error");
-#endif
 		Com_Error (ERR_DROP, "R_RenderScene: NULL worldmodel");
 	}
 
@@ -691,20 +605,6 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 	tr.refdef.numPolys = r_numpolys - r_firstScenePoly;
 	tr.refdef.polys = &backEndData->polys[r_firstScenePoly];
-#ifdef _XBOX
-	if (xboxRenderSceneLog)
-	{
-		XBLF("JA: CL_EARLY RE_RenderScene refdef rect=%d,%d %dx%d fov=%g/%g ents=%d polys=%d firstSurf=%d numDraw=%d vieworg=(%g,%g,%g)",
-			tr.refdef.x,
-			tr.refdef.y,
-			tr.refdef.width,
-			tr.refdef.height,
-			tr.refdef.fov_x,
-			tr.refdef.fov_y,
-			tr.refdef.num_entities, tr.refdef.numPolys, r_firstSceneDrawSurf, tr.refdef.numDrawSurfs,
-			tr.refdef.vieworg[0], tr.refdef.vieworg[1], tr.refdef.vieworg[2]);
-	}
-#endif
 
 	// turn off dynamic lighting globally by clearing all the
 	// dlights if it needs to be disabled or if vertex lighting is enabled
@@ -747,21 +647,6 @@ void RE_RenderScene( const refdef_t *fd ) {
 	VectorCopy( fd->vieworg, parms.pvsOrigin );
 
 	recursivePortalCount = 0;
-#ifdef _XBOX
-	if (xboxRenderSceneLog)
-	{
-		XBLF("JA: CL_EARLY RE_RenderScene before R_RenderView parms viewport=%d,%d %dx%d fov=%g/%g origin=(%g,%g,%g)",
-			parms.viewportX,
-			parms.viewportY,
-			parms.viewportWidth,
-			parms.viewportHeight,
-			parms.fovX,
-			parms.fovY,
-			parms.or.origin[0],
-			parms.or.origin[1],
-			parms.or.origin[2]);
-	}
-#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
 		int splitPlayers = 1;
@@ -872,9 +757,6 @@ void RE_RenderScene( const refdef_t *fd ) {
 #else
 	R_RenderView( &parms );
 #endif
-#ifdef _XBOX
-	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene after R_RenderView");
-#endif
 
 	// the next scene rendered in this frame will tack on after this one
 	r_firstSceneDrawSurf = tr.refdef.numDrawSurfs;
@@ -882,18 +764,6 @@ void RE_RenderScene( const refdef_t *fd ) {
 	r_firstSceneDlight = r_numdlights;
 	r_firstScenePoly = r_numpolys;
 
-	{
-		const int renderSceneMsec = Sys_Milliseconds() - startTime;
-		tr.frontEndMsec += renderSceneMsec;
-#ifdef _XBOX
-		R_STEFX_PerfEndScene( renderSceneMsec );
-#endif
-	}
-#ifdef _XBOX
-	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene before RE_RenderWorldEffects");
-#endif
+	tr.frontEndMsec += Sys_Milliseconds() - startTime;
 	RE_RenderWorldEffects();
-#ifdef _XBOX
-	if (xboxRenderSceneLog) XBLog_Write("JA: CL_EARLY RE_RenderScene done");
-#endif
 }

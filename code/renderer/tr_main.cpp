@@ -23,87 +23,6 @@ extern "C" volatile unsigned int g_SPXBHelmetRendererSurfaces;
 extern "C" volatile unsigned int g_SPXBHelmetRendererFiltered;
 extern "C" volatile unsigned int g_SPXBHelmetRendererLastFilter;
 extern "C" volatile unsigned int g_SPXBHelmetRendererLastSurfaceModel;
-extern "C" volatile unsigned int g_SPXBPerfRenderTotalMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderSetupMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderMarkLeavesMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderWorldMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderPolysMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderProjectionMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderEntitiesMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderSortMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderDebugMsec;
-extern "C" volatile unsigned int g_SPXBPerfRenderViews;
-extern "C" volatile unsigned int g_SPXBPerfRenderPortals;
-extern "C" volatile unsigned int g_SPXBPerfRenderDrawSurfs;
-extern "C" volatile unsigned int g_SPXBPerfRenderRefEntities;
-extern "C" volatile unsigned int g_SPXBPerfRenderLeafs;
-
-typedef struct stefxRendererPerf_s
-{
-	unsigned int setupMsec;
-	unsigned int markLeavesMsec;
-	unsigned int worldMsec;
-	unsigned int polysMsec;
-	unsigned int projectionMsec;
-	unsigned int entitiesMsec;
-	unsigned int sortMsec;
-	unsigned int debugMsec;
-	unsigned int views;
-	unsigned int portalViews;
-	unsigned int drawSurfs;
-	unsigned int entities;
-	unsigned int leafs;
-} stefxRendererPerf_t;
-
-static stefxRendererPerf_t s_stefxRendererPerf;
-
-void R_STEFX_PerfBeginScene( void )
-{
-	memset( &s_stefxRendererPerf, 0, sizeof( s_stefxRendererPerf ) );
-}
-
-void R_STEFX_PerfEndScene( int totalMsec )
-{
-	static int s_lastReportMsec = 0;
-	const int now = Sys_Milliseconds();
-
-	g_SPXBPerfRenderTotalMsec = (unsigned int)totalMsec;
-	g_SPXBPerfRenderSetupMsec = s_stefxRendererPerf.setupMsec;
-	g_SPXBPerfRenderMarkLeavesMsec = s_stefxRendererPerf.markLeavesMsec;
-	g_SPXBPerfRenderWorldMsec = s_stefxRendererPerf.worldMsec;
-	g_SPXBPerfRenderPolysMsec = s_stefxRendererPerf.polysMsec;
-	g_SPXBPerfRenderProjectionMsec = s_stefxRendererPerf.projectionMsec;
-	g_SPXBPerfRenderEntitiesMsec = s_stefxRendererPerf.entitiesMsec;
-	g_SPXBPerfRenderSortMsec = s_stefxRendererPerf.sortMsec;
-	g_SPXBPerfRenderDebugMsec = s_stefxRendererPerf.debugMsec;
-	g_SPXBPerfRenderViews = s_stefxRendererPerf.views;
-	g_SPXBPerfRenderPortals = s_stefxRendererPerf.portalViews;
-	g_SPXBPerfRenderDrawSurfs = s_stefxRendererPerf.drawSurfs;
-	g_SPXBPerfRenderRefEntities = s_stefxRendererPerf.entities;
-	g_SPXBPerfRenderLeafs = s_stefxRendererPerf.leafs;
-
-	if ( s_lastReportMsec == 0 || now - s_lastReportMsec >= 10000 )
-	{
-		XBLog_WriteCriticalf(
-			"STEFX_RENDER_PROFILE: total=%d setup=%u mark=%u world=%u polys=%u projection=%u "
-			"entities=%u sort=%u debug=%u views=%u portals=%u drawSurfs=%u refEntities=%u leafs=%u",
-			totalMsec,
-			s_stefxRendererPerf.setupMsec,
-			s_stefxRendererPerf.markLeavesMsec,
-			s_stefxRendererPerf.worldMsec,
-			s_stefxRendererPerf.polysMsec,
-			s_stefxRendererPerf.projectionMsec,
-			s_stefxRendererPerf.entitiesMsec,
-			s_stefxRendererPerf.sortMsec,
-			s_stefxRendererPerf.debugMsec,
-			s_stefxRendererPerf.views,
-			s_stefxRendererPerf.portalViews,
-			s_stefxRendererPerf.drawSurfs,
-			s_stefxRendererPerf.entities,
-			s_stefxRendererPerf.leafs );
-		s_lastReportMsec = now;
-	}
-}
 #endif
 
 void R_AddTerrainSurfaces(void);
@@ -604,7 +523,6 @@ static void SetFarClip( void )
 	if ( tr.world && !Q_stricmp( tr.world->baseName, "yavin1" ) &&
 		( tr.refdef.rdflags & RDF_DRAWSKYBOX ) )
 	{
-		static int s_yavinIntroFarClipLogs = 0;
 		for ( i = 0; i < tr.refdef.num_entities; ++i )
 		{
 			const trRefEntity_t *ent = &tr.refdef.entities[i];
@@ -621,19 +539,7 @@ static void SetFarClip( void )
 			forwardDist = DotProduct( delta, tr.viewParms.or.axis[0] );
 			if ( forwardDist > tr.viewParms.zFar - 256.0f )
 			{
-				const float oldZFar = tr.viewParms.zFar;
 				tr.viewParms.zFar = Com_Clamp( tr.viewParms.zFar, tr.distanceCull * 1.732f, forwardDist + 768.0f );
-				if ( s_yavinIntroFarClipLogs < 16 )
-				{
-					XBLF("JA: XBOX_YAVIN_INTRO_FARCLIP ent=%d old=%g new=%g forward=%g origin=%g,%g,%g view=%g,%g,%g",
-						ent->e.number,
-						oldZFar,
-						tr.viewParms.zFar,
-						forwardDist,
-						ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
-						tr.viewParms.or.origin[0], tr.viewParms.or.origin[1], tr.viewParms.or.origin[2]);
-					++s_yavinIntroFarClipLogs;
-				}
 			}
 		}
 	}
@@ -1450,11 +1356,6 @@ R_AddDrawSurf
 void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fogIndex, int dlightMap ) 
 {
 	int			index;
-#ifdef _XBOX
-	static int s_xboxJunkSkyDrawSurfBudget = 32;
-	const qboolean traceJunkSky = (shader && shader->name &&
-		strstr( shader->name, "textures/common/junk_sky" )) ? qtrue : qfalse;
-#endif
 
 	// instead of checking for overflow, we just mask the index
 	// so it wraps around
@@ -1465,40 +1366,12 @@ void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fo
 		fogIndex = tr.world->numfogs;
 	}
 
-#ifdef _XBOX
-	if ( traceJunkSky && s_xboxJunkSkyDrawSurfBudget > 0 )
-	{
-		XBLF("STEFX_JUNK_SKY_DRAWSURF enter shader='%s' fog=%d dlight=%d surfaceFlags=0x%x rdflags=0x%x drawBefore=%d",
-			shader->name,
-			fogIndex,
-			dlightMap,
-			shader->surfaceFlags,
-			tr.refdef.rdflags,
-			tr.refdef.numDrawSurfs);
-		--s_xboxJunkSkyDrawSurfBudget;
-	}
-#endif
-
 	// the sort data is packed into a single 32 bit value so it can be
 	// compared quickly during the qsorting process
 	tr.refdef.drawSurfs[index].sort = (shader->sortedIndex << QSORT_SHADERNUM_SHIFT) 
 		| tr.shiftedEntityNum | ( fogIndex << QSORT_FOGNUM_SHIFT ) | (int)dlightMap;
 	tr.refdef.drawSurfs[index].surface = (surfaceType_t *)surface;
 	tr.refdef.numDrawSurfs++;
-#ifdef _XBOX
-	if ( traceJunkSky && s_xboxJunkSkyDrawSurfBudget > 0 )
-	{
-		XBLF("STEFX_JUNK_SKY_DRAWSURF added shader='%s' fog=%d dlight=%d sort=0x%x drawIndex=%d total=%d rdflags=0x%x",
-			shader->name,
-			fogIndex,
-			dlightMap,
-			tr.refdef.drawSurfs[index].sort,
-			index,
-			tr.refdef.numDrawSurfs,
-			tr.refdef.rdflags);
-		--s_xboxJunkSkyDrawSurfBudget;
-	}
-#endif
 }
 
 /*
@@ -1561,15 +1434,6 @@ void R_SortDrawSurfs( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 		// if the mirror was completely clipped away, we may need to check another surface
 		if ( R_MirrorViewBySurface( (drawSurfs+i), entityNum) ) {
-#ifdef _XBOX
-			static int s_xboxPortalLogCount = 0;
-			if (s_xboxPortalLogCount < 16)
-			{
-				XBLF("JA: R_SortDrawSurfs portal view rendered shader='%s' index=%d entity=%d",
-					shader ? shader->name : "<null>", i, entityNum);
-				++s_xboxPortalLogCount;
-			}
-#endif
 			// this is a debug option to see exactly what is being mirrored
 			if ( r_portalOnly->integer ) {
 				return;
@@ -1707,25 +1571,6 @@ void R_AddEntitySurfaces (void) {
 			R_RotateForEntity( ent, &tr.viewParms, &tr.or );
 
 			tr.currentModel = R_GetModelByHandle( ent->e.hModel );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if ( cls.state == CA_ACTIVE && ent->e.hModel >= 2 && ent->e.hModel <= 5 )
-			{
-				static int s_stefxIntroModelSurfaceBudget = 96;
-				if ( s_stefxIntroModelSurfaceBudget > 0 )
-				{
-					XBLF("STEFX: INTRO_MODEL_SURF ent=%d hModel=%d reType=%d model='%s' type=%d renderfx=0x%x origin=(%g,%g,%g) currentEntity=%d",
-						ent->e.number,
-						ent->e.hModel,
-						ent->e.reType,
-						tr.currentModel ? tr.currentModel->name : "<null>",
-						tr.currentModel ? (int)tr.currentModel->type : -1,
-						ent->e.renderfx,
-						ent->e.origin[0], ent->e.origin[1], ent->e.origin[2],
-						tr.currentEntityNum);
-					--s_stefxIntroModelSurfaceBudget;
-				}
-			}
-#endif
 			if (!tr.currentModel) {
 				R_AddDrawSurf( &entitySurface, tr.defaultShader, 0, 0 );
 			} else {
@@ -1811,60 +1656,15 @@ R_GenerateDrawSurfs
 #ifdef _XBOX
 extern void R_MarkLeaves(mleaf_s*);
 void R_GenerateDrawSurfs( bool isPortal ) {
-	static int s_xboxGenerateLogBudget = 48;
-	int xboxDrawBefore = tr.refdef.numDrawSurfs;
-	int xboxPhaseStart;
-	if (s_xboxGenerateLogBudget > 0) {
-		XBLF("JA: R_GenerateDrawSurfs enter portal=%d rd=0x%x draw=%d visCount=%d viewCluster=%d world=%p '%s'",
-			(int)isPortal,
-			tr.refdef.rdflags,
-			tr.refdef.numDrawSurfs,
-			tr.visCount,
-			tr.viewCluster,
-			tr.world,
-			tr.world ? tr.world->baseName : "<null>");
-	}
+	(void)isPortal;
 
 	// determine which leaves are in the PVS / areamask
-	xboxPhaseStart = Sys_Milliseconds();
 	if ( !(tr.refdef.rdflags & RDF_NOWORLDMODEL) ) {
 		R_MarkLeaves (NULL);
-		if (s_xboxGenerateLogBudget > 0) {
-			XBLF("JA: R_GenerateDrawSurfs after MarkLeaves draw=%d visCount=%d viewCluster=%d rootVis=%d",
-				tr.refdef.numDrawSurfs,
-				tr.visCount,
-				tr.viewCluster,
-				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1);
-		}
 	}
-	s_stefxRendererPerf.markLeavesMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-
-	xboxPhaseStart = Sys_Milliseconds();
 	R_AddWorldSurfaces ();
-	s_stefxRendererPerf.worldMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-	s_stefxRendererPerf.leafs += (unsigned int)tr.pc.c_leafs;
-	if (s_xboxGenerateLogBudget > 0) {
-		XBLF("JA: R_GenerateDrawSurfs after AddWorld delta=%d draw=%d leafs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
-			tr.refdef.numDrawSurfs - xboxDrawBefore,
-			tr.refdef.numDrawSurfs,
-			tr.pc.c_leafs,
-			tr.viewParms.visBounds[0][0],
-			tr.viewParms.visBounds[0][1],
-			tr.viewParms.visBounds[0][2],
-			tr.viewParms.visBounds[1][0],
-			tr.viewParms.visBounds[1][1],
-			tr.viewParms.visBounds[1][2]);
-	}
 
-	xboxPhaseStart = Sys_Milliseconds();
 	R_AddPolygonSurfaces();
-	s_stefxRendererPerf.polysMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-	if (s_xboxGenerateLogBudget > 0) {
-		XBLF("JA: R_GenerateDrawSurfs after AddPolys delta=%d draw=%d polys=%d",
-			tr.refdef.numDrawSurfs - xboxDrawBefore,
-			tr.refdef.numDrawSurfs,
-			tr.refdef.numPolys);
-	}
 
 //	R_AddTerrainSurfaces();
 
@@ -1873,21 +1673,8 @@ void R_GenerateDrawSurfs( bool isPortal ) {
 	// this needs to be done before entities are
 	// added, because they use the projection
 	// matrix for lod calculation
-	xboxPhaseStart = Sys_Milliseconds();
 	R_SetupProjection ();
-	s_stefxRendererPerf.projectionMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-
-	xboxPhaseStart = Sys_Milliseconds();
 	R_AddEntitySurfaces ();
-	s_stefxRendererPerf.entitiesMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-	s_stefxRendererPerf.entities += (unsigned int)tr.refdef.num_entities;
-	if (s_xboxGenerateLogBudget > 0) {
-		XBLF("JA: R_GenerateDrawSurfs exit delta=%d draw=%d ents=%d",
-			tr.refdef.numDrawSurfs - xboxDrawBefore,
-			tr.refdef.numDrawSurfs,
-			tr.refdef.num_entities);
-		--s_xboxGenerateLogBudget;
-	}
 }
 
 #else 
@@ -2021,39 +1808,8 @@ or a mirror / remote location
 */
 void R_RenderView (viewParms_t *parms) {
 	int		firstDrawSurf;
-#ifdef _XBOX
-	static int s_xboxRenderViewLogBudget = 48;
-	int xboxPhaseStart;
-#endif
-
-#ifdef _XBOX
-	if (s_xboxRenderViewLogBudget > 0) {
-		XBLF("JA: R_RenderView raw enter viewport=%d,%d %dx%d fov=%g/%g rd=0x%x origin=(%g,%g,%g) world=%p",
-			parms ? parms->viewportX : -9999,
-			parms ? parms->viewportY : -9999,
-			parms ? parms->viewportWidth : -9999,
-			parms ? parms->viewportHeight : -9999,
-			parms ? parms->fovX : -9999.0,
-			parms ? parms->fovY : -9999.0,
-			tr.refdef.rdflags,
-			tr.refdef.vieworg[0],
-			tr.refdef.vieworg[1],
-			tr.refdef.vieworg[2],
-			tr.world);
-	}
-#endif
 
 	if ( parms->viewportWidth <= 0 || parms->viewportHeight <= 0 ) {
-#ifdef _XBOX
-		if (s_xboxRenderViewLogBudget > 0) {
-			XBLF("JA: R_RenderView return invalid viewport=%d,%d %dx%d",
-				parms ? parms->viewportX : -9999,
-				parms ? parms->viewportY : -9999,
-				parms ? parms->viewportWidth : -9999,
-				parms ? parms->viewportHeight : -9999);
-			--s_xboxRenderViewLogBudget;
-		}
-#endif
 		return;
 	}
 
@@ -2072,46 +1828,11 @@ void R_RenderView (viewParms_t *parms) {
 
 	tr.viewCount++;
 
-#ifdef _XBOX
-	xboxPhaseStart = Sys_Milliseconds();
-	++s_stefxRendererPerf.views;
-	if ( parms->isPortal )
-	{
-		++s_stefxRendererPerf.portalViews;
-	}
-#endif
-
 	tr.viewParms = *parms;
 	tr.viewParms.frameSceneNum = tr.frameSceneNum;
 	tr.viewParms.frameCount = tr.frameCount;
 
 	firstDrawSurf = tr.refdef.numDrawSurfs;
-#ifdef _XBOX
-	if (s_xboxRenderViewLogBudget > 0) {
-		XBLF("JA: R_RenderView enter viewCount=%d firstDraw=%d viewport=%d,%d %dx%d fov=%g/%g rd=0x%x origin=(%g,%g,%g) pvs=(%g,%g,%g) world=%p '%s' nodes=%d leafs=%d surfaces=%d clusters=%d",
-			tr.viewCount,
-			firstDrawSurf,
-			parms->viewportX,
-			parms->viewportY,
-			parms->viewportWidth,
-			parms->viewportHeight,
-			parms->fovX,
-			parms->fovY,
-			tr.refdef.rdflags,
-			tr.refdef.vieworg[0],
-			tr.refdef.vieworg[1],
-			tr.refdef.vieworg[2],
-			parms->pvsOrigin[0],
-			parms->pvsOrigin[1],
-			parms->pvsOrigin[2],
-			tr.world,
-			tr.world ? tr.world->baseName : "<null>",
-			tr.world ? tr.world->numnodes : -1,
-			tr.world ? tr.world->numleafs : -1,
-			tr.world ? tr.world->numsurfaces : -1,
-			tr.world ? tr.world->numClusters : -1);
-	}
-#endif
 
 	tr.viewCount++;
 
@@ -2125,45 +1846,13 @@ void R_RenderView (viewParms_t *parms) {
 		R_SetViewFogIndex ();
 	}
 #ifdef _XBOX
-	s_stefxRendererPerf.setupMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-#endif
-
-#ifdef _XBOX
 	R_GenerateDrawSurfs(parms->isPortal);
 #else
 	R_GenerateDrawSurfs();
 #endif
-#ifdef _XBOX
-	if (s_xboxRenderViewLogBudget > 0) {
-		XBLF("JA: R_RenderView before sort delta=%d draw=%d visCount=%d viewCluster=%d",
-			tr.refdef.numDrawSurfs - firstDrawSurf,
-			tr.refdef.numDrawSurfs,
-			tr.visCount,
-			tr.viewCluster);
-	}
-#endif
 
-#ifdef _XBOX
-	xboxPhaseStart = Sys_Milliseconds();
-#endif
 	R_SortDrawSurfs( tr.refdef.drawSurfs + firstDrawSurf, tr.refdef.numDrawSurfs - firstDrawSurf );
-#ifdef _XBOX
-	s_stefxRendererPerf.sortMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-	s_stefxRendererPerf.drawSurfs += (unsigned int)(tr.refdef.numDrawSurfs - firstDrawSurf);
-	if (s_xboxRenderViewLogBudget > 0) {
-		XBLF("JA: R_RenderView exit sortedDelta=%d draw=%d",
-			tr.refdef.numDrawSurfs - firstDrawSurf,
-			tr.refdef.numDrawSurfs);
-		--s_xboxRenderViewLogBudget;
-	}
-#endif
 
 	// draw main system development information (surface outlines, etc)
-#ifdef _XBOX
-	xboxPhaseStart = Sys_Milliseconds();
-#endif
 	R_DebugGraphics();
-#ifdef _XBOX
-	s_stefxRendererPerf.debugMsec += (unsigned int)(Sys_Milliseconds() - xboxPhaseStart);
-#endif
 }

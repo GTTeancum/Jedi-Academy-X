@@ -14,15 +14,7 @@
 #include "../win32/win_highdynamicrange.h"
 #include "../win32/xb_log.h"
 extern bool Sys_IsDirectMapBoot(void);
-extern "C" volatile unsigned int g_SPXBRenderDrawSurfLists;
-extern "C" volatile unsigned int g_SPXBRenderSurfaces;
 extern "C" volatile unsigned int g_SPXBRenderBackendMsec;
-extern "C" volatile unsigned int g_SPXBRenderSplitShader;
-extern "C" volatile unsigned int g_SPXBRenderSplitFog;
-extern "C" volatile unsigned int g_SPXBRenderSplitDlight;
-extern "C" volatile unsigned int g_SPXBRenderSplitEntity;
-extern "C" volatile unsigned int g_SPXBRenderSplitFinal;
-extern "C" volatile unsigned int g_SPXBRenderSplitFlush;
 extern "C" volatile unsigned int g_SPXBSurfaceTypeCounts[16];
 extern "C" volatile unsigned int g_SPXBEntityTypeCounts[16];
 static const bool kXboxClassifyDrawSurfs = false;
@@ -84,36 +76,12 @@ static bool RB_XboxCanMergeGeneratedEntitySurf(const surfaceType_t *surface, int
 		RB_XboxGeneratedEntityIsMergeSafe(oldEntityNum);
 }
 
-static bool RB_XboxTrace2DShader( const shader_t *shader )
-{
-	const char *name = shader ? shader->name : "";
-
-	if ( !name )
-	{
-		name = "";
-	}
-
-	return strstr( name, "gfx/interface/" ) ||
-		strstr( name, "crosshair" ) ||
-		strstr( name, "gfx/effects/" ) ||
-		strstr( name, "gfx/misc/" );
-}
-
 static void RB_XboxForce2DOverlayState( const char *where )
 {
-	static int s_stefx2DStateLogBudget = 48;
-	static int s_stefx2DStateSkipBudget = 16;
+	(void)where;
 
 	if ( !glw_state || !glw_state->device )
 	{
-		if ( cls.state == CA_ACTIVE && s_stefx2DStateSkipBudget > 0 )
-		{
-			XBLF( "STEFX: RB_XboxForce2DOverlayState skipped where=%s glw=%p device=%p frame=%d projection2D=%d",
-				where ? where : "<null>", glw_state,
-				glw_state ? glw_state->device : NULL,
-				tr.frameCount, backEnd.projection2D );
-			--s_stefx2DStateSkipBudget;
-		}		
 		return;	
 	}
 
@@ -124,13 +92,6 @@ static void RB_XboxForce2DOverlayState( const char *where )
 	glw_state->device->SetRenderState( D3DRS_SRCBLEND, D3DBLEND_SRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
-
-	if ( s_stefx2DStateLogBudget > 0 )
-	{
-		XBLF( "STEFX: RB_XboxForce2DOverlayState where=%s frame=%d projection2D=%d",
-			where ? where : "<null>", tr.frameCount, backEnd.projection2D );
-		--s_stefx2DStateLogBudget;
-	}
 }
 #endif
 
@@ -886,14 +847,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	const qboolean xboxActiveDrawList = (cls.state == CA_ACTIVE);
 	const qboolean xboxTraceDrawList = qfalse;
 	int xboxLoggedSurfs = 0;
-	unsigned int xboxSplitShader = 0;
-	unsigned int xboxSplitFog = 0;
-	unsigned int xboxSplitDlight = 0;
-	unsigned int xboxSplitEntity = 0;
-	unsigned int xboxSplitFinal = 0;
-	unsigned int xboxSplitFlush = 0;
-	g_SPXBRenderDrawSurfLists++;
-	g_SPXBRenderSurfaces += (unsigned int)numDrawSurfs;
 	if (xboxTraceDrawList)
 	{
 		XBLF("JA: RB_RenderDrawSurfList #%d enter numDrawSurfs=%d",
@@ -1099,25 +1052,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			) )
 		{
 			if (oldShader != NULL) {
-#ifdef _XBOX
-				if (shader != oldShader)
-				{
-					xboxSplitShader++;
-				}
-				if (fogNum != oldFogNum)
-				{
-					xboxSplitFog++;
-				}
-				if (dlighted != oldDlighted)
-				{
-					xboxSplitDlight++;
-				}
-				if (entityNum != oldEntityNum && !shader->entityMergable && !xboxMergeGeneratedEntitySurf)
-				{
-					xboxSplitEntity++;
-				}
-				xboxSplitFlush++;
-#endif
 #ifdef __MACOS__	// crutch up the mac's limited buffer queue size
 				int		t;
 
@@ -1242,8 +1176,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// draw the contents of the last shader batch
 	if (oldShader != NULL) {
 #ifdef _XBOX
-		xboxSplitFinal++;
-		xboxSplitFlush++;
 		if (xboxTraceDrawList) XBLF("JA: RB_RenderDrawSurfList #%d final RB_EndSurface shader='%s'",
 			s_xboxRenderDrawSurfListCount, oldShader ? oldShader->name : "<null>");
 #endif
@@ -1252,15 +1184,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		if (xboxTraceDrawList) XBLog_Write("JA: RB_RenderDrawSurfList final RB_EndSurface done");
 #endif
 	}
-
-#ifdef _XBOX
-	g_SPXBRenderSplitShader += xboxSplitShader;
-	g_SPXBRenderSplitFog += xboxSplitFog;
-	g_SPXBRenderSplitDlight += xboxSplitDlight;
-	g_SPXBRenderSplitEntity += xboxSplitEntity;
-	g_SPXBRenderSplitFinal += xboxSplitFinal;
-	g_SPXBRenderSplitFlush += xboxSplitFlush;
-#endif
 
 	if (tr_stencilled && tr_distortionPrePost)
 	{ //ok, cap it now
@@ -1528,13 +1451,13 @@ void	RB_SetGL2D (void) {
     glLoadIdentity ();
 #ifdef _XBOX
 #if defined(STEFX_ELITE_FORCE_SP)
-	glOrtho (0, 640, 480, 0, 0, 1);
+	glOrtho (0, 640, 0, 480, 0, 1);
 #else
 	extern int Menus_AnyFullScreenVisible(void);
 	if(glw_state->isWidescreen && !(Menus_AnyFullScreenVisible()) && cls.state == CA_ACTIVE)
-		glOrtho (0, 720, 480, 0, 0, 1);
+		glOrtho (0, 720, 0, 480, 0, 1);
 	else 
-        glOrtho (0, 640, 480, 0, 0, 1);
+        glOrtho (0, 640, 0, 480, 0, 1);
 #endif
 #else
 	glOrtho (0, 640, 480, 0, 0, 1);
@@ -1605,37 +1528,6 @@ const void *RB_StretchPic ( const void *data ) {
 	}
 #ifdef _XBOX
 #if defined(STEFX_ELITE_FORCE_SP)
-	if ( cls.state != CA_ACTIVE )
-	{
-		static int s_stefxFrontendStretchBackendBudget = 240;
-		if ( s_stefxFrontendStretchBackendBudget > 0 )
-		{
-			XBLF( "STEFX_FRONTEND_2D_BACKEND shader='%s' rect=(%g,%g %gx%g) st=(%g,%g %g,%g) color=%u,%u,%u,%u tessBefore=%d/%d projection2D=%d state=%d catcher=0x%x",
-				shader ? shader->name : "<null>",
-				cmd->x, cmd->y, cmd->w, cmd->h,
-				cmd->s1, cmd->t1, cmd->s2, cmd->t2,
-				(unsigned int)backEnd.color2D[0], (unsigned int)backEnd.color2D[1],
-				(unsigned int)backEnd.color2D[2], (unsigned int)backEnd.color2D[3],
-				tess.numVertexes, tess.numIndexes, backEnd.projection2D,
-				cls.state, cls.keyCatchers );
-			--s_stefxFrontendStretchBackendBudget;
-		}		
-	}
-	if ( cls.state == CA_ACTIVE && RB_XboxTrace2DShader( shader ) )
-	{
-		static int s_stefxStretchBackendBudget = 240;
-		if ( s_stefxStretchBackendBudget > 0 )
-		{
-			XBLF( "STEFX: RB_StretchPic shader='%s' rect=(%g,%g %gx%g) st=(%g,%g %g,%g) color=%u,%u,%u,%u tessBefore=%d/%d projection2D=%d",
-				shader ? shader->name : "<null>",
-				cmd->x, cmd->y, cmd->w, cmd->h,
-				cmd->s1, cmd->t1, cmd->s2, cmd->t2,
-				(unsigned int)backEnd.color2D[0], (unsigned int)backEnd.color2D[1],
-				(unsigned int)backEnd.color2D[2], (unsigned int)backEnd.color2D[3],
-				tess.numVertexes, tess.numIndexes, backEnd.projection2D );
-			--s_stefxStretchBackendBudget;
-		}		
-	}
 	RB_XboxForce2DOverlayState( "RB_StretchPic" );
 #endif
 #endif
@@ -1860,45 +1752,13 @@ RB_DrawSurfs
 */
 const void	*RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t	*cmd;
-#ifdef _XBOX
-	static int s_xboxDrawSurfsCommandCount = 0;
-	static int s_xboxDrawSurfsTraceBudget = 8;
-#endif
 
 	// finish any 2D drawing if needed
 	if ( tess.numIndexes ) {
-#ifdef _XBOX
-		if (cls.state == CA_ACTIVE && s_xboxDrawSurfsTraceBudget > 0)
-		{
-			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface tessIndexes=%d",
-				s_xboxDrawSurfsCommandCount, tess.numIndexes);
-		}		
-#endif
 		RB_EndSurface();
-#ifdef _XBOX
-		if (cls.state == CA_ACTIVE && s_xboxDrawSurfsTraceBudget > 0)
-		{
-			XBLF("JA: RB_DrawSurfs #%d pre RB_EndSurface done",
-				s_xboxDrawSurfsCommandCount);
-		}		
-#endif
 	}
 
 	cmd = (const drawSurfsCommand_t *)data;
-#ifdef _XBOX
-	const qboolean xboxTraceDrawSurfs = (cls.state == CA_ACTIVE && s_xboxDrawSurfsTraceBudget > 0);
-	if (xboxTraceDrawSurfs)
-	{
-		XBLF("JA: RB_DrawSurfs #%d enter numDrawSurfs=%d refdefTime=%d viewport=%d,%d %dx%d",
-			s_xboxDrawSurfsCommandCount,
-			cmd->numDrawSurfs,
-			cmd->refdef.time,
-			cmd->refdef.x,
-			cmd->refdef.y,
-			cmd->refdef.width,
-			cmd->refdef.height);
-	}
-#endif
 
 	backEnd.refdef = cmd->refdef;
 	backEnd.viewParms = cmd->viewParms;
@@ -1972,15 +1832,6 @@ const void	*RB_DrawSurfs( const void *data ) {
 		RB_DrawGlowOverlay(); 
 	}
 #endif	// _XBOX
-#ifdef _XBOX
-	if (xboxTraceDrawSurfs)
-	{
-		XBLF("JA: RB_DrawSurfs #%d exit", s_xboxDrawSurfsCommandCount);
-		s_xboxDrawSurfsCommandCount++;
-		--s_xboxDrawSurfsTraceBudget;
-	}
-#endif
-
 	return (const void *)(cmd + 1);
 }
 
@@ -2131,44 +1982,10 @@ RB_SwapBuffers
 extern void RB_RenderWorldEffects( void );
 const void	*RB_SwapBuffers( const void *data ) {
 	const swapBuffersCommand_t	*cmd;
-#ifdef _XBOX
-	static int s_xboxSwapCommandTraceCount = 0;
-	static int s_xboxSwapCommandTraceBudget = 8;
-	const qboolean xboxTraceSwapCommand = (cls.state == CA_ACTIVE && s_xboxSwapCommandTraceBudget > 0);
-#if defined(STEFX_ELITE_FORCE_SP)
-	static int s_stefxFrontendSwapTraceBudget = 24;
-	const qboolean stefxTraceFrontendSwap =
-		(cls.state != CA_ACTIVE && (cls.keyCatchers & KEYCATCH_UI) && s_stefxFrontendSwapTraceBudget > 0);
-	if (stefxTraceFrontendSwap)
-	{
-		XBLF("STEFX_FRONTEND_2D_SWAP enter state=%d catcher=0x%x tessIndexes=%d tessVerts=%d shader='%s' projection2D=%d",
-			(int)cls.state, (unsigned int)cls.keyCatchers, tess.numIndexes, tess.numVertexes,
-			tess.shader ? tess.shader->name : "<null>", backEnd.projection2D);
-	}
-#endif
-	if (xboxTraceSwapCommand)
-	{
-		XBLF("JA: RB_SwapBuffers #%d enter tessIndexes=%d finishCalled=%d",
-			s_xboxSwapCommandTraceCount, tess.numIndexes, (int)glState.finishCalled);
-	}
-#endif
 
 	// finish any 2D drawing if needed
 	if ( tess.numIndexes ) {
-#ifdef _XBOX
-		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: RB_EndSurface...");
-#endif
 	RB_EndSurface();
-#ifdef _XBOX
-		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: RB_EndSurface done");
-#if defined(STEFX_ELITE_FORCE_SP)
-		if (stefxTraceFrontendSwap)
-		{
-			XBLF("STEFX_FRONTEND_2D_SWAP after RB_EndSurface tessIndexes=%d tessVerts=%d",
-				tess.numIndexes, tess.numVertexes);
-		}		
-#endif
-#endif
 	}
 
 	// texture swapping test
@@ -2199,37 +2016,12 @@ const void	*RB_SwapBuffers( const void *data ) {
 #endif
 
     if ( !glState.finishCalled ) {
-#ifdef _XBOX
-		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: glFinish...");
-#endif
         glFinish();
-#ifdef _XBOX
-		if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: glFinish done");
-#endif
 	}
 
     GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
 
-#ifdef _XBOX
-	if (xboxTraceSwapCommand) XBLog_Write("JA: RB_SwapBuffers: GLimp_EndFrame...");
-#endif
 	GLimp_EndFrame();
-#ifdef _XBOX
-	if (xboxTraceSwapCommand)
-	{
-		XBLog_Write("JA: RB_SwapBuffers: GLimp_EndFrame done");
-		s_xboxSwapCommandTraceCount++;
-		--s_xboxSwapCommandTraceBudget;
-	}
-#if defined(STEFX_ELITE_FORCE_SP)
-	if (stefxTraceFrontendSwap)
-	{
-		XBLF("STEFX_FRONTEND_2D_SWAP exit state=%d catcher=0x%x",
-			(int)cls.state, (unsigned int)cls.keyCatchers);
-		--s_stefxFrontendSwapTraceBudget;
-	}
-#endif
-#endif
 
 	backEnd.projection2D = qfalse;
 
@@ -2267,23 +2059,11 @@ smp extensions, or asyncronously by another thread.
 */
 void RB_ExecuteRenderCommands( const void *data ) {
 	int		t1, t2;
-#ifdef _XBOX
-	static int s_xboxRenderCommandTraceCount = 0;
-#endif
 
 	t1 = Sys_Milliseconds ();
 
 	while ( 1 ) {
 		const int commandId = *(const int *)data;
-#ifdef _XBOX
-		const qboolean xboxTraceCommand = (cls.state == CA_ACTIVE &&
-			(commandId == RC_DRAW_SURFS || commandId == RC_SWAP_BUFFERS || commandId == RC_END_OF_LIST));
-		if (xboxTraceCommand)
-		{
-			XBLF("JA: RB_ExecuteRenderCommands #%d before cmd=%d",
-				s_xboxRenderCommandTraceCount, commandId);
-		}		
-#endif
 		switch ( commandId ) {
 		case RC_SET_COLOR:
 			data = RB_SetColor( data );
@@ -2319,23 +2099,9 @@ void RB_ExecuteRenderCommands( const void *data ) {
 			backEnd.pc.msec = t2 - t1;
 #ifdef _XBOX
 			g_SPXBRenderBackendMsec = (unsigned int)backEnd.pc.msec;
-			if (xboxTraceCommand)
-			{
-				XBLF("JA: RB_ExecuteRenderCommands #%d end cmd=%d msec=%d",
-					s_xboxRenderCommandTraceCount, commandId, backEnd.pc.msec);
-				s_xboxRenderCommandTraceCount++;
-			}			
 #endif
 			return;
 		}		
-#ifdef _XBOX
-		if (xboxTraceCommand)
-		{
-			XBLF("JA: RB_ExecuteRenderCommands #%d after cmd=%d",
-				s_xboxRenderCommandTraceCount, commandId);
-			s_xboxRenderCommandTraceCount++;
-		}		
-#endif
 	}
 
 }

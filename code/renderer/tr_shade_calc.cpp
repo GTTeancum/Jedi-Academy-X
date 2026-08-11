@@ -9,8 +9,8 @@
 #include "tr_local.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
-static int s_xboxDiffuseLogCount = 0;
-static int s_xboxDiffuseEntityLogCount = 0;
+static int s_xboxDiffuseLogCount = 64;
+static int s_xboxDiffuseEntityLogCount = 64;
 #endif
 #define	WAVEVALUE( table, base, amplitude, phase, freq )  ((base) + table[ myftol( ( ( (phase) + backEnd.refdef.floatTime * (freq) ) * FUNCTABLE_SIZE ) ) & FUNCTABLE_MASK ] * (amplitude))
 

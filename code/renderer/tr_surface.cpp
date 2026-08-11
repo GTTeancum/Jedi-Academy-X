@@ -1497,7 +1497,7 @@ void RB_SurfacePolychain( srfPoly_t *p ) {
 		  strstr( tess.shader->name, "gfx/interface/" ) ||
 		  strstr( tess.shader->name, "crosshair" ) ) )
 	{
-		static int s_stefxSurfacePolyBudget = 160;
+		static int s_stefxSurfacePolyBudget = 0;
 		if ( s_stefxSurfacePolyBudget > 0 )
 		{
 			XBLF( "STEFX: RB_SurfacePolychain shader='%s' verts=%d tessBefore=%d/%d v0=(%g,%g,%g) color0=%u,%u,%u,%u",
@@ -3129,7 +3129,7 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 	} 
 
 #ifdef _XBOX
-	static int s_xboxSkipFlareTraceCount = 0;
+	static int s_xboxSkipFlareTraceCount = 64;
 	if ( s_xboxSkipFlareTraceCount < 64 ) {
 		XBLF("JA: RB_SurfaceFlare Xbox skip number=%d r_flares=%d visible=%d",
 			(int)surf->number, r_flares->integer, (int)surf->visible);

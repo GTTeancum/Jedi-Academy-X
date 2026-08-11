@@ -118,17 +118,6 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 	renderCommandList_t	*cmdList;
 
 	cmdList = &backEndData->commands;
-#ifdef _XBOX
-	static int s_xboxIssueCommandTraceCount = 0;
-	const qboolean xboxTraceIssueCommands = (cls.state == CA_ACTIVE)
-		? (s_xboxIssueCommandTraceCount < 16)
-		: qtrue;
-	if (xboxTraceIssueCommands)
-	{
-		XBLF("JA: R_IssueRenderCommands enter used=%d perf=%d skip=%d",
-			cmdList->used, runPerformanceCounters, r_skipBackEnd ? r_skipBackEnd->integer : -1);
-	}
-#endif
 
 	// add an end-of-list command
 	*(int *)(cmdList->cmds + cmdList->used) = RC_END_OF_LIST;
@@ -147,13 +136,6 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 		// let it start on the new batch
 		RB_ExecuteRenderCommands( cmdList->cmds );
 	}
-#ifdef _XBOX
-	if (xboxTraceIssueCommands)
-	{
-		XBLog_Write("JA: R_IssueRenderCommands done");
-		s_xboxIssueCommandTraceCount++;
-	}
-#endif
 }
 
 
@@ -304,27 +286,6 @@ void RE_StretchPic ( float x, float y, float w, float h,
 	cmd->t1 = t1;
 	cmd->s2 = s2;
 	cmd->t2 = t2;
-#ifdef _XBOX
-	{
-		static int s_stefxStretchQueueBudget = 240;
-		if ( cls.state == CA_ACTIVE && R_XboxTraceStretchShader( shader, x, y, w, h ) && s_stefxStretchQueueBudget > 0 )
-		{
-			XBLF( "STEFX: RE_StretchPic queued shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d frame=%d",
-				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
-				backEndData ? backEndData->commands.used : -1, tr.frameCount );
-			--s_stefxStretchQueueBudget;
-		}
-#if defined(STEFX_ELITE_FORCE_SP)
-		if ( cls.state != CA_ACTIVE && s_stefxStretchQueueBudget > 0 )
-		{
-			XBLF( "STEFX_FRONTEND_2D_QUEUE shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d frame=%d state=%d catcher=0x%x",
-				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
-				backEndData ? backEndData->commands.used : -1, tr.frameCount, cls.state, cls.keyCatchers );
-			--s_stefxStretchQueueBudget;
-		}
-#endif
-	}
-#endif
 }
 
 /*
@@ -638,21 +599,6 @@ Returns the number of msec spent in the back end
 */
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
-#ifdef _XBOX
-	static int s_xboxEndFrameCount = 0;
-	static int s_xboxActiveEndFrameCount = 0;
-	const int stefxLateEndFrame = 0;
-	const int xboxTraceEndFrameTight = stefxLateEndFrame || (cls.state == CA_ACTIVE && s_xboxActiveEndFrameCount >= 32 && s_xboxActiveEndFrameCount <= 96);
-	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
-		? (s_xboxActiveEndFrameCount < 16 || ((s_xboxActiveEndFrameCount & 255) == 0))
-		: (s_xboxEndFrameCount < 32);
-	if (xboxTraceEndFrame)
-	{
-		XBLF("JA: RE_EndFrame #%d active=%d enter registered=%d",
-			(cls.state == CA_ACTIVE) ? s_xboxActiveEndFrameCount : s_xboxEndFrameCount,
-			(int)(cls.state == CA_ACTIVE), tr.registered);
-	}
-#endif
 
 	if ( !tr.registered ) {
 		return;
@@ -664,83 +610,30 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
-	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame tight #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
-	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d enter registered=%d cmdUsed=%d", s_xboxActiveEndFrameCount, tr.registered, backEndData ? backEndData->commands.used : -1);
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glBeginFrame");
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glBeginFrame");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame...");
 	if (!glBeginFrame()) return;
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glBeginFrame");
-	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after glBeginFrame cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glBeginFrame");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame done");
 #endif
 
-	#ifdef _XBOX
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_IssueRenderCommands");
-	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d before R_IssueRenderCommands cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
-	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame before R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands...");
-#endif
 	R_IssueRenderCommands( qtrue );
-#ifdef _XBOX
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_IssueRenderCommands");
-	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after R_IssueRenderCommands cmdUsed=%d", s_xboxActiveEndFrameCount, backEndData ? backEndData->commands.used : -1);
-	if (xboxTraceEndFrameTight) XBLF("JA: CL_EARLY RE_EndFrame after R_IssueRenderCommands cmdUsed=%d", backEndData ? backEndData->commands.used : -1);
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands done");
-#endif
 
 #ifdef _XBOX
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before RE_ProcessDissolve");
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before RE_ProcessDissolve");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve...");
 	if ( Sys_IsDirectMapBoot() )
 	{
-		if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: skipping dissolve for direct-map boot");
 	}
 #if defined(STEFX_ELITE_FORCE_SP)
 	else if ( cls.state == CA_DISCONNECTED )
 	{
-		static int s_stefxFrontendDissolveSkipBudget = 16;
-		if (s_stefxFrontendDissolveSkipBudget > 0)
-		{
-			XBLF("STEFX: RE_EndFrame skipping dissolve for disconnected frontend catcher=0x%x cmdUsed=%d",
-				cls.keyCatchers, backEndData ? backEndData->commands.used : -1);
-			--s_stefxFrontendDissolveSkipBudget;
-		}
 	}
 #endif
 	else
 	{
 		RE_ProcessDissolve(); // render the disolve now
 	}
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after RE_ProcessDissolve");
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after RE_ProcessDissolve");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: RE_ProcessDissolve done");
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");
-	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d before glEndFrame", s_xboxActiveEndFrameCount);
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before glEndFrame");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame...");
 	glEndFrame();
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glEndFrame");
-	if (stefxLateEndFrame) XBLF("STEFX: LATE RE_EndFrame #%d after glEndFrame", s_xboxActiveEndFrameCount);
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after glEndFrame");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame done");
 #endif
 
 	// use the other buffers next frame, because another CPU
 	// may still be rendering into the current ones
-	#ifdef _XBOX
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before R_ToggleSmpFrame");
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame before R_ToggleSmpFrame");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame...");
-	#endif
 	R_ToggleSmpFrame();
-#ifdef _XBOX
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_ToggleSmpFrame");
-	if (xboxTraceEndFrameTight) XBLog_Write("JA: CL_EARLY RE_EndFrame after R_ToggleSmpFrame");
-	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_ToggleSmpFrame done");
-#endif
 
 	if ( frontEndMsec ) {
 		*frontEndMsec = tr.frontEndMsec;
@@ -755,20 +648,4 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	{
 		styleUpdated[i] = false;
 	}
-#ifdef _XBOX
-	if (xboxTraceEndFrame)
-	{
-		XBLF("JA: RE_EndFrame #%d active=%d done",
-			(cls.state == CA_ACTIVE) ? s_xboxActiveEndFrameCount : s_xboxEndFrameCount,
-			(int)(cls.state == CA_ACTIVE));
-	}
-	if (cls.state == CA_ACTIVE)
-	{
-		s_xboxActiveEndFrameCount++;
-	}
-	else
-	{
-		s_xboxEndFrameCount++;
-	}
-#endif
 }

@@ -17,27 +17,8 @@
 #ifndef VV_LIGHTING
 #include "../win32/glw_win_dx8.h"
 #endif
-extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
-extern "C" volatile unsigned int g_SPXBGameDetailTraceEnabled;
-#if defined(STEFX_ELITE_FORCE_SP)
-extern "C" volatile unsigned int g_SPXBFallbackTraceMagic;
-extern "C" volatile unsigned int g_SPXBFallbackStageCount;
-extern "C" volatile unsigned int g_SPXBFallbackLastShaderHash;
-extern "C" volatile unsigned int g_SPXBFallbackLastImageHash;
-extern "C" volatile unsigned int g_SPXBFallbackLastStage;
-extern "C" volatile unsigned int g_SPXBFallbackLastPasses;
-extern "C" volatile unsigned int g_SPXBFallbackLastFlags;
-extern "C" volatile unsigned int g_SPXBFallbackLastTexnum;
-extern "C" volatile unsigned int g_SPXBFallbackLastLightmap;
-extern "C" volatile unsigned int g_SPXBFallbackLastStateBits;
-extern "C" volatile unsigned int g_SPXBFallbackLastIndexes;
-extern "C" volatile unsigned int g_SPXBFallbackLastX1000;
-extern "C" volatile unsigned int g_SPXBFallbackLastY1000;
-extern "C" volatile unsigned int g_SPXBFallbackLastZ1000;
-#endif
 static void JkaFakeglSetEliteForceOverlayDrawContext(int, int, int) {}
 static void JkaFakeglSetEliteForceScriptPanelDrawContext(int) {}
-static void JkaFakeglSetEliteForceDrawContext(const char *, int, int, unsigned int) {}
 
 static const char *RB_XboxImageLogName( const image_t *image )
 {
@@ -100,67 +81,6 @@ static qboolean RB_XboxIsEliteForceIntroShader( const shader_t *shader )
 		!Q_stricmp( name, "textures/common/tuvokhazard" );
 }
 
-static void RB_XboxLogEliteForceIntroDraw( const char *where )
-{
-	static int s_stefxIntroDraw70YearBudget = 12;
-	static int s_stefxIntroDrawEnemyBudget = 12;
-	static int s_stefxIntroDrawTuvokBudget = 12;
-	static int s_stefxIntroDrawSevenBudget = 12;
-	int *budget = NULL;
-	const shaderStage_t *stage = NULL;
-	const image_t *image = NULL;
-
-	if ( !RB_XboxIsEliteForceIntroShader( tess.shader ) )
-	{
-		return;
-	}	
-
-	if ( !Q_stricmp( tess.shader->name, "textures/common/70yearjourney" ) )
-	{
-		budget = &s_stefxIntroDraw70YearBudget;
-	}	
-	else if ( !Q_stricmp( tess.shader->name, "textures/common/enemyspace" ) )
-	{
-		budget = &s_stefxIntroDrawEnemyBudget;
-	}	
-	else if ( !Q_stricmp( tess.shader->name, "textures/common/tuvokhazard" ) )
-	{
-		budget = &s_stefxIntroDrawTuvokBudget;
-	}	
-	else if ( !Q_stricmp( tess.shader->name, "textures/common/sevenspace" ) )
-	{
-		budget = &s_stefxIntroDrawSevenBudget;
-	}	
-
-	if ( !budget || *budget <= 0 )
-	{
-		return;
-	}	
-
-	if ( tess.shader && tess.shader->numUnfoggedPasses > 0 )
-	{
-		stage = &tess.shader->stages[0];
-		image = stage->bundle[0].image;
-	}	
-
-	XBLF( "STEFX: INTRO_DRAW where=%s shader='%s' img='%s' tex=%d verts=%d indexes=%d passes=%d fog=%d xyz0=(%g,%g,%g) st0=(%g,%g) color0=0x%08lx",
-		where ? where : "<null>",
-		tess.shader ? tess.shader->name : "<null>",
-		RB_XboxImageLogName( image ),
-		image ? image->texnum : -1,
-		tess.numVertexes,
-		tess.numIndexes,
-		tess.shader ? tess.shader->numUnfoggedPasses : -1,
-		tess.fogNum,
-		tess.numVertexes > 0 ? tess.xyz[0][0] : 0.0f,
-		tess.numVertexes > 0 ? tess.xyz[0][1] : 0.0f,
-		tess.numVertexes > 0 ? tess.xyz[0][2] : 0.0f,
-		tess.numVertexes > 0 ? tess.svars.texcoords[0][0][0] : 0.0f,
-		tess.numVertexes > 0 ? tess.svars.texcoords[0][0][1] : 0.0f,
-		tess.numVertexes > 0 ? (unsigned long)tess.svars.colors[0] : 0 );
-	--*budget;
-}
-
 static qboolean RB_XboxIsEliteForceScriptPanelDraw( void )
 {
 	trRefEntity_t *ent = backEnd.currentEntity;
@@ -180,24 +100,9 @@ static qboolean RB_XboxIsEliteForceScriptPanelDraw( void )
 
 static int RB_XboxEliteForceScriptPanelCullType( int cullType )
 {
-	static int s_stefxScriptPanelCullBudget = 96;
-
 	if ( !RB_XboxIsEliteForceScriptPanelDraw() )
 	{
 		return cullType;
-	}	
-
-	if ( s_stefxScriptPanelCullBudget > 0 )
-	{
-		XBLF( "STEFX_SCRIPT_PANEL_CULL shader='%s' ent=%d hModel=%d oldCull=%d newCull=%d verts=%d indexes=%d",
-			tess.shader ? tess.shader->name : "<null>",
-			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
-			backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
-			cullType,
-			CT_TWO_SIDED,
-			tess.numVertexes,
-			tess.numIndexes );
-		--s_stefxScriptPanelCullBudget;
 	}	
 
 	return CT_TWO_SIDED;
@@ -205,10 +110,8 @@ static int RB_XboxEliteForceScriptPanelCullType( int cullType )
 
 static int RB_XboxAdjustEliteForceScriptPanelState( const shaderStage_t *stage, int stateBits, const char *where )
 {
-	static int s_stefxScriptPanelStateBudget = 192;
-	int oldStateBits = stateBits;
-	const image_t *img0 = stage ? stage->bundle[0].image : NULL;
-	const image_t *img1 = stage ? stage->bundle[1].image : NULL;
+	(void)stage;
+	(void)where;
 
 	if ( !RB_XboxIsEliteForceScriptPanelDraw() )
 	{
@@ -226,42 +129,13 @@ static int RB_XboxAdjustEliteForceScriptPanelState( const shaderStage_t *stage, 
 	stateBits &= ~( GLS_DEPTHFUNC_EQUAL | GLS_DEPTHMASK_TRUE );
 	stateBits |= GLS_DEPTHTEST_DISABLE;
 
-	if ( s_stefxScriptPanelStateBudget > 0 )
-	{
-		XBLF( "STEFX_SCRIPT_PANEL_STATE where=%s shader='%s' ent=%d hModel=%d stageActive=%d old=0x%x new=0x%x depthOff=%d depthEqual=%d depthMask=%d blend=0x%x verts=%d indexes=%d img0='%s' tex0=%d img1='%s' tex1=%d xyz0=(%g,%g,%g) st0=(%g,%g) st1=(%g,%g)",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
-			backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
-			stage ? stage->active : -1,
-			oldStateBits,
-			stateBits,
-			(int)((stateBits & GLS_DEPTHTEST_DISABLE) != 0),
-			(int)((stateBits & GLS_DEPTHFUNC_EQUAL) != 0),
-			(int)((stateBits & GLS_DEPTHMASK_TRUE) != 0),
-			(int)(stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS )),
-			tess.numVertexes,
-			tess.numIndexes,
-			RB_XboxImageLogName( img0 ),
-			img0 ? img0->texnum : -1,
-			RB_XboxImageLogName( img1 ),
-			img1 ? img1->texnum : -1,
-			tess.numVertexes > 0 ? tess.xyz[0][0] : 0.0f,
-			tess.numVertexes > 0 ? tess.xyz[0][1] : 0.0f,
-			tess.numVertexes > 0 ? tess.xyz[0][2] : 0.0f,
-			tess.numVertexes > 0 ? tess.svars.texcoords[0][0][0] : 0.0f,
-			tess.numVertexes > 0 ? tess.svars.texcoords[0][0][1] : 0.0f,
-			tess.numVertexes > 0 ? tess.svars.texcoords[1][0][0] : 0.0f,
-			tess.numVertexes > 0 ? tess.svars.texcoords[1][0][1] : 0.0f );
-		--s_stefxScriptPanelStateBudget;
-	}	
-
 	return stateBits;
 }
 
 static void RB_XboxBeginEliteForceScriptPanelFakeglState( const shaderStage_t *stage, const char *where )
 {
-	static int s_stefxScriptPanelFakeglBudget = 192;
+	(void)stage;
+	(void)where;
 
 	if ( !RB_XboxIsEliteForceScriptPanelDraw() )
 	{
@@ -269,26 +143,11 @@ static void RB_XboxBeginEliteForceScriptPanelFakeglState( const shaderStage_t *s
 	}	
 
 	JkaFakeglSetEliteForceScriptPanelDrawContext( 1 );
-
-	if ( s_stefxScriptPanelFakeglBudget > 0 )
-	{
-		const image_t *img0 = stage ? stage->bundle[0].image : NULL;
-		XBLF( "STEFX_SCRIPT_PANEL_FAKEGL_BEGIN where=%s shader='%s' ent=%d hModel=%d img0='%s' tex0=%d verts=%d indexes=%d",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
-			backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1,
-			RB_XboxImageLogName( img0 ),
-			img0 ? img0->texnum : -1,
-			tess.numVertexes,
-			tess.numIndexes );
-		--s_stefxScriptPanelFakeglBudget;
-	}	
 }
 
 static void RB_XboxEndEliteForceScriptPanelFakeglState( const char *where )
 {
-	static int s_stefxScriptPanelFakeglEndBudget = 96;
+	(void)where;
 
 	if ( !RB_XboxIsEliteForceScriptPanelDraw() )
 	{
@@ -296,33 +155,15 @@ static void RB_XboxEndEliteForceScriptPanelFakeglState( const char *where )
 	}	
 
 	JkaFakeglSetEliteForceScriptPanelDrawContext( 0 );
-
-	if ( s_stefxScriptPanelFakeglEndBudget > 0 )
-	{
-		XBLF( "STEFX_SCRIPT_PANEL_FAKEGL_END where=%s shader='%s' ent=%d hModel=%d",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
-			backEnd.currentEntity ? backEnd.currentEntity->e.hModel : -1 );
-		--s_stefxScriptPanelFakeglEndBudget;
-	}	
 }
 
 static void RB_XboxForceEliteForceOverlayD3DState( const shader_t *shader, qboolean additive, const char *where )
 {
-	static int s_stefxForceOverlayLogBudget = 160;
-	static int s_stefxForceOverlaySkipBudget = 16;
+	(void)shader;
+	(void)where;
 
 	if ( !glw_state || !glw_state->device )
 	{
-		if ( cls.state == CA_ACTIVE && s_stefxForceOverlaySkipBudget > 0 )
-		{
-			XBLF( "STEFX: RB_ForceOverlayD3D skipped where=%s shader='%s' glw=%p device=%p projection2D=%d frame=%d",
-				where ? where : "<null>", shader ? shader->name : "<null>",
-				glw_state, glw_state ? glw_state->device : NULL,
-				backEnd.projection2D, tr.frameCount );
-			--s_stefxForceOverlaySkipBudget;
-		}		
 		return;
 	}	
 
@@ -333,20 +174,12 @@ static void RB_XboxForceEliteForceOverlayD3DState( const shader_t *shader, qbool
 	glw_state->device->SetRenderState( D3DRS_SRCBLEND, additive ? D3DBLEND_ONE : D3DBLEND_SRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_DESTBLEND, additive ? D3DBLEND_ONE : D3DBLEND_INVSRCALPHA );
 	glw_state->device->SetRenderState( D3DRS_CULLMODE, D3DCULL_NONE );
-
-	if ( cls.state == CA_ACTIVE && s_stefxForceOverlayLogBudget > 0 )
-	{
-		XBLF( "STEFX: RB_ForceOverlayD3D where=%s shader='%s' additive=%d projection2D=%d frame=%d",
-			where ? where : "<null>", shader ? shader->name : "<null>",
-			additive ? 1 : 0, backEnd.projection2D, tr.frameCount );
-		--s_stefxForceOverlayLogBudget;
-	}	
 }
 
 static void RB_XboxPrepareEliteForceOverlayStage( const shaderStage_t *stage, qboolean additive, const char *where )
 {
-	static int s_stefxPrepareOverlayBudget = 160;
-	const image_t *image = stage ? stage->bundle[0].image : NULL;
+	(void)stage;
+	(void)where;
 
 	GL_SelectTexture( 1 );
 	glDisable( GL_TEXTURE_2D );
@@ -369,38 +202,6 @@ static void RB_XboxPrepareEliteForceOverlayStage( const shaderStage_t *stage, qb
 	glDisable( GL_ALPHA_TEST );
 	glDisable( GL_DEPTH_TEST );
 	glDepthMask( GL_FALSE );
-
-	if ( cls.state == CA_ACTIVE && s_stefxPrepareOverlayBudget > 0 )
-	{
-		XBLF( "STEFX: RB_PrepareOverlayStage where=%s shader='%s' img='%s' tex=%d additive=%d projection2D=%d verts=%d indexes=%d",
-			where ? where : "<null>", tess.shader ? tess.shader->name : "<null>",
-			image ? image->imgName : "<null>", image ? image->texnum : -1,
-			additive ? 1 : 0, backEnd.projection2D,
-			tess.numVertexes, tess.numIndexes );
-		--s_stefxPrepareOverlayBudget;
-	}	
-}
-
-static void RB_XboxLogEliteForceOverlayDraw( const shaderStage_t *stage, qboolean hud, qboolean beam, const char *where )
-{
-	static int s_stefxOverlayDrawBudget = 192;
-
-	if ( cls.state == CA_ACTIVE && s_stefxOverlayDrawBudget > 0 )
-	{
-		const image_t *image = stage ? stage->bundle[0].image : NULL;
-
-		XBLF( "EF: OVERLAY_DRAW_SUBMIT where=%s shader='%s' img='%s' hud=%d beam=%d projection2D=%d verts=%d indexes=%d state=0x%x",
-			where ? where : "<null>",
-			tess.shader ? tess.shader->name : "<null>",
-			image ? image->imgName : "<null>",
-			hud ? 1 : 0,
-			beam ? 1 : 0,
-			backEnd.projection2D,
-			tess.numVertexes,
-			tess.numIndexes,
-			stage ? stage->stateBits : 0 );
-		--s_stefxOverlayDrawBudget;
-	}	
 }
 
 static qboolean RB_XboxIsEliteForceLegacyMaskedWorldOverlayShader( const shader_t *shader )
@@ -418,7 +219,7 @@ static qboolean RB_XboxIsEliteForceLegacyMaskedWorldOverlayShader( const shader_
 
 static int RB_XboxAdjustEliteForceLegacyMaskedWorldOverlayState( const shaderStage_t *stage, int stateBits, int stageIndex, const char *where )
 {
-	static int s_stefxLegacyMaskedOverlayBudget = 96;
+	static int s_stefxLegacyMaskedOverlayBudget = 0;
 	const int blendBits = stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS );
 	const shader_t *shader = tess.shader;
 	const image_t *image = stage ? stage->bundle[0].image : NULL;
@@ -593,176 +394,6 @@ static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void 
 
 #ifdef _XBOX
 qboolean RB_IsCurrentShaderTransparent( void );
-static qboolean RB_XboxShouldTraceSurface( void )
-{
-	const char *name;
-
-	if ( !g_SPXBGameDetailTraceEnabled )
-	{
-		return qfalse;
-	}
-
-	if ( cls.state != CA_ACTIVE || !tess.shader || !tess.shader->name )
-	{
-		return qfalse;
-	}	
-
-	name = tess.shader->name;
-	if ( !Q_stricmp( name, "textures/common/black" ) ||
-		!Q_stricmp( name, "textures/borg/static2" ) ||
-		!Q_stricmp( name, "textures/borg/static2_nonsolid" ) ||
-		!Q_stricmp( name, "textures/borg/borgfield" ) ||
-		!Q_stricmp( name, "textures/borg/borgfield_nonsolid" ) ||
-		!Q_stricmp( name, "textures/borg/borgfield_opaque" ) ||
-		!Q_stricmp( name, "textures/borg/energy1" ) ||
-		!Q_stricmp( name, "textures/borg/energy1_solid" ) ||
-		!Q_stricmp( name, "textures/borg/energy1_green" ) ||
-		!Q_stricmp( name, "textures/borg/bars" ) ||
-		!Q_stricmp( name, "textures/borg/bars2" ) ||
-		!Q_stricmp( name, "textures/borg/basic1" ) ||
-		!Q_stricmp( name, "textures/borg/borgladder" ) ||
-		!Q_stricmp( name, "textures/borg/bigborg" ) ||
-		!Q_stricmp( name, "textures/borg/oddlight1" ) ||
-		!Q_stricmp( name, "textures/common/sky_light" ) ||
-		!Q_stricmp( name, "textures/common/junk_sky" ) ||
-		!Q_stricmp( name, "textures/scavenger/m_wallgrid" ) ||
-		!Q_stricmp( name, "textures/scavenger/k_control_portal" ) ||
-		!Q_stricmp( name, "textures/engineering/glass_nolightmap" ) ||
-		!Q_stricmp( name, "textures/engineering/glass_nolightmap_nonsolid" ) ||
-		!Q_stricmp( name, "textures/common/portal" ) ||
-		strstr( name, "models/players/" ) )
-	{
-		return qtrue;
-	}	
-
-	return qfalse;
-#if 0
-	if (cls.state == CA_ACTIVE)
-	{
-		return qfalse;
-	}	
-	if (tess.shader && tess.shader->name && strstr(tess.shader->name, "textures/taspir/trim"))
-	{
-		return qtrue;
-	}	
-	if (tess.shader && tess.shader->name &&
-		(strstr(tess.shader->name, "models/players/jedi_tf") ||
-		 strstr(tess.shader->name, "models/players/alora") ||
-		 strstr(tess.shader->name, "models/players/alora2")))
-	{
-		return qtrue;
-	}	
-	return qfalse;
-#endif
-}
-
-static qboolean RB_XboxForceTraceSurface( void )
-{
-	return qfalse;
-#if 0
-	if (cls.state == CA_ACTIVE)
-	{
-		return qfalse;
-	}	
-	if (tess.shader && tess.shader->name && strstr(tess.shader->name, "textures/taspir/trim"))
-	{
-		return qtrue;
-	}	
-	if (tess.shader && tess.shader->name &&
-		(strstr(tess.shader->name, "models/players/jedi_tf") ||
-		 strstr(tess.shader->name, "models/players/alora") ||
-		 strstr(tess.shader->name, "models/players/alora2")))
-	{
-		return qtrue;
-	}	
-	return qfalse;
-#endif
-}
-
-static void RB_XboxLogWorldDrawStage( const char *where, shaderCommands_t *input, const shaderStage_t *stage, int stageNum, int stateBits )
-{
-	static int s_stefxWorldDrawStageBudget = 4096;
-	static int s_stefxDrawContextCallBudget = 128;
-	const image_t *img0;
-	const image_t *img1;
-	unsigned long color0;
-
-	if ( backEnd.projection2D || cls.state != CA_ACTIVE || !input || !stage || !tess.shader )
-	{
-		return;
-	}	
-	if ( !RB_XboxShouldTraceSurface() )
-	{
-		return;
-	}	
-	if ( s_stefxWorldDrawStageBudget <= 0 )
-	{
-		return;
-	}	
-
-	img0 = stage->bundle[0].image;
-	img1 = stage->bundle[1].image;
-	color0 = input->numVertexes > 0 ? (unsigned long)input->svars.colors[0] : 0;
-
-	if ( s_stefxDrawContextCallBudget > 0 )
-	{
-		XBLF("STEFX_DRAW_CONTEXT_CALL where=%s shader='%s' stage=%d passes=%d state=0x%x verts=%d indexes=%d",
-			where ? where : "<null>",
-			tess.shader->name,
-			stageNum,
-			tess.shader ? tess.shader->numUnfoggedPasses : 0,
-			stateBits,
-			input->numVertexes,
-			input->numIndexes);
-		--s_stefxDrawContextCallBudget;
-	}	
-
-	JkaFakeglSetEliteForceDrawContext( tess.shader->name,
-		stageNum,
-		tess.shader ? tess.shader->numUnfoggedPasses : 0,
-		(unsigned int)stateBits );
-
-	XBLF("STEFX_DRAW_STAGE where=%s shader='%s' stage=%d passes=%d verts=%d indexes=%d fog=%d ent=%p reType=%d state=0x%x sort=%g default=%d explicit=%d sky=%d cull=%d env=%d rgb=%d alpha=%d color0=0x%08lx img0='%s' tex0=%d lm0=%d vtxlm0=%d tc0=%d img1='%s' tex1=%d lm1=%d vtxlm1=%d tc1=%d st0=%g,%g st1=%g,%g xyz0=%g,%g,%g",
-		where ? where : "<null>",
-		tess.shader->name,
-		stageNum,
-		tess.shader ? tess.shader->numUnfoggedPasses : -1,
-		input->numVertexes,
-		input->numIndexes,
-		tess.fogNum,
-		backEnd.currentEntity,
-		backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
-		stateBits,
-		tess.shader ? (double)tess.shader->sort : -1.0,
-		tess.shader ? tess.shader->defaultShader : -1,
-		tess.shader ? tess.shader->explicitlyDefined : -1,
-		(tess.shader && tess.shader->sky) ? 1 : 0,
-		tess.shader ? tess.shader->cullType : -1,
-		tess.shader ? tess.shader->multitextureEnv : -1,
-		stage->rgbGen,
-		stage->alphaGen,
-		color0,
-		RB_XboxImageLogName( img0 ),
-		img0 ? img0->texnum : -1,
-		stage->bundle[0].isLightmap ? 1 : 0,
-		stage->bundle[0].vertexLightmap ? 1 : 0,
-		stage->bundle[0].tcGen,
-		RB_XboxImageLogName( img1 ),
-		img1 ? img1->texnum : -1,
-		stage->bundle[1].isLightmap ? 1 : 0,
-		stage->bundle[1].vertexLightmap ? 1 : 0,
-		stage->bundle[1].tcGen,
-		input->numVertexes > 0 ? input->svars.texcoords[0][0][0] : 0.0f,
-		input->numVertexes > 0 ? input->svars.texcoords[0][0][1] : 0.0f,
-		input->numVertexes > 0 ? input->svars.texcoords[1][0][0] : 0.0f,
-		input->numVertexes > 0 ? input->svars.texcoords[1][0][1] : 0.0f,
-		input->numVertexes > 0 ? input->xyz[0][0] : 0.0f,
-		input->numVertexes > 0 ? input->xyz[0][1] : 0.0f,
-		input->numVertexes > 0 ? input->xyz[0][2] : 0.0f);
-
-	--s_stefxWorldDrawStageBudget;
-}
-
 static const char *RB_XboxImageName( const image_t *image )
 {
 	if (!image)
@@ -796,101 +427,6 @@ static qboolean RB_XboxImageLooksFallback( const image_t *image )
 	}	
 	return qfalse;
 }
-
-#if defined(STEFX_ELITE_FORCE_SP)
-static unsigned int RB_XboxHashTraceName( const char *text )
-{
-	unsigned int hash = 2166136261u;
-
-	if ( !text )
-	{
-		return 0;
-	}	
-
-	while ( *text )
-	{
-		unsigned char c = (unsigned char)*text++;
-		if ( c >= 'A' && c <= 'Z' )
-		{
-			c = (unsigned char)( c + ( 'a' - 'A' ) );
-		}		
-		hash ^= c;
-		hash *= 16777619u;
-	}	
-
-	return hash ? hash : 1u;
-}
-
-static void RB_XboxUpdateFallbackStageTelemetry( const shaderCommands_t *input, const shaderStage_t *stage, int stageNum, int stateBits )
-{
-	static int s_stefxFallbackStageLogBudget = 24;
-	const image_t *image0;
-	const image_t *image1;
-	qboolean fallback0;
-	qboolean fallback1;
-	const image_t *fallbackImage;
-	unsigned int flags;
-
-	if ( backEnd.projection2D || cls.state != CA_ACTIVE || !input || !stage || !tess.shader )
-	{
-		return;
-	}	
-
-	image0 = stage->bundle[0].image;
-	image1 = stage->bundle[1].image;
-	fallback0 = RB_XboxImageLooksFallback( image0 );
-	fallback1 = ( image1 && RB_XboxImageLooksFallback( image1 ) ) ? qtrue : qfalse;
-	if ( !fallback0 && !fallback1 )
-	{
-		return;
-	}	
-
-	fallbackImage = fallback0 ? image0 : image1;
-	flags = ( fallback0 ? 1u : 0u ) |
-		( fallback1 ? 2u : 0u ) |
-		( stage->bundle[0].isLightmap ? 0x10u : 0u ) |
-		( stage->bundle[1].isLightmap ? 0x20u : 0u ) |
-		( stage->bundle[0].vertexLightmap ? 0x40u : 0u ) |
-		( tess.shader->sky ? 0x100u : 0u ) |
-		( tess.shader->defaultShader ? 0x200u : 0u ) |
-		( tess.shader->explicitlyDefined ? 0x400u : 0u );
-
-	g_SPXBFallbackTraceMagic = 0x46424B21; /* 'FBK!' */
-	++g_SPXBFallbackStageCount;
-	g_SPXBFallbackLastShaderHash = RB_XboxHashTraceName( tess.shader->name );
-	g_SPXBFallbackLastImageHash = RB_XboxHashTraceName( RB_XboxImageLogName( fallbackImage ) );
-	g_SPXBFallbackLastStage = (unsigned int)stageNum;
-	g_SPXBFallbackLastPasses = (unsigned int)tess.shader->numUnfoggedPasses;
-	g_SPXBFallbackLastFlags = flags;
-	g_SPXBFallbackLastTexnum = fallbackImage ? (unsigned int)fallbackImage->texnum : 0xffffffffu;
-	g_SPXBFallbackLastLightmap = (unsigned int)(
-		( stage->bundle[0].isLightmap ? 1 : 0 ) |
-		( stage->bundle[1].isLightmap ? 2 : 0 ) |
-		( stage->bundle[0].vertexLightmap ? 4 : 0 ) );
-	g_SPXBFallbackLastStateBits = (unsigned int)stateBits;
-	g_SPXBFallbackLastIndexes = (unsigned int)input->numIndexes;
-	g_SPXBFallbackLastX1000 = ( input->numVertexes > 0 ) ? (unsigned int)(int)( input->xyz[0][0] * 1000.0f ) : 0;
-	g_SPXBFallbackLastY1000 = ( input->numVertexes > 0 ) ? (unsigned int)(int)( input->xyz[0][1] * 1000.0f ) : 0;
-	g_SPXBFallbackLastZ1000 = ( input->numVertexes > 0 ) ? (unsigned int)(int)( input->xyz[0][2] * 1000.0f ) : 0;
-
-	if ( s_stefxFallbackStageLogBudget > 0 )
-	{
-		XBLF("STEFX_FALLBACK_STAGE shader='%s' image='%s' stage=%d passes=%d flags=0x%x state=0x%x tex=%d indexes=%d xyz=%g,%g,%g",
-			tess.shader->name ? tess.shader->name : "<null>",
-			RB_XboxImageLogName( fallbackImage ),
-			stageNum,
-			tess.shader->numUnfoggedPasses,
-			flags,
-			stateBits,
-			fallbackImage ? fallbackImage->texnum : -1,
-			input->numIndexes,
-			input->numVertexes > 0 ? input->xyz[0][0] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][1] : 0.0f,
-			input->numVertexes > 0 ? input->xyz[0][2] : 0.0f);
-		--s_stefxFallbackStageLogBudget;
-	}	
-}
-#endif
 
 static qboolean RB_XboxStageLooksRenderSuspect( const shaderStage_t *stage )
 {
@@ -1120,8 +656,8 @@ static qboolean RB_XboxIsEliteForcePlayerModelSingleStageDraw( const shaderStage
 
 static void RB_XboxPrepareEliteForcePlayerModelDraw( const shaderStage_t *stage )
 {
-	static int s_stefxPlayerModelStateLogs = 96;
-	static int s_stefxPlayerModelPrepareEnterLogs = 96;
+	static int s_stefxPlayerModelStateLogs = 0;
+	static int s_stefxPlayerModelPrepareEnterLogs = 0;
 
 	if ( s_stefxPlayerModelPrepareEnterLogs > 0 &&
 		RB_XboxIsEliteForcePlayerModelShader( tess.shader ) )
@@ -1192,7 +728,7 @@ static void RB_XboxPrepareEliteForcePlayerModelDraw( const shaderStage_t *stage 
 
 static void RB_XboxLogEliteForcePlayerModelDrawInputs( const shaderStage_t *stage, const char *where )
 {
-	static int s_stefxPlayerModelDrawInputLogs = 96;
+	static int s_stefxPlayerModelDrawInputLogs = 0;
 	int i;
 	int minColor[4] = { 255, 255, 255, 255 };
 	int maxColor[4] = { 0, 0, 0, 0 };
@@ -1247,7 +783,7 @@ static void RB_XboxLogEliteForcePlayerModelDrawInputs( const shaderStage_t *stag
 
 static void RB_XboxLogModelShaderSurface( const char *where )
 {
-	static int modelBudget = 160;
+	static int modelBudget = 0;
 	const shader_t *shader = tess.shader;
 	int i;
 	trRefEntity_t *ent = backEnd.currentEntity;
@@ -1685,10 +1221,7 @@ static void RB_XboxRenderYield( void )
 
 static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
 {
-	static int traceBudget = 16;
-	static int chunkTraceBudget = 24;
-	static int s_stefxDrawSubmitContextCallBudget = 128;
-	qboolean trace;
+	static int chunkTraceBudget = 0;
 	int indexBase;
 	/*
 	 * tess already enforces SHADER_MAX_INDEXES.  Subdividing that valid batch
@@ -1702,46 +1235,12 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 		return;
 	}	
 
-	trace = RB_XboxShouldTraceSurface();
-
-	if ( trace && traceBudget > 0 )
-	{
-		XBLF("JA: R_DrawElements submit shader='%s' indexes=%d verts=%d pass=%d\n",
-			tess.shader ? tess.shader->name : "<null>",
-			numIndexes,
-			tess.numVertexes,
-			tess.currentPass);
-		traceBudget--;
-	}	
-
 	if ( numIndexes <= maxChunkIndexes )
 	{
-		if ( trace && s_stefxDrawSubmitContextCallBudget > 0 )
-		{
-			XBLF("STEFX_DRAW_CONTEXT_CALL where=RB_XboxDrawElementsChunked shader='%s' stage=%d passes=%d state=0x%x indexes=%d verts=%d chunk=0",
-				tess.shader ? tess.shader->name : "<null>",
-				tess.currentPass,
-				tess.shader ? tess.shader->numUnfoggedPasses : 0,
-				tess.xstages[tess.currentPass].stateBits,
-				numIndexes,
-				tess.numVertexes);
-			--s_stefxDrawSubmitContextCallBudget;
-		}		
-		if ( trace )
-		{
-			JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>",
-				tess.currentPass,
-				tess.shader ? tess.shader->numUnfoggedPasses : 0,
-				tess.xstages[tess.currentPass].stateBits );
-		}		
 		glDrawElements( GL_TRIANGLES,
 			numIndexes,
 			GL_INDEX_TYPE,
 			indexes );
-		if ( trace )
-		{
-			JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
-		}		
 		return;
 	}	
 
@@ -1770,34 +1269,10 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 			--chunkTraceBudget;
 		}		
 
-		if ( trace && s_stefxDrawSubmitContextCallBudget > 0 )
-		{
-			XBLF("STEFX_DRAW_CONTEXT_CALL where=RB_XboxDrawElementsChunked shader='%s' stage=%d passes=%d state=0x%x indexes=%d verts=%d chunk=%d",
-				tess.shader ? tess.shader->name : "<null>",
-				tess.currentPass,
-				tess.shader ? tess.shader->numUnfoggedPasses : 0,
-				tess.xstages[tess.currentPass].stateBits,
-				chunkIndexes,
-				tess.numVertexes,
-				indexBase);
-			--s_stefxDrawSubmitContextCallBudget;
-		}		
-
-		if ( trace )
-		{
-			JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>",
-				tess.currentPass,
-				tess.shader ? tess.shader->numUnfoggedPasses : 0,
-				tess.xstages[tess.currentPass].stateBits );
-		}		
 		glDrawElements( GL_TRIANGLES,
 			chunkIndexes,
 			GL_INDEX_TYPE,
 			indexes + indexBase );
-		if ( trace )
-		{
-			JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
-		}		
 
 		RB_XboxRenderYield();
 		indexBase += chunkIndexes;
@@ -1820,7 +1295,7 @@ static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
 	primitives = r_primitives->integer;
 #ifdef _XBOX
 	{
-		static int s_xboxDrawElementsEntryBudget = 48;
+		static int s_xboxDrawElementsEntryBudget = 0;
 		if (cls.state == CA_ACTIVE && s_xboxDrawElementsEntryBudget > 0)
 		{
 			int idx0 = (indexes && numIndexes > 0) ? indexes[0] : -1;
@@ -2130,7 +1605,7 @@ void RB_BeginSurface( shader_t *shader, int fogNum ) {
 #ifdef _XBOX
 	if (state != shader)
 	{
-		static int remapDrawBudget = 96;
+		static int remapDrawBudget = 0;
 		if (remapDrawBudget > 0)
 		{
 			XBLF("STEFX_REMAP_DRAW old='%s' new='%s' oldPasses=%d newPasses=%d oldSort=%d newSort=%d fog=%d",
@@ -2257,10 +1732,7 @@ static void RB_XboxBuildFusedDetailTexCoords( const shaderStage_t *detailStage )
 static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t *fusedDetailStage ) {
 	shaderStage_t	*pStage;
 #ifdef _XBOX
-	static int traceBudget = 0;
-	static int activeTraceBudget = 48;
-	qboolean trace = RB_XboxShouldTraceSurface();
-	qboolean forceTrace = RB_XboxForceTraceSurface();
+	static int activeTraceBudget = 0;
 	qboolean stefxBeamShader = RB_XboxIsEliteForceBeamShader( tess.shader );
 	qboolean stefxHudShader = backEnd.projection2D && RB_XboxIsEliteForceHudShader( tess.shader );
 	int stateBits = 0;
@@ -2272,7 +1744,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t
 	stateBits = pStage->stateBits;
 	if ( stefxBeamShader || stefxHudShader )
 	{
-		static int s_stefxMultitexOverlayBudget = 160;
+		static int s_stefxMultitexOverlayBudget = 0;
 		const int oldStateBits = stateBits;
 
 		stateBits |= GLS_DEPTHTEST_DISABLE;
@@ -2323,21 +1795,8 @@ static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t
 			input->svars.texcoords[1][0][1]);
 		activeTraceBudget--;
 	}	
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
-		XBLF("JA: DrawMultitextured enter shader='%s' stage=%d verts=%d indexes=%d state=0x%x env=%d img0=%p img1=%p\n",
-			tess.shader ? tess.shader->name : "<null>",
-			stage,
-			input->numVertexes,
-			input->numIndexes,
-			pStage->stateBits,
-			tess.shader ? tess.shader->multitextureEnv : -1,
-			pStage->bundle[0].image,
-			pStage->bundle[1].image);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-	{
-		static int s_xboxWorldStageStateLogCount = 0;
+		static int s_xboxWorldStageStateLogCount = 8;
 		if ( s_xboxWorldStageStateLogCount < 8 )
 		{
 			const DWORD color0 = input->svars.colors[0];
@@ -2386,12 +1845,6 @@ static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t
 		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured" );
 		RB_XboxPrepareEliteForceOverlayStage( pStage, stefxBeamShader, "DrawMultitextured" );
 	}	
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured after GL_State shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
 #endif
 
 	// 
@@ -2401,39 +1854,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t
 	glEnable( GL_TEXTURE_2D );
 	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 	glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured before bind0 shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-	{
-		static int s_xboxMultitexCoordLogCount = 0;
-		if (trace && s_xboxMultitexCoordLogCount < 8)
-		{
-			XBLF("JA: DrawMultitextured coords shader='%s' stage=%d st0=%p st1=%p st0uv0=%g,%g st1uv0=%g,%g\n",
-				tess.shader ? tess.shader->name : "<null>",
-				stage,
-				input->svars.texcoords[0],
-				input->svars.texcoords[1],
-				input->svars.texcoords[0][0][0],
-				input->svars.texcoords[0][0][1],
-				input->svars.texcoords[1][0][0],
-				input->svars.texcoords[1][0][1]);
-			s_xboxMultitexCoordLogCount++;
-		}		
-	}	
-#endif
 	R_BindAnimatedImage( &pStage->bundle[0] );
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured after bind0 shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
 
 	// 
 	// lightmap/secondary pass
@@ -2450,28 +1871,12 @@ static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t
 
 	glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[1] );
 
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured before bind1 shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
 	R_BindAnimatedImage( &pStage->bundle[1] );
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured after bind1 shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
 
 #ifdef _XBOX
 	if ( fusedDetailStage )
 	{
-		static int s_xboxDetailFusionLogBudget = 12;
+		static int s_xboxDetailFusionLogBudget = 0;
 
 		GL_SelectTexture( 2 );
 		glEnable( GL_TEXTURE_2D );
@@ -2497,43 +1902,18 @@ static void DrawMultitextured( shaderCommands_t *input, int stage, shaderStage_t
 	if ( stefxBeamShader || stefxHudShader )
 	{
 		RB_XboxForceEliteForceOverlayD3DState( tess.shader, stefxBeamShader, "DrawMultitextured before draw" );
-		RB_XboxLogEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "DrawMultitextured" );
 		JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
 	}	
 	RB_XboxBeginEliteForceScriptPanelFakeglState( pStage, "DrawMultitextured" );
-	if ( trace )
-	{
-		JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>", stage,
-			fusedDetailStage ? 3 : 2, (unsigned int)stateBits );
-	}	
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured before draw shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
 #endif
 	R_DrawElements( input->numIndexes, input->indexes );
 #ifdef _XBOX
-	if ( trace )
-	{
-		JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
-	}	
 	RB_XboxEndEliteForceScriptPanelFakeglState( "DrawMultitextured" );
 	if ( stefxBeamShader || stefxHudShader )
 	{
 		JkaFakeglSetEliteForceOverlayDrawContext( 0, 0, 0 );
 	}	
 #endif
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: DrawMultitextured after draw shader='%s' stage=%d\n",
-			tess.shader ? tess.shader->name : "<null>", stage);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
-
 	// 
 	// disable texturing on TEXTURE1, then select TEXTURE0
 	// 
@@ -4483,9 +3863,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	bool	UseGLFog = false;
 	bool	FogColorChange = false;
 	fog_t	*fog = NULL;
-#ifdef _XBOX
-	qboolean forceTrace = RB_XboxForceTraceSurface();
-#endif
 
 	if (tess.fogNum && tess.shader->fogPass && (tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs) 
 		&& r_drawfog->value == 2) 
@@ -4592,16 +3969,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			stateBits &= ~( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS );
 			stateBits |= GLS_DEPTHFUNC_EQUAL;
 		}		
-		if ( forceTrace )
-		{
-			XBLF("JA: RB_IterateStagesGeneric stage enter shader='%s' stage=%d active=%d state=0x%x bundle1=%p fading=%d\n",
-				tess.shader ? tess.shader->name : "<null>",
-				stage,
-				pStage->active,
-				stateBits,
-				pStage->bundle[1].image,
-				input->fading);
-		}		
 #endif
 
 		// allow skipping out to show just lightmaps during development
@@ -4658,7 +4025,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #ifdef _XBOX
 		if ( stefxBeamShader || stefxHudShader )
 		{
-			static int s_stefxOverlayStateAdjustBudget = 160;
+			static int s_stefxOverlayStateAdjustBudget = 0;
 			const int oldStateBits = stateBits;
 
 			stateBits |= GLS_DEPTHTEST_DISABLE;
@@ -4714,13 +4081,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 
 		if (!input->fading)
 		{ //this means ignore this, while we do a fade-out
-#ifdef _XBOX
-			if ( forceTrace )
-			{
-				XBLF("JA: RB_IterateStagesGeneric before ComputeColors shader='%s' stage=%d\n",
-					tess.shader ? tess.shader->name : "<null>", stage);
-			} 
-#endif
 			ComputeColors( pStage, forceAlphaGen, forceRGBGen );
 #ifdef _XBOX
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ComputeColors" );
@@ -4729,51 +4089,13 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #endif
 			RB_XboxForceYavinIntroModelColors( pStage );
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ColorForce" );
-			if ( forceTrace )
-			{
-				XBLF("JA: RB_IterateStagesGeneric after ComputeColors shader='%s' stage=%d\n",
-					tess.shader ? tess.shader->name : "<null>", stage);
-			} 
 #endif
 		}		
-#ifdef _XBOX
-		if ( forceTrace )
-		{
-			XBLF("JA: RB_IterateStagesGeneric before ComputeTexCoords shader='%s' stage=%d\n",
-				tess.shader ? tess.shader->name : "<null>", stage);
-		}		
-#endif
 		ComputeTexCoords( pStage );
 #ifdef _XBOX
-		if ( forceTrace )
-		{
-			XBLF("JA: RB_IterateStagesGeneric after ComputeTexCoords shader='%s' stage=%d\n",
-				tess.shader ? tess.shader->name : "<null>", stage);
-		}		
-		RB_XboxLogWorldDrawStage( "RB_IterateStagesGeneric", input, pStage, stage, stateBits );
-#if defined(STEFX_ELITE_FORCE_SP)
-		RB_XboxUpdateFallbackStageTelemetry( input, pStage, stage, stateBits );
-#endif
-		if ( RB_XboxShouldTraceSurface() )
-		{
-			static int s_stefxPostStagePathBudget = 96;
-			if ( s_stefxPostStagePathBudget > 0 )
-			{
-				XBLF("STEFX: POST_STAGE_PATH shader='%s' stage=%d bundle1=%d isLightmap0=%d rgb=%d alpha=%d state=0x%x setArraysOnce=%d",
-					tess.shader ? tess.shader->name : "<null>",
-					stage,
-					pStage->bundle[1].image ? 1 : 0,
-					pStage->bundle[0].isLightmap ? 1 : 0,
-					pStage->rgbGen,
-					pStage->alphaGen,
-					stateBits,
-					setArraysOnce ? 1 : 0 );
-				--s_stefxPostStagePathBudget;
-			} 
-		}		
 		if ( !backEnd.projection2D && cls.state == CA_ACTIVE )
 		{
-			static int s_efActiveStageBudget = 12;
+			static int s_efActiveStageBudget = 0;
 			if ( s_efActiveStageBudget > 0 )
 			{
 				const unsigned long color0 = input->svars.colors[0];
@@ -4807,7 +4129,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		}		
 		if ( tess.shader && tess.shader->name && strstr( tess.shader->name, "textures/borg/" ) )
 		{
-			static int s_efBorgStageBudget = 12;
+			static int s_efBorgStageBudget = 0;
 			if ( s_efBorgStageBudget > 0 )
 			{
 				const unsigned long color0 = input->svars.colors[0];
@@ -4875,7 +4197,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #ifdef _XBOX
 		if ((pStage->isSpecular || pStage->isEnvironment || pStage->isBumpMap) && tess.shader)
 		{
-			static int s_xboxLightEffectsFallbackLogCount = 0;
+			static int s_xboxLightEffectsFallbackLogCount = 32;
 			if (s_xboxLightEffectsFallbackLogCount < 32)
 			{
 				XBLF("JA: XBOX_LIGHTEFFECTS_FALLBACK shader='%s' stage=%d spec=%d env=%d bump=%d",
@@ -4936,45 +4258,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		// do multitexture
 		//
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( RB_XboxShouldTraceSurface() )
-		{
-			static int s_stefxPlayerModelBranchLogs = 96;
-			if ( s_stefxPlayerModelBranchLogs > 0 )
-			{
-				XBLF("STEFX: TRACE_BRANCH shader='%s' isPlayer=%d stage=%d bundle1=%d img0='%s' img1='%s' vertexLightmap=%d rgb=%d alpha=%d state=0x%x setArraysOnce=%d",
-					tess.shader ? tess.shader->name : "<null>",
-					RB_XboxIsEliteForcePlayerModelShader( tess.shader ) ? 1 : 0,
-					stage,
-					pStage->bundle[1].image ? 1 : 0,
-					RB_XboxImageName( pStage->bundle[0].image ),
-					RB_XboxImageName( pStage->bundle[1].image ),
-					pStage->bundle[0].vertexLightmap ? 1 : 0,
-					pStage->rgbGen,
-					pStage->alphaGen,
-					stateBits,
-					setArraysOnce ? 1 : 0 );
-				--s_stefxPlayerModelBranchLogs;
-			} 
-		}		
-#endif
 		if ( pStage->bundle[1].image != 0 )
 		{
-#ifdef _XBOX
-			if ( forceTrace )
-			{
-				XBLF("JA: RB_IterateStagesGeneric before DrawMultitextured shader='%s' stage=%d\n",
-					tess.shader ? tess.shader->name : "<null>", stage);
-			} 
-#endif
 			DrawMultitextured( input, stage, fusedDetailStage );
-#ifdef _XBOX
-			if ( forceTrace )
-			{
-				XBLF("JA: RB_IterateStagesGeneric after DrawMultitextured shader='%s' stage=%d\n",
-					tess.shader ? tess.shader->name : "<null>", stage);
-			} 
-#endif
 		}		
 		else
 		{
@@ -5002,17 +4288,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			else 
 #ifdef _XBOX
 			{
-				if ( forceTrace )
-				{
-					XBLF("JA: RB_IterateStagesGeneric before bind single shader='%s' stage=%d\n",
-						tess.shader ? tess.shader->name : "<null>", stage);
-				}
 				R_BindAnimatedImage( &pStage->bundle[0] );
-				if ( forceTrace )
-				{
-					XBLF("JA: RB_IterateStagesGeneric after bind single shader='%s' stage=%d\n",
-						tess.shader ? tess.shader->name : "<null>", stage);
-				}
 #if defined(STEFX_ELITE_FORCE_SP)
 				RB_XboxPrepareEliteForcePlayerModelDraw( pStage );
 #endif
@@ -5057,14 +4333,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			// draw
 			//
 #ifdef _XBOX
-			if ( forceTrace )
-			{
-				XBLF("JA: RB_IterateStagesGeneric before single draw shader='%s' stage=%d\n",
-					tess.shader ? tess.shader->name : "<null>", stage);
-			} 
 			if ( stefxBeamShader || stefxHudShader )
 			{
-				RB_XboxLogEliteForceOverlayDraw( pStage, stefxHudShader, stefxBeamShader, "RB_IterateStagesGeneric" );
 				JkaFakeglSetEliteForceOverlayDrawContext( 1, stefxHudShader, stefxBeamShader );
 			} 
 			RB_XboxBeginEliteForceScriptPanelFakeglState( pStage, "RB_IterateStagesGeneric" );
@@ -5072,17 +4342,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 #if defined(STEFX_ELITE_FORCE_SP)
 			RB_XboxLogEliteForcePlayerModelDrawInputs( pStage, "before single draw" );
 #endif
-			if ( forceTrace )
-			{
-				JkaFakeglSetEliteForceDrawContext( tess.shader ? tess.shader->name : "<null>", stage, 1, (unsigned int)stateBits );
-			} 
 #endif
 			R_DrawElements( input->numIndexes, input->indexes );
 #ifdef _XBOX
-			if ( forceTrace )
-			{
-				JkaFakeglSetEliteForceDrawContext( "", -1, 0, 0 );
-			} 
 			RB_XboxEndEliteForceScriptPanelFakeglState( "RB_IterateStagesGeneric" );
 			if ( stefxBeamShader || stefxHudShader )
 			{
@@ -5090,13 +4352,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			} 
 #endif
 #ifdef _XBOX
-			if ( forceTrace )
-			{
-				XBLF("JA: RB_IterateStagesGeneric after single draw shader='%s' stage=%d\n",
-					tess.shader ? tess.shader->name : "<null>", stage);
-			} 
 #endif
-
 			if (lStencilled)
 			{ //re-enable the color buffer, disable stencil test
 				lStencilled = false;
@@ -5158,17 +4414,11 @@ void RB_StageIteratorGeneric( void )
 {
 	shaderCommands_t *input;
 	int stage;
-#ifdef _XBOX
-	static int traceBudget = 0;
-	qboolean trace;
-	qboolean forceTrace;
-#endif
 
 	input = &tess;
 #ifdef _XBOX
 	RB_XboxLogRenderSuspectSurface("RB_StageIteratorGeneric");
 	RB_XboxLogModelShaderSurface("RB_StageIteratorGeneric");
-	RB_XboxLogEliteForceIntroDraw("RB_StageIteratorGeneric");
 	if ( RB_XboxShouldSkipYavinSkyOverlay( tess.shader ) )
 	{
 		static int s_xboxYavinSkyOverlaySkipLogBudget = 0;
@@ -5186,33 +4436,9 @@ void RB_StageIteratorGeneric( void )
 		return;
 	}	
 #endif
-#ifdef _XBOX
-	trace = RB_XboxShouldTraceSurface();
-	forceTrace = RB_XboxForceTraceSurface();
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric enter shader='%s' verts=%d indexes=%d passes=%d fog=%d dlight=0x%x\n",
-			tess.shader ? tess.shader->name : "<null>",
-			tess.numVertexes,
-			tess.numIndexes,
-			tess.numPasses,
-			tess.fogNum,
-			tess.dlightBits);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
-
 	RB_DeformTessGeometry();
 #ifdef _XBOX
 	RB_XboxLogModelTransformProbe("after_deform");
-#endif
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric after deform shader='%s'\n",
-			tess.shader ? tess.shader->name : "<null>");
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
 #endif
 
 	// 
@@ -5235,16 +4461,6 @@ void RB_StageIteratorGeneric( void )
 #else
 	GL_Cull( input->shader->cullType );
 #endif
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric after cull shader='%s' cull=%d\n",
-			tess.shader ? tess.shader->name : "<null>",
-			input->shader ? input->shader->cullType : -1);
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
-
 	// set polygon offset if necessary
 	if ( input->shader->polygonOffset )
 	{
@@ -5329,38 +4545,13 @@ void RB_StageIteratorGeneric( void )
 	// 
 	// call shader function
 	// 
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric before iterate shader='%s'\n",
-			tess.shader ? tess.shader->name : "<null>");
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
 	RB_IterateStagesGeneric( input );
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric after iterate shader='%s'\n",
-			tess.shader ? tess.shader->name : "<null>");
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
 
 	// 
 	// now do any dynamic lighting needed
 	// 
 	if ( tess.dlightBits && tess.shader->sort <= SS_OPAQUE
 		&& !(tess.shader->surfaceFlags & (SURF_NODLIGHT | SURF_SKY) ) ) {
-#ifdef _XBOX
-		if ( trace && ( traceBudget > 0 || forceTrace ) )
-		{
-			XBLF("JA: RB_StageIteratorGeneric before dlight shader='%s' bits=0x%x\n",
-				tess.shader ? tess.shader->name : "<null>",
-				tess.dlightBits);
-			if ( traceBudget > 0 ) traceBudget--;
-		}		
-#endif
 #ifdef VV_LIGHTING
 		glEnableClientState( GL_NORMAL_ARRAY );
 		glNormalPointer(GL_FLOAT, 16, tess.normal );
@@ -5369,7 +4560,7 @@ void RB_StageIteratorGeneric( void )
 		{
 			bool renderedDlights = glw_state->lightEffects->RenderDynamicLights();
 #ifdef _XBOX
-			static int s_xboxDlightRenderLogCount = 0;
+			static int s_xboxDlightRenderLogCount = 64;
 			if (s_xboxDlightRenderLogCount < 64)
 			{
 				XBLF("JA: XBOX_RENDER_DLIGHT #%d shader='%s' bits=0x%x rendered=%d verts=%d indexes=%d",
@@ -5385,7 +4576,7 @@ void RB_StageIteratorGeneric( void )
 			if (!renderedDlights)
 			{
 #ifdef _XBOX
-				static int s_xboxDlightFallbackLogCount = 0;
+				static int s_xboxDlightFallbackLogCount = 64;
 				if (s_xboxDlightFallbackLogCount < 64)
 				{
 					XBLF("JA: XBOX_PROJECT_DLIGHT_FALLBACK #%d shader='%s' bits=0x%x vvLights=%d verts=%d indexes=%d",
@@ -5412,14 +4603,6 @@ void RB_StageIteratorGeneric( void )
 			ProjectDlightTexture();
 		}		
 #endif
-#ifdef _XBOX
-		if ( trace && ( traceBudget > 0 || forceTrace ) )
-		{
-			XBLF("JA: RB_StageIteratorGeneric after dlight shader='%s'\n",
-				tess.shader ? tess.shader->name : "<null>");
-			if ( traceBudget > 0 ) traceBudget--;
-		}		
-#endif
 	}	
 
 	// 
@@ -5427,24 +4610,7 @@ void RB_StageIteratorGeneric( void )
 	// 
 	if (tr.world && (tess.fogNum != tr.world->globalFog || r_drawfog->value != 2) && r_drawfog->value && tess.fogNum && tess.shader->fogPass)
 	{
-#ifdef _XBOX
-		if ( trace && ( traceBudget > 0 || forceTrace ) )
-		{
-			XBLF("JA: RB_StageIteratorGeneric before fog shader='%s' fog=%d\n",
-				tess.shader ? tess.shader->name : "<null>",
-				tess.fogNum);
-			if ( traceBudget > 0 ) traceBudget--;
-		}		
-#endif
 		RB_FogPass();
-#ifdef _XBOX
-		if ( trace && ( traceBudget > 0 || forceTrace ) )
-		{
-			XBLF("JA: RB_StageIteratorGeneric after fog shader='%s'\n",
-				tess.shader ? tess.shader->name : "<null>");
-			if ( traceBudget > 0 ) traceBudget--;
-		}		
-#endif
 	}	
 
 	// 
@@ -5455,15 +4621,6 @@ void RB_StageIteratorGeneric( void )
 		glUnlockArraysEXT();
 		GLimp_LogComment( "glUnlockArraysEXT\n" );
 	}	
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric after unlock shader='%s'\n",
-			tess.shader ? tess.shader->name : "<null>");
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
-
 	// 
 	// reset polygon offset
 	// 
@@ -5491,14 +4648,6 @@ void RB_StageIteratorGeneric( void )
 	{
 		glDisable(GL_FOG);
 	}	
-#ifdef _XBOX
-	if ( trace && ( traceBudget > 0 || forceTrace ) )
-	{
-		XBLF("JA: RB_StageIteratorGeneric exit shader='%s'\n",
-			tess.shader ? tess.shader->name : "<null>");
-		if ( traceBudget > 0 ) traceBudget--;
-	}	
-#endif
 }
 
 
@@ -5507,10 +4656,6 @@ void RB_StageIteratorGeneric( void )
 */
 void RB_EndSurface( void ) {
 	shaderCommands_t *input;
-
-#ifdef _XBOX
-	g_SPXBRenderEndSurfaces++;
-#endif
 
 	input = &tess;
 
@@ -5571,7 +4716,7 @@ void RB_EndSurface( void ) {
 			if(tess.currentStageIteratorFunc == RB_StageIteratorSky)
 			{	// don't process these tris at all
 #ifdef _XBOX
-				static int s_xboxSkyPortalFallbackLogBudget = 16;
+				static int s_xboxSkyPortalFallbackLogBudget = 0;
 				if (s_xboxSkyPortalFallbackLogBudget > 0)
 				{
 					XBLF("JA: XBOX_SKYPORTAL_MAIN_SKY_GATE shader='%s' verts=%d indexes=%d rdflags=0x%x drawsky=%d action=%s",
@@ -5625,10 +4770,10 @@ void RB_EndSurface( void ) {
 	// 
 #ifdef _XBOX
 	{
-		static int junkSkySurfaceBudget = 32;
+		static int junkSkySurfaceBudget = 0;
 		const qboolean traceJunkSky = (tess.shader && tess.shader->name &&
 			strstr( tess.shader->name, "textures/common/junk_sky" )) ? qtrue : qfalse;
-		static int activeSurfaceBudget = 12;
+		static int activeSurfaceBudget = 0;
 		if (!backEnd.projection2D && cls.state == CA_ACTIVE && activeSurfaceBudget > 0)
 		{
 			XBLF("EF: WORLD_SURFACE shader='%s' verts=%d indexes=%d passes=%d fog=%d dlight=0x%x ent=%d reType=%d func=%p",
@@ -5660,34 +4805,14 @@ void RB_EndSurface( void ) {
 				drawskyboxportal);
 			--junkSkySurfaceBudget;
 		}		
-		static int traceBudget = 0;
-		qboolean trace = RB_XboxShouldTraceSurface();
-
-		if ( trace && traceBudget > 0 )
-		{
-			XBLF("JA: RB_EndSurface before iterator shader='%s' verts=%d indexes=%d passes=%d currentPass=%d fog=%d dlight=0x%x ent=%d reType=%d func=%p\n",
-				tess.shader ? tess.shader->name : "<null>",
-				tess.numVertexes,
-				tess.numIndexes,
-				tess.numPasses,
-				tess.currentPass,
-				tess.fogNum,
-				tess.dlightBits,
-				tr.currentEntityNum,
-				backEnd.currentEntity ? backEnd.currentEntity->e.reType : -1,
-				tess.currentStageIteratorFunc);
-			traceBudget--;
-		}		
 	}	
 #endif
 	tess.currentStageIteratorFunc();
 #ifdef _XBOX
 	{
-		static int junkSkySurfaceAfterBudget = 32;
+		static int junkSkySurfaceAfterBudget = 0;
 		const qboolean traceJunkSky = (tess.shader && tess.shader->name &&
 			strstr( tess.shader->name, "textures/common/junk_sky" )) ? qtrue : qfalse;
-		static int traceBudget = 0;
-		qboolean trace = RB_XboxShouldTraceSurface();
 
 		if ( traceJunkSky && junkSkySurfaceAfterBudget > 0 )
 		{
@@ -5699,17 +4824,6 @@ void RB_EndSurface( void ) {
 				tess.currentPass,
 				backEnd.skyRenderedThisView ? 1 : 0);
 			--junkSkySurfaceAfterBudget;
-		}		
-
-		if ( trace && traceBudget > 0 )
-		{
-			XBLF("JA: RB_EndSurface after iterator shader='%s' verts=%d indexes=%d passes=%d currentPass=%d\n",
-				tess.shader ? tess.shader->name : "<null>",
-				tess.numVertexes,
-				tess.numIndexes,
-				tess.numPasses,
-				tess.currentPass);
-			traceBudget--;
 		}		
 	}	
 #endif

@@ -249,9 +249,9 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	int				cull;
 	int				i, whichLod;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	static int		s_stefxAnimSurfEnterBudget = 24;
-	static int		s_stefxAnimSurfCullBudget = 24;
-	static int		s_stefxAnimSurfVisibleBudget = 96;
+	static int		s_stefxAnimSurfEnterBudget = 0;
+	static int		s_stefxAnimSurfCullBudget = 0;
+	static int		s_stefxAnimSurfVisibleBudget = 0;
 	qboolean		stefxTrackAnimSurf = qfalse;
 	qboolean		stefxLogAnimSurf = qfalse;
 #endif
