@@ -2012,76 +2012,6 @@ void CG_BorgEyebeam( centity_t *cent, const refEntity_t *parent )
 CG_Player
 ===============
 */
-#if defined(STEFX_SP_HOSTED_MP)
-static unsigned int stefxPlayerSnapshotMask;
-static unsigned int stefxPlayerCallMask;
-static unsigned int stefxPlayerLegsMask;
-static unsigned int stefxPlayerBodyMask;
-static unsigned int stefxPlayerInvalidMask;
-static unsigned int stefxPlayerNoDrawMask;
-static int stefxCenteredPlayerLogBudget = 32;
-
-static unsigned int STEFX_PlayerClientBit( int clientNum ) {
-	if ( clientNum < 0 || clientNum >= 32 ) {
-		return 0;
-	}
-
-	return 1u << clientNum;
-}
-
-void STEFX_PlayerDrawBeginFrame( void ) {
-	stefxPlayerSnapshotMask = 0;
-	stefxPlayerCallMask = 0;
-	stefxPlayerLegsMask = 0;
-	stefxPlayerBodyMask = 0;
-	stefxPlayerInvalidMask = 0;
-	stefxPlayerNoDrawMask = 0;
-}
-
-void STEFX_PlayerDrawMarkSnapshot( int clientNum ) {
-	stefxPlayerSnapshotMask |= STEFX_PlayerClientBit( clientNum );
-}
-
-void STEFX_PlayerDrawEndFrame( void ) {
-	static unsigned int lastSnapshotMask = ~0u;
-	static unsigned int lastCallMask = ~0u;
-	static unsigned int lastLegsMask = ~0u;
-	static unsigned int lastBodyMask = ~0u;
-	static unsigned int lastInvalidMask = ~0u;
-	static unsigned int lastNoDrawMask = ~0u;
-	static int lastTraceTime;
-
-	if ( stefxPlayerSnapshotMask != lastSnapshotMask ||
-		 stefxPlayerCallMask != lastCallMask ||
-		 stefxPlayerLegsMask != lastLegsMask ||
-		 stefxPlayerBodyMask != lastBodyMask ||
-		 stefxPlayerInvalidMask != lastInvalidMask ||
-		 stefxPlayerNoDrawMask != lastNoDrawMask ||
-		 cg.time - lastTraceTime >= 500 ) {
-		CG_Printf( "STEFX_DRAW: time=%d snapshot=0x%x called=0x%x legs=0x%x body=0x%x "
-			"invalid=0x%x nodraw=0x%x yaw=%g view=(%g,%g,%g)\n",
-			cg.time,
-			stefxPlayerSnapshotMask,
-			stefxPlayerCallMask,
-			stefxPlayerLegsMask,
-			stefxPlayerBodyMask,
-			stefxPlayerInvalidMask,
-			stefxPlayerNoDrawMask,
-			cg.refdefViewAngles[YAW],
-			cg.refdef.vieworg[0],
-			cg.refdef.vieworg[1],
-			cg.refdef.vieworg[2] );
-		lastSnapshotMask = stefxPlayerSnapshotMask;
-		lastCallMask = stefxPlayerCallMask;
-		lastLegsMask = stefxPlayerLegsMask;
-		lastBodyMask = stefxPlayerBodyMask;
-		lastInvalidMask = stefxPlayerInvalidMask;
-		lastNoDrawMask = stefxPlayerNoDrawMask;
-		lastTraceTime = cg.time;
-	}
-}
-#endif
-
 void CG_Player( centity_t *cent ) {
 	clientInfo_t	*ci;
 	refEntity_t		legs;
@@ -2091,11 +2021,6 @@ void CG_Player( centity_t *cent ) {
 	int				renderfx;
 	qboolean		shadow, borg = qfalse;
 	float			shadowPlane;
-	static int		stefxPlayerDrawTraceCount;
-#if defined(STEFX_SP_HOSTED_MP)
-	static int		stefxBodyTraceTime[MAX_CLIENTS];
-	static int		stefxBodyTraceCount;
-#endif
 
 	// the client number is stored in clientNum.  It can't be derived
 	// from the entity number, because a single client may have
@@ -2104,30 +2029,11 @@ void CG_Player( centity_t *cent ) {
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
 		CG_Error( "Bad clientNum on player entity");
 	}
-#if defined(STEFX_SP_HOSTED_MP)
-	stefxPlayerCallMask |= STEFX_PlayerClientBit( clientNum );
-#endif
 	ci = &cgs.clientinfo[ clientNum ];
-	if ( stefxPlayerDrawTraceCount < 128 ) {
-		CG_Printf( "STEFX: EF CG_Player time=%d entity=%d client=%d predicted=%d powerups=0x%x eFlags=0x%x lerp=(%g,%g,%g)\n",
-			cg.time,
-			cent->currentState.number,
-			clientNum,
-			cent == &cg.predictedPlayerEntity,
-			cent->currentState.powerups,
-			cent->currentState.eFlags,
-			cent->lerpOrigin[0],
-			cent->lerpOrigin[1],
-			cent->lerpOrigin[2] );
-		++stefxPlayerDrawTraceCount;
-	}
 
 	// it is possible to see corpses from disconnected players that may
 	// not have valid clientinfo
 	if ( !ci->infoValid ) {
-#if defined(STEFX_SP_HOSTED_MP)
-		stefxPlayerInvalidMask |= STEFX_PlayerClientBit( clientNum );
-#endif
 		return;
 	}
 
@@ -2142,9 +2048,6 @@ void CG_Player( centity_t *cent ) {
 
 	if (cent->currentState.eFlags & EF_NODRAW)
 	{	// Don't draw anymore...
-#if defined(STEFX_SP_HOSTED_MP)
-		stefxPlayerNoDrawMask |= STEFX_PlayerClientBit( clientNum );
-#endif
 		return;
 	}
 
@@ -2238,9 +2141,6 @@ void CG_Player( centity_t *cent ) {
 	if (!legs.hModel) {
 		return;
 	}
-#if defined(STEFX_SP_HOSTED_MP)
-	stefxPlayerLegsMask |= STEFX_PlayerClientBit( clientNum );
-#endif
 
 	//
 	// add the torso
@@ -2274,74 +2174,10 @@ void CG_Player( centity_t *cent ) {
 
 	CG_PositionRotatedEntityOnTag( &head, &torso, ci->torsoModel, "tag_head" );
 
-#if defined(STEFX_SP_HOSTED_MP)
-	if ( clientNum != cg.snap->ps.clientNum &&
-		 stefxBodyTraceCount < 24 &&
-		 cg.time - stefxBodyTraceTime[clientNum] >= 500 ) {
-		vec3_t torsoOffset;
-		vec3_t headOffset;
-
-		VectorSubtract( torso.origin, legs.origin, torsoOffset );
-		VectorSubtract( head.origin, torso.origin, headOffset );
-		CG_Printf( "STEFX_BODY time=%d entity=%d client=%d anim=%d/%d "
-			"lowerFrame=%d/%d back=%g origin=(%g,%g,%g) axis0=(%g,%g,%g) "
-			"upperFrame=%d/%d back=%g origin=(%g,%g,%g) offset=(%g,%g,%g) axis0=(%g,%g,%g) "
-			"headOrigin=(%g,%g,%g) offset=(%g,%g,%g) axis0=(%g,%g,%g)\n",
-			cg.time,
-			cent->currentState.number,
-			clientNum,
-			cent->currentState.legsAnim,
-			cent->currentState.torsoAnim,
-			legs.oldframe,
-			legs.frame,
-			legs.backlerp,
-			legs.origin[0], legs.origin[1], legs.origin[2],
-			legs.axis[0][0], legs.axis[0][1], legs.axis[0][2],
-			torso.oldframe,
-			torso.frame,
-			torso.backlerp,
-			torso.origin[0], torso.origin[1], torso.origin[2],
-			torsoOffset[0], torsoOffset[1], torsoOffset[2],
-			torso.axis[0][0], torso.axis[0][1], torso.axis[0][2],
-			head.origin[0], head.origin[1], head.origin[2],
-			headOffset[0], headOffset[1], headOffset[2],
-			head.axis[0][0], head.axis[0][1], head.axis[0][2] );
-		stefxBodyTraceTime[clientNum] = cg.time;
-		++stefxBodyTraceCount;
-	}
-#endif
-
 	head.shadowPlane = shadowPlane;
 	head.renderfx = renderfx;
 
 	CG_AddRefEntityWithPowerups( &head, cent->currentState.powerups, cent->currentState.eFlags, borg );
-
-#if defined(STEFX_SP_HOSTED_MP)
-	stefxPlayerBodyMask |= STEFX_PlayerClientBit( clientNum );
-	if ( clientNum != cg.snap->ps.clientNum && stefxCenteredPlayerLogBudget > 0 ) {
-		vec3_t bodyCenter;
-		vec3_t direction;
-		float distance;
-		float viewDot;
-
-		VectorCopy( cent->lerpOrigin, bodyCenter );
-		bodyCenter[2] += 24.0f;
-		VectorSubtract( bodyCenter, cg.refdef.vieworg, direction );
-		distance = VectorNormalize( direction );
-		viewDot = DotProduct( cg.refdef.viewaxis[0], direction );
-		if ( distance <= 256.0f && viewDot >= 0.985f ) {
-			CG_Printf( "STEFX_HM_CENTER phase=cgame time=%d entity=%d client=%d distance=%g dot=%g submitted=1 view=(%g,%g,%g) body=(%g,%g,%g)\n",
-				cg.time,
-				cent->currentState.number,
-				clientNum,
-				distance,
-				viewDot,
-				cg.refdef.vieworg[0], cg.refdef.vieworg[1], cg.refdef.vieworg[2],
-				bodyCenter[0], bodyCenter[1], bodyCenter[2] );
-			--stefxCenteredPlayerLogBudget;
-		}
-	}
-#endif
 
 	if ( borg && cgs.pModAssimilation )
 	{

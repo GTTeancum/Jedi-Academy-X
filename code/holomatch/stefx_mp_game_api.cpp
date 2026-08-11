@@ -44,19 +44,9 @@ static game_import_t s_stefxHolomatchImportStorage;
 static void *s_stefxHolomatchGentities = NULL;
 static int s_stefxHolomatchGentitySize = 0;
 static int s_stefxHolomatchNumEntities = 0;
-static int s_stefxHolomatchSyscallTraceCount = 0;
 static int s_stefxHolomatchInvalidTraceTraceCount = 0;
 static int s_stefxHolomatchBadTraceInputCount = 0;
 static int s_stefxHolomatchBadTraceResultCount = 0;
-static int s_stefxHolomatchTraceDetailCount = 0;
-static int s_stefxHolomatchPointContentsTraceCount = 0;
-static int s_stefxHolomatchClientLinkTraceCount = 0;
-static int s_stefxHolomatchClientCollisionTraceCount = 0;
-static int s_stefxHolomatchCombatTraceProbeCount = 0;
-static int s_stefxHolomatchEntityTokenTraceCount = 0;
-static int s_stefxHolomatchHeartbeat = 0;
-static int s_stefxHolomatchClientThinkTraceCount = 0;
-static int s_stefxHolomatchClientStatePreserveLogBudget = 0;
 static const char *s_stefxHolomatchEntityParsePoint = NULL;
 static game_export_t s_stefxHolomatchExport;
 
@@ -448,21 +438,6 @@ static void STEFX_HolomatchSyncMirrorToOfficial(int entityNum)
 	VectorCopy(mirror->currentOrigin, official->r.currentOrigin);
 	VectorCopy(mirror->currentAngles, official->r.currentAngles);
 	official->r.ownerNum = mirror->owner ? mirror->owner->s.number : ENTITYNUM_NONE;
-	if (official->client && entityNum < STEFX_HM_MAX_CLIENT_STATES && mirror->client &&
-		s_stefxHolomatchClientStatePreserveLogBudget > 0)
-	{
-		const stefx_hm_player_state_t *officialPS =
-			(const stefx_hm_player_state_t *)official->client;
-		const playerState_t *mirrorPS = (const playerState_t *)mirror->client;
-		XBLog_WriteCriticalf("STEFX_HM_STATE: preserve client=%d eventSeq=%d cursor=%d mirrorEventSeq=%d intro=%d shieldDamage=%d",
-			entityNum,
-			officialPS->eventSequence,
-			officialPS->entityEventSequence,
-			mirrorPS->eventSequence,
-			officialPS->introTime,
-			officialPS->damageShieldCount);
-		--s_stefxHolomatchClientStatePreserveLogBudget;
-	}
 	/* Engine entity imports update linkage and bounds only.  The official
 	 * Holomatch player state remains authoritative; the SP-shaped client is a
 	 * read-only projection and omits private EF fields such as introTime and
@@ -620,12 +595,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 		va_end(args);
 		return 0;
 	}
-	if (s_stefxHolomatchSyscallTraceCount < 96)
-	{
-		++s_stefxHolomatchSyscallTraceCount;
-		XBLF("STEFX: SP-hosted official syscall enter command=%d", command);
-	}
-
 	switch (command)
 	{
 	case STEFX_HM_G_PRINT:
@@ -653,13 +622,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			const char *name = va_arg(args, const char *);
 			const char *defaultValue = va_arg(args, const char *);
 			int flags = va_arg(args, int);
-			XBLog_WriteCriticalf("STEFX_HM_SP: cvar register enter name='%s' default='%s' flags=%d vm=%p",
-				name ? name : "", defaultValue ? defaultValue : "", flags, vmCvar);
 			Cvar_Register(vmCvar, name, defaultValue, flags);
-			XBLog_WriteCriticalf("STEFX_HM_SP: cvar register exit name='%s' handle=%d mod=%d int=%d",
-				name ? name : "", vmCvar ? vmCvar->handle : -1,
-				vmCvar ? vmCvar->modificationCount : -1,
-				vmCvar ? vmCvar->integer : 0);
 		}
 		break;
 	case STEFX_HM_G_CVAR_UPDATE:
@@ -669,19 +632,13 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 		{
 			const char *name = va_arg(args, const char *);
 			const char *value = va_arg(args, const char *);
-			XBLog_WriteCriticalf("STEFX_HM_SP: cvar_set enter name='%s' value='%s' import=%p target=%p",
-				name ? name : "", value ? value : "", s_stefxHolomatchImport,
-				s_stefxHolomatchImport ? (void *)s_stefxHolomatchImport->cvar_set : NULL);
 			s_stefxHolomatchImport->cvar_set(name, value);
-			XBLog_WriteCritical("STEFX_HM_SP: cvar_set exit");
 		}
 		break;
 	case STEFX_HM_G_CVAR_VARIABLE_INTEGER_VALUE:
 		{
 			const char *name = va_arg(args, const char *);
-			XBLF("STEFX: SP-hosted cvar_int enter name='%s'", name);
 			result = s_stefxHolomatchImport->Cvar_VariableIntegerValue(name);
-			XBLF("STEFX: SP-hosted cvar_int exit name='%s' value=%d", name, result);
 		}
 		break;
 	case STEFX_HM_G_CVAR_VARIABLE_STRING_BUFFER:
@@ -708,11 +665,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			const char *qpath = va_arg(args, const char *);
 			fileHandle_t *file = (fileHandle_t *)va_arg(args, void *);
 			fsMode_t mode = (fsMode_t)va_arg(args, int);
-			XBLog_WriteCriticalf("STEFX_HM_SP: fs open enter path='%s' mode=%d file=%p",
-				qpath ? qpath : "", mode, file);
 			result = s_stefxHolomatchImport->FS_FOpenFile(qpath, file, mode);
-			XBLog_WriteCriticalf("STEFX_HM_SP: fs open exit path='%s' len=%d handle=%d",
-				qpath ? qpath : "", result, file ? *file : -1);
 		}
 		break;
 	case STEFX_HM_G_FS_READ:
@@ -720,10 +673,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			void *buffer = va_arg(args, void *);
 			int len = va_arg(args, int);
 			fileHandle_t file = va_arg(args, fileHandle_t);
-			XBLog_WriteCriticalf("STEFX_HM_SP: fs read enter buffer=%p len=%d handle=%d",
-				buffer, len, file);
 			s_stefxHolomatchImport->FS_Read(buffer, len, file);
-			XBLog_WriteCritical("STEFX_HM_SP: fs read exit");
 		}
 		break;
 	case STEFX_HM_G_FS_WRITE:
@@ -737,9 +687,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 	case STEFX_HM_G_FS_FCLOSE_FILE:
 		{
 			fileHandle_t file = va_arg(args, fileHandle_t);
-			XBLog_WriteCriticalf("STEFX_HM_SP: fs close enter handle=%d", file);
 			s_stefxHolomatchImport->FS_FCloseFile(file);
-			XBLog_WriteCritical("STEFX_HM_SP: fs close exit");
 		}
 		break;
 	case STEFX_HM_G_SEND_CONSOLE_COMMAND:
@@ -784,8 +732,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 		{
 			int num = va_arg(args, int);
 			const char *value = va_arg(args, const char *);
-			XBLog_WriteCriticalf("STEFX_HM_SP: config set num=%d value='%s'",
-				num, value ? value : "");
 			s_stefxHolomatchImport->SetConfigstring(num, value);
 		}
 		break;
@@ -795,11 +741,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			char *buffer = va_arg(args, char *);
 			int bufferSize = va_arg(args, int);
 			s_stefxHolomatchImport->GetConfigstring(num, buffer, bufferSize);
-			if (num == 288 || num == 289 || num == 290 || num == 543 || num == 544)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_SP: config get num=%d value='%s'", num,
-					buffer ? buffer : "");
-			}
 		}
 		break;
 	case STEFX_HM_G_GET_USERINFO:
@@ -807,11 +748,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			int clientNum = va_arg(args, int);
 			char *buffer = va_arg(args, char *);
 			int bufferSize = va_arg(args, int);
-			XBLog_WriteCriticalf("STEFX_HM_SP: get userinfo enter client=%d buffer=%p size=%d",
-				clientNum, buffer, bufferSize);
 			s_stefxHolomatchImport->GetUserinfo(clientNum, buffer, bufferSize);
-			XBLog_WriteCriticalf("STEFX_HM_SP: get userinfo exit client=%d value='%s'",
-				clientNum, buffer ? buffer : "");
 		}
 		break;
 	case STEFX_HM_G_SET_USERINFO:
@@ -850,76 +787,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			const float *end = va_arg(args, const float *);
 			int passEntityNum = va_arg(args, int);
 			int contentmask = va_arg(args, int);
-			int traceSequence = s_stefxHolomatchTraceDetailCount++;
-			qboolean combatTraceProbe = qfalse;
-			int combatTraceClientMask = 0;
-			int combatTraceEntityCount = 0;
-			if (start && end && !mins && !maxs &&
-				(passEntityNum == 1 || passEntityNum == 2) &&
-				s_stefxHolomatchCombatTraceProbeCount < 48)
-			{
-				vec3_t delta;
-				VectorSubtract(end, start, delta);
-				combatTraceProbe = (qboolean)(VectorLengthSquared(delta) > (1024.0f * 1024.0f));
-			}
-			if (combatTraceProbe)
-			{
-				vec3_t queryMins;
-				vec3_t queryMaxs;
-				gentity_t *queryEntities[64];
-				int queryIndex;
-				int axis;
-				for (axis = 0; axis < 3; ++axis)
-				{
-					queryMins[axis] = (start[axis] < end[axis] ? start[axis] : end[axis]) - 1.0f;
-					queryMaxs[axis] = (start[axis] > end[axis] ? start[axis] : end[axis]) + 1.0f;
-				}
-				combatTraceEntityCount = s_stefxHolomatchImport->EntitiesInBox(
-					queryMins, queryMaxs, queryEntities, 64);
-				for (queryIndex = 0; queryIndex < combatTraceEntityCount; ++queryIndex)
-				{
-					if (queryEntities[queryIndex] == STEFX_HolomatchMirrorEntity(0))
-					{
-						combatTraceClientMask |= 1;
-					}
-					else if (queryEntities[queryIndex] == STEFX_HolomatchMirrorEntity(1))
-					{
-						combatTraceClientMask |= 2;
-					}
-					else if (queryEntities[queryIndex] == STEFX_HolomatchMirrorEntity(2))
-					{
-						combatTraceClientMask |= 4;
-					}
-				}
-				{
-					gentity_t *localMirror = STEFX_HolomatchMirrorEntity(0);
-					XBLog_WriteCriticalf("STEFX_HM_COMBAT_TRACE phase=before pass=%d mask=0x%x areaCount=%d clientMask=0x%x localLinked=%d localContents=0x%x localOrigin=(%g,%g,%g) localAbsmin=(%g,%g,%g) localAbsmax=(%g,%g,%g)",
-						passEntityNum,
-						contentmask,
-						combatTraceEntityCount,
-						combatTraceClientMask,
-						localMirror ? localMirror->linked : -1,
-						localMirror ? localMirror->contents : 0,
-						localMirror ? localMirror->currentOrigin[0] : 0.0f,
-						localMirror ? localMirror->currentOrigin[1] : 0.0f,
-						localMirror ? localMirror->currentOrigin[2] : 0.0f,
-						localMirror ? localMirror->absmin[0] : 0.0f,
-						localMirror ? localMirror->absmin[1] : 0.0f,
-						localMirror ? localMirror->absmin[2] : 0.0f,
-						localMirror ? localMirror->absmax[0] : 0.0f,
-						localMirror ? localMirror->absmax[1] : 0.0f,
-						localMirror ? localMirror->absmax[2] : 0.0f);
-				}
-			}
-			if (traceSequence < 48)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_SP: trace enter seq=%d pass=%d mask=0x%x start=(%g,%g,%g) mins=(%g,%g,%g) maxs=(%g,%g,%g) end=(%g,%g,%g)",
-					traceSequence, passEntityNum, contentmask,
-					start ? start[0] : 0.0f, start ? start[1] : 0.0f, start ? start[2] : 0.0f,
-					mins ? mins[0] : 0.0f, mins ? mins[1] : 0.0f, mins ? mins[2] : 0.0f,
-					maxs ? maxs[0] : 0.0f, maxs ? maxs[1] : 0.0f, maxs ? maxs[2] : 0.0f,
-					end ? end[0] : 0.0f, end ? end[1] : 0.0f, end ? end[2] : 0.0f);
-			}
 			if ((passEntityNum < 0 || passEntityNum >= MAX_GENTITIES) &&
 				s_stefxHolomatchInvalidTraceTraceCount < 32)
 			{
@@ -945,46 +812,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			}
 			s_stefxHolomatchImport->trace(traceResult, start, mins, maxs, end,
 				passEntityNum, contentmask);
-			if (combatTraceProbe)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_COMBAT_TRACE phase=after pass=%d areaCount=%d clientMask=0x%x hit=%d fraction=%g startsolid=%d allsolid=%d end=(%g,%g,%g)",
-					passEntityNum,
-					combatTraceEntityCount,
-					combatTraceClientMask,
-					traceResult ? traceResult->entityNum : -1,
-					traceResult ? traceResult->fraction : -1.0f,
-					traceResult ? traceResult->startsolid : 0,
-					traceResult ? traceResult->allsolid : 0,
-					traceResult ? traceResult->endpos[0] : 0.0f,
-					traceResult ? traceResult->endpos[1] : 0.0f,
-					traceResult ? traceResult->endpos[2] : 0.0f);
-				++s_stefxHolomatchCombatTraceProbeCount;
-			}
-			if (traceResult && passEntityNum >= 0 && passEntityNum < 3 &&
-				((traceResult->entityNum >= 0 && traceResult->entityNum < 3 &&
-				  traceResult->entityNum != passEntityNum) || traceResult->startsolid) &&
-				s_stefxHolomatchClientCollisionTraceCount < 96)
-			{
-				gentity_t *hit = (traceResult->entityNum >= 0 && traceResult->entityNum < 3) ?
-					STEFX_HolomatchMirrorEntity(traceResult->entityNum) : NULL;
-				XBLog_WriteCriticalf("STEFX_HM_COLLISION pass=%d hit=%d fraction=%g startsolid=%d "
-					"mask=0x%x hitLinked=%d hitContents=0x%x hitOrigin=(%g,%g,%g)",
-					passEntityNum, traceResult->entityNum, traceResult->fraction,
-					traceResult->startsolid, contentmask,
-					hit ? hit->linked : -1, hit ? hit->contents : 0,
-					hit ? hit->currentOrigin[0] : 0.0f,
-					hit ? hit->currentOrigin[1] : 0.0f,
-					hit ? hit->currentOrigin[2] : 0.0f);
-				++s_stefxHolomatchClientCollisionTraceCount;
-			}
-			if (traceSequence < 48 && traceResult)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_SP: trace exit seq=%d allsolid=%d startsolid=%d fraction=%g end=(%g,%g,%g) plane=(%g,%g,%g) dist=%g entity=%d",
-					traceSequence, traceResult->allsolid, traceResult->startsolid, traceResult->fraction,
-					traceResult->endpos[0], traceResult->endpos[1], traceResult->endpos[2],
-					traceResult->plane.normal[0], traceResult->plane.normal[1], traceResult->plane.normal[2],
-					traceResult->plane.dist, traceResult->entityNum);
-			}
 			if (traceResult &&
 				(IS_NAN(traceResult->fraction) ||
 				 IS_NAN(traceResult->endpos[0]) ||
@@ -1021,20 +848,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 		{
 			const float *point = va_arg(args, const float *);
 			int passEntityNum = va_arg(args, int);
-			int pointContentsSequence = s_stefxHolomatchPointContentsTraceCount++;
-			if (pointContentsSequence < 48)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_SP: pointcontents enter seq=%d pass=%d point=(%g,%g,%g) fn=%p",
-					pointContentsSequence, passEntityNum,
-					point ? point[0] : 0.0f, point ? point[1] : 0.0f, point ? point[2] : 0.0f,
-					s_stefxHolomatchImport->pointcontents);
-			}
 			result = s_stefxHolomatchImport->pointcontents(point, passEntityNum);
-			if (pointContentsSequence < 48)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_SP: pointcontents exit seq=%d result=%d",
-					pointContentsSequence, result);
-			}
 		}
 		break;
 	case STEFX_HM_G_IN_PVS:
@@ -1077,25 +891,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			if (entityNum >= 0)
 			{
 				gentity_t *mirror = STEFX_HolomatchMirrorEntity(entityNum);
-				if (entityNum < 3 && s_stefxHolomatchClientLinkTraceCount < 48)
-				{
-					XBLog_WriteCriticalf("STEFX_HM_LINK phase=before ent=%d linked=%d contents=0x%x "
-						"mins=(%g,%g,%g) maxs=(%g,%g,%g) origin=(%g,%g,%g)",
-						entityNum, mirror->linked, mirror->contents,
-						mirror->mins[0], mirror->mins[1], mirror->mins[2],
-						mirror->maxs[0], mirror->maxs[1], mirror->maxs[2],
-						mirror->currentOrigin[0], mirror->currentOrigin[1], mirror->currentOrigin[2]);
-				}
 				s_stefxHolomatchImport->linkentity(mirror);
-				if (entityNum < 3 && s_stefxHolomatchClientLinkTraceCount < 48)
-				{
-					XBLog_WriteCriticalf("STEFX_HM_LINK phase=after ent=%d linked=%d contents=0x%x "
-						"absmin=(%g,%g,%g) absmax=(%g,%g,%g)",
-						entityNum, mirror->linked, mirror->contents,
-						mirror->absmin[0], mirror->absmin[1], mirror->absmin[2],
-						mirror->absmax[0], mirror->absmax[1], mirror->absmax[2]);
-					++s_stefxHolomatchClientLinkTraceCount;
-				}
 				STEFX_HolomatchSyncMirrorToOfficial(entityNum);
 			}
 		}
@@ -1151,8 +947,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			client->snapshotMsec = 50;
 			client->lastPacketTime = sv.time;
 			client->lastConnectTime = sv.time;
-			XBLog_WriteCriticalf("STEFX_HM_BOT: allocated official client=%d mirror=%p",
-				result, client->gentity);
 		}
 		break;
 	case STEFX_HM_G_BOT_FREE_CLIENT:
@@ -1160,9 +954,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 		break;
 	case STEFX_HM_G_GET_USERCMD:
 		{
-			static int s_stefxLastSpWeaponButtons[3] = { -1, -1, -1 };
-			static int s_stefxLastOfficialWeaponButtons[3] = { -1, -1, -1 };
-			static int s_stefxWeaponUsercmdLogBudget = 192;
 			int clientNum = va_arg(args, int);
 			usercmd_t spCommand;
 			stefx_hm_usercmd_t *officialCommand;
@@ -1180,29 +971,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 				officialCommand->rightmove = spCommand.rightmove;
 				officialCommand->upmove = spCommand.upmove;
 			}
-			if (clientNum >= 0 && clientNum < 3 && officialCommand)
-			{
-				const int spWeaponButtons = spCommand.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK);
-				const int officialWeaponButtons = officialCommand->buttons & (1 | 32);
-				if (spWeaponButtons != s_stefxLastSpWeaponButtons[clientNum] ||
-					officialWeaponButtons != s_stefxLastOfficialWeaponButtons[clientNum])
-				{
-					if (s_stefxWeaponUsercmdLogBudget > 0)
-					{
-						XBLog_WriteCriticalf("STEFX_WEAPON: game usercmd edge client=%d time=%d spButtons=0x%x spFire=0x%x officialButtons=0x%x officialFire=0x%x weapon=%d",
-							clientNum,
-							spCommand.serverTime,
-							spCommand.buttons,
-							spWeaponButtons,
-							officialCommand->buttons,
-							officialWeaponButtons,
-							officialCommand->weapon);
-						--s_stefxWeaponUsercmdLogBudget;
-					}
-					s_stefxLastSpWeaponButtons[clientNum] = spWeaponButtons;
-					s_stefxLastOfficialWeaponButtons[clientNum] = officialWeaponButtons;
-				}
-			}
 		}
 		break;
 	case STEFX_HM_G_GET_ENTITY_TOKEN:
@@ -1219,12 +987,6 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			{
 				result = SV_GetEntityToken(buffer, bufferSize);
 			}
-			if (s_stefxHolomatchEntityTokenTraceCount < 24)
-			{
-				++s_stefxHolomatchEntityTokenTraceCount;
-				XBLog_WriteCriticalf("STEFX_HM_SP: entity token result=%d token='%s'",
-					result, buffer ? buffer : "");
-			}
 		}
 		break;
 	case STEFX_HM_G_FS_GETFILELIST:
@@ -1233,11 +995,7 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			const char *extension = va_arg(args, const char *);
 			char *list = va_arg(args, char *);
 			int bufferSize = va_arg(args, int);
-			XBLog_WriteCriticalf("STEFX_HM_SP: fs list enter path='%s' extension='%s' buffer=%p size=%d",
-				path ? path : "", extension ? extension : "", list, bufferSize);
 			result = s_stefxHolomatchImport->FS_GetFileList(path, extension, list, bufferSize);
-			XBLog_WriteCriticalf("STEFX_HM_SP: fs list exit count=%d first='%s'", result,
-				(list && list[0]) ? list : "");
 		}
 		break;
 	case STEFX_HM_G_DEBUG_POLYGON_CREATE:
@@ -1277,16 +1035,9 @@ static void STEFX_HolomatchInit( const char *mapname, const char *spawntarget,
 	(void)savedGame;
 	(void)loadTransition;
 	s_stefxHolomatchEntityParsePoint = entstring;
-	XBLF("STEFX: SP-hosted official VM Init enter levelTime=%d randomSeed=%d", levelTime, randomSeed);
 	STEFX_HolomatchVM(0, levelTime, randomSeed, 0);
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
-	XBLF("STEFX: SP-hosted official VM Init exit official=%p mirror=%p count=%d stride=%d",
-		s_stefxHolomatchGentities,
-		s_stefxHolomatchExport.gentities,
-		s_stefxHolomatchExport.num_entities,
-		s_stefxHolomatchGentitySize,
-		s_stefxHolomatchExport.gentitySize);
 }
 
 static void STEFX_HolomatchShutdown()
@@ -1296,28 +1047,18 @@ static void STEFX_HolomatchShutdown()
 
 void STEFX_HolomatchBotFrame( int levelTime )
 {
-	static int s_botFrameLogBudget = 12;
-	int result;
 	if (!s_stefxHolomatchImport)
 	{
 		return;
 	}
-	result = STEFX_HolomatchVM(10, levelTime, 0, 0);
-	if (s_botFrameLogBudget > 0)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_BOT: official AI frame time=%d result=%d",
-			levelTime, result);
-		--s_botFrameLogBudget;
-	}
+	STEFX_HolomatchVM(10, levelTime, 0, 0);
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
 }
 
 static char *STEFX_HolomatchClientConnect( int clientNum, qboolean firstTime, SavedGameJustLoaded_e savedGame )
 {
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect enter client=%d", clientNum);
 	char *result = (char *)STEFX_HolomatchVM(2, clientNum, firstTime, savedGame);
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect exit client=%d denied=%p", clientNum, result);
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
 	return result;
@@ -1327,18 +1068,14 @@ static void STEFX_HolomatchClientBegin( int clientNum, usercmd_t *cmd, SavedGame
 {
 	(void)cmd;
 	(void)savedGame;
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientBegin enter client=%d", clientNum);
 	STEFX_HolomatchVM(3, clientNum, 0, 0);
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientBegin exit client=%d", clientNum);
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
 }
 
 static void STEFX_HolomatchClientUserinfoChanged( int clientNum )
 {
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientUserinfoChanged enter client=%d", clientNum);
 	STEFX_HolomatchVM(4, clientNum, 0, 0);
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientUserinfoChanged exit client=%d", clientNum);
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
 }
@@ -1360,16 +1097,7 @@ static void STEFX_HolomatchClientCommand( int clientNum )
 static void STEFX_HolomatchClientThink( int clientNum, usercmd_t *cmd )
 {
 	(void)cmd;
-	if (s_stefxHolomatchClientThinkTraceCount < 4)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: official ClientThink enter client=%d", clientNum);
-	}
 	STEFX_HolomatchVM(7, clientNum, 0, 0);
-	if (s_stefxHolomatchClientThinkTraceCount < 4)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: official ClientThink exit client=%d", clientNum);
-	}
-	++s_stefxHolomatchClientThinkTraceCount;
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
 }
@@ -1378,29 +1106,13 @@ static void STEFX_HolomatchConnectNavs( const char *mapname, int checksum )
 {
 	/* The SP host owns this export slot.  Holomatch does not expose the SP
 	 * navigator service, and the direct-map bot harness does not consume it. */
-	XBLog_WriteCriticalf("STEFX_HM_SP: ConnectNavs skipped map='%s' checksum=%d",
-		mapname ? mapname : "", checksum);
+	(void)mapname;
+	(void)checksum;
 }
 
 static void STEFX_HolomatchRunFrame( int levelTime )
 {
-	++s_stefxHolomatchHeartbeat;
-	if (s_stefxHolomatchHeartbeat <= 8 || (s_stefxHolomatchHeartbeat % 60) == 0)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: heartbeat frame=%d levelTime=%d",
-			s_stefxHolomatchHeartbeat, levelTime);
-	}
-	if (s_stefxHolomatchHeartbeat <= 8)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: official RunFrame enter frame=%d levelTime=%d",
-			s_stefxHolomatchHeartbeat, levelTime);
-	}
 	STEFX_HolomatchVM(8, levelTime, 0, 0);
-	if (s_stefxHolomatchHeartbeat <= 8)
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: official RunFrame exit frame=%d levelTime=%d",
-			s_stefxHolomatchHeartbeat, levelTime);
-	}
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();
 }
@@ -1427,19 +1139,10 @@ game_export_t *STEFX_GetHolomatchGameAPI( game_import_t *import )
 	s_stefxHolomatchGentities = NULL;
 	s_stefxHolomatchGentitySize = 0;
 	s_stefxHolomatchNumEntities = 0;
-	s_stefxHolomatchEntityTokenTraceCount = 0;
-	s_stefxHolomatchHeartbeat = 0;
-	s_stefxHolomatchClientThinkTraceCount = 0;
-	s_stefxHolomatchClientStatePreserveLogBudget = 192;
 	s_stefxHolomatchEntityParsePoint = NULL;
-	s_stefxHolomatchSyscallTraceCount = 0;
 	s_stefxHolomatchInvalidTraceTraceCount = 0;
 	s_stefxHolomatchBadTraceInputCount = 0;
 	s_stefxHolomatchBadTraceResultCount = 0;
-	s_stefxHolomatchTraceDetailCount = 0;
-	s_stefxHolomatchClientLinkTraceCount = 0;
-	s_stefxHolomatchClientCollisionTraceCount = 0;
-	s_stefxHolomatchCombatTraceProbeCount = 0;
 	memset(s_stefxHolomatchMirrorStorage, 0, sizeof(s_stefxHolomatchMirrorStorage));
 	memset(s_stefxHolomatchMirrorClientStates, 0, sizeof(s_stefxHolomatchMirrorClientStates));
 	memset(&s_stefxHolomatchExport, 0, sizeof(s_stefxHolomatchExport));

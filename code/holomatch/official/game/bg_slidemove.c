@@ -6,30 +6,6 @@
 #include "bg_public.h"
 #include "bg_local.h"
 
-#if defined(STEFX_SP_HOSTED_MP)
-extern void XBLog_WriteCriticalf(const char *fmt, ...);
-static int s_stefxStepSlideLogBudget = 64;
-
-static void STEFX_LogStepSlide(const char *phase, const vec3_t start, const vec3_t current, const trace_t *trace)
-{
-	if (s_stefxStepSlideLogBudget > 0 && pm && pm->ps && pm->ps->clientNum == 0) {
-		XBLog_WriteCriticalf("STEFX_HM_STEPSLIDE: %s time=%d start=(%g,%g,%g) current=(%g,%g,%g) velocity=(%g,%g,%g) traceFraction=%g normal=(%g,%g,%g) ground=%d flags=0x%x",
-			phase ? phase : "?",
-			pm->cmd.serverTime,
-			start[0], start[1], start[2],
-			current[0], current[1], current[2],
-			pm->ps->velocity[0], pm->ps->velocity[1], pm->ps->velocity[2],
-			trace ? trace->fraction : -1.0f,
-			trace ? trace->plane.normal[0] : 0.0f,
-			trace ? trace->plane.normal[1] : 0.0f,
-			trace ? trace->plane.normal[2] : 0.0f,
-			pm->ps->groundEntityNum,
-			pm->ps->pm_flags);
-		--s_stefxStepSlideLogBudget;
-	}
-}
-#endif
-
 /*
 
 input: origin, velocity, bounds, groundPlane, trace function
@@ -263,7 +239,6 @@ void PM_StepSlideMove( qboolean gravity ) {
 
 	if ( !pm->ps->velocity[0] && !pm->ps->velocity[1] ) {
 #if defined(STEFX_SP_HOSTED_MP)
-		STEFX_LogStepSlide("reject-no-horizontal-velocity", start_o, pm->ps->origin, &trace);
 #endif
 		return;
 	}
@@ -281,7 +256,6 @@ void PM_StepSlideMove( qboolean gravity ) {
 			Com_Printf("%i:bend can't step\n", c_pmove);
 		}
 #if defined(STEFX_SP_HOSTED_MP)
-		STEFX_LogStepSlide("reject-up-trace-blocked", start_o, pm->ps->origin, &trace);
 #endif
 		return;		// can't step up
 	}
@@ -329,7 +303,6 @@ void PM_StepSlideMove( qboolean gravity ) {
 			VectorCopy (down_o, pm->ps->origin);
 			VectorCopy (down_v, pm->ps->velocity);
 #if defined(STEFX_SP_HOSTED_MP)
-			STEFX_LogStepSlide(skipStep ? "reject-steep-step" : "reject-down-trace-solid", start_o, pm->ps->origin, &trace);
 #endif
 		}
 	}
@@ -353,7 +326,6 @@ void PM_StepSlideMove( qboolean gravity ) {
 		delta = pm->ps->origin[2] - start_o[2];
 		if ( delta > 2 ) {
 #if defined(STEFX_SP_HOSTED_MP)
-			STEFX_LogStepSlide("accept-step", start_o, pm->ps->origin, &trace);
 #endif
 			if ( delta < 7 ) {
 				PM_AddEvent( EV_STEP_4 );

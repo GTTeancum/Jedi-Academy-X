@@ -4,11 +4,6 @@
 
 #include "cg_local.h"
 
-#if defined(STEFX_SP_HOSTED_MP)
-void STEFX_PlayerDrawBeginFrame( void );
-void STEFX_PlayerDrawMarkSnapshot( int clientNum );
-void STEFX_PlayerDrawEndFrame( void );
-#endif
 #include "fx_local.h"
 
 
@@ -992,11 +987,6 @@ void CG_AddPacketEntities( void ) {
 	int					num;
 	centity_t			*cent;
 	playerState_t		*ps;
-	static int			stefxPlayerPacketTraceCount;
-
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_PlayerDrawBeginFrame();
-#endif
 
 	// set cg.frameInterpolation
 	if ( cg.nextSnap ) {
@@ -1028,18 +1018,6 @@ void CG_AddPacketEntities( void ) {
 	// generate and add the entity from the playerstate
 	ps = &cg.predictedPlayerState;
 	BG_PlayerStateToEntityState( ps, &cg.predictedPlayerEntity.currentState, qfalse );
-	if ( stefxPlayerPacketTraceCount < 96 ) {
-		CG_Printf( "STEFX: EF CG_PACKET_PLAYER source=predicted time=%d entity=%d client=%d powerups=0x%x eFlags=0x%x origin=(%g,%g,%g)\n",
-			cg.time,
-			cg.predictedPlayerEntity.currentState.number,
-			cg.predictedPlayerEntity.currentState.clientNum,
-			cg.predictedPlayerEntity.currentState.powerups,
-			cg.predictedPlayerEntity.currentState.eFlags,
-			cg.predictedPlayerEntity.currentState.pos.trBase[0],
-			cg.predictedPlayerEntity.currentState.pos.trBase[1],
-			cg.predictedPlayerEntity.currentState.pos.trBase[2] );
-		++stefxPlayerPacketTraceCount;
-	}
 	CG_AddCEntity( &cg.predictedPlayerEntity );
 
 	// lerp the non-predicted value for lightning gun origins
@@ -1048,32 +1026,7 @@ void CG_AddPacketEntities( void ) {
 	// add each entity sent over by the server
 	for ( num = 0 ; num < cg.snap->numEntities ; num++ ) {
 		cent = &cg_entities[ cg.snap->entities[ num ].number ];
-		#if defined(STEFX_SP_HOSTED_MP)
-		if ( cent->currentState.eType == ET_PLAYER ) {
-			STEFX_PlayerDrawMarkSnapshot( cent->currentState.clientNum );
-		}
-		#endif
-		if ( cent->currentState.eType == ET_PLAYER && stefxPlayerPacketTraceCount < 96 ) {
-			CG_Printf( "STEFX: EF CG_PACKET_PLAYER source=snapshot time=%d slot=%d entity=%d client=%d powerups=0x%x eFlags=0x%x trBase=(%g,%g,%g) lerp=(%g,%g,%g)\n",
-				cg.time,
-				num,
-				cent->currentState.number,
-				cent->currentState.clientNum,
-				cent->currentState.powerups,
-				cent->currentState.eFlags,
-				cent->currentState.pos.trBase[0],
-				cent->currentState.pos.trBase[1],
-				cent->currentState.pos.trBase[2],
-				cent->lerpOrigin[0],
-				cent->lerpOrigin[1],
-				cent->lerpOrigin[2] );
-			++stefxPlayerPacketTraceCount;
-		}
 		CG_AddCEntity( cent );
 	}
-
-#if defined(STEFX_SP_HOSTED_MP)
-	STEFX_PlayerDrawEndFrame();
-#endif
 }
 

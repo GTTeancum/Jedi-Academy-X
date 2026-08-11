@@ -6,9 +6,7 @@
 #if defined(STEFX_SP_HOSTED_MP)
 extern void XBLog_WriteCriticalf(const char *fmt, ...);
 static int s_stefxClientThinkBoundaryTraceCount = 0;
-static int s_stefxPmoveInputTraceCount = 0;
 static int s_stefxHostedRespawnTraceCount = 0;
-static int s_stefxPmoveDeltaTraceCount = 0;
 #endif
 
 extern void SP_misc_ammo_station( gentity_t *ent );
@@ -1683,13 +1681,8 @@ once for each server frame, which makes for smooth demo recording.
 void ClientThink_real( gentity_t *ent ) {
 	gclient_t	*client;
 	pmove_t		pm;
-	vec3_t		oldOrigin;
-	vec3_t		oldVelocity;
 	int			oldEventSequence;
 	int			oldEntityEventSequence;
-	int			oldGroundEntityNum;
-	int			oldPmFlags;
-	int			oldPmTime;
 	int			msec;
 	usercmd_t	*ucmd;
 
@@ -1800,21 +1793,6 @@ void ClientThink_real( gentity_t *ent ) {
 	{//heavy weaps guy and borg move slower, as do people being assimilated
 		client->ps.speed *= 0.75;
 	}
-#if defined(STEFX_SP_HOSTED_MP)
-	if (s_stefxPmoveInputTraceCount < 96 &&
-		(s_stefxPmoveInputTraceCount < 16 || client->ps.pm_type != PM_NORMAL ||
-		 client->ps.groundEntityNum == ENTITYNUM_NONE))
-	{
-		XBLog_WriteCriticalf("STEFX_HM_SP: Pmove input client=%d cmdTime=%d origin=(%g,%g,%g) velocity=(%g,%g,%g) view=(%g,%g,%g) gravity=%d speed=%d pmType=%d mask=0x%x",
-			ent->s.number, ucmd->serverTime,
-			client->ps.origin[0], client->ps.origin[1], client->ps.origin[2],
-			client->ps.velocity[0], client->ps.velocity[1], client->ps.velocity[2],
-			client->ps.viewangles[0], client->ps.viewangles[1], client->ps.viewangles[2],
-			client->ps.gravity, client->ps.speed, client->ps.pm_type, MASK_PLAYERSOLID);
-		++s_stefxPmoveInputTraceCount;
-	}
-#endif
-
 	// set up for pmove
 	oldEventSequence = client->ps.eventSequence;
 	oldEntityEventSequence = client->ps.entityEventSequence;
@@ -1835,51 +1813,8 @@ void ClientThink_real( gentity_t *ent ) {
 	pm.noFootsteps = ( g_dmflags.integer & DF_NO_FOOTSTEPS ) > 0;
 	pm.pModDisintegration = g_pModDisintegration.integer > 0;
 
-	VectorCopy( client->ps.origin, oldOrigin );
-	VectorCopy( client->ps.velocity, oldVelocity );
-	oldGroundEntityNum = client->ps.groundEntityNum;
-	oldPmFlags = client->ps.pm_flags;
-	oldPmTime = client->ps.pm_time;
-
 	// perform a pmove
 	Pmove (&pm);
-#if defined(STEFX_SP_HOSTED_MP)
-	if ( ent->s.number == 0 && s_stefxPmoveDeltaTraceCount < 96 )
-	{
-		vec3_t stefxPmoveDelta;
-		float stefxPmoveDeltaLen;
-		VectorSubtract( client->ps.origin, oldOrigin, stefxPmoveDelta );
-		stefxPmoveDeltaLen = VectorLength( stefxPmoveDelta );
-		if ( stefxPmoveDeltaLen > 24.0f ||
-			fabs( stefxPmoveDelta[2] ) > 10.0f ||
-			oldGroundEntityNum != client->ps.groundEntityNum ||
-			oldPmFlags != client->ps.pm_flags ||
-			oldPmTime != client->ps.pm_time )
-		{
-			XBLog_WriteCriticalf("STEFX_HM_MOVE: server-pmove client=%d levelTime=%d cmdTime=%d msec=%d cmd=(%d,%d,%d) deltaLen=%g delta=(%g,%g,%g) origin=(%g,%g,%g)->(%g,%g,%g) velocity=(%g,%g,%g)->(%g,%g,%g) ground=%d->%d pmFlags=0x%x->0x%x pmTime=%d->%d",
-				ent->s.number,
-				level.time,
-				ucmd->serverTime,
-				msec,
-				ucmd->forwardmove,
-				ucmd->rightmove,
-				ucmd->upmove,
-				stefxPmoveDeltaLen,
-				stefxPmoveDelta[0], stefxPmoveDelta[1], stefxPmoveDelta[2],
-				oldOrigin[0], oldOrigin[1], oldOrigin[2],
-				client->ps.origin[0], client->ps.origin[1], client->ps.origin[2],
-				oldVelocity[0], oldVelocity[1], oldVelocity[2],
-				client->ps.velocity[0], client->ps.velocity[1], client->ps.velocity[2],
-				oldGroundEntityNum,
-				client->ps.groundEntityNum,
-				oldPmFlags,
-				client->ps.pm_flags,
-				oldPmTime,
-				client->ps.pm_time);
-			++s_stefxPmoveDeltaTraceCount;
-		}
-	}
-#endif
 #if defined(STEFX_SP_HOSTED_MP)
 	if ( ent->s.number >= 0 && ent->s.number < 3 &&
 		client->ps.eventSequence != oldEventSequence )

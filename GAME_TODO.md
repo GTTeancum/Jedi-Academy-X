@@ -165,6 +165,23 @@ Current qualification snapshot: `HOLOMATCH_QUALIFICATION.md`.
   `scripts/output/retail-ja-hotpath12-bsp-precache-traces-noscreens_hm_dn1_20260811_174220.report.txt`
   and
   `scripts/output/retail-ja-hotpath12-bsp-precache-traces-visual_hm_dn1_20260811_174502.report.txt`.
+  Iteration 13 removes retired Holomatch success diagnostics from the game-VM
+  adapter, movement, collision, player submission, and client-connect paths.
+  Error and invalid-state diagnostics remain. The old build emitted a
+  278-write synchronous burst in one sample window; the retained build reduced
+  the corresponding window to 17 writes and removed roughly 2,250 startup and
+  runtime writes overall. A matched 82-second A/B improved real delivered
+  throughput from approximately 27.5 to 28.4 frames per wall second (3.1%).
+  The corrected harness now reports guest/game-clock FPS and wall-clock FPS
+  separately: the retained no-capture run held 88.4-90.9 guest FPS while XEMU
+  averaged 28.4 wall FPS, with one recoverable 19.4-FPS emulator hitch. Five
+  visual captures are clean and show intact geometry, lightmaps, weapon, and
+  HUD at 87-101 on the in-game counter. Evidence:
+  `scripts/output/retail-ja-hotpath13-wallmetric_hm_dn1_20260811_182022.report.txt`
+  and
+  `scripts/output/retail-ja-hotpath13-visual_hm_dn1_20260811_182244.report.txt`.
+  The intermittent XEMU wall-delivery hitch remains open; it is no longer
+  hidden behind game-clock-only FPS reporting.
   The one-folder PK3-only hardware stage is
   `build/hardware/StarTrekEliteForceX-Beta-20260801` (0.569 GiB). The next
   SP and Holomatch hardware logs must show `path=1`, advancing heartbeats,

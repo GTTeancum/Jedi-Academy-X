@@ -1685,26 +1685,10 @@ char *ClientConnect( int clientNum, qboolean firstTime, qboolean isBot ) {
 	gentity_t	*ent;
 
 	ent = &g_entities[ clientNum ];
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect body enter client=%d first=%d bot=%d ent=%p",
-		clientNum, firstTime, isBot, ent);
-	#endif
-
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect before GetUserinfo client=%d", clientNum);
-	#endif
 	trap_GetUserinfo( clientNum, userinfo, sizeof( userinfo ) );
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect after GetUserinfo client=%d info='%s'",
-		clientNum, userinfo);
-	#endif
 
 	// check to see if they are on the banned IP list
 	value = Info_ValueForKey (userinfo, "ip");
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect before FilterPacket client=%d ip='%s'",
-		clientNum, value);
-	#endif
 	if ( G_FilterPacket( value ) ) {
 		return "Banned.";
 	}
@@ -1723,27 +1707,12 @@ char *ClientConnect( int clientNum, qboolean firstTime, qboolean isBot ) {
 	memset( client, 0, sizeof(*client) );
 
 	client->pers.connected = CON_CONNECTING;
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect client allocated client=%d", clientNum);
-	#endif
 
 	// read or initialize the session data
 	if ( firstTime || level.newSession ) {
-		#if defined(STEFX_SP_HOSTED_MP)
-		XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect before InitSession client=%d", clientNum);
-		#endif
 		G_InitSessionData( client, userinfo );
-		#if defined(STEFX_SP_HOSTED_MP)
-		XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect after InitSession client=%d", clientNum);
-		#endif
 	}
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect before ReadSession client=%d", clientNum);
-	#endif
 	G_ReadSessionData( client );
-	#if defined(STEFX_SP_HOSTED_MP)
-	XBLog_WriteCriticalf("STEFX_HM_SP: official ClientConnect after ReadSession client=%d", clientNum);
-	#endif
 
 	if( isBot ) {
 		ent->r.svFlags |= SVF_BOT;

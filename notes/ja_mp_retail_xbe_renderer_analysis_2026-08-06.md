@@ -254,6 +254,18 @@ Retained follow-up:
    in-game FPS. A roughly 280-write runtime burst still appears later in the
    session without a corresponding FPS dip, so it is no longer classified as
    raw BSP setup or as the observed stutter.
+4. Iteration 13 removes retired success-path diagnostics from the hosted
+   Holomatch VM adapter, player movement/collision, player submission, and
+   client-connect paths while retaining all error and invalid-state records.
+   The former binary emitted a 278-write synchronous burst during one sample
+   window. The retained binary reduced that window to 17 writes and removed
+   roughly 2,250 writes over startup and the measured session. An exact
+   82-second A/B increased delivered wall-clock throughput from approximately
+   27.5 to 28.4 FPS (3.1%). The no-capture proof held 88.4-90.9 guest FPS and
+   averaged 28.4 wall FPS, with one temporary XEMU delivery dip to 19.4 FPS.
+   Five visual captures remain correct. The benchmark now records both guest
+   FPS and wall FPS so synchronous I/O cannot make a slow-emulation interval
+   look healthy merely because the Xbox game clock also slowed.
 
 Benchmark controls must be embedded by repacking the ISO whenever the XBE or
 control files change. `SmokeInputStart 0` does not disable input; it leaves the
