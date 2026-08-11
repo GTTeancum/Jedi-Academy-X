@@ -152,6 +152,19 @@ Current qualification snapshot: `HOLOMATCH_QUALIFICATION.md`.
   `scripts/output/retail-ja-hotpath11-asset-traces-noscreens_hm_dn1_20260811_173011.report.txt`
   and
   `scripts/output/retail-ja-hotpath11-asset-traces-visual_hm_dn1_20260811_173303.report.txt`.
+  Iteration 12 removes the remaining raw BSP shader-resolve, shader-stage,
+  per-surface, flare, face-progress, and shader-file success records. It keeps
+  phase boundaries, memory totals, loading-animation updates, shader fallback
+  failures, and sky telemetry. The screenshot-free fixed-room run held
+  90.7-90.9 FPS for all ten samples (90.9 average), eliminating iteration
+  11's slow first sample. The visual proof averaged 90.7 FPS and captured the
+  correct world, lightmaps, weapon, and HUD at 94.0 in-game FPS. A later
+  approximately 280-write runtime burst remains, but neither run showed a
+  corresponding frame-rate dip; it is tracked separately rather than being
+  attributed to BSP setup. Evidence:
+  `scripts/output/retail-ja-hotpath12-bsp-precache-traces-noscreens_hm_dn1_20260811_174220.report.txt`
+  and
+  `scripts/output/retail-ja-hotpath12-bsp-precache-traces-visual_hm_dn1_20260811_174502.report.txt`.
   The one-folder PK3-only hardware stage is
   `build/hardware/StarTrekEliteForceX-Beta-20260801` (0.569 GiB). The next
   SP and Holomatch hardware logs must show `path=1`, advancing heartbeats,

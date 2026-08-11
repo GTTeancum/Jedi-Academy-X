@@ -4355,9 +4355,6 @@ static void ScanAndLoadShaderFiles( void )
 			int readLen;
 
 			Com_sprintf( filename, sizeof( filename ), "%s/%s", shaderDirs[dirIndex], shaderFiles[i] );
-#ifdef _XBOX
-			XBLog_Write(va("R_InitShaders: loading shader file '%s'", filename));
-#endif
 			//VID_Printf( PRINT_DEVELOPER, "...loading '%s'\n", filename );
 			// Looks like stripping out crap in the shaders will save about 200k
 			readLen = FS_ReadFile( filename, (void **)&buffers[totalShaders] );

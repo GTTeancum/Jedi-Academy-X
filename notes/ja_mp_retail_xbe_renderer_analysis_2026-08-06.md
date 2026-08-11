@@ -244,6 +244,16 @@ Retained follow-up:
    at 93.9 in-game FPS. The candidate is retained. The telemetry still shows a
    separate approximately 270-write map/shader setup burst, so that remaining
    load-time stream is isolated for the next iteration.
+3. Iteration 12 removes the remaining raw BSP shader-resolve/stage records,
+   per-surface and flare records, face progress records, and per-file shader
+   scan records. Functional shader resolution, loading-animation updates,
+   failure diagnostics, phase summaries, and memory totals are unchanged. The
+   screenshot-free fixed-room run held 90.7-90.9 FPS for all ten samples
+   (90.9 average), with no slow attachment sample. Its visual proof averaged
+   90.7 FPS and captured correct geometry, lightmaps, weapon, and HUD at 94.0
+   in-game FPS. A roughly 280-write runtime burst still appears later in the
+   session without a corresponding FPS dip, so it is no longer classified as
+   raw BSP setup or as the observed stutter.
 
 Benchmark controls must be embedded by repacking the ISO whenever the XBE or
 control files change. `SmokeInputStart 0` does not disable input; it leaves the
