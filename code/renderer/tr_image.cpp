@@ -541,6 +541,7 @@ Upload32
 static void JkaFakeglSetDDSUploadPicmip(int) {}
 static void JkaFakeglSetTextureDebugName(const char *) {}
 static void FakeGL_ResetRegisteredTextureBudget(void) {}
+extern "C" void JkaNativeD3D8SetTextureUploadLightmap(int isLightmap);
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -598,14 +599,7 @@ static void Upload32( const char *debugName, unsigned *data,
 {
 #ifdef _XBOX
 	JkaFakeglSetTextureDebugName(debugName ? debugName : "<null>");
-	XBLF("JA: Upload32 image='%s' size=%dx%d format=0x%08x mipcount=%d picmip=%d lightmap=%d\n",
-		debugName ? debugName : "<null>",
-		img_width,
-		img_height,
-		format,
-		mipcount,
-		picmip,
-		isLightmap);
+	JkaNativeD3D8SetTextureUploadLightmap(isLightmap ? 1 : 0);
 #endif
 	if (format == GL_RGBA)
 	{
@@ -916,10 +910,8 @@ static void Upload32( const char *debugName, unsigned *data,
 
 	GL_CheckErrors();
 #ifdef _XBOX
-	XBLF("JA: Upload32 done image='%s' pformat=0x%08x\n",
-		debugName ? debugName : "<null>",
-		pformat ? *pformat : 0);
 	JkaFakeglSetTextureDebugName("<none>");
+	JkaNativeD3D8SetTextureUploadLightmap(0);
 #endif
 }
 
@@ -2168,18 +2160,11 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 			LoadDDS(ddsName, pic, width, height, mipcount, format);
 			if (*pic)
 			{
-				static int s_xboxDDSPatchLoadLogCount = 0;
-				if (s_xboxDDSPatchLoadLogCount < 1024 || (s_xboxDDSPatchLoadLogCount % 128) == 0)
-				{
-					XBLF("STEFX: R_LoadImage DDS patch '%s' %dx%d mips=%d fmt=0x%04x",
-						ddsName, *width, *height, *mipcount, *format);
-				}
 				if (STEFX_ShouldTraceIntroImage(ddsName))
 				{
 					XBLF("STEFX: INTRO_IMAGE DDS loaded request='%s' dds='%s' wh=%dx%d mips=%d fmt=0x%04x",
 						shortname, ddsName, *width, *height, *mipcount, *format);
 				}
-				++s_xboxDDSPatchLoadLogCount;
 				return;
 			}
 			XBLF("STEFX: R_LoadImage DDS patch listed but failed '%s'", ddsName);
@@ -2193,16 +2178,6 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 	{
 		XBLF("STEFX: INTRO_IMAGE JPG attempt request='%s' name='%s' len=%d pic=%p wh=%dx%d",
 			shortname, name, jpgLen, (void *)*pic, *width, *height);
-	}
-	if (strstr(name, "textures/borg/") || strstr(name, "textures/detail/"))
-	{
-		static int s_xboxJpgProbeLogCount = 0;
-		if (s_xboxJpgProbeLogCount < 384 || (s_xboxJpgProbeLogCount % 128) == 0)
-		{
-			XBLF("STEFX: R_LoadImage JPG attempt '%s' len=%d pic=%p wh=%d ht=%d",
-				name, jpgLen, (void *)*pic, *width, *height);
-		}
-		++s_xboxJpgProbeLogCount;
 	}
 #else
 	// Try DDS first - saves a ton of failed archive checks on startup:
@@ -2222,13 +2197,6 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_NormalizeImageToPowerOfTwo( name, pic, width, height );
-#endif
-#ifdef _XBOX
-		static int s_xboxJpgLoadLogCount = 0;
-		if (s_xboxJpgLoadLogCount < 256 || (s_xboxJpgLoadLogCount % 64) == 0) {
-			XBLF("STEFX: R_LoadImage JPG '%s' %dx%d", name, *width, *height);
-		}
-		++s_xboxJpgLoadLogCount;
 #endif
 		return;
 	}
@@ -2253,11 +2221,6 @@ void R_LoadImage( const char *shortname, byte **pic, int *width, int *height, in
 		}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		STEFX_NormalizeImageToPowerOfTwo( name, pic, width, height );
-		static int s_xboxTgaLoadLogCount = 0;
-		if (s_xboxTgaLoadLogCount < 96 || (s_xboxTgaLoadLogCount % 64) == 0) {
-			XBLF("STEFX: R_LoadImage TGA '%s' %dx%d", name, *width, *height);
-		}
-		++s_xboxTgaLoadLogCount;
 #endif
 		return;
 	}

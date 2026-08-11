@@ -140,6 +140,18 @@ Current qualification snapshot: `HOLOMATCH_QUALIFICATION.md`.
   `scripts/output/retail-ja-hotpath10-shipping-logs-noscreens-repeat2_hm_dn1_20260811_171709.report.txt`,
   and
   `scripts/output/retail-ja-hotpath10-shipping-logs-visual_hm_dn1_20260811_172000.report.txt`.
+  Iteration 11 removes the remaining per-texture upload/load success records
+  and periodic shader-find progress records. DDS selection, mip chains,
+  uploads, shader parsing, fallbacks, and failure diagnostics are unchanged.
+  Its screenshot-free run had one 44.5-FPS attachment sample, then locked at
+  90.9 FPS for all remaining samples (86.3 overall). The visual run averaged
+  90.0 FPS (88.7 minimum) and captured a correct open-room frame at 93.9
+  in-game FPS. The candidate is retained. A separate roughly 270-write burst
+  during raw map/shader setup remains visible and is the next bounded hitch
+  target. Evidence:
+  `scripts/output/retail-ja-hotpath11-asset-traces-noscreens_hm_dn1_20260811_173011.report.txt`
+  and
+  `scripts/output/retail-ja-hotpath11-asset-traces-visual_hm_dn1_20260811_173303.report.txt`.
   The one-folder PK3-only hardware stage is
   `build/hardware/StarTrekEliteForceX-Beta-20260801` (0.569 GiB). The next
   SP and Holomatch hardware logs must show `path=1`, advancing heartbeats,

@@ -236,6 +236,14 @@ Retained follow-up:
    at 94.9 in-game FPS. The bundle is retained for its steady-state result, but
    the startup/probe hitch is tracked separately rather than credited to image
    capture or hidden by the average.
+2. Iteration 11 removes unconditional texture-upload begin/end records,
+   per-format texture-load success records, and periodic shader-find progress
+   records. It leaves all image and shader behavior intact. A screenshot-free
+   run produced one 44.5-FPS first sample and then nine consecutive 90.9-FPS
+   samples. Its visual proof averaged 90.0 FPS, with a correct frame captured
+   at 93.9 in-game FPS. The candidate is retained. The telemetry still shows a
+   separate approximately 270-write map/shader setup burst, so that remaining
+   load-time stream is isolated for the next iteration.
 
 Benchmark controls must be embedded by repacking the ISO whenever the XBE or
 control files change. `SmokeInputStart 0` does not disable input; it leaves the

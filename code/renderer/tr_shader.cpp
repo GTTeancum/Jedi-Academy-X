@@ -281,7 +281,6 @@ static unsigned int R_XboxShaderTraceHash( const char *name )
 }
 
 #if defined(STEFX_ELITE_FORCE_SP)
-static unsigned int s_xboxShaderFindProgress;
 #endif
 
 static qboolean R_XboxTraceCurrentShader( void )
@@ -3766,13 +3765,6 @@ shader_t *R_FindShader( const char *name, const short *lightmapIndex, const byte
 	}
 
 	COM_StripExtension( name, strippedName );
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	++s_xboxShaderFindProgress;
-	if ( ( s_xboxShaderFindProgress & 0x7f ) == 0 ) {
-		XBLF("STEFX: shader progress count=%u name='%s'", s_xboxShaderFindProgress, strippedName);
-	}
-#endif
-
 	// use (fullbright) vertex lighting if the bsp file doesn't have
 	// lightmaps
 /*	if ( lightmapIndex[0] >= 0 && lightmapIndex[0] >= tr.numLightmaps ) {
