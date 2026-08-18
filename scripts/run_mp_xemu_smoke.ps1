@@ -6,6 +6,7 @@ param(
     [string]$Name = "ja_mp_smoke",
     [string]$Iso = "",
     [string]$Port = "4460",
+    [switch]$KeepIso,
     [string[]]$DumpMem = @(),
     [string]$WatchCr2 = "",
     [string[]]$XemuArg = @()
@@ -19,6 +20,22 @@ $defaultIso = Join-Path $repoRoot "build\xemu\JediAcademyX_MP_direct.iso"
 $stageXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\default.xbe"
 $builtXbe = Join-Path $repoRoot "codemp\x_exe\Release\jamp.xbe"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
+
+function Remove-GeneratedIso {
+    param([string]$Path)
+
+    if ($KeepIso -or [string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+
+    $buildXemuRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot "build\xemu"))
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if (-not $fullPath.StartsWith($buildXemuRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+
+    Remove-Item -LiteralPath $fullPath -Force -ErrorAction SilentlyContinue
+}
 
 if ([string]::IsNullOrWhiteSpace($Iso)) {
     $Iso = $defaultIso
@@ -37,16 +54,22 @@ if ($Repack) {
 
     $stamp = Get-Date -Format yyyyMMdd_HHmmss
     $log = Join-Path $repoRoot "scripts\output\repack_mp_smoke_$stamp.log"
+    $repackComplete = $false
     Push-Location (Join-Path $repoRoot "build\xemu")
     try {
+        Remove-Item -LiteralPath "JediAcademyX_MP_direct.iso" -Force -ErrorAction SilentlyContinue
         & $extractXiso -c mp_direct_stage JediAcademyX_MP_direct.iso *> $log
         if ($LASTEXITCODE -ne 0) {
             Get-Content -LiteralPath $log -Tail 80
             throw "extract-xiso failed with exit code $LASTEXITCODE"
         }
+        $repackComplete = $true
     }
     finally {
         Pop-Location
+        if (-not $repackComplete) {
+            Remove-GeneratedIso $Iso
+        }
     }
     Write-Host "Repacked ISO: $Iso"
     Write-Host "Repack log: $log"
@@ -93,4 +116,7 @@ try {
 }
 finally {
     Pop-Location
+    if ($Repack) {
+        Remove-GeneratedIso $Iso
+    }
 }

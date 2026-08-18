@@ -22,7 +22,7 @@ $ErrorActionPreference = "Stop"
 function Get-CxbxProjectProcesses {
     Get-CimInstance Win32_Process |
         Where-Object {
-            $_.Name -in @("cxbx-project2.exe", "cxbxr-ldr-project2.exe")
+            $_.Name -in @("cxbx.exe", "cxbxr-ldr.exe", "cxbx-project2.exe", "cxbxr-ldr-project2.exe")
         }
 }
 

@@ -15,6 +15,10 @@
 #include "win_local.h"
 #include "win_input.h"
 
+#ifdef _XBOX
+#include "xb_log.h"
+#endif
+
 cvar_t *inSplashMenu = NULL;
 cvar_t *controllerOut = NULL;
 
@@ -460,6 +464,25 @@ char	lastControllerUsed = 0;
 
 void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 {
+#ifdef _XBOX
+	if (button == A_JOY4 || button == A_JOY15 || button == A_JOY14)
+	{
+		static int s_frontEndJoyTraceCount = 0;
+		if (s_frontEndJoyTraceCount < 160)
+		{
+			++s_frontEndJoyTraceCount;
+			g_SPXBFrontEndPhase = 0x4A4F5930; /* 'JOY0' */
+			g_SPXBFrontEndController = ((unsigned int)(controller & 0xff) << 24) |
+				((unsigned int)(button & 0xffff) << 8) |
+				(pressed ? 1u : 0u);
+			XBLog_Writef("JA: FRONTEND joy controller=%d button=%d pressed=%d ui=%d splash=%d main=%d controllerOut=%d",
+				controller, (int)button, pressed ? 1 : 0, _UIRunning ? 1 : 0,
+				inSplashMenu ? inSplashMenu->integer : -1,
+				IN_GetMainController(),
+				controllerOut ? controllerOut->integer : -99);
+		}
+	}
+#endif
 #ifdef XBOX_DEMO
 	// Reset the demo timer so that we don't auto-reboot to CDX
 	extern void Demo_TimerKeypress( void );
@@ -540,6 +563,9 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		// START always works, A only works if the popup isn't shown:
 		if(button == A_JOY4 || (button == A_JOY15 && controllerOut->integer < 0))
 		{
+#ifdef _XBOX
+			g_SPXBFrontEndPhase = 0x4A4F5931; /* 'JOY1' */
+#endif
 			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
 		}
 		return;
@@ -549,12 +575,20 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	if(controllerout != -1)
 	{
 		if(controllerout == controller && (button == A_JOY4))// || button == A_JOY15))
+		{
+#ifdef _XBOX
+			g_SPXBFrontEndPhase = 0x4A4F5932; /* 'JOY2' */
+#endif
 			Sys_QueEvent( 0, SE_KEY, _UIRunning ? UIJoy2Key(button) : button, pressed, 0, NULL );
+		}
 		return;
 	}
 
 	if(IN_GetMainController() == controller )
 	{
+#ifdef _XBOX
+		g_SPXBFrontEndPhase = 0x4A4F5933; /* 'JOY3' */
+#endif
 		// Always map start button to ESCAPE
 		if (!_UIRunning && button == A_JOY4 && cls.state != CA_CINEMATIC)
 			Sys_QueEvent( 0, SE_KEY, A_ESCAPE, pressed, 0, NULL );
@@ -648,11 +682,28 @@ void IN_CommonUpdate()
 void startsetMainController(int controller)
 {
 
+#ifdef _XBOX
+	g_SPXBFrontEndPhase = 0x53534D30; /* 'SSM0' */
+	g_SPXBFrontEndController = (unsigned int)(controller & 0xff);
+	XBLog_Writef("JA: FRONTEND startsetMainController before controller=%d wasPlugged=%d main=%d delayed=0x%x",
+		controller,
+		(controller >= 0 && controller < 4) ? (wasPlugged[controller] ? 1 : 0) : -1,
+		IN_GetMainController(),
+		mainControllerDelayedUnplug);
+#endif
 	IN_SetMainController(controller);
 	if ( !wasPlugged[controller])
 	{
 		mainControllerDelayedUnplug = 1 << controller;
 	}
+#ifdef _XBOX
+	g_SPXBFrontEndPhase = 0x53534D31; /* 'SSM1' */
+	g_SPXBFrontEndController = ((unsigned int)(controller & 0xff) << 16) | ((unsigned int)mainControllerDelayedUnplug & 0xffffu);
+	XBLog_Writef("JA: FRONTEND startsetMainController after controller=%d main=%d delayed=0x%x",
+		controller,
+		IN_GetMainController(),
+		mainControllerDelayedUnplug);
+#endif
 }
 
 /*********

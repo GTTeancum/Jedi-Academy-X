@@ -21,7 +21,7 @@ void FX_BlasterProjectileThink( centity_t *cent, const struct weaponInfo_s *weap
 	vec3_t forward;
 #ifdef _XBOX
 	static int s_xboxBlasterProjectileLogCount = 0;
-	const qboolean xboxLogProjectile = (s_xboxBlasterProjectileLogCount < 96);
+	const qboolean xboxLogProjectile = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxBlasterProjectileLogCount < 96);
 #endif
 
  	if (cent->currentState.eFlags & EF_USE_ANGLEDELTA)

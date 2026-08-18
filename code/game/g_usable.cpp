@@ -15,7 +15,7 @@ extern gentity_t	*G_TestEntityPosition( gentity_t *ent );
 #ifdef _XBOX
 static void Xbox_BroadcastFuncUsable( gentity_t *ent, const char *reason )
 {
-	static int s_xboxFuncUsableBroadcastBudget = 96;
+	static int s_xboxFuncUsableBroadcastBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 96 : 0;
 
 	ent->svFlags |= SVF_BROADCAST;
 	if ( s_xboxFuncUsableBroadcastBudget > 0 )

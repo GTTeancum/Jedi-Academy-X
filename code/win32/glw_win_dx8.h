@@ -77,8 +77,11 @@ struct glwstate_t
                 D3DTEXTUREADDRESS wrapU, wrapV;
                 float anisotropy;
 
-                // I only need this for ONE texture, but it's easier than adding more hacks:
+                // Bookkeeping for native Xbox texture residency.
+                DWORD size;
+                bool inMemory;
                 void *data;
+                int fileOffset; // Must start as -1.
         };
 
         typedef std::map<GLuint, TextureInfo> texturexlat_t;
@@ -155,7 +158,7 @@ struct glwstate_t
         D3DRECT scissorBox;
 
         // Directional Light
-        D3DLIGHT8       dirLight;
+        D3DLIGHT8       dirLight[2];
         D3DMATERIAL8 mtrl;
 
         // Description of current shader
@@ -181,9 +184,12 @@ struct glwstate_t
 };
 
 extern glwstate_t *glw_state;
+extern glwstate_t g_glwState;
 
 void renderObject_HACK();
 void renderObject_Light( int numIndexes, const unsigned short *indexes );
+void renderObject_LightBeginSurface();
+void renderObject_LightDrawIndexes( int numIndexes, const unsigned short *indexes );
 void renderObject_Shadow( int primType, int numIndexes, const unsigned short *indexes );
 void renderObject_Env();
 void renderObject_Bump();

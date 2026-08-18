@@ -28,13 +28,10 @@ to the new value before sending out any replies.
 
 
 #define	MAX_PACKETLEN			(MAX_MSGLEN)	//(1400)		// max size of a network packet
-#define MAX_LOOPDATA            16 * 1024
+#define	MAX_LOOPBACK			16
 
 #if (MAX_PACKETLEN > MAX_MSGLEN)
 #error MAX_PACKETLEN must be <= MAX_MSGLEN
-#endif
-#if (MAX_LOOPDATA > MAX_MSGLEN)
-#error MAX_LOOPDATA must be <= MAX_MSGLEN
 #endif
 
 #define	FRAGMENT_SIZE			(MAX_PACKETLEN - 100)
@@ -52,8 +49,14 @@ static char *netsrcString[2] = {
 };
 
 typedef struct {
-	char loopData[MAX_LOOPDATA];
-	int			get, send;
+	byte	data[MAX_PACKETLEN];
+	int		datalen;
+} loopmsg_t;
+
+typedef struct {
+	loopmsg_t	msgs[MAX_LOOPBACK];
+	int			get;
+	int			send;
 } loopback_t;
 
 static loopback_t	*loopbacks = NULL;
@@ -422,26 +425,21 @@ qboolean	NET_GetLoopPacket (netsrc_t sock, netadr_t *net_from, msg_t *net_messag
 
 	loop = &loopbacks[sock];
 
-	//If read and write positions are the same, nothing left to read.
-	if (loop->get == loop->send)
+	if (loop->send - loop->get > MAX_LOOPBACK)
+		loop->get = loop->send - MAX_LOOPBACK;
+
+	if (loop->get >= loop->send)
 		return qfalse;
 
-	//Get read position.  Wrap if too close to end.
-	i = loop->get;
-	if(i > MAX_LOOPDATA - 4) {
-		i = 0;
-	}
+	i = loop->get & (MAX_LOOPBACK - 1);
+	loop->get++;
 
-	//Get length of packet.
-	int length = *(int*)(loop->loopData + i);
-	i += 4;
-
-	if (length <= 0 || length > MAX_LOOPDATA || length > net_message->maxsize) {
+	if (loop->msgs[i].datalen <= 0 || loop->msgs[i].datalen > net_message->maxsize) {
 #ifdef _XBOX
 		static int s_xboxBadLoopReadLogs = 0;
 		if (s_xboxBadLoopReadLogs < 8) {
 			Com_PrintfAlways("JA: NET_GetLoopPacket bad length sock=%d len=%d get=%d send=%d max=%d\n",
-				(int)sock, length, loop->get, loop->send, net_message->maxsize);
+				(int)sock, loop->msgs[i].datalen, loop->get, loop->send, net_message->maxsize);
 			++s_xboxBadLoopReadLogs;
 		}
 #endif
@@ -449,22 +447,8 @@ qboolean	NET_GetLoopPacket (netsrc_t sock, netadr_t *net_from, msg_t *net_messag
 		return qfalse;
 	}
 
-	//See if entire packet is at end of buffer or part is at the beginning.
-	if(i + length <= MAX_LOOPDATA) {
-		//Everything fits, full copy.
-		memcpy (net_message->data, loop->loopData + i, length);
-		net_message->cursize = length;
-		i += length;
-		loop->get = i;
-	} else {
-		//Doesn't all fit, partial copy
-		const int copyToEnd = MAX_LOOPDATA - i;
-		memcpy (net_message->data, loop->loopData + i, copyToEnd);
-		memcpy ((char*)net_message->data + copyToEnd, 
-				loop->loopData, length - copyToEnd);
-		net_message->cursize = length;
-		loop->get = length - copyToEnd;
-	}
+	memcpy (net_message->data, loop->msgs[i].data, loop->msgs[i].datalen);
+	net_message->cursize = loop->msgs[i].datalen;
 
 	memset (net_from, 0, sizeof(*net_from));
 	net_from->type = NA_LOOPBACK;
@@ -480,52 +464,23 @@ void NET_SendLoopPacket (netsrc_t sock, int length, const void *data, netadr_t t
 
 	loop = &loopbacks[sock^1];
 
-	//Make sure there is enough free space in the buffer.
-	int freeSpace;
-	if(loop->send >= loop->get) {
-		freeSpace = MAX_LOOPDATA - (loop->send - loop->get);
-	} else {
-		freeSpace = loop->get - loop->send;
-	}
-
-	if (length <= 0 || length > MAX_LOOPDATA || freeSpace <= length + 4) {
+	if (length <= 0 || length > MAX_PACKETLEN) {
 #ifdef _XBOX
 		static int s_xboxBadLoopWriteLogs = 0;
 		if (s_xboxBadLoopWriteLogs < 8) {
-			Com_PrintfAlways("JA: NET_SendLoopPacket drop sock=%d len=%d free=%d get=%d send=%d\n",
-				(int)sock, length, freeSpace, loop->get, loop->send);
+			Com_PrintfAlways("JA: NET_SendLoopPacket drop sock=%d len=%d get=%d send=%d\n",
+				(int)sock, length, loop->get, loop->send);
 			++s_xboxBadLoopWriteLogs;
 		}
 #endif
 		return;
 	}
 
-	assert(freeSpace > length + 4);
+	i = loop->send & (MAX_LOOPBACK - 1);
+	loop->send++;
 
-	//Get write position.  Wrap around if too close to end.
-	i = loop->send;
-	if(i > MAX_LOOPDATA - 4) {
-		i = 0;
-	}
-
-	//Write length of packet.
-	*(int*)(loop->loopData + i) = length;
-	i += 4;
-
-	//See if the whole packet will fit on the end of the buffer or if we
-	//need to write part of it back at the beginning.
-	if(i + length <= MAX_LOOPDATA) {
-		//Everything fits, full copy.
-		memcpy (loop->loopData + i, data, length);
-		i += length;
-		loop->send = i;
-	} else {
-		//Doesn't all fit, partial copy
-		int copyToEnd = MAX_LOOPDATA - i;
-		memcpy(loop->loopData + i, data, copyToEnd);
-		memcpy(loop->loopData, (char*)data + copyToEnd, length - copyToEnd); 
-		loop->send = length - copyToEnd;
-	}
+	memcpy (loop->msgs[i].data, data, length);
+	loop->msgs[i].datalen = length;
 }
 
 //=============================================================================

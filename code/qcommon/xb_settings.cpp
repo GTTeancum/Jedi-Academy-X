@@ -3,6 +3,9 @@
 #include <xtl.h>
 #include "../game/q_shared.h"
 #include "qcommon.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 #define SETTINGS_VERSION	0x00082877
 #define SETTINGS_DIRNAME	"Settings"
@@ -27,6 +30,38 @@ XBSettingsStatus SettingsStatus;
 
 bool settingsDisabled = false;
 
+#ifdef _XBOX
+static const char *XBSettings_StatusName( XBSettingsStatus status )
+{
+	switch ( status )
+	{
+	case SETTINGS_OK:
+		return "OK";
+	case SETTINGS_MISSING:
+		return "MISSING";
+	case SETTINGS_CORRUPT:
+		return "CORRUPT";
+	case SETTINGS_FAILED:
+		return "FAILED";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+static void XBSettings_BuildLeafPath( const char *root, const char *leaf, char *outPath, int outPathSize )
+{
+	Q_strncpyz( outPath, root, outPathSize );
+
+	int len = strlen( outPath );
+	if ( len > 0 && outPath[len - 1] != '\\' && outPath[len - 1] != '/' )
+	{
+		Q_strcat( outPath, outPathSize, "\\" );
+	}
+
+	Q_strcat( outPath, outPathSize, leaf );
+}
+#endif
+
 const char *buttonConfigStrings[3] = {
 	"weaponsbias",
 	"forcebias",
@@ -40,6 +75,8 @@ const char *triggerConfigStrings[2] = {
 
 XBSettings::XBSettings( void )
 {
+	SettingsStatus = SETTINGS_OK;
+
 	version = SETTINGS_VERSION;
 
 	// Defaults:
@@ -85,12 +122,22 @@ XBSettings::XBSettings( void )
 // Write the current stored settings to the HD:
 bool XBSettings::Save( void )
 {
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Save enter disabled=%d status=%s", (int)settingsDisabled, XBSettings_StatusName( SettingsStatus ) );
+#endif
+
 	// Do nothing if user chose "Continue Without Saving"
 	if( settingsDisabled )
+	{
+#ifdef _XBOX
+		XBLog_Write( "JA: XBSettings::Save skipped disabled" );
+#endif
+		SettingsStatus = SETTINGS_OK;
 		return true;
+	}
 
+	char settingsRoot[128];
 	char settingsPath[128];
-	char *pathEnd;
 	DWORD dwWritten;
 
 	// Build the settings directory:
@@ -98,20 +145,34 @@ bool XBSettings::Save( void )
 	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Open/create the settings directory:
-	if (XCreateSaveGame( "U:\\", (wchar_t*)wideName, OPEN_ALWAYS, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
+	DWORD result = XCreateSaveGame( "U:\\", (wchar_t*)wideName, OPEN_ALWAYS, 0, settingsRoot, sizeof(settingsRoot) );
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Save XCreateSaveGame result=%lu root=%s", (unsigned long)result, result == ERROR_SUCCESS ? settingsRoot : "(failed)" );
+#endif
+	if ( result != ERROR_SUCCESS )
 	{
 		SettingsStatus = SETTINGS_FAILED;
 		return false;
 	}
 
 	// Build path to settings file:
-	pathEnd = settingsPath + strlen( settingsPath );
-	strcpy( pathEnd, SETTINGS_FILENAME );
+#ifdef _XBOX
+	XBSettings_BuildLeafPath( settingsRoot, SETTINGS_FILENAME, settingsPath, sizeof(settingsPath) );
+#else
+	strcpy( settingsPath, settingsRoot );
+	strcat( settingsPath, SETTINGS_FILENAME );
+#endif
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Save file=%s", settingsPath );
+#endif
 
 	// Open/create the settings file:
 	HANDLE hFile = CreateFile( settingsPath, GENERIC_WRITE, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
 	if( hFile == INVALID_HANDLE_VALUE )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Save CreateFile failed err=%lu", (unsigned long)GetLastError() );
+#endif
 		SettingsStatus = SETTINGS_FAILED;
 		return false;
 	}
@@ -119,6 +180,9 @@ bool XBSettings::Save( void )
 	// Write the data:
 	if( !WriteFile( hFile, this, settingsSize, &dwWritten, NULL ) || (dwWritten != settingsSize) )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Save settings WriteFile failed wrote=%lu expected=%lu err=%lu", (unsigned long)dwWritten, (unsigned long)settingsSize, (unsigned long)GetLastError() );
+#endif
 		SettingsStatus = SETTINGS_FAILED;
 		CloseHandle( hFile );
 		return false;
@@ -128,6 +192,9 @@ bool XBSettings::Save( void )
 	XCALCSIG_SIGNATURE xsig;
 	if( !Sign( &xsig ) )
 	{
+#ifdef _XBOX
+		XBLog_Write( "JA: XBSettings::Save Sign failed" );
+#endif
 		SettingsStatus = SETTINGS_FAILED;
 		CloseHandle( hFile );
 		return false;
@@ -136,6 +203,9 @@ bool XBSettings::Save( void )
 	// Write signature:
 	if( !WriteFile( hFile, &xsig, sigSize, &dwWritten, NULL ) || (dwWritten != sigSize) )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Save sig WriteFile failed wrote=%lu expected=%lu err=%lu", (unsigned long)dwWritten, (unsigned long)sigSize, (unsigned long)GetLastError() );
+#endif
 		SettingsStatus = SETTINGS_FAILED;
 		CloseHandle( hFile );
 		return false;
@@ -146,21 +216,41 @@ bool XBSettings::Save( void )
 	CloseHandle( hFile );
 
 	// Copy the save image over:
-	strcpy( pathEnd, SETTINGS_IMAGE );
+#ifdef _XBOX
+	XBSettings_BuildLeafPath( settingsRoot, SETTINGS_IMAGE, settingsPath, sizeof(settingsPath) );
+	BOOL imageCopied = CopyFile( SETTINGS_IMAGE_SRC, settingsPath, FALSE );
+	XBLF( "JA: XBSettings::Save CopyFile image result=%d err=%lu path=%s", (int)imageCopied, (unsigned long)( imageCopied ? ERROR_SUCCESS : GetLastError() ), settingsPath );
+#else
+	strcat( settingsPath, SETTINGS_IMAGE );
 	CopyFile( SETTINGS_IMAGE_SRC, settingsPath, FALSE );
+#endif
 
+	SettingsStatus = SETTINGS_OK;
+#ifdef _XBOX
+	XBLog_Write( "JA: XBSettings::Save success" );
+#endif
 	return true;
 }
 
 // Read saved settings from the HD:
 bool XBSettings::Load( void )
 {
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Load enter disabled=%d status=%s", (int)settingsDisabled, XBSettings_StatusName( SettingsStatus ) );
+#endif
+
 	// Do nothing if user chose "Continue Without Saving"
 	if( settingsDisabled )
+	{
+#ifdef _XBOX
+		XBLog_Write( "JA: XBSettings::Load skipped disabled" );
+#endif
+		SettingsStatus = SETTINGS_OK;
 		return true;
+	}
 
+	char settingsRoot[128];
 	char settingsPath[128];
-	char *pathEnd;
 	DWORD dwRead;
 
 	// Build the settings directory:
@@ -168,26 +258,44 @@ bool XBSettings::Load( void )
 	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Open the settings directory:
-	if( XCreateSaveGame( "U:\\", (wchar_t*)wideName, OPEN_EXISTING, 0, settingsPath, sizeof(settingsPath) ) != ERROR_SUCCESS )
+	DWORD result = XCreateSaveGame( "U:\\", (wchar_t*)wideName, OPEN_EXISTING, 0, settingsRoot, sizeof(settingsRoot) );
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Load XCreateSaveGame result=%lu root=%s", (unsigned long)result, result == ERROR_SUCCESS ? settingsRoot : "(failed)" );
+#endif
+	if( result != ERROR_SUCCESS )
 	{
 		SettingsStatus = SETTINGS_MISSING;
 		return false;
 	}
 
 	// Build path to settings file:
-	pathEnd = settingsPath + strlen( settingsPath );
-	strcpy( pathEnd, SETTINGS_FILENAME );
+#ifdef _XBOX
+	XBSettings_BuildLeafPath( settingsRoot, SETTINGS_FILENAME, settingsPath, sizeof(settingsPath) );
+#else
+	strcpy( settingsPath, settingsRoot );
+	strcat( settingsPath, SETTINGS_FILENAME );
+#endif
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Load file=%s", settingsPath );
+#endif
 
 	HANDLE hFile = CreateFile( settingsPath, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
 	if( hFile == INVALID_HANDLE_VALUE )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Load CreateFile failed err=%lu", (unsigned long)GetLastError() );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		return false;
 	}
 
 	// Verify file size:
-	if( GetFileSize( hFile, NULL ) != (settingsSize + sigSize) )
+	DWORD fileSize = GetFileSize( hFile, NULL );
+	if( fileSize != (settingsSize + sigSize) )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Load size mismatch got=%lu expected=%lu", (unsigned long)fileSize, (unsigned long)(settingsSize + sigSize) );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		CloseHandle( hFile );
 		return false;
@@ -197,6 +305,9 @@ bool XBSettings::Load( void )
 	XBSettings temp;
 	if( !ReadFile( hFile, &temp, settingsSize, &dwRead, NULL ) || (dwRead != settingsSize) )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Load settings ReadFile failed read=%lu expected=%lu err=%lu", (unsigned long)dwRead, (unsigned long)settingsSize, (unsigned long)GetLastError() );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		CloseHandle( hFile );
 		return false;
@@ -206,6 +317,9 @@ bool XBSettings::Load( void )
 	XCALCSIG_SIGNATURE xsig;
 	if( !temp.Sign( &xsig ) )
 	{
+#ifdef _XBOX
+		XBLog_Write( "JA: XBSettings::Load Sign failed" );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		CloseHandle( hFile );
 		return false;
@@ -215,6 +329,9 @@ bool XBSettings::Load( void )
 	XCALCSIG_SIGNATURE storedSig;
 	if( !ReadFile( hFile, &storedSig, sigSize, &dwRead, NULL ) || (dwRead != sigSize) )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Load sig ReadFile failed read=%lu expected=%lu err=%lu", (unsigned long)dwRead, (unsigned long)sigSize, (unsigned long)GetLastError() );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		CloseHandle( hFile );
 		return false;
@@ -226,6 +343,9 @@ bool XBSettings::Load( void )
 	// Compare signatures:
 	if( memcmp( &xsig, &storedSig, sigSize ) != 0 )
 	{
+#ifdef _XBOX
+		XBLog_Write( "JA: XBSettings::Load signature mismatch" );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		return false;
 	}
@@ -233,26 +353,41 @@ bool XBSettings::Load( void )
 	// Lastly, verify that the version number is right:
 	if( temp.version != SETTINGS_VERSION )
 	{
+#ifdef _XBOX
+		XBLF( "JA: XBSettings::Load version mismatch got=0x%08lx expected=0x%08lx", (unsigned long)temp.version, (unsigned long)SETTINGS_VERSION );
+#endif
 		SettingsStatus = SETTINGS_CORRUPT;
 		return false;
 	}
 
 	// OK. The data checks out!
 	*this = temp;
+	SettingsStatus = SETTINGS_OK;
 
 	// TODO: Range-check all the values?
 
+#ifdef _XBOX
+	XBLog_Write( "JA: XBSettings::Load success" );
+#endif
 	return true;
 }
 
 void XBSettings::Delete( void )
 {
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Delete enter status=%s", XBSettings_StatusName( SettingsStatus ) );
+#endif
+
 	// Build the settings directory:
 	unsigned short wideName[128];
 	mbstowcs( (wchar_t*)wideName, SETTINGS_DIRNAME, sizeof(wideName) );
 
 	// Delete the game:
-	XDeleteSaveGame( "U:\\", (wchar_t*)wideName );
+	DWORD result = XDeleteSaveGame( "U:\\", (wchar_t*)wideName );
+	SettingsStatus = SETTINGS_MISSING;
+#ifdef _XBOX
+	XBLF( "JA: XBSettings::Delete result=%lu", (unsigned long)result );
+#endif
 }
 
 bool XBSettings::Corrupt( void )
@@ -374,6 +509,10 @@ bool XBSettings::Sign( XCALCSIG_SIGNATURE *pSig )
 void XBSettings::Disable( void )
 {
 	settingsDisabled = true;
+	SettingsStatus = SETTINGS_OK;
+#ifdef _XBOX
+	XBLog_Write( "JA: XBSettings::Disable" );
+#endif
 }
 
 bool XBSettings::IsDisabled( void )

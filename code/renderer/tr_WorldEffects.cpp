@@ -969,6 +969,13 @@ bool R_SetTempGlobalFogColor(vec3_t color)
 
 
 #ifdef _XBOX	// Xbox point sprite code
+extern "C" void JAMP_MarkLogicalTextureStageDirtyForExternalWrite(int stage);
+extern "C" void JAMP_SetRenderStateCachedForExternalWrite(DWORD type, DWORD value);
+extern "C" void JAMP_SetTextureCachedForExternalWrite(int stage, IDirect3DBaseTexture8 *texture);
+extern "C" void JAMP_SetTextureStageStateCachedForExternalWrite(int stage, DWORD type, DWORD value);
+extern "C" void JAMP_SetTransformCachedForExternalWrite(DWORD state, const D3DMATRIX *matrix);
+extern "C" void JAMP_SetVertexShaderCachedForExternalWrite(DWORD mask);
+
 static void pointBegin(GLint verts, float size)
 {
 	assert(!glw_state->inDrawBlock);
@@ -980,12 +987,11 @@ static void pointBegin(GLint verts, float size)
 	// update DX with any pending state changes
 	glw_state->drawStride = 4;
 	DWORD mask = D3DFVF_XYZ | D3DFVF_DIFFUSE;
-	glw_state->device->SetVertexShader(mask);
-	glw_state->shaderMask = mask;
+	JAMP_SetVertexShaderCachedForExternalWrite(mask);
 
 	if(glw_state->matricesDirty[glwstate_t::MatrixMode_Model])
 	{
-		glw_state->device->SetTransform(D3DTS_VIEW, 
+		JAMP_SetTransformCachedForExternalWrite(D3DTS_VIEW,
 			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
 
 		glw_state->matricesDirty[glwstate_t::MatrixMode_Model] = false;
@@ -994,31 +1000,31 @@ static void pointBegin(GLint verts, float size)
 	// Update the texture and states
 	// NOTE: Point sprites ALWAYS go on texture stage 3
 	glwstate_t::texturexlat_t::iterator it = glw_state->textureXlat.find(glw_state->currentTexture[0]);
-	glw_state->device->SetTexture( 3, it->second.mipmap );
-	glw_state->device->SetTextureStageState(3, D3DTSS_COLOROP,   glw_state->textureEnv[0]);
-	glw_state->device->SetTextureStageState(3, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-	glw_state->device->SetTextureStageState(3, D3DTSS_COLORARG2, D3DTA_CURRENT);
-	glw_state->device->SetTextureStageState(3, D3DTSS_ALPHAOP,   glw_state->textureEnv[0]);
-	glw_state->device->SetTextureStageState(3, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-	glw_state->device->SetTextureStageState(3, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
-	glw_state->device->SetTextureStageState(3, D3DTSS_MAXANISOTROPY, it->second.anisotropy);
-	glw_state->device->SetTextureStageState(3, D3DTSS_MINFILTER, it->second.minFilter);
-	glw_state->device->SetTextureStageState(3, D3DTSS_MIPFILTER, it->second.mipFilter);
-	glw_state->device->SetTextureStageState(3, D3DTSS_MAGFILTER, it->second.magFilter);
-	glw_state->device->SetTextureStageState(3, D3DTSS_ADDRESSU,  it->second.wrapU);
-	glw_state->device->SetTextureStageState(3, D3DTSS_ADDRESSV,  it->second.wrapV);
+	JAMP_SetTextureCachedForExternalWrite(3, it->second.mipmap);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_COLOROP,   glw_state->textureEnv[0]);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_COLORARG2, D3DTA_CURRENT);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_ALPHAOP,   glw_state->textureEnv[0]);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_ALPHAARG2, D3DTA_CURRENT);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_MAXANISOTROPY, it->second.anisotropy);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_MINFILTER, it->second.minFilter);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_MIPFILTER, it->second.mipFilter);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_MAGFILTER, it->second.magFilter);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_ADDRESSU,  it->second.wrapU);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_ADDRESSV,  it->second.wrapV);
 
-	glw_state->device->SetTexture( 0, NULL );
-	glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP, D3DTOP_DISABLE );
+	JAMP_SetTextureCachedForExternalWrite(0, NULL);
+	JAMP_SetTextureStageStateCachedForExternalWrite(0, D3DTSS_COLOROP, D3DTOP_DISABLE);
 
 	float attena = 1.0f, attenb = 0.0f, attenc = 0.01f;
-	glw_state->device->SetRenderState( D3DRS_POINTSPRITEENABLE, TRUE );
-	glw_state->device->SetRenderState( D3DRS_POINTSCALEENABLE,  TRUE );
-	glw_state->device->SetRenderState( D3DRS_POINTSIZE,         *((DWORD*)&size) );
-	glw_state->device->SetRenderState( D3DRS_POINTSIZE_MIN,     *((DWORD*)&attenb));
-	glw_state->device->SetRenderState( D3DRS_POINTSCALE_A,      *((DWORD*)&attena) );
-	glw_state->device->SetRenderState( D3DRS_POINTSCALE_B,      *((DWORD*)&attenb) );
-	glw_state->device->SetRenderState( D3DRS_POINTSCALE_C,      *((DWORD*)&attenc) );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSPRITEENABLE, TRUE );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSCALEENABLE,  TRUE );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSIZE,         *((DWORD*)&size) );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSIZE_MIN,     *((DWORD*)&attenb));
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSCALE_A,      *((DWORD*)&attena) );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSCALE_B,      *((DWORD*)&attenb) );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSCALE_C,      *((DWORD*)&attenc) );
 
 	// set vertex counters
 	glw_state->numVertices = 0;
@@ -1054,10 +1060,12 @@ static void pointBegin(GLint verts, float size)
 
 static void pointEnd()
 {
-	glw_state->device->SetRenderState( D3DRS_POINTSPRITEENABLE, FALSE );
-	glw_state->device->SetRenderState( D3DRS_POINTSCALEENABLE, FALSE );
-	glw_state->device->SetTexture( 3, NULL );
-	glw_state->device->SetTextureStageState( 3, D3DTSS_COLOROP, D3DTOP_DISABLE );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSPRITEENABLE, FALSE );
+	JAMP_SetRenderStateCachedForExternalWrite( D3DRS_POINTSCALEENABLE, FALSE );
+	JAMP_SetTextureCachedForExternalWrite(3, NULL);
+	JAMP_SetTextureStageStateCachedForExternalWrite(3, D3DTSS_COLOROP, D3DTOP_DISABLE);
+	JAMP_MarkLogicalTextureStageDirtyForExternalWrite(0);
+	JAMP_MarkLogicalTextureStageDirtyForExternalWrite(3);
 }
 #endif // _XBOX
 
@@ -2114,10 +2122,21 @@ void R_WorldEffectCommand(const char *command)
 		}
 		CParticleCloud& nCloud = mParticleClouds.push_back();
 #ifdef _XBOX
-		/* The original Xbox point-sprite path requires glw_state->device,
-		 * which the current FakeGL graft intentionally leaves NULL.  Use
-		 * the normal billboard path so world snow actually renders. */
-		nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp");
+		if (glw_state && glw_state->device)
+		{
+			static qboolean s_xboxLoggedSnowPointSprites = qfalse;
+			if (!s_xboxLoggedSnowPointSprites)
+			{
+				XBLog_Write("JA: WorldEffects snow using Xbox point sprites");
+				s_xboxLoggedSnowPointSprites = qtrue;
+			}
+			nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp", 1);
+		}
+		else
+		{
+			XBLog_Write("JA: WorldEffects snow falling back to billboard path; D3D device unavailable");
+			nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp");
+		}
 #else
 		nCloud.Initialize(1000, "gfx/effects/snowflake1.bmp");
 #endif

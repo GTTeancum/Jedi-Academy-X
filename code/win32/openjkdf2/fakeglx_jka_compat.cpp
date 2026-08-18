@@ -787,6 +787,9 @@ void glNormal3fv(const GLfloat * /*v*/) {}
 
 GLboolean glBeginFrame(void)
 {
+#ifdef _XBOX
+    SPXB_HOT_INC(g_SPXBCompatBeginFrameCalls);
+#endif
     /* fakegl lazily BeginScenes on first glBegin (m_needBeginScene true
      * after each SwapBuffers).  No explicit work needed here. */
     return GL_TRUE;
@@ -813,6 +816,9 @@ GLboolean glBeginFrame(void)
  * the GL state at swap time matches the working configuration. */
 void glEndFrame(void)
 {
+#ifdef _XBOX
+    SPXB_HOT_INC(g_SPXBCompatEndFrameCalls);
+#endif
     static int s_xboxCompatEndFrameCount = 0;
     const bool xboxTraceCompatEndFrame =
         (s_xboxCompatEndFrameCount < 4 || ((s_xboxCompatEndFrameCount & 1023) == 0));

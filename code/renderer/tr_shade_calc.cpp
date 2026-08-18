@@ -1410,7 +1410,7 @@ void RB_CalcDiffuseColor( unsigned char *colors )
 	}
 
 #ifdef _XBOX
-	if ( s_xboxDiffuseLogCount < 64 && numVertexes > 0 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxDiffuseLogCount < 64 && numVertexes > 0 ) {
 		float firstIncoming = DotProduct( tess.normal[0], lightDir );
 		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
 		XBLF("JA: DIFFUSE_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0bytes=%u,%u,%u,%u out0dw=0x%08x",
@@ -1502,7 +1502,7 @@ void RB_CalcDiffuseEntityColor( unsigned char *colors )
 	}
 
 #ifdef _XBOX
-	if ( s_xboxDiffuseEntityLogCount < 64 && numVertexes > 0 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxDiffuseEntityLogCount < 64 && numVertexes > 0 ) {
 		float firstIncoming = DotProduct( tess.normal[0], lightDir );
 		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
 		XBLF("JA: DIFFUSE_ENTITY_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d rgba=%d,%d,%d,%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0bytes=%u,%u,%u,%u out0dw=0x%08x",

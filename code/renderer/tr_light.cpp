@@ -386,7 +386,7 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	VectorNormalize2( direction, ent->lightDir );
 
 #ifdef _XBOX
-	if ( s_xboxLightGridLogCount < 8 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxLightGridLogCount < 8 ) {
 		XBLF("JA: LIGHTGRID #%d ent=%p hModel=%d reType=%d origin=%g,%g,%g pos=%d,%d,%d frac=%g,%g,%g total=%g amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g bounds=%d,%d,%d",
 			s_xboxLightGridLogCount,
 			ent,
@@ -549,7 +549,7 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
 
 #ifdef _XBOX
-	if ( s_xboxEntityLightLogCount < 64 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxEntityLightLogCount < 64 ) {
 		XBLF("JA: ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g",
 			s_xboxEntityLightLogCount,
 			ent,

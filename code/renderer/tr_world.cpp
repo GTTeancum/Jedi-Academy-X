@@ -11,6 +11,9 @@
 #ifdef _XBOX
 #include "../qcommon/sparc.h"
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBWorldSurfaceAddCalls;
+extern "C" volatile unsigned int g_SPXBWorldSkySurfaceAdds;
+extern "C" volatile unsigned int g_SPXBWorldPortalSurfaceAdds;
 #endif
 
 static bool lookingForWorstLeaf = false;
@@ -158,18 +161,22 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 	 * The packed Xbox BSP path stores face data differently from the PC
 	 * renderer.  This CPU-side face-plane cull is only an optimization, but
 	 * bad packed plane data can drop otherwise visible world polygons while
-	 * moving, showing up as HOM/grey gaps.  Let the BSP/PVS traversal and D3D
+	 * moving, showing up as HOM/black gaps. Let the BSP/PVS traversal and D3D
 	 * cull state decide visibility for faces instead.
 	 */
 	return qfalse;
-#endif
-
+#else
 	// face culling
 	if ( !r_facePlaneCull->integer ) {
 		return qfalse;
 	}
+#endif
 
 	sface = ( srfSurfaceFace_t * ) surface;
+	if ( VectorCompare( sface->plane.normal, vec3_origin ) ) {
+		return qfalse;
+	}
+
 	d = DotProduct (tr.or.viewOrigin, sface->plane.normal);
 
 	// don't cull exactly on the plane, because there are levels of rounding
@@ -322,6 +329,17 @@ R_AddWorldSurface
 void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount ) {
 #else
 static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse ) {
+#endif
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBWorldSurfaceAddCalls);
+	if (surf && surf->shader && surf->shader->sky)
+	{
+		SPXB_HOT_INC(g_SPXBWorldSkySurfaceAdds);
+	}
+	if (surf && surf->shader && surf->shader->sort == SS_PORTAL)
+	{
+		SPXB_HOT_INC(g_SPXBWorldPortalSurfaceAdds);
+	}
 #endif
 	/*
 	if ( surf->viewCount == tr.viewCount ) {
@@ -966,7 +984,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
    	mnode_s	*parent;
 	int		i;
 	int		cluster;
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	int		pvsRejected = 0;
 	int		areaRejected = 0;
 	int		markedLeaves = 0;
@@ -993,7 +1011,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	// hasn't changed, we don't need to mark everything again
 
 	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 		{
 			static int s_xboxMarkLeavesSameLogBudget = 0;
 			if (s_xboxMarkLeavesSameLogBudget > 0)
@@ -1026,7 +1044,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	for (i=0,leaf=tr.world->leafs ; i<tr.world->numleafs ; i++, leaf++) {
 		cluster = leaf->cluster;
 		if ( cluster < 0 || cluster >= tr.world->numClusters ) {
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 			negativeCluster++;
 #endif
 			continue;
@@ -1034,7 +1052,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 
 		// check general pvs
 		if ( !(vis[cluster>>3] & (1<<(cluster&7))) ) {
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 			pvsRejected++;
 #endif
 			continue;
@@ -1044,13 +1062,13 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 		if (!lookingForWorstLeaf &&
 			   leaf->area >= 0 &&
 			   (tr.refdef.areamask[leaf->area>>3] & (1<<(leaf->area&7)) ) ) {
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 			areaRejected++;
 #endif
 			continue;		// not visible
 		}
 
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 		markedLeaves++;
 #endif
 		parent = (mnode_t*)leaf;
@@ -1062,7 +1080,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			parent = parent->parent;
 		} while (parent);
 	}
-#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	{
 		static int s_xboxMarkLeavesLogBudget = 0;
 		if (s_xboxMarkLeavesLogBudget > 0)
@@ -1197,7 +1215,7 @@ void R_AddWorldSurfaces (void) {
 		}
 	}
 #endif
-	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
+	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 31, ( 1 << VVLightMan.num_dlights ) - 1 );
 #ifdef _XBOX
 	{
 		static int s_xboxAddWorldLogBudget = 0;

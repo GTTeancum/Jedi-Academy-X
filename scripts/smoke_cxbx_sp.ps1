@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 function Get-CxbxProcesses {
     Get-CimInstance Win32_Process |
         Where-Object {
-            $_.Name -in @("cxbx-project2.exe", "cxbxr-ldr-project2.exe")
+            $_.Name -in @("cxbx.exe", "cxbxr-ldr.exe", "cxbx-project2.exe", "cxbxr-ldr-project2.exe")
         }
 }
 
@@ -103,6 +103,10 @@ function Get-HeartbeatInfo([string]$Path) {
         LastCompletedFrame = $null
         LastRealtime = $null
         LastServerTime = $null
+        LastFps10 = $null
+        AvgFps10 = $null
+        MinFps10 = $null
+        MaxFps10 = $null
     }
 
     if (!(Test-Path $Path)) {
@@ -111,17 +115,48 @@ function Get-HeartbeatInfo([string]$Path) {
 
     $matches = Select-String `
         -Path $Path `
+        -Pattern "JA: FRAME_HEARTBEAT frame=(\d+) rt=(\d+) st=(-?\d+).*?fps=(\d+)\.(\d+)" `
+        -AllMatches `
+        -ErrorAction SilentlyContinue
+
+    $fpsTotal = 0
+    foreach ($line in $matches) {
+        foreach ($match in $line.Matches) {
+            $fps10 = ([int]$match.Groups[4].Value * 10) + [int]$match.Groups[5].Value
+            if ($result.Count -eq 0) {
+                $result.FirstRealtime = [int]$match.Groups[2].Value
+                $result.MinFps10 = $fps10
+                $result.MaxFps10 = $fps10
+            }
+            $result.Count++
+            $result.LastCompletedFrame = [int]$match.Groups[1].Value
+            $result.LastRealtime = [int]$match.Groups[2].Value
+            $result.LastServerTime = [int]$match.Groups[3].Value
+            $result.LastFps10 = $fps10
+            $fpsTotal += $fps10
+            if ($fps10 -lt $result.MinFps10) { $result.MinFps10 = $fps10 }
+            if ($fps10 -gt $result.MaxFps10) { $result.MaxFps10 = $fps10 }
+        }
+    }
+
+    if ($result.Count -gt 0) {
+        $result.AvgFps10 = [int][math]::Round($fpsTotal / $result.Count)
+        return $result
+    }
+
+    $legacyMatches = Select-String `
+        -Path $Path `
         -Pattern "JA: FRAME_HEARTBEAT completedFrame=(\d+) realtime=(\d+) serverTime=(-?\d+)" `
         -AllMatches `
         -ErrorAction SilentlyContinue
 
-    $result.Count = $matches.Count
-    if ($matches.Count -gt 0) {
-        $firstLine = $matches[0]
+    $result.Count = $legacyMatches.Count
+    if ($legacyMatches.Count -gt 0) {
+        $firstLine = $legacyMatches[0]
         $first = $firstLine.Matches[$firstLine.Matches.Count - 1]
         $result.FirstRealtime = [int]$first.Groups[2].Value
 
-        $lastLine = $matches[$matches.Count - 1]
+        $lastLine = $legacyMatches[$legacyMatches.Count - 1]
         $last = $lastLine.Matches[$lastLine.Matches.Count - 1]
         $result.LastCompletedFrame = [int]$last.Groups[1].Value
         $result.LastRealtime = [int]$last.Groups[2].Value
@@ -144,6 +179,14 @@ function Test-CinematicTailActive([string]$Path) {
     }
 
     return $false
+}
+
+function Format-Fps10($Value) {
+    if ($null -eq $Value) {
+        return ""
+    }
+
+    return "{0}.{1}" -f ([int][math]::Floor($Value / 10)), ([int]$Value % 10)
 }
 
 $outDir = Join-Path $Repo "scripts\output"
@@ -316,7 +359,7 @@ $consoleCombined += $debugCombined
 $active = Has-Match $logPath "cls.state = CA_ACTIVE - GAME IS RUNNING"
 $uiInit = Has-Match $logPath "UI_Init|UI init|VM_Create.*ui|CL_InitUI"
 $returnedFrames = Count-Matches $logPath "CG_DRAW_ACTIVE_FRAME\) returned|CL_CGameRendering: VM_Call\(CG_DRAW_ACTIVE_FRAME\) returned"
-$heartbeatCount = Count-Matches $logPath "JA: FRAME_HEARTBEAT completedFrame="
+$heartbeatCount = Count-Matches $logPath "JA: FRAME_HEARTBEAT"
 $finalHeartbeat = Get-HeartbeatInfo $logPath
 $activeElapsedSecondsFinal = 0
 if ($finalHeartbeat.FirstRealtime -ne $null -and $finalHeartbeat.LastRealtime -ne $null) {
@@ -378,6 +421,10 @@ $summary = @(
     "lastHeartbeatFrame=$($finalHeartbeat.LastCompletedFrame)",
     "lastHeartbeatRealtime=$($finalHeartbeat.LastRealtime)",
     "lastHeartbeatServerTime=$($finalHeartbeat.LastServerTime)",
+    "lastFps=$(Format-Fps10 $finalHeartbeat.LastFps10)",
+    "avgFps=$(Format-Fps10 $finalHeartbeat.AvgFps10)",
+    "minFps=$(Format-Fps10 $finalHeartbeat.MinFps10)",
+    "maxFps=$(Format-Fps10 $finalHeartbeat.MaxFps10)",
     "failureCount=$failureCount",
     "binkOpenCount=$binkOpenCount",
     "binkFailCount=$binkFailCount",

@@ -153,9 +153,7 @@ void GL_SelectTexture( int unit )
 {
 	if ( glState.currenttmu == unit )
 	{
-#ifndef _XBOX
 		return;
-#endif
 	}
 
 	if ( unit == 0 )
@@ -246,9 +244,7 @@ void GL_TexEnv( int env )
 {
 	if ( env == glState.texEnv[glState.currenttmu] )
 	{
-#ifndef _XBOX
 		return;
-#endif
 	}
 
 	glState.texEnv[glState.currenttmu] = env;
@@ -288,20 +284,6 @@ void GL_TexEnv( int env )
 void GL_State( unsigned long stateBits )
 {
 	unsigned long diff = stateBits ^ glState.glStateBits;
-
-#ifdef _XBOX
-	/*
-	 * fakegl and a few Xbox-side renderer paths can mutate the real D3D
-	 * state outside this Q3 cache.  Re-apply the draw-order critical states
-	 * whenever GL_State is called so stale cached bits cannot leave depth
-	 * testing, depth writes, alpha test, or blending in the previous pass.
-	 */
-	diff |= GLS_DEPTHFUNC_EQUAL;
-	diff |= ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS );
-	diff |= GLS_DEPTHMASK_TRUE;
-	diff |= GLS_DEPTHTEST_DISABLE;
-	diff |= GLS_ATEST_BITS;
-#endif
 
 	if ( !diff )
 	{
@@ -635,7 +617,8 @@ void RB_BeginDrawingView (void) {
 	}
 
 #ifdef _XBOX
-	if (!(backEnd.refdef.rdflags & RDF_NOWORLDMODEL) &&
+	if (!skyboxportal &&
+		!(backEnd.refdef.rdflags & RDF_NOWORLDMODEL) &&
 		!g_bRenderGlowingObjects &&
 		tr.world &&
 		tr.world->globalFog != -1)
@@ -807,8 +790,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	unsigned int xboxSplitEntity = 0;
 	unsigned int xboxSplitFinal = 0;
 	unsigned int xboxSplitFlush = 0;
-	g_SPXBRenderDrawSurfLists++;
-	g_SPXBRenderSurfaces += (unsigned int)numDrawSurfs;
+	SPXB_HOT_INC(g_SPXBRenderDrawSurfLists);
+	SPXB_HOT_ADD(g_SPXBRenderSurfaces, (unsigned int)numDrawSurfs);
 	if (xboxTraceDrawList)
 	{
 		XBLF("JA: RB_RenderDrawSurfList #%d enter numDrawSurfs=%d",
@@ -1169,12 +1152,12 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	}
 
 #ifdef _XBOX
-	g_SPXBRenderSplitShader += xboxSplitShader;
-	g_SPXBRenderSplitFog += xboxSplitFog;
-	g_SPXBRenderSplitDlight += xboxSplitDlight;
-	g_SPXBRenderSplitEntity += xboxSplitEntity;
-	g_SPXBRenderSplitFinal += xboxSplitFinal;
-	g_SPXBRenderSplitFlush += xboxSplitFlush;
+	SPXB_HOT_ADD(g_SPXBRenderSplitShader, xboxSplitShader);
+	SPXB_HOT_ADD(g_SPXBRenderSplitFog, xboxSplitFog);
+	SPXB_HOT_ADD(g_SPXBRenderSplitDlight, xboxSplitDlight);
+	SPXB_HOT_ADD(g_SPXBRenderSplitEntity, xboxSplitEntity);
+	SPXB_HOT_ADD(g_SPXBRenderSplitFinal, xboxSplitFinal);
+	SPXB_HOT_ADD(g_SPXBRenderSplitFlush, xboxSplitFlush);
 #endif
 
 	if (tr_stencilled && tr_distortionPrePost)
@@ -1444,9 +1427,9 @@ void	RB_SetGL2D (void) {
 #ifdef _XBOX
 	extern int Menus_AnyFullScreenVisible(void);
 	if(glw_state->isWidescreen && !(Menus_AnyFullScreenVisible()) && cls.state == CA_ACTIVE)
-		glOrtho (0, 720, 480, 0, 0, 1);
+		glOrtho (0, 720, 0, 480, 0, 1);
 	else
-        glOrtho (0, 640, 480, 0, 0, 1);
+		glOrtho (0, 640, 0, 480, 0, 1);
 #else
 	glOrtho (0, 640, 480, 0, 0, 1);
 #endif
@@ -1732,7 +1715,7 @@ const void	*RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t	*cmd;
 #ifdef _XBOX
 	static int s_xboxDrawSurfsCommandCount = 0;
-	static int s_xboxDrawSurfsTraceBudget = 8;
+	static int s_xboxDrawSurfsTraceBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 8 : 0;
 #endif
 
 	// finish any 2D drawing if needed
@@ -2003,7 +1986,7 @@ const void	*RB_SwapBuffers( const void *data ) {
 	const swapBuffersCommand_t	*cmd;
 #ifdef _XBOX
 	static int s_xboxSwapCommandTraceCount = 0;
-	static int s_xboxSwapCommandTraceBudget = 8;
+	static int s_xboxSwapCommandTraceBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 8 : 0;
 	const qboolean xboxTraceSwapCommand = (cls.state == CA_ACTIVE && s_xboxSwapCommandTraceBudget > 0);
 	if (xboxTraceSwapCommand)
 	{
@@ -2110,17 +2093,21 @@ smp extensions, or asyncronously by another thread.
 ====================
 */
 void RB_ExecuteRenderCommands( const void *data ) {
+#if !defined(_XBOX) || SP_XBOX_RENDER_TIMERS
 	int		t1, t2;
+#endif
 #ifdef _XBOX
 	static int s_xboxRenderCommandTraceCount = 0;
 #endif
 
+#if !defined(_XBOX) || SP_XBOX_RENDER_TIMERS
 	t1 = Sys_Milliseconds ();
+#endif
 
 	while ( 1 ) {
 		const int commandId = *(const int *)data;
 #ifdef _XBOX
-		const qboolean xboxTraceCommand = (cls.state == CA_ACTIVE &&
+		const qboolean xboxTraceCommand = (SP_XBOX_VERBOSE_RUNTIME_LOGS && cls.state == CA_ACTIVE &&
 			(commandId == RC_DRAW_SURFS || commandId == RC_SWAP_BUFFERS || commandId == RC_END_OF_LIST));
 		if (xboxTraceCommand)
 		{
@@ -2159,10 +2146,14 @@ void RB_ExecuteRenderCommands( const void *data ) {
 		case RC_END_OF_LIST:
 		default:
 			// stop rendering on this thread
+#if !defined(_XBOX) || SP_XBOX_RENDER_TIMERS
 			t2 = Sys_Milliseconds ();
 			backEnd.pc.msec = t2 - t1;
+#else
+			backEnd.pc.msec = 0;
+#endif
 #ifdef _XBOX
-			g_SPXBRenderBackendMsec = (unsigned int)backEnd.pc.msec;
+			SPXB_HOT_SET(g_SPXBRenderBackendMsec, (unsigned int)backEnd.pc.msec);
 			if (xboxTraceCommand)
 			{
 				XBLF("JA: RB_ExecuteRenderCommands #%d end cmd=%d msec=%d",

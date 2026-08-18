@@ -1,28 +1,46 @@
 //
-//
 // win_lightefects.h
 //
 // Declaration of class for pixel shader light effects
 //
-//
+
 #ifndef _WIN_LIGHTEFFECTS_H_
 #define _WIN_LIGHTEFFECTS_H_
+
 class LightEffects
 {
 public:
-    LightEffects();
-    virtual ~LightEffects();
-    bool Initialize();
-    void ProcessVertices(void* pDirLightDir, void* pPtLightPos);
-    bool RenderDynamicLights();
-    bool RenderStaticLights();
-    void RenderSpecular();
-    bool RenderSpecular_Dynamic();
-    bool RenderSpecular_Static();
-    bool RenderEnvironment();
-    void RenderBump();
-    bool CreateNormalizationCubeMap(unsigned long dwSize, void* ppCubeMap);
-    void StartLightPhase();
-    void EndLightPhase();
+	LPDIRECT3DCUBETEXTURE8   m_pCubeMap;
+	LPDIRECT3DTEXTURE8       m_pBumpMap;
+	LPDIRECT3DVOLUMETEXTURE8 m_pFalloffMap;
+	DWORD                    m_dwVertexShaderLight;
+	DWORD                    m_dwPixelShaderLight;
+	DWORD                    m_dwVertexShaderSpecular_Dynamic;
+	DWORD                    m_dwPixelShaderSpecular_Dynamic;
+	DWORD                    m_dwVertexShaderSpecular_Static;
+	DWORD                    m_dwPixelShaderSpecular_Static;
+	DWORD                    m_dwVertexShaderEnvironment;
+	DWORD                    m_dwVertexShaderBump;
+	DWORD                    m_dwPixelShaderBump;
+	bool                     m_bInLightPhase;
+	bool                     m_bInitialized;
+
+public:
+	LightEffects();
+	virtual ~LightEffects();
+
+	bool Initialize();
+	void ProcessVertices( D3DXVECTOR3* pDirLightDir, D3DXVECTOR3* pPtLightPos );
+	bool RenderDynamicLights();
+	bool RenderStaticLights();
+	bool RenderSpecular();
+	bool RenderSpecular_Dynamic();
+	bool RenderSpecular_Static();
+	bool RenderEnvironment();
+	bool RenderBump();
+	bool CreateNormalizationCubeMap( DWORD dwSize, LPDIRECT3DCUBETEXTURE8* ppCubeMap );
+	void StartLightPhase();
+	void EndLightPhase();
 };
+
 #endif

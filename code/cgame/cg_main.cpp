@@ -2571,10 +2571,8 @@ void CG_Init( int serverCommandSequence ) {
 
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init before UI_Menu_OpenByName loadscreen");
-	XBLog_Write("JA: CG_Init skipping UI_Menu_OpenByName loadscreen on Xbox during level bootstrap");
-#else
-	cgi_UI_Menu_OpenByName("loadscreen");
 #endif
+	cgi_UI_Menu_OpenByName("loadscreen");
 #ifdef _XBOX
 	XBLog_Write("JA: CG_Init after UI_Menu_OpenByName loadscreen");
 #endif
@@ -3522,14 +3520,11 @@ void CG_LoadHudMenu(void)
 //	Init_Display(&cgDC);
 
 #ifdef _XBOX
-	XBLog_Write("JA: CG_LoadHudMenu reset UI menu/string state before HUD parse");
-	cgi_UI_Menu_Reset();
-	cgi_UI_String_Init();
-#else
+	XBLog_Write("JA: CG_LoadHudMenu preserving UI menu/string state for original loadscreen path");
+#endif
 //	cgi_UI_String_Init();
 
 //	cgi_UI_Menu_Reset();
-#endif
 	
 #ifdef _XBOX
 	g_SPXBBootPhase = 0x730;

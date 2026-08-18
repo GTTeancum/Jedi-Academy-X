@@ -24,6 +24,8 @@ static int s_xboxVVDiffuseLogCount = 0;
 static int s_xboxVVDiffuseEntityLogCount = 0;
 static int s_xboxVVAddDlightLogCount = 0;
 static int s_xboxVVWorldDlightLogCount = 0;
+static int s_xboxVVDlightCullLogCount = 0;
+static int s_xboxVVFarCullLogCount = 0;
 #endif
 
 
@@ -56,7 +58,7 @@ void VVLightManager::RE_AddLightToScene( const vec3_t org, float intensity, floa
 	dl->color[2] = b;
 
 #ifdef _XBOX
-	if ( s_xboxVVAddDlightLogCount < 64 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVAddDlightLogCount < 64 ) {
 		XBLF("JA: VV_ADD_DLIGHT #%d count=%d origin=%g,%g,%g radius=%g color=%g,%g,%g",
 			s_xboxVVAddDlightLogCount,
 			num_dlights,
@@ -90,7 +92,7 @@ void VVLightManager::RE_AddLightToScene( VVdlight_t *light )
 	dl->radius = light->radius;
 
 #ifdef _XBOX
-	if ( s_xboxVVAddDlightLogCount < 64 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVAddDlightLogCount < 64 ) {
 		XBLF("JA: VV_ADD_DLIGHT_STRUCT #%d count=%d type=%d origin=%g,%g,%g radius=%g color=%g,%g,%g attenuation=%g",
 			s_xboxVVAddDlightLogCount,
 			num_dlights,
@@ -205,18 +207,17 @@ int VVLightManager::R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	float		d;
 	int			i;
 	VVdlight_t	*dl;
+	int			originalDlightBits = dlightBits;
 
 	for ( i = 0 ; i < num_dlights ; i++ ) {
-
-		/*if ( ! ( dlightBits & ( 1 << i ) ) ) {
+		if ( ! ( dlightBits & ( 1 << i ) ) ) {
 			continue;
-		}*/
-		dlightBits |= (1 << i);
+		}
 
 		dl = &dlights[i];
 		d = DotProduct( dl->origin, face->plane.normal ) - face->plane.dist;
 		// Directional lights are always considered (MATT - change that?)
-		if ( d < -dl->radius || d > dl->radius ) {
+		if ( dl->type != LT_DIRECTIONAL && ( d < -dl->radius || d > dl->radius ) ) {
 			// dlight doesn't reach the plane
 			dlightBits &= ~( 1 << i );
 		}
@@ -225,6 +226,20 @@ int VVLightManager::R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	if ( !dlightBits ) {
 		tr.pc.c_dlightSurfacesCulled++;
 	}
+
+#ifdef _XBOX
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && originalDlightBits != dlightBits && s_xboxVVDlightCullLogCount < 32 ) {
+		XBLF("JA: VV_DLIGHT_FACE_CULL #%d in=0x%x out=0x%x planeDist=%g normal=%g,%g,%g",
+			s_xboxVVDlightCullLogCount,
+			originalDlightBits,
+			dlightBits,
+			face->plane.dist,
+			face->plane.normal[0],
+			face->plane.normal[1],
+			face->plane.normal[2]);
+		s_xboxVVDlightCullLogCount++;
+	}
+#endif
 
 	face->dlightBits = dlightBits;
 	return dlightBits;
@@ -254,6 +269,7 @@ int VVLightManager::R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 int VVLightManager::R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 	int			i;
 	VVdlight_t	*dl;
+	int			originalDlightBits = dlightBits;
 
 	for ( i = 0 ; i < num_dlights ; i++ ) {
 		if ( ! ( dlightBits & ( 1 << i ) ) ) {
@@ -271,12 +287,27 @@ int VVLightManager::R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 			// dlight doesn't reach the bounds
 			dlightBits &= ~( 1 << i );
 		}
-		dlightBits |= (1 << i );
 	}
 
 	if ( !dlightBits ) {
 		tr.pc.c_dlightSurfacesCulled++;
 	}
+
+#ifdef _XBOX
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && originalDlightBits != dlightBits && s_xboxVVDlightCullLogCount < 32 ) {
+		XBLF("JA: VV_DLIGHT_GRID_CULL #%d in=0x%x out=0x%x mins=%g,%g,%g maxs=%g,%g,%g",
+			s_xboxVVDlightCullLogCount,
+			originalDlightBits,
+			dlightBits,
+			grid->meshBounds[0][0],
+			grid->meshBounds[0][1],
+			grid->meshBounds[0][2],
+			grid->meshBounds[1][0],
+			grid->meshBounds[1][1],
+			grid->meshBounds[1][2]);
+		s_xboxVVDlightCullLogCount++;
+	}
+#endif
 
 	grid->dlightBits = dlightBits;
 	return dlightBits;
@@ -481,7 +512,7 @@ void VVLightManager::R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntit
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
 
 #ifdef _XBOX
-	if ( s_xboxVVEntityLightLogCount < 8 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVEntityLightLogCount < 8 ) {
 		XBLF("JA: VV_ENTITY_LIGHT #%d ent=%p hModel=%d reType=%d renderfx=0x%x noworld=%d hasGrid=%d dlights=%d origin=%g,%g,%g amb=%g,%g,%g dir=%g,%g,%g ambInt=0x%08x localDir=%g,%g,%g shadowDir=%g,%g,%g",
 			s_xboxVVEntityLightLogCount,
 			ent,
@@ -579,6 +610,30 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 					planeBits &= ~8;			// all descendants will also be in front
 				}
 			}
+
+			if ( planeBits & 16 ) {
+				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[4]);
+				if (r == 2) {
+#ifdef _XBOX
+					if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVFarCullLogCount < 16 ) {
+						XBLF("JA: VV_WORLD_FAR_CULL #%d nodeMins=%d,%d,%d nodeMaxs=%d,%d,%d distanceCull=%g",
+							s_xboxVVFarCullLogCount,
+							node->mins[0],
+							node->mins[1],
+							node->mins[2],
+							node->maxs[0],
+							node->maxs[1],
+							node->maxs[2],
+							tr.distanceCull);
+						s_xboxVVFarCullLogCount++;
+					}
+#endif
+					return;						// culled
+				}
+				if ( r == 1 ) {
+					planeBits &= ~16;			// all descendants will also be in front
+				}
+			}
 		}
 
 		if ( node->contents != -1 ) {
@@ -600,6 +655,11 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 
 				if ( dlightBits & ( 1 << i ) ) {
 					dl = &dlights[i];
+					if ( dl->type == LT_DIRECTIONAL ) {
+						newDlights[0] |= ( 1 << i );
+						newDlights[1] |= ( 1 << i );
+						continue;
+					}
 					dist = DotProduct( dl->origin, 
 						tr.world->planes[node->planeNum].normal ) - 
 						tr.world->planes[node->planeNum].dist;
@@ -681,7 +741,7 @@ void VVLightManager::RB_CalcDiffuseColorWorld()
 	ent = backEnd.currentEntity;
 
 #ifdef _XBOX
-	if ( s_xboxVVWorldDlightLogCount < 32 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVWorldDlightLogCount < 32 ) {
 		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
 		XBLF("JA: VV_WORLD_DLIGHT #%d shader='%s' bits=0x%x dlights=%d verts=%d indexes=%d",
 			s_xboxVVWorldDlightLogCount,
@@ -785,7 +845,7 @@ void VVLightManager::RB_CalcDiffuseColor( DWORD *colors )
 	}
 
 #ifdef _XBOX
-	if ( s_xboxVVDiffuseLogCount < 64 && numVertexes > 0 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVDiffuseLogCount < 64 && numVertexes > 0 ) {
 		float firstIncoming = DotProduct( tess.normal[0], lightDir );
 		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
 		XBLF("JA: VV_DIFFUSE_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",
@@ -866,7 +926,7 @@ void VVLightManager::RB_CalcDiffuseEntityColor( DWORD *colors )
 	}
 
 #ifdef _XBOX
-	if ( s_xboxVVDiffuseEntityLogCount < 16 && numVertexes > 0 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxVVDiffuseEntityLogCount < 16 && numVertexes > 0 ) {
 		float firstIncoming = DotProduct( tess.normal[0], lightDir );
 		const char *shaderName = (tess.shader && tess.shader->name) ? tess.shader->name : "(null)";
 		XBLF("JA: VV_DIFFUSE_ENTITY_COLOR #%d shader='%s' verts=%d ent=%p hModel=%d rgba=%d,%d,%d,%d amb=%g,%g,%g dir=%g,%g,%g lightDir=%g,%g,%g n0=%g,%g,%g incoming0=%g out0=0x%08x",

@@ -3,6 +3,11 @@
 
 //#include "cg_local.h"
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBBootPhase;
+#endif
+
 // this file is only included when building a dll
 
 
@@ -592,7 +597,20 @@ void cgi_UI_Parse_Float(float *value)
 
 int cgi_UI_StartParseSession(char *menuFile,char **buf)
 {
-	return(int) syscall(CG_UI_STARTPARSESESSION,menuFile,buf);
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x74D;
+	XBLog_Write("JA: cgi_UI_StartParseSession enter");
+	XBLF("JA: cgi_UI_StartParseSession enter filePtr=%p outPtr=%p file=%s",
+		menuFile,
+		buf,
+		menuFile ? menuFile : "(null)");
+#endif
+	const int result = (int) syscall(CG_UI_STARTPARSESESSION,menuFile,buf);
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x74E;
+	XBLF("JA: cgi_UI_StartParseSession exit result=%d out=%p", result, buf ? *buf : NULL);
+#endif
+	return result;
 }
 
 void cgi_UI_EndParseSession(char *buf)

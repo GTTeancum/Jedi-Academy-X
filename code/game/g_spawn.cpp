@@ -5,6 +5,9 @@
 #include "Q3_Interface.h"
 #include "g_local.h"
 #include "g_functions.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 extern cvar_t *g_spskill;
 extern cvar_t *g_delayedShutdown;
@@ -914,7 +917,7 @@ static qboolean G_CallSpawnForClassname( gentity_t *ent, const char *classname )
 	spawn_t	*s;
 	gitem_t	*item;
 #ifdef _XBOX
-	static int s_xboxCallSpawnLogBudget = 128;
+	static int s_xboxCallSpawnLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 128 : 0;
 #endif
 
 	if ( !classname || !classname[0] ) {
@@ -1549,8 +1552,8 @@ void G_SpawnGEntityFromSpawnVars( void ) {
 	char		*xboxParsedClassname = NULL;
 #endif
 #ifdef _XBOX
-	static int s_xboxSpawnVarLogBudget = 192;
-	static int s_xboxSpawnKeyLogBudget = 24;
+	static int s_xboxSpawnVarLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 192 : 0;
+	static int s_xboxSpawnKeyLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 24 : 0;
 #endif
 
 	// get the next free entity

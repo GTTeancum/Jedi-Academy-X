@@ -15,6 +15,11 @@
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBRenderEndSurfaces;
+extern "C" volatile unsigned int g_SPXBSkyPortalMainFallbacks;
+
+#ifndef SP_XBOX_YAVIN_COLOR_FORCE_DIAGNOSTIC
+#define SP_XBOX_YAVIN_COLOR_FORCE_DIAGNOSTIC 0
+#endif
 #endif
 
 /*
@@ -551,7 +556,7 @@ static int RB_XboxYavinIntroCullType( int cullType )
 		return cullType;
 	}
 
-	if ( s_yavinIntroCullLogs < 24 )
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_yavinIntroCullLogs < 24 )
 	{
 		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_CULL_DIAG ent=%d shader='%s' oldCull=%d newCull=%d rdflags=0x%x scene=%d",
 			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
@@ -586,7 +591,7 @@ static void RB_XboxPrepareYavinIntroModelDraw( const shaderStage_t *stage )
 	glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 	glTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
 
-	if ( s_yavinIntroModelStateLogs < 24 )
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_yavinIntroModelStateLogs < 24 )
 	{
 		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_STATE_RESET ent=%d shader='%s' stage0Img='%s' tex0=%d stage1Img='%s'",
 			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
@@ -613,7 +618,7 @@ static int RB_XboxAdjustYavinIntroModelState( const shaderStage_t *stage, int st
 	 * depth testing for these actors, which proved they were being submitted
 	 * but also made them draw through cockpit and foreground geometry.
 	 */
-	if ( s_yavinIntroDepthLogs < 24 )
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_yavinIntroDepthLogs < 24 )
 	{
 		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_DEPTH_KEEP ent=%d shader='%s' oldState=0x%x newState=0x%x depthDisable=%d depthEqual=%d depthMask=%d rdflags=0x%x scene=%d",
 			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
@@ -644,7 +649,9 @@ static void RB_XboxLogYavinIntroModelDrawInputs( const shaderStage_t *stage, con
 	float maxWin[3] = { -999999.0f, -999999.0f, -999999.0f };
 	int clipped = 0;
 
-	if ( !RB_XboxIsYavinIntroModelDraw( stage ) || s_yavinIntroDrawInputLogs >= 32 )
+	if ( !SP_XBOX_VERBOSE_RUNTIME_LOGS ||
+		!RB_XboxIsYavinIntroModelDraw( stage ) ||
+		s_yavinIntroDrawInputLogs >= 32 )
 	{
 		return;
 	}
@@ -746,6 +753,7 @@ static void RB_XboxLogYavinIntroModelDrawInputs( const shaderStage_t *stage, con
 	++s_yavinIntroDrawInputLogs;
 }
 
+#if SP_XBOX_YAVIN_COLOR_FORCE_DIAGNOSTIC
 static void RB_XboxForceYavinIntroModelColors( const shaderStage_t *stage )
 {
 	static int s_yavinIntroColorForceLogs = 0;
@@ -758,17 +766,10 @@ static void RB_XboxForceYavinIntroModelColors( const shaderStage_t *stage )
 
 	for ( i = 0; i < tess.numVertexes; ++i )
 	{
-#ifdef _XBOX
 		tess.svars.colors[i] = 0xffffffff;
-#else
-		tess.svars.colors[i][0] = 255;
-		tess.svars.colors[i][1] = 255;
-		tess.svars.colors[i][2] = 255;
-		tess.svars.colors[i][3] = 255;
-#endif
 	}
 
-	if ( s_yavinIntroColorForceLogs < 24 )
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_yavinIntroColorForceLogs < 24 )
 	{
 		XBLF("JA: XBOX_YAVIN_INTRO_MODEL_COLOR_FORCE ent=%d shader='%s' verts=%d rdflags=0x%x scene=%d",
 			backEnd.currentEntity ? backEnd.currentEntity->e.number : -1,
@@ -779,26 +780,11 @@ static void RB_XboxForceYavinIntroModelColors( const shaderStage_t *stage )
 		++s_yavinIntroColorForceLogs;
 	}
 }
+#endif
 
 static qboolean RB_XboxShouldSkipYavinSkyOverlay( const shader_t *shader )
 {
-	if ( !shader || !tr.world || cls.state != CA_ACTIVE )
-	{
-		return qfalse;
-	}
-
-	if ( Q_stricmp( tr.world->baseName, "yavin1" ) &&
-		Q_stricmp( tr.world->baseName, "yavin1b" ) &&
-		Q_stricmp( tr.world->baseName, "yavin2" ) )
-	{
-		return qfalse;
-	}
-
-	if ( !Q_stricmp( shader->name, "textures/common/gradient2" ) )
-	{
-		return qtrue;
-	}
-
+	(void)shader;
 	return qfalse;
 }
 
@@ -811,7 +797,7 @@ static void RB_XboxRenderYield( void )
 
 static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes )
 {
-	static int traceBudget = 16;
+	static int traceBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 16 : 0;
 	qboolean trace;
 
 	if ( numIndexes <= 0 || !indexes )
@@ -819,7 +805,7 @@ static void RB_XboxDrawElementsChunked( int numIndexes, const glIndex_t *indexes
 		return;
 	}
 
-	trace = RB_XboxShouldTraceSurface();
+	trace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxShouldTraceSurface());
 
 	if ( trace && traceBudget > 0 )
 	{
@@ -1182,14 +1168,14 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 #ifdef _XBOX
 	static int traceBudget = 0;
 	static int activeTraceBudget = 0;
-	qboolean trace = RB_XboxShouldTraceSurface();
-	qboolean forceTrace = RB_XboxForceTraceSurface();
+	qboolean trace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxShouldTraceSurface());
+	qboolean forceTrace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxForceTraceSurface());
 #endif
 
 	pStage = &tess.xstages[stage];
 
 #ifdef _XBOX
-	if (cls.state == CA_ACTIVE && activeTraceBudget > 0)
+	if (SP_XBOX_VERBOSE_RUNTIME_LOGS && cls.state == CA_ACTIVE && activeTraceBudget > 0)
 	{
 		image_t *img0 = pStage->bundle[0].image;
 		image_t *img1 = pStage->bundle[1].image;
@@ -1226,7 +1212,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 	}
 	{
 		static int s_xboxWorldStageStateLogCount = 0;
-		if ( s_xboxWorldStageStateLogCount < 8 )
+		if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxWorldStageStateLogCount < 8 )
 		{
 			const DWORD color0 = input->svars.colors[0];
 			const byte r = (byte)((color0 >> 16) & 0xff);
@@ -1376,7 +1362,7 @@ static void DrawMultitextured( shaderCommands_t *input, int stage ) {
 #ifdef VV_LIGHTING
 static void BuildTangentVectors( void ) {
 
-	memset(tess.tangent, 0, sizeof(vec4_t) * SHADER_MAX_VERTEXES);
+	memset(tess.tangent, 0, sizeof(vec4_t) * tess.numVertexes);
 
 	for(int i = 0; i < tess.numIndexes; i += 3)
 	{
@@ -1447,6 +1433,7 @@ static void BuildTangentVectors( void ) {
 	{
 		VectorNormalizeFast(tess.tangent[i]);
 	}
+	tess.setTangents = true;
 }
 #endif // VV_LIGHTING
 
@@ -2496,7 +2483,9 @@ static void RB_FogPass( void ) {
 	int			i;
 
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	RB_XboxLogRenderSuspectSurface("RB_FogPass");
+#endif
 #endif
 
 	glEnableClientState( GL_COLOR_ARRAY );
@@ -3269,7 +3258,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	bool	FogColorChange = false;
 	fog_t	*fog = NULL;
 #ifdef _XBOX
-	qboolean forceTrace = RB_XboxForceTraceSurface();
+	qboolean forceTrace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxForceTraceSurface());
 #endif
 
 	if (tess.fogNum && tess.shader->fogPass && (tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs) 
@@ -3360,7 +3349,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			!pStage->bundle[0].isLightmap )
 		{
 			static int s_xboxEnvBaseReplaceLogs = 0;
-			if ( s_xboxEnvBaseReplaceLogs < 64 )
+			if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxEnvBaseReplaceLogs < 64 )
 			{
 				XBLF("JA: XBOX_ENV_BASE_REPLACE shader='%s' stage=%d prevImg='%s' baseImg='%s' oldState=0x%x",
 					tess.shader ? tess.shader->name : "<null>",
@@ -3461,8 +3450,10 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			ComputeColors( pStage, forceAlphaGen, forceRGBGen );
 #ifdef _XBOX
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ComputeColors" );
+#if SP_XBOX_YAVIN_COLOR_FORCE_DIAGNOSTIC
 			RB_XboxForceYavinIntroModelColors( pStage );
 			RB_XboxLogYavinIntroModelDrawInputs( pStage, "after ColorForce" );
+#endif
 			if ( forceTrace )
 			{
 				XBLF("JA: RB_IterateStagesGeneric after ComputeColors shader='%s' stage=%d\n",
@@ -3513,22 +3504,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			glNormalPointer(GL_FLOAT, 16, tess.normal );
 		}
 
-#ifdef _XBOX
-		if ((pStage->isSpecular || pStage->isEnvironment || pStage->isBumpMap) && tess.shader)
-		{
-			static int s_xboxLightEffectsFallbackLogCount = 0;
-			if (s_xboxLightEffectsFallbackLogCount < 32)
-			{
-				XBLF("JA: XBOX_LIGHTEFFECTS_FALLBACK shader='%s' stage=%d spec=%d env=%d bump=%d",
-					tess.shader->name,
-					stage,
-					pStage->isSpecular ? 1 : 0,
-					pStage->isEnvironment ? 1 : 0,
-					pStage->isBumpMap ? 1 : 0);
-				++s_xboxLightEffectsFallbackLogCount;
-			}
-		}
-#else
 		if(pStage->isSpecular)
 		{
 			glEnableClientState( GL_NORMAL_ARRAY );
@@ -3538,9 +3513,12 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			glTexCoordPointer( 2, GL_FLOAT, 0, input->svars.texcoords[0] );
 			R_BindAnimatedImage( &pStage->bundle[0] );
 			GL_State( stateBits );
-			glw_state->lightEffects->RenderSpecular();
+			if ( glw_state->lightEffects->RenderSpecular() )
+			{
+				glDisableClientState( GL_NORMAL_ARRAY );
+				continue;
+			}
 			glDisableClientState( GL_NORMAL_ARRAY );
-			continue;
 		}
 		if(pStage->isEnvironment)
 		{
@@ -3548,9 +3526,12 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			glNormalPointer( GL_FLOAT, 16, tess.normal );
 			R_BindAnimatedImage( &pStage->bundle[0] );
 			GL_State( stateBits );
-			glw_state->lightEffects->RenderEnvironment();
+			if ( glw_state->lightEffects->RenderEnvironment() )
+			{
+				glDisableClientState( GL_NORMAL_ARRAY );
+				continue;
+			}
 			glDisableClientState( GL_NORMAL_ARRAY );
-			continue;
 		}
 		if(pStage->isBumpMap)
 		{
@@ -3565,12 +3546,33 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			glEnableClientState( GL_TEXTURE_COORD_ARRAY );
 			R_BindAnimatedImage( &pStage->bundle[1] );
 			GL_State( stateBits );
-			glw_state->lightEffects->RenderBump();
+			if ( glw_state->lightEffects->RenderBump() )
+			{
+				glDisable( GL_TEXTURE_2D );
+				glDisableClientState( GL_TEXTURE_COORD_ARRAY );
+				GL_SelectTexture( 0 );
+				glDisableClientState( GL_NORMAL_ARRAY );
+				continue;
+			}
 			glDisable( GL_TEXTURE_2D );
 			glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 			GL_SelectTexture( 0 );
 			glDisableClientState( GL_NORMAL_ARRAY );
-			continue;
+		}
+#ifdef _XBOX
+		if ((pStage->isSpecular || pStage->isEnvironment || pStage->isBumpMap) && tess.shader)
+		{
+			static int s_xboxLightEffectsFallbackLogCount = 0;
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxLightEffectsFallbackLogCount < 32)
+			{
+				XBLF("JA: XBOX_LIGHTEFFECTS_GENERIC_FALLBACK shader='%s' stage=%d spec=%d env=%d bump=%d",
+					tess.shader->name,
+					stage,
+					pStage->isSpecular ? 1 : 0,
+					pStage->isEnvironment ? 1 : 0,
+					pStage->isBumpMap ? 1 : 0);
+				++s_xboxLightEffectsFallbackLogCount;
+			}
 		}
 #endif
 #endif // VV_LIGHTING
@@ -3747,8 +3749,10 @@ void RB_StageIteratorGeneric( void )
 
 	input = &tess;
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	RB_XboxLogRenderSuspectSurface("RB_StageIteratorGeneric");
 	RB_XboxLogModelShaderSurface("RB_StageIteratorGeneric");
+#endif
 	if ( RB_XboxShouldSkipYavinSkyOverlay( tess.shader ) )
 	{
 		static int s_xboxYavinSkyOverlaySkipLogBudget = 0;
@@ -3767,8 +3771,8 @@ void RB_StageIteratorGeneric( void )
 	}
 #endif
 #ifdef _XBOX
-	trace = RB_XboxShouldTraceSurface();
-	forceTrace = RB_XboxForceTraceSurface();
+	trace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxShouldTraceSurface());
+	forceTrace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxForceTraceSurface());
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
 	{
 		XBLF("JA: RB_StageIteratorGeneric enter shader='%s' verts=%d indexes=%d passes=%d fog=%d dlight=0x%x\n",
@@ -3784,7 +3788,9 @@ void RB_StageIteratorGeneric( void )
 
 	RB_DeformTessGeometry();
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	RB_XboxLogModelTransformProbe("after_deform");
+#endif
 #endif
 #ifdef _XBOX
 	if ( trace && ( traceBudget > 0 || forceTrace ) )
@@ -3859,22 +3865,17 @@ void RB_StageIteratorGeneric( void )
 #ifdef _XBOX
 	if ( r_hdreffect->integer )
 	{
-		// Turn on stenciling, make sure all pixels pass the test
-		glw_state->device->SetRenderState( D3DRS_STENCILENABLE, TRUE );
-		glw_state->device->SetRenderState( D3DRS_STENCILFUNC, D3DCMP_ALWAYS );
-		// Make sure that stencil writes will hit the high bit (the one we care about)
-		glw_state->device->SetRenderState( D3DRS_STENCILWRITEMASK, 0xFFFFFFFF );
-
+		glEnable( GL_STENCIL_TEST );
+		glStencilMask( 0xFFFFFFFF );
 		if ( input->shader->hasGlow )
 		{
-			// Write only the high (eighth) bit
-			glw_state->device->SetRenderState( D3DRS_STENCILREF, 0x80 );
-			glw_state->device->SetRenderState( D3DRS_STENCILPASS, D3DSTENCILOP_REPLACE );
+			glStencilFunc( GL_ALWAYS, 0x80, 0xFFFFFFFF );
+			glStencilOp( GL_KEEP, GL_KEEP, GL_REPLACE );
 		}
 		else
 		{
-			// Clear out the high (eighth) bit
-			glw_state->device->SetRenderState( D3DRS_STENCILPASS, D3DSTENCILOP_ZERO );
+			glStencilFunc( GL_ALWAYS, 0, 0xFFFFFFFF );
+			glStencilOp( GL_KEEP, GL_KEEP, GL_ZERO );
 		}
 	}
 	else
@@ -3882,7 +3883,7 @@ void RB_StageIteratorGeneric( void )
 #ifdef _XBOX
 		if(tess.shader != tr.projectionShadowShader)
 #endif
-		glw_state->device->SetRenderState( D3DRS_STENCILENABLE, FALSE );
+		glDisable( GL_STENCIL_TEST );
 	}
 #endif
 
@@ -3950,7 +3951,7 @@ void RB_StageIteratorGeneric( void )
 			bool renderedDlights = glw_state->lightEffects->RenderDynamicLights();
 #ifdef _XBOX
 			static int s_xboxDlightRenderLogCount = 0;
-			if (s_xboxDlightRenderLogCount < 64)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxDlightRenderLogCount < 64)
 			{
 				XBLF("JA: XBOX_RENDER_DLIGHT #%d shader='%s' bits=0x%x rendered=%d verts=%d indexes=%d",
 					s_xboxDlightRenderLogCount,
@@ -3966,7 +3967,7 @@ void RB_StageIteratorGeneric( void )
 			{
 #ifdef _XBOX
 				static int s_xboxDlightFallbackLogCount = 0;
-				if (s_xboxDlightFallbackLogCount < 64)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxDlightFallbackLogCount < 64)
 				{
 					XBLF("JA: XBOX_PROJECT_DLIGHT_FALLBACK #%d shader='%s' bits=0x%x vvLights=%d verts=%d indexes=%d",
 						s_xboxDlightFallbackLogCount,
@@ -4089,7 +4090,7 @@ void RB_EndSurface( void ) {
 	shaderCommands_t *input;
 
 #ifdef _XBOX
-	g_SPXBRenderEndSurfaces++;
+	SPXB_HOT_INC(g_SPXBRenderEndSurfaces);
 #endif
 
 	input = &tess;
@@ -4151,6 +4152,7 @@ void RB_EndSurface( void ) {
 			if(tess.currentStageIteratorFunc == RB_StageIteratorSky)
 			{	// don't process these tris at all
 #ifdef _XBOX
+				SPXB_HOT_INC(g_SPXBSkyPortalMainFallbacks);
 				static int s_xboxSkyPortalFallbackLogBudget = 0;
 				if (s_xboxSkyPortalFallbackLogBudget > 0)
 				{
@@ -4201,7 +4203,7 @@ void RB_EndSurface( void ) {
 #ifdef _XBOX
 	{
 		static int traceBudget = 0;
-		qboolean trace = RB_XboxShouldTraceSurface();
+		qboolean trace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxShouldTraceSurface());
 
 		if ( trace && traceBudget > 0 )
 		{
@@ -4224,7 +4226,7 @@ void RB_EndSurface( void ) {
 #ifdef _XBOX
 	{
 		static int traceBudget = 0;
-		qboolean trace = RB_XboxShouldTraceSurface();
+		qboolean trace = (SP_XBOX_VERBOSE_RUNTIME_LOGS && RB_XboxShouldTraceSurface());
 
 		if ( trace && traceBudget > 0 )
 		{

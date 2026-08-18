@@ -66,7 +66,7 @@ static qboolean Xbox_ScriptVisualEntity( const gentity_t *ent )
 
 static void Xbox_ScriptBroadcastVisual( gentity_t *ent, const char *reason )
 {
-	static int s_scriptBroadcastLogBudget = 160;
+	static int s_scriptBroadcastLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 160 : 0;
 	int oldFlags;
 
 	if ( !Xbox_ScriptVisualEntity( ent ) )
@@ -7767,7 +7767,7 @@ void CQuake3GameInterface::RunScript( const gentity_t *pEntity, const char *strS
 	char *pBuf = NULL;
 	int iLength = 0;
 #ifdef _XBOX
-	static int s_xboxRunScriptLogBudget = 256;
+	static int s_xboxRunScriptLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 256 : 0;
 	if (s_xboxRunScriptLogBudget > 0 && strScriptName &&
 		(strstr(strScriptName, "taspir2") || strstr(strScriptName, "camera") || strstr(strScriptName, "intro")))
 	{
@@ -8014,7 +8014,7 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 #ifdef _XBOX
 		{
 			static int s_xboxPlaySoundVoiceLogs = 0;
-			if (s_xboxPlaySoundVoiceLogs < 64)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxPlaySoundVoiceLogs < 64)
 			{
 				Com_Printf("JA: Q3_PlaySound voice task=%d ent=%d client=%d chan='%s' final='%s' handle=%d broadcast=%d in_camera=%d timescale=%g\n",
 					taskID,
@@ -8035,7 +8035,7 @@ int 	CQuake3GameInterface::PlaySound( int taskID, int entID, const char *name, c
 				ent->svFlags |= SVF_BROADCAST;
 
 				static int s_xboxCinematicVoiceBroadcastLogs = 0;
-				if (s_xboxCinematicVoiceBroadcastLogs < 64)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxCinematicVoiceBroadcastLogs < 64)
 				{
 					Com_Printf("JA: Q3_PlaySound cinematic voice broadcast ent=%d client=%d oldSv=0x%x newSv=0x%x chan='%s' final='%s' origin=%g,%g,%g\n",
 						entID,
@@ -9350,6 +9350,9 @@ extern void LockDoors(gentity_t *const ent);
 		//
 //		if ( g_timescale->value <= 1.0f )
 		{
+#ifdef _XBOX
+			XBLF("JA: SET_VIDEO_PLAY ent=%d map='%s' filename='%s'", entID, level.mapname, (const char *)data);
+#endif
 			gi.SendConsoleCommand( va("inGameCinematic %s\n", (char *)data) );
 		}
 		break;

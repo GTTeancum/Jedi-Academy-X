@@ -295,7 +295,7 @@ void CL_ParseSnapshot( msg_t *msg ) {
 #ifdef _XBOX
 	{
 		static int s_xboxSnapshotLogCount = 0;
-		if (s_xboxSnapshotLogCount < 32 || (s_xboxSnapshotLogCount & 63) == 0)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxSnapshotLogCount < 32 || (s_xboxSnapshotLogCount & 63) == 0))
 		{
 			XBLF("JA: CL_ParseSnapshot valid count=%d msg=%d delta=%d cmd=%d serverTime=%d entities=%d parseEntities=%d",
 				s_xboxSnapshotLogCount,
@@ -526,7 +526,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 #ifdef _XBOX
 	static int s_xboxParseServerLogs = 0;
-	if (s_xboxParseServerLogs < 64)
+	if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxParseServerLogs < 64)
 	{
 		Com_PrintfAlways("JA: CL_ParseServerMessage enter read=%d size=%d state=%d\n",
 			msg ? msg->readcount : -1, msg ? msg->cursize : -1, (int)cls.state);
@@ -550,7 +550,7 @@ void CL_ParseServerMessage( msg_t *msg ) {
 
 		cmd = MSG_ReadByte( msg );
 #ifdef _XBOX
-		if (s_xboxParseServerLogs < 64)
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxParseServerLogs < 64)
 		{
 			Com_PrintfAlways("JA: CL_ParseServerMessage cmd=%d read=%d size=%d\n",
 				cmd, msg->readcount, msg->cursize);

@@ -245,7 +245,7 @@ SV_AddEntToSnapshot
 static void SV_AddEntToSnapshot( svEntity_t *svEnt, gentity_t *gEnt, snapshotEntityNumbers_t *eNums ) {
 #ifdef _XBOX
 	static int s_xboxAddMissileBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 96 : 0;
-	qboolean xboxLogMissile = (gEnt && gEnt->s.eType == ET_MISSILE && s_xboxAddMissileBudget > 0);
+	qboolean xboxLogMissile = (SP_XBOX_VERBOSE_RUNTIME_LOGS && gEnt && gEnt->s.eType == ET_MISSILE && s_xboxAddMissileBudget > 0);
 #endif
 	// if we have already added this entity to this snapshot, don't add again
 	if ( svEnt->snapshotCounter == sv.snapshotCounter ) {
@@ -519,13 +519,13 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	int xboxMoverAreaRejected = 0;
 	int xboxMoverPvsRejected = 0;
 	int xboxMoverNoClusters = 0;
-	qboolean xboxTraceMovers = (s_xboxSnapshotMoverFrameBudget > 0 && !portal);
-	qboolean xboxTrackMoverFocus = (!portal && (xboxTraceMovers || s_xboxSnapshotMoverFocusBudget > 0 || s_xboxMoverFocusPrintBudget > 0));
+	qboolean xboxTraceMovers = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSnapshotMoverFrameBudget > 0 && !portal);
+	qboolean xboxTrackMoverFocus = (SP_XBOX_VERBOSE_RUNTIME_LOGS && !portal && (xboxTraceMovers || s_xboxSnapshotMoverFocusBudget > 0 || s_xboxMoverFocusPrintBudget > 0));
 	qboolean xboxYavinCameraAreaBypass = (s_xboxSnapshotCameraView && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
 	int xboxFocusIndex = -1;
 	qboolean xboxYavinFocusEnt = qfalse;
 	static int s_xboxVisibleLogBudget = 0;
-	const qboolean xboxTraceVisible = (!portal && s_xboxVisibleLogBudget > 0);
+	const qboolean xboxTraceVisible = (SP_XBOX_VERBOSE_RUNTIME_LOGS && !portal && s_xboxVisibleLogBudget > 0);
 	if (xboxTraceVisible)
 	{
 		Com_PrintfAlways("JA: SV_AddEntitiesVisibleFromPoint enter portal=%d org=%g,%g,%g ge=%d\n",
@@ -600,10 +600,10 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			continue;
 		}
 #ifdef _XBOX
-		xboxIsMover = (ent->s.eType == ET_MOVER);
-		xboxIsMissile = (ent->s.eType == ET_MISSILE);
-		xboxYavinFocusEnt = (s_xboxYavinSnapshotFocusBudget > 0 && e >= 48 && e <= 60 && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
-		xboxLogMissile = (xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
+		xboxIsMover = (SP_XBOX_VERBOSE_RUNTIME_LOGS && ent->s.eType == ET_MOVER);
+		xboxIsMissile = (SP_XBOX_VERBOSE_RUNTIME_LOGS && ent->s.eType == ET_MISSILE);
+		xboxYavinFocusEnt = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxYavinSnapshotFocusBudget > 0 && e >= 48 && e <= 60 && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
+		xboxLogMissile = (SP_XBOX_VERBOSE_RUNTIME_LOGS && xboxIsMissile && !portal && s_xboxSnapshotMissileBudget > 0);
 		if (xboxYavinFocusEnt)
 		{
 			XBLF("JA: SV_YAVIN_SNAPSHOT candidate pass=%s ent=%d linked=%d inuse=%d sv=0x%x eType=%d model=%d origin=%g,%g,%g current=%g,%g,%g",
@@ -737,7 +737,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 				XboxMoverFocusRecord( xboxFocusIndex, ent, svEnt, clientarea, clientcluster, XBOX_MOVER_STAT_FIELD(candidate) );
 			}
 		}
-		xboxFocusMover = (xboxTraceMovers && xboxIsMover && s_xboxSnapshotMoverFocusBudget > 0 &&
+		xboxFocusMover = (SP_XBOX_VERBOSE_RUNTIME_LOGS && xboxTraceMovers && xboxIsMover && s_xboxSnapshotMoverFocusBudget > 0 &&
 			((ent->s.modelindex >= 139 && ent->s.modelindex <= 152) ||
 			 ent->s.modelindex == 172 ||
 			 ent->s.modelindex == 193 ||
@@ -790,7 +790,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		if (xboxYavinCameraAreaBypass && ent->s.eType == ET_PLAYER && e > 0)
 		{
 			SV_AddEntToSnapshot( svEnt, ent, eNums );
-			if (s_xboxYavinCinematicActorBudget > 0)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxYavinCinematicActorBudget > 0)
 			{
 				XBLF("JA: SV_YAVIN_CINEMATIC_ACTOR_SENT ent=%d snapshot=%d sv=0x%x origin=%g,%g,%g current=%g,%g,%g",
 					e,
@@ -1079,7 +1079,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 		}
 	}
 #ifdef _XBOX
-	if (!portal)
+	if (SP_XBOX_VERBOSE_RUNTIME_LOGS && !portal)
 	{
 		XboxMoverFocusMaybePrintSummary( clientarea, clientcluster );
 	}
@@ -1130,7 +1130,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	gentity_t					*clent;
 #ifdef _XBOX
 	static int s_xboxBuildSnapshotLogBudget = 0;
-	const qboolean xboxTraceBuild = (s_xboxBuildSnapshotLogBudget > 0);
+	const qboolean xboxTraceBuild = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxBuildSnapshotLogBudget > 0);
 	if (xboxTraceBuild)
 	{
 		Com_PrintfAlways("JA: SV_BuildClientSnapshot enter outgoing=%d state=%d gentity=%p\n",
@@ -1280,7 +1280,7 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 		gentity_t *viewEnt = SV_GentityNum( frame->ps.viewEntity );
 #ifdef _XBOX
 		static int s_xboxViewEntityPvsLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 80 : 0;
-		const qboolean xboxLogViewEntityPvs = (s_xboxViewEntityPvsLogBudget > 0 && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
+		const qboolean xboxLogViewEntityPvs = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxViewEntityPvsLogBudget > 0 && sv_mapname && sv_mapname->string && !Q_stricmp(sv_mapname->string, "yavin1"));
 #endif
 		if ( viewEnt && viewEnt->inuse && viewEnt->linked && !(viewEnt->svFlags & SVF_NOCLIENT) )
 		{
@@ -1484,7 +1484,7 @@ void SV_SendClientSnapshot( client_t *client ) {
 	msg_t		msg;
 #ifdef _XBOX
 	static int s_xboxSnapshotLogBudget = 0;
-	const qboolean xboxTraceSnapshot = (s_xboxSnapshotLogBudget > 0);
+	const qboolean xboxTraceSnapshot = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSnapshotLogBudget > 0);
 	if (xboxTraceSnapshot)
 	{
 		Com_PrintfAlways("JA: SV_SendClientSnapshot enter state=%d outgoing=%d svTime=%d nextSnapshot=%d\n",
@@ -1551,7 +1551,7 @@ void SV_SendClientMessages( void ) {
 	client_t	*c;
 #ifdef _XBOX
 	static int s_xboxMessagesLogBudget = 0;
-	const qboolean xboxTraceMessages = (s_xboxMessagesLogBudget > 0);
+	const qboolean xboxTraceMessages = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxMessagesLogBudget > 0);
 	if (xboxTraceMessages)
 	{
 		Com_PrintfAlways("JA: SV_SendClientMessages enter svTime=%d clientState=%d nextSnapshot=%d\n",

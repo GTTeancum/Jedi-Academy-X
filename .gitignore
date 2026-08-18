@@ -1,4 +1,4 @@
-# Compiled Object files
+﻿# Compiled Object files
 *.slo
 *.lo
 *.o
@@ -11,3 +11,46 @@
 *.lai
 *.la
 *.a
+
+# Visual Studio / XDK generated outputs
+*.obj
+*.sbr
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.lib
+*.exe
+*.xbe
+*.manifest
+*.res
+BuildLog.htm
+mt.dep
+
+# Emulator and smoke-test generated artifacts
+*.iso
+*.qcow2
+*.fb.bin
+*.map
+scripts/output/*
+!scripts/output/.gitkeep
+/build/
+
+# Local runtime/emulator state
+/CXBXR/
+/data/EmuDisk/
+/data/EmuMediaBoard/
+/data/EmuMu/
+/data/ShaderCache/
+/data/SymbolCache/
+/data/EEPROM.bin
+
+# Local reference dumps and extracted tools
+/Jedi Academy Xbox mod tools/
+/ORIGINAL-Jedi-Academy-master/
+/Star Wars Jedi Academy game/
+/UnleashX Xbox Launcher/
+/clean-mp-original-build/
+
+# Python/editor caches
+__pycache__/

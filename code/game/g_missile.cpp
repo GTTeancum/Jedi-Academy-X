@@ -1326,7 +1326,7 @@ void G_RunMissile( gentity_t *ent )
 	trace_t		tr;
 	int			trHitLoc=HL_NONE;
 #ifdef _XBOX
-	static int s_xboxRunMissileBudget = 160;
+	static int s_xboxRunMissileBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 160 : 0;
 	qboolean xboxLogMissile = qfalse;
 #endif
 

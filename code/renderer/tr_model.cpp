@@ -14,6 +14,7 @@
 #define	LL(x) x=LittleLong(x)
 
 void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ); //should only be called for sub-bsp instances
+extern world_t s_worldData;
 
 static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *name, qboolean &bAlreadyCached );
 
@@ -1095,19 +1096,49 @@ void R_HunkClearCrap(void)
 ** RE_BeginRegistration
 */
 void RE_BeginRegistration( glconfig_t *glconfigOut ) {
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "enter", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 #ifndef _XBOX
 	ShaderTableCleanup();
 #endif
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "before-Hunk_ClearToMark", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 	Hunk_ClearToMark();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "after-Hunk_ClearToMark", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+	XBLog_SoakTrace("RE_BeginRegistration", "before-R_Init", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 
 	R_Init();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "after-R_Init", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 	*glconfigOut = glConfig;
 
 	tr.viewCluster = -1;		// force markleafs to regenerate
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "before-RE_ClearScene", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 	RE_ClearScene();
 	tr.registered = qtrue;
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "before-R_SyncRenderThread", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 
 	R_SyncRenderThread();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_BeginRegistration", "done", s_worldData.name,
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 }
 
 //=============================================================================

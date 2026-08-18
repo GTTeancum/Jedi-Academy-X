@@ -1133,7 +1133,7 @@ static void CG_Missile( centity_t *cent ) {
 	weapon = &cg_weapons[s1->weapon];
 	wData = &weaponData[s1->weapon];
 #ifdef _XBOX
-	xboxLogMissile = (s_xboxMissileLogCount < 96);
+	xboxLogMissile = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxMissileLogCount < 96);
 	if ( xboxLogMissile )
 	{
 		XBLF("JA: CG_Missile #%d ent=%d weapon=%d alt=%d trType=%d origin=%g,%g,%g delta=%g,%g,%g model=%d altModel=%d trail=%p altTrail=%p",

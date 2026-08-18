@@ -43,6 +43,225 @@ struct inputstate_t
 
 inputstate_t *in_state = NULL;
 
+#if defined(_XBOX) && SP_XBOX_SMOKE_AUTOMATION
+#define XBOX_SMOKE_MAX_BUTTONS 64
+struct xboxSmokeButtonEvent_t
+{
+	int atMs;
+	int holdMs;
+	int controller;
+	fakeAscii_t button;
+	bool waitForUi;
+	bool rawKey;
+	bool pressed;
+	bool released;
+	char name[16];
+};
+
+static xboxSmokeButtonEvent_t xboxSmokeButtons[XBOX_SMOKE_MAX_BUTTONS];
+static int xboxSmokeButtonCount = 0;
+static bool xboxSmokeButtonsLoaded = false;
+static int xboxSmokeButtonStartMs = 0;
+static int xboxSmokeButtonUiStartMs = 0;
+
+static fakeAscii_t IN_XboxSmokeButtonFromName(const char *name)
+{
+	if (!name || !name[0]) return A_NULL;
+	if (!Q_stricmp(name, "start")) return A_JOY4;
+	if (!Q_stricmp(name, "back")) return A_JOY1;
+	if (!Q_stricmp(name, "a")) return A_JOY15;
+	if (!Q_stricmp(name, "b")) return A_JOY14;
+	if (!Q_stricmp(name, "x")) return A_JOY16;
+	if (!Q_stricmp(name, "y")) return A_JOY13;
+	if (!Q_stricmp(name, "up") || !Q_stricmp(name, "dpad_up")) return A_JOY5;
+	if (!Q_stricmp(name, "down") || !Q_stricmp(name, "dpad_down")) return A_JOY7;
+	if (!Q_stricmp(name, "left") || !Q_stricmp(name, "dpad_left")) return A_JOY8;
+	if (!Q_stricmp(name, "right") || !Q_stricmp(name, "dpad_right")) return A_JOY6;
+	if (!Q_stricmp(name, "white")) return A_JOY9;
+	if (!Q_stricmp(name, "black")) return A_JOY10;
+	if (!Q_stricmp(name, "lt") || !Q_stricmp(name, "ltrigger")) return A_JOY11;
+	if (!Q_stricmp(name, "rt") || !Q_stricmp(name, "rtrigger")) return A_JOY12;
+	if (!Q_stricmp(name, "lstick")) return A_JOY2;
+	if (!Q_stricmp(name, "rstick")) return A_JOY3;
+	return A_NULL;
+}
+
+static fakeAscii_t IN_XboxSmokeRawKeyFromName(const char *name)
+{
+	if (!name || !name[0]) return A_NULL;
+	if (!Q_stricmp(name, "ui_accept") || !Q_stricmp(name, "ui_mouse1")) return A_MOUSE1;
+	if (!Q_stricmp(name, "ui_enter")) return A_ENTER;
+	if (!Q_stricmp(name, "ui_back") || !Q_stricmp(name, "ui_escape")) return A_ESCAPE;
+	if (!Q_stricmp(name, "ui_up")) return A_CURSOR_UP;
+	if (!Q_stricmp(name, "ui_down")) return A_CURSOR_DOWN;
+	if (!Q_stricmp(name, "ui_left")) return A_CURSOR_LEFT;
+	if (!Q_stricmp(name, "ui_right")) return A_CURSOR_RIGHT;
+	return A_NULL;
+}
+
+static void IN_XboxSmokeLoadButtons(void)
+{
+	if (xboxSmokeButtonsLoaded)
+	{
+		return;
+	}
+	xboxSmokeButtonsLoaded = true;
+	xboxSmokeButtonStartMs = Sys_Milliseconds();
+
+	FILE *f = fopen("D:\\ja_sp_buttons.txt", "r");
+	if (!f)
+	{
+		return;
+	}
+
+	char line[128];
+	while (xboxSmokeButtonCount < XBOX_SMOKE_MAX_BUTTONS && fgets(line, sizeof(line), f))
+	{
+		char atToken[24];
+		char buttonName[16];
+		int atMs = 0;
+		int holdMs = 160;
+		int controller = 0;
+		bool waitForUi = false;
+		atToken[0] = '\0';
+		buttonName[0] = '\0';
+
+		char *cursor = line;
+		while (*cursor == ' ' || *cursor == '\t') cursor++;
+		if (!*cursor || *cursor == '#')
+		{
+			continue;
+		}
+
+		int fields = sscanf(cursor, "%23s %15s %d %d", atToken, buttonName, &holdMs, &controller);
+		if (fields < 2)
+		{
+			XBLog_Writef("JA: SMOKE_BUTTON invalid line '%s'", cursor);
+			continue;
+		}
+		if ((atToken[0] == 'u' || atToken[0] == 'U') &&
+			(atToken[1] == 'i' || atToken[1] == 'I') &&
+			atToken[2] == '+')
+		{
+			waitForUi = true;
+			atMs = atoi(atToken + 3);
+		}
+		else
+		{
+			atMs = atoi(atToken);
+		}
+		if (fields < 3 || holdMs <= 0)
+		{
+			holdMs = 160;
+		}
+		if (fields < 4 || controller < 0 || controller >= IN_MAX_CONTROLLERS)
+		{
+			controller = 0;
+		}
+
+		bool rawKey = false;
+		fakeAscii_t button = IN_XboxSmokeButtonFromName(buttonName);
+		if (button == A_NULL)
+		{
+			button = IN_XboxSmokeRawKeyFromName(buttonName);
+			rawKey = (button != A_NULL);
+			if (button == A_NULL)
+			{
+				XBLog_Writef("JA: SMOKE_BUTTON unknown button '%s'", buttonName);
+				continue;
+			}
+		}
+
+		xboxSmokeButtonEvent_t *event = &xboxSmokeButtons[xboxSmokeButtonCount++];
+		event->atMs = atMs;
+		event->holdMs = holdMs;
+		event->controller = controller;
+		event->button = button;
+		event->waitForUi = waitForUi;
+		event->rawKey = rawKey;
+		event->pressed = false;
+		event->released = false;
+		Q_strncpyz(event->name, buttonName, sizeof(event->name));
+	}
+	fclose(f);
+
+	g_SPXBSmokeButtonCount = (unsigned int)xboxSmokeButtonCount;
+	g_SPXBSmokeButtonPressCount = 0;
+	g_SPXBSmokeButtonReleaseCount = 0;
+	g_SPXBSmokeButtonUiStartMs = 0;
+	g_SPXBSmokeButtonLast = 0;
+	XBLog_Writef("JA: SMOKE_BUTTON loaded count=%d startMs=%d", xboxSmokeButtonCount, xboxSmokeButtonStartMs);
+}
+
+static void IN_XboxSmokeFrame(void)
+{
+	IN_XboxSmokeLoadButtons();
+	if (xboxSmokeButtonCount <= 0)
+	{
+		return;
+	}
+
+	const int now = Sys_Milliseconds();
+	if (xboxSmokeButtonUiStartMs == 0 && (cls.keyCatchers & KEYCATCH_UI))
+	{
+		xboxSmokeButtonUiStartMs = now;
+		g_SPXBSmokeButtonUiStartMs = (unsigned int)xboxSmokeButtonUiStartMs;
+		XBLog_Writef("JA: SMOKE_BUTTON ui-ready startMs=%d state=%d catchers=0x%x",
+			xboxSmokeButtonUiStartMs,
+			(int)cls.state,
+			(unsigned int)cls.keyCatchers);
+	}
+
+	for (int i = 0; i < xboxSmokeButtonCount; ++i)
+	{
+		xboxSmokeButtonEvent_t *event = &xboxSmokeButtons[i];
+		if (event->waitForUi && xboxSmokeButtonUiStartMs == 0)
+		{
+			continue;
+		}
+		const int baseMs = event->waitForUi ? xboxSmokeButtonUiStartMs : xboxSmokeButtonStartMs;
+		const int elapsed = now - baseMs;
+		if (!event->pressed && elapsed >= event->atMs)
+		{
+			++g_SPXBSmokeButtonPressCount;
+			g_SPXBSmokeButtonLast = ((unsigned int)event->button & 0xffffu) |
+				(event->rawKey ? 0x00010000u : 0u) |
+				(event->waitForUi ? 0x00020000u : 0u) |
+				(((unsigned int)i & 0xffu) << 24);
+			XBLog_Writef("JA: SMOKE_BUTTON press t=%d idx=%d controller=%d button=%s raw=%d ui=%d", elapsed, i, event->controller, event->name, event->rawKey ? 1 : 0, event->waitForUi ? 1 : 0);
+			if (event->rawKey)
+			{
+				Sys_QueEvent(0, SE_KEY, event->button, true, 0, NULL);
+			}
+			else
+			{
+				IN_CommonJoyPress(event->controller, event->button, true);
+			}
+			event->pressed = true;
+		}
+		if (event->pressed && !event->released && elapsed >= event->atMs + event->holdMs)
+		{
+			++g_SPXBSmokeButtonReleaseCount;
+			g_SPXBSmokeButtonLast = ((unsigned int)event->button & 0xffffu) |
+				(event->rawKey ? 0x00010000u : 0u) |
+				(event->waitForUi ? 0x00020000u : 0u) |
+				0x00800000u |
+				(((unsigned int)i & 0xffu) << 24);
+			XBLog_Writef("JA: SMOKE_BUTTON release t=%d idx=%d controller=%d button=%s raw=%d ui=%d", elapsed, i, event->controller, event->name, event->rawKey ? 1 : 0, event->waitForUi ? 1 : 0);
+			if (event->rawKey)
+			{
+				Sys_QueEvent(0, SE_KEY, event->button, false, 0, NULL);
+			}
+			else
+			{
+				IN_CommonJoyPress(event->controller, event->button, false);
+			}
+			event->released = true;
+		}
+	}
+}
+#endif
+
 
 
 /*
@@ -317,6 +536,10 @@ void IN_Frame (void)
 	callCount++;
 	if (in_state)
 	{
+#if defined(_XBOX) && SP_XBOX_SMOKE_AUTOMATION
+		IN_XboxSmokeFrame();
+#endif
+
 		// First, check for changes in device status (removed/inserted pads)
 		DWORD dwInsert, dwRemove;
 		if( XGetDeviceChanges( XDEVICE_TYPE_GAMEPAD, &dwInsert, &dwRemove ) )

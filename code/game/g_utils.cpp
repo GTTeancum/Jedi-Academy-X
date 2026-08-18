@@ -12,6 +12,7 @@
 #include "..\renderer\mdx_format.h"
 #include "..\qcommon\cm_public.h"
 #include "..\qcommon\cm_local.h"
+#include "../win32/xb_log.h"
 #endif
 
 #define ACT_ACTIVE		qtrue
@@ -303,7 +304,7 @@ void G_SoundOnEnt( gentity_t *ent, soundChannel_t channel, const char *soundPath
 #ifdef _XBOX
 	{
 		static int s_xboxSoundOnEntLogs = 0;
-		if (s_xboxSoundOnEntLogs < 64 &&
+		if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSoundOnEntLogs < 64 &&
 			(channel == CHAN_VOICE || channel == CHAN_VOICE_ATTEN || channel == CHAN_VOICE_GLOBAL))
 		{
 			Com_Printf("JA: G_SoundOnEnt voice ent=%d client=%d chan=%d index=%d precache=%d path='%s'\n",
@@ -927,7 +928,7 @@ gentity_t *G_Spawn( int itr )
 	globals.num_entities++;
 	G_InitGentity( e, qtrue );
 #ifdef _XBOX
-	static int s_xboxGSpawnLogBudget = 32;
+	static int s_xboxGSpawnLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 32 : 0;
 	if (s_xboxGSpawnLogBudget > 0)
 	{
 		Com_Printf("JA: G_Spawn new slot=%d ent=%d num_entities=%d ptr=0x%x MAX_CLIENTS=%d\n",

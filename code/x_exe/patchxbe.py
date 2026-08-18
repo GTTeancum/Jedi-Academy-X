@@ -151,6 +151,31 @@ print("Checking library version entries for CXBX-Reloaded HLE...")
 with open(xbe_path, 'rb') as f:
     xbe = bytearray(f.read())
 
+base_addr = struct.unpack_from('<I', xbe, 0x104)[0]
+
+# Retail JA ships the primary BINK code section as 0x26, not imagebld's
+# default 0x36.  The difference is the head-page readonly bit; RAD's Xbox
+# Bink code keeps writable state at the head of this section, and Xemu LLE
+# can hang before BinkOpen returns if that page is protected.
+sec_count = struct.unpack_from('<I', xbe, 0x11C)[0]
+sec_hdr_va = struct.unpack_from('<I', xbe, 0x120)[0]
+sec_hdr_off = sec_hdr_va - base_addr
+for i in range(sec_count):
+    off = sec_hdr_off + i * 0x38
+    name_va = struct.unpack_from('<I', xbe, off + 0x14)[0]
+    name_off = name_va - base_addr
+    name_end = xbe.find(b'\x00', name_off, name_off + 64)
+    if name_end < 0:
+        name_end = name_off + 64
+    name = xbe[name_off:name_end].decode('ascii', errors='replace')
+    if name == 'BINK':
+        old_flags = struct.unpack_from('<I', xbe, off)[0]
+        retail_bink_flags = 0x26
+        if old_flags != retail_bink_flags:
+            struct.pack_into('<I', xbe, off, retail_bink_flags)
+            print("  Section BINK flags: 0x%08X -> 0x%08X" % (old_flags, retail_bink_flags))
+        break
+
 # Match the shipped title's process flags.  The retail XBE uses
 # MOUNT_UTILITY_DRIVE | LIMIT_64MB; keeping the 64MB limit matters when
 # reproducing texture/heap pressure on retail hardware and Cxbx.
@@ -169,7 +194,6 @@ if old_stack_commit != retail_stack_commit:
     struct.pack_into('<I', xbe, 0x130, retail_stack_commit)
     print("  StackCommit: 0x%08X -> 0x%08X" % (old_stack_commit, retail_stack_commit))
 
-base_addr  = struct.unpack_from('<I', xbe, 0x104)[0]
 lib_count  = struct.unpack_from('<I', xbe, 0x160)[0]
 lib_va     = struct.unpack_from('<I', xbe, 0x164)[0]
 lib_offset = lib_va - base_addr

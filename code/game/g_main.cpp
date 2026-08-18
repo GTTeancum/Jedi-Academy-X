@@ -711,6 +711,8 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	//rww - default this to 0, we will auto-set it to 1 if we run into a terrain ent
 #ifdef _XBOX
 	g_SPXBGamePhase = 100;
+	XBLog_SoakTrace("InitGame", "enter", mapname,
+		checkSum, levelTime, randomSeed, (int)qbLoadTransition);
 	gi.Printf("JA: InitGame before cvar_set RMG\n");
 #endif
 	gi.cvar_set("RMG", "0");
@@ -736,18 +738,24 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	srand( randomSeed );
 #ifdef _XBOX
 	g_SPXBGamePhase = 103;
+	XBLog_SoakTrace("InitGame", "before-G_InitCvars", mapname,
+		checkSum, levelTime, randomSeed, (int)qbLoadTransition);
 	gi.Printf("JA: InitGame after srand before G_InitCvars\n");
 #endif
 
 	G_InitCvars();
 #ifdef _XBOX
 	g_SPXBGamePhase = 104;
+	XBLog_SoakTrace("InitGame", "before-G_InitMemory", mapname,
+		checkSum, levelTime, randomSeed, (int)qbLoadTransition);
 	gi.Printf("JA: InitGame after G_InitCvars before G_InitMemory\n");
 #endif
 
 	G_InitMemory();
 #ifdef _XBOX
 	g_SPXBGamePhase = 105;
+	XBLog_SoakTrace("InitGame", "after-G_InitMemory", mapname,
+		checkSum, levelTime, randomSeed, (int)qbLoadTransition);
 	gi.Printf("JA: InitGame after G_InitMemory before level memset\n");
 #endif
 
@@ -772,6 +780,8 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	G_InitWorldSession();
 #ifdef _XBOX
 	g_SPXBGamePhase = 107;
+	XBLog_SoakTrace("InitGame", "before-G_ResetGentityArrayForMap", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	gi.Printf("JA: InitGame after G_InitWorldSession before entity clear\n");
 #endif
 
@@ -782,6 +792,8 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	G_ResetGentityArrayForMap();
 #ifdef _XBOX
 	g_SPXBGamePhase = 122;
+	XBLog_SoakTrace("InitGame", "after-G_ResetGentityArrayForMap", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 #endif
 	globals.gentities = g_entities;
 #ifdef _XBOX
@@ -801,6 +813,8 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	g_SPXBGentitiesPtr = (unsigned int)g_entities;
 	g_SPXBClientsPtr = (unsigned int)level.clients;
 	g_SPXBGentitySize = sizeof(g_entities[0]);
+	XBLog_SoakTrace("InitGame", "after-client-alloc", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	gi.Printf("JA: InitGame after client alloc ptr=%p\n", level.clients);
 	g_SPXBGamePhase = 130;
 #endif
@@ -832,11 +846,15 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	//Load sabers.cfg data
 #ifdef _XBOX
 	g_SPXBGamePhase = 110;
+	XBLog_SoakTrace("InitGame", "before-WP_SaberLoadParms", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	gi.Printf("JA: InitGame before WP_SaberLoadParms\n");
 #endif
 	WP_SaberLoadParms();
 #ifdef _XBOX
 	g_SPXBGamePhase = 111;
+	XBLog_SoakTrace("InitGame", "before-NPC_InitGame", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	gi.Printf("JA: InitGame after WP_SaberLoadParms before NPC_InitGame\n");
 #endif
 	//Set up NPC init data
@@ -853,11 +871,15 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 
 #ifdef _XBOX
 	g_SPXBGamePhase = 113;
+	XBLog_SoakTrace("InitGame", "before-IT_LoadItemParms", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	gi.Printf("JA: InitGame before IT_LoadItemParms\n");
 #endif
 	IT_LoadItemParms ();
 #ifdef _XBOX
 	g_SPXBGamePhase = 114;
+	XBLog_SoakTrace("InitGame", "before-ClearRegisteredItems", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	gi.Printf("JA: InitGame after IT_LoadItemParms before ClearRegisteredItems\n");
 #endif
 
@@ -866,33 +888,45 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	// clear out old nav info, attempt to load from file
 #ifdef _XBOX
 	g_SPXBGamePhase = 115;
+	XBLog_SoakTrace("InitGame", "before-NAV_LoadFromFile", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 	gi.Printf("JA: InitGame before NAV::LoadFromFile map='%s'\n", level.mapname);
 #endif
 	NAV::LoadFromFile(level.mapname, giMapChecksum);
 #ifdef _XBOX
 	g_SPXBGamePhase = 116;
+	XBLog_SoakTrace("InitGame", "after-NAV_LoadFromFile", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 	gi.Printf("JA: InitGame after NAV::LoadFromFile\n");
 #endif
 
 	// parse the key/value pairs and spawn gentities
 #ifdef _XBOX
 	g_SPXBGamePhase = 117;
+	XBLog_SoakTrace("InitGame", "before-G_SpawnEntitiesFromString", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 	gi.Printf("JA: InitGame before G_SpawnEntitiesFromString map='%s'\n", level.mapname);
 #endif
 	G_SpawnEntitiesFromString( entities );
 #ifdef _XBOX
 	g_SPXBGamePhase = 118;
+	XBLog_SoakTrace("InitGame", "after-G_SpawnEntitiesFromString", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 	gi.Printf("JA: InitGame after G_SpawnEntitiesFromString num_entities=%d\n", globals.num_entities);
 #endif
 
 	// general initialization
 #ifdef _XBOX
 	g_SPXBGamePhase = 119;
+	XBLog_SoakTrace("InitGame", "before-G_FindTeams", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 	gi.Printf("JA: InitGame before G_FindTeams\n");
 #endif
 	G_FindTeams();
 #ifdef _XBOX
 	g_SPXBGamePhase = 120;
+	XBLog_SoakTrace("InitGame", "after-G_FindTeams", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 	gi.Printf("JA: InitGame after G_FindTeams\n");
 #endif
 
@@ -919,6 +953,8 @@ void InitGame(  const char *mapname, const char *spawntarget, int checkSum, cons
 	npcsToUpdateTop		= 0;
 	npcsToUpdateCount	= 0;
 	memset(npcsToUpdate, -1, 2 * MAX_NPC_WATER_UPDATE);
+	XBLog_SoakTrace("InitGame", "done", level.mapname,
+		checkSum, globals.num_entities, level.maxclients, (int)g_entities);
 #endif // _XBOX
 
 }
@@ -930,41 +966,104 @@ ShutdownGame
 */
 void ShutdownGame( void )
 {
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "enter", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
 	// write all the client session data so we can get it back
 	G_WriteSessionData(); 
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "after-G_WriteSessionData", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
 
 #ifdef _XBOX
 	// The following functions, cleverly disguised as memory freeing and dealloction,
 	// actually allocate small blocks. Fooled you!
 	extern void Z_SetNewDeleteTemporary(bool bTemp);
+	XBLog_SoakTrace("ShutdownGame", "before-Z_SetNewDeleteTemporary-true", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 	Z_SetNewDeleteTemporary( true );
+	XBLog_SoakTrace("ShutdownGame", "after-Z_SetNewDeleteTemporary-true", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 #endif
 
 	// Destroy the Game Interface.
-	IGameInterface::Destroy();
-
-	// Shut ICARUS down.
-	IIcarusInterface::DestroyIcarus();
-
-	// Destroy the Game Interface again.  Only way to really free everything.
-	IGameInterface::Destroy();
-
 #ifdef _XBOX
-	Z_SetNewDeleteTemporary( false );
+	XBLog_SoakTrace("ShutdownGame", "before-IGameInterface-Destroy-1", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
+	IGameInterface::Destroy();
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "after-IGameInterface-Destroy-1", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
 #endif
 
+	// Shut ICARUS down.
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "before-IIcarusInterface-DestroyIcarus", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
+	IIcarusInterface::DestroyIcarus();
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "after-IIcarusInterface-DestroyIcarus", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
+
+	// Destroy the Game Interface again.  Only way to really free everything.
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "before-IGameInterface-Destroy-2", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
+	IGameInterface::Destroy();
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "after-IGameInterface-Destroy-2", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
+
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "before-Z_SetNewDeleteTemporary-false", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+	Z_SetNewDeleteTemporary( false );
+	XBLog_SoakTrace("ShutdownGame", "after-Z_SetNewDeleteTemporary-false", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
+
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "before-TAG_Init", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
 	TAG_Init();	//Clear the reference tags
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "after-TAG_Init", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
 /*
 Ghoul2 Insert Start
 */
 	for (int i=0; i<MAX_GENTITIES; i++)
 	{
+#ifdef _XBOX
+		if ((i & 127) == 0)
+		{
+			XBLog_SoakTrace("ShutdownGame", "G2-clean-loop", level.mapname,
+				i, globals.num_entities, (int)g_entities, (int)level.clients);
+		}
+#endif
 		gi.G2API_CleanGhoul2Models(g_entities[i].ghoul2);
 	}
 	/*
 Ghoul2 Insert End
 */
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "before-G_ASPreCacheFree", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
 	G_ASPreCacheFree();
+#ifdef _XBOX
+	XBLog_SoakTrace("ShutdownGame", "done", level.mapname,
+		globals.num_entities, level.maxclients, (int)g_entities, (int)level.clients);
+#endif
 }
 
 

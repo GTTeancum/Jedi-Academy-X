@@ -1135,9 +1135,6 @@ void R_Register( void )
 	r_ext_nv_point_sprite = Cvar_Get( "r_ext_nv_point_sprite", "1", CVAR_ARCHIVE );
 
 	r_picmip = Cvar_Get ("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH );
-#ifdef _XBOX
-	Cvar_Set( "r_picmip", "0" );
-#endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
 	AssertCvarRange( r_picmip, 0, 16, qtrue, qfalse );
 	r_detailTextures = Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1160,8 +1157,7 @@ void R_Register( void )
 	r_simpleMipMaps = Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_vertexLight = Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
 #ifdef _XBOX
-	r_subdivisions = Cvar_Get ("r_subdivisions", "64", CVAR_ARCHIVE | CVAR_LATCH);
-	Cvar_Set( "r_subdivisions", "64" );
+	r_subdivisions = Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
 	if ( r_vertexLight->integer != 0 )
 	{
 		XBLF( "JA: R_Register forcing r_vertexLight %d -> 0 for Xbox lighting baseline", r_vertexLight->integer );
@@ -1487,6 +1483,10 @@ extern void R_ShutdownWorldEffects(void);
 void RE_Shutdown( qboolean destroyWindow ) {	
 	//VID_Printf( PRINT_ALL, "RE_Shutdown( %i )\n", destroyWindow );
 
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_Shutdown", "enter", tr.world ? tr.world->name : "-",
+		(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 	Cmd_RemoveCommand ("imagelist");
 	Cmd_RemoveCommand ("shaderlist");
 	Cmd_RemoveCommand ("skinlist");
@@ -1502,11 +1502,27 @@ void RE_Shutdown( qboolean destroyWindow ) {
 	Cmd_RemoveCommand ("r_we");
 	Cmd_RemoveCommand ("r_reloadfonts");
 
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_Shutdown", "before-R_ShutdownWorldEffects", tr.world ? tr.world->name : "-",
+		(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numShaders);
+#endif
 	R_ShutdownWorldEffects();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_Shutdown", "after-R_ShutdownWorldEffects", tr.world ? tr.world->name : "-",
+		(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numShaders);
+#endif
 #ifndef _XBOX
 	R_TerrainShutdown();
 #endif
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_Shutdown", "before-R_ShutdownFonts", tr.world ? tr.world->name : "-",
+		(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numSkins);
+#endif
 	R_ShutdownFonts();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_Shutdown", "after-R_ShutdownFonts", tr.world ? tr.world->name : "-",
+		(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numSkins);
+#endif
 
 	if ( tr.registered ) {
 #ifndef _XBOX	// GLOWXXX
@@ -1543,21 +1559,55 @@ void RE_Shutdown( qboolean destroyWindow ) {
 			glDeleteTextures( 1, &tr.blurImage );
 		}
 #endif
+#ifdef _XBOX
+		XBLog_SoakTrace("RE_Shutdown", "before-R_SyncRenderThread", tr.world ? tr.world->name : "-",
+			(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 		R_SyncRenderThread();
+#ifdef _XBOX
+		XBLog_SoakTrace("RE_Shutdown", "after-R_SyncRenderThread", tr.world ? tr.world->name : "-",
+			(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+		XBLog_SoakTrace("RE_Shutdown", "before-R_ShutdownCommandBuffers", tr.world ? tr.world->name : "-",
+			(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 		R_ShutdownCommandBuffers();
+#ifdef _XBOX
+		XBLog_SoakTrace("RE_Shutdown", "after-R_ShutdownCommandBuffers", tr.world ? tr.world->name : "-",
+			(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 //#ifndef _XBOX
 		if (destroyWindow)
 //#endif
 		{
+#ifdef _XBOX
+			XBLog_SoakTrace("RE_Shutdown", "before-R_DeleteTextures", tr.world ? tr.world->name : "-",
+				(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 			R_DeleteTextures();	// only do this for vid_restart now, not during things like map load
+#ifdef _XBOX
+			XBLog_SoakTrace("RE_Shutdown", "after-R_DeleteTextures", tr.world ? tr.world->name : "-",
+				(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 		}
 	}
 
 	// shut down platform specific OpenGL stuff
 	if ( destroyWindow ) {
+#ifdef _XBOX
+		XBLog_SoakTrace("RE_Shutdown", "before-GLimp_Shutdown", tr.world ? tr.world->name : "-",
+			(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 		GLimp_Shutdown();
+#ifdef _XBOX
+		XBLog_SoakTrace("RE_Shutdown", "after-GLimp_Shutdown", tr.world ? tr.world->name : "-",
+			(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 	}
 	tr.registered = qfalse;
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_Shutdown", "done", tr.world ? tr.world->name : "-",
+		(int)destroyWindow, (int)tr.registered, (int)tr.worldMapLoaded, tr.numModels);
+#endif
 }
 
 /*
@@ -1569,12 +1619,24 @@ Touch all images to make sure they are resident
 */
 extern qboolean Sys_LowPhysicalMemory();
 void	RE_EndRegistration( void ) {
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_EndRegistration", "enter", tr.world ? tr.world->name : "-",
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 	R_SyncRenderThread();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_EndRegistration", "after-R_SyncRenderThread", tr.world ? tr.world->name : "-",
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 	if (!Sys_LowPhysicalMemory()) {
 #ifndef _XBOX
 //		RB_ShowImages();
 #endif
 	}
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_EndRegistration", "done", tr.world ? tr.world->name : "-",
+		(int)tr.registered, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 }
 
 

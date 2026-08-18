@@ -6,8 +6,11 @@
 
 #include "server.h"
 #ifdef _XBOX
+#include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBSvFrameCount;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBBootPhase;
+extern "C" volatile unsigned int g_SPXBMapPhase;
 #endif
 /*
 Ghoul2 Insert Start
@@ -242,21 +245,42 @@ static void SV_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 	char	*s;
 	char	*c;
 
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x780);
+#endif
 	MSG_BeginReading( msg );
 	MSG_ReadLong( msg );		// skip the -1 marker
 
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x781);
+#endif
 	s = MSG_ReadStringLine( msg );
 
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x782);
+#endif
 	Cmd_TokenizeString( s );
 
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x783);
+#endif
 	c = Cmd_Argv(0);
 	Com_DPrintf ("SV packet %s : %s\n", NET_AdrToString(from), c);
 
 	if (!strcmp(c,"getstatus")) {
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x784);
+#endif
 		SVC_Status( from  );
 	} else if (!strcmp(c,"getinfo")) {
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x785);
+#endif
 		SVC_Info( from );
 	} else if (!strcmp(c,"connect")) {
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x786);
+#endif
 		SV_DirectConnect( from );
 	} else if (!strcmp(c,"disconnect")) {
 		// if a client starts up a local server, we may see some spurious
@@ -278,8 +302,9 @@ SV_ReadPackets
 */
 void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 #ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x770);
 	static int s_xboxSVPacketLogs = 0;
-	if (s_xboxSVPacketLogs < 16)
+	if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSVPacketLogs < 16)
 	{
 		Com_PrintfAlways("JA: SV_PacketEvent enter fromType=%d size=%d read=%d\n",
 			(int)from.type, msg ? msg->cursize : -1, msg ? msg->readcount : -1);
@@ -291,19 +316,34 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 	int			qport;
 
 	// check for connectionless packet (0xffffffff) first
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x771);
+#endif
 	if ( msg->cursize >= 4 && *(int *)msg->data == -1) {
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x772);
+#endif
 		SV_ConnectionlessPacket( from, msg );
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x773);
+#endif
 		return;
 	}
 
 	// read the qport out of the message so we can fix up
 	// stupid address translating routers
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x774);
+#endif
 	MSG_BeginReading( msg );
 	MSG_ReadLong( msg );				// sequence number
 	MSG_ReadLong( msg );				// sequence number
 	qport = MSG_ReadShort( msg ) & 0xffff;
 
 	// find which client the message is from
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x775);
+#endif
 	for (i=0, cl=svs.clients ; i < 1 ; i++,cl++) {
 		if (cl->state == CS_FREE) {
 			continue;
@@ -326,7 +366,13 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 		}
 
 		// make sure it is a valid, in sequence packet
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x776);
+#endif
 		if (Netchan_Process(&cl->netchan, msg)) {
+#ifdef _XBOX
+			SPXB_HOT_SET(g_SPXBBootPhase, 0x777);
+#endif
 			// zombie clients stil neet to do the Netchan_Process
 			// to make sure they don't need to retransmit the final
 			// reliable message, but they don't do any other processing
@@ -334,7 +380,13 @@ void SV_PacketEvent( netadr_t from, msg_t *msg ) {
 				cl->lastPacketTime = sv.time;	// don't timeout
 				cl->frames[ cl->netchan.incomingAcknowledged & PACKET_MASK ]
 					.messageAcked = sv.time;
+#ifdef _XBOX
+				SPXB_HOT_SET(g_SPXBBootPhase, 0x778);
+#endif
 				SV_ExecuteClientMessage( cl, msg );
+#ifdef _XBOX
+				SPXB_HOT_SET(g_SPXBBootPhase, 0x779);
+#endif
 			}
 		}
 		return;
@@ -484,10 +536,14 @@ void SV_Frame( int msec,float fractionMsec ) {
 	int		frameMsec;
 	int		startTime=0;
 #ifdef _XBOX
-	g_SPXBSvFrameCount++;
-	g_SPXBPhaseLast = 0x53564631; /* 'SVF1' */
-	static int s_xboxSVFrameLogBudget = 8;
-	const qboolean xboxTraceSVFrame = (s_xboxSVFrameLogBudget > 0);
+	SPXB_HOT_INC(g_SPXBSvFrameCount);
+	SPXB_HOT_SET(g_SPXBPhaseLast, 0x53564631); /* 'SVF1' */
+	static int s_xboxSVFrameLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 8 : 0;
+	const qboolean xboxTraceSVFrame = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSVFrameLogBudget > 0);
+	if (xboxTraceSVFrame)
+	{
+		--s_xboxSVFrameLogBudget;
+	}
 	if (xboxTraceSVFrame)
 	{
 		Com_PrintfAlways("JA: SV_Frame enter msec=%d running=%d time=%d residual=%d clientState=%d\n",
@@ -515,6 +571,17 @@ void SV_Frame( int msec,float fractionMsec ) {
 #endif
 		return;
 	}
+
+#ifdef _XBOX
+	if ( !ge || !ge->RunFrame ) {
+		if (xboxTraceSVFrame)
+		{
+			Com_PrintfAlways("JA: SV_Frame exit game-export-not-ready ge=%p mapPhase=%u sv.state=%d time=%d residual=%d\n",
+				ge, g_SPXBMapPhase, sv.state, sv.time, sv.timeResidual);
+		}
+		return;
+	}
+#endif
 
  	extern void SE_CheckForLanguageUpdates(void);
 #ifdef _XBOX
@@ -567,7 +634,6 @@ void SV_Frame( int msec,float fractionMsec ) {
 		{
 			Com_PrintfAlways("JA: SV_Frame exit residual-wait residual=%d frameMsec=%d\n",
 				sv.timeResidual, frameMsec);
-			--s_xboxSVFrameLogBudget;
 		}
 #endif
 		return;
@@ -648,7 +714,6 @@ void SV_Frame( int msec,float fractionMsec ) {
 			sv.timeResidual,
 			svs.clients ? svs.clients[0].state : -1,
 			svs.clients ? svs.clients[0].nextSnapshotTime : -1);
-		--s_xboxSVFrameLogBudget;
 	}
 #endif
 }

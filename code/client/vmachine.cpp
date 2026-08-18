@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+#include "../cgame/cg_public.h"
 #endif
 #pragma warning (disable : 4514)
 /*
@@ -37,7 +38,8 @@ int	VM_Call( int callnum, ... )
 			const int arg1 = va_arg(ap, int);
 			const int arg2 = va_arg(ap, int);
 #ifdef _XBOX
-			if (arg0 > 90000)
+			const bool xboxTraceDrawFrame = (SP_XBOX_VERBOSE_RUNTIME_LOGS && arg0 > 90000);
+			if (xboxTraceDrawFrame)
 			{
 				XBLF("JA: VM_Call enter DRAW_ACTIVE_FRAME time=%d stereo=%d arg2=%d", arg0, arg1, arg2);
 			}
@@ -45,7 +47,7 @@ int	VM_Call( int callnum, ... )
 			va_end(ap);
 			result = cgvm.entryPoint(callnum, arg0, arg1, arg2, 0, 0, 0, 0, 0);
 #ifdef _XBOX
-			if (arg0 > 90000)
+			if (xboxTraceDrawFrame)
 			{
 				XBLF("JA: VM_Call return DRAW_ACTIVE_FRAME time=%d result=%d", arg0, result);
 			}
@@ -88,5 +90,15 @@ extern int CL_UISystemCalls( int *args );
 
 int VM_DllSyscall( int arg, ... ) {
 //	return cgvm->systemCall( &arg );
+#ifdef _XBOX
+	if (arg == CG_UI_STARTPARSESESSION)
+	{
+		int *rawArgs = &arg;
+		XBLF("JA: VM_DllSyscall CG_UI_STARTPARSE raw0=%d raw1=0x%08x raw2=0x%08x",
+			rawArgs[0],
+			rawArgs[1],
+			rawArgs[2]);
+	}
+#endif
 	return CL_CgameSystemCalls( &arg );
 }

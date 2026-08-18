@@ -9,6 +9,14 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBSkyIterCalls;
+extern "C" volatile unsigned int g_SPXBSkyPortalMainFallbacks;
+extern "C" volatile unsigned int g_SPXBSkyClipCalls;
+extern "C" volatile unsigned int g_SPXBSkyBoxDrawCalls;
+extern "C" volatile unsigned int g_SPXBSkyBoxSidesDrawn;
+extern "C" volatile unsigned int g_SPXBSkyNoOuterBox;
+extern "C" volatile unsigned int g_SPXBSkyCloudBuilds;
+extern "C" volatile unsigned int g_SPXBSkyGenericCalls;
 #endif
 
 #define SKY_SUBDIVISIONS		8
@@ -385,7 +393,9 @@ static void DrawSkyBox( shader_t *shader )
 {
 	int		i;
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	static int s_xboxSkyBoxLogBudget = 0;
+#endif
 	const qboolean xboxForceFullPortalSky =
 		(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL) ? qtrue : qfalse;
 #endif
@@ -394,6 +404,9 @@ static void DrawSkyBox( shader_t *shader )
 	sky_max = 1.0f;
 
 	memset( s_skyTexCoords, 0, sizeof( s_skyTexCoords ) );
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBSkyBoxDrawCalls);
+#endif
 
 	for (i=0 ; i<6 ; i++)
 	{
@@ -418,6 +431,7 @@ static void DrawSkyBox( shader_t *shader )
 			 ( sky_mins[1][i] >= sky_maxs[1][i] ) )
 		{
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 			if (s_xboxSkyBoxLogBudget > 0 && cls.state == CA_ACTIVE)
 			{
 				XBLF("JA: SKYBOX side=%d skipped mins=%g,%g maxs=%g,%g image='%s' fallback=%d",
@@ -426,6 +440,7 @@ static void DrawSkyBox( shader_t *shader )
 					(int)(shader->sky->outerbox[i] == tr.defaultImage));
 				--s_xboxSkyBoxLogBudget;
 			}
+#endif
 #endif
 			continue;
 		}
@@ -472,6 +487,10 @@ static void DrawSkyBox( shader_t *shader )
 			         sky_mins_subd,
 					 sky_maxs_subd );
 #ifdef _XBOX
+		SPXB_HOT_INC(g_SPXBSkyBoxSidesDrawn);
+#endif
+#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 		if (s_xboxSkyBoxLogBudget > 0 && cls.state == CA_ACTIVE)
 		{
 			XBLF("JA: SKYBOX side=%d drawn subdMin=%d,%d subdMax=%d,%d image='%s' tex=%d fallback=%d fullPortal=%d",
@@ -482,6 +501,7 @@ static void DrawSkyBox( shader_t *shader )
 				(int)xboxForceFullPortalSky);
 			--s_xboxSkyBoxLogBudget;
 		}
+#endif
 #endif
 	}
 
@@ -828,15 +848,20 @@ Other things could be stuck in here, like birds in the sky, etc
 */
 void RB_StageIteratorSky( void ) {
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	static int s_xboxSkyIterLogBudget = 0;
+#endif
+	SPXB_HOT_INC(g_SPXBSkyIterCalls);
 #endif
 	if ( r_fastsky->integer ) {
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
 		{
 			XBLF("JA: SKY_ITER skip fastsky shader='%s'", tess.shader ? tess.shader->name : "<null>");
 			--s_xboxSkyIterLogBudget;
 		}
+#endif
 #endif
 		return;
 	}
@@ -844,12 +869,15 @@ void RB_StageIteratorSky( void ) {
 	if (skyboxportal && !(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL))
 	{
 #ifdef _XBOX
+		SPXB_HOT_INC(g_SPXBSkyPortalMainFallbacks);
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 		if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
 		{
 			XBLF("JA: SKY_ITER xbox main-view portal skip shader='%s' rdflags=0x%x",
 				tess.shader ? tess.shader->name : "<null>", backEnd.refdef.rdflags);
 			--s_xboxSkyIterLogBudget;
 		}
+#endif
 		return;
 #else
 		return;
@@ -861,6 +889,10 @@ void RB_StageIteratorSky( void ) {
 	// to be drawn
 	RB_ClipSkyPolygons( &tess );
 #ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBSkyClipCalls);
+#endif
+#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
 	{
 		XBLF("JA: SKY_ITER clipped shader='%s' verts=%d indexes=%d outer0='%s' fallback0=%d rdflags=0x%x skyportal=%d",
@@ -873,6 +905,7 @@ void RB_StageIteratorSky( void ) {
 			(int)skyboxportal);
 		--s_xboxSkyIterLogBudget;
 	}
+#endif
 #endif
 
 	// r_showsky will let all the sky blocks be drawn in
@@ -901,8 +934,10 @@ void RB_StageIteratorSky( void ) {
 		glPopMatrix();
 	}
 #ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	else if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
 	{
+		SPXB_HOT_INC(g_SPXBSkyNoOuterBox);
 		XBLF("JA: SKY_ITER no outer skybox shader='%s' outer0='%s' fallback0=%d",
 			tess.shader ? tess.shader->name : "<null>",
 			(tess.shader && tess.shader->sky && tess.shader->sky->outerbox[0]) ? tess.shader->sky->outerbox[0]->imgName : "<null>",
@@ -910,11 +945,16 @@ void RB_StageIteratorSky( void ) {
 		--s_xboxSkyIterLogBudget;
 	}
 #endif
+#endif
 
 	// generate the vertexes for all the clouds, which will be drawn
 	// by the generic shader routine
 	R_BuildCloudData( &tess );
 #ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBSkyCloudBuilds);
+#endif
+#ifdef _XBOX
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
 	if (s_xboxSkyIterLogBudget > 0 && cls.state == CA_ACTIVE)
 	{
 		XBLF("JA: SKY_ITER clouddata shader='%s' verts=%d indexes=%d passes=%d",
@@ -925,8 +965,12 @@ void RB_StageIteratorSky( void ) {
 		--s_xboxSkyIterLogBudget;
 	}
 #endif
+#endif
 
 	RB_StageIteratorGeneric();
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBSkyGenericCalls);
+#endif
 
 	// draw the inner skybox
 

@@ -2031,6 +2031,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 #ifdef _XBOX
 	static int s_xboxDrawActiveFrameCount = 0;
+	static qboolean s_xboxSawLoadingInfo = qfalse;
 	const int s_xboxDrawActiveLog = 0;
 	if (s_xboxDrawActiveLog)
 	{
@@ -2048,6 +2049,16 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// if we are only updating the screen as a loading
 	// pacifier, don't even try to read snapshots
 	if ( cg.infoScreenText[0] != 0 ) {
+#ifdef _XBOX
+		++g_SPXBLoadingInfoFrames;
+		g_SPXBLoadingLastServerTime = (unsigned int)serverTime;
+		g_SPXBLoadingLastClientState = 0x494e464f; // INFO
+		if (!s_xboxSawLoadingInfo)
+		{
+			XBLog_Write("JA: CG_DrawActiveFrame loading info screen active");
+		}
+		s_xboxSawLoadingInfo = qtrue;
+#endif
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: infoScreenText path");
 		CG_DrawInformation();
 #ifdef _XBOX
@@ -2079,16 +2090,32 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// set up cg.snap and possibly cg.nextSnap
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_ProcessSnapshots...");
 	CG_ProcessSnapshots();
+#ifdef _XBOX
+	++g_SPXBLoadingSnapshotsProcessed;
+	g_SPXBLoadingLastServerTime = (unsigned int)serverTime;
+#endif
 	// if we haven't received any snapshots yet, all
 	// we can draw is the information screen
 	if ( !cg.snap ) {
 		//CG_DrawInformation();
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: no cg.snap, return");
 #ifdef _XBOX
+		g_SPXBLoadingLastClientState = 0x4e4f534e; // NOSN
+#endif
+#ifdef _XBOX
 		s_xboxDrawActiveFrameCount++;
 #endif
 		return;
 	}
+#ifdef _XBOX
+	if (s_xboxSawLoadingInfo)
+	{
+		++g_SPXBLoadingStateInfoHandoffs;
+		g_SPXBLoadingLastClientState = 0x41435456; // ACTV
+		XBLog_Write("JA: CG_DrawActiveFrame first active snapshot after loading info");
+		s_xboxSawLoadingInfo = qfalse;
+	}
+#endif
 	if (s_xboxDrawActiveLog)
 	{
 		XBLF("JA: CG_DrawActiveFrame: snap ready client=%d weapon=%d health=%d",

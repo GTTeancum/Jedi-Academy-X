@@ -11,11 +11,20 @@
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBComFrameCount;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBBootPhase;
 extern "C" volatile unsigned int g_SPXBComSubphase;
 extern "C" volatile unsigned int g_SPXBComSpinCount;
 extern "C" volatile unsigned int g_SPXBComMsec;
 extern "C" volatile unsigned int g_SPXBComFrameTime;
 extern "C" volatile unsigned int g_SPXBComLastTime;
+extern "C" volatile unsigned int g_SPXBMapPhase;
+extern "C" volatile unsigned int g_SPXBComErrorCode;
+extern "C" volatile unsigned int g_SPXBComErrorHash;
+extern "C" volatile unsigned int g_SPXBComErrorFirst4;
+extern "C" volatile unsigned int g_SPXBComErrorNext4;
+extern "C" volatile unsigned int g_SPXBClHunkCaller;
+extern "C" volatile unsigned int g_SPXBClHunkCallCount;
+extern bool Sys_IsDirectMapBoot(void);
 #endif
 
 #include "platform.h"
@@ -23,6 +32,68 @@ extern "C" volatile unsigned int g_SPXBComLastTime;
 #define	MAXPRINTMSG	4096
 
 #define MAX_NUM_ARGVS	50
+
+#ifdef _XBOX
+static qboolean Com_XboxDiagnosticPrintfIsCritical(const char *fmt) {
+	if (!fmt) {
+		return qfalse;
+	}
+
+	const qboolean critical =
+		(strstr(fmt, "FRAME_HEARTBEAT") ||
+		strstr(fmt, "SMOKE_BUTTON") ||
+		strstr(fmt, "direct-map boot") ||
+		strstr(fmt, "Server:") ||
+		strstr(fmt, "SV_InitGameProgs") ||
+		strstr(fmt, "InitGame") ||
+		strstr(fmt, "G_AllocGentities") ||
+		strstr(fmt, "G_SpawnEntitiesFromString") ||
+		strstr(fmt, "CL_Init:") ||
+		strstr(fmt, "CL_InitUI") ||
+		strstr(fmt, "CL_InitCGame") ||
+		strstr(fmt, "SCR_Init") ||
+		strstr(fmt, "UI_Init") ||
+		strstr(fmt, "_UI_Init") ||
+		strstr(fmt, "UI_SetActiveMenu") ||
+		strstr(fmt, "BinkVideo::Start") ||
+		strstr(fmt, "CG_Init") ||
+		strstr(fmt, "CG_GameStateReceived") ||
+		strstr(fmt, "CG_RegisterGraphics") ||
+		strstr(fmt, "CG_NewClientinfo") ||
+		strstr(fmt, "VM_Call(CG_INIT)") ||
+		strstr(fmt, "cls.state = CA_PRIMED") ||
+		strstr(fmt, "cls.state = CA_ACTIVE - GAME IS RUNNING") ||
+		strstr(fmt, "FATAL") ||
+		strstr(fmt, "ERROR") ||
+		strstr(fmt, "Out of memory") ||
+		strstr(fmt, "Received Exception") ||
+		strstr(fmt, "EIP") ||
+		strstr(fmt, "Z_Malloc():") ||
+		strstr(fmt, "texture allocation failures")) ? qtrue : qfalse;
+
+	return critical;
+}
+
+static qboolean Com_XboxShouldSkipDiagnosticPrintf(const char *fmt) {
+#if SP_XBOX_VERBOSE_RUNTIME_LOGS
+	return qfalse;
+#else
+	if (!fmt) {
+		return qfalse;
+	}
+	if (Com_XboxDiagnosticPrintfIsCritical(fmt)) {
+		return qfalse;
+	}
+	if (!strncmp(fmt, "JA: ", 4) ||
+		!strncmp(fmt, "JAMP: ", 6) ||
+		!strncmp(fmt, "QGLBridge:", 10) ||
+		!strncmp(fmt, "JkaGlTexImage2D:", 16)) {
+		return qtrue;
+	}
+	return qfalse;
+#endif
+}
+#endif
 
 int		com_argc;
 char	*com_argv[MAX_NUM_ARGVS+1];
@@ -178,6 +249,12 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 void QDECL Com_PrintfAlways( const char *fmt, ... ) {
 	va_list		argptr;
 	char		msg[MAXPRINTMSG];
+
+#ifdef _XBOX
+	if (Com_XboxShouldSkipDiagnosticPrintf(fmt)) {
+		return;
+	}
+#endif
 
 	va_start (argptr,fmt);
 	vsprintf (msg,fmt,argptr);
@@ -337,6 +414,19 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 	va_end (argptr);	
 
 #ifdef _XBOX
+	{
+		unsigned int errorHash = 2166136261u;
+		const unsigned char *errorScan = (const unsigned char *)com_errorMessage;
+		while (*errorScan)
+		{
+			errorHash ^= *errorScan++;
+			errorHash *= 16777619u;
+		}
+		g_SPXBComErrorCode = (unsigned int)code;
+		g_SPXBComErrorHash = errorHash;
+		g_SPXBComErrorFirst4 = *((unsigned int *)&com_errorMessage[0]);
+		g_SPXBComErrorNext4 = *((unsigned int *)&com_errorMessage[4]);
+	}
 	XBLF("JA: Com_Error code=%d message=%s", code, com_errorMessage);
 #endif
 
@@ -350,6 +440,10 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 		SV_Shutdown("Disconnect");
 		CL_Disconnect();
 		CL_FlushMemory();
+#ifdef _XBOX
+		g_SPXBClHunkCaller = 4;
+		g_SPXBClHunkCallCount++;
+#endif
 		CL_StartHunkUsers();
 		com_errorEntered = qfalse;
 		throw ("DISCONNECTED\n");
@@ -361,6 +455,10 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 		CL_Disconnect();
 		if ( com_cl_running && com_cl_running->integer ) {
 			CL_FlushMemory();
+#ifdef _XBOX
+			g_SPXBClHunkCaller = 4;
+			g_SPXBClHunkCallCount++;
+#endif
 			CL_StartHunkUsers();
 		}
 		Com_Printf (S_COLOR_RED"********************\n"S_COLOR_MAGENTA"ERROR: %s\n"S_COLOR_RED"********************\n", com_errorMessage);
@@ -371,6 +469,10 @@ void QDECL Com_Error( int code, const char *fmt, ... ) {
 		if ( com_cl_running && com_cl_running->integer ) {
 			CL_Disconnect();
 			CL_FlushMemory();
+#ifdef _XBOX
+			g_SPXBClHunkCaller = 4;
+			g_SPXBClHunkCallCount++;
+#endif
 			CL_StartHunkUsers();
 			com_errorEntered = qfalse;
 		} else {
@@ -829,13 +931,22 @@ Com_RunAndTimeServerPacket
 void Com_RunAndTimeServerPacket( netadr_t *evFrom, msg_t *buf ) {
 	int		t1, t2, msec;
 
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x760);
+#endif
 	t1 = 0;
 
 	if ( com_speeds->integer ) {
 		t1 = Sys_Milliseconds ();
 	}
 
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x761);
+#endif
 	SV_PacketEvent( *evFrom, buf );
+#ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x762);
+#endif
 
 	if ( com_speeds->integer ) {
 		t2 = Sys_Milliseconds ();
@@ -859,22 +970,31 @@ int Com_EventLoop( void ) {
 	byte		bufData[MAX_MSGLEN];
 	msg_t		buf;
 #ifdef _XBOX
-	static int s_xboxEventLoopTraceBudget = 24;
+#define SP_EVENT_BOOTPHASE(x) do { SPXB_HOT_SET(g_SPXBBootPhase, (x)); } while (0)
+	SP_EVENT_BOOTPHASE(0x720);
+	static int s_xboxEventLoopTraceBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 24 : 0;
 	const qboolean xboxTraceEventLoop = (s_xboxEventLoopTraceBudget > 0);
 	if (xboxTraceEventLoop)
 	{
 		Com_PrintfAlways("JA: Com_EventLoop enter pushed=%d/%d\n", com_pushedEventsHead, com_pushedEventsTail);
 	}
 #endif
+#ifndef _XBOX
+#define SP_EVENT_BOOTPHASE(x) do { } while (0)
+#endif
 
+	SP_EVENT_BOOTPHASE(0x721);
 	MSG_Init( &buf, bufData, sizeof( bufData ) );
+	SP_EVENT_BOOTPHASE(0x722);
 
 	while ( 1 ) {
 #ifdef _XBOX
+		SP_EVENT_BOOTPHASE(0x723);
 		if (xboxTraceEventLoop) Com_PrintfAlways("JA: Com_EventLoop before Com_GetEvent\n");
 #endif
 		ev = Com_GetEvent();
 #ifdef _XBOX
+		SP_EVENT_BOOTPHASE(0x724);
 		if (xboxTraceEventLoop)
 		{
 			Com_PrintfAlways("JA: Com_EventLoop got event type=%d time=%d value=%d value2=%d ptr=%p len=%d\n",
@@ -885,6 +1005,7 @@ int Com_EventLoop( void ) {
 		// if no more events are available
 		if ( ev.evType == SE_NONE ) {
 #ifdef _XBOX
+			SP_EVENT_BOOTPHASE(0x725);
 			if (xboxTraceEventLoop) Com_PrintfAlways("JA: Com_EventLoop SE_NONE before NS_CLIENT drain\n");
 			int xboxClientLoopPackets = 0;
 			qboolean xboxClientLoopCapped = qfalse;
@@ -892,6 +1013,7 @@ int Com_EventLoop( void ) {
 			// manually send packet events for the loopback channel
 			while ( NET_GetLoopPacket( NS_CLIENT, &evFrom, &buf ) ) {
 #ifdef _XBOX
+				SP_EVENT_BOOTPHASE(0x726);
 				if (xboxClientLoopPackets++ >= 128) {
 					xboxClientLoopCapped = qtrue;
 					break;
@@ -899,7 +1021,7 @@ int Com_EventLoop( void ) {
 #endif
 #ifdef _XBOX
 				static int s_xboxClientLoopLogs = 0;
-				if (s_xboxClientLoopLogs < 16)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxClientLoopLogs < 16)
 				{
 					Com_PrintfAlways("JA: Com_EventLoop dispatch NS_CLIENT loop packet size=%d\n", buf.cursize);
 					++s_xboxClientLoopLogs;
@@ -907,13 +1029,14 @@ int Com_EventLoop( void ) {
 #endif
 				CL_PacketEvent( evFrom, &buf );
 #ifdef _XBOX
+				SP_EVENT_BOOTPHASE(0x727);
 				if (xboxTraceEventLoop) Com_PrintfAlways("JA: Com_EventLoop after NS_CLIENT packet\n");
 #endif
 			}
 #ifdef _XBOX
 			if (xboxClientLoopCapped) {
 				static int s_xboxClientLoopCapLogs = 0;
-				if (s_xboxClientLoopCapLogs < 8) {
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxClientLoopCapLogs < 8) {
 					Com_PrintfAlways("JA: Com_EventLoop capped NS_CLIENT drain at %d packets\n", xboxClientLoopPackets);
 					++s_xboxClientLoopCapLogs;
 				}
@@ -921,12 +1044,14 @@ int Com_EventLoop( void ) {
 #endif
 
 #ifdef _XBOX
+			SP_EVENT_BOOTPHASE(0x728);
 			if (xboxTraceEventLoop) Com_PrintfAlways("JA: Com_EventLoop before NS_SERVER drain\n");
 			int xboxServerLoopPackets = 0;
 			qboolean xboxServerLoopCapped = qfalse;
 #endif
 			while ( NET_GetLoopPacket( NS_SERVER, &evFrom, &buf ) ) {
 #ifdef _XBOX
+				SP_EVENT_BOOTPHASE(0x729);
 				if (xboxServerLoopPackets++ >= 128) {
 					xboxServerLoopCapped = qtrue;
 					break;
@@ -935,15 +1060,20 @@ int Com_EventLoop( void ) {
 				// if the server just shut down, flush the events
 				if ( com_sv_running->integer ) {
 #ifdef _XBOX
+					SP_EVENT_BOOTPHASE(0x732);
 					static int s_xboxServerLoopLogs = 0;
-					if (s_xboxServerLoopLogs < 16)
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxServerLoopLogs < 16)
 					{
+						SP_EVENT_BOOTPHASE(0x733);
 						Com_PrintfAlways("JA: Com_EventLoop dispatch NS_SERVER loop packet size=%d\n", buf.cursize);
+						SP_EVENT_BOOTPHASE(0x734);
 						++s_xboxServerLoopLogs;
 					}
 #endif
+					SP_EVENT_BOOTPHASE(0x735);
 					Com_RunAndTimeServerPacket( &evFrom, &buf );
 #ifdef _XBOX
+					SP_EVENT_BOOTPHASE(0x72A);
 					if (xboxTraceEventLoop) Com_PrintfAlways("JA: Com_EventLoop after NS_SERVER packet\n");
 #endif
 				}
@@ -951,7 +1081,7 @@ int Com_EventLoop( void ) {
 #ifdef _XBOX
 			if (xboxServerLoopCapped) {
 				static int s_xboxServerLoopCapLogs = 0;
-				if (s_xboxServerLoopCapLogs < 8) {
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxServerLoopCapLogs < 8) {
 					Com_PrintfAlways("JA: Com_EventLoop capped NS_SERVER drain at %d packets\n", xboxServerLoopPackets);
 					++s_xboxServerLoopCapLogs;
 				}
@@ -959,6 +1089,7 @@ int Com_EventLoop( void ) {
 #endif
 
 #ifdef _XBOX
+			SP_EVENT_BOOTPHASE(0x72B);
 			if (xboxTraceEventLoop)
 			{
 				Com_PrintfAlways("JA: Com_EventLoop return time=%d\n", ev.evTime);
@@ -976,22 +1107,28 @@ int Com_EventLoop( void ) {
         case SE_NONE:
             break;
 		case SE_KEY:
+			SP_EVENT_BOOTPHASE(0x72C);
 			CL_KeyEvent( ev.evValue, ev.evValue2, ev.evTime );
 			break;
 		case SE_CHAR:
+			SP_EVENT_BOOTPHASE(0x72D);
 			CL_CharEvent( ev.evValue );
 			break;
 		case SE_MOUSE:
+			SP_EVENT_BOOTPHASE(0x72E);
 			CL_MouseEvent( ev.evValue, ev.evValue2, ev.evTime );
 			break;
 		case SE_JOYSTICK_AXIS:
+			SP_EVENT_BOOTPHASE(0x72F);
 			CL_JoystickEvent( ev.evValue, ev.evValue2, ev.evTime );
 			break;
 		case SE_CONSOLE:
+			SP_EVENT_BOOTPHASE(0x730);
 			Cbuf_AddText( (char *)ev.evPtr );
 			Cbuf_AddText( "\n" );
 			break;
 		case SE_PACKET:
+			SP_EVENT_BOOTPHASE(0x731);
 			evFrom = *(netadr_t *)ev.evPtr;
 			buf.cursize = ev.evPtrLength - sizeof( evFrom );
 
@@ -1017,6 +1154,7 @@ int Com_EventLoop( void ) {
 			Z_Free( ev.evPtr );
 		}
 	}
+#undef SP_EVENT_BOOTPHASE
 }
 
 /*
@@ -1109,12 +1247,14 @@ extern void R_InitWorldEffects();
 void Com_Init( char *commandLine ) {
 	char	*s;
 
+	g_SPXBBootPhase = 0x40;
 	XBLog_Write("JA: Com_Init entered");
 	Com_Printf( "%s %s %s\n", Q3_VERSION, CPUSTRING, __DATE__ );
 
 	try {
 		// Grab the user's langauge preference from the dashboard right away!
 		XBLog_Write("JA: XGetLanguage...");
+		g_SPXBBootPhase = 0x41;
 		g_dwLanguage = XGetLanguage();
 		if( g_dwLanguage != XC_LANGUAGE_FRENCH && g_dwLanguage != XC_LANGUAGE_GERMAN )
 			g_dwLanguage = XC_LANGUAGE_ENGLISH;
@@ -1131,6 +1271,7 @@ void Com_Init( char *commandLine ) {
 		Cbuf_Init ();
 
 		XBLog_Write("JA: Com_InitZoneMemory...");
+		g_SPXBBootPhase = 0x42;
 		Com_InitZoneMemory();
 		XBLog_Write("JA: Com_InitZoneMemory done");
 
@@ -1139,38 +1280,64 @@ void Com_Init( char *commandLine ) {
 		WF_Init();
 		XBLog_Write("JA: WF_Init done");
 		XBLog_Write("JA: CL_InitRef...");
+		g_SPXBBootPhase = 0x43;
 		// set up ri
 		extern void CL_InitRef( void );
 		CL_InitRef();
+		g_SPXBBootPhase = 0x44;
 		XBLog_Write("JA: CL_InitRef done");
 		XBLog_Write("JA: R_Register...");
+		g_SPXBBootPhase = 0x45;
 		// register renderer cvars
 		extern void R_Register(void);
 		R_Register();
+		g_SPXBBootPhase = 0x46;
 		XBLog_Write("JA: R_Register done");
 		XBLog_Write("JA: GLimp_Init...");
+		g_SPXBBootPhase = 0x47;
 		// start the gl render layer
 		extern void GLimp_Init(void);
 		GLimp_Init();
+		g_SPXBBootPhase = 0x48;
 		XBLog_Write("JA: GLimp_Init done");
 		// put up the license screen
-		XBLog_Write("JA: SP_DoLicense...");
-		SP_DoLicense();
-		XBLog_Write("JA: SP_DoLicense done");
+		g_SPXBBootPhase = 0x49;
+		extern bool Sys_IsDirectMapBoot(void);
+		if (Sys_IsDirectMapBoot())
+		{
+			XBLog_Write("JA: SP_DoLicense skipped for direct-map boot");
+		}
+		else
+		{
+			XBLog_Write("JA: SP_DoLicense...");
+			g_SPXBBootPhase = 0x4A;
+			SP_DoLicense();
+			g_SPXBBootPhase = 0x4B;
+			XBLog_Write("JA: SP_DoLicense done");
+		}
+		g_SPXBBootPhase = 0x4C;
 #endif
 
+		g_SPXBBootPhase = 0x4C1;
 		XBLog_Write("JA: Cmd_Init...");
+		g_SPXBBootPhase = 0x4C2;
 		Cmd_Init ();
+		g_SPXBBootPhase = 0x4C3;
 		XBLog_Write("JA: Cvar_Init...");
+		g_SPXBBootPhase = 0x4C4;
 		Cvar_Init ();
+		g_SPXBBootPhase = 0x4C5;
 
 		// get the commandline cvars set
+		g_SPXBBootPhase = 0x4D0;
 		XBLog_Write("JA: Com_StartupVariable...");
 		Com_StartupVariable( NULL );
+		g_SPXBBootPhase = 0x4D1;
 
 		// done early so bind command exists
 		XBLog_Write("JA: CL_InitKeyCommands...");
 		CL_InitKeyCommands();
+		g_SPXBBootPhase = 0x4D2;
 
 #ifdef _XBOX
 		XBLog_Write("JA: Sys_InitFileCodes...");
@@ -1178,11 +1345,16 @@ void Com_Init( char *commandLine ) {
 		Sys_InitFileCodes();
 		Cmd_AddCommand("filecodes", Sys_FilecodeScan_f);
 		XBLog_Write("JA: Sys_InitFileCodes done");
+		g_SPXBBootPhase = 0x4D3;
 
+		g_SPXBBootPhase = 0x4D31;
 		XBLog_Write("JA: Sys_StreamInit...");
+		g_SPXBBootPhase = 0x4D32;
 		extern void Sys_StreamInit();
 		Sys_StreamInit();
+		g_SPXBBootPhase = 0x4D33;
 		XBLog_Write("JA: Sys_StreamInit done");
+		g_SPXBBootPhase = 0x4D4;
 
 		// This just forces the static singleton in the function to call
 		// its constructor, which allocates a stupid 12 byte block of
@@ -1191,13 +1363,16 @@ void Com_Init( char *commandLine ) {
 		XBLog_Write("JA: TheGhoul2InfoArray...");
 		TheGhoul2InfoArray();
 		XBLog_Write("JA: TheGhoul2InfoArray done");
+		g_SPXBBootPhase = 0x4D5;
 #endif
 
 		XBLog_Write("JA: FS_InitFilesystem...");
 		FS_InitFilesystem ();	//uses z_malloc
 		XBLog_Write("JA: FS_InitFilesystem done");
+		g_SPXBBootPhase = 0x4D6;
 		XBLog_Write("JA: R_InitWorldEffects...");
 		R_InitWorldEffects();   // this doesn't do much but I want to be sure certain variables are intialized.
+		g_SPXBBootPhase = 0x4D7;
 		
 		XBLog_Write("JA: exec default.cfg...");
 		Cbuf_AddText ("exec default.cfg\n");
@@ -1212,14 +1387,17 @@ void Com_Init( char *commandLine ) {
 		XBLog_Write("JA: Cbuf_Execute (configs)...");
 		Cbuf_Execute ();
 		XBLog_Write("JA: Config execution done");
+		g_SPXBBootPhase = 0x4D8;
 
 		// override anything from the config files with command line args
 		Com_StartupVariable( NULL );
+		g_SPXBBootPhase = 0x4D9;
 
 		// allocate the stack based hunk allocator
 		XBLog_Write("JA: Com_InitHunkMemory...");
 		Com_InitHunkMemory();
 		XBLog_Write("JA: Com_InitHunkMemory done");
+		g_SPXBBootPhase = 0x4DA;
 
 		// if any archived cvars are modified after this, we will trigger a writing
 		// of the config file
@@ -1499,9 +1677,10 @@ void Com_Frame( void ) {
 try
 {
 #ifdef _XBOX
-	g_SPXBComFrameCount++;
-	g_SPXBPhaseLast = 0x434F4D31; /* 'COM1' */
-	g_SPXBComSubphase = 1;
+	SPXB_HOT_INC(g_SPXBComFrameCount);
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x700);
+	SPXB_HOT_SET(g_SPXBPhaseLast, 0x434F4D31); /* 'COM1' */
+	SPXB_HOT_SET(g_SPXBComSubphase, 1);
 #endif
 	int		timeBeforeFirstEvents, timeBeforeServer, timeBeforeEvents, timeBeforeClient, timeAfter;
 	int		msec, minMsec;
@@ -1511,9 +1690,11 @@ try
 #ifdef _XBOX
 	static int s_xboxLastComPhaseTime = 0;
 	static bool s_xboxTraceComPhase = false;
-	g_SPXBComSubphase = 2;
-	const int xboxPhaseNow = Sys_Milliseconds();
-	g_SPXBComSubphase = 3;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x701);
+	SPXB_HOT_SET(g_SPXBComSubphase, 2);
+	const int xboxPhaseNow = firstFrames ? Sys_Milliseconds() : 0;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x702);
+	SPXB_HOT_SET(g_SPXBComSubphase, 3);
 	s_xboxTraceComPhase = firstFrames;
 	if (s_xboxTraceComPhase)
 	{
@@ -1544,6 +1725,17 @@ try
 		timeBeforeFirstEvents = Sys_Milliseconds ();
 	}
 
+#ifdef _XBOX
+	if ( Sys_IsDirectMapBoot() && ( !com_sv_running || !com_sv_running->integer ) ) {
+		g_SPXBBootPhase = 0x713;
+		g_SPXBComSubphase = 0x13;
+		g_SPXBMapPhase = 710;
+		XBLog_Write("JA: COM_PHASE direct-map pre-event Cbuf_Execute");
+		Cbuf_Execute();
+		g_SPXBMapPhase = 711;
+	}
+#endif
+
 	// we may want to spin here if things are going too fast
 	if ( com_maxfps->integer > 0 ) {
 		minMsec = 1000 / com_maxfps->integer;
@@ -1552,20 +1744,23 @@ try
 	}
 #ifdef _XBOX
 	int xboxFirstEventSpinCount = 0;
-	g_SPXBComSubphase = 4;
-	g_SPXBComSpinCount = 0;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x703);
+	SPXB_HOT_SET(g_SPXBComSubphase, 4);
+	SPXB_HOT_SET(g_SPXBComSpinCount, 0);
 #endif
 	do {
 #ifdef _XBOX
-		g_SPXBComSubphase = 5;
-		g_SPXBComSpinCount = (unsigned int)xboxFirstEventSpinCount;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x704);
+		SPXB_HOT_SET(g_SPXBComSubphase, 5);
+		SPXB_HOT_SET(g_SPXBComSpinCount, (unsigned int)xboxFirstEventSpinCount);
 		if (s_xboxTraceComPhase && xboxFirstEventSpinCount == 0) XBLog_Write("JA: COM_PHASE before first Com_EventLoop");
 #endif
 		com_frameTime = Com_EventLoop();
 #ifdef _XBOX
-		g_SPXBComSubphase = 6;
-		g_SPXBComFrameTime = (unsigned int)com_frameTime;
-		g_SPXBComLastTime = (unsigned int)lastTime;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x705);
+		SPXB_HOT_SET(g_SPXBComSubphase, 6);
+		SPXB_HOT_SET(g_SPXBComFrameTime, (unsigned int)com_frameTime);
+		SPXB_HOT_SET(g_SPXBComLastTime, (unsigned int)lastTime);
 		if (s_xboxTraceComPhase && xboxFirstEventSpinCount == 0) XBLog_Write("JA: COM_PHASE after first Com_EventLoop");
 #endif
 		if ( lastTime > com_frameTime ) {
@@ -1573,35 +1768,39 @@ try
 		}
 		msec = com_frameTime - lastTime;
 #ifdef _XBOX
-		g_SPXBComSubphase = 7;
-		g_SPXBComMsec = (unsigned int)msec;
-		g_SPXBComFrameTime = (unsigned int)com_frameTime;
-		g_SPXBComLastTime = (unsigned int)lastTime;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x706);
+		SPXB_HOT_SET(g_SPXBComSubphase, 7);
+		SPXB_HOT_SET(g_SPXBComMsec, (unsigned int)msec);
+		SPXB_HOT_SET(g_SPXBComFrameTime, (unsigned int)com_frameTime);
+		SPXB_HOT_SET(g_SPXBComLastTime, (unsigned int)lastTime);
 		if ( msec < minMsec && ++xboxFirstEventSpinCount > 1024 )
 		{
 			com_frameTime = lastTime + minMsec;
 			msec = minMsec;
-			g_SPXBComSubphase = 8;
-			g_SPXBComMsec = (unsigned int)msec;
-			g_SPXBComFrameTime = (unsigned int)com_frameTime;
-			g_SPXBComSpinCount = (unsigned int)xboxFirstEventSpinCount;
+			SPXB_HOT_SET(g_SPXBBootPhase, 0x707);
+			SPXB_HOT_SET(g_SPXBComSubphase, 8);
+			SPXB_HOT_SET(g_SPXBComMsec, (unsigned int)msec);
+			SPXB_HOT_SET(g_SPXBComFrameTime, (unsigned int)com_frameTime);
+			SPXB_HOT_SET(g_SPXBComSpinCount, (unsigned int)xboxFirstEventSpinCount);
 			if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE first event timer stalled; forced msec=%d", msec);
 			break;
 		}
 #endif
 	} while ( msec < minMsec );
 #ifdef _XBOX
-	g_SPXBComSubphase = 9;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x708);
+	SPXB_HOT_SET(g_SPXBComSubphase, 9);
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before first Cbuf_Execute");
 #endif
 	Cbuf_Execute ();
 #ifdef _XBOX
-	g_SPXBComSubphase = 10;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x709);
+	SPXB_HOT_SET(g_SPXBComSubphase, 10);
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after first Cbuf_Execute");
 #endif
 
 	lastTime = com_frameTime;
-	g_SPXBComLastTime = (unsigned int)lastTime;
+	SPXB_HOT_SET(g_SPXBComLastTime, (unsigned int)lastTime);
 
 	// mess with msec if needed
 	com_frameMsec = msec;
@@ -1617,12 +1816,14 @@ try
 
 	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame...");
 #ifdef _XBOX
-	g_SPXBComSubphase = 11;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x70A);
+	SPXB_HOT_SET(g_SPXBComSubphase, 11);
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before SV_Frame");
 #endif
 	SV_Frame (msec, fractionMsec);
 #ifdef _XBOX
-	g_SPXBComSubphase = 12;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x70B);
+	SPXB_HOT_SET(g_SPXBComSubphase, 12);
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after SV_Frame");
 #endif
 	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame done");
@@ -1649,21 +1850,25 @@ try
 			timeBeforeEvents = Sys_Milliseconds ();
 		}
 #ifdef _XBOX
-		g_SPXBComSubphase = 13;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x70C);
+		SPXB_HOT_SET(g_SPXBComSubphase, 13);
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Com_EventLoop");
 #endif
 		Com_EventLoop();
 #ifdef _XBOX
-		g_SPXBComSubphase = 14;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x70D);
+		SPXB_HOT_SET(g_SPXBComSubphase, 14);
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Com_EventLoop");
 #endif
 #ifdef _XBOX
-		g_SPXBComSubphase = 15;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x70E);
+		SPXB_HOT_SET(g_SPXBComSubphase, 15);
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Cbuf_Execute");
 #endif
 		Cbuf_Execute ();
 #ifdef _XBOX
-		g_SPXBComSubphase = 16;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x70F);
+		SPXB_HOT_SET(g_SPXBComSubphase, 16);
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Cbuf_Execute");
 #endif
 
@@ -1677,12 +1882,14 @@ try
 
 		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame...");
 #ifdef _XBOX
-		g_SPXBComSubphase = 17;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x710);
+		SPXB_HOT_SET(g_SPXBComSubphase, 17);
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before CL_Frame");
 #endif
 		CL_Frame (msec, fractionMsec);
 #ifdef _XBOX
-		g_SPXBComSubphase = 18;
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x711);
+		SPXB_HOT_SET(g_SPXBComSubphase, 18);
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after CL_Frame");
 #endif
 		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame done");
@@ -1693,7 +1900,8 @@ try
 	}
 	if (firstFrames) XBLog_Write(va("JA: Com_Frame #%d returning", frameCount-1));
 #ifdef _XBOX
-	g_SPXBComSubphase = 19;
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x712);
+	SPXB_HOT_SET(g_SPXBComSubphase, 19);
 	if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE frame=%d exit", frameCount - 1);
 #endif
 

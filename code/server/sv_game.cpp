@@ -13,6 +13,7 @@
 #include "..\client\client.h"
 #include "..\renderer\tr_local.h"
 #include "..\renderer\tr_WorldEffects.h"
+#include "../win32/xb_log.h"
 /*
 Ghoul2 Insert Start
 */
@@ -32,7 +33,13 @@ extern void Com_FlushCamFile();
 
 #ifdef _XBOX
 extern "C" {
+extern volatile unsigned int g_SPXBBootPhase;
 extern volatile unsigned int g_SPXBGamePhase;
+extern volatile unsigned int g_SPXBGentitiesPtr;
+extern volatile unsigned int g_SPXBClientsPtr;
+extern volatile unsigned int g_SPXBGentitySize;
+extern volatile unsigned int g_SPXBClientFieldBefore;
+extern volatile unsigned int g_SPXBClientFieldAfter;
 }
 #endif
 
@@ -57,8 +64,31 @@ int	SV_NumForGentity( gentity_t *ent ) {
 gentity_t	*SV_GentityNum( int num ) {
 	gentity_t	*ent;
 
+#if defined(_XBOX) && SP_XBOX_VERBOSE_RUNTIME_LOGS
+	g_SPXBBootPhase = 0x7C0;
+	g_SPXBClientFieldBefore = (unsigned int)ge;
+#endif
 	assert (num >=0);
+#if defined(_XBOX) && SP_XBOX_VERBOSE_RUNTIME_LOGS
+	g_SPXBBootPhase = 0x7C1;
+	if ( ge )
+	{
+		g_SPXBGentitiesPtr = (unsigned int)ge->gentities;
+		g_SPXBGentitySize = (unsigned int)ge->gentitySize;
+		g_SPXBClientFieldAfter = (unsigned int)ge->num_entities;
+	}
+	else
+	{
+		g_SPXBGentitiesPtr = 0;
+		g_SPXBGentitySize = 0;
+		g_SPXBClientFieldAfter = 0;
+	}
+#endif
 	ent = (gentity_t *)((byte *)ge->gentities + ge->gentitySize*(num));
+#if defined(_XBOX) && SP_XBOX_VERBOSE_RUNTIME_LOGS
+	g_SPXBClientsPtr = (unsigned int)ent;
+	g_SPXBBootPhase = 0x7C2;
+#endif
 
 	return ent;
 }
@@ -248,7 +278,9 @@ qboolean SV_inPVS (const vec3_t p1, const vec3_t p2)
 	
 	if (!CM_AreasConnected (area1, area2))
 	{
-		timeInPVSCheck += Sys_Milliseconds() - start;
+		if ( com_speeds->integer ) {
+			timeInPVSCheck += Sys_Milliseconds() - start;
+		}
 		return qfalse;		// a door blocks sight
 	}
 	

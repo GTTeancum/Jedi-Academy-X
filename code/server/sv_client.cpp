@@ -10,7 +10,9 @@
 #include "server.h"
 
 #ifdef _XBOX
+#include "../win32/xb_log.h"
 extern bool Sys_IsDirectMapBoot(void);
+extern "C" volatile unsigned int g_SPXBBootPhase;
 #endif
 
 /*
@@ -24,7 +26,8 @@ void SV_DirectConnect( netadr_t from ) {
 	char		userinfo[MAX_INFO_STRING];
 	int			i;
 	client_t	*cl, *newcl;
-	MAC_STATIC client_t	temp;
+	client_t	*pTemp = (client_t *) Z_Malloc( sizeof(client_t), TAG_TEMP_WORKSPACE, qfalse, 4 );
+	client_t	&temp(*pTemp);
 	gentity_t		*ent;
 	int			clientNum;
 	int			version;
@@ -32,24 +35,35 @@ void SV_DirectConnect( netadr_t from ) {
 	int			challenge;
 	char		*denied;
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B0;
+#endif
 	Com_DPrintf ("SVC_DirectConnect ()\n");
 
 	Q_strncpyz( userinfo, Cmd_Argv(1), sizeof(userinfo) );
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B1;
+#endif
 	version = atoi( Info_ValueForKey( userinfo, "protocol" ) );
 	if ( version != PROTOCOL_VERSION ) {
 		NET_OutOfBandPrint( NS_SERVER, from, "print\nServer uses protocol version %i.\n", PROTOCOL_VERSION );
 		Com_DPrintf ("    rejected connect from version %i\n", version);
+		Z_Free(pTemp);
 		return;
 	}
 
 	qport = atoi( Info_ValueForKey( userinfo, "qport" ) );
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B2;
+#endif
 	challenge = atoi( Info_ValueForKey( userinfo, "challenge" ) );
 
 	// see if the challenge is valid (local clients don't need to challenge)
 	if ( !NET_IsLocalAddress (from) ) {
 		NET_OutOfBandPrint( NS_SERVER, from, "print\nNo challenge for address.\n" );
+		Z_Free(pTemp);
 		return;
 	} else {
 		// force the "ip" info key to "localhost"
@@ -57,6 +71,9 @@ void SV_DirectConnect( netadr_t from ) {
 	}
 
 	newcl = &temp;
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B3;
+#endif
 	memset (newcl, 0, sizeof(client_t));
 
 	// if there is already a slot for this ip, reuse it
@@ -73,6 +90,7 @@ void SV_DirectConnect( netadr_t from ) {
 				< (sv_reconnectlimit->integer * 1000))
 			{
 				Com_DPrintf ("%s:reconnect rejected : too soon\n", NET_AdrToString (from));
+				Z_Free(pTemp);
 				return;
 			}
 			Com_Printf ("%s:reconnect\n", NET_AdrToString (from));
@@ -94,37 +112,79 @@ void SV_DirectConnect( netadr_t from ) {
 	if ( !newcl ) {
 		NET_OutOfBandPrint( NS_SERVER, from, "print\nServer is full.\n" );
 		Com_DPrintf ("Rejected a connection.\n");
+		Z_Free(pTemp);
 		return;
 	}
 
 gotnewcl:	
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B4;
+	if ( !ge || !ge->gentities || ge->gentitySize <= 0 ) {
+		g_SPXBBootPhase = 0x7B4E;
+		Com_PrintfAlways("JA: SV_DirectConnect delayed: game export not ready ge=%p gentities=%p gentitySize=%d sv.state=%d\n",
+			ge, ge ? ge->gentities : NULL, ge ? ge->gentitySize : 0, sv.state);
+		Z_Free(pTemp);
+		return;
+	}
+#endif
 	// build a new connection
 	// accept the new client
 	// this is the only place a client_t is ever initialized
 	*newcl = temp;
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7BC;
+#endif
 	clientNum = newcl - svs.clients;
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7BD;
+#endif
 	ent = SV_GentityNum( clientNum );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7BE;
+#endif
 	newcl->gentity = ent;
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7BF;
+#endif
 
 	// save the address
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B5;
+#endif
 	Netchan_Setup (NS_SERVER, &newcl->netchan , from, qport);
 
 	// save the userinfo
 	Q_strncpyz( newcl->userinfo, userinfo, sizeof(newcl->userinfo) );
 
 	// get the game a chance to reject this connection or modify the userinfo
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B6;
+#endif
 	denied = ge->ClientConnect( clientNum, qtrue, eSavedGameJustLoaded ); // firstTime = qtrue
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B7;
+#endif
 	if ( denied ) {
 		NET_OutOfBandPrint( NS_SERVER, from, "print\n%s\n", denied );
 		Com_DPrintf ("Game rejected a connection: %s.\n", denied);
+		Z_Free(pTemp);
 		return;
 	}
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B8;
+#endif
 	SV_UserinfoChanged( newcl );
 
 	// send the connect packet to the client
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B9;
+#endif
 	NET_OutOfBandPrint( NS_SERVER, from, "connectResponse" );
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7BA;
+#endif
 	newcl->state = CS_CONNECTED;
 	newcl->nextSnapshotTime = sv.time;
 	newcl->lastPacketTime = sv.time;
@@ -134,6 +194,10 @@ gotnewcl:
 	// notice that it is from a different serverid and that the
 	// gamestate message was not just sent, forcing a retransmit
 	newcl->gamestateMessageNum = -1;
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7BB;
+#endif
+	Z_Free(pTemp);
 }
 
 
@@ -579,8 +643,9 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 	int			c;
 
 #ifdef _XBOX
+	SPXB_HOT_SET(g_SPXBBootPhase, 0x790);
 	static int s_xboxExecClientLogs = 0;
-	if (s_xboxExecClientLogs < 32)
+	if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxExecClientLogs < 32)
 	{
 		Com_PrintfAlways("JA: SV_ExecuteClientMessage enter client=%s state=%d msgSize=%d read=%d\n",
 			cl ? cl->name : "(null)", cl ? cl->state : -1,
@@ -590,12 +655,18 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 #endif
 
 	while( 1 ) {
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x791);
+#endif
 		if ( msg->readcount > msg->cursize ) {
 			SV_DropClient (cl, "had a badread");
 			return;
 		}	
 
 		c = MSG_ReadByte( msg );
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, (c == -1) ? 0x792 : (0x7A0 + (c & 0x1F)));
+#endif
 		if ( c == -1 ) {
 			break;
 		}
@@ -610,7 +681,8 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 
 		case clc_move:
 #ifdef _XBOX
-			if (s_xboxExecClientLogs < 32)
+			SPXB_HOT_SET(g_SPXBBootPhase, 0x793);
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxExecClientLogs < 32)
 			{
 				Com_PrintfAlways("JA: SV_ExecuteClientMessage clc_move client=%s state=%d\n",
 					cl ? cl->name : "(null)", cl ? cl->state : -1);
@@ -618,11 +690,15 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 			}
 #endif
 			SV_UserMove( cl, msg );
+#ifdef _XBOX
+			SPXB_HOT_SET(g_SPXBBootPhase, 0x794);
+#endif
 			break;
 
 		case clc_clientCommand:
 #ifdef _XBOX
-			if (s_xboxExecClientLogs < 32)
+			SPXB_HOT_SET(g_SPXBBootPhase, 0x795);
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxExecClientLogs < 32)
 			{
 				Com_PrintfAlways("JA: SV_ExecuteClientMessage clc_clientCommand client=%s state=%d\n",
 					cl ? cl->name : "(null)", cl ? cl->state : -1);
@@ -630,6 +706,9 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 			}
 #endif
 			SV_ClientCommand( cl, msg );
+#ifdef _XBOX
+			SPXB_HOT_SET(g_SPXBBootPhase, 0x796);
+#endif
 			if (cl->state == CS_ZOMBIE) {
 				return;	// disconnect command
 			}

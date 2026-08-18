@@ -243,7 +243,7 @@ void CG_AddMarks( void ) {
 	int			xboxVisited = 0;
 	int			xboxSubmitted = 0;
 	static int	s_xboxAddMarksTraceCount = 0;
-	const qboolean xboxTraceMarks = (s_xboxAddMarksTraceCount < 256);
+	const qboolean xboxTraceMarks = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxAddMarksTraceCount < 256);
 #endif
 
 	if ( !cg_addMarks.integer ) {

@@ -39,12 +39,13 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalOptions="/Oy-"
-				Optimization="2"
+				Optimization="3"
+				GlobalOptimizations="TRUE"
 				InlineFunctionExpansion="2"
 				EnableIntrinsicFunctions="true"
 				FavorSizeOrSpeed="1"
-				OmitFramePointers="false"
+				OmitFramePointers="TRUE"
+				OptimizeForProcessor="2"
 				PreprocessorDefinitions="NDEBUG;_XBOX;_LIB"
 				StringPooling="true"
 				RuntimeLibrary="0"

@@ -1116,7 +1116,7 @@ void CG_AddViewWeapon( playerState_t *ps )
 	float		fovOffset, leanOffset;
 
 #ifdef _XBOX
-	const bool xboxLogViewWeapon = (s_xboxAddViewWeaponLogCount < 32);
+	const bool xboxLogViewWeapon = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxAddViewWeaponLogCount < 32);
 	if (xboxLogViewWeapon) {
 		XBLF("JA: CG_AddViewWeapon #%d enter ps=%p snap=%p weapon=%d third=%d zoom=%d drawGun=%d",
 			s_xboxAddViewWeaponLogCount, (void*)ps, (void*)cg.snap,

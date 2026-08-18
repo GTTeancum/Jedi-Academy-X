@@ -10,6 +10,12 @@
 #include "tr_lightmanager.h"
 #endif
 
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBRenderSceneCalls;
+extern "C" volatile unsigned int g_SPXBRenderSceneNoWorld;
+#endif
+
 int			r_firstSceneDrawSurf;
 
 int			r_numdlights;
@@ -257,8 +263,17 @@ to handle mirrors,
 extern int	recursivePortalCount;
 void RE_RenderScene( const refdef_t *fd ) {
 	viewParms_t		parms;
+#if !defined(_XBOX) || SP_XBOX_RENDER_TIMERS
 	int				startTime;
+#endif
 	static int		lastTime = 0;
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBRenderSceneCalls);
+	if (fd && (fd->rdflags & RDF_NOWORLDMODEL))
+	{
+		SPXB_HOT_INC(g_SPXBRenderSceneNoWorld);
+	}
+#endif
 
 	if ( !tr.registered ) {
 		return;
@@ -269,7 +284,9 @@ void RE_RenderScene( const refdef_t *fd ) {
 		return;
 	}
 
+#if !defined(_XBOX) || SP_XBOX_RENDER_TIMERS
 	startTime = Sys_Milliseconds();
+#endif
 
 	if (!tr.world && !( fd->rdflags & RDF_NOWORLDMODEL ) ) {
 		Com_Error (ERR_DROP, "R_RenderScene: NULL worldmodel");
@@ -400,6 +417,8 @@ void RE_RenderScene( const refdef_t *fd ) {
 	r_firstSceneDlight = r_numdlights;
 	r_firstScenePoly = r_numpolys;
 
+#if !defined(_XBOX) || SP_XBOX_RENDER_TIMERS
 	tr.frontEndMsec += Sys_Milliseconds() - startTime;
+#endif
 	RE_RenderWorldEffects();
 }

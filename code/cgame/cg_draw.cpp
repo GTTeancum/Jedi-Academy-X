@@ -11,6 +11,7 @@
 
 #ifdef _XBOX
 #include "../client/fffx.h"
+#include "../win32/xb_log.h"
 #endif
 
 extern vmCvar_t	cg_debugHealthBars;
@@ -4020,7 +4021,7 @@ static void CG_Draw2D( void )
 {
 	char	text[1024]={0};
 	int		w,y_pos;
-	centity_t *cent = &cg_entities[cg.snap->ps.clientNum];
+	centity_t *cent;
 
 	// if we are taking a levelshot for the menu, don't draw anything
 	if ( cg.levelShot ) 
@@ -4032,6 +4033,24 @@ static void CG_Draw2D( void )
 	{
 		return;
 	}
+
+	cent = &cg_entities[cg.snap->ps.clientNum];
+
+#ifdef _XBOX
+	++g_SPXBLoadingTransitionScreenUpdates;
+	g_SPXBLoadingLastServerTime = (unsigned int)cg.time;
+	{
+		static int s_xboxDraw2DLogCount = 0;
+		if (s_xboxDraw2DLogCount < 8)
+		{
+			XBLF("JA: CG_DrawActiveFrame HUD 2D draw frame=%d time=%d info='%s'",
+				s_xboxDraw2DLogCount,
+				cg.time,
+				cg.infoScreenText);
+			++s_xboxDraw2DLogCount;
+		}
+	}
+#endif
 
 	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) 
 	{

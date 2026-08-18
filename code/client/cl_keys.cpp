@@ -5,6 +5,9 @@
 
 #include "client.h"
 #include "client_ui.h"
+#ifdef _XBOX
+#include "../win32/xb_log.h"
+#endif
 
 /*
 
@@ -20,6 +23,63 @@ char		keymatch_part[256];
 char		keymatch_last[256];
 
 keyGlobals_t	kg;										
+
+#ifdef _XBOX
+static qboolean CL_XboxTraceKeyFilter( int key )
+{
+	return key == A_MOUSE1 ||
+		key == A_ENTER ||
+		key == A_ESCAPE ||
+		key == A_CURSOR_UP ||
+		key == A_CURSOR_DOWN ||
+		key == A_CURSOR_LEFT ||
+		key == A_CURSOR_RIGHT ||
+		( key >= A_JOY0 && key <= A_JOY31 );
+}
+
+static unsigned int CL_XboxTraceHash( const char *text )
+{
+	unsigned int hash = 2166136261u;
+	if (!text)
+	{
+		return 0;
+	}
+	while (*text)
+	{
+		hash ^= (unsigned char)*text++;
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+static void CL_XboxTraceKey( const char *phase, int key, qboolean down, unsigned time )
+{
+	static int s_keyTraceBudget = 240;
+	if ( !CL_XboxTraceKeyFilter( key ) )
+	{
+		return;
+	}
+	g_SPXBKeyLastKey = (unsigned int)key;
+	g_SPXBKeyLastDown = down ? 1u : 0u;
+	g_SPXBKeyLastPhaseHash = CL_XboxTraceHash( phase );
+	g_SPXBKeyCatchers = (unsigned int)cls.keyCatchers;
+	++g_SPXBKeyTraceCount;
+	if ( s_keyTraceBudget <= 0 )
+	{
+		return;
+	}
+	--s_keyTraceBudget;
+	XBLog_Writef( "JA: KEY_TRACE %s key=%d down=%d time=%u state=%d catchers=0x%x repeats=%d any=%d",
+		phase,
+		key,
+		down ? 1 : 0,
+		time,
+		(int)cls.state,
+		(unsigned int)cls.keyCatchers,
+		kg.keys[key].repeats,
+		kg.anykeydown ? 1 : 0 );
+}
+#endif
 
 // do NOT blithely change any of the key names (3rd field) here, since they have to match the key binds
 //	in the CFG files, they're also prepended with "KEYNAME_" when looking up StripEd references
@@ -1325,6 +1385,10 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 		}
 	}
 
+#ifdef _XBOX
+	CL_XboxTraceKey( "enter", key, down, time );
+#endif
+
 	// console key is hardcoded, so the user can never unbind it
 	if (key == A_CONSOLE) 
 	{
@@ -1367,6 +1431,9 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 
 		if ( !( cls.keyCatchers & KEYCATCH_UI ) ) 
 		{
+#ifdef _XBOX
+			CL_XboxTraceKey( "escape-noui", key, down, time );
+#endif
 			if ( cls.state == CA_ACTIVE ) 
 			{
 				UI_SetActiveMenu( "ingame",NULL );
@@ -1380,6 +1447,9 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 			return;
 		}
 
+#ifdef _XBOX
+		CL_XboxTraceKey( "escape-ui", key, down, time );
+#endif
 		_UI_KeyEvent( key,down);
 		return;
 	}
@@ -1400,6 +1470,9 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 		}
 		if ( cls.keyCatchers & KEYCATCH_UI ) 
 		{//need UP messages to clear out captures!
+#ifdef _XBOX
+			CL_XboxTraceKey( "up-ui", key, down, time );
+#endif
 			_UI_KeyEvent( key,down );
 		}
 		return;
@@ -1408,16 +1481,31 @@ void CL_KeyEvent (int key, qboolean down, unsigned time) {
 
 	// distribute the key down event to the apropriate handler
 	if ( cls.keyCatchers & KEYCATCH_CONSOLE ) {
+#ifdef _XBOX
+		CL_XboxTraceKey( "down-console", key, down, time );
+#endif
 		Console_Key( key );
 	} else if ( cls.keyCatchers & KEYCATCH_UI ) {
+#ifdef _XBOX
+		CL_XboxTraceKey( "down-ui", key, down, time );
+#endif
 		_UI_KeyEvent( key,down );
 	} else if ( cls.keyCatchers & KEYCATCH_MESSAGE ) {
+#ifdef _XBOX
+		CL_XboxTraceKey( "down-message", key, down, time );
+#endif
 		Message_Key( key );
 	} else if ( cls.state == CA_DISCONNECTED ) {
 
+#ifdef _XBOX
+		CL_XboxTraceKey( "down-disconnected", key, down, time );
+#endif
 		Console_Key( key );
 
 	} else {
+#ifdef _XBOX
+		CL_XboxTraceKey( "down-action", key, down, time );
+#endif
 		CL_ActionEvent(key, true, time);
 	}
 }

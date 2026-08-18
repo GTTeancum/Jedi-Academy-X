@@ -21,6 +21,9 @@ void		UI_LoadMenus(const char *menuFile, qboolean reset);
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../renderer/tr_lightmanager.h"
+#include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBBootPhase;
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 
 //MAP HACK!
 extern cvar_t *cl_mapname;
@@ -98,6 +101,78 @@ static qboolean g_editingField = qfalse;
 static itemDef_t *g_bindItem = NULL;
 static itemDef_t *g_editItem = NULL;
 static itemDef_t *itemCapture = NULL;   // item that has the mouse captured ( if any )
+
+#ifdef _XBOX
+static const char *UI_XboxTraceName(const char *name)
+{
+	return (name && name[0]) ? name : "(null)";
+}
+
+static const char *UI_XboxTraceMenuName(menuDef_t *menu)
+{
+	return menu ? UI_XboxTraceName(menu->window.name) : "(null)";
+}
+
+static const char *UI_XboxTraceItemName(itemDef_t *item)
+{
+	return item ? UI_XboxTraceName(item->window.name) : "(null)";
+}
+
+static menuDef_t *UI_XboxTraceItemMenu(itemDef_t *item)
+{
+	return (item && item->parent) ? (menuDef_t *)item->parent : NULL;
+}
+
+static unsigned int UI_XboxTraceHashLocal(const char *text)
+{
+	unsigned int hash = 2166136261u;
+	if (!text)
+	{
+		return 0;
+	}
+	while (*text)
+	{
+		hash ^= (unsigned char)*text++;
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+static void UI_XboxFrontEndMark(unsigned int phase, menuDef_t *menu, itemDef_t *item, const char *script)
+{
+	g_SPXBFrontEndPhase = phase;
+	g_SPXBFrontEndMenuHash = UI_XboxTraceHashLocal(menu ? menu->window.name : NULL);
+	g_SPXBFrontEndItemHash = UI_XboxTraceHashLocal(item ? item->window.name : NULL);
+	g_SPXBFrontEndScriptHash = UI_XboxTraceHashLocal(script);
+}
+
+static void UI_XboxTraceScript(const char *tag, itemDef_t *item, const char *script)
+{
+	static int s_uiTraceScriptCount = 0;
+	if (s_uiTraceScriptCount >= 160)
+	{
+		return;
+	}
+	++s_uiTraceScriptCount;
+
+	char snippet[128];
+	Q_strncpyz(snippet, script ? script : "(null)", sizeof(snippet));
+	for (char *p = snippet; *p; ++p)
+	{
+		if (*p == '\n' || *p == '\r' || *p == '\t')
+		{
+			*p = ' ';
+		}
+	}
+
+	UI_XboxFrontEndMark(0x46545343, UI_XboxTraceItemMenu(item), item, script); /* 'FTSC' */
+
+	XBLog_Writef("JA: UI_TRACE %s itemPtr=%p script=%s",
+		tag ? tag : "(null)",
+		(void *)item,
+		snippet);
+}
+#endif
 
 #define DOUBLE_CLICK_DELAY 300
 static int lastListBoxClickTime = 0;
@@ -271,12 +346,22 @@ qboolean PC_ParseStringMem(const char **out)
 {
 	const char *temp;
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B0;
+#endif
 	if (PC_ParseString(&temp))
 	{
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B1;
+	g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(temp);
+#endif
 	*(out) = String_Alloc(temp);
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7B2;
+#endif
 
     return qtrue;
 }
@@ -393,10 +478,17 @@ qboolean MenuParse_name(itemDef_t *item)
 {
 	menuDef_t *menu = (menuDef_t*)item;
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7A0;
+#endif
 	if (!PC_ParseStringMem((const char **) &menu->window.name))
 	{
 		return qfalse;
 	}
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7A1;
+	g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(menu->window.name);
+#endif
 
 //	if (Q_stricmp(menu->window.name, "main") == 0) 
 //	{
@@ -1317,9 +1409,9 @@ const char *String_Alloc(const char *p)
 			return str->str;
 		}
 		str = str->next;
-	}
+		}
 
-	len = strlen(p);
+		len = strlen(p);
 	if (len + strPoolIndex + 1 < STRING_POOL_SIZE) 
 	{
 		int ph = strPoolIndex;
@@ -1670,12 +1762,30 @@ Menu_RunCloseScript
 */
 static void Menu_RunCloseScript(menuDef_t *menu) 
 {
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D524330; /* 'MRC0' */
+	g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(menu ? menu->window.name : NULL);
+	g_SPXBUIActiveResult = menu ? (unsigned int)menu->window.flags : 0;
+#endif
 	if (menu && menu->window.flags & WINDOW_VISIBLE && menu->onClose) 
 	{
 		itemDef_t item;
+		memset(&item, 0, sizeof(item));
 		item.parent = menu;
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D524331; /* 'MRC1' */
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(menu->window.name);
+#endif
 		Item_RunScript(&item, menu->onClose);
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D524332; /* 'MRC2' */
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(menu->window.name);
+#endif
 	}
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D524339; /* 'MRC9' */
+	g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(menu ? menu->window.name : NULL);
+#endif
 }
 
 /*
@@ -2310,17 +2420,33 @@ qboolean Script_Open(itemDef_t *item, const char **args)
 	const char *name;
 	if (String_Parse(args, &name)) 
 	{
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x4F504E30, UI_XboxTraceItemMenu(item), item, name); /* 'OPN0' */
+		XBLog_Writef("JA: UI_TRACE open request=%s from menu=%s item=%s",
+			UI_XboxTraceName(name),
+			UI_XboxTraceMenuName(UI_XboxTraceItemMenu(item)),
+			UI_XboxTraceItemName(item));
+#endif
 		if(!strcmp("vstr",name))
 		{
 			if(String_Parse(args,&name))
 			{
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x4F504E31, UI_XboxTraceItemMenu(item), item, name); /* 'OPN1' */
+#endif
 				Menus_OpenByName(Cvar_VariableString(name));
 			}
 		}
 		else
 		{
+#ifdef _XBOX
+			UI_XboxFrontEndMark(0x4F504E32, UI_XboxTraceItemMenu(item), item, name); /* 'OPN2' */
+#endif
 			Menus_OpenByName(name);
 		}
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x4F504E33, UI_XboxTraceItemMenu(item), item, name); /* 'OPN3' */
+#endif
 	}
 
 	return qtrue;
@@ -5637,6 +5763,9 @@ void Item_RunScript(itemDef_t *item, const char *s)
 	qboolean bRan;
 
 	uiInfo.runScriptItem = item;
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x52534330, UI_XboxTraceItemMenu(item), item, s); /* 'RSC0' */
+#endif
 
 	if (item && s && s[0]) 
 	{
@@ -5647,8 +5776,29 @@ void Item_RunScript(itemDef_t *item, const char *s)
 			// expect command then arguments, ; ends command, NULL ends script
 			if (!String_Parse(&p, &command)) 
 			{
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x52534331, UI_XboxTraceItemMenu(item), item, s); /* 'RSC1' */
+#endif
 				return;
 			}
+
+#ifdef _XBOX
+			{
+				static int s_frontEndCommandTraceCount = 0;
+				if (s_frontEndCommandTraceCount < 240)
+				{
+					++s_frontEndCommandTraceCount;
+					g_SPXBFrontEndPhase = 0x4654434D; /* 'FTCM' */
+					g_SPXBFrontEndMenuHash = UI_XboxTraceHashLocal(UI_XboxTraceItemMenu(item) ? UI_XboxTraceItemMenu(item)->window.name : NULL);
+					g_SPXBFrontEndItemHash = UI_XboxTraceHashLocal(item ? item->window.name : NULL);
+					g_SPXBFrontEndScriptHash = UI_XboxTraceHashLocal(command);
+					XBLog_Writef("JA: FRONTEND scriptCmd menu=%s item=%s cmd=%s",
+						UI_XboxTraceMenuName(UI_XboxTraceItemMenu(item)),
+						UI_XboxTraceItemName(item),
+						command ? command : "(null)");
+				}
+			}
+#endif
 
 			if (command[0] == ';' && command[1] == '\0') 
 			{
@@ -5660,10 +5810,19 @@ void Item_RunScript(itemDef_t *item, const char *s)
 			{
 				if (Q_stricmp(command, commandList[i].name) == 0) 
 				{
+#ifdef _XBOX
+					UI_XboxFrontEndMark(0x52534830, UI_XboxTraceItemMenu(item), item, command); /* 'RSH0' */
+#endif
 					if ( !(commandList[i].handler(item, &p)) )
 					{
+#ifdef _XBOX
+						UI_XboxFrontEndMark(0x52534839, UI_XboxTraceItemMenu(item), item, command); /* 'RSH9' */
+#endif
 						return;
 					}
+#ifdef _XBOX
+					UI_XboxFrontEndMark(0x52534831, UI_XboxTraceItemMenu(item), item, command); /* 'RSH1' */
+#endif
 
 					bRan = qtrue;
 					break;
@@ -5673,13 +5832,25 @@ void Item_RunScript(itemDef_t *item, const char *s)
 			if (!bRan) 
 			{
 				// Allow any script command to fail
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x52534430, UI_XboxTraceItemMenu(item), item, command); /* 'RSD0' */
+#endif
 				if ( !DC->runScript(&p) )
 				{
+#ifdef _XBOX
+					UI_XboxFrontEndMark(0x52534439, UI_XboxTraceItemMenu(item), item, command); /* 'RSD9' */
+#endif
 					break;
 				}
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x52534431, UI_XboxTraceItemMenu(item), item, command); /* 'RSD1' */
+#endif
 			}
 		}
 	}
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x52534332, UI_XboxTraceItemMenu(item), item, s); /* 'RSC2' */
+#endif
 }
 
 
@@ -5712,16 +5883,53 @@ menuDef_t *Menus_ActivateByName(const char *p)
 	int i;
 	menuDef_t *m = NULL;
 	menuDef_t *focus = Menu_GetFocused();
+#ifdef _XBOX
+	const qboolean xboxTraceLoadscreen = (p && !Q_stricmp(p, "loadscreen"));
+	UI_XboxFrontEndMark(0x41435430, focus, NULL, p); /* 'ACT0' */
+	if (xboxTraceLoadscreen)
+	{
+		XBLF("JA: UI loadscreen activate request menuCount=%d open=%d focus=%s",
+			menuCount, openMenuCount, UI_XboxTraceMenuName(focus));
+	}
+	static int s_uiTraceActivateCount = 0;
+	if (s_uiTraceActivateCount < 160)
+	{
+		++s_uiTraceActivateCount;
+		XBLog_Writef("JA: UI_TRACE activateByName request=%s focus=%s open=%d",
+			UI_XboxTraceName(p),
+			UI_XboxTraceMenuName(focus),
+			openMenuCount);
+	}
+#endif
 
 	for (i = 0; i < menuCount; i++) 
 	{
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x41435431, focus, NULL, p); /* 'ACT1' */
+#endif
 		// Look for the name in the current list of windows
 		if (Q_stricmp(Menus[i].window.name, p) == 0) 
 		{
 	
 			
 			m = &Menus[i];
+#ifdef _XBOX
+			UI_XboxFrontEndMark(0x41435432, m, NULL, p); /* 'ACT2' */
+			if (xboxTraceLoadscreen)
+			{
+				XBLF("JA: UI loadscreen activate found index=%d fullscreen=%d flags=0x%x",
+					i, m->fullScreen, m->window.flags);
+			}
+#endif
             Menus_Activate(m);
+#ifdef _XBOX
+			UI_XboxFrontEndMark(0x41435433, m, NULL, p); /* 'ACT3' */
+			if (xboxTraceLoadscreen)
+			{
+				XBLF("JA: UI loadscreen activate visible flags=0x%x open=%d",
+					m->window.flags, openMenuCount);
+			}
+#endif
 			if (openMenuCount < MAX_OPEN_MENUS && focus != NULL) 
 			{
 				menuStack[openMenuCount++] = focus;
@@ -5758,6 +5966,12 @@ menuDef_t *Menus_ActivateByName(const char *p)
 		{
 			Com_Printf(S_COLOR_YELLOW"WARNING: Menus_ActivateByName: Unable to find menu '%s'\n",p);
 		}
+#ifdef _XBOX
+		if (xboxTraceLoadscreen)
+		{
+			XBLF("JA: UI loadscreen activate missing menuCount=%d", menuCount);
+		}
+#endif
 	}
 
 	// First time, show force select instructions
@@ -5787,7 +6001,13 @@ menuDef_t *Menus_ActivateByName(const char *p)
 	}
 
 	// Want to handle a mouse move on the new menu in case your already over an item
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x41435434, m, NULL, p); /* 'ACT4' */
+#endif
 	Menu_HandleMouseMove ( m, DC->cursorx, DC->cursory );
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x41435435, m, NULL, p); /* 'ACT5' */
+#endif
 
 
 	
@@ -5802,6 +6022,9 @@ Menus_Activate
 */
 void  Menus_Activate(menuDef_t *menu) 
 {
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x4D414330, menu, NULL, menu ? menu->window.name : NULL); /* 'MAC0' */
+#endif
 	menu->window.flags |= (WINDOW_HASFOCUS | WINDOW_VISIBLE);
 
 //JLFCALLOUT MPMOVED
@@ -5834,9 +6057,16 @@ void  Menus_Activate(menuDef_t *menu)
 	if (menu->onOpen) 
 	{
 		itemDef_t item;
+		memset(&item, 0, sizeof(item));
 		item.parent = menu;
 		item.window.flags = 0;	//err, item is fake here, but we want a valid flag before calling runscript
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x4D414331, menu, &item, menu->onOpen); /* 'MAC1' */
+#endif
 		Item_RunScript(&item, menu->onOpen);
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x4D414332, menu, &item, menu->onOpen); /* 'MAC2' */
+#endif
 
 		if (item.window.flags & WINDOW_SCRIPTWAITING)	//in case runscript set waiting, copy it up to the menu
 		{
@@ -5849,6 +6079,9 @@ void  Menus_Activate(menuDef_t *menu)
 //	menu->appearanceTime = DC->realTime + 1000;
 	menu->appearanceTime = 0;
 	menu->appearanceCnt = 0;
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x4D414333, menu, NULL, menu ? menu->window.name : NULL); /* 'MAC3' */
+#endif
 
 }
 
@@ -6163,13 +6396,22 @@ qboolean Menu_Parse(char *inbuffer, menuDef_t *menu)
 	char * includeBuffer;
 	static int s_xboxMenuParseLogCount = 0;
 	const char *menuNameForLog = menu && menu->window.name ? menu->window.name : "(unnamed)";
+	g_SPXBBootPhase = 0x770;
+	g_SPXBPhaseLast = 0x4D505331; /* 'MPS1' */
+	g_SPXBUIActiveResult = (unsigned int)s_xboxMenuParseLogCount;
 	if (s_xboxMenuParseLogCount < 400)
 	{
 		Com_PrintfAlways("JA: UI Menu_Parse begin menu=%s count=%d\n", menuNameForLog, s_xboxMenuParseLogCount);
 	}
 #endif
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x771;
+#endif
 	token2 = PC_ParseExt();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x772;
+#endif
 
 	if (!token2)
 	{
@@ -6181,10 +6423,19 @@ qboolean Menu_Parse(char *inbuffer, menuDef_t *menu)
 		PC_ParseWarning("Misplaced {");
 		return qfalse;
 	}
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x773;
+#endif
 	while ( 1 ) 
 	{
 
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x774;
+#endif
 		token2 = PC_ParseExt();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x775;
+#endif
 		if (!token2)
 		{
 			PC_ParseWarning("End of file inside menu.");
@@ -6194,6 +6445,8 @@ qboolean Menu_Parse(char *inbuffer, menuDef_t *menu)
 		if (*token2 == '}') 
 		{
 #ifdef _XBOX
+			g_SPXBPhaseLast = 0x4D505345; /* 'MPSE' */
+			g_SPXBUIActiveResult = (unsigned int)s_xboxMenuParseLogCount;
 			if (s_xboxMenuParseLogCount < 400)
 			{
 				Com_PrintfAlways("JA: UI Menu_Parse end menu=%s\n", menuNameForLog);
@@ -6213,12 +6466,16 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu);
 				Com_PrintfAlways("JA: UI Menu_Parse include begin menu=%s file=%s\n",
 					menuNameForLog, token2 ? token2 : "(null)");
 			}
+			g_SPXBPhaseLast = 0x4D505349; /* 'MPSI' */
+			g_SPXBUIActiveResult = (unsigned int)s_xboxMenuParseLogCount;
 			includeBuffer = UI_ParseInclude(token2, menu );
 			if (s_xboxMenuParseLogCount < 400)
 			{
 				Com_PrintfAlways("JA: UI Menu_Parse include loaded menu=%s file=%s buffer=%p\n",
 					menuNameForLog, token2 ? token2 : "(null)", includeBuffer);
 			}
+			g_SPXBPhaseLast = 0x4D505369; /* 'MPSi' */
+			g_SPXBUIActiveResult = (unsigned int)s_xboxMenuParseLogCount;
 			//bufferize thetoken2 
 			nest = true;
 			buffer = includeBuffer;
@@ -6226,6 +6483,9 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu);
 		}
 #endif
 
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x776;
+#endif
 		if (nest && (*token2 == 0))
 		{
 			PC_EndParseSession(buffer);
@@ -6233,7 +6493,13 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu);
 			nest = false;
 			continue;
 		}
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x777;
+#endif
 		key = KeywordHash_Find(menuParseKeywordHash, token2);
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x778;
+#endif
 		
 		if (!key) 
 		{
@@ -6241,12 +6507,33 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu);
 			continue;
 		}
 
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D50534B; /* 'MPSK' */
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(token2);
+		g_SPXBUIActiveResult = (unsigned int)key->func;
+		if (s_xboxMenuParseLogCount < 400)
+		{
+			XBLF("JA: UI Menu_Parse call menu=%s keyword=%s parseSlot=%d key=%p",
+				menu && menu->window.name ? menu->window.name : "(unnamed)",
+				token2 ? token2 : "(null)",
+				parseDataCount,
+				key->func);
+		}
+#endif
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x779;
+#endif
 		if ( !key->func((itemDef_t*)menu) ) 
 		{
 			PC_ParseWarning(va("Couldn't parse menu keyword %s as %s",token2, key->keyword));
 			return qfalse;
 		} 
 #ifdef _XBOX
+		g_SPXBBootPhase = 0x77A;
+#endif
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D50536B; /* 'MPSk' */
+		g_SPXBUIActiveResult = (unsigned int)s_xboxMenuParseLogCount;
 		if (s_xboxMenuParseLogCount < 400)
 		{
 			if (!Q_stricmp(token2, "name") ||
@@ -6271,23 +6558,36 @@ Menu_New
 */
 void Menu_New(char *buffer) 
 {
-	menuDef_t *menu = &Menus[menuCount];
-
 	if (menuCount < MAX_MENUS) 
 	{
+		menuDef_t *menu = &Menus[menuCount];
 #ifdef _XBOX
+		g_SPXBBootPhase = 0x760;
 		Com_PrintfAlways("JA: UI Menu_New begin index=%d\n", menuCount);
 #endif
 		Menu_Init(menu);
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x761;
+#endif
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x762;
+#endif
 		if (Menu_Parse(buffer, menu)) 
 		{
+#ifdef _XBOX
+			g_SPXBBootPhase = 0x763;
+#endif
 #ifdef _XBOX
 			Com_PrintfAlways("JA: UI Menu_New parsed index=%d name=%s\n",
 				menuCount, menu->window.name ? menu->window.name : "(unnamed)");
 #endif
 			Menu_PostParse(menu);
+#ifdef _XBOX
+			g_SPXBBootPhase = 0x764;
+#endif
 			menuCount++;
 #ifdef _XBOX
+			g_SPXBBootPhase = 0x765;
 			Com_PrintfAlways("JA: UI Menu_New done count=%d\n", menuCount);
 #endif
 		}
@@ -6303,14 +6603,39 @@ void  Menus_CloseAll(void)
 {
 	int i;
 
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D434130; /* 'MCA0' */
+	g_SPXBUIActiveResult = (unsigned int)menuCount;
+	XBLF("JA: UI Menus_CloseAll begin count=%d open=%d", menuCount, openMenuCount);
+#endif
 	for (i = 0; i < menuCount; i++) 
 	{
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D434131; /* 'MCA1' */
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(Menus[i].window.name);
+		g_SPXBUIActiveResult = ((unsigned int)i << 16) | ((unsigned int)Menus[i].window.flags & 0xffffu);
+#endif
 		Menu_RunCloseScript ( &Menus[i] );
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D434132; /* 'MCA2' */
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(Menus[i].window.name);
+		g_SPXBUIActiveResult = (unsigned int)i;
+#endif
 		Menus[i].window.flags &= ~(WINDOW_HASFOCUS | WINDOW_VISIBLE);
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D434133; /* 'MCA3' */
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal(Menus[i].window.name);
+		g_SPXBUIActiveResult = (unsigned int)i;
+#endif
 	}
 
 	// Clear the menu stack
 	openMenuCount = 0;
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D434139; /* 'MCA9' */
+	g_SPXBUIActiveResult = (unsigned int)menuCount;
+	XBLF("JA: UI Menus_CloseAll done count=%d", menuCount);
+#endif
 }
 
 /*
@@ -6328,11 +6653,13 @@ int PC_StartParseSession(const char *fileName,char **buffer)
 
 	// Try to open file and read it in.
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x780;
 	Com_PrintfAlways("JA: UI PC_StartParseSession begin file=%s nested=%d\n",
 		fileName ? fileName : "(null)", (int)nested);
 #endif
 	len = ui.FS_ReadFile( fileName,(void **) buffer  );
 #ifdef _XBOX
+	g_SPXBBootPhase = 0x781;
 	Com_PrintfAlways("JA: UI PC_StartParseSession read done file=%s len=%d buffer=%p\n",
 		fileName ? fileName : "(null)", len, buffer ? *buffer : NULL);
 #endif
@@ -6341,26 +6668,20 @@ int PC_StartParseSession(const char *fileName,char **buffer)
 	if ( len>0 ) 
 	{
 #ifdef _XBOX
-		if (nested)
-			parseDataCount = 1;
-		else
-#endif
-			parseDataCount = 0;
-
-		strncpy(parseData[parseDataCount].fileName, fileName, MAX_QPATH);
-		parseData[parseDataCount].bufferStart = *buffer;
-		parseData[parseDataCount].bufferCurrent = *buffer;
-
-#ifdef _XBOX
 		COM_BeginParseSession(nested);
 #else
 		COM_BeginParseSession();
 #endif
+
+		strncpy(parseData[parseDataCount].fileName, fileName, MAX_QPATH);
+		parseData[parseDataCount].bufferStart = *buffer;
+		parseData[parseDataCount].bufferCurrent = *buffer;
 	}
 
 #ifdef _XBOX
-	Com_PrintfAlways("JA: UI PC_StartParseSession done file=%s len=%d\n",
-		fileName ? fileName : "(null)", len);
+	g_SPXBBootPhase = 0x782;
+	Com_PrintfAlways("JA: UI PC_StartParseSession done file=%s len=%d slot=%d\n",
+		fileName ? fileName : "(null)", len, parseDataCount);
 #endif
 	return len;
 }
@@ -6372,8 +6693,24 @@ PC_EndParseSession
 */
 void PC_EndParseSession(char *buffer)
 {
-	parseDataCount--;
+#ifdef _XBOX
+	const int endedSlot = parseDataCount;
+	g_SPXBBootPhase = 0x783;
+	g_SPXBUIActiveResult = (unsigned int)endedSlot;
+	XBLF("JA: UI PC_EndParseSession begin slot=%d buffer=%p file=%s",
+		endedSlot,
+		buffer,
+		(endedSlot >= 0) ? parseData[endedSlot].fileName : "(none)");
+#endif
+	if (parseDataCount >= 0)
+	{
+		parseDataCount--;
+	}
 	ui.FS_FreeFile( buffer );	//let go of the buffer
+#ifdef _XBOX
+	g_SPXBUIActiveResult = (unsigned int)parseDataCount;
+	XBLF("JA: UI PC_EndParseSession done slot=%d next=%d", endedSlot, parseDataCount);
+#endif
 }
 
 /*
@@ -6388,6 +6725,9 @@ void PC_ParseWarning(const char *message)
 
 char *PC_ParseExt(void)
 {
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x784;
+#endif
 	return (COM_ParseExt(&parseData[parseDataCount].bufferCurrent, qtrue));
 }
 
@@ -6395,11 +6735,27 @@ qboolean PC_ParseString(const char **string)
 {
 	int	hold;
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7C0;
+#endif
 	hold = COM_ParseString(&parseData[parseDataCount].bufferCurrent,string);
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x7C1;
+	g_SPXBUIActiveResult = (unsigned int)hold;
+	g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal((hold == 0 && string) ? *string : NULL);
+#endif
 
 	while (hold==0 && **string == 0)		
 	{
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x7C2;
+#endif
 		hold = COM_ParseString(&parseData[parseDataCount].bufferCurrent,string);
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x7C3;
+		g_SPXBUIActiveResult = (unsigned int)hold;
+		g_SPXBUIActiveMenuHash = UI_XboxTraceHashLocal((hold == 0 && string) ? *string : NULL);
+#endif
 	}
 
 	return(hold);
@@ -11816,6 +12172,9 @@ Item_HandleKey
 */
 qboolean Item_HandleKey(itemDef_t *item, int key, qboolean down) 
 {
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x49484B30, UI_XboxTraceItemMenu(item), item, NULL); /* 'IHK0' */
+#endif
 
 	if (itemCapture) 
 	{
@@ -11834,6 +12193,9 @@ qboolean Item_HandleKey(itemDef_t *item, int key, qboolean down)
 
 	if (!down) 
 	{
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x49484B31, UI_XboxTraceItemMenu(item), item, NULL); /* 'IHK1' */
+#endif
 		return qfalse;
 	}
 
@@ -11841,7 +12203,12 @@ qboolean Item_HandleKey(itemDef_t *item, int key, qboolean down)
 	{
 		case ITEM_TYPE_BUTTON:
 #ifdef _XBOX
-			return Item_Button_HandleKey(item, key);
+			UI_XboxFrontEndMark(0x49484230, UI_XboxTraceItemMenu(item), item, NULL); /* 'IHB0' */
+			{
+				qboolean handled = Item_Button_HandleKey(item, key);
+				UI_XboxFrontEndMark(0x49484231, UI_XboxTraceItemMenu(item), item, NULL); /* 'IHB1' */
+				return handled;
+			}
 #else
 			return qfalse;
 #endif
@@ -11910,8 +12277,15 @@ qboolean Item_HandleAction(itemDef_t * item)
 	if (item->action)
 	//if (item->accept)
 	{
+#ifdef _XBOX
+		UI_XboxTraceScript("itemAction", item, item->action);
+		UI_XboxFrontEndMark(0x46544130, UI_XboxTraceItemMenu(item), item, item->action); /* 'FTA0' */
+#endif
 		//Item_RunScript(item, item->accept);
 		Item_RunScript(item, item->action);
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x46544131, UI_XboxTraceItemMenu(item), item, item->action); /* 'FTA1' */
+#endif
 		return true;
 	}
 	return false;
@@ -11977,6 +12351,9 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 	int i;
 	itemDef_t *item = NULL;
 	qboolean inHandler = qfalse;
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x4D484B30, menu, NULL, NULL); /* 'MHK0' */
+#endif
 
 	if (inHandler) 
 	{
@@ -12031,6 +12408,27 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 			break;
 		}
 	}
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x4D484B31, menu, item, NULL); /* 'MHK1' */
+#endif
+
+#ifdef _XBOX
+	if (down)
+	{
+		static int s_uiTraceKeyCount = 0;
+		if (s_uiTraceKeyCount < 160)
+		{
+			++s_uiTraceKeyCount;
+			XBLog_Writef("JA: UI_TRACE key menu=%s item=%s key=%d down=%d catcherCursor=%.1f,%.1f",
+				UI_XboxTraceMenuName(menu),
+				UI_XboxTraceItemName(item),
+				key,
+				down ? 1 : 0,
+				DC ? DC->cursorx : 0.0f,
+				DC ? DC->cursory : 0.0f);
+		}
+	}
+#endif
 
 	if (!down) 
 	{
@@ -12042,8 +12440,14 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 	if ( item !=NULL)
 	{
 		//Handlekey implies that this control was able to interpret and use this input
+#ifdef _XBOX
+		UI_XboxFrontEndMark(0x4D484B32, menu, item, NULL); /* 'MHK2' */
+#endif
 		if (Item_HandleKey(item, key, down))
 		{
+#ifdef _XBOX
+			UI_XboxFrontEndMark(0x4D484B33, menu, item, NULL); /* 'MHK3' */
+#endif
 			if (((item->type == ITEM_TYPE_MULTI) || (item->type == ITEM_TYPE_SLIDER) || (item->type == ITEM_TYPE_YESNO)) &&
 				((key == A_CURSOR_RIGHT) || (key == A_CURSOR_LEFT)))
 			{
@@ -12084,6 +12488,9 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 			{
 					itemDef_t it;
 					it.parent = menu;
+#ifdef _XBOX
+					UI_XboxTraceScript("menuEsc", &it, menu->onESC);
+#endif
 					Item_RunScript(&it, menu->onESC);
 			}
 			break;
@@ -12124,8 +12531,16 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 			if (menu->onAccept) 
 			{
 				itemDef_t it;
+				memset(&it, 0, sizeof(it));
 				it.parent = menu;
+#ifdef _XBOX
+				UI_XboxTraceScript("menuAccept", &it, menu->onAccept);
+				UI_XboxFrontEndMark(0x4D484131, menu, &it, menu->onAccept); /* 'MHA1' */
+#endif
 				Item_RunScript(&it, menu->onAccept);
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x4D484132, menu, &it, menu->onAccept); /* 'MHA2' */
+#endif
 			}
 			break;
 
@@ -12156,10 +12571,19 @@ void Menu_HandleKey(menuDef_t *menu, int key, qboolean down)
 		case A_ENTER:
 			if (item) 
 			{
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x4D484B34, menu, item, NULL); /* 'MHK4' */
+#endif
 				Item_HandleAction(item);
+#ifdef _XBOX
+				UI_XboxFrontEndMark(0x4D484B35, menu, item, NULL); /* 'MHK5' */
+#endif
 			}
 			break;
 	}
+#ifdef _XBOX
+	UI_XboxFrontEndMark(0x4D484B39, menu, item, NULL); /* 'MHK9' */
+#endif
 	inHandler = qfalse;
 }
 

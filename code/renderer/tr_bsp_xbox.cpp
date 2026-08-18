@@ -226,84 +226,68 @@ R_LoadLightmaps
 ===============
 */
 #define	LIGHTMAP_SIZE	128
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBCmLoadState;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpHash;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpLen;
+
+static void R_XboxLightmapLoadState(unsigned int state, unsigned int lightmapIndex, int len)
+{
+	g_SPXBCmLoadState = state;
+	g_SPXBCmLoadLumpHash = lightmapIndex;
+	g_SPXBCmLoadLumpLen = (unsigned int)len;
+}
+#define R_XBOX_LIGHTMAP_STATE(state, index, len) R_XboxLightmapLoadState((state), (index), (len))
+#else
+#define R_XBOX_LIGHTMAP_STATE(state, index, len) ((void)0)
+#endif
+
 void R_LoadLightmaps( void *data, int len, const char *psMapName ) {
 	byte		*buf, *buf_p;
 	int			i;
 
+	R_XBOX_LIGHTMAP_STATE(400, 0, len);
 	if ( !len ) {
+		R_XBOX_LIGHTMAP_STATE(401, 0, len);
 		return;
 	}
 	buf = (byte *)data + sizeof(int);
+	R_XBOX_LIGHTMAP_STATE(402, 0, len);
 
 	// we are about to upload textures
 	R_SyncRenderThread();
+	R_XBOX_LIGHTMAP_STATE(403, 0, len);
 
 	// create all the lightmaps
 	int size = *(int*)data;
 	tr.numLightmaps = len / size;
+	R_XBOX_LIGHTMAP_STATE(404, (unsigned int)tr.numLightmaps, size);
 
 	byte* image = (byte*)Z_Malloc(size, TAG_TEMP_WORKSPACE, qfalse, 32);
+	R_XBOX_LIGHTMAP_STATE(405, (unsigned int)tr.numLightmaps, size);
 
 	char sMapName[MAX_QPATH];
 	COM_StripExtension(psMapName,sMapName);	// will already by MAX_QPATH legal, so no length check
 
 	for ( i = 0 ; i < tr.numLightmaps ; i++ ) {
 		buf_p = buf + i * size;
+		R_XBOX_LIGHTMAP_STATE(410, (unsigned int)i, size);
 		memcpy(image, buf_p, size);
+		R_XBOX_LIGHTMAP_STATE(420, (unsigned int)i, size);
 
 		char lmapName[MAX_QPATH + 32];
 		Com_sprintf(lmapName, MAX_QPATH + 32, "*%s/lightmap%d",sMapName,i);
-#ifdef _XBOX
-		{
-			static int s_xboxLightmapStatsLogCount = 0;
-			const byte *dds = buf_p;
-			if (s_xboxLightmapStatsLogCount < 16 &&
-				size >= 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2 &&
-				dds[0] == 'D' && dds[1] == 'D' && dds[2] == 'S' && dds[3] == ' ')
-			{
-				const unsigned short *src = (const unsigned short *)(dds + 128);
-				const unsigned int rgbBits = *(const unsigned int *)(dds + 88);
-				const unsigned int rMask = *(const unsigned int *)(dds + 92);
-				const unsigned int gMask = *(const unsigned int *)(dds + 96);
-				const unsigned int bMask = *(const unsigned int *)(dds + 100);
-				int minLum = 255;
-				int maxLum = 0;
-				int sumLum = 0;
-				int p;
-				for (p = 0; p < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++p)
-				{
-					const unsigned short c = src[p];
-					const int r = ((c >> 11) & 31) * 255 / 31;
-					const int g = ((c >> 5) & 63) * 255 / 63;
-					const int b = (c & 31) * 255 / 31;
-					const int lum = (r * 30 + g * 59 + b * 11) / 100;
-					if (lum < minLum)
-						minLum = lum;
-					if (lum > maxLum)
-						maxLum = lum;
-					sumLum += lum;
-				}
-				XBLF("JA: XBOX_LIGHTMAP_STATS name='%s' size=%d bits=%u masks=%08x,%08x,%08x min=%d max=%d avg=%d",
-					lmapName,
-					size,
-					rgbBits,
-					rMask,
-					gMask,
-					bMask,
-					minLum,
-					maxLum,
-					sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
-				++s_xboxLightmapStatsLogCount;
-			}
-		}
-#endif
+		R_XBOX_LIGHTMAP_STATE(430, (unsigned int)i, size);
 		tr.lightmaps[i] = R_CreateImage( lmapName, image, 
 			LIGHTMAP_SIZE, LIGHTMAP_SIZE,
 			GL_DDS_RGB16_EXT,
 			qfalse, 0, GL_CLAMP);
+		R_XBOX_LIGHTMAP_STATE(440, (unsigned int)i, size);
 	}
 
+	R_XBOX_LIGHTMAP_STATE(490, (unsigned int)tr.numLightmaps, size);
 	Z_Free(image);
+	R_XBOX_LIGHTMAP_STATE(491, (unsigned int)tr.numLightmaps, size);
 }
 
 
@@ -1853,10 +1837,18 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	char		stripName[MAX_QPATH];
 	Lump outputLumps[3];
 
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "actual-enter", name,
+		index, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 	// This is no longer correct. The new code supports sub-models, apparently BSPs in
 	// several chunks. If any map tries to use them, the following COM_Error will go
 	// off. We haven't hit it yet, but if (when) we do, check out tr_bsp.cpp for changes.
 	if ( tr.worldMapLoaded ) {
+#ifdef _XBOX
+		XBLog_SoakTrace("RE_LoadWorldMap", "redundant-world-error", name,
+			index, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 		Com_Error( ERR_DROP, "ERROR: attempted to redundantly load world map\n" );
 	}
 
@@ -1875,10 +1867,18 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	Cvar_SetValue( "r_sundir_z", tr.sunDirection[2] );
 
 	tr.worldMapLoaded = qtrue;
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "worldMapLoaded-set", name,
+		index, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 
 	// clear tr.world so if the level fails to load, the next
 	// try will not look at the partially loaded version
 	tr.world = NULL;
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "world-null", name,
+		index, (int)tr.worldMapLoaded, tr.numModels, tr.numShaders);
+#endif
 
 	//Preserve data which was already set in cm_load
 	msurface_t *surfacePtr = s_worldData.surfaces;
@@ -1899,44 +1899,174 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	c_gridVerts = 0;
 
 	// load into heap
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadPlanes", s_worldData.name,
+		index, s_worldData.numsurfaces, s_worldData.numShaders, tr.numShaders);
+#endif
 	R_LoadPlanes ();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadPlanes", s_worldData.name,
+		index, s_worldData.numplanes, s_worldData.numsurfaces, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-fogs", stripName,
+		index, s_worldData.numplanes, s_worldData.numsurfaces, tr.numShaders);
+#endif
 
 	outputLumps[0].load(stripName, "fogs");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-fogs", stripName,
+		index, outputLumps[0].len, s_worldData.numsurfaces, tr.numShaders);
+#endif
 	outputLumps[1].load(stripName, "brushes");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-fog-brushes", stripName,
+		index, outputLumps[1].len, outputLumps[0].len, tr.numShaders);
+#endif
 	outputLumps[2].load(stripName, "brushsides");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-fog-brushsides", stripName,
+		index, outputLumps[2].len, outputLumps[1].len, outputLumps[0].len);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadFogs", stripName,
+		index, outputLumps[0].len, outputLumps[1].len, outputLumps[2].len);
+#endif
 	R_LoadFogs( outputLumps[0].data, outputLumps[0].len,
 		outputLumps[1].data, outputLumps[1].len,
 		outputLumps[2].data, outputLumps[2].len );
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadFogs", s_worldData.name,
+		index, s_worldData.numfogs, s_worldData.numsurfaces, tr.numShaders);
+#endif
 	outputLumps[2].clear();
 	outputLumps[1].clear();
 
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-leafsurfaces", stripName,
+		index, s_worldData.numfogs, s_worldData.numsurfaces, tr.numShaders);
+#endif
 	outputLumps[0].load(stripName, "leafsurfaces");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-leafsurfaces", stripName,
+		index, outputLumps[0].len, s_worldData.numsurfaces, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadMarksurfaces", stripName,
+		index, outputLumps[0].len, s_worldData.numsurfaces, tr.numShaders);
+#endif
 	R_LoadMarksurfaces (outputLumps[0].data, outputLumps[0].len);
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadMarksurfaces", s_worldData.name,
+		index, s_worldData.nummarksurfaces, s_worldData.numsurfaces, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-nodes", stripName,
+		index, s_worldData.nummarksurfaces, s_worldData.numsurfaces, tr.numShaders);
+#endif
 
 	outputLumps[0].load(stripName, "nodes");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-nodes", stripName,
+		index, outputLumps[0].len, s_worldData.nummarksurfaces, tr.numShaders);
+#endif
 	outputLumps[1].load(stripName, "leafs");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-leafs", stripName,
+		index, outputLumps[1].len, outputLumps[0].len, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadNodesAndLeafs", stripName,
+		index, outputLumps[0].len, outputLumps[1].len, tr.numShaders);
+#endif
 	R_LoadNodesAndLeafs (outputLumps[0].data, outputLumps[0].len,
 		outputLumps[1].data, outputLumps[1].len);
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadNodesAndLeafs", s_worldData.name,
+		index, s_worldData.numnodes, s_worldData.numleafs, s_worldData.numClusters);
+#endif
 	outputLumps[1].clear();
 	
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-models", stripName,
+		index, s_worldData.numnodes, s_worldData.numleafs, s_worldData.numClusters);
+#endif
 	outputLumps[0].load(stripName, "models");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-models", stripName,
+		index, outputLumps[0].len, s_worldData.numnodes, s_worldData.numleafs);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadSubmodels", stripName,
+		index, outputLumps[0].len, s_worldData.numnodes, s_worldData.numleafs);
+#endif
 	R_LoadSubmodels (outputLumps[0].data, outputLumps[0].len);
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadSubmodels", s_worldData.name,
+		index, cmg.numSubModels, s_worldData.numnodes, s_worldData.numleafs);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadVisibility", s_worldData.name,
+		index, s_worldData.numClusters, s_worldData.clusterBytes, tr.numShaders);
+#endif
 
 	R_LoadVisibility();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadVisibility", s_worldData.name,
+		index, s_worldData.numClusters, s_worldData.clusterBytes, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-entities", stripName,
+		index, s_worldData.numClusters, s_worldData.clusterBytes, tr.numShaders);
+#endif
 
 	outputLumps[0].load(stripName, "entities");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-entities", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadEntities", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+#endif
 	R_LoadEntities( outputLumps[0].data, outputLumps[0].len );
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadEntities", s_worldData.name,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-lightgrid", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+#endif
 	outputLumps[0].load(stripName, "lightgrid");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-lightgrid", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadLightGrid", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+#endif
 	R_LoadLightGrid( outputLumps[0].data, outputLumps[0].len );
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadLightGrid", s_worldData.name,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-load-lightarray", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+#endif
 	outputLumps[0].load(stripName, "lightarray");
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-load-lightarray", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadLightGridArray", stripName,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+#endif
 	R_LoadLightGridArray( outputLumps[0].data, outputLumps[0].len );
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadLightGridArray", s_worldData.name,
+		index, outputLumps[0].len, s_worldData.numClusters, tr.numShaders);
+#endif
 
 	// only set tr.world now that we know the entire level has loaded properly
 	tr.world = &s_worldData;
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "world-set", s_worldData.name,
+		index, (int)tr.worldMapLoaded, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_LoadLevelLightParms", s_worldData.name,
+		index, (int)tr.worldMapLoaded, s_worldData.numClusters, tr.numShaders);
+#endif
 
 	// Load the light parms for this level
 	R_LoadLevelLightParms();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "after-R_LoadLevelLightParms", s_worldData.name,
+		index, (int)tr.worldMapLoaded, s_worldData.numClusters, tr.numShaders);
+	XBLog_SoakTrace("RE_LoadWorldMap", "before-R_GetLightParmsForLevel", s_worldData.name,
+		index, (int)tr.worldMapLoaded, s_worldData.numClusters, tr.numShaders);
+#endif
 	R_GetLightParmsForLevel();
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "actual-done", s_worldData.name,
+		index, (int)tr.worldMapLoaded, s_worldData.numClusters, tr.numShaders);
+#endif
 }
 
 
@@ -1945,13 +2075,25 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 extern qboolean gbUsingCachedMapDataRightNow;
 void RE_LoadWorldMap( const char *name )
 {
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "wrapper-enter", name,
+		(int)tr.worldMapLoaded, (int)gbUsingCachedMapDataRightNow, tr.numModels, tr.numShaders);
+#endif
 	memset(entityVisList, -1, sizeof(entityVisList));
 
 	gbUsingCachedMapDataRightNow = qtrue;	// !!!!!!!!!!!!
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "wrapper-before-actual", name,
+		(int)tr.worldMapLoaded, (int)gbUsingCachedMapDataRightNow, tr.numModels, tr.numShaders);
+#endif
 
 		RE_LoadWorldMap_Actual( name, s_worldData, 0 );
 
 	gbUsingCachedMapDataRightNow = qfalse;	// !!!!!!!!!!!!
+#ifdef _XBOX
+	XBLog_SoakTrace("RE_LoadWorldMap", "wrapper-done", name,
+		(int)tr.worldMapLoaded, (int)gbUsingCachedMapDataRightNow, tr.numModels, tr.numShaders);
+#endif
 }
 
 

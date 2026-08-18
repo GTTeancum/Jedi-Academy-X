@@ -3,6 +3,7 @@
 #include "qcommon.h"
 #include "files.h"
 #include "../win32/win_file.h"
+#include "../win32/xb_log.h"
 #include "../zlib/zlib.h"
 
 
@@ -283,17 +284,37 @@ separate file or a ZIP file.
 
 static int FS_FOpenFileReadOS( const char *filename, fileHandle_t f )
 {
-	if (Sys_GetFileCode(filename) != -1)
+	int fileCode = Sys_GetFileCode(filename);
+	char* osname = FS_BuildOSPath( filename );
+	fsh[f].whandle = WF_Open(osname, true, false);
+	if (fsh[f].whandle >= 0)
 	{
-		char* osname = FS_BuildOSPath( filename );
-		fsh[f].whandle = WF_Open(osname, true, false);
-		if (fsh[f].whandle >= 0)
+#ifdef _XBOX
+		if (fileCode == -1)
 		{
-			fsh[f].used = qtrue;
-			fsh[f].gob = qfalse;
-			return FS_filelength(f);
+			static int s_fileCodeMissOpens = 0;
+			if (s_fileCodeMissOpens < 64)
+			{
+				XBLF("JA: FS: filecode miss but OS open succeeded file=%s path=%s\n", filename, osname);
+			}
+			++s_fileCodeMissOpens;
 		}
+#endif
+		fsh[f].used = qtrue;
+		fsh[f].gob = qfalse;
+		return FS_filelength(f);
 	}
+#ifdef _XBOX
+	if (fileCode != -1)
+	{
+		static int s_fileCodeOpenFails = 0;
+		if (s_fileCodeOpenFails < 64)
+		{
+			XBLF("JA: FS: filecode hit but OS open failed file=%s path=%s\n", filename, osname);
+		}
+		++s_fileCodeOpenFails;
+	}
+#endif
 	return -1;
 }
 
@@ -533,7 +554,27 @@ qboolean FS_Access( const char *filename )
 	char* gobname = FS_BuildGOBPath( filename );
 	if (GOBAccess(gobname, &status) != GOBERR_OK || status != GOB_TRUE)
 	{
-		return Sys_GetFileCode( filename ) != -1;
+		if (Sys_GetFileCode( filename ) != -1)
+		{
+			return qtrue;
+		}
+
+		char* osname = FS_BuildOSPath( filename );
+		wfhandle_t whandle = WF_Open(osname, true, false);
+		if (whandle >= 0)
+		{
+			WF_Close(whandle);
+#ifdef _XBOX
+			static int s_accessFileCodeMissOpens = 0;
+			if (s_accessFileCodeMissOpens < 64)
+			{
+				XBLF("JA: FS_Access: filecode miss but OS access succeeded file=%s path=%s\n", filename, osname);
+			}
+			++s_accessFileCodeMissOpens;
+#endif
+			return qtrue;
+		}
+		return qfalse;
 	}
 
 	return qtrue;

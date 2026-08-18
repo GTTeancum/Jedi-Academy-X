@@ -12,6 +12,20 @@
 #endif
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBRenderDrawSurfCount;
+extern "C" volatile unsigned int g_SPXBRenderDrawSurfDelta;
+extern "C" volatile unsigned int g_SPXBRenderLeafCount;
+extern "C" volatile unsigned int g_SPXBRenderCullPatch;
+extern "C" volatile unsigned int g_SPXBRenderCullMd3;
+extern "C" volatile unsigned int g_SPXBRenderCullBox;
+extern "C" volatile unsigned int g_SPXBRenderDlightSurfaces;
+extern "C" volatile unsigned int g_SPXBRenderDlightCulled;
+extern "C" volatile unsigned int g_SPXBDrawSurfTotalAdds;
+extern "C" volatile unsigned int g_SPXBDrawSurfSkyAdds;
+extern "C" volatile unsigned int g_SPXBDrawSurfPortalAdds;
+extern "C" volatile unsigned int g_SPXBDrawSurfForceSightSkips;
+extern "C" volatile unsigned int g_SPXBRenderViewCalls;
+extern "C" volatile unsigned int g_SPXBRenderViewWorldCalls;
 #endif
 
 void R_AddTerrainSurfaces(void);
@@ -513,7 +527,7 @@ static void SetFarClip( void )
 			{
 				const float oldZFar = tr.viewParms.zFar;
 				tr.viewParms.zFar = Com_Clamp( tr.viewParms.zFar, tr.distanceCull * 1.732f, forwardDist + 768.0f );
-				if ( s_yavinIntroFarClipLogs < 16 )
+				if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_yavinIntroFarClipLogs < 16 )
 				{
 					XBLF("JA: XBOX_YAVIN_INTRO_FARCLIP ent=%d old=%g new=%g forward=%g origin=%g,%g,%g view=%g,%g,%g",
 						ent->e.number,
@@ -1340,6 +1354,17 @@ R_AddDrawSurf
 void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fogIndex, int dlightMap ) 
 {
 	int			index;
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBDrawSurfTotalAdds);
+	if (shader && shader->sky)
+	{
+		SPXB_HOT_INC(g_SPXBDrawSurfSkyAdds);
+	}
+	if (shader && shader->sort == SS_PORTAL)
+	{
+		SPXB_HOT_INC(g_SPXBDrawSurfPortalAdds);
+	}
+#endif
 
 	// instead of checking for overflow, we just mask the index
 	// so it wraps around
@@ -1352,6 +1377,9 @@ void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fo
 
 	if ( (shader->surfaceFlags & SURF_FORCESIGHT) && !(tr.refdef.rdflags & RDF_ForceSightOn) )
 	{	//if shader is only seen with ForceSight and we don't have ForceSight on, then don't draw
+#ifdef _XBOX
+		SPXB_HOT_INC(g_SPXBDrawSurfForceSightSkips);
+#endif
 		return;
 	}
 
@@ -1425,7 +1453,7 @@ void R_SortDrawSurfs( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		if ( R_MirrorViewBySurface( (drawSurfs+i), entityNum) ) {
 #ifdef _XBOX
 			static int s_xboxPortalLogCount = 0;
-			if (s_xboxPortalLogCount < 16)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxPortalLogCount < 16)
 			{
 				XBLF("JA: R_SortDrawSurfs portal view rendered shader='%s' index=%d entity=%d",
 					shader ? shader->name : "<null>", i, entityNum);
@@ -1724,6 +1752,13 @@ or a mirror / remote location
 */
 void R_RenderView (viewParms_t *parms) {
 	int		firstDrawSurf;
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBRenderViewCalls);
+	if (!(tr.refdef.rdflags & RDF_NOWORLDMODEL))
+	{
+		SPXB_HOT_INC(g_SPXBRenderViewWorldCalls);
+	}
+#endif
 
 	if ( parms->viewportWidth <= 0 || parms->viewportHeight <= 0 ) {
 		return;
@@ -1764,6 +1799,23 @@ void R_RenderView (viewParms_t *parms) {
 
 #ifdef _XBOX
 	R_GenerateDrawSurfs(parms->isPortal);
+	SPXB_HOT_SET(g_SPXBRenderDrawSurfCount, tr.refdef.numDrawSurfs);
+	SPXB_HOT_SET(g_SPXBRenderDrawSurfDelta, tr.refdef.numDrawSurfs - firstDrawSurf);
+	SPXB_HOT_SET(g_SPXBRenderLeafCount, tr.pc.c_leafs);
+	SPXB_HOT_SET(g_SPXBRenderCullPatch,
+		((unsigned int)(tr.pc.c_sphere_cull_patch_out & 0xff) << 16) |
+		((unsigned int)(tr.pc.c_sphere_cull_patch_clip & 0xff) << 8) |
+		(unsigned int)(tr.pc.c_sphere_cull_patch_in & 0xff));
+	SPXB_HOT_SET(g_SPXBRenderCullMd3,
+		((unsigned int)(tr.pc.c_sphere_cull_md3_out & 0xff) << 16) |
+		((unsigned int)(tr.pc.c_sphere_cull_md3_clip & 0xff) << 8) |
+		(unsigned int)(tr.pc.c_sphere_cull_md3_in & 0xff));
+	SPXB_HOT_SET(g_SPXBRenderCullBox,
+		((unsigned int)(tr.pc.c_box_cull_md3_out & 0xff) << 16) |
+		((unsigned int)(tr.pc.c_box_cull_md3_clip & 0xff) << 8) |
+		(unsigned int)(tr.pc.c_box_cull_md3_in & 0xff));
+	SPXB_HOT_SET(g_SPXBRenderDlightSurfaces, tr.pc.c_dlightSurfaces);
+	SPXB_HOT_SET(g_SPXBRenderDlightCulled, tr.pc.c_dlightSurfacesCulled);
 #else
 	R_GenerateDrawSurfs();
 #endif

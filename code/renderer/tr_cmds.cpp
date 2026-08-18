@@ -99,10 +99,14 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 
 	cmdList = &backEndData->commands;
 #ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBRenderIssueCalls);
+	SPXB_HOT_SET(g_SPXBRenderIssueCmdUsed, (unsigned int)cmdList->used);
+#endif
+#ifdef _XBOX
 	static int s_xboxIssueCommandTraceCount = 0;
-	const qboolean xboxTraceIssueCommands = (cls.state == CA_ACTIVE)
+	const qboolean xboxTraceIssueCommands = SP_XBOX_VERBOSE_RUNTIME_LOGS && ((cls.state == CA_ACTIVE)
 		? (s_xboxIssueCommandTraceCount < 16)
-		: qtrue;
+		: qtrue);
 	if (xboxTraceIssueCommands)
 	{
 		XBLF("JA: R_IssueRenderCommands enter used=%d perf=%d skip=%d",
@@ -249,8 +253,14 @@ void RE_StretchPic ( float x, float y, float w, float h,
 					  float s1, float t1, float s2, float t2, qhandle_t hShader ) {
 	stretchPicCommand_t	*cmd;
 
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBRenderStretchPicCalls);
+#endif
 	cmd = (stretchPicCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		SPXB_HOT_INC(g_SPXBRenderStretchPicCmdNull);
+#endif
 		return;
 	}
 	cmd->commandId = RC_STRETCH_PIC;
@@ -376,7 +386,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 #ifdef _XBOX
 	static int s_xboxBeginFrameCount = 0;
 	static int s_xboxBeginFrameLogBudget = 0;
-	const qboolean xboxTraceBeginFrame = (s_xboxBeginFrameLogBudget > 0);
+	const qboolean xboxTraceBeginFrame = (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxBeginFrameLogBudget > 0);
 	if (xboxTraceBeginFrame)
 	{
 		XBLF("JA: RE_BeginFrame #%d enter stereo=%d registered=%d frameCount=%d backEndData=%p cmdUsed=%d",
@@ -387,6 +397,8 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 
 	if ( !tr.registered ) {
 #ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBRenderRegistrationState, 0);
+		SPXB_HOT_INC(g_SPXBRenderBeginFrameUnregistered);
 		if (xboxTraceBeginFrame)
 		{
 			XBLog_Write("JA: RE_BeginFrame: not registered return");
@@ -396,6 +408,10 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 #endif
 		return;
 	}
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBRenderBeginFrameCalls);
+	SPXB_HOT_SET(g_SPXBRenderRegistrationState, 1);
+#endif
 #ifdef _XBOX
 	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: clear finish flag");
 #endif
@@ -580,9 +596,9 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	static int s_xboxEndFrameCount = 0;
 	static int s_xboxActiveEndFrameCount = 0;
 	const int xboxTraceEndFrameTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
-	const int xboxTraceEndFrame = (cls.state == CA_ACTIVE)
+	const int xboxTraceEndFrame = SP_XBOX_VERBOSE_RUNTIME_LOGS && ((cls.state == CA_ACTIVE)
 		? (s_xboxActiveEndFrameCount < 2 || ((s_xboxActiveEndFrameCount & 1023) == 0))
-		: (s_xboxEndFrameCount < 4);
+		: (s_xboxEndFrameCount < 4));
 	if (xboxTraceEndFrame)
 	{
 		XBLF("JA: RE_EndFrame #%d active=%d enter registered=%d",
@@ -592,10 +608,21 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #endif
 
 	if ( !tr.registered ) {
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBRenderRegistrationState, 0);
+		SPXB_HOT_INC(g_SPXBRenderEndFrameUnregistered);
+#endif
 		return;
 	}
+#ifdef _XBOX
+	SPXB_HOT_INC(g_SPXBRenderEndFrameCalls);
+	SPXB_HOT_SET(g_SPXBRenderRegistrationState, 1);
+#endif
 	cmd = (swapBuffersCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
+#ifdef _XBOX
+		SPXB_HOT_INC(g_SPXBRenderEndFrameCmdNull);
+#endif
 		return;
 	}
 	cmd->commandId = RC_SWAP_BUFFERS;
@@ -603,7 +630,11 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #ifdef _XBOX
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glBeginFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame...");
-	if (!glBeginFrame()) return;
+	if (!glBeginFrame())
+	{
+		SPXB_HOT_INC(g_SPXBRenderEndFrameBeginFail);
+		return;
+	}
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glBeginFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glBeginFrame done");
 #endif
@@ -614,7 +645,9 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 #endif
 	R_IssueRenderCommands( qtrue );
 #ifdef _XBOX
+#if SP_XBOX_END_FRAME_YIELD
 	Sleep(0);
+#endif
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after R_IssueRenderCommands");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: R_IssueRenderCommands done");
 #endif
@@ -635,7 +668,9 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT before glEndFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame...");
 	glEndFrame();
+#if SP_XBOX_END_FRAME_YIELD
 	Sleep(0);
+#endif
 	if (xboxTraceEndFrameTight) XBLog_Write("JA: RE_TIGHT after glEndFrame");
 	if (xboxTraceEndFrame) XBLog_Write("JA: RE_EndFrame: glEndFrame done");
 #endif

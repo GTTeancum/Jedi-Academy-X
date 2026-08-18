@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef _XBOX
 #include "xtl.h"
 #include "xgraphics.h"
+#include "../xb_log.h"
 #else
 #include "windows.h"
 #endif
@@ -1279,8 +1280,8 @@ public:
 				dptPrimitiveType,
 				primCount, m_OGLPrimitiveVertexBuffer, m_vertexSize);
 #ifdef _XBOX
-			g_SPXBFakeGLPrimitiveCalls++;
-			g_SPXBFakeGLPrimitiveVerts += m_vertexCount;
+			SPXB_HOT_INC(g_SPXBFakeGLPrimitiveCalls);
+			SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, m_vertexCount);
 #endif
 			if ( FAILED(hr) ) {
 				// LocalDebugBreak();
@@ -1816,7 +1817,7 @@ public:
 
 		if ( m_glRenderStateDirty || ! m_OGLPrimitiveVertexBuffer.IsMergableMode(mode) ) {
 #ifdef _XBOX
-			g_SPXBFakeGLStateFlushes++;
+			SPXB_HOT_INC(g_SPXBFakeGLStateFlushes);
 #endif
 			internalEnd();
 			SetGLRenderState();

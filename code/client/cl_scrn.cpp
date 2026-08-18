@@ -66,7 +66,6 @@ void SCR_DrawPic( float x, float y, float width, float height, qhandle_t hShader
 	re.DrawStretchPic( x, y, width, height, 0, 0, 1, 1, hShader );
 }
 
-
 /*
 ** SCR_DrawBigChar
 ** big chars are drawn at 640*480 virtual screen size
@@ -367,9 +366,10 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 #ifdef _XBOX
 	static int s_xboxDrawScreenTraceCount = 0;
 	static int s_xboxDrawScreenActiveTraceCount = 0;
-	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
+	SPXB_HOT_INC(g_SPXBScreenDrawCalls);
+	const int xboxTraceScreen = SP_XBOX_HOT_TELEMETRY && ((cls.state == CA_ACTIVE)
 		? (s_xboxDrawScreenActiveTraceCount < 16 || ((s_xboxDrawScreenActiveTraceCount & 255) == 0))
-		: (s_xboxDrawScreenTraceCount < 8);
+		: (s_xboxDrawScreenTraceCount < 8));
 	if (xboxTraceScreen)
 	{
 		XBLF("JA: SCR_DrawScreenField enter state=%d serverTime=%d stereo=%d", (int)cls.state, cl.serverTime, (int)stereoFrame);
@@ -401,6 +401,10 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// don't need to render anything under it
 #ifdef _XBOX
 	const qboolean xboxForceDirectMapGameDraw = (Sys_IsDirectMapBoot() && cls.state == CA_ACTIVE);
+	if (xboxForceDirectMapGameDraw)
+	{
+		SPXB_HOT_INC(g_SPXBScreenForceDirectCalls);
+	}
 #else
 	const qboolean xboxForceDirectMapGameDraw = qfalse;
 #endif
@@ -410,6 +414,9 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			Com_Error( ERR_FATAL, "SCR_DrawScreenField: bad cls.state" );
 			break;
 		case CA_CINEMATIC:
+			#ifdef _XBOX
+			SPXB_HOT_INC(g_SPXBScreenCinematicDraws);
+			#endif
 			SCR_DrawCinematic();
 			break;
 		case CA_DISCONNECTED:
@@ -429,17 +436,24 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			connectSwapOverride = false;
 
 			// draw the game information screen and loading progress
+			#ifdef _XBOX
+			SPXB_HOT_INC(g_SPXBScreenCGameCalls);
+			#endif
 			CL_CGameRendering( stereoFrame );
 			break;
 		case CA_ACTIVE:
 			if (CL_IsRunningInGameCinematic() || CL_InGameCinematicOnStandBy())
 			{
+				#ifdef _XBOX
+				SPXB_HOT_INC(g_SPXBScreenCinematicDraws);
+				#endif
 				SCR_DrawCinematic();				
 			}
 			else
 			{
 				#ifdef _XBOX
 				if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: CL_CGameRendering...");
+				SPXB_HOT_INC(g_SPXBScreenCGameCalls);
 				#endif
 				CL_CGameRendering( stereoFrame );
 				#ifdef _XBOX
@@ -449,6 +463,12 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 			break;
 		}
 	}
+#ifdef _XBOX
+	else
+	{
+		SPXB_HOT_INC(g_SPXBScreenFullscreenSkips);
+	}
+#endif
 
 #ifndef _XBOX // on xbox this is rendered right before a flip
 	re.ProcessDissolve();
@@ -459,12 +479,14 @@ void SCR_DrawScreenField( stereoFrame_t stereoFrame ) {
 	// the menu draws next
 #ifdef _XBOX
 	if (xboxForceDirectMapGameDraw) {
+		SPXB_HOT_INC(g_SPXBScreenDirectReturns);
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: skipping UI refresh for direct-map active frame");
 		return;
 	}
 #endif
 	#ifdef _XBOX
 	if (xboxTraceScreen) XBLog_Write("JA: SCR_DrawScreenField: _UI_Refresh...");
+	SPXB_HOT_INC(g_SPXBScreenUIRefreshes);
 	#endif
 	_UI_Refresh( cls.realtime );
 #ifdef _XBOX
@@ -520,10 +542,10 @@ void SCR_UpdateScreen( void ) {
 #ifdef _XBOX
 	static int s_xboxUpdateScreenTraceCount = 0;
 	static int s_xboxUpdateScreenActiveTraceCount = 0;
-	const int xboxTraceScreenTight = (qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
-	const int xboxTraceScreen = (cls.state == CA_ACTIVE)
+	const int xboxTraceScreenTight = (SP_XBOX_HOT_TELEMETRY && qfalse && cls.state == CA_ACTIVE && cls.realtime >= 35000 && cls.realtime <= 70000);
+	const int xboxTraceScreen = SP_XBOX_HOT_TELEMETRY && ((cls.state == CA_ACTIVE)
 		? (s_xboxUpdateScreenActiveTraceCount < 16 || ((s_xboxUpdateScreenActiveTraceCount & 255) == 0))
-		: (s_xboxUpdateScreenTraceCount < 8);
+		: (s_xboxUpdateScreenTraceCount < 8));
 #endif
 
 	// if running in stereo, we need to draw the frame twice

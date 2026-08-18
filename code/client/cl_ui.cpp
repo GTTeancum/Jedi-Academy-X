@@ -7,6 +7,7 @@
 #include "client_ui.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 #endif
 
 #include "vmachine.h"
@@ -120,6 +121,20 @@ Key_GetCatcher
 */
 void Key_SetCatcher( int catcher ) 
 {
+#ifdef _XBOX
+	g_SPXBKeyCatchers = (unsigned int)catcher;
+	static int s_keyCatcherTraceBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 120 : 0;
+	if (s_keyCatcherTraceBudget > 0 && cls.keyCatchers != catcher)
+	{
+		--s_keyCatcherTraceBudget;
+		XBLog_Writef("JA: KEY_TRACE setcatcher old=0x%x new=0x%x state=%d ui=%d cgame=%d",
+			(unsigned int)cls.keyCatchers,
+			(unsigned int)catcher,
+			(int)cls.state,
+			(int)cls.uiStarted,
+			(int)cls.cgameStarted);
+	}
+#endif
 	cls.keyCatchers = catcher;
 }
 
@@ -201,6 +216,7 @@ void CL_InitUI( void ) {
 	uiimport_t	uii;
 
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55493031; /* 'UI01' */
 	XBLF("JA: CL_InitUI entered state=%d renderer=%d cgame=%d ui=%d",
 		(int)cls.state,
 		(int)cls.rendererStarted,
@@ -306,6 +322,7 @@ void CL_InitUI( void ) {
 	uii.Milliseconds			= Sys_Milliseconds;
 
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55493032; /* 'UI02' */
 	XBLF("JA: CL_InitUI: callbacks ready Printf=%p Error=%p RegisterShaderNoMip=%p DrawStretchPic=%p UpdateScreen=%p",
 		(void*)uii.Printf,
 		(void*)uii.Error,
@@ -316,14 +333,17 @@ void CL_InitUI( void ) {
 #endif
 	UI_Init(UI_API_VERSION, &uii, (cls.state > CA_DISCONNECTED && cls.state <= CA_ACTIVE));
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55493033; /* 'UI03' */
 	XBLog_Write("JA: CL_InitUI: UI_Init returned");
 #endif
 
 //JLF MPSKIPPED
 #ifdef _XBOX
 	extern void UpdateDemoTimer();
+	g_SPXBPhaseLast = 0x55493034; /* 'UI04' */
 	XBLog_Write("JA: CL_InitUI: UpdateDemoTimer...");
 	UpdateDemoTimer();
+	g_SPXBPhaseLast = 0x55493035; /* 'UI05' */
 	XBLog_Write("JA: CL_InitUI done");
 
 #endif

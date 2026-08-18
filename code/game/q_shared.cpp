@@ -221,12 +221,11 @@ static	char	com_token[MAX_TOKEN_CHARS];
 //JLFCALLOUT MPNOTUSED
 //#include functionality for files
 int parseDataCount = -1;
-parseData_t parseData[2];
+parseData_t parseData[MAX_PARSEFILES];
 
 void COM_ParseInit( void )
 {
-	memset(&(parseData[0]),0,sizeof(parseData_t));
-	memset(&(parseData[1]),0,sizeof(parseData_t));
+	memset(parseData, 0, sizeof(parseData));
 	COM_BeginParseSession();
 }
 
@@ -234,9 +233,20 @@ void COM_ParseInit( void )
 void COM_BeginParseSession( bool nested )
 {
 	if (nested)
-		parseDataCount =1;
+	{
+		if (parseDataCount < MAX_PARSEFILES - 1)
+		{
+			parseDataCount++;
+		}
+		else
+		{
+			parseDataCount = MAX_PARSEFILES - 1;
+		}
+	}
 	else
+	{
 		parseDataCount = 0;
+	}
 	parseData[parseDataCount].com_lines = 1;
 	
 }
@@ -284,7 +294,10 @@ const char *SkipWhitespace( const char *data, qboolean *hasNewLines )
 		}
 		if( c == '\n' ) 
 		{
-			parseData[parseDataCount].com_lines++;
+			if (parseDataCount >= 0)
+			{
+				parseData[parseDataCount].com_lines++;
+			}
 			*hasNewLines = qtrue;
 		}
 		data++;
@@ -387,7 +400,10 @@ char *COM_ParseExt( const char **data_p, qboolean allowLineBreaks )
 		c = *data;
 		if ( c == '\n' )
 		{
-			parseData[parseDataCount].com_lines++;
+			if (parseDataCount >= 0)
+			{
+				parseData[parseDataCount].com_lines++;
+			}
 		}
 	} while (c>32);
 
@@ -538,7 +554,10 @@ void SkipRestOfLine ( const char **data ) {
 	p = *data;
 	while ( (c = *p++) != 0 ) {
 		if ( c == '\n' ) {
-			parseData[parseDataCount].com_lines++;
+			if (parseDataCount >= 0)
+			{
+				parseData[parseDataCount].com_lines++;
+			}
 			break;
 		}
 	}

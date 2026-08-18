@@ -109,6 +109,16 @@ extern "C" volatile unsigned int g_SPXBFramebufferWidth;
 extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
+
+// Xemu is sensitive to skipped texture/stage updates: broad caching caused
+// black geometry with only brief sky flashes. Keep texture combiner state
+// write-through, but allow lower-risk render/transform skips.
+#define XBOX_FAKEGL_CACHE_TEXTURE_STAGE_STATE 0
+#define XBOX_FAKEGL_CACHE_TEXTURE_SAMPLER_STATE 0
+#define XBOX_FAKEGL_CACHE_BOUND_TEXTURE       1
+#define XBOX_FAKEGL_CACHE_RENDER_STATE        1
+#define XBOX_FAKEGL_CACHE_TRANSFORM           1
+#define XBOX_FAKEGL_USE_PUSHBUFFER_SUBMIT     1
 #endif
 
 class TextureEntry
@@ -754,7 +764,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_xboxTextureStateEntryStage1LogCount = 0;
-			if (m_stage[1].GetTexture2D() && s_xboxTextureStateEntryStage1LogCount < 8)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && m_stage[1].GetTexture2D() && s_xboxTextureStateEntryStage1LogCount < 8)
 			{
 				XBLF("JA: fakegl texture state entry dirty=%d maxStages=%d currentStage=%d stage0 dirty=%d tex=%u enabled=%d env=0x%08x stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
 					m_dirty ? 1 : 0,
@@ -776,7 +786,7 @@ public:
 		{
 #ifdef _XBOX
 			static int s_xboxTextureStateCleanLogCount = 0;
-			if (s_xboxTextureStateCleanLogCount < 4)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxTextureStateCleanLogCount < 4)
 			{
 				XBLF("JA: fakegl texture state apply skipped dirty=0 currentStage=%d maxStages=%d stage0 tex=%u enabled=%d stage1 tex=%u enabled=%d",
 					m_currentStage,
@@ -808,7 +818,7 @@ public:
 #ifdef _XBOX
 			{
 				static int s_xboxTextureStageLoopLogCount = 0;
-				if ((i == 1 || s_xboxTextureStageLoopLogCount < 4) && s_xboxTextureStageLoopLogCount < 16)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (i == 1 || s_xboxTextureStageLoopLogCount < 4) && s_xboxTextureStageLoopLogCount < 16)
 				{
 					XBLF("JA: fakegl texture stage loop i=%d maxStages=%d dirty=%d tex=%u enabled=%d env=0x%08x textureDirty=%d currentStage=%d",
 						i,
@@ -827,7 +837,7 @@ public:
 			{
 #ifdef _XBOX
 				static int s_xboxStageCleanLogCount = 0;
-				if (i == 1 && s_xboxStageCleanLogCount < 8)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && i == 1 && s_xboxStageCleanLogCount < 8)
 				{
 					XBLF("JA: fakegl stage state stage=1 skip dirty=0 tex=%u enabled=%d env=0x%08x currentStage=%d",
 						(unsigned int)m_stage[i].GetCurrentTexture(),
@@ -850,7 +860,7 @@ public:
 				if (i == 1)
 				{
 					static int s_xboxStage1PreApplyLogCount = 0;
-					if (s_xboxStage1PreApplyLogCount < 8)
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1PreApplyLogCount < 8)
 					{
 						XBLF("JA: fakegl stage1 preapply tex=%u env=0x%08x colorOp=0x%08lx colorArg1=0x%08lx colorArg2=0x%08lx",
 							(unsigned int)m_stage[i].GetCurrentTexture(),
@@ -884,7 +894,7 @@ public:
 				{
 					static int s_xboxStageStateLogCount = 0;
 					static int s_xboxStage1StateLogCount = 0;
-					if (s_xboxStageStateLogCount < 8 || (i > 0 && s_xboxStage1StateLogCount < 8))
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxStageStateLogCount < 8 || (i > 0 && s_xboxStage1StateLogCount < 8)))
 					{
 						XBLF("JA: fakegl stage state stage=%d enabled=1 tex=%u env=0x%08x colorOp=0x%08lx colorArg1=0x%08lx colorArg2=0x%08lx alphaOp=0x%08lx alphaArg1=0x%08lx alphaArg2=0x%08lx",
 							i,
@@ -906,7 +916,7 @@ public:
 				if (i == 1)
 				{
 					static int s_xboxStage1ApplyHrLogCount = 0;
-					if (s_xboxStage1ApplyHrLogCount < 8)
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1ApplyHrLogCount < 8)
 					{
 						XBLF("JA: fakegl stage1 apply hr colorArg1=0x%08lx colorArg2=0x%08lx colorOp=0x%08lx alphaArg1=0x%08lx alphaArg2=0x%08lx alphaOp=0x%08lx",
 							(unsigned long)hrColorArg1,
@@ -921,7 +931,7 @@ public:
 				if (i == 1)
 				{
 					static int s_xboxStage1TexTransformLogCount = 0;
-					if (s_xboxStage1TexTransformLogCount < 8)
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1TexTransformLogCount < 8)
 					{
 						XBLF("JA: fakegl stage1 texcoord state hr index=0x%08lx transform=0x%08lx flags=COUNT2",
 							(unsigned long)hrTexCoordIndex,
@@ -938,7 +948,7 @@ public:
 					if (i == 1)
 					{
 						static int s_xboxStage1EntryLogCount = 0;
-						if (s_xboxStage1EntryLogCount < 8)
+						if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1EntryLogCount < 8)
 						{
 							XBLF("JA: fakegl stage1 texture entry reqTex=%u entryId=%u ptr=%p fmt=0x%08x internal=0x%08x min=%d mag=%d",
 								(unsigned int)m_stage[i].GetCurrentTexture(),
@@ -986,7 +996,7 @@ public:
 					if (i == 1)
 					{
 						static int s_xboxStage1AddressLogCount = 0;
-						if (s_xboxStage1AddressLogCount < 8)
+						if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1AddressLogCount < 8)
 						{
 							XBLF("JA: fakegl stage1 address wrapS=0x%08x wrapT=0x%08x addrU=0x%08lx addrV=0x%08lx",
 								(unsigned int)entry->m_glTexParameter2DWrapS,
@@ -1006,11 +1016,11 @@ public:
 #ifdef _XBOX
 						static int s_xboxSetTextureLogCount = 0;
 						static int s_xboxSetTextureStage1LogCount = 0;
-						const bool logSetTexture = (s_xboxSetTextureLogCount < 8 || (i > 0 && s_xboxSetTextureStage1LogCount < 8));
+						const bool logSetTexture = SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxSetTextureLogCount < 8 || (i > 0 && s_xboxSetTextureStage1LogCount < 8));
 						if (i == 1)
 						{
 							static int s_xboxStage1SetTextureDirectLogCount = 0;
-							if (s_xboxStage1SetTextureDirectLogCount < 8)
+							if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1SetTextureDirectLogCount < 8)
 							{
 								XBLF("JA: fakegl stage1 SetTexture direct pre texid=%d ptr=%p fmt=0x%08x internal=0x%08x",
 									entry->m_id, (void*)pTexture, (unsigned int)entry->m_format,
@@ -1030,7 +1040,7 @@ public:
 						if (i == 1)
 						{
 							static int s_xboxStage1SetTextureDirectHrLogCount = 0;
-							if (s_xboxStage1SetTextureDirectHrLogCount < 8)
+							if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStage1SetTextureDirectHrLogCount < 8)
 							{
 								XBLF("JA: fakegl stage1 SetTexture direct post hr=0x%08lx",
 									(unsigned long)hrSetTexture);
@@ -1103,7 +1113,7 @@ public:
 #ifdef _XBOX
 				{
 					static int s_xboxStageDisableLogCount = 0;
-					if (s_xboxStageDisableLogCount < 8)
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxStageDisableLogCount < 8)
 					{
 						XBLF("JA: fakegl stage state stage=%d enabled=0 tex=%u colorOp=DISABLE",
 							i,
@@ -1130,15 +1140,46 @@ private:
 		memset(m_boundTexture, 0, sizeof(m_boundTexture));
 	}
 
+	bool CanCacheTextureStageState(D3DTEXTURESTAGESTATETYPE state) const
+	{
+		if (XBOX_FAKEGL_CACHE_TEXTURE_STAGE_STATE)
+		{
+			return true;
+		}
+		if (!XBOX_FAKEGL_CACHE_TEXTURE_SAMPLER_STATE)
+		{
+			return false;
+		}
+
+		switch (state)
+		{
+		case D3DTSS_MINFILTER:
+		case D3DTSS_MIPFILTER:
+		case D3DTSS_MAGFILTER:
+		case D3DTSS_ADDRESSU:
+		case D3DTSS_ADDRESSV:
+		case D3DTSS_MAXANISOTROPY:
+		case D3DTSS_MAXMIPLEVEL:
+		case D3DTSS_MIPMAPLODBIAS:
+			return true;
+		default:
+			return false;
+		}
+	}
+
 	HRESULT SetTextureStageStateCached(IDirect3DDevice8* pD3DDev, DWORD stage, D3DTEXTURESTAGESTATETYPE state, DWORD value)
 	{
 		const DWORD stateIndex = (DWORD)state;
-		if (stage < MAXSTATES && stateIndex < kStageStateCacheCount &&
+
+		if (CanCacheTextureStageState(state) &&
+			stage < MAXSTATES && stateIndex < kStageStateCacheCount &&
 			m_stageStateValid[stage][stateIndex] && m_stageStateValue[stage][stateIndex] == value)
 		{
 			return S_OK;
 		}
 
+		// Xemu can lose fidelity when skipped FakeGL state uploads drift from
+		// the actual D3D device state. Keep the cache as a mirror only.
 		HRESULT hr = pD3DDev->SetTextureStageState(stage, state, value);
 		if (SUCCEEDED(hr) && stage < MAXSTATES && stateIndex < kStageStateCacheCount)
 		{
@@ -1150,10 +1191,12 @@ private:
 
 	HRESULT SetTextureCached(IDirect3DDevice8* pD3DDev, DWORD stage, IDirect3DTexture8* texture)
 	{
+#if XBOX_FAKEGL_CACHE_BOUND_TEXTURE
 		if (stage < MAXSTATES && m_boundTextureValid[stage] && m_boundTexture[stage] == texture)
 		{
 			return S_OK;
 		}
+#endif
 
 		HRESULT hr = pD3DDev->SetTexture(stage, texture);
 		if (SUCCEEDED(hr) && stage < MAXSTATES)
@@ -1220,7 +1263,7 @@ public:
 		m_pD3DDev = 0;
 		m_color = 0xff000000; // Don't know if this is correct
 #ifdef _XBOX
-		m_useXboxPushbufferSubmit = true;
+		m_useXboxPushbufferSubmit = XBOX_FAKEGL_USE_PUSHBUFFER_SUBMIT ? true : false;
 		m_lastSetVertexShader = 0xffffffff;
 #endif
 	}
@@ -1424,7 +1467,7 @@ public:
 
 		if (removedTris)
 		{
-			static int s_clipTriangleLogBudget = 32;
+			static int s_clipTriangleLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 32 : 0;
 			if (s_clipTriangleLogBudget > 0)
 			{
 				XBLF("JA: fakegl CPU clip trianglelist removed=%lu kept=%lu plane=%g,%g,%g,%g",
@@ -1464,7 +1507,7 @@ public:
 			}
 		}
 
-		static int s_clipDrawLogBudget = 16;
+		static int s_clipDrawLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 16 : 0;
 		if (s_clipDrawLogBudget > 0)
 		{
 			XBLF("JA: fakegl CPU clip skipped draw mode=0x%08x verts=%lu plane=%g,%g,%g,%g",
@@ -1585,9 +1628,9 @@ public:
 			static int s_xboxDrawLogCount = 0;
 			const bool logDraw = false;
 			{
-				static int s_xboxTwoStageVertexLogCount = 0;
+				static int s_xboxTwoStageVertexLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 8 : 0;
 				const int textureStages = (m_vertexTypeDesc & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT;
-				if (textureStages >= 2 && m_vertexCount > 0 && s_xboxTwoStageVertexLogCount < 8)
+				if (textureStages >= 2 && m_vertexCount > 0 && s_xboxTwoStageVertexLogBudget > 0)
 				{
 					const DWORD *v = (const DWORD *)m_OGLPrimitiveVertexBuffer;
 					const float x = *(const float *)&v[0];
@@ -1599,7 +1642,7 @@ public:
 					const float s1 = *(const float *)&v[6];
 					const float t1 = *(const float *)&v[7];
 					XBLF("JA: fakegl two-stage draw sample #%d mode=0x%08x prim=%d prims=%lu verts=%lu fvf=0x%08lx stride=%d xyz=%g,%g,%g color=0x%08lx st0=%g,%g st1=%g,%g",
-						s_xboxTwoStageVertexLogCount,
+						8 - s_xboxTwoStageVertexLogBudget,
 						(unsigned int)m_drawMode,
 						(int)dptPrimitiveType,
 						(unsigned long)primCount,
@@ -1610,7 +1653,7 @@ public:
 						color,
 						s0, t0,
 						s1, t1);
-					++s_xboxTwoStageVertexLogCount;
+					--s_xboxTwoStageVertexLogBudget;
 				}
 			}
 			if (logDraw)
@@ -1755,8 +1798,8 @@ private:
 
 	bool TryPushbufferPrimitiveXbox(D3DPRIMITIVETYPE dptPrimitiveType, DWORD primCount, const void *vertices)
 	{
-		static int s_xboxPushSubmitLogCount = 0;
-		static int s_xboxPushFallbackLogCount = 0;
+		static int s_xboxPushSubmitLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 8 : 0;
+		static int s_xboxPushFallbackLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 8 : 0;
 
 		if (!m_useXboxPushbufferSubmit || !m_pD3DDev || !vertices || m_vertexSize <= 0)
 		{
@@ -1765,10 +1808,10 @@ private:
 
 		if ((m_vertexSize % sizeof(DWORD)) != 0)
 		{
-			if (s_xboxPushFallbackLogCount < 8)
+			if (s_xboxPushFallbackLogBudget > 0)
 			{
 				XBLF("JA: fakegl push submit fallback unaligned stride=%d", m_vertexSize);
-				++s_xboxPushFallbackLogCount;
+				--s_xboxPushFallbackLogBudget;
 			}
 			return false;
 		}
@@ -1788,18 +1831,18 @@ private:
 			const bool pushed = PushbufferSubmitChunkXbox(dptPrimitiveType, vertexCount, vertices);
 			if (pushed)
 			{
-				g_SPXBFakeGLPrimitiveCalls++;
-				g_SPXBFakeGLPrimitiveVerts += vertexCount;
-				if (s_xboxPushSubmitLogCount < 8)
+				SPXB_HOT_INC(g_SPXBFakeGLPrimitiveCalls);
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, vertexCount);
+				if (s_xboxPushSubmitLogBudget > 0)
 				{
 					XBLF("JA: fakegl push submit #%d type=%d prims=%lu verts=%lu stride=%d fvf=0x%08lx",
-						s_xboxPushSubmitLogCount,
+						8 - s_xboxPushSubmitLogBudget,
 						(int)dptPrimitiveType,
 						(unsigned long)primCount,
 						(unsigned long)vertexCount,
 						m_vertexSize,
 						(unsigned long)m_vertexTypeDesc);
-					++s_xboxPushSubmitLogCount;
+					--s_xboxPushSubmitLogBudget;
 				}
 			}
 			return pushed;
@@ -1808,14 +1851,14 @@ private:
 		const DWORD chunkPrimsLimit = PrimitiveChunkLimit(dptPrimitiveType, maxVerts);
 		if (chunkPrimsLimit == 0)
 		{
-			if (s_xboxPushFallbackLogCount < 8)
+			if (s_xboxPushFallbackLogBudget > 0)
 			{
 				XBLF("JA: fakegl push submit fallback unsplittable type=%d prims=%lu verts=%lu maxVerts=%lu",
 					(int)dptPrimitiveType,
 					(unsigned long)primCount,
 					(unsigned long)vertexCount,
 					(unsigned long)maxVerts);
-				++s_xboxPushFallbackLogCount;
+				--s_xboxPushFallbackLogBudget;
 			}
 			return false;
 		}
@@ -1839,21 +1882,21 @@ private:
 			{
 				return false;
 			}
-			g_SPXBFakeGLPrimitiveCalls++;
-			g_SPXBFakeGLPrimitiveVerts += chunkVerts;
+			SPXB_HOT_INC(g_SPXBFakeGLPrimitiveCalls);
+			SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, chunkVerts);
 			primBase += chunkPrims;
 		}
 
-		if (s_xboxPushSubmitLogCount < 8)
+		if (s_xboxPushSubmitLogBudget > 0)
 		{
 			XBLF("JA: fakegl push submit #%d chunked type=%d prims=%lu verts=%lu stride=%d fvf=0x%08lx",
-				s_xboxPushSubmitLogCount,
+				8 - s_xboxPushSubmitLogBudget,
 				(int)dptPrimitiveType,
 				(unsigned long)primCount,
 				(unsigned long)vertexCount,
 				m_vertexSize,
 				(unsigned long)m_vertexTypeDesc);
-			++s_xboxPushSubmitLogCount;
+			--s_xboxPushSubmitLogBudget;
 		}
 		return true;
 	}
@@ -1863,7 +1906,7 @@ private:
 	{
 #ifdef _XBOX
 		static int s_xboxChunkLogCount = 0;
-		static int s_xboxSubmitLogCount = 0;
+		static int s_xboxSubmitLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 16 : 0;
 		static DWORD s_xboxDrawSubmitCount = 0;
 		const DWORD maxTriangleListPrims = 2048;
 		HRESULT firstFailure = S_OK;
@@ -1900,7 +1943,7 @@ private:
 					s_xboxChunkLogCount++;
 				}
 
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
+				if (xboxTraceSubmit || s_xboxSubmitLogBudget > 0)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk pre type=%d prims=%lu verts=%p stride=%d",
 						(unsigned long)s_xboxDrawSubmitCount, (int)dptPrimitiveType,
@@ -1911,9 +1954,9 @@ private:
 					chunkPrims,
 					base + (primBase * 3 * m_vertexSize),
 					m_vertexSize);
-				g_SPXBFakeGLPrimitiveCalls++;
-				g_SPXBFakeGLPrimitiveVerts += chunkPrims * 3;
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
+				SPXB_HOT_INC(g_SPXBFakeGLPrimitiveCalls);
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, chunkPrims * 3);
+				if (xboxTraceSubmit || s_xboxSubmitLogBudget > 0)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu chunk post hr=0x%08lx",
 						(unsigned long)s_xboxDrawSubmitCount, (unsigned long)hr);
@@ -1923,13 +1966,13 @@ private:
 					firstFailure = hr;
 				}
 
-				if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
+				if (xboxTraceSubmit || s_xboxSubmitLogBudget > 0)
 				{
 					XBLF("JA: fakegl DrawPrimitiveUP submit #%lu complete",
 						(unsigned long)s_xboxDrawSubmitCount);
-					if (s_xboxSubmitLogCount < 16)
+					if (!xboxTraceSubmit && s_xboxSubmitLogBudget > 0)
 					{
-						++s_xboxSubmitLogCount;
+						--s_xboxSubmitLogBudget;
 					}
 				}
 				s_xboxDrawSubmitCount++;
@@ -1941,48 +1984,48 @@ private:
 
 		{
 			const bool xboxTraceSubmit = false;
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
+			if (xboxTraceSubmit || s_xboxSubmitLogBudget > 0)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct pre type=%d prims=%lu verts=%p stride=%d",
 					(unsigned long)s_xboxDrawSubmitCount, (int)dptPrimitiveType,
 					(unsigned long)primCount, vertices, m_vertexSize);
 			}
 			HRESULT hr = m_pD3DDev->DrawPrimitiveUP(dptPrimitiveType, primCount, vertices, m_vertexSize);
-			g_SPXBFakeGLPrimitiveCalls++;
+			SPXB_HOT_INC(g_SPXBFakeGLPrimitiveCalls);
 			switch (dptPrimitiveType)
 			{
 			case D3DPT_TRIANGLELIST:
-				g_SPXBFakeGLPrimitiveVerts += primCount * 3;
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, primCount * 3);
 				break;
 			case D3DPT_TRIANGLESTRIP:
 			case D3DPT_TRIANGLEFAN:
-				g_SPXBFakeGLPrimitiveVerts += primCount + 2;
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, primCount + 2);
 				break;
 			case D3DPT_LINELIST:
-				g_SPXBFakeGLPrimitiveVerts += primCount * 2;
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, primCount * 2);
 				break;
 			case D3DPT_LINESTRIP:
-				g_SPXBFakeGLPrimitiveVerts += primCount + 1;
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, primCount + 1);
 				break;
 			case D3DPT_POINTLIST:
-				g_SPXBFakeGLPrimitiveVerts += primCount;
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, primCount);
 				break;
 			default:
-				g_SPXBFakeGLPrimitiveVerts += primCount;
+				SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, primCount);
 				break;
 			}
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
+			if (xboxTraceSubmit || s_xboxSubmitLogBudget > 0)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu direct post hr=0x%08lx",
 					(unsigned long)s_xboxDrawSubmitCount, (unsigned long)hr);
 			}
-			if (xboxTraceSubmit || s_xboxSubmitLogCount < 16)
+			if (xboxTraceSubmit || s_xboxSubmitLogBudget > 0)
 			{
 				XBLF("JA: fakegl DrawPrimitiveUP submit #%lu complete",
 					(unsigned long)s_xboxDrawSubmitCount);
-				if (s_xboxSubmitLogCount < 16)
+				if (!xboxTraceSubmit && s_xboxSubmitLogBudget > 0)
 				{
-					++s_xboxSubmitLogCount;
+					--s_xboxSubmitLogBudget;
 				}
 			}
 			s_xboxDrawSubmitCount++;
@@ -2761,7 +2804,7 @@ public:
 				static int s_xboxBeginStateLogCount = 0;
 				static int s_xboxBeginStage1LogCount = 0;
 				const bool beginStage1Active = m_textureState.GetStageTexture2D(1);
-				if (s_xboxBeginStateLogCount < 16 || (beginStage1Active && s_xboxBeginStage1LogCount < 24))
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxBeginStateLogCount < 16 || (beginStage1Active && s_xboxBeginStage1LogCount < 24)))
 				{
 					XBLF("JA: fakegl glBegin state mode=0x%08x dirty=%d textureDirty=%d mergable=%d maxStages=%d currentStage=%d stage0 dirty=%d tex=%u enabled=%d env=0x%08x stage1 dirty=%d tex=%u enabled=%d env=0x%08x",
 						(unsigned int)mode,
@@ -2786,7 +2829,7 @@ public:
 				}
 			}
 #endif
-			g_SPXBFakeGLStateFlushes++;
+			SPXB_HOT_INC(g_SPXBFakeGLStateFlushes);
 			internalEnd();
 			SetGLRenderState();
 			DWORD typeDesc;
@@ -2841,7 +2884,7 @@ public:
 		internalEnd();
 		if ( m_glRenderStateDirty )
 		{
-			g_SPXBFakeGLStateFlushes++;
+			SPXB_HOT_INC(g_SPXBFakeGLStateFlushes);
 			SetGLRenderState();
 		}
 
@@ -2882,10 +2925,11 @@ public:
 			return false;
 		}
 
-		g_SPXBFakeGLPrimitiveCalls++;
-		g_SPXBFakeGLPrimitiveVerts += vertexCount;
+		SPXB_HOT_INC(g_SPXBFakeGLPrimitiveCalls);
+		SPXB_HOT_ADD(g_SPXBFakeGLPrimitiveVerts, vertexCount);
 		return true;
 	}
+
 #endif
 
 	void glBindTexture(GLenum target, GLuint texture)
@@ -2900,7 +2944,7 @@ public:
 #ifdef _XBOX
 			{
 				static int s_xboxBindTextureLogCount = 0;
-				if (s_xboxBindTextureLogCount < 32 || (m_textureState.GetCurrentStage() == 1 && s_xboxBindTextureLogCount < 64))
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxBindTextureLogCount < 32 || (m_textureState.GetCurrentStage() == 1 && s_xboxBindTextureLogCount < 64)))
 				{
 					XBLF("JA: fakegl glBindTexture stage=%d old=%u new=%u target=0x%08x",
 						m_textureState.GetCurrentStage(),
@@ -2931,7 +2975,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_xboxSelectTextureLogCount = 0;
-			if (s_xboxSelectTextureLogCount < 32 || (textStage == 1 && s_xboxSelectTextureLogCount < 64))
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxSelectTextureLogCount < 32 || (textStage == 1 && s_xboxSelectTextureLogCount < 64)))
 			{
 				XBLF("JA: fakegl select texture target=0x%08x stage=%d currentTex=%u enabled=%d",
 					(unsigned int)target,
@@ -3034,7 +3078,7 @@ public:
 			SetRenderStateDirty();
 #ifdef _XBOX
 			static int s_clipPlaneSetLogCount = 0;
-			if (s_clipPlaneSetLogCount < 16)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_clipPlaneSetLogCount < 16)
 			{
 				XBLF("JA: fakegl GL_CLIP_PLANE0 plane=%g,%g,%g,%g",
 					m_glClipPlane0[0], m_glClipPlane0[1],
@@ -3069,7 +3113,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_scissorLogCount = 0;
-			if (s_scissorLogCount < 16)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_scissorLogCount < 16)
 			{
 				XBLF("JA: fakegl Scissor enabled=%d rect=%ld,%ld,%ld,%ld",
 					m_glScissorTest ? 1 : 0,
@@ -3180,7 +3224,7 @@ public:
 #ifdef _XBOX
 				{
 					static int s_xboxTexture2DLogCount = 0;
-					if (s_xboxTexture2DLogCount < 16 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexture2DLogCount < 32))
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxTexture2DLogCount < 16 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexture2DLogCount < 32)))
 					{
 						XBLF("JA: fakegl texture2d stage=%d value=%d old=%d tex=%u",
 							m_textureState.GetCurrentStage(),
@@ -3216,7 +3260,7 @@ public:
 #ifdef _XBOX
 				{
 					static int s_fogEnableLogCount = 0;
-					if (s_fogEnableLogCount < 24)
+					if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_fogEnableLogCount < 24)
 					{
 						XBLF("JA: fakegl fog %s mode=0x%04x start=%g end=%g density=%g color=0x%08x",
 							value ? "enable" : "disable",
@@ -3243,7 +3287,7 @@ public:
 #ifdef _XBOX
 			{
 				static int s_clipPlaneLogCount = 0;
-				if (s_clipPlaneLogCount < 16)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_clipPlaneLogCount < 16)
 				{
 					XBLF("JA: fakegl GL_CLIP_PLANE0 %s no-op on Xbox fixed-function path",
 						value ? "enable" : "disable");
@@ -3337,7 +3381,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_fogfLogCount = 0;
-			if (s_fogfLogCount < 24)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_fogfLogCount < 24)
 			{
 				XBLF("JA: fakegl fogf pname=0x%04x param=%g", (unsigned int)pname, (float)param);
 			}
@@ -3369,7 +3413,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_fogfvLogCount = 0;
-			if (s_fogfvLogCount < 24)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_fogfvLogCount < 24)
 			{
 				XBLF("JA: fakegl fog color %g,%g,%g -> 0x%08x",
 					(float)params[0], (float)params[1], (float)params[2], (unsigned int)m_glFogColor);
@@ -3395,7 +3439,7 @@ public:
 #ifdef _XBOX
 		{
 			static int s_fogiLogCount = 0;
-			if (s_fogiLogCount < 24)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_fogiLogCount < 24)
 			{
 				XBLF("JA: fakegl fog mode=0x%04x", (unsigned int)param);
 			}
@@ -3740,7 +3784,7 @@ public:
 #ifdef _XBOX
 			{
 				static int s_xboxTexEnvLogCount = 0;
-				if (s_xboxTexEnvLogCount < 64 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexEnvLogCount < 160))
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxTexEnvLogCount < 64 || (m_textureState.GetCurrentStage() == 1 && s_xboxTexEnvLogCount < 160)))
 				{
 					XBLF("JA: fakegl texenv stage=%d old=0x%08x new=0x%08x tex=%u enabled=%d",
 						m_textureState.GetCurrentStage(),
@@ -4754,8 +4798,9 @@ public:
 	void SwapBuffers()
 	{
 #ifdef _XBOX
+		SPXB_HOT_INC(g_SPXBFakeSwapBuffersCalls);
 		static int s_xboxSwapLogCount = 0;
-		const bool logSwap = (s_xboxSwapLogCount < 8 || ((s_xboxSwapLogCount & 255) == 0));
+		const bool logSwap = SP_XBOX_VERBOSE_RUNTIME_LOGS && (s_xboxSwapLogCount < 8 || ((s_xboxSwapLogCount & 255) == 0));
 		if (logSwap)
 		{
 			XBLF("JA: fakegl SwapBuffers #%d enter dev=%p needBeginScene=%d",
@@ -4887,12 +4932,17 @@ private:
 	HRESULT SetRenderStateCached(D3DRENDERSTATETYPE state, DWORD value)
 	{
 		const DWORD stateIndex = (DWORD)state;
+
+#if XBOX_FAKEGL_CACHE_RENDER_STATE
 		if (stateIndex < kRenderStateCacheCount &&
 			m_renderStateValid[stateIndex] && m_renderStateValue[stateIndex] == value)
 		{
 			return S_OK;
 		}
+#endif
 
+		// Render-state caching is kept separate from texture combiner caching so
+		// Xemu fidelity can be tested without touching lightmap stage setup.
 		HRESULT hr = m_pD3DDev->SetRenderState(state, value);
 		if (SUCCEEDED(hr) && stateIndex < kRenderStateCacheCount)
 		{
@@ -4917,11 +4967,13 @@ private:
 	HRESULT SetTransformCached(D3DTRANSFORMSTATETYPE state, const D3DMATRIX *matrix)
 	{
 		const int slot = TransformCacheSlot(state);
+#if XBOX_FAKEGL_CACHE_TRANSFORM
 		if (slot >= 0 && m_transformValid[slot] &&
 			memcmp(&m_transformValue[slot], matrix, sizeof(*matrix)) == 0)
 		{
 			return S_OK;
 		}
+#endif
 
 		HRESULT hr = m_pD3DDev->SetTransform(state, matrix);
 		if (SUCCEEDED(hr) && slot >= 0)
@@ -5030,7 +5082,7 @@ private:
 #ifdef _XBOX
 			{
 				static int s_fogApplyLogCount = 0;
-				if (s_fogApplyLogCount < 24)
+				if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_fogApplyLogCount < 24)
 				{
 					XBLF("JA: fakegl fog apply enabled=%d mode=0x%04x start=%g end=%g density=%g color=0x%08x",
 						m_glFog ? 1 : 0,
@@ -5064,7 +5116,7 @@ private:
 			m_glClipPlane0StateDirty = false;
 #ifdef _XBOX
 			static int s_clipPlaneApplyLogCount = 0;
-			if (s_clipPlaneApplyLogCount < 16)
+			if (SP_XBOX_VERBOSE_RUNTIME_LOGS && s_clipPlaneApplyLogCount < 16)
 			{
 				XBLF("JA: fakegl GL_CLIP_PLANE0 apply skipped on Xbox fixed-function path enabled=%d plane=%g,%g,%g,%g",
 					m_glClipPlane0Enabled ? 1 : 0,
@@ -5109,7 +5161,7 @@ private:
 			viewData.MaxZ = m_glDepthRangeFar;
 #ifdef _XBOX
 			{
-				static int s_xboxViewportApplyLogBudget = 16;
+				static int s_xboxViewportApplyLogBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 16 : 0;
 				if (s_xboxViewportApplyLogBudget > 0)
 				{
 					XBLF("JA: fakegl SetViewport requested=%d,%d %dx%d applied=%lu,%lu %lux%lu z=%g..%g",

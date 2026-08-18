@@ -8,8 +8,11 @@
 extern "C" volatile unsigned int g_SPXBMapPhase;
 extern "C" volatile unsigned int g_SPXBMapHash;
 extern "C" volatile unsigned int g_SPXBSvMapState;
+extern "C" volatile unsigned int g_SPXBClHunkState;
 extern "C" volatile unsigned int g_SPXBClHunkCaller;
 extern "C" volatile unsigned int g_SPXBClHunkCallCount;
+extern "C" volatile unsigned int g_SPXBCmLoadState;
+extern "C" volatile unsigned int g_SPXBCmLoadLumpLen;
 extern "C" volatile char g_SPXBMapLast[64];
 extern bool Sys_IsDirectMapBoot(void);
 
@@ -402,13 +405,20 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	int			i;
 	int			checksum;
 	char		server[64];
+#ifdef _XBOX
+	int			xboxFreedConfigstrings = 0;
+#endif
 
 	Q_strncpyz( server, iServer, sizeof(server), qtrue );
 #ifdef _XBOX
+#define SV_SOAK_TRACE(eventName, a, b, c, d) \
+	XBLog_SoakTrace("SV_SpawnServer", (eventName), server, (a), (b), (c), (d))
 	g_SPXBMapPhase = 10;
 	g_SPXBSvMapState = 10;
 	g_SPXBMapHash = SV_InitXboxHashText(server);
 	SV_InitXboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), server);
+	SV_SOAK_TRACE("enter", (int)eForceReload, (int)bAllowScreenDissolve,
+		(int)(com_sv_running ? com_sv_running->integer : -1), (int)sv.state);
 #endif
 	XBLog_Write("JA: SV_SpawnServer entered:");
 	XBLog_Write(server);
@@ -435,16 +445,34 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// Failsafe to ensure that we don't have rumbling during level load
 	extern void IN_KillRumbleScripts( void );
 	IN_KillRumbleScripts();
+	SV_SOAK_TRACE("after-xbox-failsafes", (int)stop_icarus, (int)player_locked,
+		(int)MatrixMode, (int)sv.state);
 #endif
 
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-RE_RegisterMedia_LevelLoadBegin", (int)eForceReload,
+		(int)bAllowScreenDissolve, (int)sv.time, (int)sv.state);
+#endif
 	RE_RegisterMedia_LevelLoadBegin( server, eForceReload, bAllowScreenDissolve );
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-RE_RegisterMedia_LevelLoadBegin", (int)eForceReload,
+		(int)bAllowScreenDissolve, (int)sv.time, (int)sv.state);
+#endif
 
 
 	Cvar_SetValue( "cl_paused", 0 );
 	Cvar_Set( "timescale", "1" );//jic we were skipping
 
 	// shut down the existing game if it is running
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-SV_ShutdownGameProgs", (int)sv.state, (int)sv.time,
+		(int)(ge != NULL), (int)(svs.clients != NULL));
+#endif
 	SV_ShutdownGameProgs(qtrue);
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-SV_ShutdownGameProgs", (int)sv.state, (int)sv.time,
+		(int)(ge != NULL), (int)(svs.clients != NULL));
+#endif
 
 	Com_Printf ("------ Server Initialization ------\n%s\n", com_version->string);
 	Com_Printf ("Server: %s\n",server);	
@@ -469,11 +497,27 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	g_eSavedGameJustLoaded = eSavedGameJustLoaded;
 
 	// don't let sound stutter and dump all stuff on the hunk
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-CL_MapLoading", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 	CL_MapLoading();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-CL_MapLoading", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 
 	if (!CM_SameMap(server))
 	{ //rww - only clear if not loading the same map
+#ifdef _XBOX
+		SV_SOAK_TRACE("before-CM_ClearMap", (int)sv.state, (int)sv.time,
+			(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 		CM_ClearMap();
+#ifdef _XBOX
+		SV_SOAK_TRACE("after-CM_ClearMap", (int)sv.state, (int)sv.time,
+			(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 	}
 #ifndef _XBOX
 	else if (CM_HasTerrain())
@@ -483,19 +527,47 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #endif
 
 	// Miniheap never changes sizes, so I just put it really early in mem.
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-G2VertSpaceServer-ResetHeap", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 	G2VertSpaceServer->ResetHeap();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-G2VertSpaceServer-ResetHeap", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 
 #ifdef _XBOX
 	// Deletes all textures
+	SV_SOAK_TRACE("before-R_DeleteTextures", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
 	R_DeleteTextures();
+	SV_SOAK_TRACE("after-R_DeleteTextures", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-Hunk_Clear", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
 #endif
 	Hunk_Clear();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-Hunk_Clear", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 
 	// Moved up from below to help reduce fragmentation
 	if (svs.snapshotEntities)
 	{
+#ifdef _XBOX
+		SV_SOAK_TRACE("before-free-snapshotEntities", (int)sv.state, (int)sv.time,
+			(int)svs.snapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 		Z_Free(svs.snapshotEntities);
 		svs.snapshotEntities = NULL;
+#ifdef _XBOX
+		SV_SOAK_TRACE("after-free-snapshotEntities", (int)sv.state, (int)sv.time,
+			(int)svs.snapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 	}
 
 	// wipe the entire per-level structure
@@ -504,17 +576,36 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		if ( sv.configstrings[i] ) {
 			Z_Free( sv.configstrings[i] );
 			sv.configstrings[i] = NULL;
+#ifdef _XBOX
+			++xboxFreedConfigstrings;
+#endif
 		}
 	}
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-free-configstrings", (int)sv.state, (int)sv.time,
+		xboxFreedConfigstrings, MAX_CONFIGSTRINGS);
+#endif
 
 #ifdef _XBOX
+	SV_SOAK_TRACE("before-SV_ClearLastLevel", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), xboxFreedConfigstrings);
 	SV_ClearLastLevel();
+	SV_SOAK_TRACE("after-SV_ClearLastLevel", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), xboxFreedConfigstrings);
 #endif
 
 	// Collect all the small allocations done by the cvar system
 	// This frees, then allocates. Make it the last thing before other
 	// allocations begin!
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-Cvar_Defrag", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), xboxFreedConfigstrings);
+#endif
 	Cvar_Defrag();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-Cvar_Defrag", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), xboxFreedConfigstrings);
+#endif
 
 /*
 		This is useful for debugging memory fragmentation.  Please don't
@@ -524,7 +615,11 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	g_SPXBMapPhase = 12;
 	g_SPXBSvMapState = 12;
 	// We've over-freed the info array above, this puts it back into a working state
+	SV_SOAK_TRACE("before-Ghoul2InfoArray_Reset", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), xboxFreedConfigstrings);
 	Ghoul2InfoArray_Reset();
+	SV_SOAK_TRACE("after-Ghoul2InfoArray_Reset", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), xboxFreedConfigstrings);
 
 	extern void Z_DumpMemMap_f(void);
 	extern void Z_Details_f(void);
@@ -536,14 +631,36 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	}
 #endif
 
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-InitLoadingAnimation", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 	InitLoadingAnimation();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-InitLoadingAnimation", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+	SV_SOAK_TRACE("before-UpdateLoadingAnimation-prestartup", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 	UpdateLoadingAnimation();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-UpdateLoadingAnimation-prestartup", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 
 	// init client structures and svs.numSnapshotEntities
 	// This is moved down quite a bit, but should be safe. And keeps
 	// svs.clients right at the beginning of memory
 	if ( !Cvar_VariableIntegerValue("sv_running") ) {
+#ifdef _XBOX
+		SV_SOAK_TRACE("before-SV_Startup", (int)sv.state, (int)sv.time,
+			(int)(svs.clients != NULL), (int)svs.numSnapshotEntities);
+#endif
 		SV_Startup();
+#ifdef _XBOX
+		SV_SOAK_TRACE("after-SV_Startup", (int)sv.state, (int)sv.time,
+			(int)(svs.clients != NULL), (int)svs.numSnapshotEntities);
+#endif
 	}
 
  	// clear out those shaders, images and Models
@@ -552,7 +669,15 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 //	R_ModelInit();
 
 	// allocate the snapshot entities 
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-alloc-snapshotEntities", (int)sv.state, (int)sv.time,
+		(int)(svs.snapshotEntities != NULL), (int)svs.numSnapshotEntities);
+#endif
 	svs.snapshotEntities = (entityState_t *) Z_Malloc (sizeof(entityState_t)*svs.numSnapshotEntities, TAG_CLIENTS, qtrue );
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-alloc-snapshotEntities", (int)sv.state, (int)sv.time,
+		(int)svs.snapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 
 	Music_SetLevelName(server);
 
@@ -565,12 +690,24 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	Cvar_Set( "nextmap", va("map %s", server) );
 
 
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-memset-sv", (int)sv.state, (int)sv.time,
+		(int)svs.snapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 	memset (&sv, 0, sizeof(sv));
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-memset-sv", (int)sv.state, (int)sv.time,
+		(int)svs.snapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 
 
 	for ( i = 0 ; i < MAX_CONFIGSTRINGS ; i++ ) {
 		sv.configstrings[i] = CopyString("");
 	}
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-init-configstrings", (int)sv.state, (int)sv.time,
+		(int)svs.snapshotEntities, MAX_CONFIGSTRINGS);
+#endif
 
 	sv.time = 1000;
 	G2API_SetTime(sv.time,G2T_SV_TIME);
@@ -589,31 +726,55 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 		g_SPXBClHunkCallCount++;
 		g_SPXBMapPhase = 1311;
 		g_SPXBSvMapState = 1311;
+		SV_SOAK_TRACE("before-CL_StartHunkUsers", (int)sv.state, (int)sv.time,
+			(int)g_SPXBClHunkCallCount, (int)g_SPXBClHunkState);
 		CL_StartHunkUsers();
 		g_SPXBMapPhase = 1312;
 		g_SPXBSvMapState = 1312;
+		SV_SOAK_TRACE("after-CL_StartHunkUsers", (int)sv.state, (int)sv.time,
+			(int)g_SPXBClHunkCallCount, (int)g_SPXBClHunkState);
 	}
 	g_SPXBMapPhase = 132;
 	g_SPXBSvMapState = 132;
+	SV_SOAK_TRACE("before-UpdateLoadingAnimation-before-CM", (int)sv.state, (int)sv.time,
+		(int)g_SPXBClHunkCallCount, (int)g_SPXBClHunkState);
 	UpdateLoadingAnimation();
+	SV_SOAK_TRACE("after-UpdateLoadingAnimation-before-CM", (int)sv.state, (int)sv.time,
+		(int)g_SPXBClHunkCallCount, (int)g_SPXBClHunkState);
 	g_SPXBMapPhase = 14;
 	g_SPXBSvMapState = 14;
 	g_SPXBMapPhase = 15;
 	g_SPXBSvMapState = 15;
 	XBLog_Write("JA: CM_LoadMap...");
+	SV_SOAK_TRACE("before-CM_LoadMap", (int)sv.state, (int)sv.time,
+		(int)g_SPXBCmLoadState, (int)g_SPXBCmLoadLumpLen);
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum );
 	g_SPXBMapPhase = 16;
 	g_SPXBSvMapState = 16;
 	XBLog_Write("JA: CM_LoadMap done");
+	SV_SOAK_TRACE("after-CM_LoadMap", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
+	SV_SOAK_TRACE("before-UpdateLoadingAnimation-before-RE", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
 	UpdateLoadingAnimation();
+	SV_SOAK_TRACE("after-UpdateLoadingAnimation-before-RE", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
 	g_SPXBMapPhase = 17;
 	g_SPXBSvMapState = 17;
 	XBLog_Write("JA: RE_LoadWorldMap...");
+	SV_SOAK_TRACE("before-RE_LoadWorldMap", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
 	RE_LoadWorldMap(va("maps/%s.bsp", server));
 	g_SPXBMapPhase = 18;
 	g_SPXBSvMapState = 18;
 	XBLog_Write("JA: RE_LoadWorldMap done");
+	SV_SOAK_TRACE("after-RE_LoadWorldMap", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
+	SV_SOAK_TRACE("before-UpdateLoadingAnimation-after-RE", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
 	UpdateLoadingAnimation();
+	SV_SOAK_TRACE("after-UpdateLoadingAnimation-after-RE", (int)sv.state, (int)sv.time,
+		checksum, (int)g_SPXBCmLoadState);
 #else
 	CM_LoadMap( va("maps/%s.bsp", server), qfalse, &checksum, qfalse );
 #endif
@@ -639,12 +800,16 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #ifdef _XBOX
 	g_SPXBMapPhase = 19;
 	g_SPXBSvMapState = 19;
+	SV_SOAK_TRACE("before-SV_InitGameProgs", (int)sv.state, (int)sv.time,
+		checksum, (int)(ge != NULL));
 #endif
 	XBLog_Write("JA: SV_InitGameProgs...");
 	SV_InitGameProgs();
 #ifdef _XBOX
 	g_SPXBMapPhase = 20;
 	g_SPXBSvMapState = 20;
+	SV_SOAK_TRACE("after-SV_InitGameProgs", (int)sv.state, (int)sv.time,
+		checksum, (int)(ge != NULL));
 #endif
 	XBLog_Write("JA: SV_InitGameProgs done");
 
@@ -652,24 +817,46 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #ifdef _XBOX
 	g_SPXBMapPhase = 21;
 	g_SPXBSvMapState = 21;
+	SV_SOAK_TRACE("before-settle-RunFrame-loop", (int)sv.state, (int)sv.time,
+		(int)(ge != NULL), (int)svs.numSnapshotEntities);
 #endif
 	for ( i = 0 ;i < 3 ; i++ ) {
+#ifdef _XBOX
+		SV_SOAK_TRACE("before-settle-RunFrame", (int)sv.state, (int)sv.time,
+			i, (int)(ge != NULL));
+#endif
 		ge->RunFrame( sv.time );
+#ifdef _XBOX
+		SV_SOAK_TRACE("after-settle-RunFrame", (int)sv.state, (int)sv.time,
+			i, (int)(ge != NULL));
+#endif
 		sv.time += 100;
 		G2API_SetTime(sv.time,G2T_SV_TIME);
 	}
 #ifdef _XBOX
 	g_SPXBMapPhase = 22;
 	g_SPXBSvMapState = 22;
+	SV_SOAK_TRACE("before-ConnectNavs", (int)sv.state, (int)sv.time,
+		(int)sv_mapChecksum->integer, (int)(ge != NULL));
 #endif
 	ge->ConnectNavs(sv_mapname->string, sv_mapChecksum->integer);
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-ConnectNavs", (int)sv.state, (int)sv.time,
+		(int)sv_mapChecksum->integer, (int)(ge != NULL));
+#endif
 
 	// create a baseline for more efficient communications
 #ifdef _XBOX
 	g_SPXBMapPhase = 23;
 	g_SPXBSvMapState = 23;
+	SV_SOAK_TRACE("before-SV_CreateBaseline", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
 #endif
 	SV_CreateBaseline ();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-SV_CreateBaseline", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 
 	for (i=0 ; i<1 ; i++) {
 		// clear all time counters, because we have reset sv.time
@@ -682,7 +869,15 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 			char	*denied;
 
 			// connect the client again
+#ifdef _XBOX
+			SV_SOAK_TRACE("before-ClientConnect", (int)sv.state, (int)sv.time,
+				i, (int)svs.clients[i].state);
+#endif
 			denied = ge->ClientConnect( i, qfalse, eNO/*qfalse*/ );	// firstTime = qfalse, qbFromSavedGame
+#ifdef _XBOX
+			SV_SOAK_TRACE("after-ClientConnect", (int)sv.state, (int)sv.time,
+				i, denied ? 1 : 0);
+#endif
 			if ( denied ) {
 				// this generally shouldn't happen, because the client
 				// was connected before the level change
@@ -699,8 +894,14 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 #ifdef _XBOX
 	g_SPXBMapPhase = 24;
 	g_SPXBSvMapState = 24;
+	SV_SOAK_TRACE("before-final-RunFrame", (int)sv.state, (int)sv.time,
+		(int)(ge != NULL), (int)svs.nextSnapshotEntities);
 #endif
 	ge->RunFrame( sv.time );
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-final-RunFrame", (int)sv.state, (int)sv.time,
+		(int)(ge != NULL), (int)svs.nextSnapshotEntities);
+#endif
 	sv.time += 100;
 	G2API_SetTime(sv.time,G2T_SV_TIME);
 
@@ -720,17 +921,34 @@ void SV_SpawnServer( char *iServer, ForceReload_e eForceReload, qboolean bAllowS
 	// send a heartbeat now so the master will get up to date info
 	svs.nextHeartbeatTime = -9999999;
 
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-Hunk_SetMark", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 	Hunk_SetMark();
+#ifdef _XBOX
+	SV_SOAK_TRACE("after-Hunk_SetMark", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 #ifndef _XBOX
 	Z_Validate();
 	Z_Validate();
 	Z_Validate();
 #endif
 
+#ifdef _XBOX
+	SV_SOAK_TRACE("before-StopLoadingAnimation", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
+#endif
 	StopLoadingAnimation();
 #ifdef _XBOX
 	g_SPXBMapPhase = 25;
 	g_SPXBSvMapState = 25;
+	SV_SOAK_TRACE("after-StopLoadingAnimation", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
+	SV_SOAK_TRACE("done", (int)sv.state, (int)sv.time,
+		(int)svs.nextSnapshotEntities, (int)svs.numSnapshotEntities);
+#undef SV_SOAK_TRACE
 #endif
 
 	Com_Printf ("-----------------------------------\n");

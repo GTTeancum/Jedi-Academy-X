@@ -1281,7 +1281,7 @@ void SP_misc_model_breakable( gentity_t *ent )
 		|| (ent->script_targetname && ent->script_targetname[0])
 		|| (ent->target && ent->target[0]) )
 	{
-		static int s_xboxMiscModelBreakableBroadcastBudget = 128;
+		static int s_xboxMiscModelBreakableBroadcastBudget = SP_XBOX_VERBOSE_RUNTIME_LOGS ? 128 : 0;
 		ent->svFlags |= (SVF_BROADCAST | SVF_USE_CURRENT_ORIGIN);
 		if ( s_xboxMiscModelBreakableBroadcastBudget > 0 )
 		{

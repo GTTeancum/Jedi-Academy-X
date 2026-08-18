@@ -29,7 +29,37 @@ extern stringID_table_t animTable [MAX_ANIMATIONS+1];
 #ifdef _XBOX
 #include <xtl.h>
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
 #define filepathlength 120
+
+static unsigned int UI_XboxTraceHash(const char *text)
+{
+	unsigned int hash = 2166136261u;
+	if (!text)
+	{
+		return 0;
+	}
+	while (*text)
+	{
+		hash ^= (unsigned char)*text++;
+		hash *= 16777619u;
+	}
+	return hash;
+}
+
+static void UI_XboxMenuPhase(unsigned int phase, const char *name, unsigned int detail)
+{
+	g_SPXBPhaseLast = phase;
+	g_SPXBUIActiveMenuHash = UI_XboxTraceHash(name);
+	g_SPXBUIActiveResult = detail;
+}
+
+static void UI_XboxFrontEndPhase(unsigned int phase, const char *name, unsigned int detail)
+{
+	g_SPXBFrontEndPhase = phase;
+	g_SPXBFrontEndMenuHash = UI_XboxTraceHash(name);
+	g_SPXBFrontEndResponse = detail;
+}
 #endif
 
 #include "../qcommon/xb_settings.h"
@@ -563,9 +593,13 @@ vmCvar_t	ControllerOutNum	;
 // Version of startup state machine function used when we came from MP XBE:
 void XB_FastStartup( XBStartupState startupState )
 {
+	XBLF( "JA: XB_FastStartup state=%d disabled=%d", (int)startupState, (int)Settings.IsDisabled() );
+
 	if( startupState <= STARTUP_LOAD_SETTINGS )
 	{
 		bool bSuccess = Settings.Load();
+		XBLF( "JA: XB_FastStartup Settings.Load result=%d missing=%d corrupt=%d disabled=%d",
+			(int)bSuccess, (int)Settings.Missing(), (int)Settings.Corrupt(), (int)Settings.IsDisabled() );
 		if( !bSuccess )
 		{
 			// Odd. If saving was disabled, then Load will appear to work.
@@ -579,7 +613,13 @@ void XB_FastStartup( XBStartupState startupState )
 		// Restore settings from stored (or default) settings:
 		Settings.SetAll();
 		// Save them out, in case user just deleted (and is now restoring) them:
-		Settings.Save();
+		bool bSaved = Settings.Save();
+		XBLF( "JA: XB_FastStartup Settings.Save result=%d disabled=%d", (int)bSaved, (int)Settings.IsDisabled() );
+		if( !bSaved )
+		{
+			XBLog_Write( "JA: XB_FastStartup settings save failed; disabling settings for this boot" );
+			Settings.Disable();
+		}
 
 		// mainMenu has already been opened
 	}
@@ -593,6 +633,12 @@ int blocksNeeded = 0;	// 40/44 - Blocks free
 extern bool Sys_QuickStart( void );
 void XB_Startup( XBStartupState startupState )
 {
+#ifdef _XBOX
+	UI_XboxFrontEndPhase(0x58425330, "XB_Startup", (unsigned int)startupState); /* 'XBS0' */
+#endif
+	XBLF( "JA: XB_Startup enter state=%d quick=%d splash=%d disabled=%d",
+		(int)startupState, (int)Sys_QuickStart(), Cvar_Get("inSplashMenu", "0", 0)->integer, (int)Settings.IsDisabled() );
+
 	// If we came from MP - use the express version
 	if( Sys_QuickStart() && Cvar_Get("inSplashMenu", "0", 0)->integer == 0 )
 	{
@@ -603,10 +649,16 @@ void XB_Startup( XBStartupState startupState )
 	if( startupState <= STARTUP_LOAD_SETTINGS )
 	{
 		bool bSuccess = Settings.Load();
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425331, "Settings.Load", (unsigned int)(bSuccess ? 1 : 0)); /* 'XBS1' */
+#endif
+		XBLF( "JA: XB_Startup Settings.Load result=%d missing=%d corrupt=%d disabled=%d",
+			(int)bSuccess, (int)Settings.Missing(), (int)Settings.Corrupt(), (int)Settings.IsDisabled() );
 		if( !bSuccess )
 		{
 			if( Settings.Corrupt() )
 			{
+				XBLog_Write( "JA: XB_Startup showing corrupt settings popup" );
 				UI_xboxErrorPopup( XB_POPUP_CORRUPT_SETTINGS );
 				return;
 			}
@@ -623,24 +675,47 @@ void XB_Startup( XBStartupState startupState )
 	if( startupState <= STARTUP_COMBINED_SPACE_CHECK )
 	{
 		// Is there enough room for both settings and a savegame?
-		if ( SG_BlocksLeft() < SG_SaveGameSize() + SETTINGS_NUM_BLOCKS )
+		unsigned long blocksLeft = SG_BlocksLeft();
+		unsigned long blocksNeededForStartup = SG_SaveGameSize() + SETTINGS_NUM_BLOCKS;
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425332, "Space.Combined", (unsigned int)blocksLeft); /* 'XBS2' */
+#endif
+		XBLF( "JA: XB_Startup combined space blocksLeft=%lu need=%lu", blocksLeft, blocksNeededForStartup );
+		if ( blocksLeft < blocksNeededForStartup )
 		{
-			blocksNeeded = (SG_SaveGameSize() + SETTINGS_NUM_BLOCKS) - SG_BlocksLeft();
+			blocksNeeded = blocksNeededForStartup - blocksLeft;
+			XBLF( "JA: XB_Startup showing diskfull both blocksNeeded=%d", blocksNeeded );
 			UI_xboxErrorPopup( XB_POPUP_DISKFULL_BOTH );
 			return;
 		}
 
 		// OK. There's enough room for settings - make a file:
-		Settings.Save();
+		bool bSaved = Settings.Save();
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425333, "Settings.Save", (unsigned int)(bSaved ? 1 : 0)); /* 'XBS3' */
+#endif
+		XBLF( "JA: XB_Startup Settings.Save result=%d disabled=%d", (int)bSaved, (int)Settings.IsDisabled() );
+		if( !bSaved )
+		{
+			XBLog_Write( "JA: XB_Startup settings save failed; disabling settings for this boot" );
+			Settings.Disable();
+		}
 	}
 
 	if( startupState <= STARTUP_GAME_SPACE_CHECK )
 	{
 #ifndef XBOX_DEMO	// No space checks in demo
 		// Is there enough room for another savegame?
-		if( SG_BlocksLeft() < SG_SaveGameSize() )
+		unsigned long blocksLeft = SG_BlocksLeft();
+		unsigned long blocksNeededForGame = SG_SaveGameSize();
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425334, "Space.Game", (unsigned int)blocksLeft); /* 'XBS4' */
+#endif
+		XBLF( "JA: XB_Startup game space blocksLeft=%lu need=%lu", blocksLeft, blocksNeededForGame );
+		if( blocksLeft < blocksNeededForGame )
 		{
-			blocksNeeded = SG_SaveGameSize() - SG_BlocksLeft();
+			blocksNeeded = blocksNeededForGame - blocksLeft;
+			XBLF( "JA: XB_Startup showing diskfull game blocksNeeded=%d", blocksNeeded );
 			UI_xboxErrorPopup( XB_POPUP_DISKFULL );
 			return;
 		}
@@ -651,21 +726,45 @@ void XB_Startup( XBStartupState startupState )
 	{
 		// Do we have a pending invitation? This can only return true ONCE!
 		extern bool Sys_InviteExists();
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425335, "Invite.Check", 0); /* 'XBS5' */
+		XBLog_Write("JA: XB_Startup invite check begin");
+#endif
 		if( Sys_InviteExists() )
 		{
+			XBLog_Write( "JA: XB_Startup showing invite popup" );
 			UI_xboxErrorPopup( XB_POPUP_CONFIRM_INVITE );
 			return;
 		}
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425336, "Invite.None", 0); /* 'XBS6' */
+		XBLog_Write("JA: XB_Startup invite check none");
+#endif
 	}
 
 	if( startupState <= STARTUP_FINISH )
 	{
+		const char *returnMenu = Cvar_VariableString( "returnMenu" );
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425346, returnMenu, 0); /* 'XBSF' */
+#endif
+		XBLF( "JA: XB_Startup finish applying settings and opening return menu=%s", returnMenu ? returnMenu : "(null)" );
+
 		// Restore settings from stored (or default) settings:
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425337, "Settings.SetAll", 0); /* 'XBS7' */
+#endif
 		Settings.SetAll();
 
 		// All done! Open the menu!
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425338, "Menus.CloseAll", 0); /* 'XBS8' */
+#endif
 		Menus_CloseAll();
-		Menus_ActivateByName( Cvar_VariableString( "returnMenu" ) );
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x58425339, returnMenu, 0); /* 'XBS9' */
+#endif
+		Menus_ActivateByName( returnMenu );
 	}
 }
 
@@ -1557,13 +1656,23 @@ static qboolean UI_RunMenuScript ( const char **args )
 		}
 		else if (Q_stricmp(name, "startgame") == 0) 
 		{
+#ifdef _XBOX
+			UI_XboxFrontEndPhase(0x53544152, "startgame", 0); /* 'STAR' */
+			XBLog_Write("JA: FRONTEND startgame closing menus and appending map");
+#endif
 			Menus_CloseAll();
 			if ( Cvar_VariableIntegerValue("com_demo") )
 			{
+#ifdef _XBOX
+				XBLog_Write("JA: FRONTEND startgame command=map demo");
+#endif
 				ui.Cmd_ExecuteText( EXEC_APPEND, "map demo\n");
 			}
 			else
 			{
+#ifdef _XBOX
+				XBLog_Write("JA: FRONTEND startgame command=map yavin1");
+#endif
 				ui.Cmd_ExecuteText( EXEC_APPEND, "map yavin1\n");
 			}
 		} 
@@ -2138,8 +2247,16 @@ static qboolean UI_RunMenuScript ( const char **args )
 //JLF
 		else if (Q_stricmp(name, "processForDiskSpace") == 0)
 		{
+#ifdef _XBOX
+			UI_XboxFrontEndPhase(0x50534430, "processForDiskSpace", 0); /* 'PSD0' */
+			XBLog_Write("JA: FRONTEND processForDiskSpace before XB_Startup");
+#endif
 			// Kick off the crazy sequence!
 			XB_Startup( STARTUP_LOAD_SETTINGS );
+#ifdef _XBOX
+			UI_XboxFrontEndPhase(0x50534431, "processForDiskSpace", 0); /* 'PSD1' */
+			XBLog_Write("JA: FRONTEND processForDiskSpace after XB_Startup");
+#endif
 		}
 		else if (Q_stricmp(name, "initListBoxes") == 0)
 		{
@@ -2449,8 +2566,19 @@ static qboolean UI_RunMenuScript ( const char **args )
 		{
 			extern char	lastControllerUsed;
 			extern void IN_SetMainController(int id);
+			extern int IN_GetMainController(void);
 
+#ifdef _XBOX
+			g_SPXBFrontEndController = (unsigned int)(unsigned char)lastControllerUsed;
+			UI_XboxFrontEndPhase(0x534D4330, "setMainController", (unsigned int)IN_GetMainController()); /* 'SMC0' */
+			XBLF("JA: FRONTEND setMainController before last=%d main=%d", (int)lastControllerUsed, IN_GetMainController());
+#endif
 			IN_SetMainController(lastControllerUsed);
+#ifdef _XBOX
+			g_SPXBFrontEndController = (unsigned int)(unsigned char)lastControllerUsed;
+			UI_XboxFrontEndPhase(0x534D4331, "setMainController", (unsigned int)IN_GetMainController()); /* 'SMC1' */
+			XBLF("JA: FRONTEND setMainController after last=%d main=%d", (int)lastControllerUsed, IN_GetMainController());
+#endif
 		}
 #endif
 #ifdef XBOX_DEMO
@@ -3553,6 +3681,7 @@ UI_Init
 void _UI_Init( qboolean inGameLoad ) 
 {
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D31; /* 'UIM1' */
 	XBLF("JA: _UI_Init entered inGameLoad=%d", (int)inGameLoad);
 #endif
 	uiInfo.inGameLoad = inGameLoad;
@@ -3655,6 +3784,7 @@ void _UI_Init( qboolean inGameLoad )
 	uiInfo.uiDC.g2hilev_SetAnim = UI_G2SetAnim;
 
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D32; /* 'UIM2' */
 	XBLog_Write("JA: _UI_Init: UI_BuildPlayerModel_List...");
 #endif
 	UI_BuildPlayerModel_List(inGameLoad);
@@ -3683,26 +3813,34 @@ void _UI_Init( qboolean inGameLoad )
 	else 
 	{
 #ifdef _XBOX
-		XBLF("JA: _UI_Init: UI_LoadMenus %s...", menuSet);
+	g_SPXBPhaseLast = 0x55494D33; /* 'UIM3' */
+	XBLF("JA: _UI_Init: UI_LoadMenus %s...", menuSet);
 #endif
 		UI_LoadMenus(menuSet, qtrue);
 	}
 #ifdef _XBOX
+	UI_XboxMenuPhase(0x55494D4C, "UI_LoadMenus.done", (unsigned int)Menu_Count()); /* 'UIML' */
 	XBLog_Write("JA: _UI_Init: UI_LoadMenus done; Menus_CloseAll...");
 #endif
 
+#ifdef _XBOX
+	UI_XboxMenuPhase(0x55494D43, "Menus_CloseAll", (unsigned int)Menu_Count()); /* 'UIMC' */
+#endif
 	Menus_CloseAll();
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D34; /* 'UIM4' */
 	XBLog_Write("JA: _UI_Init: Menus_CloseAll done; registering whiteShader...");
 #endif
 
 	uiInfo.uiDC.whiteShader = ui.R_RegisterShaderNoMip( "white" );
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D35; /* 'UIM5' */
 	XBLF("JA: _UI_Init: whiteShader=%d; AssetCache...", uiInfo.uiDC.whiteShader);
 #endif
 
 	AssetCache();
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D36; /* 'UIM6' */
 	XBLog_Write("JA: _UI_Init: AssetCache done; setting defaults...");
 #endif
 
@@ -3726,15 +3864,18 @@ void _UI_Init( qboolean inGameLoad )
 	uiInfo.selectedThrowWeapon = NOWEAPON;
 
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D37; /* 'UIM7' */
 	XBLog_Write("JA: _UI_Init: trap_S_RegisterSound sound/null...");
 #endif
 	uiInfo.uiDC.Assets.nullSound = trap_S_RegisterSound("sound/null", qfalse);
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D38; /* 'UIM8' */
 	XBLF("JA: _UI_Init: nullSound=%d; trap_S_RegisterSound weapon_deselect...", uiInfo.uiDC.Assets.nullSound);
 #endif
 
 	trap_S_RegisterSound("sound/interface/weapon_deselect", qfalse);
 #ifdef _XBOX
+	g_SPXBPhaseLast = 0x55494D39; /* 'UIM9' */
 	XBLog_Write("JA: _UI_Init done");
 #endif
 
@@ -3788,7 +3929,7 @@ char * UI_ParseInclude(const char *menuFile, menuDef_t * menu)
 UI_ParseMenu
 =================
 */
-void UI_ParseMenu(const char *menuFile) 
+void UI_ParseMenu(const char *menuFile, qboolean nested)
 {
 	char	*buffer,*holdBuffer,*token2;
 	int len;
@@ -3798,9 +3939,14 @@ void UI_ParseMenu(const char *menuFile)
 	//Com_DPrintf("Parsing menu file:%s\n", menuFile);
 
 #ifdef _XBOX
-	XBLF("JA: UI_ParseMenu enter file=%s", menuFile ? menuFile : "(null)");
+	UI_XboxMenuPhase(0x55504D31, menuFile, 1); /* 'UPM1' */
+	XBLF("JA: UI_ParseMenu enter file=%s nested=%d", menuFile ? menuFile : "(null)", (int)nested);
 #endif
+#ifdef _XBOX
+	len = PC_StartParseSession(menuFile,&buffer, nested ? true : false);
+#else
 	len = PC_StartParseSession(menuFile,&buffer);
+#endif
 
 	holdBuffer = buffer;
 
@@ -3813,6 +3959,7 @@ void UI_ParseMenu(const char *menuFile)
 		return;
 	}
 #ifdef _XBOX
+	UI_XboxMenuPhase(0x55504D32, menuFile, (unsigned int)len); /* 'UPM2' */
 	XBLF("JA: UI_ParseMenu loaded file=%s len=%d", menuFile ? menuFile : "(null)", len);
 #endif
 
@@ -3843,11 +3990,13 @@ void UI_ParseMenu(const char *menuFile)
 		else if (Q_stricmp(token2, "assetGlobalDef") == 0) 
 		{
 #ifdef _XBOX
+			UI_XboxMenuPhase(0x55504D41, menuFile, (unsigned int)menuDefs); /* 'UPMA' */
 			XBLF("JA: UI_ParseMenu assetGlobalDef file=%s", menuFile ? menuFile : "(null)");
 #endif
 			if (Asset_Parse(&holdBuffer)) 
 			{
 #ifdef _XBOX
+				UI_XboxMenuPhase(0x55504D42, menuFile, (unsigned int)menuDefs); /* 'UPMB' */
 				XBLF("JA: UI_ParseMenu assetGlobalDef done file=%s", menuFile ? menuFile : "(null)");
 #endif
 				continue;
@@ -3864,11 +4013,13 @@ void UI_ParseMenu(const char *menuFile)
 		{
 			// start a new menu
 #ifdef _XBOX
+			UI_XboxMenuPhase(0x55504D4E, menuFile, (unsigned int)menuDefs); /* 'UPMN' */
 			XBLF("JA: UI_ParseMenu Menu_New begin file=%s local=%d", menuFile ? menuFile : "(null)", menuDefs);
 #endif
 			Menu_New(holdBuffer);
 			menuDefs++;
 #ifdef _XBOX
+			UI_XboxMenuPhase(0x55504D6E, menuFile, (unsigned int)menuDefs); /* 'UPMn' */
 			XBLF("JA: UI_ParseMenu Menu_New done file=%s local=%d", menuFile ? menuFile : "(null)", menuDefs);
 #endif
 			continue;
@@ -3879,6 +4030,7 @@ void UI_ParseMenu(const char *menuFile)
 
 	PC_EndParseSession(buffer);
 #ifdef _XBOX
+	UI_XboxMenuPhase(0x55504D45, menuFile, (unsigned int)menuDefs); /* 'UPME' */
 	XBLF("JA: UI_ParseMenu exit file=%s menus=%d", menuFile ? menuFile : "(null)", menuDefs);
 #endif
 	
@@ -3927,10 +4079,12 @@ qboolean Load_Menu(const char **holdBuffer)
 		char includeName[MAX_QPATH];
 		Q_strncpyz(includeName, token2, sizeof(includeName));
 #ifdef _XBOX
+		UI_XboxMenuPhase(0x554C4D31, includeName, 1); /* 'ULM1' */
 		XBLF("JA: Load_Menu include begin file=%s", includeName);
 #endif
-		UI_ParseMenu(includeName); 
+		UI_ParseMenu(includeName, qtrue);
 #ifdef _XBOX
+		UI_XboxMenuPhase(0x554C4D32, includeName, 2); /* 'ULM2' */
 		XBLF("JA: Load_Menu include done file=%s", includeName);
 #endif
 
@@ -3957,17 +4111,27 @@ void UI_LoadMenus(const char *menuFile, qboolean reset)
 	start = Sys_Milliseconds();
 
 #ifdef _XBOX
+	UI_XboxMenuPhase(0x554C4431, menuFile, (unsigned int)reset); /* 'ULD1' */
 	XBLF("JA: UI_LoadMenus enter file=%s reset=%d", menuFile ? menuFile : "(null)", (int)reset);
 #endif
-	len = ui.FS_ReadFile(menuFile,(void **) &buffer);
 #ifdef _XBOX
+	len = PC_StartParseSession(menuFile, &buffer, false);
+#else
+	len = ui.FS_ReadFile(menuFile,(void **) &buffer);
+#endif
+#ifdef _XBOX
+	UI_XboxMenuPhase(0x554C4432, menuFile, (unsigned int)len); /* 'ULD2' */
 	XBLF("JA: UI_LoadMenus read file=%s len=%d", menuFile ? menuFile : "(null)", len);
 #endif
 
 	if (len<1) 
 	{
 		Com_Printf( va( S_COLOR_YELLOW "menu file not found: %s, using default\n", menuFile ) );
+#ifdef _XBOX
+		len = PC_StartParseSession("ui/menus.txt", &buffer, false);
+#else
 		len = ui.FS_ReadFile("ui/menus.txt",(void **) &buffer);
+#endif
 #ifdef _XBOX
 		XBLF("JA: UI_LoadMenus fallback ui/menus.txt len=%d", len);
 #endif
@@ -4006,11 +4170,13 @@ void UI_LoadMenus(const char *menuFile, qboolean reset)
 		else if (Q_stricmp(token2, "loadmenu") == 0) 
 		{
 #ifdef _XBOX
+			UI_XboxMenuPhase(0x554C444C, menuFile, 1); /* 'ULDL' */
 			XBLog_Write("JA: UI_LoadMenus Load_Menu begin");
 #endif
 			if (Load_Menu(&holdBuffer)) 
 			{
 #ifdef _XBOX
+				UI_XboxMenuPhase(0x554C4464, menuFile, 2); /* 'ULDd' */
 				XBLog_Write("JA: UI_LoadMenus Load_Menu done");
 #endif
 				continue;
@@ -4031,7 +4197,11 @@ void UI_LoadMenus(const char *menuFile, qboolean reset)
 
 	//Com_Printf("UI menu load time = %d milli seconds\n", Sys_Milliseconds() - start);
 
+#ifdef _XBOX
+	PC_EndParseSession(buffer);
+#else
 	ui.FS_FreeFile( buffer );	//let go of the buffer
+#endif
 #ifdef _XBOX
 	XBLF("JA: UI_LoadMenus exit file=%s elapsed=%d", menuFile ? menuFile : "(null)", Sys_Milliseconds() - start);
 #endif
@@ -5441,6 +5611,26 @@ void _UI_KeyEvent( int key, qboolean down )
 	if (Menu_Count() > 0) 
 	{
 		menuDef_t *menu = Menu_GetFocused();
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x55494B30, menu ? menu->window.name : "(null)", (unsigned int)key | (down ? 0x80000000u : 0u)); /* 'UIK0' */
+		g_SPXBUIKeyLast = (unsigned int)key | (down ? 0x80000000u : 0u);
+		++g_SPXBUIKeyEventCount;
+		static int s_uiKeyEventTraceBudget = 160;
+		if (s_uiKeyEventTraceBudget > 0 &&
+			(key == A_MOUSE1 || key == A_ENTER || key == A_ESCAPE ||
+			 key == A_CURSOR_UP || key == A_CURSOR_DOWN ||
+			 key == A_CURSOR_LEFT || key == A_CURSOR_RIGHT ||
+			 (key >= A_JOY0 && key <= A_JOY31)))
+		{
+			--s_uiKeyEventTraceBudget;
+			XBLog_Writef("JA: KEY_TRACE ui key=%d down=%d menus=%d menu=%s flags=0x%x",
+				key,
+				down ? 1 : 0,
+				Menu_Count(),
+				(menu && menu->window.name) ? menu->window.name : "(null)",
+				menu ? (unsigned int)menu->window.flags : 0);
+		}
+#endif
 		if (menu) 
 		{
 			//DemoEnd();
@@ -5449,7 +5639,9 @@ void _UI_KeyEvent( int key, qboolean down )
 //			extern void G_DemoKeypress();//JLF new
 //			G_DemoKeypress();			//JLF new
 			extern void UpdateDemoTimer();
+			UI_XboxFrontEndPhase(0x55494B31, menu ? menu->window.name : "(null)", (unsigned int)key | (down ? 0x80000000u : 0u)); /* 'UIK1' */
 			UpdateDemoTimer();
+			UI_XboxFrontEndPhase(0x55494B32, menu ? menu->window.name : "(null)", (unsigned int)key | (down ? 0x80000000u : 0u)); /* 'UIK2' */
 
 #endif
 			if (key == A_ESCAPE && down && !Menus_AnyFullScreenVisible() && !(menu->window.flags & WINDOW_IGNORE_ESCAPE)) 
@@ -5458,7 +5650,13 @@ void _UI_KeyEvent( int key, qboolean down )
 			} 
 			else 
 			{
+#ifdef _XBOX
+				UI_XboxFrontEndPhase(0x55494B33, menu ? menu->window.name : "(null)", (unsigned int)key | (down ? 0x80000000u : 0u)); /* 'UIK3' */
+#endif
 				Menu_HandleKey(menu, key, down );
+#ifdef _XBOX
+				UI_XboxFrontEndPhase(0x55494B34, menu ? menu->window.name : "(null)", (unsigned int)key | (down ? 0x80000000u : 0u)); /* 'UIK4' */
+#endif
 			}
 		} 
 		else 
@@ -5467,6 +5665,9 @@ void _UI_KeyEvent( int key, qboolean down )
 			trap_Key_ClearStates();
 			Cvar_Set( "cl_paused", "0" );
 		}
+#ifdef _XBOX
+		UI_XboxFrontEndPhase(0x55494B39, menu ? menu->window.name : "(null)", (unsigned int)key | (down ? 0x80000000u : 0u)); /* 'UIK9' */
+#endif
 	}
 }
 
@@ -5576,11 +5777,18 @@ and that local cinematics are killed
 void UI_MainMenu(void)
 {
 	char buf[256];
+#ifdef _XBOX
+	++g_SPXBUIMainMenuCount;
+	XBLog_Writef("JA: KEY_TRACE UI_MainMenu enter catcher=0x%x", (unsigned int)ui.Key_GetCatcher());
+#endif
 	ui.Cvar_Set("sv_killserver", "1");	// let the demo server know it should shut down
 
 	ui.Key_SetCatcher( KEYCATCH_UI );
 
 	menuDef_t *m = Menus_ActivateByName("mainMenu");
+#ifdef _XBOX
+	XBLog_Writef("JA: KEY_TRACE UI_MainMenu activated=%p catcher=0x%x", (void *)m, (unsigned int)ui.Key_GetCatcher());
+#endif
 	if (!m)
 	{	//wha? try again
 		UI_LoadMenus("ui/menus.txt",qfalse);
@@ -8262,6 +8470,11 @@ static xbErrorPopupType sPopup = XB_POPUP_NONE;
 // Establishes context so proper action will be taken on a selection.
 void UI_xboxErrorPopup(xbErrorPopupType popup)
 {
+#ifdef _XBOX
+	g_SPXBFrontEndPopup = (unsigned int)popup;
+	UI_XboxFrontEndPhase(0x504F5030, "xbox_error_popup", (unsigned int)popup); /* 'POP0' */
+	XBLF("JA: FRONTEND popup show type=%d", (int)popup);
+#endif
 	// Set our context
 
 	//store all these values
@@ -8436,6 +8649,12 @@ void UI_xboxPopupResponse( void )
 		Com_Error( ERR_FATAL, "ERROR: Got a popup response with no valid context\n" );
 
 	int response = Cvar_VariableIntegerValue( "xb_errResponse" );
+#ifdef _XBOX
+	g_SPXBFrontEndPopup = (unsigned int)sPopup;
+	g_SPXBFrontEndResponse = (unsigned int)response;
+	UI_XboxFrontEndPhase(0x504F5052, "xbox_error_popup", ((unsigned int)sPopup << 8) | ((unsigned int)response & 0xffu)); /* 'POPR' */
+#endif
+	XBLF( "JA: UI_xboxPopupResponse popup=%d response=%d", (int)sPopup, response );
 
 	if(response == 2)
 		return;
@@ -8652,6 +8871,7 @@ void UI_xboxPopupResponse( void )
 		case XB_POPUP_CORRUPT_SETTINGS:
 			if( response == 0 )		// A - accept
 			{
+				XBLog_Write( "JA: UI_xboxPopupResponse corrupt settings accepted; deleting settings" );
 				Settings.Delete();
 				Menus_CloseByName( "xbox_error_popup" );
 				XB_Startup( STARTUP_COMBINED_SPACE_CHECK );
@@ -8666,6 +8886,7 @@ void UI_xboxPopupResponse( void )
 			if( response == 0 )
 			{
 				// Continue without saving
+				XBLog_Write( "JA: UI_xboxPopupResponse diskfull both accepted; disabling settings" );
 				Settings.Disable();
 				Menus_CloseByName( "xbox_error_popup" );
 				XB_Startup( STARTUP_INVITE_CHECK );

@@ -13,6 +13,7 @@
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBMapPhase;
 extern "C" volatile unsigned int g_SPXBMapHash;
+extern "C" volatile unsigned int g_SPXBSvMapState;
 extern "C" volatile char g_SPXBMapLast[64];
 
 static unsigned int SV_XboxHashText(const char *text)
@@ -86,6 +87,7 @@ static void SV_Map_( ForceReload_e eForceReload )
 	map = Cmd_Argv(1);
 #ifdef _XBOX
 	g_SPXBMapPhase = 1;
+	g_SPXBSvMapState = 1;
 	g_SPXBMapHash = SV_XboxHashText(map);
 	SV_XboxCopyLast(g_SPXBMapLast, sizeof(g_SPXBMapLast), map);
 	XBLog_Write(va("JA: SV_Map_: requested '%s'", map ? map : "(null)"));
@@ -93,6 +95,7 @@ static void SV_Map_( ForceReload_e eForceReload )
 	if ( !*map ) {
 #ifdef _XBOX
 		g_SPXBMapPhase = 2;
+		g_SPXBSvMapState = 2;
 		XBLog_Write("JA: SV_Map_: empty map arg, return");
 #endif
 		return;
@@ -125,11 +128,13 @@ static void SV_Map_( ForceReload_e eForceReload )
 
 #ifdef _XBOX
 	g_SPXBMapPhase = 3;
+	g_SPXBSvMapState = 3;
 	XBLog_Write("JA: SV_Map_: calling SV_SpawnServer");
 #endif
 	SV_SpawnServer( map, eForceReload, qtrue );	// start up the map
 #ifdef _XBOX
 	g_SPXBMapPhase = 4;
+	g_SPXBSvMapState = 4;
 	XBLog_Write("JA: SV_Map_: SV_SpawnServer returned");
 #endif
 }
@@ -256,10 +261,17 @@ static void SV_MapTransition_f(void)
 {		
 	char	*spawntarget;
 
+#ifdef _XBOX
+	XBLF("JA: SV_MapTransition_f enter cmd='%s' map='%s' current='%s'",
+		Cmd_Argv(0), Cmd_Argv(1), sv_mapname ? sv_mapname->string : "(null)");
+#endif
 //	SCR_PrecacheScreenshot();
 	SV_Player_EndOfLevelSave();
 
 	spawntarget = Cmd_Argv(2);
+#ifdef _XBOX
+	XBLF("JA: SV_MapTransition_f spawntarget='%s'", spawntarget ? spawntarget : "(null)");
+#endif
 	if ( *spawntarget != NULL ) 
 	{
 		Cvar_Set( "spawntarget", spawntarget );
@@ -270,6 +282,10 @@ static void SV_MapTransition_f(void)
 	}
 
 	SV_Map_( eForceReload_NOTHING );
+#ifdef _XBOX
+	XBLF("JA: SV_MapTransition_f exit map='%s' spawntarget='%s'",
+		Cmd_Argv(1), Cvar_VariableString("spawntarget"));
+#endif
 }
 
 /*
@@ -283,6 +299,10 @@ player weapons/ammo/etc from the previous level that you haven't really exited (
 //void SCR_UnprecacheScreenshot();	//scr_scrn.cpp
 static void SV_Map_f( void ) 
 {
+#ifdef _XBOX
+	XBLF("JA: SV_Map_f enter cmd='%s' map='%s' current='%s'",
+		Cmd_Argv(0), Cmd_Argv(1), sv_mapname ? sv_mapname->string : "(null)");
+#endif
 	Cvar_Set( sCVARNAME_PLAYERSAVE, "");
 	Cvar_Set( "spawntarget", "" );
 	Cvar_Set("tier_storyinfo", "0");
@@ -318,6 +338,10 @@ static void SV_Map_f( void )
 		Cvar_Set( "helpUsObi", "0" );
 #endif
 	}
+#ifdef _XBOX
+	XBLF("JA: SV_Map_f exit cmd='%s' map='%s' helpUsObi='%s'",
+		Cmd_Argv(0), Cmd_Argv(1), Cvar_VariableString("helpUsObi"));
+#endif
 }
 
 /*

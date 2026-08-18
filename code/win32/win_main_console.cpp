@@ -19,6 +19,10 @@ extern "C" volatile unsigned int g_SPXBBootPhase;
 extern "C" volatile unsigned int g_SPXBMainLoopCount;
 extern "C" volatile unsigned int g_SPXBClsState;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBDirectMapState;
+extern "C" volatile unsigned int g_SPXBDirectMapLastError;
+extern "C" volatile unsigned int g_SPXBDirectMapPathIndex;
+extern "C" volatile unsigned int g_SPXBDirectMapFirst4;
 
 /* NT kernel prototypes for the early main() probe (file-scope required by VC71) */
 extern "C" long __stdcall NtCreateFile(void**, unsigned long, void*, void*,
@@ -42,24 +46,65 @@ extern byte		sys_packetReceived[MAX_MSGLEN];
 #ifdef _XBOX
 bool g_xboxDirectMapBootQueued = false;
 
-static bool Sys_XboxDirectMapRequested(void)
-{
-	char startupMap[MAX_QPATH];
-	startupMap[0] = '\0';
+const char *Sys_RemapPath( const char *filename );
 
-	FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
-	if (!startupMapFile)
+static bool Sys_XboxReadStartupTextFile(const char *filename, char *out, int outSize, bool firstTokenOnly)
+{
+	char path[3][MAX_OSPATH];
+	DWORD bytesRead;
+	HANDLE fileHandle;
+	int i;
+
+	if (!filename || !filename[0] || !out || outSize <= 0)
 	{
 		return false;
 	}
 
-	if (fgets(startupMap, sizeof(startupMap), startupMapFile))
-	{
-		startupMap[strcspn(startupMap, "\r\n\t ")] = '\0';
-	}
-	fclose(startupMapFile);
+	out[0] = '\0';
+	Com_sprintf(path[0], sizeof(path[0]), "%s", Sys_RemapPath(filename));
+	Com_sprintf(path[1], sizeof(path[1]), "D:\\%s", filename);
+	Com_sprintf(path[2], sizeof(path[2]), "%s", filename);
 
-	return startupMap[0] != '\0';
+	for (i = 0; i < 3; i++)
+	{
+		g_SPXBDirectMapState = 0x100 + i;
+		g_SPXBDirectMapPathIndex = i;
+		fileHandle = CreateFileA(path[i], GENERIC_READ, FILE_SHARE_READ, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (fileHandle == INVALID_HANDLE_VALUE)
+		{
+			g_SPXBDirectMapLastError = GetLastError();
+			g_SPXBDirectMapState = 0x180 + i;
+			continue;
+		}
+
+		bytesRead = 0;
+		if (ReadFile(fileHandle, out, outSize - 1, &bytesRead, NULL) && bytesRead > 0)
+		{
+			out[bytesRead] = '\0';
+			if (firstTokenOnly)
+			{
+				out[strcspn(out, "\r\n\t ")] = '\0';
+			}
+			g_SPXBDirectMapFirst4 = *((unsigned int *)out);
+			g_SPXBDirectMapState = 0x200 + i;
+			CloseHandle(fileHandle);
+			return out[0] != '\0';
+		}
+
+		g_SPXBDirectMapLastError = GetLastError();
+		g_SPXBDirectMapState = 0x300 + i;
+		CloseHandle(fileHandle);
+	}
+
+	g_SPXBDirectMapState = 0x400;
+	return false;
+}
+
+static bool Sys_XboxDirectMapRequested(void)
+{
+	char startupMap[MAX_QPATH];
+	return Sys_XboxReadStartupTextFile("ja_sp_level.txt", startupMap, sizeof(startupMap), true);
 }
 
 bool Sys_IsDirectMapBoot(void)
@@ -70,37 +115,42 @@ bool Sys_IsDirectMapBoot(void)
 static bool Sys_XboxQueueDirectMapBoot(void)
 {
 	char startupMap[MAX_QPATH];
+	char startupCommands[2048];
 	startupMap[0] = '\0';
+	startupCommands[0] = '\0';
 
-	FILE *startupMapFile = fopen("D:\\ja_sp_level.txt", "r");
-	if (startupMapFile)
-	{
-		if (fgets(startupMap, sizeof(startupMap), startupMapFile))
-		{
-			startupMap[strcspn(startupMap, "\r\n\t ")] = '\0';
-		}
-		fclose(startupMapFile);
-	}
+	g_SPXBDirectMapState = 0x500;
+	Sys_XboxReadStartupTextFile("ja_sp_level.txt", startupMap, sizeof(startupMap), true);
 
-	FILE *startupCommandFile = fopen("D:\\ja_sp_commands.txt", "r");
-	if (startupCommandFile)
+	if (Sys_XboxReadStartupTextFile("ja_sp_commands.txt", startupCommands, sizeof(startupCommands), false))
 	{
-		char commandLine[1024];
-		while (fgets(commandLine, sizeof(commandLine), startupCommandFile))
+		char *line = startupCommands;
+		while (line && line[0])
 		{
-			commandLine[strcspn(commandLine, "\r\n")] = '\0';
-			if (commandLine[0])
+			char *nextLine = strpbrk(line, "\r\n");
+			if (nextLine)
 			{
-				XBLF("JA: direct-map boot: queue startup command '%s'", commandLine);
-				Cbuf_AddText(commandLine);
+				*nextLine++ = '\0';
+				while (*nextLine == '\r' || *nextLine == '\n')
+				{
+					nextLine++;
+				}
+			}
+
+			if (line[0])
+			{
+				XBLF("JA: direct-map boot: queue startup command '%s'", line);
+				Cbuf_AddText(line);
 				Cbuf_AddText("\n");
 			}
+
+			line = nextLine;
 		}
-		fclose(startupCommandFile);
 	}
 
 	if (!startupMap[0])
 	{
+		g_SPXBDirectMapState = 0x5FF;
 		XBL("JA: direct-map boot: no ja_sp_level.txt map, normal boot\n");
 		return false;
 	}
@@ -108,6 +158,7 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 	XBLF("JA: direct-map boot: queue devmap %s before first Com_Frame", startupMap);
 	Cbuf_AddText(va("devmap %s\n", startupMap));
 	g_xboxDirectMapBootQueued = true;
+	g_SPXBDirectMapState = 0x600;
 	return true;
 }
 #endif
@@ -223,24 +274,32 @@ sysEvent_t Sys_GetEvent( void ) {
         sysEvent_t        ev;
 
         // return if we have data
+        SPXB_HOT_SET(g_SPXBBootPhase, 0x740);
         if ( eventHead > eventTail ) {
+                SPXB_HOT_SET(g_SPXBBootPhase, 0x741);
                 eventTail++;
                 return eventQue[ ( eventTail - 1 ) & MASK_QUED_EVENTS ];
         }
 
         // check for network packets
+        SPXB_HOT_SET(g_SPXBBootPhase, 0x742);
         msg_t                netmsg;
         MSG_Init( &netmsg, sys_packetReceived, sizeof( sys_packetReceived ) );
+        SPXB_HOT_SET(g_SPXBBootPhase, 0x743);
 
         // return if we have data
         if ( eventHead > eventTail ) {
+                SPXB_HOT_SET(g_SPXBBootPhase, 0x744);
                 eventTail++;
                 return eventQue[ ( eventTail - 1 ) & MASK_QUED_EVENTS ];
         }
 
         // create an empty event to return
+        SPXB_HOT_SET(g_SPXBBootPhase, 0x745);
         memset( &ev, 0, sizeof( ev ) );
+        SPXB_HOT_SET(g_SPXBBootPhase, 0x746);
         ev.evTime = Sys_Milliseconds();
+        SPXB_HOT_SET(g_SPXBBootPhase, 0x747);
 
         return ev;
 }
@@ -537,6 +596,10 @@ bool Sys_InviteExists( void )
 #ifdef XBOX_DEMO
 	return false;
 #else
+#ifdef _XBOX
+	g_SPXBFrontEndPhase = 0x494E5630; /* 'INV0' */
+	XBLog_Write("JA: Sys_InviteExists enter");
+#endif
 	static bool initialized = false;
 	if( initialized )
 		return false;
@@ -546,9 +609,36 @@ bool Sys_InviteExists( void )
 	if( Sys_QuickStart() )
 		return false;
 
+#ifdef _XBOX
+	if( !Cvar_VariableIntegerValue( "sp_xbox_live_invite_check" ) )
+	{
+		g_SPXBFrontEndPhase = 0x494E5653; /* 'INVS' */
+		XBLog_Write("JA: Sys_InviteExists skipped: sp_xbox_live_invite_check is 0");
+		return false;
+	}
+	g_SPXBFrontEndPhase = 0x494E5631; /* 'INV1' */
+	XBLog_Write("JA: Sys_InviteExists XOnlineStartup...");
+#endif
+
 	// Try to retrieve an invitation from the HD (this requires that we start XOnline):
-	XOnlineStartup( NULL );
+	XONLINE_STARTUP_PARAMS xosp = { 0 };
+	HRESULT startupHr = XOnlineStartup( &xosp );
+#ifdef _XBOX
+	g_SPXBFrontEndPhase = 0x494E5632; /* 'INV2' */
+	g_SPXBFrontEndResponse = (unsigned int)startupHr;
+	XBLog_Writef("JA: Sys_InviteExists XOnlineStartup hr=0x%08x", (unsigned int)startupHr);
+#endif
+	if( startupHr < S_OK )
+	{
+		return false;
+	}
+
 	HRESULT hr = XOnlineFriendsGetAcceptedGameInvite( &acceptedGameInvite );
+#ifdef _XBOX
+	g_SPXBFrontEndPhase = 0x494E5633; /* 'INV3' */
+	g_SPXBFrontEndResponse = (unsigned int)hr;
+	XBLog_Writef("JA: Sys_InviteExists accepted invite hr=0x%08x", (unsigned int)hr);
+#endif
 	XOnlineCleanup();
 
 	return (hr == S_OK);
@@ -639,6 +729,7 @@ int main(int argc, char* argv[])
 
 #ifdef _XBOX
 	g_SPXBBootPhase = 2;
+#if 0
 	/* Raw NT probe — appends "main_reached" to ja_sp_log.txt before XBLog_Init.
 	   If ja_sp_log.txt only has "precrt_ok", a static ctor crashed before main(). */
 	{
@@ -657,10 +748,23 @@ int main(int argc, char* argv[])
 		}
 	}
 #endif
+#endif
 
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x20;
+#endif
 	XBLog_Init();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x21;
+#endif
 	XBLF("Log: %s\n", XBLog_GetPath() ? XBLog_GetPath() : "(none)");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x22;
+#endif
 	XBL("main() entered\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x23;
+#endif
 
 #ifdef _XBOX
 	/* Plan-B (OpenJKDF2 1:1): XInitDevices MUST come before Direct3D
@@ -682,7 +786,9 @@ int main(int argc, char* argv[])
 		xdpt[1].DeviceType      = XDEVICE_TYPE_MEMORY_UNIT;
 		xdpt[1].dwPreallocCount = 8;
 		XBL("Plan-B: calling XInitDevices BEFORE D3D init\n");
+		g_SPXBBootPhase = 0x24;
 		XInitDevices(2, xdpt);
+		g_SPXBBootPhase = 0x25;
 		XBL("Plan-B: XInitDevices done\n");
 	}
 	/* Mark in win_input_xbox.cpp's static flag so IN_Init doesn't
@@ -691,6 +797,7 @@ int main(int argc, char* argv[])
 		extern bool g_XInitDevicesAlreadyCalled;
 		g_XInitDevicesAlreadyCalled = true;
 	}
+	g_SPXBBootPhase = 0x26;
 #endif
 
 	/* Plan-B: Direct3D_SetPushBufferSize removed.
@@ -710,79 +817,144 @@ int main(int argc, char* argv[])
 	 * NOT call SetPushBufferSize from main (only fakegl does internally);
 	 * matching that pattern. */
 	XBL("Plan-B: SetPushBufferSize delegated to fakegl InitD3DX\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x27;
+#endif
 
 	// get the initial time base
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x28;
+#endif
 	Sys_Milliseconds();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x29;
+#endif
 
 	// Fetch game settings early — path remapping required before renderer start.
 	Sys_QuickStart();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x2A;
+#endif
 	XBL("Sys_QuickStart done\n");
 
 	Win_Init();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x2B;
+#endif
 	XBL("Win_Init done\n");
 
-	Com_Init( "" );
-	XBL("Com_Init done\n");
-
-	extern void G_AllocGentities( void );
-	G_AllocGentities();
-	XBL("G_AllocGentities done\n");
-
 #ifdef _XBOX
-	Sys_XboxQueueDirectMapBoot();
+	g_SPXBBootPhase = 0x2D;
+#endif
+	Com_Init( "" );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x2C;
+#endif
+	XBL("Com_Init done\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x50;
 #endif
 
+	extern void G_AllocGentities( void );
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x51;
+#endif
+	G_AllocGentities();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x52;
+#endif
+	XBL("G_AllocGentities done\n");
+
 	// Run one frame to finish loading (calls CL_StartHunkUsers).
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x55;
+#endif
 	IN_Frame();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x56;
+#endif
 	Com_Frame();
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x57;
+#endif
 	XBL("First frame done\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x58;
+	Sys_XboxQueueDirectMapBoot();
+	g_SPXBBootPhase = 0x54;
+#endif
 
 	// Copy planet bink videos to Z: drive.
 	extern void Sys_BinkCopyInit(void);
 #ifdef _XBOX
 	if (Sys_XboxDirectMapRequested())
 	{
+		g_SPXBBootPhase = 0x59;
 		XBL("Sys_BinkCopyInit skipped for direct-map boot\n");
 	}
 	else if (FILE *autoSmokeMarker = fopen("D:\\ja_sp_autosmoke.txt", "r"))
 	{
 		fclose(autoSmokeMarker);
+		g_SPXBBootPhase = 0x5A;
 		XBL("Sys_BinkCopyInit skipped for SP autosmoke boot\n");
 	}
 	else
 #endif
 	{
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x5B;
+#endif
 		XBL("Sys_BinkCopyInit begin\n");
 		Sys_BinkCopyInit();
+#ifdef _XBOX
+		g_SPXBBootPhase = 0x5C;
+#endif
 		XBL("Sys_BinkCopyInit done\n");
 	}
 
 	XBL("Entering main game loop\n");
+#ifdef _XBOX
+	g_SPXBBootPhase = 0x5D;
+#endif
 
 	// main game loop
 	int xboxMainLoopCount = 0;
 	while( 1 ) {
 		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
 #ifdef _XBOX
-		g_SPXBMainLoopCount = (unsigned int)xboxMainLoopCount;
-		g_SPXBClsState = (unsigned int)cls.state;
-		g_SPXBPhaseLast = 0x4D414931; /* 'MAI1' */
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x60);
+		SPXB_HOT_SET(g_SPXBMainLoopCount, (unsigned int)xboxMainLoopCount);
+		SPXB_HOT_SET(g_SPXBClsState, (unsigned int)cls.state);
+		SPXB_HOT_SET(g_SPXBPhaseLast, 0x4D414931); /* 'MAI1' */
 #endif
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before IN_Frame", xboxMainLoopCount);
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x61);
+#endif
 		IN_Frame();
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x62);
+#endif
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after IN_Frame", xboxMainLoopCount);
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame", xboxMainLoopCount);
+#ifdef _XBOX
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x63);
+#endif
 		Com_Frame();
 #ifdef _XBOX
-		g_SPXBClsState = (unsigned int)cls.state;
-		g_SPXBPhaseLast = 0x4D414932; /* 'MAI2' */
+		SPXB_HOT_SET(g_SPXBBootPhase, 0x64);
+		SPXB_HOT_SET(g_SPXBClsState, (unsigned int)cls.state);
+		SPXB_HOT_SET(g_SPXBPhaseLast, 0x4D414932); /* 'MAI2' */
 #endif
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame", xboxMainLoopCount);
 #ifdef _XBOX
 		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE) ? 0 : 1;
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
-		Sleep(xboxMainLoopYieldMs);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after first yield", xboxMainLoopCount);
+		if (xboxMainLoopYieldMs)
+		{
+			if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first idle yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
+			Sleep(xboxMainLoopYieldMs);
+			if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after first idle yield", xboxMainLoopCount);
+		}
 #else
 		Sleep(1);
 #endif
@@ -794,9 +966,12 @@ int main(int argc, char* argv[])
 		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after DebugConsoleHandleCommands", xboxMainLoopCount);
 #endif
 #ifdef _XBOX
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before second yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
-		Sleep(xboxMainLoopYieldMs);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after second yield", xboxMainLoopCount);
+		if (xboxMainLoopYieldMs)
+		{
+			if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before second idle yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
+			Sleep(xboxMainLoopYieldMs);
+			if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after second idle yield", xboxMainLoopCount);
+		}
 #else
 		Sleep(1);
 #endif

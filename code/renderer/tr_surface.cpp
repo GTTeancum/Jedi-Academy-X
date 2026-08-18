@@ -10,6 +10,9 @@
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/xb_log.h"
+extern "C" void JAMP_SetRenderStateCachedForExternalWrite(DWORD type, DWORD value);
+extern "C" void JAMP_SetTransformCachedForExternalWrite(DWORD state, const D3DMATRIX *matrix);
+extern "C" void JAMP_SetVertexShaderCachedForExternalWrite(DWORD mask);
 #endif
 
 /*
@@ -2418,9 +2421,9 @@ static bool RB_TestZFlare( vec3_t point) {
 //do test
 	// read back the z buffer contents
 #ifdef _XBOX
-	UINT result;
-	HRESULT hr;
-	DWORD zwrite, colorwrite;
+UINT result;
+HRESULT hr;
+DWORD zwrite, colorwrite;
 
 	// Get the visibility test from the last frame
 	if(surf->visible == -1)
@@ -2432,13 +2435,14 @@ static bool RB_TestZFlare( vec3_t point) {
 	}
 
 	glw_state->device->GetRenderState(D3DRS_ZWRITEENABLE, &zwrite);
+	glw_state->device->GetRenderState(D3DRS_COLORWRITEENABLE, &colorwrite);
 
-	glw_state->device->SetRenderState(D3DRS_ZWRITEENABLE, false);
-	glw_state->device->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+	JAMP_SetRenderStateCachedForExternalWrite(D3DRS_ZWRITEENABLE, false);
+	JAMP_SetRenderStateCachedForExternalWrite(D3DRS_COLORWRITEENABLE, 0);
 	
-	glw_state->device->SetTransform(D3DTS_VIEW, 
+	JAMP_SetTransformCachedForExternalWrite(D3DTS_VIEW, 
 			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
-	glw_state->device->SetVertexShader(D3DFVF_XYZ);
+	JAMP_SetVertexShaderCachedForExternalWrite(D3DFVF_XYZ);
 
 	glw_state->device->BeginVisibilityTest();
 	glw_state->device->Begin(D3DPT_POINTLIST);
@@ -2446,8 +2450,8 @@ static bool RB_TestZFlare( vec3_t point) {
 	glw_state->device->End();
 	glw_state->device->EndVisibilityTest((int)surf->number + 2024);
 
-	glw_state->device->SetRenderState(D3DRS_ZWRITEENABLE, zwrite);
-	glw_state->device->SetRenderState(D3DRS_COLORWRITEENABLE, D3DCOLORWRITEENABLE_ALL);
+	JAMP_SetRenderStateCachedForExternalWrite(D3DRS_ZWRITEENABLE, zwrite);
+	JAMP_SetRenderStateCachedForExternalWrite(D3DRS_COLORWRITEENABLE, colorwrite);
 
 	return (surf->visible > 0);
 
@@ -2486,7 +2490,7 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 
 #ifdef _XBOX
 	static int s_xboxSkipFlareTraceCount = 0;
-	if ( s_xboxSkipFlareTraceCount < 64 ) {
+	if ( SP_XBOX_VERBOSE_RUNTIME_LOGS && s_xboxSkipFlareTraceCount < 64 ) {
 		XBLF("JA: RB_SurfaceFlare Xbox skip number=%d r_flares=%d visible=%d",
 			(int)surf->number, r_flares->integer, (int)surf->visible);
 		s_xboxSkipFlareTraceCount++;
