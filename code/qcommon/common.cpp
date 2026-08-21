@@ -12,6 +12,9 @@
 extern "C" volatile unsigned int g_SPXBComFrameCount;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComTailStage;
+extern "C" volatile unsigned int g_SPXBComFrameDepth;
+extern "C" volatile unsigned int g_SPXBComCatchCount;
 extern "C" volatile unsigned int g_SPXBComSpinCount;
 extern "C" volatile unsigned int g_SPXBComMsec;
 extern "C" volatile unsigned int g_SPXBComFrameTime;
@@ -24,6 +27,8 @@ extern "C" volatile unsigned int g_SPXBPerfClientMsec;
 extern "C" volatile unsigned int g_SPXBPerfGameMsec;
 extern "C" volatile unsigned int g_SPXBPerfFrontendMsec;
 extern "C" volatile unsigned int g_SPXBPerfBackendMsec;
+extern "C" volatile unsigned int g_SPXBPerfComEventMsec;
+extern "C" volatile unsigned int g_SPXBPerfComCommandMsec;
 extern bool Sys_IsDirectMapBoot(void);
 #endif
 
@@ -1603,14 +1608,21 @@ void G2Time_ReportTimers(void);
 
 #pragma warning (disable: 4701)	//local may have been used without init (timing info vars)
 void Com_Frame( void ) {
-#ifdef _XBOX
-	static unsigned int s_xboxComEntryLogCount = 0;
-	qboolean xboxTraceActiveComTail = qfalse;
-	int xboxTraceActiveComTailFrame = -1;
+#if defined(_XBOX)
 	const int xboxPerfFrameStart = Sys_Milliseconds();
 	int xboxPerfServerStart = xboxPerfFrameStart;
 	int xboxPerfClientStart = xboxPerfFrameStart;
+	unsigned int xboxPerfComEventMsec = 0;
+	unsigned int xboxPerfComCommandMsec = 0;
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBComFrameDepth++;
+	static unsigned int s_xboxComEntryLogCount = 0;
+	qboolean xboxTraceActiveComTail = qfalse;
+	int xboxTraceActiveComTailFrame = -1;
+	int xboxPerfPhaseStart = xboxPerfFrameStart;
 	g_SPXBPhaseLast = 0x43464E30; /* 'CFN0' */
+	g_SPXBComTailStage = 0x434D3030; /* 'CM00' */
 	g_SPXBComSubphase = 0;
 	if (s_xboxComEntryLogCount < 16)
 	{
@@ -1620,7 +1632,7 @@ void Com_Frame( void ) {
 #endif
 try
 {
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComFrameCount++;
 	g_SPXBPhaseLast = 0x434F4D31; /* 'COM1' */
 	g_SPXBComSubphase = 1;
@@ -1628,9 +1640,9 @@ try
 	int		timeBeforeFirstEvents, timeBeforeServer, timeBeforeEvents, timeBeforeClient, timeAfter;
 	int		msec, minMsec;
 	static int	lastTime;
-	static int	frameCount = 0;
-	bool firstFrames = (frameCount < 8);
-#ifdef _XBOX
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	static int frameCount = 0;
+	const bool firstFrames = (frameCount < 8);
 	static int s_xboxLastComPhaseTime = 0;
 	static bool s_xboxTraceComPhase = false;
 	g_SPXBComSubphase = 2;
@@ -1642,11 +1654,11 @@ try
 		s_xboxLastComPhaseTime = xboxPhaseNow;
 		XBLF("JA: COM_PHASE frame=%d enter realtime=%d", frameCount, com_frameTime);
 	}
-#endif
 	if (firstFrames) {
 		XBLog_Write(va("JA: Com_Frame #%d entered", frameCount));
 	}
 	frameCount++;
+	#endif
 
 	// write config file if anything changed
 #ifndef _XBOX
@@ -1672,19 +1684,20 @@ try
 	} else {
 		minMsec = 1;
 	}
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	int xboxFirstEventSpinCount = 0;
+	xboxPerfPhaseStart = Sys_Milliseconds();
 	g_SPXBComSubphase = 4;
 	g_SPXBComSpinCount = 0;
 #endif
 	do {
-#ifdef _XBOX
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		g_SPXBComSubphase = 5;
 		g_SPXBComSpinCount = (unsigned int)xboxFirstEventSpinCount;
 		if (s_xboxTraceComPhase && xboxFirstEventSpinCount == 0) XBLog_Write("JA: COM_PHASE before first Com_EventLoop");
 #endif
 		com_frameTime = Com_EventLoop();
-#ifdef _XBOX
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		g_SPXBComSubphase = 6;
 		g_SPXBComFrameTime = (unsigned int)com_frameTime;
 		g_SPXBComLastTime = (unsigned int)lastTime;
@@ -1694,7 +1707,7 @@ try
 			lastTime = com_frameTime;		// possible on first frame
 		}
 		msec = com_frameTime - lastTime;
-#ifdef _XBOX
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		g_SPXBComSubphase = 7;
 		g_SPXBComMsec = (unsigned int)msec;
 		g_SPXBComFrameTime = (unsigned int)com_frameTime;
@@ -1712,23 +1725,35 @@ try
 		}
 #endif
 	} while ( msec < minMsec );
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	xboxPerfComEventMsec += (unsigned int)(Sys_Milliseconds() - xboxPerfPhaseStart);
 	g_SPXBComSubphase = 9;
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before first Cbuf_Execute");
+	xboxPerfPhaseStart = Sys_Milliseconds();
 #endif
 	Cbuf_Execute ();
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	xboxPerfComCommandMsec += (unsigned int)(Sys_Milliseconds() - xboxPerfPhaseStart);
+	g_SPXBComTailStage = 0x434D3031; /* 'CM01' */
 	g_SPXBComSubphase = 10;
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after first Cbuf_Execute");
 #endif
 
 	lastTime = com_frameTime;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComLastTime = (unsigned int)lastTime;
+#endif
 
 	// mess with msec if needed
 	com_frameMsec = msec;
 	float fractionMsec=0.0f;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBComTailStage = 0x434D3032; /* 'CM02' */
+#endif
 	msec = Com_ModifyMsec( msec, fractionMsec);
+#ifdef _XBOX
+	g_SPXBComTailStage = 0x434D3033; /* 'CM03' */
+#endif
 	
 	//
 	// server side
@@ -1737,19 +1762,26 @@ try
 		timeBeforeServer = Sys_Milliseconds ();
 	}
 
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame...");
-#ifdef _XBOX
+	g_SPXBComTailStage = 0x434D3034; /* 'CM04' */
 	g_SPXBComSubphase = 11;
+#endif
+#if defined(_XBOX)
 	xboxPerfServerStart = Sys_Milliseconds();
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before SV_Frame");
 #endif
 	SV_Frame (msec, fractionMsec);
-#ifdef _XBOX
+#if defined(_XBOX)
 	g_SPXBPerfServerMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfServerStart);
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBComTailStage = 0x434D3035; /* 'CM05' */
 	g_SPXBComSubphase = 12;
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after SV_Frame");
 #endif
-	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame done");
 
 
 	//
@@ -1772,16 +1804,21 @@ try
 		if ( com_speeds->integer ) {
 			timeBeforeEvents = Sys_Milliseconds ();
 		}
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBComTailStage = 0x434D3036; /* 'CM06' */
 		g_SPXBComSubphase = 13;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Com_EventLoop");
+		xboxPerfPhaseStart = Sys_Milliseconds();
 #endif
 		Com_EventLoop();
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		xboxPerfComEventMsec += (unsigned int)(Sys_Milliseconds() - xboxPerfPhaseStart);
+		g_SPXBComTailStage = 0x434D3037; /* 'CM07' */
 		g_SPXBComSubphase = 14;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Com_EventLoop");
+		xboxPerfPhaseStart = Sys_Milliseconds();
 #endif
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		g_SPXBComSubphase = 15;
 		if (s_xboxTraceComPhase) XBLF("JA: COM_PHASE before second Cbuf_Execute state=%d sv=%d direct=%d",
 			(int)g_SPXBClsState,
@@ -1791,14 +1828,18 @@ try
 #ifdef _XBOX
 		if ( Sys_IsDirectMapBoot() && g_SPXBClsState != (unsigned int)CA_ACTIVE )
 		{
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 			if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE skip second Cbuf_Execute during direct-map load");
+			#endif
 		}
 		else
 #endif
 		{
 			Cbuf_Execute ();
 		}
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		xboxPerfComCommandMsec += (unsigned int)(Sys_Milliseconds() - xboxPerfPhaseStart);
+		g_SPXBComTailStage = 0x434D3038; /* 'CM08' */
 		g_SPXBComSubphase = 16;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Cbuf_Execute");
 #endif
@@ -1811,13 +1852,16 @@ try
 			timeBeforeClient = Sys_Milliseconds ();
 		}
 
-		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame...");
-#ifdef _XBOX
-		g_SPXBComSubphase = 17;
+#if defined(_XBOX)
 		xboxPerfClientStart = Sys_Milliseconds();
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame...");
+		g_SPXBComTailStage = 0x434D3039; /* 'CM09' */
+		g_SPXBComSubphase = 17;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before CL_Frame");
 #endif
-	#ifdef _XBOX
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		{
 			static int s_xboxActiveComClientBoundaryBudget = 32;
 			if (!firstFrames && (s_xboxActiveComClientBoundaryBudget > 0 || (frameCount >= 35 && frameCount < 70)))
@@ -1828,12 +1872,18 @@ try
 		}
 	#endif
 		CL_Frame (msec, fractionMsec);
-#ifdef _XBOX
+#if defined(_XBOX)
 		g_SPXBPerfClientMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfClientStart);
 		g_SPXBPerfFrameMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfFrameStart);
-		g_SPXBPerfGameMsec = (unsigned int)time_game;
-		g_SPXBPerfFrontendMsec = (unsigned int)time_frontend;
-		g_SPXBPerfBackendMsec = (unsigned int)time_backend;
+		g_SPXBPerfGameMsec = com_speeds->integer ? (unsigned int)time_game : 0;
+		g_SPXBPerfFrontendMsec = com_speeds->integer ? (unsigned int)time_frontend : 0;
+		g_SPXBPerfBackendMsec = com_speeds->integer ? (unsigned int)time_backend : 0;
+		g_SPXBPerfComEventMsec = xboxPerfComEventMsec;
+		g_SPXBPerfComCommandMsec = xboxPerfComCommandMsec;
+		XBPerf_EndFrame();
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBComTailStage = 0x434D3130; /* 'CM10' */
 		g_SPXBComSubphase = 18;
 		{
 			static int s_xboxActiveComClientBoundaryBudget = 32;
@@ -1849,14 +1899,13 @@ try
 		}
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after CL_Frame");
 #endif
-		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame done");
 
 		if ( com_speeds->integer ) {
 			timeAfter = Sys_Milliseconds ();
 		}
 	}
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (firstFrames) XBLog_Write(va("JA: Com_Frame #%d returning", frameCount-1));
-#ifdef _XBOX
 	g_SPXBComSubphase = 19;
 	xboxTraceActiveComTail = (g_SPXBClsState == (unsigned int)CA_ACTIVE && frameCount >= 8 && frameCount <= 40);
 	xboxTraceActiveComTailFrame = frameCount - 1;
@@ -1928,7 +1977,7 @@ try
 
 		timeInTrace = timeInPVSCheck = 0;
 	}
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComSubphase = 21;
 	if (xboxTraceActiveComTail)
 	{
@@ -1940,7 +1989,7 @@ try
 	//
 	// trace optimization tracking
 	//
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComSubphase = 22;
 #endif
 	if ( com_showtrace->integer ) {
@@ -1961,7 +2010,7 @@ try
 		c_pointcontents = 0;
 	}
 
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComSubphase = 23;
 	if (xboxTraceActiveComTail)
 	{
@@ -1970,7 +2019,7 @@ try
 	}
 #endif
 	com_frameNumber++;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComSubphase = 24;
 	if (xboxTraceActiveComTail)
 	{
@@ -1980,12 +2029,16 @@ try
 #endif
 }//try
 	catch (const char* reason) {
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBComCatchCount++;
+		g_SPXBComFrameDepth--;
+#endif
 		Com_Printf (reason);
 		return;			// an ERR_DROP was thrown
 	}
 
 #ifdef G2_PERFORMANCE_ANALYSIS
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (xboxTraceActiveComTail)
 	{
 		XBLF("JA: CL_EARLY COM_TAIL frame=%d before G2 report/reset", xboxTraceActiveComTailFrame);
@@ -1997,7 +2050,7 @@ try
 	}
 
 	G2Time_ResetTimers();
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (xboxTraceActiveComTail)
 	{
 		XBLF("JA: CL_EARLY COM_TAIL frame=%d after G2 report/reset", xboxTraceActiveComTailFrame);
@@ -2005,36 +2058,14 @@ try
 #endif
 #endif
 
-	{
-		static cvar_t *levelSelectCheat = NULL;
-	#ifdef _XBOX
-		g_SPXBComSubphase = 25;
-		if (xboxTraceActiveComTail)
-		{
-			XBLF("JA: CL_EARLY COM_TAIL frame=%d before levelSelectCheat cvar ptr=%p",
-				xboxTraceActiveComTailFrame, levelSelectCheat);
-		}
-	#endif
-		if ( !levelSelectCheat ) {
-			levelSelectCheat = Cvar_Get("levelSelectCheat", "-1", CVAR_SAVEGAME | CVAR_ARCHIVE);
-		}
-	#ifdef _XBOX
-		g_SPXBComSubphase = 26;
-		if (xboxTraceActiveComTail)
-		{
-			XBLF("JA: CL_EARLY COM_TAIL frame=%d after levelSelectCheat cvar ptr=%p",
-				xboxTraceActiveComTailFrame, levelSelectCheat);
-		}
-	#endif
-	}
-
 #ifdef XBOX_DEMO
 	// This is for the code that auto-reboots back to CDX after a timeout:
 	extern void Demo_TimerUpdate( void );
 	Demo_TimerUpdate();
 #endif
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBComSubphase = 27;
+	g_SPXBComFrameDepth--;
 #endif
 }
 

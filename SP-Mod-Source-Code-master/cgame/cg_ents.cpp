@@ -7,6 +7,10 @@
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+#if defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBModelProbeStage;
+extern "C" volatile unsigned int g_SPXBModelProbeFileLen;
+#endif
 #endif
 
 extern qboolean CG_ApplyBoltOnToRefEnt (refEntity_t *newBoltOn, boltOn_t *boltOn, boltOnInfo_t *bOInfo, const vec3_t org, refEntity_t *targModel);
@@ -1311,6 +1315,9 @@ static void CG_AddCEntity( centity_t *cent )
 	static int s_stefxAddCentLogBudget = 80;
 	static int s_stefxBorgDispatchBucket[MAX_GENTITIES];
 
+	g_SPXBModelProbeStage = 120;
+	g_SPXBModelProbeFileLen = cent ? (unsigned int)cent->currentState.number : 0xffffffffu;
+
 	if ( cent && cent->gent && cent->gent->client &&
 		cent->gent->NPC_type &&
 		!Q_stricmpn( cent->gent->NPC_type, "borg", 4 ) )
@@ -1373,13 +1380,27 @@ static void CG_AddCEntity( centity_t *cent )
 
 	// calculate the current origin
 	CG_CalcEntityLerpPositions( cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 121;
+#endif
 
 	// add automatic effects
 	CG_EntityEffects( cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 122;
+#endif
 
 	// add local sound set if any
 	if ( cent->gent && cent->gent->soundSet && cent->gent->soundSet[0] && cent->currentState.eType != ET_MOVER )
+	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBModelProbeStage = 123;
+#endif
 		CG_AddLocalSet( cent );
+	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 124;
+#endif
 
 	switch ( cent->currentState.eType ) {
 	default:
@@ -1390,7 +1411,13 @@ static void CG_AddCEntity( centity_t *cent )
 	case ET_TELEPORT_TRIGGER:
 		break;
 	case ET_GENERAL:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBModelProbeStage = 125;
+#endif
 		CG_General( cent );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBModelProbeStage = 126;
+#endif
 		break;
 	case ET_PLAYER:
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)

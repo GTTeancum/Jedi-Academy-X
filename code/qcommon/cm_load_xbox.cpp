@@ -9,6 +9,11 @@
 #ifdef STEFX_ELITE_FORCE_SP
 #include "../win32/xb_log.h"
 #include "ef_bsp_xbox_shared.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBPackedMapPhase;
+extern "C" volatile unsigned int g_SPXBDirectMapStatus;
+extern "C" volatile unsigned int g_SPXBDirectMapHash;
+extern "C" volatile unsigned int g_SPXBDirectMapQueuedCount;
 #endif
 #include "../zlib/zlib.h"
 
@@ -506,9 +511,12 @@ CMod_LoadVisibility
 #define	VIS_HEADER	8
 void CMod_LoadVisibility( void *data, int len ) {
 	char	*buf;
+	unsigned int loadedSize;
 
 	if ( !len ) {
+		cmg.vised = qfalse;
 		cmg.visibility = NULL;
+		RE_SetWorldVisData(NULL);
 		return;
 	}
 	buf = (char*)data;
@@ -518,7 +526,10 @@ void CMod_LoadVisibility( void *data, int len ) {
 	cmg.vised = qtrue;
 	cmg.numClusters = ((int *)buf)[0];
 	cmg.clusterBytes = ((int *)buf)[1];
-	visData.Load(buf + VIS_HEADER, len - VIS_HEADER);
+	loadedSize = visData.Load(buf + VIS_HEADER, len - VIS_HEADER);
+	if (!loadedSize) {
+		Com_Error(ERR_DROP, "CMod_LoadVisibility: invalid compressed visibility data");
+	}
 	cmg.visibility = &visData;
 	RE_SetWorldVisData(&visData);
 }
@@ -533,8 +544,10 @@ CMod_LoadPatches
 */
 #define	MAX_PATCH_VERTS		1024
 
-void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen, int numsurfs ) {
+static void CMod_LoadPatchesInternal( void *verts, int vertlen, LumpStream *vertStream,
+		void *surfaces, int surfacelen, int numsurfs ) {
 	mapVert_t	*dv, *dv_p;
+	mapVert_t	*surfaceVerts = NULL;
 	dpatch_t	*in;
 	int			count;
 	int			i, j;
@@ -546,18 +559,32 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 
 	count = surfacelen / sizeof(*in);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F01;
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	XBLF("STEFX: CMod_LoadPatches begin patches=%d numsurfs=%d surfaceLen=%d vertLen=%d",
 		count, numsurfs, surfacelen, vertlen);
 #endif
 
 	cmg.numSurfaces = numsurfs;
 	cmg.surfaces = (cPatch_t **) Z_Malloc( cmg.numSurfaces * sizeof( cmg.surfaces[0] ), TAG_BSP, qtrue );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F02;
+#endif
 
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
 		Com_Error (ERR_DROP, "MOD_LoadBmodel: funny lump size");
+	if (vertStream)
+	{
+		surfaceVerts = (mapVert_t*)Z_Malloc(
+			MAX_PATCH_VERTS * sizeof(mapVert_t), TAG_TEMP_WORKSPACE, qfalse, 32);
+	}
 
 	unsigned char* patchScratch = (unsigned char*)Z_Malloc( sizeof( *patch ) * count, TAG_BSP, qtrue);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F03;
+#endif
 	
 	extern void CM_GridAlloc();
 	extern void CM_PatchCollideFromGridTempAlloc();
@@ -581,40 +608,87 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 #endif
 
 	for ( i = 0 ; i < count ; i++) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D1000 | (i & 0x0fff);
+#endif
 		in = (dpatch_t *)surfaces + i;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D5000 | (i & 0x0fff);
+#endif
 
 		cmg.surfaces[ in->code ] = patch = (cPatch_t *) patchScratch;
 		patchScratch += sizeof( *patch );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D6000 | (i & 0x0fff);
+#endif
 
 		// load the full drawverts onto the stack
 		width = in->patchWidth;
 		height = in->patchHeight;
 		c = width * height;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D7000 | (i & 0x0fff);
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ((i % 8) == 0 || i + 1 == count) {
+			g_SPXBPackedMapPhase = 0x504DA000 | (i & 0x0fff);
 			XBLF("STEFX: CMod_LoadPatches patch %d/%d code=%d shader=%d size=%dx%d verts=%d",
 				i + 1, count, in->code, in->shaderNum, width, height, c);
+			g_SPXBPackedMapPhase = 0x504DB000 | (i & 0x0fff);
 		}
 #endif
 		if ( c > MAX_PATCH_VERTS ) {
 			Com_Error( ERR_DROP, "ParseMesh: MAX_PATCH_VERTS" );
 		}
 
-		dv_p = dv + (in->verts >> 12);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504DC000 | (i & 0x0fff);
+#endif
+		if (vertStream)
+		{
+			const int firstVert = in->verts >> 12;
+			const int bytes = c * sizeof(mapVert_t);
+			if (!vertStream->readAt(firstVert * sizeof(mapVert_t), surfaceVerts, bytes))
+			{
+				Com_Error(ERR_DROP, "CMod_LoadPatches: packed vertex read failed at patch %d", i);
+			}
+			dv_p = surfaceVerts;
+		}
+		else
+		{
+			dv_p = dv + (in->verts >> 12);
+		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBDirectMapStatus = (unsigned int)dv;
+		g_SPXBDirectMapHash = (unsigned int)dv_p;
+		g_SPXBDirectMapQueuedCount = in->verts;
+#endif
 		for ( j = 0 ; j < c ; j++, dv_p++ ) {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			g_SPXBPackedMapPhase = 0x504DD000 | (j & 0x0fff);
+#endif
 			points[j][0] = dv_p->xyz[0];
 			points[j][1] = dv_p->xyz[1];
 			points[j][2] = dv_p->xyz[2];
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D8000 | (i & 0x0fff);
+#endif
 
 		shaderNum = in->shaderNum;
 		patch->contents = cmg.shaders[shaderNum].contentFlags;
 		CM_OrOfAllContentsFlagsInMap |= patch->contents;
 
 		patch->surfaceFlags = cmg.shaders[shaderNum].surfaceFlags;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D9000 | (i & 0x0fff);
+#endif
 
 		// create the internal facet structure
 		patch->pc = CM_GeneratePatchCollide( width, height, points, facetbuf, gridbuf );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBPackedMapPhase = 0x504D2000 | (i & 0x0fff);
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if ((i % 8) == 0 || i + 1 == count) {
 			XBLF("STEFX: CMod_LoadPatches patch %d/%d collide=%p",
@@ -632,6 +706,10 @@ void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen,
 
 	Z_Free(gridbuf);
 	Z_Free(facetbuf);
+	if (surfaceVerts)
+	{
+		Z_Free(surfaceVerts);
+	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	XBLog_Write("STEFX: CMod_LoadPatches done");
 #endif
@@ -667,16 +745,34 @@ static void CMod_LoadRawEFPatches(const efbspFile_t *efbsp, int shaderCount, int
 	extern void CM_PreparePatchCollide(int num);
 	extern void CM_TempPatchPlanesAlloc();
 	CM_GridAlloc();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F04;
+#endif
 	CM_PatchCollideFromGridTempAlloc();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F05;
+#endif
 	CM_PreparePatchCollide(count);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F06;
+#endif
 	CM_TempPatchPlanesAlloc();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F07;
+#endif
 	XBLog_WriteCritical("STEFX_HW_BOOT: raw collision shared workspaces complete");
 
 	facetLoad_t *facetbuf = (facetLoad_t*)Z_Malloc(
 		MAX_PATCH_PLANES*sizeof(facetLoad_t), TAG_TEMP_WORKSPACE, qfalse);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F08;
+#endif
 
 	int *gridbuf = (int*)Z_Malloc(
 		CM_MAX_GRID_SIZE*CM_MAX_GRID_SIZE*2*sizeof(int), TAG_TEMP_WORKSPACE, qfalse);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0F09;
+#endif
 	XBLog_WriteCritical("STEFX_HW_BOOT: raw collision local workspaces complete");
 
 	for (i = 0; i < surfaceCount; ++i)
@@ -729,8 +825,19 @@ static void CMod_LoadRawEFPatches(const efbspFile_t *efbsp, int shaderCount, int
 
 	Z_Free(gridbuf);
 	Z_Free(facetbuf);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBPackedMapPhase = 0x504D0FFF;
+#endif
 
 	XBLog_WriteCriticalf("STEFX_HW_BOOT: raw collision patches done count=%d", count);
+}
+
+void CMod_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen, int numsurfs ) {
+	CMod_LoadPatchesInternal(verts, vertlen, NULL, surfaces, surfacelen, numsurfs);
+}
+
+void CMod_LoadPatchesStream( LumpStream *verts, void *surfaces, int surfacelen, int numsurfs ) {
+	CMod_LoadPatchesInternal(NULL, verts ? verts->len : 0, verts, surfaces, surfacelen, numsurfs);
 }
 #endif
 
@@ -804,6 +911,7 @@ void CM_Free(void)
 	cmg.numSubModels = 0;
 #endif
 	CM_ClearLevelPatches();
+	RE_SetWorldVisData(NULL);
 	visData.Release();
 	Z_TagFree(TAG_BSP);
 }
@@ -817,6 +925,11 @@ void R_LoadTriSurfs( void *indexdata, int indexlen,
 void R_LoadFaces( void *indexdata, int indexlen, 
 					void *verts, int vertlen, 
 					void *surfaces, int surfacelen );
+void R_LoadPatchesStream( LumpStream *verts, void *surfaces, int surfacelen );
+void R_LoadTriSurfsStream( void *indexdata, int indexlen,
+					LumpStream *verts, void *surfaces, int surfacelen );
+void R_LoadFacesStream( void *indexdata, int indexlen,
+					LumpStream *verts, LumpStream *surfaces );
 void R_LoadFlares( void *surfaces, int surfacelen );
 extern void R_LoadShaders( void );
 extern void R_LoadLightmaps( void *data, int len, const char *psMapName );
@@ -840,6 +953,7 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 	char			loadName[MAX_QPATH];
 	char			stripName[MAX_QPATH];
 	Lump			outputLump;
+	LumpStream		verts;
 
 #ifdef STEFX_ELITE_FORCE_SP
 #ifdef _XBOX
@@ -936,12 +1050,19 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 #ifdef STEFX_ELITE_FORCE_SP
 	{
 		efbspFile_t efbsp;
+		qboolean packedLumpsExist;
 		memset(&efbsp, 0, sizeof(efbsp));
 		XBLF("EF: CM_LoadMap raw probe begin name='%s' clientload=%d", name, clientload);
 #ifdef _XBOX
 		XBLog_WriteCritical("STEFX_HW_BOOT: CM_LoadMap beginning raw BSP read");
 #endif
-		if (EFBSP_LoadFile(name, &efbsp))
+		packedLumpsExist = EFBSP_XboxPackedLumpsExist(name);
+#ifdef _XBOX
+		XBLog_WriteCritical(packedLumpsExist ?
+			"STEFX_RETAIL_LUMPS: CM packed probe returned true" :
+			"STEFX_RETAIL_LUMPS: CM packed probe returned false");
+#endif
+		if (!packedLumpsExist && EFBSP_LoadFile(name, &efbsp))
 		{
 			int shaderCount;
 			int num_surfs;
@@ -1203,137 +1324,309 @@ static void CM_LoadMap_Actual( const char *name, qboolean clientload, int *check
 			return;
 		}
 
-		XBLF("EF: CM_LoadMap raw probe missing name='%s' clientload=%d; emergency sidecar fallback only", name, clientload);
+		if (packedLumpsExist)
+		{
+			XBLF("STEFX_RETAIL_LUMPS: CM selecting packed map='%s' clientload=%d", name, clientload);
+		}
+		else
+		{
+			XBLF("EF: CM_LoadMap raw probe missing name='%s' clientload=%d; emergency sidecar fallback only", name, clientload);
+		}
 	}
 #endif
 
 	// load into heap
+#ifdef STEFX_ELITE_FORCE_SP
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before renderer world reset");
+#endif
+	R_EFBeginRawWorldMapLoad(name);
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after renderer world reset");
+#endif
+	{
+		Lump packedChecksum;
+#ifdef _XBOX
+		XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before checksum lump read");
+#endif
+		packedChecksum.load(stripName, "checksum");
+#ifdef _XBOX
+		XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: CM after checksum lump read len=%d data=%p",
+			packedChecksum.len, packedChecksum.data);
+#endif
+		if (packedChecksum.len == (int)sizeof(unsigned int))
+		{
+			last_checksum = *(unsigned int *)packedChecksum.data;
+		}
+#ifdef _XBOX
+		XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before checksum lump free");
+#endif
+		packedChecksum.clear();
+#ifdef _XBOX
+		XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after checksum lump free");
+#endif
+	}
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: CM begin map='%s' checksum=0x%08x",
+		name, last_checksum);
+#endif
+#endif
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before shaders lump read");
+#endif
 	outputLump.load(stripName, "shaders");
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: CM after shaders lump read len=%d data=%p",
+		outputLump.len, outputLump.data);
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before collision shaders load");
+#endif
 	CMod_LoadShaders( outputLump.data, outputLump.len );
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after collision shaders load");
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before renderer shaders load");
+#endif
 	R_LoadShaders();
-	
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after renderer shaders load");
+#endif
+	outputLump.clear();
+
+	/* Keep the packed vertex lump open and read one surface at a time. Same-process
+	   map transitions cannot reliably reserve this multi-megabyte file contiguously. */
+	g_SPXBPackedMapPhase = 0x504D000A;
+	if (!verts.open(stripName, "verts"))
+	{
+		Com_Error(ERR_DROP, "CM_LoadMap: failed to open packed verts for %s", name);
+	}
+	g_SPXBPackedMapPhase = 0x504D000B;
+	if (verts.len <= 0 || verts.len % (int)sizeof(mapVert_t))
+	{
+		Com_Error(ERR_DROP, "CM_LoadMap: invalid packed verts for %s", name);
+	}
+
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before post-shader loading animation");
+#endif
 	UpdateLoadingAnimation();
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after post-shader loading animation");
+#endif
 
 	strcpy(lmName, name);
+#ifdef STEFX_ELITE_FORCE_SP
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: CM before optimized lightmaps map='%s'", lmName);
+#endif
+	if (!R_LoadXboxOptimizedLightmaps(lmName))
+	{
+		Com_Error(ERR_DROP, "CM_LoadMap: packed map %s has no optimized lightmaps", lmName);
+	}
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after optimized lightmaps");
+#endif
+#else
 	outputLump.load(stripName, "lightmaps");
 	R_LoadLightmaps( outputLump.data, outputLump.len, lmName);
-	
+#endif
+
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM before post-lightmap loading animation");
+#endif
 	UpdateLoadingAnimation();
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: CM after post-lightmap loading animation");
+#endif
 
 	{
+		g_SPXBPackedMapPhase = 0x504D0001;
 		fileBase = NULL;
 		outputLump.clear();
+		g_SPXBPackedMapPhase = 0x504D0002;
 
 		Lump misc;
+		g_SPXBPackedMapPhase = 0x504D0003;
 		misc.load(stripName, "misc");
-		
+		g_SPXBPackedMapPhase = 0x504D0004;
+		if (misc.len != (int)sizeof(int))
+		{
+			Com_Error(ERR_DROP, "CM_LoadMap: packed map %s has invalid misc lump", name);
+		}
 		int num_surfs = *(int*)misc.data;
+		g_SPXBPackedMapPhase = 0x504D0005;
 		misc.clear();
+		g_SPXBPackedMapPhase = 0x504D0006;
 		
+		g_SPXBPackedMapPhase = 0x504D0007;
 		R_LoadSurfaces(num_surfs);
+		g_SPXBPackedMapPhase = 0x504D0008;
 
 		UpdateLoadingAnimation();
-
-		Lump verts;
-		verts.load(stripName, "verts");
+		g_SPXBPackedMapPhase = 0x504D0009;
 
 		Lump patches;
+		g_SPXBPackedMapPhase = 0x504D000C;
 		patches.load(stripName, "patches");
+		g_SPXBPackedMapPhase = 0x504D000D;
 
 		UpdateLoadingAnimation();
+		g_SPXBPackedMapPhase = 0x504D000E;
 
-		CMod_LoadPatches(verts.data, verts.len,
+		g_SPXBPackedMapPhase = 0x504D000F;
+		CMod_LoadPatchesStream(&verts,
 			patches.data, patches.len,
 			num_surfs );
-		R_LoadPatches(verts.data, verts.len, 
-			patches.data, patches.len);
+		g_SPXBPackedMapPhase = 0x504D0010;
+		R_LoadPatchesStream(&verts, patches.data, patches.len);
+		g_SPXBPackedMapPhase = 0x504D0011;
 
 		UpdateLoadingAnimation();
+		g_SPXBPackedMapPhase = 0x504D0012;
 
 		patches.clear();
+		g_SPXBPackedMapPhase = 0x504D0013;
 
 		Lump indexes;
+		g_SPXBPackedMapPhase = 0x504D0014;
 		indexes.load(stripName, "indexes");
+		g_SPXBPackedMapPhase = 0x504D0015;
 
 		Lump trisurfs;
+		g_SPXBPackedMapPhase = 0x504D0016;
 		trisurfs.load(stripName, "trisurfs");
+		g_SPXBPackedMapPhase = 0x504D0017;
 
 		UpdateLoadingAnimation();
+		g_SPXBPackedMapPhase = 0x504D0018;
 
-		R_LoadTriSurfs(indexes.data, indexes.len,
-			verts.data, verts.len, 
-			trisurfs.data, trisurfs.len);
+		R_LoadTriSurfsStream(indexes.data, indexes.len,
+			&verts, trisurfs.data, trisurfs.len);
+		g_SPXBPackedMapPhase = 0x504D0019;
 
 		trisurfs.clear();
+		g_SPXBPackedMapPhase = 0x504D001A;
 	
 		UpdateLoadingAnimation();
+		g_SPXBPackedMapPhase = 0x504D001B;
 
-		Lump faces;
-		faces.load(stripName, "faces");
+		LumpStream faces;
+		g_SPXBPackedMapPhase = 0x504D001C;
+		if (!faces.open(stripName, "faces"))
+		{
+			Com_Error(ERR_DROP, "CM_LoadMap: failed to open packed faces for %s", name);
+		}
+		g_SPXBPackedMapPhase = 0x504D001D;
 
-		R_LoadFaces(indexes.data, indexes.len,
-			verts.data, verts.len, 
-			faces.data, faces.len);
+		R_LoadFacesStream(indexes.data, indexes.len,
+			&verts, &faces);
+		g_SPXBPackedMapPhase = 0x504D001E;
+		faces.close();
 
 		UpdateLoadingAnimation();
+		g_SPXBPackedMapPhase = 0x504D001F;
 
 		Lump flares;
+		g_SPXBPackedMapPhase = 0x504D0020;
 		flares.load(stripName, "flares");
+		g_SPXBPackedMapPhase = 0x504D0021;
 
 		R_LoadFlares(flares.data, flares.len);
+		g_SPXBPackedMapPhase = 0x504D0022;
+		verts.close();
 	}
 	
 	UpdateLoadingAnimation();
+	g_SPXBPackedMapPhase = 0x504D0023;
 
+	g_SPXBPackedMapPhase = 0x504D0024;
 	outputLump.load(stripName, "leafs");
+	g_SPXBPackedMapPhase = 0x504D0025;
 	CMod_LoadLeafs (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D0026;
 
+	g_SPXBPackedMapPhase = 0x504D0027;
 	outputLump.load(stripName, "leafbrushes");
+	g_SPXBPackedMapPhase = 0x504D0028;
 	CMod_LoadLeafBrushes (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D0029;
 	
 	UpdateLoadingAnimation();
+	g_SPXBPackedMapPhase = 0x504D002A;
 
 	cmg.leafsurfaces = NULL;
+	g_SPXBPackedMapPhase = 0x504D002B;
 	outputLump.load(stripName, "planes");
+	g_SPXBPackedMapPhase = 0x504D002C;
 	CMod_LoadPlanes (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D002D;
 	
+	g_SPXBPackedMapPhase = 0x504D002E;
 	outputLump.load(stripName, "brushsides");
+	g_SPXBPackedMapPhase = 0x504D002F;
 	CMod_LoadBrushSides (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D0030;
+	g_SPXBPackedMapPhase = 0x504D0031;
 	outputLump.load(stripName, "brushes");
+	g_SPXBPackedMapPhase = 0x504D0032;
 	CMod_LoadBrushes (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D0033;
 
 	UpdateLoadingAnimation();
+	g_SPXBPackedMapPhase = 0x504D0034;
 
+	g_SPXBPackedMapPhase = 0x504D0035;
 	outputLump.load(stripName, "models");
+	g_SPXBPackedMapPhase = 0x504D0036;
 	CMod_LoadSubmodels (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D0037;
 
+	g_SPXBPackedMapPhase = 0x504D0038;
 	outputLump.load(stripName, "nodes");
+	g_SPXBPackedMapPhase = 0x504D0039;
 	CMod_LoadNodes (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D003A;
 
 	UpdateLoadingAnimation();
+	g_SPXBPackedMapPhase = 0x504D003B;
 
+	g_SPXBPackedMapPhase = 0x504D003C;
 	outputLump.load(stripName, "entities");
+	g_SPXBPackedMapPhase = 0x504D003D;
 	CMod_LoadEntityString (outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D003E;
 
+	g_SPXBPackedMapPhase = 0x504D003F;
 	outputLump.load(stripName, "visibility");
+	g_SPXBPackedMapPhase = 0x504D0040;
 	CMod_LoadVisibility( outputLump.data, outputLump.len);
+	g_SPXBPackedMapPhase = 0x504D0041;
 
 	UpdateLoadingAnimation();
+	g_SPXBPackedMapPhase = 0x504D0042;
 
 	TotalSubModels += cmg.numSubModels;
 	
 	CM_InitBoxHull ();
+	g_SPXBPackedMapPhase = 0x504D0043;
 
 	*checksum = last_checksum;	
 
 	// do this whether or not the map was cached from last load...
 	//
 	CM_FloodAreaConnections ();
+	g_SPXBPackedMapPhase = 0x504D0044;
 
 	UpdateLoadingAnimation();
+	g_SPXBPackedMapPhase = 0x504D0045;
 
 	Q_strncpyz( cmg.name, name, sizeof( cmg.name ) );
+#ifdef STEFX_ELITE_FORCE_SP
+	CM_EFRememberRawMap(name, last_checksum);
+	XBLF("STEFX_RETAIL_LUMPS: CM complete map='%s' submodels=%d clusters=%d areas=%d checksum=0x%08x",
+		name, cmg.numSubModels, cmg.numClusters, cmg.numAreas, last_checksum);
+	CM_EFLogMemoryStats(clientload ? "packed complete clientload" : "packed complete serverload", name);
+#endif
 	CM_CleanLeafCache();
+	g_SPXBPackedMapPhase = 0x504D0046;
 }
 
 // need a wrapper function around this because of multiple returns, need to ensure bool is correct...

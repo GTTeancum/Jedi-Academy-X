@@ -32,8 +32,8 @@ typedef unsigned char 		byte;
 */
 
 
-#define BSP_IDENT	(('P'<<24)+('S'<<16)+('B'<<8)+'R')
-#define BSP_VERSION			1
+#define BSP_IDENT	(('P'<<24)+('S'<<16)+('B'<<8)+'I')
+#define BSP_VERSION			46
 
 // there shouldn't be any problem with increasing these values at the
 // expense of more memory allocation in the utilities
@@ -98,8 +98,7 @@ typedef struct {
 #define	LUMP_LIGHTMAPS		14
 #define	LUMP_LIGHTGRID		15
 #define	LUMP_VISIBILITY		16
-#define LUMP_LIGHTARRAY		17
-#define	HEADER_LUMPS		18
+#define	HEADER_LUMPS		17
 
 typedef struct {
 	int			ident;
@@ -151,7 +150,6 @@ typedef struct {
 typedef struct {
 	int			planeNum;			// positive plane side faces out of the leaf
 	int			shaderNum;
-	int			drawSurfNum;
 } dbrushside_t;
 
 typedef struct {
@@ -176,9 +174,9 @@ typedef struct {
 typedef struct {
 	vec3_t		xyz;
 	float		st[2];
-	float		lightmap[MAXLIGHTMAPS][2];
+	float		lightmap[2];
 	vec3_t		normal;
-	byte		color[MAXLIGHTMAPS][4];
+	byte		color[4];
 } mapVert_t;
 
 #define DRAWVERT_LIGHTMAP_SCALE 32768.0f
@@ -193,9 +191,8 @@ typedef struct {
 
 typedef struct
 {
-	byte		ambientLight[MAXLIGHTMAPS][3];
-	byte		directLight[MAXLIGHTMAPS][3];
-	byte		styles[MAXLIGHTMAPS];
+	byte		ambientLight[3];
+	byte		directLight[3];
 	byte		latLong[2];
 }  dgrid_t;
 
@@ -218,9 +215,8 @@ typedef struct {
 	int			firstIndex;
 	int			numIndexes;
 
-	byte		lightmapStyles[MAXLIGHTMAPS], vertexStyles[MAXLIGHTMAPS];
-	int			lightmapNum[MAXLIGHTMAPS];
-	int			lightmapX[MAXLIGHTMAPS], lightmapY[MAXLIGHTMAPS];
+	int			lightmapNum;
+	int			lightmapX, lightmapY;
 	int			lightmapWidth, lightmapHeight;
 
 	vec3_t		lightmapOrigin;

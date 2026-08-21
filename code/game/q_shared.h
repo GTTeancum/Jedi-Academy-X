@@ -34,7 +34,7 @@
 #define _G2_GORE
 #endif
 
-#ifndef FINAL_BUILD
+#if !defined(FINAL_BUILD) && !defined(_XBOX)
 #define G2_PERFORMANCE_ANALYSIS
 #endif
 
@@ -578,7 +578,7 @@ inline void VectorMA( const vec3_t veca, float scale, const short vecb[3], vec3_
 #endif
 
 inline vec_t DotProduct( const vec3_t v1, const vec3_t v2 ) {
-#ifdef _XBOX1		/// use SSE
+#ifdef _XBOX		/// use SSE
 	float res;
     __asm {
         mov     edx, v1
@@ -620,7 +620,7 @@ inline void CrossProduct( const vec3_t v1, const vec3_t v2, vec3_t cross ) {
 }
 
 inline void VectorSubtract( const vec3_t veca, const vec3_t vecb, vec3_t o ) {
-#ifdef _XBOX1
+#ifdef _XBOX
 	__asm {
         mov      ecx, veca
         movss    xmm0, [ecx]
@@ -664,7 +664,7 @@ inline void VectorSubtract( const short veca[3], const short vecb[3], vec3_t o )
 #endif
 
 inline void VectorAdd( const vec3_t veca, const vec3_t vecb, vec3_t o ) {
-#ifdef _XBOX1
+#ifdef _XBOX
   __asm {
         mov      ecx, veca
         movss    xmm0, [ecx]
@@ -702,7 +702,7 @@ inline void VectorCopy( const short in[3], vec3_t out ) {
 #endif
 
 inline void VectorScale( const vec3_t i, vec_t scale, vec3_t o ) {
-#ifdef _XBOX1
+#ifdef _XBOX
 __asm {
         movss    xmm0, scale
         shufps   xmm0, xmm0, 0h
@@ -799,7 +799,7 @@ inline int VectorCompare2( const vec3_t v1, const vec3_t v2 ) {
 	return 1;
 }
 inline vec_t VectorLength( const vec3_t v ) {
-#ifdef _XBOX1
+#ifdef _XBOX
 	float res;
 
 	__asm {
@@ -830,7 +830,7 @@ inline vec_t VectorLength( const vec3_t v ) {
 }
 
 inline vec_t VectorLengthSquared( const vec3_t v ) {
-#ifdef _XBOX1
+#ifdef _XBOX
 	float res;
 	__asm {
         mov     edx, v
@@ -1052,6 +1052,9 @@ inline void GetAnglesForDirection( const vec3_t p1, const vec3_t p2, vec3_t out 
 
 void SetPlaneSignbits( struct cplane_s *out );
 int BoxOnPlaneSide (vec3_t emins, vec3_t emaxs, struct cplane_s *plane);
+#ifdef _XBOX
+int BoxOnPlaneSide (const short emins[3], const short emaxs[3], struct cplane_s *plane);
+#endif
 //float	AngleMod(float a);
 
 inline float LerpAngle (float from, float to, float frac) {
@@ -1453,7 +1456,7 @@ typedef struct {
 // per-level limits
 //
 #if defined(STEFX_SP_HOSTED_MP)
-#define	MAX_CLIENTS			4		// SP-hosted Holomatch development target
+#define	MAX_CLIENTS			8		// four local Holomatch players plus four bot slots
 #else
 #define	MAX_CLIENTS			1 // 128		// absolute limit
 #endif

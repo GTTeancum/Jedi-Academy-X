@@ -22,10 +22,6 @@
 #include "../renderer/tr_local.h"
 #include "../qcommon/qcommon.h"
 #include "win_local.h"
-#ifdef _XBOX
-#include "xb_log.h"
-extern "C" volatile unsigned int g_SPXBPhaseLast;
-#endif
 
 #if defined(_WINDOWS) || defined(_XBOX)
 #include "glw_win_dx8.h"
@@ -53,6 +49,7 @@ void	 GLW_Shutdown(void);
 // variable declarations
 //
 glwstate_t *glw_state = NULL;
+glwstate_t	g_glwState;
 
 
 /*
@@ -62,18 +59,9 @@ glwstate_t *glw_state = NULL;
 */
 static qboolean GLW_CreateWindow( int width, int height, int colorbits, qboolean cdsFullscreen )
 {
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x47574330; /* 'GWC0' */
-#endif
-	XBL("GLW_CreateWindow: GLW_Init...\n");
 	GLW_Init(width, height, colorbits, cdsFullscreen);
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x47574331; /* 'GWC1' */
-#endif
-	XBL("GLW_CreateWindow: GLW_Init done\n");
-	XBL("GLW_CreateWindow: IN_Init...\n");
 	IN_Init();
-	XBL("GLW_CreateWindow: IN_Init done\n");
+
 	return qtrue;
 }
 
@@ -99,10 +87,30 @@ static void GLW_InitExtensions( void )
 	}
 
 	// GL_EXT_texture_filter_anisotropic
-	glConfig.textureFilterAnisotropicAvailable = qfalse;
+	glConfig.maxTextureFilterAnisotropy = 0;
 	if ( strstr( glConfig.extensions_string, "EXT_texture_filter_anisotropic" ) )
 	{
-		glConfig.textureFilterAnisotropicAvailable = qtrue;
+		qglGetFloatv( GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &glConfig.maxTextureFilterAnisotropy );
+		Com_Printf ("...GL_EXT_texture_filter_anisotropic available\n" );
+
+		if ( r_ext_texture_filter_anisotropic->integer>1 )
+		{
+			Com_Printf ("...using GL_EXT_texture_filter_anisotropic\n" );
+		}
+		else
+		{
+			Com_Printf ("...ignoring GL_EXT_texture_filter_anisotropic\n" );
+		}
+		Cvar_Set( "r_ext_texture_filter_anisotropic_avail", va("%f",glConfig.maxTextureFilterAnisotropy) );
+		if ( r_ext_texture_filter_anisotropic->value > glConfig.maxTextureFilterAnisotropy )
+		{
+			Cvar_Set( "r_ext_texture_filter_anisotropic", va("%f",glConfig.maxTextureFilterAnisotropy) );
+		}
+	}
+	else
+	{
+		Com_Printf ("...GL_EXT_texture_filter_anisotropic not found\n" );
+		Cvar_Set( "r_ext_texture_filter_anisotropic_avail", "0" );
 	}
 
 	// GL_EXT_clamp_to_edge
@@ -115,12 +123,17 @@ static void GLW_InitExtensions( void )
 	// GL_ARB_multitexture
 	if ( strstr( glConfig.extensions_string, "GL_ARB_multitexture" )  )
 	{
-		/* Plan-B: glActiveTextureARB is now a real function (not a
-		 * function-pointer that could be NULL'd to disable multitexture).
-		 * glGetIntegerv(GL_MAX_ACTIVE_TEXTURES_ARB, ...) still works to
-		 * query the cap; we just can't disable multitexture by NULLing
-		 * the function pointer.  Querying the cap is harmless. */
-		glGetIntegerv( GL_MAX_ACTIVE_TEXTURES_ARB, &glConfig.maxActiveTextures );
+		if ( qglActiveTextureARB )
+		{
+			qglGetIntegerv( GL_MAX_ACTIVE_TEXTURES_ARB, &glConfig.maxActiveTextures );
+			
+			if ( glConfig.maxActiveTextures < 2 )
+			{
+				qglMultiTexCoord2fARB = NULL;
+				qglActiveTextureARB = NULL;
+				qglClientActiveTextureARB = NULL;
+			}
+		}
 	}
 }
 
@@ -136,24 +149,17 @@ static qboolean GLW_LoadOpenGL()
 
 	strlwr( strcpy( buffer, OPENGL_DRIVER_NAME ) );
 
-	XBLF("GLW_LoadOpenGL: QGL_Init('%s')...\n", buffer);
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x51474c30; /* 'QGL0' */
-#endif
-	if ( QGL_Init( buffer ) )
+	//
+	// load the driver and bind our function pointers to it
+	// 
+	if ( QGL_Init( buffer ) ) 
 	{
-#ifdef _XBOX
-		g_SPXBPhaseLast = 0x51474c31; /* 'QGL1' */
-#endif
-		XBL("GLW_LoadOpenGL: QGL_Init OK\n");
-		XBL("GLW_LoadOpenGL: GLW_CreateWindow...\n");
 		GLW_CreateWindow(640, 480, 24, 1);
-		XBL("GLW_LoadOpenGL: GLW_CreateWindow done\n");
 		return qtrue;
 	}
 
-	XBL("GLW_LoadOpenGL: QGL_Init FAILED\n");
 	QGL_Shutdown();
+
 	return qfalse;
 }
 
@@ -163,7 +169,10 @@ static qboolean GLW_LoadOpenGL()
 */
 void GLimp_EndFrame (void)
 {
-	/* Present is owned by qglEndFrame at the renderer command boundary. */
+	// don't flip if drawing to front buffer
+//	if ( stricmp( r_drawBuffer->string, "GL_FRONT" ) != 0 )
+	{
+	}
 }
 
 static void GLW_StartOpenGL( void )
@@ -189,42 +198,30 @@ static void GLW_StartOpenGL( void )
 */
 void GLimp_Init( void )
 {
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x474c4930; /* 'GLI0' */
-#endif
-	XBL("GLimp_Init: GLW_StartOpenGL...\n");
+	// load appropriate DLL and initialize subsystem
 	GLW_StartOpenGL();
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x474c4931; /* 'GLI1' */
-#endif
-	XBL("GLimp_Init: GLW_StartOpenGL done\n");
 
 	// get our config strings
-	XBL("GLimp_Init: glGetString...\n");
-	glConfig.vendor_string     = (const char *) glGetString(GL_VENDOR);
-	glConfig.renderer_string   = (const char *) glGetString(GL_RENDERER);
-	glConfig.version_string    = (const char *) glGetString(GL_VERSION);
-	glConfig.extensions_string = (const char *) glGetString(GL_EXTENSIONS);
-
+	glConfig.vendor_string = (const char *) qglGetString (GL_VENDOR);
+	glConfig.renderer_string = (const char *) qglGetString (GL_RENDERER);
+	glConfig.version_string = (const char *) qglGetString (GL_VERSION);
+	glConfig.extensions_string = (const char *) qglGetString (GL_EXTENSIONS);
+	
 	if (!glConfig.vendor_string || !glConfig.renderer_string || !glConfig.version_string || !glConfig.extensions_string)
 	{
-		XBL("GLimp_Init: ERROR - null GL string\n");
 		Com_Error( ERR_FATAL, "GLimp_Init() - Invalid GL Driver\n" );
 	}
-	XBLF("GLimp_Init: vendor='%s' renderer='%s'\n",
-		glConfig.vendor_string, glConfig.renderer_string);
 
 	// OpenGL driver constants
-	glGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.maxTextureSize );
-	if ( glConfig.maxTextureSize <= 0 )
+	qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.maxTextureSize );
+	// stubbed or broken drivers may have reported 0...
+	if ( glConfig.maxTextureSize <= 0 ) 
+	{
 		glConfig.maxTextureSize = 0;
-	XBLF("GLimp_Init: maxTextureSize=%d\n", glConfig.maxTextureSize);
+	}
 
-	XBL("GLimp_Init: GLW_InitExtensions...\n");
 	GLW_InitExtensions();
-	XBL("GLimp_Init: WG_CheckHardwareGamma...\n");
 	WG_CheckHardwareGamma();
-	XBL("GLimp_Init: done\n");
 }
 
 /*
@@ -236,7 +233,7 @@ void GLimp_Init( void )
 void GLimp_Shutdown( void )
 {
 	// FIXME: Brian, we need better fallbacks from partially initialized failures
-	VID_Printf( PRINT_ALL, "Shutting down OpenGL subsystem\n" );
+	Com_Printf ("Shutting down OpenGL subsystem\n" );
 
 	// Set the gamma back to normal
 //	GLimp_SetGamma(1.f);

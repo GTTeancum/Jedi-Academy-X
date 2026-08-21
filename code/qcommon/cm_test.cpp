@@ -538,7 +538,7 @@ const byte	*CM_ClusterPVS (int cluster) {
 	}
 
 	return cmg.visibility->Decompress(cluster * cmg.clusterBytes,
-			cmg.numClusters);
+			cmg.clusterBytes);
 }
 #else
 byte	*CM_ClusterPVS (int cluster) {

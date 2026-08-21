@@ -9,6 +9,18 @@
 #include "tr_local.h"
 //#include "assert.h"
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBComSubphase;
+extern "C" volatile unsigned int g_SPXBComSpinCount;
+extern "C" volatile unsigned int g_SPXBComMsec;
+extern "C" volatile unsigned int g_SPXBComFrameTime;
+extern "C" volatile unsigned int g_SPXBComLastTime;
+
+static unsigned int s_stefxMarkWalkDepth;
+static unsigned int s_stefxMarkWalkNodes;
+#endif
+
 #define MAX_VERTS_ON_POLY		64
 
 #define MARKER_OFFSET			0	// 1
@@ -120,10 +132,18 @@ void R_BoxSurfaces_r(mnode_t *node, vec3_t mins, vec3_t maxs, surfaceType_t **li
 
 	int			s, c;
 	msurface_t	*surf, **mark;
+#ifdef _XBOX
+	const unsigned int markWalkDepth = ++s_stefxMarkWalkDepth;
+#endif
 
 	// do the tail recursion in a loop
 	while ( node->contents == -1 ) {
 #ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D420001; /* 'MB' node walk */
+		g_SPXBComSubphase = ++s_stefxMarkWalkNodes;
+		g_SPXBComSpinCount = markWalkDepth;
+		g_SPXBComMsec = (unsigned int)node;
+		g_SPXBComFrameTime = (unsigned int)node->planeNum;
 		s = BoxOnPlaneSide( mins, maxs, tr.world->planes + node->planeNum );
 #else
 		s = BoxOnPlaneSide( mins, maxs, node->plane );
@@ -141,6 +161,12 @@ void R_BoxSurfaces_r(mnode_t *node, vec3_t mins, vec3_t maxs, surfaceType_t **li
 	// add the individual surfaces
 #ifdef _XBOX
 	mleaf_s *leaf = (mleaf_s*)node;
+	g_SPXBPhaseLast = 0x4D420002; /* 'MB' leaf surfaces */
+	g_SPXBComSubphase = s_stefxMarkWalkNodes;
+	g_SPXBComSpinCount = markWalkDepth;
+	g_SPXBComMsec = (unsigned int)leaf;
+	g_SPXBComFrameTime = (unsigned int)leaf->firstMarkSurfNum;
+	g_SPXBComLastTime = (unsigned int)leaf->nummarksurfaces;
 	mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
 	c = leaf->nummarksurfaces;
 #else
@@ -152,6 +178,12 @@ void R_BoxSurfaces_r(mnode_t *node, vec3_t mins, vec3_t maxs, surfaceType_t **li
 		if (*listlength >= listsize) break;
 		//
 		surf = *mark;
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D420003; /* 'MB' surface classify */
+		g_SPXBComSubphase = (unsigned int)(mark - tr.world->marksurfaces);
+		g_SPXBComMsec = (unsigned int)surf;
+		g_SPXBComFrameTime = (unsigned int)surf->data;
+#endif
 
 		// check if the surface has NOIMPACT or NOMARKS set
 		if ( ( surf->shader->surfaceFlags & ( SURF_NOIMPACT | SURF_NOMARKS ) )
@@ -183,6 +215,9 @@ void R_BoxSurfaces_r(mnode_t *node, vec3_t mins, vec3_t maxs, surfaceType_t **li
 		}
 		mark++;
 	}
+#ifdef _XBOX
+	--s_stefxMarkWalkDepth;
+#endif
 }
 
 /*
@@ -265,6 +300,13 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 	vec3_t			projectionDir;
 	vec3_t			v1, v2;
 
+#ifdef _XBOX
+	s_stefxMarkWalkDepth = 0;
+	s_stefxMarkWalkNodes = 0;
+	g_SPXBPhaseLast = 0x4D4B0001; /* 'MK' begin */
+	g_SPXBComSubphase = 0;
+#endif
+
 	//increment view count for double check prevention
 	tr.viewCount++;
 
@@ -302,7 +344,14 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 	numPlanes = numPoints + 2;
 
 	numsurfaces = 0;
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D4B0002; /* 'MK' before BSP walk */
+#endif
 	R_BoxSurfaces_r(tr.world->nodes, mins, maxs, surfaces, 64, &numsurfaces, projectionDir);
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D4B0003; /* 'MK' after BSP walk */
+	g_SPXBComSubphase = (unsigned int)numsurfaces;
+#endif
 	//assert(numsurfaces <= 64);
 	//assert(numsurfaces != 64);
 
@@ -310,6 +359,13 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 	returnedFragments = 0;
 
 	for ( i = 0 ; i < numsurfaces ; i++ ) {
+#ifdef _XBOX
+		g_SPXBPhaseLast = 0x4D4B0004; /* 'MK' clip surface */
+		g_SPXBComSubphase = (unsigned int)i;
+		g_SPXBComSpinCount = (unsigned int)numsurfaces;
+		g_SPXBComMsec = (unsigned int)surfaces[i];
+		g_SPXBComFrameTime = (unsigned int)*surfaces[i];
+#endif
 
 		if (*surfaces[i] == SF_GRID) {
 			const srfGridMesh_t	* const cv = (srfGridMesh_t *) surfaces[i];
@@ -452,28 +508,9 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 				// check the normal of this triangle
 				if (DotProduct(normal, projectionDir) < -0.1) 
 				{
-#ifdef _XBOX
-					// This is really ugly, and really inefficient. Of course, the inefficiency
-					// pales in comparison to the misery that ensues once you realze that
-					// MARKER_OFFSET is #define'd to be 0.
-					float fVec[3];
-					Q_CastShort2Float(&fVec[0], &surf->verts[i1].xyz[0]);
-					Q_CastShort2Float(&fVec[1], &surf->verts[i1].xyz[1]);
-					Q_CastShort2Float(&fVec[2], &surf->verts[i1].xyz[2]);
-					VectorMA(fVec, MARKER_OFFSET, normal, clipPoints[0][0]);
-					Q_CastShort2Float(&fVec[0], &surf->verts[i2].xyz[0]);
-					Q_CastShort2Float(&fVec[1], &surf->verts[i2].xyz[1]);
-					Q_CastShort2Float(&fVec[2], &surf->verts[i2].xyz[2]);
-					VectorMA(fVec, MARKER_OFFSET, normal, clipPoints[0][1]);
-					Q_CastShort2Float(&fVec[0], &surf->verts[i3].xyz[0]);
-					Q_CastShort2Float(&fVec[1], &surf->verts[i3].xyz[1]);
-					Q_CastShort2Float(&fVec[2], &surf->verts[i3].xyz[2]);
-					VectorMA(fVec, MARKER_OFFSET, normal, clipPoints[0][2]);
-#else
 					VectorMA(surf->verts[i1].xyz, MARKER_OFFSET, normal, clipPoints[0][0]);
 					VectorMA(surf->verts[i2].xyz, MARKER_OFFSET, normal, clipPoints[0][1]);
 					VectorMA(surf->verts[i3].xyz, MARKER_OFFSET, normal, clipPoints[0][2]);
-#endif
 					// add the fragments of this triangle
 					R_AddMarkFragments( 3 , clipPoints,
 						numPlanes, normals, dists,
@@ -495,6 +532,10 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 			continue;
 		}
 	}
+#ifdef _XBOX
+	g_SPXBPhaseLast = 0x4D4B0005; /* 'MK' complete */
+	g_SPXBComSubphase = (unsigned int)returnedFragments;
+#endif
 	return returnedFragments;
 }
 

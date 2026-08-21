@@ -69,6 +69,7 @@ static int s_lastBotThinkTime;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
 static int s_stefxBotAIStateLogBudget = 160;
 static int s_stefxBotInputTraceCount[MAX_CLIENTS];
+extern volatile unsigned int g_SPXBHMSplitBotProof[32];
 #endif
 
 void ExitLevel( void );
@@ -885,6 +886,11 @@ int BotAISetupClient(int client, struct bot_settings_s *settings) {
 	bot_state_t *bs;
 	int errnum;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[16];
+	g_SPXBHMSplitBotProof[17] = 1;
+#endif
+
 	if (!botstates[client]) botstates[client] = G_Alloc(sizeof(bot_state_t));
 	bs = botstates[client];
 
@@ -897,46 +903,79 @@ int BotAISetupClient(int client, struct bot_settings_s *settings) {
 		BotAI_Print(PRT_FATAL, "AAS not initialized\n");
 		return qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[17] = 2;
+#endif
 
 	//load the bot character
 	bs->character = trap_BotLoadCharacter(settings->characterfile, settings->skill);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[18] = (unsigned int)bs->character;
+#endif
 	if (!bs->character) {
 		BotAI_Print(PRT_FATAL, "couldn't load skill %d from %s\n", settings->skill, settings->characterfile);
 		return qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[17] = 3;
+#endif
 	//copy the settings
 	memcpy(&bs->settings, settings, sizeof(bot_settings_t));
 	//allocate a goal state
 	bs->gs = trap_BotAllocGoalState(client);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[19] = (unsigned int)bs->gs;
+#endif
 	//load the item weights
 	trap_Characteristic_String(bs->character, CHARACTERISTIC_ITEMWEIGHTS, filename, MAX_PATH);
 	errnum = trap_BotLoadItemWeights(bs->gs, filename);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[20] = (unsigned int)errnum;
+#endif
 	if (errnum != BLERR_NOERROR) {
 		trap_BotFreeGoalState(bs->gs);
 		return qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[17] = 4;
+#endif
 	//allocate a weapon state
 	bs->ws = trap_BotAllocWeaponState();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[21] = (unsigned int)bs->ws;
+#endif
 	//load the weapon weights
 	trap_Characteristic_String(bs->character, CHARACTERISTIC_WEAPONWEIGHTS, filename, MAX_PATH);
 	errnum = trap_BotLoadWeaponWeights(bs->ws, filename);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[22] = (unsigned int)errnum;
+#endif
 	if (errnum != BLERR_NOERROR) {
 		trap_BotFreeGoalState(bs->gs);
 		trap_BotFreeWeaponState(bs->ws);
 		return qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[17] = 5;
+#endif
 	//allocate a chat state
 	bs->cs = trap_BotAllocChatState();
 	//load the chat file
 	trap_Characteristic_String(bs->character, CHARACTERISTIC_CHAT_FILE, filename, MAX_PATH);
 	trap_Characteristic_String(bs->character, CHARACTERISTIC_CHAT_NAME, name, MAX_PATH);
 	errnum = trap_BotLoadChatFile(bs->cs, filename, name);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[23] = (unsigned int)errnum;
+#endif
 	if (errnum != BLERR_NOERROR) {
 		trap_BotFreeChatState(bs->cs);
 		trap_BotFreeGoalState(bs->gs);
 		trap_BotFreeWeaponState(bs->ws);
 		return qfalse;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[17] = 6;
+#endif
 	//get the gender characteristic
 	trap_Characteristic_String(bs->character, CHARACTERISTIC_GENDER, gender, MAX_PATH);
 	//set the chat gender
@@ -945,6 +984,9 @@ int BotAISetupClient(int client, struct bot_settings_s *settings) {
 	else trap_BotSetChatGender(bs->cs, CHAT_GENDERLESS);
 
 	bs->inuse = qtrue;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[17] = 7;
+#endif
 	bs->client = client;
 	bs->entitynum = client;
 	bs->setupcount = 4;

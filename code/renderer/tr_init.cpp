@@ -13,6 +13,7 @@
 #include "tr_WorldEffects.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+#include "../win32/xbox_texture_man.h"
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBShaderScanMagic;
 #endif
@@ -199,6 +200,12 @@ cvar_t	*broadsword_dircap=0;
 /*
 Ghoul2 Insert End
 */
+
+void ( APIENTRY * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
+void ( APIENTRY * qglActiveTextureARB )( GLenum texture );
+void ( APIENTRY * qglClientActiveTextureARB )( GLenum texture );
+void ( APIENTRY * qglLockArraysEXT)( GLint, GLint );
+void ( APIENTRY * qglUnlockArraysEXT)( void );
 
 
 /* Plan-B: function-pointer storage for these qgl_* extensions (renamed
@@ -1133,6 +1140,10 @@ void R_Register( void )
 	r_ext_compiled_vertex_array = Cvar_Get( "r_ext_compiled_vertex_array", "1", CVAR_ARCHIVE | CVAR_LATCH);
 	r_ext_texture_env_add = Cvar_Get( "r_ext_texture_env_add", "1", CVAR_ARCHIVE | CVAR_LATCH);
 	r_ext_texture_filter_anisotropic = Cvar_Get( "r_ext_texture_filter_anisotropic", "16", CVAR_ARCHIVE );
+#ifdef _XBOX
+	// The shipping JA Xbox package overrides the renderer default to 1x.
+	Cvar_Set( "r_ext_texture_filter_anisotropic", "1" );
+#endif
  
 #ifdef _XBOX
 	r_DynamicGlow = Cvar_Get( "r_DynamicGlow", "0", CVAR_ARCHIVE );
@@ -1153,11 +1164,9 @@ void R_Register( void )
 
 	r_picmip = Cvar_Get ("r_picmip", "1", CVAR_ARCHIVE | CVAR_LATCH );
 #ifdef _XBOX
-#ifdef STEFX_ELITE_FORCE_SP
+	// Both shipping JA Xbox configs use one downsample level. Keeping the
+	// shared SP/Holomatch renderer on that policy also bounds texture traffic.
 	Cvar_Set( "r_picmip", "1" );
-#else
-	Cvar_Set( "r_picmip", "0" );
-#endif
 #endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
 	AssertCvarRange( r_picmip, 0, 16, qtrue, qfalse );
@@ -1262,7 +1271,7 @@ void R_Register( void )
 
 	r_primitives = Cvar_Get( "r_primitives", "0", CVAR_ARCHIVE );
 #ifdef _XBOX
-	r_nativeDrawPath = Cvar_Get( "r_nativeDrawPath", "2", CVAR_ARCHIVE );
+	r_nativeDrawPath = Cvar_Get( "r_nativeDrawPath", "1", CVAR_ROM );
 #endif
 
 	r_ambientScale = Cvar_Get( "r_ambientScale", "0.5", CVAR_CHEAT );
@@ -1413,11 +1422,10 @@ void R_Init( void ) {
 	{
 		Hunk_Clear();
 		XBLog_WriteCritical("STEFX_HW_BOOT: R_Init hunk clear complete");
-		
-		extern void CM_Free(void);
-		CM_Free();
-		XBLog_WriteCritical("STEFX_HW_BOOT: R_Init collision free complete");
-		
+
+		/* Collision owns the shared PVS object.  Map teardown releases it in
+		   SV_ClearLastLevel; releasing it from renderer startup can invalidate
+		   visibility that CM_LoadMap has already prepared during a transition. */
 		void CM_CleanLeafCache(void);
 		CM_CleanLeafCache();
 		XBLog_WriteCritical("STEFX_HW_BOOT: R_Init leaf cache clean complete");
@@ -1645,6 +1653,11 @@ Touch all images to make sure they are resident
 extern qboolean Sys_LowPhysicalMemory();
 void	RE_EndRegistration( void ) {
 	R_SyncRenderThread();
+#ifdef _XBOX
+	XBLog_Writef( "STEFX_TEXTURE_POOLS: static=%lu/%lu skin=%lu/%lu",
+		gStaticTextures.Size(), gStaticTextures.Capacity(),
+		gSkinTextures.Size(), gSkinTextures.Capacity() );
+#endif
 	if (!Sys_LowPhysicalMemory()) {
 #ifndef _XBOX
 //		RB_ShowImages();

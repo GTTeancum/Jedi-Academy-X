@@ -9,7 +9,9 @@ param(
 
     [switch]$SkipStage,
 
-    [switch]$ReuseObjects
+    [switch]$ReuseObjects,
+
+    [switch]$FrameDiagnostics
 )
 
 $ErrorActionPreference = "Stop"
@@ -425,7 +427,7 @@ function Apply-ProjectSourceOverrides {
                 $hmCgameTrapDefinitions = @(
                     $hmCgameTrapNames | ForEach-Object { "$_=STEFX_HM_CG_$_" }
                 ) -join ';'
-                $hmCgameDefinitions = "STEFX_ELITE_FORCE_SP;STEFX_ELITE_FORCE_MP;STEFX_SP_HOSTED_MP;vmMain=STEFX_HM_CG_vmMain;dllEntry=STEFX_HM_CG_dllEntry;PASSFLOAT=STEFX_HM_CG_PASSFLOAT;Com_Printf=STEFX_HM_CG_Com_Printf;Com_Error=STEFX_HM_CG_Com_Error;fxRandCircumferencePos=STEFX_HM_CG_fxRandCircumferencePos;_CGAME;_X86_;$hmCgameTrapDefinitions"
+                $hmCgameDefinitions = "STEFX_ELITE_FORCE_SP;STEFX_ELITE_FORCE_MP;STEFX_SP_HOSTED_MP;vmMain=STEFX_HM_CG_vmMain;dllEntry=STEFX_HM_CG_dllEntry;PASSFLOAT=STEFX_HM_CG_PASSFLOAT;Com_Printf=STEFX_HM_CG_Com_Printf;Com_Error=STEFX_HM_CG_Com_Error;fxRandCircumferencePos=STEFX_HM_CG_fxRandCircumferencePos;ingame_text=STEFX_HM_CG_ingame_text;ingameText=STEFX_HM_CG_ingameText;CG_LoadIngameText=STEFX_HM_CG_LoadIngameText;CG_ParseIngameText=STEFX_HM_CG_ParseIngameText;CG_LanguageFilename=STEFX_HM_CG_LanguageFilename;_CGAME;_X86_;$hmCgameTrapDefinitions"
                 foreach ($hmCgameSource in (Get-ChildItem -LiteralPath $hmCgameRoot -File |
                     Where-Object { $_.Extension -eq ".c" } |
                     Sort-Object Name)) {
@@ -506,15 +508,53 @@ function Apply-ProjectSourceOverrides {
 
     if ($ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $filtered = New-Object System.Collections.Generic.List[object]
+        $retailRendererBridgeSources = @(
+            "..\win32\win_glimp_console.cpp",
+            "..\win32\win_highdynamicrange.cpp",
+            "..\win32\win_lighteffects.cpp",
+            "..\win32\win_qgl_dx8.cpp"
+        )
+        $retailRendererDefinitions = "FINAL_BUILD;_FINAL;STEFX_ELITE_FORCE_SP;STEFX_RETAIL_RENDERER_ACTIVE;STEFX_RETAIL_SURFACE_ACTIVE"
+        $retailRendererReplacements = @(
+            "..\renderer\tr_backend.cpp",
+            "..\renderer\tr_cmds.cpp",
+            "..\renderer\tr_light.cpp",
+            "..\renderer\tr_main.cpp",
+            "..\renderer\tr_scene.cpp",
+            "..\renderer\tr_shade.cpp",
+            "..\renderer\tr_shade_calc.cpp",
+			"..\renderer\tr_shader.cpp",
+            "..\renderer\tr_sky.cpp",
+            "..\renderer\tr_world.cpp"
+        )
         foreach ($source in $Sources) {
             if ($source.RelativePath -ieq "..\win32\dbg_console_xbox.cpp") {
                 continue
             }
+            if ($retailRendererReplacements -icontains $source.RelativePath) {
+                continue
+            }
+            # The shipping surface module owns the shared surface ABI.  The
+            # Elite Force module remains in the link under private symbols and
+            # exposes only its MDR/procedural extension hook.
+            # Keep every renderer translation unit on the shipping JA MP
+            # FINAL_BUILD ABI.  In particular, image_t changes layout under
+            # FINAL_BUILD, so mixing ordinary Release and retail objects is
+            # not safe even when only the retail frame-path files are copied.
+            if (($source.RelativePath.StartsWith("..\renderer\", [StringComparison]::OrdinalIgnoreCase) -or
+                 $retailRendererBridgeSources -icontains $source.RelativePath) -and
+                $source.Extension -in @(".c", ".cpp", ".cxx", ".cc")) {
+                $source.Tool = [pscustomobject]@{
+                    Name                    = "VCCLCompilerTool"
+                    PreprocessorDefinitions = $retailRendererDefinitions
+                }
+            }
             $filtered.Add($source)
         }
 
-        # The active Xbox renderer owns D3D8 directly in win_qgl_dx8.cpp.
-        # OpenJKDF2 FakeGL remains reference-only and is not linked.
+        # The shipping JA MP Xbox renderer family owns the shared frame path.
+        # EF-specific BSP parsing and asset registration remain in their
+        # existing modules and populate the retail renderer's global state.
 
         # Elite Force uses loose files and PK3 archives.  The inherited Xbox
         # executable project only had the GOB console filesystem sources, so
@@ -613,12 +653,16 @@ function Apply-ProjectSourceOverrides {
             Name                    = "VCCLCompilerTool"
             PreprocessorDefinitions = "TAG_TEMP_JPG=TAG_TEMP_WORKSPACE;NO_GETENV"
         }
+        $jpegRendererTool = [pscustomobject]@{
+            Name                    = "VCCLCompilerTool"
+            PreprocessorDefinitions = "TAG_TEMP_JPG=TAG_TEMP_WORKSPACE;NO_GETENV;$retailRendererDefinitions"
+        }
         foreach ($jpegSource in $jpegSources) {
             $filtered.Add([pscustomobject]@{
                 RelativePath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $jpegSource)).Substring($repoRoot.Length + 1)
                 FullPath     = Resolve-ProjectPath -BaseDir $repoRoot -PathValue $jpegSource
                 Extension    = ".cpp"
-                Tool         = $jpegTool
+                Tool         = if ($jpegSource -ieq "code\renderer\tr_jpeg_interface.cpp") { $jpegRendererTool } else { $jpegTool }
             })
         }
 
@@ -937,6 +981,271 @@ function Get-ObjectPath {
     return Join-Path $IntDir $relative
 }
 
+function Get-TextSha256 {
+    param([string]$Text)
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Text)
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace("-", "")
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+
+function Get-XbeRuntimeBuildId {
+    param([string]$XbePath)
+
+    if (-not (Test-Path -LiteralPath $XbePath -PathType Leaf)) {
+        return $null
+    }
+
+    [byte[]]$data = [System.IO.File]::ReadAllBytes($XbePath)
+    [byte[]]$marker = [System.Text.Encoding]::ASCII.GetBytes("STEFX_RUNTIME_BUILD_ID ")
+    for ($i = 0; $i -le $data.Length - $marker.Length; $i++) {
+        $matched = $true
+        for ($j = 0; $j -lt $marker.Length; $j++) {
+            if ($data[$i + $j] -ne $marker[$j]) {
+                $matched = $false
+                break
+            }
+        }
+        if (-not $matched) {
+            continue
+        }
+
+        $end = $i
+        $limit = [Math]::Min($data.Length, $i + 256)
+        while ($end -lt $limit -and $data[$end] -ne 0 -and $data[$end] -ne 10 -and $data[$end] -ne 13) {
+            $end++
+        }
+        return [System.Text.Encoding]::ASCII.GetString($data, $i, $end - $i)
+    }
+
+    return $null
+}
+
+function Assert-ActiveReleaseXbeRuntimeBuildIds {
+    param([string[]]$XbePaths)
+
+    $expectedFlavor = if ($FrameDiagnostics) { "frame-diagnostics" } else { "production" }
+    $failures = New-Object System.Collections.Generic.List[string]
+    foreach ($xbe in $XbePaths) {
+        if (-not (Test-Path -LiteralPath $xbe -PathType Leaf)) {
+            [void]$failures.Add("Active release XBE is missing after build: $xbe")
+            continue
+        }
+        $runtimeBuildId = Get-XbeRuntimeBuildId -XbePath $xbe
+        if (-not $runtimeBuildId) {
+            [void]$failures.Add("Active release XBE is missing STEFX_RUNTIME_BUILD_ID after build: $xbe")
+            continue
+        }
+        $fileName = [System.IO.Path]::GetFileName($xbe).ToLowerInvariant()
+        $expectedFragments = switch ($fileName) {
+            "default.xbe" { @("personality=default", "flavor=$expectedFlavor", "log=ef_sp_log.txt") }
+            "efmp.xbe" { @("personality=efmp", "flavor=$expectedFlavor", "log=ef_mp_log.txt") }
+            default { @("flavor=$expectedFlavor") }
+        }
+        $identityOk = $true
+        foreach ($fragment in $expectedFragments) {
+            if ($runtimeBuildId -notlike "*$fragment*") {
+                [void]$failures.Add("Active release XBE runtime build ID has wrong identity for ${fileName}: expected fragment '$fragment' in '$runtimeBuildId'")
+                $identityOk = $false
+            }
+        }
+        if ($identityOk) {
+            $relative = [System.IO.Path]::GetFullPath($xbe).Substring($repoRoot.Length + 1)
+            Write-Host "Runtime build id: $relative -> $runtimeBuildId"
+        }
+    }
+
+    if ($failures.Count -gt 0) {
+        throw "Active release XBE runtime build ID validation failed:`n - $($failures -join "`n - ")"
+    }
+}
+
+function Assert-ActiveReleaseXbeFreshness {
+    param(
+        [string[]]$XbePaths,
+        [string]$SourceRoot = (Join-Path $repoRoot "code")
+    )
+
+    $oldestReleaseUtc = $null
+    foreach ($xbe in $XbePaths) {
+        if (-not (Test-Path -LiteralPath $xbe -PathType Leaf)) {
+            throw "Active release XBE is missing after build: $xbe"
+        }
+        $item = Get-Item -LiteralPath $xbe
+        if ($null -eq $oldestReleaseUtc -or $item.LastWriteTimeUtc -lt $oldestReleaseUtc) {
+            $oldestReleaseUtc = $item.LastWriteTimeUtc
+        }
+    }
+
+    $sourceExtensions = @(
+        ".asm",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".inl",
+        ".rc",
+        ".vcproj",
+        ".vsh",
+        ".psh"
+    )
+    $newerSources = @(
+        Get-ChildItem -LiteralPath $SourceRoot -Recurse -ErrorAction Stop |
+            Where-Object {
+                -not $_.PSIsContainer -and
+                $sourceExtensions -contains $_.Extension.ToLowerInvariant() -and
+                $_.LastWriteTimeUtc -gt $oldestReleaseUtc
+            } |
+            Sort-Object FullName |
+            Select-Object -First 8
+    )
+    if ($newerSources.Count -gt 0) {
+        $details = ($newerSources | ForEach-Object {
+            "{0} modifiedUtc={1:o}" -f $_.FullName.Substring($repoRoot.Length + 1), $_.LastWriteTimeUtc
+        }) -join "; "
+        throw "Runtime source is newer than active build output; rebuild scripts\build_xbox.ps1 -Target spmp before packaging. Newer source sample: $details"
+    }
+    Write-Host "Active release XBE freshness ok"
+}
+
+function Assert-ActiveReleaseXbes {
+    param([string[]]$XbePaths)
+
+    $failures = New-Object System.Collections.Generic.List[string]
+    try {
+        Assert-ActiveReleaseXbeRuntimeBuildIds -XbePaths $XbePaths
+    }
+    catch {
+        [void]$failures.Add("runtime build ids: $($_.Exception.Message)")
+    }
+
+    try {
+        Assert-ActiveReleaseXbeFreshness -XbePaths $XbePaths
+    }
+    catch {
+        [void]$failures.Add("XBE freshness: $($_.Exception.Message)")
+    }
+
+    if ($failures.Count -gt 0) {
+        throw "Active release XBE postcondition failed:`n - $($failures -join "`n - ")"
+    }
+}
+
+function Get-PackageFreshnessInputs {
+    param(
+        [string]$SourceRoot = (Join-Path $repoRoot "code")
+    )
+
+    $sourceExtensions = @(
+        ".asm",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        ".h",
+        ".hpp",
+        ".inl",
+        ".rc",
+        ".vcproj",
+        ".vsh",
+        ".psh"
+    )
+    $inputs = @(
+        Get-ChildItem -LiteralPath $SourceRoot -Recurse -ErrorAction Stop |
+            Where-Object {
+                -not $_.PSIsContainer -and
+                $sourceExtensions -contains $_.Extension.ToLowerInvariant()
+            }
+    )
+
+    foreach ($relativePath in @(
+        "scripts\build_xbox.ps1",
+        "scripts\build_xbox_patch_pk3.py",
+        "scripts\check_mp_holomatch_ui.py"
+    )) {
+        $path = Join-Path $repoRoot $relativePath
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $inputs += Get-Item -LiteralPath $path
+        }
+    }
+
+    return $inputs
+}
+
+function Assert-ActiveReleasePackageFreshness {
+    param(
+        [string[]]$PackagePaths,
+        [string]$SourceRoot = (Join-Path $repoRoot "code")
+    )
+
+    $oldestPackageUtc = $null
+    $missingPackages = New-Object System.Collections.Generic.List[string]
+    foreach ($package in $PackagePaths) {
+        if (-not (Test-Path -LiteralPath $package -PathType Leaf)) {
+            [void]$missingPackages.Add("Active release PK3 is missing after packaging: $package")
+            continue
+        }
+        $item = Get-Item -LiteralPath $package
+        if ($null -eq $oldestPackageUtc -or $item.LastWriteTimeUtc -lt $oldestPackageUtc) {
+            $oldestPackageUtc = $item.LastWriteTimeUtc
+        }
+    }
+
+    if ($missingPackages.Count -gt 0) {
+        throw "Active release PK3 validation failed:`n - $($missingPackages -join "`n - ")"
+    }
+
+    $newerInputs = @(
+        Get-PackageFreshnessInputs -SourceRoot $SourceRoot |
+            Where-Object { $_.LastWriteTimeUtc -gt $oldestPackageUtc } |
+            Sort-Object FullName |
+            Select-Object -First 8
+    )
+    if ($newerInputs.Count -gt 0) {
+        $details = ($newerInputs | ForEach-Object {
+            "{0} modifiedUtc={1:o}" -f $_.FullName.Substring($repoRoot.Length + 1), $_.LastWriteTimeUtc
+        }) -join "; "
+        throw "Runtime or package source is newer than active release PK3 output; rebuild scripts\build_xbox.ps1 -Target spmp before staging. Newer input sample: $details"
+    }
+    Write-Host "Active release PK3 freshness ok"
+}
+
+function Assert-ActiveReleasePackages {
+    param([string[]]$PackagePaths)
+
+    $failures = New-Object System.Collections.Generic.List[string]
+    try {
+        Assert-ActiveReleasePackageFreshness -PackagePaths $PackagePaths
+    }
+    catch {
+        [void]$failures.Add("PK3 freshness: $($_.Exception.Message)")
+    }
+
+    if ($failures.Count -gt 0) {
+        throw "Active release package postcondition failed:`n - $($failures -join "`n - ")"
+    }
+}
+
+$compilerFile = Get-Item -LiteralPath $clExe
+$compilerIdentity = "$($compilerFile.FullName)|$($compilerFile.Length)|$($compilerFile.LastWriteTimeUtc.Ticks)"
+$latestHeaderWriteUtc = [DateTime]::MinValue
+if ($ReuseObjects) {
+    $latestHeader = Get-ChildItem -LiteralPath (Join-Path $repoRoot "code") -Recurse -File |
+        Where-Object { $_.Extension -in @(".h", ".hpp", ".inl") } |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+    if ($null -ne $latestHeader) {
+        $latestHeaderWriteUtc = $latestHeader.LastWriteTimeUtc
+    }
+}
+
 function Prepare-SpHostedSupportLibrary {
     $sourceLibrary = Join-Path $repoRoot "code\x_exe\Release\x_game.lib"
     $supportLibrary = Join-Path $repoRoot "code\x_exe\Release\spmp\sp_hosted_support.lib"
@@ -1135,14 +1444,19 @@ function Build-Project {
         }
     }
 
-    if ($script:StefxBuildTarget -eq "spmp" -and
-        ($ProjectPath -eq "code\x_game\x_game.vcproj" -or
-         $ProjectPath -eq "code\x_exe\x_exe.vcproj")) {
+    if ($ProjectPath -eq "code\x_game\x_game.vcproj" -or
+        $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $compilerDefinitions = Get-XmlAttr -Node $compilerTool -Name "PreprocessorDefinitions"
-        if ([string]::IsNullOrWhiteSpace($compilerDefinitions)) {
-            $compilerDefinitions = "STEFX_SP_HOSTED_MP"
+        foreach ($requiredDefinition in @("FINAL_BUILD", "_FINAL")) {
+            if ([string]::IsNullOrWhiteSpace($compilerDefinitions)) {
+                $compilerDefinitions = $requiredDefinition
+            }
+            elseif ($compilerDefinitions -notmatch "(^|;)$requiredDefinition(;|$)") {
+                $compilerDefinitions = "$compilerDefinitions;$requiredDefinition"
+            }
         }
-        elseif ($compilerDefinitions -notmatch "(^|;)STEFX_SP_HOSTED_MP(;|$)") {
+        if ($script:StefxBuildTarget -eq "spmp" -and
+            $compilerDefinitions -notmatch "(^|;)STEFX_SP_HOSTED_MP(;|$)") {
             $compilerDefinitions = "$compilerDefinitions;STEFX_SP_HOSTED_MP"
         }
         $compilerTool.PreprocessorDefinitions = $compilerDefinitions
@@ -1163,6 +1477,9 @@ function Build-Project {
     foreach ($flag in (Convert-CompilerFlags -Tool $compilerTool)) {
         $baseFlags.Add($flag)
     }
+    if ($FrameDiagnostics) {
+        $baseFlags.Add('/DSTEFX_HW_FRAME_DIAGNOSTICS')
+    }
     $baseFlags.Add('/I')
     $baseFlags.Add((Join-Path $xdkRoot "xbox\include"))
     foreach ($includeDir in (Split-VcList (Expand-VcString -Value (Get-XmlAttr -Node $compilerTool -Name "AdditionalIncludeDirectories") -Macros $macros))) {
@@ -1176,7 +1493,6 @@ function Build-Project {
     foreach ($define in (Split-VcList (Expand-VcString -Value (Get-XmlAttr -Node $compilerTool -Name "PreprocessorDefinitions") -Macros $macros))) {
         $baseFlags.Add("/D$define")
     }
-
     $sources = Get-ProjectSourceFiles -Xml $xml -ConfigurationName $configurationName -ProjectDir $projectDir -Macros $macros
     $sources = Apply-ProjectSourceOverrides -ProjectPath $ProjectPath -Sources $sources
     if ($script:StefxBuildTarget -eq "spmp") {
@@ -1218,15 +1534,6 @@ function Build-Project {
 
         $objPath = Get-ObjectPath -IntDir $intDir -SourcePath $source.FullPath
         New-Item -ItemType Directory -Path (Split-Path -Parent $objPath) -Force | Out-Null
-        if ($ReuseObjects -and
-            (Test-Path -LiteralPath $objPath) -and
-            (Get-Item -LiteralPath $objPath).LastWriteTimeUtc -ge
-                (Get-Item -LiteralPath $source.FullPath).LastWriteTimeUtc) {
-            Write-Host "Reusing $objPath"
-            $objectFiles.Add($objPath)
-            continue
-        }
-
         $compileFlags = New-Object System.Collections.Generic.List[string]
         $prependIncludes = Get-XmlAttr -Node $source.Tool -Name "PrependIncludeDirectories"
         if (-not [string]::IsNullOrWhiteSpace($prependIncludes)) {
@@ -1289,7 +1596,23 @@ function Build-Project {
                 }
             }
             if ($openQuote) { $merged.Add($accum) }
-            foreach ($opt in $merged) { $compileFlags.Add($opt) }
+            foreach ($opt in $merged) {
+                if ($opt -match '^/FI"(.*)"$') {
+                    $compileFlags.Add('/FI')
+                    $compileFlags.Add($Matches[1])
+                } else {
+                    $compileFlags.Add($opt)
+                }
+            }
+        }
+
+        $effectiveOptimization = @($compileFlags | Where-Object {
+            $_ -match '^/(Od|O1|O2|Ox)$'
+        }) | Select-Object -Last 1
+        if ($configurationName -eq "Release" -and
+            $source.Extension -in @(".c", ".cc", ".cpp", ".cxx") -and
+            $effectiveOptimization -notin @("/O2", "/Ox")) {
+            throw "Release source is not speed-optimized: $($source.FullPath) (effective flag: $effectiveOptimization)"
         }
 
         $compileAs = Get-XmlAttr -Node $source.Tool -Name "CompileAs"
@@ -1311,7 +1634,33 @@ function Build-Project {
         $compileFlags.Add("/Fo$objPath")
         $compileFlags.Add($sourceArgument)
 
+        $fingerprintPath = "$objPath.compile.sha256"
+        $expectedFingerprint = Get-TextSha256 ($compilerIdentity + "`n" + ($compileFlags -join "`0"))
+        $forceCompileForFreshRuntimeId = (
+            [System.IO.Path]::GetFileName($source.FullPath).Equals("xb_log.cpp", [System.StringComparison]::OrdinalIgnoreCase) -and
+            [System.IO.Path]::GetFullPath($source.FullPath).StartsWith((Join-Path $repoRoot "code\win32"), [System.StringComparison]::OrdinalIgnoreCase)
+        )
+        if ($ReuseObjects -and
+            -not $forceCompileForFreshRuntimeId -and
+            (Test-Path -LiteralPath $objPath) -and
+            (Test-Path -LiteralPath $fingerprintPath)) {
+            $objectWriteUtc = (Get-Item -LiteralPath $objPath).LastWriteTimeUtc
+            $sourceWriteUtc = (Get-Item -LiteralPath $source.FullPath).LastWriteTimeUtc
+            $storedFingerprint = (Get-Content -LiteralPath $fingerprintPath -Raw).Trim()
+            if ($objectWriteUtc -ge $sourceWriteUtc -and
+                $objectWriteUtc -ge $latestHeaderWriteUtc -and
+                $storedFingerprint -eq $expectedFingerprint) {
+                Write-Host "Reusing $objPath"
+                $objectFiles.Add($objPath)
+                continue
+            }
+        }
+        if ($ReuseObjects -and $forceCompileForFreshRuntimeId) {
+            Write-Host "Rebuilding $objPath for fresh STEFX_RUNTIME_BUILD_ID"
+        }
+
         Invoke-External -Exe $clExe -Arguments $compileFlags -WorkingDirectory $projectDir
+        Set-Content -LiteralPath $fingerprintPath -Value $expectedFingerprint -Encoding ASCII
         $objectFiles.Add($objPath)
     }
 
@@ -1459,6 +1808,22 @@ function Invoke-BuildGraph {
         Write-Host ""
         Write-Host "==> $project"
         Build-Project -ProjectPath $project
+    }
+}
+
+function Invoke-BuildGraphForTarget {
+    param(
+        [ValidateSet("sp", "spmp", "mp", "all")]
+        [string]$BuildTarget,
+        [string[]]$Projects
+    )
+
+    $previousBuildTarget = $script:StefxBuildTarget
+    $script:StefxBuildTarget = $BuildTarget
+    try {
+        Invoke-BuildGraph -Projects $Projects
+    } finally {
+        $script:StefxBuildTarget = $previousBuildTarget
     }
 }
 
@@ -1974,8 +2339,9 @@ function Update-EFXboxPatchPk3 {
         [ValidateSet("map", "campaign", "multiplayer", "all")]
         [string]$BspMaps = "campaign",
         [switch]$DdsOnly,
+        [switch]$GenerateMipmaps,
         [ValidateSet("dxt5", "bgra32")]
-        [string]$AlphaTextureFormat = "bgra32",
+        [string]$AlphaTextureFormat = "dxt5",
         [switch]$SkipUiScripts,
         [switch]$HolomatchSupportAssets
     )
@@ -2012,6 +2378,21 @@ function Update-EFXboxPatchPk3 {
         "--alpha-texture-format", $AlphaTextureFormat
     )
 
+    $archiveSourceCandidates = @(
+        $BaseEfDir,
+        (Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF"),
+        "C:\Games\Emulators\stefx_iso_seed_complete\BaseEF"
+    )
+    foreach ($candidate in $archiveSourceCandidates) {
+        if ((Test-Path -LiteralPath (Join-Path $candidate "PAK0.PK3") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate "PAK1.PK3") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate "PAK2.PK3") -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $candidate "PAK3.PK3") -PathType Leaf)) {
+            $patchArgs += @("--shader-archive-dir", $candidate)
+            break
+        }
+    }
+
     if ($OutputName -ieq "xbox0.pk3") {
         if ([string]::IsNullOrWhiteSpace($privateSeed)) {
             $privateSeed = Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF\xbox0_dds_seed.pk3"
@@ -2022,6 +2403,9 @@ function Update-EFXboxPatchPk3 {
     }
     if ($DdsOnly) {
         $patchArgs += "--dds-only"
+    }
+    if ($GenerateMipmaps) {
+        $patchArgs += "--generate-mipmaps"
     }
     if ($SkipUiScripts) {
         $patchArgs += "--no-ui-scripts"
@@ -2197,7 +2581,7 @@ function Update-EFConsoleAssetLists {
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
-    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -DdsOnly -AlphaTextureFormat "bgra32"
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -DdsOnly -GenerateMipmaps -AlphaTextureFormat "dxt5"
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader"
@@ -2225,10 +2609,10 @@ function Update-EFHolomatchAssetLists {
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
     Expand-EFHolomatchPk3SourceOverlay -BaseEfDir $baseEfDir
-    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map $script:StefxHolomatchDirectMap -BspMaps "multiplayer" -DdsOnly -AlphaTextureFormat "bgra32" -SkipUiScripts -HolomatchSupportAssets
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map $script:StefxHolomatchDirectMap -BspMaps "multiplayer" -DdsOnly -GenerateMipmaps -AlphaTextureFormat "dxt5" -SkipUiScripts -HolomatchSupportAssets
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
-    Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("xbox_borg_fix.shader")
+    Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("borg.shader", "voyager.shader")
     Remove-EFHolomatchLooseOverrides -StageBaseEf $baseEfDir -Pk3Path (Join-Path $baseEfDir "xbox1.pk3")
     if ($script:StefxBuildTarget -eq "spmp") {
         Assert-EFHolomatchUiMandate -Pk3Path (Join-Path $baseEfDir "xbox1.pk3") -StageBaseEfPath $baseEfDir -AllowStageOriginalImages -XbePath $sourceXbe -CodeOnly
@@ -2259,6 +2643,16 @@ function Remove-EFHolomatchLooseOverrides {
         $shaderList = Join-Path $scriptsDir "_console_shader_list_"
         if (Test-Path -LiteralPath $shaderList -PathType Leaf) {
             Remove-Item -LiteralPath $shaderList -Force
+            $removed++
+        }
+    }
+
+    $uiDir = Join-Path $StageBaseEf "ui"
+    if (Test-Path -LiteralPath $uiDir -PathType Container) {
+        $uiParserFiles = Get-ChildItem -LiteralPath $uiDir -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in @(".menu", ".txt") }
+        foreach ($uiParserFile in $uiParserFiles) {
+            Remove-Item -LiteralPath $uiParserFile.FullName -Force
             $removed++
         }
     }
@@ -2439,15 +2833,21 @@ $mpProjects = @(
 
 switch ($Target) {
     "sp"  {
-        Invoke-BuildGraph -Projects $spProjects
+        Invoke-BuildGraphForTarget -BuildTarget "sp" -Projects $spProjects
+        Assert-ActiveReleaseXbes @(
+            (Join-Path $repoReleaseDir "default.xbe")
+        )
         if (-not $SkipAssets) {
             Update-EFConsoleAssetLists
+            Assert-ActiveReleasePackages @(
+                (Join-Path $repoReleaseDir "BaseEF\xbox0.pk3")
+            )
         } else {
             Write-Host "Skipping EF asset packaging/copy phase."
         }
     }
     "mp"  {
-        Invoke-BuildGraph -Projects $mpProjects
+        Invoke-BuildGraphForTarget -BuildTarget "mp" -Projects $mpProjects
         if (-not $SkipAssets) {
             Update-EFHolomatchAssetLists
             if (-not $SkipStage) {
@@ -2460,9 +2860,19 @@ switch ($Target) {
         }
     }
     "spmp" {
-        Invoke-BuildGraph -Projects $spProjects
+        Invoke-BuildGraphForTarget -BuildTarget "sp" -Projects $spProjects
+        Invoke-BuildGraphForTarget -BuildTarget "spmp" -Projects $spProjects
+        Assert-ActiveReleaseXbes @(
+            (Join-Path $repoReleaseDir "default.xbe"),
+            (Join-Path $repoReleaseDir "efmp.xbe")
+        )
         if (-not $SkipAssets) {
+            Update-EFConsoleAssetLists
             Update-EFHolomatchAssetLists
+            Assert-ActiveReleasePackages @(
+                (Join-Path $repoReleaseDir "BaseEF\xbox0.pk3"),
+                (Join-Path $repoReleaseDir "BaseEF\xbox1.pk3")
+            )
             if (-not $SkipStage) {
                 Copy-EFHolomatchCxbxStage
             } else {
@@ -2473,13 +2883,13 @@ switch ($Target) {
         }
     }
     "all" {
-        Invoke-BuildGraph -Projects $spProjects
+        Invoke-BuildGraphForTarget -BuildTarget "sp" -Projects $spProjects
         if (-not $SkipAssets) {
             Update-EFConsoleAssetLists
         } else {
             Write-Host "Skipping EF asset packaging/copy phase."
         }
-        Invoke-BuildGraph -Projects $mpProjects
+        Invoke-BuildGraphForTarget -BuildTarget "mp" -Projects $mpProjects
         if (-not $SkipAssets) {
             Update-EFHolomatchAssetLists
             if (-not $SkipStage) {
@@ -2492,4 +2902,3 @@ switch ($Target) {
         }
     }
 }
-

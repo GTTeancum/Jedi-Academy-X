@@ -1123,8 +1123,8 @@ def dds_payload_error(data: bytes) -> str | None:
     if mip_count > max(width, height).bit_length():
         return f"invalid mip count {mip_count} for {width}x{height}"
 
-    if fmt == "DXT1":
-        block_bytes = 8
+    if fmt in {"DXT1", "DXT5"}:
+        block_bytes = 8 if fmt == "DXT1" else 16
         expected = 0
         level_width = width
         level_height = height
@@ -2104,26 +2104,26 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
         invalid_formats: list[str] = []
         forbidden_formats: list[str] = []
         invalid_payloads: list[str] = []
-        non_bgra32_gfx: list[str] = []
+        bgra32_gfx: list[str] = []
         for dds_entry in dds_entries:
             dds_data = zf.read(name_lookup[dds_entry])
             fmt = dds_format(dds_data[:128])
             dds_formats[fmt] = dds_formats.get(fmt, 0) + 1
             if fmt == "invalid":
                 invalid_formats.append(dds_entry)
-            elif fmt not in {"DXT1", "BGRA32", "RGB565"}:
+            elif fmt not in {"DXT1", "DXT5", "BGRA32", "RGB565"}:
                 forbidden_formats.append(f"{dds_entry}={fmt}")
             payload_error = dds_payload_error(dds_data)
             if payload_error:
                 invalid_payloads.append(f"{dds_entry}: {payload_error}")
-            if dds_entry.startswith("gfx/") and fmt != "BGRA32":
-                non_bgra32_gfx.append(f"{dds_entry}={fmt}")
+            if dds_entry.startswith("gfx/") and fmt == "BGRA32":
+                bgra32_gfx.append(dds_entry)
 
         if invalid_formats:
             fail("xbox1.pk3 contains invalid DDS file(s): " + ", ".join(invalid_formats[:16]))
         if forbidden_formats:
             fail(
-                "xbox1.pk3 contains unsupported DDS format(s); OG Xbox Holomatch allows DXT1, RGB565, BGRA32 only: "
+                "xbox1.pk3 contains unsupported DDS format(s); OG Xbox Holomatch allows DXT1, DXT5, RGB565, BGRA32 only: "
                 + ", ".join(forbidden_formats[:16])
             )
         if invalid_payloads:
@@ -2131,8 +2131,11 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
                 "xbox1.pk3 contains DDS payload(s) incompatible with the native Xbox uploader: "
                 + ", ".join(invalid_payloads[:16])
             )
-        if non_bgra32_gfx:
-            fail("xbox1.pk3 gfx/ UI/HUD DDS entries must be BGRA32: " + ", ".join(non_bgra32_gfx[:16]))
+        if bgra32_gfx:
+            fail(
+                "xbox1.pk3 gfx/ UI/HUD DDS entries must use retail-compatible DXT formats, not linear BGRA32: "
+                + ", ".join(bgra32_gfx[:16])
+            )
 
         shader_entries = sorted(
             name.rsplit("/", 1)[-1]
@@ -2191,8 +2194,8 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
                 fail("xbox1.pk3 manifest reports packaged UI scripts")
             if manifest.get("ddsOnly") is not True:
                 fail("xbox1.pk3 manifest is not DDS-only")
-            if manifest.get("alphaTextureFormat") != "bgra32":
-                fail("xbox1.pk3 manifest must use bgra32 alpha textures for OG Xbox")
+            if manifest.get("alphaTextureFormat") != "dxt5":
+                fail("xbox1.pk3 manifest must use retail-compatible DXT5 alpha textures")
             if manifest.get("preservedOriginalTextures"):
                 fail("xbox1.pk3 manifest reports preserved original texture fallback(s)")
             if manifest.get("skippedAlphaTextures"):
@@ -2217,8 +2220,12 @@ def verify_pk3(pk3: Path | None, direct_map: str = "hm_borg1") -> dict[str, obje
 
                 for map_name in sorted(OFFICIAL_MULTIPLAYER_MAPS):
                     required_entries = {
-                        f"maps/xbox/{map_name}.bsp",
                         f"maps/xbox/{map_name}.lmpdds",
+                        f"maps/{map_name}/checksum.mle",
+                        f"maps/{map_name}/misc.mle",
+                        f"maps/{map_name}/shaders.mle",
+                        f"maps/{map_name}/verts.mle",
+                        f"maps/{map_name}/visibility.mle",
                         f"maps/{map_name}.aas",
                     }
                     missing_entries = sorted(required_entries - set(names))
@@ -2799,6 +2806,8 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         b"STEFX_HM: MP using SP-style fakegl pushbuffer path; main skipped legacy Direct3D_SetPushBufferSize",
         b"STEFX: IN_Init gamepad mask=",
         b"STEFX: first gamepad state port=",
+        b"STEFX_HM_SPLIT_PAD_ASSIGN: slot=",
+        b"STEFX_HM_SPLIT_PAD_CMD: slot=",
         b"JA: Xbox real S_BeginRegistration listeners=",
         b"STEFX: QAL effects image sound/dsstdfx.bin missing; continuing dry audio",
         b"STEFX: QAL downloaded effects image bytes=",
@@ -2829,6 +2838,56 @@ def verify_xbe(xbe: Path | None) -> dict[str, object]:
         "officialBotAmmoBoundary": True,
         "legacyBaseRouteCount": 0,
         "legacyStringCount": 0,
+    }
+
+
+def verify_frontend_map_label_layout(repo_root: Path) -> dict[str, object]:
+    frontend = repo_root / "code" / "ui" / "ui_ef_frontend.cpp"
+    if not frontend.is_file():
+        fail(f"EF frontend source is missing: {frontend}")
+
+    text = frontend.read_text(encoding="utf-8", errors="ignore")
+    label_pattern = re.compile(
+        r'EFFe_DrawPs2TextColor\('
+        r'([-0-9.]+)f,\s*'
+        r'([-0-9.]+)f,\s*'
+        r'"(Gamma|Alpha|Delta|Beta)",\s*'
+        r'EF_FRONTEND_FONT_MEDIUM,\s*'
+        r'(UI_\w+)'
+    )
+    labels = [
+        {
+            "label": match.group(3),
+            "x": float(match.group(1)),
+            "y": float(match.group(2)),
+            "style": match.group(4),
+        }
+        for match in label_pattern.finditer(text)
+    ]
+    if [record["label"] for record in labels] != ["Gamma", "Alpha", "Delta", "Beta"]:
+        fail("EF frontend quadrant labels must be Gamma, Alpha, Delta, Beta in source order")
+    if any(record["style"] != "UI_CENTER" for record in labels):
+        fail("EF frontend quadrant labels must be center-aligned on the galaxy center bar")
+
+    x_positions = [float(record["x"]) for record in labels]
+    x_gaps = [x_positions[i + 1] - x_positions[i] for i in range(len(x_positions) - 1)]
+    if any(abs(gap - x_gaps[0]) > 0.01 for gap in x_gaps[1:]):
+        fail("EF frontend quadrant labels must be evenly spaced across the galaxy center bar")
+
+    centerline_x = 1342.0
+    left_pair_midpoint = (x_positions[0] + x_positions[1]) * 0.5
+    right_pair_midpoint = (x_positions[2] + x_positions[3]) * 0.5
+    if abs((centerline_x - left_pair_midpoint) - (right_pair_midpoint - centerline_x)) > 0.01:
+        fail("EF frontend quadrant label pairs must balance around the galaxy map centerline")
+
+    return {
+        "checked": True,
+        "source": norm_path(frontend.relative_to(repo_root).as_posix()),
+        "centerlineX": centerline_x,
+        "labels": labels,
+        "xGaps": x_gaps,
+        "leftPairMidpoint": left_pair_midpoint,
+        "rightPairMidpoint": right_pair_midpoint,
     }
 
 
@@ -2864,9 +2923,21 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
         "code/win32/win_main_console.cpp": {
             "STEFX_SP_HOSTED_MP",
             "STEFX: applying Holomatch XBE launch intent",
+            "STEFX_HM_SPLIT_LAUNCH",
             "XBE Holomatch launch intent",
             f'Q_strncpyz(startupMap, "{direct_map}"',
             'Cbuf_AddText("set fs_game BaseEF\\n");',
+            'Cbuf_AddText("set stefx_splitScreen 1\\n");',
+            'Cbuf_AddText("set stefx_splitScreenPlayers 4\\n");',
+            'Cbuf_AddText("set stefx_splitScreenMode holomatch\\n");',
+            'Cbuf_AddText("set stefx_hmLocalPlayers 4\\n");',
+            'Cbuf_AddText("set stefx_hm_split_economy 1\\n");',
+            'Cbuf_AddText("set stefx_hm_split_virtual_controls 1\\n");',
+            'Cbuf_AddText("set stefx_hm_split_virtual_controls_p1 1\\n");',
+            'Cvar_Set("stefx_hmLocalPlayers", va("%d", players));',
+            'Cvar_Set("stefx_hm_split_economy", players >= 4 ? "1" : "0");',
+            'Cvar_Set("stefx_hm_split_virtual_controls", players >= 4 ? "1" : "0");',
+            'Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4 ? "1" : "0");',
             'Cbuf_AddText(va("%s %s\\n", useDevMap ? "devmap" : "map", startupMap));',
             'path = "d:\\\\efmp.xbe";',
             'path = "d:\\\\default.xbe";',
@@ -2877,12 +2948,46 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             'Sys_Reboot("multiplayer", NULL);',
             'Sys_Reboot("singleplayer", NULL);',
             'Sys_Reboot("singleplayer_coop", NULL);',
+            'Sys_XboxQueueMenuMap(EF_HOLOMATCH_BASELINE_MAP, "holomatch", 4);',
+            "STEFX_HM_SPLIT_LAUNCH",
+            'ui.Cvar_Set("stefx_hmLocalPlayers", "4");',
+            'ui.Cvar_Set("stefx_hm_split_economy", "1");',
+            'ui.Cvar_Set("stefx_hm_split_virtual_controls", "1");',
+            'ui.Cvar_Set("stefx_hm_split_virtual_controls_p1", "1");',
         },
         "code/server/sv_game.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostAfterGameInit"},
         "code/server/sv_main.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostRunFrame"},
+        "code/server/stefx_holomatch_host.cpp": {
+            "STEFX_HolomatchGetSplitHudState",
+            "s_stefxHolomatchSplitStateLastLogTime",
+            "sample=%d interval=500",
+            "player->stats[STAT_HEALTH]",
+            "player->persistant[PERS_SCORE]",
+            "STEFX_HolomatchCycleOwnedWeapon",
+            "player->stats[STAT_WEAPONS] & (1 << candidate)",
+            "CL_STEFX_SplitScreen_BuildHolomatchUsercmd(clientNum",
+            'Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls")',
+            'Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1")',
+        },
+        "code/client/cl_input.cpp": {
+            "STEFX_SplitRealPadForLocalSlot",
+            'Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) >= 3',
+            "CL_STEFX_SplitScreen_BuildHolomatchUsercmd",
+            "STEFX_HM_SPLIT_PAD_ASSIGN: slot=%d port=%d previous=%d connectedMask=0x%x",
+            "STEFX_HM_SPLIT_PAD_CMD: slot=%d port=%d time=%d",
+            "BUTTON_ATTACK",
+            "BUTTON_ALT_ATTACK",
+            "BUTTON_USE",
+        },
         "code/server/sv_snapshot.cpp": {
             "SVF_NOTSINGLECLIENT",
             "STEFX_HM_EVENT_ROUTE: reject viewer=",
+        },
+        "code/client/cl_cgame.cpp": {
+            "CL_STEFX_DrawHolomatchSplitStatusOverlay",
+            "STEFX_HolomatchGetSplitHudState",
+            "STEFX_HM_SPLIT_HUD_STATUS",
+            "STEFX_HM_SPLIT_HUD_DIVIDER",
         },
         "code/game/g_public.h": {"singleClient", "SVF_NOTSINGLECLIENT"},
         "code/game/stefx_holomatch_game.cpp": {"STEFX_HM_SP: game boundary init", "STEFX_HM_SP: game boundary frame"},
@@ -2892,13 +2997,17 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
         },
         "code/qcommon/msg.cpp": {"PSF(events[2])", "PSF(events[3])", "PSF(eventParms[3])"},
         "code/holomatch/stefx_mp_game_api.cpp": {
-            "STEFX_HM_STATE: preserve client=",
             "Holomatch player state remains authoritative",
             "read-only projection",
         },
         "code/ui/ui_ef_lifecycle.cpp": {
             "STEFX_HM: UI mandate active; uniform SP code/ui owns Holomatch UI",
             "STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache",
+        },
+        "code/renderer/retail_xbox/tr_scene_retail.cpp": {
+            "s_stefxSplitViewportLogBudget",
+            "STEFX_HM_SPLIT_RENDER: slot=%d external=%d externalClient=%d",
+            "STEFX_HM_SPLIT_RENDER_DONE: slot=%d external=%d externalClient=%d",
         },
     }
     missing_sources = []
@@ -2931,14 +3040,22 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
         data = xbe.read_bytes()
         required_xbe_markers = {
             b"STEFX: applying Holomatch XBE launch intent",
+            b"STEFX_HM_SPLIT_LAUNCH",
             b"XBE Holomatch launch intent",
             b"STEFX_HM_SP: SP host game init",
             b"STEFX_HM_SP: game boundary init",
-            b"STEFX_HM_STATE: preserve client=",
-            b"STEFX_HM_EVENT_ROUTE: reject viewer=",
+            b"STEFX_HM_SPLIT_HUD_STATUS",
+            b"STEFX_HM_SPLIT_HUD_DIVIDER",
             b"d:\\default.xbe",
             b"d:\\efmp.xbe",
             b"BaseEF",
+            b"set stefx_splitScreen 1",
+            b"set stefx_splitScreenPlayers 4",
+            b"set stefx_splitScreenMode holomatch",
+            b"set stefx_hmLocalPlayers 4",
+            b"set stefx_hm_split_economy 1",
+            b"set stefx_hm_split_virtual_controls 1",
+            b"set stefx_hm_split_virtual_controls_p1 1",
             direct_map.encode("ascii"),
         }
         missing_xbe = sorted(
@@ -2964,6 +3081,7 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
         "modeHandoff": "default.xbe <-> efmp.xbe",
         "rendererAudioInputOwner": "code/ SP engine",
         "uiOwner": "code/ui SP framework",
+        "frontendMapLabelLayout": verify_frontend_map_label_layout(repo_root),
         "xbe": xbe_result,
     }
 

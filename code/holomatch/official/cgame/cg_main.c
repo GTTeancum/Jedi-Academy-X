@@ -10,6 +10,20 @@ void CG_LoadIngameText(void);
 void CG_LoadObjectivesForMap(void);
 void BG_LoadItemNames(void);
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern volatile unsigned int g_SPXBHMTextLoadLength;
+extern volatile unsigned int g_SPXBHMTextLoadCount;
+extern volatile unsigned int g_SPXBHMTextLoadState;
+extern volatile unsigned int g_SPXBHMTextTraceCalls;
+extern volatile unsigned int g_SPXBHMTextTraceStage;
+extern volatile unsigned int g_SPXBHMTextTraceOpenLength;
+extern volatile unsigned int g_SPXBHMTextTraceHandle;
+extern volatile unsigned int g_SPXBHMTextTraceRawPrefix;
+extern volatile unsigned int g_SPXBHMTextTraceParsedPrefix;
+extern volatile unsigned int g_SPXBHMTextTraceScorePrefix;
+extern volatile unsigned int g_SPXBHMTextTraceFirstPointer;
+#endif
+
 extern void FX_InitSinTable(void);
 
 /*
@@ -1245,22 +1259,45 @@ void CG_Shutdown( void ) {
 
 #define MAXINGAMETEXT 5000
 char ingameText[MAXINGAMETEXT];
+static char parsedIngameText[MAXINGAMETEXT];
+
+static unsigned int CG_IngameTextPrefix( const char *text )
+{
+	const unsigned char *bytes = (const unsigned char *)text;
+	unsigned int prefix = 0;
+	int i;
+
+	if ( !text )
+	{
+		return 0;
+	}
+	for ( i = 0; i < 4 && bytes[i]; ++i )
+	{
+		prefix |= ((unsigned int)bytes[i]) << (i * 8);
+	}
+	return prefix;
+}
 
 /*
 =================
 CG_ParseIngameText
 =================
 */
-void CG_ParseIngameText(void)
+int CG_ParseIngameText(void)
 {
 	char	*token;
 	char *buffer;
+	char *parsed;
 	int i;
 	int len;
+	int parsedBytes;
 
 	COM_BeginParseSession();
 
 	buffer = ingameText;
+	parsed = parsedIngameText;
+	parsedBytes = 0;
+	memset( parsedIngameText, 0, sizeof( parsedIngameText ) );
 	i = 1;	// Zero is null string
 	while ( buffer ) 
 	{
@@ -1269,8 +1306,16 @@ void CG_ParseIngameText(void)
 		len = strlen(token);
 		if (len)
 		{
-			ingame_text[i] = (buffer - (len + 1));	// The +1 is to get rid of the " at the beginning of the sting.
-			*(buffer - 1) = '\0';		//	Place an string end where is belongs.
+			if ( parsedBytes + len + 1 > MAXINGAMETEXT )
+			{
+				Com_Printf( S_COLOR_RED "CG_ParseIngameText : parsed text exceeds %d bytes!\n", MAXINGAMETEXT );
+				return i - 1;
+			}
+
+			memcpy( parsed, token, len + 1 );
+			ingame_text[i] = parsed;
+			parsed += len + 1;
+			parsedBytes += len + 1;
 
 			++i;
 		}
@@ -1278,7 +1323,7 @@ void CG_ParseIngameText(void)
 		if (i> IGT_MAX)
 		{
 			Com_Printf( S_COLOR_RED "CG_ParseIngameText : too many values!\n");
-			return;
+			return i - 1;
 		}
 	}
 
@@ -1289,6 +1334,8 @@ void CG_ParseIngameText(void)
 			ingame_text[i] = "?";
 		}
 	}
+
+	return i - 1;
 
 }
 
@@ -1333,18 +1380,54 @@ CG_LoadIngameText
 void CG_LoadIngameText(void)
 {
 	int len;
+	int parsedCount;
+	int i;
 	fileHandle_t	f;
 	char fileName[MAX_QPATH];
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++g_SPXBHMTextTraceCalls;
+	g_SPXBHMTextTraceStage = 1;
+	g_SPXBHMTextTraceOpenLength = 0;
+	g_SPXBHMTextTraceHandle = 0;
+	g_SPXBHMTextTraceRawPrefix = 0;
+	g_SPXBHMTextTraceParsedPrefix = 0;
+	g_SPXBHMTextTraceScorePrefix = 0;
+	g_SPXBHMTextTraceFirstPointer = 0;
+#endif
+
+	ingame_text[0] = "";
+	for ( i = 1; i < IGT_MAX; ++i )
+	{
+		ingame_text[i] = "?";
+	}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	g_SPXBHMTextLoadLength = 0;
+	g_SPXBHMTextLoadCount = 0;
+	g_SPXBHMTextLoadState = 0;
+#endif
 
 	CG_LanguageFilename("ext_data/mp_ingametext","dat",fileName);
 
 	len = trap_FS_FOpenFile( fileName, &f, FS_READ );
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	g_SPXBHMTextTraceOpenLength = len;
+	g_SPXBHMTextTraceHandle = (unsigned int)f;
+	g_SPXBHMTextTraceStage = 2;
+#endif
 
 	if ( !f ) 
 	{
 		Com_Printf( S_COLOR_RED "CG_LoadIngameText : mp_ingametext.dat file not found!\n");
 		return;
 	}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	g_SPXBHMTextLoadLength = len;
+	g_SPXBHMTextLoadState = 1u;
+#endif
 
 	if (len > MAXINGAMETEXT)
 	{
@@ -1357,10 +1440,62 @@ void CG_LoadIngameText(void)
 
 	trap_FS_Read( ingameText, len, f );
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	g_SPXBHMTextTraceRawPrefix = CG_IngameTextPrefix( ingameText );
+	g_SPXBHMTextTraceStage = 3;
+#endif
+
 	trap_FS_FCloseFile( f );
 
 
-	CG_ParseIngameText();
+	parsedCount = CG_ParseIngameText();
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	g_SPXBHMTextTraceParsedPrefix = CG_IngameTextPrefix( ingame_text[IGT_OUTOFAMMO] );
+	g_SPXBHMTextTraceScorePrefix = CG_IngameTextPrefix( ingame_text[IGT_SB_SCORE] );
+	g_SPXBHMTextTraceFirstPointer = (unsigned int)ingame_text[IGT_OUTOFAMMO];
+	g_SPXBHMTextTraceStage = 4;
+	g_SPXBHMTextLoadCount = parsedCount;
+	if ( parsedCount == IGT_MAX - 1 )
+	{
+		g_SPXBHMTextLoadState |= 2u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_SB_SCORE], "SCORE" ) )
+	{
+		g_SPXBHMTextLoadState |= 4u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_SB_PING], "PING" ) )
+	{
+		g_SPXBHMTextLoadState |= 8u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_SB_TIME], "TIME" ) )
+	{
+		g_SPXBHMTextLoadState |= 16u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_SB_NAME], "NAME" ) )
+	{
+		g_SPXBHMTextLoadState |= 32u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_YOUR_RANK], "Your Rank:" ) )
+	{
+		g_SPXBHMTextLoadState |= 64u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_PLAYERS], "Players" ) )
+	{
+		g_SPXBHMTextLoadState |= 128u;
+	}
+	if ( !Q_stricmp( ingame_text[IGT_GAME_FREEFORALL], "FREE FOR ALL" ) )
+	{
+		g_SPXBHMTextLoadState |= 256u;
+	}
+	Com_Printf( "STEFX_HM_TEXT: file=%s len=%d parsed=%d expected=%d state=0x%08x score='%s' ping='%s' time='%s' name='%s' rank='%s' players='%s' game='%s'\n",
+		fileName, len, parsedCount, IGT_MAX - 1, g_SPXBHMTextLoadState,
+		ingame_text[IGT_SB_SCORE], ingame_text[IGT_SB_PING],
+		ingame_text[IGT_SB_TIME], ingame_text[IGT_SB_NAME],
+		ingame_text[IGT_YOUR_RANK], ingame_text[IGT_PLAYERS],
+		ingame_text[IGT_GAME_FREEFORALL] );
+	g_SPXBHMTextTraceStage = 5;
+#endif
 
 }
 

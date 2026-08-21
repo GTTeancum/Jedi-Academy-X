@@ -106,6 +106,7 @@ typedef struct client_s {
 	clientState_t	state;
 #if defined(STEFX_SP_HOSTED_MP)
 	qboolean		stefxHolomatchBot;
+	qboolean		stefxHolomatchLocal;
 #endif
 	char			userinfo[MAX_INFO_STRING];		// name, etc
 
@@ -165,6 +166,9 @@ extern	server_t		sv;					// cleared each map
 extern	game_export_t	*ge;
 
 extern	cvar_t	*sv_fps;
+#ifdef _XBOX
+extern	cvar_t	*stefx_maxCatchupTicks;
+#endif
 extern	cvar_t	*sv_timeout;
 extern	cvar_t	*sv_zombietime;
 extern	cvar_t	*sv_reconnectlimit;

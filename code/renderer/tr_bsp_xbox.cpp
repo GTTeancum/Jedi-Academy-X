@@ -13,6 +13,11 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBPackedFacePhase;
+extern "C" volatile unsigned int g_SPXBPackedFaceIndex;
+extern "C" volatile unsigned int g_SPXBPackedFaceCount;
+extern "C" volatile unsigned int g_SPXBPackedFaceBytes;
 #endif
 
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -35,6 +40,53 @@ int			c_subdivisions;
 int			c_gridVerts;
 
 static int	flareNum = 0;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_XBOX_SURFACE_DEBUG_FIELDS)
+void R_EFAuditLoadedSurfaces( unsigned int stage )
+{
+	int i;
+	int nullCount = 0;
+	int firstNull = -1;
+	void *targetData = NULL;
+	int targetCode = -1;
+
+	if ( s_worldData.surfaces && s_worldData.numsurfaces > 0 )
+	{
+		for ( i = 0; i < s_worldData.numsurfaces; ++i )
+		{
+			if ( !s_worldData.surfaces[i].data )
+			{
+				if ( firstNull < 0 )
+				{
+					firstNull = i;
+				}
+				++nullCount;
+			}
+		}
+
+		if ( s_worldData.numsurfaces > 11516 )
+		{
+			targetCode = s_worldData.surfaces[11516].xboxDebugCode;
+			targetData = s_worldData.surfaces[11516].data;
+		}
+	}
+
+	XBLog_WriteCriticalf(
+		"STEFX_SURFACE_AUDIT: stage=%u world=%08x surfaces=%08x count=%d null=%d first=%d target11516=%08x targetCode=%d",
+		stage,
+		(unsigned int)tr.world,
+		(unsigned int)s_worldData.surfaces,
+		s_worldData.numsurfaces,
+		nullCount,
+		firstNull,
+		(unsigned int)targetData,
+		targetCode );
+}
+#elif defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static void R_EFAuditLoadedSurfaces( unsigned int )
+{
+}
+#endif
 
 void R_RMGInit(void);
 //===============================================================================
@@ -429,7 +481,6 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 	int				count;
 	int				i;
 	byte			*record;
-	byte			*image;
 	char			mapNameCopy[MAX_QPATH];
 	char			baseName[MAX_QPATH];
 	char			sidecarName[MAX_QPATH];
@@ -439,13 +490,23 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 		return qfalse;
 	}
 
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps enter map='%s'", psMapName);
+#endif
+
 	Q_strncpyz( mapNameCopy, psMapName, sizeof( mapNameCopy ) );
 	Q_strncpyz( baseName, COM_SkipPath( mapNameCopy ), sizeof( baseName ) );
 	COM_StripExtension( baseName, baseName );
 	Com_sprintf( sidecarName, sizeof( sidecarName ), "maps/xbox/%s.lmpdds", baseName );
 
 	XBLF("STEFX: optimized lightmaps try sidecar='%s' map='%s'", sidecarName, psMapName);
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps before open sidecar='%s'", sidecarName);
+#endif
 	len = FS_FOpenFileRead( sidecarName, &h, qfalse );
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps after open len=%d handle=%d", len, h);
+#endif
 	if ( h == 0 || len <= 0 ) {
 		XBLF("STEFX: optimized lightmaps no sidecar='%s' len=%d handle=%d", sidecarName, len, h);
 		return qfalse;
@@ -459,6 +520,9 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 	}
 
 	FS_Read( &size, sizeof( int ), h );
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps header record=%d total=%d", size, len);
+#endif
 	if ( size < 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2 ||
 		 (( len - (int)sizeof( int ) ) % size) != 0 ) {
 		FS_FCloseFile( h );
@@ -469,10 +533,18 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 
 	count = ( len - (int)sizeof( int ) ) / size;
 	tr.numLightmaps = count;
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps before sync count=%d", count);
+#endif
 	R_SyncRenderThread();
+#ifdef _XBOX
+	XBLog_WriteRingMarker("STEFX_RETAIL_LUMPS: lightmaps after sync");
+#endif
 
 	record = (byte *)Z_Malloc( size, TAG_TEMP_WORKSPACE, qfalse, 32 );
-	image = (byte *)Z_Malloc( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 4, TAG_TEMP_WORKSPACE, qfalse, 32 );
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps workspace record=%p", record);
+#endif
 	COM_StripExtension( psMapName, sMapName );
 
 	XBLF("STEFX: optimized lightmaps load '%s' map='%s' count=%d record=%d bytes=%d",
@@ -480,66 +552,32 @@ qboolean R_LoadXboxOptimizedLightmaps( const char *psMapName ) {
 
 	for ( i = 0; i < count; ++i ) {
 		int read;
-		int j;
-		const unsigned short *src565;
-		int minLum = 255;
-		int maxLum = 0;
-		int sumLum = 0;
+		char lmapName[MAX_QPATH + 32];
 
 		read = FS_Read( record, size, h );
 		if ( read != size ) {
 			Z_Free( record );
-			Z_Free( image );
 			FS_FCloseFile( h );
 			XBLF("STEFX: optimized lightmaps short read '%s' index=%d read=%d expected=%d",
 				sidecarName, i, read, size);
 			return qfalse;
 		}
 
-		if ( i < 8 ) {
-			const byte *dds = record;
-			XBLF("STEFX: optimized lightmap record index=%d magic=%c%c%c%c wh=%dx%d rgbBits=%u",
-				i,
-				dds[0], dds[1], dds[2], dds[3],
-				*(const unsigned int *)(dds + 16),
-				*(const unsigned int *)(dds + 12),
-				*(const unsigned int *)(dds + 88));
-		}
-
-		src565 = (const unsigned short *)(record + 128);
-		for ( j = 0; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; ++j ) {
-			const unsigned short c = src565[j];
-			byte *dst = &image[j * 4];
-			int r = ((c >> 11) & 31) * 255 / 31;
-			int g = ((c >> 5) & 63) * 255 / 63;
-			int b = (c & 31) * 255 / 31;
-			int lum;
-
-			dst[0] = (byte)r;
-			dst[1] = (byte)g;
-			dst[2] = (byte)b;
-			dst[3] = 255;
-
-			lum = (r * 30 + g * 59 + b * 11) / 100;
-			if (lum < minLum)
-				minLum = lum;
-			if (lum > maxLum)
-				maxLum = lum;
-			sumLum += lum;
-		}
-
-		if ( i < 16 ) {
-			XBLF("STEFX: optimized lightmap RGBA upload index=%d min=%d max=%d avg=%d",
-				i, minLum, maxLum, sumLum / (LIGHTMAP_SIZE * LIGHTMAP_SIZE));
-		}
-
-		tr.lightmaps[i] = R_CreateImage( va("*%s/lightmap%d", sMapName, i), image,
-			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_RGBA, qfalse, qfalse, GL_CLAMP );
+		// Match the established Xbox lightmap path: the sidecar record is already
+		// a complete RGB565 DDS image, so upload it without an RGBA expansion.
+		g_SPXBPhaseLast = 0x4C4D4230; /* 'LMB0' */
+		Com_sprintf( lmapName, sizeof( lmapName ), "*%s/lightmap%d", sMapName, i );
+		g_SPXBPhaseLast = 0x4C4D4231; /* 'LMB1' */
+		tr.lightmaps[i] = R_CreateImage( lmapName, record,
+			LIGHTMAP_SIZE, LIGHTMAP_SIZE, GL_DDS_RGB16_EXT, qfalse, qfalse, GL_CLAMP );
+		g_SPXBPhaseLast = 0x4C4D4232; /* 'LMB2' */
 	}
 
 	Z_Free( record );
-	Z_Free( image );
 	FS_FCloseFile( h );
+#ifdef _XBOX
+	XBLog_WriteRingMarkerf("STEFX_RETAIL_LUMPS: lightmaps complete count=%d", count);
+#endif
 	return qtrue;
 }
 
@@ -707,6 +745,7 @@ static void R_EFBoundsForVerts( const mapVert_t *verts, int firstVert, int numVe
 	}
 }
 
+#if defined(STEFX_XBOX_SURFACE_DEBUG_FIELDS)
 static void R_EFSetSurfaceDebug( msurface_t *surf, int code, int shaderNum, const mapVert_t *verts, int firstVert, int numVerts )
 {
 	if ( !surf )
@@ -736,6 +775,15 @@ static void R_EFSetSurfaceDebugPoint( msurface_t *surf, int code, int shaderNum,
 		surf->xboxDebugMaxs[i] = point ? (float)point[i] : 0.0f;
 	}
 }
+#else
+static void R_EFSetSurfaceDebug( msurface_t *, int, int, const mapVert_t *, int, int )
+{
+}
+
+static void R_EFSetSurfaceDebugPoint( msurface_t *, int, int, const short[3] )
+{
+}
+#endif
 
 #endif
 
@@ -1514,8 +1562,8 @@ static void ParseTriSurf( dtrisurf_t *ds, mapVert_t *verts, msurface_t *surf, sh
 	ClearBounds( tri->bounds[0], tri->bounds[1] );
 	for ( i = 0 ; i < numVerts ; i++ ) {
 		for ( j = 0 ; j < 3 ; j++ ) {
-			tri->verts[i].xyz[j] = verts[i].xyz[j];
-			tri->verts[i].normal[j] = verts[i].normal[j];
+			tri->verts[i].xyz[j] = (float)verts[i].xyz[j];
+			tri->verts[i].normal[j] = (float)verts[i].normal[j] / 32767.f;
 		}
 		AddPointToBounds( tri->verts[i].xyz, tri->bounds[0], tri->bounds[1] );
 		for ( j = 0 ; j < 2 ; j++ ) {
@@ -1607,6 +1655,9 @@ void R_LoadFlares( void *surfaces, int surfacelen ) {
 		out = s_worldData.surfaces + in->code;
 		ParseFlare( in, out );
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 4 );
+#endif
 }
 
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -1641,13 +1692,16 @@ void R_LoadSurfaces( int count ) {
 	s_worldData.surfaces = (struct msurface_s *) 
 		Hunk_Alloc ( count * sizeof(msurface_s), qtrue );
 	s_worldData.numsurfaces = count;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURFACE_DEBUG_FIELDS)
 	for ( i = 0; i < count; ++i )
 	{
 		s_worldData.surfaces[i].xboxDebugCode = -1;
 		s_worldData.surfaces[i].xboxDebugShaderNum = -1;
 		ClearBounds( s_worldData.surfaces[i].xboxDebugMins, s_worldData.surfaces[i].xboxDebugMaxs );
 	}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 0 );
 #endif
 }
 
@@ -1657,11 +1711,12 @@ void R_LoadSurfaces( int count ) {
 R_LoadPatches
 ===============
 */
-void R_LoadPatches( void *verts, int vertlen, 
+static void R_LoadPatchesInternal( void *verts, int vertlen, LumpStream *vertStream,
 					void *surfaces, int surfacelen ) {
 	dpatch_t	*in = NULL;
 	msurface_t	*out;
 	mapVert_t	*dv;
+	mapVert_t	*surfaceVerts = NULL;
 	int			count;
 	int			i;
 
@@ -1678,6 +1733,12 @@ void R_LoadPatches( void *verts, int vertlen,
 	dv = (mapVert_t *)(verts);
 	if (vertlen % sizeof(*dv))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+	if (vertStream)
+	{
+		surfaceVerts = (mapVert_t*)Z_Malloc(
+			MAX_PATCH_SIZE * MAX_PATCH_SIZE * sizeof(mapVert_t),
+			TAG_TEMP_WORKSPACE, qfalse, 32);
+	}
 
 	drawVert_t* points = (drawVert_t*)Z_Malloc(
 		MAX_PATCH_SIZE*MAX_PATCH_SIZE*sizeof(drawVert_t), 
@@ -1692,16 +1753,52 @@ void R_LoadPatches( void *verts, int vertlen,
 		TAG_TEMP_WORKSPACE, qfalse);
 
 	for ( i = 0 ; i < count ; i++ ) {
+		dpatch_t localSurface;
+		dpatch_t *parseSurface;
+		mapVert_t *parseVerts;
+		int numVerts;
+
 		in = (dpatch_t *)surfaces + i;
 		out = s_worldData.surfaces + in->code;
-		ParseMesh ( in, dv, out, points, ctrl, errorTable );
+		parseSurface = in;
+		parseVerts = dv;
+		if (vertStream)
+		{
+			numVerts = in->verts & 0xFFF;
+			if (numVerts > MAX_PATCH_SIZE * MAX_PATCH_SIZE ||
+				!vertStream->readAt((in->verts >> 12) * sizeof(mapVert_t),
+					surfaceVerts, numVerts * sizeof(mapVert_t)))
+			{
+				Com_Error(ERR_DROP, "R_LoadPatches: packed vertex read failed at patch %d", i);
+			}
+			localSurface = *in;
+			localSurface.verts = numVerts;
+			parseSurface = &localSurface;
+			parseVerts = surfaceVerts;
+		}
+		ParseMesh ( parseSurface, parseVerts, out, points, ctrl, errorTable );
 	}
 
 	Z_Free(errorTable);
 	Z_Free(ctrl);
 	Z_Free(points);
+	if (surfaceVerts)
+	{
+		Z_Free(surfaceVerts);
+	}
 
 	VID_Printf( PRINT_ALL, "...loaded %i meshes\n", count );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 1 );
+#endif
+}
+
+void R_LoadPatches( void *verts, int vertlen, void *surfaces, int surfacelen ) {
+	R_LoadPatchesInternal(verts, vertlen, NULL, surfaces, surfacelen);
+}
+
+void R_LoadPatchesStream( LumpStream *verts, void *surfaces, int surfacelen ) {
+	R_LoadPatchesInternal(NULL, verts ? verts->len : 0, verts, surfaces, surfacelen);
 }
 
 
@@ -1710,12 +1807,13 @@ void R_LoadPatches( void *verts, int vertlen,
 R_LoadTriSurfs
 ===============
 */
-void R_LoadTriSurfs( void *indexdata, int indexlen, 
-					void *verts, int vertlen, 
+static void R_LoadTriSurfsInternal( void *indexdata, int indexlen,
+					void *verts, int vertlen, LumpStream *vertStream,
 					void *surfaces, int surfacelen ) {
 	dtrisurf_t	*in = NULL;
 	msurface_t	*out;
 	mapVert_t	*dv;
+	mapVert_t	*surfaceVerts = NULL;
 	short		*indexes;
 	int			count;
 	int			i;
@@ -1737,14 +1835,63 @@ void R_LoadTriSurfs( void *indexdata, int indexlen,
 	indexes = (short *)(indexdata);
 	if ( indexlen % sizeof(*indexes))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
+	if (vertStream)
+	{
+		int maxVerts = 0;
+		for (i = 0; i < count; ++i)
+		{
+			int numVerts = ((dtrisurf_t*)surfaces)[i].verts & 0xFFF;
+			if (numVerts > maxVerts) maxVerts = numVerts;
+		}
+		surfaceVerts = (mapVert_t*)Z_Malloc(
+			maxVerts * sizeof(mapVert_t), TAG_TEMP_WORKSPACE, qfalse, 32);
+	}
 
 	for ( i = 0 ; i < count ; i++ ) {
+		dtrisurf_t localSurface;
+		dtrisurf_t *parseSurface;
+		mapVert_t *parseVerts;
+		int numVerts;
+
 		in = (dtrisurf_t *)surfaces + i;
 		out = s_worldData.surfaces + in->code;
-		ParseTriSurf( in, dv, out, indexes );
+		parseSurface = in;
+		parseVerts = dv;
+		if (vertStream)
+		{
+			numVerts = in->verts & 0xFFF;
+			if (!vertStream->readAt((in->verts >> 12) * sizeof(mapVert_t),
+					surfaceVerts, numVerts * sizeof(mapVert_t)))
+			{
+				Com_Error(ERR_DROP, "R_LoadTriSurfs: packed vertex read failed at surface %d", i);
+			}
+			localSurface = *in;
+			localSurface.verts = numVerts;
+			parseSurface = &localSurface;
+			parseVerts = surfaceVerts;
+		}
+		ParseTriSurf( parseSurface, parseVerts, out, indexes );
+	}
+	if (surfaceVerts)
+	{
+		Z_Free(surfaceVerts);
 	}
 
 	VID_Printf( PRINT_ALL, "...loaded %i trisurfs\n", count );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 2 );
+#endif
+}
+
+void R_LoadTriSurfs( void *indexdata, int indexlen, void *verts, int vertlen,
+					void *surfaces, int surfacelen ) {
+	R_LoadTriSurfsInternal(indexdata, indexlen, verts, vertlen, NULL, surfaces, surfacelen);
+}
+
+void R_LoadTriSurfsStream( void *indexdata, int indexlen, LumpStream *verts,
+					void *surfaces, int surfacelen ) {
+	R_LoadTriSurfsInternal(indexdata, indexlen, NULL, verts ? verts->len : 0,
+		verts, surfaces, surfacelen);
 }
 
 
@@ -1753,36 +1900,44 @@ void R_LoadTriSurfs( void *indexdata, int indexlen,
 R_LoadFaces
 ===============
 */
-void R_LoadFaces( void *indexdata, int indexlen, 
-					void *verts, int vertlen, 
-					void *surfaces, int surfacelen ) {
+static void R_LoadFacesInternal( void *indexdata, int indexlen,
+					void *verts, int vertlen, LumpStream *vertStream,
+					void *surfaces, int surfacelen, LumpStream *surfaceStream ) {
 	dface_t		*in = NULL;
 	msurface_t	*out;
 	mapVert_t	*dv;
+	mapVert_t	*surfaceVerts = NULL;
 	short		*indexes;
 	int			count;
 	int			i;
-#ifdef _XBOX
-	int			maxFaceVerts = 0;
-	int			maxFaceIndexes = 0;
-	int			maxFaceFirstVert = 0;
-	int			maxFaceFirstIndex = 0;
-	int			maxLocalIndex = 0;
-	int			faceVertsOverByte = 0;
-	int			faceIndexesOverShort = 0;
-	int			localIndexOverByte = 0;
-	int			localIndexOutOfRange = 0;
-	int			faceDataOverShort = 0;
-#endif
+	int			faceDataSizeRequired = 0;
+	int			faceMetricCount;
+	int			resolvedMetricCount = 0;
+	int			maxSurfaceVerts = 0;
+	shader_t	**faceShaderCache;
+	byte		*faceData;
+	byte		*faceDataCursor;
+	byte		*faceDataEnd;
 
+	if (surfaceStream)
+	{
+		surfacelen = surfaceStream->len;
+	}
 	if (surfacelen == 0) {
+		return;
+	}
+	if (surfacelen % (int)sizeof(*in))
+	{
+		Com_Error(ERR_DROP, "LoadMap: funny face lump size in %s", s_worldData.name);
 		return;
 	}
 	
 	count = surfacelen / sizeof(*in);
 #ifdef _XBOX
-	XBLF("JA: R_LoadFaces begin faces=%d surfaceLen=%d indexLen=%d vertLen=%d",
-		count, surfacelen, indexlen, vertlen);
+	g_SPXBPackedFacePhase = 0x50460001;
+	g_SPXBPackedFaceIndex = 0;
+	g_SPXBPackedFaceCount = count;
+	g_SPXBPackedFaceBytes = 0;
 #endif
 
 	dv = (mapVert_t *)(verts);
@@ -1793,135 +1948,199 @@ void R_LoadFaces( void *indexdata, int indexlen,
 	if ( indexlen % sizeof(*indexes))
 		Com_Error (ERR_DROP, "LoadMap: funny lump size in %s",s_worldData.name);
 
-	// new bit, the face code on our biggest map requires over 15,000 mallocs, which was no problem on the hunk,
-	//	bit hits the zone pretty bad (even the tagFree takes about 9 seconds for that many memblocks), 
-	//	so special-case pre-alloc enough space for this data (the patches etc can stay as they are)...
-	//
-	int nTimes = count / 100;
-	int nToGo = nTimes;
-	int iFaceDataSizeRequired = 0;
+	// Resolve each EF shader/lightmap combination once. ParseFace consumes the
+	// same resolved shader in the second pass, so sizing and expansion cannot
+	// disagree about the packed surface layout.
+	faceMetricCount = s_worldData.numShaders * 256;
+	if (faceMetricCount <= 0 || faceMetricCount > 0x7fffffff / (int)sizeof(shader_t *))
+	{
+		Com_Error(ERR_DROP, "LoadMap: invalid face shader cache size in %s", s_worldData.name);
+		return;
+	}
+	faceShaderCache = (shader_t **)Z_Malloc(
+		faceMetricCount * sizeof(shader_t *), TAG_TEMP_WORKSPACE, qtrue);
+
+#ifdef _XBOX
+	g_SPXBPackedFacePhase = 0x50460002;
+#endif
 	for ( i = 0 ; i < count ; i++) 
 	{ 
-		in = (dface_t *)surfaces + i;
-#ifdef _XBOX
+		dface_t streamedSurface;
+		if (surfaceStream)
 		{
-			int numVerts = in->verts & 0xFFF;
-			int firstVert = in->verts >> 12;
-			int numIdx = in->indexes & 0xFFF;
-			int firstIdx = in->indexes >> 12;
-			int maxIdxThisFace = 0;
-			int idx;
-
-			if (numVerts > maxFaceVerts)
+			if (!surfaceStream->readAt(i * sizeof(streamedSurface),
+					&streamedSurface, sizeof(streamedSurface)))
 			{
-				maxFaceVerts = numVerts;
+				Z_Free(faceShaderCache);
+				Com_Error(ERR_DROP, "R_LoadFaces: packed face read failed at face %d", i);
+				return;
 			}
-			if (numIdx > maxFaceIndexes)
-			{
-				maxFaceIndexes = numIdx;
-			}
-			if (firstVert > maxFaceFirstVert)
-			{
-				maxFaceFirstVert = firstVert;
-			}
-			if (firstIdx > maxFaceFirstIndex)
-			{
-				maxFaceFirstIndex = firstIdx;
-			}
-			if (numVerts > 255)
-			{
-				faceVertsOverByte++;
-			}
-			if (numIdx > 65535)
-			{
-				faceIndexesOverShort++;
-			}
-
-			for (idx = 0; idx < numIdx; ++idx)
-			{
-				int localIdx = indexes[firstIdx + idx];
-				if (localIdx > maxIdxThisFace)
-				{
-					maxIdxThisFace = localIdx;
-				}
-				if (localIdx > maxLocalIndex)
-				{
-					maxLocalIndex = localIdx;
-				}
-				if (localIdx > 255)
-				{
-					localIndexOverByte++;
-				}
-				if (localIdx < 0 || localIdx >= numVerts)
-				{
-					localIndexOutOfRange++;
-				}
-			}
+			in = &streamedSurface;
 		}
-#endif
-
+		else
+		{
+			in = (dface_t *)surfaces + i;
+		}
+		if (in->code < 0 || in->code >= s_worldData.numsurfaces)
+		{
+			Z_Free(faceShaderCache);
+			Com_Error(ERR_DROP, "R_LoadFaces: face %d has invalid surface code %d", i, in->code);
+			return;
+		}
 		short lightmapNum[MAXLIGHTMAPS];
-		for(int j=0; j<4; j++) {
+		shader_t *shader;
+		int metricIndex;
+		int sfaceSize;
+		int j;
+
+		if (in->shaderNum >= s_worldData.numShaders)
+		{
+			Z_Free(faceShaderCache);
+			Com_Error(ERR_DROP, "LoadMap: face %d has invalid shader %d in %s",
+				i, in->shaderNum, s_worldData.name);
+			return;
+		}
+		for(j=0; j<MAXLIGHTMAPS; j++) {
 			lightmapNum[j] = (int)in->lightmapNum[j] - 4;
 		}
-		shader_t *shader = ShaderForShaderNum( in->shaderNum, lightmapNum, in->lightmapStyles );
-		bool needVertexColors = NeedVertexColors(shader); 
-		int numLightMaps = NumLightMaps(shader);
-		
-		int sfaceSize = SurfaceFaceSize(in->verts & 0xFFF,
-			numLightMaps, needVertexColors,
+		metricIndex = in->shaderNum * 256 + in->lightmapNum[0];
+		shader = faceShaderCache[metricIndex];
+		if (!shader)
+		{
+			shader = ShaderForShaderNum(in->shaderNum, lightmapNum, in->lightmapStyles);
+			faceShaderCache[metricIndex] = shader;
+			++resolvedMetricCount;
+		}
+		sfaceSize = SurfaceFaceSize(in->verts & 0xFFF,
+			NumLightMaps(shader), NeedVertexColors(shader),
 			in->indexes & 0xFFF);
-		
-		iFaceDataSizeRequired += sfaceSize;
-#ifdef _XBOX
-		if (sfaceSize > 65535)
+		if (sfaceSize < 0 || faceDataSizeRequired > 0x7fffffff - sfaceSize)
 		{
-			faceDataOverShort++;
+			Z_Free(faceShaderCache);
+			Com_Error(ERR_DROP, "LoadMap: face data size overflow at face %d in %s",
+				i, s_worldData.name);
+			return;
 		}
-#endif
-		assert(sfaceSize < 100 * 1024);
-		if (--nToGo <= 0)
+		faceDataSizeRequired += sfaceSize;
+		if ((int)(in->verts & 0xFFF) > maxSurfaceVerts)
 		{
-			nToGo = nTimes;
+			maxSurfaceVerts = in->verts & 0xFFF;
+		}
+#ifdef _XBOX
+		g_SPXBPackedFaceIndex = i + 1;
+		g_SPXBPackedFaceBytes = faceDataSizeRequired;
+#endif
+		if ((i & 511) == 511)
+		{
+			UpdateLoadingAnimation();
 		}
 	}
 #ifdef _XBOX
-	XBLF("JA: R_LoadFaces summary faces=%d maxVerts=%d maxIndexes=%d maxFirstVert=%d maxFirstIndex=%d maxLocalIndex=%d vertsOverByte=%d localIndexOverByte=%d localIndexOutOfRange=%d faceDataBytes=%d faceDataOverShort=%d",
-		count,
-		maxFaceVerts,
-		maxFaceIndexes,
-		maxFaceFirstVert,
-		maxFaceFirstIndex,
-		maxLocalIndex,
-		faceVertsOverByte,
-		localIndexOverByte,
-		localIndexOutOfRange,
-		iFaceDataSizeRequired,
-		faceDataOverShort);
-	XBLF("JA: R_LoadFaces alloc faceDataBytes=%d", iFaceDataSizeRequired);
+	g_SPXBPackedFacePhase = 0x50460003;
+	g_SPXBPackedFaceIndex = resolvedMetricCount;
 #endif
-	in -= count;	// back it up, ready for loop-proper
+	if (vertStream)
+	{
+		surfaceVerts = (mapVert_t*)Z_Malloc(
+			maxSurfaceVerts * sizeof(mapVert_t), TAG_TEMP_WORKSPACE, qfalse, 32);
+	}
+	faceData = (byte *)Hunk_Alloc(faceDataSizeRequired, qfalse);
+	faceDataCursor = faceData;
+	faceDataEnd = faceData + faceDataSizeRequired;
 
-	// since this ptr is to hunk data, I can pass it in and have it advanced without worrying about losing
-	//	the original alloc ptr...
-	//
-	byte *orgFaceData;
-	byte *pFaceDataBuffer	= (byte *)Hunk_Alloc( iFaceDataSizeRequired, qtrue );
-	orgFaceData = pFaceDataBuffer;
-
-	// now do regular loop...
-	//
+#ifdef _XBOX
+	g_SPXBPackedFacePhase = 0x50460004;
+	g_SPXBPackedFaceIndex = 0;
+#endif
 	for ( i = 0 ; i < count ; i++ ) {
-		in = (dface_t *)surfaces + i;
-		out = s_worldData.surfaces + in->code;
-		ParseFace( in, dv, out, indexes, pFaceDataBuffer );
-		if (--nToGo <= 0)
+		int metricIndex;
+		shader_t *resolvedShader;
+		dface_t streamedSurface;
+		dface_t localSurface;
+		dface_t *parseSurface;
+		mapVert_t *parseVerts;
+		int numVerts;
+
+		if (surfaceStream)
 		{
-			nToGo = nTimes;
+			if (!surfaceStream->readAt(i * sizeof(streamedSurface),
+					&streamedSurface, sizeof(streamedSurface)))
+			{
+				Z_Free(faceShaderCache);
+				if (surfaceVerts) Z_Free(surfaceVerts);
+				Com_Error(ERR_DROP, "R_LoadFaces: packed face read failed at face %d", i);
+				return;
+			}
+			in = &streamedSurface;
+		}
+		else
+		{
+			in = (dface_t *)surfaces + i;
+		}
+		out = s_worldData.surfaces + in->code;
+		metricIndex = in->shaderNum * 256 + in->lightmapNum[0];
+		resolvedShader = faceShaderCache[metricIndex];
+		if (!resolvedShader)
+		{
+			Z_Free(faceShaderCache);
+			Com_Error(ERR_DROP, "LoadMap: missing cached shader for face %d in %s",
+				i, s_worldData.name);
+			return;
+		}
+		parseSurface = in;
+		parseVerts = dv;
+		if (vertStream)
+		{
+			numVerts = in->verts & 0xFFF;
+			if (!vertStream->readAt((in->verts >> 12) * sizeof(mapVert_t),
+					surfaceVerts, numVerts * sizeof(mapVert_t)))
+			{
+				Z_Free(faceShaderCache);
+				Com_Error(ERR_DROP, "R_LoadFaces: packed vertex read failed at face %d", i);
+				return;
+			}
+			localSurface = *in;
+			localSurface.verts = numVerts;
+			parseSurface = &localSurface;
+			parseVerts = surfaceVerts;
+		}
+		ParseFace(parseSurface, parseVerts, out, indexes, faceDataCursor, resolvedShader, faceDataEnd);
+#ifdef _XBOX
+		g_SPXBPackedFaceIndex = i + 1;
+		g_SPXBPackedFaceBytes = (unsigned int)(faceDataCursor - faceData);
+#endif
+		if ((i & 511) == 511)
+		{
+			UpdateLoadingAnimation();
 		}
 	}
+	Z_Free(faceShaderCache);
+	if (surfaceVerts)
+	{
+		Z_Free(surfaceVerts);
+	}
+
+#ifdef _XBOX
+	g_SPXBPackedFacePhase = 0x50460005;
+	g_SPXBPackedFaceIndex = count;
+	g_SPXBPackedFaceBytes = (unsigned int)(faceDataCursor - faceData);
+#endif
 
 	VID_Printf( PRINT_ALL, "...loaded %d faces\n", count );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 3 );
+#endif
+}
+
+void R_LoadFaces( void *indexdata, int indexlen, void *verts, int vertlen,
+					void *surfaces, int surfacelen ) {
+	R_LoadFacesInternal(indexdata, indexlen, verts, vertlen, NULL, surfaces, surfacelen, NULL);
+}
+
+void R_LoadFacesStream( void *indexdata, int indexlen, LumpStream *verts,
+					LumpStream *surfaces ) {
+	R_LoadFacesInternal(indexdata, indexlen, NULL, verts ? verts->len : 0,
+		verts, NULL, surfaces ? surfaces->len : 0, surfaces);
 }
 
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -2905,8 +3124,6 @@ qboolean R_EFLoadRawWorldDataFromBSP(const char *name, const efbspFile_t *efbsp)
 		lightgridLen,
 		lightarrayLen);
 
-	R_LoadLevelLightParms();
-	R_GetLightParmsForLevel();
 #ifdef _XBOX
 	XBLog_WriteCritical("STEFX_HW_BOOT: raw world finalizer complete");
 #endif
@@ -2923,8 +3140,18 @@ Called directly from cgame
 =================
 */
 void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
+	char		loadName[MAX_QPATH];
 	char		stripName[MAX_QPATH];
 	Lump outputLumps[3];
+#ifdef STEFX_ELITE_FORCE_SP
+	qboolean	xboxPackedLumpsExist;
+#endif
+
+	// Callers commonly pass va() storage here.  The filesystem and diagnostic
+	// paths also format through va(), so retain an owned map name for the whole
+	// load instead of allowing a nested format to rewrite our input string.
+	Q_strncpyz( loadName, name, sizeof( loadName ) );
+	name = loadName;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	XBLF("EF: RE_LoadWorldMap request '%s' worldLoaded=%d current='%s' world=%08x",
@@ -2972,11 +3199,17 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	tr.world = NULL;
 
 	//Preserve data which was already set in cm_load
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 6 );
+#endif
 	msurface_t *surfacePtr = s_worldData.surfaces;
 	int numSurfaces = s_worldData.numsurfaces;
 	memset( &s_worldData, 0, sizeof( s_worldData ) );
 	s_worldData.surfaces = surfacePtr;
 	s_worldData.numsurfaces = numSurfaces;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 7 );
+#endif
 	//s_worldData.shaders = cm.shaders;
 	s_worldData.numShaders = cmg.numShaders;
 
@@ -2992,14 +3225,22 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 #ifdef STEFX_ELITE_FORCE_SP
 	{
 		efbspFile_t efbsp;
-		if (EFBSP_LoadFile(name, &efbsp))
+		xboxPackedLumpsExist = EFBSP_XboxPackedLumpsExist(name);
+		if (!xboxPackedLumpsExist && EFBSP_LoadFile(name, &efbsp))
 		{
 			R_EFLoadRawWorldDataFromBSP(name, &efbsp);
 			EFBSP_FreeFile(&efbsp);
 			return;
 		}
 
-		XBLF("EF: RE_LoadWorldMap raw BSP '%s' not found; emergency sidecar fallback only", name);
+		if (xboxPackedLumpsExist)
+		{
+			XBLF("STEFX_RETAIL_LUMPS: RE finalizing packed world map='%s'", name);
+		}
+		else
+		{
+			XBLF("EF: RE_LoadWorldMap raw BSP '%s' not found; emergency sidecar fallback only", name);
+		}
 	}
 #endif
 
@@ -3038,10 +3279,14 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 
 	// only set tr.world now that we know the entire level has loaded properly
 	tr.world = &s_worldData;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	R_EFAuditLoadedSurfaces( 8 );
+#endif
 
-	// Load the light parms for this level
-	R_LoadLevelLightParms();
-	R_GetLightParmsForLevel();
+#ifdef STEFX_ELITE_FORCE_SP
+	XBLF("STEFX_RETAIL_LUMPS: RE complete map='%s' surfaces=%d nodes=%d leafs=%d models=%d",
+		name, s_worldData.numsurfaces, s_worldData.numnodes, s_worldData.numleafs, cmg.numSubModels);
+#endif
 }
 
 

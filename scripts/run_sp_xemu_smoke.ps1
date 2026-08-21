@@ -9,6 +9,9 @@ param(
     [switch]$MiniSoak,
     [switch]$DirectCoop,
     [switch]$DirectHolomatch,
+    [switch]$HolomatchPhaserProof,
+    [switch]$HolomatchShaderTrace,
+    [switch]$HolomatchDisableFog,
     [int]$HolomatchGameType = 0,
     [switch]$EnableSmokeInput,
     [int]$SmokeInputStart = 12000,
@@ -30,17 +33,27 @@ param(
     [int]$FirstShotDelay = 20,
     [string]$Name = "",
     [string]$Iso = "",
+    [switch]$ImmutableIso,
     [string]$DefaultXbe = "",
+    [string]$SpPk3 = "",
+    [string]$MpPk3 = "",
     [string]$StageSource = "",
     [string]$Port = "4460",
     [string[]]$DumpMem = @(),
     [string[]]$DumpBinMem = @(),
     [string[]]$DumpPhys = @(),
     [string]$WatchCr2 = "",
+    [double]$SampleEipInterval = 0.0,
+    [string]$PollWordAddr = "",
+    [int]$PollWordCount = 1,
+    [double]$PollWordInterval = 1.0,
+    [string]$PollWordLabel = "counter",
     [switch]$PollXBlog,
     [switch]$PollXBlogPerfOnly,
     [int]$PollXBlogStartDelay = 0,
+    [double]$PollXBlogInterval = 1.0,
     [switch]$XBlogAutoDumps,
+    [switch]$ExtractXBlogProfile,
     [switch]$VisualCheck,
     [string]$PollXBlogAddr = "",
     [string]$PollXBlogPhysAddr = "",
@@ -49,6 +62,9 @@ param(
     [switch]$VideoDebug,
     [switch]$NoScreenshots,
     [string]$MonitorKeys = "",
+    [switch]$HostWindowKeys,
+    [ValidateRange(0, 4)]
+    [int]$KeyboardControllerPort = 0,
     [string[]]$XemuArg = @(),
     [string]$Hdd = "C:\Games\Emulators\Xemu\HDD\xbox_hdd.qcow2",
     [string]$XemuExe = "C:\Games\Emulators\Xemu\JACodex\xemu.exe",
@@ -56,11 +72,25 @@ param(
     [switch]$RepackOnly,
     [switch]$KeepIso,
     [switch]$KeepStage,
-    [switch]$CleanReleaseIso
+    [switch]$CleanReleaseIso,
+    [switch]$CleanStageData
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
+
+# Perf-only telemetry is itself a request to poll the guest heartbeat.  Keep a
+# short startup delay so monitor traffic does not compete with boot/loading.
+if ($PollXBlogPerfOnly -and -not $PollXBlog) {
+    $PollXBlog = $true
+    if ($PollXBlogStartDelay -le 0) {
+        $PollXBlogStartDelay = 15
+    }
+}
+if ($PollXBlogPerfOnly -and $PollXBlogInterval -lt 5.0) {
+    $PollXBlogInterval = 5.0
+}
+
 try {
     $harnessProcess = [System.Diagnostics.Process]::GetCurrentProcess()
     $harnessProcess.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal
@@ -79,8 +109,111 @@ $stageXbe = Join-Path $stageDir "default.xbe"
 $stageMpXbe = Join-Path $stageDir "efmp.xbe"
 $builtXbe = Join-Path $repoRoot "build\release\default.xbe"
 $builtMpXbe = Join-Path $repoRoot "build\release\efmp.xbe"
-$builtSpPk3 = Join-Path $repoRoot "build\release\BaseEF\xbox0.pk3"
-$builtMpPk3 = Join-Path $repoRoot "build\release\BaseEF\xbox1.pk3"
+$builtSpPk3 = if ([string]::IsNullOrWhiteSpace($SpPk3)) {
+    Join-Path $repoRoot "build\release\BaseEF\xbox0.pk3"
+}
+elseif ([System.IO.Path]::IsPathRooted($SpPk3)) {
+    [System.IO.Path]::GetFullPath($SpPk3)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $SpPk3))
+}
+$builtMpPk3 = if ([string]::IsNullOrWhiteSpace($MpPk3)) {
+    Join-Path $repoRoot "build\release\BaseEF\xbox1.pk3"
+}
+elseif ([System.IO.Path]::IsPathRooted($MpPk3)) {
+    [System.IO.Path]::GetFullPath($MpPk3)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $repoRoot $MpPk3))
+}
+
+function Get-FileSha256 {
+    param([string]$Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+function Get-XbeRuntimeBuildId {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $null
+    }
+    [byte[]]$data = [System.IO.File]::ReadAllBytes($Path)
+    [byte[]]$marker = [System.Text.Encoding]::ASCII.GetBytes("STEFX_RUNTIME_BUILD_ID ")
+    for ($i = 0; $i -le $data.Length - $marker.Length; $i++) {
+        $matched = $true
+        for ($j = 0; $j -lt $marker.Length; $j++) {
+            if ($data[$i + $j] -ne $marker[$j]) {
+                $matched = $false
+                break
+            }
+        }
+        if (-not $matched) {
+            continue
+        }
+        $end = $i
+        $limit = [Math]::Min($data.Length, $i + 256)
+        while ($end -lt $limit -and $data[$end] -ne 0 -and $data[$end] -ne 10 -and $data[$end] -ne 13) {
+            $end++
+        }
+        return [System.Text.Encoding]::ASCII.GetString($data, $i, $end - $i)
+    }
+    return $null
+}
+
+function Assert-XbeRuntimeBuildId {
+    param(
+        [string]$Path,
+        [string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Label not found: $Path"
+    }
+    $runtimeBuildId = Get-XbeRuntimeBuildId -Path $Path
+    if (-not $runtimeBuildId) {
+        throw "$Label is missing STEFX_RUNTIME_BUILD_ID; rebuild scripts\build_xbox.ps1 -Target spmp before XEMU proof."
+    }
+    $fileName = [System.IO.Path]::GetFileName($Path).ToLowerInvariant()
+    $expectedFragments = switch ($fileName) {
+        "default.xbe" { @("personality=default", "log=ef_sp_log.txt") }
+        "efmp.xbe" { @("personality=efmp", "log=ef_mp_log.txt") }
+        default { @() }
+    }
+    foreach ($fragment in $expectedFragments) {
+        if ($runtimeBuildId -notlike "*$fragment*") {
+            throw "$Label has wrong STEFX_RUNTIME_BUILD_ID identity: expected fragment '$fragment' in '$runtimeBuildId'"
+        }
+    }
+    Write-Host "Runtime build id: $Label -> $runtimeBuildId"
+}
+
+function Test-StagePayloadMatchesSource {
+    param(
+        [string]$StagePath,
+        [string]$SourcePath,
+        [string]$Label,
+        [DateTime]$IsoWriteTime
+    )
+
+    if (-not (Test-Path -LiteralPath $StagePath -PathType Leaf)) {
+        Write-Host "$Label is missing from retained XEMU stage; enabling repack."
+        return $false
+    }
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
+        throw "Current release artifact not found for retained XEMU proof: $SourcePath"
+    }
+    if ((Get-Item -LiteralPath $StagePath).LastWriteTimeUtc -gt $IsoWriteTime) {
+        Write-Host "$Label in retained XEMU stage is newer than retained ISO; enabling repack."
+        return $false
+    }
+    if ((Get-FileSha256 $StagePath) -ne (Get-FileSha256 $SourcePath)) {
+        Write-Host "$Label in retained XEMU stage differs from current release artifact; enabling repack."
+        return $false
+    }
+    return $true
+}
 $builtSoundBankDir = Join-Path $repoRoot "build\release\BaseEF\soundbank"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
 $pythonCommand = Get-Command "python.exe" -CommandType Application -ErrorAction SilentlyContinue |
@@ -139,6 +272,15 @@ elseif (-not [System.IO.Path]::IsPathRooted($Iso)) {
     $Iso = Join-Path $repoRoot $Iso
 }
 $Iso = [System.IO.Path]::GetFullPath($Iso)
+
+if ($ImmutableIso) {
+    if ($Build -or $Repack -or $RepackOnly -or $CleanReleaseIso -or $CleanStageData) {
+        throw "-ImmutableIso cannot be combined with build or repack options."
+    }
+    if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
+        throw "Immutable ISO is missing: $Iso"
+    }
+}
 if ([string]::IsNullOrWhiteSpace($DefaultXbe)) {
     $DefaultXbe = $builtXbe
 }
@@ -164,6 +306,9 @@ if ($CleanReleaseIso) {
     $PostMapCommand = @()
     $ActiveCommand = @()
 }
+elseif ($CleanStageData) {
+    $Repack = $true
+}
 
 $normalizedMaps = @()
 if ($MiniSoak) {
@@ -178,6 +323,14 @@ if ($MiniSoak) {
 elseif ($DirectCoop) {
     $NormalBoot = $true
     $Maps = @("__normal_boot__")
+    if ($EnableSmokeInput -and $SmokeInputStart -lt 210000) {
+        $coopInputDelay = 210000 - $SmokeInputStart
+        Write-Warning "Direct co-op runs the borg1 opening cinematic; shifting the complete smoke-input schedule past it."
+        $SmokeInputStart += $coopInputDelay
+        $SmokeInputEnd += $coopInputDelay
+        $SmokeAttackStart += $coopInputDelay
+        $SmokeAttackEnd += $coopInputDelay
+    }
 }
 elseif ($NormalBoot) {
     $Maps = @("__normal_boot__")
@@ -197,6 +350,35 @@ $Maps = $normalizedMaps
 if ($MiniSoak -and $Maps.Count -ne 1) {
     throw "-MiniSoak accepts exactly one initial SP map."
 }
+
+$isoProfilePath = "$Iso.smoke-profile.json"
+$desiredIsoProfile = [ordered]@{
+    maps = @($Maps)
+    normalBoot = [bool]$NormalBoot
+    miniSoak = [bool]$MiniSoak
+    directCoop = [bool]$DirectCoop
+    directHolomatch = [bool]$DirectHolomatch
+    holomatchGameType = $HolomatchGameType
+    holomatchShaderTrace = [bool]$HolomatchShaderTrace
+    holomatchDisableFog = [bool]$HolomatchDisableFog
+    command = @($Command)
+    postMapCommand = @($PostMapCommand)
+    activeCommand = @($ActiveCommand)
+    activeCommandServerTime = $ActiveCommandServerTime
+    enableSmokeInput = [bool]$EnableSmokeInput
+    smokeInputStart = $SmokeInputStart
+    smokeInputEnd = $SmokeInputEnd
+    smokeAttackStart = $SmokeAttackStart
+    smokeAttackEnd = $SmokeAttackEnd
+    smokeInputForward = $SmokeInputForward
+    smokeInputSide = $SmokeInputSide
+    smokeInputYaw = $SmokeInputYaw
+    smokeViewPitch = $SmokeViewPitch
+    smokeViewYaw = $SmokeViewYaw
+    nativeDrawPath = $NativeDrawPath
+    cleanReleaseIso = [bool]$CleanReleaseIso
+    cleanStageData = [bool]$CleanStageData
+} | ConvertTo-Json -Compress
 
 $normalizedDumps = @()
 foreach ($entry in $DumpMem) {
@@ -414,9 +596,24 @@ if ($Build) {
     $Repack = $true
 }
 
-if (-not $Repack) {
+Assert-XbeRuntimeBuildId -Path $DefaultXbe -Label "build\release\default.xbe"
+Assert-XbeRuntimeBuildId -Path $builtMpXbe -Label "build\release\efmp.xbe"
+
+if (-not $Repack -and -not $ImmutableIso) {
     if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
         Write-Host "Retained XEMU ISO is missing; enabling repack."
+        $Repack = $true
+    }
+    elseif ($Maps.Count -ne 1) {
+        Write-Host "Multi-map smoke runs require per-map control data; enabling repack."
+        $Repack = $true
+    }
+    elseif (-not (Test-Path -LiteralPath $isoProfilePath -PathType Leaf)) {
+        Write-Host "Retained XEMU ISO has no smoke-profile record; enabling repack."
+        $Repack = $true
+    }
+    elseif ((Get-Content -LiteralPath $isoProfilePath -Raw).Trim() -ne $desiredIsoProfile) {
+        Write-Host "Requested smoke personality/control data differs from retained XEMU ISO; enabling repack."
         $Repack = $true
     }
     else {
@@ -436,6 +633,25 @@ if (-not $Repack) {
             Write-Host "Built payload is newer than retained XEMU ISO; enabling repack:"
             $newerPayloads | ForEach-Object { Write-Host "  $_" }
             $Repack = $true
+        }
+        else {
+            $entryXbe = if ($DirectHolomatch) { $builtMpXbe } else { $DefaultXbe }
+            $stageChecks = @(
+                @{ Stage = $stageXbe; Source = $entryXbe; Label = "default.xbe" },
+                @{ Stage = $stageMpXbe; Source = $builtMpXbe; Label = "efmp.xbe" },
+                @{ Stage = (Join-Path $stageDir "BaseEF\xbox0.pk3"); Source = $builtSpPk3; Label = "BaseEF\xbox0.pk3" },
+                @{ Stage = (Join-Path $stageDir "BaseEF\xbox1.pk3"); Source = $builtMpPk3; Label = "BaseEF\xbox1.pk3" }
+            )
+            foreach ($check in $stageChecks) {
+                if (-not (Test-StagePayloadMatchesSource `
+                    -StagePath $check.Stage `
+                    -SourcePath $check.Source `
+                    -Label $check.Label `
+                    -IsoWriteTime $isoWriteTime)) {
+                    $Repack = $true
+                    break
+                }
+            }
         }
     }
 }
@@ -472,6 +688,8 @@ foreach ($mapName in $Maps) {
     $isNormalRun = $NormalBoot -or $mapName -eq "__normal_boot__"
     $safeMap = if ($isNormalRun) { "normal" } else { ($mapName -replace '[^A-Za-z0-9_.-]', '_') }
     $runName = if ([string]::IsNullOrWhiteSpace($Name)) { "ef_sp_$safeMap" } else { "${Name}_$safeMap" }
+    $proofMode = if ($DirectCoop) { "coop" } elseif ($DirectHolomatch) { "mp" } else { "sp" }
+    $proofMap = if ($isNormalRun) { "normal" } else { $mapName }
 
     Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_normal_boot.txt") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $stageDir "ef_sp_mini_soak.txt") -Force -ErrorAction SilentlyContinue
@@ -504,15 +722,37 @@ foreach ($mapName in $Maps) {
     if ($DirectHolomatch) {
         $Command = @(
             "set fs_game BaseEF",
+            "set stefx_splitScreen 1",
+            "set stefx_splitScreenPlayers 4",
+            "set stefx_splitScreenMode holomatch",
+            "set stefx_hmLocalPlayers 4",
+            "set stefx_hm_split_economy 1",
+            "set stefx_hm_split_virtual_controls 1",
+            "set stefx_hm_split_virtual_controls_p1 1",
+            "set stefx_hm_launch_source direct",
+            "set stefx_hm_audio_proof 1",
+            "set stefx_splitScreenP2Entity -1",
             "set model munro/default",
-            "set sv_maxclients 4",
+            "set sv_maxclients 8",
             "set g_gametype $HolomatchGameType",
             "set fraglimit 0",
             "set timelimit 0",
             "set bot_enable 1",
-            "set bot_minplayers 3",
-            "set g_spSkill 1"
+            "set bot_minplayers 7",
+            "set g_spSkill 2"
         )
+        if ($HolomatchShaderTrace) {
+            $Command += "set stefx_hm_shader_trace 1"
+        }
+        if ($HolomatchDisableFog) {
+            $Command += "set r_drawfog 0"
+        }
+        if ($HolomatchPhaserProof) {
+            $Command += @(
+                "set stefx_hm_split_phaser_proof 1",
+                "set bot_minplayers 4"
+            )
+        }
     }
     if ($EnableSmokeInput) {
         Set-Content -LiteralPath (Join-Path $stageDir "ef_sp_smoke_harness.txt") -Value "1" -Encoding ASCII
@@ -560,6 +800,43 @@ foreach ($mapName in $Maps) {
     if ($CleanReleaseIso) {
         foreach ($markerName in $releaseMarkerNames) {
             Remove-Item -LiteralPath (Join-Path $stageDir $markerName) -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($CleanReleaseIso -or $CleanStageData) {
+        $releaseUiDir = Join-Path $stageDir "BaseEF\ui"
+        if (Test-Path -LiteralPath $releaseUiDir -PathType Container) {
+            Get-ChildItem -LiteralPath $releaseUiDir -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -in @(".menu", ".txt") } |
+                Remove-Item -Force
+        }
+
+        $releaseBaseEf = Join-Path $stageDir "BaseEF"
+        if (Test-Path -LiteralPath $releaseBaseEf -PathType Container) {
+            Get-ChildItem -LiteralPath $releaseBaseEf -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -ne "soundbank" } |
+                Remove-Item -Recurse -Force
+
+            foreach ($staleName in @(
+                "games.log",
+                "xbox_patch_manifest.json",
+                "XBOX0.PK3.disabled",
+                "vssver.scc"
+            )) {
+                Remove-Item -LiteralPath (Join-Path $releaseBaseEf $staleName) -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        foreach ($staleName in @(
+            "default-native-test.map",
+            "default-native-test.xbe",
+            "default.map",
+            "ef_mp_backbuffer.bmp",
+            "ef_mp_xgshot.bmp",
+            "memory-map.txt",
+            "pointers.txt"
+        )) {
+            Remove-Item -LiteralPath (Join-Path $stageDir $staleName) -Force -ErrorAction SilentlyContinue
         }
     }
     else {
@@ -623,6 +900,12 @@ foreach ($mapName in $Maps) {
         }
         Write-Host "Repacked $entryLabel ISO for $safeMap"
         Write-Host "Repack log: $repackLog"
+        if ($Maps.Count -eq 1) {
+            Set-Content -LiteralPath $isoProfilePath -Value $desiredIsoProfile -Encoding ASCII
+        }
+        else {
+            Remove-Item -LiteralPath $isoProfilePath -Force -ErrorAction SilentlyContinue
+        }
     }
 
     if ($RepackOnly) {
@@ -645,6 +928,11 @@ foreach ($mapName in $Maps) {
         "--duration", "$Duration",
         "--interval", "$Interval",
         "--first-shot-delay", "$FirstShotDelay",
+        "--proof-mode", $proofMode,
+        "--proof-map", $proofMap,
+        "--runtime-xbe", $DefaultXbe,
+        "--runtime-xbe", $builtMpXbe,
+        "--require-runtime-xbe-id",
         "--smoke-keymap"
     )
 
@@ -662,8 +950,25 @@ foreach ($mapName in $Maps) {
     if (-not [string]::IsNullOrWhiteSpace($WatchCr2)) {
         $argsList += @("--watch-cr2", $WatchCr2)
     }
+    if ($SampleEipInterval -gt 0) {
+        $argsList += @("--sample-eip-interval", $SampleEipInterval)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PollWordAddr)) {
+        $argsList += @(
+            "--poll-word-addr", $PollWordAddr,
+            "--poll-word-count", $PollWordCount,
+            "--poll-word-interval", $PollWordInterval,
+            "--poll-word-label", $PollWordLabel
+        )
+    }
     if (-not [string]::IsNullOrWhiteSpace($MonitorKeys)) {
         $argsList += @("--monitor-keys", $MonitorKeys)
+    }
+    if ($HostWindowKeys) {
+        $argsList += "--host-window-keys"
+    }
+    if ($KeyboardControllerPort -gt 0) {
+        $argsList += @("--keyboard-controller-port", $KeyboardControllerPort)
     }
     if ($PollXBlog) {
         $argsList += "--poll-xblog"
@@ -673,6 +978,7 @@ foreach ($mapName in $Maps) {
         if ($PollXBlogStartDelay -gt 0) {
             $argsList += @("--poll-xblog-start-delay", $PollXBlogStartDelay)
         }
+        $argsList += @("--poll-xblog-interval", $PollXBlogInterval)
         if ($DirectHolomatch -and [string]::IsNullOrWhiteSpace($PollXBlogMap)) {
             $PollXBlogMap = Join-Path $repoRoot "build\release\efmp.map"
         }
@@ -694,6 +1000,9 @@ foreach ($mapName in $Maps) {
     }
     if ($XBlogAutoDumps) {
         $argsList += "--xblog-auto-dumps"
+    }
+    if ($ExtractXBlogProfile) {
+        $argsList += "--extract-xblog-profile"
     }
     if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
         $argsList += @("--config-path", $ConfigPath)
@@ -754,6 +1063,20 @@ foreach ($mapName in $Maps) {
                 if ($LASTEXITCODE -ne 0) {
                     $runExitCode = $LASTEXITCODE
                 }
+            }
+        }
+        if ($MiniSoak -and $runExitCode -eq 0) {
+            $miniSoakReport = Get-ChildItem -LiteralPath $outputDir -Filter "${runName}_*.report.txt" -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -ge $runStart.AddMinutes(-1) } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+            $miniSoakReachedHandoff = $false
+            if ($null -ne $miniSoakReport) {
+                $miniSoakReachedHandoff = [bool](Select-String -LiteralPath $miniSoakReport.FullName -Pattern 'xblogsoak-live .*stage=9(?:\s|$)' -Quiet)
+            }
+            if (-not $miniSoakReachedHandoff) {
+                Write-Host "Mini-soak failed: SP/co-op/Holomatch handoff stage 9 was not reached."
+                $runExitCode = 1
             }
         }
         $results += [pscustomobject]@{ Map = $mapName; ExitCode = $runExitCode; Name = $runName }

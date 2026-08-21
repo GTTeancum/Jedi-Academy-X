@@ -1,0 +1,13 @@
+retail_start,retail_end,name,named,object_context,priority_score,evidence
+0x0001CC40,0x0001CC85,CL_CheckDeferedCmds,yes,cl_main.obj,20,normalized_exact_unique
+0x0001CC90,0x0001CF83,CL_Frame,yes,cl_main.obj,100,between_exact_anchors_and_donor_order
+0x0001CF90,0x0001D7FC,CL_Init,yes,cl_main.obj,40,between_exact_anchors_and_donor_order
+0x0001D800,0x0001D976,CL_Shutdown,yes,cl_main.obj,20,normalized_exact_unique
+0x0001ECD0,0x0001EE14,SCR_UpdateScreen,yes,cl_scrn.obj,100,normalized_exact_unique
+0x0003F0E0,0x0003F136,Com_Freeze_f,yes,common.obj,10,normalized_exact_unique
+0x0003F140,0x0003F7F9,Com_Init,yes,common.obj,40,between_exact_anchor_and_donor_order
+0x0003F810,0x0003FC4D,Com_Frame,yes,common.obj,100,between_exact_anchor_and_donor_order
+0x00051B50,0x00051BC2,main,yes,win_main_console.obj,80,normalized_exact_unique
+0x00055330,0x00055363,Sys_Milliseconds,yes,win_shared.obj,80,normalized_exact_unique
+0x0005FB90,0x0005FBF4,SV_CheckPaused,yes,sv_main.obj,20,normalized_exact_unique
+0x0005FCA0,0x0005FF12,SV_Frame,yes,sv_main.obj,100,normalized_exact_unique

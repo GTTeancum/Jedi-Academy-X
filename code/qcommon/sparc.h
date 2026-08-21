@@ -202,6 +202,7 @@ private:
 	void Init(void) {
 		compressionUsed = false;
 		compressedData = NULL;
+		removedElement = T();
 		originalLength = 0;
 		compressedLength = 0;
 		decompressedData = NULL;
@@ -213,31 +214,22 @@ private:
 	//Binary search for the compressed element most closely matching 'offset'.
 	SPARCElement<T, U> *FindDecompStart(unsigned int offset)
 	{
-		unsigned int startPoint = compressedLength / 2;
-		unsigned int divisor = 4;
-		unsigned int leap;
-		while(1) {
-			if(compressedData[startPoint].offset <= offset &&
-					compressedData[startPoint+1].offset > offset) {
-				if(compressedData[startPoint].offset == offset) {
-					return &compressedData[startPoint];
-				} else {
-					return &compressedData[startPoint+1];
-				}
-			}
+		unsigned int low = 0;
+		unsigned int high = compressedLength;
 
-			leap = compressedLength / divisor;
-			if(leap < 1) {
-				leap = 1;
+		// Find the first stored element at or beyond the requested offset.
+		// The old leap search could underflow startPoint or inspect the item
+		// past the end, leaving map transitions in an infinite loop.
+		while(low < high) {
+			const unsigned int middle = low + ((high - low) >> 1);
+			if(compressedData[middle].offset < offset) {
+				low = middle + 1;
 			} else {
-				divisor *= 2;
-			}
-			if(compressedData[startPoint].offset > offset) {
-				startPoint -= leap;
-			} else {
-				startPoint += leap;
+				high = middle;
 			}
 		}
+
+		return low < compressedLength ? &compressedData[low] : NULL;
 	}
 
 public:
@@ -505,8 +497,9 @@ public:
 		}
 
 		//Decompress the data.
+		SPARCElement<T, U> *const decompEnd = compressedData + compressedLength;
 		for(i=0; i < length; i++) {
-			if(decomp->offset == i + offset) {
+			if(decomp < decompEnd && decomp->offset == i + offset) {
 				decompressedData[i] = decomp->data;
 				decomp++;
 			} else {

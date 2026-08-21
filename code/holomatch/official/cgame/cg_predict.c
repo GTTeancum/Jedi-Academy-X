@@ -285,9 +285,11 @@ static void CG_TouchItem( centity_t *cent ) {
 	gitem_t		*item;
 #if defined(STEFX_SP_HOSTED_MP)
 	int			stefxOriginalFlags;
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	int			stefxAmmoBefore = 0;
 	int			stefxAmmoAfter = 0;
 	static int	s_stefxPredictPickupLogs = 0;
+#endif
 #endif
 
 	if ( !cg_predictItems.integer ) {
@@ -310,9 +312,11 @@ static void CG_TouchItem( centity_t *cent ) {
 	item = &bg_itemlist[ cent->currentState.modelindex ];
 #if defined(STEFX_SP_HOSTED_MP)
 	stefxOriginalFlags = cent->currentState.eFlags;
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( item->giTag >= 0 && item->giTag < WP_NUM_WEAPONS ) {
 		stefxAmmoBefore = cg.predictedPlayerState.ammo[item->giTag];
 	}
+#endif
 #endif
 
 	// Special case for flags.  
@@ -369,7 +373,7 @@ static void CG_TouchItem( centity_t *cent ) {
 			}
 #endif
 		}
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 		if ( s_stefxPredictPickupLogs < 96 ) {
 			if ( item->giTag >= 0 && item->giTag < WP_NUM_WEAPONS ) {
 				stefxAmmoAfter = cg.predictedPlayerState.ammo[item->giTag];
@@ -449,7 +453,7 @@ static void CG_TouchTriggerPrediction( void ) {
 			continue;
 		}
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 		{
 			static int stefxTriggerPredictionBudget = 32;
 			if ( stefxTriggerPredictionBudget > 0 ) {
@@ -606,6 +610,7 @@ void CG_PredictPlayerState( void ) {
 
 #if defined(STEFX_SP_HOSTED_MP)
 	if ( cg.thisFrameTeleport ) {
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 		static int stefxTeleportResetBudget = 32;
 		if (stefxTeleportResetBudget > 0) {
 			XBLog_WriteCriticalf("STEFX_HM_PREDICTION: hosted teleport reset time=%d snapTime=%d commandTime=%d origin=(%g,%g,%g) flags=0x%x",
@@ -614,6 +619,7 @@ void CG_PredictPlayerState( void ) {
 				cg.predictedPlayerState.eFlags);
 			--stefxTeleportResetBudget;
 		}
+#endif
 		VectorClear( cg.predictedError );
 		cg.predictedErrorTime = cg.time;
 		cg.thisFrameTeleport = qfalse;
@@ -655,7 +661,7 @@ void CG_PredictPlayerState( void ) {
 			float	len;
 
 			if ( cg.thisFrameTeleport ) {
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 				static int stefxTeleportPredictionBudget = 32;
 				if (stefxTeleportPredictionBudget > 0) {
 					XBLog_WriteCriticalf("STEFX_HM_PREDICTION: teleport time=%d snapTime=%d commandTime=%d origin=(%g,%g,%g) flags=0x%x",
@@ -684,7 +690,7 @@ void CG_PredictPlayerState( void ) {
 				VectorSubtract( oldPlayerState.origin, adjusted, delta );
 				len = VectorLength( delta );
 				if ( len > 0.1 ) {
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 					static int stefxPredictionMissBudget = 128;
 					if (stefxPredictionMissBudget > 0) {
 						XBLog_WriteCriticalf("STEFX_HM_PREDICTION: miss len=%g delta=(%g,%g,%g) predicted=(%g,%g,%g) server=(%g,%g,%g) cmdTime=%d ground=%d pmFlags=0x%x",

@@ -27,10 +27,25 @@
 #if defined(STEFX_SP_HOSTED_MP)
 #define STEFX_XB_LOG_FILE "ef_mp_log.txt"
 #define STEFX_XB_LOG_TITLE "Star Trek: Elite Force Xbox Holomatch log"
+#define STEFX_XB_LOG_PERSONALITY "efmp"
 #else
 #define STEFX_XB_LOG_FILE "ef_sp_log.txt"
 #define STEFX_XB_LOG_TITLE "Star Trek: Elite Force Xbox SP log"
+#define STEFX_XB_LOG_PERSONALITY "default"
 #endif
+
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+#define STEFX_XB_LOG_BUILD_FLAVOR "frame-diagnostics"
+#else
+#define STEFX_XB_LOG_BUILD_FLAVOR "production"
+#endif
+
+#define STEFX_RUNTIME_BUILD_ID_LITERAL \
+    "STEFX_RUNTIME_BUILD_ID personality=" STEFX_XB_LOG_PERSONALITY \
+    " flavor=" STEFX_XB_LOG_BUILD_FLAVOR \
+    " date=" __DATE__ \
+    " time=" __TIME__ \
+    " log=" STEFX_XB_LOG_FILE
 
 /* ── NT kernel types (minimal subset) ── */
 typedef struct { unsigned short Length; unsigned short MaximumLength; char *Buffer; } XBL_STR;
@@ -73,6 +88,145 @@ __declspec(dllexport) volatile unsigned int g_SPXBHeartbeatFrame = 0x11110005;
 __declspec(dllexport) volatile unsigned int g_SPXBHeartbeatRealtime = 0x11110006;
 __declspec(dllexport) volatile unsigned int g_SPXBHeartbeatServerTime = 0x11110007;
 __declspec(dllexport) volatile unsigned int g_SPXBHeartbeatFps10 = 0x11110008;
+__declspec(dllexport) volatile unsigned int g_SPXBInputPollCount = 0x11119001;
+__declspec(dllexport) volatile unsigned int g_SPXBInputPort = 0x11119002;
+__declspec(dllexport) volatile unsigned int g_SPXBInputDigital = 0x11119003;
+__declspec(dllexport) volatile unsigned int g_SPXBInputAnalogMask = 0x11119004;
+__declspec(dllexport) volatile unsigned int g_SPXBInputLXLY = 0x11119005;
+__declspec(dllexport) volatile unsigned int g_SPXBInputRXRY = 0x11119006;
+__declspec(dllexport) volatile unsigned int g_SPXBInputMenuEdgeCount = 0x11119007;
+__declspec(dllexport) volatile unsigned int g_SPXBInputMenuEdgeLast = 0x11119008;
+__declspec(dllexport) volatile unsigned int g_SPXBInputCommonPressCount = 0x11119009;
+__declspec(dllexport) volatile unsigned int g_SPXBInputCommonPressLast = 0x1111900a;
+__declspec(dllexport) volatile unsigned int g_SPXBInputFrontendQueueCount = 0x1111900b;
+__declspec(dllexport) volatile unsigned int g_SPXBInputFrontendQueueLast = 0x1111900c;
+__declspec(dllexport) volatile unsigned int g_SPXBInputDispatchCount = 0x1111900d;
+__declspec(dllexport) volatile unsigned int g_SPXBInputDispatchLast = 0x1111900e;
+__declspec(dllexport) volatile unsigned int g_SPXBInputDispatchHandled = 0x1111900f;
+__declspec(dllexport) volatile unsigned int g_SPXBHMInfoDispatchCount = 0x11119010;
+__declspec(dllexport) volatile unsigned int g_SPXBHMInfoDispatchLast = 0x11119011;
+__declspec(dllexport) volatile unsigned int g_SPXBHMGameCommandCount = 0x11119012;
+__declspec(dllexport) volatile unsigned int g_SPXBHMGameCommandResult = 0x11119013;
+__declspec(dllexport) volatile unsigned int g_SPXBHMConsoleCommandCount = 0x11119014;
+__declspec(dllexport) volatile unsigned int g_SPXBHMConsoleCommandTag = 0x11119015;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoresDownCount = 0x11119016;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoresUpCount = 0x11119017;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreDrawCount = 0x11119018;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreDrawState = 0x11119019;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextLoadLength = 0x11119020;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextLoadCount = 0x11119021;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextLoadState = 0x11119022;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceCalls = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceStage = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceOpenLength = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceHandle = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceRawPrefix = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceParsedPrefix = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceScorePrefix = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMTextTraceFirstPointer = 0;
+#if defined(STEFX_HM_SCORE_DIAGNOSTICS)
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCommandHighWater = 0x1111901A;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCommandDrops = 0x1111901B;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCommandLastDrop = 0x1111901C;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCommandCalls = 0x1111901D;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCommandIssueCount = 0x1111901E;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderCommandLastUsed = 0x1111901F;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStretchCount = 0x11119040;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStretchShader = 0x11119041;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStretchX = 0x11119042;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStretchY = 0x11119043;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStretchW = 0x11119044;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStretchH = 0x11119045;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreScaleX = 0x11119046;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreScaleY = 0x11119047;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreWhiteShader = 0x11119048;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreQueuedCount = 0x11119049;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreQueuedShader = 0x1111904A;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendMatches = 0x1111904B;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendColor = 0x1111904C;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendCommandCount = 0x1111904D;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendStretchCount = 0x1111904E;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendTerminalId = 0x1111904F;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendBytes = 0x11119050;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendGeometry = 0x11119051;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendGeomShader = 0x11119052;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendGeomColor = 0x11119053;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendDoneCommands = 0x11119054;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendDoneStretches = 0x11119055;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendDoneTerminal = 0x11119056;
+__declspec(dllexport) volatile unsigned int g_SPXBRenderBackendDoneBytes = 0x11119057;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendDoneGeometry = 0x11119058;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendDoneShader = 0x11119059;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBackendDoneColor = 0x1111905A;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreBatchPending = 0x1111905B;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfaceFlags = 0x1111905C;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfaceVerts = 0x1111905D;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfaceIndexes = 0x1111905E;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfacePasses = 0x1111905F;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfaceState = 0x11119060;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitArmed = 0x11119061;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitCalls = 0x11119062;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitIndexes = 0x11119063;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitState = 0x11119064;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitTexture = 0x11119065;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitScissor = 0x11119066;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitScissorXY = 0x11119067;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitScissorWH = 0x11119068;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreShaderFlags = 0x11119069;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreImageTex = 0x1111906A;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreWhiteTex = 0x1111906B;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreImageWH = 0x1111906C;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfaceMinXY = 0x1111906D;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSurfaceMaxXY = 0x1111906E;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitTarget = 0x1111906F;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitColorWrite = 0x11119070;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitCull = 0x11119071;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitBlend = 0x11119072;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitViewportXY = 0x11119073;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitViewportWH = 0x11119074;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitProj00 = 0x11119075;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitProj11 = 0x11119076;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitProj30 = 0x11119077;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreSubmitProj31 = 0x11119078;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreTextureData0 = 0x11119079;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreTextureSize = 0x1111907A;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreTextureWH = 0x1111907B;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreTextureFormat = 0x1111907C;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStageColor = 0x1111907D;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreStageAlpha = 0x1111907E;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreDepthState = 0x1111907F;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertexShader = 0x11119080;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScorePixelShader = 0x11119081;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0X = 0x11119082;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0Y = 0x11119083;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0Z = 0x11119084;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0W = 0x11119085;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0Color = 0x11119086;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0U = 0x11119087;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertex0V = 0x11119088;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertexCount = 0x11119089;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreVertexStride = 0x1111908A;
+__declspec(dllexport) volatile unsigned int g_SPXBHMScoreIndex012 = 0x1111908B;
+#endif
+__declspec(dllexport) volatile unsigned int g_SPXBUsercmdCount = 0x11119010;
+__declspec(dllexport) volatile unsigned int g_SPXBUsercmdTime = 0x11119011;
+__declspec(dllexport) volatile unsigned int g_SPXBUsercmdMove = 0x11119012;
+__declspec(dllexport) volatile unsigned int g_SPXBUsercmdButtons = 0x11119013;
+__declspec(dllexport) volatile unsigned int g_SPXBUsercmdYaw = 0x11119014;
+__declspec(dllexport) volatile unsigned int g_SPXBSVUsercmdCount = 0x11119020;
+__declspec(dllexport) volatile unsigned int g_SPXBSVUsercmdTime = 0x11119021;
+__declspec(dllexport) volatile unsigned int g_SPXBSVUsercmdMove = 0x11119022;
+__declspec(dllexport) volatile unsigned int g_SPXBSVUsercmdButtons = 0x11119023;
+__declspec(dllexport) volatile unsigned int g_SPXBHMGetUsercmdCount = 0x11119030;
+__declspec(dllexport) volatile unsigned int g_SPXBHMGetUsercmdTime = 0x11119031;
+__declspec(dllexport) volatile unsigned int g_SPXBHMGetUsercmdMove = 0x11119032;
+__declspec(dllexport) volatile unsigned int g_SPXBHMGetUsercmdButtons = 0x11119033;
+__declspec(dllexport) volatile unsigned int g_SPXBHMClientThinkCount = 0x11119034;
+__declspec(dllexport) volatile unsigned int g_SPXBWorkloadSurfaces = 0x11111001;
+__declspec(dllexport) volatile unsigned int g_SPXBWorkloadBatches = 0x11111002;
+__declspec(dllexport) volatile unsigned int g_SPXBWorkloadVertexes = 0x11111003;
+__declspec(dllexport) volatile unsigned int g_SPXBWorkloadIndexes = 0x11111004;
+__declspec(dllexport) volatile unsigned int g_SPXBWorkloadTotalIndexes = 0x11111005;
 __declspec(dllexport) volatile unsigned int g_SPXBUIStateMagic = 0x55495354; /* 'UIST' */
 __declspec(dllexport) volatile unsigned int g_SPXBUIStarted = 0x11118001;
 __declspec(dllexport) volatile unsigned int g_SPXBUIKeyCatcher = 0x11118002;
@@ -90,12 +244,27 @@ __declspec(dllexport) volatile unsigned int g_SPXBClsState = 0x1111000D;
 __declspec(dllexport) volatile unsigned int g_SPXBClServerTime = 0x1111000E;
 __declspec(dllexport) volatile unsigned int g_SPXBClsFrameCount = 0x1111000F;
 __declspec(dllexport) volatile unsigned int g_SPXBPhaseLast = 0x11110010;
+__declspec(dllexport) volatile unsigned int g_SPXBClTailStage = 0x11110019;
+__declspec(dllexport) volatile unsigned int g_SPXBCGameEntryCurrent = 0x11110190;
+__declspec(dllexport) volatile unsigned int g_SPXBCGameEntryExpected = 0x11110191;
+__declspec(dllexport) volatile unsigned int g_SPXBComTailStage = 0x1111001A;
+__declspec(dllexport) volatile unsigned int g_SPXBComFrameDepth = 0x11110020;
+__declspec(dllexport) volatile unsigned int g_SPXBComCatchCount = 0x11110021;
+__declspec(dllexport) volatile unsigned int g_SPXBMainTailStage = 0x11110022;
+__declspec(dllexport) volatile unsigned int g_SPXBPackedMapPhase = 0x11115000;
+__declspec(dllexport) volatile unsigned int g_SPXBPackedFacePhase = 0x11115100;
+__declspec(dllexport) volatile unsigned int g_SPXBPackedFaceIndex = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBPackedFaceCount = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBPackedFaceBytes = 0;
 __declspec(dllexport) volatile unsigned int g_SPXBComSubphase = 0x11110011;
 __declspec(dllexport) volatile unsigned int g_SPXBComSpinCount = 0x11110012;
 __declspec(dllexport) volatile unsigned int g_SPXBComMsec = 0x11110013;
 __declspec(dllexport) volatile unsigned int g_SPXBComFrameTime = 0x11110014;
 __declspec(dllexport) volatile unsigned int g_SPXBComLastTime = 0x11110015;
 __declspec(dllexport) volatile unsigned int g_SPXBCbufExecCount = 0x11110016;
+__declspec(dllexport) volatile unsigned int g_SPXBCbufExecDepth = 0x1111001B;
+__declspec(dllexport) volatile unsigned int g_SPXBCbufReturnAddressEntry = 0x11110023;
+__declspec(dllexport) volatile unsigned int g_SPXBCbufReturnAddressExit = 0x11110024;
 __declspec(dllexport) volatile unsigned int g_SPXBCmdExecCount = 0x11110017;
 __declspec(dllexport) volatile unsigned int g_SPXBCmdPhase = 0x11110018;
 __declspec(dllexport) volatile unsigned int g_SPXBCmdHash = 0x11110019;
@@ -147,6 +316,28 @@ __declspec(dllexport) volatile unsigned int g_SPXBNativeDrawVertexBytes = 0x1111
 __declspec(dllexport) volatile unsigned int g_SPXBNativeDrawIndexBytes = 0x11110047;
 __declspec(dllexport) volatile unsigned int g_SPXBNativeDrawLockFlags = 0x11110048;
 __declspec(dllexport) volatile unsigned int g_SPXBNativeDrawMinIndex = 0x11110049;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeMultiTexAttempts = 0x11110100;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeMultiTexDraws = 0x11110101;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeMultiTexReady = 0x11110102;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeMultiTexMismatch = 0x11110103;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeIndexedDrawFailures = 0x11110104;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeStage1Applies = 0x11110105;
+__declspec(dllexport) volatile unsigned int g_SPXBNativeStage1ApplyFailures = 0x11110106;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapMultiTexDraws = 0x11110107;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapBundle0Draws = 0x11110108;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapBundle1Draws = 0x11110109;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapLastEnv = 0x1111010A;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapLastTex0 = 0x1111010B;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapLastTex1 = 0x1111010C;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapLastFlags = 0x1111010D;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadCount = 0x1111010E;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadSourceMinMax = 0x1111010F;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadSourceAvg = 0x11110110;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadEncodedMinMax = 0x11110111;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadEncodedAvg = 0x11110112;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadChecksum = 0x11110113;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadFormat = 0x11110114;
+__declspec(dllexport) volatile unsigned int g_SPXBLightmapUploadSize = 0x11110115;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitShader = 0x1111002B;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitFog = 0x1111002C;
 __declspec(dllexport) volatile unsigned int g_SPXBRenderSplitDlight = 0x1111002D;
@@ -237,6 +428,18 @@ __declspec(dllexport) volatile unsigned int g_SPXBWeaponModelTraceSize = 0x11110
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponModelTraceLoaded = 0x111100C6;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponModelTraceHandle = 0x111100C7;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponModelTraceFailCode = 0x111100C8;
+__declspec(dllexport) volatile unsigned int g_SPXBModelProbeStage = 0x111100D3;
+__declspec(dllexport) volatile unsigned int g_SPXBModelProbePathHash = 0x111100D4;
+__declspec(dllexport) volatile unsigned int g_SPXBModelProbeNamePtr = 0x111100D5;
+__declspec(dllexport) volatile unsigned int g_SPXBModelProbeFileLen = 0x111100D6;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocStage = 0x11110130;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocPathHash = 0x11110131;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocPathPtr = 0x11110132;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocLength = 0x11110133;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocTag = 0x11110134;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocMutex = 0x11110135;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocWaitResult = 0x11110136;
+__declspec(dllexport) volatile unsigned int g_SPXBFileAllocReleaseResult = 0x11110137;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponLoadStage = 0x111100C9;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponLoadReadLen = 0x111100CA;
 __declspec(dllexport) volatile unsigned int g_SPXBWeaponLoadTypeWeapon = 0x111100CB;
@@ -376,6 +579,115 @@ __declspec(dllexport) volatile unsigned int g_SPXBPerfGameMsec = 0x11120013;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfFrontendMsec = 0x11120014;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfBackendMsec = 0x11120015;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfAudioMsec = 0x11120016;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioBackendState = 0x11120070;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioBeginRegistrationCount = 0x11120071;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioRegisterSoundCount = 0x11120072;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioStartSoundCount = 0x11120073;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioStartLocalCount = 0x11120074;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioLoopCount = 0x11120075;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioRespatializeCount = 0x11120076;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioListenerState = 0x11120077;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioVoiceStartCount = 0x11120078;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioLipActiveCount = 0x11120079;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioLastEntChan = 0x1112007A;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioLastHandle = 0x1112007B;
+__declspec(dllexport) volatile unsigned int g_SPXBHMAudioListenerUpdateMask = 0x1112007C;
+__declspec(dllexport) volatile unsigned int g_SPXBHeartbeatMemUsed = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHeartbeatMemFree = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHeartbeatMemLargest = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHeartbeatMemBlocks = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitProofMagic = 0x48345046; /* 'H4PF' */
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitLaunch[9] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitBotProof[32] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStatePlayers[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateBots[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateClientState[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateFlags[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateHealth[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateWeapon[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateP1Dist[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateOriginX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateOriginY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateOriginZ[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateViewPitch[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateViewYaw[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateViewRoll[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitStateTime[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCollision[48] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdTime[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdMoveX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdMoveY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdMoveZ[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdButtons[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdWeapon[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdAnglePitch[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdAngleYaw[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitCmdAngleRoll[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefZ[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefPitch[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefYaw[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRefdefRoll[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSnapshotSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSnapshotBefore[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSnapshotAfter[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSnapshotAdded[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderArmedPlayers = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderExternal[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderClient[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderRectX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderRectY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderRectW[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderRectH[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderViewX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderViewY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderViewZ[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderDoneSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderDrawDelta[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderDrawAfter[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitRenderCluster[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudRectX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudRectY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudRectW[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudRectH[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusValid[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusHealth[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusWeapon[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusScore[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusRectX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusRectY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusRectW[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudStatusRectH[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitHudDividerSerial = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitFPFilterMask = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSelfFilterMask = 0;
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSelfFilterRefNumber[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitSelfFilterPart[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitViewWeaponSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitViewWeaponAdded[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitViewWeaponRenderfx[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitViewWeaponClient[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitViewWeaponWeapon[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserWorldHidden[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserBridgeFP[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserBridgeWorld[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserBridgeLineFP[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserBridgeLastNumber[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPSerial[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPRenderfx[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPStartX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPStartY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPStartZ[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPViewX[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPViewY[4] = { 0 };
+__declspec(dllexport) volatile unsigned int g_SPXBHMSplitPhaserFPViewZ[4] = { 0 };
 __declspec(dllexport) volatile unsigned int g_SPXBCameraActive = 0x11120017;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfServerTicks = 0x11120018;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfServerLastGameMsec = 0x11120019;
@@ -407,6 +719,259 @@ __declspec(dllexport) volatile unsigned int g_SPXBPerfRenderPortals = 0x1112003A
 __declspec(dllexport) volatile unsigned int g_SPXBPerfRenderDrawSurfs = 0x1112003B;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfRenderRefEntities = 0x1112003C;
 __declspec(dllexport) volatile unsigned int g_SPXBPerfRenderLeafs = 0x1112003D;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendSurfaces = 0x1112003E;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendVertexes = 0x1112003F;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendIndexes = 0x11120040;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendTotalIndexes = 0x11120041;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfFinishMsec = 0x11120042;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfPresentMsec = 0x11120043;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendBatches = 0x11120044;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfSubmitCalls = 0x11120045;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfSubmitCallsCurrent = 0x11120046;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawCycles = 0x11120047;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawStateCycles = 0x11120048;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawReserveCycles = 0x11120049;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawPackCycles = 0x1112004A;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawIndexCycles = 0x1112004B;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawSubmitCycles = 0x1112004C;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawCyclesCurrent = 0x1112004D;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawStateCyclesCurrent = 0x1112004E;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawReserveCyclesCurrent = 0x1112004F;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawPackCyclesCurrent = 0x11120050;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawIndexCyclesCurrent = 0x11120051;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawSubmitCyclesCurrent = 0x11120052;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendDrawSurfsMsec = 0x11120053;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendSwapMsec = 0x11120054;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfBackendOtherMsec = 0x11120055;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedSubmitCalls = 0x11120056;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfImmediateSubmitCalls = 0x11120057;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedTex1Calls = 0x11120058;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedReserveDwords = 0x11120059;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfImmediateReserveDwords = 0x1112005A;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedSubmitCallsCurrent = 0x1112005B;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfImmediateSubmitCallsCurrent = 0x1112005C;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedTex1CallsCurrent = 0x1112005D;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedReserveDwordsCurrent = 0x1112005E;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfImmediateReserveDwordsCurrent = 0x1112005F;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldNodes = 0x11120060;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldLeafs = 0x11120061;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldMarkSurfaces = 0x11120062;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldDuplicateSurfaces = 0x11120063;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldCulledSurfaces = 0x11120064;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldAddedSurfaces = 0x11120065;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfWorldDlightSurfaces = 0x11120066;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfSampleActive = 0x11120067;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfSampleSerial = 0x11120068;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawSetStreamCycles = 0x11120069;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushCycles = 0x1112006A;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawPointerCycles = 0x1112006B;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawSetStreamCyclesCurrent = 0x1112006C;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushCyclesCurrent = 0x1112006D;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawPointerCyclesCurrent = 0x1112006E;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushMaxCyclesCurrent = 0x1112006F;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushMaxDwordsCurrent = 0x11120070;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushOver100KCurrent = 0x11120071;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushOver1MsecCurrent = 0x11120072;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushOver10MsecCurrent = 0x11120073;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfDrawBeginPushMaxStateCurrent = 0x11120074;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedOpaqueCallsCurrent = 0x11120075;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedBlendCallsCurrent = 0x11120076;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedAlphaTestCallsCurrent = 0x11120077;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedNoDepthWriteCallsCurrent = 0x11120078;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedNoDepthTestCallsCurrent = 0x11120079;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedTwoSidedCallsCurrent = 0x1112007A;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedBlendIndexesCurrent = 0x1112007B;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedAlphaTestIndexesCurrent = 0x1112007C;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedNoDepthWriteIndexesCurrent = 0x1112007D;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfIndexedTwoSidedIndexesCurrent = 0x1112007E;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfLoopMsec = 0x1112007F;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfInputMsec = 0x11120080;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfMenuMsec = 0x11120081;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfComEventMsec = 0x11120082;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfComCommandMsec = 0x11120083;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfClientPreambleMsec = 0x11120084;
+__declspec(dllexport) volatile unsigned int g_SPXBPerfClientTailMsec = 0x11120085;
+
+static unsigned int s_xboxPerfNextSampleMsec = 0;
+
+void XBPerf_BeginFrame(unsigned int realtimeMsec, int gameplayActive)
+{
+    g_SPXBPerfSampleActive = 0;
+    if (!gameplayActive)
+    {
+        s_xboxPerfNextSampleMsec = realtimeMsec + 1000u;
+        return;
+    }
+    if (s_xboxPerfNextSampleMsec != 0 &&
+        (int)(realtimeMsec - s_xboxPerfNextSampleMsec) < 0)
+    {
+        return;
+    }
+
+    s_xboxPerfNextSampleMsec = realtimeMsec + 5000u;
+    ++g_SPXBPerfSampleSerial;
+    g_SPXBPerfRenderTotalMsec = 0;
+    g_SPXBPerfRenderSetupMsec = 0;
+    g_SPXBPerfRenderMarkLeavesMsec = 0;
+    g_SPXBPerfRenderWorldMsec = 0;
+    g_SPXBPerfRenderPolysMsec = 0;
+    g_SPXBPerfRenderProjectionMsec = 0;
+    g_SPXBPerfRenderEntitiesMsec = 0;
+    g_SPXBPerfRenderSortMsec = 0;
+    g_SPXBPerfRenderDebugMsec = 0;
+    g_SPXBPerfRenderViews = 0;
+    g_SPXBPerfRenderPortals = 0;
+    g_SPXBPerfRenderDrawSurfs = 0;
+    g_SPXBPerfRenderRefEntities = 0;
+    g_SPXBPerfRenderLeafs = 0;
+    g_SPXBPerfBackendSurfaces = 0;
+    g_SPXBPerfBackendVertexes = 0;
+    g_SPXBPerfBackendIndexes = 0;
+    g_SPXBPerfBackendTotalIndexes = 0;
+    g_SPXBPerfFinishMsec = 0;
+    g_SPXBPerfPresentMsec = 0;
+    g_SPXBPerfBackendBatches = 0;
+    g_SPXBPerfBackendDrawSurfsMsec = 0;
+    g_SPXBPerfBackendSwapMsec = 0;
+    g_SPXBPerfBackendOtherMsec = 0;
+    g_SPXBPerfSubmitCallsCurrent = 0;
+    g_SPXBPerfDrawCyclesCurrent = 0;
+    g_SPXBPerfDrawStateCyclesCurrent = 0;
+    g_SPXBPerfDrawReserveCyclesCurrent = 0;
+    g_SPXBPerfDrawSetStreamCyclesCurrent = 0;
+    g_SPXBPerfDrawBeginPushCyclesCurrent = 0;
+    g_SPXBPerfDrawPointerCyclesCurrent = 0;
+    g_SPXBPerfDrawBeginPushMaxCyclesCurrent = 0;
+    g_SPXBPerfDrawBeginPushMaxDwordsCurrent = 0;
+    g_SPXBPerfDrawBeginPushOver100KCurrent = 0;
+    g_SPXBPerfDrawBeginPushOver1MsecCurrent = 0;
+    g_SPXBPerfDrawBeginPushOver10MsecCurrent = 0;
+    g_SPXBPerfDrawBeginPushMaxStateCurrent = 0;
+    g_SPXBPerfIndexedOpaqueCallsCurrent = 0;
+    g_SPXBPerfIndexedBlendCallsCurrent = 0;
+    g_SPXBPerfIndexedAlphaTestCallsCurrent = 0;
+    g_SPXBPerfIndexedNoDepthWriteCallsCurrent = 0;
+    g_SPXBPerfIndexedNoDepthTestCallsCurrent = 0;
+    g_SPXBPerfIndexedTwoSidedCallsCurrent = 0;
+    g_SPXBPerfIndexedBlendIndexesCurrent = 0;
+    g_SPXBPerfIndexedAlphaTestIndexesCurrent = 0;
+    g_SPXBPerfIndexedNoDepthWriteIndexesCurrent = 0;
+    g_SPXBPerfIndexedTwoSidedIndexesCurrent = 0;
+    g_SPXBPerfDrawPackCyclesCurrent = 0;
+    g_SPXBPerfDrawIndexCyclesCurrent = 0;
+    g_SPXBPerfDrawSubmitCyclesCurrent = 0;
+    g_SPXBPerfIndexedSubmitCallsCurrent = 0;
+    g_SPXBPerfImmediateSubmitCallsCurrent = 0;
+    g_SPXBPerfIndexedTex1CallsCurrent = 0;
+    g_SPXBPerfIndexedReserveDwordsCurrent = 0;
+    g_SPXBPerfImmediateReserveDwordsCurrent = 0;
+    g_SPXBPerfSampleActive = 1;
+}
+
+void XBPerf_EndFrame(void)
+{
+#if !defined(STEFX_HW_FRAME_DIAGNOSTICS)
+    char profile[1536];
+#endif
+
+    if (!g_SPXBPerfSampleActive)
+    {
+        return;
+    }
+    g_SPXBPerfSubmitCalls = g_SPXBPerfSubmitCallsCurrent;
+    g_SPXBPerfDrawCycles = g_SPXBPerfDrawCyclesCurrent;
+    g_SPXBPerfDrawStateCycles = g_SPXBPerfDrawStateCyclesCurrent;
+    g_SPXBPerfDrawReserveCycles = g_SPXBPerfDrawReserveCyclesCurrent;
+    g_SPXBPerfDrawSetStreamCycles = g_SPXBPerfDrawSetStreamCyclesCurrent;
+    g_SPXBPerfDrawBeginPushCycles = g_SPXBPerfDrawBeginPushCyclesCurrent;
+    g_SPXBPerfDrawPointerCycles = g_SPXBPerfDrawPointerCyclesCurrent;
+    g_SPXBPerfDrawPackCycles = g_SPXBPerfDrawPackCyclesCurrent;
+    g_SPXBPerfDrawIndexCycles = g_SPXBPerfDrawIndexCyclesCurrent;
+    g_SPXBPerfDrawSubmitCycles = g_SPXBPerfDrawSubmitCyclesCurrent;
+    g_SPXBPerfIndexedSubmitCalls = g_SPXBPerfIndexedSubmitCallsCurrent;
+    g_SPXBPerfImmediateSubmitCalls = g_SPXBPerfImmediateSubmitCallsCurrent;
+    g_SPXBPerfIndexedTex1Calls = g_SPXBPerfIndexedTex1CallsCurrent;
+    g_SPXBPerfIndexedReserveDwords = g_SPXBPerfIndexedReserveDwordsCurrent;
+    g_SPXBPerfImmediateReserveDwords = g_SPXBPerfImmediateReserveDwordsCurrent;
+#if !defined(STEFX_HW_FRAME_DIAGNOSTICS)
+    _snprintf(
+        profile, sizeof(profile) - 1,
+        "STEFX_HW_RENDER_SAMPLE: sample=%u total=%u server=%u client=%u game=%u frontend=%u backend=%u audio=%u screen=%u endFrame=%u views=%u portals=%u leaves=%u inputSurfs=%u refEntities=%u batches=%u submits=%u indexed=%u immediate=%u tex1=%u verts=%u indexes=%u totalIndexes=%u worldWork=%u/%u/%u/%u/%u/%u/%u frontendCycles=%u/%u/%u/%u/%u/%u/%u/%u backendPhases=%u/%u/%u finish=%u present=%u drawCycles=%u state=%u reserve=%u reserveParts=%u/%u/%u beginPushDetail=%u/%u/%u/%u/%u maxState=0x%02x workCalls=%u/%u/%u/%u/%u/%u workIndexes=%u/%u/%u/%u pack=%u index=%u submitCycles=%u reserveDwords=%u/%u",
+        (unsigned int)g_SPXBPerfSampleSerial,
+        (unsigned int)g_SPXBPerfFrameMsec,
+        (unsigned int)g_SPXBPerfServerMsec,
+        (unsigned int)g_SPXBPerfClientMsec,
+        (unsigned int)g_SPXBPerfGameMsec,
+        (unsigned int)g_SPXBPerfFrontendMsec,
+        (unsigned int)g_SPXBPerfBackendMsec,
+        (unsigned int)g_SPXBPerfAudioMsec,
+        (unsigned int)g_SPXBPerfScreenDrawMsec,
+        (unsigned int)g_SPXBPerfEndFrameMsec,
+        (unsigned int)g_SPXBPerfRenderViews,
+        (unsigned int)g_SPXBPerfRenderPortals,
+        (unsigned int)g_SPXBPerfRenderLeafs,
+        (unsigned int)g_SPXBPerfRenderDrawSurfs,
+        (unsigned int)g_SPXBPerfRenderRefEntities,
+        (unsigned int)g_SPXBPerfBackendBatches,
+        (unsigned int)g_SPXBPerfSubmitCalls,
+        (unsigned int)g_SPXBPerfIndexedSubmitCalls,
+        (unsigned int)g_SPXBPerfImmediateSubmitCalls,
+        (unsigned int)g_SPXBPerfIndexedTex1Calls,
+        (unsigned int)g_SPXBPerfBackendVertexes,
+        (unsigned int)g_SPXBPerfBackendIndexes,
+        (unsigned int)g_SPXBPerfBackendTotalIndexes,
+        (unsigned int)g_SPXBPerfWorldNodes,
+        (unsigned int)g_SPXBPerfWorldLeafs,
+        (unsigned int)g_SPXBPerfWorldMarkSurfaces,
+        (unsigned int)g_SPXBPerfWorldDuplicateSurfaces,
+        (unsigned int)g_SPXBPerfWorldCulledSurfaces,
+        (unsigned int)g_SPXBPerfWorldAddedSurfaces,
+        (unsigned int)g_SPXBPerfWorldDlightSurfaces,
+        (unsigned int)g_SPXBPerfRenderSetupMsec,
+        (unsigned int)g_SPXBPerfRenderMarkLeavesMsec,
+        (unsigned int)g_SPXBPerfRenderWorldMsec,
+        (unsigned int)g_SPXBPerfRenderPolysMsec,
+        (unsigned int)g_SPXBPerfRenderProjectionMsec,
+        (unsigned int)g_SPXBPerfRenderEntitiesMsec,
+        (unsigned int)g_SPXBPerfRenderSortMsec,
+        (unsigned int)g_SPXBPerfRenderDebugMsec,
+        (unsigned int)g_SPXBPerfBackendDrawSurfsMsec,
+        (unsigned int)g_SPXBPerfBackendSwapMsec,
+        (unsigned int)g_SPXBPerfBackendOtherMsec,
+        (unsigned int)g_SPXBPerfFinishMsec,
+        (unsigned int)g_SPXBPerfPresentMsec,
+        (unsigned int)g_SPXBPerfDrawCycles,
+        (unsigned int)g_SPXBPerfDrawStateCycles,
+        (unsigned int)g_SPXBPerfDrawReserveCycles,
+        (unsigned int)g_SPXBPerfDrawSetStreamCycles,
+        (unsigned int)g_SPXBPerfDrawBeginPushCycles,
+        (unsigned int)g_SPXBPerfDrawPointerCycles,
+        (unsigned int)g_SPXBPerfDrawBeginPushMaxCyclesCurrent,
+        (unsigned int)g_SPXBPerfDrawBeginPushMaxDwordsCurrent,
+        (unsigned int)g_SPXBPerfDrawBeginPushOver100KCurrent,
+        (unsigned int)g_SPXBPerfDrawBeginPushOver1MsecCurrent,
+        (unsigned int)g_SPXBPerfDrawBeginPushOver10MsecCurrent,
+        (unsigned int)g_SPXBPerfDrawBeginPushMaxStateCurrent,
+        (unsigned int)g_SPXBPerfIndexedOpaqueCallsCurrent,
+        (unsigned int)g_SPXBPerfIndexedBlendCallsCurrent,
+        (unsigned int)g_SPXBPerfIndexedAlphaTestCallsCurrent,
+        (unsigned int)g_SPXBPerfIndexedNoDepthWriteCallsCurrent,
+        (unsigned int)g_SPXBPerfIndexedNoDepthTestCallsCurrent,
+        (unsigned int)g_SPXBPerfIndexedTwoSidedCallsCurrent,
+        (unsigned int)g_SPXBPerfIndexedBlendIndexesCurrent,
+        (unsigned int)g_SPXBPerfIndexedAlphaTestIndexesCurrent,
+        (unsigned int)g_SPXBPerfIndexedNoDepthWriteIndexesCurrent,
+        (unsigned int)g_SPXBPerfIndexedTwoSidedIndexesCurrent,
+        (unsigned int)g_SPXBPerfDrawPackCycles,
+        (unsigned int)g_SPXBPerfDrawIndexCycles,
+        (unsigned int)g_SPXBPerfDrawSubmitCycles,
+        (unsigned int)g_SPXBPerfIndexedReserveDwords,
+        (unsigned int)g_SPXBPerfImmediateReserveDwords);
+    profile[sizeof(profile) - 1] = '\0';
+    XBLog_WriteProfile(profile);
+#endif
+    g_SPXBPerfSampleActive = 0;
+}
 __declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedCount = 0x11120100;
 __declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedEnt = 0x11120101;
 __declspec(dllexport) volatile unsigned int g_SPXBBorgPluggedSpawnflags = 0x11120102;
@@ -447,6 +1012,8 @@ __declspec(dllexport) volatile unsigned int g_SPXBEntityTypeCounts[16] = {
 };
 __declspec(dllexport) volatile char g_SPXBLogMirror[32768];
 __declspec(dllexport) volatile char g_SPXBLogLastLine[512];
+__declspec(dllexport) volatile char g_SPXBProfileMirror[8][1024];
+__declspec(dllexport) volatile unsigned int g_SPXBProfileMirrorIndex;
 __declspec(dllexport) volatile char g_SPXBCmdLast[128];
 __declspec(dllexport) volatile char g_SPXBCmdTextLast[128];
 __declspec(dllexport) volatile char g_SPXBCmdFunctionNameLast[64];
@@ -1610,12 +2177,6 @@ static int xbl_FormatMayBeCritical(const char *fmt)
         strstr(fmt, "texture allocation failures");
 }
 
-static int xbl_FileExists(const char *path)
-{
-    DWORD attr = GetFileAttributesA(path);
-    return attr != 0xFFFFFFFF && !(attr & FILE_ATTRIBUTE_DIRECTORY);
-}
-
 static long xbl_NtCreate(const char *path, HANDLE *out)
 {
     XBL_STR  name;
@@ -1650,6 +2211,9 @@ static int xbl_IsCriticalLogLine(const char *msg)
 {
     if (!msg) return 0;
     return strstr(msg, "STEFX_HW_CHECKPOINT") ||
+        strstr(msg, "FRAME_HEARTBEAT") ||
+        strstr(msg, "STEFX_HW_FRAME_PROFILE") ||
+        strstr(msg, "STEFX_HW_RENDER_SAMPLE") ||
         strstr(msg, "FATAL") ||
         strstr(msg, "ERROR") ||
         strstr(msg, "ERR_FATAL") ||
@@ -1681,7 +2245,9 @@ static int xbl_ShouldFlushWrite(const char *msg, DWORD len)
      * the sparse ten-second heartbeat durable so the final steady-state
      * sample is not left only in the process cache.
      */
-    if (strstr(msg, "FRAME_HEARTBEAT")) {
+    if (strstr(msg, "FRAME_HEARTBEAT") ||
+        strstr(msg, "STEFX_HW_FRAME_PROFILE") ||
+        strstr(msg, "STEFX_HW_RENDER_SAMPLE")) {
         g_fileLogFlushBytes = 0;
         g_fileLogFlushWrites = 0;
         return 1;
@@ -1731,6 +2297,12 @@ static int xbl_IsLogMarkerAt(const char *p)
         xbl_starts_with(p, "JA:");
 }
 
+static void xbl_WriteLogStart(void)
+{
+    XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
+    XBLog_WriteCritical(STEFX_RUNTIME_BUILD_ID_LITERAL);
+}
+
 void XBLog_Init(void)
 {
     int  i;
@@ -1767,12 +2339,27 @@ void XBLog_Init(void)
     g_SPXBClServerTime = 0;
     g_SPXBClsFrameCount = 0;
     g_SPXBPhaseLast = 0;
+    g_SPXBClTailStage = 0;
+    g_SPXBCGameEntryCurrent = 0;
+    g_SPXBCGameEntryExpected = 0;
+    g_SPXBComTailStage = 0;
+    g_SPXBComFrameDepth = 0;
+    g_SPXBComCatchCount = 0;
+    g_SPXBMainTailStage = 0;
+    g_SPXBPackedMapPhase = 0;
+    g_SPXBPackedFacePhase = 0;
+    g_SPXBPackedFaceIndex = 0;
+    g_SPXBPackedFaceCount = 0;
+    g_SPXBPackedFaceBytes = 0;
     g_SPXBComSubphase = 0;
     g_SPXBComSpinCount = 0;
     g_SPXBComMsec = 0;
     g_SPXBComFrameTime = 0;
     g_SPXBComLastTime = 0;
     g_SPXBCbufExecCount = 0;
+    g_SPXBCbufExecDepth = 0;
+    g_SPXBCbufReturnAddressEntry = 0;
+    g_SPXBCbufReturnAddressExit = 0;
     g_SPXBCmdExecCount = 0;
     g_SPXBCmdPhase = 0;
     g_SPXBCmdHash = 0;
@@ -1826,6 +2413,28 @@ void XBLog_Init(void)
     g_SPXBNativeDrawIndexBytes = 0;
     g_SPXBNativeDrawLockFlags = 0;
     g_SPXBNativeDrawMinIndex = 0;
+    g_SPXBNativeMultiTexAttempts = 0;
+    g_SPXBNativeMultiTexDraws = 0;
+    g_SPXBNativeMultiTexReady = 0;
+    g_SPXBNativeMultiTexMismatch = 0;
+    g_SPXBNativeIndexedDrawFailures = 0;
+    g_SPXBNativeStage1Applies = 0;
+    g_SPXBNativeStage1ApplyFailures = 0;
+    g_SPXBLightmapMultiTexDraws = 0;
+    g_SPXBLightmapBundle0Draws = 0;
+    g_SPXBLightmapBundle1Draws = 0;
+    g_SPXBLightmapLastEnv = 0;
+    g_SPXBLightmapLastTex0 = 0;
+    g_SPXBLightmapLastTex1 = 0;
+    g_SPXBLightmapLastFlags = 0;
+    g_SPXBLightmapUploadCount = 0;
+    g_SPXBLightmapUploadSourceMinMax = 0;
+    g_SPXBLightmapUploadSourceAvg = 0;
+    g_SPXBLightmapUploadEncodedMinMax = 0;
+    g_SPXBLightmapUploadEncodedAvg = 0;
+    g_SPXBLightmapUploadChecksum = 0;
+    g_SPXBLightmapUploadFormat = 0;
+    g_SPXBLightmapUploadSize = 0;
     g_SPXBRenderSplitShader = 0;
     g_SPXBRenderSplitFog = 0;
     g_SPXBRenderSplitDlight = 0;
@@ -1916,6 +2525,18 @@ void XBLog_Init(void)
     g_SPXBWeaponModelTraceLoaded = 0;
     g_SPXBWeaponModelTraceHandle = 0;
     g_SPXBWeaponModelTraceFailCode = 0;
+    g_SPXBModelProbeStage = 0;
+    g_SPXBModelProbePathHash = 0;
+    g_SPXBModelProbeNamePtr = 0;
+    g_SPXBModelProbeFileLen = 0;
+    g_SPXBFileAllocStage = 0;
+    g_SPXBFileAllocPathHash = 0;
+    g_SPXBFileAllocPathPtr = 0;
+    g_SPXBFileAllocLength = 0;
+    g_SPXBFileAllocTag = 0;
+    g_SPXBFileAllocMutex = 0;
+    g_SPXBFileAllocWaitResult = 0xffffffffu;
+    g_SPXBFileAllocReleaseResult = 0xffffffffu;
     g_SPXBWeaponLoadStage = 0;
     g_SPXBWeaponLoadReadLen = 0;
     g_SPXBWeaponLoadTypeWeapon = 0;
@@ -2054,6 +2675,26 @@ void XBLog_Init(void)
     g_SPXBPerfFrontendMsec = 0;
     g_SPXBPerfBackendMsec = 0;
     g_SPXBPerfAudioMsec = 0;
+    g_SPXBHMAudioBackendState = 0;
+    g_SPXBHMAudioBeginRegistrationCount = 0;
+    g_SPXBHMAudioRegisterSoundCount = 0;
+    g_SPXBHMAudioStartSoundCount = 0;
+    g_SPXBHMAudioStartLocalCount = 0;
+    g_SPXBHMAudioLoopCount = 0;
+    g_SPXBHMAudioRespatializeCount = 0;
+    g_SPXBHMAudioListenerState = 0;
+    g_SPXBHMAudioVoiceStartCount = 0;
+    g_SPXBHMAudioLipActiveCount = 0;
+    g_SPXBHMAudioLastEntChan = 0;
+    g_SPXBHMAudioLastHandle = 0;
+    g_SPXBHMAudioListenerUpdateMask = 0;
+    g_SPXBPerfLoopMsec = 0;
+    g_SPXBPerfInputMsec = 0;
+    g_SPXBPerfMenuMsec = 0;
+    g_SPXBPerfComEventMsec = 0;
+    g_SPXBPerfComCommandMsec = 0;
+    g_SPXBPerfClientPreambleMsec = 0;
+    g_SPXBPerfClientTailMsec = 0;
     g_SPXBPerfServerTicks = 0;
     g_SPXBPerfServerLastGameMsec = 0;
     g_SPXBPerfServerMaxGameMsec = 0;
@@ -2084,6 +2725,61 @@ void XBLog_Init(void)
     g_SPXBPerfRenderDrawSurfs = 0;
     g_SPXBPerfRenderRefEntities = 0;
     g_SPXBPerfRenderLeafs = 0;
+    g_SPXBPerfBackendSurfaces = 0;
+    g_SPXBPerfBackendVertexes = 0;
+    g_SPXBPerfBackendIndexes = 0;
+    g_SPXBPerfBackendTotalIndexes = 0;
+    g_SPXBPerfFinishMsec = 0;
+    g_SPXBPerfPresentMsec = 0;
+    g_SPXBPerfBackendBatches = 0;
+    g_SPXBPerfSubmitCalls = 0;
+    g_SPXBPerfSubmitCallsCurrent = 0;
+    g_SPXBPerfDrawCycles = 0;
+    g_SPXBPerfDrawStateCycles = 0;
+    g_SPXBPerfDrawReserveCycles = 0;
+    g_SPXBPerfDrawSetStreamCycles = 0;
+    g_SPXBPerfDrawBeginPushCycles = 0;
+    g_SPXBPerfDrawPointerCycles = 0;
+    g_SPXBPerfDrawPackCycles = 0;
+    g_SPXBPerfDrawIndexCycles = 0;
+    g_SPXBPerfDrawSubmitCycles = 0;
+    g_SPXBPerfDrawCyclesCurrent = 0;
+    g_SPXBPerfDrawStateCyclesCurrent = 0;
+    g_SPXBPerfDrawReserveCyclesCurrent = 0;
+    g_SPXBPerfDrawSetStreamCyclesCurrent = 0;
+    g_SPXBPerfDrawBeginPushCyclesCurrent = 0;
+    g_SPXBPerfDrawPointerCyclesCurrent = 0;
+    g_SPXBPerfDrawBeginPushMaxCyclesCurrent = 0;
+    g_SPXBPerfDrawBeginPushMaxDwordsCurrent = 0;
+    g_SPXBPerfDrawBeginPushOver100KCurrent = 0;
+    g_SPXBPerfDrawBeginPushOver1MsecCurrent = 0;
+    g_SPXBPerfDrawBeginPushOver10MsecCurrent = 0;
+    g_SPXBPerfDrawBeginPushMaxStateCurrent = 0;
+    g_SPXBPerfIndexedOpaqueCallsCurrent = 0;
+    g_SPXBPerfIndexedBlendCallsCurrent = 0;
+    g_SPXBPerfIndexedAlphaTestCallsCurrent = 0;
+    g_SPXBPerfIndexedNoDepthWriteCallsCurrent = 0;
+    g_SPXBPerfIndexedNoDepthTestCallsCurrent = 0;
+    g_SPXBPerfIndexedTwoSidedCallsCurrent = 0;
+    g_SPXBPerfIndexedBlendIndexesCurrent = 0;
+    g_SPXBPerfIndexedAlphaTestIndexesCurrent = 0;
+    g_SPXBPerfIndexedNoDepthWriteIndexesCurrent = 0;
+    g_SPXBPerfIndexedTwoSidedIndexesCurrent = 0;
+    g_SPXBPerfDrawPackCyclesCurrent = 0;
+    g_SPXBPerfDrawIndexCyclesCurrent = 0;
+    g_SPXBPerfDrawSubmitCyclesCurrent = 0;
+    g_SPXBPerfBackendDrawSurfsMsec = 0;
+    g_SPXBPerfBackendSwapMsec = 0;
+    g_SPXBPerfBackendOtherMsec = 0;
+    g_SPXBPerfWorldNodes = 0;
+    g_SPXBPerfWorldLeafs = 0;
+    g_SPXBPerfWorldMarkSurfaces = 0;
+    g_SPXBPerfWorldDuplicateSurfaces = 0;
+    g_SPXBPerfWorldCulledSurfaces = 0;
+    g_SPXBPerfWorldAddedSurfaces = 0;
+    g_SPXBPerfWorldDlightSurfaces = 0;
+    g_SPXBPerfSampleActive = 0;
+    g_SPXBPerfSampleSerial = 0;
     g_SPXBCameraActive = 0;
     g_SPXBBorgPluggedCount = 0;
     g_SPXBBorgPluggedEnt = 0;
@@ -2122,27 +2818,32 @@ void XBLog_Init(void)
     for (i = 0; i < (int)sizeof(g_SPXBLogLastLine); ++i) {
         g_SPXBLogLastLine[i] = 0;
     }
+    for (i = 0; i < (int)sizeof(g_SPXBProfileMirror); ++i) {
+        ((volatile char *)g_SPXBProfileMirror)[i] = 0;
+    }
+    g_SPXBProfileMirrorIndex = 0;
     g_SPXBBootPhase = 0x202;
 
     /*
-     * The XEMU harness polls the exported memory ring directly.  Avoid
-     * synchronous title-volume/HDD logging in that mode: XEMU can block a
-     * FlushFileBuffers/NtFlushBuffersFile request while the DVD is servicing
-     * a map load, which stalls the game thread.  Retail and normal emulator
-     * launches still use the D: then E: file paths below.
+     * Normal production builds must produce uploadable files for hardware
+     * proof.  The memory-ring-only path is reserved for explicit diagnostic
+     * builds where the harness polls exported counters directly.
      */
-    g_SPXBBootPhase = 0x203;
-    memoryRingRequested = xbl_FileExists("D:\\stefx_xemu_memory_log.txt");
-    g_SPXBBootPhase = 0x204;
-    if (!memoryRingRequested) {
-        memoryRingRequested = xbl_FileExists("E:\\stefx_xemu_memory_log.txt");
-    }
+	g_SPXBBootPhase = 0x203;
+	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	/* Keep hardware frame measurements independent of synchronous disk I/O. */
+	memoryRingRequested = 1;
+	#else
+	memoryRingRequested = 0;
+	#endif
+	g_SPXBBootPhase = 0x204;
     g_SPXBBootPhase = 0x205;
     if (memoryRingRequested) {
         g_logPath = "memory-ring";
         g_mirrorLogPath = NULL;
         g_memoryRingOnly = 1;
         XBLog_WriteRingMarker("STEFX: XEMU memory-ring logging active");
+        xbl_WriteLogStart();
         g_SPXBBootPhase = 0x206;
         return;
     }
@@ -2162,7 +2863,7 @@ void XBLog_Init(void)
             SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
             g_logIsNt = 0;
             g_logPath = "D:\\" STEFX_XB_LOG_FILE;
-            XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
+            xbl_WriteLogStart();
             return;
         }
     }
@@ -2201,7 +2902,7 @@ void XBLog_Init(void)
             if (status >= 0) {
                 g_logIsNt = 1;
                 g_logPath = ntPaths[i];
-                XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
+                xbl_WriteLogStart();
                 return;
             }
         }
@@ -2224,7 +2925,7 @@ void XBLog_Init(void)
                 SetFilePointer(g_hLogFile, 0, NULL, FILE_END);
                 g_logIsNt = 0;
                 g_logPath = caPaths[i];
-                XBL("=== " STEFX_XB_LOG_TITLE " ===\n");
+                xbl_WriteLogStart();
                 return;
             }
         }
@@ -2249,6 +2950,43 @@ void XBLog_Shutdown(void)
     }
     g_logPath = NULL;
     g_mirrorLogPath = NULL;
+}
+
+static int xbl_IsHotRuntimeTrace(const char *msg)
+{
+    if (!msg) return 0;
+    return strstr(msg, "STEFX_HM_BOTLIB:") ||
+        strstr(msg, "STEFX_HM_BOTCMD:") ||
+        strstr(msg, "STEFX_HM_AMMO:") ||
+        strstr(msg, "STEFX_HM_EVENT_") ||
+        strstr(msg, "STEFX_HM_SOUND_BRIDGE:") ||
+        strstr(msg, "STEFX_HM_PREDICTION:") ||
+        strstr(msg, "STEFX_HM_TRIGGER_PREDICT:") ||
+        strstr(msg, "STEFX_WEAPON:") ||
+        strstr(msg, "STEFX_VIS:") ||
+        strstr(msg, "STEFX: EF RenderScene marshal") ||
+        strstr(msg, "STEFX: EF RenderScene returned") ||
+        strstr(msg, "STEFX_RENDER_EF ") ||
+        strstr(msg, "STEFX_MODEL_BRIDGE ");
+}
+
+void XBLog_EnableMemoryRing(void)
+{
+    if (g_memoryRingOnly) return;
+    if (g_hMirrorLogFile != INVALID_HANDLE_VALUE) {
+        CloseHandle(g_hMirrorLogFile);
+        g_hMirrorLogFile = INVALID_HANDLE_VALUE;
+    }
+    if (g_hLogFile != INVALID_HANDLE_VALUE) {
+        if (g_logIsNt) NtClose(g_hLogFile);
+        else CloseHandle(g_hLogFile);
+        g_hLogFile = INVALID_HANDLE_VALUE;
+    }
+    g_logPath = "memory-ring";
+    g_mirrorLogPath = NULL;
+    g_memoryRingOnly = 1;
+    XBLog_WriteRingMarker("STEFX: XEMU memory-ring logging active");
+    xbl_WriteLogStart();
 }
 
 void XBLog_Print(const char *msg)
@@ -2391,7 +3129,25 @@ void XBLog_WriteCriticalf(const char *fmt, ...)
         !strstr(buf, "cannot fit")) {
         return;
     }
+    if (!g_verboseLog && xbl_IsHotRuntimeTrace(buf) &&
+        !xbl_IsCriticalLogLine(buf)) {
+        XBLog_WriteRingMarker(buf);
+        return;
+    }
     XBLog_WriteCritical(buf);
+}
+
+void XBLog_WriteProfile(const char *msg)
+{
+    unsigned int slot;
+    if (!msg) return;
+    slot = g_SPXBProfileMirrorIndex & 7u;
+    xbl_CopyVolatile(
+        g_SPXBProfileMirror[slot],
+        sizeof(g_SPXBProfileMirror[slot]),
+        msg);
+    ++g_SPXBProfileMirrorIndex;
+    XBLog_WriteCritical(msg);
 }
 
 void XBLog_WriteRingMarker(const char *msg)
@@ -2405,6 +3161,18 @@ void XBLog_WriteRingMarker(const char *msg)
     buf[len] = '\n';
     buf[len + 1] = '\0';
     xbl_MirrorWrite(buf, len + 1);
+}
+
+void XBLog_WriteRingMarkerf(const char *fmt, ...)
+{
+    char buf[XBL_BUF_SIZE];
+    va_list args;
+    if (!fmt) return;
+    va_start(args, fmt);
+    _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = '\0';
+    XBLog_WriteRingMarker(buf);
 }
 
 const char *XBLog_GetPath(void)

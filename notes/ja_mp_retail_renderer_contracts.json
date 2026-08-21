@@ -1,0 +1,289 @@
+[
+  {
+    "start": "0x00071700",
+    "end": "0x000718B5",
+    "name": "MC_UnCompressQuat",
+    "object": "matcomp.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called by the named retail UnCompressBone function at 0x0007B1B0.",
+      "Loads four packed 16-bit quaternion components, applies the retail 1/16383 and -2 transforms, reconstructs the 3x3 rotation matrix, then decodes three translation words with the 1/64 and -512 transforms.",
+      "The function ends immediately before retail GL_Bind, matching matcomp.obj followed by tr_backend.obj in the FinalBuild donor map."
+    ],
+    "contract": [
+      "Decode the packed quaternion and translation representation used by Ghoul2 bone data.",
+      "Reconstruct the complete 3x4 bone matrix with the retail Xbox scalar constants and operation order."
+    ]
+  },
+  {
+    "start": "0x000735D0",
+    "end": "0x0007370D",
+    "name": "RB_ExecuteRenderCommands",
+    "object": "tr_backend.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called by the retail render-command issue path at 0x00076760.",
+      "Dispatches the nine render command IDs through the same handlers and order as the clean Xbox source.",
+      "Terminates on RC_END_OF_LIST and advances by each command handler's returned pointer."
+    ],
+    "contract": [
+      "Consume the back-end command stream until RC_END_OF_LIST.",
+      "Dispatch set-color, stretch-pic, rotate-pic, draw-surfs, draw-buffer, swap-buffers, world-effects, automap, and video-frame commands.",
+      "Preserve the retail timing/accounting update around command execution."
+    ]
+  },
+  {
+    "start": "0x00085D80",
+    "end": "0x00085E99",
+    "name": "GL_SetDefaultState",
+    "object": "tr_init.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called from both InitOpenGL branches inside retail R_Init.",
+      "Instruction sequence sets clear depth, front-face culling, white color, texture-unit defaults, depth/shade/polygon state, client vertex array, scissor, blend, cull, and lighting exactly as the Xbox source.",
+      "The analyzer missed the start because the preceding function's jump table was decoded as instructions."
+    ],
+    "contract": [
+      "Initialize the GL-to-D3D state shadow before any image or shader initialization.",
+      "Initialize both texture units when multitexture is available, then restore unit zero.",
+      "Leave the state shadow synchronized with the D3D device defaults."
+    ]
+  },
+  {
+    "start": "0x00093B60",
+    "end": "0x00093E73",
+    "name": "ComputeTexCoords",
+    "object": "tr_shade.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called directly by retail RB_IterateStagesGeneric at 0x00093F00.",
+      "Located between ComputeColors and ForceAlpha in the exact clean-source object order.",
+      "Implements the texture-coordinate generation and texmod dispatch over active shader bundles."
+    ],
+    "contract": [
+      "Generate base texture coordinates for every active shader bundle.",
+      "Apply each bundle's texmods in source order.",
+      "Write the stage texture-coordinate arrays consumed by the generic stage iterator."
+    ]
+  },
+  {
+    "start": "0x00093EC0",
+    "end": "0x00093EF2",
+    "name": "ForceAlpha",
+    "object": "tr_shade.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called directly by retail RB_IterateStagesGeneric immediately after the hidden ComputeTexCoords body.",
+      "Writes the supplied byte to offset three of every four-byte vertex color for tess.numVertexes entries.",
+      "Matches the clean Xbox source implementation and object order exactly."
+    ],
+    "contract": [
+      "Replace only the alpha byte of each generated stage color.",
+      "Process exactly tess.numVertexes colors without changing RGB."
+    ]
+  },
+  {
+    "start": "0x000ADF20",
+    "end": "0x000ADF92",
+    "name": "_convertBlendFactor",
+    "object": "win_qgl_dx8.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called twice by retail dllBlendFunc at 0x000AF410, once for each GL blend operand.",
+      "Enum switch maps the eleven supported GL blend factors to their Xbox D3DBLEND values.",
+      "Sits between _convertCompare and _convertPrimMode in clean-source object order."
+    ],
+    "contract": [
+      "Translate GL source and destination blend factors to the retail Xbox D3DBLEND constants.",
+      "Preserve GL_ONE as the default mapping."
+    ]
+  },
+  {
+    "start": "0x000B49C0",
+    "end": "0x000B4BFC",
+    "name": "_texImageRGBA",
+    "object": "win_qgl_dx8.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Called by retail dllTexImage2DEXT at 0x000B53F0 for every non-DDS upload.",
+      "The destination-format and source-format switches, pitch calculation, texture-header creation, allocator selection, surface upload, registration, and optional mip filtering match the clean Xbox source.",
+      "The analyzer missed the start because a jump table after the preceding _texImageDDS body was decoded as instructions."
+    ],
+    "contract": [
+      "Normalize zero mip levels to one.",
+      "Translate GL internal and source formats to the retail D3D8 formats and source pitch.",
+      "Allocate texture storage through the active skin or static allocator, register it, upload level zero, and generate requested mip levels."
+    ]
+  },
+  {
+    "start": "0x00084510",
+    "end": "0x00084541",
+    "name": "RE_RegisterServerSkin",
+    "object": "tr_image_xbox.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The body dispatches directly to retail RE_RegisterSkin at 0x00084150.",
+      "When the renderer is not initialized it brackets registration by toggling the server-registration byte, matching the clean Xbox source.",
+      "The function is called by the server VM bridge outside the renderer range."
+    ],
+    "contract": [
+      "Register a server-requested skin through the shared renderer skin path.",
+      "Temporarily assert server-registration context only when the renderer is not initialized."
+    ]
+  },
+  {
+    "start": "0x00085AB0",
+    "end": "0x00085ABA",
+    "name": "R_DeleteTextures",
+    "object": "tr_image_xbox.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Calls the retail R_Images_Clear body at 0x000859E0.",
+      "Tail-jumps to the identified GL_ResetBinds body at 0x000836E0.",
+      "This two-operation sequence is the complete clean Xbox source implementation."
+    ],
+    "contract": [
+      "Release renderer image registrations and allocator bookkeeping.",
+      "Reset all GL-to-D3D texture bindings after image teardown."
+    ]
+  },
+  {
+    "start": "0x0008D480",
+    "end": "0x0008D486",
+    "name": "RE_RegisterMedia_GetLevel",
+    "object": "tr_model.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The retail body is a six-byte load of the media-registration level global followed by return.",
+      "Three identified image/model registration functions call it at the same source sites as the FinalBuild donor.",
+      "The donor differs only by alignment padding after the return."
+    ],
+    "contract": [
+      "Return the current media-registration level without mutation or side effects."
+    ]
+  },
+  {
+    "start": "0x000A21C0",
+    "end": "0x000A2203",
+    "name": "RB_SurfaceEntity",
+    "object": "tr_surface.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The retail function loads the current entity render type and dispatches through the same ten-way jump table as the FinalBuild donor.",
+      "Every jump target resolves to the corresponding identified surface body at the same relative instruction offset.",
+      "The apparent donor size difference consists of return/padding and jump-table data, not divergent executable behavior."
+    ],
+    "contract": [
+      "Dispatch entity surfaces by render type to sprite, beam, rail, lightning, axis, saber-glow, line, cylinder, and fallback handlers.",
+      "Preserve tail-call dispatch so no extra per-surface frame is introduced."
+    ]
+  },
+  {
+    "start": "0x000ADDF0",
+    "end": "0x000ADDF8",
+    "name": "BeginSkinTextures",
+    "object": "win_qgl_dx8.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The retail body writes one to the skin-texture allocation selector and returns.",
+      "RE_RegisterSkin calls it immediately before skin image registration."
+    ],
+    "contract": [
+      "Route subsequent texture allocations through the skin-texture allocator."
+    ]
+  },
+  {
+    "start": "0x000ADE00",
+    "end": "0x000ADE08",
+    "name": "EndSkinTextures",
+    "object": "win_qgl_dx8.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The retail body writes zero to the same skin-texture allocation selector and returns.",
+      "RE_RegisterSkin calls it after skin image registration completes."
+    ],
+    "contract": [
+      "Restore subsequent texture allocations to the static/default allocator."
+    ]
+  },
+  {
+    "start": "0x000AFB00",
+    "end": "0x000AFCA3",
+    "name": "setCap",
+    "object": "win_qgl_dx8.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The retail body switches over the same GL capability enums handled by the clean Xbox source.",
+      "Its cases update D3D alpha, blend, cull, depth, lighting, polygon-offset, stencil, texture-stage, fog, scissor, and presentation state through Xbox SDK entry points or the GL state shadow.",
+      "The identified dllDisable and dllEnable wrappers both target this body with false and true respectively."
+    ],
+    "contract": [
+      "Translate GL capability enable/disable requests into Xbox D3D8 render or presentation state.",
+      "Keep cull, scissor, texture-stage, and other emulated state shadows synchronized with the device."
+    ]
+  },
+  {
+    "start": "0x000B2A60",
+    "end": "0x000B2ABC",
+    "name": "getLightEffects",
+    "object": "win_qgl_dx8.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The retail body uses the compiler guard byte and exception frame for one-time construction of a static LightEffects object.",
+      "It registers the static destructor and always returns the same object address.",
+      "Retail GLW_Init calls this body once and stores the returned pointer into glwstate_t, matching the clean Xbox source."
+    ],
+    "contract": [
+      "Lazily construct the single process-lifetime LightEffects instance.",
+      "Return the same allocation-free singleton pointer to GLW_Init on every call."
+    ]
+  },
+  {
+    "start": "0x000859E0",
+    "end": "0x00085AAE",
+    "name": "R_Images_Clear",
+    "object": "tr_image_xbox.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "Retail R_DeleteTextures at 0x00085AB0 calls this body and then resets texture bindings, matching the clean Xbox source call sequence.",
+      "The body iterates the allocated-image tree, releases every image texture, erases and deletes the tree, resets bind counters, and resets both texture allocators.",
+      "Its data accesses and five callees agree with the FinalBuild donor R_Images_Clear implementation despite compiler-layout differences."
+    ],
+    "contract": [
+      "Release all allocated renderer image contents and image-cache nodes.",
+      "Reset texture bind numbering and both static and skin texture allocators."
+    ]
+  },
+  {
+    "start": "0x00090CA0",
+    "end": "0x00090D2B",
+    "name": "R_ModelFree",
+    "object": "tr_model.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The sole external caller is the retail client media-shutdown path, which calls R_ModelFree at the matching clean-source site.",
+      "The first half calls RE_RegisterModels_DeleteAll, destroys CachedModels, and clears its global pointer.",
+      "The second half clears and destroys mhHashTable and clears its global pointer, exactly matching the clean Xbox source behavior."
+    ],
+    "contract": [
+      "Delete all cached model binaries and their owning map.",
+      "Clear and delete the model hash table without retaining stale global pointers."
+    ]
+  },
+  {
+    "start": "0x000AAA50",
+    "end": "0x000AAB23",
+    "name": "GLimp_SetGamma",
+    "object": "win_gamma_console.obj",
+    "confidence": 1.0,
+    "evidence": [
+      "The body accepts one float, builds three identical 256-byte channels on the stack, and submits them through IDirect3DDevice8::SetGammaRamp with D3DSGR_CALIBRATE.",
+      "Its linear and pow-based branches, 0..255 clamp, and rounded conversion match the clean Xbox GLimp_SetGamma source exactly.",
+      "Retail GLW_Init calls this body, while the other caller is the renderer gamma-update path outside the mapped renderer range."
+    ],
+    "contract": [
+      "Build the calibrated Xbox D3D8 gamma ramp from the requested floating-point gamma value.",
+      "Clamp every channel entry to 0..255 and submit identical red, green, and blue ramps."
+    ]
+  }
+]

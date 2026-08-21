@@ -2024,12 +2024,16 @@ extern void CG_BuildSolidList( void );
 extern void CG_ClearHealthBarEnts( void );
 extern vec3_t	serverViewOrg;
 static qboolean cg_rangedFogging = qfalse; //so we know if we should go back to normal fog
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 #define CG_XBOX_ACTIVE_LOG(msg) do { if (s_xboxDrawActiveLog) XBLog_Write(msg); } while (0)
+extern "C" volatile unsigned int g_SPXBClTailStage;
+#else
+#define CG_XBOX_ACTIVE_LOG(msg) ((void)0)
 #endif
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x43473030; /* 'CG00' */
 	static int s_xboxDrawActiveFrameCount = 0;
 	const int s_xboxDrawActiveLog = (serverTime >= 3600 && serverTime <= 4600);
 	if (s_xboxDrawActiveLog)
@@ -2037,6 +2041,8 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		XBLF("JA: CL_EARLY CG_DrawActiveFrame #%d enter serverTime=%d stereo=%d snap=%p next=%p",
 			s_xboxDrawActiveFrameCount, serverTime, (int)stereoView, (void*)cg.snap, (void*)cg.nextSnap);
 	}
+#else
+	const int s_xboxDrawActiveLog = 0;
 #endif
 
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY CG_DrawActiveFrame before set cg.time");
@@ -2052,13 +2058,13 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	if ( cg.infoScreenText[0] != 0 ) {
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: infoScreenText path");
 		CG_DrawInformation();
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		if (s_xboxDrawActiveLog)
 		{
 			XBLog_Write("JA: CG_DrawActiveFrame: infoScreenText returned");
 		}
 #endif
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		s_xboxDrawActiveFrameCount++;
 #endif
 		return;
@@ -2081,12 +2087,15 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// set up cg.snap and possibly cg.nextSnap
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_ProcessSnapshots...");
 	CG_ProcessSnapshots();
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x43473031; /* 'CG01' */
+	#endif
 	// if we haven't received any snapshots yet, all
 	// we can draw is the information screen
 	if ( !cg.snap ) {
 		//CG_DrawInformation();
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: no cg.snap, return");
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		s_xboxDrawActiveFrameCount++;
 #endif
 		return;
@@ -2164,11 +2173,14 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	// update cg.predicted_player_state
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState...");
 	CG_PredictPlayerState();
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x43473032; /* 'CG02' */
+	#endif
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState done");
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if ( in_camera
-		&& ( cg_stefxSmokeUnlockPlayer.integer || cg_stefxSmokeInput.integer )
+		&& cg_stefxSmokeUnlockPlayer.integer
 		&& serverTime >= cg_stefxSmokeInputStart.integer )
 	{
 		static int s_stefxSmokeCameraDisableLogCount = 0;
@@ -2209,6 +2221,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	{
 		// The camera takes over the view
 		CGCam_RenderScene();
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBClTailStage = 0x43473033; /* 'CG03' */
+		#endif
 	}
 	else
 	{		
@@ -2263,6 +2278,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddLocalEntities done");
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawMiscEnts...");
 		CG_DrawMiscEnts();
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBClTailStage = 0x43473034; /* 'CG04' */
+		#endif
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawMiscEnts done");
 	}
 
@@ -2345,6 +2363,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		//Add all effects
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: AddScheduledEffects...");
 		theFxScheduler.AddScheduledEffects( false );
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBClTailStage = 0x43473035; /* 'CG05' */
+		#endif
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: AddScheduledEffects done");
 	}
 
@@ -2383,6 +2404,9 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	*/
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_Respatialize...");
 	cgi_S_Respatialize( cg.snap->ps.clientNum, cg.refdef.vieworg, cg.refdef.viewaxis, inwater );
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x43473036; /* 'CG06' */
+	#endif
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_Respatialize done");
 
 	// warning sounds when powerup is wearing off
@@ -2401,9 +2425,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		// actually issue the rendering calls
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawActive...");
 		CG_DrawActive( stereoView );
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBClTailStage = 0x43473037; /* 'CG07' */
+		#endif
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawActive done");
 	}
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame done");
 	s_xboxDrawActiveFrameCount++;
 #endif
@@ -2414,7 +2441,5 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	}
 	*/
 }
-#ifdef _XBOX
 #undef CG_XBOX_ACTIVE_LOG
-#endif
 

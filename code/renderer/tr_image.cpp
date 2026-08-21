@@ -541,7 +541,6 @@ Upload32
 static void JkaFakeglSetDDSUploadPicmip(int) {}
 static void JkaFakeglSetTextureDebugName(const char *) {}
 static void FakeGL_ResetRegisteredTextureBudget(void) {}
-extern "C" void JkaNativeD3D8SetTextureUploadLightmap(int isLightmap);
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -599,7 +598,6 @@ static void Upload32( const char *debugName, unsigned *data,
 {
 #ifdef _XBOX
 	JkaFakeglSetTextureDebugName(debugName ? debugName : "<null>");
-	JkaNativeD3D8SetTextureUploadLightmap(isLightmap ? 1 : 0);
 #endif
 	if (format == GL_RGBA)
 	{
@@ -611,6 +609,8 @@ static void Upload32( const char *debugName, unsigned *data,
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		qboolean	stefxBorgAlphaProbe =
 			R_XboxIsBorgAlphaCutoutTexture( debugName );
+		const qboolean stefxOpaqueBlendSource =
+			debugName && !Q_stricmp( debugName, "*white" );
 #endif
 		
 		//
@@ -755,6 +755,15 @@ static void Upload32( const char *debugName, unsigned *data,
 				break;
 			}
 		}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		// The fixed-function Xbox path multiplies stage alpha by the sampled
+		// texture alpha. Preserve the OpenGL rule that the built-in RGB white
+		// texture supplies alpha 1 instead of storing an X8 zero alpha byte.
+		if ( stefxOpaqueBlendSource )
+		{
+			samples = 4;
+		}
+#endif
 		
 		// select proper internal format
 		if ( samples == 3 )
@@ -787,7 +796,8 @@ static void Upload32( const char *debugName, unsigned *data,
 		else if ( samples == 4 )
 		{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-			if ( R_XboxIsHighFidelityUIFont( debugName ) ||
+			if ( stefxOpaqueBlendSource ||
+				R_XboxIsHighFidelityUIFont( debugName ) ||
 				R_XboxIsBorgAlphaCutoutTexture( debugName ) )
 			{
 				*pformat = GL_RGBA8;
@@ -911,7 +921,6 @@ static void Upload32( const char *debugName, unsigned *data,
 	GL_CheckErrors();
 #ifdef _XBOX
 	JkaFakeglSetTextureDebugName("<none>");
-	JkaNativeD3D8SetTextureUploadLightmap(0);
 #endif
 }
 
@@ -923,6 +932,34 @@ typedef tmap (int, image_t *)	AllocatedImages_t;
 typedef tmap (sstring_t, image_t *)	AllocatedImageNames_t;
 								AllocatedImageNames_t* AllocatedImageNames = NULL;
 #endif
+
+const char *R_GetImageDebugName( const image_t *image )
+{
+	if (!image)
+	{
+		return "<null>";
+	}
+
+#ifdef _XBOX
+	if (AllocatedImageNames)
+	{
+		for (AllocatedImageNames_t::const_iterator it = AllocatedImageNames->begin();
+			 it != AllocatedImageNames->end(); ++it)
+		{
+			if ((*it).second == image)
+			{
+				return (*it).first.c_str();
+			}
+		}
+	}
+#endif
+
+#ifndef FINAL_BUILD
+	return image->imgName;
+#else
+	return "<untracked>";
+#endif
+}
 
 int giTextureBindNum = 1024;	// will be set to this anyway at runtime, but wtf?
 
@@ -962,9 +999,15 @@ static void R_Images_DeleteImageContents( image_t *pImage )
 #ifdef _XBOX
 		if (AllocatedImageNames)
 		{
-			char canonicalName[MAX_QPATH];
-			Q_strncpyz(canonicalName, GenerateImageMappingName(pImage->imgName), sizeof(canonicalName));
-			AllocatedImageNames->erase(sstring_t(canonicalName));
+			AllocatedImageNames_t::iterator it = AllocatedImageNames->begin();
+			while (it != AllocatedImageNames->end())
+			{
+				AllocatedImageNames_t::iterator victim = it++;
+				if ((*victim).second == pImage)
+				{
+					AllocatedImageNames->erase(victim);
+				}
+			}
 		}
 #endif
 		glDeleteTextures( 1, &pImage->texnum );
@@ -1079,7 +1122,8 @@ void R_Images_Clear(void)
 	// image swap files on the Z drive.
 	glw_state->textureBindNum = 1;
 
-	gTextures.Reset();
+	gStaticTextures.Reset();
+	gSkinTextures.Reset();
 #ifdef _XBOX
 	FakeGL_ResetRegisteredTextureBudget();
 #endif
@@ -1119,42 +1163,6 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 		return qfalse;
 	}
 
-#ifdef _XBOX
-	int staleCount = 0;
-	int totalCount = 0;
-	AllocatedImages_t::iterator itImage = AllocatedImages->begin();
-	while (itImage != AllocatedImages->end())
-	{
-		image_t *pImage = (*itImage).second;
-		++totalCount;
-		// The registered texture allocator supports individual release and
-		// coalescing now, so mirror the canonical level ownership rule.
-		if (pImage && !pImage->isSystem &&
-			pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel())
-		{
-			++staleCount;
-			R_Images_DeleteImageContents(pImage);
-			itImage = AllocatedImages->erase(itImage);
-			continue;
-		}
-		++itImage;
-	}
-	if (staleCount)
-	{
-		static int s_xboxStaleImageLogCount = 0;
-		if (s_xboxStaleImageLogCount < 16)
-		{
-			XBLF("STEFX: Xbox image level-end released stale images stale=%d total=%d level=%d textureUsed=%u textureFree=%u largest=%u",
-				staleCount, totalCount, RE_RegisterMedia_GetLevel(),
-				(unsigned)gTextures.Size(), (unsigned)gTextures.Free(),
-				(unsigned)gTextures.LargestFree());
-			++s_xboxStaleImageLogCount;
-		}
-	}
-
-	GL_ResetBinds();
-	return staleCount ? qtrue : qfalse;
-#else
 	qboolean bEraseOccured = qfalse;
 	for (AllocatedImages_t::iterator itImage = AllocatedImages->begin(); itImage != AllocatedImages->end(); bEraseOccured?itImage:++itImage)
 	{			
@@ -1181,7 +1189,6 @@ qboolean RE_RegisterImages_LevelLoadEnd(void)
 	GL_ResetBinds();
 
 	return bEraseOccured;
-#endif
 }
 
 
@@ -1262,7 +1269,7 @@ static image_t *R_FindImageFile_NoLoad(const char *name, int mipcount, qboolean 
 		}
 
 		char existingName[MAX_QPATH];
-		Q_strncpyz(existingName, GenerateImageMappingName(pImage->imgName), sizeof(existingName));
+		Q_strncpyz(existingName, GenerateImageMappingName(R_GetImageDebugName(pImage)), sizeof(existingName));
 		if (!Q_stricmp(existingName, canonicalName))
 		{
 			if (itImage->first != code)
@@ -1303,6 +1310,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 {
 	image_t		*image;
 	qboolean	isLightmap = qfalse;
+	g_SPXBPhaseLast = 0x52433030; /* 'RC00' */
 
 	if (strlen(name) >= MAX_QPATH ) {
 		Com_Error (ERR_DROP, "R_CreateImage: \"%s\" is too long\n", name);
@@ -1323,13 +1331,16 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	}
 
 	image = R_FindImageFile_NoLoad(name, mipcount, allowPicmip, glWrapClampMode );
+	g_SPXBPhaseLast = 0x52433031; /* 'RC01' */
 	if (image) {
 		return image;
 	}
 
 	image = (image_t*) Z_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
+	g_SPXBPhaseLast = 0x52433032; /* 'RC02' */
 
 	glGenTextures(1, (GLuint*)&image->texnum);
+	g_SPXBPhaseLast = 0x52433033; /* 'RC03' */
 
 	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
 
@@ -3480,6 +3491,14 @@ qhandle_t RE_RegisterSkin( const char *name) {
 */
 	}
 
+	// Shipping JA Xbox keeps player textures in the 4 MiB swapping pool.
+	// "models/players" intentionally also matches Elite Force's players2 tree.
+	const bool playerSkin = strstr( name, "models/players" ) != NULL;
+	if ( playerSkin )
+	{
+		BeginSkinTextures();
+	}
+
 	char skinhead[MAX_QPATH]={0};
 	char skintorso[MAX_QPATH]={0};
 	char skinlower[MAX_QPATH]={0};
@@ -3499,6 +3518,9 @@ qhandle_t RE_RegisterSkin( const char *name) {
 	{//single skin
 		hSkin = RE_RegisterIndividualSkin(name, hSkin);
 	}
+
+	EndSkinTextures();
+
 #ifdef STEFX_ELITE_FORCE_SP
 	if ( RE_STEFX_IsHeadSkinBase( name ) )
 	{

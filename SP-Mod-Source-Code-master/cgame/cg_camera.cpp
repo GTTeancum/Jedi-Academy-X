@@ -72,6 +72,20 @@ void CGCam_Init( void )
 	}
 }
 
+void CGCam_ResetForLevelChange( void )
+{
+#ifdef _XBOX
+	XBLF("STEFX: CGCam_ResetForLevelChange time=%d in_camera=%d info=0x%x roff='%s' player_locked=%d",
+		cg.time,
+		in_camera ? 1 : 0,
+		client_camera.info_state,
+		client_camera.sRoff,
+		player_locked ? 1 : 0);
+#endif
+	in_camera = false;
+	memset( &client_camera, 0, sizeof( client_camera ) );
+}
+
 /*
 -------------------------
 CGCam_Enable

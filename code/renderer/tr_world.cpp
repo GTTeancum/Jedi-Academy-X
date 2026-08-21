@@ -3,14 +3,10 @@
 #include "../server/exe_headers.h"
 
 #include "tr_local.h"
-
-#ifdef VV_LIGHTING
-#include "tr_lightmanager.h"
-#endif
-
 #ifdef _XBOX
 #include "../qcommon/sparc.h"
 #include "../win32/xb_log.h"
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 extern "C" volatile unsigned int g_SPXBSplitSlotActive;
 extern "C" volatile unsigned int g_SPXBSplitSlot0WorldDelta;
 extern "C" volatile unsigned int g_SPXBSplitSlot1WorldDelta;
@@ -32,6 +28,7 @@ extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAlready;
 extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAlready;
 extern "C" volatile unsigned int g_SPXBSplitSlot0WorldAdded;
 extern "C" volatile unsigned int g_SPXBSplitSlot1WorldAdded;
+#endif
 #endif
 
 static bool lookingForWorstLeaf = false;
@@ -461,7 +458,7 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 	srfSurfaceFace_t *sface;
 	float			d;
 
-	if ( r_nocull->integer==1 ) {
+	if ( r_nocull->integer ) {
 		return qfalse;
 	}
 
@@ -481,23 +478,13 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 		return qfalse;
 	}
 
-#ifdef _XBOX
-	/*
-	 * The packed Xbox BSP path stores face data differently from the PC
-	 * renderer.  This CPU-side face-plane cull is only an optimization, but
-	 * bad packed plane data can drop otherwise visible world polygons while
-	 * moving, showing up as HOM/grey gaps.  Let the BSP/PVS traversal and D3D
-	 * cull state decide visibility for faces instead.
-	 */
-	return qfalse;
-#endif
-
 	// face culling
 	if ( !r_facePlaneCull->integer ) {
 		return qfalse;
 	}
 
 	sface = ( srfSurfaceFace_t * ) surface;
+
 	d = DotProduct (tr.or.viewOrigin, sface->plane.normal);
 
 	// don't cull exactly on the plane, because there are levels of rounding
@@ -517,7 +504,6 @@ static qboolean	R_CullSurface( surfaceType_t *surface, shader_t *shader ) {
 }
 
 
-#ifndef VV_LIGHTING
 static int R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	float		d;
 	int			i;
@@ -542,9 +528,7 @@ static int R_DlightFace( srfSurfaceFace_t *face, int dlightBits ) {
 	face->dlightBits = dlightBits;
 	return dlightBits;
 }
-#endif // VV_LIGHTING
 
-#ifndef VV_LIGHTING
 static int R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 	int			i;
 	dlight_t	*dl;
@@ -572,10 +556,8 @@ static int R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 	grid->dlightBits = dlightBits;
 	return dlightBits;
 }
-#endif // VV_LIGHTING
 
 
-#ifndef VV_LIGHTING
 static int R_DlightTrisurf( srfTriangles_t *surf, int dlightBits ) {
 	// FIXME: more dlight culling to trisurfs...
 	surf->dlightBits = dlightBits;
@@ -608,7 +590,6 @@ static int R_DlightTrisurf( srfTriangles_t *surf, int dlightBits ) {
 	return dlightBits;
 #endif
 }
-#endif // VV_LIGHTING
 
 /*
 ====================
@@ -619,7 +600,6 @@ that is touched by one or more dlights, so try to throw out
 more dlights if possible.
 ====================
 */
-#ifndef VV_LIGHTING
 static int R_DlightSurface( msurface_t *surf, int dlightBits ) {
 	if ( *surf->data == SF_FACE ) {
 		dlightBits = R_DlightFace( (srfSurfaceFace_t *)surf->data, dlightBits );
@@ -637,7 +617,6 @@ static int R_DlightSurface( msurface_t *surf, int dlightBits ) {
 
 	return dlightBits;
 }
-#endif // VV_LIGHTING
 
 
 
@@ -646,96 +625,12 @@ static int R_DlightSurface( msurface_t *surf, int dlightBits ) {
 R_AddWorldSurface
 ======================
 */
-#ifdef VV_LIGHTING
-void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount ) {
-#else
-static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse ) {
-#endif
-#ifdef _XBOX
-	static int s_xboxWorldAddLogBudget = 0;
-	static int s_xboxWorldCullLogBudget = 0;
-	static int s_xboxWorldTraceAddBudget = 0;
-	static int s_xboxWorldTraceCullBudget = 0;
-	static int s_xboxJunkSkyWorldBudget = 0;
-	static int s_xboxJunkSkyDrawBoundaryBudget = 0;
-	static int s_xboxBorgSuspectWorldBudget = 0;
-	static int s_xboxScavengerSuspectWorldBudget = 0;
-#if SP_XBOX_VERBOSE_RUNTIME_LOGS
-	const qboolean traceJunkSky = R_XboxTraceJunkSkySurface( surf );
-	const qboolean traceBorgSuspect = R_XboxTraceBorgSuspectSurface( surf );
-	const qboolean traceScavengerSuspect = R_XboxTraceScavengerSuspectSurface( surf );
-#else
-	const qboolean traceJunkSky = qfalse;
-	const qboolean traceBorgSuspect = qfalse;
-	const qboolean traceScavengerSuspect = qfalse;
-#endif
-
-	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
-	{
-		R_XboxLogWorldSurfaceSubmit( "enter", surf, dlightBits, noViewCount );
-		--s_xboxJunkSkyWorldBudget;
-	}
-	if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
-	{
-		R_XboxLogWorldSurfaceSubmit( "borg-suspect-enter", surf, dlightBits, noViewCount );
-		--s_xboxBorgSuspectWorldBudget;
-	}
-	if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
-	{
-		R_XboxLogWorldSurfaceSubmit( "scav-suspect-enter", surf, dlightBits, noViewCount );
-		--s_xboxScavengerSuspectWorldBudget;
-	}
-#endif
-	/*
-	if ( surf->viewCount == tr.viewCount ) {
-		return;		// already in this view
-	}
-	*/
-
-	//rww - changed this to be like sof2mp's so RMG will look right.
-	//Will this affect anything that is non-rmg?
-
+static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse )
+{
 	if (!noViewCount)
 	{
-#ifdef _XBOX
-		if (g_SPXBSplitSlotActive == 1)
-		{
-			g_SPXBSplitSlot0WorldAttempts++;
-		}
-		else if (g_SPXBSplitSlotActive == 2)
-		{
-			g_SPXBSplitSlot1WorldAttempts++;
-		}
-#endif
 		if ( surf->viewCount == tr.viewCount ) 
 		{
-#ifdef _XBOX
-			if (g_SPXBSplitSlotActive == 1)
-			{
-				g_SPXBSplitSlot0WorldAlready++;
-			}
-			else if (g_SPXBSplitSlotActive == 2)
-			{
-				g_SPXBSplitSlot1WorldAlready++;
-			}
-#endif
-#ifdef _XBOX
-			if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
-			{
-				R_XboxLogWorldSurfaceSubmit( "already", surf, dlightBits, noViewCount );
-				--s_xboxJunkSkyWorldBudget;
-			}
-			if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
-			{
-				R_XboxLogWorldSurfaceSubmit( "borg-suspect-already", surf, dlightBits, noViewCount );
-				--s_xboxBorgSuspectWorldBudget;
-			}
-			if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
-			{
-				R_XboxLogWorldSurfaceSubmit( "scav-suspect-already", surf, dlightBits, noViewCount );
-				--s_xboxScavengerSuspectWorldBudget;
-			}
-#endif
 			// already in this view, but lets make sure all the dlight bits are set
 			if ( *surf->data == SF_FACE ) 
 			{
@@ -749,146 +644,130 @@ static void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noView
 			{
 				((srfTriangles_t *)surf->data)->dlightBits |= dlightBits;
 			}
-			return;		
+			return;
 		}
 		surf->viewCount = tr.viewCount;
 		// FIXME: bmodel fog?
 	}
 
-//	surf->viewCount = tr.viewCount;
-	// FIXME: bmodel fog?
+	/*
+	if (r_shadows->integer == 2)
+	{
+		dlightBits = R_DlightSurface( surf, dlightBits );
+		//dlightBits = ( dlightBits != 0 );
+		R_AddDrawSurf( surf->data, tr.shadowShader, surf->fogIndex, dlightBits );
+	}
+	*/
+	//world shadows?
 
 	// try to cull before dlighting or adding
-	if ( R_CullSurface( surf->data, surf->shader ) ) {
-#ifdef _XBOX
-		if (g_SPXBSplitSlotActive == 1)
-		{
-			g_SPXBSplitSlot0WorldCulled++;
-		}
-		else if (g_SPXBSplitSlotActive == 2)
-		{
-			g_SPXBSplitSlot1WorldCulled++;
-		}
+#ifdef _ALT_AUTOMAP_METHOD
+	if (!tr_drawingAutoMap && R_CullSurface( surf->data, surf->shader ) )
+#else
+	if (R_CullSurface(surf->data, surf->shader))
 #endif
-#ifdef _XBOX
-		if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
-		{
-			R_XboxLogWorldSurfaceSubmit( "culled-junk-sky", surf, dlightBits, noViewCount );
-			--s_xboxJunkSkyWorldBudget;
-		}
-		if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
-		{
-			R_XboxLogWorldSurfaceSubmit( "borg-suspect-culled", surf, dlightBits, noViewCount );
-			--s_xboxBorgSuspectWorldBudget;
-		}
-		if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
-		{
-			R_XboxLogWorldSurfaceSubmit( "scav-suspect-culled", surf, dlightBits, noViewCount );
-			--s_xboxScavengerSuspectWorldBudget;
-		}
-		if (s_xboxWorldTraceCullBudget > 0)
-		{
-			R_XboxLogWorldSurfaceSubmit( "culled", surf, dlightBits, noViewCount );
-			--s_xboxWorldTraceCullBudget;
-		}
-		if (s_xboxWorldCullLogBudget > 0)
-		{
-			XBLF("JA: R_AddWorldSurface culled shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x",
-				surf->shader ? surf->shader->name : "<null>",
-				(int)(surf->shader && surf->shader->sky != NULL),
-				surf->shader ? (double)surf->shader->sort : -1.0,
-				surf->data ? (int)*surf->data : -1,
-				surf->fogIndex,
-				dlightBits);
-			--s_xboxWorldCullLogBudget;
-		}
-#endif
+	{
 		return;
 	}
 
-#ifdef _XBOX
-	if ( traceJunkSky && s_xboxJunkSkyWorldBudget > 0 )
-	{
-		R_XboxLogWorldSurfaceSubmit( "add-junk-sky", surf, dlightBits, noViewCount );
-		--s_xboxJunkSkyWorldBudget;
-	}
-	if ( traceBorgSuspect && s_xboxBorgSuspectWorldBudget > 0 )
-	{
-		R_XboxLogWorldSurfaceSubmit( "borg-suspect-add", surf, dlightBits, noViewCount );
-		--s_xboxBorgSuspectWorldBudget;
-	}
-	if ( traceScavengerSuspect && s_xboxScavengerSuspectWorldBudget > 0 )
-	{
-		R_XboxLogWorldSurfaceSubmit( "scav-suspect-add", surf, dlightBits, noViewCount );
-		--s_xboxScavengerSuspectWorldBudget;
-	}
-	if (s_xboxWorldTraceAddBudget > 0)
-	{
-		R_XboxLogWorldSurfaceSubmit( "add", surf, dlightBits, noViewCount );
-		--s_xboxWorldTraceAddBudget;
-	}
-	if (s_xboxWorldAddLogBudget > 0)
-	{
-		XBLF("JA: R_AddWorldSurface add shader='%s' sky=%d sort=%g type=%d fog=%d dlight=0x%x noView=%d viewCount=%d drawBefore=%d",
-			surf->shader ? surf->shader->name : "<null>",
-			(int)(surf->shader && surf->shader->sky != NULL),
-			surf->shader ? (double)surf->shader->sort : -1.0,
-			surf->data ? (int)*surf->data : -1,
-			surf->fogIndex,
-			dlightBits,
-			(int)noViewCount,
-			surf->viewCount,
-			tr.refdef.numDrawSurfs);
-		--s_xboxWorldAddLogBudget;
-	}
-#endif
-
-#ifdef _XBOX
-	if (g_SPXBSplitSlotActive == 1)
-	{
-		g_SPXBSplitSlot0WorldAdded++;
-	}
-	else if (g_SPXBSplitSlotActive == 2)
-	{
-		g_SPXBSplitSlot1WorldAdded++;
-	}
-#endif
 	// check for dlighting
 	if ( dlightBits ) {
-#ifdef VV_LIGHTING
-		dlightBits = VVLightMan.R_DlightSurface( surf, dlightBits );
-#else
 		dlightBits = R_DlightSurface( surf, dlightBits );
-#endif
 		dlightBits = ( dlightBits != 0 );
 	}
 
-#ifdef _XBOX
-	if ( traceJunkSky && s_xboxJunkSkyDrawBoundaryBudget > 0 )
+#ifdef _ALT_AUTOMAP_METHOD
+	if (tr_drawingAutoMap)
 	{
-		XBLF("STEFX_SURFACE_SUBMIT result='before-drawsurf' map='%s' code=%d shader='%s' drawBefore=%d fog=%d dlight=0x%x",
-			tr.world ? tr.world->name : "<noworld>",
-			surf->xboxDebugCode,
-			surf->shader ? surf->shader->name : "<null>",
-			tr.refdef.numDrawSurfs,
-			surf->fogIndex,
-			dlightBits);
-		--s_xboxJunkSkyDrawBoundaryBudget;
+	//	if (g_playerHeight != g_lastHeight ||
+	//		!g_lastHeightValid)
+		if (*surf->data == SF_FACE)
+		{ //only do this if we need to
+			bool completelyTransparent = true;
+			int i = 0;
+			srfSurfaceFace_t *face = (srfSurfaceFace_t *)surf->data;
+			byte *indices = (byte *)(face + face->ofsIndices);
+			float *point;
+			vec3_t color;
+			float alpha;
+			float e;
+			bool polyStarted = false;
+
+			while (i < face->numIndices)
+			{
+				point = &face->points[indices[i]][0];
+
+				//base the color on the elevation... for now, just check the first point height
+				if (point[2] < g_playerHeight)
+				{
+					e = point[2]-g_playerHeight;
+				}
+				else
+				{
+					e = g_playerHeight-point[2];
+				}
+				if (e < 0.0f)
+				{
+					e = -e;
+				}
+
+				//set alpha and color based on relative height of point
+				alpha = e/256.0f;
+				e /= 512.0f;
+
+				//cap color
+				if (e > 1.0f)
+				{
+					e = 1.0f;
+				}
+				else if (e < 0.0f)
+				{
+					e = 0.0f;
+				}
+				VectorSet(color, e, 1.0f-e, 0.0f);
+
+				//cap alpha
+				if (alpha > 1.0f)
+				{
+					alpha = 1.0f;
+				}
+				else if (alpha < 0.0f)
+				{
+					alpha = 0.0f;
+				}
+
+				if (alpha != 1.0f)
+				{ //this point is not entirely alpha'd out, so still draw the surface
+					completelyTransparent = false;
+				}
+
+				if (!completelyTransparent)
+				{
+					if (!polyStarted)
+					{
+						qglBegin(GL_POLYGON);
+						polyStarted = true;
+					}
+
+					qglColor4f(color[0], color[1], color[2], 1.0f-alpha);
+					qglVertex3f(point[i], point[i], point[2]);
+				}
+
+				i++;
+			}
+
+			if (polyStarted)
+			{
+				qglEnd();
+			}
+		}
 	}
+	else
 #endif
-	R_AddDrawSurf( surf->data, surf->shader, surf->fogIndex, dlightBits );
-#ifdef _XBOX
-	if ( traceJunkSky && s_xboxJunkSkyDrawBoundaryBudget > 0 )
 	{
-		XBLF("STEFX_SURFACE_SUBMIT result='after-drawsurf' map='%s' code=%d shader='%s' drawAfter=%d",
-			tr.world ? tr.world->name : "<noworld>",
-			surf->xboxDebugCode,
-			surf->shader ? surf->shader->name : "<null>",
-			tr.refdef.numDrawSurfs);
-		--s_xboxJunkSkyDrawBoundaryBudget;
+		R_AddDrawSurf( surf->data, surf->shader, surf->fogIndex, dlightBits );
 	}
-#endif
-} 
+}
 
 /*
 =============================================================
@@ -991,17 +870,9 @@ void R_AddBrushModelSurfaces ( trRefEntity_t *ent ) {
 #endif
 	}
 	
-#ifdef VV_LIGHTING
-	VVLightMan.R_SetupEntityLighting(&tr.refdef, ent);
-#else
 	R_SetupEntityLighting(&tr.refdef, ent);
-#endif
 
-#ifdef VV_LIGHTING
-	VVLightMan.R_DlightBmodel( bmodel, qfalse );
-#else
 	R_DlightBmodel( bmodel, qfalse );
-#endif
 
 	for ( i = 0 ; i < bmodel->numSurfaces ; i++ ) {
 #ifdef _XBOX
@@ -1185,7 +1056,6 @@ void RE_GetBModelVerts( int bmodelIndex, vec3_t *verts, vec3_t normal )
 R_RecursiveWorldNode
 ================
 */
-#ifndef VV_LIGHTING
 static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits ) {
 
 	do {
@@ -1242,16 +1112,6 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 				}
 			}
 
-			if ( planeBits & 16 ) {
-				r = BoxOnPlaneSide(node->mins, node->maxs, &tr.viewParms.frustum[4]);
-				if (r == 2) {
-					return;						// culled
-				}
-				if ( r == 1 ) {
-					planeBits &= ~16;			// all descendants will also be in front
-				}
-			}
-
 		}
 
 		if ( node->contents != -1 ) {
@@ -1273,7 +1133,8 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 
 					if ( dlightBits & ( 1 << i ) ) {
 						dl = &tr.refdef.dlights[i];
-						dist = DotProduct( dl->origin, node->plane->normal ) - node->plane->dist;
+						dist = DotProduct( dl->origin, tr.world->planes[node->planeNum].normal ) -
+							tr.world->planes[node->planeNum].dist;
 						
 						if ( dist > -dl->radius ) {
 							newDlights[0] |= ( 1 << i );
@@ -1302,6 +1163,7 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 		// leaf node, so add mark surfaces
 		int			c;
 		msurface_t	*surf, **mark;
+		mleaf_s		*leaf;
 
 		tr.pc.c_leafs++;
 
@@ -1327,8 +1189,9 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 		}
 
 		// add the individual surfaces
-		mark = node->firstmarksurface;
-		c = node->nummarksurfaces;
+		leaf = (mleaf_s *)node;
+		mark = tr.world->marksurfaces + leaf->firstMarkSurfNum;
+		c = leaf->nummarksurfaces;
 		while (c--) {
 			// the surface may have already been added if it
 			// spans multiple leafs
@@ -1339,7 +1202,6 @@ static void R_RecursiveWorldNode( mnode_t *node, int planeBits, int dlightBits )
 	}
 
 }
-#endif // VV_LIGHTING
 
 
 /*
@@ -1389,7 +1251,7 @@ static const byte *R_ClusterPVS (int cluster) {
 
 #ifdef _XBOX
 	return tr.world->vis->Decompress(cluster * tr.world->clusterBytes,
-			tr.world->numClusters);
+			tr.world->clusterBytes);
 #else
 	return tr.world->vis + cluster * tr.world->clusterBytes;
 #endif
@@ -1446,7 +1308,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
    	mnode_s	*parent;
 	int		i;
 	int		cluster;
-#ifdef _XBOX
+	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	int		pvsRejected = 0;
 	int		areaRejected = 0;
 	int		markedLeaves = 0;
@@ -1469,7 +1331,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 		leaf = leafOverride;
 	}
 	cluster = leaf->cluster;
-#ifdef _XBOX
+	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (tr.world && tr.world->leafs && leaf >= tr.world->leafs && leaf < tr.world->leafs + tr.world->numleafs) {
 		leafIndex = (int)(leaf - tr.world->leafs);
 	}
@@ -1495,7 +1357,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	// hasn't changed, we don't need to mark everything again
 
 	if ( tr.viewCluster == cluster && !tr.refdef.areamaskModified ) {
-#ifdef _XBOX
+		#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		if (g_SPXBSplitSlotActive == 1)
 		{
 			g_SPXBSplitSlot0MarkedLeaves = 0xffffffffu;
@@ -1540,6 +1402,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 				tr.world->leafs[i].visframe = tr.visCount;
 			}
 		}
+		#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		if (g_SPXBSplitSlotActive == 1)
 		{
 			g_SPXBSplitSlot0MarkedLeaves = (unsigned int)tr.world->numleafs;
@@ -1565,6 +1428,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			--s_xboxMarkLeavesLogBudget;
 		}
 		R_XboxLogJunkSkyLeafVisibility( "all-visible", NULL );
+		#endif
 #endif
 		return;
 	}
@@ -1574,7 +1438,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 	for (i=0,leaf=tr.world->leafs ; i<tr.world->numleafs ; i++, leaf++) {
 		cluster = leaf->cluster;
 		if ( cluster < 0 || cluster >= tr.world->numClusters ) {
-#ifdef _XBOX
+		#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 			negativeCluster++;
 #endif
 			continue;
@@ -1582,7 +1446,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 
 		// check general pvs
 		if ( !(vis[cluster>>3] & (1<<(cluster&7))) ) {
-#ifdef _XBOX
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 			pvsRejected++;
 #endif
 			continue;
@@ -1592,13 +1456,13 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 		if (!lookingForWorstLeaf &&
 			   leaf->area >= 0 &&
 			   (tr.refdef.areamask[leaf->area>>3] & (1<<(leaf->area&7)) ) ) {
-#ifdef _XBOX
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 			areaRejected++;
 #endif
 			continue;		// not visible
 		}
 
-#ifdef _XBOX
+		#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		markedLeaves++;
 #endif
 		parent = (mnode_t*)leaf;
@@ -1610,7 +1474,7 @@ void R_MarkLeaves (mleaf_s *leafOverride) {
 			parent = parent->parent;
 		} while (parent);
 	}
-#ifdef _XBOX
+	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	{
 		static int s_stefxPvsSummaryBudget = 0;
 		if (s_stefxPvsSummaryBudget > 0)
@@ -1746,26 +1610,11 @@ R_AddWorldSurfaces
 */
 #ifdef _XBOX
 void R_AddWorldSurfaces (void) {
-#ifdef _XBOX
-	static int s_xboxAddWorldLogBudget = 0;
-#endif
 	if ( !r_drawworld->integer ) {
-#ifdef _XBOX
-		if (s_xboxAddWorldLogBudget > 0) {
-			XBLF("JA: R_AddWorldSurfaces skip r_drawworld=0 draw=%d", tr.refdef.numDrawSurfs);
-			--s_xboxAddWorldLogBudget;
-		}
-#endif
 		return;
 	}
 
 	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
-#ifdef _XBOX
-		if (s_xboxAddWorldLogBudget > 0) {
-			XBLF("JA: R_AddWorldSurfaces skip RDF_NOWORLDMODEL rd=0x%x draw=%d", tr.refdef.rdflags, tr.refdef.numDrawSurfs);
-			--s_xboxAddWorldLogBudget;
-		}
-#endif
 		return;
 	}
 
@@ -1776,118 +1625,12 @@ void R_AddWorldSurfaces (void) {
 	ClearBounds( tr.viewParms.visBounds[0], tr.viewParms.visBounds[1] );
 
 	// perform frustum culling and add all the potentially visible surfaces
-	if ( VVLightMan.num_dlights > MAX_DLIGHTS ) {
-		VVLightMan.num_dlights = MAX_DLIGHTS ;
+	if ( tr.refdef.num_dlights > MAX_DLIGHTS ) {
+		tr.refdef.num_dlights = MAX_DLIGHTS ;
 	}
 
-	const int xboxLeafsBefore = tr.pc.c_leafs;
-	const int xboxDrawBefore = tr.refdef.numDrawSurfs;
-	int xboxWorldDelta;
-
-#ifdef _XBOX
-	if (s_xboxAddWorldLogBudget > 0)
-	{
-		XBLF("JA: R_AddWorldSurfaces before recursive draw=%d visCount=%d viewCluster=%d rootVis=%d dlights=%d rdflags=0x%x nodes=%d leafs=%d marks=%d",
-			tr.refdef.numDrawSurfs,
-			tr.visCount,
-			tr.viewCluster,
-			(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
-			VVLightMan.num_dlights,
-			tr.refdef.rdflags,
-			tr.world ? tr.world->numnodes : -1,
-			tr.world ? tr.world->numleafs : -1,
-			tr.world ? tr.world->nummarksurfaces : -1);
-	}
-#endif
-	if (g_SPXBSplitSlotActive == 2)
-	{
-		g_SPXBSplitSlot1WorldRetryDelta = 0;
-		g_SPXBSplitSlot1WorldFallback = 0;
-		g_SPXBSplitSlot1WorldAttempts = 0;
-		g_SPXBSplitSlot1WorldCulled = 0;
-		g_SPXBSplitSlot1WorldAlready = 0;
-		g_SPXBSplitSlot1WorldAdded = 0;
-	}
-	else if (g_SPXBSplitSlotActive == 1)
-	{
-		g_SPXBSplitSlot0WorldAttempts = 0;
-		g_SPXBSplitSlot0WorldCulled = 0;
-		g_SPXBSplitSlot0WorldAlready = 0;
-		g_SPXBSplitSlot0WorldAdded = 0;
-	}
-
-	VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
-	xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
-
-	if (g_SPXBSplitSlotActive == 2 && xboxWorldDelta == 0 && tr.world && tr.world->nodes)
-	{
-		const int retryBefore = tr.refdef.numDrawSurfs;
-		g_SPXBSplitSlot1WorldFallback = 1;
-		++tr.viewCount;
-		VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << VVLightMan.num_dlights ) - 1 );
-		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
-		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
-	}
-
-	if (g_SPXBSplitSlotActive == 2 && xboxWorldDelta == 0 && tr.world && tr.world->nodes)
-	{
-		const int retryBefore = tr.refdef.numDrawSurfs;
-
-		g_SPXBSplitSlot1WorldFallback = 2;
-		++tr.viewCount;
-		/* Keep this retry bounded by the PVS. The earlier all-visible probe proved
-		   the render path, but it is too expensive for a release soak. */
-		VVLightMan.R_RecursiveWorldNode( tr.world->nodes, 0, ( 1 << VVLightMan.num_dlights ) - 1 );
-		g_SPXBSplitSlot1WorldRetryDelta = (unsigned int)(tr.refdef.numDrawSurfs - retryBefore);
-		xboxWorldDelta = tr.refdef.numDrawSurfs - xboxDrawBefore;
-	}
-#ifdef _XBOX
-	if (g_SPXBSplitSlotActive == 1)
-	{
-		g_SPXBSplitSlot0WorldDelta = (unsigned int)xboxWorldDelta;
-	}
-	else if (g_SPXBSplitSlotActive == 2)
-	{
-		g_SPXBSplitSlot1WorldDelta = (unsigned int)xboxWorldDelta;
-	}
-	{
-		static int s_stefxWorldVisBudget = 0;
-		if (s_stefxWorldVisBudget > 0)
-		{
-			XBLF("STEFX: worldvis cluster=%d leafDelta=%d drawDelta=%d totalDraw=%d visCount=%d rootVis=%d r_novis=%d r_nocull=%d bounds=(%g,%g,%g)-(%g,%g,%g)",
-				tr.viewCluster,
-				tr.pc.c_leafs - xboxLeafsBefore,
-				xboxWorldDelta,
-				tr.refdef.numDrawSurfs,
-				tr.visCount,
-				(tr.world && tr.world->nodes) ? tr.world->nodes[0].visframe : -1,
-				r_novis ? r_novis->integer : -1,
-				r_nocull ? r_nocull->integer : -1,
-				tr.viewParms.visBounds[0][0],
-				tr.viewParms.visBounds[0][1],
-				tr.viewParms.visBounds[0][2],
-				tr.viewParms.visBounds[1][0],
-				tr.viewParms.visBounds[1][1],
-				tr.viewParms.visBounds[1][2]);
-			--s_stefxWorldVisBudget;
-		}
-	}
-	if (s_xboxAddWorldLogBudget > 0)
-	{
-		XBLF("JA: R_AddWorldSurfaces after recursive leafs=%d drawSurfs=%d visBounds=(%g,%g,%g)-(%g,%g,%g)",
-			tr.pc.c_leafs,
-			tr.refdef.numDrawSurfs,
-			tr.viewParms.visBounds[0][0],
-			tr.viewParms.visBounds[0][1],
-			tr.viewParms.visBounds[0][2],
-			tr.viewParms.visBounds[1][0],
-			tr.viewParms.visBounds[1][1],
-			tr.viewParms.visBounds[1][2]);
-		--s_xboxAddWorldLogBudget;
-	}
-#endif
+	R_RecursiveWorldNode( tr.world->nodes, 15, ( 1 << tr.refdef.num_dlights ) - 1 );
 }
-
 #else // _XBOX
 
 void R_AddWorldSurfaces (void) {

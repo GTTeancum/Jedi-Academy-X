@@ -1,27 +1,20 @@
 /*
- * re_memory.cpp  —  RE Phase 3: Memory subsystem
- * Jedi Academy Xbox shipped binary (default.xbe, XDK 5558)
+ * RE notes for the shipping Jedi Academy MP Xbox memory contract.
  *
- * Binary anchor map:
- *   Com_InitZoneMemory   0x00049945   (107 insns — Z_Init)
- *   Z_Malloc             0x00049B00
- *   GlobalMemoryStatus   via [0x2CD0EC] = NtGlobalData (kernel ord_181)
- *   D3D_AllocContiguous  0x0023F620   (D3D section thunk)
- *   NtCreateSemaphore wr 0x000C1A23
- *   Sound pool alloc     0x000EC6D0   (allocates 0x139000 bytes)
+ * Authority: retail jamp.xbe, XDK 5558.
+ * Com_InitZoneMemory is the 413-byte function at VA 0x0004E240.
  *
- * KEY DIFFERENCE FOUND AND PATCHED:
- *   Binary uses D3D_AllocContiguousMemory(0x1000000, 0) — fixed 16 MB.
- *   Source used VirtualAlloc (dynamic size from GlobalMemoryStatus).
- *   PATCH APPLIED: code/qcommon/z_memman_console.cpp now uses
- *   D3D_AllocContiguousMemory on _XBOX builds. ✓
+ * Allocation order recovered from the retail machine code:
+ *   0x0004E293: D3D_AllocContiguousMemory(0x00A00000, 0)
+ *   0x0004E29E: D3D_AllocContiguousMemory(0x00400000, 0)
+ *   0x0004E2EB: query available physical memory
+ *   0x0004E2F4: zone size = available - 0x00C55020
+ *   0x0004E2FC: GlobalAlloc(0, zone size)
  *
- * MmAllocateContiguousMemory:    0 callers in .text
- * MmAllocateContiguousMemoryEx:  1 caller @ 0xC1E29 (XAPI; allocates 0x1000)
- *
- * Sound pool (binary 0xEC6D0): allocates 0x139000 bytes at end of Z_Init.
- * Source equivalent: G_ReserveZoneGentities() is called instead.
- * The sound pool in source is managed separately by snd_dma_console.cpp.
+ * Only the two GPU texture pools use contiguous memory. The general zone uses
+ * cached heap memory. D3D contiguous allocations are write-combined on Xbox,
+ * so placing read-heavy BSP, model, collision, or game data there is a severe
+ * CPU performance error. See notes/ja_mp_retail_renderer_re_2026-08-14.md.
  */
 
 #include "../game/q_shared.h"
@@ -30,57 +23,24 @@
 #ifdef _XBOX
 #include <xtl.h>
 
-/* D3D_AllocContiguousMemory is declared in D3D8-Xbox.h (included via xtl.h). */
-
-/* Zone pool size matching shipped binary: 16 MB fixed. */
-#define ZONE_POOL_SIZE_BINARY  (16 * 1024 * 1024)  /* 0x1000000 */
-
-/*
- * RE_Memory_ZoneAlloc_Verify — validates zone pool allocation matches binary.
- *
- * Binary Z_Init (0x49945) allocation sequence:
- *   push 0                       ; Alignment = 0 (page-aligned by D3D)
- *   push 0x1000000               ; Size = 16 MB
- *   call D3D_section@0x23F620    ; D3D_AllocContiguousMemory
- *   mov [0x81CE18], eax          ; store pool base
- *   mov [0x81CE20], 0x1000000    ; store pool size
- *
- * D3D_AllocContiguousMemory is safe to call before IDirect3D8::CreateDevice.
- * It internally calls NtAllocateVirtualMemory (kernel ord_183) with
- * MEM_COMMIT | MEM_RESERVE on a physically contiguous region.
- *
- * VirtualAlloc (kernel ord_183 = NtAllocateVirtualMemory) is functionally
- * equivalent for non-DMA use, but D3D_AllocContiguousMemory additionally
- * guarantees physical contiguity which benefits the D3D runtime.
- *
- * PATCH in z_memman_console.cpp replaces VirtualAlloc with:
- *   s_PoolBase = D3D_AllocContiguousMemory(ZONE_POOL_SIZE_BINARY, 0);
- */
+/* Link-time marker for the recovered allocation contract. */
 void RE_Memory_ZoneAlloc_Verify( void )
 {
-    /* D3D_AllocContiguousMemory linkage is verified indirectly:
-     * z_memman_console.cpp calls it at runtime during Com_InitZoneMemory.
-     * Declaration comes from D3D8-Xbox.h included in that translation unit. */
 }
 
 /*
- * RE_Memory_ZoneMalloc_Verify — documents Z_Malloc binary layout.
- *
- * Binary Z_Malloc (0x49B00):
- *   Standard VV linked-list first-fit allocator.
- *   Searches free list from s_FreeStart for first-fit block >= requested size.
- *   Delinks the free block and writes ZoneHeader before returned pointer.
- *   Updates [0x7BC300] (m_CountAlloc) and [0x7BC304] (m_SizeFree) on alloc.
- *   Short-lived tags (TAG_TEMP etc.) allocated from pool end; others from start.
- *
- * SOURCE STATUS: code/qcommon/z_memman_console.cpp Z_Malloc matches. ✓
+ * Retail Z_Malloc retains the VV linked-list allocator shape used by the
+ * source tree: short-lived tags allocate from the end, permanent tags from
+ * the beginning, and headers track size, alignment, and tag ownership.
  */
 void RE_Memory_ZoneMalloc_Verify( void )
 {
-    /* Z_Malloc linkage check. */
     extern void *Z_Malloc( int size, memtag_t tag, qboolean zeroed, int alignment );
     void *p = Z_Malloc( 4, TAG_STATIC, qtrue, 4 );
-    if ( p ) Z_Free( p );
+    if ( p )
+    {
+        Z_Free( p );
+    }
 }
 
 #endif /* _XBOX */

@@ -5,6 +5,12 @@
 
 #include "cg_local.h"
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern volatile unsigned int g_SPXBHMConsoleCommandCount;
+extern volatile unsigned int g_SPXBHMConsoleCommandTag;
+extern volatile unsigned int g_SPXBHMScoresDownCount;
+extern volatile unsigned int g_SPXBHMScoresUpCount;
+#endif
 
 
 static void CG_ObjectivesDown_f( void ) {
@@ -70,6 +76,9 @@ static void CG_Viewpos_f (void) {
 
 
 static void CG_ScoresDown_f( void ) {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++g_SPXBHMScoresDownCount;
+#endif
 	if ( cg.scoresRequestTime + 2000 < cg.time ) {
 		// the scores are more than two seconds out of data,
 		// so request new ones
@@ -90,6 +99,9 @@ static void CG_ScoresDown_f( void ) {
 }
 
 static void CG_ScoresUp_f( void ) {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++g_SPXBHMScoresUpCount;
+#endif
 	cg.showScores = qfalse;
 	cg.scoreFadeTime = cg.time;
 }
@@ -170,6 +182,16 @@ qboolean CG_ConsoleCommand( void ) {
 	int		i;
 
 	cmd = CG_Argv(0);
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++g_SPXBHMConsoleCommandCount;
+	if ( !Q_stricmp( cmd, "+info" ) ) {
+		g_SPXBHMConsoleCommandTag = 1;
+	} else if ( !Q_stricmp( cmd, "-info" ) ) {
+		g_SPXBHMConsoleCommandTag = 2;
+	} else {
+		g_SPXBHMConsoleCommandTag = 0xffffffffu;
+	}
+#endif
 
 	for ( i = 0 ; i < sizeof( commands ) / sizeof( commands[0] ) ; i++ ) {
 		if ( !Q_stricmp( cmd, commands[i].cmd ) ) {
@@ -214,6 +236,9 @@ void CG_InitConsoleCommands( void ) {
 	trap_AddCommand ("levelshot");
 	trap_AddCommand ("addbot");
 	trap_AddCommand ("setviewpos");
+#if defined(STEFX_SP_HOSTED_MP)
+	trap_AddCommand ("stefxsetviewpos");
+#endif
 	trap_AddCommand ("vote");
 	trap_AddCommand ("callvote");
 	trap_AddCommand ("loaddefered");	// spelled wrong, but not changing for demo

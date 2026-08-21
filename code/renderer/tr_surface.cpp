@@ -7,6 +7,26 @@
 
 #include "tr_local.h"
 
+// The shipping JA Xbox surface module owns the shared renderer ABI.  Keep
+// this translation unit for Elite Force-only procedural surfaces and MDR,
+// but give its legacy copies private names so they cannot win link ownership.
+#ifdef STEFX_RETAIL_SURFACE_ACTIVE
+#define RB_CheckOverflow       STEFX_EF_RB_CheckOverflow
+#define RB_AddQuadStampExt     STEFX_EF_RB_AddQuadStampExt
+#define RB_AddQuadStamp        STEFX_EF_RB_AddQuadStamp
+#define RB_SurfacePolychain    STEFX_EF_RB_SurfacePolychain
+#define RB_SurfaceTriangles    STEFX_EF_RB_SurfaceTriangles
+#define RB_SurfaceMesh         STEFX_EF_RB_SurfaceMesh
+#define RB_SurfaceFace         STEFX_EF_RB_SurfaceFace
+#define RB_SurfaceGrid         STEFX_EF_RB_SurfaceGrid
+#define RB_SurfaceEntity       STEFX_EF_RB_SurfaceEntity
+#define RB_SurfaceBad          STEFX_EF_RB_SurfaceBad
+#define RB_SurfaceFlare        STEFX_EF_RB_SurfaceFlare
+#define RB_SurfaceDisplayList  STEFX_EF_RB_SurfaceDisplayList
+#define RB_SurfaceSkip         STEFX_EF_RB_SurfaceSkip
+#define rb_surfaceTable        stefx_ef_surfaceTable
+#endif
+
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/xb_log.h"
@@ -2948,6 +2968,47 @@ static void RB_SurfaceAxis( void ) {
 
 //===========================================================================
 
+#ifdef STEFX_RETAIL_SURFACE_ACTIVE
+qboolean STEFX_EF_SurfaceEntity( void ) {
+	switch ( backEnd.currentEntity->e.reType ) {
+#if defined(STEFX_SP_HOSTED_MP)
+	case RT_TEXTURED_LINE:
+		RB_SurfaceTexturedLine();
+		return qtrue;
+	case RT_TAPERED_LINE:
+		RB_SurfaceTaperedLine();
+		return qtrue;
+	case RT_BEZIER:
+		RB_SurfaceBezier();
+		return qtrue;
+	case RT_EF_ORIENTED_SPRITE:
+		RB_SurfaceEFOrientedSprite();
+		return qtrue;
+	case RT_EF_ALPHA_VERT_POLY:
+		RB_SurfaceEFAlphaVertPoly();
+		return qtrue;
+	case RT_EF_LIGHTNING:
+		RB_SurfaceEFLightning();
+		return qtrue;
+	case RT_EF_CYLINDER:
+		RB_SurfaceEFCylinder();
+		return qtrue;
+	case RT_EF_ELECTRICITY:
+		RB_SurfaceEFElectricity();
+		return qtrue;
+#endif
+	case RT_LATHE:
+		RB_SurfaceLathe();
+		return qtrue;
+	case RT_CLOUDS:
+		RB_SurfaceClouds();
+		return qtrue;
+	default:
+		return qfalse;
+	}
+}
+#endif
+
 /*
 ====================
 RB_SurfaceEntity
@@ -3103,9 +3164,11 @@ static bool RB_TestZFlare( vec3_t point) {
 	if ( r_flares->integer !=1 ) {	//skipping the the z-test
 		return true;
 	} 
-	// doing a readpixels is as good as doing a glFinish(), so
-	// don't bother with another sync
+	// Xbox qglReadPixels is a no-op. Preserve the finish state so this probe
+	// cannot force RB_SwapBuffers to drain the GPU at the end of every frame.
+#ifndef _XBOX
 	glState.finishCalled = qfalse;
+#endif
 	glReadPixels( backEnd.viewParms.viewportX + window[0],backEnd.viewParms.viewportY + window[1], 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
 
 	screenZ = backEnd.viewParms.projectionMatrix[14] / 
@@ -3233,9 +3296,6 @@ void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])( void *) = {
 	(void(*)(void*))RB_SurfaceTerrain,		// SF_TERRAIN,
 #endif
 	(void(*)(void*))RB_SurfaceMesh,			// SF_MD3,
-#ifdef STEFX_ELITE_FORCE_SP
-	(void(*)(void*))RB_SurfaceAnim,			// SF_MDR,
-#endif
 /*
 Ghoul2 Insert Start
 */
@@ -3246,5 +3306,8 @@ Ghoul2 Insert End
 */
 	(void(*)(void*))RB_SurfaceFlare,		// SF_FLARE,
 	(void(*)(void*))RB_SurfaceEntity,		// SF_ENTITY
-	(void(*)(void*))RB_SurfaceDisplayList	// SF_DISPLAY_LIST
+	(void(*)(void*))RB_SurfaceDisplayList,	// SF_DISPLAY_LIST
+#ifdef STEFX_ELITE_FORCE_SP
+	(void(*)(void*))RB_SurfaceAnim			// SF_MDR,
+#endif
 };

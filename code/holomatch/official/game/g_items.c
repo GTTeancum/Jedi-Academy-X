@@ -2,7 +2,7 @@
 //
 #include "g_local.h"
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 extern void XBLog_WriteCriticalf(const char *fmt, ...);
 #endif
 
@@ -166,7 +166,7 @@ int Pickup_Holdable( gentity_t *ent, gentity_t *other )
 
 void Add_Ammo (gentity_t *ent, int weapon, int count)
 {
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	int ammoBefore = 0;
 	static int s_stefxAmmoAddLogBudget = 96;
 	if (ent && ent->client && weapon >= 0 && weapon < WP_NUM_WEAPONS)
@@ -178,7 +178,7 @@ void Add_Ammo (gentity_t *ent, int weapon, int count)
 	if ( ent->client->ps.ammo[weapon] > Max_Ammo[weapon] ) {
 		ent->client->ps.ammo[weapon] = Max_Ammo[weapon];
 	}
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if (ent && ent->client && weapon >= 0 && weapon < WP_NUM_WEAPONS &&
 		s_stefxAmmoAddLogBudget > 0)
 	{
@@ -207,7 +207,7 @@ int Pickup_Ammo (gentity_t *ent, gentity_t *other)
 	}
 
 	Add_Ammo (other, ent->item->giTag, quantity);
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	XBLog_WriteCriticalf("STEFX_HM_AMMO: pickup-ammo client=%d ammoWeapon=%d quantity=%d now=%d",
 		other->s.number,
 		ent->item->giTag,
@@ -223,7 +223,7 @@ int Pickup_Ammo (gentity_t *ent, gentity_t *other)
 
 int Pickup_Weapon (gentity_t *ent, gentity_t *other) {
 	int		quantity;
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	int		ammoBefore = other->client->ps.ammo[ent->item->giTag];
 #endif
 
@@ -266,7 +266,7 @@ int Pickup_Weapon (gentity_t *ent, gentity_t *other) {
 
 	Add_Ammo( other, ent->item->giTag, quantity );
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	XBLog_WriteCriticalf("STEFX_HM_ITEM: weapon pickup client=%d weapon=%d quantity=%d ammo=%d->%d",
 		other->s.number,
 		ent->item->giTag,

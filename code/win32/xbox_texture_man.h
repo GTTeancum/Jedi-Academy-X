@@ -21,300 +21,315 @@
 class StaticTextureAllocator
 {
 public:
-	enum { MAX_FREE_BLOCKS = 4096 };
+	StaticTextureAllocator( void ) { }
 
-	StaticTextureAllocator( void )
+	void Reserve( unsigned long size )
 	{
-		base = NULL;
+		if( !base )
+			base = (unsigned char *) D3D_AllocContiguousMemory( size, 0 );
 		allocPoint = 0;
-		poolSize = 0;
+		poolSize = size;
 		maxAlloc = 0;
-		freeBlockCount = 0;
-		swappedSize = 0;
-		swappedPoint = 0;
-		swappedFreeBlockCount = 0;
-		swappedBackup = NULL;
 	}
 
 	void Initialize( unsigned long size )
 	{
-		// The renderer can be restarted without restarting the process. Keep
-		// the contiguous pool alive across those restarts; allocating another
-		// 20 MiB block would strand the old one and quickly exhaust an Xbox.
-		if ( base && poolSize == size )
-		{
-			Reset();
-			maxAlloc = 0;
-			swappedSize = 0;
-			swappedPoint = 0;
-			swappedFreeBlockCount = 0;
-			if ( swappedBackup )
-			{
-				delete [] swappedBackup;
-				swappedBackup = NULL;
-			}
-			return;
-		}
-
-		Shutdown();
-		base = (unsigned char *) D3D_AllocContiguousMemory( size, 0 );
-		allocPoint = 0;
-		poolSize = base ? size : 0;
-		maxAlloc = 0;
-		swappedSize = 0;
-		swappedPoint = 0;
-		swappedFreeBlockCount = 0;
-		swappedBackup = NULL;
-		Reset();
+		Reserve( size );
 	}
 
-	void Shutdown( void )
-	{
-		if ( swappedBackup )
-		{
-			delete [] swappedBackup;
-			swappedBackup = NULL;
-		}
-		if ( base )
-		{
-			D3D_FreeContiguousMemory( base );
-			base = NULL;
-		}
-		allocPoint = 0;
-		poolSize = 0;
-		maxAlloc = 0;
-		freeBlockCount = 0;
-		swappedSize = 0;
-		swappedPoint = 0;
-		swappedFreeBlockCount = 0;
-	}
-
-	// texNum remains unused; allocations are tracked by address and size.
+	// No bookkeeping necessary, texNum is unused:
 	void *Allocate( unsigned long size, GLuint texNum )
 	{
-		unsigned long alignedSize;
-		unsigned long i;
-
-		if ( !base || !size )
-			return NULL;
-
-		if ( size > 0xffffffffUL - 127 )
-			return NULL;
-		alignedSize = (size + 127) & ~127;
-
-		for ( i = 0; i < freeBlockCount; ++i )
-		{
-			if ( freeBlocks[i].size >= alignedSize )
-			{
-				const unsigned long offset = freeBlocks[i].offset;
-				freeBlocks[i].offset += alignedSize;
-				freeBlocks[i].size -= alignedSize;
-				if ( freeBlocks[i].size == 0 )
-				{
-					RemoveFreeBlock(i);
-				}
-
-				allocPoint += alignedSize;
-
 #ifndef FINAL_BUILD
-				if( allocPoint > maxAlloc )
-					maxAlloc = allocPoint;
+		assert( allocPoint + size <= poolSize );
+		if( allocPoint + size > poolSize )
+			throw "Static texture pool full";
 #endif
 
-				return base + offset;
-			}
-		}
+		// Current location:
+		void *retVal = base + allocPoint;
 
-		return NULL;
-	}
+		// Advance, then round up:
+		allocPoint += size;
+		allocPoint = (allocPoint + 127) & ~127;
 
-	bool Free( void *memory, unsigned long size )
-	{
-		unsigned long alignedSize;
-		unsigned long offset;
-		unsigned long insertAt;
+#ifndef FINAL_BUILD
+		if( allocPoint > maxAlloc )
+			maxAlloc = allocPoint;
+#endif
 
-		if ( !memory || !size || !base )
-			return false;
-		if ( size > 0xffffffffUL - 127 )
-			return false;
-
-		alignedSize = (size + 127) & ~127;
-		offset = (unsigned long)((unsigned char *)memory - base);
-		if ( offset >= poolSize || alignedSize > poolSize - offset )
-			return false;
-
-		insertAt = 0;
-		while ( insertAt < freeBlockCount &&
-				freeBlocks[insertAt].offset < offset )
-		{
-			++insertAt;
-		}
-
-		if ( insertAt > 0 &&
-			freeBlocks[insertAt - 1].offset + freeBlocks[insertAt - 1].size > offset )
-			return false;
-		if ( insertAt < freeBlockCount &&
-			offset + alignedSize > freeBlocks[insertAt].offset )
-			return false;
-
-		if ( insertAt > 0 &&
-			freeBlocks[insertAt - 1].offset + freeBlocks[insertAt - 1].size == offset )
-		{
-			freeBlocks[insertAt - 1].size += alignedSize;
-			if ( insertAt < freeBlockCount &&
-				freeBlocks[insertAt - 1].offset + freeBlocks[insertAt - 1].size ==
-					freeBlocks[insertAt].offset )
-			{
-				freeBlocks[insertAt - 1].size += freeBlocks[insertAt].size;
-				RemoveFreeBlock(insertAt);
-			}
-		}
-		else if ( insertAt < freeBlockCount &&
-			offset + alignedSize == freeBlocks[insertAt].offset )
-		{
-			freeBlocks[insertAt].offset = offset;
-			freeBlocks[insertAt].size += alignedSize;
-		}
-		else
-		{
-			if ( freeBlockCount >= MAX_FREE_BLOCKS )
-				return false;
-			for ( unsigned long i = freeBlockCount; i > insertAt; --i )
-			{
-				freeBlocks[i] = freeBlocks[i - 1];
-			}
-			freeBlocks[insertAt].offset = offset;
-			freeBlocks[insertAt].size = alignedSize;
-			++freeBlockCount;
-		}
-
-		if ( alignedSize > allocPoint )
-			allocPoint = 0;
-		else
-			allocPoint -= alignedSize;
-		return true;
+		return retVal;
 	}
 
 	void Reset( void )
 	{
+		// Just move our allocation marker back to the start:
 		allocPoint = 0;
-		freeBlockCount = 0;
-		if ( base && poolSize )
-		{
-			freeBlocks[0].offset = 0;
-			freeBlocks[0].size = poolSize;
-			freeBlockCount = 1;
-		}
 	}
 
-	// This is used by the bink code to make room for a giant texture
-	// that doesn't need to live at the same time as any others
-	void SwapTextureMemory( unsigned long size )
-	{
-		assert( !swappedPoint && !swappedSize && !swappedBackup && (size < poolSize) );
-
-		// Save off old texturePoint:
-		swappedPoint = allocPoint;
-		swappedSize = size;
-		swappedFreeBlockCount = freeBlockCount;
-		memcpy(swappedFreeBlocks, freeBlocks,
-			freeBlockCount * sizeof(freeBlocks[0]));
-
-		// Reset texture pool to the beginning of the block:
-		Reset();
-
-		// Save whatever's there now. The original code used Z:\texswap as
-		// scratch storage; keeping it in memory avoids depending on a mounted
-		// scratch volume during in-game Bink playback.
-		swappedBackup = new unsigned char[size];
-		assert( swappedBackup );
-		if( swappedBackup )
-			memcpy( swappedBackup, base, size );
-	}
-
-	void UnswapTextureMemory( void )
-	{
-		assert( swappedSize && swappedBackup );
-
-		// Read back the data we saved before:
-		if( swappedBackup )
-		{
-			memcpy( base, swappedBackup, swappedSize );
-			delete [] swappedBackup;
-			swappedBackup = NULL;
-		}
-
-		// Reset texture point
-		allocPoint = swappedPoint;
-		freeBlockCount = swappedFreeBlockCount;
-		memcpy(freeBlocks, swappedFreeBlocks,
-			freeBlockCount * sizeof(freeBlocks[0]));
-		swappedPoint = 0;
-		swappedSize = 0;
-		swappedFreeBlockCount = 0;
-	}
-
-	unsigned long Size( void )
+	unsigned long Size( void ) const
 	{
 		return allocPoint;
 	}
 
-	unsigned long Capacity( void )
+	unsigned long Capacity( void ) const
 	{
 		return poolSize;
 	}
 
-	unsigned long Free( void )
-	{
-		if ( allocPoint > poolSize )
-			return 0;
-		return poolSize - allocPoint;
-	}
-
-	unsigned long LargestFree( void )
-	{
-		unsigned long largest = 0;
-		for ( unsigned long i = 0; i < freeBlockCount; ++i )
-		{
-			if ( freeBlocks[i].size > largest )
-				largest = freeBlocks[i].size;
-		}
-		return largest;
-	}
-
 private:
-	struct FreeBlock
-	{
-		unsigned long offset;
-		unsigned long size;
-	};
-
-	void RemoveFreeBlock( unsigned long index )
-	{
-		for ( unsigned long i = index + 1; i < freeBlockCount; ++i )
-		{
-			freeBlocks[i - 1] = freeBlocks[i];
-		}
-		--freeBlockCount;
-	}
-
 	unsigned char	*base;
 	unsigned long	allocPoint;
 	unsigned long	poolSize;
 	unsigned long	maxAlloc;
-	FreeBlock		freeBlocks[MAX_FREE_BLOCKS];
-	unsigned long	freeBlockCount;
+};
 
-	// Extra bookkeeping for Bink texture nastiness:
-	unsigned long swappedSize;
-	unsigned long swappedPoint;
-	FreeBlock swappedFreeBlocks[MAX_FREE_BLOCKS];
-	unsigned long swappedFreeBlockCount;
-	unsigned char *swappedBackup;
+class SwappingTextureAllocator
+{
+private:
+	struct allocatedTexture_t
+	{
+		GLuint			texNum;	// Index for textureXlat
+		unsigned char	*data;	// Pointer to data
+	};
+
+	void _swapAllTexturesToDisk( void )
+	{
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		++swapCount;
+#endif
+		for( int i = 0; i < numTextures; ++i )
+		{
+			GLuint texNum = allocatedTextures[i].texNum;
+
+			// Get the TextureInfo *
+			glwstate_t::texturexlat_t::iterator it =
+				glw_state->textureXlat.find( texNum );
+			glwstate_t::TextureInfo *info = &it->second;
+
+			//If texture has already been written out, don't write it again.
+			if(info->fileOffset != -1) {
+				info->inMemory = false;
+				continue;
+			}
+
+			// Stall until the GPU is done with it:
+			info->mipmap->BlockUntilNotBusy();
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			++waitCount;
+#endif
+
+			//File pointer may have been moved by a read.  Set it to the
+			//proper position.
+			if(SetFilePointer(fileHandle, fileOffset, NULL, FILE_BEGIN) ==
+					INVALID_SET_FILE_POINTER) {
+				throw "Couldn't seek end of file";
+			}
+
+			// Write the old texture out to disk:
+			DWORD bytesWritten = 0;
+			if( !WriteFile( fileHandle, allocatedTextures[i].data,
+						info->size, &bytesWritten, NULL ) ||
+						(bytesWritten != info->size) )
+				throw "Couldn't write file";
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			bytesWrittenTotal += bytesWritten;
+#endif
+
+			// Mark texture as not in memory anymore:
+			info->inMemory = false;
+
+			//Set file offset so we can find the texture later.
+			info->fileOffset = fileOffset;
+
+			//Increment for the next file.
+			fileOffset += info->size;
+		}
+
+		ResetMemory();
+	}
+
+	void ResetMemory( void )
+	{
+		allocPoint = 0;
+		numTextures = 0;
+	}
+
+public:
+	SwappingTextureAllocator( void ) { }
+
+	void Reserve( unsigned long size )
+	{
+		if( !base )
+			base = (unsigned char *) D3D_AllocContiguousMemory( size, 0 );
+		poolSize = size;
+		fileHandle = INVALID_HANDLE_VALUE;
+		ResetMemory();
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		ResetCounters();
+#endif
+	}
+
+	void Initialize( unsigned long size )
+	{
+		Reserve( size );
+		Reset();
+	}
+
+	// Allocate enough space for size - it's used for texture texNum:
+	void *Allocate( unsigned long size, GLuint texNum )
+	{
+		// Check for fullness - make room
+		if( allocPoint + size > poolSize )
+		{
+			Com_Printf( "Swapping all model textures to disk!\n" );
+			_swapAllTexturesToDisk();
+		}
+
+		// Current location:
+		void *retVal = base + allocPoint;
+
+		// Advance, then round up:
+		allocPoint += size;
+		allocPoint = (allocPoint + 127) & ~127;
+
+		// Make a note of this texture:
+		allocatedTextures[numTextures].data = (unsigned char *) retVal;
+		allocatedTextures[numTextures].texNum = texNum;
+		++numTextures;
+
+		return retVal;
+	}
+
+	// This should only be called when it's already been determined that the
+	// requested texture isn't in memory. This makes room (if necessary)
+	// and then re-loads it, fixing up the TextureInfo that goes with it
+	void Fetch( GLuint texNum )
+	{
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		++fetchCount;
+#endif
+		glwstate_t::texturexlat_t::iterator i =
+			glw_state->textureXlat.find( texNum );
+		glwstate_t::TextureInfo *info = &i->second;
+
+		unsigned char *newData = (unsigned char *) Allocate( info->size, texNum );
+
+		//Seek to proper file position.
+		if(SetFilePointer(fileHandle, info->fileOffset, NULL, FILE_BEGIN) ==
+				INVALID_SET_FILE_POINTER) {
+			throw "Couldn't seek for reading";
+		}
+
+		// Find the data that goes with this texture on disk:
+		DWORD bytesRead = 0;
+		if( !ReadFile( fileHandle, newData, info->size, &bytesRead, NULL ) ||
+			(bytesRead != info->size) )
+			throw "Couldn't read file";
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		bytesReadTotal += bytesRead;
+#endif
+
+		// I'm getting errors with locked textures here. How!? Try to make it work,
+		// figure out what the fuck is wrong later: VVFIXME
+		if( info->mipmap->IsBusy() )
+		{
+			info->mipmap->BlockUntilNotBusy();
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			++waitCount;
+#endif
+		}
+
+		// Fix up the texture data and other info:
+		info->mipmap->Data = 0;
+		info->mipmap->Register( newData );
+		info->inMemory = true;
+	}
+
+	void Reset( void )
+	{
+		ResetMemory();
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		ResetCounters();
+#endif
+
+		if(fileHandle != INVALID_HANDLE_VALUE) {
+			CloseHandle(fileHandle);
+		}
+
+		fileHandle = CreateFile( "z:\\skintextures",
+				GENERIC_WRITE | GENERIC_READ, 0,
+				NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+		if( fileHandle == INVALID_HANDLE_VALUE )
+			throw "Couldn't create texture swap file";
+
+		fileOffset = 0;
+	}
+
+	// This forces all textures in memory to disk, so that the next frame or
+	// so will re-load whatever's needed. It's only useful in situations where
+	// you know that you're going to cache-miss on a bunch of textures, then
+	// run out of space, and have to re-load them again. (Good when going in
+	// and out of the in-game UI) ?
+	void Flush( void )
+	{
+		_swapAllTexturesToDisk();
+	}
+
+	// Just a little helper for the memory manager to see how much of the pool is used:
+	unsigned long Size( void ) const
+	{
+		return allocPoint;
+	}
+
+	unsigned long Capacity( void ) const
+	{
+		return poolSize;
+	}
+
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	unsigned long SwapCount( void ) const { return swapCount; }
+	unsigned long FetchCount( void ) const { return fetchCount; }
+	unsigned long WaitCount( void ) const { return waitCount; }
+	unsigned long BytesWritten( void ) const { return bytesWrittenTotal; }
+	unsigned long BytesRead( void ) const { return bytesReadTotal; }
+#endif
+
+private:
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	void ResetCounters( void )
+	{
+		swapCount = 0;
+		fetchCount = 0;
+		waitCount = 0;
+		bytesWrittenTotal = 0;
+		bytesReadTotal = 0;
+	}
+#endif
+
+	unsigned char	*base;
+	unsigned long	poolSize;
+	unsigned long	allocPoint;
+	unsigned long	fileOffset;
+	HANDLE 			fileHandle;
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	unsigned long	swapCount;
+	unsigned long	fetchCount;
+	unsigned long	waitCount;
+	unsigned long	bytesWrittenTotal;
+	unsigned long	bytesReadTotal;
+#endif
+
+	allocatedTexture_t	allocatedTextures[4096];
+	int			numTextures;
 };
 
 // Global texture allocators:
-extern StaticTextureAllocator	gTextures;
+extern StaticTextureAllocator	gStaticTextures;
+extern SwappingTextureAllocator	gSkinTextures;
+
+extern void BeginSkinTextures( void );
+extern void EndSkinTextures( void );
+extern void ReserveRetailTexturePoolsEarly( void );
 
 #endif

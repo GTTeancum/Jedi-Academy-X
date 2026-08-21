@@ -4416,11 +4416,11 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	cg.refdef.rdflags |= RDF_DRAWSKYBOX;
 
 	// draw 3D view
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43475230; /* 'CGR0' */
 #endif
 	cgi_R_RenderScene( &cg.refdef );
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43475231; /* 'CGR1' */
 #endif
 
@@ -4430,11 +4430,11 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	}
 
 	// draw status bar and other floating elements
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43473230; /* 'CG20' */
 #endif
 	CG_Draw2D();
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43473231; /* 'CG21' */
 #endif
 

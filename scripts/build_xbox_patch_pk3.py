@@ -12,9 +12,13 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 import warnings
 import zipfile
 from pathlib import Path
@@ -45,6 +49,28 @@ LIGHTMAP_RGB_BYTES = LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3
 LIGHTMAP_RGB565_DDS_BYTES = 128 + LIGHTMAP_SIZE * LIGHTMAP_SIZE * 2
 DEFAULT_LIGHTMAP_BOOST = 2.5
 MULTIPLAYER_MAP_PREFIXES = ("ctf_", "hm_", "dm_", "team_")
+PACKED_BSP_LUMP_NAMES = (
+    "brushes",
+    "brushsides",
+    "entities",
+    "faces",
+    "flares",
+    "indexes",
+    "leafbrushes",
+    "leafs",
+    "leafsurfaces",
+    "lightarray",
+    "lightgrid",
+    "misc",
+    "models",
+    "nodes",
+    "patches",
+    "planes",
+    "shaders",
+    "trisurfs",
+    "verts",
+    "visibility",
+)
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".tga", ".png")
 SKYBOX_SUFFIXES = ("rt", "lf", "bk", "ft", "up", "dn")
@@ -106,10 +132,13 @@ RGB565_TEXTURES = (
 ALWAYS_TEXTURES = (
     # These atlases are registered directly by the shared SP frontend/pause
     # code, so shader-script discovery cannot find them. They require alpha
-    # fidelity and are therefore emitted through the gfx/ BGRA32 DDS path.
+    # fidelity and are therefore emitted through the retail-style DXT5 path.
     "gfx/2d/chars_big",
     "gfx/2d/chars_medium",
     "gfx/2d/chars_tiny",
+    # The cgame indexes this atlas with authored 256x256 coordinates. Applying
+    # the ordinary HUD cap changes every glyph rectangle.
+    "gfx/2d/charsgrid_med",
 )
 FULLSCREEN_TEXTURE_SEEDS = (
     "textures/common/70yearjourney",
@@ -145,10 +174,6 @@ SEEDED_UI_DDS_PREFIXES = (
     "sprites/",
 )
 ORIGINAL_FORMAT_TEXTURES = (
-    # These are script/cgame-owned intro assets. Until their Xbox-native
-    # conversion has visual proof, do not let xbox0.pk3 override the original
-    # JPG/TGA path that Elite Force scripts already drive correctly.
-    "gfx/2d/charsgrid_med",
     # Dark/detail-heavy sky backing loses too much signal in the current DXT1
     # conversion, so keep the stock JPG until the Xbox-native path is proven.
     "textures/borg/borgsky",
@@ -176,17 +201,18 @@ ORIGINAL_FORMAT_TEXTURES = (
     "textures/common/tuvokhazard",
 )
 
-XBOX_PATCH_SHADER_TEXT = """\
-// Xbox-specific shader fixes for stock Elite Force assets.
-//
-// Keep borg1 structural panels script-neutral: textures/borg/xpanelb is an
-// implicit BSP material in the stock map, so texture fidelity is handled by the
-// DDS asset format rather than by overriding the shader script.
-"""
-
-XBOX_PATCH_SHADER_PATH = "scripts/xbox_borg_fix.shader"
+XBOX_PATCH_SHADER_PATH = "scripts/borg.shader"
+XBOX_STOCK_SHADER_PATHS = (
+    XBOX_PATCH_SHADER_PATH,
+    "scripts/voyager.shader",
+)
+XBOX_PREMULTIPLIED_ALPHA_MAPS = (
+    "textures/borg/bigborg.tga",
+    "textures/borg/oddlight1.tga",
+)
 
 REFERENCE_RE = re.compile(r"\b(qer_editorimage|map|clampmap|animmap|skyparms)\s+(.+)", re.IGNORECASE)
+PAK_NAME_RE = re.compile(r"^pak(\d+)\.pk3$", re.IGNORECASE)
 FIXED_ZIP_TIME = (2026, 1, 1, 0, 0, 0)
 XBOX_EFFECTS_IMAGE_REL = "sound/dsstdfx.bin"
 XBOX_EFFECTS_IMAGE_CANDIDATES = (
@@ -367,6 +393,135 @@ def parse_shader_references(base_dir: Path, shader_names: set[str]) -> set[str]:
     return refs
 
 
+def shader_archive_sort_key(path: Path) -> tuple[int, str]:
+    match = PAK_NAME_RE.match(path.name)
+    return (int(match.group(1)) if match else -1, path.name.lower())
+
+
+def shader_source_texts(base_dir: Path, archive_dir: Path | None) -> dict[str, str]:
+    texts: dict[str, str] = {}
+    if archive_dir and archive_dir.is_dir():
+        archives = sorted(
+            (
+                path
+                for path in archive_dir.iterdir()
+                if path.is_file() and PAK_NAME_RE.match(path.name)
+            ),
+            key=shader_archive_sort_key,
+        )
+        for archive in archives:
+            with zipfile.ZipFile(archive, "r") as source:
+                for entry in source.infolist():
+                    rel = normalized_rel(entry.filename)
+                    if entry.is_dir() or not rel.endswith(".shader"):
+                        continue
+                    texts[rel] = source.read(entry).decode("latin1", "ignore")
+
+    for shader_path in shader_script_files(base_dir):
+        rel = normalized_rel(shader_path.relative_to(base_dir).as_posix())
+        texts[rel] = shader_path.read_text(errors="ignore")
+    return texts
+
+
+def xbox_stock_shader_bytes(base_dir: Path, archive_dir: Path | None) -> dict[str, bytes]:
+    sources = shader_source_texts(base_dir, archive_dir)
+    missing = [path for path in XBOX_STOCK_SHADER_PATHS if path not in sources]
+    if missing:
+        raise FileNotFoundError(
+            f"missing stock shader scripts {', '.join(missing)}; "
+            "provide --shader-archive-dir"
+        )
+
+    patched = sources[XBOX_PATCH_SHADER_PATH]
+    for texture_map in XBOX_PREMULTIPLIED_ALPHA_MAPS:
+        pattern = re.compile(
+            r"(?im)(^\s*map\s+" + re.escape(texture_map) +
+            r"\s*\r?\n\s*blendFunc\s+)GL_ONE\s+GL_SRC_ALPHA(\s*(?://.*)?$)"
+        )
+        patched, count = pattern.subn(r"\1GL_ONE GL_ONE_MINUS_SRC_ALPHA\2", patched)
+        if count == 0:
+            corrected = re.compile(
+                r"(?im)^\s*map\s+" + re.escape(texture_map) +
+                r"\s*\r?\n\s*blendFunc\s+GL_ONE\s+GL_ONE_MINUS_SRC_ALPHA\s*(?://.*)?$"
+            )
+            count = len(corrected.findall(patched))
+        if count != 1:
+            raise ValueError(
+                f"expected one blend correction for {texture_map} in "
+                f"{XBOX_PATCH_SHADER_PATH}, found {count}"
+            )
+    packaged = {
+        path: sources[path].encode("latin1")
+        for path in XBOX_STOCK_SHADER_PATHS
+    }
+    packaged[XBOX_PATCH_SHADER_PATH] = patched.encode("latin1")
+    return packaged
+
+
+def extract_all_texture_references(line: str) -> set[str]:
+    match = REFERENCE_RE.search(line)
+    if not match:
+        return set()
+
+    keyword = match.group(1).lower()
+    tokens = [token.strip('"') for token in match.group(2).split()]
+    if keyword == "skyparms":
+        tokens = [f"{tokens[0]}_{suffix}" for suffix in SKYBOX_SUFFIXES] if tokens else []
+    elif keyword == "animmap":
+        tokens = tokens[1:]
+    else:
+        tokens = tokens[:1]
+
+    refs: set[str] = set()
+    for token in tokens:
+        token = normalized_rel(token)
+        if not token or token.startswith("$") or token == "-" or "/" not in token:
+            continue
+        path = Path(*token.split("/"))
+        if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
+            token = normalized_rel(path.with_suffix("").as_posix())
+        refs.add(token)
+    return refs
+
+
+def no_mipmap_texture_references(base_dir: Path, archive_dir: Path | None) -> set[str]:
+    refs: set[str] = set()
+    for text in shader_source_texts(base_dir, archive_dir).values():
+        pending_header: str | None = None
+        current_header: str | None = None
+        block_lines: list[str] = []
+        depth = 0
+
+        for raw_line in text.splitlines():
+            line = strip_line_comment(raw_line)
+            if not line:
+                continue
+
+            if depth == 0:
+                if "{" not in line:
+                    pending_header = normalized_rel(line.split()[0])
+                    continue
+                before_brace = line.split("{", 1)[0].strip()
+                current_header = normalized_rel(before_brace.split()[0]) if before_brace else pending_header
+                pending_header = None
+                block_lines = []
+
+            if current_header:
+                block_lines.append(line)
+
+            depth += line.count("{")
+            depth -= line.count("}")
+            if current_header and depth <= 0:
+                if any(re.search(r"\bnomipmaps\b", block_line, re.IGNORECASE) for block_line in block_lines):
+                    refs.add(current_header)
+                    for block_line in block_lines:
+                        refs.update(extract_all_texture_references(block_line))
+                current_header = None
+                block_lines = []
+                depth = 0
+    return refs
+
+
 def extract_texture_references(line: str) -> set[str]:
     match = REFERENCE_RE.search(line)
     if not match:
@@ -425,11 +580,29 @@ def should_use_rgb565_texture(candidate: str) -> bool:
 
 
 def should_force_bgra32_texture(candidate: str) -> bool:
+    # Retail JA stores its alpha-bearing gfx assets as DXT5. Its DDS loader
+    # copies 32-bit payloads directly into swizzled texture memory, which only
+    # works for the single pre-swizzled BGRA32 asset in the retail data set.
+    # Our source images are conventional linear pixels, so never select that
+    # private asset-pipeline contract here.
+    return False
+
+
+def should_generate_mipmaps(candidate: str, no_mipmap_refs: set[str]) -> bool:
     candidate = normalized_rel(candidate)
     path = Path(*candidate.split("/"))
     if path.suffix.lower() in IMAGE_EXTS or path.suffix.lower() == ".dds":
         candidate = normalized_rel(path.with_suffix("").as_posix())
-    return candidate.startswith("gfx/")
+
+    if candidate in no_mipmap_refs:
+        return False
+    if is_always_texture(candidate) or is_fullscreen_texture(candidate):
+        return False
+    if candidate.startswith("levelshots/") or candidate.startswith("fonts/"):
+        return False
+    if Path(candidate).name.endswith("_spec"):
+        return False
+    return candidate.startswith(("textures/", "models/", "env/"))
 
 
 def directory_texture_candidates(base_dir: Path, rel_dirs: tuple[str, ...]) -> set[str]:
@@ -538,25 +711,42 @@ def resize_for_xbox(image: Image.Image, max_size: int) -> Image.Image:
     return image.resize(target, resample)
 
 
-def dds_header(width: int, height: int, pitch: int, rgb_bits: int, masks: tuple[int, int, int, int], alpha: bool) -> bytes:
+def dds_header(
+    width: int,
+    height: int,
+    pitch: int,
+    rgb_bits: int,
+    masks: tuple[int, int, int, int],
+    alpha: bool,
+    mip_count: int = 1,
+) -> bytes:
     DDSD_CAPS = 0x00000001
     DDSD_HEIGHT = 0x00000002
     DDSD_WIDTH = 0x00000004
     DDSD_PITCH = 0x00000008
     DDSD_PIXELFORMAT = 0x00001000
+    DDSD_MIPMAPCOUNT = 0x00020000
     DDPF_ALPHAPIXELS = 0x00000001
     DDPF_RGB = 0x00000040
     DDSCAPS_TEXTURE = 0x00001000
+    DDSCAPS_COMPLEX = 0x00000008
+    DDSCAPS_MIPMAP = 0x00400000
 
+    mip_count = max(1, mip_count)
     pf_flags = DDPF_RGB | (DDPF_ALPHAPIXELS if alpha else 0)
+    header_flags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT
+    caps = DDSCAPS_TEXTURE
+    if mip_count > 1:
+        header_flags |= DDSD_MIPMAPCOUNT
+        caps |= DDSCAPS_COMPLEX | DDSCAPS_MIPMAP
     fields = [
         124,
-        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT,
+        header_flags,
         height,
         width,
         pitch,
         0,
-        1,
+        mip_count,
         *([0] * 11),
         32,
         pf_flags,
@@ -566,7 +756,7 @@ def dds_header(width: int, height: int, pitch: int, rgb_bits: int, masks: tuple[
         masks[1],
         masks[2],
         masks[3],
-        DDSCAPS_TEXTURE,
+        caps,
         0,
         0,
         0,
@@ -579,23 +769,32 @@ def fourcc(value: bytes) -> int:
     return struct.unpack("<I", value)[0]
 
 
-def dds_dxt1_header(width: int, height: int, linear_size: int) -> bytes:
+def dds_dxt1_header(width: int, height: int, linear_size: int, mip_count: int = 1) -> bytes:
     DDSD_CAPS = 0x00000001
     DDSD_HEIGHT = 0x00000002
     DDSD_WIDTH = 0x00000004
     DDSD_PIXELFORMAT = 0x00001000
     DDSD_LINEARSIZE = 0x00080000
+    DDSD_MIPMAPCOUNT = 0x00020000
     DDPF_FOURCC = 0x00000004
     DDSCAPS_TEXTURE = 0x00001000
+    DDSCAPS_COMPLEX = 0x00000008
+    DDSCAPS_MIPMAP = 0x00400000
 
+    mip_count = max(1, mip_count)
+    header_flags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_LINEARSIZE
+    caps = DDSCAPS_TEXTURE
+    if mip_count > 1:
+        header_flags |= DDSD_MIPMAPCOUNT
+        caps |= DDSCAPS_COMPLEX | DDSCAPS_MIPMAP
     fields = [
         124,
-        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_LINEARSIZE,
+        header_flags,
         height,
         width,
         linear_size,
         0,
-        1,
+        mip_count,
         *([0] * 11),
         32,
         DDPF_FOURCC,
@@ -605,7 +804,7 @@ def dds_dxt1_header(width: int, height: int, linear_size: int) -> bytes:
         0,
         0,
         0,
-        DDSCAPS_TEXTURE,
+        caps,
         0,
         0,
         0,
@@ -614,23 +813,32 @@ def dds_dxt1_header(width: int, height: int, linear_size: int) -> bytes:
     return b"DDS " + struct.pack("<31I", *fields)
 
 
-def dds_dxt5_header(width: int, height: int, linear_size: int) -> bytes:
+def dds_dxt5_header(width: int, height: int, linear_size: int, mip_count: int = 1) -> bytes:
     DDSD_CAPS = 0x00000001
     DDSD_HEIGHT = 0x00000002
     DDSD_WIDTH = 0x00000004
     DDSD_PIXELFORMAT = 0x00001000
     DDSD_LINEARSIZE = 0x00080000
+    DDSD_MIPMAPCOUNT = 0x00020000
     DDPF_FOURCC = 0x00000004
     DDSCAPS_TEXTURE = 0x00001000
+    DDSCAPS_COMPLEX = 0x00000008
+    DDSCAPS_MIPMAP = 0x00400000
 
+    mip_count = max(1, mip_count)
+    header_flags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_LINEARSIZE
+    caps = DDSCAPS_TEXTURE
+    if mip_count > 1:
+        header_flags |= DDSD_MIPMAPCOUNT
+        caps |= DDSCAPS_COMPLEX | DDSCAPS_MIPMAP
     fields = [
         124,
-        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_LINEARSIZE,
+        header_flags,
         height,
         width,
         linear_size,
         0,
-        1,
+        mip_count,
         *([0] * 11),
         32,
         DDPF_FOURCC,
@@ -640,7 +848,7 @@ def dds_dxt5_header(width: int, height: int, linear_size: int) -> bytes:
         0,
         0,
         0,
-        DDSCAPS_TEXTURE,
+        caps,
         0,
         0,
         0,
@@ -649,24 +857,33 @@ def dds_dxt5_header(width: int, height: int, linear_size: int) -> bytes:
     return b"DDS " + struct.pack("<31I", *fields)
 
 
-def dds_bgra32_header(width: int, height: int, pitch: int) -> bytes:
+def dds_bgra32_header(width: int, height: int, pitch: int, mip_count: int = 1) -> bytes:
     DDSD_CAPS = 0x00000001
     DDSD_HEIGHT = 0x00000002
     DDSD_WIDTH = 0x00000004
     DDSD_PITCH = 0x00000008
     DDSD_PIXELFORMAT = 0x00001000
+    DDSD_MIPMAPCOUNT = 0x00020000
     DDPF_ALPHAPIXELS = 0x00000001
     DDPF_RGB = 0x00000040
     DDSCAPS_TEXTURE = 0x00001000
+    DDSCAPS_COMPLEX = 0x00000008
+    DDSCAPS_MIPMAP = 0x00400000
 
+    mip_count = max(1, mip_count)
+    header_flags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT
+    caps = DDSCAPS_TEXTURE
+    if mip_count > 1:
+        header_flags |= DDSD_MIPMAPCOUNT
+        caps |= DDSCAPS_COMPLEX | DDSCAPS_MIPMAP
     fields = [
         124,
-        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PITCH | DDSD_PIXELFORMAT,
+        header_flags,
         height,
         width,
         pitch,
         0,
-        1,
+        mip_count,
         *([0] * 11),
         32,
         DDPF_RGB | DDPF_ALPHAPIXELS,
@@ -676,7 +893,7 @@ def dds_bgra32_header(width: int, height: int, pitch: int) -> bytes:
         0x0000FF00,
         0x000000FF,
         0xFF000000,
-        DDSCAPS_TEXTURE,
+        caps,
         0,
         0,
         0,
@@ -882,18 +1099,38 @@ def encode_bgra32(image: Image.Image) -> bytes:
     return bytes(payload)
 
 
+def build_mip_levels(image: Image.Image, generate_mipmaps: bool) -> list[Image.Image]:
+    levels = [image.copy()]
+    if not generate_mipmaps:
+        return levels
+
+    resample = getattr(Image, "Resampling", Image).BOX
+    while levels[-1].width > 1 or levels[-1].height > 1:
+        previous = levels[-1]
+        levels.append(
+            previous.resize(
+                (max(1, previous.width >> 1), max(1, previous.height >> 1)),
+                resample,
+            )
+        )
+    return levels
+
+
 def build_dds(
     source: Path,
     max_size: int,
     force_bgra32: bool = False,
     force_rgb565: bool = False,
     alpha_format: str = "bgra32",
+    generate_mipmaps: bool = False,
 ) -> tuple[bytes, dict[str, object]] | None:
     with Image.open(source) as opened:
         has_alpha = image_has_alpha(opened)
         image = resize_for_xbox(opened, max_size)
+        levels = build_mip_levels(image, generate_mipmaps)
+        mip_count = len(levels)
         if force_rgb565:
-            payload = encode_rgb565(image)
+            payloads = [encode_rgb565(level) for level in levels]
             header = dds_header(
                 image.width,
                 image.height,
@@ -901,24 +1138,27 @@ def build_dds(
                 16,
                 (0x0000F800, 0x000007E0, 0x0000001F, 0),
                 False,
+                mip_count,
             )
             fmt = "rgb565"
         elif force_bgra32:
-            payload = encode_bgra32(image)
-            header = dds_bgra32_header(image.width, image.height, image.width * 4)
+            payloads = [encode_bgra32(level) for level in levels]
+            header = dds_bgra32_header(image.width, image.height, image.width * 4, mip_count)
             fmt = "bgra32"
         elif has_alpha and alpha_format == "bgra32":
-            payload = encode_bgra32(image)
-            header = dds_bgra32_header(image.width, image.height, image.width * 4)
+            payloads = [encode_bgra32(level) for level in levels]
+            header = dds_bgra32_header(image.width, image.height, image.width * 4, mip_count)
             fmt = "bgra32"
         elif has_alpha:
-            payload = encode_dxt5(image)
-            header = dds_dxt5_header(image.width, image.height, len(payload))
+            payloads = [encode_dxt5(level) for level in levels]
+            header = dds_dxt5_header(image.width, image.height, len(payloads[0]), mip_count)
             fmt = "dxt5"
         else:
-            payload = encode_dxt1(image)
-            header = dds_dxt1_header(image.width, image.height, len(payload))
+            payloads = [encode_dxt1(level) for level in levels]
+            header = dds_dxt1_header(image.width, image.height, len(payloads[0]), mip_count)
             fmt = "dxt1"
+
+        payload = b"".join(payloads)
 
         info = {
             "source": source.as_posix(),
@@ -927,23 +1167,25 @@ def build_dds(
             "sourceHeight": opened.height,
             "width": image.width,
             "height": image.height,
+            "mipCount": mip_count,
             "bytes": len(header) + len(payload),
         }
         return header + payload, info
 
 
-def build_bgra32_dds_from_bytes(source_name: str, source_bytes: bytes, max_size: int) -> tuple[bytes, dict[str, object]]:
+def build_dxt5_dds_from_bytes(source_name: str, source_bytes: bytes, max_size: int) -> tuple[bytes, dict[str, object]]:
     with Image.open(io.BytesIO(source_bytes)) as opened:
         image = resize_for_xbox(opened, max_size)
-        payload = encode_bgra32(image)
-        header = dds_bgra32_header(image.width, image.height, image.width * 4)
+        payload = encode_dxt5(image)
+        header = dds_dxt5_header(image.width, image.height, len(payload))
         info = {
             "source": source_name,
-            "format": "bgra32",
+            "format": "dxt5",
             "sourceWidth": opened.width,
             "sourceHeight": opened.height,
             "width": image.width,
             "height": image.height,
+            "mipCount": 1,
             "bytes": len(header) + len(payload),
             "sha1": hashlib.sha1(header + payload).hexdigest(),
         }
@@ -959,9 +1201,9 @@ def build_seeded_ui_dds_from_bytes(
         has_alpha = image_has_alpha(opened)
         image = resize_for_xbox(opened, max_size)
         if has_alpha:
-            payload = encode_bgra32(image)
-            header = dds_bgra32_header(image.width, image.height, image.width * 4)
-            fmt = "bgra32"
+            payload = encode_dxt5(image)
+            header = dds_dxt5_header(image.width, image.height, len(payload))
+            fmt = "dxt5"
         else:
             payload = encode_dxt1(image)
             header = dds_dxt1_header(image.width, image.height, len(payload))
@@ -973,6 +1215,7 @@ def build_seeded_ui_dds_from_bytes(
             "sourceHeight": opened.height,
             "width": image.width,
             "height": image.height,
+            "mipCount": 1,
             "bytes": len(header) + len(payload),
             "sha1": hashlib.sha1(header + payload).hexdigest(),
         }
@@ -995,7 +1238,7 @@ def add_holomatch_loadscreen_overrides(
             source_name = entries.get(rel.lower())
             if not source_name:
                 raise FileNotFoundError(f"missing Holomatch loadscreen source in xbox0.pk3: {rel}")
-            data, info = build_bgra32_dds_from_bytes(
+            data, info = build_dxt5_dds_from_bytes(
                 f"xbox0.pk3:{source_name}",
                 source_zip.read(source_name),
                 max_size,
@@ -1024,7 +1267,7 @@ def add_holomatch_shared_sp_dds(
             source_name = entries.get(rel.lower())
             if not source_name:
                 raise FileNotFoundError(f"missing shared SP DDS asset in xbox0.pk3: {rel}")
-            data, info = build_bgra32_dds_from_bytes(
+            data, info = build_dxt5_dds_from_bytes(
                 f"xbox0.pk3:{source_name}",
                 source_zip.read(source_name),
                 max_size,
@@ -1126,6 +1369,100 @@ def selected_bsp_paths(base_dir: Path, mode: str, map_name: str) -> list[Path]:
             raise FileNotFoundError(path)
         return [path]
     raise ValueError(f"unknown BSP map mode {mode}")
+
+
+def locate_bspthing(repo_root: Path) -> Path:
+    tool = repo_root / "build" / "tools" / "bspthing.exe"
+    dependencies = (
+        repo_root / "code" / "bspthing" / "main.cpp",
+        repo_root / "code" / "bspthing" / "bsp.h",
+        repo_root / "code" / "bspthing" / "pbsp.h",
+        repo_root / "code" / "qcommon" / "sparc.h",
+    )
+    if tool.is_file() and all(tool.stat().st_mtime_ns >= path.stat().st_mtime_ns for path in dependencies):
+        return tool
+
+    source = dependencies[0]
+    cl = Path(r"C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\cl.exe")
+    vc_include = Path(r"C:\Program Files (x86)\Microsoft Visual Studio 8\VC\include")
+    sdk_include = Path(r"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\Include")
+    vc_lib = Path(r"C:\Program Files (x86)\Microsoft Visual Studio 8\VC\lib")
+    sdk_lib = Path(r"C:\Program Files (x86)\Microsoft SDKs\Windows\v7.0A\Lib")
+    if not source.is_file() or not cl.is_file():
+        raise FileNotFoundError("Elite Force Xbox BSP converter source/toolchain is unavailable")
+
+    tool.parent.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env["PATH"] = ";".join(
+        (
+            str(cl.parent),
+            r"C:\Program Files (x86)\Microsoft Visual Studio 8\Common7\IDE",
+            env.get("PATH", ""),
+        )
+    )
+    env["INCLUDE"] = f"{vc_include};{sdk_include}"
+    env["LIB"] = f"{vc_lib};{sdk_lib}"
+    subprocess.run(
+        (
+            str(cl),
+            "/nologo",
+            "/EHsc",
+            "/O2",
+            "/DWIN32",
+            f"/Fo{tool.parent / 'bspthing.obj'}",
+            f"/Fe{tool}",
+            str(source),
+        ),
+        cwd=repo_root,
+        env=env,
+        check=True,
+    )
+    return tool
+
+
+def packed_bsp_lumps(repo_root: Path, bsp_path: Path) -> tuple[dict[str, bytes], dict[str, object]]:
+    tool = locate_bspthing(repo_root)
+    with tempfile.TemporaryDirectory(prefix="stefx-bspthing-") as temp_name:
+        temp_dir = Path(temp_name)
+        input_path = temp_dir / bsp_path.name
+        shutil.copy2(bsp_path, input_path)
+        conversion = subprocess.run(
+            (str(tool), str(temp_dir)),
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        )
+        if conversion.returncode:
+            raise RuntimeError(
+                f"Xbox BSP conversion failed for {bsp_path}:\n"
+                f"{conversion.stdout}{conversion.stderr}"
+            )
+
+        output_dir = temp_dir / bsp_path.stem
+        outputs: dict[str, bytes] = {}
+        missing: list[str] = []
+        for name in PACKED_BSP_LUMP_NAMES:
+            path = output_dir / f"{name}.mle"
+            if not path.is_file():
+                if name in {"faces", "flares", "lightarray", "patches", "trisurfs"}:
+                    outputs[name] = b""
+                    continue
+                missing.append(name)
+                continue
+            outputs[name] = path.read_bytes()
+        if missing:
+            raise FileNotFoundError(
+                f"{bsp_path} converter omitted required Xbox lump(s): {', '.join(missing)}"
+            )
+
+    sizes = {name: len(data) for name, data in outputs.items()}
+    return outputs, {
+        "packedLumpCount": len(outputs),
+        "packedLumpBytes": sum(sizes.values()),
+        "largestPackedLump": max(sizes, key=sizes.get),
+        "largestPackedLumpBytes": max(sizes.values()),
+        "packedLumpSizes": sizes,
+    }
 
 
 def optimized_bsp_and_lightmaps(bsp_path: Path, boost: float) -> tuple[bytes, bytes, dict[str, object]]:
@@ -1234,6 +1571,7 @@ def existing_dds_entries(out_path: Path) -> dict[str, bytes]:
 def carried_dds_info(source_name: str, data: bytes) -> dict[str, object]:
     height = struct.unpack_from("<I", data, 12)[0]
     width = struct.unpack_from("<I", data, 16)[0]
+    mip_count = struct.unpack_from("<I", data, 28)[0] or 1
     fourcc_code = data[84:88]
     bits_per_pixel = struct.unpack_from("<I", data, 88)[0]
     if fourcc_code == b"DXT1":
@@ -1253,6 +1591,7 @@ def carried_dds_info(source_name: str, data: bytes) -> dict[str, object]:
         "sourceHeight": height,
         "width": width,
         "height": height,
+        "mipCount": mip_count,
         "bytes": len(data),
         "sha1": hashlib.sha1(data).hexdigest(),
         "carriedForward": True,
@@ -1376,6 +1715,8 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     out_path = args.output.resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     carried_dds = existing_dds_entries(out_path)
+    shader_archive_dir = args.shader_archive_dir.resolve() if args.shader_archive_dir else None
+    no_mipmap_refs = no_mipmap_texture_references(base_dir, shader_archive_dir)
 
     shader_names = set(read_bsp_shader_names(map_path))
     resolved: dict[str, Path] = {}
@@ -1406,7 +1747,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     preserved_original_sources: list[dict[str, str]] = []
     preserved_original_written: set[str] = set()
     bsp_optimizations: list[dict[str, object]] = []
-    bsp_outputs: list[tuple[str, str, bytes, str, bytes]] = []
+    bsp_outputs: list[tuple[str, str, bytes, str, bytes, dict[str, bytes]]] = []
     bsp_checksums: dict[str, int] = {}
     patched_aas_checksums: dict[str, int] = {}
     ui_scripts: list[str] = []
@@ -1414,6 +1755,7 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
     effects_image_info: dict[str, object] | None = None
     shader_scripts: list[str] = []
     shader_script_set: set[str] = set()
+    stock_shader_bytes = xbox_stock_shader_bytes(base_dir, shader_archive_dir)
 
     if args.include_bsp and args.bsp_mode != "none":
         raise ValueError("--include-bsp cannot be combined with --bsp-mode")
@@ -1423,22 +1765,38 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             optimized_bsp, optimized_lightmaps, report = optimized_bsp_and_lightmaps(
                 bsp_path, args.lightmap_boost
             )
+            packed_lumps, packed_report = packed_bsp_lumps(
+                Path(__file__).resolve().parents[1], bsp_path
+            )
             map_name = bsp_path.stem.lower()
             bsp_out_rel = f"maps/xbox/{map_name}.bsp"
             lightmap_out_rel = f"maps/xbox/{map_name}.lmpdds"
             checksum = com_block_checksum(optimized_bsp)
-            report["bspPath"] = bsp_out_rel
+            packed_lumps["checksum"] = struct.pack("<I", checksum)
+            report["bspPath"] = None
+            report["packedMapPath"] = f"maps/{map_name}/"
             report["lightmapPath"] = lightmap_out_rel
             report["xboxBspChecksum"] = checksum
+            report.update(packed_report)
             bsp_optimizations.append(report)
-            bsp_outputs.append((bsp_out_rel, map_name, optimized_bsp, lightmap_out_rel, optimized_lightmaps))
+            bsp_outputs.append(
+                (
+                    bsp_out_rel,
+                    map_name,
+                    optimized_bsp,
+                    lightmap_out_rel,
+                    optimized_lightmaps,
+                    packed_lumps,
+                )
+            )
             bsp_checksums[map_name] = checksum
 
     with zipfile.ZipFile(out_path, "w") as zip_out:
-        patch_shader_rel = normalized_rel(XBOX_PATCH_SHADER_PATH)
-        zip_write_bytes(zip_out, patch_shader_rel, XBOX_PATCH_SHADER_TEXT.encode("ascii"))
-        shader_scripts.append(patch_shader_rel)
-        shader_script_set.add(patch_shader_rel)
+        for stock_shader_path in XBOX_STOCK_SHADER_PATHS:
+            stock_shader_rel = normalized_rel(stock_shader_path)
+            zip_write_bytes(zip_out, stock_shader_rel, stock_shader_bytes[stock_shader_path])
+            shader_scripts.append(stock_shader_rel)
+            shader_script_set.add(stock_shader_rel)
 
         for shader_path in shader_script_files(base_dir):
             shader_rel = normalized_rel(shader_path.relative_to(base_dir).as_posix())
@@ -1524,9 +1882,10 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             zip_write_bytes(zip_out, bsp_rel, map_path.read_bytes())
 
         if args.bsp_mode != "none":
-            for bsp_out_rel, _map_name, optimized_bsp, lightmap_out_rel, optimized_lightmaps in bsp_outputs:
-                zip_write_bytes(zip_out, bsp_out_rel, optimized_bsp)
+            for bsp_out_rel, map_name, optimized_bsp, lightmap_out_rel, optimized_lightmaps, packed_lumps in bsp_outputs:
                 zip_write_bytes(zip_out, lightmap_out_rel, optimized_lightmaps)
+                for lump_name, lump_data in sorted(packed_lumps.items()):
+                    zip_write_bytes(zip_out, f"maps/{map_name}/{lump_name}.mle", lump_data)
 
         written_names = {normalized_rel(name) for name in zip_out.namelist()}
         for out_rel, source in sorted(resolved.items()):
@@ -1555,11 +1914,24 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 force_bgra32=should_force_bgra32_texture(out_rel),
                 force_rgb565=should_use_rgb565_texture(out_rel),
                 alpha_format=args.alpha_texture_format,
+                generate_mipmaps=(
+                    args.generate_mipmaps
+                    and should_generate_mipmaps(out_rel, no_mipmap_refs)
+                ),
             )
             if built is None:
                 skipped_alpha.append(out_rel)
                 continue
             dds, info = built
+            if is_always_texture(out_rel) and (
+                info["width"] != info["sourceWidth"]
+                or info["height"] != info["sourceHeight"]
+            ):
+                raise ValueError(
+                    f"fixed font atlas was resized: {out_rel} "
+                    f"{info['sourceWidth']}x{info['sourceHeight']} -> "
+                    f"{info['width']}x{info['height']}"
+                )
             zip_write_bytes(zip_out, out_rel, dds)
             written_names.add(out_rel)
             info["path"] = out_rel
@@ -1579,11 +1951,18 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
         for out_rel, data in sorted(carried_dds.items()):
             if out_rel in written_names:
                 continue
+            carried_info = carried_dds_info(f"{out_path.name}:{out_rel}", data)
+            if carried_info["format"] == "bgra32" and args.alpha_texture_format == "dxt5":
+                data, carried_info = build_dxt5_dds_from_bytes(
+                    f"{out_path.name}:{out_rel}",
+                    data,
+                    texture_size_for_path(out_rel, args),
+                )
+                carried_info["transcodedFrom"] = "bgra32"
             zip_write_bytes(zip_out, out_rel, data)
-            info = carried_dds_info(f"{out_path.name}:{out_rel}", data)
-            info["path"] = out_rel
-            info["maxTextureSize"] = texture_size_for_path(out_rel, args)
-            textures.append(info)
+            carried_info["path"] = out_rel
+            carried_info["maxTextureSize"] = texture_size_for_path(out_rel, args)
+            textures.append(carried_info)
 
         manifest = {
             "name": "Star Trek: Elite Force Xbox patch pack",
@@ -1596,14 +1975,19 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
             "maxLoadscreenTextureSize": args.max_loadscreen_texture_size,
             "textureMode": args.texture_mode,
             "ddsOnly": args.dds_only,
+            "generateMipmaps": args.generate_mipmaps,
             "alphaTextureFormat": args.alpha_texture_format,
             "textureCount": len(textures),
+            "mipmappedTextureCount": sum(int(item.get("mipCount", 1)) > 1 for item in textures),
+            "singleLevelTextureCount": sum(int(item.get("mipCount", 1)) <= 1 for item in textures),
+            "noMipmapsShaderReferenceCount": len(no_mipmap_refs),
+            "shaderArchiveDir": str(shader_archive_dir) if shader_archive_dir else None,
             "textures": textures,
             "skippedTextureCandidates": skipped,
             "skippedAlphaTextures": skipped_alpha,
             "preservedOriginalTextures": preserved_original,
             "preservedOriginalTextureSources": preserved_original_sources,
-            "patchShaders": [XBOX_PATCH_SHADER_PATH],
+            "patchShaders": list(XBOX_STOCK_SHADER_PATHS),
             "shaderScriptCount": len(shader_scripts),
             "shaderScripts": shader_scripts,
             "shaderListPath": shader_list_path,
@@ -1625,24 +2009,42 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
                 "optimizedLightmapSidecarBytes": sum(int(item["optimizedLightmapSidecarBytes"]) for item in bsp_optimizations),
                 "bspReadBufferBytesSaved": sum(int(item["bspReadBufferBytesSaved"]) for item in bsp_optimizations),
                 "estimatedPeakLoadBytesSaved": sum(int(item["estimatedPeakLoadBytesSaved"]) for item in bsp_optimizations),
+                "packedLumpBytes": sum(int(item["packedLumpBytes"]) for item in bsp_optimizations),
             },
         }
+        runtime_manifest = dict(manifest)
+        for diagnostic_key in (
+            "shaderArchiveDir",
+            "textures",
+            "skippedTextureCandidates",
+            "preservedOriginalTextureSources",
+            "supportFiles",
+        ):
+            runtime_manifest.pop(diagnostic_key, None)
         zip_write_bytes(
             zip_out,
             "xbox_patch_manifest.json",
-            json.dumps(manifest, indent=2, sort_keys=True).encode("ascii"),
+            json.dumps(runtime_manifest, indent=2, sort_keys=True).encode("ascii"),
         )
+
+    manifest_path = out_path.with_suffix(out_path.suffix + ".manifest.json")
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="ascii")
 
     return {
         "output": str(out_path),
+        "manifest": str(manifest_path),
         "bytes": out_path.stat().st_size,
         "map": args.map,
         "bspIncluded": args.include_bsp,
         "shaderNames": len(shader_names),
         "textureMode": args.texture_mode,
         "ddsOnly": args.dds_only,
+        "generateMipmaps": args.generate_mipmaps,
         "alphaTextureFormat": args.alpha_texture_format,
         "textures": len(textures),
+        "mipmappedTextures": sum(int(item.get("mipCount", 1)) > 1 for item in textures),
+        "singleLevelTextures": sum(int(item.get("mipCount", 1)) <= 1 for item in textures),
+        "noMipmapsShaderReferences": len(no_mipmap_refs),
         "skipped": len(skipped),
         "skippedAlpha": len(skipped_alpha),
         "preservedOriginal": len(preserved_original),
@@ -1659,6 +2061,16 @@ def build_patch(args: argparse.Namespace) -> dict[str, object]:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build an Elite Force Xbox patch PK3")
     parser.add_argument("--base-dir", type=Path, default=Path("build/release/BaseEF"))
+    parser.add_argument(
+        "--shader-archive-dir",
+        type=Path,
+        help="Optional canonical retail PAK directory used to honor nomipmaps shader metadata.",
+    )
+    parser.add_argument(
+        "--generate-mipmaps",
+        action="store_true",
+        help="Emit full DDS mip chains for eligible world/model/environment textures.",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -1736,7 +2148,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--alpha-texture-format",
         choices=("dxt5", "bgra32"),
-        default="bgra32",
+        default="dxt5",
         help="DDS format to use for selected source textures with alpha.",
     )
     return parser.parse_args(argv)

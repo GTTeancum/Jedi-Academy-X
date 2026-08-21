@@ -22,6 +22,10 @@ extern "C" volatile unsigned int g_SPXBWeaponModelTraceSize;
 extern "C" volatile unsigned int g_SPXBWeaponModelTraceLoaded;
 extern "C" volatile unsigned int g_SPXBWeaponModelTraceHandle;
 extern "C" volatile unsigned int g_SPXBWeaponModelTraceFailCode;
+extern "C" volatile unsigned int g_SPXBModelProbeStage;
+extern "C" volatile unsigned int g_SPXBModelProbePathHash;
+extern "C" volatile unsigned int g_SPXBModelProbeNamePtr;
+extern "C" volatile unsigned int g_SPXBModelProbeFileLen;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 #define STEFX_RENDER_MODEL_PHASE(stage) \
 	( g_SPXBPhaseLast = 0xF0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
@@ -946,13 +950,20 @@ static qhandle_t STEFX_RegisterMdrPlaceholderIfPresent(model_t *mod, const char 
 	int len;
 	int read;
 
+	g_SPXBModelProbeStage = 2;
+	g_SPXBModelProbeNamePtr = (unsigned int)name;
+	g_SPXBModelProbePathHash = STEFX_ModelTraceHash(name);
 	if (!STEFX_IsMdrModelName(name))
 	{
+		g_SPXBModelProbeStage = 3;
 		return 0;
 	}
 
+	g_SPXBModelProbeStage = 4;
 	STEFX_RENDER_MODEL_PHASE( 0x20 );
 	len = FS_FOpenFileByMode(name, &f, FS_READ);
+	g_SPXBModelProbeFileLen = (unsigned int)len;
+	g_SPXBModelProbeStage = 5;
 	STEFX_RENDER_MODEL_PHASE( 0x21 );
 	if (len < 4 || !f)
 	{
@@ -1305,7 +1316,11 @@ Ghoul2 Insert End
 
 #if defined(_XBOX)
 	STEFX_RENDER_MODEL_PHASE( 0x05 );
+	g_SPXBModelProbeStage = 1;
+	g_SPXBModelProbeNamePtr = (unsigned int)name;
+	g_SPXBModelProbePathHash = STEFX_ModelTraceHash(name);
 	qhandle_t stefxMdrPreflightHandle = STEFX_RegisterMdrPlaceholderIfPresent(mod, name);
+	g_SPXBModelProbeStage = 6;
 	STEFX_RENDER_MODEL_PHASE( 0x06 );
 	if (stefxMdrPreflightHandle)
 	{

@@ -79,6 +79,39 @@ int			mParticlesRendered;
 
 #ifdef _XBOX
 static cvar_t	*r_xboxWorldEffects;
+
+static int R_STEFX_ClampSplitPlayersForEconomy( int players )
+{
+	if ( players < 1 )
+	{
+		return 1;
+	}
+	if ( players > 4 )
+	{
+		return 4;
+	}
+	return players;
+}
+
+static qboolean R_STEFX_Holomatch4PEconomyActive( void )
+{
+	const char *mode;
+
+	if ( !Cvar_VariableIntegerValue( "stefx_hm_split_economy" ) )
+	{
+		return qfalse;
+	}
+	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		return qfalse;
+	}
+	mode = Cvar_VariableString( "stefx_splitScreenMode" );
+	if ( !mode || Q_stricmp( mode, "holomatch" ) )
+	{
+		return qfalse;
+	}
+	return R_STEFX_ClampSplitPlayersForEconomy( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) >= 4 ? qtrue : qfalse;
+}
 #endif
 
 
@@ -1763,6 +1796,16 @@ void RB_RenderWorldEffects(void)
 		{			
 			XBLog_Write("JA: RB_RenderWorldEffects disabled by r_xboxWorldEffects");
 			s_xboxLoggedWorldEffectsDisabled = qtrue;
+		}
+		return;
+	}
+	if (R_STEFX_Holomatch4PEconomyActive())
+	{
+		static qboolean s_stefxLoggedSplitEconomyWorldEffects = qfalse;
+		if (!s_stefxLoggedSplitEconomyWorldEffects)
+		{
+			XBLog_Write("STEFX_HM_SPLIT_ECONOMY: worldEffectsSkipped");
+			s_stefxLoggedSplitEconomyWorldEffects = qtrue;
 		}
 		return;
 	}

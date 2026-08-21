@@ -674,7 +674,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_backend.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_backend_retail.cpp"
 				>
 			</File>
 			<File
@@ -682,7 +682,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_cmds.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_cmds_retail.cpp"
 				>
 			</File>
 			<File
@@ -714,15 +714,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_light.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_light_retail.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_lightmanager.cpp"
-				>
-			</File>
-			<File
-				RelativePath="..\renderer\tr_main.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_main_retail.cpp"
 				>
 			</File>
 			<File
@@ -746,19 +742,19 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_scene.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_scene_retail.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_shade.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_shade_retail.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_shade_calc.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_shade_calc_retail.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_shader.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_shader_retail.cpp"
 				>
 			</File>
 			<File
@@ -766,7 +762,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_sky.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_sky_retail.cpp"
 				>
 			</File>
 			<File
@@ -778,11 +774,15 @@
 				>
 			</File>
 			<File
+				RelativePath="..\renderer\retail_xbox\tr_surface_retail.cpp"
+				>
+			</File>
+			<File
 				RelativePath="..\renderer\tr_surfacesprites.cpp"
 				>
 			</File>
 			<File
-				RelativePath="..\renderer\tr_world.cpp"
+				RelativePath="..\renderer\retail_xbox\tr_world_retail.cpp"
 				>
 			</File>
 			<File
@@ -822,10 +822,6 @@
 			     build.  Replaced by OpenJKDF2's fakeglx.cpp, added
 			     programmatically via scripts/build_xbox.ps1 (see Get-VcProjectSources
 			     filtered.Add for code\win32\openjkdf2\fakeglx.cpp). -->
-			<File
-				RelativePath="..\win32\win_stencilshadow.cpp"
-				>
-			</File>
 			<Filter
 				Name="Renderer Headers"
 				>

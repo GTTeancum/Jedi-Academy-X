@@ -10,7 +10,7 @@
 pmove_t		*pm;
 pml_t		pml;
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 extern void XBLog_WriteCriticalf(const char *fmt, ...);
 static int s_stefxPmoveBoundsLogCount = 0;
 static int s_stefxPmoveStateLogCount = 0;
@@ -85,6 +85,10 @@ static void STEFX_PmoveLogState(const char *phase)
 		++s_stefxPmoveStateLogCount;
 	}
 }
+#else
+#define STEFX_PmoveLogAmmo(phase, beforePhaser, beforeRecharge) ((void)0)
+#define STEFX_PmoveLogBounds(phase) ((void)0)
+#define STEFX_PmoveLogState(phase) ((void)0)
 #endif
 
 // movement parameters
@@ -1837,7 +1841,7 @@ static void PM_Weapon( void ) {
 			// check for out of ammo
 			if ( pm->ps->ammo[pm->ps->weapon] < altAmmoUsage[pm->ps->weapon])
 			{
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 				if (s_stefxPmoveAmmoLogCount < 160)
 				{
 					XBLog_WriteCriticalf("STEFX_HM_AMMO: fire-reject-alt client=%d cmdTime=%d weapon=%d ammo=%d need=%d buttons=0x%x weapons=0x%x",
@@ -1883,7 +1887,7 @@ static void PM_Weapon( void ) {
 			// check for out of ammo
 			 if ( ! pm->ps->ammo[ pm->ps->weapon ] ) 
 			{
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 				if (s_stefxPmoveAmmoLogCount < 160)
 				{
 					XBLog_WriteCriticalf("STEFX_HM_AMMO: fire-reject-main client=%d cmdTime=%d weapon=%d ammo=%d buttons=0x%x weapons=0x%x",

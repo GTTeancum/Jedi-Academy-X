@@ -22,10 +22,80 @@
 
 #define IN_MAX_CONTROLLERS 4
 
-/* Plan-B (OpenJKDF2 1:1): set TRUE by main() after it calls XInitDevices
- * BEFORE D3D init (per OpenJKDF2's NV2A USB-host-controller ordering
- * requirement).  IN_Init checks this and skips the redundant call. */
-bool g_XInitDevicesAlreadyCalled = false;
+extern "C" volatile unsigned int g_SPXBInputPollCount;
+extern "C" volatile unsigned int g_SPXBInputPort;
+extern "C" volatile unsigned int g_SPXBInputDigital;
+extern "C" volatile unsigned int g_SPXBInputAnalogMask;
+extern "C" volatile unsigned int g_SPXBInputLXLY;
+extern "C" volatile unsigned int g_SPXBInputRXRY;
+extern "C" volatile unsigned int g_SPXBInputMenuEdgeCount;
+extern "C" volatile unsigned int g_SPXBInputMenuEdgeLast;
+extern "C" volatile unsigned int g_SPXBInputCommonPressCount;
+extern "C" volatile unsigned int g_SPXBInputCommonPressLast;
+extern "C" volatile unsigned int g_SPXBInputFrontendQueueCount;
+extern "C" volatile unsigned int g_SPXBInputFrontendQueueLast;
+extern "C" volatile unsigned int g_SPXBInputDispatchCount;
+extern "C" volatile unsigned int g_SPXBInputDispatchLast;
+extern "C" volatile unsigned int g_SPXBInputDispatchHandled;
+extern "C" volatile unsigned int g_SPXBHMInfoDispatchCount;
+extern "C" volatile unsigned int g_SPXBHMInfoDispatchLast;
+extern "C" volatile unsigned int g_SPXBHMGameCommandCount;
+extern "C" volatile unsigned int g_SPXBHMGameCommandResult;
+extern "C" volatile unsigned int g_SPXBHMConsoleCommandCount;
+extern "C" volatile unsigned int g_SPXBHMConsoleCommandTag;
+extern "C" volatile unsigned int g_SPXBHMScoresDownCount;
+extern "C" volatile unsigned int g_SPXBHMScoresUpCount;
+extern "C" volatile unsigned int g_SPXBHMScoreDrawCount;
+extern "C" volatile unsigned int g_SPXBHMScoreDrawState;
+#if defined(STEFX_HM_SCORE_DIAGNOSTICS)
+extern "C" volatile unsigned int g_SPXBRenderCommandHighWater;
+extern "C" volatile unsigned int g_SPXBRenderCommandDrops;
+extern "C" volatile unsigned int g_SPXBRenderCommandLastDrop;
+extern "C" volatile unsigned int g_SPXBRenderCommandCalls;
+extern "C" volatile unsigned int g_SPXBRenderCommandIssueCount;
+extern "C" volatile unsigned int g_SPXBRenderCommandLastUsed;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchCount;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchShader;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchX;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchY;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchW;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchH;
+extern "C" volatile unsigned int g_SPXBHMScoreScaleX;
+extern "C" volatile unsigned int g_SPXBHMScoreScaleY;
+extern "C" volatile unsigned int g_SPXBHMScoreWhiteShader;
+extern "C" volatile unsigned int g_SPXBHMScoreQueuedCount;
+extern "C" volatile unsigned int g_SPXBHMScoreQueuedShader;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendMatches;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendColor;
+extern "C" volatile unsigned int g_SPXBRenderBackendCommandCount;
+extern "C" volatile unsigned int g_SPXBRenderBackendStretchCount;
+extern "C" volatile unsigned int g_SPXBRenderBackendTerminalId;
+extern "C" volatile unsigned int g_SPXBRenderBackendBytes;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendGeometry;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendGeomShader;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendGeomColor;
+extern "C" volatile unsigned int g_SPXBRenderBackendDoneCommands;
+extern "C" volatile unsigned int g_SPXBRenderBackendDoneStretches;
+extern "C" volatile unsigned int g_SPXBRenderBackendDoneTerminal;
+extern "C" volatile unsigned int g_SPXBRenderBackendDoneBytes;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendDoneGeometry;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendDoneShader;
+extern "C" volatile unsigned int g_SPXBHMScoreBackendDoneColor;
+extern "C" volatile unsigned int g_SPXBHMScoreBatchPending;
+extern "C" volatile unsigned int g_SPXBHMScoreSurfaceFlags;
+extern "C" volatile unsigned int g_SPXBHMScoreSurfaceVerts;
+extern "C" volatile unsigned int g_SPXBHMScoreSurfaceIndexes;
+extern "C" volatile unsigned int g_SPXBHMScoreSurfacePasses;
+extern "C" volatile unsigned int g_SPXBHMScoreSurfaceState;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitArmed;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitCalls;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitIndexes;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitState;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitTexture;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitScissor;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitScissorXY;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitScissorWH;
+#endif
 
 void IN_UIEmptyQueue();
 void IN_CheckForNoControllers();
@@ -182,6 +252,75 @@ IN_Init
 */
 void IN_Init( void )
 {
+		g_SPXBInputMenuEdgeCount = 0;
+		g_SPXBInputMenuEdgeLast = 0;
+		g_SPXBInputCommonPressCount = 0;
+		g_SPXBInputCommonPressLast = 0;
+		g_SPXBInputFrontendQueueCount = 0;
+		g_SPXBInputFrontendQueueLast = 0;
+		g_SPXBInputDispatchCount = 0;
+		g_SPXBInputDispatchLast = 0;
+		g_SPXBInputDispatchHandled = 0;
+		g_SPXBHMInfoDispatchCount = 0;
+		g_SPXBHMInfoDispatchLast = 0;
+		g_SPXBHMGameCommandCount = 0;
+		g_SPXBHMGameCommandResult = 0;
+		g_SPXBHMConsoleCommandCount = 0;
+		g_SPXBHMConsoleCommandTag = 0;
+		g_SPXBHMScoresDownCount = 0;
+		g_SPXBHMScoresUpCount = 0;
+		g_SPXBHMScoreDrawCount = 0;
+		g_SPXBHMScoreDrawState = 0;
+#if defined(STEFX_HM_SCORE_DIAGNOSTICS)
+		g_SPXBRenderCommandHighWater = 0;
+		g_SPXBRenderCommandDrops = 0;
+		g_SPXBRenderCommandLastDrop = 0;
+		g_SPXBRenderCommandCalls = 0;
+		g_SPXBRenderCommandIssueCount = 0;
+		g_SPXBRenderCommandLastUsed = 0;
+		g_SPXBHMScoreStretchCount = 0;
+		g_SPXBHMScoreStretchShader = 0;
+		g_SPXBHMScoreStretchX = 0;
+		g_SPXBHMScoreStretchY = 0;
+		g_SPXBHMScoreStretchW = 0;
+		g_SPXBHMScoreStretchH = 0;
+		g_SPXBHMScoreScaleX = 0;
+		g_SPXBHMScoreScaleY = 0;
+		g_SPXBHMScoreWhiteShader = 0;
+		g_SPXBHMScoreQueuedCount = 0;
+		g_SPXBHMScoreQueuedShader = 0;
+		g_SPXBHMScoreBackendMatches = 0;
+		g_SPXBHMScoreBackendColor = 0;
+		g_SPXBRenderBackendCommandCount = 0;
+		g_SPXBRenderBackendStretchCount = 0;
+		g_SPXBRenderBackendTerminalId = 0;
+		g_SPXBRenderBackendBytes = 0;
+		g_SPXBHMScoreBackendGeometry = 0;
+		g_SPXBHMScoreBackendGeomShader = 0;
+		g_SPXBHMScoreBackendGeomColor = 0;
+		g_SPXBRenderBackendDoneCommands = 0;
+		g_SPXBRenderBackendDoneStretches = 0;
+		g_SPXBRenderBackendDoneTerminal = 0;
+		g_SPXBRenderBackendDoneBytes = 0;
+		g_SPXBHMScoreBackendDoneGeometry = 0;
+		g_SPXBHMScoreBackendDoneShader = 0;
+		g_SPXBHMScoreBackendDoneColor = 0;
+		g_SPXBHMScoreBatchPending = 0;
+		g_SPXBHMScoreSurfaceFlags = 0;
+		g_SPXBHMScoreSurfaceVerts = 0;
+		g_SPXBHMScoreSurfaceIndexes = 0;
+		g_SPXBHMScoreSurfacePasses = 0;
+		g_SPXBHMScoreSurfaceState = 0;
+		g_SPXBHMScoreSubmitArmed = 0;
+		g_SPXBHMScoreSubmitCalls = 0;
+		g_SPXBHMScoreSubmitIndexes = 0;
+		g_SPXBHMScoreSubmitState = 0;
+		g_SPXBHMScoreSubmitTexture = 0;
+		g_SPXBHMScoreSubmitScissor = 0;
+		g_SPXBHMScoreSubmitScissorXY = 0;
+		g_SPXBHMScoreSubmitScissorWH = 0;
+#endif
+
 		in_state = new inputstate_t;
 
 		// Initialize support for 4 gamepads
@@ -189,15 +328,14 @@ void IN_Init( void )
 			{XDEVICE_TYPE_GAMEPAD, 4}
 		};
 
-    // Initialize the peripherals. We can only ever
-	// call XInitDevices once, no matter what.
-	// Plan-B: main() now calls XInitDevices early (before D3D init,
-	// per OpenJKDF2's NV2A ordering requirement) and sets the global
-	// g_XInitDevicesAlreadyCalled.  This block re-uses that flag.
-	extern bool g_XInitDevicesAlreadyCalled;
-	if (!g_XInitDevicesAlreadyCalled) {
+	// Shipping JA initializes peripherals from the input subsystem, after the
+	// renderer has been created. XInitDevices may only be called once.
+	static bool bInputInitialized = false;
+	if (!bInputInitialized) {
+		XBLog_WriteCritical("STEFX_HW_BOOT: input XInitDevices begin after renderer init");
 		XInitDevices( sizeof(xdpt) / sizeof(XDEVICE_PREALLOC_TYPE), xdpt );
-		g_XInitDevicesAlreadyCalled = true;
+		bInputInitialized = true;
+		XBLog_WriteCritical("STEFX_HW_BOOT: input XInitDevices complete after renderer init");
 	}
 
 		// Zero all of our data, including handles
@@ -261,6 +399,10 @@ static void IN_STEFX_UpdateMenuButtonEdge(int port, WORD changed, WORD current, 
 	if (changed & mask)
 	{
 		const bool pressed = (current & mask) != 0;
+		g_SPXBInputMenuEdgeCount++;
+		g_SPXBInputMenuEdgeLast = ((unsigned int)button & 0xffffu) |
+			(pressed ? 0x00010000u : 0u) |
+			(((unsigned int)port & 0xffu) << 24);
 		XBLF("STEFX_INPUT_MENU_RAW_DISPATCH port=%d name='%s' mask=0x%04x fakeAscii=%d pressed=%d main=%d state=%d catcher=0x%x",
 			port,
 			name,
@@ -356,6 +498,25 @@ void IN_UpdateGamepad(int port)
 	// Get new state
 	XINPUT_STATE newState;
 	XInputGetState( in_state->controllers[port].handle, &newState );
+	{
+		unsigned int analogMask = 0;
+		int inputIndex;
+		for (inputIndex = 0; inputIndex < IN_NUM_ANALOG_BUTTONS; ++inputIndex)
+		{
+			if (newState.Gamepad.bAnalogButtons[inputIndex] > IN_ANALOG_BUTTON_THRESHOLD)
+			{
+				analogMask |= 1u << inputIndex;
+			}
+		}
+		++g_SPXBInputPollCount;
+		g_SPXBInputPort = (unsigned int)port;
+		g_SPXBInputDigital = (unsigned int)newState.Gamepad.wButtons;
+		g_SPXBInputAnalogMask = analogMask;
+		g_SPXBInputLXLY = ((unsigned int)(unsigned short)newState.Gamepad.sThumbLX) |
+			((unsigned int)(unsigned short)newState.Gamepad.sThumbLY << 16);
+		g_SPXBInputRXRY = ((unsigned int)(unsigned short)newState.Gamepad.sThumbRX) |
+			((unsigned int)(unsigned short)newState.Gamepad.sThumbRY << 16);
+	}
 #if defined(STEFX_ELITE_FORCE_SP)
 	CL_STEFX_SplitScreen_RecordPadState( port, qtrue, IN_GetMainController(), newState.Gamepad.wButtons, newState.Gamepad.bAnalogButtons,
 		newState.Gamepad.sThumbLX, newState.Gamepad.sThumbLY, newState.Gamepad.sThumbRX, newState.Gamepad.sThumbRY );

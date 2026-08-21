@@ -4,6 +4,20 @@
 #include "cg_local.h"
 #include "cg_text.h"
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern volatile unsigned int g_SPXBHMScoreDrawCount;
+extern volatile unsigned int g_SPXBHMScoreDrawState;
+#if defined(STEFX_HM_SCORE_DIAGNOSTICS)
+extern volatile unsigned int g_SPXBHMScoreStretchCount;
+extern volatile unsigned int g_SPXBHMScoreScaleX;
+extern volatile unsigned int g_SPXBHMScoreScaleY;
+extern volatile unsigned int g_SPXBHMScoreWhiteShader;
+extern volatile unsigned int g_SPXBHMScoreQueuedCount;
+extern volatile unsigned int g_SPXBHMScoreQueuedShader;
+extern volatile unsigned int g_SPXBHMScoreBackendMatches;
+extern volatile unsigned int g_SPXBHMScoreBackendColor;
+#endif
+#endif
 
 #define	SCOREBOARD_X		(13)
 
@@ -693,6 +707,13 @@ qboolean CG_DrawScoreboard( void )
 	int		inIntermission;
 	char	gamename[1024];
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++g_SPXBHMScoreDrawCount;
+	g_SPXBHMScoreDrawState = (cg.showScores ? 1u : 0u) |
+		(cg_paused.integer ? 2u : 0u) |
+		(cg.warmup ? 4u : 0u);
+#endif
+
 	inIntermission = (
 		   (cg.snap->ps.pm_type==PM_INTERMISSION) 
 		|| (cg.intermissionStarted)
@@ -702,7 +723,11 @@ qboolean CG_DrawScoreboard( void )
 	////////////////////////////////////////////////////////////////
 	// 1) Menu or Console is Up
 	if ( cg_paused.integer ) 
-	{	cg.deferredPlayerLoading = 0;
+	{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMScoreDrawState |= 0x100u;
+#endif
+		cg.deferredPlayerLoading = 0;
 		return qfalse;	}
 	//
 	// 2) Awards Ceremony is not finished during Intermisison
@@ -711,7 +736,12 @@ qboolean CG_DrawScoreboard( void )
 	//
 	// 3) If we are doing a warmup
 	if (cg.warmup && !cg.showScores) 
+	{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMScoreDrawState |= 0x200u;
+#endif
 		return qfalse;
+	}
 	
 
 	tTeam = TEAM_RED;  // Compiler needed initialization here for some reason...
@@ -728,6 +758,9 @@ qboolean CG_DrawScoreboard( void )
 		
 		if ( !fadeColor ) 
 		{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+			g_SPXBHMScoreDrawState |= 0x400u;
+#endif
 			// next time scoreboard comes up, don't print killer
 			cg.deferredPlayerLoading = 0;
 			cg.killerName[0] = 0;
@@ -735,6 +768,10 @@ qboolean CG_DrawScoreboard( void )
 		}
 		fade = *fadeColor;
 	}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	g_SPXBHMScoreDrawState |= 0x800u;
+#endif
 
 
 	// IN GAME SCOREBOARD HEADER STUFF
@@ -783,6 +820,21 @@ qboolean CG_DrawScoreboard( void )
 	y = SB_HEADER;
 
 	// Top of scoreboard
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
+	{
+		union { float f; unsigned int u; } bits;
+		g_SPXBHMScoreStretchCount = 0;
+		g_SPXBHMScoreQueuedCount = 0;
+		g_SPXBHMScoreQueuedShader = 0;
+		g_SPXBHMScoreBackendMatches = 0;
+		g_SPXBHMScoreBackendColor = 0;
+		bits.f = cgs.screenXScale;
+		g_SPXBHMScoreScaleX = bits.u;
+		bits.f = cgs.screenYScale;
+		g_SPXBHMScoreScaleY = bits.u;
+		g_SPXBHMScoreWhiteShader = (unsigned int)cgs.media.whiteShader;
+	}
+#endif
 	trap_R_SetColor( colorTable[CT_DKORANGE] );
 //	CG_DrawPic( SCOREBOARD_X, y + 27, 16, -32, cgs.media.corner_12_24 );	// Corner
 //	CG_DrawPic( SCOREBOARD_X, y, 16, 32, cgs.media.corner_12_24 );	// Corner

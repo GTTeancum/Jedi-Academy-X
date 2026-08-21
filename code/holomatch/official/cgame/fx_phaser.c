@@ -9,7 +9,22 @@ FX_PhaserFire
 -------------------------
 */
 
-void FX_PhaserFire( vec3_t startpos, vec3_t endpos, vec3_t normal, qboolean spark, qboolean impact, qboolean empty )
+static void FX_STEFX_TagPhaserBeam( refEntity_t *beam, int clientNum, int renderfx )
+{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( beam && clientNum >= 0 && clientNum < MAX_CLIENTS )
+	{
+		beam->number = STEFX_REFENTITY_PHASER_BEAM_BASE + clientNum;
+		beam->renderfx = renderfx;
+	}
+#else
+	(void)beam;
+	(void)clientNum;
+	(void)renderfx;
+#endif
+}
+
+void FX_PhaserFire( vec3_t startpos, vec3_t endpos, vec3_t normal, qboolean spark, qboolean impact, qboolean empty, int clientNum, int renderfx )
 {
 	refEntity_t		beam;
 	sfxHandle_t		sfx;
@@ -48,6 +63,7 @@ void FX_PhaserFire( vec3_t startpos, vec3_t endpos, vec3_t normal, qboolean spar
 		beam.data.line.width = 2.0f + ( crandom() * 0.6f );
 	}
 	beam.data.line.stscale = 5.0;
+	FX_STEFX_TagPhaserBeam( &beam, clientNum, renderfx );
 	trap_R_AddRefEntityToScene( &beam );
 
 	// Now draw the hit graphic
@@ -109,7 +125,7 @@ FX_PhaserAltFire
 
 #define PHASER_ALT_CONE_LEN	256
 
-void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, qboolean impact, qboolean empty )
+void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, qboolean impact, qboolean empty, int clientNum, int renderfx )
 {
 	float		scale = flrandom(13.0f, 17.0f), scale2 = flrandom(2.0f, 6.0f);
 	vec3_t		vel, diff, end2;
@@ -156,6 +172,7 @@ void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, 
 		beam.data.line.width = scale*0.1;
 		beam.data.line.width2 = scale;
 		beam.data.line.stscale = 1.0;
+		FX_STEFX_TagPhaserBeam( &beam, clientNum, renderfx );
 		trap_R_AddRefEntityToScene( &beam );
 
 		// Draw big thick normal beam for the rest.
@@ -178,6 +195,7 @@ void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, 
 		beam.shaderRGBA[3] = 0xff;
 		beam.data.line.width = scale;
 		beam.data.line.stscale = 1.0;
+		FX_STEFX_TagPhaserBeam( &beam, clientNum, renderfx );
 		trap_R_AddRefEntityToScene( &beam );
 
 		// Draw beam core, all one bit.
@@ -194,6 +212,7 @@ void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, 
 		beam.data.line.width = scale2*0.2;
 		beam.data.line.width2 = scale2;
 		beam.data.line.stscale = 1.0;
+		FX_STEFX_TagPhaserBeam( &beam, clientNum, renderfx );
 		trap_R_AddRefEntityToScene( &beam );
 	}
 	else
@@ -212,6 +231,7 @@ void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, 
 		beam.data.line.width = scale*0.1;
 		beam.data.line.width2 = scale;
 		beam.data.line.stscale = 1.0;
+		FX_STEFX_TagPhaserBeam( &beam, clientNum, renderfx );
 		trap_R_AddRefEntityToScene( &beam );
 
 		// just one beam is never enough
@@ -228,6 +248,7 @@ void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, 
 		beam.data.line.width = scale2*0.2;
 		beam.data.line.width2 = scale2;
 		beam.data.line.stscale = 1.0;
+		FX_STEFX_TagPhaserBeam( &beam, clientNum, renderfx );
 		trap_R_AddRefEntityToScene( &beam );
 	}
 	

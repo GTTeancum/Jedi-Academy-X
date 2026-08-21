@@ -955,6 +955,9 @@ void SV_Init (void) {
 
 	// server vars
 	sv_fps = Cvar_Get ("sv_fps", "20", CVAR_TEMP );
+#ifdef _XBOX
+	stefx_maxCatchupTicks = Cvar_Get ("stefx_maxCatchupTicks", "1", CVAR_ARCHIVE );
+#endif
 	sv_timeout = Cvar_Get ("sv_timeout", "120", CVAR_TEMP );
 	sv_zombietime = Cvar_Get ("sv_zombietime", "2", CVAR_TEMP );
 	Cvar_Get ("nextmap", "", CVAR_TEMP );

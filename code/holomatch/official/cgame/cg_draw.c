@@ -2636,6 +2636,37 @@ static void CG_Draw2D( void ) {
 		return;
 	}
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	{
+		char splitValue[8];
+		char localPlayersValue[8];
+		trap_Cvar_VariableStringBuffer( "stefx_splitScreen", splitValue, sizeof(splitValue) );
+		trap_Cvar_VariableStringBuffer( "stefx_hmLocalPlayers", localPlayersValue, sizeof(localPlayersValue) );
+		if ( atoi( splitValue ) != 0 && atoi( localPlayersValue ) > 1 ) {
+		if ( cg.snap->ps.pm_type == PM_INTERMISSION ) {
+			return;
+		}
+		if ( !cg.renderingThirdPerson ) {
+			CG_DrawZoomMask();
+		}
+		if ( cg.snap->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR ||
+			(cg.snap->ps.eFlags & EF_ELIMINATED) ) {
+			CG_DrawCrosshair();
+			CG_DrawCrosshairNames();
+		} else if ( cg.snap->ps.stats[STAT_HEALTH] > 0 ) {
+			CG_DrawStatusBar();
+			CG_DrawAmmoWarning();
+			CG_DrawCrosshair();
+			CG_DrawCrosshairNames();
+			CG_DrawWeaponSelect();
+			CG_DrawHoldableItem();
+			CG_DrawLowerRight();
+		}
+		return;
+		}
+	}
+#endif
+
 	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) {
 #ifndef FINAL_BUILD
 		CG_DrawUpperRight();
@@ -2745,6 +2776,219 @@ static void CG_Draw2D( void ) {
 	if ( stefx2DTrace ) Com_Printf( "STEFX: official cgame 2D returned\n" );
 #endif
 }
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+typedef struct {
+	int weapon;
+	int weaponSelectTime;
+	int crosshairClientNum;
+	int crosshairClientTime;
+} stefxSplitHudState_t;
+
+static int CG_STEFX_SplitLowAmmoWarning( const playerState_t *ps )
+{
+	int i;
+	int total = 0;
+	int weapons;
+
+	if ( !ps ) {
+		return 0;
+	}
+
+	weapons = ps->stats[STAT_WEAPONS];
+	for ( i = WP_PHASER; i < WP_NUM_WEAPONS; ++i ) {
+		if ( !(weapons & (1 << i)) ) {
+			continue;
+		}
+		switch ( i ) {
+		case WP_STASIS:
+		case WP_GRENADE_LAUNCHER:
+		case WP_IMOD:
+		case WP_COMPRESSION_RIFLE:
+			total += ps->ammo[i] * 1000;
+			break;
+		default:
+			total += ps->ammo[i] * 200;
+			break;
+		}
+		if ( total >= 5000 ) {
+			return 0;
+		}
+	}
+	return total == 0 ? 2 : 1;
+}
+
+void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
+	const float *vieworg, const float *viewaxis, float fovX, float fovY, int viewTime )
+{
+	static stefxSplitHudState_t splitState[4] = {
+		{ -1, 0, 0, 0 },
+		{ -1, 0, 0, 0 },
+		{ -1, 0, 0, 0 },
+		{ -1, 0, 0, 0 }
+	};
+	static int s_stefxSplitHudLogBudget = 48;
+	playerState_t *ps = (playerState_t *)officialPlayerState;
+	playerState_t savedSnapPs;
+	playerState_t savedPredictedPs;
+	refdef_t savedRefdef;
+	entityState_t savedEntityState;
+	stefxSplitHudState_t *state;
+	int savedWeaponSelect;
+	int savedWeaponSelectTime;
+	int savedLowAmmoWarning;
+	int savedCrosshairClientNum;
+	int savedCrosshairClientTime;
+	int savedItemPickupBlendTime;
+	qboolean savedRenderingThirdPerson;
+	int ammo = 0;
+
+	if ( slot < 1 || slot > 3 || !ps || !cg.snap || !vieworg || !viewaxis ||
+		ps->clientNum != slot || ps->clientNum < 0 || ps->clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+
+	state = &splitState[slot];
+	if ( state->weapon != ps->weapon ) {
+		state->weapon = ps->weapon;
+		state->weaponSelectTime = cg.time;
+	}
+
+	savedSnapPs = cg.snap->ps;
+	savedPredictedPs = cg.predictedPlayerState;
+	savedRefdef = cg.refdef;
+	savedEntityState = cg_entities[ps->clientNum].currentState;
+	savedWeaponSelect = cg.weaponSelect;
+	savedWeaponSelectTime = cg.weaponSelectTime;
+	savedLowAmmoWarning = cg.lowAmmoWarning;
+	savedCrosshairClientNum = cg.crosshairClientNum;
+	savedCrosshairClientTime = cg.crosshairClientTime;
+	savedItemPickupBlendTime = cg.itemPickupBlendTime;
+	savedRenderingThirdPerson = cg.renderingThirdPerson;
+
+	cg.snap->ps = *ps;
+	cg.predictedPlayerState = *ps;
+	cg_entities[ps->clientNum].currentState.number = ps->clientNum;
+	cg_entities[ps->clientNum].currentState.clientNum = ps->clientNum;
+	cg_entities[ps->clientNum].currentState.weapon = ps->weapon;
+	cg_entities[ps->clientNum].currentState.eFlags = ps->eFlags;
+	VectorCopy( vieworg, cg.refdef.vieworg );
+	memcpy( cg.refdef.viewaxis, viewaxis, sizeof(cg.refdef.viewaxis) );
+	cg.refdef.fov_x = fovX;
+	cg.refdef.fov_y = fovY;
+	cg.refdef.time = viewTime;
+	cg.weaponSelect = ps->weapon;
+	cg.weaponSelectTime = state->weaponSelectTime;
+	cg.lowAmmoWarning = CG_STEFX_SplitLowAmmoWarning( ps );
+	cg.crosshairClientNum = state->crosshairClientNum;
+	cg.crosshairClientTime = state->crosshairClientTime;
+	cg.itemPickupBlendTime = 0;
+	cg.renderingThirdPerson = qfalse;
+
+	if ( ps->weapon >= 0 && ps->weapon < WP_NUM_WEAPONS ) {
+		ammo = ps->ammo[ps->weapon];
+	}
+	if ( ps->persistant[PERS_TEAM] == TEAM_SPECTATOR || (ps->eFlags & EF_ELIMINATED) ) {
+		CG_DrawCrosshair();
+		CG_DrawCrosshairNames();
+	} else if ( ps->stats[STAT_HEALTH] > 0 ) {
+		CG_DrawStatusBar();
+		CG_DrawAmmoWarning();
+		CG_DrawCrosshair();
+		CG_DrawCrosshairNames();
+		CG_DrawWeaponSelect();
+		CG_DrawHoldableItem();
+		CG_DrawLowerRight();
+	}
+
+	state->crosshairClientNum = cg.crosshairClientNum;
+	state->crosshairClientTime = cg.crosshairClientTime;
+	if ( s_stefxSplitHudLogBudget > 0 ) {
+		Com_Printf( "STEFX_HM_SPLIT_HUD_OFFICIAL: slot=%d client=%d health=%d armor=%d weapon=%d ammo=%d score=%d fov=%g/%g\n",
+			slot,
+			ps->clientNum,
+			ps->stats[STAT_HEALTH],
+			ps->stats[STAT_ARMOR],
+			ps->weapon,
+			ammo,
+			ps->persistant[PERS_SCORE],
+			fovX,
+			fovY );
+		--s_stefxSplitHudLogBudget;
+	}
+
+	cg.snap->ps = savedSnapPs;
+	cg.predictedPlayerState = savedPredictedPs;
+	cg.refdef = savedRefdef;
+	cg_entities[ps->clientNum].currentState = savedEntityState;
+	cg.weaponSelect = savedWeaponSelect;
+	cg.weaponSelectTime = savedWeaponSelectTime;
+	cg.lowAmmoWarning = savedLowAmmoWarning;
+	cg.crosshairClientNum = savedCrosshairClientNum;
+	cg.crosshairClientTime = savedCrosshairClientTime;
+	cg.itemPickupBlendTime = savedItemPickupBlendTime;
+	cg.renderingThirdPerson = savedRenderingThirdPerson;
+	trap_R_SetColor( NULL );
+}
+
+void STEFX_HM_CG_DrawSplitGlobalHud( void )
+{
+	static int s_stefxSplitGlobalHudLogBudget = 24;
+	char scoreboardProofValue[8];
+	qboolean scoreboardProof;
+
+	if ( !cg.snap || cg.levelShot || cg_draw2D.integer == 0 ) {
+		return;
+	}
+	trap_Cvar_VariableStringBuffer( "stefx_hm_split_scoreboard_proof",
+		scoreboardProofValue, sizeof(scoreboardProofValue) );
+	scoreboardProof = atoi( scoreboardProofValue ) != 0 ? qtrue : qfalse;
+	if ( scoreboardProof ) {
+		if ( cg.scoresRequestTime + 2000 < cg.time ) {
+			cg.scoresRequestTime = cg.time;
+			trap_SendClientCommand( "score" );
+		}
+		cg.showScores = qtrue;
+	}
+
+	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) {
+#ifndef FINAL_BUILD
+		CG_DrawUpperRight();
+#endif
+		CG_DrawIntermission();
+	} else {
+		if ( cg.showObjectives ) {
+			CG_DrawObjectiveInformation();
+		}
+		CG_DrawVote();
+		CG_DrawLagometer();
+		CG_DrawUpperRight();
+		CG_DrawLowerLeft();
+		if ( !CG_DrawFollow() ) {
+			CG_DrawWarmup();
+		}
+		if ( !CG_DrawScoreboard() ) {
+			CG_DrawCenterString();
+		}
+		if ( cg.snap->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR ||
+			(cg.snap->ps.eFlags & EF_ELIMINATED) ) {
+			CG_DrawSpectator();
+		}
+	}
+
+	if ( s_stefxSplitGlobalHudLogBudget > 0 ) {
+		Com_Printf( "STEFX_HM_SPLIT_HUD_GLOBAL: fullScreen=1 intermission=%d scoreboard=%d proof=%d scores=%d warmup=%d voteTime=%d\n",
+			cg.snap->ps.pm_type == PM_INTERMISSION ? 1 : 0,
+			cg.showScores ? 1 : 0,
+			scoreboardProof ? 1 : 0,
+			cg.numScores,
+			cg.warmup,
+			cgs.voteTime );
+		--s_stefxSplitGlobalHudLogBudget;
+	}
+	trap_R_SetColor( NULL );
+}
+#endif
 
 
 /*

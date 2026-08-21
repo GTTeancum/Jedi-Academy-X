@@ -1,14 +1,7 @@
-// leave this as first line for PCH reasons...
-//
+//Anything above this #include will be ignored by the compiler
 #include "../server/exe_headers.h"
 
-
 #include "tr_local.h"
-
-#ifdef VV_LIGHTING
-#include "tr_lightmanager.h"
-#include "../win32/win_stencilshadow.h"
-#endif
 
 
 /*
@@ -37,10 +30,7 @@ static	edgeDef_t	edgeDefs[SHADER_MAX_VERTEXES][MAX_EDGE_DEFS];
 static	int			numEdgeDefs[SHADER_MAX_VERTEXES];
 static	int			facing[SHADER_MAX_INDEXES/3];
 
-#endif // _XBOX
-
 void R_AddEdgeDef( int i1, int i2, int facing ) {
-#ifndef _XBOX
 	int		c;
 
 	c = numEdgeDefs[ i1 ];
@@ -51,14 +41,9 @@ void R_AddEdgeDef( int i1, int i2, int facing ) {
 	edgeDefs[ i1 ][ c ].facing = facing;
 
 	numEdgeDefs[ i1 ]++;
-#endif // _XBOX
 }
 
 void R_RenderShadowEdges( void ) {
-#if defined(VV_LIGHTING) && defined(_XBOX)
-	return;
-#else
-
 	int		i;
 	int		c;
 	int		j;
@@ -92,12 +77,12 @@ void R_RenderShadowEdges( void ) {
 			//we are going to render all edges even though it is a tiny bit slower. -rww
 #if 1
 			i2 = edgeDefs[ i ][ j ].i2;
-			glBegin( GL_TRIANGLE_STRIP );
-				glVertex3fv( tess.xyz[ i ] );
-				glVertex3fv( tess.xyz[ i + tess.numVertexes ] );
-				glVertex3fv( tess.xyz[ i2 ] );
-				glVertex3fv( tess.xyz[ i2 + tess.numVertexes ] );
-			glEnd();
+			qglBegin( GL_TRIANGLE_STRIP );
+				qglVertex3fv( tess.xyz[ i ] );
+				qglVertex3fv( tess.xyz[ i + tess.numVertexes ] );
+				qglVertex3fv( tess.xyz[ i2 ] );
+				qglVertex3fv( tess.xyz[ i2 + tess.numVertexes ] );
+			qglEnd();
 #else
 			hit[0] = 0;
 			hit[1] = 0;
@@ -112,13 +97,14 @@ void R_RenderShadowEdges( void ) {
 
 			// if it doesn't share the edge with another front facing
 			// triangle, it is a sil edge
-			if ( hit[ 1 ] == 0 ) {
-				glBegin( GL_TRIANGLE_STRIP );
-				glVertex3fv( tess.xyz[ i ] );
-				glVertex3fv( tess.xyz[ i + tess.numVertexes ] );
-				glVertex3fv( tess.xyz[ i2 ] );
-				glVertex3fv( tess.xyz[ i2 + tess.numVertexes ] );
-				glEnd();
+			if (hit[1] != 1)
+			{
+				qglBegin( GL_TRIANGLE_STRIP );
+				qglVertex3fv( tess.xyz[ i ] );
+				qglVertex3fv( tess.xyz[ i + tess.numVertexes ] );
+				qglVertex3fv( tess.xyz[ i2 ] );
+				qglVertex3fv( tess.xyz[ i2 + tess.numVertexes ] );
+				qglEnd();
 				c_edges++;
 			} else {
 				c_rejected++;
@@ -143,19 +129,18 @@ void R_RenderShadowEdges( void ) {
 		o2 = tess.indexes[ i*3 + 1 ];
 		o3 = tess.indexes[ i*3 + 2 ];
 
-		glBegin(GL_TRIANGLES);
-			glVertex3fv(tess.xyz[o1]);
-			glVertex3fv(tess.xyz[o2]);
-			glVertex3fv(tess.xyz[o3]);
-		glEnd();
-		glBegin(GL_TRIANGLES);
-			glVertex3fv(tess.xyz[o3 + tess.numVertexes]);
-			glVertex3fv(tess.xyz[o2 + tess.numVertexes]);
-			glVertex3fv(tess.xyz[o1 + tess.numVertexes]);
-		glEnd();
+		qglBegin(GL_TRIANGLES);
+			qglVertex3fv(tess.xyz[o1]);
+			qglVertex3fv(tess.xyz[o2]);
+			qglVertex3fv(tess.xyz[o3]);
+		qglEnd();
+		qglBegin(GL_TRIANGLES);
+			qglVertex3fv(tess.xyz[o3 + tess.numVertexes]);
+			qglVertex3fv(tess.xyz[o2 + tess.numVertexes]);
+			qglVertex3fv(tess.xyz[o1 + tess.numVertexes]);
+		qglEnd();
 	}
 #endif
-#endif // VV_LIGHTING && _XBOX
 }
 
 //#define _DEBUG_STENCIL_SHADOWS
@@ -175,17 +160,13 @@ triangleFromEdge[ v1 ][ v2 ]
 void RB_DoShadowTessEnd( vec3_t lightPos );
 void RB_ShadowTessEnd( void )
 {
-#if defined(VV_LIGHTING) && defined(_XBOX)
-	if(StencilShadower.BuildFromLight())
-		StencilShadower.RenderShadow();
-#else
 #if 0
 	if (backEnd.currentEntity &&
 		(backEnd.currentEntity->directedLight[0] ||
 			backEnd.currentEntity->directedLight[1] ||
 			backEnd.currentEntity->directedLight[2]))
 	{ //an ent that has its light set for it
-		RB_DoShadowTessEnd(NULL); 
+		RB_DoShadowTessEnd(NULL);
 		return;
 	}
 
@@ -217,12 +198,10 @@ void RB_ShadowTessEnd( void )
 #else //old ents-only way
 	RB_DoShadowTessEnd(NULL);
 #endif
-#endif // VV_LIGHTING && _XBOX
 }
 
 void RB_DoShadowTessEnd( vec3_t lightPos )
 {
-#ifndef _XBOX
 	int		i;
 	int		numTris;
 	vec3_t	lightDir;
@@ -279,7 +258,7 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 	}
 #endif
 	// decide which triangles face the light
-	memset( numEdgeDefs, 0, 4 * tess.numVertexes );
+	Com_Memset( numEdgeDefs, 0, 4 * tess.numVertexes );
 
 	numTris = tess.numIndexes / 3;
 	for ( i = 0 ; i < numTris ; i++ ) {
@@ -333,86 +312,85 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 	}
 
 	GL_Bind( tr.whiteImage );
-	//glEnable( GL_CULL_FACE );
+	//qglEnable( GL_CULL_FACE );
 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO );
 
 #ifndef _DEBUG_STENCIL_SHADOWS
-	glColor3f( 0.2f, 0.2f, 0.2f );
+	qglColor3f( 0.2f, 0.2f, 0.2f );
 
 	// don't write to the color buffer
-	glColorMask( GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE );
+	qglColorMask( GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE );
 
-	glEnable( GL_STENCIL_TEST );
-	glStencilFunc( GL_ALWAYS, 1, 255 );
+	qglEnable( GL_STENCIL_TEST );
+	qglStencilFunc( GL_ALWAYS, 1, 255 );
 #else
-	glColor3f( 1.0f, 0.0f, 0.0f );
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-	//glDisable(GL_DEPTH_TEST);
+	qglColor3f( 1.0f, 0.0f, 0.0f );
+	qglPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	//qglDisable(GL_DEPTH_TEST);
 #endif
 
 #ifdef _STENCIL_REVERSE
-	glDepthFunc(GL_LESS);
+	qglDepthFunc(GL_LESS);
 
 	//now using the Carmack Reverse<tm> -rww
 	if ( backEnd.viewParms.isMirror ) {
-		//glCullFace( GL_BACK );
+		//qglCullFace( GL_BACK );
 		GL_Cull(CT_BACK_SIDED);
-		glStencilOp( GL_KEEP, GL_INCR, GL_KEEP );
+		qglStencilOp( GL_KEEP, GL_INCR, GL_KEEP );
 
 		R_RenderShadowEdges();
 
-		//glCullFace( GL_FRONT );
+		//qglCullFace( GL_FRONT );
 		GL_Cull(CT_FRONT_SIDED);
-		glStencilOp( GL_KEEP, GL_DECR, GL_KEEP );
+		qglStencilOp( GL_KEEP, GL_DECR, GL_KEEP );
 
 		R_RenderShadowEdges();
 	} else {
-		//glCullFace( GL_FRONT );
+		//qglCullFace( GL_FRONT );
 		GL_Cull(CT_FRONT_SIDED);
-		glStencilOp( GL_KEEP, GL_INCR, GL_KEEP );
+		qglStencilOp( GL_KEEP, GL_INCR, GL_KEEP );
 
 		R_RenderShadowEdges();
 
-		//glCullFace( GL_BACK );
+		//qglCullFace( GL_BACK );
 		GL_Cull(CT_BACK_SIDED);
-		glStencilOp( GL_KEEP, GL_DECR, GL_KEEP );
+		qglStencilOp( GL_KEEP, GL_DECR, GL_KEEP );
 
 		R_RenderShadowEdges();
 	}
 
-	glDepthFunc(GL_LEQUAL);
+	qglDepthFunc(GL_LEQUAL);
 #else
 	// mirrors have the culling order reversed
 	if ( backEnd.viewParms.isMirror ) {
-		glCullFace( GL_FRONT );
-		glStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
+		qglCullFace( GL_FRONT );
+		qglStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
 
 		R_RenderShadowEdges();
 
-		glCullFace( GL_BACK );
-		glStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
+		qglCullFace( GL_BACK );
+		qglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
 
 		R_RenderShadowEdges();
 	} else {
-		glCullFace( GL_BACK );
-		glStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
+		qglCullFace( GL_BACK );
+		qglStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
 
 		R_RenderShadowEdges();
 
-		glCullFace( GL_FRONT );
-		glStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
+		qglCullFace( GL_FRONT );
+		qglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
 
 		R_RenderShadowEdges();
 	}
 #endif
 
 	// reenable writing to the color buffer
-	glColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+	qglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
 
 #ifdef _DEBUG_STENCIL_SHADOWS
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	qglPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #endif
-#endif // _XBOX
 }
 
 
@@ -427,9 +405,6 @@ overlap and double darken.
 =================
 */
 void RB_ShadowFinish( void ) {
-#if defined(VV_LIGHTING) && defined(_XBOX)
-	StencilShadower.FinishShadows();
-#else
 	if ( r_shadows->integer != 2 ) {
 		return;
 	}
@@ -441,50 +416,49 @@ void RB_ShadowFinish( void ) {
 	return;
 #endif
 
-	glEnable( GL_STENCIL_TEST );
-	glStencilFunc( GL_NOTEQUAL, 0, 255 );
+	qglEnable( GL_STENCIL_TEST );
+	qglStencilFunc( GL_NOTEQUAL, 0, 255 );
 
-	glStencilOp( GL_KEEP, GL_KEEP, GL_KEEP );
+	qglStencilOp( GL_KEEP, GL_KEEP, GL_KEEP );
 
 	bool planeZeroBack = false;
-	if (glIsEnabled(GL_CLIP_PLANE0))
+	if (qglIsEnabled(GL_CLIP_PLANE0))
 	{
 		planeZeroBack = true;
-		glDisable (GL_CLIP_PLANE0);
+		qglDisable (GL_CLIP_PLANE0);
 	}
 	GL_Cull(CT_TWO_SIDED);
-	//glDisable (GL_CULL_FACE);
+	//qglDisable (GL_CULL_FACE);
 
 	GL_Bind( tr.whiteImage );
 
-	glPushMatrix();
-    glLoadIdentity ();
+	qglPushMatrix();
+    qglLoadIdentity ();
 
-//	glColor3f( 0.6f, 0.6f, 0.6f );
+//	qglColor3f( 0.6f, 0.6f, 0.6f );
 //	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO );
 
-//	glColor3f( 1, 0, 0 );
+//	qglColor3f( 1, 0, 0 );
 //	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO );
 
-	glColor4f( 0.0f, 0.0f, 0.0f, 0.5f );
+	qglColor4f( 0.0f, 0.0f, 0.0f, 0.5f );
 	//GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
 	GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
 
-	glBegin( GL_QUADS );
-	glVertex3f( -100, 100, -10 );
-	glVertex3f( 100, 100, -10 );
-	glVertex3f( 100, -100, -10 );
-	glVertex3f( -100, -100, -10 );
-	glEnd ();
+	qglBegin( GL_QUADS );
+	qglVertex3f( -100, 100, -10 );
+	qglVertex3f( 100, 100, -10 );
+	qglVertex3f( 100, -100, -10 );
+	qglVertex3f( -100, -100, -10 );
+	qglEnd ();
 
-	glColor4f(1,1,1,1);
-	glDisable( GL_STENCIL_TEST );
+	qglColor4f(1,1,1,1);
+	qglDisable( GL_STENCIL_TEST );
 	if (planeZeroBack)
 	{
-		glEnable (GL_CLIP_PLANE0);
+		qglEnable (GL_CLIP_PLANE0);
 	}
-	glPopMatrix();
-#endif // VV_LIGHTING && _XBOX
+	qglPopMatrix();
 }
 
 
@@ -495,57 +469,6 @@ RB_ProjectionShadowDeform
 =================
 */
 void RB_ProjectionShadowDeform( void ) {
-#ifdef _XBOX
-	float	shadowMat[4][4];
-	vec3_t light, ground;
-	float d, dot;
-
-	ground[0] = backEnd.ori.axis[0][2];
-	ground[1] = backEnd.ori.axis[1][2];
-	ground[2] = backEnd.ori.axis[2][2];
-	d = backEnd.ori.origin[2] - backEnd.currentEntity->e.shadowPlane;
-
-	light[0] = backEnd.currentEntity->lightDir[0];
-	light[1] = backEnd.currentEntity->lightDir[1];
-	light[2] = backEnd.currentEntity->lightDir[2];
-
-	dot = ground[0] * light[0] + 
-		  ground[1] * light[1] + 
-		  ground[2] * light[2]; 
-	// don't let the shadows get too long or go negative
-	if ( dot < 0.5 ) 
-	{
-		VectorMA( light, (0.5 - dot), ground, light );
-		dot = DotProduct( light, ground );
-	}
-
-	shadowMat[0][0] = dot - light[0] * ground[0]; 
-	shadowMat[1][0] = 0.f - light[0] * ground[1]; 
-	shadowMat[2][0] = 0.f - light[0] * ground[2]; 
-	shadowMat[3][0] = 0.f - light[0] * d; 
-	shadowMat[0][1] = 0.f - light[1] * ground[0]; 
-	shadowMat[1][1] = dot - light[1] * ground[1]; 
-	shadowMat[2][1] = 0.f - light[1] * ground[2]; 
-	shadowMat[3][1] = 0.f - light[1] * d; 
-	shadowMat[0][2] = 0.f - light[2] * ground[0]; 
-	shadowMat[1][2] = 0.f - light[2] * ground[1]; 
-	shadowMat[2][2] = dot - light[2] * ground[2]; 
-	shadowMat[3][2] = 0.f - light[2] * d; 
-	shadowMat[0][3] = 0.f; 
-	shadowMat[1][3] = 0.f; 
-	shadowMat[2][3] = 0.f; 
-	shadowMat[3][3] = dot; 
-
-	glMatrixMode(GL_MODELVIEW);
-	glMultMatrixf(&shadowMat[0][0]);
-
-	// Turn on stenciling
-	// This is done to prevent overlapping shadow artifacts
-	glEnable( GL_STENCIL_TEST ); 
-	glStencilFunc( GL_NOTEQUAL, 0x1, 0x7f );
-	glStencilMask( 0x7f );
-	glStencilOp( GL_KEEP, GL_KEEP, GL_INCR );
-#else
 	float	*xyz;
 	int		i;
 	float	h;
@@ -583,8 +506,9 @@ void RB_ProjectionShadowDeform( void ) {
 		xyz[1] -= light[1] * h;
 		xyz[2] -= light[2] * h;
 	}
-#endif // _XBOX
 }
+
+#endif	// _XBOX
 
 //update tr.screenImage
 void RB_CaptureScreenImage(void)
@@ -604,8 +528,8 @@ void RB_CaptureScreenImage(void)
 	{
 		tmp = (byte *)Z_Malloc((sizeof(byte)*4)*(glConfig.vidWidth*glConfig.vidHeight), TAG_ICARUS, qtrue);
 	}
-	glReadPixels(0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
+	qglReadPixels(0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
+	qglTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
 	*/
 
 	if (radX > glConfig.maxTextureSize)
@@ -648,9 +572,9 @@ void RB_CaptureScreenImage(void)
 	}
 
 #ifndef _XBOX
-	glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, cX, cY, radX, radY, 0);
+	qglCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, cX, cY, radX, radY, 0);
 #else
-	glCopyBackBufferToTexEXT(radX, radY, cX, cY, (cX + radX), (cY + radY));
+	qglCopyBackBufferToTexEXT(radX, radY, cX, cY, (cX + radX), (cY + radY));
 #endif // _XBOX
 }
 
@@ -677,22 +601,21 @@ void RB_DistortionFill(void)
 		RB_CaptureScreenImage();
 	}
 
-	// BTO - Xbox fix: High stencil bit is used for glow, don't test against that here!
-	glEnable(GL_STENCIL_TEST);
-	glStencilFunc(GL_NOTEQUAL, 0, 0x7F); //0xFFFFFFFF);'
-	glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+	qglEnable(GL_STENCIL_TEST);
+	qglStencilFunc(GL_NOTEQUAL, 0, 0xFFFFFFFF);
+	qglStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 
-	glDisable (GL_CLIP_PLANE0);
+	qglDisable (GL_CLIP_PLANE0);
 	GL_Cull( CT_TWO_SIDED );
 
 	//reset the view matrices and go into ortho mode
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	glOrtho(0, glConfig.vidWidth, glConfig.vidHeight, 32, -1, 1);
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
+	qglMatrixMode(GL_PROJECTION);
+	qglPushMatrix();
+	qglLoadIdentity();
+	qglOrtho(0, glConfig.vidWidth, glConfig.vidHeight, 32, -1, 1);
+	qglMatrixMode(GL_MODELVIEW);
+	qglPushMatrix();
+	qglLoadIdentity();
 
 	if (tr_distortionStretch)
 	{ //override
@@ -726,23 +649,23 @@ void RB_DistortionFill(void)
 	}
 
 #ifdef _XBOX
-	glBeginEXT(GL_QUADS, 4, 0, 0, 4, 0);
+	qglBeginEXT(GL_QUADS, 4, 0, 0, 4, 0);
 #else
-	glBegin(GL_QUADS);
+	qglBegin(GL_QUADS);
 #endif // _XBOX
-		glColor4f(1.0f, 1.0f, 1.0f, alpha);
-		glTexCoord2f(0+spost2, 1-spost);
-		glVertex2f(0, 0);
+		qglColor4f(1.0f, 1.0f, 1.0f, alpha);
+		qglTexCoord2f(0+spost2, 1-spost);
+		qglVertex2f(0, 0);
 
-		glTexCoord2f(0+spost2, 0+spost);
-		glVertex2f(0, glConfig.vidHeight);
+		qglTexCoord2f(0+spost2, 0+spost);
+		qglVertex2f(0, glConfig.vidHeight);
 
-		glTexCoord2f(1-spost2, 0+spost);
-		glVertex2f(glConfig.vidWidth, glConfig.vidHeight);
+		qglTexCoord2f(1-spost2, 0+spost);
+		qglVertex2f(glConfig.vidWidth, glConfig.vidHeight);
 
-		glTexCoord2f(1-spost2, 1-spost);
-		glVertex2f(glConfig.vidWidth, 0);
-	glEnd();
+		qglTexCoord2f(1-spost2, 1-spost);
+		qglVertex2f(glConfig.vidWidth, 0);
+	qglEnd();
 
 	if (tr_distortionAlpha == 1.0f && tr_distortionStretch == 0.0f)
 	{ //no overrides
@@ -772,30 +695,30 @@ void RB_DistortionFill(void)
 		spost2 *= 0.2f;
 
 #ifdef _XBOX
-		glBeginEXT(GL_QUADS, 4, 0, 0, 4, 0);
+		qglBeginEXT(GL_QUADS, 4, 0, 0, 4, 0);
 #else
-		glBegin(GL_QUADS);
+		qglBegin(GL_QUADS);
 #endif // _XBOX
-			glColor4f(1.0f, 1.0f, 1.0f, alpha);
-			glTexCoord2f(0+spost2, 1-spost);
-			glVertex2f(0, 0);
+			qglColor4f(1.0f, 1.0f, 1.0f, alpha);
+			qglTexCoord2f(0+spost2, 1-spost);
+			qglVertex2f(0, 0);
 
-			glTexCoord2f(0+spost2, 0+spost);
-			glVertex2f(0, glConfig.vidHeight);
+			qglTexCoord2f(0+spost2, 0+spost);
+			qglVertex2f(0, glConfig.vidHeight);
 
-			glTexCoord2f(1-spost2, 0+spost);
-			glVertex2f(glConfig.vidWidth, glConfig.vidHeight);
+			qglTexCoord2f(1-spost2, 0+spost);
+			qglVertex2f(glConfig.vidWidth, glConfig.vidHeight);
 
-			glTexCoord2f(1-spost2, 1-spost);
-			glVertex2f(glConfig.vidWidth, 0);
-		glEnd();
+			qglTexCoord2f(1-spost2, 1-spost);
+			qglVertex2f(glConfig.vidWidth, 0);
+		qglEnd();
 	}
 
 	//pop the view matrices back
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
+	qglMatrixMode(GL_PROJECTION);
+	qglPopMatrix();
+	qglMatrixMode(GL_MODELVIEW);
+	qglPopMatrix();
 
-	glDisable( GL_STENCIL_TEST );
+	qglDisable( GL_STENCIL_TEST );
 }

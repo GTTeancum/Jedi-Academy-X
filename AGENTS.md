@@ -3,13 +3,17 @@
 ## Current Holomatch Override - 2026-07-22
 - Active Holomatch development starts from the working Elite Force SP engine in `code\`.
 - Build Holomatch with `scripts\build_xbox.ps1 -Target spmp`.
-- The active Holomatch development artifact is `build\release\efmp.xbe`, staged as `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\efmp.xbe`.
+- The active Holomatch development artifact is `build\release\efmp.xbe`; current qualification packages it into the shared XEMU ISO and the single bounded hardware stage.
 - Runtime data is staged under `BaseEF`; the active Holomatch package is `BaseEF\xbox1.pk3`.
 - `codemp\` is historical/deprecated for this project phase and must not be a build, link, include, or runtime dependency for SP-hosted `efmp.xbe`.
 - `default.xbe` remains the SP/co-op executable and must not be overwritten by Holomatch work.
 - Current Holomatch tests boot straight to `hm_borg1` with bots; menus are future work.
 - The authoritative current status files are `GAME_TODO.md` and `HOLOMATCH_QUALIFICATION.md`.
-- Use XEMU/LLE for the current unified SP/co-op/Holomatch qualification. CXBX-R captures are historical or focused diagnostic evidence only.
+- Use XEMU/LLE for the current unified SP/co-op/Holomatch qualification. The
+  unmodified retail Jedi Academy multiplayer XBE crashes CXBX-R, so CXBX-R is
+  not a compatibility or regression authority for the JA-derived renderer and
+  must not be used to qualify that path. Retail Xbox hardware is the final
+  performance authority.
 
 ## Development Workflow
 - **Programmer:** Codex (AI) — all code changes are made by Codex
@@ -18,20 +22,21 @@
 
 ## Testing Environment
 - **Hardware:** Retail Xbox only (no dev kit, no debugger attach)
-- **Emulator:** CXBX-R (Cxbx-Reloaded)
+- **Emulator:** XEMU/LLE for active qualification. CXBX-R is historical-only for this JA-derived renderer and is not a regression authority.
 - **Target build:** Release only — all other configurations (Debug, FinalBuild, DemoDebug, DemoRelease, DemoFinal, SHDebug, etc.) are removed from all .vcproj and .sln files
 - **Diagnostic tool:** Debug log output — the SP codebase has logging strings that write to a log file; this is the **only** practical way to diagnose runtime issues
 - All new code paths must be instrumented with log output before asking the user to test
 - Do not assume a crash cause — log before and after suspect calls so the log tells us where execution stopped
+- **Canonical controller config:** `C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X\BaseEF\default.cfg` is read-only to Codex. It may be inspected and compared, but must never be edited, overwritten, generated, staged into, or used as a package output target.
 
 ## Repository Structure
 - **SP (Single Player):** `code/` — `JediAcademy.sln`
 - **Historical MP (deprecated):** `codemp/` — `JKA_mp.sln`
-- **XDK:** `C:\XDK\` (manually extracted from XDKSetup5849.exe via 7-Zip)
+- **XDK:** clean, unmodified 5558 at `C:\XDK_5558\XDK\`; do not use the modified 5849 tree for active builds.
 
 ## Toolchain
 - **Compiler:** VS2005 (Microsoft Visual Studio 8)
-- **XDK Version:** 5849
+- **XDK Version:** 5558
 - **Platform:** Win32 (renamed from Xenon/Xbox in all vcproj/sln files)
 - **MASM:** `C:\Program Files (x86)\Microsoft Visual Studio 8\VC\bin\ml.exe`
 - **imagebld:** `C:\XDK\xbox\bin\imagebld.exe`
@@ -73,12 +78,12 @@ Two files must exist in `code/x_exe/`:
 - `_strcmpi` → forwards to `_stricmp`
 
 ### SP Linker Settings (Release)
-- `libc.lib` from `C:\XDK\lib\`
-- `C:\XDK\lib` in `AdditionalLibraryDirectories`
+- Xbox system libraries come from the unmodified XDK 5558 tree at `C:\XDK_5558\XDK\xbox\lib`.
+- Keep the active Xbox renderer link entirely on one XDK version; do not mix 5558 headers or objects with 5849 libraries.
 - `IgnoreDefaultLibraryNames`: msvcrt/libcmt variants
 - `/FORCE:MULTIPLE`
 - `BufferSecurityCheck="FALSE"`
-- `d3d8i.lib` (NOT `d3d8.lib` — retail d3d8.lib uses kernel-only inline symbols unlinkable with Win32 toolchain)
+- `d3d8.lib` (retail runtime). `d3d8i.lib` is diagnostic-only and regressed the measured gameplay baseline.
 - Stub obj `.\Release\exe\xbox_asm_stubs.obj` listed explicitly in AdditionalDependencies
 - `EntryPointSymbol="_WinMainCRTStartup"`
 
@@ -178,7 +183,7 @@ Code complete — needs compile test. Changes:
 - Use XEMU/LLE for current unified SP/co-op/Holomatch proof.
 - Retail Xbox remains the final target.
 - Current logs are `E:\ef_sp_log.txt` for SP and `D:\ef_mp_log.txt`, falling back to `E:\ef_mp_log.txt`, for SP-hosted Holomatch. XBLog flushes every write; last line = crash point.
-- Run `scripts\cleanup_generated.ps1` before and after emulator runs. `scripts\run_sp_xemu_smoke.ps1` does this automatically.
+- Run `scripts\cleanup_generated.ps1` before and after emulator runs and after every completed build/package/test cycle. `scripts\run_sp_xemu_smoke.ps1` does this automatically. Use `-Aggressive` after replacing a beta stage so obsolete package trees cannot accumulate.
 - Keep one current XEMU ISO under `build\xemu`; per-run ISO copies and staging trees are temporary artifacts. Use `-KeepStage` only for a specific diagnostic that needs inspection afterward.
 - Smoke output retention is bounded. Preserve a proof explicitly in project notes or a committed artifact before allowing newer runs to rotate it out.
 
@@ -191,10 +196,10 @@ Code complete — needs compile test. Changes:
 ## Key Technical Notes
 
 ### d3d8.lib vs d3d8i.lib
-Retail `d3d8.lib` implements D3D methods as inline functions that directly manipulate Xbox hardware registers (`_D3D__RenderState`, `_D3D__DirtyFlags`). These are only exported from the Xbox kernel binary at runtime — not from `xboxkrnl.lib`. The Win32 linker cannot resolve them. Always use `d3d8i.lib` (instrumented) instead.
+The active build links XDK 5558's retail `d3d8.lib`. Use `d3d8i.lib` only for a bounded diagnostic that needs its counters, then restore `d3d8.lib`: the instrumented runtime reduced the measured gameplay baseline and is not a shipping candidate.
 
 ### XDK Tools Location
-All XDK tools are at `C:\XDK\xbox\bin\` — including `imagebld.exe`, `xsasm.exe`, `xbcp.exe`, etc.
+The active build tools are under `C:\XDK_5558\XDK\xbox\bin\`, including `imagebld.exe`, `xsasm.exe`, and `xbcp.exe`.
 
 ### patchxbe.py Location
 `code/x_exe/patchxbe.py` — active SP and SP-hosted Holomatch XBE post-processor. Do not wire active Holomatch through `codemp/x_exe`.

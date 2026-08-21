@@ -8,8 +8,7 @@ param(
     [string]$Port = "4460",
     [string[]]$DumpMem = @(),
     [string]$WatchCr2 = "",
-    [string[]]$XemuArg = @(),
-    [switch]$AllowDeprecatedXemu
+    [string[]]$XemuArg = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,9 +16,8 @@ Set-StrictMode -Version 2.0
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 
-if (-not $AllowDeprecatedXemu) {
-    throw "MP Holomatch runtime testing is CXBX-R-only for this vertical slice. Use the staged efmp.xbe under C:\Games\Emulators\CXBX\Star-Trek-Elite-Force-X and validate with scripts\check_mp_holomatch_log.ps1. Re-run this deprecated XEMU helper only with -AllowDeprecatedXemu for final-stage comparison work."
-}
+# The shipping JA MP XBE also crashes CXBX-R. Qualify the JA-derived shared
+# renderer in XEMU/LLE, then use retail hardware for final performance proof.
 
 $defaultIso = Join-Path $repoRoot "build\xemu\JediAcademyX_MP_direct.iso"
 $stageXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\efmp.xbe"
@@ -27,8 +25,75 @@ $stageDefaultXbe = Join-Path $repoRoot "build\xemu\mp_direct_stage\default.xbe"
 $builtXbe = Join-Path $repoRoot "build\release\efmp.xbe"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
 
+function Get-FileSha256 {
+    param([string]$Path)
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+function Get-XbeRuntimeBuildId {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $null
+    }
+    [byte[]]$data = [System.IO.File]::ReadAllBytes($Path)
+    [byte[]]$marker = [System.Text.Encoding]::ASCII.GetBytes("STEFX_RUNTIME_BUILD_ID ")
+    for ($i = 0; $i -le $data.Length - $marker.Length; $i++) {
+        $matched = $true
+        for ($j = 0; $j -lt $marker.Length; $j++) {
+            if ($data[$i + $j] -ne $marker[$j]) {
+                $matched = $false
+                break
+            }
+        }
+        if (-not $matched) {
+            continue
+        }
+        $end = $i
+        $limit = [Math]::Min($data.Length, $i + 256)
+        while ($end -lt $limit -and $data[$end] -ne 0 -and $data[$end] -ne 10 -and $data[$end] -ne 13) {
+            $end++
+        }
+        return [System.Text.Encoding]::ASCII.GetString($data, $i, $end - $i)
+    }
+    return $null
+}
+
 if ([string]::IsNullOrWhiteSpace($Iso)) {
     $Iso = $defaultIso
+}
+
+if (-not (Test-Path -LiteralPath $builtXbe -PathType Leaf)) {
+    throw "Built XBE not found: $builtXbe"
+}
+$builtRuntimeBuildId = Get-XbeRuntimeBuildId -Path $builtXbe
+if (-not $builtRuntimeBuildId) {
+    throw "Built efmp.xbe is missing STEFX_RUNTIME_BUILD_ID; rebuild scripts\build_xbox.ps1 -Target spmp before MP XEMU proof."
+}
+foreach ($fragment in @("personality=efmp", "log=ef_mp_log.txt")) {
+    if ($builtRuntimeBuildId -notlike "*$fragment*") {
+        throw "Built efmp.xbe has wrong STEFX_RUNTIME_BUILD_ID identity: expected fragment '$fragment' in '$builtRuntimeBuildId'"
+    }
+}
+Write-Host "Runtime build id: build\release\efmp.xbe -> $builtRuntimeBuildId"
+
+if (-not $Repack) {
+    if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
+        Write-Host "Retained MP XEMU ISO is missing; enabling repack."
+        $Repack = $true
+    }
+    elseif (-not (Test-Path -LiteralPath $stageXbe -PathType Leaf)) {
+        Write-Host "MP XEMU stage efmp.xbe is missing; enabling repack."
+        $Repack = $true
+    }
+    elseif ((Get-Item -LiteralPath $stageXbe).LastWriteTimeUtc -gt (Get-Item -LiteralPath $Iso).LastWriteTimeUtc) {
+        Write-Host "MP XEMU stage efmp.xbe is newer than retained ISO; enabling repack."
+        $Repack = $true
+    }
+    elseif ((Get-FileSha256 $stageXbe) -ne (Get-FileSha256 $builtXbe)) {
+        Write-Host "MP XEMU stage efmp.xbe differs from build\release\efmp.xbe; enabling repack."
+        $Repack = $true
+    }
 }
 
 if ($Repack) {
@@ -73,6 +138,10 @@ $argsList = @(
     "--port", $Port,
     "--duration", "$Duration",
     "--interval", "$Interval",
+    "--proof-mode", "mp",
+    "--proof-map", "hm_borg1",
+    "--runtime-xbe", $builtXbe,
+    "--require-runtime-xbe-id",
     "--smoke-keymap"
 )
 

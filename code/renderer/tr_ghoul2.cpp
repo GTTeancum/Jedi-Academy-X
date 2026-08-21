@@ -30,7 +30,6 @@
 
 #ifdef VV_LIGHTING
 #include "../win32/glw_win_dx8.h"
-#include "tr_lightmanager.h"
 #endif
 
 #define	LL(x) x=LittleLong(x)
@@ -3563,13 +3562,8 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 	modelList[31]=548;
 
 	// set up lighting now that we know we aren't culled
-#ifdef VV_LIGHTING
-	if ( !personalModel ) {
-		VVLightMan.R_SetupEntityLighting( &tr.refdef, ent );
-#else
 	if ( !personalModel || r_shadows->integer > 1 ) {
 		R_SetupEntityLighting( &tr.refdef, ent );
-#endif
 	}
 
 	// see if we are in a fog volume

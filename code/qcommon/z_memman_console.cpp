@@ -60,9 +60,25 @@ extern "C" void XBLog_Print(const char *msg);
 extern "C" volatile unsigned int g_SPXBBootPhase;
 #if defined(STEFX_ELITE_FORCE_SP)
 extern "C" volatile unsigned int g_SPXBPhaseLast;
-#define STEFX_ZONE_MODEL_PHASE(stage) \
+extern "C" volatile unsigned int g_SPXBFileAllocStage;
+extern "C" volatile unsigned int g_SPXBFileAllocMutex;
+extern "C" volatile unsigned int g_SPXBFileAllocWaitResult;
+extern "C" volatile unsigned int g_SPXBFileAllocReleaseResult;
+#define STEFX_ZONE_ALLOC_PHASE(stage) \
 	( g_SPXBPhaseLast = 0xF0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
 		( g_SPXBPhaseLast & 0xffffu ) )
+
+#define STEFX_FILE_ALLOC_ZONE_PHASE(stage) \
+	do { \
+		const unsigned int stefxFileStage = g_SPXBFileAllocStage; \
+		if (stefxFileStage == 3u || (stefxFileStage >= 0x30u && stefxFileStage <= 0x3fu)) \
+		{ \
+			g_SPXBFileAllocStage = (stage); \
+		} \
+	} while (0)
+
+#define STEFX_ZONE_TRACE_TAG(tag) \
+	( (tag) == TAG_MODEL_MD3 || (tag) == TAG_BSP )
 #endif
 #if defined(_MSC_VER) && !defined(_M_PPC)
 extern "C" void *_ReturnAddress(void);
@@ -111,7 +127,7 @@ static memtag_t hunk_tag;
 #define MODEL_TEXTURE_POOL_SIZE		4*1024*1024
 
 #ifdef _XBOX
-#define ZONE_POOL_SIZE_RETAIL		(22*1024*1024)
+#define RETAIL_FINAL_ZONE_RESERVE	(1024*1024*7 + MODEL_MEM)
 #endif
 
 // SP savegames and Bink still use the original scratch sandbox.
@@ -295,13 +311,11 @@ void Com_InitZoneMemory(void)
 				status.dwAvailPhys);
 #endif
 
-#if 0
-	// Allocate the two texture pools:
-	gStaticTextures.Initialize( STATIC_TEXTURE_POOL_SIZE );
-	gSkinTextures.Initialize( MODEL_TEXTURE_POOL_SIZE );
-#endif
 #ifdef _XBOX
-	OutputDebugStringA("JA: MP baseline texture pools deferred to renderer init (Cxbx-safe)\n");
+	// Match shipping JA's physical-memory order without opening the skin swap
+	// file during CRT startup. GLW_Init finishes the allocator reset after XAPI
+	// startup, but both contiguous GPU pools must exist before zone sizing.
+	ReserveRetailTexturePoolsEarly();
 #endif
 
 	GlobalMemoryStatus(&status);
@@ -328,27 +342,31 @@ void Com_InitZoneMemory(void)
 	size = status.dwAvailPhys - ZONE_HEAP_FREE;
 #	endif
 
-#ifdef FINAL_BUILD
-	// Add in the memory that's being used up by the framebuffer from PersistDisplay:
-	size += (640 * 480 * 4);
-#endif
-
 #ifdef _XBOX
-	// Retail Z_Init allocates a fixed 0x1000000-byte pool with
-	// D3D_AllocContiguousMemory before renderer device creation.
+	// Shipping JA MP measures memory after reserving the 10 MiB static and 4 MiB
+	// skin texture pools, then leaves the FinalBuild reserve and allocates the
+	// cached remainder with GlobalAlloc.
+	if (status.dwAvailPhys <= RETAIL_FINAL_ZONE_RESERVE)
+	{
+		Com_Error(ERR_FATAL, "Zone: insufficient physical memory (%u available)",
+			(unsigned)status.dwAvailPhys);
+	}
+	size = status.dwAvailPhys - RETAIL_FINAL_ZONE_RESERVE;
+	// PersistDisplay's 640x480x4 framebuffer is already charged to available
+	// physical memory by the time retail computes its FinalBuild zone.
+	size += (640 * 480 * 4);
 	{
 		char msg[160];
-		_snprintf(msg, sizeof(msg), "JA: retail zone D3D_AllocContiguousMemory request=%d calculated=%d\n",
-			ZONE_POOL_SIZE_RETAIL, (int)size);
+		_snprintf(msg, sizeof(msg), "JA: retail zone GlobalAlloc afterPools=%u size=%u\n",
+			(unsigned)status.dwAvailPhys, (unsigned)size);
 		msg[sizeof(msg) - 1] = '\0';
 		OutputDebugStringA(msg);
 	}
-	size = ZONE_POOL_SIZE_RETAIL;
-	s_PoolBase = D3D_AllocContiguousMemory(size, 0);
+	s_PoolBase = GlobalAlloc(0, size);
 	if (!s_PoolBase)
 	{
-		OutputDebugStringA("JA: retail zone D3D_AllocContiguousMemory FAILED\n");
-		Com_Error(ERR_FATAL, "Zone: D3D_AllocContiguousMemory(%d) failed", (int)size);
+		OutputDebugStringA("JA: retail zone GlobalAlloc FAILED\n");
+		Com_Error(ERR_FATAL, "Zone: GlobalAlloc(%d) failed", (int)size);
 	}
 	{
 		char msg[160];
@@ -430,7 +448,7 @@ void Com_ShutdownZoneMemory(void)
 	// Free the pool
 #ifndef _GAMECUBE
 #ifdef _XBOX
-	D3D_FreeContiguousMemory(s_PoolBase);
+	GlobalFree(s_PoolBase);
 #else
 	GlobalFree(s_PoolBase);
 #endif
@@ -1010,16 +1028,32 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 
 #ifndef _GAMECUBE
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (eTag == TAG_MODEL_MD3)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x30 );
+	if (g_SPXBFileAllocStage == 0x30u)
 	{
-		STEFX_ZONE_MODEL_PHASE( 0x60 );
+		g_SPXBFileAllocMutex = (unsigned int)s_Mutex;
+		g_SPXBFileAllocWaitResult = 0xffffffffu;
+		g_SPXBFileAllocReleaseResult = 0xffffffffu;
+	}
+	if (STEFX_ZONE_TRACE_TAG(eTag))
+	{
+		STEFX_ZONE_ALLOC_PHASE( 0x60 );
 	}
 #endif
-	WaitForSingleObject(s_Mutex, INFINITE);
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (eTag == TAG_MODEL_MD3)
 	{
-		STEFX_ZONE_MODEL_PHASE( 0x61 );
+		const DWORD waitResult = WaitForSingleObject(s_Mutex, INFINITE);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if (g_SPXBFileAllocStage == 0x30u)
+		{
+			g_SPXBFileAllocWaitResult = (unsigned int)waitResult;
+		}
+#endif
+	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x31 );
+	if (STEFX_ZONE_TRACE_TAG(eTag))
+	{
+		STEFX_ZONE_ALLOC_PHASE( 0x61 );
 	}
 #endif
 #endif
@@ -1059,9 +1093,10 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	// begining of the pool.
 	ZoneFreeBlock* fblock;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (eTag == TAG_MODEL_MD3)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x32 );
+	if (STEFX_ZONE_TRACE_TAG(eTag))
 	{
-		STEFX_ZONE_MODEL_PHASE( 0x62 );
+		STEFX_ZONE_ALLOC_PHASE( 0x62 );
 	}
 #endif
 	if (Z_IsTagTemp(eTag))
@@ -1075,15 +1110,19 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 			iAlign, align_pad);
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (eTag == TAG_MODEL_MD3)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x33 );
+	if (STEFX_ZONE_TRACE_TAG(eTag))
 	{
-		STEFX_ZONE_MODEL_PHASE( 0x63 );
+		STEFX_ZONE_ALLOC_PHASE( 0x63 );
 	}
 #endif
 
 	// Did we actually find some memory?
 	if (!fblock)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		STEFX_FILE_ALLOC_ZONE_PHASE( 0x3f );
+#endif
 #ifndef _GAMECUBE
 		ReleaseMutex(s_Mutex);
 #endif
@@ -1103,9 +1142,10 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	// allocated space.
 	void* ablock;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (eTag == TAG_MODEL_MD3)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x34 );
+	if (STEFX_ZONE_TRACE_TAG(eTag))
 	{
-		STEFX_ZONE_MODEL_PHASE( 0x64 );
+		STEFX_ZONE_ALLOC_PHASE( 0x64 );
 	}
 #endif
 	if (Z_IsTagTemp(eTag))
@@ -1126,9 +1166,10 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 		ablock = (void*)((char*)ablock + align_pad);
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if (eTag == TAG_MODEL_MD3)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x35 );
+	if (STEFX_ZONE_TRACE_TAG(eTag))
 	{
-		STEFX_ZONE_MODEL_PHASE( 0x65 );
+		STEFX_ZONE_ALLOC_PHASE( 0x65 );
 	}
 #endif
 
@@ -1231,7 +1272,18 @@ void *Z_Malloc(int iSize, memtag_t eTag, qboolean bZeroit, int iAlign)
 	*/
 
 #ifndef _GAMECUBE
-	ReleaseMutex(s_Mutex);
+	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FILE_ALLOC_ZONE_PHASE( 0x36 );
+	if (g_SPXBFileAllocStage == 0x36u)
+	{
+		g_SPXBFileAllocReleaseResult = (unsigned int)ReleaseMutex(s_Mutex);
+		STEFX_FILE_ALLOC_ZONE_PHASE( 0x37 );
+	}
+	else
+	#endif
+	{
+		ReleaseMutex(s_Mutex);
+	}
 #endif
 
 	return ablock;

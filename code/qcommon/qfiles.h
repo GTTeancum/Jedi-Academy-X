@@ -395,7 +395,7 @@ typedef struct {
 
 typedef struct {
 	int				planeNum;		// positive plane side faces out of the leaf
-	byte			shaderNum;
+	unsigned short	shaderNum;
 } dbrushside_t;
 
 typedef struct {
@@ -431,7 +431,7 @@ typedef struct {
 // ST_SCALE. These are in 4.12. Okay, how about 5.11? Gah. 9.7!
 //#define DRAWVERT_ST_SCALE 4096.0f
 //#define DRAWVERT_ST_SCALE 2048.0f
-#define DRAWVERT_ST_SCALE 128.0f
+#define DRAWVERT_ST_SCALE 512.0f
 
 // We use a slightly different format for the fixed point texture
 // coords in Grid/Mesh drawverts: 10.6 rather than 12.4
@@ -441,25 +441,20 @@ typedef struct {
 // the other two!) (And don't forget that we're using a bit for sign.)
 #define GRID_DRAWVERT_ST_SCALE 64.0f
 
-// This master switch controls whether we use compressed (4-bit per channel)
-// vertex colors in draw and surface verts. It saves memory, but I'm switching
-// it off, because we end up with that nasty green/purple streaking effect.
-// If we ever figure out how to do it better... (1555? 565?)
-//#define COMPRESS_VERTEX_COLORS
+// Shipping Xbox renderer contract: four RGBA light styles are stored as
+// packed 4-bit channels (two bytes per style) throughout world loading and
+// surface submission.
+#define COMPRESS_VERTEX_COLORS
 
 typedef struct {
-	short		xyz[3];
+	vec3_t		xyz;
 	short		dvst[2];
 	short		dvlightmap[MAXLIGHTMAPS][2];
-	short		normal[3];
+	vec3_t		normal;
 #ifdef _XBOX
 	vec3_t		tangent;
 #endif
-#ifdef COMPRESS_VERTEX_COLORS
-	byte		dvcolor[MAXLIGHTMAPS][1];
-#else
-	byte		dvcolor[MAXLIGHTMAPS][4];
-#endif
+	byte		dvcolor[MAXLIGHTMAPS][2];
 } drawVert_t;
 
 typedef struct {
@@ -469,7 +464,7 @@ typedef struct {
 
 typedef struct {
 	int			code;
-	byte		shaderNum;
+	unsigned short shaderNum;
 	signed char	fogNum;
 
 	unsigned int	verts;				// high 20 bits are first vert, low 12 are num verts
@@ -483,7 +478,7 @@ typedef struct {
 
 typedef struct {
 	int			code;
-	byte		shaderNum;
+	unsigned short shaderNum;
 	signed char	fogNum;
 
 	unsigned int	verts;				// high 20 bits are first vert, low 12 are num verts
@@ -499,7 +494,7 @@ typedef struct {
 
 typedef struct {
 	int			code;
-	byte		shaderNum;
+	unsigned short shaderNum;
 	signed char	fogNum;
 
 	unsigned int	verts;				// high 20 bits are first vert, low 12 are num verts
@@ -510,7 +505,7 @@ typedef struct {
 
 typedef struct {
 	int				code;
-	byte			shaderNum;
+	unsigned short	shaderNum;
 	signed char     fogNum;
 
 	short			origin[3];

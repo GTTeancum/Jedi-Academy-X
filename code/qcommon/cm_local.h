@@ -49,7 +49,7 @@ typedef struct cmodel_s {
 #pragma pack (push, 1)
 typedef struct cbrushside_s {
 	NotSoShort planeNum;
-	unsigned char	shaderNum;
+	unsigned short	shaderNum;
 } cbrushside_t;
 #pragma pack(pop)
 

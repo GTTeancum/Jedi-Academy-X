@@ -1,34 +1,7 @@
-// leave this as first line for PCH reasons...
-//
+//Anything above this #include will be ignored by the compiler
 #include "../server/exe_headers.h"
 
-
 #include "tr_local.h"
-#ifdef _XBOX
-#include "../win32/xb_log.h"
-extern bool Sys_IsDirectMapBoot(void);
-
-static bool R_XboxTraceStretchShader( const shader_t *shader, float x, float y, float w, float h )
-{
-	const char *name = shader ? shader->name : "";
-
-	if ( !name )
-	{
-		name = "";
-	}
-
-	if ( strstr( name, "gfx/interface/" ) ||
-		strstr( name, "crosshair" ) ||
-		strstr( name, "gfx/effects/" ) ||
-		strstr( name, "gfx/misc/" ) )
-	{
-		return true;
-	}
-
-	return false;
-}
-#endif
-
 
 /*
 =====================
@@ -46,33 +19,33 @@ void R_PerformanceCounters( void ) {
 
 	if (r_speeds->integer == 1) {
 		const float texSize = R_SumOfUsedImages( qfalse )/(8*1048576.0f)*(r_texturebits->integer?r_texturebits->integer:glConfig.colorBits);
-		VID_Printf (PRINT_ALL, "%i/%i shdrs/srfs %i leafs %i vrts %i/%i tris %.2fMB tex %.2f dc\n",
+		Com_Printf ( "%i/%i shdrs/srfs %i leafs %i vrts %i/%i tris %.2fMB tex %.2f dc\n",
 			backEnd.pc.c_shaders, backEnd.pc.c_surfaces, tr.pc.c_leafs, backEnd.pc.c_vertexes, 
 			backEnd.pc.c_indexes/3, backEnd.pc.c_totalIndexes/3, 
 			texSize, backEnd.pc.c_overDraw / (float)(glConfig.vidWidth * glConfig.vidHeight) ); 
 	} else if (r_speeds->integer == 2) {
-		VID_Printf (PRINT_ALL, "(patch) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
+		Com_Printf ( "(patch) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
 			tr.pc.c_sphere_cull_patch_in, tr.pc.c_sphere_cull_patch_clip, tr.pc.c_sphere_cull_patch_out, 
 			tr.pc.c_box_cull_patch_in, tr.pc.c_box_cull_patch_clip, tr.pc.c_box_cull_patch_out );
-		VID_Printf (PRINT_ALL, "(md3) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
+		Com_Printf ( "(md3) %i sin %i sclip  %i sout %i bin %i bclip %i bout\n",
 			tr.pc.c_sphere_cull_md3_in, tr.pc.c_sphere_cull_md3_clip, tr.pc.c_sphere_cull_md3_out, 
 			tr.pc.c_box_cull_md3_in, tr.pc.c_box_cull_md3_clip, tr.pc.c_box_cull_md3_out );
 	} else if (r_speeds->integer == 3) {
-		VID_Printf (PRINT_ALL, "viewcluster: %i\n", tr.viewCluster );
+		Com_Printf ( "viewcluster: %i\n", tr.viewCluster );
 	} else if (r_speeds->integer == 4) {
 		if ( backEnd.pc.c_dlightVertexes ) {
-			VID_Printf (PRINT_ALL, "dlight srf:%i  culled:%i  verts:%i  tris:%i\n", 
+			Com_Printf ( "dlight srf:%i  culled:%i  verts:%i  tris:%i\n",
 				tr.pc.c_dlightSurfaces, tr.pc.c_dlightSurfacesCulled,
 				backEnd.pc.c_dlightVertexes, backEnd.pc.c_dlightIndexes / 3 );
 		}
 	} 
 	else if (r_speeds->integer == 5 )
 	{
-		VID_Printf( PRINT_ALL, "zFar: %.0f\n", tr.viewParms.zFar );
+		Com_Printf ("zFar: %.0f\n", tr.viewParms.zFar );
 	}
 	else if (r_speeds->integer == 6 )
 	{
-		VID_Printf( PRINT_ALL, "flare adds:%i tests:%i renders:%i\n", 
+		Com_Printf ("flare adds:%i tests:%i renders:%i\n",
 			backEnd.pc.c_flareAdds, backEnd.pc.c_flareTests, backEnd.pc.c_flareRenders );
 	}
 	else if (r_speeds->integer == 7) {
@@ -80,7 +53,7 @@ void R_PerformanceCounters( void ) {
 		const float backBuff= glConfig.vidWidth * glConfig.vidHeight * glConfig.colorBits / (8.0f * 1024*1024);
 		const float depthBuff= glConfig.vidWidth * glConfig.vidHeight * glConfig.depthBits / (8.0f * 1024*1024);
 		const float stencilBuff= glConfig.vidWidth * glConfig.vidHeight * glConfig.stencilBits / (8.0f * 1024*1024);
-		VID_Printf (PRINT_ALL, "Tex MB %.2f + buffers %.2f MB = Total %.2fMB\n",
+		Com_Printf ( "Tex MB %.2f + buffers %.2f MB = Total %.2fMB\n",
 			texSize, backBuff*2+depthBuff+stencilBuff, texSize+backBuff*2+depthBuff+stencilBuff); 
 	}
 #endif
@@ -111,14 +84,11 @@ void R_ShutdownCommandBuffers( void ) {
 R_IssueRenderCommands
 ====================
 */
-int	c_blockedOnRender;
-int	c_blockedOnMain;
-
 void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 	renderCommandList_t	*cmdList;
 
 	cmdList = &backEndData->commands;
-
+	assert(cmdList); // bk001205
 	// add an end-of-list command
 	*(int *)(cmdList->cmds + cmdList->used) = RC_END_OF_LIST;
 
@@ -173,15 +143,6 @@ void *R_GetCommandBuffer( int bytes ) {
 
 	// always leave room for the end of list command
 	if ( cmdList->used + bytes + 4 > MAX_RENDER_COMMANDS ) {
-#ifdef _XBOX
-		static int s_stefxCommandOverflowBudget = 64;
-		if ( s_stefxCommandOverflowBudget > 0 )
-		{
-			XBLF( "STEFX: R_GetCommandBuffer drop used=%d bytes=%d max=%d frame=%d active=%d",
-				cmdList->used, bytes, MAX_RENDER_COMMANDS, tr.frameCount, cls.state == CA_ACTIVE );
-			--s_stefxCommandOverflowBudget;
-		}
-#endif
 #if defined(_DEBUG) && defined(_XBOX)
 		Com_Printf(S_COLOR_RED"Command buffer overflow!  Tell Brian.\n");
 #endif
@@ -218,6 +179,7 @@ void	R_AddDrawSurfCmd( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	cmd->refdef = tr.refdef;
 	cmd->viewParms = tr.viewParms;
+
 }
 
 
@@ -236,18 +198,16 @@ void	RE_SetColor( const float *rgba ) {
 		return;
 	}
 	cmd->commandId = RC_SET_COLOR;
-	if ( rgba ) {
-		cmd->color[0] = rgba[0];
-		cmd->color[1] = rgba[1];
-		cmd->color[2] = rgba[2];
-		cmd->color[3] = rgba[3];
-		return;
+	if ( !rgba ) {
+		static float colorWhite[4] = { 1, 1, 1, 1 };
+
+		rgba = colorWhite;
 	}
 
-	cmd->color[0] = 1;
-	cmd->color[1] = 1;
-	cmd->color[2] = 1;
-	cmd->color[3] = 1;
+	cmd->color[0] = rgba[0];
+	cmd->color[1] = rgba[1];
+	cmd->color[2] = rgba[2];
+	cmd->color[3] = rgba[3];
 }
 
 
@@ -259,25 +219,13 @@ RE_StretchPic
 void RE_StretchPic ( float x, float y, float w, float h, 
 					  float s1, float t1, float s2, float t2, qhandle_t hShader ) {
 	stretchPicCommand_t	*cmd;
-	shader_t			*shader;
 
-	shader = R_GetShaderByHandle( hShader );
 	cmd = (stretchPicCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
-#ifdef _XBOX
-		static int s_stefxStretchDropBudget = 64;
-		if ( cls.state == CA_ACTIVE && R_XboxTraceStretchShader( shader, x, y, w, h ) && s_stefxStretchDropBudget > 0 )
-		{
-			XBLF( "STEFX: RE_StretchPic dropped shader='%s' handle=%d rect=(%g,%g %gx%g) st=(%g,%g %g,%g) used=%d max=%d",
-				shader ? shader->name : "<null>", hShader, x, y, w, h, s1, t1, s2, t2,
-				backEndData ? backEndData->commands.used : -1, MAX_RENDER_COMMANDS );
-			--s_stefxStretchDropBudget;
-		}
-#endif
 		return;
 	}
 	cmd->commandId = RC_STRETCH_PIC;
-	cmd->shader = shader;
+	cmd->shader = R_GetShaderByHandle( hShader );
 	cmd->x = x;
 	cmd->y = y;
 	cmd->w = w;
@@ -340,11 +288,22 @@ void RE_RotatePic2 ( float x, float y, float w, float h,
 	cmd->a = a;
 }
 
+void RE_RenderWorldEffects(void)
+{
+	drawBufferCommand_t	*cmd;
+
+	cmd = (drawBufferCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
+	if ( !cmd ) {
+		return;
+	}
+	cmd->commandId = RC_WORLD_EFFECTS;
+}
+
 void RE_LAGoggles( void )
 {
 	tr.refdef.rdflags |= (RDF_doLAGoggles|RDF_doFullbright);
 
-	fog_t		*fog = &tr.world->fogs[tr.world->numfogs];
+	fog_t *fog = &tr.world->fogs[tr.world->numfogs];
 
 	fog->parms.color[0] = 0.75f;
 	fog->parms.color[1] = 0.42f + random() * 0.025f;
@@ -355,27 +314,11 @@ void RE_LAGoggles( void )
 	fog->tcScale = 2.0f / ( fog->parms.depthForOpaque * (1.0f + cos( tr.refdef.floatTime) * 0.1f));
 }
 
-void RE_RenderWorldEffects(void)
+void RE_Scissor( float x, float y, float w, float h )
 {
-	setModeCommand_t	*cmd;
+	scissorCommand_t *cmd;
 
-	cmd = (setModeCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
-	if ( !cmd ) {
-		return;
-	}
-	cmd->commandId = RC_WORLD_EFFECTS;
-}
-
-/*   
-=============
-RE_Scissor
-=============
-*/
-void RE_Scissor ( float x, float y, float w, float h) 
-{
-	scissorCommand_t	*cmd;
-
-	cmd = (scissorCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
+	cmd = (scissorCommand_t *)R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
 		return;
 	}
@@ -396,37 +339,12 @@ for each RE_EndFrame
 */
 void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	drawBufferCommand_t	*cmd;
-#ifdef _XBOX
-	static int s_xboxBeginFrameCount = 0;
-	static int s_xboxBeginFrameLogBudget = 0;
-	const qboolean xboxTraceBeginFrame = (s_xboxBeginFrameLogBudget > 0);
-	if (xboxTraceBeginFrame)
-	{
-		XBLF("JA: RE_BeginFrame #%d enter stereo=%d registered=%d frameCount=%d backEndData=%p cmdUsed=%d",
-			s_xboxBeginFrameCount, (int)stereoFrame, tr.registered, tr.frameCount,
-			(void*)backEndData, backEndData ? backEndData->commands.used : -1);
-	}
-#endif
 
 	if ( !tr.registered ) {
-#ifdef _XBOX
-		if (xboxTraceBeginFrame)
-		{
-			XBLog_Write("JA: RE_BeginFrame: not registered return");
-			s_xboxBeginFrameCount++;
-			--s_xboxBeginFrameLogBudget;
-		}
-#endif
 		return;
 	}
-#ifdef _XBOX
-	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: clear finish flag");
-#endif
 	glState.finishCalled = qfalse;
 
-#ifdef _XBOX
-	if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: bump frame counters");
-#endif
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
@@ -438,24 +356,24 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	{
 		if ( glConfig.stencilBits < 4 )
 		{
-			VID_Printf( PRINT_ALL, "Warning: not enough stencil bits to measure overdraw: %d\n", glConfig.stencilBits );
+			Com_Printf ("Warning: not enough stencil bits to measure overdraw: %d\n", glConfig.stencilBits );
 			Cvar_Set( "r_measureOverdraw", "0" );
 			r_measureOverdraw->modified = qfalse;
 		}
 		else if ( r_shadows->integer == 2 )
 		{
-			VID_Printf( PRINT_ALL, "Warning: stencil shadows and overdraw measurement are mutually exclusive\n" );
+			Com_Printf ("Warning: stencil shadows and overdraw measurement are mutually exclusive\n" );
 			Cvar_Set( "r_measureOverdraw", "0" );
 			r_measureOverdraw->modified = qfalse;
 		}
 		else
 		{
 			R_SyncRenderThread();
-			glEnable( GL_STENCIL_TEST );
-			glStencilMask( ~0U );
-			glClearStencil( 0U );
-			glStencilFunc( GL_ALWAYS, 0U, ~0U );
-			glStencilOp( GL_KEEP, GL_INCR, GL_INCR );
+			qglEnable( GL_STENCIL_TEST );
+			qglStencilMask( ~0U );
+			qglClearStencil( 0U );
+			qglStencilFunc( GL_ALWAYS, 0U, ~0U );
+			qglStencilOp( GL_KEEP, GL_INCR, GL_INCR );
 		}
 		r_measureOverdraw->modified = qfalse;
 	}
@@ -464,9 +382,9 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		// this is only reached if it was on and is now off
 		if ( r_measureOverdraw->modified ) {
 			R_SyncRenderThread();
-			glDisable( GL_STENCIL_TEST );
-			r_measureOverdraw->modified = qfalse;
+			qglDisable( GL_STENCIL_TEST );
 		}
+		r_measureOverdraw->modified = qfalse;
 	}
 #endif
 
@@ -474,87 +392,40 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	// texturemode stuff
 	//
 	if ( r_textureMode->modified || r_ext_texture_filter_anisotropic->modified) {
-#ifdef _XBOX
-		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: GL_TextureMode...");
-#endif
 		R_SyncRenderThread();
 		GL_TextureMode( r_textureMode->string );
 		r_textureMode->modified = qfalse;
 		r_ext_texture_filter_anisotropic->modified = qfalse;
-#ifdef _XBOX
-		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: GL_TextureMode done");
-#endif
 	}
 
 	//
 	// gamma stuff
 	//
 	if ( r_gamma->modified ) {
-#ifdef _XBOX
-		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: R_SetColorMappings...");
-#endif
 		r_gamma->modified = qfalse;
 
 		R_SyncRenderThread();
 		R_SetColorMappings();
-#ifdef _XBOX
-		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: R_SetColorMappings done");
-#endif
 	}
 
     // check for errors
     if ( !r_ignoreGLErrors->integer ) {
         int	err;
 
-#ifdef _XBOX
-		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: glGetError...");
-#endif
 		R_SyncRenderThread();
-        if ( ( err = glGetError() ) != GL_NO_ERROR ) {
+        if ( ( err = qglGetError() ) != GL_NO_ERROR ) {
             Com_Error( ERR_FATAL, "RE_BeginFrame() - glGetError() failed (0x%x)!\n", err );
         }
-#ifdef _XBOX
-		if (xboxTraceBeginFrame) XBLog_Write("JA: RE_BeginFrame: glGetError done");
-#endif
     }
 
 	//
 	// draw buffer stuff
 	//
-#ifdef _XBOX
-	if (xboxTraceBeginFrame)
-	{
-		XBLF("JA: RE_BeginFrame: R_GetCommandBuffer draw buffer bytes=%d used=%d",
-			(int)sizeof(*cmd), backEndData ? backEndData->commands.used : -1);
-	}
-#endif
 	cmd = (drawBufferCommand_t *) R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
-#ifdef _XBOX
-		if (xboxTraceBeginFrame)
-		{
-			XBLog_Write("JA: RE_BeginFrame: R_GetCommandBuffer returned null");
-			s_xboxBeginFrameCount++;
-			--s_xboxBeginFrameLogBudget;
-		}
-#endif
 		return;
 	}
-#ifdef _XBOX
-	if (xboxTraceBeginFrame)
-	{
-		XBLF("JA: RE_BeginFrame: command buffer ok cmd=%p used=%d",
-			(void*)cmd, backEndData ? backEndData->commands.used : -1);
-	}
-#endif
 	cmd->commandId = RC_DRAW_BUFFER;
-
-#ifdef _XBOX
-	if ( glConfig.stereoEnabled ) {
-		VID_Printf( PRINT_ALL, "JA: RE_BeginFrame forcing stereo off on Xbox\n" );
-		glConfig.stereoEnabled = qfalse;
-	}
-#endif
 
 	if ( glConfig.stereoEnabled ) {
 		if ( stereoFrame == STEREO_LEFT ) {
@@ -565,17 +436,6 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
 		}
 	} else {
-#ifdef _XBOX
-		cmd->buffer = (int)GL_BACK;
-		if (xboxTraceBeginFrame)
-		{
-			XBLF("JA: RE_BeginFrame #%d done buffer=%d frameCount=%d used=%d",
-				s_xboxBeginFrameCount, cmd->buffer, tr.frameCount,
-				backEndData ? backEndData->commands.used : -1);
-			--s_xboxBeginFrameLogBudget;
-		}
-		s_xboxBeginFrameCount++;
-#else
 		if ( stereoFrame != STEREO_CENTER ) {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is disabled, but stereoFrame was %i", stereoFrame );
 		}
@@ -585,7 +445,6 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 		{
 			cmd->buffer = (int)GL_BACK;
 		}
-#endif
 	}
 }
 
@@ -610,25 +469,13 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
-	if (!glBeginFrame()) return;
+	if (!qglBeginFrame()) return;
 #endif
 
 	R_IssueRenderCommands( qtrue );
 
 #ifdef _XBOX
-	if ( Sys_IsDirectMapBoot() )
-	{
-	}
-#if defined(STEFX_ELITE_FORCE_SP)
-	else if ( cls.state == CA_DISCONNECTED )
-	{
-	}
-#endif
-	else
-	{
-		RE_ProcessDissolve(); // render the disolve now
-	}
-	glEndFrame();
+	qglEndFrame();
 #endif
 
 	// use the other buffers next frame, because another CPU
@@ -643,9 +490,4 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 		*backEndMsec = backEnd.pc.msec;
 	}
 	backEnd.pc.msec = 0;
-	
-	for(int i=0;i<MAX_LIGHT_STYLES;i++)
-	{
-		styleUpdated[i] = false;
-	}
 }

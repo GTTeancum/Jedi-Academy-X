@@ -119,6 +119,13 @@ static char g_stefxFakeglTextureDebugName[128] = "<none>";
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
 extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
 extern "C" volatile unsigned int g_SPXBFakeGLStateFlushes;
+extern "C" volatile unsigned int g_SPXBNativeMultiTexAttempts;
+extern "C" volatile unsigned int g_SPXBNativeMultiTexDraws;
+extern "C" volatile unsigned int g_SPXBNativeMultiTexReady;
+extern "C" volatile unsigned int g_SPXBNativeMultiTexMismatch;
+extern "C" volatile unsigned int g_SPXBNativeIndexedDrawFailures;
+extern "C" volatile unsigned int g_SPXBNativeStage1Applies;
+extern "C" volatile unsigned int g_SPXBNativeStage1ApplyFailures;
 extern "C" volatile unsigned int g_SPXBFramebufferData;
 extern "C" volatile unsigned int g_SPXBFramebufferPitch;
 extern "C" volatile unsigned int g_SPXBFramebufferWidth;
@@ -1972,6 +1979,18 @@ public:
 #endif
 						HRESULT hrSetTexture = JkaFakeglSetTextureCached(pD3DDev, i, pTexture);
 #ifdef _XBOX
+						if (i == 1)
+						{
+							++g_SPXBNativeStage1Applies;
+							if (FAILED(hrColorArg1) || FAILED(hrColorArg2) ||
+								FAILED(hrColorOp) || FAILED(hrTexCoordIndex) ||
+								FAILED(hrTextureTransform) || FAILED(hrAlphaArg1) ||
+								FAILED(hrAlphaArg2) || FAILED(hrAlphaOp) ||
+								FAILED(hrSetTexture))
+							{
+								++g_SPXBNativeStage1ApplyFailures;
+							}
+						}
 						{
 							static int s_efStage0ApplyBudget = 8;
 							static int s_efStage1ApplyBudget = 16;
@@ -3874,7 +3893,24 @@ public:
 
 		if (!m_pD3DDev || !indices || !vertices || vertexCount == 0 || primitiveCount == 0 || stride == 0)
 		{
+			++g_SPXBNativeIndexedDrawFailures;
 			return false;
+		}
+
+		const unsigned int textureStageCount =
+			(unsigned int)((typeDesc & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT);
+		if (textureStageCount >= 2)
+		{
+			++g_SPXBNativeMultiTexAttempts;
+			if (m_textureState.GetStageTexture2D(1) &&
+				m_textureState.GetStageTexture(1) != 0)
+			{
+				++g_SPXBNativeMultiTexReady;
+			}
+			else
+			{
+				++g_SPXBNativeMultiTexMismatch;
+			}
 		}
 
 		if ( m_needBeginScene )
@@ -3884,6 +3920,7 @@ public:
 			if ( FAILED(hrBeginScene) )
 			{
 				InterpretError(hrBeginScene);
+				++g_SPXBNativeIndexedDrawFailures;
 				return false;
 			}
 		}
@@ -3918,6 +3955,7 @@ public:
 		}
 		if ( FAILED(hrSetVertexShader) )
 		{
+			++g_SPXBNativeIndexedDrawFailures;
 			static int s_xboxIndexedSetShaderFailBudget = 8;
 			if (s_xboxIndexedSetShaderFailBudget > 0)
 			{
@@ -3973,6 +4011,7 @@ public:
 		}
 		if ( FAILED(hrDrawPrimitive) )
 		{
+			++g_SPXBNativeIndexedDrawFailures;
 			static int s_xboxIndexedDrawFailBudget = 8;
 			if (s_xboxIndexedDrawFailBudget > 0)
 			{
@@ -4000,6 +4039,10 @@ public:
 
 		g_SPXBFakeGLPrimitiveCalls++;
 		g_SPXBFakeGLPrimitiveVerts += vertexCount;
+		if (textureStageCount >= 2)
+		{
+			++g_SPXBNativeMultiTexDraws;
+		}
 		return true;
 	}
 #endif

@@ -12,6 +12,10 @@
 
 #include "../qcommon/sparc.h"
 
+#ifdef NDEBUG
+#error The Xbox BSP asset converter must retain its validation assertions.
+#endif
+
 #define SWAP16(x)														\
 	big_endian ?														\
 		((short)( ( ((x) & 0xff00) >> 8 ) + ( ((x) & 0xff) << 8 ) ))	\
@@ -120,10 +124,10 @@ static void convert_brushsides(const lump_t& lump, FILE* in, bool big_endian, co
 
 	for (int i = 0; i < num; ++i)
 	{
-		assert(in_brushesides[i].shaderNum >= 0 && in_brushesides[i].shaderNum < 256);
+		assert(in_brushesides[i].shaderNum >= 0 && in_brushesides[i].shaderNum < 65536);
 		
 		out_brushesides[i].planeNum = SWAP32(in_brushesides[i].planeNum);
-		out_brushesides[i].shaderNum = in_brushesides[i].shaderNum;
+		out_brushesides[i].shaderNum = SWAP16((unsigned short)in_brushesides[i].shaderNum);
 	}
 
 	int size = num * sizeof(pdbrushside_t);
@@ -294,23 +298,20 @@ static void convert_lightgrid(const lump_t& lump, FILE* in, bool big_endian, con
 	dgrid_t* in_grid = new dgrid_t[num];
 	CHECKED_READ(in_grid, lump.filelen, lump.fileofs);
 
-	//figure out how much memory we really need.
-	int memory = 0;
-	int i, j;
+	// Elite Force has one light style per grid point.  The packed Xbox
+	// representation stores that style byte plus the six lighting bytes only
+	// when they are nonzero.
+	int memory = num;
+	int i;
 	for(i=0; i<num; i++) {
-		for(j=0; j<MAXLIGHTMAPS; j++) {
-			if(in_grid[i].styles[j] != LS_NONE) {
-				memory++;
-			}
-			if(
-					in_grid[i].ambientLight[j][0] != 0 ||
-					in_grid[i].ambientLight[j][1] != 0 ||
-					in_grid[i].ambientLight[j][2] != 0 ||
-					in_grid[i].directLight[j][0] != 0 ||
-					in_grid[i].directLight[j][1] != 0 ||
-					in_grid[i].directLight[j][2] != 0) {
-				memory += 6;
-			}
+		if(
+				in_grid[i].ambientLight[0] != 0 ||
+				in_grid[i].ambientLight[1] != 0 ||
+				in_grid[i].ambientLight[2] != 0 ||
+				in_grid[i].directLight[0] != 0 ||
+				in_grid[i].directLight[1] != 0 ||
+				in_grid[i].directLight[2] != 0) {
+			memory += 6;
 		}
 	}
 
@@ -327,28 +328,23 @@ static void convert_lightgrid(const lump_t& lump, FILE* in, bool big_endian, con
 		pdgrid_t* g = (pdgrid_t*)out_grid + i;
 		g->latLong[0] = in_grid[i].latLong[0];
 		g->latLong[1] = in_grid[i].latLong[1];
-		g->flags = 0;
+		g->flags = 1 << 4;
 		g->data = SWAP32(sizeof(pdgrid_t) * num + memory);
-		for(j=0; j<MAXLIGHTMAPS; j++) {
-			if(in_grid[i].styles[j] != LS_NONE) {
-				data[memory++] = in_grid[i].styles[j];
-				g->flags |= 1 << (j + 4);
-			}
-			if(
-					in_grid[i].ambientLight[j][0] != 0 ||
-					in_grid[i].ambientLight[j][1] != 0 ||
-					in_grid[i].ambientLight[j][2] != 0 ||
-					in_grid[i].directLight[j][0] != 0 ||
-					in_grid[i].directLight[j][1] != 0 ||
-					in_grid[i].directLight[j][2] != 0) {
-				data[memory++] = in_grid[i].ambientLight[j][0];
-				data[memory++] = in_grid[i].ambientLight[j][1];
-				data[memory++] = in_grid[i].ambientLight[j][2];
-				data[memory++] = in_grid[i].directLight[j][0];
-				data[memory++] = in_grid[i].directLight[j][1];
-				data[memory++] = in_grid[i].directLight[j][2];
-				g->flags |= 1 << j;
-			}
+		data[memory++] = LS_NORMAL;
+		if(
+				in_grid[i].ambientLight[0] != 0 ||
+				in_grid[i].ambientLight[1] != 0 ||
+				in_grid[i].ambientLight[2] != 0 ||
+				in_grid[i].directLight[0] != 0 ||
+				in_grid[i].directLight[1] != 0 ||
+				in_grid[i].directLight[2] != 0) {
+			data[memory++] = in_grid[i].ambientLight[0];
+			data[memory++] = in_grid[i].ambientLight[1];
+			data[memory++] = in_grid[i].ambientLight[2];
+			data[memory++] = in_grid[i].directLight[0];
+			data[memory++] = in_grid[i].directLight[1];
+			data[memory++] = in_grid[i].directLight[2];
+			g->flags |= 1;
 		}
 	}
 
@@ -360,21 +356,20 @@ static void convert_lightgrid(const lump_t& lump, FILE* in, bool big_endian, con
 
 static void convert_lightarray(const lump_t& lump, FILE* in, bool big_endian, const char* path)
 {
-	int num = lump.filelen / sizeof(short);
+	int num = lump.filelen / sizeof(dgrid_t);
 	if (num == 0)
 	{
 		return;
 	}
 
-	short* lightarray = new short[num];
-	CHECKED_READ(lightarray, lump.filelen, lump.fileofs);
+	unsigned short* lightarray = new unsigned short[num];
 
 	for (int i = 0; i < num; ++i)
 	{
-		lightarray[i] = SWAP16(lightarray[i]);
+		lightarray[i] = SWAP16((unsigned short)i);
 	}
 
-	CHECKED_WRITE("lightarray", lightarray, lump.filelen);
+	CHECKED_WRITE("lightarray", lightarray, num * sizeof(unsigned short));
 
 	delete [] lightarray;
 }
@@ -465,13 +460,13 @@ static void convert_verts(const lump_t& lump, FILE* in, bool big_endian, const c
 			for (int n = 0; n < 2; ++n)
 			{
 				out_verts[i].lightmap[m][n] = SWAPF(
-					(in_verts[i].lightmap[m][n] * POINTS_LIGHT_SCALE),
+					(m == 0 ? in_verts[i].lightmap[n] * POINTS_LIGHT_SCALE : 0.0f),
 					big_endian);
 			}
 
 			for (int p = 0; p < 4; ++p)
 			{
-				out_verts[i].color[m][p] = in_verts[i].color[m][p];
+				out_verts[i].color[m][p] = in_verts[i].color[p];
 			}
 		}
 	}
@@ -529,6 +524,10 @@ static void scale_color(byte* dst, const byte* src, float factor)
 
 static void convert_lightmaps(const lump_t& lump, FILE* in, bool big_endian, const char* path)
 {
+	// Lightmaps are emitted by build_xbox_patch_pk3.py as the streamed RGB565
+	// maps/xbox/<map>.lmpdds file.  Do not duplicate them in the lump directory.
+	return;
+#if 0
 	int in_map_size = LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3;
 	int bmp_size = in_map_size + sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
 
@@ -683,6 +682,7 @@ static void convert_lightmaps(const lump_t& lump, FILE* in, bool big_endian, con
 
 	delete [] bmp;
 	delete [] in_lightmaps;
+#endif
 }
 
 static void convert_visibility(const lump_t& lump, FILE* in, bool big_endian, const char* path)
@@ -731,8 +731,8 @@ static void convert_faces(const lump_t& lump, FILE* in, bool big_endian, const c
 		{
 			out_surfaces[counter].code = SWAP32(i);
 			
-			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 256);
-			out_surfaces[counter].shaderNum = in_surfaces[i].shaderNum;
+			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 65536);
+			out_surfaces[counter].shaderNum = SWAP16((unsigned short)in_surfaces[i].shaderNum);
 			
 			assert(in_surfaces[i].fogNum > -128 && in_surfaces[i].fogNum < 128);
 			out_surfaces[counter].fogNum = in_surfaces[i].fogNum;
@@ -749,24 +749,16 @@ static void convert_faces(const lump_t& lump, FILE* in, bool big_endian, const c
 			
 			for (int j = 0; j < MAXLIGHTMAPS; ++j)
 			{
+				int lightmapNum = j == 0 ? in_surfaces[i].lightmapNum : -1;
 				if (!warning &&
-					(in_surfaces[i].lightmapNum[j] < -4 || 
-					in_surfaces[i].lightmapNum[j] >= 252))
+					(lightmapNum < -4 || lightmapNum >= 252))
 				{
 					printf("WARNING: Lightmap index out of range!\n");
 					warning = true;
 				}
 
-				out_surfaces[counter].lightmapNum[j] = in_surfaces[i].lightmapNum[j] + 4;
-				
-				if (in_surfaces[i].lightmapNum[0] == LIGHTMAP_BY_VERTEX)
-				{
-					out_surfaces[counter].lightmapStyles[j] = in_surfaces[i].vertexStyles[j];
-				}
-				else
-				{
-					out_surfaces[counter].lightmapStyles[j] = in_surfaces[i].lightmapStyles[j];
-				}
+				out_surfaces[counter].lightmapNum[j] = lightmapNum + 4;
+				out_surfaces[counter].lightmapStyles[j] = j == 0 ? LS_NORMAL : LS_NONE;
 			}
 			
 			for (int m = 0; m < 3; ++m)
@@ -811,8 +803,8 @@ static void convert_patches(const lump_t& lump, FILE* in, bool big_endian, const
 		{
 			out_surfaces[counter].code = SWAP32(i);
 
-			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 256);
-			out_surfaces[counter].shaderNum = in_surfaces[i].shaderNum;
+			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 65536);
+			out_surfaces[counter].shaderNum = SWAP16((unsigned short)in_surfaces[i].shaderNum);
 
 			assert(in_surfaces[i].fogNum > -128 && in_surfaces[i].fogNum < 128);
 			out_surfaces[counter].fogNum = in_surfaces[i].fogNum;
@@ -830,17 +822,10 @@ static void convert_patches(const lump_t& lump, FILE* in, bool big_endian, const
 			
 			for (int j = 0; j < MAXLIGHTMAPS; ++j)
 			{
-				assert(in_surfaces[i].lightmapNum[j] >= -4 && in_surfaces[i].lightmapNum[j] < 252);
-				out_surfaces[counter].lightmapNum[j] = in_surfaces[i].lightmapNum[j] + 4;
-				
-				if (in_surfaces[i].lightmapNum[0] == LIGHTMAP_BY_VERTEX)
-				{
-					out_surfaces[counter].lightmapStyles[j] = in_surfaces[i].vertexStyles[j];
-				}
-				else
-				{
-					out_surfaces[counter].lightmapStyles[j] = in_surfaces[i].lightmapStyles[j];
-				}
+				int lightmapNum = j == 0 ? in_surfaces[i].lightmapNum : -1;
+				assert(lightmapNum >= -4 && lightmapNum < 252);
+				out_surfaces[counter].lightmapNum[j] = lightmapNum + 4;
+				out_surfaces[counter].lightmapStyles[j] = j == 0 ? LS_NORMAL : LS_NONE;
 			}
 			
 			for (int m = 0; m < 3; ++m)
@@ -888,8 +873,8 @@ static void convert_trisurfs(const lump_t& lump, FILE* in, bool big_endian, cons
 		{
 			out_surfaces[counter].code = SWAP32(i);
 
-			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 256);
-			out_surfaces[counter].shaderNum = in_surfaces[i].shaderNum;
+			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 65536);
+			out_surfaces[counter].shaderNum = SWAP16((unsigned short)in_surfaces[i].shaderNum);
 			
 			assert(in_surfaces[i].fogNum > -128 && in_surfaces[i].fogNum < 128);
 			out_surfaces[counter].fogNum = in_surfaces[i].fogNum;
@@ -906,14 +891,7 @@ static void convert_trisurfs(const lump_t& lump, FILE* in, bool big_endian, cons
 			
 			for (int j = 0; j < MAXLIGHTMAPS; ++j)
 			{
-				if (in_surfaces[i].lightmapNum[0] == LIGHTMAP_BY_VERTEX)
-				{
-					out_surfaces[counter].lightmapStyles[j] = in_surfaces[i].vertexStyles[j];
-				}
-				else
-				{
-					out_surfaces[counter].lightmapStyles[j] = in_surfaces[i].lightmapStyles[j];
-				}
+				out_surfaces[counter].lightmapStyles[j] = j == 0 ? LS_NORMAL : LS_NONE;
 			}
 
 			++counter;
@@ -950,8 +928,8 @@ static void convert_flares(const lump_t& lump, FILE* in, bool big_endian, const 
 		{
 			out_surfaces[counter].code = SWAP32(i);
 
-			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 256);
-			out_surfaces[counter].shaderNum = in_surfaces[i].shaderNum;
+			assert(in_surfaces[i].shaderNum >= 0 && in_surfaces[i].shaderNum < 65536);
+			out_surfaces[counter].shaderNum = SWAP16((unsigned short)in_surfaces[i].shaderNum);
 			
 			assert(in_surfaces[i].fogNum > -128 && in_surfaces[i].fogNum < 128);
 			out_surfaces[counter].fogNum = in_surfaces[i].fogNum;
@@ -1007,7 +985,13 @@ static convertfunc_t Converters[HEADER_LUMPS] =
 	convert_lightmaps,
 	convert_lightgrid,
 	convert_visibility,
-	convert_lightarray,
+};
+
+static const char* ConverterNames[HEADER_LUMPS] =
+{
+	"entities", "shaders", "planes", "nodes", "leafs", "leafsurfaces",
+	"leafbrushes", "models", "brushes", "brushsides", "verts", "indexes",
+	"fogs", "surfaces", "lightmaps", "lightgrid", "visibility"
 };
 
 static void write_misc(const dheader_t& header, FILE* in, bool big_endian, const char* path)
@@ -1064,14 +1048,22 @@ static void process(const char* name, bool big_endian)
 	mkdir(path);
 	
 	dheader_t in_header;
-	fread(&in_header, sizeof(in_header), 1, in);
+	if (fread(&in_header, sizeof(in_header), 1, in) != 1 ||
+		in_header.ident != BSP_IDENT || in_header.version != BSP_VERSION)
+	{
+		fprintf(stderr, "%s is not an Elite Force IBSP version 46 file.\n", name);
+		exit(-1);
+	}
 
 	for (int i = 0; i < HEADER_LUMPS; ++i)
 	{
+		printf("  %s (%d bytes)\n", ConverterNames[i], in_header.lumps[i].filelen);
+		fflush(stdout);
 		Converters[i](in_header.lumps[i], in, big_endian, path);
 	}
 
 	write_misc(in_header, in, big_endian, path);
+	convert_lightarray(in_header.lumps[LUMP_LIGHTGRID], in, big_endian, path);
 
 	delete [] path;
 

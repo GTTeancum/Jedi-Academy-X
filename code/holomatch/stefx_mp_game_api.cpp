@@ -8,6 +8,12 @@
 
 #include <stdarg.h>
 
+extern "C" volatile unsigned int g_SPXBHMGetUsercmdCount;
+extern "C" volatile unsigned int g_SPXBHMGetUsercmdTime;
+extern "C" volatile unsigned int g_SPXBHMGetUsercmdMove;
+extern "C" volatile unsigned int g_SPXBHMGetUsercmdButtons;
+extern "C" volatile unsigned int g_SPXBHMClientThinkCount;
+
 extern "C" void QDECL STEFX_HM_Com_Printf( const char *format, ... )
 {
 	char text[4096];
@@ -480,6 +486,82 @@ extern "C" void STEFX_HolomatchMarkBot(int clientNum)
 	STEFX_HolomatchRefreshExport();
 }
 
+const void *STEFX_HolomatchGetOfficialPlayerState(int clientNum)
+{
+	stefx_hm_entity_prefix_t *official =
+		(stefx_hm_entity_prefix_t *)STEFX_HolomatchOfficialEntity(clientNum);
+
+	if (!official || !official->inuse || !official->client)
+	{
+		return NULL;
+	}
+	return official->client;
+}
+
+int STEFX_HolomatchPrepareSplitWeaponProof(int clientNum, int slot)
+{
+	enum
+	{
+		STEFX_HM_STAT_WEAPONS = 2,
+		STEFX_HM_WP_PHASER = 1,
+		STEFX_HM_WP_COMPRESSION_RIFLE = 2,
+		STEFX_HM_WP_IMOD = 3,
+		STEFX_HM_WP_SCAVENGER_RIFLE = 4
+	};
+	static const int proofWeapons[4] = {
+		STEFX_HM_WP_PHASER,
+		STEFX_HM_WP_COMPRESSION_RIFLE,
+		STEFX_HM_WP_IMOD,
+		STEFX_HM_WP_SCAVENGER_RIFLE
+	};
+	static const int proofAmmo[4] = { 50, 128, 60, 100 };
+	static int logBudget = 24;
+	stefx_hm_entity_prefix_t *official;
+	stefx_hm_player_state_t *player;
+	int weapon;
+	int oldWeapons;
+	int oldAmmo;
+
+	if (slot < 0 || slot >= 4)
+	{
+		return 0;
+	}
+	official = (stefx_hm_entity_prefix_t *)STEFX_HolomatchOfficialEntity(clientNum);
+	if (!official || !official->inuse || !official->client)
+	{
+		return 0;
+	}
+
+	player = (stefx_hm_player_state_t *)official->client;
+	weapon = proofWeapons[slot];
+	oldWeapons = player->stats[STEFX_HM_STAT_WEAPONS];
+	oldAmmo = player->ammo[weapon];
+	player->stats[STEFX_HM_STAT_WEAPONS] |= 1 << weapon;
+	if (player->ammo[weapon] < proofAmmo[slot] / 2)
+	{
+		player->ammo[weapon] = proofAmmo[slot];
+	}
+
+	if (logBudget > 0 &&
+		(oldWeapons != player->stats[STEFX_HM_STAT_WEAPONS] || oldAmmo != player->ammo[weapon]))
+	{
+		XBLog_WriteCriticalf("STEFX_HM_SPLIT_WEAPON_PROOF: client=%d slot=%d requested=%d weapons=0x%x->0x%x ammo=%d->%d",
+			clientNum,
+			slot,
+			weapon,
+			oldWeapons,
+			player->stats[STEFX_HM_STAT_WEAPONS],
+			oldAmmo,
+			player->ammo[weapon]);
+		--logBudget;
+	}
+	return weapon;
+}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern "C" volatile unsigned int g_SPXBHMSplitBotProof[32];
+#endif
+
 enum stefxHolomatchGameImportCommand_e
 {
 	STEFX_HM_G_PRINT = 0,
@@ -696,6 +778,12 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			const char *text = va_arg(args, const char *);
 			XBLog_WriteCriticalf("STEFX_HM_BOT: official console command exec=%d text='%s'",
 				execWhen, text ? text : "");
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+			if (text && !Q_stricmpn(text, "addbot ", 7))
+			{
+				++g_SPXBHMSplitBotProof[8];
+			}
+#endif
 			Cbuf_ExecuteText(execWhen, text ? text : "");
 		}
 		break;
@@ -937,7 +1025,13 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 		}
 		break;
 	case STEFX_HM_G_BOT_ALLOCATE_CLIENT:
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		++g_SPXBHMSplitBotProof[9];
+#endif
 		result = SV_BotAllocateClient();
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMSplitBotProof[10] = (unsigned int)(result + 1);
+#endif
 		if (result >= 0 && svs.clients)
 		{
 			client_t *client = &svs.clients[result];
@@ -958,6 +1052,13 @@ static int QDECL STEFX_HolomatchSyscall( int command, ... )
 			usercmd_t spCommand;
 			stefx_hm_usercmd_t *officialCommand;
 			SV_GetUsercmd(clientNum, &spCommand);
+			++g_SPXBHMGetUsercmdCount;
+			g_SPXBHMGetUsercmdTime = (unsigned int)spCommand.serverTime;
+			g_SPXBHMGetUsercmdMove = ((unsigned int)(unsigned char)spCommand.forwardmove) |
+				((unsigned int)(unsigned char)spCommand.rightmove << 8) |
+				((unsigned int)(unsigned char)spCommand.upmove << 16) |
+				((unsigned int)spCommand.weapon << 24);
+			g_SPXBHMGetUsercmdButtons = (unsigned int)spCommand.buttons;
 			officialCommand = (stefx_hm_usercmd_t *)va_arg(args, void *);
 			if (officialCommand)
 			{
@@ -1097,6 +1198,7 @@ static void STEFX_HolomatchClientCommand( int clientNum )
 static void STEFX_HolomatchClientThink( int clientNum, usercmd_t *cmd )
 {
 	(void)cmd;
+	++g_SPXBHMClientThinkCount;
 	STEFX_HolomatchVM(7, clientNum, 0, 0);
 	STEFX_HolomatchSyncAllToMirror();
 	STEFX_HolomatchRefreshExport();

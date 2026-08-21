@@ -46,7 +46,6 @@ R_DlightBmodel
 Determine which dynamic lights may effect this bmodel
 =============
 */
-#ifndef VV_LIGHTING
 void R_DlightBmodel( bmodel_t *bmodel, qboolean NoLight ) {
 	int			i, j;
 	dlight_t	*dl;
@@ -97,7 +96,6 @@ void R_DlightBmodel( bmodel_t *bmodel, qboolean NoLight ) {
 		}
 	}
 }
-#endif // VV_LIGHTING
 
 
 /*
@@ -455,7 +453,6 @@ by the Calc_* functions
 =================
 */
 void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
-#ifndef VV_LIGHTING
 	int				i;
 	dlight_t		*dl;
 	float			power;
@@ -585,7 +582,6 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	}
 #endif
 
-#endif // VV_LIGHTING
 }
 
 //pass in origin

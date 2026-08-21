@@ -228,9 +228,11 @@ void RB_TestFlare( flare_t *f ) {
 
 	backEnd.pc.c_flareTests++;
 
-	// doing a readpixels is as good as doing a glFinish(), so
-	// don't bother with another sync
+	// Xbox qglReadPixels is a no-op. Do not turn that no-op into a real
+	// BlockUntilIdle in RB_SwapBuffers by clearing the frame's finish state.
+#ifndef _XBOX
 	glState.finishCalled = qfalse;
+#endif
 
 	// read back the z buffer contents
 	glReadPixels( f->windowX, f->windowY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );

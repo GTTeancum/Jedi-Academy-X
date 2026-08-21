@@ -226,6 +226,9 @@ player weapons/ammo/etc from the previous level that you haven't really exited (
 //void SCR_UnprecacheScreenshot();	//scr_scrn.cpp
 static void SV_Map_f( void ) 
 {
+	char commandName[MAX_QPATH];
+	Q_strncpyz(commandName, Cmd_Argv(0), sizeof(commandName));
+
 	Cvar_Set( sCVARNAME_PLAYERSAVE, "");
 	Cvar_Set( "spawntarget", "" );
 	Cvar_Set("tier_storyinfo", "0");
@@ -234,25 +237,28 @@ static void SV_Map_f( void )
 
 	ForceReload_e eForceReload = eForceReload_NOTHING;	// default for normal load
 
-	if ( !Q_stricmp( Cmd_Argv(0), "devmapbsp") ) {
+	if ( !Q_stricmp( commandName, "devmapbsp") ) {
 		eForceReload = eForceReload_BSP;
 	}
 	else
-	if ( !Q_stricmp( Cmd_Argv(0), "devmapmdl") ) {
+	if ( !Q_stricmp( commandName, "devmapmdl") ) {
 		eForceReload = eForceReload_MODELS;
 	}
 	else
-	if ( !Q_stricmp( Cmd_Argv(0), "devmapall") ) {
+	if ( !Q_stricmp( commandName, "devmapall") ) {
 		eForceReload = eForceReload_ALL;
 	}
 
 	SV_Map_( eForceReload );
+#ifdef _XBOX
+	g_SPXBMapPhase = 5;
+#endif
 
 	// set the cheat value
 	// if the level was started with "map <levelname>", then
 	// cheats will not be allowed.  If started with "devmap <levelname>"
 	// then cheats will be allowed
-	if ( !Q_stricmpn( Cmd_Argv(0), "devmap", 6 ) ) {
+	if ( !Q_stricmpn( commandName, "devmap", 6 ) ) {
 		Cvar_Set( "helpUsObi", "1" );
 #if defined(STEFX_ELITE_FORCE_SP)
 		Cvar_Set( "sv_cheats", "1" );
@@ -270,6 +276,9 @@ static void SV_Map_f( void )
 #endif
 #endif
 	}
+#ifdef _XBOX
+	g_SPXBMapPhase = 6;
+#endif
 }
 
 /*

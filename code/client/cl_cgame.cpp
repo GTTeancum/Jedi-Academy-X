@@ -6,6 +6,20 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBClTailStage;
+#if defined(STEFX_SP_HOSTED_MP)
+extern "C" volatile unsigned int g_SPXBHMGameCommandCount;
+extern "C" volatile unsigned int g_SPXBHMGameCommandResult;
+extern "C" volatile unsigned int g_SPXBHMScoreDrawState;
+#if defined(STEFX_HM_SCORE_DIAGNOSTICS)
+extern "C" volatile unsigned int g_SPXBHMScoreStretchCount;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchShader;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchX;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchY;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchW;
+extern "C" volatile unsigned int g_SPXBHMScoreStretchH;
+#endif
+#endif
 #endif
 
 #include "../ui/ui_shared.h"
@@ -13,13 +27,229 @@
 #include "../RMG/RM_Headers.h"
 
 #ifdef VV_LIGHTING
-#include "../renderer/tr_lightmanager.h"
 #endif
 	   		
 
 #include "client.h"
 #if defined(STEFX_ELITE_FORCE_SP)
 #include "../qcommon/stefx_snapshot_abi.h"
+#endif
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern qboolean STEFX_HolomatchGetSplitHudState(int slot, int *health, int *weapon, int *score);
+extern const void *STEFX_HolomatchGetOfficialPlayerState(int clientNum);
+extern "C" void STEFX_HM_CG_AddSplitViewWeapon(int slot, const void *officialPlayerState,
+	const float *vieworg, const float *viewaxis, float fovX, int viewTime);
+extern "C" void STEFX_HM_CG_DrawSplitPlayerHud(int slot, const void *officialPlayerState,
+	const float *vieworg, const float *viewaxis, float fovX, float fovY, int viewTime);
+extern "C" void STEFX_HM_CG_DrawSplitGlobalHud(void);
+extern qboolean RE_STEFX_SplitScreen_GetLocalRefdef(int slot, refdef_t *refdef);
+extern "C" volatile unsigned int g_SPXBHMAudioRegisterSoundCount;
+extern "C" volatile unsigned int g_SPXBHMAudioStartSoundCount;
+extern "C" volatile unsigned int g_SPXBHMAudioStartLocalCount;
+extern "C" volatile unsigned int g_SPXBHMAudioLoopCount;
+extern "C" volatile unsigned int g_SPXBHMAudioRespatializeCount;
+extern "C" volatile unsigned int g_SPXBHMAudioLastEntChan;
+extern "C" volatile unsigned int g_SPXBHMAudioLastHandle;
+extern "C" volatile unsigned int g_SPXBHMSplitHudSerial[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudRectX[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudRectY[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudRectW[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudRectH[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusSerial[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusValid[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusHealth[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusWeapon[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusScore[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectX[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectY[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectW[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectH[4];
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerSerial;
+
+static int s_stefxHolomatchHudDrawSlot = -1;
+
+static qboolean CL_STEFX_HolomatchAudioProofEnabled(void)
+{
+	return Cvar_VariableIntegerValue("stefx_hm_audio_proof") ? qtrue : qfalse;
+}
+
+static void CL_STEFX_HolomatchAudioProofLog(const char *tag, int ent, int efChan, int spChan, int handle, const float *origin)
+{
+	static int s_stefxHMAudioProofLogBudget = 96;
+
+	if (!CL_STEFX_HolomatchAudioProofEnabled() || s_stefxHMAudioProofLogBudget <= 0)
+	{
+		return;
+	}
+
+	XBLog_WriteCriticalf("STEFX_HM_AUDIO: %s ent=%d efChan=%d spChan=%d handle=%d origin=(%g,%g,%g)",
+		tag ? tag : "event",
+		ent,
+		efChan,
+		spChan,
+		handle,
+		origin ? origin[0] : 0.0f,
+		origin ? origin[1] : 0.0f,
+		origin ? origin[2] : 0.0f);
+	--s_stefxHMAudioProofLogBudget;
+}
+
+static int CL_STEFX_HolomatchSplitHudPlayers(void)
+{
+	const char *mode;
+	int players;
+
+	if (!Cvar_VariableIntegerValue("stefx_splitScreen") ||
+		Cvar_VariableIntegerValue("stefx_splitScreenPlayers") < 3)
+	{
+		return 0;
+	}
+
+	mode = Cvar_VariableString("stefx_splitScreenMode");
+	if (!mode || Q_stricmp(mode, "holomatch"))
+	{
+		return 0;
+	}
+
+	players = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
+	if (players < 3)
+	{
+		return 0;
+	}
+	if (players > 4)
+	{
+		players = 4;
+	}
+	return players;
+}
+
+static void CL_STEFX_HolomatchMapHudToSplitSlot(int slot, float *x, float *y, float *w, float *h)
+{
+	if (!x || !y || !w || !h)
+	{
+		return;
+	}
+
+	*x *= 0.5f;
+	*y *= 0.5f;
+	*w *= 0.5f;
+	*h *= 0.5f;
+	if (slot & 1)
+	{
+		*x += 320.0f;
+	}
+	if (slot & 2)
+	{
+		*y += 240.0f;
+	}
+}
+
+static void CL_STEFX_DrawHolomatchSplitSmallChar(int x, int y, int ch)
+{
+	int row;
+	int col;
+	float frow;
+	float fcol;
+	float size;
+	float size2;
+
+	ch &= 255;
+	if (ch == ' ' || y < -SMALLCHAR_HEIGHT)
+	{
+		return;
+	}
+
+	row = ch >> 4;
+	col = ch & 15;
+	frow = row * 0.0625f;
+	fcol = col * 0.0625f;
+	size = 0.03125f;
+	size2 = 0.0625f;
+
+	re.DrawStretchPic((float)x, (float)y,
+		(float)SMALLCHAR_WIDTH, (float)SMALLCHAR_HEIGHT,
+		fcol, frow, fcol + size, frow + size2,
+		cls.charSetShader);
+}
+
+static void CL_STEFX_DrawHolomatchSplitSmallStringColor(int x, int y, const char *text, const float *color)
+{
+	int i;
+
+	if (!text)
+	{
+		return;
+	}
+
+	re.SetColor(color);
+	for (i = 0; text[i]; ++i)
+	{
+		CL_STEFX_DrawHolomatchSplitSmallChar(x + i * SMALLCHAR_WIDTH, y, text[i]);
+	}
+	re.SetColor(NULL);
+}
+
+static void CL_STEFX_DrawHolomatchSplitStatusOverlay(void)
+{
+	static int s_stefxHMSplitStatusLogBudget = 24;
+	static int s_stefxHMSplitDividerLogBudget = 6;
+	static vec4_t dividerColor = { 0.0f, 0.0f, 0.0f, 0.85f };
+	int players;
+	int slot;
+
+	players = CL_STEFX_HolomatchSplitHudPlayers();
+	if (players <= 0)
+	{
+		return;
+	}
+
+	SCR_FillRect(318.0f, 0.0f, 4.0f, 480.0f, dividerColor);
+	SCR_FillRect(0.0f, 238.0f, 640.0f, 4.0f, dividerColor);
+	++g_SPXBHMSplitHudDividerSerial;
+	if (s_stefxHMSplitDividerLogBudget > 0)
+	{
+		XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD_DIVIDER: players=%d vertical=(318,0 4x480) horizontal=(0,238 640x4)",
+			players);
+		--s_stefxHMSplitDividerLogBudget;
+	}
+
+	for (slot = 0; slot < players && slot < 4; ++slot)
+	{
+		int health = 0;
+		int weapon = 0;
+		int score = 0;
+		float x = (slot & 1) ? 320.0f : 0.0f;
+		float y = (slot & 2) ? 240.0f : 0.0f;
+		qboolean valid = STEFX_HolomatchGetSplitHudState(slot, &health, &weapon, &score);
+
+		++g_SPXBHMSplitHudStatusSerial[slot];
+		g_SPXBHMSplitHudStatusValid[slot] = valid ? 1u : 0u;
+		g_SPXBHMSplitHudStatusHealth[slot] = (unsigned int)health;
+		g_SPXBHMSplitHudStatusWeapon[slot] = (unsigned int)weapon;
+		g_SPXBHMSplitHudStatusScore[slot] = (unsigned int)score;
+		g_SPXBHMSplitHudStatusRectX[slot] = (unsigned int)(int)x;
+		g_SPXBHMSplitHudStatusRectY[slot] = (unsigned int)(int)y;
+		g_SPXBHMSplitHudStatusRectW[slot] = 320u;
+		g_SPXBHMSplitHudStatusRectH[slot] = 240u;
+
+		if (s_stefxHMSplitStatusLogBudget > 0)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD_STATUS: slot=%d players=%d valid=%d health=%d weapon=%d score=%d dst=(%g,%g %gx%g)",
+				slot,
+				players,
+				valid ? 1 : 0,
+				health,
+				weapon,
+				score,
+				x,
+				y,
+				320.0f,
+				240.0f);
+			--s_stefxHMSplitStatusLogBudget;
+		}
+	}
+}
 #endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -419,7 +649,7 @@ qboolean CL_STEFX_GetSnapshot( int snapshotNumber, void *snapshotBuffer ) {
 		--s_stefxGetSnapshotLogBudget;
 	}
 
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	{
 		const int stefxWpPhaser = 1;
 		const int stefxWpCompression = 2;
@@ -756,7 +986,7 @@ qboolean CL_GetDefaultState(int index, entityState_t *state)
 extern float cl_mPitchOverride;
 extern float cl_mYawOverride;
 void CL_SetUserCmdValue( int userCmdValue, float sensitivityScale, float mPitchOverride, float mYawOverride ) {
-#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	static int s_stefxLastUserCmdValue = -999;
 	static int s_stefxUserCmdValueBudget = 96;
 	if ( userCmdValue != s_stefxLastUserCmdValue && s_stefxUserCmdValueBudget > 0 )
@@ -1262,6 +1492,9 @@ typedef struct stefxEfRefEntity_s
 			qboolean taper;
 		} electricity;
 	} data;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	int			number;
+#endif
 } stefxEfRefEntity_t;
 
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
@@ -1269,6 +1502,16 @@ static qhandle_t s_stefxTrackedLowerModel;
 static qhandle_t s_stefxTrackedUpperModel;
 static qhandle_t s_stefxTrackedHeadModel;
 static unsigned int s_stefxTrackedRefCount;
+extern "C"
+{
+	volatile unsigned int g_SPXBHMSplitLowerModel = 0;
+	volatile unsigned int g_SPXBHMSplitUpperModel = 0;
+	volatile unsigned int g_SPXBHMSplitHeadModel = 0;
+	extern volatile unsigned int g_SPXBHMSplitPhaserBridgeFP[4];
+	extern volatile unsigned int g_SPXBHMSplitPhaserBridgeWorld[4];
+	extern volatile unsigned int g_SPXBHMSplitPhaserBridgeLineFP[4];
+	extern volatile unsigned int g_SPXBHMSplitPhaserBridgeLastNumber[4];
+}
 #endif
 
 static int CL_STEFX_TranslateRenderFx( int efRenderFx )
@@ -1285,6 +1528,11 @@ static int CL_STEFX_TranslateRenderFx( int efRenderFx )
 	if ( efRenderFx & 0x0200 ) renderFx |= RF_WRAP_FRAMES;
 	if ( efRenderFx & 0x0400 ) renderFx |= RF_CAP_FRAMES;
 	if ( efRenderFx & 0x0800 ) renderFx |= RF_STEFX_FORCE_ENT_ALPHA;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( efRenderFx & RF_STEFX_SPLIT_SLOT0 ) renderFx |= RF_STEFX_SPLIT_SLOT0;
+	if ( efRenderFx & RF_STEFX_SPLIT_SLOT1 ) renderFx |= RF_STEFX_SPLIT_SLOT1;
+	if ( efRenderFx & RF_STEFX_SPLIT_SLOT2 ) renderFx |= RF_STEFX_SPLIT_SLOT2;
+#endif
 
 	return renderFx;
 }
@@ -1366,7 +1614,9 @@ static qboolean CL_STEFX_CopyRefEntity( refEntity_t *out, const stefxEfRefEntity
 	memcpy( &out->stefxData, &in->data, sizeof( out->stefxData ) );
 	VectorSet( out->modelScale, 1.0f, 1.0f, 1.0f );
 	out->ghoul2 = NULL;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	out->number = in->number;
+#elif defined(_XBOX)
 	out->number = 0;
 #endif
 
@@ -1623,8 +1873,14 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 #if defined(STEFX_SP_HOSTED_MP)
 		{
 			soundChannel_t stefxSpChannel = CL_STEFX_TranslateOfficialSoundChannel( args[3] );
+			g_SPXBHMAudioStartSoundCount++;
+			g_SPXBHMAudioLastEntChan = ((unsigned int)(args[2] & 0xFFFF) << 16) | (unsigned int)(stefxSpChannel & 0xFFFF);
+			g_SPXBHMAudioLastHandle = (unsigned int)args[4];
+			CL_STEFX_HolomatchAudioProofLog("start", args[2], args[3], stefxSpChannel, args[4],
+				args[1] ? (const float *)VMA(1) : NULL);
 			if (stefxSpChannel == CHAN_BODY || stefxSpChannel == CHAN_ITEM || stefxSpChannel == CHAN_AUTO)
 			{
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 				static int s_stefxHostedSoundBridgeBudget = 96;
 				if (s_stefxHostedSoundBridgeBudget > 0)
 				{
@@ -1637,7 +1893,9 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 						cls.cgameStarted ? 1 : 0,
 						cls.state);
 				}
+#endif
 				S_StartSound( (float *) VMA(1), args[2], stefxSpChannel, args[4] );
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 				if (s_stefxHostedSoundBridgeBudget > 0)
 				{
 					XBLog_WriteCriticalf("STEFX_HM_SOUND_BRIDGE: after ent=%d efChan=%d spChan=%d handle=%d origin=%08x",
@@ -1648,6 +1906,7 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 						args[1]);
 					--s_stefxHostedSoundBridgeBudget;
 				}
+#endif
 				return 0;
 			}
 			S_StartSound( (float *) VMA(1), args[2], stefxSpChannel, args[4] );
@@ -1671,6 +1930,10 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		}
 #endif
 #if defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMAudioStartLocalCount++;
+		g_SPXBHMAudioLastEntChan = (unsigned int)(CL_STEFX_TranslateOfficialSoundChannel( args[2] ) & 0xFFFF);
+		g_SPXBHMAudioLastHandle = (unsigned int)args[1];
+		CL_STEFX_HolomatchAudioProofLog("local", 0, args[2], CL_STEFX_TranslateOfficialSoundChannel( args[2] ), args[1], NULL);
 		S_StartLocalSound( args[1], CL_STEFX_TranslateOfficialSoundChannel( args[2] ) );
 		return 0;
 #endif
@@ -1685,6 +1948,11 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 			return 0;
 		}
 #if defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMAudioLoopCount++;
+		g_SPXBHMAudioLastEntChan = ((unsigned int)(args[1] & 0xFFFF) << 16) | (unsigned int)(CL_STEFX_TranslateOfficialSoundChannel( args[5] ) & 0xFFFF);
+		g_SPXBHMAudioLastHandle = (unsigned int)args[4];
+		CL_STEFX_HolomatchAudioProofLog("loop", args[1], args[5], CL_STEFX_TranslateOfficialSoundChannel( args[5] ), args[4],
+			args[2] ? (const float *)VMA(2) : NULL);
 		S_AddLoopingSound( args[1], (const float *) VMA(2), (const float *) VMA(3), args[4], CL_STEFX_TranslateOfficialSoundChannel( args[5] ) );
 		return 0;
 #endif
@@ -1694,9 +1962,24 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		S_UpdateEntityPosition( args[1], (const float *) VMA(2) );
 		return 0;
 	case STEFX_CG_S_RESPATIALIZE:
+#if defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMAudioRespatializeCount++;
+		g_SPXBHMAudioLastEntChan = ((unsigned int)(args[1] & 0xFFFF) << 16);
+		CL_STEFX_HolomatchAudioProofLog("respatialize", args[1], 0, 0, 0,
+			args[2] ? (const float *)VMA(2) : NULL);
+#endif
 		S_Respatialize( args[1], (const float *) VMA(2), (float(*)[3]) VMA(3), args[4] );
 		return 0;
 	case STEFX_CG_S_REGISTERSOUND:
+#if defined(STEFX_SP_HOSTED_MP)
+		g_SPXBHMAudioRegisterSoundCount++;
+		if (CL_STEFX_HolomatchAudioProofEnabled() && g_SPXBHMAudioRegisterSoundCount <= 64)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_AUDIO: register count=%u name='%s'",
+				(unsigned int)g_SPXBHMAudioRegisterSoundCount,
+				(const char *)VMA(1));
+		}
+#endif
 		return S_RegisterSound( (const char *) VMA(1) );
 	case STEFX_CG_S_STARTBACKGROUNDTRACK:
 #ifdef _XBOX
@@ -1743,14 +2026,17 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 				if ( strstr( modelName, "/lower.mdr" ) )
 				{
 					s_stefxTrackedLowerModel = modelHandle;
+					g_SPXBHMSplitLowerModel = (unsigned int)modelHandle;
 				}
 				else if ( strstr( modelName, "/upper.mdr" ) )
 				{
 					s_stefxTrackedUpperModel = modelHandle;
+					g_SPXBHMSplitUpperModel = (unsigned int)modelHandle;
 				}
 				else if ( strstr( modelName, "/head.md3" ) )
 				{
 					s_stefxTrackedHeadModel = modelHandle;
+					g_SPXBHMSplitHeadModel = (unsigned int)modelHandle;
 				}
 			}
 #endif
@@ -1810,6 +2096,35 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 				return 0;
 			}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if ( ( refEnt.reType == RT_TEXTURED_LINE || refEnt.reType == RT_TAPERED_LINE ) &&
+				( refEnt.renderfx & RF_FIRST_PERSON ) )
+			{
+				int lineSlot = 0;
+				if ( refEnt.renderfx & RF_STEFX_SPLIT_SLOT2 )
+				{
+					lineSlot = ( refEnt.renderfx & RF_STEFX_SPLIT_SLOT1 ) ? 3 : 2;
+				}
+				else if ( refEnt.renderfx & RF_STEFX_SPLIT_SLOT1 )
+				{
+					lineSlot = 1;
+				}
+				++g_SPXBHMSplitPhaserBridgeLineFP[lineSlot];
+				g_SPXBHMSplitPhaserBridgeLastNumber[lineSlot] = (unsigned int)refEnt.number;
+			}
+			if ( refEnt.number >= STEFX_REFENTITY_PHASER_BEAM_BASE &&
+				refEnt.number < STEFX_REFENTITY_PHASER_BEAM_BASE + 4 &&
+				( refEnt.reType == RT_TEXTURED_LINE || refEnt.reType == RT_TAPERED_LINE ) )
+			{
+				const int phaserOwner = refEnt.number - STEFX_REFENTITY_PHASER_BEAM_BASE;
+				if ( refEnt.renderfx & RF_FIRST_PERSON )
+				{
+					++g_SPXBHMSplitPhaserBridgeFP[phaserOwner];
+				}
+				else
+				{
+					++g_SPXBHMSplitPhaserBridgeWorld[phaserOwner];
+				}
+			}
 			if (s_stefxAddRefBridgeBudget > 0)
 			{
 				XBLog_Writef("STEFX: EF AddRef marshal efType=%d spType=%d hModel=%d shader=%d renderfx=0x%x origin=(%g,%g,%g) radius=%g",
@@ -1922,8 +2237,9 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 				++s_stefxTrackedRefCount;
 				if ( s_stefxTrackedRefCount <= 12 || ( s_stefxTrackedRefCount % 1800 ) == 0 )
 				{
-					XBLog_WriteCriticalf("STEFX_MODEL_BRIDGE part=%s h=%d frame=%d old=%d back=%g rf=0x%x skin=%d shader=%d origin=(%g,%g,%g) axisLen=(%g,%g,%g) nonNorm=%d",
+					XBLog_WriteCriticalf("STEFX_MODEL_BRIDGE part=%s number=%d h=%d frame=%d old=%d back=%g rf=0x%x skin=%d shader=%d origin=(%g,%g,%g) axisLen=(%g,%g,%g) nonNorm=%d",
 						part,
+						refEnt.number,
 						refEnt.hModel,
 						refEnt.frame,
 						refEnt.oldframe,
@@ -1970,11 +2286,7 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 		re.AddPolyToScene( args[1], args[2], (const polyVert_t *) VMA(3) );
 		return 0;
 	case STEFX_CG_R_ADDLIGHTTOSCENE:
-#ifdef VV_LIGHTING
-		VVLightMan.RE_AddLightToScene( (const float *) VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
-#else
 		re.AddLightToScene( (const float *) VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
-#endif
 		return 0;
 	case STEFX_CG_R_RENDERSCENE:
 		{
@@ -2002,6 +2314,33 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 					jaRefdef.x, jaRefdef.y, jaRefdef.width, jaRefdef.height);
 				--s_stefxRenderSceneLogBudget;
 			}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+			{
+				const int splitPlayers = CL_STEFX_HolomatchSplitHudPlayers();
+				int splitSlot;
+
+				for (splitSlot = 1; splitSlot < splitPlayers; ++splitSlot)
+				{
+					refdef_t splitRefdef;
+					const void *officialPlayerState =
+						STEFX_HolomatchGetOfficialPlayerState(splitSlot);
+
+					if (!officialPlayerState ||
+						!RE_STEFX_SplitScreen_GetLocalRefdef(splitSlot, &splitRefdef))
+					{
+						continue;
+					}
+					STEFX_HM_CG_AddSplitViewWeapon(
+						splitSlot,
+						officialPlayerState,
+						splitRefdef.vieworg,
+						&splitRefdef.viewaxis[0][0],
+						splitRefdef.fov_x,
+						splitRefdef.time);
+				}
+			}
+#endif
 			re.RenderScene( &jaRefdef );
 #if defined(STEFX_SP_HOSTED_MP)
 			if (renderSceneIndex >= 0 && renderSceneIndex < 32)
@@ -2017,20 +2356,81 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 	case STEFX_CG_R_DRAWSTRETCHPIC:
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		{
+			float x = VMF(1);
+			float y = VMF(2);
 			float w = VMF(3);
 			float h = VMF(4);
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
+			if ( g_SPXBHMScoreDrawState & 0x800u )
+			{
+				union { float f; unsigned int u; } bits;
+				unsigned int count = ++g_SPXBHMScoreStretchCount;
+				if ( count == 1u )
+				{
+					g_SPXBHMScoreStretchShader = (unsigned int)args[9];
+					bits.f = x; g_SPXBHMScoreStretchX = bits.u;
+					bits.f = y; g_SPXBHMScoreStretchY = bits.u;
+					bits.f = w; g_SPXBHMScoreStretchW = bits.u;
+					bits.f = h; g_SPXBHMScoreStretchH = bits.u;
+				}
+			}
+#endif
+#if defined(STEFX_SP_HOSTED_MP)
+			{
+				const int splitHudPlayers = CL_STEFX_HolomatchSplitHudPlayers();
+				const int splitSlot = s_stefxHolomatchHudDrawSlot;
+				if (splitHudPlayers > 0 && splitSlot >= 0 && splitSlot < splitHudPlayers)
+				{
+					static int s_stefxHMSplitHudLogBudget = 96;
+					const float oldX = x;
+					const float oldY = y;
+					const float oldW = w;
+					const float oldH = h;
+					const float s1 = VMF(5);
+					const float t1 = VMF(6);
+					const float s2 = VMF(7);
+					const float t2 = VMF(8);
+					const qhandle_t shader = args[9];
+					float dstX = oldX;
+					float dstY = oldY;
+					float dstW = oldW;
+					float dstH = oldH;
+
+					CL_STEFX_HolomatchMapHudToSplitSlot(splitSlot, &dstX, &dstY, &dstW, &dstH);
+					++g_SPXBHMSplitHudSerial[splitSlot];
+					g_SPXBHMSplitHudRectX[splitSlot] = (splitSlot & 1) ? 320u : 0u;
+					g_SPXBHMSplitHudRectY[splitSlot] = (splitSlot & 2) ? 240u : 0u;
+					g_SPXBHMSplitHudRectW[splitSlot] = 320u;
+					g_SPXBHMSplitHudRectH[splitSlot] = 240u;
+					if (s_stefxHMSplitHudLogBudget > 0)
+					{
+						XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD: slot=%d players=%d shared=0 shader=%d src=(%g,%g %gx%g) dst=(%g,%g %gx%g)",
+							splitSlot,
+							splitHudPlayers,
+							shader,
+							oldX, oldY, oldW, oldH,
+							dstX, dstY, dstW, dstH);
+						--s_stefxHMSplitHudLogBudget;
+					}
+					re.DrawStretchPic(dstX, dstY, dstW, dstH, s1, t1, s2, t2, shader);
+					return 0;
+				}
+			}
+#endif
 			static int s_stefxStretchPicBudget = 48;
 			if ( s_stefxStretchPicBudget > 0 && w >= 600.0f && h >= 400.0f )
 			{
 				XBLF("STEFX: EF DrawStretchPic large shader=%d xy=(%g,%g) wh=(%g,%g) st=(%g,%g,%g,%g)",
 					args[9],
-					VMF(1), VMF(2), w, h,
+					x, y, w, h,
 					VMF(5), VMF(6), VMF(7), VMF(8));
 				--s_stefxStretchPicBudget;
 			}
+			re.DrawStretchPic( x, y, w, h, VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
 		}
-#endif
+#else
 		re.DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
+#endif
 		return 0;
 #if !defined(STEFX_SP_HOSTED_MP)
 	case STEFX_CG_R_DRAWSCREENSHOT:
@@ -2502,11 +2902,7 @@ int CL_CgameSystemCalls( int *args ) {
 		re.AddPolyToScene( args[1], args[2], (const polyVert_t *) VMA(3) );
 		return 0;
 	case CG_R_ADDLIGHTTOSCENE:
-#ifdef VV_LIGHTING
-		VVLightMan.RE_AddLightToScene ( (const float *) VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
-#else
 		re.AddLightToScene( (const float *) VMA(1), VMF(2), VMF(3), VMF(4), VMF(5) );
-#endif
 		return 0;
 	case CG_R_RENDERSCENE:
 		re.RenderScene( (const refdef_t *) VMA(1) );
@@ -2903,11 +3299,18 @@ See if the current console command is claimed by the cgame
 ====================
 */
 qboolean CL_GameCommand( void ) {
+	qboolean result;
+
 	if ( cls.state != CA_ACTIVE ) {
 		return qfalse;
 	}
 
-	return VM_Call( CG_CONSOLE_COMMAND );
+	result = VM_Call( CG_CONSOLE_COMMAND );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++g_SPXBHMGameCommandCount;
+	g_SPXBHMGameCommandResult = result ? 1u : 0u;
+#endif
+	return result;
 }
 
 
@@ -2918,6 +3321,7 @@ CL_CGameRendering
 =====================
 */
 void CL_CGameRendering( stereoFrame_t stereo ) {
+	int stefxSplitHudPlayers = 0;
 #if 0
 	if ( cls.state == CA_ACTIVE ) {
 		static int counter;
@@ -2927,7 +3331,7 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 		}
 	}
 #endif
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	static int s_xboxCGameRenderCount = 0;
 	const int xboxLogLateFrame = (cls.state == CA_ACTIVE && cl.serverTime >= 3600 && cl.serverTime <= 4600);
 	const int xboxLogThisFrame = (cls.state == CA_ACTIVE && (s_xboxCGameRenderCount < 24 || xboxLogLateFrame));
@@ -2936,6 +3340,8 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 		XBLF("JA: CL_CGameRendering #%d enter state=%d serverTime=%d stereo=%d",
 			s_xboxCGameRenderCount, (int)cls.state, cl.serverTime, (int)stereo);
 	}
+#elif defined(_XBOX)
+	const int xboxLogThisFrame = 0;
 #endif
 	int timei=cl.serverTime;
 	if (timei>60)
@@ -2950,14 +3356,54 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 #else
 	G2API_SetTime(cl.serverTime,G2T_CG_TIME);
 #endif
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (xboxLogThisFrame)
 	{
 		XBLog_Write("JA: CL_CGameRendering: VM_Call(CG_DRAW_ACTIVE_FRAME)...");
 	}
 #endif
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x564d3031; /* 'VM01' */
+	#endif
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	stefxSplitHudPlayers = CL_STEFX_HolomatchSplitHudPlayers();
+	s_stefxHolomatchHudDrawSlot = stefxSplitHudPlayers > 0 ? 0 : -1;
+#endif
 	VM_Call( CG_DRAW_ACTIVE_FRAME,timei, stereo, qfalse );
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if (stefxSplitHudPlayers > 0)
+	{
+		int slot;
+
+		for (slot = 1; slot < stefxSplitHudPlayers; ++slot)
+		{
+			refdef_t splitRefdef;
+			const void *officialPlayerState = STEFX_HolomatchGetOfficialPlayerState(slot);
+
+			if (!officialPlayerState ||
+				!RE_STEFX_SplitScreen_GetLocalRefdef(slot, &splitRefdef))
+			{
+				continue;
+			}
+			s_stefxHolomatchHudDrawSlot = slot;
+			STEFX_HM_CG_DrawSplitPlayerHud(
+				slot,
+				officialPlayerState,
+				splitRefdef.vieworg,
+				&splitRefdef.viewaxis[0][0],
+				splitRefdef.fov_x,
+				splitRefdef.fov_y,
+				splitRefdef.time);
+		}
+
+		s_stefxHolomatchHudDrawSlot = -1;
+		STEFX_HM_CG_DrawSplitGlobalHud();
+	}
+	s_stefxHolomatchHudDrawSlot = -1;
+	CL_STEFX_DrawHolomatchSplitStatusOverlay();
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x564d3032; /* 'VM02' */
 	if (xboxLogThisFrame)
 	{
 		XBLog_Write("JA: CL_CGameRendering: VM_Call(CG_DRAW_ACTIVE_FRAME) returned");

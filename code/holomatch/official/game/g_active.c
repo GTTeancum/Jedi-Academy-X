@@ -5,8 +5,43 @@
 
 #if defined(STEFX_SP_HOSTED_MP)
 extern void XBLog_WriteCriticalf(const char *fmt, ...);
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 static int s_stefxClientThinkBoundaryTraceCount = 0;
+#endif
 static int s_stefxHostedRespawnTraceCount = 0;
+
+static int STEFX_HM_LocalSplitPlayers(void)
+{
+	char mode[32];
+	int players;
+
+	if (!trap_Cvar_VariableIntegerValue("stefx_splitScreen"))
+	{
+		return 1;
+	}
+
+	trap_Cvar_VariableStringBuffer("stefx_splitScreenMode", mode, sizeof(mode));
+	if (Q_stricmp(mode, "holomatch"))
+	{
+		return 1;
+	}
+
+	players = trap_Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+	if (players < 1)
+	{
+		players = trap_Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
+	}
+	if (players < 1)
+	{
+		players = 1;
+	}
+	if (players > 4)
+	{
+		players = 4;
+	}
+
+	return players;
+}
 #endif
 
 extern void SP_misc_ammo_station( gentity_t *ent );
@@ -1682,7 +1717,9 @@ void ClientThink_real( gentity_t *ent ) {
 	gclient_t	*client;
 	pmove_t		pm;
 	int			oldEventSequence;
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	int			oldEntityEventSequence;
+#endif
 	int			msec;
 	usercmd_t	*ucmd;
 
@@ -1692,7 +1729,7 @@ void ClientThink_real( gentity_t *ent ) {
 	if (client->pers.connected != CON_CONNECTED) {
 		return;
 	}
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if (s_stefxClientThinkBoundaryTraceCount < 8)
 	{
 		XBLog_WriteCriticalf("STEFX_HM_SP: official ClientThink state entNumber=%d psClient=%d commandTime=%d origin=(%g,%g,%g) velocity=(%g,%g,%g) view=(%g,%g,%g) gravity=%d speed=%d pmType=%d pmFlags=0x%x",
@@ -1795,7 +1832,9 @@ void ClientThink_real( gentity_t *ent ) {
 	}
 	// set up for pmove
 	oldEventSequence = client->ps.eventSequence;
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	oldEntityEventSequence = client->ps.entityEventSequence;
+#endif
 
 	memset (&pm, 0, sizeof(pm));
 
@@ -1815,7 +1854,7 @@ void ClientThink_real( gentity_t *ent ) {
 
 	// perform a pmove
 	Pmove (&pm);
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( ent->s.number >= 0 && ent->s.number < 3 &&
 		client->ps.eventSequence != oldEventSequence )
 	{
@@ -1866,7 +1905,7 @@ void ClientThink_real( gentity_t *ent ) {
 	BG_PlayerStateToEntityState( &ent->client->ps, &ent->s, qtrue );
 
 	SendPendingPredictableEvents( &ent->client->ps );
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( ent->s.number >= 0 && ent->s.number < 3 &&
 		( ent->client->ps.eventSequence != oldEventSequence ||
 		  ent->client->ps.entityEventSequence != oldEntityEventSequence ) )
@@ -1932,14 +1971,19 @@ void ClientThink_real( gentity_t *ent ) {
 
 	// check for respawning
 	if ( client->ps.stats[STAT_HEALTH] <= 0 ) {
-		// wait for the attack button to be pressed
-		if ( level.time > client->respawnTime ) {
 #if defined(STEFX_SP_HOSTED_MP)
-			if ( ent->s.number == 0 && ( level.time - client->respawnTime ) > 3000 ) {
+		{
+			const int stefxLocalPlayers = STEFX_HM_LocalSplitPlayers();
+			const int stefxEarlyRespawnLead = 1450;
+			if ( stefxLocalPlayers > 1 &&
+				ent->s.number < stefxLocalPlayers &&
+				( level.time + stefxEarlyRespawnLead ) > client->respawnTime ) {
 				if (s_stefxHostedRespawnTraceCount < 16)
 				{
-					XBLog_WriteCriticalf("STEFX_HM_RESPAWN: force local direct-map respawn client=%d time=%d respawnTime=%d health=%d",
+					XBLog_WriteCriticalf("STEFX_HM_RESPAWN: fast local split respawn client=%d localPlayers=%d lead=%d time=%d respawnTime=%d health=%d",
 						ent->s.number,
+						stefxLocalPlayers,
+						stefxEarlyRespawnLead,
 						level.time,
 						client->respawnTime,
 						client->ps.stats[STAT_HEALTH]);
@@ -1947,6 +1991,30 @@ void ClientThink_real( gentity_t *ent ) {
 				}
 				respawn( ent );
 				return;
+			}
+		}
+#endif
+		// wait for the attack button to be pressed
+		if ( level.time > client->respawnTime ) {
+#if defined(STEFX_SP_HOSTED_MP)
+			{
+				const int stefxLocalPlayers = STEFX_HM_LocalSplitPlayers();
+				const int stefxRespawnDelay = (stefxLocalPlayers > 1) ? 250 : 3000;
+				if ( ent->s.number < stefxLocalPlayers && ( level.time - client->respawnTime ) > stefxRespawnDelay ) {
+					if (s_stefxHostedRespawnTraceCount < 16)
+					{
+						XBLog_WriteCriticalf("STEFX_HM_RESPAWN: force local direct-map respawn client=%d localPlayers=%d delay=%d time=%d respawnTime=%d health=%d",
+							ent->s.number,
+							stefxLocalPlayers,
+							stefxRespawnDelay,
+							level.time,
+							client->respawnTime,
+							client->ps.stats[STAT_HEALTH]);
+						++s_stefxHostedRespawnTraceCount;
+					}
+					respawn( ent );
+					return;
+				}
 			}
 #endif
 			// forcerespawn is to prevent users from waiting out powerups
@@ -2011,7 +2079,7 @@ void ClientThink( int clientNum ) {
 
 	ent = g_entities + clientNum;
 	trap_GetUsercmd( clientNum, &ent->client->pers.cmd );
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( clientNum >= 0 && clientNum < 3 )
 	{
 		static int s_stefxLastOfficialWeaponButtons[3] = { -1, -1, -1 };

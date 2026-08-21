@@ -20,6 +20,12 @@
 #ifdef _XBOX
 #include <Xtl.h>
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBHMAudioBackendState;
+extern "C" volatile unsigned int g_SPXBHMAudioBeginRegistrationCount;
+extern "C" volatile unsigned int g_SPXBHMAudioListenerState;
+extern "C" volatile unsigned int g_SPXBHMAudioVoiceStartCount;
+extern "C" volatile unsigned int g_SPXBHMAudioLipActiveCount;
+extern "C" volatile unsigned int g_SPXBHMAudioListenerUpdateMask;
 #endif
 
 #ifdef _GAMECUBE
@@ -197,9 +203,45 @@ struct listener_t
 	int entnum;
 };
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+#define SND_MAX_LISTENERS 4
+#else
 #define SND_MAX_LISTENERS 1
+#endif
 static listener_t s_listeners[SND_MAX_LISTENERS];
 static int s_numListeners;
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+static int S_STEFX_HolomatchRequestedListeners(void)
+{
+	const char *mode;
+	int players;
+
+	if (!Cvar_VariableIntegerValue("stefx_splitScreen"))
+	{
+		return 1;
+	}
+	mode = Cvar_VariableString("stefx_splitScreenMode");
+	if (!mode || Q_stricmp(mode, "holomatch"))
+	{
+		return 1;
+	}
+	players = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+	if (players <= 0)
+	{
+		players = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
+	}
+	if (players < 1)
+	{
+		players = 1;
+	}
+	if (players > SND_MAX_LISTENERS)
+	{
+		players = SND_MAX_LISTENERS;
+	}
+	return players;
+}
+#endif
 
 static int			s_numChannels;			// Number of AL Sources == Num of Channels
 
@@ -237,7 +279,10 @@ typedef struct
 static int numLoopSounds;
 static loopSound_t* loopSounds;
 
-int* s_entityWavVol = NULL;
+// The game and cgame retain this pointer in their import tables. Keep its
+// address valid even when sound initialization is disabled or fails.
+static int s_entityWavVolStorage[MAX_GENTITIES];
+int* s_entityWavVol = s_entityWavVolStorage;
 
 cvar_t		*s_effects_volume;
 cvar_t		*s_music_volume;
@@ -358,8 +403,6 @@ void S_Init( void ) {
 
 	Com_Printf("\n------- sound initialization -------\n");
 
-	AS_Init();
-
 	s_effects_volume = Cvar_Get ("s_effects_volume", "1.0", CVAR_ARCHIVE);
 	s_voice_volume= Cvar_Get ("s_voice_volume", "1.0", CVAR_ARCHIVE);
 	s_music_volume = Cvar_Get ("s_music_volume", "0.25", CVAR_ARCHIVE);
@@ -377,20 +420,29 @@ void S_Init( void ) {
 //	s_language = Cvar_Get("s_language","english",CVAR_ARCHIVE | CVAR_NORESTART);
 
 #ifdef _XBOX
-	cv = Cvar_Get("s_xbox_smokeSilentAudio", "0", CVAR_TEMP);
-	s_xboxSilentAudio = (cv && cv->integer) ? qtrue : qfalse;
-	s_soundMuted = s_xboxSilentAudio ? qtrue : qfalse;
-	Com_Printf("JA: Xbox audio mode=%s; lip-sync metadata remains enabled.\n",
-		s_xboxSilentAudio ? "silent" : "directsound");
-#endif
-
-	cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
+	cv = Cvar_Get("s_initsound", "1", CVAR_ROM);
+	if ( !cv->integer ) {
+		s_xboxSilentAudio = qtrue;
+		s_soundMuted = qtrue;
+		s_soundStarted = 0;
+		g_SPXBHMAudioBackendState = 0;
+		Com_Printf("STEFX: Xbox audio disabled by s_initsound=0; no device, banks, lip-sync, ambient, or music state initialized.\n");
+		Com_Printf("------------------------------------\n");
+		return;
+	}
+	s_xboxSilentAudio = qfalse;
+	g_SPXBHMAudioBackendState = 1;
+#else
+	cv = Cvar_Get("s_initsound", "1", CVAR_ROM);
 	if ( !cv->integer ) {
 		s_soundStarted = 0;	// needed in case you set s_initsound to 0 midgame then snd_restart (div0 err otherwise later)
 		Com_Printf ("not initializing.\n");
 		Com_Printf("------------------------------------\n");
 		return;
 	}
+#endif
+
+	AS_Init();
 
 	Cmd_AddCommand("play", S_Play_f);
 #ifndef _JK2MP
@@ -402,8 +454,6 @@ void S_Init( void ) {
 	Cmd_AddCommand("soundstop", S_StopAllSounds);
 	Cmd_AddCommand("trashsounds", TrashSounds_f);
 
-	s_entityWavVol = new int[MAX_GENTITIES];
-	
 	// clear out the lip synching override array
 	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
 
@@ -416,8 +466,14 @@ void S_Init( void ) {
 	if (!ALCDevice)
 	{
 		Com_Printf("JA: Xbox audio alcOpenDevice failed\n");
+#ifdef _XBOX
+		g_SPXBHMAudioBackendState = 0xE001;
+#endif
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBHMAudioBackendState = 2;
+#endif
 	Com_Printf("JA: Xbox audio alcOpenDevice ok device=%p\n", ALCDevice);
 
 	//Create context(s)
@@ -426,8 +482,14 @@ void S_Init( void ) {
 	if (!ALCContext)
 	{
 		Com_Printf("JA: Xbox audio alcCreateContext failed\n");
+#ifdef _XBOX
+		g_SPXBHMAudioBackendState = 0xE002;
+#endif
 		return;
 	}
+#ifdef _XBOX
+	g_SPXBHMAudioBackendState = 3;
+#endif
 	Com_Printf("JA: Xbox audio alcCreateContext ok context=%p\n", ALCContext);
 
 	//Set active context
@@ -436,6 +498,9 @@ void S_Init( void ) {
 	if (alcGetError(ALCDevice) != ALC_NO_ERROR)
 	{
 		Com_Printf("JA: Xbox audio alcMakeContextCurrent failed\n");
+#ifdef _XBOX
+		g_SPXBHMAudioBackendState = 0xE003;
+#endif
 		return;
 	}
 	Com_Printf("JA: Xbox audio alcMakeContextCurrent ok\n");
@@ -454,6 +519,9 @@ void S_Init( void ) {
 	s_soundMuted = 1;
 	s_loopEnabled = 0;
 	s_updateTime = 0;
+#ifdef _XBOX
+	g_SPXBHMAudioBackendState = 4;
+#endif
 
 #ifdef _XBOX
 	if (s_xboxSilentAudio)
@@ -515,8 +583,7 @@ void S_Shutdown( void )
 	ALCdevice	*ALCDevice;
 	int			i;
 
-	delete [] s_entityWavVol;
-	s_entityWavVol = NULL;
+	memset(s_entityWavVol, 0, sizeof(int) * MAX_GENTITIES);
 
 	if ( !s_soundStarted ) {
 		return;
@@ -859,6 +926,7 @@ void S_BeginRegistration( void )
 	if (!s_soundStarted) return;
 
 #ifdef _XBOX
+	g_SPXBHMAudioBeginRegistrationCount++;
 	if (s_xboxSilentAudio)
 	{
 		s_soundMuted = qtrue;
@@ -873,10 +941,15 @@ void S_BeginRegistration( void )
 #endif
 
 	int i;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	int num_listeners = S_STEFX_HolomatchRequestedListeners();
+#else
 	int num_listeners = 1;
+#endif
 
 	// Turn sound back on.
 	s_soundMuted = qfalse;
+	g_SPXBHMAudioListenerState = ((unsigned int)SND_MAX_LISTENERS << 16) | (unsigned int)num_listeners;
 
 	// Create listeners
 	assert(num_listeners <= SND_MAX_LISTENERS);
@@ -1984,6 +2057,7 @@ void S_StartSound(const vec3_t origin, int entityNum, soundChannel_t entchannel,
 	{
 		s_entityWavVol[ ch->entnum ] = -1;	//we've started the sound but it's silent for now
 #ifdef _XBOX
+		g_SPXBHMAudioVoiceStartCount++;
 		static int s_xboxVoiceAssignLogs = 0;
 		if (s_xboxVoiceAssignLogs < 128)
 		{
@@ -2429,6 +2503,9 @@ void S_Respatialize( int entityNum, const vec3_t head, vec3_t axis[3], qboolean 
 
 	int index = 0;
 
+#ifdef _XBOX
+	g_SPXBHMAudioListenerState = ((unsigned int)SND_MAX_LISTENERS << 16) | (unsigned int)s_numListeners;
+#endif
 
 	if ( index >= s_numListeners ) {
 		return;
@@ -2451,7 +2528,79 @@ void S_Respatialize( int entityNum, const vec3_t head, vec3_t axis[3], qboolean 
 	li->orient[5] = axis[2][2];
 	
 	alListenerfv(li->handle, AL_ORIENTATION, li->orient);
+#ifdef _XBOX
+	{
+		static int s_xboxRespatializeLogs = 0;
+		if (Cvar_VariableIntegerValue("stefx_hm_audio_proof") && s_xboxRespatializeLogs < 16)
+		{
+			Com_Printf("STEFX_HM_AUDIO_BACKEND: respatialize ent=%d listener=%d activeListeners=%d compiledListeners=%d pos=(%g,%g,%g) inwater=%d\n",
+				entityNum,
+				index,
+				s_numListeners,
+				SND_MAX_LISTENERS,
+				head[0],
+				head[1],
+				head[2],
+				inwater ? 1 : 0);
+			s_xboxRespatializeLogs++;
+		}
+	}
+#endif
 }
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+void S_STEFX_SplitScreen_SetLocalListener(int slot, int entityNum, const vec3_t head, const vec3_t axis[3], qboolean valid)
+{
+	listener_t *li;
+	static int s_xboxSplitListenerLogBudget = 24;
+
+	if (slot <= 0 || slot >= SND_MAX_LISTENERS)
+	{
+		return;
+	}
+	if (!valid || !head || !axis)
+	{
+		g_SPXBHMAudioListenerUpdateMask &= ~(1u << slot);
+		return;
+	}
+	if (!s_soundStarted || s_soundMuted || s_xboxSilentAudio || slot >= s_numListeners)
+	{
+		return;
+	}
+
+	li = &s_listeners[slot];
+	li->entnum = entityNum;
+	li->pos[0] = head[0];
+	li->pos[1] = head[1];
+	li->pos[2] = head[2];
+	alListenerfv(li->handle, AL_POSITION, li->pos);
+
+	li->orient[0] = axis[0][0];
+	li->orient[1] = axis[0][1];
+	li->orient[2] = axis[0][2];
+	li->orient[3] = axis[2][0];
+	li->orient[4] = axis[2][1];
+	li->orient[5] = axis[2][2];
+	alListenerfv(li->handle, AL_ORIENTATION, li->orient);
+
+	g_SPXBHMAudioListenerUpdateMask |= (1u << slot);
+	g_SPXBHMAudioListenerState = ((unsigned int)SND_MAX_LISTENERS << 16) | (unsigned int)s_numListeners;
+
+	if (Cvar_VariableIntegerValue("stefx_hm_audio_proof") && s_xboxSplitListenerLogBudget > 0)
+	{
+		Com_Printf("STEFX_HM_AUDIO_LISTENER: slot=%d ent=%d activeListeners=%d compiledListeners=%d mask=0x%x pos=(%g,%g,%g)\n",
+			slot,
+			entityNum,
+			s_numListeners,
+			SND_MAX_LISTENERS,
+			(unsigned int)g_SPXBHMAudioListenerUpdateMask,
+			head[0],
+			head[1],
+			head[2]);
+		--s_xboxSplitListenerLogBudget;
+	}
+}
+#endif
 
 /*
 ============
@@ -3063,6 +3212,9 @@ void S_Update_(void)
 {
 	channel_t		*ch;
 	int				i;
+#ifdef _XBOX
+	int				xboxActiveVoiceChannels = 0;
+#endif
 
 	if ( !s_soundStarted || s_soundMuted ) {
 		return;
@@ -3115,6 +3267,9 @@ void S_Update_(void)
 			{
 				if(ch->bPlaying)
 				{
+#ifdef _XBOX
+					++xboxActiveVoiceChannels;
+#endif
 					if ( ch->thesfx->pLipSyncData )
 					{
 						_UpdateLipSyncData(ch);
@@ -3222,6 +3377,9 @@ void S_Update_(void)
 	}
 
 	UpdateLoopingSounds();
+#ifdef _XBOX
+	g_SPXBHMAudioLipActiveCount = (unsigned int)xboxActiveVoiceChannels;
+#endif
 }
 
 
@@ -3247,7 +3405,7 @@ static void S_Play_f( void ) {
 			Q_strncpyz( name, Cmd_Argv(i), sizeof(name) );
 		}
 		h = S_RegisterSound( name );
-		if( h ) {
+	if( h ) {
 			S_StartLocalSound( h, CHAN_LOCAL_SOUND );
 		}
 		i++;
@@ -3420,13 +3578,28 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 #if defined(_XBOX)
 	if (S_XboxMusicNameIsMP3(name))
 	{
-		FS_FCloseFile(handle);
-
 		void *mp3Data = NULL;
-		int mp3Len = FS_ReadFile(name, &mp3Data);
+		int mp3Len = len;
+		if (mp3Len > 0)
+		{
+			mp3Data = HeapAlloc(GetProcessHeap(), 0, mp3Len);
+		}
 		if (mp3Len <= 0 || !mp3Data)
 		{
-			Com_Printf(S_COLOR_YELLOW "WARNING: couldn't read MP3 music file %s\n", name);
+			FS_FCloseFile(handle);
+			Com_Printf(S_COLOR_YELLOW "WARNING: couldn't allocate MP3 metadata buffer for %s (%d bytes)\n",
+				name, mp3Len);
+			S_StopBackgroundTrack_Actual(pMusicInfo);
+			return qfalse;
+		}
+
+		int mp3BytesRead = FS_Read(mp3Data, mp3Len, handle);
+		FS_FCloseFile(handle);
+		if (mp3BytesRead != mp3Len)
+		{
+			Com_Printf(S_COLOR_YELLOW "WARNING: short MP3 metadata read for %s (%d/%d bytes)\n",
+				name, mp3BytesRead, mp3Len);
+			HeapFree(GetProcessHeap(), 0, mp3Data);
 			S_StopBackgroundTrack_Actual(pMusicInfo);
 			return qfalse;
 		}
@@ -3439,7 +3612,7 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 		char *headerError = C_MP3_GetHeaderData(mp3Data, mp3Len, &rate, &widthBytes, &channels, qtrue);
 		char *sizeError = C_MP3_GetUnpackedSize(mp3Data, mp3Len, &unpackedBytes, qtrue);
 		ReleaseMutex(Sys_FileStreamMutex);
-		FS_FreeFile(mp3Data);
+		HeapFree(GetProcessHeap(), 0, mp3Data);
 
 		if (headerError || sizeError || unpackedBytes <= 0 || rate <= 0 || widthBytes <= 0 || channels <= 0)
 		{
@@ -3456,7 +3629,7 @@ static qboolean S_StartBackgroundTrack_Actual( MusicInfo_t *pMusicInfo, qboolean
 		static int s_xboxMusicLoadLogCount = 0;
 		if (s_xboxMusicLoadLogCount < 64)
 		{
-			Com_Printf("STEFX: Xbox MP3 music loaded '%s' compressed=%d pcm=%d rate=%d width=%d channels=%d code=0x%x\n",
+			Com_Printf("STEFX: Xbox MP3 music loaded '%s' compressed=%d pcm=%d rate=%d width=%d channels=%d code=0x%x metadata=process_heap\n",
 				name, mp3Len, unpackedBytes, rate, widthBytes, channels, pMusicInfo->iFileCode);
 			s_xboxMusicLoadLogCount++;
 		}

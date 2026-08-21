@@ -544,7 +544,13 @@ float NormalizeColor( const vec3_t in, vec3_t out );
 float RadiusFromBounds( const vec3_t mins, const vec3_t maxs );
 void ClearBounds( vec3_t mins, vec3_t maxs );
 void AddPointToBounds( const vec3_t v, vec3_t mins, vec3_t maxs );
+#ifdef __cplusplus
+inline int VectorCompare( const vec3_t v1, const vec3_t v2 ) {
+	return (v1[0] == v2[0] && v1[1] == v2[1] && v1[2] == v2[2]);
+}
+#else
 int VectorCompare( const vec3_t v1, const vec3_t v2 );
+#endif
 vec_t VectorLength( const vec3_t v );
 vec_t VectorLengthSquared( const vec3_t v );
 vec_t Distance( const vec3_t p1, const vec3_t p2 );

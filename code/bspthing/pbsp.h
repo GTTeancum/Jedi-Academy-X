@@ -21,7 +21,7 @@ typedef struct {
 
 typedef struct {
 	int				planeNum;		// positive plane side faces out of the leaf
-	byte			shaderNum;
+	unsigned short	shaderNum;
 } pdbrushside_t;
 
 typedef struct {
@@ -80,7 +80,7 @@ typedef struct {
 
 typedef struct {
 	int				code;
-	byte			shaderNum;
+	unsigned short	shaderNum;
 	signed char		fogNum;
 
 	unsigned int	verts;				// high 20 bits are first vert, low 12 are num verts
@@ -96,7 +96,7 @@ typedef struct {
 
 typedef struct {
 	int				code;
-	byte			shaderNum;
+	unsigned short	shaderNum;
 	signed char		fogNum;
 
 	unsigned int	verts;				// high 20 bits are first vert, low 12 are num verts
@@ -110,7 +110,7 @@ typedef struct {
 
 typedef struct {
 	int				code;
-	byte			shaderNum;
+	unsigned short	shaderNum;
 	signed char		fogNum;
 
 	unsigned int	verts;				// high 20 bits are first vert, low 12 are num verts
@@ -121,7 +121,7 @@ typedef struct {
 
 typedef struct {
 	int				code;
-	byte			shaderNum;
+	unsigned short	shaderNum;
 	signed char		fogNum;
 
 	short			origin[3];

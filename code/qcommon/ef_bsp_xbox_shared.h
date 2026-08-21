@@ -489,7 +489,7 @@ static void *EFBSP_ConvertBrushSides(const efbspFile_t *bsp, int shaderCount, in
 	for (i = 0; i < count; ++i)
 	{
 		out[i].planeNum = in[i].planeNum;
-		out[i].shaderNum = (byte)EFBSP_ClampInt(in[i].shaderNum, 0, shaderCount - 1, "brushside shaderNum");
+		out[i].shaderNum = (unsigned short)EFBSP_ClampInt(in[i].shaderNum, 0, shaderCount - 1, "brushside shaderNum");
 	}
 
 	*outLen = count * sizeof(dbrushside_t);
@@ -559,6 +559,31 @@ static void EFBSP_FillSurfaceLight(const efbspSurface_t *in, byte styles[MAXLIGH
 {
 	EFBSP_SetSingleLightStyle(styles);
 	EFBSP_SetLightmapNums(in->lightmapNum, nums);
+}
+
+static qboolean EFBSP_XboxPackedLumpsExist(const char *name)
+{
+	char mapName[MAX_QPATH];
+	char stripName[MAX_QPATH];
+	char probeName[MAX_QPATH];
+	qboolean exists;
+
+	if (!name || !name[0])
+	{
+		return qfalse;
+	}
+
+	Q_strncpyz(mapName, name, sizeof(mapName));
+	COM_StripExtension(mapName, stripName);
+	Com_sprintf(probeName, sizeof(probeName), "%s/misc.mle", stripName);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_RETAIL_LUMPS: packed probe begin map='%s' file='%s'", mapName, probeName);
+#endif
+	exists = FS_PK3PatchFileExists(probeName);
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_RETAIL_LUMPS: packed probe end map='%s' file='%s' exists=%d", mapName, probeName, exists);
+#endif
+	return exists;
 }
 
 #if defined(STEFX_ELITE_FORCE_SP)
@@ -631,7 +656,7 @@ static void EFBSP_FillPatchSurface(const efbspSurface_t *in, int shaderCount, in
 	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "patch shaderNum");
 	EFBSP_ClampInt(in->fogNum, -128, 127, "patch fogNum");
 	out->code = code;
-	out->shaderNum = (byte)in->shaderNum;
+	out->shaderNum = (unsigned short)in->shaderNum;
 	out->fogNum = (signed char)in->fogNum;
 	out->verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "patch verts");
 	EFBSP_FillSurfaceLight(in, out->lightmapStyles, out->lightmapNum);
@@ -649,7 +674,7 @@ static void EFBSP_FillTriSurfSurface(const efbspSurface_t *in, int shaderCount, 
 	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "trisurf shaderNum");
 	EFBSP_ClampInt(in->fogNum, -128, 127, "trisurf fogNum");
 	out->code = code;
-	out->shaderNum = (byte)in->shaderNum;
+	out->shaderNum = (unsigned short)in->shaderNum;
 	out->fogNum = (signed char)in->fogNum;
 	out->verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "trisurf verts");
 	out->indexes = EFBSP_PackFirstCount(in->firstIndex, in->numIndexes, "trisurf indexes");
@@ -682,7 +707,7 @@ static void EFBSP_FillFaceSurface(const efbspFile_t *bsp, const efbspSurface_t *
 	}
 
 	out->code = code;
-	out->shaderNum = (byte)in->shaderNum;
+	out->shaderNum = (unsigned short)in->shaderNum;
 	out->fogNum = (signed char)in->fogNum;
 	out->verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "face verts");
 	out->indexes = EFBSP_PackFirstCount(in->firstIndex, in->numIndexes, "face indexes");
@@ -703,7 +728,7 @@ static void EFBSP_FillFlareSurface(const efbspSurface_t *in, int shaderCount, in
 	EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "flare shaderNum");
 	EFBSP_ClampInt(in->fogNum, -128, 127, "flare fogNum");
 	out->code = code;
-	out->shaderNum = (byte)in->shaderNum;
+	out->shaderNum = (unsigned short)in->shaderNum;
 	out->fogNum = (signed char)in->fogNum;
 	for (j = 0; j < 3; ++j)
 	{
@@ -750,7 +775,7 @@ static void *EFBSP_ConvertFaces(const efbspFile_t *bsp, int shaderCount, int *ou
 		}
 
 		out[count].code = i;
-		out[count].shaderNum = (byte)in->shaderNum;
+		out[count].shaderNum = (unsigned short)in->shaderNum;
 		out[count].fogNum = (signed char)in->fogNum;
 		out[count].verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "face verts");
 		out[count].indexes = EFBSP_PackFirstCount(in->firstIndex, in->numIndexes, "face indexes");
@@ -787,7 +812,7 @@ static void *EFBSP_ConvertPatches(const efbspFile_t *bsp, int shaderCount, int *
 		EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "patch shaderNum");
 		EFBSP_ClampInt(in->fogNum, -128, 127, "patch fogNum");
 		out[count].code = i;
-		out[count].shaderNum = (byte)in->shaderNum;
+		out[count].shaderNum = (unsigned short)in->shaderNum;
 		out[count].fogNum = (signed char)in->fogNum;
 		out[count].verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "patch verts");
 		EFBSP_FillSurfaceLight(in, out[count].lightmapStyles, out[count].lightmapNum);
@@ -823,7 +848,7 @@ static void *EFBSP_ConvertTriSurfs(const efbspFile_t *bsp, int shaderCount, int 
 		EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "trisurf shaderNum");
 		EFBSP_ClampInt(in->fogNum, -128, 127, "trisurf fogNum");
 		out[count].code = i;
-		out[count].shaderNum = (byte)in->shaderNum;
+		out[count].shaderNum = (unsigned short)in->shaderNum;
 		out[count].fogNum = (signed char)in->fogNum;
 		out[count].verts = EFBSP_PackFirstCount(in->firstVert, in->numVerts, "trisurf verts");
 		out[count].indexes = EFBSP_PackFirstCount(in->firstIndex, in->numIndexes, "trisurf indexes");
@@ -853,7 +878,7 @@ static void *EFBSP_ConvertFlares(const efbspFile_t *bsp, int shaderCount, int *o
 		EFBSP_ClampInt(in->shaderNum, 0, shaderCount - 1, "flare shaderNum");
 		EFBSP_ClampInt(in->fogNum, -128, 127, "flare fogNum");
 		out[count].code = i;
-		out[count].shaderNum = (byte)in->shaderNum;
+		out[count].shaderNum = (unsigned short)in->shaderNum;
 		out[count].fogNum = (signed char)in->fogNum;
 		for (j = 0; j < 3; ++j)
 		{

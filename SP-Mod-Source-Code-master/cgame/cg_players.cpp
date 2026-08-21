@@ -70,6 +70,9 @@ extern "C" volatile unsigned int g_SPXBBorgActiveLegsNameHash;
 extern "C" volatile unsigned int g_SPXBBorgActiveTorsoNameHash;
 extern "C" volatile unsigned int g_SPXBBorgActiveHeadNameHash;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBModelProbeStage;
+extern "C" volatile unsigned int g_SPXBModelProbeNamePtr;
+extern "C" volatile unsigned int g_SPXBModelProbeFileLen;
 
 #define STEFX_PLAYER_PHASE(stage, cent) \
 	( g_SPXBPhaseLast = 0xD0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
@@ -1711,11 +1714,25 @@ CG_AddHeadBob
 static qboolean CG_AddHeadBob( centity_t *cent ) 
 {
 	renderInfo_t	*renderInfo	= &cent->gent->client->renderInfo;
-	int				volume		= gi.S_Override[cent->gent->s.clientNum];
-	int				volChange	= volume - renderInfo->lastVoiceVolume;
+	int				volume;
+	int				volChange;
 	int				i;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 110;
+	g_SPXBModelProbeNamePtr = (unsigned int)gi.S_Override;
+	g_SPXBModelProbeFileLen = (unsigned int)cent->gent->s.clientNum;
+#endif
+	volume = gi.S_Override[cent->gent->s.clientNum];
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 111;
+#endif
+	volChange = volume - renderInfo->lastVoiceVolume;
+
 	renderInfo->lastVoiceVolume = volume;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 112;
+#endif
 
 	if ( !volume )
 	{
@@ -1725,11 +1742,17 @@ static qboolean CG_AddHeadBob( centity_t *cent )
 		if ( VectorLengthSquared( renderInfo->headBobAngles ) < 1.0f )
 		{
 			// We are close enough to being back to our normal head position, so we are done for now
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			g_SPXBModelProbeStage = 119;
+#endif
 			return qfalse;
 		}
 	}
 	else if ( volChange > 2 )
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBModelProbeStage = 113;
+#endif
 		// a big positive change in volume
 		for ( i = 0; i < 3; i++ )
 		{
@@ -1745,6 +1768,10 @@ static qboolean CG_AddHeadBob( centity_t *cent )
 		}
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 114;
+#endif
+
 	for ( i = 0; i < 3; i++ )
 	{
 		// Always try to move head angles towards our target
@@ -1752,6 +1779,9 @@ static qboolean CG_AddHeadBob( centity_t *cent )
 	}
 
 	// We aren't back to our normal position yet, so we still have to apply headBobAngles
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 115;
+#endif
 	return qtrue;
 }
 
@@ -1793,6 +1823,7 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 	qboolean	looking = qfalse, talking = qfalse;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	qboolean	stefxSplitPlayer = qfalse;
+	g_SPXBModelProbeStage = 100;
 
 	if ( cg.snap &&
 		cg_stefxSplitScreen.integer &&
@@ -1802,6 +1833,7 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 	{
 		stefxSplitPlayer = qtrue;
 	}
+	g_SPXBModelProbeStage = 101;
 #endif
 
 	if ( ( cg.renderingThirdPerson && cent->gent && cent->gent->s.number == 0 )
@@ -1838,6 +1870,9 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 				--s_stefxSplitPlayerAnglesLogBudget;
 			}
 		}
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		g_SPXBModelProbeStage = 199;
 #endif
 		return;
 	}
@@ -1904,6 +1939,9 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 
 		yawSpeed = maxYawSpeed = cg_swingSpeed.value;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 102;
+#endif
 	
 	if(yawSpeed <= 0)
 	{//Just in case
@@ -1945,6 +1983,9 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 	CG_SwingAngles( headAngles[YAW], torsoYawSwingTolMin, torsoYawSwingTolMax, headYawClampMin, headYawClampMax, yawSpeed, &cent->pe.torso.yawAngle, cent->gent->client->renderInfo.torsoYawLockMode, &cent->pe.torso.yawing);
 	torsoAngles[YAW] = cent->pe.torso.yawAngle;
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 103;
+#endif
 
 	// ---------- pitch -----------
 
@@ -1969,6 +2010,9 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 
 	CG_SwingAngles( dest, torsoPitchSwingTolMin, torsoPitchSwingTolMax, torsoPitchClampMin, torsoPitchClampMax, 0.1f, &cent->pe.torso.pitchAngle, cent->gent->client->renderInfo.torsoPitchLockMode, &cent->pe.torso.pitching );
 	torsoAngles[PITCH] = cent->pe.torso.pitchAngle;
+#endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 104;
 #endif
 	// --------- roll -------------
 
@@ -2004,6 +2048,9 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 
 	// pain twitch
 	CG_AddPainTwitch( cent, torsoAngles );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 105;
+#endif
 
 	//----------- Special head looking ---------------
 
@@ -2019,13 +2066,22 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 	VectorCopy( cent->gent->client->renderInfo.lastHeadAngles, headAngles );
 
 	//See if we're looking at someone/thing
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 106;
+#endif
 	looking = CG_CheckLookTarget( cent, lookAngles, &lookingSpeed );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 107;
+#endif
 
 	//Now add head bob when talking
 	if ( cent->gent->client->clientInfo.extensions )
 	{
 		talking = CG_AddHeadBob( cent );
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 108;
+#endif
 
 	//Figure out how fast head should be turning
 	if ( cent->pe.torso.yawing || cent->pe.torso.pitching )
@@ -2106,6 +2162,9 @@ void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], vec3_t h
 	AnglesToAxis( legsAngles, legs );
 	AnglesToAxis( torsoAngles, torso );
 	AnglesToAxis( headAngles, head );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBModelProbeStage = 109;
+#endif
 }
 
 
@@ -2305,6 +2364,10 @@ static qboolean CG_PlayerShadow( centity_t *cent, float *shadowPlane ) {
 	trace_t		trace;
 	float		alpha;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x80, cent );
+#endif
+
 	*shadowPlane = 0;
 
 	if ( cg_shadows.integer == 0 ) {
@@ -2320,7 +2383,13 @@ static qboolean CG_PlayerShadow( centity_t *cent, float *shadowPlane ) {
 	VectorCopy( cent->lerpOrigin, end );
 	end[2] -= SHADOW_DISTANCE;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x81, cent );
+#endif
 	cgi_CM_BoxTrace( &trace, cent->lerpOrigin, end, mins, maxs, 0, MASK_PLAYERSOLID );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x82, cent );
+#endif
 
 	// no shadow if too high
 	if ( trace.fraction == 1.0 ) {
@@ -2338,8 +2407,14 @@ static qboolean CG_PlayerShadow( centity_t *cent, float *shadowPlane ) {
 
 	// add the mark as a temporary, so it goes directly to the renderer
 	// without taking a spot in the cg_marks array
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x83, cent );
+#endif
 	CG_ImpactMark( cgs.media.shadowMarkShader, trace.endpos, trace.plane.normal, 
 		cent->pe.legs.yawAngle, 1,1,1,alpha, qfalse, 16, qtrue );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x84, cent );
+#endif
 
 	return qtrue;
 }
@@ -2358,6 +2433,10 @@ void CG_PlayerSplash( centity_t *cent ) {
 	int			contents;
 	polyVert_t	verts[4];
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x90, cent );
+#endif
+
 	if ( !cg_shadows.integer ) {
 		return;
 	}
@@ -2367,7 +2446,13 @@ void CG_PlayerSplash( centity_t *cent ) {
 
 	// if the feet aren't in liquid, don't make a mark
 	// this won't handle moving water brushes, but they wouldn't draw right anyway...
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x91, cent );
+#endif
 	contents = cgi_CM_PointContents( end, 0 );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x92, cent );
+#endif
 	if ( !( contents & ( CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA ) ) ) {
 		return;
 	}
@@ -2376,13 +2461,25 @@ void CG_PlayerSplash( centity_t *cent ) {
 	start[2] += 32;
 
 	// if the head isn't out of liquid, don't make a mark
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x93, cent );
+#endif
 	contents = cgi_CM_PointContents( start, 0 );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x94, cent );
+#endif
 	if ( contents & ( CONTENTS_SOLID | CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA ) ) {
 		return;
 	}
 
 	// trace down to find the surface
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x95, cent );
+#endif
 	cgi_CM_BoxTrace( &trace, start, end, NULL, NULL, 0, ( CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA ) );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x96, cent );
+#endif
 
 	if ( trace.fraction == 1.0 ) {
 		return;
@@ -2429,7 +2526,13 @@ void CG_PlayerSplash( centity_t *cent ) {
 	verts[3].modulate[2] = 255;
 	verts[3].modulate[3] = 255;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x97, cent );
+#endif
 	cgi_R_AddPolyToScene( cgs.media.wakeMarkShader, 4, verts );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_PLAYER_PHASE( 0x98, cent );
+#endif
 }
 
 

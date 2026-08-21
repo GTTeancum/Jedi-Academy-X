@@ -5,7 +5,7 @@
 
 #include "g_local.h"
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 extern void XBLog_WriteCriticalf(const char *fmt, ...);
 #endif
 
@@ -148,7 +148,7 @@ void WP_FirePhaser( gentity_t *ent, qboolean alt_fire )
 	// Find out who we've hit
 //	gi.trace ( &tr, muzzle, NULL, NULL, end, ent->s.number, MASK_SHOT);
 	trap_Trace (&tr, muzzle, NULL, NULL, end, ent->s.number, MASK_SHOT );
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	{
 		static int s_stefxPhaserTraceLogBudget = 192;
 		static int s_stefxClosePhaserTraceLogBudget = 256;
@@ -238,7 +238,7 @@ void WP_FirePhaser( gentity_t *ent, qboolean alt_fire )
 		}
 		traceEnt = &g_entities[ trEnts[i] ];
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 		{
 			static int s_stefxPhaserTargetLogBudget = 192;
 			if ( s_stefxPhaserTargetLogBudget > 0 && ent && ent->client &&
@@ -2409,7 +2409,7 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 		WP_DREADNOUGHT
 	};
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( ent && ent->s.number >= 0 && ent->s.number < 3 && ent->client )
 	{
 		static int s_stefxFireWeaponLogBudget = 192;

@@ -9,6 +9,11 @@
 
 #include "server.h"
 
+extern "C" volatile unsigned int g_SPXBSVUsercmdCount;
+extern "C" volatile unsigned int g_SPXBSVUsercmdTime;
+extern "C" volatile unsigned int g_SPXBSVUsercmdMove;
+extern "C" volatile unsigned int g_SPXBSVUsercmdButtons;
+
 #ifdef _XBOX
 extern bool Sys_IsDirectMapBoot(void);
 #endif
@@ -461,6 +466,14 @@ void SV_ClientThink (client_t *cl, usercmd_t *cmd) {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
 		static int s_stefxSVThinkBudget = 64;
+		++g_SPXBSVUsercmdCount;
+		g_SPXBSVUsercmdTime = cmd ? (unsigned int)cmd->serverTime : 0;
+		g_SPXBSVUsercmdMove = cmd ?
+			(((unsigned int)(unsigned char)cmd->forwardmove) |
+			 ((unsigned int)(unsigned char)cmd->rightmove << 8) |
+			 ((unsigned int)(unsigned char)cmd->upmove << 16) |
+			 ((unsigned int)cmd->weapon << 24)) : 0;
+		g_SPXBSVUsercmdButtons = cmd ? (unsigned int)cmd->buttons : 0;
 		if ( s_stefxSVThinkBudget > 0 && ( (cmd && (cmd->forwardmove || cmd->rightmove || cmd->upmove || (cmd->buttons & ~BUTTON_WALKING))) || s_stefxSVThinkBudget > 56 ) )
 		{
 			Com_PrintfAlways( "STEFX: SV_ClientThink client=%d state=%d cmdTime=%d move=(%d,%d,%d) buttons=0x%x weapon=%d svTime=%d\n",

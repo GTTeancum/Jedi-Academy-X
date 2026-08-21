@@ -97,6 +97,7 @@ Used for cinematics; non-power-of-two sources are padded on upload and cropped b
 */
 
 // param 'bDirty' should be true 99% of the time
+#if !defined(STEFX_RETAIL_RENDERER_ACTIVE)
 void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty )
 {
 #ifdef _XBOX
@@ -290,6 +291,7 @@ void RE_UploadCinematic (int cols, int rows, const byte *data, int client, qbool
 	RE_XboxEndRawImageTexture();
 #endif
 }
+#endif
 
 #if 0
 void RE_GetScreenShot(byte *data, int w, int h)

@@ -2054,6 +2054,11 @@ void CG_Player( centity_t *cent ) {
 	memset( &legs, 0, sizeof(legs) );
 	memset( &torso, 0, sizeof(torso) );
 	memset( &head, 0, sizeof(head) );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	legs.number = cent->currentState.number;
+	torso.number = cent->currentState.number;
+	head.number = cent->currentState.number;
+#endif
 
 	// get the rotation information
 	CG_PlayerAngles( cent, legs.axis, torso.axis, head.axis );
@@ -2187,7 +2192,7 @@ void CG_Player( centity_t *cent ) {
 	//
 	// add the gun / barrel / flash
 	//
-	CG_AddPlayerWeapon( &torso, NULL, cent );
+	CG_AddPlayerWeapon( &torso, NULL, cent, NULL );
 }
 
 

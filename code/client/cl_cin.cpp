@@ -21,6 +21,10 @@
 #include "client_ui.h"	// CHC
 #include "snd_local.h"
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBClTailStage;
+#endif
+
 #define MAXSIZE				8
 #define MINSIZE				4
 
@@ -1564,17 +1568,38 @@ static void CIN_AddTextCrawl()
 	verts[3].st[1] = 0 TIMEOFFSET;
 
 	// render it out
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x54433030; /* 'TC00' */
+#endif
 	re.ClearScene();
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x54433031; /* 'TC01' */
+#endif
 	re.AddPolyToScene( cinTable[CL_handle].hCRAWLTEXT, 4, verts );
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x54433032; /* 'TC02' */
+#endif
 	re.RenderScene( &refdef );
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x54433033; /* 'TC03' */
+#endif
 
 	//time's up
 	if (cls.realtime-CL_iPlaybackStartTime >= TC_STOPTIME)
 	{
 //		cinTable[currentHandle].holdAtEnd = qfalse;
+#ifdef _XBOX
+		g_SPXBClTailStage = 0x54433034; /* 'TC04' */
+#endif
 		cinTable[CL_handle].status = FMV_EOF;
 		RoQShutdown();
+#ifdef _XBOX
+		g_SPXBClTailStage = 0x54433035; /* 'TC05' */
+#endif
 		SCR_StopCinematic();	// change ROQ from FMV_IDLE to FMV_EOF, and clear some other vars
+#ifdef _XBOX
+		g_SPXBClTailStage = 0x54433036; /* 'TC06' */
+#endif
 	}
 }
 
@@ -1841,16 +1866,38 @@ void CL_PlayInGameCinematic_f(void)
 //
 void SCR_DrawCinematic (void) 
 {
-	if (CL_InGameCinematicOnStandBy())
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x43443930; /* 'CDI0' */
+	#endif
+	const qboolean cinematicStandby = CL_InGameCinematicOnStandBy();
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x43443931; /* 'CDI1' */
+	#endif
+	if (cinematicStandby)
 	{
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x43443932; /* 'CDI2' */
+		#endif
 		PlayCinematic(sInGameCinematicStandingBy,NULL,qtrue);		
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x43443933; /* 'CDI3' */
+		#endif
 	}
 
 	if (CL_handle >= 0 && CL_handle < MAX_VIDEO_HANDLES) {
+#ifdef _XBOX
+		g_SPXBClTailStage = 0x43443030; /* 'CD00' */
+#endif
 		CIN_DrawCinematic(CL_handle);
+#ifdef _XBOX
+		g_SPXBClTailStage = 0x43443031; /* 'CD01' */
+#endif
 		if (cinTable[CL_handle].hCRAWLTEXT && (cls.realtime - CL_iPlaybackStartTime >= TC_DELAY))
 		{
 			CIN_AddTextCrawl();
+#ifdef _XBOX
+			g_SPXBClTailStage = 0x43443032; /* 'CD02' */
+#endif
 		}
 	}
 }

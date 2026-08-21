@@ -25,6 +25,7 @@ static int s_xboxVVDiffuseEntityLogCount = 0;
 static int s_xboxVVAddDlightLogCount = 0;
 static int s_xboxVVWorldDlightLogCount = 0;
 
+#if defined(STEFX_XBOX_SURFACE_DEBUG_FIELDS)
 static qboolean VV_XboxTraceJunkSkySurface( const msurface_t *surf )
 {
 	const char *mapShaderName = "";
@@ -98,6 +99,7 @@ static int VV_XboxCountJunkSkyMarks( const mleaf_s *leaf, int *firstCode, int *f
 
 	return count;
 }
+#endif
 #endif
 
 
@@ -825,7 +827,7 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 
 		// add the individual surfaces
 		leaf = (mleaf_s*)node;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURFACE_DEBUG_FIELDS)
 		if (s_xboxRecursiveWorldLogBudget > 0)
 		{
 			int xboxLeafIndex = -1;
@@ -873,7 +875,7 @@ void VVLightManager::R_RecursiveWorldNode( mnode_t *node, int planeBits, int dli
 			// the surface may have already been added if it
 			// spans multiple leafs
 			surf = *mark;
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURFACE_DEBUG_FIELDS)
 			if (VV_XboxTraceJunkSkySurface( surf ))
 			{
 				XBLF("STEFX_JUNK_MARK surfaceCode=%d shaderNum=%d shader='%s' data=%d fog=%d dlight=0x%x drawBefore=%d viewCount=%d trView=%d boundsMin=%g,%g,%g boundsMax=%g,%g,%g",

@@ -101,6 +101,7 @@ extern	bool		in_camera;
 extern	camera_t	client_camera;
 
 void CGCam_Init( void );
+void CGCam_ResetForLevelChange( void );
 
 void CGCam_Enable( void );
 void CGCam_Disable( void );

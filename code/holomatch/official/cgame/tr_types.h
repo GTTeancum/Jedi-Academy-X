@@ -25,6 +25,13 @@
 #define	RF_CAP_FRAMES		0x0400	// cap the model frames by the maxframes for one shot anims
 #define RF_FORCE_ENT_ALPHA	0x0800	// Models should use ent alpha regardless of what the shader says.
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+#define RF_STEFX_SPLIT_SLOT0 0x01000000
+#define RF_STEFX_SPLIT_SLOT1 0x02000000
+#define RF_STEFX_SPLIT_SLOT2 0x40000000
+#define STEFX_REFENTITY_PHASER_BEAM_BASE 0x53504200
+#endif
+
 
 // refdef flags
 #define RDF_NOWORLDMODEL	1		// used for player configuration screen
@@ -131,6 +138,9 @@ typedef struct {
 			qboolean taper;
 		} electricity;
 	} data;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	int			number;
+#endif
 } refEntity_t;
 
 

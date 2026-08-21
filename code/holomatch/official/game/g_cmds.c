@@ -1639,6 +1639,48 @@ void Cmd_SetViewpos_f( gentity_t *ent ) {
 	TeleportPlayer( ent, origin, angles, TP_NORMAL );
 }
 
+#if defined(STEFX_SP_HOSTED_MP)
+/* Smoke-only placement without teleport events or the hyperspace screen effect. */
+static void Cmd_STEFXSetViewpos_f( gentity_t *ent ) {
+	vec3_t origin, angles;
+	char buffer[MAX_TOKEN_CHARS];
+	int i;
+
+	if ( !g_cheats.integer ) {
+		trap_SendServerCommand( ent-g_entities, "print \"Cheats are not enabled on this server.\\n\"" );
+		return;
+	}
+	if ( trap_Argc() != 5 ) {
+		trap_SendServerCommand( ent-g_entities, "print \"usage: stefxsetviewpos x y z yaw\\n\"" );
+		return;
+	}
+
+	VectorClear( angles );
+	for ( i = 0; i < 3; ++i ) {
+		trap_Argv( i + 1, buffer, sizeof( buffer ) );
+		origin[i] = atof( buffer );
+	}
+	trap_Argv( 4, buffer, sizeof( buffer ) );
+	angles[YAW] = atof( buffer );
+
+	trap_UnlinkEntity( ent );
+	VectorCopy( origin, ent->client->ps.origin );
+	VectorClear( ent->client->ps.velocity );
+	ent->client->ps.pm_time = 0;
+	ent->client->ps.pm_flags &= ~PMF_TIME_KNOCKBACK;
+	SetClientViewAngle( ent, angles );
+	BG_PlayerStateToEntityState( &ent->client->ps, &ent->s, qtrue );
+	VectorCopy( ent->client->ps.origin, ent->r.currentOrigin );
+	trap_LinkEntity( ent );
+
+	G_Printf( "STEFX_HM_SMOKE_SETVIEWPOS: client=%d origin=(%g,%g,%g) angles=(%g,%g,%g) eFlags=0x%x\\n",
+		ent-g_entities,
+		ent->client->ps.origin[0], ent->client->ps.origin[1], ent->client->ps.origin[2],
+		ent->client->ps.viewangles[0], ent->client->ps.viewangles[1], ent->client->ps.viewangles[2],
+		ent->client->ps.eFlags );
+}
+#endif
+
 
 /*
 =================
@@ -1717,6 +1759,10 @@ void ClientCommand( int clientNum ) {
 		Cmd_GameCommand_f( ent );
 	else if (Q_stricmp (cmd, "setviewpos") == 0)
 		Cmd_SetViewpos_f( ent );
+#if defined(STEFX_SP_HOSTED_MP)
+	else if (Q_stricmp (cmd, "stefxsetviewpos") == 0)
+		Cmd_STEFXSetViewpos_f( ent );
+#endif
 	else
 		trap_SendServerCommand( clientNum, va("print \"unknown cmd %s\n\"", cmd ) );
 }

@@ -4,12 +4,25 @@
 #include "cg_local.h"
 #include "fx_local.h"
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
 extern void XBLog_WriteCriticalf(const char *fmt, ...);
-
-#if defined(STEFX_SP_HOSTED_MP)
-static int s_stefxWeaponSelectLogBudget = 96;
+extern volatile unsigned int g_SPXBHMSplitViewWeaponSerial[4];
+extern volatile unsigned int g_SPXBHMSplitViewWeaponAdded[4];
+extern volatile unsigned int g_SPXBHMSplitViewWeaponRenderfx[4];
+extern volatile unsigned int g_SPXBHMSplitViewWeaponClient[4];
+extern volatile unsigned int g_SPXBHMSplitViewWeaponWeapon[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPSerial[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPRenderfx[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPStartX[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPStartY[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPStartZ[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPViewX[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPViewY[4];
+extern volatile unsigned int g_SPXBHMSplitPhaserFPViewZ[4];
 #endif
+
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
+static int s_stefxWeaponSelectLogBudget = 96;
 #endif
 
 
@@ -511,25 +524,26 @@ angle)
 #define RANGE_BEAM (2048.0)
 #define BEAM_VARIATION	6
 
-void CG_LightningBolt( centity_t *cent, vec3_t origin ) 
+static void CG_LightningBoltForView( centity_t *cent, vec3_t origin,
+	const playerState_t *viewPs, const refdef_t *weaponView, int firstPersonRenderfx )
 {
 	trace_t		trace;
 //	gentity_t	*traceEnt;
 	vec3_t		startpos, endpos, forward;
 	qboolean	spark = qfalse, impact = qtrue;
+	qboolean	firstPersonView = ( viewPs && weaponView ) ? qtrue : qfalse;
 	int i;
 
-	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) 
+	if ( ( firstPersonView ? viewPs->pm_type : cg.snap->ps.pm_type ) == PM_INTERMISSION )
 	{
 		return;		// Don't draw a phaser during an intermission you crezzy mon!
 	}
 
 	//Must be a durational weapon
-	if ( cent->currentState.clientNum == cg.snap->ps.clientNum
-		&& !cg.renderingThirdPerson ) {
+	if ( firstPersonView ) {
 		// different checks for first person view
-		if ( ( cg.snap->ps.weapon == WP_DREADNOUGHT && !( cg.snap->ps.eFlags & EF_ALT_FIRING )) 
-				|| cg.snap->ps.weapon == WP_PHASER)
+		if ( ( viewPs->weapon == WP_DREADNOUGHT && !( viewPs->eFlags & EF_ALT_FIRING ))
+				|| viewPs->weapon == WP_PHASER)
 		{	/*continue*/	}
 		else
 			return;
@@ -542,8 +556,7 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 	}
 	
 	// Find the impact point of the beam
-	if ( cent->currentState.clientNum == cg.snap->ps.clientNum
-		&& !cg.renderingThirdPerson ) {
+	if ( firstPersonView ) {
 		// take origin from view
 /*		
 		VectorCopy( cg.refdef.vieworg, origin );
@@ -551,8 +564,8 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 		VectorMA( origin, 8, cg.refdef.viewaxis[0], origin );
 		VectorMA( origin, -2, cg.refdef.viewaxis[1], origin );
 */
-		VectorCopy( cg.refdef.viewaxis[0], forward );
-		VectorCopy( cg.refdef.vieworg, startpos);
+		VectorCopy( weaponView->viewaxis[0], forward );
+		VectorCopy( weaponView->vieworg, startpos);
 	} 
 	else 
 	{
@@ -565,7 +578,7 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 		if (trace.fraction < 1.0)
 		{	// We hit something here...  Stomp the muzzle back to the eye...
 			VectorCopy(cent->lerpOrigin, startpos);
-			startpos[2] += cg.snap->ps.viewheight;
+			startpos[2] += viewPs ? viewPs->viewheight : cg.snap->ps.viewheight;
 		}
 	}
 
@@ -579,7 +592,22 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 
 	CG_Trace( &trace, startpos, vec3_origin, vec3_origin, endpos, cent->currentState.number, MASK_SHOT );
 
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( firstPersonView && viewPs->clientNum >= 0 && viewPs->clientNum < 4 )
+	{
+		const int slot = viewPs->clientNum;
+		++g_SPXBHMSplitPhaserFPSerial[slot];
+		g_SPXBHMSplitPhaserFPRenderfx[slot] = (unsigned int)firstPersonRenderfx;
+		g_SPXBHMSplitPhaserFPStartX[slot] = (unsigned int)((int)origin[0]);
+		g_SPXBHMSplitPhaserFPStartY[slot] = (unsigned int)((int)origin[1]);
+		g_SPXBHMSplitPhaserFPStartZ[slot] = (unsigned int)((int)origin[2]);
+		g_SPXBHMSplitPhaserFPViewX[slot] = (unsigned int)((int)weaponView->vieworg[0]);
+		g_SPXBHMSplitPhaserFPViewY[slot] = (unsigned int)((int)weaponView->vieworg[1]);
+		g_SPXBHMSplitPhaserFPViewZ[slot] = (unsigned int)((int)weaponView->vieworg[2]);
+	}
+#endif
+
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	{
 		static int s_stefxBeamLogBudget[3] = { 96, 96, 96 };
 		const int stefxClientNum = cent->currentState.number;
@@ -618,12 +646,15 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 	switch ( cent->currentState.weapon )
 	{
 	case WP_PHASER:
-		if (cg.snap->ps.rechargeTime == 0)
+		if ( ( firstPersonView && ( cent->currentState.eFlags & EF_FIRING ) ) ||
+			( !firstPersonView && cg.snap->ps.rechargeTime == 0 ) )
 		{
 			if (  cent->currentState.eFlags & EF_ALT_FIRING )
-				FX_PhaserAltFire( origin, trace.endpos, trace.plane.normal, spark, impact, cent->pe.empty );
+				FX_PhaserAltFire( origin, trace.endpos, trace.plane.normal, spark, impact,
+					cent->pe.empty, cent->currentState.clientNum, firstPersonRenderfx );
 			else
-				FX_PhaserFire( origin, trace.endpos, trace.plane.normal, spark, impact, cent->pe.empty );
+				FX_PhaserFire( origin, trace.endpos, trace.plane.normal, spark, impact,
+					cent->pe.empty, cent->currentState.clientNum, firstPersonRenderfx );
 		}
 		break;
 
@@ -638,6 +669,11 @@ void CG_LightningBolt( centity_t *cent, vec3_t origin )
 		}
 		break;
 	}
+}
+
+void CG_LightningBolt( centity_t *cent, vec3_t origin )
+{
+	CG_LightningBoltForView( cent, origin, NULL, NULL, 0 );
 }
 
 
@@ -731,7 +767,7 @@ The main player will have this called for BOTH cases, so effects like light and
 sound should only be done on the world model case.
 =============
 */
-void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent ) {
+void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent, const refdef_t *weaponView ) {
 	refEntity_t	gun;
 	refEntity_t	barrel;
 	refEntity_t	flash;
@@ -749,17 +785,20 @@ void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent
 
 	// add the weapon
 	memset( &gun, 0, sizeof( gun ) );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	gun.number = parent->number;
+#endif
 	VectorCopy( parent->lightingOrigin, gun.lightingOrigin );
 	gun.shadowPlane = parent->shadowPlane;
 	gun.renderfx = parent->renderfx;
 
 	// set custom shading for railgun refire rate
 	if ( ps ) {
-		if ( cg.predictedPlayerState.weapon == WP_IMOD 
-			&& cg.predictedPlayerState.weaponstate == WEAPON_FIRING ) {
+		if ( ps->weapon == WP_IMOD
+			&& ps->weaponstate == WEAPON_FIRING ) {
 			float	f;
 
-			f = (float)cg.predictedPlayerState.weaponTime / 1500;
+			f = (float)ps->weaponTime / 1500;
 			gun.shaderRGBA[1] = 0;
 			gun.shaderRGBA[0] = 
 			gun.shaderRGBA[2] = 255 * ( 1.0 - f );
@@ -846,6 +885,9 @@ void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent
 		for (i = 0; i < numBarrels; i++)
 		{
 			memset( &barrel, 0, sizeof( barrel ) );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+			barrel.number = parent->number;
+#endif
 			VectorCopy( parent->lightingOrigin, barrel.lightingOrigin );
 			barrel.shadowPlane = parent->shadowPlane;
 			barrel.renderfx = parent->renderfx;
@@ -870,14 +912,15 @@ void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent
 		}
 	}
 
-	// make sure we aren't looking at cg.predictedPlayerEntity for LG
-	nonPredictedCent = &cg_entities[cent->currentState.clientNum];
-
-	// if the index of the nonPredictedCent is not the same as the clientNum
-	// then this is a fake player (like on teh single player podiums), so
-	// go ahead and use the cent
-	if( ( nonPredictedCent - cg_entities ) != cent->currentState.clientNum ) {
+	// External split views carry an authoritative per-client entity copy.  The
+	// primary view still uses the non-predicted snapshot entity for beam traces.
+	if ( ps && cent != &cg.predictedPlayerEntity ) {
 		nonPredictedCent = cent;
+	} else {
+		nonPredictedCent = &cg_entities[cent->currentState.clientNum];
+		if( ( nonPredictedCent - cg_entities ) != cent->currentState.clientNum ) {
+			nonPredictedCent = cent;
+		}
 	}
 
 	// add the flash
@@ -896,6 +939,9 @@ void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent
 	}
 
 	memset( &flash, 0, sizeof( flash ) );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	flash.number = parent->number;
+#endif
 	VectorCopy( parent->lightingOrigin, flash.lightingOrigin );
 	flash.shadowPlane = parent->shadowPlane;
 	flash.renderfx = parent->renderfx;
@@ -929,7 +975,9 @@ void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent
 		// add phaser/dreadnought
 		// grrr nonPredictedCent doesn't have the proper empty setting
 		nonPredictedCent->pe.empty = cent->pe.empty;
-		CG_LightningBolt( nonPredictedCent, flash.origin );
+		CG_LightningBoltForView( nonPredictedCent, flash.origin, ps, weaponView,
+			parent->renderfx & ( RF_FIRST_PERSON | RF_STEFX_SPLIT_SLOT0 |
+				RF_STEFX_SPLIT_SLOT1 | RF_STEFX_SPLIT_SLOT2 ) );
 
 		// make a dlight for the flash
 		if ( weapon->flashDlightColor[0] || weapon->flashDlightColor[1] || weapon->flashDlightColor[2] ) {
@@ -946,65 +994,118 @@ CG_AddViewWeapon
 Add the weapon, and flash for the player's view
 ==============
 */
-void CG_AddViewWeapon( playerState_t *ps ) {
+static int CG_STEFX_SplitViewRenderfx( int slot )
+{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( slot == 1 ) return RF_STEFX_SPLIT_SLOT1;
+	if ( slot == 2 ) return RF_STEFX_SPLIT_SLOT2;
+	if ( slot == 3 ) return RF_STEFX_SPLIT_SLOT1 | RF_STEFX_SPLIT_SLOT2;
+#else
+	(void)slot;
+#endif
+	return 0;
+}
+
+static void CG_STEFX_CalculateSplitWeaponPosition( const playerState_t *ps,
+	const refdef_t *weaponView, vec3_t origin, vec3_t angles )
+{
+	float bobfracsin;
+	float fracsin;
+	float scale;
+	float xyspeed;
+	int bobcycle;
+
+	VectorCopy( weaponView->vieworg, origin );
+	VectorCopy( ps->viewangles, angles );
+	xyspeed = sqrt( ps->velocity[0] * ps->velocity[0] +
+		ps->velocity[1] * ps->velocity[1] );
+	bobcycle = ( ps->bobCycle & 128 ) >> 7;
+	bobfracsin = fabs( sin( ( ps->bobCycle & 127 ) / 127.0 * M_PI ) );
+	scale = bobcycle ? -xyspeed : xyspeed;
+
+	angles[ROLL] += scale * bobfracsin * 0.005f;
+	angles[YAW] += scale * bobfracsin * 0.01f;
+	angles[PITCH] += xyspeed * bobfracsin * 0.005f;
+
+	scale = xyspeed + 40.0f;
+	fracsin = sin( weaponView->time * 0.001f );
+	angles[ROLL] += scale * fracsin * 0.01f;
+	angles[YAW] += scale * fracsin * 0.01f;
+	angles[PITCH] += scale * fracsin * 0.01f;
+}
+
+static qboolean CG_AddViewWeaponForContext( playerState_t *ps, centity_t *cent,
+	const refdef_t *weaponView, int slot, qboolean primaryView )
+{
 	refEntity_t	hand;
-	centity_t	*cent;
 	clientInfo_t	*ci;
 	float		fovOffset;
 	vec3_t		angles;
 	weaponInfo_t	*weapon;
 
-	if ( ps->persistant[PERS_TEAM] == TEAM_SPECTATOR || (ps->eFlags&EF_ELIMINATED) ) {
-		return;
+	if ( !ps || !cent || !weaponView ) {
+		return qfalse;
+	}
+
+	if ( ps->persistant[PERS_TEAM] == TEAM_SPECTATOR ||
+		(ps->eFlags&EF_ELIMINATED) || ps->stats[STAT_HEALTH] <= 0 ) {
+		return qfalse;
 	}
 
 	if ( ps->pm_type == PM_INTERMISSION ) {
-		return;
+		return qfalse;
 	}
 
 	// no gun if in third person view
-	if ( cg.renderingThirdPerson ) {
-		return;
+	if ( primaryView && cg.renderingThirdPerson ) {
+		return qfalse;
 	}
 
 	// allow the gun to be completely removed
 	if ( !cg_drawGun.integer ) {
 		vec3_t		origin;
 
-		if ( cg.predictedPlayerState.eFlags & EF_FIRING )
+		if ( ps->eFlags & EF_FIRING )
 		{
 			// special hack for phaser/dreadnought...
-			VectorCopy( cg.refdef.vieworg, origin );
-			VectorMA( origin, -8, cg.refdef.viewaxis[2], origin );
-			CG_LightningBolt( &cg_entities[ps->clientNum], origin );
+			VectorCopy( weaponView->vieworg, origin );
+			VectorMA( origin, -8, weaponView->viewaxis[2], origin );
+			CG_LightningBoltForView( cent, origin, ps, weaponView,
+				RF_FIRST_PERSON | CG_STEFX_SplitViewRenderfx( slot ) );
 		}
-		return;
+		return qfalse;
 	}
 
 	// don't draw if testing a gun model
 	if ( cg.testGun ) {
-		return;
+		return qfalse;
+	}
+	if ( ps->weapon <= WP_NONE || ps->weapon >= WP_NUM_WEAPONS ) {
+		return qfalse;
 	}
 
 	// drop gun lower at higher fov
-	if ( cg_fov.integer > 80 ) {
-		fovOffset = -0.2 * ( cg_fov.integer - 80 );
+	if ( weaponView->fov_x > 80.0f ) {
+		fovOffset = -0.2f * ( weaponView->fov_x - 80.0f );
 	} else {
 		fovOffset = 0;
 	}
 
-	cent = &cg.predictedPlayerEntity;	// &cg_entities[cg.snap->ps.clientNum];
 	CG_RegisterWeapon( ps->weapon );
 	weapon = &cg_weapons[ ps->weapon ];
 
 	memset (&hand, 0, sizeof(hand));
 
 	// set up gun position
-	CG_CalculateWeaponPosition( hand.origin, angles );
+	if ( primaryView ) {
+		CG_CalculateWeaponPosition( hand.origin, angles );
+	} else {
+		CG_STEFX_CalculateSplitWeaponPosition( ps, weaponView, hand.origin, angles );
+	}
 
-	VectorMA( hand.origin, cg_gun_x.value, cg.refdef.viewaxis[0], hand.origin );
-	VectorMA( hand.origin, cg_gun_y.value, cg.refdef.viewaxis[1], hand.origin );
-	VectorMA( hand.origin, (cg_gun_z.value+fovOffset), cg.refdef.viewaxis[2], hand.origin );
+	VectorMA( hand.origin, cg_gun_x.value, weaponView->viewaxis[0], hand.origin );
+	VectorMA( hand.origin, cg_gun_y.value, weaponView->viewaxis[1], hand.origin );
+	VectorMA( hand.origin, (cg_gun_z.value+fovOffset), weaponView->viewaxis[2], hand.origin );
 
 	AnglesToAxis( angles, hand.axis );
 
@@ -1022,11 +1123,71 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 	}
 
 	hand.hModel = weapon->handsModel;
-	hand.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON;
+	hand.renderfx = RF_DEPTHHACK | RF_FIRST_PERSON | CG_STEFX_SplitViewRenderfx( slot );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	hand.number = ps->clientNum;
+#endif
 
 	// add everything onto the hand
-	CG_AddPlayerWeapon( &hand, ps, &cg.predictedPlayerEntity );
+	CG_AddPlayerWeapon( &hand, ps, cent, weaponView );
+	return qtrue;
 }
+
+void CG_AddViewWeapon( playerState_t *ps )
+{
+	(void)CG_AddViewWeaponForContext( ps, &cg.predictedPlayerEntity, &cg.refdef, 0, qtrue );
+}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+void STEFX_HM_CG_AddSplitViewWeapon( int slot, const void *officialPlayerState,
+	const float *vieworg, const float *viewaxis, float fovX, int viewTime )
+{
+	playerState_t *ps = (playerState_t *)officialPlayerState;
+	centity_t viewCent;
+	refdef_t weaponView;
+	qboolean added;
+	static int s_stefxSplitViewWeaponLogBudget = 48;
+
+	if ( slot < 1 || slot > 3 || !ps || !vieworg || !viewaxis ||
+		ps->clientNum != slot || ps->clientNum < 0 || ps->clientNum >= MAX_CLIENTS )
+	{
+		return;
+	}
+
+	memset( &weaponView, 0, sizeof( weaponView ) );
+	VectorCopy( vieworg, weaponView.vieworg );
+	memcpy( weaponView.viewaxis, viewaxis, sizeof( weaponView.viewaxis ) );
+	weaponView.fov_x = fovX;
+	weaponView.time = viewTime;
+
+	viewCent = cg_entities[ps->clientNum];
+	viewCent.currentState.number = ps->clientNum;
+	viewCent.currentState.clientNum = ps->clientNum;
+	viewCent.currentState.weapon = ps->weapon;
+	viewCent.currentState.eFlags = ps->eFlags;
+
+	added = CG_AddViewWeaponForContext( ps, &viewCent, &weaponView, slot, qfalse );
+	++g_SPXBHMSplitViewWeaponSerial[slot];
+	g_SPXBHMSplitViewWeaponAdded[slot] = added ? 1u : 0u;
+	g_SPXBHMSplitViewWeaponRenderfx[slot] =
+		(unsigned int)CG_STEFX_SplitViewRenderfx( slot );
+	g_SPXBHMSplitViewWeaponClient[slot] = (unsigned int)ps->clientNum;
+	g_SPXBHMSplitViewWeaponWeapon[slot] = (unsigned int)ps->weapon;
+
+	if ( s_stefxSplitViewWeaponLogBudget > 0 )
+	{
+		XBLog_WriteCriticalf( "STEFX_HM_SPLIT_VIEWWEAPON: slot=%d client=%d weapon=%d added=%d source=cgame renderfx=0x%x firing=0x%x view=(%g,%g,%g)",
+			slot,
+			ps->clientNum,
+			ps->weapon,
+			added ? 1 : 0,
+			CG_STEFX_SplitViewRenderfx( slot ),
+			ps->eFlags & ( EF_FIRING | EF_ALT_FIRING ),
+			weaponView.vieworg[0], weaponView.vieworg[1], weaponView.vieworg[2] );
+		--s_stefxSplitViewWeaponLogBudget;
+	}
+}
+#endif
 
 /*
 ==============================================================================
@@ -1252,7 +1413,7 @@ void CG_NextWeapon_f( void ) {
 	if ( i == 16 ) {
 		cg.weaponSelect = original;
 	}
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( s_stefxWeaponSelectLogBudget > 0 ) {
 		XBLog_WriteCriticalf("STEFX_HM_AMMO: cgame-weapnext time=%d original=%d selected=%d weapons=0x%x ammoSelected=%d",
 			cg.time,
@@ -1296,7 +1457,7 @@ void CG_PrevWeapon_f( void ) {
 	if ( i == 16 ) {
 		cg.weaponSelect = original;
 	}
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( s_stefxWeaponSelectLogBudget > 0 ) {
 		XBLog_WriteCriticalf("STEFX_HM_AMMO: cgame-weapprev time=%d original=%d selected=%d weapons=0x%x ammoSelected=%d",
 			cg.time,
@@ -1316,24 +1477,24 @@ CG_Weapon_f
 */
 void CG_Weapon_f( void ) {
 	int		num;
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	int		requestedNum;
 #endif
 
 	if ( !cg.snap ) {
-		return;
+		return qfalse;
 	}
 	if ( cg.snap->ps.pm_flags & PMF_FOLLOW ) {
 		return;
 	}
 
 	num = atoi( CG_Argv( 1 ) );
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	requestedNum = num;
 #endif
 
 	if ( num < 1 || num > 15 ) {
-		return;
+		return qfalse;
 	}
 
 	cg.weaponSelectTime = cg.time;
@@ -1357,7 +1518,7 @@ void CG_Weapon_f( void ) {
 		}
 	}
 	if ( ! ( cg.snap->ps.stats[STAT_WEAPONS] & ( 1 << num ) ) ) {
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 		if ( s_stefxWeaponSelectLogBudget > 0 ) {
 			XBLog_WriteCriticalf("STEFX_HM_AMMO: cgame-weapon reject time=%d requested=%d mapped=%d weapons=0x%x ammoMapped=%d",
 				cg.time,
@@ -1372,7 +1533,7 @@ void CG_Weapon_f( void ) {
 	}
 
 	cg.weaponSelect = num;
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( s_stefxWeaponSelectLogBudget > 0 ) {
 		XBLog_WriteCriticalf("STEFX_HM_AMMO: cgame-weapon accept time=%d requested=%d mapped=%d selected=%d weapons=0x%x ammoSelected=%d",
 			cg.time,
@@ -1441,7 +1602,7 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire ) {
 	weaponInfo_t	*weap;
 
 	ent = &cent->currentState;
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	{
 		static int s_stefxFireEventLogBudget = 192;
 		if ( s_stefxFireEventLogBudget > 0 && ent->number >= 0 && ent->number < 3 )
@@ -1458,11 +1619,11 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire ) {
 	}
 #endif
 	if ( ent->weapon == WP_NONE ) {
-		return;
+		return qfalse;
 	}
 	if ( ent->weapon >= WP_NUM_WEAPONS ) {
 		CG_Error( "CG_FireWeapon: ent->weapon >= WP_NUM_WEAPONS" );
-		return;
+		return qfalse;
 	}
 	weap = &cg_weapons[ ent->weapon ];
 

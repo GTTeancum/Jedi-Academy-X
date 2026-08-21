@@ -8,6 +8,10 @@
 
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+#if defined(STEFX_SP_HOSTED_MP)
+extern "C" volatile unsigned int g_SPXBHMInfoDispatchCount;
+extern "C" volatile unsigned int g_SPXBHMInfoDispatchLast;
+#endif
 #endif
 
 /*
@@ -1539,6 +1543,15 @@ qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const c
 		return qfalse;
 	}
 
+#if defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+	if ( !Q_stricmp( kb, "datapad" ) || !Q_stricmp( kb, "+info" ) ) {
+		++g_SPXBHMInfoDispatchCount;
+		g_SPXBHMInfoDispatchLast = ((unsigned int)key & 0xffffu) |
+			(down ? 0x00010000u : 0u) |
+			(!Q_stricmp( kb, "+info" ) ? 0x02000000u : 0x01000000u);
+	}
+#endif
+
 #if defined(STEFX_ELITE_FORCE_SP)
 #if defined(STEFX_SP_HOSTED_MP)
 	if ( !Q_stricmp( kb, "datapad" ) ) {
@@ -1560,7 +1573,11 @@ qboolean CL_XboxDispatchBoundKey( int key, qboolean down, unsigned time, const c
 			key,
 			bindingIndex,
 			down ? 1 : 0);
-		CL_STEFX_SetObjectivesOverlay( down ? qtrue : qfalse, "direct-datapad-bind" );
+		if ( down ) {
+			CL_STEFX_SetObjectivesOverlay(
+				CL_STEFX_ObjectivesOverlayActive() ? qfalse : qtrue,
+				"direct-datapad-toggle" );
+		}
 
 		if ( Key_IsXboxMenuKeynum( key ) ) {
 			XBLF("STEFX_INPUT_DIRECT_DISPATCH_DONE source='%s' key=%d down=%d catcher=0x%x",

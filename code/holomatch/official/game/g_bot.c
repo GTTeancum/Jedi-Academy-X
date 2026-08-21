@@ -29,6 +29,10 @@ static int				checkminimumplayers_time;
 
 vmCvar_t bot_minplayers;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+extern volatile unsigned int g_SPXBHMSplitBotProof[32];
+#endif
+
 extern gentity_t	*podium1;
 extern gentity_t	*podium2;
 extern gentity_t	*podium3;
@@ -218,6 +222,10 @@ void G_AddRandomBot( int team ) {
 	char	*value, netname[36], *teamstr;
 	gclient_t	*cl;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[7];
+#endif
+
 	num = 0;
 	for ( n = 0; n < g_numBots ; n++ ) {
 		value = Info_ValueForKey( g_botInfos[n], "name" );
@@ -376,6 +384,9 @@ void G_CheckMinimumPlayers( void ) {
 	int minplayers;
 	int humanplayers, botplayers;
 
+	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[0];
+	#endif
 	if (level.intermissiontime) return;
 	//only check once each 10 seconds
 	if (checkminimumplayers_time > level.time - 10000) {
@@ -384,6 +395,12 @@ void G_CheckMinimumPlayers( void ) {
 	checkminimumplayers_time = level.time;
 	trap_Cvar_Update(&bot_minplayers);
 	minplayers = bot_minplayers.integer;
+	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[1];
+	g_SPXBHMSplitBotProof[2] = (unsigned int)minplayers;
+	g_SPXBHMSplitBotProof[3] = (unsigned int)g_gametype.integer;
+	g_SPXBHMSplitBotProof[4] = (unsigned int)g_maxclients.integer;
+	#endif
 	if (minplayers <= 0) return;
 
 	if (g_gametype.integer >= GT_TEAM) {
@@ -432,6 +449,10 @@ void G_CheckMinimumPlayers( void ) {
 		}
 		humanplayers = G_CountHumanPlayers( TEAM_FREE );
 		botplayers = G_CountBotPlayers( TEAM_FREE );
+		#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		g_SPXBHMSplitBotProof[5] = (unsigned int)humanplayers;
+		g_SPXBHMSplitBotProof[6] = (unsigned int)botplayers;
+		#endif
 		//
 		if (humanplayers + botplayers < minplayers) {
 			G_AddRandomBot( TEAM_FREE );
@@ -549,12 +570,19 @@ static void G_AddBot( const char *name, int skill, const char *team, const char 
 	char			*model;
 	char			userinfo[MAX_INFO_STRING];
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[11];
+#endif
+
 	// get the botinfo from bots.txt
 	botinfo = G_GetBotInfoByName( name );
 	if ( !botinfo ) {
 		G_Printf( S_COLOR_RED "Error: Bot '%s' not defined\n", name );
 		return;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[12];
+#endif
 
 	// create the bot's userinfo
 	userinfo[0] = '\0';
@@ -648,9 +676,15 @@ static void G_AddBot( const char *name, int skill, const char *team, const char 
 	if ( ClientConnect( clientNum, qtrue, qtrue ) ) {
 		return;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[13];
+#endif
 
 	if( delay == 0 ) {
 		ClientBegin( clientNum, qfalse );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		++g_SPXBHMSplitBotProof[14];
+#endif
 		return;
 	}
 

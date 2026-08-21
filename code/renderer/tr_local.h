@@ -40,12 +40,27 @@ long myftol( float f );
 // can't be increased without changing bit packing for drawsurfs
 
 
-typedef struct dlight_s {
-	vec3_t	origin;
-	vec3_t	color;				// range from 0.0 to 1.0, should be color normalized
-	float	radius;
+typedef enum {
+	DLIGHT_VERTICAL = 0,
+	DLIGHT_PROJECTED
+} eDLightTypes;
 
-	vec3_t	transformed;		// origin in local coordinate system
+typedef struct dlight_s {
+	eDLightTypes	mType;
+	vec3_t		origin;
+	vec3_t		mProjOrigin;
+	vec3_t		color;
+	float		radius;
+	float		mProjRadius;
+	int			additive;
+	vec3_t		transformed;
+	vec3_t		mProjTransformed;
+	vec3_t		mDirection;
+	vec3_t		mBasis2;
+	vec3_t		mBasis3;
+	vec3_t		mTransDirection;
+	vec3_t		mTransBasis2;
+	vec3_t		mTransBasis3;
 } dlight_t;
 
 
@@ -98,10 +113,8 @@ typedef struct {
 	int			num_entities;
 	trRefEntity_t	*entities;
 
-#ifndef VV_LIGHTING
 	int			num_dlights;
 	struct dlight_s	*dlights;
-#endif
 
 	int			numPolys;
 	struct srfPoly_s	*polys;
@@ -233,7 +246,9 @@ typedef enum {
 	CGEN_BAD,
 	CGEN_IDENTITY_LIGHTING,	// tr.identityLight
 	CGEN_IDENTITY,			// always (1,1,1,1)
+#ifndef _XBOX
 	CGEN_SKIP,
+#endif
 	CGEN_ENTITY,			// grabbed from entity's modulate field
 	CGEN_ONE_MINUS_ENTITY,	// grabbed from 1 - entity.modulate
 	CGEN_EXACT_VERTEX,		// tess.vertexColors
@@ -374,9 +389,12 @@ typedef struct {
 	byte			isLightmap;
 	byte			oneShotAnimMap;
 	byte			vertexLightmap;
+
+#ifndef _XBOX
 	byte			isVideoMap;
 
 	char			videoMapHandle;
+#endif
 } textureBundle_t;
 
 
@@ -386,7 +404,10 @@ typedef struct {
 	byte			active;
 	byte			isDetail;
 	byte			isEnvironment;
+
+#ifndef _XBOX
 	byte			isSpecular;
+#endif
 	byte			isBumpMap;
 
 	byte			index;						// index of stage
@@ -398,7 +419,9 @@ typedef struct {
 	byte			mGLFogColorOverride;
 
 	// Whether this object emits a glow or not.
+#ifndef _XBOX
 	byte			glow;
+#endif
 
 	textureBundle_t	bundle[NUM_TEXTURE_BUNDLES];
 
@@ -429,7 +452,8 @@ typedef enum {
 typedef enum {
 	FP_NONE,		// surface is translucent and will just be adjusted properly
 	FP_EQUAL,		// surface is opaque but possibly alpha tested
-	FP_LE			// surface is trnaslucent, but still needs a fog pass (fog surface)
+	FP_LE,			// surface is trnaslucent, but still needs a fog pass (fog surface)
+	FP_GLFOG
 } fogPass_t;
 
 typedef struct {
@@ -495,14 +519,20 @@ typedef struct shader_s {
 
 	float			timeOffset;                                 // current time offset for this shader
 
-//#ifndef _XBOX	// GLOWXXX
+#ifndef _XBOX	// GLOWXXX
 	// True if this shader has a stage with glow in it (just an optimization).
 	bool hasGlow;
-//#endif
+#endif
 
 	struct shader_s		*remappedShader;                  // current shader this one is remapped too
 	struct	shader_s	*next;
 } shader_t;
+
+#ifdef _XBOX
+typedef char stefx_xbox_textureBundle_size[(sizeof(textureBundle_t) == 24) ? 1 : -1];
+typedef char stefx_xbox_shaderStage_size[(sizeof(shaderStage_t) == 112) ? 1 : -1];
+typedef char stefx_xbox_shader_size[(sizeof(shader_t) == 156) ? 1 : -1];
+#endif
 
 
 /*
@@ -594,9 +624,6 @@ typedef enum {
 	SF_POLY,
 	SF_TERRAIN,
 	SF_MD3,
-#ifdef STEFX_ELITE_FORCE_SP
-	SF_MDR,
-#endif
 /*
 Ghoul2 Insert Start
 */
@@ -607,10 +634,19 @@ Ghoul2 Insert End
 	SF_FLARE,
 	SF_ENTITY,				// beams, rails, lightning, etc that can be determined by entity
 	SF_DISPLAY_LIST,
+#ifdef STEFX_ELITE_FORCE_SP
+	SF_MDR,					// Elite Force extension; keep retail surface values stable.
+#endif
 
 	SF_NUM_SURFACE_TYPES,
 	SF_MAX = 0xffffffff			// ensures that sizeof( surfaceType_t ) == sizeof( int )
 } surfaceType_t;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+typedef char stefx_xbox_surface_type_values[
+	(SF_MD3 == 7 && SF_MDX == 8 && SF_FLARE == 9 && SF_ENTITY == 10 &&
+	 SF_DISPLAY_LIST == 11 && SF_MDR == 12 && SF_NUM_SURFACE_TYPES == 13) ? 1 : -1];
+#endif
 
 typedef struct drawSurf_s {
 	unsigned			sort;			// bit combination for fast compares
@@ -797,13 +833,21 @@ typedef struct msurface_s {
 	int					fogIndex;
 
 	surfaceType_t		*data;			// any of srf*_t
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_XBOX_SURFACE_DIAGNOSTICS)
+	// Keep the shipping 16-byte surface record in production.  These fields
+	// exist only for an explicit map-surface investigation and otherwise
+	// triple the stride of the renderer's hottest world-traversal table.
 	int					xboxDebugCode;
 	int					xboxDebugShaderNum;
 	vec3_t				xboxDebugMins;
 	vec3_t				xboxDebugMaxs;
+#define STEFX_XBOX_SURFACE_DEBUG_FIELDS 1
 #endif
 } msurface_t;
+
+#if defined(_XBOX) && !defined(STEFX_XBOX_SURFACE_DIAGNOSTICS)
+typedef char stefx_xbox_msurface_size[(sizeof(msurface_t) == 16) ? 1 : -1];
+#endif
 
 
 
@@ -972,20 +1016,26 @@ typedef enum {
 	MOD_BAD,
 	MOD_BRUSH,
 	MOD_MESH,
+/*
+Ghoul2 Insert Start
+*/
+	MOD_MDXM,
+	MOD_MDXA,
+/*
+Ghoul2 Insert End
+*/
 #ifdef STEFX_ELITE_FORCE_SP
 	MOD_MDR,
 	MOD_STEFX_MDR_PLACEHOLDER,
 #endif
-/*
-Ghoul2 Insert Start
-*/
-   	MOD_MDXM,
-	MOD_MDXA
-/*
-Ghoul2 Insert End
-*/
 
 } modtype_t;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+typedef char stefx_xbox_model_type_values[
+	(MOD_BAD == 0 && MOD_BRUSH == 1 && MOD_MESH == 2 && MOD_MDXM == 3 &&
+	 MOD_MDXA == 4 && MOD_MDR == 5 && MOD_STEFX_MDR_PLACEHOLDER == 6) ? 1 : -1];
+#endif
 
 typedef struct model_s {
 	char		name[MAX_QPATH];
@@ -1086,13 +1136,17 @@ typedef struct {
 
 // the renderer front end should never modify glstate_t
 typedef struct {
-	int			currenttextures[4];
+	int			currenttextures[2];
 	int			currenttmu;
 	qboolean	finishCalled;
-	int			texEnv[4];
+	int			texEnv[2];
 	int			faceCulling;
 	unsigned long	glStateBits;
 } glstate_t;
+
+#ifdef _XBOX
+typedef char stefx_xbox_glstate_size[(sizeof(glstate_t) == 32) ? 1 : -1];
+#endif
 
 
 typedef struct {
@@ -1316,7 +1370,7 @@ extern cvar_t	*r_primitives;			// "0" = based on compiled vertex array existance
 										// "2" = glDrawElements triangles
 										// "-1" = no drawing
 #ifdef _XBOX
-extern cvar_t	*r_nativeDrawPath;		// 0 = stable UP, 1 = BeginPush, 2 = dynamic VB/IB ring
+extern cvar_t	*r_nativeDrawPath;		// Production Xbox renderer is the retail BeginPush path.
 #endif
 
 extern cvar_t	*r_fastsky;				// controls whether sky should be cleared or drawn
@@ -1449,11 +1503,6 @@ void R_SwapBuffers( int );
 
 void R_RenderView( viewParms_t *parms );
 
-#ifdef _XBOX
-void R_STEFX_PerfBeginScene( void );
-void R_STEFX_PerfEndScene( int totalMsec );
-#endif
-
 void R_AddMD3Surfaces( trRefEntity_t *e );
 void R_AddNullModelSurfaces( trRefEntity_t *e );
 void R_AddBeamSurfaces( trRefEntity_t *e );
@@ -1483,7 +1532,6 @@ void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, 
 
 #ifdef VV_LIGHTING
 void R_SetupEntityLightingGrid( trRefEntity_t *ent );
-void R_AddWorldSurface( msurface_t *surf, int dlightBits, qboolean noViewCount = qfalse );
 #endif
 
 /*
@@ -1581,6 +1629,7 @@ model_t		*R_AllocModel( void );
 
 void    	R_Init( void );
 image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode );
+const char	*R_GetImageDebugName( const image_t *image );
 
 #ifdef _XBOX
 image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, GLenum format, qboolean mipmap, qboolean allowPicmip, int wrapClampMode);
@@ -1694,18 +1743,10 @@ struct shaderCommands_s
 	color4ub_t	vertexColors[SHADER_MAX_VERTEXES];
 	byte		vertexAlphas[SHADER_MAX_VERTEXES][4];
 	int			vertexDlightBits[SHADER_MAX_VERTEXES];
-
-#ifdef _XBOX
-	DWORD	*pXyz;
-	DWORD	*pNormal;
-	DWORD	*pColor;
-	DWORD	*pTex1;
-	DWORD	*pTex2;
-#endif
-
 	stageVars_t	svars;
 
 	shader_t	*shader;
+	float		shaderTime;
 	int			fogNum;
 
 	int			dlightBits;	// or together of all vertexDlightBits
@@ -1731,6 +1772,10 @@ struct shaderCommands_s
 };
 
 typedef __declspec(align(16)) shaderCommands_s	shaderCommands_t;
+
+#ifdef _XBOX
+typedef char stefx_xbox_shaderCommands_size[(sizeof(shaderCommands_t) == 132056) ? 1 : -1];
+#endif
 
 extern	shaderCommands_t	tess;
 
@@ -1986,6 +2031,9 @@ void	RB_CalcAlphaFromOneMinusEntity( DWORD *dstColors );
 void	RB_CalcModulateColorsByFog( DWORD *dstColors );
 void	RB_CalcModulateAlphasByFog( DWORD *dstColors );
 void	RB_CalcModulateRGBAsByFog( DWORD *dstColors );
+void	RB_CalcDisintegrateColors( DWORD *colors );
+void	RB_CalcDiffuseColor( DWORD *colors );
+void	RB_CalcDiffuseEntityColor( DWORD *colors );
 #else
 void	RB_CalcWaveColor( const waveForm_t *wf, unsigned char *dstColors );
 void	RB_CalcColorFromEntity( unsigned char *dstColors );
@@ -1997,10 +2045,11 @@ void	RB_CalcAlphaFromOneMinusEntity( unsigned char *dstColors );
 void	RB_CalcModulateColorsByFog( unsigned char *dstColors );
 void	RB_CalcModulateAlphasByFog( unsigned char *dstColors );
 void	RB_CalcModulateRGBAsByFog( unsigned char *dstColors );
-#endif
-
+void	RB_CalcDisintegrateColors( unsigned char *colors );
 void	RB_CalcDiffuseColor( unsigned char *colors );
 void	RB_CalcDiffuseEntityColor( unsigned char *colors );
+#endif
+
 void	RB_CalcDisintegrateColors( unsigned char *colors, colorGen_t rgbGen );
 void	RB_CalcDisintegrateVertDeform( void );
 /*
@@ -2103,14 +2152,22 @@ typedef enum {
 	RC_END_OF_LIST,
 	RC_SET_COLOR,
 	RC_STRETCH_PIC,
-	RC_SCISSOR,
 	RC_ROTATE_PIC,
 	RC_ROTATE_PIC2,
 	RC_DRAW_SURFS,
 	RC_DRAW_BUFFER,
 	RC_SWAP_BUFFERS,
 	RC_WORLD_EFFECTS,
+	RC_SCISSOR,
 } renderCommand_t;
+
+#ifdef _XBOX
+typedef char stefx_xbox_render_command_values[
+	(RC_END_OF_LIST == 0 && RC_SET_COLOR == 1 && RC_STRETCH_PIC == 2 &&
+	 RC_ROTATE_PIC == 3 && RC_ROTATE_PIC2 == 4 && RC_DRAW_SURFS == 5 &&
+	 RC_DRAW_BUFFER == 6 && RC_SWAP_BUFFERS == 7 && RC_WORLD_EFFECTS == 8 &&
+	 RC_SCISSOR == 9) ? 1 : -1];
+#endif
 
 
 // these are sort of arbitrary limits.
@@ -2132,9 +2189,7 @@ typedef enum {
 // could optimize to point directly at frontend data instead of copying?
 typedef struct {
 	drawSurf_t	drawSurfs[MAX_DRAWSURFS];
-#ifndef VV_LIGHTING
 	dlight_t	dlights[MAX_DLIGHTS];
-#endif
 	trRefEntity_t	entities[MAX_ENTITIES];
 	srfPoly_t	polys[MAX_POLYS];
 	polyVert_t	polyVerts[MAX_POLYVERTS];

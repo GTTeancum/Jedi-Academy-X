@@ -629,6 +629,24 @@ int BoxOnPlaneSide2 (vec3_t emins, vec3_t emaxs, struct cplane_s *p)
 ==================
 */
 
+#ifdef _XBOX
+static inline void ShortToVec3(const short in[3], vec3_t out)
+{
+	out[0] = (float)in[0];
+	out[1] = (float)in[1];
+	out[2] = (float)in[2];
+}
+
+int BoxOnPlaneSide (const short emins[3], const short emaxs[3], struct cplane_s *p)
+{
+	vec3_t mins;
+	vec3_t maxs;
+	ShortToVec3(emins, mins);
+	ShortToVec3(emaxs, maxs);
+	return BoxOnPlaneSide(mins, maxs, p);
+}
+#endif
+
 #if !(defined __linux__ && defined __i386__) || defined __LCC__
 #if !id386
 

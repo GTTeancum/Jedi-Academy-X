@@ -2332,7 +2332,7 @@ void ClientSpawn(gentity_t *ent) {
 		ClientHoldablesForClass( client, pClass );
 		ClientPowerupsForClass( ent, pClass );
 	}
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( ent->s.number >= 0 && ent->s.number < 3 )
 	{
 		static int s_stefxSpawnAmmoBudget = 24;
@@ -2415,7 +2415,7 @@ void ClientSpawn(gentity_t *ent) {
 	client->ps.commandTime = level.time - 100;
 	ent->client->pers.cmd.serverTime = level.time;
 	ClientThink( ent-g_entities );
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( ent->s.number >= 0 && ent->s.number < 3 )
 	{
 		static int s_stefxPostThinkAmmoBudget = 24;
@@ -2444,7 +2444,7 @@ void ClientSpawn(gentity_t *ent) {
 
 	// run the presend to set anything else
 	ClientEndFrame( ent );
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	if ( ent->s.number >= 0 && ent->s.number < 3 )
 	{
 		static int s_stefxEndFrameAmmoBudget = 24;

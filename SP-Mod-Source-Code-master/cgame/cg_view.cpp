@@ -12,6 +12,7 @@ extern void CGCam_Disable( void );
 extern void RE_STEFX_SplitScreen_SetP2Refdef( const refdef_t *refdef, qboolean valid );
 extern void RE_STEFX_SplitScreen_SetP2PvsOrigin( const vec3_t origin );
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBClTailStage;
 extern "C" volatile unsigned int g_SPXBSplitP2Ent;
 extern "C" volatile unsigned int g_SPXBSplitP2TraceFrac1000;
 extern "C" volatile unsigned int g_SPXBSplitP2ViewX;
@@ -1471,6 +1472,7 @@ extern int g_stefxCgDraw2DMsec;
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 #ifdef _XBOX
+	g_SPXBClTailStage = 0x43473030; /* 'CG00' */
 	static int s_xboxLastProfileTime = -100000;
 	const int xboxProfileStart = cgi_Milliseconds();
 	int xboxProfileSetup = 0;
@@ -1527,6 +1529,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_ProcessSnapshots");
 	g_SPXBPhaseLast = 0x45465030; /* 'EFP0' */
 	CG_ProcessSnapshots();
+	g_SPXBClTailStage = 0x43473031; /* 'CG01' */
 	g_SPXBPhaseLast = 0x45465031; /* 'EFP1' */
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_ProcessSnapshots");
 #ifdef _XBOX
@@ -1571,6 +1574,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_PredictPlayerState");
 	g_SPXBPhaseLast = 0x45464430; /* 'EFD0' */
 	CG_PredictPlayerState();
+	g_SPXBClTailStage = 0x43473032; /* 'CG02' */
 	g_SPXBPhaseLast = 0x45464431; /* 'EFD1' */
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_PredictPlayerState");
 #ifdef _XBOX
@@ -1645,6 +1649,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CGCam_RenderScene");
 		g_SPXBPhaseLast = 0x45465630; /* 'EFV0' */
 		CGCam_RenderScene();		
+		g_SPXBClTailStage = 0x43473033; /* 'CG03' */
 		g_SPXBPhaseLast = 0x45465631; /* 'EFV1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CGCam_RenderScene");
 	}
@@ -1658,6 +1663,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_CalcViewValues");
 		g_SPXBPhaseLast = 0x45465630; /* 'EFV0' */
 		inwater = CG_CalcViewValues();
+		g_SPXBClTailStage = 0x43473033; /* 'CG03' */
 		g_SPXBPhaseLast = 0x45465631; /* 'EFV1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_CalcViewValues");
 	}
@@ -1678,12 +1684,14 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	//This is done from the vieworg to get origin for non-attenuated sounds
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before S_UpdateAmbientSet");
 	cgi_S_UpdateAmbientSet( CG_ConfigString( CS_AMBIENT_SET ), cg.refdef.vieworg );
+	g_SPXBClTailStage = 0x43473430; /* 'CG40' */
 	CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after S_UpdateAmbientSet");
 
 	// first person blend blobs, done after AnglesToAxis
 	if ( !cg.renderingThirdPerson ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_DamageBlendBlob");
 		CG_DamageBlendBlob();
+		g_SPXBClTailStage = 0x43473431; /* 'CG41' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_DamageBlendBlob");
 	}
 
@@ -1698,6 +1706,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 #endif
 		g_SPXBPhaseLast = 0x45464530; /* 'EFE0' */
 		CG_AddPacketEntities();			// adter calcViewValues, so predicted player state is correct
+		g_SPXBClTailStage = 0x43473432; /* 'CG42' */
 		g_SPXBPhaseLast = 0x45464531; /* 'EFE1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddPacketEntities");
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -1708,9 +1717,12 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 #endif
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_AddMarks");
 		CG_AddMarks();
+		g_SPXBClTailStage = 0x43473433; /* 'CG43' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddMarks");
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_AddLocalEntities");
 		CG_AddLocalEntities();
+		g_SPXBClTailStage = 0x43473434; /* 'CG44' */
+		g_SPXBClTailStage = 0x43473034; /* 'CG04' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_AddLocalEntities");
 	}
 #ifdef _XBOX
@@ -1813,6 +1825,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before FX_Add");
 		g_SPXBPhaseLast = 0x45465430; /* 'EFT0' */
 		FX_Add();
+		g_SPXBClTailStage = 0x43473035; /* 'CG05' */
 		g_SPXBPhaseLast = 0x45465431; /* 'EFT1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after FX_Add");
 	}
@@ -1829,6 +1842,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame before CG_DrawActive pano");
 		g_SPXBPhaseLast = 0x45465230; /* 'EFR0' */
 		CG_DrawActive( stereoView );
+		g_SPXBClTailStage = 0x43473037; /* 'CG07' */
 		g_SPXBPhaseLast = 0x45465231; /* 'EFR1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_DrawActive pano");
 		cg.levelShot = qfalse;
@@ -1843,6 +1857,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 #endif
 		g_SPXBPhaseLast = 0x45465230; /* 'EFR0' */
 		CG_DrawActive( stereoView );
+		g_SPXBClTailStage = 0x43473037; /* 'CG07' */
 		g_SPXBPhaseLast = 0x45465231; /* 'EFR1' */
 		CG_XBOX_ACTIVE_LOG("JA: CL_EARLY EF CG_DrawActiveFrame after CG_DrawActive");
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)

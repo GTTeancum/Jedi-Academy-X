@@ -407,6 +407,7 @@ issues.
 qboolean FS_Initialized();
 
 void	FS_InitFilesystem (void);
+qboolean FS_Access( const char *filename );
 
 char	**FS_ListFiles( const char *directory, const char *extension, int *numfiles );
 // directory should not have either a leading or trailing /
@@ -876,6 +877,74 @@ struct Lump
 			FS_FreeFile(data);
 			data = NULL;
 		}
+	}
+};
+
+struct LumpStream
+{
+	fileHandle_t file;
+	int len;
+	int pos;
+
+	LumpStream() : file(0), len(0), pos(0) {}
+	~LumpStream() { close(); }
+
+	qboolean open(const char* map, const char* lump)
+	{
+		close();
+
+		char path[MAX_QPATH];
+		Com_sprintf(path, MAX_QPATH, "%s/%s.mle", map, lump);
+		len = FS_FOpenFileRead(path, &file, qfalse);
+		if (len < 0 || !file)
+		{
+			file = 0;
+			len = 0;
+			return qfalse;
+		}
+		pos = 0;
+		return qtrue;
+	}
+
+	qboolean readAt(int offset, void* dest, int bytes)
+	{
+		int total = 0;
+
+		if (!file || !dest || offset < 0 || bytes < 0 ||
+			offset > len || bytes > len - offset)
+		{
+			return qfalse;
+		}
+		if (pos != offset)
+		{
+			if (FS_Seek(file, offset, FS_SEEK_SET) < 0)
+			{
+				return qfalse;
+			}
+			pos = offset;
+		}
+		while (total < bytes)
+		{
+			int got = FS_Read((byte*)dest + total, bytes - total, file);
+			if (got <= 0)
+			{
+				return qfalse;
+			}
+			total += got;
+			pos += got;
+		}
+		return qtrue;
+	}
+
+	void close(void)
+	{
+		if (file)
+		{
+			FS_FCloseFile(file);
+			file = 0;
+		}
+		len = 0;
+		pos = 0;
 	}
 };
 #endif _XBOX

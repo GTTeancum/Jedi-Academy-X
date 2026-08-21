@@ -8,6 +8,7 @@
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 extern "C" volatile unsigned int g_SPXBSplitSlotActive;
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 extern "C" volatile unsigned int g_SPXBSplitSlot0DrawDelta;
 extern "C" volatile unsigned int g_SPXBSplitSlot1DrawDelta;
 extern "C" volatile unsigned int g_SPXBSplitSlot0Cluster;
@@ -24,20 +25,15 @@ extern "C" volatile unsigned int g_SPXBHelmetRendererLastModel;
 extern "C" volatile unsigned int g_SPXBHelmetRendererLastRenderfx;
 extern "C" volatile unsigned int g_SPXBHelmetRendererLastEnt;
 #endif
-
-#ifdef VV_LIGHTING
-#include "tr_lightmanager.h"
 #endif
 
-#ifdef _XBOX
-#if defined(STEFX_ELITE_FORCE_SP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 static bool R_STEFX_IsSplitHelmetModel( qhandle_t model )
 {
 	return model &&
 		( model == (qhandle_t)g_SPXBHelmetP1Model ||
 			model == (qhandle_t)g_SPXBHelmetP2Model );
 }
-#endif
 #endif
 
 int			r_firstSceneDrawSurf;
@@ -70,10 +66,6 @@ void R_ToggleSmpFrame( void ) {
 
 	r_numdlights = 0;
 	r_firstSceneDlight = 0;
-
-#ifdef VV_LIGHTING
-	VVLightMan.num_dlights = 0;
-#endif
 
 	r_numentities = 0;
 	r_firstSceneEntity = 0;
@@ -247,7 +239,7 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 	backEndData->entities[r_numentities].lightingCalculated = qfalse;
 #ifdef _XBOX
 	backEndData->entities[r_numentities].visible = -1;
-#if defined(STEFX_ELITE_FORCE_SP)
+#if defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if ( ent->reType == RT_MODEL && R_STEFX_IsSplitHelmetModel( ent->hModel ) )
 	{
 		++g_SPXBHelmetRendererRefs;
@@ -276,7 +268,6 @@ RE_AddLightToScene
 =====================
 */
 void RE_AddLightToScene( const vec3_t org, float intensity, float r, float g, float b ) {
-#ifndef VV_LIGHTING
 	dlight_t	*dl;
 
 	if ( !tr.registered ) {
@@ -290,11 +281,14 @@ void RE_AddLightToScene( const vec3_t org, float intensity, float r, float g, fl
 	}
 	dl = &backEndData->dlights[r_numdlights++];
 	VectorCopy (org, dl->origin);
+	dl->mType = DLIGHT_VERTICAL;
+	VectorCopy (org, dl->mProjOrigin);
 	dl->radius = intensity;
+	dl->mProjRadius = intensity;
+	dl->additive = qfalse;
 	dl->color[0] = r;
 	dl->color[1] = g;
 	dl->color[2] = b;
-#endif // VV_LIGHTING
 }
 
 
@@ -598,22 +592,18 @@ void RE_RenderScene( const refdef_t *fd ) {
 	tr.refdef.num_entities = r_numentities - r_firstSceneEntity;
 	tr.refdef.entities = &backEndData->entities[r_firstSceneEntity];
 
-#ifndef VV_LIGHTING
 	tr.refdef.num_dlights = r_numdlights - r_firstSceneDlight;
 	tr.refdef.dlights = &backEndData->dlights[r_firstSceneDlight];
-#endif
 
 	tr.refdef.numPolys = r_numpolys - r_firstScenePoly;
 	tr.refdef.polys = &backEndData->polys[r_firstScenePoly];
 
 	// turn off dynamic lighting globally by clearing all the
 	// dlights if it needs to be disabled or if vertex lighting is enabled
-#ifndef VV_LIGHTING
 	if ( r_dynamiclight->integer == 0 ||
 		 r_vertexLight->integer == 1 ) {
 		tr.refdef.num_dlights = 0;
 	}
-#endif
 
 	// a single frame may have multiple scenes draw inside it --
 	// a 3D game view, 3D status bar renderings, 3D menus, etc.
@@ -682,10 +672,13 @@ void RE_RenderScene( const refdef_t *fd ) {
 
 			for (slot = 0; slot < splitPlayers; ++slot)
 			{
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 				int splitSlotDrawStart;
+			#endif
 				R_STEFX_SetSplitViewport(&tr.refdef, &parms, &sourceRefdef, &sourceParms, slot, splitPlayers);
 				tr.refdef.numDrawSurfs = splitDrawSurfBase;
 				g_SPXBSplitSlotActive = (unsigned int)(slot + 1);
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 				if (slot == 0)
 				{
 					g_SPXBSplitSlot0DrawDelta = 0;
@@ -696,6 +689,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 					g_SPXBSplitSlot1DrawDelta = 0;
 					g_SPXBSplitSlot1Cluster = 0xffffffffu;
 				}
+			#endif
 				if (slot == 1 && hasP2Refdef)
 				{
 					R_STEFX_ApplyExternalSplitView(&tr.refdef, &parms, &p2Refdef, p2PvsOrigin);
@@ -725,8 +719,11 @@ void RE_RenderScene( const refdef_t *fd ) {
 						parms.pvsOrigin[2]);
 				}
 				recursivePortalCount = 0;
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 				splitSlotDrawStart = tr.refdef.numDrawSurfs;
+			#endif
 				R_RenderView( &parms );
+			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 				if (slot == 0)
 				{
 					g_SPXBSplitSlot0DrawDelta = (unsigned int)(tr.refdef.numDrawSurfs - splitSlotDrawStart);
@@ -737,6 +734,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 					g_SPXBSplitSlot1DrawDelta = (unsigned int)(tr.refdef.numDrawSurfs - splitSlotDrawStart);
 					g_SPXBSplitSlot1Cluster = (unsigned int)tr.viewCluster;
 				}
+			#endif
 				if (tr.refdef.numDrawSurfs > splitDrawSurfBase)
 				{
 					splitDrawSurfBase = tr.refdef.numDrawSurfs;

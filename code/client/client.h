@@ -116,6 +116,7 @@ void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int main
 int CL_STEFX_SplitScreen_PrimaryPadForMainController( void );
 qboolean CL_STEFX_SplitScreen_ShouldReservePadForP2( int port, int mainController );
 qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles );
+qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles );
 #endif
 
 /*
@@ -418,6 +419,7 @@ void	SCR_FillRect( float x, float y, float width, float height,
 					 const float *color );
 void	SCR_DrawPic( float x, float y, float width, float height, qhandle_t hShader );
 void	SCR_DrawNamedPic( float x, float y, float width, float height, const char *picname );
+void	SCR_FillRect( float x, float y, float width, float height, const float *color );
 
 void	SCR_DrawBigString( int x, int y, const char *s, float alpha );			// draws a string with embedded color control characters with fade
 void	SCR_DrawBigStringColor( int x, int y, const char *s, vec4_t color );	// ignores embedded color control characters

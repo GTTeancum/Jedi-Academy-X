@@ -39,6 +39,11 @@ static char* zi_stackBase = NULL;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern "C" volatile unsigned int g_SPXBShaderScanMagic;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBFileAllocStage;
+extern "C" volatile unsigned int g_SPXBFileAllocPathHash;
+extern "C" volatile unsigned int g_SPXBFileAllocPathPtr;
+extern "C" volatile unsigned int g_SPXBFileAllocLength;
+extern "C" volatile unsigned int g_SPXBFileAllocTag;
 #define STEFX_FS_MODEL_PHASE(stage) \
 	( g_SPXBPhaseLast = 0xF0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
 		( g_SPXBPhaseLast & 0xffffu ) )
@@ -126,6 +131,13 @@ static qboolean STEFX_ShouldTryStdioWholeFileRead(const char *filename)
 {
 	const char *ext = filename ? strrchr(filename, '.') : NULL;
 
+	if (filename &&
+		(!Q_stricmpn(filename, "botfiles/", 9) ||
+		 !Q_stricmpn(filename, "botfiles\\", 9)))
+	{
+		return qtrue;
+	}
+
 	if (STEFX_IsCriticalWholeFileRead(filename))
 	{
 		return qtrue;
@@ -172,15 +184,40 @@ static memtag_t STEFX_WholeFileTag(const char *qpath)
 	return TAG_FILESYS;
 }
 
+static unsigned int STEFX_FileAllocHash(const char *text)
+{
+	unsigned int hash = 2166136261u;
+
+	while (text && *text)
+	{
+		unsigned char c = (unsigned char)*text++;
+		if (c == '\\')
+		{
+			c = '/';
+		}
+		if (c >= 'A' && c <= 'Z')
+		{
+			c = (unsigned char)(c - 'A' + 'a');
+		}
+		hash ^= c;
+		hash *= 16777619u;
+	}
+
+	return hash;
+}
+
 typedef struct stefxHeapFileHeader_s
 {
 	unsigned int magic;
 	void *base;
 	int len;
 	int allocSize;
+	int allocator;
 } stefxHeapFileHeader_t;
 
 #define STEFX_HEAP_FILE_MAGIC 0x48464246u /* 'HFBF' */
+#define STEFX_FILE_ALLOC_HEAP 1
+#define STEFX_FILE_ALLOC_VIRTUAL 2
 
 static stefxHeapFileHeader_t *STEFX_GetHeapFileHeader(const void *buffer)
 {
@@ -213,6 +250,7 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 	stefxHeapFileHeader_t *header;
 	unsigned int payloadAddress;
 	int allocSize;
+	int allocator = STEFX_FILE_ALLOC_HEAP;
 	static int s_heapFileLogBudget = 96;
 
 	if (len < 0)
@@ -221,9 +259,26 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 	}
 
 	tag = STEFX_WholeFileTag(qpath);
+	g_SPXBFileAllocStage = 0x10;
+	g_SPXBFileAllocTag = (unsigned int)tag;
 	allocSize = len + 1 + sizeof(stefxHeapFileHeader_t) + 31;
 	STEFX_FS_MODEL_PHASE( 0x5A );
-	base = (byte *)HeapAlloc(GetProcessHeap(), 0, allocSize);
+	base = NULL;
+	if (tag == TAG_BSP)
+	{
+		g_SPXBFileAllocStage = 0x11;
+		base = (byte *)VirtualAlloc(NULL, allocSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+		if (base)
+		{
+			allocator = STEFX_FILE_ALLOC_VIRTUAL;
+		}
+	}
+	if (!base)
+	{
+		g_SPXBFileAllocStage = 0x12;
+		base = (byte *)HeapAlloc(GetProcessHeap(), 0, allocSize);
+	}
+	g_SPXBFileAllocStage = 0x13;
 	STEFX_FS_MODEL_PHASE( 0x5B );
 	if (!base)
 	{
@@ -232,6 +287,7 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 			qpath ? qpath : "(null)", len, (int)tag, allocSize));
 		if (tag == TAG_MODEL_MD3 || tag == TAG_BSP)
 		{
+			g_SPXBFileAllocStage = 0x14;
 			zoneFallback = (byte *)Z_Malloc(len + 1, tag, qfalse, 32);
 			if (zoneFallback)
 			{
@@ -252,6 +308,8 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 	header->base = base;
 	header->len = len;
 	header->allocSize = allocSize;
+	header->allocator = allocator;
+	g_SPXBFileAllocStage = 0x15;
 
 	if (s_heapFileLogBudget > 0 &&
 		(len >= (256 * 1024) || tag == TAG_MODEL_MD3 || tag == TAG_BSP || STEFX_ShouldTraceAssetOpen(qpath)))
@@ -274,7 +332,14 @@ qboolean FS_STEFX_FreeHeapFileBuffer(void *buffer)
 	}
 
 	header->magic = 0;
-	HeapFree(GetProcessHeap(), 0, header->base);
+	if (header->allocator == STEFX_FILE_ALLOC_VIRTUAL)
+	{
+		VirtualFree(header->base, 0, MEM_RELEASE);
+	}
+	else
+	{
+		HeapFree(GetProcessHeap(), 0, header->base);
+	}
 	return qtrue;
 }
 
@@ -1295,8 +1360,18 @@ static qboolean FS_PK3FileExists( const char *filename )
 	pack_t			*pak;
 	fileInPack_t	*pakFile;
 	long			hash;
+	int				chainCount;
+	int				i;
+	int				searchCount;
+	const qboolean tracePackedProbe = strstr(filename, "/misc.mle") != NULL;
 
-	for (search = fs_searchpaths; search; search = search->next)
+	if (tracePackedProbe)
+	{
+		XBLog_WriteCritical(va("STEFX_RETAIL_LUMPS: PK3 exists begin file='%s' root=%p", filename, fs_searchpaths));
+	}
+
+	searchCount = 0;
+	for (search = fs_searchpaths; search && searchCount < 2048; search = search->next, ++searchCount)
 	{
 		if (!search->pack)
 		{
@@ -1304,16 +1379,61 @@ static qboolean FS_PK3FileExists( const char *filename )
 		}
 
 		pak = search->pack;
+		if (tracePackedProbe)
+		{
+			XBLog_WriteCritical(va("STEFX_RETAIL_LUMPS: PK3 exists path=%d search=%p pack=%p file='%s' files=%d hashSize=%d table=%p",
+				searchCount, search, pak, pak->pakFilename, pak->numfiles, pak->hashSize, pak->hashTable));
+		}
+		if (pak->hashSize <= 0 || !pak->hashTable || pak->numfiles < 0)
+		{
+			XBLog_WriteCritical(va("STEFX: FS invalid PK3 index file='%s' pk3='%s' files=%d hashSize=%d table=%p",
+				filename, pak->pakFilename, pak->numfiles, pak->hashSize, pak->hashTable));
+			continue;
+		}
 		hash = FS_HashFileName(filename, pak->hashSize);
 		pakFile = pak->hashTable[hash];
-		while (pakFile)
+		if (tracePackedProbe)
+		{
+			XBLog_WriteCritical(va("STEFX_RETAIL_LUMPS: PK3 exists bucket path=%d hash=%ld head=%p", searchCount, hash, pakFile));
+		}
+		chainCount = 0;
+		while (pakFile && chainCount++ < pak->numfiles)
 		{
 			if (!FS_FilenameCompare(pakFile->name, filename))
 			{
+				if (tracePackedProbe)
+				{
+					XBLog_WriteCritical(va("STEFX_RETAIL_LUMPS: PK3 exists found path=%d chain=%d entry='%s'", searchCount, chainCount, pakFile->name));
+				}
 				return qtrue;
 			}
 			pakFile = pakFile->next;
 		}
+		if (tracePackedProbe)
+		{
+			XBLog_WriteCritical(va("STEFX_RETAIL_LUMPS: PK3 exists miss path=%d chain=%d tail=%p", searchCount, chainCount, pakFile));
+		}
+
+		if (pakFile)
+		{
+			XBLog_WriteCritical(va("STEFX: FS PK3 hash cycle file='%s' pk3='%s' hash=%ld files=%d",
+				filename, pak->pakFilename, hash, pak->numfiles));
+			for (i = 0; i < pak->numfiles; ++i)
+			{
+				if (!FS_FilenameCompare(pak->buildBuffer[i].name, filename))
+				{
+					return qtrue;
+				}
+			}
+		}
+	}
+	if (search)
+	{
+		XBLog_WriteCritical(va("STEFX: FS search path cycle file='%s' count=%d node=%p", filename, searchCount, search));
+	}
+	if (tracePackedProbe)
+	{
+		XBLog_WriteCritical(va("STEFX_RETAIL_LUMPS: PK3 exists end file='%s' found=0 paths=%d", filename, searchCount));
 	}
 
 	return qfalse;
@@ -1328,6 +1448,8 @@ qboolean FS_PK3PatchFileExists( const char *filename )
 
 static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 {
+	int chainCount;
+	int i;
 	searchpath_t	*search;
 	pack_t			*pak;
 	fileInPack_t	*pakFile;
@@ -1357,59 +1479,80 @@ static int FS_FOpenFileReadPK3( const char *filename, fileHandle_t f )
 		}
 #endif
 		pakFile = pak->hashTable[hash];
-		while (pakFile)
+		chainCount = 0;
+		while (pakFile && chainCount++ < pak->numfiles)
 		{
 			if (!FS_FilenameCompare(pakFile->name, filename))
 			{
-				unzFile z = unzReOpen(pak->pakFilename, pak->handle);
-				unz_s *zfi;
-				int len;
-
-				if (!z)
-				{
-#if defined(STEFX_ELITE_FORCE_SP)
-					XBLog_Write(va("STEFX: FS PK3 reopen failed file='%s' pk3='%s'", filename, pak->pakFilename));
-					return -1;
-#else
-					Com_Error(ERR_FATAL, "Couldn't reopen %s", pak->pakFilename);
-#endif
-				}
-				if (unzSetCurrentFileInfoPosition(z, pakFile->pos) != UNZ_OK ||
-					unzOpenCurrentFile(z) != UNZ_OK)
-				{
-					unzClose(z);
-					return -1;
-				}
-
-				zfi = (unz_s *)z;
-				len = zfi->cur_file_info.uncompressed_size;
-				fsh[f].handleFiles.file.z = z;
-				fsh[f].handleFiles.unique = qtrue;
-				fsh[f].used = qtrue;
-				fsh[f].zipFile = qtrue;
-				fsh[f].fileSize = len;
-				fsh[f].zipFilePos = pakFile->pos;
-				Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-				if (traceDefaultCfg)
-				{
-					XBLog_Write(va("STEFX: FS default.cfg PK3 OK pk3='%s' len=%d", pak->pakFilename, len));
-				}
-#endif
-				if (STEFX_ShouldTraceAssetOpen(filename))
-				{
-					if (STEFX_IsPlayerAnimationCfg(filename))
-					{
-						XBLog_Write(va("STEFX: FS player animation PK3 file='%s' len=%d", filename, len));
-					}
-					else
-					{
-						XBLog_Write(va("STEFX: FS PK3 asset open file='%s' pk3='%s' len=%d", filename, pak->pakFilename, len));
-					}
-				}
-				return len;
+				goto foundPakFile;
 			}
 			pakFile = pakFile->next;
+		}
+
+		if (pakFile)
+		{
+			XBLog_WriteCritical(va("STEFX: FS PK3 open hash cycle file='%s' pk3='%s' hash=%ld files=%d",
+				filename, pak->pakFilename, hash, pak->numfiles));
+			for (i = 0; i < pak->numfiles; ++i)
+			{
+				if (!FS_FilenameCompare(pak->buildBuffer[i].name, filename))
+				{
+					pakFile = &pak->buildBuffer[i];
+					goto foundPakFile;
+				}
+			}
+		}
+		continue;
+
+foundPakFile:
+		{
+			unzFile z = unzReOpen(pak->pakFilename, pak->handle);
+			unz_s *zfi;
+			int len;
+
+			if (!z)
+			{
+#if defined(STEFX_ELITE_FORCE_SP)
+				XBLog_Write(va("STEFX: FS PK3 reopen failed file='%s' pk3='%s'", filename, pak->pakFilename));
+				return -1;
+#else
+				Com_Error(ERR_FATAL, "Couldn't reopen %s", pak->pakFilename);
+#endif
+			}
+			if (unzSetCurrentFileInfoPosition(z, pakFile->pos) != UNZ_OK ||
+				unzOpenCurrentFile(z) != UNZ_OK)
+			{
+				unzClose(z);
+				return -1;
+			}
+
+			zfi = (unz_s *)z;
+			len = zfi->cur_file_info.uncompressed_size;
+			fsh[f].handleFiles.file.z = z;
+			fsh[f].handleFiles.unique = qtrue;
+			fsh[f].used = qtrue;
+			fsh[f].zipFile = qtrue;
+			fsh[f].fileSize = len;
+			fsh[f].zipFilePos = pakFile->pos;
+			Q_strncpyz(fsh[f].name, filename, sizeof(fsh[f].name));
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			if (traceDefaultCfg)
+			{
+				XBLog_Write(va("STEFX: FS default.cfg PK3 OK pk3='%s' len=%d", pak->pakFilename, len));
+			}
+#endif
+			if (STEFX_ShouldTraceAssetOpen(filename))
+			{
+				if (STEFX_IsPlayerAnimationCfg(filename))
+				{
+					XBLog_Write(va("STEFX: FS player animation PK3 file='%s' len=%d", filename, len));
+				}
+				else
+				{
+					XBLog_Write(va("STEFX: FS PK3 asset open file='%s' pk3='%s' len=%d", filename, pak->pakFilename, len));
+				}
+			}
+			return len;
 		}
 	}
 
@@ -2001,14 +2144,23 @@ int FS_ReadFile( const char *qpath, void **buffer )
 		XBLog_WriteCritical(va("STEFX_HW_BOOT: FS_ReadFile map allocating %d bytes", len + 1));
 	}
 	STEFX_FS_MODEL_PHASE( 0x56 );
-	if (STEFX_WholeFileTag(qpath) == TAG_MODEL_MD3)
+	g_SPXBFileAllocStage = 1;
+	g_SPXBFileAllocPathHash = STEFX_FileAllocHash(qpath);
+	g_SPXBFileAllocPathPtr = (unsigned int)qpath;
+	g_SPXBFileAllocLength = (unsigned int)len;
+	const memtag_t wholeFileTag = STEFX_WholeFileTag(qpath);
+	g_SPXBFileAllocTag = (unsigned int)wholeFileTag;
+	g_SPXBFileAllocStage = 2;
+	if (len >= (256 * 1024) || wholeFileTag == TAG_MODEL_MD3 || wholeFileTag == TAG_BSP)
 	{
 		buf = STEFX_AllocHeapFileBuffer(len, qpath);
 	}
 	else
 	{
-		buf = (byte *)Z_Malloc(len + 1, STEFX_WholeFileTag(qpath), qfalse, 32);
+		g_SPXBFileAllocStage = 3;
+		buf = (byte *)Z_Malloc(len + 1, wholeFileTag, qfalse, 32);
 	}
+	g_SPXBFileAllocStage = 4;
 	STEFX_FS_MODEL_PHASE( 0x57 );
 #else
 	buf = (byte*)Z_Malloc( len+1, TAG_TEMP_WORKSPACE, qfalse, 32);
@@ -2035,9 +2187,11 @@ int FS_ReadFile( const char *qpath, void **buffer )
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_FS_MODEL_PHASE( 0x58 );
+	g_SPXBFileAllocStage = 5;
 #endif
 	bytesRead = FS_Read(buf, len, h);
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBFileAllocStage = 6;
 	STEFX_FS_MODEL_PHASE( 0x59 );
 	if (traceShaderRead)
 	{
@@ -2085,8 +2239,12 @@ int FS_ReadFile( const char *qpath, void **buffer )
 
 	// guarantee that it will have a trailing 0 for string operations
 	buf[len] = 0;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBFileAllocStage = 7;
+#endif
 	FS_FCloseFile( h );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBFileAllocStage = 8;
 	if (traceShaderRead)
 	{
 		g_SPXBShaderScanMagic = 0x46533036; /* 'FS06' */

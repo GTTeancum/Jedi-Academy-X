@@ -178,8 +178,6 @@ $verificationPath = Join-Path $packageDir "holomatch_verification.json"
 & $pythonExe (Join-Path $repoRoot "scripts\check_mp_holomatch_ui.py") `
     --repo-root $repoRoot `
     --pk3 (Join-Path $repoRoot "build\release\BaseEF\xbox1.pk3") `
-    --stage-baseef (Join-Path $repoRoot "build\release\BaseEF") `
-    --allow-stage-original-images `
     --xbe (Join-Path $repoRoot "build\release\efmp.xbe") `
     --direct-map hm_borg1 `
     --code-only > $verificationPath

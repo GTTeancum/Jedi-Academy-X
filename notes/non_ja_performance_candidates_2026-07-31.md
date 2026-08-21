@@ -9,6 +9,176 @@ Apply and qualify one candidate at a time. Commit a candidate only after it
 improves the baseline without a visual, gameplay, stability, or mode-parity
 regression. Remove a failed candidate before beginning the next one.
 
+## ACCEPTED: Bound The Server Catch-Up Loop
+
+Date: 2026-08-06. Retail measured, first accepted candidate in this ledger.
+
+`Com_ModifyMsec` clamps elapsed time to 200 ms and `sv_fps` is 20, so
+`frameMsec` is 50 and `SV_Frame`'s `while (sv.timeResidual >= frameMsec)` was
+free to run the whole game simulation four times per rendered frame. Because
+each pass costs ~26 ms, those passes made the next frame later, which bought
+another pass - the loop fed itself.
+
+`sv_main.cpp` now caps the loop at one tick per frame and discards the unrun
+backlog rather than carrying it forward. Client timing is untouched, so view and
+input stay as responsive as the frame rate allows; only world simulation eases
+off. Deliberately narrower than lowering `clampTime`, which would slow those too.
+
+Retail, borg1, same content before and after:
+
+```text
+before  svtick=4/26/26  perf=254/106/111/0/16/50  fps=5.0
+after   svtick=1/26/26  perf=130/29/101/0/16/41   fps=6.3-6.7
+```
+
+Server fell from 106 ms to 29 ms, frame from 254 ms to ~130 ms, and framerate
+rose about 28%. Cost is a pacing change: while overloaded the world advances
+slower than the wall clock. Raise `stefxMaxCatchupTicks` toward 4 to trade the
+gain back for wall-clock accuracy.
+
+This was the only change in its build, so the attribution is clean.
+
+Where the frame now sits: the client is dominant at roughly 100 ms of a 130 ms
+frame - about 59 ms assembling the scene, 41 ms submitting it. The single
+server tick is 25-53 ms across 543 entities, all of it in the entity loop
+(`gph=0/26/0`), with 112 movers and 23 clients unchanged run to run.
+
+## The Original Xbox Renderer Has No Vertex Buffer At All
+
+Date: 2026-08-05. Source:
+`C:\Programming\GitHub\Jedi-Academy-X\clean-mp-original-build\codemp\win32\win_qgl_dx8.cpp`.
+
+This is the unmodified Xbox MP renderer, before this project's edits. Its
+`dllDrawElements` (L2353) is one path with no alternatives:
+
+- `BeginPush(vert_size + index_size + 60, &glw_state->drawArray)` reserves
+  pushbuffer space.
+- `tess.xyz`, `tess.normal`, `tess.svars.colors` and `tess.svars.texcoords[]`
+  are `memcpy`'d directly into that reservation.
+- A jump address and `CMD_STREAM_STRIDEANDTYPE0` block set up what the comment
+  calls "our own fake vertex buffer" pointing into the pushbuffer itself.
+- Indices follow in the same reservation.
+
+There is no `CreateVertexBuffer`, no `CreateIndexBuffer`, no `Lock`, no
+`SetStreamSource` to a real buffer, no `DrawIndexedPrimitive`, no ring, and no
+wrap. `BlockUntilIdle` appears exactly twice in the whole file - in `dllFinish`
+and `dllFlush`, the `glFinish`/`glFlush` implementations. Never in a draw path.
+There is also no gate: no `CanUseDrawElementsPush`, no reject reasons, no
+fallback submitter.
+
+Everything this ledger has been tuning - ring capacity, wrap stalls, lock flags,
+buffer rotation, `SetStreamSource` caching, fences - belongs to a submission
+design the shipping Xbox renderer never had. The measured retail spread across
+ring shapes (0-2, 3-4 and 19-51 FPS) is the cost of that design, not a property
+of the hardware.
+
+The current tree does contain a `dllDrawElementsPush` reimplementation of this
+approach, selected by `r_nativeDrawPath 1`, but it is gated by
+`CanUseDrawElementsPush`, which rejects with reason 6 whenever
+`texCoordPointer[0] != tess.svars.texcoords[0]` and routes the batch to
+`dllDrawElementsUP` instead. On XEMU that rejection fired on every sampled
+batch. The original never checks this because it copies from the tess arrays
+unconditionally; restoring the original behaviour means copying from the bound
+pointers rather than declining the batch.
+
+## Why Every Candidate In This Ledger Reads "No Gain"
+
+Date: 2026-08-05.
+
+XEMU reports GPU synchronization as free, so no candidate that changes GPU
+synchronization can be ranked on it. This is demonstrated, not assumed.
+
+A `borg1` run forced to `r_nativeDrawPath 1` reported `path=1537` in
+`xblognative`. That value is `r_nativeDrawPath | (s_nativePushRejectReason << 8)`
+- reject reason 6, meaning `CanUseDrawElementsPush` rejected every sampled batch
+because `texCoordPointer[0] != tess.svars.texcoords[0]`. Every draw therefore
+fell through to `dllDrawElementsUP`, which submits via
+`SubmitNativeTriangleListPush`, which begins with:
+
+```c
+glw_state->device->KickPushBuffer();
+glw_state->device->BlockUntilIdle();
+```
+
+A full GPU idle per draw call. XEMU rendered that at 61.5 FPS average - within
+noise of the 61.0 FPS the ring path scored on the same map. The worst possible
+submission strategy and the intended one are indistinguishable there.
+
+Every rejected candidate above was qualified on XEMU. That history is therefore
+evidence about XEMU, not about the Xbox. Anything touching fences, locks,
+`BlockUntilIdle`, `BlockUntilNotBusy`, presentation interval, or buffer reuse
+must be measured on hardware or not at all.
+
+## Corrections To Earlier Entries In This Ledger
+
+- Pushbuffer capacity is **not** an open candidate. `win_qgl_dx8.cpp` already
+  calls `SetPushBufferSize(1024 * 1024, 32 * 1024)` before `CreateDevice`,
+  identical to Unreal Championship 2004's `D3DRenderDevice.cpp:1239`.
+  Mercenaries uses `768*1024, 32*1024` in `xboxRedRenderer.cpp:264`. This was
+  briefly and wrongly recorded as unset after a truncated search.
+- Texture residency is not a candidate. `xbox_texture_man.h` is Vicarious
+  Visions' original static allocator: one contiguous pool, no eviction, so
+  there is no in-play re-upload path to thrash.
+
+## Applied: Two Deviations From Shipped Xbox Practice, Corrected
+
+Date: 2026-08-05. Both implemented and verified for correctness on XEMU. Neither
+can be *scored* there, per the section above - they are hardware-only for FPS.
+
+**1. Removed the full GPU flush from `SubmitNativeTriangleListPush`.**
+It opened with `KickPushBuffer()` then `BlockUntilIdle()`, draining the GPU
+before every batch. Inline-array submission does not require it: `BeginPush`
+reserves command-stream space and the vertex payload is copied into that
+reservation, not referenced from memory the GPU may still be reading.
+
+Verified by forcing `r_nativeDrawPath 1`, where `CanUseDrawElementsPush` rejects
+with reason 6 and every batch therefore takes this exact submitter. Rendering is
+pixel-identical to the ring path with the idle gone, which is the proof the idle
+was never load-bearing.
+
+**2. Reshaped the dynamic buffers to the rotating form UC2004 ships.**
+Was: one 256 KiB vertex ring plus one 128 KiB index ring, with an unconditional
+`BlockUntilNotBusy` on every wrap. Now: four 64 KiB vertex buffers and four
+32 KiB index buffers, rotating on overflow via `AdvanceRingBuffer`, which tests
+`IsBusy()` and moves to a free buffer instead of waiting. Only if all four are
+in flight does it block, and that residual case is still timed into
+`g_SPXBNativeRingStallUsec`.
+
+Total memory is 384 KiB, byte-for-byte identical to the 256 + 128 it replaces.
+Worst-case single batch fits comfortably: `SHADER_MAX_VERTEXES` 1000 at the
+44-byte maximum stride is 43 KiB against a 64 KiB buffer, and
+`SHADER_MAX_INDEXES` 6000 at 2 bytes is 12 KiB against 32 KiB - so no batch can
+be forced onto the fallback path by the smaller size. Observed offsets in a live
+run stayed inside both bounds (`vbOff=39456`, `ibOff=14334`) with `path=2` and no
+reject code, confirming the rotation is active rather than degrading.
+
+## Original Findings Behind Those Two Changes
+
+1. **Full GPU idle in the fallback submitter.** `SubmitNativeTriangleListPush`
+   calls `KickPushBuffer` then `BlockUntilIdle` before every batch. No shipped
+   reference does this, and the XDK `Graphics\BeginPush` sample it is modelled on
+   does not. It is the fallback for any batch `CanUseDrawElementsPush` rejects,
+   so its cost is paid per draw whenever the tessellator layout does not match
+   the narrow accepted shape. Retail heartbeats have shown `f0`, so it may be
+   dormant in the sampled scenes - but reject reason 6 fires readily on XEMU,
+   so the gate is not as tight as `f0` suggests.
+
+2. **Dynamic vertex buffer shape.** This renderer uses one 256 KiB ring and
+   calls `BlockUntilNotBusy` unconditionally on wrap. Unreal Championship 2004
+   uses 16 KiB dynamic vertex buffers on Xbox, tests `IsBusy()`, moves to
+   another buffer rather than blocking, and never blocks on this path.
+   `D3DResource.cpp:1483` carries the instrumented justification:
+
+   ```c
+   //scion jg -- With some instrumentation I found that many smaller
+   // dynamic VBs performed better than a few large ones.
+   #define INITIAL_DYNAMIC_VERTEXBUFFER_SIZE 16*1024   // Xbox
+   #define INITIAL_DYNAMIC_VERTEXBUFFER_SIZE 65536     // PC
+   ```
+
+   Note the direction: smaller on Xbox than on PC. The rejected 2 MiB candidate
+   above moved the opposite way.
+
 ## Ranked Candidates
 
 1. Persistent indexed vertex/index streaming without a per-frame GPU fence.
@@ -235,3 +405,160 @@ assets, and presentation settings are unchanged.
 This candidate is intentionally hardware-first. The earlier disable was based
 on emulator compatibility; the new retail timing data is the evidence that
 justifies testing the Xbox-native path again on its actual target.
+
+## Rejected Retail Candidate: Native Ring Capacity vs Frame Payload
+
+Date: 2026-08-05. Rejected the same day on retail evidence.
+
+Outcome first: the sizing change did exactly what it was designed to do, it did
+not matter, and it broke emulator qualification. It has been fully reverted to
+256 KiB / 128 KiB.
+
+The 2 MiB / 512 KiB rings hung XEMU at boot: black screen, guest frozen at
+frame 9 with `writes` static and poll `delta=0` for a full 150 s run. The same
+build ran normally on retail hardware, so the fault is emulator-specific, but it
+costs the entire automated qualification path and is not worth carrying for a
+candidate that gained nothing. Reverting the sizes restored XEMU immediately -
+the next run reached live `borg1` gameplay at 57 FPS average with counters
+advancing normally.
+
+On the measurement itself: Retail heartbeats after the change reported wraps falling from
+about 1.7 per frame to between zero and two per *second*, but the accompanying
+stall measurement read `s0ms` on nearly every heartbeat, with isolated 10 ms and
+17 ms windows. The wrap stalls this candidate removed were already cheap, so
+removing them bought nothing. The premise below was wrong.
+
+Keep the measurement, not the conclusion. The same run showed where the time
+actually goes, and it is not in ring management:
+
+```text
+screen=7/17  be=17  perf=30/0/20/0/3/17   fps=19.4
+screen=9/27  be=27  perf=50/30/41/0/4/27  fps=22.6
+screen=5/5   be=5   perf=20/0/10/0/4/5    fps=50.0
+```
+
+The second `screen=` value is time inside `re.EndFrame` alone - `cl_scrn.cpp`
+restarts its phase timer immediately before that call. Building the frame costs
+5-9 ms; `EndFrame` costs 5-27 ms and tracks scene complexity. That is the real
+target, and it is why every CPU-side candidate in this ledger has failed: they
+were all optimizing the 5-9 ms, not the 5-27 ms.
+
+`EndFrame` is now split by a follow-up instrumentation change. `dllEndFrame`
+times `EndScene` and `Present` separately into `g_SPXBEndSceneUsec` and
+`g_SPXBPresentUsec`. Both reach the heartbeat as `swap=<endscene>/<present>ms`
+and, more usefully, reach the XEMU harness: `scripts\ja_xemu_smoke.py` polls
+them by symbol name and emits them as `swapUsec=<endscene>/<present>` on its
+`xblogperf` line.
+
+## XEMU Result: The Swap Is Free There, And XEMU Cannot Settle This
+
+Date: 2026-08-05.
+
+A clean automated `borg1` run with the split in place:
+
+```text
+t=  16.1 frame= 11ms  build=  6ms  endFrame=  5ms | cumPresent=40367us
+t=  70.2 frame= 16ms  build= 12ms  endFrame=  3ms | cumPresent=52603us
+t= 141.1 frame= 13ms  build=  6ms  endFrame=  6ms | cumPresent=72850us
+```
+
+`Present` accumulated 37.6 ms across 141 s of wall time. At roughly 61 FPS that
+is about 4.4 microseconds per frame. `EndScene` accumulated 169 us total. So on
+XEMU the swap costs nothing, and `EndFrame` is entirely backend command
+submission - which matches `endFrame` and `backend` tracking each other to
+within a millisecond in every sample.
+
+That does not transfer to hardware, and the shape of the difference is the
+reason to be careful:
+
+| phase | XEMU | retail |
+|---|---|---|
+| build picture | 6-12 ms | 5-9 ms |
+| finish frame | 3-7 ms | 17-27 ms |
+| FPS | 61 | 19-50 |
+
+The CPU-side phase is comparable on both. Only `EndFrame` diverges, by 3-5x. If
+the deficit were CPU-side, a 733 MHz Pentium III would be slower than a Ryzen
+across both phases, not just one. An asymmetry confined to the phase that
+contains GPU submission and presentation points at the NV2A, which XEMU replaces
+with a modern Radeon and therefore cannot reproduce.
+
+That is an inference, not a measurement. The measurement now exists and takes
+one hardware run of the current build: read `swap=` in the heartbeat. Present
+dominating confirms GPU-bound and every remaining CPU-side submission candidate
+below should be abandoned. Present near zero on hardware too means the cost is
+backend command building and those candidates stay live.
+
+Historical premise, retained because the arithmetic was sound even though the
+conclusion was not:
+
+Date: 2026-08-05.
+
+Branch: `native-d3d8-perf`.
+
+The active gameplay submission path is `dllDrawElementsRing` in
+`code\win32\win_qgl_dx8.cpp`, selected by `r_nativeDrawPath 2`. It is not the
+fakegl `DrawIndexedPrimitiveUPXbox` boundary; the last heartbeat before this
+candidate reported `state=0` with `prim` equal to `ring`, meaning every
+gameplay draw went through the ring and no fakegl state flush occurred.
+
+The rings were sized below one frame of payload. A settled `borg1` sample
+reported 9,360 ring calls and 20,219 KiB of ring payload across 52 frames,
+which is about 344 KiB of vertices and 44 KiB of indices per frame against a
+256 KiB vertex ring and a 128 KiB index ring. The same sample reported 90 wraps
+across those 52 frames, or about 1.7 per frame, matching that arithmetic.
+
+Every wrap calls `BlockUntilNotBusy` on the ring, which waits for the GPU to
+finish reading data the CPU submitted moments earlier. A ring that cannot hold
+a full frame therefore forces at least one CPU-to-GPU serialization per frame
+and removes the pipelining the ring exists to provide. This is close to free
+under XEMU/LLE, whose GPU runs nearly in lockstep with the CPU, and is paid in
+full on retail hardware. It is a specific mechanism for the retail-versus-
+emulator gap that the earlier candidates did not isolate.
+
+The candidate raises the vertex ring to 2 MiB and the index ring to 512 KiB,
+about three frames of payload at the higher retail draw rate, so a wrapped
+region is long consumed before it is rewritten. Cost is roughly 2.1 MiB of
+additional `D3DPOOL_DEFAULT` memory. Ring creation failure is already handled:
+the ring path declines and submission falls back to the existing UP route, and
+the failure is logged.
+
+Two supporting changes ship with it:
+
+- Wrap waits are routed through `StallOnRingWrap`, which times the wait with
+  `QueryPerformanceCounter` and accumulates it into
+  `g_SPXBNativeRingStallUsec`. The frame heartbeat now reports it as the new
+  `s<N>ms` field inside `ring=`.
+- `dllDrawElementsRing` no longer scans every index to narrow the
+  `g_SPXBNativeDrawMinIndex` and `g_SPXBNativeDrawMaxIndex` diagnostics. The
+  draw declares the whole tess range regardless, and `CanUseDrawElementsPush`
+  has already rejected any batch with an out-of-range index, so the scan was a
+  second full per-draw pass over the indices that changed nothing.
+
+No rendering behavior changes. Vertex layout, stage state, texture selection,
+matrices, presentation, and packaged assets are untouched.
+
+Qualification for this candidate is the heartbeat `ring=` field on retail:
+
+- `w` should fall to roughly zero to one per frame.
+- `s<N>ms` is the direct measurement. If it was large before and is near zero
+  after, with sustained gameplay FPS up, the mechanism is confirmed.
+- If `s<N>ms` is near zero even at the old ring sizes, the wrap stall is not
+  the retail deficit and this candidate should be rejected regardless of the
+  frame rate, with the search moving to the per-draw state and packing costs
+  listed below.
+
+Not yet attempted, ranked, and deliberately held back so this candidate can be
+attributed on its own:
+
+1. Pack vertices straight into the locked ring instead of packing into
+   `s_ringVertices` and then memcpying. Removes one full copy of the frame's
+   vertex payload per draw.
+2. Cache `SetStreamSource`. The instrumented sample reported 164 calls per
+   frame with the same buffer and stride.
+3. Value-cache the D3D texture stage states in `_updateTextures`, which issues
+   fourteen `SetTextureStageState` calls plus `SetTexture` per dirty stage.
+   Note that `code\cgame\win_highdynamicrange.cpp`,
+   `code\renderer\tr_WorldEffects.cpp`, and `code\win32\win_stencilshadow.cpp`
+   write texture stage state directly on the shared device, so any such cache
+   needs an explicit invalidation hook at those sites.

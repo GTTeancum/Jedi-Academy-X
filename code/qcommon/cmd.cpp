@@ -4,14 +4,20 @@
 #include "qcommon.h"
 
 #define	MAX_CMD_BUFFER	8192
+#define MAX_CMD_LINE	MAX_STRING_CHARS
 int			cmd_wait;
 msg_t		cmd_text;
 byte		cmd_text_buf[MAX_CMD_BUFFER];
 char		cmd_defer_text_buf[MAX_CMD_BUFFER];
 
 #ifdef _XBOX
+extern "C" void *_ReturnAddress(void);
+#pragma intrinsic(_ReturnAddress)
 extern "C" void XBLog_Write(const char *msg);
 extern "C" volatile unsigned int g_SPXBCbufExecCount;
+extern "C" volatile unsigned int g_SPXBCbufExecDepth;
+extern "C" volatile unsigned int g_SPXBCbufReturnAddressEntry;
+extern "C" volatile unsigned int g_SPXBCbufReturnAddressExit;
 extern "C" volatile unsigned int g_SPXBCmdExecCount;
 extern "C" volatile unsigned int g_SPXBCmdPhase;
 extern "C" volatile unsigned int g_SPXBCmdHash;
@@ -191,11 +197,14 @@ void Cbuf_Execute (void)
 {
 	int		i;
 	char	*text;
-	char	line[MAX_CMD_BUFFER];
+	char	line[MAX_CMD_LINE];
 	int		quotes;
 
 #ifdef _XBOX
 	g_SPXBCbufExecCount++;
+	g_SPXBCbufExecDepth++;
+	g_SPXBCbufReturnAddressEntry = (unsigned int)_ReturnAddress();
+	g_SPXBCbufReturnAddressExit = 0;
 	g_SPXBCmdPhase = 1;
 #endif
 	while (cmd_text.cursize)
@@ -254,6 +263,8 @@ void Cbuf_Execute (void)
 	}
 #ifdef _XBOX
 	g_SPXBCmdPhase = 4;
+	g_SPXBCbufExecDepth--;
+	g_SPXBCbufReturnAddressExit = (unsigned int)_ReturnAddress();
 #endif
 }
 

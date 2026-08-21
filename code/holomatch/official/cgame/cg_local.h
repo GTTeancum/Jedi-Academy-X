@@ -1341,6 +1341,11 @@ void CG_AddLagometerSnapshotInfo( snapshot_t *snap );
 void CG_CenterPrint( const char *str, int y, int charWidth );
 void CG_DrawHead( float x, float y, float w, float h, int clientNum, vec3_t headAngles );
 void CG_DrawActive( stereoFrame_t stereoView );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
+	const float *vieworg, const float *viewaxis, float fovX, float fovY, int viewTime );
+void STEFX_HM_CG_DrawSplitGlobalHud( void );
+#endif
 void CG_DrawFlagModel( float x, float y, float w, float h, int team );
 void CG_DrawTeamBackground( int x, int y, int w, int h, float alpha, int team, qboolean scoreboard );
 void CG_DrawNumField (int x, int y, int width, int value,int charWidth,int charHeight,int style);
@@ -1417,7 +1422,7 @@ void CG_MissileHitWall( centity_t *cent, int weapon, vec3_t origin, vec3_t dir )
 void CG_MissileHitPlayer( centity_t *cent, int weapon, vec3_t origin, vec3_t dir);
 
 void CG_AddViewWeapon (playerState_t *ps);
-void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent );
+void CG_AddPlayerWeapon( refEntity_t *parent, playerState_t *ps, centity_t *cent, const refdef_t *weaponView );
 void CG_DrawWeaponSelect( void );
 
 void CG_OutOfAmmoChange( qboolean altfire );	// should this be in pmove?

@@ -243,6 +243,58 @@ typedef struct {
 	int		snapshotEntities[MAX_SNAPSHOT_ENTITIES];	
 } snapshotEntityNumbers_t;
 
+#if defined(STEFX_SP_HOSTED_MP)
+extern "C" volatile unsigned int g_SPXBHMSplitSnapshotSerial[4];
+extern "C" volatile unsigned int g_SPXBHMSplitSnapshotBefore[4];
+extern "C" volatile unsigned int g_SPXBHMSplitSnapshotAfter[4];
+extern "C" volatile unsigned int g_SPXBHMSplitSnapshotAdded[4];
+
+static int SV_STEFX_HolomatchSplitPlayerCount(void)
+{
+	const char *mode;
+	int players;
+
+	if (!Cvar_VariableIntegerValue("stefx_splitScreen"))
+	{
+		return 1;
+	}
+	mode = Cvar_VariableString("stefx_splitScreenMode");
+	if (!mode || Q_stricmp(mode, "holomatch"))
+	{
+		return 1;
+	}
+	players = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+	if (players <= 0)
+	{
+		players = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
+	}
+	if (players < 1)
+	{
+		players = 1;
+	}
+	if (players > 4)
+	{
+		players = 4;
+	}
+	return players;
+}
+
+static qboolean SV_STEFX_ShouldMergeHolomatchSplitSnapshot(const client_t *client, int *players)
+{
+	int splitPlayers = SV_STEFX_HolomatchSplitPlayerCount();
+
+	if (players)
+	{
+		*players = splitPlayers;
+	}
+	if (!svs.clients || !client || client != &svs.clients[0] || splitPlayers < 2)
+	{
+		return qfalse;
+	}
+	return qtrue;
+}
+#endif
+
 /*
 =======================
 SV_QsortEntityNumbers
@@ -863,7 +915,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 	int stefxBorg1BypassSent = 0;
 	static int s_stefxBorg1BypassLogBudget = 32;
 	static int s_stefxSnapshotEventScanBudget = 256;
-#if defined(STEFX_SP_HOSTED_MP)
+#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	static int s_stefxEventRouteLogBudget = 32;
 #endif
 #endif
@@ -1137,6 +1189,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			 ( ( ent->svFlags & SVF_NOTSINGLECLIENT ) &&
 			   ent->singleClient == frame->ps.clientNum ) )
 		{
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 			if ( ent->s.eType > ET_EVENTS && s_stefxEventRouteLogBudget > 0 )
 			{
 				XBLog_WriteCriticalf("STEFX_HM_EVENT_ROUTE: reject viewer=%d source=%d ent=%d flags=0x%x single=%d eType=%d",
@@ -1148,6 +1201,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					ent->s.eType);
 				--s_stefxEventRouteLogBudget;
 			}
+#endif
 			continue;
 		}
 #endif
@@ -1695,6 +1749,82 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 #endif
 }
 
+#if defined(STEFX_SP_HOSTED_MP)
+static void SV_STEFX_AddHolomatchSplitVisibility(clientSnapshot_t *frame,
+	snapshotEntityNumbers_t *entityNumbers, int localPlayers)
+{
+	int slot;
+	static int s_stefxSplitSnapshotLogBudget = 24;
+
+	if (!frame || !entityNumbers || !svs.clients || localPlayers < 2)
+	{
+		return;
+	}
+
+	for (slot = 1; slot < localPlayers && slot < 4 && slot < MAX_CLIENTS; ++slot)
+	{
+		client_t *client = &svs.clients[slot];
+		playerState_t *player = client->gentity ? client->gentity->client : NULL;
+		vec3_t viewOrg;
+		byte savedAreaBits[MAX_MAP_AREA_BYTES];
+		int savedAreaBytes;
+		int entsBefore;
+		int i;
+
+		if (client->state != CS_ACTIVE || !client->stefxHolomatchLocal ||
+			!client->gentity || !player)
+		{
+			continue;
+		}
+
+		VectorCopy(player->origin, viewOrg);
+		viewOrg[2] += player->viewheight;
+		memcpy(savedAreaBits, frame->areabits, sizeof(savedAreaBits));
+		savedAreaBytes = frame->areabytes;
+		entsBefore = entityNumbers->numSnapshotEntities;
+
+		SV_AddEntitiesVisibleFromPoint(viewOrg, frame, entityNumbers, qtrue);
+
+		if (frame->areabytes < savedAreaBytes)
+		{
+			frame->areabytes = savedAreaBytes;
+		}
+		for (i = 0; i < MAX_MAP_AREA_BYTES; ++i)
+		{
+			frame->areabits[i] |= savedAreaBits[i];
+		}
+
+#ifdef _XBOX
+		if (slot >= 0 && slot < 4)
+		{
+			++g_SPXBHMSplitSnapshotSerial[slot];
+			g_SPXBHMSplitSnapshotBefore[slot] = (unsigned int)entsBefore;
+			g_SPXBHMSplitSnapshotAfter[slot] = (unsigned int)entityNumbers->numSnapshotEntities;
+			g_SPXBHMSplitSnapshotAdded[slot] =
+				(unsigned int)(entityNumbers->numSnapshotEntities - entsBefore);
+		}
+		if (s_stefxSplitSnapshotLogBudget > 0)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_SPLIT_SNAPSHOT: slot=%d entsBefore=%d entsAfter=%d added=%d areaBytes=%d view=(%g,%g,%g) state=%d local=%d",
+				slot,
+				entsBefore,
+				entityNumbers->numSnapshotEntities,
+				entityNumbers->numSnapshotEntities - entsBefore,
+				frame->areabytes,
+				viewOrg[0],
+				viewOrg[1],
+				viewOrg[2],
+				client->state,
+				client->stefxHolomatchLocal ? 1 : 0);
+			--s_stefxSplitSnapshotLogBudget;
+		}
+#else
+		(void)s_stefxSplitSnapshotLogBudget;
+#endif
+	}
+}
+#endif
+
 /*
 =============
 SV_BuildClientSnapshot
@@ -1716,6 +1846,9 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	gentity_t					*ent;
 	entityState_t				*state;
 	gentity_t					*clent;
+#if defined(STEFX_SP_HOSTED_MP)
+	int							stefxHolomatchSplitPlayers = 1;
+#endif
 #ifdef _XBOX
 	static int s_xboxBuildSnapshotLogBudget = 0;
 	const qboolean xboxTraceBuild = (s_xboxBuildSnapshotLogBudget > 0);
@@ -1900,6 +2033,13 @@ static clientSnapshot_t *SV_BuildClientSnapshot( client_t *client ) {
 	#ifdef _XBOX
 	s_xboxSnapshotCameraView = qfalse;
 	#endif
+
+#if defined(STEFX_SP_HOSTED_MP)
+	if (SV_STEFX_ShouldMergeHolomatchSplitSnapshot(client, &stefxHolomatchSplitPlayers))
+	{
+		SV_STEFX_AddHolomatchSplitVisibility(frame, &entityNumbers, stefxHolomatchSplitPlayers);
+	}
+#endif
 
 #if !defined(STEFX_ELITE_FORCE_SP)
 	// A scripted viewEntity can move the rendered camera far from the player's
@@ -2229,6 +2369,14 @@ void SV_SendClientMessages( void ) {
 			continue;		// not connected
 		}
 
+#if defined(STEFX_SP_HOSTED_MP)
+		if (c->stefxHolomatchLocal) {
+#ifdef _XBOX
+			if (xboxTraceMessages) Com_PrintfAlways("JA: SV_SendClientMessages skip local split i=%d\n", i);
+#endif
+			continue;
+		}
+#endif
 		if ( sv.time < c->nextSnapshotTime ) {
 #ifdef _XBOX
 			if (xboxTraceMessages)

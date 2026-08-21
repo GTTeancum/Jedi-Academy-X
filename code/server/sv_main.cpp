@@ -12,11 +12,13 @@ extern void STEFX_HolomatchHostAfterGameFrame(int levelTime);
 #endif
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 extern "C" volatile unsigned int g_SPXBSvFrameCount;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBPerfServerTicks;
 extern "C" volatile unsigned int g_SPXBPerfServerLastGameMsec;
 extern "C" volatile unsigned int g_SPXBPerfServerMaxGameMsec;
+#endif
 #endif
 /*
 Ghoul2 Insert Start
@@ -33,6 +35,9 @@ server_t		sv;					// local server
 game_export_t	*ge;
 
 cvar_t	*sv_fps;				// time rate for running non-clients
+#ifdef _XBOX
+cvar_t	*stefx_maxCatchupTicks;
+#endif
 cvar_t	*sv_timeout;			// seconds without any message
 cvar_t	*sv_zombietime;			// seconds to sink messages after disconnect
 cvar_t	*sv_reconnectlimit;		// minimum seconds between connect messages
@@ -493,6 +498,15 @@ void SV_CalcPings (void) {
 		if ( cl->state != CS_ACTIVE ) {
 			continue;
 		}
+#if defined(STEFX_SP_HOSTED_MP)
+		if ( cl->stefxHolomatchLocal ) {
+			cl->ping = 0;
+			if ( cl->gentity && cl->gentity->client ) {
+				cl->gentity->client->ping = 0;
+			}
+			continue;
+		}
+#endif
 		if ( cl->gentity->svFlags & SVF_BOT ) {
 			continue;
 		}
@@ -548,6 +562,13 @@ void SV_CheckTimeouts( void ) {
 			cl->lastPacketTime = sv.time;
 		}
 
+#if defined(STEFX_SP_HOSTED_MP)
+		if (cl->stefxHolomatchLocal) {
+			cl->lastPacketTime = sv.time;
+			cl->timeoutCount = 0;
+			continue;
+		}
+#endif
 		if (cl->state == CS_ZOMBIE
 		&& cl->lastPacketTime < zombiepoint) {
 			cl->state = CS_FREE;	// can now be reused
@@ -614,10 +635,12 @@ void SV_Frame( int msec,float fractionMsec ) {
 	int		startTime=0;
 #ifdef _XBOX
 	unsigned int xboxGameTicks = 0;
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	unsigned int xboxLastGameMsec = 0;
 	unsigned int xboxMaxGameMsec = 0;
 #endif
-#ifdef _XBOX
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBSvFrameCount++;
 	g_SPXBPhaseLast = 0x53564631; /* 'SVF1' */
 	static int s_xboxSVFrameLogBudget = 8;
@@ -631,6 +654,9 @@ void SV_Frame( int msec,float fractionMsec ) {
 			sv.timeResidual,
 			svs.clients ? svs.clients[0].state : -1);
 	}
+#elif defined(_XBOX)
+	const qboolean xboxTraceSVFrame = qfalse;
+	static int s_xboxSVFrameLogBudget = 0;
 #endif
 	
 	// the menu kills the server with this cvar
@@ -734,10 +760,22 @@ void SV_Frame( int msec,float fractionMsec ) {
 //	SV_BotFrame( sv.time );
 
 	// run the game simulation in chunks
-	while ( sv.timeResidual >= frameMsec ) {
+	const int maxCatchupTicks =
 #ifdef _XBOX
-		const int xboxGameStart = Sys_Milliseconds();
+		(stefx_maxCatchupTicks && stefx_maxCatchupTicks->integer > 0)
+			? stefx_maxCatchupTicks->integer
+			: 1;
+#else
+		0;
 #endif
+	while ( sv.timeResidual >= frameMsec
+#ifdef _XBOX
+		&& (int)xboxGameTicks < maxCatchupTicks
+#endif
+		) {
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		const int xboxGameStart = Sys_Milliseconds();
+	#endif
 		sv.timeResidual -= frameMsec;
 		sv.time += frameMsec;
 #if !defined(STEFX_ELITE_FORCE_SP)
@@ -757,11 +795,13 @@ void SV_Frame( int msec,float fractionMsec ) {
 #endif
 		ge->RunFrame( sv.time );
 #ifdef _XBOX
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		xboxLastGameMsec = (unsigned int)(Sys_Milliseconds() - xboxGameStart);
 		if (xboxLastGameMsec > xboxMaxGameMsec)
 		{
 			xboxMaxGameMsec = xboxLastGameMsec;
 		}
+#endif
 		xboxGameTicks++;
 #endif
 #if defined(STEFX_SP_HOSTED_MP)
@@ -776,6 +816,16 @@ void SV_Frame( int msec,float fractionMsec ) {
 #endif
 	}
 #ifdef _XBOX
+	// A slow rendered frame must not force enough simulation work to make the
+	// next rendered frame late too. Keep the sub-tick remainder and let the
+	// overloaded local game advance at a sustainable rate.
+	if (sv.timeResidual >= frameMsec)
+	{
+		sv.timeResidual %= frameMsec;
+		sv.timeResidualFraction = 0.0f;
+	}
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPerfServerTicks = xboxGameTicks;
 	g_SPXBPerfServerLastGameMsec = xboxLastGameMsec;
 	g_SPXBPerfServerMaxGameMsec = xboxMaxGameMsec;

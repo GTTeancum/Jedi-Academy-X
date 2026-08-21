@@ -5,14 +5,6 @@
 
 #include "tr_local.h"
 #include "MatComp.h"
-#ifdef _XBOX
-#include "../win32/xb_log.h"
-#endif
-
-#ifdef VV_LIGHTING
-#include "tr_lightmanager.h"
-#endif
-
 extern int R_ComputeLOD( trRefEntity_t *ent );
 
 /*
@@ -127,7 +119,7 @@ static int R_ACullModel( md4Header_t *header, trRefEntity_t *ent ) {
 }
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent, qboolean logCull )
+static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent )
 {
 	int cull;
 
@@ -141,26 +133,8 @@ static int R_STEFX_ACullModel( md4Header_t *header, trRefEntity_t *ent, qboolean
 	VectorCopy( ent->e.origin, center );
 	center[2] += 32.0f;
 	cull = R_CullPointAndRadius( center, 128.0f );
-	if ( logCull )
-	{
-		XBLF( "STEFX: R_AddAnimSurfaces EF MDR cull fallback ent=%d h=%d model='%s' coarse=%d center=(%g,%g,%g)",
-			ent->e.number,
-			ent->e.hModel,
-			tr.currentModel ? tr.currentModel->name : "(null)",
-			cull,
-			center[0],
-			center[1],
-			center[2] );
-	}
 	if ( cull == CULL_OUT )
 	{
-		if ( logCull )
-		{
-			XBLF( "STEFX: R_AddAnimSurfaces EF MDR cull out ent=%d h=%d model='%s'",
-				ent->e.number,
-				ent->e.hModel,
-				tr.currentModel ? tr.currentModel->name : "(null)" );
-		}
 		return CULL_OUT;
 	}
 	return CULL_CLIP;
@@ -248,38 +222,8 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	qboolean		personalModel;
 	int				cull;
 	int				i, whichLod;
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	static int		s_stefxAnimSurfEnterBudget = 0;
-	static int		s_stefxAnimSurfCullBudget = 0;
-	static int		s_stefxAnimSurfVisibleBudget = 0;
-	qboolean		stefxTrackAnimSurf = qfalse;
-	qboolean		stefxLogAnimSurf = qfalse;
-#endif
 	// don't add third_person objects if not in a portal
 	personalModel = (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal;
-
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( tr.refdef.time >= 65000 &&
-		tr.currentModel && strstr( tr.currentModel->name, "models/players/" ) )
-	{
-		stefxTrackAnimSurf = qtrue;
-		if ( s_stefxAnimSurfEnterBudget > 0 )
-		{
-			--s_stefxAnimSurfEnterBudget;
-			XBLF( "STEFX: R_AddAnimSurfaces enter ent=%d h=%d model='%s' frame=%d old=%d rf=0x%x personal=%d origin=(%g,%g,%g)",
-				ent->e.number,
-				ent->e.hModel,
-				tr.currentModel ? tr.currentModel->name : "(null)",
-				ent->e.frame,
-				ent->e.oldframe,
-				ent->e.renderfx,
-				personalModel,
-				ent->e.origin[0],
-				ent->e.origin[1],
-				ent->e.origin[2] );
-		}
-	}
-#endif
 
 	if ( ent->e.renderfx & RF_CAP_FRAMES) {
 		if (ent->e.frame > tr.currentModel->md4->numFrames-1)
@@ -321,23 +265,11 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	// is outside the view frustum.
 	//
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	cull = R_STEFX_ACullModel( header, ent, stefxTrackAnimSurf && s_stefxAnimSurfCullBudget > 0 );
+	cull = R_STEFX_ACullModel( header, ent );
 #else
 	cull = R_ACullModel ( header, ent );
 #endif
 	if ( cull == CULL_OUT ) {
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxTrackAnimSurf && s_stefxAnimSurfCullBudget > 0 )
-		{
-			--s_stefxAnimSurfCullBudget;
-			XBLF( "STEFX: R_AddAnimSurfaces cull out ent=%d h=%d model='%s' frame=%d old=%d",
-				ent->e.number,
-				ent->e.hModel,
-				tr.currentModel ? tr.currentModel->name : "(null)",
-				ent->e.frame,
-				ent->e.oldframe );
-		}
-#endif
 		return;
 	}
 
@@ -350,29 +282,11 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 	{
 		lod = (md4LOD_t*)( (byte *)lod + lod->ofsEnd );
 	}
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( stefxTrackAnimSurf && s_stefxAnimSurfVisibleBudget > 0 )
-	{
-		stefxLogAnimSurf = qtrue;
-		--s_stefxAnimSurfVisibleBudget;
-		XBLF( "STEFX: R_AddAnimSurfaces visible ent=%d h=%d lod=%d surfaces=%d cull=%d",
-			ent->e.number,
-			ent->e.hModel,
-			whichLod,
-			lod->numSurfaces,
-			cull );
-	}
-#endif
-
 	//
 	// set up lighting now that we know we aren't culled
 	//
 	if ( !personalModel || r_shadows->integer > 1 ) {
-#ifdef VV_LIGHTING
-		VVLightMan.R_SetupEntityLighting( &tr.refdef, ent );
-#else
 		R_SetupEntityLighting( &tr.refdef, ent );
-#endif
 	}
 
 	//
@@ -409,20 +323,6 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 		} else {
 			shader = R_GetShaderByHandle( surface->shaderIndex );
 		}
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( stefxLogAnimSurf && i < 4 )
-		{
-			XBLF( "STEFX: R_AddAnimSurfaces surface ent=%d h=%d i=%d name='%s' shader='%s' fog=%d customSkin=%d default=%d",
-				ent->e.number,
-				ent->e.hModel,
-				i,
-				surface->name,
-				shader ? shader->name : "(null)",
-				fogNum,
-				ent->e.customSkin,
-				shader == tr.defaultShader );
-		}
-#endif
 		// we will add shadows even if the main object isn't visible in the view
 
 		// stencil shadows can't do personal models unless I polyhedron clip
@@ -460,16 +360,95 @@ void R_AddAnimSurfaces( trRefEntity_t *ent ) {
 RB_SurfaceAnim
 ==============
 */
+
+#define STEFX_MDR_PALETTE_CACHE_SLOTS 8
+
+typedef struct {
+	qboolean			valid;
+	const trRefEntity_t	*entity;
+	const md4Header_t	*header;
+	int				frame;
+	int				oldFrame;
+	float				backlerp;
+	int				renderTime;
+	md4Bone_t			bones[MD4_MAX_BONES];
+} stefxMdrPaletteCache_t;
+
+static stefxMdrPaletteCache_t s_stefxMdrPaletteCache[STEFX_MDR_PALETTE_CACHE_SLOTS];
+static int s_stefxMdrPaletteReplacement;
+
+static md4Bone_t *RB_GetAnimBonePalette( md4Header_t *header, float frontlerp, float backlerp,
+	md4Frame_t *frame, md4Frame_t *oldFrame, md4CompFrame_t *cframe, md4CompFrame_t *coldFrame,
+	qboolean compressed ) {
+	stefxMdrPaletteCache_t *cache;
+	int i, j;
+	md4Bone_t tbone[2];
+
+	if ( !backlerp && !compressed ) {
+		return frame->bones;
+	}
+
+	cache = NULL;
+	for ( i = 0; i < STEFX_MDR_PALETTE_CACHE_SLOTS; ++i ) {
+		stefxMdrPaletteCache_t *candidate = &s_stefxMdrPaletteCache[i];
+		if ( candidate->valid &&
+			candidate->entity == backEnd.currentEntity &&
+			candidate->header == header &&
+			candidate->frame == backEnd.currentEntity->e.frame &&
+			candidate->oldFrame == backEnd.currentEntity->e.oldframe &&
+			candidate->backlerp == backlerp &&
+			candidate->renderTime == backEnd.refdef.time ) {
+			return candidate->bones;
+		}
+		if ( !cache && ( !candidate->valid || candidate->renderTime != backEnd.refdef.time ) ) {
+			cache = candidate;
+		}
+	}
+
+	if ( !cache ) {
+		cache = &s_stefxMdrPaletteCache[s_stefxMdrPaletteReplacement];
+		s_stefxMdrPaletteReplacement = ( s_stefxMdrPaletteReplacement + 1 ) % STEFX_MDR_PALETTE_CACHE_SLOTS;
+	}
+
+	cache->valid = qtrue;
+	cache->entity = backEnd.currentEntity;
+	cache->header = header;
+	cache->frame = backEnd.currentEntity->e.frame;
+	cache->oldFrame = backEnd.currentEntity->e.oldframe;
+	cache->backlerp = backlerp;
+	cache->renderTime = backEnd.refdef.time;
+
+	if ( compressed ) {
+		for ( i = 0; i < header->numBones; ++i ) {
+			if ( !backlerp ) {
+				MC_UnCompress( cache->bones[i].matrix, cframe->bones[i].Comp );
+			} else {
+				MC_UnCompress( tbone[0].matrix, cframe->bones[i].Comp );
+				MC_UnCompress( tbone[1].matrix, coldFrame->bones[i].Comp );
+				for ( j = 0; j < 12; ++j ) {
+					((float *)&cache->bones[i])[j] = frontlerp * ((float *)&tbone[0])[j]
+						+ backlerp * ((float *)&tbone[1])[j];
+				}
+			}
+		}
+	} else {
+		for ( i = 0; i < header->numBones * 12; ++i ) {
+			((float *)cache->bones)[i] = frontlerp * ((float *)frame->bones)[i]
+				+ backlerp * ((float *)oldFrame->bones)[i];
+		}
+	}
+
+	return cache->bones;
+}
+
 void RB_SurfaceAnim( md4Surface_t *surface ) {
-	int				i, j, k;
+	int				j, k;
 	float			frontlerp, backlerp;
 	int				*triangles;
 	int				indexes;
 	int				baseIndex, baseVertex;
 	int				numVerts;
 	md4Vertex_t		*v;
-	md4Bone_t		bones[MD4_MAX_BONES];
-	md4Bone_t		tbone[2];
 	md4Bone_t		*bonePtr, *bone;
 	md4Header_t		*header;
 	md4Frame_t		*frame=0;
@@ -519,38 +498,8 @@ void RB_SurfaceAnim( md4Surface_t *surface ) {
 	}
 	tess.numIndexes += indexes;
 
-	//
-	// lerp all the needed bones
-	//
-	if ( !backlerp && !compressed)
-		// no lerping needed
-		bonePtr = frame->bones;
-	else 
-	{
-		bonePtr = bones;
-		if (compressed)
-		{
-			for ( i = 0 ; i < header->numBones ; i++ ) 
-			{
-				if ( !backlerp )
-					MC_UnCompress(bonePtr[i].matrix,cframe->bones[i].Comp);
-				else
-				{
-					MC_UnCompress(tbone[0].matrix,cframe->bones[i].Comp);
-					MC_UnCompress(tbone[1].matrix,coldFrame->bones[i].Comp);
-					for ( j = 0 ; j < 12 ; j++ ) 
-						((float *)&bonePtr[i])[j] = frontlerp * ((float *)&tbone[0])[j]
-							+ backlerp * ((float *)&tbone[1])[j];
-				}
-			}
-		}
-		else
-		{
-			for ( i = 0 ; i < header->numBones*12 ; i++ ) 
-				((float *)bonePtr)[i] = frontlerp * ((float *)frame->bones)[i]
-					+ backlerp * ((float *)oldFrame->bones)[i];
-		}
-	}
+	bonePtr = RB_GetAnimBonePalette( header, frontlerp, backlerp, frame, oldFrame,
+		cframe, coldFrame, compressed );
 
 	//
 	// deform the vertexes by the lerped bones

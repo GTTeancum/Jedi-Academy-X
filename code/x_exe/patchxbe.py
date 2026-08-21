@@ -168,11 +168,12 @@ if new_init_flags != old_init_flags:
     struct.pack_into('<I', xbe, 0x124, new_init_flags)
     print("  InitFlags: 0x%08X -> 0x%08X" % (old_init_flags, new_init_flags))
 
-# Match the retail process stack reservation.  Retail SP commits 0x20000;
-# imagebld's output from this Win32 toolchain has been larger, which steals
-# memory from the same constrained 64MB address space as texture heaps.
+# Match each shipping personality's process stack reservation.  The working
+# SP/co-op executable commits 0x20000, while retail JA multiplayer commits
+# 0x40000.  Keep this distinction in XBE metadata without forking shared code.
 old_stack_commit = struct.unpack_from('<I', xbe, 0x130)[0]
-retail_stack_commit = 0x00020000
+is_holomatch_xbe = os.path.basename(xbe_path).lower() == 'efmp.xbe'
+retail_stack_commit = 0x00040000 if is_holomatch_xbe else 0x00020000
 if old_stack_commit != retail_stack_commit:
     struct.pack_into('<I', xbe, 0x130, retail_stack_commit)
     print("  StackCommit: 0x%08X -> 0x%08X" % (old_stack_commit, retail_stack_commit))

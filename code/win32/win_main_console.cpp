@@ -27,9 +27,17 @@ extern "C" volatile unsigned int g_SPXBClsState;
 extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBComSubphase;
 extern "C" volatile unsigned int g_SPXBComFrameCount;
+extern "C" volatile unsigned int g_SPXBMainTailStage;
 extern "C" volatile unsigned int g_SPXBDirectMapStatus;
 extern "C" volatile unsigned int g_SPXBDirectMapHash;
 extern "C" volatile unsigned int g_SPXBDirectMapQueuedCount;
+extern "C" volatile unsigned int g_SPXBCGameEntryCurrent;
+extern "C" volatile unsigned int g_SPXBCGameEntryExpected;
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+extern "C" volatile unsigned int g_SPXBPerfLoopMsec;
+extern "C" volatile unsigned int g_SPXBPerfInputMsec;
+extern "C" volatile unsigned int g_SPXBPerfMenuMsec;
+#endif
 
 /* NT kernel prototypes for the early main() probe (file-scope required by VC71) */
 extern "C" long __stdcall NtCreateFile(void**, unsigned long, void*, void*,
@@ -53,6 +61,12 @@ extern byte		sys_packetReceived[MAX_MSGLEN];
 #ifdef _XBOX
 bool g_xboxDirectMapBootQueued = false;
 static bool s_xboxDirectMapMarkerConsumed = false;
+static bool s_xboxDirectMapProbeComplete = false;
+static bool s_xboxDirectMapProbeResult = false;
+static bool s_xboxMenuMapQueued = false;
+static char s_xboxMenuMapName[MAX_QPATH];
+static char s_xboxMenuMapMode[16];
+static int s_xboxMenuMapPlayers = 1;
 
 enum stefxLaunchIntent_t
 {
@@ -156,7 +170,7 @@ static bool Sys_XboxNormalBootRequested(void)
 	return false;
 }
 
-static bool Sys_XboxDirectMapRequested(void)
+static bool Sys_XboxDirectMapRequestedUncached(void)
 {
 	char startupMap[MAX_QPATH];
 	const char *startupMapPaths[] = {
@@ -190,6 +204,19 @@ static bool Sys_XboxDirectMapRequested(void)
 	return false;
 }
 
+static bool Sys_XboxDirectMapRequested(void)
+{
+	if (!s_xboxDirectMapProbeComplete)
+	{
+		s_xboxDirectMapProbeResult = Sys_XboxDirectMapRequestedUncached();
+		s_xboxDirectMapProbeComplete = true;
+		XBLF("STEFX: direct-map startup probe result=%d; cached for process lifetime",
+			s_xboxDirectMapProbeResult ? 1 : 0);
+	}
+
+	return s_xboxDirectMapProbeResult;
+}
+
 bool Sys_IsDirectMapBoot(void)
 {
 	return !s_xboxDirectMapMarkerConsumed &&
@@ -209,6 +236,122 @@ void Sys_ClearDirectMapBoot(void)
 	}
 	g_xboxDirectMapBootQueued = false;
 	s_xboxDirectMapMarkerConsumed = true;
+}
+
+bool Sys_XboxQueueMenuMap(const char *mapName, const char *mode, int players)
+{
+	g_SPXBDirectMapStatus = 120;
+	if (!mapName || !mapName[0] || s_xboxMenuMapQueued)
+	{
+		g_SPXBDirectMapStatus = 121;
+		return false;
+	}
+
+	g_SPXBDirectMapStatus = 122;
+	Q_strncpyz(s_xboxMenuMapName, mapName, sizeof(s_xboxMenuMapName));
+	g_SPXBDirectMapStatus = 123;
+	Q_strncpyz(s_xboxMenuMapMode, mode && mode[0] ? mode : "sp", sizeof(s_xboxMenuMapMode));
+	g_SPXBDirectMapStatus = 124;
+	if (players < 1)
+	{
+		players = 1;
+	}
+	else if (players > 4)
+	{
+		players = 4;
+	}
+	s_xboxMenuMapPlayers = players;
+	s_xboxMenuMapQueued = true;
+	g_xboxDirectMapBootQueued = true;
+	s_xboxDirectMapMarkerConsumed = false;
+	g_SPXBDirectMapStatus = 125;
+	XBLF("STEFX: queued menu map for outside-frame execution map='%s' mode='%s' players=%d",
+		s_xboxMenuMapName, s_xboxMenuMapMode, s_xboxMenuMapPlayers);
+	if (!Q_stricmp(s_xboxMenuMapMode, "holomatch"))
+	{
+		XBLF("STEFX_HM_SPLIT_LAUNCH: source=queue map='%s' split=%d players=%d mode='%s' localPlayers=%d virtual=%d virtualP1=%d",
+			s_xboxMenuMapName,
+			s_xboxMenuMapPlayers >= 2 ? 1 : 0,
+			s_xboxMenuMapPlayers,
+			s_xboxMenuMapMode,
+			s_xboxMenuMapPlayers,
+			s_xboxMenuMapPlayers >= 4 ? 1 : 0,
+			s_xboxMenuMapPlayers >= 4 ? 1 : 0);
+	}
+	g_SPXBDirectMapStatus = 126;
+	g_SPXBDirectMapQueuedCount++;
+	return true;
+}
+
+static void Sys_XboxExecuteMenuMap(void)
+{
+	char mapName[MAX_QPATH];
+	char mode[16];
+	int players;
+
+	if (!s_xboxMenuMapQueued)
+	{
+		return;
+	}
+
+	Q_strncpyz(mapName, s_xboxMenuMapName, sizeof(mapName));
+	Q_strncpyz(mode, s_xboxMenuMapMode, sizeof(mode));
+	players = s_xboxMenuMapPlayers;
+	s_xboxMenuMapQueued = false;
+	s_xboxMenuMapName[0] = '\0';
+	s_xboxMenuMapMode[0] = '\0';
+	XBLF("STEFX: executing menu map outside Com_Frame map='%s' mode='%s' players=%d",
+		mapName, mode, players);
+	if (!Q_stricmp(mode, "holomatch"))
+	{
+		Cvar_Set("sv_maxclients", "8");
+		Cvar_Set("g_gametype", "0");
+		Cvar_Set("fraglimit", "0");
+		Cvar_Set("timelimit", "0");
+		Cvar_Set("bot_enable", "1");
+		Cvar_Set("bot_minplayers", players >= 4 ? "7" : "3");
+		Cvar_Set("g_spSkill", players >= 4 ? "2" : "1");
+		Cvar_Set("stefx_hmLocalPlayers", va("%d", players));
+		Cvar_Set("stefx_hm_split_economy", players >= 4 ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls", players >= 4 ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4 ? "1" : "0");
+	}
+	Cbuf_ExecuteText(EXEC_NOW, va("map %s", mapName));
+
+	/* VM cvar registration during map setup restores these defaults.  Reapply the
+	   frontend-selected mode after the synchronous map command has returned. */
+	Cvar_Set("stefx_splitScreen", players >= 2 ? "1" : "0");
+	Cvar_Set("stefx_splitScreenPlayers", va("%d", players));
+	Cvar_Set("stefx_splitScreenMode", mode);
+	Cvar_Set("stefx_splitScreenP2Entity", "-1");
+	Cvar_Set("cg_virtualVoyager", "0");
+	if (!Q_stricmp(mode, "holomatch"))
+	{
+		Cvar_Set("bot_enable", "1");
+		Cvar_Set("bot_minplayers", players >= 4 ? "7" : "3");
+		Cvar_Set("g_spSkill", players >= 4 ? "2" : "1");
+		Cvar_Set("stefx_hmLocalPlayers", va("%d", players));
+		Cvar_Set("stefx_hm_split_economy", players >= 4 ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls", players >= 4 ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4 ? "1" : "0");
+	}
+	XBLF("STEFX: menu map outside-frame execution returned map='%s' split=%d players=%d mode='%s'",
+		mapName,
+		Cvar_VariableIntegerValue("stefx_splitScreen"),
+		Cvar_VariableIntegerValue("stefx_splitScreenPlayers"),
+		Cvar_VariableString("stefx_splitScreenMode"));
+	if (!Q_stricmp(mode, "holomatch"))
+	{
+		XBLF("STEFX_HM_SPLIT_LAUNCH: source=execute map='%s' split=%d players=%d mode='%s' localPlayers=%d virtual=%d virtualP1=%d economy=%d",
+			mapName,
+			Cvar_VariableIntegerValue("stefx_splitScreen"),
+			Cvar_VariableIntegerValue("stefx_splitScreenPlayers"),
+			Cvar_VariableString("stefx_splitScreenMode"),
+			Cvar_VariableIntegerValue("stefx_hmLocalPlayers"),
+			Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls"),
+			Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1"),
+			Cvar_VariableIntegerValue("stefx_hm_split_economy"));
+	}
 }
 
 static bool Sys_XboxQueueDirectMapBoot(void)
@@ -255,15 +398,25 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 		builtInLaunchIntent = true;
 		useDevMap = false;
 		Cbuf_AddText("set fs_game BaseEF\n");
+		Cbuf_AddText("set stefx_splitScreen 1\n");
+		Cbuf_AddText("set stefx_splitScreenPlayers 4\n");
+		Cbuf_AddText("set stefx_splitScreenMode holomatch\n");
+		Cbuf_AddText("set stefx_hmLocalPlayers 4\n");
+		Cbuf_AddText("set stefx_hm_split_economy 1\n");
+		Cbuf_AddText("set stefx_hm_split_virtual_controls 1\n");
+		Cbuf_AddText("set stefx_hm_split_virtual_controls_p1 1\n");
+		Cbuf_AddText("set stefx_hm_launch_source xbe\n");
+		Cbuf_AddText("set stefx_splitScreenP2Entity -1\n");
 		Cbuf_AddText("set model munro/default\n");
-		Cbuf_AddText("set sv_maxclients 4\n");
+		Cbuf_AddText("set sv_maxclients 8\n");
 		Cbuf_AddText("set g_gametype 0\n");
 		Cbuf_AddText("set fraglimit 0\n");
 		Cbuf_AddText("set timelimit 0\n");
 		Cbuf_AddText("set bot_enable 1\n");
-		Cbuf_AddText("set bot_minplayers 3\n");
-		Cbuf_AddText("set g_spSkill 1\n");
+		Cbuf_AddText("set bot_minplayers 7\n");
+		Cbuf_AddText("set g_spSkill 2\n");
 		XBL("STEFX: applying Holomatch XBE launch intent\n");
+		XBL("STEFX_HM_SPLIT_LAUNCH: source=xbe map='hm_borg1' split=1 players=4 mode='holomatch' localPlayers=4 virtual=1 virtualP1=1 economy=1\n");
 	}
 #else
 	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_COOP)
@@ -272,7 +425,6 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 		startupMapSource = "XBE cooperative launch intent";
 		builtInLaunchIntent = true;
 		useDevMap = false;
-		treatAsDirectMap = false;
 		Cbuf_AddText("set stefx_splitScreen 1\n");
 		Cbuf_AddText("set stefx_splitScreenPlayers 2\n");
 		Cbuf_AddText("set stefx_splitScreenMode coop\n");
@@ -1002,37 +1154,14 @@ int main(int argc, char* argv[])
 #endif
 
 #ifdef _XBOX
-	/* Plan-B (OpenJKDF2 1:1): XInitDevices MUST come before Direct3D
-	 * init.  Per OpenJKDF2's main_xbox.c comment (lines 58-64): "XDK
-	 * requirement: XInitDevices must be called before
-	 * Direct3D_CreateDevice (ordering required by the USB host
-	 * controller initialisation sequence on NV2A hardware)."
-	 *
-	 * JKA's original IN_Init calls XInitDevices AFTER GLW_Init has
-	 * already done CreateDevice — wrong order — which causes
-	 * FakeSwapBuffers / Present to hang in the stability loop (USB
-	 * host controller never properly armed, GPU never advances).
-	 *
-	 * Match OpenJKDF2's preallocation: 4 gamepads + 8 memory units. */
-	{
-		XDEVICE_PREALLOC_TYPE xdpt[2];
-		xdpt[0].DeviceType      = XDEVICE_TYPE_GAMEPAD;
-		xdpt[0].dwPreallocCount = 4;
-		xdpt[1].DeviceType      = XDEVICE_TYPE_MEMORY_UNIT;
-		xdpt[1].dwPreallocCount = 8;
-		g_SPXBBootPhase = 0x213;
-		XBL("Plan-B: calling XInitDevices BEFORE D3D init\n");
-		XInitDevices(2, xdpt);
-		g_SPXBBootPhase = 0x214;
-		XBL("Plan-B: XInitDevices done\n");
-	}
-	/* Mark in win_input_xbox.cpp's static flag so IN_Init doesn't
-	 * call XInitDevices again (the XDK only allows ONE call). */
-	{
-		extern bool g_XInitDevicesAlreadyCalled;
-		g_XInitDevicesAlreadyCalled = true;
-	}
+	/* Match shipping JA MP startup: configure D3D here and let the later input
+	 * subsystem own the process-wide XInitDevices call. */
 	g_SPXBBootPhase = 0x215;
+	/* Shipping JA Xbox reserves a 1 MiB primary push buffer and starts a
+	 * kickoff with 128 KiB remaining.  Keep this in the shared engine startup
+	 * so campaign, cooperative, and Holomatch use the same retail policy. */
+	Direct3D_SetPushBufferSize(1024 * 1024, 128 * 1024);
+	XBL("Retail D3D pushbuffer configured: 1048576/131072\n");
 #endif
 
 	// get the initial time base
@@ -1161,64 +1290,36 @@ int main(int argc, char* argv[])
 #endif
 
 	// main game loop
-	int xboxMainLoopCount = 0;
-	while( 1 ) {
-		const bool xboxTraceMainLoop = (xboxMainLoopCount < 8);
-		const bool xboxTraceMainLoopLate = (cls.state == CA_ACTIVE && cls.framecount >= 8 && cls.framecount <= 40);
-#ifdef _XBOX
-		g_SPXBMainLoopCount = (unsigned int)xboxMainLoopCount;
-		g_SPXBClsState = (unsigned int)cls.state;
-		g_SPXBPhaseLast = 0x4D414931; /* 'MAI1' */
-#endif
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d top clsFrame=%d state=%d realtime=%d cframe=%u", xboxMainLoopCount, cls.framecount, (int)cls.state, cls.realtime, g_SPXBComFrameCount);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before IN_Frame", xboxMainLoopCount);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before IN_Frame clsFrame=%d", xboxMainLoopCount, cls.framecount);
-		IN_Frame();
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after IN_Frame clsFrame=%d", xboxMainLoopCount, cls.framecount);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after IN_Frame", xboxMainLoopCount);
-	#ifdef _XBOX
-		g_SPXBPhaseLast = 0x4D434631; /* 'MCF1' */
-		g_SPXBComSubphase = 0;
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	int xboxLastLoopStart = 0;
 	#endif
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
+	while( 1 ) {
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		const int xboxLoopStart = Sys_Milliseconds();
+		if (xboxLastLoopStart != 0)
+		{
+			g_SPXBPerfLoopMsec = (unsigned int)(xboxLoopStart - xboxLastLoopStart);
+		}
+		xboxLastLoopStart = xboxLoopStart;
+		const int xboxInputStart = Sys_Milliseconds();
+		#endif
+		IN_Frame();
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBPerfInputMsec = (unsigned int)(Sys_Milliseconds() - xboxInputStart);
+		const int xboxMenuStart = Sys_Milliseconds();
+		#endif
+#ifdef _XBOX
+		Sys_XboxExecuteMenuMap();
+#endif
+		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBPerfMenuMsec = (unsigned int)(Sys_Milliseconds() - xboxMenuStart);
+		#endif
 		Com_Frame();
-#ifdef _XBOX
-		g_SPXBClsState = (unsigned int)cls.state;
-		g_SPXBPhaseLast = 0x4D434632; /* 'MCF2' */
-#endif
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u clsFrame=%d state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, cls.framecount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after Com_Frame phase=%08x sub=%u cframe=%u state=%d sv=%d", xboxMainLoopCount, g_SPXBPhaseLast, g_SPXBComSubphase, g_SPXBComFrameCount, (int)cls.state, com_sv_running ? com_sv_running->integer : -1);
-#ifdef _XBOX
-		const DWORD xboxMainLoopYieldMs = (cls.state >= CA_ACTIVE || (com_sv_running && com_sv_running->integer)) ? 0 : 1;
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before first yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before first yield ms=%lu state=%d clsFrame=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state, cls.framecount);
-		Sleep(xboxMainLoopYieldMs);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after first yield clsFrame=%d", xboxMainLoopCount, cls.framecount);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after first yield", xboxMainLoopCount);
-#else
-		Sleep(1);
-#endif
 
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before DebugConsoleHandleCommands", xboxMainLoopCount);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before DebugConsoleHandleCommands clsFrame=%d", xboxMainLoopCount, cls.framecount);
 		DebugConsoleHandleCommands();
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after DebugConsoleHandleCommands clsFrame=%d", xboxMainLoopCount, cls.framecount);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after DebugConsoleHandleCommands", xboxMainLoopCount);
 #endif
-#ifdef _XBOX
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d before second yield ms=%lu state=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d before second yield ms=%lu state=%d clsFrame=%d", xboxMainLoopCount, xboxMainLoopYieldMs, (int)cls.state, cls.framecount);
-		Sleep(xboxMainLoopYieldMs);
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d after second yield clsFrame=%d", xboxMainLoopCount, cls.framecount);
-		if (xboxTraceMainLoop) XBLF("JA: MAIN_TIGHT loop=%d after second yield", xboxMainLoopCount);
-#else
-		Sleep(1);
-#endif
-		if (xboxTraceMainLoopLate) XBLF("JA: CL_EARLY MAIN_TIGHT loop=%d bottom before increment clsFrame=%d state=%d", xboxMainLoopCount, cls.framecount, (int)cls.state);
-		xboxMainLoopCount++;
 	}
 
 	return 0;
@@ -1929,6 +2030,8 @@ void * Sys_LoadCgame( int (**entryPoint)(int, ...), int (*systemcalls)(int, ...)
 #endif
 	*entryPoint = (int (*)(int,...))cg_vmMain;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBCGameEntryExpected = (unsigned int)cg_vmMain;
+	g_SPXBCGameEntryCurrent = (unsigned int)*entryPoint;
 	XBLF("STEFX: Sys_LoadCgame entry assigned=%p", *entryPoint);
 #endif
 //	CG_PreInit();

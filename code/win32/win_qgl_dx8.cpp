@@ -34,92 +34,746 @@
 
 #ifdef _XBOX
 #include <xgraphics.h>
-//#include "win_flareeffect.h"
 #include "win_lighteffects.h"
 #include "win_highdynamicrange.h"
-#include "win_stencilshadow.h"
+#include "xb_perf.h"
 #include "xb_log.h"
-extern "C" volatile unsigned int g_SPXBPhaseLast;
-extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveCalls;
-extern "C" volatile unsigned int g_SPXBFakeGLPrimitiveVerts;
-extern "C" volatile unsigned int g_SPXBNativeUpCalls;
-extern "C" volatile unsigned int g_SPXBNativeUpBytes;
-extern "C" volatile unsigned int g_SPXBNativePushCalls;
-extern "C" volatile unsigned int g_SPXBNativePushBytes;
-extern "C" volatile unsigned int g_SPXBNativePushReuse;
-extern "C" volatile unsigned int g_SPXBNativePushFallbacks;
-extern "C" volatile unsigned int g_SPXBNativeRingCalls;
-extern "C" volatile unsigned int g_SPXBNativeRingBytes;
-extern "C" volatile unsigned int g_SPXBNativeRingWraps;
-extern "C" volatile unsigned int g_SPXBNativeRingFallbacks;
-extern "C" volatile unsigned int g_SPXBNativeDrawMode;
-extern "C" volatile unsigned int g_SPXBNativeDrawCount;
-extern "C" volatile unsigned int g_SPXBNativeDrawSourceVertices;
-extern "C" volatile unsigned int g_SPXBNativeDrawMaxIndex;
-extern "C" volatile unsigned int g_SPXBNativeDrawStride;
-extern "C" volatile unsigned int g_SPXBNativeDrawIndicesPtr;
-extern "C" volatile unsigned int g_SPXBNativeDrawVerticesPtr;
-extern "C" volatile unsigned int g_SPXBNativeDrawPath;
-extern "C" volatile unsigned int g_SPXBNativeDrawShader;
-extern "C" volatile unsigned int g_SPXBNativeDrawVertexOffset;
-extern "C" volatile unsigned int g_SPXBNativeDrawIndexOffset;
-extern "C" volatile unsigned int g_SPXBNativeDrawVertexBytes;
-extern "C" volatile unsigned int g_SPXBNativeDrawIndexBytes;
-extern "C" volatile unsigned int g_SPXBNativeDrawLockFlags;
-extern "C" volatile unsigned int g_SPXBNativeDrawMinIndex;
 
-#ifndef FINAL_BUILD
+#if !defined(FINAL_BUILD) && !defined(_XBOX_VC71_MIGRATION)
 #include <d3d8perf.h>
 #endif
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+typedef struct stefxShaderRuntimeKey_s
+{
+	unsigned int hash;
+	unsigned int stateBits;
+	unsigned int texture0;
+	unsigned int texture1;
+	short shaderIndex;
+	byte pass;
+	byte slot;
+	byte enableMask;
+	byte env0;
+	byte env1;
+	byte occupied;
+} stefxShaderRuntimeKey_t;
+
+#define STEFX_SHADER_RUNTIME_KEYS 4096
+static stefxShaderRuntimeKey_t s_stefxShaderRuntimeKeys[STEFX_SHADER_RUNTIME_KEYS];
+static unsigned int s_stefxShaderRuntimeKeyCount;
+static unsigned int s_stefxShaderRuntimeDrawCount;
+static unsigned int s_stefxShaderRuntimeMissingTextures;
+static unsigned int s_stefxShaderRuntimeBindingMismatches;
+static unsigned int s_stefxShaderRuntimeStateMismatches;
+static unsigned int s_stefxShaderRuntimeViewportMismatches;
+static unsigned int s_stefxShaderRuntimeResidencyMismatches;
+static unsigned int s_stefxShaderRuntimeMatrixMismatches;
+static unsigned int s_stefxShaderRuntimeInvalidIndices;
+static unsigned int s_stefxShaderRuntimeNonFiniteValues;
+static unsigned int s_stefxShaderRuntimeBlackIdentityColors;
+static unsigned int s_stefxShaderRuntimePackedMismatches;
+static unsigned int s_stefxShaderRuntimePushOverruns;
+static unsigned int s_stefxShaderRuntimeNextSummary;
+static qboolean s_stefxShaderRuntimeStarted;
+static qboolean s_stefxShaderRuntimeTableFullLogged;
+
+typedef struct stefxShaderDataTrace_s
+{
+	qboolean active;
+	unsigned int draw;
+	int slot;
+	int shaderIndex;
+	int pass;
+	int numVertexes;
+	unsigned int xyzHash;
+	unsigned int normalHash;
+	unsigned int colorHash;
+	unsigned int tex0Hash;
+	unsigned int tex1Hash;
+	unsigned int indexHash;
+} stefxShaderDataTrace_t;
+
+static stefxShaderDataTrace_t s_stefxShaderDataTrace;
+
+static unsigned int STEFX_ShaderHashWords( const DWORD *words, unsigned int count )
+{
+	unsigned int hash = 2166136261u;
+	unsigned int i;
+	for ( i = 0; i < count; ++i )
+	{
+		hash = ( hash ^ (unsigned int)words[i] ) * 16777619u;
+	}
+	return hash;
+}
+
+static unsigned int STEFX_ShaderHashIndices( const GLushort *indices, unsigned int count )
+{
+	unsigned int hash = 2166136261u;
+	unsigned int i;
+	for ( i = 0; i < count; ++i )
+	{
+		hash = ( hash ^ (unsigned int)indices[i] ) * 16777619u;
+	}
+	return hash;
+}
+
+static qboolean STEFX_ShaderFloatBitsNonFinite( DWORD bits )
+{
+	return ( bits & 0x7f800000u ) == 0x7f800000u;
+}
+
+static unsigned int STEFX_ShaderRuntimeHash( int slot, int shaderIndex, int pass,
+	unsigned int stateBits, unsigned int texture0, unsigned int texture1,
+	unsigned int enableMask, unsigned int env0, unsigned int env1 )
+{
+	unsigned int hash = 2166136261u;
+#define STEFX_SHADER_HASH_VALUE(v) hash = ( hash ^ (unsigned int)(v) ) * 16777619u
+	STEFX_SHADER_HASH_VALUE( slot );
+	STEFX_SHADER_HASH_VALUE( shaderIndex );
+	STEFX_SHADER_HASH_VALUE( pass );
+	STEFX_SHADER_HASH_VALUE( stateBits );
+	STEFX_SHADER_HASH_VALUE( texture0 );
+	STEFX_SHADER_HASH_VALUE( texture1 );
+	STEFX_SHADER_HASH_VALUE( enableMask );
+	STEFX_SHADER_HASH_VALUE( env0 );
+	STEFX_SHADER_HASH_VALUE( env1 );
+#undef STEFX_SHADER_HASH_VALUE
+	return hash ? hash : 1u;
+}
+
+static qboolean STEFX_ShaderRuntimeFirstCombination( int slot, int shaderIndex, int pass,
+	unsigned int stateBits, unsigned int texture0, unsigned int texture1,
+	unsigned int enableMask, unsigned int env0, unsigned int env1 )
+{
+	unsigned int hash = STEFX_ShaderRuntimeHash( slot, shaderIndex, pass, stateBits,
+		texture0, texture1, enableMask, env0, env1 );
+	unsigned int probe = hash & ( STEFX_SHADER_RUNTIME_KEYS - 1 );
+	unsigned int attempt;
+
+	for ( attempt = 0; attempt < STEFX_SHADER_RUNTIME_KEYS; ++attempt )
+	{
+		stefxShaderRuntimeKey_t *key = &s_stefxShaderRuntimeKeys[probe];
+		if ( !key->occupied )
+		{
+			key->hash = hash;
+			key->stateBits = stateBits;
+			key->texture0 = texture0;
+			key->texture1 = texture1;
+			key->shaderIndex = (short)shaderIndex;
+			key->pass = (byte)pass;
+			key->slot = (byte)slot;
+			key->enableMask = (byte)enableMask;
+			key->env0 = (byte)env0;
+			key->env1 = (byte)env1;
+			key->occupied = 1;
+			++s_stefxShaderRuntimeKeyCount;
+			return qtrue;
+		}
+		if ( key->hash == hash && key->stateBits == stateBits &&
+			key->texture0 == texture0 && key->texture1 == texture1 &&
+			key->shaderIndex == shaderIndex && key->pass == pass && key->slot == slot &&
+			key->enableMask == enableMask && key->env0 == env0 && key->env1 == env1 )
+		{
+			return qfalse;
+		}
+		probe = ( probe + 1 ) & ( STEFX_SHADER_RUNTIME_KEYS - 1 );
+	}
+
+	if ( !s_stefxShaderRuntimeTableFullLogged )
+	{
+		s_stefxShaderRuntimeTableFullLogged = qtrue;
+		XBLog_WriteCritical( "STEFX_HM_SHADER_TRACE_ERROR: runtime combination table full" );
+	}
+	return qfalse;
+}
+
+static void STEFX_TraceShaderRuntimeDraw( GLsizei count, const GLushort *indices,
+	qboolean normals, qboolean tex0, qboolean tex1 )
+{
+	shader_t *shader = tess.shader;
+	int slot = backEnd.viewParms.stefxSplitSlot;
+	int pass = tess.currentPass;
+	unsigned int enableMask = 0;
+	unsigned int anomalyMask = 0;
+	unsigned int texture0 = glw_state->currentTexture[0];
+	unsigned int texture1 = glw_state->currentTexture[1];
+	IDirect3DBaseTexture8 *actualTextures[GLW_MAX_TEXTURE_STAGES];
+	IDirect3DBaseTexture8 *expectedTextures[GLW_MAX_TEXTURE_STAGES];
+	DWORD colorOps[GLW_MAX_TEXTURE_STAGES];
+	DWORD alphaOps[GLW_MAX_TEXTURE_STAGES];
+	DWORD colorArg1[GLW_MAX_TEXTURE_STAGES];
+	DWORD colorArg2[GLW_MAX_TEXTURE_STAGES];
+	DWORD alphaArg1[GLW_MAX_TEXTURE_STAGES];
+	DWORD alphaArg2[GLW_MAX_TEXTURE_STAGES];
+	DWORD texCoordIndex[GLW_MAX_TEXTURE_STAGES];
+	DWORD textureTransform[GLW_MAX_TEXTURE_STAGES];
+	DWORD textureSizes[GLW_MAX_TEXTURE_STAGES];
+	DWORD textureData[GLW_MAX_TEXTURE_STAGES];
+	int textureFileOffsets[GLW_MAX_TEXTURE_STAGES];
+	D3DXMATRIX actualProjection;
+	D3DXMATRIX actualView;
+	D3DXMATRIX actualTexture0;
+	D3DXMATRIX actualTexture1;
+	D3DVIEWPORT8 actualViewport;
+	DWORD colorWrite = 0;
+	DWORD alphaBlend = 0;
+	DWORD srcBlend = 0;
+	DWORD dstBlend = 0;
+	DWORD zEnable = 0;
+	DWORD zWrite = 0;
+	DWORD zFunc = 0;
+	DWORD cullMode = 0;
+	DWORD vertexShader = 0;
+	DWORD pixelShader = 0;
+	unsigned int maxIndex = 0;
+	unsigned int invalidIndices = 0;
+	unsigned int nonFiniteValues = 0;
+	unsigned int blackRgb = 0;
+	unsigned int residentMask = 0;
+	unsigned int matrixMismatch = 0;
+	unsigned int expectedTexCoord;
+	shaderStage_t *shaderStage = NULL;
+	qboolean blackIdentityError = qfalse;
+	int stage;
+	int i;
+
+	memset( &s_stefxShaderDataTrace, 0, sizeof(s_stefxShaderDataTrace) );
+	if ( !Cvar_VariableIntegerValue( "stefx_hm_shader_trace" ) || !shader ||
+		slot < 0 || slot > 3 )
+	{
+		return;
+	}
+
+	if ( !s_stefxShaderRuntimeStarted )
+	{
+		s_stefxShaderRuntimeStarted = qtrue;
+		s_stefxShaderRuntimeNextSummary = (unsigned int)backEnd.refdef.time + 5000u;
+		XBLog_WriteCriticalf( "STEFX_HM_SHADER_RUNTIME_BEGIN: path='%s' stages=%d table=%d",
+			XBLog_GetPath() ? XBLog_GetPath() : "<none>", GLW_MAX_TEXTURE_STAGES,
+			STEFX_SHADER_RUNTIME_KEYS );
+	}
+
+	++s_stefxShaderRuntimeDrawCount;
+	memset( actualTextures, 0, sizeof(actualTextures) );
+	memset( expectedTextures, 0, sizeof(expectedTextures) );
+	memset( colorOps, 0, sizeof(colorOps) );
+	memset( alphaOps, 0, sizeof(alphaOps) );
+	memset( colorArg1, 0, sizeof(colorArg1) );
+	memset( colorArg2, 0, sizeof(colorArg2) );
+	memset( alphaArg1, 0, sizeof(alphaArg1) );
+	memset( alphaArg2, 0, sizeof(alphaArg2) );
+	memset( texCoordIndex, 0, sizeof(texCoordIndex) );
+	memset( textureTransform, 0, sizeof(textureTransform) );
+	memset( textureSizes, 0, sizeof(textureSizes) );
+	memset( textureData, 0, sizeof(textureData) );
+	memset( textureFileOffsets, 0xff, sizeof(textureFileOffsets) );
+	memset( &actualViewport, 0, sizeof(actualViewport) );
+	memset( &actualProjection, 0, sizeof(actualProjection) );
+	memset( &actualView, 0, sizeof(actualView) );
+	memset( &actualTexture0, 0, sizeof(actualTexture0) );
+	memset( &actualTexture1, 0, sizeof(actualTexture1) );
+
+	s_stefxShaderDataTrace.active = qtrue;
+	s_stefxShaderDataTrace.draw = s_stefxShaderRuntimeDrawCount;
+	s_stefxShaderDataTrace.slot = slot;
+	s_stefxShaderDataTrace.shaderIndex = shader->index;
+	s_stefxShaderDataTrace.pass = pass;
+	s_stefxShaderDataTrace.numVertexes = tess.numVertexes;
+	s_stefxShaderDataTrace.xyzHash = STEFX_ShaderHashWords(
+		(const DWORD *)tess.xyz, (unsigned int)tess.numVertexes * 4u );
+	s_stefxShaderDataTrace.normalHash = normals ? STEFX_ShaderHashWords(
+		(const DWORD *)tess.normal, (unsigned int)tess.numVertexes * 4u ) : 0u;
+	if ( glw_state->colorArrayState )
+	{
+		s_stefxShaderDataTrace.colorHash = STEFX_ShaderHashWords(
+			(const DWORD *)tess.svars.colors, (unsigned int)tess.numVertexes );
+	}
+	else
+	{
+		unsigned int hash = 2166136261u;
+		for ( i = 0; i < tess.numVertexes; ++i )
+		{
+			hash = ( hash ^ (unsigned int)glw_state->currentColor ) * 16777619u;
+		}
+		s_stefxShaderDataTrace.colorHash = hash;
+	}
+	s_stefxShaderDataTrace.tex0Hash = tex0 ? STEFX_ShaderHashWords(
+		(const DWORD *)tess.svars.texcoords[0], (unsigned int)tess.numVertexes * 2u ) : 0u;
+	s_stefxShaderDataTrace.tex1Hash = tex1 ? STEFX_ShaderHashWords(
+		(const DWORD *)tess.svars.texcoords[1], (unsigned int)tess.numVertexes * 2u ) : 0u;
+	s_stefxShaderDataTrace.indexHash = STEFX_ShaderHashIndices( indices, (unsigned int)count );
+
+	for ( i = 0; i < tess.numVertexes; ++i )
+	{
+		const DWORD *xyzBits = (const DWORD *)&tess.xyz[i][0];
+		const DWORD color = glw_state->colorArrayState ?
+			(DWORD)tess.svars.colors[i] : (DWORD)glw_state->currentColor;
+		int component;
+		for ( component = 0; component < 4; ++component )
+		{
+			if ( STEFX_ShaderFloatBitsNonFinite( xyzBits[component] ) ) ++nonFiniteValues;
+		}
+		if ( normals )
+		{
+			const DWORD *normalBits = (const DWORD *)&tess.normal[i][0];
+			for ( component = 0; component < 4; ++component )
+			{
+				if ( STEFX_ShaderFloatBitsNonFinite( normalBits[component] ) ) ++nonFiniteValues;
+			}
+		}
+		if ( tex0 )
+		{
+			const DWORD *texBits = (const DWORD *)&tess.svars.texcoords[0][i][0];
+			if ( STEFX_ShaderFloatBitsNonFinite( texBits[0] ) ) ++nonFiniteValues;
+			if ( STEFX_ShaderFloatBitsNonFinite( texBits[1] ) ) ++nonFiniteValues;
+		}
+		if ( tex1 )
+		{
+			const DWORD *texBits = (const DWORD *)&tess.svars.texcoords[1][i][0];
+			if ( STEFX_ShaderFloatBitsNonFinite( texBits[0] ) ) ++nonFiniteValues;
+			if ( STEFX_ShaderFloatBitsNonFinite( texBits[1] ) ) ++nonFiniteValues;
+		}
+		if ( ( color & 0x00ffffffu ) == 0u ) ++blackRgb;
+	}
+	for ( i = 0; i < count; ++i )
+	{
+		const unsigned int index = (unsigned int)indices[i];
+		if ( index > maxIndex ) maxIndex = index;
+		if ( index >= (unsigned int)tess.numVertexes ) ++invalidIndices;
+	}
+
+	if ( pass >= 0 && pass < shader->numUnfoggedPasses )
+	{
+		shaderStage = &shader->stages[pass];
+	}
+	if ( shaderStage && blackRgb == (unsigned int)tess.numVertexes && tess.numVertexes > 0 &&
+		!tess.fading && shaderStage->adjustColorsForFog == ACFF_NONE &&
+		( shaderStage->rgbGen == CGEN_IDENTITY ||
+			shaderStage->rgbGen == CGEN_IDENTITY_LIGHTING ) &&
+		!( glState.glStateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) &&
+		backEnd.currentEntity &&
+		!( backEnd.currentEntity->e.renderfx &
+			( RF_DISINTEGRATE1 | RF_DISINTEGRATE2 | RF_VOLUMETRIC | RF_RGB_TINT ) ) )
+	{
+		blackIdentityError = qtrue;
+	}
+	if ( invalidIndices || nonFiniteValues || blackIdentityError )
+	{
+		s_stefxShaderRuntimeInvalidIndices += invalidIndices;
+		s_stefxShaderRuntimeNonFiniteValues += nonFiniteValues;
+		if ( blackIdentityError ) ++s_stefxShaderRuntimeBlackIdentityColors;
+		XBLog_WriteCriticalf(
+			"STEFX_HM_SHADER_TRACE_ERROR: draw=%u slot=%d shader=%d name='%s' pass=%d data invalidIndices=%u maxIndex=%u verts=%d nonFinite=%u blackRgb=%u rgbGen=%d fogAdjust=%d fading=%d hashes=%08x/%08x/%08x/%08x/%08x/%08x",
+			s_stefxShaderRuntimeDrawCount, slot, shader->index, shader->name, pass,
+			invalidIndices, maxIndex, tess.numVertexes, nonFiniteValues, blackRgb,
+			shaderStage ? (int)shaderStage->rgbGen : -1,
+			shaderStage ? (int)shaderStage->adjustColorsForFog : -1,
+			tess.fading ? 1 : 0, s_stefxShaderDataTrace.xyzHash,
+			s_stefxShaderDataTrace.normalHash, s_stefxShaderDataTrace.colorHash,
+			s_stefxShaderDataTrace.tex0Hash, s_stefxShaderDataTrace.tex1Hash,
+			s_stefxShaderDataTrace.indexHash );
+	}
+
+	for ( stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage )
+	{
+		const qboolean shouldBind = glw_state->textureStageEnable[stage] &&
+			glw_state->currentTexture[stage];
+		glwstate_t::texturexlat_t::iterator found;
+		if ( glw_state->textureStageEnable[stage] )
+		{
+			enableMask |= 1u << stage;
+		}
+		found = glw_state->textureXlat.find( glw_state->currentTexture[stage] );
+		if ( shouldBind && found == glw_state->textureXlat.end() )
+		{
+			anomalyMask |= 1u << stage;
+			++s_stefxShaderRuntimeMissingTextures;
+		}
+		else if ( shouldBind )
+		{
+			expectedTextures[stage] = found->second.mipmap;
+			textureSizes[stage] = found->second.size;
+			textureData[stage] = (DWORD)found->second.data;
+			textureFileOffsets[stage] = found->second.fileOffset;
+			if ( found->second.inMemory )
+			{
+				residentMask |= 1u << stage;
+			}
+			else
+			{
+				anomalyMask |= 1u << ( 20 + stage );
+				++s_stefxShaderRuntimeResidencyMismatches;
+			}
+		}
+		glw_state->device->GetTexture( stage, &actualTextures[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_COLOROP, &colorOps[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_ALPHAOP, &alphaOps[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_COLORARG1, &colorArg1[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_COLORARG2, &colorArg2[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_ALPHAARG1, &alphaArg1[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_ALPHAARG2, &alphaArg2[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_TEXCOORDINDEX, &texCoordIndex[stage] );
+		glw_state->device->GetTextureStageState( stage, D3DTSS_TEXTURETRANSFORMFLAGS,
+			&textureTransform[stage] );
+		if ( actualTextures[stage] != expectedTextures[stage] )
+		{
+			anomalyMask |= 1u << ( 4 + stage );
+			++s_stefxShaderRuntimeBindingMismatches;
+		}
+		if ( shouldBind )
+		{
+			expectedTexCoord = (unsigned int)stage;
+			if ( shaderStage && shaderStage->isEnvironment )
+			{
+				expectedTexCoord |= D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR;
+			}
+			if ( colorOps[stage] != (DWORD)glw_state->textureEnv[stage] ||
+				alphaOps[stage] != (DWORD)glw_state->textureEnv[stage] ||
+				colorArg1[stage] != D3DTA_TEXTURE || colorArg2[stage] != D3DTA_CURRENT ||
+				alphaArg1[stage] != D3DTA_TEXTURE || alphaArg2[stage] != D3DTA_CURRENT ||
+				texCoordIndex[stage] != expectedTexCoord ||
+				textureTransform[stage] != D3DTTFF_COUNT2 )
+			{
+				anomalyMask |= 1u << ( 8 + stage );
+				++s_stefxShaderRuntimeStateMismatches;
+			}
+		}
+		else if ( colorOps[stage] != D3DTOP_DISABLE || alphaOps[stage] != D3DTOP_DISABLE )
+		{
+			anomalyMask |= 1u << ( 8 + stage );
+			++s_stefxShaderRuntimeStateMismatches;
+		}
+	}
+
+	glw_state->device->GetViewport( &actualViewport );
+	if ( actualViewport.X != glw_state->viewport.X || actualViewport.Y != glw_state->viewport.Y ||
+		actualViewport.Width != glw_state->viewport.Width ||
+		actualViewport.Height != glw_state->viewport.Height )
+	{
+		anomalyMask |= 1u << 16;
+		++s_stefxShaderRuntimeViewportMismatches;
+	}
+	glw_state->device->GetTransform( D3DTS_PROJECTION, &actualProjection );
+	glw_state->device->GetTransform( D3DTS_VIEW, &actualView );
+	glw_state->device->GetTransform( D3DTS_TEXTURE0, &actualTexture0 );
+	glw_state->device->GetTransform( D3DTS_TEXTURE1, &actualTexture1 );
+	if ( memcmp( &actualProjection,
+		glw_state->matrixStack[glwstate_t::MatrixMode_Projection]->GetTop(),
+		sizeof(actualProjection) ) != 0 ) matrixMismatch |= 1u;
+	if ( memcmp( &actualView,
+		glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop(),
+		sizeof(actualView) ) != 0 ) matrixMismatch |= 2u;
+	if ( memcmp( &actualTexture0,
+		glw_state->matrixStack[glwstate_t::MatrixMode_Texture0]->GetTop(),
+		sizeof(actualTexture0) ) != 0 ) matrixMismatch |= 4u;
+	if ( memcmp( &actualTexture1,
+		glw_state->matrixStack[glwstate_t::MatrixMode_Texture1]->GetTop(),
+		sizeof(actualTexture1) ) != 0 ) matrixMismatch |= 8u;
+	if ( matrixMismatch )
+	{
+		anomalyMask |= 1u << 17;
+		++s_stefxShaderRuntimeMatrixMismatches;
+	}
+	glw_state->device->GetRenderState( D3DRS_COLORWRITEENABLE, &colorWrite );
+	glw_state->device->GetRenderState( D3DRS_ALPHABLENDENABLE, &alphaBlend );
+	glw_state->device->GetRenderState( D3DRS_SRCBLEND, &srcBlend );
+	glw_state->device->GetRenderState( D3DRS_DESTBLEND, &dstBlend );
+	glw_state->device->GetRenderState( D3DRS_ZENABLE, &zEnable );
+	glw_state->device->GetRenderState( D3DRS_ZWRITEENABLE, &zWrite );
+	glw_state->device->GetRenderState( D3DRS_ZFUNC, &zFunc );
+	glw_state->device->GetRenderState( D3DRS_CULLMODE, &cullMode );
+	glw_state->device->GetVertexShader( &vertexShader );
+	glw_state->device->GetPixelShader( &pixelShader );
+
+	if ( STEFX_ShaderRuntimeFirstCombination( slot, shader->index, pass,
+		(unsigned int)glState.glStateBits, texture0, texture1, enableMask,
+		(unsigned int)glw_state->textureEnv[0], (unsigned int)glw_state->textureEnv[1] ) )
+	{
+		XBLog_WriteCriticalf(
+			"STEFX_HM_SHADER_DRAW: draw=%u slot=%d shader=%d name='%s' pass=%d indexes=%d verts=%d state=0x%08x enable=0x%x dirty=0x%x tex=%u,%u resident=0x%x texMeta=%u@%08x/%d,%u@%08x/%d expected=0x%08x,0x%08x actual=0x%08x,0x%08x env=%u,%u op=%u/%u,%u/%u args=%u/%u/%u/%u,%u/%u/%u/%u tc=%u/%u xform=%u/%u data=%08x/%08x/%08x/%08x/%08x/%08x maxIndex=%u blackRgb=%u nonFinite=%u viewport=%u,%u,%ux%u scissor=%d:%d,%d-%d,%d colorWrite=0x%x blend=%u/%u/%u z=%u/%u/%u cull=%u vs=0x%x ps=0x%x matrix=0x%x anomaly=0x%x",
+			s_stefxShaderRuntimeDrawCount, slot, shader->index, shader->name, pass,
+			(int)count, tess.numVertexes, (unsigned int)glState.glStateBits, enableMask,
+			(glw_state->textureStageDirty[0] ? 1u : 0u) |
+				(glw_state->textureStageDirty[1] ? 2u : 0u), texture0, texture1,
+			residentMask, (unsigned int)textureSizes[0], (unsigned int)textureData[0],
+			textureFileOffsets[0], (unsigned int)textureSizes[1],
+			(unsigned int)textureData[1], textureFileOffsets[1],
+			(unsigned int)expectedTextures[0], (unsigned int)expectedTextures[1],
+			(unsigned int)actualTextures[0], (unsigned int)actualTextures[1],
+			(unsigned int)glw_state->textureEnv[0], (unsigned int)glw_state->textureEnv[1],
+			(unsigned int)colorOps[0], (unsigned int)alphaOps[0],
+			(unsigned int)colorOps[1], (unsigned int)alphaOps[1],
+			(unsigned int)colorArg1[0], (unsigned int)colorArg2[0],
+			(unsigned int)alphaArg1[0], (unsigned int)alphaArg2[0],
+			(unsigned int)colorArg1[1], (unsigned int)colorArg2[1],
+			(unsigned int)alphaArg1[1], (unsigned int)alphaArg2[1],
+			(unsigned int)texCoordIndex[0], (unsigned int)texCoordIndex[1],
+			(unsigned int)textureTransform[0], (unsigned int)textureTransform[1],
+			s_stefxShaderDataTrace.xyzHash, s_stefxShaderDataTrace.normalHash,
+			s_stefxShaderDataTrace.colorHash, s_stefxShaderDataTrace.tex0Hash,
+			s_stefxShaderDataTrace.tex1Hash, s_stefxShaderDataTrace.indexHash,
+			maxIndex, blackRgb, nonFiniteValues,
+			(unsigned int)actualViewport.X, (unsigned int)actualViewport.Y,
+			(unsigned int)actualViewport.Width, (unsigned int)actualViewport.Height,
+			glw_state->scissorEnable ? 1 : 0, glw_state->scissorBox.x1,
+			glw_state->scissorBox.y1, glw_state->scissorBox.x2, glw_state->scissorBox.y2,
+			(unsigned int)colorWrite, (unsigned int)alphaBlend, (unsigned int)srcBlend,
+			(unsigned int)dstBlend, (unsigned int)zEnable, (unsigned int)zWrite,
+			(unsigned int)zFunc, (unsigned int)cullMode, (unsigned int)vertexShader,
+			(unsigned int)pixelShader, matrixMismatch, anomalyMask );
+	}
+
+	if ( anomalyMask )
+	{
+		XBLog_WriteCriticalf(
+			"STEFX_HM_SHADER_TRACE_ERROR: draw=%u slot=%d shader=%d name='%s' pass=%d anomaly=0x%x enable=0x%x tex=%u,%u resident=0x%x texMeta=%u@%08x/%d,%u@%08x/%d expected=0x%08x,0x%08x actual=0x%08x,0x%08x env=%u,%u op=%u/%u,%u/%u args=%u/%u/%u/%u,%u/%u/%u/%u tc=%u/%u xform=%u/%u matrix=0x%x viewport=%u,%u,%ux%u cachedViewport=%u,%u,%ux%u",
+			s_stefxShaderRuntimeDrawCount, slot, shader->index, shader->name, pass,
+			anomalyMask, enableMask, texture0, texture1,
+			residentMask, (unsigned int)textureSizes[0], (unsigned int)textureData[0],
+			textureFileOffsets[0], (unsigned int)textureSizes[1],
+			(unsigned int)textureData[1], textureFileOffsets[1],
+			(unsigned int)expectedTextures[0], (unsigned int)expectedTextures[1],
+			(unsigned int)actualTextures[0], (unsigned int)actualTextures[1],
+			(unsigned int)glw_state->textureEnv[0], (unsigned int)glw_state->textureEnv[1],
+			(unsigned int)colorOps[0], (unsigned int)alphaOps[0],
+			(unsigned int)colorOps[1], (unsigned int)alphaOps[1],
+			(unsigned int)colorArg1[0], (unsigned int)colorArg2[0],
+			(unsigned int)alphaArg1[0], (unsigned int)alphaArg2[0],
+			(unsigned int)colorArg1[1], (unsigned int)colorArg2[1],
+			(unsigned int)alphaArg1[1], (unsigned int)alphaArg2[1],
+			(unsigned int)texCoordIndex[0], (unsigned int)texCoordIndex[1],
+			(unsigned int)textureTransform[0], (unsigned int)textureTransform[1],
+			matrixMismatch,
+			(unsigned int)actualViewport.X, (unsigned int)actualViewport.Y,
+			(unsigned int)actualViewport.Width, (unsigned int)actualViewport.Height,
+			(unsigned int)glw_state->viewport.X, (unsigned int)glw_state->viewport.Y,
+			(unsigned int)glw_state->viewport.Width, (unsigned int)glw_state->viewport.Height );
+	}
+
+	if ( (int)((unsigned int)backEnd.refdef.time - s_stefxShaderRuntimeNextSummary) >= 0 )
+	{
+		s_stefxShaderRuntimeNextSummary = (unsigned int)backEnd.refdef.time + 5000u;
+		XBLog_WriteCriticalf(
+			"STEFX_HM_SHADER_TRACE_SUMMARY: time=%d draws=%u combinations=%u missingTextures=%u bindingMismatch=%u residencyMismatch=%u stageStateMismatch=%u viewportMismatch=%u matrixMismatch=%u invalidIndices=%u nonFinite=%u blackIdentity=%u packedMismatch=%u pushOverrun=%u staticTex=%lu/%lu skinTex=%lu/%lu",
+			backEnd.refdef.time, s_stefxShaderRuntimeDrawCount, s_stefxShaderRuntimeKeyCount,
+			s_stefxShaderRuntimeMissingTextures, s_stefxShaderRuntimeBindingMismatches,
+			s_stefxShaderRuntimeResidencyMismatches, s_stefxShaderRuntimeStateMismatches,
+			s_stefxShaderRuntimeViewportMismatches, s_stefxShaderRuntimeMatrixMismatches,
+			s_stefxShaderRuntimeInvalidIndices, s_stefxShaderRuntimeNonFiniteValues,
+			s_stefxShaderRuntimeBlackIdentityColors, s_stefxShaderRuntimePackedMismatches,
+			s_stefxShaderRuntimePushOverruns, gStaticTextures.Size(), gStaticTextures.Capacity(),
+			gSkinTextures.Size(), gSkinTextures.Capacity() );
+	}
+	for ( stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage )
+	{
+		if ( actualTextures[stage] ) actualTextures[stage]->Release();
+	}
+}
+
+static void STEFX_TraceShaderPackedDraw( const DWORD *stream, qboolean normals,
+	qboolean tex0, qboolean tex1, unsigned int reservedDwords, unsigned int usedDwords )
+{
+	const stefxShaderDataTrace_t *trace = &s_stefxShaderDataTrace;
+	const DWORD *cursor = stream;
+	unsigned int xyzHash;
+	unsigned int normalHash = 0;
+	unsigned int colorHash;
+	unsigned int tex0Hash = 0;
+	unsigned int tex1Hash = 0;
+	unsigned int mismatch = 0;
+	const unsigned int verts = (unsigned int)trace->numVertexes;
+
+	if ( !trace->active ) return;
+
+	xyzHash = STEFX_ShaderHashWords( cursor, verts * 4u );
+	cursor += verts * 4u;
+	if ( normals )
+	{
+		normalHash = STEFX_ShaderHashWords( cursor, verts * 4u );
+		cursor += verts * 4u;
+	}
+	colorHash = STEFX_ShaderHashWords( cursor, verts );
+	cursor += verts;
+	if ( tex0 )
+	{
+		tex0Hash = STEFX_ShaderHashWords( cursor, verts * 2u );
+		cursor += verts * 2u;
+	}
+	if ( tex1 )
+	{
+		tex1Hash = STEFX_ShaderHashWords( cursor, verts * 2u );
+	}
+
+	if ( xyzHash != trace->xyzHash ) mismatch |= 1u;
+	if ( normalHash != trace->normalHash ) mismatch |= 2u;
+	if ( colorHash != trace->colorHash ) mismatch |= 4u;
+	if ( tex0Hash != trace->tex0Hash ) mismatch |= 8u;
+	if ( tex1Hash != trace->tex1Hash ) mismatch |= 16u;
+	if ( usedDwords > reservedDwords )
+	{
+		mismatch |= 32u;
+		++s_stefxShaderRuntimePushOverruns;
+	}
+	if ( mismatch )
+	{
+		++s_stefxShaderRuntimePackedMismatches;
+		XBLog_WriteCriticalf(
+			"STEFX_HM_SHADER_TRACE_ERROR: draw=%u slot=%d shader=%d pass=%d packed mismatch=0x%x reserved=%u used=%u source=%08x/%08x/%08x/%08x/%08x packed=%08x/%08x/%08x/%08x/%08x",
+			trace->draw, trace->slot, trace->shaderIndex, trace->pass, mismatch,
+			reservedDwords, usedDwords, trace->xyzHash, trace->normalHash,
+			trace->colorHash, trace->tex0Hash, trace->tex1Hash,
+			xyzHash, normalHash, colorHash, tex0Hash, tex1Hash );
+	}
+	s_stefxShaderDataTrace.active = qfalse;
+}
 #endif
 
-// Global texture allocator (we only use one in SP):
-//SwappingTextureAllocator	gTextures;
-StaticTextureAllocator		gTextures;
+#endif
+
+#if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitArmed;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitCalls;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitIndexes;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitState;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitTexture;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitScissor;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitScissorXY;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitScissorWH;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitTarget;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitColorWrite;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitCull;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitBlend;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitViewportXY;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitViewportWH;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitProj00;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitProj11;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitProj30;
+extern "C" volatile unsigned int g_SPXBHMScoreSubmitProj31;
+extern "C" volatile unsigned int g_SPXBHMScoreTextureData0;
+extern "C" volatile unsigned int g_SPXBHMScoreTextureSize;
+extern "C" volatile unsigned int g_SPXBHMScoreTextureWH;
+extern "C" volatile unsigned int g_SPXBHMScoreTextureFormat;
+extern "C" volatile unsigned int g_SPXBHMScoreStageColor;
+extern "C" volatile unsigned int g_SPXBHMScoreStageAlpha;
+extern "C" volatile unsigned int g_SPXBHMScoreDepthState;
+extern "C" volatile unsigned int g_SPXBHMScoreVertexShader;
+extern "C" volatile unsigned int g_SPXBHMScorePixelShader;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0X;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0Y;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0Z;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0W;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0Color;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0U;
+extern "C" volatile unsigned int g_SPXBHMScoreVertex0V;
+extern "C" volatile unsigned int g_SPXBHMScoreVertexCount;
+extern "C" volatile unsigned int g_SPXBHMScoreVertexStride;
+extern "C" volatile unsigned int g_SPXBHMScoreIndex012;
+#endif
+
+// Global texture allocators:
+StaticTextureAllocator		gStaticTextures;
+SwappingTextureAllocator	gSkinTextures;
+static bool					s_bUseSkinAllocator = false;
+static bool					s_texturePoolMemoryReserved = false;
+static bool					s_texturePoolsInitialized = false;
+bool connectSwapOverride = false;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+static unsigned __int64 s_xboxImmediateDrawStart = 0;
+#endif
+
+void ReserveRetailTexturePoolsEarly( void )
+{
+	if (!s_texturePoolMemoryReserved)
+	{
+		gStaticTextures.Reserve( 10 * 1024 * 1024 );
+		gSkinTextures.Reserve( 4 * 1024 * 1024 );
+		s_texturePoolMemoryReserved = true;
+	}
+}
+
+static void InitializeRetailTexturePoolsDeferred( void )
+{
+	OutputDebugStringA("JA: initializing retail texture pools after CRT startup\n");
+	ReserveRetailTexturePoolsEarly();
+	if (!s_texturePoolsInitialized)
+	{
+		gStaticTextures.Reset();
+		gSkinTextures.Reset();
+		s_texturePoolsInitialized = true;
+	}
+	else
+	{
+		gStaticTextures.Reset();
+		gSkinTextures.Reset();
+	}
+	OutputDebugStringA("JA: retail texture pools ready\n");
+}
+
+void BeginSkinTextures( void )
+{
+	s_bUseSkinAllocator = true;
+}
+
+void EndSkinTextures( void )
+{
+	s_bUseSkinAllocator = false;
+}
+
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+extern "C" unsigned int STEFX_SkinTextureSwapCount( void )
+{
+	return gSkinTextures.SwapCount();
+}
+
+extern "C" unsigned int STEFX_SkinTextureFetchCount( void )
+{
+	return gSkinTextures.FetchCount();
+}
+
+extern "C" unsigned int STEFX_SkinTextureWaitCount( void )
+{
+	return gSkinTextures.WaitCount();
+}
+
+extern "C" unsigned int STEFX_SkinTextureBytesWritten( void )
+{
+	return gSkinTextures.BytesWritten();
+}
+
+extern "C" unsigned int STEFX_SkinTextureBytesRead( void )
+{
+	return gSkinTextures.BytesRead();
+}
+
+extern "C" unsigned int STEFX_StaticTextureUsed( void )
+{
+	return gStaticTextures.Size();
+}
+
+extern "C" unsigned int STEFX_StaticTextureCapacity( void )
+{
+	return gStaticTextures.Capacity();
+}
+
+extern "C" unsigned int STEFX_SkinTextureUsed( void )
+{
+	return gSkinTextures.Size();
+}
+
+extern "C" unsigned int STEFX_SkinTextureCapacity( void )
+{
+	return gSkinTextures.Capacity();
+}
+#endif
 
 #include <vector>
 
 extern void Z_SetNewDeleteTemporary(bool);
 
-#define GLW_USE_TRI_STRIPS 0
-
-enum
-{
-	STEFX_MAX_NATIVE_VERTEX_DWORDS = 11,
-	STEFX_MAX_IMMEDIATE_VERTICES = 8192
-};
-
-static DWORD s_immediateVertices[
-	STEFX_MAX_IMMEDIATE_VERTICES * STEFX_MAX_NATIVE_VERTEX_DWORDS];
-static bool s_immediateUsesUP = false;
-static bool s_immediateHasNormal = false;
-static bool s_immediateHasTexCoord[GLW_MAX_TEXTURE_STAGES] = { false, false };
-static float s_immediateNormal[3] = { 0.0f, 0.0f, 1.0f };
-static float s_immediateTexCoord[GLW_MAX_TEXTURE_STAGES][2] =
-{
-	{ 0.0f, 0.0f },
-	{ 0.0f, 0.0f }
-};
+#define GLW_USE_TRI_STRIPS 1
 
 #ifdef _XBOX
-enum
-{
-	STEFX_NATIVE_RING_VERTEX_BYTES = 256 * 1024,
-	STEFX_NATIVE_RING_INDEX_BYTES = 128 * 1024
-};
-
-static IDirect3DVertexBuffer8 *s_nativeVertexRing = NULL;
-static IDirect3DIndexBuffer8 *s_nativeIndexRing = NULL;
-static DWORD s_nativeVertexRingOffset = 0;
-static DWORD s_nativeIndexRingOffset = 0;
-static unsigned int s_nativePushRejectReason = 0;
-
-static bool SubmitNativeVerticesRing(D3DPRIMITIVETYPE primitiveMode,
-	const DWORD *vertices, DWORD vertexCount, DWORD strideBytes);
-static bool SubmitNativeTriangleListPush(const DWORD *vertices,
-	DWORD vertexCount, DWORD strideBytes);
-
 #define GLW_MAX_DRAW_PACKET_SIZE 2040
 #else
 #define GLW_MAX_DRAW_PACKET_SIZE (SHADER_MAX_VERTEXES*12)
@@ -391,10 +1045,9 @@ void ( * qglRasterPos4iv )(const GLint *v);
 void ( * qglRasterPos4s )(GLshort x, GLshort y, GLshort z, GLshort w);
 void ( * qglRasterPos4sv )(const GLshort *v);
 void ( * qglReadBuffer )(GLenum mode);
-//void ( * qglReadPixels )(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLsizei twidth, GLsizei theight, GLvoid *pixels);
 void ( * qglReadPixels )(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels);
-void ( * qglCopyBackBufferToTexEXT ) (float width, float height, float u1, float v1, float u2, float v2);
-void ( * qglCopyBackBufferToTex ) (void);
+void ( * qglCopyBackBufferToTexEXT )(float width, float height, float u1, float v1, float u2, float v2);
+void ( * qglCopyBackBufferToTex )(void);
 void ( * qglRectd )(GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2);
 void ( * qglRectdv )(const GLdouble *v1, const GLdouble *v2);
 void ( * qglRectf )(GLfloat x1, GLfloat y1, GLfloat x2, GLfloat y2);
@@ -495,11 +1148,11 @@ void ( * qglVertex4sv )(const GLshort *v);
 void ( * qglVertexPointer )(GLint size, GLenum type, GLsizei stride, const GLvoid *pointer);
 void ( * qglViewport )(GLint x, GLint y, GLsizei width, GLsizei height);
 
+#if 0
 void ( * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
 void ( * qglActiveTextureARB )( GLenum texture );
 void ( * qglClientActiveTextureARB )( GLenum texture );
-void ( * qglLockArraysEXT )( GLint first, GLint count );
-void ( * qglUnlockArraysEXT )( void );
+#endif
 
 static void _d3d_check(HRESULT err, const char* func)
 {
@@ -615,21 +1268,11 @@ static void _fixupScreenCoords(GLint& x, GLint& y, GLsizei& width, GLsizei& heig
 {
 	if (x < 0) x = 0;
 	else if (x > glConfig.vidWidth) x = glConfig.vidWidth;
-	if (y < 0)
-	{
-		
-#ifdef _XBOX
-		height += y;
-#endif
-		y = 0;
-	}
+	if (y < 0) y = 0;
 	else if (y > glConfig.vidHeight) y = glConfig.vidHeight;
 	
 	if (width < 0) width = 0;
-#ifdef _XBOX
 	else if (x + width > glConfig.vidWidth) width = glConfig.vidWidth - x;
-#endif
-//	else if (x + width > glConfig.vidWidth) width = glConfig.vidWidth - x;
 	if (height < 0) height = 0;
 	else if (y + height > glConfig.vidHeight) height = glConfig.vidHeight - y;
 
@@ -730,7 +1373,7 @@ static void _updateDrawStride(GLint normal, GLint tex0, GLint tex1)
 {
 	glw_state->drawStride = 4;
 	if (normal) glw_state->drawStride += 3;
-	if (tex0 || tex1) glw_state->drawStride += 2;
+	if (tex0) glw_state->drawStride += 2;
 	if (tex1) glw_state->drawStride += 2;
 }
 
@@ -774,7 +1417,10 @@ static glwstate_t::TextureInfo* _getCurrentTexture(int stage)
 
 	if (i == glw_state->textureXlat.end()) return NULL;
 
-	return &i->second;
+	glwstate_t::TextureInfo *info = &i->second;
+	if (!info->inMemory)
+		gSkinTextures.Fetch( glw_state->currentTexture[stage] );
+	return info;
 }
 
 
@@ -803,15 +1449,15 @@ static void _updateTextures(void)
 				glw_state->device->SetTextureStageState(t, D3DTSS_COLOROP, glw_state->textureEnv[t]);
 
 				glw_state->device->SetTextureStageState(t, D3DTSS_COLORARG1, 
-					D3DTA_TEXTURE);
+						D3DTA_TEXTURE);
 				glw_state->device->SetTextureStageState(t, D3DTSS_COLORARG2, 
-					D3DTA_CURRENT);
+						D3DTA_CURRENT);
 				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAOP, 
-					glw_state->textureEnv[t]);
+						glw_state->textureEnv[t]);
 				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAARG1, 
-					D3DTA_TEXTURE);
+						D3DTA_TEXTURE);
 				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAARG2, 
-					D3DTA_CURRENT);
+						D3DTA_CURRENT);
 
 				glw_state->device->SetTextureStageState(t, D3DTSS_MAXANISOTROPY, 
 					info->anisotropy);
@@ -831,7 +1477,7 @@ static void _updateTextures(void)
 
 				glw_state->device->SetTextureStageState( t, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2 );
 
-				/*if(tess.shader)
+				if(tess.shader)
 				{
 					if(tess.currentPass < tess.shader->numUnfoggedPasses)
 					{ 
@@ -840,7 +1486,7 @@ static void _updateTextures(void)
 							glw_state->device->SetTextureStageState(t, D3DTSS_TEXCOORDINDEX, t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
 						}
 					}
-				}*/				
+				}				
 			}
 			else
 			{
@@ -849,18 +1495,18 @@ static void _updateTextures(void)
 				glw_state->device->SetTextureStageState(t, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 			}
 		}
-		//else
-		//{
-		//	// Hard-wired check for turning on hardware environment mapping
-		//	if( glw_state->textureStageEnable[t] &&
-		//		glw_state->currentTexture[t] &&
-		//		tess.shader &&
-		//		tess.currentPass < tess.shader->numUnfoggedPasses &&
-		//		tess.shader->stages[tess.currentPass].isEnvironment)
-		//	{
-		//			glw_state->device->SetTextureStageState(t, D3DTSS_TEXCOORDINDEX, t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
-		//	}
-		//}
+		else
+		{
+			// Hard-wired check for turning on hardware environment mapping
+			if( glw_state->textureStageEnable[t] &&
+				glw_state->currentTexture[t] &&
+				tess.shader &&
+				tess.currentPass < tess.shader->numUnfoggedPasses &&
+				tess.shader->stages[tess.currentPass].isEnvironment)
+			{
+					glw_state->device->SetTextureStageState(t, D3DTSS_TEXCOORDINDEX, t | D3DTSS_TCI_CAMERASPACEREFLECTIONVECTOR);
+			}
+		}
 	}
 }
 
@@ -996,16 +1642,6 @@ big for the hardware by restarting it as needed.
 */
 static void _handleDrawOverflow(void)
 {
-	if (s_immediateUsesUP)
-	{
-		if (glw_state->numVertices >= glw_state->maxVertices)
-		{
-			Com_Error(ERR_DROP, "Native D3D8 immediate vertex limit exceeded (%d)",
-				STEFX_MAX_IMMEDIATE_VERTICES);
-		}
-		return;
-	}
-
 	if (glw_state->numVertices >= glw_state->maxVertices)
 	{
 		glw_state->drawArray += glw_state->numVertices *
@@ -1105,7 +1741,7 @@ _normalElement
 	(push)[2] = norm[2];										\
 }
 
-
+				
 #define _tangentElement(push, i)								\
 {																\
 	DWORD* tang = (DWORD*)((BYTE*)&tess.tangent[i]);				\
@@ -1560,19 +2196,6 @@ static void dllArrayElement(GLint i)
 	_vertexElement(push, i);
 	push += 3;
 	
-	if (s_immediateHasNormal)
-	{
-		if (glw_state->normalArrayState)
-		{
-			_normalElement(push, i);
-		}
-		else
-		{
-			memcpy(push, s_immediateNormal, sizeof(s_immediateNormal));
-		}
-		push += 3;
-	}
-
 	if (glw_state->colorArrayState)
 	{
 		_colorElement(push, i);
@@ -1585,17 +2208,9 @@ static void dllArrayElement(GLint i)
 	
 	for (int t = 0; t < GLW_MAX_TEXTURE_STAGES; ++t)
 	{
-		if (s_immediateHasTexCoord[t])
+		if (glw_state->texCoordArrayState[t])
 		{
-			if (glw_state->texCoordArrayState[t])
-			{
-				_texCoordElement(push, i, t);
-			}
-			else
-			{
-				memcpy(push, s_immediateTexCoord[t],
-					sizeof(s_immediateTexCoord[t]));
-			}
+			_texCoordElement(push, i, t);
 			push += 2;
 		}
 	}
@@ -1606,58 +2221,67 @@ static void dllArrayElement(GLint i)
 // EXTENSION: Begin a drawing block with at verts vertices
 static void dllBeginEXT(GLenum mode, GLint verts, GLint colors, GLint normals, GLint tex0, GLint tex1)//, GLint tex2, GLint tex3)
 {
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (g_SPXBPerfSampleActive) {
+		s_xboxImmediateDrawStart = STEFX_XboxReadTsc();
+		++g_SPXBPerfSubmitCallsCurrent;
+		++g_SPXBPerfImmediateSubmitCallsCurrent;
+	} else {
+		s_xboxImmediateDrawStart = 0;
+	}
+#endif
 	assert(!glw_state->inDrawBlock);
-	if (!glw_state || !glw_state->device || glw_state->inDrawBlock)
-	{
-		g_SPXBPhaseLast = 0x494D4630; /* 'IMF0' */
-		Com_Error(ERR_DROP, "Native D3D8 immediate draw began in an invalid state");
-		return;
-	}
-	if (verts < 0 || verts > STEFX_MAX_IMMEDIATE_VERTICES)
-	{
-		g_SPXBPhaseLast = 0x494D4631; /* 'IMF1' */
-		Com_Error(ERR_DROP, "Native D3D8 immediate draw has invalid vertex count %d", verts);
-		return;
-	}
 
 	// start the draw block
 	glw_state->inDrawBlock = true;
 	glw_state->primitiveMode = _convertPrimMode(mode);
-	s_immediateHasNormal = normals != 0;
-	s_immediateHasTexCoord[0] = tex0 != 0 || tex1 != 0;
-	s_immediateHasTexCoord[1] = tex1 != 0;
 
 	// update DX with any pending state changes
-	_updateDrawStride(s_immediateHasNormal,
-		s_immediateHasTexCoord[0], s_immediateHasTexCoord[1]);
-	_updateShader(s_immediateHasNormal,
-		s_immediateHasTexCoord[0], s_immediateHasTexCoord[1]);
+	_updateDrawStride(normals, tex0, tex1);//, tex2, tex3);
+	_updateShader(normals, tex0, tex1);//, tex2, tex3);
 	_updateTextures();
 	_updateMatrices();
 
 	// set vertex counters
 	glw_state->numVertices = 0;
 	glw_state->totalVertices = verts;
-	glw_state->maxVertices = STEFX_MAX_IMMEDIATE_VERTICES;
-	glw_state->drawArray = s_immediateVertices;
-	s_immediateUsesUP = true;
+	glw_state->maxVertices = _getMaxVerts();	
+
+#ifdef _XBOX
+	// open a draw packet
+	//int num_packets = ((verts * glw_state->drawStride) / GLW_MAX_DRAW_PACKET_SIZE) + 1;
+	int num_packets;
+	if(glw_state->maxVertices == 0) {
+		num_packets = 1;
+	} else {
+		num_packets = (verts / glw_state->maxVertices) + (!!(verts % glw_state->maxVertices));
+	}
+	int cmd_size = num_packets * 3;
+	int vert_size = glw_state->drawStride * verts;
+	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (g_SPXBPerfSampleActive) {
+		g_SPXBPerfImmediateReserveDwordsCurrent +=
+			(unsigned int)(vert_size + cmd_size + 2);
+	}
+	#endif
+	
+	glw_state->device->BeginPush(vert_size + cmd_size + 2, 
+		&glw_state->drawArray);
+	
+	glw_state->drawArray = _restartDrawPacket(
+		glw_state->drawArray, glw_state->maxVertices);
+#endif
 }
 
 static void dllBegin(GLenum mode)
 {
-	// Unsized immediate draws still exist in effects and diagnostic paths.
-	// Use the complete fixed-function layout so their current state is safe.
-	dllBeginEXT(mode, STEFX_MAX_IMMEDIATE_VERTICES,
-		STEFX_MAX_IMMEDIATE_VERTICES, STEFX_MAX_IMMEDIATE_VERTICES,
-		STEFX_MAX_IMMEDIATE_VERTICES, STEFX_MAX_IMMEDIATE_VERTICES);
+	assert(0);
 }
 
 // EXTENSION: Start a new drawing frame
 GLboolean dllBeginFrame(void)
 {
-	g_SPXBPhaseLast = 0x42463030; /* 'BF00' */
 	GLboolean result = glw_state->device->BeginScene() == D3D_OK;
-	g_SPXBPhaseLast = result ? 0x42463031 : 0x42464631; /* 'BF01'/'BFF1' */
 	return result;
 }
 
@@ -2054,17 +2678,6 @@ static void dllDeleteTextures(GLsizei n, const GLuint *textures)
 #endif
 			i->second.mipmap->BlockUntilNotBusy();
 			delete i->second.mipmap;
-			if (i->second.data)
-			{
-				if (!gTextures.Free(i->second.data, i->second.dataSize))
-				{
-					XBLF("Native D3D8 texture free rejected: tex=%u data=%p size=%u",
-						(unsigned)textures[t], i->second.data,
-						(unsigned)i->second.dataSize);
-				}
-				i->second.data = NULL;
-				i->second.dataSize = 0;
-			}
 			glw_state->textureXlat.erase(i);
 		}
 	}
@@ -2089,52 +2702,32 @@ static void dllDepthRange(GLclampd zNear, GLclampd zFar)
 }
 
 #ifdef _XBOX
-static void fillPresentParameters(D3DPRESENT_PARAMETERS* pp, int width,
-	int height, bool vsync)
-{
-	memset(pp, 0, sizeof(*pp));
-	pp->BackBufferWidth = width;
-	pp->BackBufferHeight = height;
-	pp->BackBufferFormat = D3DFMT_A8R8G8B8;
-	pp->BackBufferCount = 1;
-	pp->MultiSampleType = D3DMULTISAMPLE_NONE;
-	pp->SwapEffect = D3DSWAPEFFECT_DISCARD;
-	pp->hDeviceWindow = 0;
-	pp->Windowed = FALSE;
-	pp->EnableAutoDepthStencil = TRUE;
-	pp->AutoDepthStencilFormat = D3DFMT_LIN_D24S8;
-	pp->Flags = 0;
-
-	if (glw_state && glw_state->isWidescreen)
-	{
-		pp->Flags |= D3DPRESENTFLAG_WIDESCREEN;
-		if (XGetVideoFlags() & XC_VIDEO_FLAGS_HDTV_480p)
-			pp->Flags |= D3DPRESENTFLAG_PROGRESSIVE;
-	}
-
-	pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
-	pp->FullScreen_PresentationInterval = vsync
-		? D3DPRESENT_INTERVAL_DEFAULT
-		: D3DPRESENT_INTERVAL_IMMEDIATE;
-}
-
 static void setPresent(bool vsync)
 {
-	g_SPXBPhaseLast = 0x50523030; /* 'PR00' */
-	const DWORD interval = vsync
-		? D3DPRESENT_INTERVAL_DEFAULT
-		: D3DPRESENT_INTERVAL_IMMEDIATE;
-	const HRESULT intervalResult = glw_state->device->SetRenderState(
-		D3DRS_PRESENTATIONINTERVAL, interval);
-	if (FAILED(intervalResult))
-	{
-		g_SPXBPhaseLast = 0x50524630; /* 'PRF0' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 presentation interval change failed: 0x%08x",
-			(unsigned)intervalResult);
-		return;
-	}
-	g_SPXBPhaseLast = 0x50523032; /* 'PR02' */
+	//extern void ShowOSMemory();
+	//ShowOSMemory();
+
+	D3DPRESENT_PARAMETERS pp;
+	pp.BackBufferWidth = glConfig.vidWidth;
+	pp.BackBufferHeight = glConfig.vidHeight;
+	pp.BackBufferFormat = D3DFMT_X8R8G8B8;
+	pp.BackBufferCount = 1;
+	pp.MultiSampleType  = D3DMULTISAMPLE_NONE; //D3DMULTISAMPLE_4_SAMPLES_SUPERSAMPLE_LINEAR;
+	pp.SwapEffect = D3DSWAPEFFECT_DISCARD;
+	pp.hDeviceWindow = 0;
+	pp.Windowed  = FALSE;
+	pp.EnableAutoDepthStencil = TRUE;
+	pp.AutoDepthStencilFormat = D3DFMT_D24S8;
+	pp.Flags = 0;
+	pp.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
+	pp.FullScreen_PresentationInterval = 
+		vsync ? D3DPRESENT_INTERVAL_DEFAULT : D3DPRESENT_INTERVAL_IMMEDIATE;
+	pp.BufferSurfaces[0] = pp.BufferSurfaces[1] = pp.BufferSurfaces[2] = 0;
+	pp.DepthStencilSurface = 0;
+	glw_state->device->PersistDisplay();
+	glw_state->device->Reset(&pp);
+
+	//ShowOSMemory();
 }
 #endif
 
@@ -2341,129 +2934,8 @@ static void _cleanupQuadsToTris(void)
 }
 #endif
 
-/*
-=================
-dllDrawArraysUP
-
-Supported D3D8 submission for non-indexed arrays. This covers quick sprites
-without exposing their vertex data as executable pushbuffer memory.
-=================
-*/
-static void dllDrawArraysUP(GLenum mode, GLint first, GLsizei count)
-{
-	enum { STEFX_MAX_NATIVE_VERTEX_DWORDS = 11 };
-	static DWORD s_nativeVertices[SHADER_MAX_VERTEXES * STEFX_MAX_NATIVE_VERTEX_DWORDS];
-	const bool normals = glw_state->normalArrayState != 0;
-	const bool tex0Array = glw_state->texCoordArrayState[0] != 0;
-	const bool tex1Array = glw_state->texCoordArrayState[1] != 0;
-	const bool tex0Layout = tex0Array || tex1Array;
-	DWORD *out = s_nativeVertices;
-
-	if (first < 0 || count < 0 || first > SHADER_MAX_VERTEXES ||
-		count > SHADER_MAX_VERTEXES - first)
-	{
-		g_SPXBPhaseLast = 0x44414630; /* 'DAF0' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 array draw out of range: first=%d count=%d max=%d",
-			first, count, SHADER_MAX_VERTEXES);
-		return;
-	}
-	if (!glw_state->vertexArrayState || !glw_state->vertexPointer)
-	{
-		g_SPXBPhaseLast = 0x44414631; /* 'DAF1' */
-		Com_Error(ERR_FATAL, "Native D3D8 array draw has no vertex source");
-		return;
-	}
-	if ((normals && !glw_state->normalPointer) ||
-		(glw_state->colorArrayState && !glw_state->colorPointer) ||
-		(tex0Array && !glw_state->texCoordPointer[0]) ||
-		(tex1Array && !glw_state->texCoordPointer[1]))
-	{
-		g_SPXBPhaseLast = 0x44414632; /* 'DAF2' */
-		Com_Error(ERR_FATAL, "Native D3D8 array draw has an invalid enabled source");
-		return;
-	}
-
-	glw_state->inDrawBlock = true;
-	glw_state->primitiveMode = _convertPrimMode(mode);
-	_updateDrawStride(normals, tex0Layout, tex1Array);
-	if (glw_state->drawStride <= 0 ||
-		glw_state->drawStride > STEFX_MAX_NATIVE_VERTEX_DWORDS)
-	{
-		g_SPXBPhaseLast = 0x44414633; /* 'DAF3' */
-		Com_Error(ERR_FATAL, "Native D3D8 array stride invalid: %d",
-			glw_state->drawStride);
-		glw_state->inDrawBlock = false;
-		return;
-	}
-	_updateShader(normals, tex0Layout, tex1Array);
-	_updateTextures();
-	_updateMatrices();
-
-	for (int vertex = first; vertex < first + count; ++vertex)
-	{
-		_vertexElement(out, vertex);
-		out += 3;
-
-		if (normals)
-		{
-			_normalElement(out, vertex);
-			out += 3;
-		}
-
-		if (glw_state->colorArrayState)
-		{
-			if (glw_state->colorPointer == tess.svars.colors)
-			{
-				*out = tess.svars.colors[vertex];
-			}
-			else
-			{
-				_colorElement(out, vertex);
-			}
-		}
-		else
-		{
-			*out = glw_state->currentColor;
-		}
-		++out;
-
-		if (tex0Layout)
-		{
-			if (tex0Array)
-			{
-				_texCoordElement(out, vertex, 0);
-			}
-			else
-			{
-				memcpy(out, s_immediateTexCoord[0],
-					sizeof(s_immediateTexCoord[0]));
-			}
-			out += 2;
-		}
-
-		if (tex1Array)
-		{
-			_texCoordElement(out, vertex, 1);
-			out += 2;
-		}
-	}
-
-	assert(out == s_nativeVertices + count * glw_state->drawStride);
-
-	if (!SubmitNativeVerticesRing(glw_state->primitiveMode,
-			s_nativeVertices, count,
-			glw_state->drawStride * sizeof(DWORD)))
-	{
-		Com_Error(ERR_FATAL,
-			"Native D3D8 array vertex-ring submission failed");
-	}
-	glw_state->drawArray = NULL;
-	glw_state->inDrawBlock = false;
-}
-
-// Retained as a reference for a later persistent-buffer fast path.
-static void dllDrawArraysPush(GLenum mode, GLint first, GLsizei count)
+// NOTE: This is a core draw routine.  It should be fast.
+static void dllDrawArrays(GLenum mode, GLint first, GLsizei count)
 {
 #ifdef _WINDOWS
 	if (mode == GL_QUADS)
@@ -2526,12 +2998,6 @@ static void dllDrawArraysPush(GLenum mode, GLint first, GLsizei count)
 	qglEnd();
 }
 
-// NOTE: This is a core draw routine. It must remain on a native D3D8 path.
-static void dllDrawArrays(GLenum mode, GLint first, GLsizei count)
-{
-	dllDrawArraysUP(mode, first, count);
-}
-
 static void dllDrawBuffer(GLenum mode)
 {
 	//FIXME
@@ -2561,7 +3027,7 @@ static void PushIndices(GLsizei count, const GLushort *indices)
 	{
 		num_packets = (count / glw_state->maxIndices) + (!!(count % glw_state->maxIndices));
 	}
-	
+
 	glw_state->drawArray = _restartIndexPacket(glw_state->drawArray, glw_state->maxIndices);
 
 	int inc = glw_state->maxIndices;
@@ -2607,733 +3073,36 @@ static void PushIndices(GLsizei count, const GLushort *indices)
 	}
 }
 
-/*
-=================
-dllDrawElementsUP
-
-Submit the tessellator through the supported Xbox D3D8 user-pointer API.
-This is the correctness baseline for the native renderer: D3D owns the
-pushbuffer encoding and no stream points back into transient command memory.
-=================
-*/
-static void dllDrawElementsUP(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
+// NOTE: This is a core draw routine.  It should be fast.
+static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
 {
-	enum { STEFX_MAX_NATIVE_VERTEX_DWORDS = 11 };
-	static DWORD s_nativeVertices[SHADER_MAX_VERTEXES * STEFX_MAX_NATIVE_VERTEX_DWORDS];
-	const bool normals = glw_state->normalArrayState != 0;
-	const bool tex0Array = glw_state->texCoordArrayState[0] != 0;
-	const bool tex1Array = glw_state->texCoordArrayState[1] != 0;
-	const bool tex0Layout = tex0Array || tex1Array;
-	const GLushort *sourceIndices = (const GLushort *)indices;
-	DWORD *out = s_nativeVertices;
-	int sourceVertexCount = 0;
-
-	if (type != GL_UNSIGNED_SHORT || count < 0 ||
-		count > SHADER_MAX_VERTEXES || !indices)
-	{
-		g_SPXBPhaseLast = 0x44494630; /* 'DIF0' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 indexed draw invalid: type=0x%x count=%d indices=%p",
-			type, count, indices);
-		return;
+	int normals, tex0, tex1, num_streams = 2;
+#if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
+	if ( g_SPXBHMScoreSubmitArmed ) {
+		++g_SPXBHMScoreSubmitCalls;
+		g_SPXBHMScoreSubmitIndexes = (unsigned int)count;
+		g_SPXBHMScoreSubmitState = (unsigned int)glState.glStateBits;
+		g_SPXBHMScoreSubmitTexture = (unsigned int)glw_state->currentTexture[0];
+		g_SPXBHMScoreSubmitScissor = glw_state->scissorEnable ? 1u : 0u;
+		g_SPXBHMScoreSubmitScissorXY =
+			((unsigned int)(glw_state->scissorBox.x1 & 0xffff)) |
+			((unsigned int)(glw_state->scissorBox.y1 & 0xffff) << 16);
+		g_SPXBHMScoreSubmitScissorWH =
+			((unsigned int)((glw_state->scissorBox.x2 - glw_state->scissorBox.x1) & 0xffff)) |
+			((unsigned int)((glw_state->scissorBox.y2 - glw_state->scissorBox.y1) & 0xffff) << 16);
 	}
-	if (!glw_state->vertexArrayState || !glw_state->vertexPointer)
-	{
-		g_SPXBPhaseLast = 0x44494631; /* 'DIF1' */
-		Com_Error(ERR_FATAL, "Native D3D8 indexed draw has no vertex source");
-		return;
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	const int xboxPerfSample = g_SPXBPerfSampleActive ? 1 : 0;
+	unsigned __int64 xboxDrawStart = 0;
+	unsigned __int64 xboxPhaseStart = 0;
+	unsigned int xboxPhaseCycles = 0;
+	if (xboxPerfSample) {
+		xboxDrawStart = STEFX_XboxReadTsc();
+		++g_SPXBPerfSubmitCallsCurrent;
+		++g_SPXBPerfIndexedSubmitCallsCurrent;
 	}
-	if ((normals && !glw_state->normalPointer) ||
-		(glw_state->colorArrayState && !glw_state->colorPointer) ||
-		(tex0Array && !glw_state->texCoordPointer[0]) ||
-		(tex1Array && !glw_state->texCoordPointer[1]))
-	{
-		g_SPXBPhaseLast = 0x44494632; /* 'DIF2' */
-		Com_Error(ERR_FATAL, "Native D3D8 indexed draw has an invalid enabled source");
-		return;
-	}
-	for (int index = 0; index < count; ++index)
-	{
-		const int vertex = sourceIndices[index];
-		if (vertex >= SHADER_MAX_VERTEXES)
-		{
-			g_SPXBPhaseLast = 0x44494633; /* 'DIF3' */
-			Com_Error(ERR_FATAL,
-				"Native D3D8 index out of range: index=%d vertex=%d max=%d",
-				index, vertex, SHADER_MAX_VERTEXES);
-			return;
-		}
-		if (sourceVertexCount <= vertex)
-			sourceVertexCount = vertex + 1;
-	}
-
-	glw_state->inDrawBlock = true;
-	glw_state->primitiveMode = _convertPrimMode(mode);
-
-	_updateDrawStride(normals, tex0Layout, tex1Array);
-	if (glw_state->drawStride <= 0 ||
-		glw_state->drawStride > STEFX_MAX_NATIVE_VERTEX_DWORDS)
-	{
-		g_SPXBPhaseLast = 0x44494634; /* 'DIF4' */
-		Com_Error(ERR_FATAL, "Native D3D8 indexed stride invalid: %d",
-			glw_state->drawStride);
-		glw_state->inDrawBlock = false;
-		return;
-	}
-	_updateShader(normals, tex0Layout, tex1Array);
-	_updateTextures();
-	_updateMatrices();
-
-	for (int index = 0; index < count; ++index)
-	{
-		const int vertex = sourceIndices[index];
-		_vertexElement(out, vertex);
-		out += 3;
-
-		if (normals)
-		{
-			_normalElement(out, vertex);
-			out += 3;
-		}
-
-		if (glw_state->colorArrayState)
-		{
-			if (glw_state->colorPointer == tess.svars.colors)
-			{
-				*out = tess.svars.colors[vertex];
-			}
-			else
-			{
-				_colorElement(out, vertex);
-			}
-		}
-		else
-		{
-			*out = glw_state->currentColor;
-		}
-		++out;
-
-		if (tex0Layout)
-		{
-			if (tex0Array)
-			{
-				_texCoordElement(out, vertex, 0);
-			}
-			else
-			{
-				memcpy(out, s_immediateTexCoord[0],
-					sizeof(s_immediateTexCoord[0]));
-			}
-			out += 2;
-		}
-
-		if (tex1Array)
-		{
-			_texCoordElement(out, vertex, 1);
-			out += 2;
-		}
-	}
-
-	if (out != s_nativeVertices + count * glw_state->drawStride)
-	{
-		g_SPXBPhaseLast = 0x44494635; /* 'DIF5' */
-		Com_Error(ERR_FATAL, "Native D3D8 indexed packing mismatch");
-		glw_state->inDrawBlock = false;
-		return;
-	}
-	g_SPXBNativeDrawMode = glw_state->primitiveMode;
-	g_SPXBNativeDrawCount = count;
-	g_SPXBNativeDrawSourceVertices = sourceVertexCount;
-	g_SPXBNativeDrawMaxIndex = sourceVertexCount > 0 ? sourceVertexCount - 1 : 0;
-	g_SPXBNativeDrawStride = glw_state->drawStride * sizeof(DWORD);
-	g_SPXBNativeDrawIndicesPtr = 0;
-	g_SPXBNativeDrawVerticesPtr = (unsigned int)s_nativeVertices;
-	g_SPXBNativeDrawPath =
-		(r_nativeDrawPath ? (unsigned int)r_nativeDrawPath->integer :
-			0xffffffffu) |
-		(s_nativePushRejectReason << 8);
-	if (!SubmitNativeTriangleListPush(s_nativeVertices, count,
-			glw_state->drawStride * sizeof(DWORD)))
-	{
-		Com_Error(ERR_FATAL,
-			"Native D3D8 expanded triangle submission failed");
-	}
-	glw_state->inDrawBlock = false;
-}
-
-static int PushDrawIndices(GLsizei count, const GLushort *indices)
-{
-	const int maxBatchIndices = 1020;
-	int remaining = count;
-	int sourceIndex = 0;
-	int wordsWritten = 0;
-
-	while (remaining > 0)
-	{
-		int batch = remaining > maxBatchIndices ? maxBatchIndices : remaining;
-		const int pairedIndices = batch & ~1;
-
-		glw_state->drawArray =
-			_restartIndexPacket(glw_state->drawArray, pairedIndices);
-		wordsWritten += 3;
-
-		if (pairedIndices > 0)
-		{
-			memcpy(glw_state->drawArray, indices + sourceIndex,
-				pairedIndices * sizeof(GLushort));
-			glw_state->drawArray += pairedIndices / 2;
-			wordsWritten += pairedIndices / 2;
-		}
-
-		if (batch & 1)
-		{
-			*glw_state->drawArray++ =
-				D3DPUSH_ENCODE(CMD_DRAW_INDEX_LAST, 1);
-			*glw_state->drawArray++ = indices[sourceIndex + batch - 1];
-			wordsWritten += 2;
-		}
-
-		sourceIndex += batch;
-		remaining -= batch;
-	}
-
-	return wordsWritten;
-}
-
-static int DrawIndexPacketWords(GLsizei count)
-{
-	const int maxBatchIndices = 1020;
-	int remaining = count;
-	int words = 0;
-
-	while (remaining > 0)
-	{
-		const int batch =
-			remaining > maxBatchIndices ? maxBatchIndices : remaining;
-		words += 3 + (batch / 2) + ((batch & 1) ? 2 : 0);
-		remaining -= batch;
-	}
-	return words;
-}
-
-static bool CanUseDrawElementsPush(GLenum mode, GLsizei count,
-	GLenum type, const GLvoid *indices)
-{
-	const GLushort *drawIndices;
-	int i;
-
-	s_nativePushRejectReason = 0;
-	if (mode != GL_TRIANGLES || type != GL_UNSIGNED_SHORT ||
-		count <= 0 || (count % 3) != 0 || !indices)
-	{
-		s_nativePushRejectReason = 1;
-		return false;
-	}
-	if (tess.numVertexes <= 0 || tess.numVertexes > SHADER_MAX_VERTEXES)
-	{
-		s_nativePushRejectReason = 2;
-		return false;
-	}
-	if (!glw_state->vertexArrayState ||
-		glw_state->vertexPointer != tess.xyz)
-	{
-		s_nativePushRejectReason = 3;
-		return false;
-	}
-	if (glw_state->normalArrayState &&
-		glw_state->normalPointer != tess.normal)
-	{
-		s_nativePushRejectReason = 4;
-		return false;
-	}
-	if (glw_state->colorArrayState && !glw_state->colorPointer)
-	{
-		s_nativePushRejectReason = 5;
-		return false;
-	}
-	if (glw_state->texCoordArrayState[0] &&
-		glw_state->texCoordPointer[0] != tess.svars.texcoords[0])
-	{
-		s_nativePushRejectReason = 6;
-		return false;
-	}
-	if (glw_state->texCoordArrayState[1] &&
-		glw_state->texCoordPointer[1] != tess.svars.texcoords[1])
-	{
-		s_nativePushRejectReason = 7;
-		return false;
-	}
-
-	drawIndices = (const GLushort *)indices;
-	for (i = 0; i < count; ++i)
-	{
-		if (drawIndices[i] >= tess.numVertexes)
-		{
-			s_nativePushRejectReason = 8;
-			return false;
-		}
-	}
-	return true;
-}
-
-static void ReleaseNativeDrawRing(void)
-{
-	if (glw_state && glw_state->device)
-	{
-		glw_state->device->SetStreamSource(0, NULL, 0);
-		glw_state->device->SetIndices(NULL, 0);
-	}
-
-	if (s_nativeIndexRing)
-	{
-		s_nativeIndexRing->BlockUntilNotBusy();
-		s_nativeIndexRing->Release();
-		s_nativeIndexRing = NULL;
-	}
-	if (s_nativeVertexRing)
-	{
-		s_nativeVertexRing->BlockUntilNotBusy();
-		s_nativeVertexRing->Release();
-		s_nativeVertexRing = NULL;
-	}
-	s_nativeVertexRingOffset = 0;
-	s_nativeIndexRingOffset = 0;
-}
-
-static bool EnsureNativeVertexRing(void)
-{
-	HRESULT hr;
-
-	if (s_nativeVertexRing)
-		return true;
-	if (!glw_state || !glw_state->device)
-		return false;
-
-	g_SPXBPhaseLast = 0x44524230; /* 'DRB0' */
-	hr = glw_state->device->CreateVertexBuffer(
-		STEFX_NATIVE_RING_VERTEX_BYTES, 0, 0, D3DPOOL_DEFAULT,
-		&s_nativeVertexRing);
-	if (FAILED(hr) || !s_nativeVertexRing)
-	{
-		XBLF("Native D3D8 vertex ring create failed: bytes=%u hr=0x%08x",
-			(unsigned)STEFX_NATIVE_RING_VERTEX_BYTES, (unsigned)hr);
-		return false;
-	}
-
-	XBLF("Native D3D8 vertex ring ready: vb=%u",
-		(unsigned)STEFX_NATIVE_RING_VERTEX_BYTES);
-	g_SPXBPhaseLast = 0x44524231; /* 'DRB1' */
-	return true;
-}
-
-static bool EnsureNativeDrawRing(void)
-{
-	HRESULT hr;
-
-	if (s_nativeVertexRing && s_nativeIndexRing)
-		return true;
-	if (!EnsureNativeVertexRing())
-		return false;
-
-	hr = glw_state->device->CreateIndexBuffer(
-		STEFX_NATIVE_RING_INDEX_BYTES, 0, D3DFMT_INDEX16,
-		D3DPOOL_DEFAULT, &s_nativeIndexRing);
-	if (FAILED(hr) || !s_nativeIndexRing)
-	{
-		XBLF("Native D3D8 index ring create failed: bytes=%u hr=0x%08x",
-			(unsigned)STEFX_NATIVE_RING_INDEX_BYTES, (unsigned)hr);
-		return false;
-	}
-
-	XBLF("Native D3D8 draw ring ready: vb=%u ib=%u",
-		(unsigned)STEFX_NATIVE_RING_VERTEX_BYTES,
-		(unsigned)STEFX_NATIVE_RING_INDEX_BYTES);
-	g_SPXBPhaseLast = 0x44524231; /* 'DRB1' */
-	return true;
-}
-
-static bool SubmitNativeVerticesRing(D3DPRIMITIVETYPE primitiveMode,
-	const DWORD *vertices, DWORD vertexCount, DWORD strideBytes)
-{
-	DWORD vertexBytes;
-	DWORD vertexOffset;
-	DWORD vertexLockFlags;
-	BYTE *vertexDestination = NULL;
-	HRESULT hr;
-
-	if (!vertices || vertexCount == 0 || strideBytes == 0)
-	{
-		g_SPXBPhaseLast = 0x44564630; /* 'DVF0' */
-		return vertexCount == 0;
-	}
-
-	vertexBytes = vertexCount * strideBytes;
-	if (vertexBytes > STEFX_NATIVE_RING_VERTEX_BYTES)
-	{
-		g_SPXBPhaseLast = 0x44564631; /* 'DVF1' */
-		return false;
-	}
-	if (!EnsureNativeVertexRing())
-	{
-		if (g_SPXBPhaseLast != 0x44524230)
-			g_SPXBPhaseLast = 0x44564632; /* 'DVF2' */
-		return false;
-	}
-
-	vertexOffset = ((s_nativeVertexRingOffset + strideBytes - 1) /
-		strideBytes) * strideBytes;
-	vertexLockFlags = vertexOffset == 0 ? 0 : D3DLOCK_NOOVERWRITE;
-	if (vertexOffset + vertexBytes > STEFX_NATIVE_RING_VERTEX_BYTES)
-	{
-		g_SPXBPhaseLast = 0x44565730; /* 'DVW0' */
-		s_nativeVertexRing->BlockUntilNotBusy();
-		g_SPXBPhaseLast = 0x44565731; /* 'DVW1' */
-		vertexOffset = 0;
-		vertexLockFlags = 0;
-		++g_SPXBNativeRingWraps;
-	}
-
-	g_SPXBPhaseLast = 0x44564c30; /* 'DVL0' */
-	hr = s_nativeVertexRing->Lock(vertexOffset, vertexBytes,
-		&vertexDestination, vertexLockFlags);
-	if (FAILED(hr) || !vertexDestination)
-	{
-		XBLF("Native D3D8 vertex-only ring lock failed: off=%u bytes=%u hr=0x%08x",
-			(unsigned)vertexOffset, (unsigned)vertexBytes, (unsigned)hr);
-		return false;
-	}
-	memcpy(vertexDestination, vertices, vertexBytes);
-	s_nativeVertexRing->Unlock();
-
-	hr = glw_state->device->SetIndices(NULL, 0);
-	if (FAILED(hr))
-	{
-		g_SPXBPhaseLast = 0x44564930; /* 'DVI0' */
-		return false;
-	}
-	hr = glw_state->device->SetStreamSource(0, s_nativeVertexRing,
-		strideBytes);
-	if (FAILED(hr))
-	{
-		g_SPXBPhaseLast = 0x44565330; /* 'DVS0' */
-		return false;
-	}
-
-	g_SPXBPhaseLast = 0x44564430; /* 'DVD0' */
-	hr = glw_state->device->DrawVertices(primitiveMode,
-		vertexOffset / strideBytes, vertexCount);
-	if (FAILED(hr))
-	{
-		XBLF("Native D3D8 vertex-only ring draw failed: mode=%u verts=%u hr=0x%08x",
-			(unsigned)primitiveMode, (unsigned)vertexCount, (unsigned)hr);
-		return false;
-	}
-
-	s_nativeVertexRingOffset = vertexOffset + vertexBytes;
-	++g_SPXBFakeGLPrimitiveCalls;
-	g_SPXBFakeGLPrimitiveVerts += vertexCount;
-	++g_SPXBNativeRingCalls;
-	g_SPXBNativeRingBytes += vertexBytes;
-	g_SPXBPhaseLast = 0x44564431; /* 'DVD1' */
-	return true;
-}
-
-static bool SubmitNativeTriangleListPush(const DWORD *vertices,
-	DWORD vertexCount, DWORD strideBytes)
-{
-	const DWORD strideDwords = strideBytes / sizeof(DWORD);
-	DWORD maxBatchVertices;
-	DWORD sourceVertex = 0;
-
-	if (!vertices || vertexCount == 0 || (vertexCount % 3) != 0 ||
-		strideBytes == 0 || (strideBytes % sizeof(DWORD)) != 0 ||
-		glw_state->primitiveMode != D3DPT_TRIANGLELIST)
-		return false;
-
-	maxBatchVertices = (GLW_MAX_DRAW_PACKET_SIZE - 5) / strideDwords;
-	maxBatchVertices -= maxBatchVertices % 3;
-	if (maxBatchVertices < 3)
-		return false;
-
-	g_SPXBPhaseLast = 0x44565359; /* 'DVSY' */
-	glw_state->device->KickPushBuffer();
-	glw_state->device->BlockUntilIdle();
-	g_SPXBPhaseLast = 0x4456535a; /* 'DVSZ' */
-
-	while (sourceVertex < vertexCount)
-	{
-		DWORD batchVertices = vertexCount - sourceVertex;
-		DWORD commandWords;
-		DWORD *pushStart = NULL;
-		DWORD *push;
-
-		if (batchVertices > maxBatchVertices)
-			batchVertices = maxBatchVertices;
-		commandWords = 3 + batchVertices * strideDwords + 2;
-
-		g_SPXBPhaseLast = 0x44565030; /* 'DVP0' */
-		glw_state->device->BeginPush(commandWords, &pushStart);
-		if (!pushStart)
-			return false;
-
-		push = _restartDrawPacket(pushStart, batchVertices);
-		memcpy(push, vertices + sourceVertex * strideDwords,
-			batchVertices * strideBytes);
-		push += batchVertices * strideDwords;
-		push = _terminateDrawPacket(push);
-		if (push != pushStart + commandWords)
-		{
-			Com_Error(ERR_FATAL,
-				"Native D3D8 triangle push size mismatch: reserved=%u wrote=%u",
-				(unsigned)commandWords, (unsigned)(push - pushStart));
-			return false;
-		}
-
-		glw_state->device->EndPush(push);
-		sourceVertex += batchVertices;
-		++g_SPXBFakeGLPrimitiveCalls;
-		g_SPXBFakeGLPrimitiveVerts += batchVertices;
-		++g_SPXBNativePushCalls;
-		g_SPXBNativePushBytes += commandWords * sizeof(DWORD);
-		g_SPXBPhaseLast = 0x44565031; /* 'DVP1' */
-	}
-
-	return true;
-}
-
-/*
-=================
-dllDrawElementsRing
-
-Correctness-oriented dynamic VB/IB ring path based on the XDK's supported
-Lock/NOOVERWRITE/DrawIndexedPrimitive flow. It remains opt-in until measured
-against the UP and direct-push paths on the same map.
-=================
-*/
-static bool dllDrawElementsRing(GLenum mode, GLsizei count, GLenum type,
-	const GLvoid *indices)
-{
-	static DWORD s_ringVertices[
-		SHADER_MAX_VERTEXES * STEFX_MAX_NATIVE_VERTEX_DWORDS];
-	const bool normals = glw_state->normalArrayState != 0;
-	const bool tex0Array = glw_state->texCoordArrayState[0] != 0;
-	const bool tex1Array = glw_state->texCoordArrayState[1] != 0;
-	const bool tex0Layout = tex0Array || tex1Array;
-	const DWORD indexBytes = count * sizeof(GLushort);
-	const GLushort *sourceIndices = (const GLushort *)indices;
-	DWORD *out = s_ringVertices;
-	DWORD vertexBytes;
-	DWORD vertexOffset;
-	DWORD indexOffset;
-	DWORD vertexLockFlags = D3DLOCK_NOOVERWRITE;
-	DWORD indexLockFlags = D3DLOCK_NOOVERWRITE;
-	BYTE *vertexDestination = NULL;
-	BYTE *indexDestination = NULL;
-	HRESULT hr;
-	int vertex;
-	int index;
-	GLushort minIndex = 0xffff;
-	GLushort maxIndex = 0;
-
-	if (mode != GL_TRIANGLES || type != GL_UNSIGNED_SHORT ||
-		!sourceIndices || count <= 0 || (count % 3) != 0)
-		return false;
-
-	glw_state->inDrawBlock = true;
-	glw_state->primitiveMode = D3DPT_TRIANGLELIST;
-	_updateDrawStride(normals, tex0Layout, tex1Array);
-	if (glw_state->drawStride <= 0 ||
-		glw_state->drawStride > STEFX_MAX_NATIVE_VERTEX_DWORDS)
-	{
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-	_updateShader(normals, tex0Layout, tex1Array);
-	_updateTextures();
-	_updateMatrices();
-
-	for (vertex = 0; vertex < tess.numVertexes; ++vertex)
-	{
-		_vertexElement(out, vertex);
-		out += 3;
-
-		if (normals)
-		{
-			_normalElement(out, vertex);
-			out += 3;
-		}
-
-		if (glw_state->colorArrayState)
-		{
-			if (glw_state->colorPointer == tess.svars.colors)
-				*out = tess.svars.colors[vertex];
-			else
-				_colorElement(out, vertex);
-		}
-		else
-		{
-			*out = glw_state->currentColor;
-		}
-		++out;
-
-		if (tex0Layout)
-		{
-			if (tex0Array)
-			{
-				_texCoordElement(out, vertex, 0);
-			}
-			else
-			{
-				memcpy(out, s_immediateTexCoord[0],
-					sizeof(s_immediateTexCoord[0]));
-			}
-			out += 2;
-		}
-
-		if (tex1Array)
-		{
-			_texCoordElement(out, vertex, 1);
-			out += 2;
-		}
-	}
-
-	vertexBytes = tess.numVertexes * glw_state->drawStride * sizeof(DWORD);
-	if (out != s_ringVertices +
-			tess.numVertexes * glw_state->drawStride ||
-		vertexBytes > STEFX_NATIVE_RING_VERTEX_BYTES ||
-		indexBytes > STEFX_NATIVE_RING_INDEX_BYTES ||
-		!EnsureNativeDrawRing())
-	{
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-
-	vertexOffset = ((s_nativeVertexRingOffset + glw_state->drawStride *
-		sizeof(DWORD) - 1) /
-		(glw_state->drawStride * sizeof(DWORD))) *
-		(glw_state->drawStride * sizeof(DWORD));
-	if (vertexOffset + vertexBytes > STEFX_NATIVE_RING_VERTEX_BYTES)
-	{
-		g_SPXBPhaseLast = 0x44525630; /* 'DRV0' */
-		s_nativeVertexRing->BlockUntilNotBusy();
-		g_SPXBPhaseLast = 0x44525631; /* 'DRV1' */
-		vertexOffset = 0;
-		vertexLockFlags = 0;
-		++g_SPXBNativeRingWraps;
-	}
-
-	indexOffset = (s_nativeIndexRingOffset + 1) & ~1;
-	if (indexOffset + indexBytes > STEFX_NATIVE_RING_INDEX_BYTES)
-	{
-		g_SPXBPhaseLast = 0x44524930; /* 'DRI0' */
-		s_nativeIndexRing->BlockUntilNotBusy();
-		g_SPXBPhaseLast = 0x44524931; /* 'DRI1' */
-		indexOffset = 0;
-		indexLockFlags = 0;
-		++g_SPXBNativeRingWraps;
-	}
-
-	for (index = 0; index < count; ++index)
-	{
-		if (sourceIndices[index] < minIndex)
-			minIndex = sourceIndices[index];
-		if (sourceIndices[index] > maxIndex)
-			maxIndex = sourceIndices[index];
-	}
-
-	g_SPXBNativeDrawMode = mode;
-	g_SPXBNativeDrawCount = count;
-	g_SPXBNativeDrawSourceVertices = tess.numVertexes;
-	g_SPXBNativeDrawMaxIndex = maxIndex;
-	g_SPXBNativeDrawStride = glw_state->drawStride * sizeof(DWORD);
-	g_SPXBNativeDrawIndicesPtr = (unsigned int)sourceIndices;
-	g_SPXBNativeDrawVerticesPtr = (unsigned int)s_ringVertices;
-	g_SPXBNativeDrawPath = 2;
-	g_SPXBNativeDrawShader = glw_state->shaderMask;
-	g_SPXBNativeDrawVertexOffset = vertexOffset;
-	g_SPXBNativeDrawIndexOffset = indexOffset;
-	g_SPXBNativeDrawVertexBytes = vertexBytes;
-	g_SPXBNativeDrawIndexBytes = indexBytes;
-	g_SPXBNativeDrawLockFlags =
-		(vertexLockFlags & 0xffff) | (indexLockFlags << 16);
-	g_SPXBNativeDrawMinIndex = minIndex;
-
-	g_SPXBPhaseLast = 0x44524c30; /* 'DRL0' */
-	hr = s_nativeVertexRing->Lock(vertexOffset, vertexBytes,
-		&vertexDestination, vertexLockFlags);
-	if (FAILED(hr) || !vertexDestination)
-	{
-		XBLF("Native D3D8 vertex ring lock failed: off=%u bytes=%u hr=0x%08x",
-			(unsigned)vertexOffset, (unsigned)vertexBytes, (unsigned)hr);
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-	memcpy(vertexDestination, s_ringVertices, vertexBytes);
-	s_nativeVertexRing->Unlock();
-
-	hr = s_nativeIndexRing->Lock(indexOffset, indexBytes,
-		&indexDestination, indexLockFlags);
-	if (FAILED(hr) || !indexDestination)
-	{
-		XBLF("Native D3D8 index ring lock failed: off=%u bytes=%u hr=0x%08x",
-			(unsigned)indexOffset, (unsigned)indexBytes, (unsigned)hr);
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-	memcpy(indexDestination, sourceIndices, indexBytes);
-	s_nativeIndexRing->Unlock();
-
-	hr = glw_state->device->SetStreamSource(0, s_nativeVertexRing,
-		glw_state->drawStride * sizeof(DWORD));
-	if (FAILED(hr))
-	{
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-	hr = glw_state->device->SetIndices(s_nativeIndexRing,
-		vertexOffset / (glw_state->drawStride * sizeof(DWORD)));
-	if (FAILED(hr))
-	{
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-
-	g_SPXBPhaseLast = 0x44524430; /* 'DRD0' */
-	hr = glw_state->device->DrawIndexedPrimitive(
-		D3DPT_TRIANGLELIST, 0, tess.numVertexes,
-		indexOffset / sizeof(GLushort), count / 3);
-	if (FAILED(hr))
-	{
-		XBLF("Native D3D8 ring draw failed: verts=%d indices=%d hr=0x%08x",
-			tess.numVertexes, count, (unsigned)hr);
-		glw_state->inDrawBlock = false;
-		return false;
-	}
-
-	s_nativeVertexRingOffset = vertexOffset + vertexBytes;
-	s_nativeIndexRingOffset = indexOffset + indexBytes;
-	++g_SPXBFakeGLPrimitiveCalls;
-	g_SPXBFakeGLPrimitiveVerts += count;
-	++g_SPXBNativeRingCalls;
-	g_SPXBNativeRingBytes += vertexBytes + indexBytes;
-	g_SPXBPhaseLast = 0x44524431; /* 'DRD1' */
-	glw_state->inDrawBlock = false;
-	return true;
-}
-
-/*
-=================
-dllDrawElementsPush
-
-Write tessellator streams and triangle-list indices directly into one Xbox
-pushbuffer. Every pass is self-contained: pointers into a completed pushbuffer
-are transient on both the XDK and HLE implementations and must never be reused.
-The caller only selects this path for the exact tess-owned layout below.
-=================
-*/
-static void dllDrawElementsPush(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
-{
-	int normals, tex0, tex1, v;
+#endif
 
 	assert(type == GL_UNSIGNED_SHORT);
 
@@ -3341,93 +3110,256 @@ static void dllDrawElementsPush(GLenum mode, GLsizei count, GLenum type, const G
 	tex0 = glw_state->texCoordArrayState[0] ? tess.numVertexes : 0;
 	tex1 = glw_state->texCoordArrayState[1] ? tess.numVertexes : 0;
 
+	num_streams += ((normals > 0) + (tex0 > 0) + (tex1 > 0));
+
 	// start the draw block
 	glw_state->inDrawBlock = true;
 	glw_state->primitiveMode = _convertPrimMode(mode);
 
 	// update DX with any pending state changes
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) xboxPhaseStart = STEFX_XboxReadTsc();
+#endif
 	_updateDrawStride(normals, tex0, tex1);
-	glw_state->drawStride += normals ? 2 : 1;
 	_updateShader(normals, tex0, tex1);
 	_updateTextures();
 	_updateMatrices();
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+	STEFX_TraceShaderRuntimeDraw( count, (const GLushort *)indices,
+		normals ? qtrue : qfalse, tex0 ? qtrue : qfalse, tex1 ? qtrue : qfalse );
+#endif
+#if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
+	if ( g_SPXBHMScoreSubmitArmed ) {
+		IDirect3DSurface8 *renderTarget = NULL;
+		IDirect3DSurface8 *backBuffer = NULL;
+		glwstate_t::TextureInfo *textureInfo = _getCurrentTexture( 0 );
+		D3DSURFACE_DESC textureDesc;
+		D3DMATRIX projection;
+		DWORD colorWrite = 0;
+		DWORD cullMode = 0;
+		DWORD alphaBlend = 0;
+		DWORD srcBlend = 0;
+		DWORD dstBlend = 0;
+		DWORD colorOp = 0;
+		DWORD colorArg1 = 0;
+		DWORD colorArg2 = 0;
+		DWORD alphaOp = 0;
+		DWORD alphaArg1 = 0;
+		DWORD alphaArg2 = 0;
+		DWORD zEnable = 0;
+		DWORD zWrite = 0;
+		DWORD zFunc = 0;
+		DWORD vertexShader = 0;
+		DWORD pixelShader = 0;
+		union { float f; unsigned int u; } bits;
+		memset( &textureDesc, 0, sizeof(textureDesc) );
+		glw_state->device->GetRenderTarget( &renderTarget );
+		glw_state->device->GetBackBuffer( 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer );
+		g_SPXBHMScoreSubmitTarget = ( renderTarget ? 1u : 0u ) |
+			( backBuffer ? 2u : 0u ) | ( renderTarget == backBuffer ? 4u : 0u );
+		glw_state->device->GetRenderState( D3DRS_COLORWRITEENABLE, &colorWrite );
+		glw_state->device->GetRenderState( D3DRS_CULLMODE, &cullMode );
+		glw_state->device->GetRenderState( D3DRS_ALPHABLENDENABLE, &alphaBlend );
+		glw_state->device->GetRenderState( D3DRS_SRCBLEND, &srcBlend );
+		glw_state->device->GetRenderState( D3DRS_DESTBLEND, &dstBlend );
+		glw_state->device->GetRenderState( D3DRS_ZENABLE, &zEnable );
+		glw_state->device->GetRenderState( D3DRS_ZWRITEENABLE, &zWrite );
+		glw_state->device->GetRenderState( D3DRS_ZFUNC, &zFunc );
+		glw_state->device->GetTextureStageState( 0, D3DTSS_COLOROP, &colorOp );
+		glw_state->device->GetTextureStageState( 0, D3DTSS_COLORARG1, &colorArg1 );
+		glw_state->device->GetTextureStageState( 0, D3DTSS_COLORARG2, &colorArg2 );
+		glw_state->device->GetTextureStageState( 0, D3DTSS_ALPHAOP, &alphaOp );
+		glw_state->device->GetTextureStageState( 0, D3DTSS_ALPHAARG1, &alphaArg1 );
+		glw_state->device->GetTextureStageState( 0, D3DTSS_ALPHAARG2, &alphaArg2 );
+		glw_state->device->GetVertexShader( &vertexShader );
+		glw_state->device->GetPixelShader( &pixelShader );
+		g_SPXBHMScoreSubmitColorWrite = (unsigned int)colorWrite;
+		g_SPXBHMScoreSubmitCull = (unsigned int)cullMode;
+		g_SPXBHMScoreSubmitBlend = ((unsigned int)alphaBlend & 0xffu) |
+			(((unsigned int)srcBlend & 0xffu) << 8) |
+			(((unsigned int)dstBlend & 0xffu) << 16);
+		g_SPXBHMScoreStageColor = ((unsigned int)colorOp & 0xffu) |
+			(((unsigned int)colorArg1 & 0xffu) << 8) |
+			(((unsigned int)colorArg2 & 0xffu) << 16);
+		g_SPXBHMScoreStageAlpha = ((unsigned int)alphaOp & 0xffu) |
+			(((unsigned int)alphaArg1 & 0xffu) << 8) |
+			(((unsigned int)alphaArg2 & 0xffu) << 16);
+		g_SPXBHMScoreDepthState = ((unsigned int)zEnable & 0xffu) |
+			(((unsigned int)zWrite & 0xffu) << 8) |
+			(((unsigned int)zFunc & 0xffu) << 16);
+		g_SPXBHMScoreVertexShader = (unsigned int)vertexShader;
+		g_SPXBHMScorePixelShader = (unsigned int)pixelShader;
+		if ( textureInfo ) {
+			g_SPXBHMScoreTextureSize = (unsigned int)textureInfo->size;
+			g_SPXBHMScoreTextureData0 = textureInfo->data ?
+				*((const unsigned int *)textureInfo->data) : 0u;
+			if ( textureInfo->mipmap &&
+				SUCCEEDED( textureInfo->mipmap->GetLevelDesc( 0, &textureDesc ) ) ) {
+				g_SPXBHMScoreTextureWH = ((unsigned int)textureDesc.Width & 0xffffu) |
+					(((unsigned int)textureDesc.Height & 0xffffu) << 16);
+				g_SPXBHMScoreTextureFormat = (unsigned int)textureDesc.Format;
+			}
+		}
+		g_SPXBHMScoreVertexCount = (unsigned int)tess.numVertexes;
+		g_SPXBHMScoreVertexStride = (unsigned int)glw_state->drawStride;
+		if ( tess.numVertexes > 0 ) {
+			bits.f = tess.xyz[0][0]; g_SPXBHMScoreVertex0X = bits.u;
+			bits.f = tess.xyz[0][1]; g_SPXBHMScoreVertex0Y = bits.u;
+			bits.f = tess.xyz[0][2]; g_SPXBHMScoreVertex0Z = bits.u;
+			bits.f = tess.xyz[0][3]; g_SPXBHMScoreVertex0W = bits.u;
+			g_SPXBHMScoreVertex0Color = glw_state->colorArrayState ?
+				(unsigned int)tess.svars.colors[0] : (unsigned int)glw_state->currentColor;
+			if ( tex0 ) {
+				bits.f = tess.svars.texcoords[0][0][0]; g_SPXBHMScoreVertex0U = bits.u;
+				bits.f = tess.svars.texcoords[0][0][1]; g_SPXBHMScoreVertex0V = bits.u;
+			}
+		}
+		if ( count >= 3 ) {
+			const GLushort *scoreIndexes = (const GLushort *)indices;
+			g_SPXBHMScoreIndex012 = ((unsigned int)scoreIndexes[0] & 0x3ffu) |
+				(((unsigned int)scoreIndexes[1] & 0x3ffu) << 10) |
+				(((unsigned int)scoreIndexes[2] & 0x3ffu) << 20);
+		}
+		g_SPXBHMScoreSubmitViewportXY = ((unsigned int)glw_state->viewport.X & 0xffffu) |
+			(((unsigned int)glw_state->viewport.Y & 0xffffu) << 16);
+		g_SPXBHMScoreSubmitViewportWH = ((unsigned int)glw_state->viewport.Width & 0xffffu) |
+			(((unsigned int)glw_state->viewport.Height & 0xffffu) << 16);
+		glw_state->device->GetTransform( D3DTS_PROJECTION, &projection );
+		bits.f = projection._11; g_SPXBHMScoreSubmitProj00 = bits.u;
+		bits.f = projection._22; g_SPXBHMScoreSubmitProj11 = bits.u;
+		bits.f = projection._41; g_SPXBHMScoreSubmitProj30 = bits.u;
+		bits.f = projection._42; g_SPXBHMScoreSubmitProj31 = bits.u;
+		if ( renderTarget ) renderTarget->Release();
+		if ( backBuffer ) backBuffer->Release();
+	}
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		g_SPXBPerfDrawStateCyclesCurrent += STEFX_XboxElapsedCycles(xboxPhaseStart);
+	}
+#endif
+
+	glw_state->drawStride += normals ? 2 : 1;
 
 	glw_state->numIndices = 0;
 	glw_state->totalIndices = count;
 	glw_state->maxIndices = _getMaxIndices();
 
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) xboxPhaseStart = STEFX_XboxReadTsc();
+#endif
 	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);
-
-	const int vert_size = glw_state->drawStride * tess.numVertexes;
-	const int index_words = DrawIndexPacketWords(count);
-	const int stream_command_words =
-		2 + (normals ? 2 : 0) + 2 + (tex0 ? 2 : 0) + (tex1 ? 2 : 0);
-	const int command_words =
-		1 + vert_size + 17 + stream_command_words + index_words + 2;
-	DWORD *pushStart = NULL;
-
-	g_SPXBPhaseLast = 0x44495030; /* 'DIP0' */
-	glw_state->device->BeginPush(command_words, &glw_state->drawArray);
-	pushStart = glw_state->drawArray;
-	if (!pushStart)
-	{
-		g_SPXBPhaseLast = 0x44495046; /* 'DIPF' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 BeginPush failed: words=%d verts=%d indices=%d",
-			command_words, tess.numVertexes, count);
-		glw_state->inDrawBlock = false;
-		return;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		g_SPXBPerfDrawSetStreamCyclesCurrent += STEFX_XboxElapsedCycles(xboxPhaseStart);
 	}
+#endif
+
+	int vert_size = glw_state->drawStride * tess.numVertexes;
+	int index_size = count / 2; 
+
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	unsigned int xboxStateBits = 0;
+	if (xboxPerfSample) {
+		xboxStateBits = (unsigned int)glState.glStateBits;
+		g_SPXBPerfIndexedReserveDwordsCurrent +=
+			(unsigned int)(vert_size + index_size + 60);
+		if (tex1) {
+			++g_SPXBPerfIndexedTex1CallsCurrent;
+		}
+		if (xboxStateBits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)) {
+			++g_SPXBPerfIndexedBlendCallsCurrent;
+			g_SPXBPerfIndexedBlendIndexesCurrent += (unsigned int)count;
+		} else {
+			++g_SPXBPerfIndexedOpaqueCallsCurrent;
+		}
+		if (xboxStateBits & GLS_ATEST_BITS) {
+			++g_SPXBPerfIndexedAlphaTestCallsCurrent;
+			g_SPXBPerfIndexedAlphaTestIndexesCurrent += (unsigned int)count;
+		}
+		if (!(xboxStateBits & GLS_DEPTHMASK_TRUE)) {
+			++g_SPXBPerfIndexedNoDepthWriteCallsCurrent;
+			g_SPXBPerfIndexedNoDepthWriteIndexesCurrent += (unsigned int)count;
+		}
+		if (xboxStateBits & GLS_DEPTHTEST_DISABLE) {
+			++g_SPXBPerfIndexedNoDepthTestCallsCurrent;
+		}
+		if (glState.faceCulling == CT_TWO_SIDED) {
+			++g_SPXBPerfIndexedTwoSidedCallsCurrent;
+			g_SPXBPerfIndexedTwoSidedIndexesCurrent += (unsigned int)count;
+		}
+	}
+	if (xboxPerfSample) xboxPhaseStart = STEFX_XboxReadTsc();
+#endif
+	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		xboxPhaseCycles = STEFX_XboxElapsedCycles(xboxPhaseStart);
+		g_SPXBPerfDrawReserveCyclesCurrent += xboxPhaseCycles;
+		g_SPXBPerfDrawBeginPushCyclesCurrent += xboxPhaseCycles;
+		if (xboxPhaseCycles > g_SPXBPerfDrawBeginPushMaxCyclesCurrent) {
+			g_SPXBPerfDrawBeginPushMaxCyclesCurrent = xboxPhaseCycles;
+			g_SPXBPerfDrawBeginPushMaxDwordsCurrent = (unsigned int)(vert_size + index_size + 60);
+			g_SPXBPerfDrawBeginPushMaxStateCurrent = xboxStateBits;
+		}
+		if (xboxPhaseCycles > 73333u) ++g_SPXBPerfDrawBeginPushOver100KCurrent;
+		if (xboxPhaseCycles > 733333u) ++g_SPXBPerfDrawBeginPushOver1MsecCurrent;
+		if (xboxPhaseCycles > 7333333u) ++g_SPXBPerfDrawBeginPushOver10MsecCurrent;
+	}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) xboxPhaseStart = STEFX_XboxReadTsc();
+#endif
+	DWORD *pushBase = glw_state->drawArray;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		g_SPXBPerfDrawPointerCyclesCurrent += STEFX_XboxElapsedCycles(xboxPhaseStart);
+		xboxPhaseStart = STEFX_XboxReadTsc();
+	}
+#endif
 
 	DWORD *jumpaddress = 0, *stream = 0;
 
-	// Keep all vertex streams inside this BeginPush/EndPush lifetime.
-	jumpaddress = glw_state->drawArray + vert_size + 1;
+	// Determine where the end of the vertex data is gonna be,
+	// that's where we're going to jump to
+	jumpaddress = pushBase + (vert_size + 1);
+
+	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
+
+	// Set up our own fake vertex buffer
 	stream = glw_state->drawArray;
 
-	memcpy(glw_state->drawArray, tess.xyz,
-		sizeof(vec4_t) * tess.numVertexes);
+	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
 	glw_state->drawArray += tess.numVertexes * 4;
 
 	if(normals)
 	{
-		memcpy(glw_state->drawArray, tess.normal,
-			sizeof(vec4_t) * tess.numVertexes);
+		memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
 		glw_state->drawArray += tess.numVertexes * 4;
 	}
 
 	if(glw_state->colorArrayState)
 	{
-		if (glw_state->colorPointer == tess.svars.colors)
-		{
-			memcpy(glw_state->drawArray, tess.svars.colors,
-				sizeof(D3DCOLOR) * tess.numVertexes);
-		}
-		else
-		{
-			for (v = 0; v < tess.numVertexes; ++v)
-				_colorElement(glw_state->drawArray + v, v);
-		}
+		memcpy(glw_state->drawArray, tess.svars.colors, sizeof(D3DCOLOR) * tess.numVertexes);
 	}
 	else
 	{
-		for (v = 0; v < tess.numVertexes; ++v)
+		for( int v = 0; v < tess.numVertexes; ++v )
 			glw_state->drawArray[v] = glw_state->currentColor;
 	}
 	glw_state->drawArray += tess.numVertexes;
 
 	if(tex0)
 	{
-		memcpy(glw_state->drawArray, tess.svars.texcoords[0],
-			sizeof(vec2_t) * tess.numVertexes);
+		memcpy(glw_state->drawArray, tess.svars.texcoords[0], sizeof(vec2_t) * tess.numVertexes);
 		glw_state->drawArray += tess.numVertexes * 2;
 	}
 
 	if(tex1)
 	{
-		memcpy(glw_state->drawArray, tess.svars.texcoords[1],
-			sizeof(vec2_t) * tess.numVertexes);
+		memcpy(glw_state->drawArray, tess.svars.texcoords[1], sizeof(vec2_t) * tess.numVertexes);
 		glw_state->drawArray += tess.numVertexes * 2;
 	}
 
@@ -3475,7 +3407,7 @@ static void dllDrawElementsPush(GLenum mode, GLsizei count, GLenum type, const G
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
-	for ( int i = 0; i < 5; i++)
+	for(i = 0; i < 5; i++)
 	{
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
@@ -3487,27 +3419,26 @@ static void dllDrawElementsPush(GLenum mode, GLsizei count, GLenum type, const G
 #define CMD_VERTEXSTREAM_TEX0		0x1744
 #define CMD_VERTEXSTREAM_TEX1		0x1748
 
-	// Bind the streams copied into this pushbuffer.
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_XYZ, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	stream += tess.numVertexes * 4;
+	stream += tess.numVertexes * 4;//3;
 
 	if(normals)
 	{
 		*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_NORMAL, 1);
 		*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-		stream += tess.numVertexes * 4;
+		stream += tess.numVertexes * 4;//3;
 	}
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_COLOR, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	stream += tess.numVertexes;
+	stream += tess.numVertexes;//1;
 
 	if(tex0)
 	{
 		*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_VERTEXSTREAM_TEX0, 1);
 		*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-		stream += tess.numVertexes * 2;
+		stream += tess.numVertexes * 2;//2;
 	}
 
 	if(tex1)
@@ -3517,51 +3448,41 @@ static void dllDrawElementsPush(GLenum mode, GLsizei count, GLenum type, const G
 	}
 
 	// Send thru the index data
-	PushDrawIndices(count, (const GLushort *)indices);
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		g_SPXBPerfDrawPackCyclesCurrent += STEFX_XboxElapsedCycles(xboxPhaseStart);
+		xboxPhaseStart = STEFX_XboxReadTsc();
+	}
+#endif
+	PushIndices(count, (GLushort*)indices);
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		g_SPXBPerfDrawIndexCyclesCurrent += STEFX_XboxElapsedCycles(xboxPhaseStart);
+	}
+#endif
 
 	// finish up the draw
 	glw_state->inDrawBlock = false;
 
 	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
 
-	if (push != pushStart + command_words)
-	{
-		g_SPXBPhaseLast = 0x44495053; /* 'DIPS' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 push size mismatch: reserved=%d wrote=%d",
-			command_words, (int)(push - pushStart));
-		return;
-	}
-	glw_state->device->EndPush(push);
-	++g_SPXBFakeGLPrimitiveCalls;
-	g_SPXBFakeGLPrimitiveVerts += count;
-	++g_SPXBNativePushCalls;
-	g_SPXBNativePushBytes += command_words * sizeof(DWORD);
-	g_SPXBPhaseLast = 0x44495031; /* 'DIP1' */
-}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+	STEFX_TraceShaderPackedDraw( pushBase + 1, normals ? qtrue : qfalse,
+		tex0 ? qtrue : qfalse, tex1 ? qtrue : qfalse,
+		(unsigned int)( vert_size + index_size + 60 ),
+		(unsigned int)( push - pushBase ) );
+#endif
 
-// NOTE: This is a core draw routine. It must remain on a native D3D8 path.
-static void dllDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices)
-{
-	if (r_nativeDrawPath && r_nativeDrawPath->integer == 2)
-	{
-		if (CanUseDrawElementsPush(mode, count, type, indices) &&
-			dllDrawElementsRing(mode, count, type, indices))
-		{
-			return;
-		}
-		++g_SPXBNativeRingFallbacks;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) xboxPhaseStart = STEFX_XboxReadTsc();
+#endif
+	glw_state->device->EndPush(push);
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (xboxPerfSample) {
+		g_SPXBPerfDrawSubmitCyclesCurrent += STEFX_XboxElapsedCycles(xboxPhaseStart);
+		g_SPXBPerfDrawCyclesCurrent += STEFX_XboxElapsedCycles(xboxDrawStart);
 	}
-	if (r_nativeDrawPath && r_nativeDrawPath->integer == 1)
-	{
-		if (CanUseDrawElementsPush(mode, count, type, indices))
-		{
-			dllDrawElementsPush(mode, count, type, indices);
-			return;
-		}
-		++g_SPXBNativePushFallbacks;
-	}
-	dllDrawElementsUP(mode, count, type, indices);
+#endif
 }
 
 static void dllDrawPixels(GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels)
@@ -3598,122 +3519,54 @@ static void dllEnableClientState(GLenum array)
 static void dllEnd(void)
 {
 	assert(glw_state->inDrawBlock);
-	if (!glw_state || !glw_state->device || !glw_state->inDrawBlock ||
-		!glw_state->drawArray)
-	{
-		g_SPXBPhaseLast = 0x494D4632; /* 'IMF2' */
-		Com_Error(ERR_DROP, "Native D3D8 immediate draw ended in an invalid state");
-		return;
-	}
 	glw_state->inDrawBlock = false;
-
-	if (s_immediateUsesUP)
-	{
-		if (glw_state->numVertices > 0)
-		{
-			if (!SubmitNativeVerticesRing(glw_state->primitiveMode,
-					s_immediateVertices, glw_state->numVertices,
-					glw_state->drawStride * sizeof(DWORD)))
-			{
-				Com_Error(ERR_FATAL,
-					"Native D3D8 immediate vertex-ring submission failed");
-			}
-		}
-		glw_state->drawArray = NULL;
-		s_immediateUsesUP = false;
-		return;
+#ifdef _XBOX
+	// on Xbox, just close the draw packet
+	DWORD* push = _terminateDrawPacket(
+		&glw_state->drawArray[glw_state->numVertices * 
+		glw_state->drawStride]);
+	glw_state->device->EndPush(push);
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	if (g_SPXBPerfSampleActive && s_xboxImmediateDrawStart) {
+		g_SPXBPerfDrawCyclesCurrent += STEFX_XboxElapsedCycles(s_xboxImmediateDrawStart);
 	}
-
-	assert(false);
+	s_xboxImmediateDrawStart = 0;
+#endif
+#else
+	// on the PC, use DrawPrimitiveUp (a little slow)
+	int num = 0;
+	switch (glw_state->primitiveMode)
+	{
+	case D3DPT_POINTLIST: num = glw_state->numVertices; break;
+	case D3DPT_LINELIST: num = glw_state->numVertices / 2; break;
+	case D3DPT_LINESTRIP: num = glw_state->numVertices - 1; break;
+	case D3DPT_TRIANGLELIST: num = glw_state->numVertices / 3; break;
+	case D3DPT_TRIANGLESTRIP: num = glw_state->numVertices - 2; break;
+	case D3DPT_TRIANGLEFAN: num = glw_state->numVertices - 2; break;
+	}
+	
+	glw_state->device->DrawPrimitiveUP(
+		glw_state->primitiveMode, num, 
+		glw_state->drawArray, glw_state->drawStride * sizeof(DWORD));
+#endif
 }
-
-#if YELLOW_MODE
-
-static DWORD YellowModePixelShader	 = -1;
-bool enableYellowMode	= false;
-static void initYellowMode( void )
-{
-	if(!(CreatePixelShader("D:\\base\\media\\yellow.xpu", &YellowModePixelShader)))
-		return;
-}
-
-static void renderYellowMode( void )
-{
-	if(!enableYellowMode || YellowModePixelShader == -1)
-		return;
-
-	if(cls.state == CA_CINEMATIC)
-		return;
-
-	if(!tr.screenImage)
-		return;
-
-	// bind tr.screenImage
-	GL_Bind(tr.screenImage);
-	GL_State(0);
-
-	// copy backbuffer
-	//qglCopyBackBufferToTexEXT(width, height, u1, v1, u2, v2);
-	qglCopyBackBufferToTexEXT(512.0f, 256.0f, 2.0f, 2.0f, 640.0f, 480.0f);
-
-	// set up the yellow mode shader
-	DWORD oldShader;
-	glw_state->device->GetPixelShader(&oldShader);
-	glw_state->device->SetPixelShader(YellowModePixelShader);
-
-	// draw our polygon
-	qglBeginEXT(GL_QUADS,4,0,0,4,0);
-
-	qglTexCoord2f( 0,0 );
-	qglVertex2f( 0, 0 );
-
-	qglTexCoord2f( 1,0 );
-	qglVertex2f( 640, 0 );
-
-	qglTexCoord2f( 1,1 );
-	qglVertex2f( 640, 480);
-
-	qglTexCoord2f( 0,1 );
-	qglVertex2f( 0, 480);
-
-	qglEnd ();
-
-	glw_state->device->SetPixelShader(oldShader);
-}
-
-#endif // YELLOW_MODE
 
 // EXTENSION: End drawing for a frame
-bool connectSwapOverride = false;
 static void dllEndFrame(void)
 {
 	assert(!glw_state->inDrawBlock);
-	g_SPXBPhaseLast = 0x45463030; /* 'EF00' */
 
 	// the blend state can get reset by Present()...
 	GLboolean blend = qglIsEnabled(GL_BLEND);
 	
-#if YELLOW_MODE
-	if( !connectSwapOverride )
-		renderYellowMode();
-#endif // YELLOW_MODE
-
-	g_SPXBPhaseLast = 0x45463031; /* 'EF01' */
 	glw_state->device->EndScene();
-	g_SPXBPhaseLast = 0x45463032; /* 'EF02' */
 	
 	qglViewport(0, 0, glConfig.vidWidth, glConfig.vidHeight);
-	if( !connectSwapOverride )
-	{
-		g_SPXBPhaseLast = 0x45463033; /* 'EF03' */
-		glw_state->device->Present(NULL, NULL, NULL, NULL);
-		g_SPXBPhaseLast = 0x45463034; /* 'EF04' */
-	}
+	glw_state->device->Present(NULL, NULL, NULL, NULL);
 
 	// restore the pre-Present state
 	if (blend) qglEnable(GL_BLEND);
 	else qglDisable(GL_BLEND);
-	g_SPXBPhaseLast = 0x45463035; /* 'EF05' */
 }
 
 // EXTENSION: End shadow draw mode
@@ -4170,21 +4023,17 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 
 	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);	
 
-	int vert_size;
-	if(!tess.pNormal)
-		vert_size = 8 * tess.numVertexes;
-	else
-		vert_size = 4 * tess.numVertexes;
-
+	int vert_size = glw_state->drawStride * tess.numVertexes;
 	int index_size = numIndexes / 2;
-	
 	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
+
+	DWORD *pushBase = glw_state->drawArray;
 
 	DWORD *jumpaddress = 0, *stream = 0;
 
 	// Determine where the end of the vertex data is gonna be,
 	// that's where we're going to jump to
-	jumpaddress = glw_state->drawArray + vert_size + 1;
+	jumpaddress = pushBase + (vert_size + 1);
 
 	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
@@ -4192,11 +4041,14 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 	// Set up our own fake vertex buffer
 	stream = glw_state->drawArray;
 
-	if(!tess.pNormal)
-	{
-        memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
-		glw_state->drawArray += tess.numVertexes * 4;
-	}
+	memcpy(glw_state->drawArray, tess.xyz, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+	memcpy(glw_state->drawArray, tess.normal, sizeof(vec4_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 4;
+
+	memcpy(glw_state->drawArray, tess.svars.texcoords[0], sizeof(vec2_t) * tess.numVertexes);
+	glw_state->drawArray += tess.numVertexes * 2;
 
 	memcpy(glw_state->drawArray, tess.tangent, sizeof(vec4_t) * tess.numVertexes);
 	glw_state->drawArray += tess.numVertexes * 4;
@@ -4217,29 +4069,27 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 	// Tangent
 	*glw_state->drawArray++ = (16 << 8) | D3DVSDT_FLOAT3;
 
-	for ( int i = 0; i < 12; i++)
+	for(i = 0; i < 12; i++)
 	{
 		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
 	}
 
 	//	 Write the indicator to our vertex stream
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
-	*glw_state->drawArray++ = (DWORD)tess.pXyz & 0x7fffffff;
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 4;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
-	if(!tess.pNormal)
-	{
-        *glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-		stream += tess.numVertexes * 4;
-	}
-	else
-		*glw_state->drawArray++ = (DWORD)tess.pNormal & 0x7fffffff;
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 4;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1728, 1);
-	*glw_state->drawArray++ = (DWORD)tess.pTex1 & 0x7fffffff;
+	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 2;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x172c, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
+	stream += tess.numVertexes * 4;
 
 	// Send thru the index data
 	PushIndices(numIndexes, (GLushort*)indexes);
@@ -4251,113 +4101,6 @@ void renderObject_Light( int numIndexes, const glIndex_t *indexes )
 
 	glw_state->device->EndPush(push);
 }
-
-
-void renderObject_Shadow( int primType, int numIndexes, const unsigned short *indexes )
-{
-	// start the draw mode
-	assert(!glw_state->inDrawBlock);
-	if (!indexes || numIndexes <= 0 || tess.numVertexes <= 0 ||
-		tess.numVertexes > SHADER_MAX_VERTEXES)
-	{
-		g_SPXBPhaseLast = 0x53484446; /* 'SHDF' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 shadow draw invalid: verts=%d indices=%d source=%p",
-			tess.numVertexes, numIndexes, indexes);
-		return;
-	}
-
-	glw_state->inDrawBlock = true;
-	glw_state->primitiveMode = (D3DPRIMITIVETYPE)primType;
-
-	glw_state->drawStride = 5;
-
-	glw_state->numIndices = 0;
-	glw_state->totalIndices = numIndexes;
-	glw_state->maxIndices = _getMaxIndices();
-
-	glw_state->device->SetStreamSource(0, NULL, glw_state->drawStride * 4);	
-
-	int vert_size = glw_state->drawStride * (tess.numVertexes * 2);
-	const int index_words = DrawIndexPacketWords(numIndexes);
-	const int command_words = 1 + vert_size + 17 + 4 + index_words + 2;
-	DWORD *pushStart = NULL;
-
-	g_SPXBPhaseLast = 0x53484430; /* 'SHD0' */
-	glw_state->device->BeginPush(command_words, &glw_state->drawArray);
-	pushStart = glw_state->drawArray;
-	if (!pushStart)
-	{
-		g_SPXBPhaseLast = 0x53484446; /* 'SHDF' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 shadow BeginPush failed: words=%d verts=%d indices=%d",
-			command_words, tess.numVertexes, numIndexes);
-		glw_state->inDrawBlock = false;
-		return;
-	}
-
-	DWORD *jumpaddress = 0, *stream = 0;
-
-	// Keep both streams inside this BeginPush/EndPush lifetime.
-	jumpaddress = glw_state->drawArray + vert_size + 1;
-	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
-	stream = glw_state->drawArray;
-
-	memcpy(glw_state->drawArray, tess.xyz,
-		sizeof(vec4_t) * (tess.numVertexes * 2));
-	glw_state->drawArray += (tess.numVertexes * 2) * 4;
-
-	memset(glw_state->drawArray, 0x0, sizeof(float) * tess.numVertexes);
-	glw_state->drawArray += tess.numVertexes;
-	memcpy(glw_state->drawArray, StencilShadower.m_extrusionIndicators,
-		sizeof(float) * tess.numVertexes);
-	glw_state->drawArray += tess.numVertexes;
-	
-	// Write the vertex shader
-#define CMD_STREAM_STRIDEANDTYPE0 0x1760
-	*glw_state->drawArray++ = D3DPUSH_ENCODE(CMD_STREAM_STRIDEANDTYPE0, 16);
-
-	// Position
-	*glw_state->drawArray++ = (16 << 8)|D3DVSDT_FLOAT3;
-
-	// Extrusion determinant
-	*glw_state->drawArray++ = (4 << 8)|D3DVSDT_FLOAT1;
-
-	for ( int i = 0; i < 14; i++)
-	{
-		*glw_state->drawArray++ = ((glw_state->drawStride * 4) << 8) | D3DVSDT_NONE;
-	}
-
-	//	 Write the indicator to our vertex stream
-	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
-	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	stream += (tess.numVertexes * 2) * 4;
-
-	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
-	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-
-	// Send thru the index data
-	PushDrawIndices(numIndexes, (const GLushort *)indexes);
-
-	// finish up the draw
-	glw_state->inDrawBlock = false;
-
-	DWORD* push = _terminateIndexPacket(glw_state->drawArray);
-
-	if (push != pushStart + command_words)
-	{
-		g_SPXBPhaseLast = 0x53484453; /* 'SHDS' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 shadow push size mismatch: reserved=%d wrote=%d",
-			command_words, (int)(push - pushStart));
-		return;
-	}
-	glw_state->device->EndPush(push);
-	++g_SPXBNativePushCalls;
-	g_SPXBNativePushBytes += command_words * sizeof(DWORD);
-	g_SPXBPhaseLast = 0x53484431; /* 'SHD1' */
-}
-
 
 void renderObject_Bump()
 {
@@ -4380,11 +4123,13 @@ void renderObject_Bump()
 
 	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
 
+	DWORD *pushBase = glw_state->drawArray;
+
 	DWORD *jumpaddress = 0, *stream = 0;
 
 	// Determine where the end of the vertex data is gonna be,
 	// that's where we're going to jump to
-	jumpaddress = glw_state->drawArray + vert_size + 1;
+	jumpaddress = pushBase + (vert_size + 1);
 
 	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
@@ -4434,12 +4179,10 @@ void renderObject_Bump()
 	//	 Write the indicator to our vertex stream
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	tess.pXyz = stream;
 	stream += tess.numVertexes * 4;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	tess.pNormal = stream;
 	stream += tess.numVertexes * 4;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1728, 1);
@@ -4487,11 +4230,13 @@ void renderObject_Env()
 
 	glw_state->device->BeginPush(vert_size + index_size + 60, &glw_state->drawArray);
 
+	DWORD *pushBase = glw_state->drawArray;
+
 	DWORD *jumpaddress = 0, *stream = 0;
 
 	// Determine where the end of the vertex data is gonna be,
 	// that's where we're going to jump to
-	jumpaddress = glw_state->drawArray + vert_size + 1;
+	jumpaddress = pushBase + (vert_size + 1);
 
 	// Write the jump address
 	*glw_state->drawArray++ = ((DWORD)jumpaddress & 0x7fffffff) | 1;
@@ -4529,12 +4274,10 @@ void renderObject_Env()
 	//	 Write the indicator to our vertex stream
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1720, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	tess.pXyz = stream;
 	stream += tess.numVertexes * 4;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1724, 1);
 	*glw_state->drawArray++ = (DWORD)stream & 0x7fffffff;
-	tess.pNormal = stream;
 	stream += tess.numVertexes * 4;
 
 	*glw_state->drawArray++ = D3DPUSH_ENCODE(0x1728, 1);
@@ -4558,8 +4301,8 @@ void renderObject_Env()
 // is drawn with this function so it better be fast.
 static void dllIndexedTriToStrip(GLsizei count, const GLushort *indices)
 {
-//#ifndef _XBOX
-#if GLW_USE_TRI_STRIPS
+#ifndef _XBOX
+#ifdef GLW_USE_TRI_STRIPS
 
 	// update the render state
 	_updateDrawStride(glw_state->normalArrayState,
@@ -4615,7 +4358,7 @@ static void dllIndexedTriToStrip(GLsizei count, const GLushort *indices)
 		push = _restartDrawPacket(push, cur_len);
 		
 		// draw the geometry
-		glw_state->drawArray = push;
+	glw_state->drawArray = push;
 		func(cur_len, &glw_state->strip_dest[index]);
 		index += cur_len;
 		
@@ -4638,7 +4381,7 @@ static void dllIndexedTriToStrip(GLsizei count, const GLushort *indices)
 	// just render simple triangles
 	dllDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_SHORT, indices);
 #endif GLW_USE_TRI_STRIPS
-//#endif 
+#endif 
 }
 
 static void dllIndexMask(GLuint mask)
@@ -4778,40 +4521,40 @@ static void dllLightfv(GLenum light, GLenum pname, const GLfloat *params)
 	{
 	case GL_AMBIENT:
 		{
-			glw_state->dirLight.Ambient.r = params[0] / 255.0f;
-			glw_state->dirLight.Ambient.g = params[1] / 255.0f;
-			glw_state->dirLight.Ambient.b = params[2] / 255.0f;
+			glw_state->dirLight[light].Ambient.r = params[0] / 255.0f;
+			glw_state->dirLight[light].Ambient.g = params[1] / 255.0f;
+			glw_state->dirLight[light].Ambient.b = params[2] / 255.0f;
 		}
 		break;
 
 	case GL_DIFFUSE:
 		{
-			glw_state->dirLight.Diffuse.r = params[0] / 255.0f;
-			glw_state->dirLight.Diffuse.g = params[1] / 255.0f;
-			glw_state->dirLight.Diffuse.b = params[2] / 255.0f;
+			glw_state->dirLight[light].Diffuse.r = params[0] / 255.0f;
+			glw_state->dirLight[light].Diffuse.g = params[1] / 255.0f;
+			glw_state->dirLight[light].Diffuse.b = params[2] / 255.0f;
 		}
 		break;
 
 	case GL_SPECULAR:
 		{
-			glw_state->dirLight.Specular.r = params[0] / 255.0f;
-			glw_state->dirLight.Specular.g = params[1] / 255.0f;
-			glw_state->dirLight.Specular.b = params[2] / 255.0f;
+			glw_state->dirLight[light].Specular.r = params[0] / 255.0f;
+			glw_state->dirLight[light].Specular.g = params[1] / 255.0f;
+			glw_state->dirLight[light].Specular.b = params[2] / 255.0f;
 		}
 		break;
 	case GL_POSITION:
 		{
-			glw_state->dirLight.Position.x = params[0];
-			glw_state->dirLight.Position.y = params[1];
-			glw_state->dirLight.Position.z = params[2];
+			glw_state->dirLight[light].Position.x = params[0];
+			glw_state->dirLight[light].Position.y = params[1];
+			glw_state->dirLight[light].Position.z = params[2];
 		}
 		break;
 
 	case GL_SPOT_DIRECTION:
 		{
-			glw_state->dirLight.Direction.x = -params[0];
-			glw_state->dirLight.Direction.y = -params[1];
-			glw_state->dirLight.Direction.z = -params[2];
+			glw_state->dirLight[light].Direction.x = -params[0];
+			glw_state->dirLight[light].Direction.y = -params[1];
+			glw_state->dirLight[light].Direction.z = -params[2];
 		}
 		break;
 
@@ -4820,8 +4563,20 @@ static void dllLightfv(GLenum light, GLenum pname, const GLfloat *params)
 		break;
 	}
 
-	glw_state->device->SetLight(light, &glw_state->dirLight);
-	glw_state->device->LightEnable(light, TRUE);
+	// Sanity check to avoid assert in D3D?
+	if( (glw_state->dirLight[light].Direction.x * glw_state->dirLight[light].Direction.x +
+		glw_state->dirLight[light].Direction.y * glw_state->dirLight[light].Direction.y +
+		glw_state->dirLight[light].Direction.z * glw_state->dirLight[light].Direction.z) <= 0 )
+	{
+		assert( 0 && "Negative light direction in SetLight!" );
+		glw_state->dirLight[light].Direction.x = 1.0f;
+	}
+	glw_state->device->SetLight(light, &glw_state->dirLight[light]);
+	glw_state->device->LightEnable(light, true);
+
+	// Do this so a dynamic light that has disappeared is removed
+	if(!light)
+		glw_state->device->LightEnable(1, false);
 }
 
 static void dllLighti(GLenum light, GLenum pname, GLint param)
@@ -4958,7 +4713,7 @@ static void dllMaterialfv(GLenum face, GLenum pname, const GLfloat *params)
 		break;
 	}
 
-	if (glw_state->device) glw_state->device->SetMaterial(&glw_state->mtrl);
+	glw_state->device->SetMaterial(&glw_state->mtrl);
 }
 
 static void dllMateriali(GLenum face, GLenum pname, GLint param)
@@ -5004,9 +4759,14 @@ static void dllNewList(GLuint lnum, GLenum mode)
 static void setNormal(float x, float y, float z)
 {
 	assert(glw_state->inDrawBlock);
-	s_immediateNormal[0] = x;
-	s_immediateNormal[1] = y;
-	s_immediateNormal[2] = z;
+
+	_handleDrawOverflow();
+	
+	DWORD* push = &glw_state->drawArray[glw_state->numVertices * glw_state->drawStride + 4];
+	push[0] = *((DWORD*)&x);
+	push[1] = *((DWORD*)&y);
+	push[2] = *((DWORD*)&z);
+	push[3] = glw_state->currentColor;
 }
 static void dllNormal3b(GLbyte nx, GLbyte ny, GLbyte nz)
 {
@@ -5145,13 +4905,13 @@ static void dllPolygonMode(GLenum face, GLenum mode)
 		break;
 	case GL_BACK:
 #ifdef _XBOX
-		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, (DWORD)m);
+		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, m);
 #endif
 		break;
 	case GL_FRONT_AND_BACK:
 		glw_state->device->SetRenderState(D3DRS_FILLMODE, m);
 #ifdef _XBOX
-		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, (DWORD)m);
+		glw_state->device->SetRenderState(D3DRS_BACKFILLMODE, m);
 #endif
 		break;
 	}
@@ -5342,7 +5102,6 @@ static void dllReadBuffer(GLenum mode)
 	assert(0);
 }
 
-//static void dllReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLsizei twidth, GLsizei theight, GLvoid *pixels)
 static void dllReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *pixels)
 {
 	assert( 0 );
@@ -5386,18 +5145,7 @@ The active texture (that we're replacing) NEEDS to already have enough space!
 static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float v1, float u2, float v2)
 {
 	glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
-	if (info == NULL || info->mipmap == NULL || info->data == NULL ||
-		glw_state == NULL || glw_state->device == NULL)
-	{
-		return;
-	}
-
-	const UINT targetWidth = (UINT)(width + 0.5f);
-	const UINT targetHeight = (UINT)(height + 0.5f);
-	if (targetWidth == 0 || targetHeight == 0)
-	{
-		return;
-	}
+	if (info == NULL) return;
 
 	struct QUAD { D3DXVECTOR4 p; FLOAT tu,tv;} q[4];
 	q[0].p	= D3DXVECTOR4( 0.0f, 0.0f, 1.0f, 1.0f );
@@ -5410,20 +5158,16 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	q[3].tu = u2;	q[3].tv = v2;
 
 
-	LPDIRECT3DSURFACE8	pSurface = NULL;
-	LPDIRECT3DSURFACE8	pRenderTarget = NULL;
-	LPDIRECT3DSURFACE8	pStencilBuffer = NULL;
+	LPDIRECT3DSURFACE8	pSurface;
+	LPDIRECT3DSURFACE8	pBackBuffer;
+	LPDIRECT3DSURFACE8	pStencilBuffer;
 	D3DSURFACE_DESC		desc;
-	D3DTexture*			pRenderTex = NULL;
-	D3DVIEWPORT8		savedViewport;
-	D3DVIEWPORT8		targetViewport;
+	D3DTexture*			pRenderTex;
+	int					w	= 0;
+	int					h	= 0;
 
 	DWORD srcblend, destblend, alphablend, alphatest, zwrite, zenable, vShader, pShader;
 	DWORD colorop, colorarg1, addressu, addressv, minfilter, magfilter, colorwriteenable;
-
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x43425230; /* 'CBR0' */
-#endif
 
 	// save the current state
 	glw_state->device->GetRenderState( D3DRS_SRCBLEND, &srcblend );
@@ -5435,6 +5179,11 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->GetRenderState( D3DRS_COLORWRITEENABLE, &colorwriteenable);
 	glw_state->device->GetVertexShader( &vShader );
 	glw_state->device->GetPixelShader( &pShader );
+	// This function no longer makes ANY attempt to restore texture stages
+	glw_state->device->SetTexture(0, NULL);
+	glw_state->device->SetTexture(1, NULL);
+	glw_state->device->SetTexture(2, NULL);
+	glw_state->device->SetTexture(3, NULL);
 	glw_state->device->GetTextureStageState(0, D3DTSS_COLOROP, &colorop);
 	glw_state->device->GetTextureStageState(0, D3DTSS_COLORARG1, &colorarg1);
 	glw_state->device->GetTextureStageState(0, D3DTSS_ADDRESSU, &addressu);
@@ -5442,149 +5191,68 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->GetTextureStageState(0, D3DTSS_MINFILTER, &minfilter);
 	glw_state->device->GetTextureStageState(0, D3DTSS_MAGFILTER, &magfilter);
 
-	// Save the actual active target. This matters for split-screen and any
-	// caller that is already rendering offscreen.
-	glw_state->device->GetRenderTarget(&pRenderTarget);
+	// get the buffers
+	glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &pBackBuffer);
 	glw_state->device->GetDepthStencilSurface(&pStencilBuffer);
-	glw_state->device->GetViewport(&savedViewport);
-	if (pRenderTarget == NULL)
-	{
-#ifdef _XBOX
-		g_SPXBPhaseLast = 0x43425246; /* 'CBRF' */
-		XBL("Native D3D8 back-buffer copy has no active render target\n");
-#endif
-		return;
-	}
 
 	// get a surface desc
 	info->mipmap->GetLevelDesc(0, &desc);
 
 	// Check to see if the texture needs to be resized
-	if( desc.Width != targetWidth || desc.Height != targetHeight)
+	if( desc.Width != width || desc.Height != height)
 	{
-		IDirect3DTexture8 resizedHeader;
-		const DWORD requiredSize = XGSetTextureHeader(
-			targetWidth,
-			targetHeight,
-			1,
-			0,
-			desc.Format,
-			(D3DPOOL)0,
-			&resizedHeader,
-			0,
-			0);
+		// We don't actually destroy/create the texture anymore.
+		// We just adjust the texture header. Thus, make sure the texture
+		// is big enough when you make it the first time!
 
+		// Replacing this with a while( IsBusy() ) loop makes it hang sometimes
+		// But I can't figure out who the fuck has a lock on the texture, or
+		// and it doesn't seem to cause any problems. (ie: using push on cloaked guys)
 		info->mipmap->BlockUntilNotBusy();
 
-		if (requiredSize > info->dataSize)
-		{
-			if (info->data)
-			{
-				if (!gTextures.Free(info->data, info->dataSize))
-				{
-					g_SPXBPhaseLast = 0x43424652; /* 'CBFR' */
-					Com_Error(ERR_FATAL,
-						"Native D3D8 back-buffer texture resize could not release old allocation");
-					return;
-				}
-				info->data = NULL;
-				info->dataSize = 0;
-			}
-			void *resizedData = gTextures.Allocate(requiredSize,
-				glw_state->currentTexture[glw_state->serverTU]);
-			if (resizedData == NULL)
-			{
-#ifdef _XBOX
-				g_SPXBPhaseLast = 0x4342414C; /* 'CBAL' */
-				XBLF("Native D3D8 back-buffer texture resize failed: request=%u available=%u largest=%u\n",
-					(unsigned)requiredSize, (unsigned)gTextures.Free(),
-					(unsigned)gTextures.LargestFree());
-#endif
-				pRenderTarget->Release();
-				if (pStencilBuffer)
-				{
-					pStencilBuffer->Release();
-				}
-				return;
-			}
-			info->data = resizedData;
-			info->dataSize = requiredSize;
-		}
+		// Change the texture size
+		XGSetTextureHeader( width,
+							height,
+							1,
+							0,
+							desc.Format,
+							0,
+							info->mipmap,
+							0,
+							0 );
 
-		XGSetTextureHeader(targetWidth,
-						  targetHeight,
-						  1,
-						  0,
-						  desc.Format,
-						  (D3DPOOL)0,
-						  info->mipmap,
-						  0,
-						  0);
-
+		// Re-register the data:
 		info->mipmap->Register( info->data );
 	}
 
-	// Xbox render targets are linear surfaces. Always render into a linear
-	// temporary, then convert into the caller's sampling format after restoring
-	// the live target. Binding a swizzled texture here faults on retail D3D8.
-	HRESULT createResult = glw_state->device->CreateTexture(
-		targetWidth,
-		targetHeight,
-		1,
-		0,
-		D3DFMT_LIN_X8R8G8B8,
-		(D3DPOOL)0,
-		&pRenderTex);
-	if (FAILED(createResult) || pRenderTex == NULL)
+	// check to see if we want a compressed output texture
+	if( desc.Format == D3DFMT_DXT1)
 	{
-#ifdef _XBOX
-		g_SPXBPhaseLast = 0x43425446; /* 'CBTF' */
-		XBLF("Native D3D8 back-buffer render texture failed: hr=0x%08x size=%ux%u\n",
-			(unsigned)createResult, (unsigned)targetWidth,
-			(unsigned)targetHeight);
-#endif
-		pRenderTarget->Release();
-		if (pStencilBuffer)
-		{
-			pStencilBuffer->Release();
-		}
-		return;
+
+		w	= desc.Width;
+		h	= desc.Height;
+
+		// create a new texture to use as a render target
+		_d3d_check(glw_state->device->CreateTexture( w,
+													 h,
+													 1,
+													 0,
+													 D3DFMT_LIN_X8R8G8B8,
+													 0,
+													 &pRenderTex ), "CreateTexture");
+	}
+	else
+	{
+		pRenderTex = info->mipmap;
+		
 	}
 
 	// make our current surface a render target
 	pRenderTex->GetSurfaceLevel(0, &pSurface);
-	if (pSurface == NULL)
-	{
-		pRenderTex->Release();
-		pRenderTarget->Release();
-		if (pStencilBuffer)
-		{
-			pStencilBuffer->Release();
-		}
-		return;
-	}
-
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x43425231; /* 'CBR1' */
-#endif
-	// This function intentionally invalidates texture bindings. The qgl
-	// cache will restore every active stage on the next draw.
-	for (int unbindStage = 0; unbindStage < GLW_MAX_TEXTURE_STAGES; ++unbindStage)
-	{
-		glw_state->device->SetTexture(unbindStage, NULL);
-	}
 	glw_state->device->SetRenderTarget( pSurface, NULL );
-
-	targetViewport.X = 0;
-	targetViewport.Y = 0;
-	targetViewport.Width = targetWidth;
-	targetViewport.Height = targetHeight;
-	targetViewport.MinZ = 0.0f;
-	targetViewport.MaxZ = 1.0f;
-	glw_state->device->SetViewport(&targetViewport);
 	
-	// set texture 0 to the saved render-target data
-	glw_state->device->SetTexture(0,(LPDIRECT3DTEXTURE8)pRenderTarget);
+	// set texture 0 to the back buffer data
+	glw_state->device->SetTexture(0,(LPDIRECT3DTEXTURE8)pBackBuffer);
 
 	// set the texture 0 state
 	glw_state->device->SetTextureStageState( 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1 );
@@ -5608,143 +5276,41 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->Clear(NULL,NULL,D3DCLEAR_TARGET,D3DCOLOR_COLORVALUE(1.0f, 1.0f, 1.0f, 1.0f), 1.0f, 0);
 	glw_state->device->DrawPrimitiveUP( D3DPT_QUADSTRIP, 1, q, sizeof(QUAD) );
 
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x43425232; /* 'CBR2' */
-#endif
-
-	// A surface cannot remain bound as a texture while becoming the render
-	// target again. Restore the target and viewport before locking or
-	// compressing the temporary texture.
-	glw_state->device->SetTexture(0, NULL);
-	glw_state->device->SetRenderTarget(pRenderTarget, pStencilBuffer);
-	glw_state->device->SetViewport(&savedViewport);
-
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x43425233; /* 'CBR3' */
-#endif
-
-	// Convert the linear render result into the destination's sampling layout.
+	// now that everything is rendered, check again to see
+	// if we want a compressed texture
+	if( desc.Format == D3DFMT_DXT1)
 	{
+		LPDIRECT3DTEXTURE8	pSrcTex;
+		LPDIRECT3DTEXTURE8	pDstTex;
 		D3DLOCKED_RECT		srcLock;
 		D3DLOCKED_RECT		dstLock;
-		const HRESULT srcLockResult = pRenderTex->LockRect(0, &srcLock, NULL, 0);
-		const HRESULT dstLockResult = info->mipmap->LockRect(0, &dstLock, NULL, 0);
 
-		if (SUCCEEDED(srcLockResult) && SUCCEEDED(dstLockResult) &&
-			srcLock.pBits != NULL && dstLock.pBits != NULL)
-		{
-			if (desc.Format == D3DFMT_DXT1 || desc.Format == D3DFMT_DXT5)
-			{
-				XGCompressRect(dstLock.pBits,
-					desc.Format,
-					dstLock.Pitch,
-					targetWidth,
-					targetHeight,
-					srcLock.pBits,
-					D3DFMT_LIN_X8R8G8B8,
-					srcLock.Pitch,
-					1,
-					0);
-			}
-			else if (desc.Format == D3DFMT_A8R8G8B8 ||
-				desc.Format == D3DFMT_X8R8G8B8)
-			{
-				XGSwizzleRect(srcLock.pBits,
-					srcLock.Pitch,
-					NULL,
-					dstLock.pBits,
-					targetWidth,
-					targetHeight,
-					NULL,
-					4);
-			}
-			else if (desc.Format == D3DFMT_R5G6B5 ||
-				desc.Format == D3DFMT_A4R4G4B4)
-			{
-				const DWORD linearBytes = targetWidth * targetHeight * sizeof(WORD);
-				WORD *linear16 = (WORD*)Z_Malloc(linearBytes,
-					TAG_TEMP_WORKSPACE, qfalse, 4);
-				if (linear16 != NULL)
-				{
-					for (UINT y = 0; y < targetHeight; ++y)
-					{
-						const DWORD *srcRow = (const DWORD*)
-							((const byte*)srcLock.pBits + y * srcLock.Pitch);
-						WORD *dstRow = linear16 + y * targetWidth;
-						for (UINT x = 0; x < targetWidth; ++x)
-						{
-							const DWORD pixel = srcRow[x];
-							const DWORD b = pixel & 0xff;
-							const DWORD g = (pixel >> 8) & 0xff;
-							const DWORD r = (pixel >> 16) & 0xff;
-							if (desc.Format == D3DFMT_R5G6B5)
-							{
-								dstRow[x] = (WORD)(((r >> 3) << 11) |
-									((g >> 2) << 5) | (b >> 3));
-							}
-							else
-							{
-								const DWORD a = (pixel >> 24) & 0xff;
-								dstRow[x] = (WORD)(((a >> 4) << 12) |
-									((r >> 4) << 8) | ((g >> 4) << 4) |
-									(b >> 4));
-							}
-						}
-					}
-					XGSwizzleRect(linear16,
-						targetWidth * sizeof(WORD),
-						NULL,
-						dstLock.pBits,
-						targetWidth,
-						targetHeight,
-						NULL,
-						sizeof(WORD));
-					Z_Free(linear16);
-				}
-			}
-			else if (desc.Format == D3DFMT_LIN_A8R8G8B8 ||
-				desc.Format == D3DFMT_LIN_X8R8G8B8)
-			{
-				const DWORD rowBytes = targetWidth * sizeof(DWORD);
-				for (UINT y = 0; y < targetHeight; ++y)
-				{
-					memcpy((byte*)dstLock.pBits + y * dstLock.Pitch,
-						(const byte*)srcLock.pBits + y * srcLock.Pitch,
-						rowBytes);
-				}
-			}
-			else
-			{
-#ifdef _XBOX
-				g_SPXBPhaseLast = 0x4342464D; /* 'CBFM' */
-				XBLF("Native D3D8 back-buffer destination format unsupported: 0x%08x\n",
-					(unsigned)desc.Format);
-#endif
-			}
-		}
-		else
-		{
-#ifdef _XBOX
-			g_SPXBPhaseLast = 0x43424C46; /* 'CBLF' */
-			XBLF("Native D3D8 back-buffer texture lock failed: src=0x%08x dst=0x%08x\n",
-				(unsigned)srcLockResult, (unsigned)dstLockResult);
-#endif
-		}
+		pSrcTex	= pRenderTex;
+		pDstTex	= info->mipmap;
 
-		if (SUCCEEDED(srcLockResult))
-		{
-			pRenderTex->UnlockRect(0);
-		}
-		if (SUCCEEDED(dstLockResult))
-		{
-			info->mipmap->UnlockRect(0);
-		}
+		// lock our textures
+		pSrcTex->LockRect(0, &srcLock, NULL, 0);
+		pDstTex->LockRect(0, &dstLock, NULL, 0);
+
+		// compress the texture
+		XGCompressRect(	dstLock.pBits,
+						D3DFMT_DXT1,
+						dstLock.Pitch,
+						w,
+						h,
+						srcLock.pBits,
+						D3DFMT_LIN_X8R8G8B8,
+						srcLock.Pitch,
+						1,
+						0 );
+
+		// unlock
+		pSrcTex->UnlockRect(0);
+		pDstTex->UnlockRect(0);
+
+		// release the render texture
+		pRenderTex->Release();
 	}
-	pRenderTex->Release();
-
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x43425234; /* 'CBR4' */
-#endif
 
 	// return our state
 	glw_state->device->SetRenderState( D3DRS_SRCBLEND, srcblend );
@@ -5757,10 +5323,8 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 
 	// Clear stage zero again. We're not being nice.
 	glw_state->device->SetTexture(0, NULL);
-	for (int stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage)
-	{
-		glw_state->textureStageDirty[stage] = true;
-	}
+	glw_state->textureStageDirty[0] = true;
+	glw_state->textureStageDirty[1] = true;
 
 	glw_state->device->SetTextureStageState(0, D3DTSS_COLOROP, colorop);
 	glw_state->device->SetTextureStageState(0, D3DTSS_COLORARG1, colorarg1);
@@ -5772,16 +5336,13 @@ static void dllCopyBackBufferToTexEXT(float width, float height, float u1, float
 	glw_state->device->SetVertexShader( vShader );
 	glw_state->device->SetPixelShader( pShader );
 
-	pSurface->Release();
-	pRenderTarget->Release();
-	if (pStencilBuffer)
-	{
-		pStencilBuffer->Release();
-	}
+	glw_state->device->SetRenderTarget( pBackBuffer, pStencilBuffer );
 
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x43425235; /* 'CBR5' */
-#endif
+	pSurface->Release();
+	pBackBuffer->Release();
+	pStencilBuffer->Release();
+
+	glw_state->device->SetViewport(&glw_state->viewport);
 }
 
 static void dllRectd(GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2)
@@ -5968,9 +5529,19 @@ static void dllTexCoord1sv(const GLshort *v)
 static void setTexCoord(float s, float t)
 {
 	assert(glw_state->inDrawBlock);
-	assert(glw_state->serverTU < GLW_MAX_TEXTURE_STAGES);
-	s_immediateTexCoord[glw_state->serverTU][0] = s;
-	s_immediateTexCoord[glw_state->serverTU][1] = t;
+
+	_handleDrawOverflow();
+
+	int off = 0;
+	if(glw_state->normalArrayState)
+		off = 3;
+	
+	DWORD* push = &glw_state->drawArray[
+		glw_state->numVertices * glw_state->drawStride + 
+		4 + off + glw_state->serverTU * 2];
+	
+	*push++ = *((DWORD*)&s);
+	*push++ = *((DWORD*)&t);
 }
 
 static void dllTexCoord2d(GLdouble s, GLdouble t)
@@ -6178,43 +5749,6 @@ static void dllTexImage1D(GLenum target, GLint level, GLint internalformat, GLsi
 	assert(0);
 }
 
-static void _swizzleRectCPU(const void* source, void* destination,
-	DWORD width, DWORD height, DWORD bytesPerPixel)
-{
-	assert((width & (width - 1)) == 0);
-	assert((height & (height - 1)) == 0);
-	assert(bytesPerPixel == 2 || bytesPerPixel == 4);
-
-	XGSwizzleRect(source, 0, NULL, destination,
-		width, height, NULL, bytesPerPixel);
-}
-
-static qboolean _uploadSwizzledTextureLevel(IDirect3DTexture8* texture,
-	DWORD level, const void* source, DWORD width, DWORD height,
-	DWORD bytesPerPixel)
-{
-	IDirect3DSurface8* surface = NULL;
-	D3DLOCKED_RECT locked;
-
-	if (!texture || !source)
-		return qfalse;
-
-	if (FAILED(texture->GetSurfaceLevel(level, &surface)) || !surface)
-		return qfalse;
-
-	const HRESULT lockResult = surface->LockRect(&locked, NULL, 0);
-	if (FAILED(lockResult) || !locked.pBits)
-	{
-		surface->Release();
-		return qfalse;
-	}
-
-	_swizzleRectCPU(source, locked.pBits, width, height, bytesPerPixel);
-	surface->UnlockRect();
-	surface->Release();
-	return qtrue;
-}
-
 static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei width, GLsizei height, GLenum format, const GLvoid *pixels)
 {
 	D3DFORMAT f = D3DFMT_UNKNOWN;
@@ -6237,277 +5771,48 @@ static void _texImageDDS(glwstate_t::TextureInfo* info, GLint numlevels, GLsizei
 	if( numlevels == 0)
 		numlevels = 1;
 
-	const DWORD headerSize = sizeof(DWORD) + sizeof(DDS_HEADER);
-	const DWORD fileSize = pixels ? Z_Size(const_cast<void*>(pixels)) : 0;
-	const qboolean hasDDSHeader =
-		pixels &&
-		fileSize >= headerSize &&
-		*(const DWORD*)pixels == MAKEFOURCC('D', 'D', 'S', ' ');
-	const qboolean isSaveGamePlaceholder =
-		pixels &&
-		!hasDDSHeader &&
-		format == GL_DDS1_EXT &&
-		width == SAVE_GAME_IMAGE_W &&
-		height == SAVE_GAME_IMAGE_H;
-
-	if (!hasDDSHeader && !isSaveGamePlaceholder)
-	{
-		g_SPXBPhaseLast = 0x44444648; /* 'DDFH' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 DDS upload received an invalid container: format=0x%04x size=%u dims=%dx%d",
-			(unsigned)format, (unsigned)fileSize, (int)width, (int)height);
-		return;
-	}
-
 	info->mipmap = new IDirect3DTexture8;
-	DWORD pixelSize = XGSetTextureHeader( width,
-						height,
-						numlevels,
-						(D3DPOOL)0,
-						f,
-						(D3DPOOL)0,
-						info->mipmap,
-						(D3DPOOL)0,
-						0 );
+	info->size = XGSetTextureHeader( width,
+					height,
+					numlevels,
+					0,
+					f,
+					0,
+					info->mipmap,
+					0,
+					0 );
 
-	const byte* sourceData = hasDDSHeader
-		? (const byte*)pixels + headerSize
-		: NULL;
-	const DWORD sourceBytes = hasDDSHeader ? fileSize - headerSize : 0;
-	if (!info->data || info->dataSize < pixelSize)
+	DWORD fileSize = Z_Size(const_cast<void*>(pixels));
+	info->data = s_bUseSkinAllocator ?
+		gSkinTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] ) :
+		gStaticTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] );
+	// Lightmaps need to be swizzled, they're in 565:
+	if( f == D3DFMT_R5G6B5 )
 	{
-		info->data = gTextures.Allocate(pixelSize,
-			glw_state->currentTexture[glw_state->serverTU]);
-		info->dataSize = info->data ? pixelSize : 0;
-	}
-	if (!info->data)
-	{
-		g_SPXBPhaseLast = 0x44444641; /* 'DDFA' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 DDS texture pool exhausted: request=%u used=%u capacity=%u",
-			(unsigned)pixelSize, (unsigned)gTextures.Size(),
-			(unsigned)gTextures.Capacity());
-		return;
-	}
-
-	memset(info->data, 0, pixelSize);
-	info->mipmap->Register(info->data);
-
-	// R_CreateBuiltinImages deliberately reserves the savegame slot as
-	// DXT1 before an XPR screenshot exists. A zeroed DXT1 allocation is a
-	// valid black placeholder and preserves the format expected by the
-	// later direct XPR payload copy.
-	if (isSaveGamePlaceholder)
-	{
-		XBL("Native D3D8: initialized blank DXT1 savegame placeholder\n");
-		return;
-	}
-
-	// DDS files store uncompressed pixels in linear row order. Xbox
-	// A8R8G8B8 and R5G6B5 textures are swizzled in registered memory.
-	if( f == D3DFMT_R5G6B5 || f == D3DFMT_A8R8G8B8 )
-	{
-		const DWORD bytesPerPixel = f == D3DFMT_R5G6B5 ? 2 : 4;
-		const byte *pSrc = sourceData;
-		DWORD remainingSourceBytes = sourceBytes;
+		byte *pSrc = ((byte *)pixels)+(fileSize-info->size);
+		byte *pDst = (byte *)info->data;
 		DWORD level = numlevels;
 		DWORD curWidth = width;
 		DWORD curHeight = height;
-		DWORD levelIndex = 0;
 		while (level--)
 		{
-			const DWORD levelBytes = curWidth * curHeight * bytesPerPixel;
-			if (remainingSourceBytes < levelBytes ||
-				!_uploadSwizzledTextureLevel(info->mipmap, levelIndex,
-					pSrc, curWidth, curHeight, bytesPerPixel))
-			{
-				g_SPXBPhaseLast = 0x44444655; /* 'DDFU' */
-				Com_Error(ERR_FATAL,
-					"Native D3D8 DDS upload failed: level=%u size=%ux%u source=%u",
-					(unsigned)levelIndex, (unsigned)curWidth,
-					(unsigned)curHeight, (unsigned)remainingSourceBytes);
-				return;
-			}
-			pSrc += levelBytes;
-			remainingSourceBytes -= levelBytes;
-			++levelIndex;
-			if (curWidth > 1)
-				curWidth >>= 1;
-			if (curHeight > 1)
-				curHeight >>= 1;
+			XGSwizzleRect(pSrc, 0, NULL, pDst, curWidth, curHeight, NULL, 2);
+			pSrc += curWidth*curHeight*2;
+			pDst += curWidth*curHeight*2;
+			curWidth >>= 1;
+			curHeight >>= 1;
 		}
 	}
 	else
 	{
-		const DWORD copyBytes = sourceBytes < pixelSize ? sourceBytes : pixelSize;
-		memcpy(info->data, sourceData, copyBytes);
+		memcpy( info->data, ((byte *)pixels)+(fileSize-info->size), info->size );
 	}
-}
-
-static void _downsampleBGRAInPlace(DWORD* pixels, DWORD width, DWORD height)
-{
-	const DWORD nextWidth = width > 1 ? width >> 1 : 1;
-	const DWORD nextHeight = height > 1 ? height >> 1 : 1;
-
-	for (DWORD y = 0; y < nextHeight; ++y)
-	{
-		const DWORD y0 = y << 1;
-		const DWORD y1 = y0 + 1 < height ? y0 + 1 : y0;
-
-		for (DWORD x = 0; x < nextWidth; ++x)
-		{
-			const DWORD x0 = x << 1;
-			const DWORD x1 = x0 + 1 < width ? x0 + 1 : x0;
-			const DWORD p0 = pixels[y0 * width + x0];
-			const DWORD p1 = pixels[y0 * width + x1];
-			const DWORD p2 = pixels[y1 * width + x0];
-			const DWORD p3 = pixels[y1 * width + x1];
-
-			const DWORD b = ((p0 & 0xff) + (p1 & 0xff) +
-				(p2 & 0xff) + (p3 & 0xff) + 2) >> 2;
-			const DWORD g = (((p0 >> 8) & 0xff) + ((p1 >> 8) & 0xff) +
-				((p2 >> 8) & 0xff) + ((p3 >> 8) & 0xff) + 2) >> 2;
-			const DWORD r = (((p0 >> 16) & 0xff) + ((p1 >> 16) & 0xff) +
-				((p2 >> 16) & 0xff) + ((p3 >> 16) & 0xff) + 2) >> 2;
-			const DWORD a = (((p0 >> 24) & 0xff) + ((p1 >> 24) & 0xff) +
-				((p2 >> 24) & 0xff) + ((p3 >> 24) & 0xff) + 2) >> 2;
-
-			pixels[y * nextWidth + x] = b | (g << 8) | (r << 16) | (a << 24);
-		}
-	}
-}
-
-static qboolean _uploadUncompressedMipChain(IDirect3DTexture8* texture,
-	GLint numlevels, GLsizei width, GLsizei height, D3DFORMAT dstFormat,
-	GLenum srcFormat, const GLvoid* pixels)
-{
-	const DWORD pixelCount = width * height;
-	g_SPXBPhaseLast = 0x54443031; /* 'TD01' */
-	DWORD* bgra = (DWORD*)Z_Malloc(pixelCount * sizeof(DWORD),
-		TAG_TEMP_WORKSPACE, qfalse, 4);
-	g_SPXBPhaseLast = 0x54443032; /* 'TD02' */
-	byte* encoded = (byte*)Z_Malloc(pixelCount * sizeof(DWORD),
-		TAG_TEMP_WORKSPACE, qfalse, 4);
-	g_SPXBPhaseLast = 0x54443033; /* 'TD03' */
-	const byte* src = (const byte*)pixels;
-	DWORD bytesPerPixel;
-
-	if (!texture || !bgra || !encoded)
-	{
-		g_SPXBPhaseLast = 0x54444630; /* 'TDF0' */
-		if (encoded)
-			Z_Free(encoded);
-		if (bgra)
-			Z_Free(bgra);
-		return qfalse;
-	}
-
-	if (srcFormat == GL_RGBA)
-	{
-		for (DWORD i = 0; i < pixelCount; ++i)
-		{
-			const byte* rgba = src + i * 4;
-			bgra[i] = rgba[2] | (rgba[1] << 8) | (rgba[0] << 16) |
-				(rgba[3] << 24);
-		}
-	}
-	else if (srcFormat == GL_RGB)
-	{
-		for (DWORD i = 0; i < pixelCount; ++i)
-		{
-			const byte* rgb = src + i * 3;
-			bgra[i] = rgb[2] | (rgb[1] << 8) | (rgb[0] << 16) | 0xff000000;
-		}
-	}
-	else if (srcFormat == GL_LIN_RGBA || srcFormat == GL_LIN_RGB ||
-		srcFormat == GL_LIN_RGB8 || srcFormat == GL_RGB8)
-	{
-		memcpy(bgra, pixels, pixelCount * sizeof(DWORD));
-	}
-	else
-	{
-		g_SPXBPhaseLast = 0x54444631; /* 'TDF1' */
-		Z_Free(encoded);
-		Z_Free(bgra);
-		return qfalse;
-	}
-	g_SPXBPhaseLast = 0x54443034; /* 'TD04' */
-
-	if (dstFormat == D3DFMT_A8R8G8B8 || dstFormat == D3DFMT_X8R8G8B8)
-		bytesPerPixel = 4;
-	else if (dstFormat == D3DFMT_R5G6B5 || dstFormat == D3DFMT_A4R4G4B4)
-		bytesPerPixel = 2;
-	else
-	{
-		g_SPXBPhaseLast = 0x54444632; /* 'TDF2' */
-		Z_Free(encoded);
-		Z_Free(bgra);
-		return qfalse;
-	}
-	g_SPXBPhaseLast = 0x54443035; /* 'TD05' */
-
-	DWORD levelWidth = width;
-	DWORD levelHeight = height;
-	for (DWORD level = 0; level < (DWORD)numlevels; ++level)
-	{
-		const DWORD levelPixels = levelWidth * levelHeight;
-		g_SPXBPhaseLast = 0x54443130; /* 'TD10' */
-
-		if (bytesPerPixel == 4)
-		{
-			memcpy(encoded, bgra, levelPixels * sizeof(DWORD));
-		}
-		else
-		{
-			WORD* encoded16 = (WORD*)encoded;
-			for (DWORD i = 0; i < levelPixels; ++i)
-			{
-				const DWORD pixel = bgra[i];
-				const DWORD b = pixel & 0xff;
-				const DWORD g = (pixel >> 8) & 0xff;
-				const DWORD r = (pixel >> 16) & 0xff;
-				const DWORD a = (pixel >> 24) & 0xff;
-
-				if (dstFormat == D3DFMT_R5G6B5)
-					encoded16[i] = (WORD)(((r >> 3) << 11) |
-						((g >> 2) << 5) | (b >> 3));
-				else
-					encoded16[i] = (WORD)(((a >> 4) << 12) |
-						((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
-			}
-		}
-
-		g_SPXBPhaseLast = 0x54443131; /* 'TD11' */
-		if (!_uploadSwizzledTextureLevel(texture, level, encoded,
-			levelWidth, levelHeight, bytesPerPixel))
-		{
-			g_SPXBPhaseLast = 0x54444633; /* 'TDF3' */
-			Z_Free(encoded);
-			Z_Free(bgra);
-			return qfalse;
-		}
-		g_SPXBPhaseLast = 0x54443132; /* 'TD12' */
-
-		if (level + 1 < (DWORD)numlevels)
-		{
-			_downsampleBGRAInPlace(bgra, levelWidth, levelHeight);
-			g_SPXBPhaseLast = 0x54443138; /* 'TD18' */
-			if (levelWidth > 1)
-				levelWidth >>= 1;
-			if (levelHeight > 1)
-				levelHeight >>= 1;
-		}
-	}
-
-	Z_Free(encoded);
-	Z_Free(bgra);
-	g_SPXBPhaseLast = 0x54443139; /* 'TD19' */
-	return qtrue;
+	info->mipmap->Register( info->data );
+	info->inMemory = true;
 }
 
 static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint internalformat, GLsizei width, GLsizei height, GLenum format, const GLvoid *pixels)
 {
-	g_SPXBPhaseLast = 0x54583030; /* 'TX00' */
 	// Fix number of levels:
 	if( numlevels == 0 )
 		numlevels = 1;
@@ -6516,57 +5821,46 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 	D3DFORMAT dstFormat = D3DFMT_UNKNOWN;
 	switch(internalformat)
 	{
-		case GL_RGB5:
-		case GL_RGB4_S3TC:
+	case GL_RGB5:
+	case GL_RGB4_S3TC:
 			dstFormat = D3DFMT_R5G6B5;
-			break;
+		break;
 
-		case GL_RGBA4:
+	case GL_RGBA4:
 			dstFormat = D3DFMT_A4R4G4B4;
-			break;
+		break;
 
-		case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
+	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 			dstFormat = D3DFMT_DXT1;
-			break;
+		break;
 
-		case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+	case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
 			dstFormat = D3DFMT_DXT5;
-			break;
+		break;
 
-		case GL_RGB8:
-		case 3:
+	case GL_RGB8:
+	case 3:
 			dstFormat = D3DFMT_X8R8G8B8;
-			break;
+		break;
 
-		case GL_LIN_RGBA8:
+	case GL_LIN_RGBA8:
 			dstFormat = D3DFMT_LIN_A8R8G8B8;
-			break;
-		case GL_LIN_RGB8:
+		break;
+	case GL_LIN_RGB8:
 			dstFormat = D3DFMT_LIN_X8R8G8B8;
-			break;
+		break;
 
-		case GL_RGBA8:
-		case 4:
+	case GL_RGBA8:
+	case 4:
 			dstFormat = D3DFMT_A8R8G8B8;
-			break;
-		case GL_RGB:
+		break;
+	case GL_RGB:
 			dstFormat = D3DFMT_X8R8G8B8;
-			break;
+		break;
 
-		default:
-			assert(0);
+	default:
+		assert(0);
 	}
-
-	// Runtime assets arrive as precompressed DDS. Small engine-generated
-	// textures must not enter the XDK D3DX compressor/filter path.
-	if (dstFormat == D3DFMT_DXT1)
-		dstFormat = D3DFMT_R5G6B5;
-	else if (dstFormat == D3DFMT_DXT5)
-		dstFormat = D3DFMT_A8R8G8B8;
-	else if (dstFormat == D3DFMT_LIN_A8R8G8B8)
-		dstFormat = D3DFMT_A8R8G8B8;
-	else if (dstFormat == D3DFMT_LIN_X8R8G8B8)
-		dstFormat = D3DFMT_X8R8G8B8;
 
 	// What format is our source data in:
 	D3DFORMAT srcFormat = D3DFMT_UNKNOWN;
@@ -6574,52 +5868,51 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 	int pitch;
 	switch(format)
 	{
-		case GL_RGB:
+	case GL_RGB:
 			srcFormat = D3DFMT_X8R8G8B8;
-			bpp = 3;
-			break;
-			
-		case GL_RGBA:
+		bpp = 3;
+		break;
+		
+	case GL_RGBA:
 			srcFormat = D3DFMT_A8R8G8B8;
-			bpp = 4;
-			break;
+		bpp = 4;
+		break;
 
-		case GL_LIN_RGBA:
+	case GL_LIN_RGBA:
 			srcFormat = D3DFMT_LIN_A8R8G8B8;
-			bpp = 4;
-			break;
+		bpp = 4;
+		break;
 
-		case GL_LIN_RGB:
+	case GL_LIN_RGB:
 			srcFormat = D3DFMT_LIN_X8R8G8B8;
-			bpp = 4;
-			break;
+		bpp = 4;
+		break;
 
-		case GL_LIN_RGB8:
+	case GL_LIN_RGB8:
 			srcFormat = D3DFMT_LIN_X8R8G8B8;
-			bpp = 4;
-			break;
+		bpp = 4;
+		break;
 
-		case GL_RGB8:
+	case GL_RGB8:
 			srcFormat = D3DFMT_X8R8G8B8;
-			bpp = 4;
-			break;
+		bpp = 4;
+		break;
 
-		case GL_RGB_SWIZZLE_EXT:
+	case GL_RGB_SWIZZLE_EXT:
 			srcFormat = D3DFMT_R5G6B5;
-			bpp = 2;
-			break;
+		bpp = 2;
+		break;
 
-		case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
+	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 			srcFormat = D3DFMT_DXT1;
-			bpp = 0.5;
-			break;
+		bpp = 0.5;
+		break;
 
-		default:
-			assert(0);
+	default:
+		assert(0);
 	}
 
 	pitch = (int)((float)width * bpp);
-	g_SPXBPhaseLast = 0x54583031; /* 'TX01' */
 
 	RECT	srcRect;
 
@@ -6629,58 +5922,24 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 	srcRect.bottom = height;
 
 	info->mipmap = new IDirect3DTexture8;
-	g_SPXBPhaseLast = 0x54583032; /* 'TX02' */
-	DWORD pixelSize = XGSetTextureHeader( width,
-						height,
-						numlevels,
-						0,
-						dstFormat,
-						(D3DPOOL)0,
-						info->mipmap,
-						0,
-						0 );
-	g_SPXBPhaseLast = 0x54583033; /* 'TX03' */
+	info->size = XGSetTextureHeader( width,
+					height,
+					numlevels,
+					0,
+					dstFormat,
+					0,
+					info->mipmap,
+					0,
+					0 );
 
-	if (!info->data || info->dataSize < pixelSize)
-	{
-		info->data = gTextures.Allocate(pixelSize,
-			glw_state->currentTexture[glw_state->serverTU]);
-		info->dataSize = info->data ? pixelSize : 0;
-	}
-	g_SPXBPhaseLast = 0x54583034; /* 'TX04' */
-	if (!info->data)
-	{
-		g_SPXBPhaseLast = 0x54584641; /* 'TXFA' */
-		Com_Error(ERR_FATAL,
-			"Native D3D8 texture pool exhausted: request=%u used=%u capacity=%u",
-			(unsigned)pixelSize, (unsigned)gTextures.Size(),
-			(unsigned)gTextures.Capacity());
-		return;
-	}
-
-	memset(info->data, 0, pixelSize);
-	info->mipmap->Register(info->data);
-	g_SPXBPhaseLast = 0x54584430; /* 'TXD0' */
-	if (_uploadUncompressedMipChain(info->mipmap, numlevels, width, height,
-		dstFormat, format, pixels))
-	{
-		g_SPXBPhaseLast = 0x54583035; /* 'TX05' */
-		g_SPXBPhaseLast = 0x54584439; /* 'TXD9' */
-		return;
-	}
-
-	// Compressed on-the-fly conversions are legacy-only. Runtime assets use DDS.
-	g_SPXBPhaseLast = 0x54584630; /* 'TXF0' */
-	Com_Error(ERR_FATAL,
-		"Native D3D8 generated texture format unsupported: internal=0x%x source=0x%x size=%dx%d",
-		internalformat, format, width, height);
-	return;
-
+	info->data = s_bUseSkinAllocator ?
+		gSkinTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] ) :
+		gStaticTextures.Allocate( info->size, glw_state->currentTexture[glw_state->serverTU] );
 	info->mipmap->Register( info->data );
-	g_SPXBPhaseLast = 0x54584631; /* 'TXF1' */
+	info->inMemory = true;
+
 	IDirect3DSurface8 *pSurf = NULL;
 	info->mipmap->GetSurfaceLevel( 0, &pSurf );
-	g_SPXBPhaseLast = 0x54583036; /* 'TX06' */
 
 	D3DXLoadSurfaceFromMemory( pSurf,
 							   NULL,
@@ -6692,10 +5951,8 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 							   &srcRect,
 							   D3DX_DEFAULT,
 							   0 );
-	g_SPXBPhaseLast = 0x54583037; /* 'TX07' */
 
 	pSurf->Release();
-	g_SPXBPhaseLast = 0x54583038; /* 'TX08' */
 
 	// Generate mipmaps
 	if( numlevels > 1)
@@ -6705,7 +5962,6 @@ static void _texImageRGBA(glwstate_t::TextureInfo* info, GLint numlevels, GLint 
 						   D3DX_DEFAULT,
 						   D3DX_DEFAULT );
 	}
-	g_SPXBPhaseLast = 0x54583039; /* 'TX09' */
 }
 
 // EXTENSION: glTexImage2D plus "numlevels" number of mipmaps
@@ -6729,36 +5985,14 @@ static void dllTexImage2DEXT(GLenum target, GLint level, GLint numlevels, GLint 
 	{
 		info = &current->second;
 
-		glw_state->device->SetTexture(glw_state->serverTU, NULL);
-		glw_state->textureStageDirty[glw_state->serverTU] = true;
-		if (info->mipmap)
-		{
-#if MEMORY_PROFILE
-			texMemSize -= getTexMemSize(info->mipmap);
-#endif
-			info->mipmap->BlockUntilNotBusy();
-			delete info->mipmap;
-			info->mipmap = NULL;
-		}
-		if (info->data)
-		{
-			if (!gTextures.Free(info->data, info->dataSize))
-			{
-				g_SPXBPhaseLast = 0x54324652; /* 'T2FR' */
-				Com_Error(ERR_FATAL,
-					"Native D3D8 texture replacement could not release old allocation");
-				return;
-			}
-			info->data = NULL;
-			info->dataSize = 0;
-		}
+		delete info->mipmap;
+		assert( 0 );	// Why is this happening? We're leaking texture memory!
 	}
 	// Otherwise, initialize it.
 	else
 	{
 		info = &glw_state->textureXlat[
 			glw_state->currentTexture[glw_state->serverTU]];
-		memset(info, 0, sizeof(*info));
 
 		info->minFilter = D3DTEXF_NONE;
 		info->mipFilter = D3DTEXF_NONE;
@@ -6766,6 +6000,7 @@ static void dllTexImage2DEXT(GLenum target, GLint level, GLint numlevels, GLint 
 		info->anisotropy = 1.f;
 		info->wrapU = D3DTADDRESS_CLAMP;
 		info->wrapV = D3DTADDRESS_CLAMP;
+		info->fileOffset = -1;
 
 		glw_state->textureStageDirty[glw_state->serverTU] = true;
 	}
@@ -6784,9 +6019,8 @@ static void dllTexImage2DEXT(GLenum target, GLint level, GLint numlevels, GLint 
 	{
 		_texImageRGBA(info, numlevels, 
 			internalformat, width, height, 
-			format, pixels); 
+			format, pixels);
 	}
-	g_SPXBPhaseLast = 0x54324439; /* 'T2D9' */
 
 	// Done DX calls to new and delete
 //	Z_SetNewDeleteTemporary(false);
@@ -6912,8 +6146,8 @@ static void dllTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 	sr.bottom = height;
 
 	RECT dr;
-	dr.left = xoffset;
-	dr.top = yoffset;
+	dr.top = xoffset;
+	dr.left = yoffset;
 	dr.right = xoffset + width;
 	dr.bottom = yoffset + height;
 
@@ -6939,7 +6173,7 @@ static void dllTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yo
 			return;
 	}
 
-	D3DXLoadSurfaceFromMemory(surf, NULL, &dr, pixels,
+	D3DXLoadSurfaceFromMemory(surf, NULL, &dr, pixels, 
 		srcFormat, width * 4, NULL, &sr, D3DX_DEFAULT, 0);
 
 	surf->Release();
@@ -6961,40 +6195,14 @@ static void dllTranslatef(GLfloat x, GLfloat y, GLfloat z)
 static void setVertex(float x, float y, float z)
 {
 	assert(glw_state->inDrawBlock);
-	if (!glw_state || !glw_state->inDrawBlock || !glw_state->drawArray ||
-		glw_state->numVertices >= glw_state->maxVertices)
-	{
-		g_SPXBPhaseLast = 0x494D4633; /* 'IMF3' */
-		Com_Error(ERR_DROP, "Native D3D8 immediate vertex overflow or invalid state");
-		return;
-	}
 
 	_handleDrawOverflow();
 	
 	DWORD* push = &glw_state->drawArray[glw_state->numVertices * glw_state->drawStride];
-	memcpy(push, &x, sizeof(x));
-	memcpy(push + 1, &y, sizeof(y));
-	memcpy(push + 2, &z, sizeof(z));
-	push += 3;
-
-	if (s_immediateHasNormal)
-	{
-		memcpy(push, s_immediateNormal, sizeof(s_immediateNormal));
-		push += 3;
-	}
-
-	*push++ = glw_state->currentColor;
-	for (int stage = 0; stage < GLW_MAX_TEXTURE_STAGES; ++stage)
-	{
-		if (s_immediateHasTexCoord[stage])
-		{
-			memcpy(push, s_immediateTexCoord[stage],
-				sizeof(s_immediateTexCoord[stage]));
-			push += 2;
-		}
-	}
-	assert(push == &glw_state->drawArray[
-		(glw_state->numVertices + 1) * glw_state->drawStride]);
+	push[0] = *((DWORD*)&x);
+	push[1] = *((DWORD*)&y);
+	push[2] = *((DWORD*)&z);
+	push[3] = glw_state->currentColor;
 
 	++glw_state->numVertices;
 }
@@ -7144,10 +6352,15 @@ static void dllViewport(GLint x, GLint y, GLsizei width, GLsizei height)
 static void dllMultiTexCoord2fARB(GLenum texture, GLfloat s, GLfloat t)
 {
 	assert(glw_state->inDrawBlock);
-	const int stage = texture - GL_TEXTURE0_ARB;
-	assert(stage >= 0 && stage < GLW_MAX_TEXTURE_STAGES);
-	s_immediateTexCoord[stage][0] = s;
-	s_immediateTexCoord[stage][1] = t;
+
+	_handleDrawOverflow();
+
+	DWORD* push = &glw_state->drawArray[
+		glw_state->numVertices * glw_state->drawStride + 
+		4 + (texture - GL_TEXTURE0_ARB) * 2];
+	
+	*push++ = *((DWORD*)&s);
+	*push++ = *((DWORD*)&t);
 }
 
 static void dllActiveTextureARB(GLenum texture)
@@ -7171,7 +6384,7 @@ static void dllClientActiveTextureARB(GLenum texture)
 */
 void QGL_Shutdown( void )
 {
-	VID_Printf( PRINT_ALL, "...shutting down QGL\n" );
+	Com_Printf ("...shutting down QGL\n" );
 
 	qglAccum                     = NULL;
 	qglAlphaFunc                 = NULL;
@@ -7418,6 +6631,8 @@ void QGL_Shutdown( void )
 	qglRasterPos4sv              = NULL;
 	qglReadBuffer                = NULL;
 	qglReadPixels                = NULL;
+	qglCopyBackBufferToTexEXT	 = NULL;
+	qglCopyBackBufferToTex		 = NULL;
 	qglRectd                     = NULL;
 	qglRectdv                    = NULL;
 	qglRectf                     = NULL;
@@ -7976,14 +7191,19 @@ enum VideoModes
 	VM_1080i
 };
 
-bool bHadPersistedSurface = false;
+// Global lighteffects instance, to avoid allocating any memory
+// during GLW_Init()
+static LightEffects *getLightEffects( void )
+{
+	static LightEffects le;
+	return &le;
+}
 
 void GLW_Init(int width, int height, int colorbits, qboolean cdsFullscreen)
 {
-	glw_state = new glwstate_t();
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x44583330; /* 'DX30' */
-#endif
+//	glw_state = new glwstate_t;
+	glw_state = &g_glwState;
+	InitializeRetailTexturePoolsDeferred();
 	int mode = VM_480i;
 
 	glw_state->isWidescreen = false;
@@ -8056,112 +7276,56 @@ void GLW_Init(int width, int height, int colorbits, qboolean cdsFullscreen)
 
 	glw_state->textureBindNum = 1;
 	
-	D3DPRESENT_PARAMETERS present;
-	fillPresentParameters(&present, width, height, true);
-
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x44583331; /* 'DX31' */
-	XBL("GLW_Init: Direct3DCreate8\n");
-#endif
-	glw_state->d3d = Direct3DCreate8(D3D_SDK_VERSION);
-	if (!glw_state->d3d)
+D3DPRESENT_PARAMETERS present;
+	present.BackBufferWidth = width;
+	present.BackBufferHeight = height;
+	present.BackBufferFormat = D3DFMT_A8R8G8B8;
+	present.BackBufferCount = 1;
+	present.MultiSampleType = D3DMULTISAMPLE_NONE;
+	present.SwapEffect = D3DSWAPEFFECT_DISCARD;
+	present.hDeviceWindow = 0;
+	present.Windowed = FALSE;
+	present.EnableAutoDepthStencil = TRUE;
+	present.AutoDepthStencilFormat = D3DFMT_LIN_D24S8;
+	present.Flags = 0;
+	if( glw_state->isWidescreen )
 	{
-#ifdef _XBOX
-		g_SPXBPhaseLast = 0x44584631; /* 'DXF1' */
-		XBL("GLW_Init: Direct3DCreate8 FAILED\n");
-#endif
-		Com_Printf("Failed to create Direct3D8 interface.\n");
-		return;
+		present.Flags = D3DPRESENTFLAG_WIDESCREEN;
+		if(mode == VM_480p)
+		{
+			present.Flags |= D3DPRESENTFLAG_PROGRESSIVE;
+		}
+		//else if(mode == VM_720p)
+		//{
+		//	present.Flags |= D3DPRESENTFLAG_PROGRESSIVE;
+		//}
+		//else if(mode == VM_1080i)
+		//{
+		//	present.Flags |= D3DPRESENTFLAG_INTERLACED; // | D3DPRESENTFLAG_FIELD;
+		//}
+
+
+        present.Flags |= D3DPRESENTFLAG_WIDESCREEN;
 	}
 
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x44583332; /* 'DX32' */
-	XBL("GLW_Init: SetPushBufferSize 1024K/32K\n");
-#endif
-	HRESULT hrPB = glw_state->d3d->SetPushBufferSize(1024 * 1024, 32 * 1024);
-	if (FAILED(hrPB))
-	{
-#ifdef _XBOX
-		g_SPXBPhaseLast = 0x44584632; /* 'DXF2' */
-		XBLF("GLW_Init: SetPushBufferSize FAILED hr=0x%08x\n", (unsigned)hrPB);
-#endif
-		Com_Printf("Failed to configure Direct3D8 push buffer.\n");
-		return;
-	}
+	present.FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
+	present.FullScreen_PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+	present.BufferSurfaces[0] = NULL;
+	present.BufferSurfaces[1] = NULL;
+	present.BufferSurfaces[2] = NULL;
+	present.DepthStencilSurface = NULL;
 
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x44583333; /* 'DX33' */
-	XBLF("GLW_Init: CreateDevice %dx%d fmt=%d depth=0x%x flags=0x%x\n",
-		width, height, (int)present.BackBufferFormat,
-		(int)present.AutoDepthStencilFormat, (unsigned)present.Flags);
-#endif
-
-	HRESULT hrCD = glw_state->d3d->CreateDevice(D3DADAPTER_DEFAULT,
+	if (IDirect3D8::CreateDevice(D3DADAPTER_DEFAULT,
 								D3DDEVTYPE_HAL,
 								NULL,
 								D3DCREATE_HARDWARE_VERTEXPROCESSING,
 								&present,
-								&glw_state->device);
-	if (hrCD != D3D_OK)
+								&glw_state->device) != D3D_OK)
 	{
-#ifdef _XBOX
-		g_SPXBPhaseLast = 0x44584633; /* 'DXF3' */
-		XBLF("GLW_Init: CreateDevice FAILED hr=0x%08x device=%p\n",
-			(unsigned)hrCD, (void*)glw_state->device);
-#endif
 		Com_Printf("Failed to create device. That's bad.\n");
-		/* device pointer is NULL — everything below requires it; bail out */
-		return;
 	}
-
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x44583334; /* 'DX34' */
-	XBL("GLW_Init: CreateDevice OK\n");
-
-	// Reserve the persistent submission buffer before map textures fragment
-	// contiguous graphics memory. Indexed storage remains lazy because the
-	// direct-push path does not require it.
-	if (!EnsureNativeVertexRing())
-	{
-		Com_Error(ERR_FATAL, "Native D3D8 vertex ring allocation failed");
-		return;
-	}
-
-	// Registered Xbox textures must live in contiguous memory. Initialize
-	// this only after CreateDevice; doing it during static/zone startup is
-	// unsafe on retail hardware.
-	g_SPXBPhaseLast = 0x44585430; /* 'DXT0' */
-	// Leave enough general-purpose memory for EF's parsed character models.
-	// Borg maps exhaust both the process heap and fragmented zone when this
-	// reservation consumes 19 MiB before model registration begins.
-	gTextures.Initialize(15 * 1024 * 1024);
-	if (!gTextures.Capacity())
-	{
-		g_SPXBPhaseLast = 0x44585446; /* 'DXTF' */
-		Com_Error(ERR_FATAL, "Native D3D8 texture pool allocation failed");
-		return;
-	}
-	g_SPXBPhaseLast = 0x44585431; /* 'DXT1' */
-	XBLF("GLW_Init: native texture pool capacity=%u\n",
-		(unsigned)gTextures.Capacity());
-#endif
-
 //	qglEnable(GL_VSYNC);
-
-	/* Guard: device must be non-NULL before vtable calls */
-	if (!glw_state->device)
-	{
-#ifdef _XBOX
-		XBL("GLW_Init: device NULL after CreateDevice — aborting\n");
-#endif
-		return;
-	}
-
-	// Immediately check to see if there's 1.2MB being wasted on a persisted surface:
-	IDirect3DSurface8 *pPersistedSurf;
-	glw_state->device->GetPersistedSurface( &pPersistedSurf );
-	bHadPersistedSurface = (pPersistedSurf != NULL);
-
+	
 	for (int m = 0; m < glwstate_t::Num_MatrixModes; ++m)
 	{
 		D3DXCreateMatrixStack(0, &glw_state->matrixStack[m]);
@@ -8179,37 +7343,35 @@ void GLW_Init(int width, int height, int colorbits, qboolean cdsFullscreen)
 	glw_state->mtrl.Diffuse.b = glw_state->mtrl.Ambient.b = 1.0f;
 	glw_state->mtrl.Diffuse.a = glw_state->mtrl.Ambient.a = 1.0f;
 	glw_state->device->SetMaterial( &glw_state->mtrl );
-#ifdef _XBOX
-	g_SPXBPhaseLast = 0x44583335; /* 'DX35' */
-#endif
 	// Gamma hack
 	GLimp_SetGamma(1.3f);
 
 	// Set up our directional light (used for diffuse lighting)
-	memset(&glw_state->dirLight, 0, sizeof(D3DLIGHT8));
+	for(int i = 0; i < 2; i++)
+	{
+		memset(&glw_state->dirLight[i], 0, sizeof(D3DLIGHT8));
 
-	// Set up a white point light.
-	glw_state->dirLight.Type = D3DLIGHT_DIRECTIONAL;
-	glw_state->dirLight.Diffuse.r  = 1.0f;
-	glw_state->dirLight.Diffuse.g  = 1.0f;
-	glw_state->dirLight.Diffuse.b  = 1.0f;
-	glw_state->dirLight.Direction.x = 1.0f;
-	glw_state->dirLight.Direction.y = 0.0f;
-	glw_state->dirLight.Direction.z = 0.0f;
+		// Set up a white point light.
+		glw_state->dirLight[i].Type = D3DLIGHT_DIRECTIONAL;
+		glw_state->dirLight[i].Diffuse.r  = 1.0f;
+		glw_state->dirLight[i].Diffuse.g  = 1.0f;
+		glw_state->dirLight[i].Diffuse.b  = 1.0f;
+		glw_state->dirLight[i].Direction.x = 1.0f;
+		glw_state->dirLight[i].Direction.y = 0.0f;
+		glw_state->dirLight[i].Direction.z = 0.0f;
 
-	// Don't attenuate.
-	glw_state->dirLight.Attenuation0 = 1.0f; 
-	glw_state->dirLight.Range        = 1000.0f;
+		// Don't attenuate.
+		glw_state->dirLight[i].Attenuation0 = 1.0f; 
+		glw_state->dirLight[i].Range        = 1000.0f;
+	}
 
 	//glw_state->drawArray = new DWORD[SHADER_MAX_VERTEXES * 12];
 	glw_state->drawArray = NULL;
 
 #ifdef _XBOX
 #ifdef VV_LIGHTING
-//	glw_state->flareEffect = new FlareEffect;
-//	glw_state->flareEffect->Initialize();
-	glw_state->lightEffects = new LightEffects;
-	StencilShadower.Initialize();
+//	glw_state->lightEffects = new LightEffects;
+	glw_state->lightEffects = getLightEffects();
 #endif // VV_LIGHTING
 //	HDREffect.Initialize();
 #endif
@@ -8217,266 +7379,185 @@ void GLW_Init(int width, int height, int colorbits, qboolean cdsFullscreen)
 #if !defined(FINAL_BUILD) && !defined(_XBOX_VC71_MIGRATION)
 	Cmd_AddCommand("d3d_autoperf", D3D_AutoPerfData_f);
 #endif
-
-#if YELLOW_MODE
-	initYellowMode();
-#endif // YELLOW_MODE
 }
 
 void GLW_Shutdown(void)
 {
-	if (!glw_state)
-	{
-		return;
-	}
 #ifdef _XBOX
 #ifdef VV_LIGHTING
-	delete glw_state->lightEffects;
+//	delete glw_state->lightEffects;
+	glw_state->lightEffects = NULL;
 #endif
 #endif
 
 	for (int m = 0; m < glwstate_t::Num_MatrixModes; ++m)
 	{
-		if (glw_state->matrixStack[m])
-		{
-			glw_state->matrixStack[m]->Release();
-		}
+		glw_state->matrixStack[m]->Release();
 	}
 
-#ifdef _XBOX
-	ReleaseNativeDrawRing();
-#endif
-
-	if (glw_state->device)
-	{
-		glw_state->device->Release();
-	}
-	if (glw_state->d3d)
-	{
-		glw_state->d3d->Release();
-	}
+	glw_state->device->Release();
 
 #ifdef _XBOX
 //	delete glw_state->flareEffect;
 #endif
 
-	delete glw_state;
+//	delete glw_state;
 	glw_state = NULL;
 }
 
-//-----------------------------------------------------------------------------
-// Compressed Screen Shot code for the save game system
-//-----------------------------------------------------------------------------
-
-//#define DISABLE_SCREENSHOT
-#define CSS_IMAGE_HDR_SIZE			2048									
-#define	CSS_IMAGE_DATA_SIZE			((SAVE_GAME_IMAGE_W * SAVE_GAME_IMAGE_H) / 2 )	
+#define CSS_IMAGE_HDR_SIZE 2048
+#define CSS_IMAGE_DATA_SIZE ((SAVE_GAME_IMAGE_W * SAVE_GAME_IMAGE_H) / 2)
 
 struct XprImageHeader
 {
-    XPR_HEADER        xpr;           // Standard XPR struct
-    IDirect3DTexture8 txt;           // Standard D3D texture struct
-    DWORD             dwEndOfHeader; // 0xFFFFFFFF
+	XPR_HEADER xpr;
+	IDirect3DTexture8 txt;
+	DWORD dwEndOfHeader;
 };
 
 struct XprImage
 {
-    XprImageHeader hdr;
-    CHAR           strPad[ CSS_IMAGE_HDR_SIZE - sizeof( XprImageHeader ) ];
-    BYTE           pBits[ CSS_IMAGE_DATA_SIZE ];     // data bits
+	XprImageHeader hdr;
+	CHAR strPad[CSS_IMAGE_HDR_SIZE - sizeof(XprImageHeader)];
+	BYTE pBits[CSS_IMAGE_DATA_SIZE];
 };
 
-//-----------------------------------------------------------------------------
-// SaveCompressedScreenshot
-// Saves two screenshots - one is full-screen at 256x128, and placed in
-// Z:\screenshot.xbx. The other is cropped, and 64x64 for the dashboard,
-// and placed in  Z:\saveimage.xbx
-//-----------------------------------------------------------------------------
-void SaveCompressedScreenshot( void )
+void SaveCompressedScreenshot(void)
 {
-#ifndef DISABLE_SCREENSHOT
 	LPDIRECT3DSURFACE8 screenShot = 0;
-	HRESULT res;
-	glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &screenShot);
-
-	// Copy over the screen shot to the new image that is CSS_IMAGE_WH x CSS_IMAGE_WH
 	LPDIRECT3DSURFACE8 compressedSaveGameImage = 0;
-	// New: we only screenshot the title-safe area, to make the image clearer in the ui:
 	RECT srcRect;
+	DWORD dwSize;
+
+	glw_state->device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &screenShot);
 	srcRect.left = 48;
 	srcRect.top = 36;
 	srcRect.right = 592;
 	srcRect.bottom = 444;
-    glw_state->device->CreateImageSurface( SAVE_GAME_IMAGE_W, SAVE_GAME_IMAGE_H, D3DFMT_DXT1, &compressedSaveGameImage );
-	D3DXLoadSurfaceFromSurface( compressedSaveGameImage, NULL, NULL, screenShot, NULL, &srcRect, D3DX_DEFAULT, D3DCOLOR( 0 ) );
-  
-	// Write out the large screenshot (our 256x128 for display in the UI)
-	res = XGWriteSurfaceOrTextureToXPR( compressedSaveGameImage, "Z:\\screenshot.xbx", TRUE );
-
-	// Free the compressed 256x128 image
-    if ( compressedSaveGameImage )
+	glw_state->device->CreateImageSurface(SAVE_GAME_IMAGE_W, SAVE_GAME_IMAGE_H,
+		D3DFMT_DXT1, &compressedSaveGameImage);
+	D3DXLoadSurfaceFromSurface(compressedSaveGameImage, NULL, NULL, screenShot,
+		NULL, &srcRect, D3DX_DEFAULT, D3DCOLOR(0));
+	XGWriteSurfaceOrTextureToXPR(compressedSaveGameImage,
+		"Z:\\screenshot.xbx", TRUE);
+	if (compressedSaveGameImage)
+	{
 		compressedSaveGameImage->Release();
+		compressedSaveGameImage = 0;
+	}
 
-	// Re-load the file and build a signature. File should always be less than 32k
-	// Then append to the file. This is a poor example of how-not-to-write-code:
-	byte xbxFile[32*1024];
-	DWORD dwSize;
+	byte xbxFile[32 * 1024];
+	HANDLE hFile = CreateFile("Z:\\screenshot.xbx", GENERIC_READ | GENERIC_WRITE,
+		0, 0, OPEN_EXISTING, 0, 0);
+	if (hFile != INVALID_HANDLE_VALUE)
+	{
+		ReadFile(hFile, xbxFile, sizeof(xbxFile), &dwSize, NULL);
+		XCALCSIG_SIGNATURE xbxSig;
+		HANDLE hSig = XCalculateSignatureBegin(XCALCSIG_FLAG_SAVE_GAME);
+		XCalculateSignatureUpdate(hSig, xbxFile, dwSize);
+		XCalculateSignatureEnd(hSig, &xbxSig);
+		SetFilePointer(hFile, 0, NULL, FILE_END);
+		WriteFile(hFile, &xbxSig, sizeof(xbxSig), &dwSize, NULL);
+		CloseHandle(hFile);
+	}
 
-	// Open and read:
-	HANDLE hFile = CreateFile( "Z:\\screenshot.xbx", GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0 );
-	ReadFile( hFile, xbxFile, sizeof(xbxFile), &dwSize, NULL );
-
-	// Build a signature:
-	XCALCSIG_SIGNATURE xbxSig;
-	HANDLE hSig = XCalculateSignatureBegin( XCALCSIG_FLAG_SAVE_GAME );
-	XCalculateSignatureUpdate( hSig, xbxFile, dwSize );
-	XCalculateSignatureEnd( hSig, &xbxSig );
-
-	// Append:
-	SetFilePointer( hFile, 0, NULL, FILE_END );
-	WriteFile( hFile, &xbxSig, sizeof(xbxSig), &dwSize, NULL );
-	CloseHandle( hFile );
-
-	// Make another surface, this one only 64x64 for the dashboard:
-	glw_state->device->CreateImageSurface( 64, 64, D3DFMT_DXT1, &compressedSaveGameImage );
-
-	// We take a 240x240 region from the center of the screen, offset if in third person:
-	srcRect;
+	glw_state->device->CreateImageSurface(64, 64, D3DFMT_DXT1,
+		&compressedSaveGameImage);
 	srcRect.left = (glConfig.vidWidth / 2) - 120;
 	srcRect.right = srcRect.left + 240;
-
 	srcRect.top = (glConfig.vidHeight / 2) - 120;
-	if( Cvar_VariableValue( "cg_thirdPerson" ) )
+	if (Cvar_VariableValue("cg_thirdPerson"))
+	{
 		srcRect.top += 60;
+	}
 	srcRect.bottom = srcRect.top + 240;
-
-	D3DXLoadSurfaceFromSurface( compressedSaveGameImage, NULL, NULL, screenShot, NULL, &srcRect, D3DX_DEFAULT, D3DCOLOR( 0 ) );
-
-	// Write out the small screenshot (64x64)
-	res = XGWriteSurfaceOrTextureToXPR( compressedSaveGameImage, "Z:\\saveimage.xbx", TRUE );
-
-	// Free the compressed 64x64 image
-    if ( compressedSaveGameImage )
+	D3DXLoadSurfaceFromSurface(compressedSaveGameImage, NULL, NULL, screenShot,
+		NULL, &srcRect, D3DX_DEFAULT, D3DCOLOR(0));
+	XGWriteSurfaceOrTextureToXPR(compressedSaveGameImage,
+		"Z:\\saveimage.xbx", TRUE);
+	if (compressedSaveGameImage)
+	{
 		compressedSaveGameImage->Release();
-
-	// Free the big screenshot 640x480x4?
-	if ( screenShot )
+	}
+	if (screenShot)
+	{
 		screenShot->Release();
-
-#endif
+	}
 }
 
-//-----------------------------------------------------------------------------
-// LoadCompressedScreenshot
-// Loads a .xbx screenshot file and replaces the current texture
-//-----------------------------------------------------------------------------
-BOOL LoadCompressedScreenshot(const char* filename)
+BOOL LoadCompressedScreenshot(const char *filename)
 {
-#ifndef DISABLE_SCREENSHOT
-	// get the current texture
-	glwstate_t::TextureInfo* info = _getCurrentTexture(glw_state->serverTU);
-	if (info == NULL) return FALSE;
-
-	// locals
-	DWORD				dwBytesRead;
-	BOOL				bSuccess;
-
-	// See if the image file for this saved game exists
-	HANDLE hFile = CreateFile( filename, GENERIC_READ, 0, NULL, OPEN_EXISTING,0, NULL );
-
-	if( hFile == INVALID_HANDLE_VALUE )
+	glwstate_t::TextureInfo *info = _getCurrentTexture(glw_state->serverTU);
+	if (!info)
 	{
-		// Extreme failure case. Skip other work below, but still blank out the screenshot
-		// ONE: Take all textures out of stages, in case ours is locked:
-		glw_state->device->SetTexture( 0, NULL );
-		glw_state->device->SetTexture( 1, NULL );
+		return FALSE;
+	}
+
+	DWORD dwBytesRead;
+	BOOL success;
+	HANDLE hFile = CreateFile(filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+	{
+		glw_state->device->SetTexture(0, NULL);
+		glw_state->device->SetTexture(1, NULL);
 		glw_state->textureStageDirty[0] = true;
 		glw_state->textureStageDirty[1] = true;
-
-		// TWO: Now wait to be sure that the texture we're about to replace isn't locked by GPU:
-		while( info->mipmap->IsBusy() )
-		{
-			// Do nothing
-		}
-
-		// THREE: Use LockRect to get a pointer to the texture's data:
-		D3DLOCKED_RECT lr;
-		info->mipmap->LockRect( 0, &lr, NULL, D3DLOCK_TILED );
-
-		// FOUR: Copy the texture data from the file:
-		memset( lr.pBits, 0, CSS_IMAGE_DATA_SIZE );		
-		info->mipmap->UnlockRect( 0 );
-
-		return false;
+		while (info->mipmap->IsBusy()) {}
+		D3DLOCKED_RECT lockedRect;
+		info->mipmap->LockRect(0, &lockedRect, NULL, D3DLOCK_TILED);
+		memset(lockedRect.pBits, 0, CSS_IMAGE_DATA_SIZE);
+		info->mipmap->UnlockRect(0);
+		return FALSE;
 	}
 
-	// Non-signature portion of the file, which we read all at once:
 	XprImage image;
+	success = ReadFile(hFile, &image, sizeof(image), &dwBytesRead, NULL);
+	success &= dwBytesRead == sizeof(image) &&
+		image.hdr.xpr.dwMagic == XPR_MAGIC_VALUE &&
+		image.hdr.xpr.dwTotalSize == CSS_IMAGE_HDR_SIZE + CSS_IMAGE_DATA_SIZE &&
+		image.hdr.xpr.dwHeaderSize == CSS_IMAGE_HDR_SIZE &&
+		image.hdr.dwEndOfHeader == 0xFFFFFFFF;
 
-	// Read everything but the signature from disk:
-	bSuccess = ReadFile( hFile, &image, sizeof( XprImage ), &dwBytesRead, NULL );
+	XCALCSIG_SIGNATURE fileSignature;
+	success &= ReadFile(hFile, &fileSignature, sizeof(fileSignature),
+		&dwBytesRead, NULL);
+	if (SetFilePointer(hFile, 0, NULL, FILE_END) !=
+		(sizeof(image) + sizeof(fileSignature)))
+	{
+		success = FALSE;
+	}
+	CloseHandle(hFile);
 
-	// Validate that data:
-	bSuccess &=	dwBytesRead					== sizeof( XprImage ) &&
-				image.hdr.xpr.dwMagic		== XPR_MAGIC_VALUE &&
-				image.hdr.xpr.dwTotalSize	== CSS_IMAGE_HDR_SIZE + CSS_IMAGE_DATA_SIZE &&
-				image.hdr.xpr.dwHeaderSize	== CSS_IMAGE_HDR_SIZE &&
-				image.hdr.dwEndOfHeader		== 0xFFFFFFFF;
+	XCALCSIG_SIGNATURE dataSignature;
+	HANDLE hSig = XCalculateSignatureBegin(XCALCSIG_FLAG_SAVE_GAME);
+	XCalculateSignatureUpdate(hSig, (const BYTE *)&image, sizeof(image));
+	XCalculateSignatureEnd(hSig, &dataSignature);
+	if (memcmp(&fileSignature, &dataSignature, sizeof(fileSignature)) != 0)
+	{
+		success = FALSE;
+	}
 
-	// Now read the signature:
-	XCALCSIG_SIGNATURE xbxSig;
-	bSuccess &= ReadFile( hFile, &xbxSig, sizeof( xbxSig ), &dwBytesRead, NULL );
-
-	// Verify that we're at the end of the file (it's properly sized)
-	if( SetFilePointer( hFile, 0, NULL, FILE_END ) != (sizeof( XprImage ) + sizeof( xbxSig )) )
-		bSuccess = false;
-	CloseHandle( hFile );
-
-	// Re-sign the data:
-	XCALCSIG_SIGNATURE datSig;
-	HANDLE hSig = XCalculateSignatureBegin( XCALCSIG_FLAG_SAVE_GAME );
-	XCalculateSignatureUpdate( hSig, (const BYTE *) &image, sizeof( image ) );
-	XCalculateSignatureEnd( hSig, &datSig );
-
-	// Compare the signatures:
-	if( memcmp( &xbxSig, &datSig, sizeof( xbxSig ) ) != 0 )
-		bSuccess = false;
-
-	// Now we update the texture. We do this even if the file was bad, using black instead:
-
-	// ONE: Take all textures out of stages, in case ours is locked:
-	glw_state->device->SetTexture( 0, NULL );
-	glw_state->device->SetTexture( 1, NULL );
+	glw_state->device->SetTexture(0, NULL);
+	glw_state->device->SetTexture(1, NULL);
 	glw_state->textureStageDirty[0] = true;
 	glw_state->textureStageDirty[1] = true;
-
-	// TWO: Now wait to be sure that the texture we're about to replace isn't locked by GPU:
-	while( info->mipmap->IsBusy() )
+	while (info->mipmap->IsBusy()) {}
+	D3DLOCKED_RECT lockedRect;
+	info->mipmap->LockRect(0, &lockedRect, NULL, D3DLOCK_TILED);
+	if (success)
 	{
-		// Do nothing
-	}
-
-	// THREE: Use LockRect to get a pointer to the texture's data:
-	D3DLOCKED_RECT lr;
-	info->mipmap->LockRect( 0, &lr, NULL, D3DLOCK_TILED );
-
-	if( bSuccess )
-	{
-		// FOUR: Copy the texture data from the file:
-		memcpy( lr.pBits, image.pBits, sizeof( image.pBits ) );
+		memcpy(lockedRect.pBits, image.pBits, sizeof(image.pBits));
 	}
 	else
 	{
-		memset( lr.pBits, 0, CSS_IMAGE_DATA_SIZE );
+		memset(lockedRect.pBits, 0, CSS_IMAGE_DATA_SIZE);
 	}
-	
-	info->mipmap->UnlockRect( 0 );
-
-	return bSuccess;
-#else
-	return FALSE;
-#endif
+	info->mipmap->UnlockRect(0);
+	return success;
 }
+
+
+
 
 bool CreateVertexShader( const CHAR* strFilename, const DWORD* pdwVertexDecl, DWORD* pdwVertexShader )
 {
@@ -8530,14 +7611,19 @@ bool CreatePixelShader( const CHAR* strFilename, DWORD* pdwPixelShader )
     if( hFile == INVALID_HANDLE_VALUE )
         return false;
 
-    // Load the pre-compiled pixel shader microcode directly.
-    D3DPIXELSHADERDEF psdf;
-    ZeroMemory( &psdf, sizeof( psdf ) );
-    ReadFile( hFile, &psdf, sizeof( psdf ), &dwNumBytesRead, NULL );
+    // Load the pre-compiled pixel shader microcode
+    D3DPIXELSHADERDEF_FILE psdf;
+    ReadFile( hFile, &psdf, sizeof(D3DPIXELSHADERDEF_FILE), &dwNumBytesRead, NULL );
+    
+    // Make sure the pixel shader is valid
+    if( psdf.FileID != D3DPIXELSHADERDEF_FILE_ID )
+    {
+        CloseHandle( hFile );
+        return false;
+    }
 
     // Create the pixel shader
-    if( dwNumBytesRead != sizeof( psdf ) ||
-        FAILED( hr = glw_state->device->CreatePixelShader( &psdf, pdwPixelShader ) ) )
+    if( FAILED( hr = glw_state->device->CreatePixelShader( &(psdf.Psd), pdwPixelShader ) ) )
     {
         CloseHandle( hFile );
         return false;

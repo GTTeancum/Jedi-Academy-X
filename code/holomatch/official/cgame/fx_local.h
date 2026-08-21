@@ -57,8 +57,8 @@ localEntity_t *FX_AddSpawner( vec3_t origin, vec3_t dir, vec3_t velocity, vec3_t
 // phaser
 //
 
-void FX_PhaserFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, qboolean impact, qboolean empty );
-void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, qboolean impact, qboolean empty );
+void FX_PhaserFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, qboolean impact, qboolean empty, int clientNum, int renderfx );
+void FX_PhaserAltFire( vec3_t start, vec3_t end, vec3_t normal, qboolean spark, qboolean impact, qboolean empty, int clientNum, int renderfx );
 
 
 //

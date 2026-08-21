@@ -59,6 +59,10 @@ typedef struct bot_character_s
 
 bot_character_t *botcharacters[MAX_CLIENTS + 1];
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+extern "C" volatile unsigned int g_SPXBHMSplitBotProof[32];
+#endif
+
 //========================================================================
 //
 // Parameter:			-
@@ -199,6 +203,13 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 	source_t *source;
 	token_t token;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	++g_SPXBHMSplitBotProof[28];
+	g_SPXBHMSplitBotProof[29] = 1;
+	g_SPXBHMSplitBotProof[30] = 0;
+	g_SPXBHMSplitBotProof[31] = (unsigned int)skill;
+#endif
+
 	foundcharacter = qfalse;
 	//a bot character is parsed in two phases
 	PC_SetBaseFolder(BOTFILESBASEFOLDER);
@@ -208,6 +219,9 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 		botimport.Print(PRT_ERROR, "counldn't load %s\n", charfile);
 		return NULL;
 	} //end if
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[29] = 2;
+#endif
 	ch = (bot_character_t *) GetClearedMemory(sizeof(bot_character_t) +
 					MAX_CHARACTERISTICS * sizeof(bot_characteristic_t));
 	strcpy(ch->filename, charfile);
@@ -217,6 +231,9 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 		{
 			if (!PC_ExpectTokenType(source, TT_NUMBER, 0, &token))
 			{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				g_SPXBHMSplitBotProof[29] = 3;
+#endif
 				FreeSource(source);
 				BotFreeCharacterStrings(ch);
 				FreeMemory(ch);
@@ -224,6 +241,9 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 			} //end if
 			if (!PC_ExpectTokenString(source, "{"))
 			{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+				g_SPXBHMSplitBotProof[29] = 4;
+#endif
 				FreeSource(source);
 				BotFreeCharacterStrings(ch);
 				FreeMemory(ch);
@@ -239,6 +259,10 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 					if (!strcmp(token.string, "}")) break;
 					if (token.type != TT_NUMBER || !(token.subtype & TT_INTEGER))
 					{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+						g_SPXBHMSplitBotProof[29] = 6;
+						g_SPXBHMSplitBotProof[30] = (unsigned int)token.type;
+#endif
 						SourceError(source, "expected integer index, found %s\n", token.string);
 						FreeSource(source);
 						BotFreeCharacterStrings(ch);
@@ -248,6 +272,10 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 					index = token.intvalue;
 					if (index < 0 || index > MAX_CHARACTERISTICS)
 					{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+						g_SPXBHMSplitBotProof[29] = 7;
+						g_SPXBHMSplitBotProof[30] = (unsigned int)index;
+#endif
 						SourceError(source, "characteristic index out of range [0, %d]\n", MAX_CHARACTERISTICS);
 						FreeSource(source);
 						BotFreeCharacterStrings(ch);
@@ -256,6 +284,10 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 					} //end if
 					if (ch->c[index].type)
 					{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+						g_SPXBHMSplitBotProof[29] = 8;
+						g_SPXBHMSplitBotProof[30] = (unsigned int)index;
+#endif
 						SourceError(source, "characteristic %d already initialized\n", index);
 						FreeSource(source);
 						BotFreeCharacterStrings(ch);
@@ -264,6 +296,10 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 					} //end if
 					if (!PC_ExpectAnyToken(source, &token))
 					{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+						g_SPXBHMSplitBotProof[29] = 9;
+						g_SPXBHMSplitBotProof[30] = (unsigned int)index;
+#endif
 						FreeSource(source);
 						BotFreeCharacterStrings(ch);
 						FreeMemory(ch);
@@ -291,6 +327,10 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 					} //end else if
 					else
 					{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+						g_SPXBHMSplitBotProof[29] = 10;
+						g_SPXBHMSplitBotProof[30] = (unsigned int)token.type;
+#endif
 						SourceError(source, "expected integer, float or string, found %s\n", token.string);
 						FreeSource(source);
 						BotFreeCharacterStrings(ch);
@@ -319,6 +359,12 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 		} //end if
 		else
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+			unsigned int tokenPrefix = 0;
+			memcpy(&tokenPrefix, token.string, sizeof(tokenPrefix));
+			g_SPXBHMSplitBotProof[29] = 11;
+			g_SPXBHMSplitBotProof[30] = tokenPrefix;
+#endif
 			SourceError(source, "unknown definition %s\n", token.string);
 			FreeSource(source);
 			BotFreeCharacterStrings(ch);
@@ -330,10 +376,16 @@ bot_character_t *BotLoadCharacterFromFile(char *charfile, int skill)
 	//
 	if (!foundcharacter)
 	{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		g_SPXBHMSplitBotProof[29] = 12;
+#endif
 		BotFreeCharacterStrings(ch);
 		FreeMemory(ch);
 		return NULL;
 	} //end if
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	g_SPXBHMSplitBotProof[29] = 13;
+#endif
 	return ch;
 } //end of the function BotLoadCharacterFromFile
 //===========================================================================

@@ -24,23 +24,29 @@ void XBLog_PreCRTProbe(void);  /* called from ASM before _mainCRTStartup */
 void XBLog_PostCRTProbe(void); /* called from ASM after  _mainCRTStartup returns */
 void XBLog_Init(void);
 void XBLog_Shutdown(void);
+void XBLog_EnableMemoryRing(void);
 void XBLog_Print(const char *msg);
 void XBLog_Printf(const char *fmt, ...);
 void XBLog_WriteCritical(const char *msg);
 void XBLog_WriteCriticalf(const char *fmt, ...);
+void XBLog_WriteProfile(const char *msg);
 void XBLog_WriteRingMarker(const char *msg);
+void XBLog_WriteRingMarkerf(const char *fmt, ...);
 const char *XBLog_GetPath(void);
+void XBPerf_BeginFrame(unsigned int realtimeMsec, int gameplayActive);
+void XBPerf_EndFrame(void);
 
 /* Convenience macros — VC71 C89 mode doesn't support __VA_ARGS__,
    so XBLF is a direct function alias rather than a variadic macro. */
-#define XBL(msg)  XBLog_Write(msg)
-#define XBLF      XBLog_Printf
 
 /* ── Backward-compat shims for existing call sites ─────────────────────
    XBLog_Write/XBLog_Writef auto-append \n so old callers don't need to
    change.  New code should use XBL("msg\n") / XBLF("fmt\n", ...).     */
 void XBLog_Write(const char *msg);
 void XBLog_Writef(const char *fmt, ...);
+
+#define XBL(msg) XBLog_Write(msg)
+#define XBLF XBLog_Printf
 
 #ifndef SP_XBOX_VERBOSE_RUNTIME_LOGS
 #define SP_XBOX_VERBOSE_RUNTIME_LOGS 0

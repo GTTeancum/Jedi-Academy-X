@@ -42,6 +42,13 @@ PadInfo _padInfo; // gamepad thumbstick buffer
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern qboolean UI_EFMainMenu_IsActive( void );
+extern "C" volatile unsigned int g_SPXBInputCommonPressCount;
+extern "C" volatile unsigned int g_SPXBInputCommonPressLast;
+extern "C" volatile unsigned int g_SPXBInputFrontendQueueCount;
+extern "C" volatile unsigned int g_SPXBInputFrontendQueueLast;
+extern "C" volatile unsigned int g_SPXBInputDispatchCount;
+extern "C" volatile unsigned int g_SPXBInputDispatchLast;
+extern "C" volatile unsigned int g_SPXBInputDispatchHandled;
 
 static qboolean IN_STEFX_IsFrontendButton(fakeAscii_t button)
 {
@@ -64,6 +71,10 @@ static qboolean IN_STEFX_IsFrontendButton(fakeAscii_t button)
 static void IN_STEFX_QueueFrontendKey(fakeAscii_t key, qboolean down, const char *source)
 {
 	static int s_logBudget = 80;
+	g_SPXBInputFrontendQueueCount++;
+	g_SPXBInputFrontendQueueLast = ((unsigned int)key & 0xffffu) |
+		(down ? 0x00010000u : 0u) |
+		((unsigned int)(cls.keyCatchers & 0xff) << 24);
 
 	if (s_logBudget > 0)
 	{
@@ -556,6 +567,10 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 	lastControllerUsed	= controller;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBInputCommonPressCount++;
+	g_SPXBInputCommonPressLast = ((unsigned int)button & 0xffffu) |
+		(pressed ? 0x00010000u : 0u) |
+		(((unsigned int)controller & 0xffu) << 24);
 	extern int Key_GetCatcher( void );
 	const bool liveUIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
 	const qboolean stefxMenuButton = (button == A_JOY4 || button == A_JOY1);
@@ -618,9 +633,17 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 
 	if (stefxGameplayMenuBind)
 	{
+		qboolean handled;
 		XBLF("STEFX_MENU_INPUT dispatch button=%d pressed=%d state=%d catcher=0x%x",
 			(int)button, pressed ? 1 : 0, (int)cls.state, Key_GetCatcher());
-		CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-menu" );
+		g_SPXBInputDispatchCount++;
+		g_SPXBInputDispatchLast = ((unsigned int)button & 0xffffu) |
+			(pressed ? 0x00010000u : 0u) |
+			((unsigned int)(Key_GetCatcher() & 0xff) << 24);
+		handled = CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-menu" );
+		if (handled) {
+			g_SPXBInputDispatchHandled++;
+		}
 		return;
 	}
 
@@ -747,9 +770,17 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 
 		if (!liveUIRunning && stefxMenuButton && cls.state == CA_ACTIVE)
 		{
+			qboolean handled;
 			XBLF("STEFX_INPUT_GAMEPLAY_DISPATCH button=%d pressed=%d",
 				(int)button, pressed ? 1 : 0);
-			CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-gameplay" );
+			g_SPXBInputDispatchCount++;
+			g_SPXBInputDispatchLast = ((unsigned int)button & 0xffffu) |
+				(pressed ? 0x00010000u : 0u) |
+				((unsigned int)(Key_GetCatcher() & 0xff) << 24);
+			handled = CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-gameplay" );
+			if (handled) {
+				g_SPXBInputDispatchHandled++;
+			}
 			return;
 		}
 #endif

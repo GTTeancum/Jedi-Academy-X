@@ -4,6 +4,7 @@
 #include "ui_local.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBDirectMapStatus;
 #endif
 
 #define EF_FRONTEND_BUTTON_COUNT 6
@@ -1743,7 +1744,12 @@ static void EFFe_StartMap(const char *mapName)
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
 	if (mapName && mapName[0])
 	{
+#ifdef _XBOX
+		extern bool Sys_XboxQueueMenuMap(const char *mapName, const char *mode, int players);
+		Sys_XboxQueueMenuMap(mapName, "sp", 1);
+#else
 		ui.Cmd_ExecuteText(EXEC_APPEND, va("map %s\n", mapName));
+#endif
 	}
 }
 
@@ -1844,10 +1850,10 @@ static void EFFe_DrawFrame(void)
 	EFFe_DrawPs2TextColor(1522.0f, 315.0f, "Voyager", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
 	EFFe_DrawPs2TextColor(1375.0f, 372.0f, "Borg", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
 	EFFe_DrawPs2TextColor(1375.0f, 418.0f, "Space", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
-	EFFe_DrawPs2TextColor(970.0f, 519.0f, "Gamma", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
-	EFFe_DrawPs2TextColor(970.0f, 569.0f, "Alpha", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
-	EFFe_DrawPs2TextColor(1575.0f, 518.0f, "Delta", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
-	EFFe_DrawPs2TextColor(1592.0f, 567.0f, "Beta", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
+	EFFe_DrawPs2TextColor(1045.0f, 519.0f, "Gamma", EF_FRONTEND_FONT_MEDIUM, UI_CENTER, s_ps2MapGold, 0.96f, 1.06f);
+	EFFe_DrawPs2TextColor(1243.0f, 569.0f, "Alpha", EF_FRONTEND_FONT_MEDIUM, UI_CENTER, s_ps2MapGold, 0.96f, 1.06f);
+	EFFe_DrawPs2TextColor(1441.0f, 518.0f, "Delta", EF_FRONTEND_FONT_MEDIUM, UI_CENTER, s_ps2MapGold, 0.96f, 1.06f);
+	EFFe_DrawPs2TextColor(1639.0f, 567.0f, "Beta", EF_FRONTEND_FONT_MEDIUM, UI_CENTER, s_ps2MapGold, 0.96f, 1.06f);
 	EFFe_DrawPs2TextColor(1010.0f, 661.0f, "Ferengi Alliance", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
 	EFFe_DrawPs2TextColor(970.0f, 715.0f, "Cardassia", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
 	EFFe_DrawPs2TextColor(970.0f, 770.0f, "Federation", EF_FRONTEND_FONT_MEDIUM, UI_LEFT, s_ps2MapGold, 0.96f, 1.06f);
@@ -2148,6 +2154,8 @@ static void EFFe_RunMenuSmoke(int realtime)
 
 	if (s_menuSmokeStage == 1)
 	{
+		int acceptDelay;
+
 		if (s_screen != EF_SCREEN_MAIN)
 		{
 			ui.Printf("STEFX_MENU_SMOKE wait-main screen='%s' cursor=%d realtime=%d\n",
@@ -2175,7 +2183,23 @@ static void EFFe_RunMenuSmoke(int realtime)
 				s_cursor,
 				desiredCursor,
 				realtime);
-			s_cursor = desiredCursor;
+				s_cursor = desiredCursor;
+		}
+		acceptDelay = targetHolomatch ? (int)ui.Cvar_VariableValue("stefx_menu_smoke_accept_delay") : 0;
+		if (acceptDelay > 0)
+		{
+			if (acceptDelay > 10000)
+			{
+				acceptDelay = 10000;
+			}
+			ui.Printf("STEFX_MENU_SMOKE selection-hold target='%s' cursor=%d delay=%d realtime=%d\n",
+				s_menuSmokeTarget,
+				s_cursor,
+				acceptDelay,
+				realtime);
+			s_menuSmokeStage = 4;
+			s_menuSmokeNextRealtime = realtime + acceptDelay;
+			return;
 		}
 		ui.Printf("STEFX_MENU_SMOKE main-accept target='%s' cursor=%d realtime=%d\n", s_menuSmokeTarget, s_cursor, realtime);
 		EFFe_HandleMainKey(A_ENTER);
@@ -2189,6 +2213,38 @@ static void EFFe_RunMenuSmoke(int realtime)
 		}
 		s_menuSmokeStage = 2;
 		s_menuSmokeNextRealtime = realtime + 500;
+		return;
+	}
+
+	if (s_menuSmokeStage == 4)
+	{
+		if (s_screen != EF_SCREEN_MAIN)
+		{
+			ui.Printf("STEFX_MENU_SMOKE abort-before-main-accept screen='%s' cursor=%d realtime=%d\n",
+				EFFe_ScreenName(s_screen),
+				s_cursor,
+				realtime);
+			ui.Cvar_Set("stefx_menu_smoke", "0");
+			s_menuSmokeStage = 0;
+			s_menuSmokeTarget[0] = '\0';
+			s_menuSmokeMainDownRemaining = 0;
+			return;
+		}
+		if (s_cursor != desiredCursor)
+		{
+			ui.Printf("STEFX_MENU_SMOKE main-realign target='%s' cursorBefore=%d cursorAfter=%d realtime=%d\n",
+				s_menuSmokeTarget,
+				s_cursor,
+				desiredCursor,
+				realtime);
+			s_cursor = desiredCursor;
+		}
+		ui.Printf("STEFX_MENU_SMOKE main-accept target='%s' cursor=%d realtime=%d\n", s_menuSmokeTarget, s_cursor, realtime);
+		EFFe_HandleMainKey(A_ENTER);
+		ui.Cvar_Set("stefx_menu_smoke", "0");
+		s_menuSmokeStage = 0;
+		s_menuSmokeTarget[0] = '\0';
+		s_menuSmokeMainDownRemaining = 0;
 		return;
 	}
 
@@ -2319,25 +2375,52 @@ void UI_EFMainMenu_StartSplitScreenBaseline(void)
 #ifdef _XBOX
 	char splitValue[16];
 	char playersValue[16];
+	g_SPXBDirectMapStatus = 100;
 	XBLF("STEFX: EF split-screen coop start map='%s' players=2 catcher=0x%x", EF_SPLITSCREEN_BASELINE_MAP, ui.Key_GetCatcher());
+	g_SPXBDirectMapStatus = 101;
 	ui.Printf("STEFX_MENU_SPLITSCREEN_START map='%s' players=2 cursor=%d catcher=0x%x\n",
 		EF_SPLITSCREEN_BASELINE_MAP,
 		s_cursor,
 		ui.Key_GetCatcher());
+	g_SPXBDirectMapStatus = 102;
 #endif
 	ui.Cvar_Set("stefx_splitScreen", "1");
+#ifdef _XBOX
+	g_SPXBDirectMapStatus = 103;
+#endif
 	ui.Cvar_Set("stefx_splitScreenPlayers", "2");
+#ifdef _XBOX
+	g_SPXBDirectMapStatus = 104;
+#endif
 	ui.Cvar_Set("stefx_splitScreenMode", "coop");
+#ifdef _XBOX
+	g_SPXBDirectMapStatus = 105;
+#endif
 	ui.Cvar_Set("stefx_splitScreenP2Entity", "-1");
 #ifdef _XBOX
+	g_SPXBDirectMapStatus = 106;
 	ui.Cvar_VariableStringBuffer("stefx_splitScreen", splitValue, sizeof(splitValue));
 	ui.Cvar_VariableStringBuffer("stefx_splitScreenPlayers", playersValue, sizeof(playersValue));
+	g_SPXBDirectMapStatus = 107;
 	ui.Printf("STEFX_MENU_SPLITSCREEN_CVARS split='%s' players='%s'\n", splitValue, playersValue);
+	g_SPXBDirectMapStatus = 108;
 #endif
 	s_active = qfalse;
 	UI_ForceMenuOff();
+#ifdef _XBOX
+	g_SPXBDirectMapStatus = 109;
+#endif
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
+#ifdef _XBOX
+	g_SPXBDirectMapStatus = 110;
+	{
+		extern bool Sys_XboxQueueMenuMap(const char *mapName, const char *mode, int players);
+		Sys_XboxQueueMenuMap(EF_SPLITSCREEN_BASELINE_MAP, "coop", 2);
+	}
+	g_SPXBDirectMapStatus = 111;
+#else
 	ui.Cmd_ExecuteText(EXEC_APPEND, "map " EF_SPLITSCREEN_BASELINE_MAP "\n");
+#endif
 #endif
 }
 
@@ -2348,16 +2431,60 @@ void UI_EFMainMenu_StartHolomatchBaseline(void)
 	Sys_Reboot("multiplayer", NULL);
 #else
 #ifdef _XBOX
+	char splitValue[16];
+	char playersValue[16];
+	char modeValue[32];
+	char localPlayersValue[16];
+	char virtualControlsValue[16];
+	char virtualControlsP1Value[16];
+	char economyValue[16];
 	XBLF("STEFX_HM: EF Holomatch menu start map='%s' catcher=0x%x", EF_HOLOMATCH_BASELINE_MAP, ui.Key_GetCatcher());
 #endif
-	ui.Cvar_Set("stefx_splitScreen", "0");
-	ui.Cvar_Set("stefx_splitScreenPlayers", "1");
+	ui.Cvar_Set("stefx_splitScreen", "1");
+	ui.Cvar_Set("stefx_splitScreenPlayers", "4");
 	ui.Cvar_Set("stefx_splitScreenMode", "holomatch");
+	ui.Cvar_Set("stefx_hmLocalPlayers", "4");
+	ui.Cvar_Set("stefx_hm_split_economy", "1");
+	ui.Cvar_Set("stefx_hm_split_virtual_controls", "1");
+	ui.Cvar_Set("stefx_hm_split_virtual_controls_p1", "1");
+	ui.Cvar_Set("stefx_hm_launch_source", "menu");
 	ui.Cvar_Set("stefx_splitScreenP2Entity", "-1");
+	ui.Cvar_Set("sv_maxclients", "8");
+	ui.Cvar_Set("g_gametype", "0");
+	ui.Cvar_Set("fraglimit", "0");
+	ui.Cvar_Set("timelimit", "0");
+	ui.Cvar_Set("bot_enable", "1");
+	ui.Cvar_Set("bot_minplayers", "7");
+	ui.Cvar_Set("g_spSkill", "2");
+#ifdef _XBOX
+	ui.Cvar_VariableStringBuffer("stefx_splitScreen", splitValue, sizeof(splitValue));
+	ui.Cvar_VariableStringBuffer("stefx_splitScreenPlayers", playersValue, sizeof(playersValue));
+	ui.Cvar_VariableStringBuffer("stefx_splitScreenMode", modeValue, sizeof(modeValue));
+	ui.Cvar_VariableStringBuffer("stefx_hmLocalPlayers", localPlayersValue, sizeof(localPlayersValue));
+	ui.Cvar_VariableStringBuffer("stefx_hm_split_virtual_controls", virtualControlsValue, sizeof(virtualControlsValue));
+	ui.Cvar_VariableStringBuffer("stefx_hm_split_virtual_controls_p1", virtualControlsP1Value, sizeof(virtualControlsP1Value));
+	ui.Cvar_VariableStringBuffer("stefx_hm_split_economy", economyValue, sizeof(economyValue));
+	XBLF("STEFX_HM_SPLIT_LAUNCH: source=menu map='%s' split=%s players=%s mode='%s' localPlayers=%s virtual=%s virtualP1=%s economy=%s",
+		EF_HOLOMATCH_BASELINE_MAP,
+		splitValue,
+		playersValue,
+		modeValue,
+		localPlayersValue,
+		virtualControlsValue,
+		virtualControlsP1Value,
+		economyValue);
+#endif
 	s_active = qfalse;
 	UI_ForceMenuOff();
 	ui.Cvar_SetValue("cg_virtualVoyager", 0.0f);
+#ifdef _XBOX
+	{
+		extern bool Sys_XboxQueueMenuMap(const char *mapName, const char *mode, int players);
+		Sys_XboxQueueMenuMap(EF_HOLOMATCH_BASELINE_MAP, "holomatch", 4);
+	}
+#else
 	ui.Cmd_ExecuteText(EXEC_APPEND, "map " EF_HOLOMATCH_BASELINE_MAP "\n");
+#endif
 #endif
 }
 

@@ -2,6 +2,13 @@
 #include "cm_local.h"
 #include "cm_patch.h"
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+extern "C" volatile unsigned int g_SPXBPackedMapPhase;
+#define STEFX_PATCH_PHASE(value) (g_SPXBPackedMapPhase = (value))
+#else
+#define STEFX_PATCH_PHASE(value) ((void)0)
+#endif
+
 //#define	CULL_BBOX
 
 /*
@@ -1413,6 +1420,7 @@ static void CM_PatchCollideFromGrid( cGrid_t *grid, patchCollide_t *pf,
 	facetLoad_t			*facets;
 	int				numFacets;
 
+	STEFX_PATCH_PHASE(0x504D3001);
 	facets = cm_facets;
 	if (facets == 0)
 	{
@@ -1426,6 +1434,7 @@ static void CM_PatchCollideFromGrid( cGrid_t *grid, patchCollide_t *pf,
 	
 	numPlanes = 0;
 	numFacets = 0;
+	STEFX_PATCH_PHASE(0x504D3002);
 
 	// find the planes for each triangle of the grid
 	for ( i = 0 ; i < grid->width - 1 ; i++ ) {
@@ -1441,6 +1450,7 @@ static void CM_PatchCollideFromGrid( cGrid_t *grid, patchCollide_t *pf,
 			gridPlanes[i*CM_MAX_GRID_SIZE*2+j*2+1] = CM_FindPlane( p1, p2, p3 );
 		}
 	}
+	STEFX_PATCH_PHASE(0x504D3003);
 
 	// create the borders for each facet
 	for ( i = 0 ; i < grid->width - 1 ; i++ ) {
@@ -1593,16 +1603,21 @@ static void CM_PatchCollideFromGrid( cGrid_t *grid, patchCollide_t *pf,
 			}
 		}
 	}
+	STEFX_PATCH_PHASE(0x504D3004);
 
 	// copy the results out
 	pf->numPlanes = numPlanes;
 	pf->numFacets = numFacets;
+	STEFX_PATCH_PHASE(0x504D3005);
 	if (numFacets)
 	{
 		pf->facets = (facet_t *) Z_Malloc( numFacets * sizeof( *pf->facets ), TAG_BSP, qfalse);
+		STEFX_PATCH_PHASE(0x504D3006);
 		for(i=0; i<numFacets; i++) {
+			STEFX_PATCH_PHASE(0x504D3100 | (i & 0xff));
 			pf->facets[i].data = (char*)Z_Malloc(facets[i].numBorders * 4,
 					TAG_BSP, qfalse);
+			STEFX_PATCH_PHASE(0x504D3200 | (i & 0xff));
 			pf->facets[i].surfacePlane = facets[i].surfacePlane;
 			pf->facets[i].numBorders = facets[i].numBorders;
 			short *bp = pf->facets[i].GetBorderPlanes();
@@ -1619,8 +1634,11 @@ static void CM_PatchCollideFromGrid( cGrid_t *grid, patchCollide_t *pf,
 	{
 		pf->facets = 0;
 	}
+	STEFX_PATCH_PHASE(0x504D3007);
 	pf->planes = (patchPlane_t *) Z_Malloc( numPlanes * sizeof( *pf->planes ), TAG_BSP, qfalse);
+	STEFX_PATCH_PHASE(0x504D3008);
 	memcpy( pf->planes, planes, numPlanes * sizeof( *pf->planes ) );
+	STEFX_PATCH_PHASE(0x504D3009);
 }
 
 #else 
@@ -1835,6 +1853,7 @@ struct patchCollide_s	*CM_GeneratePatchCollide( int width, int height, vec3_t *p
 // --AAA--AAA--
 	int				i, j;
 
+	STEFX_PATCH_PHASE(0x504D4001);
 	memset(grid, 0, sizeof(cGrid_t));
 	if ( width <= 2 || height <= 2 || !points ) {
 		Com_Error( ERR_DROP, "CM_GeneratePatchFacets: bad parameters: (%i, %i, %p)",
@@ -1859,17 +1878,20 @@ struct patchCollide_s	*CM_GeneratePatchCollide( int width, int height, vec3_t *p
 			VectorCopy( points[j*width + i], grid->points[i][j] );
 		}
 	}
+	STEFX_PATCH_PHASE(0x504D4002);
 
 	// subdivide the grid
 	CM_SetGridWrapWidth( grid );
 	CM_SubdivideGridColumns( grid );
 	CM_RemoveDegenerateColumns( grid );
+	STEFX_PATCH_PHASE(0x504D4003);
 
 	CM_TransposeGrid( grid );
 
 	CM_SetGridWrapWidth( grid );
 	CM_SubdivideGridColumns( grid );
 	CM_RemoveDegenerateColumns( grid );
+	STEFX_PATCH_PHASE(0x504D4004);
 
 	// we now have a grid of points exactly on the curve
 	// the aproximate surface defined by these points will be
@@ -1878,6 +1900,7 @@ struct patchCollide_s	*CM_GeneratePatchCollide( int width, int height, vec3_t *p
 	// --AAA--AAA--
 //	pf = (patchCollide_t *) Z_Malloc( sizeof( *pf ), TAG_BSP, qfalse );
 	pf = pfScratch++;
+	STEFX_PATCH_PHASE(0x504D4005);
 	// --AAA--AAA--
 	
 	ClearBounds( pf->bounds[0], pf->bounds[1] );
@@ -1891,6 +1914,7 @@ struct patchCollide_s	*CM_GeneratePatchCollide( int width, int height, vec3_t *p
 
 	// generate a bsp tree for the surface
 	CM_PatchCollideFromGrid( grid, pf, facetbuf, gridbuf );
+	STEFX_PATCH_PHASE(0x504D4006);
 
 	// expand by one unit for epsilon purposes
 	pf->bounds[0][0] -= 1;

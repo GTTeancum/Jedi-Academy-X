@@ -12,14 +12,15 @@
 
 extern int FS_Read2(void *buffer, int len, fileHandle_t file);
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern "C" volatile unsigned int g_SPXBHMSplitBotProof[32];
+#endif
+
 static botlib_export_t *s_stefxBotlib;
 static int s_stefxBotlibSetup;
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 static int s_stefxBotlibFrameLogBudget;
-static int s_stefxBotCommandLogBudget;
-static int s_stefxBotAreaLogBudget;
-static int s_stefxBotGoalLogBudget;
-static int s_stefxBotMoveLogBudget;
-static int s_stefxBotInputLogBudget;
+#endif
 
 static float STEFX_HolomatchIntAsFloat(int value)
 {
@@ -318,14 +319,6 @@ static void STEFX_HolomatchBotUserCommand(int clientNum,
 	command.forwardmove = officialCommand->forwardmove;
 	command.rightmove = officialCommand->rightmove;
 	command.upmove = officialCommand->upmove;
-	if (s_stefxBotCommandLogBudget > 0 &&
-		(command.forwardmove || command.rightmove || command.upmove || command.buttons))
-	{
-		XBLog_WriteCriticalf("STEFX_HM_BOTCMD: client=%d time=%d move=(%d,%d,%d) buttons=0x%x weapon=%d",
-			clientNum, command.serverTime, command.forwardmove, command.rightmove,
-			command.upmove, command.buttons, command.weapon);
-		--s_stefxBotCommandLogBudget;
-	}
 	SV_ClientThink(client, &command);
 }
 
@@ -333,12 +326,9 @@ void STEFX_HolomatchBotReset(void)
 {
 	s_stefxBotlib = NULL;
 	s_stefxBotlibSetup = qfalse;
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 	s_stefxBotlibFrameLogBudget = 12;
-	s_stefxBotCommandLogBudget = 96;
-	s_stefxBotAreaLogBudget = 96;
-	s_stefxBotGoalLogBudget = 96;
-	s_stefxBotMoveLogBudget = 96;
-	s_stefxBotInputLogBudget = 96;
+#endif
 }
 
 enum stefx_hm_bot_command_e {
@@ -523,12 +513,14 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 		{
 			float time = STEFX_HolomatchIntAsFloat(va_arg(args, int));
 			*result = s_stefxBotlib->BotLibStartFrame(time);
+#if defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 			if (s_stefxBotlibFrameLogBudget > 0)
 			{
 				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: frame time=%g result=%d aas=%d",
 					time, *result, s_stefxBotlib->aas.AAS_Initialized());
 				--s_stefxBotlibFrameLogBudget;
 			}
+#endif
 		}
 		break;
 	case HM_BOTLIB_LOAD_MAP:
@@ -627,12 +619,6 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 		{
 			vec3_t *point = va_arg(args, vec3_t *);
 			*result = s_stefxBotlib->aas.AAS_PointAreaNum(*point);
-			if (s_stefxBotAreaLogBudget > 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: point-area point=(%g,%g,%g) result=%d",
-					(*point)[0], (*point)[1], (*point)[2], *result);
-				--s_stefxBotAreaLogBudget;
-			}
 		}
 		break;
 	case HM_BOTLIB_AAS_TRACE_AREAS:
@@ -830,12 +816,6 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 			vec3_t *direction = va_arg(args, vec3_t *);
 			float speed = STEFX_HolomatchIntAsFloat(va_arg(args, int));
 			s_stefxBotlib->ea.EA_Move(clientNum, *direction, speed);
-			if (s_stefxBotMoveLogBudget > 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: ea-move client=%d dir=(%g,%g,%g) speed=%g",
-					clientNum, (*direction)[0], (*direction)[1], (*direction)[2], speed);
-				--s_stefxBotMoveLogBudget;
-			}
 		}
 		break;
 	case HM_BOTLIB_EA_VIEW:
@@ -858,13 +838,6 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 			float thinkTime = STEFX_HolomatchIntAsFloat(va_arg(args, int));
 			bot_input_t *input = va_arg(args, bot_input_t *);
 			s_stefxBotlib->ea.EA_GetInput(clientNum, thinkTime, input);
-			if (clientNum > 0 && s_stefxBotInputLogBudget > 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: ea-input client=%d think=%g dir=(%g,%g,%g) speed=%g flags=0x%x weapon=%d",
-					clientNum, thinkTime, input->dir[0], input->dir[1], input->dir[2],
-					input->speed, input->actionflags, input->weapon);
-				--s_stefxBotInputLogBudget;
-			}
 		}
 		break;
 	case HM_BOTLIB_EA_RESET_INPUT:
@@ -1106,12 +1079,6 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 			int travelFlags = va_arg(args, int);
 			*result = s_stefxBotlib->ai.BotChooseLTGItem(state, *origin, inventory,
 				travelFlags, qfalse);
-			if (s_stefxBotGoalLogBudget > 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: choose-ltg state=%d origin=(%g,%g,%g) tfl=0x%x result=%d",
-					state, (*origin)[0], (*origin)[1], (*origin)[2], travelFlags, *result);
-				--s_stefxBotGoalLogBudget;
-			}
 		}
 		break;
 	case HM_BOTLIB_AI_CHOOSE_NBG_ITEM:
@@ -1198,21 +1165,6 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 			struct bot_goal_s *goal = va_arg(args, struct bot_goal_s *);
 			int travelFlags = va_arg(args, int);
 			s_stefxBotlib->ai.BotMoveToGoal(moveResult, moveState, goal, travelFlags);
-			if (s_stefxBotMoveLogBudget > 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: move-goal state=%d goalArea=%d goal=(%g,%g,%g) tfl=0x%x fail=%d blocked=%d travel=%d flags=0x%x dir=(%g,%g,%g)",
-					moveState, goal ? goal->areanum : -1,
-					goal ? goal->origin[0] : 0.0f, goal ? goal->origin[1] : 0.0f,
-					goal ? goal->origin[2] : 0.0f, travelFlags,
-					moveResult ? moveResult->failure : -1,
-					moveResult ? moveResult->blocked : -1,
-					moveResult ? moveResult->traveltype : -1,
-					moveResult ? moveResult->flags : 0,
-					moveResult ? moveResult->movedir[0] : 0.0f,
-					moveResult ? moveResult->movedir[1] : 0.0f,
-					moveResult ? moveResult->movedir[2] : 0.0f);
-				--s_stefxBotMoveLogBudget;
-			}
 		}
 		break;
 	case HM_BOTLIB_AI_MOVE_IN_DIRECTION:
@@ -1235,12 +1187,6 @@ int STEFX_HolomatchBotSyscall(int command, va_list args, int *result)
 			vec3_t *origin = va_arg(args, vec3_t *);
 			int testGround = va_arg(args, int);
 			*result = s_stefxBotlib->ai.BotReachabilityArea(*origin, testGround);
-			if (s_stefxBotAreaLogBudget > 0)
-			{
-				XBLog_WriteCriticalf("STEFX_HM_BOTLIB: reach-area origin=(%g,%g,%g) testGround=%d result=%d",
-					(*origin)[0], (*origin)[1], (*origin)[2], testGround, *result);
-				--s_stefxBotAreaLogBudget;
-			}
 		}
 		break;
 	case HM_BOTLIB_AI_MOVEMENT_VIEW_TARGET:

@@ -15,6 +15,9 @@
 #include "../qcommon/sstring.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
+extern "C" volatile unsigned int g_SPXBClTailStage;
+#endif
 extern bool g_xboxDirectMapBootQueued;
 extern bool Sys_IsDirectMapBoot(void);
 #endif
@@ -100,6 +103,9 @@ This must be the very first function compiled into the .q3vm file
 int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7 ) {
 	centity_t		*cent;
 
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	g_SPXBClTailStage = 0x474d3030; /* 'GM00' */
+#endif
 	switch ( command ) {
 	case CG_INIT:
 		CG_Init( arg0 );
@@ -110,14 +116,16 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 	case CG_CONSOLE_COMMAND:
 		return CG_ConsoleCommand();
 	case CG_DRAW_ACTIVE_FRAME:
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBClTailStage = 0x474d3031; /* 'GM01' */
 		if (arg0 >= 3600 && arg0 <= 4600)
 		{
 			XBLF("JA: CL_EARLY cg_vmMain before CG_DrawActiveFrame serverTime=%d stereo=%d", arg0, arg1);
 		}
 #endif
 		CG_DrawActiveFrame( arg0, (stereoFrame_t) arg1 );
-#ifdef _XBOX
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		g_SPXBClTailStage = 0x474d3032; /* 'GM02' */
 		if (arg0 >= 3600 && arg0 <= 4600)
 		{
 			XBLF("JA: CL_EARLY cg_vmMain after CG_DrawActiveFrame serverTime=%d stereo=%d", arg0, arg1);
@@ -2463,7 +2471,6 @@ void CG_Init_CG(void)
 	cg.widescreen = widescreen;
 #endif
 }
-
 
 #ifdef _XBOX	// Enough for all maps right now
 #define MAX_MISC_ENTS	1000

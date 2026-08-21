@@ -104,9 +104,19 @@ if (Test-Path -LiteralPath $xemuDir -PathType Container) {
         }
     }
 
+    $keepIsoProfilePath = if ([string]::IsNullOrWhiteSpace($keepIsoPath)) {
+        ""
+    }
+    else {
+        "$keepIsoPath.smoke-profile.json"
+    }
     foreach ($file in Get-ChildItem -LiteralPath $xemuDir -Force -File) {
         if (-not [string]::IsNullOrWhiteSpace($keepIsoPath) -and
             $file.FullName.Equals($keepIsoPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        if (-not [string]::IsNullOrWhiteSpace($keepIsoProfilePath) -and
+            $file.FullName.Equals($keepIsoProfilePath, [System.StringComparison]::OrdinalIgnoreCase)) {
             continue
         }
         Remove-GeneratedItem -Path $file.FullName
@@ -126,10 +136,16 @@ foreach ($relativePath in @(
     "build\logs",
     "build\cxbx_runtime",
     "build\cxbx_capture_runtime",
+    "build\cxbx-native-stage",
     "build\diagnostics",
+    "build\research\zone-contract",
     "build\pak0.pk3",
     "codemp\goblib\Release",
     "codemp\x_exe\Release",
+    "code\x_exe\__pycache__",
+    "build\release\default!.xbe",
+    "build\release\default_baseline.xbe",
+    "build\release\defaultx.xbe",
     "scripts\__pycache__"
 )) {
     Remove-GeneratedItem -Path (Join-Path $repoRoot $relativePath)
@@ -189,6 +205,8 @@ foreach ($pattern in @(
     "build_*.log",
     "repack_*.log",
     "xemu*.log",
+    "hash_header.obj",
+    "xxhash.obj",
     "*.pid",
     "*.name"
 )) {
@@ -199,6 +217,7 @@ foreach ($pattern in @(
 
 if ($Aggressive) {
     Remove-GeneratedItem -Path (Join-Path $repoRoot "artifacts")
+    Remove-GeneratedItem -Path (Join-Path $repoRoot "build\beta")
     Remove-GeneratedItem -Path (Join-Path $repoRoot "build\release\proof")
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $repoRoot "build\release") -Force -File -ErrorAction SilentlyContinue) {
         if ($file.Extension -eq ".log" -or $file.Name -like "codex_*_ef_sp_log.txt") {

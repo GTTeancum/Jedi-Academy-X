@@ -2313,7 +2313,7 @@ static void ParseSkyParms( const char **text ) {
 				XBLF("STEFX_SKY_PARMS face=%d path='%s' image='%s' wh=%dx%d tex=%d fallback=%d",
 					i,
 					pathname,
-					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->imgName : "<null>",
+					R_GetImageDebugName(shader.sky->outerbox[i]),
 					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->width : 0,
 					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->height : 0,
 					shader.sky->outerbox[i] ? shader.sky->outerbox[i]->texnum : -1,
@@ -3519,10 +3519,10 @@ static shader_t *FinishShader( void ) {
 					xboxStage->rgbGen,
 					xboxStage->alphaGen,
 					xboxStage->bundle[1].image ? 1 : 0,
-					xboxStage->bundle[0].image ? xboxStage->bundle[0].image->imgName : "<null>",
+					R_GetImageDebugName(xboxStage->bundle[0].image),
 					xboxStage->bundle[0].isLightmap ? 1 : 0,
 					xboxStage->bundle[0].tcGen,
-					xboxStage->bundle[1].image ? xboxStage->bundle[1].image->imgName : "<null>",
+					R_GetImageDebugName(xboxStage->bundle[1].image),
 					xboxStage->bundle[1].isLightmap ? 1 : 0,
 					xboxStage->bundle[1].tcGen,
 					shader.multitextureEnv,
@@ -4307,19 +4307,29 @@ static void ScanAndLoadShaderFiles( void )
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		manifestText = NULL;
 		manifestActive = qfalse;
-		if ( !Q_stricmp( shaderDirs[dirIndex], "scripts" ) )
+#endif
+		shaderFiles = FS_ListFiles( shaderDirs[dirIndex], ".shader", &numShaders );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		// A manifest was added as a fallback for consoles that could not enumerate
+		// packed directories.  It must not replace a successful aggregate PK3 list:
+		// duplicate manifest paths obey normal search precedence, so a small patch
+		// PK3 would otherwise hide every shader supplied by the retail PAKs.
+		if ( ( !shaderFiles || !numShaders ) &&
+			 !Q_stricmp( shaderDirs[dirIndex], "scripts" ) )
 		{
-			manifestActive = R_XboxLoadShaderManifest( shaderDirs[dirIndex], manifestFiles, MAX_SHADER_FILES - totalShaders, &manifestText, &numShaders );
+			if ( shaderFiles )
+			{
+				FS_FreeFileList( shaderFiles );
+				shaderFiles = NULL;
+			}
+			manifestActive = R_XboxLoadShaderManifest( shaderDirs[dirIndex], manifestFiles,
+				MAX_SHADER_FILES - totalShaders, &manifestText, &numShaders );
 			if ( manifestActive )
 			{
 				shaderFiles = manifestFiles;
 			}
 		}
-		if ( !manifestActive )
 #endif
-		{
-			shaderFiles = FS_ListFiles( shaderDirs[dirIndex], ".shader", &numShaders );
-		}
 
 #ifdef _XBOX
 		if ( !Q_stricmp( shaderDirs[dirIndex], "scripts" ) )

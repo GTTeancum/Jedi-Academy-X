@@ -32,6 +32,7 @@ void CG_DrawMissionInformation( void );
 static qboolean s_stefxFirstActiveFramePending = qtrue;
 #if defined(STEFX_ELITE_FORCE_SP)
 extern "C" volatile unsigned int g_SPXBPhaseLast;
+extern "C" volatile unsigned int g_SPXBClTailStage;
 #define STEFX_MODEL_PHASE(stage) \
 	( g_SPXBPhaseLast = 0xE0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
 		( g_SPXBPhaseLast & 0xffffu ) )
@@ -53,6 +54,7 @@ int cg_vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, in
 int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7 ) {
 #endif
 #ifdef _XBOX
+	g_SPXBClTailStage = 0x474d3030; /* 'GM00' */
 	XBLF("STEFX: cg_vmMain enter command=%d arg0=%d", command, arg0);
 #endif
 	switch ( command ) {
@@ -73,6 +75,7 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 		return CG_ConsoleCommand();
 	case CG_DRAW_ACTIVE_FRAME:
 #ifdef _XBOX
+		g_SPXBClTailStage = 0x474d3031; /* 'GM01' */
 		if (s_stefxFirstActiveFramePending)
 		{
 			XBLog_WriteCriticalf("STEFX_HW_CHECKPOINT: first active frame begin serverTime=%d stereo=%d", arg0, arg1);
@@ -84,6 +87,7 @@ int vmMain( int command, int arg0, int arg1, int arg2, int arg3, int arg4, int a
 #endif
 		CG_DrawActiveFrame( arg0, (stereoFrame_t) arg1 );
 #ifdef _XBOX
+		g_SPXBClTailStage = 0x474d3032; /* 'GM02' */
 		if (s_stefxFirstActiveFramePending)
 		{
 			XBLog_WriteCriticalf("STEFX_HW_CHECKPOINT: first active frame complete serverTime=%d stereo=%d", arg0, arg1);
@@ -1958,6 +1962,7 @@ Called before every level change or subsystem restart
 */
 void CG_Shutdown( void ) 
 {
+	CGCam_ResetForLevelChange();
 	FX_Free();
 }
 

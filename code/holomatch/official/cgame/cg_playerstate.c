@@ -233,7 +233,7 @@ void CG_CheckPlayerstateEvents( playerState_t *ps, playerState_t *ops ) {
 			event = ps->events[ i & (MAX_PS_EVENTS-1) ];
 			cent->currentState.event = event;
 			cent->currentState.eventParm = ps->eventParms[ i & (MAX_PS_EVENTS-1) ];
-#if defined(STEFX_SP_HOSTED_MP)
+			#if defined(STEFX_SP_HOSTED_MP) && defined(STEFX_HM_GAMEPLAY_DIAGNOSTICS)
 			if ( event == EV_FOOTSTEP || event == EV_FOOTSTEP_METAL ||
 				event == EV_FOOTSPLASH || event == EV_FOOTWADE || event == EV_SWIM ||
 				( event >= EV_STEP_4 && event <= EV_STEP_16 ) )

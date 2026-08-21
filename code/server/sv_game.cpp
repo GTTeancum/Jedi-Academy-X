@@ -532,13 +532,32 @@ void SV_GetUsercmd( int clientNum, usercmd_t *cmd )
 int SV_BotAllocateClient( void )
 {
 	int i;
+	int firstBotClient;
 	client_t *client;
 
 	if (!svs.clients)
 	{
 		return -1;
 	}
-	for (i = 1; i < MAX_CLIENTS; ++i)
+	firstBotClient = 1;
+	if (Cvar_VariableIntegerValue("stefx_splitScreen") &&
+		!Q_stricmp(Cvar_VariableString("stefx_splitScreenMode"), "holomatch"))
+	{
+		firstBotClient = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+		if (firstBotClient <= 0)
+		{
+			firstBotClient = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
+		}
+		if (firstBotClient < 1)
+		{
+			firstBotClient = 1;
+		}
+		if (firstBotClient > MAX_CLIENTS)
+		{
+			firstBotClient = MAX_CLIENTS;
+		}
+	}
+	for (i = firstBotClient; i < MAX_CLIENTS; ++i)
 	{
 		client = &svs.clients[i];
 		if (client->state == CS_FREE)
@@ -546,6 +565,7 @@ int SV_BotAllocateClient( void )
 			memset(client, 0, sizeof(*client));
 			client->state = CS_CONNECTED;
 			client->stefxHolomatchBot = qtrue;
+			client->stefxHolomatchLocal = qfalse;
 			client->lastPacketTime = sv.time;
 			client->lastConnectTime = sv.time;
 			client->snapshotMsec = 50;

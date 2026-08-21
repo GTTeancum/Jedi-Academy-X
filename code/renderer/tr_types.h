@@ -56,6 +56,8 @@
 #define RF_STEFX_SPLIT_SLOT1  0x02000000 // first-person split-screen entity for bottom/P2 view only
 #define RF_STEFX_SPLIT_HIDE_SLOT0 0x04000000 // hide third-person self model from top/P1 view
 #define RF_STEFX_SPLIT_HIDE_SLOT1 0x08000000 // hide third-person self model from bottom/P2 view
+#define RF_STEFX_SPLIT_SLOT2     0x40000000 // first-person split-screen entity for P3; P4 uses SLOT1|SLOT2
+#define STEFX_REFENTITY_PHASER_BEAM_BASE 0x53504200 // low byte is the firing client number
 #if defined(STEFX_SP_HOSTED_MP)
 #define RF_STEFX_FORCE_ENT_ALPHA 0x10000000 // Elite Force entity alpha overrides shader alpha
 #define RF_STEFX_FULLBRIGHT      0x20000000 // Elite Force fixed full-bright model lighting

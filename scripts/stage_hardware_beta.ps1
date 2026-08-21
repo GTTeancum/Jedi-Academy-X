@@ -10,6 +10,15 @@ Set-StrictMode -Version 2.0
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $hardwareRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot "build\hardware"))
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
+$pythonCommand = Get-Command "python.exe" -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+$pythonExe = if ($null -ne $pythonCommand) {
+    $pythonCommand.Source
+}
+else {
+    Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+}
+$holomatchCheck = Join-Path $repoRoot "scripts\check_mp_holomatch_ui.py"
 
 function Resolve-RepoPath {
     param([string]$Path)
@@ -76,6 +85,12 @@ if (-not (Test-Path -LiteralPath $releaseManifestPath -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $extractXiso -PathType Leaf)) {
     throw "extract-xiso not found: $extractXiso"
+}
+if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
+    throw "Python interpreter not found: $pythonExe"
+}
+if (-not (Test-Path -LiteralPath $holomatchCheck -PathType Leaf)) {
+    throw "Holomatch hardware-stage checker not found: $holomatchCheck"
 }
 
 $releaseManifest = Get-Content -LiteralPath $releaseManifestPath -Raw | ConvertFrom-Json
@@ -157,6 +172,44 @@ foreach ($entry in $required.GetEnumerator()) {
         $record["mediaPatchOffset"] = $patchOffset
     }
     $verified[$entry.Key] = $record
+}
+
+$stageBaseEf = Join-Path $stageRoot "BaseEF"
+Get-ChildItem -LiteralPath $stageBaseEf -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "soundbank" } |
+    Remove-Item -Recurse -Force
+
+foreach ($staleName in @(
+    "games.log",
+    "xbox_patch_manifest.json",
+    "XBOX0.PK3.disabled",
+    "vssver.scc"
+)) {
+    Remove-Item -LiteralPath (Join-Path $stageBaseEf $staleName) -Force -ErrorAction SilentlyContinue
+}
+
+foreach ($staleName in @(
+    "default-native-test.map",
+    "default-native-test.xbe",
+    "default.map",
+    "ef_mp_backbuffer.bmp",
+    "ef_mp_xgshot.bmp",
+    "memory-map.txt",
+    "pointers.txt"
+)) {
+    Remove-Item -LiteralPath (Join-Path $stageRoot $staleName) -Force -ErrorAction SilentlyContinue
+}
+
+& $pythonExe $holomatchCheck `
+    --repo-root $repoRoot `
+    --pk3 (Join-Path $stageRoot "BaseEF\xbox1.pk3") `
+    --stage-baseef (Join-Path $stageRoot "BaseEF") `
+    --allow-stage-original-images `
+    --xbe (Join-Path $stageRoot "efmp.xbe") `
+    --direct-map hm_borg1 `
+    --code-only
+if ($LASTEXITCODE -ne 0) {
+    throw "Extracted hardware stage failed Holomatch runtime validation with exit code $LASTEXITCODE"
 }
 
 $markerPattern = "(?i)^(ef_(?:sp|mp|runtime)|ja_sp|stefx_xemu|memmap).*\.(?:txt|done)$"

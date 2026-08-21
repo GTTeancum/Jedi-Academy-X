@@ -4,6 +4,8 @@
 #include <stdarg.h>
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBClTailStage;
+extern "C" volatile unsigned int g_SPXBCGameEntryCurrent;
 #endif
 #pragma warning (disable : 4514)
 /*
@@ -52,9 +54,15 @@ int	VM_Call( int callnum, ... )
 		}
 		case CG_DRAW_ACTIVE_FRAME:
 		{
+#ifdef _XBOX
+			g_SPXBClTailStage = 0x56443030; /* 'VD00' */
+#endif
 			const int arg0 = va_arg(ap, int);
 			const int arg1 = va_arg(ap, int);
 			const int arg2 = va_arg(ap, int);
+#ifdef _XBOX
+			g_SPXBClTailStage = 0x56443031; /* 'VD01' */
+#endif
 #ifdef _XBOX
 			if (arg0 > 90000)
 			{
@@ -62,8 +70,14 @@ int	VM_Call( int callnum, ... )
 			}
 #endif
 			va_end(ap);
+#ifdef _XBOX
+			g_SPXBClTailStage = 0x56443032; /* 'VD02' */
+			g_SPXBCGameEntryCurrent = (unsigned int)cgvm.entryPoint;
+			g_SPXBClTailStage = 0x56443033; /* 'VD03' */
+#endif
 			result = cgvm.entryPoint(callnum, arg0, arg1, arg2, 0, 0, 0, 0, 0);
 #ifdef _XBOX
+			g_SPXBClTailStage = 0x56443034; /* 'VD04' */
 			if (arg0 > 90000)
 			{
 				XBLF("JA: VM_Call return DRAW_ACTIVE_FRAME time=%d result=%d", arg0, result);
