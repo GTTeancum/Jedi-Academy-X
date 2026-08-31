@@ -47,6 +47,10 @@ struct XBSettings
 	float musicVolume;
 	float voiceVolume;
 	float brightness;
+	int safeAreaLeft;
+	int safeAreaTop;
+	int safeAreaRight;
+	int safeAreaBottom;
 
 	// Subtitles, only used in SP:
 	int subtitles;

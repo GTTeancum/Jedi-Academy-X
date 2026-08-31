@@ -953,12 +953,12 @@ void SCR_UpdateScreen( void ) {
 		if (xboxTraceScreenTight) XBLog_Write("JA: SCR_TIGHT before draw center");
 		if (xboxTraceScreen) XBLog_Write("JA: SCR_UpdateScreen: draw center...");
 #endif
-		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		#ifdef _XBOX
 		g_SPXBPhaseLast = 0x53524332; /* 'SRC2' */
 		g_SPXBClTailStage = 0x53533032; /* 'SS02' */
 		#endif
 		SCR_DrawScreenField( STEREO_CENTER );
-		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+		#ifdef _XBOX
 		g_SPXBClTailStage = 0x53533033; /* 'SS03' */
 		g_SPXBPhaseLast = 0x53524333; /* 'SRC3' */
 		#endif
@@ -983,12 +983,12 @@ void SCR_UpdateScreen( void ) {
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	xboxScreenPhaseStart = Sys_Milliseconds();
 #endif
-	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	#ifdef _XBOX
 	g_SPXBPhaseLast = 0x53524334; /* 'SRC4' */
 	g_SPXBClTailStage = 0x53533034; /* 'SS04' */
+	#endif
+	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	re.EndFrame( &time_frontend, &time_backend );
-	g_SPXBClTailStage = 0x53533035; /* 'SS05' */
-	g_SPXBPhaseLast = 0x53524335; /* 'SRC5' */
 	g_SPXBPerfFrontendMsec = (unsigned int)time_frontend;
 	g_SPXBPerfBackendMsec = (unsigned int)time_backend;
 	#else
@@ -997,6 +997,10 @@ void SCR_UpdateScreen( void ) {
 	} else {
 		re.EndFrame( NULL, NULL );
 	}
+	#endif
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x53533035; /* 'SS05' */
+	g_SPXBPhaseLast = 0x53524335; /* 'SRC5' */
 	#endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPerfEndFrameMsec = (unsigned int)(Sys_Milliseconds() - xboxScreenPhaseStart);

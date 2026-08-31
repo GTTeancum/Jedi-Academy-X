@@ -636,8 +636,21 @@ static void CG_LoadBar(void)
 	int			x,y;
 
 	// Round LCARS buttons
-	y = 244;
+	/* Match the wheel's optical left and bottom margins on the 640x480 load view. */
+	y = 310;
 	x = 10;
+#ifdef _XBOX
+	{
+		static qboolean s_loggedLoadWheelPlacement = qfalse;
+		if (!s_loggedLoadWheelPlacement)
+		{
+			/* The authored pieces form an optical 178x160 box at this origin. */
+			XBLF("STEFX_LOAD_WHEEL: origin=(%d,%d) optical=(%d,%d)-(%d,%d) leftMargin=%d bottomMargin=%d",
+				x, y, x, y, x + 178, y + 160, x, 480 - (y + 160));
+			s_loggedLoadWheelPlacement = qtrue;
+		}
+	}
+#endif
 	if (cg.loadLCARSStage < 1)
 	{
 		cgi_R_SetColor( colorTable[CT_VDKPURPLE3]);

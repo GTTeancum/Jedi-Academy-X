@@ -5,6 +5,9 @@
 
 #include "tr_local.h"
 #include "MatComp.h"
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+#include "../win32/xb_log.h"
+#endif
 extern int R_ComputeLOD( trRefEntity_t *ent );
 
 /*
@@ -34,8 +37,13 @@ static int R_ACullModel( md4Header_t *header, trRefEntity_t *ent ) {
 	if (header->ofsFrames<0) // Compressed
 	{
 		frameSize = (int)( &((md4CompFrame_t *)0)->bones[ tr.currentModel->md4->numBones ] );		
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		newFrame = (md4Frame_t *)R_STEFX_GetMDRFrame(header, ent->e.frame);
+		oldFrame = (md4Frame_t *)R_STEFX_GetMDRFrame(header, ent->e.oldframe);
+#else
 		newFrame = (md4Frame_t *)((byte *)header - header->ofsFrames + ent->e.frame * frameSize );
 		oldFrame = (md4Frame_t *)((byte *)header - header->ofsFrames + ent->e.oldframe * frameSize );
+#endif
 		// HACK! These frames actually are md4CompFrames, but the first fields are the same, 
 		// so this will work for this routine.
 	}
@@ -163,7 +171,11 @@ static int R_AComputeFogNum( md4Header_t *header, trRefEntity_t *ent ) {
 	if (header->ofsFrames<0) // Compressed
 	{
 		frameSize = (int)( &((md4CompFrame_t *)0)->bones[ header->numBones ] );		
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		frame = (md4Frame_t *)R_STEFX_GetMDRFrame(header, ent->e.frame);
+#else
 		frame = (md4Frame_t *)((byte *)header - header->ofsFrames + ent->e.frame * frameSize );
+#endif
 		// HACK! These frames actually are md4CompFrames, but the first fields are the same, 
 		// so this will work for this routine.
 	}
@@ -361,11 +373,13 @@ RB_SurfaceAnim
 ==============
 */
 
-#define STEFX_MDR_PALETTE_CACHE_SLOTS 8
+#define STEFX_MDR_PALETTE_CACHE_SLOTS 16
 
 typedef struct {
 	qboolean			valid;
+	qboolean			sharedIdentity;
 	const trRefEntity_t	*entity;
+	int				entityNumber;
 	const md4Header_t	*header;
 	int				frame;
 	int				oldFrame;
@@ -377,27 +391,77 @@ typedef struct {
 static stefxMdrPaletteCache_t s_stefxMdrPaletteCache[STEFX_MDR_PALETTE_CACHE_SLOTS];
 static int s_stefxMdrPaletteReplacement;
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+static unsigned int s_stefxMdrPaletteRequests;
+static unsigned int s_stefxMdrPaletteBuilds;
+static unsigned int s_stefxMdrPaletteReuses;
+static unsigned int s_stefxMdrPaletteBypasses;
+static unsigned int s_stefxMdrPaletteFrames;
+static int s_stefxMdrPaletteLastRenderTime = -1;
+
+static void RB_STEFX_ProfileMdrPaletteCache( void ) {
+	if ( backEnd.refdef.time == s_stefxMdrPaletteLastRenderTime ) {
+		return;
+	}
+
+	s_stefxMdrPaletteLastRenderTime = backEnd.refdef.time;
+	++s_stefxMdrPaletteFrames;
+	if ( ( s_stefxMdrPaletteFrames & 255u ) == 0u ) {
+		const unsigned int reusePercent = s_stefxMdrPaletteRequests
+			? ( 100u * s_stefxMdrPaletteReuses ) / s_stefxMdrPaletteRequests
+			: 0u;
+		XBLog_WriteProfile( va(
+			"STEFX_HW_MDR_PALETTE_CACHE: sample=%u players=%d requests=%u emitted=%u skipped=%u skipPct=%u bypass=%u slots=%u",
+			s_stefxMdrPaletteFrames,
+			Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ),
+			s_stefxMdrPaletteRequests, s_stefxMdrPaletteBuilds,
+			s_stefxMdrPaletteReuses, reusePercent,
+			s_stefxMdrPaletteBypasses,
+			(unsigned int)STEFX_MDR_PALETTE_CACHE_SLOTS ) );
+	}
+}
+#endif
+
 static md4Bone_t *RB_GetAnimBonePalette( md4Header_t *header, float frontlerp, float backlerp,
 	md4Frame_t *frame, md4Frame_t *oldFrame, md4CompFrame_t *cframe, md4CompFrame_t *coldFrame,
 	qboolean compressed ) {
 	stefxMdrPaletteCache_t *cache;
+	qboolean sharedIdentity = qfalse;
 	int i, j;
 	md4Bone_t tbone[2];
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	RB_STEFX_ProfileMdrPaletteCache();
+	sharedIdentity = backEnd.viewParms.stefxSplitThreePlusEconomy;
+#endif
+
 	if ( !backlerp && !compressed ) {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		++s_stefxMdrPaletteBypasses;
+#endif
 		return frame->bones;
 	}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++s_stefxMdrPaletteRequests;
+#endif
 
 	cache = NULL;
 	for ( i = 0; i < STEFX_MDR_PALETTE_CACHE_SLOTS; ++i ) {
 		stefxMdrPaletteCache_t *candidate = &s_stefxMdrPaletteCache[i];
 		if ( candidate->valid &&
-			candidate->entity == backEnd.currentEntity &&
+			candidate->sharedIdentity == sharedIdentity &&
+			( sharedIdentity
+				? candidate->entityNumber == backEnd.currentEntity->e.number
+				: candidate->entity == backEnd.currentEntity ) &&
 			candidate->header == header &&
 			candidate->frame == backEnd.currentEntity->e.frame &&
 			candidate->oldFrame == backEnd.currentEntity->e.oldframe &&
 			candidate->backlerp == backlerp &&
 			candidate->renderTime == backEnd.refdef.time ) {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+			++s_stefxMdrPaletteReuses;
+#endif
 			return candidate->bones;
 		}
 		if ( !cache && ( !candidate->valid || candidate->renderTime != backEnd.refdef.time ) ) {
@@ -410,8 +474,13 @@ static md4Bone_t *RB_GetAnimBonePalette( md4Header_t *header, float frontlerp, f
 		s_stefxMdrPaletteReplacement = ( s_stefxMdrPaletteReplacement + 1 ) % STEFX_MDR_PALETTE_CACHE_SLOTS;
 	}
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	++s_stefxMdrPaletteBuilds;
+#endif
 	cache->valid = qtrue;
+	cache->sharedIdentity = sharedIdentity;
 	cache->entity = backEnd.currentEntity;
+	cache->entityNumber = backEnd.currentEntity->e.number;
 	cache->header = header;
 	cache->frame = backEnd.currentEntity->e.frame;
 	cache->oldFrame = backEnd.currentEntity->e.oldframe;
@@ -472,8 +541,13 @@ void RB_SurfaceAnim( md4Surface_t *surface ) {
 	{
 		compressed = qtrue;
 		frameSize = (int)( &((md4CompFrame_t *)0)->bones[ header->numBones ] );		
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		cframe = (md4CompFrame_t *)R_STEFX_GetMDRFrame(header, backEnd.currentEntity->e.frame);
+		coldFrame = (md4CompFrame_t *)R_STEFX_GetMDRFrame(header, backEnd.currentEntity->e.oldframe);
+#else
 		cframe = (md4CompFrame_t *)((byte *)header - header->ofsFrames + backEnd.currentEntity->e.frame * frameSize );
 		coldFrame = (md4CompFrame_t *)((byte *)header - header->ofsFrames + backEnd.currentEntity->e.oldframe * frameSize );
+#endif
 	}
 	else
 	{
@@ -538,6 +612,5 @@ void RB_SurfaceAnim( md4Surface_t *surface ) {
 
 		v = (md4Vertex_t *)&v->weights[v->numWeights];
 	}
-
 	tess.numVertexes += surface->numVerts;
 }

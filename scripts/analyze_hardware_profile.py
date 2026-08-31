@@ -13,8 +13,13 @@ from typing import Iterable
 
 
 PROFILE_MARKER = "STEFX_HW_FRAME_PROFILE:"
+FPS_PROFILE_MARKER = "STEFX_HW_FPS_SAMPLE:"
 ALIGNED_PROFILE_MARKER = "STEFX_HW_RENDER_SAMPLE:"
 HEARTBEAT_MARKER = "FRAME_HEARTBEAT"
+TEXTURE_STAGE_CACHE_MARKER = "STEFX_HW_STAGE_CACHE:"
+VERTEX_SHADER_CACHE_MARKER = "STEFX_HW_VERTEX_SHADER_CACHE:"
+STREAM_SOURCE_CACHE_MARKER = "STEFX_HW_STREAM_SOURCE_CACHE:"
+MDR_PALETTE_CACHE_MARKER = "STEFX_HW_MDR_PALETTE_CACHE:"
 PAIR_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*)=([^\s]+)")
 FPS_RE = re.compile(r"^(\d+)\.(\d+)$")
 
@@ -199,6 +204,42 @@ def cumulative_summary(records: list[dict[str, object]], key: str) -> dict[str, 
     }
 
 
+def state_cache_summary(records: list[dict[str, object]]) -> dict[str, object]:
+    if not records:
+        return {"samples": 0}
+    latest = records[-1]
+    summary: dict[str, object] = {"samples": len(records)}
+    for key in (
+        "sample", "players", "requests", "emitted", "skipped", "skipPct", "bypass", "slots"
+    ):
+        value = latest.get(key)
+        if isinstance(value, (int, float)):
+            summary[key] = value
+    requests = summary.get("requests")
+    emitted = summary.get("emitted")
+    skipped = summary.get("skipped")
+    if all(isinstance(value, (int, float)) for value in (requests, emitted, skipped)):
+        summary["accountingBalanced"] = requests == emitted + skipped
+    return summary
+
+
+def topology_summary(records: list[dict[str, object]]) -> dict[str, object]:
+    if not records:
+        return {"samples": 0}
+    latest = records[-1]
+    summary: dict[str, object] = {"samples": len(records)}
+    for key in ("players", "humans", "bots", "source", "virtual"):
+        value = latest.get(key)
+        if isinstance(value, (int, float, str, list)):
+            summary[key] = value
+    players = summary.get("players")
+    humans = summary.get("humans")
+    bots = summary.get("bots")
+    if all(isinstance(value, (int, float)) for value in (players, humans, bots)):
+        summary["accountingBalanced"] = players == humans + bots
+    return summary
+
+
 def median_from_summary(summary: object) -> float | None:
     if not isinstance(summary, dict):
         return None
@@ -212,9 +253,16 @@ def dominant_phase_diagnosis(
     frontend = median_from_summary(phases.get("frontend"))
     backend = median_from_summary(phases.get("backend"))
     server = median_from_summary(phases.get("server"))
+    client = median_from_summary(phases.get("client"))
+    detailed_renderer_available = bool((frontend or 0.0) > 0.0 or (backend or 0.0) > 0.0)
     top_level = {
         key: value
-        for key, value in (("frontend", frontend), ("backend", backend), ("server", server))
+        for key, value in (
+            ("frontend", frontend),
+            ("backend", backend),
+            ("server", server),
+            ("client", client if not detailed_renderer_available else None),
+        )
         if value is not None
     }
     if not top_level:
@@ -242,6 +290,12 @@ def dominant_phase_diagnosis(
     elif dominant == "backend":
         child_names = ("backendDrawSurfs", "backendSwap", "backendOther")
         recommendation = "Use the backend child and draw-cycle split to choose the next renderer target."
+    elif dominant == "client":
+        child_names = ()
+        recommendation = (
+            "The production log exposes only the inclusive client/render boundary; "
+            "use a bounded profiled-renderer A/B to separate frontend, submission, and GPU waits."
+        )
     else:
         child_names = ("gamePre", "gameEntities", "gamePost")
         recommendation = "Renderer work is not the largest measured boundary; inspect server/game phases."
@@ -284,15 +338,58 @@ def analyze(path: Path) -> dict[str, object]:
     text = path.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     legacy_profiles = parse_records(lines, PROFILE_MARKER)
+    fps_profiles_all = parse_records(lines, FPS_PROFILE_MARKER)
+    fps_profiles = [
+        record
+        for record in fps_profiles_all
+        if isinstance(record.get("sample"), (int, float))
+        and int(record["sample"]) > 1
+    ]
     aligned_profiles = parse_records(lines, ALIGNED_PROFILE_MARKER)
     profiles = aligned_profiles or legacy_profiles
     profile_kind = "aligned" if aligned_profiles else ("legacy" if legacy_profiles else "none")
     heartbeats = parse_records(lines, HEARTBEAT_MARKER)
+    texture_stage_cache = parse_records(lines, TEXTURE_STAGE_CACHE_MARKER)
+    vertex_shader_cache = parse_records(lines, VERTEX_SHADER_CACHE_MARKER)
+    stream_source_cache = parse_records(lines, STREAM_SOURCE_CACHE_MARKER)
+    mdr_palette_cache = parse_records(lines, MDR_PALETTE_CACHE_MARKER)
     settled_profiles, settled_selection = settled_profile_records(profiles)
-    profile_fps = numeric_series(settled_profiles, "fps")
+    profile_fps = numeric_series(fps_profiles, "fps")
+    fps_source = "dedicated-fps-ring" if profile_fps else "none"
+    if not profile_fps:
+        profile_fps = numeric_series(settled_profiles, "fps")
+        if profile_fps:
+            fps_source = "profile"
+    if not profile_fps and aligned_profiles and legacy_profiles:
+        # Production logs can retain detailed end-of-frame samples separately
+        # from the periodic frame/FPS record. Match their monotonically
+        # increasing sample IDs so the loading-only sample 0 is not folded
+        # into settled gameplay FPS.
+        settled_sample_ids = {
+            int(record["sample"])
+            for record in settled_profiles
+            if isinstance(record.get("sample"), (int, float))
+        }
+        paired_fps_profiles = [
+            record
+            for record in legacy_profiles
+            if isinstance(record.get("sample"), (int, float))
+            and int(record["sample"]) in settled_sample_ids
+            and isinstance(record.get("total"), (int, float))
+            and float(record["total"]) < 1000.0
+        ]
+        profile_fps = numeric_series(paired_fps_profiles, "fps")
+        if profile_fps:
+            fps_source = "sample-paired-profile"
     heartbeat_fps = numeric_series(heartbeats, "fps")
     fps = profile_fps or heartbeat_fps
-    totals = numeric_series(settled_profiles, "total") or list_index_series(heartbeats, "perf", 0)
+    if not profile_fps and heartbeat_fps:
+        fps_source = "heartbeat"
+    totals = (
+        numeric_series(fps_profiles, "total")
+        or numeric_series(settled_profiles, "total")
+        or list_index_series(heartbeats, "perf", 0)
+    )
     raw_profile_fps = numeric_series(profiles, "fps")
     raw_profile_totals = numeric_series(profiles, "total")
 
@@ -301,7 +398,7 @@ def analyze(path: Path) -> dict[str, object]:
         "server", "client", "game", "frontend", "backend", "audio", "screen",
         "endFrame", "finish", "present"
     ):
-        values = numeric_series(settled_profiles, key)
+        values = numeric_series(fps_profiles, key) or numeric_series(settled_profiles, key)
         if values:
             phases[key] = summarize_series(values)
     for tuple_key, names in (
@@ -456,7 +553,9 @@ def analyze(path: Path) -> dict[str, object]:
         "settledProfileSamples": len(settled_profiles),
         "settledSelection": settled_selection,
         "heartbeatSamples": len(heartbeats),
-        "fpsSource": "profile" if profile_fps else ("heartbeat" if heartbeat_fps else "none"),
+        "fpsProfileSamples": len(fps_profiles),
+        "fpsProfileSamplesIncludingStartup": len(fps_profiles_all),
+        "fpsSource": fps_source,
         "fps": summarize_series(fps),
         "frameTimeMsec": summarize_series(totals),
         "rawProfileFps": summarize_series(raw_profile_fps),
@@ -468,9 +567,15 @@ def analyze(path: Path) -> dict[str, object]:
         "normalizedCosts": normalized_costs,
         "diagnosis": dominant_phase_diagnosis(phases, cycle_phases),
         "frameProgress": frame_progress(
-            profiles if any("frame" in record for record in profiles) else heartbeats
+            fps_profiles if fps_profiles else
+            (profiles if any("frame" in record for record in profiles) else heartbeats)
         ),
-        "memory": memory_summary(heartbeats),
+        "memory": memory_summary(fps_profiles or heartbeats),
+        "topology": topology_summary(fps_profiles),
+        "textureStageCache": state_cache_summary(texture_stage_cache),
+        "vertexShaderCache": state_cache_summary(vertex_shader_cache),
+        "streamSourceCache": state_cache_summary(stream_source_cache),
+        "mdrPaletteCache": state_cache_summary(mdr_palette_cache),
         "skinTextureSwap": {
             key: cumulative_summary(settled_profiles, key)
             for key in ("skinSwap", "skinFetch", "skinWait", "skinWriteKB", "skinReadKB")
@@ -545,7 +650,7 @@ def print_summary(result: dict[str, object], title: str | None = None) -> None:
     print(f"Log: {result['path']}")
     print(
         f"Samples: profile={result['profileSamples']} ({result['profileKind']}) "
-        f"heartbeat={result['heartbeatSamples']} "
+        f"fpsProfile={result['fpsProfileSamples']} heartbeat={result['heartbeatSamples']} "
         f"fpsSource={result['fpsSource']}"
     )
     if result["profileSamples"]:
@@ -576,6 +681,30 @@ def print_summary(result: dict[str, object], title: str | None = None) -> None:
             f"(delta {memory['usedDelta']}), peak={memory['usedPeak']}, "
             f"min free={memory['freeMinimum']}, min largest={memory['largestFreeMinimum']}"
         )
+    topology = result["topology"]
+    if topology["samples"]:
+        print(
+            f"Topology: players={topology.get('players', 'unknown')} "
+            f"humans={topology.get('humans', 'unknown')} bots={topology.get('bots', 'unknown')} "
+            f"source={topology.get('source', 'unknown')} "
+            f"virtual={topology.get('virtual', 'unknown')} "
+            f"balanced={topology.get('accountingBalanced', 'unknown')}"
+        )
+    for label, key in (
+        ("Texture-stage cache", "textureStageCache"),
+        ("Vertex-shader/FVF cache", "vertexShaderCache"),
+        ("Stream-source cache", "streamSourceCache"),
+        ("MDR bone-palette cache", "mdrPaletteCache"),
+    ):
+        cache = result[key]
+        if cache["samples"]:
+            print(
+                f"{label}: samples={cache['samples']} latestSample={cache.get('sample', 'unknown')} "
+                f"players={cache.get('players', 'unknown')} requests={cache.get('requests', 'unknown')} "
+                f"emitted={cache.get('emitted', 'unknown')} skipped={cache.get('skipped', 'unknown')} "
+                f"skipPct={cache.get('skipPct', 'unknown')} "
+                f"balanced={cache.get('accountingBalanced', 'unknown')}"
+            )
     skin_texture_swap = result["skinTextureSwap"]
     populated_swap_counters = {
         key: value for key, value in skin_texture_swap.items() if value["samples"]
@@ -706,7 +835,9 @@ def main() -> int:
         if comparison is not None:
             print()
             print_comparison(comparison)
-    return 0 if result["profileSamples"] or result["heartbeatSamples"] else 2
+    return 0 if (
+        result["profileSamples"] or result["fpsProfileSamples"] or result["heartbeatSamples"]
+    ) else 2
 
 
 if __name__ == "__main__":

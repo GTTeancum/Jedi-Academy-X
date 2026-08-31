@@ -5,6 +5,10 @@
 #include "retail_renderer_contract.h"
 #include "../../win32/xb_perf.h"
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBClTailStage;
+#endif
+
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 extern "C" volatile unsigned int g_SPXBRenderCommandHighWater;
 extern "C" volatile unsigned int g_SPXBRenderCommandDrops;
@@ -517,6 +521,9 @@ Returns the number of msec spent in the back end
 */
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x45463030; /* 'EF00' */
+#endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	int xboxPresentStart = 0;
 #endif
@@ -531,18 +538,22 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	cmd->commandId = RC_SWAP_BUFFERS;
 
 #ifdef _XBOX
+	g_SPXBClTailStage = 0x45463031; /* 'EF01' */
 	if (!qglBeginFrame()) return;
+	g_SPXBClTailStage = 0x45463032; /* 'EF02' */
 #endif
 
 	R_IssueRenderCommands( qtrue );
 
 #ifdef _XBOX
+	g_SPXBClTailStage = 0x45463033; /* 'EF03' */
 	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (g_SPXBPerfSampleActive) {
 		xboxPresentStart = Sys_Milliseconds();
 	}
 	#endif
 	qglEndFrame();
+	g_SPXBClTailStage = 0x45463034; /* 'EF04' */
 	#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (g_SPXBPerfSampleActive) {
 		g_SPXBPerfPresentMsec += (unsigned int)(Sys_Milliseconds() - xboxPresentStart);
@@ -553,6 +564,9 @@ void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	// use the other buffers next frame, because another CPU
 	// may still be rendering into the current ones
 	R_ToggleSmpFrame();
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x45463035; /* 'EF05' */
+#endif
 
 	if ( frontEndMsec ) {
 		*frontEndMsec = tr.frontEndMsec;

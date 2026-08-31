@@ -44,6 +44,8 @@ extern "C" volatile unsigned int g_SPXBFileAllocPathHash;
 extern "C" volatile unsigned int g_SPXBFileAllocPathPtr;
 extern "C" volatile unsigned int g_SPXBFileAllocLength;
 extern "C" volatile unsigned int g_SPXBFileAllocTag;
+extern "C" volatile unsigned int g_SPXBFSWholeCloseStage;
+extern "C" volatile unsigned int g_SPXBFSWholeCloseHandle;
 #define STEFX_FS_MODEL_PHASE(stage) \
 	( g_SPXBPhaseLast = 0xF0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
 		( g_SPXBPhaseLast & 0xffffu ) )
@@ -114,8 +116,7 @@ static qboolean STEFX_IsCriticalWholeFileRead(const char *filename)
 		STEFX_IsBoltOnsCfg(filename) ||
 		STEFX_IsMapBSP(filename) ||
 		(ext && !Q_stricmp(ext, ".dat") &&
-		 ((strstr(filename, "ext_data/items") || strstr(filename, "ext_data\\items")) ||
-		  (strstr(filename, "ext_data/weapons") || strstr(filename, "ext_data\\weapons")))) ||
+			 (strstr(filename, "ext_data/") || strstr(filename, "ext_data\\"))) ||
 		(ext && !Q_stricmp(ext, ".cfg") &&
 		 (strstr(filename, "ext_data/NPCs") || strstr(filename, "ext_data\\NPCs"))) ||
 		(ext && !Q_stricmp(ext, ".npc") &&
@@ -264,7 +265,11 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 	allocSize = len + 1 + sizeof(stefxHeapFileHeader_t) + 31;
 	STEFX_FS_MODEL_PHASE( 0x5A );
 	base = NULL;
-	if (tag == TAG_BSP)
+	// Large map and model images outlive this read when the renderer adopts the
+	// buffer.  The Xbox process heap can become too fragmented for the next MDR
+	// even though enough page-backed memory remains, so use the same VirtualAlloc
+	// path for both persistent asset classes before falling back to HeapAlloc.
+	if (tag == TAG_BSP || tag == TAG_MODEL_MD3)
 	{
 		g_SPXBFileAllocStage = 0x11;
 		base = (byte *)VirtualAlloc(NULL, allocSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -314,11 +319,54 @@ static byte *STEFX_AllocHeapFileBuffer(int len, const char *qpath)
 	if (s_heapFileLogBudget > 0 &&
 		(len >= (256 * 1024) || tag == TAG_MODEL_MD3 || tag == TAG_BSP || STEFX_ShouldTraceAssetOpen(qpath)))
 	{
-		XBLog_Write(va("STEFX: FS whole-file heap alloc file='%s' len=%d tag=%d bytes=%d payload=%p",
-			qpath ? qpath : "(null)", len, (int)tag, allocSize, payload));
+		XBLog_Write(va("STEFX: FS whole-file alloc file='%s' len=%d tag=%d bytes=%d allocator=%d payload=%p",
+			qpath ? qpath : "(null)", len, (int)tag, allocSize, allocator, payload));
 		--s_heapFileLogBudget;
 	}
 
+	return payload;
+}
+
+// Large full-quality dialogue WAVs need a contiguous temporary read buffer.
+// Keeping that buffer out of the fixed zone leaves the zone available as the
+// last-resort home for late MDR files when the Xbox page/heap allocators are
+// already tight.  The normal heap-file header lets every existing owner test
+// and release this allocation without a parallel tracking table.
+void *FS_STEFX_AllocExternalSoundBuffer(int len)
+{
+	byte *base;
+	byte *payload;
+	stefxHeapFileHeader_t *header;
+	unsigned int payloadAddress;
+	const int allocSize = len + sizeof(stefxHeapFileHeader_t) + 31;
+	int allocator = STEFX_FILE_ALLOC_VIRTUAL;
+
+	if (len <= 0)
+	{
+		return NULL;
+	}
+
+	base = (byte *)VirtualAlloc(NULL, allocSize,
+		MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (!base)
+	{
+		allocator = STEFX_FILE_ALLOC_HEAP;
+		base = (byte *)HeapAlloc(GetProcessHeap(), 0, allocSize);
+	}
+	if (!base)
+	{
+		XBLog_Write(va("STEFX_AUDIO_CACHE: external allocation failed bytes=%d", len));
+		return NULL;
+	}
+
+	payloadAddress = ((unsigned int)(base + sizeof(stefxHeapFileHeader_t) + 31)) & ~31u;
+	payload = (byte *)payloadAddress;
+	header = ((stefxHeapFileHeader_t *)payload) - 1;
+	header->magic = STEFX_HEAP_FILE_MAGIC;
+	header->base = base;
+	header->len = len;
+	header->allocSize = allocSize;
+	header->allocator = allocator;
 	return payload;
 }
 
@@ -820,17 +868,29 @@ void FS_FCloseFile( fileHandle_t f )
 	FS_CheckUsed(f);
 
 #if defined(STEFX_ELITE_FORCE_SP)
+	const qboolean traceWholeClose =
+		(g_SPXBFSWholeCloseStage == 0x46534301u && g_SPXBFSWholeCloseHandle == (unsigned int)f) ? qtrue : qfalse;
+	if (traceWholeClose)
+	{
+		g_SPXBFSWholeCloseStage = 0x46534302u; /* FSC2: close entered */
+	}
 	if (fsh[f].zipFile)
 	{
+		if (traceWholeClose) g_SPXBFSWholeCloseStage = 0x46534303u; /* FSC3: current zip member close */
 		unzCloseCurrentFile(fsh[f].handleFiles.file.z);
+		if (traceWholeClose) g_SPXBFSWholeCloseStage = 0x46534304u; /* FSC4: zip member closed */
 		unzClose(fsh[f].handleFiles.file.z);
+		if (traceWholeClose) g_SPXBFSWholeCloseStage = 0x46534305u; /* FSC5: zip container closed */
 	}
 	else
 	{
+		if (traceWholeClose) g_SPXBFSWholeCloseStage = 0x46534306u; /* FSC6: loose handle close */
 		WF_Close(fsh[f].whandle);
+		if (traceWholeClose) g_SPXBFSWholeCloseStage = 0x46534307u; /* FSC7: loose handle closed */
 	}
 
 	memset(&fsh[f], 0, sizeof(fsh[f]));
+	if (traceWholeClose) g_SPXBFSWholeCloseStage = 0x46534308u; /* FSC8: slot cleared */
 #else
 	if (fsh[f].gob)
 		GOBClose(fsh[f].ghandle);
@@ -2241,9 +2301,12 @@ int FS_ReadFile( const char *qpath, void **buffer )
 	buf[len] = 0;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	g_SPXBFileAllocStage = 7;
+	g_SPXBFSWholeCloseHandle = (unsigned int)h;
+	g_SPXBFSWholeCloseStage = 0x46534301u; /* FSC1: whole-file close requested */
 #endif
 	FS_FCloseFile( h );
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	g_SPXBFSWholeCloseStage = 0x46534309u; /* FSC9: whole-file close returned */
 	g_SPXBFileAllocStage = 8;
 	if (traceShaderRead)
 	{

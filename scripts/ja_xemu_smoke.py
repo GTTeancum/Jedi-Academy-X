@@ -97,10 +97,10 @@ white = 30
 black = 31
 ltrigger = 26
 rtrigger = 22
-dpad_left = 22
-dpad_right = 9
-dpad_up = 8
-dpad_down = 7
+dpad_left = 80
+dpad_right = 79
+dpad_up = 82
+dpad_down = 81
 lstick_left = 22
 lstick_right = 9
 lstick_up = 8
@@ -139,9 +139,23 @@ def send_window_key(pid, key, hold=0.18):
         return False, "host window keys require Windows"
 
     key_map = {
+        "a": (0x41, 0x1E),
+        "b": (0x42, 0x30),
+        "d": (0x44, 0x20),
+        "e": (0x45, 0x12),
+        "f": (0x46, 0x21),
+        "s": (0x53, 0x1F),
+        "w": (0x57, 0x11),
+        "x": (0x58, 0x2D),
+        "y": (0x59, 0x15),
+        "left": (0x25, 0x4B),
+        "up": (0x26, 0x48),
+        "right": (0x27, 0x4D),
+        "down": (0x28, 0x50),
         "ret": (0x0D, 0x1C),
         "enter": (0x0D, 0x1C),
         "backspace": (0x08, 0x0E),
+        "f12": (0x7B, 0x58),
     }
     mapping = key_map.get(key.lower())
     if mapping is None:
@@ -167,6 +181,8 @@ def send_window_key(pid, key, hold=0.18):
     hwnd = windows[0]
     vk, scan = mapping
     key_down = 1 | (scan << 16)
+    if key.lower() in ("left", "up", "right", "down"):
+        key_down |= (1 << 24)
     key_up = key_down | (1 << 30) | (1 << 31)
     if not user32.PostMessageW(hwnd, 0x0100, vk, key_down):
         return False, "WM_KEYDOWN failed: %d" % ctypes.get_last_error()
@@ -1100,7 +1116,19 @@ def extract_xblog_profiles_from_physical_memory(sock, prefix, log):
     scratch_path = os.path.abspath("%s_final_guest_ram.tmp" % prefix)
     output_path = os.path.abspath("%s_xblog_profiles.log" % prefix)
     monitor_path = scratch_path.replace("\\", "/")
-    markers = (b"STEFX_HW_FRAME_PROFILE:", b"STEFX_HW_RENDER_SAMPLE:")
+    markers = (
+        b"STEFX_HW_FRAME_PROFILE:",
+        b"STEFX_HW_FPS_SAMPLE:",
+        b"STEFX_HW_RENDER_SAMPLE:",
+        b"STEFX_HW_STAGE_CACHE:",
+        b"STEFX_HW_VERTEX_SHADER_CACHE:",
+        b"STEFX_HW_STREAM_SOURCE_CACHE:",
+        b"STEFX_HW_MDR_PALETTE_CACHE:",
+        b"STEFX_HW_SHADER_COST:",
+        b"STEFX_HW_SHADER_COST_TOTAL:",
+        b"STEFX_HW_SHADER_PRESSURE:",
+        b"STEFX_HW_SHADER_PRESSURE_TOTAL:",
+    )
     records = []
     try:
         reply = monitor_cmd(
@@ -1134,15 +1162,54 @@ def extract_xblog_profiles_from_physical_memory(sock, prefix, log):
             # The executable also contains the printf format string. Accept
             # only populated runtime records from the XBLog mirror/last-line.
             is_frame_profile = line.startswith("STEFX_HW_FRAME_PROFILE:")
+            is_fps_sample = line.startswith("STEFX_HW_FPS_SAMPLE:")
             is_render_sample = line.startswith("STEFX_HW_RENDER_SAMPLE:")
+            is_stage_cache = line.startswith("STEFX_HW_STAGE_CACHE:")
+            is_vertex_shader_cache = line.startswith("STEFX_HW_VERTEX_SHADER_CACHE:")
+            is_stream_source_cache = line.startswith("STEFX_HW_STREAM_SOURCE_CACHE:")
+            is_mdr_palette_cache = line.startswith("STEFX_HW_MDR_PALETTE_CACHE:")
+            is_shader_cost = line.startswith("STEFX_HW_SHADER_COST:")
+            is_shader_total = line.startswith("STEFX_HW_SHADER_COST_TOTAL:")
+            is_shader_pressure = line.startswith("STEFX_HW_SHADER_PRESSURE:")
+            is_shader_pressure_total = line.startswith(
+                "STEFX_HW_SHADER_PRESSURE_TOTAL:")
             if is_frame_profile:
                 if not re.search(r"\bframe=\d+\b", line):
                     continue
                 if not re.search(r"\bfps=\d+\.\d+\b", line):
                     continue
+            elif is_fps_sample:
+                if not re.search(
+                        r"\bsample=\d+\b.*\bframe=\d+\b.*"
+                        r"\bfps=\d+\.\d+\b.*\bplayers=\d+"
+                        r"(?:\s+humans=\d+\s+bots=\d+\s+source=[^\s]*"
+                        r"\s+virtual=\d+/\d+)?$", line):
+                    continue
+            elif is_shader_cost or is_shader_pressure:
+                if not re.search(
+                        r"\brank=\d+\b.*\bshader=\d+\b.*\bcycles=\d+\b.*"
+                        r"\bentity=\d+$", line):
+                    continue
+            elif is_shader_total:
+                if not re.search(
+                        r"\bshaders=\d+\b.*\bcycles=\d+\b.*\bindexes=\d+$",
+                        line):
+                    continue
+            elif is_shader_pressure_total:
+                if not re.search(
+                        r"\bshaders=\d+\b.*\bpasses=\d+\b.*\bentity=\d+$",
+                        line):
+                    continue
+            elif (is_stage_cache or is_vertex_shader_cache or
+                    is_stream_source_cache or is_mdr_palette_cache):
+                if not re.search(
+                        r"\brequests=\d+\b.*\bemitted=\d+\b.*"
+                        r"\bskipped=\d+\b.*\bskipPct=\d+\b", line):
+                    continue
             elif not is_render_sample:
                 continue
-            if " total=" not in line or " backend=" not in line:
+            if ((is_frame_profile or is_render_sample) and
+                    (" total=" not in line or " backend=" not in line)):
                 continue
             # Stack/log scratch can retain a valid prefix after the source
             # buffer is reused.  The dedicated profile ring always contains
@@ -1151,7 +1218,8 @@ def extract_xblog_profiles_from_physical_memory(sock, prefix, log):
                     not re.search(r"\bskinTexCapKB=\d+$", line)):
                 continue
             if (is_render_sample and
-                    not re.search(r"\breserveDwords=\d+/\d+$", line)):
+                    not re.search(
+                        r"\breserveDwords=\d+/\d+$", line)):
                 continue
             if line not in seen:
                 seen.add(line)
@@ -1159,7 +1227,16 @@ def extract_xblog_profiles_from_physical_memory(sock, prefix, log):
 
         records.sort(key=lambda line: (
             int(re.search(r"\bsample=(\d+)\b", line).group(1)),
-            0 if line.startswith("STEFX_HW_FRAME_PROFILE:") else 1))
+            0 if line.startswith("STEFX_HW_FRAME_PROFILE:") else
+            1 if line.startswith("STEFX_HW_FPS_SAMPLE:") else
+            2 if line.startswith("STEFX_HW_RENDER_SAMPLE:") else
+            3 if line.startswith("STEFX_HW_STAGE_CACHE:") else
+            4 if line.startswith("STEFX_HW_VERTEX_SHADER_CACHE:") else
+            5 if line.startswith("STEFX_HW_STREAM_SOURCE_CACHE:") else
+            6 if line.startswith("STEFX_HW_MDR_PALETTE_CACHE:") else
+            7 if line.startswith("STEFX_HW_SHADER_COST:") else
+            8 if line.startswith("STEFX_HW_SHADER_PRESSURE:") else
+            9 if line.startswith("STEFX_HW_SHADER_COST_TOTAL:") else 10))
         if records:
             with open(output_path, "w", encoding="ascii", errors="replace") as f:
                 f.write("\n".join(records) + "\n")
@@ -1268,6 +1345,8 @@ def main():
     parser.add_argument("--interval", type=int, default=5)
     parser.add_argument("--first-shot-delay", type=float, default=0.0,
                         help="Seconds to wait before the first framebuffer capture.")
+    parser.add_argument("--max-screenshots", type=int, default=0,
+                        help="Maximum framebuffer captures; zero keeps interval capture unlimited.")
     parser.add_argument("--hdd", default=r"C:\Games\Emulators\Xemu\HDD\xbox_hdd.qcow2")
     parser.add_argument("--xemu-exe", default=XEMU_JA,
                         help="Xemu executable to launch. Defaults to the JA-isolated copy.")
@@ -1501,6 +1580,7 @@ def main():
         log("process_affinity_warning=%s" % exc)
     monitor_key_events = parse_key_schedule(args.monitor_keys)
     shot_paths = []
+    extracted_profile_records = []
     active_fps_samples = []
     gameplay_fps_samples = []
     personality_active_fps_samples = {}
@@ -1587,7 +1667,7 @@ def main():
                 else:
                     log("xblog_symbol=_g_XBLogMirrorPos unresolved")
     next_xblog_poll = max(0.0, args.poll_xblog_start_delay)
-    next_xblog_probe = 0.0
+    next_xblog_probe = max(0.0, args.poll_xblog_start_delay)
     last_xblog_write_count = None
     texture_allocator_symbol = "?gStaticTextures@@3VStaticTextureAllocator@@A"
     texture_allocator_map = (
@@ -1806,12 +1886,62 @@ def main():
         "_g_SPXBHMGetUsercmdButtons",
         "_g_SPXBHMClientThinkCount",
         "_g_SPXBClTailStage",
+        "_g_SPXBRenderListStage",
+        "_g_SPXBRenderListIndex",
+        "_g_SPXBRenderListCount",
+        "_g_SPXBRenderListSurfaceType",
+        "_g_SPXBRenderListSort",
+        "_g_SPXBRenderListShader",
+        "_g_SPXBRenderListEntity",
+        "_g_SPXBRenderListTessVerts",
+        "_g_SPXBRenderListTessIndexes",
+        "_g_SPXBEndSurfaceStage",
+        "_g_SPXBEndSurfaceShader",
+        "_g_SPXBEndSurfaceShaderIndex",
+        "_g_SPXBEndSurfaceIterator",
+        "_g_SPXBEndSurfacePasses",
+        "_g_SPXBEndSurfaceVerts",
+        "_g_SPXBEndSurfaceIndexes",
+        "_g_SPXBEndSurfaceFog",
+        "_g_SPXBNativeSubmitStage",
+        "_g_SPXBNativeSubmitCount",
+        "_g_SPXBNativeSubmitVerts",
+        "_g_SPXBNativeSubmitState",
+        "_g_SPXBNativeSubmitStreams",
+        "_g_SPXBNativeSubmitReserve",
+        "_g_SPXBNativeSubmitSerial",
         "_g_SPXBCGameEntryCurrent",
         "_g_SPXBCGameEntryExpected",
         "_g_SPXBComTailStage",
         "_g_SPXBComFrameDepth",
         "_g_SPXBComCatchCount",
         "_g_SPXBMainTailStage",
+        "_g_SPXBCinPhase",
+        "_g_SPXBCinHandle",
+        "_g_SPXBCinStatus",
+        "_g_SPXBCinLoopCount",
+        "_g_SPXBCinBinkFrame",
+        "_g_SPXBCinRawStage",
+        "_g_SPXBCinRawFrames",
+        "_g_SPXBCinRawSourceSize",
+        "_g_SPXBCinRawUploadSize",
+        "_g_SPXBCinRawFirstPixel",
+        "_g_SPXBCinCopySkipped",
+        "_g_SPXBCinRawSampleHash",
+        "_g_SPXBCinRawSampleNonZero",
+        "_g_SPXBCinOverlayStage",
+        "_g_SPXBCinOverlayFrames",
+        "_g_SPXBCinOverlayResult",
+        "_g_SPXBAudioUpdateStage",
+        "_g_SPXBAudioUpdateSerial",
+        "_g_SPXBAudioLoadStage",
+        "_g_SPXBAudioLoadIndex",
+        "_g_SPXBAudioLoadHandle",
+        "_g_SPXBQALStreamStage",
+        "_g_SPXBFakeGLSwapStage",
+        "_g_SPXBFakeGLSwapFrame",
+        "_g_SPXBFakeGLEndSceneResult",
+        "_g_SPXBFakeGLPresentResult",
         "_g_SPXBComSubphase",
         "_g_SPXBComSpinCount",
         "_g_SPXBComMsec",
@@ -1853,6 +1983,29 @@ def main():
         "_g_SPXBHMAudioLastEntChan",
         "_g_SPXBHMAudioLastHandle",
         "_g_SPXBHMAudioListenerUpdateMask",
+        "_g_SPXBAudioFaceUpdateCount",
+        "_g_SPXBAudioFaceLipDataUpdateCount",
+        "_g_SPXBAudioFaceFallbackUpdateCount",
+        "_g_SPXBAudioFaceLastEntity",
+        "_g_SPXBAudioFaceLastVolume",
+        "_g_SPXBAudioFaceRenderCount",
+        "_g_SPXBAudioFaceRenderLastEntity",
+        "_g_SPXBAudioFaceRenderLastClient",
+        "_g_SPXBAudioFaceRenderLastVolume",
+        "_g_SPXBAudioFaceRenderLastSkin",
+        "_g_SPXBAudioFaceRenderLastExtensions",
+        "_g_SPXBAudioVoiceRequestCount",
+        "_g_SPXBAudioVoiceQueuedLoadCount",
+        "_g_SPXBAudioVoicePlaySuccessCount",
+        "_g_SPXBAudioVoicePlayFailureCount",
+        "_g_SPXBAudioVoiceLoadRetryCount",
+        "_g_SPXBAudioVoiceLoadRetrySuccessCount",
+        "_g_SPXBAudioVoiceLoadedWakeCount",
+        "_g_SPXBAudioVoiceEarlyStopCount",
+        "_g_SPXBAudioVoiceLastRequestCode",
+        "_g_SPXBAudioVoiceLastPlayCode",
+        "_g_SPXBAudioVoiceLastStopCode",
+        "_g_SPXBAudioVoiceLastStopAge",
         "_g_SPXBPerfServerTicks",
         "_g_SPXBPerfServerLastGameMsec",
         "_g_SPXBPerfServerMaxGameMsec",
@@ -1883,6 +2036,23 @@ def main():
         "_g_SPXBPerfRenderDrawSurfs",
         "_g_SPXBPerfRenderRefEntities",
         "_g_SPXBPerfRenderLeafs",
+        "_g_SPXBPerfEntityModelSetupCycles",
+        "_g_SPXBPerfEntityModelSetupCalls",
+        "_g_SPXBPerfEntityMeshCycles",
+        "_g_SPXBPerfEntityMeshCalls",
+        "_g_SPXBPerfEntityBrushCycles",
+        "_g_SPXBPerfEntityBrushCalls",
+        "_g_SPXBPerfEntityAnimCycles",
+        "_g_SPXBPerfEntityAnimCalls",
+        "_g_SPXBPerfEntitySimpleCycles",
+        "_g_SPXBPerfEntitySimpleCalls",
+        "_g_SPXBPerfReuseCandidatesCurrent",
+        "_g_SPXBPerfReuseCandidateDwordsCurrent",
+        "_g_SPXBPerfReuseUniqueCurrent",
+        "_g_SPXBPerfReuseCrossViewHitsCurrent",
+        "_g_SPXBPerfReuseCrossViewDwordsCurrent",
+        "_g_SPXBPerfReuseTableFullCurrent",
+        "_g_SPXBPerfReuseHashCyclesCurrent",
         "_g_SPXBPerfBackendSurfaces",
         "_g_SPXBPerfBackendVertexes",
         "_g_SPXBPerfBackendIndexes",
@@ -2002,7 +2172,9 @@ def main():
         "_g_SPXBHeartbeatMemLargest",
         "_g_SPXBHeartbeatMemBlocks",
         "_g_SPXBHMSplitProofMagic",
+        "_g_SPXBHMPvsProbe",
         "_g_SPXBHMSplitLaunch",
+        "_g_SPXBHMPlayerSetupProof",
         "_g_SPXBHMSplitBotProof",
         "_g_SPXBHMSplitStateSerial",
         "_g_SPXBHMSplitStatePlayers",
@@ -2070,7 +2242,25 @@ def main():
         "_g_SPXBHMSplitHudStatusRectY",
         "_g_SPXBHMSplitHudStatusRectW",
         "_g_SPXBHMSplitHudStatusRectH",
+        "_g_SPXBHMSplitOverlaySerial",
+        "_g_SPXBHMSplitOverlayFlags",
+        "_g_SPXBHMSplitOverlayFovX100",
+        "_g_SPXBHMSplitOverlayPickupItem",
+        "_g_SPXBHMSplitOverlayRewardType",
+        "_g_SPXBHMSplitOverlayAttacker",
+        "_g_SPXBHMSplitOverlayNaturalPickup",
+        "_g_SPXBHMSplitOverlayNaturalReward",
+        "_g_SPXBHMSplitOverlayNaturalAttacker",
         "_g_SPXBHMSplitHudDividerSerial",
+        "_g_SPXBHMSplitHudPlayers",
+        "_g_SPXBHMSplitHudDividerVerticalX",
+        "_g_SPXBHMSplitHudDividerVerticalY",
+        "_g_SPXBHMSplitHudDividerVerticalW",
+        "_g_SPXBHMSplitHudDividerVerticalH",
+        "_g_SPXBHMSplitHudDividerHorizontalX",
+        "_g_SPXBHMSplitHudDividerHorizontalY",
+        "_g_SPXBHMSplitHudDividerHorizontalW",
+        "_g_SPXBHMSplitHudDividerHorizontalH",
         "_g_SPXBHMSplitFPFilterMask",
         "_g_SPXBHMSplitSelfFilterMask",
         "_g_SPXBHMSplitSelfFilterRefNumber",
@@ -2161,6 +2351,16 @@ def main():
         "_g_SPXBViewWeaponP2RendererFiltered",
         "_g_SPXBViewWeaponP1LastSkip",
         "_g_SPXBViewWeaponP2LastSkip",
+        "_g_SPXBGameWeaponFireStage",
+        "_g_SPXBGameWeaponFireEntity",
+        "_g_SPXBGameWeaponFireWeaponAlt",
+        "_g_SPXBPlayerPrimaryFireCompletions",
+        "_g_SPXBPlayerAltFireCompletions",
+        "_g_SPXBCGameWeaponFireStage",
+        "_g_SPXBCGameWeaponFireEntity",
+        "_g_SPXBCGameWeaponFireWeaponAlt",
+        "_g_SPXBCGamePlayerPrimaryFireCompletions",
+        "_g_SPXBCGamePlayerAltFireCompletions",
         "_g_SPXBWeaponRegWeapon",
         "_g_SPXBWeaponRegPathHash",
         "_g_SPXBWeaponRegViewModel",
@@ -2371,7 +2571,8 @@ def main():
         if not args.no_monitor:
             sock = monitor_connect(args.port)
             log("monitor=ready port=%d" % args.port)
-            if args.poll_xblog and xblog_va_for_probe is not None:
+            if (args.poll_xblog and xblog_va_for_probe is not None and
+                    args.poll_xblog_start_delay <= 0.0):
                 if xblog_cmd == "x":
                     probed_addr = probe_xblog_virtual_addr(
                         sock, xblog_va_for_probe, log)
@@ -2391,6 +2592,14 @@ def main():
                     # polling the preferred address forever.
                     xblog_addr = None
                     next_xblog_probe = max(1.0, float(args.interval))
+            elif (args.poll_xblog and xblog_va_for_probe is not None and
+                    args.poll_xblog_start_delay > 0.0):
+                # A delayed poll must also delay the physical-address search.
+                # The search issues multiple monitor memory reads and can
+                # perturb title boot/loading just like a normal telemetry poll.
+                xblog_addr = None
+                log("xblog_probe_deferred until=%.1f" %
+                    args.poll_xblog_start_delay)
         else:
             log("monitor=disabled")
         start = time.time()
@@ -2693,22 +2902,37 @@ def main():
                             "_g_SPXBHMSplitProofMagic",
                             "_g_SPXBHMSplitRenderArmedPlayers",
                             "_g_SPXBHMSplitHudDividerSerial",
+                            "_g_SPXBHMSplitHudPlayers",
+                            "_g_SPXBHMSplitHudDividerVerticalX",
+                            "_g_SPXBHMSplitHudDividerVerticalY",
+                            "_g_SPXBHMSplitHudDividerVerticalW",
+                            "_g_SPXBHMSplitHudDividerVerticalH",
+                            "_g_SPXBHMSplitHudDividerHorizontalX",
+                            "_g_SPXBHMSplitHudDividerHorizontalY",
+                            "_g_SPXBHMSplitHudDividerHorizontalW",
+                            "_g_SPXBHMSplitHudDividerHorizontalH",
                             "_g_SPXBHMSplitFPFilterMask",
                             "_g_SPXBHMSplitSelfFilterMask",
                         ])
                         hm_split_aux_symbols = [
                             name for name in xblog_offsets
                             if (name.startswith("_g_SPXBHMSplit") or
-                                name.startswith("_g_SPXBHeartbeatMem"))
+                                name.startswith("_g_SPXBHMPlayer") or
+                                name.startswith("_g_SPXBHeartbeatMem") or
+                                name == "_g_SPXBHMPvsProbe")
                         ]
                         hm_split_extra_words = {}
                         for name in hm_split_aux_symbols:
                             if name == "_g_SPXBHMSplitLaunch":
                                 hm_split_extra_words[name] = 9
+                            elif name == "_g_SPXBHMPlayerSetupProof":
+                                hm_split_extra_words[name] = 40
                             elif name == "_g_SPXBHMSplitBotProof":
                                 hm_split_extra_words[name] = 32
                             elif name == "_g_SPXBHMSplitCollision":
                                 hm_split_extra_words[name] = 48
+                            elif name == "_g_SPXBHMPvsProbe":
+                                hm_split_extra_words[name] = 66
                             elif (name.startswith("_g_SPXBHMSplit") and
                                   name not in hm_split_single_symbols):
                                 hm_split_extra_words[name] = 4
@@ -3062,12 +3286,62 @@ def main():
                         hm_getcmd_buttons = word_for("_g_SPXBHMGetUsercmdButtons")
                         hm_think_count = word_for("_g_SPXBHMClientThinkCount")
                         cl_tail_stage = word_for("_g_SPXBClTailStage")
+                        render_list_stage = word_for("_g_SPXBRenderListStage")
+                        render_list_index = word_for("_g_SPXBRenderListIndex")
+                        render_list_count = word_for("_g_SPXBRenderListCount")
+                        render_list_surface_type = word_for("_g_SPXBRenderListSurfaceType")
+                        render_list_sort = word_for("_g_SPXBRenderListSort")
+                        render_list_shader = word_for("_g_SPXBRenderListShader")
+                        render_list_entity = word_for("_g_SPXBRenderListEntity")
+                        render_list_tess_verts = word_for("_g_SPXBRenderListTessVerts")
+                        render_list_tess_indexes = word_for("_g_SPXBRenderListTessIndexes")
+                        end_surface_stage = word_for("_g_SPXBEndSurfaceStage")
+                        end_surface_shader = word_for("_g_SPXBEndSurfaceShader")
+                        end_surface_shader_index = word_for("_g_SPXBEndSurfaceShaderIndex")
+                        end_surface_iterator = word_for("_g_SPXBEndSurfaceIterator")
+                        end_surface_passes = word_for("_g_SPXBEndSurfacePasses")
+                        end_surface_verts = word_for("_g_SPXBEndSurfaceVerts")
+                        end_surface_indexes = word_for("_g_SPXBEndSurfaceIndexes")
+                        end_surface_fog = word_for("_g_SPXBEndSurfaceFog")
+                        native_submit_stage = word_for("_g_SPXBNativeSubmitStage")
+                        native_submit_count = word_for("_g_SPXBNativeSubmitCount")
+                        native_submit_verts = word_for("_g_SPXBNativeSubmitVerts")
+                        native_submit_state = word_for("_g_SPXBNativeSubmitState")
+                        native_submit_streams = word_for("_g_SPXBNativeSubmitStreams")
+                        native_submit_reserve = word_for("_g_SPXBNativeSubmitReserve")
+                        native_submit_serial = word_for("_g_SPXBNativeSubmitSerial")
                         cgame_entry_current = word_for("_g_SPXBCGameEntryCurrent")
                         cgame_entry_expected = word_for("_g_SPXBCGameEntryExpected")
                         com_tail_stage = word_for("_g_SPXBComTailStage")
                         com_frame_depth = word_for("_g_SPXBComFrameDepth")
                         com_catch_count = word_for("_g_SPXBComCatchCount")
                         main_tail_stage = word_for("_g_SPXBMainTailStage")
+                        cin_phase = word_for("_g_SPXBCinPhase")
+                        cin_handle = word_for("_g_SPXBCinHandle")
+                        cin_status = word_for("_g_SPXBCinStatus")
+                        cin_loop_count = word_for("_g_SPXBCinLoopCount")
+                        cin_bink_frame = word_for("_g_SPXBCinBinkFrame")
+                        cin_raw_stage = word_for("_g_SPXBCinRawStage")
+                        cin_raw_frames = word_for("_g_SPXBCinRawFrames")
+                        cin_raw_source_size = word_for("_g_SPXBCinRawSourceSize")
+                        cin_raw_upload_size = word_for("_g_SPXBCinRawUploadSize")
+                        cin_raw_first_pixel = word_for("_g_SPXBCinRawFirstPixel")
+                        cin_copy_skipped = word_for("_g_SPXBCinCopySkipped")
+                        cin_raw_sample_hash = word_for("_g_SPXBCinRawSampleHash")
+                        cin_raw_sample_nonzero = word_for("_g_SPXBCinRawSampleNonZero")
+                        cin_overlay_stage = word_for("_g_SPXBCinOverlayStage")
+                        cin_overlay_frames = word_for("_g_SPXBCinOverlayFrames")
+                        cin_overlay_result = word_for("_g_SPXBCinOverlayResult")
+                        audio_update_stage = word_for("_g_SPXBAudioUpdateStage")
+                        audio_update_serial = word_for("_g_SPXBAudioUpdateSerial")
+                        audio_load_stage = word_for("_g_SPXBAudioLoadStage")
+                        audio_load_index = word_for("_g_SPXBAudioLoadIndex")
+                        audio_load_handle = word_for("_g_SPXBAudioLoadHandle")
+                        qal_stream_stage = word_for("_g_SPXBQALStreamStage")
+                        fakegl_swap_stage = word_for("_g_SPXBFakeGLSwapStage")
+                        fakegl_swap_frame = word_for("_g_SPXBFakeGLSwapFrame")
+                        fakegl_endscene_result = word_for("_g_SPXBFakeGLEndSceneResult")
+                        fakegl_present_result = word_for("_g_SPXBFakeGLPresentResult")
                         com_subphase = word_for("_g_SPXBComSubphase")
                         com_spin_count = word_for("_g_SPXBComSpinCount")
                         com_msec = word_for("_g_SPXBComMsec")
@@ -3115,6 +3389,65 @@ def main():
                         hm_audio_last_handle = word_for("_g_SPXBHMAudioLastHandle")
                         hm_audio_listener_mask = word_for(
                             "_g_SPXBHMAudioListenerUpdateMask")
+                        audio_face_updates = word_for("_g_SPXBAudioFaceUpdateCount")
+                        audio_face_lip_updates = word_for(
+                            "_g_SPXBAudioFaceLipDataUpdateCount")
+                        audio_face_fallback_updates = word_for(
+                            "_g_SPXBAudioFaceFallbackUpdateCount")
+                        audio_face_last_entity = word_for(
+                            "_g_SPXBAudioFaceLastEntity")
+                        audio_face_last_volume = word_for(
+                            "_g_SPXBAudioFaceLastVolume")
+                        audio_face_render_count = word_for(
+                            "_g_SPXBAudioFaceRenderCount")
+                        audio_face_render_entity = word_for(
+                            "_g_SPXBAudioFaceRenderLastEntity")
+                        audio_face_render_client = word_for(
+                            "_g_SPXBAudioFaceRenderLastClient")
+                        audio_face_render_volume = word_for(
+                            "_g_SPXBAudioFaceRenderLastVolume")
+                        audio_face_render_skin = word_for(
+                            "_g_SPXBAudioFaceRenderLastSkin")
+                        audio_face_render_extensions = word_for(
+                            "_g_SPXBAudioFaceRenderLastExtensions")
+                        audio_voice_requests = word_for(
+                            "_g_SPXBAudioVoiceRequestCount")
+                        audio_voice_queued_loads = word_for(
+                            "_g_SPXBAudioVoiceQueuedLoadCount")
+                        audio_voice_play_successes = word_for(
+                            "_g_SPXBAudioVoicePlaySuccessCount")
+                        audio_voice_play_failures = word_for(
+                            "_g_SPXBAudioVoicePlayFailureCount")
+                        audio_voice_load_retries = word_for(
+                            "_g_SPXBAudioVoiceLoadRetryCount")
+                        audio_voice_load_retry_successes = word_for(
+                            "_g_SPXBAudioVoiceLoadRetrySuccessCount")
+                        audio_voice_loaded_wakes = word_for(
+                            "_g_SPXBAudioVoiceLoadedWakeCount")
+                        audio_voice_early_stops = word_for(
+                            "_g_SPXBAudioVoiceEarlyStopCount")
+                        audio_voice_last_request_code = word_for(
+                            "_g_SPXBAudioVoiceLastRequestCode")
+                        audio_voice_last_play_code = word_for(
+                            "_g_SPXBAudioVoiceLastPlayCode")
+                        audio_voice_last_stop_code = word_for(
+                            "_g_SPXBAudioVoiceLastStopCode")
+                        audio_voice_last_stop_age = word_for(
+                            "_g_SPXBAudioVoiceLastStopAge")
+                        pvs_serial = word_array("_g_SPXBHMPvsProbe", 0)
+                        pvs_cluster = signed32(word_array("_g_SPXBHMPvsProbe", 1))
+                        pvs_clusters = word_array("_g_SPXBHMPvsProbe", 2)
+                        pvs_cluster_bytes = word_array("_g_SPXBHMPvsProbe", 3)
+                        pvs_visible_bits = word_array("_g_SPXBHMPvsProbe", 5)
+                        pvs_leafs = word_array("_g_SPXBHMPvsProbe", 7)
+                        pvs_marked = word_array("_g_SPXBHMPvsProbe", 8)
+                        pvs_rejected = word_array("_g_SPXBHMPvsProbe", 9)
+                        pvs_area_rejected = word_array("_g_SPXBHMPvsProbe", 10)
+                        pvs_nodes_marked = word_array("_g_SPXBHMPvsProbe", 42)
+                        pvs_leaves_visframe = word_array("_g_SPXBHMPvsProbe", 43)
+                        pvs_world_nodes = word_array("_g_SPXBHMPvsProbe", 47)
+                        pvs_world_leaves = word_array("_g_SPXBHMPvsProbe", 48)
+                        pvs_world_surfaces = word_array("_g_SPXBHMPvsProbe", 57)
                         heartbeat_mem_used = word_for("_g_SPXBHeartbeatMemUsed")
                         heartbeat_mem_free = word_for("_g_SPXBHeartbeatMemFree")
                         heartbeat_mem_largest = word_for("_g_SPXBHeartbeatMemLargest")
@@ -3122,6 +3455,15 @@ def main():
                         hm_split_proof_magic = word_for("_g_SPXBHMSplitProofMagic")
                         hm_split_render_armed = word_for("_g_SPXBHMSplitRenderArmedPlayers")
                         hm_split_hud_divider = word_for("_g_SPXBHMSplitHudDividerSerial")
+                        hm_split_hud_players = word_for("_g_SPXBHMSplitHudPlayers")
+                        hm_split_hud_divider_vx = word_for("_g_SPXBHMSplitHudDividerVerticalX")
+                        hm_split_hud_divider_vy = word_for("_g_SPXBHMSplitHudDividerVerticalY")
+                        hm_split_hud_divider_vw = word_for("_g_SPXBHMSplitHudDividerVerticalW")
+                        hm_split_hud_divider_vh = word_for("_g_SPXBHMSplitHudDividerVerticalH")
+                        hm_split_hud_divider_hx = word_for("_g_SPXBHMSplitHudDividerHorizontalX")
+                        hm_split_hud_divider_hy = word_for("_g_SPXBHMSplitHudDividerHorizontalY")
+                        hm_split_hud_divider_hw = word_for("_g_SPXBHMSplitHudDividerHorizontalW")
+                        hm_split_hud_divider_hh = word_for("_g_SPXBHMSplitHudDividerHorizontalH")
                         hm_split_fp_filter_mask = word_for("_g_SPXBHMSplitFPFilterMask")
                         hm_split_self_filter_mask = word_for("_g_SPXBHMSplitSelfFilterMask")
                         perf_server_ticks = word_for("_g_SPXBPerfServerTicks")
@@ -3154,6 +3496,23 @@ def main():
                         perf_render_draw_surfs = word_for("_g_SPXBPerfRenderDrawSurfs")
                         perf_render_ref_entities = word_for("_g_SPXBPerfRenderRefEntities")
                         perf_render_leafs = word_for("_g_SPXBPerfRenderLeafs")
+                        perf_entity_model_setup_cycles = word_for("_g_SPXBPerfEntityModelSetupCycles")
+                        perf_entity_model_setup_calls = word_for("_g_SPXBPerfEntityModelSetupCalls")
+                        perf_entity_mesh_cycles = word_for("_g_SPXBPerfEntityMeshCycles")
+                        perf_entity_mesh_calls = word_for("_g_SPXBPerfEntityMeshCalls")
+                        perf_entity_brush_cycles = word_for("_g_SPXBPerfEntityBrushCycles")
+                        perf_entity_brush_calls = word_for("_g_SPXBPerfEntityBrushCalls")
+                        perf_entity_anim_cycles = word_for("_g_SPXBPerfEntityAnimCycles")
+                        perf_entity_anim_calls = word_for("_g_SPXBPerfEntityAnimCalls")
+                        perf_entity_simple_cycles = word_for("_g_SPXBPerfEntitySimpleCycles")
+                        perf_entity_simple_calls = word_for("_g_SPXBPerfEntitySimpleCalls")
+                        perf_reuse_candidates = word_for("_g_SPXBPerfReuseCandidatesCurrent")
+                        perf_reuse_candidate_dwords = word_for("_g_SPXBPerfReuseCandidateDwordsCurrent")
+                        perf_reuse_unique = word_for("_g_SPXBPerfReuseUniqueCurrent")
+                        perf_reuse_cross_hits = word_for("_g_SPXBPerfReuseCrossViewHitsCurrent")
+                        perf_reuse_cross_dwords = word_for("_g_SPXBPerfReuseCrossViewDwordsCurrent")
+                        perf_reuse_table_full = word_for("_g_SPXBPerfReuseTableFullCurrent")
+                        perf_reuse_hash_cycles = word_for("_g_SPXBPerfReuseHashCyclesCurrent")
                         perf_backend_surfaces = word_for("_g_SPXBPerfBackendSurfaces")
                         perf_backend_vertexes = word_for("_g_SPXBPerfBackendVertexes")
                         perf_backend_indexes = word_for("_g_SPXBPerfBackendIndexes")
@@ -3295,6 +3654,16 @@ def main():
                         vw_p2_render_filtered = word_for("_g_SPXBViewWeaponP2RendererFiltered")
                         vw_p1_last_skip = word_for("_g_SPXBViewWeaponP1LastSkip")
                         vw_p2_last_skip = word_for("_g_SPXBViewWeaponP2LastSkip")
+                        game_weapon_fire_stage = word_for("_g_SPXBGameWeaponFireStage")
+                        game_weapon_fire_entity = word_for("_g_SPXBGameWeaponFireEntity")
+                        game_weapon_fire_weapon_alt = word_for("_g_SPXBGameWeaponFireWeaponAlt")
+                        game_player_primary_fires = word_for("_g_SPXBPlayerPrimaryFireCompletions")
+                        game_player_alt_fires = word_for("_g_SPXBPlayerAltFireCompletions")
+                        cgame_weapon_fire_stage = word_for("_g_SPXBCGameWeaponFireStage")
+                        cgame_weapon_fire_entity = word_for("_g_SPXBCGameWeaponFireEntity")
+                        cgame_weapon_fire_weapon_alt = word_for("_g_SPXBCGameWeaponFireWeaponAlt")
+                        cgame_player_primary_fires = word_for("_g_SPXBCGamePlayerPrimaryFireCompletions")
+                        cgame_player_alt_fires = word_for("_g_SPXBCGamePlayerAltFireCompletions")
                         weapon_reg_weapon = word_for("_g_SPXBWeaponRegWeapon")
                         weapon_reg_hash = word_for("_g_SPXBWeaponRegPathHash")
                         weapon_reg_view = word_for("_g_SPXBWeaponRegViewModel")
@@ -3513,6 +3882,8 @@ def main():
                                 if message.startswith(("xblogperf ",
                                                        "xblogaudio ",
                                                        "xblogrender ",
+                                                       "xblogentity ",
+                                                       "xblogreuse ",
                                                        "xblogsubmit ",
                                                        "xblogdrawphase ",
                                                        "xblogdrawclass ")):
@@ -3526,7 +3897,8 @@ def main():
                              log("xblog t=%.1f personality=%s boot=0x%08x "
                                  "mirror=%u writes=%u delta=%d hb=0x%08x "
                                   "count=%u frame=%u rt=%u st=%u fps=%.1f wallfps=%s speed=%s cls=%u "
-                                  "phase=0x%08x cltail=0x%08x comtail=0x%08x depth=%u "
+                                  "phase=0x%08x cltail=0x%08x comtail=0x%08x depth=%u main=%u/0x%08x "
+                                  "audio=%u/0x%08x load=0x%08x/%u/%u "
                                   "cgame=0x%08x/0x%08x input=%u/%u/0x%04x/0x%02x/0x%08x/0x%08x "
                                   "cmd=%u/%u/0x%08x/0x%08x/%u svcmd=%u/%u/0x%08x/0x%08x "
                                   "hmcmd=%u/%u/0x%08x/0x%08x think=%u" %
@@ -3539,6 +3911,9 @@ def main():
                                   "%.3f" % emulation_speed if emulation_speed is not None else "n/a",
                                   cls_state, phase_last, cl_tail_stage,
                                   com_tail_stage, com_frame_depth,
+                                  main_loop_count, main_tail_stage,
+                                  audio_update_serial, audio_update_stage,
+                                  audio_load_stage, audio_load_index, audio_load_handle,
                                   cgame_entry_current, cgame_entry_expected,
                                   input_poll_count, input_port, input_digital,
                                   input_analog, input_lxly, input_rxry,
@@ -3555,6 +3930,21 @@ def main():
                                   native_draw_path or 1,
                                   heartbeat_mem_used, heartbeat_mem_free,
                                   heartbeat_mem_largest, heartbeat_mem_blocks))
+                             log("xblogdrawlist t=%.1f stage=0x%08x surf=%u/%u type=%u sort=0x%08x shader=0x%08x entity=%d tess=%u/%u" %
+                                 (elapsed, render_list_stage,
+                                  render_list_index, render_list_count,
+                                  render_list_surface_type, render_list_sort,
+                                  render_list_shader, signed32(render_list_entity),
+                                  render_list_tess_verts, render_list_tess_indexes))
+                             log("xblogendsurface t=%.1f stage=0x%08x shader=0x%08x/%d iterator=0x%08x passes=%u verts=%u indexes=%u fog=%u native=0x%08x serial=%u count=%u verts=%u state=0x%08x streams=0x%03x reserve=%u" %
+                                 (elapsed, end_surface_stage, end_surface_shader,
+                                  signed32(end_surface_shader_index), end_surface_iterator,
+                                  end_surface_passes, end_surface_verts,
+                                  end_surface_indexes, end_surface_fog,
+                                  native_submit_stage, native_submit_serial,
+                                  native_submit_count, native_submit_verts,
+                                  native_submit_state, native_submit_streams,
+                                  native_submit_reserve))
                         if (xblog_current_personality == "efmp" and
                                 hm_split_proof_magic == 0x48345046):
                             def hm_part_name(code):
@@ -3573,6 +3963,46 @@ def main():
                                     (launch_source, args.proof_map or "hm_borg1", split_enabled,
                                      split_players, local_players, virtual_enabled,
                                      virtual_p1, economy))
+                            player_setup_magic = word_array("_g_SPXBHMPlayerSetupProof", 0)
+                            if player_setup_magic == 0x48345053:
+                                setup_version = word_array("_g_SPXBHMPlayerSetupProof", 1)
+                                setup_players = word_array("_g_SPXBHMPlayerSetupProof", 2)
+                                setup_time = word_array("_g_SPXBHMPlayerSetupProof", 3)
+
+                                def fnv1a(text):
+                                    value = 2166136261
+                                    for byte in text.encode("ascii"):
+                                        value ^= byte
+                                        value = (value * 16777619) & 0xffffffff
+                                    return value
+
+                                model_names = {
+                                    fnv1a(name): name for name in
+                                    ("seven", "munro", "foster", "tuvok")
+                                }
+                                skin_names = {
+                                    fnv1a(name): name for name in
+                                    ("default", "red", "blue")
+                                }
+                                log("STEFX_HM_PLAYER_HANDOFF_PROOF: version=%u players=%u time=%u" %
+                                    (setup_version, setup_players, setup_time))
+                                for player in range(4):
+                                    base = 4 + player * 9
+                                    model_hash = word_array("_g_SPXBHMPlayerSetupProof", base + 0)
+                                    skin_hash = word_array("_g_SPXBHMPlayerSetupProof", base + 1)
+                                    control = word_array("_g_SPXBHMPlayerSetupProof", base + 2)
+                                    autoswitch = word_array("_g_SPXBHMPlayerSetupProof", base + 3)
+                                    autoaim = word_array("_g_SPXBHMPlayerSetupProof", base + 4)
+                                    crosshair = word_array("_g_SPXBHMPlayerSetupProof", base + 5)
+                                    vibration = word_array("_g_SPXBHMPlayerSetupProof", base + 6)
+                                    invert_pitch = word_array("_g_SPXBHMPlayerSetupProof", base + 7)
+                                    active = word_array("_g_SPXBHMPlayerSetupProof", base + 8)
+                                    model_name = model_names.get(model_hash, "unknown")
+                                    skin_name = skin_names.get(skin_hash, "unknown")
+                                    log("STEFX_HM_PLAYER_SETUP_PROOF: slot=%u active=%u model='%s' modelHash=0x%08x skin='%s' skinHash=0x%08x control=%u autoswitch=%u autoaim=%u crosshair=%u vibration=%u invert=%u" %
+                                        (player, active, model_name, model_hash,
+                                         skin_name, skin_hash, control, autoswitch,
+                                         autoaim, crosshair, vibration, invert_pitch))
                             bot_frames = word_array("_g_SPXBHMSplitBotProof", 0)
                             if bot_frames:
                                 log("STEFX_HM_SPLIT_BOT: frames=%u checks=%u min=%u gameType=%u maxClients=%u humans=%u bots=%u requests=%u queued=%u allocAttempts=%u allocClient=%d addAttempts=%u info=%u connect=%u begins=%u active=%u setupAttempts=%u setupStage=%u character=%u goalState=%u itemErr=%u weaponState=%u weaponErr=%u chatErr=%u probeLen=%d probeHandle=%u path0=0x%08x path1=0x%08x parseCalls=%u parseStage=%u parseDetail=0x%08x parseSkill=%d" %
@@ -3692,15 +4122,15 @@ def main():
                                          signed32(word_array("_g_SPXBHMSplitRenderViewY", proof_slot)),
                                          signed32(word_array("_g_SPXBHMSplitRenderViewZ", proof_slot))))
                                 if word_array("_g_SPXBHMSplitHudSerial", proof_slot):
-                                    log("STEFX_HM_SPLIT_HUD: slot=%u players=4 shared=0 shader=1 src=(0,0 640x480) dst=(%u,%u %ux%u)" %
-                                        (proof_slot,
+                                    log("STEFX_HM_SPLIT_HUD: slot=%u players=%u shared=0 shader=1 src=(0,0 640x480) dst=(%u,%u %ux%u)" %
+                                        (proof_slot, hm_split_hud_players,
                                          word_array("_g_SPXBHMSplitHudRectX", proof_slot),
                                          word_array("_g_SPXBHMSplitHudRectY", proof_slot),
                                          word_array("_g_SPXBHMSplitHudRectW", proof_slot),
                                          word_array("_g_SPXBHMSplitHudRectH", proof_slot)))
                                 if word_array("_g_SPXBHMSplitHudStatusSerial", proof_slot):
-                                    log("STEFX_HM_SPLIT_HUD_STATUS: slot=%u players=4 valid=%u health=%d weapon=%u score=%d dst=(%u,%u %ux%u)" %
-                                        (proof_slot,
+                                    log("STEFX_HM_SPLIT_HUD_STATUS: slot=%u players=%u valid=%u health=%d weapon=%u score=%d dst=(%u,%u %ux%u)" %
+                                        (proof_slot, hm_split_hud_players,
                                          word_array("_g_SPXBHMSplitHudStatusValid", proof_slot),
                                          signed32(word_array("_g_SPXBHMSplitHudStatusHealth", proof_slot)),
                                          word_array("_g_SPXBHMSplitHudStatusWeapon", proof_slot),
@@ -3709,6 +4139,24 @@ def main():
                                          word_array("_g_SPXBHMSplitHudStatusRectY", proof_slot),
                                          word_array("_g_SPXBHMSplitHudStatusRectW", proof_slot),
                                          word_array("_g_SPXBHMSplitHudStatusRectH", proof_slot)))
+                                if word_array("_g_SPXBHMSplitOverlaySerial", proof_slot):
+                                    overlay_flags = word_array("_g_SPXBHMSplitOverlayFlags", proof_slot)
+                                    log("STEFX_HM_SPLIT_OVERLAY: slot=%u serial=%u flags=0x%03x zoom=%u pickup=%u reward=%u attacker=%u proof=%u fov=%.2f item=%u rewardType=%u attackerClient=%d natural=(pickup:%u reward:%u attacker:%u)" %
+                                        (proof_slot,
+                                         word_array("_g_SPXBHMSplitOverlaySerial", proof_slot),
+                                         overlay_flags,
+                                         1 if overlay_flags & 0x001 else 0,
+                                         1 if overlay_flags & 0x002 else 0,
+                                         1 if overlay_flags & 0x004 else 0,
+                                         1 if overlay_flags & 0x008 else 0,
+                                         1 if overlay_flags & 0x100 else 0,
+                                         word_array("_g_SPXBHMSplitOverlayFovX100", proof_slot) / 100.0,
+                                         word_array("_g_SPXBHMSplitOverlayPickupItem", proof_slot),
+                                         word_array("_g_SPXBHMSplitOverlayRewardType", proof_slot),
+                                         signed32(word_array("_g_SPXBHMSplitOverlayAttacker", proof_slot)),
+                                         word_array("_g_SPXBHMSplitOverlayNaturalPickup", proof_slot),
+                                         word_array("_g_SPXBHMSplitOverlayNaturalReward", proof_slot),
+                                         word_array("_g_SPXBHMSplitOverlayNaturalAttacker", proof_slot)))
                                 if word_array("_g_SPXBHMSplitViewWeaponSerial", proof_slot):
                                     log("STEFX_HM_SPLIT_VIEWWEAPON: slot=%u client=%d weapon=%u added=%u source=cgame renderfx=0x%x" %
                                         (proof_slot,
@@ -3749,7 +4197,16 @@ def main():
                                          word_array("_g_SPXBHMSplitSelfFilterRefNumber", proof_slot),
                                          hm_part_name(word_array("_g_SPXBHMSplitSelfFilterPart", proof_slot))))
                             if hm_split_hud_divider:
-                                log("STEFX_HM_SPLIT_HUD_DIVIDER: players=4 vertical=(318,0 4x480) horizontal=(0,238 640x4)")
+                                log("STEFX_HM_SPLIT_HUD_DIVIDER: players=%u vertical=(%u,%u %ux%u) horizontal=(%u,%u %ux%u)" %
+                                    (hm_split_hud_players,
+                                     hm_split_hud_divider_vx,
+                                     hm_split_hud_divider_vy,
+                                     hm_split_hud_divider_vw,
+                                     hm_split_hud_divider_vh,
+                                     hm_split_hud_divider_hx,
+                                     hm_split_hud_divider_hy,
+                                     hm_split_hud_divider_hw,
+                                     hm_split_hud_divider_hh))
                         if (xblog_current_personality == "efmp" and
                                 not args.poll_xblog_perf_only):
                             log("xbloginput t=%.1f edge=%u/0x%08x common=%u/0x%08x frontend=%u/0x%08x dispatch=%u/%u/0x%08x" %
@@ -3896,6 +4353,20 @@ def main():
                                    cbuf_return_exit))
                         detail_log("xblogpacked t=%.1f mapPhase=%u packedPhase=0x%08x mapHash=0x%08x" %
                                    (elapsed, map_phase, packed_map_phase, map_hash))
+                        detail_log("xblogcin t=%.1f phase=%u handle=%d status=%u loops=%u binkFrame=%u rawStage=0x%08x rawFrames=%u source=%ux%u upload=%ux%u pixel0=0x%08x copySkipped=%u sampleHash=0x%08x sampleNonZero=%u overlayStage=0x%08x overlayFrames=%u overlayResult=0x%08x" %
+                                   (elapsed, cin_phase, signed32(cin_handle),
+                                    cin_status, cin_loop_count, cin_bink_frame,
+                                    cin_raw_stage, cin_raw_frames,
+                                    (cin_raw_source_size >> 16) & 0xffff,
+                                    cin_raw_source_size & 0xffff,
+                                    (cin_raw_upload_size >> 16) & 0xffff,
+                                    cin_raw_upload_size & 0xffff,
+                                    cin_raw_first_pixel, cin_copy_skipped,
+                                    cin_raw_sample_hash,
+                                    cin_raw_sample_nonzero,
+                                    cin_overlay_stage,
+                                    cin_overlay_frames,
+                                    cin_overlay_result))
                         detail_log("xblog t=%.1f boot=0x%08x mirror=%u writes=%u delta=%d hb=0x%08x count=%u frame=%u rt=%u st=%u fps=%.1f main=%u com=%u sv=%u cl=%u cls=%u clst=%u clsfr=%u phase=0x%08x cltail=0x%08x sub=%u spin=%u msec=%u ctime=%u ltime=%u cbuf=%u cmd=%u cmdp=%u cmdh=0x%08x argc=%u mapp=%u maph=0x%08x gamep=%u ents=%u be=%u prim=%u verts=%u state=%u split=%u/%u/%u/%u final=%u flush=%u splitSlot=%u draw=%u/%u world=%u/%u retry=%u fallback=%u cluster=%d/%d mark=%d/%d pvsrej=%u/%u arearej=%u/%u root=%d/%d surf=%u/%u/%u/%u/%u/%u/%u/%u p2=%u trace=%u view=%d/%d/%d ps=%d/%d/%d cur=%d/%d/%d ang=%d/%d cam=%u p1trace=%u p1loc=%d/%d/%d p2loc=%d/%d/%d diff=%d/%d/%d p2dbg=ref=%u scene=%u/%u/%u model=%u/%u/%u/%u h=%u/%u/%u rf=0x%08x renderer=%u/%u/0x%08x/%d vw=%u/%u/%u/%u model=%u/%u rf=0x%08x/0x%08x rend=%u/%u filt=%u/%u skip=%u/%u wreg=%u/0x%08x/0x%08x/0x%08x/%u/%u/%u/%u wload=%u/%u/%u/%u/0x%08x/0x%08x/%u/0x%08x wm=%u/0x%08x/%u/%u/0x%08x/%u/%u/%u/%u/%u sky=0x%08x/%u/%u/%u/%u/%u/%u direct=%u/0x%08x/%u svp=0x%08x/0x%08x/%u/%u/%u/%u/%u" %
                             (elapsed, boot_phase, mirror_pos, write_count, delta,
                              heartbeat_magic, heartbeat_count, heartbeat_frame,
@@ -3969,6 +4440,17 @@ def main():
                              input_frontend_queues, input_frontend_queue_last,
                              input_dispatches, input_dispatch_handled,
                              input_dispatch_last))
+                        detail_log("xblogweaponfire t=%.1f game=0x%08x/%u/0x%08x p1=%u/%u cgame=0x%08x/%u/0x%08x p1=%u/%u" %
+                            (elapsed, game_weapon_fire_stage,
+                             game_weapon_fire_entity,
+                             game_weapon_fire_weapon_alt,
+                             game_player_primary_fires,
+                             game_player_alt_fires,
+                             cgame_weapon_fire_stage,
+                             cgame_weapon_fire_entity,
+                             cgame_weapon_fire_weapon_alt,
+                             cgame_player_primary_fires,
+                             cgame_player_alt_fires))
                         workload_passes = (float(workload_total_indexes) /
                                            float(workload_indexes)
                                            if workload_indexes else 0.0)
@@ -3987,13 +4469,61 @@ def main():
                              perf_game_items, perf_game_movers, perf_game_clients,
                              perf_game_think_due, perf_game_scripted,
                              perf_game_other))
-                        detail_log("xblogaudio t=%.1f backend=0x%08x begin=%u register=%u start=%u local=%u loop=%u respat=%u listener=0x%08x listenerMask=0x%08x voice=%u lipActive=%u last=0x%08x/%u" %
+                        detail_log("xblogaudio t=%.1f backend=0x%08x begin=%u register=%u start=%u local=%u loop=%u respat=%u listener=0x%08x listenerMask=0x%08x voice=%u lipActive=%u requests=%u deferred=%u retries=%u/%u wakes=%u played=%u failed=%u earlyStops=%u codes=0x%08x/0x%08x/0x%08x stopAge=%u last=0x%08x/%u" %
                             (elapsed, hm_audio_backend,
                              hm_audio_begin_registration, hm_audio_register,
                              hm_audio_start, hm_audio_local, hm_audio_loop,
                              hm_audio_respatialize, hm_audio_listener,
-                             hm_audio_listener_mask, hm_audio_voice, hm_audio_lip,
-                             hm_audio_last_ent_chan, hm_audio_last_handle))
+                              hm_audio_listener_mask, hm_audio_voice, hm_audio_lip,
+                              audio_voice_requests, audio_voice_queued_loads,
+                              audio_voice_load_retries,
+                              audio_voice_load_retry_successes,
+                              audio_voice_loaded_wakes,
+                              audio_voice_play_successes, audio_voice_play_failures,
+                              audio_voice_early_stops,
+                              audio_voice_last_request_code,
+                              audio_voice_last_play_code,
+                              audio_voice_last_stop_code,
+                              audio_voice_last_stop_age,
+                              hm_audio_last_ent_chan, hm_audio_last_handle))
+                        detail_log("xblogaudiostage t=%.1f update=%u/0x%08x load=0x%08x/%u/%u qal=0x%08x" %
+                            (elapsed, audio_update_serial, audio_update_stage,
+                             audio_load_stage, audio_load_index,
+                             audio_load_handle, qal_stream_stage))
+                        detail_log("xblogswapstage t=%.1f frame=%u stage=0x%08x endScene=0x%08x present=0x%08x" %
+                            (elapsed, fakegl_swap_frame, fakegl_swap_stage,
+                             fakegl_endscene_result, fakegl_present_result))
+                        detail_log("xblogdrawlist t=%.1f stage=0x%08x surf=%u/%u type=%u sort=0x%08x shader=0x%08x entity=%d tess=%u/%u" %
+                            (elapsed, render_list_stage,
+                             render_list_index, render_list_count,
+                             render_list_surface_type, render_list_sort,
+                             render_list_shader, signed32(render_list_entity),
+                             render_list_tess_verts, render_list_tess_indexes))
+                        detail_log("xblogendsurface t=%.1f stage=0x%08x shader=0x%08x/%d iterator=0x%08x passes=%u verts=%u indexes=%u fog=%u native=0x%08x serial=%u count=%u verts=%u state=0x%08x streams=0x%03x reserve=%u" %
+                            (elapsed, end_surface_stage, end_surface_shader,
+                             signed32(end_surface_shader_index), end_surface_iterator,
+                             end_surface_passes, end_surface_verts,
+                             end_surface_indexes, end_surface_fog,
+                             native_submit_stage, native_submit_serial,
+                             native_submit_count, native_submit_verts,
+                             native_submit_state, native_submit_streams,
+                             native_submit_reserve))
+                        detail_log("xblogface t=%.1f updates=%u lip=%u fallback=%u last=%u/%d renders=%u render=%u/%u/%d skin=%u ext=%u" %
+                            (elapsed, audio_face_updates, audio_face_lip_updates,
+                             audio_face_fallback_updates, audio_face_last_entity,
+                             signed32(audio_face_last_volume),
+                             audio_face_render_count, audio_face_render_entity,
+                             audio_face_render_client,
+                             signed32(audio_face_render_volume),
+                             audio_face_render_skin,
+                             audio_face_render_extensions))
+                        detail_log("xblogpvs t=%.1f serial=%u cluster=%d/%u bytes=%u bits=%u leafs=%u marked=%u pvsReject=%u areaReject=%u nodes=%u visLeaves=%u walk=%u/%u worldSurfs=%u" %
+                            (elapsed, pvs_serial, pvs_cluster, pvs_clusters,
+                             pvs_cluster_bytes, pvs_visible_bits, pvs_leafs,
+                             pvs_marked, pvs_rejected, pvs_area_rejected,
+                             pvs_nodes_marked, pvs_leaves_visframe,
+                             pvs_world_nodes, pvs_world_leaves,
+                             pvs_world_surfaces))
                         detail_log("xblogrender t=%.1f sample=%u active=%u total=%u setup=%u mark=%u world=%u polys=%u projection=%u entities=%u sort=%u debug=%u views=%u portals=%u drawSurfs=%u refEntities=%u leafs=%u inputSurfs=%u batches=%u submits=%u verts=%u indexes=%u totalIndexes=%u backendPhases=%u/%u/%u wait=%u/%u drawCycles=%u/%u/%u/%u/%u/%u" %
                             (elapsed, perf_sample_serial, perf_sample_active,
                              perf_render_total, perf_render_setup,
@@ -4012,6 +4542,24 @@ def main():
                              perf_draw_cycles, perf_draw_state_cycles,
                              perf_draw_reserve_cycles, perf_draw_pack_cycles,
                              perf_draw_index_cycles, perf_draw_submit_cycles))
+                        detail_log("xblogentity t=%.1f modelSetup=%.2fms/%u mesh=%.2fms/%u brush=%.2fms/%u anim=%.2fms/%u simple=%.2fms/%u" %
+                            (elapsed,
+                             perf_entity_model_setup_cycles / 733333.0,
+                             perf_entity_model_setup_calls,
+                             perf_entity_mesh_cycles / 733333.0,
+                             perf_entity_mesh_calls,
+                             perf_entity_brush_cycles / 733333.0,
+                             perf_entity_brush_calls,
+                             perf_entity_anim_cycles / 733333.0,
+                             perf_entity_anim_calls,
+                             perf_entity_simple_cycles / 733333.0,
+                             perf_entity_simple_calls))
+                        detail_log("xblogreuse t=%.1f candidates=%u dwords=%u unique=%u crossHits=%u crossDwords=%u tableFull=%u hash=%.2fms" %
+                            (elapsed, perf_reuse_candidates,
+                             perf_reuse_candidate_dwords, perf_reuse_unique,
+                             perf_reuse_cross_hits, perf_reuse_cross_dwords,
+                             perf_reuse_table_full,
+                             perf_reuse_hash_cycles / 733333.0))
                         detail_log("xblogsubmit t=%.1f indexed=%u immediate=%u tex1=%u reserveDwords=%u/%u" %
                             (elapsed, perf_indexed_submits,
                              perf_immediate_submits, perf_indexed_tex1,
@@ -4185,10 +4733,11 @@ def main():
                     log("xblog t=%.1f unavailable=%s" % (elapsed, exc))
                     xblog_addr = None
 
-            if elapsed >= next_shot:
+            if elapsed >= next_shot and (args.max_screenshots <= 0 or shot < args.max_screenshots):
                 if capture_enabled:
                     time.sleep(0.1)
-                    if (sock is not None and hm_split_pose_base_va is not None and
+                    if (not args.xemu_native_screenshots and sock is not None and
+                            hm_split_pose_base_va is not None and
                             hm_split_pose_offsets):
                         pose_word_count = max(hm_split_pose_offsets.values()) + 4
                         pose_words = monitor_read_virtual_words(
@@ -4257,7 +4806,7 @@ def main():
                 monitor_cmd(sock, "stop", 0.2)
                 log("emulation_stopped_for_final_diagnostics")
                 if args.extract_xblog_profile:
-                    extract_xblog_profiles_from_physical_memory(
+                    extracted_profile_records = extract_xblog_profiles_from_physical_memory(
                         sock, prefix, log)
                 dump_monitor_state(sock, prefix, "final", args.dump_mem, log)
                 dump_virtual_memory_binary(sock, prefix, args.dump_bin_mem, log)
@@ -4283,6 +4832,27 @@ def main():
     contact = prefix + "_contact.png"
     if write_contact_sheet(shot_paths, contact):
         log("contact=%s" % os.path.abspath(contact))
+
+    extracted_fps_samples = []
+    for record in extracted_profile_records:
+        if not record.startswith("STEFX_HW_FPS_SAMPLE:"):
+            continue
+        sample_match = re.search(r"\bsample=(\d+)\b", record)
+        fps_match = re.search(r"\bfps=(\d+)\.(\d+)\b", record)
+        if not sample_match or not fps_match or int(sample_match.group(1)) <= 1:
+            continue
+        fps_value = float("%s.%s" % (fps_match.group(1), fps_match.group(2)))
+        if fps_value > 0.0:
+            extracted_fps_samples.append(fps_value)
+    if extracted_fps_samples and not active_fps_samples:
+        active_fps_samples.extend(extracted_fps_samples)
+        gameplay_fps_samples.extend(extracted_fps_samples)
+        personality_active_fps_samples.setdefault(
+            args.poll_xblog_kind, []).extend(extracted_fps_samples)
+        personality_gameplay_fps_samples.setdefault(
+            args.poll_xblog_kind, []).extend(extracted_fps_samples)
+        log("fps_source=final-profile-ring samples=%u first_sample_excluded=1" %
+            len(extracted_fps_samples))
 
     def log_fps_summary(label, samples):
         if not samples:

@@ -1514,6 +1514,12 @@ static qboolean CG_PlayerShadow( centity_t *cent, float *shadowPlane ) {
 
 	*shadowPlane = 0;
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( CG_STEFX_ThreePlusEconomyActive() ) {
+		return qfalse;
+	}
+#endif
+
 	if ( cg_shadows.integer == 0 ) {
 		return qfalse;
 	}
@@ -1564,6 +1570,12 @@ static void CG_PlayerSplash( centity_t *cent ) {
 	trace_t		trace;
 	int			contents;
 	polyVert_t	verts[4];
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( CG_STEFX_ThreePlusEconomyActive() ) {
+		return;
+	}
+#endif
 
 	if ( !cg_shadows.integer ) {
 		return;

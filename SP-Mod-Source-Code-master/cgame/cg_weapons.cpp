@@ -3,6 +3,11 @@
 #include "cg_media.h"
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBCGameWeaponFireStage;
+extern "C" volatile unsigned int g_SPXBCGameWeaponFireEntity;
+extern "C" volatile unsigned int g_SPXBCGameWeaponFireWeaponAlt;
+extern "C" volatile unsigned int g_SPXBCGamePlayerPrimaryFireCompletions;
+extern "C" volatile unsigned int g_SPXBCGamePlayerAltFireCompletions;
 #endif
 
 /////////////////////  this is a bit kludgy, but it only gives access to one
@@ -1416,6 +1421,12 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 	weaponInfo_t	*weap;
 
 	ent = &cent->currentState;
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43460000; /* 'CF00': entry */
+	g_SPXBCGameWeaponFireEntity = (unsigned int)ent->number;
+	g_SPXBCGameWeaponFireWeaponAlt =
+		(unsigned int)(ent->weapon & 0xffff) | (alt_fire ? 0x80000000u : 0u);
+#endif
 	if ( ent->weapon == WP_NONE ) {
 		return;
 	}
@@ -1464,6 +1475,9 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 
 	// force feedback...
 	//
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43461000 | (unsigned int)(ent->weapon & 0xff); /* 'CF1w': rumble dispatch */
+#endif
 	switch (ent->weapon)
 	{
 		case WP_PHASER:				
@@ -1517,6 +1531,10 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 			cgi_FF_StartFX( fffx_SecretDoor);	
 			break;
 	}	
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43462000 | (unsigned int)(ent->weapon & 0xff); /* 'CF2w': rumble returned */
+	g_SPXBCGameWeaponFireStage = 0x43463000 | (unsigned int)(ent->weapon & 0xff); /* 'CF3w': sound dispatch */
+#endif
 
 	if ( alt_fire )
 	{
@@ -1532,6 +1550,21 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 			cgi_S_StartSound( NULL, ent->number, CHAN_WEAPON, weap->flashSound );
 		}
 	}
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43464000 | (unsigned int)(ent->weapon & 0xff); /* 'CF4w': sound returned */
+	if (ent->number == 0)
+	{
+		if (alt_fire)
+		{
+			++g_SPXBCGamePlayerAltFireCompletions;
+		}
+		else
+		{
+			++g_SPXBCGamePlayerPrimaryFireCompletions;
+		}
+	}
+	g_SPXBCGameWeaponFireStage = 0x4346FFFF; /* 'CFff': complete */
+#endif
 }
 
 /*

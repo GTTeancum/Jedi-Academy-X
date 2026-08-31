@@ -73,6 +73,12 @@ extern "C" volatile unsigned int g_SPXBPhaseLast;
 extern "C" volatile unsigned int g_SPXBModelProbeStage;
 extern "C" volatile unsigned int g_SPXBModelProbeNamePtr;
 extern "C" volatile unsigned int g_SPXBModelProbeFileLen;
+extern "C" volatile unsigned int g_SPXBAudioFaceRenderCount;
+extern "C" volatile unsigned int g_SPXBAudioFaceRenderLastEntity;
+extern "C" volatile unsigned int g_SPXBAudioFaceRenderLastClient;
+extern "C" volatile unsigned int g_SPXBAudioFaceRenderLastVolume;
+extern "C" volatile unsigned int g_SPXBAudioFaceRenderLastSkin;
+extern "C" volatile unsigned int g_SPXBAudioFaceRenderLastExtensions;
 
 #define STEFX_PLAYER_PHASE(stage, cent) \
 	( g_SPXBPhaseLast = 0xD0000000u | ( ( (unsigned int)(stage) & 0xffu ) << 16 ) | \
@@ -924,8 +930,22 @@ void CG_ParseAnimationSndFile( const char *filename, int animFileIndex )
 	len = cgi_FS_FOpenFile( sfilename, &f, FS_READ );
 	if ( len <= 0 ) 
 	{//no file
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( !Q_stricmpn( filename, "borg", 4 ) )
+		{
+			XBLF( "STEFX_BORG_FOLEY: animsounds missing model='%s' path='%s' index=%d len=%d",
+				filename, sfilename, animFileIndex, len );
+		}
+#endif
 		return;
 	}
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( !Q_stricmpn( filename, "borg", 4 ) )
+	{
+		XBLF( "STEFX_BORG_FOLEY: animsounds opened model='%s' path='%s' index=%d bytes=%d",
+			filename, sfilename, animFileIndex, len );
+	}
+#endif
 	if ( len >= sizeof( text ) - 1 ) 
 	{
 		CG_Printf( "File %s too long\n", sfilename );
@@ -1339,6 +1359,15 @@ void CG_PlayerAnimSounds( animsounds_t *animSounds, int frame, int entNum )
 	{
 		if (holdSnd != 0)	// 0 = default sound, ie file was missing
 		{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			static int s_stefxAnimFoleyLogBudget = 64;
+			if ( s_stefxAnimFoleyLogBudget > 0 && entNum > 0 )
+			{
+				XBLF( "STEFX_BORG_FOLEY: animsound ent=%d frame=%d handle=%d",
+					entNum, frame, holdSnd );
+				--s_stefxAnimFoleyLogBudget;
+			}
+#endif
 			cgi_S_StartSound( NULL, entNum, CHAN_AUTO, holdSnd );
 		}
 
@@ -3017,10 +3046,12 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 		head->customSkin = ci->headSkin;
 	}
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
 		static int s_stefxFaceSkinBudget = 128;
+		static int s_stefxVoiceFaceBudget = 64;
 		static int s_stefxLastHeadSkin[MAX_GENTITIES];
+		static int s_stefxLastVoiceFace[MAX_GENTITIES];
 		static qboolean s_stefxFaceSkinInit = qfalse;
 
 		if ( !s_stefxFaceSkinInit )
@@ -3029,8 +3060,35 @@ int CG_PlayerHeadExtension( centity_t *cent, refEntity_t *head )
 			for ( i = 0; i < MAX_GENTITIES; ++i )
 			{
 				s_stefxLastHeadSkin[i] = -99999;
+				s_stefxLastVoiceFace[i] = 0;
 			}
 			s_stefxFaceSkinInit = qtrue;
+		}
+
+		if ( voiceVolume > 0 )
+		{
+			++g_SPXBAudioFaceRenderCount;
+			g_SPXBAudioFaceRenderLastEntity = (unsigned int)entNum;
+			g_SPXBAudioFaceRenderLastClient = (unsigned int)clientNum;
+			g_SPXBAudioFaceRenderLastVolume = (unsigned int)voiceVolume;
+			g_SPXBAudioFaceRenderLastSkin = (unsigned int)head->customSkin;
+			g_SPXBAudioFaceRenderLastExtensions = ci->extensions ? 1u : 0u;
+		}
+
+		if ( s_stefxVoiceFaceBudget > 0 &&
+			entNum >= 0 && entNum < MAX_GENTITIES &&
+			voiceVolume != s_stefxLastVoiceFace[entNum] &&
+			( voiceVolume > 0 || s_stefxLastVoiceFace[entNum] > 0 ) )
+		{
+			XBLog_WriteCriticalf( "STEFX_VOICE_FACE: ent=%d client=%d volume=%d base=%d skin=%d mouth=%d",
+				entNum,
+				clientNum,
+				voiceVolume,
+				ci->headSkin,
+				head->customSkin,
+				( voiceVolume >= 5 && voiceVolume <= 8 ) ? 1 : 0 );
+			s_stefxLastVoiceFace[entNum] = voiceVolume;
+			--s_stefxVoiceFaceBudget;
 		}
 
 		if ( s_stefxFaceSkinBudget > 0 &&

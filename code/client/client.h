@@ -114,9 +114,11 @@ extern	clientActive_t		cl;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int mainController, unsigned int buttons, const byte *analogButtons, int thumbLX, int thumbLY, int thumbRX, int thumbRY );
 int CL_STEFX_SplitScreen_PrimaryPadForMainController( void );
+int CL_STEFX_SplitScreen_LocalSlotForPad( int port );
+int CL_STEFX_SplitScreen_PadForLocalSlot( int localSlot );
 qboolean CL_STEFX_SplitScreen_ShouldReservePadForP2( int port, int mainController );
 qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles );
-qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles );
+qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles, float *zoomFov );
 #endif
 
 /*

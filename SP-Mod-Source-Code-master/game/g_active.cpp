@@ -379,6 +379,9 @@ static void STEFX_SmokeUnlockPlayerControl(gentity_t *ent, usercmd_t *ucmd)
 static void STEFX_SmokeReadyPlayerWeapon(gentity_t *ent, usercmd_t *ucmd)
 {
 	static int s_stefxSmokeReadyWeaponBudget = 32;
+	static int s_stefxSmokeLastServerTime = -1;
+	static int s_stefxSmokeLastAttackButtons = 0;
+	static qboolean s_stefxSmokeWeaponInitialized = qfalse;
 	gclient_t *client;
 	int oldWeapon;
 	int oldWeaponState;
@@ -390,6 +393,8 @@ static void STEFX_SmokeReadyPlayerWeapon(gentity_t *ent, usercmd_t *ucmd)
 	int oldAmmo = -9999;
 	int newAmmo = -9999;
 	int minAmmo;
+	int attackButtons;
+	qboolean resetReadyState;
 
 	if (!ent || !STEFX_SmokeShouldDrivePlayer(ent) || !ent->client || !ucmd)
 	{
@@ -405,6 +410,18 @@ static void STEFX_SmokeReadyPlayerWeapon(gentity_t *ent, usercmd_t *ucmd)
 	}
 
 	client = ent->client;
+	attackButtons = ucmd->buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK);
+	if (s_stefxSmokeLastServerTime > ucmd->serverTime)
+	{
+		s_stefxSmokeLastAttackButtons = 0;
+		s_stefxSmokeWeaponInitialized = qfalse;
+	}
+	resetReadyState = (qboolean)(!s_stefxSmokeWeaponInitialized ||
+		(attackButtons && !s_stefxSmokeLastAttackButtons));
+	s_stefxSmokeWeaponInitialized = qtrue;
+	s_stefxSmokeLastAttackButtons = attackButtons;
+	s_stefxSmokeLastServerTime = ucmd->serverTime;
+
 	oldWeapon = client->ps.weapon;
 	oldWeaponState = client->ps.weaponstate;
 	oldWeaponTime = client->ps.weaponTime;
@@ -426,9 +443,12 @@ static void STEFX_SmokeReadyPlayerWeapon(gentity_t *ent, usercmd_t *ucmd)
 	}
 
 	client->ps.pm_flags &= ~PMF_RESPAWNED;
-	client->ps.weaponTime = 0;
-	client->fireDelay = 0;
-	if (client->ps.weaponstate != WEAPON_READY && client->ps.weaponstate != WEAPON_FIRING)
+	if (resetReadyState)
+	{
+		client->ps.weaponTime = 0;
+		client->fireDelay = 0;
+	}
+	if (resetReadyState && client->ps.weaponstate != WEAPON_READY && client->ps.weaponstate != WEAPON_FIRING)
 	{
 		client->ps.weaponstate = WEAPON_READY;
 	}

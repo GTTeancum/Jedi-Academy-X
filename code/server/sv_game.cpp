@@ -543,7 +543,11 @@ int SV_BotAllocateClient( void )
 	if (Cvar_VariableIntegerValue("stefx_splitScreen") &&
 		!Q_stricmp(Cvar_VariableString("stefx_splitScreenMode"), "holomatch"))
 	{
-		firstBotClient = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+		firstBotClient = Cvar_VariableIntegerValue("stefx_hmHumanPlayers");
+		if (firstBotClient <= 0)
+		{
+			firstBotClient = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+		}
 		if (firstBotClient <= 0)
 		{
 			firstBotClient = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");

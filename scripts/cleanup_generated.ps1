@@ -2,6 +2,7 @@
 param(
     [string]$CurrentIso = "",
     [switch]$PreserveStage,
+    [switch]$RemoveHardwareStage,
     [switch]$Aggressive,
     [int]$KeepReports = 8,
     [int]$KeepLogs = 20,
@@ -47,12 +48,30 @@ function Remove-GeneratedItem {
                 $script:removedBytes += [int64]$measure.Sum
             }
         }
-        Remove-Item -LiteralPath $fullPath -Recurse -Force
+        # A staged file can disappear between PowerShell's recursive
+        # enumeration and deletion (for example while a prior packager handle
+        # is closing). Retry the exact, already repo-bounded root so a benign
+        # FileNotFound race cannot abort the next build or XEMU run.
+        for ($attempt = 0; $attempt -lt 3 -and (Test-Path -LiteralPath $fullPath); $attempt++) {
+            Remove-Item -LiteralPath $fullPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $fullPath) {
+            Remove-Item -LiteralPath $fullPath -Recurse -Force
+        }
     }
     else {
+        try {
+            Remove-Item -LiteralPath $fullPath -Force
+        }
+        catch {
+            # A running emulator may retain its mounted ISO until the user
+            # closes it.  Do not let that unrelated handle block packaging a
+            # replacement under a different final name.
+            Write-Warning "Could not remove in-use generated file: $fullPath"
+            return
+        }
         $script:removedFiles++
         $script:removedBytes += [int64]$item.Length
-        Remove-Item -LiteralPath $fullPath -Force
     }
 }
 
@@ -132,6 +151,7 @@ if (Test-Path -LiteralPath $xemuDir -PathType Container) {
 foreach ($relativePath in @(
     "build\proof",
     "build\proofs",
+    "build\temp",
     "build\tmp",
     "build\logs",
     "build\cxbx_runtime",
@@ -147,6 +167,24 @@ foreach ($relativePath in @(
     "build\release\default_baseline.xbe",
     "build\release\defaultx.xbe",
     "scripts\__pycache__"
+)) {
+    Remove-GeneratedItem -Path (Join-Path $repoRoot $relativePath)
+}
+
+if ($RemoveHardwareStage) {
+    Remove-GeneratedItem -Path (Join-Path $repoRoot "build\hardware")
+}
+
+foreach ($relativePath in @(
+    "same",
+    "set cg_thirdPerson 1",
+    "set cg_thirdPersonAngle 0",
+    "set cg_thirdPersonRange 80",
+    "set stefx_smoke_fasttime 0",
+    "set stefx_splitScreenMode coop",
+    "set stefx_splitScreenP2Entity -1",
+    "set stefx_splitScreenPlayers 2",
+    "set timescale 1"
 )) {
     Remove-GeneratedItem -Path (Join-Path $repoRoot $relativePath)
 }
@@ -224,6 +262,17 @@ if ($Aggressive) {
             Remove-GeneratedItem -Path $file.FullName
         }
     }
+}
+
+# The shipping movie path decodes the original retail BIK files directly.
+# Remove artifacts from the abandoned BIK-to-XMV experiment so packaging can
+# never prefer or accidentally retain a second generated movie set.
+$releaseVideoDir = Join-Path $repoRoot "build\release\BaseEF\video"
+if (Test-Path -LiteralPath $releaseVideoDir -PathType Container) {
+    foreach ($file in Get-ChildItem -LiteralPath $releaseVideoDir -File -Filter "*.xmv" -ErrorAction SilentlyContinue) {
+        Remove-GeneratedItem -Path $file.FullName
+    }
+    Remove-GeneratedItem -Path (Join-Path $releaseVideoDir "xbox_video_assets_manifest.json")
 }
 
 $removedGiB = [math]::Round(($removedBytes / 1GB), 2)

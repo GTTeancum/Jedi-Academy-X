@@ -80,10 +80,9 @@ static int R_STEFX_FirstPersonSplitSlotForRenderfx( int renderfx )
 }
 #endif
 
-static qboolean R_STEFX_ShouldHideHolomatchSplitSelfModel( const trRefEntity_t *ent, float *xyDistance, float *zDelta, const char **modelPart )
+static qboolean R_STEFX_ShouldHideHolomatchSplitSelfModel( const trRefEntity_t *ent, qboolean filterActive, float *xyDistance, float *zDelta, const char **modelPart )
 {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
-	const char *mode;
 	const char *part;
 	unsigned int modelHandle;
 	int expectedClientNum;
@@ -104,17 +103,7 @@ static qboolean R_STEFX_ShouldHideHolomatchSplitSelfModel( const trRefEntity_t *
 	{
 		*zDelta = 0.0f;
 	}
-	if ( !ent || g_SPXBSplitSlotActive <= 1 )
-	{
-		return qfalse;
-	}
-	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) ||
-		Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) < 3 )
-	{
-		return qfalse;
-	}
-	mode = Cvar_VariableString( "stefx_splitScreenMode" );
-	if ( !mode || Q_stricmp( mode, "holomatch" ) )
+	if ( !filterActive || !ent || g_SPXBSplitSlotActive <= 1 )
 	{
 		return qfalse;
 	}
@@ -177,6 +166,7 @@ static qboolean R_STEFX_ShouldHideHolomatchSplitSelfModel( const trRefEntity_t *
 	return ( dist2 <= ( 96.0f * 96.0f ) && dz >= -96.0f && dz <= 256.0f ) ? qtrue : qfalse;
 #else
 	(void)ent;
+	(void)filterActive;
 	(void)xyDistance;
 	(void)zDelta;
 	(void)modelPart;
@@ -184,13 +174,12 @@ static qboolean R_STEFX_ShouldHideHolomatchSplitSelfModel( const trRefEntity_t *
 #endif
 }
 
-static qboolean R_STEFX_ShouldHideHolomatchSplitWorldPhaser( const trRefEntity_t *ent )
+static qboolean R_STEFX_ShouldHideHolomatchSplitWorldPhaser( const trRefEntity_t *ent, qboolean filterActive )
 {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
 	int owner;
-	const char *mode;
 
-	if ( !ent || g_SPXBSplitSlotActive < 1 || g_SPXBSplitSlotActive > 4 ||
+	if ( !filterActive || !ent || g_SPXBSplitSlotActive < 1 || g_SPXBSplitSlotActive > 4 ||
 		( ent->e.renderfx & RF_FIRST_PERSON ) )
 	{
 		return qfalse;
@@ -199,19 +188,11 @@ static qboolean R_STEFX_ShouldHideHolomatchSplitWorldPhaser( const trRefEntity_t
 	{
 		return qfalse;
 	}
-	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
-	{
-		return qfalse;
-	}
-	mode = Cvar_VariableString( "stefx_splitScreenMode" );
-	if ( !mode || Q_stricmp( mode, "holomatch" ) )
-	{
-		return qfalse;
-	}
 	owner = ent->e.number - STEFX_REFENTITY_PHASER_BEAM_BASE;
 	return owner >= 0 && owner < 4 && owner == (int)g_SPXBSplitSlotActive - 1;
 #else
 	(void)ent;
+	(void)filterActive;
 	return qfalse;
 #endif
 }
@@ -1548,15 +1529,41 @@ R_AddEntitySurfaces
 void R_AddEntitySurfaces (void) {
 	trRefEntity_t	*ent;
 	shader_t		*shader;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	unsigned __int64 xboxEntityPhaseStart;
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_stefxSplitFirstPersonFilterBudget = 24;
 	static int s_stefxSplitSelfModelFilterBudget = 24;
 	static int s_stefxSplitPhaserWorldFilterBudget = 48;
+	static int s_stefxSplitEffectCullLogBudget = 16;
+	int stefxSplitOffscreenEffectsCulled = 0;
+	int stefxSplitDistantEffectsCulled = 0;
+	int stefxSplitDistantPickupsCulled = 0;
+	qboolean stefxSplitEconomyActive = qfalse;
+	qboolean stefxHolomatchSplitActive = qfalse;
+	qboolean stefxSplitSelfFilterActive = qfalse;
 #endif
 
 	if ( !r_drawentities->integer ) {
 		return;
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	{
+		const int splitPlayers = Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" );
+		const qboolean splitActive = Cvar_VariableIntegerValue( "stefx_splitScreen" ) && splitPlayers >= 2 ? qtrue : qfalse;
+		const char *splitMode = splitActive ? Cvar_VariableString( "stefx_splitScreenMode" ) : NULL;
+
+		stefxSplitEconomyActive = tr.viewParms.stefxSplitEconomy;
+#if defined(STEFX_SP_HOSTED_MP)
+		stefxHolomatchSplitActive = splitActive && splitMode && !Q_stricmp( splitMode, "holomatch" ) ? qtrue : qfalse;
+		stefxSplitSelfFilterActive = stefxHolomatchSplitActive && splitPlayers >= 2 ? qtrue : qfalse;
+#else
+		(void)splitMode;
+#endif
+	}
+#endif
 
 	for ( tr.currentEntityNum = 0; 
 	      tr.currentEntityNum < tr.refdef.num_entities; 
@@ -1564,7 +1571,7 @@ void R_AddEntitySurfaces (void) {
 		ent = tr.currentEntity = &tr.refdef.entities[tr.currentEntityNum];
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-		if ( R_STEFX_ShouldHideHolomatchSplitWorldPhaser( ent ) ) {
+		if ( R_STEFX_ShouldHideHolomatchSplitWorldPhaser( ent, stefxHolomatchSplitActive ) ) {
 			const unsigned int proofSlot = g_SPXBSplitSlotActive - 1;
 			++g_SPXBHMSplitPhaserWorldHidden[proofSlot];
 			if ( s_stefxSplitPhaserWorldFilterBudget > 0 ) {
@@ -1589,7 +1596,7 @@ void R_AddEntitySurfaces (void) {
 			float selfXyDistance;
 			float selfZDelta;
 			const char *selfModelPart;
-			if ( R_STEFX_ShouldHideHolomatchSplitSelfModel( ent, &selfXyDistance, &selfZDelta, &selfModelPart ) ) {
+			if ( R_STEFX_ShouldHideHolomatchSplitSelfModel( ent, stefxSplitSelfFilterActive, &selfXyDistance, &selfZDelta, &selfModelPart ) ) {
 				if ( g_SPXBSplitSlotActive > 0 && g_SPXBSplitSlotActive <= 4 ) {
 					const unsigned int proofSlot = g_SPXBSplitSlotActive - 1;
 					unsigned int partCode = 0;
@@ -1657,6 +1664,30 @@ void R_AddEntitySurfaces (void) {
 
 		ent->needDlights = qfalse;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( tr.viewParms.stefxSplitView && stefxSplitEconomyActive &&
+			( ent->e.reType == RT_SPRITE || ent->e.reType == RT_ORIENTED_QUAD
+#if defined(STEFX_SP_HOSTED_MP)
+				|| ent->e.reType == RT_EF_ORIENTED_SPRITE
+#endif
+			) )
+		{
+			if ( R_CullPointAndRadius( ent->e.origin,
+				ent->e.radius > 0.0f ? ent->e.radius : 1.0f ) == CULL_OUT )
+			{
+				++stefxSplitOffscreenEffectsCulled;
+				continue;
+			}
+			if ( tr.viewParms.stefxSplitThreePlusEconomy &&
+				DistanceSquared( ent->e.origin, tr.refdef.vieworg ) >
+					512.0f * 512.0f )
+			{
+				++stefxSplitDistantEffectsCulled;
+				continue;
+			}
+		}
+#endif
+
 		// preshift the value we are going to OR into the drawsurf sort
 		tr.shiftedEntityNum = tr.currentEntityNum << QSORT_ENTITYNUM_SHIFT;
 
@@ -1699,28 +1730,83 @@ void R_AddEntitySurfaces (void) {
 			if ( (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal) {
 				continue;
 			}
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			xboxEntityPhaseStart = g_SPXBPerfSampleActive ? STEFX_XboxReadTsc() : 0;
+#endif
 			shader = R_GetShaderByHandle( ent->e.customShader );
 			R_AddDrawSurf( &entitySurface, shader, R_SpriteFogNum( ent ), 0 );
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			if ( g_SPXBPerfSampleActive ) {
+				g_SPXBPerfEntitySimpleCycles += STEFX_XboxElapsedCycles( xboxEntityPhaseStart );
+				++g_SPXBPerfEntitySimpleCalls;
+			}
+#endif
 			break;
 
 		case RT_MODEL:
 			// we must set up parts of tr.or for model culling
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			xboxEntityPhaseStart = g_SPXBPerfSampleActive ? STEFX_XboxReadTsc() : 0;
+#endif
 			STEFX_RETAIL_SCOPE R_RotateForEntity( ent, &tr.viewParms, &tr.or );
 
 			tr.currentModel = R_GetModelByHandle( ent->e.hModel );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+			if ( tr.viewParms.stefxSplitThreePlusEconomy && tr.currentModel &&
+				!Q_stricmpn( tr.currentModel->name, "models/powerups/trek/", 21 ) &&
+				DistanceSquared( ent->e.origin, tr.refdef.vieworg ) >
+					640.0f * 640.0f )
+			{
+				++stefxSplitDistantPickupsCulled;
+				continue;
+			}
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+			if ( g_SPXBPerfSampleActive ) {
+				g_SPXBPerfEntityModelSetupCycles += STEFX_XboxElapsedCycles( xboxEntityPhaseStart );
+				++g_SPXBPerfEntityModelSetupCalls;
+			}
+#endif
 			if (!tr.currentModel) {
 				R_AddDrawSurf( &entitySurface, tr.defaultShader, 0, 0 );
 			} else {
 				switch ( tr.currentModel->type ) {
 				case MOD_MESH:
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+					xboxEntityPhaseStart = g_SPXBPerfSampleActive ? STEFX_XboxReadTsc() : 0;
+#endif
 					R_AddMD3Surfaces( ent );
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+					if ( g_SPXBPerfSampleActive ) {
+						g_SPXBPerfEntityMeshCycles += STEFX_XboxElapsedCycles( xboxEntityPhaseStart );
+						++g_SPXBPerfEntityMeshCalls;
+					}
+#endif
 					break;
 				case MOD_BRUSH:
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+					xboxEntityPhaseStart = g_SPXBPerfSampleActive ? STEFX_XboxReadTsc() : 0;
+#endif
 					STEFX_RETAIL_SCOPE R_AddBrushModelSurfaces( ent );
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+					if ( g_SPXBPerfSampleActive ) {
+						g_SPXBPerfEntityBrushCycles += STEFX_XboxElapsedCycles( xboxEntityPhaseStart );
+						++g_SPXBPerfEntityBrushCalls;
+					}
+#endif
 					break;
 #ifdef STEFX_ELITE_FORCE_SP
 				case MOD_MDR:
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+					xboxEntityPhaseStart = g_SPXBPerfSampleActive ? STEFX_XboxReadTsc() : 0;
+#endif
 					R_AddAnimSurfaces( ent );
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+					if ( g_SPXBPerfSampleActive ) {
+						g_SPXBPerfEntityAnimCycles += STEFX_XboxElapsedCycles( xboxEntityPhaseStart );
+						++g_SPXBPerfEntityAnimCalls;
+					}
+#endif
 					break;
 				case MOD_STEFX_MDR_PLACEHOLDER:
 					break;
@@ -1766,6 +1852,21 @@ Ghoul2 Insert End
 			Com_Error( ERR_DROP, "R_AddEntitySurfaces: Bad reType" );
 		}
 	}
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( ( stefxSplitOffscreenEffectsCulled > 0 ||
+		stefxSplitDistantEffectsCulled > 0 ||
+		stefxSplitDistantPickupsCulled > 0 ) &&
+		s_stefxSplitEffectCullLogBudget > 0 )
+	{
+		XBLog_WriteCriticalf( "STEFX_SPLIT_ECONOMY: offscreenEffectsCulled=%d distantEffectsCulled=%d distantPickupsCulled=%d effectDistance=512 pickupDistance=640 slot=%u",
+			stefxSplitOffscreenEffectsCulled,
+			stefxSplitDistantEffectsCulled,
+			stefxSplitDistantPickupsCulled,
+			g_SPXBSplitSlotActive > 0 ? g_SPXBSplitSlotActive - 1 : 0 );
+		--s_stefxSplitEffectCullLogBudget;
+	}
+#endif
 
 }
 

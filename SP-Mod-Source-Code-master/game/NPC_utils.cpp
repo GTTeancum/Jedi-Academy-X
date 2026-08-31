@@ -553,7 +553,17 @@ qboolean NPC_UpdateAngles ( qboolean doPitch, qboolean doYaw )
 
 	if(doSound)
 	{
-		G_Sound(NPC, G_SoundIndex(va("sound/enemies/borg/borgservo%d.wav", Q_irand(1, 8))));
+		const int servoIndex = Q_irand(1, 8);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		static int s_stefxBorgServoLogBudget = 32;
+		if ( s_stefxBorgServoLogBudget > 0 )
+		{
+			XBLF( "STEFX_BORG_FOLEY: servo ent=%d sound=%d yawSpeed=%g time=%d",
+				NPC ? NPC->s.number : -1, servoIndex, yawSpeed, level.time );
+			--s_stefxBorgServoLogBudget;
+		}
+#endif
+		G_Sound(NPC, G_SoundIndex(va("sound/enemies/borg/borgservo%d.wav", servoIndex)));
 	}
 
 	return exact;

@@ -14,6 +14,9 @@
 #include "g_vehicles.h"
 #ifdef _XBOX
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBGameWeaponFireStage;
+extern "C" volatile unsigned int g_SPXBGameWeaponFireEntity;
+extern "C" volatile unsigned int g_SPXBGameWeaponFireWeaponAlt;
 #endif
 
 static	vec3_t	forward, vright, up;
@@ -4894,6 +4897,13 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 	float alert = 256;
 	Vehicle_t *pVeh = NULL;
 
+#ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x47460000; /* 'GF00': entry */
+	g_SPXBGameWeaponFireEntity = ent ? (unsigned int)ent->s.number : 0xffffffff;
+	g_SPXBGameWeaponFireWeaponAlt = ent ?
+		((unsigned int)(ent->s.weapon & 0xffff) | (alt_fire ? 0x80000000u : 0u)) : 0xffffffff;
+#endif
+
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if ( ent && ent->client )
 	{
@@ -5114,6 +5124,9 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 	}
 
 	// fire the specific weapon
+#ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x47461000 | (unsigned int)(ent->s.weapon & 0xff); /* 'GF1w': weapon dispatch */
+#endif
 	switch( ent->s.weapon ) 
 	{
 	// Player weapons
@@ -5281,6 +5294,10 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 		break;
 	}
 
+#ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x47462000 | (unsigned int)(ent->s.weapon & 0xff); /* 'GF2w': weapon returned */
+#endif
+
 	if ( !ent->s.number )
 	{
 		if ( ent->s.weapon == WP_FLECHETTE || (ent->s.weapon == WP_BOWCASTER && !alt_fire) )
@@ -5310,6 +5327,9 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 		}
 		AddSightEvent( ent, muzzle, alert*2, AEL_DISCOVERED, 20 );
 	}
+#ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x4746FFFF; /* 'GFff': complete */
+#endif
 }
 
 //NOTE: Emplaced gun moved to g_emplaced.cpp

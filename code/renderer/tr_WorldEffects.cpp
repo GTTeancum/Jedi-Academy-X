@@ -31,6 +31,7 @@ extern void			SetViewportAndScissor( void );
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBClTailStage;
 #endif
 
 #ifndef CONTENTS_OUTSIDE
@@ -77,27 +78,12 @@ CVec3		mGlobalWindDirection;
 float		mGlobalWindSpeed;
 int			mParticlesRendered;
 
-#ifdef _XBOX
+#if defined(_XBOX) && !defined(STEFX_ELITE_FORCE_SP)
 static cvar_t	*r_xboxWorldEffects;
 
-static int R_STEFX_ClampSplitPlayersForEconomy( int players )
+static qboolean R_STEFX_SplitScreenEconomyActive( void )
 {
-	if ( players < 1 )
-	{
-		return 1;
-	}
-	if ( players > 4 )
-	{
-		return 4;
-	}
-	return players;
-}
-
-static qboolean R_STEFX_Holomatch4PEconomyActive( void )
-{
-	const char *mode;
-
-	if ( !Cvar_VariableIntegerValue( "stefx_hm_split_economy" ) )
+	if ( !Cvar_VariableIntegerValue( "r_splitScreenEconomy" ) )
 	{
 		return qfalse;
 	}
@@ -105,13 +91,10 @@ static qboolean R_STEFX_Holomatch4PEconomyActive( void )
 	{
 		return qfalse;
 	}
-	mode = Cvar_VariableString( "stefx_splitScreenMode" );
-	if ( !mode || Q_stricmp( mode, "holomatch" ) )
-	{
-		return qfalse;
-	}
-	return R_STEFX_ClampSplitPlayersForEconomy( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) >= 4 ? qtrue : qfalse;
+	return Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) >= 2 ? qtrue : qfalse;
 }
+#elif defined(_XBOX)
+static cvar_t	*r_xboxWorldEffects;
 #endif
 
 
@@ -1785,10 +1768,31 @@ void R_ShutdownWorldEffects(void)
 void RB_RenderWorldEffects(void)
 { 
 #ifdef _XBOX
+	g_SPXBClTailStage = 0x57463030; /* 'WF00' */
+#if defined(STEFX_ELITE_FORCE_SP)
+	if (backEnd.viewParms.stefxSplitEconomy)
+#else
+	if (R_STEFX_SplitScreenEconomyActive())
+#endif
+	{
+		static qboolean s_stefxLoggedSplitEconomyWorldEffects = qfalse;
+		if (!s_stefxLoggedSplitEconomyWorldEffects)
+		{
+			XBLog_Write("STEFX_SPLIT_ECONOMY: worldEffectsSkipped");
+			s_stefxLoggedSplitEconomyWorldEffects = qtrue;
+		}
+		g_SPXBClTailStage = 0x57464631; /* 'WFF1' */
+		return;
+	}
+	g_SPXBClTailStage = 0x57463035; /* 'WF05' */
+
 	if (!r_xboxWorldEffects)
 	{
+		g_SPXBClTailStage = 0x57463031; /* 'WF01' */
 		r_xboxWorldEffects = Cvar_Get("r_xboxWorldEffects", "1", CVAR_ARCHIVE);
+		g_SPXBClTailStage = 0x57463032; /* 'WF02' */
 	}
+	g_SPXBClTailStage = 0x57463033; /* 'WF03' */
 	if (r_xboxWorldEffects && !r_xboxWorldEffects->integer)
 	{
 		static qboolean s_xboxLoggedWorldEffectsDisabled = qfalse;
@@ -1797,26 +1801,24 @@ void RB_RenderWorldEffects(void)
 			XBLog_Write("JA: RB_RenderWorldEffects disabled by r_xboxWorldEffects");
 			s_xboxLoggedWorldEffectsDisabled = qtrue;
 		}
+		g_SPXBClTailStage = 0x57464630; /* 'WFF0' */
 		return;
 	}
-	if (R_STEFX_Holomatch4PEconomyActive())
-	{
-		static qboolean s_stefxLoggedSplitEconomyWorldEffects = qfalse;
-		if (!s_stefxLoggedSplitEconomyWorldEffects)
-		{
-			XBLog_Write("STEFX_HM_SPLIT_ECONOMY: worldEffectsSkipped");
-			s_stefxLoggedSplitEconomyWorldEffects = qtrue;
-		}
-		return;
-	}
+	g_SPXBClTailStage = 0x57463034; /* 'WF04' */
 #endif
 
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x57463036; /* 'WF06' */
+	#endif
 	if (!tr.world || 
 		(tr.refdef.rdflags & RDF_NOWORLDMODEL) || 
 		(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL) || 
 		!mParticleClouds.size() ||
 		CL_IsRunningInGameCinematic()) 
 	{	//  no world rendering or no world or no particle clouds
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57464632; /* 'WFF2' */
+		#endif
 		return;
 	}
 
@@ -1827,9 +1829,13 @@ void RB_RenderWorldEffects(void)
 		XBLF("JA: RB_RenderWorldEffects active on Xbox clouds=%d", mParticleClouds.size());
 		s_xboxLoggedWorldEffectsActive = qtrue;
 	}
+	g_SPXBClTailStage = 0x57463037; /* 'WF07' */
 #endif
 
 	SetViewportAndScissor();
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x57463038; /* 'WF08' */
+	#endif
 	glMatrixMode(GL_MODELVIEW);
 	glLoadMatrixf(backEnd.viewParms.world.modelMatrix);
 
@@ -1852,7 +1858,13 @@ void RB_RenderWorldEffects(void)
 	//----------------------------------------
 	if (!mOutside.Initialized())
 	{
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57463130; /* 'WF10' */
+		#endif
 		mOutside.Cache();
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57463131; /* 'WF11' */
+		#endif
 	}
 	else
 	{
@@ -1878,7 +1890,13 @@ void RB_RenderWorldEffects(void)
 		mParticlesRendered = 0;
 		for (int i=0; i<mParticleClouds.size(); i++)
 		{			
+			#ifdef _XBOX
+			g_SPXBClTailStage = 0x57462000 | (unsigned int)(i & 0xffff); /* 'WF'+cloud */
+			#endif
 			mParticleClouds[i].Update();
+			#ifdef _XBOX
+			g_SPXBClTailStage = 0x57552000 | (unsigned int)(i & 0xffff); /* 'WU'+cloud */
+			#endif
 			mParticleClouds[i].Render();
 		}
 		if (false)

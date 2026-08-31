@@ -4,7 +4,8 @@
 #include "../game/q_shared.h"
 #include "qcommon.h"
 
-#define SETTINGS_VERSION	0x00082877
+#define SETTINGS_VERSION_LEGACY	0x00082877
+#define SETTINGS_VERSION		0x00082901
 #define SETTINGS_DIRNAME	"Settings"
 #define SETTINGS_FILENAME	"settings.dat"
 #define SETTINGS_IMAGE		"saveimage.xbx"
@@ -14,6 +15,42 @@
 XBSettings Settings;
 const DWORD settingsSize = sizeof(Settings);
 const DWORD sigSize = sizeof(XCALCSIG_SIGNATURE);
+
+// Preserve the exact pre-screen-calibration layout so existing signed settings
+// can be migrated instead of being reported as corrupt solely due to growth.
+struct XBSettingsLegacy082877
+{
+	unsigned long version;
+	bool invertAim[2];
+	int thumbstickMode[2];
+	int buttonMode[2];
+	int triggerMode[2];
+	int rumble[2];
+	int autolevel[2];
+	int autoswitch[2];
+	float sensitivityX[2];
+	float sensitivityY[2];
+	int hotswapSP[3];
+	int hotswapMP[4];
+	float effectsVolume;
+	float musicVolume;
+	float voiceVolume;
+	float brightness;
+	int subtitles;
+	int voiceMode;
+	int voiceMask;
+	int appearOffline;
+};
+
+static bool XBSettingsSignBytes(const void *data, DWORD size, XCALCSIG_SIGNATURE *signature)
+{
+	HANDLE signatureHandle = XCalculateSignatureBegin(0);
+	if (signatureHandle == INVALID_HANDLE_VALUE)
+		return false;
+	if (XCalculateSignatureUpdate(signatureHandle, (BYTE *)data, size) != ERROR_SUCCESS)
+		return false;
+	return XCalculateSignatureEnd(signatureHandle, signature) == ERROR_SUCCESS;
+}
 
 // This isn't user data, don't put it in XBSettings!
 enum XBSettingsStatus
@@ -63,6 +100,10 @@ XBSettings::XBSettings( void )
 	musicVolume = 0.25f;
 	voiceVolume = 1.0f;
 	brightness = 6.0f;
+	safeAreaLeft = 0;
+	safeAreaTop = 0;
+	safeAreaRight = 0;
+	safeAreaBottom = 0;
 
 	subtitles = 0;
 
@@ -185,12 +226,61 @@ bool XBSettings::Load( void )
 		return false;
 	}
 
-	// Verify file size:
-	if( GetFileSize( hFile, NULL ) != (settingsSize + sigSize) )
+	DWORD fileSize = GetFileSize(hFile, NULL);
+	DWORD legacySettingsSize = sizeof(XBSettingsLegacy082877);
+	bool legacyLayout = fileSize == legacySettingsSize + sigSize;
+
+	// Verify file size. The one older supported layout is migrated below.
+	if( fileSize != (settingsSize + sigSize) && !legacyLayout )
 	{
 		SettingsStatus = SETTINGS_CORRUPT;
 		CloseHandle( hFile );
 		return false;
+	}
+
+	if (legacyLayout)
+	{
+		XBSettingsLegacy082877 legacy;
+		XCALCSIG_SIGNATURE calculatedSig;
+		XCALCSIG_SIGNATURE storedSig;
+		if (!ReadFile(hFile, &legacy, legacySettingsSize, &dwRead, NULL) || dwRead != legacySettingsSize ||
+			!XBSettingsSignBytes(&legacy, legacySettingsSize, &calculatedSig) ||
+			!ReadFile(hFile, &storedSig, sigSize, &dwRead, NULL) || dwRead != sigSize)
+		{
+			SettingsStatus = SETTINGS_CORRUPT;
+			CloseHandle(hFile);
+			return false;
+		}
+		CloseHandle(hFile);
+		if (memcmp(&calculatedSig, &storedSig, sigSize) != 0 || legacy.version != SETTINGS_VERSION_LEGACY)
+		{
+			SettingsStatus = SETTINGS_CORRUPT;
+			return false;
+		}
+
+		version = SETTINGS_VERSION;
+		memcpy(invertAim, legacy.invertAim, sizeof(invertAim));
+		memcpy(thumbstickMode, legacy.thumbstickMode, sizeof(thumbstickMode));
+		memcpy(buttonMode, legacy.buttonMode, sizeof(buttonMode));
+		memcpy(triggerMode, legacy.triggerMode, sizeof(triggerMode));
+		memcpy(rumble, legacy.rumble, sizeof(rumble));
+		memcpy(autolevel, legacy.autolevel, sizeof(autolevel));
+		memcpy(autoswitch, legacy.autoswitch, sizeof(autoswitch));
+		memcpy(sensitivityX, legacy.sensitivityX, sizeof(sensitivityX));
+		memcpy(sensitivityY, legacy.sensitivityY, sizeof(sensitivityY));
+		memcpy(hotswapSP, legacy.hotswapSP, sizeof(hotswapSP));
+		memcpy(hotswapMP, legacy.hotswapMP, sizeof(hotswapMP));
+		effectsVolume = legacy.effectsVolume;
+		musicVolume = legacy.musicVolume;
+		voiceVolume = legacy.voiceVolume;
+		brightness = legacy.brightness;
+		safeAreaLeft = safeAreaTop = safeAreaRight = safeAreaBottom = 0;
+		subtitles = legacy.subtitles;
+		voiceMode = legacy.voiceMode;
+		voiceMask = legacy.voiceMask;
+		appearOffline = legacy.appearOffline;
+		SettingsStatus = SETTINGS_OK;
+		return true;
 	}
 
 	// Temp struct to read data into:
@@ -310,6 +400,10 @@ void XBSettings::SetAll( void )
 	Cvar_SetValue( "s_music_volume", musicVolume );
 	Cvar_SetValue( "s_voice_volume", voiceVolume );
 	Cvar_SetValue( "s_brightness_volume", brightness );
+	Cvar_SetValue( "stefx_safeAreaLeft", safeAreaLeft );
+	Cvar_SetValue( "stefx_safeAreaTop", safeAreaTop );
+	Cvar_SetValue( "stefx_safeAreaRight", safeAreaRight );
+	Cvar_SetValue( "stefx_safeAreaBottom", safeAreaBottom );
 	extern void GLimp_SetGamma(float);
 	GLimp_SetGamma(Cvar_VariableValue( "s_brightness_volume" ) / 5.0f);
 
@@ -342,6 +436,10 @@ void XBSettings::RestoreDefaults( void )
 	musicVolume = 0.25f;
 	voiceVolume = 1.0f;
 	brightness = 6.0f;
+	safeAreaLeft = 0;
+	safeAreaTop = 0;
+	safeAreaRight = 0;
+	safeAreaBottom = 0;
 
 	subtitles = 0;
 
@@ -359,21 +457,7 @@ void XBSettings::RestoreDefaults( void )
 // Utility - signs the current contents of this XBSettings into the supplied struct:
 bool XBSettings::Sign( XCALCSIG_SIGNATURE *pSig )
 {
-	// Start the signature:
-	HANDLE hSig = XCalculateSignatureBegin( 0 );
-	if( hSig == INVALID_HANDLE_VALUE )
-		return false;
-
-	// Build the signature
-	if( XCalculateSignatureUpdate( hSig, (BYTE *) this, sizeof(*this) ) != ERROR_SUCCESS )
-		return false;
-
-	// Finish the signature:
-	if( XCalculateSignatureEnd( hSig, pSig ) != ERROR_SUCCESS )
-		return false;
-
-	// Done!
-	return true;
+	return XBSettingsSignBytes(this, sizeof(*this), pSig);
 }
 
 // Master switch for turning off settings when user picks

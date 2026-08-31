@@ -27,6 +27,19 @@
 #define GLW_MAX_TEXTURE_STAGES 2
 #define GLW_MAX_STRIPS 2048
 
+// The SP-hosted Holomatch renderer keeps a small frame-local mirror of the
+// two fixed-function texture stages.  Special D3D paths call this before
+// changing stage state directly so the next ordinary draw re-emits it.
+void STEFX_D3D8_InvalidateTextureStageCache( void );
+
+// Track every native D3D8 vertex-shader/FVF change so three/four-player
+// Holomatch can safely avoid identical consecutive fixed-function requests.
+HRESULT STEFX_D3D8_SetVertexShaderTracked( DWORD shader );
+
+// The native push-buffer paths all use stream zero with an inline (NULL)
+// source. Track its stride for the same three/four-player state economy.
+HRESULT STEFX_D3D8_SetStreamSourceZeroTracked( UINT stride );
+
 
 struct glwstate_t
 {
@@ -154,6 +167,9 @@ struct glwstate_t
 
 	// Description of current shader
 	DWORD shaderMask;
+	bool shaderMaskValid;
+	DWORD streamSourceZeroStride;
+	bool streamSourceZeroValid;
 
 	// Should we reset matrices on next draw?
 	bool matricesDirty[Num_MatrixModes];

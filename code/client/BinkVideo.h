@@ -14,6 +14,12 @@ typedef enum {
 	NS_BV_STOPPED,		// Movie is stopped
 };
 
+struct OVERLAYINFO
+{
+	D3DTexture *texture;
+	D3DSurface *surface;
+};
+
 class BinkVideo
 {
 private:
@@ -32,11 +38,15 @@ private:
 
 	bool	stopNextFrame;		// Used to stop movies with *correct* timing
 
+	OVERLAYINFO	Image[2];
+	void		*overlayMemory[2];
+	unsigned	currentImage;
 
 	bool	initialized;
 
-	void	DrawFrameBuffer( void );
-	S32		DecompressFrameToBuffer( void );
+	void	Draw( OVERLAYINFO *oi, bool dirty );
+	S32		DecompressFrame( OVERLAYINFO *oi );
+	void	ReleaseOverlay( void );
 
 public:
 

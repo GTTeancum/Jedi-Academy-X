@@ -21,6 +21,19 @@
 
 #include "shader_constants.h"
 
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBEndSurfaceStage;
+#endif
+
+#if defined(STEFX_RETAIL_RENDERER_ACTIVE)
+extern int R_STEFX_FogModeForView( void );
+#else
+static int R_STEFX_FogModeForView( void )
+{
+	return r_drawfog->integer;
+}
+#endif
+
 
 LightEffects::LightEffects()
 {
@@ -273,8 +286,18 @@ bool LightEffects::RenderDynamicLights()
 	vec3_t	normal;
 	float	fac;
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C450000; /* 'LE00': vertex-light entry */
+#endif
+
 	if(!backEnd.refdef.num_dlights)
 		return true;
+
+	STEFX_D3D8_InvalidateTextureStageCache();
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C450001; /* 'LE01': cache invalidated */
+#endif
 
 	glw_state->device->SetRenderState( D3DRS_LIGHTING,         FALSE );   
     
@@ -297,16 +320,27 @@ bool LightEffects::RenderDynamicLights()
 	glw_state->device->SetTextureStageState( 3, D3DTSS_MIPFILTER, D3DTEXF_POINT );
 
 	glw_state->device->SetTextureStageState( 2, D3DTSS_ALPHAKILL, D3DTALPHAKILL_ENABLE);
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C450002; /* 'LE02': texture states ready */
+#endif
 	
 	glw_state->device->SetTexture(1, m_pBumpMap); 
 	glw_state->device->SetTexture(2, m_pFalloffMap);
 	glw_state->device->SetTexture(3, m_pCubeMap);
 	
 	glw_state->device->SetPixelShader(m_dwPixelShaderLight);
-	glw_state->device->SetVertexShader(m_dwVertexShaderLight);
+	STEFX_D3D8_SetVertexShaderTracked(m_dwVertexShaderLight);
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C450003; /* 'LE03': shaders ready */
+#endif
 
 	for(int l = 0; l < backEnd.refdef.num_dlights; l++)
 	{  
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C451000 | (unsigned int)(l & 0xff); /* 'LE1x': light entry */
+#endif
 		if(!(tess.dlightBits & (1 << l)))  
 			continue;
 
@@ -356,6 +390,10 @@ bool LightEffects::RenderDynamicLights()
 		{
 			continue;	// this surface doesn't have any of this light
 		}
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C452000 | (unsigned int)(l & 0xff); /* 'LE2x': build triangles */
+#endif
 		
 		// build a list of triangles that need light
 		numIndexes = 0;
@@ -399,9 +437,13 @@ bool LightEffects::RenderDynamicLights()
 			continue;
 		}
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C453000 | (unsigned int)(l & 0xff); /* 'LE3x': configure overlay */
+#endif
+
 		//don't have fog enabled when we redraw with alpha test, or it will double over
 		//and screw the tri up -rww
-		if (r_drawfog->value == 2 && 
+		if (R_STEFX_FogModeForView() == 2 &&
 			tr.world &&
 			(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 		{
@@ -456,18 +498,48 @@ bool LightEffects::RenderDynamicLights()
 			GL_State( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ONE);// | GLS_DEPTHFUNC_EQUAL );
 		}
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C454000 | (unsigned int)(l & 0xff); /* 'LE4x': find base texture */
+#endif
+
 		glwstate_t::texturexlat_t::iterator inf = glw_state->textureXlat.find(glw_state->currentTexture[0]);
 
 		glw_state->device->SetTexture(0, inf->second.mipmap);
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C455000 | (unsigned int)(l & 0xff); /* 'LE5x': constants */
+#endif
+
 		D3DXVECTOR4 vecLightRange(1.0f / dl->radius, 0.0f, 0.0f, 0.0f);
 		glw_state->device->SetVertexShaderConstant(CV_ONE_OVER_LIGHT_RANGE, (void*)&vecLightRange.x, 1);
 
-		glw_state->device->SetPixelShaderConstant(CP_DIFFUSE_COLOR, &dl->color[0], 1);
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C455100 | (unsigned int)(l & 0xff); /* 'LEQx': light range ready */
+#endif
+
+		/* Xbox SetPixelShaderConstant uploads a full float4 for each count.
+		 * dlight_t::color is only a vec3, so passing its address made the D3D
+		 * runtime read one float beyond the color field.  Projectile lights can
+		 * place that over-read at an unsafe boundary and wedge XEMU in the
+		 * constant upload. */
+		D3DXVECTOR4 vecDiffuseColor(dl->color[0], dl->color[1], dl->color[2], 1.0f);
+		glw_state->device->SetPixelShaderConstant(CP_DIFFUSE_COLOR, &vecDiffuseColor.x, 1);
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C455200 | (unsigned int)(l & 0xff); /* 'LERx': diffuse color ready */
+#endif
 
 		ProcessVertices( (D3DXVECTOR3*)&dl->transformed );
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C456000 | (unsigned int)(l & 0xff); /* 'LE6x': pre-draw */
+#endif
+
 		renderObject_Light( numIndexes, hitIndexes );
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x4C457000 | (unsigned int)(l & 0xff); /* 'LE7x': draw returned */
+#endif
 
 		if (fogging)
 		{
@@ -486,6 +558,10 @@ bool LightEffects::RenderDynamicLights()
 	glw_state->currentTexture[1] = -2;
 
 	glw_state->device->SetTextureStageState( 2, D3DTSS_ALPHAKILL, D3DTALPHAKILL_DISABLE);
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C4500FF; /* 'LEFF': vertex-light complete */
+#endif
 	
 	return true;
 }
@@ -623,7 +699,7 @@ bool LightEffects::RenderEnvironment()
 
 	ProcessVertices(NULL);
 
-	glw_state->device->SetVertexShader(m_dwVertexShaderEnvironment);
+	STEFX_D3D8_SetVertexShaderTracked(m_dwVertexShaderEnvironment);
 
 	renderObject_Env();
 
@@ -634,6 +710,7 @@ bool LightEffects::RenderEnvironment()
 // Renders bump maps without the benefit of dynamic lights
 void LightEffects::RenderBump()
 {
+	STEFX_D3D8_InvalidateTextureStageCache();
 	glw_state->device->SetRenderState( D3DRS_LIGHTING, false );
 	glw_state->device->SetRenderState( D3DRS_FOGENABLE, false );
 
@@ -660,7 +737,7 @@ void LightEffects::RenderBump()
 	glw_state->device->SetRenderState(D3DRS_SPECULARENABLE, true);
 
 	glw_state->device->SetPixelShader(m_dwPixelShaderBump);
-	glw_state->device->SetVertexShader(m_dwVertexShaderBump);
+	STEFX_D3D8_SetVertexShaderTracked(m_dwVertexShaderBump);
 
 	ProcessVertices(NULL);
 
@@ -757,8 +834,16 @@ void LightEffects::RenderBump()
 void LightEffects::ProcessVertices( D3DXVECTOR3* pPtLightPos )
 {
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455300; /* 'LES0': process vertices entry */
+#endif
+
 	// Just in case, this doesn't always get set
 	glw_state->device->SetTransform( D3DTS_PROJECTION, glw_state->matrixStack[glw_state->MatrixMode_Projection]->GetTop() );
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455400; /* 'LET0': projection transform ready */
+#endif
 
 	// Compute the matrix set
     XGMATRIX matComposite, matProjectionViewport, matWorld;
@@ -767,8 +852,16 @@ void LightEffects::ProcessVertices( D3DXVECTOR3* pPtLightPos )
 	// appropriate z scale.
 	glw_state->device->GetProjectionViewportMatrix( &matProjectionViewport );
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455500; /* 'LEU0': projection viewport ready */
+#endif
+
 	D3DVIEWPORT8 view;
 	glw_state->device->GetViewport(&view);
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455600; /* 'LEV0': viewport ready */
+#endif
 
 	// Gotta do this to fix an XDK bug
 	// GetProjectionViewportMatrix does not seem to reflect the viewport values
@@ -782,16 +875,32 @@ void LightEffects::ProcessVertices( D3DXVECTOR3* pPtLightPos )
 	XGMatrixTranspose( &matComposite, &matComposite );
 	glw_state->device->SetVertexShaderConstant( CV_WORLDVIEWPROJ_0, &matComposite, 4 );
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455700; /* 'LEW0': world-view-projection ready */
+#endif
+
 	if (pPtLightPos)
 		glw_state->device->SetVertexShaderConstant( CV_LIGHT_POSITION, pPtLightPos,  1 );
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455800; /* 'LEX0': light position ready */
+#endif
 
 	// Set viewport offsets.
 	float fViewportOffsets[4] = { 0.53125f, 0.53125f, 0.0f, 0.0f };
 	glw_state->device->SetVertexShaderConstant( CV_VIEWPORT_OFFSETS, &fViewportOffsets, 1 );
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455900; /* 'LEY0': viewport offsets ready */
+#endif
+
 	// Set common constants
 	glw_state->device->SetVertexShaderConstant(CV_ONE, D3DXVECTOR4(1.0f, 1.0f, 1.0f, 1.0f), 1);
 	glw_state->device->SetVertexShaderConstant(CV_HALF, D3DXVECTOR4(0.5f, 0.5f, 0.5f, 0.5f), 1);
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x4C455A00; /* 'LEZ0': process vertices complete */
+#endif
 }
 
 

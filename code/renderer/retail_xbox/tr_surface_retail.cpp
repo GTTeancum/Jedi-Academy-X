@@ -12,41 +12,6 @@
 
 STEFX_RETAIL_NAMESPACE_BEGIN
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-static int R_STEFX_ClampSplitPlayersForEconomy( int players )
-{
-	if ( players < 1 )
-	{
-		return 1;
-	}
-	if ( players > 4 )
-	{
-		return 4;
-	}
-	return players;
-}
-
-static qboolean R_STEFX_Holomatch4PEconomyActive( void )
-{
-	const char *mode;
-
-	if ( !Cvar_VariableIntegerValue( "stefx_hm_split_economy" ) )
-	{
-		return qfalse;
-	}
-	if ( !Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
-	{
-		return qfalse;
-	}
-	mode = Cvar_VariableString( "stefx_splitScreenMode" );
-	if ( !mode || Q_stricmp( mode, "holomatch" ) )
-	{
-		return qfalse;
-	}
-	return R_STEFX_ClampSplitPlayersForEconomy( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) >= 4 ? qtrue : qfalse;
-}
-#endif
-
 /*
 
   THIS ENTIRE FILE IS BACK END
@@ -1608,6 +1573,18 @@ static float	LodErrorForVolume( vec3_t local, float radius ) {
 		d = 1;
 	}
 
+	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( backEnd.viewParms.stefxSplitEconomy )
+	{
+		static qboolean s_stefxLoggedSplitCurveLod = qfalse;
+		if ( !s_stefxLoggedSplitCurveLod )
+		{
+			XBLog_Write( "STEFX_SPLIT_ECONOMY: curveLodScale=0.5" );
+			s_stefxLoggedSplitCurveLod = qtrue;
+		}
+		return ( r_lodCurveError->value * 0.5f ) / d;
+	}
+	#endif
 	return r_lodCurveError->value / d;
 }
 
@@ -1990,7 +1967,7 @@ static bool RB_TestZFlare( vec3_t point) {
 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
 	glw_state->device->SetTransform(D3DTS_VIEW, 
 			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
-	glw_state->device->SetVertexShader(D3DFVF_XYZ);
+	STEFX_D3D8_SetVertexShaderTracked(D3DFVF_XYZ);
 
 	glw_state->device->BeginVisibilityTest();
 	glw_state->device->Begin(D3DPT_POINTLIST);
@@ -2035,12 +2012,12 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 		return;
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	if ( backEnd.viewParms.stefxSplitView && R_STEFX_Holomatch4PEconomyActive() )
+	if ( backEnd.viewParms.stefxSplitEconomy )
 	{
 		static int s_stefxSplitEconomyFlareLogBudget = 8;
 		if ( s_stefxSplitEconomyFlareLogBudget > 0 )
 		{
-			XBLog_WriteCriticalf( "STEFX_HM_SPLIT_ECONOMY: flareSkipped slot=%d", backEnd.viewParms.stefxSplitSlot );
+			XBLog_WriteCriticalf( "STEFX_SPLIT_ECONOMY: flareSkipped slot=%d", backEnd.viewParms.stefxSplitSlot );
 			--s_stefxSplitEconomyFlareLogBudget;
 		}
 		return;

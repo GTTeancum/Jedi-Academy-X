@@ -9,6 +9,7 @@
 #include "snd_ambient.h"
 #ifdef _XBOX
 #include "snd_local_console.h"
+#include "../win32/xb_log.h"
 #else
 #include "snd_local.h"
 #endif
@@ -812,13 +813,7 @@ Called on the client side to load and precache all the ambient sound sets
 void AS_ParseSets( void )
 {
 #ifdef _XBOX
-	static qboolean s_xboxAmbientDisabledLogged = qfalse;
-	if (!s_xboxAmbientDisabledLogged)
-	{
-		Com_Printf("JA: Xbox ambient audio disabled for current smoke path.\n");
-		s_xboxAmbientDisabledLogged = qtrue;
-	}
-	return;
+	XBLog_WriteCriticalf("STEFX_AMBIENT: parse begin precache=%d", pMap ? (int)pMap->size() : -1);
 #endif
 
 	cvar_t	*cv = Cvar_Get ("s_initsound", "1", CVAR_ROM);
@@ -830,6 +825,9 @@ void AS_ParseSets( void )
 	//Parse all the sets
 	if ( AS_ParseFile( AMBIENT_SET_FILENAME, aSets ) == qfalse )
 	{
+#ifdef _XBOX
+		XBLog_WriteCriticalf("STEFX_AMBIENT: parse failed file='%s'", AMBIENT_SET_FILENAME);
+#endif
 		Com_Error ( ERR_FATAL, S_COLOR_RED"ERROR: Couldn't load ambient sound sets from %s", AMBIENT_SET_FILENAME );
 	}
 
@@ -850,8 +848,16 @@ void AS_ParseSets( void )
 
 	if (iErrorsOccured)
 	{
+#ifdef _XBOX
+		XBLog_WriteCriticalf("STEFX_AMBIENT: parse missing=%d precache=%d", iErrorsOccured, (int)pMap->size());
+#endif
 		Com_Error( ERR_DROP, "....%d missing sound sets! (see above)\n", iErrorsOccured);
 	}
+
+#ifdef _XBOX
+	XBLog_WriteCriticalf("STEFX_AMBIENT: parse complete declarations=%d precache=%d missing=%d",
+		numSets, (int)pMap->size(), iErrorsOccured);
+#endif
 
 //	//Done with the precache info, it will be rebuilt on a restart
 //	pMap->clear();	// do NOT do this here now
@@ -1033,6 +1039,11 @@ static void AS_PlayLocalSet( vec3_t listener_origin, vec3_t origin, ambientSet_t
 	distScale	= ( dist < ( set->radius * 0.5f ) ) ? 1 : ( set->radius - dist ) / ( set->radius * 0.5f );
 	volume		= ( distScale > 1.0f || distScale < 0.0f ) ? 0 : (unsigned char) ( set->masterVolume * distScale );
 
+	// Do not start streaming local sounds until the listener is inside their
+	// audible radius.  Large maps can otherwise queue every local loop at once.
+	if ( volume == 0 )
+		return;
+
 	//Add the looping sound
 	if ( set->loopedWave )
 		S_AddAmbientLoopingSound( origin, volume, set->loopedWave );
@@ -1107,18 +1118,49 @@ Does maintenance and plays the ambient sets (two if crossfading)
 void S_UpdateAmbientSet ( const char *name, vec3_t origin ) 
 {
 #ifdef _XBOX
-	return;
+	static int s_xboxAmbientUpdateLogBudget = 16;
 #endif
 
 	ambientSet_t	*current, *old;
 	if (aSets == NULL)
 	{
+#ifdef _XBOX
+		if (s_xboxAmbientUpdateLogBudget > 0)
+		{
+			XBLog_WriteRingMarkerf("STEFX_AMBIENT: update missing registry name='%s'", name ? name : "<null>");
+			--s_xboxAmbientUpdateLogBudget;
+		}
+#endif
 		return;
 	}
 	ambientSet_t	*set = aSets->GetSet( name );
 	
 	if ( set == NULL )
+	{
+#ifdef _XBOX
+		// Maps without a worldspawn soundSet use "default" until an ambient
+		// trigger selects a real set.  That placeholder is intentionally silent.
+		if (name && !Q_stricmp(name, "default"))
+		{
+			return;
+		}
+		if (s_xboxAmbientUpdateLogBudget > 0)
+		{
+			XBLog_WriteRingMarkerf("STEFX_AMBIENT: update unknown set name='%s'", name ? name : "<null>");
+			--s_xboxAmbientUpdateLogBudget;
+		}
+#endif
 		return;
+	}
+
+#ifdef _XBOX
+	if (s_xboxAmbientUpdateLogBudget > 0)
+	{
+		XBLog_WriteRingMarkerf("STEFX_AMBIENT: update set='%s' id=%d loop=%d subwaves=%d volume=%d",
+			name ? name : "<null>", set->id, set->loopedWave, set->numSubWaves, set->masterVolume);
+		--s_xboxAmbientUpdateLogBudget;
+	}
+#endif
 
 	//Update the current and old set for crossfading
 	AS_UpdateCurrentSet( set->id );
@@ -1151,7 +1193,6 @@ int S_AddLocalSet( const char *name, vec3_t listener_origin, vec3_t origin, int 
 
 	if ( set == NULL )
 		return cls.realtime;
-
 	currentTime = time;
 
 	AS_PlayLocalSet( listener_origin, origin, set, entID, &currentTime );

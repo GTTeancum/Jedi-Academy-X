@@ -20,6 +20,11 @@
 - **Compile & Test:** User compiles and runs when Codex asks
 - **Never commit or push** without explicit user instruction
 
+## ICARUS Script Authority
+- Never write production code that supersedes, bypasses, compensates for, or re-times behavior authored by ICARUS scripts.
+- Treat ICARUS task sequencing, spawns, AI state, cameras, dialogue waits, and map progression as authoritative. Fix contract violations in the responsible engine subsystem (such as audio, rendering, input, asset loading, or task-state reporting) while leaving the authored script behavior intact.
+- Synthetic test behavior that intentionally overrides script-owned state must remain isolated behind an explicit diagnostic-only harness and must never be enabled during campaign qualification or packaged in a release build.
+
 ## Testing Environment
 - **Hardware:** Retail Xbox only (no dev kit, no debugger attach)
 - **Emulator:** XEMU/LLE for active qualification. CXBX-R is historical-only for this JA-derived renderer and is not a regression authority.

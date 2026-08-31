@@ -401,6 +401,12 @@ void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace) {
 		return;
 	if (other->health < 1)
 		return;		// dead people can't pickup
+	if ( g_weaponStay.integer && ent->item && ent->item->giType == IT_WEAPON &&
+		!(ent->flags & FL_DROPPED_ITEM) &&
+		(other->client->ps.stats[STAT_WEAPONS] & (1 << ent->item->giTag)) )
+	{
+		return;
+	}
 
 	// If ghosted, then end the ghost-ness in favor of the pickup.
 	if (other->client->ps.powerups[PW_GHOST] >= level.time)
@@ -466,6 +472,13 @@ void Touch_Item (gentity_t *ent, gentity_t *other, trace_t *trace) {
 
 	// fire item targets
 	G_UseTargets (ent, other);
+
+	// Shipping console weapon-stay behavior leaves placed weapons available to
+	// each local player while preventing one owner from farming ammo every frame.
+	if ( g_weaponStay.integer && ent->item->giType == IT_WEAPON && !(ent->flags & FL_DROPPED_ITEM) )
+	{
+		return;
+	}
 
 	// wait of -1 will not respawn
 	if ( ent->wait == -1 ) {

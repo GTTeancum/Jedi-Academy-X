@@ -439,7 +439,19 @@ static void R_STEFX_SetSplitViewport(trRefdef_t *refdef, viewParms_t *parms, con
 		y = sourceRefdef->y + (slot ? topHeight : 0);
 		h = slot ? (sourceRefdef->height - topHeight) : topHeight;
 	}
-	else if (players >= 3)
+	else if (players == 3)
+	{
+		halfH = sourceRefdef->height / 2;
+		y = sourceRefdef->y + (slot ? halfH : 0);
+		h = slot ? (sourceRefdef->height - halfH) : halfH;
+		if (slot > 0)
+		{
+			halfW = sourceRefdef->width / 2;
+			x = sourceRefdef->x + (slot == 2 ? halfW : 0);
+			w = slot == 2 ? (sourceRefdef->width - halfW) : halfW;
+		}
+	}
+	else if (players >= 4)
 	{
 		halfW = sourceRefdef->width / 2;
 		halfH = sourceRefdef->height / 2;

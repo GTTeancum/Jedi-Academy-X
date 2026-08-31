@@ -2870,24 +2870,36 @@ def verify_frontend_map_label_layout(repo_root: Path) -> dict[str, object]:
         fail("EF frontend quadrant labels must be center-aligned on the galaxy center bar")
 
     x_positions = [float(record["x"]) for record in labels]
-    x_gaps = [x_positions[i + 1] - x_positions[i] for i in range(len(x_positions) - 1)]
-    if any(abs(gap - x_gaps[0]) > 0.01 for gap in x_gaps[1:]):
-        fail("EF frontend quadrant labels must be evenly spaced across the galaxy center bar")
+    y_positions = [float(record["y"]) for record in labels]
+
+    # The PS2 layout stacks each quadrant pair against the outer U edges.  It
+    # does not distribute all four labels across the horizontal center rule.
+    if abs(x_positions[0] - x_positions[1]) > 0.01:
+        fail("EF frontend Gamma and Alpha labels must share the outer-left anchor")
+    if abs(x_positions[2] - x_positions[3]) > 0.01:
+        fail("EF frontend Delta and Beta labels must share the outer-right anchor")
+    if abs(y_positions[0] - y_positions[2]) > 0.01:
+        fail("EF frontend Gamma and Delta labels must share the upper baseline")
+    if abs(y_positions[1] - y_positions[3]) > 0.01:
+        fail("EF frontend Alpha and Beta labels must share the lower baseline")
+    if y_positions[0] >= y_positions[1]:
+        fail("EF frontend quadrant upper baseline must precede the lower baseline")
 
     centerline_x = 1342.0
-    left_pair_midpoint = (x_positions[0] + x_positions[1]) * 0.5
-    right_pair_midpoint = (x_positions[2] + x_positions[3]) * 0.5
-    if abs((centerline_x - left_pair_midpoint) - (right_pair_midpoint - centerline_x)) > 0.01:
-        fail("EF frontend quadrant label pairs must balance around the galaxy map centerline")
+    left_anchor = x_positions[0]
+    right_anchor = x_positions[2]
+    if abs((centerline_x - left_anchor) - (right_anchor - centerline_x)) > 0.01:
+        fail("EF frontend quadrant anchors must balance around the galaxy map centerline")
 
     return {
         "checked": True,
         "source": norm_path(frontend.relative_to(repo_root).as_posix()),
         "centerlineX": centerline_x,
         "labels": labels,
-        "xGaps": x_gaps,
-        "leftPairMidpoint": left_pair_midpoint,
-        "rightPairMidpoint": right_pair_midpoint,
+        "leftAnchor": left_anchor,
+        "rightAnchor": right_anchor,
+        "upperBaseline": y_positions[0],
+        "lowerBaseline": y_positions[1],
     }
 
 
@@ -2920,24 +2932,74 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
         fail("SP-hosted Holomatch source under code/ still references codemp: " + ", ".join(codemp_hits[:16]))
 
     required_sources = {
+        "code/qcommon/stefx_launch.h": {
+            "#define STEFX_HOLOMATCH_SETUP_VERSION 4",
+            "#define STEFX_HOLOMATCH_MAX_LOCAL_PLAYERS 4",
+            "stefxHolomatchPlayerSetup_t",
+            "char modelName[MAX_QPATH];",
+            "char skinName[MAX_QPATH];",
+            "int controlStyle;",
+            "int autoswitchMode;",
+            "int autoaimMode;",
+            "int crosshair;",
+            "int vibration;",
+            "int invertPitch;",
+            "int humanPlayers;",
+            "stefxHolomatchPlayerSetup_t player[STEFX_HOLOMATCH_MAX_LOCAL_PLAYERS];",
+            "int diagnosticVirtualControls;",
+            "int diagnosticVirtualControlsP1;",
+        },
+        "code/qcommon/common.cpp": {
+            "STEFX_HM_P1_SP_CONFIG: source=embedded-canonical-xbox",
+            'Cbuf_AddText ("seta m_pitch -0.022\\n");',
+            'Cbuf_AddText ("bind JOY1 datapad\\n");',
+            'Cbuf_AddText ("bind JOY4 uimenu\\n");',
+            'Cbuf_AddText ("bind JOY9 weapnext\\n");',
+            'Cbuf_AddText ("bind JOY10 weapprev\\n");',
+            'Cbuf_AddText ("bind JOY11 +altattack\\n");',
+            'Cbuf_AddText ("bind JOY12 +attack\\n");',
+            'Cbuf_AddText ("bind JOY14 +movedown\\n");',
+            'Cbuf_AddText ("bind JOY15 +moveup\\n");',
+            'Cbuf_AddText ("bind JOY16 +use\\n");',
+        },
         "code/win32/win_main_console.cpp": {
             "STEFX_SP_HOSTED_MP",
             "STEFX: applying Holomatch XBE launch intent",
             "STEFX_HM_SPLIT_LAUNCH",
+            "STEFX_HM_BOT_POPULATION: source=xbe",
+            "STEFX_HM_INTRO_POLICY: source=xbe holoIntro=0 immediateLocalInput=1 applies3P=1 applies4P=1",
             "XBE Holomatch launch intent",
-            f'Q_strncpyz(startupMap, "{direct_map}"',
+            "stefxHolomatchLaunchSetup_t",
+            "STEFX_HM_MENU_HANDOFF",
+			"STEFX_HM_DIRECT_BOOT: no handoff or marker; production frontend path",
+			"STEFX_HM_MENU_HANDOFF: rejected invalid setup; returning to frontend",
+			"s_stefxLaunchIntent = STEFX_LAUNCH_INTENT_FRONTEND;",
+            "stefxHolomatchLaunchSetupMustFitLaunchData",
+            "Sys_STEFXNormalizeHolomatchPlayerSettings",
+            "Sys_STEFXQueueHolomatchPlayerSettings",
+            'Cbuf_AddText(va("set bot_minplayers %d\\n", s_stefxHolomatchLaunchSetup.players));',
+            'Cbuf_AddText("set g_holoIntro 0\\n");',
+            "STEFX_HM_PLAYER_HANDOFF",
+            "STEFX_HM_PLAYER_HANDOFF_QUEUE",
+            "STEFX_HM_PLAYER_HANDOFF_APPLY",
+            'Cbuf_AddText(va("set cg_autoswitch %d\\n", setup->player[0].autoswitchMode));',
+            "Q_strncpyz(startupMap, s_stefxHolomatchLaunchSetup.mapName",
             'Cbuf_AddText("set fs_game BaseEF\\n");',
             'Cbuf_AddText("set stefx_splitScreen 1\\n");',
-            'Cbuf_AddText("set stefx_splitScreenPlayers 4\\n");',
+            'Cbuf_AddText(va("set stefx_splitScreenPlayers %d\\n"',
             'Cbuf_AddText("set stefx_splitScreenMode holomatch\\n");',
-            'Cbuf_AddText("set stefx_hmLocalPlayers 4\\n");',
-            'Cbuf_AddText("set stefx_hm_split_economy 1\\n");',
-            'Cbuf_AddText("set stefx_hm_split_virtual_controls 1\\n");',
-            'Cbuf_AddText("set stefx_hm_split_virtual_controls_p1 1\\n");',
+            'Cbuf_AddText(va("set stefx_hmLocalPlayers %d\\n"',
+            'Cbuf_AddText(va("set stefx_hmHumanPlayers %d\\n"',
+            'Cbuf_AddText(va("set r_splitScreenEconomy %d\\n"',
+            'Cbuf_AddText(va("set stefx_hm_split_virtual_controls %d\\n"',
+            'Cbuf_AddText(va("set stefx_hm_split_virtual_controls_p1 %d\\n"',
             'Cvar_Set("stefx_hmLocalPlayers", va("%d", players));',
-            'Cvar_Set("stefx_hm_split_economy", players >= 4 ? "1" : "0");',
-            'Cvar_Set("stefx_hm_split_virtual_controls", players >= 4 ? "1" : "0");',
-            'Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4 ? "1" : "0");',
+            'Cvar_Set("stefx_hmHumanPlayers", va("%d", humanPlayers));',
+            'Cvar_Set("r_splitScreenEconomy", players >= 2 ? "1" : "0");',
+            'Cvar_Set("stefx_hm_split_virtual_controls", virtualControls ? "1" : "0");',
+            'Cvar_Set("stefx_hm_split_virtual_controls_p1", virtualControlsP1 ? "1" : "0");',
+            "s_stefxHolomatchLaunchSetup.diagnosticVirtualControls",
+            "s_stefxHolomatchLaunchSetup.diagnosticVirtualControlsP1",
             'Cbuf_AddText(va("%s %s\\n", useDevMap ? "devmap" : "map", startupMap));',
             'path = "d:\\\\efmp.xbe";',
             'path = "d:\\\\default.xbe";',
@@ -2945,39 +3007,142 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             "STEFX_LAUNCH_INTENT_COOP",
         },
         "code/ui/ui_ef_frontend.cpp": {
-            'Sys_Reboot("multiplayer", NULL);',
+            'Sys_Reboot("multiplayer", &setup);',
             'Sys_Reboot("singleplayer", NULL);',
-            'Sys_Reboot("singleplayer_coop", NULL);',
-            'Sys_XboxQueueMenuMap(EF_HOLOMATCH_BASELINE_MAP, "holomatch", 4);',
-            "STEFX_HM_SPLIT_LAUNCH",
-            'ui.Cvar_Set("stefx_hmLocalPlayers", "4");',
-            'ui.Cvar_Set("stefx_hm_split_economy", "1");',
-            'ui.Cvar_Set("stefx_hm_split_virtual_controls", "1");',
-            'ui.Cvar_Set("stefx_hm_split_virtual_controls_p1", "1");',
+            'Sys_XboxQueueMenuMap(setup.mapName, "holomatch", setup.players);',
+            "STEFX_HM_MENU_LAUNCH",
+            "EF_SCREEN_HOLOMATCH_ADVANCED",
+            "EF_SCREEN_HOLOMATCH_PLAYERS",
+            "STEFX_HM_PLAYER_SETUP",
+            "EFFe_FillHolomatchPlayerSettings(&setup);",
+            "EFFe_ApplyHolomatchPlayerSettings(&setup);",
+            'ui.Cvar_Set("cg_autoswitch", cvarValue);',
+            "EF_SCREEN_CREW_BIO",
+            "STEFX_CREW_VOICE",
+            "sound/voice/computer/misc/janeway.mp3",
+            "ext_data/sp_normaltext",
+            'ui.Cvar_Set("stefx_hmLocalPlayers", number);',
+            'ui.Cvar_Set("stefx_hmHumanPlayers", number);',
+            'ui.Cvar_Set("r_splitScreenEconomy", setup.players >= 2 ? "1" : "0");',
+            'setup.diagnosticVirtualControls = EFFe_HolomatchMenuSmokeUsesVirtualPads() ? 1 : 0;',
+            'setup.diagnosticVirtualControlsP1 = setup.diagnosticVirtualControls;',
+        's_holomatchMenuVirtualPads =',
+        '(qboolean)(!Q_stricmp(s_menuSmokeTarget, "holomatch-players-options"))',
+        'holomatchPortraits[EF_FRONTEND_HOLOMATCH_PLAYABLE_CHARACTERS][3]',
+        'models/players2/%s/icon_%s.jpg',
+        'EFFe_HolomatchCharacterIndexForCrewMember',
+            'ui.Cvar_Set("stefx_hm_split_virtual_controls", setup.diagnosticVirtualControls ? "1" : "0");',
+            'ui.Cvar_Set("stefx_hm_split_virtual_controls_p1", setup.diagnosticVirtualControlsP1 ? "1" : "0");',
+            "UI_EFMainMenu_WantsControllerInput",
+            "UI_EFMainMenu_ControllerKeyEvent",
+            "CL_STEFX_SplitScreen_LocalSlotForPad(controller)",
+            "EFFe_HandleHolomatchPlayerKey(player, key)",
+            "STEFX_HM_PLAYER_READY: launch-all-ready",
+            "EFFe_HolomatchHumanPlayerCount",
+            '"BOT"',
+            '"VIEWPORT"',
+            "EFFe_HolomatchPadForPlayer(player) >= 0 && !s_holomatchPlayerReady[player]",
+            "static int s_holomatchPlayerCursors[EF_FRONTEND_HOLOMATCH_LOCAL_PLAYERS]",
         },
         "code/server/sv_game.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostAfterGameInit"},
+        "code/holomatch/official/game/g_main.c": {
+            "STEFX_HM_INTRO_POLICY: runtime holoIntro=%d introMsec=%d immediateLocalInput=%d",
+        },
         "code/server/sv_main.cpp": {"STEFX_SP_HOSTED_MP", "STEFX_HolomatchHostRunFrame"},
         "code/server/stefx_holomatch_host.cpp": {
             "STEFX_HolomatchGetSplitHudState",
+            "g_SPXBHMPlayerSetupProof[40]",
+            'Com_sprintf(cvarName, sizeof(cvarName), "hm_model_%d", player);',
+            'Com_sprintf(cvarName, sizeof(cvarName), "joy_pitchsensitivity_%d", player);',
             "s_stefxHolomatchSplitStateLastLogTime",
             "sample=%d interval=500",
             "player->stats[STAT_HEALTH]",
             "player->persistant[PERS_SCORE]",
             "STEFX_HolomatchCycleOwnedWeapon",
-            "player->stats[STAT_WEAPONS] & (1 << candidate)",
+            "(unsigned int)player->stats[STAT_WEAPONS] & (1u << candidate)",
             "CL_STEFX_SplitScreen_BuildHolomatchUsercmd(clientNum",
+            "STEFX_HM_CONTROL_ROUTE: slot=%d port=%d source=%s players=%d",
+            "STEFX_HM_CONTROL_ROUTING: players=%d connectedMask=0x%x uniquePorts=%d valid=%d",
+            'slot == 0 ? "native_loopback" : "split_bridge"',
             'Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls")',
             'Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1")',
+            'STEFX_HolomatchViewportPlayerCount',
+            'Cvar_VariableIntegerValue("stefx_hmHumanPlayers")',
+            "STEFX_HolomatchAdjustNativeP1Usercmd",
+        },
+        "code/win32/xb_log.cpp": {
+            "g_SPXBHMPlayerSetupProof[40]",
+            "0x48345046",
+            "g_SPXBHMSplitHudPlayers",
+            "g_SPXBHMSplitHudDividerVerticalX",
+            "g_SPXBHMSplitHudDividerHorizontalH",
+        },
+        "code/client/cl_main.cpp": {
+            "STEFX_HW_FPS_SAMPLE:",
+            "players=%d humans=%d bots=%d source=%s virtual=%d/%d",
+            'Cvar_VariableString("stefx_hm_launch_source")',
+        },
+        "scripts/ja_xemu_smoke.py": {
+            '"_g_SPXBHMPlayerSetupProof"',
+            '"_g_SPXBHMSplitHudPlayers"',
+            '"_g_SPXBHMSplitHudDividerVerticalX"',
+            '"_g_SPXBHMSplitHudDividerHorizontalH"',
+            "hm_split_hud_players",
+            "STEFX_HM_PLAYER_HANDOFF_PROOF:",
+            "STEFX_HM_PLAYER_SETUP_PROOF:",
         },
         "code/client/cl_input.cpp": {
             "STEFX_SplitRealPadForLocalSlot",
+            "CL_STEFX_SplitScreen_PadForLocalSlot",
             'Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) >= 3',
             "CL_STEFX_SplitScreen_BuildHolomatchUsercmd",
             "STEFX_HM_SPLIT_PAD_ASSIGN: slot=%d port=%d previous=%d connectedMask=0x%x",
-            "STEFX_HM_SPLIT_PAD_CMD: slot=%d port=%d time=%d",
+            "STEFX_HM_SPLIT_PAD_CMD: slot=%d port=%d style=%d time=%d",
             "BUTTON_ATTACK",
             "BUTTON_ALT_ATTACK",
             "BUTTON_USE",
+            "profile->jump",
+            "profile->crouch",
+            "profile->attack",
+            "profile->altAttack",
+            "profile->use",
+            "STEFX_HM_P1_PROFILED_CMD: owner=native_loopback",
+            'CL_STEFX_SplitScreen_BuildHolomatchUsercmd( 0,',
+            'Cvar_Set( "stefx_hm_p1_profile_controls", "1" );',
+            'Cbuf_AddText( "weapnext\\n" );',
+            "STEFX_HM_SPLIT_PAD_RESEED:",
+        },
+        "code/win32/win_input_console.cpp": {
+            "UI_EFMainMenu_WantsControllerInput",
+            "UI_EFMainMenu_ControllerKeyEvent",
+            "STEFX_HM_MENU_PAD_INPUT",
+            "IN_STEFX_UpdateFrontendThumbstick(_padInfo.padId, qtrue)",
+            "STEFX_HM_P1_PROFILE_BIND_BYPASS:",
+            "STEFX_HM_GLOBAL_ACTION: slot=%d port=%d action=scoreboard",
+            "STEFX_HM_GLOBAL_ACTION: slot=%d port=%d action=pause",
+        },
+        "code/win32/win_input_xbox.cpp": {
+            "#define IN_ANALOG_BUTTON_THRESHOLD XINPUT_GAMEPAD_MAX_CROSSTALK",
+            "A_JOY15, // A",
+            "A_JOY14, // B",
+            "A_JOY16, // X",
+            "A_JOY13, // Y",
+            "A_JOY11, // Left trigger",
+            "A_JOY12  // Right trigger",
+            "STEFX_HM_P1_BINDINGS:",
+            "STEFX_HM_P1_ANALOG_SAMPLE:",
+            "STEFX_HM_P1_ANALOG_EDGE:",
+        },
+        "code/win32/win_qgl_dx8.cpp": {
+            "STEFX_D3D8_SetVertexShaderTracked",
+            "backEnd.viewParms.stefxSplitThreePlusEconomy",
+            "glw_state->shaderMaskValid",
+            "glw_state->shaderMask == shader",
+            "STEFX_HW_VERTEX_SHADER_CACHE:",
+            "STEFX_D3D8_SetStreamSourceZeroTracked",
+            "glw_state->streamSourceZeroStride == stride",
+            "STEFX_HW_STREAM_SOURCE_CACHE:",
+            "policy=three-plus requests=%u emitted=%u skipped=%u skipPct=%u",
         },
         "code/server/sv_snapshot.cpp": {
             "SVF_NOTSINGLECLIENT",
@@ -2988,6 +3153,13 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             "STEFX_HolomatchGetSplitHudState",
             "STEFX_HM_SPLIT_HUD_STATUS",
             "STEFX_HM_SPLIT_HUD_DIVIDER",
+            "g_SPXBHMSplitHudPlayers = (unsigned int)players",
+            "g_SPXBHMSplitHudDividerVerticalH",
+            "g_SPXBHMSplitHudDividerHorizontalH",
+            "Do not paint a",
+            "vertical=(320,%g 0x%g) horizontal=(0,240 640x0)",
+            "*x = slot == 2 ? 320.0f : 0.0f",
+            "*x = (slot & 1) ? 320.0f : 0.0f",
         },
         "code/game/g_public.h": {"singleClient", "SVF_NOTSINGLECLIENT"},
         "code/game/stefx_holomatch_game.cpp": {"STEFX_HM_SP: game boundary init", "STEFX_HM_SP: game boundary frame"},
@@ -3000,14 +3172,51 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             "Holomatch player state remains authoritative",
             "read-only projection",
         },
+        "code/holomatch/official/cgame/cg_view.c": {
+            'stefx_hm_p1_profile_controls',
+            'stefx_hm_p1_profile_zoom_fov',
+            'cg.zoomed = (qboolean)( profileZoomFov < 89.95f );',
+        },
         "code/ui/ui_ef_lifecycle.cpp": {
             "STEFX_HM: UI mandate active; uniform SP code/ui owns Holomatch UI",
             "STEFX_HM: SP EF UI lifecycle initialized from code/ui; no script menu cache",
         },
         "code/renderer/retail_xbox/tr_scene_retail.cpp": {
+            'Cvar_VariableIntegerValue( "r_splitScreenEconomy" )',
+            'Cvar_VariableIntegerValue( "stefx_splitScreen" )',
+            'Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" )',
             "s_stefxSplitViewportLogBudget",
             "STEFX_HM_SPLIT_RENDER: slot=%d external=%d externalClient=%d",
             "STEFX_HM_SPLIT_RENDER_DONE: slot=%d external=%d externalClient=%d",
+            "STEFX_HM_SPLIT_TILING:",
+            "overlapPixels=%d gapPixels=%d separators=0 valid=%d",
+            "w = slot == 2 ? ( sourceRefdef->width - halfW ) : halfW",
+            "w = ( slot & 1 ) ? ( sourceRefdef->width - halfW ) : halfW",
+            "STEFX_HM_QUALITY: players=%d rendererFog=0 nonMdrLodBias=1 mdrLod=0 firstPersonLodBias=0 impactMarks=0 spawnerParticles=0.4 gameplayPortraits=2D vertexShaderCache=tracked streamSourceCache=tracked policy=three-plus",
+        },
+        "code/renderer/tr_mesh.cpp": {
+            "tr.viewParms.stefxSplitThreePlusEconomy",
+            "tr.currentModel->type != MOD_MDR",
+            "if ( tr.currentModel->type == MOD_MDR )",
+            "!( ent->e.renderfx & ( RF_FIRST_PERSON | RF_DEPTHHACK ) )",
+        },
+        "code/holomatch/official/cgame/cg_localents.c": {
+            "LEF_STEFX_PARTICLE_CULLED",
+            "STEFX_HM_QUALITY_PARTICLES:",
+            "phase >= 2",
+        },
+        "code/holomatch/official/cgame/cg_draw.c": {
+            "CG_STEFX_Use3DGameplayIcons",
+            "CG_STEFX_ThreePlusEconomyActive()",
+            "STEFX_HM_QUALITY_PORTRAITS:",
+            "gameplayPortraits=2D extraRenderScenes=0 applies3P=1 applies4P=1",
+        },
+        "scripts/verify_holomatch_split_log.py": {
+            "--require-full-p1-actions",
+            "--require-full-control-actions",
+            "missing P1 previous/next weapon edge proof",
+            "missing scoreboard press/release by local slot",
+            "STEFX_HM_P1_PROFILE_BIND_BYPASS:",
         },
     }
     missing_sources = []
@@ -3022,6 +3231,64 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             missing_sources.append(f"{rel}: {', '.join(missing)}")
     if missing_sources:
         fail("SP-hosted Holomatch direct-map boundary is incomplete: " + "; ".join(missing_sources))
+
+    forbidden_virtual_inference = {
+        "code/win32/win_main_console.cpp": (
+            'Cvar_Set("stefx_hm_split_virtual_controls", players >= 4',
+            'Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4',
+        ),
+        "code/ui/ui_ef_frontend.cpp": (
+            'ui.Cvar_Set("stefx_hm_split_virtual_controls", setup.players >= 4',
+            'ui.Cvar_Set("stefx_hm_split_virtual_controls_p1", setup.players >= 4',
+        ),
+    }
+    inferred_virtual_controls = []
+    for rel, markers in forbidden_virtual_inference.items():
+        text = (repo_root / rel).read_text(encoding="utf-8", errors="ignore")
+        inferred_virtual_controls.extend(f"{rel}: {marker}" for marker in markers if marker in text)
+    if inferred_virtual_controls:
+        fail(
+            "Production Holomatch still infers diagnostic virtual controls from player count: "
+            + "; ".join(inferred_virtual_controls)
+        )
+
+    xemu_harness_source = (repo_root / "scripts/ja_xemu_smoke.py").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    forbidden_hud_mirror_hardcodes = (
+        "players=4 shared=0 shader=1",
+        "players=4 vertical=(318,0 4x480) horizontal=(0,238 640x4)",
+    )
+    retained_hud_mirror_hardcodes = [
+        marker for marker in forbidden_hud_mirror_hardcodes if marker in xemu_harness_source
+    ]
+    if retained_hud_mirror_hardcodes:
+        fail(
+            "XEMU Holomatch HUD mirror still hardcodes four-player layout state: "
+            + "; ".join(retained_hud_mirror_hardcodes)
+        )
+
+    win_main_source = (repo_root / "code/win32/win_main_console.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    forbidden_direct_boot_fallbacks = (
+        "no handoff or marker; hardwired hm_borg1",
+        "missing or invalid setup; using hm_borg1 defaults",
+    )
+    retained_direct_boot_fallbacks = [
+        marker for marker in forbidden_direct_boot_fallbacks if marker in win_main_source
+    ]
+    if retained_direct_boot_fallbacks:
+        fail(
+            "Production efmp.xbe still contains the one-pad direct-boot hardwire: "
+            + "; ".join(retained_direct_boot_fallbacks)
+        )
+
+    frontend_source = (repo_root / "code/ui/ui_ef_frontend.cpp").read_text(
+        encoding="utf-8", errors="ignore"
+    )
+    if "{ qfalse, qtrue, qtrue, qtrue }" in frontend_source:
+        fail("Holomatch player setup still pre-readies P2-P4 instead of waiting for each controller")
 
     game_adapter = (repo_root / "code/holomatch/stefx_mp_game_api.cpp").read_text(
         encoding="utf-8", errors="ignore"
@@ -3050,12 +3317,17 @@ def verify_code_only(repo_root: Path, xbe: Path | None, direct_map: str) -> dict
             b"d:\\efmp.xbe",
             b"BaseEF",
             b"set stefx_splitScreen 1",
-            b"set stefx_splitScreenPlayers 4",
+            b"set stefx_splitScreenPlayers %d",
             b"set stefx_splitScreenMode holomatch",
-            b"set stefx_hmLocalPlayers 4",
-            b"set stefx_hm_split_economy 1",
-            b"set stefx_hm_split_virtual_controls 1",
-            b"set stefx_hm_split_virtual_controls_p1 1",
+            b"set stefx_hmLocalPlayers %d",
+            b"set r_splitScreenEconomy %d",
+            b"set stefx_hm_split_virtual_controls %d",
+            b"set stefx_hm_split_virtual_controls_p1 %d",
+            b"STEFX_HM_MENU_HANDOFF",
+            b"STEFX_HM_PLAYER_HANDOFF_APPLY",
+            b"STEFX_HM_PLAYER_SETUP",
+            b"STEFX_CREW_VOICE",
+            b"sound/voice/computer/misc/janeway.mp3",
             direct_map.encode("ascii"),
         }
         missing_xbe = sorted(

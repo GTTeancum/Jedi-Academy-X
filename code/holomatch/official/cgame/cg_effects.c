@@ -35,7 +35,7 @@ void CG_BubbleTrail( vec3_t start, vec3_t end, float spacing ) {
 		refEntity_t		*re;
 
 		le = CG_AllocLocalEntity();
-		le->leFlags = LEF_PUFF_DONT_SCALE;
+		le->leFlags |= LEF_PUFF_DONT_SCALE;
 		le->leType = LE_MOVE_SCALE_FADE;
 		le->startTime = cg.time;
 		le->endTime = cg.time + 1000 + random() * 250;
@@ -85,7 +85,7 @@ localEntity_t *CG_SmokePuff( const vec3_t p, const vec3_t vel,
 	refEntity_t		*re;
 
 	le = CG_AllocLocalEntity();
-	le->leFlags = leFlags;
+	le->leFlags |= leFlags;
 	le->data.sprite.radius = radius;
 
 	re = &le->refEntity;
@@ -144,7 +144,6 @@ void CG_SpawnEffect( vec3_t org ) {
 
 	FX_Transporter(org);
 	le = CG_AllocLocalEntity();
-	le->leFlags = 0;
 	le->leType = LE_FADE_RGB;
 	le->startTime = cg.time;
 	le->endTime = cg.time + 500;
@@ -275,7 +274,7 @@ localEntity_t *CG_MakeExplosion2( vec3_t origin, vec3_t dir,
 	ex->refEntity.hModel = hModel;
 	ex->refEntity.customShader = shader;
 	ex->lifeRate = (float)numFrames / msec;
-	ex->leFlags = flags;
+	ex->leFlags |= flags;
 
 	//Scale the explosion
 	if (scale != 1) {

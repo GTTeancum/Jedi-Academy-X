@@ -229,6 +229,9 @@ typedef enum {
 	LEF_ONE_FRAME		= 0x0010,			// One frame only is to be shown of the entity.
 	LEF_ONE_FRAME_DONE	= 0x0020,			// This bit is set AFTER the one frame is shown.
 	LEF_FADE_RGB		= 0x0040,			// Force fading through color.
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	LEF_STEFX_PARTICLE_CULLED = 0x0080,	// 3P/4P economy rejected this spawner child before rendering.
+#endif
 } leFlag_t;
 
 typedef enum {
@@ -1416,6 +1419,10 @@ void CG_Weapon_f( void );
 void CG_RegisterWeapon( int weaponNum );
 void CG_RegisterItemVisuals( int itemNum );
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+qboolean CG_STEFX_ThreePlusEconomyActive( void );
+#endif
+
 void CG_FireWeapon( centity_t *cent, qboolean alt_fire );
 void CG_FireSeeker( centity_t *cent );
 void CG_MissileHitWall( centity_t *cent, int weapon, vec3_t origin, vec3_t dir );
@@ -1447,6 +1454,9 @@ void	CG_InitLocalEntities( void );
 localEntity_t	*CG_AllocLocalEntity( void );
 localEntity_t	CG_GetActiveList( void );
 void	CG_AddLocalEntities( void );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern qboolean cg_stefxCullSpawnerChildren;
+#endif
 
 //
 // cg_effects.c

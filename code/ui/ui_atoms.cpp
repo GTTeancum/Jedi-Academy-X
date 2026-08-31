@@ -45,13 +45,20 @@ void UI_ForceMenuOff (void)
 	UI_EFPauseMenu_Deactivate();
 	ui.Cvar_Set( "stefx_objectivesOverlay", "0" );
 	ui.Cvar_Set( "stefx_missionFailedOverlay", "0" );
+	/* The retail Xbox input layer treats inSplashMenu as a hard input gate:
+	 * while it is set, only Start/A are allowed through and gameplay buttons
+	 * such as fire and Mission Info are discarded.  The EF-native frontend
+	 * bypasses the old splash menu, so map launches must clear that gate when
+	 * the final menu is dismissed. */
+	ui.Cvar_Set( "inSplashMenu", "0" );
 	ui.Key_SetCatcher( ui.Key_GetCatcher() & ~KEYCATCH_UI );
 	ui.Key_ClearStates();
 	ui.Cvar_Set( "cl_paused", "0" );
 #ifdef _XBOX
-	XBLF("STEFX: UI_ForceMenuOff done catcherAfter=0x%x paused='%s'",
+	XBLF("STEFX: UI_ForceMenuOff done catcherAfter=0x%x paused='%s' splash='%s'",
 		ui.Key_GetCatcher(),
-		UI_Cvar_VariableString("cl_paused"));
+		UI_Cvar_VariableString("cl_paused"),
+		UI_Cvar_VariableString("inSplashMenu"));
 #endif
 }
 

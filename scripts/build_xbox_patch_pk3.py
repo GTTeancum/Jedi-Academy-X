@@ -107,6 +107,10 @@ HIGH_FIDELITY_TEXTURES = (
     # A 128px cap makes these read as large black slabs, so keep their source
     # resolution while still packaging them as Xbox DDS overrides.
     "textures/borg/xpanelb",
+    # The distribution-node model reuses this alpha atlas for its animated
+    # disnode2 shader layer.  The 128px cap collapses its small panels into the
+    # atlas's intentionally black regions, leaving a conspicuous missing slab.
+    "models/mapobjects/borg/disnode",
     # dn1 uses textures/common/junk_sky, whose skyParms reference env/junk.
     # These faces are very dark/detail-heavy; the normal 128px cap loses the
     # junk/star signal and makes the openings look like flat black voids.
@@ -128,6 +132,17 @@ RGB565_TEXTURES = (
     "env/junk_ft",
     "env/junk_up",
     "env/junk_dn",
+)
+NO_MIPMAP_TEXTURES = (
+    # The scavenger recharge-station shader explicitly blends these source
+    # alpha channels.  RGB565 turns their transparent atlas into a rectangle,
+    # while generated alpha mips erase the thin station features at distance.
+    "models/mapobjects/scavenger/power_up",
+    "models/mapobjects/scavenger/power_up_copy",
+    # disnode2 blends the same alpha atlas over the base model.  Generated
+    # alpha mips make pieces disappear until the player is close enough for
+    # mip zero, matching the reported distance-dependent black panel.
+    "models/mapobjects/borg/disnode",
 )
 ALWAYS_TEXTURES = (
     # These atlases are registered directly by the shared SP frontend/pause
@@ -595,6 +610,8 @@ def should_generate_mipmaps(candidate: str, no_mipmap_refs: set[str]) -> bool:
         candidate = normalized_rel(path.with_suffix("").as_posix())
 
     if candidate in no_mipmap_refs:
+        return False
+    if candidate in NO_MIPMAP_TEXTURES:
         return False
     if is_always_texture(candidate) or is_fullscreen_texture(candidate):
         return False
@@ -1126,7 +1143,14 @@ def build_dds(
 ) -> tuple[bytes, dict[str, object]] | None:
     with Image.open(source) as opened:
         has_alpha = image_has_alpha(opened)
-        image = resize_for_xbox(opened, max_size)
+        if force_rgb565:
+            # RGB565 is an explicitly opaque path.  Drop any source alpha
+            # before the first resize so Pillow cannot premultiply away RGB
+            # that the material still needs.  Converting after resize is too
+            # late for sparse-alpha atlases such as the scavenger power unit.
+            image = resize_for_xbox(opened.convert("RGB"), max_size)
+        else:
+            image = resize_for_xbox(opened, max_size)
         levels = build_mip_levels(image, generate_mipmaps)
         mip_count = len(levels)
         if force_rgb565:

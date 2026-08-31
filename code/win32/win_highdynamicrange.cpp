@@ -153,7 +153,7 @@ void VVHighDynamicRange::DrawHotBlur()
     glw_state->device->SetRenderState( D3DRS_DESTBLEND, D3DBLEND_ONE );
     
     // Render the screen-aligned quadrilateral
-    glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX1 );
+    STEFX_D3D8_SetVertexShaderTracked( D3DFVF_XYZRHW|D3DFVF_TEX1 );
     glw_state->device->DrawVerticesUP( D3DPT_QUADSTRIP, 4, v, sizeof(BACKGROUNDVERTEX) );
 
 	glw_state->device->SetRenderState( D3DRS_ZENABLE, TRUE );
@@ -250,7 +250,7 @@ void VVHighDynamicRange::FilterCopy( LPDIRECT3DTEXTURE8 pTextureDst,
         glw_state->device->SetPixelShader( m_dwHotBlurPixelShader );       
 
     // For screen-space texture-mapped quadrilateral
-    glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX4 );   
+    STEFX_D3D8_SetVertexShaderTracked( D3DFVF_XYZRHW|D3DFVF_TEX4 );
 
     // Prepare quadrilateral vertices
     float x0 = (float)pRectDst->left;
@@ -502,7 +502,7 @@ void VVHighDynamicRange::ExtractHot( LPDIRECT3DTEXTURE8 pTextureDst,
     glw_state->device->SetPixelShader( m_dwExtractHotPixelShader );       
 
     // For screen-space texture-mapped quadrilateral
-    glw_state->device->SetVertexShader( D3DFVF_XYZRHW|D3DFVF_TEX1 );   
+    STEFX_D3D8_SetVertexShaderTracked( D3DFVF_XYZRHW|D3DFVF_TEX1 );
 
     // Prepare quadrilateral vertices
     float x0 = (float)pRectDst->left;

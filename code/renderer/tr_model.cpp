@@ -81,6 +81,15 @@ struct CachedEndianedModelBinary_s
 	int		iAllocSize;		// may be useful for mem-query, but I don't actually need it
 #ifdef _XBOX
 	qboolean bHeapAllocated;
+#if defined(STEFX_ELITE_FORCE_SP)
+	qboolean bMdrCompacted;
+	const byte *pMdrFrameBase;
+	int iMdrFrameBaseCount;
+	int iMdrFrameSize;
+	int iMdrFrameCount;
+	int iMdrFramePatchOffsetsOffset;
+	int iMdrFramePatchesOffset;
+#endif
 #endif
 	ShaderRegisterData_t ShaderRegisterData;
 
@@ -93,6 +102,15 @@ struct CachedEndianedModelBinary_s
 		iAllocSize = 0;
 #ifdef _XBOX
 		bHeapAllocated = qfalse;
+#if defined(STEFX_ELITE_FORCE_SP)
+		bMdrCompacted = qfalse;
+		pMdrFrameBase = NULL;
+		iMdrFrameBaseCount = 0;
+		iMdrFrameSize = 0;
+		iMdrFrameCount = 0;
+		iMdrFramePatchOffsetsOffset = 0;
+		iMdrFramePatchesOffset = 0;
+#endif
 #endif
 		ShaderRegisterData.clear();
 	}
@@ -102,6 +120,11 @@ typedef map <sstring_t,CachedEndianedModelBinary_t>	CachedModels_t;
 													CachedModels_t *CachedModels = NULL;	// the important cache item.
 
 #ifdef _XBOX
+#if defined(STEFX_ELITE_FORCE_SP)
+static void STEFX_ClearMdrFrameCache(void);
+static void STEFX_FreeMdrFrameBases(void);
+static void STEFX_ResetMdrModelRegistry(void);
+#endif
 static void RE_RegisterModels_FreeDiskImage(CachedEndianedModelBinary_t &cachedModel)
 {
 	if (!cachedModel.pModelDiskImage)
@@ -123,6 +146,16 @@ static void RE_RegisterModels_FreeDiskImage(CachedEndianedModelBinary_t &cachedM
 
 	cachedModel.pModelDiskImage = NULL;
 	cachedModel.bHeapAllocated = qfalse;
+#if defined(STEFX_ELITE_FORCE_SP)
+	cachedModel.bMdrCompacted = qfalse;
+	cachedModel.pMdrFrameBase = NULL;
+	cachedModel.iMdrFrameBaseCount = 0;
+	cachedModel.iMdrFrameSize = 0;
+	cachedModel.iMdrFrameCount = 0;
+	cachedModel.iMdrFramePatchOffsetsOffset = 0;
+	cachedModel.iMdrFramePatchesOffset = 0;
+	STEFX_ClearMdrFrameCache();
+#endif
 }
 #endif
 
@@ -651,6 +684,10 @@ static void RE_RegisterModels_DeleteAll(void)
 		itModel = CachedModels->erase(itModel);			
 	}
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_FreeMdrFrameBases();
+#endif
+
 	extern void RE_AnimationCFGs_DeleteAll(void);
 	RE_AnimationCFGs_DeleteAll();
 }
@@ -925,6 +962,472 @@ static qboolean STEFX_IsDefaultPlayerMdrFallbackName(const char *name)
 
 	fallback = STEFX_DefaultPlayerMdrFallbackName(name);
 	return (qboolean)(fallback && !Q_stricmp(name, fallback));
+}
+
+#define STEFX_BORG_MDR_FRAME_GROUPS 5
+#define STEFX_BORG_MDR_FRAME_CACHE_SLOTS 32
+#define STEFX_BORG_MDR_MAX_FRAME_BYTES 640
+
+typedef struct
+{
+	byte *frames;
+	int frameCount;
+	int frameSize;
+	int numBones;
+	char source[MAX_QPATH];
+} stefxBorgMdrFrameBase_t;
+
+typedef struct
+{
+	const md4Header_t *header;
+	int frame;
+	byte data[STEFX_BORG_MDR_MAX_FRAME_BYTES];
+} stefxBorgMdrFrameCache_t;
+
+static stefxBorgMdrFrameBase_t s_stefxBorgMdrFrameBases[STEFX_BORG_MDR_FRAME_GROUPS];
+static stefxBorgMdrFrameCache_t s_stefxBorgMdrFrameCache[STEFX_BORG_MDR_FRAME_CACHE_SLOTS];
+static int s_stefxBorgMdrFrameCacheReplace;
+static model_t *s_stefxBorgMdrModels[MAX_MOD_KNOWN];
+static int s_stefxBorgMdrModelCount;
+
+static void STEFX_ClearMdrFrameCache(void)
+{
+	memset(s_stefxBorgMdrFrameCache, 0, sizeof(s_stefxBorgMdrFrameCache));
+	s_stefxBorgMdrFrameCacheReplace = 0;
+}
+
+static void STEFX_ResetMdrModelRegistry(void)
+{
+	memset(s_stefxBorgMdrModels, 0, sizeof(s_stefxBorgMdrModels));
+	s_stefxBorgMdrModelCount = 0;
+	STEFX_ClearMdrFrameCache();
+}
+
+static void STEFX_FreeMdrFrameBases(void)
+{
+	int i;
+	for (i = 0; i < STEFX_BORG_MDR_FRAME_GROUPS; ++i)
+	{
+		if (s_stefxBorgMdrFrameBases[i].frames)
+		{
+			HeapFree(GetProcessHeap(), 0, s_stefxBorgMdrFrameBases[i].frames);
+		}
+		memset(&s_stefxBorgMdrFrameBases[i], 0, sizeof(s_stefxBorgMdrFrameBases[i]));
+	}
+	STEFX_ResetMdrModelRegistry();
+}
+
+static qboolean STEFX_PathHasModelDirectory(const char *name, const char *directory)
+{
+	char slashToken[MAX_QPATH];
+	char backslashToken[MAX_QPATH];
+	Com_sprintf(slashToken, sizeof(slashToken), "/%s/", directory);
+	Com_sprintf(backslashToken, sizeof(backslashToken), "\\%s\\", directory);
+	return (qboolean)(strstr(name, slashToken) != NULL || strstr(name, backslashToken) != NULL);
+}
+
+static int STEFX_BorgMdrFrameGroup(const char *name)
+{
+	const qboolean lower = (qboolean)(strstr(name, "/lower.mdr") != NULL ||
+		strstr(name, "\\lower.mdr") != NULL);
+	const qboolean upper = (qboolean)(strstr(name, "/upper.mdr") != NULL ||
+		strstr(name, "\\upper.mdr") != NULL);
+
+	if (!STEFX_IsBorgPlayerModelName(name) || (!lower && !upper))
+	{
+		return -1;
+	}
+
+	if (lower)
+	{
+		// The unnumbered big/thin pair has a distinct lower-body animation
+		// stream.  The remaining Borg lowers are losslessly close to one base.
+		if (STEFX_PathHasModelDirectory(name, "borgbig") ||
+			STEFX_PathHasModelDirectory(name, "borgthin"))
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	if (STEFX_PathHasModelDirectory(name, "borgbig2") ||
+		STEFX_PathHasModelDirectory(name, "borgbig3") ||
+		STEFX_PathHasModelDirectory(name, "borgbig4"))
+	{
+		return 2;
+	}
+	if (STEFX_PathHasModelDirectory(name, "borgbig") ||
+		STEFX_PathHasModelDirectory(name, "borgthin"))
+	{
+		return 3;
+	}
+	return 4;
+}
+
+static unsigned short STEFX_ReadPatchU16(const byte *p)
+{
+	unsigned short value;
+	memcpy(&value, p, sizeof(value));
+	return value;
+}
+
+static void STEFX_WritePatchU16(byte *p, unsigned short value)
+{
+	memcpy(p, &value, sizeof(value));
+}
+
+static int STEFX_MdrFramePatchSize(const byte *target, const byte *base, int frameSize)
+{
+	int i = 0;
+	int bytes = sizeof(unsigned short);
+
+	while (i < frameSize)
+	{
+		int start;
+		while (i < frameSize && target[i] == base[i])
+		{
+			++i;
+		}
+		if (i >= frameSize)
+		{
+			break;
+		}
+		start = i;
+		while (i < frameSize && target[i] != base[i])
+		{
+			++i;
+		}
+		bytes += (int)(sizeof(unsigned short) * 2) + (i - start);
+	}
+	return bytes;
+}
+
+static int STEFX_WriteMdrFramePatch(byte *out, const byte *target, const byte *base, int frameSize)
+{
+	int i = 0;
+	int cursor = sizeof(unsigned short);
+	unsigned short runCount = 0;
+
+	while (i < frameSize)
+	{
+		int start;
+		int length;
+		while (i < frameSize && target[i] == base[i])
+		{
+			++i;
+		}
+		if (i >= frameSize)
+		{
+			break;
+		}
+		start = i;
+		while (i < frameSize && target[i] != base[i])
+		{
+			++i;
+		}
+		length = i - start;
+		STEFX_WritePatchU16(out + cursor, (unsigned short)start);
+		cursor += sizeof(unsigned short);
+		STEFX_WritePatchU16(out + cursor, (unsigned short)length);
+		cursor += sizeof(unsigned short);
+		memcpy(out + cursor, target + start, length);
+		cursor += length;
+		++runCount;
+	}
+
+	STEFX_WritePatchU16(out, runCount);
+	return cursor;
+}
+
+static void STEFX_AssignMdrFrameStorage(model_t *mod, const CachedEndianedModelBinary_t &modelBin)
+{
+	int i;
+	byte *allocation = (byte *)modelBin.pModelDiskImage;
+
+	mod->stefxMdrFrameBase = modelBin.pMdrFrameBase;
+	mod->stefxMdrFrameBaseCount = modelBin.iMdrFrameBaseCount;
+	mod->stefxMdrFrameSize = modelBin.iMdrFrameSize;
+	mod->stefxMdrFrameCount = modelBin.iMdrFrameCount;
+	mod->stefxMdrFramePatchOffsets = modelBin.iMdrFramePatchOffsetsOffset
+		? (const unsigned int *)(allocation + modelBin.iMdrFramePatchOffsetsOffset)
+		: NULL;
+	mod->stefxMdrFramePatches = modelBin.iMdrFramePatchesOffset
+		? allocation + modelBin.iMdrFramePatchesOffset
+		: NULL;
+
+	for (i = 0; i < s_stefxBorgMdrModelCount; ++i)
+	{
+		if (s_stefxBorgMdrModels[i] == mod)
+		{
+			return;
+		}
+	}
+	if (s_stefxBorgMdrModelCount < MAX_MOD_KNOWN)
+	{
+		s_stefxBorgMdrModels[s_stefxBorgMdrModelCount++] = mod;
+	}
+}
+
+static model_t *STEFX_FindMdrModel(const md4Header_t *header)
+{
+	int i;
+	// Prefer the newest registration if an allocator address was reused after
+	// an old cached model was released.
+	for (i = s_stefxBorgMdrModelCount - 1; i >= 0; --i)
+	{
+		model_t *mod = s_stefxBorgMdrModels[i];
+		if (mod && mod->md4 == header && mod->stefxMdrFrameBase)
+		{
+			return mod;
+		}
+	}
+	return NULL;
+}
+
+const void *R_STEFX_GetMDRFrame(const md4Header_t *header, int frame)
+{
+	model_t *mod = STEFX_FindMdrModel(header);
+	int i;
+
+	if (!mod || !mod->stefxMdrFrameBase || mod->stefxMdrFrameSize <= 0)
+	{
+		int frameSize;
+		if (header->ofsFrames < 0)
+		{
+			frameSize = (int)(&((md4CompFrame_t *)0)->bones[header->numBones]);
+			return (const byte *)header - header->ofsFrames + frame * frameSize;
+		}
+		frameSize = (int)(&((md4Frame_t *)0)->bones[header->numBones]);
+		return (const byte *)header + header->ofsFrames + frame * frameSize;
+	}
+
+	if (frame < 0)
+	{
+		frame = 0;
+	}
+	else if (frame >= mod->stefxMdrFrameCount)
+	{
+		frame = mod->stefxMdrFrameCount - 1;
+	}
+
+	if (!mod->stefxMdrFramePatchOffsets || !mod->stefxMdrFramePatches)
+	{
+		return mod->stefxMdrFrameBase + frame * mod->stefxMdrFrameSize;
+	}
+
+	for (i = 0; i < STEFX_BORG_MDR_FRAME_CACHE_SLOTS; ++i)
+	{
+		if (s_stefxBorgMdrFrameCache[i].header == header &&
+			s_stefxBorgMdrFrameCache[i].frame == frame)
+		{
+			return s_stefxBorgMdrFrameCache[i].data;
+		}
+	}
+
+	{
+		stefxBorgMdrFrameCache_t *cache =
+			&s_stefxBorgMdrFrameCache[s_stefxBorgMdrFrameCacheReplace];
+		const byte *patch = mod->stefxMdrFramePatches +
+			mod->stefxMdrFramePatchOffsets[frame];
+		unsigned short runCount;
+		int run;
+
+		s_stefxBorgMdrFrameCacheReplace =
+			(s_stefxBorgMdrFrameCacheReplace + 1) % STEFX_BORG_MDR_FRAME_CACHE_SLOTS;
+		cache->header = header;
+		cache->frame = frame;
+		if (frame < mod->stefxMdrFrameBaseCount)
+		{
+			memcpy(cache->data,
+				mod->stefxMdrFrameBase + frame * mod->stefxMdrFrameSize,
+				mod->stefxMdrFrameSize);
+		}
+		else
+		{
+			memset(cache->data, 0, mod->stefxMdrFrameSize);
+		}
+
+		runCount = STEFX_ReadPatchU16(patch);
+		patch += sizeof(unsigned short);
+		for (run = 0; run < runCount; ++run)
+		{
+			unsigned short offset = STEFX_ReadPatchU16(patch);
+			unsigned short length = STEFX_ReadPatchU16(patch + sizeof(unsigned short));
+			patch += sizeof(unsigned short) * 2;
+			if ((int)offset + (int)length <= mod->stefxMdrFrameSize)
+			{
+				memcpy(cache->data + offset, patch, length);
+			}
+			patch += length;
+		}
+		return cache->data;
+	}
+}
+
+static md4Header_t *STEFX_RegisterCompactBorgMdr(model_t *mod, void *buffer,
+	const char *modelName, qboolean *alreadyFound)
+{
+	char cacheName[MAX_QPATH];
+	CachedEndianedModelBinary_t *modelBin;
+	md4Header_t *source = (md4Header_t *)buffer;
+	stefxBorgMdrFrameBase_t *base;
+	const byte *sourceFrames;
+	int group;
+	int frameSize;
+	int frameBytes;
+	int compactBytes;
+	int patchTableBytes = 0;
+	int patchBytes = 0;
+	int allocBytes;
+	int frame;
+	qboolean newBase = qfalse;
+	byte *allocation;
+	md4Header_t *compact;
+
+	Q_strncpyz(cacheName, modelName, sizeof(cacheName));
+	Q_strlwr(cacheName);
+	modelBin = &(*CachedModels)[cacheName];
+	if (modelBin->pModelDiskImage)
+	{
+		if (!modelBin->bMdrCompacted)
+		{
+			return NULL;
+		}
+		*alreadyFound = qtrue;
+		STEFX_AssignMdrFrameStorage(mod, *modelBin);
+		return (md4Header_t *)modelBin->pModelDiskImage;
+	}
+
+	group = STEFX_BorgMdrFrameGroup(cacheName);
+	if (group < 0 || source->ofsFrames >= 0 || source->numFrames <= 0 ||
+		source->numBones <= 0 || source->ofsLODs <= (int)sizeof(md4Header_t) ||
+		source->ofsTags < source->ofsLODs || source->ofsEnd < source->ofsTags)
+	{
+		return NULL;
+	}
+
+	frameBytes = source->ofsLODs - (-source->ofsFrames);
+	if (frameBytes <= 0 || frameBytes % source->numFrames)
+	{
+		return NULL;
+	}
+	frameSize = frameBytes / source->numFrames;
+	if (frameSize <= 0 || frameSize > STEFX_BORG_MDR_MAX_FRAME_BYTES)
+	{
+		return NULL;
+	}
+	sourceFrames = (const byte *)source - source->ofsFrames;
+	base = &s_stefxBorgMdrFrameBases[group];
+	if (!base->frames)
+	{
+		base->frames = (byte *)HeapAlloc(GetProcessHeap(), 0, frameBytes);
+		if (!base->frames)
+		{
+			return NULL;
+		}
+		memcpy(base->frames, sourceFrames, frameBytes);
+		base->frameCount = source->numFrames;
+		base->frameSize = frameSize;
+		base->numBones = source->numBones;
+		Q_strncpyz(base->source, cacheName, sizeof(base->source));
+		newBase = qtrue;
+		XBLF("STEFX: Borg MDR lossless frame base group=%d model='%s' frames=%d frameSize=%d bytes=%d",
+			group, cacheName, base->frameCount, base->frameSize, frameBytes);
+	}
+	else if (base->frameSize != frameSize || base->numBones != source->numBones)
+	{
+		XBLF("STEFX: Borg MDR frame group mismatch group=%d model='%s' base='%s' bones=%d/%d frameSize=%d/%d",
+			group, cacheName, base->source, source->numBones, base->numBones,
+			frameSize, base->frameSize);
+		return NULL;
+	}
+
+	compactBytes = sizeof(md4Header_t) + (source->ofsEnd - source->ofsLODs);
+	if (!newBase)
+	{
+		static const byte zeroFrame[STEFX_BORG_MDR_MAX_FRAME_BYTES] = { 0 };
+		patchTableBytes = (source->numFrames + 1) * sizeof(unsigned int);
+		for (frame = 0; frame < source->numFrames; ++frame)
+		{
+			const byte *baseFrame = frame < base->frameCount
+				? base->frames + frame * frameSize
+				: zeroFrame;
+			patchBytes += STEFX_MdrFramePatchSize(
+				sourceFrames + frame * frameSize, baseFrame, frameSize);
+		}
+	}
+	allocBytes = compactBytes + patchTableBytes + patchBytes;
+	allocation = (byte *)HeapAlloc(GetProcessHeap(), 0, allocBytes);
+	if (!allocation)
+	{
+		XBLF("STEFX: Borg MDR compact allocation failed model='%s' compact=%d patch=%d total=%d",
+			cacheName, compactBytes, patchTableBytes + patchBytes, allocBytes);
+		return NULL;
+	}
+
+	compact = (md4Header_t *)allocation;
+	memcpy(compact, source, sizeof(md4Header_t));
+	memcpy(allocation + sizeof(md4Header_t),
+		(const byte *)source + source->ofsLODs,
+		source->ofsEnd - source->ofsLODs);
+	compact->ofsLODs = sizeof(md4Header_t);
+	compact->ofsTags = sizeof(md4Header_t) + (source->ofsTags - source->ofsLODs);
+	compact->ofsEnd = compactBytes;
+
+	// Each MDR surface points back to its owning header.  Relocating the LOD
+	// tail requires only this back-reference adjustment; all other surface and
+	// LOD offsets remain relative to their copied records.
+	{
+		md4LOD_t *lod = (md4LOD_t *)(allocation + compact->ofsLODs);
+		int lodIndex;
+		for (lodIndex = 0; lodIndex < compact->numLODs; ++lodIndex)
+		{
+			md4Surface_t *surface = (md4Surface_t *)((byte *)lod + lod->ofsSurfaces);
+			int surfaceIndex;
+			for (surfaceIndex = 0; surfaceIndex < lod->numSurfaces; ++surfaceIndex)
+			{
+				surface->ofsHeader = -(int)((byte *)surface - allocation);
+				surface = (md4Surface_t *)((byte *)surface + surface->ofsEnd);
+			}
+			lod = (md4LOD_t *)((byte *)lod + lod->ofsEnd);
+		}
+	}
+
+	if (!newBase)
+	{
+		static const byte zeroFrame[STEFX_BORG_MDR_MAX_FRAME_BYTES] = { 0 };
+		unsigned int *offsets = (unsigned int *)(allocation + compactBytes);
+		byte *patchStart = allocation + compactBytes + patchTableBytes;
+		int cursor = 0;
+		for (frame = 0; frame < source->numFrames; ++frame)
+		{
+			const byte *baseFrame = frame < base->frameCount
+				? base->frames + frame * frameSize
+				: zeroFrame;
+			offsets[frame] = cursor;
+			cursor += STEFX_WriteMdrFramePatch(patchStart + cursor,
+				sourceFrames + frame * frameSize, baseFrame, frameSize);
+		}
+		offsets[source->numFrames] = cursor;
+	}
+
+	modelBin->pModelDiskImage = compact;
+	modelBin->iAllocSize = allocBytes;
+	modelBin->bHeapAllocated = qtrue;
+	modelBin->bMdrCompacted = qtrue;
+	modelBin->pMdrFrameBase = base->frames;
+	modelBin->iMdrFrameBaseCount = base->frameCount;
+	modelBin->iMdrFrameSize = frameSize;
+	modelBin->iMdrFrameCount = source->numFrames;
+	modelBin->iMdrFramePatchOffsetsOffset = newBase ? 0 : compactBytes;
+	modelBin->iMdrFramePatchesOffset = newBase ? 0 : compactBytes + patchTableBytes;
+	*alreadyFound = qfalse;
+	STEFX_AssignMdrFrameStorage(mod, *modelBin);
+	XBLF("STEFX: Borg MDR compact exact model='%s' original=%d resident=%d geometry=%d patch=%d baseNew=%d saved=%d",
+		cacheName, source->ofsEnd, allocBytes, compactBytes,
+		patchTableBytes + patchBytes, newBase ? frameBytes : 0,
+		source->ofsEnd - allocBytes);
+	return compact;
 }
 #endif
 
@@ -1695,7 +2198,24 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_RENDER_MODEL_PHASE( 0x31 );
 #endif
-	mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (STEFX_IsBorgPlayerModelName(mod_name))
+	{
+		mod->md4 = STEFX_RegisterCompactBorgMdr(mod, buffer, mod_name, &bAlreadyFound);
+		if (!mod->md4)
+		{
+			XBLF("STEFX: Borg MDR compact path unavailable; using full resident model '%s' size=%d",
+				mod_name, size);
+			mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name,
+				&bAlreadyFound, TAG_MODEL_MD3);
+		}
+	}
+	else
+#endif
+	{
+		mod->md4 = (md4Header_t *)RE_RegisterModels_Malloc(size, buffer, mod_name,
+			&bAlreadyFound, TAG_MODEL_MD3);
+	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_RENDER_MODEL_PHASE( 0x32 );
 #endif
@@ -1723,7 +2243,11 @@ static qboolean R_LoadMDR (model_t *mod, void *buffer, const char *mod_name, qbo
 		STEFX_RENDER_MODEL_PHASE( 0x33 );
 #endif
 #ifdef _XBOX
-		if (mod->md4 != buffer)
+		if (mod->md4 != buffer
+#if defined(STEFX_ELITE_FORCE_SP)
+			&& !mod->stefxMdrFrameBase
+#endif
+			)
 		{
 			memcpy(mod->md4, buffer, size);
 		}
@@ -2167,6 +2691,9 @@ R_ModelInit
 */
 void R_ModelInit( void ) 
 {
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	STEFX_ResetMdrModelRegistry();
+#endif
 #ifdef _XBOX
 	// Sorry Raven, but static maps == fragmentation
 	if (!CachedModels)
@@ -2330,7 +2857,11 @@ static qboolean R_STEFX_GetMDRBone( md4Header_t *mod, int frame, int boneIndex, 
 		md4CompFrame_t	*cframe;
 
 		frameSize = (int)( &((md4CompFrame_t *)0)->bones[ mod->numBones ] );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		cframe = (md4CompFrame_t *)R_STEFX_GetMDRFrame(mod, frame);
+#else
 		cframe = (md4CompFrame_t *)((byte *)mod - mod->ofsFrames + frame * frameSize );
+#endif
 		MC_UnCompress( bone->matrix, cframe->bones[ boneIndex ].Comp );
 	} else {
 		md4Frame_t		*md4Frame;

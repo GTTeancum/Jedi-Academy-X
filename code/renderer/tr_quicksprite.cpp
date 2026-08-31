@@ -7,6 +7,15 @@
 //#include "../server/exe_headers.h"
 #include "tr_local.h"
 
+#if defined(STEFX_RETAIL_RENDERER_ACTIVE)
+extern int R_STEFX_FogModeForView( void );
+#else
+static int R_STEFX_FogModeForView( void )
+{
+	return r_drawfog->integer;
+}
+#endif
+
 #include "tr_QuickSprite.h"
 
 void R_BindAnimatedImage( const textureBundle_t *bundle );
@@ -57,7 +66,7 @@ void CQuickSpriteSystem::Flush(void)
 	}
 
 	/*
-	if (mUseFog && r_drawfog->integer == 2 &&
+	if (mUseFog && R_STEFX_FogModeForView() == 2 &&
 		mFogIndex == tr.world->globalFog)
 	{ //enable hardware fog when we draw this thing if applicable -rww
 		fog_t *fog = tr.world->fogs + mFogIndex;
@@ -104,7 +113,7 @@ void CQuickSpriteSystem::Flush(void)
 	backEnd.pc.c_totalIndexes += mNextVert;
 
 	//only for software fog pass (global soft/volumetric) -rww
-	if (mUseFog && (r_drawfog->integer != 2 || mFogIndex != tr.world->globalFog))
+	if (mUseFog && (R_STEFX_FogModeForView() != 2 || mFogIndex != tr.world->globalFog))
 	{
 		fog_t *fog = tr.world->fogs + mFogIndex;
 

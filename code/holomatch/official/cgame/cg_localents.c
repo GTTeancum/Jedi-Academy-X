@@ -10,6 +10,9 @@
 localEntity_t	cg_localEntities[MAX_LOCAL_ENTITIES];
 localEntity_t	cg_activeLocalEntities;		// double linked list
 localEntity_t	*cg_freeLocalEntities;		// single linked list
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+qboolean cg_stefxCullSpawnerChildren = qfalse;
+#endif
 
 /*
 ===================
@@ -70,6 +73,11 @@ localEntity_t	*CG_AllocLocalEntity( void ) {
 	cg_freeLocalEntities = cg_freeLocalEntities->next;
 
 	memset( le, 0, sizeof( *le ) );
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( cg_stefxCullSpawnerChildren ) {
+		le->leFlags |= LEF_STEFX_PARTICLE_CULLED;
+	}
+#endif
 
 	// link into the active list
 	le->next = cg_activeLocalEntities.next;
@@ -1031,6 +1039,11 @@ static void CG_AddSpawner( localEntity_t *le )
 	refEntity_t	*re;
 	vec3_t		dir;
 	trace_t		trace;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	qboolean stefxPreviousCullState = qfalse;
+	qboolean stefxAttenuateChildren = qfalse;
+	qboolean stefxEconomyTick = qfalse;
+#endif
 
 	re = &le->refEntity;
 	if (le->leFlags & LEF_MOVE)
@@ -1076,7 +1089,31 @@ static void CG_AddSpawner( localEntity_t *le )
 
 	if (le->data.spawner.thinkFn)
 	{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		if ( CG_STEFX_ThreePlusEconomyActive() ) {
+			static qboolean s_stefxSpawnerAttenuationLogged = qfalse;
+			const int phase = le->data.spawner.data2++ % 5;
+
+			/* UC2's retail 3P/4P tiers retain 40%/20% of particle work.  Use one
+			 * common 40% tier because this project's 3P and 4P policies must match,
+			 * and limit the cut to children of recurring spawners.  Immediate beams,
+			 * projectiles, hit flashes, and other gameplay cues remain untouched. */
+			stefxAttenuateChildren = phase >= 2 ? qtrue : qfalse;
+			stefxEconomyTick = qtrue;
+			stefxPreviousCullState = cg_stefxCullSpawnerChildren;
+			cg_stefxCullSpawnerChildren = stefxAttenuateChildren;
+			if ( !s_stefxSpawnerAttenuationLogged ) {
+				s_stefxSpawnerAttenuationLogged = qtrue;
+				CG_Printf( "STEFX_HM_QUALITY_PARTICLES: policy=three-plus spawnerChildrenKeep=2/5 immediateGameplayFx=1\n" );
+			}
+		}
+#endif
 		le->data.spawner.thinkFn(le);
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		if ( stefxEconomyTick ) {
+			cg_stefxCullSpawnerChildren = stefxPreviousCullState;
+		}
+#endif
 	}
 	if (le->data.spawner.dontDie)
 	{
@@ -1183,6 +1220,13 @@ void CG_AddLocalEntities( void ) {
 			CG_FreeLocalEntity( le );
 			continue;
 		}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+		if ( le->leFlags & LEF_STEFX_PARTICLE_CULLED ) {
+			CG_FreeLocalEntity( le );
+			continue;
+		}
+#endif
 
 		if (le->leFlags & LEF_ONE_FRAME)
 		{	// If this flag is set, only render one single frame, no more.

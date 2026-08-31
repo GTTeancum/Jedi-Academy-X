@@ -132,6 +132,10 @@ extern "C" volatile unsigned int g_SPXBFramebufferWidth;
 extern "C" volatile unsigned int g_SPXBFramebufferHeight;
 extern "C" volatile unsigned int g_SPXBFramebufferFormat;
 extern "C" volatile unsigned int g_SPXBFramebufferSize;
+extern "C" volatile unsigned int g_SPXBFakeGLSwapStage;
+extern "C" volatile unsigned int g_SPXBFakeGLSwapFrame;
+extern "C" volatile unsigned int g_SPXBFakeGLEndSceneResult;
+extern "C" volatile unsigned int g_SPXBFakeGLPresentResult;
 
 #define XBOX_FAKEGL_CACHE_RENDER_STATE 1
 #define XBOX_FAKEGL_CACHE_TRANSFORM    1
@@ -6095,6 +6099,8 @@ public:
 #ifdef _XBOX
 		static int s_xboxSwapLogCount = 0;
 		g_stefxFakeglSwapFrame = s_xboxSwapLogCount;
+		g_SPXBFakeGLSwapFrame = (unsigned int)s_xboxSwapLogCount;
+		g_SPXBFakeGLSwapStage = 0x46533031u; /* FS01: entered */
 		const bool stefxLateSwap = false;
 		const bool stefxSwapProbe = s_xboxSwapLogCount < 16;
 		const bool logSwapTight = stefxLateSwap || (s_xboxSwapLogCount >= 32 && s_xboxSwapLogCount <= 96);
@@ -6121,12 +6127,14 @@ public:
 		}
 #endif
 	#ifdef _XBOX
+		g_SPXBFakeGLSwapStage = 0x46533032u; /* FS02: before internalEnd */
 		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before internalEnd", s_xboxSwapLogCount);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d before internalEnd", s_xboxSwapLogCount);
 	#endif
 		internalEnd();
 	#ifdef _XBOX
+		g_SPXBFakeGLSwapStage = 0x46533033u; /* FS03: internalEnd returned */
 		if (logSwapTight) XBLF("JA: CL_EARLY fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d after internalEnd", s_xboxSwapLogCount);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d after internalEnd", s_xboxSwapLogCount);
@@ -6140,6 +6148,7 @@ public:
 			return;
 		}
 #ifdef _XBOX
+		g_SPXBFakeGLSwapStage = 0x46533034u; /* FS04: before EndScene */
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d before render probe", s_xboxSwapLogCount);
 		FakeGL_DrawRenderProbe(m_pD3DDev);
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d after render probe", s_xboxSwapLogCount);
@@ -6151,6 +6160,8 @@ public:
 	#endif
 		HRESULT hrEndScene = m_pD3DDev->EndScene();
 #ifdef _XBOX
+		g_SPXBFakeGLEndSceneResult = (unsigned int)hrEndScene;
+		g_SPXBFakeGLSwapStage = 0x46533035u; /* FS05: EndScene returned */
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d EndScene hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrEndScene);
 		if (logSwapTight)
@@ -6234,11 +6245,14 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 #endif
 		HRESULT hrPresent;
 #ifdef _XBOX
+		g_SPXBFakeGLSwapStage = 0x46533036u; /* FS06: before Present */
 		hrPresent = skipPresentForCxbx ? S_OK : m_pD3DDev->Present(NULL, NULL, NULL, NULL);
 #else
         hrPresent = m_pD3DDev->Present(NULL, NULL, NULL, NULL);
 #endif
 #ifdef _XBOX
+		g_SPXBFakeGLPresentResult = (unsigned int)hrPresent;
+		g_SPXBFakeGLSwapStage = 0x46533037u; /* FS07: Present returned */
 		if (stefxLateSwap) XBLF("STEFX: LATE fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
 		if (stefxSwapProbe) XBLF("STEFX: fakegl swap #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
 		if (screenshotRequestedNow && !skipPresentForCxbx)
@@ -6254,6 +6268,7 @@ D3DPERF_SetShowFrameRateInterval( 1000 );
 			XBLF("JA: fakegl SwapBuffers #%d Present hr=0x%08lx", s_xboxSwapLogCount, (unsigned long)hrPresent);
 		}
 		s_xboxSwapLogCount++;
+		g_SPXBFakeGLSwapStage = 0x46534646u; /* FSFF: complete */
 #endif
 #if 0
 		if ( frameCounter == 3 )

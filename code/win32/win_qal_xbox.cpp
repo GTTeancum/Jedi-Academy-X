@@ -48,6 +48,8 @@ extern const char* Sys_GetFileCodeName(int code);
 extern const char* Sys_GetSoundFileCodeName(unsigned int code);
 extern int FS_ReadFile(const char *qpath, void **buffer);
 extern void FS_FreeFile(void *buffer);
+extern qboolean FS_STEFX_FreeHeapFileBuffer(void *buffer);
+extern "C" volatile unsigned int g_SPXBQALStreamStage;
 
 extern "C"
 {
@@ -880,7 +882,10 @@ ALvoid alDeleteBuffers( ALsizei n, ALuint* buffers )
 				}
 			
 				// free the memory
-				Z_Free(binfo->m_Data);
+				if (!FS_STEFX_FreeHeapFileBuffer(binfo->m_Data))
+				{
+					Z_Free(binfo->m_Data);
+				}
 				s_pState->m_MemoryUsed -= binfo->m_Size;
 			}
 		
@@ -899,7 +904,10 @@ ALvoid alBufferData( ALuint buffer, ALenum format, ALvoid* data, ALsizei size, A
 	// if this buffer has been used before, clear the old data
 	if (info->m_Valid)
 	{
-		Z_Free(info->m_Data);
+		if (!FS_STEFX_FreeHeapFileBuffer(info->m_Data))
+		{
+			Z_Free(info->m_Data);
+		}
 		s_pState->m_MemoryUsed -= info->m_Size;
 		info->m_Valid = false;
 	}
@@ -981,6 +989,48 @@ static bool _streamNameIsMP3(const char *name)
 {
 	const char *dot = name ? strrchr(name, '.') : NULL;
 	return (dot && !_stricmp(dot, ".mp3"));
+}
+
+/*
+** Music is converted to PCM WAV during staging.  Some inherited call paths
+** still retain the original MP3 file code, so resolve the converted sibling
+** again at the final stream boundary.  This also keeps the stream worker out
+** of FS_ReadFile: the game filesystem handle table and zone allocator are
+** main-thread structures and cannot safely be used from this worker.
+*/
+static bool _streamResolveConvertedWAV(const char *name, char *out, int outSize)
+{
+	int i;
+	char *dot;
+	DWORD attributes;
+
+	if (!_streamNameIsMP3(name) || !out || outSize < 8)
+	{
+		return false;
+	}
+
+	if (name[0] && name[1] == ':')
+	{
+		_snprintf(out, outSize - 1, "%s", name);
+	}
+	else
+	{
+		_snprintf(out, outSize - 1, "D:\\BaseEF\\%s", name);
+	}
+	out[outSize - 1] = '\0';
+	for (i = 0; out[i]; ++i)
+	{
+		if (out[i] == '/') out[i] = '\\';
+	}
+	dot = strrchr(out, '.');
+	if (!dot || (dot - out) + 5 > outSize)
+	{
+		return false;
+	}
+	strcpy(dot, ".wav");
+
+	attributes = GetFileAttributes(out);
+	return (attributes != 0xffffffffu && !(attributes & FILE_ATTRIBUTE_DIRECTORY));
 }
 
 static void _streamMP3Lock(void)
@@ -1269,6 +1319,7 @@ static void _streamFill(void)
 
 static void _streamOpen(DWORD file, DWORD offset, bool loop)
 {
+	g_SPXBQALStreamStage = 0x51530001u; /* QS01: request entered */
 	if (s_pState->m_Stream.m_Open)
 	{
 		// if a stream is current playing, interrupt it
@@ -1291,6 +1342,7 @@ static void _streamOpen(DWORD file, DWORD offset, bool loop)
 	}
 	if (!name)
 	{
+		g_SPXBQALStreamStage = 0x51530002u; /* QS02: unknown file code */
 		XBLog_Writef("STEFX: QAL stream open failed: unknown code=0x%08x", file);
 		return;
 	}
@@ -1308,84 +1360,32 @@ static void _streamOpen(DWORD file, DWORD offset, bool loop)
 	name = mappedName;
 #endif
 
+	char convertedWAV[MAX_PATH];
+	if (_streamResolveConvertedWAV(name, convertedWAV, sizeof(convertedWAV)))
+	{
+		g_SPXBQALStreamStage = 0x51530010u; /* QS10: converted WAV selected */
+		XBLog_Writef("STEFX: QAL stream redirected converted music '%s' -> '%s'", name, convertedWAV);
+		name = convertedWAV;
+	}
+
 	if (_streamNameIsMP3(name))
 	{
-		void *mp3Data = NULL;
-		int mp3Len = FS_ReadFile(name, &mp3Data);
-		if (mp3Len <= 0 || !mp3Data)
-		{
-			XBLog_Writef("STEFX: QAL MP3 stream read failed name='%s' len=%d", name, mp3Len);
-			return;
-		}
-
-		int rate = 0;
-		int widthBytes = 0;
-		int channels = 0;
-		_streamMP3Lock();
-		char *headerError = C_MP3_GetHeaderData(mp3Data, mp3Len, &rate, &widthBytes, &channels, true);
-		_streamMP3Unlock();
-		if (headerError || rate <= 0 || widthBytes <= 0 || channels <= 0)
-		{
-			XBLog_Writef("STEFX: QAL MP3 stream header failed name='%s' err='%s'",
-				name, headerError ? headerError : "<none>");
-			FS_FreeFile(mp3Data);
-			return;
-		}
-
-		_streamMP3Lock();
-		char *decodeError = C_MP3Stream_DecodeInit(&s_pState->m_Stream.m_MP3Stream,
-			mp3Data, mp3Len, rate, widthBytes * 8, channels > 1);
-		_streamMP3Unlock();
-		if (decodeError)
-		{
-			XBLog_Writef("STEFX: QAL MP3 stream init failed name='%s' err='%s'", name, decodeError);
-			FS_FreeFile(mp3Data);
-			return;
-		}
-
-		ALenum alFormat = 0;
-		if (channels == 1 && widthBytes == 1) alFormat = AL_FORMAT_MONO8;
-		else if (channels == 1 && widthBytes == 2) alFormat = AL_FORMAT_MONO16;
-		else if (channels == 2 && widthBytes == 1) alFormat = AL_FORMAT_STEREO8;
-		else if (channels == 2 && widthBytes == 2) alFormat = AL_FORMAT_STEREO16;
-		else
-		{
-			XBLog_Writef("STEFX: QAL MP3 stream unsupported PCM name='%s' channels=%d width=%d",
-				name, channels, widthBytes);
-			FS_FreeFile(mp3Data);
-			return;
-		}
-
-		WAVEFORMATEX pcm;
-		if (!_wavSetPCMFormat(&pcm, alFormat, rate))
-		{
-			FS_FreeFile(mp3Data);
-			return;
-		}
-
-		s_pState->m_Stream.m_pVoice->SetFormat(&pcm);
-		s_pState->m_Stream.m_MP3Data = (byte *)mp3Data;
-		s_pState->m_Stream.m_MP3DataSize = mp3Len;
-		s_pState->m_Stream.m_UseMP3 = true;
-		s_pState->m_Stream.m_StartTime = 0;
-		s_pState->m_Stream.m_Looping = loop;
-		s_pState->m_Stream.m_Playing = true;
-		s_pState->m_Stream.m_Open = true;
-		_streamMP3ResetCounters();
-		_streamMP3Seek(offset);
-
-		XBLog_Writef("STEFX: QAL MP3 stream open name='%s' bytes=%d rate=%d width=%d channels=%d offset=%u loop=%d",
-			name, mp3Len, rate, widthBytes, channels, offset, loop ? 1 : 0);
+		g_SPXBQALStreamStage = 0x51530011u; /* QS11: converted WAV missing */
+		XBLog_Writef("STEFX: QAL MP3 stream rejected on worker; converted WAV missing name='%s'", name);
 		return;
 	}
 
+	g_SPXBQALStreamStage = 0x51530020u; /* QS20: waiting for WAV stream mutex */
 	WaitForSingleObject(Sys_FileStreamMutex, INFINITE);
+	g_SPXBQALStreamStage = 0x51530021u; /* QS21: WAV stream mutex acquired */
 
 	// open the file for streaming
 	LPCWAVEFORMATEX fmt;
+	g_SPXBQALStreamStage = 0x51530022u; /* QS22: XWave open entered */
 	if (DS_OK == XWaveFileCreateMediaObject(
 		name, &fmt, &s_pState->m_Stream.m_pFile))
 	{
+		g_SPXBQALStreamStage = 0x51530023u; /* QS23: XWave open complete */
 		// set the voice based on the file format
 		s_pState->m_Stream.m_pVoice->SetFormat(fmt);
 
@@ -1414,10 +1414,12 @@ static void _streamOpen(DWORD file, DWORD offset, bool loop)
 	}
 	else
 	{
+		g_SPXBQALStreamStage = 0x51530024u; /* QS24: XWave open failed */
 		XBLog_Writef("STEFX: QAL wave stream open failed name='%s' code=0x%08x", name, file);
 	}
 
 	ReleaseMutex(Sys_FileStreamMutex);
+	g_SPXBQALStreamStage = 0x51530025u; /* QS25: request complete */
 }
 
 static void _streamClose(void)

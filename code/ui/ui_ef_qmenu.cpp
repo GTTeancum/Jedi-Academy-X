@@ -12,7 +12,9 @@ extern void Text_Paint(float x, float y, float scale, vec4_t color, const char *
 
 enum
 {
-	EFQ_ID_STUB_RETURN = 100
+	EFQ_ID_STUB_RETURN = 100,
+	EFQ_ID_CONFIRM_NO,
+	EFQ_ID_CONFIRM_YES
 };
 
 static menuframework_s s_stubMenu;
@@ -21,6 +23,10 @@ static char s_stubTitle[64];
 static char s_stubLine1[96];
 static char s_stubLine2[96];
 static qboolean s_stubReturnMain = qtrue;
+static menuframework_s s_confirmMenu;
+static menuaction_s s_confirmButtons[2];
+static qboolean s_confirmQuitProgram = qfalse;
+static qboolean s_confirmReturnToMain = qfalse;
 static int EFQ_Font(void)
 {
 	if (uiInfo.uiDC.Assets.qhMediumFont)
@@ -942,6 +948,108 @@ static void EFQ_KeepMainMenuDumb(const char *cmd, const char *title)
 #endif
 }
 
+static void EFQ_ReturnToPauseMenu(void)
+{
+#ifdef _XBOX
+	XBLF("STEFX: EF confirmation return quitProgram=%d main=%d",
+		s_confirmQuitProgram ? 1 : 0, s_confirmReturnToMain ? 1 : 0);
+#endif
+	if (s_confirmReturnToMain)
+	{
+		UI_EFMainMenu_Open();
+	}
+	else
+	{
+		UI_EFPauseMenu_Open(NULL);
+	}
+}
+
+static void EFQ_ConfirmEvent(void *ptr, int notification)
+{
+	menucommon_s *item = (menucommon_s *)ptr;
+
+	if (notification != QM_ACTIVATED || !item)
+	{
+		return;
+	}
+
+	if (item->id == EFQ_ID_CONFIRM_NO)
+	{
+		EFQ_ReturnToPauseMenu();
+		return;
+	}
+
+	if (item->id != EFQ_ID_CONFIRM_YES)
+	{
+		return;
+	}
+
+#ifdef _XBOX
+	XBLF("STEFX: EF confirmation accepted quitProgram=%d", s_confirmQuitProgram ? 1 : 0);
+#endif
+	UI_ForceMenuOff();
+	ui.Cmd_ExecuteText(EXEC_APPEND, s_confirmQuitProgram ? "quit\n" : "disconnect\n");
+}
+
+static sfxHandle_t EFQ_ConfirmKey(int key)
+{
+	if (key == A_ESCAPE || key == A_MOUSE2 || key == A_JOY13 || key == A_JOY14 || key == A_BACKSPACE)
+	{
+		EFQ_ReturnToPauseMenu();
+		return 0;
+	}
+	if (key == A_JOY15)
+	{
+		return Menu_ActivateItem(&s_confirmMenu, (menucommon_s *)Menu_ItemAtCursor(&s_confirmMenu));
+	}
+	if (key == A_JOY5)
+	{
+		return Menu_DefaultKey(&s_confirmMenu, A_CURSOR_UP);
+	}
+	if (key == A_JOY7)
+	{
+		return Menu_DefaultKey(&s_confirmMenu, A_CURSOR_DOWN);
+	}
+	return Menu_DefaultKey(&s_confirmMenu, key);
+}
+
+static void EFQ_ConfirmDraw(void)
+{
+	UI_FillRect(0, 0, 640, 480, colorTable[CT_BLACK]);
+	EFQ_DrawText(611, 24, s_confirmQuitProgram ? "EXIT PROGRAM" : "QUIT GAME", UI_BIGFONT | UI_RIGHT, CT_LTGOLD1);
+	EFQ_DrawText(320, 198,
+		s_confirmQuitProgram ? "EXIT ELITE FORCE?" : "QUIT THE CURRENT GAME?",
+		UI_SMALLFONT | UI_CENTER, CT_LTORANGE);
+	EFQ_DrawText(320, 232, "THIS ACTION CANNOT BE UNDONE", UI_TINYFONT | UI_CENTER, CT_DKGOLD1);
+	Menu_Draw(&s_confirmMenu);
+}
+
+static void EFQ_OpenConfirmation(qboolean quitProgram)
+{
+	s_confirmQuitProgram = quitProgram;
+	s_confirmReturnToMain = UI_EFMainMenu_IsActive();
+	UI_EFMainMenu_Deactivate();
+	UI_EFPauseMenu_Deactivate();
+	UI_EFQmenu_ClearState(quitProgram ? "ef-quit-confirm" : "ef-leave-confirm");
+	memset(&s_confirmMenu, 0, sizeof(s_confirmMenu));
+	memset(s_confirmButtons, 0, sizeof(s_confirmButtons));
+
+	s_confirmMenu.wrapAround = qtrue;
+	s_confirmMenu.fullscreen = qtrue;
+	s_confirmMenu.draw = EFQ_ConfirmDraw;
+	s_confirmMenu.key = EFQ_ConfirmKey;
+
+	EFQ_InitAction(&s_confirmButtons[0], EFQ_ID_CONFIRM_NO, 220, 302, 200, 24, "NO - RETURN", EFQ_ConfirmEvent);
+	EFQ_InitAction(&s_confirmButtons[1], EFQ_ID_CONFIRM_YES, 220, 340, 200, 24,
+		quitProgram ? "YES - EXIT" : "YES - QUIT GAME", EFQ_ConfirmEvent);
+	Menu_AddItem(&s_confirmMenu, &s_confirmButtons[0]);
+	Menu_AddItem(&s_confirmMenu, &s_confirmButtons[1]);
+	UI_PushMenu(&s_confirmMenu);
+#ifdef _XBOX
+	XBLF("STEFX: EF confirmation opened quitProgram=%d", quitProgram ? 1 : 0);
+#endif
+}
+
 qboolean UI_EFQmenu_RouteMenuName(const char *menuName)
 {
 	if (!menuName || !menuName[0])
@@ -1039,17 +1147,31 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 	}
 	if (!Q_stricmp(cmd, "ui_ef_loadgame"))
 	{
-		UI_EFMainMenu_OpenLoadGame();
+		if (UI_EFPauseMenu_IsActive())
+		{
+			UI_EFMainMenu_OpenLoadGameFromPause();
+		}
+		else
+		{
+			UI_EFMainMenu_OpenLoadGame();
+		}
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_savegame"))
 	{
-		EFQ_KeepMainMenuDumb(cmd, "SAVE GAME");
+		UI_EFMainMenu_OpenSaveGame();
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_configure"))
 	{
-		UI_EFMainMenu_OpenConfigure();
+		if (UI_EFPauseMenu_IsActive())
+		{
+			UI_EFMainMenu_OpenConfigureFromPause();
+		}
+		else
+		{
+			UI_EFMainMenu_OpenConfigure();
+		}
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_audio"))
@@ -1079,7 +1201,7 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 	}
 	if (!Q_stricmp(cmd, "ui_ef_crew"))
 	{
-		UI_EFMainMenu_OpenStub("ELITE FORCE : VOYAGER CREW", "THIS MENU IS NOT AVAILABLE YET");
+		UI_EFMainMenu_OpenCrew();
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_credits"))
@@ -1099,12 +1221,12 @@ qboolean UI_EFQmenu_ConsoleCommand(const char *cmd)
 	}
 	if (!Q_stricmp(cmd, "ui_ef_quit"))
 	{
-		EFQ_KeepMainMenuDumb(cmd, "QUIT");
+		EFQ_OpenConfirmation(qtrue);
 		return qtrue;
 	}
 	if (!Q_stricmp(cmd, "ui_ef_leavegame"))
 	{
-		EFQ_KeepMainMenuDumb(cmd, "LEAVE GAME");
+		EFQ_OpenConfirmation(qfalse);
 		return qtrue;
 	}
 

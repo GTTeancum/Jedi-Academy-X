@@ -837,7 +837,7 @@ static void SP_DrawEFLoadingText(int x, int y, const char *text, int style)
 static qboolean SP_DrawEFLoadingScreen(void)
 {
 	const int x = 10;
-	const int y = 244;
+	const int y = 310;
 	const int stage = 0;
 
 	g_SPXBLoadingTitleStatus = 0;

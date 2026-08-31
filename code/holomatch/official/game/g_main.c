@@ -65,6 +65,7 @@ vmCvar_t	g_debugMove;
 vmCvar_t	g_debugDamage;
 vmCvar_t	g_debugAlloc;
 vmCvar_t	g_weaponRespawn;
+vmCvar_t	g_weaponStay;
 vmCvar_t	g_adaptRespawn;
 vmCvar_t	g_motd;
 vmCvar_t	g_synchronousClients;
@@ -149,6 +150,7 @@ cvarTable_t		gameCvarTable[] = {
 	{ &g_knockback, "g_knockback", "500", 0, 0, qtrue  },
 	{ &g_dmgmult, "g_dmgmult", "1", 0, 0, qtrue  },
 	{ &g_weaponRespawn, "g_weaponrespawn", "5", 0, 0, qtrue  },		// Quake 3 default (with 1 ammo weapons) was 5.
+	{ &g_weaponStay, "stefx_hm_weapon_stay", "1", CVAR_SERVERINFO | CVAR_ARCHIVE, 0, qtrue },
 	{ &g_adaptRespawn, "g_adaptrespawn", "1", 0, 0, qtrue  },		// Make weapons respawn faster with a lot of players.
 	{ &g_forcerespawn, "g_forcerespawn", "0", 0, 0, qtrue },		// Quake 3 default was 20.  This is more "user friendly".
 	{ &g_inactivity, "g_inactivity", "0", 0, 0, qtrue },
@@ -514,6 +516,10 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 	STEFX_GAME_TRACE("STEFX_HM_SP: official G_InitGame before cvars");
 	G_RegisterCvars();
 	STEFX_GAME_TRACE("STEFX_HM_SP: official G_InitGame after cvars");
+#if defined(STEFX_SP_HOSTED_MP)
+	XBLog_WriteCriticalf("STEFX_HM_INTRO_POLICY: runtime holoIntro=%d introMsec=%d immediateLocalInput=%d",
+		g_holoIntro.integer, TIME_INTRO, g_holoIntro.integer ? 0 : 1);
+#endif
 
 	G_ProcessIPBans();
 	STEFX_GAME_TRACE("STEFX_HM_SP: official G_InitGame after ip bans");

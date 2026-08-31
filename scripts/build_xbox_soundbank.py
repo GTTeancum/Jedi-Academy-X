@@ -106,7 +106,12 @@ def encode_xbadpcm(source: Path, out_path: Path, encoder: Path) -> Path:
     return out_path
 
 
-def build_soundbank(base_dir: Path, encoding: str, encoder: Path | None) -> dict[str, object]:
+def build_soundbank(
+    base_dir: Path,
+    encoding: str,
+    encoder: Path | None,
+    preserve_pcm_prefixes: tuple[str, ...],
+) -> dict[str, object]:
     out_dir = base_dir / "soundbank"
     out_dir.mkdir(parents=True, exist_ok=True)
     bank_path = out_dir / "sound.bnk"
@@ -147,12 +152,13 @@ def build_soundbank(base_dir: Path, encoding: str, encoder: Path | None) -> dict
                 qpath = normalized_qpath(source.relative_to(base_dir))
                 original_bytes += source.stat().st_size
                 bank_source = source
-                if encoding == "xbadpcm":
+                preserve_pcm = any(qpath.startswith(prefix) for prefix in preserve_pcm_prefixes)
+                if encoding == "xbadpcm" and not preserve_pcm:
                     bank_source = encode_xbadpcm(source, encoded_root / ("%06d_%s" % (len(records), source.name)), encoder)
-                    if read_wave_format_tag(bank_source) == 0x0069:
-                        encoded_count += 1
-                    else:
-                        preserved_pcm_count += 1
+                if read_wave_format_tag(bank_source) == 0x0069:
+                    encoded_count += 1
+                else:
+                    preserved_pcm_count += 1
 
                 data = bank_source.read_bytes()
                 code = sound_crc(qpath)
@@ -176,6 +182,7 @@ def build_soundbank(base_dir: Path, encoding: str, encoder: Path | None) -> dict
         "bytes": bank_path.stat().st_size if bank_path.exists() else 0,
         "encodedRecords": encoded_count,
         "preservedPcmRecords": preserved_pcm_count,
+        "preservedPcmPrefixes": list(preserve_pcm_prefixes),
         "encoder": str(encoder) if encoder else None,
         "sounds": [
             {
@@ -208,6 +215,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-dir", type=Path, default=Path("build/release/BaseEF"))
     parser.add_argument("--encoding", choices=("pcm", "xbadpcm"), default="xbadpcm")
     parser.add_argument("--encoder", type=Path, default=None)
+    parser.add_argument(
+        "--preserve-pcm-prefix",
+        action="append",
+        default=[],
+        help="Lowercase sound qpath prefix whose PCM WAVs must not be ADPCM encoded.",
+    )
     return parser.parse_args()
 
 
@@ -215,7 +228,12 @@ def main() -> int:
     args = parse_args()
     print(
         json.dumps(
-            build_soundbank(args.base_dir.resolve(), args.encoding, args.encoder),
+            build_soundbank(
+                args.base_dir.resolve(),
+                args.encoding,
+                args.encoder,
+                tuple(item.lower().replace("\\", "/") for item in args.preserve_pcm_prefix),
+            ),
             indent=2,
             sort_keys=True,
         )

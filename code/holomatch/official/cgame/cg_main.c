@@ -22,6 +22,22 @@ extern volatile unsigned int g_SPXBHMTextTraceRawPrefix;
 extern volatile unsigned int g_SPXBHMTextTraceParsedPrefix;
 extern volatile unsigned int g_SPXBHMTextTraceScorePrefix;
 extern volatile unsigned int g_SPXBHMTextTraceFirstPointer;
+extern volatile unsigned int g_SPXBHMSplitLaunch[9];
+
+qboolean CG_STEFX_ThreePlusEconomyActive( void )
+{
+	static qboolean s_logged = qfalse;
+	const qboolean active =
+		g_SPXBHMSplitLaunch[2] >= 3u && g_SPXBHMSplitLaunch[6] != 0u
+			? qtrue : qfalse;
+
+	if ( active && !s_logged )
+	{
+		s_logged = qtrue;
+		CG_Printf( "STEFX_HM_QUALITY: three-plus-player impactMarks=0 playerShadows=0 playerSplashes=0 spawnerParticles=0.4 gameplayPortraits=2D immediateGameplayFx=1\n" );
+	}
+	return active;
+}
 #endif
 
 extern void FX_InitSinTable(void);

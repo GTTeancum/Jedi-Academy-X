@@ -1,5 +1,6 @@
 #include "../game/q_shared.h"
 #include "../qcommon/qcommon.h"
+#include "../qcommon/stefx_launch.h"
 #include "../client/client.h"
 #include "win_local.h"
 #include "resource.h"
@@ -67,6 +68,9 @@ static bool s_xboxMenuMapQueued = false;
 static char s_xboxMenuMapName[MAX_QPATH];
 static char s_xboxMenuMapMode[16];
 static int s_xboxMenuMapPlayers = 1;
+static int s_xboxMenuMapHumanPlayers = 1;
+static int s_xboxMenuMapVirtualControls = 0;
+static int s_xboxMenuMapVirtualControlsP1 = 0;
 
 enum stefxLaunchIntent_t
 {
@@ -77,6 +81,132 @@ enum stefxLaunchIntent_t
 };
 
 static int s_stefxLaunchIntent = STEFX_LAUNCH_INTENT_NONE;
+typedef char stefxHolomatchLaunchSetupMustFitLaunchData[
+	(sizeof(stefxHolomatchLaunchSetup_t) <= (MAX_LAUNCH_DATA_SIZE - 8)) ? 1 : -1];
+static stefxHolomatchLaunchSetup_t s_stefxHolomatchLaunchSetup = {
+	STEFX_HOLOMATCH_SETUP_MAGIC,
+	STEFX_HOLOMATCH_SETUP_VERSION,
+	"hm_borg1",
+	4,
+	1,
+	0,
+	15,
+	0,
+	1,
+	1,
+	0,
+	1,
+	0,
+	0,
+	{
+		{ "seven", "blue", 0, 1, 1, 1, 1, 0 },
+		{ "munro", "default", 0, 1, 1, 1, 1, 0 },
+		{ "foster", "default", 0, 1, 1, 1, 1, 0 },
+		{ "tuvok", "default", 0, 1, 1, 1, 1, 0 }
+	}
+};
+
+static int Sys_STEFXClampHolomatchOption(int value, int minimum, int maximum)
+{
+	if (value < minimum)
+	{
+		return minimum;
+	}
+	if (value > maximum)
+	{
+		return maximum;
+	}
+	return value;
+}
+
+static bool Sys_STEFXValidHolomatchAssetToken(const char *value)
+{
+	const unsigned char *cursor = (const unsigned char *)value;
+
+	if (!cursor || !cursor[0])
+	{
+		return false;
+	}
+	while (*cursor)
+	{
+		if (!((*cursor >= 'a' && *cursor <= 'z') ||
+			(*cursor >= 'A' && *cursor <= 'Z') ||
+			(*cursor >= '0' && *cursor <= '9') ||
+			*cursor == '_' || *cursor == '-' || *cursor == '/'))
+		{
+			return false;
+		}
+		++cursor;
+	}
+	return true;
+}
+
+static void Sys_STEFXNormalizeHolomatchPlayerSettings(stefxHolomatchLaunchSetup_t *setup)
+{
+	int player;
+
+	setup->players = Sys_STEFXClampHolomatchOption(setup->players, 1, STEFX_HOLOMATCH_MAX_LOCAL_PLAYERS);
+	setup->humanPlayers = Sys_STEFXClampHolomatchOption(setup->humanPlayers, 1, setup->players);
+	setup->mapName[MAX_QPATH - 1] = '\0';
+	if (!Sys_STEFXValidHolomatchAssetToken(setup->mapName))
+	{
+		Q_strncpyz(setup->mapName, "hm_borg1", sizeof(setup->mapName));
+	}
+	setup->fragLimit = Sys_STEFXClampHolomatchOption(setup->fragLimit, 0, 50);
+	setup->timeLimit = Sys_STEFXClampHolomatchOption(setup->timeLimit, 0, 30);
+	setup->forceRespawn = setup->forceRespawn ? 1 : 0;
+	setup->weaponStay = setup->weaponStay ? 1 : 0;
+	setup->fallingDamage = setup->fallingDamage ? 1 : 0;
+	setup->teamPlay = setup->teamPlay ? 1 : 0;
+	setup->friendlyFire = setup->friendlyFire ? 1 : 0;
+	for (player = 0; player < STEFX_HOLOMATCH_MAX_LOCAL_PLAYERS; ++player)
+	{
+		stefxHolomatchPlayerSetup_t *playerSetup = &setup->player[player];
+
+		playerSetup->modelName[MAX_QPATH - 1] = '\0';
+		playerSetup->skinName[MAX_QPATH - 1] = '\0';
+		if (!Sys_STEFXValidHolomatchAssetToken(playerSetup->modelName))
+		{
+			Q_strncpyz(playerSetup->modelName, "munro", sizeof(playerSetup->modelName));
+		}
+		if (!Sys_STEFXValidHolomatchAssetToken(playerSetup->skinName))
+		{
+			Q_strncpyz(playerSetup->skinName, "default", sizeof(playerSetup->skinName));
+		}
+		playerSetup->controlStyle = Sys_STEFXClampHolomatchOption(playerSetup->controlStyle, 0, 8);
+		playerSetup->autoswitchMode = Sys_STEFXClampHolomatchOption(playerSetup->autoswitchMode, 0, 2);
+		playerSetup->autoaimMode = Sys_STEFXClampHolomatchOption(playerSetup->autoaimMode, 0, 3);
+		playerSetup->crosshair = Sys_STEFXClampHolomatchOption(playerSetup->crosshair, 1, 12);
+		playerSetup->vibration = playerSetup->vibration ? 1 : 0;
+		playerSetup->invertPitch = playerSetup->invertPitch ? 1 : 0;
+	}
+}
+
+static void Sys_STEFXQueueHolomatchPlayerSettings(const stefxHolomatchLaunchSetup_t *setup)
+{
+	int player;
+
+	for (player = 0; player < setup->players && player < STEFX_HOLOMATCH_MAX_LOCAL_PLAYERS; ++player)
+	{
+		const stefxHolomatchPlayerSetup_t *playerSetup = &setup->player[player];
+
+		Cbuf_AddText(va("set hm_model_%d %s\n", player, playerSetup->modelName));
+		Cbuf_AddText(va("set hm_skin_%d %s\n", player, playerSetup->skinName));
+		Cbuf_AddText(va("set cont_config_%d %d\n", player, playerSetup->controlStyle));
+		Cbuf_AddText(va("set cg_autoswitch_%d %d\n", player, playerSetup->autoswitchMode));
+		Cbuf_AddText(va("set g_autoaim_%d %d\n", player, playerSetup->autoaimMode));
+		Cbuf_AddText(va("set cg_drawCrosshair_%d %d\n", player, playerSetup->crosshair));
+		Cbuf_AddText(va("set joy_vibestate_%d %d\n", player, playerSetup->vibration));
+		Cbuf_AddText(va("set joy_pitchsensitivity_%d %d\n", player, playerSetup->invertPitch ? -1 : 1));
+		XBLF("STEFX_HM_PLAYER_HANDOFF_APPLY: player=%d model='%s' skin='%s' control=%d autoswitch=%d autoaim=%d crosshair=%d vibration=%d invert=%d",
+			player + 1, playerSetup->modelName, playerSetup->skinName,
+			playerSetup->controlStyle, playerSetup->autoswitchMode, playerSetup->autoaimMode,
+			playerSetup->crosshair, playerSetup->vibration, playerSetup->invertPitch);
+	}
+	Cbuf_AddText(va("set model %s/%s\n", setup->player[0].modelName, setup->player[0].skinName));
+	Cbuf_AddText(va("set cg_drawCrosshair %d\n", setup->player[0].crosshair));
+	Cbuf_AddText(va("set cg_autoswitch %d\n", setup->player[0].autoswitchMode));
+}
 
 static unsigned int Sys_XboxDirectMapHashText(const char *text)
 {
@@ -261,22 +391,45 @@ bool Sys_XboxQueueMenuMap(const char *mapName, const char *mode, int players)
 		players = 4;
 	}
 	s_xboxMenuMapPlayers = players;
+	if (!Q_stricmp(s_xboxMenuMapMode, "holomatch"))
+	{
+		s_xboxMenuMapHumanPlayers = Cvar_VariableIntegerValue("stefx_hmHumanPlayers");
+		if (s_xboxMenuMapHumanPlayers < 1)
+		{
+			s_xboxMenuMapHumanPlayers = players;
+		}
+		else if (s_xboxMenuMapHumanPlayers > players)
+		{
+			s_xboxMenuMapHumanPlayers = players;
+		}
+		s_xboxMenuMapVirtualControls = Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls") ? 1 : 0;
+		s_xboxMenuMapVirtualControlsP1 = s_xboxMenuMapVirtualControls &&
+			Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1") ? 1 : 0;
+	}
+	else
+	{
+		s_xboxMenuMapHumanPlayers = players;
+		s_xboxMenuMapVirtualControls = 0;
+		s_xboxMenuMapVirtualControlsP1 = 0;
+	}
 	s_xboxMenuMapQueued = true;
 	g_xboxDirectMapBootQueued = true;
 	s_xboxDirectMapMarkerConsumed = false;
 	g_SPXBDirectMapStatus = 125;
-	XBLF("STEFX: queued menu map for outside-frame execution map='%s' mode='%s' players=%d",
-		s_xboxMenuMapName, s_xboxMenuMapMode, s_xboxMenuMapPlayers);
+	XBLF("STEFX: queued menu map for outside-frame execution map='%s' mode='%s' players=%d humans=%d",
+		s_xboxMenuMapName, s_xboxMenuMapMode, s_xboxMenuMapPlayers, s_xboxMenuMapHumanPlayers);
 	if (!Q_stricmp(s_xboxMenuMapMode, "holomatch"))
 	{
-		XBLF("STEFX_HM_SPLIT_LAUNCH: source=queue map='%s' split=%d players=%d mode='%s' localPlayers=%d virtual=%d virtualP1=%d",
+		XBLF("STEFX_HM_SPLIT_LAUNCH: source=queue map='%s' split=%d players=%d mode='%s' localPlayers=%d humans=%d botViews=%d virtual=%d virtualP1=%d",
 			s_xboxMenuMapName,
-			s_xboxMenuMapPlayers >= 2 ? 1 : 0,
+			1,
 			s_xboxMenuMapPlayers,
 			s_xboxMenuMapMode,
 			s_xboxMenuMapPlayers,
-			s_xboxMenuMapPlayers >= 4 ? 1 : 0,
-			s_xboxMenuMapPlayers >= 4 ? 1 : 0);
+			s_xboxMenuMapHumanPlayers,
+			s_xboxMenuMapPlayers - s_xboxMenuMapHumanPlayers,
+			s_xboxMenuMapVirtualControls,
+			s_xboxMenuMapVirtualControlsP1);
 	}
 	g_SPXBDirectMapStatus = 126;
 	g_SPXBDirectMapQueuedCount++;
@@ -288,6 +441,9 @@ static void Sys_XboxExecuteMenuMap(void)
 	char mapName[MAX_QPATH];
 	char mode[16];
 	int players;
+	int humanPlayers;
+	int virtualControls;
+	int virtualControlsP1;
 
 	if (!s_xboxMenuMapQueued)
 	{
@@ -297,30 +453,59 @@ static void Sys_XboxExecuteMenuMap(void)
 	Q_strncpyz(mapName, s_xboxMenuMapName, sizeof(mapName));
 	Q_strncpyz(mode, s_xboxMenuMapMode, sizeof(mode));
 	players = s_xboxMenuMapPlayers;
+	humanPlayers = s_xboxMenuMapHumanPlayers;
+	virtualControls = s_xboxMenuMapVirtualControls;
+	virtualControlsP1 = s_xboxMenuMapVirtualControlsP1;
 	s_xboxMenuMapQueued = false;
 	s_xboxMenuMapName[0] = '\0';
 	s_xboxMenuMapMode[0] = '\0';
-	XBLF("STEFX: executing menu map outside Com_Frame map='%s' mode='%s' players=%d",
-		mapName, mode, players);
+	XBLF("STEFX: executing menu map outside Com_Frame map='%s' mode='%s' players=%d humans=%d",
+		mapName, mode, players, humanPlayers);
+#if defined(STEFX_ELITE_FORCE_SP)
+	/*
+	 * The frontend deliberately queues map execution outside its draw frame.
+	 * Present the load page before the synchronous map command begins so the
+	 * user never watches the retired menu sit inert during the first teardown.
+	 */
+	Cvar_Set("ui_mapname", mapName);
+#if defined(STEFX_SP_HOSTED_MP)
+	{
+		extern void SP_DrawMPLoadScreen(void);
+		XBLog_WriteCritical("STEFX_LOAD_PRESENT: queued Holomatch pre-map draw begin");
+		SP_DrawMPLoadScreen();
+		re.EndFrame(NULL, NULL);
+		XBLog_WriteCritical("STEFX_LOAD_PRESENT: queued Holomatch pre-map draw complete");
+	}
+#else
+	{
+		extern void SP_PrecacheEFLoadingTitle(void);
+		extern void SP_DrawSPLoadScreen(void);
+		Cvar_Set("ui_sp_levelname", "");
+		SP_PrecacheEFLoadingTitle();
+		XBLog_WriteCritical("STEFX_LOAD_PRESENT: queued SP pre-map draw begin");
+		SP_DrawSPLoadScreen();
+		re.EndFrame(NULL, NULL);
+		XBLog_WriteCritical("STEFX_LOAD_PRESENT: queued SP pre-map draw complete");
+	}
+#endif
+#endif
 	if (!Q_stricmp(mode, "holomatch"))
 	{
 		Cvar_Set("sv_maxclients", "8");
-		Cvar_Set("g_gametype", "0");
-		Cvar_Set("fraglimit", "0");
-		Cvar_Set("timelimit", "0");
 		Cvar_Set("bot_enable", "1");
-		Cvar_Set("bot_minplayers", players >= 4 ? "7" : "3");
-		Cvar_Set("g_spSkill", players >= 4 ? "2" : "1");
+		Cvar_Set("bot_minplayers", va("%d", players + 3));
+		Cvar_Set("g_spSkill", players >= 3 ? "2" : "1");
 		Cvar_Set("stefx_hmLocalPlayers", va("%d", players));
-		Cvar_Set("stefx_hm_split_economy", players >= 4 ? "1" : "0");
-		Cvar_Set("stefx_hm_split_virtual_controls", players >= 4 ? "1" : "0");
-		Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4 ? "1" : "0");
+		Cvar_Set("stefx_hmHumanPlayers", va("%d", humanPlayers));
+		Cvar_Set("r_splitScreenEconomy", players >= 2 ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls", virtualControls ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls_p1", virtualControlsP1 ? "1" : "0");
 	}
 	Cbuf_ExecuteText(EXEC_NOW, va("map %s", mapName));
 
 	/* VM cvar registration during map setup restores these defaults.  Reapply the
 	   frontend-selected mode after the synchronous map command has returned. */
-	Cvar_Set("stefx_splitScreen", players >= 2 ? "1" : "0");
+	Cvar_Set("stefx_splitScreen", !Q_stricmp(mode, "holomatch") || players >= 2 ? "1" : "0");
 	Cvar_Set("stefx_splitScreenPlayers", va("%d", players));
 	Cvar_Set("stefx_splitScreenMode", mode);
 	Cvar_Set("stefx_splitScreenP2Entity", "-1");
@@ -328,12 +513,13 @@ static void Sys_XboxExecuteMenuMap(void)
 	if (!Q_stricmp(mode, "holomatch"))
 	{
 		Cvar_Set("bot_enable", "1");
-		Cvar_Set("bot_minplayers", players >= 4 ? "7" : "3");
-		Cvar_Set("g_spSkill", players >= 4 ? "2" : "1");
+		Cvar_Set("bot_minplayers", va("%d", players + 3));
+		Cvar_Set("g_spSkill", players >= 3 ? "2" : "1");
 		Cvar_Set("stefx_hmLocalPlayers", va("%d", players));
-		Cvar_Set("stefx_hm_split_economy", players >= 4 ? "1" : "0");
-		Cvar_Set("stefx_hm_split_virtual_controls", players >= 4 ? "1" : "0");
-		Cvar_Set("stefx_hm_split_virtual_controls_p1", players >= 4 ? "1" : "0");
+		Cvar_Set("stefx_hmHumanPlayers", va("%d", humanPlayers));
+		Cvar_Set("r_splitScreenEconomy", players >= 2 ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls", virtualControls ? "1" : "0");
+		Cvar_Set("stefx_hm_split_virtual_controls_p1", virtualControlsP1 ? "1" : "0");
 	}
 	XBLF("STEFX: menu map outside-frame execution returned map='%s' split=%d players=%d mode='%s'",
 		mapName,
@@ -342,15 +528,17 @@ static void Sys_XboxExecuteMenuMap(void)
 		Cvar_VariableString("stefx_splitScreenMode"));
 	if (!Q_stricmp(mode, "holomatch"))
 	{
-		XBLF("STEFX_HM_SPLIT_LAUNCH: source=execute map='%s' split=%d players=%d mode='%s' localPlayers=%d virtual=%d virtualP1=%d economy=%d",
+		XBLF("STEFX_HM_SPLIT_LAUNCH: source=execute map='%s' split=%d players=%d mode='%s' localPlayers=%d humans=%d botViews=%d virtual=%d virtualP1=%d economy=%d",
 			mapName,
 			Cvar_VariableIntegerValue("stefx_splitScreen"),
 			Cvar_VariableIntegerValue("stefx_splitScreenPlayers"),
 			Cvar_VariableString("stefx_splitScreenMode"),
 			Cvar_VariableIntegerValue("stefx_hmLocalPlayers"),
+			Cvar_VariableIntegerValue("stefx_hmHumanPlayers"),
+			players - humanPlayers,
 			Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls"),
 			Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1"),
-			Cvar_VariableIntegerValue("stefx_hm_split_economy"));
+			Cvar_VariableIntegerValue("r_splitScreenEconomy"));
 	}
 }
 
@@ -393,30 +581,78 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 #if defined(STEFX_SP_HOSTED_MP)
 	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_HOLOMATCH)
 	{
-		Q_strncpyz(startupMap, "hm_borg1", sizeof(startupMap));
+		Q_strncpyz(startupMap, s_stefxHolomatchLaunchSetup.mapName, sizeof(startupMap));
 		startupMapSource = "XBE Holomatch launch intent";
 		builtInLaunchIntent = true;
 		useDevMap = false;
 		Cbuf_AddText("set fs_game BaseEF\n");
 		Cbuf_AddText("set stefx_splitScreen 1\n");
-		Cbuf_AddText("set stefx_splitScreenPlayers 4\n");
+		Cbuf_AddText(va("set stefx_splitScreenPlayers %d\n", s_stefxHolomatchLaunchSetup.players));
 		Cbuf_AddText("set stefx_splitScreenMode holomatch\n");
-		Cbuf_AddText("set stefx_hmLocalPlayers 4\n");
-		Cbuf_AddText("set stefx_hm_split_economy 1\n");
-		Cbuf_AddText("set stefx_hm_split_virtual_controls 1\n");
-		Cbuf_AddText("set stefx_hm_split_virtual_controls_p1 1\n");
+		Cbuf_AddText(va("set stefx_hmLocalPlayers %d\n", s_stefxHolomatchLaunchSetup.players));
+		Cbuf_AddText(va("set stefx_hmHumanPlayers %d\n", s_stefxHolomatchLaunchSetup.humanPlayers));
+		Cbuf_AddText(va("set r_splitScreenEconomy %d\n", s_stefxHolomatchLaunchSetup.players >= 2 ? 1 : 0));
+		Cbuf_AddText(va("set stefx_hm_split_virtual_controls %d\n", s_stefxHolomatchLaunchSetup.diagnosticVirtualControls ? 1 : 0));
+		Cbuf_AddText(va("set stefx_hm_split_virtual_controls_p1 %d\n", s_stefxHolomatchLaunchSetup.diagnosticVirtualControlsP1 ? 1 : 0));
+		/* A direct hardware bootstrap must never inherit input/render proof cvars
+		 * from an earlier emulator configuration. P2-P4 are real game bots; P1
+		 * must remain exclusively owned by the physical primary controller. */
+		Cbuf_AddText("set stefx_splitScreenTestP2Pad 0\n");
+		Cbuf_AddText("set stefx_splitScreenTestP2Input 0\n");
+		Cbuf_AddText("set stefx_smoke_input 0\n");
+		Cbuf_AddText("set stefx_hm_smoke_pin_p1_view 0\n");
+		Cbuf_AddText("set stefx_hm_smoke_combat_proof 0\n");
+		Cbuf_AddText("set stefx_hm_smoke_mapcycle 0\n");
+		Cbuf_AddText("set stefx_hm_split_overlay_proof 0\n");
+		Cbuf_AddText("set stefx_hm_split_phaser_proof 0\n");
+		Cbuf_AddText("set stefx_hm_split_weapon_proof 0\n");
 		Cbuf_AddText("set stefx_hm_launch_source xbe\n");
 		Cbuf_AddText("set stefx_splitScreenP2Entity -1\n");
-		Cbuf_AddText("set model munro/default\n");
+		Sys_STEFXQueueHolomatchPlayerSettings(&s_stefxHolomatchLaunchSetup);
 		Cbuf_AddText("set sv_maxclients 8\n");
-		Cbuf_AddText("set g_gametype 0\n");
-		Cbuf_AddText("set fraglimit 0\n");
-		Cbuf_AddText("set timelimit 0\n");
+		Cbuf_AddText(va("set g_gametype %d\n", s_stefxHolomatchLaunchSetup.teamPlay ? 3 : 0));
+		Cbuf_AddText(va("set fraglimit %d\n", s_stefxHolomatchLaunchSetup.fragLimit));
+		Cbuf_AddText(va("set timelimit %d\n", s_stefxHolomatchLaunchSetup.timeLimit));
+		Cbuf_AddText(va("set g_forcerespawn %d\n", s_stefxHolomatchLaunchSetup.forceRespawn ? 20 : 0));
+		Cbuf_AddText(va("set stefx_hm_weapon_stay %d\n", s_stefxHolomatchLaunchSetup.weaponStay ? 1 : 0));
+		Cbuf_AddText(va("set dmflags %d\n", s_stefxHolomatchLaunchSetup.fallingDamage ? 0 : 8));
+		Cbuf_AddText(va("set g_friendlyFire %d\n", s_stefxHolomatchLaunchSetup.friendlyFire ? 1 : 0));
+		/* The original PC holodeck entrance intentionally freezes a non-bot for
+		 * TIME_INTRO (five seconds).  In local split-screen that looks and feels
+		 * like controller rollback while the bot-owned panels are already live.
+		 * Console local play starts every 3P/4P viewport immediately instead. */
+		Cbuf_AddText("set g_holoIntro 0\n");
 		Cbuf_AddText("set bot_enable 1\n");
-		Cbuf_AddText("set bot_minplayers 7\n");
+		/* The direct one-pad hardware build assigns the missing viewport owners to
+		 * real game bots.  Do not also append the normal three opponent bots: that
+		 * made a 1H/4V proof simulate seven actors even though the requested test
+		 * population is P1 plus bot-owned P2-P4.  The same expression naturally
+		 * gives a 1H/3V proof exactly two bot-owned secondary viewports. */
+		Cbuf_AddText(va("set bot_minplayers %d\n", s_stefxHolomatchLaunchSetup.players));
 		Cbuf_AddText("set g_spSkill 2\n");
 		XBL("STEFX: applying Holomatch XBE launch intent\n");
-		XBL("STEFX_HM_SPLIT_LAUNCH: source=xbe map='hm_borg1' split=1 players=4 mode='holomatch' localPlayers=4 virtual=1 virtualP1=1 economy=1\n");
+		XBLF("STEFX_HM_BOT_POPULATION: source=xbe viewports=%d humans=%d botViews=%d minPlayers=%d extraBots=0",
+			s_stefxHolomatchLaunchSetup.players,
+			s_stefxHolomatchLaunchSetup.humanPlayers,
+			s_stefxHolomatchLaunchSetup.players - s_stefxHolomatchLaunchSetup.humanPlayers,
+			s_stefxHolomatchLaunchSetup.players);
+		XBL("STEFX_HM_INTRO_POLICY: source=xbe holoIntro=0 immediateLocalInput=1 applies3P=1 applies4P=1\n");
+		XBLF("STEFX_HM_SPLIT_LAUNCH: source=xbe map='%s' split=1 players=%d mode='holomatch' localPlayers=%d humans=%d botViews=%d virtual=%d virtualP1=%d economy=%d frag=%d time=%d force=%d stay=%d falling=%d team=%d friendly=%d",
+			startupMap,
+			s_stefxHolomatchLaunchSetup.players,
+			s_stefxHolomatchLaunchSetup.players,
+			s_stefxHolomatchLaunchSetup.humanPlayers,
+			s_stefxHolomatchLaunchSetup.players - s_stefxHolomatchLaunchSetup.humanPlayers,
+			s_stefxHolomatchLaunchSetup.diagnosticVirtualControls ? 1 : 0,
+			s_stefxHolomatchLaunchSetup.diagnosticVirtualControlsP1 ? 1 : 0,
+			s_stefxHolomatchLaunchSetup.players >= 2 ? 1 : 0,
+			s_stefxHolomatchLaunchSetup.fragLimit,
+			s_stefxHolomatchLaunchSetup.timeLimit,
+			s_stefxHolomatchLaunchSetup.forceRespawn,
+			s_stefxHolomatchLaunchSetup.weaponStay,
+			s_stefxHolomatchLaunchSetup.fallingDamage,
+			s_stefxHolomatchLaunchSetup.teamPlay,
+			s_stefxHolomatchLaunchSetup.friendlyFire);
 	}
 #else
 	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_COOP)
@@ -428,6 +664,7 @@ static bool Sys_XboxQueueDirectMapBoot(void)
 		Cbuf_AddText("set stefx_splitScreen 1\n");
 		Cbuf_AddText("set stefx_splitScreenPlayers 2\n");
 		Cbuf_AddText("set stefx_splitScreenMode coop\n");
+		Cbuf_AddText("set r_splitScreenEconomy 1\n");
 		Cbuf_AddText("set stefx_splitScreenP2Entity -1\n");
 		Cbuf_AddText("set cg_virtualVoyager 0\n");
 		XBL("STEFX: applying cooperative XBE launch intent\n");
@@ -894,10 +1131,83 @@ bool Sys_QuickStart( void )
 	if( (XGetLaunchInfo( &launchType, &ld ) != ERROR_SUCCESS) ||
 		(launchType != LDT_TITLE) ||
 		memcmp(&ld.Data[1], LAUNCH_MAGIC, 4) )
+	{
+#if defined(STEFX_SP_HOSTED_MP)
+		char explicitMap[MAX_QPATH];
+		const char *explicitMapPaths[] = {
+			"D:\\ef_sp_level.txt",
+			"d:\\ef_sp_level.txt",
+			"D:\\ja_sp_level.txt",
+			"d:\\ja_sp_level.txt",
+			NULL
+		};
+		explicitMap[0] = '\0';
+		if (!Sys_XboxNormalBootRequested() &&
+			!Sys_XboxReadFirstLineFromPaths(explicitMapPaths, explicitMap, sizeof(explicitMap), NULL))
+		{
+			/* A production efmp.xbe boot without validated launch data belongs to
+			 * the frontend.  Automated and one-pad diagnostics must opt in with an
+			 * explicit map/command marker, rather than changing the retail path. */
+			XBL("STEFX_HM_DIRECT_BOOT: no handoff or marker; production frontend path\n");
+		}
+#endif
 		return (retVal = false);
+	}
 	
 	gLaunchController = ld.Data[0];
 	s_stefxLaunchIntent = ld.Data[6];
+	if (s_stefxLaunchIntent == STEFX_LAUNCH_INTENT_HOLOMATCH)
+	{
+		const stefxHolomatchLaunchSetup_t *setup = (const stefxHolomatchLaunchSetup_t *)&ld.Data[8];
+		if (setup->magic == STEFX_HOLOMATCH_SETUP_MAGIC &&
+			setup->version == STEFX_HOLOMATCH_SETUP_VERSION &&
+			setup->mapName[0] && setup->players >= 1 && setup->players <= 4 &&
+			setup->humanPlayers >= 1 && setup->humanPlayers <= setup->players)
+		{
+			memcpy(&s_stefxHolomatchLaunchSetup, setup, sizeof(s_stefxHolomatchLaunchSetup));
+			Sys_STEFXNormalizeHolomatchPlayerSettings(&s_stefxHolomatchLaunchSetup);
+			s_stefxHolomatchLaunchSetup.diagnosticVirtualControls =
+				s_stefxHolomatchLaunchSetup.diagnosticVirtualControls ? 1 : 0;
+			s_stefxHolomatchLaunchSetup.diagnosticVirtualControlsP1 =
+				s_stefxHolomatchLaunchSetup.diagnosticVirtualControls &&
+				s_stefxHolomatchLaunchSetup.diagnosticVirtualControlsP1 ? 1 : 0;
+			XBLF("STEFX_HM_MENU_HANDOFF: accepted version=%d bytes=%u map='%s' players=%d humans=%d botViews=%d frag=%d time=%d force=%d stay=%d falling=%d team=%d friendly=%d virtual=%d virtualP1=%d",
+				s_stefxHolomatchLaunchSetup.version,
+				(unsigned int)sizeof(s_stefxHolomatchLaunchSetup),
+				s_stefxHolomatchLaunchSetup.mapName,
+				s_stefxHolomatchLaunchSetup.players,
+				s_stefxHolomatchLaunchSetup.humanPlayers,
+				s_stefxHolomatchLaunchSetup.players - s_stefxHolomatchLaunchSetup.humanPlayers,
+				s_stefxHolomatchLaunchSetup.fragLimit,
+				s_stefxHolomatchLaunchSetup.timeLimit,
+				s_stefxHolomatchLaunchSetup.forceRespawn,
+				s_stefxHolomatchLaunchSetup.weaponStay,
+				s_stefxHolomatchLaunchSetup.fallingDamage,
+				s_stefxHolomatchLaunchSetup.teamPlay,
+				s_stefxHolomatchLaunchSetup.friendlyFire,
+				s_stefxHolomatchLaunchSetup.diagnosticVirtualControls,
+				s_stefxHolomatchLaunchSetup.diagnosticVirtualControlsP1);
+			{
+				int player;
+				for (player = 0; player < s_stefxHolomatchLaunchSetup.players; ++player)
+				{
+					const stefxHolomatchPlayerSetup_t *playerSetup = &s_stefxHolomatchLaunchSetup.player[player];
+					XBLF("STEFX_HM_PLAYER_HANDOFF: player=%d model='%s' skin='%s' control=%d autoswitch=%d autoaim=%d crosshair=%d vibration=%d invert=%d",
+						player + 1, playerSetup->modelName, playerSetup->skinName,
+						playerSetup->controlStyle, playerSetup->autoswitchMode, playerSetup->autoaimMode,
+						playerSetup->crosshair, playerSetup->vibration, playerSetup->invertPitch);
+				}
+			}
+		}
+		else
+		{
+			/* Do not turn corrupt or version-mismatched menu data into the old
+			 * one-pad test bootstrap.  Fail safely into the shared frontend so the
+			 * user can make a fresh, explicit Holomatch selection. */
+			s_stefxLaunchIntent = STEFX_LAUNCH_INTENT_FRONTEND;
+			XBL("STEFX_HM_MENU_HANDOFF: rejected invalid setup; returning to frontend\n");
+		}
+	}
 	XBLF("STEFX: XBE launch handoff controller=%d intent=%d savingDisabled=%d",
 		gLaunchController,
 		s_stefxLaunchIntent,
@@ -955,6 +1265,33 @@ void Sys_Reboot( const char *reason, const void *pData )
 
 		// Flag that there is no invite in the launch data:
 		ld.Data[7] = 0;
+		if (pData)
+		{
+			const stefxHolomatchLaunchSetup_t *setup = (const stefxHolomatchLaunchSetup_t *)pData;
+			if (setup->magic == STEFX_HOLOMATCH_SETUP_MAGIC && setup->version == STEFX_HOLOMATCH_SETUP_VERSION)
+			{
+				memcpy(&ld.Data[8], setup, sizeof(*setup));
+				XBLF("STEFX_HM_MENU_HANDOFF: queued version=%d bytes=%u map='%s' players=%d humans=%d botViews=%d frag=%d time=%d force=%d stay=%d falling=%d team=%d friendly=%d virtual=%d virtualP1=%d",
+					setup->version, (unsigned int)sizeof(*setup), setup->mapName,
+					setup->players, setup->humanPlayers, setup->players - setup->humanPlayers,
+					setup->fragLimit, setup->timeLimit,
+					setup->forceRespawn, setup->weaponStay, setup->fallingDamage,
+					setup->teamPlay, setup->friendlyFire,
+					setup->diagnosticVirtualControls ? 1 : 0,
+					setup->diagnosticVirtualControlsP1 ? 1 : 0);
+				{
+					int player;
+					for (player = 0; player < setup->players && player < STEFX_HOLOMATCH_MAX_LOCAL_PLAYERS; ++player)
+					{
+						const stefxHolomatchPlayerSetup_t *playerSetup = &setup->player[player];
+						XBLF("STEFX_HM_PLAYER_HANDOFF_QUEUE: player=%d model='%s' skin='%s' control=%d autoswitch=%d autoaim=%d crosshair=%d vibration=%d invert=%d",
+							player + 1, playerSetup->modelName, playerSetup->skinName,
+							playerSetup->controlStyle, playerSetup->autoswitchMode, playerSetup->autoaimMode,
+							playerSetup->crosshair, playerSetup->vibration, playerSetup->invertPitch);
+					}
+				}
+			}
+		}
 	}
 	else if (!Q_stricmp(reason, "singleplayer") ||
 		!Q_stricmp(reason, "singleplayer_coop"))
@@ -1294,6 +1631,8 @@ int main(int argc, char* argv[])
 	int xboxLastLoopStart = 0;
 	#endif
 	while( 1 ) {
+		g_SPXBMainLoopCount++;
+		g_SPXBMainTailStage = 0x4D4C3030; /* 'ML00': loop entry */
 		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		const int xboxLoopStart = Sys_Milliseconds();
 		if (xboxLastLoopStart != 0)
@@ -1304,22 +1643,28 @@ int main(int argc, char* argv[])
 		const int xboxInputStart = Sys_Milliseconds();
 		#endif
 		IN_Frame();
+		g_SPXBMainTailStage = 0x4D4C3031; /* 'ML01': input complete */
 		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		g_SPXBPerfInputMsec = (unsigned int)(Sys_Milliseconds() - xboxInputStart);
 		const int xboxMenuStart = Sys_Milliseconds();
 		#endif
 #ifdef _XBOX
+		g_SPXBMainTailStage = 0x4D4C3032; /* 'ML02': before menu-map work */
 		Sys_XboxExecuteMenuMap();
+		g_SPXBMainTailStage = 0x4D4C3033; /* 'ML03': menu-map work complete */
 #endif
 		#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		g_SPXBPerfMenuMsec = (unsigned int)(Sys_Milliseconds() - xboxMenuStart);
 		#endif
+		g_SPXBMainTailStage = 0x4D4C3034; /* 'ML04': before Com_Frame */
 		Com_Frame();
+		g_SPXBMainTailStage = 0x4D4C3035; /* 'ML05': Com_Frame complete */
 
 		// Poll debug console for new commands
 #ifndef FINAL_BUILD
 		DebugConsoleHandleCommands();
 #endif
+		g_SPXBMainTailStage = 0x4D4C3036; /* 'ML06': loop complete */
 	}
 
 	return 0;
@@ -1336,6 +1681,8 @@ void Sys_Quit(void)
 {
 #ifdef _XBOX
 	XBL("JA: Sys_Quit called\n");
+	XLaunchNewImage(NULL, NULL);
+	XBL("JA: Sys_Quit XLaunchNewImage returned\n");
 #endif
 }
 

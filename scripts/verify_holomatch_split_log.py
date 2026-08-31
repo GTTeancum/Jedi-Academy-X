@@ -16,6 +16,13 @@ HEARTBEAT_MARKER = "FRAME_HEARTBEAT"
 PAIR_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*)=([^\s]+)")
 FPS_RE = re.compile(r"^(\d+)\.(\d+)$")
 LAUNCH_RE = re.compile(r"STEFX_HM_SPLIT_LAUNCH:")
+PLAYER_SETUP_RE = re.compile(
+    r"STEFX_HM_PLAYER_SETUP_PROOF: slot=(?P<slot>\d+) active=(?P<active>\d+) "
+    r"model='(?P<model>[^']+)'.*?skin='(?P<skin>[^']+)'.*?"
+    r"control=(?P<control>\d+) autoswitch=(?P<autoswitch>\d+) "
+    r"autoaim=(?P<autoaim>\d+) crosshair=(?P<crosshair>\d+) "
+    r"vibration=(?P<vibration>\d+) invert=(?P<invert>\d+)"
+)
 STATE_RE = re.compile(
     r"STEFX_HM_SPLIT_STATE: slot=(?P<slot>\d+) players=(?P<players>\d+) "
     r"bots=(?P<bots>\d+) state=(?P<state>\d+) local=(?P<local>\d+) "
@@ -24,7 +31,39 @@ STATE_RE = re.compile(
 )
 CMD_RE = re.compile(
     r"STEFX_HM_SPLIT_CMD: client=(?P<client>\d+).*?move=\((?P<move>[^)]*)\)"
-    r".*?buttons=0x(?P<buttons>[0-9a-fA-F]+).*?angles=\((?P<angles>[^)]*)\)"
+    r".*?buttons=0x(?P<buttons>[0-9a-fA-F]+).*?weapon=(?P<weapon>\d+)"
+    r".*?angles=\((?P<angles>[^)]*)\)"
+)
+P1_NATIVE_CMD_RE = re.compile(
+    r"STEFX_HM_P1_NATIVE_CMD:.*?move=\((?P<move>[^)]*)\)"
+    r".*?buttons=0x(?P<buttons>[0-9a-fA-F]+).*?weapon=(?P<weapon>\d+)"
+    r".*?angles=\((?P<angles>[^)]*)\)"
+)
+P1_PROFILED_CMD_RE = re.compile(
+    r"STEFX_HM_P1_PROFILED_CMD: owner=native_loopback slot=0 port=(?P<port>-?\d+) "
+    r"style=(?P<style>\d+) time=(?P<time>\d+) move=\((?P<move>[^)]*)\) "
+    r"buttons=0x(?P<buttons>[0-9a-fA-F]+) weapon=(?P<weapon>\d+) "
+    r"weaponDelta=(?P<weapon_delta>-?\d+) zoom=(?P<zoom>[-+0-9.eE]+) "
+    r"view=\((?P<view>[^)]*)\)"
+)
+SPLIT_PAD_CMD_RE = re.compile(
+    r"STEFX_HM_SPLIT_PAD_CMD: slot=(?P<slot>\d+) port=(?P<port>-?\d+) "
+    r"style=(?P<style>\d+) time=(?P<time>\d+) move=\((?P<move>[^)]*)\) "
+    r"buttons=0x(?P<buttons>[0-9a-fA-F]+) weaponDelta=(?P<weapon_delta>-?\d+) "
+    r"zoom=(?P<zoom>[-+0-9.eE]+)"
+)
+GLOBAL_ACTION_RE = re.compile(
+    r"STEFX_HM_GLOBAL_ACTION: slot=(?P<slot>-?\d+) port=(?P<port>-?\d+) "
+    r"action=(?P<action>scoreboard|pause) down=(?P<down>\d+)"
+)
+CONTROL_ROUTE_RE = re.compile(
+    r"STEFX_HM_CONTROL_ROUTE: slot=(?P<slot>\d+) port=(?P<port>-?\d+) "
+    r"source=(?P<source>[a-z_]+) players=(?P<players>\d+)"
+)
+CONTROL_ROUTING_RE = re.compile(
+    r"STEFX_HM_CONTROL_ROUTING: players=(?P<players>\d+) "
+    r"connectedMask=0x(?P<connected_mask>[0-9a-fA-F]+) "
+    r"uniquePorts=(?P<unique_ports>\d+) valid=(?P<valid>\d+)"
 )
 REFDEF_RE = re.compile(
     r"STEFX_HM_SPLIT_REFDEF: slot=(?P<slot>\d+) client=(?P<client>\d+).*?origin=\((?P<origin>[^)]*)\)"
@@ -42,6 +81,13 @@ RENDER_DONE_RE = re.compile(
     r"(?:externalClient=(?P<external_client>-?\d+) )?"
     r"drawDelta=(?P<draw_delta>-?\d+) drawAfter=(?P<draw_after>-?\d+) "
     r"cluster=(?P<cluster>-?\d+) cluster2=(?P<cluster2>-?\d+).*?view=\((?P<view>[^)]*)\)"
+)
+TILING_RE = re.compile(
+    r"STEFX_HM_SPLIT_TILING: players=(?P<players>\d+) "
+    r"source=\((?P<x>-?\d+),(?P<y>-?\d+) (?P<w>-?\d+)x(?P<h>-?\d+)\) "
+    r"sourcePixels=(?P<source_pixels>-?\d+) coveredPixels=(?P<covered_pixels>-?\d+) "
+    r"overlapPixels=(?P<overlap_pixels>-?\d+) gapPixels=(?P<gap_pixels>-?\d+) "
+    r"separators=(?P<separators>-?\d+) valid=(?P<valid>\d+)"
 )
 FP_FILTER_RE = re.compile(r"STEFX_HM_SPLIT_FP_FILTER: slot=(?P<slot>\d+)")
 SELF_FILTER_RE = re.compile(r"STEFX_HM_SPLIT_SELF_FILTER: slot=(?P<slot>\d+)")
@@ -91,13 +137,31 @@ class SlotState:
 @dataclass
 class Proof:
     launch_records: list[dict[str, object]] = field(default_factory=list)
+    player_setups: dict[int, dict[str, object]] = field(default_factory=dict)
     max_armed_players: int = 0
     states: dict[int, SlotState] = field(default_factory=dict)
     state_history: dict[int, list[SlotState]] = field(default_factory=dict)
     cmd_clients: set[int] = field(default_factory=set)
     cmd_attack_clients: set[int] = field(default_factory=set)
+    cmd_alt_attack_clients: set[int] = field(default_factory=set)
+    cmd_use_clients: set[int] = field(default_factory=set)
+    cmd_jump_clients: set[int] = field(default_factory=set)
+    cmd_crouch_clients: set[int] = field(default_factory=set)
+    cmd_weapons: dict[int, set[int]] = field(default_factory=dict)
     cmd_moves: dict[int, set[tuple[int, int, int]]] = field(default_factory=dict)
     cmd_angles: dict[int, set[tuple[int, int, int]]] = field(default_factory=dict)
+    pad_cmd_slots: set[int] = field(default_factory=set)
+    pad_cmd_ports: dict[int, set[int]] = field(default_factory=dict)
+    pad_cmd_styles: dict[int, set[int]] = field(default_factory=dict)
+    pad_weapon_deltas: dict[int, set[int]] = field(default_factory=dict)
+    pad_zoom_values: dict[int, list[float]] = field(default_factory=dict)
+    p1_profiled_records: int = 0
+    p1_profile_bind_bypass: bool = False
+    global_scoreboard_down_slots: set[int] = field(default_factory=set)
+    global_scoreboard_up_slots: set[int] = field(default_factory=set)
+    global_pause_down_slots: set[int] = field(default_factory=set)
+    control_routes: dict[int, dict[str, object]] = field(default_factory=dict)
+    control_routing_records: list[dict[str, int]] = field(default_factory=list)
     refdef_slots: set[int] = field(default_factory=set)
     refdef_origins: dict[int, tuple[float, float, float]] = field(default_factory=dict)
     snapshot_slots: set[int] = field(default_factory=set)
@@ -112,6 +176,7 @@ class Proof:
     render_done_external_clients: dict[int, int] = field(default_factory=dict)
     render_done_positive_slots: set[int] = field(default_factory=set)
     render_done_views: dict[int, tuple[float, float, float]] = field(default_factory=dict)
+    tiling_records: list[dict[str, int]] = field(default_factory=list)
     fp_filter_slots: set[int] = field(default_factory=set)
     self_filter_slots: set[int] = field(default_factory=set)
     self_filter_ref_numbers: dict[int, set[int]] = field(default_factory=dict)
@@ -180,6 +245,33 @@ def parse_int3(raw: str) -> tuple[int, int, int] | None:
         return None
 
 
+def record_command(
+    proof: Proof,
+    client: int,
+    move: tuple[int, int, int] | None,
+    angles: tuple[int, int, int] | None,
+    buttons: int,
+    weapon: int | None,
+) -> None:
+    proof.cmd_clients.add(client)
+    if buttons & 0x01:
+        proof.cmd_attack_clients.add(client)
+    if buttons & 0x20:
+        proof.cmd_alt_attack_clients.add(client)
+    if buttons & 0x40:
+        proof.cmd_use_clients.add(client)
+    if move is not None:
+        proof.cmd_moves.setdefault(client, set()).add(move)
+        if move[2] > 0:
+            proof.cmd_jump_clients.add(client)
+        elif move[2] < 0:
+            proof.cmd_crouch_clients.add(client)
+    if angles is not None:
+        proof.cmd_angles.setdefault(client, set()).add(angles)
+    if weapon is not None:
+        proof.cmd_weapons.setdefault(client, set()).add(weapon)
+
+
 def parse_lines(lines: Iterable[str]) -> Proof:
     proof = Proof()
     for line in lines:
@@ -199,6 +291,21 @@ def parse_lines(lines: Iterable[str]) -> Proof:
                     value = value[1:-1]
                 record[key] = parse_scalar(value)
             proof.launch_records.append(record)
+
+        match = PLAYER_SETUP_RE.search(line)
+        if match:
+            slot = int(match.group("slot"))
+            proof.player_setups[slot] = {
+                "active": int(match.group("active")),
+                "model": match.group("model"),
+                "skin": match.group("skin"),
+                "control": int(match.group("control")),
+                "autoswitch": int(match.group("autoswitch")),
+                "autoaim": int(match.group("autoaim")),
+                "crosshair": int(match.group("crosshair")),
+                "vibration": int(match.group("vibration")),
+                "invert": int(match.group("invert")),
+            }
 
         match = RENDER_ARMED_RE.search(line)
         if match:
@@ -229,13 +336,76 @@ def parse_lines(lines: Iterable[str]) -> Proof:
             client = int(match.group("client"))
             move = parse_int3(match.group("move"))
             angles = parse_int3(match.group("angles"))
-            proof.cmd_clients.add(client)
-            if int(match.group("buttons"), 16) != 0:
-                proof.cmd_attack_clients.add(client)
-            if move is not None:
-                proof.cmd_moves.setdefault(client, set()).add(move)
-            if angles is not None:
-                proof.cmd_angles.setdefault(client, set()).add(angles)
+            buttons = int(match.group("buttons"), 16)
+            record_command(proof, client, move, angles, buttons, int(match.group("weapon")))
+
+        match = P1_NATIVE_CMD_RE.search(line)
+        if match:
+            move = parse_int3(match.group("move"))
+            angles = parse_int3(match.group("angles"))
+            buttons = int(match.group("buttons"), 16)
+            record_command(proof, 0, move, angles, buttons, int(match.group("weapon")))
+
+        match = P1_PROFILED_CMD_RE.search(line)
+        if match:
+            move = parse_int3(match.group("move"))
+            buttons = int(match.group("buttons"), 16)
+            weapon_delta = int(match.group("weapon_delta"))
+            zoom = float(match.group("zoom"))
+            proof.p1_profiled_records += 1
+            record_command(proof, 0, move, None, buttons, int(match.group("weapon")))
+            proof.pad_cmd_slots.add(0)
+            proof.pad_cmd_ports.setdefault(0, set()).add(int(match.group("port")))
+            proof.pad_cmd_styles.setdefault(0, set()).add(int(match.group("style")))
+            proof.pad_weapon_deltas.setdefault(0, set()).add(weapon_delta)
+            proof.pad_zoom_values.setdefault(0, []).append(zoom)
+
+        match = SPLIT_PAD_CMD_RE.search(line)
+        if match:
+            slot = int(match.group("slot"))
+            move = parse_int3(match.group("move"))
+            buttons = int(match.group("buttons"), 16)
+            weapon_delta = int(match.group("weapon_delta"))
+            zoom = float(match.group("zoom"))
+            proof.pad_cmd_slots.add(slot)
+            proof.pad_cmd_ports.setdefault(slot, set()).add(int(match.group("port")))
+            proof.pad_cmd_styles.setdefault(slot, set()).add(int(match.group("style")))
+            proof.pad_weapon_deltas.setdefault(slot, set()).add(weapon_delta)
+            proof.pad_zoom_values.setdefault(slot, []).append(zoom)
+            record_command(proof, slot, move, None, buttons, None)
+
+        match = GLOBAL_ACTION_RE.search(line)
+        if match:
+            slot = int(match.group("slot"))
+            action = match.group("action")
+            down = int(match.group("down")) != 0
+            if action == "scoreboard":
+                (proof.global_scoreboard_down_slots if down else proof.global_scoreboard_up_slots).add(slot)
+            elif action == "pause" and down:
+                proof.global_pause_down_slots.add(slot)
+
+        if "STEFX_HM_P1_PROFILE_BIND_BYPASS:" in line:
+            proof.p1_profile_bind_bypass = True
+
+        match = CONTROL_ROUTE_RE.search(line)
+        if match:
+            slot = int(match.group("slot"))
+            proof.control_routes[slot] = {
+                "port": int(match.group("port")),
+                "source": match.group("source"),
+                "players": int(match.group("players")),
+            }
+
+        match = CONTROL_ROUTING_RE.search(line)
+        if match:
+            proof.control_routing_records.append(
+                {
+                    "players": int(match.group("players")),
+                    "connected_mask": int(match.group("connected_mask"), 16),
+                    "unique_ports": int(match.group("unique_ports")),
+                    "valid": int(match.group("valid")),
+                }
+            )
 
         match = REFDEF_RE.search(line)
         if match:
@@ -284,6 +454,12 @@ def parse_lines(lines: Iterable[str]) -> Proof:
                 proof.render_done_positive_slots.add(slot)
             if view is not None:
                 proof.render_done_views[slot] = view
+
+        match = TILING_RE.search(line)
+        if match:
+            proof.tiling_records.append(
+                {key: int(value) for key, value in match.groupdict().items()}
+            )
 
         match = FP_FILTER_RE.search(line)
         if match:
@@ -439,7 +615,24 @@ def split_quadrant_errors(rects: dict[int, tuple[int, int, int, int]], players: 
     if len(unique_rects) < players:
         errors.append(f"only {len(unique_rects)} unique render viewport rectangles observed; need {players}")
 
-    if players == 4:
+    if players == 2:
+        x0, y0, w0, h0 = rects[0]
+        x1, y1, w1, h1 = rects[1]
+        if not (x0 == x1 and y1 > y0):
+            errors.append(f"2P viewports are not stacked top/bottom: {rects}")
+        if abs(w0 - w1) > 1 or abs(h0 - h1) > 1:
+            errors.append(f"2P viewport dimensions are inconsistent: {rects}")
+    elif players == 3:
+        x0, y0, w0, h0 = rects[0]
+        x1, y1, w1, h1 = rects[1]
+        x2, y2, w2, h2 = rects[2]
+        if not (x0 == x1 and y1 == y2 and y1 > y0 and x2 > x1):
+            errors.append(f"3P viewports are not P1-top/P2-P3-bottom by slot: {rects}")
+        if abs((x0 + w0) - (x2 + w2)) > 1 or abs(w0 - (w1 + w2)) > 1:
+            errors.append(f"3P top viewport does not span both bottom viewports: {rects}")
+        if abs(h0 - h1) > 1 or abs(h1 - h2) > 1:
+            errors.append(f"3P viewport row heights are inconsistent: {rects}")
+    elif players == 4:
         x0, y0, w0, h0 = rects[0]
         x1, y1, w1, h1 = rects[1]
         x2, y2, w2, h2 = rects[2]
@@ -464,28 +657,34 @@ def split_divider_errors(records: list[dict[str, object]], players: int) -> list
         record_players = record.get("players")
         vertical = record.get("vertical")
         horizontal = record.get("horizontal")
-        if not isinstance(record_players, int) or record_players < players:
+        if not isinstance(record_players, int) or record_players != players:
             continue
         if not isinstance(vertical, tuple) or not isinstance(horizontal, tuple):
             continue
 
         vx, vy, vw, vh = vertical
         hx, hy, hw, hh = horizontal
-        if vw <= 0 or vh <= 0 or hw <= 0 or hh <= 0:
+        if hw < 630.0 or hh != 0:
             continue
-        if abs((vx + vw * 0.5) - 320.0) > 6.0:
+        if abs(hy - 240.0) > 1.0:
             continue
-        if abs((hy + hh * 0.5) - 240.0) > 6.0:
+        if hx > 1.0:
             continue
-        if vy > 1.0 or vh < 470.0:
-            continue
-        if hx > 1.0 or hw < 630.0:
-            continue
+        if players == 2:
+            if vw != 0 or vh != 0:
+                continue
+        else:
+            if vw != 0 or vh <= 0 or abs(vx - 320.0) > 1.0:
+                continue
+            if players == 3 and (abs(vy - 240.0) > 6.0 or vh < 230.0):
+                continue
+            if players == 4 and (vy > 1.0 or vh < 470.0):
+                continue
         valid.append(record)
 
     if not valid:
         errors.append(
-            "missing 4P HUD divider proof centered at 320/240 with full-height vertical and full-width horizontal bars"
+            f"missing {players}P zero-width seam proof for the expected split-screen layout"
         )
     return errors
 
@@ -562,7 +761,21 @@ def audio_summary(proof: Proof) -> dict[str, object]:
     }
 
 
+def apply_player_defaults(args: argparse.Namespace) -> None:
+    if args.min_unique_origins is None:
+        args.min_unique_origins = args.players
+    if args.min_unique_refdef_origins is None:
+        args.min_unique_refdef_origins = max(0, args.players - 1)
+    if args.min_unique_render_views is None:
+        args.min_unique_render_views = args.players
+    if args.min_audio_active_listeners is None:
+        args.min_audio_active_listeners = args.players
+    if args.required_audio_listener_mask is None:
+        args.required_audio_listener_mask = ((1 << args.players) - 1) & ~1
+
+
 def verify_audio(proof: Proof, args: argparse.Namespace) -> list[str]:
+    apply_player_defaults(args)
     errors: list[str] = []
 
     if args.require_audio_backend:
@@ -609,42 +822,157 @@ def verify_audio(proof: Proof, args: argparse.Namespace) -> list[str]:
     return errors
 
 
+def split_gapless_coverage_errors(
+    rects: dict[int, tuple[int, int, int, int]],
+    players: int,
+    screen_width: int = 640,
+    screen_height: int = 480,
+) -> list[str]:
+    errors: list[str] = []
+    slots = set(range(players))
+    if slots - set(rects):
+        return errors
+
+    total_area = 0
+    overlap_area = 0
+    for slot in sorted(slots):
+        x, y, w, h = rects[slot]
+        right = x + w
+        bottom = y + h
+        total_area += w * h
+        if x < 0 or y < 0 or right > screen_width or bottom > screen_height:
+            errors.append(
+                f"slot {slot} render viewport {rects[slot]} escapes "
+                f"the native {screen_width}x{screen_height} framebuffer"
+            )
+
+        for other in range(slot):
+            if other not in slots:
+                continue
+            ox, oy, ow, oh = rects[other]
+            overlap_w = min(right, ox + ow) - max(x, ox)
+            overlap_h = min(bottom, oy + oh) - max(y, oy)
+            if overlap_w > 0 and overlap_h > 0:
+                overlap_area += overlap_w * overlap_h
+
+    screen_area = screen_width * screen_height
+    covered_area = total_area - overlap_area
+    gap_area = screen_area - covered_area
+    if overlap_area:
+        errors.append(f"render viewports overlap by {overlap_area} pixels: {rects}")
+    if gap_area:
+        errors.append(
+            f"render viewports leave {gap_area} uncovered framebuffer pixels; "
+            f"expected gapless {screen_width}x{screen_height} tiling: {rects}"
+        )
+    return errors
+
+
+def split_tiling_invariant_errors(records: list[dict[str, int]], players: int) -> list[str]:
+    matching = [record for record in records if record.get("players") == players]
+    valid = [
+        record
+        for record in matching
+        if record.get("x") == 0
+        and record.get("y") == 0
+        and record.get("w") == 640
+        and record.get("h") == 480
+        and record.get("source_pixels") == 640 * 480
+        and record.get("covered_pixels") == 640 * 480
+        and record.get("overlap_pixels") == 0
+        and record.get("gap_pixels") == 0
+        and record.get("separators") == 0
+        and record.get("valid") == 1
+    ]
+    if valid:
+        return []
+    if not matching:
+        return [f"missing STEFX_HM_SPLIT_TILING runtime invariant for {players}P"]
+    return [f"{players}P split tiling runtime invariant failed: {matching}"]
+
+
 def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
+    apply_player_defaults(args)
     errors: list[str] = []
     all_slots = set(range(args.players))
-    local_slots = set(range(1, args.players))
-    command_slots = all_slots if args.require_p1_virtual_controls else local_slots
+    external_slots = set(range(1, args.players))
+    bot_slots = external_slots if args.bot_viewports else set()
+    local_slots = set() if args.bot_viewports else external_slots
+    command_slots = (
+        {0}
+        if args.bot_viewports
+        else (all_slots if args.require_p1_virtual_controls else local_slots)
+    )
 
     if proof.max_armed_players < args.players:
         errors.append(f"missing renderer armed proof for {args.players} players")
 
     if args.require_launch:
         valid_launches = []
+        required_local_players = 1 if args.bot_viewports else args.players
         for record in proof.launch_records:
             players = record.get("players")
             local_players = record.get("localPlayers")
+            virtual = int(record.get("virtual", 0))
+            virtual_p1 = int(record.get("virtualP1", 0))
+            controls_match = (
+                virtual == 0 and virtual_p1 == 0
+                if args.require_production_controls
+                else virtual == 1 and virtual_p1 == 1
+            )
             if (
                 record.get("mode") == "holomatch"
                 and isinstance(players, int)
                 and players >= args.players
                 and isinstance(local_players, int)
-                and local_players >= args.players
+                and local_players >= required_local_players
                 and int(record.get("split", 0)) == 1
-                and int(record.get("virtual", 0)) == 1
-                and int(record.get("virtualP1", 0)) == 1
+                and controls_match
             ):
                 valid_launches.append(record)
         if not valid_launches:
+            control_text = "virtual=0 virtualP1=0" if args.require_production_controls else "virtual=1 virtualP1=1"
             errors.append(
-                "missing 4P local Holomatch launch proof "
-                "(STEFX_HM_SPLIT_LAUNCH mode=holomatch split=1 players/localPlayers>=4 virtual=1 virtualP1=1)"
+                f"missing {args.players}P local Holomatch launch proof "
+                f"(STEFX_HM_SPLIT_LAUNCH mode=holomatch split=1 "
+                f"players>={args.players} localPlayers>={required_local_players} {control_text})"
             )
         elif args.require_launch_source and not any(
             record.get("source") == args.require_launch_source for record in valid_launches
         ):
             errors.append(
-                f"4P local Holomatch launch proof never reported source={args.require_launch_source}"
+                f"{args.players}P local Holomatch launch proof never reported "
+                f"source={args.require_launch_source}"
             )
+
+    if args.require_player_handoff or args.require_menu_smoke_player_setups:
+        missing_setups = all_slots - set(proof.player_setups)
+        if missing_setups:
+            errors.append(f"missing applied player setup proof for slots {sorted(missing_setups)}")
+        for slot in sorted(all_slots & set(proof.player_setups)):
+            setup = proof.player_setups[slot]
+            if setup.get("active") != 1:
+                errors.append(f"slot {slot} player setup is not active: {setup}")
+            if setup.get("model") == "unknown" or setup.get("skin") == "unknown":
+                errors.append(f"slot {slot} player setup has an unknown model or skin: {setup}")
+
+    if args.require_menu_smoke_player_setups:
+        expected_setups = {
+            0: {"active": 1, "model": "seven", "skin": "blue", "control": 7,
+                "autoswitch": 2, "autoaim": 2, "crosshair": 2, "vibration": 1, "invert": 0},
+            1: {"active": 1, "model": "munro", "skin": "red", "control": 8,
+                "autoswitch": 0, "autoaim": 1, "crosshair": 3, "vibration": 0, "invert": 0},
+            2: {"active": 1, "model": "foster", "skin": "red", "control": 4,
+                "autoswitch": 2, "autoaim": 0, "crosshair": 4, "vibration": 1, "invert": 0},
+            3: {"active": 1, "model": "tuvok", "skin": "red", "control": 5,
+                "autoswitch": 0, "autoaim": 3, "crosshair": 5, "vibration": 0, "invert": 0},
+        }
+        for slot, expected in expected_setups.items():
+            observed = proof.player_setups.get(slot)
+            if observed is not None and observed != expected:
+                errors.append(
+                    f"slot {slot} menu-smoke setup mismatch: expected={expected} observed={observed}"
+                )
 
     missing_state = all_slots - set(proof.states)
     if missing_state:
@@ -663,17 +991,138 @@ def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
         if args.require_local_non_bot and slot in local_slots and state.bot != 0:
             errors.append(f"slot {slot} is marked as both local split client and bot")
 
+    if args.bot_viewports:
+        for slot in sorted(bot_slots):
+            state = proof.states.get(slot)
+            if state and (state.local != 0 or state.bot != 1):
+                errors.append(
+                    f"slot {slot} is not an external bot viewport: "
+                    f"local={state.local} bot={state.bot}"
+                )
+        p1_state = proof.states.get(0)
+        if args.require_local_non_bot and p1_state and p1_state.bot != 0:
+            errors.append("P1 is marked as a bot in bot-viewport proof")
+
     if proof.max_bots < args.min_bots:
         errors.append(f"max observed bot count {proof.max_bots} is below {args.min_bots}")
 
+    if (args.require_control_routes or args.require_production_controls) and not args.bot_viewports:
+        missing_routes = command_slots - set(proof.control_routes)
+        if missing_routes:
+            errors.append(f"missing physical control routes for slots {sorted(missing_routes)}")
+        routed_ports: dict[int, int] = {}
+        for slot in sorted(command_slots & set(proof.control_routes)):
+            route = proof.control_routes[slot]
+            port = int(route.get("port", -1))
+            source = str(route.get("source", ""))
+            expected_source = "native_loopback" if slot == 0 else "split_bridge"
+            if int(route.get("players", 0)) != args.players:
+                errors.append(f"slot {slot} control route has wrong player count: {route}")
+            if port < 0 or port >= 4:
+                errors.append(f"slot {slot} has no valid physical controller port: {route}")
+            else:
+                routed_ports[slot] = port
+            if source != expected_source:
+                errors.append(
+                    f"slot {slot} control source is {source!r}; expected {expected_source!r}"
+                )
+        if len(set(routed_ports.values())) != len(routed_ports):
+            errors.append(f"physical controller ports are not one-to-one by slot: {routed_ports}")
+
+        valid_routing = [
+            record
+            for record in proof.control_routing_records
+            if record.get("players") == args.players
+            and record.get("unique_ports") == args.players
+            and record.get("valid") == 1
+            and bin(record.get("connected_mask", 0)).count("1") >= args.players
+        ]
+        if not valid_routing:
+            errors.append(
+                f"missing valid {args.players}P physical control-routing invariant; "
+                f"observed={proof.control_routing_records}"
+            )
+
     missing_cmds = command_slots - proof.cmd_clients
     if missing_cmds:
-        errors.append(f"missing virtual usercmds for clients {sorted(missing_cmds)}")
+        errors.append(f"missing gameplay usercmds for clients {sorted(missing_cmds)}")
 
     if args.require_attack:
         missing_attacks = command_slots - proof.cmd_attack_clients
         if missing_attacks:
             errors.append(f"missing attack-button proof for clients {sorted(missing_attacks)}")
+
+    if args.require_full_p1_actions:
+        p1_action_sets = {
+            "primary fire": proof.cmd_attack_clients,
+            "alternate fire": proof.cmd_alt_attack_clients,
+            "use": proof.cmd_use_clients,
+            "jump": proof.cmd_jump_clients,
+            "crouch": proof.cmd_crouch_clients,
+        }
+        if proof.p1_profiled_records <= 0:
+            errors.append("missing binding-independent STEFX_HM_P1_PROFILED_CMD proof")
+        if not proof.p1_profile_bind_bypass:
+            errors.append("missing P1 SP-binding bypass proof")
+        for action, clients in p1_action_sets.items():
+            if 0 not in clients:
+                errors.append(f"missing P1 {action} command proof")
+        p1_weapon_deltas = proof.pad_weapon_deltas.get(0, set())
+        if not {-1, 1}.issubset(p1_weapon_deltas):
+            errors.append(
+                f"missing P1 previous/next weapon edge proof; observed={sorted(p1_weapon_deltas)}"
+            )
+        p1_zoom = proof.pad_zoom_values.get(0, [])
+        if not p1_zoom or min(p1_zoom) >= 89.0 or max(p1_zoom) < 89.5:
+            errors.append(
+                "missing P1 zoom-in and zoom-release proof; "
+                f"observedRange={None if not p1_zoom else (min(p1_zoom), max(p1_zoom))}"
+            )
+        if 0 not in proof.global_scoreboard_down_slots or 0 not in proof.global_scoreboard_up_slots:
+            errors.append("missing P1 scoreboard press/release proof")
+        if 0 not in proof.global_pause_down_slots:
+            errors.append("missing P1 pause press proof")
+        p1_ports = proof.pad_cmd_ports.get(0, set())
+        if len(p1_ports) != 1 or not all(0 <= port < 4 for port in p1_ports):
+            errors.append(f"P1 profiled command did not retain one valid physical port: {sorted(p1_ports)}")
+
+    if args.require_full_control_actions:
+        full_action_sets = {
+            "primary fire": proof.cmd_attack_clients,
+            "alternate fire": proof.cmd_alt_attack_clients,
+            "use": proof.cmd_use_clients,
+            "jump": proof.cmd_jump_clients,
+            "crouch": proof.cmd_crouch_clients,
+        }
+        for action, clients in full_action_sets.items():
+            missing = command_slots - clients
+            if missing:
+                errors.append(f"missing {action} command proof for clients {sorted(missing)}")
+        missing_pad_cmds = command_slots - proof.pad_cmd_slots
+        if missing_pad_cmds:
+            errors.append(f"missing raw profiled-pad command proof for slots {sorted(missing_pad_cmds)}")
+        for slot in sorted(command_slots & proof.pad_cmd_slots):
+            weapon_deltas = proof.pad_weapon_deltas.get(slot, set())
+            if not {-1, 1}.issubset(weapon_deltas):
+                errors.append(
+                    f"slot {slot} lacks previous/next weapon edges: {sorted(weapon_deltas)}"
+                )
+            zoom_values = proof.pad_zoom_values.get(slot, [])
+            if not zoom_values or min(zoom_values) >= 89.0 or max(zoom_values) < 89.5:
+                errors.append(
+                    f"slot {slot} lacks zoom-in/release proof: "
+                    f"{None if not zoom_values else (min(zoom_values), max(zoom_values))}"
+                )
+        missing_score_down = command_slots - proof.global_scoreboard_down_slots
+        missing_score_up = command_slots - proof.global_scoreboard_up_slots
+        missing_pause = command_slots - proof.global_pause_down_slots
+        if missing_score_down or missing_score_up:
+            errors.append(
+                "missing scoreboard press/release by local slot: "
+                f"down={sorted(missing_score_down)} up={sorted(missing_score_up)}"
+            )
+        if missing_pause:
+            errors.append(f"missing pause press by local slots {sorted(missing_pause)}")
 
     if args.require_unique_controls:
         missing_move_profiles = command_slots - set(proof.cmd_moves)
@@ -711,7 +1160,7 @@ def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
         movement = slot_movement_distances(proof.state_history)
         missing_movement_slots = command_slots - set(movement)
         if missing_movement_slots:
-            errors.append(f"missing state history for virtual-control clients {sorted(missing_movement_slots)}")
+            errors.append(f"missing state history for controlled clients {sorted(missing_movement_slots)}")
         stuck_slots = [
             slot for slot in sorted(command_slots & set(movement))
             if movement[slot] < args.min_control_movement_distance
@@ -719,32 +1168,37 @@ def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
         if stuck_slots:
             observed = {slot: round(movement.get(slot, 0.0), 2) for slot in stuck_slots}
             errors.append(
-                f"virtual-control clients did not move enough; observed={observed} "
+                f"controlled clients did not move enough; observed={observed} "
                 f"required>={args.min_control_movement_distance:.1f}"
             )
 
-    missing_refdefs = local_slots - proof.refdef_slots
+    missing_refdefs = external_slots - proof.refdef_slots
     if missing_refdefs:
         errors.append(f"missing local refdefs for slots {sorted(missing_refdefs)}")
 
     unique_refdef_origins = unique_origin_count(
-        (proof.refdef_origins.get(slot) for slot in local_slots),
+        (proof.refdef_origins.get(slot) for slot in external_slots),
         args.origin_tolerance,
     )
-    if unique_refdef_origins < min(args.min_unique_refdef_origins, len(local_slots)):
+    if unique_refdef_origins < min(args.min_unique_refdef_origins, len(external_slots)):
         errors.append(
             f"only {unique_refdef_origins} unique local refdef origins observed; "
-            f"need {min(args.min_unique_refdef_origins, len(local_slots))}"
+            f"need {min(args.min_unique_refdef_origins, len(external_slots))}"
         )
 
-    missing_snapshots = local_slots - proof.snapshot_slots
-    if missing_snapshots:
-        errors.append(f"missing snapshot merge proof for slots {sorted(missing_snapshots)}")
+    # Physical/synthetic split clients build their secondary views from merged
+    # client snapshots.  Bot viewports instead consume authoritative server bot
+    # states directly, so snapshot-merge records are neither expected nor useful
+    # evidence in that diagnostic mode.
+    if not args.bot_viewports:
+        missing_snapshots = external_slots - proof.snapshot_slots
+        if missing_snapshots:
+            errors.append(f"missing snapshot merge proof for slots {sorted(missing_snapshots)}")
 
-    if args.require_positive_snapshot_adds:
-        missing_positive_snapshots = local_slots - proof.snapshot_positive_slots
-        if missing_positive_snapshots:
-            errors.append(f"missing positive snapshot entity adds for slots {sorted(missing_positive_snapshots)}")
+        if args.require_positive_snapshot_adds:
+            missing_positive_snapshots = external_slots - proof.snapshot_positive_slots
+            if missing_positive_snapshots:
+                errors.append(f"missing positive snapshot entity adds for slots {sorted(missing_positive_snapshots)}")
 
     missing_render = all_slots - proof.render_slots
     if missing_render:
@@ -752,8 +1206,11 @@ def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
 
     if args.require_quadrant_viewports:
         errors.extend(split_quadrant_errors(proof.render_rects, args.players))
+        errors.extend(split_gapless_coverage_errors(proof.render_rects, args.players))
+    if args.require_tiling_invariant:
+        errors.extend(split_tiling_invariant_errors(proof.tiling_records, args.players))
 
-    missing_external = local_slots - proof.render_external_slots
+    missing_external = external_slots - proof.render_external_slots
     if missing_external:
         errors.append(f"missing external render refdef proof for slots {sorted(missing_external)}")
 
@@ -773,7 +1230,7 @@ def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
     if missing_render_done:
         errors.append(f"missing render completion proof for slots {sorted(missing_render_done)}")
 
-    missing_done_external = local_slots - proof.render_done_external_slots
+    missing_done_external = external_slots - proof.render_done_external_slots
     if missing_done_external:
         errors.append(f"missing external render completion proof for slots {sorted(missing_done_external)}")
 
@@ -871,7 +1328,7 @@ def verify(proof: Proof, args: argparse.Namespace) -> list[str]:
         errors.append(f"only {unique_origins} unique local origins observed; need {args.min_unique_origins}")
 
     if args.min_local_p1_distance > 0.0:
-        for slot in sorted(local_slots):
+        for slot in sorted(external_slots):
             state = proof.states.get(slot)
             if state and state.p1_dist < args.min_local_p1_distance:
                 errors.append(
@@ -935,7 +1392,26 @@ def print_summary(proof: Proof) -> None:
     print(f"armedPlayers={proof.max_armed_players}")
     print(f"stateSlots={sorted(proof.states)} maxBots={proof.max_bots}")
     print(f"stateMovement={slot_movement_distances(proof.state_history)}")
-    print(f"cmdClients={sorted(proof.cmd_clients)} attackClients={sorted(proof.cmd_attack_clients)}")
+    print(
+        f"cmdClients={sorted(proof.cmd_clients)} attack={sorted(proof.cmd_attack_clients)} "
+        f"altAttack={sorted(proof.cmd_alt_attack_clients)} use={sorted(proof.cmd_use_clients)} "
+        f"jump={sorted(proof.cmd_jump_clients)} crouch={sorted(proof.cmd_crouch_clients)}"
+    )
+    print(
+        f"profiledP1Records={proof.p1_profiled_records} bindBypass={proof.p1_profile_bind_bypass} "
+        f"padPorts={proof.pad_cmd_ports} padStyles={proof.pad_cmd_styles} "
+        f"weaponDeltas={proof.pad_weapon_deltas} "
+        f"zoomRanges={{{', '.join(f'{slot}:{(min(values), max(values))}' for slot, values in sorted(proof.pad_zoom_values.items()) if values)}}}"
+    )
+    print(
+        f"globalActions=scoreDown:{sorted(proof.global_scoreboard_down_slots)} "
+        f"scoreUp:{sorted(proof.global_scoreboard_up_slots)} "
+        f"pauseDown:{sorted(proof.global_pause_down_slots)}"
+    )
+    print(
+        f"controlRoutes={proof.control_routes} "
+        f"routingInvariants={proof.control_routing_records}"
+    )
     print(
         "cmdProfiles="
         f"moves={{{', '.join(f'{client}:{sorted(values)}' for client, values in sorted(proof.cmd_moves.items()))}}} "
@@ -954,6 +1430,7 @@ def print_summary(proof: Proof) -> None:
         f"{proof.render_external_clients} doneExternalClients={proof.render_done_external_clients}"
     )
     print(f"renderRects={proof.render_rects}")
+    print(f"splitTiling={proof.tiling_records}")
     print(f"renderViews={proof.render_views} renderDoneViews={proof.render_done_views}")
     print(f"firstPersonFilterSlots={sorted(proof.fp_filter_slots)}")
     print(
@@ -1004,6 +1481,10 @@ def print_summary(proof: Proof) -> None:
 def self_test() -> int:
     sample = """
 STEFX_HM_SPLIT_LAUNCH: source=menu map='hm_borg1' split=1 players=4 mode='holomatch' localPlayers=4 virtual=1 virtualP1=1
+STEFX_HM_PLAYER_SETUP_PROOF: slot=0 active=1 model='seven' modelHash=0x0 skin='blue' skinHash=0x0 control=7 autoswitch=2 autoaim=2 crosshair=2 vibration=1 invert=0
+STEFX_HM_PLAYER_SETUP_PROOF: slot=1 active=1 model='munro' modelHash=0x0 skin='red' skinHash=0x0 control=8 autoswitch=0 autoaim=1 crosshair=3 vibration=0 invert=0
+STEFX_HM_PLAYER_SETUP_PROOF: slot=2 active=1 model='foster' modelHash=0x0 skin='red' skinHash=0x0 control=4 autoswitch=2 autoaim=0 crosshair=4 vibration=1 invert=0
+STEFX_HM_PLAYER_SETUP_PROOF: slot=3 active=1 model='tuvok' modelHash=0x0 skin='red' skinHash=0x0 control=5 autoswitch=0 autoaim=3 crosshair=5 vibration=0 invert=0
 STEFX_HM_SPLIT_STATE: slot=0 players=4 bots=3 state=4 local=0 bot=0 svFlags=0x0 health=100 weapon=1 area=1 cluster=10 p1Area=1 p1Cluster=10 p1Pvs=1 p1Dist=0 origin=(0,0,0) view=(0,0,0) time=1000 sample=1 interval=500
 STEFX_HM_SPLIT_STATE: slot=1 players=4 bots=3 state=4 local=1 bot=0 svFlags=0x0 health=100 weapon=1 area=2 cluster=20 p1Area=1 p1Cluster=10 p1Pvs=1 p1Dist=100 origin=(100,0,0) view=(0,20,0) time=1000 sample=1 interval=500
 STEFX_HM_SPLIT_STATE: slot=2 players=4 bots=3 state=4 local=1 bot=0 svFlags=0x0 health=100 weapon=1 area=3 cluster=30 p1Area=1 p1Cluster=10 p1Pvs=1 p1Dist=100 origin=(0,100,0) view=(0,40,0) time=1000 sample=1 interval=500
@@ -1023,6 +1504,7 @@ STEFX_HM_SPLIT_SNAPSHOT: slot=1 entsBefore=20 entsAfter=24 added=4 areaBytes=1 v
 STEFX_HM_SPLIT_SNAPSHOT: slot=2 entsBefore=24 entsAfter=28 added=4 areaBytes=1 view=(0,100,48) state=4 local=1
 STEFX_HM_SPLIT_SNAPSHOT: slot=3 entsBefore=28 entsAfter=32 added=4 areaBytes=1 view=(0,0,148) state=4 local=1
 STEFX_HM_SPLIT_RENDER: armed players=4 source=0,0 640x480 gl=0,0 640x480 fov=90/73
+STEFX_HM_SPLIT_TILING: players=4 source=(0,0 640x480) sourcePixels=307200 coveredPixels=307200 overlapPixels=0 gapPixels=0 separators=0 valid=1
 STEFX_HM_SPLIT_RENDER: slot=0 external=0 externalClient=0 drawBase=0 ref=0,0 320x240 gl=0,240 320x240 fov=90/53 view=(0,0,48) pvs=(0,0,48)
 STEFX_HM_SPLIT_RENDER_DONE: slot=0 external=0 externalClient=0 drawDelta=10 drawAfter=10 cluster=10 cluster2=-1 view=(0,0,48)
 STEFX_HM_SPLIT_RENDER: slot=1 external=1 externalClient=1 drawBase=10 ref=320,0 320x240 gl=320,240 320x240 fov=90/53 view=(100,0,48) pvs=(100,0,48)
@@ -1045,7 +1527,7 @@ STEFX_HM_SPLIT_HUD_STATUS: slot=0 players=4 valid=1 health=100 weapon=1 score=0 
 STEFX_HM_SPLIT_HUD_STATUS: slot=1 players=4 valid=1 health=100 weapon=1 score=0 dst=(324,4 152x22)
 STEFX_HM_SPLIT_HUD_STATUS: slot=2 players=4 valid=1 health=100 weapon=1 score=0 dst=(4,244 152x22)
 STEFX_HM_SPLIT_HUD_STATUS: slot=3 players=4 valid=1 health=100 weapon=1 score=0 dst=(324,244 152x22)
-STEFX_HM_SPLIT_HUD_DIVIDER: players=4 vertical=(318,0 4x480) horizontal=(0,238 640x4)
+STEFX_HM_SPLIT_HUD_DIVIDER: players=4 vertical=(320,0 0x480) horizontal=(0,240 640x0)
 JA: FRAME_HEARTBEAT completedFrame=100 realtime=10000 serverTime=1000 fps=30.0 path=1 mem=1000/2000/1500/0
 JA: FRAME_HEARTBEAT completedFrame=220 realtime=22000 serverTime=7000 fps=28.5 path=1 mem=1100/1900/1450/0
 xblogaudio t=30.6 backend=0x00000004 begin=2 register=168 start=114 local=4 loop=239 respat=488 listener=0x00040004 listenerMask=0x0000000e voice=9 lipActive=1 last=0x00000000/100
@@ -1054,6 +1536,9 @@ xblogaudio t=30.6 backend=0x00000004 begin=2 register=168 start=114 local=4 loop
     args = parser.parse_args([
         "--self-test",
         "--require-attack",
+        "--require-player-handoff",
+        "--require-menu-smoke-player-setups",
+        "--require-tiling-invariant",
         "--require-positive-snapshot-adds",
         "--require-fp-filter-slot",
         "1",
@@ -1082,6 +1567,64 @@ xblogaudio t=30.6 backend=0x00000004 begin=2 register=168 start=114 local=4 loop
         for error in errors:
             print(f"- {error}")
         return 1
+
+    native_walking = parse_lines([
+        "STEFX_HM_P1_NATIVE_CMD: cmdTime=100 previous=90 delta=10 "
+        "move=(64,0,0) buttons=0x10 weapon=1 angles=(0,10,0)"
+    ])
+    if native_walking.cmd_clients != {0} or 0 in native_walking.cmd_attack_clients:
+        print("self-test failed: native P1 walking command was not parsed independently of attack")
+        return 1
+
+    full_p1_actions = parse_lines([
+        "STEFX_HM_P1_PROFILED_CMD: owner=native_loopback slot=0 port=0 style=0 time=100 "
+        "move=(0,0,127) buttons=0x61 weapon=2 weaponDelta=1 zoom=85 view=(-5,10,0)",
+        "STEFX_HM_P1_PROFILED_CMD: owner=native_loopback slot=0 port=0 style=0 time=200 "
+        "move=(0,0,-127) buttons=0x0 weapon=2 weaponDelta=-1 zoom=90 view=(-5,10,0)",
+        "STEFX_HM_P1_PROFILE_BIND_BYPASS: port=0 button=268 rawPadOwner=1",
+        "STEFX_HM_GLOBAL_ACTION: slot=0 port=0 action=scoreboard down=1 command='+info'",
+        "STEFX_HM_GLOBAL_ACTION: slot=0 port=0 action=scoreboard down=0 command='-info'",
+        "STEFX_HM_GLOBAL_ACTION: slot=0 port=0 action=pause down=1",
+    ])
+    if not (
+        full_p1_actions.p1_profiled_records == 2
+        and full_p1_actions.p1_profile_bind_bypass
+        and {0}.issubset(full_p1_actions.cmd_attack_clients)
+        and {0}.issubset(full_p1_actions.cmd_alt_attack_clients)
+        and {0}.issubset(full_p1_actions.cmd_use_clients)
+        and {0}.issubset(full_p1_actions.cmd_jump_clients)
+        and {0}.issubset(full_p1_actions.cmd_crouch_clients)
+        and full_p1_actions.pad_weapon_deltas.get(0) == {-1, 1}
+        and full_p1_actions.pad_zoom_values.get(0) == [85.0, 90.0]
+        and full_p1_actions.global_scoreboard_down_slots == {0}
+        and full_p1_actions.global_scoreboard_up_slots == {0}
+        and full_p1_actions.global_pause_down_slots == {0}
+    ):
+        print("self-test failed: full profiled P1 action proof was not parsed")
+        return 1
+
+    valid_three_player_rects = {
+        0: (0, 0, 640, 240),
+        1: (0, 240, 320, 240),
+        2: (320, 240, 320, 240),
+    }
+    if split_gapless_coverage_errors(valid_three_player_rects, 3):
+        print("self-test failed: valid 3P gapless layout was rejected")
+        return 1
+    gapped_three_player_rects = dict(valid_three_player_rects)
+    gapped_three_player_rects[2] = (322, 240, 318, 240)
+    if not split_gapless_coverage_errors(gapped_three_player_rects, 3):
+        print("self-test failed: 3P two-pixel viewport gap was accepted")
+        return 1
+    overlapping_four_player_rects = {
+        0: (0, 0, 321, 240),
+        1: (320, 0, 320, 240),
+        2: (0, 240, 320, 240),
+        3: (320, 240, 320, 240),
+    }
+    if not split_gapless_coverage_errors(overlapping_four_player_rects, 4):
+        print("self-test failed: 4P one-pixel viewport overlap was accepted")
+        return 1
     print("verify_holomatch_split_log self-test passed")
     return 0
 
@@ -1091,9 +1634,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("log", nargs="?", type=Path, help="Returned ef_mp_log.txt path")
     parser.add_argument("--self-test", action="store_true", help="Run built-in parser self-test")
     parser.add_argument("--audio-only", action="store_true", help="Verify only Xbox audio telemetry in filtered proof reports")
-    parser.add_argument("--players", type=int, default=4)
+    parser.add_argument("--players", type=int, choices=range(1, 5), default=4)
     parser.add_argument("--require-launch", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--require-launch-source", choices=("xbe", "menu", "direct"))
+    parser.add_argument("--require-production-controls", action="store_true")
+    parser.add_argument(
+        "--bot-viewports",
+        action="store_true",
+        help="Verify P1 as the sole human control lane and P2-P4 as external bot viewports",
+    )
+    parser.add_argument(
+        "--require-control-routes",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Require one distinct physical controller port per commanded local slot",
+    )
+    parser.add_argument("--require-player-handoff", action="store_true")
+    parser.add_argument("--require-menu-smoke-player-setups", action="store_true")
     parser.add_argument("--min-bots", type=int, default=1)
     parser.add_argument("--min-client-state", type=int, default=4, help="CS_ACTIVE is 4 in the current engine")
     parser.add_argument("--require-local-non-bot", action=argparse.BooleanOptionalAction, default=True)
@@ -1104,14 +1661,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-hud-status-slots", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--require-hud-status-quadrants", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--require-hud-dividers", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--min-unique-origins", type=int, default=4)
-    parser.add_argument("--min-unique-refdef-origins", type=int, default=3)
-    parser.add_argument("--min-unique-render-views", type=int, default=4)
+    parser.add_argument("--min-unique-origins", type=int)
+    parser.add_argument("--min-unique-refdef-origins", type=int)
+    parser.add_argument("--min-unique-render-views", type=int)
     parser.add_argument("--require-quadrant-viewports", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--require-tiling-invariant", action="store_true")
     parser.add_argument("--require-external-client-map", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--origin-tolerance", type=float, default=8.0)
     parser.add_argument("--min-local-p1-distance", type=float, default=32.0)
     parser.add_argument("--require-attack", action="store_true")
+    parser.add_argument(
+        "--require-full-p1-actions",
+        action="store_true",
+        help="Require profiled P1 jump/crouch/fire/use/weapon/zoom/scoreboard/pause proof",
+    )
+    parser.add_argument(
+        "--require-full-control-actions",
+        action="store_true",
+        help="Require the complete profiled action set from every commanded local slot",
+    )
     parser.add_argument("--require-unique-controls", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--require-control-movement", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-control-movement-distance", type=float, default=8.0)
@@ -1128,12 +1696,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-audio-backend", action="store_true")
     parser.add_argument("--require-audio-listeners", action="store_true")
     parser.add_argument("--min-audio-compiled-listeners", type=int, default=4)
-    parser.add_argument("--min-audio-active-listeners", type=int, default=4)
+    parser.add_argument("--min-audio-active-listeners", type=int)
     parser.add_argument(
         "--required-audio-listener-mask",
         type=lambda value: int(value, 0),
-        default=0x0E,
-        help="Required audio listener update bits; default requires P2-P4 slots.",
+        help="Required audio listener update bits; default requires every non-P1 local slot.",
     )
     parser.add_argument("--min-audio-starts", type=int)
     parser.add_argument("--min-audio-voice-starts", type=int)

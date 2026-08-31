@@ -30,6 +30,8 @@ void XBLog_Printf(const char *fmt, ...);
 void XBLog_WriteCritical(const char *msg);
 void XBLog_WriteCriticalf(const char *fmt, ...);
 void XBLog_WriteProfile(const char *msg);
+void XBLog_WriteFrameProfile(const char *msg);
+void XBLog_WriteFpsProfile(const char *msg);
 void XBLog_WriteRingMarker(const char *msg);
 void XBLog_WriteRingMarkerf(const char *fmt, ...);
 const char *XBLog_GetPath(void);

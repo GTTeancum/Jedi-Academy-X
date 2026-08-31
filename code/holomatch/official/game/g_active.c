@@ -26,7 +26,11 @@ static int STEFX_HM_LocalSplitPlayers(void)
 		return 1;
 	}
 
-	players = trap_Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+	players = trap_Cvar_VariableIntegerValue("stefx_hmHumanPlayers");
+	if (players < 1)
+	{
+		players = trap_Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+	}
 	if (players < 1)
 	{
 		players = trap_Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
