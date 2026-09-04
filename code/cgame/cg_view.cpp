@@ -2027,13 +2027,22 @@ static qboolean cg_rangedFogging = qfalse; //so we know if we should go back to 
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 #define CG_XBOX_ACTIVE_LOG(msg) do { if (s_xboxDrawActiveLog) XBLog_Write(msg); } while (0)
 extern "C" volatile unsigned int g_SPXBClTailStage;
+#include "../win32/xb_perf.h"
+extern "C" volatile unsigned int g_SPXBCgPhaseCycles[10];
+static unsigned __int64 s_stefxCgPhaseTsc;
+#define CG_XBOX_PHASE(slot) do { \
+	const unsigned __int64 stefxPhaseNow = STEFX_XboxReadTsc(); \
+	g_SPXBCgPhaseCycles[slot] = (unsigned int)(stefxPhaseNow - s_stefxCgPhaseTsc); \
+	s_stefxCgPhaseTsc = stefxPhaseNow; } while (0)
 #else
 #define CG_XBOX_ACTIVE_LOG(msg) ((void)0)
+#define CG_XBOX_PHASE(slot) ((void)0)
 #endif
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBClTailStage = 0x43473030; /* 'CG00' */
+	s_stefxCgPhaseTsc = STEFX_XboxReadTsc();
 	static int s_xboxDrawActiveFrameCount = 0;
 	const int s_xboxDrawActiveLog = (serverTime >= 3600 && serverTime <= 4600);
 	if (s_xboxDrawActiveLog)
@@ -2090,6 +2099,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBClTailStage = 0x43473031; /* 'CG01' */
 	#endif
+	CG_XBOX_PHASE(0);
 	// if we haven't received any snapshots yet, all
 	// we can draw is the information screen
 	if ( !cg.snap ) {
@@ -2176,6 +2186,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBClTailStage = 0x43473032; /* 'CG02' */
 	#endif
+	CG_XBOX_PHASE(1);
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PredictPlayerState done");
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
@@ -2259,6 +2270,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_RunEmplacedWeapon...");
 	CG_RunEmplacedWeapon();
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_RunEmplacedWeapon done");
+	CG_XBOX_PHASE(2);
 
 	// first person blend blobs, done after AnglesToAxis
 	if ( !cg.renderingThirdPerson ) {
@@ -2270,6 +2282,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddPacketEntities...");
 		CG_AddPacketEntities(qfalse);			// adter calcViewValues, so predicted player state is correct
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddPacketEntities done");
+		CG_XBOX_PHASE(3);
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddMarks...");
 		CG_AddMarks();
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_AddMarks done");
@@ -2283,6 +2296,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		#endif
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_DrawMiscEnts done");
 	}
+	CG_XBOX_PHASE(4);
 
 	//check for opaque water
 	// this game does not have opaque water
@@ -2368,6 +2382,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 		#endif
 		CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: AddScheduledEffects done");
 	}
+	CG_XBOX_PHASE(5);
 
 	// finish up the rest of the refdef
 	if ( cg.testModelEntity.hModel ) {
@@ -2408,6 +2423,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	g_SPXBClTailStage = 0x43473036; /* 'CG06' */
 	#endif
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: S_Respatialize done");
+	CG_XBOX_PHASE(6);
 
 	// warning sounds when powerup is wearing off
 	CG_XBOX_ACTIVE_LOG("JA: CG_DrawActiveFrame: CG_PowerupTimerSounds...");

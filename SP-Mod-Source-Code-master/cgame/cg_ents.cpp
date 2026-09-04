@@ -1309,7 +1309,26 @@ CG_AddCEntity
 
 ===============
 */
-static void CG_AddCEntity( centity_t *cent ) 
+#ifdef _XBOX
+#include "../../code/win32/xb_perf.h"
+extern "C" volatile unsigned int g_SPXBCgEntTypeCycles[16];
+extern "C" volatile unsigned int g_SPXBCgEntTypeCounts[16];
+#endif
+
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBCgHiddenPlayersSkipped;
+qboolean SV_inPVS( const vec3_t p1, const vec3_t p2 );
+
+static void STEFX_CgEntAccount( const centity_t *cent, unsigned __int64 startTsc )
+{
+	const int slot = ( cent->currentState.eType >= 0 &&
+		cent->currentState.eType < 15 ) ? cent->currentState.eType : 15;
+	g_SPXBCgEntTypeCycles[slot] += STEFX_XboxElapsedCycles( startTsc );
+	++g_SPXBCgEntTypeCounts[slot];
+}
+#endif
+
+static void CG_AddCEntity( centity_t *cent )
 {
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	static int s_stefxAddCentLogBudget = 80;
@@ -1420,6 +1439,21 @@ static void CG_AddCEntity( centity_t *cent )
 #endif
 		break;
 	case ET_PLAYER:
+#ifdef _XBOX
+		// A character the current view provably cannot see still paid its
+		// full model/animation build here (~0.2 ms each, every frame).
+		// Skip the visual build for out-of-PVS non-view characters; sound
+		// sets and event entities are handled outside CG_Player and keep
+		// working.  Split-screen retains the original path.
+		if ( cg_stefxCullHiddenPlayers.integer &&
+			!cg_stefxSplitScreen.integer &&
+			cent->currentState.number != cg.snap->ps.clientNum &&
+			!SV_inPVS( cg.refdef.vieworg, cent->lerpOrigin ) )
+		{
+			++g_SPXBCgHiddenPlayersSkipped;
+			break;
+		}
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		{
 			static int s_stefxPlayerAddBudget = 96;
@@ -1737,6 +1771,11 @@ void CG_AddPacketEntities( void ) {
 	int					num;
 	centity_t			*cent;
 	playerState_t		*ps;
+#ifdef _XBOX
+	memset( (void *)g_SPXBCgEntTypeCycles, 0, sizeof( g_SPXBCgEntTypeCycles ) );
+	memset( (void *)g_SPXBCgEntTypeCounts, 0, sizeof( g_SPXBCgEntTypeCounts ) );
+	g_SPXBCgHiddenPlayersSkipped = 0;
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	byte				stefxPrimarySnapshotEntities[MAX_GENTITIES];
 
@@ -1790,13 +1829,17 @@ void CG_AddPacketEntities( void ) {
 			| ((unsigned int)(num & 0xff) << 16)
 			| ((unsigned int)(cent->currentState.number & 0x3ff) << 6)
 			| ((unsigned int)cent->currentState.eType & 0x3f);
-#endif
-		CG_AddCEntity( cent );
-#ifdef _XBOX
+		{
+			const unsigned __int64 stefxEntStart = STEFX_XboxReadTsc();
+			CG_AddCEntity( cent );
+			STEFX_CgEntAccount( cent, stefxEntStart );
+		}
 		g_SPXBPhaseLast = 0xCF000000
 			| ((unsigned int)(num & 0xff) << 16)
 			| ((unsigned int)(cent->currentState.number & 0x3ff) << 6)
 			| ((unsigned int)cent->currentState.eType & 0x3f);
+#else
+		CG_AddCEntity( cent );
 #endif
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)

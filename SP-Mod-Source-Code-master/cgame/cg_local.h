@@ -589,6 +589,7 @@ extern	vmCvar_t		cg_developer;
 extern	vmCvar_t		cg_timescale;
 extern	vmCvar_t		cg_skippingcin;
 extern	vmCvar_t		cg_stefxSmokeUnlockPlayer;
+extern	vmCvar_t		cg_stefxCullHiddenPlayers;
 extern	vmCvar_t		cg_stefxSmokeInput;
 extern	vmCvar_t		cg_stefxSmokeInputStart;
 extern	vmCvar_t		cg_stefxSplitScreen;

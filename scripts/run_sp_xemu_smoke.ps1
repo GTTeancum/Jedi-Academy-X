@@ -10,14 +10,23 @@ param(
     [switch]$DirectCoop,
     [switch]$DirectHolomatch,
     [switch]$HolomatchPhaserProof,
+    [switch]$HolomatchOverlayProof,
     [switch]$HolomatchShaderTrace,
     [switch]$HolomatchDisableFog,
     [int]$HolomatchGameType = 0,
+    [ValidateRange(1, 4)]
+    [int]$HolomatchPlayers = 4,
+    [ValidateRange(0, 4)]
+    [int]$HolomatchHumanPlayers = 0,
+    [switch]$HolomatchVirtualControls,
     [switch]$EnableSmokeInput,
+    [switch]$SyntheticCombatHarness,
     [int]$SmokeInputStart = 12000,
     [int]$SmokeInputEnd = 70000,
     [int]$SmokeAttackStart = 18000,
     [int]$SmokeAttackEnd = 60000,
+    [int]$SmokeAltAttackStart = 0,
+    [int]$SmokeAltAttackEnd = 0,
     [int]$SmokeInputForward = 90,
     [int]$SmokeInputSide = 0,
     [int]$SmokeInputYaw = 0,
@@ -31,6 +40,8 @@ param(
     [int]$Duration = 90,
     [int]$Interval = 10,
     [int]$FirstShotDelay = 20,
+    [ValidateRange(0, 100)]
+    [int]$ScreenshotCount = 0,
     [string]$Name = "",
     [string]$Iso = "",
     [switch]$ImmutableIso,
@@ -61,6 +72,7 @@ param(
     [string]$PollXBlogPhysDelta = "0x284000",
     [switch]$VideoDebug,
     [switch]$NoScreenshots,
+    [switch]$Visible,
     [string]$MonitorKeys = "",
     [switch]$HostWindowKeys,
     [ValidateRange(0, 4)]
@@ -89,6 +101,15 @@ if ($PollXBlogPerfOnly -and -not $PollXBlog) {
 }
 if ($PollXBlogPerfOnly -and $PollXBlogInterval -lt 5.0) {
     $PollXBlogInterval = 5.0
+}
+if ($SyntheticCombatHarness -and -not $EnableSmokeInput) {
+    throw "SyntheticCombatHarness requires EnableSmokeInput."
+}
+# XLaunchNewImage places the SP-hosted efmp telemetry block above its linked
+# virtual address in the current XEMU/LLE mapping. Prefer that proven mapping
+# so direct-Holomatch proof does not begin with a disruptive 64 MiB RAM scan.
+if ($DirectHolomatch -and $PollXBlog -and $PollXBlogPhysDelta -eq "0x284000") {
+    $PollXBlogPhysDelta = "-0x12c000"
 }
 
 try {
@@ -215,6 +236,8 @@ function Test-StagePayloadMatchesSource {
     return $true
 }
 $builtSoundBankDir = Join-Path $repoRoot "build\release\BaseEF\soundbank"
+$builtMusicDir = Join-Path $repoRoot "build\release\BaseEF\music"
+$builtVideoDir = Join-Path $repoRoot "build\release\BaseEF\video"
 $extractXiso = "C:\nxdk\tools\extract-xiso\build\extract-xiso.exe"
 $pythonCommand = Get-Command "python.exe" -CommandType Application -ErrorAction SilentlyContinue |
     Select-Object -First 1
@@ -359,6 +382,10 @@ $desiredIsoProfile = [ordered]@{
     directCoop = [bool]$DirectCoop
     directHolomatch = [bool]$DirectHolomatch
     holomatchGameType = $HolomatchGameType
+    holomatchPlayers = $HolomatchPlayers
+    holomatchHumanPlayers = $HolomatchHumanPlayers
+    holomatchOverlayProof = [bool]$HolomatchOverlayProof
+    splitScreenEconomy = [bool]($DirectCoop -or ($DirectHolomatch -and $HolomatchPlayers -ge 2))
     holomatchShaderTrace = [bool]$HolomatchShaderTrace
     holomatchDisableFog = [bool]$HolomatchDisableFog
     command = @($Command)
@@ -366,10 +393,13 @@ $desiredIsoProfile = [ordered]@{
     activeCommand = @($ActiveCommand)
     activeCommandServerTime = $ActiveCommandServerTime
     enableSmokeInput = [bool]$EnableSmokeInput
+    syntheticCombatHarness = [bool]$SyntheticCombatHarness
     smokeInputStart = $SmokeInputStart
     smokeInputEnd = $SmokeInputEnd
     smokeAttackStart = $SmokeAttackStart
     smokeAttackEnd = $SmokeAttackEnd
+    smokeAltAttackStart = $SmokeAltAttackStart
+    smokeAltAttackEnd = $SmokeAltAttackEnd
     smokeInputForward = $SmokeInputForward
     smokeInputSide = $SmokeInputSide
     smokeInputYaw = $SmokeInputYaw
@@ -439,6 +469,42 @@ function Copy-TreeAsHardlinks {
             Copy-Item -LiteralPath $item.FullName -Destination $target -Force
         }
     }
+}
+
+function Assert-EFMovieSet {
+    param([Parameter(Mandatory=$true)][string]$VideoDir)
+
+    if (-not (Test-Path -LiteralPath $VideoDir -PathType Container)) {
+        throw "Elite Force movie directory is missing: $VideoDir"
+    }
+
+    # Match the retail Elite Force table in code/client/cl_cin_console.cpp.
+    # Its story reel skips st_03 and combines the late chapters as st_16a
+    # and st_1718; those are the actual licensed filenames, not omissions.
+    $expectedMovies = @(
+        "eflogo", "intro",
+        "st_01", "st_02", "st_04", "st_05", "st_06", "st_07",
+        "st_08", "st_09", "st_10", "st_11", "st_12", "st_13",
+        "st_14", "st_15", "st_16a", "st_1718", "st_19", "st_20",
+        "st_21"
+    )
+
+    $missingMovies = New-Object System.Collections.Generic.List[string]
+    foreach ($movieName in $expectedMovies) {
+        foreach ($suffix in @("", "_lo")) {
+            $moviePath = Join-Path $VideoDir ($movieName + $suffix + ".bik")
+            if (-not (Test-Path -LiteralPath $moviePath -PathType Leaf)) {
+                $missingMovies.Add((Split-Path -Leaf $moviePath))
+            }
+        }
+    }
+    if ($missingMovies.Count -gt 0) {
+        throw "Elite Force movie set is incomplete in ${VideoDir}: $($missingMovies -join ', ')"
+    }
+
+    $movieFiles = @(Get-ChildItem -LiteralPath $VideoDir -File -Filter "*.bik")
+    $movieBytes = ($movieFiles | Measure-Object Length -Sum).Sum
+    Write-Host "Elite Force movie set ok: $($movieFiles.Count) original BIK files, $movieBytes bytes"
 }
 
 function Initialize-StageFromSource {
@@ -720,15 +786,26 @@ foreach ($mapName in $Maps) {
         Set-Content -LiteralPath (Join-Path $stageDir "ef_sp_direct_coop.txt") -Value "1" -Encoding ASCII
     }
     if ($DirectHolomatch) {
+		$effectiveHolomatchHumanPlayers = if ($HolomatchHumanPlayers -gt 0) { $HolomatchHumanPlayers } else { $HolomatchPlayers }
+		if ($effectiveHolomatchHumanPlayers -gt $HolomatchPlayers) {
+			throw "HolomatchHumanPlayers ($effectiveHolomatchHumanPlayers) cannot exceed HolomatchPlayers/viewports ($HolomatchPlayers)."
+		}
+		$splitScreenEconomyMode = [int]($HolomatchPlayers -ge 2)
+        $holomatchMultiViewportMode = [int](($HolomatchVirtualControls -or $HolomatchPlayers -ge 3) -and $effectiveHolomatchHumanPlayers -eq $HolomatchPlayers)
+        # The one-pad hardware/XEMU profile assigns each missing viewport to a
+        # real game bot. Keep the population equal to the viewport count so a
+        # 1H/4V run is exactly P1 plus bot-owned P2-P4, with no hidden extras.
+        $holomatchBotMinPlayers = $HolomatchPlayers
         $Command = @(
             "set fs_game BaseEF",
             "set stefx_splitScreen 1",
-            "set stefx_splitScreenPlayers 4",
+            "set stefx_splitScreenPlayers $HolomatchPlayers",
             "set stefx_splitScreenMode holomatch",
-            "set stefx_hmLocalPlayers 4",
-            "set stefx_hm_split_economy 1",
-            "set stefx_hm_split_virtual_controls 1",
-            "set stefx_hm_split_virtual_controls_p1 1",
+            "set stefx_hmLocalPlayers $HolomatchPlayers",
+            "set stefx_hmHumanPlayers $effectiveHolomatchHumanPlayers",
+            "set r_splitScreenEconomy $splitScreenEconomyMode",
+            "set stefx_hm_split_virtual_controls $holomatchMultiViewportMode",
+            "set stefx_hm_split_virtual_controls_p1 $holomatchMultiViewportMode",
             "set stefx_hm_launch_source direct",
             "set stefx_hm_audio_proof 1",
             "set stefx_splitScreenP2Entity -1",
@@ -737,8 +814,9 @@ foreach ($mapName in $Maps) {
             "set g_gametype $HolomatchGameType",
             "set fraglimit 0",
             "set timelimit 0",
+            "set g_holoIntro 0",
             "set bot_enable 1",
-            "set bot_minplayers 7",
+            "set bot_minplayers $holomatchBotMinPlayers",
             "set g_spSkill 2"
         )
         if ($HolomatchShaderTrace) {
@@ -750,8 +828,11 @@ foreach ($mapName in $Maps) {
         if ($HolomatchPhaserProof) {
             $Command += @(
                 "set stefx_hm_split_phaser_proof 1",
-                "set bot_minplayers 4"
+                "set bot_minplayers $HolomatchPlayers"
             )
+        }
+        if ($HolomatchOverlayProof) {
+            $Command += "set stefx_hm_split_overlay_proof 1"
         }
     }
     if ($EnableSmokeInput) {
@@ -762,13 +843,27 @@ foreach ($mapName in $Maps) {
             "set stefx_smoke_input_end $SmokeInputEnd",
             "set stefx_smoke_input_attack_start $SmokeAttackStart",
             "set stefx_smoke_input_attack_end $SmokeAttackEnd",
+            "set stefx_smoke_input_alt_attack_start $SmokeAltAttackStart",
+            "set stefx_smoke_input_alt_attack_end $SmokeAltAttackEnd",
             "set stefx_smoke_input_forward $SmokeInputForward",
             "set stefx_smoke_input_side $SmokeInputSide",
             "set stefx_smoke_input_yaw $SmokeInputYaw",
             "set stefx_smoke_view_pitch $SmokeViewPitch",
-            "set stefx_smoke_view_yaw $SmokeViewYaw",
-            "set stefx_hm_smoke_combat_proof 1"
+            "set stefx_smoke_view_yaw $SmokeViewYaw"
         )
+        if ($SyntheticCombatHarness) {
+            # These switches deliberately bypass campaign-authored state and
+            # are only valid for isolated combat diagnostics.  Keep ordinary
+            # campaign input injection subordinate to ICARUS/map behavior.
+            $Command += @(
+                "set stefx_smoke_aim 1",
+                "set stefx_smoke_wake_ai 1",
+                "set stefx_smoke_unlock_player 1",
+                "set stefx_smoke_ready_weapon 1",
+                "set stefx_smoke_stage_enemy 1",
+                "set stefx_hm_smoke_combat_proof 1"
+            )
+        }
     }
     if ($NativeDrawPath -ge 0) {
         $Command += "set r_nativeDrawPath $NativeDrawPath"
@@ -814,7 +909,7 @@ foreach ($mapName in $Maps) {
         $releaseBaseEf = Join-Path $stageDir "BaseEF"
         if (Test-Path -LiteralPath $releaseBaseEf -PathType Container) {
             Get-ChildItem -LiteralPath $releaseBaseEf -Directory -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -ne "soundbank" } |
+                Where-Object { $_.Name -notin @("soundbank", "video", "music") } |
                 Remove-Item -Recurse -Force
 
             foreach ($staleName in @(
@@ -843,6 +938,17 @@ foreach ($mapName in $Maps) {
         Set-Content -LiteralPath (Join-Path $stageDir "stefx_xemu_memory_log.txt") -Value "1" -Encoding ASCII
     }
 
+    if ($CleanReleaseIso) {
+        $remainingReleaseMarkers = @(
+            $releaseMarkerNames |
+                Where-Object { Test-Path -LiteralPath (Join-Path $stageDir $_) -PathType Leaf }
+        )
+        if ($remainingReleaseMarkers.Count -gt 0) {
+            throw "Clean release stage still contains test marker(s): $($remainingReleaseMarkers -join ', ')"
+        }
+        Write-Host "Verified clean release stage contains no test or forced-launch markers."
+    }
+
     if ($Repack) {
         if (-not (Test-Path $DefaultXbe)) {
             throw "SP XBE not found: $DefaultXbe"
@@ -859,6 +965,10 @@ foreach ($mapName in $Maps) {
         if (-not (Test-Path -LiteralPath $builtSoundBankDir -PathType Container)) {
             throw "Built shared soundbank not found: $builtSoundBankDir"
         }
+        if (-not (Test-Path -LiteralPath $builtMusicDir -PathType Container)) {
+            throw "Built XBADPCM music directory not found: $builtMusicDir"
+        }
+        Assert-EFMovieSet -VideoDir $builtVideoDir
         $entryXbe = if ($DirectHolomatch) { $builtMpXbe } else { $DefaultXbe }
         Copy-Item -LiteralPath $entryXbe -Destination $stageXbe -Force
         Copy-Item -LiteralPath $builtMpXbe -Destination $stageMpXbe -Force
@@ -871,6 +981,39 @@ foreach ($mapName in $Maps) {
             Remove-Item -LiteralPath $stageSoundBankDir -Recurse -Force
         }
         Copy-TreeAsHardlinks -Source $builtSoundBankDir -Destination $stageSoundBankDir -ExcludeRootNames @()
+        # Effects and dialogue resolve through the all-XBADPCM soundbank.
+        # Music is streamed as loose WAV, so replace the retail MP3 directory
+        # with the converted build output and then remove every MP3 source.
+        $stageMusicDir = Join-Path $stageBaseEf "music"
+        if (Test-Path -LiteralPath $stageMusicDir -PathType Container) {
+            Remove-Item -LiteralPath $stageMusicDir -Recurse -Force
+        }
+        Copy-TreeAsHardlinks -Source $builtMusicDir -Destination $stageMusicDir -ExcludeRootNames @()
+        Get-ChildItem -LiteralPath $stageMusicDir -Recurse -File -Filter "*.mp3" -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+        $stageMusicMp3 = @(Get-ChildItem -LiteralPath $stageMusicDir -Recurse -File -Filter "*.mp3" -ErrorAction SilentlyContinue)
+        if ($stageMusicMp3.Count -ne 0) {
+            throw "Clean Xbox music stage still contains MP3 files."
+        }
+        $badMusicWav = @()
+        foreach ($musicWave in Get-ChildItem -LiteralPath $stageMusicDir -Recurse -File -Filter "*.wav") {
+            [byte[]]$waveHeader = [System.IO.File]::ReadAllBytes($musicWave.FullName)
+            if ($waveHeader.Length -lt 22 -or [System.BitConverter]::ToUInt16($waveHeader, 20) -ne 0x0069) {
+                $badMusicWav += $musicWave.FullName
+            }
+        }
+        if ($badMusicWav.Count -ne 0) {
+            throw "Clean Xbox music stage contains non-XBADPCM WAV files: $($badMusicWav -join ', ')"
+        }
+        $stageVideoDir = Join-Path $stageBaseEf "video"
+        if (Test-Path -LiteralPath $stageVideoDir -PathType Container) {
+            Remove-Item -LiteralPath $stageVideoDir -Recurse -Force
+        }
+        Copy-TreeAsHardlinks -Source $builtVideoDir -Destination $stageVideoDir -ExcludeRootNames @()
+		Get-ChildItem -LiteralPath $stageVideoDir -File -Filter "*.xmv" -ErrorAction SilentlyContinue |
+			Remove-Item -Force
+		Remove-Item -LiteralPath (Join-Path $stageVideoDir "xbox_video_assets_manifest.json") -Force -ErrorAction SilentlyContinue
+        Assert-EFMovieSet -VideoDir $stageVideoDir
 
         $stamp = Get-Date -Format yyyyMMdd_HHmmss
         $repackLog = Join-Path $outputDir "repack_sp_${safeMap}_$stamp.log"
@@ -928,6 +1071,7 @@ foreach ($mapName in $Maps) {
         "--duration", "$Duration",
         "--interval", "$Interval",
         "--first-shot-delay", "$FirstShotDelay",
+        "--max-screenshots", "$ScreenshotCount",
         "--proof-mode", $proofMode,
         "--proof-map", $proofMap,
         "--runtime-xbe", $DefaultXbe,
@@ -939,13 +1083,16 @@ foreach ($mapName in $Maps) {
     if ($Headless) {
         $argsList += "--headless"
     }
-    if ($NoScreenshots) {
+    if ($NoScreenshots -or $ScreenshotCount -le 0) {
         $argsList += "--no-screenshots"
     } else {
         $argsList += @(
             "--xemu-native-screenshots",
             "--xemu-screenshot-dir", (Join-Path (Split-Path -Parent $ConfigPath) "screenshots")
         )
+    }
+    if ($Visible) {
+        $argsList += "--visible"
     }
     if (-not [string]::IsNullOrWhiteSpace($WatchCr2)) {
         $argsList += @("--watch-cr2", $WatchCr2)
@@ -970,6 +1117,16 @@ foreach ($mapName in $Maps) {
     if ($KeyboardControllerPort -gt 0) {
         $argsList += @("--keyboard-controller-port", $KeyboardControllerPort)
     }
+    if (($PollXBlog -or $XBlogAutoDumps -or $ExtractXBlogProfile) -and
+        $DirectHolomatch -and [string]::IsNullOrWhiteSpace($PollXBlogMap)) {
+        $PollXBlogMap = Join-Path $repoRoot "build\release\efmp.map"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PollXBlogMap)) {
+        if (-not [System.IO.Path]::IsPathRooted($PollXBlogMap)) {
+            $PollXBlogMap = Join-Path $repoRoot $PollXBlogMap
+        }
+        $argsList += @("--map-file", [System.IO.Path]::GetFullPath($PollXBlogMap))
+    }
     if ($PollXBlog) {
         $argsList += "--poll-xblog"
         if ($PollXBlogPerfOnly) {
@@ -979,15 +1136,6 @@ foreach ($mapName in $Maps) {
             $argsList += @("--poll-xblog-start-delay", $PollXBlogStartDelay)
         }
         $argsList += @("--poll-xblog-interval", $PollXBlogInterval)
-        if ($DirectHolomatch -and [string]::IsNullOrWhiteSpace($PollXBlogMap)) {
-            $PollXBlogMap = Join-Path $repoRoot "build\release\efmp.map"
-        }
-        if (-not [string]::IsNullOrWhiteSpace($PollXBlogMap)) {
-            if (-not [System.IO.Path]::IsPathRooted($PollXBlogMap)) {
-                $PollXBlogMap = Join-Path $repoRoot $PollXBlogMap
-            }
-            $argsList += @("--map-file", [System.IO.Path]::GetFullPath($PollXBlogMap))
-        }
         if (-not [string]::IsNullOrWhiteSpace($PollXBlogAddr)) {
             $argsList += @("--poll-xblog-addr", $PollXBlogAddr)
         }
@@ -995,7 +1143,12 @@ foreach ($mapName in $Maps) {
             $argsList += @("--poll-xblog-phys-addr", $PollXBlogPhysAddr)
         }
         if (-not [string]::IsNullOrWhiteSpace($PollXBlogPhysDelta)) {
-            $argsList += @("--poll-xblog-phys-delta", $PollXBlogPhysDelta)
+            if ($PollXBlogPhysDelta.StartsWith("-")) {
+                $argsList += "--poll-xblog-phys-delta=$PollXBlogPhysDelta"
+            }
+            else {
+                $argsList += @("--poll-xblog-phys-delta", $PollXBlogPhysDelta)
+            }
         }
     }
     if ($XBlogAutoDumps) {

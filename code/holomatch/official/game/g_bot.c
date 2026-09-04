@@ -31,6 +31,7 @@ vmCvar_t bot_minplayers;
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
 extern volatile unsigned int g_SPXBHMSplitBotProof[32];
+static int stefxViewportBotCommandsPending;
 #endif
 
 extern gentity_t	*podium1;
@@ -385,6 +386,54 @@ void G_CheckMinimumPlayers( void ) {
 	int humanplayers, botplayers;
 
 	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	/* A one-pad split-screen proof uses real bot clients as the remaining
+	 * viewport owners.  Fill those low client slots immediately instead of
+	 * waiting for the normal one-bot-per-ten-seconds population pass.  The
+	 * server allocator reserves [humanPlayers, viewportPlayers) for bots, so
+	 * a 1H/4V launch makes clients 1, 2, and 3 literally P2, P3, and P4. */
+	{
+		char splitMode[32];
+		trap_Cvar_VariableStringBuffer("stefx_splitScreenMode", splitMode, sizeof(splitMode));
+		if (g_gametype.integer == GT_FFA &&
+			trap_Cvar_VariableIntegerValue("stefx_splitScreen") &&
+			!Q_stricmp(splitMode, "holomatch")) {
+			int viewportPlayers = trap_Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+			int viewportHumans = trap_Cvar_VariableIntegerValue("stefx_hmHumanPlayers");
+			int requiredViewportBots;
+			int pendingViewportBots = 0;
+			int queueIndex;
+
+			if (viewportPlayers < 1) viewportPlayers = 1;
+			if (viewportPlayers > 4) viewportPlayers = 4;
+			if (viewportHumans < 1) viewportHumans = 1;
+			if (viewportHumans > viewportPlayers) viewportHumans = viewportPlayers;
+			requiredViewportBots = viewportPlayers - viewportHumans;
+			botplayers = G_CountBotPlayers(TEAM_FREE);
+			/* G_CountBotPlayers follows the original Elite Force behavior and only
+			 * includes queue entries once their delayed begin time has arrived.  This
+			 * fast viewport-fill path runs every frame, so also count future queue
+			 * entries or it will enqueue several bots before the first one begins. */
+			for (queueIndex = 0; queueIndex < BOT_SPAWN_QUEUE_DEPTH; ++queueIndex) {
+				if (botSpawnQueue[queueIndex].spawnTime > level.time) {
+					++pendingViewportBots;
+				}
+			}
+			if (botplayers + pendingViewportBots + stefxViewportBotCommandsPending < requiredViewportBots) {
+				G_Printf("STEFX_HM_BOT_VIEWPORT_FILL: activeOrReady=%d spawnPending=%d commandPending=%d required=%d nextClient=%d\n",
+					botplayers, pendingViewportBots, stefxViewportBotCommandsPending,
+					requiredViewportBots,
+					viewportHumans + botplayers + pendingViewportBots + stefxViewportBotCommandsPending);
+				G_AddRandomBot(TEAM_FREE);
+				/* G_AddRandomBot inserts an addbot console command.  The command is not
+				 * executed until after this game frame, so reserve its future client now. */
+				++stefxViewportBotCommandsPending;
+				return;
+			}
+		}
+	}
+	#endif
+
+	#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
 	++g_SPXBHMSplitBotProof[0];
 	#endif
 	if (level.intermissiontime) return;
@@ -571,6 +620,9 @@ static void G_AddBot( const char *name, int skill, const char *team, const char 
 	char			userinfo[MAX_INFO_STRING];
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+	if (stefxViewportBotCommandsPending > 0) {
+		--stefxViewportBotCommandsPending;
+	}
 	++g_SPXBHMSplitBotProof[11];
 #endif
 
@@ -965,6 +1017,9 @@ void G_InitBots( qboolean restart ) {
 		botBeginDelay = 0;
 		checkminimumplayers_time = 0;
 		memset( botSpawnQueue, 0, sizeof( botSpawnQueue ) );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_MP)
+		stefxViewportBotCommandsPending = 0;
+#endif
 		G_Printf( "STEFX_HM_SP: reset embedded bot map statics\n" );
 	}
 

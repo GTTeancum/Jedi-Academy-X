@@ -4359,6 +4359,11 @@ CG_DrawActive
 Perform all drawing needed to completely fill the screen
 =====================
 */
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+#include "../win32/xb_perf.h"
+extern "C" volatile unsigned int g_SPXBCgPhaseCycles[10];
+#endif
+
 void CG_DrawActive( stereoFrame_t stereoView ) {
 	float		separation;
 	vec3_t		baseOrg;
@@ -4418,10 +4423,14 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	// draw 3D view
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43475230; /* 'CGR0' */
-#endif
-	cgi_R_RenderScene( &cg.refdef );
-#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
+	{
+		const unsigned __int64 stefxSceneStart = STEFX_XboxReadTsc();
+		cgi_R_RenderScene( &cg.refdef );
+		g_SPXBCgPhaseCycles[7] = STEFX_XboxElapsedCycles( stefxSceneStart );
+	}
 	g_SPXBPhaseLast = 0x43475231; /* 'CGR1' */
+#else
+	cgi_R_RenderScene( &cg.refdef );
 #endif
 
 	// restore original viewpoint if running stereo
@@ -4432,8 +4441,14 @@ void CG_DrawActive( stereoFrame_t stereoView ) {
 	// draw status bar and other floating elements
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43473230; /* 'CG20' */
-#endif
+	{
+		const unsigned __int64 stefxDraw2DStart = STEFX_XboxReadTsc();
+		CG_Draw2D();
+		g_SPXBCgPhaseCycles[8] = STEFX_XboxElapsedCycles( stefxDraw2DStart );
+	}
+#else
 	CG_Draw2D();
+#endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBPhaseLast = 0x43473231; /* 'CG21' */
 #endif

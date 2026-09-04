@@ -622,6 +622,36 @@ static int CG_CalcFov( void ) {
 		}
 	}
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	/* The physical P1 pad is translated by the same profiled raw-input path as
+	 * the other split slots.  Its continuous PS2-style zoom value is therefore
+	 * authoritative over the legacy +zoom latch and also clears stale zoom HUD
+	 * state when the profile returns to 90 degrees. */
+	{
+		char profileControls[16];
+		char profileZoom[32];
+		trap_Cvar_VariableStringBuffer( "stefx_hm_p1_profile_controls", profileControls, sizeof( profileControls ) );
+		if ( atoi( profileControls ) != 0 )
+		{
+			float profileZoomFov;
+			trap_Cvar_VariableStringBuffer( "stefx_hm_p1_profile_zoom_fov", profileZoom, sizeof( profileZoom ) );
+			profileZoomFov = atof( profileZoom );
+			if ( profileZoomFov < 30.0f )
+			{
+				profileZoomFov = 30.0f;
+			}
+			else if ( profileZoomFov > 90.0f )
+			{
+				profileZoomFov = 90.0f;
+			}
+			cg.zoomed = (qboolean)( profileZoomFov < 89.95f );
+			cg.zoomLocked = cg.zoomed;
+			cg_zoomFov.value = profileZoomFov;
+			fov_x = profileZoomFov;
+		}
+	}
+#endif
+
 	if (cg.predictedPlayerState.introTime > cg.time)
 	{	// The stuff is "holodecking in".
 		fov_x = 80;

@@ -13,8 +13,11 @@
 
 #include "../tr_QuickSprite.h"
 
-#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 #include "../../win32/xb_log.h"
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+#include "../../win32/xb_perf.h"
 #endif
 
 STEFX_RETAIL_NAMESPACE_BEGIN
@@ -34,6 +37,17 @@ static qboolean	setArraysOnce;
 color4ub_t	styleColors[MAX_LIGHT_STYLES];
 
 extern bool g_bRenderGlowingObjects;
+
+int R_STEFX_FogModeForView( void )
+{
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( backEnd.viewParms.stefxSplitThreePlusEconomy )
+	{
+		return 0;
+	}
+#endif
+	return r_drawfog->integer;
+}
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
 static int s_stefxShaderTraceDumpedCount;
@@ -200,6 +214,277 @@ static void R_STEFX_ShaderTraceDumpRegistered( void )
 		s_stefxShaderTraceDumpedCount, tr.numShaders );
 	s_stefxShaderTraceDumpedCount = tr.numShaders;
 }
+#endif
+
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+static qboolean R_STEFX_IsSplitEconomyStageSkipped( int stage,
+	const shaderStage_t *shaderStage );
+static int R_STEFX_SplitEconomyEffectivePassCount( const shaderCommands_t *input );
+
+typedef struct stefxShaderCost_s
+{
+	unsigned int cycles;
+	unsigned int batches;
+	unsigned int passes;
+	unsigned int indexes;
+	unsigned int blendPasses;
+	unsigned int alphaTestPasses;
+	unsigned int twoSidedPasses;
+	unsigned int worldBatches;
+	unsigned int entityBatches;
+} stefxShaderCost_t;
+
+static stefxShaderCost_t s_stefxShaderCosts[MAX_SHADERS];
+static unsigned int s_stefxShaderCostSerial = 0xffffffffu;
+static unsigned int s_stefxShaderCostReportedSerial = 0xffffffffu;
+static qboolean s_stefxShaderCostActive;
+
+static qboolean R_STEFX_BeginShaderCostSample( void )
+{
+	const unsigned int serial = (unsigned int)g_SPXBPerfSampleSerial;
+
+	if ( !g_SPXBPerfSampleActive )
+	{
+		return qfalse;
+	}
+	if ( serial != s_stefxShaderCostSerial )
+	{
+		memset( s_stefxShaderCosts, 0, sizeof(s_stefxShaderCosts) );
+		s_stefxShaderCostSerial = serial;
+		s_stefxShaderCostActive =
+			Cvar_VariableIntegerValue( "stefx_splitScreen" ) != 0 &&
+			Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) >= 2;
+	}
+
+	return s_stefxShaderCostActive;
+}
+
+static void R_STEFX_RecordShaderCost( const shaderCommands_t *input, unsigned int cycles )
+{
+	stefxShaderCost_t *cost;
+	unsigned int pass;
+	unsigned int fogPasses;
+	unsigned int shaderPasses;
+	unsigned int shaderIndex;
+
+	if ( !input || !input->shader )
+	{
+		return;
+	}
+	shaderIndex = (unsigned int)input->shader->index;
+	if ( shaderIndex >= MAX_SHADERS )
+	{
+		return;
+	}
+
+	cost = &s_stefxShaderCosts[shaderIndex];
+	shaderPasses = (unsigned int)R_STEFX_SplitEconomyEffectivePassCount( input );
+	fogPasses = (input->fogNum && input->shader->fogPass && R_STEFX_FogModeForView() == 1) ? 1u : 0u;
+	cost->cycles += cycles;
+	++cost->batches;
+	cost->passes += shaderPasses + fogPasses;
+	cost->indexes += (unsigned int)input->numIndexes * (shaderPasses + fogPasses);
+	if ( backEnd.currentEntity == &tr.worldEntity )
+	{
+		++cost->worldBatches;
+	}
+	else
+	{
+		++cost->entityBatches;
+	}
+
+	for ( pass = 0; pass < (unsigned int)input->shader->numUnfoggedPasses; ++pass )
+	{
+		const shaderStage_t *shaderStage = &input->xstages[pass];
+		const unsigned int stateBits = shaderStage->stateBits;
+
+		if ( R_STEFX_IsSplitEconomyStageSkipped( (int)pass, shaderStage ) )
+		{
+			continue;
+		}
+		if ( !shaderStage->active )
+		{
+			break;
+		}
+		if ( pass && r_lightmap->integer &&
+			!( shaderStage->bundle[0].isLightmap ||
+				shaderStage->bundle[1].isLightmap ||
+				shaderStage->bundle[0].vertexLightmap ) )
+		{
+			break;
+		}
+		if ( shaderStage->ss && shaderStage->ss->surfaceSpriteType )
+		{
+			continue;
+		}
+		if ( stateBits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS) )
+		{
+			++cost->blendPasses;
+		}
+		if ( stateBits & GLS_ATEST_BITS )
+		{
+			++cost->alphaTestPasses;
+		}
+	}
+	if ( input->shader->cullType == CT_TWO_SIDED )
+	{
+		cost->twoSidedPasses += shaderPasses + fogPasses;
+	}
+}
+
+void R_STEFX_ReportShaderCosts( void )
+{
+	const int maxReportedShaders = 5;
+	int rank;
+	int topShaders[5];
+	int topPressureShaders[5];
+	unsigned int totalCycles = 0;
+	unsigned int totalBatches = 0;
+	unsigned int totalPasses = 0;
+	unsigned int totalIndexes = 0;
+	unsigned int totalBlendPasses = 0;
+	unsigned int totalAlphaTestPasses = 0;
+	unsigned int totalTwoSidedPasses = 0;
+	unsigned int totalWorldBatches = 0;
+	unsigned int totalEntityBatches = 0;
+	int shaderIndex;
+
+	if ( !g_SPXBPerfSampleActive || !s_stefxShaderCostActive ||
+		s_stefxShaderCostSerial == s_stefxShaderCostReportedSerial )
+	{
+		return;
+	}
+
+	for ( rank = 0; rank < maxReportedShaders; ++rank )
+	{
+		topShaders[rank] = -1;
+		topPressureShaders[rank] = -1;
+	}
+	for ( shaderIndex = 0; shaderIndex < tr.numShaders && shaderIndex < MAX_SHADERS; ++shaderIndex )
+	{
+		stefxShaderCost_t *cost = &s_stefxShaderCosts[shaderIndex];
+		totalCycles += cost->cycles;
+		totalBatches += cost->batches;
+		totalPasses += cost->passes;
+		totalIndexes += cost->indexes;
+		totalBlendPasses += cost->blendPasses;
+		totalAlphaTestPasses += cost->alphaTestPasses;
+		totalTwoSidedPasses += cost->twoSidedPasses;
+		totalWorldBatches += cost->worldBatches;
+		totalEntityBatches += cost->entityBatches;
+	}
+
+	for ( rank = 0; rank < maxReportedShaders; ++rank )
+	{
+		int candidate = -1;
+		unsigned int candidateCycles = 0;
+		for ( shaderIndex = 0; shaderIndex < tr.numShaders && shaderIndex < MAX_SHADERS; ++shaderIndex )
+		{
+			int priorRank;
+			qboolean alreadySelected = qfalse;
+			for ( priorRank = 0; priorRank < rank; ++priorRank )
+			{
+				if ( topShaders[priorRank] == shaderIndex )
+				{
+					alreadySelected = qtrue;
+					break;
+				}
+			}
+			if ( !alreadySelected && s_stefxShaderCosts[shaderIndex].cycles > candidateCycles )
+			{
+				candidate = shaderIndex;
+				candidateCycles = s_stefxShaderCosts[shaderIndex].cycles;
+			}
+		}
+		if ( candidate < 0 )
+		{
+			break;
+		}
+		topShaders[rank] = candidate;
+		{
+			const stefxShaderCost_t *cost = &s_stefxShaderCosts[candidate];
+			const shader_t *shader = tr.shaders[candidate];
+			XBLog_WriteProfile( va(
+				"STEFX_HW_SHADER_COST: sample=%u rank=%d shader=%d name='%s' cycles=%u batches=%u passes=%u indexes=%u blend=%u alphaTest=%u twoSided=%u world=%u entity=%u",
+				s_stefxShaderCostSerial, rank + 1, candidate,
+				shader ? shader->name : "<missing>", cost->cycles, cost->batches,
+				cost->passes, cost->indexes, cost->blendPasses, cost->alphaTestPasses,
+				cost->twoSidedPasses, cost->worldBatches, cost->entityBatches ) );
+		}
+	}
+
+	/*
+	** CPU time alone can hide the shaders that create the most D3D8 push-buffer
+	** pressure.  Rank a second diagnostic list by actual draw passes so a future
+	** split-screen quality change can target measured repeated work.  This is
+	** frame-diagnostic-only and does not alter the production render path.
+	*/
+	for ( rank = 0; rank < maxReportedShaders; ++rank )
+	{
+		int candidate = -1;
+		unsigned int candidatePasses = 0;
+		unsigned int candidateIndexes = 0;
+		for ( shaderIndex = 0; shaderIndex < tr.numShaders && shaderIndex < MAX_SHADERS; ++shaderIndex )
+		{
+			int priorRank;
+			qboolean alreadySelected = qfalse;
+			const stefxShaderCost_t *cost = &s_stefxShaderCosts[shaderIndex];
+			for ( priorRank = 0; priorRank < rank; ++priorRank )
+			{
+				if ( topPressureShaders[priorRank] == shaderIndex )
+				{
+					alreadySelected = qtrue;
+					break;
+				}
+			}
+			if ( !alreadySelected &&
+				(cost->passes > candidatePasses ||
+				(cost->passes == candidatePasses && cost->indexes > candidateIndexes)) )
+			{
+				candidate = shaderIndex;
+				candidatePasses = cost->passes;
+				candidateIndexes = cost->indexes;
+			}
+		}
+		if ( candidate < 0 || candidatePasses == 0 )
+		{
+			break;
+		}
+		topPressureShaders[rank] = candidate;
+		{
+			const stefxShaderCost_t *cost = &s_stefxShaderCosts[candidate];
+			const shader_t *shader = tr.shaders[candidate];
+			XBLog_WriteProfile( va(
+				"STEFX_HW_SHADER_PRESSURE: sample=%u rank=%d shader=%d name='%s' cycles=%u batches=%u passes=%u indexes=%u blend=%u alphaTest=%u twoSided=%u world=%u entity=%u",
+				s_stefxShaderCostSerial, rank + 1, candidate,
+				shader ? shader->name : "<missing>", cost->cycles, cost->batches,
+				cost->passes, cost->indexes, cost->blendPasses, cost->alphaTestPasses,
+				cost->twoSidedPasses, cost->worldBatches, cost->entityBatches ) );
+		}
+	}
+
+	XBLog_WriteProfile( va(
+		"STEFX_HW_SHADER_COST_TOTAL: sample=%u shaders=%d cycles=%u batches=%u passes=%u indexes=%u",
+		s_stefxShaderCostSerial, tr.numShaders, totalCycles, totalBatches, totalPasses,
+		totalIndexes ) );
+	XBLog_WriteProfile( va(
+		"STEFX_HW_SHADER_PRESSURE_TOTAL: sample=%u shaders=%d batches=%u passes=%u indexes=%u blend=%u alphaTest=%u twoSided=%u world=%u entity=%u",
+		s_stefxShaderCostSerial, tr.numShaders, totalBatches, totalPasses, totalIndexes,
+		totalBlendPasses, totalAlphaTestPasses, totalTwoSidedPasses,
+		totalWorldBatches, totalEntityBatches ) );
+	s_stefxShaderCostReportedSerial = s_stefxShaderCostSerial;
+}
+#endif
+
+#ifdef _XBOX
+extern "C" volatile unsigned int g_SPXBEndSurfaceStage;
+extern "C" volatile unsigned int g_SPXBEndSurfaceShader;
+extern "C" volatile unsigned int g_SPXBEndSurfaceShaderIndex;
+extern "C" volatile unsigned int g_SPXBEndSurfaceIterator;
+extern "C" volatile unsigned int g_SPXBEndSurfacePasses;
+extern "C" volatile unsigned int g_SPXBEndSurfaceVerts;
+extern "C" volatile unsigned int g_SPXBEndSurfaceIndexes;
+extern "C" volatile unsigned int g_SPXBEndSurfaceFog;
 #endif
 
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
@@ -724,7 +1009,7 @@ ProjectDlightTexture
 Perform dynamic lighting with another rendering pass
 ===================
 */
-#ifndef VV_LIGHTING
+#if !defined(VV_LIGHTING) || defined(STEFX_ELITE_FORCE_SP)
 static void ProjectDlightTexture2( void ) {
 	int		i, l;
 	vec3_t	origin;
@@ -751,6 +1036,10 @@ static void ProjectDlightTexture2( void ) {
 
 	int		needResetVerts=0;
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x44320000; /* 'D200': style-2 dynamic-light entry */
+#endif
+
 	if ( !backEnd.refdef.num_dlights ) 
 	{
 		return;
@@ -759,6 +1048,10 @@ static void ProjectDlightTexture2( void ) {
 	for ( l = 0 ; l < backEnd.refdef.num_dlights ; l++ )
 	{
 		dlight_t	*dl;
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x44321000 | (unsigned int)(l & 0xff); /* 'D21x': light entry */
+#endif
 
 		if ( !( tess.dlightBits & ( 1 << l ) ) ) {
 			continue;	// this surface definately doesn't have any of this light
@@ -810,6 +1103,10 @@ static void ProjectDlightTexture2( void ) {
 		floatColor[0] = dl->color[0] * 255.0f;
 		floatColor[1] = dl->color[1] * 255.0f;
 		floatColor[2] = dl->color[2] * 255.0f;
+
+		#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x44322000 | (unsigned int)(l & 0xff); /* 'D22x': build triangles */
+		#endif
 
 		// build a list of triangles that need light
 		numIndexes = 0;
@@ -924,9 +1221,13 @@ static void ProjectDlightTexture2( void ) {
 			continue;
 		}
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x44323000 | (unsigned int)(l & 0xff); /* 'D23x': configure overlay */
+#endif
+
 		//don't have fog enabled when we redraw with alpha test, or it will double over
 		//and screw the tri up -rww
-		if (r_drawfog->value == 2 && 
+		if (R_STEFX_FogModeForView() == 2 &&
 			tr.world &&
 			(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 		{
@@ -973,6 +1274,9 @@ static void ProjectDlightTexture2( void ) {
 
 		if (dStage)
 		{
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x44324000 | (unsigned int)(l & 0xff); /* 'D24x': multitexture overlay */
+#endif
 			GL_SelectTexture( 0 );
 			GL_State(0);
 			qglTexCoordPointer( 2, GL_FLOAT, 0, oldTexCoordsArray[0] );
@@ -994,16 +1298,30 @@ static void ProjectDlightTexture2( void ) {
 			STEFX_RETAIL_SCOPE GL_Bind( tr.dlightImage );
 			GL_TexEnv( GL_MODULATE );
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x44325000 | (unsigned int)(l & 0xff); /* 'D25x': light texture ready */
+#endif
 
 			GL_State(GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL);// | GLS_ATEST_GT_0);
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x44326000 | (unsigned int)(l & 0xff); /* 'D26x': pre-draw */
+#endif
+
 			R_DrawElements( numIndexes, hitIndexes );
+
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x44327000 | (unsigned int)(l & 0xff); /* 'D27x': draw returned */
+#endif
 
 			qglDisable( GL_TEXTURE_2D );
 			GL_SelectTexture(0);
 		}
 		else
 		{
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x44328000 | (unsigned int)(l & 0xff); /* 'D28x': single-texture overlay */
+#endif
 			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
 			qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
 
@@ -1020,7 +1338,15 @@ static void ProjectDlightTexture2( void ) {
 				GL_State( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL );
 			}
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x44329000 | (unsigned int)(l & 0xff); /* 'D29x': pre-draw */
+#endif
+
 			R_DrawElements( numIndexes, hitIndexes );
+
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x4432A000 | (unsigned int)(l & 0xff); /* 'D2Ax': draw returned */
+#endif
 		}
 
 		if (fogging)
@@ -1040,6 +1366,9 @@ static void ProjectDlightTexture2( void ) {
 			GLimp_LogComment( "glLockArraysEXT\n" );
 		}
 	}
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x443200FF; /* 'D2FF': style-2 dynamic-light complete */
+#endif
 }
 
 static void ProjectDlightTexture( void ) {
@@ -1058,12 +1387,20 @@ static void ProjectDlightTexture( void ) {
 	vec3_t	floatColor;
 	shaderStage_t *dStage;
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x444C0000; /* 'DL00': dynamic-light entry */
+#endif
+
 	if ( !backEnd.refdef.num_dlights ) {
 		return;
 	}
 
 	for ( l = 0 ; l < backEnd.refdef.num_dlights ; l++ ) {
 		dlight_t	*dl;
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x444C1000 | (unsigned int)(l & 0xff); /* 'DL1x': light entry */
+#endif
 
 		if ( !( tess.dlightBits & ( 1 << l ) ) ) {
 			continue;	// this surface definately doesn't have any of this light
@@ -1080,6 +1417,10 @@ static void ProjectDlightTexture( void ) {
 		floatColor[0] = dl->color[0] * 255.0f;
 		floatColor[1] = dl->color[1] * 255.0f;
 		floatColor[2] = dl->color[2] * 255.0f;
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x444C2000 | (unsigned int)(l & 0xff); /* 'DL2x': build vertices */
+#endif
 
 		for ( i = 0 ; i < tess.numVertexes ; i++, texCoords += 2, colors += 4 ) {
 			vec3_t	dist;
@@ -1255,6 +1596,10 @@ static void ProjectDlightTexture( void ) {
 			colors[3] = 255;
 		}
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x444C3000 | (unsigned int)(l & 0xff); /* 'DL3x': build indexes */
+#endif
+
 		// build a list of triangles that need light
 		numIndexes = 0;
 		for ( i = 0 ; i < tess.numIndexes ; i += 3 ) {
@@ -1276,9 +1621,13 @@ static void ProjectDlightTexture( void ) {
 			continue;
 		}
 
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x444C4000 | (unsigned int)(l & 0xff); /* 'DL4x': configure overlay */
+#endif
+
 		//don't have fog enabled when we redraw with alpha test, or it will double over
 		//and screw the tri up -rww
-		if (r_drawfog->value == 2 && 
+		if (R_STEFX_FogModeForView() == 2 &&
 			tr.world &&
 			(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 		{
@@ -1315,8 +1664,17 @@ static void ProjectDlightTexture( void ) {
 
 		if (dStage)
 		{
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5000 | (unsigned int)(l & 0xff); /* 'DL5x': multitexture overlay */
+#endif
 			GL_SelectTexture( 0 );
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5100 | (unsigned int)(l & 0xff); /* 'DLQx': texture zero selected */
+#endif
 			GL_State(0);
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5200 | (unsigned int)(l & 0xff); /* 'DLRx': base state ready */
+#endif
 			qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
 			if (dStage->bundle[0].image && !dStage->bundle[0].isLightmap && !dStage->bundle[0].numTexMods)
 			{
@@ -1327,6 +1685,10 @@ static void ProjectDlightTexture( void ) {
 				R_BindAnimatedImage( &dStage->bundle[1] );
 			}
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5300 | (unsigned int)(l & 0xff); /* 'DLSx': base image ready */
+#endif
+
 			GL_SelectTexture( 1 );
 			qglEnable( GL_TEXTURE_2D );
 			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
@@ -1336,15 +1698,30 @@ static void ProjectDlightTexture( void ) {
 			STEFX_RETAIL_SCOPE GL_Bind( tr.dlightImage );
 			GL_TexEnv( GL_MODULATE );
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5400 | (unsigned int)(l & 0xff); /* 'DLTx': light texture ready */
+#endif
+
 			GL_State(GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL);// | GLS_ATEST_GT_0);
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5500 | (unsigned int)(l & 0xff); /* 'DLUx': pre-draw */
+#endif
+
 			R_DrawElements( numIndexes, hitIndexes );
+
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C5600 | (unsigned int)(l & 0xff); /* 'DLVx': draw returned */
+#endif
 
 			qglDisable( GL_TEXTURE_2D );
 			GL_SelectTexture(0);
 		}
 		else
 		{
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C6000 | (unsigned int)(l & 0xff); /* 'DL`x': single-texture overlay */
+#endif
 			qglEnableClientState( GL_TEXTURE_COORD_ARRAY );
 			qglTexCoordPointer( 2, GL_FLOAT, 0, texCoordsArray[0] );
 
@@ -1361,7 +1738,15 @@ static void ProjectDlightTexture( void ) {
 				GL_State( GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL );
 			}
 
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C6100 | (unsigned int)(l & 0xff); /* 'DMax': pre-draw */
+#endif
+
 			R_DrawElements( numIndexes, hitIndexes );
+
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x444C6200 | (unsigned int)(l & 0xff); /* 'DLbx': draw returned */
+#endif
 		}
 
 		if (fogging)
@@ -1372,8 +1757,11 @@ static void ProjectDlightTexture( void ) {
 		backEnd.pc.c_totalIndexes += numIndexes;
 		backEnd.pc.c_dlightIndexes += numIndexes;
 	}
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x444C00FF; /* 'DLFF': dynamic-light complete */
+#endif
 }
-#endif // VV_LIGHTING
+#endif // !VV_LIGHTING || STEFX_ELITE_FORCE_SP
 
 /*
 ===================
@@ -2145,6 +2533,109 @@ static vec4_t	GLFogOverrideColors[GLFOGOVERRIDE_MAX] =
 
 static const float logtestExp2 = (sqrt( -log( 1.0 / 255.0 ) ));
 extern bool tr_stencilled; //tr_backend.cpp
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_STEFX_IsSplitEconomyStageSkipped( int stage,
+	const shaderStage_t *shaderStage )
+{
+	if ( stage <= 0 || !shaderStage || !backEnd.viewParms.stefxSplitEconomy ||
+		backEnd.projection2D )
+	{
+		return qfalse;
+	}
+
+	if ( backEnd.currentEntity && backEnd.currentEntity != &tr.worldEntity )
+	{
+		if ( backEnd.currentEntity->e.renderfx & RF_DISTORTION )
+		{
+			return qfalse;
+		}
+		#if defined(STEFX_SP_HOSTED_MP)
+		if ( backEnd.currentEntity->e.renderfx & RF_STEFX_FORCE_ENT_ALPHA )
+		{
+			return qfalse;
+		}
+		#endif
+		return qtrue;
+	}
+
+	return shaderStage->isDetail ? qtrue : qfalse;
+}
+
+static qboolean R_STEFX_SkipSplitEconomyStage( int stage,
+	const shaderStage_t *shaderStage )
+{
+	static int s_stefxEntityPassLogBudget = 8;
+	static int s_stefxDetailPassLogBudget = 8;
+
+	if ( !R_STEFX_IsSplitEconomyStageSkipped( stage, shaderStage ) )
+	{
+		return qfalse;
+	}
+
+	if ( backEnd.currentEntity && backEnd.currentEntity != &tr.worldEntity )
+	{
+		if ( s_stefxEntityPassLogBudget > 0 )
+		{
+			XBLog_WriteCriticalf( "STEFX_SPLIT_ECONOMY: entityPassSkipped shader='%s' stage=%d slot=%d",
+				tess.shader ? tess.shader->name : "<none>", stage,
+				backEnd.viewParms.stefxSplitSlot );
+			--s_stefxEntityPassLogBudget;
+		}
+	}
+	else if ( s_stefxDetailPassLogBudget > 0 )
+	{
+		XBLog_WriteCriticalf( "STEFX_SPLIT_ECONOMY: detailPassSkipped shader='%s' stage=%d slot=%d",
+			tess.shader ? tess.shader->name : "<none>", stage,
+			backEnd.viewParms.stefxSplitSlot );
+		--s_stefxDetailPassLogBudget;
+	}
+
+	return qtrue;
+}
+
+static int R_STEFX_SplitEconomyEffectivePassCount( const shaderCommands_t *input )
+{
+	int effectivePasses = 0;
+	int stage;
+
+	if ( !input || !input->shader || !backEnd.viewParms.stefxSplitEconomy ||
+		backEnd.projection2D )
+	{
+		return input ? input->numPasses : 0;
+	}
+
+	for ( stage = 0; stage < input->shader->numUnfoggedPasses; ++stage )
+	{
+		const shaderStage_t *shaderStage = &input->xstages[stage];
+
+		if ( R_STEFX_IsSplitEconomyStageSkipped( stage, shaderStage ) )
+		{
+			continue;
+		}
+		if ( !shaderStage->active )
+		{
+			break;
+		}
+		if ( stage && r_lightmap->integer &&
+			!( shaderStage->bundle[0].isLightmap ||
+				shaderStage->bundle[1].isLightmap ||
+				shaderStage->bundle[0].vertexLightmap ) )
+		{
+			break;
+		}
+		if ( shaderStage->ss && shaderStage->ss->surfaceSpriteType )
+		{
+			continue;
+		}
+
+		++effectivePasses;
+	}
+
+	return effectivePasses;
+}
+#endif
+
 static void RB_IterateStagesGeneric( shaderCommands_t *input )
 {
 	int stage;
@@ -2152,8 +2643,12 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 	bool	FogColorChange = false;
 	fog_t	*fog = NULL;
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x49543030; /* 'IT00': generic pass iteration entered */
+#endif
+
 	if (tess.fogNum && tess.shader->fogPass && (tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs) 
-		&& r_drawfog->value == 2) 
+		&& R_STEFX_FogModeForView() == 2)
 	{	// only gl fog global fog and the "special fog"
 		fog = tr.world->fogs + tess.fogNum;
 
@@ -2207,6 +2702,17 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		shaderStage_t *pStage = &tess.xstages[stage];
 		int forceRGBGen = 0;
 		int stateBits = 0;
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x49543100 | (unsigned int)(stage & 0xff); /* 'IT1x': stage setup */
+#endif
+
+		#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		if ( R_STEFX_SkipSplitEconomyStage( stage, pStage ) )
+		{
+			continue;
+		}
+		#endif
 
 		if ( !pStage->active )
 		{
@@ -2347,7 +2853,13 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		//
 		if ( pStage->bundle[1].image != 0 )
 		{
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x49543200 | (unsigned int)(stage & 0xff); /* 'IT2x': multitexture submit */
+#endif
 			DrawMultitextured( input, stage );
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x49543300 | (unsigned int)(stage & 0xff); /* 'IT3x': multitexture returned */
+#endif
 		}
 		else
 		{
@@ -2406,7 +2918,13 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			//
 			// draw
 			//
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x49543400 | (unsigned int)(stage & 0xff); /* 'IT4x': indexed submit */
+#endif
 			R_DrawElements( input->numIndexes, input->indexes );	
+#ifdef _XBOX
+			g_SPXBEndSurfaceStage = 0x49543500 | (unsigned int)(stage & 0xff); /* 'IT5x': indexed submit returned */
+#endif
 
 			if (lStencilled)
 			{ //re-enable the color buffer, disable stencil test
@@ -2421,11 +2939,18 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 		qglDisable(GL_LIGHTING);
 		qglDisableClientState( GL_NORMAL_ARRAY );
 #endif
+
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x49543900 | (unsigned int)(stage & 0xff); /* 'IT9x': stage complete */
+#endif
 	}
 	if (FogColorChange)
 	{
 		qglFogfv(GL_FOG_COLOR, fog->parms.color);
 	}
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x49543a30; /* 'IT:0': all generic stages complete */
+#endif
 }
 
 
@@ -2436,10 +2961,20 @@ void RB_StageIteratorGeneric( void )
 {
 	shaderCommands_t *input;
 	int stage;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	int stefxEffectivePasses;
+	static int s_stefxArraySetupLogBudget = 8;
+#endif
 
 	input = &tess;
 
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473030; /* 'SG00': stage iterator entered */
+	#endif
 	RB_DeformTessGeometry();
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473031; /* 'SG01': deformation complete */
+	#endif
 
 	//
 	// log this call
@@ -2471,7 +3006,19 @@ void RB_StageIteratorGeneric( void )
 	// to avoid compiling those arrays since they will change
 	// during multipass rendering
 	//
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	stefxEffectivePasses = R_STEFX_SplitEconomyEffectivePassCount( input );
+	if ( stefxEffectivePasses < tess.numPasses && s_stefxArraySetupLogBudget > 0 )
+	{
+		XBLog_WriteCriticalf( "STEFX_SPLIT_ECONOMY: arraySetupPasses shader='%s' source=%d effective=%d slot=%d",
+			input->shader ? input->shader->name : "<none>", tess.numPasses,
+			stefxEffectivePasses, backEnd.viewParms.stefxSplitSlot );
+		--s_stefxArraySetupLogBudget;
+	}
+	if ( stefxEffectivePasses > 1 || input->shader->multitextureEnv )
+#else
 	if ( tess.numPasses > 1 || input->shader->multitextureEnv )
+#endif
 	{
 		setArraysOnce = qfalse;
 		qglDisableClientState (GL_COLOR_ARRAY);
@@ -2511,13 +3058,16 @@ void RB_StageIteratorGeneric( void )
 	// call shader function
 	//
 	RB_IterateStagesGeneric( input );
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473032; /* 'SG02': generic stages complete */
+	#endif
 
 	// 
 	// now do any dynamic lighting needed
 	//
 	if ( tess.dlightBits && tess.shader->sort <= SS_OPAQUE
 		&& !(tess.shader->surfaceFlags & (SURF_NODLIGHT | SURF_SKY) ) ) {
-#ifdef VV_LIGHTING
+#if defined(VV_LIGHTING) && !defined(STEFX_ELITE_FORCE_SP)
 		qglEnableClientState( GL_NORMAL_ARRAY );
 		qglNormalPointer(GL_FLOAT, 16, tess.normal );
 		if(!tess.setTangents)
@@ -2535,14 +3085,20 @@ void RB_StageIteratorGeneric( void )
 		}
 #endif
 	}
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473033; /* 'SG03': dynamic lights complete */
+	#endif
 
 	//
 	// now do fog
 	//
-	if (tr.world && (tess.fogNum != tr.world->globalFog || r_drawfog->value != 2) && r_drawfog->value && tess.fogNum && tess.shader->fogPass)
+	if (tr.world && (tess.fogNum != tr.world->globalFog || R_STEFX_FogModeForView() != 2) && R_STEFX_FogModeForView() && tess.fogNum && tess.shader->fogPass)
 	{
 		RB_FogPass();
 	}
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473034; /* 'SG04': fog pass complete */
+	#endif
 
 	// 
 	// unlock arrays
@@ -2552,6 +3108,9 @@ void RB_StageIteratorGeneric( void )
 		qglUnlockArraysEXT();
 		GLimp_LogComment( "glUnlockArraysEXT\n" );
 	}
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473035; /* 'SG05': array unlock complete */
+	#endif
 
 	//
 	// reset polygon offset
@@ -2572,14 +3131,20 @@ void RB_StageIteratorGeneric( void )
 			}
 		}
 	}
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473036; /* 'SG06': surface sprites complete */
+	#endif
 
 	//don't disable the hardware fog til after we do surface sprites
-	if (r_drawfog->value == 2 && 
+	if (R_STEFX_FogModeForView() == 2 &&
 		tess.fogNum && tess.shader->fogPass &&
 		(tess.fogNum == tr.world->globalFog || tess.fogNum == tr.world->numfogs))
 	{
 		qglDisable(GL_FOG);
 	}
+	#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x53473037; /* 'SG07': iterator complete */
+	#endif
 }
 
 
@@ -2588,11 +3153,26 @@ void RB_StageIteratorGeneric( void )
 */
 void RB_EndSurface( void ) {
 	shaderCommands_t *input;
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+	const qboolean stefxShaderCostSample = R_STEFX_BeginShaderCostSample();
+	unsigned __int64 stefxShaderCostStart = 0;
+#endif
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 	const qboolean stefxScoreBatch = g_SPXBHMScoreBatchPending ? qtrue : qfalse;
 #endif
 
 	input = &tess;
+
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x45530000; /* 'ES00': entry */
+	g_SPXBEndSurfaceShader = (unsigned int)input->shader;
+	g_SPXBEndSurfaceShaderIndex = input->shader ? (unsigned int)input->shader->index : 0xffffffff;
+	g_SPXBEndSurfaceIterator = (unsigned int)input->currentStageIteratorFunc;
+	g_SPXBEndSurfacePasses = (unsigned int)input->numPasses;
+	g_SPXBEndSurfaceVerts = (unsigned int)input->numVertexes;
+	g_SPXBEndSurfaceIndexes = (unsigned int)input->numIndexes;
+	g_SPXBEndSurfaceFog = (unsigned int)input->fogNum;
+#endif
 
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 	if ( stefxScoreBatch ) {
@@ -2626,9 +3206,15 @@ void RB_EndSurface( void ) {
 #endif
 
 	if (input->numIndexes == 0) {
+#ifdef _XBOX
+		g_SPXBEndSurfaceStage = 0x45530001; /* 'ES01': empty */
+#endif
 		return;
 	}
 
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x45530010; /* 'ES10': bounds checks */
+#endif
 	if (input->indexes[SHADER_MAX_INDEXES-1] != 0) {
 		Com_Error (ERR_DROP, "RB_EndSurface() - SHADER_MAX_INDEXES hit");
 	}	
@@ -2685,7 +3271,7 @@ void RB_EndSurface( void ) {
 	backEnd.pc.c_vertexes += tess.numVertexes;
 	backEnd.pc.c_indexes += tess.numIndexes;
 	backEnd.pc.c_totalIndexes += tess.numIndexes * tess.numPasses;
-	if (tess.fogNum && tess.shader->fogPass && r_drawfog->value == 1)
+	if (tess.fogNum && tess.shader->fogPass && R_STEFX_FogModeForView() == 1)
 	{	
 		backEnd.pc.c_totalIndexes += tess.numIndexes;
 	}
@@ -2699,7 +3285,25 @@ void RB_EndSurface( void ) {
 		g_SPXBHMScoreSubmitArmed = 1u;
 	}
 #endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+	if ( stefxShaderCostSample )
+	{
+		stefxShaderCostStart = STEFX_XboxReadTsc();
+	}
+#endif
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x45530050; /* 'ES50': stage iterator */
+#endif
 	tess.currentStageIteratorFunc();
+#ifdef _XBOX
+	g_SPXBEndSurfaceStage = 0x45530051; /* 'ES51': iterator complete */
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+	if ( stefxShaderCostSample )
+	{
+		R_STEFX_RecordShaderCost( input, STEFX_XboxElapsedCycles( stefxShaderCostStart ) );
+	}
+#endif
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 	if ( stefxScoreBatch ) {
 		g_SPXBHMScoreSubmitArmed = 0;
@@ -2710,6 +3314,7 @@ void RB_EndSurface( void ) {
 
 #ifdef _XBOX
 	tess.currentPass = 0;
+	g_SPXBEndSurfaceStage = 0x455300FF; /* 'ESFF': complete */
 #endif
 
 	//

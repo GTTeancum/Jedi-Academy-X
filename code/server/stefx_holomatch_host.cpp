@@ -8,7 +8,8 @@ extern int STEFX_HolomatchPrepareSplitWeaponProof(int clientNum, int slot);
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 void RE_STEFX_SplitScreen_SetLocalRefdef(int slot, const refdef_t *refdef, qboolean valid);
-qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd(int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles);
+qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd(int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles, float *zoomFov);
+int CL_STEFX_SplitScreen_PadForLocalSlot(int localSlot);
 #else
 static void RE_STEFX_SplitScreen_SetLocalRefdef(int slot, const refdef_t *refdef, qboolean valid)
 {
@@ -52,17 +53,67 @@ static int s_stefxHolomatchVirtualAvoidUntil[4];
 static int s_stefxHolomatchVirtualAvoidTurn[4];
 static int s_stefxHolomatchVirtualAvoidLogBudget = 32;
 static int s_stefxHolomatchSmokePinViewLogBudget = 0;
+static unsigned int s_stefxHolomatchOwnedWeapons[4];
+static qboolean s_stefxHolomatchOwnedWeaponsValid[4];
+static int s_stefxHolomatchAutoswitchWeapon[4];
+static int s_stefxHolomatchAutoswitchLogBudget = 24;
+static int s_stefxHolomatchAutoaimLogBudget = 32;
+static int s_stefxHolomatchAutoaimTarget[4];
+static int s_stefxHolomatchAutoaimNextScanTime[4];
+static float s_stefxHolomatchZoomFov[4] = { 90.0f, 90.0f, 90.0f, 90.0f };
+static int s_stefxHolomatchZoomLogBudget = 24;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+static int s_stefxHolomatchControlRoutePlayers = -1;
+static int s_stefxHolomatchControlRoutePorts[4] = { -2, -2, -2, -2 };
+#endif
 
 enum
 {
+	STEFX_HM_GT_TEAM = 3,
+	STEFX_HM_WP_NONE = 0,
 	STEFX_HM_WP_PHASER = 1,
+	STEFX_HM_WP_GRENADE_LAUNCHER = 6,
+	STEFX_HM_WP_QUANTUM_BURST = 8,
+	STEFX_HM_WP_NUM_WEAPONS = 13,
 	STEFX_HM_PHASER_AMMO_MAX = 50
 };
 
 static int STEFX_HolomatchLocalPlayerCount(void);
+static int STEFX_HolomatchViewportPlayerCount(void);
+static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, usercmd_t *cmd);
+
+static void STEFX_HolomatchSetZoomFov(int clientNum, float zoomFov)
+{
+	if (clientNum < 0 || clientNum >= 4)
+	{
+		return;
+	}
+	if (zoomFov < 30.0f)
+	{
+		zoomFov = 30.0f;
+	}
+	else if (zoomFov > 90.0f)
+	{
+		zoomFov = 90.0f;
+	}
+	if (fabs(s_stefxHolomatchZoomFov[clientNum] - zoomFov) > 0.05f)
+	{
+		s_stefxHolomatchZoomFov[clientNum] = zoomFov;
+		if (s_stefxHolomatchZoomLogBudget > 0)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_SPLIT_ZOOM: slot=%d fov=%g", clientNum, zoomFov);
+			--s_stefxHolomatchZoomLogBudget;
+		}
+	}
+	if (clientNum == 0 && fabs(Cvar_VariableValue("cg_fov") - zoomFov) > 0.05f)
+	{
+		Cvar_SetValue("cg_fov", zoomFov);
+	}
+}
 
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
 extern "C" volatile unsigned int g_SPXBHMSplitLaunch[9];
+extern "C" volatile unsigned int g_SPXBHMPlayerSetupProof[40];
 extern "C" volatile unsigned int g_SPXBHMSplitBotProof[32];
 extern "C" volatile unsigned int g_SPXBHMSplitStateSerial[4];
 extern "C" volatile unsigned int g_SPXBHMSplitStatePlayers[4];
@@ -182,7 +233,7 @@ qboolean STEFX_HolomatchGetSplitHudState(int slot, int *health, int *weapon, int
 	{
 		return qfalse;
 	}
-	if (STEFX_HolomatchLocalPlayerCount() <= slot)
+	if (STEFX_HolomatchViewportPlayerCount() <= slot)
 	{
 		return qfalse;
 	}
@@ -263,6 +314,40 @@ static int STEFX_HolomatchLocalPlayerCount(void)
 		return 1;
 	}
 
+	players = Cvar_VariableIntegerValue("stefx_hmHumanPlayers");
+	if (players <= 0)
+	{
+		players = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
+	}
+	if (players <= 0)
+	{
+		players = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
+	}
+	if (players < 1)
+	{
+		players = 1;
+	}
+	if (players > 4)
+	{
+		players = 4;
+	}
+	return players;
+}
+
+static int STEFX_HolomatchViewportPlayerCount(void)
+{
+	const char *mode;
+	int players;
+
+	if (!Cvar_VariableIntegerValue("stefx_splitScreen"))
+	{
+		return 1;
+	}
+	mode = Cvar_VariableString("stefx_splitScreenMode");
+	if (!mode || Q_stricmp(mode, "holomatch"))
+	{
+		return 1;
+	}
 	players = Cvar_VariableIntegerValue("stefx_hmLocalPlayers");
 	if (players <= 0)
 	{
@@ -385,6 +470,7 @@ static unsigned int STEFX_HolomatchProofInt(float value)
 static void STEFX_HolomatchUpdateSplitLaunchProof(int localPlayers, int levelTime)
 {
 	const char *launchSource = Cvar_VariableString("stefx_hm_launch_source");
+	int player;
 
 	g_SPXBHMSplitLaunch[0] = s_stefxHolomatchHostActive ? 1u : 0u;
 	g_SPXBHMSplitLaunch[1] = (unsigned int)Cvar_VariableIntegerValue("stefx_splitScreen");
@@ -392,11 +478,136 @@ static void STEFX_HolomatchUpdateSplitLaunchProof(int localPlayers, int levelTim
 	g_SPXBHMSplitLaunch[3] = (unsigned int)localPlayers;
 	g_SPXBHMSplitLaunch[4] = (unsigned int)Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls");
 	g_SPXBHMSplitLaunch[5] = (unsigned int)Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1");
-	g_SPXBHMSplitLaunch[6] = (unsigned int)Cvar_VariableIntegerValue("stefx_hm_split_economy");
+	g_SPXBHMSplitLaunch[6] = (unsigned int)Cvar_VariableIntegerValue("r_splitScreenEconomy");
 	g_SPXBHMSplitLaunch[7] = !Q_stricmp(launchSource, "xbe") ? 1u
 		: (!Q_stricmp(launchSource, "menu") ? 2u
 		: (!Q_stricmp(launchSource, "direct") ? 3u : 0u));
 	g_SPXBHMSplitLaunch[8] = (unsigned int)levelTime;
+
+	g_SPXBHMPlayerSetupProof[0] = 0x48345053; /* 'H4PS' */
+	g_SPXBHMPlayerSetupProof[1] = 1;
+	g_SPXBHMPlayerSetupProof[2] = (unsigned int)localPlayers;
+	g_SPXBHMPlayerSetupProof[3] = (unsigned int)levelTime;
+	for (player = 0; player < 4; ++player)
+	{
+		char cvarName[64];
+		const char *value;
+		unsigned int hash;
+		int base = 4 + player * 9;
+		int index;
+
+		Com_sprintf(cvarName, sizeof(cvarName), "hm_model_%d", player);
+		value = Cvar_VariableString(cvarName);
+		hash = 2166136261u;
+		for (index = 0; value && value[index]; ++index)
+		{
+			hash ^= (unsigned char)value[index];
+			hash *= 16777619u;
+		}
+		g_SPXBHMPlayerSetupProof[base + 0] = value && value[0] ? hash : 0;
+
+		Com_sprintf(cvarName, sizeof(cvarName), "hm_skin_%d", player);
+		value = Cvar_VariableString(cvarName);
+		hash = 2166136261u;
+		for (index = 0; value && value[index]; ++index)
+		{
+			hash ^= (unsigned char)value[index];
+			hash *= 16777619u;
+		}
+		g_SPXBHMPlayerSetupProof[base + 1] = value && value[0] ? hash : 0;
+
+		Com_sprintf(cvarName, sizeof(cvarName), "cont_config_%d", player);
+		g_SPXBHMPlayerSetupProof[base + 2] = (unsigned int)Cvar_VariableIntegerValue(cvarName);
+		Com_sprintf(cvarName, sizeof(cvarName), "cg_autoswitch_%d", player);
+		g_SPXBHMPlayerSetupProof[base + 3] = (unsigned int)Cvar_VariableIntegerValue(cvarName);
+		Com_sprintf(cvarName, sizeof(cvarName), "g_autoaim_%d", player);
+		g_SPXBHMPlayerSetupProof[base + 4] = (unsigned int)Cvar_VariableIntegerValue(cvarName);
+		Com_sprintf(cvarName, sizeof(cvarName), "cg_drawCrosshair_%d", player);
+		g_SPXBHMPlayerSetupProof[base + 5] = (unsigned int)Cvar_VariableIntegerValue(cvarName);
+		Com_sprintf(cvarName, sizeof(cvarName), "joy_vibestate_%d", player);
+		g_SPXBHMPlayerSetupProof[base + 6] = (unsigned int)(Cvar_VariableIntegerValue(cvarName) ? 1 : 0);
+		Com_sprintf(cvarName, sizeof(cvarName), "joy_pitchsensitivity_%d", player);
+		g_SPXBHMPlayerSetupProof[base + 7] = (unsigned int)(Cvar_VariableValue(cvarName) < 0.0f ? 1 : 0);
+		g_SPXBHMPlayerSetupProof[base + 8] = player < localPlayers ? 1u : 0u;
+	}
+}
+
+static void STEFX_HolomatchLogControlRouting(int localPlayers)
+{
+	int slot;
+	int ports[4] = { -1, -1, -1, -1 };
+	int connectedMask = 0;
+	int uniquePorts = 0;
+	qboolean changed = (qboolean)(localPlayers != s_stefxHolomatchControlRoutePlayers);
+	qboolean valid = qtrue;
+
+	if (localPlayers < 1)
+	{
+		localPlayers = 1;
+	}
+	else if (localPlayers > 4)
+	{
+		localPlayers = 4;
+	}
+
+	for (slot = 0; slot < localPlayers; ++slot)
+	{
+		const int port = CL_STEFX_SplitScreen_PadForLocalSlot(slot);
+		int previousSlot;
+		ports[slot] = port;
+
+		if (port != s_stefxHolomatchControlRoutePorts[slot])
+		{
+			changed = qtrue;
+		}
+		if (port < 0 || port >= 4)
+		{
+			valid = qfalse;
+			continue;
+		}
+		connectedMask |= 1 << port;
+		for (previousSlot = 0; previousSlot < slot; ++previousSlot)
+		{
+			if (ports[previousSlot] == port)
+			{
+				valid = qfalse;
+				break;
+			}
+		}
+		if (previousSlot == slot)
+		{
+			++uniquePorts;
+		}
+	}
+	if (uniquePorts != localPlayers)
+	{
+		valid = qfalse;
+	}
+
+	if (!changed)
+	{
+		return;
+	}
+
+	for (slot = 0; slot < 4; ++slot)
+	{
+		const int port = ports[slot];
+		s_stefxHolomatchControlRoutePorts[slot] = port;
+		if (slot < localPlayers)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_CONTROL_ROUTE: slot=%d port=%d source=%s players=%d",
+				slot,
+				port,
+				slot == 0 ? "native_loopback" : "split_bridge",
+				localPlayers);
+		}
+	}
+	s_stefxHolomatchControlRoutePlayers = localPlayers;
+	XBLog_WriteCriticalf("STEFX_HM_CONTROL_ROUTING: players=%d connectedMask=0x%x uniquePorts=%d valid=%d",
+		localPlayers,
+		connectedMask,
+		uniquePorts,
+		valid ? 1 : 0);
 }
 #endif
 
@@ -410,18 +621,18 @@ static int STEFX_HolomatchCycleOwnedWeapon(const playerState_t *player, int dire
 		return player ? player->weapon : 0;
 	}
 	candidate = player->weapon;
-	for (step = 0; step < WP_NUM_WEAPONS; ++step)
+	for (step = 0; step < STEFX_HM_WP_NUM_WEAPONS; ++step)
 	{
 		candidate += direction;
-		if (candidate <= WP_NONE)
+		if (candidate <= STEFX_HM_WP_NONE)
 		{
-			candidate = WP_NUM_WEAPONS - 1;
+			candidate = STEFX_HM_WP_NUM_WEAPONS - 1;
 		}
-		else if (candidate >= WP_NUM_WEAPONS)
+		else if (candidate >= STEFX_HM_WP_NUM_WEAPONS)
 		{
-			candidate = WP_NONE + 1;
+			candidate = STEFX_HM_WP_NONE + 1;
 		}
-		if (player->stats[STAT_WEAPONS] & (1 << candidate))
+		if ((unsigned int)player->stats[STAT_WEAPONS] & (1u << candidate))
 		{
 			return candidate;
 		}
@@ -429,11 +640,268 @@ static int STEFX_HolomatchCycleOwnedWeapon(const playerState_t *player, int dire
 	return player->weapon;
 }
 
+static int STEFX_HolomatchAutoswitchWeapon(int clientNum, const playerState_t *player, int weaponDelta)
+{
+	char cvarName[32];
+	unsigned int ownedWeapons;
+	unsigned int newWeapons;
+	int mode;
+	int candidate;
+
+	if (!player || clientNum < 0 || clientNum >= 4)
+	{
+		return player ? player->weapon : 0;
+	}
+	ownedWeapons = (unsigned int)player->stats[STAT_WEAPONS];
+	if (!s_stefxHolomatchOwnedWeaponsValid[clientNum])
+	{
+		s_stefxHolomatchOwnedWeapons[clientNum] = ownedWeapons;
+		s_stefxHolomatchOwnedWeaponsValid[clientNum] = qtrue;
+	}
+	newWeapons = ownedWeapons & ~s_stefxHolomatchOwnedWeapons[clientNum];
+	s_stefxHolomatchOwnedWeapons[clientNum] = ownedWeapons;
+
+	if (weaponDelta)
+	{
+		s_stefxHolomatchAutoswitchWeapon[clientNum] = 0;
+		return STEFX_HolomatchCycleOwnedWeapon(player, weaponDelta);
+	}
+
+	if (newWeapons)
+	{
+		Com_sprintf(cvarName, sizeof(cvarName), "cg_autoswitch_%d", clientNum);
+		mode = Cvar_VariableIntegerValue(cvarName);
+		candidate = STEFX_HM_WP_NONE;
+		if (mode > 0)
+		{
+			int weapon;
+			for (weapon = STEFX_HM_WP_NONE + 1; weapon < STEFX_HM_WP_NUM_WEAPONS; ++weapon)
+			{
+				if (!(newWeapons & (1u << weapon)) || weapon <= player->weapon)
+				{
+					continue;
+				}
+				if (mode == 1 && (weapon == STEFX_HM_WP_GRENADE_LAUNCHER || weapon == STEFX_HM_WP_QUANTUM_BURST))
+				{
+					continue;
+				}
+				candidate = weapon;
+			}
+		}
+		if (candidate > STEFX_HM_WP_NONE)
+		{
+			s_stefxHolomatchAutoswitchWeapon[clientNum] = candidate;
+			if (s_stefxHolomatchAutoswitchLogBudget > 0)
+			{
+				XBLog_WriteCriticalf("STEFX_HM_PLAYER_AUTOSWITCH: slot=%d mode=%d current=%d requested=%d newMask=0x%x owned=0x%x",
+					clientNum, mode, player->weapon, candidate, newWeapons, ownedWeapons);
+				--s_stefxHolomatchAutoswitchLogBudget;
+			}
+		}
+	}
+
+	candidate = s_stefxHolomatchAutoswitchWeapon[clientNum];
+	if (candidate > STEFX_HM_WP_NONE)
+	{
+		if (!(ownedWeapons & (1u << candidate)))
+		{
+			s_stefxHolomatchAutoswitchWeapon[clientNum] = 0;
+		}
+		else if (player->weapon == candidate)
+		{
+			s_stefxHolomatchAutoswitchWeapon[clientNum] = 0;
+			return player->weapon;
+		}
+		else
+		{
+			return candidate;
+		}
+	}
+	return player->weapon;
+}
+
+static void STEFX_HolomatchApplyAutoaim(int clientNum, const playerState_t *player, usercmd_t *cmd)
+{
+	const int traceMask = CONTENTS_SOLID | CONTENTS_BODY | CONTENTS_CORPSE | CONTENTS_SHOTCLIP;
+	char cvarName[32];
+	vec3_t viewAngles;
+	vec3_t eye;
+	vec3_t bestAngles;
+	float bestError = 9999.0f;
+	float yawLimit;
+	float pitchLimit;
+	int mode;
+	int targetNum;
+	int bestTarget = -1;
+	qboolean scanTargets;
+	qboolean teamGame;
+
+	if (!player || !cmd || clientNum < 0 || clientNum >= 4 ||
+		!(cmd->buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK)) || player->stats[STAT_HEALTH] <= 0)
+	{
+		return;
+	}
+	Com_sprintf(cvarName, sizeof(cvarName), "g_autoaim_%d", clientNum);
+	mode = Cvar_VariableIntegerValue(cvarName);
+	if (mode < 0 || mode >= 3)
+	{
+		s_stefxHolomatchAutoaimTarget[clientNum] = -1;
+		return;
+	}
+
+	viewAngles[PITCH] = SHORT2ANGLE(cmd->angles[PITCH] + player->delta_angles[PITCH]);
+	viewAngles[YAW] = SHORT2ANGLE(cmd->angles[YAW] + player->delta_angles[YAW]);
+	viewAngles[ROLL] = 0.0f;
+	VectorCopy(player->origin, eye);
+	eye[2] += player->viewheight;
+	yawLimit = mode == 1 ? 5.0f : 10.0f;
+	pitchLimit = mode == 2 ? 5.0f : yawLimit;
+	teamGame = (qboolean)(Cvar_VariableIntegerValue("g_gametype") >= STEFX_HM_GT_TEAM);
+	scanTargets = (qboolean)(cmd->serverTime >= s_stefxHolomatchAutoaimNextScanTime[clientNum]);
+
+	targetNum = s_stefxHolomatchAutoaimTarget[clientNum];
+	if (!scanTargets && targetNum >= 0 && targetNum < MAX_CLIENTS && targetNum != clientNum && svs.clients)
+	{
+		client_t *targetClient = &svs.clients[targetNum];
+		playerState_t *target = (targetClient->state == CS_ACTIVE && targetClient->gentity) ? targetClient->gentity->client : NULL;
+		if (target && target->stats[STAT_HEALTH] > 0 && target->pm_type != PM_SPECTATOR &&
+			(!teamGame || target->persistant[PERS_TEAM] != player->persistant[PERS_TEAM]))
+		{
+			vec3_t targetPoint;
+			vec3_t direction;
+			float yawError;
+			float pitchError;
+			VectorCopy(target->origin, targetPoint);
+			targetPoint[2] += target->viewheight * 0.55f;
+			VectorSubtract(targetPoint, eye, direction);
+			vectoangles(direction, bestAngles);
+			yawError = AngleDelta(bestAngles[YAW], viewAngles[YAW]);
+			pitchError = AngleDelta(bestAngles[PITCH], viewAngles[PITCH]);
+			if (fabs(yawError) <= yawLimit && fabs(pitchError) <= pitchLimit)
+			{
+				bestTarget = targetNum;
+				bestError = yawError * yawError + pitchError * pitchError;
+			}
+		}
+		if (bestTarget < 0)
+		{
+			scanTargets = qtrue;
+		}
+	}
+	else if (!scanTargets)
+	{
+		scanTargets = qtrue;
+	}
+
+	if (scanTargets)
+	{
+		bestTarget = -1;
+		bestError = 9999.0f;
+		for (targetNum = 0; targetNum < MAX_CLIENTS; ++targetNum)
+		{
+			client_t *targetClient;
+			playerState_t *target;
+			vec3_t targetPoint;
+			vec3_t direction;
+			vec3_t targetAngles;
+			float yawError;
+			float pitchError;
+			float error;
+			trace_t trace;
+
+			if (targetNum == clientNum || !svs.clients)
+			{
+				continue;
+			}
+			targetClient = &svs.clients[targetNum];
+			target = (targetClient->state == CS_ACTIVE && targetClient->gentity) ? targetClient->gentity->client : NULL;
+			if (!target || target->stats[STAT_HEALTH] <= 0 || target->pm_type == PM_SPECTATOR)
+			{
+				continue;
+			}
+			if (teamGame && target->persistant[PERS_TEAM] == player->persistant[PERS_TEAM])
+			{
+				continue;
+			}
+			VectorCopy(target->origin, targetPoint);
+			targetPoint[2] += target->viewheight * 0.55f;
+			VectorSubtract(targetPoint, eye, direction);
+			vectoangles(direction, targetAngles);
+			yawError = AngleDelta(targetAngles[YAW], viewAngles[YAW]);
+			pitchError = AngleDelta(targetAngles[PITCH], viewAngles[PITCH]);
+			if (fabs(yawError) > yawLimit || fabs(pitchError) > pitchLimit)
+			{
+				continue;
+			}
+			error = yawError * yawError + pitchError * pitchError;
+			if (error >= bestError)
+			{
+				continue;
+			}
+			SV_Trace(&trace, eye, NULL, NULL, targetPoint, clientNum, traceMask, G2_NOCOLLIDE, 0);
+			if (trace.fraction < 0.99f && trace.entityNum != targetNum)
+			{
+				continue;
+			}
+			bestError = error;
+			bestTarget = targetNum;
+			VectorCopy(targetAngles, bestAngles);
+		}
+		s_stefxHolomatchAutoaimTarget[clientNum] = bestTarget;
+		s_stefxHolomatchAutoaimNextScanTime[clientNum] = cmd->serverTime + 100;
+	}
+
+	if (bestTarget < 0)
+	{
+		return;
+	}
+	if (mode != 2)
+	{
+		cmd->angles[YAW] = ANGLE2SHORT(bestAngles[YAW]) - player->delta_angles[YAW];
+	}
+	cmd->angles[PITCH] = ANGLE2SHORT(bestAngles[PITCH]) - player->delta_angles[PITCH];
+	if (s_stefxHolomatchAutoaimLogBudget > 0)
+	{
+		XBLog_WriteCriticalf("STEFX_HM_PLAYER_AUTOAIM: slot=%d mode=%d target=%d error=%g view=(%g,%g) aim=(%g,%g) verticalOnly=%d",
+			clientNum, mode, bestTarget, sqrt(bestError), viewAngles[PITCH], viewAngles[YAW],
+			bestAngles[PITCH], bestAngles[YAW], mode == 2 ? 1 : 0);
+		--s_stefxHolomatchAutoaimLogBudget;
+	}
+}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+void STEFX_HolomatchAdjustNativeP1Usercmd(usercmd_t *cmd)
+{
+	playerState_t *player;
+	usercmd_t virtualCmd;
+
+	if (!s_stefxHolomatchHostActive || !cmd || !svs.clients ||
+		svs.clients[0].state != CS_ACTIVE || !svs.clients[0].gentity)
+	{
+		return;
+	}
+	/* A normal hardware match keeps P1 entirely on the stock loopback path.
+	 * The explicit virtual-P1 qualification mode instead replaces that one
+	 * native command in place, so it cannot fight a second server-side command
+	 * stream and can prove all four control lanes deterministically. */
+	if (Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls") &&
+		Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1") &&
+		STEFX_HolomatchBuildLocalUsercmd(0, cmd->serverTime, &virtualCmd))
+	{
+		*cmd = virtualCmd;
+		return;
+	}
+	player = svs.clients[0].gentity->client;
+	STEFX_HolomatchApplyAutoaim(0, player, cmd);
+}
+#endif
+
 static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, usercmd_t *cmd)
 {
 	client_t *client;
 	playerState_t *player;
 	int proofWeapon = 0;
+	int selectedWeapon = 0;
 	int sourcePort = -1;
 	int weaponDelta = 0;
 	vec3_t padAngles;
@@ -442,6 +910,7 @@ static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, u
 	float wallFraction = 1.0f;
 	float floorFraction = 1.0f;
 	float proofAimFraction = 0.0f;
+	float padZoomFov = 90.0f;
 	int virtualHazard;
 	qboolean forceVirtualP1;
 
@@ -463,6 +932,7 @@ static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, u
 		VectorCopy(player->viewangles, s_stefxHolomatchVirtualAngles[clientNum]);
 		s_stefxHolomatchVirtualAnglesValid[clientNum] = qtrue;
 	}
+	selectedWeapon = STEFX_HolomatchAutoswitchWeapon(clientNum, player, 0);
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	if (!forceVirtualP1 && player && CL_STEFX_SplitScreen_BuildHolomatchUsercmd(clientNum,
@@ -472,15 +942,19 @@ static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, u
 		levelTime,
 		&sourcePort,
 		&weaponDelta,
-		padAngles))
+		padAngles,
+		&padZoomFov))
 	{
 		VectorCopy(padAngles, s_stefxHolomatchVirtualAngles[clientNum]);
 		s_stefxHolomatchVirtualAnglesValid[clientNum] = qtrue;
+		STEFX_HolomatchSetZoomFov(clientNum, padZoomFov);
 		if (Cvar_VariableIntegerValue("stefx_hm_split_weapon_proof"))
 		{
 			proofWeapon = STEFX_HolomatchPrepareSplitWeaponProof(clientNum, clientNum);
 		}
-		cmd->weapon = (byte)(proofWeapon ? proofWeapon : STEFX_HolomatchCycleOwnedWeapon(player, weaponDelta));
+		selectedWeapon = STEFX_HolomatchAutoswitchWeapon(clientNum, player, weaponDelta);
+		cmd->weapon = (byte)(proofWeapon ? proofWeapon : selectedWeapon);
+		STEFX_HolomatchApplyAutoaim(clientNum, player, cmd);
 		return qtrue;
 	}
 #endif
@@ -494,7 +968,18 @@ static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, u
 	if (!Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls") ||
 		(clientNum == 0 && !Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1")))
 	{
+		STEFX_HolomatchSetZoomFov(clientNum, 90.0f);
 		return qfalse;
+	}
+	if (Cvar_VariableIntegerValue("stefx_hm_split_overlay_proof"))
+	{
+		/* Deliberately distinct values make every viewport's independent zoom
+		 * state visible in a bounded qualification run. */
+		STEFX_HolomatchSetZoomFov(clientNum, 42.0f + 8.0f * clientNum);
+	}
+	else
+	{
+		STEFX_HolomatchSetZoomFov(clientNum, 90.0f);
 	}
 
 	phase = (float)((levelTime + clientNum * 731) % 5000) / 5000.0f;
@@ -612,10 +1097,11 @@ static qboolean STEFX_HolomatchBuildLocalUsercmd(int clientNum, int levelTime, u
 			cmd->buttons &= ~(BUTTON_ATTACK | BUTTON_ALT_ATTACK);
 		}
 	}
-	cmd->weapon = (byte)(proofWeapon ? proofWeapon : (player ? player->weapon : 0));
+	cmd->weapon = (byte)(proofWeapon ? proofWeapon : selectedWeapon);
 	cmd->angles[PITCH] = ANGLE2SHORT(s_stefxHolomatchVirtualAngles[clientNum][PITCH]) - (player ? player->delta_angles[PITCH] : 0);
 	cmd->angles[YAW] = ANGLE2SHORT(s_stefxHolomatchVirtualAngles[clientNum][YAW]) - (player ? player->delta_angles[YAW] : 0);
 	cmd->angles[ROLL] = ANGLE2SHORT(s_stefxHolomatchVirtualAngles[clientNum][ROLL]) - (player ? player->delta_angles[ROLL] : 0);
+	STEFX_HolomatchApplyAutoaim(clientNum, player, cmd);
 	return qtrue;
 }
 
@@ -633,6 +1119,25 @@ static void STEFX_HolomatchEnsureLocalClients(int localPlayers, int levelTime)
 		client_t *client = &svs.clients[clientNum];
 		usercmd_t cmd;
 		const char *denied;
+		char modelCvar[32];
+		char skinCvar[32];
+		char modelName[MAX_QPATH];
+		char skinName[MAX_QPATH];
+		char modelPath[MAX_QPATH * 2];
+
+		Com_sprintf(modelCvar, sizeof(modelCvar), "hm_model_%d", clientNum);
+		Com_sprintf(skinCvar, sizeof(skinCvar), "hm_skin_%d", clientNum);
+		Q_strncpyz(modelName, Cvar_VariableString(modelCvar), sizeof(modelName));
+		Q_strncpyz(skinName, Cvar_VariableString(skinCvar), sizeof(skinName));
+		if (!modelName[0])
+		{
+			Q_strncpyz(modelName, "munro", sizeof(modelName));
+		}
+		if (!skinName[0])
+		{
+			Q_strncpyz(skinName, "default", sizeof(skinName));
+		}
+		Com_sprintf(modelPath, sizeof(modelPath), "%s/%s", modelName, skinName);
 
 		if (client->state >= CS_CONNECTED &&
 			(client->stefxHolomatchBot ||
@@ -674,8 +1179,10 @@ static void STEFX_HolomatchEnsureLocalClients(int localPlayers, int levelTime)
 			client->nextSnapshotTime = 0x7fffffff;
 			client->gamestateMessageNum = -1;
 			Com_sprintf(client->userinfo, sizeof(client->userinfo),
-				"\\name\\Player %d\\rate\\25000\\snaps\\20\\model\\munro/default",
-				clientNum + 1);
+				"\\name\\Player %d\\rate\\25000\\snaps\\20\\model\\%s",
+				clientNum + 1, modelPath);
+			XBLog_WriteCriticalf("STEFX_HM_SPLIT_PLAYER_INFO: client=%d name='Player %d' model='%s'",
+				clientNum, clientNum + 1, modelPath);
 			denied = ge->ClientConnect(clientNum, qtrue, eNO);
 			if (denied)
 			{
@@ -705,6 +1212,7 @@ static void STEFX_HolomatchEnsureLocalClients(int localPlayers, int levelTime)
 
 static void STEFX_HolomatchRunLocalUsercmds(int localPlayers, int levelTime)
 {
+	static qboolean s_inputOwnershipLogged = qfalse;
 	int clientNum;
 	int firstClient;
 
@@ -713,7 +1221,19 @@ static void STEFX_HolomatchRunLocalUsercmds(int localPlayers, int levelTime)
 		return;
 	}
 
-	firstClient = 0;
+	/* Client 0 is the engine's real loopback client.  IN_CommonUpdate feeds its
+	 * pad into CL_CreateCmd, and the resulting packet reaches SV_ClientThink
+	 * through the normal client/server channel.  Feeding that same controller
+	 * through the split bridge as well makes two commands with independent
+	 * angle histories fight over P1 every server tick.  Only the additional
+	 * local clients need direct split-bridge commands. */
+	firstClient = 1;
+	if (!s_inputOwnershipLogged)
+	{
+		XBLog_WriteCriticalf("STEFX_HM_INPUT_OWNERSHIP: p1=native_loopback splitBridgeFirstClient=%d localPlayers=%d",
+			firstClient, localPlayers);
+		s_inputOwnershipLogged = qtrue;
+	}
 	for (clientNum = firstClient; clientNum < localPlayers && clientNum < 4 && clientNum < MAX_CLIENTS; ++clientNum)
 	{
 		client_t *client = &svs.clients[clientNum];
@@ -782,7 +1302,7 @@ static void STEFX_HolomatchRunLocalUsercmds(int localPlayers, int levelTime)
 	}
 }
 
-static void STEFX_HolomatchUpdateSplitRefdefs(int localPlayers, int levelTime)
+static void STEFX_HolomatchUpdateSplitRefdefs(int viewportPlayers, int levelTime)
 {
 	int slot;
 
@@ -793,7 +1313,7 @@ static void STEFX_HolomatchUpdateSplitRefdefs(int localPlayers, int levelTime)
 		refdef_t refdef;
 		int area;
 
-		if (!svs.clients || slot >= localPlayers || slot >= MAX_CLIENTS)
+		if (!svs.clients || slot >= viewportPlayers || slot >= MAX_CLIENTS)
 		{
 			RE_STEFX_SplitScreen_SetLocalRefdef(slot, NULL, qfalse);
 			S_STEFX_SplitScreen_SetLocalListener(slot, slot, NULL, NULL, qfalse);
@@ -814,8 +1334,8 @@ static void STEFX_HolomatchUpdateSplitRefdefs(int localPlayers, int levelTime)
 		refdef.y = 0;
 		refdef.width = 640;
 		refdef.height = 480;
-		refdef.fov_x = 90.0f;
-		refdef.fov_y = 73.739792f;
+		refdef.fov_x = s_stefxHolomatchZoomFov[slot];
+		refdef.fov_y = atan(tan(refdef.fov_x * 0.00872664626f) * 0.75f) * 114.591559f;
 		STEFX_HolomatchBuildSplitView(player, slot, &refdef);
 		refdef.time = levelTime;
 		STEFX_HolomatchPointLeafCluster(refdef.vieworg, &area);
@@ -857,7 +1377,7 @@ static void STEFX_HolomatchUpdateSplitRefdefs(int localPlayers, int levelTime)
 	}
 }
 
-static void STEFX_HolomatchLogSplitState(int localPlayers, int levelTime)
+static void STEFX_HolomatchLogSplitState(int humanPlayers, int viewportPlayers, int levelTime)
 {
 	int slot;
 	int botCount = 0;
@@ -890,7 +1410,7 @@ static void STEFX_HolomatchLogSplitState(int localPlayers, int levelTime)
 		p1Cluster = STEFX_HolomatchPointLeafCluster(p1ViewOrg, &p1Area);
 	}
 
-	for (slot = localPlayers; slot < MAX_CLIENTS; ++slot)
+	for (slot = humanPlayers; slot < MAX_CLIENTS; ++slot)
 	{
 		client_t *client = &svs.clients[slot];
 		if (client->state == CS_ACTIVE &&
@@ -901,7 +1421,7 @@ static void STEFX_HolomatchLogSplitState(int localPlayers, int levelTime)
 		}
 	}
 
-	for (slot = 0; slot < localPlayers && slot < 4 && slot < MAX_CLIENTS; ++slot)
+	for (slot = 0; slot < viewportPlayers && slot < 4 && slot < MAX_CLIENTS; ++slot)
 	{
 		client_t *client = &svs.clients[slot];
 		playerState_t *player = client->gentity ? client->gentity->client : NULL;
@@ -929,7 +1449,7 @@ static void STEFX_HolomatchLogSplitState(int localPlayers, int levelTime)
 
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
 		++g_SPXBHMSplitStateSerial[slot];
-		g_SPXBHMSplitStatePlayers[slot] = (unsigned int)localPlayers;
+		g_SPXBHMSplitStatePlayers[slot] = (unsigned int)viewportPlayers;
 		g_SPXBHMSplitStateBots[slot] = (unsigned int)botCount;
 		g_SPXBHMSplitStateClientState[slot] = (unsigned int)client->state;
 		g_SPXBHMSplitStateFlags[slot] =
@@ -966,7 +1486,7 @@ static void STEFX_HolomatchLogSplitState(int localPlayers, int levelTime)
 		{
 			XBLog_WriteCriticalf("STEFX_HM_SPLIT_STATE: slot=%d players=%d bots=%d state=%d local=%d bot=%d svFlags=0x%x health=%d weapon=%d area=%d cluster=%d p1Area=%d p1Cluster=%d p1Pvs=%d p1Dist=%g origin=(%g,%g,%g) view=(%g,%g,%g) time=%d sample=%d interval=500",
 				slot,
-				localPlayers,
+				viewportPlayers,
 				botCount,
 				client->state,
 				client->stefxHolomatchLocal ? 1 : 0,
@@ -1222,6 +1742,25 @@ void STEFX_HolomatchHostAfterGameInit(const char *mapname)
 	memset(s_stefxHolomatchVirtualAvoidTurn, 0, sizeof(s_stefxHolomatchVirtualAvoidTurn));
 	s_stefxHolomatchVirtualAvoidLogBudget = 32;
 	s_stefxHolomatchSmokePinViewLogBudget = 8;
+	memset(s_stefxHolomatchOwnedWeapons, 0, sizeof(s_stefxHolomatchOwnedWeapons));
+	memset(s_stefxHolomatchOwnedWeaponsValid, 0, sizeof(s_stefxHolomatchOwnedWeaponsValid));
+	memset(s_stefxHolomatchAutoswitchWeapon, 0, sizeof(s_stefxHolomatchAutoswitchWeapon));
+	memset(s_stefxHolomatchAutoaimTarget, -1, sizeof(s_stefxHolomatchAutoaimTarget));
+	memset(s_stefxHolomatchAutoaimNextScanTime, 0, sizeof(s_stefxHolomatchAutoaimNextScanTime));
+	s_stefxHolomatchZoomFov[0] = 90.0f;
+	s_stefxHolomatchZoomFov[1] = 90.0f;
+	s_stefxHolomatchZoomFov[2] = 90.0f;
+	s_stefxHolomatchZoomFov[3] = 90.0f;
+	s_stefxHolomatchZoomLogBudget = 24;
+	s_stefxHolomatchAutoswitchLogBudget = 24;
+	s_stefxHolomatchAutoaimLogBudget = 32;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	s_stefxHolomatchControlRoutePlayers = -1;
+	s_stefxHolomatchControlRoutePorts[0] = -2;
+	s_stefxHolomatchControlRoutePorts[1] = -2;
+	s_stefxHolomatchControlRoutePorts[2] = -2;
+	s_stefxHolomatchControlRoutePorts[3] = -2;
+#endif
 	STEFX_HolomatchClearSplitRefdefs();
 	if (!s_stefxHolomatchHostActive)
 	{
@@ -1235,24 +1774,27 @@ void STEFX_HolomatchHostAfterGameInit(const char *mapname)
 
 void STEFX_HolomatchHostRunFrame(int levelTime)
 {
-	int localPlayers;
+	int humanPlayers;
+	int viewportPlayers;
 
 	if (!s_stefxHolomatchHostActive)
 	{
 		return;
 	}
 
-	localPlayers = STEFX_HolomatchLocalPlayerCount();
+	humanPlayers = STEFX_HolomatchLocalPlayerCount();
+	viewportPlayers = STEFX_HolomatchViewportPlayerCount();
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
-	STEFX_HolomatchUpdateSplitLaunchProof(localPlayers, levelTime);
+	STEFX_HolomatchUpdateSplitLaunchProof(humanPlayers, levelTime);
+	STEFX_HolomatchLogControlRouting(humanPlayers);
 #endif
-	STEFX_HolomatchEnsureLocalClients(localPlayers, levelTime);
-	STEFX_HolomatchRunLocalUsercmds(localPlayers, levelTime);
+	STEFX_HolomatchEnsureLocalClients(humanPlayers, levelTime);
+	STEFX_HolomatchRunLocalUsercmds(humanPlayers, levelTime);
 	STEFX_HolomatchBotFrame(levelTime);
 	STEFX_HolomatchGameFrame(levelTime);
 	STEFX_HolomatchPinSmokeP1View(levelTime);
-	STEFX_HolomatchUpdateSplitRefdefs(localPlayers, levelTime);
-	STEFX_HolomatchLogSplitState(localPlayers, levelTime);
+	STEFX_HolomatchUpdateSplitRefdefs(viewportPlayers, levelTime);
+	STEFX_HolomatchLogSplitState(humanPlayers, viewportPlayers, levelTime);
 	STEFX_HolomatchStageSmokeCombatProof(levelTime);
 	STEFX_HolomatchRunSmokeMapCycle(levelTime);
 }

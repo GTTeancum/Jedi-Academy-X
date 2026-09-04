@@ -17,6 +17,16 @@ extern "C" volatile unsigned int g_SPXBPerfRenderPortals;
 extern "C" volatile unsigned int g_SPXBPerfRenderDrawSurfs;
 extern "C" volatile unsigned int g_SPXBPerfRenderRefEntities;
 extern "C" volatile unsigned int g_SPXBPerfRenderLeafs;
+extern "C" volatile unsigned int g_SPXBPerfEntityModelSetupCycles;
+extern "C" volatile unsigned int g_SPXBPerfEntityModelSetupCalls;
+extern "C" volatile unsigned int g_SPXBPerfEntityMeshCycles;
+extern "C" volatile unsigned int g_SPXBPerfEntityMeshCalls;
+extern "C" volatile unsigned int g_SPXBPerfEntityBrushCycles;
+extern "C" volatile unsigned int g_SPXBPerfEntityBrushCalls;
+extern "C" volatile unsigned int g_SPXBPerfEntityAnimCycles;
+extern "C" volatile unsigned int g_SPXBPerfEntityAnimCalls;
+extern "C" volatile unsigned int g_SPXBPerfEntitySimpleCycles;
+extern "C" volatile unsigned int g_SPXBPerfEntitySimpleCalls;
 extern "C" volatile unsigned int g_SPXBPerfBackendSurfaces;
 extern "C" volatile unsigned int g_SPXBPerfBackendVertexes;
 extern "C" volatile unsigned int g_SPXBPerfBackendIndexes;
@@ -59,6 +69,19 @@ extern "C" volatile unsigned int g_SPXBPerfIndexedTex1CallsCurrent;
 extern "C" volatile unsigned int g_SPXBPerfIndexedReserveDwordsCurrent;
 extern "C" volatile unsigned int g_SPXBPerfImmediateReserveDwordsCurrent;
 extern "C" volatile unsigned int g_SPXBPerfSampleActive;
+extern "C" volatile unsigned int g_SPXBPerfSampleSerial;
+extern "C" volatile unsigned int g_SPXBPerfReuseCandidatesCurrent;
+extern "C" volatile unsigned int g_SPXBPerfReuseCandidateDwordsCurrent;
+extern "C" volatile unsigned int g_SPXBPerfReuseUniqueCurrent;
+extern "C" volatile unsigned int g_SPXBPerfReuseCrossViewHitsCurrent;
+extern "C" volatile unsigned int g_SPXBPerfReuseCrossViewDwordsCurrent;
+extern "C" volatile unsigned int g_SPXBPerfReuseTableFullCurrent;
+extern "C" volatile unsigned int g_SPXBPerfReuseHashCyclesCurrent;
+extern "C" volatile unsigned int g_SPXBScratchMode;
+extern "C" volatile unsigned int g_SPXBScratchFlip;
+extern "C" volatile unsigned int g_SPXBScratchDraws;
+extern "C" volatile unsigned int g_SPXBScratchFallbacks;
+extern "C" volatile unsigned int g_SPXBScratchWaitMsec;
 
 static __forceinline unsigned __int64 STEFX_XboxReadTsc( void )
 {

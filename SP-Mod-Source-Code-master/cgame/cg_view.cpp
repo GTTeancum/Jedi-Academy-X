@@ -1468,6 +1468,9 @@ extern void CG_BuildSolidList( void );
 #ifdef _XBOX
 extern int g_stefxCgRenderSceneMsec;
 extern int g_stefxCgDraw2DMsec;
+extern "C" volatile unsigned int g_SPXBCgEntTypeCycles[16];
+extern "C" volatile unsigned int g_SPXBCgEntTypeCounts[16];
+extern "C" volatile unsigned int g_SPXBCgHiddenPlayersSkipped;
 #endif
 void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	qboolean	inwater = qfalse;
@@ -1872,7 +1875,7 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 	if (serverTime - s_xboxLastProfileTime >= 10000)
 	{
 		XBLog_WriteCriticalf(
-			"STEFX_HW_PROFILE: cgame total=%d setup=%d predict=%d view=%d entities=%d tail=%d draw=%d scene=%d hud=%d serverTime=%d frame=%d",
+			"STEFX_HW_PROFILE: cgame total=%d setup=%d predict=%d view=%d entities=%d tail=%d draw=%d scene=%d hud=%d entCounts=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u entKcy=%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u plSkip=%u serverTime=%d frame=%d",
 			cgi_Milliseconds() - xboxProfileStart,
 			xboxProfileSetup,
 			xboxProfilePredict,
@@ -1882,6 +1885,19 @@ void CG_DrawActiveFrame( int serverTime, stereoFrame_t stereoView ) {
 			xboxProfileDraw,
 			g_stefxCgRenderSceneMsec,
 			g_stefxCgDraw2DMsec,
+			g_SPXBCgEntTypeCounts[0], g_SPXBCgEntTypeCounts[1],
+			g_SPXBCgEntTypeCounts[2], g_SPXBCgEntTypeCounts[3],
+			g_SPXBCgEntTypeCounts[4], g_SPXBCgEntTypeCounts[5],
+			g_SPXBCgEntTypeCounts[6], g_SPXBCgEntTypeCounts[7],
+			g_SPXBCgEntTypeCounts[8], g_SPXBCgEntTypeCounts[9],
+			g_SPXBCgEntTypeCounts[10], g_SPXBCgEntTypeCounts[11],
+			g_SPXBCgEntTypeCycles[0] / 1000u, g_SPXBCgEntTypeCycles[1] / 1000u,
+			g_SPXBCgEntTypeCycles[2] / 1000u, g_SPXBCgEntTypeCycles[3] / 1000u,
+			g_SPXBCgEntTypeCycles[4] / 1000u, g_SPXBCgEntTypeCycles[5] / 1000u,
+			g_SPXBCgEntTypeCycles[6] / 1000u, g_SPXBCgEntTypeCycles[7] / 1000u,
+			g_SPXBCgEntTypeCycles[8] / 1000u, g_SPXBCgEntTypeCycles[9] / 1000u,
+			g_SPXBCgEntTypeCycles[10] / 1000u, g_SPXBCgEntTypeCycles[11] / 1000u,
+			g_SPXBCgHiddenPlayersSkipped,
 			serverTime,
 			cg.clientFrame);
 		s_xboxLastProfileTime = serverTime;

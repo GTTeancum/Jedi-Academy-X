@@ -9,6 +9,7 @@
 #include "client_ui.h"
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 #include "../win32/xb_log.h"
+#include "../win32/win_input.h"
 #endif
 
 extern "C" volatile unsigned int g_SPXBUsercmdCount;
@@ -69,11 +70,16 @@ static cvar_t *stefx_smokeViewPitch;
 static cvar_t *stefx_smokeViewYaw;
 static cvar_t *stefx_smokeInputAttackStart;
 static cvar_t *stefx_smokeInputAttackEnd;
+static cvar_t *stefx_smokeInputAltAttackStart;
+static cvar_t *stefx_smokeInputAltAttackEnd;
 
 #define STEFX_SPLIT_MAX_PADS 4
 #define STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD 30
 #define STEFX_SPLIT_THUMB_DEADZONE 7849
 #define STEFX_SPLIT_BUTTON_DPAD_UP (1u << 0)
+#define STEFX_SPLIT_BUTTON_DPAD_DOWN (1u << 1)
+#define STEFX_SPLIT_BUTTON_DPAD_LEFT (1u << 2)
+#define STEFX_SPLIT_BUTTON_DPAD_RIGHT (1u << 3)
 #define STEFX_SPLIT_BUTTON_START (1u << 4)
 #define STEFX_SPLIT_BUTTON_BACK (1u << 5)
 #define STEFX_SPLIT_BUTTON_LEFT_THUMB (1u << 6)
@@ -99,6 +105,9 @@ typedef struct {
 	qboolean thirdPersonToggleDown;
 	qboolean runToggleDown;
 	qboolean runEnabled;
+	qboolean attackDown;
+	float holomatchZoomFov;
+	qboolean holomatchZoomValid;
 	qboolean synthetic;
 } stefxSplitPadState_t;
 
@@ -290,6 +299,29 @@ static int STEFX_SplitRealPadForLocalSlot( int localSlot )
 		++candidateSlot;
 	}
 	return -1;
+}
+
+int CL_STEFX_SplitScreen_LocalSlotForPad( int port )
+{
+	int localSlot;
+
+	if ( port < 0 || port >= STEFX_SPLIT_MAX_PADS )
+	{
+		return -1;
+	}
+	for ( localSlot = 0; localSlot < STEFX_SPLIT_MAX_PADS; ++localSlot )
+	{
+		if ( STEFX_SplitRealPadForLocalSlot( localSlot ) == port )
+		{
+			return localSlot;
+		}
+	}
+	return -1;
+}
+
+int CL_STEFX_SplitScreen_PadForLocalSlot( int localSlot )
+{
+	return STEFX_SplitRealPadForLocalSlot( localSlot );
 }
 
 static void STEFX_SplitReleaseObservedPad( int port )
@@ -708,6 +740,9 @@ void CL_STEFX_SplitScreen_RecordPadState( int port, qboolean connected, int main
 		pad->thirdPersonToggleDown = qfalse;
 		pad->runToggleDown = qfalse;
 		pad->runEnabled = qfalse;
+		pad->attackDown = qfalse;
+		pad->holomatchZoomFov = 90.0f;
+		pad->holomatchZoomValid = qfalse;
 		pad->synthetic = qfalse;
 		STEFX_SplitReleaseObservedPad( port );
 		return;
@@ -1140,20 +1175,209 @@ qboolean CL_STEFX_SplitScreen_BuildP2Usercmd( usercmd_t *cmd, const vec3_t curre
 	return qtrue;
 }
 
-qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles )
+enum stefxHolomatchMoveMode_t
+{
+	STEFX_HM_MOVE_LEFT_STICK,
+	STEFX_HM_MOVE_RIGHT_STICK,
+	STEFX_HM_MOVE_DPAD,
+	STEFX_HM_MOVE_FACE,
+	STEFX_HM_MOVE_DPAD_TANK
+};
+
+enum stefxHolomatchLookMode_t
+{
+	STEFX_HM_LOOK_RIGHT_STICK,
+	STEFX_HM_LOOK_LEFT_STICK,
+	STEFX_HM_LOOK_FACE,
+	STEFX_HM_LOOK_DPAD,
+	STEFX_HM_LOOK_NONE
+};
+
+enum stefxHolomatchInput_t
+{
+	STEFX_HM_INPUT_NONE = -1,
+	STEFX_HM_INPUT_A = 0,
+	STEFX_HM_INPUT_B,
+	STEFX_HM_INPUT_X,
+	STEFX_HM_INPUT_Y,
+	STEFX_HM_INPUT_BLACK,
+	STEFX_HM_INPUT_WHITE,
+	STEFX_HM_INPUT_LEFT_TRIGGER,
+	STEFX_HM_INPUT_RIGHT_TRIGGER,
+	STEFX_HM_INPUT_DPAD_UP,
+	STEFX_HM_INPUT_DPAD_DOWN,
+	STEFX_HM_INPUT_DPAD_LEFT,
+	STEFX_HM_INPUT_DPAD_RIGHT,
+	STEFX_HM_INPUT_LEFT_THUMB,
+	STEFX_HM_INPUT_RIGHT_THUMB,
+	STEFX_HM_INPUT_LEFT_STICK_UP,
+	STEFX_HM_INPUT_LEFT_STICK_DOWN,
+	STEFX_HM_INPUT_LEFT_STICK_LEFT,
+	STEFX_HM_INPUT_LEFT_STICK_RIGHT,
+	STEFX_HM_INPUT_RIGHT_STICK_UP,
+	STEFX_HM_INPUT_RIGHT_STICK_DOWN,
+	STEFX_HM_INPUT_RIGHT_STICK_LEFT,
+	STEFX_HM_INPUT_RIGHT_STICK_RIGHT
+};
+
+typedef struct
+{
+	int moveMode;
+	int lookMode;
+	int jump;
+	int crouch;
+	int use;
+	int centerView;
+	int attack;
+	int altAttack;
+	int weaponPrev;
+	int weaponNext;
+	int zoomIn;
+	int zoomOut;
+	int runToggle;
+} stefxHolomatchControlProfile_t;
+
+/* Xbox-native transpositions of the eight shipping PS2 preset contracts. */
+static const stefxHolomatchControlProfile_t s_stefxHolomatchControlProfiles[9] =
+{
+	{ STEFX_HM_MOVE_LEFT_STICK, STEFX_HM_LOOK_RIGHT_STICK,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_B, STEFX_HM_INPUT_X, STEFX_HM_INPUT_Y,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_BLACK, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_DPAD_UP, STEFX_HM_INPUT_DPAD_DOWN, STEFX_HM_INPUT_LEFT_THUMB }, // Standard
+	{ STEFX_HM_MOVE_RIGHT_STICK, STEFX_HM_LOOK_LEFT_STICK,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_DPAD_DOWN, STEFX_HM_INPUT_DPAD_UP,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_B,
+		STEFX_HM_INPUT_LEFT_THUMB, STEFX_HM_INPUT_RIGHT_THUMB,
+		STEFX_HM_INPUT_Y, STEFX_HM_INPUT_X, STEFX_HM_INPUT_BLACK }, // Standard crossed
+	{ STEFX_HM_MOVE_LEFT_STICK, STEFX_HM_LOOK_RIGHT_STICK,
+		STEFX_HM_INPUT_Y, STEFX_HM_INPUT_LEFT_THUMB, STEFX_HM_INPUT_X, STEFX_HM_INPUT_DPAD_UP,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_BLACK, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_B, STEFX_HM_INPUT_DPAD_DOWN }, // Sniper
+	{ STEFX_HM_MOVE_RIGHT_STICK, STEFX_HM_LOOK_LEFT_STICK,
+		STEFX_HM_INPUT_DPAD_UP, STEFX_HM_INPUT_BLACK, STEFX_HM_INPUT_DPAD_DOWN, STEFX_HM_INPUT_Y,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_B,
+		STEFX_HM_INPUT_LEFT_THUMB, STEFX_HM_INPUT_RIGHT_THUMB,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER, STEFX_HM_INPUT_X }, // Sniper crossed
+	{ STEFX_HM_MOVE_DPAD, STEFX_HM_LOOK_FACE,
+		STEFX_HM_INPUT_BLACK, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_RIGHT_STICK_DOWN, STEFX_HM_INPUT_RIGHT_STICK_UP,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_LEFT_STICK_LEFT, STEFX_HM_INPUT_LEFT_STICK_RIGHT,
+		STEFX_HM_INPUT_LEFT_STICK_UP, STEFX_HM_INPUT_LEFT_STICK_DOWN,
+		STEFX_HM_INPUT_RIGHT_STICK_LEFT }, // Pad mobile
+	{ STEFX_HM_MOVE_FACE, STEFX_HM_LOOK_DPAD,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_LEFT_STICK_DOWN, STEFX_HM_INPUT_LEFT_STICK_UP,
+		STEFX_HM_INPUT_BLACK, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_RIGHT_STICK_LEFT, STEFX_HM_INPUT_RIGHT_STICK_RIGHT,
+		STEFX_HM_INPUT_RIGHT_STICK_UP, STEFX_HM_INPUT_RIGHT_STICK_DOWN,
+		STEFX_HM_INPUT_LEFT_STICK_LEFT }, // Pad mobile crossed
+	{ STEFX_HM_MOVE_DPAD_TANK, STEFX_HM_LOOK_NONE,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_B, STEFX_HM_INPUT_X, STEFX_HM_INPUT_NONE,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_LEFT_THUMB }, // Old school
+	{ STEFX_HM_MOVE_DPAD_TANK, STEFX_HM_LOOK_NONE,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_X, STEFX_HM_INPUT_B,
+		STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_NONE, STEFX_HM_INPUT_BLACK }, // Fire below
+	{ STEFX_HM_MOVE_LEFT_STICK, STEFX_HM_LOOK_RIGHT_STICK,
+		STEFX_HM_INPUT_A, STEFX_HM_INPUT_B, STEFX_HM_INPUT_X, STEFX_HM_INPUT_Y,
+		STEFX_HM_INPUT_RIGHT_TRIGGER, STEFX_HM_INPUT_LEFT_TRIGGER,
+		STEFX_HM_INPUT_BLACK, STEFX_HM_INPUT_WHITE,
+		STEFX_HM_INPUT_DPAD_UP, STEFX_HM_INPUT_DPAD_DOWN, STEFX_HM_INPUT_LEFT_THUMB } // Custom fallback
+};
+
+static qboolean STEFX_SplitHolomatchInputPressed( const stefxSplitPadState_t *pad, int input )
+{
+	const int axisThreshold = 16384;
+
+	if ( !pad || input < STEFX_HM_INPUT_A )
+	{
+		return qfalse;
+	}
+	if ( input <= STEFX_HM_INPUT_RIGHT_TRIGGER )
+	{
+		return (qboolean)( pad->analogButtons[input] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD );
+	}
+	switch ( input )
+	{
+	case STEFX_HM_INPUT_DPAD_UP: return (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_UP );
+	case STEFX_HM_INPUT_DPAD_DOWN: return (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_DOWN );
+	case STEFX_HM_INPUT_DPAD_LEFT: return (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_LEFT );
+	case STEFX_HM_INPUT_DPAD_RIGHT: return (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_RIGHT );
+	case STEFX_HM_INPUT_LEFT_THUMB: return (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_LEFT_THUMB );
+	case STEFX_HM_INPUT_RIGHT_THUMB: return (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_RIGHT_THUMB );
+	case STEFX_HM_INPUT_LEFT_STICK_UP: return (qboolean)( pad->thumbLY > axisThreshold );
+	case STEFX_HM_INPUT_LEFT_STICK_DOWN: return (qboolean)( pad->thumbLY < -axisThreshold );
+	case STEFX_HM_INPUT_LEFT_STICK_LEFT: return (qboolean)( pad->thumbLX < -axisThreshold );
+	case STEFX_HM_INPUT_LEFT_STICK_RIGHT: return (qboolean)( pad->thumbLX > axisThreshold );
+	case STEFX_HM_INPUT_RIGHT_STICK_UP: return (qboolean)( pad->thumbRY > axisThreshold );
+	case STEFX_HM_INPUT_RIGHT_STICK_DOWN: return (qboolean)( pad->thumbRY < -axisThreshold );
+	case STEFX_HM_INPUT_RIGHT_STICK_LEFT: return (qboolean)( pad->thumbRX < -axisThreshold );
+	case STEFX_HM_INPUT_RIGHT_STICK_RIGHT: return (qboolean)( pad->thumbRX > axisThreshold );
+	default: return qfalse;
+	}
+}
+
+static void STEFX_SplitHolomatchAttackRumble( int localSlot, int port, stefxSplitPadState_t *pad, qboolean attackDown )
+{
+	char vibrationCvar[32];
+	int script;
+
+	if ( !pad )
+	{
+		return;
+	}
+	if ( attackDown && !pad->attackDown )
+	{
+		Com_sprintf( vibrationCvar, sizeof( vibrationCvar ), "joy_vibestate_%d", localSlot );
+		if ( Cvar_VariableIntegerValue( vibrationCvar ) )
+		{
+			script = IN_CreateRumbleScript( port, 1, true );
+			if ( script >= 0 )
+			{
+				IN_AddRumbleState( script, 12000, 22000, 70 );
+				IN_ExecuteRumbleScript( script );
+			}
+		}
+	}
+	pad->attackDown = attackDown;
+}
+
+qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *cmd, const vec3_t currentAngles, const int deltaAngles[3], int serverTime, int *sourcePort, int *weaponDelta, vec3_t outAngles, float *zoomFov )
 {
 	static int s_lastAssignedPort[STEFX_SPLIT_MAX_PADS] = { -2, -2, -2, -2 };
-	static int s_cmdLogBudget = 64;
+	static int s_lastControlStyle[STEFX_SPLIT_MAX_PADS] = { -1, -1, -1, -1 };
+	static int s_cmdLogBudget[STEFX_SPLIT_MAX_PADS] = { 96, 96, 96, 96 };
+	static int s_lastCmdLogTime[STEFX_SPLIT_MAX_PADS] = { -1000, -1000, -1000, -1000 };
+	static int s_lastForwardState[STEFX_SPLIT_MAX_PADS] = { 2, 2, 2, 2 };
+	static int s_lastRightState[STEFX_SPLIT_MAX_PADS] = { 2, 2, 2, 2 };
+	static int s_lastUpMove[STEFX_SPLIT_MAX_PADS] = { 999, 999, 999, 999 };
+	static int s_lastButtons[STEFX_SPLIT_MAX_PADS] = { -1, -1, -1, -1 };
+	static float s_lastZoomLog[STEFX_SPLIT_MAX_PADS] = { -1.0f, -1.0f, -1.0f, -1.0f };
 	stefxSplitPadState_t *pad;
+	const stefxHolomatchControlProfile_t *profile;
 	int port;
 	int frameMsec;
+	int controlStyle;
 	float leftX;
 	float leftY;
 	float rightX;
 	float rightY;
+	int pitchDirection;
+	char pitchCvar[32];
 	qboolean weaponNextDown;
 	qboolean weaponPrevDown;
 	qboolean runToggleDown;
+	qboolean attackDown;
+	qboolean zoomInDown;
+	qboolean zoomOutDown;
+	char controlCvar[32];
 
 	if ( !cmd || localSlot < 0 || localSlot >= STEFX_SPLIT_MAX_PADS )
 	{
@@ -1162,6 +1386,10 @@ qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *c
 	if ( weaponDelta )
 	{
 		*weaponDelta = 0;
+	}
+	if ( zoomFov )
+	{
+		*zoomFov = 90.0f;
 	}
 	port = STEFX_SplitRealPadForLocalSlot( localSlot );
 	if ( port != s_lastAssignedPort[localSlot] )
@@ -1182,12 +1410,41 @@ qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *c
 	}
 
 	pad = &s_stefxSplitPads[port];
-	if ( !pad->viewanglesValid )
+	Com_sprintf( controlCvar, sizeof( controlCvar ), "cont_config_%d", localSlot );
+	controlStyle = Cvar_VariableIntegerValue( controlCvar );
+	if ( controlStyle < 0 || controlStyle >= (int)( sizeof( s_stefxHolomatchControlProfiles ) / sizeof( s_stefxHolomatchControlProfiles[0] ) ) )
 	{
+		controlStyle = 0;
+	}
+	profile = &s_stefxHolomatchControlProfiles[controlStyle];
+	if ( s_lastControlStyle[localSlot] != controlStyle )
+	{
+		XBLF( "STEFX_HM_SPLIT_CONTROL_STYLE: slot=%d port=%d style=%d moveMode=%d lookMode=%d jump=%d crouch=%d use=%d attack=%d alt=%d prev=%d next=%d zoom=%d/%d run=%d",
+			localSlot, port, controlStyle, profile->moveMode, profile->lookMode,
+			profile->jump, profile->crouch, profile->use, profile->attack,
+			profile->altAttack, profile->weaponPrev, profile->weaponNext,
+			profile->zoomIn, profile->zoomOut, profile->runToggle );
+		s_lastControlStyle[localSlot] = controlStyle;
+	}
+	if ( !pad->viewanglesValid || serverTime < pad->lastServerTime )
+	{
+		const qboolean reseeded = pad->viewanglesValid;
 		VectorCopy( currentAngles, pad->viewangles );
 		pad->viewanglesValid = qtrue;
 		pad->lastServerTime = serverTime;
 		pad->runEnabled = (qboolean)Cvar_VariableIntegerValue( "cl_run" );
+		pad->holomatchZoomFov = 90.0f;
+		pad->holomatchZoomValid = qtrue;
+		pad->weaponNextDown = qfalse;
+		pad->weaponPrevDown = qfalse;
+		pad->runToggleDown = qfalse;
+		pad->attackDown = qfalse;
+		if ( reseeded )
+		{
+			XBLF( "STEFX_HM_SPLIT_PAD_RESEED: slot=%d port=%d serverTime=%d view=(%g,%g,%g)",
+				localSlot, port, serverTime,
+				pad->viewangles[PITCH], pad->viewangles[YAW], pad->viewangles[ROLL] );
+		}
 	}
 	frameMsec = serverTime - pad->lastServerTime;
 	if ( frameMsec < 0 || frameMsec > 100 )
@@ -1204,8 +1461,76 @@ qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *c
 	leftY = STEFX_SplitNormalizeThumb( pad->thumbLY );
 	rightX = STEFX_SplitNormalizeThumb( pad->thumbRX );
 	rightY = STEFX_SplitNormalizeThumb( pad->thumbRY );
+
+	memset( cmd, 0, sizeof( *cmd ) );
+	cmd->serverTime = serverTime;
+	switch ( profile->moveMode )
+	{
+	case STEFX_HM_MOVE_RIGHT_STICK:
+		cmd->forwardmove = STEFX_SplitAxisToMove( rightY );
+		cmd->rightmove = STEFX_SplitAxisToMove( rightX );
+		break;
+	case STEFX_HM_MOVE_DPAD:
+		cmd->forwardmove = ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_UP ) ? 127 :
+			( ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_DOWN ) ? -127 : 0 );
+		cmd->rightmove = ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_RIGHT ) ? 127 :
+			( ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_LEFT ) ? -127 : 0 );
+		break;
+	case STEFX_HM_MOVE_FACE:
+		cmd->forwardmove = STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_Y ) ? 127 :
+			( STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_A ) ? -127 : 0 );
+		cmd->rightmove = STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_B ) ? 127 :
+			( STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_X ) ? -127 : 0 );
+		break;
+	case STEFX_HM_MOVE_DPAD_TANK:
+		cmd->forwardmove = ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_UP ) ? 127 :
+			( ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_DOWN ) ? -127 : 0 );
+		cmd->rightmove = 0;
+		break;
+	default:
+		cmd->forwardmove = STEFX_SplitAxisToMove( leftY );
+		cmd->rightmove = STEFX_SplitAxisToMove( leftX );
+		break;
+	}
+
+	switch ( profile->lookMode )
+	{
+	case STEFX_HM_LOOK_LEFT_STICK:
+		rightX = leftX;
+		rightY = leftY;
+		break;
+	case STEFX_HM_LOOK_FACE:
+		rightX = STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_B ) ? 1.0f :
+			( STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_X ) ? -1.0f : 0.0f );
+		rightY = STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_Y ) ? 1.0f :
+			( STEFX_SplitHolomatchInputPressed( pad, STEFX_HM_INPUT_A ) ? -1.0f : 0.0f );
+		break;
+	case STEFX_HM_LOOK_DPAD:
+		rightX = ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_RIGHT ) ? 1.0f :
+			( ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_LEFT ) ? -1.0f : 0.0f );
+		rightY = ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_UP ) ? 1.0f :
+			( ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_DOWN ) ? -1.0f : 0.0f );
+		break;
+	case STEFX_HM_LOOK_NONE:
+		rightX = 0.0f;
+		rightY = 0.0f;
+		if ( profile->moveMode == STEFX_HM_MOVE_DPAD_TANK )
+		{
+			rightX = ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_RIGHT ) ? 1.0f :
+				( ( pad->buttons & STEFX_SPLIT_BUTTON_DPAD_LEFT ) ? -1.0f : 0.0f );
+		}
+		break;
+	default:
+		break;
+	}
+	Com_sprintf( pitchCvar, sizeof( pitchCvar ), "joy_pitchsensitivity_%d", localSlot );
+	pitchDirection = Cvar_VariableIntegerValue( pitchCvar );
+	if ( pitchDirection != -1 )
+	{
+		pitchDirection = 1;
+	}
 	pad->viewangles[YAW] = AngleNormalize360( pad->viewangles[YAW] - rightX * 220.0f * ( frameMsec / 1000.0f ) );
-	pad->viewangles[PITCH] = AngleNormalize180( pad->viewangles[PITCH] - rightY * 160.0f * ( frameMsec / 1000.0f ) );
+	pad->viewangles[PITCH] = AngleNormalize180( pad->viewangles[PITCH] - rightY * (float)pitchDirection * 160.0f * ( frameMsec / 1000.0f ) );
 	if ( pad->viewangles[PITCH] > 80.0f )
 	{
 		pad->viewangles[PITCH] = 80.0f;
@@ -1216,11 +1541,7 @@ qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *c
 	}
 	pad->viewangles[ROLL] = 0.0f;
 
-	memset( cmd, 0, sizeof( *cmd ) );
-	cmd->serverTime = serverTime;
-	cmd->forwardmove = STEFX_SplitAxisToMove( leftY );
-	cmd->rightmove = STEFX_SplitAxisToMove( leftX );
-	runToggleDown = (qboolean)( pad->buttons & STEFX_SPLIT_BUTTON_LEFT_THUMB );
+	runToggleDown = STEFX_SplitHolomatchInputPressed( pad, profile->runToggle );
 	if ( runToggleDown && !pad->runToggleDown )
 	{
 		pad->runEnabled = (qboolean)!pad->runEnabled;
@@ -1229,33 +1550,58 @@ qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *c
 	pad->runToggleDown = runToggleDown;
 	STEFX_SplitApplyRunState( pad, cmd );
 
-	if ( pad->analogButtons[0] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	if ( STEFX_SplitHolomatchInputPressed( pad, profile->jump ) )
 	{
 		cmd->upmove = 127;
 	}
-	else if ( pad->analogButtons[1] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	else if ( STEFX_SplitHolomatchInputPressed( pad, profile->crouch ) )
 	{
 		cmd->upmove = -127;
 	}
-	if ( pad->analogButtons[7] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	attackDown = STEFX_SplitHolomatchInputPressed( pad, profile->attack );
+	if ( attackDown )
 	{
 		cmd->buttons |= BUTTON_ATTACK;
 	}
-	if ( pad->analogButtons[6] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	if ( STEFX_SplitHolomatchInputPressed( pad, profile->altAttack ) )
 	{
 		cmd->buttons |= BUTTON_ALT_ATTACK;
 	}
-	if ( pad->analogButtons[2] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	if ( STEFX_SplitHolomatchInputPressed( pad, profile->use ) )
 	{
 		cmd->buttons |= BUTTON_USE;
 	}
-	if ( pad->analogButtons[3] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD )
+	if ( STEFX_SplitHolomatchInputPressed( pad, profile->centerView ) )
 	{
 		pad->viewangles[PITCH] = 0.0f;
 	}
+	STEFX_SplitHolomatchAttackRumble( localSlot, port, pad, attackDown );
 
-	weaponPrevDown = (qboolean)( pad->analogButtons[4] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD );
-	weaponNextDown = (qboolean)( pad->analogButtons[5] > STEFX_SPLIT_ANALOG_BUTTON_THRESHOLD );
+	weaponPrevDown = STEFX_SplitHolomatchInputPressed( pad, profile->weaponPrev );
+	weaponNextDown = STEFX_SplitHolomatchInputPressed( pad, profile->weaponNext );
+	zoomInDown = STEFX_SplitHolomatchInputPressed( pad, profile->zoomIn );
+	zoomOutDown = STEFX_SplitHolomatchInputPressed( pad, profile->zoomOut );
+	if ( !pad->holomatchZoomValid )
+	{
+		pad->holomatchZoomFov = 90.0f;
+		pad->holomatchZoomValid = qtrue;
+	}
+	if ( zoomInDown != zoomOutDown )
+	{
+		pad->holomatchZoomFov += ( zoomOutDown ? 1.0f : -1.0f ) * 60.0f * ( frameMsec / 1000.0f );
+		if ( pad->holomatchZoomFov < 30.0f )
+		{
+			pad->holomatchZoomFov = 30.0f;
+		}
+		else if ( pad->holomatchZoomFov > 90.0f )
+		{
+			pad->holomatchZoomFov = 90.0f;
+		}
+	}
+	if ( zoomFov )
+	{
+		*zoomFov = pad->holomatchZoomFov;
+	}
 	if ( weaponDelta )
 	{
 		if ( weaponNextDown && !pad->weaponNextDown )
@@ -1282,21 +1628,44 @@ qboolean CL_STEFX_SplitScreen_BuildHolomatchUsercmd( int localSlot, usercmd_t *c
 		*sourcePort = port;
 	}
 
-	if ( s_cmdLogBudget > 0 && ( cmd->forwardmove || cmd->rightmove || cmd->upmove || cmd->buttons || rightX || rightY || ( weaponDelta && *weaponDelta ) ) )
 	{
-		XBLF( "STEFX_HM_SPLIT_PAD_CMD: slot=%d port=%d time=%d move=(%d,%d,%d) buttons=0x%x weaponDelta=%d view=(%g,%g,%g)",
-			localSlot,
-			port,
-			serverTime,
-			cmd->forwardmove,
-			cmd->rightmove,
-			cmd->upmove,
-			cmd->buttons,
-			weaponDelta ? *weaponDelta : 0,
-			pad->viewangles[PITCH],
-			pad->viewangles[YAW],
-			pad->viewangles[ROLL] );
-		--s_cmdLogBudget;
+		const int forwardState = cmd->forwardmove < 0 ? -1 : ( cmd->forwardmove > 0 ? 1 : 0 );
+		const int rightState = cmd->rightmove < 0 ? -1 : ( cmd->rightmove > 0 ? 1 : 0 );
+		const qboolean changed = (qboolean)(
+			forwardState != s_lastForwardState[localSlot] ||
+			rightState != s_lastRightState[localSlot] ||
+			cmd->upmove != s_lastUpMove[localSlot] ||
+			cmd->buttons != s_lastButtons[localSlot] ||
+			( weaponDelta && *weaponDelta ) ||
+			fabs( pad->holomatchZoomFov - s_lastZoomLog[localSlot] ) >= 2.0f );
+		if ( s_cmdLogBudget[localSlot] > 0 &&
+			( changed || serverTime - s_lastCmdLogTime[localSlot] >= 1000 ) )
+		{
+			XBLF( "STEFX_HM_SPLIT_PAD_CMD: slot=%d port=%d style=%d time=%d move=(%d,%d,%d) buttons=0x%x weaponDelta=%d zoom=%g look=(%g,%g) pitchDirection=%d view=(%g,%g,%g)",
+				localSlot,
+				port,
+				controlStyle,
+				serverTime,
+				cmd->forwardmove,
+				cmd->rightmove,
+				cmd->upmove,
+				cmd->buttons,
+				weaponDelta ? *weaponDelta : 0,
+				pad->holomatchZoomFov,
+				rightX,
+				rightY,
+				pitchDirection,
+				pad->viewangles[PITCH],
+				pad->viewangles[YAW],
+				pad->viewangles[ROLL] );
+			s_lastCmdLogTime[localSlot] = serverTime;
+			s_lastZoomLog[localSlot] = pad->holomatchZoomFov;
+			--s_cmdLogBudget[localSlot];
+		}
+		s_lastForwardState[localSlot] = forwardState;
+		s_lastRightState[localSlot] = rightState;
+		s_lastUpMove[localSlot] = cmd->upmove;
+		s_lastButtons[localSlot] = cmd->buttons;
 	}
 	return qtrue;
 }
@@ -1365,6 +1734,8 @@ static void STEFX_InitSmokeInputCvars( void )
 	stefx_smokeViewYaw = Cvar_Get( "stefx_smoke_view_yaw", "9999", CVAR_TEMP );
 	stefx_smokeInputAttackStart = Cvar_Get( "stefx_smoke_input_attack_start", "19000", CVAR_TEMP );
 	stefx_smokeInputAttackEnd = Cvar_Get( "stefx_smoke_input_attack_end", "23000", CVAR_TEMP );
+	stefx_smokeInputAltAttackStart = Cvar_Get( "stefx_smoke_input_alt_attack_start", "0", CVAR_TEMP );
+	stefx_smokeInputAltAttackEnd = Cvar_Get( "stefx_smoke_input_alt_attack_end", "0", CVAR_TEMP );
 
 	XBL("STEFX: smoke input cvars registered; diagnostic input is off by default");
 }
@@ -1378,6 +1749,8 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	int endTime;
 	int attackStart;
 	int attackEnd;
+	int altAttackStart;
+	int altAttackEnd;
 	int forwardMove;
 	int sideMove;
 	int yawMove;
@@ -1385,6 +1758,7 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	int viewYaw;
 	qboolean active;
 	qboolean attacking;
+	qboolean altAttacking;
 
 	if ( !cmd || in_camera || !STEFX_SmokeHarnessEnabled() || !stefx_smokeInput || !stefx_smokeInput->integer )
 	{
@@ -1395,6 +1769,8 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	endTime = stefx_smokeInputEnd ? stefx_smokeInputEnd->integer : 26000;
 	attackStart = stefx_smokeInputAttackStart ? stefx_smokeInputAttackStart->integer : 19000;
 	attackEnd = stefx_smokeInputAttackEnd ? stefx_smokeInputAttackEnd->integer : 23000;
+	altAttackStart = stefx_smokeInputAltAttackStart ? stefx_smokeInputAltAttackStart->integer : 0;
+	altAttackEnd = stefx_smokeInputAltAttackEnd ? stefx_smokeInputAltAttackEnd->integer : 0;
 	forwardMove = stefx_smokeInputForward ? stefx_smokeInputForward->integer : 90;
 	sideMove = stefx_smokeInputSide ? stefx_smokeInputSide->integer : 0;
 	yawMove = stefx_smokeInputYaw ? stefx_smokeInputYaw->integer : 0;
@@ -1443,6 +1819,9 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 
 	cmd->forwardmove = ClampChar( cmd->forwardmove + forwardMove );
 	cmd->rightmove = ClampChar( cmd->rightmove + sideMove );
+	/* Keep the process-local harness deterministic even when an attached pad or
+	 * retained binding reports a trigger during the bounded smoke window. */
+	cmd->buttons &= ~(BUTTON_ATTACK | BUTTON_ALT_ATTACK);
 	if ( yawMove )
 	{
 		cl.viewangles[YAW] += (float)yawMove;
@@ -1454,15 +1833,23 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 	{
 		cmd->buttons |= BUTTON_ATTACK;
 	}
+	altAttacking = ( altAttackStart > 0 && serverTime >= altAttackStart &&
+		( altAttackEnd <= 0 || serverTime <= altAttackEnd ) );
+	if ( altAttacking )
+	{
+		cmd->buttons |= BUTTON_ALT_ATTACK;
+	}
 
 	if ( s_logBudget > 0 )
 	{
-		Com_PrintfAlways( "STEFX: smoke input applied serverTime=%d window=%d..%d attackWindow=%d..%d configuredInput=(%d,%d,%d) move=(%d,%d,%d) attack=%d buttons=0x%x weapon=%d\n",
+		Com_PrintfAlways( "STEFX: smoke input applied serverTime=%d window=%d..%d attackWindow=%d..%d altAttackWindow=%d..%d configuredInput=(%d,%d,%d) move=(%d,%d,%d) attack=%d altAttack=%d buttons=0x%x weapon=%d\n",
 			serverTime,
 			startTime,
 			endTime,
 			attackStart,
 			attackEnd,
+			altAttackStart,
+			altAttackEnd,
 			forwardMove,
 			sideMove,
 			yawMove,
@@ -1470,6 +1857,7 @@ static void STEFX_ApplySmokeInput( usercmd_t *cmd )
 			cmd->rightmove,
 			cmd->upmove,
 			attacking ? 1 : 0,
+			altAttacking ? 1 : 0,
 			cmd->buttons,
 			cmd->weapon );
 		s_logBudget--;
@@ -2112,6 +2500,12 @@ qboolean cl_overrideAngles = qfalse;
 usercmd_t CL_CreateCmd( void ) {
 	usercmd_t	cmd;
 	vec3_t		oldAngles;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP) && defined(STEFX_SP_HOSTED_MP)
+	vec3_t		stefxProfileAngles;
+	int			stefxProfilePort = -1;
+	int			stefxProfileWeaponDelta = 0;
+	float		stefxProfileZoomFov = 90.0f;
+#endif
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_SeedClientViewAnglesIfInvalid();
@@ -2167,6 +2561,88 @@ usercmd_t CL_CreateCmd( void ) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	STEFX_ApplySmokeInput( &cmd );
+#if defined(STEFX_SP_HOSTED_MP)
+	/* P1 still owns exactly one native loopback packet.  Replace that packet's
+	 * gameplay fields from the raw physical pad instead of relying on the SP
+	 * key-binding table, which can be cleared by the retail PC default.cfg in
+	 * PAK2.PK3.  The split bridge continues to begin at client 1. */
+	if ( cls.state == CA_ACTIVE &&
+		Cvar_VariableIntegerValue( "stefx_splitScreen" ) &&
+		!Q_stricmp( Cvar_VariableString( "stefx_splitScreenMode" ), "holomatch" ) &&
+		CL_STEFX_SplitScreen_BuildHolomatchUsercmd( 0,
+			&cmd,
+			oldAngles,
+			NULL,
+			cl.serverTime,
+			&stefxProfilePort,
+			&stefxProfileWeaponDelta,
+			stefxProfileAngles,
+			&stefxProfileZoomFov ) )
+	{
+		static int s_stefxProfiledP1LogBudget = 160;
+		static int s_stefxProfiledP1LastLogTime = -1000;
+		static int s_stefxProfiledP1LastForwardState = 2;
+		static int s_stefxProfiledP1LastRightState = 2;
+		static int s_stefxProfiledP1LastUp = 999;
+		static int s_stefxProfiledP1LastButtons = -1;
+		static int s_stefxProfiledP1LastWeapon = -1;
+		static float s_stefxProfiledP1LastZoom = -1.0f;
+		const int forwardState = cmd.forwardmove < 0 ? -1 : ( cmd.forwardmove > 0 ? 1 : 0 );
+		const int rightState = cmd.rightmove < 0 ? -1 : ( cmd.rightmove > 0 ? 1 : 0 );
+		const qboolean controlChanged = (qboolean)(
+			forwardState != s_stefxProfiledP1LastForwardState ||
+			rightState != s_stefxProfiledP1LastRightState ||
+			cmd.upmove != s_stefxProfiledP1LastUp ||
+			cmd.buttons != s_stefxProfiledP1LastButtons ||
+			cmd.weapon != s_stefxProfiledP1LastWeapon ||
+			stefxProfileWeaponDelta != 0 ||
+			fabs( stefxProfileZoomFov - s_stefxProfiledP1LastZoom ) >= 2.0f );
+
+		VectorCopy( stefxProfileAngles, cl.viewangles );
+		cmd.weapon = cl.cgameUserCmdValue;
+		if ( stefxProfileWeaponDelta > 0 )
+		{
+			Cbuf_AddText( "weapnext\n" );
+		}
+		else if ( stefxProfileWeaponDelta < 0 )
+		{
+			Cbuf_AddText( "weapprev\n" );
+		}
+		if ( !Cvar_VariableIntegerValue( "stefx_hm_p1_profile_controls" ) )
+		{
+			Cvar_Set( "stefx_hm_p1_profile_controls", "1" );
+		}
+		if ( fabs( Cvar_VariableValue( "stefx_hm_p1_profile_zoom_fov" ) - stefxProfileZoomFov ) > 0.05f )
+		{
+			Cvar_SetValue( "stefx_hm_p1_profile_zoom_fov", stefxProfileZoomFov );
+		}
+		if ( s_stefxProfiledP1LogBudget > 0 &&
+			( controlChanged || cmd.serverTime - s_stefxProfiledP1LastLogTime >= 1000 ) )
+		{
+			XBLF( "STEFX_HM_P1_PROFILED_CMD: owner=native_loopback slot=0 port=%d style=%d time=%d move=(%d,%d,%d) buttons=0x%x weapon=%d weaponDelta=%d zoom=%g view=(%g,%g,%g)",
+				stefxProfilePort,
+				Cvar_VariableIntegerValue( "cont_config_0" ),
+				cmd.serverTime,
+				cmd.forwardmove, cmd.rightmove, cmd.upmove,
+				cmd.buttons, cmd.weapon, stefxProfileWeaponDelta,
+				stefxProfileZoomFov,
+				cl.viewangles[PITCH], cl.viewangles[YAW], cl.viewangles[ROLL] );
+			s_stefxProfiledP1LastLogTime = cmd.serverTime;
+			s_stefxProfiledP1LastZoom = stefxProfileZoomFov;
+			--s_stefxProfiledP1LogBudget;
+		}
+		s_stefxProfiledP1LastForwardState = forwardState;
+		s_stefxProfiledP1LastRightState = rightState;
+		s_stefxProfiledP1LastUp = cmd.upmove;
+		s_stefxProfiledP1LastButtons = cmd.buttons;
+		s_stefxProfiledP1LastWeapon = cmd.weapon;
+	}
+	else if ( Cvar_VariableIntegerValue( "stefx_hm_p1_profile_controls" ) )
+	{
+		Cvar_Set( "stefx_hm_p1_profile_controls", "0" );
+		Cvar_Set( "stefx_hm_p1_profile_zoom_fov", "90" );
+	}
+#endif
 	{
 		++g_SPXBUsercmdCount;
 		g_SPXBUsercmdTime = (unsigned int)cmd.serverTime;

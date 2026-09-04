@@ -601,6 +601,8 @@ typedef struct {
 	float		zFar;
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	qboolean	stefxSplitView;
+	qboolean	stefxSplitEconomy;
+	qboolean	stefxSplitThreePlusEconomy;
 	int			stefxSplitSlot;
 #endif
 } viewParms_t;
@@ -1047,6 +1049,18 @@ typedef struct model_s {
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
 #ifdef STEFX_ELITE_FORCE_SP
 	md4Header_t	*md4;				// only if type == MOD_MDR
+#if defined(_XBOX)
+	// Elite Force's Borg maps precache many distinct MDR bodies.  Keep their
+	// unique surface data resident, but reconstruct compressed animation frames
+	// from a lossless shared base + per-model patch instead of retaining every
+	// complete frame block.
+	const byte	*stefxMdrFrameBase;
+	const unsigned int *stefxMdrFramePatchOffsets;
+	const byte	*stefxMdrFramePatches;
+	int			stefxMdrFrameBaseCount;
+	int			stefxMdrFrameSize;
+	int			stefxMdrFrameCount;
+#endif
 #endif
 /*
 Ghoul2 Insert Start
@@ -1065,6 +1079,9 @@ Ghoul2 Insert End
 
 void		R_ModelInit (void);
 model_t		*R_GetModelByHandle( qhandle_t hModel );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+const void	*R_STEFX_GetMDRFrame( const md4Header_t *header, int frame );
+#endif
 void		R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFrame, 
 					 float frac, const char *tagName );
 void		R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs );
@@ -1784,6 +1801,9 @@ extern	bool		styleUpdated[MAX_LIGHT_STYLES];
 
 void RB_BeginSurface(shader_t *shader, int fogNum );
 void RB_EndSurface(void);
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+void R_STEFX_ReportShaderCosts( void );
+#endif
 void RB_CheckOverflow( int verts, int indexes );
 #define RB_CHECKOVERFLOW(v,i) if (tess.numVertexes + (v) >= SHADER_MAX_VERTEXES || tess.numIndexes + (i) >= SHADER_MAX_INDEXES ) {RB_CheckOverflow(v,i);}
 

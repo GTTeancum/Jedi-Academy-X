@@ -446,11 +446,7 @@ RADEXPFUNC U32  RADEXPLINK BinkGetKeyFrame(HBINK bnk,U32 frame,S32 flags);
 RADEXPFUNC S32  RADEXPLINK BinkSetVideoOnOff(HBINK bnk,S32 onoff);
 RADEXPFUNC S32  RADEXPLINK BinkSetSoundOnOff(HBINK bnk,S32 onoff);
 RADEXPFUNC void RADEXPLINK BinkFreeGlocalMemory( void );
-#ifdef _XBOX
-RADEXPFUNC void RADEXPLINK BinkSetVolume(HBINK bnk, S32 volume);
-#else
 RADEXPFUNC void RADEXPLINK BinkSetVolume(HBINK bnk, U32 trackid, S32 volume);
-#endif
 RADEXPFUNC void RADEXPLINK BinkSetPan(HBINK bnk,U32 trackid, S32 pan);
 RADEXPFUNC void RADEXPLINK BinkSetMixBins(HBINK bnk,U32 trackid, U32 PTR4* mix_bins, U32 total);
 RADEXPFUNC void RADEXPLINK BinkSetMixBinVolumes(HBINK bnk,U32 trackid, U32 PTR4* vol_mix_bins, S32 PTR4* volumes, U32 total);

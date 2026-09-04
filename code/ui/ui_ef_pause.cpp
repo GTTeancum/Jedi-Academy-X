@@ -983,14 +983,15 @@ static void EFPause_OpenEFQmenu(const char *commandName)
 	}
 
 	// Capture-backed destinations stay on the pause screen until their real EF
-	// screens exist; only deactivate when a replacement qmenu was actually pushed.
-	s_active = UI_EFQmenu_IsActive() ? qfalse : qtrue;
+	// screens exist; deactivate once either replacement UI owner is active.
+	s_active = (UI_EFQmenu_IsActive() || UI_EFMainMenu_IsActive()) ? qfalse : qtrue;
 	ui.Key_SetCatcher(KEYCATCH_UI);
 	ui.Cvar_Set("cl_paused", "1");
 #ifdef _XBOX
-	XBLF("STEFX_INPUT_PAUSE_ACTION openEFQ result handled=%d qmenuActive=%d pauseActive=%d",
+	XBLF("STEFX_INPUT_PAUSE_ACTION openEFQ result handled=%d qmenuActive=%d frontendActive=%d pauseActive=%d",
 		handled ? 1 : 0,
 		UI_EFQmenu_IsActive() ? 1 : 0,
+		UI_EFMainMenu_IsActive() ? 1 : 0,
 		s_active ? 1 : 0);
 #endif
 }

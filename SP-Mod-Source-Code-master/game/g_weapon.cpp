@@ -9,6 +9,11 @@
 #include "..\cgame\cg_text.h"
 #ifdef _XBOX
 #include "../../code/win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBGameWeaponFireStage;
+extern "C" volatile unsigned int g_SPXBGameWeaponFireEntity;
+extern "C" volatile unsigned int g_SPXBGameWeaponFireWeaponAlt;
+extern "C" volatile unsigned int g_SPXBPlayerPrimaryFireCompletions;
+extern "C" volatile unsigned int g_SPXBPlayerAltFireCompletions;
 #endif
 
 extern vmCvar_t cg_thirdPerson;
@@ -3550,6 +3555,11 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 //---------------------------------------------------------
 {
 #ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x47460000; /* 'GF00': entry */
+	g_SPXBGameWeaponFireEntity = ent ? (unsigned int)ent->s.number : 0xffffffff;
+	g_SPXBGameWeaponFireWeaponAlt = ent ?
+		((unsigned int)(ent->s.weapon & 0xffff) | (alt_fire ? 0x80000000u : 0u)) : 0xffffffff;
+
 	static int s_stefxFireWeaponLogBudget = 64;
 	if (s_stefxFireWeaponLogBudget > 0 && ent && ent->client)
 	{
@@ -3578,6 +3588,9 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 	CalcMuzzlePoint ( ent, forward, vright, up, muzzle , 0);
 
 	// fire the specific weapon
+#ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x47461000 | (unsigned int)(ent->s.weapon & 0xff); /* 'GF1w': weapon dispatch */
+#endif
 	switch( ent->s.weapon ) 
 	{
 	// Player weapons
@@ -3723,6 +3736,21 @@ void FireWeapon( gentity_t *ent, qboolean alt_fire )
 	default:
 		break;
 	}
+#ifdef _XBOX
+	g_SPXBGameWeaponFireStage = 0x47462000 | (unsigned int)(ent->s.weapon & 0xff); /* 'GF2w': weapon returned */
+	if (ent->s.number == 0)
+	{
+		if (alt_fire)
+		{
+			++g_SPXBPlayerAltFireCompletions;
+		}
+		else
+		{
+			++g_SPXBPlayerPrimaryFireCompletions;
+		}
+	}
+	g_SPXBGameWeaponFireStage = 0x4746FFFF; /* 'GFff': complete */
+#endif
 }
 
 //DETPACK

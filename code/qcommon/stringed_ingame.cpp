@@ -865,6 +865,10 @@ LPCSTR SE_GetString( LPCSTR psPackageAndStringReference )
 	int len = strlen( psPackageAndStringReference );
 	char sReference[256];	// will always be enough, I've never seen one more than about 30 chars long
 	assert( len < sizeof(sReference) );
+	if (!TheStringPackage.m_Strings)
+	{
+		return "";
+	}
 
 	Q_strncpyz( sReference, psPackageAndStringReference, sizeof(sReference) );
 	Q_strupr( sReference );

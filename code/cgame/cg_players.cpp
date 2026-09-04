@@ -1180,6 +1180,17 @@ static void CG_PlayerAnimEventDo( centity_t *cent, animevent_t *animEvent )
 			const int holdSnd = animEvent->eventData[ AED_SOUNDINDEX_START+Q_irand( 0, animEvent->eventData[AED_SOUND_NUMRANDOMSNDS] ) ];
 			if ( holdSnd > 0 )
 			{
+			#ifdef _XBOX
+				static int s_xboxAnimSoundLogBudget = 64;
+				if (s_xboxAnimSoundLogBudget > 0)
+				{
+					XBLog_WriteRingMarkerf("STEFX_FOLEY_EVENT: ent=%d client=%d type=%d frame=%d soundIndex=%d handle=%d config='%s'",
+						cent->currentState.number, cent->currentState.clientNum,
+						animEvent->eventType, animEvent->keyFrame, holdSnd,
+						cgs.sound_precache[holdSnd], CG_ConfigString(CS_SOUNDS + holdSnd));
+					--s_xboxAnimSoundLogBudget;
+				}
+			#endif
 				if ( cgs.sound_precache[ holdSnd ] ) 
 				{
 					cgi_S_StartSound( NULL, cent->currentState.clientNum, channel, cgs.sound_precache[holdSnd ] );

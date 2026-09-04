@@ -8,6 +8,15 @@
 #include "tr_QuickSprite.h"
 #include "tr_WorldEffects.h"
 
+#if defined(STEFX_RETAIL_RENDERER_ACTIVE)
+extern int R_STEFX_FogModeForView( void );
+#else
+static int R_STEFX_FogModeForView( void )
+{
+	return r_drawfog->integer;
+}
+#endif
+
 
 /////===== Part of the VERTIGON system =====/////
 // The surfacesprites are a simple system.  When a polygon with this shader stage on it is drawn,
@@ -1398,7 +1407,7 @@ void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input)
 	//
 	// Check fog
 	//
-	if ( tess.fogNum && tess.shader->fogPass && r_drawfog->value)
+	if ( tess.fogNum && tess.shader->fogPass && R_STEFX_FogModeForView() )
 	{
 		SSUsingFog = qtrue;
 		SQuickSprite.StartGroup(&stage->bundle[0], glbits, tess.fogNum);

@@ -9,6 +9,21 @@
 
 #include "server.h"
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+#include "../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBHMSplitCmdSerial[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdTime[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdMoveX[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdMoveY[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdMoveZ[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdButtons[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdWeapon[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdAnglePitch[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdAngleYaw[4];
+extern "C" volatile unsigned int g_SPXBHMSplitCmdAngleRoll[4];
+void STEFX_HolomatchAdjustNativeP1Usercmd(usercmd_t *cmd);
+#endif
+
 extern "C" volatile unsigned int g_SPXBSVUsercmdCount;
 extern "C" volatile unsigned int g_SPXBSVUsercmdTime;
 extern "C" volatile unsigned int g_SPXBSVUsercmdMove;
@@ -463,6 +478,12 @@ SV_ClientThink
 ==================
 */
 void SV_ClientThink (client_t *cl, usercmd_t *cmd) {
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if (cl && cmd && svs.clients && cl == &svs.clients[0])
+	{
+		STEFX_HolomatchAdjustNativeP1Usercmd(cmd);
+	}
+#endif
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	{
 		static int s_stefxSVThinkBudget = 64;
@@ -488,6 +509,78 @@ void SV_ClientThink (client_t *cl, usercmd_t *cmd) {
 				sv.time );
 			--s_stefxSVThinkBudget;
 		}
+	}
+#endif
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	/* P1 stays on the stock loopback command path.  Mirror its native command
+	 * into the existing split proof block so qualification can verify all four
+	 * viewport owners without reintroducing the direct P1 bridge. */
+	if (cl && cmd && svs.clients && cl == &svs.clients[0])
+	{
+		static int s_nativeP1LogBudget = 72;
+		static int s_nativeP1LastLogTime = -1000;
+		static int s_nativeP1LastCmdTime = -1;
+		static int s_nativeP1LastForward = 0;
+		static int s_nativeP1LastRight = 0;
+		static int s_nativeP1LastUp = 0;
+		static int s_nativeP1LastButtons = 0;
+		static int s_nativeP1LastPitch = 0;
+		static int s_nativeP1LastYaw = 0;
+		const int pitchDelta = (int)(short)(cmd->angles[PITCH] - s_nativeP1LastPitch);
+		const int yawDelta = (int)(short)(cmd->angles[YAW] - s_nativeP1LastYaw);
+		const qboolean inputChanged = (qboolean)(
+			cmd->forwardmove != s_nativeP1LastForward ||
+			cmd->rightmove != s_nativeP1LastRight ||
+			cmd->upmove != s_nativeP1LastUp ||
+			cmd->buttons != s_nativeP1LastButtons);
+		const qboolean suspiciousSnap = (qboolean)(
+			pitchDelta > 8192 || pitchDelta < -8192 ||
+			yawDelta > 8192 || yawDelta < -8192);
+
+		++g_SPXBHMSplitCmdSerial[0];
+		g_SPXBHMSplitCmdTime[0] = (unsigned int)cmd->serverTime;
+		g_SPXBHMSplitCmdMoveX[0] = (unsigned int)((int)cmd->forwardmove);
+		g_SPXBHMSplitCmdMoveY[0] = (unsigned int)((int)cmd->rightmove);
+		g_SPXBHMSplitCmdMoveZ[0] = (unsigned int)((int)cmd->upmove);
+		g_SPXBHMSplitCmdButtons[0] = (unsigned int)cmd->buttons;
+		g_SPXBHMSplitCmdWeapon[0] = (unsigned int)cmd->weapon;
+		g_SPXBHMSplitCmdAnglePitch[0] = (unsigned int)((int)cmd->angles[PITCH]);
+		g_SPXBHMSplitCmdAngleYaw[0] = (unsigned int)((int)cmd->angles[YAW]);
+		g_SPXBHMSplitCmdAngleRoll[0] = (unsigned int)((int)cmd->angles[ROLL]);
+
+		if (s_nativeP1LogBudget > 0 &&
+			(s_nativeP1LastCmdTime < 0 || inputChanged || suspiciousSnap ||
+			 cmd->serverTime - s_nativeP1LastLogTime >= 500))
+		{
+			const playerState_t *player =
+				(cl->gentity && cl->gentity->client) ? cl->gentity->client : NULL;
+			XBLog_WriteCriticalf("STEFX_HM_P1_NATIVE_CMD: cmdTime=%d previous=%d delta=%d move=(%d,%d,%d) buttons=0x%x weapon=%d angles=(%d,%d,%d) angleDelta=(%d,%d) snap=%d psCommandTime=%d view=(%g,%g,%g) deltaAngles=(%d,%d,%d)",
+				cmd->serverTime,
+				s_nativeP1LastCmdTime,
+				s_nativeP1LastCmdTime >= 0 ? cmd->serverTime - s_nativeP1LastCmdTime : 0,
+				cmd->forwardmove, cmd->rightmove, cmd->upmove,
+				cmd->buttons, cmd->weapon,
+				cmd->angles[PITCH], cmd->angles[YAW], cmd->angles[ROLL],
+				pitchDelta, yawDelta, suspiciousSnap ? 1 : 0,
+				player ? player->commandTime : -1,
+				player ? player->viewangles[PITCH] : 0.0f,
+				player ? player->viewangles[YAW] : 0.0f,
+				player ? player->viewangles[ROLL] : 0.0f,
+				player ? player->delta_angles[PITCH] : 0,
+				player ? player->delta_angles[YAW] : 0,
+				player ? player->delta_angles[ROLL] : 0);
+			s_nativeP1LastLogTime = cmd->serverTime;
+			--s_nativeP1LogBudget;
+		}
+
+		s_nativeP1LastCmdTime = cmd->serverTime;
+		s_nativeP1LastForward = cmd->forwardmove;
+		s_nativeP1LastRight = cmd->rightmove;
+		s_nativeP1LastUp = cmd->upmove;
+		s_nativeP1LastButtons = cmd->buttons;
+		s_nativeP1LastPitch = cmd->angles[PITCH];
+		s_nativeP1LastYaw = cmd->angles[YAW];
 	}
 #endif
 	cl->lastUsercmd = *cmd;

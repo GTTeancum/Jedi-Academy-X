@@ -264,9 +264,17 @@ e_status CIN_RunCinematic (int handle)
 #endif
 		XBLog_Write("JA: CIN_RunCinematic BinkVideo::Start succeeded");
 
+#ifdef _XBOX
+		// Keep these phase writes independent of formatted logging.  If movie
+		// startup leaves the CPU in a bad state, the XEMU monitor can still tell
+		// us exactly which ordinary setup statement completed.
+		g_SPXBCinPhase = 3141;
+#endif
+
 		if (cinFiles[handle].bits & CIN_loop)
 		{
 #ifdef _XBOX
+			g_SPXBCinPhase = 3142;
 			XBLF("JA: CIN_PHASE RunCinematic before SetLooping true handle=%d status=%d",
 				handle, (int)bVideo.GetStatus());
 #endif
@@ -275,12 +283,14 @@ e_status CIN_RunCinematic (int handle)
 		else
 		{
 #ifdef _XBOX
+			g_SPXBCinPhase = 3142;
 			XBLF("JA: CIN_PHASE RunCinematic before SetLooping false handle=%d status=%d",
 				handle, (int)bVideo.GetStatus());
 #endif
 			bVideo.SetLooping(false);
 		}
 #ifdef _XBOX
+		g_SPXBCinPhase = 3143;
 		XBLF("JA: CIN_PHASE RunCinematic after SetLooping handle=%d status=%d",
 			handle, (int)bVideo.GetStatus());
 #endif
@@ -288,6 +298,7 @@ e_status CIN_RunCinematic (int handle)
 		if (cinFiles[handle].bits & CIN_silent)
 		{
 #ifdef _XBOX
+			g_SPXBCinPhase = 3144;
 			XBLF("JA: CIN_PHASE RunCinematic before SetMasterVolume silent handle=%d status=%d",
 				handle, (int)bVideo.GetStatus());
 #endif
@@ -296,12 +307,14 @@ e_status CIN_RunCinematic (int handle)
 		else
 		{
 #ifdef _XBOX
+			g_SPXBCinPhase = 3144;
 			XBLF("JA: CIN_PHASE RunCinematic before SetMasterVolume normal handle=%d status=%d",
 				handle, (int)bVideo.GetStatus());
 #endif
 			bVideo.SetMasterVolume(16384);	//32768);	// Default Bink volume
 		}
 #ifdef _XBOX
+		g_SPXBCinPhase = 3145;
 		XBLF("JA: CIN_PHASE RunCinematic after SetMasterVolume handle=%d status=%d",
 			handle, (int)bVideo.GetStatus());
 #endif
@@ -309,17 +322,22 @@ e_status CIN_RunCinematic (int handle)
 		if (!shader)
 		{
 #ifdef _XBOX
+			g_SPXBCinPhase = 3146;
 			XBLF("JA: CIN_PHASE RunCinematic before state switch handle=%d prev=%d status=%d",
 				handle, (int)cls.state, (int)bVideo.GetStatus());
 #endif
 			previousState = cls.state;
 			cls.state = CA_CINEMATIC;
 #ifdef _XBOX
+			g_SPXBCinPhase = 3147;
 			XBLF("JA: CIN_PHASE RunCinematic after state switch handle=%d prev=%d state=%d status=%d",
 				handle, (int)previousState, (int)cls.state, (int)bVideo.GetStatus());
 #endif
 		}
 
+#ifdef _XBOX
+		g_SPXBCinPhase = 3148;
+#endif
 		currentHandle = handle;
 #ifdef _XBOX
 		g_SPXBCinPhase = 315;
@@ -722,7 +740,7 @@ bool CIN_PlayAllFrames( const char *arg, int x, int y, int w, int h, int systemB
 #endif
 	Key_ClearStates();
 #ifdef _XBOX
-	g_SPXBCinPhase = 131;
+	g_SPXBCinPhase = retval ? 132 : 131;
 	XBLF("JA: CIN_PHASE PlayAllFrames exit retval=%d arg='%s'", retval ? 1 : 0, arg ? arg : "<null>");
 #endif
 

@@ -66,8 +66,18 @@ extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectY[4];
 extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectW[4];
 extern "C" volatile unsigned int g_SPXBHMSplitHudStatusRectH[4];
 extern "C" volatile unsigned int g_SPXBHMSplitHudDividerSerial;
+extern "C" volatile unsigned int g_SPXBHMSplitHudPlayers;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerVerticalX;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerVerticalY;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerVerticalW;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerVerticalH;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerHorizontalX;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerHorizontalY;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerHorizontalW;
+extern "C" volatile unsigned int g_SPXBHMSplitHudDividerHorizontalH;
 
 static int s_stefxHolomatchHudDrawSlot = -1;
+static int s_stefxHolomatchHudFramePlayers = 0;
 
 static qboolean CL_STEFX_HolomatchAudioProofEnabled(void)
 {
@@ -99,9 +109,10 @@ static int CL_STEFX_HolomatchSplitHudPlayers(void)
 {
 	const char *mode;
 	int players;
+	int slot;
 
 	if (!Cvar_VariableIntegerValue("stefx_splitScreen") ||
-		Cvar_VariableIntegerValue("stefx_splitScreenPlayers") < 3)
+		Cvar_VariableIntegerValue("stefx_splitScreenPlayers") < 2)
 	{
 		return 0;
 	}
@@ -113,7 +124,7 @@ static int CL_STEFX_HolomatchSplitHudPlayers(void)
 	}
 
 	players = Cvar_VariableIntegerValue("stefx_splitScreenPlayers");
-	if (players < 3)
+	if (players < 2)
 	{
 		return 0;
 	}
@@ -121,28 +132,78 @@ static int CL_STEFX_HolomatchSplitHudPlayers(void)
 	{
 		players = 4;
 	}
+
+	/* The renderer deliberately waits until every secondary camera exists
+	 * before arming split-screen.  Keep HUD drawing behind the same barrier;
+	 * otherwise a bot that joins early paints its quadrant HUD over P1's
+	 * still-full-screen camera while the remaining viewport bots are loading. */
+	for (slot = 1; slot < players; ++slot)
+	{
+		refdef_t splitRefdef;
+		if (!RE_STEFX_SplitScreen_GetLocalRefdef(slot, &splitRefdef))
+		{
+			return 0;
+		}
+	}
 	return players;
 }
 
-static void CL_STEFX_HolomatchMapHudToSplitSlot(int slot, float *x, float *y, float *w, float *h)
+static void CL_STEFX_HolomatchSplitRect(int players, int slot, float *x, float *y, float *w, float *h)
 {
 	if (!x || !y || !w || !h)
 	{
 		return;
 	}
 
-	*x *= 0.5f;
-	*y *= 0.5f;
-	*w *= 0.5f;
-	*h *= 0.5f;
-	if (slot & 1)
+	*x = 0.0f;
+	*y = 0.0f;
+	*w = 640.0f;
+	*h = 480.0f;
+	if (players == 2)
 	{
-		*x += 320.0f;
+		*y = slot ? 240.0f : 0.0f;
+		*h = 240.0f;
 	}
-	if (slot & 2)
+	else if (players == 3)
 	{
-		*y += 240.0f;
+		*y = slot ? 240.0f : 0.0f;
+		*h = 240.0f;
+		if (slot > 0)
+		{
+			*x = slot == 2 ? 320.0f : 0.0f;
+			*w = 320.0f;
+		}
 	}
+	else if (players >= 4)
+	{
+		*x = (slot & 1) ? 320.0f : 0.0f;
+		*y = (slot & 2) ? 240.0f : 0.0f;
+		*w = 320.0f;
+		*h = 240.0f;
+	}
+}
+
+static void CL_STEFX_HolomatchMapHudToSplitSlot(int players, int slot, float *x, float *y, float *w, float *h)
+{
+	float rectX;
+	float rectY;
+	float rectW;
+	float rectH;
+	float xScale;
+	float yScale;
+
+	if (!x || !y || !w || !h)
+	{
+		return;
+	}
+
+	CL_STEFX_HolomatchSplitRect(players, slot, &rectX, &rectY, &rectW, &rectH);
+	xScale = rectW / 640.0f;
+	yScale = rectH / 480.0f;
+	*x = rectX + *x * xScale;
+	*y = rectY + *y * yScale;
+	*w *= xScale;
+	*h *= yScale;
 }
 
 static void CL_STEFX_DrawHolomatchSplitSmallChar(int x, int y, int ch)
@@ -194,23 +255,42 @@ static void CL_STEFX_DrawHolomatchSplitStatusOverlay(void)
 {
 	static int s_stefxHMSplitStatusLogBudget = 24;
 	static int s_stefxHMSplitDividerLogBudget = 6;
-	static vec4_t dividerColor = { 0.0f, 0.0f, 0.0f, 0.85f };
+	static int s_stefxHMSplitLoggedPlayers = 0;
 	int players;
 	int slot;
+	float verticalY;
+	float verticalH;
 
-	players = CL_STEFX_HolomatchSplitHudPlayers();
+	players = s_stefxHolomatchHudFramePlayers;
 	if (players <= 0)
 	{
 		return;
 	}
+	if (players != s_stefxHMSplitLoggedPlayers)
+	{
+		s_stefxHMSplitLoggedPlayers = players;
+		s_stefxHMSplitStatusLogBudget = 24;
+		s_stefxHMSplitDividerLogBudget = 6;
+	}
 
-	SCR_FillRect(318.0f, 0.0f, 4.0f, 480.0f, dividerColor);
-	SCR_FillRect(0.0f, 238.0f, 640.0f, 4.0f, dividerColor);
+	verticalY = players == 3 ? 240.0f : 0.0f;
+	verticalH = players >= 4 ? 480.0f : (players == 3 ? 240.0f : 0.0f);
+	/* The viewport rectangles already meet at x=320/y=240.  Do not paint a
+	   separator over either edge: local split-screen uses the full 640x480. */
+	g_SPXBHMSplitHudPlayers = (unsigned int)players;
+	g_SPXBHMSplitHudDividerVerticalX = 320u;
+	g_SPXBHMSplitHudDividerVerticalY = (unsigned int)(int)verticalY;
+	g_SPXBHMSplitHudDividerVerticalW = 0u;
+	g_SPXBHMSplitHudDividerVerticalH = (unsigned int)(int)verticalH;
+	g_SPXBHMSplitHudDividerHorizontalX = 0u;
+	g_SPXBHMSplitHudDividerHorizontalY = 240u;
+	g_SPXBHMSplitHudDividerHorizontalW = 640u;
+	g_SPXBHMSplitHudDividerHorizontalH = 0u;
 	++g_SPXBHMSplitHudDividerSerial;
 	if (s_stefxHMSplitDividerLogBudget > 0)
 	{
-		XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD_DIVIDER: players=%d vertical=(318,0 4x480) horizontal=(0,238 640x4)",
-			players);
+		XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD_DIVIDER: players=%d vertical=(320,%g 0x%g) horizontal=(0,240 640x0)",
+			players, verticalY, verticalH);
 		--s_stefxHMSplitDividerLogBudget;
 	}
 
@@ -219,9 +299,12 @@ static void CL_STEFX_DrawHolomatchSplitStatusOverlay(void)
 		int health = 0;
 		int weapon = 0;
 		int score = 0;
-		float x = (slot & 1) ? 320.0f : 0.0f;
-		float y = (slot & 2) ? 240.0f : 0.0f;
+		float x;
+		float y;
+		float width;
+		float height;
 		qboolean valid = STEFX_HolomatchGetSplitHudState(slot, &health, &weapon, &score);
+		CL_STEFX_HolomatchSplitRect(players, slot, &x, &y, &width, &height);
 
 		++g_SPXBHMSplitHudStatusSerial[slot];
 		g_SPXBHMSplitHudStatusValid[slot] = valid ? 1u : 0u;
@@ -230,8 +313,8 @@ static void CL_STEFX_DrawHolomatchSplitStatusOverlay(void)
 		g_SPXBHMSplitHudStatusScore[slot] = (unsigned int)score;
 		g_SPXBHMSplitHudStatusRectX[slot] = (unsigned int)(int)x;
 		g_SPXBHMSplitHudStatusRectY[slot] = (unsigned int)(int)y;
-		g_SPXBHMSplitHudStatusRectW[slot] = 320u;
-		g_SPXBHMSplitHudStatusRectH[slot] = 240u;
+		g_SPXBHMSplitHudStatusRectW[slot] = (unsigned int)(int)width;
+		g_SPXBHMSplitHudStatusRectH[slot] = (unsigned int)(int)height;
 
 		if (s_stefxHMSplitStatusLogBudget > 0)
 		{
@@ -244,8 +327,8 @@ static void CL_STEFX_DrawHolomatchSplitStatusOverlay(void)
 				score,
 				x,
 				y,
-				320.0f,
-				240.0f);
+				width,
+				height);
 			--s_stefxHMSplitStatusLogBudget;
 		}
 	}
@@ -2377,7 +2460,7 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 #endif
 #if defined(STEFX_SP_HOSTED_MP)
 			{
-				const int splitHudPlayers = CL_STEFX_HolomatchSplitHudPlayers();
+				const int splitHudPlayers = s_stefxHolomatchHudFramePlayers;
 				const int splitSlot = s_stefxHolomatchHudDrawSlot;
 				if (splitHudPlayers > 0 && splitSlot >= 0 && splitSlot < splitHudPlayers)
 				{
@@ -2396,12 +2479,17 @@ static int CL_STEFX_CgameSystemCalls( int *args )
 					float dstW = oldW;
 					float dstH = oldH;
 
-					CL_STEFX_HolomatchMapHudToSplitSlot(splitSlot, &dstX, &dstY, &dstW, &dstH);
+					float rectX;
+					float rectY;
+					float rectW;
+					float rectH;
+					CL_STEFX_HolomatchMapHudToSplitSlot(splitHudPlayers, splitSlot, &dstX, &dstY, &dstW, &dstH);
+					CL_STEFX_HolomatchSplitRect(splitHudPlayers, splitSlot, &rectX, &rectY, &rectW, &rectH);
 					++g_SPXBHMSplitHudSerial[splitSlot];
-					g_SPXBHMSplitHudRectX[splitSlot] = (splitSlot & 1) ? 320u : 0u;
-					g_SPXBHMSplitHudRectY[splitSlot] = (splitSlot & 2) ? 240u : 0u;
-					g_SPXBHMSplitHudRectW[splitSlot] = 320u;
-					g_SPXBHMSplitHudRectH[splitSlot] = 240u;
+					g_SPXBHMSplitHudRectX[splitSlot] = (unsigned int)(int)rectX;
+					g_SPXBHMSplitHudRectY[splitSlot] = (unsigned int)(int)rectY;
+					g_SPXBHMSplitHudRectW[splitSlot] = (unsigned int)(int)rectW;
+					g_SPXBHMSplitHudRectH[splitSlot] = (unsigned int)(int)rectH;
 					if (s_stefxHMSplitHudLogBudget > 0)
 					{
 						XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD: slot=%d players=%d shared=0 shader=%d src=(%g,%g %gx%g) dst=(%g,%g %gx%g)",
@@ -3367,10 +3455,25 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	#endif
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
 	stefxSplitHudPlayers = CL_STEFX_HolomatchSplitHudPlayers();
+	s_stefxHolomatchHudFramePlayers = stefxSplitHudPlayers;
 	s_stefxHolomatchHudDrawSlot = stefxSplitHudPlayers > 0 ? 0 : -1;
 #endif
 	VM_Call( CG_DRAW_ACTIVE_FRAME,timei, stereo, qfalse );
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	{
+		static int s_stefxHMSplitHudCvarLogBudget = 12;
+		const int livePlayersAfterDraw = CL_STEFX_HolomatchSplitHudPlayers();
+
+		if (s_stefxHMSplitHudCvarLogBudget > 0 &&
+			livePlayersAfterDraw != stefxSplitHudPlayers)
+		{
+			XBLog_WriteCriticalf("STEFX_HM_SPLIT_HUD_CVAR: framePlayers=%d liveAfterDraw=%d slot=%d",
+				stefxSplitHudPlayers,
+				livePlayersAfterDraw,
+				s_stefxHolomatchHudDrawSlot);
+			--s_stefxHMSplitHudCvarLogBudget;
+		}
+	}
 	if (stefxSplitHudPlayers > 0)
 	{
 		int slot;
@@ -3401,6 +3504,7 @@ void CL_CGameRendering( stereoFrame_t stereo ) {
 	}
 	s_stefxHolomatchHudDrawSlot = -1;
 	CL_STEFX_DrawHolomatchSplitStatusOverlay();
+	s_stefxHolomatchHudFramePlayers = 0;
 #endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	g_SPXBClTailStage = 0x564d3032; /* 'VM02' */

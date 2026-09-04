@@ -1494,7 +1494,7 @@ def run_self_test() -> int:
                     "STEFX_HM_SPLIT_HUD_STATUS: slot=1 players=4 valid=1 health=100 weapon=1 score=0 dst=(324,4 152x22)",
                     "STEFX_HM_SPLIT_HUD_STATUS: slot=2 players=4 valid=1 health=100 weapon=1 score=0 dst=(4,244 152x22)",
                     "STEFX_HM_SPLIT_HUD_STATUS: slot=3 players=4 valid=1 health=100 weapon=1 score=0 dst=(324,244 152x22)",
-                    "STEFX_HM_SPLIT_HUD_DIVIDER: players=4 vertical=(318,0 4x480) horizontal=(0,238 640x4)",
+                    "STEFX_HM_SPLIT_HUD_DIVIDER: players=4 vertical=(320,0 0x480) horizontal=(0,240 640x0)",
                     heartbeat(500, 20000, "88.0"),
                     heartbeat(600, 80000, "87.5"),
                     heartbeat(700, 140000, "86.9"),

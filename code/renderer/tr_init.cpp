@@ -1168,6 +1168,9 @@ void R_Register( void )
 	// shared SP/Holomatch renderer on that policy also bounds texture traffic.
 	Cvar_Set( "r_picmip", "1" );
 #endif
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	Cvar_Get( "r_splitScreenEconomy", "1", CVAR_ARCHIVE );
+#endif
 	r_colorMipLevels = Cvar_Get ("r_colorMipLevels", "0", CVAR_LATCH );
 	AssertCvarRange( r_picmip, 0, 16, qtrue, qfalse );
 	r_detailTextures = Cvar_Get( "r_detailtextures", "1", CVAR_ARCHIVE | CVAR_LATCH );

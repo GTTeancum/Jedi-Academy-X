@@ -204,6 +204,7 @@ static profileData_t s_ProfileData[MAX_PROFILEFILES];
 
 void UI_SetActiveMenu( const char* menuname,const char *menuID );
 void ReadSaveDirectory (void);
+static void ReadSaveDirectoryInternal(qboolean publishSelectionCvars);
 //JLF MPMOVED
 #ifdef _XBOX
 
@@ -7734,7 +7735,7 @@ void storeSGDataDiffLeveltoCvar()
 		return;
 	}
 	if ( difflevel[0] == '@')
-        Cvar_Set("ui_DiffLevel", SE_GetString(&difflevel[1]));
+		Cvar_Set("ui_DiffLevel", SE_GetString(&difflevel[1]));
 	else
 		Cvar_Set("ui_DiffLevel", "");
 
@@ -7755,7 +7756,7 @@ ReadSaveDirectory
 //for the xbox reading the save directory will consist of
 //iterating through the save game folders
 
-void ReadSaveDirectory (void)
+static void ReadSaveDirectoryInternal(qboolean publishSelectionCvars)
 {
 
 	char	*holdChar;
@@ -7898,27 +7899,191 @@ void ReadSaveDirectory (void)
 
 	setBlockDisplayCvar();
 
-	if (s_savegame.currentLine == 0)
+	if (publishSelectionCvars)
 	{
-		if (ui_ShowDeleteActive)
+		if (s_savegame.currentLine == 0)
 		{
-			Cvar_SetValue("ui_showYdel",trap_Cvar_VariableValue("ui_ShowDelete"));
-			ui_ShowDeleteActive = qfalse;
-			Cvar_SetValue( "ui_cancelYScript",0);
-		}
-		if ( newGameAvailable)
-		{
-			//there is a 'new save game' index that is highlighted
-			Cvar_SetValue("ui_ShowDelete",trap_Cvar_VariableValue("ui_showYdel"));
-			Cvar_SetValue("ui_showYdel",0);
-			Cvar_SetValue( "ui_cancelYScript",1);
-			ui_ShowDeleteActive =qtrue;
+			if (ui_ShowDeleteActive)
+			{
+				Cvar_SetValue("ui_showYdel",trap_Cvar_VariableValue("ui_ShowDelete"));
+				ui_ShowDeleteActive = qfalse;
+				Cvar_SetValue( "ui_cancelYScript",0);
+			}
+			if ( newGameAvailable)
+			{
+				//there is a 'new save game' index that is highlighted
+				Cvar_SetValue("ui_ShowDelete",trap_Cvar_VariableValue("ui_showYdel"));
+				Cvar_SetValue("ui_showYdel",0);
+				Cvar_SetValue( "ui_cancelYScript",1);
+				ui_ShowDeleteActive =qtrue;
+			}
 
 		}
+		storeSGDataDatetoCvar();
+		storeSGDataTimetoCvar();
+		storeSGDataDiffLeveltoCvar();
 	}
-	storeSGDataDatetoCvar();
-	storeSGDataTimetoCvar();
-	storeSGDataDiffLeveltoCvar();
+}
+
+void ReadSaveDirectory(void)
+{
+	ReadSaveDirectoryInternal(qtrue);
+}
+
+static qboolean UI_EFSave_ValidIndex(int index)
+{
+	return index >= 0 && index < s_savegame.saveFileCnt &&
+		s_savedata[index].currentSaveFileName != NULL;
+}
+
+int UI_EFSave_Count(void)
+{
+	Cvar_Set("ui_newGameActive", "0");
+	ReadSaveDirectoryInternal(qfalse);
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD_MENU: refreshed count=%d", s_savegame.saveFileCnt);
+#endif
+	return s_savegame.saveFileCnt;
+}
+
+const char *UI_EFSave_Name(int index)
+{
+	return UI_EFSave_ValidIndex(index) ? s_savedata[index].currentSaveFileName : "";
+}
+
+const char *UI_EFSave_Comment(int index)
+{
+	const char *comment;
+	if (!UI_EFSave_ValidIndex(index))
+	{
+		return "";
+	}
+	comment = s_savedata[index].currentSaveFileComments;
+	if (!Q_stricmp(comment, "@MENUS_APPRENTICE"))
+	{
+		return "EASY";
+	}
+	if (!Q_stricmp(comment, "@MENUS_JEDI"))
+	{
+		return "NORMAL";
+	}
+	if (!Q_stricmp(comment, "@MENUS_JEDI_KNIGHT"))
+	{
+		return "CHALLENGING";
+	}
+	if (!Q_stricmp(comment, "@MENUS_JEDI_MASTER"))
+	{
+		return "DIFFICULT";
+	}
+	return comment;
+}
+
+const char *UI_EFSave_Map(int index)
+{
+	return UI_EFSave_ValidIndex(index) ? s_savedata[index].currentSaveFileMap : "";
+}
+
+const char *UI_EFSave_Date(int index)
+{
+	return UI_EFSave_ValidIndex(index) ? s_savedata[index].currentSaveFileDateTimeString : "";
+}
+
+qboolean UI_EFSave_IsCorrupt(int index)
+{
+	return UI_EFSave_ValidIndex(index) ? (qboolean)s_savedata[index].corrupt : qtrue;
+}
+
+qboolean UI_EFSave_Load(int index)
+{
+	if (!UI_EFSave_ValidIndex(index) || s_savedata[index].corrupt)
+	{
+#ifdef _XBOX
+		XBLF("STEFX_SAVELOAD_MENU: rejected index=%d count=%d corrupt=%d",
+			index,
+			s_savegame.saveFileCnt,
+			UI_EFSave_ValidIndex(index) ? s_savedata[index].corrupt : -1);
+#endif
+		return qfalse;
+	}
+
+	Q_strncpyz(g_loadsaveGameName, s_savedata[index].currentSaveFileName, sizeof(g_loadsaveGameName));
+	g_loadsaveGameNameInitialized = qtrue;
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD_MENU: queued index=%d name='%s' map='%s' comment='%s'",
+		index,
+		g_loadsaveGameName,
+		s_savedata[index].currentSaveFileMap,
+		s_savedata[index].currentSaveFileComments);
+#endif
+	Cbuf_ExecuteText(EXEC_APPEND, "load menu\n");
+	return qtrue;
+}
+
+static qboolean UI_EFSave_QueueWrite(const char *name, const char *source)
+{
+	char command[MAX_SAVELOADNAME + 16];
+
+	if (!name || !name[0] || strstr(name, "..") || strchr(name, '/') || strchr(name, '\\'))
+	{
+#ifdef _XBOX
+		XBLF("STEFX_SAVELOAD_MENU: save rejected source='%s' name='%s'",
+			source ? source : "", name ? name : "");
+#endif
+		return qfalse;
+	}
+
+	ui.SG_StoreSaveGameComment("");
+	Com_sprintf(command, sizeof(command), "save %s\n", name);
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD_MENU: save queued source='%s' name='%s' command='%s'",
+		source ? source : "", name, command);
+#endif
+	ui.Cmd_ExecuteText(EXEC_APPEND, command);
+	return qtrue;
+}
+
+qboolean UI_EFSave_CreateNew(void)
+{
+	char name[MAX_SAVELOADNAME];
+	int candidate;
+	int index;
+
+	UI_EFSave_Count();
+	for (candidate = 0; candidate < MAX_SAVELOADFILES; ++candidate)
+	{
+		qboolean inUse = qfalse;
+		Com_sprintf(name, sizeof(name), "eforce%d", candidate);
+		for (index = 0; index < s_savegame.saveFileCnt; ++index)
+		{
+			if (UI_EFSave_ValidIndex(index) && !Q_stricmp(name, s_savedata[index].currentSaveFileName))
+			{
+				inUse = qtrue;
+				break;
+			}
+		}
+		if (!inUse)
+		{
+			return UI_EFSave_QueueWrite(name, "new");
+		}
+	}
+
+#ifdef _XBOX
+	XBLF("STEFX_SAVELOAD_MENU: save rejected source='new' reason='all %d slots occupied'", MAX_SAVELOADFILES);
+#endif
+	return qfalse;
+}
+
+qboolean UI_EFSave_Overwrite(int index)
+{
+	if (!UI_EFSave_ValidIndex(index))
+	{
+#ifdef _XBOX
+		XBLF("STEFX_SAVELOAD_MENU: overwrite rejected index=%d count=%d", index, s_savegame.saveFileCnt);
+#endif
+		return qfalse;
+	}
+
+	return UI_EFSave_QueueWrite(s_savedata[index].currentSaveFileName, "overwrite");
 }
 
 

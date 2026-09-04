@@ -9,9 +9,15 @@
 
 #ifdef _XBOX
 #include <xtl.h>
+#include "../win32/xb_log.h"
 extern HANDLE Sys_FileStreamMutex;
 extern void S_XboxOnSoundLoaded(sfx_t *sfx);
 extern void QAL_XboxSetBufferDebugName(ALuint buffer, const char *name);
+extern void *FS_STEFX_AllocExternalSoundBuffer(int len);
+extern qboolean FS_STEFX_FreeHeapFileBuffer(void *buffer);
+extern "C" volatile unsigned int g_SPXBAudioLoadStage;
+extern "C" volatile unsigned int g_SPXBAudioLoadIndex;
+extern "C" volatile unsigned int g_SPXBAudioLoadHandle;
 #endif
 
 #ifndef WAVE_FORMAT_PCM
@@ -28,6 +34,21 @@ static int s_LoadListSize = 0;
 qboolean gbInsideLoadSound = qfalse;	// Needed to link VVFIXME
 
 extern int Sys_GetFileCode(const char *name);
+
+static void S_FreeRawSoundData(void *data)
+{
+	if (!data)
+	{
+		return;
+	}
+#ifdef _XBOX
+	if (FS_STEFX_FreeHeapFileBuffer(data))
+	{
+		return;
+	}
+#endif
+	Z_Free(data);
+}
 
 //Drain sound main memory into ARAM.
 void S_DrainRawSoundData(void)
@@ -284,7 +305,7 @@ static qboolean S_DecodeMP3Sound(sfx_t *sfx, byte *sourceData, int sourceBytes, 
 		return qfalse;
 	}
 
-	Z_Free(sfx->pSoundData);
+	S_FreeRawSoundData(sfx->pSoundData);
 	sfx->pSoundData = decoded;
 
 	static int s_mp3DecodeLogCount = 0;
@@ -468,17 +489,34 @@ S_UpdateLoading
 ============
 */
 void S_UpdateLoading(void) {
+	#ifdef _XBOX
+	g_SPXBAudioLoadStage = 0x414C3030; /* 'AL00': entered */
+	#endif
 	for ( int i = 0; i < SND_MAX_LOADS; ++i )
 	{
+		#ifdef _XBOX
+		g_SPXBAudioLoadIndex = (unsigned int)i;
+		g_SPXBAudioLoadHandle = s_LoadList[i] ? (unsigned int)s_LoadList[i]->iStreamHandle : 0xffffffff;
+		g_SPXBAudioLoadStage = 0x414C3130; /* 'AL10': before stream poll */
+		#endif
 		if ( s_LoadList[i] &&
 			(s_LoadList[i]->iFlags & SFX_FLAG_LOADING) &&
 			!Sys_StreamIsReading(s_LoadList[i]->iStreamHandle) )
 		{
+			#ifdef _XBOX
+			g_SPXBAudioLoadStage = 0x414C3230; /* 'AL20': before load completion */
+			#endif
 			S_EndLoadSound(s_LoadList[i]);
+			#ifdef _XBOX
+			g_SPXBAudioLoadStage = 0x414C3231; /* 'AL21': load completion returned */
+			#endif
 			s_LoadList[i] = NULL;
 			--s_LoadListSize;
 		}
 	}
+	#ifdef _XBOX
+	g_SPXBAudioLoadStage = 0x414C4646; /* 'ALFF': complete */
+	#endif
 }
 
 /*
@@ -489,6 +527,26 @@ S_BeginLoadSound
 qboolean S_StartLoadSound( sfx_t *sfx )
 {
 	assert(sfx->iFlags & SFX_FLAG_UNLOADED);
+
+	// Stream completion is retired once per frame by S_Update.  Doing that
+	// reentrantly while submitting a new sound can deadlock the stream mutex.
+	// If the queue is full, leave this sound unloaded for a later-frame retry.
+	if (s_LoadListSize >= SND_MAX_LOADS)
+	{
+#ifdef _XBOX
+		static int s_xboxDeferredLoadLogBudget = 32;
+		if (s_xboxDeferredLoadLogBudget > 0)
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			XBLog_WriteRingMarkerf("STEFX_AUDIO_LOAD: deferred active=%d limit=%d code=0x%x name='%s'",
+				s_LoadListSize, SND_MAX_LOADS, sfx->iFileCode,
+				name ? name : "<unknown>");
+			--s_xboxDeferredLoadLogBudget;
+		}
+#endif
+		return qfalse;
+	}
+
 	sfx->iFlags &= ~SFX_FLAG_UNLOADED;
 	
 	// Valid file?
@@ -505,15 +563,33 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 	Com_Printf("SOUND: %s at %d\n", name, time);
 #endif
 
-	// Finish up any pending loads
-	do
-	{
-		S_UpdateLoading();
-	} 
-	while (s_LoadListSize >= SND_MAX_LOADS);
-
 	// Open the file
+#ifdef _XBOX
+	{
+		static int s_xboxStreamStageLogBudget = 48;
+		if (s_xboxStreamStageLogBudget > 0)
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			XBLog_WriteRingMarkerf("STEFX_AUDIO_LOAD: open begin active=%d code=0x%x name='%s'",
+				s_LoadListSize, sfx->iFileCode, name ? name : "<unknown>");
+			--s_xboxStreamStageLogBudget;
+		}
+	}
+#endif
 	sfx->iSoundLength = Sys_StreamOpen(sfx->iFileCode, &sfx->iStreamHandle);
+#ifdef _XBOX
+	{
+		static int s_xboxStreamOpenLogBudget = 48;
+		if (s_xboxStreamOpenLogBudget > 0)
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			XBLog_WriteRingMarkerf("STEFX_AUDIO_LOAD: open end active=%d handle=%d length=%d code=0x%x name='%s'",
+				s_LoadListSize, sfx->iStreamHandle, sfx->iSoundLength,
+				sfx->iFileCode, name ? name : "<unknown>");
+			--s_xboxStreamOpenLogBudget;
+		}
+	}
+#endif
 	if ( sfx->iSoundLength <= 0 )
 	{
 #ifdef _XBOX
@@ -573,26 +649,92 @@ qboolean S_StartLoadSound( sfx_t *sfx )
 
 #ifdef _GAMECUBE
 	// Allocate a buffer to read into...
+	SND_PrepareForSoundLoad(sfx, sfx->iSoundLength + 64);
 	sfx->pSoundData = Z_Malloc(sfx->iSoundLength + 64, TAG_SND_RAWDATA,
 			qtrue, 32);
 #else
 	// Allocate a buffer to read into...
-	sfx->pSoundData = Z_Malloc(sfx->iSoundLength, TAG_SND_RAWDATA, qtrue, 32);
+	SND_PrepareForSoundLoad(sfx, sfx->iSoundLength);
+#ifdef _XBOX
+	if ((sfx->iFlags & SFX_FLAG_VOICE) && sfx->iSoundLength >= (256 * 1024))
+	{
+		sfx->pSoundData = FS_STEFX_AllocExternalSoundBuffer(sfx->iSoundLength);
+	}
+	else
+#endif
+	{
+		sfx->pSoundData = Z_Malloc(sfx->iSoundLength, TAG_SND_RAWDATA, qtrue, 32);
+	}
+#endif
+
+#ifdef _XBOX
+	// AL_MEMORY_USED does not include every byte held by the zone allocator,
+	// and the zone can become fragmented even while the configured sound-pool
+	// limit says that another sound should fit.  A full-quality VO line is a
+	// large contiguous allocation, so make one bounded cache purge and retry
+	// after an actual allocation failure.  SND_FreeOldestSound deliberately
+	// preserves buffers still attached to channels and never frees this sfx.
+	if (!sfx->pSoundData)
+	{
+		const int freed = SND_FreeOldestSound(sfx);
+		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		XBLog_WriteCriticalf("STEFX_AUDIO_CACHE: zone retry incoming=%d freed=%d code=0x%x name='%s'",
+			sfx->iSoundLength, freed, sfx->iFileCode,
+			name ? name : "<unknown>");
+#ifdef _GAMECUBE
+		sfx->pSoundData = Z_Malloc(sfx->iSoundLength + 64, TAG_SND_RAWDATA,
+			qtrue, 32);
+#else
+		sfx->pSoundData = Z_Malloc(sfx->iSoundLength, TAG_SND_RAWDATA, qtrue, 32);
+#endif
+	}
 #endif
 
 	// Setup the background read
+#ifdef _XBOX
+	{
+		static int s_xboxStreamReadLogBudget = 48;
+		if (s_xboxStreamReadLogBudget > 0)
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			XBLog_WriteRingMarkerf("STEFX_AUDIO_LOAD: read begin active=%d handle=%d length=%d code=0x%x name='%s'",
+				s_LoadListSize, sfx->iStreamHandle, sfx->iSoundLength,
+				sfx->iFileCode, name ? name : "<unknown>");
+			--s_xboxStreamReadLogBudget;
+		}
+	}
+#endif
 	if ( !sfx->pSoundData || 
 			!Sys_StreamRead(sfx->pSoundData, sfx->iSoundLength, 0, 
 				sfx->iStreamHandle) )
 	{
+#ifdef _XBOX
+		const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+		XBLog_WriteCriticalf("STEFX_AUDIO_LOAD: queue failed allocation=%d handle=%d length=%d code=0x%x name='%s'",
+			sfx->pSoundData ? 1 : 0, sfx->iStreamHandle, sfx->iSoundLength,
+			sfx->iFileCode, name ? name : "<unknown>");
+#endif
 		if(sfx->pSoundData) {
-			Z_Free(sfx->pSoundData);
+			S_FreeRawSoundData(sfx->pSoundData);
 		}
 		Sys_StreamClose(sfx->iStreamHandle);
 		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
 		return qfalse;
 	}
 	sfx->iFlags |= SFX_FLAG_LOADING;
+#ifdef _XBOX
+	{
+		static int s_xboxStreamQueuedLogBudget = 48;
+		if (s_xboxStreamQueuedLogBudget > 0)
+		{
+			const char *name = Sys_GetSoundFileCodeName(sfx->iFileCode);
+			XBLog_WriteRingMarkerf("STEFX_AUDIO_LOAD: read queued active=%d handle=%d code=0x%x name='%s'",
+				s_LoadListSize, sfx->iStreamHandle, sfx->iFileCode,
+				name ? name : "<unknown>");
+			--s_xboxStreamQueuedLogBudget;
+		}
+	}
+#endif
 
 	// add sound to load list
 	for (int i = 0; i < SND_MAX_LOADS; ++i)
@@ -630,7 +772,7 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 		ERR_DiscFail(false);
 #endif
 		Sys_StreamClose(sfx->iStreamHandle);
-		Z_Free(sfx->pSoundData);
+		S_FreeRawSoundData(sfx->pSoundData);
 		sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
 		return qfalse;
 	}
@@ -656,7 +798,7 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 #endif
 		if (!S_DecodeMP3Sound(sfx, data, sfx->iSoundLength, &info))
 		{
-			Z_Free(sfx->pSoundData);
+			S_FreeRawSoundData(sfx->pSoundData);
 			sfx->iFlags |= SFX_FLAG_RESIDENT | SFX_FLAG_DEFAULT;
 			return qfalse;
 		}
@@ -700,7 +842,7 @@ qboolean S_EndLoadSound( sfx_t *sfx )
 				name ? name : "<unknown>", sfx->iFileCode, info.waveFormatTag, info.format, sfx->iSoundLength, info.rate);
 		}
 #endif
-		Z_Free(sfx->pSoundData);
+		S_FreeRawSoundData(sfx->pSoundData);
 		sfx->iFlags |= SFX_FLAG_UNLOADED;
 		return qfalse;
 	}

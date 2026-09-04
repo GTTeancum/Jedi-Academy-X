@@ -65,6 +65,11 @@ extern "C" volatile unsigned int g_SPXBSplitP2RefdefValid;
 extern "C" volatile unsigned int g_SPXBSplitP2CurX;
 extern "C" volatile unsigned int g_SPXBSplitP2CurY;
 extern "C" volatile unsigned int g_SPXBSplitP2CurZ;
+extern "C" volatile unsigned int g_SPXBScratchMode;
+extern "C" volatile unsigned int g_SPXBScratchFlip;
+extern "C" volatile unsigned int g_SPXBScratchDraws;
+extern "C" volatile unsigned int g_SPXBScratchFallbacks;
+extern "C" volatile unsigned int g_SPXBScratchWaitMsec;
 extern "C" volatile unsigned int g_SPXBPerfFrameMsec;
 extern "C" volatile unsigned int g_SPXBPerfServerMsec;
 extern "C" volatile unsigned int g_SPXBPerfClientMsec;
@@ -79,6 +84,8 @@ extern "C" volatile unsigned int g_SPXBPerfGamePreMsec;
 extern "C" volatile unsigned int g_SPXBPerfGameEntitiesMsec;
 extern "C" volatile unsigned int g_SPXBPerfGamePostMsec;
 extern "C" volatile unsigned int g_SPXBPerfScreenDrawMsec;
+extern "C" volatile unsigned int g_SPXBPerfCgameDrawMsec;
+extern "C" volatile unsigned int g_SPXBCgPhaseCycles[10];
 extern "C" volatile unsigned int g_SPXBPerfEndFrameMsec;
 extern "C" volatile unsigned int g_SPXBPerfRenderViews;
 extern "C" volatile unsigned int g_SPXBPerfRenderDrawSurfs;
@@ -2554,6 +2561,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #if defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		static int s_xboxLastCompletedHeartbeatTime = 0;
 		static int s_xboxLastCompletedHeartbeatFrame = 0;
+		static unsigned int s_xboxFpsProfileSample = 0;
 		static unsigned int s_xboxLastDrawSurfLists = 0;
 		static unsigned int s_xboxLastRenderSurfaces = 0;
 		static unsigned int s_xboxLastEndSurfaces = 0;
@@ -2772,7 +2780,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				XBLog_Write(msg);
 				_snprintf(
 					msg, sizeof(msg) - 1,
-					"STEFX_HW_FRAME_PROFILE: sample=%u frame=%u fps=%u.%u total=%u server=%u client=%u frontend=%u backend=%u audio=%u screen=%u endFrame=%u gamePhases=%u/%u/%u views=%u leaves=%u inputSurfs=%u batches=%u submits=%u verts=%u indexes=%u worldWork=%u/%u/%u/%u/%u/%u/%u frontendPhases=%u/%u/%u/%u/%u/%u/%u/%u backendPhases=%u/%u/%u finish=%u present=%u drawCycles=%u state=%u reserve=%u pack=%u index=%u submitCycles=%u skinSwap=%u skinFetch=%u skinWait=%u skinWriteKB=%u skinReadKB=%u staticTexKB=%u staticTexCapKB=%u skinTexKB=%u skinTexCapKB=%u",
+					"STEFX_HW_FRAME_PROFILE: sample=%u frame=%u fps=%u.%u total=%u server=%u client=%u frontend=%u backend=%u audio=%u screen=%u cgame=%u endFrame=%u gamePhases=%u/%u/%u views=%u leaves=%u inputSurfs=%u batches=%u submits=%u verts=%u indexes=%u worldWork=%u/%u/%u/%u/%u/%u/%u frontendPhases=%u/%u/%u/%u/%u/%u/%u/%u backendPhases=%u/%u/%u finish=%u present=%u drawCycles=%u state=%u reserve=%u pack=%u index=%u submitCycles=%u cgPhases=%u/%u/%u/%u/%u/%u/%u/%u/%u skinSwap=%u skinFetch=%u skinWait=%u skinWriteKB=%u skinReadKB=%u staticTexKB=%u staticTexCapKB=%u skinTexKB=%u skinTexCapKB=%u",
 					(unsigned int)g_SPXBPerfSampleSerial,
 					(unsigned int)cls.framecount,
 					(unsigned int)(fps10 / 10),
@@ -2784,6 +2792,7 @@ void CL_Frame ( int msec,float fractionMsec ) {
 					(unsigned int)g_SPXBPerfBackendMsec,
 					(unsigned int)g_SPXBPerfAudioMsec,
 					(unsigned int)g_SPXBPerfScreenDrawMsec,
+					(unsigned int)g_SPXBPerfCgameDrawMsec,
 					(unsigned int)g_SPXBPerfEndFrameMsec,
 					(unsigned int)g_SPXBPerfGamePreMsec,
 					(unsigned int)g_SPXBPerfGameEntitiesMsec,
@@ -2821,6 +2830,15 @@ void CL_Frame ( int msec,float fractionMsec ) {
 					(unsigned int)g_SPXBPerfDrawPackCycles,
 					(unsigned int)g_SPXBPerfDrawIndexCycles,
 					(unsigned int)g_SPXBPerfDrawSubmitCycles,
+					(unsigned int)g_SPXBCgPhaseCycles[0],
+					(unsigned int)g_SPXBCgPhaseCycles[1],
+					(unsigned int)g_SPXBCgPhaseCycles[2],
+					(unsigned int)g_SPXBCgPhaseCycles[3],
+					(unsigned int)g_SPXBCgPhaseCycles[4],
+					(unsigned int)g_SPXBCgPhaseCycles[5],
+					(unsigned int)g_SPXBCgPhaseCycles[6],
+					(unsigned int)g_SPXBCgPhaseCycles[7],
+					(unsigned int)g_SPXBCgPhaseCycles[8],
 					STEFX_SkinTextureSwapCount(),
 					STEFX_SkinTextureFetchCount(),
 					STEFX_SkinTextureWaitCount(),
@@ -2831,7 +2849,38 @@ void CL_Frame ( int msec,float fractionMsec ) {
 					STEFX_SkinTextureUsed() / 1024u,
 					STEFX_SkinTextureCapacity() / 1024u);
 				msg[sizeof(msg) - 1] = '\0';
-				XBLog_WriteProfile(msg);
+				XBLog_WriteFrameProfile(msg);
+				++s_xboxFpsProfileSample;
+				_snprintf(
+					msg, sizeof(msg) - 1,
+					"STEFX_HW_FPS_SAMPLE: sample=%u frame=%u realtime=%u serverTime=%u fps=%u.%u total=%u server=%u client=%u audio=%u mem=%u/%u/%u/%u players=%d humans=%d bots=%d source=%s virtual=%d/%d scratch=%u/%u/%u/%u/%u",
+					s_xboxFpsProfileSample,
+					(unsigned int)cls.framecount,
+					(unsigned int)cls.realtime,
+					(unsigned int)cl.serverTime,
+					(unsigned int)(fps10 / 10),
+					(unsigned int)(fps10 % 10),
+					(unsigned int)g_SPXBPerfFrameMsec,
+					(unsigned int)g_SPXBPerfServerMsec,
+					(unsigned int)g_SPXBPerfClientMsec,
+					(unsigned int)g_SPXBPerfAudioMsec,
+					(unsigned int)memStats.usedBytes,
+					(unsigned int)memStats.freeBytes,
+					(unsigned int)memStats.largestFreeBlock,
+					(unsigned int)memStats.freeBlocks,
+					Cvar_VariableIntegerValue("stefx_splitScreenPlayers"),
+					Cvar_VariableIntegerValue("stefx_hmHumanPlayers"),
+					Cvar_VariableIntegerValue("stefx_splitScreenPlayers") - Cvar_VariableIntegerValue("stefx_hmHumanPlayers"),
+					Cvar_VariableString("stefx_hm_launch_source"),
+					Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls"),
+					Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1"),
+					(unsigned int)g_SPXBScratchMode,
+					(unsigned int)g_SPXBScratchFlip,
+					(unsigned int)g_SPXBScratchDraws,
+					(unsigned int)g_SPXBScratchFallbacks,
+					(unsigned int)g_SPXBScratchWaitMsec);
+				msg[sizeof(msg) - 1] = '\0';
+				XBLog_WriteFpsProfile(msg);
 				s_xboxLastTextHeartbeatTime = cls.realtime;
 			}
 
@@ -2889,9 +2938,11 @@ void CL_Frame ( int msec,float fractionMsec ) {
 #else
 		static int s_xboxLastHeartbeatTime = 0;
 		static int s_xboxLastHeartbeatFrame = 0;
+		static unsigned int s_xboxFpsProfileSample = 0;
 		if (s_xboxLastHeartbeatTime == 0 || cls.realtime - s_xboxLastHeartbeatTime >= 5000)
 		{
 			char msg[768];
+			zmemstats_t memStats;
 			const int elapsed = cls.realtime - s_xboxLastHeartbeatTime;
 			const int frameDelta = cls.framecount - s_xboxLastHeartbeatFrame;
 			const unsigned int fps10 = (elapsed > 0)
@@ -2903,17 +2954,14 @@ void CL_Frame ( int msec,float fractionMsec ) {
 			g_SPXBHeartbeatRealtime = cls.realtime;
 			g_SPXBHeartbeatServerTime = cl.serverTime;
 			g_SPXBHeartbeatFps10 = fps10;
-			{
-				zmemstats_t memStats;
-				Z_GetMemoryStats(&memStats);
-				g_SPXBHeartbeatMemUsed = (unsigned int)memStats.usedBytes;
-				g_SPXBHeartbeatMemFree = (unsigned int)memStats.freeBytes;
-				g_SPXBHeartbeatMemLargest = (unsigned int)memStats.largestFreeBlock;
-				g_SPXBHeartbeatMemBlocks = (unsigned int)memStats.freeBlocks;
-			}
+			Z_GetMemoryStats(&memStats);
+			g_SPXBHeartbeatMemUsed = (unsigned int)memStats.usedBytes;
+			g_SPXBHeartbeatMemFree = (unsigned int)memStats.freeBytes;
+			g_SPXBHeartbeatMemLargest = (unsigned int)memStats.largestFreeBlock;
+			g_SPXBHeartbeatMemBlocks = (unsigned int)memStats.freeBlocks;
 
 			XBLog_WriteCriticalf(
-				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%u.%u cap=%d perf=%u/%u/%u/%u/%u/%u audio=%u screen=%u/%u svtick=%u/%u/%u render=%u/%u/%u/%u/%u/%u/%u submit=%u drawcy=%u/%u/%u/%u/%u/%u",
+				"JA: FRAME_HEARTBEAT completedFrame=%d realtime=%d serverTime=%d fd=%d el=%d fps=%u.%u cap=%d perf=%u/%u/%u/%u/%u/%u audio=%u screen=%u/%u svtick=%u/%u/%u render=%u/%u/%u/%u/%u/%u/%u submit=%u drawcy=%u/%u/%u/%u/%u/%u mem=%u/%u/%u/%u",
 				cls.framecount,
 				cls.realtime,
 				cl.serverTime,
@@ -2947,7 +2995,11 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				(unsigned int)g_SPXBPerfDrawReserveCycles,
 				(unsigned int)g_SPXBPerfDrawPackCycles,
 				(unsigned int)g_SPXBPerfDrawIndexCycles,
-				(unsigned int)g_SPXBPerfDrawSubmitCycles);
+				(unsigned int)g_SPXBPerfDrawSubmitCycles,
+				(unsigned int)memStats.usedBytes,
+				(unsigned int)memStats.freeBytes,
+				(unsigned int)memStats.largestFreeBlock,
+				(unsigned int)memStats.freeBlocks);
 			_snprintf(
 				msg, sizeof(msg) - 1,
 				"STEFX_HW_FRAME_PROFILE: sample=%u frame=%u fps=%u.%u total=%u server=%u client=%u frontend=%u backend=%u audio=%u screen=%u endFrame=%u views=%u leaves=%u inputSurfs=%u batches=%u submits=%u verts=%u indexes=%u worldWork=%u/%u/%u/%u/%u/%u/%u frontendPhases=%u/%u/%u/%u/%u/%u/%u/%u backendPhases=%u/%u/%u finish=%u present=%u drawCycles=%u state=%u reserve=%u pack=%u index=%u submitCycles=%u",
@@ -2997,7 +3049,38 @@ void CL_Frame ( int msec,float fractionMsec ) {
 				(unsigned int)g_SPXBPerfDrawIndexCycles,
 				(unsigned int)g_SPXBPerfDrawSubmitCycles);
 			msg[sizeof(msg) - 1] = '\0';
-			XBLog_WriteProfile(msg);
+			XBLog_WriteFrameProfile(msg);
+			++s_xboxFpsProfileSample;
+			_snprintf(
+				msg, sizeof(msg) - 1,
+				"STEFX_HW_FPS_SAMPLE: sample=%u frame=%u realtime=%u serverTime=%u fps=%u.%u total=%u server=%u client=%u audio=%u mem=%u/%u/%u/%u players=%d humans=%d bots=%d source=%s virtual=%d/%d scratch=%u/%u/%u/%u/%u",
+				s_xboxFpsProfileSample,
+				(unsigned int)cls.framecount,
+				(unsigned int)cls.realtime,
+				(unsigned int)cl.serverTime,
+				fps10 / 10u,
+				fps10 % 10u,
+				(unsigned int)g_SPXBPerfFrameMsec,
+				(unsigned int)g_SPXBPerfServerMsec,
+				(unsigned int)g_SPXBPerfClientMsec,
+				(unsigned int)g_SPXBPerfAudioMsec,
+				(unsigned int)memStats.usedBytes,
+				(unsigned int)memStats.freeBytes,
+				(unsigned int)memStats.largestFreeBlock,
+				(unsigned int)memStats.freeBlocks,
+				Cvar_VariableIntegerValue("stefx_splitScreenPlayers"),
+				Cvar_VariableIntegerValue("stefx_hmHumanPlayers"),
+				Cvar_VariableIntegerValue("stefx_splitScreenPlayers") - Cvar_VariableIntegerValue("stefx_hmHumanPlayers"),
+				Cvar_VariableString("stefx_hm_launch_source"),
+				Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls"),
+				Cvar_VariableIntegerValue("stefx_hm_split_virtual_controls_p1"),
+				(unsigned int)g_SPXBScratchMode,
+				(unsigned int)g_SPXBScratchFlip,
+				(unsigned int)g_SPXBScratchDraws,
+				(unsigned int)g_SPXBScratchFallbacks,
+				(unsigned int)g_SPXBScratchWaitMsec);
+			msg[sizeof(msg) - 1] = '\0';
+			XBLog_WriteFpsProfile(msg);
 			s_xboxLastHeartbeatTime = cls.realtime;
 			s_xboxLastHeartbeatFrame = cls.framecount;
 		}

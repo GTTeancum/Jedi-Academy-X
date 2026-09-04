@@ -3143,7 +3143,7 @@ static bool RB_TestZFlare( vec3_t point) {
 
 	glw_state->device->SetTransform(D3DTS_VIEW, 
 			glw_state->matrixStack[glwstate_t::MatrixMode_Model]->GetTop());
-	glw_state->device->SetVertexShader(D3DFVF_XYZ);
+	STEFX_D3D8_SetVertexShaderTracked(D3DFVF_XYZ);
 
 	glw_state->device->BeginVisibilityTest();
 	glw_state->device->Begin(D3DPT_POINTLIST);

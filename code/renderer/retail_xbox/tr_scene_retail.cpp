@@ -779,11 +779,9 @@ static int R_STEFX_ClampSplitPlayers( int players )
 	return players;
 }
 
-static qboolean R_STEFX_Holomatch4PEconomyActive( void )
+static qboolean R_STEFX_SplitScreenEconomyActive( void )
 {
-	const char *mode;
-
-	if ( !Cvar_VariableIntegerValue( "stefx_hm_split_economy" ) )
+	if ( !Cvar_VariableIntegerValue( "r_splitScreenEconomy" ) )
 	{
 		return qfalse;
 	}
@@ -791,12 +789,36 @@ static qboolean R_STEFX_Holomatch4PEconomyActive( void )
 	{
 		return qfalse;
 	}
-	mode = Cvar_VariableString( "stefx_splitScreenMode" );
-	if ( !mode || Q_stricmp( mode, "holomatch" ) )
+	return R_STEFX_ClampSplitPlayers( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) >= 2 ? qtrue : qfalse;
+}
+
+static void R_STEFX_LogSplitDrawSurfCapacity( int slot, int players, int drawAfter )
+{
+	static unsigned int s_stefxSplitDrawSurfMilestones = 0;
+	unsigned int milestone = 0;
+
+	if ( drawAfter >= MAX_DRAWSURFS )
 	{
-		return qfalse;
+		milestone = 8u;
 	}
-	return R_STEFX_ClampSplitPlayers( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) >= 4 ? qtrue : qfalse;
+	else if ( drawAfter >= 0x8000 )
+	{
+		milestone = 4u;
+	}
+	else if ( drawAfter >= 0x4000 )
+	{
+		milestone = 2u;
+	}
+	else if ( drawAfter >= 0x3000 )
+	{
+		milestone = 1u;
+	}
+	if ( milestone && !( s_stefxSplitDrawSurfMilestones & milestone ) )
+	{
+		s_stefxSplitDrawSurfMilestones |= milestone;
+		XBLog_WriteCriticalf( "STEFX_HM_SPLIT_DRAWSURF_CAPACITY: slot=%d players=%d drawAfter=%d capacity=%d milestone=0x%x",
+			slot, players, drawAfter, MAX_DRAWSURFS, milestone );
+	}
 }
 
 static qboolean R_STEFX_ShouldRenderSplitScreen( const refdef_t *fd, int *players )
@@ -841,17 +863,17 @@ static qboolean R_STEFX_ShouldRenderSplitScreen( const refdef_t *fd, int *player
 	return qtrue;
 }
 
-static float R_STEFX_CalcFovYForViewport( float fovX, int width, int height )
+static float R_STEFX_CalcFovXForViewport( float fovY, int width, int height )
 {
-	float x;
+	float y;
 
 	if ( width <= 0 || height <= 0 )
 	{
-		return fovX;
+		return fovY;
 	}
 
-	x = (float)width / tan( fovX / 360.0f * M_PI );
-	return atan2( (float)height, x ) * 360.0f / M_PI;
+	y = (float)height / tan( fovY / 360.0f * M_PI );
+	return atan2( (float)width, y ) * 360.0f / M_PI;
 }
 
 static void R_STEFX_SetSplitViewport( trRefdef_t *refdef, viewParms_t *parms, const trRefdef_t *sourceRefdef, const viewParms_t *sourceParms, int slot, int players )
@@ -879,7 +901,19 @@ static void R_STEFX_SetSplitViewport( trRefdef_t *refdef, viewParms_t *parms, co
 		y = sourceRefdef->y + ( slot ? topHeight : 0 );
 		h = slot ? ( sourceRefdef->height - topHeight ) : topHeight;
 	}
-	else if ( players >= 3 )
+	else if ( players == 3 )
+	{
+		halfH = sourceRefdef->height / 2;
+		y = sourceRefdef->y + ( slot ? halfH : 0 );
+		h = slot ? ( sourceRefdef->height - halfH ) : halfH;
+		if ( slot > 0 )
+		{
+			halfW = sourceRefdef->width / 2;
+			x = sourceRefdef->x + ( slot == 2 ? halfW : 0 );
+			w = slot == 2 ? ( sourceRefdef->width - halfW ) : halfW;
+		}
+	}
+	else if ( players >= 4 )
 	{
 		halfW = sourceRefdef->width / 2;
 		halfH = sourceRefdef->height / 2;
@@ -893,7 +927,8 @@ static void R_STEFX_SetSplitViewport( trRefdef_t *refdef, viewParms_t *parms, co
 	refdef->y = y;
 	refdef->width = w;
 	refdef->height = h;
-	refdef->fov_y = R_STEFX_CalcFovYForViewport( refdef->fov_x, w, h );
+	refdef->fov_y = sourceRefdef->fov_y;
+	refdef->fov_x = R_STEFX_CalcFovXForViewport( refdef->fov_y, w, h );
 
 	parms->viewportX = x;
 	parms->viewportY = glConfig.vidHeight - ( y + h );
@@ -902,7 +937,122 @@ static void R_STEFX_SetSplitViewport( trRefdef_t *refdef, viewParms_t *parms, co
 	parms->fovX = refdef->fov_x;
 	parms->fovY = refdef->fov_y;
 	parms->stefxSplitView = qtrue;
+	parms->stefxSplitEconomy = R_STEFX_SplitScreenEconomyActive();
+	parms->stefxSplitThreePlusEconomy =
+		parms->stefxSplitEconomy && players >= 3 ? qtrue : qfalse;
 	parms->stefxSplitSlot = slot;
+
+	if ( parms->stefxSplitThreePlusEconomy )
+	{
+		static qboolean s_stefxThreePlusQualityLogged = qfalse;
+		if ( !s_stefxThreePlusQualityLogged )
+		{
+			s_stefxThreePlusQualityLogged = qtrue;
+			XBLog_WriteCriticalf(
+				"STEFX_HM_QUALITY: players=%d rendererFog=0 nonMdrLodBias=1 mdrLod=0 firstPersonLodBias=0 impactMarks=0 spawnerParticles=0.4 gameplayPortraits=2D vertexShaderCache=tracked streamSourceCache=tracked policy=three-plus",
+				players );
+		}
+	}
+}
+
+static void R_STEFX_LogSplitTiling( const trRefdef_t *sourceRefdef, const viewParms_t *sourceParms, int players )
+{
+	static int s_lastPlayers = 0;
+	static int s_lastSourceX = 0;
+	static int s_lastSourceY = 0;
+	static int s_lastSourceW = 0;
+	static int s_lastSourceH = 0;
+	static int s_nextLogMsec = 0;
+	trRefdef_t rects[STEFX_SPLIT_MAX_LOCAL_VIEWS];
+	viewParms_t rectParms;
+	int nowMsec;
+	int slot;
+	int other;
+	int overlapPixels = 0;
+	int coveredPixels = 0;
+	int sourcePixels;
+	int gapPixels;
+	qboolean valid = qtrue;
+
+	if ( !sourceRefdef || !sourceParms )
+	{
+		return;
+	}
+	players = R_STEFX_ClampSplitPlayers( players );
+	if ( players < 2 )
+	{
+		return;
+	}
+	nowMsec = Sys_Milliseconds();
+	if ( players == s_lastPlayers &&
+		sourceRefdef->x == s_lastSourceX &&
+		sourceRefdef->y == s_lastSourceY &&
+		sourceRefdef->width == s_lastSourceW &&
+		sourceRefdef->height == s_lastSourceH &&
+		nowMsec < s_nextLogMsec )
+	{
+		return;
+	}
+
+	memset( rects, 0, sizeof( rects ) );
+	for ( slot = 0; slot < players; ++slot )
+	{
+		int right;
+		int bottom;
+
+		R_STEFX_SetSplitViewport( &rects[slot], &rectParms,
+			sourceRefdef, sourceParms, slot, players );
+		right = rects[slot].x + rects[slot].width;
+		bottom = rects[slot].y + rects[slot].height;
+		coveredPixels += rects[slot].width * rects[slot].height;
+		if ( rects[slot].width <= 0 || rects[slot].height <= 0 ||
+			rects[slot].x < sourceRefdef->x ||
+			rects[slot].y < sourceRefdef->y ||
+			right > sourceRefdef->x + sourceRefdef->width ||
+			bottom > sourceRefdef->y + sourceRefdef->height )
+		{
+			valid = qfalse;
+		}
+
+		for ( other = 0; other < slot; ++other )
+		{
+			int overlapLeft = rects[slot].x > rects[other].x ? rects[slot].x : rects[other].x;
+			int overlapTop = rects[slot].y > rects[other].y ? rects[slot].y : rects[other].y;
+			int overlapRight = right < rects[other].x + rects[other].width ? right : rects[other].x + rects[other].width;
+			int overlapBottom = bottom < rects[other].y + rects[other].height ? bottom : rects[other].y + rects[other].height;
+
+			if ( overlapRight > overlapLeft && overlapBottom > overlapTop )
+			{
+				overlapPixels += ( overlapRight - overlapLeft ) * ( overlapBottom - overlapTop );
+			}
+		}
+	}
+
+	sourcePixels = sourceRefdef->width * sourceRefdef->height;
+	gapPixels = sourcePixels - ( coveredPixels - overlapPixels );
+	if ( overlapPixels != 0 || gapPixels != 0 )
+	{
+		valid = qfalse;
+	}
+	XBLog_WriteCriticalf(
+		"STEFX_HM_SPLIT_TILING: players=%d source=(%d,%d %dx%d) sourcePixels=%d coveredPixels=%d overlapPixels=%d gapPixels=%d separators=0 valid=%d",
+		players,
+		sourceRefdef->x,
+		sourceRefdef->y,
+		sourceRefdef->width,
+		sourceRefdef->height,
+		sourcePixels,
+		coveredPixels,
+		overlapPixels,
+		gapPixels,
+		valid ? 1 : 0 );
+
+	s_lastPlayers = players;
+	s_lastSourceX = sourceRefdef->x;
+	s_lastSourceY = sourceRefdef->y;
+	s_lastSourceW = sourceRefdef->width;
+	s_lastSourceH = sourceRefdef->height;
+	s_nextLogMsec = nowMsec + 5000;
 }
 
 static void R_STEFX_ApplyExternalSplitView( trRefdef_t *refdef, viewParms_t *parms, const refdef_t *externalRefdef, const vec3_t pvsOrigin )
@@ -914,8 +1064,8 @@ static void R_STEFX_ApplyExternalSplitView( trRefdef_t *refdef, viewParms_t *par
 		return;
 	}
 
-	refdef->fov_x = externalRefdef->fov_x;
-	refdef->fov_y = R_STEFX_CalcFovYForViewport( refdef->fov_x, refdef->width, refdef->height );
+	refdef->fov_y = externalRefdef->fov_y;
+	refdef->fov_x = R_STEFX_CalcFovXForViewport( refdef->fov_y, refdef->width, refdef->height );
 	VectorCopy( externalRefdef->vieworg, refdef->vieworg );
 	VectorCopy( externalRefdef->viewaxis[0], refdef->viewaxis[0] );
 	VectorCopy( externalRefdef->viewaxis[1], refdef->viewaxis[1] );
@@ -1066,10 +1216,10 @@ void RE_RenderScene( const refdef_t *fd ) {
 		tr.refdef.num_dlights = 0;
 	}
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
-	else if ( R_STEFX_Holomatch4PEconomyActive() && tr.refdef.num_dlights > 0 ) {
+	else if ( R_STEFX_SplitScreenEconomyActive() && tr.refdef.num_dlights > 0 ) {
 		static int s_stefxSplitEconomyDlightLogBudget = 8;
 		if ( s_stefxSplitEconomyDlightLogBudget > 0 ) {
-			XBLog_WriteCriticalf( "STEFX_HM_SPLIT_ECONOMY: dlightsSkipped=%d players=%d", tr.refdef.num_dlights, R_STEFX_ClampSplitPlayers( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) );
+			XBLog_WriteCriticalf( "STEFX_SPLIT_ECONOMY: dlightsSkipped=%d players=%d", tr.refdef.num_dlights, R_STEFX_ClampSplitPlayers( Cvar_VariableIntegerValue( "stefx_splitScreenPlayers" ) ) );
 			--s_stefxSplitEconomyDlightLogBudget;
 		}
 		tr.refdef.num_dlights = 0;
@@ -1135,6 +1285,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 					sourceRefdef.fov_x,
 					sourceRefdef.fov_y );
 			}
+			R_STEFX_LogSplitTiling( &sourceRefdef, &sourceParms, splitPlayers );
 #ifdef _XBOX
 			g_SPXBHMSplitRenderArmedPlayers = (unsigned int)splitPlayers;
 #endif
@@ -1198,6 +1349,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 				}
 #endif
 				STEFX_RETAIL_SCOPE R_RenderView( &parms );
+				R_STEFX_LogSplitDrawSurfCapacity( slot, splitPlayers, tr.refdef.numDrawSurfs );
 				if ( logSplitViewports )
 				{
 					XBLog_WriteCriticalf( "STEFX_HM_SPLIT_RENDER_DONE: slot=%d external=%d externalClient=%d drawDelta=%d drawAfter=%d cluster=%d cluster2=%d view=(%g,%g,%g)",

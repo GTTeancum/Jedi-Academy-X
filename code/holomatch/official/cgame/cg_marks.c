@@ -130,6 +130,12 @@ void CG_ImpactMark( qhandle_t markShader, const vec3_t origin, const vec3_t dir,
 		return;
 	}
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( CG_STEFX_ThreePlusEconomyActive() ) {
+		return;
+	}
+#endif
+
 	if ( radius <= 0 ) {
 		CG_Error( "CG_ImpactMark called with <= 0 radius" );
 	}
@@ -216,10 +222,23 @@ void CG_AddMarks( void ) {
 	markPoly_t	*mp, *next;
 	int			t;
 	int			fade;
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	static qboolean s_stefxThreePlusMarksLogged = qfalse;
+#endif
 
 	if ( !cg_addMarks.integer ) {
 		return;
 	}
+
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( CG_STEFX_ThreePlusEconomyActive() ) {
+		if ( !s_stefxThreePlusMarksLogged ) {
+			CG_Printf( "STEFX_SPLIT_ECONOMY: three-plus-player impact marks suppressed\n" );
+			s_stefxThreePlusMarksLogged = qtrue;
+		}
+		return;
+	}
+#endif
 
 	mp = cg_activeMarkPolys.nextMark;
 	for ( ; mp != &cg_activeMarkPolys ; mp = next ) {

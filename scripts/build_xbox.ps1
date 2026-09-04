@@ -1396,12 +1396,12 @@ function Build-Project {
             # compiled against 5558 includes).  OpenJKDF2's build uses
             # /LIBPATH:%XDK_ROOT%\lib with XDK_ROOT=C:\XDK_5558\XDK\xbox,
             # so ALL their libs are 5558.  Matching exactly here.
-            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;x_game.lib"
+            AdditionalDependencies = "d3d8.lib;d3dx8.lib;dsound.lib;xboxkrnl.lib;xgraphics.lib;xonline.lib;libc.lib;xapilib.lib;dmusic.lib;binkxbox.lib;x_game.lib"
             OutputFile = "$repoReleaseDir\default.exe"
             # All Xbox system libraries, including dmusic.lib, are present
             # in the clean XDK 5558 tree.  Do not allow the locally modified
             # 5849 tree to participate in native renderer links.
-            AdditionalLibraryDirectories = "$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+            AdditionalLibraryDirectories = "$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;Z:\Programming\RM4+JadeSrc\Libraries\GX8\bink"
             IgnoreDefaultLibraryNames = "msvcrt.lib;msvcrtd.lib;libcmt.lib;libcmtd.lib;LIBCMTD.lib"
             GenerateDebugInformation = "true"
             OptimizeReferences = "2"
@@ -1470,7 +1470,11 @@ function Build-Project {
     if ($script:StefxBuildTarget -eq "spmp" -and
         $ProjectPath -eq "code\x_exe\x_exe.vcproj") {
         $linkTool.OutputFile = "$repoReleaseDir\efmp.exe"
-            $linkTool.AdditionalLibraryDirectories = ".\Release\spmp;$repoReleaseDir;.\Release;C:\XDK_5558\XDK\xbox\lib;C:\Programming\GitHub\xbox\private\ui\Xdemo\XDemos\XDemos\Bink;C:\Programming\GitHub\RM4+JadeSrc\Libraries\GX8\bink"
+        # Keep the complete SP retail library search path (including
+        # the direct-BIK SDK) and only prepend the target-specific object archive.
+        # Duplicating this list previously left efmp.xbe pointing at two obsolete
+        # C: SDK locations while default.xbe correctly used the live Z: oracle.
+        $linkTool.AdditionalLibraryDirectories = ".\Release\spmp;$($linkTool.AdditionalLibraryDirectories)"
     }
 
     $baseFlags = New-Object System.Collections.Generic.List[string]
@@ -2342,6 +2346,8 @@ function Update-EFXboxPatchPk3 {
         [switch]$GenerateMipmaps,
         [ValidateSet("dxt5", "bgra32")]
         [string]$AlphaTextureFormat = "dxt5",
+        [ValidateRange(64, 512)]
+        [int]$MaxPlayerTextureSize = 64,
         [switch]$SkipUiScripts,
         [switch]$HolomatchSupportAssets
     )
@@ -2372,7 +2378,7 @@ function Update-EFXboxPatchPk3 {
         "--bsp-maps", $BspMaps,
         "--lightmap-boost", "2.5",
         "--max-texture-size", "128",
-        "--max-player-texture-size", "64",
+        "--max-player-texture-size", ([string]$MaxPlayerTextureSize),
         "--max-hud-texture-size", "128",
         "--max-loadscreen-texture-size", "512",
         "--alpha-texture-format", $AlphaTextureFormat
@@ -2534,6 +2540,15 @@ function Update-EFXboxAudioAssets {
         "--encoder", (Join-Path $xdkBin "xbadpcmencode.exe")
     )
 
+    foreach ($stockWavDir in @(
+        (Join-Path $repoRoot "third_party_private\elite-force-runtime\BaseEF"),
+        "C:\Games\Emulators\stefx_iso_seed_complete\BaseEF"
+    )) {
+        if (Test-Path -LiteralPath $stockWavDir -PathType Container) {
+            $audioArgs += @("--stock-wav-dir", $stockWavDir)
+        }
+    }
+
     $ffmpegExe = $null
     $ffmpegCommand = Get-Command "ffmpeg.exe" -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
@@ -2581,7 +2596,10 @@ function Update-EFConsoleAssetLists {
     Copy-EFDataOverlay -BaseEfDir $baseEfDir
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
-    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -DdsOnly -GenerateMipmaps -AlphaTextureFormat "dxt5"
+    # Single-player closeups and facial animation regularly fill the screen.
+    # Keep the source's 128-pixel character detail there; Holomatch retains
+    # the 64-pixel cap below for its three/four simultaneous viewports.
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -DdsOnly -GenerateMipmaps -AlphaTextureFormat "dxt5" -MaxPlayerTextureSize 128
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader"
@@ -2609,7 +2627,7 @@ function Update-EFHolomatchAssetLists {
     Copy-EFConfigOverlay -BaseEfDir $baseEfDir
     Remove-EFLegacyGobArtifacts -BaseEfDir $baseEfDir
     Expand-EFHolomatchPk3SourceOverlay -BaseEfDir $baseEfDir
-    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map $script:StefxHolomatchDirectMap -BspMaps "multiplayer" -DdsOnly -GenerateMipmaps -AlphaTextureFormat "dxt5" -SkipUiScripts -HolomatchSupportAssets
+    Update-EFXboxPatchPk3 -BaseEfDir $baseEfDir -OutputName "xbox1.pk3" -Map $script:StefxHolomatchDirectMap -BspMaps "multiplayer" -DdsOnly -GenerateMipmaps -AlphaTextureFormat "dxt5" -MaxPlayerTextureSize 64 -SkipUiScripts -HolomatchSupportAssets
     Update-EFXboxAudioAssets -BaseEfDir $baseEfDir
     Update-EFXboxSoundBank -BaseEfDir $baseEfDir
     Update-ConsoleFileList -Directory (Join-Path $baseEfDir "scripts") -Extension ".shader" -AdditionalFiles @("borg.shader", "voyager.shader")

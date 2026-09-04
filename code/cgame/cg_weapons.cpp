@@ -23,6 +23,9 @@
 #ifdef _XBOX
 #include "../win32/xb_log.h"
 extern bool CL_ExtendSelectTime(void);
+extern "C" volatile unsigned int g_SPXBCGameWeaponFireStage;
+extern "C" volatile unsigned int g_SPXBCGameWeaponFireEntity;
+extern "C" volatile unsigned int g_SPXBCGameWeaponFireWeaponAlt;
 static int s_xboxRegisterWeaponLogCount = 0;
 static int s_xboxAddViewWeaponLogCount = 0;
 #endif
@@ -2881,6 +2884,12 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 	weaponInfo_t	*weap;
 
 	ent = &cent->currentState;
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43460000; /* 'CF00': entry */
+	g_SPXBCGameWeaponFireEntity = (unsigned int)ent->number;
+	g_SPXBCGameWeaponFireWeaponAlt =
+		(unsigned int)(ent->weapon & 0xffff) | (alt_fire ? 0x80000000u : 0u);
+#endif
 	if ( ent->weapon == WP_NONE ) {
 		return;
 	}
@@ -2923,6 +2932,9 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 #ifndef _IMMERSION
 	// force feedback...
 	//
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43461000 | (unsigned int)(ent->weapon & 0xff); /* 'CF1w': rumble dispatch */
+#endif
 	if ( cent->gent->s.number == 0 )
 	switch (ent->weapon)
 	{
@@ -2978,6 +2990,9 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 			cgi_FF_StartFX( fffx_OutOfAmmo );
 			break;
 	}
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x43462000 | (unsigned int)(ent->weapon & 0xff); /* 'CF2w': rumble returned */
+#endif
 #endif // _IMMERSION
 
 	// Do overcharge sound that get's added to the top
@@ -3025,6 +3040,9 @@ void CG_FireWeapon( centity_t *cent, qboolean alt_fire )
 			}
 		}
 	}*/
+#ifdef _XBOX
+	g_SPXBCGameWeaponFireStage = 0x4346FFFF; /* 'CFff': complete */
+#endif
 }
 
 /*

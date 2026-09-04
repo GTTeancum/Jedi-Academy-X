@@ -85,10 +85,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\client\bink_xbox_stubs.cpp"
-				>
-			</File>
-			<File
 				RelativePath="..\client\cl_bink_copier.cpp"
 				>
 			</File>

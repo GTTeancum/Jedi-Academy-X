@@ -352,7 +352,7 @@ void StencilShadow::RenderShadow()
 	float fViewportOffsets[4] = { 0.53125f, 0.53125f, 0.0f, 0.0f };
 	glw_state->device->SetVertexShaderConstant( CV_VIEWPORT_OFFSETS, &fViewportOffsets, 1 );
 
-	glw_state->device->SetVertexShader(m_dwVertexShaderShadow);
+	STEFX_D3D8_SetVertexShaderTracked(m_dwVertexShaderShadow);
 
 #ifdef _STENCIL_REVERSE
 	glCullFace( GL_FRONT );
@@ -457,7 +457,7 @@ void StencilShadow::FinishShadows()
         {   0 - 0.5f, 480 - 0.5f, 0.0f, 1.0f },
     };
 
-    glw_state->device->SetVertexShader( D3DFVF_XYZRHW );
+    STEFX_D3D8_SetVertexShaderTracked( D3DFVF_XYZRHW );
     glw_state->device->DrawPrimitiveUP( D3DPT_QUADLIST, 1, v, sizeof(v[0]) );
 
     // Restore render states

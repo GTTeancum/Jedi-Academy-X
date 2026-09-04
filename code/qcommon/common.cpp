@@ -1289,6 +1289,44 @@ void Com_Init( char *commandLine ) {
 		XBLog_Write("STEFX_INPUT_AUDIT begin");
 		Key_XboxAuditMenuBindings();
 		XBLog_Write("STEFX_INPUT_AUDIT end");
+#if defined(STEFX_SP_HOSTED_MP)
+		/* BaseEF/PAK2.PK3 also contains the retail PC default.cfg, whose
+		 * unbindall wins the ambiguous filesystem lookup on Xbox.  Apply the
+		 * canonical loose Xbox defaults directly after all file-backed config
+		 * layers so package ordering cannot strip P1 actions or flip look Y. */
+		Cbuf_AddText ("seta cl_freelook 1\n");
+		Cbuf_AddText ("seta cl_run 0\n");
+		Cbuf_AddText ("seta ui_thumbStickMode 0\n");
+		Cbuf_AddText ("seta m_pitch -0.022\n");
+		Cbuf_AddText ("seta sensitivity 2\n");
+		Cbuf_AddText ("seta sensitivityY 2\n");
+		Cbuf_AddText ("seta joy_deadzone 0.18\n");
+		Cbuf_AddText ("unbind JOY0\n");
+		Cbuf_AddText ("bind JOY1 datapad\n");
+		Cbuf_AddText ("bind JOY2 \"toggle cl_run\"\n");
+		Cbuf_AddText ("bind JOY3 \"toggle cg_thirdperson\"\n");
+		Cbuf_AddText ("bind JOY4 uimenu\n");
+		Cbuf_AddText ("bind JOY5 +zoom\n");
+		Cbuf_AddText ("unbind JOY6\n");
+		Cbuf_AddText ("unbind JOY7\n");
+		Cbuf_AddText ("unbind JOY8\n");
+		Cbuf_AddText ("bind JOY9 weapnext\n");
+		Cbuf_AddText ("bind JOY10 weapprev\n");
+		Cbuf_AddText ("bind JOY11 +altattack\n");
+		Cbuf_AddText ("bind JOY12 +attack\n");
+		Cbuf_AddText ("bind JOY13 \"centerview; zoomoff\"\n");
+		Cbuf_AddText ("bind JOY14 +movedown\n");
+		Cbuf_AddText ("bind JOY15 +moveup\n");
+		Cbuf_AddText ("bind JOY16 +use\n");
+		Cbuf_Execute ();
+		XBLog_WriteCriticalf("STEFX_HM_P1_SP_CONFIG: source=embedded-canonical-xbox mPitch=%g stickMode=%d sensitivity=%g sensitivityY=%g deadzone=%g",
+			Cvar_VariableValue("m_pitch"),
+			Cvar_VariableIntegerValue("ui_thumbStickMode"),
+			Cvar_VariableValue("sensitivity"),
+			Cvar_VariableValue("sensitivityY"),
+			Cvar_VariableValue("joy_deadzone"));
+		Key_XboxAuditMenuBindings();
+#endif
 #endif
 
 		// override anything from the config files with command line args
@@ -1411,7 +1449,9 @@ void Com_Init( char *commandLine ) {
 				}
 				else
 				{
-					XBLog_Write("STEFX: normal EF frontend boot goes straight to PS2 main menu");
+					XBLog_Write("STEFX: normal EF frontend boot queues eflogo and intro movies before PS2 main menu");
+					Cbuf_AddText ("cinematic eflogo\n");
+					Cbuf_AddText ("cinematic intro\n");
 				}
 #else
 				Cbuf_AddText ("cinematic eflogo\n");
@@ -1764,10 +1804,10 @@ try
 
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 	if (firstFrames) XBLog_Write("JA: Com_Frame: SV_Frame...");
-	g_SPXBComTailStage = 0x434D3034; /* 'CM04' */
 	g_SPXBComSubphase = 11;
 #endif
 #if defined(_XBOX)
+	g_SPXBComTailStage = 0x434D3034; /* 'CM04': before server */
 	xboxPerfServerStart = Sys_Milliseconds();
 #endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
@@ -1776,9 +1816,9 @@ try
 	SV_Frame (msec, fractionMsec);
 #if defined(_XBOX)
 	g_SPXBPerfServerMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfServerStart);
+	g_SPXBComTailStage = 0x434D3035; /* 'CM05': server complete */
 #endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
-	g_SPXBComTailStage = 0x434D3035; /* 'CM05' */
 	g_SPXBComSubphase = 12;
 	if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after SV_Frame");
 #endif
@@ -1805,15 +1845,19 @@ try
 			timeBeforeEvents = Sys_Milliseconds ();
 		}
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
-		g_SPXBComTailStage = 0x434D3036; /* 'CM06' */
 		g_SPXBComSubphase = 13;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before second Com_EventLoop");
 		xboxPerfPhaseStart = Sys_Milliseconds();
 #endif
+		#ifdef _XBOX
+		g_SPXBComTailStage = 0x434D3036; /* 'CM06': before second event loop */
+		#endif
 		Com_EventLoop();
+		#ifdef _XBOX
+		g_SPXBComTailStage = 0x434D3037; /* 'CM07': second event loop complete */
+		#endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		xboxPerfComEventMsec += (unsigned int)(Sys_Milliseconds() - xboxPerfPhaseStart);
-		g_SPXBComTailStage = 0x434D3037; /* 'CM07' */
 		g_SPXBComSubphase = 14;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Com_EventLoop");
 		xboxPerfPhaseStart = Sys_Milliseconds();
@@ -1826,6 +1870,7 @@ try
 			Sys_IsDirectMapBoot() ? 1 : 0);
 #endif
 #ifdef _XBOX
+		g_SPXBComTailStage = 0x434D3038; /* 'CM08': before second command buffer */
 		if ( Sys_IsDirectMapBoot() && g_SPXBClsState != (unsigned int)CA_ACTIVE )
 		{
 			#if defined(STEFX_HW_FRAME_DIAGNOSTICS)
@@ -1837,9 +1882,11 @@ try
 		{
 			Cbuf_Execute ();
 		}
+		#ifdef _XBOX
+		g_SPXBComTailStage = 0x434D3039; /* 'CM09': command buffer complete */
+		#endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		xboxPerfComCommandMsec += (unsigned int)(Sys_Milliseconds() - xboxPerfPhaseStart);
-		g_SPXBComTailStage = 0x434D3038; /* 'CM08' */
 		g_SPXBComSubphase = 16;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE after second Cbuf_Execute");
 #endif
@@ -1854,10 +1901,10 @@ try
 
 #if defined(_XBOX)
 		xboxPerfClientStart = Sys_Milliseconds();
+		g_SPXBComTailStage = 0x434D3130; /* 'CM10': before client */
 #endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
 		if (firstFrames) XBLog_Write("JA: Com_Frame: CL_Frame...");
-		g_SPXBComTailStage = 0x434D3039; /* 'CM09' */
 		g_SPXBComSubphase = 17;
 		if (s_xboxTraceComPhase) XBLog_Write("JA: COM_PHASE before CL_Frame");
 #endif
@@ -1873,6 +1920,7 @@ try
 	#endif
 		CL_Frame (msec, fractionMsec);
 #if defined(_XBOX)
+		g_SPXBComTailStage = 0x434D3131; /* 'CM11': client complete */
 		g_SPXBPerfClientMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfClientStart);
 		g_SPXBPerfFrameMsec = (unsigned int)(Sys_Milliseconds() - xboxPerfFrameStart);
 		g_SPXBPerfGameMsec = com_speeds->integer ? (unsigned int)time_game : 0;
@@ -1883,7 +1931,6 @@ try
 		XBPerf_EndFrame();
 #endif
 #if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS)
-		g_SPXBComTailStage = 0x434D3130; /* 'CM10' */
 		g_SPXBComSubphase = 18;
 		{
 			static int s_xboxActiveComClientBoundaryBudget = 32;

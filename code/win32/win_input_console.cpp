@@ -42,6 +42,8 @@ PadInfo _padInfo; // gamepad thumbstick buffer
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 extern qboolean UI_EFMainMenu_IsActive( void );
+extern qboolean UI_EFMainMenu_WantsControllerInput( void );
+extern void UI_EFMainMenu_ControllerKeyEvent( int controller, int key, qboolean down );
 extern "C" volatile unsigned int g_SPXBInputCommonPressCount;
 extern "C" volatile unsigned int g_SPXBInputCommonPressLast;
 extern "C" volatile unsigned int g_SPXBInputFrontendQueueCount;
@@ -97,10 +99,10 @@ static void IN_STEFX_PulseFrontendKey(fakeAscii_t key, const char *source)
 	IN_STEFX_QueueFrontendKey(key, qfalse, source);
 }
 
-static void IN_STEFX_UpdateFrontendThumbstick(void)
+static void IN_STEFX_UpdateFrontendThumbstick(int controller, qboolean controllerAware)
 {
-	static fakeAscii_t s_lastKey = (fakeAscii_t)0;
-	static int s_nextRepeatTime = 0;
+	static fakeAscii_t s_lastKey[4] = { (fakeAscii_t)0, (fakeAscii_t)0, (fakeAscii_t)0, (fakeAscii_t)0 };
+	static int s_nextRepeatTime[4] = { 0, 0, 0, 0 };
 	const float threshold = 0.50f;
 	const int repeatMsec = 170;
 	const float x = _padInfo.joyInfo[0].x;
@@ -109,11 +111,15 @@ static void IN_STEFX_UpdateFrontendThumbstick(void)
 	const float absY = y < 0.0f ? -y : y;
 	fakeAscii_t key = (fakeAscii_t)0;
 	const int now = Sys_Milliseconds();
+	if (controller < 0 || controller >= 4)
+	{
+		return;
+	}
 
 	if (absX < threshold && absY < threshold)
 	{
-		s_lastKey = (fakeAscii_t)0;
-		s_nextRepeatTime = 0;
+		s_lastKey[controller] = (fakeAscii_t)0;
+		s_nextRepeatTime[controller] = 0;
 		return;
 	}
 
@@ -126,11 +132,19 @@ static void IN_STEFX_UpdateFrontendThumbstick(void)
 		key = x > 0.0f ? A_JOY6 : A_JOY8;
 	}
 
-	if (key != s_lastKey || now >= s_nextRepeatTime)
+	if (key != s_lastKey[controller] || now >= s_nextRepeatTime[controller])
 	{
-		IN_STEFX_PulseFrontendKey(key, "thumbstick");
-		s_lastKey = key;
-		s_nextRepeatTime = now + repeatMsec;
+		if (controllerAware)
+		{
+			UI_EFMainMenu_ControllerKeyEvent(controller, key, qtrue);
+			UI_EFMainMenu_ControllerKeyEvent(controller, key, qfalse);
+		}
+		else
+		{
+			IN_STEFX_PulseFrontendKey(key, "thumbstick");
+		}
+		s_lastKey[controller] = key;
+		s_nextRepeatTime[controller] = now + repeatMsec;
 	}
 }
 #endif
@@ -593,6 +607,15 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		liveUIRunning &&
 		controller == IN_GetMainController() &&
 		UI_EFMainMenu_IsActive();
+	const qboolean stefxFrontendControllerInput =
+		liveUIRunning &&
+		UI_EFMainMenu_WantsControllerInput();
+	const qboolean stefxProfiledHolomatchGameplay =
+		!liveUIRunning &&
+		controller == IN_GetMainController() &&
+		cls.state == CA_ACTIVE &&
+		Cvar_VariableIntegerValue("stefx_splitScreen") &&
+		!Q_stricmp(Cvar_VariableString("stefx_splitScreenMode"), "holomatch");
 	{
 		static int s_stefxButtonLogBudget = 64;
 		const qboolean forceMenuButtonLog = stefxMenuButton;
@@ -640,16 +663,75 @@ void IN_CommonJoyPress(int controller, fakeAscii_t button, bool pressed)
 		g_SPXBInputDispatchLast = ((unsigned int)button & 0xffffu) |
 			(pressed ? 0x00010000u : 0u) |
 			((unsigned int)(Key_GetCatcher() & 0xff) << 24);
-		handled = CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-menu" );
+		if (Cvar_VariableIntegerValue("stefx_splitScreen") &&
+			!Q_stricmp(Cvar_VariableString("stefx_splitScreenMode"), "holomatch"))
+		{
+			/* Pause and scoreboard are part of the Holomatch controller contract,
+			 * not optional SP bindings.  Dispatch their cgame/UI commands directly
+			 * so a file-backed unbindall cannot remove them. */
+			if (button == A_JOY1)
+			{
+				char command[64];
+				Com_sprintf(command, sizeof(command), "%cinfo %i %i\n",
+					pressed ? '+' : '-', (int)button, cls.realtime);
+				Cbuf_AddText(command);
+				XBLF("STEFX_HM_GLOBAL_ACTION: slot=%d port=%d action=scoreboard down=%d command='%s'",
+					CL_STEFX_SplitScreen_LocalSlotForPad(controller), controller,
+					pressed ? 1 : 0, command);
+				handled = qtrue;
+			}
+			else
+			{
+				if (pressed)
+				{
+					Cbuf_AddText("uimenu\n");
+				}
+				XBLF("STEFX_HM_GLOBAL_ACTION: slot=%d port=%d action=pause down=%d",
+					CL_STEFX_SplitScreen_LocalSlotForPad(controller), controller, pressed ? 1 : 0);
+				handled = qtrue;
+			}
+		}
+		else
+		{
+			handled = CL_XboxDispatchBoundKey( button, pressed, cls.realtime, "console-menu" );
+		}
 		if (handled) {
 			g_SPXBInputDispatchHandled++;
 		}
 		return;
 	}
 
+	if (stefxFrontendControllerInput && IN_STEFX_IsFrontendButton(button))
+	{
+		g_SPXBInputFrontendQueueCount++;
+		g_SPXBInputFrontendQueueLast = ((unsigned int)button & 0xffffu) |
+			(pressed ? 0x00010000u : 0u) |
+			(((unsigned int)controller & 0xffu) << 24);
+		XBLF("STEFX_HM_MENU_PAD_INPUT: port=%d key=%d pressed=%d main=%d", controller,
+			(int)button, pressed ? 1 : 0, IN_GetMainController());
+		UI_EFMainMenu_ControllerKeyEvent(controller, button, pressed ? qtrue : qfalse);
+		return;
+	}
+
 	if (stefxFrontendActive && IN_STEFX_IsFrontendButton(button))
 	{
 		IN_STEFX_QueueFrontendKey(button, pressed ? qtrue : qfalse, "button");
+		return;
+	}
+
+	/* CL_CreateCmd owns the physical P1 gameplay command in Holomatch and reads
+	 * this controller from the raw split-pad cache.  Do not also translate face
+	 * buttons/triggers/d-pad through the mutable SP key-binding table.  Start and
+	 * Back stay on the global menu/scoreboard path above. */
+	if (stefxProfiledHolomatchGameplay && !stefxMenuButton)
+	{
+		static int s_stefxProfileBypassLogBudget = 32;
+		if (s_stefxProfileBypassLogBudget > 0 && pressed)
+		{
+			XBLF("STEFX_HM_P1_PROFILE_BIND_BYPASS: port=%d button=%d rawPadOwner=1",
+				controller, (int)button);
+			--s_stefxProfileBypassLogBudget;
+		}
 		return;
 	}
 #endif
@@ -834,13 +916,21 @@ void IN_CommonUpdate()
 	extern int Key_GetCatcher( void );
 	_UIRunning = (Key_GetCatcher() & KEYCATCH_UI) != 0;
 
-	// Even in the UI, only the main controller should be able to scroll:
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if (_UIRunning && UI_EFMainMenu_IsActive() && UI_EFMainMenu_WantsControllerInput())
+	{
+		IN_STEFX_UpdateFrontendThumbstick(_padInfo.padId, qtrue);
+		return;
+	}
+#endif
+
+	// Outside the local-player setup screen, only the main controller scrolls.
 	if( _UIRunning && _padInfo.padId == IN_GetMainController() )
 	{
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 		if (UI_EFMainMenu_IsActive())
 		{
-			IN_STEFX_UpdateFrontendThumbstick();
+			IN_STEFX_UpdateFrontendThumbstick(_padInfo.padId, qfalse);
 			return;
 		}
 #endif

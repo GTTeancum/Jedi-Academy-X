@@ -9,7 +9,6 @@
 
 #include "tr_local.h"
 #include "MatComp.h"
-
 #ifdef _XBOX
 #include "../win32/glw_win_dx8.h"
 #include "../win32/win_stencilshadow.h"
@@ -187,6 +186,17 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 	float flod;
 	float projectedRadius;
 	int		lod;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean stefxThreePlusLodBias;
+
+	/* Keep a one-step packaged LOD bias for non-MDR world models in 3P/4P.
+	 * Elite Force's multipart MDR players retain their established LOD-0
+	 * contract; selecting their lower LODs is not safe on this renderer. */
+	stefxThreePlusLodBias =
+		tr.viewParms.stefxSplitThreePlusEconomy &&
+		tr.currentModel->type != MOD_MDR &&
+		!( ent->e.renderfx & ( RF_FIRST_PERSON | RF_DEPTHHACK ) );
+#endif
 
 	if ( tr.currentModel->numLods < 2 )
 	{	// model has only 1 LOD level, skip computations and bias
@@ -195,8 +205,7 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 
 #if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
 	// Elite Force MDR actors use multipart player assets and must stay on the
-	// highest-detail model. All shipped MDR assets live under the player model
-	// trees, so the model type is the complete runtime contract.
+	// highest-detail model in every viewport.
 	if ( tr.currentModel->type == MOD_MDR )
 	{
 		return 0;
@@ -214,7 +223,11 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 		if ( header->ofsFrames < 0 )
 		{
 			frameSize = (int)( &((md4CompFrame_t *)0)->bones[ header->numBones ] );
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+			frame = (md4Frame_t *)R_STEFX_GetMDRFrame(header, ent->e.frame);
+#else
 			frame = (md4Frame_t *)( (byte *)header - header->ofsFrames + ent->e.frame * frameSize );
+#endif
 		}
 		else
 		{
@@ -252,6 +265,12 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 	}
 	
 	lod += r_lodbias->integer;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	if ( stefxThreePlusLodBias )
+	{
+		++lod;
+	}
+#endif
 	if ( lod >= tr.currentModel->numLods )
 		lod = tr.currentModel->numLods - 1;
 	if ( lod < 0 )

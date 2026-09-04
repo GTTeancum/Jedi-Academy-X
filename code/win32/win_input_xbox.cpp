@@ -28,6 +28,9 @@ extern "C" volatile unsigned int g_SPXBInputDigital;
 extern "C" volatile unsigned int g_SPXBInputAnalogMask;
 extern "C" volatile unsigned int g_SPXBInputLXLY;
 extern "C" volatile unsigned int g_SPXBInputRXRY;
+extern "C" volatile unsigned int g_SPXBInputPollFailureCount;
+extern "C" volatile unsigned int g_SPXBInputPollLastResult;
+extern "C" volatile unsigned int g_SPXBInputPollRecoveryCount;
 extern "C" volatile unsigned int g_SPXBInputMenuEdgeCount;
 extern "C" volatile unsigned int g_SPXBInputMenuEdgeLast;
 extern "C" volatile unsigned int g_SPXBInputCommonPressCount;
@@ -196,7 +199,33 @@ void IN_CheckForNoControllers()
 
 bool IN_RumbleAdjust(int controller, int left, int right)
 {
+	int localSlot;
+	char vibrationCvar[32];
+	static unsigned int s_stefxRumbleDisabledMask = 0;
+
 	assert(controller >= 0 && controller < IN_MAX_CONTROLLERS);
+	if ( Cvar_VariableIntegerValue( "stefx_splitScreen" ) )
+	{
+		localSlot = CL_STEFX_SplitScreen_LocalSlotForPad( controller );
+		if ( localSlot >= 0 )
+		{
+			Com_sprintf( vibrationCvar, sizeof( vibrationCvar ), "joy_vibestate_%d", localSlot );
+			if ( !Cvar_VariableIntegerValue( vibrationCvar ) )
+			{
+				left = 0;
+				right = 0;
+				if ( !( s_stefxRumbleDisabledMask & ( 1u << localSlot ) ) )
+				{
+					XBLF( "STEFX_HM_SPLIT_RUMBLE: slot=%d port=%d enabled=0", localSlot, controller );
+					s_stefxRumbleDisabledMask |= 1u << localSlot;
+				}
+			}
+			else
+			{
+				s_stefxRumbleDisabledMask &= ~( 1u << localSlot );
+			}
+		}
+	}
 
 	// Get a device handle for the controller.  This may fail.
 	HANDLE handle = in_state->controllers[controller].handle;
@@ -252,6 +281,9 @@ IN_Init
 */
 void IN_Init( void )
 {
+		g_SPXBInputPollFailureCount = 0;
+		g_SPXBInputPollLastResult = 0;
+		g_SPXBInputPollRecoveryCount = 0;
 		g_SPXBInputMenuEdgeCount = 0;
 		g_SPXBInputMenuEdgeLast = 0;
 		g_SPXBInputCommonPressCount = 0;
@@ -388,7 +420,8 @@ static inline float _joyAxisConvert(SHORT x)
 #define IN_NUM_ANALOG_BUTTONS 8
 // Cutoff where the analog buttons are considered to be "pressed"
 // This should be smarter.
-#define IN_ANALOG_BUTTON_THRESHOLD 64
+/* Match the retail Xbox crosstalk contract and the split-player path. */
+#define IN_ANALOG_BUTTON_THRESHOLD XINPUT_GAMEPAD_MAX_CROSSTALK
 
 #if defined(STEFX_ELITE_FORCE_SP)
 static WORD s_stefxLastMenuButtons[IN_MAX_CONTROLLERS] = { 0, 0, 0, 0 };
@@ -467,9 +500,14 @@ static void IN_STEFX_UpdateMenuButtons(int port, WORD buttons)
 void IN_UpdateGamepad(int port)
 {
 	static bool loggedFirstState[IN_MAX_CONTROLLERS] = { false, false, false, false };
+	static bool pollFailed[IN_MAX_CONTROLLERS] = { false, false, false, false };
+	static int pollFailureLogBudget = 32;
 #if defined(STEFX_ELITE_FORCE_SP)
 	static int activeStateLogBudget[IN_MAX_CONTROLLERS] = { 16, 16, 16, 16 };
 	static int splitSecondaryLogBudget[IN_MAX_CONTROLLERS] = { 16, 16, 16, 16 };
+	static bool s_primaryBindingsLogged = false;
+	static int s_primaryAnalogSampleLogBudget = 96;
+	static int s_primaryAnalogEdgeLogBudget = 96;
 #endif
 	// Lookup table to convert the digital buttons to fakeAscii_t, in mask order
 	const fakeAscii_t digitalXlat[IN_NUM_DIGITAL_BUTTONS] = {
@@ -497,7 +535,48 @@ void IN_UpdateGamepad(int port)
 
 	// Get new state
 	XINPUT_STATE newState;
-	XInputGetState( in_state->controllers[port].handle, &newState );
+	DWORD inputResult;
+
+	memset(&newState, 0, sizeof(newState));
+	++g_SPXBInputPollCount;
+	g_SPXBInputPort = (unsigned int)port;
+	inputResult = XInputGetState( in_state->controllers[port].handle, &newState );
+	if (inputResult != ERROR_SUCCESS)
+	{
+		++g_SPXBInputPollFailureCount;
+		g_SPXBInputPollLastResult = (unsigned int)inputResult;
+		if (!pollFailed[port] || pollFailureLogBudget > 0)
+		{
+			XBLog_WriteCriticalf("STEFX_INPUT_POLL_FAILURE: port=%d result=0x%08x failures=%u preservingPacket=%u preservingSticks=(%d,%d,%d,%d)",
+				port,
+				(unsigned int)inputResult,
+				(unsigned int)g_SPXBInputPollFailureCount,
+				(unsigned int)in_state->controllers[port].state.dwPacketNumber,
+				(int)in_state->controllers[port].state.Gamepad.sThumbLX,
+				(int)in_state->controllers[port].state.Gamepad.sThumbLY,
+				(int)in_state->controllers[port].state.Gamepad.sThumbRX,
+				(int)in_state->controllers[port].state.Gamepad.sThumbRY);
+			if (pollFailureLogBudget > 0)
+			{
+				--pollFailureLogBudget;
+			}
+		}
+		pollFailed[port] = true;
+		/* Keep both the legacy input state and the split-player cache at their
+		 * last valid sample. Consuming the failed call's output caused random
+		 * look snaps and one-frame movement releases on retail hardware. */
+		return;
+	}
+	if (pollFailed[port])
+	{
+		++g_SPXBInputPollRecoveryCount;
+		XBLog_WriteCriticalf("STEFX_INPUT_POLL_RECOVERY: port=%d packet=%u recoveries=%u failures=%u",
+			port,
+			(unsigned int)newState.dwPacketNumber,
+			(unsigned int)g_SPXBInputPollRecoveryCount,
+			(unsigned int)g_SPXBInputPollFailureCount);
+		pollFailed[port] = false;
+	}
 	{
 		unsigned int analogMask = 0;
 		int inputIndex;
@@ -508,8 +587,6 @@ void IN_UpdateGamepad(int port)
 				analogMask |= 1u << inputIndex;
 			}
 		}
-		++g_SPXBInputPollCount;
-		g_SPXBInputPort = (unsigned int)port;
 		g_SPXBInputDigital = (unsigned int)newState.Gamepad.wButtons;
 		g_SPXBInputAnalogMask = analogMask;
 		g_SPXBInputLXLY = ((unsigned int)(unsigned short)newState.Gamepad.sThumbLX) |
@@ -622,6 +699,27 @@ void IN_UpdateGamepad(int port)
 
 #if defined(STEFX_ELITE_FORCE_SP)
 	IN_STEFX_UpdateMenuButtons(port, newState.Gamepad.wButtons);
+	if (!s_primaryBindingsLogged &&
+		port == IN_GetMainController() &&
+		Cvar_VariableIntegerValue("stefx_splitScreen") &&
+		cls.state == CA_ACTIVE)
+	{
+		XBLog_WriteCriticalf("STEFX_HM_P1_BINDINGS: BACK='%s' START='%s' A='%s' B='%s' X='%s' Y='%s' BLACK='%s' WHITE='%s' LT='%s' RT='%s' mPitch=%g stickMode=%d profilePitch=%g",
+			Key_GetBinding(A_JOY1) ? Key_GetBinding(A_JOY1) : "",
+			Key_GetBinding(A_JOY4) ? Key_GetBinding(A_JOY4) : "",
+			Key_GetBinding(A_JOY15) ? Key_GetBinding(A_JOY15) : "",
+			Key_GetBinding(A_JOY14) ? Key_GetBinding(A_JOY14) : "",
+			Key_GetBinding(A_JOY16) ? Key_GetBinding(A_JOY16) : "",
+			Key_GetBinding(A_JOY13) ? Key_GetBinding(A_JOY13) : "",
+			Key_GetBinding(A_JOY10) ? Key_GetBinding(A_JOY10) : "",
+			Key_GetBinding(A_JOY9) ? Key_GetBinding(A_JOY9) : "",
+			Key_GetBinding(A_JOY11) ? Key_GetBinding(A_JOY11) : "",
+			Key_GetBinding(A_JOY12) ? Key_GetBinding(A_JOY12) : "",
+			Cvar_VariableValue("m_pitch"),
+			Cvar_VariableIntegerValue("ui_thumbStickMode"),
+			Cvar_VariableValue("joy_pitchsensitivity_0"));
+		s_primaryBindingsLogged = true;
+	}
 #endif
 
 	int buttonIdx;
@@ -663,8 +761,50 @@ void IN_UpdateGamepad(int port)
 		oldPressed = oldState.Gamepad.bAnalogButtons[buttonIdx] > IN_ANALOG_BUTTON_THRESHOLD;
 		newPressed = newState.Gamepad.bAnalogButtons[buttonIdx] > IN_ANALOG_BUTTON_THRESHOLD;
 
+#if defined(STEFX_ELITE_FORCE_SP)
+		if (s_primaryAnalogSampleLogBudget > 0 &&
+			port == IN_GetMainController() &&
+			Cvar_VariableIntegerValue("stefx_splitScreen") &&
+			oldState.Gamepad.bAnalogButtons[buttonIdx] != newState.Gamepad.bAnalogButtons[buttonIdx] &&
+			(oldState.Gamepad.bAnalogButtons[buttonIdx] == 0 ||
+			 newState.Gamepad.bAnalogButtons[buttonIdx] == 0 ||
+			 (oldState.Gamepad.bAnalogButtons[buttonIdx] >> 4) != (newState.Gamepad.bAnalogButtons[buttonIdx] >> 4)))
+		{
+			XBLog_WriteCriticalf("STEFX_HM_P1_ANALOG_SAMPLE: index=%d key=%d rawOld=%u rawNew=%u threshold=%d binding='%s' state=%d catcher=0x%x",
+				buttonIdx,
+				(int)analogXlat[buttonIdx],
+				(unsigned int)oldState.Gamepad.bAnalogButtons[buttonIdx],
+				(unsigned int)newState.Gamepad.bAnalogButtons[buttonIdx],
+				IN_ANALOG_BUTTON_THRESHOLD,
+				Key_GetBinding(analogXlat[buttonIdx]),
+				(int)cls.state,
+				(unsigned int)cls.keyCatchers);
+			--s_primaryAnalogSampleLogBudget;
+		}
+#endif
+
 		if (oldPressed != newPressed)
+		{
+#if defined(STEFX_ELITE_FORCE_SP)
+			if (s_primaryAnalogEdgeLogBudget > 0 &&
+				port == IN_GetMainController() &&
+				Cvar_VariableIntegerValue("stefx_splitScreen"))
+			{
+				XBLog_WriteCriticalf("STEFX_HM_P1_ANALOG_EDGE: index=%d key=%d pressed=%d rawOld=%u rawNew=%u threshold=%d binding='%s' state=%d catcher=0x%x",
+					buttonIdx,
+					(int)analogXlat[buttonIdx],
+					newPressed ? 1 : 0,
+					(unsigned int)oldState.Gamepad.bAnalogButtons[buttonIdx],
+					(unsigned int)newState.Gamepad.bAnalogButtons[buttonIdx],
+					IN_ANALOG_BUTTON_THRESHOLD,
+					Key_GetBinding(analogXlat[buttonIdx]),
+					(int)cls.state,
+					(unsigned int)cls.keyCatchers);
+				--s_primaryAnalogEdgeLogBudget;
+			}
+#endif
 			IN_CommonJoyPress(port, analogXlat[buttonIdx], newPressed);
+		}
 	}
 
 	// Update joysticks

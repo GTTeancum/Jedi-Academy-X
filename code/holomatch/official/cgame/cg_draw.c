@@ -7,6 +7,24 @@
 #include "cg_text.h"
 #include "cg_screenfx.h"
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+extern volatile unsigned int g_SPXBHMSplitOverlaySerial[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayFlags[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayFovX100[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayPickupItem[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayRewardType[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayAttacker[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayNaturalPickup[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayNaturalReward[4];
+extern volatile unsigned int g_SPXBHMSplitOverlayNaturalAttacker[4];
+
+#define STEFX_HM_OVERLAY_ZOOM       0x001u
+#define STEFX_HM_OVERLAY_PICKUP     0x002u
+#define STEFX_HM_OVERLAY_REWARD     0x004u
+#define STEFX_HM_OVERLAY_ATTACKER   0x008u
+#define STEFX_HM_OVERLAY_PROOF      0x100u
+#endif
+
 // set in CG_ParseTeamInfo
 int sortedTeamPlayers[TEAM_MAXOVERLAY];
 int	numSortedTeamPlayers;
@@ -128,11 +146,29 @@ CG_Draw3DModel
 
 ================
 */
+static qboolean CG_STEFX_Use3DGameplayIcons( void )
+{
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+	if ( CG_STEFX_ThreePlusEconomyActive() )
+	{
+		static qboolean s_stefxStaticPortraitPolicyLogged = qfalse;
+
+		if ( !s_stefxStaticPortraitPolicyLogged )
+		{
+			s_stefxStaticPortraitPolicyLogged = qtrue;
+			CG_Printf( "STEFX_HM_QUALITY_PORTRAITS: policy=three-plus gameplayPortraits=2D extraRenderScenes=0 applies3P=1 applies4P=1\n" );
+		}
+		return qfalse;
+	}
+#endif
+	return cg_draw3dIcons.integer ? qtrue : qfalse;
+}
+
 static void CG_Draw3DModel( float x, float y, float w, float h, qhandle_t model, qhandle_t skin, qhandle_t shader, vec3_t origin, vec3_t angles ) {
 	refdef_t		refdef;
 	refEntity_t		ent;
 
-	if ( !cg_draw3dIcons.integer || !cg_drawIcons.integer ) {
+	if ( !CG_STEFX_Use3DGameplayIcons() || !cg_drawIcons.integer ) {
 		return;
 	}
 
@@ -183,7 +219,7 @@ void CG_DrawHead( float x, float y, float w, float h, int clientNum, vec3_t head
 
 	ci = &cgs.clientinfo[ clientNum ];
 
-	if ( cg_draw3dIcons.integer && (ci->headOffset[0] != 404) ) {
+	if ( CG_STEFX_Use3DGameplayIcons() && (ci->headOffset[0] != 404) ) {
 		cm = ci->headModel;
 		if ( !cm ) {
 			return;
@@ -228,7 +264,7 @@ void CG_DrawFlagModel( float x, float y, float w, float h, int team ) {
 	vec3_t			origin, angles;
 	vec3_t			mins, maxs;
 
-	if ( cg_draw3dIcons.integer ) {
+	if ( CG_STEFX_Use3DGameplayIcons() ) {
 
 		VectorClear( angles );
 
@@ -2609,6 +2645,47 @@ static void CG_DrawZoomMask( void )
 
 //==================================================================================
 
+#if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
+static qboolean CG_STEFX_SplitOverlayProofEnabled( void )
+{
+	char value[8];
+
+	trap_Cvar_VariableStringBuffer( "stefx_hm_split_overlay_proof", value, sizeof(value) );
+	return atoi( value ) != 0 ? qtrue : qfalse;
+}
+
+static qhandle_t CG_STEFX_SplitRewardShader( const playerState_t *ps, int rewardType,
+	int *rewardCount )
+{
+	if ( rewardCount ) {
+		*rewardCount = 0;
+	}
+	if ( !ps ) {
+		return 0;
+	}
+
+	switch ( rewardType ) {
+	case REWARD_IMPRESSIVE:
+		if ( rewardCount ) *rewardCount = ps->persistant[PERS_IMPRESSIVE_COUNT];
+		return cgs.media.medalImpressive;
+	case REWARD_EXCELLENT:
+		if ( rewardCount ) *rewardCount = ps->persistant[PERS_EXCELLENT_COUNT];
+		return cgs.media.medalExcellent;
+	case REWARD_FIRST_STRIKE:
+		if ( rewardCount ) *rewardCount = 1;
+		return cgs.media.medalFirstStrike;
+	case REWARD_STREAK:
+		if ( rewardCount ) *rewardCount = 1;
+		if ( ps->persistant[PERS_STREAK_COUNT] >= STREAK_CHAMPION ) return cgs.media.medalChampion;
+		if ( ps->persistant[PERS_STREAK_COUNT] >= STREAK_MASTER ) return cgs.media.medalMaster;
+		if ( ps->persistant[PERS_STREAK_COUNT] >= STREAK_EXPERT ) return cgs.media.medalExpert;
+		return cgs.media.medalAce;
+	default:
+		return 0;
+	}
+}
+#endif
+
 /*
 =================
 CG_Draw2D
@@ -2643,8 +2720,59 @@ static void CG_Draw2D( void ) {
 		trap_Cvar_VariableStringBuffer( "stefx_splitScreen", splitValue, sizeof(splitValue) );
 		trap_Cvar_VariableStringBuffer( "stefx_hmLocalPlayers", localPlayersValue, sizeof(localPlayersValue) );
 		if ( atoi( splitValue ) != 0 && atoi( localPlayersValue ) > 1 ) {
+		static int stefxP1LastPickupTime = 0;
+		static int stefxP1LastRewardTime = 0;
+		static int stefxP1LastAttackerTime = 0;
+		qboolean overlayProof = CG_STEFX_SplitOverlayProofEnabled();
+		qboolean savedZoomed = cg.zoomed;
+		qboolean savedZoomLocked = cg.zoomLocked;
+		int savedZoomTime = cg.zoomTime;
+		float savedZoomFov = cg_zoomFov.value;
+		float savedFov = cg_fov.value;
+		qboolean splitZoomed = savedZoomed;
+		int savedItemPickup = cg.itemPickup;
+		int savedItemPickupTime = cg.itemPickupTime;
+		int savedRewardTime = cg.rewardTime;
+		int savedRewardCount = cg.rewardCount;
+		qhandle_t savedRewardShader = cg.rewardShader;
+		int savedAttackerTime = cg.attackerTime;
+		int savedAttacker = cg.snap->ps.persistant[PERS_ATTACKER];
+		int rewardType = cg.snap->ps.persistant[PERS_REWARD];
+		unsigned int overlayFlags = 0;
+
 		if ( cg.snap->ps.pm_type == PM_INTERMISSION ) {
 			return;
+		}
+		if ( cg.itemPickupTime && cg.itemPickupTime != stefxP1LastPickupTime ) {
+			stefxP1LastPickupTime = cg.itemPickupTime;
+			++g_SPXBHMSplitOverlayNaturalPickup[0];
+		}
+		if ( cg.rewardTime && cg.rewardTime != stefxP1LastRewardTime ) {
+			stefxP1LastRewardTime = cg.rewardTime;
+			++g_SPXBHMSplitOverlayNaturalReward[0];
+		}
+		if ( cg.attackerTime && cg.attackerTime != stefxP1LastAttackerTime ) {
+			stefxP1LastAttackerTime = cg.attackerTime;
+			++g_SPXBHMSplitOverlayNaturalAttacker[0];
+		}
+
+		cg.zoomed = splitZoomed;
+		cg.zoomLocked = savedZoomLocked;
+		cg.zoomTime = savedZoomTime;
+		cg_zoomFov.value = savedZoomFov;
+		cg_fov.value = savedFov;
+		if ( overlayProof ) {
+			cg.zoomed = qtrue;
+			cg.zoomLocked = qtrue;
+			cg.zoomTime = cg.time - ZOOM_OUT_TIME;
+			cg.itemPickup = 1;
+			cg.itemPickupTime = cg.time - 250;
+			rewardType = REWARD_IMPRESSIVE;
+			cg.rewardTime = cg.time - 250;
+			cg.rewardShader = cgs.media.medalImpressive;
+			cg.rewardCount = 1;
+			cg.attackerTime = cg.time - 250;
+			cg.snap->ps.persistant[PERS_ATTACKER] = 1;
 		}
 		if ( !cg.renderingThirdPerson ) {
 			CG_DrawZoomMask();
@@ -2660,8 +2788,36 @@ static void CG_Draw2D( void ) {
 			CG_DrawCrosshairNames();
 			CG_DrawWeaponSelect();
 			CG_DrawHoldableItem();
+			CG_DrawReward();
 			CG_DrawLowerRight();
+			CG_DrawPickupItem( LOWEROVERLAY_Y );
+			CG_DrawAttacker( 0 );
 		}
+		if ( cg.zoomed ) overlayFlags |= STEFX_HM_OVERLAY_ZOOM;
+		if ( cg.itemPickup && cg.time - cg.itemPickupTime < 3000 ) overlayFlags |= STEFX_HM_OVERLAY_PICKUP;
+		if ( cg.rewardShader && cg.rewardCount > 0 && cg.time - cg.rewardTime < REWARD_TIME ) overlayFlags |= STEFX_HM_OVERLAY_REWARD;
+		if ( cg.attackerTime && cg.time - cg.attackerTime < ATTACKER_HEAD_TIME ) overlayFlags |= STEFX_HM_OVERLAY_ATTACKER;
+		if ( overlayProof ) overlayFlags |= STEFX_HM_OVERLAY_PROOF;
+		++g_SPXBHMSplitOverlaySerial[0];
+		g_SPXBHMSplitOverlayFlags[0] = overlayFlags;
+		g_SPXBHMSplitOverlayFovX100[0] = (unsigned int)(int)(cg.refdef.fov_x * 100.0f);
+		g_SPXBHMSplitOverlayPickupItem[0] = (unsigned int)cg.itemPickup;
+		g_SPXBHMSplitOverlayRewardType[0] = (unsigned int)rewardType;
+		g_SPXBHMSplitOverlayAttacker[0] = (unsigned int)cg.snap->ps.persistant[PERS_ATTACKER];
+
+		cg.zoomed = savedZoomed;
+		cg.zoomLocked = savedZoomLocked;
+		cg.zoomTime = savedZoomTime;
+		cg_zoomFov.value = savedZoomFov;
+		cg_fov.value = savedFov;
+		cg.itemPickup = savedItemPickup;
+		cg.itemPickupTime = savedItemPickupTime;
+		cg.rewardTime = savedRewardTime;
+		cg.rewardCount = savedRewardCount;
+		cg.rewardShader = savedRewardShader;
+		cg.attackerTime = savedAttackerTime;
+		cg.snap->ps.persistant[PERS_ATTACKER] = savedAttacker;
+		trap_R_SetColor( NULL );
 		return;
 		}
 	}
@@ -2779,11 +2935,98 @@ static void CG_Draw2D( void ) {
 
 #if defined(_XBOX) && defined(STEFX_SP_HOSTED_MP)
 typedef struct {
+	qboolean initialized;
 	int weapon;
 	int weaponSelectTime;
 	int crosshairClientNum;
 	int crosshairClientTime;
+	int eventSequence;
+	int itemPickup;
+	int itemPickupTime;
+	int rewardSerial;
+	int rewardType;
+	int rewardTime;
+	int rewardCount;
+	qhandle_t rewardShader;
+	int health;
+	int armor;
+	int attacker;
+	int attackerTime;
+	qboolean zoomed;
+	int zoomTime;
+	unsigned int naturalPickupCount;
+	unsigned int naturalRewardCount;
+	unsigned int naturalAttackerCount;
 } stefxSplitHudState_t;
+
+static void CG_STEFX_UpdateSplitHudState( stefxSplitHudState_t *state,
+	const playerState_t *ps, float fovX )
+{
+	int i;
+	int oldestEvent;
+	qboolean zoomed;
+
+	if ( !state || !ps ) {
+		return;
+	}
+	if ( !state->initialized ) {
+		memset( state, 0, sizeof(*state) );
+		state->initialized = qtrue;
+		state->weapon = ps->weapon;
+		state->weaponSelectTime = cg.time;
+		state->eventSequence = ps->eventSequence;
+		state->rewardSerial = ps->persistant[PERS_REWARD_COUNT];
+		state->health = ps->stats[STAT_HEALTH];
+		state->armor = ps->stats[STAT_ARMOR];
+		state->attacker = ps->persistant[PERS_ATTACKER];
+		state->zoomed = fovX < 89.5f ? qtrue : qfalse;
+		state->zoomTime = cg.time;
+		return;
+	}
+
+	oldestEvent = ps->eventSequence - MAX_PS_EVENTS;
+	if ( state->eventSequence < oldestEvent || state->eventSequence > ps->eventSequence ) {
+		state->eventSequence = oldestEvent;
+	}
+	for ( i = state->eventSequence; i < ps->eventSequence; ++i ) {
+		int event = ps->events[i & (MAX_PS_EVENTS - 1)] & ~EV_EVENT_BITS;
+		int item = ps->eventParms[i & (MAX_PS_EVENTS - 1)];
+		if ( event == EV_ITEM_PICKUP && item > 0 && item < bg_numItems ) {
+			state->itemPickup = item;
+			state->itemPickupTime = cg.time;
+			++state->naturalPickupCount;
+		}
+	}
+	state->eventSequence = ps->eventSequence;
+
+	if ( state->rewardSerial != ps->persistant[PERS_REWARD_COUNT] ) {
+		state->rewardSerial = ps->persistant[PERS_REWARD_COUNT];
+		state->rewardType = ps->persistant[PERS_REWARD];
+		state->rewardShader = CG_STEFX_SplitRewardShader( ps, state->rewardType,
+			&state->rewardCount );
+		if ( state->rewardShader && state->rewardCount > 0 ) {
+			state->rewardTime = cg.time;
+			++state->naturalRewardCount;
+		}
+	}
+
+	if ( ps->stats[STAT_HEALTH] + ps->stats[STAT_ARMOR] < state->health + state->armor - 1 &&
+		ps->persistant[PERS_ATTACKER] >= 0 &&
+		ps->persistant[PERS_ATTACKER] < MAX_CLIENTS &&
+		ps->persistant[PERS_ATTACKER] != ps->clientNum ) {
+		state->attacker = ps->persistant[PERS_ATTACKER];
+		state->attackerTime = cg.time;
+		++state->naturalAttackerCount;
+	}
+	state->health = ps->stats[STAT_HEALTH];
+	state->armor = ps->stats[STAT_ARMOR];
+
+	zoomed = fovX < 89.5f ? qtrue : qfalse;
+	if ( zoomed != state->zoomed ) {
+		state->zoomed = zoomed;
+		state->zoomTime = cg.time;
+	}
+}
 
 static int CG_STEFX_SplitLowAmmoWarning( const playerState_t *ps )
 {
@@ -2821,12 +3064,7 @@ static int CG_STEFX_SplitLowAmmoWarning( const playerState_t *ps )
 void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 	const float *vieworg, const float *viewaxis, float fovX, float fovY, int viewTime )
 {
-	static stefxSplitHudState_t splitState[4] = {
-		{ -1, 0, 0, 0 },
-		{ -1, 0, 0, 0 },
-		{ -1, 0, 0, 0 },
-		{ -1, 0, 0, 0 }
-	};
+	static stefxSplitHudState_t splitState[4];
 	static int s_stefxSplitHudLogBudget = 48;
 	playerState_t *ps = (playerState_t *)officialPlayerState;
 	playerState_t savedSnapPs;
@@ -2839,9 +3077,26 @@ void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 	int savedLowAmmoWarning;
 	int savedCrosshairClientNum;
 	int savedCrosshairClientTime;
+	int savedDrawCrosshair;
+	int savedItemPickup;
+	int savedItemPickupTime;
 	int savedItemPickupBlendTime;
+	int savedRewardTime;
+	int savedRewardCount;
+	qhandle_t savedRewardShader;
+	int savedAttackerTime;
+	qboolean savedZoomed;
+	qboolean savedZoomLocked;
+	int savedZoomTime;
+	float savedZoomFov;
+	float savedFov;
 	qboolean savedRenderingThirdPerson;
+	qboolean overlayProof;
+	unsigned int overlayFlags = 0;
+	int effectiveRewardType;
 	int ammo = 0;
+	char crosshairCvar[32];
+	char crosshairValue[16];
 
 	if ( slot < 1 || slot > 3 || !ps || !cg.snap || !vieworg || !viewaxis ||
 		ps->clientNum != slot || ps->clientNum < 0 || ps->clientNum >= MAX_CLIENTS ) {
@@ -2849,6 +3104,7 @@ void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 	}
 
 	state = &splitState[slot];
+	CG_STEFX_UpdateSplitHudState( state, ps, fovX );
 	if ( state->weapon != ps->weapon ) {
 		state->weapon = ps->weapon;
 		state->weaponSelectTime = cg.time;
@@ -2863,8 +3119,22 @@ void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 	savedLowAmmoWarning = cg.lowAmmoWarning;
 	savedCrosshairClientNum = cg.crosshairClientNum;
 	savedCrosshairClientTime = cg.crosshairClientTime;
+	savedDrawCrosshair = cg_drawCrosshair.integer;
+	savedItemPickup = cg.itemPickup;
+	savedItemPickupTime = cg.itemPickupTime;
 	savedItemPickupBlendTime = cg.itemPickupBlendTime;
+	savedRewardTime = cg.rewardTime;
+	savedRewardCount = cg.rewardCount;
+	savedRewardShader = cg.rewardShader;
+	savedAttackerTime = cg.attackerTime;
+	savedZoomed = cg.zoomed;
+	savedZoomLocked = cg.zoomLocked;
+	savedZoomTime = cg.zoomTime;
+	savedZoomFov = cg_zoomFov.value;
+	savedFov = cg_fov.value;
 	savedRenderingThirdPerson = cg.renderingThirdPerson;
+	overlayProof = CG_STEFX_SplitOverlayProofEnabled();
+	effectiveRewardType = state->rewardType;
 
 	cg.snap->ps = *ps;
 	cg.predictedPlayerState = *ps;
@@ -2882,12 +3152,47 @@ void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 	cg.lowAmmoWarning = CG_STEFX_SplitLowAmmoWarning( ps );
 	cg.crosshairClientNum = state->crosshairClientNum;
 	cg.crosshairClientTime = state->crosshairClientTime;
+	cg.itemPickup = state->itemPickup;
+	cg.itemPickupTime = state->itemPickupTime;
 	cg.itemPickupBlendTime = 0;
+	cg.rewardTime = state->rewardTime;
+	cg.rewardCount = state->rewardCount;
+	cg.rewardShader = state->rewardShader;
+	cg.attackerTime = state->attackerTime;
+	cg.snap->ps.persistant[PERS_ATTACKER] = state->attacker;
+	cg.predictedPlayerState.persistant[PERS_ATTACKER] = state->attacker;
+	cg.zoomed = state->zoomed;
+	cg.zoomLocked = state->zoomed;
+	cg.zoomTime = state->zoomTime;
+	cg_zoomFov.value = fovX;
+	cg_fov.value = 90.0f;
 	cg.renderingThirdPerson = qfalse;
+	if ( overlayProof ) {
+		cg.zoomed = qtrue;
+		cg.zoomLocked = qtrue;
+		cg.zoomTime = cg.time - ZOOM_OUT_TIME;
+		cg.itemPickup = slot + 1;
+		cg.itemPickupTime = cg.time - 250;
+		effectiveRewardType = slot == 1 ? REWARD_EXCELLENT :
+			(slot == 2 ? REWARD_FIRST_STRIKE : REWARD_STREAK);
+		cg.rewardTime = cg.time - 250;
+		cg.rewardShader = CG_STEFX_SplitRewardShader( ps, effectiveRewardType,
+			&cg.rewardCount );
+		cg.rewardCount = 1;
+		cg.attackerTime = cg.time - 250;
+		cg.snap->ps.persistant[PERS_ATTACKER] = (slot + 1) & 3;
+		cg.predictedPlayerState.persistant[PERS_ATTACKER] = (slot + 1) & 3;
+	}
+	Com_sprintf( crosshairCvar, sizeof(crosshairCvar), "cg_drawCrosshair_%d", slot );
+	trap_Cvar_VariableStringBuffer( crosshairCvar, crosshairValue, sizeof(crosshairValue) );
+	if ( crosshairValue[0] ) {
+		cg_drawCrosshair.integer = atoi( crosshairValue );
+	}
 
 	if ( ps->weapon >= 0 && ps->weapon < WP_NUM_WEAPONS ) {
 		ammo = ps->ammo[ps->weapon];
 	}
+	CG_DrawZoomMask();
 	if ( ps->persistant[PERS_TEAM] == TEAM_SPECTATOR || (ps->eFlags & EF_ELIMINATED) ) {
 		CG_DrawCrosshair();
 		CG_DrawCrosshairNames();
@@ -2898,8 +3203,25 @@ void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 		CG_DrawCrosshairNames();
 		CG_DrawWeaponSelect();
 		CG_DrawHoldableItem();
+		CG_DrawReward();
 		CG_DrawLowerRight();
+		CG_DrawPickupItem( LOWEROVERLAY_Y );
+		CG_DrawAttacker( 0 );
 	}
+	if ( cg.zoomed ) overlayFlags |= STEFX_HM_OVERLAY_ZOOM;
+	if ( cg.itemPickup && cg.time - cg.itemPickupTime < 3000 ) overlayFlags |= STEFX_HM_OVERLAY_PICKUP;
+	if ( cg.rewardShader && cg.rewardCount > 0 && cg.time - cg.rewardTime < REWARD_TIME ) overlayFlags |= STEFX_HM_OVERLAY_REWARD;
+	if ( cg.attackerTime && cg.time - cg.attackerTime < ATTACKER_HEAD_TIME ) overlayFlags |= STEFX_HM_OVERLAY_ATTACKER;
+	if ( overlayProof ) overlayFlags |= STEFX_HM_OVERLAY_PROOF;
+	++g_SPXBHMSplitOverlaySerial[slot];
+	g_SPXBHMSplitOverlayFlags[slot] = overlayFlags;
+	g_SPXBHMSplitOverlayFovX100[slot] = (unsigned int)(int)(fovX * 100.0f);
+	g_SPXBHMSplitOverlayPickupItem[slot] = (unsigned int)cg.itemPickup;
+	g_SPXBHMSplitOverlayRewardType[slot] = (unsigned int)effectiveRewardType;
+	g_SPXBHMSplitOverlayAttacker[slot] = (unsigned int)cg.snap->ps.persistant[PERS_ATTACKER];
+	g_SPXBHMSplitOverlayNaturalPickup[slot] = state->naturalPickupCount;
+	g_SPXBHMSplitOverlayNaturalReward[slot] = state->naturalRewardCount;
+	g_SPXBHMSplitOverlayNaturalAttacker[slot] = state->naturalAttackerCount;
 
 	state->crosshairClientNum = cg.crosshairClientNum;
 	state->crosshairClientTime = cg.crosshairClientTime;
@@ -2926,7 +3248,19 @@ void STEFX_HM_CG_DrawSplitPlayerHud( int slot, const void *officialPlayerState,
 	cg.lowAmmoWarning = savedLowAmmoWarning;
 	cg.crosshairClientNum = savedCrosshairClientNum;
 	cg.crosshairClientTime = savedCrosshairClientTime;
+	cg_drawCrosshair.integer = savedDrawCrosshair;
+	cg.itemPickup = savedItemPickup;
+	cg.itemPickupTime = savedItemPickupTime;
 	cg.itemPickupBlendTime = savedItemPickupBlendTime;
+	cg.rewardTime = savedRewardTime;
+	cg.rewardCount = savedRewardCount;
+	cg.rewardShader = savedRewardShader;
+	cg.attackerTime = savedAttackerTime;
+	cg.zoomed = savedZoomed;
+	cg.zoomLocked = savedZoomLocked;
+	cg.zoomTime = savedZoomTime;
+	cg_zoomFov.value = savedZoomFov;
+	cg_fov.value = savedFov;
 	cg.renderingThirdPerson = savedRenderingThirdPerson;
 	trap_R_SetColor( NULL );
 }
@@ -2936,6 +3270,8 @@ void STEFX_HM_CG_DrawSplitGlobalHud( void )
 	static int s_stefxSplitGlobalHudLogBudget = 24;
 	char scoreboardProofValue[8];
 	qboolean scoreboardProof;
+	int savedAttackerTime;
+	int savedItemPickup;
 
 	if ( !cg.snap || cg.levelShot || cg_draw2D.integer == 0 ) {
 		return;
@@ -2950,6 +3286,12 @@ void STEFX_HM_CG_DrawSplitGlobalHud( void )
 		}
 		cg.showScores = qtrue;
 	}
+	savedAttackerTime = cg.attackerTime;
+	savedItemPickup = cg.itemPickup;
+	/* These notifications are drawn inside P1's viewport.  Keep the global
+	 * passes for timers/team overlays without duplicating P1 full-screen. */
+	cg.attackerTime = 0;
+	cg.itemPickup = 0;
 
 	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) {
 #ifndef FINAL_BUILD
@@ -2975,6 +3317,8 @@ void STEFX_HM_CG_DrawSplitGlobalHud( void )
 			CG_DrawSpectator();
 		}
 	}
+	cg.attackerTime = savedAttackerTime;
+	cg.itemPickup = savedItemPickup;
 
 	if ( s_stefxSplitGlobalHudLogBudget > 0 ) {
 		Com_Printf( "STEFX_HM_SPLIT_HUD_GLOBAL: fullScreen=1 intermission=%d scoreboard=%d proof=%d scores=%d warmup=%d voteTime=%d\n",

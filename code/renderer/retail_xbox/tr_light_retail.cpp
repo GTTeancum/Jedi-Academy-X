@@ -18,7 +18,6 @@ STEFX_RETAIL_NAMESPACE_BEGIN
 #define	DLIGHT_MINIMUM_RADIUS	16		
 // never calculate a range less than this to prevent huge light numbers
 
-
 /*
 ===============
 R_TransformDlights
@@ -147,7 +146,6 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	} else {
 		VectorCopy( ent->e.origin, lightOrigin );
 	}
-
 	VectorSubtract( lightOrigin, tr.world->lightGridOrigin, lightOrigin );
 	for ( i = 0 ; i < 3 ; i++ ) {
 		float	v;
@@ -303,7 +301,19 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	VectorScale( ent->ambientLight, ::r_ambientScale->value, ent->ambientLight );
 	VectorScale( ent->directedLight, ::r_directedScale->value, ent->directedLight );
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	/*
+	** Campaign lightmaps are encoded with the Xbox 2.5x luminance treatment.
+	** Apply the same transform to their entity light grid; leaving the raw PC
+	** grid untouched made actors nearly black against the corrected world.
+	** Ambient clamping remains in R_SetupEntityLighting.
+	*/
+	VectorScale( ent->ambientLight, 2.5f, ent->ambientLight );
+	VectorScale( ent->directedLight, 2.5f, ent->directedLight );
+#endif
+
 	VectorNormalize2( direction, ent->lightDir );
+
 }
 
 
@@ -437,6 +447,7 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 	ent->lightDir[0] = DotProduct( lightDir, ent->e.axis[0] );
 	ent->lightDir[1] = DotProduct( lightDir, ent->e.axis[1] );
 	ent->lightDir[2] = DotProduct( lightDir, ent->e.axis[2] );
+
 }
 
 qboolean RE_GetLighting( const vec3_t origin, vec3_t ambientLight, vec3_t directedLight, vec3_t lightDir )

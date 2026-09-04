@@ -142,6 +142,8 @@ void UI_EFMainMenu_OpenStub(const char *title, const char *line);
 void UI_EFMainMenu_Deactivate(void);
 void UI_EFMainMenu_Draw(int realtime);
 void UI_EFMainMenu_KeyEvent(int key, qboolean down);
+qboolean UI_EFMainMenu_WantsControllerInput(void);
+void UI_EFMainMenu_ControllerKeyEvent(int controller, int key, qboolean down);
 
 qboolean UI_EFPauseMenu_IsActive(void);
 void UI_EFPauseMenu_Cache(void);

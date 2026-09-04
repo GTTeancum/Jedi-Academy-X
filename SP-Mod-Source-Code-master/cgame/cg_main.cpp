@@ -178,6 +178,7 @@ vmCvar_t 	cg_developer;
 vmCvar_t 	cg_timescale;
 vmCvar_t	cg_skippingcin;
 vmCvar_t	cg_stefxSmokeUnlockPlayer;
+vmCvar_t	cg_stefxCullHiddenPlayers;
 vmCvar_t	cg_stefxSmokeInput;
 vmCvar_t	cg_stefxSmokeInputStart;
 vmCvar_t	cg_stefxSplitScreen;
@@ -268,6 +269,7 @@ cvarTable_t		cvarTable[] = {
 	{ &cg_timescale, "timescale", "1", 0 }, 	
 	{ &cg_skippingcin, "skippingCinematic", "0", CVAR_ROM},
 	{ &cg_stefxSmokeUnlockPlayer, "stefx_smoke_unlock_player", "0", CVAR_TEMP },
+	{ &cg_stefxCullHiddenPlayers, "cg_stefxCullHiddenPlayers", "1", 0 },
 	{ &cg_stefxSmokeInput, "stefx_smoke_input", "0", CVAR_TEMP },
 	{ &cg_stefxSmokeInputStart, "stefx_smoke_input_start", "71000", CVAR_TEMP },
 	{ &cg_stefxSplitScreen, "stefx_splitScreen", "0", CVAR_TEMP },

@@ -132,6 +132,7 @@ channel_t *S_PickChannel(int entnum, int entchannel);
 void	 SND_update(sfx_t *sfx);
 void	 SND_setup();
 int		 SND_FreeOldestSound(sfx_t *pButNotThisOne = NULL);
+int		 SND_PrepareForSoundLoad(sfx_t *pIncoming, int incomingBytes);
 void	 SND_TouchSFX(sfx_t *sfx);
 
 void S_DisplayFreeMemory(void);

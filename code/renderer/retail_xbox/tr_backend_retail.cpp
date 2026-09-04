@@ -14,6 +14,22 @@
 #ifdef _XBOX
 #include "../../win32/glw_win_dx8.h"
 #include "../../win32/win_highdynamicrange.h"
+#include "../../win32/xb_log.h"
+extern "C" volatile unsigned int g_SPXBClTailStage;
+extern "C" volatile unsigned int g_SPXBRenderListStage;
+extern "C" volatile unsigned int g_SPXBRenderListIndex;
+extern "C" volatile unsigned int g_SPXBRenderListCount;
+extern "C" volatile unsigned int g_SPXBRenderListSurfaceType;
+extern "C" volatile unsigned int g_SPXBRenderListSort;
+extern "C" volatile unsigned int g_SPXBRenderListShader;
+extern "C" volatile unsigned int g_SPXBRenderListEntity;
+extern "C" volatile unsigned int g_SPXBRenderListTessVerts;
+extern "C" volatile unsigned int g_SPXBRenderListTessIndexes;
+extern "C" volatile unsigned int g_SPXBCinRawStage;
+extern "C" volatile unsigned int g_SPXBCinRawFrames;
+extern "C" volatile unsigned int g_SPXBCinRawSourceSize;
+extern "C" volatile unsigned int g_SPXBCinRawUploadSize;
+extern "C" volatile unsigned int g_SPXBCinRawFirstPixel;
 #if defined(STEFX_HM_SCORE_DIAGNOSTICS)
 extern "C" volatile unsigned int g_SPXBHMScoreQueuedCount;
 extern "C" volatile unsigned int g_SPXBHMScoreStretchX;
@@ -751,6 +767,49 @@ typedef struct
 static postRender_t g_postRenders[MAX_POST_RENDERS];
 static int g_numPostRenders = 0;
 
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+static qboolean R_STEFX_CanMergeSplitVertexFx( const shader_t *shader, int entityNum )
+{
+	const trRefEntity_t *entity;
+
+	if ( !backEnd.viewParms.stefxSplitEconomy || !shader ||
+		entityNum < 0 || entityNum == TR_WORLDENT || entityNum >= backEnd.refdef.num_entities )
+	{
+		return qfalse;
+	}
+
+	/* These definitions are one-pass, additive, two-sided, vertex-colored
+	 * EF sprite shaders.  Keep the exception name-exact and type-exact so lines,
+	 * trails, depth hacks, and unrelated translucent entities retain ordering. */
+	if ( Q_stricmp( shader->name, "gfx/misc/sunny_flare" ) != 0 &&
+		Q_stricmp( shader->name, "gfx/misc/spark" ) != 0 )
+	{
+		return qfalse;
+	}
+
+	entity = &backEnd.refdef.entities[entityNum];
+	if ( entity->e.reType != RT_SPRITE
+#if defined(STEFX_SP_HOSTED_MP)
+		&& entity->e.reType != RT_EF_ORIENTED_SPRITE
+#endif
+		)
+	{
+		return qfalse;
+	}
+	if ( entity->e.renderfx & ( RF_NODEPTH | RF_DEPTHHACK | RF_DISTORTION ) )
+	{
+		return qfalse;
+	}
+#if defined(STEFX_SP_HOSTED_MP)
+	if ( entity->e.renderfx & RF_STEFX_FORCE_ENT_ALPHA )
+	{
+		return qfalse;
+	}
+#endif
+	return qtrue;
+}
+#endif
+
 //get the "average" (ideally center) position of a surface on the tess.
 //this is a kind of lame method because I can't think correctly right now.
 static inline bool R_AverageTessXYZ(vec3_t dest)
@@ -791,6 +850,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	int				entityNum, oldEntityNum;
 	int				dlighted, oldDlighted;
 	int				depthRange, oldDepthRange;
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+	qboolean		stefxMergeVertexFx;
+#endif
 	int				i;
 	drawSurf_t		*drawSurf;
 	unsigned int	oldSort;
@@ -798,6 +860,17 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	trRefEntity_t	*curEnt;
 	postRender_t	*pRender;
 	bool			didShadowPass = false;
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x524C0000; /* 'RL00': list entry */
+	g_SPXBRenderListIndex = 0xffffffff;
+	g_SPXBRenderListCount = (unsigned int)numDrawSurfs;
+	g_SPXBRenderListSurfaceType = 0xffffffff;
+	g_SPXBRenderListSort = 0;
+	g_SPXBRenderListShader = 0;
+	g_SPXBRenderListEntity = 0xffffffff;
+	g_SPXBRenderListTessVerts = (unsigned int)tess.numVertexes;
+	g_SPXBRenderListTessIndexes = (unsigned int)tess.numIndexes;
+#endif
 #ifdef __MACOS__
 	int				macEventTime;
 
@@ -817,7 +890,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	originalTime = backEnd.refdef.floatTime;
 
 	// clear the z buffer, set the modelview, etc
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x524C0001; /* 'RL01': begin view */
+#endif
 	RB_BeginDrawingView ();
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x524C0002; /* 'RL02': view ready */
+#endif
 
 	// draw everything
 	oldEntityNum = -1;
@@ -833,13 +912,35 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	for (i = 0, drawSurf = drawSurfs ; i < numDrawSurfs ; i++, drawSurf++)
 	{
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0010; /* 'RL10': surface entry */
+		g_SPXBRenderListIndex = (unsigned int)i;
+		g_SPXBRenderListSurfaceType = (unsigned int)*drawSurf->surface;
+		g_SPXBRenderListSort = drawSurf->sort;
+		g_SPXBRenderListTessVerts = (unsigned int)tess.numVertexes;
+		g_SPXBRenderListTessIndexes = (unsigned int)tess.numIndexes;
+#endif
 		if ( drawSurf->sort == oldSort )
 		{
 			// fast path, same as previous sort
+#ifdef _XBOX
+			g_SPXBRenderListStage = 0x524C0011; /* 'RL11': fast surface dispatch */
+#endif
 			rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+#ifdef _XBOX
+			g_SPXBRenderListStage = 0x524C0012; /* 'RL12': fast surface complete */
+#endif
 			continue;
 		}
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0020; /* 'RL20': decompose sort */
+#endif
 		STEFX_RETAIL_SCOPE R_DecomposeSort( drawSurf->sort, &entityNum, &shader, &fogNum, &dlighted );
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0021; /* 'RL21': sort decomposed */
+		g_SPXBRenderListShader = (unsigned int)shader;
+		g_SPXBRenderListEntity = (unsigned int)entityNum;
+#endif
 
 #ifndef _XBOX	// GLOWXXX
 		// If we're rendering glowing objects, but this shader has no stages with glow, skip it!
@@ -853,6 +954,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 #endif
 		oldSort = drawSurf->sort;
+
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+		stefxMergeVertexFx = R_STEFX_CanMergeSplitVertexFx( shader, entityNum );
+#endif
 
 		//
 		// change the tess parameters if needed
@@ -922,7 +1027,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 
 		if (shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted 
-			|| ( entityNum != oldEntityNum && !shader->entityMergable ) )
+			|| ( entityNum != oldEntityNum && !shader->entityMergable
+#if defined(_XBOX) && defined(STEFX_ELITE_FORCE_SP)
+				&& !stefxMergeVertexFx
+#endif
+			) )
 		{
 			if (oldShader != NULL) {
 #ifdef __MACOS__	// crutch up the mac's limited buffer queue size
@@ -934,7 +1043,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					Sys_PumpEvents();
 				}
 #endif
+#ifdef _XBOX
+				g_SPXBRenderListStage = 0x524C0030; /* 'RL30': flush batch */
+				g_SPXBRenderListTessVerts = (unsigned int)tess.numVertexes;
+				g_SPXBRenderListTessIndexes = (unsigned int)tess.numIndexes;
+#endif
 				RB_EndSurface();
+#ifdef _XBOX
+				g_SPXBRenderListStage = 0x524C0031; /* 'RL31': batch flushed */
+#endif
 
 /*
 				if (!didShadowPass && shader && shader->sort > SS_BANNER)
@@ -944,7 +1061,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				}
 */
 			}
+#ifdef _XBOX
+			g_SPXBRenderListStage = 0x524C0032; /* 'RL32': begin batch */
+#endif
 			STEFX_RETAIL_SCOPE RB_BeginSurface( shader, fogNum );
+#ifdef _XBOX
+			g_SPXBRenderListStage = 0x524C0033; /* 'RL33': batch ready */
+#endif
 			oldShader = shader;
 			oldFogNum = fogNum;
 			oldDlighted = dlighted;
@@ -1017,7 +1140,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 
 		// add the triangles for this surface
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0050; /* 'RL50': surface dispatch */
+#endif
 		rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0051; /* 'RL51': surface complete */
+#endif
 	}
 
 	backEnd.refdef.floatTime = originalTime;
@@ -1026,7 +1155,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	//assert(entityNum < MAX_GENTITIES);
 
 	if (oldShader != NULL) {
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0060; /* 'RL60': final batch flush */
+		g_SPXBRenderListTessVerts = (unsigned int)tess.numVertexes;
+		g_SPXBRenderListTessIndexes = (unsigned int)tess.numIndexes;
+#endif
 		RB_EndSurface();
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x524C0061; /* 'RL61': final batch complete */
+#endif
 	}
 
 #ifdef _CRAZY_ATTRIB_DEBUG
@@ -1041,6 +1178,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	}
 
 	//render distortion surfs (or anything else that needs to be post-rendered)
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x524C0070; /* 'RL70': post-render pass */
+#endif
 	if (g_numPostRenders > 0)
 	{
 		int lastPostEnt = -1;
@@ -1209,6 +1349,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 #ifdef __MACOS__
 	Sys_PumpEvents();		// crutch up the mac's limited buffer queue size
 #endif
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x524C00FF; /* 'RLFF': list complete */
+#endif
 }
 
 
@@ -1299,69 +1442,133 @@ Used for cinematics.
 */
 void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int client, qboolean dirty) 
 {
-	assert( 0 );
-	return;
-/*
-	int			start, end;
+	static byte *s_paddedUpload = NULL;
+	static int s_paddedUploadBytes = 0;
+	static unsigned int s_rawFrameCount = 0;
+	static unsigned int s_rawUploadCount = 0;
+	static unsigned int s_rawRetainedCount = 0;
+	int uploadCols = 1;
+	int uploadRows = 1;
+	int uploadBytes;
+	int row;
+	const byte *uploadData = data;
+	qboolean textureSizeChanged;
+	float s0, t0, s1, t1;
 
-	if ( !tr.registered ) {
+	g_SPXBCinRawStage = 0x52570000; /* 'RW00': entry */
+
+	if ( !tr.registered || !data || cols <= 0 || rows <= 0 ||
+		client < 0 || client >= NUM_SCRATCH_IMAGES ) {
+		g_SPXBCinRawStage = 0x5257FFFF; /* 'RWFF': rejected */
 		return;
 	}
+
+	g_SPXBCinRawSourceSize = ((unsigned int)cols << 16) | ((unsigned int)rows & 0xffff);
+	g_SPXBCinRawFirstPixel = *(const unsigned int *)data;
+	g_SPXBCinRawStage = 0x52570001; /* 'RW01': accepted */
+
+	while ( uploadCols < cols ) uploadCols <<= 1;
+	while ( uploadRows < rows ) uploadRows <<= 1;
+	textureSizeChanged = ( uploadCols != tr.scratchImage[client]->width ||
+		uploadRows != tr.scratchImage[client]->height ) ? qtrue : qfalse;
+
+	// The EF reel is 512x384.  Xbox textures are power-of-two, so retain the
+	// exact decoded rows in a 512x512 upload and crop with texture coordinates.
+	// Retained frames reuse the texture and must not rebuild this 1 MiB staging
+	// image; that redundant copy was the remaining periodic movie hitch.
+	if ( ( uploadCols != cols || uploadRows != rows ) &&
+		( dirty || textureSizeChanged ) ) {
+		uploadBytes = uploadCols * uploadRows * 4;
+		if ( uploadBytes > s_paddedUploadBytes ) {
+			if ( s_paddedUpload ) {
+				Z_Free( s_paddedUpload );
+			}
+			s_paddedUpload = (byte *)Z_Malloc( uploadBytes, TAG_BINK, qtrue, 32 );
+			s_paddedUploadBytes = uploadBytes;
+		}
+		if ( !s_paddedUpload ) {
+			Com_Error( ERR_DROP, "RE_StretchRaw: failed to allocate %i movie upload bytes", uploadBytes );
+			return;
+		}
+		memset( s_paddedUpload, 0, uploadBytes );
+		for ( row = 0; row < rows; ++row ) {
+			memcpy( s_paddedUpload + row * uploadCols * 4,
+				data + row * cols * 4, cols * 4 );
+		}
+		uploadData = s_paddedUpload;
+	}
+	g_SPXBCinRawUploadSize = ((unsigned int)uploadCols << 16) | ((unsigned int)uploadRows & 0xffff);
+	g_SPXBCinRawStage = 0x52570002; /* 'RW02': upload buffer ready */
+
 	R_SyncRenderThread();
+	g_SPXBCinRawStage = 0x52570003; /* 'RW03': renderer synchronized */
 
-	// we definately want to sync every frame for the cinematics
-	qglFinish();
-
-	start = end = 0;
-	if ( r_speeds->integer ) {
-		start = Sys_Milliseconds()*com_timescale->value;
-	}
-
-	// make sure rows and cols are powers of 2
-	if ( (cols&(cols-1)) || (rows&(rows-1)) )
-	{
-		Com_Error (ERR_DROP, "Draw_StretchRaw: size not a power of 2: %i by %i", cols, rows);
-	}
-
+	// Cinematics own stage zero.  Explicitly disable the lightmap stage so a
+	// prior 3D draw cannot modulate the movie texture.
+	STEFX_RETAIL_SCOPE GL_SelectTexture( 1 );
+	qglDisable( GL_TEXTURE_2D );
+	STEFX_RETAIL_SCOPE GL_TexEnv( GL_MODULATE );
+	STEFX_RETAIL_SCOPE GL_SelectTexture( 0 );
+	qglEnable( GL_TEXTURE_2D );
+	STEFX_RETAIL_SCOPE GL_TexEnv( GL_REPLACE );
 	STEFX_RETAIL_SCOPE GL_Bind( tr.scratchImage[client] );
+	g_SPXBCinRawStage = 0x52570004; /* 'RW04': scratch texture bound */
 
-	// if the scratchImage isn't in the format we want, specify it as a new texture
-	if ( cols != tr.scratchImage[client]->width || rows != tr.scratchImage[client]->height ) {
-		tr.scratchImage[client]->width = cols;
-		tr.scratchImage[client]->height = rows;
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
+	if ( textureSizeChanged ) {
+		tr.scratchImage[client]->width = uploadCols;
+		tr.scratchImage[client]->height = uploadRows;
+		// FakeGL accepts conventional row-major RGBA source data here, converts it,
+		// then swizzles it into the Xbox texture.
+		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, uploadCols, uploadRows,
+			0, GL_RGBA, GL_UNSIGNED_BYTE, uploadData );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );	
+		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP );
+		g_SPXBCinRawStage = 0x52570005; /* 'RW05': initial upload complete */
+	} else if ( dirty ) {
+		qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, uploadCols, uploadRows,
+			GL_RGBA, GL_UNSIGNED_BYTE, uploadData );
+		g_SPXBCinRawStage = 0x52570006; /* 'RW06': update complete */
 	} else {
-		if (dirty) {
-			// otherwise, just subimage upload it so that drivers can tell we are going to be changing
-			// it and don't try and do a texture compression
-			qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );
-		}
+		g_SPXBCinRawStage = 0x52570007; /* 'RW07': retained texture reused */
 	}
 
-	if ( r_speeds->integer ) {
-		end = Sys_Milliseconds()*com_timescale->value;
-		Com_Printf ("qglTexSubImage2D %i, %i: %i msec\n", cols, rows, end - start );
+	if ( !backEnd.projection2D ) {
+		RB_SetGL2D();
 	}
-
-	RB_SetGL2D();
-
+	STEFX_RETAIL_SCOPE GL_State( GLS_DEPTHTEST_DISABLE );
 	qglColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
 
-	qglBegin (GL_QUADS);
-	qglTexCoord2f ( 0.5f / cols,  0.5f / rows );
-	qglVertex2f (x, y);
-	qglTexCoord2f ( ( cols - 0.5f ) / cols ,  0.5f / rows );
-	qglVertex2f (x+w, y);
-	qglTexCoord2f ( ( cols - 0.5f ) / cols, ( rows - 0.5f ) / rows );
-	qglVertex2f (x+w, y+h);
-	qglTexCoord2f ( 0.5f / cols, ( rows - 0.5f ) / rows );
-	qglVertex2f (x, y+h);
-	qglEnd ();
-*/
+	s0 = 0.5f / uploadCols;
+	t0 = 0.5f / uploadRows;
+	s1 = ( cols - 0.5f ) / uploadCols;
+	t1 = ( rows - 0.5f ) / uploadRows;
+
+	qglBeginEXT( GL_TRIANGLE_STRIP, 4, 0, 0, 4, 0 );
+	qglTexCoord2f( s0, t0 ); qglVertex2f( x, y );
+	qglTexCoord2f( s1, t0 ); qglVertex2f( x + w, y );
+	qglTexCoord2f( s0, t1 ); qglVertex2f( x, y + h );
+	qglTexCoord2f( s1, t1 ); qglVertex2f( x + w, y + h );
+	qglEnd();
+	g_SPXBCinRawStage = 0x52570008; /* 'RW08': quad submitted */
+
+	STEFX_RETAIL_SCOPE GL_SelectTexture( 0 );
+	STEFX_RETAIL_SCOPE GL_TexEnv( GL_MODULATE );
+
+	++s_rawFrameCount;
+	if ( dirty ) {
+		++s_rawUploadCount;
+	} else {
+		++s_rawRetainedCount;
+	}
+	g_SPXBCinRawFrames = s_rawFrameCount;
+	g_SPXBCinRawStage = 0x52570009; /* 'RW09': complete */
+	if ( s_rawFrameCount <= 4 || (s_rawFrameCount % 120) == 0 ) {
+		XBLF("STEFX: retail RE_StretchRaw frame=%u uploads=%u retained=%u source=%dx%d upload=%dx%d rect=%d,%d,%d,%d format=RGBA",
+			s_rawFrameCount, s_rawUploadCount, s_rawRetainedCount,
+			cols, rows, uploadCols, uploadRows, x, y, w, h);
+	}
 }
 
 void RE_UploadCinematic (int cols, int rows, const byte *data, int client, qboolean dirty) {
@@ -1695,9 +1902,21 @@ RB_DrawSurfs
 const void	*RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t	*cmd;
 
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x44530000; /* 'DS00': draw-surfs entry */
+#endif
+
 	// finish any 2D drawing if needed
 	if ( tess.numIndexes ) {
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x44530001; /* 'DS01': flush pending 2D */
+		g_SPXBRenderListTessVerts = (unsigned int)tess.numVertexes;
+		g_SPXBRenderListTessIndexes = (unsigned int)tess.numIndexes;
+#endif
 		RB_EndSurface();
+#ifdef _XBOX
+		g_SPXBRenderListStage = 0x44530002; /* 'DS02': pending 2D flushed */
+#endif
 	}
 
 	cmd = (const drawSurfsCommand_t *)data;
@@ -1705,7 +1924,14 @@ const void	*RB_DrawSurfs( const void *data ) {
 	backEnd.refdef = cmd->refdef;
 	backEnd.viewParms = cmd->viewParms;
 
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x44530003; /* 'DS03': dispatch list */
+	g_SPXBRenderListCount = (unsigned int)cmd->numDrawSurfs;
+#endif
 	RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );
+#ifdef _XBOX
+	g_SPXBRenderListStage = 0x44530004; /* 'DS04': draw-surfs complete */
+#endif
 
 	// Dynamic Glow/Flares:
 	/*
@@ -1935,17 +2161,38 @@ const void	*RB_WorldEffects( const void *data )
 	const drawBufferCommand_t	*cmd;
 
 	cmd = (const drawBufferCommand_t *)data;
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x57453030; /* 'WE00' */
+#endif
 
 	// Always flush the tess buffer
 	if ( tess.shader && tess.numIndexes ) 
 	{
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57453031; /* 'WE01' */
+		#endif
 		RB_EndSurface();
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57453032; /* 'WE02' */
+		#endif
 	}
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x57453033; /* 'WE03' */
+	#endif
 	RB_RenderWorldEffects();
+	#ifdef _XBOX
+	g_SPXBClTailStage = 0x57453034; /* 'WE04' */
+	#endif
 
 	if(tess.shader)
 	{
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57453035; /* 'WE05' */
+		#endif
 		STEFX_RETAIL_SCOPE RB_BeginSurface( tess.shader, tess.fogNum );
+		#ifdef _XBOX
+		g_SPXBClTailStage = 0x57453036; /* 'WE06' */
+		#endif
 	}
 
 	return (const void *)(cmd + 1);
@@ -1962,6 +2209,9 @@ smp extensions, or asyncronously by another thread.
 extern const void *R_DrawWireframeAutomap(const void *data); //tr_world.cpp
 void RB_ExecuteRenderCommands( const void *data ) {
 	int		t1, t2;
+#ifdef _XBOX
+	g_SPXBClTailStage = 0x42453030; /* 'BE00' */
+#endif
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 	const unsigned char *commandBase = (const unsigned char *)data;
 	g_SPXBRenderBackendCommandCount = 0;
@@ -1982,6 +2232,9 @@ void RB_ExecuteRenderCommands( const void *data ) {
 	t1 = Sys_Milliseconds()*com_timescale->value;
 
 	while ( 1 ) {
+#ifdef _XBOX
+		g_SPXBClTailStage = 0x42450000 | (*(const unsigned int *)data & 0xffff); /* 'BE'+command */
+#endif
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 		++g_SPXBRenderBackendCommandCount;
 		g_SPXBRenderBackendBytes = (unsigned int)((const unsigned char *)data - commandBase);
@@ -2032,6 +2285,9 @@ void RB_ExecuteRenderCommands( const void *data ) {
 			break;
 		case RC_END_OF_LIST:
 		default:
+#ifdef _XBOX
+			g_SPXBClTailStage = 0x42454646; /* 'BEFF' */
+#endif
 #if defined(_XBOX) && defined(STEFX_HM_SCORE_DIAGNOSTICS)
 			g_SPXBRenderBackendTerminalId = *(const unsigned int *)data;
 			g_SPXBRenderBackendDoneCommands = g_SPXBRenderBackendCommandCount;
@@ -2053,6 +2309,9 @@ void RB_ExecuteRenderCommands( const void *data ) {
 				g_SPXBPerfBackendTotalIndexes = (unsigned int)backEnd.pc.c_totalIndexes;
 				g_SPXBPerfBackendBatches = (unsigned int)backEnd.pc.c_shaders;
 			}
+#endif
+#if defined(_XBOX) && defined(STEFX_HW_FRAME_DIAGNOSTICS) && defined(STEFX_SP_HOSTED_MP)
+			R_STEFX_ReportShaderCosts();
 #endif
 			return;
 		}
